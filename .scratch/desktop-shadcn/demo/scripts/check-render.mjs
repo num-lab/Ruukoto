@@ -1,3 +1,4 @@
+import { checkToolActivity } from "./check-tool-activity.mjs";
 import { checkInspector } from "./check-inspector.mjs";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
@@ -14,7 +15,22 @@ try {
   assert.deepEqual(sidebarWidthLimits("left", 736, 310), { min: 180, max: 256 });
   assert.deepEqual(sidebarWidthLimits("right", 736, 0), { min: 260, max: 516 });
   assert.deepEqual(sidebarWidthLimits("right", 400, 180), { min: 260, max: 260 });
-  const { App, ContextDetails } = await server.ssrLoadModule("/src/app.tsx");
+  const { App, ContextDetails, submitOnEnter } = await server.ssrLoadModule("/src/app.tsx");
+  for (const [overrides, canSend, expectedPrevented, expectedSent] of [
+    [{}, true, true, 1],
+    [{ shiftKey: true }, true, false, 0],
+    [{ nativeEvent: { isComposing: true, keyCode: 13 } }, true, false, 0],
+    [{ nativeEvent: { isComposing: false, keyCode: 229 } }, true, false, 0],
+    [{ repeat: true }, true, true, 0],
+    [{ key: "a" }, true, false, 0],
+    [{}, false, true, 0],
+  ]) {
+    let prevented = false;
+    let sent = 0;
+    submitOnEnter({ key: "Enter", shiftKey: false, repeat: false, nativeEvent: { isComposing: false, keyCode: 13 }, preventDefault() { prevented = true; }, ...overrides }, canSend, () => sent++);
+    assert.equal(prevented, expectedPrevented, "Enter 默认换行与输入法分支");
+    assert.equal(sent, expectedSent, "只有可发送的单次 Enter 才提交");
+  }
   const { activitySummary, completeSubmission, initialWorkspaces, scenarios } = await server.ssrLoadModule("/src/demo-data.ts");
   assert.equal(activitySummary([
     { action: "Edit", file: "a.ts" },
@@ -40,12 +56,8 @@ try {
     assert.equal(activitySummary(actions.map(action => ({ action, file: "sample" }))), expected);
   }
   const originalSession = initialWorkspaces[1].sessions[0];
-  const thought = originalSession.steps[1];
   assert.equal(originalSession.steps[0].type, "user");
-  assert.equal(thought.type, "thought", "思考文本应紧随用户输入");
-  assert.equal(thought.expanded, false, "思考文本默认收起");
-  assert.ok(thought.text.includes("\n\n"), "模拟思考文本应保留段落");
-  assert.ok(initialWorkspaces.flatMap(workspace => workspace.sessions).filter(session => session.id !== originalSession.id).every(session => session.steps.every(step => step.type !== "thought")), "没有思考数据的会话不应追加样例");
+  assert.ok(initialWorkspaces.flatMap(workspace => workspace.sessions).every(session => [...session.steps, ...session.subagents.flatMap(agent => agent.steps)].every(step => step.type !== "thought")), "主／子消息流均不再装配思考数据");
   const pending = { draft: "  核实后发送  ", attachments: [{ id: "attachment", name: "sample.ts", size: 8 }], queued: false, continuing: true };
   const waiting = { ...originalSession, draft: pending.draft, attachments: pending.attachments, continuing: true, pendingSubmission: pending };
   assert.equal(waiting.steps.length, originalSession.steps.length, "待核实时不应加入会话记录");
@@ -68,6 +80,8 @@ try {
   assert.ok(!scenarios.some(item => item.value === "unknown"), "移除未知操作预览入口");
   Object.defineProperty(globalThis, "window", { value: { innerWidth: 1160 }, configurable: true });
   const html = renderToStaticMarkup(createElement(App));
+  assert.match(html, /id="workspace-filter"[^>]*data-open="false"[^>]*aria-hidden="true"[^>]*inert=""/, "收起的筛选区域仍挂载且不可交互");
+  assert.match(html, /aria-controls="workspace-filter" aria-expanded="false"/, "筛选按钮暴露开合状态");
   const composerRight = html.slice(html.indexOf('class="composer-right"'), html.indexOf("</form>"));
   const contextPosition = composerRight.indexOf('aria-label="上下文使用量"');
   const modelPosition = composerRight.indexOf('aria-label="会话模型"');
@@ -132,20 +146,7 @@ try {
   }
   const referenceDetails = renderToStaticMarkup(createElement(ContextDetails, { context: { usedTokens: 18700, maxTokens: 1000000, systemTokens: 1500, toolTokens: 5300 } }));
   assert.ok(referenceDetails.includes("2%") && referenceDetails.includes("18.7K") && referenceDetails.includes("1M") && referenceDetails.includes("11.9K"), "详情使用紧凑约数格式，百分比四舍五入");
-  assert.ok(html.includes(`Thought for ${thought.durationSeconds}s`), "思考标题应显示样例时长");
-  assert.ok(!html.includes(thought.text), "默认收起时不应渲染思考内容");
-  const previousDuration = thought.durationSeconds;
-  try {
-    thought.expanded = true;
-    thought.durationSeconds = 12;
-    const expandedThoughtHtml = renderToStaticMarkup(createElement(App));
-    assert.ok(expandedThoughtHtml.includes("Thought for 12s"), "思考标题应随时长字段变化");
-    assert.ok(expandedThoughtHtml.includes(thought.text), "展开后应完整展示思考文本");
-    assert.ok(!expandedThoughtHtml.includes("lucide-circle-check"), "思考文本不应再渲染勾选摘要行");
-  } finally {
-    thought.expanded = false;
-    thought.durationSeconds = previousDuration;
-  }
+  assert.ok(!html.includes("Thought for") && !html.includes("思考过程"), "消息流不再显示思维链");
   const toolTriggers = [...html.matchAll(/<button\b[^>]*data-slot="trace-collapsible-trigger"[^>]*>[\s\S]*?<\/button>/g)].map(match => match[0]).filter(button => button.includes("Read files"));
   assert.equal(toolTriggers.length, 2, "主／子消息流均应保留工具摘要");
   assert.ok(toolTriggers.every(button => button.includes("lucide-wrench") && button.indexOf("lucide-wrench") < button.indexOf("Read files")), "工具摘要前应有扳手图标");
@@ -205,8 +206,9 @@ try {
   const original = await readFile("../../desktop-gui/ui-demo.html", "utf8");
   const referenceCss = original.match(/<style>([\s\S]*?)<\/style>/)?.[1];
   assert.ok(referenceCss, "原稿缺少样式");
-  assert.equal((await readFile("src/reference.css", "utf8")).trim(), referenceCss.replace(/\/\*[\s\S]*?\*\//g, "").trim(), "原稿样式快照与来源不一致");
+  assert.equal((await readFile("src/reference.css", "utf8")).trim(), referenceCss.replace(/\/\*[\s\S]*?\*\//g, "").replace(/[ \t]+$/gm, "").trim(), "原稿样式快照与来源不一致");
   await checkInspector(server);
+  await checkToolActivity(server);
   process.stdout.write("首屏渲染与原稿样式来源检查通过\n");
 } finally {
   delete globalThis.window;

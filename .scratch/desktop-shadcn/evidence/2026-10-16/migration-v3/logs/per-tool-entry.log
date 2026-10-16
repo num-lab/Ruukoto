@@ -1,0 +1,9 @@
+✔ 同批后续工具仍运行时，已落盘结果逐条可读；旧任务迟到扫描不消费新消息身份 (3231.912708ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 5252.521291

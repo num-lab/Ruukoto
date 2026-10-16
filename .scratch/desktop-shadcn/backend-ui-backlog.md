@@ -43,3 +43,5 @@
 ## 当前 demo 迁移
 
 拥有者于 2026-10-16 明确要求[按当前 demo 更新 Desktop](issues/05-current-demo-migration.md)，取代上节 demo-only 限制。迁入真实 Thinking、模型内 Effort、三分类 Context、隔离 iframe 浏览器、登记工作区只读文件树和预览；Context 只开放 list_prompt_requests／get_context_breakdown，文件仅开放有界只读接口。表内其他后台能力继续暂缓。
+
+本轮 [Trace 与执行状态正式迁移](issues/09-desktop-current-demo.md)开放既有 get_tool_op_params 补读完整工具参数，保存 Write 原有差异计算结果；Thinking 只显示执行状态，思考正文不展示。表内其他能力不新增 UI。

@@ -27,6 +27,12 @@
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
   --window-shadow: 0 28px 70px -16px rgb(0 0 0 / 22%), 0 0 0 0.5px rgb(0 0 0 / 10%);
+  --syntax-comment: #6e7781;
+  --syntax-keyword: #cf222e;
+  --syntax-string: #0a3069;
+  --syntax-constant: #0550ae;
+  --syntax-title: #8250df;
+  --syntax-type: #116329;
 }
 
 html.dark {
@@ -56,6 +62,12 @@ html.dark {
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+  --syntax-comment: #8b949e;
+  --syntax-keyword: #ff7b72;
+  --syntax-string: #a5d6ff;
+  --syntax-constant: #79c0ff;
+  --syntax-title: #d2a8ff;
+  --syntax-type: #7ee787;
 }
 
 :root, html.dark {

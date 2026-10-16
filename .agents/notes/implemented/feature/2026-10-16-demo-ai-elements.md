@@ -14,6 +14,10 @@ Message Scroller 使用固定版本 @shadcn/react 0.3.1，不引入模型 SDK。
 
 思考显示复用官方 [Chain of Thought 的 Radix 模式](https://ui.shadcn.com/docs/ai-elements/radix/chain-of-thought) 的 Trace／TraceCollapsible 原语，不新增包装组件或依赖。按拥有者后续批注，thought 分支用 durationSeconds 生成 `Thought for [time]s` 标题，展开区直接展示 text 的连续模拟思考文本并保留段落，不再生成带勾选图标的摘要清单。仅离线同步样例在用户输入后装配数据，不从消息正文推断真实模型思考，也不改变原始 reference-data.json。默认收起，沿用按会话／流／步骤隔离的展开状态，其他工具、审批与子 Agent 不进入思考组。工具摘要行使用 TraceIcon 展示扳手，独立子 Agent 仍为 Sparkles。正文内联 code 为 13px、正常字重，命令与工具文件字号保持当前值。
 
+左栏工作区及主／子消息流中的思考、工具折叠区使用 180ms 高度与透明度动画。工作区复用已有 Collapsible／Trigger／Content，保持 section 结构和筛选期间强制展开、原展开状态翻转的语义。Radix 实际通过 data-state 标记开合，demo 局部样式匹配此属性；不改官方 Trace 源文件中的 data-open 类。退出动画交给 Radix Presence，开始收起时内容即 inert／aria-hidden，防止焦点进入退出区域；沿用系统减弱动画规则，不增加独立测高或滚动控制器。
+
+上述思考显示与工具跳右栏的选择已由拥有者后续请求部分取代，当前可变 demo 删除思维链，Read 路径打开文件预览，其他工具就地展开；详见[工具调用详情](2026-10-16-demo-trace-tools.md)。其他输入、布局、审批与滚动决定继续沿用本篇。
+
 输入区按 Context → 模型 → Effort → 发送排列。Context 使用只读 meter 和可见百分比，不采用官方 Context 模式的 Hover Card，因为拥有者已删除悬浮说明，当前只要求显示器；无额外点击详情或依赖。Session 记录模拟 usedTokens／maxTokens，不估算草稿或伪造真实模型容量。Effort 复用现有 Select，Low／Medium／High 默认 Medium，按会话保留，沿用核实时禁用与无菜单位移。普通新会话及新增工作区两个入口均继承 Effort、上下文从零开始；提交保持这些字段。容器不足时操作区换行，极窄栏的 Context 百分比、模型入口和 Effort 保持顺序，发送另排靠右，不挤出操作区。正式接线需要真实用量和模型配置，本轮不调用后台。
 
 独立 Effort Select 与极窄换行选择已由拥有者后续批注替换，当前实现见[顶部标签与模型菜单](2026-10-16-demo-header-model-menu.md)；模拟数据和会话继承继续沿用本篇。

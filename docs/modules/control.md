@@ -223,7 +223,7 @@ sequenceDiagram
 | `read_artifact` | 720 KiB 单次 | base64 开销后仍在 1 MiB 帧上限内 |
 | `read_history` | `limit` 默认 50、最多 200 | 条目按末端向前收集到条目数或字节预算耗尽，`entry_text_cap` 默认 16 KiB（范围 256 B–256 KiB），`page_text_budget` 默认 192 KiB（范围 `entry_text_cap`–1 MiB） |
 | `put_attachment` | 每块 192 KiB，每文件 8 MiB | 按原附件引用与偏移幂等暂存，submit / continue 携安全元数据绑定 |
-| `read_tool_result` | 旧预览每字段默认 16 KiB、最多 64 KiB；指定字段分页为 4–65536 B，附带预览固定 16 KiB | 读工具结果正文、Edit 补丁与 Write 调用原文 |
+| `read_tool_result` | 旧预览每字段默认 16 KiB、最多 64 KiB；指定字段分页为 4–65536 B，附带预览固定 16 KiB | 读工具结果正文、Edit／Write 已记录补丁与 Write 调用原文 |
 | `read_task_events` | `limit` 默认 100、最多 500 | 单页序列化字节上限 `SEGMENT_MAX_BYTES`；单个事件超过单页上限回 `event_too_large` |
 | `connect` 补发 | 5000 条 | 超过回 `cursor_too_old`，要求重新取快照 |
 

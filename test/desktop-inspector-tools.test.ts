@@ -3,11 +3,11 @@ import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { createElement, type ComponentType } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { parseFragment, type DefaultTreeAdapterTypes } from "parse5";
 import { createServer, type ViteDevServer } from "vite";
 import react from "@vitejs/plugin-react";
 import type { OpParams, OpResult } from "@ruukoto/control/ops.ts";
 import type { Project, Session } from "@ruukoto/core/types.ts";
-import type { FlowEntry } from "@ruukoto/view/event-flow.ts";
 import { CodeState } from "../apps/desktop/src/renderer/code-state.ts";
 import { browserAddress, browserNavigation, moveBrowser, navigateBrowser, type BrowserNavigation } from "../apps/desktop/src/renderer/browser-navigation.ts";
 import { ipcResult, type DesktopOp } from "../apps/desktop/src/main/ipc.ts";
@@ -196,11 +196,10 @@ let FilePreview: ComponentType<{ file: OpResult<"read_workspace_file"> | undefin
 let WorkspaceFiles: ComponentType<{ model: CodeState; workspaceId: string }>;
 let BrowserPanel: ComponentType<{ navigation: BrowserNavigation; onChange: (navigation: BrowserNavigation) => void }>;
 let Conversation: ComponentType<{ model: CodeState; sessionId: string }>;
-let Thinking: ComponentType<{ entry: Extract<FlowEntry, { kind: "thinking" }> }>;
 before(async () => {
   server = await createServer({ configFile: false, root: fileURLToPath(new URL("../apps/desktop/src/renderer/", import.meta.url)), plugins: [react()], define: { "window.location.origin": JSON.stringify("http://127.0.0.1:9999"), "window.location.protocol": JSON.stringify("http:") }, server: { middlewareMode: true, hmr: false }, appType: "custom" });
   ({ FilePreview, WorkspaceFiles, BrowserPanel } = await server.ssrLoadModule("/inspector-panels.tsx"));
-  ({ Thinking, Conversation } = await server.ssrLoadModule("/conversation.tsx"));
+  ({ Conversation } = await server.ssrLoadModule("/conversation.tsx"));
 });
 after(async () => { await server?.close(); });
 
@@ -240,29 +239,24 @@ test("文件预览使用真实正文，Markdown 和源码安全渲染，空文�
   assert.doesNotMatch(preview, /<script|<img|<a /);
   const source = render(markdown, "source");
   assert.match(source, /aria-label="文件源码"/);
-  assert.match(source, /&lt;script&gt;/);
+  assert.match(source, /hljs-tag/);
+  assert.match(source, /&lt;/);
   assert.doesNotMatch(source, /<h1>|<script/);
   const empty = render(file("w1", "empty.txt", ""));
-  assert.match(empty, /class="file-lines"><\/div>/);
+  assert.match(empty, /<pre><code><\/code><\/pre>/);
   assert.doesNotMatch(empty, /class="file-line"|文件不可用|空文件/);
   assert.match(render({ workspaceId: "w1", path: "archive.bin", kind: "unsupported", size: 12 }), /暂不支持预览此文件/);
   assert.match(render(undefined), /文件不可用/);
   assert.match(render({ workspaceId: "w1", path: "actual.png", kind: "image", mimeType: "image/png", size: 4, dataUrl: "data:image/png;base64,iVBORw==" }), /src="data:image\/png;base64,iVBORw=="/);
 });
 
-test("Thought 实际组件按真实时间戳显示耗时并读取原文，不使用 demo 摘要", () => {
-  let reads = 0;
-  const entry: Extract<FlowEntry, { kind: "thinking" }> = { key: "thought:real", taskId: "task", kind: "thinking", seq: 1, at, startedAt: at, endedAt: "2026-10-16T00:00:07.000Z", get text() { reads++; return "实际模型思考原文\n第二段"; } };
-  const html = renderToStaticMarkup(createElement(Thinking, { entry }));
-  assert.match(html, /Thought for 7s/);
-  assert.match(html, /aria-expanded="false"/);
-  assert.ok(reads > 0, "折叠组件的 children 仍从真实 entry.text 取值");
-  assert.doesNotMatch(html, /确认离线读取|HLC 时间戳|思考过程/);
-});
-
-test("空的 thinking 帧不产生无内容的折叠行", () => {
-  const html = renderToStaticMarkup(createElement(Thinking, { entry: { kind: "thinking", key: "empty", taskId: "task", at: "2026-10-16T00:00:00Z", seq: 1, startedAt: "2026-10-16T00:00:00Z", endedAt: "2026-10-16T00:00:01Z", text: " " } }));
-  assert.equal(html, "");
+test("消息流隐藏已记录的思考正文，保留原始记录", () => {
+  const h = harness();
+  const flow = h.model.view.openSession("s1").flow;
+  flow.apply({ seq: 1, sessionId: "s1", taskId: "task", createdAt: at, body: { type: "task.thinking", taskId: "task", sessionId: "s1", thinkingId: "actual", messageId: "message", startedAt: at, endedAt: at, text: "已记录思考正文" } });
+  const html = renderToStaticMarkup(createElement(Conversation, { model: h.model, sessionId: "s1" }));
+  assert.doesNotMatch(html, /已记录思考正文|Thought for|Thinking/);
+  assert.ok(flow.items.some(item => item.kind === "thinking" && item.text === "已记录思考正文"));
 });
 
 test("消息流排除空 thinking 的外层 item，避免多余空白间距", () => {
@@ -282,4 +276,18 @@ test("工具调用的空 assistant 正文不占消息间距", () => {
   const attached = renderToStaticMarkup(createElement(Conversation, { model: h.model, sessionId: "s1" }));
   assert.match(attached, /data-message-id="history:attachment-only"/);
   assert.match(attached, /实际附件.txt/);
+});
+
+
+test("加载和空态占位不消耗消息滚动器的首次 start 定位", () => {
+  const h = harness();
+  const nodes = (node: DefaultTreeAdapterTypes.Node): DefaultTreeAdapterTypes.Element[] => [...("tagName" in node ? [node] : []), ...("childNodes" in node ? node.childNodes.flatMap(nodes) : [])];
+  for (const loaded of [false, true]) {
+    h.model.view.openSession("a").historyLoaded = loaded;
+    const html = renderToStaticMarkup(createElement(Conversation, { model: h.model, sessionId: "a" }));
+    const content = nodes(parseFragment(html)).find(node => node.attrs.some(attr => attr.name === "data-slot" && attr.value === "message-scroller-content"))!;
+    assert.ok(content);
+    assert.equal(nodes(content).filter(node => node.attrs.some(attr => attr.name === "class" && attr.value.includes("new-session-empty"))).length, 0);
+    assert.match(html, loaded ? /开始一个新的会话/ : /正在加载会话/);
+  }
 });

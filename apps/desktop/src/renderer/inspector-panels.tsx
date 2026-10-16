@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { OpResult } from "@ruukoto/control/ops.ts";
@@ -8,6 +8,7 @@ import { Button } from "./components/ui/button.tsx";
 import { Input } from "./components/ui/input.tsx";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./components/ui/collapsible.tsx";
 import { browserAddress, moveBrowser, navigateBrowser, type BrowserNavigation } from "./browser-navigation.ts";
+import { highlightSource } from "./source-highlighting.ts";
 type PreviewFile = OpResult<"read_workspace_file">;
 
 // Note: 见 .agents/notes/implemented/architecture/2026-10-16-desktop-current-demo.md
@@ -47,8 +48,9 @@ export function WorkspaceFile({ model, workspaceId, path, mode, onMode }: { mode
   return <FilePreview file={state.value} path={path} mode={mode} onMode={onMode} onFiles={() => inspector.openFiles()} onUrl={url => inspector.openBrowser(url)} />;
 }
 
-function SourcePreview({ content }: { content: string }) {
-  return <div className="file-source selectable-text" role="region" aria-label="文件源码" tabIndex={0}><div className="file-lines">{(content === "" ? [] : content.split("\n")).map((line, index) => <div className="file-line" key={index}><span>{index + 1}</span><code>{line}</code></div>)}</div></div>;
+function SourcePreview({ content, path }: { content: string; path: string }) {
+  const highlighted = useMemo(() => highlightSource(path, content), [path, content]);
+  return <div className="file-source selectable-text" role="region" aria-label="文件源码" tabIndex={0}><div className="file-lines"><div className="file-source-gutter" aria-hidden="true">{(content === "" ? [] : content.split("\n")).map((_line, index) => <span className="file-line" key={index}>{index + 1}</span>)}</div><pre>{highlighted === null ? <code>{content}</code> : <code dangerouslySetInnerHTML={{ __html: highlighted }} />}</pre></div></div>;
 }
 
 function ImagePreview({ file }: { file: Extract<PreviewFile, { kind: "image" }> }) {
@@ -65,6 +67,6 @@ export function FilePreview({ file, path, mode, onMode, onFiles, onUrl }: { file
       : file.kind === "markdown" && mode === "preview" ? <div className="file-markdown selectable-text"><Markdown skipHtml remarkPlugins={[remarkGfm]} components={{
         a: ({ href, children }) => { const url = href && /^https?:\/\//i.test(href) ? browserAddress(href) : null; return url ? <button type="button" className="file-preview-link" onClick={() => onUrl(url)}>{children}</button> : <span>{children}</span>; },
         img: ({ alt }) => <span className="text-muted-foreground">[图片{alt ? `：${alt}` : ""}]</span>,
-      }}>{file.content}</Markdown></div> : <SourcePreview content={file.content} />}
+      }}>{file.content}</Markdown></div> : <SourcePreview path={file.path} content={file.content} />}
   </section>;
 }

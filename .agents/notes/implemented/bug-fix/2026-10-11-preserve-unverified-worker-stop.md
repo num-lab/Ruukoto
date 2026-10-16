@@ -32,6 +32,8 @@ TERM/KILL 返回失败也进入同一预算的退出核实。macOS 原组只有�
 
 后台执行延长到正常 bash 返回之后的方向见[后台生命周期提案](../../proposed/feature/2026-10-14-bash-background-lifecycle.md)。提案沿用本篇的停止核实、记录和占用保留要求，尚未改变当前收尾行为。
 
+三个执行归属各自实现的收尾协议拟集中到一个函数，见[收尾协议提案](../../implemented/architecture/2026-10-16-task-ending-protocol.md)；本篇的停止与占用规则不变。
+
 ## 备选方案
 
 - 只在 `ToolWorkerHost.stop` 缓存 boolean：改动最小，能修重复调用；不能保住 start rejected、Driver 忽略结果与临时 worker 未登记，因此不足以阻止误释放。

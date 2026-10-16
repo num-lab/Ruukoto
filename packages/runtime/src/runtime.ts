@@ -20,6 +20,7 @@ import { DEFAULT_BUDGET_CONFIG, selectionBreakdown,SelectionRecordCorrupt,type C
 import { generateManualCompaction, inspectManualCompaction, ManualCompactionError } from "@ruukoto/agent/manual-compaction.ts";
 import { createDelegationFamily,delegationOpCheck } from "@ruukoto/agent/delegation-tools.ts";
 import { Driver } from "@ruukoto/agent/driver.ts";
+import { endTaskExecution, type TaskEndingContext } from "@ruukoto/agent/task-ending.ts";
 import { BrowserManager, BROWSER_META_KEY, type BrowserManagerOptions } from "@ruukoto/agent/browser-manager.ts";
 import { browserTaskAllowed, createBrowserFamily } from "@ruukoto/agent/browser-tools.ts";
 import { assertGrantNotProtected } from "@ruukoto/agent/execution/approved-ops.ts";
@@ -775,11 +776,17 @@ export class Runtime {
         return true;
       });
       if (!reaped && !driver.stoppingManagedProcesses && !this.modeSwitchStopping.has(parent.id)) {
-        void driver.requestStop(parent, { terminal: "interrupted", reason: "tool_process_unreaped", cancelIntent: false }).catch((failure: unknown) => {
-          this.store.withTx(() => this.store.endTask(parent.id, ["running", "awaiting_confirmation"], "interrupted", {
-            interruptReason: "tool_process_unreaped", keepOccupancy: true, occupancyIssueReason: "tool_process_unreaped",
-          }));
+        const ending = driver.currentTaskEnding!;
+        // Note: 见 .agents/notes/implemented/architecture/2026-10-16-task-ending-protocol.md
+        void driver.requestStop(parent, { terminal: "interrupted", reason: "tool_process_unreaped", cancelIntent: false }).catch(async (failure: unknown) => {
           process.stderr.write(`[ruukoto:runtime] 工作副本来源停止收尾失败：${failure instanceof Error ? failure.message : String(failure)}\n`);
+          try {
+            await endTaskExecution({ store: this.store, ledger: this.ledger, onReleased: () => this.kickAll() }, parent, ending, {
+              terminal: "interrupted", reason: "tool_process_unreaped", unreapedReason: "tool_process_unreaped",
+            });
+          } catch {
+            process.stderr.write(`[ruukoto:runtime] 工作副本来源任务 ${parent.id} 的兜底收尾未落盘，保留任务与占用，请拥有者核实后重启恢复\n`);
+          }
         });
       }
       throw error;
@@ -4034,16 +4041,17 @@ export class Runtime {
 
       const fresh = this.store.getTask(task.id)!;
       if (fresh.status !== "running") continue;
+      const ending: TaskEndingContext = { taskId: task.id, stopSnapshot: null };
+      let driver: Driver | undefined;
       try {
-        const driver = await this.getDriver(session);
-        await driver.run(fresh);
+        driver = await this.getDriver(session);
+        await driver.run(fresh, ending);
       } catch (err) {
-        // driver.run 内部已兜底；此处防御性记录，避免调度循环中断
-        this.store.withTx(() => {
-          this.store.endTask(task.id, ["running", "awaiting_confirmation"], "failed", {
-            errorMessage: `驱动器异常：${(err as Error).message}`,
-            endedAt: new Date().toISOString(),
-          });
+        // worker 停止不能证明浏览器等全部资源退出；取得 Driver 后的异常保守保留占用。
+        // Note: 见 .agents/notes/implemented/architecture/2026-10-16-task-ending-protocol.md
+        await endTaskExecution({ store: this.store, ledger: this.ledger, onReleased: () => this.kickAll() }, task, ending, {
+          terminal: "failed", reason: `驱动器异常：${(err as Error).message}`, unreapedReason: "tool_process_unreaped",
+          halt: async () => { if (!driver) return true; await driver.stopManagedProcesses(task.id); return false; },
         });
       } finally {
         // SubAgent 子会话（agent-direction issue 11）：driver.run 收尾后释放运行
@@ -5371,12 +5379,8 @@ export class Runtime {
         }).catch(() => {});
       } else {
         // 已占用运行中但驱动器缺失（异常路径）：条件更新中断并保留占用事实
-        this.store.withTx(() => {
-          this.store.endTask(task.id, ["running", "awaiting_confirmation"], "interrupted", {
-            interruptReason: "backend_stop",
-            endedAt: new Date().toISOString(),
-            keepOccupancy: true,
-          });
+        await endTaskExecution({ store: this.store, ledger: this.ledger, onReleased: () => this.kickAll() }, task, { taskId: task.id, stopSnapshot: null }, {
+          terminal: "interrupted", reason: "backend_stop", unreapedReason: "backend_stop",
         });
       }
     }

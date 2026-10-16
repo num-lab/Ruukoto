@@ -356,3 +356,80 @@ test("实际后台进程登记排队宿主操作后崩溃，接管同键仍只�
     await t.shutdown();
   }
 });
+
+test("宿主中止竞争失败：清取消意图、补记只读结论与停止记录，不追加未知或重复唤醒", async () => {
+  const t = await startTestRuntime("host-ending-race", () => ({ kind: "text", text: "完成" }), { config: { workflowAgent: null } });
+  try {
+    const rt = t.runtime, session = await rt.createSession({ projectName: "race", cwd: t.work[0] });
+    const parent = await rt.submit({ sessionId: session.id, requestId: "parent", input: "完成", modelSelection: rt.defaultSelection });
+    await waitFor("原任务完成", () => rt.store.getTask(parent.id)!.status === "completed");
+    const run = seedRun(rt, parent, session), task = hostTask(rt, run, session, "race", 1);
+    rt.store.withTx(() => {
+      for (const toolName of ["read", "write"]) rt.store.recordToolIntent({ id: `race-${toolName}`, taskId: task.id, sessionId: task.sessionId, toolName, params: {} });
+    });
+    let releases = 0;
+    (rt.hostExecutions as any).deps.onReleased = () => { releases++; };
+    rt.hostExecutions.register(task.id, { kind: "starting", id: "racer", label: "racer", stop: async () => {
+      assert.equal(rt.store.getTask(task.id)!.cancelRequested, false);
+      rt.store.withTx(() => rt.store.endTask(task.id, ["running"], "completed"));
+      return true;
+    } });
+    rt.store.withTx(() => rt.store.setCancelRequested(task.id, true));
+    assert.equal(await rt.hostExecutions.stop(task.id, "interrupted", "race"), true);
+    assert.equal(rt.store.getTask(task.id)!.status, "completed");
+    assert.equal(rt.store.getTask(task.id)!.cancelRequested, false);
+    assert.match(rt.store.getToolOp("race-read")!.resultSummary!, /无写入效果/);
+    assert.equal(rt.store.getToolOp("race-write")!.effectUnknown, false);
+    assert.equal(getWorkflowExecution(rt.store, task.id)!.stopVerified, true);
+    assert.equal(releases, 0);
+  } finally { await t.shutdown(); }
+});
+
+test("宿主自然停止已开始后首次取消：共享快照先于复用停止，迟到结果仍未知且只唤醒一次", async () => {
+  const t = await startTestRuntime("host-natural-abort", () => ({ kind: "text", text: "完成" }), { config: { workflowAgent: null } });
+  let finish!: (reaped: boolean) => void;
+  const gate = new Promise<boolean>(resolve => { finish = resolve; });
+  try {
+    const rt = t.runtime, session = await rt.createSession({ projectName: "natural-abort", cwd: t.work[0] });
+    const parent = await rt.submit({ sessionId: session.id, requestId: "parent", input: "完成", modelSelection: rt.defaultSelection });
+    await waitFor("原任务完成", () => rt.store.getTask(parent.id)!.status === "completed");
+    const run = seedRun(rt, parent, session), task = hostTask(rt, run, session, "natural-abort", 1);
+    rt.store.withTx(() => rt.store.recordToolIntent({ id: "host-late-abort", taskId: task.id, sessionId: task.sessionId, toolName: "write", params: {} }));
+    let stops = 0, releases = 0;
+    (rt.hostExecutions as any).deps.onReleased = () => { releases++; };
+    rt.hostExecutions.register(task.id, { kind: "starting", id: "gate", label: "gate", stop: () => { stops++; return gate; } });
+    const natural = rt.hostExecutions.stop(task.id, "completed", "");
+    assert.equal(stops, 1);
+    const cancel = rt.hostExecutions.stop(task.id, "canceled", "owner_cancel");
+    assert.equal(rt.store.getTask(task.id)!.cancelRequested, true);
+    rt.store.withTx(() => (rt as any).ledger.recordResult(task, "host-late-abort", "迟到结果", true));
+    finish(true);
+    assert.deepEqual(await Promise.all([natural, cancel]), [true, true]);
+    assert.equal(stops, 1);
+    assert.equal(releases, 1);
+    assert.equal(rt.store.getToolOp("host-late-abort")!.effectUnknown, true);
+    const events = rt.store.getTaskEventsAfter(task.id, 0, 100);
+    assert.equal(events.filter(e => ["task.completed", "task.canceled"].includes(e.body.type)).length, 1);
+    assert.ok(events.findIndex(e => e.body.type === "task.tool_effect_unknown") < events.findIndex(e => e.body.type === "task.completed"));
+  } finally { finish(true); await t.shutdown(); }
+});
+
+test("宿主自然完成后的重复中止沿用结论，不补账本或重写取消意图", async () => {
+  const t = await startTestRuntime("host-completed-repeat", () => ({ kind: "text", text: "完成" }), { config: { workflowAgent: null } });
+  try {
+    const rt = t.runtime, session = await rt.createSession({ projectName: "repeat", cwd: t.work[0] });
+    const parent = await rt.submit({ sessionId: session.id, requestId: "parent", input: "完成", modelSelection: rt.defaultSelection });
+    await waitFor("原任务完成", () => rt.store.getTask(parent.id)!.status === "completed");
+    const task = hostTask(rt, seedRun(rt, parent, session), session, "repeat", 1);
+    rt.store.withTx(() => {
+      for (const toolName of ["read", "write"]) rt.store.recordToolIntent({ id: `repeat-${toolName}`, taskId: task.id, sessionId: task.sessionId, toolName, params: {} });
+    });
+    assert.equal(await rt.hostExecutions.stop(task.id, "completed", ""), true);
+    const seq = rt.store.getMaxSeq();
+    assert.equal(await rt.hostExecutions.stop(task.id, "canceled", "too_late"), true);
+    assert.equal(rt.store.getTask(task.id)!.cancelRequested, false);
+    assert.equal(rt.store.getMaxSeq(), seq);
+    for (const op of rt.store.listToolOpsByTask(task.id)) { assert.equal(op.resultSummary, null); assert.equal(op.effectUnknown, false); }
+    assert.equal((rt.hostExecutions as any).executions.get(task.id).context.stopSnapshot, null);
+  } finally { await t.shutdown(); }
+});

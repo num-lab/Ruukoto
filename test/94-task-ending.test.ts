@@ -7,6 +7,7 @@ import { test } from "node:test";
 import { Db } from "@ruukoto/core/db.ts";
 import { Store } from "@ruukoto/core/store.ts";
 import { ToolOpLedger } from "@ruukoto/agent/tool-op-ledger.ts";
+import { endTaskExecution, type TaskEndingContext } from "@ruukoto/agent/task-ending.ts";
 import type { Driver } from "@ruukoto/agent/driver.ts";
 import { ExecutionError } from "@ruukoto/agent/execution/launchers.ts";
 import { createMockTools } from "@ruukoto/agent/mock-tools.ts";
@@ -390,6 +391,7 @@ test("Runtime 驱动器收尾后抛错：只保留原终态和待核实占用，
         rt.store.withTx(() => rt.store.endTask(task.id, ["running"], "interrupted", { interruptReason: "unverified", keepOccupancy: true }));
         throw new Error("收尾后异常");
       },
+      stopManagedProcesses: async () => true,
     });
     const task = await rt.submit({ sessionId: session.id, requestId: "race", input: "test", modelSelection: rt.defaultSelection });
     // 让实际队列兜底 catch 和 finally 都执行完，再核对持久事实。
@@ -451,3 +453,268 @@ for (const reason of ["backend_restart", "backend_stop"] as const) {
     }
   });
 }
+
+function endingFixture() {
+  const f = fixture();
+  f.store.withTx(() => f.store.transitionTask(f.task.id, ["queued"], "running"));
+  f.occupy();
+  const ending: TaskEndingContext = { taskId: f.task.id, stopSnapshot: null };
+  let releases = 0;
+  const deps = { store: f.store, ledger: new ToolOpLedger(f.store), onReleased: () => { releases++; } };
+  const intent = (id: string, toolName = "write") => f.store.withTx(() => f.store.recordToolIntent({ id, taskId: f.task.id, sessionId: f.session.id, toolName, params: {} }));
+  return { ...f, ending, deps, intent, releases: () => releases };
+}
+
+for (const stop of ["true", "false", "throw", "missing"] as const) {
+  test(`统一收尾：halt ${stop} 的占用、诊断原因、事务钩子与唯一唤醒`, async () => {
+    const f = endingFixture();
+    try {
+      let inTx = 0;
+      const result = await endTaskExecution(f.deps, f.task, f.ending, {
+        terminal: "failed", reason: "执行失败", unreapedReason: "controlled_stop",
+        ...(stop === "missing" ? {} : { halt: async () => { if (stop === "throw") throw new Error("stop failure"); return stop === "true"; } }),
+        inTx: result => { assert.equal(result.changed, true); assert.equal(result.reaped, stop === "true"); inTx++; },
+      });
+      assert.deepEqual(result, { changed: true, reaped: stop === "true" });
+      assert.equal(inTx, 1);
+      assert.equal(f.store.getTask(f.task.id)!.errorMessage, "执行失败");
+      assert.equal(f.store.listAllOccupancy().length, stop === "true" ? 0 : 1);
+      assert.equal(f.releases(), stop === "true" ? 1 : 0);
+      assert.equal(f.store.getTaskEventsAfter(f.task.id, 0, 100).some(e => e.body.type === "task.tool_process_unreaped" && e.body.reason === "controlled_stop"), stop !== "true");
+    } finally { f.cleanup(); }
+  });
+}
+
+for (const terminal of ["canceled", "interrupted"] as const) {
+  test(`统一中止 ${terminal}：首次快照先于 halt，竞争失败仍补已知结果，不追加未知`, async () => {
+    const f = endingFixture();
+    try {
+      f.intent("write");
+      f.intent("read", "read");
+      f.store.withTx(() => f.store.setCancelRequested(f.task.id, terminal !== "canceled"));
+      let changed: boolean | undefined;
+      const result = await endTaskExecution(f.deps, f.task, f.ending, { terminal, abort: true, unreapedReason: "stop",
+        halt: async () => {
+          assert.equal(f.store.getTask(f.task.id)!.cancelRequested, terminal === "canceled");
+          assert.deepEqual(f.ending.stopSnapshot, ["write"]);
+          f.store.withTx(() => f.store.endTask(f.task.id, ["running"], "completed"));
+          return true;
+        }, inTx: result => { changed = result.changed; } });
+      assert.equal(result.changed, false);
+      assert.equal(changed, false);
+      assert.equal(f.store.getToolOp("write")!.effectUnknown, false);
+      assert.match(f.store.getToolOp("read")!.resultSummary!, /无写入效果/);
+      assert.equal(f.releases(), 0);
+    } finally { f.cleanup(); }
+  });
+}
+
+test("统一自然收尾：没有中止快照不补工具结果，新任务独立保存快照", async () => {
+  const f = endingFixture();
+  try {
+    f.intent("write"); f.intent("read", "read");
+    await endTaskExecution(f.deps, f.task, f.ending, { terminal: "completed", halt: async () => true, unreapedReason: "stop" });
+    assert.equal(f.ending.stopSnapshot, null);
+    for (const op of f.store.listToolOpsByTask(f.task.id)) { assert.equal(op.resultSummary, null); assert.equal(op.effectUnknown, false); }
+    const next = f.newTask();
+    f.store.withTx(() => f.store.transitionTask(next.id, ["queued"], "running"));
+    const ending: TaskEndingContext = { taskId: next.id, stopSnapshot: null };
+    await endTaskExecution(f.deps, next, ending, { terminal: "canceled", abort: true, halt: async () => true, unreapedReason: "stop" });
+    assert.deepEqual(ending.stopSnapshot, []);
+    assert.equal(f.store.getToolOp("write")!.effectUnknown, false);
+  } finally { f.cleanup(); }
+});
+
+for (const race of ["nested", "natural"] as const) {
+  test(`共享首次快照：${race} 赢得终态，迟到结果仍未知且事件先于唯一终态与唤醒`, async () => {
+    const f = endingFixture();
+    try {
+      f.intent("write");
+      const stop = { terminal: "interrupted" as const, abort: true as const, halt: async () => true, unreapedReason: "stop" };
+      if (race === "nested") {
+        await endTaskExecution(f.deps, f.task, f.ending, { ...stop, halt: async () => {
+          f.store.withTx(() => f.deps.ledger.recordResult(f.task, "write", "迟到结果", true));
+          assert.deepEqual(f.deps.ledger.beginStop(f.task.id), []);
+          return (await endTaskExecution(f.deps, f.task, f.ending, stop)).reaped;
+        } });
+      } else {
+        let release!: () => void;
+        const gate = new Promise<void>(resolve => { release = resolve; });
+        const natural = endTaskExecution(f.deps, f.task, f.ending, { terminal: "completed", unreapedReason: "stop", halt: async () => {
+          await gate;
+          f.store.withTx(() => f.deps.ledger.recordResult(f.task, "write", "迟到结果", true));
+          return true;
+        } });
+        let finishStop!: () => void;
+        const stopping = endTaskExecution(f.deps, f.task, f.ending, { ...stop, halt: () => new Promise<boolean>(resolve => { finishStop = () => resolve(true); }) });
+        release(); await natural; finishStop(); await stopping;
+      }
+      assert.deepEqual(f.ending.stopSnapshot, ["write"]);
+      assert.equal(f.store.getToolOp("write")!.effectUnknown, true);
+      const events = f.store.getTaskEventsAfter(f.task.id, 0, 100);
+      const terminal = events.findIndex(e => e.body.type === "task.interrupted" || e.body.type === "task.completed");
+      assert.ok(events.findIndex(e => e.body.type === "task.tool_effect_unknown") < terminal);
+      assert.equal(events.filter(e => e.body.type === "task.interrupted" || e.body.type === "task.completed").length, 1);
+      assert.equal(f.releases(), 1);
+    } finally { f.cleanup(); }
+  });
+}
+
+test("统一收尾事务回滚：已知结果与未知标记回滚，首次快照仍供保留占用的兜底使用", async () => {
+  const f = endingFixture();
+  try {
+    f.intent("write"); f.intent("read", "read");
+    await assert.rejects(endTaskExecution(f.deps, f.task, f.ending, { terminal: "interrupted", abort: true, unreapedReason: "stop",
+      halt: async () => true, inTx: () => { throw new Error("transaction failure"); } }), /transaction failure/);
+    assert.deepEqual(f.ending.stopSnapshot, ["write"]);
+    assert.equal(f.store.getTask(f.task.id)!.status, "running");
+    assert.equal(f.store.getTask(f.task.id)!.cancelRequested, false);
+    assert.equal(f.store.getToolOp("read")!.resultSummary, null);
+    assert.equal(f.store.getToolOp("write")!.effectUnknown, false);
+    assert.equal(f.releases(), 0);
+    f.store.withTx(() => f.deps.ledger.recordResult(f.task, "write", "迟到", true));
+    await endTaskExecution(f.deps, f.task, f.ending, { terminal: "failed", reason: "兜底", unreapedReason: "fallback" });
+    assert.equal(f.store.getToolOp("write")!.effectUnknown, true);
+    assert.match(f.store.getToolOp("read")!.resultSummary!, /无写入效果/);
+    assert.equal(f.store.listAllOccupancy().length, 1);
+    assert.equal(f.releases(), 0);
+  } finally { f.cleanup(); }
+});
+
+for (const acquired of [false, true]) {
+  test(`真实队列：getDriver ${acquired ? "返回后执行" : "返回前"}异常，按完整停止证据决定占用`, async () => {
+    const t = await startTestRuntime("queue-fallback", async () => ({ kind: "text", text: "不应调用模型" }));
+    const rt = t.runtime, original = (rt as any).getDriver;
+    let stops = 0;
+    try {
+      const session = await rt.createSession({ projectName: "fallback", cwd: t.work[0] });
+      (rt as any).getDriver = async () => {
+        if (!acquired) throw new Error("getDriver failure");
+        return { run: async () => { throw new Error("run failure"); }, stopManagedProcesses: async () => { stops++; return true; } };
+      };
+      const task = await rt.submit({ sessionId: session.id, requestId: "fallback", input: "test", modelSelection: rt.defaultSelection });
+      await waitFor("真实 catch 与 finally 完成", () => rt.store.getTask(task.id)!.status === "failed" && !(rt as any).loopActive.has(session.id));
+      assert.equal(rt.store.listAllOccupancy().some(held => held.taskId === task.id), acquired);
+      assert.equal(stops, acquired ? 1 : 0);
+      assert.equal(rt.store.getTaskEventsAfter(task.id, 0, 100).filter(e => e.body.type === "task.tool_process_unreaped").length, acquired ? 1 : 0);
+      assert.equal(t.server.calls.length, 0);
+    } finally { (rt as any).getDriver = original; await t.shutdown(); }
+  });
+}
+
+test("真实队列：浏览器未核实、终态变更后回滚、worker 已停，catch 仍保留首次快照与占用并挡住后续任务", async () => {
+  let workerStops = 0, browserStops = 0;
+  const t = await startTestRuntime("queue-browser-rollback", async () => ({ kind: "text", text: "不应调用模型" }), { config: {
+    toolFactory: context => { context.registry.register({ kind: "starting", id: "worker", label: "worker", stop: async () => { workerStops++; return true; } }); return createMockTools(context); },
+  } });
+  const rt = t.runtime;
+  const endTask = rt.store.endTask.bind(rt.store);
+  const close = (rt as any).browserManager.close;
+  let rolledBack = false;
+  let driver: Driver | undefined, ensureSdk: any;
+  try {
+    const session = await rt.createSession({ projectName: "browser", cwd: t.work[0] });
+    driver = await (rt as any).getDriver(session);
+    ensureSdk = (driver as any).ensureSdk;
+    (rt as any).browserManager.close = async () => { browserStops++; return false; };
+    (driver as any).ensureSdk = async (...args: unknown[]) => {
+      const sdk = await ensureSdk.apply(driver, args);
+      sdk.prompt = async () => {
+        const task = rt.store.getTask(driver!.currentTaskId!)!;
+        rt.store.withTx(() => rt.store.recordToolIntent({ id: "rollback-write", taskId: task.id, sessionId: task.sessionId, toolName: "write", params: {} }));
+        await driver!.requestStop(task, { terminal: "interrupted", reason: "owner_stop", cancelIntent: false });
+      };
+      return sdk;
+    };
+    rt.store.endTask = (...args) => {
+      const changed = endTask(...args);
+      if (changed && !rolledBack && args[2] === "interrupted") {
+        rolledBack = true;
+        assert.equal(rt.store.getTask(args[0])!.status, "interrupted");
+        throw new Error("first terminal transaction failure");
+      }
+      return changed;
+    };
+    const task = await rt.submit({ sessionId: session.id, requestId: "rollback", input: "test", modelSelection: rt.defaultSelection });
+    await waitFor("队列实际兜底与 finally", () => rt.store.getTask(task.id)!.status === "failed" && !(rt as any).loopActive.has(session.id));
+    assert.equal(rolledBack, true);
+    assert.equal(browserStops, 1);
+    assert.equal(workerStops, 1);
+    assert.equal(rt.store.getTask(task.id)!.effectUnknown, true);
+    assert.equal(rt.store.getOccupancyByDir(session.cwdReal)!.taskId, task.id);
+    const events = rt.store.getTaskEventsAfter(task.id, 0, 100);
+    assert.equal(events.filter(e => e.body.type === "task.failed").length, 1);
+    assert.equal(events.filter(e => e.body.type === "task.interrupted").length, 0);
+    assert.ok(events.some(e => e.body.type === "task.tool_process_unreaped" && e.body.reason === "tool_process_unreaped"));
+    const nextSession = await rt.createSession({ projectName: "next", cwd: t.work[0] });
+    const next = await rt.submit({ sessionId: nextSession.id, requestId: "next", input: "等待占用", modelSelection: rt.defaultSelection });
+    await waitFor("后续队列已检查", () => !(rt as any).loopActive.has(nextSession.id));
+    assert.equal(rt.store.getTask(next.id)!.status, "queued");
+    assert.equal(t.server.calls.length, 0);
+  } finally {
+    rt.store.endTask = endTask;
+    (rt as any).browserManager.close = close;
+    if (driver) (driver as any).ensureSdk = ensureSdk;
+    await t.shutdown();
+  }
+});
+
+for (const boundary of ["mode", "yield"] as const) {
+  for (const reaped of [false, true]) {
+    test(`Driver ${boundary} 交接${reaped ? "成功不保留中止事实" : "失败前快照覆盖停止期间迟到结果"}`, async () => {
+      let late!: () => void;
+      const t = await driverFixture(async () => { late(); return reaped; });
+      const ensureSdk = (t.driver as any).ensureSdk;
+      try {
+        (t.driver as any).ensureSdk = async (...args: unknown[]) => {
+          const sdk = await ensureSdk.apply(t.driver, args);
+          t.runtime.store.withTx(() => t.runtime.store.recordToolIntent({ id: "handoff-write", taskId: t.task.id, sessionId: t.task.sessionId, toolName: "write", params: {} }));
+          late = () => t.runtime.store.withTx(() => new ToolOpLedger(t.runtime.store).recordResult(t.task, "handoff-write", "停止期间迟到结果", true));
+          if (boundary === "mode") {
+            t.runtime.store.withTx(() => t.runtime.store.requestModeSwitch(t.task.id, "full_access"));
+            const attempt = (t.driver as any).boundaryTask(t.runtime.store.getTask(t.task.id));
+            if (reaped) await attempt;
+            else await assert.rejects(attempt, { code: "mode_switch_unverified" });
+          } else assert.equal(await t.driver.yieldWorkspace(t.task.id), reaped);
+          assert.equal(t.driver.currentTaskEnding!.stopSnapshot === null, reaped);
+          return sdk;
+        };
+        await t.driver.run(t.task);
+        assert.equal(t.runtime.store.getToolOp("handoff-write")!.effectUnknown, !reaped);
+        assert.equal(t.runtime.store.getTask(t.task.id)!.status, reaped ? "completed" : "interrupted");
+        assert.equal(t.runtime.store.listAllOccupancy().length, reaped ? 0 : 1);
+      } finally { (t.driver as any).ensureSdk = ensureSdk; await t.shutdown(); }
+    });
+  }
+}
+
+test("Driver 成功交接不能撤去外层已采用的快照，即使内层停止入口尚未到达", async () => {
+  let entered = false, releaseWorker!: () => void, finishOuter!: () => void;
+  const workerGate = new Promise<void>(resolve => { releaseWorker = resolve; });
+  const outerGate = new Promise<void>(resolve => { finishOuter = resolve; });
+  let late!: () => void;
+  const t = await driverFixture(async () => { entered = true; await workerGate; late(); return true; });
+  const ensureSdk = (t.driver as any).ensureSdk;
+  let outer: Promise<unknown> | undefined;
+  try {
+    (t.driver as any).ensureSdk = async (...args: unknown[]) => {
+      const sdk = await ensureSdk.apply(t.driver, args);
+      t.runtime.store.withTx(() => t.runtime.store.recordToolIntent({ id: "adopted-write", taskId: t.task.id, sessionId: t.task.sessionId, toolName: "write", params: {} }));
+      const ledger = new ToolOpLedger(t.runtime.store);
+      late = () => t.runtime.store.withTx(() => ledger.recordResult(t.task, "adopted-write", "迟到结果", true));
+      const handoff = t.driver.yieldWorkspace(t.task.id);
+      await waitFor("交接停止已进入", () => entered);
+      outer = endTaskExecution({ store: t.runtime.store, ledger }, t.task, t.driver.currentTaskEnding!, {
+        terminal: "interrupted", abort: true, unreapedReason: "outer", halt: async () => { await outerGate; return true; },
+      });
+      releaseWorker();
+      assert.equal(await handoff, true);
+      assert.deepEqual(t.driver.currentTaskEnding!.stopSnapshot, ["adopted-write"]);
+      return sdk;
+    };
+    await t.driver.run(t.task);
+    finishOuter(); await outer;
+    assert.equal(t.runtime.store.getToolOp("adopted-write")!.effectUnknown, true);
+    assert.equal(t.runtime.store.getTaskEventsAfter(t.task.id, 0, 100).filter(e => ["task.completed", "task.interrupted"].includes(e.body.type)).length, 1);
+  } finally { releaseWorker(); finishOuter(); await outer; (t.driver as any).ensureSdk = ensureSdk; await t.shutdown(); }
+});

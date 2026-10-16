@@ -20,6 +20,7 @@ macOS 构建原生监督器另需 Command Line Tools 的 Clang。平台前置、
 | 命令 | 检查范围与产物 |
 | --- | --- |
 | `npm run build` | 构建原生监督器、工具与脚本 worker 及 WASM，再生成两产品的 `dist/*.tgz`；无需 Docker，应用通过 tsx 运行源码 |
+| `npm run desktop:mygo` / `npm run desktop:mygo:build` | 重建并启动／只构建 MyGo 试验应用，要求 macOS arm64 和 Go ≥ 1.27.1；详见[桌面开发](desktop-development.md) |
 | `npm run desktop:build` | 构建桌面三个目标、检查产物并 ad-hoc 签名 `dist/mac-arm64/Ruukoto.app`；根 build 不打包 Electron |
 | `npm run build:script` | 打包 `worker/workflow-script.mjs` 并复制同目录 WASM；脚本测试前运行 |
 | `npm run lint` | 检查正确性与关键约定，不统一全库排版 |
@@ -55,7 +56,7 @@ npx tsx --test verification/foundation/test/03-tools.test.ts
 | `packages/agent/src/` 的上下文与模型 | `test/18-model-selection.test.ts`、`test/60-context-prefix.test.ts`、`test/61-context-compaction.test.ts`、`test/98-media-model-pinning.test.ts` |
 | SubAgent、角色/工作区快照、worktree 与导入 | `test/80`–`87`、`91`、`95`；在 test/ 按 subagent-role、subagent-definition、workspace-snapshot、subagent-workspace-snapshot、work-copy-host 找文件 |
 | `packages/tui/src/tui/`、`packages/tui/src/config-tui/` | `test/13-tui-state.test.ts`、`test/14-tui-app.test.ts`、`test/15-tui-pty.test.ts`、`test/33-config-tui.test.ts` |
-| `apps/desktop/` | `test/38-desktop-main.test.ts`、`test/38-desktop-personal.test.ts`、`test/38-desktop-build.test.ts`、`test/39-desktop-recovery-guide.test.ts`、`test/40-desktop-creation.test.ts`、`test/41-desktop-stream.test.ts`、`test/42-desktop-inspector.test.ts`、`test/43-desktop-demo.test.ts`、`test/desktop-attachments.test.ts`、`test/desktop-agent-display.test.ts`、`test/desktop-context.test.ts`、`test/desktop-composer.test.ts`、`test/desktop-inspector-tools.test.ts`、`test/desktop-tool-activity.test.ts`、`test/desktop-workspace-files.test.ts`、`test/desktop-browser-security.test.ts`；Electron 实测另验 |
+| `apps/desktop/` | `test/38-desktop-main.test.ts`、`test/38-desktop-personal.test.ts`、`test/38-desktop-build.test.ts`、`test/39-desktop-recovery-guide.test.ts`、`test/40-desktop-creation.test.ts`、`test/41-desktop-stream.test.ts`、`test/42-desktop-inspector.test.ts`、`test/43-desktop-demo.test.ts`、`test/desktop-attachments.test.ts`、`test/desktop-agent-display.test.ts`、`test/desktop-context.test.ts`、`test/desktop-composer.test.ts`、`test/desktop-inspector-tools.test.ts`、`test/desktop-tool-activity.test.ts`、`test/desktop-workspace-files.test.ts`、`test/desktop-browser-security.test.ts`、`test/desktop-mygo.test.ts`；MyGo 另跑 `cd apps/desktop/mygo && go test -race ./...`；真实外壳另验 |
 | `packages/view/src/` 的共享投影与浏览器约束 | `test/36-event-flow-state.test.ts`、`test/37-view-browser.test.ts`；TUI 调用方另跑 13/14/34/19 |
 | `packages/channels/src/qq/`、`packages/channels/src/telegram/`、`packages/channels/src/scheduler/` | `test/26-qq.test.ts`、`test/37-scheduler-outbox.test.ts`、`test/38-telegram-owner.test.ts`、`test/40-qq-private.test.ts`、`test/89-im-entries.test.ts` |
 

@@ -662,6 +662,8 @@ Linux 使用对应 linux 资产并准备系统库、可用 sandbox、持久磁�
 
 ## 桌面客户端
 
+MyGo 试验运行 `npm run desktop:mygo`，或打开已构建的 `dist/mygo/darwin-arm64/Ruukoto MyGo.app`；要求 macOS Apple Silicon，构建前提见[桌面开发](desktop-development.md#mygo-试验)。它沿用同一界面与后台，独立保存 Personal 配置和未决提交；切换外壳前先在原应用核实未知操作。MyGo 子进程失败时重新打开应用，Node 或仓库路径失效时重新构建。
+
 在 macOS 运行 `npm run desktop:build` 后打开 `dist/mac-arm64/Ruukoto.app`。Code 可打开会话、提交输入、选择模型与会话默认模式、停止与继续任务、恢复暂停队列；日常应用采用登录 shell 的环境和日常 Code 档案，按需启动后台，退出应用后后台继续运行。开发入口与档案隔离见[开发说明](development.md#桌面客户端)。
 
 左下设置可切换明暗主题；两侧边界支持拖动与方向键调宽，折叠后保留宽度。输入区加号选择本机附件，单会话草稿最多四个、每个最多 8 MiB；文件按选择时快照提交，不授予本机路径读取权限。普通文件交给 Agent 通过产物读取，JPEG、PNG、WebP 交给支持图片的模型；纯附件也可发送。核实期间原文与附件留在输入框，发送图标转为加载；接收确认后清空。长差异点击 more 续读，空文件显示空内容。

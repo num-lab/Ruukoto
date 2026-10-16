@@ -54,7 +54,7 @@ export interface CodeTargetConfig extends EnsureBackendOptions {
 }
 export function codeTargetConfig(repository: string, source: DesktopEnvironment): CodeTargetConfig {
   const bin = path.join(repository, "apps/ruukoto-code/bin/ruukoto-code.mjs");
-  if (!path.isAbsolute(repository) || !fs.existsSync(bin)) throw new DesktopError("repository_missing", "构建时的仓库路径不可用；请在当前仓库运行 npm run desktop:build 重建应用。");
+  if (!path.isAbsolute(repository) || !fs.existsSync(bin)) throw new DesktopError("repository_missing", "构建时的仓库路径不可用；请在当前仓库运行 npm run desktop:build（Electron）或 npm run desktop:mygo:build（MyGo）重建应用。");
   const product = "ruukoto-code";
   const dataDir = path.resolve(defaultDataDir(product));
   const controlDir = path.resolve(controlDirFor(dataDir, product));

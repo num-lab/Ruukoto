@@ -12,3 +12,5 @@ node_modules/
 .env
 .env.*
 !.env.example
+# MyGo CLI 生成的嵌入资源
+/apps/desktop/mygo/mygo_generated_*.go

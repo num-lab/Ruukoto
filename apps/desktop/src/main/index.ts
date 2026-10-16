@@ -1,32 +1,16 @@
-import { pickAttachments } from "./attachments.ts";
 import { app, BrowserWindow, Notification, dialog, ipcMain, session, shell } from "electron";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { createHash } from "node:crypto";
-import { CodeController, serializeFailure } from "./controller.ts";
-import { ControlClientError } from "@ruukoto/control/client.ts";
-import { adoptEnvironment, codeTargetConfig, DesktopError, selectEnvironment } from "./environment.ts";
-import { handleRequest, ipcResult } from "./ipc.ts";
+import { DesktopError } from "./environment.ts";
+import { ipcResult } from "./ipc.ts";
 import { browserFrameAllowed, cspFor, denyBrowserPermissions, externalUrl, isRendererReload } from "./security.ts";
-import { PersonalController } from "./personal-controller.ts";
-import { loadPersonalConfig, savePersonalConfig } from "./personal-config.ts";
-import type { DesktopTarget, DesktopUpdate } from "../shared/bridge.ts";
-import { DesktopNotifications, type DesktopNotice } from "./notifications.ts";
-import { PendingRequestStore } from "@ruukoto/control/pending-requests.ts";
+import { DesktopHost } from "./host.ts";
+import type { DesktopNotice } from "./notifications.ts";
 
 declare const __RUUKOTO_REPOSITORY__: string;
 let window: BrowserWindow | null = null;
-let controller: CodeController | null = null;
-let initialization: Promise<void> | null = null;
-let environment: Promise<Awaited<ReturnType<typeof selectEnvironment>>> | null = null;
-let personal: PersonalController | null = null;
-let personalInitialization: Promise<void> | null = null;
-let personalGeneration = 0;
 let quitting = false;
 let quitReady = false;
-const subscribed = new Set<DesktopTarget>();
-const lastState: Record<DesktopTarget, DesktopUpdate> = { code: { type: "state", state: "connecting" }, personal: { type: "state", state: "closed", detail: "尚未配置 Personal 连接" } };
-const navigation = new Map<DesktopTarget, Extract<DesktopUpdate, { type: "navigate" }>>();
 const notifications = new Set<Notification>();
 function showNotice(notice: DesktopNotice): void {
   if (!Notification.isSupported()) return;
@@ -38,68 +22,19 @@ function showNotice(notice: DesktopNotice): void {
     notifications.delete(notification);
     window?.show();
     window?.focus();
-    const update: Extract<DesktopUpdate, { type: "navigate" }> = { type: "navigate", instanceId: notice.instanceId, navigation: { sessionId: notice.sessionId, taskId: notice.taskId } };
-    if (subscribed.has(notice.target)) publishTarget(notice.target, update);
-    else navigation.set(notice.target, update);
+    host.navigate(notice);
   });
   notification.show();
 }
-const notificationState = new DesktopNotifications(() => !!window?.isFocused(), showNotice, count => {
-  try { app.dock?.setBadge(count ? String(count) : ""); }
-  catch { process.stderr.write("[ruukoto:desktop] Dock 角标更新失败；请在应用中查看待审批。\n"); }
-}, async (target, taskId) => {
-  const source = target === "code" ? controller : personal;
-  if (!source) throw new ControlClientError("connection_unavailable", "连接不可用", "not_sent");
-  return source.request("get_task", { task_id: taskId });
+const host = new DesktopHost(__RUUKOTO_REPOSITORY__, app.getPath("userData"), {
+  publish: (target, update) => { if (window && !window.isDestroyed()) window.webContents.send("desktop:update", target, update); },
+  focused: () => !!window?.isFocused(),
+  notice: showNotice,
+  badge: count => {
+    try { app.dock?.setBadge(count ? String(count) : ""); }
+    catch { process.stderr.write("[ruukoto:desktop] Dock 角标更新失败；请在应用中查看待审批。\n"); }
+  },
 });
-function publishTarget(target: DesktopTarget, update: DesktopUpdate): void {
-  notificationState.update(target, update);
-  if (update.type === "state") lastState[target] = update;
-  if (subscribed.has(target) && window && !window.isDestroyed()) window.webContents.send("desktop:update", target, update);
-}
-const publish = (update: DesktopUpdate) => publishTarget("code", update);
-function getEnvironment(): NonNullable<typeof environment> {
-  environment ??= selectEnvironment(process.env).then(source => { adoptEnvironment(source.env); return source; }).catch(error => { environment = null; throw error; });
-  return environment;
-}
-async function initializeController(): Promise<void> {
-  const source = await getEnvironment();
-  if (quitting) return;
-  const config = codeTargetConfig(__RUUKOTO_REPOSITORY__, source);
-  controller = new CodeController(config, publish, undefined, new PendingRequestStore(path.join(app.getPath("userData"), "pending", "code", createHash("sha256").update(config.controlDir).digest("hex"))));
-}
-function reconnectPersonal(replace = false): Promise<void> {
-  if (quitting) return Promise.resolve();
-  if (personalInitialization && !replace) return personalInitialization;
-  const generation = ++personalGeneration;
-  const previous = personalInitialization;
-  const closing = personal?.close();
-  personalInitialization = (async () => {
-    try {
-      await closing;
-      await previous;
-      if (quitting || generation !== personalGeneration) return;
-      const config = loadPersonalConfig(app.getPath("userData"));
-      if (!config) return;
-      const source = await getEnvironment();
-      if (quitting || generation !== personalGeneration) return;
-      personal = new PersonalController(config, app.getPath("userData"), update => { if (generation === personalGeneration) publishTarget("personal", update); }, source.env);
-      await personal.reconnect();
-    } catch (error) { if (generation === personalGeneration && !quitting) publishTarget("personal", { type: "state", state: "failed", error: serializeFailure(error) }); }
-  })().finally(() => { if (generation === personalGeneration) personalInitialization = null; });
-  return personalInitialization;
-}
-function reconnect(): Promise<void> {
-  if (initialization) return initialization;
-  initialization = (async () => {
-    if (!controller) {
-      try { await initializeController(); }
-      catch (error) { publish({ type: "state", state: "failed", error: serializeFailure(error) }); return; }
-    }
-    if (!quitting) await controller!.reconnect();
-  })().finally(() => { initialization = null; });
-  return initialization;
-}
 function trusted(event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent): boolean {
   return !!window && event.sender === window.webContents && event.senderFrame === window.webContents.mainFrame;
 }
@@ -139,48 +74,24 @@ async function createWindow(): Promise<void> {
     openExternal(url);
   });
   contents.setWindowOpenHandler(({ url, referrer }) => { if (referrer.url === contents.getURL()) openExternal(url); return { action: "deny" }; });
-  window.on("closed", () => { subscribed.clear(); window = null; });
+  window.on("closed", () => { window = null; });
   if (devUrl) await window.loadURL(devUrl);
   else await window.loadFile(fileURLToPath(new URL("../renderer/index.html", import.meta.url)));
 }
 
 ipcMain.on("desktop:subscribe", (event, target: unknown) => {
   if (!trusted(event) || (target !== "code" && target !== "personal")) return;
-  subscribed.add(target);
-  publishTarget(target, lastState[target]);
-  const intent = navigation.get(target);
-  if (intent) { navigation.delete(target); publishTarget(target, intent); }
-  if (target === "code" && (!controller || controller.status.state === "online")) void reconnect();
-  if (target === "personal" && (!personal || personal.status.state === "online")) void reconnectPersonal();
+  host.subscribe(target);
 });
 ipcMain.handle("desktop:request", async (event, target, op, params) => {
   const checked = await ipcResult(() => assertTrusted(event));
-  return checked.ok ? handleRequest(target, op, params, target === "personal" ? reconnectPersonal : reconnect, (op, params) => {
-    if (target === "personal") {
-      if (!personal) throw new ControlClientError("connection_unavailable", "连接不可用：请求未发送", "not_sent");
-      return personal.request(op, params);
-    }
-    if (!controller) throw new ControlClientError("connection_unavailable", "连接不可用：请求未发送", "not_sent");
-    return controller.dispatch(op, params);
-  }, (op, params) => {
-    if (!controller?.submissions) throw new DesktopError("connection_unavailable", "请等待连接恢复后再处理原输入。");
-    return controller.submissions.local(op, params);
-  }, async (op, params) => {
-    if (op === "desktop_personal_config_read") return loadPersonalConfig(app.getPath("userData"));
-    const config = savePersonalConfig(app.getPath("userData"), params);
-    await reconnectPersonal(true);
-    return config;
-  }) : checked;
+  return checked.ok ? host.request(target, op, params) : checked;
 });
 ipcMain.handle("desktop:pick-attachments", (event, sessionId: unknown) => ipcResult(async () => {
   assertTrusted(event);
-  const source = controller;
-  if (!source || source.status.state !== "online") throw new DesktopError("connection_unavailable", "请等待连接恢复后附加文件。");
-  if (typeof sessionId !== "string") throw new DesktopError("invalid_params", "请选择会话后附加文件。");
-  return pickAttachments(sessionId, {
-    instanceId: () => controller === source && source.status.state === "online" ? source.instanceId() : null,
-    pick: async () => { const selection = await dialog.showOpenDialog(window!, { properties: ["openFile", "multiSelections"], title: "选择附件" }); return selection.canceled ? [] : selection.filePaths; },
-    upload: params => source.request("put_attachment", params),
+  return host.pickAttachments(sessionId, async () => {
+    const selection = await dialog.showOpenDialog(window!, { properties: ["openFile", "multiSelections"], title: "选择附件" });
+    return selection.canceled ? [] : selection.filePaths;
   });
 }));
 ipcMain.handle("desktop:pick-folder", event => ipcResult(async () => {
@@ -199,11 +110,9 @@ app.on("before-quit", event => {
   event.preventDefault();
   if (quitting) return;
   quitting = true;
-  ++personalGeneration;
-  controller?.close();
-  void Promise.all([personal?.close(), personalInitialization, initialization]).catch(() => {
+  void host.close().catch(() => {
     process.stderr.write("[ruukoto:desktop] Personal 退出清理失败；请检查应用数据目录权限。\n");
   }).finally(() => { quitReady = true; app.quit(); });
 });
 app.on("window-all-closed", () => app.quit());
-app.whenReady().then(async () => { await createWindow(); void reconnectPersonal(); }).catch(() => { process.stderr.write("[ruukoto:desktop] 桌面窗口启动失败，请检查开发 nonce 或重新构建应用。\n"); app.quit(); });
+app.whenReady().then(async () => { await createWindow(); void host.reconnectPersonal(); }).catch(() => { process.stderr.write("[ruukoto:desktop] 桌面窗口启动失败，请检查开发 nonce 或重新构建应用。\n"); app.quit(); });

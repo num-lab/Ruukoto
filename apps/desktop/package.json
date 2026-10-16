@@ -7,7 +7,9 @@
   "main": "out/main/index.js",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "desktop:build": "electron-vite build && node scripts/check-build.mjs && electron-builder --mac --arm64 --dir"
+    "desktop:build": "electron-vite build && node scripts/check-build.mjs && electron-builder --mac --arm64 --dir",
+    "desktop:mygo": "node scripts/mygo.mjs run",
+    "desktop:mygo:build": "node scripts/mygo.mjs build"
   },
   "devDependencies": {
     "@ruukoto/control": "*",
@@ -46,7 +48,8 @@
     "files": [
       "out/**/*",
       "package.json",
-      "!node_modules/**/*"
+      "!node_modules/**/*",
+      "!out/mygo/**/*"
     ],
     "npmRebuild": false,
     "mac": {

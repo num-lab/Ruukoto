@@ -25,6 +25,8 @@ Status: implemented
 
 ## 后果
 
+后续 [Desktop Trace 迁移](../architecture/2026-10-16-desktop-trace-migration.md)将既有 patch 来源扩至 Write，原分页与缺失语义继续成立。
+
 旧 TUI 与桌面预览调用不迁移，分页调用可使用原控制面认证、会话归属和持久条目身份。没有新文件读取能力、存储格式、数据库版本或工具执行行为。每页仍解析当前会话 JSONL 并携带旧预览，不缓存完整结果；超长会话的重复解析成本保留，出现实际读取瓶颈时再测量并调整历史读取实现。
 
 `test/11-history-read.test.ts` 同时覆盖 core 边界和真实 Runtime/ControlServer：中文与 emoji 跨页、超过 64 KiB 的两个结构字段、追加条目后总长固定、旧调用预览不变、字段缺失、空写入、失败 isError 保留、非法参数及最坏 JSON 转义下的帧上限。桌面 more 的加载、拼接与过期响应由正式迁移调用方单独验收。

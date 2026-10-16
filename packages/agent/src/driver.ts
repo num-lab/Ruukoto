@@ -1643,6 +1643,11 @@ export class Driver {
         return;
       }
       case "message_end": {
+        if (event.message.role === "toolResult") {
+          // SDK 在监听返回后同步落盘；逐条发引用，不等待同批其他工具结束。
+          setImmediate(() => this.flushEntryRefs(task));
+          return;
+        }
         if (event.message.role === "user" && this.pendingUserAttachments.length > 0) {
           (event.message as any).ruukotoAttachmentRefs = this.pendingUserAttachments;
           this.pendingUserAttachments = [];
@@ -1708,7 +1713,9 @@ export class Driver {
   }
 
   /** 读 JSONL，把本次任务尚未引用过的消息条目补发为 output_entry（先核实落盘）。 */
+  // Note: 见 .agents/notes/implemented/architecture/2026-10-16-desktop-trace-migration.md
   private flushEntryRefs(task: Task): void {
+    if (this.managedTaskId !== task.id) return;
     try {
       const file = this.sdk?.sessionFile;
       if (!file || !fs.existsSync(file)) return;

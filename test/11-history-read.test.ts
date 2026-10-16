@@ -65,29 +65,35 @@ test("工具结果分页：字段独立、UTF-8 连续偏移、末尾空页与�
   const patch = "a中文🙂\n尾行";
   const file = tmpFile([
     msgEntry("edit-page", "toolResult", "普通结果不是补丁", { toolName: "edit", isError: false, details: { patch } }),
+    msgEntry("write-page", "toolResult", "写入结果不是补丁", { toolName: "write", isError: false, details: { patch } }),
     msgEntry("empty-call", "assistant", "", { content: [{ type: "toolCall", id: "empty", name: "write", arguments: { content: "" } }] }),
-    msgEntry("empty-result", "toolResult", "写入成功", { toolName: "write", toolCallId: "empty", isError: false }),
+    msgEntry("empty-result", "toolResult", "写入成功", { toolName: "write", toolCallId: "empty", isError: false, details: { patch: "" } }),
+    msgEntry("legacy-write", "toolResult", "未记录补丁的旧写入", { toolName: "write", isError: false }),
     msgEntry("missing", "toolResult", "看起来像补丁的普通结果", { toolName: "edit", isError: false }),
   ]);
   try {
-    let offset = 0;
-    let assembled = "";
     const totalBytes = Buffer.byteLength(patch);
-    do {
-      const result = readToolResult(file, "edit-page", 4, { field: "patch", offset });
-      assert.ok(result.content);
-      assert.equal(result.content.offset, offset);
-      assert.equal(result.content.totalBytes, totalBytes);
-      assert.ok(result.content.text.length > 0);
-      assert.equal(result.content.text.includes("\uFFFD"), false);
-      assembled += result.content.text;
-      offset += Buffer.byteLength(result.content.text);
-    } while (offset < totalBytes);
-    assert.equal(assembled, patch);
+    for (const entryId of ["edit-page", "write-page"]) {
+      let offset = 0;
+      let assembled = "";
+      do {
+        const result = readToolResult(file, entryId, 4, { field: "patch", offset });
+        assert.ok(result.content);
+        assert.equal(result.content.offset, offset);
+        assert.equal(result.content.totalBytes, totalBytes);
+        assert.ok(result.content.text.length > 0);
+        assert.equal(result.content.text.includes("\uFFFD"), false);
+        assembled += result.content.text;
+        offset += Buffer.byteLength(result.content.text);
+      } while (offset < totalBytes);
+      assert.equal(assembled, patch);
+    }
     assert.deepEqual(readToolResult(file, "edit-page", 4, { field: "patch", offset: totalBytes }).content, { text: "", offset: totalBytes, totalBytes, truncated: true });
     const empty = readToolResult(file, "empty-result", 4, { field: "writeContent" });
     assert.deepEqual(empty.content, { text: "", offset: 0, totalBytes: 0, truncated: false });
     assert.equal(empty.writeTotalLines, 0);
+    assert.deepEqual(readToolResult(file, "empty-result", 4, { field: "patch" }).content, { text: "", offset: 0, totalBytes: 0, truncated: false });
+    assert.equal(readToolResult(file, "legacy-write", 4, { field: "patch" }).content, null);
     assert.equal(readToolResult(file, "missing", 4, { field: "patch" }).content, null);
     assert.equal(readToolResult(file, "edit-page", 4, { field: "writeContent" }).content, null);
     for (const read of [
@@ -107,6 +113,7 @@ test("read_tool_result：真实控制面跨 64KiB 补丁与 Write 分页保持�
   const written = "新中文🙂\r\n".repeat(9_000) + "末行";
   const file = tmpFile([
     msgEntry("patch", "toolResult", "普通摘要", { toolName: "edit", isError: false, details: { patch, secret: "不公开" } }),
+    msgEntry("write-patch", "toolResult", "写入摘要", { toolName: "write", isError: false, details: { patch } }),
     msgEntry("write-call", "assistant", "", { content: [{ type: "toolCall", id: "write-call", name: "write", arguments: { content: written } }] }),
     msgEntry("write-result", "toolResult", "写入摘要", { toolName: "write", toolCallId: "write-call", isError: true }),
     msgEntry("empty-call", "assistant", "", { content: [{ type: "toolCall", id: "empty-call", name: "write", arguments: { content: "" } }] }),
@@ -118,7 +125,7 @@ test("read_tool_result：真实控制面跨 64KiB 补丁与 Write 分页保持�
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
     t.runtime.store.setSessionFile(sessionId, file);
     const read = (entryId: string, extra: Record<string, unknown> = {}) => t.client.request<ReturnType<typeof readToolResult>>("read_tool_result", { session_id: sessionId, entry_id: entryId, ...extra });
-    for (const [entryId, field, expected] of [["patch", "patch", patch], ["write-result", "writeContent", written]] as const) {
+    for (const [entryId, field, expected] of [["patch", "patch", patch], ["write-patch", "patch", patch], ["write-result", "writeContent", written]] as const) {
       const preview = await read(entryId);
       assert.equal("content" in preview, false, "旧调用不增加响应字段");
       let offset = 0;

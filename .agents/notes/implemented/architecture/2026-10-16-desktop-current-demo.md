@@ -20,6 +20,8 @@ Context 接既有选择记录和窗口快照，Effort 接模型真实档位，th
 
 ## 后果
 
+本篇 thinking 正文与工具详情决定由[后续 Trace 迁移](2026-10-16-desktop-trace-migration.md)部分取代，原迁移证据与其他边界继续保留。
+
 工程与隔离 Electron 验收见[工单](../../../../.scratch/desktop-shadcn/issues/05-current-demo-migration.md)。新旧冻结稿分别保留，主题和全部原语逐字可追溯至 v2；真实思考与工具空正文在渲染前过滤，避免无内容的消息行占距，纯附件消息仍显示。独立审查发现的断线转发、Context 在途新事件刷新与空消息外层间距均配最窄回归。
 
 iframe 受站点嵌入策略限制，地址栏历史不包含网页内部历史；网页没有 bridge、Node、设备或顶层导航权。文件单层返回 200 项、预览 256 KiB，截断与不支持显式可见；Node 的路径前后复核不等同原子 openat 沙箱。Context 容量来自记录快照，缺失保持未知。协议提升到 28，旧客户端明确拒绝。

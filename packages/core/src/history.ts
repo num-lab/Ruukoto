@@ -506,8 +506,9 @@ function toolResultPage(content: string | null, offset: number, length: number):
   return page;
 }
 
-/** 只暴露结果正文、Edit patch 与 Write 原文；分页拒绝越界或非 UTF-8 边界的偏移，缺字段与空原文分别返回 null 与空页。 */
+/** 只暴露结果正文、Edit／Write 已记录的 patch 与 Write 原文；分页拒绝越界或非 UTF-8 边界的偏移，缺字段与空原文分别返回 null 与空页。 */
 // Note: 见 .agents/notes/implemented/feature/2026-10-16-tool-result-pagination.md
+// Note: 见 .agents/notes/implemented/architecture/2026-10-16-desktop-trace-migration.md
 export function readToolResult(sessionFile: string | null, entryId: string, length = 16 * 1024, page?: ToolResultPageOptions): ToolResultView {
   if (!sessionFile || !fs.existsSync(sessionFile)) {
     throw new HistoryReadError("entry_not_found", `会话文件尚未落盘，条目不可读：${entryId}`);
@@ -523,7 +524,7 @@ export function readToolResult(sessionFile: string | null, entryId: string, leng
   const details = message.details as Record<string, unknown> | null;
   const cap = page ? 16 * 1024 : Math.min(Math.max(1, length), 64 * 1024);
   const text = sliceTextByBytes(extracted.text, 0, cap);
-  const patchContent = extracted.view.toolName === "edit" && typeof details?.patch === "string" ? details.patch : null;
+  const patchContent = (extracted.view.toolName === "edit" || extracted.view.toolName === "write") && typeof details?.patch === "string" ? details.patch : null;
   const patch = patchContent === null ? null : sliceTextByBytes(patchContent, 0, cap);
   let writeContent = null;
   let fullWriteContent: string | null = null;

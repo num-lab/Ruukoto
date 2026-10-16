@@ -18,6 +18,10 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { execFileSync } from "node:child_process";
+import { createLocalLauncher } from "@ruukoto/agent/execution/launchers.ts";
+import { ToolWorkerHost } from "@ruukoto/agent/tool-worker/host.ts";
+import { MAX_FRAME_BYTES } from "@ruukoto/agent/tool-worker/protocol.ts";
+import * as os from "node:os";
 import {
   startTestRuntime,
   waitFor,
@@ -25,6 +29,7 @@ import {
   taskStatus,
   connectAuthedClient,
   realTools,
+  lastUserText,
 } from "./helpers/testkit.ts";
 import type { Responder } from "./helpers/mock-provider.ts";
 
@@ -61,6 +66,42 @@ function repairResponder(): Responder {
 function initGitRepo(dir: string): void {
   execFileSync("git", ["init", "-q"], { cwd: dir });
 }
+
+test("同批后续工具仍运行时，已落盘结果逐条可读；旧任务迟到扫描不消费新消息身份", async () => {
+  let nextRequest = false;
+  let releaseModel!: () => void;
+  const modelGate = new Promise<void>(resolve => { releaseModel = resolve; });
+  const t = await startTestRuntime("per-tool-entry", async req => {
+    if (lastUserText(req).includes("NEXT_TASK")) { nextRequest = true; await modelGate; return { kind: "text", text: "下一任务完成" }; }
+    if (req.messages.some(message => message.role === "tool")) return { kind: "text", text: "本批完成" };
+    return { kind: "tool_calls", calls: [{ id: "first", name: "read", arguments: { path: "first.txt" } }, { id: "second", name: "bash", arguments: { command: "touch second-started; while [ ! -f release-second ]; do sleep 0.1; done" } }] };
+  }, { workDirs: 1, config: realTools() });
+  try {
+    fs.writeFileSync(path.join(t.work[0], "first.txt"), "第一条真实结果\n");
+    const { sessionId } = await createProjectSession(t.client, t.work[0]);
+    const first = await t.runtime.submit({ sessionId, requestId: "first", input: "运行两个工具", modelSelection: t.runtime.defaultSelection, accessMode: "full_access" });
+    await waitFor("第二个工具等待门控", () => fs.existsSync(path.join(t.work[0], "second-started")), 15_000);
+    const entry = t.runtime.readHistory({ sessionId }).entries.find(entry => entry.toolCallId === "first")!;
+    assert.ok(entry, "第一条结果已写入 JSONL");
+    const references = () => t.runtime.readTaskEvents({ taskId: first.id }).events.filter(event => event.body.type === "task.output_entry" && event.body.entryId === entry.entryId);
+    await waitFor("第一条落盘引用已发布", () => references().length === 1, 2000);
+    assert.equal(t.runtime.store.getTask(first.id)?.status, "running");
+    assert.match(t.runtime.readHistoryEntry({ sessionId, entryId: entry.entryId }).text, /第一条真实结果/);
+    fs.writeFileSync(path.join(t.work[0], "release-second"), "");
+    await waitFor("本批完成", () => t.runtime.store.getTask(first.id)?.status === "completed", 15_000);
+    assert.equal(references().length, 1, "turn_end 不重复引用");
+    const second = await t.runtime.submit({ sessionId, requestId: "next", input: "NEXT_TASK", modelSelection: t.runtime.defaultSelection, accessMode: "full_access" });
+    await waitFor("下一任务模型请求已开始", () => nextRequest);
+    const driver = t.runtime["drivers"].get(sessionId)!;
+    const pending = [...driver["pendingEntryMsgIds"]];
+    const count = t.runtime.readTaskEvents({ taskId: first.id }).events.length;
+    driver["flushEntryRefs"](first);
+    assert.deepEqual(driver["pendingEntryMsgIds"], pending);
+    assert.equal(t.runtime.readTaskEvents({ taskId: first.id }).events.length, count);
+    releaseModel();
+    await waitFor("下一任务完成", () => t.runtime.store.getTask(second.id)?.status === "completed", 15_000);
+  } finally { releaseModel(); fs.writeFileSync(path.join(t.work[0], "release-second"), ""); await t.shutdown(); }
+});
 
 test("真实工具：读取—修改—检查失败—修复—检查通过，正文捕获为产物", async () => {
   const t = await startTestRuntime("realtools", repairResponder(), { workDirs: 1, config: realTools() });
@@ -136,11 +177,12 @@ test("真实工具：读取—修改—检查失败—修复—检查通过，�
   }
 });
 
-test("真实 Write：新建与覆盖文件的 diff 统计持久化", async () => {
+test("真实 Write：新建、覆盖与无变化的实际 diff 和统计持久化", async () => {
   const t = await startTestRuntime("realtools-write-stats", (req) => {
     const done = req.messages.filter((m) => m?.role === "tool").length;
     if (done === 0) return { kind: "tool_calls", calls: [{ id: "write-create", name: "write", arguments: { path: "notes.txt", content: "alpha\nbeta\n" } }] };
     if (done === 1) return { kind: "tool_calls", calls: [{ id: "write-overwrite", name: "write", arguments: { path: "notes.txt", content: "alpha\ngamma\nextra\n" } }] };
+    if (done === 2) return { kind: "tool_calls", calls: [{ id: "write-same", name: "write", arguments: { path: "notes.txt", content: "alpha\ngamma\nextra\n" } }] };
     return { kind: "text", text: "写入完成" };
   }, { workDirs: 1, config: realTools() });
   try {
@@ -153,21 +195,43 @@ test("真实 Write：新建与覆盖文件的 diff 统计持久化", async () =>
     await waitFor("Write 任务完成", async () => (await taskStatus(t.client, task.id)).task.status === "completed", 60_000);
 
     assert.equal(fs.readFileSync(path.join(dir, "notes.txt"), "utf8"), "alpha\ngamma\nextra\n");
-    const stats = [{ added: 2, removed: 0 }, { added: 2, removed: 1 }];
+    const stats = [{ added: 2, removed: 0 }, { added: 2, removed: 1 }, { added: 0, removed: 0 }];
     const events = t.runtime.readTaskEvents({ taskId: task.id }).events
       .flatMap((event) => event.body.type === "task.tool_result" ? [event.body] : []);
-    assert.deepEqual(events.map((event) => event.editStats), stats, "工具结果事件记录两次 Write 的增删行数");
+    assert.deepEqual(events.map((event) => event.editStats), stats, "工具结果事件记录各次 Write 的增删行数");
     const history = t.runtime.readHistory({ sessionId });
+    fs.writeFileSync(path.join(dir, "notes.txt"), "后续外部变更不改写旧调用的 diff\n");
     for (const [index, entry] of history.entries.filter((entry) => entry.toolName === "write").entries()) {
       const result = await t.client.request<any>("read_tool_result", { session_id: sessionId, entry_id: entry.entryId });
-      assert.equal(result.writeContent, ["alpha\nbeta\n", "alpha\ngamma\nextra\n"][index], "从实际 SDK assistant arguments 还原 Write 原文");
-      assert.equal(result.patch, null);
+      assert.equal(result.writeContent, ["alpha\nbeta\n", "alpha\ngamma\nextra\n", "alpha\ngamma\nextra\n"][index], "从实际 SDK assistant arguments 还原 Write 原文");
+      if (index === 0) assert.match(result.patch, /\+alpha\n\+beta/);
+      else if (index === 1) assert.match(result.patch, /-beta\n\+gamma\n\+extra/);
+      else assert.equal(result.patch, "", "已捕获的无变化与未记录补丁不同");
+      assert.equal(result.isError, false);
     }
     assert.deepEqual(history.entries.filter((entry) => entry.toolName === "write").map((entry) => entry.editStats), stats,
-      "会话历史保留两次 Write 的增删行数");
+      "会话历史保留各次 Write 的增删行数");
   } finally {
     await t.shutdown();
   }
+});
+
+test("Write diff 的 JSON 转义使结果帧超限时，省略补丁且保留成功写入与统计", async () => {
+  const workspace = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-write-patch-")));
+  const file = path.join(workspace, "escaped.txt");
+  const previous = `${"\u0001".repeat(Math.floor(MAX_FRAME_BYTES / 6) + 100)}\n`;
+  fs.writeFileSync(file, previous);
+  const host = ToolWorkerHost.create(createLocalLauncher(), { taskId: "write-patch-frame", mode: "full_access", workspace, grantedPaths: [] });
+  try {
+    const result = await host.call({ opId: "overwrite", sdkCallId: "overwrite", name: "write", params: { path: "escaped.txt", content: "new\n" } });
+    assert.equal(result.ok, true);
+    assert.equal(result.isError, false);
+    assert.deepEqual(result.details, { editStats: { added: 1, removed: 1 } });
+    assert.equal(fs.readFileSync(file, "utf8"), "new\n");
+    const next = await host.call({ opId: "next", sdkCallId: "next", name: "write", params: { path: "escaped.txt", content: "next\n" } });
+    assert.equal(next.ok, true);
+    assert.match((next.details as { patch: string }).patch, /-new\n\+next/);
+  } finally { await host.stop(); fs.rmSync(workspace, { recursive: true, force: true }); }
 });
 
 test("断开客户端后任务继续；重连可见改动、检查结果与产物引用", async () => {

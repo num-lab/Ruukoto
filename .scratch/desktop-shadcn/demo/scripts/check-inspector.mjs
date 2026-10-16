@@ -60,8 +60,24 @@ export async function checkInspector(server) {
   assert.ok(renderToStaticMarkup(createElement(WorkspaceFiles, { name: "新工作区", files: [], expanded: {}, onExpand() {}, onOpen() {} })).includes("暂无文件"));
 
   const preview = (file, mode = "preview") => renderToStaticMarkup(createElement(FilePreview, { file, path: file?.path ?? "missing.ts", mode, onMode() {}, onFiles() {}, onUrl() {} }));
+  const { highlightSource } = await server.ssrLoadModule("/src/source-highlighting.ts");
+  const sourceText = '/* first line\n * second line */\nconst markup = "<script>alert(1)</script> & \"quoted\"";\n\n';
+  const highlighted = highlightSource("sample.ts", sourceText);
+  assert.ok(highlighted.includes('class="hljs-comment"') && highlighted.includes('class="hljs-keyword"'));
+  const withoutTokens = highlighted.replace(/<span class="[^"]+">|<\/span>/g, "");
+  assert.equal(`<code>${withoutTokens}</code>`, renderToStaticMarkup(createElement("code", null, sourceText)), "跨行注释、空行、末尾换行与危险文本应逐字保留");
+  assert.ok(!highlighted.includes("<script>"), "高亮不得把源码变成实际 HTML");
+  assert.equal(highlightSource("unknown.xyz", sourceText), null);
+  assert.equal(highlightSource("empty.ts", ""), "");
+  for (const id of ["ws-fumo", "ws-nexus", "ws-eval", "ws-menubar"]) {
+    for (const file of workspaceFiles(id).filter(file => ["text", "markdown"].includes(file.kind) && file.content)) {
+      assert.ok(highlightSource(file.path, file.content)?.includes('class="hljs-'), `样例语言未高亮：${file.path}`);
+      assert.ok(preview(file, "source").includes('class="file-source-gutter"'), "高亮与固定行号共享一个滚动容器");
+    }
+  }
+  assert.ok(preview({ path: "plain.txt", kind: "text", content: sourceText }).includes("&lt;script&gt;"), "未知语言由 React 转义为纯文本");
   const escaped = preview({ path: "sample.ts", kind: "text", content: '<script>alert(1)</script>\nsecond line' });
-  assert.ok(escaped.includes("&lt;script&gt;alert(1)&lt;/script&gt;") && !escaped.includes("<script>"));
+  assert.ok(escaped.includes("&lt;script&gt;") && !escaped.includes("<script>"));
   assert.equal((escaped.match(/class="file-line"/g) ?? []).length, 2);
   const empty = preview({ path: "empty.txt", kind: "text", content: "" });
   assert.ok(empty.includes('aria-label="文件源码"') && !empty.includes('class="file-line"') && !empty.includes("文件不可用"), "空文件保持空源码区");

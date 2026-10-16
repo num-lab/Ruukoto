@@ -275,7 +275,8 @@ function editOperations(): EditOperations {
   };
 }
 
-function writeOperations(onStats: (stats: EditStats) => void): WriteOperations {
+// Note: 见 .agents/notes/implemented/architecture/2026-10-16-desktop-trace-migration.md
+function writeOperations(onPatch: (patch: string) => void): WriteOperations {
   return {
     writeFile: async (absolutePath, content) => {
       let previous: string | undefined;
@@ -287,9 +288,9 @@ function writeOperations(onStats: (stats: EditStats) => void): WriteOperations {
       await fs.promises.writeFile(absolutePath, content, "utf8");
       if (previous !== undefined) {
         try {
-          onStats(statsFromPatch(generateUnifiedPatch(absolutePath, previous, content)));
+          onPatch(previous === content ? "" : generateUnifiedPatch(absolutePath, previous, content));
         } catch {
-          // 展示统计失败不能把已成功的写入报为失败。
+          // 展示差异与统计失败不能把已成功的写入报为失败。
         }
       }
     },
@@ -344,11 +345,11 @@ async function handleToolCall(req: Extract<WorkerRequest, { type: "tool_call" }>
     fail(`未知工具：${req.name}`, req.opId);
     return;
   }
-  let writeStats: EditStats | undefined;
+  let writeDetails: { editStats: EditStats; patch?: string } | undefined;
   const def = req.name === "read"
     ? createWorkerReadTool(loaded.cwd)
     : req.name === "write"
-      ? createWriteToolDefinition(loaded.cwd, { operations: writeOperations((stats) => { writeStats = stats; }) })
+      ? createWriteToolDefinition(loaded.cwd, { operations: writeOperations(patch => { writeDetails = { patch, editStats: statsFromPatch(patch) }; }) })
       : loaded.tools.get(req.name)!;
   const controller = new AbortController();
   const timer = req.timeoutMs ? setTimeout(() => controller.abort(new Error("timeout")), req.timeoutMs) : undefined;
@@ -358,14 +359,17 @@ async function handleToolCall(req: Extract<WorkerRequest, { type: "tool_call" }>
     const result = await def.execute(req.opId, req.params as any, controller.signal, undefined, {
       cwd: loaded.cwd,
     } as any);
-    sendMessage({
+    const message: WorkerMessage = {
       type: "result",
       opId: req.opId,
       ok: true,
       content: result.content as unknown[],
-      details: req.name === "write" ? (writeStats ? { editStats: writeStats } : undefined) : result.details,
+      details: req.name === "write" ? writeDetails : result.details,
       isError: Boolean((result as any).isError),
-    });
+    };
+    // 补丁是可缺失的展示资料；按最终转义帧预算，避免把已成功的写入改报失败。
+    if (writeDetails?.patch !== undefined && Buffer.byteLength(JSON.stringify(message), "utf8") > MAX_FRAME_BYTES) delete writeDetails.patch;
+    sendMessage(message);
   } catch (err) {
     const aborted = controller.signal.aborted;
     sendMessage({

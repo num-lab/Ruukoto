@@ -7,12 +7,12 @@ import type { DiffTool } from "../apps/desktop/src/renderer/diff.ts";
 
 const read = (path: string) => fs.readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 test("正式 GUI 复用拥有者定稿样式、官方组件与侧栏交互，原生适配只追加", () => {
-  const demo = ".scratch/desktop-shadcn/approved-demo-v2/src";
+  const demo = ".scratch/desktop-shadcn/approved-demo-v3/src";
   const gui = "apps/desktop/src/renderer";
   const styles = read(`${gui}/style.css`);
   assert.ok(styles.startsWith(read(`${demo}/style.css`)));
   assert.match(styles, /\.command-code code\s*\{\s*white-space:\s*pre;/, "真实多行命令必须保留换行与缩进");
-  for (const file of ["reference.css", "theme.css", "sidebar-resizer.tsx", "lib/utils.ts"]) assert.equal(read(`${gui}/${file}`), read(`${demo}/${file}`), file);
+  for (const file of ["reference.css", "theme.css", "sidebar-resizer.tsx", "lib/utils.ts", "source-highlighting.ts"]) assert.equal(read(`${gui}/${file}`), read(`${demo}/${file}`), file);
   const primitives = fs.readdirSync(new URL(`../${demo}/components/ui/`, import.meta.url)).sort();
   assert.deepEqual(fs.readdirSync(new URL(`../${gui}/components/ui/`, import.meta.url)).sort(), primitives);
   for (const name of primitives) {

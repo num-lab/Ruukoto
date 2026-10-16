@@ -1,13 +1,14 @@
 import { browserAddress, browserNavigation, navigateBrowser, type BrowserNavigation } from "./browser-navigation.ts";
 import { sessionDisplayAttribution } from "@ruukoto/control/session-attribution.ts";
 import type { OpParams, OpResult } from "@ruukoto/control/ops.ts";
-import { utf8ByteLength } from "@ruukoto/view/utf8.ts";
 import type { ViewState } from "@ruukoto/view/state.ts";
 import type { DesktopBridge, DesktopResult, DesktopUpdate } from "../shared/bridge.ts";
 import { canReadDiff, isDiffTool, type DiffTool } from "./diff.ts";
+import { toolPage } from "./tool-page.ts";
 
 interface DiffResult { entryId: string; field?: "text" | "patch" | "writeContent"; value?: OpResult<"read_tool_result">; error?: string; moreError?: string; nextOffset?: number; totalBytes?: number; loading?: boolean }
 interface DiffSelection { sessionId: string; key: string; entryId: string | null }
+interface ToolParams { loading: boolean; value?: Record<string, unknown>; error?: string }
 export type InspectorTab = { id: string; kind: "diff"; title: string; selection: DiffSelection } | { id: string; kind: "agent"; title: string; sessionId: string } | { id: string; kind: "new"; title: string } | { id: string; kind: "browser"; title: string; navigation: BrowserNavigation } | { id: string; kind: "files"; title: string; workspaceId: string } | { id: string; kind: "file"; title: string; workspaceId: string; path: string; mode: "preview" | "source" };
 
 // Note: 见 .agents/notes/proposed/architecture/2026-10-15-desktop-client.md
@@ -17,6 +18,9 @@ export class DesktopInspector {
   private readonly tabsByParent = new Map<string, InspectorTab[]>();
   private readonly activeByParent = new Map<string, string>();
   private readonly results = new Map<string, NonNullable<DesktopInspector["result"]>>();
+  private readonly toolResults = new Map<string, DiffResult>();
+  private readonly params = new Map<string, ToolParams>();
+  private online = true;
   parentSessionId: string | null = null;
   childSessionId: string | null = null;
   workId: string | null = null;
@@ -34,7 +38,7 @@ export class DesktopInspector {
   private detailRead = 0;
   constructor(private readonly bridge: Pick<DesktopBridge, "request">, private readonly view: ViewState, private readonly history: (id: string) => Promise<void>, private readonly changed: () => void) {}
 
-  private async request<K extends "work_list" | "work_get" | "read_tool_result" | "list_workspace_files" | "read_workspace_file">(op: K, params: OpParams<K>): Promise<DesktopResult<OpResult<K>>> {
+  private async request<K extends "work_list" | "work_get" | "read_tool_result" | "get_tool_op_params" | "list_workspace_files" | "read_workspace_file">(op: K, params: OpParams<K>): Promise<DesktopResult<OpResult<K>>> {
     let result;
     try { result = await this.bridge.request("code", op, params); }
     catch { return { ok: false, error: { code: "ipc_unavailable", outcome: "not_sent", message: "桌面连接不可用，请重新连接后再读取。" } }; }
@@ -43,9 +47,11 @@ export class DesktopInspector {
   }
 
   update(update: DesktopUpdate): void {
-    if (update.type === "state" && update.state !== "online") { ++this.generation; this.directories.clear(); this.files.clear(); }
+    if (update.type === "state") this.online = update.state === "online";
+    if (update.type === "state" && !this.online) { ++this.generation; this.directories.clear(); this.files.clear(); this.toolResults.clear(); this.params.clear(); this.results.clear(); this.result = null; return; }
     if (update.type === "snapshot") {
       ++this.generation;
+      this.online = true; this.toolResults.clear(); this.params.clear();
       this.directories.clear(); this.files.clear();
       this.works = []; this.detail = null; this.result = null; this.results.clear(); this.workError = null;
       if (update.instanceChanged || (this.parentSessionId && !this.view.sessions.some(session => session.id === this.parentSessionId))) {
@@ -116,6 +122,23 @@ export class DesktopInspector {
     if (workspace) this.addTab({ id: `files:${workspace.id}`, kind: "files", title: "文件树", workspaceId: workspace.id });
   }
   openFile(workspaceId: string, path: string): void { this.addTab({ id: `file:${workspaceId}:${path}`, kind: "file", title: path.split("/").at(-1) ?? path, workspaceId, path, mode: "preview" }); }
+  async openToolFile(sessionId: string, tool: DiffTool): Promise<boolean | null> {
+    const generation = this.generation, parent = this.parentSessionId;
+    if (tool.paramsTruncated) await this.loadToolParams(sessionId, tool);
+    if (generation !== this.generation || parent !== this.parentSessionId || !this.online) return null;
+    const params = tool.paramsTruncated ? this.toolParams(sessionId, tool)?.value : tool.params;
+    const source = this.view.sessions.find(session => session.id === sessionId);
+    if (!source || typeof params?.path !== "string" || params.path.includes("\0")) return false;
+    const segments: string[] = [];
+    for (const part of (params.path.startsWith("/") ? params.path : `${source.cwdReal}/${params.path}`).split("/")) {
+      if (part === "..") segments.pop(); else if (part && part !== ".") segments.push(part);
+    }
+    const absolute = `/${segments.join("/")}`;
+    const workspace = this.view.projects.filter(project => project.rootDir && absolute.startsWith(`${project.rootDir.cwdReal.replace(/\/$/, "")}/`)).sort((a, b) => b.rootDir!.cwdReal.length - a.rootDir!.cwdReal.length)[0];
+    if (!workspace) return false;
+    this.openFile(workspace.id, absolute.slice(workspace.rootDir!.cwdReal.replace(/\/$/, "").length + 1));
+    return true;
+  }
   openBrowser(address?: string): void {
     if (address && !browserAddress(address)) return;
     const existing = this.tabs().find(tab => tab.kind === "browser");
@@ -217,7 +240,7 @@ export class DesktopInspector {
     const selection = this.diff;
     const tool = this.selectedTool();
     const tabId = this.activeTab()?.id;
-    if (!selection || !tabId || !tool || !canReadDiff(tool)) return;
+    if (!this.online || !selection || !tabId || !tool || !canReadDiff(tool)) return;
     const field = tool.status === "error" || tool.status === "effect_unknown" || this.result?.value?.isError === true ? "text" : tool.name.toLowerCase() === "edit" ? "patch" : "writeContent";
     if (this.result?.entryId === tool.entryId && this.result.field === field) return;
     selection.entryId = tool.entryId;
@@ -235,27 +258,72 @@ export class DesktopInspector {
     state.loading = true; state.moreError = undefined; this.changed();
     await this.readPage(selection, tool, tabId, state, state.nextOffset);
   }
-  private async readPage(selection: DiffSelection, tool: DiffTool, tabId: string, state: DiffResult, offset: number): Promise<void> {
+  toolKey(sessionId: string, tool: DiffTool): string { return `${sessionId}:${tool.entryId ?? tool.key}`; }
+  toolResult(sessionId: string, tool: DiffTool): DiffResult | undefined { return this.toolResults.get(this.toolKey(sessionId, tool)); }
+  async loadTool(sessionId: string, tool: DiffTool, retry = false): Promise<void> {
+    if (!this.online || !canReadDiff(tool)) return;
+    const key = this.toolKey(sessionId, tool);
+    const existing = this.toolResults.get(key);
+    const field = tool.status === "error" || tool.status === "effect_unknown" || existing?.value?.isError === true || !isDiffTool(tool) ? "text" : "patch";
+    if (existing?.field === field && !retry) return;
+    const state: DiffResult = { entryId: tool.entryId!, field, loading: true };
+    this.toolResults.set(key, state); this.changed();
+    await this.readPage({ sessionId, key: tool.key, entryId: tool.entryId }, tool, key, state, 0, this.toolResults);
+  }
+  async moreTool(sessionId: string, tool: DiffTool): Promise<void> {
+    const key = this.toolKey(sessionId, tool), state = this.toolResults.get(key);
+    if (!this.online || !state || state.loading || state.nextOffset === undefined || state.totalBytes === undefined || state.nextOffset >= state.totalBytes) return;
+    state.loading = true; state.moreError = undefined; this.changed();
+    await this.readPage({ sessionId, key: tool.key, entryId: tool.entryId }, tool, key, state, state.nextOffset, this.toolResults);
+  }
+  toolParams(sessionId: string, tool: DiffTool): ToolParams | undefined { return this.params.get(`${sessionId}:${tool.toolOpId}`); }
+  async loadToolParams(sessionId: string, tool: DiffTool, retry = false): Promise<void> {
+    if (!this.online || !tool.toolOpId) return;
+    const key = `${sessionId}:${tool.toolOpId}`;
+    if (this.params.has(key) && !retry) return;
+    const state: ToolParams = { loading: true };
+    this.params.set(key, state); this.changed();
+    const generation = this.generation;
+    let text = "", offset = 0, total: number | undefined;
+    while (true) {
+      const result: DesktopResult<OpResult<"get_tool_op_params">> = await this.request("get_tool_op_params", { tool_op_id: tool.toolOpId, offset, length: 64 * 1024 });
+      if (generation !== this.generation || this.params.get(key) !== state) return;
+      if (!result.ok) { state.error = `读取参数失败：${result.error.message}`; break; }
+      const page = result.value.params;
+      const next = toolPage(page, offset, total);
+      if (result.value.toolOp.id !== tool.toolOpId || result.value.toolOp.taskId !== tool.taskId || result.value.toolOp.toolName.toLowerCase() !== tool.name.toLowerCase() || this.view.tasks.get(tool.taskId ?? "")?.sessionId !== sessionId || !next) { state.error = "工具参数来源或分页不一致，请重试。"; break; }
+      text += page.text; offset = next.nextOffset; total = next.totalBytes;
+      if (offset < total) continue;
+      let parsed: unknown;
+      try { parsed = JSON.parse(text); }
+      catch { state.error = "工具参数无法解析，请重试。"; break; }
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) state.error = "工具参数格式无效，请重试。";
+      else state.value = parsed as Record<string, unknown>;
+      break;
+    }
+    state.loading = false; this.changed();
+  }
+  private async readPage(selection: DiffSelection, tool: DiffTool, tabId: string, state: DiffResult, offset: number, cache = this.results): Promise<void> {
     const generation = this.generation;
     const field = state.field!;
     const result = await this.request("read_tool_result", { session_id: selection.sessionId, entry_id: state.entryId, field, offset, length: 64 * 1024 });
-    if (generation !== this.generation || this.results.get(tabId) !== state) return;
+    if (generation !== this.generation || cache.get(tabId) !== state) return;
     if (result.ok && field !== "text" && result.value.isError === true) {
       state.field = "text"; state.nextOffset = undefined; state.totalBytes = undefined;
-      return this.readPage(selection, tool, tabId, state, 0);
+      return this.readPage(selection, tool, tabId, state, 0, cache);
     }
     state.loading = false;
     let error: string | undefined;
     if (!result.ok) error = `读取差异失败：${result.error.message}`;
     else {
       const page = result.value.content;
-      const count = page ? utf8ByteLength(page.text) : 0;
-      if (page === undefined || (page === null && offset !== 0) || (page && (page.offset !== offset || !Number.isSafeInteger(page.totalBytes) || page.totalBytes < offset + count || (state.totalBytes !== undefined && state.totalBytes !== page.totalBytes) || (!count && offset < page.totalBytes)))) error = "差异分页不连续，请重试。";
+      const next = toolPage(page, offset, state.totalBytes);
+      if (!next) error = "工具结果分页不连续，请重试。";
       else {
         const previous = offset ? state.value?.[field] ?? "" : "";
-        state.value = { ...result.value, [field]: page === null ? null : previous + page.text, truncated: page !== null && offset + count < page.totalBytes };
-        state.nextOffset = offset + count;
-        state.totalBytes = page?.totalBytes ?? 0;
+        state.value = { ...result.value, [field]: page == null ? null : previous + page.text, truncated: next.nextOffset < next.totalBytes };
+        state.nextOffset = next.nextOffset;
+        state.totalBytes = next.totalBytes;
       }
     }
     if (offset) state.moreError = error;

@@ -2,6 +2,8 @@
 
 Status: implemented
 
+后续提案：[个人端 pi durable 迁移](../../proposed/architecture/2026-10-17-personal-pi-durable.md)拟让个人端独立持有运行时与协议，保留两产品身份与 Coding 行为；实施前本篇仍描述当前系统。
+
 原编号：ADR 0017
 
 部分取代：[个人 Agent 原生执行与 Docker worker 退役](../../implemented/architecture/2026-10-12-personal-native-sandbox.md)接管个人产品的受限后端与常驻部署；两产品的身份、Linux 服务器定位、会话与能力声明仍由本篇持有。

@@ -25,6 +25,8 @@
 
 [逐项验收证据](docs/release-acceptance.md)。
 
+个人 app 的[Pi 1.3.0 会话基础](docs/modules/personal-durable.md)仅供隔离测试；安装按锁文件同时保留 Coding 的 Pi 0.85.1，正式入口使用原装配。
+
 ## 快速开始
 
 开发与离线检查需要 Node ≥ 22.19、Git、Bash 和支持 PTY 的 Python 3，使用 macOS 或 Linux 的普通用户账户。两个产品的受限执行均使用原生沙箱，无需 Docker；平台前置见[操作手册](docs/usage.md#1-前提与安装)。
@@ -82,7 +84,7 @@ ruukoto qq enable
 
 ### 开发本项目
 
-支持[后台工作流](docs/modules/workflows.md)与可打断等待：`workflow` 管理定义与运行，旧定义保存升级；TUI `/workflow` 侧栏启动与控制，Tab 切聊天、Esc 返回；IM 用明确命令。[操作说明](docs/usage.md#511-工作流问题与回报)与[测试导航](docs/development.md#日常反馈)列六输入组合及真实模型验证。
+后台工作流与可打断等待见[操作说明](docs/usage.md#511-工作流问题与回报)，六输入组合及真实模型验证见[测试导航](docs/development.md#日常反馈)。
 
 修改时先运行 `npm run check:static` 与相关测试，按改动面选最小检查集（[提交前检查](.agents/skills/pre-push-checks/SKILL.md)）；全量 `npm run check` 由 CI 与显式复跑执行。macOS 应用测试先串行隔离共享 UID 的进程夹具，其余并行。
 

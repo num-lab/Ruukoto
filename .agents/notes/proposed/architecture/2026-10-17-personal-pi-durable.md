@@ -4,6 +4,8 @@ Status: proposed
 
 拥有者已通过本次 Q1–Q18 访谈确认产品取舍，并在 Q19 确认完整方案；独立方案审查无未解决阻断。本文不表示已经迁移实现。有效要求与验收见[迁移规格](../../../../.scratch/personal-pi-durable/spec.md)，交接见[方案工单](../../../../.scratch/personal-pi-durable/issues/01-migration-plan.md)。
 
+[档案与请求证据基础](../../implemented/architecture/2026-10-17-personal-durable-foundation.md)已作为隔离 API 实现；正式入口与其余能力仍按本方案推进，不能据此将迁移标为完成。
+
 ## 问题
 
 两个产品已经使用 pi SDK，但会话执行、任务队列、恢复、上下文压缩与工作流由 Ruukoto 持有。拥有者希望个人 Agent 采用 pi durable，减少今后维护自研执行底座的工作，同时保持 Coding Agent 的行为、数据与现有运行依赖。

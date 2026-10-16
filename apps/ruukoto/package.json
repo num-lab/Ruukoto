@@ -20,7 +20,10 @@
     "src"
   ],
   "dependencies": {
+    "@earendil-works/chord": "1.3.0",
+    "@earendil-works/pi-ai": "1.3.0",
     "@earendil-works/pi-coding-agent": "0.85.1",
+    "@earendil-works/pi-durable": "1.3.0",
     "@ruukoto/agent": "*",
     "@ruukoto/channels": "*",
     "@ruukoto/core": "*",

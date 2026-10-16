@@ -94,7 +94,7 @@ npm run desktop:build      # 构建并 ad-hoc 签名 dist/mac-arm64/Ruukoto.app
 npm run code -- ../my-project  # 以该目录创建/复用工作区，并进入新会话
 ```
 
-开发与桌面回归见[开发说明](docs/development.md)；[浏览器用法](docs/usage.md#12-浏览器)含登录与截图导出。
+demo 迁入桌面；见[开发说明](docs/development.md)；[浏览器](docs/usage.md#12-浏览器)含登录与截图导出。
 
 ## 文档
 

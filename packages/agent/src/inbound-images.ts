@@ -1,4 +1,5 @@
 /** 入站图片历史只存产物引用；图片正文只在发送边界恢复。 */
+import { taskAttachmentReferences } from "./owner-attachments.ts";
 import type { Artifact, Task } from "@ruukoto/core/types.ts";
 import type { Store } from "@ruukoto/core/store.ts";
 import type { ArtifactStore } from "./artifacts.ts";
@@ -45,6 +46,9 @@ export function taskImageReferences(task: Task, store: Store): ImageReference[] 
     if (!source.resumesTaskId) break;
     source = store.getTask(source.resumesTaskId);
     if (!source) throw new Error("image_reference_invalid:图片继续来源任务不存在");
+  }
+  for (const ref of taskAttachmentReferences(task, store)) {
+    if (ref.mimeType && !artifacts.has(ref.id)) references.push({ artifactId: ref.id, taskId: ref.taskId, sessionId: ref.sessionId, mimeType: ref.mimeType, byteCount: ref.size, contentHash: ref.contentHash });
   }
   return references;
 }

@@ -80,6 +80,8 @@ import { planMcpTaskTools, EMPTY_MCP_PLAN, type McpTaskPlan } from "./mcp/tools.
 import type { McpTimeouts } from "./mcp/client.ts";
 import type { McpStore, McpToolEffect } from "./mcp/store.ts";
 import type { Accessor } from "@ruukoto/core/access.ts";
+import { taskAttachmentReferences } from "./owner-attachments.ts";
+import type { AttachmentReference } from "@ruukoto/core/attachments.ts";
 import { hasImageInput, IMAGE_INPUT_UNSUPPORTED, taskImageReferences, type ImageReference } from "./inbound-images.ts";
 
 const FRAGMENT_INTERVAL_MS = 250;
@@ -255,6 +257,7 @@ export class Driver {
   private workflowManagedUnits: ((entries: ManagedEntry[]) => void) | null = null;
   /** 用户消息落盘前附稳定图片引用；不把图片正文交给 SDK 历史写入。 */
   private pendingUserImages: ImageReference[] = [];
+  private pendingUserAttachments: AttachmentReference[] = [];
   private resourcePhase: AgentResourcePhase = "execution";
   private activeToolCalls = new Set<string>();
   private injection: ReturnType<ParentDelivery["takeInjection"]> | null = null;
@@ -825,6 +828,7 @@ export class Driver {
     this.hostToolArtifacts = new Map();
     this.lastBlockedReason = null;
     this.pendingUserImages = [];
+    this.pendingUserAttachments = [];
     this.taskTools = null;
     this.resourcePhase = resourcePhase;
     this.recordResourcePhase(task);
@@ -944,6 +948,7 @@ export class Driver {
       if (!task.modelSelection) throw new Error("model_selection_missing:任务未记录模型配置");
       const model = await this.deps.modelCatalog.resolve(task.modelSelection);
       this.pendingUserImages = taskImageReferences(task, this.deps.store);
+      this.pendingUserAttachments = taskAttachmentReferences(task, this.deps.store);
       if (this.pendingUserImages.length > 0 && !model?.input?.includes("image")) {
         throw new Error(`${IMAGE_INPUT_UNSUPPORTED}:所选模型不支持图片输入`);
       }
@@ -1638,6 +1643,10 @@ export class Driver {
         return;
       }
       case "message_end": {
+        if (event.message.role === "user" && this.pendingUserAttachments.length > 0) {
+          (event.message as any).ruukotoAttachmentRefs = this.pendingUserAttachments;
+          this.pendingUserAttachments = [];
+        }
         if (event.message.role === "user" && this.pendingUserImages.length > 0) {
           // pi 的监听通知先于 appendMessage；同一对象也留在 agent.state 中。
           (event.message as any).ruukotoMediaRefs = this.pendingUserImages;

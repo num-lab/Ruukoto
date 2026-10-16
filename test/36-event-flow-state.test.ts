@@ -252,3 +252,27 @@ test("不同任务复用 SDK 调用 ID 时，晚到的历史关联不串工具�
   assert.equal(secondTool.target, "second.py");
   assert.equal(secondTool.summary, "access denied");
 });
+
+
+test("附件事件先到、任务详情后到补全占位正文；真实历史不被迟到任务覆盖", () => {
+  const flow = new EventFlow();
+  flow.task(task("task", { input: "", status: "queued" }));
+  const attachment = { id: "att-reference", name: "资料.txt", size: 3, taskId: "task", sessionId: "session", mimeType: null, contentHash: "hash" };
+  flow.apply(event(1, { type: "task.attachments", taskId: "task", sessionId: "session", attachments: [attachment] }));
+  assert.equal(messages(flow).length, 1);
+  assert.equal(messages(flow)[0].text, "");
+  flow.task(task("task", { input: "实际用户原文", status: "failed", endedAt: at(2) }));
+  assert.equal(messages(flow).length, 1);
+  assert.equal(messages(flow)[0].key, "input:task");
+  assert.equal(messages(flow)[0].text, "实际用户原文");
+  assert.deepEqual(messages(flow)[0].attachments, [{ id: attachment.id, name: attachment.name, size: attachment.size }]);
+  flow.task(task("task", { input: "迟到的不同元数据" }));
+  assert.equal(messages(flow)[0].text, "实际用户原文", "已补全的同身份原文保持不变");
+  flow.apply(reference(3, "user-entry", "user", "task", null));
+  flow.addHistory(history("user-entry", "user", "历史原文", { taskId: "task" }));
+  flow.task(task("task", { input: "迟到的原始任务值" }));
+  assert.equal(messages(flow).length, 1);
+  assert.equal(messages(flow)[0].entryId, "user-entry");
+  assert.equal(messages(flow)[0].text, "历史原文");
+  assert.deepEqual(messages(flow)[0].attachments, [{ id: attachment.id, name: attachment.name, size: attachment.size }]);
+});

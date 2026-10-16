@@ -1,70 +1,149 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { ChevronRight, Folder, ListFilter, Moon, PanelLeft, PanelRight, Plus, Settings2, Sun, Terminal, WifiOff, X } from "lucide-react";
+import type { DesktopTarget } from "../shared/bridge.ts";
+import type { PersonalTargetConfig } from "../main/personal-config.ts";
 import { CodeState } from "./code-state.ts";
 import { Conversation } from "./conversation.tsx";
-import { ApprovalCards } from "./approval-cards.tsx";
-import type { DesktopTarget } from "../shared/bridge.ts";
-import { Composer, PendingInputs } from "./composer.tsx";
-import { InspectorPanel } from "./inspector-panel.tsx";
+import { Composer } from "./composer.tsx";
+import { InspectorHeader, InspectorPanel } from "./inspector-panel.tsx";
+import { SidebarResizer } from "./sidebar-resizer.tsx";
+import { IconButton } from "./ui.tsx";
+import { Button } from "./components/ui/button.tsx";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs.tsx";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "./components/ui/dialog.tsx";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./components/ui/select.tsx";
+import { Input } from "./components/ui/input.tsx";
 
-const labels = { connecting: "正在连接", online: "已连接", reconnecting: "正在重新连接", failed: "连接失败", closed: "已断开" };
+// Note: 见 .agents/notes/implemented/architecture/2026-10-15-desktop-shadcn-demo.md
 export function App() {
   const [, redraw] = useState(0);
   const [target, setTarget] = useState<DesktopTarget>("code");
   const [models] = useState(() => ({ code: new CodeState(window.ruukoto, () => redraw(value => value + 1)), personal: new CodeState(window.ruukoto, () => redraw(value => value + 1), "personal") }));
   const model = models[target];
-  const [selected, setSelected] = useState<string | null>(null);
+  const [dark, setDark] = useState(true);
+  const [sidebar, setSidebar] = useState(true);
+  const [sidebarWidths, setSidebarWidths] = useState<{ left?: number; right?: number }>({});
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [filter, setFilter] = useState("");
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [dialog, setDialog] = useState<"workspace" | "personal" | null>(null);
+  const [workspacePath, setWorkspacePath] = useState("");
   const [picking, setPicking] = useState(false);
+  const [personalConfig, setPersonalConfig] = useState<PersonalTargetConfig | null>(null);
+  const [host, setHost] = useState("");
+  const [configReady, setConfigReady] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [toast, setToast] = useState("");
+  const expandSidebar = useRef<HTMLButtonElement>(null);
+  const inspectorToggle = useRef<HTMLButtonElement>(null);
+  const { view, status } = model;
+  const current = view.sessions.find(session => session.id === view.currentSessionId);
+  const workspaces = (target === "code" ? view.projects : []).filter(project => project.rootDir !== null);
+  const inspectorOpen = model.inspector.visible && target === "code" && !!current;
+  useEffect(() => { document.documentElement.classList.toggle("dark", dark); }, [dark]);
   useEffect(() => {
-    const unsubscribes = (["code", "personal"] as const).map(target => window.ruukoto.subscribe(target, update => { models[target].update(update); if (update.type === "navigate") setTarget(target); }));
+    models.code.inspector.visible = window.innerWidth >= 1100;
+    const unsubscribes = (["code", "personal"] as const).map(source => window.ruukoto.subscribe(source, update => { models[source].update(update); if (update.type === "navigate") setTarget(source); }));
     return () => unsubscribes.forEach(unsubscribe => unsubscribe());
   }, [models]);
-  const { view, status } = model;
-  const workspaces = (target === "code" ? view.projects : []).filter(project => project.rootDir !== null);
-  const workspace = workspaces.find(project => project.id === selected);
-  const current = view.sessions.find(session => session.id === view.currentSessionId);
-  const activeWorkspace = current ? workspaces.find(project => model.sessionsFor(project.id).some(session => session.id === current.id)) : workspace;
-  const reconnect = async () => {
-    const result = await window.ruukoto.request(target, "reconnect", {});
-    if (!result.ok) model.update({ type: "state", state: "failed", error: result.error });
-  };
-  const addWorkspace = async () => {
-    if (model.pendingCreation) { await model.create("open_workspace", { cwd: "" }); return; }
+  useEffect(() => {
+    const messages = [model.readError, model.approvals.message, model.writes.message, model.message].filter((message): message is string => !!message);
+    if (messages.length) {
+      setToast([...new Set(messages)].join(" · "));
+      model.readError = null; model.approvals.message = null; model.writes.message = null; model.message = null;
+    }
+  });
+  useEffect(() => {
+    if (!toast) return;
+    const timer = window.setTimeout(() => setToast(""), 5000);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey)) return;
+      if (event.key.toLowerCase() === "b") { event.preventDefault(); toggleSidebar(); }
+      if (event.key.toLowerCase() === "j") { event.preventDefault(); toggleInspector(); }
+      if (event.shiftKey && event.key.toLowerCase() === "l") { event.preventDefault(); setDark(value => !value); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+  function toggleSidebar() {
+    const focusInside = document.activeElement?.closest(".left-sidebar, .settings-dialog");
+    setSettingsOpen(false);
+    setSidebar(value => !value);
+    if (focusInside) window.requestAnimationFrame(() => expandSidebar.current?.focus());
+  }
+  function toggleInspector() {
+    if (document.activeElement?.closest(".right-sidebar, .right-header")) inspectorToggle.current?.focus();
+    model.inspector.visible = !model.inspector.visible;
+    model.refresh();
+  }
+  async function reconnect() {
+    try {
+      const result = await window.ruukoto.request(target, "reconnect", {});
+      if (!result.ok) model.update({ type: "state", state: "failed", error: result.error });
+    } catch { setToast("重新连接未完成，请重新打开应用后重试。"); }
+  }
+  async function pickWorkspace() {
     setPicking(true);
-    const result = await window.ruukoto.pickFolder();
-    setPicking(false);
-    if (!result.ok) { model.message = `选择工作区失败：${result.error.message}`; redraw(value => value + 1); return; }
-    if (result.value) await model.create("open_workspace", { cwd: result.value });
-  };
-  return <div className="desktop-shell">
-    <aside className="sidebar">
-      <div className="traffic-space" />
-      <div className="brand">Ruukoto <span>桌面客户端</span></div>
-      <nav className="target-switch" aria-label="连接目标"><button aria-current={target === "code" ? "page" : undefined} onClick={() => setTarget("code")}>Code</button><button aria-current={target === "personal" ? "page" : undefined} onClick={() => setTarget("personal")}>Personal</button></nav>
-      <h2>工作区 <span>{workspaces.length}</span></h2>
-      <div className="workspace-list">
-        {workspaces.map(project => <section key={project.id}><button className={activeWorkspace?.id === project.id ? "workspace selected" : "workspace"} onClick={() => setSelected(project.id)}><span className="folder" aria-hidden="true">▱</span><span>{project.name}<small>{project.rootDir?.cwdReal}</small></span></button><div className="session-list" aria-label={`${project.name}的会话`}>{model.sessionsFor(project.id).map(session => <button key={session.id} className={current?.id === session.id ? "session selected" : "session"} onClick={() => { setSelected(project.id); model.openSession(session.id); }}><span aria-hidden="true">◦</span>{model.sessionName(session.id)}</button>)}<button className="new-session" disabled={status.state !== "online" || !!model.pendingCreation} onClick={() => void model.create("create_session", { project_id: project.id, cwd: project.rootDir!.cwdReal })}>＋ 新建会话</button></div></section>)}
-        {status.state === "online" && workspaces.length === 0 && <p className="muted px-3">暂无工作区</p>}
-      </div>
-      <button className="add-workspace" disabled={target !== "code" || picking || status.state !== "online" || !!model.pendingCreation} onClick={() => void addWorkspace()}>＋ 添加工作区</button>
-      <div className="connection" role="status"><i className={status.state === "online" ? "status-dot online" : "status-dot"} />{labels[status.state]}</div>
-    </aside>
-    <main className="canvas">
-      <header className="window-heading">{activeWorkspace?.name ?? (target === "code" ? "Code" : "Personal")}<span>{target === "code" ? "Coding Agent" : "个人 Agent"}</span></header>
-      {model.tabs.length > 0 && <nav className="session-tabs" aria-label="已打开的会话">{model.tabs.map(id => <div className="session-tab" key={id}><button aria-current={current?.id === id ? "page" : undefined} onClick={() => model.openSession(id)}>{model.sessionName(id)}</button><button aria-label={`关闭${model.sessionName(id)}`} onClick={() => model.closeSession(id)}>×</button></div>)}</nav>}
-      {model.message && <p className="operation-message" role="status">{model.message}</p>}
-      {model.readError && <p className="operation-message" role="alert">{model.readError}</p>}
-      {model.writes.message && <p className="operation-message" role="status">{model.writes.message}</p>}
-      <ApprovalCards model={model} />
-      {target === "code" && <PendingInputs model={model} />}
-      {target === "code" && current && status.state !== "failed" ? <><Conversation key={`${view.instanceId}:${current.id}`} model={model} sessionId={current.id} /><Composer key={`${view.instanceId}:${current.id}`} model={model} session={current} /></> : <div className="empty-state">
-        <div className="app-mark" aria-hidden="true">R</div>
-        <h1>{status.state === "failed" ? "暂时无法连接" : workspace?.name ?? "你的工作区"}</h1>
-        {status.state === "online" ? <p className="muted">{workspace?.rootDir?.cwdReal ?? (target === "code" ? "从左侧选择工作区。" : current ? `已定位会话：${model.sessionName(current.id)}。Personal 会话界面待开放；可在上方处理审批。` : "Personal 连接在线；可在上方处理审批。")}</p> : <p className="muted">{status.error?.message ?? status.detail ?? (target === "code" ? "正在连接本机 Coding Agent…" : "正在连接 Personal…")}</p>}
-        {status.error?.versions && <p className="version-info">客户端 v{status.error.versions.client} · 后台 v{status.error.versions.server}</p>}
-        {status.recovery && <ol className="recovery">{status.recovery.map(step => <li key={step}>{step}</li>)}</ol>}
-        {(status.state === "failed" || status.state === "reconnecting" || status.state === "closed") && <button className="reconnect" onClick={() => void reconnect()}>重新连接</button>}
-      </div>}
-    </main>
-    {target === "code" && current && <InspectorPanel model={model} />}
-  </div>;
+    try {
+      const result = await window.ruukoto.pickFolder();
+      if (!result.ok) { setToast(result.error.message); return; }
+      if (result.value) { setWorkspacePath(result.value); setDialog("workspace"); }
+    } catch { setToast("无法选择工作区，请重新打开应用后重试。"); }
+    finally { setPicking(false); }
+  }
+  async function openPersonal() {
+    setDialog("personal"); setConfigReady(false);
+    try {
+      const result = await window.ruukoto.request("personal", "desktop_personal_config_read", {});
+      if (!result.ok) { setToast(result.error.message); return; }
+      const config = result.value as PersonalTargetConfig | null;
+      setPersonalConfig(config); setHost(config?.host ?? "tx"); setConfigReady(true);
+    } catch { setToast("无法读取连接配置，请重新打开配置窗口后重试。"); }
+  }
+  async function saveDialog() {
+    setSaving(true);
+    try {
+      if (dialog === "workspace") {
+        await model.create("open_workspace", { cwd: workspacePath });
+        setDialog(null);
+      } else {
+        const result = await window.ruukoto.request("personal", "desktop_personal_config_save", { host: host.trim(), ...(personalConfig ? { controlDir: personalConfig.controlDir } : {}) });
+        if (!result.ok) { setToast(result.error.message); return; }
+        setDialog(null);
+      }
+    } catch { setToast("连接配置结果待核实，请重新打开配置窗口读取实际值。"); }
+    finally { setSaving(false); }
+  }
+  const settings = <Dialog open={sidebar && settingsOpen} onOpenChange={setSettingsOpen}>
+    <DialogTrigger asChild><Button type="button" variant="ghost" size="icon" className="quiet-icon" aria-label="设置"><Settings2 /></Button></DialogTrigger>
+    <DialogContent className="settings-dialog" onCloseAutoFocus={event => { if (!sidebar) { event.preventDefault(); expandSidebar.current?.focus(); } }}>
+      <DialogDescription className="sr-only">选择左侧类别查看设置项。</DialogDescription>
+      <Tabs defaultValue="appearance" orientation="vertical" className="settings-tabs"><div className="settings-navigation"><DialogTitle>设置</DialogTitle><TabsList className="settings-categories" aria-label="设置类别"><TabsTrigger value="appearance">{dark ? <Moon /> : <Sun />}外观</TabsTrigger><TabsTrigger value="target"><Terminal />运行目标</TabsTrigger></TabsList></div>
+        <TabsContent value="appearance" className="settings-panel"><h2>外观</h2><div className="settings-row"><label htmlFor="settings-theme">主题</label><Select value={dark ? "dark" : "light"} onValueChange={value => setDark(value === "dark")}><SelectTrigger id="settings-theme" aria-label="主题"><SelectValue /></SelectTrigger><SelectContent position="popper" align="end" sideOffset={6}><SelectItem value="light">浅色</SelectItem><SelectItem value="dark">深色</SelectItem></SelectContent></Select></div></TabsContent>
+        <TabsContent value="target" className="settings-panel"><h2>运行目标</h2><div className="settings-row"><label htmlFor="settings-target">目标</label><Select value={target} onValueChange={value => { if (value === "code" || value === "personal") setTarget(value); }}><SelectTrigger id="settings-target" aria-label="运行目标"><SelectValue /></SelectTrigger><SelectContent position="popper" align="end" sideOffset={6}><SelectItem value="code">Code</SelectItem><SelectItem value="personal">Personal</SelectItem></SelectContent></Select></div></TabsContent>
+      </Tabs>
+    </DialogContent>
+  </Dialog>;
+  const hasWork = (id: string) => !!view.activeTaskFor(id) || view.pendingApprovals().some(item => item.sessionId === id);
+  const query = filter.toLocaleLowerCase();
+  return <><div className="macos-window app-window native-window" style={{ "--left-preferred-width": sidebarWidths.left === undefined ? undefined : `${sidebarWidths.left}px`, "--right-preferred-width": sidebarWidths.right === undefined ? undefined : `${sidebarWidths.right}px`, "--right-reserve": inspectorOpen ? "260px" : "0px", "--visible-left-width": sidebar ? "var(--left-width)" : "0px" } as CSSProperties}>
+    <aside id="left-sidebar" className={`surface-sidebar left-sidebar ${sidebar ? "" : "is-collapsed"}`} aria-label="工作区导航" aria-hidden={!sidebar} inert={!sidebar}><div className="sidebar-content"><div className="window-controls"><div className="traffic-space" aria-hidden="true" /><IconButton label="收起侧栏" onClick={toggleSidebar}><PanelLeft /></IconButton></div>
+      <div className="projects-heading"><span>{target === "code" ? "工作区" : "Personal"}</span><div><IconButton label="筛选工作区与会话" disabled={target !== "code"} onClick={() => { setFilterOpen(value => !value); setFilter(""); }}><ListFilter /></IconButton><IconButton label="添加工作区" disabled={target !== "code" || picking || status.state !== "online" || !!model.pendingCreation} onClick={() => void pickWorkspace()}><Plus /></IconButton></div></div>
+      {filterOpen && target === "code" && <div className="workspace-filter"><Input aria-label="筛选工作区与会话" autoFocus placeholder="筛选工作区与会话…" value={filter} onChange={event => setFilter(event.target.value)} onKeyDown={event => { if (event.key === "Escape") { setFilterOpen(false); setFilter(""); } }} /></div>}
+      <div className="workspace-tree">{target === "code" ? workspaces.filter(project => !query || project.name.toLocaleLowerCase().includes(query) || model.sessionsFor(project.id).some(session => model.sessionName(session.id).toLocaleLowerCase().includes(query))).map(project => {
+        const open = expanded[project.id] ?? true;
+        return <section key={project.id}><div className="workspace-row"><button onClick={() => setExpanded(items => ({ ...items, [project.id]: !open }))} aria-expanded={open || !!query}><ChevronRight className={open || query ? "rotate-90" : ""} /><Folder /><span>{project.name}</span></button><IconButton className="workspace-add" label={`在 ${project.name} 新建会话`} disabled={status.state !== "online" || !!model.pendingCreation} onClick={() => { setExpanded(items => ({ ...items, [project.id]: true })); void model.create("create_session", { project_id: project.id, cwd: project.rootDir!.cwdReal }); }}><Plus /></IconButton></div>{(open || query) && <div className="workspace-sessions">{model.sessionsFor(project.id).filter(session => !query || project.name.toLocaleLowerCase().includes(query) || model.sessionName(session.id).toLocaleLowerCase().includes(query)).map(session => <button key={session.id} className={`workspace-session ${session.id === current?.id ? "active-pill text-pri" : "text-sec hover-pill"}`} aria-current={session.id === current?.id ? "page" : undefined} onClick={() => model.openSession(session.id)}><span>{model.sessionName(session.id)}</span>{hasWork(session.id) && <i className="status-point pending" />}</button>)}</div>}</section>;
+      }) : <Button variant="ghost" className="personal-row" onClick={() => void openPersonal()}><Terminal />配置 SSH 连接</Button>}</div><div className="sidebar-bottom">{settings}</div></div><SidebarResizer side="left" open={sidebar} onWidthChange={width => setSidebarWidths(items => ({ ...items, left: width }))} /></aside>
+    <div className="content-area"><header className="surface-sidebar canvas-header"><div className={`session-header ${sidebar ? "" : "with-traffic-space"}`}>{!sidebar && <IconButton label="展开侧栏" buttonRef={expandSidebar} onClick={toggleSidebar}><PanelLeft /></IconButton>}<Tabs className="center-tabs" value={current?.id ?? ""} onValueChange={id => model.openSession(id)}><TabsList aria-label="已打开的会话">{model.tabs.map(id => <div className="tab-group" key={id}><TabsTrigger value={id} className="center-tab">{hasWork(id) && <i className="status-point pending" />}<span>{model.sessionName(id)}</span></TabsTrigger><button className="tab-close" aria-label={`关闭${model.sessionName(id)}`} disabled={model.tabs.length === 1} onClick={() => model.closeSession(id)}><X /></button></div>)}</TabsList></Tabs></div><div className={`inspector-header ${inspectorOpen ? "" : "is-collapsed"}`}><InspectorHeader model={model} open={inspectorOpen} /><IconButton label={inspectorOpen ? "收起右栏" : "展开右栏"} buttonRef={inspectorToggle} disabled={target !== "code" || !current} onClick={toggleInspector}><PanelRight /></IconButton></div></header>
+      <div className="content-body"><main className="surface-canvas main-canvas">{target === "personal" || status.state !== "online" || !current ? <div className="empty-state"><div className="empty-symbol">{target === "personal" ? <Terminal /> : <WifiOff />}</div><h1>{target === "personal" ? "连接你的个人 Agent" : status.state === "online" ? "你的工作区" : status.state === "connecting" ? "正在连接" : "暂时无法连接"}</h1><p>{target === "personal" ? "通过 SSH 连接服务器。会话界面尚未开放。" : status.state === "online" ? "从左侧选择工作区。" : status.error?.message ?? status.detail ?? "请确认本地后台已启动，然后重新连接。"}</p>{target === "personal" ? <Button onClick={() => void openPersonal()}>配置 SSH 连接</Button> : status.state !== "online" && <Button disabled={status.state === "connecting"} onClick={() => void reconnect()}>重新连接</Button>}</div> : <><Conversation key={`conversation:${view.instanceId}:${current.id}`} model={model} sessionId={current.id} /><Composer key={`composer:${view.instanceId}:${current.id}`} model={model} session={current} /></>}</main>
+      <InspectorPanel model={model} open={inspectorOpen} onWidthChange={width => setSidebarWidths(items => ({ ...items, right: width }))} />
+    </div></div>
+  </div>
+  <Dialog open={dialog !== null} onOpenChange={open => { if (!open) setDialog(null); }}><DialogContent className="demo-dialog"><DialogHeader><DialogTitle>{dialog === "workspace" ? "添加工作区" : "Personal 连接"}</DialogTitle><DialogDescription>{dialog === "workspace" ? "添加所选目录作为工作区。" : "通过 SSH 主机别名连接服务器。"}</DialogDescription></DialogHeader>{dialog === "workspace" ? <Input aria-label="工作区目录" readOnly value={workspacePath} onClick={() => void pickWorkspace()} /> : <div className="dialog-fields"><label htmlFor="ssh-host">SSH 主机别名</label><Input id="ssh-host" disabled={!configReady || saving} value={host} onChange={event => setHost(event.target.value)} /><p>控制目录：{personalConfig?.controlDir ?? "/var/lib/ruukoto/control"}</p></div>}<DialogFooter><Button variant="ghost" disabled={saving} onClick={() => setDialog(null)}>取消</Button><Button disabled={saving || (dialog === "workspace" ? !workspacePath : !configReady || !host.trim())} onClick={() => void saveDialog()}>{dialog === "workspace" ? "添加" : "保存"}</Button></DialogFooter></DialogContent></Dialog>
+  {toast && <div className="surface-card toast-pill" role="status"><i className="status-point" />{toast}</div>}
+  </>;
 }

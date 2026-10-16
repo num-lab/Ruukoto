@@ -7,6 +7,7 @@ import type { DesktopOp } from "../main/ipc.ts";
 import type { DesktopBridge, DesktopFailure, DesktopTarget, DesktopUpdate } from "../shared/bridge.ts";
 import { DesktopApprovals } from "./approvals.ts";
 import { CodeWrites } from "./code-writes.ts";
+import { DesktopContext } from "./context-state.ts";
 import { DesktopInspector } from "./inspector.ts";
 
 export class DesktopRequestError extends Error {
@@ -38,10 +39,12 @@ export class CodeState {
   readonly writes: CodeWrites;
   readonly approvals: DesktopApprovals;
   readonly inspector: DesktopInspector;
+  readonly context: DesktopContext;
   navigation: Extract<DesktopUpdate, { type: "navigate" }> | null = null;
   notificationSelection: { sessionId: string; taskId: string } | null = null;
   refresh(): void { this.changed(); }
   constructor(private readonly bridge: Pick<DesktopBridge, "request">, private readonly changed: () => void, readonly target: DesktopTarget = "code") {
+    this.context = new DesktopContext(bridge, this.view, changed, target);
     this.approvals = new DesktopApprovals(bridge, this.view, changed, target);
     this.writes = new CodeWrites(bridge, this.view, () => this.status.state === "online", changed, target);
     this.inspector = new DesktopInspector(bridge, this.view, id => this.loadHistory(id), changed);
@@ -56,6 +59,7 @@ export class CodeState {
   update(update: DesktopUpdate): void {
     if (update.type === "state") {
       this.status = update;
+      if (this.target === "code") this.inspector.update(update);
       if (update.state === "online") void this.reconcileCreation();
     } else if (update.type === "snapshot") {
       ++this.generation;
@@ -84,6 +88,7 @@ export class CodeState {
       if (this.target === "code") this.inspector.update(update);
     }
     if (update.type === "navigate") this.navigate(update);
+    this.context.update(update);
     this.approvals.update(update);
     this.writes.update(update);
     this.changed();
@@ -109,6 +114,7 @@ export class CodeState {
     return this.view.sessions.find(session => session.id === id)?.name ?? "新会话";
   }
   openSession(id: string): void {
+    void this.context.load(id);
     if (!this.tabs.includes(id)) this.tabs.push(id);
     this.view.currentSessionId = id;
     if (this.target === "code") this.inspector.openParent(id);
@@ -131,7 +137,7 @@ export class CodeState {
     const generation = this.generation;
     const request = action(generation).catch(error => {
       if (generation === this.generation) this.readError = `读取会话失败：${error instanceof Error ? error.message : "请重新连接后再试。"}`;
-    }).finally(() => { this.requests.delete(key); if (this.target === "code") void this.inspector.loadDiff(); this.changed(); });
+    }).finally(() => { this.requests.delete(key); if (this.target === "code") { this.inspector.seedTabs(); void this.inspector.loadDiff(); } this.changed(); });
     this.requests.set(key, request);
     return request;
   }
@@ -237,7 +243,7 @@ export class CodeState {
     if (!this.view.instanceId || this.status.state !== "online") { this.report("请等待连接恢复后再创建会话。"); return; }
     const pending: PendingCreation = { op, params: { ...params, request_id: crypto.randomUUID() }, target: this.target, instanceId: this.view.instanceId, busy: false, retried: false, waitGeneration: null };
     this.pendingCreation = pending;
-    this.message = "正在创建会话…";
+    this.message = null;
     this.changed();
     await this.sendCreation(pending);
   }

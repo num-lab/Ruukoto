@@ -4,7 +4,7 @@ import { DesktopError } from "./environment.ts";
 import { serializeFailure } from "./controller.ts";
 import type { OpParams, TuiOp } from "@ruukoto/control/ops.ts";
 
-export const DESKTOP_OPS = ["list_session_summaries", "open_workspace", "create_session", "read_history", "read_history_entry", "list_tasks", "get_task", "read_task_events", "work_list", "work_get", "read_tool_result", "list_models", "set_session_model", "set_session_mode", "get_session", "interrupt", "cancel", "resume_queue", "get_confirmation_params", "respond_confirmation", "submit", "continue"] as const satisfies readonly TuiOp[];
+export const DESKTOP_OPS = ["list_session_summaries", "open_workspace", "create_session", "read_history", "read_history_entry", "list_tasks", "get_task", "read_task_events", "work_list", "work_get", "read_tool_result", "list_models", "set_session_model", "set_session_mode", "get_session", "interrupt", "cancel", "resume_queue", "get_confirmation_params", "respond_confirmation", "submit", "continue", "list_prompt_requests", "get_context_breakdown", "list_workspace_files", "read_workspace_file"] as const satisfies readonly TuiOp[];
 export type DesktopOp = typeof DESKTOP_OPS[number];
 export type PersonalConfigOp = "desktop_personal_config_read" | "desktop_personal_config_save";
 

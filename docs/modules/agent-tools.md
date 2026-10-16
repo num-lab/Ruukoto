@@ -225,7 +225,7 @@ sequenceDiagram
 
 只读工具（`read`、`read_artifact`、`history_*`、`memory_list`/`memory_read`、`web_search`、`skill`、`todo_write`、应用数据/调度/群结果的查询、`http_request` 的 GET/HEAD、读取文件）中止记「无写入效果」；写操作由工具族按宿主操作编号核实（应用库回执、调度账本、子任务、群结果接收账本）。`request_file_access` 按 `operation` 区分读写，`http_request` 按方法区分，`service_inspect` 记 `no_effect`、`service_manage` 记 `approval`。分类为 `approval` 表示结果缺失时按审批证据判定，不表示工具一定产生审批。`coding_delegate` 另保留 delegation / subagent 核实映射，供历史在途操作核实；记忆族不登记核实，`memory_revoke` 无法从磁盘证明撤销已发生。ToolRouter 对已发出 HTTP 调用的效果未知判定复用账本的「无写入效果」规则；MCP 读工具的副作用类别不在操作记录里，沿用效果未知。恢复核实不依赖当前会话是否装配了该族，应用库无法核实时仍定效果未知。回收失败时显式保留占用并写 `task.tool_process_unreaped`；重启与缺失驱动器的停止路径也保留占用。
 
-**产物**。先落盘再生成限长模型视图，磁盘写入失败时停止捕获并保留已捕获部分与失败原因，不丢弃输出后报告完整成功；产物正文不可读时返回 `artifact_unavailable`，不伪装成空内容。
+**产物**。先落盘再生成限长模型视图，磁盘写入失败时停止捕获并保留已捕获部分与失败原因，不丢弃输出后报告完整成功；产物正文不可读时返回 `artifact_unavailable`，不伪装成空内容。用户附件复用 `read_artifact` 的既有资料范围；带 `contentHash` 的产物不可追加，读取先核对字节数与哈希。普通二进制按 `base64` 提供字节，不自动解析。
 
 **工作清单与计划模式**。工作清单不建表、不持久化到别处，校验失败清单不变；无审批、可安全重试。计划模式固定采用 Auto review 的受限执行环境与审批策略，不扩大授权、不新增访问策略；保留的 `bash` 仍可能写入工作区，`request_file_access` 与 `http_request` 也支持经人工批准的写入参数，白名单与计划说明不提供全面只读保证。批准计划不等于审批其中具体操作，执行任务仍按所选访问模式审批。
 

@@ -24,7 +24,7 @@
 
 **后台启动。** `ensureBackend` 接收目标的 `dataDir`、`agentDir`、`controlDir`；`spawnExecPath` 指定 Node 可执行文件，默认 `process.execPath`；`spawnArgv` 只含 bin 与服务参数。`env` 只传给子进程，路径与令牌解析仍读取调用方环境。探测到已运行后台返回 `{ ok: true, spawned: false }`；本次拉起就绪返回 `{ ok: true, spawned: true }`；失败返回 `{ ok: false, error }`。后台 detached 并 unref，客户端退出不停止后台。
 
-**监听点与帧。** 服务在 `<controlDir>/control.sock` 监听。请求是 `{v, id, op, params}`，应答是 `{v, id, ok, result|error}`，事件推送是 `{v, push:"event", event}`；每帧一行 JSON 加换行，空行忽略。当前协议版本是 `26`（`CONTROL_PROTOCOL_VERSION`，与 `PROTOCOL_VERSION` 同值）。
+**监听点与帧。** 服务在 `<controlDir>/control.sock` 监听。请求是 `{v, id, op, params}`，应答是 `{v, id, ok, result|error}`，事件推送是 `{v, push:"event", event}`；每帧一行 JSON 加换行，空行忽略。当前协议版本是 `28`（`CONTROL_PROTOCOL_VERSION`，与 `PROTOCOL_VERSION` 同值）。
 
 **拥有者认证。** 连接建立后第一个成功的操作必须是 `auth`（参数 `token`）。认证成功前，服务端对其他 op 一律回 `unauthorized`，不返回快照、不执行请求；连接保留，可以再次认证。令牌是 32 字节随机数的 hex，写入控制目录的 `owner.token`（0600）：缺失或内容去空白后不足 32 字符时后台启动时生成，已存在则复用。多用户部署由配置步骤把令牌以 0400、属主为拥有者放到拥有者可读的位置，再用 `RUUKOTO_OWNER_TOKEN_FILE` 指向它。
 
@@ -118,6 +118,8 @@ stateDiagram-v2
 
 **游标。** 两处去重：底层客户端丢弃 `seq` 不大于它记下的序号的推送，连接层丢弃 `seq` 不大于 `appliedSeq` 的事件，并且只在事件应用之后才前进游标。握手期到达的实时推送先缓冲，快照安装后再按序应用。
 
+`list_workspace_files` 与 `read_workspace_file` 是拥有者的工作区只读入口：只接登记工作区 ID 与规范相对路径，不接任意根目录；路径与文件稳定性由 runtime 核实。目录按层最多 200 项并返回 truncated；文件最多 256 KiB，文本／Markdown、验证签名的 PNG／JPEG／GIF／WebP 分型返回，其他类型与超限返回 unsupported，序列化载荷另受 768 KiB 上限约束。
+
 ## 主要流程
 
 ### 启动监听与停止
@@ -184,7 +186,7 @@ sequenceDiagram
 
 `respond_confirmation` 接受 `approve` / `reject`，可带 `permission_version` 绑定审批时的权限版本。权限版本不匹配回 `permission_version_mismatch`，该批准不可用。批准只适用于该次操作及明确列出的范围，在执行前单次消费。
 
-`workflow_answer` 是独立业务回答，要求 `run_id`、`step_key`、`run_version`（问题建立代次）、`question_version`、`request_id` 和 JSON `answer`；同步事务核实状态、来源、依赖资料和约束，原键重放只返回原回执。`workflow_question` 以 `offset`/`length` 读取完整问题与回答，单页最多 64 KiB；`workflow_get` 保留暂停、取消、执行单元及未核实停止事实。`workflow_get` 的步骤按 `step_offset` 每页 100 项，执行返回最近 100 项；`workflow_definition` 的名称历史按 `version_offset` 每页 100 项，用 `nextVersionOffset` 续读。列表/详情只含送达摘要，最终事实与回报正文由 `workflow_logs` 分页读取；正文 `workflow_step`/`workflow_logs`/`workflow_definition` 按字节分页，每页最多 64 KiB。`workflow_start` 接受会话、名称或临时脚本、参数、稳定键及更小预算；临时脚本必填 `title`，可显式提供 `description`，不接受授权字段。运行视图返回固定 `displayName`、`description`、`createdAt` 与只读展示序号 `number`，`effectUnknown` 来自持久效果未知原因或所属执行任务，`stopUnverified` 从全部执行及脚本状态汇总，独立于效果未知字段；`workflow_list.scope=current` 先取所有活动及最近十项终态再分页，缺省或 `history` 返回全部历史；`workflow_control` 的 `control.action` 为 pause/resume/cancel/budget，要求当前版本和请求键。模型与执行入口的已知错误按工作流 code 返回。协议版本为 26，旧客户端明确拒绝。
+`workflow_answer` 是独立业务回答，要求 `run_id`、`step_key`、`run_version`（问题建立代次）、`question_version`、`request_id` 和 JSON `answer`；同步事务核实状态、来源、依赖资料和约束，原键重放只返回原回执。`workflow_question` 以 `offset`/`length` 读取完整问题与回答，单页最多 64 KiB；`workflow_get` 保留暂停、取消、执行单元及未核实停止事实。`workflow_get` 的步骤按 `step_offset` 每页 100 项，执行返回最近 100 项；`workflow_definition` 的名称历史按 `version_offset` 每页 100 项，用 `nextVersionOffset` 续读。列表/详情只含送达摘要，最终事实与回报正文由 `workflow_logs` 分页读取；正文 `workflow_step`/`workflow_logs`/`workflow_definition` 按字节分页，每页最多 64 KiB。`workflow_start` 接受会话、名称或临时脚本、参数、稳定键及更小预算；临时脚本必填 `title`，可显式提供 `description`，不接受授权字段。运行视图返回固定 `displayName`、`description`、`createdAt` 与只读展示序号 `number`，`effectUnknown` 来自持久效果未知原因或所属执行任务，`stopUnverified` 从全部执行及脚本状态汇总，独立于效果未知字段；`workflow_list.scope=current` 先取所有活动及最近十项终态再分页，缺省或 `history` 返回全部历史；`workflow_control` 的 `control.action` 为 pause/resume/cancel/budget，要求当前版本和请求键。模型与执行入口的已知错误按工作流 code 返回。协议版本为 28，旧客户端明确拒绝。
 
 `workflow_receipt` 按 `run_id`、原 `request_id` 和 `operation`（`workflow_answer` / `workflow_control`）只读查询原提交回执，返回原接受状态与版本；不存在时返回 `null`，不推进运行、不重复回答，也不回传答案或授权内容。工作流未决记录保存完整参数及原版本，重连或客户端重启先核实 `instanceId`，启动经 `workflow_find`、回答和控制经此回执查询；查询失败或实例变化保留原记录，只有明确未接收才允许原键原参数重试。
 
@@ -220,11 +222,14 @@ sequenceDiagram
 | `SEGMENT_DEFAULT_BYTES` / `SEGMENT_MAX_BYTES` | 64 KiB / 256 KiB | 分段读取的默认页大小与上限 |
 | `read_artifact` | 720 KiB 单次 | base64 开销后仍在 1 MiB 帧上限内 |
 | `read_history` | `limit` 默认 50、最多 200 | 条目按末端向前收集到条目数或字节预算耗尽，`entry_text_cap` 默认 16 KiB（范围 256 B–256 KiB），`page_text_budget` 默认 192 KiB（范围 `entry_text_cap`–1 MiB） |
-| `read_tool_result` | 每字段默认 16 KiB、最多 64 KiB | 读工具结果正文、Edit 补丁与 Write 调用原文 |
+| `put_attachment` | 每块 192 KiB，每文件 8 MiB | 按原附件引用与偏移幂等暂存，submit / continue 携安全元数据绑定 |
+| `read_tool_result` | 旧预览每字段默认 16 KiB、最多 64 KiB；指定字段分页为 4–65536 B，附带预览固定 16 KiB | 读工具结果正文、Edit 补丁与 Write 调用原文 |
 | `read_task_events` | `limit` 默认 100、最多 500 | 单页序列化字节上限 `SEGMENT_MAX_BYTES`；单个事件超过单页上限回 `event_too_large` |
 | `connect` 补发 | 5000 条 | 超过回 `cursor_too_old`，要求重新取快照 |
 
 **游标失败。** 非法游标回 `invalid_cursor`，补发区间过大回 `cursor_too_old`；两者都让客户端重新取完整快照，不重新执行任务。
+
+`read_tool_result` 指定 `field: text | patch | writeContent` 时，在旧预览外附加 `content: { text, offset, totalBytes, truncated } | null`。offset 为指定字段的 UTF-8 字节偏移，缺省零，必须精确落在字符边界或总长处；越界、非整数、切断字符及未指定 field 的 offset 均回 `invalid_params`。缺字段返回 null，空原文返回零长空页。客户端按返回 offset 加正文实际字节数续读，核实 totalBytes 不变，达到总长即结束；后续页的 truncated 不能表示是否还有下一页。
 
 **应答丢失不换键。** 任何 `unknown` / `disconnected` 的写请求都不自动换新键重发。有幂等键的（提交、工作区入口）按原键核实，确认未接收才以原键原参数重发；其余先查询后台状态，再由拥有者决定。「应答丢失」针对控制面请求，「效果未知」针对工具操作，两者不混称。
 
@@ -242,6 +247,7 @@ sequenceDiagram
 
 ## 设计依据
 
+- [工具结果结构化字段分页](../../.agents/notes/implemented/feature/2026-10-16-tool-result-pagination.md)
 - [桌面客户端作为又一个控制面客户端](../../.agents/notes/proposed/architecture/2026-10-15-desktop-client.md)：显式产品路径与外部 Node 启动参数。
 - [共享角色与工作流接口版本](../../.agents/notes/implemented/architecture/2026-10-15-workflow-role-interface.md)
 

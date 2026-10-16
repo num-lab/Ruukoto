@@ -1,0 +1,20 @@
+--prepared:/Users/eitrous/.codex/worktrees/6f13/ruukoto/dist/mac-arm64/Ruukoto.app/Contents/Frameworks/Ruukoto Helper (Plugin).app
+--prepared:/Users/eitrous/.codex/worktrees/6f13/ruukoto/dist/mac-arm64/Ruukoto.app/Contents/Frameworks/Ruukoto Helper.app
+--prepared:/Users/eitrous/.codex/worktrees/6f13/ruukoto/dist/mac-arm64/Ruukoto.app/Contents/Frameworks/Ruukoto Helper (GPU).app
+--prepared:/Users/eitrous/.codex/worktrees/6f13/ruukoto/dist/mac-arm64/Ruukoto.app/Contents/Frameworks/Ruukoto Helper (Renderer).app
+--prepared:/Users/eitrous/.codex/worktrees/6f13/ruukoto/dist/mac-arm64/Ruukoto.app/Contents/Frameworks/Mantle.framework/Versions/Current/.
+--prepared:/Users/eitrous/.codex/worktrees/6f13/ruukoto/dist/mac-arm64/Ruukoto.app/Contents/Frameworks/Squirrel.framework/Versions/Current/.
+--validated:/Users/eitrous/.codex/worktrees/6f13/ruukoto/dist/mac-arm64/Ruukoto.app/Contents/Frameworks/Ruukoto Helper.app
+--prepared:/Users/eitrous/.codex/worktrees/6f13/ruukoto/dist/mac-arm64/Ruukoto.app/Contents/Frameworks/ReactiveObjC.framework/Versions/Current/.
+--validated:/Users/eitrous/.codex/worktrees/6f13/ruukoto/dist/mac-arm64/Ruukoto.app/Contents/Frameworks/Ruukoto Helper (Renderer).app
+--validated:/Users/eitrous/.codex/worktrees/6f13/ruukoto/dist/mac-arm64/Ruukoto.app/Contents/Frameworks/Ruukoto Helper (Plugin).app
+--validated:/Users/eitrous/.codex/worktrees/6f13/ruukoto/dist/mac-arm64/Ruukoto.app/Contents/Frameworks/Ruukoto Helper (GPU).app
+--validated:/Users/eitrous/.codex/worktrees/6f13/ruukoto/dist/mac-arm64/Ruukoto.app/Contents/Frameworks/Mantle.framework/Versions/Current/.
+--validated:/Users/eitrous/.codex/worktrees/6f13/ruukoto/dist/mac-arm64/Ruukoto.app/Contents/Frameworks/ReactiveObjC.framework/Versions/Current/.
+--validated:/Users/eitrous/.codex/worktrees/6f13/ruukoto/dist/mac-arm64/Ruukoto.app/Contents/Frameworks/Squirrel.framework/Versions/Current/.
+--prepared:/Users/eitrous/.codex/worktrees/6f13/ruukoto/dist/mac-arm64/Ruukoto.app/Contents/Frameworks/Electron Framework.framework/Versions/Current/.
+--prepared:/Users/eitrous/.codex/worktrees/6f13/ruukoto/dist/mac-arm64/Ruukoto.app/Contents/Frameworks/Electron Framework.framework/Versions/Current/Helpers/chrome_crashpad_handler
+--validated:/Users/eitrous/.codex/worktrees/6f13/ruukoto/dist/mac-arm64/Ruukoto.app/Contents/Frameworks/Electron Framework.framework/Versions/Current/Helpers/chrome_crashpad_handler
+--validated:/Users/eitrous/.codex/worktrees/6f13/ruukoto/dist/mac-arm64/Ruukoto.app/Contents/Frameworks/Electron Framework.framework/Versions/Current/.
+dist/mac-arm64/Ruukoto.app: valid on disk
+dist/mac-arm64/Ruukoto.app: satisfies its Designated Requirement

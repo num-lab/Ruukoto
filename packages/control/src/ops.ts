@@ -5,9 +5,11 @@
  * 服务端另包一层的照写。服务端派发、CLI 与配置中心仍按字符串，不经本表。
  */
 
+import type { AttachmentMetadata, AttachmentUpload } from "@ruukoto/core/attachments.ts";
 import type { Runtime } from "@ruukoto/runtime/runtime.ts";
 import type { SessionDefaultMode, GrantedPath, ModelSelection } from "@ruukoto/core/types.ts";
 import type { WorkflowControl } from "@ruukoto/core/workflow.ts";
+import type { ToolResultField } from "@ruukoto/core/history.ts";
 
 /** Runtime 方法的返回类型（去掉 Promise）。 */
 type R<M extends keyof Runtime> = Runtime[M] extends (...args: any[]) => infer T ? Awaited<T> : never;
@@ -19,6 +21,7 @@ type Submit = {
   request_id: string;
   input: string;
   model_selection: ModelSelection;
+  attachments?: AttachmentMetadata[];
   access_mode?: SessionDefaultMode;
   granted_paths?: GrantedPath[];
 };
@@ -49,7 +52,7 @@ export interface TuiOps {
     params: { session_id: string; before?: string; limit?: number; entry_text_cap?: number; page_text_budget?: number };
     result: R<"readHistory">;
   };
-  read_tool_result: { params: { session_id: string; entry_id: string; length?: number }; result: R<"readToolResult"> };
+  read_tool_result: { params: { session_id: string; entry_id: string; length?: number; field?: ToolResultField; offset?: number }; result: R<"readToolResult"> };
   read_history_entry: { params: { session_id: string; entry_id: string } & Slice; result: R<"readHistoryEntry"> };
   get_tool_op_params: { params: { tool_op_id: string } & Slice; result: R<"getToolOpParams"> };
   get_confirmation_params: { params: { confirmation_id: string } & Slice; result: R<"getConfirmationParams"> };
@@ -80,6 +83,9 @@ export interface TuiOps {
   };
   /** 打开工作区（agent-direction issue 05）：按真实目录身份复用/创建工作区并新建会话。 */
   open_workspace: { params: { cwd: string; project_id?: string; request_id?: string }; result: R<"openWorkspace"> };
+  list_workspace_files: { params: { workspace_id: string; path?: string }; result: R<"listWorkspaceFiles"> };
+  read_workspace_file: { params: { workspace_id: string; path: string }; result: R<"readWorkspaceFile"> };
+  put_attachment: { params: AttachmentUpload; result: R<"putAttachment"> };
   submit: { params: Submit; result: R<"submit"> };
   continue: { params: Submit & { task_id: string }; result: R<"continueTask"> };
   interrupt: { params: { task_id: string }; result: { accepted: true } };

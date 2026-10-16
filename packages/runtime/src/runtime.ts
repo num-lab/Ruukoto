@@ -9,6 +9,8 @@
  *   进程信号与控制面 stop 走同一路径。
  */
 
+import { OwnerAttachments } from "./owner-attachments.ts";
+import type { AttachmentMetadata, AttachmentUpload } from "@ruukoto/core/attachments.ts";
 import { InMemoryModelsStore } from "@earendil-works/pi-ai";
 import { ModelRuntime,type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { AppDataQueryRunner } from "@ruukoto/agent/app-data/query.ts";
@@ -60,7 +62,7 @@ import { createModelCatalog,ModelSelectionError,type ModelCatalog,type ModelOpti
 import { createApprovalReviewer,type ApprovalReviewer } from "@ruukoto/agent/review.ts";
 import { sessionsDirFor } from "@ruukoto/agent/session-factory.ts";
 import { createSkillFamily,loadSkillLibrary,skillsDirFor } from "@ruukoto/agent/skills.ts";
-import { subagentOpCheck } from "@ruukoto/agent/subagent-ledger.ts";
+import { subagentOpCheck, subAgentTaskRequestId } from "@ruukoto/agent/subagent-ledger.ts";
 import { createSubAgentFamily } from "@ruukoto/agent/subagent-tools.ts";
 import { subAgentAccessPolicy } from "@ruukoto/agent/subagent-capabilities.ts";
 import { HOST_REVIEW_DEFINITION, SubAgentRoleError, validateSubAgentRole } from "@ruukoto/agent/subagent-roles.ts";
@@ -127,6 +129,7 @@ import { bindWorkflowExecution, chargeWorkflow, controlWorkflow, findWorkflowRun
 import { requireSubAgentExecution, requireSubAgentExecutionScope, SubAgentExecutionError } from "@ruukoto/core/subagent-execution.ts";
 import { workCopyHostFor } from "@ruukoto/core/work-copy-host.ts";
 import { WorkspaceSnapshotError } from "@ruukoto/core/workspace-snapshot.ts";
+import { listWorkspaceFiles, readWorkspaceFile } from "./workspace-files.ts";
 import { WorkflowCoordinator, type WorkflowAgentExecutor } from "./workflows.ts";
 import { WorkflowSteps } from "./workflow-steps.ts";
 import { WorkflowLibrary } from "./workflow-library.ts";
@@ -325,6 +328,7 @@ export class Runtime {
   readonly config: RuntimeConfig;
   private readonly db: Db;
   readonly store: Store;
+  readonly attachments: OwnerAttachments;
   readonly artifacts: ArtifactStore;
   private browserManager!: BrowserManager;
   readonly inboundMedia: InboundMediaStore;
@@ -425,6 +429,7 @@ export class Runtime {
     this.lock = lock;
     this.configLock = configLock;
     this.artifacts = new ArtifactStore(config.dataDir, store);
+    this.attachments = new OwnerAttachments(config.dataDir, store, this.artifacts);
     this.inboundMedia = new InboundMediaStore(config.dataDir, store, this.artifacts);
     this.credentials = new CredentialStore(config.agentDir);
     this.access = new AccessScope(db);
@@ -2790,6 +2795,18 @@ export class Runtime {
     return identity;
   }
 
+  listWorkspaceFiles(input: { workspaceId: string; path?: string }) {
+    const root = this.store.getProject(input.workspaceId)?.rootDir;
+    if (!root) throw new RuntimeApiError("workspace_not_found", "工作区不存在或尚未登记目录，请重新选择工作区。");
+    return listWorkspaceFiles(input.workspaceId, root, input.path ?? "", this.protectedRoots());
+  }
+
+  readWorkspaceFile(input: { workspaceId: string; path: string }) {
+    const root = this.store.getProject(input.workspaceId)?.rootDir;
+    if (!root) throw new RuntimeApiError("workspace_not_found", "工作区不存在或尚未登记目录，请重新选择工作区。");
+    return readWorkspaceFile(input.workspaceId, root, input.path, this.protectedRoots());
+  }
+
   /**
    * 旧数据 → 工作区的组织迁移（agent-direction issue 07 步骤 2/3）：
    * 全部推断集中在 workspace-migration.ts，这里只做接线。预览零写入；
@@ -3283,10 +3300,20 @@ export class Runtime {
     );
   }
 
+  putAttachment(input: AttachmentUpload) {
+    if (!input || typeof input.session_id !== "string" || !input.session_id) throw new RuntimeApiError("invalid_params", "请选择会话后附加文件。");
+    const session = this.store.getSession(input.session_id);
+    if (!session || this.store.getSessionIdentity(session.id)?.kind !== "dev") throw new RuntimeApiError("attachment_scope", "请选择普通开发会话后附加文件。");
+    if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，请稍后重新选择文件。");
+    try { return this.attachments.put(input); }
+    catch (error) { if (error instanceof RuntimeApiError) throw error; throw new RuntimeApiError("attachment_unavailable", "附件保存失败，未提交任务；请检查后台存储后重新选择文件。"); }
+  }
+
   async submit(input: {
     sessionId: string;
     requestId: string;
     input: string;
+    attachments?: AttachmentMetadata[];
     accessMode?: SessionDefaultMode;
     grantedPaths?: GrantedPath[];
     resumesTaskId?: string;
@@ -3309,7 +3336,7 @@ export class Runtime {
     const session = this.store.getSession(input.sessionId);
     if (!session) throw new RuntimeApiError("not_found", `会话不存在：${input.sessionId}`);
     if (!input.requestId) throw new RuntimeApiError("invalid_params", "request_id 不能为空");
-    if (!input.input.trim()) throw new RuntimeApiError("invalid_params", "输入不能为空");
+    if (typeof input.input !== "string" || (!input.input.trim() && !input.attachments?.length)) throw new RuntimeApiError("invalid_params", "请输入消息或选择附件。");
     if (input.workflowRunId && !internal) throw new RuntimeApiError("invalid_params", "工作流汇总只能由宿主登记");
     if (input.reportKey && !internal) throw new RuntimeApiError("invalid_params", "结果补报只能由宿主登记");
     if (input.reportKeys && !internal) throw new RuntimeApiError("invalid_params", "结果补报只能由宿主登记");
@@ -3356,6 +3383,7 @@ export class Runtime {
       input: input.input, accessMode: input.accessMode ?? null,
       grantedPaths: (input.grantedPaths ?? []).map(p => ({ path: p.path, access: p.access, purpose: p.purpose || "未说明" })),
       resumesTaskId: input.resumesTaskId ?? null, modelSelection: selection,
+      ...(input.attachments?.length ? { attachments: input.attachments } : {}),
     };
     const submission = {
       ...digestBase,
@@ -3369,12 +3397,13 @@ export class Runtime {
     const submissionDigest = `request-v2:${digest(submission)}`;
     const existing = this.store.findMatchingSubmission({ sessionId: input.sessionId, requestId: input.requestId, submissionDigest });
     if (existing) return this.taskView(existing);
+    const attachments = this.attachments.prepare(session.id, input.attachments ?? []);
     this.assertNoSessionCompaction(input.sessionId);
     // 模型配置应用门闩（issue 21 §4）：幂等重试放行（不新建任务），
     // 受影响 provider 的新提交在应用期间拒绝进入队列；continueTask 经
     // this.submit 走同一检查
     const sourceEvent = input.sourceEventId ? this.store.getInboundEvent(input.sourceEventId) : null;
-    const check = await this.resolveSelection(selection, sourceEvent !== null && this.inboundMedia.hasMedia(sourceEvent));
+    const check = await this.resolveSelection(selection, (sourceEvent !== null && this.inboundMedia.hasMedia(sourceEvent)) || attachments.some(item => item.metadata.mimeType !== null));
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝新任务");
     // 所选模式的执行入口必须可用（缺少后端/身份配置时明确失败，不回退）
     try {
@@ -3445,6 +3474,7 @@ export class Runtime {
           sourceEventId: input.sourceEventId ?? null,
           deadline,
         });
+        if (!queued.duplicate) this.attachments.bind(queued.task.id, session.id, attachments);
         if (ordinaryInbound) this.store.markInboundQueued(ordinaryInbound.id, queued.task.id);
         if (workflow) updateWorkflowRun(this.store, { ...workflow, delivery: { ...workflow.delivery!, taskId: queued.task.id, status: "queued" } });
         for (const key of reportKeys) bindAgentReportFallback(this.store, key, queued.task.id);
@@ -3488,7 +3518,7 @@ export class Runtime {
    * 中断任务的人工继续：新任务带 resumes_task_id；不自动重放任何执行。
    * 新任务沿用会话默认模式（提交时可显式覆盖）；旧批准不继承。
    */
-  async continueTask(input: { taskId: string; sessionId?: string; requestId: string; input: string; accessMode?: SessionDefaultMode; grantedPaths?: GrantedPath[]; modelSelection: ModelSelection }): Promise<TaskView> {
+  async continueTask(input: { taskId: string; sessionId?: string; requestId: string; input: string; attachments?: AttachmentMetadata[]; accessMode?: SessionDefaultMode; grantedPaths?: GrantedPath[]; modelSelection: ModelSelection }): Promise<TaskView> {
     const old = this.store.getTask(input.taskId);
     if (!old) throw new RuntimeApiError("not_found", `任务不存在：${input.taskId}`);
     if (getWorkflowExecution(this.store, old.id)) throw new RuntimeApiError("invalid_state", "工作流执行由运行恢复，不接受普通任务继续");
@@ -3501,6 +3531,7 @@ export class Runtime {
       sessionId: old.sessionId,
       requestId: input.requestId,
       input: input.input,
+      attachments: input.attachments,
       accessMode: input.accessMode,
       grantedPaths: input.grantedPaths,
       resumesTaskId: old.id,
@@ -4590,14 +4621,34 @@ export class Runtime {
   } | null {
     const task = this.store.getTask(taskId);
     if (!task) return null;
+    const displayInput = this.subAgentDisplayInput(task);
     return {
       seq: this.store.getMaxSeq(),
-      task: this.taskView(task),
+      task: { ...this.taskView(task), ...(displayInput !== undefined ? { displayInput } : {}) },
       toolOps: this.store.listToolOpsByTask(task.id).map(toolOpToView),
       confirmations: this.store.listConfirmationsByTask(task.id).map(confirmationToView),
       artifacts: this.store.listArtifactsByTask(task.id),
       outputPreview: this.outputPreviewFor(task),
     };
+  }
+
+  // Note: 见 .agents/notes/implemented/architecture/2026-10-15-desktop-shadcn-demo.md
+  private subAgentDisplayInput(task: Task): string | undefined {
+    if (!task.parentTaskId || !task.workId || !task.subAgentId) return undefined;
+    const parent = this.store.getTask(task.parentTaskId);
+    const work = this.store.getWorkDelegation(task.workId);
+    const agent = this.store.getSubAgent(task.subAgentId);
+    if (!parent || !work || !agent || agent.sessionId !== task.sessionId || agent.parentSessionId !== parent.sessionId || work.parentSessionId !== parent.sessionId) return undefined;
+    const requests = new Set<string>();
+    for (const op of this.store.listToolOpsByTask(parent.id)) {
+      if (op.toolName !== "subagent_delegate" || op.recordedResultAt === null || op.isError !== false || op.effectUnknown) continue;
+      const { key, request, work_id: workId, sub_agent_id: subAgentId } = op.params;
+      if (typeof key !== "string" || typeof request !== "string" || task.requestId !== subAgentTaskRequestId(work.id, key)) continue;
+      if (workId !== undefined ? workId !== work.id : work.requestKey !== key || work.originTaskId !== parent.id) continue;
+      if (subAgentId !== undefined ? subAgentId !== agent.id : work.subAgentId !== agent.id) continue;
+      requests.add(request);
+    }
+    return requests.size === 1 ? requests.values().next().value : undefined;
   }
 
   /** 按 会话 + request_id 精确查询（重连幂等核实；含已离开快照的完成任务）。 */
@@ -4693,8 +4744,8 @@ export class Runtime {
     );
   }
 
-  readToolResult(input: { sessionId: string; entryId: string; length?: number }) {
-    return this.withSessionHistory(input.sessionId, (file) => readToolResult(file, input.entryId, input.length));
+  readToolResult(input: { sessionId: string; entryId: string; length?: number; field?: import("@ruukoto/core/history.ts").ToolResultField; offset?: number }) {
+    return this.withSessionHistory(input.sessionId, (file) => readToolResult(file, input.entryId, input.length, input.field === undefined ? undefined : { field: input.field, offset: input.offset }));
   }
 
   /**

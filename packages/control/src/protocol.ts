@@ -75,6 +75,8 @@
  * v24：等待对象、到期时间、阶段与中断原因；可信普通子任务补报沿用内部输入用途。
  * Note: 见 .agents/notes/implemented/architecture/2026-10-14-agent-wait-and-report-ownership.md
  *
+ * v28：拥有者工作区文件树与只读预览；目录范围由登记身份决定，不接受客户端绝对路径。
+ * v27：拥有者附件分块暂存、提交引用及工具结果按字段分页；旧后台不得静默丢弃附件。
  * v26：握手快照携带产品身份，桌面客户端在安装快照前核对连接目标。
  * Note: 见 .agents/notes/proposed/architecture/2026-10-15-desktop-client.md
  */

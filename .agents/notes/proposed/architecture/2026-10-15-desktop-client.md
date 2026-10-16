@@ -6,11 +6,13 @@ Status: proposed
 
 两个产品的交互入口只有 TUI、CLI 与 IM。拥有者需要一个 macOS 桌面界面，在同一窗口里操作本机的 ruukoto-code 与服务器上的 ruukoto，界面参考 [ui-demo](../../../../.scratch/desktop-gui/ui-demo.html)。
 
+后续组件统一采用[先审定 shadcn demo 再迁移](../../implemented/architecture/2026-10-15-desktop-shadcn-demo.md)，视觉来源仍为本篇引用的原始 HTML，业务要求仍由现行规格持有。
+
 约束来自三处：控制面只在本机 Unix socket 上监听，文档写明远程使用沿用登录服务器后启动 TUI、不新增远程协议；控制面协议要求客户端与服务端版本完全相等，`PROTOCOL_VERSION` 在 2026-09-20 到 2026-10-14 间从 1 升到 25；抽取前的 TUI 事件投影（`state.ts`、`event-flow.ts`）经 `workflows.ts` 间接依赖 pi-tui，并直接使用 Node API，不能原样运行在浏览器环境里。
 
 ## 方案
 
-桌面客户端是控制面的又一个客户端，与 TUI 并存，可同时连接同一后台。它只经控制面读写后台事实；唯一例外是 Code 目标的本机系统动作：文件夹选择框与在 Finder 中显示。缺少的能力以新增 op 补齐，TUI 同样可用。
+桌面客户端是控制面的又一个客户端，与 TUI 并存，可同时连接同一后台。它只经控制面读写后台事实；Code 目标另有本机系统动作：文件夹选择框、拥有者选中的附件快照与在 Finder 中显示。附件来源及上传按[附件通路](../../implemented/architecture/2026-10-16-owner-attachments.md)。缺少的能力以新增 op 补齐，TUI 同样可用。
 
 外壳用 Electron。主进程运行 Node，直接复用 `@ruukoto/control` 的 `ControlConnection`、`SubmissionGuard` 与协议类型，与后台出自同一份 TS 源码；协议升版只需重建桌面端，不维护第二套客户端。渲染进程用 React 19 与 Tailwind v4。
 
@@ -32,13 +34,15 @@ Code 目标只拉起与桌面端同一份仓库代码的 ruukoto-code：.app 在
 
 ## 当前落地边界
 
-Code 桌面已采用本提案的进程、安全、配置来源与构建方案：主进程持有连接与令牌，渲染进程复用 view 显示工作区与会话树、标签页和正文／思考／工具对话流，preload 单文件 CommonJS；开发与打包的 CSP 分开交付。结构化版本信息沿既有 v 字段传递；Personal 产品身份随握手快照加入，协议为 v26。请求名单按界面需要开放创建、读取、模型与会话默认模式设置、任务控制和队列恢复；提交与继续由主进程持久守护，本地恢复操作不转发。审批卡片与通知已接入两个目标，Personal 完整会话界面尚未交付，因此整体保持 proposed。
+外观与交互以拥有者已认可的[shadcn 定稿迁移](../../implemented/architecture/2026-10-15-desktop-shadcn-demo.md)为准；本提案保留后台状态、安全与进程边界，下文旧参数展开、额外诊断卡及固定右栏要求不再约束正式界面。
+
+Code 桌面已采用本提案的进程、安全、配置来源与构建方案：主进程持有连接与令牌，渲染进程复用 view 显示工作区与会话树、标签页和正文／思考／工具对话流，preload 单文件 CommonJS；开发与打包的 CSP 分开交付。结构化版本信息沿既有 v 字段传递；Personal 产品身份随握手快照加入，产品身份从 v26 提供；附件契约升版由后继迁移持有。请求名单按界面需要开放创建、读取、模型与会话默认模式设置、任务控制和队列恢复；提交与继续由主进程持久守护，本地恢复操作不转发。审批卡片与通知已接入两个目标，Personal 完整会话界面尚未交付，因此整体保持 proposed。
 
 会话恢复的请求编排留在渲染进程，投影继续共用 view；每次快照递增请求代次，连同同连接重同步一起让旧历史、任务和正文补读失效。任务事件从零读起，不把详情 seq 当作事件游标；正文按 TextEncoder 的 UTF-8 字节计数连续补读。只装快照和历史会缺失思考、工具身份与长正文，直接照搬 TUI 的 Buffer 又无法在浏览器运行。
 
 Code 右栏复用同一会话恢复和 Conversation 组件读 SubAgent 历史，选中子会话也纳入新快照重载和实时条目补读。工作委托读 work_list／work_get，全部 SubAgent 从共享快照与事件取得，避免只显示工作首位承接者。任务终态不等于空闲，工作查询从后台读回 idle／unverified；在途读取使用代次与查询序号，新的事件刷新不被旧查询覆盖。通知定位父会话时同时打开子会话右栏。
 
-差异按工具调用展示，读取资格与结果状态分开：entryId 只控制正文能否读取，不覆盖失败或效果未知。只有 done 且 read_tool_result 明确返回 isError: false 才展示 patch 或 writeContent；缺字段明确不可用，空字符串则是有效空文件。历史的 writeContent 从调用参数恢复，失败时可能仍有内容，因此不能当作写入成功的依据，也不用有界参数预览补位。工具结果读取上限为 64 KiB，保留截断标记；小组件只按 unified patch 行类型呈现，不增加 Accept／Reject、语法高亮或文件读取。
+差异按工具调用展示，读取资格与结果状态分开：entryId 只控制正文能否读取，不覆盖失败或效果未知。只有 done 且 read_tool_result 明确返回 isError: false 才展示 patch 或 writeContent；缺字段明确不可用，空字符串则是有效空文件。历史的 writeContent 从调用参数恢复，失败时可能仍有内容，因此不能当作写入成功的依据，也不用有界参数预览补位。工具结果预览与单页上限为 64 KiB，按[分页决定](../../implemented/feature/2026-10-16-tool-result-pagination.md)读取剩余内容；小组件只按 unified patch 行类型呈现，不增加 Accept／Reject、语法高亮或文件读取。
 
 正文与思考中的 Markdown 图片只显示替代说明。react-markdown 默认拒绝 file:，但 file 页面里的绝对路径和相对路径仍能加载本机文件；真实 Electron 探针已用临时自有 PNG 复现。仅关闭原始 HTML 或依赖 default-src self 都挡不住这条路径。首版没有直接文件读取能力，因此不用图片元素加载 URL；不增加文件代理或远程图片放行。
 

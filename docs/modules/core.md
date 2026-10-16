@@ -38,6 +38,10 @@
 | Runtime、control | `PRODUCT_META_KEY` 与 `packages/core/src/product.ts` 的产品解析 | 产品归属的 meta 键与 `RUUKOTO_PRODUCT` 解析 |
 | view、后台任务管理 | `ACTIVE_TASK_STATUSES` / `TERMINAL_TASK_STATUSES`（`packages/core/src/task-status.ts`） | 浏览器可用的活动与终态任务状态常量，`types.ts` 同时再导出 |
 
+`TaskView.displayInput` 是任务详情可选的展示输入，由 runtime 从可核实的父级委派调用派生；不落入 Task 行，也不改写 JSONL 或模型输入。
+
+`readToolResult` 保留逐字段预览，另可按指定结构字段返回 UTF-8 分页；精确偏移、空内容与缺字段的区别见[控制面](control.md#不变量与失败处理)。它不从普通结果文本推导 patch 或 Write 原文，也不把原文存在当作工具执行成功。
+
 路径与配置键：
 
 | 键 | 含义 |
@@ -47,7 +51,7 @@
 | `product.type` | 核心库 `meta` 表里登记的产品归属；跨产品复用同一数据目录被拒绝 |
 | `schema_version` / `instance_id` | `meta` 表里的 schema 版本与数据实例标识 |
 
-控制接口按 id、偏移与长度读取产物正文：`queryArtifact({ taskId, artifactId, offset?, length? })` 校验产物属于该任务，`offset` 下限 0，`length` 默认 256 KiB、上限 720 KiB（按线上帧约束：base64 膨胀 4/3 加 JSON 开销必须留在 `MAX_FRAME_BYTES` 即 4 MiB 内），返回 `base64` 编码的片段。模型侧读产物的工具是 `read_artifact`，参数 `artifact_id` / `offset` / `length`，单次上限 64 KiB，默认按 `utf8`、可显式选 `base64`。
+控制接口按 id、偏移与长度读取产物正文：`queryArtifact({ taskId, artifactId, offset?, length? })` 校验产物属于该任务，`offset` 下限 0，`length` 默认 256 KiB、上限 720 KiB（按线上帧约束：base64 膨胀 4/3 加 JSON 开销必须留在 `MAX_FRAME_BYTES` 即 1 MiB 内），返回 `base64` 编码的片段。模型侧读产物的工具是 `read_artifact`，参数 `artifact_id` / `offset` / `length`，单次上限 64 KiB，默认按 `utf8`、可显式选 `base64`。
 
 ## 数据与状态
 
@@ -93,7 +97,7 @@
 ├── control.sock               # 控制面 Unix socket（0660）
 └── owner.token                # 拥有者令牌（0600；部署时复制给拥有者 0400）
 
-<dataDir>/artifacts/           # 0700；工具正文与不可变图片产物（<artifactId>.bin）
+<dataDir>/artifacts/           # 0700；工具正文、不可变图片与用户附件（<artifactId>.bin）
 
 <agentDir>/                    # 0700（RUUKOTO_AGENT_DIR，默认 ~/.ruukoto/agent）
 ├── models.json                # 模型配置（显式指定，不读 ~/.pi/agent）
@@ -120,7 +124,7 @@
 |---|---|---|---|
 | pi JSONL（`sessions/`） | 消息历史，唯一权威副本，只追加 | 每会话一个 pi SDK 实例 | `SQLite` 的 `history_index` 只是可重建的派生索引；文件登记在 `sessions.session_file` |
 | SQLite（`ruukoto.db`） | 元数据与事件 | `Store` 的 SQL 原语 | 不存消息历史正文，也不存产物正文 |
-| 产物文件（`artifacts/<artifactId>.bin`） | 工具正文与不可变图片产物 | `ArtifactStore` | SQLite 的 `artifacts` 只存归属、字节数、`status`、`mime_type` 与 `content_hash` |
+| 产物文件（`artifacts/<artifactId>.bin`） | 工具正文、不可变图片与用户附件 | `ArtifactStore` | SQLite 的 `artifacts` 只存归属、字节数、`status`、`mime_type` 与 `content_hash` |
 
 三者没有跨文件事务，不得声称原子提交。会话文件与库记录的对应关系在启动恢复时修复：登记的 `session_file` 缺失而同 `pi_session_id` 的文件存在时改用最新一份并发 `session.history_unreadable`，孤立记录也发同一事件；损坏的 JSONL 不覆盖、不静默跳过。
 
@@ -309,7 +313,7 @@ sequenceDiagram
 2. `append` 先落盘再累加字节数；上游据此生成限长模型视图。先落盘再生成视图，避免先在工具里丢弃内容再声称全量留存。
 3. 结果回收后 `complete` 定稿；中断或写失败保持 `partial` 并保留已捕获部分与失败原因，不继续丢弃输出后报告完整成功。
 4. 读取按 `offset` / `length` 打开文件后定位读取，不把整个大文件加载进内存再切片；跨后台重启可按 id 查询。
-5. 图片产物走 `importImage`：先用实际文件签名核对 MIME，再核对字节数与 sha256，临时文件加 `linkSync` 落位（已存在同内容文件则复用，内容不同则报冲突），随后在同一事务里登记元数据；读取时每次核实归属、MIME、大小与哈希。图片产物大小上限 8 MiB，且不可修改。
+5. 图片产物走 `importImage`：先用实际文件签名核对 MIME，再核对字节数与 sha256，临时文件加 `linkSync` 落位（已存在同内容文件则复用，内容不同则报冲突），随后在同一事务里登记元数据；读取时每次核实归属、MIME、大小与哈希。图片产物大小上限 8 MiB，且不可修改。用户附件沿用不可变产物存储；附件元数据与 `task.attachments` 来源事件同任务事务登记，正文仍在产物文件，JSONL 只保存稳定引用。
 
 ### 旧实例导入留下的数据痕迹
 

@@ -25,7 +25,7 @@
 
 [逐项验收证据](docs/release-acceptance.md)。
 
-个人 app 的[Pi 1.3.0 会话基础](docs/modules/personal-durable.md)仅供隔离测试；安装按锁文件同时保留 Coding 的 Pi 0.85.1，正式入口使用原装配。
+个人的 [Pi 1.3.0 隔离向导](docs/usage.md#25-个人-durable-隔离向导)用 `npm run personal:durable`；Coding 保留 Pi 0.85.1，正式入口未变。
 
 ## 快速开始
 

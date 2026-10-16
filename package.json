@@ -18,6 +18,7 @@
   "scripts": {
     "start": "tsx scripts/start.ts",
     "dev": "tsx apps/ruukoto/src/dev.ts",
+    "personal:durable": "tsx apps/ruukoto/src/personal-entry.ts",
     "code": "tsx apps/ruukoto-code/src/dev.ts",
     "setup": "node scripts/setup.mjs",
     "build": "npm run build:native && npm run build:worker && npm run build:script && npm run build --workspaces --if-present",

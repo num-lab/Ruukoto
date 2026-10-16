@@ -1,8 +1,8 @@
 # 个人 Agent 迁移至 pi durable
 
-Status: ready-for-agent
+Status: in-progress
 
-本文记录 2026-10-17 拥有者 Q1–Q18 访谈的已确认要求；完整方案已在 Q19 确认。理由与备选见[决策提案](../../.agents/notes/proposed/architecture/2026-10-17-personal-pi-durable.md)，实施顺序与证据见[工单](issues/01-migration-plan.md)。本次交付是方案，不是迁移实现或上线授权。
+本文记录 2026-10-17 拥有者 Q1–Q18 访谈的已确认要求；完整方案已在 Q19 确认。理由与备选见[决策提案](../../.agents/notes/proposed/architecture/2026-10-17-personal-pi-durable.md)，实施顺序与证据见[工单](issues/01-migration-plan.md)。拥有者后续指示接手工单，实施已启动；上线另行安排。
 
 ## 目标与非目标
 
@@ -142,4 +142,4 @@ AppDataStore 回执字段允许记录 durable 任务/会话身份，但 `op_id` 
 
 ## 方案状态
 
-产品取舍与完整共同理解已确认，独立方案审查无未解决阻断。框架能力与代码边界已只读核查，尚未安装新版依赖、运行迁移原型或执行任何真实平台验证；实施与上线是后续工作。
+产品取舍与完整共同理解已确认，独立方案审查无未解决阻断。当前进入实施，实际成果、验证缺口和交接以工单为准；正式切换仍须完成全部验收。

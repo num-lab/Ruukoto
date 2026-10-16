@@ -4,6 +4,8 @@
 
 `apps/ruukoto` 是个人 Agent，`apps/ruukoto-code` 是 Coding Agent。各 app 持有自己的 bin、主入口与开发入口、`product.ts` 能力声明及专属工具或导入策略；两个 app 互不依赖。共享 CLI 在 tui 包（见 [tui](tui.md)）。存储、模型、任务、控制面与界面由 `packages/` 下的共享包提供。
 
+个人 app 另有仅供隔离测试调用的[持久会话基础](personal-durable.md)，使用 Pi 1.3.0 独立 SQLite、实例锁与请求证据；正式入口尚未接入该 API。下述产品行为均指正式共享装配。
+
 ## 对外接口
 
 各 bin 固定 `RUUKOTO_PRODUCT` 后注册 tsx，再进入本 app 的 `main.ts`。共享 CLI 接收 `CliProduct`，共享 `Runtime.start` 要求 `RuntimeConfig.product`，不按产品名选择装配。调用程序化入口时，显式传入所属 app 的 `product.runtime`。
@@ -57,6 +59,8 @@
 
 - 跨包相对引用、未声明依赖与越层运行时值引用不能通过 lint。
 - core 连反向类型引用也不接受；其他共享包的反向引用只限声明过的类型，运行时协作使用注入回调。
+
+desktop 在 devDependencies 声明打包依赖，其他包的反向类型引用也在 devDependencies 声明。共享 worker、schema 与控制面协议各有单一持有者。
 
 两个产品共用[真实工作流步骤](workflows.md)，沿各自来源能力装配；个人业务数据保持来源主身份，Coding Agent 不取得个人工具。编码验证共用原生沙箱，修改成果共用冻结补丁与独立验证记录；共享模型工具支持自主发起，CLI `workflow` 与 TUI `/workflow` 支持命名定义和带参运行及控制；个人 IM 通过原拥有者入口明确命令启动/控制，最终回报沿各自来源。
 

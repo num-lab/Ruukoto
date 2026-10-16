@@ -869,7 +869,7 @@ export function createCodingTools(router: ToolRouter): ToolDefinition[] {
   const readArtifact = routedTool({
     name: ARTIFACT_TOOL_NAME,
     label: ARTIFACT_TOOL_NAME,
-    description: "按产物 id、偏移和长度读取本任务已捕获的工具完整正文。",
+    description: "按产物 id、偏移和长度读取已授权的工具完整正文或用户附件。文本可用 utf8，二进制可用 base64。",
     parameters: Type.Object({
       artifact_id: Type.String({ description: "产物 id（见工具结果中的 artifact 引用）" }),
       offset: Type.Optional(Type.Number({ description: "起始字节，默认 0" })),

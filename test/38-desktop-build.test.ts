@@ -12,6 +12,15 @@ const encodedCsp = PRODUCTION_CSP.replaceAll("'", "&#39;");
 const cspMeta = `<meta http-equiv="Content-Security-Policy" content="${encodedCsp}">`;
 const buildScript = path.resolve(import.meta.dirname, "../apps/desktop/scripts/check-build.mjs");
 
+test("桌面生产 CSP 仅给内置浏览器开放 HTTP(S)，预览图片允许 data 而不开放脚本或本机 frame", () => {
+  assert.match(PRODUCTION_CSP, /(?:^|;)\s*default-src 'self'(?:;|$)/);
+  assert.match(PRODUCTION_CSP, /(?:^|;)\s*frame-src http: https:(?:;|$)/);
+  assert.match(PRODUCTION_CSP, /(?:^|;)\s*img-src 'self' data:(?:;|$)/);
+  assert.ok(!PRODUCTION_CSP.includes("unsafe-inline"));
+  assert.ok(!PRODUCTION_CSP.includes("unsafe-eval"));
+  assert.ok(!PRODUCTION_CSP.includes("file:"));
+});
+
 function fixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-desktop-build-"));
   for (const directory of ["renderer", "main", "preload"]) fs.mkdirSync(path.join(root, directory));

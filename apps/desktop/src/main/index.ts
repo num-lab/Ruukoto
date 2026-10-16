@@ -1,3 +1,4 @@
+import { pickAttachments } from "./attachments.ts";
 import { app, BrowserWindow, Notification, dialog, ipcMain, session, shell } from "electron";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -6,7 +7,7 @@ import { CodeController, serializeFailure } from "./controller.ts";
 import { ControlClientError } from "@ruukoto/control/client.ts";
 import { adoptEnvironment, codeTargetConfig, DesktopError, selectEnvironment } from "./environment.ts";
 import { handleRequest, ipcResult } from "./ipc.ts";
-import { cspFor, externalUrl, isRendererReload } from "./security.ts";
+import { browserFrameAllowed, cspFor, denyBrowserPermissions, externalUrl, isRendererReload } from "./security.ts";
 import { PersonalController } from "./personal-controller.ts";
 import { loadPersonalConfig, savePersonalConfig } from "./personal-config.ts";
 import type { DesktopTarget, DesktopUpdate } from "../shared/bridge.ts";
@@ -112,19 +113,32 @@ function openExternal(value: string): void {
 
 async function createWindow(): Promise<void> {
   const devUrl = process.env.ELECTRON_RENDERER_URL;
+  denyBrowserPermissions(session.defaultSession);
+  session.defaultSession.on("will-download", event => event.preventDefault());
+  session.defaultSession.webRequest.onBeforeRequest({ urls: ["<all_urls>"] }, (details, callback) => {
+    callback({ cancel: details.resourceType === "subFrame" && !browserFrameAllowed(details.url, devUrl) });
+  });
   if (devUrl) {
     const policy = cspFor(devUrl, process.env.RUUKOTO_DESKTOP_DEV_NONCE ?? "");
     session.defaultSession.webRequest.onHeadersReceived({ urls: [`${new URL(devUrl).origin}/*`] }, (details, callback) => {
       callback({ responseHeaders: { ...details.responseHeaders, "Content-Security-Policy": [policy] } });
     });
   }
-  window = new BrowserWindow({ width: 1160, height: 780, minWidth: 760, minHeight: 500, title: "Ruukoto", titleBarStyle: "hiddenInset", vibrancy: "sidebar", webPreferences: { preload: fileURLToPath(new URL("../preload/index.cjs", import.meta.url)), sandbox: true, contextIsolation: true, nodeIntegration: false } });
+  window = new BrowserWindow({ width: 1160, height: 780, minWidth: 760, minHeight: 500, title: "Ruukoto", titleBarStyle: "hiddenInset", vibrancy: "sidebar", webPreferences: { preload: fileURLToPath(new URL("../preload/index.cjs", import.meta.url)), sandbox: true, contextIsolation: true, nodeIntegration: false, nodeIntegrationInSubFrames: false, webviewTag: false } });
+  const contents = window.webContents;
+  contents.on("will-frame-navigate", event => {
+    if (!event.isMainFrame && !browserFrameAllowed(event.url, devUrl) || event.isMainFrame && event.initiator && event.initiator !== contents.mainFrame) event.preventDefault();
+  });
+  contents.on("will-redirect", event => {
+    if (event.isMainFrame ? !isRendererReload(event.url, devUrl) : !browserFrameAllowed(event.url, devUrl)) event.preventDefault();
+  });
   window.webContents.on("will-navigate", (event, url) => {
+    if (event.initiator && event.initiator !== contents.mainFrame) { event.preventDefault(); return; }
     if (isRendererReload(url, devUrl)) return;
     event.preventDefault();
     openExternal(url);
   });
-  window.webContents.setWindowOpenHandler(({ url }) => { openExternal(url); return { action: "deny" }; });
+  contents.setWindowOpenHandler(({ url, referrer }) => { if (referrer.url === contents.getURL()) openExternal(url); return { action: "deny" }; });
   window.on("closed", () => { subscribed.clear(); window = null; });
   if (devUrl) await window.loadURL(devUrl);
   else await window.loadFile(fileURLToPath(new URL("../renderer/index.html", import.meta.url)));
@@ -158,6 +172,17 @@ ipcMain.handle("desktop:request", async (event, target, op, params) => {
     return config;
   }) : checked;
 });
+ipcMain.handle("desktop:pick-attachments", (event, sessionId: unknown) => ipcResult(async () => {
+  assertTrusted(event);
+  const source = controller;
+  if (!source || source.status.state !== "online") throw new DesktopError("connection_unavailable", "请等待连接恢复后附加文件。");
+  if (typeof sessionId !== "string") throw new DesktopError("invalid_params", "请选择会话后附加文件。");
+  return pickAttachments(sessionId, {
+    instanceId: () => controller === source && source.status.state === "online" ? source.instanceId() : null,
+    pick: async () => { const selection = await dialog.showOpenDialog(window!, { properties: ["openFile", "multiSelections"], title: "选择附件" }); return selection.canceled ? [] : selection.filePaths; },
+    upload: params => source.request("put_attachment", params),
+  });
+}));
 ipcMain.handle("desktop:pick-folder", event => ipcResult(async () => {
   assertTrusted(event);
   const result = await dialog.showOpenDialog(window!, { properties: ["openDirectory"], title: "选择工作区" });

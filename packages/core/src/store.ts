@@ -8,6 +8,7 @@
  * - 持久事件与引发它的状态变更同事务写入；事务提交成功后才对外广播。
  */
 
+import type { AttachmentReference } from "./attachments.ts";
 import type { Db } from "./db.ts";
 import { classifySession, type SessionIdentity } from "./session-identity.ts";
 import { SubAgentDefinitionError, requireSubAgentDefinition, subAgentDefinitionFromJson } from "./subagent-definition.ts";
@@ -2596,12 +2597,16 @@ export class Store {
   }
 
   createImageArtifact(input: { id: string; taskId: string; sessionId: string; name: string; mimeType: ImageMimeType; contentHash: string; byteCount: number }): Artifact {
+    return this.createImmutableArtifact(input);
+  }
+
+  createImmutableArtifact(input: { id: string; taskId: string; sessionId: string; name: string; mimeType: ImageMimeType | null; contentHash: string; byteCount: number }): Artifact {
     this.db.prepare(`INSERT INTO artifacts (id, task_id, session_id, name, byte_count, status, mime_type, content_hash, created_at)
       VALUES (?, ?, ?, ?, ?, 'complete', ?, ?, ?) ON CONFLICT (id) DO NOTHING`)
       .run(input.id, input.taskId, input.sessionId, input.name, input.byteCount, input.mimeType, input.contentHash, new Date().toISOString());
     const artifact = this.getArtifact(input.id)!;
-    if (artifact.taskId !== input.taskId || artifact.sessionId !== input.sessionId || artifact.contentHash !== input.contentHash || artifact.mimeType !== input.mimeType || artifact.byteCount !== input.byteCount) {
-      throw new Error("图片产物归属或内容不一致");
+    if (artifact.taskId !== input.taskId || artifact.sessionId !== input.sessionId || artifact.name !== input.name || artifact.contentHash !== input.contentHash || artifact.mimeType !== input.mimeType || artifact.byteCount !== input.byteCount) {
+      throw new Error("不可变产物归属或内容不一致");
     }
     return artifact;
   }
@@ -2764,6 +2769,12 @@ export class Store {
       seq: Number(row.seq), taskId: row.task_id, sessionId: row.session_id,
       body: JSON.parse(row.body) as PersistentEventBody, createdAt: row.created_at,
     }));
+  }
+
+  taskAttachments(taskId: string): AttachmentReference[] {
+    const rows = this.db.prepare("SELECT body FROM events WHERE task_id = ? AND json_extract(body, '$.type') = 'task.attachments' ORDER BY seq").all(taskId) as { body: string }[];
+    if (rows.length > 1) throw new Error("附件来源事件重复");
+    return rows.length ? (JSON.parse(rows[0].body) as Extract<PersistentEventBody, { type: "task.attachments" }>).attachments : [];
   }
 
   /** 任务最新一条输出片段事件（重连预览重建的持久来源）。 */

@@ -55,7 +55,7 @@ npx tsx --test verification/foundation/test/03-tools.test.ts
 | `packages/agent/src/` 的上下文与模型 | `test/18-model-selection.test.ts`、`test/60-context-prefix.test.ts`、`test/61-context-compaction.test.ts`、`test/98-media-model-pinning.test.ts` |
 | SubAgent、角色/工作区快照、worktree 与导入 | `test/80`–`87`、`91`、`95`；在 test/ 按 subagent-role、subagent-definition、workspace-snapshot、subagent-workspace-snapshot、work-copy-host 找文件 |
 | `packages/tui/src/tui/`、`packages/tui/src/config-tui/` | `test/13-tui-state.test.ts`、`test/14-tui-app.test.ts`、`test/15-tui-pty.test.ts`、`test/33-config-tui.test.ts` |
-| `apps/desktop/` | `test/38-desktop-main.test.ts`、`test/38-desktop-personal.test.ts`、`test/38-desktop-build.test.ts`、`test/39-desktop-recovery-guide.test.ts`、`test/40-desktop-creation.test.ts`、`test/41-desktop-stream.test.ts`、`test/42-desktop-inspector.test.ts`；Electron 实测另验 |
+| `apps/desktop/` | `test/38-desktop-main.test.ts`、`test/38-desktop-personal.test.ts`、`test/38-desktop-build.test.ts`、`test/39-desktop-recovery-guide.test.ts`、`test/40-desktop-creation.test.ts`、`test/41-desktop-stream.test.ts`、`test/42-desktop-inspector.test.ts`、`test/43-desktop-demo.test.ts`、`test/desktop-attachments.test.ts`、`test/desktop-agent-display.test.ts`、`test/desktop-context.test.ts`、`test/desktop-composer.test.ts`、`test/desktop-inspector-tools.test.ts`、`test/desktop-workspace-files.test.ts`、`test/desktop-browser-security.test.ts`；Electron 实测另验 |
 | `packages/view/src/` 的共享投影与浏览器约束 | `test/36-event-flow-state.test.ts`、`test/37-view-browser.test.ts`；TUI 调用方另跑 13/14/34/19 |
 | `packages/channels/src/qq/`、`packages/channels/src/telegram/`、`packages/channels/src/scheduler/` | `test/26-qq.test.ts`、`test/37-scheduler-outbox.test.ts`、`test/38-telegram-owner.test.ts`、`test/40-qq-private.test.ts`、`test/89-im-entries.test.ts` |
 
@@ -116,6 +116,8 @@ npm run code -- --import-models ~/.ruukoto-code/agent  # 只复制模型配置
 ## 桌面客户端
 
 `npm run code -- --desktop` 使用隔离开发档案，与 --config 和位置路径互斥；electron-vite 负责桌面及其依赖的重建和 HMR，启动器管理后台与整组退出。构建、Electron 下载前提及验收见[桌面开发](desktop-development.md)。
+
+纯前端界面参考见 [shadcn demo](../.scratch/desktop-shadcn/demo/README.md)，独立安装与启动，不依赖 Electron 或后台；正式 GUI 按已冻结定稿迁移，冻结源码与验收证据位于同一目录。
 
 ## 耗时基线与后续批次
 

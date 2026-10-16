@@ -1,0 +1,161 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import * as path from "node:path";
+import { tmpdir } from "node:os";
+import { syncBuiltinESMExports } from "node:module";
+import { test } from "node:test";
+import { RuntimeApiError } from "@ruukoto/core/api-error.ts";
+import { resolveDirIdentitySync } from "@ruukoto/core/dir-identity.ts";
+import type { OpResult } from "@ruukoto/control/ops.ts";
+import { MAX_FRAME_BYTES } from "@ruukoto/control/protocol.ts";
+import { listWorkspaceFiles, readWorkspaceFile, WORKSPACE_DIRECTORY_LIMIT, WORKSPACE_PREVIEW_BYTES } from "@ruukoto/runtime/workspace-files.ts";
+import { startTestRuntime } from "./helpers/testkit.ts";
+
+const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aWQAAAABJRU5ErkJggg==", "base64");
+function fixture() {
+  const parent = fs.mkdtempSync(path.join(tmpdir(), "ruukoto-files-"));
+  fs.mkdirSync(path.join(parent, "work"));
+  const root = fs.realpathSync(path.join(parent, "work"));
+  return { parent, root, identity: resolveDirIdentitySync(root), close: () => fs.rmSync(parent, { recursive: true, force: true }) };
+}
+const fails = (code: string) => (error: unknown): boolean => error instanceof RuntimeApiError && error.code === code;
+
+test("工作区文件按层排序读取，文本、Markdown、空文件与图片保留真实内容", () => {
+  const kit = fixture();
+  try {
+    fs.mkdirSync(path.join(kit.root, "src"));
+    fs.writeFileSync(path.join(kit.root, "src", "index.ts"), "const value = '<script>';\n");
+    fs.writeFileSync(path.join(kit.root, "README.md"), "# 真实文件\n");
+    fs.writeFileSync(path.join(kit.root, "empty.txt"), "");
+    fs.writeFileSync(path.join(kit.root, "photo.png"), png);
+    fs.writeFileSync(path.join(kit.root, "document.pdf"), "%PDF-1.7");
+    fs.writeFileSync(path.join(kit.root, "vector.svg"), "<svg onload='alert(1)'/>");
+    fs.writeFileSync(path.join(kit.root, "fake.png"), "并非图片");
+    fs.writeFileSync(path.join(kit.root, "binary"), Buffer.from([255, 0, 1]));
+    const files = listWorkspaceFiles("workspace", kit.identity, "", []);
+    assert.equal(files.path, ""); assert.equal(files.truncated, false);
+    assert.deepEqual(files.entries[0], { name: "src", path: "src", kind: "directory" });
+    assert.deepEqual(listWorkspaceFiles("workspace", kit.identity, "src", []).entries, [{ name: "index.ts", path: "src/index.ts", kind: "file" }]);
+    assert.deepEqual(readWorkspaceFile("workspace", kit.identity, "src/index.ts", []), { workspaceId: "workspace", path: "src/index.ts", size: 26, kind: "text", content: "const value = '<script>';\n" });
+    assert.equal(readWorkspaceFile("workspace", kit.identity, "README.md", []).kind, "markdown");
+    assert.deepEqual(readWorkspaceFile("workspace", kit.identity, "empty.txt", []), { workspaceId: "workspace", path: "empty.txt", size: 0, kind: "text", content: "" });
+    const image = readWorkspaceFile("workspace", kit.identity, "photo.png", []);
+    assert.equal(image.kind, "image");
+    if (image.kind === "image") { assert.equal(image.mimeType, "image/png"); assert.equal(image.dataUrl, `data:image/png;base64,${png.toString("base64")}`); }
+    for (const file of ["document.pdf", "vector.svg", "fake.png", "binary"]) assert.equal(readWorkspaceFile("workspace", kit.identity, file, []).kind, "unsupported");
+  } finally { kit.close(); }
+});
+
+test("路径、目录身份、保护根、符号链接与硬链接不能绕过只读范围", () => {
+  const kit = fixture();
+  try {
+    const outside = path.join(kit.parent, "outside");
+    fs.mkdirSync(outside); fs.writeFileSync(path.join(outside, "secret.txt"), "不可返回");
+    fs.writeFileSync(path.join(kit.root, "ordinary.txt"), "普通正文");
+    for (const file of ["../outside/secret.txt", "/etc/passwd", "C:/secret", "src/../file", "a//b", "./a", "a/./b", "a\\b", "a\0b", ""]) assert.throws(() => readWorkspaceFile("workspace", kit.identity, file, []), fails("invalid_params"), file);
+    fs.symlinkSync(outside, path.join(kit.root, "linked"));
+    fs.symlinkSync(path.join(outside, "secret.txt"), path.join(kit.root, "secret-link"));
+    fs.linkSync(path.join(outside, "secret.txt"), path.join(kit.root, "hard-link"));
+    assert.throws(() => readWorkspaceFile("workspace", kit.identity, "linked/secret.txt", []), fails("workspace_path_unsafe"));
+    assert.throws(() => readWorkspaceFile("workspace", kit.identity, "secret-link", []), fails("workspace_path_unsafe"));
+    assert.throws(() => readWorkspaceFile("workspace", kit.identity, "hard-link", []), fails("workspace_path_unsafe"));
+    assert.ok(!listWorkspaceFiles("workspace", kit.identity, "", []).entries.some(entry => entry.name === "linked" || entry.name === "secret-link"));
+    assert.throws(() => readWorkspaceFile("workspace", kit.identity, "ordinary.txt", [kit.root]), fails("workspace_path_unsafe"));
+    assert.throws(() => listWorkspaceFiles("workspace", kit.identity, "", [path.join(kit.root, "ordinary.txt")]), fails("workspace_path_unsafe"));
+    assert.throws(() => readWorkspaceFile("workspace", kit.identity, "missing", []), fails("workspace_file_not_found"));
+    assert.throws(() => readWorkspaceFile("workspace", kit.identity, "", []), fails("invalid_params"));
+    fs.mkdirSync(path.join(kit.root, "directory"));
+    assert.throws(() => readWorkspaceFile("workspace", kit.identity, "directory", []), fails("workspace_path_unsafe"));
+    fs.renameSync(kit.root, path.join(kit.parent, "old")); fs.mkdirSync(kit.root);
+    assert.throws(() => listWorkspaceFiles("workspace", kit.identity, "", []), fails("workspace_directory_changed"));
+  } finally { kit.close(); }
+});
+
+test("每层目录、预览内容与 JSON 转义后的控制面载荷都有上限", () => {
+  const kit = fixture();
+  try {
+    for (let index = 0; index <= WORKSPACE_DIRECTORY_LIMIT; index++) fs.writeFileSync(path.join(kit.root, `file-${index}`), "");
+    const files = listWorkspaceFiles("workspace", kit.identity, "", []);
+    assert.equal(files.entries.length, WORKSPACE_DIRECTORY_LIMIT); assert.equal(files.truncated, true);
+    fs.writeFileSync(path.join(kit.root, "large.txt"), Buffer.alloc(WORKSPACE_PREVIEW_BYTES + 1, 65));
+    assert.equal(readWorkspaceFile("workspace", kit.identity, "large.txt", []).kind, "unsupported");
+    fs.writeFileSync(path.join(kit.root, "bounded.txt"), Buffer.alloc(WORKSPACE_PREVIEW_BYTES, 65));
+    assert.equal(readWorkspaceFile("workspace", kit.identity, "bounded.txt", []).kind, "text");
+    fs.writeFileSync(path.join(kit.root, "escaped.txt"), Buffer.alloc(WORKSPACE_PREVIEW_BYTES, 1));
+    const escaped = readWorkspaceFile("workspace", kit.identity, "escaped.txt", []);
+    assert.equal(escaped.kind, "unsupported"); assert.ok(Buffer.byteLength(JSON.stringify(escaped)) < MAX_FRAME_BYTES);
+  } finally { kit.close(); }
+});
+
+test("读取期间的父目录替换、打开替身与原位修改均丢弃结果", context => {
+  const kit = fixture();
+  try {
+    const directory = path.join(kit.root, "src"), original = path.join(directory, "file.txt"), outside = path.join(kit.parent, "outside");
+    fs.mkdirSync(directory); fs.mkdirSync(outside); fs.writeFileSync(original, "原文"); fs.writeFileSync(path.join(outside, "file.txt"), "秘密");
+    const open = fs.openSync;
+    context.mock.method(fs, "openSync", (...args: Parameters<typeof open>) => {
+      if (args[0] === original) { fs.renameSync(directory, `${directory}-old`); fs.symlinkSync(outside, directory); }
+      return open(...args);
+    });
+    syncBuiltinESMExports();
+    assert.throws(() => readWorkspaceFile("workspace", kit.identity, "src/file.txt", []), fails("workspace_file_changed"));
+    context.mock.restoreAll(); syncBuiltinESMExports();
+    fs.unlinkSync(directory); fs.renameSync(`${directory}-old`, directory);
+    const read = fs.readSync;
+    let changed = false;
+    context.mock.method(fs, "readSync", (...args: Parameters<typeof read>) => {
+      const count = read(...args);
+      if (!changed) { changed = true; fs.writeFileSync(original, "修改后原文"); }
+      return count;
+    });
+    syncBuiltinESMExports();
+    assert.throws(() => readWorkspaceFile("workspace", kit.identity, "src/file.txt", []), fails("workspace_file_changed"));
+    context.mock.restoreAll(); syncBuiltinESMExports();
+    changed = false;
+    context.mock.method(fs, "readSync", (...args: Parameters<typeof read>) => {
+      const count = read(...args);
+      if (!changed) { changed = true; fs.renameSync(directory, `${directory}-old`); fs.symlinkSync(outside, directory); }
+      return count;
+    });
+    syncBuiltinESMExports();
+    assert.throws(() => readWorkspaceFile("workspace", kit.identity, "src/file.txt", []), fails("workspace_path_unsafe"));
+  } finally { context.mock.restoreAll(); syncBuiltinESMExports(); kit.close(); }
+});
+
+test("目录枚举中的父链变化可见，文件读取失败不会泄漏宿主路径", context => {
+  const kit = fixture();
+  try {
+    const directory = path.join(kit.root, "src"), outside = path.join(kit.parent, "outside");
+    fs.mkdirSync(directory); fs.mkdirSync(outside); fs.writeFileSync(path.join(directory, "file.txt"), "原文");
+    const opendir = fs.opendirSync;
+    context.mock.method(fs, "opendirSync", (...args: Parameters<typeof opendir>) => {
+      const handle = opendir(...args);
+      fs.renameSync(directory, `${directory}-old`); fs.symlinkSync(outside, directory);
+      return handle;
+    });
+    syncBuiltinESMExports();
+    assert.throws(() => listWorkspaceFiles("workspace", kit.identity, "src", []), fails("workspace_path_unsafe"));
+    context.mock.restoreAll(); syncBuiltinESMExports();
+    fs.unlinkSync(directory); fs.renameSync(`${directory}-old`, directory);
+    context.mock.method(fs, "readSync", () => { throw Object.assign(new Error(`EACCES: ${directory}`), { code: "EACCES" }); });
+    syncBuiltinESMExports();
+    assert.throws(() => readWorkspaceFile("workspace", kit.identity, "src/file.txt", []), (error: unknown) => fails("workspace_file_unavailable")(error) && error instanceof Error && !error.message.includes(kit.root));
+  } finally { context.mock.restoreAll(); syncBuiltinESMExports(); kit.close(); }
+});
+
+test("拥有者控制面仅按登记工作区读取，拒绝额外绝对路径字段且不调用模型", async () => {
+  const kit = await startTestRuntime("desktop-files", () => ({ kind: "text", text: "不应调用" }));
+  try {
+    const opened = await kit.client.request<OpResult<"open_workspace">>("open_workspace", { cwd: kit.work[0], request_id: "workspace-files" });
+    const workspaceId = opened.session.projectId;
+    fs.writeFileSync(path.join(kit.work[0], "owner.txt"), "拥有者工作区正文");
+    const files = await kit.client.request<OpResult<"list_workspace_files">>("list_workspace_files", { workspace_id: workspaceId });
+    assert.ok(files.entries.some(entry => entry.name === "owner.txt"));
+    const preview = await kit.client.request<OpResult<"read_workspace_file">>("read_workspace_file", { workspace_id: workspaceId, path: "owner.txt" });
+    assert.equal(preview.kind, "text"); if (preview.kind === "text") assert.equal(preview.content, "拥有者工作区正文");
+    await assert.rejects(kit.client.request("list_workspace_files", { workspace_id: workspaceId, root: kit.work[1] }), (error: unknown) => error instanceof Error && "code" in error && error.code === "invalid_params");
+    await assert.rejects(kit.client.request("read_workspace_file", { workspace_id: workspaceId, path: "../work-1/secret.txt" }), (error: unknown) => error instanceof Error && "code" in error && error.code === "invalid_params");
+    await assert.rejects(kit.client.request("list_workspace_files", { workspace_id: "missing" }), (error: unknown) => error instanceof Error && "code" in error && error.code === "workspace_not_found");
+    assert.equal(kit.server.calls.length, 0);
+  } finally { await kit.shutdown(); }
+});

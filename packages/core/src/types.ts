@@ -7,6 +7,7 @@
  */
 
 import { randomBytes } from "node:crypto";
+import type { AttachmentReference } from "./attachments.ts";
 import type { HistorySnapshot } from "./history.ts";
 
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
@@ -18,7 +19,7 @@ import type { SubAgentExecutionSnapshot } from "./subagent-execution.ts";
 import type { WorkCopyHostSnapshot } from "./work-copy-host.ts";
 import { requireWorkspaceSnapshot, WorkspaceSnapshotError, type WorkspaceSnapshot } from "./workspace-snapshot.ts";
 
-export const PROTOCOL_VERSION = 26;
+export const PROTOCOL_VERSION = 28;
 
 export interface ModelSelection {
   provider: string;
@@ -869,7 +870,7 @@ export interface Artifact {
   byteCount: number;
   /** complete：结果已回收后定稿；partial：中断/写入失败等场景的已捕获部分。 */
   status: "complete" | "partial";
-  /** 图片产物的不可变 MIME 与 SHA-256；旧工具正文产物为空。 */
+  /** MIME 仅图片使用；用户附件与图片的 SHA-256 固定原字节，旧工具正文为空。 */
   mimeType?: ImageMimeType | null;
   contentHash?: string | null;
   createdAt: string;
@@ -911,6 +912,7 @@ export type PersistentEventBody =
   | { type: "session.default_mode_changed"; sessionId: string; defaultAccessMode: SessionDefaultMode; defaultAccessModeVersion: number }
   | { type: "session.context_compaction"; sessionId: string; requestId: string; status: SessionCompactionRequest["status"] }
   | { type: "tasks.model_selection_recorded"; sessionId: string; taskIds: string[]; modelSelection: ModelSelection }
+  | { type: "task.attachments"; taskId: string; sessionId: string; attachments: AttachmentReference[] }
   | { type: "task.queued"; taskId: string; sessionId: string; requestId: string; accessMode: AccessMode; parentTaskId?: string | null; sourcePermissionVersion?: number | null; planMode: boolean; modelSelection: ModelSelection | null }
   | { type: "task.started"; taskId: string; sessionId: string }
   /** Jev 选择尝试；即使主模型未发送，取消与回退仍有任务归属记录。 */

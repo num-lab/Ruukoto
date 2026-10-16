@@ -52,6 +52,8 @@ import { modelResponseBudget, type ModelCatalog } from "./model-selection.ts";
 import { PLAN_NOTICE } from "./plan-mode.ts";
 import { skillCatalogBlock, type SkillLibrary } from "./skills.ts";
 import { roleCatalogBlock, type SubAgentRoleLibrary } from "./subagent-roles.ts";
+import { AttachmentReferenceError, attachmentReferenceView } from "./owner-attachments.ts";
+import type { AttachmentReference } from "@ruukoto/core/attachments.ts";
 import { hasImageInput, IMAGE_INPUT_UNSUPPORTED, imageReferenceSnapshot, imageReferenceView, restoreImageInput, type ImageReference } from "./inbound-images.ts";
 import { sourceArtifact } from "@ruukoto/core/branch.ts";
 import { historyTodoParams, parseSessionFile } from "@ruukoto/core/history.ts";
@@ -61,9 +63,9 @@ import { unpairedToolRecords } from "./context-selector.ts";
 /** 请求前最终检查失败（预算/选择失败/选择缺失/配对/资料变化）：阻断发送。 */
 export class ContextSendBlocked extends Error {
   readonly code: string;
-  constructor(reason: string) {
+  constructor(reason: string, code?: string) {
     super(reason);
-    this.code = reason.split(":", 1)[0] ?? "context_send_blocked";
+    this.code = code ?? reason.split(":", 1)[0] ?? "context_send_blocked";
   }
 }
 
@@ -176,8 +178,8 @@ export class ContextAssembly {
   private pendingSelection: SelectorOutput | null = null;
   private pendingExperiment: ContextExperimentRecord | null = null;
   private pendingJevCredentialSnapshot: string | null = null;
-  /** 本轮选择的阻断原因（错误码:说明；prepareSend 发现即拒绝发送）。 */
-  private selectionBlockReason: string | null = null;
+  /** 本轮选择的阻断原因；附件保留具名错误，prepareSend 发现即拒绝发送。 */
+  private selectionBlockReason: string | AttachmentReferenceError | null = null;
   /** 刚落盘的选择记录（prompt 快照关联与发送后补记用量）。 */
   private pendingRecordId: string | null = null;
 
@@ -247,6 +249,7 @@ export class ContextAssembly {
     this.pendingExperiment = null;
     this.pendingJevCredentialSnapshot = null;
     try {
+      messages = attachmentReferenceView(messages, ref => this.attachmentAllowed(ref));
       messages = imageReferenceView(messages, this.session.id, ref => this.imageAllowed(ref));
       let input = this.contextInput(messages, sdk);
       let selection = selectContext(input);
@@ -273,7 +276,7 @@ export class ContextAssembly {
     } catch (err) {
       this.pendingSelection = null;
       // 资料读取、压缩点落盘等失败不是超预算，拥有者看到的原因要分开
-      this.selectionBlockReason = `context_selection_failed:上下文选择失败：${(err as Error).message}`;
+      this.selectionBlockReason = err instanceof AttachmentReferenceError ? err : `context_selection_failed:上下文选择失败：${(err as Error).message}`;
       return undefined;
     }
   }
@@ -308,6 +311,12 @@ export class ContextAssembly {
       // 资料受限会话（SubAgent）不压缩
       compaction: this.restricted ? null : { sessionId: this.session.id, checkpoint: this.validatedCheckpoint(messages) },
     };
+  }
+
+  private attachmentAllowed(ref: AttachmentReference): boolean {
+    const artifact = ref.sessionId === this.session.id ? this.deps.store.getArtifact(ref.id) : sourceArtifact(this.deps.store, this.deps.access, this.session.id, ref.id);
+    const recorded = this.deps.store.taskAttachments(ref.taskId).some(item => item.id === ref.id && item.contentHash === ref.contentHash && item.sessionId === ref.sessionId);
+    return recorded && !!artifact && artifact.taskId === ref.taskId && artifact.sessionId === ref.sessionId && artifact.name === ref.name && artifact.byteCount === ref.size && artifact.contentHash === ref.contentHash && (artifact.mimeType ?? null) === ref.mimeType && artifact.status === "complete";
   }
 
   private imageAllowed(ref: ImageReference): boolean {
@@ -731,6 +740,7 @@ export class ContextAssembly {
     options = { ...options, maxTokens: config.maxTokens };
     // 部分适配器会在显式 maxTokens 上追加思考预算；同时限定模型总响应上限。
     model = { ...model, maxTokens: config.maxTokens };
+    if (blockReason instanceof AttachmentReferenceError) throw new ContextSendBlocked(blockReason.message, blockReason.code);
     if (blockReason) throw new ContextSendBlocked(blockReason);
     if (!selection?.ok) {
       // context 钩子未运行（异常被吞）或策略未产生结果：拒绝发送，不退回全量

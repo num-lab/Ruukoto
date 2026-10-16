@@ -1,0 +1,6 @@
+{
+  "src/app.tsx": "9745772d224fca3a20fd753719758cbc0bf731b622ec0c706b2b4a0c73d91e35",
+  "src/sidebar-resizer.tsx": "41ac5fa8f2364e6f2b97ff577c81a19f76b94509428be9f7d3f1521892ce6276",
+  "src/style.css": "01b3b2ffd18252acf470ccfdadd947bf21b4fc221fbaa07660e5f57c06b57c4b",
+  "scripts/check-render.mjs": "5cd86eb6bc4de1c7bebad944adf5db24bf86d37f3a18eafe1a7b0502e8b4224b"
+}

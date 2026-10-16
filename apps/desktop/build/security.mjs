@@ -1,4 +1,4 @@
-export const PRODUCTION_CSP = "default-src 'self'; object-src 'none'; base-uri 'none'; frame-src 'none'";
+export const PRODUCTION_CSP = "default-src 'self'; object-src 'none'; base-uri 'none'; frame-src http: https:; img-src 'self' data:";
 
 export function productionCspPlugin() {
   return {

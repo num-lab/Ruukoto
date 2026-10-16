@@ -63,7 +63,7 @@ test("差异请求仅在可读后发出，使用子会话来源并拒绝旧快�
   flow.addHistory({ entryId: "entry", taskId: "task", inputPurpose: "user", parentId: null, role: "toolResult", text: "完成", timestamp: "2026-10-15T00:00:01Z", offset: 0, totalBytes: 6, truncated: false, toolCalls: [], toolCallId: "call", toolName: "write", isError: false, hasNonTextContent: false });
   const pending = inspector.loadDiff();
   assert.equal(calls.length, 1);
-  assert.deepEqual(calls[0], { session_id: "child", entry_id: "entry", length: 65536 });
+  assert.deepEqual(calls[0], { session_id: "child", entry_id: "entry", field: "writeContent", offset: 0, length: 65536 });
   inspector.update({ type: "snapshot", result: { snapshot: fakeSnapshot(), seq: 0, replay: [] }, instanceChanged: true });
   release({ ok: true, value: result({ writeContent: "旧代次" }) });
   await pending;
@@ -140,4 +140,78 @@ test("工作查询失败时，缓存仍保留已收到的新委托、取消与 S
   assert.ok(inspector.workDelegations().some(item => item.id === "new-work"));
   assert.ok(inspector.agents().some(item => item.id === "new-agent"));
   assert.equal(inspector.agents().find(item => item.id === "new-agent")?.definition, null);
+});
+
+test("差异行号随 hunk 分别推进，删除沿旧行号，新行与上下文沿新行号", () => {
+  const lines = parsePatch("@@ -8,2 +10,2 @@\n-旧\n+新\n 上下文\n@@ -30 +40 @@\n+末");
+  assert.deepEqual(lines.map(line => line.number), [undefined, 8, 10, 11, undefined, 40]);
+});
+
+test("more 按 UTF-8 字节续读，失败保留已读正文并可按原偏移重试", async () => {
+  const view = new ViewState();
+  const flow = view.openSession("child").flow;
+  flow.addHistory({ entryId: "entry", taskId: "task", inputPurpose: "user", parentId: null, role: "toolResult", text: "完成", timestamp: "", offset: 0, totalBytes: 6, truncated: false, toolCalls: [], toolCallId: "call", toolName: "write", isError: false, hasNonTextContent: false });
+  const entry = flow.tools[0];
+  const text = "中文👩‍💻尾页";
+  const pieces = ["中文", "👩‍💻尾页"];
+  let wrong = true;
+  const offsets: number[] = [];
+  const inspector = new DesktopInspector({ request: async (_target, _op, params) => {
+    const offset = Number(params.offset); offsets.push(offset);
+    const part = offset ? pieces[1] : pieces[0];
+    return { ok: true, value: result({ writeContent: "预览", content: { text: part, offset: offset && wrong ? offset + 1 : offset, totalBytes: Buffer.byteLength(text), truncated: true } }) };
+  } }, view, async () => {}, () => {});
+  inspector.openDiff("child", entry);
+  await inspector.loadDiff(); await Promise.resolve();
+  assert.equal(inspector.result?.value?.writeContent, pieces[0]);
+  await inspector.loadMore();
+  assert.match(inspector.result?.moreError ?? "", /不连续/);
+  assert.equal(inspector.result?.value?.writeContent, pieces[0]);
+  wrong = false; await inspector.loadMore();
+  assert.equal(inspector.result?.value?.writeContent, text);
+  assert.equal(inspector.result?.value?.truncated, false);
+  assert.deepEqual(offsets, [0, 6, 6]);
+});
+
+test("同文件多次调用保留独立标签，切会话和关闭最后标签保持正确归属", async () => {
+  const view = new ViewState();
+  const flow = view.openSession("parent").flow;
+  for (const id of ["one", "two"]) flow.addHistory({ entryId: id, taskId: "task", inputPurpose: "user", parentId: null, role: "toolResult", text: "完成", timestamp: id, offset: 0, totalBytes: 6, truncated: false, toolCalls: [], toolCallId: id, toolName: "write", isError: false, hasNonTextContent: false });
+  const inspector = new DesktopInspector({ request: async (_target, op) => ({ ok: true, value: op === "work_list" ? { works: [] } : result({ content: { text: "正文", offset: 0, totalBytes: 6, truncated: false } }) }) }, view, async () => {}, () => {});
+  inspector.openParent("parent");
+  inspector.openDiff("parent", flow.tools[0]); inspector.openDiff("parent", flow.tools[1]);
+  assert.equal(inspector.tabs().length, 2);
+  const active = inspector.activeTab()!.id;
+  inspector.openParent("other"); assert.equal(inspector.tabs().length, 0);
+  inspector.openParent("parent"); assert.equal(inspector.activeTab()!.id, active);
+  for (const tab of inspector.tabs()) inspector.closeTab(tab.id);
+  assert.equal(inspector.tabs().length, 1);
+  assert.equal(inspector.activeTab()?.kind, "new");
+});
+
+test("继续工作与协作委派按结构化来源打开当前父会话的 Agent", () => {
+  const view = new ViewState();
+  view.subAgents = [agent, { ...agent, id: "collaborator", sessionId: "collaborator-session" }, { ...agent, id: "foreign", parentSessionId: "other" }];
+  view.workDelegations = [work];
+  const inspector = new DesktopInspector({ request: async () => ({ ok: true, value: { works: [] } }) }, view, async () => {}, () => {});
+  inspector.parentSessionId = "parent";
+  assert.equal(inspector.agentForTool(tool({ params: { key: "key" } }))?.id, "agent");
+  assert.equal(inspector.agentForTool(tool({ params: { key: "next", work_id: "work" } }))?.id, "agent");
+  assert.equal(inspector.agentForTool(tool({ params: { key: "join", work_id: "work", sub_agent_id: "collaborator" } }))?.sessionId, "collaborator-session");
+  assert.equal(inspector.agentForTool(tool({ params: { sub_agent_id: "foreign" } })), undefined);
+});
+
+test("失败正文的截断仍可 more，不能按缺失 patch 冒充完整", async () => {
+  const view = new ViewState();
+  const flow = view.openSession("child").flow;
+  flow.addHistory({ entryId: "entry", taskId: "task", inputPurpose: "user", parentId: null, role: "toolResult", text: "失败", timestamp: "", offset: 0, totalBytes: 6, truncated: false, toolCalls: [], toolCallId: "call", toolName: "write", isError: true, hasNonTextContent: false });
+  const inspector = new DesktopInspector({ request: async (_target, _op, params) => {
+    assert.equal(params.field, "text");
+    const offset = Number(params.offset);
+    return { ok: true, value: result({ text: "有界预览", writeContent: null, isError: true, truncated: true, content: { text: offset ? "尾部" : "失败", offset, totalBytes: 12, truncated: true } }) };
+  } }, view, async () => {}, () => {});
+  inspector.openDiff("child", flow.tools[0]); await inspector.loadDiff(); await Promise.resolve();
+  assert.equal(inspector.result?.value?.truncated, true);
+  await inspector.loadMore();
+  assert.deepEqual(diffDisplay(flow.tools[0], inspector.result!.value), { kind: "error", text: "失败尾部", truncated: false });
 });

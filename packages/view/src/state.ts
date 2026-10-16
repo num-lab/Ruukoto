@@ -91,7 +91,11 @@ export class ViewState {
   applySnapshot(result: ConnectResult, instanceChanged: boolean): void {
     this.projects = result.snapshot.projects;
     this.sessions = result.snapshot.sessions;
-    this.tasks = new Map(result.snapshot.tasks.map((t) => [t.id, t]));
+    const sameInstance = !instanceChanged && this.instanceId === result.snapshot.instanceId;
+    this.tasks = new Map(result.snapshot.tasks.map((t) => {
+      const displayInput = t.displayInput ?? (sameInstance ? this.tasks.get(t.id)?.displayInput : undefined);
+      return [t.id, displayInput === undefined ? t : { ...t, displayInput }];
+    }));
     this.taskSeq = new Map(result.snapshot.tasks.map((t) => [t.id, result.seq]));
     this.confirmations = result.snapshot.confirmations;
     this.artifacts = new Map(result.snapshot.artifacts.map((a) => [a.id, a]));
@@ -573,6 +577,8 @@ export class ViewState {
       this.taskSeq.set(task.id, seq);
     } else {
       const current = this.tasks.get(task.id);
+      // 展示正文来自同一任务的固定来源，不跟随后到详情的旧状态序号回滚。
+      if (current && task.displayInput !== undefined) current.displayInput = task.displayInput;
       if (current && !current.input && task.input) {
         current.input = task.input;
         current.inputPurpose = task.inputPurpose;
@@ -604,6 +610,7 @@ export class ViewState {
 
   upsertTask(task: Task): void {
     const current = this.tasks.get(task.id);
+    if (task.displayInput === undefined && current?.displayInput !== undefined) task = { ...task, displayInput: current.displayInput };
     // 提交应答可能在任务终态事件之后到达，输入元数据仍可补齐，终态不可回滚。
     if (current && ((current.endedAt && !task.endedAt) || (current.status !== "queued" && task.status === "queued"))) {
       task = { ...task, ...current, input: task.input || current.input, inputPurpose: task.inputPurpose };

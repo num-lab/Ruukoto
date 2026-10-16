@@ -311,6 +311,13 @@ export class ControlServer {
           projectId: typeof params["project_id"] === "string" && params["project_id"] ? params["project_id"] : undefined,
           createRequestId: optionalRequestId(),
         });
+      case "list_workspace_files":
+      case "read_workspace_file": {
+        if (Object.keys(params).some(key => key !== "workspace_id" && key !== "path") || params["path"] !== undefined && typeof params["path"] !== "string") throw new RuntimeApiError("invalid_params", "文件接口只接受工作区与相对路径。");
+        const workspaceId = requireString("workspace_id");
+        if (request.op === "list_workspace_files") return runtime.listWorkspaceFiles({ workspaceId, path: params["path"] as string | undefined });
+        return runtime.readWorkspaceFile({ workspaceId, path: requireString("path") });
+      }
       // ---------- agent-direction issue 07：旧数据 → 工作区组织迁移 ----------
       case "preview_workspace_migration": {
         const plan = params["plan"];
@@ -408,12 +415,15 @@ export class ControlServer {
         }
         return runtime.setSessionDefaultMode({ sessionId: requireString("session_id"), mode, expectedVersion: params["expected_version"] as number });
       }
+      case "put_attachment":
+        return runtime.putAttachment(params as unknown as import("@ruukoto/core/attachments.ts").AttachmentUpload);
       case "submit":
         return runtime.submit({
           sessionId: requireString("session_id"),
           requestId: requireString("request_id"),
           modelSelection: parseModelSelection(params["model_selection"]),
-          input: requireString("input"),
+          input: typeof params["input"] === "string" ? params["input"] : requireString("input"),
+          attachments: params["attachments"] as import("@ruukoto/core/attachments.ts").AttachmentMetadata[] | undefined,
           accessMode: this.parseAccessMode(params),
           grantedPaths: this.parseGrantedPaths(params),
         });
@@ -423,7 +433,8 @@ export class ControlServer {
           taskId: requireString("task_id"),
           requestId: requireString("request_id"),
           modelSelection: parseModelSelection(params["model_selection"]),
-          input: requireString("input"),
+          input: typeof params["input"] === "string" ? params["input"] : requireString("input"),
+          attachments: params["attachments"] as import("@ruukoto/core/attachments.ts").AttachmentMetadata[] | undefined,
           accessMode: this.parseAccessMode(params),
           grantedPaths: this.parseGrantedPaths(params),
         });
@@ -574,11 +585,23 @@ export class ControlServer {
       }
       case "read_tool_result": {
         const length = params["length"];
+        const field = params["field"];
+        const offset = params["offset"];
         if (length !== undefined && (!Number.isSafeInteger(length) || (length as number) < 1)) {
-          throw Object.assign(new Error("length 必须是正整数"), { code: "invalid_params" });
+          throw new RuntimeApiError("invalid_params", "length 必须是正安全整数");
+        }
+        if (field !== undefined && field !== "text" && field !== "patch" && field !== "writeContent") {
+          throw new RuntimeApiError("invalid_params", "field 必须是 text、patch 或 writeContent");
+        }
+        if (offset !== undefined && (field === undefined || !Number.isSafeInteger(offset) || (offset as number) < 0)) {
+          throw new RuntimeApiError("invalid_params", "offset 必须配合 field 使用，且是非负安全整数");
+        }
+        if (field !== undefined && length !== undefined && ((length as number) < 4 || (length as number) > 64 * 1024)) {
+          throw new RuntimeApiError("invalid_params", "分页 length 必须是 4–65536 的整数字节数");
         }
         return runtime.readToolResult({
           sessionId: requireString("session_id"), entryId: requireString("entry_id"), length: length as number | undefined,
+          field, offset: offset as number | undefined,
         });
       }
       case "read_history_entry":

@@ -1,9 +1,12 @@
+import type { AttachmentMetadata } from "@ruukoto/core/attachments.ts";
 import type { RequestOutcome } from "@ruukoto/control/client.ts";
 import type { ConnectionState } from "@ruukoto/control/connection.ts";
 import type { ConnectResult } from "@ruukoto/control/protocol.ts";
 import type { PersistentEvent } from "@ruukoto/core/types.ts";
 import type { PendingRequest } from "@ruukoto/control/pending-requests.ts";
 import type { ReconcileOutcome, SubmitOutcome } from "@ruukoto/control/submission.ts";
+
+export type DesktopAttachment = AttachmentMetadata;
 
 export type DesktopSubmitResult = SubmitOutcome | { kind: "pending_existing"; record: PendingRequest };
 export type PendingInput = { record: PendingRequest; result?: ReconcileOutcome };
@@ -28,6 +31,7 @@ export type DesktopUpdate =
 export interface DesktopBridge {
   subscribe(target: DesktopTarget, listener: (update: DesktopUpdate) => void): () => void;
   request(target: DesktopTarget, op: string, params: Record<string, unknown>): Promise<DesktopResult<unknown>>;
+  pickAttachments(sessionId: string): Promise<DesktopResult<DesktopAttachment[]>>;
   pickFolder(): Promise<DesktopResult<string | null>>;
   reveal(path: string): Promise<DesktopResult<void>>;
 }

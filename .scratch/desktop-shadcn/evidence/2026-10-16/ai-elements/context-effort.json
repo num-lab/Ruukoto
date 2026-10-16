@@ -1,0 +1,175 @@
+{
+  "menu": {
+    "enterX": "0",
+    "enterY": "0",
+    "menuBottom": 739.421875,
+    "scale": "1",
+    "side": "top",
+    "triggerTop": 749.5
+  },
+  "busy": {
+    "draft": "检查 Context 与 Effort",
+    "effortDisabled": true,
+    "modelDisabled": true,
+    "submit": "正在核实输入"
+  },
+  "narrow": {
+    "documentWidth": 760,
+    "items": [
+      {
+        "bottom": 458,
+        "clientWidth": 150,
+        "display": "flex",
+        "height": 100,
+        "right": 400,
+        "scrollWidth": 150,
+        "selector": ".composer-actions",
+        "width": 150,
+        "x": 250,
+        "y": 358
+      },
+      {
+        "bottom": 458,
+        "clientWidth": 150,
+        "display": "grid",
+        "height": 61,
+        "right": 400,
+        "scrollWidth": 150,
+        "selector": ".composer-right",
+        "width": 150,
+        "x": 250,
+        "y": 397
+      },
+      {
+        "bottom": 419.796875,
+        "clientWidth": 26,
+        "display": "flex",
+        "height": 18.59375,
+        "right": 276.2265625,
+        "scrollWidth": 26,
+        "selector": ".context-usage",
+        "width": 26.2265625,
+        "x": 250,
+        "y": 401.203125
+      },
+      {
+        "bottom": 424,
+        "clientWidth": 45,
+        "display": "flex",
+        "height": 27,
+        "right": 326.875,
+        "scrollWidth": 45,
+        "selector": ".model-selector",
+        "width": 44.6484375,
+        "x": 282.2265625,
+        "y": 397
+      },
+      {
+        "bottom": 424,
+        "clientWidth": 67,
+        "display": "flex",
+        "height": 27,
+        "right": 400,
+        "scrollWidth": 67,
+        "selector": ".effort-selector",
+        "width": 67.125,
+        "x": 332.875,
+        "y": 397
+      },
+      {
+        "bottom": 458,
+        "clientWidth": 28,
+        "display": "flex",
+        "height": 28,
+        "right": 400,
+        "scrollWidth": 28,
+        "selector": ".send-button",
+        "width": 28,
+        "x": 372,
+        "y": 430
+      }
+    ],
+    "viewport": [
+      760,
+      500
+    ]
+  },
+  "minimum": {
+    "items": [
+      {
+        "bottom": 458,
+        "clientWidth": 144,
+        "height": 61,
+        "right": 394,
+        "scrollWidth": 144,
+        "selector": ".composer-right",
+        "width": 144,
+        "x": 250,
+        "y": 397
+      },
+      {
+        "bottom": 419.796875,
+        "clientWidth": 26,
+        "height": 18.59375,
+        "right": 276.2265625,
+        "scrollWidth": 26,
+        "selector": ".context-usage",
+        "width": 26.2265625,
+        "x": 250,
+        "y": 401.203125
+      },
+      {
+        "bottom": 424,
+        "clientWidth": 39,
+        "height": 27,
+        "right": 320.875,
+        "scrollWidth": 39,
+        "selector": ".model-selector",
+        "width": 38.6484375,
+        "x": 282.2265625,
+        "y": 397
+      },
+      {
+        "bottom": 424,
+        "clientWidth": 67,
+        "height": 27,
+        "right": 394,
+        "scrollWidth": 67,
+        "selector": ".effort-selector",
+        "width": 67.125,
+        "x": 326.875,
+        "y": 397
+      },
+      {
+        "bottom": 458,
+        "clientWidth": 28,
+        "height": 28,
+        "right": 394,
+        "scrollWidth": 28,
+        "selector": ".send-button",
+        "width": 28,
+        "x": 366,
+        "y": 430
+      }
+    ],
+    "mainWidth": 220,
+    "pageWidth": 760,
+    "viewport": [
+      760,
+      500
+    ]
+  },
+  "light": {
+    "dark": false,
+    "menuBackground": "oklch(1 0 0)",
+    "meterColor": "oklch(0.556 0 0)"
+  },
+  "checks": {
+    "effortSessionIsolation": true,
+    "effortReturnPreserved": true,
+    "newSessionInheritedHigh": true,
+    "newSessionContextZero": true,
+    "newWorkspaceInheritedHigh": true,
+    "newWorkspaceContextZero": true
+  }
+}

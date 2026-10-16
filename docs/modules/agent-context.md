@@ -122,7 +122,7 @@ sequenceDiagram
 
 **超长工具结果。** 只在模型视图中替换为有界节选：首尾保留、中间省略计数、附 `history_read` / `read_artifact` 引用；历史与产物原文不变，被替换的片段范围记入选择记录 `capped_tool_results`。单个文本段上限 80,000 字符，足以容纳 pi `read`/`bash` 的 50 KB 输出与 64 KB 单页（`read_artifact` 单次上限 64 KB、`history_read` 单页）加头部，只兜底 `http_request`、`request_file_access` 等真正超大的结果。上限只取决于消息本身、不按位置区分：同一条消息的视图不随后续调用变化。
 
-**图片引用。** 私聊图片的会话历史只保存 `ruukotoMediaRefs`（产物、任务、会话 ID、MIME、字节数及内容哈希）。选择时恢复带空 data 的标准图片占位块，按现有 SDK 图片估算计入预算；发送前按引用读取并验证不可变产物，生成真实 `image` 内容块。prompt 快照只保存 `image_ref`，不重复保存完整 base64。`resumesTaskId` 继续链的源图片绑定本轮用户消息，因此源交互被压缩或移出时仍能重放；摘要不保留视觉细节。
+**图片与附件引用。** 私聊与桌面图片的会话历史只保存 `ruukotoMediaRefs`（产物、任务、会话 ID、MIME、字节数及内容哈希）。选择时恢复带空 data 的标准图片占位块，按现有 SDK 图片估算计入预算；发送前按引用读取并验证不可变产物，生成真实 `image` 内容块。prompt 快照只保存 `image_ref`，不重复保存完整 base64。`resumesTaskId` 继续链的源图片绑定本轮用户消息，因此源交互被压缩或移出时仍能重放；摘要不保留视觉细节。桌面附件在用户消息保存 `ruukotoAttachmentRefs`，普通文件引用恢复为 `read_artifact` 读取指引；继续链与分支核对来源及读取范围，不把本机路径加入原文。
 
 **预算。** 预算 = 模型 contextWindow − maxTokens（输出）− thinking 预算 − 下一批工具结果预留 − 估算安全边际。估算用 pi `estimateTokens`（chars/4）加 CJK 校准（每 CJK 字符按 1 token 计）再乘校准系数 1.5。选择记录的配置版本即生效预算配置的 FNV-1a 哈希，配置变化即变化。
 

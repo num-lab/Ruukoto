@@ -1,6 +1,8 @@
 /** 宿主操作的执行登记与收尾，不创建模型会话。 */
 // Note: 见 .agents/notes/implemented/architecture/2026-10-13-workflow-runtime-and-store.md
+// Note: 见 .agents/notes/implemented/architecture/2026-10-16-task-ending-protocol.md
 import type { Store } from "@ruukoto/core/store.ts";
+import { isTerminalTaskStatus } from "@ruukoto/core/types.ts";
 import { getWorkflowExecution, getWorkflowRun, updateWorkflowExecution } from "@ruukoto/core/workflow.ts";
 import { workCopyHostFor } from "@ruukoto/core/work-copy-host.ts";
 import { grantCoversPath } from "@ruukoto/core/worktree.ts";
@@ -8,11 +10,13 @@ import { verifyDirIdentitySync } from "@ruukoto/core/dir-identity.ts";
 import { ExecutionError } from "@ruukoto/agent/execution/launchers.ts";
 import type { ManagedEntry } from "@ruukoto/agent/managed-processes.ts";
 import type { ToolOpLedger } from "@ruukoto/agent/tool-op-ledger.ts";
+import { endTaskExecution, type TaskEndingContext } from "@ruukoto/agent/task-ending.ts";
 
 interface HostExecution {
   permissionVersion: number;
   entries: ManagedEntry[];
   ending: boolean;
+  context: TaskEndingContext;
   stop?: Promise<boolean>;
 }
 
@@ -28,7 +32,7 @@ export class HostExecutionManager {
     if (this.executions.has(taskId)) throw new ExecutionError("task_mismatch", "宿主任务已登记执行");
     const task = this.deps.store.getTask(taskId);
     if (!task) throw new ExecutionError("task_mismatch", "宿主任务不存在");
-    this.executions.set(taskId, { permissionVersion: task.permissionVersion, entries: [], ending: false });
+    this.executions.set(taskId, { permissionVersion: task.permissionVersion, entries: [], ending: false, context: { taskId, stopSnapshot: null } });
     try { this.assertActive(taskId); }
     catch (error) { this.executions.delete(taskId); throw error; }
   }
@@ -96,47 +100,46 @@ export class HostExecutionManager {
       const task = this.deps.store.getTask(taskId);
       return Promise.resolve((task ? workCopyHostFor(task)?.stopVerified : null) === true || getWorkflowExecution(this.deps.store, taskId)?.stopVerified === true);
     }
-    if (state.stop) return state.stop;
+    if (state.stop) {
+      if (state.context.stopSnapshot === null && !isTerminalTaskStatus(this.deps.store.getTask(taskId)!.status) && (terminal === "canceled" || terminal === "interrupted")) {
+        return this.stopInner(taskId, state, terminal, reason, state.stop);
+      }
+      return state.stop;
+    }
     state.ending = true;
-    this.deps.store.withTx(() => {
-      if (terminal === "canceled") this.deps.store.setCancelRequested(taskId, true);
-    });
-    const snapshot = this.deps.ledger.beginStop(taskId);
-    state.stop = this.stopInner(taskId, state, snapshot, terminal, reason);
+    state.stop = this.stopInner(taskId, state, terminal, reason);
     return state.stop;
   }
 
-  private async stopInner(taskId: string, state: HostExecution, snapshot: string[],
-    terminal: "completed" | "failed" | "canceled" | "interrupted", reason: string): Promise<boolean> {
-    const results = await Promise.all(state.entries.map(async entry => {
-      try { return await entry.stop(); }
-      catch (error) {
-        const code = error instanceof ExecutionError ? error.code : "stop_failed";
-        process.stderr.write(`[ruukoto:host-execution] 执行单元停止未核实（${code}），保留目录占用待拥有者核实\n`);
-        return false;
-      }
-    }));
-    const reaped = results.every(result => result);
-    this.deps.store.withTx(() => {
-      const task = this.deps.store.getTask(taskId)!;
-      const copy = workCopyHostFor(task);
-      if (copy && task.resultSummary === null) this.deps.store.setTaskResult(taskId,
-        JSON.stringify({ isError: terminal !== "completed", content: "", errorMessage: reason }), JSON.stringify({ parentTaskId: copy.parentTaskId, workId: copy.workId, operation: copy.operation }));
-      this.deps.store.endTask(taskId, ["running", "awaiting_confirmation"], terminal, {
-        interruptReason: terminal === "interrupted" || terminal === "canceled" ? reason : undefined,
-        errorMessage: terminal === "failed" ? reason : undefined,
-        keepOccupancy: !reaped,
-        occupancyIssueReason: reaped ? null : "tool_process_unreaped",
-        onChanged: () => {
-          for (const opId of this.deps.ledger.settleTask(task, snapshot)) this.deps.ledger.markEffectUnknown(task, opId);
-        },
-      });
-      if (copy) this.deps.store.db.prepare("UPDATE tasks SET read_scope = ? WHERE id = ?")
-        .run(JSON.stringify({ ...task.readScope, workCopyHost: { ...copy, stopVerified: reaped } }), taskId);
-      else updateWorkflowExecution(this.deps.store, taskId, { status: "finished", stopVerified: reaped });
+  private async stopInner(taskId: string, state: HostExecution,
+    terminal: "completed" | "failed" | "canceled" | "interrupted", reason: string, stopping?: Promise<boolean>): Promise<boolean> {
+    const task = this.deps.store.getTask(taskId)!;
+    const result = await endTaskExecution(this.deps, task, state.context, {
+      terminal, reason, abort: terminal === "canceled" || terminal === "interrupted" ? true : undefined,
+      unreapedReason: "tool_process_unreaped",
+      halt: async () => {
+        if (stopping) return stopping;
+        const results = await Promise.all(state.entries.map(async entry => {
+          try { return await entry.stop(); }
+          catch (error) {
+            const code = error instanceof ExecutionError ? error.code : "stop_failed";
+            process.stderr.write(`[ruukoto:host-execution] 执行单元停止未核实（${code}），保留目录占用待拥有者核实\n`);
+            return false;
+          }
+        }));
+        return results.every(result => result);
+      },
+      inTx: ({ reaped }) => {
+        const task = this.deps.store.getTask(taskId)!;
+        const copy = workCopyHostFor(task);
+        if (copy && task.resultSummary === null) this.deps.store.setTaskResult(taskId,
+          JSON.stringify({ isError: terminal !== "completed", content: "", errorMessage: reason }), JSON.stringify({ parentTaskId: copy.parentTaskId, workId: copy.workId, operation: copy.operation }));
+        if (copy) this.deps.store.db.prepare("UPDATE tasks SET read_scope = ? WHERE id = ?")
+          .run(JSON.stringify({ ...task.readScope, workCopyHost: { ...copy, stopVerified: reaped } }), taskId);
+        else updateWorkflowExecution(this.deps.store, taskId, { status: "finished", stopVerified: reaped });
+      },
     });
-    if (reaped) this.deps.onReleased?.();
-    return reaped;
+    return result.reaped;
   }
 
   async shutdown(reason: string): Promise<void> {

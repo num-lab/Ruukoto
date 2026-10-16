@@ -31,6 +31,9 @@ export function parsePersonalModel(value: unknown): PersonalModelConfig {
   if (url.username || url.password || url.search || url.hash || (url.protocol !== "https:" && !(url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)))) {
     throw new PersonalError("model_config_invalid", "模型服务应使用不含凭据的 HTTPS 地址；本机服务可使用 HTTP。");
   }
+  if (/^RUUKOTO_(OWNER_TOKEN|SERVICE|CODE_|DESKTOP_|.*_DIR$|PRODUCT$|EXECUTION_BACKEND$)/.test(value.apiKeyEnv)) {
+    throw new PersonalError("model_credentials_invalid", "模型凭据不能使用内部控制、目录或服务环境变量，请重新配置凭据名称。");
+  }
   return { api: value.api, baseUrl: value.baseUrl, modelId: value.modelId, apiKeyEnv: value.apiKeyEnv, contextWindow: value.contextWindow, maxTokens: value.maxTokens };
 }
 

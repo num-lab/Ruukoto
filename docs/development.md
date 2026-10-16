@@ -21,6 +21,7 @@ macOS 构建原生监督器另需 Command Line Tools 的 Clang。平台前置、
 | --- | --- |
 | `npm run build` | 构建原生监督器、工具与脚本 worker 及 WASM，再生成两产品的 `dist/*.tgz`；无需 Docker，应用通过 tsx 运行源码 |
 | `npm run desktop:build` | 构建桌面三个目标、检查产物并 ad-hoc 签名 `dist/mac-arm64/Ruukoto.app`；根 build 不打包 Electron |
+| `npm run personal:durable` | 独立个人模型配置与会话向导，后台通过本机认证接口管理；默认 `~/.ruukoto-durable-dev/<realpath hash12>/`，不复用旧开发档案，无热重载；操作见[隔离向导](usage.md#25-个人-durable-隔离向导) |
 | `npm run build:script` | 打包 `worker/workflow-script.mjs` 并复制同目录 WASM；脚本测试前运行 |
 | `npm run lint` | 检查正确性与关键约定，不统一全库排版 |
 | `npm run typecheck` | 根测试与脚本、每个 workspace 包、基础验证各自执行静态类型检查 |
@@ -43,7 +44,7 @@ npx tsx --test verification/foundation/test/03-tools.test.ts
 | 修改位置 | 常用测试起点 |
 | --- | --- |
 | `packages/tui/src/`（cli.ts、cli-entry.ts、dev.ts）、`packages/core/src/product.ts`、`apps/ruukoto-code/src/dev.ts` | `test/29-cli-entry.test.ts`、`test/32-dev.test.ts`、`test/71-product-entry.test.ts` |
-| `apps/ruukoto/src/personal-*.ts`（独立 Pi 1.3.0 基础 API） | `test/personal-durable.test.ts`；真实 SQLite、进程强杀与本地 HTTP/SSE，未接正式入口 |
+| `apps/ruukoto/src/personal-*.ts`（独立 Pi 1.3.0） | `test/personal-durable.test.ts`、`test/personal-cli.test.ts`；SQLite、进程、socket 与本地 HTTP/SSE；真实模型用 `verification/smoke/smoke-personal-durable.mts`，显式配置见[操作手册](usage.md#25-个人-durable-隔离向导)，未接正式入口 |
 | `packages/runtime/src/` 与 `packages/control/src/` 的任务生命周期 | `test/01-concurrency.test.ts` 至 `test/05-overflow-db.test.ts`、`test/66-control-seam.test.ts`、`test/94-task-ending.test.ts` |
 | `packages/agent/src/` 的执行、审批与权限 | `test/07-real-tools.test.ts`、`test/08-approvals.test.ts`、`test/10-access-modes.test.ts`、`test/63-approval-gate.test.ts`、`test/64-tool-op-ledger.test.ts` |
 | 浏览器 | `test/browser-tools.test.ts`、`test/browser-lifecycle.test.ts`；[验收入口](../.scratch/agent-browser/evidence/implementation-checks.md) |

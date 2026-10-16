@@ -7,24 +7,25 @@ import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite
 import type { Provider } from "@earendil-works/pi-ai/models";
 import { PersonalError } from "./personal-error.ts";
 import { recordedModels, type RequestEvidence } from "./personal-model.ts";
-import { lockPersonalProfile, PERSONAL_FORMAT } from "./personal-profile.ts";
+import { lockPersonalProfile, PERSONAL_FORMAT, type PersonalProfileLock } from "./personal-profile.ts";
 
 const context = BACKGROUND_CONTEXT;
 export const PersonalFormatDoc = defineDoc({ kind: "ruukoto.format", scope: "session", version: 1, initial: () => ({ ...PERSONAL_FORMAT }) });
 export const PERSONAL_PROMPT = "你是拥有者的个人助手。根据已有对话回答；当前未提供外部操作工具，需要执行外部操作时说明尚不可用。";
 
 // Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-durable-foundation.md
-export async function openPersonalHarness(options: {
-  directory: string;
+export async function openPersonalHarness(options: ({ directory: string; profile?: never } | { profile: PersonalProfileLock; directory?: never }) & {
   provider: Provider;
   modelId: string;
   openStorage?: (filename: string) => Promise<Storage>;
+  beforeUnlock?: () => Promise<void>;
 }) {
-  if (!options.provider.getModels().some(model => model.id === options.modelId)) throw new PersonalError("model_unavailable", "所选模型不在个人模型配置中，请重新配置后启动。");
-  const lock = lockPersonalProfile(options.directory);
+  const lock = options.profile ?? lockPersonalProfile(options.directory);
   let harness: Harness | undefined;
   let storage: Storage | undefined;
+  let unlocked: Promise<void> | undefined;
   try {
+    if (!options.provider.getModels().some(model => model.id === options.modelId)) throw new PersonalError("model_unavailable", "所选模型不在个人模型配置中，请重新配置后启动。");
     const registry = createRegistry();
     const personal = defineExtension({ name: "personal", sections: [section("personal", () => PERSONAL_PROMPT, { tag: false })] });
     registry.install(personal);
@@ -32,7 +33,7 @@ export async function openPersonalHarness(options: {
       if (!harness) throw new PersonalError("model_source_missing", "模型请求缺少已打开的个人会话，已停止请求。");
       await harness.commit(tx => tx.appendEntry(ROOT_CONVERSATION_ID, { kind: "ruukoto.model-request", data: evidence }), context);
     };
-    const filename = path.join(options.directory, "personal.sqlite");
+    const filename = path.join(lock.directory, "personal.sqlite");
     const existing = existsSync(filename);
     closeSync(openSync(filename, "a", 0o600));
     storage = await (options.openStorage ?? openNodeSqliteStorage)(filename);
@@ -55,7 +56,9 @@ export async function openPersonalHarness(options: {
       cursor = page.next;
     } while (cursor);
     harness = await Harness.open(storage, { models: recordedModels(options.provider, record), registry, onReport: () => process.stderr.write("[ruukoto:personal] 持久执行出现错误，请查询状态并检查档案；未自动重启。\n") }, context);
-    void harness.closed.then(() => lock.release());
+    // Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-local-management.md
+    unlocked = harness.closed.then(async () => { if (options.beforeUnlock) await options.beforeUnlock(); lock.release(); });
+    void unlocked.catch(() => process.stderr.write("[ruukoto:personal] 本机管理接口未能停止，实例锁仍保留；请检查后台并核实停止。\n"));
     const inspection = await harness.inspect(context);
     if (inspection.tasks.some(task => task.state.kind === "blocked" || registry.snapshot().task(task.record.kind)?.definition.version !== task.record.version)) throw new PersonalError("task_version", "档案中有当前程序无法恢复的任务，已停止恢复，请使用对应版本。");
     await harness.commit(tx => tx.doc(PersonalFormatDoc), context);
@@ -82,16 +85,16 @@ export async function openPersonalHarness(options: {
         if (message?.role !== "assistant") throw new PersonalError("answer_missing", "已结束输入的回答记录缺失，请保留档案并检查存储。");
         return message.content.filter(part => part.type === "text").map(part => part.text).join("");
       },
-      async close() { await instance.close(context); await instance.closed; },
+      async close() { await instance.close(context); await unlocked; },
     };
   } catch (error) {
     try {
-      if (harness) await harness.close(context);
+      if (harness) { await harness.close(context); await unlocked; }
       else if (storage) await storage.close(context);
     } catch {
-      // 初始化尚未启用调度；清理失败仍释放锁，并保留导致本次启动失败的原异常。
+      // 保留启动的原异常；管理接口清理失败时仍保留锁，避免下一实例覆盖旧 socket。
       process.stderr.write("[ruukoto:personal] 初始化清理失败，已停止启动；请保留档案并检查存储。\n");
-    } finally { lock.release(); }
+    } finally { if (!unlocked) lock.release(); }
     throw error;
   }
 }

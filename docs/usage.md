@@ -80,6 +80,24 @@ ruukoto-code ...             # Coding Agent（bin 入口）：同一 CLI，产�
 - 数据目录归属登记在核心库 meta（`product.type`，首次启动补记）；用另一产品的入口打开已归属的数据目录直接拒绝。
 - 打开 TUI 时按需拉起本机后台；显式 `ruukoto-code stop` 才结束后台。
 
+### 2.5 个人 durable 隔离向导
+
+`npm run personal:durable` 打开个人 Pi 1.3.0 的独立引导菜单：配置模型、启动隔离后台、状态、发送消息、最近消息、核实上次提交和停止。默认档案为 `~/.ruukoto-durable-dev/<检出 realpath hash12>/`；可用 `RUUKOTO_PERSONAL_DIR` 显式选择另一个新目录。它只提供主会话验证，IM、权限和业务工具尚未接入；正式 `ruukoto`、`npm start`、`npm run dev` 与 systemd 仍使用原装配。
+
+先在菜单选择模型配置，选择接口并填写服务地址、模型、凭据环境变量名与上下文/输出上限。凭据只由启动后台时的环境提供，不粘贴进向导；配置与凭据不从旧档案复制。配置只能在后台停止时保存，连接失败不能代替实例锁判断。接口支持 OpenAI Completions、OpenAI Responses、Anthropic Messages。
+
+设置所选凭据环境变量后重新打开向导，选择启动隔离后台，再发送消息和查询最近消息。后台独立运行；退出向导、终端断开都不取消已受理输入。菜单停止会保留未完成输入供下次恢复；停机尚未核实时不能改配置。需要前台托管时使用 `npm run personal:durable -- serve`，SIGINT/SIGTERM/SIGHUP 会关闭接口与 Harness。后台诊断写入所选档案的 `backend.log`，不在日志中输出凭据或消息正文。
+
+提交失去应答时，选择核实上次提交；向导按保存的原键查询。已受理的消息不重发，尚未受理时可选择原请求继续或保留。不要手工删待核实文件、换键重交或删除 socket 来接管实例。最近消息是有界诊断视图，截断和中断片段均有标注，完整记录保留在 durable SQLite；不是旧历史查看入口。
+
+真实模型验收使用显式选择的 `models.json` 和 `provider/model`，在临时新档案执行两次消息及后台进程重启，并核实上下文延续和请求证据。凭据仅进入测试进程环境，不复制到个人档案；不执行配置中的凭据命令或自定义认证头。来源配置也可用 `RUN_PERSONAL_MODELS_FILE=-` 经 stdin 提供，内容只在进程内读取。缺开关或配置退出 2，不记通过：
+
+```bash
+RUN_MODEL_CHECK=1 RUN_PERSONAL_MODELS_FILE=/path/models.json \
+  RUN_PERSONAL_MODEL=provider/model \
+  npx tsx verification/smoke/smoke-personal-durable.mts
+```
+
 ## 3. 控制面命令
 
 除 `server` 外都需要拥有者令牌（`RUUKOTO_OWNER_TOKEN`、`RUUKOTO_OWNER_TOKEN_FILE` 或控制面目录的 `owner.token`）。两个产品共用同一套命令；`ruukoto help` 列出全部。

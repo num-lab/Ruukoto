@@ -349,8 +349,8 @@ code, pre { font-family: var(--font-mono); }
 html, body, #root { width: 100%; height: 100%; }
 body { background: transparent; }
 .native-window { max-width: none; max-height: none; border-radius: 0; box-shadow: none; }
-.window-controls, .canvas-header { -webkit-app-region: drag; }
-.window-controls button, .canvas-header button, .canvas-header [role="tablist"] { -webkit-app-region: no-drag; }
+.window-controls, .canvas-header { -webkit-app-region: drag; --app-region: drag; }
+.window-controls button, .canvas-header button, .canvas-header [role="tablist"] { -webkit-app-region: no-drag; --app-region: no-drag; }
 .traffic-space { width: 70px; }
 .session-header.with-traffic-space { padding-left: 84px; }
 .markdown { white-space: normal; }

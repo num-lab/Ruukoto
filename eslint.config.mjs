@@ -29,7 +29,7 @@ export default [
     },
   },
   {
-    files: ["apps/desktop/src/renderer/**"],
+    files: ["apps/desktop/src/renderer/**", "apps/desktop/mygo/preload.js"],
     languageOptions: { globals: globals.browser },
     rules: {
       "no-restricted-imports": ["error", { patterns: ["node:*", "electron"] }],

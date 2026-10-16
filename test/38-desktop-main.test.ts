@@ -135,6 +135,7 @@ test("桌面开发 CSP 限定来源与 nonce，系统链接仅开放 HTTP(S)", (
 test("版本恢复方向使用结构化值，Code 指引按当前 socket 且正确转义路径", () => {
   const controlDir = "/tmp/控制目录 with 'quote'";
   for (const target of ["code", "personal"] as const) assert.match(versionRecovery(target, { client: 24, server: 25 }, false, controlDir).join("\n"), /重建应用/);
+  assert.match(versionRecovery("code", { client: 24, server: 25 }, false, controlDir).join("\n"), /desktop:mygo:build/);
   assert.match(versionRecovery("personal", { client: 26, server: 25 }, false, controlDir).join("\n"), /服务器部署同一 commit/);
   const guide = versionRecovery("code", { client: 26, server: 25 }, false, controlDir).join("\n");
   assert.match(guide, /恰好只有一个 PID/);
@@ -150,7 +151,7 @@ test("版本恢复方向使用结构化值，Code 指引按当前 socket 且正�
 });
 
 test("仓库缺失与 node 不可用显示可操作错误，关闭期间不再新建连接", async () => {
-  assert.throws(() => codeTargetConfig("/missing-repository", { env: {}, node: process.execPath }), (error: unknown) => error instanceof DesktopError && error.code === "repository_missing" && error.message.includes("desktop:build"));
+  assert.throws(() => codeTargetConfig("/missing-repository", { env: {}, node: process.execPath }), (error: unknown) => error instanceof DesktopError && error.code === "repository_missing" && error.message.includes("desktop:build") && error.message.includes("desktop:mygo:build"));
   await assert.rejects(selectEnvironment({ PATH: "/missing-node", RUUKOTO_DESKTOP_MANAGED: "1" }), (error: unknown) => error instanceof DesktopError && error.code === "node_unavailable" && error.message.includes("启动器"));
   const f = fixture();
   try {

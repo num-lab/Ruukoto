@@ -1,0 +1,10 @@
+{
+  "name": "Ruukoto MyGo",
+  "identifier": "dev.ruukoto.desktop.mygo",
+  "version": "0.1.0",
+  "frontendDist": "../out/mygo/renderer",
+  "bindings": "../out/mygo/bindings.ts",
+  "resources": ["../out/mygo/sidecar.mjs", "../out/mygo/launch.json"],
+  "out": "../../../dist/mygo",
+  "macos": { "signingIdentity": "-" }
+}

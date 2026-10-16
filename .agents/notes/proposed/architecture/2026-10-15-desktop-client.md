@@ -14,7 +14,7 @@ Status: proposed
 
 桌面客户端是控制面的又一个客户端，与 TUI 并存，可同时连接同一后台。它只经控制面读写后台事实；Code 目标另有本机系统动作：文件夹选择框、拥有者选中的附件快照与在 Finder 中显示。附件来源及上传按[附件通路](../../implemented/architecture/2026-10-16-owner-attachments.md)。缺少的能力以新增 op 补齐，TUI 同样可用。
 
-外壳用 Electron。主进程运行 Node，直接复用 `@ruukoto/control` 的 `ControlConnection`、`SubmissionGuard` 与协议类型，与后台出自同一份 TS 源码；协议升版只需重建桌面端，不维护第二套客户端。渲染进程用 React 19 与 Tailwind v4。
+外壳用 Electron。主进程运行 Node，直接复用 `@ruukoto/control` 的 `ControlConnection`、`SubmissionGuard` 与协议类型，与后台出自同一份 TS 源码；协议升版只需重建桌面端，不维护第二套客户端。渲染进程用 React 19 与 Tailwind v4。[MyGo 试验](../../implemented/architecture/2026-10-17-desktop-mygo-experiment.md)增加可对比外壳，最终选型待拥有者决定。
 
 进程边界按安全要求划分。令牌、连接、ssh 子进程与后台拉起只在主进程；preload 只暴露订阅、带 op 放行名单的请求、文件夹选择与在 Finder 中显示；渲染进程开 sandbox 与 contextIsolation、关闭 nodeIntegration，CSP 只允许本地资源：打包页面经 `file://` 加载，拿不到 HTTP 响应头，所以策略以构建时插入的 HTML meta 交付；开发页面以响应头加 nonce 交付。Markdown 不渲染原始 HTML。模型与工具输出可能含网页或仓库里攻击者控制的内容；渲染进程一旦被注入脚本，最大的危害是代替拥有者调用 `respond_confirmation`，放行名单与 CSP 用来缩小这个面。
 

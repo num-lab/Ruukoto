@@ -2,6 +2,8 @@
 
 Status: implemented
 
+后续提案：[个人端 pi durable 迁移](../../proposed/architecture/2026-10-17-personal-pi-durable.md)拟让新个人端退出本工作流语言与定义库，Coding 继续使用本机制。
+
 已确认的后续变更见[可配置子代理角色](../../implemented/architecture/2026-10-14-configurable-subagent-roles.md)：角色、来源能力和执行目标分开，实施与验收另由该方案持有；本篇原有独立决定及当前运行行为仍按其适用范围保留。
 
 后续改进：[交互与等待规格](../../../../.scratch/agent-workflow/experience-spec.md)已于 2026-10-14 经拥有者确认，实施另由 08–11 工单持有；[等待与报告归属方案](../../implemented/architecture/2026-10-14-agent-wait-and-report-ownership.md)补充可打断等待与父轮继续处理，本篇后台运行、来源授权和唯一回报目标不变。

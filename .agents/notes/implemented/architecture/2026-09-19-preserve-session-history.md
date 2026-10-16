@@ -2,6 +2,8 @@
 
 Status: implemented
 
+后续提案：[个人端 pi durable 迁移](../../proposed/architecture/2026-10-17-personal-pi-durable.md)拟以 durable 存储承载新个人端历史，继续要求完整记录与模型输入可重建；Coding 与旧归档的 JSONL 规则保留。
+
 原编号：ADR 0001
 
 ## 问题

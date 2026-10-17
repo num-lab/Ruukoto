@@ -84,16 +84,27 @@ async function prerequisites(): Promise<void> {
   }
 }
 
-export async function launchLinuxNative(input: PreparedNativeLaunch, spec: LaunchSpec): Promise<LaunchedUnit> {
+/** 持久认领调用方的接点；省略时沿用共享 worker 的随机 scope 与停止方式。 */
+export interface LinuxNativeTracking {
+  scope: string;
+  description: string;
+  beforeSpawn(): void;
+  spawned(pid: number): void;
+  observed(state: { group: string; invocationId: string; description: string }): void;
+}
+
+export async function launchLinuxNative(input: PreparedNativeLaunch, spec: LaunchSpec, tracking?: LinuxNativeTracking): Promise<LaunchedUnit> {
   await prerequisites();
-  const scope = `ruukoto-native-${randomUUID()}.scope`;
+  const scope = tracking?.scope ?? `ruukoto-native-${randomUUID()}.scope`;
   const filterPath = path.join(input.tempDir, "network.bpf");
   fs.writeFileSync(filterPath, nativeNetworkFilter(process.arch), { mode: 0o400 });
   const filter = fs.openSync(filterPath, "r");
   let child;
   try {
-    child = spawn(SYSTEMD_RUN, ["--user", "--scope", "--quiet", "--unit", scope, "--property", "Delegate=yes", BWRAP, ...linuxNativeArgs(input)],
-      { stdio: ["pipe", "pipe", "pipe", filter, "pipe"], env: hostEnv() });
+    tracking?.beforeSpawn();
+    child = spawn(SYSTEMD_RUN, ["--user", "--scope", "--quiet", "--unit", scope, "--property", "Delegate=yes",
+      ...(tracking ? ["--property", `Description=${tracking.description}`] : []), BWRAP, ...linuxNativeArgs(input)],
+      { stdio: ["pipe", "pipe", "pipe", filter, "pipe"], env: hostEnv(), ...(tracking ? { detached: true } : {}) });
   } finally { fs.closeSync(filter); }
   let exited = false;
   const exit = new Promise<{ code: number | null; signal: string | null }>((resolve, reject) => {
@@ -108,8 +119,9 @@ export async function launchLinuxNative(input: PreparedNativeLaunch, spec: Launc
   let cgroup: string | null = null;
   let groupChanged = false;
   let stopped: Promise<boolean> | null = null;
-  const query = async (): Promise<{ load: string; active: string; group: string } | null> => {
-    const result = await command(SYSTEMCTL, ["--user", "show", scope, "--property", "LoadState,ActiveState,ControlGroup"]);
+  const query = async (): Promise<{ load: string; active: string; group: string; invocationId: string; description: string } | null> => {
+    const result = await command(SYSTEMCTL, ["--user", "show", scope, "--property",
+      `LoadState,ActiveState,ControlGroup${tracking ? ",InvocationID,Description" : ""}`]);
     if (result.code !== 0) return null;
     const fields = new Map(result.stdout.trim().split("\n").map(line => {
       const index = line.indexOf("="); return [line.slice(0, index), line.slice(index + 1)];
@@ -123,7 +135,8 @@ export async function launchLinuxNative(input: PreparedNativeLaunch, spec: Launc
       if (cgroup !== null && cgroup !== current) groupChanged = true;
       cgroup = current;
     }
-    return { load: fields.get("LoadState") ?? "", active: fields.get("ActiveState") ?? "", group };
+    return { load: fields.get("LoadState") ?? "", active: fields.get("ActiveState") ?? "", group,
+      invocationId: fields.get("InvocationID") ?? "", description: fields.get("Description") ?? "" };
   };
   const stop = (): Promise<boolean> => stopped ??= (async () => {
     await query();
@@ -146,6 +159,7 @@ export async function launchLinuxNative(input: PreparedNativeLaunch, spec: Launc
     label: `tool-worker native scope=${scope} task=${spec.taskId}`, stop },
     stdin: child.stdin!, stdout: child.stdout!, stderr: child.stderr!, exit };
   try {
+    tracking?.spawned(child.pid);
     const marker = child.stdio[4];
     if (!(marker instanceof Readable)) throw new ExecutionError("execution_unavailable", "原生启动核实通道不可用", unit, "sandbox_rejected");
     const started = new Promise<boolean>(resolve => {
@@ -163,6 +177,7 @@ export async function launchLinuxNative(input: PreparedNativeLaunch, spec: Launc
     if (!status?.group || path.basename(status.group) !== scope) {
       throw new ExecutionError("execution_unavailable", "无法核实原生执行的 user scope 身份", unit, exited ? "worker_failed" : "policy_missing");
     }
+    tracking?.observed(status);
     fs.accessSync(path.join(cgroup!, "cgroup.kill"), fs.constants.W_OK);
     return unit;
   } catch (error) {

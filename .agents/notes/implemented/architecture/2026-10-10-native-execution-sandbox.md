@@ -2,6 +2,8 @@
 
 Status: implemented
 
+需跨进程核实的 Linux 执行另用[持久认领](2026-10-17-native-linux-execution-identity.md)固定原单元和 cgroup；本篇 Coding 默认 launcher 及其生命周期保持。
+
 扩展与部分取代：[个人 Agent 原生执行与 Docker worker 退役](../../implemented/architecture/2026-10-12-personal-native-sandbox.md)将本篇原生边界用于个人产品，接管其常驻前提、正式入口和 Docker worker 交付清理；平台机制、保护范围与 macOS 未核实后代的取舍仍由本篇持有。
 
 ## 问题

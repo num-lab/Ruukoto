@@ -2,6 +2,8 @@
 
 Status: implemented
 
+任意命令的停止证明另见[Linux 原生执行持久认领](2026-10-17-native-linux-execution-identity.md)，不沿用本篇固定检查的同组后代假设。
+
 ## 问题
 
 [个人迁移](../../proposed/architecture/2026-10-17-personal-pi-durable.md)要求子工作停止核实后才释放占用。[活调用退出](2026-10-17-service-helper-exit.md)等待 close，但后台 SIGKILL 后 detached helper 可能遗留。无身份 inspect 的新观察不能证明原执行停止；[原生 launcher](2026-10-10-native-execution-sandbox.md)则持有固定 worker 装配与内存闭包，不能直接作为 durable 持久句柄。

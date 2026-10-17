@@ -5,7 +5,7 @@ import { PersonalError } from "./personal-error.ts";
 import { PersonalTelegramApiError, telegramOffset, telegramText, type PersonalTelegramApi, type TelegramAck, type TelegramUpdate } from "./personal-telegram-api.ts";
 import { PersonalTelegramDoc, PersonalTelegramReceiptDoc, type TelegramReceipt as Receipt, type TelegramResult as Result, type TelegramControlInput } from "./personal-telegram-records.ts";
 import { telegramPermissionControl, PersonalPermissionsDoc, TELEGRAM_SERVICE_ACTIONS } from "./personal-permissions.ts";
-import { telegramWorkControl } from "./personal-work-controls.ts";
+import { telegramWorkControl, telegramDelegationControl } from "./personal-work-controls.ts";
 export { PersonalTelegramDoc, PersonalTelegramReceiptDoc } from "./personal-telegram-records.ts";
 import type { PersonalTelegramConfig } from "./personal-telegram-config.ts";
 
@@ -126,7 +126,7 @@ export function personalTelegram(config?: PersonalTelegramConfig, api?: Personal
             return;
           }
           const value: TelegramControlInput = { requestId: key, generation: config.generation, botId: config.botId, ownerId: config.ownerId, messageId: message.id, updateId: update.update_id, content: message.text, direct: message.direct, ...(message.replyTo === undefined ? {} : { replyTo: message.replyTo }), ...(message.replyBotId === undefined ? {} : { replyBotId: message.replyBotId }), delivery: "waiting" };
-          if (await telegramPermissionControl(tx, value) || await telegramWorkControl(tx, value) || await control?.(tx, value)) value.control = true;
+          if (await telegramPermissionControl(tx, value) || await telegramWorkControl(tx, value) || await telegramDelegationControl(tx, value) || await control?.(tx, value)) value.control = true;
           else if (TELEGRAM_SERVICE_ACTIONS.includes(value.content)) { value.control = true; value.reply = "当前宿主未启用服务操作；请由拥有者核实服务配置，聊天仍可继续。"; }
           else if (message.direct) { const permission = await tx.doc(PersonalPermissionsDoc); value.permission = { mode: permission.mode, version: permission.version }; }
           const taskId = await tx.createTask(task, { requestId: key }, { conversationId: ROOT_CONVERSATION_ID, ownership: { kind: "conversation" }, background: true });

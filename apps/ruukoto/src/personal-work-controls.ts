@@ -3,6 +3,7 @@ import { PersonalError } from "./personal-error.ts";
 import { telegramSelection } from "./personal-permissions.ts";
 import { appendPersonalWork, closePersonalWorkAgent, listPersonalWorks, PersonalWorkDoc, personalWorkRef, personalWorkResult, personalWorkSummary, requestPersonalWorkCancel, type PersonalWorkSummary, type PersonalWorkRef } from "./personal-work.ts";
 import type { TelegramControlInput, TelegramReceipt } from "./personal-telegram-records.ts";
+import { cancelPersonalDelegation, listPersonalDelegations, personalDelegation, personalDelegationProgress, type PersonalDelegationRef } from "./personal-delegation.ts";
 
 export const personalWorkControls = defineExtension({ name: "personal-work-controls" });
 const ACTIONS = ["/工作", "更多分析", "刷新分析", "查看结果", "下一页结果", "取消这项分析", "关闭此身份"];
@@ -68,4 +69,56 @@ export async function verifyWorkMenu(tx: Tx, value: TelegramReceipt, enabled: bo
   const refs = selection.kind === "work" ? [selection.ref] : selection.refs;
   if (!enabled || !value.direct || !value.control || !Array.isArray(refs) || refs.length > 8 || (selection.nextOffset !== undefined && (!Number.isSafeInteger(selection.nextOffset) || selection.nextOffset < 0))) throw new PersonalError("work_menu_invalid", "后台分析菜单版本或归属无法核实，已停止恢复；请保留档案。");
   for (const ref of refs) await originalWork(tx, ref, value);
+}
+
+export function personalDelegationDescription(value: Pick<Awaited<ReturnType<typeof personalDelegationProgress>>, "content" | "total" | "active" | "unverified" | "state" | "paused">) {
+  const states: Record<string, string> = { active: "分析中", idle: "分析空闲，可继续原委托；尚未汇总", canceling: "取消已登记，正在核实停止", canceled: "整项分析已取消，停止已核实", stop_unverified: "停止尚未核实，请检查原工作", paused: "服务效果待核实，分析委托暂停" };
+  return `${value.content}；${states[value.state] ?? "状态无法核实"}；共 ${value.total} 项，活动 ${value.active} 项，停止未核实 ${value.unverified} 项${value.paused && value.state !== "paused" ? "；原服务效果待核实" : ""}`;
+}
+
+async function originalDelegation(tx: Tx, ref: PersonalDelegationRef, input: TelegramControlInput) {
+  const source = (await personalDelegation(tx, ref)).telegram;
+  if (source?.botId !== input.botId || source.ownerId !== input.ownerId || source.generation !== input.generation) throw new PersonalError("delegation_original_entry", "委托不属于原拥有者入口，未改变工作；请发送 /委托 查询。");
+}
+
+// Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-analysis-delegations.md
+export async function telegramDelegationControl(tx: Tx, value: TelegramControlInput): Promise<boolean> {
+  const choice = /^委托([1-8])$/.exec(value.content);
+  if (!choice && !["/委托", "更多委托", "刷新委托", "下一页分析", "取消整项分析"].includes(value.content)) return false;
+  if (!value.direct) { value.reply = "请直接发送 /委托，再回复已送达宿主菜单；转发和引用摘录不能控制委托。"; return true; }
+  try {
+    const menu = value.content === "/委托" ? undefined : (await telegramSelection(tx, value))?.selection;
+    if (value.content === "/委托" || (value.content === "更多委托" && menu?.kind === "delegation-list" && menu.nextOffset !== undefined)) {
+      const offset = menu?.kind === "delegation-list" ? menu.nextOffset! : 0;
+      const page = await listPersonalDelegations(tx, offset, value);
+      value.selection = { kind: "delegation-list", refs: page.items.map(item => item.ref), ...(page.more ? { nextOffset: offset + 8 } : {}) };
+      value.reply = page.items.length ? `分析委托：\n${page.items.map((item, i) => `委托${i + 1}：${personalDelegationDescription(item)}`).join("\n")}\n回复本消息选择委托1至委托${page.items.length}${page.more ? "，或选择「更多委托」。" : "。"}` : "原入口暂无分析委托；历史单项分析仍可通过 /工作 查询。";
+      return true;
+    }
+    const ref = choice && menu?.kind === "delegation-list" ? menu.refs[Number(choice[1]) - 1] : menu?.kind === "delegation" ? menu.ref : undefined;
+    if (!ref || (value.content === "下一页分析" && (menu?.kind !== "delegation" || menu.nextOffset === undefined))) { value.reply = "没有改变委托。请发送 /委托，再回复已送达宿主菜单选择列出的动作。"; return true; }
+    await originalDelegation(tx, ref, value);
+    const offset = value.content === "下一页分析" && menu?.kind === "delegation" ? menu.nextOffset! : 0;
+    const progress = await personalDelegationProgress(tx, ref, offset);
+    if (value.content === "取消整项分析") {
+      await cancelPersonalDelegation(tx, ref);
+      progress.cancelRequested = true;
+      progress.state = progress.unverified ? "stop_unverified" : progress.active ? "canceling" : "canceled";
+    }
+    value.selection = { kind: "delegation", ref, ...(progress.nextOffset === undefined ? {} : { nextOffset: progress.nextOffset }) };
+    value.reply = `${personalDelegationDescription(progress)}。\n${progress.members.map(personalWorkDescription).join("\n")}\n回复本消息选择：刷新委托、取消整项分析${progress.nextOffset === undefined ? "" : "、下一页分析"}。取消只覆盖所属分析成员，不关闭身份，不包含服务等外部操作；当前不自动汇总或最终回报。单项结果与追加说明请发送 /工作 选择。`;
+  } catch (error) {
+    if (!(error instanceof PersonalError)) throw error;
+    delete value.selection;
+    value.reply = `${error.message} 请发送 /委托 查询。`;
+  }
+  return true;
+}
+
+export async function verifyDelegationMenu(tx: Tx, value: TelegramReceipt, enabled: boolean) {
+  const menu = value.selection;
+  if (menu?.kind !== "delegation" && menu?.kind !== "delegation-list") return;
+  const refs = menu.kind === "delegation" ? [menu.ref] : menu.refs;
+  if (!enabled || !value.direct || !value.control || !Array.isArray(refs) || refs.length > 8 || (menu.nextOffset !== undefined && (!Number.isSafeInteger(menu.nextOffset) || menu.nextOffset < 0))) throw new PersonalError("delegation_menu_invalid", "分析委托菜单版本或来源不符，已停止恢复；请保留档案。");
+  for (const ref of refs) await originalDelegation(tx, ref, value);
 }

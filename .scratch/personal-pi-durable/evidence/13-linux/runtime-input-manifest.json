@@ -1,0 +1,226 @@
+[
+  {
+    "path": "apps/ruukoto/src/personal-cli.ts",
+    "kind": "file",
+    "mode": "0o644",
+    "sha256": "b58644787b471e55abd6ed1e7c58aa64ace9ae05b09107b835073b902ea4a631",
+    "bytes": 24640
+  },
+  {
+    "path": "apps/ruukoto/src/personal-config.ts",
+    "kind": "file",
+    "mode": "0o644",
+    "sha256": "27cafd1f0d8e8e984a756aefc1ea4d1102ff27a1d763cd7b4487a837a003bc5f",
+    "bytes": 1830
+  },
+  {
+    "path": "apps/ruukoto/src/personal-control.ts",
+    "kind": "file",
+    "mode": "0o644",
+    "sha256": "ef05765c73334232f600cd498b98dc101cc2d486af5bc268f4371a41c064a43e",
+    "bytes": 18567
+  },
+  {
+    "path": "apps/ruukoto/src/personal-delegation.ts",
+    "kind": "file",
+    "mode": "0o644",
+    "sha256": "f3b5ea4e22bcae6dc6ed86d89ae90993da4ec025a29eb4cd1b9b07fa8b606c12",
+    "bytes": 16072
+  },
+  {
+    "path": "apps/ruukoto/src/personal-entry.ts",
+    "kind": "file",
+    "mode": "0o644",
+    "sha256": "e74b18858a2d9a9dab3ec4e4b8091079258d6693b4345af5833387f4914434e6",
+    "bytes": 438
+  },
+  {
+    "path": "apps/ruukoto/src/personal-error.ts",
+    "kind": "file",
+    "mode": "0o644",
+    "sha256": "f4266968ec480f657bee1a6043e69d07910134f09924ec43683aa0569b212ab4",
+    "bytes": 191
+  },
+  {
+    "path": "apps/ruukoto/src/personal-harness.ts",
+    "kind": "file",
+    "mode": "0o644",
+    "sha256": "20aa18658099a4feb32e743a52ea74da9bc59623ec50dff446ee146a850bf65b",
+    "bytes": 30190
+  },
+  {
+    "path": "apps/ruukoto/src/personal-local-records.ts",
+    "kind": "file",
+    "mode": "0o644",
+    "sha256": "7a33ceba2fd850394072a7d53f13cbae300a698701f0e32ac8058b84c3542806",
+    "bytes": 500
+  },
+  {
+    "path": "apps/ruukoto/src/personal-model.ts",
+    "kind": "file",
+    "mode": "0o644",
+    "sha256": "70317facba8e89c2c57632957577fdde61f348aa481f38611bd6e096ff8d5d53",
+    "bytes": 5532
+  },
+  {
+    "path": "apps/ruukoto/src/personal-permissions.ts",
+    "kind": "file",
+    "mode": "0o644",
+    "sha256": "62dfbb7f1d302b9357bf24cecc8c35803f9efdad20379f75b79a962c78a5c901",
+    "bytes": 4733
+  },
+  {
+    "path": "apps/ruukoto/src/personal-profile.ts",
+    "kind": "file",
+    "mode": "0o644",
+    "sha256": "1296839ebe768f4977472c6b7cf695cf37af8c8d903eeea79dd4ded52b8877d4",
+    "bytes": 3873
+  },
+  {
+    "path": "apps/ruukoto/src/personal-service-config.ts",
+    "kind": "file",
+    "mode": "0o644",
+    "sha256": "b09bef20fa258872c3122506fd967537229e35ffe278a41e4ba3baf62ed56f3d",
+    "bytes": 6422
+  },
+  {
+    "path": "apps/ruukoto/src/personal-service-operations.ts",
+    "kind": "file",
+    "mode": "0o644",
+    "sha256": "f6fd1d536ad2715d4660ddcb8b796de5e6e696fb3096fb6185af832bbf340fbd",
+    "bytes": 38865
+  },
+  {
+    "path": "apps/ruukoto/src/personal-services.ts",
+    "kind": "file",
+    "mode": "0o644",
+    "sha256": "f390ada406dd51b55e7cc12d3106d08affecc90edf6b6fb7305adf12867aa189",
+    "bytes": 6938
+  },
+  {
+    "path": "apps/ruukoto/src/personal-telegram-api.ts",
+    "kind": "file",
+    "mode": "0o644",
+    "sha256": "7a3531266c587a2bff8f9f67c5a07489e84472cac039269329a0f96253b6bf0c",
+    "bytes": 6297
+  },
+  {
+    "path": "apps/ruukoto/src/personal-telegram-config.ts",
+    "kind": "file",
+    "mode": "0o644",
+    "sha256": "7ff7b82ff4c8516198e8d17768e3531d612b491f880f288d902adb4a6f983e4f",
+    "bytes": 4235
+  },
+  {
+    "path": "apps/ruukoto/src/personal-telegram-records.ts",
+    "kind": "file",
+    "mode": "0o644",
+    "sha256": "3c657a9e8500f930d9aba97fdfc6ffff3134949bb8366e84d854b9e477833060",
+    "bytes": 2122
+  },
+  {
+    "path": "apps/ruukoto/src/personal-telegram.ts",
+    "kind": "file",
+    "mode": "0o644",
+    "sha256": "286cd83cb8ffcfdcb5d765f2fc2b8aa7006f2bb97543167f7c694f5e9eeb012d",
+    "bytes": 16411
+  },
+  {
+    "path": "apps/ruukoto/src/personal-work-controls.ts",
+    "kind": "file",
+    "mode": "0o644",
+    "sha256": "deb5967e6b9bd282b8200f36eff64d74d7000857a91b28968ef54f2989f08b0b",
+    "bytes": 12094
+  },
+  {
+    "path": "apps/ruukoto/src/personal-work-tools.ts",
+    "kind": "file",
+    "mode": "0o644",
+    "sha256": "04cbda6fab8e13ee49a52808dadf987fa503159c1d61ecfdf3bc643348d1383b",
+    "bytes": 12500
+  },
+  {
+    "path": "apps/ruukoto/src/personal-work.ts",
+    "kind": "file",
+    "mode": "0o644",
+    "sha256": "3474c03b6dac1613cf20c9af1abf88b19d0ed4c2b8867863073078e75e0b26c2",
+    "bytes": 32211
+  },
+  {
+    "path": "test/personal-cli.test.ts",
+    "kind": "file",
+    "mode": "0o644",
+    "sha256": "d4568c56c1001497f3ae6135bd81c9f259c8fd72d42e34eefed44dea90328670",
+    "bytes": 31010
+  },
+  {
+    "path": "test/personal-delegations.test.ts",
+    "kind": "file",
+    "mode": "0o644",
+    "sha256": "57660e49ae8a71f84f272b4db15658d1df7a0fa2e3e8594a6d01cdfc82a39410",
+    "bytes": 23663
+  },
+  {
+    "path": "test/personal-durable.test.ts",
+    "kind": "file",
+    "mode": "0o644",
+    "sha256": "35295ae007d7c2bcb426b371a92566d4ce478efe0ff9482efbba3554cc0e2481",
+    "bytes": 17286
+  },
+  {
+    "path": "test/personal-service-operations.test.ts",
+    "kind": "file",
+    "mode": "0o644",
+    "sha256": "1a80d8c4b77ee6e241b1d8a8502774f543c4855796e7515a412c663bdc78aba7",
+    "bytes": 30194
+  },
+  {
+    "path": "test/personal-services.test.ts",
+    "kind": "file",
+    "mode": "0o644",
+    "sha256": "c6b622d1b37551a67dbcf57fc9455845c68666b6f3fb67bfba4393c504e74450",
+    "bytes": 16892
+  },
+  {
+    "path": "test/personal-telegram-permissions.test.ts",
+    "kind": "file",
+    "mode": "0o644",
+    "sha256": "e061b5eb1d8b47b83a960fcfb3d292c2815a370f707a4b572f018d3f2852c2b9",
+    "bytes": 26355
+  },
+  {
+    "path": "test/personal-telegram.test.ts",
+    "kind": "file",
+    "mode": "0o644",
+    "sha256": "84e6102ca211b45390643d896652737e29378950bfcfa374ea0e3976d23eaf92",
+    "bytes": 20500
+  },
+  {
+    "path": "test/personal-work-controls.test.ts",
+    "kind": "file",
+    "mode": "0o644",
+    "sha256": "4eb9d7458e1d7c3ac1d1f10cd8a503b82c4ae9aa013b725406cfee26b8ca6b76",
+    "bytes": 23863
+  },
+  {
+    "path": "test/personal-work-notes.test.ts",
+    "kind": "file",
+    "mode": "0o644",
+    "sha256": "bc27b32981d6fd6b97148d0a94f39f136a0caddf166d608f0264f0c8ee52fa4f",
+    "bytes": 18376
+  },
+  {
+    "path": "test/personal-work-tools.test.ts",
+    "kind": "file",
+    "mode": "0o644",
+    "sha256": "bec67712fbdb2dc723255b2cba6bcdb8a4aa9a9264d3e56d6b14deb821ef716e",
+    "bytes": 17554
+  },
+  {
+    "path": "test/personal-work.test.ts",
+    "kind": "file",
+    "mode": "0o644",
+    "sha256": "5e39416976f2fcba0913736d4db498ef618837522ed6050bf6a0ebc1adf0cdec",
+    "bytes": 24234
+  }
+]

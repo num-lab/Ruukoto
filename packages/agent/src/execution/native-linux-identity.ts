@@ -179,21 +179,29 @@ export async function launchLinuxExecution(directory: string, ref: LinuxExecutio
   }
 }
 
-/** 可跨进程重复重核；false 保留原占用与现场，不证明命令效果或允许重放。 */
-export async function stopLinuxExecution(directory: string, ref: LinuxExecutionRef): Promise<LinuxExecutionStop> {
+/** 可跨进程重复重核；false 保留原占用，不证明效果或允许重放。
+ * 传预期启动指纹时只接受原 launch 认领，缺记录或 stop 先手均不能证明原执行退出。
+ */
+export async function stopLinuxExecution(directory: string, ref: LinuxExecutionRef, expectedFingerprint?: string): Promise<LinuxExecutionStop> {
   const result = (exited: boolean): LinuxExecutionStop => ({ ref, exited });
   try {
     const { claimDir, bootId, scope } = location(directory, ref);
-    let created = false;
-    try { fs.mkdirSync(claimDir, { mode: 0o700 }); created = true; }
-    catch (error) { if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error; }
-    if (created) writeRecord(claimDir, "claim.json", { version: 1, ref, bootId, scope, claimedBy: "stop", token: randomBytes(16).toString("hex"), fingerprint: "0".repeat(64) });
+    if (expectedFingerprint !== undefined) {
+      const claim = readClaim(claimDir, ref, scope);
+      if (!HEX64.test(expectedFingerprint) || claim?.claimedBy !== "launch" || claim.fingerprint !== expectedFingerprint) return result(false);
+    } else {
+      let created = false;
+      try { fs.mkdirSync(claimDir, { mode: 0o700 }); created = true; }
+      catch (error) { if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error; }
+      if (created) writeRecord(claimDir, "claim.json", { version: 1, ref, bootId, scope, claimedBy: "stop", token: randomBytes(16).toString("hex"), fingerprint: "0".repeat(64) });
+    }
     privatePath(claimDir, true);
     try { fs.mkdirSync(path.join(claimDir, "stop-requested"), { mode: 0o700 }); }
     catch (error) { if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error; }
     privatePath(path.join(claimDir, "stop-requested"), true);
     const claim = readClaim(claimDir, ref, scope);
     if (!claim) return result(false);
+    if (expectedFingerprint !== undefined && (claim.claimedBy !== "launch" || claim.fingerprint !== expectedFingerprint)) return result(false);
     if (claim.claimedBy === "stop" || claim.bootId !== bootId) return result(true);
     const optionalRecord = (name: string): Record<string, unknown> | null => {
       try { return record(claimDir, name); }

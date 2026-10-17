@@ -8,7 +8,7 @@ Status: proposed
 
 ## 问题
 
-[Linux 原生执行持久认领](../../implemented/architecture/2026-10-17-native-linux-execution-identity.md)补齐通用命令接入前的跨进程停止原语；[单次命令 worker](../../implemented/architecture/2026-10-17-personal-command-worker.md)提供自包含产物和显式运行依赖，尚未装配 durable 命令工具。
+[Linux 原生执行持久认领](../../implemented/architecture/2026-10-17-native-linux-execution-identity.md)补齐通用命令接入前的跨进程停止原语；[单次命令 worker](../../implemented/architecture/2026-10-17-personal-command-worker.md)提供自包含产物和显式运行依赖；[durable 受限命令](../../implemented/architecture/2026-10-17-personal-durable-commands.md)接入原工作、权限、未知暂停与本机核实，完全访问命令仍待独立停止方案。
 
 两个产品已经使用 pi SDK，但会话执行、任务队列、恢复、上下文压缩与工作流由 Ruukoto 持有。拥有者希望个人 Agent 采用 pi durable，减少今后维护自研执行底座的工作，同时保持 Coding Agent 的行为、数据与现有运行依赖。
 

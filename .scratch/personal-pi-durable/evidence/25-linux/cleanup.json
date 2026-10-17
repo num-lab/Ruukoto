@@ -1,0 +1,81 @@
+{
+  "cleanup": [
+    {
+      "name": "normal",
+      "execution": {
+        "machineId": "fd410411419d40079742fdbc36dec028",
+        "executionId": "native_c84cdc07be0ad1c61952bd01"
+      },
+      "scope": "ruukoto-native_c84cdc07be0ad1c61952bd01.scope",
+      "stop": {
+        "ref": {
+          "machineId": "fd410411419d40079742fdbc36dec028",
+          "executionId": "native_c84cdc07be0ad1c61952bd01"
+        },
+        "exited": true,
+        "cleaned": true
+      },
+      "unit": "ControlGroup=\nLoadState=not-found\nActiveState=inactive\nInvocationID=",
+      "tempDir": "/tmp/ruukoto-native-HzP0SK",
+      "tempExists": false
+    },
+    {
+      "name": "no-receipt-crash",
+      "execution": {
+        "machineId": "fd410411419d40079742fdbc36dec028",
+        "executionId": "native_c3b15794daf5c430b2bca77d"
+      },
+      "scope": "ruukoto-native_c3b15794daf5c430b2bca77d.scope",
+      "stop": {
+        "ref": {
+          "machineId": "fd410411419d40079742fdbc36dec028",
+          "executionId": "native_c3b15794daf5c430b2bca77d"
+        },
+        "exited": true,
+        "cleaned": true
+      },
+      "unit": "ControlGroup=\nLoadState=not-found\nActiveState=inactive\nInvocationID=",
+      "tempDir": "/tmp/ruukoto-native-EpXy0r",
+      "tempExists": false
+    },
+    {
+      "name": "receipt-before-observation",
+      "execution": {
+        "machineId": "fd410411419d40079742fdbc36dec028",
+        "executionId": "native_b06059705faaf1d6dfd8fcb3"
+      },
+      "scope": "ruukoto-native_b06059705faaf1d6dfd8fcb3.scope",
+      "stop": {
+        "ref": {
+          "machineId": "fd410411419d40079742fdbc36dec028",
+          "executionId": "native_b06059705faaf1d6dfd8fcb3"
+        },
+        "exited": true,
+        "cleaned": true
+      },
+      "unit": "ControlGroup=\nLoadState=not-found\nActiveState=inactive\nInvocationID=",
+      "tempDir": "/tmp/ruukoto-native-wegqka",
+      "tempExists": false
+    },
+    {
+      "name": "stop-unverified",
+      "execution": {
+        "machineId": "fd410411419d40079742fdbc36dec028",
+        "executionId": "native_1a0b9d22becda628630f6b09"
+      },
+      "scope": "ruukoto-native_1a0b9d22becda628630f6b09.scope",
+      "stop": {
+        "ref": {
+          "machineId": "fd410411419d40079742fdbc36dec028",
+          "executionId": "native_1a0b9d22becda628630f6b09"
+        },
+        "exited": true,
+        "cleaned": true
+      },
+      "unit": "ControlGroup=\nLoadState=not-found\nActiveState=inactive\nInvocationID=",
+      "tempDir": "/tmp/ruukoto-native-1NNit4",
+      "tempExists": false
+    }
+  ],
+  "fixturesRemaining": []
+}

@@ -14,7 +14,7 @@ import type { PreparedNativeLaunch } from "@ruukoto/agent/execution/native.ts";
 import { PersonalError } from "./personal-error.ts";
 
 interface Output { bytes: number; sha256: string }
-interface Binding { version: 1; ref: LinuxExecutionRef; fingerprint: string; temp: { path: string; dev: number; ino: number } }
+interface Binding { version: 1; ref: LinuxExecutionRef; fingerprint: string; launchFingerprint: string; temp: { path: string; dev: number; ino: number } }
 export interface PersonalCommandReceipt {
   version: 1;
   ref: LinuxExecutionRef;
@@ -25,6 +25,7 @@ export interface PersonalCommandReceipt {
 }
 
 const digest = (value: string) => createHash("sha256").update(value).digest("hex");
+export const personalCommandFingerprint = (command: string, spec: LaunchSpec, input: PreparedNativeLaunch) => digest(JSON.stringify({ command, spec, input }));
 const missing = (error: unknown) => error instanceof Error && "code" in error && error.code === "ENOENT";
 const invalid = () => new PersonalError("command_record_invalid", "原命令证据无法核实，请保留现场并查询原工作，勿重新执行。");
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
@@ -66,10 +67,10 @@ function readBinding(record: string, ref: LinuxExecutionRef): Binding | undefine
   try { raw = readJson(path.join(record, "request.json")); } catch (error) { if (missing(error)) return; throw error; }
   if (!object(raw) || raw.version !== 1 || !isDeepStrictEqual(raw.ref, ref) || !hex(raw.fingerprint) || !object(raw.temp) ||
       typeof raw.temp.path !== "string" || !tempPath(raw.temp.path) || !Number.isSafeInteger(raw.temp.dev) || !Number.isSafeInteger(raw.temp.ino) ||
-      !object(raw.request) || !object(raw.request.input) || raw.request.input.tempDir !== raw.temp.path || digest(JSON.stringify(raw.request)) !== raw.fingerprint) throw invalid();
+      !object(raw.request) || !object(raw.request.input) || !object(raw.request.spec) || raw.request.input.tempDir !== raw.temp.path || digest(JSON.stringify(raw.request)) !== raw.fingerprint) throw invalid();
   const owner = readJson(tempClaim(path.dirname(record), { path: raw.temp.path, dev: Number(raw.temp.dev), ino: Number(raw.temp.ino) }));
   if (!isDeepStrictEqual(owner, { ref, temp: raw.temp })) throw invalid();
-  return { version: 1, ref, fingerprint: raw.fingerprint, temp: { path: raw.temp.path, dev: Number(raw.temp.dev), ino: Number(raw.temp.ino) } };
+  return { version: 1, ref, fingerprint: raw.fingerprint, launchFingerprint: digest(JSON.stringify({ input: raw.request.input, spec: raw.request.spec })), temp: { path: raw.temp.path, dev: Number(raw.temp.dev), ino: Number(raw.temp.ino) } };
 }
 
 async function outputDigest(target: string): Promise<Output> {
@@ -81,9 +82,10 @@ async function outputDigest(target: string): Promise<Output> {
 }
 
 /** 缺回执返回 undefined；损坏、异机器或异版本拒绝。只读原结果，不取得执行权。 */
-export async function readPersonalCommandReceipt(directory: string, ref: LinuxExecutionRef): Promise<PersonalCommandReceipt | undefined> {
+export async function readPersonalCommandReceipt(directory: string, ref: LinuxExecutionRef, expectedFingerprint?: string): Promise<PersonalCommandReceipt | undefined> {
   try {
     const record = location(directory, ref), binding = readBinding(record, ref);
+    if (expectedFingerprint !== undefined && binding?.fingerprint !== expectedFingerprint) throw invalid();
     let raw: unknown;
     try { raw = readJson(path.join(record, "receipt.json")); } catch (error) { if (missing(error)) return; throw error; }
     if (!binding || !object(raw) || raw.version !== 1 || !isDeepStrictEqual(raw.ref, ref) || raw.fingerprint !== binding.fingerprint ||
@@ -97,10 +99,39 @@ export async function readPersonalCommandReceipt(directory: string, ref: LinuxEx
   }
 }
 
-/** 无内存句柄也按原引用停止；仅在退出且原目录身份相符时清理，命令证据保留。 */
-export async function stopPersonalCommand(directory: string, ref: LinuxExecutionRef) {
+/** 原字节分页；没有完成回执时只提供已捕获片段，不能据此确认效果。 */
+export async function readPersonalCommandOutput(directory: string, ref: LinuxExecutionRef, fingerprint: string, stream: "stdout" | "stderr", offset = 0) {
   try {
-    const stopped = await stopLinuxExecution(directory, ref);
+    if (!["stdout", "stderr"].includes(stream) || !Number.isSafeInteger(offset) || offset < 0) throw invalid();
+    const record = location(directory, ref), binding = readBinding(record, ref);
+    if (!binding || binding.fingerprint !== fingerprint) throw invalid();
+    const receipt = await readPersonalCommandReceipt(directory, ref);
+    if (receipt && receipt.fingerprint !== fingerprint) throw invalid();
+    const target = path.join(record, stream);
+    let stat: fs.Stats;
+    try { stat = privateObject(target, false); } catch (error) { if (missing(error) && !receipt) return { data: "", bytes: 0, complete: false }; throw error; }
+    const fd = fs.openSync(target, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+    try {
+      const opened = fs.fstatSync(fd);
+      if (opened.dev !== stat.dev || opened.ino !== stat.ino || opened.nlink !== 1) throw invalid();
+      const buffer = Buffer.alloc(Math.min(3072, Math.max(0, stat.size - offset)));
+      const bytes = fs.readSync(fd, buffer, 0, buffer.length, offset);
+      return { data: buffer.subarray(0, bytes).toString("base64"), bytes: stat.size, complete: !!receipt, ...(offset + bytes < stat.size ? { nextOffset: offset + bytes } : {}) };
+    } finally { fs.closeSync(fd); }
+  } catch (error) {
+    if (error instanceof PersonalError) throw error;
+    throw new PersonalError("command_record_invalid", "原命令输出无法核实，请保留现场并报告拥有者。", { cause: error });
+  }
+}
+
+/** 无内存句柄也按原引用停止；仅在退出且原目录身份相符时清理，命令证据保留。
+ * 恢复传原请求指纹，强制核对请求与原 launch 认领，缺证据不新建停止认领。
+ */
+export async function stopPersonalCommand(directory: string, ref: LinuxExecutionRef, expectedFingerprint?: string) {
+  try {
+    const original = expectedFingerprint === undefined ? undefined : readBinding(location(directory, ref), ref);
+    if (expectedFingerprint !== undefined && original?.fingerprint !== expectedFingerprint) throw invalid();
+    const stopped = await stopLinuxExecution(directory, ref, original?.launchFingerprint);
     if (!stopped.exited) return { ...stopped, cleaned: false };
     const binding = readBinding(location(directory, ref), ref);
     if (!binding) return { ...stopped, cleaned: false };
@@ -160,7 +191,7 @@ export async function runPersonalCommand(options: { directory: string; ref: Linu
   let unit: LaunchedUnit | undefined;
   const interrupt = () => {
     controller.abort();
-    earlyStop ??= stopLinuxExecution(directory, ref).catch(error => { earlyError = error; });
+    earlyStop ??= stopLinuxExecution(directory, ref, digest(JSON.stringify({ input, spec }))).catch(error => { earlyError = error; });
   };
   const timer = setTimeout(interrupt, timeoutMs);
   options.signal?.addEventListener("abort", interrupt, { once: true });
@@ -198,7 +229,7 @@ export async function runPersonalCommand(options: { directory: string; ref: Linu
   }
   await earlyStop;
   let stopped: Awaited<ReturnType<typeof stopPersonalCommand>>;
-  try { stopped = await stopPersonalCommand(directory, ref); } catch (error) {
+  try { stopped = await stopPersonalCommand(directory, ref, personalCommandFingerprint(command, spec, input)); } catch (error) {
     throw new PersonalError("command_stop_unverified", "原命令停止或清理无法核实，请保留占用并查询原回执。", { cause: new AggregateError([failure, earlyError, error].filter(value => value !== undefined)) });
   }
   if (failure !== undefined || !receipt) throw new PersonalError("command_result_unknown", "原命令没有完整宿主回执，效果待核实；请保留原工作，勿重新执行。", { cause: failure });

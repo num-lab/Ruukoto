@@ -7,6 +7,7 @@ import { defineDoc, defineDocFamily, defineEntry, defineExtension, LiveDoc, ROOT
 import { callHelper, expectRevisions, requireOk, ServiceHelperError, type HelperReply, type ServiceInspectionId, type ServiceManagerConfig } from "./service-helper.ts";
 import { PersonalError } from "./personal-error.ts";
 import { activePersonalWorkInspection, personalWorkInspectionSource, requirePersonalWorkRequest, type PersonalWorkInspectionSource } from "./personal-work.ts";
+import { personalCommandsIn, personalCommandUnresolved } from "./personal-command-work.ts";
 import { personalServiceOperation } from "./personal-service-operations.ts";
 
 type Reply = Extract<HelperReply, { ok: true; verb: "inspect-op" }>;
@@ -121,6 +122,7 @@ export async function runServiceInspection(harness: Harness, config: ServiceMana
     }
     const child = owner.conversationId !== ROOT_CONVERSATION_ID ? await activePersonalWorkInspection(tx, owner.conversationId, live!.run!.inputs) : undefined;
     const sources = child?.sources ?? owner.sources ?? live!.run!.inputs.slice();
+    if ((await personalCommandsIn(tx)).some(op => personalCommandUnresolved(op) && op.work.sources.some(id => sources.includes(id)))) throw new PersonalError("work_source_paused", "原工作有未核实命令，未启动服务检查；请在本机命令管理核实原效果和停止。");
     if (!sources.length) throw new PersonalError("service_inspection_invalid", "检查缺少原输入归属，未启动；请保留档案。");
     if (await pendingServiceInspection(tx, unit, sources)) return undefined;
     const record = await tx.doc(PersonalInspectionDoc, String(owner.taskId), null);

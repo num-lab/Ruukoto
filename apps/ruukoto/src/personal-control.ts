@@ -12,12 +12,14 @@ import { readPersonalConfig } from "./personal-config.ts";
 import { PersonalError } from "./personal-error.ts";
 import { readPersonalTelegram } from "./personal-telegram-config.ts";
 import { readPersonalServices } from "./personal-service-config.ts";
+import { readPersonalCommands } from "./personal-command-config.ts";
 import { appendPersonalWork, PersonalWorkDoc, closePersonalWorkAgent, listPersonalWorks, personalWorkRef, personalWorkResult, personalWorkSummary, requestPersonalWorkCancel } from "./personal-work.ts";
 import { cancelPersonalDelegation, listPersonalDelegations, personalDelegationProgress } from "./personal-delegation.ts";
 import { personalReportResult } from "./personal-report.ts";
 import { listPersonalInspections } from "./personal-inspection-controls.ts";
 import { listPersonalServices, personalServiceDetail, personalServiceRef, parsePersonalServiceResolution, type PersonalServiceResolution } from "./personal-service-controls.ts";
 import { resolvePersonalServiceOperation } from "./personal-service-operations.ts";
+import { personalCommandRef, resolvePersonalCommand } from "./personal-command-work.ts";
 
 import { LocalInputDoc, personalInputDigest } from "./personal-local-records.ts";
 export { LocalInputDoc } from "./personal-local-records.ts";
@@ -105,6 +107,7 @@ export async function startPersonalServer(directory: string) {
     const config = readPersonalConfig(profile);
     const telegram = readPersonalTelegram(profile);
     const services = readPersonalServices(profile);
+    const commands = readPersonalCommands(profile);
     if (!process.env[config.apiKeyEnv]) throw new PersonalError("model_credentials_missing", "模型凭据环境变量尚未设置，请设置后再启动隔离后台。");
     if (fs.existsSync(path.join(directory, "control.token"))) readPersonalToken(directory);
     if (Buffer.byteLength(socketPath) > 100) throw new PersonalError("control_path_long", "隔离档案路径过长，请用较短的新目录启动。");
@@ -115,7 +118,7 @@ export async function startPersonalServer(directory: string) {
     server.listen(socketPath);
     await once(server, "listening");
     fs.chmodSync(socketPath, 0o600);
-    personal = await openPersonalHarness({ profile, provider: personalProvider(config), modelId: config.modelId, telegram, ...(services ? { service: { ...services, useSudo: true }, serviceOperations: true } : {}), beforeUnlock: closeListener });
+    personal = await openPersonalHarness({ profile, provider: personalProvider(config), modelId: config.modelId, telegram, ...(services ? { service: { ...services, useSudo: true }, serviceOperations: true } : {}), ...(commands ? { commands } : {}), beforeUnlock: closeListener });
     const instance = personal;
     telegramLoop = instance.telegram.poll(telegramStop.signal).catch(() => { process.stderr.write("[ruukoto:personal] Telegram 收件已停止，请查询状态并检查档案；未自动重启。\n"); });
     const respond = (res: http.ServerResponse, status: number, result: unknown) => {
@@ -153,6 +156,23 @@ export async function startPersonalServer(directory: string) {
           result = { requested: true };
         } else if (req.method === "GET" && url.pathname === "/services") {
           result = await instance.harness.commit(tx => listPersonalServices(tx, queryNumber(url, "offset", 0)), context);
+        } else if (req.method === "GET" && url.pathname === "/commands") {
+          if (!instance.commands) throw new PersonalError("command_config_missing", "命令未装配，请停止后台后配置独立命令目录。");
+          result = await instance.commands.list(queryNumber(url, "offset", 0));
+        } else if ((req.method === "GET" && url.pathname === "/command") || (req.method === "POST" && ["/command/resolve", "/command/stop"].includes(url.pathname))) {
+          if (!instance.commands) throw new PersonalError("command_config_missing", "命令未装配，请停止后台后配置独立命令目录。");
+          const ref = await instance.harness.commit(tx => personalCommandRef(tx, queryNumber(url, "command") as TaskId), context);
+          if (url.pathname === "/command/resolve") {
+            const value = await readControlJSON(req);
+            if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).length !== 2 || !("effect" in value) || !["applied", "not_applied"].includes(String(value.effect)) || !("evidence" in value) || typeof value.evidence !== "string") throw new PersonalError("command_resolution_invalid", "请选择原命令已生效或未生效，并填写核实证据。");
+            await instance.harness.commit(tx => resolvePersonalCommand(tx, ref, value.effect as "applied" | "not_applied", value.evidence as string), context);
+            result = { saved: true };
+          } else if (url.pathname === "/command/stop") { await instance.commands.stop(ref); result = { requested: true }; }
+          else {
+            const stream = url.searchParams.get("stream") ?? "stdout";
+            if (stream !== "stdout" && stream !== "stderr") throw new PersonalError("command_input_invalid", "请选择标准输出或标准错误。");
+            result = await instance.commands.detail(ref, stream, queryNumber(url, "offset", 0));
+          }
         } else if ((req.method === "GET" && url.pathname === "/service") || (req.method === "POST" && ["/service/resolve", "/service/stop", "/service/decide"].includes(url.pathname))) {
           const ref = await instance.harness.commit(tx => personalServiceRef(tx, queryNumber(url, "service") as TaskId), context);
           if (url.pathname === "/service/decide") {

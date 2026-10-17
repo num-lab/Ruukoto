@@ -8,7 +8,7 @@ Status: implemented
 
 ## 决定
 
-可信宿主 API 创建独立 background 服务工作，来源固定为已进入主会话的拥有者输入。服务模式在创建时固定，默认 auto-review；confirm/auto-review 人工批准，full_access 免逐次审批，语义沿用[完全访问](../../implemented/feature/2026-10-12-full-access-current-account.md)。模型没有服务写工具。单次审批只决定原操作，长期授权等原 IM 身份装配后按[限定服务授权](../../implemented/feature/2026-10-03-standing-permissions.md)接入，不提供自由范围本机授权。
+可信宿主 API 创建独立 background 服务工作，来源固定为已进入主会话的拥有者输入。服务模式在创建时固定，默认 auto-review；confirm/auto-review 无有效长期授权时人工批准，full_access 免逐次审批，语义沿用[完全访问](../../implemented/feature/2026-10-12-full-access-current-account.md)。模型没有服务写工具。单次审批只决定原操作，Telegram 原入口与长期授权按[权限决定](2026-10-17-personal-telegram-permissions.md)接入，不提供自由范围本机授权。
 
 消费、开始事实与恢复 checkpoint 同 commit，helper 调用只发生在该 commit 后的当前 invocation。恢复发现开始且无结论，只核实与停止，不重新调用 restart。可信结果和原始证据同 commit；保存失败由 Harness 关闭，重开保留未知。以原生 Task 持有执行状态，document 只记审批、来源、外部效果及停止证据。
 
@@ -32,4 +32,4 @@ Status: implemented
 
 ## 后果
 
-SQLite 与 systemd 无原子提交，已开始但实际未派发也会保守暂停。宿主 API 尚无 IM/CLI 交互，不能算完整 A5/A6/A11；后续装配必须把真实身份和工作归属接在同一入口，不能从可配置请求参数取得权限。操作事实按请求键分开的 document 保存，列表使用原生 Task 游标分页；冲突检查扫描原生记录，历史规模显著增长时再增加仅持有活动操作引用的索引。保守停止核实可能需要实际观察命令单元或跨 boot 后才能解除；不把人工效果说明当成停止证明。收益是消费后崩溃不重放，代价是已开始但未派发也可能暂停。
+SQLite 与 systemd 无原子提交，已开始但实际未派发也会保守暂停。服务工作仍由可信宿主 API 发起，Telegram 可查询、审批及管理长期授权；CLI 配置、模型写工具和完整 A5/A6/A11 仍待总方案验收，后续装配不能从可配置请求参数取得权限。操作事实按请求键分开的 document 保存，列表使用原生 Task 游标分页；冲突检查扫描原生记录，历史规模显著增长时再增加仅持有活动操作引用的索引。保守停止核实可能需要实际观察命令单元或跨 boot 后才能解除；不把人工效果说明当成停止证明。收益是消费后崩溃不重放，代价是已开始但未派发也可能暂停。

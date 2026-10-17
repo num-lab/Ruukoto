@@ -1,7 +1,7 @@
 import { PersonalError } from "./personal-error.ts";
 
 export type TelegramUpdate = { update_id: number; message?: unknown };
-export type TelegramText = { id: number; ownerId: string; text: string; name: string };
+export type TelegramText = { id: number; ownerId: string; text: string; name: string; direct: boolean; replyTo?: number; replyBotId?: string };
 export type TelegramAck = { offset: number; receivedAt: number };
 
 function object(value: unknown): value is Record<string, unknown> { return !!value && typeof value === "object" && !Array.isArray(value); }
@@ -27,7 +27,8 @@ async function readReply(response: Response): Promise<unknown> {
 export function telegramText(update: TelegramUpdate): TelegramText | undefined {
   const m = update.message;
   if (!object(m) || !id(m.message_id) || !object(m.chat) || m.chat.type !== "private" || !id(m.chat.id) || !object(m.from) || !id(m.from.id) || m.from.is_bot !== false || m.chat.id !== m.from.id || typeof m.text !== "string" || !m.text.trim() || Buffer.byteLength(m.text) > 16384) return;
-  return { id: m.message_id, ownerId: String(m.from.id), text: m.text, name: typeof m.from.first_name === "string" ? m.from.first_name.slice(0, 128) : "Telegram 用户" };
+  const reply = object(m.reply_to_message) ? m.reply_to_message : undefined;
+  return { id: m.message_id, ownerId: String(m.from.id), text: m.text, name: typeof m.from.first_name === "string" ? m.from.first_name.slice(0, 128) : "Telegram 用户", direct: !["forward_origin", "forward_from", "forward_from_chat", "forward_sender_name", "via_bot", "sender_chat", "external_reply", "quote"].some(key => key in m), ...(reply && id(reply.message_id) ? { replyTo: reply.message_id } : {}), ...(reply && object(reply.from) && reply.from.is_bot === true && id(reply.from.id) ? { replyBotId: String(reply.from.id) } : {}) };
 }
 
 // Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-telegram-entry.md

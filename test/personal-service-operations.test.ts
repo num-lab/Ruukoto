@@ -13,7 +13,8 @@ import { openPersonalHarness, type PersonalHarness } from "../apps/ruukoto/src/p
 import { PersonalServiceOperationDoc, PersonalServiceOperationsDoc, ServiceOperationEvidence, type PersonalServiceMode, type PersonalServiceOperationRef } from "../apps/ruukoto/src/personal-service-operations.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
 import { PersonalWorkDoc } from "../apps/ruukoto/src/personal-work.ts";
-import { listPersonalDelegations, personalDelegationProgress, cancelPersonalDelegation, type PersonalDelegationRef } from "../apps/ruukoto/src/personal-delegation.ts";
+import { PersonalDelegationDoc, listPersonalDelegations, personalDelegationProgress, cancelPersonalDelegation, type PersonalDelegationRef } from "../apps/ruukoto/src/personal-delegation.ts";
+import { personalReportResult } from "../apps/ruukoto/src/personal-report.ts";
 import { personalProvider, type PersonalModelConfig } from "../apps/ruukoto/src/personal-model.ts";
 import type { ServiceManagerConfig } from "../apps/ruukoto/src/service-helper.ts";
 import { MockModelServer, type Responder } from "./helpers/mock-provider.ts";
@@ -61,6 +62,54 @@ const input = (requestId: string, mode?: PersonalServiceMode, unit = UNIT, sourc
 async function ready(p: PersonalHarness, ref: PersonalServiceOperationRef) { await until(async () => !!(await p.service!.status(ref)).operation.snapshot); }
 async function unknown(p: PersonalHarness, ref: PersonalServiceOperationRef) { await until(async () => { const result = (await p.service!.status(ref)).operation.result; return result?.effect === "effect_unknown" && result.code !== "started"; }); }
 async function finish(p: PersonalHarness, ref: PersonalServiceOperationRef) { return p.harness.waitForTask(ref.taskId, context); }
+
+test("委托报告：未知暂停跨重启，效果和停止都核实后安全汇总；HTTP 前暂停仅重做模型尝试", async t => {
+  for (const window of ["before-admission", "before-http"] as const) await t.test(window, async t => {
+    let release!: () => void; const gate = new Promise<void>(resolve => { release = resolve; }); t.after(() => release());
+    let group!: PersonalDelegationRef;
+    const f = await fixture(t, async request => {
+      const last = request.messages.at(-1);
+      if (request.system?.includes("你是个人助手的子 Agent")) { await gate; return { kind: "text", text: "分析完成" }; }
+      if (last?.role === "tool") return { kind: "text", text: String(last.content) };
+      if (last?.content === "委派") return { kind: "tool_calls", calls: [{ id: "delegate", name: "background_work", arguments: { action: "delegate", content: "分析" } }] };
+      if (last?.content === "汇总") return { kind: "tool_calls", calls: [{ id: "report", name: "background_work", arguments: { action: "report", delegation: group.entryId } }] };
+      return { kind: "text", text: String(last?.content).startsWith("宿主委托汇总参考") ? "完整汇总" : "其他聊天" };
+    });
+    f.touch("fail-after-launch"); f.touch("stop-query-fails");
+    let p!: PersonalHarness; let operation: PersonalServiceOperationRef | undefined; let armed = window === "before-http";
+    const provider = f.options.provider;
+    p = await f.open({ provider: { ...provider, streamSimple: (model, input, options) => provider.streamSimple(model, input, { ...options, onPayload: async payload => {
+      if (armed && JSON.stringify(input.messages.at(-1)).includes("宿主委托汇总参考")) {
+        armed = false; operation = await p.service!.request(inputForPause()); await unknown(p, operation);
+      }
+      return await options?.onPayload?.(payload, model) ?? payload;
+    } }) } });
+    const inputForPause = () => ({ requestId: "pause-report", sourceRequestId: "owner", unit: UNIT, mode: "full_access" as const });
+    await p.answer("委派", "owner"); group = (await p.harness.commit(tx => listPersonalDelegations(tx), context)).items[0].ref;
+    await until(() => f.server.calls.some(request => request.system?.includes("你是个人助手的子 Agent")));
+    await p.answer("汇总", "report-owner");
+    if (window === "before-admission") { operation = await p.service!.request(inputForPause()); await unknown(p, operation); }
+    release();
+    const members = (await p.harness.commit(tx => personalDelegationProgress(tx, group), context)).members;
+    await p.harness.waitForTask(members[0].ref.taskId, context);
+    await until(async () => !!operation && (window === "before-admission" || (await p.harness.snapshot(PersonalDelegationDoc, String(group.entryId), context))!.delegation!.report!.attempt === 1));
+    const summaries = () => f.server.calls.filter(request => String(request.messages.at(-1)?.content).startsWith("宿主委托汇总参考"));
+    assert.equal(summaries().length, 0);
+    assert.equal(await p.answer("独立聊天", "other"), "其他聊天");
+    await p.close(); p = await f.open();
+    assert.equal((await p.harness.commit(tx => personalDelegationProgress(tx, group), context)).paused, true);
+    await p.service!.resolve(operation!, "applied", "隔离 helper 启动计数已核实");
+    await delay(25); assert.equal(summaries().length, 0); assert.equal((await p.service!.status(operation!)).operation.launcherStopped, false);
+    fs.rmSync(path.join(f.helper, "stop-query-fails")); await p.service!.recheckStop(operation!); await finish(p, operation!);
+    const report = (await p.harness.snapshot(PersonalDelegationDoc, String(group.entryId), context))!.delegation!.report!;
+    const settled = await p.harness.waitForTask(report.taskId, context);
+    assert.equal(settled.state.outcome.status, "completed", JSON.stringify(settled.state.outcome));
+    assert.equal(summaries().length, 1); assert.equal(f.starts(), 1);
+    assert.equal((await p.harness.commit(tx => personalReportResult(tx, group), context)).text, "完整汇总");
+    assert.equal(report.attempt, window === "before-http" ? 1 : 0);
+    await p.close(); p = await f.open(); assert.equal(summaries().length, 1);
+  });
+});
 
 test("分析委托：终态成员说明或追加来源效果未知，整组续派/追加/子请求暂停，取消与他项继续", async t => {
   for (const origin of ["instruction", "note"] as const) await t.test(origin, async t => {

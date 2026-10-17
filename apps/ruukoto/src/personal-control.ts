@@ -14,6 +14,7 @@ import { readPersonalTelegram } from "./personal-telegram-config.ts";
 import { readPersonalServices } from "./personal-service-config.ts";
 import { appendPersonalWork, PersonalWorkDoc, closePersonalWorkAgent, listPersonalWorks, personalWorkRef, personalWorkResult, personalWorkSummary, requestPersonalWorkCancel } from "./personal-work.ts";
 import { cancelPersonalDelegation, listPersonalDelegations, personalDelegationProgress } from "./personal-delegation.ts";
+import { personalReportResult } from "./personal-report.ts";
 
 import { LocalInputDoc, personalInputDigest } from "./personal-local-records.ts";
 export { LocalInputDoc } from "./personal-local-records.ts";
@@ -130,10 +131,11 @@ export async function startPersonalServer(directory: string) {
           result = await instance.harness.commit(tx => listPersonalWorks(tx, offset), context);
         } else if (req.method === "GET" && url.pathname === "/delegations") {
           result = await instance.harness.commit(tx => listPersonalDelegations(tx, queryNumber(url, "offset", 0)), context);
-        } else if ((req.method === "GET" && url.pathname === "/delegation") || (req.method === "POST" && url.pathname === "/delegation/cancel")) {
+        } else if ((req.method === "GET" && ["/delegation", "/delegation/report"].includes(url.pathname)) || (req.method === "POST" && url.pathname === "/delegation/cancel")) {
           const ref = { entryId: queryNumber(url, "delegation") as EntryId };
           result = await instance.harness.commit(async tx => {
             if (url.pathname === "/delegation/cancel") { await cancelPersonalDelegation(tx, ref); return { cancelRequested: true }; }
+            if (url.pathname === "/delegation/report") return personalReportResult(tx, ref, queryNumber(url, "offset", 0));
             return personalDelegationProgress(tx, ref, queryNumber(url, "offset", 0));
           }, context);
         } else if ((req.method === "GET" && url.pathname === "/work") || (req.method === "POST" && ["/work/cancel", "/work/close"].includes(url.pathname))) {

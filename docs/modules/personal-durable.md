@@ -64,7 +64,7 @@ Telegram 控制消息按原始完整正文分类，回复关系只定位同 bot/
 
 请求体 128 KiB、消息正文 16 KiB、应答 256 KiB；客户端总时限 5 秒，后台收件 10 秒、闲置 15 秒。最近记录扫描 64 条 entry、显示最多 16 条消息，每条最多 8192 字符并标截断/中断；不返回输入证据或堆栈。终端输出过滤控制字符。
 
-服务检查 stdout/stderr 总计最多 1 MiB，超限停止检查并明确标记部分证据；畸形应答、多条前缀、目标或状态字段不符均报错，不把它们当状态。证据写入失败关闭 Harness，不能报告成功。服务配置仅由持锁的宿主 API 或停机向导提供，不由模型、工具参数或本机消息正文决定；服务重启仅通过另行启用的可信宿主 API。
+服务检查 stdout/stderr 总计最多 1 MiB，超限停止检查并明确标记部分证据；畸形应答、多条前缀、目标或状态字段不符均报错，不把它们当状态。helper 超时、取消或输出超限先固定首次失败并发停止信号，调用进程与 stdio 关闭后才返回，捕获保留关闭前的有界输出；无法关闭时保持等待。调用关闭不证明 systemd 操作单元或所有后代停止，也不解决后台强杀遗留 helper 的恢复核实。证据写入失败关闭 Harness，不能报告成功。服务配置仅由持锁的宿主 API 或停机向导提供，不由模型、工具参数或本机消息正文决定；服务重启仅通过另行启用的可信宿主 API。
 
 仅使用新的隔离目录，不能以此 API 浏览或恢复旧个人档案。SQLite WAL/NORMAL 支持进程崩溃恢复，不保证断电时最近提交保留。服务检查为无写入效果工具，可在中断后安全重跑并得到新的观察；服务操作另按开始事实保守恢复，不将只读重跑规则用于 restart。
 
@@ -83,6 +83,7 @@ Telegram 数值 offset 只在一批更新收到后 60 秒内用于紧接的一�
 - [个人 durable 档案与请求证据先于恢复](../../.agents/notes/implemented/architecture/2026-10-17-personal-durable-foundation.md)
 - [隔离个人实例由后台独占并通过本机接口管理](../../.agents/notes/implemented/architecture/2026-10-17-personal-local-management.md)
 - [个人 durable 服务检查复用固定 helper](../../.agents/notes/implemented/architecture/2026-10-17-personal-service-inspect.md)
+- [服务 helper 中断在调用进程关闭后返回](../../.agents/notes/implemented/architecture/2026-10-17-service-helper-exit.md)
 - [个人后台工作占用长期独立子会话](../../.agents/notes/implemented/architecture/2026-10-17-personal-background-work.md)
 - [个人服务操作先持久消费并核实未知效果](../../.agents/notes/implemented/architecture/2026-10-17-personal-service-operations.md)
 

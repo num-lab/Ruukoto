@@ -58,6 +58,8 @@ const REPLY_PREFIX = "RUUKOTO_SERVICE_REPLY ";
  * REPLY_PREFIX 前缀单行 JSON（不用 fd3：sudo 默认关闭 fd ≥3），fd1/fd2 全部原始
  * 字节透传（由调用方入产物；restart 路径的 systemd-run --pipe 会把命令单元的
  * stderr 混入 fd2，按前缀逐行提取）。拒绝 shell 字符串与自由参数。
+ * 中断后等待本次调用进程及 stdio 关闭；这不证明 systemd 操作单元已停止。
+ * Note: 见 .agents/notes/implemented/architecture/2026-10-17-service-helper-exit.md
  */
 export async function callHelper(
   cfg: ServiceManagerConfig,
@@ -83,6 +85,7 @@ export async function callHelper(
     const stderr: Buffer[] = [];
     let bytes = 0;
     let truncated = false;
+    let failureReason: { message: string; code: string } | undefined;
     const failure = (message: string, code: string) => new ServiceHelperError(message, code, { stdout: Buffer.concat(stdout), stderr: Buffer.concat(stderr), truncated });
     const collect = (target: Buffer[], chunk: Buffer) => {
       const remaining = Math.max(0, (opts.maxOutputBytes ?? Infinity) - bytes);
@@ -91,7 +94,7 @@ export async function callHelper(
       bytes += kept.length;
       if (kept.length < chunk.length) {
         truncated = true;
-        killGroup();
+        stop("服务管理 helper 输出超过上限，已停止检查；已保留有界输出。", "output_limit");
       }
     };
     (child.stdio[1] as NodeJS.ReadableStream).on("data", (c: Buffer) => collect(stdout, c));
@@ -107,24 +110,23 @@ export async function callHelper(
         }
       }
     };
-    const timer = setTimeout(() => {
+    const stop = (message: string, code: string) => {
+      if (failureReason) return;
+      failureReason = { message, code };
       killGroup();
-      reject(failure(`服务管理 helper 调用超时（${opts.timeoutMs}ms）`, "timeout"));
-    }, opts.timeoutMs);
+    };
+    const timer = setTimeout(() => stop(`服务管理 helper 调用超时（${opts.timeoutMs}ms）`, "timeout"), opts.timeoutMs);
     const onAbort = () => {
-      killGroup();
-      reject(failure("任务已停止，helper 调用已中止", "aborted"));
+      stop("任务已停止，helper 调用已中止", "aborted");
     };
     opts.signal?.addEventListener("abort", onAbort, { once: true });
     child.on("error", (err) => {
-      clearTimeout(timer);
-      opts.signal?.removeEventListener("abort", onAbort);
-      reject(failure(`服务管理 helper 启动失败：${err.message}`, "spawn_failed"));
+      failureReason ??= { message: `服务管理 helper 启动失败：${err.message}`, code: "spawn_failed" };
     });
     child.on("close", () => {
       clearTimeout(timer);
       opts.signal?.removeEventListener("abort", onAbort);
-      if (truncated) { reject(failure("服务管理 helper 输出超过上限，已停止检查；已保留有界输出。", "output_limit")); return; }
+      if (failureReason) { reject(failure(failureReason.message, failureReason.code)); return; }
       const out = Buffer.concat(stderr).toString("utf8");
       const lines = out.split("\n").filter((l) => l.startsWith(REPLY_PREFIX));
       const line = lines[0];
@@ -153,6 +155,7 @@ export async function callHelper(
       }
       resolve({ stdout: Buffer.concat(stdout), stderr: Buffer.concat(stderr), reply });
     });
+    if (opts.signal?.aborted) onAbort();
   });
 }
 

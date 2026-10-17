@@ -1,0 +1,5 @@
+本次副本作为 cwd 的残留进程: []
+专属目录、依赖、缓存、临时夹具已清理
+Filesystem      Size  Used Avail Use% Mounted on
+tmpfs           1.9G   61M  1.8G   4% /dev/shm
+/dev/vda2        40G   37G  661M  99% /

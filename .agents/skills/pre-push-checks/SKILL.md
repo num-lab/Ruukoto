@@ -46,6 +46,7 @@ npm run change-scope -- --base <已核实的基点引用>
 | 子代理角色定义与快照 | `npx tsx --test test/subagent-role-library.test.ts test/subagent-definition-core.test.ts test/subagent-role-runtime.test.ts test/subagent-role-driver.test.ts`；再加 80/83/62、GitHub 45/46、实际导入与 core 生命周期回归 |
 | SubAgent、worktree、旧实例导入 | `test/80`–`test/95` 里对应的那篇，加 `npx tsx --test test/91-release-acceptance.test.ts` |
 | `test/` 的夹具或助手 | 用该助手的用例。**只断言落盘布局的用例（直读 SQLite／裸 SQL）是本仓库的刻意做法**，不要以「只测行为」为由改写 |
+| `apps/ruukoto/src/service-helper.ts` | `npx tsx --test test/service-helper-transport.test.ts test/personal-services.test.ts test/personal-service-operations.test.ts test/78-linux-service-management.test.ts test/79-standing-permissions.test.ts`；传输进程检查在 macOS/Linux 分别执行，调用关闭不替代 helper 操作单元停止证明 |
 | `.agents/notes/` 的笔记 | `npm run verify-notes`；改了笔记的被引路径再加 `npx tsx .agents/skills/maintain-notes/scripts/check-note-anchors.ts` |
 | `docs/` 的文档 | `npm run check:docs`；内容与代码是否一致门禁查不出，按 [写作 skill](../../../.agents/skills/writing-docs-for-human/SKILL.md) 的触发条件逐篇核对 |
 | `AGENTS.md`、skills、`docs/agents/` | 落点检查：被链接的目标存在，被引用的命令与 `package.json` 一致 |

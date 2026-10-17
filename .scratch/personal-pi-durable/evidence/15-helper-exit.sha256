@@ -1,0 +1,8 @@
+bd175c714cc31313b7e9c9b630d2b94dc29377409b782d1568b1393ea6f05cff  .agents/notes/implemented/architecture/2026-10-17-personal-service-inspect.md
+ff9268674e6816154d91740ca1e6b22e158d1a80bc603b75abc245326ae533ae  .agents/notes/implemented/architecture/2026-10-17-service-helper-exit.md
+099463a4cce25a4dc153ea9e2b90f8099f1e7b41e0445bdf9f67f5bfc47e493b  .agents/skills/pre-push-checks/SKILL.md
+4e2d4e98e3e5aa35f971489f256f13f97de1442692b9ebc4e146f742bd2a3f4c  apps/ruukoto/src/service-helper.ts
+055713ff6ddc390f7a673e74c7db487b5338f4da4b80115057a522c162de06d0  docs/development.md
+b49547cd47edbbf4d0713ae4a6ae8c5e9696468e8de2f46dd61fe9c86007cb37  docs/modules/agent-tools.md
+fb7333eac0acbc3fb40a4626242ef9fbce887ca99e04cab71d2745815d8b2838  docs/modules/personal-durable.md
+ee3ca759f46a526c5c65ab66e29b831a125a5b84738b1e783b9ad0bbca0c92b7  test/service-helper-transport.test.ts

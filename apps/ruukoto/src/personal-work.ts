@@ -1,21 +1,23 @@
 import { isDeepStrictEqual } from "node:util";
 import { createHash } from "node:crypto";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { AgentDoc, AssistantEntry, configure, defineDoc, defineDocFamily, defineExtension, defineTask, ROOT_CONVERSATION_ID, section, type ConversationId, type Cursor, type EntryId, type Harness, type ModelRef, type SubmissionId, type TaskId, type Tx } from "@earendil-works/pi-durable";
+import { AgentDoc, AssistantEntry, configure, defineDoc, defineDocFamily, defineEntry, defineExtension, defineTask, ROOT_CONVERSATION_ID, section, type ConversationId, type Cursor, type EntryId, type Harness, type ModelRef, type SubmissionId, type TaskId, type Tx } from "@earendil-works/pi-durable";
 import { permissionSnapshot, telegramSelection, telegramSourceActive, PersonalPermissionsDoc, type PersonalTelegramSource } from "./personal-permissions.ts";
 import { PersonalTelegramReceiptDoc } from "./personal-telegram-records.ts";
 import { requirePersonalServiceSourceReady } from "./personal-service-operations.ts";
 import { PersonalError } from "./personal-error.ts";
 import { LocalInputDoc, personalInputDigest } from "./personal-local-records.ts";
+import { requirePersonalDelegationReady, requirePersonalDelegationInput, type PersonalDelegationRef, type PersonalWorkSource } from "./personal-delegation.ts";
 
 type WorkResult = { submissionId: SubmissionId };
 export type PersonalWorkRef = { requestId: string; taskId: TaskId<WorkResult>; agentId: ConversationId };
 type AgentIndex = { id: ConversationId; label: string; closed: boolean; work?: PersonalWorkRef };
 type NoteSource = { kind: "input"; requestId: string; submissionId: SubmissionId; entryId: EntryId; modelCall?: TaskId } | { kind: "local" } | { kind: "telegram" };
-type WorkNote = { requestId: string; content: string; source: NoteSource; submissionId?: SubmissionId };
-type WorkFacts = { notes?: WorkNote[]; fingerprint: string; ref?: PersonalWorkRef; source?: { requestId: string; submissionId: SubmissionId; entryId: EntryId }; submissionId?: SubmissionId; cancelRequested: boolean; permission?: { mode: PersonalTelegramSource["mode"]; version: number }; telegram?: PersonalTelegramSource; modelCall?: TaskId };
+type WorkNote = { admission?: EntryId; requestId: string; content: string; source: NoteSource; submissionId?: SubmissionId };
+type WorkFacts = { delegationAdmission?: EntryId; delegation?: PersonalDelegationRef; instructionSource?: PersonalWorkSource; notes?: WorkNote[]; fingerprint: string; ref?: PersonalWorkRef; source?: PersonalWorkSource; submissionId?: SubmissionId; cancelRequested: boolean; permission?: { mode: PersonalTelegramSource["mode"]; version: number }; telegram?: PersonalTelegramSource; modelCall?: TaskId };
 type WorkInput = { requestId: string; agentId: ConversationId; content: string };
 const context = BACKGROUND_CONTEXT;
+const PersonalWorkNoteAdmission = defineEntry<{ ref: PersonalWorkRef; requestId: string; content: string; source: NoteSource }>("ruukoto.work-note-admission");
 export const PersonalAgentsDoc = defineDoc<{ agents: AgentIndex[] }>({ kind: "ruukoto.subagents", scope: "session", version: 1, initial: () => ({ agents: [] }) });
 export const PersonalWorkDoc = defineDocFamily<WorkFacts, null>({ kind: "ruukoto.work", scope: "session", version: 1, family: true, initial: () => ({ fingerprint: "", cancelRequested: false }) });
 
@@ -175,6 +177,8 @@ export async function appendPersonalWork(tx: Tx, ref: PersonalWorkRef, input: { 
   const task = await tx.task(ref.taskId);
   if (work.cancelRequested || !task || task.state.status === "terminal" || task.state.status === "completing" || task.abortRequested) throw new PersonalError("work_inactive", "原分析已结束或正在取消，未接纳说明；请查询原工作后决定下一步。");
   await occupancy(tx, { ...ref, content: "" }, ref.taskId);
+  if (work.delegation) await requirePersonalDelegationReady(tx, work.delegation);
+  if (work.delegation && input.source.kind === "input") await requirePersonalDelegationInput(tx, work.delegation, input.source.requestId);
   if (input.source.kind === "input") await requirePersonalServiceSourceReady(tx, input.source.requestId);
   if (input.source.kind === "input" && input.source.requestId.startsWith("telegram:")) {
     const receipt = (await tx.doc(PersonalTelegramReceiptDoc, input.source.requestId, null)).receipt;
@@ -184,7 +188,8 @@ export async function appendPersonalWork(tx: Tx, ref: PersonalWorkRef, input: { 
   if (work.telegram && !await telegramSourceActive(tx, work.telegram)) throw new PersonalError("work_source_inactive", "原拥有者入口已停用或变更，未接纳说明；请查询原工作。");
   if (work.source) await requirePersonalServiceSourceReady(tx, work.source.requestId);
   work.notes ??= [];
-  work.notes.push({ ...input });
+  const admission = work.delegation ? (await tx.appendEntry(PersonalWorkNoteAdmission, ROOT_CONVERSATION_ID, { data: { ref: { ...ref }, ...input } })).id : undefined;
+  work.notes.push({ ...input, ...(admission === undefined ? {} : { admission }) });
 }
 
 export async function verifyPersonalWorkNotes(tx: Tx, ref: PersonalWorkRef, enabled: boolean) {
@@ -193,6 +198,10 @@ export async function verifyPersonalWorkNotes(tx: Tx, ref: PersonalWorkRef, enab
   if (!enabled || !Array.isArray(work.notes) || new Set(work.notes.map(note => note.requestId)).size !== work.notes.length) throw new PersonalError("work_note_invalid", "追加说明版本或请求关系无法核实，已停止恢复；请保留档案。");
   let previous = await tx.submissionByRequest(ref.agentId, `personal-work:${ref.taskId}`);
   for (const note of work.notes) {
+    if (work.delegation) {
+      const admission = note.admission && await tx.entry(PersonalWorkNoteAdmission, note.admission);
+      if (!admission || admission.conversationId !== ROOT_CONVERSATION_ID || !isDeepStrictEqual(admission.data, { ref, requestId: note.requestId, content: note.content, source: note.source })) throw new PersonalError("work_note_invalid", "追加说明的原接纳证据不符，已停止恢复；请保留档案。");
+    }
     if (!note.requestId || note.requestId.length > 256 || !note.content?.trim() || Buffer.byteLength(note.content) > 16384) throw new PersonalError("work_note_invalid", "追加说明正文或请求缺失，已停止恢复；请保留档案。");
     if (note.requestId.startsWith("personal-note-tool:") && (note.source?.kind !== "input" || note.source.modelCall === undefined)) throw new PersonalError("work_note_invalid", "模型追加说明缺少原工具来源，已停止恢复；请保留档案。");
     if (!note.source) throw new PersonalError("work_note_invalid", "追加说明来源缺失，已停止恢复；请保留档案。");
@@ -359,6 +368,7 @@ export async function requirePersonalWorkRequest(tx: Tx, conversationId: Convers
   }
   if (agent.closed || !agent.work || (await facts(tx, agent.work)).cancelRequested) throw new PersonalError("work_inactive", "子 Agent 没有可执行的活动工作，已停止模型请求；请查询工作状态。");
   const work = await facts(tx, agent.work);
+  if (work.delegation) await requirePersonalDelegationReady(tx, work.delegation);
   if (work.telegram && !await telegramSourceActive(tx, work.telegram)) throw new PersonalError("work_source_inactive", "原拥有者入口已停用或变更，后台工作已停止模型请求；请向拥有者报告并查询原工作。");
   if (work.source) await requirePersonalServiceSourceReady(tx, work.source.requestId);
   for (const note of work.notes ?? []) if (note.source.kind === "input") await requirePersonalServiceSourceReady(tx, note.source.requestId);

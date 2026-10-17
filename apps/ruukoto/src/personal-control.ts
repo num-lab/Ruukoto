@@ -4,7 +4,7 @@ import * as http from "node:http";
 import { once } from "node:events";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { AssistantEntry, type EntryRecord, type TaskId } from "@earendil-works/pi-durable";
+import { AssistantEntry, type EntryRecord, type EntryId, type TaskId } from "@earendil-works/pi-durable";
 import { openPersonalHarness } from "./personal-harness.ts";
 import { personalProvider } from "./personal-model.ts";
 import { lockPersonalProfile } from "./personal-profile.ts";
@@ -13,6 +13,7 @@ import { PersonalError } from "./personal-error.ts";
 import { readPersonalTelegram } from "./personal-telegram-config.ts";
 import { readPersonalServices } from "./personal-service-config.ts";
 import { appendPersonalWork, PersonalWorkDoc, closePersonalWorkAgent, listPersonalWorks, personalWorkRef, personalWorkResult, personalWorkSummary, requestPersonalWorkCancel } from "./personal-work.ts";
+import { cancelPersonalDelegation, listPersonalDelegations, personalDelegationProgress } from "./personal-delegation.ts";
 
 import { LocalInputDoc, personalInputDigest } from "./personal-local-records.ts";
 export { LocalInputDoc } from "./personal-local-records.ts";
@@ -127,6 +128,14 @@ export async function startPersonalServer(directory: string) {
         } else if (req.method === "GET" && url.pathname === "/works") {
           const offset = queryNumber(url, "offset", 0);
           result = await instance.harness.commit(tx => listPersonalWorks(tx, offset), context);
+        } else if (req.method === "GET" && url.pathname === "/delegations") {
+          result = await instance.harness.commit(tx => listPersonalDelegations(tx, queryNumber(url, "offset", 0)), context);
+        } else if ((req.method === "GET" && url.pathname === "/delegation") || (req.method === "POST" && url.pathname === "/delegation/cancel")) {
+          const ref = { entryId: queryNumber(url, "delegation") as EntryId };
+          result = await instance.harness.commit(async tx => {
+            if (url.pathname === "/delegation/cancel") { await cancelPersonalDelegation(tx, ref); return { cancelRequested: true }; }
+            return personalDelegationProgress(tx, ref, queryNumber(url, "offset", 0));
+          }, context);
         } else if ((req.method === "GET" && url.pathname === "/work") || (req.method === "POST" && ["/work/cancel", "/work/close"].includes(url.pathname))) {
           const id = queryNumber(url, "work") as TaskId;
           const offset = queryNumber(url, "offset", 0);

@@ -13,6 +13,7 @@ import { openPersonalHarness, type PersonalHarness } from "../apps/ruukoto/src/p
 import { PersonalServiceOperationDoc, PersonalServiceOperationsDoc, ServiceOperationEvidence, type PersonalServiceMode, type PersonalServiceOperationRef } from "../apps/ruukoto/src/personal-service-operations.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
 import { PersonalWorkDoc } from "../apps/ruukoto/src/personal-work.ts";
+import { listPersonalDelegations, personalDelegationProgress, cancelPersonalDelegation, type PersonalDelegationRef } from "../apps/ruukoto/src/personal-delegation.ts";
 import { personalProvider, type PersonalModelConfig } from "../apps/ruukoto/src/personal-model.ts";
 import type { ServiceManagerConfig } from "../apps/ruukoto/src/service-helper.ts";
 import { MockModelServer, type Responder } from "./helpers/mock-provider.ts";
@@ -60,6 +61,38 @@ const input = (requestId: string, mode?: PersonalServiceMode, unit = UNIT, sourc
 async function ready(p: PersonalHarness, ref: PersonalServiceOperationRef) { await until(async () => !!(await p.service!.status(ref)).operation.snapshot); }
 async function unknown(p: PersonalHarness, ref: PersonalServiceOperationRef) { await until(async () => { const result = (await p.service!.status(ref)).operation.result; return result?.effect === "effect_unknown" && result.code !== "started"; }); }
 async function finish(p: PersonalHarness, ref: PersonalServiceOperationRef) { return p.harness.waitForTask(ref.taskId, context); }
+
+test("分析委托：终态成员说明或追加来源效果未知，整组续派/追加/子请求暂停，取消与他项继续", async t => {
+  for (const origin of ["instruction", "note"] as const) await t.test(origin, async t => {
+    let release!: () => void; const gate = new Promise<void>(resolve => { release = resolve; }); t.after(() => release());
+    let group!: PersonalDelegationRef;
+    const f = await fixture(t, async request => {
+      const last = request.messages.at(-1);
+      if (request.system?.includes("你是个人助手的子 Agent")) { if (last?.content === "A") await gate; return { kind: "text", text: "分析完成" }; }
+      if (last?.role === "tool") return { kind: "text", text: String(last.content) };
+      if (["开始", "续派", "绕过"].includes(String(last?.content))) return { kind: "tool_calls", calls: [{ id: "delegate", name: "background_work", arguments: { action: "delegate", content: last?.content === "开始" ? "A" : "B", ...(last?.content === "开始" ? {} : { delegation: group.entryId }) } }] };
+      return { kind: "text", text: "独立聊天" };
+    });
+    f.touch("fail-after-launch"); const p = await f.open();
+    await p.answer("开始", "owner"); group = (await p.harness.commit(tx => listPersonalDelegations(tx), context)).items[0].ref;
+    await p.answer("续派", "continuation");
+    let members = (await p.harness.commit(tx => personalDelegationProgress(tx, group), context)).members;
+    await p.harness.waitForTask(members[1].ref.taskId, context);
+    await p.answer("追加说明来源", "extra-source");
+    await p.work.append(members[0].ref, { requestId: "accepted", sourceRequestId: origin === "note" ? "extra-source" : "owner", content: "后续说明" });
+    const operation = await p.service!.request({ requestId: "unknown-member", unit: UNIT, mode: "full_access", sourceRequestId: origin === "note" ? "extra-source" : "continuation" }); await unknown(p, operation);
+    assert.match(await p.answer("绕过", "bypass"), /work_source_paused/);
+    await assert.rejects(p.work.append(members[0].ref, { requestId: "bypass-note", sourceRequestId: "owner", content: "换方式" }), code("work_source_paused"));
+    assert.equal((await p.harness.commit(tx => personalDelegationProgress(tx, group), context)).paused, true);
+    release(); await p.harness.waitForTask(members[0].ref.taskId, context);
+    assert.equal(f.server.calls.filter(request => request.system?.includes("你是个人助手的子 Agent") && request.messages.at(-1)?.content === "后续说明").length, 0);
+    await p.harness.commit(tx => cancelPersonalDelegation(tx, group), context);
+    assert.equal(await p.answer("其他来源继续", "independent"), "独立聊天");
+    const other = await p.work.delegate({ content: "独立分析", sourceRequestId: "independent", requestId: "independent-analysis" });
+    await p.harness.waitForTask(other.taskId, context); members = (await p.harness.commit(tx => personalDelegationProgress(tx, group), context)).members;
+    assert.equal(members.length, 2); assert.equal(f.starts(), 1);
+  });
+});
 
 test("服务工作：默认自动审查和 confirm 等单次人工批准，full_access 免审批；同键去重异参拒绝", async t => {
   for (const mode of [undefined, "confirm", "full_access"] as const) await t.test(mode ?? "default", async t => {

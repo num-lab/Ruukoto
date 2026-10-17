@@ -1,0 +1,80 @@
+[
+  {
+    "stage": "independent-review",
+    "sourceManifestMatched": true,
+    "files": [
+      {
+        "path": ".scratch/personal-pi-durable/evidence/27-macos/independent-review/empty-token-negative.log",
+        "bytes": 2312,
+        "sha256": "48e76f73b3eda26465b13a65f262a2c4d17cbf57e8bbb54f1b75a6184147a5e9",
+        "originalBytes": 2316,
+        "originalSha256": "cc46519d8bdd3e8372411d378b1d3a32597ee1a669458bc79d17276623626fa3",
+        "normalization": "删除展示日志行尾空格；原始输出保留于 reproduction.tar.gz"
+      },
+      {
+        "path": ".scratch/personal-pi-durable/evidence/27-macos/independent-review/package.json",
+        "bytes": 18,
+        "sha256": "1239d4d885dcad42201a27ed9324f8f0f760b78700d8db9ced39a511cffe7eae"
+      },
+      {
+        "path": ".scratch/personal-pi-durable/evidence/27-macos/independent-review/manifest.json",
+        "bytes": 1438,
+        "sha256": "1d29c98c485abecf7fc13a48d7878db63d7dfc6344c242d746b4807dbd9e6f31"
+      },
+      {
+        "path": ".scratch/personal-pi-durable/evidence/27-macos/independent-review/resolver-error-negative.log",
+        "bytes": 3085,
+        "sha256": "c55856fe6deac90cc37f6fee5a0fbf8aebf744a1a747774c806a14dc18162bc9",
+        "originalBytes": 3093,
+        "originalSha256": "7bf02c6aead1dfeefb915ca0cb845121ecc9323726066768b36c5568247405cf",
+        "normalization": "删除展示日志行尾空格；原始输出保留于 reproduction.tar.gz"
+      },
+      {
+        "path": ".scratch/personal-pi-durable/evidence/27-macos/independent-review/pagination-probe.log",
+        "bytes": 102,
+        "sha256": "97a6cfb07aec5dbb4fefe2ad366a63c461128e666a387c65d2287d52b52943fb"
+      },
+      {
+        "path": ".scratch/personal-pi-durable/evidence/27-macos/independent-review/pagination-legacy-probe.log",
+        "bytes": 102,
+        "sha256": "97a6cfb07aec5dbb4fefe2ad366a63c461128e666a387c65d2287d52b52943fb"
+      },
+      {
+        "path": ".scratch/personal-pi-durable/evidence/27-macos/independent-review/final-baseline.log",
+        "bytes": 1510,
+        "sha256": "43be55aa2755c034183a2e974ae686105322a632c1754ce41e18538d44e553a8"
+      },
+      {
+        "path": ".scratch/personal-pi-durable/evidence/27-macos/independent-review/typed-error-identity.log",
+        "bytes": 331,
+        "sha256": "9fe295c38f699168f48f823af0eeb645a1e9b85788592eb30f696116943d0417"
+      }
+    ]
+  },
+  {
+    "stage": "independent-pagination",
+    "sourceManifestMatched": true,
+    "files": [
+      {
+        "path": ".scratch/personal-pi-durable/evidence/27-macos/independent-pagination/pagination-final.log",
+        "bytes": 588,
+        "sha256": "ad183460800a0edd0bdde262680c28edb93d4bd0afd3742d797d8c2dfdc6d409"
+      },
+      {
+        "path": ".scratch/personal-pi-durable/evidence/27-macos/independent-pagination/package.json",
+        "bytes": 18,
+        "sha256": "1239d4d885dcad42201a27ed9324f8f0f760b78700d8db9ced39a511cffe7eae"
+      },
+      {
+        "path": ".scratch/personal-pi-durable/evidence/27-macos/independent-pagination/manifest.json",
+        "bytes": 1136,
+        "sha256": "c317a851cb0c571dc23680d3a078e8ed33015d98cf21d4dda5cf721decc4172b"
+      },
+      {
+        "path": ".scratch/personal-pi-durable/evidence/27-macos/independent-pagination/pagination-limit-negative.log",
+        "bytes": 1296,
+        "sha256": "cb2b7ad23b386ad5729b00f6360c330ce912cc5ff79ce1e2cecfe8028311a6cf"
+      }
+    ]
+  }
+]

@@ -1,0 +1,26 @@
+{
+  "repo": "/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable",
+  "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "node": "v24.15.0",
+  "head": "9243e634a91e7c4ef69567a76d33364d1db8b99b",
+  "mutation": "隔离 src/transport.ts 删除 Client options 中 listMaxPages: MCP_LIMITS.maxListPages，其他内容保持",
+  "sha256": {
+    "packages/agent/src/mcp/transport.ts": "aaeb26354970035732cdcde7095fb937d3f9f63a438697645ec723cddaa91e3d",
+    "packages/agent/src/mcp/client.ts": "33f2ce45c23edc19ad22026eb064036c118236977fa164c8941d41715eff3ee9",
+    "test/mcp-transport.test.ts": "755dfe1572134a16ce396c905fc69fb99e590ad55597fe48ce988a4c56b3bba2"
+  },
+  "results": [
+    {
+      "name": "pagination-final",
+      "exit": 0,
+      "expected_exit": 0,
+      "log": "/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-mcp-pagination-review-anh58zik/pagination-final.log"
+    },
+    {
+      "name": "pagination-limit-negative",
+      "exit": 1,
+      "expected_exit": 1,
+      "log": "/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-mcp-pagination-review-anh58zik/pagination-limit-negative.log"
+    }
+  ]
+}

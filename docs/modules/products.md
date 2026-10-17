@@ -4,7 +4,7 @@
 
 `apps/ruukoto` 是个人 Agent，`apps/ruukoto-code` 是 Coding Agent。各 app 持有自己的 bin、主入口与开发入口、`product.ts` 能力声明及专属工具或导入策略；两个 app 互不依赖。共享 CLI 在 tui 包（见 [tui](tui.md)）。存储、模型、任务、控制面与界面由 `packages/` 下的共享包提供。
 
-个人 app 另有[持久会话与隔离向导](personal-durable.md)，使用 Pi 1.3.0 独立 SQLite、实例锁、请求证据与本机认证接口；正式入口尚未接入。下述产品行为均指正式共享装配。
+个人 app 另有[持久会话与隔离向导](personal-durable.md)，使用 Pi 1.3.0 独立 SQLite、实例锁、请求证据、本机认证接口及宿主显式启用的只读服务检查；正式入口尚未接入。下述产品行为均指正式共享装配。
 
 ## 对外接口
 

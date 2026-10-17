@@ -37,10 +37,11 @@ import type { ManagedProcessRegistry } from "@ruukoto/agent/managed-processes.ts
 import { SERVICE_LEDGER,SERVICE_TOOL_NAMES } from "@ruukoto/channels/service-ledger.ts";
 import type { Store } from "@ruukoto/core/store.ts";
 import type { ApprovalScope,Task } from "@ruukoto/core/types.ts";
-import * as childProcess from "node:child_process";
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import { Type } from "typebox";
+import { callHelper, expectRevisions, opUnitFor, requireOk, ServiceHelperError, type HelperReply, type ServiceManagerConfig, type ServiceState } from "./service-helper.ts";
+export type { ServiceManagerConfig } from "./service-helper.ts";
 
 export function createServiceFamily(config: Omit<ServiceToolsDeps, "config" | "registry" | "taskContext" | "bindCall" | "verifyMain" | "requestApproval" | "requestStanding" | "recordArtifact" | "markEffectUnknown"> & { config: ServiceManagerConfig | null }): HostToolFamily {
   return {
@@ -59,158 +60,6 @@ export function createServiceFamily(config: Omit<ServiceToolsDeps, "config" | "r
     }) : [],
     ledger: SERVICE_LEDGER,
   };
-}
-
-/** 服务管理部署配置（宿主注入；模型与任务参数不提供任何路径或身份）。 */
-export interface ServiceManagerConfig {
-  /** 受保护 helper 的绝对路径（root 拥有 0700，sudoers 固定入口）。 */
-  helperPath: string;
-  /** 策略文件绝对路径（root 拥有 0644；消费事务内同步重读核对修订）。 */
-  policyPath: string;
-  /** 生产 true（后台无 root，经 sudoers 提权调用）；受控替身测试为 false。 */
-  useSudo: boolean;
-  /** sudo 绝对路径（useSudo 时）。 */
-  sudoPath: string;
-  /** 各动词调用上限（仅测试注入覆盖；生产取默认）。 */
-  timeouts?: { inspectMs?: number; restartMs?: number; stopMs?: number };
-}
-
-interface ServiceState {
-  id: string;
-  loadState: string;
-  activeState: string;
-  subState: string;
-  mainPid: number;
-  invocationId: string;
-  result: string;
-  activeEnterTimestamp: string;
-}
-
-type HelperReply =
-  | { v: 1; verb: "inspect"; ok: true; machineId: string; policyRevision: string; unitRevision: string; unit: string; state: ServiceState; execIdentity?: { uid: number; gid: number }; observedAt: string }
-  | { v: 1; verb: "restart"; ok: true; machineId: string; hostOpId: string; opUnit: string; launched: true; execIdentity?: string; exitCode: number; observedAt: string }
-  | { v: 1; verb: "stop-op"; ok: true; machineId: string; hostOpId: string; opUnit: string; exited: boolean; detail?: string }
-  | { v: 1; verb: string; ok: false; launched?: boolean; reasonCode?: string; error?: string };
-
-class ServiceHelperError extends Error {
-  constructor(
-    message: string,
-    readonly reasonCode: string,
-  ) {
-    super(message);
-  }
-}
-
-/** helper 操作单元的固定派生（停止协议只接受由同一操作 ID 派生的单元）。 */
-function opUnitFor(hostOpId: string): string {
-  return `ruukoto-service-op-${hostOpId}.service`;
-}
-
-/** 应答行的唯一前缀（helper 在 stderr 写唯一一条该前缀的单行 JSON；其余行是噪声证据）。 */
-const REPLY_PREFIX = "RUUKOTO_SERVICE_REPLY ";
-
-/**
- * helper 调用：固定 argv、绝对路径、清空环境；应答 = stderr 上唯一一条
- * REPLY_PREFIX 前缀单行 JSON（不用 fd3：sudo 默认关闭 fd ≥3），fd1/fd2 全部原始
- * 字节透传（由调用方入产物；restart 路径的 systemd-run --pipe 会把命令单元的
- * stderr 混入 fd2，按前缀逐行提取）。拒绝 shell 字符串与自由参数。
- */
-async function callHelper(
-  cfg: ServiceManagerConfig,
-  args: string[],
-  opts: { timeoutMs: number; signal?: AbortSignal },
-): Promise<{ stdout: Buffer; stderr: Buffer; reply: HelperReply }> {
-  if (opts.signal?.aborted) throw new ServiceHelperError("任务已停止，helper 尚未启动", "aborted");
-  // 生产：sudo 固定入口（env 由 sudo 清理）；受控替身：以当前 node 直接执行脚本
-  const argv = cfg.useSudo ? [cfg.sudoPath, "-n", cfg.helperPath, ...args] : [process.execPath, cfg.helperPath, ...args];
-  return await new Promise((resolve, reject) => {
-    let child: childProcess.ChildProcess;
-    try {
-      child = childProcess.spawn(argv[0]!, argv.slice(1), {
-        env: { PATH: "/usr/bin:/bin" },
-        stdio: ["ignore", "pipe", "pipe"],
-        detached: true,
-      });
-    } catch (err) {
-      reject(new ServiceHelperError(`服务管理 helper 启动失败：${(err as Error).message}`, "spawn_failed"));
-      return;
-    }
-    const stdout: Buffer[] = [];
-    const stderr: Buffer[] = [];
-    (child.stdio[1] as NodeJS.ReadableStream).on("data", (c: Buffer) => stdout.push(c));
-    (child.stdio[2] as NodeJS.ReadableStream).on("data", (c: Buffer) => stderr.push(c));
-    const killGroup = () => {
-      try {
-        if (child.pid) process.kill(-child.pid, "SIGKILL");
-      } catch {
-        try {
-          child.kill("SIGKILL");
-        } catch {
-          // 已退出
-        }
-      }
-    };
-    const timer = setTimeout(() => {
-      killGroup();
-      reject(new ServiceHelperError(`服务管理 helper 调用超时（${opts.timeoutMs}ms）`, "timeout"));
-    }, opts.timeoutMs);
-    const onAbort = () => {
-      killGroup();
-      reject(new ServiceHelperError("任务已停止，helper 调用已中止", "aborted"));
-    };
-    opts.signal?.addEventListener("abort", onAbort, { once: true });
-    child.on("error", (err) => {
-      clearTimeout(timer);
-      opts.signal?.removeEventListener("abort", onAbort);
-      reject(new ServiceHelperError(`服务管理 helper 启动失败：${(err as Error).message}`, "spawn_failed"));
-    });
-    child.on("close", () => {
-      clearTimeout(timer);
-      opts.signal?.removeEventListener("abort", onAbort);
-      const out = Buffer.concat(stderr).toString("utf8");
-      const line = out.split("\n").find((l) => l.startsWith(REPLY_PREFIX));
-      if (line === undefined) {
-        reject(
-          new ServiceHelperError(
-            `服务管理 helper 未返回结构化结果（拒绝把无结果当作成功）：${out.trim().slice(0, 200) || "（无输出）"}`,
-            "protocol_error",
-          ),
-        );
-        return;
-      }
-      let reply: HelperReply;
-      try {
-        reply = JSON.parse(line.slice(REPLY_PREFIX.length).trim()) as HelperReply;
-      } catch {
-        reject(
-          new ServiceHelperError(`服务管理 helper 应答不是合法 JSON（拒绝当作成功）：${line.slice(0, 200)}`, "protocol_error"),
-        );
-        return;
-      }
-      if (reply.v !== 1) {
-        reject(new ServiceHelperError("服务管理 helper 协议版本不符", "protocol_error"));
-        return;
-      }
-      resolve({ stdout: Buffer.concat(stdout), stderr: Buffer.concat(stderr), reply });
-    });
-  });
-}
-
-function requireOk(reply: HelperReply, verb: string): Extract<HelperReply, { ok: true }> {
-  if (!reply.ok) {
-    throw new ServiceHelperError(`服务管理 helper 拒绝（${reply.reasonCode ?? "unknown"}）：${reply.error ?? "未给出原因"}`, reply.reasonCode ?? "refused");
-  }
-  if (reply.verb !== verb) throw new ServiceHelperError("服务管理 helper 应答与请求不符", "protocol_error");
-  return reply;
-}
-
-const HEX64 = /^[0-9a-f]{64}$/;
-
-function expectRevisions(reply: Extract<HelperReply, { ok: true }>): { machineId: string; policyRevision: string; unitRevision: string } {
-  if (!("policyRevision" in reply) || !HEX64.test(reply.policyRevision) || !HEX64.test(reply.unitRevision) || !reply.machineId) {
-    throw new ServiceHelperError("服务管理 helper 返回的修订指纹不完整", "protocol_error");
-  }
-  return { machineId: reply.machineId, policyRevision: reply.policyRevision, unitRevision: reply.unitRevision };
 }
 
 function sha256Hex(buf: Buffer | string): string {
@@ -489,15 +338,15 @@ export function createServiceTools(deps: ServiceToolsDeps): ToolDefinition[] {
           }
           restartReply = reply;
         } catch (err) {
-          if (err instanceof ServiceHelperError && (err.reasonCode === "timeout" || err.reasonCode === "aborted")) {
+          if (err instanceof ServiceHelperError && (err.code === "timeout" || err.code === "aborted")) {
             // restart 已消费、命令客户端中断：效果未知，不自动重发
             deps.markEffectUnknown(hostOpId);
-            failText(`管理命令结果未知（helper 调用${err.reasonCode === "timeout" ? "超时" : "被中止"}）：restart 请求可能已提交，不自动重发；请核实后再决定是否执行`);
+            failText(`管理命令结果未知（helper 调用${err.code === "timeout" ? "超时" : "被中止"}）：restart 请求可能已提交，不自动重发；请核实后再决定是否执行`);
           }
           // 消费后应答协议错误/原始输出未保全：无可信结果，一律效果未知（issue 10）
-          if (err instanceof ServiceHelperError && (err.reasonCode === "protocol_error" || err.reasonCode === "capture_failed")) {
+          if (err instanceof ServiceHelperError && (err.code === "protocol_error" || err.code === "capture_failed")) {
             deps.markEffectUnknown(hostOpId);
-            failText(`管理命令结果未知（${err.reasonCode === "protocol_error" ? "helper 应答不可信" : "helper 原始输出未保全"}）：restart 可能已生效，不自动重发；请核实后再决定是否执行`);
+            failText(`管理命令结果未知（${err.code === "protocol_error" ? "helper 应答不可信" : "helper 原始输出未保全"}）：restart 可能已生效，不自动重发；请核实后再决定是否执行`);
           }
           throw err;
         }

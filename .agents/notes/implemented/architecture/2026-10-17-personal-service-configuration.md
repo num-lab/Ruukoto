@@ -16,6 +16,10 @@ Status: implemented
 
 按 personal/service、服务配置、helper 与本机管理检索 active notes。上述服务检查、操作与权限笔记及[本机管理](2026-10-17-personal-local-management.md)部分重叠，本篇补齐配置装配并同步其入口事实；[固定 helper](2026-10-03-service-management-helper.md)的部署保护保持。[总方案](../../proposed/architecture/2026-10-17-personal-pi-durable.md)继续 proposed，正式切换与完整能力尚未完成。其余旧运行时、MCP、应用数据、工作流和桌面命中不受影响；无完全吸收、过时提案或应归档记录。
 
+## 后续服务写入
+
+子会话不下放服务写工具的部分由[子服务工作](2026-10-17-personal-subagent-service-operations.md)取代：受控 restart 沿原 WorkTask 权限、取消和未知效果收尾；独立宿主操作与其他工具的原边界继续适用。
+
 ## 备选方案
 
 - 复用旧 `RUUKOTO_SERVICE_*`：部署已有配置，但会让隔离后台继承旧装配，违背新实例显式配置；独立文件更能保住宿主入口。

@@ -12,6 +12,7 @@ import { AgentDoc, SessionFailed, ROOT_CONVERSATION_ID } from "@earendil-works/p
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { openPersonalHarness, type PersonalHarness } from "../apps/ruukoto/src/personal-harness.ts";
 import { personalProvider, type PersonalModelConfig } from "../apps/ruukoto/src/personal-model.ts";
+import { PersonalDelegationDoc, listPersonalDelegations } from "../apps/ruukoto/src/personal-delegation.ts";
 import { PersonalWorkDoc } from "../apps/ruukoto/src/personal-work.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
 import { PersonalPermissionsDoc } from "../apps/ruukoto/src/personal-permissions.ts";
@@ -420,4 +421,62 @@ test("Telegram 工作：HTTP 前停用原绑定拦截子请求，正常换代仍
   assert.equal(f.model.calls.filter(request => request.system?.includes("你是个人助手的子 Agent")).length, 0);
   await p.close(); const restored = await f.open({ telegram: { ...f.telegram, enabled: false, generation: randomUUID() } });
   assert.equal((await restored.work.list()).length, 1); assert.ok(restored.main);
+});
+
+test("子服务权限：跨轮保持首次模式，原菜单授权/撤销且本机不能代决", async t => {
+  let delegation = 0;
+  const f = await fixture(t, request => {
+    const last = request.messages.at(-1);
+    if (request.system?.includes("你是个人助手的子 Agent")) {
+      if (last?.role === "tool" || last?.content === "只分析") return { kind: "text", text: "子结果" };
+      return { kind: "tool_calls", calls: [{ id: "restart", name: "service_restart", arguments: { unit: UNIT } }] };
+    }
+    if (last?.role === "tool") return { kind: "text", text: "后台已接纳" };
+    if (last?.content === "创建委托" || last?.content === "续派") return { kind: "tool_calls", calls: [{ id: "delegate", name: "background_work", arguments: { action: "delegate", content: last.content === "创建委托" ? "只分析" : "重启", ...(delegation ? { delegation } : {}) } }] };
+    return { kind: "text", text: "继续聊天" };
+  });
+  let p = await f.open(); await f.receive("创建委托");
+  const group = (await p.harness.commit(tx => listPersonalDelegations(tx), context)).items[0].ref;
+  const first = (await p.harness.snapshot(PersonalDelegationDoc, String(group.entryId), context))!.delegation!.members[0]; await p.harness.waitForTask(first.taskId, context);
+  delegation = (await p.harness.snapshot(PersonalWorkDoc, first.requestId, context))!.delegation!.entryId;
+  await p.harness.commit(async tx => { const permission = await tx.doc(PersonalPermissionsDoc); permission.mode = "full_access"; permission.version++; }, context);
+  const nextOperation = async () => {
+    const previous = (await p.service!.list()).items[0]?.operation.ref.taskId;
+    await f.receive("续派"); let ref!: PersonalServiceOperationRef;
+    await until(async () => { const op = (await p.service!.list()).items[0]?.operation; if (!op?.snapshot || op.ref.taskId === previous) return false; ref = op.ref; return true; });
+    assert.equal((await p.service!.status(ref)).operation.mode, "auto-review"); return ref;
+  };
+  const op = await nextOperation(); assert.equal(f.starts(), 0);
+  await assert.rejects(p.service!.decide(op, "approved"), code("service_original_entry_required"));
+  await f.receive("批准并长期授权", await menu(f)); await done(p, op);
+  const work = (await p.service!.status(op)).operation.work!.ref; await p.harness.waitForTask(work.taskId, context);
+  assert.equal(f.starts(), 1);
+  const granted = await nextOperation(); await done(p, granted); await p.harness.waitForTask((await p.service!.status(granted)).operation.work!.ref.taskId, context);
+  assert.equal(f.starts(), 2);
+  await f.receive("撤销授权", await menu(f, "/授权")); const revoked = await nextOperation();
+  assert.equal((await p.service!.status(revoked)).operation.decision, "pending"); assert.equal(f.starts(), 2);
+  await p.close(); p = await f.open({ telegram: { ...f.telegram, generation: randomUUID() } });
+  await done(p, revoked); assert.equal((await p.service!.status(revoked)).operation.consumed, false); assert.equal(f.starts(), 2);
+});
+
+test("子服务检查：追加本机来源保留全来源，Telegram 不能管理混合检查", async t => {
+  let release!: () => void; const gate = new Promise<void>(resolve => { release = resolve; }); t.after(() => release()); let requested = false;
+  const f = await fixture(t, async request => {
+    if (request.system?.includes("你是个人助手的子 Agent")) {
+      if (request.messages.at(-1)?.role === "tool") return { kind: "text", text: "结果" };
+      requested = true; await gate; return { kind: "tool_calls", calls: [{ id: "restart", name: "service_restart", arguments: { unit: UNIT } }] };
+    }
+    return { kind: "text", text: "聊天继续" };
+  });
+  f.touch("inspection-stop-fails"); const p = await f.open(); const source = await f.receive("拥有者重启要求");
+  const work = await p.work.delegate({ content: "重启", requestId: "mixed", sourceRequestId: source.key }); await until(async () => requested);
+  await p.answer("本机补充资料", "local-note"); await p.work.append(work, { requestId: "note", content: "附加资料", sourceRequestId: "local-note" }); release();
+  let ref!: PersonalServiceOperationRef;
+  await until(async () => { const op = (await p.service!.list()).items[0]?.operation; if (!op?.result) return false; ref = op.ref; return true; });
+  const inspection = (await p.inspections!.list())[0]; assert.ok(inspection); assert.equal(inspection.sources.length, 2);
+  assert.deepEqual(inspection.sources, (await p.service!.status(ref)).operation.work!.sources);
+  const menuResult = await f.receive("/检查"); assert.doesNotMatch(menuResult.value.reply!, /检查1|approval-test/);
+  const cancel = p.work.cancel(work); await until(async () => (await p.work.status(work)).cancelRequested);
+  assert.equal((await p.work.status(work)).stopVerified, false); fs.rmSync(path.join(f.helper, "inspection-stop-fails")); await p.inspections!.recheckStop(ref.taskId); await cancel;
+  assert.equal(f.starts(), 0);
 });

@@ -4,7 +4,7 @@ import { BACKGROUND_CONTEXT, type Context } from "@earendil-works/chord/context"
 import { AgentDoc, AssistantEntry, configure, defineDoc, defineDocFamily, defineEntry, defineExtension, defineTask, ROOT_CONVERSATION_ID, section, type ConversationId, type Cursor, type EntryId, type Harness, type ModelRef, type SubmissionId, type TaskId, type TaskRuntime, type Tx } from "@earendil-works/pi-durable";
 import { permissionSnapshot, telegramSelection, telegramSourceActive, PersonalPermissionsDoc, type PersonalTelegramSource } from "./personal-permissions.ts";
 import { PersonalTelegramReceiptDoc } from "./personal-telegram-records.ts";
-import { requirePersonalServiceSourceReady } from "./personal-service-operations.ts";
+import { PERSONAL_SERVICE_WORK, interruptedPersonalService, personalWorkServices, requirePersonalWorkServicesStopped, requirePersonalServiceSourceReady, waitPersonalServiceEffect, type PersonalServiceOperationRef } from "./personal-service-operations.ts";
 import { PersonalError } from "./personal-error.ts";
 import { LocalInputDoc, personalInputDigest } from "./personal-local-records.ts";
 import { requirePersonalDelegationOpen, requirePersonalDelegationReady, requirePersonalDelegationInput, type PersonalDelegationRef, type PersonalWorkSource } from "./personal-delegation.ts";
@@ -37,8 +37,21 @@ async function occupancy(tx: Tx, input: WorkInput, taskId: TaskId) {
 
 async function release(tx: Tx, input: WorkInput, taskId: TaskId) {
   const agent = await occupancy(tx, input, taskId);
+  await requirePersonalWorkServicesStopped(tx, taskId);
   if (await pendingWorkInspection(tx, taskId)) throw new PersonalError("work_stop_unverified", "子工作仍有未核实的检查，占用保留；请核实原检查停止。");
   delete agent.work;
+}
+
+// Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-subagent-service-operations.md
+async function settleServices(runtime: TaskRuntime<WorkInput, { phase: "run" }, WorkResult, object>, taskId: TaskId, context: Context, cancel: boolean) {
+  let refs: PersonalServiceOperationRef[] = [];
+  await runtime.commit(async tx => { refs = (await personalWorkServices(tx, taskId)).map(op => ({ ...op.ref })); return undefined; }, context);
+  for (const ref of refs) {
+    if (cancel) await runtime.abortOwned(ref.taskId, context);
+    else await runtime.waitForTask(ref.taskId, context);
+    await runtime.commit(async tx => { for (const value of await personalWorkServices(tx, taskId)) await interruptedPersonalService(tx, value); return undefined; }, context);
+    await waitPersonalServiceEffect(runtime, ref, context);
+  }
 }
 
 // Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-subagent-inspection.md
@@ -71,6 +84,7 @@ export const PersonalWorkTask = defineTask<WorkInput, { phase: "run" }, WorkResu
       if (!child) throw new PersonalError("work_agent_missing", "后台工作的子会话缺失，已停止；请保留档案。");
       if (work.cancelRequested) {
         await child.abort(context, { background: true });
+        await settleServices(runtime, task.id, context, true);
         await waitForInspections(runtime, task.id, context);
         await runtime.commit(async tx => { await release(tx, task.input, task.id); return { status: "terminal", outcome: { status: "aborted" } }; }, context);
         return;
@@ -110,6 +124,7 @@ export const PersonalWorkTask = defineTask<WorkInput, { phase: "run" }, WorkResu
           settled = await Promise.race([submission.wait(context), canceled]);
         } finally { await watch.stop(); }
         await child.abort(context, { background: true });
+        await settleServices(runtime, task.id, context, !settled || !!(await runtime.snapshot(PersonalWorkDoc, task.input.requestId, context))?.cancelRequested);
         await waitForInspections(runtime, task.id, context);
         let next = false;
         await runtime.commit(async tx => {
@@ -131,13 +146,14 @@ export const PersonalWorkTask = defineTask<WorkInput, { phase: "run" }, WorkResu
     const child = await runtime.conversation(task.input.agentId, context);
     if (!child) throw new PersonalError("work_agent_missing", "取消时找不到子会话，占用仍保留；请检查档案。");
     await child.abort(context, { background: true });
+    await settleServices(runtime, task.id, context, true);
     await waitForInspections(runtime, task.id, context);
     await runtime.commit(async tx => { await release(tx, task.input, task.id); return { status: "terminal", outcome: { status: "aborted" } }; }, context);
   },
 });
 
 export const personalBackgroundWork = defineExtension({ name: "personal-background-work", tasks: [PersonalWorkTask] });
-export const personalSubAgent = defineExtension({ name: "personal-subagent", sections: [section("subagent", () => "你是个人助手的子 Agent，只处理当前委派的工作并向主 Agent 返回结果。历史上下文可供参考，不代表新工作的授权。仅使用本轮提供的工具，无法再委派或联系拥有者；需要不可用的外部操作时在结果中说明。服务检查停止未核实时宿主暂停后续模型请求并保留工作占用，核实后收尾；不要换方式重试。", { tag: false })] });
+export const personalSubAgent = defineExtension({ name: "personal-subagent", sections: [section("subagent", () => "你是个人助手的子 Agent，只处理当前委派的工作并向主 Agent 返回结果。历史上下文可供参考，不代表新工作的授权。仅使用本轮提供的工具，无法再委派或联系拥有者；需要不可用的外部操作时在结果中说明。服务效果或停止未核实时，宿主暂停整项委托的后续操作并保留占用；由拥有者核实后收尾，不要换方式重试。", { tag: false })] });
 
 type DelegateInput = { content: string; requestId: string; sourceRequestId: string; agentId?: ConversationId; label?: string };
 
@@ -170,6 +186,10 @@ export async function delegatePersonalWork(tx: Tx, model: ModelRef, input: Deleg
       const config = await tx.doc(AgentDoc, child.id);
       config.extensions = [personalSubAgent.name, personalBackgroundWork.name, "personal-service-inspect", personalSubAgentServices.name];
       config.tools = ["service_inspect", "read_service_inspection"];
+      if (Array.isArray(main.extensions) && main.extensions.includes(PERSONAL_SERVICE_WORK)) {
+        config.extensions.push(PERSONAL_SERVICE_WORK);
+        config.tools.push("service_restart", "read_service_operation");
+      }
     }
     index.agents.push({ id: child.id, label: input.label ?? "子 Agent", closed: false });
     agent = index.agents[index.agents.length - 1];
@@ -268,7 +288,10 @@ export async function requestPersonalWorkCancel(tx: Tx, ref: PersonalWorkRef) {
   const work = await facts(tx, ref);
   const task = await tx.task(ref.taskId);
   if (!task) throw new PersonalError("work_task_missing", "后台工作的执行记录缺失，请保留档案并检查存储。");
-  if (task.state.status !== "terminal") work.cancelRequested = true;
+  if (task.state.status !== "terminal") {
+    work.cancelRequested = true;
+    for (const op of await personalWorkServices(tx, ref.taskId)) if ((await tx.task(op.ref.taskId))?.state.status !== "terminal") op.cancelRequested = true;
+  }
 }
 
 export async function closePersonalAgent(tx: Tx, id: ConversationId) {

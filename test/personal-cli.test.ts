@@ -113,7 +113,7 @@ test("personal CLI：前台与 detached 均拒绝用内部环境变量充当模�
 test("personal CLI：认证前不读状态或提交，非法及超限请求无副作用", async t => {
   const f = await fixture(t);
   await f.start();
-  for (const route of ["/status", "/messages", "/inputs", "/stop", "/services", "/service?service=1", "/service/resolve?service=1", "/service/stop?service=1"]) {
+  for (const route of ["/status", "/messages", "/inputs", "/stop", "/services", "/service?service=1", "/service/resolve?service=1", "/service/stop?service=1", "/service/decide?service=1"]) {
     const result = await raw(f.dir, route === "/inputs" || route === "/stop" || route.startsWith("/service/") ? "POST" : "GET", route, JSON.stringify({ requestId: randomUUID(), input: "不要执行" }));
     assert.equal(JSON.parse(result.body).code, "control_unauthorized");
     assert.doesNotMatch(result.body, /mock-model|test-only/);
@@ -550,12 +550,23 @@ test("服务核实 HTTP：Linux sudo 接线、原状态刷新及慢停止不阻�
   fs.writeFileSync(path.join(helper, "state.json"), JSON.stringify({ [unit]: { starts: 0, loadState: "loaded", activeState: "active", subState: "running", mainPid: 123, invocationId: "before", result: "success", activeEnterTimestamp: "2026-10-17T00:00:00Z" } }));
   fs.writeFileSync(path.join(helper, "fail-after-launch"), ""); fs.writeFileSync(path.join(helper, "stop-query-fails"), "");
   await savePersonalServices(f.dir, configured);
-  const p = await openPersonalHarness({ directory: f.dir, provider: personalProvider(f.config), modelId: f.config.modelId, service: { ...configured, useSudo: true }, serviceOperations: true });
-  await p.answer("服务工作", "owner"); const ref = await p.service!.request({ requestId: "operation", sourceRequestId: "owner", unit, mode: "full_access" });
+  let p = await openPersonalHarness({ directory: f.dir, provider: personalProvider(f.config), modelId: f.config.modelId, service: { ...configured, useSudo: true }, serviceOperations: true });
+  await p.answer("服务工作", "owner"); const approval = await p.service!.request({ requestId: "approval", sourceRequestId: "owner", unit });
+  await until(async () => !!(await p.service!.status(approval)).operation.snapshot); await p.close(); const backend = await f.start();
+  const approvalRoute = `/service/decide?service=${approval.taskId}`;
+  const token = fs.readFileSync(path.join(f.dir, "control.token"), "utf8").trim();
+  assert.equal((await raw(f.dir, "POST", approvalRoute, JSON.stringify({ decision: "approved", extra: true }), token)).status, 400);
+  assert.equal((await personalControl<{ summary: { canDecide: boolean } }>(f.dir, "GET", `/service?service=${approval.taskId}`)).summary.canDecide, true);
+  await personalControl(f.dir, "POST", approvalRoute, { decision: "rejected" });
+  await until(async () => !(await personalControl<{ summary: { canDecide: boolean } }>(f.dir, "GET", `/service?service=${approval.taskId}`)).summary.canDecide);
+  await backend.stop(); p = await openPersonalHarness({ directory: f.dir, provider: personalProvider(f.config), modelId: f.config.modelId, service: { ...configured, useSudo: true }, serviceOperations: true });
+  await p.harness.waitForTask(approval.taskId, context);
+  const ref = await p.service!.request({ requestId: "operation", sourceRequestId: "owner", unit, mode: "full_access" });
   await until(async () => (await p.service!.status(ref)).operation.result?.code === "result_unverified"); await p.close();
   await f.start();
   type Detail = { summary: { canResolve: boolean; canRecheck: boolean; stop?: string }; evidence: string };
-  assert.equal((await personalControl<{ items: unknown[] }>(f.dir, "GET", "/services")).items.length, 1);
+  const listed = await personalControl<{ items: { ref: { taskId: number } }[] }>(f.dir, "GET", "/services");
+  assert.deepEqual(listed.items.map(item => item.ref.taskId).sort((a, b) => a - b), [approval.taskId, ref.taskId].sort((a, b) => a - b));
   const route = `/service?service=${ref.taskId}`;
   await assert.rejects(personalControl(f.dir, "POST", `/service/resolve?service=${ref.taskId}`, { effect: "applied", evidence: " " }), code("service_resolution_invalid"));
   await personalControl(f.dir, "POST", `/service/resolve?service=${ref.taskId}`, { effect: "applied", evidence: "独立核实启动计数" });
@@ -572,4 +583,24 @@ test("服务核实 HTTP：Linux sudo 接线、原状态刷新及慢停止不阻�
     assert.equal((await personalControl<Detail>(f.dir, "GET", route)).summary.canRecheck, false);
     assert.equal(fs.readFileSync(path.join(helper, "calls.log"), "utf8").trim().split("\n").filter(line => JSON.parse(line)[0] === "restart").length, 1);
   } finally { fs.writeFileSync(release, ""); }
+});
+
+test("服务审批向导：选择原目标批准或拒绝，不询问内部键", async t => {
+  for (const decision of ["approved", "rejected"] as const) await t.test(decision, async t => {
+    const dir = directory(t); const token = "a".repeat(64); fs.writeFileSync(path.join(dir, "control.token"), token + "\n");
+    let saved = false; const item = { ref: { taskId: 12, requestId: "private-request" }, unit: "example.service", status: "等待批准：在机器 test-machine 重启 example.service", canDecide: true, canResolve: false, canRecheck: false };
+    const server = http.createServer(async (req, res) => {
+      assert.equal(req.headers.authorization, `Bearer ${token}`);
+      let result;
+      if (req.method === "POST") {
+        assert.equal(req.url, "/service/decide?service=12"); const chunks: Buffer[] = []; for await (const chunk of req) chunks.push(Buffer.from(chunk));
+        assert.deepEqual(JSON.parse(Buffer.concat(chunks).toString()), { decision }); saved = true; result = { saved: true };
+      } else result = req.url?.startsWith("/service?") ? { summary: { ...item, canDecide: !saved }, evidence: "尚无核实说明" } : { items: [item] };
+      res.end(JSON.stringify({ v: 1, ok: true, result }));
+    });
+    server.listen(path.join(dir, "control.sock")); await once(server, "listening"); t.after(() => new Promise<void>(resolve => server.close(() => resolve())));
+    const answers = ["1", decision === "approved" ? "2" : "3", "2", "2"]; let output = "";
+    await managePersonalServices({ question: async () => { assert.ok(answers.length); return answers.shift()!; }, write: value => { output += value; } }, dir);
+    assert.equal(saved, true); assert.equal(answers.length, 0); assert.match(output, /test-machine/); assert.doesNotMatch(output, /private-request|taskId|UUID/);
+  });
 });

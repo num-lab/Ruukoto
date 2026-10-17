@@ -299,7 +299,7 @@ export async function managePersonalServices(io: PersonalCliIO, directory: strin
   while (true) {
     const page = await personalControl<PersonalServicePage>(directory, "GET", `/services?offset=${offset}`);
     const choices = [...page.items.map(item => item.unit), ...(page.nextOffset === undefined ? [] : ["下一页服务"]), "返回"];
-    const selected = await choose(io, "服务效果核实与停止重核", choices);
+    const selected = await choose(io, "服务审批、效果核实与停止重核", choices);
     if (selected === choices.length - 1) return;
     if (selected === page.items.length) { offset = page.nextOffset!; continue; }
     const id = page.items[selected].ref.taskId;
@@ -307,12 +307,15 @@ export async function managePersonalServices(io: PersonalCliIO, directory: strin
     while (true) {
       const detail = await personalControl<PersonalServiceDetail>(directory, "GET", `/service?service=${id}&offset=${evidenceOffset}`);
       io.write(`\n${personalServiceDescription(detail.summary)}\n核实说明：${detail.evidence}\n未知效果须效果和停止均核实后才释放占用；不会重新执行 restart。\n`);
-      const actions = ["刷新状态", ...(detail.summary.canResolve ? ["确认已生效", "确认未生效"] : []), ...(detail.summary.canRecheck ? ["登记原操作停止重核"] : []), ...(detail.nextOffset === undefined ? [] : ["下一页核实说明"]), "返回服务列表"];
+      const actions = ["刷新状态", ...(detail.summary.canDecide ? ["批准本次", "拒绝"] : []), ...(detail.summary.canResolve ? ["确认已生效", "确认未生效"] : []), ...(detail.summary.canRecheck ? ["登记原操作停止重核"] : []), ...(detail.nextOffset === undefined ? [] : ["下一页核实说明"]), "返回服务列表"];
       const action = actions[await choose(io, "原服务操作", actions)];
       if (action === "返回服务列表") break;
       if (action === "下一页核实说明") { evidenceOffset = detail.nextOffset!; continue; }
       evidenceOffset = 0;
-      if (action === "登记原操作停止重核") {
+      if (action === "批准本次" || action === "拒绝") {
+        await personalControl(directory, "POST", `/service/decide?service=${id}`, { decision: action === "批准本次" ? "approved" : "rejected" });
+        io.write("原服务决定已保存，批准不表示成功；请刷新查询。应答丢失先核实原状态。\n");
+      } else if (action === "登记原操作停止重核") {
         await personalControl(directory, "POST", `/service/stop?service=${id}`);
         io.write("已登记原写操作停止重核；登记不表示已停止，也不确认写入效果。请刷新原状态；未核实则检查 helper 后主动重核。\n");
       } else if (action === "确认已生效" || action === "确认未生效") {
@@ -329,7 +332,7 @@ export async function managePersonalServices(io: PersonalCliIO, directory: strin
 export async function personalMenu(directory: string, io: PersonalCliIO): Promise<void> {
   io.write(`个人 durable 隔离实例\n档案：${directory}\n提供主会话、可选 Telegram 文本入口及 Linux 服务检查；模型写工具继续实施。\n`);
   while (true) {
-    const selected = await choose(io, "个人实例", ["配置模型（后台须停止）", "启动隔离后台", "查看状态", "发送消息", "查看最近消息", "核实上次提交", "停止隔离后台", "配置 Telegram（后台须停止）", "查看 Telegram 收发", "退出向导（后台继续运行）", "配置或查看服务（后台须停止）", "管理后台分析", "管理分析委托", "管理检查停止重核", "管理服务效果核实"]);
+    const selected = await choose(io, "个人实例", ["配置模型（后台须停止）", "启动隔离后台", "查看状态", "发送消息", "查看最近消息", "核实上次提交", "停止隔离后台", "配置 Telegram（后台须停止）", "查看 Telegram 收发", "退出向导（后台继续运行）", "配置或查看服务（后台须停止）", "管理后台分析", "管理分析委托", "管理检查停止重核", "管理服务审批与核实"]);
     if (selected === 9) return;
     try {
       if (selected === 0) await configure(io, directory);

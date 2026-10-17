@@ -1,0 +1,11 @@
+[
+  {
+    "name": "personal-cli-final",
+    "command": [
+      "npx",
+      "tsx",
+      "--test",
+      "test/personal-cli.test.ts"
+    ]
+  }
+]

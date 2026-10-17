@@ -26,6 +26,10 @@ Status: implemented
 
 按 durable、后台工作、子 Agent、来源、权限与取消检索 active notes。迁移提案、后台工作、[Telegram 权限](2026-10-17-personal-telegram-permissions.md)、[服务操作](2026-10-17-personal-service-operations.md)和[档案基础](2026-10-17-personal-durable-foundation.md)部分重叠，各自保留决定并互链；旧共享委派与恢复继续服务 Coding，不改变其状态机。没有完全吸收或待归档提案。
 
+## 后续服务写入
+
+子会话不下放服务写工具的部分由[子服务工作](2026-10-17-personal-subagent-service-operations.md)取代：受控 restart 沿原 WorkTask 权限、取消和未知效果收尾；独立宿主操作与其他工具的原边界继续适用。
+
 ## 备选方案
 
 - 让模型提供 sourceRequestId 和幂等键：接口最简单，但正文可以冒充原输入，模型重试也可能另造工作；由宿主固定原生工具和 Submission 关系。

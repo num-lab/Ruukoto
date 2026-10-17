@@ -20,6 +20,10 @@ Status: implemented
 
 按服务、效果未知、批准消费和长期授权检索 proposed/implemented/rejected。迁移提案、[只读检查](../../implemented/architecture/2026-10-17-personal-service-inspect.md)、[后台工作](../../implemented/architecture/2026-10-17-personal-background-work.md)、服务 helper、长期授权和完全访问为部分重叠，互链并保留各自决定；工具工作进程、MCP、应用数据、通知、工作流和旧 Runtime 的命中归其他消费者，本切片不改变。没有完全吸收或过时提案需要删除。
 
+## 后续服务写入
+
+子会话不下放服务写工具的部分由[子服务工作](2026-10-17-personal-subagent-service-operations.md)取代：受控 restart 沿原 WorkTask 权限、取消和未知效果收尾；独立宿主操作与其他工具的原边界继续适用。
+
 ## 备选方案
 
 - 直接把 restart 接入子模型工具：真实消费者最近，但同时需要子工作权限与来源装配、模型暂停和工作收尾。先交可独立验证的服务宿主 API，避免以空工具阶段的停止结论证明外部写入安全。

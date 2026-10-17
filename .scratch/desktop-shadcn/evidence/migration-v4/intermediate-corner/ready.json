@@ -1,0 +1,27 @@
+{
+  "pid": 47816,
+  "fixturePid": 47134,
+  "executable": "/tmp/Ruukoto-QA-v4.app/Contents/MacOS/Ruukoto MyGo",
+  "profile": "/tmp/rmg-v4-GO8vws/profile",
+  "control": "/tmp/rmg-v4-GO8vws/control",
+  "workspace": "/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-it-mygo-v4-code-BLqsxr/work-0/git-workspace",
+  "workspaceId": "proj_2aa349ae1170cc29fb4247f5",
+  "sessionId": "sess_6e23a0b75b771de364b73b0d",
+  "codeSessionIds": [
+    "sess_6e23a0b75b771de364b73b0d",
+    "sess_0311473add1c6f9f5a2193c8"
+  ],
+  "nonrepo": "/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-it-mygo-v4-code-BLqsxr/work-1/ordinary-workspace",
+  "nonrepoWorkspaceId": "proj_bb262029772c3f55754d1e8d",
+  "nonrepoSessionId": "sess_6f21837c45aa70723c84a994",
+  "personalMainSessionId": "sess_12b150363b4de570c196ad37",
+  "personalInstanceId": "6529022d-d562-4cf5-85f6-0fb1f89f2003",
+  "codeInstanceId": "2a52366f-1de2-41fd-a5eb-61be96877bce",
+  "sshExecutable": "/tmp/rmg-v4-GO8vws/bin/ssh",
+  "sshLog": "/tmp/rmg-v4-GO8vws/ssh-children.jsonl",
+  "sampleFile": "/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-it-mygo-v4-code-BLqsxr/work-0/git-workspace/sample.txt",
+  "runtime": "真实临时 Code 与 PA Runtime / ControlServer",
+  "model": "本地确定性 MockModelServer",
+  "ssh": "临时 SSH 替身：仅转发本机隔离 Unix socket 与读取隔离 token，不连接真实服务器",
+  "preparedOnly": false
+}

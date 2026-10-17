@@ -10,7 +10,7 @@
     },
     request: (target, op, params) => call("Request", target, op, params),
     pickFolder: () => call("PickFolder"),
-    pickAttachments: sessionId => call("PickAttachments", sessionId),
+    pickAttachments: (sessionId, target = "code") => call("PickAttachments", sessionId, target),
     reveal: path => call("Reveal", path),
   };
   document.addEventListener("click", event => {

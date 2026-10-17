@@ -1,10 +1,11 @@
 import * as path from "node:path";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { ControlClientError } from "@ruukoto/control/client.ts";
 import { PendingRequestStore } from "@ruukoto/control/pending-requests.ts";
 import { CodeController, serializeFailure } from "./controller.ts";
 import { adoptEnvironment, codeTargetConfig, DesktopError, selectEnvironment } from "./environment.ts";
-import { handleRequest } from "./ipc.ts";
+import { handleRequest, ipcResult } from "./ipc.ts";
+import { BrowserDocuments } from "./browser-documents.ts";
 import { PersonalController } from "./personal-controller.ts";
 import { loadPersonalConfig, savePersonalConfig } from "./personal-config.ts";
 import { DesktopNotifications, type DesktopNotice } from "./notifications.ts";
@@ -32,9 +33,12 @@ export class DesktopHost {
   private readonly subscribed = new Set<DesktopTarget>();
   private readonly lastState: Record<DesktopTarget, DesktopUpdate> = { code: { type: "state", state: "connecting" }, personal: { type: "state", state: "closed", detail: "尚未配置 Personal 连接" } };
   private readonly navigation = new Map<DesktopTarget, Extract<DesktopUpdate, { type: "navigate" }>>();
+  private readonly attachmentConnections = new WeakMap<object, string>();
   private readonly notificationState: DesktopNotifications;
+  private readonly browserDocuments: BrowserDocuments;
 
   constructor(private readonly repository: string, private readonly userData: string, private readonly platform: DesktopPlatform, private readonly prepareEnvironment = (signal: AbortSignal) => selectEnvironment(process.env, undefined, signal)) {
+    this.browserDocuments = new BrowserDocuments([userData]);
     this.notificationState = new DesktopNotifications(platform.focused, platform.notice, platform.badge, (target, taskId) => {
       const source = target === "code" ? this.controller : this.personal;
       if (!source) throw new ControlClientError("connection_unavailable", "连接不可用", "not_sent");
@@ -115,16 +119,26 @@ export class DesktopHost {
     else this.navigation.set(notice.target, update);
   }
   request(target: unknown, op: unknown, params: unknown) {
+    // 本机文档能力属于宿主，不依赖 Code/Personal 的连接或后台文件权限。
+    if (op === "desktop_browser_open" || op === "desktop_browser_release") return ipcResult(async () => {
+      if (target !== "code" && target !== "personal") throw new DesktopError("target_unavailable", "此连接目标尚未启用。");
+      if (!params || typeof params !== "object" || Array.isArray(params) || Object.keys(params).length !== 1) throw new DesktopError("invalid_params", "本地预览参数无效，请重新打开文档。");
+      if (this.closing) throw new DesktopError("browser_document_closed", "本地预览已关闭，请重新打开应用。");
+      if (op === "desktop_browser_open" && "url" in params) return this.browserDocuments.open(params.url);
+      if (op === "desktop_browser_release" && "id" in params) return this.browserDocuments.release(params.id);
+      throw new DesktopError("invalid_params", "本地预览参数无效，请重新打开文档。");
+    });
     return handleRequest(target, op, params, () => target === "personal" ? this.reconnectPersonal() : this.reconnect(), (op, params) => {
       if (target === "personal") {
         if (!this.personal) throw new ControlClientError("connection_unavailable", "连接不可用：请求未发送", "not_sent");
-        return this.personal.request(op, params);
+        return this.personal.dispatch(op, params);
       }
       if (!this.controller) throw new ControlClientError("connection_unavailable", "连接不可用：请求未发送", "not_sent");
       return this.controller.dispatch(op, params);
     }, (op, params) => {
-      if (!this.controller?.submissions) throw new DesktopError("connection_unavailable", "请等待连接恢复后再处理原输入。");
-      return this.controller.submissions.local(op, params);
+      const source = target === "personal" ? this.personal : this.controller;
+      if (!source?.submissions) throw new DesktopError("connection_unavailable", "请等待连接恢复后再处理原输入。");
+      return source.submissions.local(op, params);
     }, async (op, params) => {
       if (op === "desktop_personal_config_read") return loadPersonalConfig(this.userData);
       const config = savePersonalConfig(this.userData, params);
@@ -132,20 +146,32 @@ export class DesktopHost {
       return config;
     });
   }
-  attachmentInstance(): string {
-    const instance = this.controller?.status.state === "online" ? this.controller.instanceId() : null;
-    if (!instance) throw new DesktopError("connection_unavailable", "请等待连接恢复后附加文件。");
-    return instance;
+  private attachmentSource(target: unknown) {
+    if (target !== "code" && target !== "personal") throw new DesktopError("target_unavailable", "此连接目标尚未启用。");
+    const source = target === "personal" ? this.personal : this.controller;
+    if (!source || source.status.state !== "online" || !source.instanceId() || !source.connectionIdentity()) throw new DesktopError("connection_unavailable", "请等待连接恢复后附加文件。");
+    return source;
   }
-  pickAttachments(sessionId: unknown, pick: () => Promise<string[]>, expectedInstance?: string) {
-    const source = this.controller;
-    if (!source || source.status.state !== "online") throw new DesktopError("connection_unavailable", "请等待连接恢复后附加文件。");
+  attachmentInstance(target: unknown = "code"): string {
+    const source = this.attachmentSource(target);
+    const connection = source.connectionIdentity()!;
+    let id = this.attachmentConnections.get(connection);
+    if (!id) { id = randomUUID(); this.attachmentConnections.set(connection, id); }
+    return `${id}:${source.instanceId()}`;
+  }
+  pickAttachments(sessionId: unknown, pick: () => Promise<string[]>, expectedSelection?: string, target: unknown = "code") {
+    const source = this.attachmentSource(target);
     if (typeof sessionId !== "string") throw new DesktopError("invalid_params", "请选择会话后附加文件。");
-    if (expectedInstance !== undefined && this.attachmentInstance() !== expectedInstance) throw new DesktopError("attachment_instance_changed", "连接目标已变化，未附加文件；请重新选择。");
+    if (expectedSelection !== undefined && this.attachmentInstance(target) !== expectedSelection) throw new DesktopError("attachment_instance_changed", "连接目标已变化，未附加文件；请重新选择。");
+    const connection = source.connectionIdentity();
+    const current = () => (target === "personal" ? this.personal : this.controller) === source && source.status.state === "online" && source.connectionIdentity() === connection;
     return pickAttachments(sessionId, {
-      instanceId: () => this.controller === source && source.status.state === "online" ? source.instanceId() : null,
+      instanceId: () => current() ? source.instanceId() : null,
       pick,
-      upload: params => source.request("put_attachment", params),
+      upload: params => {
+        if (!current()) throw new DesktopError("attachment_instance_changed", "连接目标已变化，未附加文件；请重新选择。");
+        return source.request("put_attachment", params);
+      },
     });
   }
   close(): Promise<void> {
@@ -153,7 +179,7 @@ export class DesktopHost {
     ++this.personalGeneration;
     this.controller?.close();
     this.environmentAbort.abort();
-    this.closing = Promise.all([this.personal?.close(), this.personalInitialization, this.initialization, this.environment?.catch(() => { /* 退出取消的读取不再用于连接，连接期间的失败由消费方报告。 */ })]).then(() => {});
+    this.closing = Promise.all([this.browserDocuments.close(), this.personal?.close(), this.personalInitialization, this.initialization, this.environment?.catch(() => { /* 退出取消的读取不再用于连接，连接期间的失败由消费方报告。 */ })]).then(() => {});
     return this.closing;
   }
 }

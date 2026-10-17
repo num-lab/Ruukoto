@@ -1,0 +1,4 @@
+sandbox_extension_issue_file_to_process failed for /tmp/Ruukoto-QA-v4.app: 1 (Operation not permitted)
+2026-10-17 16:24:43.083 Ruukoto MyGo[71056:9125826] TSM AdjustCapsLockLEDForKeyTransitionHandling - _ISSetPhysicalKeyboardCapsLockLED Inhibit
+2026-10-17 16:24:43.584 Ruukoto MyGo[71056:9183581] NSSpellServer dataFromGeneratingCandidatesForSelectedRange timed out, index is 0
+2026-10-17 16:24:44.098 Ruukoto MyGo[71056:9183581] NSSpellServer dataFromGeneratingCandidatesForSelectedRange timed out, index is 0

@@ -503,7 +503,7 @@ export function createDemoClient(onNotice: (text: string) => void, intervalMs = 
   let timer: NodeJS.Timeout | null = null;
 
   const snapshot = (): ConnectResult["snapshot"] => ({
-    product: "ruukoto-code",
+    product: "ruukoto-code", mainSessionId: null,
     projects: [PROJECT],
     sessions: [SESSION],
     tasks,

@@ -9,7 +9,7 @@ const bridge: DesktopBridge = {
     return () => { ipcRenderer.removeListener("desktop:update", receive); };
   },
   request: (target, op, params) => ipcRenderer.invoke("desktop:request", target, op, params),
-  pickAttachments: sessionId => ipcRenderer.invoke("desktop:pick-attachments", sessionId),
+  pickAttachments: (sessionId, target = "code") => ipcRenderer.invoke("desktop:pick-attachments", sessionId, target),
   pickFolder: () => ipcRenderer.invoke("desktop:pick-folder"),
   reveal: path => ipcRenderer.invoke("desktop:reveal", path),
 };

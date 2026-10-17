@@ -7,12 +7,16 @@ import { spawnSync } from "node:child_process";
 import { once } from "node:events";
 import { CodeController } from "../apps/desktop/src/main/controller.ts";
 import { CONTROL_PROTOCOL_VERSION } from "@ruukoto/control/protocol.ts";
+import type { ConnectionConfig } from "@ruukoto/control/connection.ts";
+import { ControlClientError } from "@ruukoto/control/client.ts";
+import type { OpResult } from "@ruukoto/control/ops.ts";
 import { PersonalController } from "../apps/desktop/src/main/personal-controller.ts";
-import { loadPersonalConfig, savePersonalConfig, validatePersonalConfig } from "../apps/desktop/src/main/personal-config.ts";
+import { loadPersonalConfig, personalPendingDir, savePersonalConfig, validatePersonalConfig } from "../apps/desktop/src/main/personal-config.ts";
 import { tokenCommand, tokenArgs, forwardArgs, tokenFailure, SshProcess } from "../apps/desktop/src/main/personal-ssh.ts";
-import { handleRequest } from "../apps/desktop/src/main/ipc.ts";
-import type { DesktopUpdate } from "../apps/desktop/src/shared/bridge.ts";
-import { fakeSnapshot } from "./helpers/fake-control.ts";
+import { handleRequest, PERSONAL_OPS } from "../apps/desktop/src/main/ipc.ts";
+import type { DesktopSubmitResult, DesktopUpdate } from "../apps/desktop/src/shared/bridge.ts";
+import { fakeControl, fakeSnapshot } from "./helpers/fake-control.ts";
+import { ViewState } from "@ruukoto/view/state.ts";
 import { waitFor, startTestRuntime } from "./helpers/testkit.ts";
 import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
 import { product as codeProduct } from "../apps/ruukoto-code/src/product.ts";
@@ -78,7 +82,7 @@ test("两条 SSH 命令显式覆盖复用、后台化与远端命令配置", () 
 });
 
 interface Scenario { token: string; readCode?: number; stderr?: string; hang?: boolean; ignoreTerm?: boolean; forwardCode?: number; product?: "ruukoto" | "ruukoto-code"; unauthorized?: boolean; version?: number }
-async function harness(initial: Partial<Scenario> = {}, observe?: (controller: PersonalController, update: DesktopUpdate) => void) {
+async function harness(initial: Partial<Scenario> = {}, observe?: (controller: PersonalController, update: DesktopUpdate) => void, clientFactory?: ConnectionConfig["clientFactory"]) {
   const dir = temp(), userData = path.join(dir, "app"), scenarioFile = path.join(dir, "scenario.json"), log = path.join(dir, "children.jsonl");
   let scenario: Scenario = { token: "secret-first-token", ...initial };
   const write = (patch: Partial<Scenario>) => { scenario = { ...scenario, ...patch }; fs.writeFileSync(scenarioFile, JSON.stringify(scenario)); };
@@ -123,7 +127,7 @@ if (read) {
   const remote = path.join(dir, "remote.sock"); server.listen(remote); await once(server, "listening");
   const updates: DesktopUpdate[] = [];
   const env = { ...process.env, SCENARIO: scenarioFile, LOG: log, REMOTE: remote };
-  const controller = new PersonalController(config, userData, update => { updates.push(update); observe?.(controller, update); }, env, { ssh: executable });
+  const controller = new PersonalController(config, userData, update => { updates.push(update); observe?.(controller, update); }, env, { ssh: executable, clientFactory });
   const children = (): { pid: number; read: boolean; locale: string; started: number }[] => fs.existsSync(log) ? fs.readFileSync(log, "utf8").trim().split("\n").map(line => JSON.parse(line)) : [];
   return { dir, userData, executable, env, controller, updates, authTokens, write, children, drop: () => { for (const socket of sockets) socket.destroy(); }, async close() {
     await controller.close(); for (const socket of sockets) socket.destroy(); await new Promise<void>(resolve => server.close(() => resolve()));
@@ -171,7 +175,7 @@ for (const fault of ["Timeout, server host not responding.", "Connection to host
       const count = h.children().length; await sleep(600); assert.equal(h.children().length, count);
       assert.equal(fs.existsSync(h.controller.socketPath), false);
       assert.ok(!JSON.stringify(h.updates).includes("secret-first-token"));
-      assert.deepEqual(fs.readdirSync(h.userData), ["ssh"]);
+      assert.deepEqual(fs.readdirSync(h.userData), ["pending", "ssh"]);
     } finally { await h.close(); }
   });
 }
@@ -272,7 +276,16 @@ test("Personal 配置经现有 request 桥接，配置与 Code 操作不串目�
 for (const product of [personalProduct, codeProduct]) {
   test(`真实控制面握手产品来自 Runtime：${product.runtime.type}`, async () => {
     const t = await startTestRuntime("product-snapshot", async () => ({ kind: "text", text: "ok" }), { config: { product: product.runtime } });
-    try { assert.equal((await t.client.handshake()).snapshot.product, t.runtime.productType); }
+    try {
+      const snapshot = await t.client.handshake();
+      assert.equal(snapshot.snapshot.product, t.runtime.productType);
+      assert.equal(snapshot.snapshot.mainSessionId, t.runtime.store.getAgentRole("main")?.sessionId ?? null);
+      assert.ok(snapshot.snapshot.mainSessionId === null || snapshot.snapshot.sessions.some(session => session.id === snapshot.snapshot.mainSessionId));
+      const view = new ViewState(); view.applySnapshot(snapshot, false);
+      assert.equal(view.mainSessionId, snapshot.snapshot.mainSessionId);
+      view.applySnapshot({ ...snapshot, snapshot: { ...snapshot.snapshot, instanceId: "another-instance", mainSessionId: null } }, true);
+      assert.equal(view.mainSessionId, null);
+    }
     finally { await t.shutdown(); }
   });
 }
@@ -321,16 +334,75 @@ test("转发连续失败按指数退避；每次恢复在线后下一轮退避�
 });
 
 
-test("Personal 快照回调同步窗口允许通知 get_task 核实，仍拒绝审批写入", async () => {
+test("Personal 快照回调同步窗口允许通知与会话只读查询，仍拒绝审批写入", async () => {
   const reads: Promise<unknown>[] = [], writes: Promise<unknown>[] = [];
   const h = await harness({}, (controller, update) => {
     if (update.type !== "snapshot") return;
     assert.notEqual(controller.status.state, "online");
     reads.push(controller.request("get_task", { task_id: "observed" }));
+    reads.push(controller.request("read_history", { session_id: "main" }));
+    reads.push(controller.request("list_prompt_requests", { session_id: "main" }));
     writes.push(assert.rejects(controller.request("respond_confirmation", { confirmation_id: "approval", decision: "approve", permission_version: 1 }), { code: "connection_unavailable", outcome: "not_sent" }));
   });
   try {
-    await h.controller.reconnect(); await Promise.all([...reads, ...writes]);
-    assert.equal(reads.length, 1); assert.equal(writes.length, 1);
+    await h.controller.reconnect(); await waitFor("同步回调完成", () => h.controller.status.state === "online"); await Promise.all([...reads, ...writes]);
+    assert.equal(reads.length, 3); assert.equal(writes.length, 1);
   } finally { await h.close(); }
+});
+
+test("Personal 仅开放主会话交互，拒绝工作区、文件、Git 与 Plan", async () => {
+  const calls: string[] = [];
+  for (const op of PERSONAL_OPS) {
+    const result = await handleRequest("personal", op, {}, async () => {}, async name => { calls.push(name); });
+    assert.equal(result.ok, true, op);
+  }
+  assert.deepEqual(calls, [...PERSONAL_OPS]);
+  for (const op of ["open_workspace", "create_session", "list_workspace_files", "read_workspace_file", "read_workspace_git", "auth", "stop"]) {
+    const result = await handleRequest("personal", op, {}, async () => {}, async () => assert.fail("禁止操作不能发送"));
+    assert.equal(result.ok, false, op);
+    if (!result.ok) assert.equal(result.error.code, "op_not_allowed");
+  }
+  for (const [op, params] of [["set_session_mode", { mode: "plan" }], ["submit", { access_mode: "plan" }], ["continue", { access_mode: "plan" }]] as const) {
+    const result = await handleRequest("personal", op, params, async () => {}, async () => assert.fail("Plan 不能发送"));
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.error.code, "invalid_params");
+  }
+  let pending = "";
+  await handleRequest("personal", "desktop_pending_read", { request_id: "original" }, async () => {}, async () => assert.fail(), op => { pending = op; });
+  assert.equal(pending, "desktop_pending_read");
+});
+
+test("Personal 提交丢答跨重建关联原任务，host 与控制目录隔离待核实输入", async () => {
+  const t = await startTestRuntime("pa-desktop-pending", () => ({ kind: "text", text: "已收到" }));
+  let allowFind = false;
+  const transport = fakeControl({ handshake: () => t.client.handshake(), handlers: {
+    submit: async params => { await t.client.request("submit", params); throw new ControlClientError("timeout", "测试丢答", "unknown"); },
+    find_task: async params => {
+      if (!allowFind) throw new ControlClientError("timeout", "测试核实等待", "unknown");
+      return t.client.request<OpResult<"find_task">>("find_task", params);
+    },
+  } });
+  const h = await harness({}, undefined, transport.factory);
+  let replacement: PersonalController | null = null;
+  try {
+    await h.controller.reconnect();
+    const main = t.runtime.snapshot().mainSessionId!;
+    const result = await h.controller.dispatch("submit", { session_id: main, request_id: "same-pa-input", input: "唯一输入", model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" } }) as DesktopSubmitResult;
+    assert.equal(result.kind, "pending_verification");
+    assert.equal(h.controller.submissions.store.list().records.length, 1);
+    await h.controller.close();
+    const isolated = new PersonalController({ ...config, host: "different-host" }, h.userData, () => {}, h.env, { ssh: h.executable, clientFactory: transport.factory });
+    assert.equal(isolated.submissions.store.list().records.length, 0);
+    assert.notEqual(personalPendingDir(h.userData, config), personalPendingDir(h.userData, { ...config, controlDir: "/other/control" }));
+    await isolated.close();
+    allowFind = true;
+    const updates: DesktopUpdate[] = [];
+    replacement = new PersonalController(config, h.userData, update => updates.push(update), h.env, { ssh: h.executable, clientFactory: transport.factory });
+    assert.equal(replacement.submissions.store.list().records.length, 1);
+    await replacement.reconnect();
+    await waitFor("重建后关联原 PA 任务", () => updates.some(update => update.type === "submission" && update.result.kind === "linked"));
+    assert.equal(replacement.submissions.store.list().records.length, 0);
+    assert.equal(t.runtime.store.listTasksBySession(main).filter(task => task.requestId === "same-pa-input").length, 1);
+    assert.equal(transport.transports.flatMap(client => client.requests).filter(request => request.op === "submit").length, 1);
+  } finally { await replacement?.close(); await h.close(); await t.shutdown(); }
 });

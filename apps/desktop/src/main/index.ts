@@ -87,12 +87,12 @@ ipcMain.handle("desktop:request", async (event, target, op, params) => {
   const checked = await ipcResult(() => assertTrusted(event));
   return checked.ok ? host.request(target, op, params) : checked;
 });
-ipcMain.handle("desktop:pick-attachments", (event, sessionId: unknown) => ipcResult(async () => {
+ipcMain.handle("desktop:pick-attachments", (event, sessionId: unknown, target: unknown = "code") => ipcResult(async () => {
   assertTrusted(event);
   return host.pickAttachments(sessionId, async () => {
     const selection = await dialog.showOpenDialog(window!, { properties: ["openFile", "multiSelections"], title: "选择附件" });
     return selection.canceled ? [] : selection.filePaths;
-  });
+  }, undefined, target);
 }));
 ipcMain.handle("desktop:pick-folder", event => ipcResult(async () => {
   assertTrusted(event);

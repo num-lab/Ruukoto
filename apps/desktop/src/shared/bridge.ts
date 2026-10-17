@@ -12,6 +12,8 @@ export type DesktopSubmitResult = SubmitOutcome | { kind: "pending_existing"; re
 export type PendingInput = { record: PendingRequest; result?: ReconcileOutcome };
 export type PendingOp = "desktop_pending_read" | "desktop_pending_clear";
 
+export type BrowserDocumentId = string;
+export interface BrowserDocumentHandle { id: BrowserDocumentId; url: string }
 export type DesktopTarget = "code" | "personal";
 export interface DesktopFailure {
   code: string;
@@ -31,7 +33,7 @@ export type DesktopUpdate =
 export interface DesktopBridge {
   subscribe(target: DesktopTarget, listener: (update: DesktopUpdate) => void): () => void;
   request(target: DesktopTarget, op: string, params: Record<string, unknown>): Promise<DesktopResult<unknown>>;
-  pickAttachments(sessionId: string): Promise<DesktopResult<DesktopAttachment[]>>;
+  pickAttachments(sessionId: string, target?: DesktopTarget): Promise<DesktopResult<DesktopAttachment[]>>;
   pickFolder(): Promise<DesktopResult<string | null>>;
   reveal(path: string): Promise<DesktopResult<void>>;
 }

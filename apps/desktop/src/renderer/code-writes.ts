@@ -28,6 +28,7 @@ export class CodeWrites {
   message: string | null = null;
   readonly busy = new Set<string>();
   readonly unknown = new Map<string, UnknownControl>();
+  private readonly savingSettings = new Set<string>();
   private readonly drafts = new Map<string, Draft>();
   private readonly restored = new Set<string>();
   private readonly notices = new Set<string>();
@@ -53,6 +54,10 @@ export class CodeWrites {
   }
   checking(sessionId: string): boolean {
     return this.submitting.has(this.key(sessionId)) || [...this.held.values()].some(held => !held.settled && held.draft === this.draft(sessionId)) || [...this.entries.values()].some(({ record, result }) => record.instanceId === this.view.instanceId && record.params.session_id === sessionId && result?.kind !== "needs_resubmit" && result?.kind !== "rejected");
+  }
+  settingsPending(sessionId: string): boolean {
+    const unknown = this.unknown.get(sessionId);
+    return this.savingSettings.has(this.key(sessionId)) || unknown?.op === "settings" && unknown.instanceId === this.view.instanceId;
   }
   private hold(record: PendingRequest): HeldInput | undefined {
     if (record.instanceId !== this.view.instanceId || typeof record.params.session_id !== "string" || typeof record.params.input !== "string") return;
@@ -247,6 +252,8 @@ export class CodeWrites {
   private async write<K extends TuiOp>(op: K, params: OpParams<K>, control: UnknownControl): Promise<OpResult<K> | undefined> {
     if (!this.online() || this.busy.has(control.sessionId)) return;
     this.busy.add(control.sessionId);
+    const settingsKey = `${control.instanceId}:${control.sessionId}`;
+    if (control.op === "settings") this.savingSettings.add(settingsKey);
     this.changed();
     const key = control.taskId ?? control.sessionId;
     try {
@@ -279,7 +286,7 @@ export class CodeWrites {
           } catch { this.report("结果未知：状态查询失败，请重新连接后核实。"); }
         }
       } else this.report(`操作未完成：${error instanceof Error ? error.message : "请重试。"}`);
-    } finally { this.busy.delete(control.sessionId); this.changed(); }
+    } finally { this.busy.delete(control.sessionId); this.savingSettings.delete(settingsKey); this.changed(); }
   }
   async setModel(session: Session, selection: ModelSelection): Promise<void> {
     const saved = await this.write("set_session_model", { session_id: session.id, expected_version: session.modelSelectionVersion, model_selection: selection }, { op: "settings", sessionId: session.id, instanceId: this.view.instanceId });
@@ -295,6 +302,7 @@ export class CodeWrites {
     this.stopped();
   }
   async resume(session: Session, confirmed = false): Promise<void> {
+    if (this.settingsPending(session.id)) { this.report("会话设置仍在保存或等待核实，请重新连接确认后台实际设置后再恢复队列。"); return; }
     const decision = queueDecision(this.view, session, confirmed);
     if (decision.kind !== "send") return;
     const revision = this.queueRevision;

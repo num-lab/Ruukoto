@@ -17,9 +17,8 @@ export function BrowserPanel({ navigation, appOrigin, onChange }: { navigation: 
       <Button type="button" variant="ghost" size="icon" className="quiet-icon" aria-label="刷新网页" onClick={() => onChange({ ...navigation, draft: url, revision: navigation.revision + 1, error: false })}><RotateCw /></Button>
       <Input aria-label="网页地址" aria-invalid={navigation.error} aria-describedby={navigation.error ? "browser-address-error" : undefined} inputMode="url" autoComplete="off" spellCheck={false} placeholder="输入网址" value={navigation.draft} onChange={event => onChange({ ...navigation, draft: event.target.value, error: false })} />
     </form>
-    {navigation.error && <p id="browser-address-error" className="browser-error" role="alert">请输入 http 或 https 网址，且不要包含账号密码。</p>}
-    {isDemoEntry(url, appOrigin) ? <div className="embedded-demo-notice"><p>此地址是演示界面本身。</p><p>请在地址栏输入要预览的网页地址。</p></div> : <iframe key={`${navigation.revision}:${url}`} title="网页预览" src={url} sandbox="allow-scripts allow-forms" referrerPolicy="no-referrer" />}
-    <p className="browser-note">部分网站不允许嵌入。</p>
+    {navigation.error && <p id="browser-address-error" className="browser-error" role="alert">地址无效，请检查后重试。</p>}
+    {url.startsWith("file:") ? <div className="file-panel-empty" role="alert">本地文件预览需要桌面宿主。</div> : isDemoEntry(url, appOrigin) ? <div className="embedded-demo-notice"><p>此地址是演示界面本身。</p><p>请在地址栏输入要预览的网页地址。</p></div> : <iframe key={`${navigation.revision}:${url}`} title="网页预览" src={url} sandbox="allow-scripts allow-forms" referrerPolicy="no-referrer" />}
   </section>;
 }
 
@@ -32,7 +31,7 @@ export function WorkspaceFiles({ name, files, expanded, onExpand, onOpen }: { na
   }
   return <section className="workspace-files" aria-label="工作区文件">
     <div className="file-panel-heading"><Folder /><span>{name}</span><small>只读样例</small></div>
-    <nav aria-label={`${name} 文件`} className="file-tree">{files.length ? <ul>{nodes(fileTree(files))}</ul> : <p className="file-panel-empty">暂无文件</p>}</nav>
+    <nav aria-label={`${name} 文件`} className="file-tree"><ul>{nodes(fileTree(files))}</ul></nav>
   </section>;
 }
 

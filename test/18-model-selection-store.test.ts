@@ -20,6 +20,28 @@ function fixture() {
   return { root, db, store, session, cleanup: () => { db.close(); fs.rmSync(root, { recursive: true, force: true }); } };
 }
 
+test("新会话初始模式、模型与 session.created 原子落盘，失败不留下会话", () => {
+  const f = fixture();
+  try {
+    const { store, db, root, session } = f;
+    const input = { projectId: session.projectId, cwd: root, cwdReal: root, cwdDev: 1, cwdIno: 1, piSessionId: "initial", confirmTools: [], defaultAccessMode: "full_access" as const, modelSelection: b, createRequestId: "initial" };
+    const created = store.withTx(() => store.createSession(input));
+    const row = db.prepare("SELECT default_access_mode, default_access_mode_version, model_selection, model_selection_version FROM sessions WHERE id = ?").get(created.id)!;
+    assert.equal(row.default_access_mode, "full_access");
+    assert.equal(row.default_access_mode_version, 0);
+    assert.deepEqual(JSON.parse(String(row.model_selection)), b);
+    assert.equal(row.model_selection_version, 1);
+    const event = store.getEventsAfter(0).find(event => event.body.type === "session.created" && event.body.sessionId === created.id)!;
+    assert.equal(event.body.type, "session.created");
+    if (event.body.type === "session.created") assert.deepEqual(event.body.session, created);
+    const seq = store.getMaxSeq();
+    db.exec("CREATE TRIGGER reject_create_event BEFORE INSERT ON events WHEN json_extract(NEW.body, '$.type') = 'session.created' BEGIN SELECT RAISE(ABORT, 'event failure'); END");
+    assert.throws(() => store.withTx(() => store.createSession({ ...input, piSessionId: "failed", createRequestId: "failed" })), /event failure/);
+    assert.equal(store.findSessionByCreateRequestId("failed"), null);
+    assert.equal(store.getMaxSeq(), seq);
+  } finally { f.cleanup(); }
+});
+
 test("Plan 选择持久化为任务工作方式与 auto-review，默认变更和切换拒绝不改原任务", () => {
   const f = fixture();
   const { store, db, session } = f;

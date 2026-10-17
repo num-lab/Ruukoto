@@ -1,0 +1,3 @@
+
+/* 已加载消息保留真实布局，避免快速滚动时等待屏外内容重新绘制。 */
+.stream-scroll [data-slot="message-scroller-item"], .child-scroll [data-slot="message-scroller-item"] { content-visibility: visible; contain-intrinsic-size: none; }

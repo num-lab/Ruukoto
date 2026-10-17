@@ -391,3 +391,5 @@ sequenceDiagram
 - [向全新个人实例导入资料并交接平台与调度归属](../../.agents/notes/implemented/architecture/2026-10-05-personal-instance-import.md)：解释应用数据文件的文件级迁移、绑定 meta 随迁与凭据合并的边界，以及导入写入的产品归属为什么不随回退移除。
 
 - [普通与工作流的可信来源能力](../../.agents/notes/implemented/architecture/2026-10-15-subagent-source-capabilities.md)。
+
+Store.createSession 可接受宿主核实的初始 defaultAccessMode 与 modelSelection，与会话及 session.created 同事务写入；未提供模式仍为 confirm。创建幂等重放只返回首次成果，不重设当前设置，无数据库 schema 变化。

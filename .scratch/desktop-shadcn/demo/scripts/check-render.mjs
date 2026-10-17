@@ -15,7 +15,41 @@ try {
   assert.deepEqual(sidebarWidthLimits("left", 736, 310), { min: 180, max: 256 });
   assert.deepEqual(sidebarWidthLimits("right", 736, 0), { min: 260, max: 516 });
   assert.deepEqual(sidebarWidthLimits("right", 400, 180), { min: 260, max: 260 });
-  const { App, ContextDetails, submitOnEnter } = await server.ssrLoadModule("/src/app.tsx");
+  const { PersonalConnectionSettings, initialPersonalConnection } = await server.ssrLoadModule("/src/personal-connection-settings.tsx");
+  assert.deepEqual(initialPersonalConnection, { host: "", controlDir: "/var/lib/ruukoto/control" }, "连接设置不预填服务器，目录沿用后台默认值");
+  const connectionForm = renderToStaticMarkup(createElement(PersonalConnectionSettings, { config: initialPersonalConnection, onSave() {} }));
+  for (const [name, valid, invalid] of [
+    ["host", ["pa-server", "pa_server.test", "127.0.0.1"], ["", "-pa", "user@host", "pa server", "pa;cmd"]],
+    ["controlDir", ["/var/lib/ruukoto/control", "/srv/pa-test_1/control", "/"], ["", "relative/control", "/pa:bad", "/pa server"]],
+  ]) {
+    const input = [...connectionForm.matchAll(/<input\b[^>]*>/g)].map(match => match[0]).find(tag => tag.includes(`name="${name}"`));
+    assert.ok(input?.includes('required=""'), `连接字段 ${name} 必填`);
+    const pattern = input.match(/pattern="([^"]+)"/)?.[1];
+    assert.ok(pattern, `连接字段 ${name} 缺少原生校验`);
+    const rule = new RegExp(`^(?:${pattern})$`, "v");
+    for (const value of valid) assert.ok(rule.test(value), `${name} 应允许 ${value}`);
+    for (const value of invalid) assert.ok(!rule.test(value), `${name} 应拒绝 ${value}`);
+  }
+  assert.ok(connectionForm.includes('for="personal-host"') && connectionForm.includes('for="personal-control-dir"'), "连接字段都有可访问标签");
+  assert.ok(connectionForm.includes('aria-describedby="personal-host-help"') && connectionForm.includes('type="submit"'), "帮助文本与保存操作应可访问");
+  assert.ok(connectionForm.includes('role="status"'), "保存反馈在对话框内由读屏播报");
+  const savedForm = renderToStaticMarkup(createElement(PersonalConnectionSettings, { config: { host: "pa-saved", controlDir: "/srv/ruukoto/control" }, onSave() {} }));
+  assert.ok(savedForm.includes('value="pa-saved"') && savedForm.includes('value="/srv/ruukoto/control"'), "重新挂载表单使用已保存配置");
+  const { App, ContextDetails, reorderTab, tabDragOffset, submitOnEnter } = await server.ssrLoadModule("/src/app.tsx");
+  const tabIds = ["a", "b", "c"];
+  assert.deepEqual(reorderTab(tabIds, 0, 2), ["b", "c", "a"], "标签可以向后移动到目标位置");
+  assert.deepEqual(reorderTab(tabIds, 2, 0), ["c", "a", "b"], "标签可以向前移动到目标位置");
+  const previewIds = ["a", "b", "c", "d"];
+  assert.deepEqual(previewIds.map(id => tabDragOffset(previewIds, "a", "c", id)), [2, -1, -1, 0], "向后拖动时中间标签向前避让，末项不动");
+  assert.deepEqual(previewIds.map(id => tabDragOffset(previewIds, "d", "b", id)), [0, 1, 1, -2], "向前拖动时中间标签向后避让，首项不动");
+  for (const [source, target] of [["a", "a"], ["missing", "c"], ["a", "missing"]]) assert.deepEqual(previewIds.map(id => tabDragOffset(previewIds, source, target, id)), [0, 0, 0, 0], "取消或无效来源不产生避让");
+  assert.equal(tabDragOffset(previewIds, "a", "c", "missing"), 0, "缺失标签不参与避让");
+  assert.deepEqual(previewIds, ["a", "b", "c", "d"], "拖动预览不提交标签顺序");
+  assert.deepEqual(tabIds, ["a", "b", "c"], "排序不修改原数组");
+  for (const [from, to] of [[1, 1], [-1, 0], [0, -1], [3, 0], [0, 3]]) assert.equal(reorderTab(tabIds, from, to), tabIds, "同位置或缺失标签不改变顺序");
+  const tabObjects = [{ id: "a", navigation: { address: "about:blank" } }, { id: "b" }];
+  const movedObjects = reorderTab(tabObjects, 0, 1);
+  assert.equal(movedObjects[1], tabObjects[0], "右栏排序保留页面对象和导航状态");
   for (const [overrides, canSend, expectedPrevented, expectedSent] of [
     [{}, true, true, 1],
     [{ shiftKey: true }, true, false, 0],
@@ -31,7 +65,7 @@ try {
     assert.equal(prevented, expectedPrevented, "Enter 默认换行与输入法分支");
     assert.equal(sent, expectedSent, "只有可发送的单次 Enter 才提交");
   }
-  const { activitySummary, completeSubmission, initialWorkspaces, scenarios } = await server.ssrLoadModule("/src/demo-data.ts");
+  const { activitySummary, completeSubmission, executionPreview, initialPersonalSession, initialWorkspaces, PERSONAL_SESSION_ID, scenarios } = await server.ssrLoadModule("/src/demo-data.ts");
   assert.equal(activitySummary([
     { action: "Edit", file: "a.ts" },
     { action: "Edited", file: "a.ts" },
@@ -55,6 +89,15 @@ try {
   ]) {
     assert.equal(activitySummary(actions.map(action => ({ action, file: "sample" }))), expected);
   }
+  assert.equal(initialPersonalSession.id, PERSONAL_SESSION_ID);
+  assert.ok(!initialWorkspaces.some(workspace => workspace.sessions.some(session => session.id === PERSONAL_SESSION_ID)), "PA 主会话独立于工作区，不参与新建或筛选");
+  assert.deepEqual(initialPersonalSession.steps, [], "PA 不编造对话样例");
+  assert.deepEqual(initialPersonalSession.diffs, []);
+  for (const phase of ["thinking", "working"]) {
+    const activity = executionPreview(initialPersonalSession, phase).at(-1);
+    assert.equal(activity.phase, phase);
+    assert.deepEqual(activity.items, [], "PA 执行预览不注入 Code 的文件和命令样例");
+  }
   const originalSession = initialWorkspaces[1].sessions[0];
   assert.equal(originalSession.steps[0].type, "user");
   assert.ok(initialWorkspaces.flatMap(workspace => workspace.sessions).every(session => [...session.steps, ...session.subagents.flatMap(agent => agent.steps)].every(step => step.type !== "thought")), "主／子消息流均不再装配思考数据");
@@ -75,11 +118,20 @@ try {
   assert.equal(completeSubmission(completed, pending), completed, "重复核实不得重复提交");
   assert.equal(completeSubmission(waiting, { ...pending }), waiting, "过期核实不得改变当前输入");
   assert.equal(completeSubmission(originalSession, pending), originalSession, "其他会话不得被核实结果影响");
+  const personalCompleted = completeSubmission({ ...initialPersonalSession, pendingSubmission: pending }, pending);
+  assert.equal(personalCompleted.id, PERSONAL_SESSION_ID, "发送仍归属同一 PA 主会话");
+  assert.equal(personalCompleted.title, "Ruukoto", "发送不会重命名固定入口");
+  assert.equal(personalCompleted.steps.at(-2).text, completed.steps.at(-2).text);
+  assert.equal(personalCompleted.steps.at(-1).text, "这是前端模拟回复，没有调用真实模型。", "PA 模拟回复不介绍 Code 的差异或审批");
+  assert.deepEqual(initialPersonalSession.steps, [], "发送不得修改初始主会话");
   const queued = { ...pending, queued: true };
   assert.match(completeSubmission({ ...waiting, pendingSubmission: queued }, queued).steps.at(-1).text, /输入已排队/);
   assert.ok(!scenarios.some(item => item.value === "unknown"), "移除未知操作预览入口");
   Object.defineProperty(globalThis, "window", { value: { innerWidth: 1160 }, configurable: true });
   const html = renderToStaticMarkup(createElement(App));
+  const personalEntry = html.match(/<button\b[^>]*class="[^"]*personal-row[^>]*>Ruukoto<\/button>/)?.[0];
+  assert.ok(personalEntry?.includes('type="button"'), "工作区上方提供独立 Ruukoto 按钮");
+  assert.ok(html.indexOf(personalEntry) < html.indexOf('class="projects-heading"'), "Ruukoto 行位于工作区标题上方");
   assert.match(html, /id="workspace-filter"[^>]*data-open="false"[^>]*aria-hidden="true"[^>]*inert=""/, "收起的筛选区域仍挂载且不可交互");
   assert.match(html, /aria-controls="workspace-filter" aria-expanded="false"/, "筛选按钮暴露开合状态");
   const composerRight = html.slice(html.indexOf('class="composer-right"'), html.indexOf("</form>"));
@@ -163,8 +215,19 @@ try {
   assert.ok(!html.includes('aria-label="新建会话"'), "顶部新建会话按钮应移除");
   assert.ok(html.includes('aria-label="附加文件"'), "输入区应有附件入口");
   assert.ok(html.indexOf('class="surface-sidebar canvas-header"') < html.indexOf("<main"), "会话标签区应独立于正文并位于右栏上方");
+  assert.equal((html.match(/class="[^"]*sidebar-toggle\b/g) ?? []).length, 1, "侧栏始终只有一个折叠按钮");
+  assert.ok(html.indexOf('sidebar-toggle') < html.indexOf('<aside id="left-sidebar"'), "折叠按钮放在稳定层，不随侧栏隐藏");
+  assert.match(html, /aria-controls="left-sidebar" aria-expanded="true"/, "同一按钮持有展开状态");
   const header = html.match(/<header\b[\s\S]*?<\/header>/)?.[0];
   const inspector = html.match(/<aside id="right-sidebar"[\s\S]*?<\/aside>/)?.[0];
+  for (const [name, count] of [["已打开的会话", 3], ["右侧标签", 2]]) {
+    const list = [...header.matchAll(/<div\b[^>]*role="tablist"[^>]*>/g)].map(match => match[0]).find(tag => tag.includes(`aria-label="${name}"`));
+    assert.match(list?.match(/style="([^"]*)"/)?.[1] ?? "", new RegExp(`(?:^|;)--tab-count:${count}(?:;|$)`), `${name} 按自身数量计算动态等宽`);
+  }
+  for (const className of ["center-tab", "right-tab"]) {
+    const triggers = [...header.matchAll(/<button\b[^>]*>/g)].map(match => match[0]).filter(button => (button.match(/class="([^"]*)"/)?.[1].split(/\s+/) ?? []).includes(className));
+    assert.ok(triggers.length > 0 && triggers.every(button => button.includes('draggable="true"') && button.includes('aria-keyshortcuts="Alt+Shift+ArrowLeft Alt+Shift+ArrowRight"')), `${className} 均接入拖动和键盘排序`);
+  }
   assert.ok(header?.includes('aria-label="右侧标签"') && header.includes('aria-label="右栏新标签"'), "右侧 tab 与加号应移到窗口顶部");
   assert.ok(inspector && !inspector.includes('aria-label="右侧标签"'), "检查器内容不应保留第二排 tab");
   window.innerWidth = 837;

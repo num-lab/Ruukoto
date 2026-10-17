@@ -1,0 +1,98 @@
+Browser tab: 4, Title: "Ruukoto · Desktop UI Demo", URL: "http://127.0.0.1:5173/".
+1 AXWebArea Ruukoto · Desktop UI Demo, URL: 127.0.0.1:5173/
+	2 container
+		3 container Description: 工作区导航, ID: left-sidebar
+			4 button 收起侧栏
+				5 image
+			6 button Ruukoto
+			7 text 工作区
+			8 button (collapsed) Description: 筛选工作区与会话, Secondary Actions: Expand
+				9 image
+			10 button 添加工作区
+				11 image
+			12 container
+				13 button (expanded) nexus-runtime, Secondary Actions: Collapse
+					14 image
+					15 image
+					16 text nexus-runtime
+				17 button 在 nexus-runtime 新建会话
+					18 image
+				19 container radix-_r_0_
+					20 button MCP stdio connection pool & backoff
+					21 button Zero-copy ring buffer for JSON-RPC
+			22 container
+				23 button (expanded) fumotravel-web, Secondary Actions: Collapse
+					24 image
+					25 image
+					26 text fumotravel-web
+				27 button 在 fumotravel-web 新建会话
+					28 image
+				29 container radix-_r_1_
+					30 button Offline IndexedDB sync for Shinkansen pass
+					31 button Tokyo JST departure time hydration fix
+			32 container
+				33 button (collapsed) eval-harness, Secondary Actions: Expand
+					34 image
+					35 image
+					36 text eval-harness
+				37 button 在 eval-harness 新建会话
+					38 image
+			39 container
+				40 button (collapsed) macos-menubar-kit, Secondary Actions: Expand
+					41 image
+					42 image
+					43 text macos-menubar-kit
+				44 button 在 macos-menubar-kit 新建会话
+					45 image
+			46 pop up button (collapsed) Description: 设置, Secondary Actions: Expand
+				47 image
+			48 splitter Description: 左侧栏宽度, Value: 200
+		49 tab group 已打开的会话
+			50 container
+				51 tab (selectable, settable, boolean) Offline IndexedDB sync for Shinkansen pass, Value: 0, ID: radix-_r_7_-trigger-sess-ft-1
+				52 button 关闭Offline IndexedDB sync for Shinkansen pass
+					53 image
+			54 container
+				55 tab (selectable, settable, boolean) MCP stdio connection pool & backoff, Value: 0, ID: radix-_r_7_-trigger-sess-nx-1
+				56 button 关闭MCP stdio connection pool & backoff
+					57 image
+			58 container
+				59 tab (selectable, settable, boolean) Tokyo JST departure time hydration fix, Value: 0, ID: radix-_r_7_-trigger-sess-ft-2
+				60 button 关闭Tokyo JST departure time hydration fix
+					61 image
+			62 container
+				63 tab (selected, settable, boolean) Ruukoto, Value: 1, ID: radix-_r_7_-trigger-personal:main
+				64 button 关闭Ruukoto
+					65 image
+		66 container
+			67 tab group 右侧标签
+			68 button 右栏新标签
+				69 image
+			70 button 收起右栏
+				71 image
+		72 container
+			73 container 会话消息
+				74 container
+					75 heading 开始一个新的会话, Value: 1
+						76 text 开始一个新的会话
+					77 text 在下方描述你想完成的事。
+			78 text entry area (settable) Description: 输入消息, Value: PA 设置隔离验收草稿
+			79 button 附加文件
+				80 image
+			81 combo box (collapsed) Description: 会话默认模式, Value: Auto review, Secondary Actions: Expand
+				82 text Auto review
+			83 button 上下文使用量
+			84 pop up button (collapsed) Description: 会话模型, ID: radix-_r_g_, Secondary Actions: Expand
+				85 image
+			86 button 发送消息
+				87 image
+		88 container Description: 检查器, ID: right-sidebar
+			89 text 打开
+			90 button 浏览器
+				91 image
+				92 text 浏览器
+			93 text SubAgent
+			94 text 暂无 SubAgent
+			95 splitter Description: 右侧栏宽度, Value: 310
+
+The focused UI element is 46 pop up button (collapsed) Description: 设置, Secondary Actions: Expand

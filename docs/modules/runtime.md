@@ -347,9 +347,13 @@ sequenceDiagram
 
 [工作流步骤](workflows.md)默认由真实 Driver 执行，发起任务结束后沿运行授权继续。修改与验证使用独立副本，冻结补丁与独立验证记录共同决定汇入资格；普通继续、复用和 `subagent_integrate` 不能接管这些步骤。准备、冻结、汇总及组合检查使用运行派生的宿主任务，整段持有目录占用，任何所属任务停止未核实或效果未知均阻止重试。
 
-普通开发会话的桌面附件经 `put_attachment` 分块暂存，`submit`／`continue` 核对稳定引用后与任务同事务登记产物和 `task.attachments` 事件。普通文件通过 `read_artifact` 读取，图片复用视觉输入；纯附件允许空文本，未核实的提交仍沿原请求键恢复。暂存快照不自动清理，磁盘使用会累积。
+普通开发会话与 main 主会话的桌面附件经 `put_attachment` 分块暂存，`submit`／`continue` 核对稳定引用后与任务同事务登记产物和 `task.attachments` 事件。普通文件通过 `read_artifact` 读取，图片复用视觉输入；纯附件允许空文本，未核实的提交仍沿原请求键恢复。暂存快照不自动清理，磁盘使用会累积。
+
+`readWorkspaceGit` 按登记根身份只读分页查询真实提交与refs；每页200条，没有累计上限，每次总5秒、每命令512 KiB及结果768 KiB预算，非仓库和空仓库分开。游标绑定工作区、Git/common身份、HEAD、全部refs、shallow与info/grafts，读取前后核实修订，变化拒绝并要求刷新。原保护根、元数据链接、alternates和配置include限制继续适用，失败返回类型化错误。拥有者附件入口允许 dev 和 main，子会话仍拒绝；main 主身份随快照显式提供。
 
 ## 设计依据
+
+- [Git历史分页](../../.agents/notes/implemented/feature/2026-10-17-desktop-git-history-pages.md)
 
 - [共享角色与工作流接口版本](../../.agents/notes/implemented/architecture/2026-10-15-workflow-role-interface.md)
 
@@ -395,3 +399,5 @@ sequenceDiagram
 - [向全新个人实例导入资料并交接平台与调度归属](../../.agents/notes/implemented/architecture/2026-10-05-personal-instance-import.md)：个人方向的镜像范围、全新目标约束、易变资料 manifest、凭据动作与执行归属交接。
 
 - [普通与工作流的可信来源能力](../../.agents/notes/implemented/architecture/2026-10-15-subagent-source-capabilities.md)。
+
+桌面创建会话可在 create_session／open_workspace 同时提供初始模式与模型选择（含 thinkingLevel）；显式模型先核实，初始字段与 session.created 同事务落盘。未提供时沿既有后台默认；按原创建键核实已有成果先返回，不受后续模型目录变更影响，也不覆盖用户后来改选的设置。

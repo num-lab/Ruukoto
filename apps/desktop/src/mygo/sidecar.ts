@@ -32,11 +32,11 @@ async function receive(line: string): Promise<void> {
     switch (method) {
       case "subscribe": return host.subscribe(args[0]);
       case "request": return host.request(args[0], args[1], args[2]);
-      case "attachment_instance": return host.attachmentInstance();
+      case "attachment_instance": return host.attachmentInstance(args[0] ?? "code");
       case "attachments": {
         const files: unknown = args[1];
         if (!Array.isArray(files) || files.some(file => typeof file !== "string") || typeof args[2] !== "string") throw new DesktopError("invalid_params", "所选附件无效；请重新选择。");
-        return host.pickAttachments(args[0], async () => files as string[], args[2]);
+        return host.pickAttachments(args[0], async () => files as string[], args[2], args[3] ?? "code");
       }
       case "focus": focused = args[0] === true; return;
       case "navigate": return host.navigate(args[0] as DesktopNotice);

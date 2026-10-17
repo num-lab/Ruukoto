@@ -30,3 +30,9 @@ Write 在原 worker 写入回调中复用既有写前读取与 generateUnifiedPa
 ## 后果
 
 工程与隔离 Electron 证据由工单持有；真实模型与 SSH 无前提不记通过。高亮增加一个限定 grammar 的构建依赖；参数与结果仅在需要详情时读取。历史缺失、写前读取失败与超帧 patch 均不能恢复 diff，界面明确报告；后台暂缓能力继续沿原清单。
+
+后续局部调整见[后续决定1](../bug-fix/2026-10-17-desktop-transcript-rendering.md)；对应生命周期与默认设置以新决定为准，其余迁移契约保留。
+
+## 后续决定
+
+[执行阶段连续反馈与reasoning批次](../bug-fix/2026-10-17-desktop-execution-activity.md)取代本篇相关展示决定；工具详情、安全身份、错误与续页生命周期仍沿用本篇。

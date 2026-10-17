@@ -75,6 +75,9 @@
  * v24：等待对象、到期时间、阶段与中断原因；可信普通子任务补报沿用内部输入用途。
  * Note: 见 .agents/notes/implemented/architecture/2026-10-14-agent-wait-and-report-ownership.md
  *
+ * v29：快照显式提供 main 主会话身份，新增拥有者工作区只读 Git 历史。
+ * v30：创建会话与打开工作区可原子指定初始模式及模型选择。
+ * v31：工作区 Git 历史以仓库修订绑定的游标分页，无累计提交数上限。
  * v28：拥有者工作区文件树与只读预览；目录范围由登记身份决定，不接受客户端绝对路径。
  * v27：拥有者附件分块暂存、提交引用及工具结果按字段分页；旧后台不得静默丢弃附件。
  * v26：握手快照携带产品身份，桌面客户端在安装快照前核对连接目标。
@@ -114,6 +117,7 @@ export interface ConnectSnapshot {
   execution: { backend: string; note: string };
   /** 后台启动默认模型；会话选择和任务实际配置分别随会话、任务返回。 */
   defaultModel: { provider: string; id: string; name: string; thinkingLevel: string };
+  mainSessionId: string | null;
   /** 逻辑角色绑定的会话（工作区入口不以其作为自动归属依据；旧后台缺省）。 */
   roleSessionIds?: string[];
   /** SubAgent 的内部工作会话（普通工作区列表排除；旧后台缺省）。 */

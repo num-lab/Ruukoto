@@ -7,10 +7,13 @@ import type { DiffTool } from "../apps/desktop/src/renderer/diff.ts";
 
 const read = (path: string) => fs.readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 test("正式 GUI 复用拥有者定稿样式、官方组件与侧栏交互，原生适配只追加", () => {
-  const demo = ".scratch/desktop-shadcn/approved-demo-v3/src";
+  const demo = ".scratch/desktop-shadcn/approved-demo-v4/src";
   const gui = "apps/desktop/src/renderer";
   const styles = read(`${gui}/style.css`);
-  assert.ok(styles.startsWith(read(`${demo}/style.css`)));
+  assert.ok(styles.startsWith(read(`${demo}/style.css`) + read(".scratch/desktop-shadcn/approved-demo-v4-glass.css")));
+  assert.equal(read(".scratch/desktop-shadcn/demo/src/style.css"), read(`${demo}/style.css`) + read(".scratch/desktop-shadcn/approved-demo-v4-glass.css") + read(".scratch/desktop-shadcn/approved-demo-v4-rendering.css") + read(".scratch/desktop-shadcn/approved-demo-v4-polish.css") + read(".scratch/desktop-shadcn/approved-demo-v4-files-sidebar.css") + read(".scratch/desktop-shadcn/approved-demo-v4-browser-activity.css"));
+  assert.ok(styles.includes(read(".scratch/desktop-shadcn/approved-demo-v4-rendering.css")));
+  assert.ok(styles.endsWith(read(".scratch/desktop-shadcn/approved-demo-v4-browser-activity.css")));
   assert.match(styles, /\.command-code code\s*\{\s*white-space:\s*pre;/, "真实多行命令必须保留换行与缩进");
   for (const file of ["reference.css", "theme.css", "sidebar-resizer.tsx", "lib/utils.ts", "source-highlighting.ts"]) assert.equal(read(`${gui}/${file}`), read(`${demo}/${file}`), file);
   const primitives = fs.readdirSync(new URL(`../${demo}/components/ui/`, import.meta.url)).sort();

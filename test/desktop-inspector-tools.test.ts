@@ -24,10 +24,10 @@ function gate() {
   let release!: () => void;
   return { wait: new Promise<void>(resolve => { release = resolve; }), release: () => release() };
 }
-function harness(handlers: FakeHandlers = {}) {
+function harness(handlers: FakeHandlers = {}, target: "code" | "personal" = "code") {
   const transport = new FakeTransport({ handlers: { work_list: () => ({ works: [] }), list_workspace_files: params => directory(params.workspace_id, params.path), read_workspace_file: params => file(params.workspace_id, params.path), ...handlers } });
   const bridge: Pick<DesktopBridge, "request"> = { request: (_target, op, params) => ipcResult(() => transport.request(op as DesktopOp, params as OpParams<DesktopOp>)) };
-  const model = new CodeState(bridge, () => {});
+  const model = new CodeState(bridge, () => {}, target);
   const initial = { snapshot: fakeSnapshot({ projects: [workspace("w1"), workspace("w2")], sessions: [session("a"), session("b"), session("c", "w2")] }), replay: [], seq: 0 };
   model.view.applySnapshot(initial, false);
   model.status = { type: "state", state: "online" };
@@ -39,8 +39,9 @@ function harness(handlers: FakeHandlers = {}) {
   return { model, inspector: model.inspector, view: model.view, transport, snapshot };
 }
 
-test("内置浏览器仅接受无凭据 HTTP(S)，域名和本机简写归一化", () => {
-  for (const address of ["", " ", "javascript:alert(1)", "data:text/html,<script>x</script>", "file:///tmp/file", "blob:https://example.com/id", "mailto:a@example.com", "http://user:password@example.com", "https://user@example.com", "http://", "http://[bad]"]) assert.equal(browserAddress(address), null, address);
+test("内置浏览器接受无凭据网页和本机文件地址，域名和本机简写归一化", () => {
+  for (const address of ["", " ", "javascript:alert(1)", "data:text/html,<script>x</script>", "file://remote/tmp/file", "blob:https://example.com/id", "mailto:a@example.com", "http://user:password@example.com", "https://user@example.com", "http://", "http://[bad]"]) assert.equal(browserAddress(address), null, address);
+  assert.equal(browserAddress("file:///tmp/file"), "file:///tmp/file");
   assert.equal(browserAddress(" example.com/path "), "https://example.com/path");
   assert.equal(browserAddress("localhost:5173/page"), "http://localhost:5173/page");
   assert.equal(browserAddress("127.0.0.1:8000/"), "http://127.0.0.1:8000/");
@@ -197,7 +198,7 @@ let WorkspaceFiles: ComponentType<{ model: CodeState; workspaceId: string }>;
 let BrowserPanel: ComponentType<{ navigation: BrowserNavigation; onChange: (navigation: BrowserNavigation) => void }>;
 let Conversation: ComponentType<{ model: CodeState; sessionId: string }>;
 before(async () => {
-  server = await createServer({ configFile: false, root: fileURLToPath(new URL("../apps/desktop/src/renderer/", import.meta.url)), plugins: [react()], define: { "window.location.origin": JSON.stringify("http://127.0.0.1:9999"), "window.location.protocol": JSON.stringify("http:") }, server: { middlewareMode: true, hmr: false }, appType: "custom" });
+  server = await createServer({ configFile: false, root: fileURLToPath(new URL("../apps/desktop/src/renderer/", import.meta.url)), plugins: [react()], define: { "window.location.origin": JSON.stringify("http://127.0.0.1:9999"), "window.location.protocol": JSON.stringify("http:") }, server: { middlewareMode: true, hmr: false, ws: false }, appType: "custom" });
   ({ FilePreview, WorkspaceFiles, BrowserPanel } = await server.ssrLoadModule("/inspector-panels.tsx"));
   ({ Conversation } = await server.ssrLoadModule("/conversation.tsx"));
 });
@@ -208,6 +209,10 @@ test("浏览器实际组件保持空初始页、sandbox、无 referrer，非法�
   assert.match(blank, /src="about:blank"/);
   assert.match(blank, /sandbox="allow-scripts allow-forms"/);
   assert.match(blank, /referrerPolicy="no-referrer"/);
+  assert.doesNotMatch(blank, /部分网站不允许嵌入|请输入 http/);
+  const local = renderToStaticMarkup(createElement(BrowserPanel, { navigation: browserNavigation("file:///tmp/document.html"), onChange() {} }));
+  assert.match(local, /正在打开本地文档/);
+  assert.doesNotMatch(local, /<iframe/);
   assert.doesNotMatch(blank, /allow-same-origin|allow-top-navigation|allow-popups|allow-downloads|车票|浏览成功/);
   const invalid = renderToStaticMarkup(createElement(BrowserPanel, { navigation: navigateBrowser(browserNavigation("about:blank"), "javascript:evil"), onChange() {} }));
   assert.match(invalid, /role="alert"/);
@@ -250,12 +255,13 @@ test("文件预览使用真实正文，Markdown 和源码安全渲染，空文�
   assert.match(render({ workspaceId: "w1", path: "actual.png", kind: "image", mimeType: "image/png", size: 4, dataUrl: "data:image/png;base64,iVBORw==" }), /src="data:image\/png;base64,iVBORw=="/);
 });
 
-test("消息流隐藏已记录的思考正文，保留原始记录", () => {
+test("消息流保留实际 reasoning 折叠行和原始记录", () => {
   const h = harness();
   const flow = h.model.view.openSession("s1").flow;
   flow.apply({ seq: 1, sessionId: "s1", taskId: "task", createdAt: at, body: { type: "task.thinking", taskId: "task", sessionId: "s1", thinkingId: "actual", messageId: "message", startedAt: at, endedAt: at, text: "已记录思考正文" } });
   const html = renderToStaticMarkup(createElement(Conversation, { model: h.model, sessionId: "s1" }));
-  assert.doesNotMatch(html, /已记录思考正文|Thought for|Thinking/);
+  assert.match(html, /Thought for 0s/);
+  assert.doesNotMatch(html, /已记录思考正文|Thinking/);
   assert.ok(flow.items.some(item => item.kind === "thinking" && item.text === "已记录思考正文"));
 });
 
@@ -288,6 +294,115 @@ test("加载和空态占位不消耗消息滚动器的首次 start 定位", () =
     const content = nodes(parseFragment(html)).find(node => node.attrs.some(attr => attr.name === "data-slot" && attr.value === "message-scroller-content"))!;
     assert.ok(content);
     assert.equal(nodes(content).filter(node => node.attrs.some(attr => attr.name === "class" && attr.value.includes("new-session-empty"))).length, 0);
-    assert.match(html, loaded ? /开始一个新的会话/ : /正在加载会话/);
+    if (loaded) assert.doesNotMatch(html, /开始一个新的会话|在下方描述|new-session-empty/);
+    else assert.match(html, /正在加载会话/);
   }
+});
+
+
+test("PA Inspector 工具读取使用 Personal，文件／diff／Git 动作不能绕过限制", async () => {
+  const h = harness({}, "personal");
+  h.inspector.openParent("a");
+  h.inspector.openBrowser();
+  assert.equal(h.inspector.activeTab()?.kind, "browser");
+  h.inspector.openFiles(); h.inspector.openFile("w1", "actual.txt"); h.inspector.openGit();
+  await h.inspector.loadDirectory("w1", ""); await h.inspector.loadFile("w1", "actual.txt"); await h.inspector.loadGit("w1");
+  assert.equal(h.inspector.workspace(), undefined);
+  assert.equal(h.inspector.tabs().length, 1);
+  assert.ok(h.transport.requests.every(request => !["read_workspace_file", "list_workspace_files", "read_workspace_git"].includes(request.op)));
+});
+
+for (const boundary of ["snapshot", "offline", "retry"] as const) test(`Git 缓存跨 ${boundary} 不安装迟到响应，入口只认真实仓库`, async () => {
+  const blocked = gate(); let reads = 0;
+  const h = harness({ read_workspace_git: async params => { const read = ++reads; if (read === 1) await blocked.wait; return { workspaceId: params.workspace_id, repository: read === 1 ? { head: null, commits: [], nextCursor: null } : null }; } });
+  h.inspector.openParent("a");
+  const pending = h.inspector.loadGit();
+  await h.inspector.loadGit();
+  assert.equal(reads, 1);
+  h.inspector.openGit(); assert.ok(!h.inspector.tabs().some(tab => tab.kind === "git"));
+  if (boundary === "snapshot") h.snapshot();
+  if (boundary === "offline") { h.inspector.update({ type: "state", state: "reconnecting" }); h.inspector.update({ type: "state", state: "online" }); }
+  await h.inspector.loadGit("w1", true);
+  blocked.release(); await pending;
+  assert.equal(h.inspector.repositories.get("w1")?.value?.repository, null);
+  h.inspector.openGit(); assert.ok(!h.inspector.tabs().some(tab => tab.kind === "git"));
+});
+
+test("右栏排序保留标签对象、活动项和浏览器历史，父会话间隔离", () => {
+  const h = harness(); h.inspector.openParent("a"); h.inspector.openBrowser("example.com");
+  const browser = h.inspector.activeTab()!; h.inspector.newTab(); const active = h.inspector.activeTab()!;
+  h.inspector.reorderTab(browser.id, active.id);
+  assert.equal(h.inspector.tabs().at(-1), browser); assert.equal(h.inspector.activeTab(), active);
+  h.inspector.openParent("b"); assert.equal(h.inspector.tabs().length, 0);
+  h.inspector.openParent("a"); assert.equal(h.inspector.tabs().at(-1), browser); assert.equal(h.inspector.activeTab(), active);
+});
+
+
+test("同实例 resync 后已打开 Git 标签自动补读，不把失效缓存当非仓库", async () => {
+  let reads = 0;
+  const h = harness({ read_workspace_git: params => { reads++; return { workspaceId: params.workspace_id, repository: { head: null, commits: [], nextCursor: null } }; } });
+  h.inspector.openParent("a"); await h.inspector.loadGit(); h.inspector.openGit();
+  assert.equal(h.inspector.activeTab()?.kind, "git");
+  h.snapshot();
+  await waitFor("Git 重读", () => h.inspector.repositories.get("w1")?.value?.repository !== undefined);
+  assert.equal(reads, 2); assert.equal(h.inspector.activeTab()?.kind, "git");
+});
+
+function gitPage(ids: string[], nextCursor: string | null, workspaceId = "w1"): OpResult<"read_workspace_git"> {
+  return { workspaceId, repository: { head: "head", commits: ids.map(id => ({ id, parents: [], subject: id, author: "author", date: at, refs: [] })), nextCursor } };
+}
+
+test("Git追加按游标去重，保留前缀；错误可见并按原游标重试到尾页", async () => {
+  const blocked = gate(); let pageReads = 0;
+  const h = harness({ read_workspace_git: async params => {
+    if (!params.cursor) return gitPage(["a"], "next");
+    pageReads++;
+    if (pageReads === 1) { await blocked.wait; throw new Error("读取失败，请重试"); }
+    return gitPage(["b"], null);
+  } });
+  await h.inspector.loadGit("w1");
+  const prefix = h.inspector.repositories.get("w1")!.value!.repository!.commits[0];
+  const first = h.inspector.loadMoreGit("w1");
+  await h.inspector.loadMoreGit("w1"); assert.equal(pageReads, 1);
+  blocked.release(); await first;
+  const failed = h.inspector.repositories.get("w1")!;
+  assert.equal(failed.value!.repository!.commits[0], prefix);
+  assert.match(failed.moreError!, /读取失败/); assert.equal(failed.loadingMore, false);
+  await h.inspector.loadMoreGit("w1");
+  const current = h.inspector.repositories.get("w1")!;
+  assert.equal(current.value!.repository!.commits[0], prefix);
+  assert.deepEqual(current.value!.repository!.commits.map(commit => commit.id), ["a", "b"]);
+  assert.equal(current.moreError, undefined); assert.equal(current.value!.repository!.nextCursor, null);
+  await h.inspector.loadMoreGit("w1"); assert.equal(pageReads, 2);
+  assert.deepEqual(h.transport.requests.filter(request => request.op === "read_workspace_git").map(request => (request.params as OpParams<"read_workspace_git">).cursor), [undefined, "next", "next"]);
+});
+
+for (const boundary of ["refresh", "snapshot", "offline"] as const) test(`Git追加跨${boundary}不安装迟到页面`, async () => {
+  const blocked = gate(); let first = true;
+  const h = harness({ read_workspace_git: async params => {
+    if (params.cursor) { await blocked.wait; return gitPage(["stale"], null); }
+    const result = gitPage([first ? "first" : "fresh"], "next"); first = false; return result;
+  } });
+  await h.inspector.loadGit("w1");
+  const more = h.inspector.loadMoreGit("w1");
+  if (boundary === "refresh") await h.inspector.loadGit("w1", true);
+  else {
+    if (boundary === "snapshot") h.snapshot();
+    else { h.inspector.update({ type: "state", state: "reconnecting" }); h.inspector.update({ type: "state", state: "online" }); }
+    await h.inspector.loadGit("w1");
+  }
+  blocked.release(); await more;
+  assert.deepEqual(h.inspector.repositories.get("w1")!.value!.repository!.commits.map(commit => commit.id), ["fresh"]);
+});
+
+for (const mismatch of ["workspace", "duplicate", "cursor", "head"] as const) test(`Git追加拒绝不一致的${mismatch}响应并保留已加载历史`, async () => {
+  const h = harness({ read_workspace_git: params => {
+    if (!params.cursor) return gitPage(["a"], "next");
+    const result = gitPage([mismatch === "duplicate" ? "a" : "b"], mismatch === "cursor" ? "next" : null, mismatch === "workspace" ? "w2" : "w1");
+    if (mismatch === "head") result.repository!.head = "other";
+    return result;
+  } });
+  await h.inspector.loadGit("w1"); await h.inspector.loadMoreGit("w1");
+  assert.deepEqual(h.inspector.repositories.get("w1")!.value!.repository!.commits.map(commit => commit.id), ["a"]);
+  assert.match(h.inspector.repositories.get("w1")!.moreError!, /刷新/);
 });

@@ -1,0 +1,12 @@
+▶ 追加说明：原回答 done 至 abort、abort 至最终事务两个窗口仍完整处理
+  ✔ before-stop (172.639875ms)
+  ✔ after-stop (24.040916ms)
+✔ 追加说明：原回答 done 至 abort、abort 至最终事务两个窗口仍完整处理 (197.547875ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 3
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 818.51525

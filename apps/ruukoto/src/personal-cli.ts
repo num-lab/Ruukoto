@@ -11,6 +11,7 @@ import { personalDevDirectory, readPersonalConfig, savePersonalConfig } from "./
 import { parsePersonalInput, personalControl, startPersonalServer, type PersonalInput, type PersonalInputStatus, type PersonalMessage, type PersonalStatus } from "./personal-control.ts";
 import { parsePersonalTelegram, readPersonalTelegram, savePersonalTelegram, telegramToken } from "./personal-telegram-config.ts";
 import { personalTelegramApi, telegramOffset, telegramText } from "./personal-telegram-api.ts";
+import type { TaskId } from "@earendil-works/pi-durable";
 import type { PersonalHarness } from "./personal-harness.ts";
 import { readPersonalServices, savePersonalServices } from "./personal-service-config.ts";
 import { personalServiceConfig } from "./personal-services.ts";
@@ -27,9 +28,11 @@ export function personalChildEnv(directory: string, credential: string | readonl
   return env;
 }
 
-export function preparePersonalInput(directory: string, input: string): PersonalInput {
-  const request = parsePersonalInput({ requestId: randomUUID(), input });
-  fs.writeFileSync(path.join(directory, `pending-${request.requestId}.json`), JSON.stringify(request) + "\n", { flag: "wx", mode: 0o600 });
+const pendingName = (input: PersonalInput) => `pending-${input.work === undefined ? "" : "work-"}${input.requestId}.json`;
+
+export function preparePersonalInput(directory: string, input: string, work?: TaskId): PersonalInput {
+  const request = parsePersonalInput({ requestId: randomUUID(), input, ...(work === undefined ? {} : { work }) });
+  fs.writeFileSync(path.join(directory, pendingName(request)), JSON.stringify(request) + "\n", { flag: "wx", mode: 0o600 });
   return request;
 }
 
@@ -42,14 +45,14 @@ export function pendingPersonalInputs(directory: string): PersonalInput[] {
       saved = JSON.parse(fs.readFileSync(path.join(directory, name), "utf8"));
     } catch (error) { throw new PersonalError("pending_input_invalid", "待核实消息无法读取，请保留文件并检查；未重新提交。", { cause: error }); }
     const input = parsePersonalInput(saved);
-    if (name !== `pending-${input.requestId}.json`) throw new PersonalError("pending_input_invalid", "待核实消息标识不一致，请保留文件并检查。");
+    if (name !== pendingName(input)) throw new PersonalError("pending_input_invalid", "待核实消息标识不一致，请保留文件并检查。");
     return input;
   });
 }
 
 export async function checkPersonalInput(directory: string, input: PersonalInput): Promise<PersonalInputStatus> {
-  const result = await personalControl<PersonalInputStatus>(directory, "GET", `/input?requestId=${input.requestId}`);
-  if (result.status !== "missing") fs.rmSync(path.join(directory, `pending-${input.requestId}.json`), { force: true });
+  const result = await personalControl<PersonalInputStatus>(directory, "GET", `${input.work === undefined ? "/input" : "/work/notes"}?requestId=${input.requestId}${input.work === undefined ? "" : `&work=${input.work}`}`);
+  if (result.status !== "missing") fs.rmSync(path.join(directory, pendingName(input)), { force: true });
   return result;
 }
 
@@ -161,12 +164,12 @@ export async function configurePersonalTelegram(io: PersonalCliIO, directory: st
 
 async function recoverInputs(io: PersonalCliIO, directory: string) {
   for (const input of pendingPersonalInputs(directory)) {
-    io.write(`\n待核实消息：${input.input.slice(0, 160)}\n`);
+    io.write(`\n待核实${input.work === undefined ? "消息" : "原分析追加说明"}：${input.input.slice(0, 160)}\n`);
     const result = await checkPersonalInput(directory, input);
-    if (result.status !== "missing") { io.write("后台已受理原消息，请从最近消息查询结果。\n"); continue; }
+    if (result.status !== "missing") { io.write(input.work === undefined ? "后台已受理原消息，请从最近消息查询结果。\n" : "原分析已接纳说明，请从后台分析查询结果。\n"); continue; }
     const action = await choose(io, "后台尚无此提交，原请求已保留", ["使用原请求继续提交", "保留并返回"]);
     if (action === 1) return false;
-    await personalControl(directory, "POST", "/inputs", input);
+    await personalControl(directory, "POST", input.work === undefined ? "/inputs" : "/work/notes", input);
     await checkPersonalInput(directory, input);
     io.write("原消息已受理。\n");
   }
@@ -207,7 +210,7 @@ export async function managePersonalWorks(io: PersonalCliIO, directory: string) 
     while (true) {
       const current = await personalControl<{ summary: PersonalWorkSummary; result: Awaited<ReturnType<typeof personalWorkResult>> }>(directory, "GET", `/work?work=${ref.taskId}`);
       io.write(`\n${personalWorkDescription(current.summary)}\n`);
-      const action = await choose(io, "原分析操作", ["刷新状态", "读取原结果", "请求取消这项分析", "关闭此空闲身份", "返回分析列表"]);
+      const action = await choose(io, "原分析操作", ["刷新状态", "读取原结果", "请求取消这项分析", "关闭此空闲身份", "返回分析列表", "追加说明"]);
       if (action === 4) break;
       if (action === 0) continue;
       if (action === 1) {
@@ -220,6 +223,13 @@ export async function managePersonalWorks(io: PersonalCliIO, directory: string) 
       } else if (action === 2) {
         await personalControl(directory, "POST", `/work/cancel?work=${ref.taskId}`);
         io.write("原分析的取消请求已登记；请刷新核实停止。身份与历史保留，停止未核实前不能复用。\n");
+      } else if (action === 5) {
+        const content = await io.question("补充当前分析的说明（当前回答结束后处理，/back 返回）：");
+        if (content === "/back") continue;
+        const input = preparePersonalInput(directory, content, ref.taskId);
+        await personalControl(directory, "POST", input.work === undefined ? "/inputs" : "/work/notes", input);
+        await checkPersonalInput(directory, input);
+        io.write("原分析已接纳说明；请刷新查询状态。权限保持原范围。\n");
       } else if (await choose(io, "关闭此身份后不能再委派，历史保留", ["返回", "关闭此空闲身份"]) === 1) {
         await personalControl(directory, "POST", `/work/close?work=${ref.taskId}`);
         io.write("原分析的空闲身份已关闭。\n");
@@ -245,7 +255,7 @@ export async function personalMenu(directory: string, io: PersonalCliIO): Promis
         if (message === "/back") continue;
         await personalControl(directory, "GET", "/status");
         const input = preparePersonalInput(directory, message);
-        await personalControl(directory, "POST", "/inputs", input);
+        await personalControl(directory, "POST", input.work === undefined ? "/inputs" : "/work/notes", input);
         await checkPersonalInput(directory, input);
         io.write("消息已受理；可从最近消息查看回答，退出向导不取消处理。\n");
       } else if (selected === 4) {

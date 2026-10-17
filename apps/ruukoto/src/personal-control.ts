@@ -2,9 +2,9 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as http from "node:http";
 import { once } from "node:events";
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { AssistantEntry, defineDocFamily, type EntryRecord, type TaskId } from "@earendil-works/pi-durable";
+import { AssistantEntry, type EntryRecord, type TaskId } from "@earendil-works/pi-durable";
 import { openPersonalHarness } from "./personal-harness.ts";
 import { personalProvider } from "./personal-model.ts";
 import { lockPersonalProfile } from "./personal-profile.ts";
@@ -12,17 +12,19 @@ import { readPersonalConfig } from "./personal-config.ts";
 import { PersonalError } from "./personal-error.ts";
 import { readPersonalTelegram } from "./personal-telegram-config.ts";
 import { readPersonalServices } from "./personal-service-config.ts";
-import { closePersonalWorkAgent, listPersonalWorks, personalWorkRef, personalWorkResult, personalWorkSummary, requestPersonalWorkCancel } from "./personal-work.ts";
+import { appendPersonalWork, PersonalWorkDoc, closePersonalWorkAgent, listPersonalWorks, personalWorkRef, personalWorkResult, personalWorkSummary, requestPersonalWorkCancel } from "./personal-work.ts";
+
+import { LocalInputDoc, personalInputDigest } from "./personal-local-records.ts";
+export { LocalInputDoc } from "./personal-local-records.ts";
 
 const context = BACKGROUND_CONTEXT;
 const MAX_REQUEST = 128 * 1024;
 const MAX_RESPONSE = 256 * 1024;
 export const PERSONAL_REQUEST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-export type PersonalInput = { requestId: string; input: string };
+export type PersonalInput = { requestId: string; input: string; work?: TaskId };
 export type PersonalInputStatus = { status: "queued" | "placed" | "done" | "unanswered" | "missing"; answer?: string; truncated?: boolean };
 export type PersonalStatus = { model: string; tasks: number; inputs: number; services: boolean };
 export type PersonalMessage = { role: "user" | "assistant"; text: string; partial: boolean; truncated: boolean };
-export const LocalInputDoc = defineDocFamily({ kind: "ruukoto.local-input", scope: "session", version: 1, family: true, initial: (digest: string) => ({ digest }) });
 
 function queryNumber(url: URL, key: string, fallback?: number) {
   const value = url.searchParams.get(key);
@@ -33,10 +35,10 @@ function queryNumber(url: URL, key: string, fallback?: number) {
 
 export function parsePersonalInput(value: unknown): PersonalInput {
   if (!value || typeof value !== "object" || !("requestId" in value) || typeof value.requestId !== "string" || !PERSONAL_REQUEST_ID.test(value.requestId)
-    || !("input" in value) || typeof value.input !== "string" || !value.input.trim() || Buffer.byteLength(value.input) > 16384) {
+    || !("input" in value) || typeof value.input !== "string" || !value.input.trim() || Buffer.byteLength(value.input) > 16384 || ("work" in value && (typeof value.work !== "number" || !Number.isSafeInteger(value.work) || value.work < 1))) {
     throw new PersonalError("input_invalid", "请输入非空消息，每条最多 16 KiB；请求标识由程序管理。");
   }
-  return { requestId: value.requestId, input: value.input };
+  return { requestId: value.requestId, input: value.input, ...("work" in value ? { work: value.work as TaskId } : {}) };
 }
 
 function text(entry: EntryRecord): PersonalMessage | undefined {
@@ -134,10 +136,17 @@ export async function startPersonalServer(directory: string) {
             if (url.pathname === "/work/close") { await closePersonalWorkAgent(tx, ref); return { closed: true }; }
             return { summary: await personalWorkSummary(tx, ref), result: await personalWorkResult(tx, ref, offset) };
           }, context);
-        } else if (req.method === "GET" && url.pathname === "/input") {
+        } else if (req.method === "GET" && ["/input", "/work/notes"].includes(url.pathname)) {
           const requestId = url.searchParams.get("requestId") ?? "";
           if (!PERSONAL_REQUEST_ID.test(requestId)) throw new PersonalError("input_invalid", "请求标识无效，请从向导选择待核实消息。");
+          const workId = url.searchParams.has("work") ? queryNumber(url, "work") as TaskId : undefined;
+          if ((url.pathname === "/work/notes") !== (workId !== undefined)) throw new PersonalError("input_invalid", "追加说明须通过原工作入口查询，请重新打开向导。");
           result = await instance.main.commit(async tx => {
+            if (workId !== undefined) {
+              const ref = await personalWorkRef(tx, workId);
+              const note = (await tx.doc(PersonalWorkDoc, ref.requestId, null)).notes?.find(note => note.requestId === requestId);
+              return { status: note ? "done" : "missing", ...(note ? { answer: "原分析已接纳说明，将在当前回答结束后处理；请从后台分析查询状态和最终结果。" } : {}) } satisfies PersonalInputStatus;
+            }
             const record = await tx.submissionByRequest(instance.main.id, requestId);
             if (!record) return { status: "missing" } satisfies PersonalInputStatus;
             if (record.type !== "input") throw new PersonalError("input_conflict", "原请求对应其他操作，请保留记录并检查。");
@@ -147,7 +156,7 @@ export async function startPersonalServer(directory: string) {
             if (!message) throw new PersonalError("answer_missing", "完整回答记录缺失，请保留档案并检查存储。");
             return { status: record.status, answer: message.text, truncated: message.truncated } satisfies PersonalInputStatus;
           }, context);
-        } else if (req.method === "POST" && url.pathname === "/inputs") {
+        } else if (req.method === "POST" && ["/inputs", "/work/notes"].includes(url.pathname)) {
           const chunks: Buffer[] = [];
           let bytes = 0;
           for await (const chunk of req) {
@@ -160,14 +169,21 @@ export async function startPersonalServer(directory: string) {
             throw new PersonalError("control_request_invalid", "消息请求格式无效，请重新打开向导。", { cause: error });
           }
           const input = parsePersonalInput(value);
+          if ((url.pathname === "/work/notes") !== (input.work !== undefined)) throw new PersonalError("input_invalid", "追加说明须通过原工作入口提交，请重新打开向导。");
           // JSON 字符串编码保留孤立 UTF-16 代理的区别，直接 UTF-8 哈希会统一替换它们。
-          const digest = createHash("sha256").update(JSON.stringify(input.input)).digest("hex");
+          const digest = personalInputDigest(input.input, input.work);
           await instance.harness.commit(async tx => {
             const intent = await tx.doc(LocalInputDoc, input.requestId, digest);
-            if (intent.digest !== digest) throw new PersonalError("input_conflict", "同一请求的正文不一致，已拒绝；请核实原消息。");
+            if (intent.digest !== digest || (intent.work !== undefined && intent.work !== input.work)) throw new PersonalError("input_conflict", "同一请求的正文不一致，已拒绝；请核实原消息。");
+            if (input.work !== undefined) {
+              intent.work = input.work;
+              await appendPersonalWork(tx, await personalWorkRef(tx, input.work), { requestId: input.requestId, content: input.input, source: { kind: "local" } });
+            }
           }, context);
-          const submission = await instance.submit(input.input, input.requestId);
-          result = { status: (await submission.status(context)).status } satisfies PersonalInputStatus;
+          if (input.work === undefined) {
+            const submission = await instance.submit(input.input, input.requestId);
+            result = { status: (await submission.status(context)).status } satisfies PersonalInputStatus;
+          } else result = { status: "done", answer: "原分析已接纳说明，将在当前回答结束后处理。" } satisfies PersonalInputStatus;
         } else if (req.method === "POST" && url.pathname === "/stop") {
           requestedStop = true;
           result = { stopping: true };

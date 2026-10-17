@@ -12,6 +12,7 @@ import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite
 import { openPersonalHarness, type PersonalHarness } from "../apps/ruukoto/src/personal-harness.ts";
 import { PersonalServiceOperationDoc, PersonalServiceOperationsDoc, ServiceOperationEvidence, type PersonalServiceMode, type PersonalServiceOperationRef } from "../apps/ruukoto/src/personal-service-operations.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
+import { PersonalWorkDoc } from "../apps/ruukoto/src/personal-work.ts";
 import { personalProvider, type PersonalModelConfig } from "../apps/ruukoto/src/personal-model.ts";
 import type { ServiceManagerConfig } from "../apps/ruukoto/src/service-helper.ts";
 import { MockModelServer, type Responder } from "./helpers/mock-provider.ts";
@@ -107,6 +108,22 @@ test("服务工作：原来源未知不能换后台工作，已登记子工作�
   assert.equal(outcome.state.outcome.status, "failed"); assert.equal(f.server.calls.length, 1);
   await assert.rejects(p.work.delegate({ requestId: "bypass", sourceRequestId: "owner", content: "换身份重试" }), code("work_source_paused"));
   assert.equal((await p.work.list()).length, 1); assert.equal(f.starts(), 1);
+  assert.equal(await p.answer("其他独立聊天", "independent"), "收到");
+});
+
+test("服务工作：追加来源后来效果未知，不能借其他安全工作继续子请求", async t => {
+  let release!: () => void; const gate = new Promise<void>(resolve => { release = resolve; }); t.after(() => release());
+  const f = await fixture(t, async request => { if (request.system?.includes("你是个人助手的子 Agent")) await gate; return { kind: "text", text: "收到" }; });
+  f.touch("fail-after-launch"); const p = await f.open();
+  await p.answer("安全工作", "owner"); await p.answer("追加来源", "note-owner");
+  const ref = await p.work.delegate({ requestId: "safe", sourceRequestId: "owner", content: "后台分析" });
+  await until(() => f.server.calls.length === 3);
+  await p.work.append(ref, { requestId: "accepted", content: "追加要求", sourceRequestId: "note-owner" });
+  const operation = await p.service!.request({ requestId: "unknown-note-source", unit: UNIT, mode: "full_access", sourceRequestId: "note-owner" }); await unknown(p, operation);
+  await assert.rejects(p.work.append(ref, { requestId: "bypass", content: "换方式重试", sourceRequestId: "note-owner" }), code("work_source_paused"));
+  release(); assert.equal((await p.harness.waitForTask(ref.taskId, context)).state.outcome.status, "failed");
+  assert.equal((await p.harness.snapshot(PersonalWorkDoc, ref.requestId, context))!.notes?.length, 1);
+  assert.equal(f.server.calls.length, 3); assert.equal(f.starts(), 1);
   assert.equal(await p.answer("其他独立聊天", "independent"), "收到");
 });
 

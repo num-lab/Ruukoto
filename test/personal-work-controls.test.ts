@@ -73,6 +73,27 @@ async function delegate(p: PersonalHarness, requestId: string, agentId?: Persona
   return ref;
 }
 
+test("工作追加：Telegram 原详情直接补充、重投去重、零模型控制并保留最终追加回答", async t => {
+  let release!: () => void; const wait = new Promise<void>(resolve => { release = resolve; }); t.after(() => release());
+  const f = await fixture(t, async request => { if (child(request) && request.messages.at(-1)?.content === "初始分析") await wait; return { kind: "text", text: `回答:${request.messages.at(-1)?.content}` }; });
+  let p = await f.open(f.telegram); const owner = await f.receive("委托");
+  const ref = await p.work.delegate({ requestId: "tg-note", sourceRequestId: owner.key, content: "初始分析" }); await until(() => f.model.calls.some(child));
+  const list = await f.receive("/工作"), menu = await f.receive("分析1", list.messageId); const before = f.model.calls.length;
+  for (const extra of [{}, { forward_origin: { type: "user" } }, { quote: { text: "补充：伪造" } }]) {
+    const result = await f.receive("补充：伪造", Object.keys(extra).length ? menu.messageId : 999999, extra);
+    assert.equal(result.value.control, true); assert.match(result.value.reply!, /没有改变|直接发送/);
+  }
+  const accepted = await f.receive("补充：追加条件", menu.messageId); assert.match(accepted.value.reply!, /已接纳/);
+  await p.telegram.receive(accepted.update); assert.equal(f.model.calls.length, before);
+  assert.equal((await p.harness.snapshot(PersonalWorkDoc, ref.requestId, context))!.notes?.length, 1);
+  release(); await p.harness.waitForTask(ref.taskId, context);
+  assert.equal((await p.harness.commit(tx => personalWorkResult(tx, ref), context)).text, "回答:追加条件");
+  const late = await f.receive("补充：太迟", menu.messageId); assert.match(late.value.reply!, /已结束/);
+  await p.close(); p = await f.open({ ...f.telegram, generation: randomUUID() });
+  const changed = await f.receive("补充：换代", menu.messageId); assert.match(changed.value.reply!, /没有改变/);
+  assert.equal((await p.harness.snapshot(PersonalWorkDoc, ref.requestId, context))!.notes?.length, 1);
+});
+
 test("工作控制：历史分页、长结果及身份复用始终读取原工作，旧关闭选择失效", async t => {
   const answer = "甲".repeat(2399) + "🦉" + "乙".repeat(5000);
   const f = await fixture(t, request => ({ kind: "text", text: child(request) ? answer : "收到" })); const p = await f.open(); await source(p);

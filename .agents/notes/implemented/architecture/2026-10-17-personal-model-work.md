@@ -8,7 +8,7 @@ Status: implemented
 
 ## 决定
 
-主会话装配 `personal-model-work` 扩展及 `background_work` 工具，支持 delegate/list/result/cancel/close。模型只提供业务说明和所需对象引用；工作键固定由原生工具 TaskId 派生。模型与可信宿主共用事务登记、指纹、单工作占用与取消/关闭实现，不复制队列或任务状态。子会话仍显式空工具，没有工作管理或外部操作能力。
+主会话装配 `personal-model-work` 扩展及 `background_work` 工具，支持 delegate/append/list/result/cancel/close。模型只提供业务说明和所需对象引用；工作键固定由原生工具 TaskId 派生。模型与可信宿主共用事务登记、指纹、单工作占用与取消/关闭实现，不复制队列或任务状态。子会话仍显式空工具，没有工作管理或外部操作能力。
 
 工具先从活动 run 的唯一 Submission 获取候选请求键，再在同一变更事务通过原生 `submissionByRequest` 复核 ID、placed 状态与 pi.user entry；同时核实 root 的 pi.tool、其 generation owner、LiveDoc.run 与 running 工具槽。候选读取在事务外，因为公共 Tx 不暴露按 SubmissionId 查询；事务内重新读取的原生记录才是依据。Harness 显式选择 one-at-a-time；即使人为混入多输入也拒绝变更，不猜最新输入。非拥有者输入只允许 list/result，不能 delegate/cancel/close。
 
@@ -31,4 +31,4 @@ Status: implemented
 
 ## 后果
 
-模型可以异步委派分析，主聊天继续响应，并按原工作查询结果；已有身份与取消语义保持。代价是工具归属与权限关系的恢复检查；升级启用模型委派前必须完成旧未决工作。[独立宿主菜单](2026-10-17-personal-work-controls.md)共用查询与停止证明，不依赖模型控制；后台结果自动唤醒/外发与追加说明仍由总方案推进。完整迁移与产品体验不能据窄检查宣称通过。模型入口验收和未覆盖项由[实施工单](../../../../.scratch/personal-pi-durable/issues/10-model-background-work.md)持有。
+模型可以异步委派分析，主聊天继续响应，并按原工作查询结果；已有身份与取消语义保持。代价是工具归属与权限关系的恢复检查；升级启用模型委派前必须完成旧未决工作。[独立宿主菜单](2026-10-17-personal-work-controls.md)共用查询与停止证明，不依赖模型控制；[追加说明](2026-10-17-personal-work-notes.md)共用原工作生命周期，后台结果自动唤醒/外发仍由总方案推进。完整迁移与产品体验不能据窄检查宣称通过。模型入口验收和未覆盖项由[实施工单](../../../../.scratch/personal-pi-durable/issues/10-model-background-work.md)持有。

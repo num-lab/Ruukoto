@@ -1,0 +1,86 @@
+[
+  {
+    "path": ".agents/notes/implemented/architecture/2026-10-17-personal-background-work.md",
+    "sha256": "2af0dae0486bffe5e23a584f850e21cb5093d1c06081d0098aed1ce7ffc84c32"
+  },
+  {
+    "path": ".agents/notes/implemented/architecture/2026-10-17-personal-model-work.md",
+    "sha256": "5944c2c0e4119f828d593b917c5ebd0c55921201006926a61afa86b088c64bca"
+  },
+  {
+    "path": ".agents/notes/implemented/architecture/2026-10-17-personal-work-controls.md",
+    "sha256": "97efbfe1ee78bc1cfa93e6eaaa0734746e92bfa1cd455c0468efc3ed1f83d7ff"
+  },
+  {
+    "path": ".agents/notes/implemented/architecture/2026-10-17-personal-work-notes.md",
+    "sha256": "988d3066b471518e230a6440254a8872fd2cffe6995556ca473d8a61a2e93819"
+  },
+  {
+    "path": ".agents/skills/pre-push-checks/SKILL.md",
+    "sha256": "e030bd8674945e49c0efad064cb2fc3e00be368039597373ed8c2311ab2cf189"
+  },
+  {
+    "path": "README.md",
+    "sha256": "40ac97dece8b50b2faab7dc6d0a43468652a367e2d737af7ce383c9af22d53d5"
+  },
+  {
+    "path": "apps/ruukoto/src/personal-cli.ts",
+    "sha256": "3f1dac89261438fb4d59be6e118557fa74e17fc54477f07704e982b536345d05"
+  },
+  {
+    "path": "apps/ruukoto/src/personal-control.ts",
+    "sha256": "dd5b7dc6bca7500da3ee12575928e381eb40378aa2575bf37cd4658f711985ad"
+  },
+  {
+    "path": "apps/ruukoto/src/personal-harness.ts",
+    "sha256": "a4a1d14072e98e2d9c44634dfd7967ac6767c6a21cedc32b7565b90c569f2edf"
+  },
+  {
+    "path": "apps/ruukoto/src/personal-local-records.ts",
+    "sha256": "7a33ceba2fd850394072a7d53f13cbae300a698701f0e32ac8058b84c3542806"
+  },
+  {
+    "path": "apps/ruukoto/src/personal-profile.ts",
+    "sha256": "1296839ebe768f4977472c6b7cf695cf37af8c8d903eeea79dd4ded52b8877d4"
+  },
+  {
+    "path": "apps/ruukoto/src/personal-work-controls.ts",
+    "sha256": "aa8f4fa8d96512821c5086696d97e02694490a047638309e13b37fe00b3028e6"
+  },
+  {
+    "path": "apps/ruukoto/src/personal-work-tools.ts",
+    "sha256": "4353549ebab9540e4a087f1a4382adcd0cf7dc529df9993fb9997a0becfe9597"
+  },
+  {
+    "path": "apps/ruukoto/src/personal-work.ts",
+    "sha256": "a8227251158f5c96308092bead3dbee18b10e263fa7119f5686351ed55e867cf"
+  },
+  {
+    "path": "docs/development.md",
+    "sha256": "41f98c939a23a4ce2b24dc8eade3b7857bfda18322680d722d9a2f28088b6b28"
+  },
+  {
+    "path": "docs/modules/personal-durable.md",
+    "sha256": "5f5ff04697bd561f0cd5251c8ff30b8044731f6179be6bf204075980708dd035"
+  },
+  {
+    "path": "docs/modules/products.md",
+    "sha256": "a082fa1144c50dcc66aef2158005f1aa0f0b35b7d38ed9549dbf494604e88727"
+  },
+  {
+    "path": "docs/usage.md",
+    "sha256": "45e77ae9b570fcea3a0c5f08442f04fe7766a4c0d728c2b3576229b83d2b47eb"
+  },
+  {
+    "path": "test/personal-service-operations.test.ts",
+    "sha256": "af8dfe09cdb0aaf636402ab2d2df5d1fa6d1df72ebcbd462e9180beaa2b4b3a3"
+  },
+  {
+    "path": "test/personal-work-controls.test.ts",
+    "sha256": "4eb9d7458e1d7c3ac1d1f10cd8a503b82c4ae9aa013b725406cfee26b8ca6b76"
+  },
+  {
+    "path": "test/personal-work-notes.test.ts",
+    "sha256": "bc27b32981d6fd6b97148d0a94f39f136a0caddf166d608f0264f0c8ee52fa4f"
+  }
+]

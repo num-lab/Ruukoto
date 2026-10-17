@@ -7,7 +7,7 @@ import { PersonalError } from "./personal-error.ts";
 
 export const PERSONAL_FORMAT = { product: "ruukoto", format: 1, pi: "1.3.0", extensions: { personal: 1 } } as const;
 export type PersonalProfileLock = { directory: string; release(): void };
-export const PERSONAL_PENDING_FILE = /^pending-([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.json$/;
+export const PERSONAL_PENDING_FILE = /^pending-(?:work-)?([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.json$/;
 
 export function personalDirectory(): string {
   return path.resolve(process.env.RUUKOTO_PERSONAL_DIR ?? path.join(homedir(), ".ruukoto-durable"));

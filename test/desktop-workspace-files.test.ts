@@ -8,6 +8,7 @@ import { RuntimeApiError } from "@ruukoto/core/api-error.ts";
 import { resolveDirIdentitySync } from "@ruukoto/core/dir-identity.ts";
 import type { OpResult } from "@ruukoto/control/ops.ts";
 import { MAX_FRAME_BYTES } from "@ruukoto/control/protocol.ts";
+import { assertDirectoryReadNotProtected } from "@ruukoto/agent/execution/approved-ops.ts";
 import { listWorkspaceFiles, readWorkspaceFile, WORKSPACE_DIRECTORY_LIMIT, WORKSPACE_PREVIEW_BYTES } from "@ruukoto/runtime/workspace-files.ts";
 import { startTestRuntime } from "./helpers/testkit.ts";
 
@@ -69,6 +70,88 @@ test("路径、目录身份、保护根、符号链接与硬链接不能绕过�
     fs.renameSync(kit.root, path.join(kit.parent, "old")); fs.mkdirSync(kit.root);
     assert.throws(() => listWorkspaceFiles("workspace", kit.identity, "", []), fails("workspace_directory_changed"));
   } finally { kit.close(); }
+});
+
+for (const relative of ["", "src"]) test(`目录保护合并前后各一次扫描且跳过普通文件元数据：${relative || "根"}`, context => {
+  const kit = fixture();
+  try {
+    fs.mkdirSync(path.join(kit.root, "src"));
+    const protectedRoot = path.join(fs.realpathSync(kit.parent), "protected"), nested = path.join(protectedRoot, "nested");
+    fs.mkdirSync(nested, { recursive: true });
+    for (let index = 0; index < 100; index++) fs.writeFileSync(path.join(nested, `file-${index}`), "");
+    const expected = listWorkspaceFiles("workspace", kit.identity, relative, []);
+    const lstat = fs.lstatSync, readdir = fs.readdirSync;
+    let fileStats = 0;
+    const scans = new Map<string, number>();
+    context.mock.method(fs, "lstatSync", (...args: Parameters<typeof lstat>) => {
+      if (String(args[0]).startsWith(`${nested}/file-`)) fileStats++;
+      return lstat(...args);
+    });
+    context.mock.method(fs, "readdirSync", (...args: Parameters<typeof readdir>) => {
+      const key = String(args[0]);
+      if (key === protectedRoot || key === nested) scans.set(key, (scans.get(key) ?? 0) + 1);
+      return readdir(...args);
+    });
+    syncBuiltinESMExports();
+    assert.deepEqual(listWorkspaceFiles("workspace", kit.identity, relative, [protectedRoot, nested]), expected);
+    assert.equal(fileStats, 0, "目录列表不逐个核实保护树中的普通文件");
+    assert.equal(scans.get(protectedRoot), 2, "读取前后各重新扫描保护目录");
+    assert.equal(scans.get(nested), 2, "重叠保护根在同阶段只扫描一次");
+  } finally { context.mock.restoreAll(); syncBuiltinESMExports(); kit.close(); }
+});
+
+test("目录保护入口核实目录类型且不跟随保护树符号链接", () => {
+  const kit = fixture();
+  try {
+    const file = path.join(kit.root, "file"), protectedRoot = path.join(kit.parent, "protected");
+    fs.writeFileSync(file, ""); fs.mkdirSync(protectedRoot); fs.symlinkSync(kit.root, path.join(protectedRoot, "link"));
+    assert.throws(() => assertDirectoryReadNotProtected(file, kit.root, []));
+    assert.throws(() => assertDirectoryReadNotProtected(kit.root, file, []));
+    assert.doesNotThrow(() => listWorkspaceFiles("workspace", kit.identity, "", [protectedRoot]));
+    assert.throws(() => listWorkspaceFiles("workspace", kit.identity, "", [file]), fails("workspace_path_unsafe"));
+    assert.throws(() => listWorkspaceFiles("workspace", kit.identity, "", [path.parse(kit.root).root]), fails("workspace_path_unsafe"));
+  } finally { kit.close(); }
+});
+
+test("目录保护枚举的旧文件分类被替换时拒绝结果", context => {
+  const kit = fixture();
+  try {
+    const protectedRoot = path.join(fs.realpathSync(kit.parent), "protected"), changing = path.join(protectedRoot, "changing");
+    fs.mkdirSync(protectedRoot); fs.writeFileSync(changing, "旧文件");
+    const readdir = fs.readdirSync;
+    let changed = false;
+    context.mock.method(fs, "readdirSync", (...args: Parameters<typeof readdir>) => {
+      const entries = readdir(...args);
+      if (String(args[0]) === protectedRoot && !changed) {
+        changed = true; fs.unlinkSync(changing); fs.mkdirSync(changing);
+      }
+      return entries;
+    });
+    syncBuiltinESMExports();
+    assert.throws(() => listWorkspaceFiles("workspace", kit.identity, "", [protectedRoot]), fails("workspace_path_unsafe"));
+    assert.equal(changed, true);
+  } finally { context.mock.restoreAll(); syncBuiltinESMExports(); kit.close(); }
+});
+
+test("目录读取后重新核实新增的保护关系，扫描失败不返回目录内容", context => {
+  const kit = fixture();
+  try {
+    const protectedRoot = path.join(fs.realpathSync(kit.parent), "protected");
+    fs.mkdirSync(protectedRoot);
+    const opendir = fs.opendirSync;
+    context.mock.method(fs, "opendirSync", (...args: Parameters<typeof opendir>) => {
+      const directory = opendir(...args);
+      fs.rmdirSync(protectedRoot); fs.symlinkSync(kit.root, protectedRoot);
+      return directory;
+    });
+    syncBuiltinESMExports();
+    assert.throws(() => listWorkspaceFiles("workspace", kit.identity, "", [protectedRoot]), fails("workspace_path_unsafe"));
+    context.mock.restoreAll(); syncBuiltinESMExports();
+    fs.unlinkSync(protectedRoot); fs.mkdirSync(protectedRoot);
+    context.mock.method(fs, "readdirSync", () => { throw Object.assign(new Error(`EACCES: ${protectedRoot}`), { code: "EACCES" }); });
+    syncBuiltinESMExports();
+    assert.throws(() => listWorkspaceFiles("workspace", kit.identity, "", [protectedRoot]), (error: unknown) => fails("workspace_file_unavailable")(error) && error instanceof Error && !error.message.includes(kit.parent));
+  } finally { context.mock.restoreAll(); syncBuiltinESMExports(); kit.close(); }
 });
 
 test("每层目录、预览内容与 JSON 转义后的控制面载荷都有上限", () => {

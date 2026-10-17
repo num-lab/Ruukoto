@@ -115,3 +115,5 @@ macOS 未知残留可能继续写工作区和消耗 CPU/内存，保留占用会
 两个产品的正式入口均默认且只接受 native；个人后台的系统 service、user manager、bus 与 cgroup 常驻前提由[个人 Agent 原生执行与 Docker worker 退役](../../implemented/architecture/2026-10-12-personal-native-sandbox.md)持有。`ToolRouter.launchSpecFor` 和临时 `Runtime.executeWorkCopy` 统一下发宿主 dev/ino；`WorkCopyManager` 权限预检统一使用实际账户的 `accessSync`，包括补充组与 ACL，不保留容器 UID/GID 或 Docker Desktop VM 例外。本篇原个人容器部署与专用完全访问账户条目按新决定的适用范围解释，平台机制及原始真实验证保留。
 
 完全访问的账户、环境、免审批及宿主任务授权传播采用[本决定](../feature/2026-10-12-full-access-current-account.md)；本篇其他独立规则继续适用。
+
+[目录保护优化](../bug-fix/2026-10-17-directory-protection-cost.md)为文件树目录列表增加仅遍历目录的批量检查；通用文件保护与本篇原生执行规则继续沿用。

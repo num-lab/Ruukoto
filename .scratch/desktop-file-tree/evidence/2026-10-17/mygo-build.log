@@ -1,0 +1,37 @@
+
+> ruukoto-workspace@0.1.0 desktop:mygo:build
+> npm run desktop:mygo:build --workspace=@ruukoto/desktop
+
+
+> @ruukoto/desktop@0.1.0 desktop:mygo:build
+> node scripts/mygo.mjs build
+
+vite v8.3.4 building client environment for production...
+transforming...
+✓ 1978 modules transformed.
+rendering chunks...
+computing gzip size...
+out/mygo/renderer/index.html                   0.58 kB │ gzip:   0.36 kB
+out/mygo/renderer/assets/index-Bsm8LD7-.css  101.36 kB │ gzip:  18.27 kB
+out/mygo/renderer/assets/index-ghEZK1CD.js   753.97 kB │ gzip: 230.53 kB
+
+[plugin builtin:vite-reporter]
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rolldownOptions.output.codeSplitting to improve chunking: https://rolldown.rs/reference/OutputOptions.codeSplitting
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 1.42s
+
+  MyGo!!!!! v0.5.5  build
+
+  ○ Generating the TypeScript client
+  ✓ Wrote ../out/mygo/bindings.ts  1.3s
+  ○ Compiling darwin/arm64
+  ✓ Compiled darwin/arm64  687ms
+  ○ Signing Ruukoto MyGo.app
+  ✓ Signed Ruukoto MyGo.app  21ms
+
+  ✓ Built Ruukoto MyGo 0.1.0 in 2.2s
+
+    ../../../dist/mygo/darwin-arm64/
+      Ruukoto MyGo.app     9.8 MB

@@ -1,0 +1,43 @@
+The following is a diff from the previous accessibility tree for Window: "Ruukoto File Tree QA" with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.
+Removed element IDs: 299-308
++					54 tab (selected) 文件树
++					55 button 关闭右栏文件树
++				56 container 工作区文件
++					57 text file-tree-performance
++					58 container file-tree-performance 文件
++						59 content list
++							60 container
++								61 button (expanded) empty-dir, Secondary Actions: Collapse
++								62 content list
++									63 text 暂无文件
++							64 button (collapsed) sample-dir, Secondary Actions: Expand
++							65 button 预览 root-000.txt
++							66 button 预览 root-001.txt
++							67 button 预览 root-002.txt
++							68 button 预览 root-003.txt
++							69 button 预览 root-004.txt
++							70 button 预览 root-005.txt
++							71 button 预览 root-006.txt
++							72 button 预览 root-007.txt
++							73 button 预览 root-008.txt
++							74 button 预览 root-009.txt
++							75 button 预览 root-010.txt
++							76 button 预览 root-011.txt
++							77 button 预览 root-012.txt
++							78 button 预览 root-013.txt
++							79 button 预览 root-014.txt
++							80 button 预览 root-015.txt
++							81 button 预览 root-016.txt
++							82 button 预览 root-017.txt
++							83 button 预览 root-018.txt
++							84 button 预览 root-019.txt
++							85 button 预览 root-020.txt
++							86 button 预览 root-021.txt
++							87 button 预览 root-022.txt
++							88 button 预览 root-023.txt
++							89 button 预览 root-024.txt
++							90 button 预览 root-025.txt
++							91 button 预览 root-026.txt
++							92 button 预览 root-027.txt
++				93 text {"environment":"QA-only passive observer / real MyGo bridge","requests":[{"id":1,"path":"","workspaceId":"proj_25fa97bd806a0cb4da536b9a","startedMs":96782,"settledMs":97263,"ok":true,"entries":30,"elapsedMs":481},{"id":2,"path":"sample-dir","workspaceId":"proj_25fa97bd806a0cb4da536b9a","startedMs":121318,"settledMs":121810,"ok":true,"entries":200,"elapsedMs":492},{"id":3,"path":"empty-dir","workspaceId":"proj_25fa97bd806a0cb4da536b9a","startedMs":172816,"settledMs":173281,"ok":true,"entries":0,"elapsedMs":4
+The focused UI element is 11 HTML content Description: Ruukoto, URL: mygo://localhost/

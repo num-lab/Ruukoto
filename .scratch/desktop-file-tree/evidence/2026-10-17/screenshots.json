@@ -1,0 +1,18 @@
+[
+  {
+    "path": "mygo/expanded.jpg",
+    "round": 2,
+    "mimeType": "image/jpeg",
+    "width": 2320,
+    "height": 1560,
+    "sha256": "33135473830262bf2b97fc9b8c5460e9cb6f452166fcaf6b1ab70be77a0141de"
+  },
+  {
+    "path": "mygo/reopened.jpg",
+    "round": 2,
+    "mimeType": "image/jpeg",
+    "width": 2320,
+    "height": 1560,
+    "sha256": "2f640fb9ab50f98e98c9cc98ff02789e76c8ed251a0bb20508ebf3797385628b"
+  }
+]

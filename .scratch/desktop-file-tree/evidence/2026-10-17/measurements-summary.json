@@ -1,0 +1,56 @@
+{
+  "warmProcessDiskCacheNotFlushed": true,
+  "timingExcludesStartupAndFixture": true,
+  "benchmark": {
+    "repo-root-5000-file-protected": {
+      "beforeMedianMs": 34.26,
+      "afterMedianMs": 4.682
+    },
+    "empty-dir-repo-as-protected": {
+      "beforeMedianMs": 1578.5815,
+      "afterMedianMs": 408.28499999999997
+    }
+  },
+  "mygo": [
+    {
+      "actionId": 1,
+      "path": "",
+      "cacheHit": false,
+      "backendMs": 477.808,
+      "bridgeRoundTripMs": 481,
+      "clickToDrawableRowsMs": 517
+    },
+    {
+      "actionId": 2,
+      "path": "sample-dir",
+      "cacheHit": false,
+      "backendMs": 489.641,
+      "bridgeRoundTripMs": 492,
+      "clickToDrawableRowsMs": 535
+    },
+    {
+      "actionId": 3,
+      "path": "sample-dir",
+      "cacheHit": true,
+      "backendMs": null,
+      "bridgeRoundTripMs": null,
+      "clickToDrawableRowsMs": 46
+    },
+    {
+      "actionId": 4,
+      "path": "empty-dir",
+      "cacheHit": false,
+      "backendMs": 463.617,
+      "bridgeRoundTripMs": 465,
+      "clickToDrawableRowsMs": 518
+    },
+    {
+      "actionId": 5,
+      "path": "",
+      "cacheHit": true,
+      "backendMs": null,
+      "bridgeRoundTripMs": null,
+      "clickToDrawableRowsMs": 34
+    }
+  ]
+}

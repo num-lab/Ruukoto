@@ -44,7 +44,7 @@ Personal 只支持 SSH 登录账户与后台账户相同的部署。每次控制
 
 Context 环形入口不显示百分比数字，悬浮层按 System prompt、Tool definitions 和 Messages 展示最近一次已记录模型输入的估算与当时容量；Messages 包含除前两类外的所有已选输入。没有记录、容量或读取失败时保持未知，不用 provider usage 或当前目录代替；实时输出与终态刷新，在途刷新合并后补读，新快照和断线淘汰旧请求。
 
-文件树只读当前会话组织归属的已登记工作区，逐层读取，目录最多显示 200 项并明确提示截断。文件预览支持 256 KiB 内文本、Markdown、PNG／JPEG／GIF／WebP，其他类型或超限明确不支持；Markdown 可切源码，源码按已支持扩展名高亮并保留完整原文、固定行号，未知类型纯文本，图片失败可见。后台按登记根身份、保护根和全路径拒绝符号链接、硬链接及不稳定读取，renderer 不获得任意宿主路径读取权。断线和快照淘汰旧读取；文件预览关闭重开及读取重试同样丢弃旧应答，目录缓存按工作区保留。
+文件树只读当前会话组织归属的已登记工作区，逐层读取，目录最多显示 200 项并明确提示截断。文件预览支持 256 KiB 内文本、Markdown、PNG／JPEG／GIF／WebP，其他类型或超限明确不支持；Markdown 可切源码，源码按已支持扩展名高亮并保留完整原文、固定行号，未知类型纯文本，图片失败可见。后台按登记根身份、保护根和全路径拒绝符号链接、硬链接及不稳定读取，renderer 不获得任意宿主路径读取权。断线和快照淘汰旧读取；文件预览关闭重开及读取重试同样丢弃旧应答，目录缓存按工作区保留。目录列表的保护核实在读取前后分别批量比对根与目标，每阶段只遍历保护目录，跳过普通文件元数据；枚举期间目录身份或纳秒修改／状态时间变化时拒绝读取。文件预览继续逐对象核实保护关系。
 
 浏览器初始为空页，地址仅接受无凭据 HTTP(S)，提供后退、前进与刷新；历史记录只覆盖地址栏提交。网页使用无 same-origin、顶层导航、弹窗或下载权限的 iframe，不加载桌面开发来源；远程 frame 无 preload／IPC／Node，所有网页权限、设备与屏幕捕获均拒绝。站点禁止嵌入时不能预览。
 
@@ -93,3 +93,4 @@ Personal 预检总期限为 15 秒；超时或网络失败、远端 socket 暂�
 - [桌面客户端提案](../../.agents/notes/proposed/architecture/2026-10-15-desktop-client.md)
 - [同仓 workspaces 分包](../../.agents/notes/implemented/architecture/2026-10-11-in-repo-workspace-packages.md)
 - [开发启动器](../../.agents/notes/implemented/process/2026-10-09-dev-launchers.md)
+- [目录保护优化](../../.agents/notes/implemented/bug-fix/2026-10-17-directory-protection-cost.md)：目录列表合并扫描与分类稳定性。

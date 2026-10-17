@@ -3,7 +3,7 @@ import * as path from "node:path";
 import { isUtf8 } from "node:buffer";
 import { RuntimeApiError } from "@ruukoto/core/api-error.ts";
 import { DirIdentityError, verifyDirIdentitySync, type DirIdentity } from "@ruukoto/core/dir-identity.ts";
-import { ApprovedOpError, assertGrantNotProtected, assertNotProtected } from "@ruukoto/agent/execution/approved-ops.ts";
+import { ApprovedOpError, assertDirectoryReadNotProtected, assertGrantNotProtected, assertNotProtected } from "@ruukoto/agent/execution/approved-ops.ts";
 
 export const WORKSPACE_DIRECTORY_LIMIT = 200;
 export const WORKSPACE_PREVIEW_BYTES = 256 * 1024;
@@ -36,6 +36,11 @@ function protect(root: DirIdentity, target: string, protectedRoots: string[]): v
   catch (cause) { throw new RuntimeApiError(cause instanceof ApprovedOpError ? "workspace_path_unsafe" : "workspace_file_unavailable", cause instanceof ApprovedOpError ? "此目录属于后台保护范围，不能预览。" : "无法核实目录保护范围，请稍后重试。"); }
   try { assertNotProtected(target, protectedRoots); }
   catch (cause) { throw new RuntimeApiError(cause instanceof ApprovedOpError ? "workspace_path_unsafe" : "workspace_file_unavailable", cause instanceof ApprovedOpError ? "此文件属于后台保护范围，不能预览。" : "无法核实文件保护范围，请稍后重试。"); }
+}
+
+function protectDirectory(root: DirIdentity, target: string, protectedRoots: string[]): void {
+  try { assertDirectoryReadNotProtected(root.cwdReal, target, protectedRoots); }
+  catch (cause) { throw new RuntimeApiError(cause instanceof ApprovedOpError ? "workspace_path_unsafe" : "workspace_file_unavailable", cause instanceof ApprovedOpError ? "此目录属于后台保护范围或在检查期间发生变化，请重新打开。" : "无法核实目录保护范围，请稍后重试。"); }
 }
 
 function verifyRoot(root: DirIdentity): void {
@@ -71,7 +76,7 @@ export function listWorkspaceFiles(workspaceId: string, root: DirIdentity, relat
   const { target, chain } = locate(root, parts);
   const stat = chain.at(-1)!;
   if (!stat.isDirectory()) throw new RuntimeApiError("workspace_path_unsafe", "此路径不是可展开的目录。");
-  protect(root, target, protectedRoots);
+  protectDirectory(root, target, protectedRoots);
   const directory = io(() => fs.opendirSync(target, { bufferSize: 32 }));
   const entries: WorkspaceFileEntry[] = [];
   let scanned = 0, bytes = 0, truncated = false;
@@ -88,7 +93,7 @@ export function listWorkspaceFiles(workspaceId: string, root: DirIdentity, relat
       entries.push(item);
     }
     verifyPath(root, parts, chain);
-    protect(root, target, protectedRoots);
+    protectDirectory(root, target, protectedRoots);
     entries.sort((a, b) => Number(b.kind === "directory") - Number(a.kind === "directory") || a.name.localeCompare(b.name));
     return { workspaceId, path: relative, entries, truncated };
   } finally { io(() => directory.closeSync()); }

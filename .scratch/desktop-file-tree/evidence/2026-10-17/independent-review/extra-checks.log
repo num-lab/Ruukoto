@@ -1,0 +1,2 @@
+{"extraChecks":["protected-file-descendant-rejected","unrelated-protected-file-allowed","protected-tree-symlink-not-followed","file-root-rejected","file-target-rejected","filesystem-protection-root-rejected"],"result":"passed"}
+Linux bind evidence source hashes match current checkout

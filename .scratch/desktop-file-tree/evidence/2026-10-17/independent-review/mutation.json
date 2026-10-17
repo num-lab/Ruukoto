@@ -1,0 +1,8 @@
+{
+  "mutation": "remove exactly one metadata stability guard, preserve every other byte",
+  "originalPath": "/Users/eitrous/.codex/worktrees/6f13/ruukoto/packages/agent/src/execution/approved-ops.ts",
+  "originalSha256": "659e69b60e857ebd3d820b2bd439080a59d5a8985792f80624081c532d521b07",
+  "mutatedSha256": "59a247ca15ceeaa598e9d4d5396e5d5ed0af0ef78193b0cedcd5a6069c4655a4",
+  "removedGuardCount": 1,
+  "officialCheckoutModified": false
+}

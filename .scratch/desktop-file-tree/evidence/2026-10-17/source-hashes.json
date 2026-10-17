@@ -1,0 +1,8 @@
+{
+  "packages/agent/src/execution/approved-ops.ts": "659e69b60e857ebd3d820b2bd439080a59d5a8985792f80624081c532d521b07",
+  "packages/runtime/src/workspace-files.ts": "dda473d0ce273871f8d963458198a2f007189ca3431d22a996d44234a2290a78",
+  "test/desktop-workspace-files.test.ts": "d257ea548c120a30813f25ffc6a06b9e845bc4da4364467b65b70f9377c2e25c",
+  "docs/modules/desktop.md": "3aca9ebf43e91c400d6c7db92827f8bff97ed96f0c6bc3a431a536b3c83eed26",
+  "docs/modules/execution.md": "6855083706ac13ff22e1803f51d429e1a097db5270c0376ea53194b66920cd3f",
+  ".agents/notes/implemented/bug-fix/2026-10-17-directory-protection-cost.md": "57e635e909be9568c29c340b589065abfa547d65b08c1ab2ddb60621e5ecad8d"
+}

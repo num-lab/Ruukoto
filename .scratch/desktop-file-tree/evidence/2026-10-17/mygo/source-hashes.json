@@ -1,0 +1,25 @@
+{
+  "repository": "/Users/eitrous/.codex/worktrees/6f13/ruukoto",
+  "head": "632db30625487d2608b85d6347862a82cf288ce2",
+  "createdAt": "2026-10-16T18:02:35.290Z",
+  "paths": {
+    "apps/desktop/out/mygo/bindings.ts": "fb7b799b033b8ef42f030bfa1a3aa6155e231153122ac54aca2a17370518f63f",
+    "apps/desktop/out/mygo/launch.json": "5811bf3e33a4f8b5110d144c282969f0fc13415cb19ef0895a1f0d747e56c772",
+    "apps/desktop/out/mygo/renderer/assets/index-Bsm8LD7-.css": "d3767d70c9b4d688f756735c9c459a02afd33c5d540156ee927ba0cc2e19bb83",
+    "apps/desktop/out/mygo/renderer/assets/index-ghEZK1CD.js": "e2253712d7162fb6d9fa5bbee6e066a480021155157c5760daa9bfbee56e56d9",
+    "apps/desktop/out/mygo/renderer/index.html": "bf75e9b3148b711721eb61be336552643f509b9ca4e2884c4301aebd44dabaa9",
+    "apps/desktop/out/mygo/sidecar.mjs": "9198adb6e9be4718e9309813e034b5696f64c8c501e9d9611300dd8e012be55f",
+    "packages/agent/src/execution/approved-ops.ts": "659e69b60e857ebd3d820b2bd439080a59d5a8985792f80624081c532d521b07",
+    "packages/runtime/src/workspace-files.ts": "dda473d0ce273871f8d963458198a2f007189ca3431d22a996d44234a2290a78",
+    "test/desktop-workspace-files.test.ts": "91ccc3690403ce377010d24ed1287db3951f22af797da26ae58c2e35bad798c8",
+    "packages/runtime/src/runtime.ts": "f21e680e7831a943615091e15fbbbe161c59b2a41be830729b7787bc88fbdbe1",
+    "test/helpers/testkit.ts": "f52d2e3cf1fd6069fb2428d6cce324877c0da07d39cf0cea28d67c5494d3b13d",
+    "apps/desktop/src/renderer/inspector.ts": "d274b4e9581e2e81fb8b8bbf4dbf5b51540c482e30ea2994dfa7ec48d8c7eb2f",
+    "apps/desktop/src/renderer/inspector-panels.tsx": "e8416efd733d702cb53286def02803fa887bb3caab34348be20b700b8dbb4a1f",
+    "apps/desktop/mygo/main.go": "9bf3e964668098202c547d44ac2eb37383ebaf3affe0f80e54c7b1c26cc23d6f",
+    "apps/desktop/mygo/transport.go": "89ccc40e17c3d2524ae17f04457b15bf6d9be787f57e651b625765ce76614dff",
+    "apps/desktop/mygo/preload.js": "5a1ff802d62bfe7afcc1f597a70d21f35fd1f2f7e6a5b19f87c15b8ea50839a6",
+    "apps/desktop/mygo/go.mod": "07270297964cabbbfb7605f0df4cf2f33fd421276e8a12e4bf360259b80a42de",
+    "apps/desktop/mygo/go.sum": "06f153f7341f914a77d9355db262d4f47572e4262b1f911e3a3b135be4a1ef02"
+  }
+}

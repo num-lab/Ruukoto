@@ -1,0 +1,4 @@
+{"setup": {"exit": 0, "seconds": 84.963}}
+{"tests": {"exit": 0, "seconds": 30.755}}
+{"build": {"exit": 0, "seconds": 1.624}}
+{"scope": "09 initial Linux snapshot; final workspace matching requires later freeze comparison", "source_before_exit": 0, "runtime_before_exit": 0, "setup": {"exit": 0, "seconds": 84.963}, "tests": {"exit": 0, "seconds": 30.755}, "build": {"exit": 0, "seconds": 1.624}, "source_after_exit": 1, "runtime_after_exit": 1}

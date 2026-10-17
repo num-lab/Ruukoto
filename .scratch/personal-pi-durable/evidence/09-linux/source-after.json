@@ -1,0 +1,32 @@
+{
+  "checked_files": 1354,
+  "unchanged": false,
+  "failures": [
+    {
+      "path": "apps/ruukoto-code/bin/ruukoto-code.mjs",
+      "expected": {
+        "kind": "file",
+        "sha256": "b7de568669cfdc2d2683119ba220427194efe5ba709e8540822534c7668329cf",
+        "mode": 493
+      },
+      "actual": {
+        "kind": "file",
+        "sha256": "b7de568669cfdc2d2683119ba220427194efe5ba709e8540822534c7668329cf",
+        "mode": 509
+      }
+    },
+    {
+      "path": "apps/ruukoto/bin/ruukoto.mjs",
+      "expected": {
+        "kind": "file",
+        "sha256": "b8c1f88d1b2af51132a8ec794dc24f805b2f4e08caac53a11eada97a3fd3fb83",
+        "mode": 493
+      },
+      "actual": {
+        "kind": "file",
+        "sha256": "b8c1f88d1b2af51132a8ec794dc24f805b2f4e08caac53a11eada97a3fd3fb83",
+        "mode": 509
+      }
+    }
+  ]
+}

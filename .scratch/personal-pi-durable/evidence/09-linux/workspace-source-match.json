@@ -1,0 +1,130 @@
+{
+  "snapshot_files": 1354,
+  "workspace_files": 1354,
+  "matches": false,
+  "added": [
+    ".agents/notes/implemented/architecture/2026-10-17-personal-service-configuration.md"
+  ],
+  "removed": [
+    ".agents/notes/proposed/architecture/2026-10-17-personal-service-configuration.md"
+  ],
+  "changed": [
+    {
+      "path": ".agents/notes/implemented/architecture/2026-10-17-personal-local-management.md",
+      "snapshot": {
+        "kind": "file",
+        "sha256": "1accf6023ce1ca23c3c4037e4611336c3bce139889a2e25b8a9f8e152a8921a0",
+        "mode": 420
+      },
+      "workspace": {
+        "kind": "file",
+        "sha256": "4475c701fa08ab053c053fded113e9f175208c331e3fe783fac4a219c1bd6b07",
+        "mode": 420
+      }
+    },
+    {
+      "path": ".agents/notes/implemented/architecture/2026-10-17-personal-service-inspect.md",
+      "snapshot": {
+        "kind": "file",
+        "sha256": "076b6c1026eece5324113dc5d21a476ae068467ad26b858d49e568a0eadb7015",
+        "mode": 420
+      },
+      "workspace": {
+        "kind": "file",
+        "sha256": "470ed936c30c7c6cf711c86390a68cc4b9e3022f43f929fcb4132b9a4a699ba4",
+        "mode": 420
+      }
+    },
+    {
+      "path": ".agents/notes/implemented/architecture/2026-10-17-personal-service-operations.md",
+      "snapshot": {
+        "kind": "file",
+        "sha256": "8794a7a14b944d4f365ee46cdb0a08f96ffcad343212c49ca8f516f5e55e5496",
+        "mode": 420
+      },
+      "workspace": {
+        "kind": "file",
+        "sha256": "17b078f8eef54bb8402c17c434dea79dd8880f5c09cdb9b8baabc1f1648438c5",
+        "mode": 420
+      }
+    },
+    {
+      "path": ".scratch/personal-pi-durable/issues/09-service-configuration.md",
+      "snapshot": {
+        "kind": "file",
+        "sha256": "5d5997079a4ac378c113b9a6c7ef45b7f628c4295dd1ac5ababcd9cb94253a42",
+        "mode": 420
+      },
+      "workspace": {
+        "kind": "file",
+        "sha256": "024a521cfc327efaf3cbacdadc4d3732410ed2299416f01709de8ee08371921e",
+        "mode": 420
+      }
+    },
+    {
+      "path": "README.md",
+      "snapshot": {
+        "kind": "file",
+        "sha256": "6a9e64319c35e833eec592afa14569ea0611d10e51715f913f6ec828d6df6721",
+        "mode": 420
+      },
+      "workspace": {
+        "kind": "file",
+        "sha256": "1a4b04679263afb9828866a4453454d6deff994a590d7be92819a67f4152cccd",
+        "mode": 420
+      }
+    },
+    {
+      "path": "docs/development.md",
+      "snapshot": {
+        "kind": "file",
+        "sha256": "6d12a1a1be5e55e2e3c39767fc11755616aded169b45fc0b8044774e0212e496",
+        "mode": 420
+      },
+      "workspace": {
+        "kind": "file",
+        "sha256": "11c00ce13928018ec81d0ccedd25f53d64915ea1bfef4d71d269b1525e2a0aec",
+        "mode": 420
+      }
+    },
+    {
+      "path": "docs/modules/personal-durable.md",
+      "snapshot": {
+        "kind": "file",
+        "sha256": "97080e24e3555858e0bfe1af238a2ee1d1a801a5953f87df7d7ef161252aa603",
+        "mode": 420
+      },
+      "workspace": {
+        "kind": "file",
+        "sha256": "9baa5ac74634c16b5b6f5f4aa85a81a495ce0366415ddba4ab96683fd52bfb83",
+        "mode": 420
+      }
+    },
+    {
+      "path": "docs/modules/products.md",
+      "snapshot": {
+        "kind": "file",
+        "sha256": "c225d1aea3fed1e77ed226446cf5ee434d237d6d37fd8dd3947d905ef1798cbd",
+        "mode": 420
+      },
+      "workspace": {
+        "kind": "file",
+        "sha256": "ab3c8a8f97491d022e6589c5d1db2be95bfdfb809eeefff6bd51a25b4cefbcf0",
+        "mode": 420
+      }
+    },
+    {
+      "path": "docs/usage.md",
+      "snapshot": {
+        "kind": "file",
+        "sha256": "cc8db87177cef0224a8dd7eecdbc9f342a2806531c3d67d25c866550cac74c6c",
+        "mode": 420
+      },
+      "workspace": {
+        "kind": "file",
+        "sha256": "585407e89c50fd97815eccb6dfdba62c5ec642742ba14fcd12b8edfedba52a81",
+        "mode": 420
+      }
+    }
+  ]
+}

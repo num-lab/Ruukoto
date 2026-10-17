@@ -4,6 +4,8 @@ Status: proposed
 
 拥有者已通过本次 Q1–Q18 访谈确认产品取舍，并在 Q19 确认完整方案；独立方案审查无未解决阻断。本文不表示已经迁移实现。有效要求与验收见[迁移规格](../../../../.scratch/personal-pi-durable/spec.md)，交接见[方案工单](../../../../.scratch/personal-pi-durable/issues/01-migration-plan.md)。
 
+以 `f2e05fc` 复评后的[剩余工单与验收分工](../../../../.scratch/personal-pi-durable/remaining-work.md)承接本决定：当前真实流程先行验证，能力补齐后隔离验证正式制品，再执行完整验收及生产接管；不改变产品范围或降低恢复要求。
+
 [档案与请求证据基础](../../implemented/architecture/2026-10-17-personal-durable-foundation.md)已作为隔离 API 实现；[服务检查](../../implemented/architecture/2026-10-17-personal-service-inspect.md)增加只读外部调用；[后台工作](../../implemented/architecture/2026-10-17-personal-background-work.md)提供空工具长期子会话及宿主生命周期 API；[模型工作入口](../../implemented/architecture/2026-10-17-personal-model-work.md)接通主会话的委派、查询和工作取消/身份关闭；[服务操作](../../implemented/architecture/2026-10-17-personal-service-operations.md)提供独立后台服务工作、单次审批及效果/停止核实。[Telegram 文本入口](../../implemented/architecture/2026-10-17-personal-telegram-entry.md)接入隔离向导的配对、固定来源与回复。[原入口服务权限](../../implemented/architecture/2026-10-17-personal-telegram-permissions.md)接通 Telegram 权限快照、宿主审批与限定长期授权。[子服务工作](../../implemented/architecture/2026-10-17-personal-subagent-service-operations.md)将受控 restart 接到原工作权限、取消与未知效果收尾。正式入口与其余能力仍按本方案推进，不能据此将迁移标为完成。
 
 ## 问题

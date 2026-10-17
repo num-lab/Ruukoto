@@ -2,19 +2,19 @@
 
 ## 职责与边界
 
-`apps/ruukoto/src/personal-*.ts` 提供独立的 Pi 1.3.0 会话、本机引导管理及后台工作宿主 API，只用于隔离验证。正式个人 bin、根启动脚本、开发启动器与部署入口使用[产品装配](products.md)中的共享运行时；本机向导仍为空工具会话；可信宿主 API 可单独启用主会话只读服务检查，子会话固定空工具；可经隔离向导配对 Telegram 文本私聊，没有模型写工具。可信宿主还可显式启用独立服务操作，Telegram 持有原入口审批、权限快照和精确长期授权。
+`apps/ruukoto/src/personal-*.ts` 提供独立的 Pi 1.3.0 会话、本机引导管理及后台工作宿主 API，只用于隔离验证。正式个人 bin、根启动脚本、开发启动器与部署入口使用[产品装配](products.md)中的共享运行时；本机向导可在 Linux 配置主会话只读服务检查，可信宿主 API 也可显式注入，子会话固定空工具；可经隔离向导配对 Telegram 文本私聊，没有模型写工具。可信宿主还可显式启用独立服务操作，Telegram 持有原入口审批、权限快照和精确长期授权。
 
 ## 对外接口
 
 `openPersonalHarness` 接受独立目录或已持有的 `PersonalProfileLock`、provider 与模型，接管锁的释放责任，返回主会话、Harness、提交、等待回答与关闭方法；可用 `beforeUnlock` 在放锁前收齐管理接口。可选 `service` 接受宿主固定的 helper 配置，安装 `service_inspect` 与 `read_service_inspection`，模型只能指定白名单内精确单元名或本会话的证据编号。提交键由调用方保持稳定，用于 durable 会话内去重。`parsePersonalModel` 校验模型配置，`personalProvider` 按环境变量名读取凭据。个人 Pi 1.3.0 对象不传给 Coding 的 Pi 0.85.1。
 
-`startPersonalServer` 独占后台，HTTP 仅监听档案内 Unix socket，经本地令牌逐次认证；提供 `/status`、`/messages`、`/inputs`、`/input`、`/telegram` 和 `/stop`。`personalControl` 为 CLI 调用；CLI 不重开 Harness。引导与前台托管见[操作手册](../usage.md#25-个人-durable-隔离向导)。
+`startPersonalServer` 独占后台，HTTP 仅监听档案内 Unix socket，经本地令牌逐次认证；提供 `/status`、`/messages`、`/inputs`、`/input`、`/telegram` 和 `/stop`；状态的服务开关只表示能力已装配，不代表 helper 可用或业务健康。`personalControl` 为 CLI 调用；CLI 不重开 Harness。引导与前台托管见[操作手册](../usage.md#25-个人-durable-隔离向导)。
 
 可信宿主使用返回的 `work.delegate` 委派或复用长期子 Agent，`list/status` 查询身份和原生工作进度，`cancel` 等待取消核实，`closeAgent` 关闭空闲身份。首次委派可给名称；已有身份通过具名工作引用管理。来源须引用已进入主会话的拥有者输入请求；同工作键异参拒绝。此 API 不装配模型委派工具，不接受追加说明，不自动外发结果；本机接口和向导尚无工作操作选项。
 
 `serviceOperations: true` 另启用宿主 `service` API：`request` 以原拥有者输入建立独立后台 restart 工作，`list/status` 查询原生 Task 和操作事实，`decide/cancel/resolve/recheckStop` 决定原审批、取消或核实效果与停止。模式固定于创建，默认自动审查；无有效长期授权时，自动审查与请求确认的服务写入等人工批准，完全访问免逐次审批。此 API 不通过本机 HTTP/CLI 暴露。Telegram 来源强制使用原收件的模式，不能由 API 扩大；其审批只能通过原 Telegram 宿主菜单决定。历史本机可信 API 仍显式提供模式与单次决定，不能冒充 Telegram 来源。
 
-`telegram` 配置启用固定拥有者文本入口；返回的 `telegram.receive/poll/status` 分别持久接收平台更新、管理可中止轮询、查询连接和最近 16 条收发。后台仅以配对的 bot/私聊拥有者收件，所有输入使用同一 main；普通直发收件保存当时模式/权限版本；`/权限` 管理以后新 Telegram 输入的模式，`/审批`、`/服务状态` 与 `/授权` 查询和管理服务工作。回复已发送宿主菜单选择动作，不要求输入内部键；控制消息不进入模型，也不等待聊天。服务请求仍需可信宿主 API，向导尚无服务配置和模型写工具。配置、配对和停用见[操作手册](../usage.md#25-个人-durable-隔离向导)。
+`telegram` 配置启用固定拥有者文本入口；返回的 `telegram.receive/poll/status` 分别持久接收平台更新、管理可中止轮询、查询连接和最近 16 条收发。后台仅以配对的 bot/私聊拥有者收件，所有输入使用同一 main；普通直发收件保存当时模式/权限版本；`/权限` 管理以后新 Telegram 输入的模式，`/审批`、`/服务状态` 与 `/授权` 查询和管理服务工作。回复已发送宿主菜单选择动作，不要求输入内部键；控制消息不进入模型，也不等待聊天。服务请求仍需可信宿主 API，模型写工具尚未接入。配置、配对和停用见[操作手册](../usage.md#25-个人-durable-隔离向导)。
 
 ## 数据与状态
 
@@ -23,6 +23,8 @@
 `ruukoto.service-config` document 保存 helper/sudo/策略路径与 useSudo 的指纹，`personal-service-inspect` 扩展名写入会话；旧程序缺此扩展即拒绝。`ruukoto.service-inspection` entry 保存检查目标、错误码、base64 编码的原始 stdout/stderr 与截断标记；它没有模型正文，只在读取工具结果中按需进入上下文。
 
 `ruukoto.subagents` 保存长期 ownerless Conversation 的身份、名称、关闭事实与单工作占用；`ruukoto.work` 按请求键保存内容指纹、拥有者来源、Task/Submission 引用及取消事实。每项工作是主会话拥有的 background `ruukoto.background-work` Task，状态与结果以原生 Task/Submission 为准，结果留在子会话。子会话显式选择模型、`personal-subagent` 提示、工作任务扩展及空工具，主会话的服务检查不下放。
+
+`service.json` 保存版本与固定 helper/策略/sudo 绝对路径，生产固定通过 sudo，不接收旧环境中的服务配置、替身开关或测试超时。停机向导首次启用、查看和保留原配置，不提供变更/停用；文件存在本身不代表已成功装配。
 
 `model.json` 只保存模型配置与凭据环境变量名，临时文件加 rename 保存；`control.token` 每次启动轮换，`control.sock` 只在后台持锁时清理，`backend.log` 保存后台诊断。`pending-<UUID>.json` 是客户端发送前独占创建的原键/正文，多个 CLI 不覆盖彼此；核实原 submission 后只删对应文件。它不镜像执行状态，也不授予执行资格。
 
@@ -34,7 +36,7 @@
 
 ## 主要流程
 
-启动先拒绝旧目录和链接文件，取得 SQLite EXCLUSIVE 锁并核对档案标记，再打开存储、核对业务格式与每个会话的扩展引用，最后打开 Harness 并检查 live Task 版本。检查完成才恢复调度。主会话显式选择模型、个人提示及工具；未提供服务配置时为空工具。已有空闲会话可更新模型或启用服务检查，有未完成输入/任务时拒绝增加工具或换模型恢复。已启用检查的档案缺配置、指纹变化、配置版本不支持或记录缺失均在恢复前拒绝。
+启动先拒绝旧目录和链接文件，取得 SQLite EXCLUSIVE 锁并核对档案标记，再打开存储、核对业务格式与每个会话的扩展引用，最后打开 Harness 并检查 live Task 版本。检查完成才恢复调度。主会话显式选择模型、个人提示及工具；未提供服务配置时为空工具。已有空闲会话可更新模型或启用服务检查，有未完成输入/任务时拒绝增加工具或换模型恢复。首次保存服务配置前，持锁通过 Storage 核实业务格式、已有配置指纹与未完成工作，不启动 Harness 或提交业务记录；只读服务档案新增操作能力同样检查。已有指纹与操作配置匹配时允许恢复缺失文件。Harness 的首次服务启用检查先于新授权记录提交，拒绝后仍能用原配置启动。已启用检查的档案缺配置、指纹变化、配置版本不支持或记录缺失均在恢复前拒绝。
 
 提交先由 durable 持久化，再生成回答；同键重投返回原 submission。每次调用 provider 前保存规范化输入，实际 API 发出 HTTP 前保存最终请求体。请求证据通过持久 ProviderDoc.sessionId 唯一定位实际会话，生成和压缩都写入该会话。回答只从已完整结束的 assistant entry 读取；进程重开恢复原会话与尚未完成的输入。
 
@@ -58,7 +60,7 @@ Telegram 控制消息按原始完整正文分类，回复关系只定位同 bot/
 
 请求体 128 KiB、消息正文 16 KiB、应答 256 KiB；客户端总时限 5 秒，后台收件 10 秒、闲置 15 秒。最近记录扫描 64 条 entry、显示最多 16 条消息，每条最多 8192 字符并标截断/中断；不返回输入证据或堆栈。终端输出过滤控制字符。
 
-服务检查 stdout/stderr 总计最多 1 MiB，超限停止检查并明确标记部分证据；畸形应答、多条前缀、目标或状态字段不符均报错，不把它们当状态。证据写入失败关闭 Harness，不能报告成功。服务配置不由模型、工具参数或本机消息正文决定；服务重启仅通过另行启用的可信宿主 API。
+服务检查 stdout/stderr 总计最多 1 MiB，超限停止检查并明确标记部分证据；畸形应答、多条前缀、目标或状态字段不符均报错，不把它们当状态。证据写入失败关闭 Harness，不能报告成功。服务配置仅由持锁的宿主 API 或停机向导提供，不由模型、工具参数或本机消息正文决定；服务重启仅通过另行启用的可信宿主 API。
 
 仅使用新的隔离目录，不能以此 API 浏览或恢复旧个人档案。SQLite WAL/NORMAL 支持进程崩溃恢复，不保证断电时最近提交保留。服务检查为无写入效果工具，可在中断后安全重跑并得到新的观察；服务操作另按开始事实保守恢复，不将只读重跑规则用于 restart。
 
@@ -81,3 +83,5 @@ Telegram 数值 offset 只在一批更新收到后 60 秒内用于紧接的一�
 - [个人 Telegram 收件与固定回复由 durable 任务衔接](../../.agents/notes/implemented/architecture/2026-10-17-personal-telegram-entry.md)
 
 - [Telegram 原收件与服务权限](../../.agents/notes/implemented/architecture/2026-10-17-personal-telegram-permissions.md)
+
+- [个人隔离向导固定服务配置](../../.agents/notes/implemented/architecture/2026-10-17-personal-service-configuration.md)

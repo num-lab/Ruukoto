@@ -12,6 +12,8 @@ import { parsePersonalInput, personalControl, startPersonalServer, type Personal
 import { parsePersonalTelegram, readPersonalTelegram, savePersonalTelegram, telegramToken } from "./personal-telegram-config.ts";
 import { personalTelegramApi, telegramOffset, telegramText } from "./personal-telegram-api.ts";
 import type { PersonalHarness } from "./personal-harness.ts";
+import { readPersonalServices, savePersonalServices } from "./personal-service-config.ts";
+import { personalServiceConfig } from "./personal-services.ts";
 
 export type PersonalCliIO = { question(prompt: string): Promise<string>; write(text: string): void };
 
@@ -58,6 +60,8 @@ export async function launchPersonalServer(directory: string): Promise<void> {
     const modelCredential = readPersonalConfig(profile).apiKeyEnv;
     if (!process.env[modelCredential]) throw new PersonalError("model_credentials_missing", "请先设置模型凭据环境变量，再启动隔离后台。");
     const telegram = readPersonalTelegram(profile);
+    const services = readPersonalServices(profile);
+    if (services) personalServiceConfig({ ...services, useSudo: true });
     if (telegram?.enabled) telegramToken(telegram);
     credential = [modelCredential, ...(telegram?.enabled ? [telegram.tokenEnv] : [])];
     log = fs.openSync(path.join(directory, "backend.log"), "a", 0o600);
@@ -167,17 +171,39 @@ async function recoverInputs(io: PersonalCliIO, directory: string) {
   return true;
 }
 
+export async function configurePersonalServices(io: PersonalCliIO, directory: string): Promise<void> {
+  const profile = lockPersonalProfile(directory);
+  try {
+    const current = readPersonalServices(profile);
+    if (current) {
+      io.write(`服务配置已固定：\nhelper：${current.helperPath}\n策略：${current.policyPath}\nsudo：${current.sudoPath}\n生产通过 sudo 调用。保留原配置供恢复；其他部署请使用新隔离档案。\n`);
+      return;
+    }
+    if (process.platform !== "linux") throw new PersonalError("service_platform_unsupported", "服务能力需要 Linux；请在隔离 Linux 实例运行此向导。");
+    io.write("先按部署说明安装受控 helper 与白名单。本向导只保存连接配置，不安装服务或修改 sudoers；启用后保留原路径供恢复。输入 /back 返回。\n");
+    const values: string[] = [];
+    for (const [label, fallback] of [["helper", "/usr/local/libexec/ruukoto/ruukoto-service"], ["策略", "/etc/ruukoto/services.json"], ["sudo", "/usr/bin/sudo"]]) {
+      const value = (await io.question(`${label} 绝对路径（默认 ${fallback}）：`)).trim();
+      if (value === "/back") return;
+      values.push(value || fallback);
+    }
+    if (await choose(io, "启用只读服务检查与宿主审批；模型写工具仍待接入", ["返回", "保存并启用"]) === 0) return;
+    await savePersonalServices(profile, { version: 1, helperPath: values[0], policyPath: values[1], sudoPath: values[2] });
+    io.write("服务配置已保存。启动后台后查看装配状态；配置不代表 helper 可用或服务健康，实际检查由白名单与部署核实。\n");
+  } finally { profile.release(); }
+}
+
 export async function personalMenu(directory: string, io: PersonalCliIO): Promise<void> {
-  io.write(`个人 durable 隔离实例\n档案：${directory}\n提供主会话与可选 Telegram 文本入口；权限和业务工具继续实施。\n`);
+  io.write(`个人 durable 隔离实例\n档案：${directory}\n提供主会话、可选 Telegram 文本入口及 Linux 服务检查；模型写工具继续实施。\n`);
   while (true) {
-    const selected = await choose(io, "个人实例", ["配置模型（后台须停止）", "启动隔离后台", "查看状态", "发送消息", "查看最近消息", "核实上次提交", "停止隔离后台", "配置 Telegram（后台须停止）", "查看 Telegram 收发", "退出向导（后台继续运行）"]);
+    const selected = await choose(io, "个人实例", ["配置模型（后台须停止）", "启动隔离后台", "查看状态", "发送消息", "查看最近消息", "核实上次提交", "停止隔离后台", "配置 Telegram（后台须停止）", "查看 Telegram 收发", "退出向导（后台继续运行）", "配置或查看服务（后台须停止）"]);
     if (selected === 9) return;
     try {
       if (selected === 0) await configure(io, directory);
       else if (selected === 1) { await launchPersonalServer(directory); io.write("隔离后台已启动。\n"); }
       else if (selected === 2) {
         const status = await personalControl<PersonalStatus>(directory, "GET", "/status");
-        io.write(`后台在线；模型：${status.model}；未完成输入：${status.inputs}；活动任务：${status.tasks}。\n`);
+        io.write(`后台在线；模型：${status.model}；未完成输入：${status.inputs}；活动任务：${status.tasks}；服务检查与宿主审批：${status.services ? "已装配" : "未装配"}。\n`);
       } else if (selected === 3) {
         if (!(await recoverInputs(io, directory))) continue;
         const message = await io.question("消息（输入 /back 返回）：");
@@ -196,6 +222,7 @@ export async function personalMenu(directory: string, io: PersonalCliIO): Promis
         const action = await choose(io, "停止后台会暂停处理，未完成输入保留供下次恢复", ["返回", "停止隔离后台"]);
         if (action === 1) { await personalControl(directory, "POST", "/stop"); io.write("已请求停止，请等待后台释放档案；连接断开本身不证明已停止。\n"); }
       } else if (selected === 7) await configurePersonalTelegram(io, directory);
+      else if (selected === 10) await configurePersonalServices(io, directory);
       else {
         const state = await personalControl<Awaited<ReturnType<PersonalHarness["telegram"]["status"]>>>(directory, "GET", "/telegram");
         const labels = { waiting: "等待回答", pending: "等待发送", sending: "发送中，尚未核实", sent: "已发送", failed: "平台明确拒绝", effect_unknown: "发送效果未知，不自动重发", canceled: "已取消发送", unanswered: "未获得完整回答" };

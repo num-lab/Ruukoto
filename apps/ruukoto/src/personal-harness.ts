@@ -167,10 +167,11 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     void unlocked.catch(() => process.stderr.write("[ruukoto:personal] 本机管理接口未能停止，实例锁仍保留；请检查后台并核实停止。\n"));
     const inspection = await harness.inspect(context);
     if (inspection.tasks.some(task => task.state.kind === "blocked" || registry.snapshot().task(task.record.kind)?.definition.version !== task.record.version)) throw new PersonalError("task_version", "档案中有当前程序无法恢复的任务，已停止恢复，请使用对应版本。");
+    // 首次启用检查先于新授权记录提交，拒绝后仍能用原配置恢复。
+    if (((service && !savedService) || (operations && !operationConfig)) && (inspection.tasks.length || inspection.submissions.length)) throw new PersonalError("service_config_pending", "个人档案仍有未完成输入，请先用原配置完成处理，再启用服务能力。");
     await harness.commit(tx => verifyPersonalTelegram(tx, telegramKeys, telegramConfig), context);
     await harness.commit(tx => verifyServiceOperationRecords(tx, operationKeys), context);
     if (operations) await harness.commit(tx => verifyServiceGrants(tx, operationKeys), context);
-    if (service && !savedService && (inspection.tasks.length || inspection.submissions.length)) throw new PersonalError("service_config_pending", "个人档案仍有未完成输入，请先用原空工具配置完成处理，再启用服务检查。");
     if (savedIndex) await harness.commit(async tx => {
       const index = await tx.doc(PersonalAgentsDoc);
       if (new Set(index.agents.map(agent => agent.id)).size !== index.agents.length || childIds.length !== index.agents.length || childIds.some(id => !index.agents.some(agent => agent.id === id))) throw new PersonalError("work_index_missing", "长期子会话与身份索引不符，已停止恢复；请保留档案并检查存储。");

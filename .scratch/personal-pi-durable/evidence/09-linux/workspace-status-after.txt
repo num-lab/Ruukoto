@@ -1,0 +1,18 @@
+ M .agents/notes/implemented/architecture/2026-10-17-personal-local-management.md
+ M .agents/notes/implemented/architecture/2026-10-17-personal-service-inspect.md
+ M .agents/notes/implemented/architecture/2026-10-17-personal-service-operations.md
+ M README.md
+ M apps/ruukoto/src/personal-cli.ts
+ M apps/ruukoto/src/personal-control.ts
+ M apps/ruukoto/src/personal-harness.ts
+ M apps/ruukoto/src/personal-profile.ts
+ M docs/development.md
+ M docs/modules/personal-durable.md
+ M docs/modules/products.md
+ M docs/usage.md
+ M test/personal-cli.test.ts
+?? .agents/notes/implemented/architecture/2026-10-17-personal-service-configuration.md
+?? .scratch/personal-pi-durable/evidence/09-linux/
+?? .scratch/personal-pi-durable/evidence/09-macos/
+?? .scratch/personal-pi-durable/issues/09-service-configuration.md
+?? apps/ruukoto/src/personal-service-config.ts

@@ -11,6 +11,7 @@ import { lockPersonalProfile } from "./personal-profile.ts";
 import { readPersonalConfig } from "./personal-config.ts";
 import { PersonalError } from "./personal-error.ts";
 import { readPersonalTelegram } from "./personal-telegram-config.ts";
+import { readPersonalServices } from "./personal-service-config.ts";
 
 const context = BACKGROUND_CONTEXT;
 const MAX_REQUEST = 128 * 1024;
@@ -18,7 +19,7 @@ const MAX_RESPONSE = 256 * 1024;
 export const PERSONAL_REQUEST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 export type PersonalInput = { requestId: string; input: string };
 export type PersonalInputStatus = { status: "queued" | "placed" | "done" | "unanswered" | "missing"; answer?: string; truncated?: boolean };
-export type PersonalStatus = { model: string; tasks: number; inputs: number };
+export type PersonalStatus = { model: string; tasks: number; inputs: number; services: boolean };
 export type PersonalMessage = { role: "user" | "assistant"; text: string; partial: boolean; truncated: boolean };
 export const LocalInputDoc = defineDocFamily({ kind: "ruukoto.local-input", scope: "session", version: 1, family: true, initial: (digest: string) => ({ digest }) });
 
@@ -75,6 +76,7 @@ export async function startPersonalServer(directory: string) {
   try {
     const config = readPersonalConfig(profile);
     const telegram = readPersonalTelegram(profile);
+    const services = readPersonalServices(profile);
     if (!process.env[config.apiKeyEnv]) throw new PersonalError("model_credentials_missing", "模型凭据环境变量尚未设置，请设置后再启动隔离后台。");
     if (fs.existsSync(path.join(directory, "control.token"))) readPersonalToken(directory);
     if (Buffer.byteLength(socketPath) > 100) throw new PersonalError("control_path_long", "隔离档案路径过长，请用较短的新目录启动。");
@@ -85,7 +87,7 @@ export async function startPersonalServer(directory: string) {
     server.listen(socketPath);
     await once(server, "listening");
     fs.chmodSync(socketPath, 0o600);
-    personal = await openPersonalHarness({ profile, provider: personalProvider(config), modelId: config.modelId, telegram, beforeUnlock: closeListener });
+    personal = await openPersonalHarness({ profile, provider: personalProvider(config), modelId: config.modelId, telegram, ...(services ? { service: { ...services, useSudo: true }, serviceOperations: true } : {}), beforeUnlock: closeListener });
     const instance = personal;
     telegramLoop = instance.telegram.poll(telegramStop.signal).catch(() => { process.stderr.write("[ruukoto:personal] Telegram 收件已停止，请查询状态并检查档案；未自动重启。\n"); });
     const respond = (res: http.ServerResponse, status: number, result: unknown) => {
@@ -106,7 +108,7 @@ export async function startPersonalServer(directory: string) {
         let result: unknown;
         if (req.method === "GET" && url.pathname === "/status") {
           const live = await instance.harness.inspect(context);
-          result = { model: config.modelId, tasks: live.tasks.length, inputs: live.submissions.length } satisfies PersonalStatus;
+          result = { model: config.modelId, tasks: live.tasks.length, inputs: live.submissions.length, services: !!services } satisfies PersonalStatus;
         } else if (req.method === "GET" && url.pathname === "/messages") {
           const entries = await instance.main.entries({}, 64, undefined, context);
           result = entries.items.map(text).filter(item => item !== undefined).slice(0, 16).reverse();

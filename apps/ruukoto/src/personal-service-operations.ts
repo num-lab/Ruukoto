@@ -83,7 +83,7 @@ function classify(reply: HelperReply | undefined, op: Operation): Effect {
 
 function unresolved(op: Operation) { return op.consumed && (!op.result || (op.result.effect === "effect_unknown" && (!op.resolution || !op.launcherStopped))); }
 
-export async function requirePersonalServiceSourceReady(tx: Tx, sourceRequestId: string) {
+export async function personalServiceSourceBlocker(tx: Tx, sourceRequestId: string) {
   let cursor: Cursor | undefined;
   do {
     const page = await tx.scanTasks({ kind: "ruukoto.service-operation" }, 256, cursor);
@@ -91,10 +91,14 @@ export async function requirePersonalServiceSourceReady(tx: Tx, sourceRequestId:
       const key = task.input && typeof task.input === "object" && !Array.isArray(task.input) && task.input.requestId;
       if (typeof key !== "string") throw new PersonalError("service_operation_missing", "服务操作缺少来源记录，已停止委派；请保留档案。");
       const value = await operation(tx, { requestId: key, taskId: task.id });
-      if (value.source.requestId === sourceRequestId && unresolved(value)) throw new PersonalError("work_source_paused", "原工作有尚未核实的服务效果或停止状态，已暂停委派和子模型请求；请向拥有者报告并核实原操作，不要换工作重试。");
+      if (value.source.requestId === sourceRequestId && unresolved(value)) return key;
     }
     cursor = page.next;
   } while (cursor);
+}
+
+export async function requirePersonalServiceSourceReady(tx: Tx, sourceRequestId: string) {
+  if (await personalServiceSourceBlocker(tx, sourceRequestId)) throw new PersonalError("work_source_paused", "原工作有尚未核实的服务效果或停止状态，已暂停委派和子模型请求；请向拥有者报告并核实原操作，不要换工作重试。");
 }
 
 function stopped(reply: HelperReply | undefined, op: Operation) {

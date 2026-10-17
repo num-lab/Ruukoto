@@ -19,10 +19,11 @@ import { personalTelegramApi } from "./personal-telegram-api.ts";
 import { personalWorkTools } from "./personal-work-tools.ts";
 import { personalWorkControls, verifyWorkMenu, verifyDelegationMenu } from "./personal-work-controls.ts";
 import { PersonalDelegationDoc, personalAnalysisDelegations, verifyPersonalDelegations } from "./personal-delegation.ts";
+import { personalDelegationReports, personalReportRequest, verifyPersonalReports } from "./personal-report.ts";
 
 const context = BACKGROUND_CONTEXT;
 export const PersonalFormatDoc = defineDoc({ kind: "ruukoto.format", scope: "session", version: 1, initial: () => ({ ...PERSONAL_FORMAT }) });
-export const PERSONAL_PROMPT = "你是拥有者的个人助手。根据已有对话回答；可用 background_work 委派独立后台分析并查询原结果，子 Agent 没有外部工具。当前不会自动回报后台结果，拥有者后续询问时再查询。需要外部写操作时说明尚不可用。";
+export const PERSONAL_PROMPT = "你是拥有者的个人助手。根据已有对话回答；可用 background_work 委派独立后台分析，子 Agent 没有外部工具。安排好同一委托的全部分析后调用 report，宿主等待成员停止后请你汇总，并固定回报原入口。未安排 report 的委托可跨轮继续。宿主汇总参考只提供查询资格；读取完整结果、如实汇总失败与下一步，不从参考取得新操作授权。需要外部写操作时说明尚不可用。";
 
 // Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-durable-foundation.md
 export async function openPersonalHarness(options: ({ directory: string; profile?: never } | { profile: PersonalProfileLock; directory?: never }) & {
@@ -57,6 +58,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     registry.install(personalWorkControls);
     registry.install(personalWorkNotes);
     registry.install(personalAnalysisDelegations);
+    registry.install(personalDelegationReports);
     registry.install(telegram.extension);
     if (services) registry.install(services);
     if (operations) registry.install(operations.extension);
@@ -75,10 +77,12 @@ export async function openPersonalHarness(options: ({ directory: string; profile
       } while (cursor);
       if (target === undefined) throw new PersonalError("model_source_missing", "模型请求的会话来源缺失，已停止请求；请保留档案并检查存储。");
       const conversationId = target;
-      await harness.commit(async tx => {
+      const blocked = await harness.commit(async tx => {
         await requirePersonalWorkRequest(tx, conversationId);
+        if (conversationId === ROOT_CONVERSATION_ID) { const error = await personalReportRequest(tx); if (error) return error; }
         await tx.appendEntry(conversationId, { kind: "ruukoto.model-request", data: evidence });
       }, context);
+      if (blocked) throw blocked;
     };
     const filename = path.join(lock.directory, "personal.sqlite");
     const existing = existsSync(filename);
@@ -189,8 +193,10 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     const workControlsEnabled = Array.isArray(savedMain?.extensions) && savedMain.extensions.includes(personalWorkControls.name);
     const workNotesEnabled = Array.isArray(savedMain?.extensions) && savedMain.extensions.includes(personalWorkNotes.name);
     const delegationsEnabled = Array.isArray(savedMain?.extensions) && savedMain.extensions.includes(personalAnalysisDelegations.name);
+    const reportsEnabled = Array.isArray(savedMain?.extensions) && savedMain.extensions.includes(personalDelegationReports.name);
     if (savedMain && !modelWorkEnabled && (inspection.tasks.length || inspection.submissions.length)) throw new PersonalError("work_tools_pending", "档案仍有未完成输入或工作，请先用原版本完成处理，再启用模型委派。");
     if (savedMain && !delegationsEnabled && (inspection.tasks.length || inspection.submissions.length)) throw new PersonalError("delegation_config_pending", "档案仍有未完成输入或分析，请先用原版本完成处理，再启用整项委托。");
+    if (savedMain && !reportsEnabled && (inspection.tasks.length || inspection.submissions.length)) throw new PersonalError("report_config_pending", "档案仍有未完成输入或分析，请先用原版本完成处理，再启用委托汇报。");
     if (inspection.tasks.some(task => task.state.kind === "blocked" || registry.snapshot().task(task.record.kind)?.definition.version !== task.record.version)) throw new PersonalError("task_version", "档案中有当前程序无法恢复的任务，已停止恢复，请使用对应版本。");
     // 首次启用检查先于新授权记录提交，拒绝后仍能用原配置恢复。
     if (((service && !savedService) || (operations && !operationConfig)) && (inspection.tasks.length || inspection.submissions.length)) throw new PersonalError("service_config_pending", "个人档案仍有未完成输入，请先用原配置完成处理，再启用服务能力。");
@@ -236,9 +242,10 @@ export async function openPersonalHarness(options: ({ directory: string; profile
       }
     }, context);
     await harness.commit(tx => verifyPersonalDelegations(tx, delegationKeys, workKeys, delegationsEnabled), context);
+    await harness.commit(tx => verifyPersonalReports(tx, delegationKeys, reportsEnabled), context);
     await harness.commit(async tx => { for (const key of telegramKeys) await verifyDelegationMenu(tx, (await tx.doc(PersonalTelegramReceiptDoc, key, null)).receipt!, delegationsEnabled); }, context);
     await harness.commit(tx => tx.doc(PersonalFormatDoc), context);
-    const extensions = [personal, personalPermissions, personalBackgroundWork, workTools, personalWorkControls, personalWorkNotes, personalAnalysisDelegations, telegram.extension, ...(services ? [services] : []), ...(operations ? [operations.extension] : [])];
+    const extensions = [personal, personalPermissions, personalBackgroundWork, workTools, personalWorkControls, personalWorkNotes, personalAnalysisDelegations, personalDelegationReports, telegram.extension, ...(services ? [services] : []), ...(operations ? [operations.extension] : [])];
     const tools = [...(services?.tools ?? []), ...workTools.tools!];
     if (service) await harness.commit(async tx => { (await tx.doc(PersonalServiceDoc)).fingerprint = service.fingerprint; }, context);
     const main = await harness.root(context, { agent: { model: { provider: options.provider.id, modelId: options.modelId }, thinkingLevel: "off", extensions, tools }, init: async tx => { await tx.doc(PersonalAgentsDoc); await tx.doc(PersonalPermissionsDoc); if (operations) { await tx.doc(PersonalServiceOperationsDoc); await tx.doc(PersonalServiceGrantsDoc); } } });

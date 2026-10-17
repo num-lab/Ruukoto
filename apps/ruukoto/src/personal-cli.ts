@@ -14,7 +14,8 @@ import { personalTelegramApi, telegramOffset, telegramText } from "./personal-te
 import type { TaskId } from "@earendil-works/pi-durable";
 import type { PersonalHarness } from "./personal-harness.ts";
 import { listPersonalDelegations, personalDelegationProgress } from "./personal-delegation.ts";
-import { personalDelegationDescription } from "./personal-work-controls.ts";
+import { personalDelegationDescription, personalReportDelivery } from "./personal-work-controls.ts";
+import type { personalReportResult } from "./personal-report.ts";
 import { readPersonalServices, savePersonalServices } from "./personal-service-config.ts";
 import { personalServiceConfig } from "./personal-services.ts";
 import { personalWorkDescription } from "./personal-work-controls.ts";
@@ -252,10 +253,19 @@ export async function managePersonalDelegations(io: PersonalCliIO, directory: st
     let memberOffset = 0;
     while (true) {
       const progress = await personalControl<Awaited<ReturnType<typeof personalDelegationProgress>>>(directory, "GET", `/delegation?delegation=${ref.entryId}&offset=${memberOffset}`);
-      io.write(`\n${personalDelegationDescription(progress)}\n${progress.members.map(personalWorkDescription).join("\n")}\n取消只覆盖所属分析成员，不关闭身份、不涵盖外部服务。当前不自动汇总或最终回报。单项结果和追加请从后台分析选择。\n`);
-      const action = await choose(io, "原分析委托", ["刷新状态", "请求取消整项分析", "返回委托列表", ...(progress.nextOffset === undefined ? [] : ["下一页分析"])]);
+      io.write(`\n${personalDelegationDescription(progress)}\n${progress.members.map(personalWorkDescription).join("\n")}\n取消覆盖所属分析及尚未开始的最终回报，不关闭身份、不涵盖外部服务；已开始的发送须按原效果核实。封组后不能追加；单项结果请从后台分析选择。\n`);
+      const action = await choose(io, "原分析委托", ["刷新状态", "请求取消整项分析", "返回委托列表", "查看完整报告", ...(progress.nextOffset === undefined ? [] : ["下一页分析"])]);
       if (action === 2) break;
-      if (action === 3) { memberOffset = progress.nextOffset!; continue; }
+      if (action === 4) { memberOffset = progress.nextOffset!; continue; }
+      if (action === 3) {
+        let reportOffset = 0;
+        while (true) {
+          const report = await personalControl<Awaited<ReturnType<typeof personalReportResult>>>(directory, "GET", `/delegation/report?delegation=${ref.entryId}&offset=${reportOffset}`);
+          io.write(`\n${personalReportDelivery(report.delivery)}\n${report.text ?? "尚无完整报告正文。"}\n`);
+          if (report.nextOffset === undefined || await choose(io, "完整报告", ["下一页报告", "返回委托"]) === 1) break;
+          reportOffset = report.nextOffset;
+        }
+      }
       if (action === 1) {
         await personalControl(directory, "POST", `/delegation/cancel?delegation=${ref.entryId}`);
         io.write("整项分析的取消请求已登记；刷新查询停止核实状态。身份和历史保留。\n");

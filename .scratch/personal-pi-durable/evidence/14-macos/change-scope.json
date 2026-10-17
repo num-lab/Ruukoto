@@ -1,0 +1,59 @@
+{
+  "formatVersion": 1,
+  "repositoryRoot": "/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable",
+  "input": {
+    "base": "0c6f60c",
+    "head": "HEAD"
+  },
+  "resolved": {
+    "baseSha": "0c6f60c5a03b46f145e5737eacc07d82ce1fda3b",
+    "headSha": "0c6f60c5a03b46f145e5737eacc07d82ce1fda3b",
+    "mergeBaseSha": "0c6f60c5a03b46f145e5737eacc07d82ce1fda3b"
+  },
+  "paths": {
+    "committed": [],
+    "staged": [],
+    "unstaged": [
+      ".agents/notes/implemented/architecture/2026-10-17-personal-analysis-delegations.md",
+      ".agents/notes/implemented/architecture/2026-10-17-personal-model-work.md",
+      ".agents/notes/implemented/architecture/2026-10-17-personal-telegram-entry.md",
+      ".agents/skills/pre-push-checks/SKILL.md",
+      "README.md",
+      "apps/ruukoto/src/personal-cli.ts",
+      "apps/ruukoto/src/personal-control.ts",
+      "apps/ruukoto/src/personal-delegation.ts",
+      "apps/ruukoto/src/personal-harness.ts",
+      "apps/ruukoto/src/personal-service-operations.ts",
+      "apps/ruukoto/src/personal-telegram-records.ts",
+      "apps/ruukoto/src/personal-work-controls.ts",
+      "apps/ruukoto/src/personal-work-tools.ts",
+      "apps/ruukoto/src/personal-work.ts",
+      "docs/architecture.md",
+      "docs/development.md",
+      "docs/modules/personal-durable.md",
+      "docs/modules/products.md",
+      "docs/usage.md",
+      "test/personal-service-operations.test.ts"
+    ],
+    "untracked": [
+      ".agents/notes/implemented/architecture/2026-10-17-personal-delegation-reports.md",
+      ".scratch/personal-pi-durable/evidence/14-macos/build.log",
+      ".scratch/personal-pi-durable/evidence/14-macos/change-scope.json",
+      ".scratch/personal-pi-durable/evidence/14-macos/check-static.log",
+      ".scratch/personal-pi-durable/evidence/14-macos/independent-review/REVIEW.md",
+      ".scratch/personal-pi-durable/evidence/14-macos/independent-review/model-input.json",
+      ".scratch/personal-pi-durable/evidence/14-macos/independent-review/probe.mts",
+      ".scratch/personal-pi-durable/evidence/14-macos/personal-tests.json",
+      ".scratch/personal-pi-durable/evidence/14-macos/personal-tests.log",
+      ".scratch/personal-pi-durable/evidence/14-macos/pty-setup.mts",
+      ".scratch/personal-pi-durable/evidence/14-macos/pty.json",
+      ".scratch/personal-pi-durable/evidence/14-macos/reports-final.log",
+      ".scratch/personal-pi-durable/evidence/14-macos/runtime-source.json",
+      ".scratch/personal-pi-durable/evidence/14-macos/summary.json",
+      ".scratch/personal-pi-durable/evidence/14-macos/text-estimates.json",
+      ".scratch/personal-pi-durable/issues/14-delegation-reports.md",
+      "apps/ruukoto/src/personal-report.ts",
+      "test/personal-reports.test.ts"
+    ]
+  }
+}

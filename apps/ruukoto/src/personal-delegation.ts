@@ -4,12 +4,13 @@ import { defineDocFamily, defineEntry, defineExtension, ROOT_CONVERSATION_ID, ty
 import { PersonalError } from "./personal-error.ts";
 import { permissionSnapshot, PersonalPermissionsDoc, telegramSourceActive, type PersonalTelegramSource } from "./personal-permissions.ts";
 import { PersonalTelegramReceiptDoc } from "./personal-telegram-records.ts";
-import { requirePersonalServiceSourceReady } from "./personal-service-operations.ts";
+import { personalServiceSourceBlocker, requirePersonalServiceSourceReady } from "./personal-service-operations.ts";
+import type { PersonalReportFacts } from "./personal-report.ts";
 import { delegatePersonalWork, PersonalWorkDoc, PersonalWorkTask, personalWorkRef, personalWorkStatus, personalWorkSummary, requestPersonalWorkCancel, type PersonalWorkRef } from "./personal-work.ts";
 
 export type PersonalDelegationRef = { entryId: EntryId };
 export type PersonalWorkSource = { requestId: string; submissionId: SubmissionId; entryId: EntryId };
-type Delegation = { ref: PersonalDelegationRef; source: PersonalWorkSource; permission: { mode: PersonalTelegramSource["mode"]; version: number }; telegram?: PersonalTelegramSource; members: PersonalWorkRef[]; cancelRequested: boolean };
+type Delegation = { ref: PersonalDelegationRef; source: PersonalWorkSource; permission: { mode: PersonalTelegramSource["mode"]; version: number }; telegram?: PersonalTelegramSource; members: PersonalWorkRef[]; cancelRequested: boolean; report?: PersonalReportFacts };
 export const PersonalDelegationDoc = defineDocFamily<{ delegation?: Delegation }, null>({ kind: "ruukoto.analysis-delegation", scope: "session", version: 1, family: true, initial: () => ({}) });
 export const personalAnalysisDelegations = defineExtension({ name: "personal-analysis-delegations" });
 export const PersonalAnalysisAdmission = defineEntry<{ work: PersonalWorkRef; delegation: PersonalDelegationRef; source: PersonalWorkSource; origin: PersonalWorkSource; permission: Delegation["permission"]; telegram?: PersonalTelegramSource; modelCall: TaskId }>("ruukoto.analysis-admission");
@@ -38,8 +39,9 @@ export async function requirePersonalDelegationInput(tx: Tx, ref: PersonalDelega
   await originalEntry(tx, await personalDelegation(tx, ref), requestId);
 }
 
-async function sourcesReady(tx: Tx, value: Delegation) {
+export async function personalDelegationSources(tx: Tx, value: Delegation) {
   const sources = new Set([value.source.requestId]);
+  if (value.report) sources.add(value.report.source.requestId);
   for (const ref of value.members) {
     const work = await tx.doc(PersonalWorkDoc, ref.requestId, null);
     if (!isDeepStrictEqual(work.ref, ref) || work.delegation?.entryId !== value.ref.entryId || !work.instructionSource) throw new PersonalError("delegation_member_invalid", "委托成员归属无法核实，已停止执行；请保留档案并检查原记录。");
@@ -47,7 +49,19 @@ async function sourcesReady(tx: Tx, value: Delegation) {
     if (work.source) sources.add(work.source.requestId);
     for (const note of work.notes ?? []) if (note.source.kind === "input") sources.add(note.source.requestId);
   }
-  for (const requestId of sources) await requirePersonalServiceSourceReady(tx, requestId);
+  return sources;
+}
+
+export async function personalDelegationBlocker(tx: Tx, value: Delegation) {
+  for (const requestId of await personalDelegationSources(tx, value)) { const blocker = await personalServiceSourceBlocker(tx, requestId); if (blocker) return blocker; }
+}
+
+async function sourcesReady(tx: Tx, value: Delegation) {
+  if (await personalDelegationBlocker(tx, value)) throw new PersonalError("work_source_paused", "委托有尚未核实的服务效果或停止状态，已暂停分析和汇总；请查询原操作并核实，不要换委托重试。");
+}
+
+export async function requirePersonalDelegationOpen(tx: Tx, ref: PersonalDelegationRef) {
+  if ((await personalDelegation(tx, ref)).report) throw new PersonalError("delegation_sealed", "委托已安排最终汇总，未接纳新分析或说明；请查询原委托报告，新工作由拥有者另行提交。");
 }
 
 export async function requirePersonalDelegationReady(tx: Tx, ref: PersonalDelegationRef) {
@@ -76,6 +90,7 @@ export async function delegatePersonalAnalysis(tx: Tx, model: ModelRef, input: P
     return { ref: await delegatePersonalWork(tx, model, { ...input, sourceRequestId: value.source.requestId }), delegation: selected };
   }
   await originalEntry(tx, value, input.sourceRequestId);
+  await requirePersonalDelegationOpen(tx, selected);
   await requirePersonalDelegationReady(tx, selected);
   await requirePersonalServiceSourceReady(tx, instruction.requestId);
   const member = await delegatePersonalWork(tx, model, { ...input, sourceRequestId: value.source.requestId });
@@ -118,7 +133,10 @@ export async function personalDelegationProgress(tx: Tx, ref: PersonalDelegation
   const message = entry?.model?.[0];
   if (message?.role !== "user") throw new PersonalError("delegation_source_invalid", "委托原说明缺失，请保留档案并检查记录。");
   const content = typeof message.content === "string" ? message.content : message.content.filter(part => part.type === "text").map(part => part.text).join("");
-  return { ref: { ...value.ref }, content: content.slice(0, 160), cancelRequested: value.cancelRequested, total: value.members.length, active, unverified, paused, state: unverified ? "stop_unverified" : value.cancelRequested ? active ? "canceling" : "canceled" : paused ? "paused" : active ? "active" : "idle", members, ...(offset + 8 < value.members.length ? { nextOffset: offset + 8 } : {}) };
+  const reportTask = value.report && await tx.task(value.report.taskId);
+  if (value.report && !reportTask) throw new PersonalError("report_missing", "委托报告执行缺失，请保留档案。");
+  const report = value.report && reportTask ? { delivery: value.report.delivery, state: reportTask.state.status === "terminal" ? reportTask.state.outcome.status : reportTask.state.status } : undefined;
+  return { ref: { ...value.ref }, content: content.slice(0, 160), cancelRequested: value.cancelRequested, total: value.members.length, active, unverified, paused, ...(report ? { report } : {}), state: unverified ? "stop_unverified" : value.cancelRequested ? active ? "canceling" : "canceled" : paused ? "paused" : report ? reportTask!.state.status === "terminal" ? reportTask!.state.outcome.status === "completed" ? "reported" : "report_failed" : "reporting" : active ? "active" : "idle", members, ...(offset + 8 < value.members.length ? { nextOffset: offset + 8 } : {}) };
 }
 
 export async function listPersonalDelegations(tx: Tx, offset = 0, telegram?: Pick<PersonalTelegramSource, "botId" | "ownerId" | "generation">) {

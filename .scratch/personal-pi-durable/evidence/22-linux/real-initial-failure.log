@@ -1,0 +1,11 @@
+(node:3246327) ExperimentalWarning: Transform Types is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+file:///tmp/ruukoto-identity22.sIXHVEM8/real-linux.mjs:24
+      if (Date.now() > deadline) throw new Error("等待真实进程证据超时");
+                                       ^
+
+Error: 等待真实进程证据超时
+    at waitFor (file:///tmp/ruukoto-identity22.sIXHVEM8/real-linux.mjs:24:40)
+    at async file:///tmp/ruukoto-identity22.sIXHVEM8/real-linux.mjs:52:7
+
+Node.js v24.21.0

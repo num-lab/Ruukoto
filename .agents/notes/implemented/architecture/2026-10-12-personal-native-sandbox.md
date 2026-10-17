@@ -2,6 +2,8 @@
 
 Status: implemented
 
+durable 迁移的 Linux 外部执行前提见[持久认领](2026-10-17-native-linux-execution-identity.md)；它在已有平台启动下层补跨进程停止证明，尚未接入 durable 工具，不改变本篇旧个人装配。
+
 ## 问题
 
 两个产品共享 worker 和任务生命周期，却仍交付两套受限执行方式：Coding Agent 使用原生沙盒，个人产品的生产模板使用 Docker 镜像。拥有者要求个人产品也使用原生执行，消除任务对 Docker 与 worker 镜像的部署依赖。个人产品的能力声明实际默认 local，正式 CLI 缺省只允许 local/container，因此修改生产变量并不足以交付同一执行契约。

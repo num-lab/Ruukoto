@@ -1,0 +1,46 @@
+(node:3246814) ExperimentalWarning: Transform Types is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+{
+  "platform": "linux",
+  "node": "v24.21.0",
+  "results": [
+    {
+      "crash": false,
+      "ref": {
+        "executionId": "native_437bf31d506763d818a05c69",
+        "machineId": "fd410411419d40079742fdbc36dec028"
+      },
+      "scope": "ruukoto-native_437bf31d506763d818a05c69.scope",
+      "observation": {
+        "group": "/sys/fs/cgroup/user.slice/user-1003.slice/user@1003.service/app.slice/ruukoto-native_437bf31d506763d818a05c69.scope",
+        "invocationId": "123f3d02ff9a49ce83f5e6bf449ccc48",
+        "dev": 29,
+        "ino": 2132315
+      },
+      "stopped": true,
+      "heartbeatBytes": 25,
+      "ownerExit": null
+    },
+    {
+      "crash": true,
+      "ref": {
+        "executionId": "native_654559fff6d04402dcdf140c",
+        "machineId": "fd410411419d40079742fdbc36dec028"
+      },
+      "scope": "ruukoto-native_654559fff6d04402dcdf140c.scope",
+      "observation": {
+        "group": "/sys/fs/cgroup/user.slice/user-1003.slice/user@1003.service/app.slice/ruukoto-native_654559fff6d04402dcdf140c.scope",
+        "invocationId": "8eba3c9196ff41bb853b1d5418b7a5fe",
+        "dev": 29,
+        "ino": 2132378
+      },
+      "stopped": true,
+      "heartbeatBytes": 25,
+      "ownerExit": {
+        "code": null,
+        "signal": "SIGKILL"
+      }
+    }
+  ],
+  "cleaned": true
+}

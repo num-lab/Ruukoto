@@ -8,6 +8,8 @@ Status: proposed
 
 ## 问题
 
+[Linux 原生执行持久认领](../../implemented/architecture/2026-10-17-native-linux-execution-identity.md)补齐通用命令接入前的跨进程停止原语，尚未装配 durable 命令工具。
+
 两个产品已经使用 pi SDK，但会话执行、任务队列、恢复、上下文压缩与工作流由 Ruukoto 持有。拥有者希望个人 Agent 采用 pi durable，减少今后维护自研执行底座的工作，同时保持 Coding Agent 的行为、数据与现有运行依赖。
 
 Coding Agent 仍使用旧 runtime、agent、core、control、view 和 tui。仅迁移个人端不能删除这些共享实现；本次收益是个人端停止依赖和扩展它们，并退出个人端不需要的编码与兼容功能。不得以“全仓代码一定净减少”作为本方案的既得结果。

@@ -1,0 +1,38 @@
+(node:3249043) ExperimentalWarning: Transform Types is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ Linux scope 只接受已知组的完整空成员证据或确认删除 (3.554663ms)
+✔ Linux manager 可用但缺 scope-group 时拒绝并保留停止身份 (13.887338ms)
+✔ Linux manager 可用但缺 writable-kill 时拒绝并保留停止身份 (3.166649ms)
+(node:3249044) ExperimentalWarning: Transform Types is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ 停止先手持久认领，跨调用同键不再启动且零平台外调 (10.684288ms)
+✔ 异机器、非保护目录及 worker 可见证据目录在认领前拒绝 (2.094134ms)
+✔ 认领缺失字段、坏 JSON 与原单元未观察不能形成停止证明 (2.84362ms)
+✔ 完整认领跨 boot 可证明退出，未派发证明必须匹配本次 token (2.420024ms)
+✔ 停止拒绝 invocation，保留认领且不按单元名发信号 (2.912261ms)
+✔ 停止拒绝 description，保留认领且不按单元名发信号 (2.343472ms)
+✔ 停止拒绝 inode，保留认领且不按单元名发信号 (1.969457ms)
+✔ 停止拒绝 query，保留认领且不按单元名发信号 (1.829855ms)
+✔ 停止拒绝 kill，保留认领且不按单元名发信号 (2.059807ms)
+✔ 停止拒绝 missing-events，保留认领且不按单元名发信号 (52.832135ms)
+✔ 仅经原组 FD 停止，后续独立重核可证明原 launcher 与空组均退出 (55.139755ms)
+✔ 原组已删除仍核实启动器及进程组：original (2.453976ms)
+✔ 原组已删除仍核实启动器及进程组：group-alive (1.971531ms)
+✔ 原组已删除仍核实启动器及进程组：unverifiable (1.900217ms)
+✔ 原组已删除仍核实启动器及进程组：exited (1.734132ms)
+✔ 启动后 process 失败交出持久停止句柄，同键不能再次派发 (4.696336ms)
+✔ 启动后 launcher-write 失败交出持久停止句柄，同键不能再次派发 (2.600582ms)
+✔ 启动后 observation-write 失败交出持久停止句柄，同键不能再次派发 (7.350048ms)
+✔ 启动后 description 失败交出持久停止句柄，同键不能再次派发 (3.807023ms)
+✔ 启动后 membership 失败交出持久停止句柄，同键不能再次派发 (3.858859ms)
+✔ 认领写入失败零平台外调，半写认领不授予第二次执行权 (1.703093ms)
+✔ 前置拒绝后未派发证据写入再失败，保留两次失败并以具名错误报告 (1.96433ms)
+✔ 认领后派发前停止阻止迟到启动，完成未派发证明后可释放 (2.867896ms)
+ℹ tests 26
+ℹ suites 0
+ℹ pass 26
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 577.906736

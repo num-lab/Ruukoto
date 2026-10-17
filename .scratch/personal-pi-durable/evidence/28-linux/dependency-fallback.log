@@ -1,0 +1,30 @@
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/vda2        40G   38G   60M 100% /
+b64f22573ce200c99c2022a1c0cd7802b9a18490915eaef4e46831d4012ab209  /tmp/ruukoto-mcp28-linux.eI5S8D/source/package-lock.json
+aa8f599637dbb74d36a89db9c71c34854b00c3448eb2b46e424f75306c40f0ee  /tmp/ruukoto-native26-src.MSm09D/package-lock.json
+551M	/tmp/ruukoto-mcp28-linux.eI5S8D
+After cleanup of own install
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/vda2        40G   37G  597M  99% /
+node:internal/modules/cjs/loader:1568
+  throw err;
+  ^
+
+Error: Cannot find module '/tmp/ruukoto-native26-src.MSm09D/node_modules/@earendil-works/pi-durable/package.json'
+Require stack:
+- /home/eitrous/[eval]
+    at Module._resolveFilename (node:internal/modules/cjs/loader:1564:15)
+    at wrapResolveFilename (node:internal/modules/cjs/loader:1118:27)
+    at defaultResolveImplForCJSLoading (node:internal/modules/cjs/loader:1142:10)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1169:12)
+    at Module._load (node:internal/modules/cjs/loader:1341:5)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:261:19)
+    at Module.require (node:internal/modules/cjs/loader:1674:12)
+    at require (node:internal/modules/helpers:157:16)
+    at [eval]:1:1
+    at runScriptInThisContext (node:internal/vm:219:10) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [ '/home/eitrous/[eval]' ]
+}
+
+Node.js v24.21.0

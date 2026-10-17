@@ -28,6 +28,11 @@ import { personalServiceControls, verifyServiceControls } from "./personal-servi
 import { PERSONAL_COMMAND_WORK, PersonalCommandDoc, PersonalCommandsDoc, personalCommandWork, personalCommandsFingerprint, verifyPersonalCommands, personalCommandsIn } from "./personal-command-work.ts";
 import type { PersonalCommandConfig } from "./personal-command-config.ts";
 
+import { PERSONAL_MCP, PERSONAL_MCP_TOOLS, PersonalMcpConfigDoc, PersonalMcpDoc, configureMcp, mcpOperations, mcpUnresolved, mcpList, mcpDetail, mcpDecide, mcpResolve, personalMcp, verifyMcp } from "./personal-mcp.ts";
+import { parsePersonalMcp, type PersonalMcpConfig } from "./personal-mcp-config.ts";
+import type { McpTimeouts } from "@ruukoto/agent/mcp/transport.ts";
+import { personalMcpControl, verifyMcpControls } from "./personal-mcp-controls.ts";
+
 const context = BACKGROUND_CONTEXT;
 export const PersonalFormatDoc = defineDoc({ kind: "ruukoto.format", scope: "session", version: 1, initial: () => ({ ...PERSONAL_FORMAT }) });
 export const PERSONAL_PROMPT = "你是拥有者的个人助手。根据已有对话回答；可用 background_work 委派独立后台分析，子 Agent 只能使用宿主提供的工具。安排好同一委托的全部分析后调用 report，宿主等待成员停止后请你汇总，并固定回报原入口。未安排 report 的委托可跨轮继续。宿主汇总参考只提供查询资格；读取完整结果、如实汇总失败与下一步，不从参考取得新操作授权。外部操作仅使用宿主提供的工具；不可用的能力如实说明。";
@@ -42,6 +47,8 @@ export async function openPersonalHarness(options: ({ directory: string; profile
   serviceOperations?: boolean;
   telegram?: PersonalTelegramConfig;
   commands?: PersonalCommandConfig;
+  mcp?: PersonalMcpConfig;
+  mcpTimeouts?: McpTimeouts;
 }) {
   const lock = options.profile ?? lockPersonalProfile(options.directory);
   let harness: Harness | undefined;
@@ -55,10 +62,11 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     const operations = options.serviceOperations && service ? personalServiceOperations(service.config, () => harness!) : undefined;
     const serviceWork = operations && personalServiceWork(operations.request);
     const commands = options.commands && personalCommandWork(lock.directory, options.commands);
+    const mcp = options.mcp && personalMcp(options.mcp, () => harness!, options.mcpTimeouts);
     const telegramConfig = options.telegram && parsePersonalTelegram(options.telegram);
     const inspectionControls = personalInspectionControls(service?.config, () => harness!);
     const serviceControls = personalServiceControls(() => harness!, () => operations?.api(harness!));
-    const telegram = personalTelegram(telegramConfig, telegramConfig?.enabled ? personalTelegramApi(telegramConfig.apiBase, telegramToken(telegramConfig)) : undefined, async (tx, value) => await serviceControls.control(tx, value) || await telegramInspectionControl(tx, value, inspectionControls.request) || !!await operations?.control(tx, value));
+    const telegram = personalTelegram(telegramConfig, telegramConfig?.enabled ? personalTelegramApi(telegramConfig.apiBase, telegramToken(telegramConfig)) : undefined, async (tx, value) => await personalMcpControl(tx, value, mcp?.requestRecheck) || await serviceControls.control(tx, value) || await telegramInspectionControl(tx, value, inspectionControls.request) || !!await operations?.control(tx, value));
     const registry = createRegistry();
     const workTools = personalWorkTools(() => harness!);
     const personal = defineExtension({ name: "personal", sections: [section("personal", () => PERSONAL_PROMPT + (services ? "主会话与子 Agent 均可检查宿主白名单内的服务状态，不代表业务健康。" + (serviceWork ? "子 Agent 可用 service_restart 完成原工作要求的受控服务重启；审批与未知效果由宿主处理。" : "") : "") + (commands ? "子 Agent 可用 run_command 以已配置目录执行命令，沿原工作权限；完全访问使用后台账户环境且免逐次审批，未知效果仍须在本机命令管理核实。" : ""), { tag: false })] });
@@ -78,6 +86,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     if (operations) registry.install(operations.extension);
     if (serviceWork) registry.install(serviceWork);
     if (commands) registry.install(commands.extension);
+    if (mcp) registry.install(mcp.extension);
     const record = async (evidence: RequestEvidence) => {
       if (!harness) throw new PersonalError("model_source_missing", "模型请求缺少已打开的个人会话，已停止请求。");
       let target: ConversationId | undefined;
@@ -124,6 +133,23 @@ export async function openPersonalHarness(options: ({ directory: string; profile
       }
       commandCursor = page.next;
     } while (commandCursor);
+    const mcpRecord = await storage.findDocument({ kind: PersonalMcpConfigDoc.definition.kind, scope: { kind: "session" } }, "current", context);
+    const loadedMcp = mcpRecord && await storage.document(mcpRecord.id, "current", context);
+    if (loadedMcp && (loadedMcp.version !== 1 || !Array.isArray(loadedMcp.value.operations) || !Array.isArray(loadedMcp.value.generations) || (!loadedMcp.value.config && (loadedMcp.value.operations.length || loadedMcp.value.generations.length)))) throw new PersonalError("mcp_record_invalid", "MCP 配置索引版本或原记录不符，已停止恢复。");
+    const savedMcp = loadedMcp?.value.config ? loadedMcp : undefined;
+    if (savedMcp && (!mcp || savedMcp.version !== 1 || !Array.isArray(savedMcp.value.generations))) throw new PersonalError("mcp_config_changed", "档案的 MCP 原配置缺失或版本不符，已停止恢复；请保留档案并恢复原配置。");
+    if (savedMcp) parsePersonalMcp(savedMcp.value.config);
+    const mcpKeys: string[] = [];
+    let mcpCursor: Cursor | undefined;
+    do {
+      const page = await storage.scanDocuments({ kind: PersonalMcpDoc.definition.kind, scope: { kind: "session" }, at: "current" }, 256, mcpCursor, context);
+      for (const record of page.items) {
+        const saved = await storage.document(record.id, "current", context);
+        if (!savedMcp || !saved || saved.version !== 1 || record.key === undefined) throw new PersonalError("mcp_record_invalid", "MCP 调用缺少原配置或版本不符，已停止恢复。");
+        if (saved.value.operation) mcpKeys.push(record.key);
+      }
+      mcpCursor = page.next;
+    } while (mcpCursor);
     const serviceRecord = await storage.findDocument({ kind: PersonalServiceDoc.definition.kind, scope: { kind: "session" } }, "current", context);
     const savedService = serviceRecord && await storage.document(serviceRecord.id, "current", context);
     if (savedService && (!service || savedService.version !== PersonalServiceDoc.definition.version || savedService.value.fingerprint !== service.fingerprint)) {
@@ -197,6 +223,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
         if (extensions.includes("personal-service-inspect")) serviceConversation = true;
         if (conversation.id === ROOT_CONVERSATION_ID && operationConfig && !extensions.includes("personal-service-operations")) throw new PersonalError("service_operations_config", "主会话缺少已登记的服务操作扩展，已停止恢复；请保留档案。");
         if (conversation.id === ROOT_CONVERSATION_ID && savedCommands && !extensions.includes(PERSONAL_COMMAND_WORK)) throw new PersonalError("command_config_changed", "主会话缺少原命令扩展，已停止恢复。");
+        if (extensions.includes(PERSONAL_MCP) && !savedMcp) throw new PersonalError("mcp_config_changed", "会话缺少原 MCP 配置记录，已停止恢复。");
         if (extensions.includes(PERSONAL_COMMAND_WORK) && !savedCommands) throw new PersonalError("command_config_changed", "会话缺少原命令配置记录，已停止恢复。");
         if (extensions.includes("personal-service-operations") && !operationConfig) throw new PersonalError("service_operations_config", "会话依赖的服务操作配置记录缺失，已停止恢复；请保留档案。");
         if (conversation.id === ROOT_CONVERSATION_ID && telegramKeys.length && !extensions.includes(telegram.extension.name)) throw new PersonalError("telegram_version", "主会话缺少 Telegram 执行扩展，已停止恢复；请保留档案。");
@@ -243,6 +270,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     const reportsEnabled = Array.isArray(savedMain?.extensions) && savedMain.extensions.includes(personalDelegationReports.name);
     const childServicesEnabled = Array.isArray(savedMain?.extensions) && savedMain.extensions.includes(personalSubAgentServices.name);
     const childWritesEnabled = Array.isArray(savedMain?.extensions) && savedMain.extensions.includes(PERSONAL_SERVICE_WORK);
+    const mcpEnabled = Array.isArray(savedMain?.extensions) && savedMain.extensions.includes(PERSONAL_MCP);
     const childCommandsEnabled = Array.isArray(savedMain?.extensions) && savedMain.extensions.includes(PERSONAL_COMMAND_WORK);
     const serviceControlsEnabled = Array.isArray(savedMain?.extensions) && savedMain.extensions.includes(serviceControls.extension.name);
     const inspectionControlsEnabled = Array.isArray(savedMain?.extensions) && savedMain.extensions.includes(inspectionControls.extension.name);
@@ -255,6 +283,10 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     if (services && savedMain && !childServicesEnabled && (inspection.tasks.length || inspection.submissions.length)) throw new PersonalError("work_services_pending", "档案仍有未完成输入或工作，请先用原版本完成处理，再启用子检查工具。");
     if (serviceWork && savedMain && !childWritesEnabled && (inspection.tasks.length || inspection.submissions.length)) throw new PersonalError("work_services_pending", "档案仍有未完成输入或工作，请先用原版本完成处理，再启用子服务操作。");
     if (commands && !savedCommands && (inspection.tasks.length || inspection.submissions.length)) throw new PersonalError("command_config_pending", "档案仍有未完成输入或工作，请先用原配置完成处理，再启用命令。");
+    if (mcp && (!savedMcp || !isDeepStrictEqual(savedMcp.value.config, mcp.config) || (savedMain && !mcpEnabled)) && (inspection.tasks.length || inspection.submissions.length)) throw new PersonalError("mcp_config_pending", "档案仍有未完成输入或工作，不能启用或改变 MCP 代次；请恢复原配置完成处理。");
+    await harness.commit(tx => verifyMcp(tx, mcpKeys), context);
+    if (mcp && savedMcp && !isDeepStrictEqual(savedMcp.value.config, mcp.config) && await harness.commit(async tx => (await mcpOperations(tx)).some(mcpUnresolved), context)) throw new PersonalError("mcp_config_pending", "MCP 原调用效果或远端结束未核实，不能更换配置；请恢复原配置并核实原调用。");
+    await harness.commit(tx => verifyMcpControls(tx, telegramKeys, mcpEnabled), context);
     if (commands && savedCommands) await harness.commit(tx => verifyPersonalCommands(tx, commandKeys, commands.config, commands.workerPath), context);
     await harness.commit(tx => verifyPersonalTelegram(tx, telegramKeys, telegramConfig), context);
     await harness.commit(async tx => { for (const key of telegramKeys) await verifyWorkMenu(tx, (await tx.doc(PersonalTelegramReceiptDoc, key, null)).receipt!, workControlsEnabled); }, context);
@@ -300,8 +332,8 @@ export async function openPersonalHarness(options: ({ directory: string; profile
       for (const agent of index.agents) {
         if (!await tx.conversation(agent.id)) throw new PersonalError("work_agent_missing", "长期子会话缺失，已停止恢复；请保留档案。");
         const config = await tx.doc(AgentDoc, agent.id);
-        const expectedTools = [...(childServicesEnabled ? ["service_inspect", "read_service_inspection"] : []), ...(childWritesEnabled ? ["service_restart", "read_service_operation"] : []), ...(childCommandsEnabled ? ["run_command", "read_command_output"] : [])];
-        const expectedExtensions = [personalSubAgent.name, personalBackgroundWork.name, ...(childServicesEnabled ? ["personal-service-inspect", personalSubAgentServices.name] : []), ...(childWritesEnabled ? [PERSONAL_SERVICE_WORK] : []), ...(childCommandsEnabled ? [PERSONAL_COMMAND_WORK] : [])];
+        const expectedTools = [...(childServicesEnabled ? ["service_inspect", "read_service_inspection"] : []), ...(childWritesEnabled ? ["service_restart", "read_service_operation"] : []), ...(childCommandsEnabled ? ["run_command", "read_command_output"] : []), ...(mcpEnabled ? PERSONAL_MCP_TOOLS : [])];
+        const expectedExtensions = [personalSubAgent.name, personalBackgroundWork.name, ...(childServicesEnabled ? ["personal-service-inspect", personalSubAgentServices.name] : []), ...(childWritesEnabled ? [PERSONAL_SERVICE_WORK] : []), ...(childCommandsEnabled ? [PERSONAL_COMMAND_WORK] : []), ...(mcpEnabled ? [PERSONAL_MCP] : [])];
         if (!isDeepStrictEqual(config.tools, expectedTools) || !Array.isArray(config.extensions) || !isDeepStrictEqual([...config.extensions].sort(), expectedExtensions.sort())) throw new PersonalError("work_config_changed", "子 Agent 的固定工具配置无法核实，已停止恢复；请检查档案。");
         if (!agent.work) continue;
         const work = await tx.doc(PersonalWorkDoc, agent.work.requestId, null);
@@ -313,10 +345,11 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     await harness.commit(tx => verifyPersonalReports(tx, delegationKeys, reportsEnabled), context);
     await harness.commit(async tx => { for (const key of telegramKeys) await verifyDelegationMenu(tx, (await tx.doc(PersonalTelegramReceiptDoc, key, null)).receipt!, delegationsEnabled); }, context);
     await harness.commit(tx => tx.doc(PersonalFormatDoc), context);
-    const extensions = [personal, personalPermissions, personalBackgroundWork, workTools, personalWorkControls, personalWorkNotes, personalAnalysisDelegations, personalDelegationReports, telegram.extension, inspectionControls.extension, serviceControls.extension, ...(services ? [services, personalInspectionExtension, personalSubAgentServices] : []), ...(operations ? [operations.extension] : []), ...(serviceWork ? [serviceWork] : []), ...(commands ? [commands.extension] : [])];
-    const tools = [...(services?.tools ?? []), ...workTools.tools!];
+    const extensions = [personal, personalPermissions, personalBackgroundWork, workTools, personalWorkControls, personalWorkNotes, personalAnalysisDelegations, personalDelegationReports, telegram.extension, inspectionControls.extension, serviceControls.extension, ...(services ? [services, personalInspectionExtension, personalSubAgentServices] : []), ...(operations ? [operations.extension] : []), ...(serviceWork ? [serviceWork] : []), ...(commands ? [commands.extension] : []), ...(mcp ? [mcp.extension] : [])];
+    const tools = [...(services?.tools ?? []), ...workTools.tools!, ...(mcp?.extension.tools ?? [])];
     if (service) await harness.commit(async tx => { (await tx.doc(PersonalServiceDoc)).fingerprint = service.fingerprint; }, context);
     const main = await harness.root(context, { agent: { model: { provider: options.provider.id, modelId: options.modelId }, thinkingLevel: "off", extensions, tools }, init: async tx => { await tx.doc(PersonalAgentsDoc); await tx.doc(PersonalPermissionsDoc); if (operations) { await tx.doc(PersonalServiceOperationsDoc); await tx.doc(PersonalServiceGrantsDoc); } } });
+    if (mcp) await harness.commit(tx => configureMcp(tx, mcp.config), context);
     const agent = await main.agent(context);
     if (!savedIndex && (inspection.tasks.length || inspection.submissions.length)) throw new PersonalError("work_config_pending", "个人档案仍有未完成输入，请先用原版本完成处理后再启用后台工作。");
     await harness.commit(async tx => {
@@ -324,7 +357,12 @@ export async function openPersonalHarness(options: ({ directory: string; profile
       await tx.doc(PersonalPermissionsDoc);
       if (operations) await tx.doc(PersonalServiceOperationsDoc);
       if (extensions.some(expected => !agent.extensions.some(extension => extension.name === expected.name))) await configure(tx, main.id, { extensions, tools });
-      if (services && (!childServicesEnabled || (serviceWork && !childWritesEnabled))) for (const child of (await tx.doc(PersonalAgentsDoc)).agents) await configure(tx, child.id, { extensions: [personalSubAgent, personalBackgroundWork, services, personalSubAgentServices, ...(serviceWork ? [serviceWork] : []), ...(commands && childCommandsEnabled ? [commands.extension] : [])], tools: [...services.tools!, ...(serviceWork?.tools ?? []), ...(commands && childCommandsEnabled ? commands.extension.tools! : [])] });
+      if (services && (!childServicesEnabled || (serviceWork && !childWritesEnabled))) for (const child of (await tx.doc(PersonalAgentsDoc)).agents) await configure(tx, child.id, { extensions: [personalSubAgent, personalBackgroundWork, services, personalSubAgentServices, ...(serviceWork ? [serviceWork] : []), ...(commands && childCommandsEnabled ? [commands.extension] : []), ...(mcp && mcpEnabled ? [mcp.extension] : [])], tools: [...services.tools!, ...(serviceWork?.tools ?? []), ...(commands && childCommandsEnabled ? commands.extension.tools! : []), ...(mcp && mcpEnabled ? mcp.extension.tools! : [])] });
+      if (mcp && !mcpEnabled) for (const child of (await tx.doc(PersonalAgentsDoc)).agents) {
+        const config = await tx.doc(AgentDoc, child.id);
+        if (!Array.isArray(config.extensions) || !Array.isArray(config.tools)) throw new PersonalError("work_config_changed", "子会话的工具配置无法核实，请保留档案。");
+        config.extensions.push(PERSONAL_MCP); config.tools.push(...PERSONAL_MCP_TOOLS);
+      }
       if (commands) {
         (await tx.doc(PersonalCommandsDoc)).fingerprint = personalCommandsFingerprint(commands.config);
         if (!childCommandsEnabled) for (const child of (await tx.doc(PersonalAgentsDoc)).agents) {
@@ -361,6 +399,13 @@ export async function openPersonalHarness(options: ({ directory: string; profile
       main,
       work: personalWork(instance, { provider: options.provider.id, modelId: options.modelId }),
       service: operations?.api(instance),
+      mcp: mcp && {
+        list: (offset = 0) => instance.commit(tx => mcpList(tx, offset), context),
+        detail: (operation: import("@earendil-works/pi-durable").TaskId, offset = 0) => instance.commit(tx => mcpDetail(tx, operation, offset), context),
+        decide: (operation: import("@earendil-works/pi-durable").TaskId, decision: "approved" | "rejected") => instance.commit(tx => mcpDecide(tx, operation, decision), context),
+        resolve: (operation: import("@earendil-works/pi-durable").TaskId, effect: "applied" | "not_applied", evidence: string) => instance.commit(tx => mcpResolve(tx, operation, effect, evidence), context),
+        async requestRecheck(operation: import("@earendil-works/pi-durable").TaskId) { const id = await instance.commit(tx => mcp.requestRecheck(tx, operation), context); instance.resume(); return id; },
+      },
       commands: commands && {
         async list(offset = 0) { return instance.commit(async tx => { const all = (await personalCommandsIn(tx)).reverse(); return { items: all.slice(offset, offset + 8).map(op => ({ ref: { ...op.ref }, command: op.command.slice(0, 160), result: op.result && { ...op.result }, stopped: op.stopped })), ...(offset + 8 < all.length ? { nextOffset: offset + 8 } : {}) }; }, context); },
         detail: (ref: import("./personal-command-work.ts").PersonalCommandRef, stream: "stdout" | "stderr", offset = 0) => commands.detail(instance, ref, stream, offset),

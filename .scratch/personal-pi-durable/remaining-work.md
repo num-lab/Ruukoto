@@ -2,6 +2,10 @@
 
 评估基线：`f2e05fcf0b477e2bfc50083e2c442eeabc7dedd6`，分支 `Eitrous/migrate-to-pi-durable`，2026-10-17。开始时工作区干净。本次请求是重新评估并为剩余工作建单，不实施新功能或切换生产。产品范围仍以[规格](spec.md)为准，取舍仍由[迁移决定](../../.agents/notes/proposed/architecture/2026-10-17-personal-pi-durable.md)持有；总交接入口是[01](issues/01-migration-plan.md)。
 
+## 当前交接
+
+拥有者已接手指示实施 [28 MCP](issues/28-durable-mcp.md)，个人 durable 的配置、主/子原生工具、完整响应与 SSE 原流核实已接通，未知暂停覆盖工作、整项报告和端点占用；工程检查与独立终审通过，真实 MCP/模型/IM及操作者体验因暂无服务环境保留待验。下面的 `f2e05fc` 复评与计数是建单时快照，当前实现和证据以各工单为准；后续功能推进 29，36/37 继续独立进行，正式入口与生产未切换。
+
 ## 重新评估
 
 迁移已有可运行的独立底座、Telegram 文本入口、长期子 Agent、整项汇报、受控服务和三模式命令。与上次 `3c0c8f4` 评估相比，[23](issues/23-command-worker.md)–[26](issues/26-full-access-commands.md)已把独立 worker、宿主回执、受限及完全访问命令接入原工作；“命令尚未接通”的结论不再适用。[27](issues/27-mcp-transport.md)完成共享 MCP HTTP 传输拆分和分页限额修复，但没有个人 MCP 配置/工具或持久恢复消费者。
@@ -63,4 +67,4 @@
 
 2026-10-17，独立上下文 `plan_review` 直接核对当前规格、23–27 工单、实际 Harness/入口/命令/MCP 源码及本次未提交的 remaining-work、28–40、01/spec 和提案导航变动，结论无未解决阻断。审查者亲跑 verify-notes、check:docs、diff 检查，并显式核对 16 个 `.scratch/` 文件的 63 处相对链接/锚点与格式，均通过。其两项非阻断建议已修正：总工单明确本轮只复评建单，MCP 复用入口指向已拆出的 transport。之后只更新工单状态与审查记录，不改变范围、依赖或验收；基线之后的实际改动须重新核实受影响的证据。
 
-本次定稿的 17 个文件由[SHA-256 快照](evidence/remaining-work-plan.sha256)标识，包含 13 张未跟踪的新工单；快照不包含自身。它标识方案内容，不是功能实现或真实验收证据。
+建单阶段定稿的 17 个文件由[历史 SHA-256 快照](evidence/remaining-work-plan.sha256)标识，包含当时 13 张新工单；快照不包含自身。后续实施修改后的内容由对应工单的实现快照标识；该历史快照不证明功能或真实验收通过。

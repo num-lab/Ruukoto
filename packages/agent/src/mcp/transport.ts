@@ -19,6 +19,7 @@ import {
   SdkError,
   SdkErrorCode,
   SdkHttpError,
+  isCallToolResult,
   type CallToolResult,
   type Tool as McpRemoteTool,
 } from "@modelcontextprotocol/client";
@@ -71,11 +72,25 @@ export interface McpTimeouts {
 }
 
 /** 钉住源的 fetch：只连配置端点（同源同路径）；拒绝一切重定向（不向非配置目标转发认证）。 */
-function pinnedFetch(endpoint: URL): typeof fetch {
+function pinnedFetch(endpoint: URL, beforeCall?: (request: string) => Promise<void>, resolveToken?: () => Promise<string>, onlyGet = false): typeof fetch {
   return async (input, init) => {
     const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
     if (url.origin !== endpoint.origin || url.pathname !== endpoint.pathname) {
       throw new McpError("invalid_endpoint", `拒绝向非配置目标发起请求：${url.origin}${url.pathname}（配置 ${endpoint.origin}${endpoint.pathname}）`);
+    }
+    if (onlyGet && (init?.method ?? "GET") !== "GET") throw new McpError("resume_invalid", "原 MCP 请求核实只允许读取原事件流，未重新调用工具。");
+    if (beforeCall && typeof init?.body === "string") {
+      const body: unknown = JSON.parse(init.body);
+      if (body && typeof body === "object" && "method" in body && body.method === "tools/call") {
+        await beforeCall(init.body);
+        if (init.signal?.aborted) throw new McpError("canceled", "MCP 请求在记录期间已取消，未发送该请求；请查询原操作。");
+        if (resolveToken) {
+          const headers = new Headers(init.headers);
+          headers.set("authorization", `Bearer ${await resolveToken()}`);
+          init = { ...init, headers };
+        }
+        if (init.signal?.aborted) throw new McpError("canceled", "MCP 请求在凭据核实期间已取消，未发送该请求；请查询原操作。");
+      }
     }
     try {
       return await fetch(url, { ...init, redirect: "error" });
@@ -93,6 +108,8 @@ export interface McpConnection {
   /** 初始化握手返回的服务信息（可能为空）。 */
   readonly serverInfo: { name?: string; version?: string } | null;
   readonly protocolVersion: string | null;
+  /** 本连接最近一次调用的完整 JSON-RPC 请求与应答；本地关闭不生成应答。 */
+  readonly callEvidence?: McpCallEvidence;
   /** 分页发现工具（有界：页数与总数上限；游标来自远端，按外部数据处理）。 */
   listTools(signal?: AbortSignal): Promise<McpRemoteTool[]>;
   /** 调用远端工具（任务钉版的定义）；传输错误抛 McpError，工具执行错误（isError）由调用方区分。 */
@@ -106,10 +123,70 @@ export interface McpEndpoint {
 }
 
 export interface McpEndpointConnectOptions extends McpTimeouts {
+  /** tools/call 真正发送前持久化原请求并核实授权；拒绝时不发该请求。不得在回调内重发。 */
+  recordCallRequest?: (request: string) => Promise<void>;
+  /** 同一事件的恢复游标与原应答一起保存；回调串行执行，调用返回前等待。失败停止本地等待，不证明远端结束。 */
+  recordCallProgress?: (evidence: Readonly<McpCallEvidence>) => Promise<void>;
   /** 省略表示匿名；宿主每请求核实原凭据的目标、用途与来源范围，返回非空 token。
    * 普通异常和空 token 在发送前转为 auth_failed；自定义 McpError 必须不含秘密值。
    */
   resolveToken?: () => Promise<string>;
+}
+
+export interface McpCallEvidence {
+  request?: string;
+  response?: string;
+  sessionId?: string;
+  protocolVersion?: string;
+  resumptionToken?: string;
+}
+
+function rpcObject(raw: string): Record<string, unknown> | undefined {
+  let value: unknown;
+  try { value = JSON.parse(raw); } catch { return undefined; }
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+}
+
+/** 完整工具应答或 JSON-RPC 错误才证明原请求结束；交互中间结果、异步任务和无效响应均不证明。 */
+export function mcpResponseEnded(raw: string): boolean {
+  const response = rpcObject(raw);
+  if (!response || response.jsonrpc !== "2.0" || !["number", "string"].includes(typeof response.id)) return false;
+  if ("error" in response) {
+    const error = response.error;
+    return !("result" in response) && !!error && typeof error === "object" && !Array.isArray(error) && "code" in error && typeof error.code === "number" && "message" in error && typeof error.message === "string";
+  }
+  const result = response.result;
+  return !!result && typeof result === "object" && !Array.isArray(result) && (!("resultType" in result) || result.resultType === "complete") && !("task" in result) && isCallToolResult(result);
+}
+
+function tokenResolver(resolveToken: (() => Promise<string>) | undefined) {
+  return resolveToken && (async () => {
+    let token: string;
+    try { token = await resolveToken(); } catch (error) {
+      if (error instanceof McpError) throw error;
+      throw new McpError("auth_failed", "MCP 凭据无法核实，未发送该请求；停止本次调用并报告拥有者检查凭据配置。");
+    }
+    if (!token) throw new McpError("auth_failed", "MCP 凭据为空，未发送该请求；停止本次调用并报告拥有者检查凭据配置。");
+    return token;
+  });
+}
+
+function callProgress(evidence: McpCallEvidence, record: McpEndpointConnectOptions["recordCallProgress"], close: () => Promise<void>) {
+  let pending = Promise.resolve(), failure: McpError | undefined;
+  return {
+    save() {
+      // SDK 先报告 event id 再同步交付应答；排队后才取快照，避免只提交终结游标而丢掉同一事件的应答。
+      pending = pending.then(async () => {
+        if (failure || !record) return;
+        try { await record({ ...evidence }); } catch {
+          failure = new McpError("evidence_failed", "MCP 原请求进展无法保存，已停止本地等待；保留原操作并报告拥有者检查存储，不能重发。");
+          await close();
+        }
+      });
+    },
+    async drain() { await pending; },
+    async flush() { await pending; if (failure) throw failure; },
+  };
 }
 
 class SdkMcpConnection implements McpConnection {
@@ -121,6 +198,8 @@ class SdkMcpConnection implements McpConnection {
     private readonly client: Client,
     private readonly listTimeoutMs: number,
     private readonly callTimeoutMs: number,
+    readonly callEvidence: McpCallEvidence,
+    private readonly progress: ReturnType<typeof callProgress>,
   ) {}
 
   async listTools(signal?: AbortSignal): Promise<McpRemoteTool[]> {
@@ -140,20 +219,25 @@ class SdkMcpConnection implements McpConnection {
   }
 
   async callTool(tool: { name: string; inputSchema: Record<string, unknown> }, args: Record<string, unknown>, signal?: AbortSignal): Promise<CallToolResult> {
+    await this.progress.flush();
     try {
       // 传钉版定义（不带 outputSchema）：SDK 不做本地输出校验（校验失败与远端错误应答
       // 同为 ProtocolError、分不开，而前者远端已执行），也不在 header 不符时刷新清单后
       // 自动重发；结构化结果由路由器按钉版 outputSchema 校验
-      return await this.client.callTool(
+      const result = await this.client.callTool(
         { name: tool.name, arguments: args },
         {
           signal,
           timeout: this.callTimeoutMs,
           maxTotalTimeout: this.callTimeoutMs,
           toolDefinition: { name: tool.name, inputSchema: tool.inputSchema as McpRemoteTool["inputSchema"] },
+          onresumptiontoken: token => { this.callEvidence.resumptionToken = token; this.progress.save(); },
         },
       );
+      await this.progress.flush();
+      return result;
     } catch (err) {
+      await this.progress.flush();
       throw classifyMcpError(err, this.callTimeoutMs, signal);
     }
   }
@@ -163,6 +247,7 @@ class SdkMcpConnection implements McpConnection {
     await this.client.close().catch(() => {
       // 忽略 SDK 关闭错误：这里只结束本地等待，不据此宣称远端已停止。
     });
+    await this.progress.drain();
   }
 }
 
@@ -202,22 +287,29 @@ function classifyMcpError(err: unknown, timeoutMs: number, signal?: AbortSignal)
 export async function connectMcpEndpoint({ serviceId, endpoint: rawEndpoint }: McpEndpoint, opts: McpEndpointConnectOptions = {}): Promise<McpConnection> {
   const endpoint = parseMcpEndpoint(rawEndpoint);
   const connectTimeoutMs = opts.connectTimeoutMs ?? MCP_LIMITS.connectTimeoutMs;
-  const resolveToken = opts.resolveToken;
-  const authProvider = resolveToken ? {
-    token: async () => {
-      let token: string;
-      try { token = await resolveToken(); } catch (error) {
-        if (error instanceof McpError) throw error;
-        throw new McpError("auth_failed", "MCP 凭据无法核实，未发送该请求；停止本次调用并报告拥有者检查凭据配置。");
-      }
-      if (!token) throw new McpError("auth_failed", "MCP 凭据为空，未发送该请求；停止本次调用并报告拥有者检查凭据配置。");
-      return token;
-    },
-  } : undefined;
+  const resolveToken = tokenResolver(opts.resolveToken);
+  const callEvidence: McpCallEvidence = {};
+  let callId: unknown;
+  const authProvider = resolveToken ? { token: resolveToken } : undefined;
   const transport = new StreamableHTTPClientTransport(endpoint, {
     authProvider,
-    fetch: pinnedFetch(endpoint),
+    fetch: pinnedFetch(endpoint, async request => {
+      try { await opts.recordCallRequest?.(request); } catch (error) {
+        if (error instanceof McpError) throw error;
+        throw new McpError("evidence_failed", "MCP 原请求无法记录或授权已失效，未发送该请求；请查询原操作并报告拥有者，不能换键重发。");
+      }
+      const parsed: unknown = JSON.parse(request);
+      callId = parsed && typeof parsed === "object" && "id" in parsed ? parsed.id : undefined;
+      callEvidence.request = request;
+      delete callEvidence.response;
+      delete callEvidence.resumptionToken;
+      if (transport.sessionId) callEvidence.sessionId = transport.sessionId; else delete callEvidence.sessionId;
+      if (transport.protocolVersion) callEvidence.protocolVersion = transport.protocolVersion; else delete callEvidence.protocolVersion;
+      progress.save();
+      await progress.flush();
+    }, resolveToken),
   });
+  const progress = callProgress(callEvidence, opts.recordCallProgress, () => transport.close());
   const client = new Client({ name: "ruukoto", version: "0.1.0" }, { capabilities: {}, listMaxPages: MCP_LIMITS.maxListPages });
   try {
     await client.connect(transport, { timeout: connectTimeoutMs });
@@ -228,6 +320,14 @@ export async function connectMcpEndpoint({ serviceId, endpoint: rawEndpoint }: M
     throw classifyMcpError(err, connectTimeoutMs);
   }
   const serverInfo = client.getServerVersion() ?? null;
+  const receive = transport.onmessage;
+  transport.onmessage = message => {
+    if (callId !== undefined && "id" in message && message.id === callId && ("result" in message || "error" in message)) {
+      callEvidence.response = JSON.stringify(message);
+      progress.save();
+    }
+    receive?.(message);
+  };
   let protocolVersion: string | null = null;
   try {
     protocolVersion = client.getNegotiatedProtocolVersion() ?? null;
@@ -242,7 +342,63 @@ export async function connectMcpEndpoint({ serviceId, endpoint: rawEndpoint }: M
     client,
     opts.listTimeoutMs ?? MCP_LIMITS.listTimeoutMs,
     opts.callTimeoutMs ?? MCP_LIMITS.callTimeoutMs,
+    callEvidence,
+    progress,
   );
+}
+
+/** 仅通过 GET 恢复原 SSE 会话并读取原调用应答，不握手或重发 tools/call；缺恢复身份、失败或取消都不证明远端结束。 */
+export async function resumeMcpCall({ endpoint: rawEndpoint }: McpEndpoint, saved: Readonly<McpCallEvidence>, opts: McpEndpointConnectOptions & { signal?: AbortSignal } = {}): Promise<McpCallEvidence> {
+  const endpoint = parseMcpEndpoint(rawEndpoint);
+  const request = saved.request && rpcObject(saved.request);
+  const headerValue = (value: string | undefined) => !!value && !/[\r\n]/.test(value);
+  if (!request || request.jsonrpc !== "2.0" || request.method !== "tools/call" || !["string", "number"].includes(typeof request.id) || !headerValue(saved.sessionId) || !headerValue(saved.protocolVersion) || !headerValue(saved.resumptionToken)) throw new McpError("resume_unavailable", "原 MCP 调用缺少会话、协议或恢复游标，不能核实远端结束；保留原操作并独立查询服务，不能重发。");
+  if (opts.signal?.aborted) throw new McpError("canceled", "原 MCP 事件流核实已取消，未发起查询；原操作仍保留。");
+  const evidence: McpCallEvidence = { ...saved };
+  const resolveToken = tokenResolver(opts.resolveToken);
+  const transport = new StreamableHTTPClientTransport(endpoint, {
+    sessionId: saved.sessionId,
+    protocolVersion: saved.protocolVersion,
+    authProvider: resolveToken ? { token: resolveToken } : undefined,
+    fetch: pinnedFetch(endpoint, undefined, undefined, true),
+    reconnectionOptions: { maxRetries: 0, maxReconnectionDelay: 0, initialReconnectionDelay: 0, reconnectionDelayGrowFactor: 1 },
+  });
+  const progress = callProgress(evidence, opts.recordCallProgress, () => transport.close());
+  let complete!: () => void, fail!: (error: unknown) => void;
+  const result = new Promise<void>((resolve, reject) => { complete = resolve; fail = reject; });
+  transport.onmessage = message => {
+    if (!("id" in message) || message.id !== request.id || !("result" in message || "error" in message)) return;
+    evidence.response = JSON.stringify(message);
+    progress.save();
+    if (mcpResponseEnded(evidence.response)) complete();
+    else fail(new McpError("remote_incomplete", "原 MCP 应答尚非完整终结结果，已保存证据；保留原占用并向拥有者报告，不能重发工具。"));
+  };
+  transport.onerror = error => fail(error);
+  transport.onclose = () => fail(new McpError("resume_incomplete", "原 MCP 事件流已在本地关闭，尚未核实原请求结束；保留占用并查询原服务。"));
+  const timeoutMs = opts.callTimeoutMs ?? MCP_LIMITS.callTimeoutMs;
+  const timer = setTimeout(() => fail(new McpError("timeout", "核实原 MCP 事件流超时，尚未证明远端结束；保留原操作，不能重发工具。")), timeoutMs);
+  const cancel = () => fail(new McpError("canceled", "原 MCP 事件流核实已取消，尚未证明远端结束；保留原操作。"));
+  opts.signal?.addEventListener("abort", cancel, { once: true });
+  let opening: Promise<void> | undefined;
+  try {
+    await transport.start();
+    opening = transport.resumeStream(saved.resumptionToken!, { onresumptiontoken: token => { evidence.resumptionToken = token; progress.save(); } });
+    void opening.catch(fail);
+    await result;
+    await progress.flush();
+    return evidence;
+  } catch (error) {
+    await progress.flush();
+    throw classifyMcpError(error, timeoutMs, opts.signal);
+  } finally {
+    clearTimeout(timer);
+    opts.signal?.removeEventListener("abort", cancel);
+    await transport.close();
+    await opening?.catch(() => {
+      // 原打开失败已由 result 上报；关闭后收齐原 GET，不再建立连接。
+    });
+    await progress.flush();
+  }
 }
 
 export type { McpRemoteTool, CallToolResult };

@@ -1,0 +1,28 @@
+✔ MCP 原入口控制：原宿主菜单批准只消费一次，转发、引用、错回复与代次不能审批 (374.328084ms)
+✔ MCP 效果核实：原菜单保存业务证据仍不证明远端结束，回链缺失拒绝恢复 (97.714833ms)
+✔ MCP 配置向导：显式匿名、逐项允许工具，服务键和配置代次由程序生成 (22.12725ms)
+✔ MCP 操作向导：分页固定原操作，批准和效果核实分别提交且不伪造远端结束 (11.021333ms)
+✔ MCP 本机控制：先认证再校验原操作与正文，非法请求不调用模型或远端 (19.445167ms)
+✔ durable MCP：主会话完全访问保留原定义、原参数与完整长响应分页 (403.165458ms)
+✔ durable MCP：端点的查询别名不能绕过未知调用占用 (130.624708ms)
+✔ durable MCP：完整保存 tool 错误原响应且不伪装未知 (40.046458ms)
+✔ durable MCP：完整保存 rpc 错误原响应且不伪装未知 (36.28875ms)
+✔ durable MCP：confirm 不信只读标注，每次批准仅消费一次 (60.207167ms)
+✔ durable MCP：auto-review 不信只读标注，每次批准仅消费一次 (69.849333ms)
+✔ durable MCP：credential 失效在实际调用前拒绝 (24.148833ms)
+✔ durable MCP：definition 失效在实际调用前拒绝 (27.879958ms)
+✔ durable MCP：子工具超时跨重启接回同 Task，未知效果保留占用且不能人工伪造远端结束 (134.068792ms)
+✔ durable MCP：响应已到达但未提交时 SIGKILL，恢复保留同原调用且远端只执行一次 (989.683042ms)
+✔ durable MCP：主工具与输入均终结后仍拒绝绕过未知调用更换配置 (87.297917ms)
+✔ durable MCP：同来源暂停服务与委托报告，重启保留原暂停和占用 (181.700958ms)
+✔ durable MCP：实际主子模型请求可重建工具定义与结果，并记录启用前后开销 (57.906542ms)
+ℹ {"estimatedTokens":{"main":{"before":{"systemPrompt":51,"toolSchemas":521},"after":{"systemPrompt":51,"toolSchemas":864}},"child":{"before":{"systemPrompt":38,"toolSchemas":1},"after":{"systemPrompt":38,"toolSchemas":344}}}}
+✔ durable MCP：取消仅停止本地等待，原调用未知和子工作占用跨重启保留 (41.467041ms)
+ℹ tests 19
+ℹ suites 0
+ℹ pass 19
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3728.222083

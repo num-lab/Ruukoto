@@ -12,6 +12,8 @@ import { callHelper, opUnitFor, ServiceHelperError, type HelperReply, type Servi
 import { PersonalWorkDoc, personalWorkInspectionSource, requirePersonalWorkRequest, type PersonalWorkInspectionSource } from "./personal-work.ts";
 import { personalCommandSourceBlocker } from "./personal-command-work.ts";
 
+import { mcpSourceBlocker } from "./personal-mcp.ts";
+
 export type PersonalServiceMode = "auto-review" | "confirm" | "full_access";
 type Effect = { effect: "executed" | "not_executed" | "effect_unknown"; code: string; exitCode?: number };
 export type PersonalServiceOperationRef = { requestId: string; taskId: TaskId<Effect> };
@@ -44,7 +46,7 @@ export async function personalServiceOperation(tx: Tx, ref: { requestId: string;
 }
 
 async function sourceValid(tx: Tx, op: Operation, active = true) {
-  if (active && await personalCommandSourceBlocker(tx, op.source.requestId)) return false;
+  if (active && (await personalCommandSourceBlocker(tx, op.source.requestId) || await mcpSourceBlocker(tx, op.source.requestId))) return false;
   if (active && op.work) {
     const work = await tx.doc(PersonalWorkDoc, op.work.ref.requestId, null);
     if (work.cancelRequested || !isDeepStrictEqual(work.ref, op.work.ref)) return false;
@@ -114,9 +116,11 @@ export async function waitPersonalServiceEffect(reader: DocumentObserver, ref: P
   await waitForChange(reader, ref.requestId, op => !unresolved(op), context);
 }
 
-export type PersonalServiceBlocker = string | { inspection: TaskId; admission: EntryId } | { command: string; admission: EntryId };
+export type PersonalServiceBlocker = string | { inspection: TaskId; admission: EntryId } | { command: string; admission: EntryId } | { mcp: string; admission: EntryId };
 
 export async function personalServiceSourceBlocker(tx: Tx, sourceRequestId: string): Promise<PersonalServiceBlocker | undefined> {
+  const mcp = await mcpSourceBlocker(tx, sourceRequestId);
+  if (mcp) return mcp;
   const command = await personalCommandSourceBlocker(tx, sourceRequestId);
   if (command) return command;
   const source = await tx.submissionByRequest(ROOT_CONVERSATION_ID, sourceRequestId);

@@ -1,0 +1,12 @@
+✔ durable MCP SSE：超时后 GET 接回原 success，释放工作并恢复原报告 (1187.198167ms)
+✔ durable MCP SSE：超时后 GET 接回原 tool_error，释放工作并恢复原报告 (465.445541ms)
+✔ durable MCP SSE：超时后 GET 接回原 remote_error，释放工作并恢复原报告 (740.544666ms)
+✔ durable MCP SSE：实际取消在途子工作不证明远端停止，GET 原终结后才释放并复用身份 (296.520167ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 6454.984667

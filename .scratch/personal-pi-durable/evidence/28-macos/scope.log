@@ -1,0 +1,81 @@
+
+> ruukoto-workspace@0.1.0 change-scope
+> tsx scripts/change-scope.ts --base d517550
+
+{
+  "formatVersion": 1,
+  "repositoryRoot": "/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable",
+  "input": {
+    "base": "d517550",
+    "head": "HEAD"
+  },
+  "resolved": {
+    "baseSha": "d51755097aa338abb47faa1d4a7e317da8c00fc5",
+    "headSha": "d51755097aa338abb47faa1d4a7e317da8c00fc5",
+    "mergeBaseSha": "d51755097aa338abb47faa1d4a7e317da8c00fc5"
+  },
+  "paths": {
+    "committed": [],
+    "staged": [],
+    "unstaged": [
+      ".agents/notes/implemented/architecture/2026-10-17-mcp-transport-reuse.md",
+      ".agents/skills/pre-push-checks/SKILL.md",
+      ".scratch/personal-pi-durable/issues/01-migration-plan.md",
+      ".scratch/personal-pi-durable/issues/28-durable-mcp.md",
+      ".scratch/personal-pi-durable/remaining-work.md",
+      "README.md",
+      "apps/ruukoto/src/personal-cli.ts",
+      "apps/ruukoto/src/personal-control.ts",
+      "apps/ruukoto/src/personal-harness.ts",
+      "apps/ruukoto/src/personal-profile.ts",
+      "apps/ruukoto/src/personal-report.ts",
+      "apps/ruukoto/src/personal-service-operations.ts",
+      "apps/ruukoto/src/personal-telegram-records.ts",
+      "apps/ruukoto/src/personal-work.ts",
+      "docs/architecture.md",
+      "docs/development.md",
+      "docs/modules/agent-tools.md",
+      "docs/modules/personal-durable.md",
+      "docs/modules/products.md",
+      "docs/usage.md",
+      "packages/agent/src/mcp/tools.ts",
+      "packages/agent/src/mcp/transport.ts",
+      "test/mcp-transport.test.ts"
+    ],
+    "untracked": [
+      ".agents/notes/implemented/architecture/2026-10-17-personal-durable-mcp.md",
+      ".scratch/personal-pi-durable/evidence/28-linux/dependency-fallback.log",
+      ".scratch/personal-pi-durable/evidence/28-linux/environment-and-source.log",
+      ".scratch/personal-pi-durable/evidence/28-linux/setup-production-deps.log",
+      ".scratch/personal-pi-durable/evidence/28-linux/setup.log",
+      ".scratch/personal-pi-durable/evidence/28-linux/source-archive.sha256",
+      ".scratch/personal-pi-durable/evidence/28-linux/source-tree.sha256",
+      ".scratch/personal-pi-durable/evidence/28-linux/source.json",
+      ".scratch/personal-pi-durable/evidence/28-macos/README.md",
+      ".scratch/personal-pi-durable/evidence/28-macos/base-tests.log",
+      ".scratch/personal-pi-durable/evidence/28-macos/build-final.log",
+      ".scratch/personal-pi-durable/evidence/28-macos/build.log",
+      ".scratch/personal-pi-durable/evidence/28-macos/docs-final.log",
+      ".scratch/personal-pi-durable/evidence/28-macos/mcp-final.log",
+      ".scratch/personal-pi-durable/evidence/28-macos/mcp-incremental.log",
+      ".scratch/personal-pi-durable/evidence/28-macos/mcp-recovery.log",
+      ".scratch/personal-pi-durable/evidence/28-macos/mcp-tests.log",
+      ".scratch/personal-pi-durable/evidence/28-macos/personal-regressions.log",
+      ".scratch/personal-pi-durable/evidence/28-macos/recovery-author.log",
+      ".scratch/personal-pi-durable/evidence/28-macos/review.md",
+      ".scratch/personal-pi-durable/evidence/28-macos/scope.log",
+      ".scratch/personal-pi-durable/evidence/28-macos/static-final.log",
+      ".scratch/personal-pi-durable/evidence/28-macos/static.log",
+      ".scratch/personal-pi-durable/evidence/28-macos/transport-author.log",
+      "apps/ruukoto/src/personal-mcp-cli.ts",
+      "apps/ruukoto/src/personal-mcp-config.ts",
+      "apps/ruukoto/src/personal-mcp-controls.ts",
+      "apps/ruukoto/src/personal-mcp.ts",
+      "packages/agent/src/mcp/schema.ts",
+      "test/personal-mcp-config.test.ts",
+      "test/personal-mcp-controls.test.ts",
+      "test/personal-mcp-recovery.test.ts",
+      "test/personal-mcp.test.ts"
+    ]
+  }
+}

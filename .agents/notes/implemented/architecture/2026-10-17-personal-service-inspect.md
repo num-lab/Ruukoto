@@ -18,6 +18,10 @@ inspect 无写入效果，`replay: safe` 允许恢复后重新观察，当前策
 
 独立 `personal-service-inspect` 扩展名进入会话配置，让旧程序按缺扩展拒绝新档案。空工具档案只能在无未决输入/任务时启用检查，且已有主会话显式 configure；不会依赖 root 创建参数改写已有会话。服务检查由可信宿主 API 或[停机向导](2026-10-17-personal-service-configuration.md)显式启用。
 
+## 子工具的后续边界
+
+本篇原空工具边界中的固定只读检查由[子工作检查归属](2026-10-17-personal-subagent-inspection.md)部分取代；未配置服务仍为空工具，写操作、任意命令与 MCP 不下放。原工作生命周期、来源授权及 helper 停止证明的其余决定保持。
+
 ## 既有笔记审计
 
 按 service/helper、durable、服务管理和停止核实检索 active notes；rejected 目录不存在。[固定 helper](2026-10-03-service-management-helper.md)与[长期授权](../feature/2026-10-03-standing-permissions.md)部分重叠，其协议与写入授权约束继续适用；本任务不改变它们。[档案基础](2026-10-17-personal-durable-foundation.md)和[本机管理](2026-10-17-personal-local-management.md)部分重叠，本任务扩展可信 API，现有向导仍为空工具。无完全吸收或待归档笔记。

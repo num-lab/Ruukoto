@@ -1,0 +1,16 @@
+{
+  "manifest_sha256": "816d89fa52719e6414ac8660bf59f59b93205719d782af0e534c91fe7e2c4a83",
+  "content_mismatches": [],
+  "mode_changes": [
+    {
+      "path": "apps/ruukoto-code/bin/ruukoto-code.mjs",
+      "before": "0o755",
+      "after": "0o775"
+    },
+    {
+      "path": "apps/ruukoto/bin/ruukoto.mjs",
+      "before": "0o755",
+      "after": "0o775"
+    }
+  ]
+}

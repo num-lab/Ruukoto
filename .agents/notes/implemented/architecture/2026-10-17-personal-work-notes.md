@@ -16,6 +16,10 @@ Status: implemented
 
 按追加说明、后台工作、Telegram 来源与最终回报检索 active notes。[模型工作](2026-10-17-personal-model-work.md)、[宿主控制](2026-10-17-personal-work-controls.md)、后台工作及迁移总方案部分重叠，各保留决定并互链。旧共享工作流的 owner input/final delivery 与 Coding 状态机仍适用原底座，不搬入个人实现；没有完全吸收或需要归档的记录。
 
+## 子工具的接纳证据
+
+[子工作固定检查](2026-10-17-personal-subagent-inspection.md)需要按原检查接纳重建说明来源，所有新追加均写不可改接纳；已有无接纳的单项历史仍可读，未决旧工作不能直接启用子检查。
+
 ## 备选方案
 
 - 直接 steer：更及时进入当前生成，但空工具分析的最终边界可能先结束原 Submission，再开下一轮；原工作收尾会中止已接受说明。选择明确的轮次间顺序处理。

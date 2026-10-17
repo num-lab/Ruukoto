@@ -222,7 +222,7 @@ test("分析委托：Telegram 原菜单与跨入口续派/追加核实，重投�
   for (const extra of [{ forward_origin: { type: "user" } }, { quote: { text: "取消整项分析" } }]) await f.receive("取消整项分析", menu.messageId, extra);
   await f.receive("取消整项分析", 999999); assert.equal((await progress(p, ref)).cancelRequested, false);
   const canceled = await f.receive("取消整项分析", menu.messageId); await p.telegram.receive(canceled.update); await finish(p, ref);
-  assert.equal((await progress(p, ref)).state, "canceled"); assert.equal(f.model.calls.length, count); assert.match(canceled.value.reply!, /不包含服务/);
+  assert.equal((await progress(p, ref)).state, "canceled"); assert.equal(f.model.calls.length, count); assert.match(canceled.value.reply!, /固定服务检查.*不包含独立宿主服务写操作/);
   await p.close(); p = await f.open({ telegram: { ...telegram, generation: randomUUID() } });
   assert.match((await f.receive("/委托")).value.reply!, /暂无/); assert.match((await f.receive("取消整项分析", menu.messageId)).value.reply!, /没有改变/);
 });

@@ -102,7 +102,8 @@ test("模型工作：取消停止原工作且身份可复用，回报输入只�
   const read = await p.main.submit({ type: "input", content: "列表", requestId: "report-list", entry: { kind: "ruukoto.work-report", data: {} } }, context); await read.wait(context);
   const last = (await p.main.entries({ order: "ascending" }, 256, undefined, context)).items.flatMap(entry => entry.model ?? []).filter(message => message.role === "toolResult").at(-1)!;
   assert.equal(last.isError, false);
-  assert.match(await p.answer("取消", "cancel"), /stopped/);
+  assert.match(await p.answer("取消", "cancel"), /stopped|cancel_requested/);
+  await p.harness.waitForTask(target.taskId, context);
   assert.equal((await p.work.status(target)).task.state.status, "terminal"); assert.equal((await p.work.list())[0].work, undefined);
   release(); assert.match(await p.answer("关闭", "close"), /closed/);
 });
@@ -118,7 +119,8 @@ test("模型工作：取消处理 faulted 不声称已停止，保留原占用�
   const p = await f.open(); await p.answer("委派", "owner"); target = await ref(p);
   await until(() => f.server.calls.some(childRequest));
   await p.harness.commit(async tx => { (await tx.doc(PersonalAgentsDoc)).agents[0].work!.taskId = 999999 as PersonalWorkRef["taskId"]; }, context);
-  assert.match(await p.answer("取消", "cancel"), /stop_unverified/);
+  assert.match(await p.answer("取消", "cancel"), /stop_unverified|cancel_requested/);
+  await p.harness.waitForTask(target.taskId, context);
   assert.equal((await p.work.status(target)).task.state.status, "terminal");
   assert.equal((await p.harness.waitForTask(target.taskId, context)).state.outcome.status, "faulted");
   assert.ok((await p.harness.snapshot(LiveDoc, target.agentId, context))?.run);

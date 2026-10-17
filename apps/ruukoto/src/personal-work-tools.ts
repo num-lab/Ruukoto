@@ -30,7 +30,7 @@ export async function personalToolSource(tx: Tx, api: Pick<ToolExecutionApi, "ta
 export function personalWorkTools(getHarness: () => Harness) {
   const tool = defineTool({
     name: "background_work",
-    description: "管理长期复用的空工具分析子 Agent。delegate 立即返回；同轮多项分析归同一委托，跨轮提供 delegation 继续原委托，保持原入口和授权；省略则建立本轮委托。delegations 列委托，progress 读委托成员进度；全部分析空闲不表示整项完成。cancel_delegation 一次请求取消全部分析成员，不关闭身份；当前不涵盖服务等外部操作。append 补充活动 work，当前回答结束后依次处理。list 列身份，result 分页读单项完整回答；cancel 等待单项停止，close 关闭空闲身份并保留历史。委托取消后不能续派/追加；原入口失效或任一成员说明来源的服务效果未知会暂停整个委托，仍可查询/取消，须向拥有者报告核实，不换委托重试。占用未释放或停止无法核实不能复用。安排完全部分析后调用 report 封组，宿主等待全部成员停止，再请主 Agent 汇总并固定回报原入口；封组后不能续派或追加。report_result 分页读完整报告和发送状态。未知效果会暂停报告，核实后可安全重做模型汇总，未知发送不重发。普通汇总失败请查询报告并向拥有者说明，不换委托重试。回报输入只可查询。",
+    description: "管理长期复用的分析子 Agent；子会话只可使用宿主提供的固定只读工具。delegate 立即返回；同轮多项分析归同一委托，跨轮提供 delegation 继续原委托，保持原入口和授权；省略则建立本轮委托。delegations 列委托，progress 读委托成员进度；全部分析空闲不表示整项完成。cancel_delegation 一次请求取消全部分析成员，不关闭身份；包含成员的固定服务检查，停止未核实时继续保留占用；不涵盖独立宿主服务写操作。append 补充活动 work，当前回答结束后依次处理。list 列身份，result 分页读单项完整回答；cancel 请求单项取消后立即返回，用 result 查询停止结果，close 关闭空闲身份并保留历史。委托取消后不能续派/追加；原入口失效或任一成员说明来源的服务效果未知会暂停整个委托，仍可查询/取消，须向拥有者报告核实，不换委托重试。占用未释放或停止无法核实不能复用。安排完全部分析后调用 report 封组，宿主等待全部成员停止，再请主 Agent 汇总并固定回报原入口；封组后不能续派或追加。report_result 分页读完整报告和发送状态。未知效果会暂停报告，核实后可安全重做模型汇总，未知发送不重发。普通汇总失败请查询报告并向拥有者说明，不换委托重试。回报输入只可查询。",
     parameters: Type.Object({
       action: Type.Union([Type.Literal("delegate"), Type.Literal("append"), Type.Literal("list"), Type.Literal("result"), Type.Literal("cancel"), Type.Literal("close"), Type.Literal("delegations"), Type.Literal("progress"), Type.Literal("cancel_delegation"), Type.Literal("report"), Type.Literal("report_result")], { description: "delegate 必填 content，可选 agent 或 label、delegation；append 必填 work/content；list/delegations 仅可选 offset；result 必填 work，可选 offset；progress/report_result 必填 delegation，可选 offset；report/cancel_delegation 必填 delegation；cancel 必填 work；close 必填 agent。其余字段省略。report 安排好全部分析后调用，封组后不能续派或追加。" }),
       delegation: Type.Optional(Type.Integer({ minimum: 1, description: "delegate/delegations 返回的委托编号；progress/cancel_delegation/report/report_result 必填。delegate 跨轮继续原委托时提供，不能使用 work 或 agent 编号代替。" })),
@@ -64,7 +64,7 @@ export function personalWorkTools(getHarness: () => Harness) {
           }
           if (action === "cancel_delegation") {
             await cancelPersonalDelegation(tx, { entryId: delegation as EntryId }, source!);
-            return { delegation, state: "cancel_requested", next: "已登记全部分析成员取消，停止尚须核实；后续用 progress 查询。身份和历史保留，不涵盖外部服务操作。" };
+            return { delegation, state: "cancel_requested", next: "已登记全部分析成员取消，停止尚须核实；后续用 progress 查询。身份和历史保留，包括成员固定检查的停止核实，不涵盖独立宿主服务写操作。" };
           }
           if (action === "delegate") {
             const model = (await tx.doc(AgentDoc, ROOT_CONVERSATION_ID)).model;
@@ -92,9 +92,9 @@ export function personalWorkTools(getHarness: () => Harness) {
         const harness = getHarness();
         if ("cancel" in result && result.cancel) {
           await harness.abortTask(result.cancel.taskId, context);
-          await harness.waitForTask(result.cancel.taskId, context);
-          const stopped = (await api.commit(tx => personalWorkStatus(tx, result.cancel!), context)).stopVerified;
-          return { output: [{ type: "text" as const, text: JSON.stringify({ work, state: stopped ? "stopped" : "stop_unverified", next: stopped ? "原工作已停止；用 result 查询其结果。身份未关闭，可用 list 查看。" : "停止仍未核实，保留占用；请向拥有者报告，不要重试或复用身份。" }) }] };
+          const status = await api.commit(tx => personalWorkStatus(tx, result.cancel!), context);
+          const state = status.stopVerified ? "stopped" : status.task.state.status === "terminal" ? "stop_unverified" : "cancel_requested";
+          return { output: [{ type: "text" as const, text: JSON.stringify({ work, state, next: status.stopVerified ? "原工作已停止；用 result 查询其结果。身份未关闭，可用 list 查看。" : "已登记取消，停止仍须核实，保留占用；结束本轮，后续用 result 查询，不要重试或复用身份。" }) }] };
         }
         return { output: [{ type: "text" as const, text: JSON.stringify(result) }] };
       };

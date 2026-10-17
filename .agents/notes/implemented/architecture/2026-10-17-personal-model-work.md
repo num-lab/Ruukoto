@@ -18,6 +18,10 @@ Status: implemented
 
 首次启用模型扩展有未决输入/任务时先拒绝，不固化新扩展。恢复检查模型键、工具调用 entry、工作与原生 Task、权限快照及 Telegram 原收件关系；旧程序因缺新扩展拒绝新档案。旧宿主工作仍按原记录恢复，不补猜其权限或工具归属。
 
+## 子工具的后续边界
+
+本篇原空工具边界中的固定只读检查由[子工作检查归属](2026-10-17-personal-subagent-inspection.md)部分取代；未配置服务仍为空工具，写操作、任意命令与 MCP 不下放。原工作生命周期、来源授权及 helper 停止证明的其余决定保持。
+
 ## 既有笔记审计
 
 按 durable、后台工作、子 Agent、来源、权限与取消检索 active notes。迁移提案、后台工作、[Telegram 权限](2026-10-17-personal-telegram-permissions.md)、[服务操作](2026-10-17-personal-service-operations.md)和[档案基础](2026-10-17-personal-durable-foundation.md)部分重叠，各自保留决定并互链；旧共享委派与恢复继续服务 Coding，不改变其状态机。没有完全吸收或待归档提案。

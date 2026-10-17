@@ -23,7 +23,7 @@
 
 [逐项验收证据](docs/release-acceptance.md)。
 
-个人用 [`npm run personal:durable`](docs/usage.md#25-个人-durable-隔离向导)：Pi 1.3.0 隔离向导、Telegram 文本配对；Coding 用 Pi 0.85.1，正式入口未变。
+个人用 [`npm run personal:durable`](docs/usage.md#25-个人-durable-隔离向导)：Pi 1.3.0 隔离向导、Telegram 文本配对及宿主权限菜单；Coding 用 Pi 0.85.1，正式入口未变。
 
 ## 快速开始
 

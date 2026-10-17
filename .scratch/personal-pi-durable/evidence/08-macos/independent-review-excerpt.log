@@ -1,0 +1,17 @@
+此文件归档先前已执行工具输出的相关原文摘录；未重新运行四条隔离用例。
+Command: npx tsx --test /var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/rk-perm-review-i30jtec4/review.test.ts test/personal-telegram-permissions.test.ts
+Tool session: 15098, result chunk: d91c0a, exit_code: 0
+
+✔ 反证：历史未知经人工核实后新建的授权应跨重启保留 (522.015667ms)
+✔ 反证：授权来源不能替换为已拒绝的旧菜单重批收件 (102.36725ms)
+✔ 反证：原入口手工批准的未知操作仍能人工核实 (151.390875ms)
+✔ 反证：单次批准与原已接受决定相反时拒绝恢复 (103.176458ms)
+
+ℹ tests 30
+ℹ suites 0
+ℹ pass 30
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3992.771209

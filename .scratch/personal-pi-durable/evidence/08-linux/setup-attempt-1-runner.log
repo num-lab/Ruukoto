@@ -1,0 +1,7 @@
+setup_exit=1 setup_seconds=67
+tee: ../evidence/status.txt: No space left on device
+Exception ignored in: <_io.TextIOWrapper name='<stdout>' mode='w' encoding='utf-8'>
+OSError: [Errno 28] No space left on device
+source_hash_exit=120
+tee: ../evidence/status.txt: No space left on device
+complete

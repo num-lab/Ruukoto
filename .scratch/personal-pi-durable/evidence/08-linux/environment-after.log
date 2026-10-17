@@ -1,0 +1,12 @@
+2026-10-17T03:15:09Z
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/vda2        40G   38G  409M  99% /
+tmpfs           1.9G  1.8G  119M  94% /dev/shm
+               total        used        free      shared  buff/cache   available
+Mem:           3.6Gi       2.5Gi       887Mi       1.6Gi       2.1Gi       1.2Gi
+Swap:          1.9Gi       826Mi       1.1Gi
+224M	/tmp/rpd08-cache.Ac2qfWOe/npm-cache
+893M	node_modules
+580M	verification/foundation/node_modules
+3.3M	../tmp
+3055975 3055974 bash /dev/shm/rpd08.JSWH3UpR/final-linux.sh

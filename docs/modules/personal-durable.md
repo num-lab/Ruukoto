@@ -2,7 +2,7 @@
 
 ## 职责与边界
 
-`apps/ruukoto/src/personal-*.ts` 提供独立的 Pi 1.3.0 会话、本机引导管理及后台工作宿主 API，只用于隔离验证。正式个人 bin、根启动脚本、开发启动器与部署入口使用[产品装配](products.md)中的共享运行时；本机向导仍为空工具会话；可信宿主 API 可单独启用主会话只读服务检查，子会话固定空工具；可经隔离向导配对 Telegram 文本私聊，没有模型写工具。可信宿主还可显式启用独立服务操作、单次审批及效果核实。
+`apps/ruukoto/src/personal-*.ts` 提供独立的 Pi 1.3.0 会话、本机引导管理及后台工作宿主 API，只用于隔离验证。正式个人 bin、根启动脚本、开发启动器与部署入口使用[产品装配](products.md)中的共享运行时；本机向导仍为空工具会话；可信宿主 API 可单独启用主会话只读服务检查，子会话固定空工具；可经隔离向导配对 Telegram 文本私聊，没有模型写工具。可信宿主还可显式启用独立服务操作，Telegram 持有原入口审批、权限快照和精确长期授权。
 
 ## 对外接口
 
@@ -12,9 +12,9 @@
 
 可信宿主使用返回的 `work.delegate` 委派或复用长期子 Agent，`list/status` 查询身份和原生工作进度，`cancel` 等待取消核实，`closeAgent` 关闭空闲身份。首次委派可给名称；已有身份通过具名工作引用管理。来源须引用已进入主会话的拥有者输入请求；同工作键异参拒绝。此 API 不装配模型委派工具，不接受追加说明，不自动外发结果；本机接口和向导尚无工作操作选项。
 
-`serviceOperations: true` 另启用宿主 `service` API：`request` 以原拥有者输入建立独立后台 restart 工作，`list/status` 查询原生 Task 和操作事实，`decide/cancel/resolve/recheckStop` 决定原审批、取消或核实效果与停止。模式固定于创建，默认自动审查；自动审查与请求确认的服务写入均等人工批准，完全访问免逐次审批。此 API 不通过本机 HTTP/CLI 暴露，不创建长期授权；原 IM 身份、长期授权和模型工作装配仍需后续接入。
+`serviceOperations: true` 另启用宿主 `service` API：`request` 以原拥有者输入建立独立后台 restart 工作，`list/status` 查询原生 Task 和操作事实，`decide/cancel/resolve/recheckStop` 决定原审批、取消或核实效果与停止。模式固定于创建，默认自动审查；无有效长期授权时，自动审查与请求确认的服务写入等人工批准，完全访问免逐次审批。此 API 不通过本机 HTTP/CLI 暴露。Telegram 来源强制使用原收件的模式，不能由 API 扩大；其审批只能通过原 Telegram 宿主菜单决定。历史本机可信 API 仍显式提供模式与单次决定，不能冒充 Telegram 来源。
 
-`telegram` 配置启用固定拥有者文本入口；返回的 `telegram.receive/poll/status` 分别持久接收平台更新、管理可中止轮询、查询连接和最近 16 条收发。后台仅以配对的 bot/私聊拥有者收件，所有输入使用同一 main；来源事实不等于外部操作授权，IM 审批与长期授权尚未接入。配置、配对和停用见[操作手册](../usage.md#25-个人-durable-隔离向导)。
+`telegram` 配置启用固定拥有者文本入口；返回的 `telegram.receive/poll/status` 分别持久接收平台更新、管理可中止轮询、查询连接和最近 16 条收发。后台仅以配对的 bot/私聊拥有者收件，所有输入使用同一 main；普通直发收件保存当时模式/权限版本；`/权限` 管理以后新 Telegram 输入的模式，`/审批`、`/服务状态` 与 `/授权` 查询和管理服务工作。回复已发送宿主菜单选择动作，不要求输入内部键；控制消息不进入模型，也不等待聊天。服务请求仍需可信宿主 API，向导尚无服务配置和模型写工具。配置、配对和停用见[操作手册](../usage.md#25-个人-durable-隔离向导)。
 
 ## 数据与状态
 
@@ -29,6 +29,8 @@
 `ruukoto.service-operations-config` 标记操作能力；`ruukoto.service-operation` 按请求键保存来源、模式、固定操作身份、审批快照、消费、外部效果和停止核实事实。每次操作对应主会话拥有的 background `ruukoto.service-operation` Task，执行状态以 Task 为准。`ruukoto.service-operation-evidence` 保存每次 helper 调用的原始有界字节，结果和证据同 commit；核实记录保留拥有者证据，不覆盖原未知结论。
 
 `telegram.json` 保存入口版本、随机配置代次、bot/owner、平台接管边界、凭据环境变量及指纹，不含 token。`ruukoto.telegram` 保存当前绑定和诊断水位；`ruukoto.telegram-receipt` 按稳定平台消息键保存原文、固定来源/回复目标、原生 Task/Submission 引用与发送事实。每条消息是主会话拥有的 background Task；429 重试时刻保存在原生 checkpoint，执行状态不另建副本。
+
+主会话登记 `personal-telegram-permissions` 扩展，旧程序缺该扩展时拒绝恢复；`ruukoto.permissions` 保存新 Telegram 输入的模式与版本；`ruukoto.service-grants` 保存精确服务授权、原决定/操作、行版本及失效原因。控制收件保存已接受的结构化决定与授权关联，恢复时双向核实；授权只由原 pending 审批明确创建，完全访问不会自动创建授权。
 
 ## 主要流程
 
@@ -45,6 +47,8 @@
 服务操作先经 helper 只读检查并保存目标修订，再等待持久审批 document 的决定；批准消费前复核原来源和策略内容，helper 在派发前再次核对修订。消费、开始事实与恢复 checkpoint 同 commit，仅当前 invocation 派发一次 restart。可信请求前拒绝记未执行，可信非零命令退出如实保留已执行结论；进程中断、超时或结果无法核实均暂停，恢复只停止与核实原操作。拥有者的效果说明与启动器/命令单元停止证明分别保存，两者齐全才释放。
 
 Telegram 配对通过真实 getMe 和随机私聊短语选择身份，操作者确认后按已观察批次核实平台接管边界。运行中每批全部持久化才允许下一次轮询短期确认该批；重启不携带旧 offset，按 bot/chat/message 去重，允许平台空闲后随机生成较小 update ID。重复同键异文拒绝。每条原生 Task 用稳定消息键向 main admission，崩溃后接回原提交；只有对应的完整回答进入原目标的发送。
+
+Telegram 控制消息按原始完整正文分类，回复关系只定位同 bot/owner/代次且已发送的宿主菜单；转发、引用摘录与普通回答不能决定操作。收件、决定/授权/撤销和固定回执意图同 commit，重投沿原记录，不重做决定。长期授权每次经 inspect 核实机器、单元、策略及单元修订，再在消费事务重读有效版本；撤销先提交恢复人工，消费先提交只影响后续。服务未知使同机器/单元的全部授权失效；历史未知完成核实后不再影响后来授权。
 
 回复正文先固定保存，再提交 sending 与 verify checkpoint，最后发请求。明确 429 拒绝延后原发送，其他明确 4xx 拒绝终止；断线、5xx、畸形回执或发送后结果落盘失败都保留效果未知，重开不重发。目标停用/换代使旧未开始输入和待发回复取消；已进入主会话的历史保留，已开始发送的未知状态保留。后台停止先收齐轮询，再关闭 Harness，故障放锁前也收齐网络与本机接口。
 
@@ -64,6 +68,8 @@ Telegram 配对通过真实 getMe 和随机私聊短语选择身份，操作者�
 
 Telegram 数值 offset 只在一批更新收到后 60 秒内用于紧接的一次请求；失败、空批或超期清空，不能把 ID 视为永久单调。配对身份选择同样有 60 秒截止。平台明确确认与配置保存没有跨存储原子性，保存失败需重新配对；凭据变化不沿用旧配置启动。发送回执必须验证平台结果、消息身份和固定目标；原生 fetch 错误及含 token 的 URL 不进入日志。每批最多 16 条更新，HTTP 回执最多 1 MiB，正文最多 16 KiB；平台回复最多 3900 个 Unicode 字符加截断提示，完整回答保存在 durable。
 
+旧 Telegram 收件没有权限快照时不能新建服务工作；已有这类未消费操作失效，已消费操作仍保留效果核实与占用。旧代次服务批准无法消费，长期授权失效；模式变更只影响新收件。权限/授权版本及来源关联缺失或操作模式与原快照不符时拒绝恢复，不能重建默认授权。
+
 ## 设计依据
 
 - [个人 durable 档案与请求证据先于恢复](../../.agents/notes/implemented/architecture/2026-10-17-personal-durable-foundation.md)
@@ -73,3 +79,5 @@ Telegram 数值 offset 只在一批更新收到后 60 秒内用于紧接的一�
 - [个人服务操作先持久消费并核实未知效果](../../.agents/notes/implemented/architecture/2026-10-17-personal-service-operations.md)
 
 - [个人 Telegram 收件与固定回复由 durable 任务衔接](../../.agents/notes/implemented/architecture/2026-10-17-personal-telegram-entry.md)
+
+- [Telegram 原收件与服务权限](../../.agents/notes/implemented/architecture/2026-10-17-personal-telegram-permissions.md)

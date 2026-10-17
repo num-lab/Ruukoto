@@ -1,15 +1,13 @@
 import { isDeepStrictEqual } from "node:util";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { AssistantEntry, defineDoc, defineDocFamily, defineExtension, defineTask, ROOT_CONVERSATION_ID, type Cursor, type Harness, type SubmissionId, type TaskId, type Tx } from "@earendil-works/pi-durable";
+import { AssistantEntry, defineExtension, defineTask, ROOT_CONVERSATION_ID, type Cursor, type Harness, type TaskId, type Tx } from "@earendil-works/pi-durable";
 import { PersonalError } from "./personal-error.ts";
 import { PersonalTelegramApiError, telegramOffset, telegramText, type PersonalTelegramApi, type TelegramAck, type TelegramUpdate } from "./personal-telegram-api.ts";
+import { PersonalTelegramDoc, PersonalTelegramReceiptDoc, type TelegramReceipt as Receipt, type TelegramResult as Result, type TelegramControlInput } from "./personal-telegram-records.ts";
+import { telegramPermissionControl, PersonalPermissionsDoc, TELEGRAM_SERVICE_ACTIONS } from "./personal-permissions.ts";
+export { PersonalTelegramDoc, PersonalTelegramReceiptDoc } from "./personal-telegram-records.ts";
 import type { PersonalTelegramConfig } from "./personal-telegram-config.ts";
 
-type Delivery = "waiting" | "pending" | "sending" | "sent" | "failed" | "effect_unknown" | "canceled" | "unanswered";
-type Result = { delivery: Delivery };
-type Receipt = { taskId: TaskId<Result>; requestId: string; generation: string; botId: string; ownerId: string; messageId: number; updateId: number; content: string; submissionId?: SubmissionId; delivery: Delivery; reply?: string; platformMessageId?: string };
-export const PersonalTelegramDoc = defineDoc<{ config?: PersonalTelegramConfig; lastUpdateId?: number; rejected: number }>({ kind: "ruukoto.telegram", scope: "session", version: 1, initial: () => ({ rejected: 0 }) });
-export const PersonalTelegramReceiptDoc = defineDocFamily<{ receipt?: Receipt }, null>({ kind: "ruukoto.telegram-receipt", scope: "session", version: 1, family: true, initial: () => ({}) });
 const context = BACKGROUND_CONTEXT;
 const TASK = "ruukoto.telegram-input";
 
@@ -22,7 +20,7 @@ async function receipt(tx: Tx, requestId: string, taskId: TaskId) {
 function active(config: PersonalTelegramConfig | undefined, value: Receipt) { return config?.enabled === true && config.generation === value.generation && config.botId === value.botId && config.ownerId === value.ownerId; }
 
 // Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-telegram-entry.md
-export function personalTelegram(config?: PersonalTelegramConfig, api?: PersonalTelegramApi) {
+export function personalTelegram(config?: PersonalTelegramConfig, api?: PersonalTelegramApi, control?: (tx: Tx, value: TelegramControlInput) => Promise<boolean>) {
   const task = defineTask<{ requestId: string }, { phase: "run" } | { phase: "send"; retryAt?: number } | { phase: "verify" }, Result>({
     name: TASK, version: 1, initial: () => ({ phase: "run" }),
     phases: {
@@ -37,6 +35,10 @@ export function personalTelegram(config?: PersonalTelegramConfig, api?: Personal
           return undefined;
         }, context);
         if (!allowed) return;
+        if (value.receipt.control) {
+          await runtime.commit(async tx => { (await receipt(tx, current.input.requestId, current.id)).delivery = "pending"; return { status: "running", checkpoint: { phase: "send" } }; }, context);
+          return;
+        }
         const main = await runtime.conversation(ROOT_CONVERSATION_ID, context);
         if (!main) throw new PersonalError("telegram_main_missing", "Telegram 主会话缺失，已停止；请保留档案。");
         // 配置只在停机持锁时改变；跨 admission 的窗口始终重接同一平台消息键。
@@ -119,11 +121,15 @@ export function personalTelegram(config?: PersonalTelegramConfig, api?: Personal
           if (!message || message.ownerId !== config.ownerId || !key) { state.rejected++; return; }
           const record = await tx.doc(PersonalTelegramReceiptDoc, key, null);
           if (record.receipt) {
-            if (record.receipt.content !== message.text) throw new PersonalError("telegram_input_conflict", "Telegram 同一消息的正文不符，已停止接收；请保留档案并检查。");
+            if (record.receipt.content !== message.text || (record.receipt.direct !== undefined && (record.receipt.direct !== message.direct || record.receipt.replyTo !== message.replyTo || record.receipt.replyBotId !== message.replyBotId))) throw new PersonalError("telegram_input_conflict", "Telegram 同一消息的正文不符，已停止接收；请保留档案并检查。");
             return;
           }
+          const value: TelegramControlInput = { requestId: key, generation: config.generation, botId: config.botId, ownerId: config.ownerId, messageId: message.id, updateId: update.update_id, content: message.text, direct: message.direct, ...(message.replyTo === undefined ? {} : { replyTo: message.replyTo }), ...(message.replyBotId === undefined ? {} : { replyBotId: message.replyBotId }), delivery: "waiting" };
+          if (await telegramPermissionControl(tx, value) || await control?.(tx, value)) value.control = true;
+          else if (TELEGRAM_SERVICE_ACTIONS.includes(value.content)) { value.control = true; value.reply = "当前宿主未启用服务操作；请由拥有者核实服务配置，聊天仍可继续。"; }
+          else if (message.direct) { const permission = await tx.doc(PersonalPermissionsDoc); value.permission = { mode: permission.mode, version: permission.version }; }
           const taskId = await tx.createTask(task, { requestId: key }, { conversationId: ROOT_CONVERSATION_ID, ownership: { kind: "conversation" }, background: true });
-          record.receipt = { taskId, requestId: key, generation: config.generation, botId: config.botId, ownerId: config.ownerId, messageId: message.id, updateId: update.update_id, content: message.text, delivery: "waiting" };
+          record.receipt = { ...value, taskId };
         }, context);
         harness.resume();
       };
@@ -187,6 +193,7 @@ export async function verifyPersonalTelegram(tx: Tx, keys: string[], config?: Pe
     const value = (await tx.doc(PersonalTelegramReceiptDoc, key, null)).receipt;
     const task = value && await tx.task(value.taskId);
     if (!value || value.requestId !== key || key !== `telegram:${value.botId}:${value.ownerId}:${value.messageId}` || !task || task.kind !== TASK || task.version !== 1 || task.conversationId !== ROOT_CONVERSATION_ID || !task.background || task.owner !== undefined || !task.input || typeof task.input !== "object" || Array.isArray(task.input) || task.input.requestId !== key) throw new PersonalError("telegram_receipt_invalid", "Telegram 来源与执行关系无法核实，已停止恢复；请保留档案。");
+    if ((value.permission && (!value.direct || value.control || !["auto-review", "confirm", "full_access"].includes(value.permission.mode) || !Number.isSafeInteger(value.permission.version) || value.permission.version < 1)) || (value.control && (!value.reply || value.permission || value.submissionId !== undefined)) || (value.selection && !value.control)) throw new PersonalError("telegram_receipt_invalid", "Telegram 输入权限或宿主控制归属不符，已停止恢复；请保留档案。");
     const submission = await tx.submissionByRequest(ROOT_CONVERSATION_ID, key);
     if (value.submissionId !== undefined && (submission?.id !== value.submissionId || submission.type !== "input")) throw new PersonalError("telegram_receipt_invalid", "Telegram 原提交记录缺失，已停止恢复；请保留档案。");
     if (value.delivery === "sending" && task.state.status === "terminal") value.delivery = "effect_unknown";

@@ -4,7 +4,8 @@ import { AssistantEntry, defineEntry, defineExtension, defineTask, InboxDoc, Liv
 import { PersonalError } from "./personal-error.ts";
 import { PersonalDelegationDoc, personalDelegation, personalDelegationBlocker, personalDelegationSources, requirePersonalDelegationInput, requirePersonalDelegationReady, type PersonalDelegationRef, type PersonalWorkSource } from "./personal-delegation.ts";
 import { personalWorkNoteSource, personalWorkStatus } from "./personal-work.ts";
-import { PersonalServiceOperationDoc } from "./personal-service-operations.ts";
+import { PersonalInspectionDoc, ServiceInspectionAdmission } from "./personal-service-inspection.ts";
+import { PersonalServiceOperationDoc, type PersonalServiceBlocker } from "./personal-service-operations.ts";
 import { PersonalTelegramDoc, PersonalTelegramReceiptDoc } from "./personal-telegram-records.ts";
 import { personalTelegramApi, PersonalTelegramApiError } from "./personal-telegram-api.ts";
 import { telegramToken } from "./personal-telegram-config.ts";
@@ -13,7 +14,7 @@ type Delivery = "waiting" | "local" | "pending" | "sending" | "sent" | "failed" 
 export type PersonalReportFacts = { taskId: TaskId; admission: EntryId; source: PersonalWorkSource; modelCall: TaskId; content: string; attempt: number; pauses: EntryId[]; submissionId?: SubmissionId; answer?: EntryId; reply?: string; delivery: Delivery; platformMessageId?: string };
 type ReportInput = { delegation: PersonalDelegationRef; source: PersonalWorkSource; modelCall: TaskId; content: string };
 const ReportAdmission = defineEntry<ReportInput & { taskId: TaskId }>("ruukoto.report-admission");
-const ReportPause = defineEntry<{ taskId: TaskId; attempt: number; submissionId: SubmissionId; blocker: string }>("ruukoto.report-pause");
+const ReportPause = defineEntry<{ taskId: TaskId; attempt: number; submissionId: SubmissionId; blocker: PersonalServiceBlocker }>("ruukoto.report-pause");
 const INPUT_KIND = "ruukoto.delegation-report";
 const submissionKey = (taskId: TaskId, attempt: number) => `personal-report:${taskId}:${attempt}`;
 const inputData = (ref: PersonalDelegationRef, report: PersonalReportFacts, attempt = report.attempt) => ({ delegation: ref.entryId, taskId: report.taskId, attempt });
@@ -80,7 +81,7 @@ export const PersonalReportTask = defineTask<ReportInput, { phase: "wait" } | { 
       try {
         // 暂停等待留在后台 Task；provider 门禁拒绝该轮，主聊天仍能处理其他输入。
         while (true) {
-          let blocker: string | undefined;
+          let blocker: PersonalServiceBlocker | undefined;
           let stop = false;
           await runtime.commit(async tx => {
             const { value, report } = await reportFacts(tx, ref, current.id);
@@ -98,12 +99,12 @@ export const PersonalReportTask = defineTask<ReportInput, { phase: "wait" } | { 
           }, context);
           if (stop) return;
           if (!blocker) break;
-          const watch = await runtime.watchDoc(PersonalServiceOperationDoc, blocker, context);
+          const watch = typeof blocker === "string" ? await runtime.watchDoc(PersonalServiceOperationDoc, blocker, context) : await runtime.watchDoc(PersonalInspectionDoc, String(blocker.inspection), context);
           if (!watch) throw new PersonalError("service_operation_missing", "暂停报告的服务记录缺失，请保留档案。");
           try {
             const changed = new Promise<void>(resolve => { watch.start(async () => { resolve(); }); void watch.closed.then(() => resolve()); });
             let stillBlocked = false;
-            await runtime.commit(async tx => { stillBlocked = await personalDelegationBlocker(tx, await personalDelegation(tx, ref)) === blocker; return undefined; }, context);
+            await runtime.commit(async tx => { stillBlocked = isDeepStrictEqual(await personalDelegationBlocker(tx, await personalDelegation(tx, ref)), blocker); return undefined; }, context);
             if (stillBlocked) await Promise.race([changed, cancel.promise]);
           } finally { await watch.stop(); }
         }
@@ -265,8 +266,21 @@ export async function verifyPersonalReports(tx: Tx, keys: string[], enabled: boo
       if (attempt < report.attempt && (submission?.status !== "unanswered" || !pauseId)) throw new PersonalError("report_record_invalid", "报告重做缺少未回答的原尝试或暂停证明，已停止恢复。");
       if (attempt < report.pauses.length) {
         const pause = pauseId && await tx.entry(ReportPause, pauseId);
-        const operation = pause && (await tx.doc(PersonalServiceOperationDoc, pause.data.blocker, null)).operation;
-        if (!pause || pause.conversationId !== ROOT_CONVERSATION_ID || pause.data.taskId !== report.taskId || pause.data.attempt !== attempt || pause.data.submissionId !== submission?.id || !submission?.entry || pause.id <= submission.entry || !operation || !(await personalDelegationSources(tx, value)).has(operation.source.requestId)) throw new PersonalError("report_record_invalid", "报告暂停证明缺失或不符，已停止恢复。");
+        let sourceValid = false;
+        if (pause) {
+          const sources = await personalDelegationSources(tx, value);
+          const blocker = pause.data.blocker;
+          if (typeof blocker === "string") {
+            const operation = (await tx.doc(PersonalServiceOperationDoc, blocker, null)).operation;
+            sourceValid = !!operation && sources.has(operation.source.requestId);
+          } else {
+            const inspection = await tx.entry(ServiceInspectionAdmission, blocker.admission);
+            if (inspection?.conversationId === ROOT_CONVERSATION_ID && inspection.data.taskId === blocker.inspection && inspection.id < pause.id) {
+              for (const requestId of sources) { const source = await tx.submissionByRequest(ROOT_CONVERSATION_ID, requestId); if (source && inspection.data.sources.includes(source.id)) sourceValid = true; }
+            }
+          }
+        }
+        if (!pause || pause.conversationId !== ROOT_CONVERSATION_ID || pause.data.taskId !== report.taskId || pause.data.attempt !== attempt || pause.data.submissionId !== submission?.id || !submission?.entry || pause.id <= submission.entry || !sourceValid) throw new PersonalError("report_record_invalid", "报告暂停证明缺失或不符，已停止恢复。");
       }
       if (attempt === report.attempt && ((report.submissionId !== undefined && report.submissionId !== submission?.id) || (report.answer !== undefined && (submission?.status !== "done" || submission.type !== "input" || submission.answer !== report.answer)))) throw new PersonalError("report_record_invalid", "报告回答与原尝试不符，已停止恢复。");
     }

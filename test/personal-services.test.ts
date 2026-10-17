@@ -11,6 +11,7 @@ import { AgentDoc, SessionFailed, type EntryRecord } from "@earendil-works/pi-du
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { openPersonalHarness, type PersonalHarness } from "../apps/ruukoto/src/personal-harness.ts";
 import { PersonalServiceDoc, ServiceInspectionEntry } from "../apps/ruukoto/src/personal-services.ts";
+import { PersonalInspectionDoc, PersonalPendingInspectionsDoc, ServiceInspectionAdmission, ServiceInspectionStopEntry, recheckServiceInspection } from "../apps/ruukoto/src/personal-service-inspection.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
 import { personalProvider, type PersonalModelConfig, type RequestEvidence } from "../apps/ruukoto/src/personal-model.ts";
 import { lockPersonalProfile } from "../apps/ruukoto/src/personal-profile.ts";
@@ -74,7 +75,10 @@ test("durable 服务：模型真实调用 inspect，原始字节和两工具定�
   // 配置是宿主快照，调用者后续修改对象不能改变已启用工具的执行入口。
   f.service.helperPath += ".changed";
   assert.equal(await personal.answer("检查指定测试服务", "inspect-input"), "检查结束");
-  assert.deepEqual(f.calls(), [["inspect", UNIT]]);
+  assert.equal(f.calls()[0][0], "inspect-op");
+  assert.match(f.calls()[0][1], /^inspect_[0-9a-f]{24}$/);
+  assert.deepEqual(f.calls()[0].slice(2), ["fake-machine", UNIT]);
+  assert.deepEqual(f.calls().slice(1), [["stop-inspect", f.calls()[0][1], "fake-machine"]]);
   const entries = await f.entries();
   const evidence = entries.filter(ServiceInspectionEntry.is);
   assert.equal(evidence.length, 1);
@@ -108,7 +112,7 @@ test("durable 服务：空闲空工具会话可显式启用，重开缺配置/�
   const storage = await openNodeSqliteStorage(path.join(f.options.directory, "personal.sqlite"));
   const record = await storage.findDocument({ kind: PersonalServiceDoc.definition.kind, scope: { kind: "session" } }, "current", context);
   const value = (await storage.document(record!.id, "current", context))!.value;
-  await storage.commit([{ type: "document.change", id: record!.id, content: { kind: "base", version: 2, value } }], context);
+  await storage.commit([{ type: "document.change", id: record!.id, content: { kind: "base", version: PersonalServiceDoc.definition.version + 1, value } }], context);
   await storage.close(context);
   await assert.rejects(f.open(), code("service_config_changed"));
   lockPersonalProfile(f.options.directory).release();
@@ -189,7 +193,8 @@ test("durable 服务：证据保存失败关闭 Harness，不生成成功结果�
   await assert.rejects(personal.answer("检查", "storage-failed"), error => error === cause || error instanceof SessionFailed);
   assert.equal((await personal.harness.closed).reason, "failed");
   assert.equal(f.server.calls.length, 1);
-  assert.deepEqual(f.calls(), [["inspect", UNIT]]);
+  assert.equal(f.calls().length, 1);
+  assert.equal(f.calls()[0][0], "inspect-op");
 });
 
 test("durable 服务：分页只读取本会话的检查证据，拒绝其他会话或类型", async t => {
@@ -215,21 +220,154 @@ test("durable 服务：分页只读取本会话的检查证据，拒绝其他会
   await assert.rejects(f.open(), code("extension_missing"));
 });
 
-test("durable 服务：真实进程崩溃后只读调用重跑，未完成记录保留而不引入 restart", { timeout: 20000 }, async t => {
-  const f = await fixture(t);
-  f.script('import * as fs from "node:fs"; import * as path from "node:path"; const dir = path.dirname(process.argv[1]); fs.writeFileSync(path.join(dir,"pid"),String(process.pid)); fs.appendFileSync(path.join(dir,"calls.log"),JSON.stringify(process.argv.slice(2))+"\\n"); process.stdout.write("未完成检查"); setInterval(()=>{},1000);');
+test("durable 服务：后台 SIGKILL 后原检查未停不能重观察，退出后才允许新身份", { timeout: 25000 }, async t => {
+  const f = await fixture(t, request => request.messages.at(-1)?.role === "user" ? { kind: "tool_calls", calls: [{ id: "inspect", name: "service_inspect", arguments: { unit: UNIT } }] } : { kind: "text", text: "检查结束" });
+  fs.writeFileSync(path.join(f.helper, "inspect-delay-ms"), "60000");
+  const service = { ...f.service, timeouts: { inspectMs: 90000, stopMs: 1000 } };
   const script = `import {openPersonalHarness} from "./apps/ruukoto/src/personal-harness.ts"; import {personalProvider} from "./apps/ruukoto/src/personal-model.ts"; const {directory,config,service}=JSON.parse(process.env.RUUKOTO_SERVICE_TEST); const p=await openPersonalHarness({directory,provider:personalProvider(config),modelId:config.modelId,service}); await p.submit("检查","crash"); setInterval(()=>{},1000);`;
-  const child = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "--eval", script], { cwd: new URL("..", import.meta.url), env: { ...process.env, RUUKOTO_SERVICE_TEST: JSON.stringify({ directory: f.options.directory, config: f.config, service: f.service }) }, stdio: ["ignore", "ignore", "pipe"] });
+  const child = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "--eval", script], { cwd: new URL("..", import.meta.url), env: { ...process.env, RUUKOTO_SERVICE_TEST: JSON.stringify({ directory: f.options.directory, config: f.config, service }) }, stdio: ["ignore", "ignore", "pipe"] });
   child.stderr.pipe(process.stderr);
   t.after(() => { if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL"); });
-  await until(() => f.calls().length === 1);
-  // 后台被强杀不证明 detached helper 已停，替身 PID 只用于本用例最后回收。
-  const exited = once(child, "exit");
-  child.kill("SIGKILL");
-  await exited;
-  fs.copyFileSync(new URL("./helpers/fake-service-helper.mjs", import.meta.url), f.service.helperPath);
-  const restored = await f.open();
+  await until(() => f.calls().some(call => call[0] === "inspect-op"));
+  const original = f.calls()[0];
+  const claim = path.join(f.helper, "inspections", original[1], "claim.json");
+  await until(() => fs.existsSync(claim));
+  const pid = (JSON.parse(fs.readFileSync(claim, "utf8")) as { pid: number }).pid;
+  t.after(() => { try { process.kill(pid, "SIGKILL"); } catch (error) { if (!(error instanceof Error && "code" in error && error.code === "ESRCH")) throw error; } });
+  const exited = once(child, "exit"); child.kill("SIGKILL"); await exited;
+  let restored = await f.open();
   await restored.answer("检查", "crash");
-  assert.deepEqual(f.calls(), [["inspect", UNIT], ["inspect", UNIT]]);
+  assert.equal((await restored.inspections!.list()).length, 1);
+  await restored.answer("换键检查", "bypass");
+  assert.equal(f.calls().filter(call => call[0] === "inspect-op").length, 1);
+  assert.ok(f.calls().filter(call => call[0] === "stop-inspect").every(call => call[1] === original[1] && call[2] === original[2]));
+  assert.match(output(await f.entries()).join("\n"), /停止尚未核实/);
+  await restored.close();
+  process.kill(pid, "SIGKILL");
+  await delay(30);
+  fs.rmSync(path.join(f.helper, "inspect-delay-ms"));
+  restored = await f.open();
+  await restored.answer("停止后重新检查", "after-stop");
+  assert.equal((await restored.inspections!.list()).length, 0);
+  const inspections = f.calls().filter(call => call[0] === "inspect-op");
+  assert.equal(inspections.length, 2); assert.notEqual(inspections[1][1], original[1]);
   assert.equal((await f.entries()).filter(ServiceInspectionEntry.is).length, 1);
+});
+
+test("durable 检查：接纳落盘失败零启动，停止证明提交失败恢复原结果而不重观察", async t => {
+  for (const stage of ["admission", "stop"] as const) await t.test(stage, async t => {
+    const f = await fixture(t);
+    const kind = stage === "admission" ? ServiceInspectionAdmission.kind : ServiceInspectionStopEntry.kind;
+    const personal = await f.open({ openStorage: async filename => {
+      const storage = await openNodeSqliteStorage(filename); const commit = storage.commit.bind(storage);
+      storage.commit = (writes, context) => writes.some(write => write.type === "entry" && write.value.kind === kind) ? Promise.reject(new Error("injected-storage-failure")) : commit(writes, context);
+      return storage;
+    } });
+    await assert.rejects(personal.answer("检查", stage));
+    await personal.harness.closed;
+    assert.equal(f.calls().filter(call => call[0] === "inspect-op").length, stage === "admission" ? 0 : 1);
+    if (stage === "stop") {
+      const restored = await f.open(); await restored.answer("检查", stage);
+      assert.equal(f.calls().filter(call => call[0] === "inspect-op").length, 1);
+      assert.equal((await restored.inspections!.list()).length, 0);
+      assert.match(output(await f.entries())[0], /ActiveState=active/);
+    }
+  });
+});
+
+test("durable 检查：终态保留占用，同目标/来源不能换键，其他工作继续且宿主可重核", async t => {
+  const other = "independent.service";
+  const f = await fixture(t, request => request.messages.at(-1)?.role === "user" ? { kind: "tool_calls", calls: [{ id: "inspect", name: "service_inspect", arguments: { unit: request.messages.at(-1)?.content === "其他目标" ? other : UNIT } }] } : { kind: "text", text: "检查结束" });
+  const policy = JSON.parse(fs.readFileSync(f.service.policyPath, "utf8")); policy.services[other] = { actions: ["restart"] }; fs.writeFileSync(f.service.policyPath, JSON.stringify(policy));
+  fs.copyFileSync(path.join(f.helper, "units", UNIT), path.join(f.helper, "units", other));
+  const state = JSON.parse(fs.readFileSync(path.join(f.helper, "state.json"), "utf8")); state[other] = state[UNIT]; fs.writeFileSync(path.join(f.helper, "state.json"), JSON.stringify(state));
+  fs.writeFileSync(path.join(f.helper, "inspection-stop-fails"), "");
+  const p = await f.open(); await p.answer("检查", "owner");
+  const pending = (await p.inspections!.list())[0];
+  assert.equal((await p.harness.commit(tx => tx.task(pending.taskId), context))!.state.status, "terminal");
+  await p.answer("换键检查", "other-owner");
+  await assert.rejects(p.work.delegate({ content: "同来源", sourceRequestId: "owner", requestId: "bypass" }), code("work_source_paused"));
+  assert.equal(f.calls().filter(call => call[0] === "inspect-op").length, 1);
+  fs.rmSync(path.join(f.helper, "inspection-stop-fails"));
+  await p.answer("其他目标", "independent");
+  assert.equal(f.calls().filter(call => call[0] === "inspect-op").length, 2);
+  assert.equal((await p.inspections!.list()).length, 1);
+  await p.inspections!.recheckStop(pending.taskId);
+  assert.equal((await p.inspections!.list()).length, 0);
+});
+
+test("durable 检查：错机器/ID/单元与旧 helper 应答不回退，错误停止证明不释放", async t => {
+  for (const fault of ["machine", "inspection", "unit", "legacy", "stop-machine", "stop-inspection"] as const) await t.test(fault, async t => {
+    const f = await fixture(t);
+    const original = fs.readFileSync(f.service.helperPath, "utf8");
+    const inject = `if (obj.verb === ${JSON.stringify(fault.startsWith("stop-") ? "stop-inspect" : "inspect-op")}) { ${fault.includes("machine") ? 'obj.machineId = "other";' : fault.includes("inspection") ? 'obj.inspectionId = "inspect_" + "f".repeat(24);' : fault === "unit" ? 'obj.unit = "other.service";' : 'obj.verb = "inspect";'} }`;
+    f.script(original.replace('function reply(obj) {', 'function reply(obj) {\n' + inject));
+    const p = await f.open(); await p.answer("检查", fault);
+    assert.equal(tools(await f.entries())[0].isError, true);
+    assert.equal(f.calls().filter(call => call[0] === "inspect").length, 0);
+    assert.equal((await p.inspections!.list()).length, fault.startsWith("stop-") ? 1 : 0);
+  });
+});
+
+test("durable 检查：恢复拒绝丢失 family、跨尝试证据与假停止证明", async t => {
+  for (const fault of ["missing", "evidence", "stop", "source"] as const) await t.test(fault, async t => {
+    const f = await fixture(t); const p = await f.open(); await p.answer("检查", fault);
+    const entries = await f.entries(); const admission = entries.filter(ServiceInspectionAdmission.is)[0];
+    await p.harness.commit(async tx => {
+      const record = await tx.doc(PersonalInspectionDoc, String(admission.data.taskId), null);
+      if (fault === "missing") { await tx.retireDoc(PersonalInspectionDoc, String(admission.data.taskId)); (await tx.doc(PersonalPendingInspectionsDoc)).tasks = []; }
+      else if (fault === "evidence") record.inspection!.result!.evidence = (await tx.appendEntry(ServiceInspectionEntry, p.main.id, { data: { unit: UNIT, code: "ok", stdout: "", stderr: "", truncated: false } })).id;
+      else if (fault === "source") record.inspection!.sources = [];
+      else record.inspection!.stopEvidence = admission.id;
+    }, context);
+    await p.close(); await assert.rejects(f.open(), code("service_inspection_invalid"));
+    assert.equal(f.calls().filter(call => call[0] === "inspect-op").length, 1);
+  });
+});
+
+test("durable 检查：迟到 I1 停止应答只留证据，不能清除 I2 占用", async t => {
+  const f = await fixture(t); const p = await f.open(); await p.answer("检查", "cas");
+  const admission = (await f.entries()).filter(ServiceInspectionAdmission.is)[0];
+  const key = String(admission.data.taskId);
+  await p.harness.commit(async tx => {
+    (await tx.doc(PersonalInspectionDoc, key, null)).inspection!.stopped = false;
+    (await tx.doc(PersonalPendingInspectionsDoc)).tasks = [admission.data.taskId];
+  }, context);
+  const release = path.join(f.helper, "release-stop"); const entered = path.join(f.helper, "entered-stop");
+  const original = fs.readFileSync(f.service.helperPath, "utf8");
+  f.script(original.replace('function cmdStopInspect(inspectionId, expectedMachineId) {', `function cmdStopInspect(inspectionId, expectedMachineId) { fs.writeFileSync(${JSON.stringify(entered)}, ""); while (!fs.existsSync(${JSON.stringify(release)})) sleepMs(10);`));
+  const checking = recheckServiceInspection(p.harness, f.service, admission.data.taskId);
+  try {
+    await until(() => fs.existsSync(entered));
+    await p.harness.commit(async tx => {
+      const identity = { ...admission.data, inspectionId: `inspect_${"e".repeat(24)}` as const };
+      const next = await tx.appendEntry(ServiceInspectionAdmission, p.main.id, { data: identity });
+      (await tx.doc(PersonalInspectionDoc, key, null)).inspection = { ...identity, admission: next.id, stopped: false };
+    }, context);
+  } finally { fs.writeFileSync(release, ""); }
+  await checking;
+  const current = (await p.harness.snapshot(PersonalInspectionDoc, key, context))!.inspection!;
+  assert.equal(current.inspectionId, `inspect_${"e".repeat(24)}`); assert.equal(current.stopped, false);
+  assert.deepEqual((await p.harness.snapshot(PersonalPendingInspectionsDoc, context))!.tasks, [admission.data.taskId]);
+});
+
+test("durable 检查：工具取消仍保存停止证据，未核实的终态不能释放占用", async t => {
+  const f = await fixture(t); fs.writeFileSync(path.join(f.helper, "inspect-delay-ms"), "60000"); fs.writeFileSync(path.join(f.helper, "inspection-stop-fails"), "");
+  const p = await f.open({ service: { ...f.service, timeouts: { inspectMs: 90000, stopMs: 1000 } } });
+  await p.submit("检查", "cancel-tool"); await until(() => f.calls().some(call => call[0] === "inspect-op"));
+  await p.main.abort(context);
+  const pending = (await p.inspections!.list())[0]; assert.ok(pending);
+  assert.equal((await p.harness.commit(tx => tx.task(pending.taskId), context))!.state.status, "terminal");
+  assert.ok((await f.entries()).filter(ServiceInspectionStopEntry.is).length > 0);
+  fs.rmSync(path.join(f.helper, "inspection-stop-fails")); await p.inspections!.recheckStop(pending.taskId);
+  assert.equal((await p.inspections!.list()).length, 0);
+});
+
+test("durable 检查：无身份旧服务配置拒绝恢复且不触发 helper", async t => {
+  const f = await fixture(t); const p = await f.open(); await p.close();
+  const storage = await openNodeSqliteStorage(path.join(f.options.directory, "personal.sqlite"));
+  const record = await storage.findDocument({ kind: PersonalServiceDoc.definition.kind, scope: { kind: "session" } }, "current", context);
+  const value = (await storage.document(record!.id, "current", context))!.value;
+  await storage.commit([{ type: "document.change", id: record!.id, content: { kind: "base", version: 1, value } }], context); await storage.close(context);
+  await assert.rejects(f.open(), code("service_config_changed")); assert.deepEqual(f.calls(), []);
 });

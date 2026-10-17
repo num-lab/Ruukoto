@@ -6,7 +6,7 @@
 
 ## 对外接口
 
-`openPersonalHarness` 接受独立目录或已持有的 `PersonalProfileLock`、provider 与模型，接管锁的释放责任，返回主会话、Harness、提交、等待回答与关闭方法；可用 `beforeUnlock` 在放锁前收齐管理接口。可选 `service` 接受宿主固定的 helper 配置，安装 `service_inspect` 与 `read_service_inspection`，模型只能指定白名单内精确单元名或本会话的证据编号。提交键由调用方保持稳定，用于 durable 会话内去重。`parsePersonalModel` 校验模型配置，`personalProvider` 按环境变量名读取凭据。个人 Pi 1.3.0 对象不传给 Coding 的 Pi 0.85.1。
+`openPersonalHarness` 接受独立目录或已持有的 `PersonalProfileLock`、provider 与模型，接管锁的释放责任，返回主会话、Harness、提交、等待回答与关闭方法；可用 `beforeUnlock` 在放锁前收齐管理接口。可选 `service` 接受宿主固定的 helper 配置，安装 `service_inspect` 与 `read_service_inspection`，模型只能指定白名单内精确单元名或本会话的证据编号。返回的 `inspections.list/recheckStop` 供可信宿主查询未决检查与重核停止，不提供强制释放；未取消的活动检查拒绝宿主重核。提交键由调用方保持稳定，用于 durable 会话内去重。`parsePersonalModel` 校验模型配置，`personalProvider` 按环境变量名读取凭据。个人 Pi 1.3.0 对象不传给 Coding 的 Pi 0.85.1。
 
 `startPersonalServer` 独占后台，HTTP 仅监听档案内 Unix socket，经本地令牌逐次认证；提供 `/status`、`/messages`、`/inputs`、`/input`、`/telegram`、`/works`、`/work`、`/work/cancel`、`/work/close`、`/work/notes`、`/delegations`、`/delegation`、`/delegation/cancel`、`/delegation/report` 和 `/stop`；状态的服务开关只表示能力已装配，不代表 helper 可用或业务健康。`personalControl` 为 CLI 调用；CLI 不重开 Harness。引导与前台托管见[操作手册](../usage.md#25-个人-durable-隔离向导)。
 
@@ -20,11 +20,11 @@
 
 目录中的 `profile.json` 标记产品、Pi、档案和业务扩展版本；`owner.sqlite` 仅持有进程锁。`personal.sqlite` 保存 durable 会话、原生任务、提交、历史、业务格式 document、逐键输入指纹和 `ruukoto.model-request` entries。请求证据保存会话来源、规范化输入、推理级别和实际请求体，两条记录以请求键关联。凭据不写入请求证据，文件与 socket 权限为 0600，目录为 0700。
 
-`ruukoto.service-config` document 保存 helper/sudo/策略路径与 useSudo 的指纹，`personal-service-inspect` 扩展名写入会话；旧程序缺此扩展即拒绝。`ruukoto.service-inspection` entry 保存检查目标、错误码、base64 编码的原始 stdout/stderr 与截断标记；它没有模型正文，只在读取工具结果中按需进入上下文。
+`ruukoto.service-config` v2 保存 helper/sudo/策略路径与 useSudo 的指纹，`personal-service-inspect` 和 `personal-service-executions` 写入主会话；不支持的版本或缺扩展时拒绝。`ruukoto.service-execution` 按原工具/服务 Task 保存机器、尝试 ID、会话、来源 Submission、接纳及结果/停止证据；`ruukoto.service-executions` 仅索引未核实退出的 Task，原 Task 终态不会退役这些记录。`ruukoto.service-inspection` entry 保存检查目标、错误码、base64 编码的原始 stdout/stderr 与截断标记；它没有模型正文，只在读取工具结果中按需进入上下文。
 
 `ruukoto.subagents` 保存长期 ownerless Conversation 的身份、名称、关闭事实与单工作占用；`ruukoto.work` 按请求键保存内容指纹、拥有者来源、Task/Submission 引用、原权限快照、Telegram 绑定、模型工具引用、追加说明/来源/原生提交引用及取消事实。每项工作是主会话拥有的 background `ruukoto.background-work` Task，状态与结果以原生 Task/Submission 为准，结果留在子会话。子会话显式选择模型、`personal-subagent` 提示、工作任务扩展及空工具，主会话的服务检查不下放。
 
-`ruukoto.analysis-delegation` 以原拥有者 entry 保存固定来源、权限、入口、成员与整项取消事实；成员工作保存委托引用和本轮说明来源。`ruukoto.analysis-admission` 与委派同 commit 保存工具、原输入、本轮说明、权限和入口证明；组内追加以 `ruukoto.work-note-admission` 固定原说明。恢复与这些不可改写的 entry 对照，不能把说明替换成另一条有效旧输入。状态从原生任务及占用派生，全部成员结束只表示空闲，仍可跨轮续派；报告引用表示已封组，原生 `ruukoto.delegation-report` Task 持有等待、生成及发送阶段；接纳 entry 固定原工具、说明与模型输入，报告 document 保存各次安全模型尝试、原 Submission/answer、暂停证明和固定外发事实，执行状态仍从原生 Task 派生。
+`ruukoto.analysis-delegation` 以原拥有者 entry 保存固定来源、权限、入口、成员与整项取消事实；成员工作保存委托引用和本轮说明来源。`ruukoto.analysis-admission` 与委派同 commit 保存工具、原输入、本轮说明、权限和入口证明；组内追加以 `ruukoto.work-note-admission` 固定原说明。恢复与这些不可改写的 entry 对照，不能把说明替换成另一条有效旧输入。状态从原生任务及占用派生，全部成员结束只表示空闲，仍可跨轮续派；报告引用表示已封组，原生 `ruukoto.delegation-report` Task 持有等待、生成及发送阶段；接纳 entry 固定原工具、说明与模型输入，报告 document 保存各次安全模型尝试、原 Submission/answer、暂停证明和固定外发事实；检查暂停引用不可改接纳，服务暂停沿原操作键，执行状态仍从原生 Task 派生。
 
 `service.json` 保存版本与固定 helper/策略/sudo 绝对路径，生产固定通过 sudo，不接收旧环境中的服务配置、替身开关或测试超时。停机向导首次启用、查看和保留原配置，不提供变更/停用；文件存在本身不代表已成功装配。
 
@@ -50,9 +50,9 @@
 
 服务检查以固定 argv 调用共享 `service-helper.ts`，helper 逐次核实本机、当前策略和白名单。原始输出先写 durable，再返回固定状态、观察时间和证据编号；`read_service_inspection` 每页最多 4096 字符，只读本会话的指定类型 entry。模型输入证据包含实际工具定义和结果；读取原文不再次调用 helper。
 
-部署 helper 另提供[持久检查身份协议](deploy.md)，当前 durable 工具尚不消费；下放子工具前仍需把检查身份、机器与工作归属在 spawn 前持久化，并先核实原执行退出再重观察。新增协议不使原无身份 inspect 获得崩溃后停止证明。
+主会话工具与服务审批前的检查共用[持久检查身份协议](deploy.md)。spawn 前同 commit 登记原机器、ID、Task 和来源，正常结果也先保存原 ID 的停止证明。已有可信结果和停止证据直接复用；没有结果时先核实旧检查退出才可建立新观察。所有异步结果比较原 ID、机器与接纳，迟到旧应答不清新占用。恢复核对最新接纳与记录双向关系、原输入、工具或服务归属及结果/停止证据，resume 前仅对未决原 ID 做一次有界停止观察。
 
-服务操作先经 helper 只读检查并保存目标修订，再等待持久审批 document 的决定；批准消费前复核原来源和策略内容，helper 在派发前再次核对修订。消费、开始事实与恢复 checkpoint 同 commit，仅当前 invocation 派发一次 restart。可信请求前拒绝记未执行，可信非零命令退出如实保留已执行结论；进程中断、超时或结果无法核实均暂停，恢复只停止与核实原操作。拥有者的效果说明与启动器/命令单元停止证明分别保存，两者齐全才释放。
+服务操作先经 helper 只读检查并保存目标修订，再等待持久审批 document 的决定；批准消费前复核原来源和策略内容，helper 在派发前再次核对修订。消费前同事务再次复核后来出现的检查占用；消费、开始事实与恢复 checkpoint 同 commit，仅当前 invocation 派发一次 restart。可信请求前拒绝记未执行，可信非零命令退出如实保留已执行结论；进程中断、超时或结果无法核实均暂停，恢复只停止与核实原操作。拥有者的效果说明与启动器/命令单元停止证明分别保存，两者齐全才释放。
 
 Telegram 配对通过真实 getMe 和随机私聊短语选择身份，操作者确认后按已观察批次核实平台接管边界。运行中每批全部持久化才允许下一次轮询短期确认该批；重启不携带旧 offset，按 bot/chat/message 去重，允许平台空闲后随机生成较小 update ID。重复同键异文拒绝。每条原生 Task 用稳定消息键向 main admission，崩溃后接回原提交；只有对应的完整回答进入原目标的发送。
 
@@ -66,13 +66,13 @@ Telegram 控制消息按原始完整正文分类，回复关系只定位同 bot/
 
 请求体 128 KiB、消息正文 16 KiB、应答 256 KiB；客户端总时限 5 秒，后台收件 10 秒、闲置 15 秒。最近记录扫描 64 条 entry、显示最多 16 条消息，每条最多 8192 字符并标截断/中断；不返回输入证据或堆栈。终端输出过滤控制字符。
 
-服务检查 stdout/stderr 总计最多 1 MiB，超限停止检查并明确标记部分证据；畸形应答、多条前缀、目标或状态字段不符均报错，不把它们当状态。helper 超时、取消或输出超限先固定首次失败并发停止信号，调用进程与 stdio 关闭后才返回，捕获保留关闭前的有界输出；无法关闭时保持等待。调用关闭不证明 systemd 操作单元或所有后代停止，也不解决后台强杀遗留 helper 的恢复核实。证据写入失败关闭 Harness，不能报告成功。服务配置仅由持锁的宿主 API 或停机向导提供，不由模型、工具参数或本机消息正文决定；服务重启仅通过另行启用的可信宿主 API。
+服务检查 stdout/stderr 总计最多 1 MiB，超限停止检查并明确标记部分证据；畸形应答、多条前缀、目标或状态字段不符均报错，不把它们当状态。helper 超时、取消或输出超限先固定首次失败并发停止信号，调用进程与 stdio 关闭后才返回，捕获保留关闭前的有界输出；无法关闭时保持等待。调用关闭不证明 systemd 操作单元或所有后代停止；durable 检查另以原身份协议核实固定同组 show。未核实时拒绝同目标或来源的新检查/restart/委派，终态与取消也保留占用，独立来源和目标继续；停止观察不沿已取消信号，停止证据由 Harness 提交。旧 helper 不支持新协议时保留占用，不回退 inspect。证据写入失败关闭 Harness，不能报告成功。服务配置仅由持锁的宿主 API 或停机向导提供，不由模型、工具参数或本机消息正文决定；服务重启仅通过另行启用的可信宿主 API。
 
-仅使用新的隔离目录，不能以此 API 浏览或恢复旧个人档案。SQLite WAL/NORMAL 支持进程崩溃恢复，不保证断电时最近提交保留。服务检查为无写入效果工具，可在中断后安全重跑并得到新的观察；服务操作另按开始事实保守恢复，不将只读重跑规则用于 restart。
+仅使用新的隔离目录，不能以此 API 浏览或恢复旧个人档案。SQLite WAL/NORMAL 支持进程崩溃恢复，不保证断电时最近提交保留。服务检查为无写入效果工具，中断后须先核实原执行退出才可重观察；旧无身份服务档案拒绝直接恢复，应保留原档案并使用对应程序完成处理，再建立新隔离档案。服务操作另按开始事实保守恢复，不将只读重跑规则用于 restart。
 
 `personal-work-notes` 扩展阻止旧程序读取追加记录；恢复核对本机指纹/工作、Telegram 原已送达详情菜单、模型拥有者/工具动作及原生输入正文。追加不修改原权限，接纳及后续子请求同时复核原工作与追加来源的未知服务操作。工作扩展依赖的索引缺失、文档版本不支持、会话/身份或 Task/占用关系断链均在调度前拒绝；未核实的遗留占用不因 Task 意外终态而自动清除。旧无工作档案只在无未决输入/任务时启用后台工作。模型变更有未决工作时拒绝，空闲时显式同步所有长期会话。provider 两处记录边界都复核活动占用及取消事实，缺失/歧义来源、空闲/关闭/取消身份不发模型请求。子会话固定空工具，不能据此声称外部进程停止或未知写入核实已完成。模型工作工具只在主会话活动工具调用中执行，变更另需唯一拥有者输入，回报输入仅可查询；首次启用有未决输入/任务时先拒绝，不固化扩展。原 Telegram 绑定失活或同来源服务效果/停止未核实时，委派与子模型请求均拒绝；历史绑定不改成新绑定，其他来源聊天仍可继续。
 
-`personal-analysis-delegations` 阻止旧程序恢复新归属，首次启用前须完成旧未决输入/任务。恢复双向核实委托/成员、原输入、权限、入口、本轮说明及精确模型委派参数；不猜测历史归属。续派、追加及子模型请求检查整项取消，以及全部成员（含终态）的原输入、本轮说明和追加来源的未知服务效果。暂停仍可查询和取消；原入口失效不能跨平台或换代续派。报告后台观察原服务 document 等待效果及停止核实，不占主会话。admission 后 provider 门禁发现未知时先持久记录该尝试的暂停证据，再拒绝真实请求；该轮 unanswered 后，仅带证据的原报告可递增尝试号重做只读模型汇总，每次固定键恢复、最终外发身份唯一。普通汇总失败可查且不循环重试；取消/换代/停止未核实阻止后续请求，已领取发送仍保留真实效果。恢复核对模型输入、封组及暂停接纳、Task/Submission/answer、固定正文与发送检查点，缺关系即停止。
+`personal-analysis-delegations` 阻止旧程序恢复新归属，首次启用前须完成旧未决输入/任务。恢复双向核实委托/成员、原输入、权限、入口、本轮说明及精确模型委派参数；不猜测历史归属。续派、追加及子模型请求检查整项取消，以及全部成员（含终态）的原输入、本轮说明和追加来源的未知服务效果。暂停仍可查询和取消；原入口失效不能跨平台或换代续派。报告后台按暂停记录观察原服务操作或检查 document，等待效果及停止核实，不占主会话。admission 后 provider 门禁发现未知时先持久记录该尝试的暂停证据，再拒绝真实请求；该轮 unanswered 后，仅带证据的原报告可递增尝试号重做只读模型汇总，每次固定键恢复、最终外发身份唯一。普通汇总失败可查且不循环重试；取消/换代/停止未核实阻止后续请求，已领取发送仍保留真实效果。恢复核对模型输入、封组及暂停接纳、Task/Submission/answer、固定正文与发送检查点，缺关系即停止。
 
 服务目标与同一原输入各只允许一个未结束操作；未知效果、停止未核实乃至意外 faulted 终态均保留占用，不允许换键或换目标绕过同来源暂停。其他来源的独立目标与主聊天继续。原输入后来 unanswered 不破坏档案来源身份，但不能再消费未执行的批准。缺操作配置、扩展、版本或来源/Task 双向关系均拒绝调度；已保存的停止证明必须绑定本机、操作及命令单元并带 `launcherExited`，旧 helper 应答不能释放占用。
 
@@ -84,6 +84,7 @@ Telegram 数值 offset 只在一批更新收到后 60 秒内用于紧接的一�
 
 - [个人 durable 档案与请求证据先于恢复](../../.agents/notes/implemented/architecture/2026-10-17-personal-durable-foundation.md)
 - [隔离个人实例由后台独占并通过本机接口管理](../../.agents/notes/implemented/architecture/2026-10-17-personal-local-management.md)
+- [durable 服务检查先持久归属再核实原执行](../../.agents/notes/implemented/architecture/2026-10-17-personal-durable-inspection.md)
 - [个人 durable 服务检查复用固定 helper](../../.agents/notes/implemented/architecture/2026-10-17-personal-service-inspect.md)
 - [服务 helper 中断在调用进程关闭后返回](../../.agents/notes/implemented/architecture/2026-10-17-service-helper-exit.md)
 - [个人后台工作占用长期独立子会话](../../.agents/notes/implemented/architecture/2026-10-17-personal-background-work.md)

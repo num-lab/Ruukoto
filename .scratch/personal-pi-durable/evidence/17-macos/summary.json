@@ -1,0 +1,57 @@
+{
+  "base": "a8fd60caceda3bbb243afff167a7c44751e749f4",
+  "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "node": "v24.15.0",
+  "npm": "11.12.1",
+  "setup": {
+    "exit": 0,
+    "log": "setup.log"
+  },
+  "regression": {
+    "exit": 1,
+    "tests": 381,
+    "pass": 380,
+    "fail": 1,
+    "skipped": 0,
+    "log": "regression.log",
+    "failure": "额外 test/122-workflow-code-acceptance.test.ts：macOS 原生 identity_unavailable，工作流暂停，等待最终回报超时；不得计通过"
+  },
+  "servicesFinal": {
+    "exit": 0,
+    "tests": 84,
+    "pass": 84,
+    "skipped": 0,
+    "log": "services-final.log"
+  },
+  "build": {
+    "exit": 0,
+    "log": "build.log"
+  },
+  "unverified": [
+    "真实模型",
+    "真实 IM",
+    "真实 systemd",
+    "完整迁移与正式切换"
+  ],
+  "source": "source-manifest.json",
+  "independentReview": "independent-review/README.md",
+  "finalIncrement": {
+    "command": "npx tsx --test test/personal-services.test.ts test/personal-service-operations.test.ts test/personal-reports.test.ts",
+    "tests": 115,
+    "pass": 115,
+    "fail": 0,
+    "skipped": 0,
+    "log": "final-increment.log",
+    "reason": "报告blocker/watch/暂停恢复增量，覆盖新分支与原服务暂停；不与基线累加"
+  },
+  "static": {
+    "command": "npm run check:static",
+    "exit": 0,
+    "log": "static-final.log"
+  },
+  "sourceMatch": "独立审查与当前源码逐项SHA-256一致",
+  "passingUniqueScenarios": 383,
+  "allRegressionPassed": false,
+  "narrowEngineeringAcceptance": "通过；额外Coding122保留失败，不计完整迁移A1通过",
+  "codingPackageSha1": "5af04e561c9fbf84bf29f8237e3655e563ea5ed9"
+}

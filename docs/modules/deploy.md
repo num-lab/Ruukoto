@@ -92,7 +92,7 @@ stateDiagram-v2
 
 固定检查使用独立 `inspect_` 加 24 位小写十六进制 ID，位于同一受保护根下；`claim.json` v1 绑定检查 ID、机器、单元及启动器身份，与 restart 的 v2 分开解释。stop-inspect 写入 `stop-requested`；只有完整的停止先手认领、完整原身份跨 boot，或原 helper 身份已结束且整个原组不存在，才返回 `exited:true`。坏记录、观察失败、仍活的同组后代或组号复用均保留未核实。这只证明固定同组 show 的退出，不用于任意命令或主动脱组后代。
 
-调用侧为检查创建独立组，允许 sudo 监护与 helper 同组；helper 不必是组首领，同组的其他成员会保守延后停止核实。
+调用侧为检查创建独立组，允许 sudo 监护与 helper 同组；helper 不必是组首领，同组的其他成员会保守延后停止核实。[个人 durable](personal-durable.md)在 spawn 前保存检查 ID、机器与 Task/来源，恢复仅核实原 ID；正常结果也需停止证明，旧 helper 或错误身份应答不释放占用。正式共享装配仍使用原 inspect。
 
 **派生命令单元** `ruukoto-service-op-<hostOpId>.service`：`KillMode=control-group`，`RuntimeMaxSec=120`，单元内以 root 执行固定的 `systemctl --system restart`。停止协议只接受由同一操作 ID 派生的单元，不能指定任意目标。
 

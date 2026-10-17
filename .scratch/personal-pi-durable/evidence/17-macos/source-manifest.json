@@ -1,0 +1,20 @@
+{
+  ".agents/notes/implemented/architecture/2026-10-17-personal-durable-inspection.md": "44ca53e0709547813271491477c54cd9b6d86c02c027af36e3dc35df46cca3e1",
+  ".agents/notes/implemented/architecture/2026-10-17-personal-service-inspect.md": "ff78a7d27e56a20b14e79f91f2e5f6f423a7db08b62dccce68e6d32823b7893c",
+  ".agents/notes/implemented/architecture/2026-10-17-service-inspection-identity.md": "6de9041d02240e15caabdd52fe0152b2d896d591df87a876c4012df0de31fce4",
+  "apps/ruukoto/src/personal-harness.ts": "bc91e7cbf886dee544bc8839ba4d1069d5bf6a71af586695d234a40d8ed18e04",
+  "apps/ruukoto/src/personal-report.ts": "55fc4b29105ae8ecccf14315d334dcdc39df0baf916d03addb2a5f8d58fabc75",
+  "apps/ruukoto/src/personal-service-config.ts": "c497af39e09f5b3e72736ac1fdb128113bc7251211e286916d2ca1a1622475c5",
+  "apps/ruukoto/src/personal-service-inspection.ts": "35481ac2272ae83afdd31f31311a6e3c703ca6a02aad6e0c22f9443583086ba2",
+  "apps/ruukoto/src/personal-service-operations.ts": "902c34dedac408aa1ff6317263a21d12d6a5c0a3e3a415672285d11d94038b15",
+  "apps/ruukoto/src/personal-services.ts": "fc8432f43104e43174ba35cc228a74d9333577229477eb52c00c51ea41a1466e",
+  "apps/ruukoto/src/service-helper.ts": "84eafdb5a127655168a9b5404d0a8bc85d5de4f30bd9bb73c8528e1c5d681c1e",
+  "docs/modules/agent-tools.md": "17dd81a9f7cba6001ca6b2e9065a9e9f85ecb0af61b2d33e2c1639b6e60689ff",
+  "docs/modules/deploy.md": "6c2d3c19de8e0547dffeef87fedc4494161f5ef9cde39d59444bc7aa1c56a412",
+  "docs/modules/personal-durable.md": "f4fff2d4a0b91d574fc3025ad016a19f590ffedeb3b73223859d6446efe69585",
+  "docs/usage.md": "849802aa20590ee259e4c91049d3727a09206e400cd9159b95f608b2c44b5447",
+  "test/helpers/fake-service-helper.mjs": "b263be43c0cc0f5e8943dbd3b0f51f04294eb360073eb247405dbaf46a05d349",
+  "test/personal-cli.test.ts": "d43d63240ef00d81d1242ff881b7024263b19b2eb419c40260a702d305a4c598",
+  "test/personal-service-operations.test.ts": "b5932b211dab8ebf7836f9259d5a53997bc20aed4cea2da348e73ad90619bee0",
+  "test/personal-services.test.ts": "4fd665deb3ade5977c5823c01af967a464a4351d972ccede6098827d4a10c2dc"
+}

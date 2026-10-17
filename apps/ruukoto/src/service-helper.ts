@@ -16,7 +16,7 @@ export interface ServiceManagerConfig {
   timeouts?: { inspectMs?: number; restartMs?: number; stopMs?: number };
 }
 
-export interface ServiceState {
+export type ServiceState = {
   id: string;
   loadState: string;
   activeState: string;
@@ -25,7 +25,7 @@ export interface ServiceState {
   invocationId: string;
   result: string;
   activeEnterTimestamp: string;
-}
+};
 
 export type ServiceInspectionId = `inspect_${string}`;
 type InspectionReply = { v: 1; ok: true; machineId: string; policyRevision: string; unitRevision: string; unit: string; state: ServiceState; execIdentity?: { uid: number; gid: number }; observedAt: string };

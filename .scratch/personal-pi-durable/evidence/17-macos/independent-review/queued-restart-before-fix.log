@@ -1,0 +1,19 @@
+{"pending":1,"restarts":1}
+node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: queued restart must respect later pending inspection target occupancy
+
+1 !== 0
+
+    at file:///private/tmp/ruukoto-inspection-queued-restart-audit.mjs:35:9 {
+  generatedMessage: false,
+  code: 'ERR_ASSERTION',
+  actual: 1,
+  expected: 0,
+  operator: 'strictEqual',
+  diff: 'simple'
+}
+
+Node.js v24.15.0

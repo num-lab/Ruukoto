@@ -1,0 +1,4 @@
+仅删除本次独有目录内容缓存：/dev/shm/rk-personal-plan.t64tGq/npm-cache/_cacache，文件逻辑字节数 221433804。保留 npm _logs、源码、依赖与安装日志。
+清理完成。
+Filesystem      Size  Used Avail Use% Mounted on
+tmpfs           1.9G  1.6G  239M  88% /dev/shm

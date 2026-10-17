@@ -1,0 +1,32 @@
+✔ 服务工作：prepare 取消后检查未核实仍占来源与目标，恢复和终态不能绕过 (1194.790333ms)
+✔ 服务工作：预排队审批消费前复核后来占用的检查，不启动 restart (426.809875ms)
+[ruukoto:personal] 持久执行出现错误，请查询状态并检查档案；未自动重启。
+▶ durable 检查：接纳落盘失败零启动，停止证明提交失败恢复原结果而不重观察
+  ✔ admission (622.762708ms)
+[ruukoto:personal] 持久执行出现错误，请查询状态并检查档案；未自动重启。
+  ✔ stop (436.811ms)
+✔ durable 检查：接纳落盘失败零启动，停止证明提交失败恢复原结果而不重观察 (1060.959542ms)
+✔ durable 检查：终态保留占用，同目标/来源不能换键，其他工作继续且宿主可重核 (564.184125ms)
+▶ durable 检查：错机器/ID/单元与旧 helper 应答不回退，错误停止证明不释放
+  ✔ machine (190.7835ms)
+  ✔ inspection (183.945875ms)
+  ✔ unit (167.234125ms)
+  ✔ legacy (199.44825ms)
+  ✔ stop-machine (219.13ms)
+  ✔ stop-inspection (178.877667ms)
+✔ durable 检查：错机器/ID/单元与旧 helper 应答不回退，错误停止证明不释放 (1140.679834ms)
+▶ durable 检查：恢复拒绝丢失 family、跨尝试证据与假停止证明
+  ✔ missing (351.497875ms)
+  ✔ evidence (300.542791ms)
+  ✔ stop (218.4605ms)
+  ✔ source (186.922417ms)
+✔ durable 检查：恢复拒绝丢失 family、跨尝试证据与假停止证明 (1058.489583ms)
+✔ durable 检查：迟到 I1 停止应答只留证据，不能清除 I2 占用 (255.5625ms)
+ℹ tests 19
+ℹ suites 0
+ℹ pass 19
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 6285.962542

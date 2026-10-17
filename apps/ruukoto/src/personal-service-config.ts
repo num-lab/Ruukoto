@@ -38,7 +38,7 @@ async function checkEnablement(storage: Storage, config: PersonalServiceConfig):
   if (!saved || saved.version !== 1 || !isDeepStrictEqual(saved.value, PERSONAL_FORMAT)) throw new PersonalError("extension_version", "个人业务格式无法核实，未保存服务配置；请保留档案并使用对应程序。");
   const service = await storage.findDocument({ kind: PersonalServiceDoc.definition.kind, scope: { kind: "session" } }, "current", context);
   const savedService = service && await storage.document(service.id, "current", context);
-  if (savedService && (savedService.version !== 1 || savedService.value.fingerprint !== personalServiceConfig({ ...config, useSudo: true }).fingerprint)) throw new PersonalError("service_config_changed", "服务配置与档案原指纹不符，未保存；请恢复原 helper、策略和 sudo 路径。");
+  if (savedService && (savedService.version !== PersonalServiceDoc.definition.version || savedService.value.fingerprint !== personalServiceConfig({ ...config, useSudo: true }).fingerprint)) throw new PersonalError("service_config_changed", "服务配置与档案原指纹不符，未保存；请恢复原 helper、策略和 sudo 路径。");
   const operations = await storage.findDocument({ kind: PersonalServiceOperationsDoc.definition.kind, scope: { kind: "session" } }, "current", context);
   const savedOperations = operations && await storage.document(operations.id, "current", context);
   if (savedOperations && (!savedService || savedOperations.version !== 1 || savedOperations.value.enabled !== true)) throw new PersonalError("service_operations_config", "原服务操作配置无法核实，未保存；请保留档案并使用原配置。");

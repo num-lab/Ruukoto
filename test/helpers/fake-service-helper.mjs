@@ -177,9 +177,18 @@ function assertNotAlias(state, unit) {
   }
 }
 
-function cmdInspect(unit) {
+function cmdInspect(unit, inspectionId, expectedMachineId) {
   const { policy, machineId, policyRevision } = loadPolicy();
   policyEntry(policy, unit);
+  if (inspectionId !== undefined) {
+    if (!/^inspect_[0-9a-f]{24}$/.test(inspectionId) || machineId !== expectedMachineId) throw new Refuse("wrong_machine", "检查身份或机器不符");
+    const dir = path.join(DIR, "inspections", inspectionId);
+    fs.mkdirSync(path.dirname(dir), { recursive: true });
+    try { fs.mkdirSync(dir); } catch (error) { if (error.code === "EEXIST") throw new Refuse("already_claimed", "原检查已认领"); throw error; }
+    fs.writeFileSync(path.join(dir, "claim.json"), JSON.stringify({ inspectionId, machineId, pid: process.pid }));
+    if (flag("inspect-delay-ms")) sleepMs(Number(fs.readFileSync(path.join(DIR, "inspect-delay-ms"), "utf8")));
+    if (fs.existsSync(path.join(dir, "stop-requested"))) throw new Refuse("stop_requested", "检查已停止");
+  }
   const { state } = readState(unit);
   assertNotAlias(state, unit);
   if (flag("fail-inspect-after-restart") && flag("restarted")) {
@@ -199,7 +208,8 @@ function cmdInspect(unit) {
   ];
   fs.writeSync(1, lines.join("\n") + "\n");
   reply({
-    verb: "inspect",
+    verb: inspectionId === undefined ? "inspect" : "inspect-op",
+    ...(inspectionId === undefined ? {} : { inspectionId }),
     ok: true,
     machineId,
     policyRevision,
@@ -328,6 +338,25 @@ function cmdStopOp(hostOpId) {
   reply({ verb: "stop-op", ok: true, machineId, hostOpId, opUnit, launcherExited: launchEnded, exited: launchEnded });
 }
 
+function cmdStopInspect(inspectionId, expectedMachineId) {
+  const { machineId } = loadPolicy();
+  if (!/^inspect_[0-9a-f]{24}$/.test(inspectionId) || machineId !== expectedMachineId) throw new Refuse("wrong_machine", "检查身份或机器不符");
+  const dir = path.join(DIR, "inspections", inspectionId);
+  fs.mkdirSync(path.dirname(dir), { recursive: true });
+  let created = false;
+  try { fs.mkdirSync(dir); created = true; } catch (error) { if (error.code !== "EEXIST") throw error; }
+  if (created) fs.writeFileSync(path.join(dir, "claim.json"), JSON.stringify({ inspectionId, machineId, stoppedFirst: true }));
+  fs.writeFileSync(path.join(dir, "stop-requested"), "");
+  const claim = JSON.parse(fs.readFileSync(path.join(dir, "claim.json"), "utf8"));
+  let exited = claim.stoppedFirst === true;
+  if (!exited && Number.isSafeInteger(claim.pid)) {
+    // 替身没有后代；生产的 boot/starttime/进程组核实另由 Linux helper 用例证明。
+    try { process.kill(claim.pid, 0); } catch (error) { exited = error.code === "ESRCH"; }
+  }
+  if (flag("inspection-stop-fails")) exited = false;
+  reply({ verb: "stop-inspect", ok: true, machineId, inspectionId, exited });
+}
+
 function main() {
   const args = process.argv.slice(2);
   const verb = args[0];
@@ -335,6 +364,12 @@ function main() {
     case "inspect":
       if (args.length !== 2) throw new Refuse("usage", "用法：inspect <unit>");
       return cmdInspect(args[1]);
+    case "inspect-op":
+      if (args.length !== 4) throw new Refuse("usage", "inspect-op 参数不符");
+      return cmdInspect(args[3], args[1], args[2]);
+    case "stop-inspect":
+      if (args.length !== 3) throw new Refuse("usage", "stop-inspect 参数不符");
+      return cmdStopInspect(args[1], args[2]);
     case "restart":
       if (args.length !== 5) throw new Refuse("usage", "用法：restart <hostOpId> <policyRev> <unitRev> <unit>");
       return cmdRestart(args[1], args[2], args[3], args[4]);

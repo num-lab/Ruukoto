@@ -1,0 +1,33 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import { spawnSync } from 'node:child_process';
+const repo=path.resolve(import.meta.dirname,'../../../../../');
+const copy=fs.mkdtempSync(path.join(os.tmpdir(),'rk-report-watcher-negative-'));
+try {
+  fs.mkdirSync(path.join(copy,'apps/ruukoto'),{recursive:true});
+  fs.cpSync(path.join(repo,'apps/ruukoto/src'),path.join(copy,'apps/ruukoto/src'),{recursive:true});
+  fs.copyFileSync(path.join(repo,'apps/ruukoto/package.json'),path.join(copy,'apps/ruukoto/package.json'));
+  fs.symlinkSync(path.join(repo,'apps/ruukoto/node_modules'),path.join(copy,'apps/ruukoto/node_modules'));
+  fs.symlinkSync(path.join(repo,'node_modules'),path.join(copy,'node_modules'));
+  fs.copyFileSync(path.join(repo,'package.json'),path.join(copy,'package.json'));
+  fs.copyFileSync(path.join(repo,'tsconfig.json'),path.join(copy,'tsconfig.json'));
+  fs.mkdirSync(path.join(copy,'test'));
+  fs.copyFileSync(path.join(repo,'test/personal-service-operations.test.ts'),path.join(copy,'test/personal-service-operations.test.ts'));
+  fs.cpSync(path.join(repo,'test/helpers'),path.join(copy,'test/helpers'),{recursive:true});
+  const file=path.join(copy,'apps/ruukoto/src/personal-report.ts');
+  const source=fs.readFileSync(file,'utf8');
+  const before='const watch = typeof blocker === "string" ? await runtime.watchDoc(PersonalServiceOperationDoc, blocker, context) : await runtime.watchDoc(PersonalInspectionDoc, String(blocker.inspection), context);';
+  const after='const watch = await runtime.watchDoc(PersonalServiceOperationDoc, typeof blocker === "string" ? blocker : String(blocker.inspection), context);';
+  assert.ok(source.includes(before),'current watcher branch not found');
+  const negative=source.replace(before,after);
+  fs.writeFileSync(file,negative);
+  fs.writeFileSync(path.join(import.meta.dirname,'report-watcher-negative.ts'),negative);
+  const result=spawnSync(process.execPath,['--import','tsx','--test','--test-name-pattern=委托报告：检查停止未核实','test/personal-service-operations.test.ts'],{cwd:copy,encoding:'utf8',timeout:25000,maxBuffer:5*1024*1024});
+  const output=result.stdout+result.stderr;
+  fs.writeFileSync(path.join(import.meta.dirname,'report-watcher-negative.log'),output.trimEnd()+'\n');
+  assert.equal(result.status,1,'wrong document watcher must fail the new regression');
+  assert.match(output,/faulted/,'failure must report the report task fault, not a loader failure');
+  process.stdout.write('PASS: wrong service-document watcher faults both inspection report windows and fails regression\n');
+} finally {fs.rmSync(copy,{recursive:true,force:true});}

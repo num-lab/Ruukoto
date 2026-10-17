@@ -19,6 +19,7 @@ import { personalTelegramApi } from "./personal-telegram-api.ts";
 import { personalWorkTools } from "./personal-work-tools.ts";
 import { personalWorkControls, verifyWorkMenu, verifyDelegationMenu } from "./personal-work-controls.ts";
 import { PersonalDelegationDoc, personalAnalysisDelegations, verifyPersonalDelegations } from "./personal-delegation.ts";
+import { PersonalInspectionDoc, PersonalPendingInspectionsDoc, personalInspectionControl, personalInspectionExtension, recheckServiceInspection, verifyServiceInspections } from "./personal-service-inspection.ts";
 import { personalDelegationReports, personalReportRequest, verifyPersonalReports } from "./personal-report.ts";
 
 const context = BACKGROUND_CONTEXT;
@@ -42,9 +43,9 @@ export async function openPersonalHarness(options: ({ directory: string; profile
   try {
     if (!options.provider.getModels().some(model => model.id === options.modelId)) throw new PersonalError("model_unavailable", "所选模型不在个人模型配置中，请重新配置后启动。");
     const service = options.service && personalServiceConfig(options.service);
-    const services = service && personalServices(service.config);
+    const services = service && personalServices(service.config, () => harness!);
     if (options.serviceOperations && !service) throw new PersonalError("service_config_missing", "服务操作需要宿主配置的 helper，请先核实部署配置。");
-    const operations = options.serviceOperations && service ? personalServiceOperations(service.config) : undefined;
+    const operations = options.serviceOperations && service ? personalServiceOperations(service.config, () => harness!) : undefined;
     const telegramConfig = options.telegram && parsePersonalTelegram(options.telegram);
     const telegram = personalTelegram(telegramConfig, telegramConfig?.enabled ? personalTelegramApi(telegramConfig.apiBase, telegramToken(telegramConfig)) : undefined, operations?.control);
     const registry = createRegistry();
@@ -60,7 +61,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     registry.install(personalAnalysisDelegations);
     registry.install(personalDelegationReports);
     registry.install(telegram.extension);
-    if (services) registry.install(services);
+    if (services) { registry.install(services); registry.install(personalInspectionExtension); }
     if (operations) registry.install(operations.extension);
     const record = async (evidence: RequestEvidence) => {
       if (!harness) throw new PersonalError("model_source_missing", "模型请求缺少已打开的个人会话，已停止请求。");
@@ -135,6 +136,20 @@ export async function openPersonalHarness(options: ({ directory: string; profile
       }
       operationCursor = page.next;
     } while (operationCursor);
+    const inspectionKeys: string[] = [];
+    let inspectionCursor: Cursor | undefined;
+    const pendingRecord = await storage.findDocument({ kind: PersonalPendingInspectionsDoc.definition.kind, scope: { kind: "session" } }, "current", context);
+    const savedPending = pendingRecord && await storage.document(pendingRecord.id, "current", context);
+    if (savedPending && (savedPending.version !== 1 || !Array.isArray(savedPending.value.tasks) || (savedPending.value.tasks.length > 0 && (!service || !savedService)))) throw new PersonalError("service_inspection_invalid", "服务检查占用缺少配置或版本不符，已停止恢复；请保留档案。");
+    do {
+      const page = await storage.scanDocuments({ kind: PersonalInspectionDoc.definition.kind, scope: { kind: "session" }, at: "current" }, 256, inspectionCursor, context);
+      for (const record of page.items) {
+        const saved = await storage.document(record.id, "current", context);
+        if (!service || !savedService || !savedPending || !saved || saved.version !== 1 || record.key === undefined) throw new PersonalError("service_inspection_invalid", "服务检查记录缺少配置、占用或版本不符，已停止恢复；请保留档案。");
+        inspectionKeys.push(record.key);
+      }
+      inspectionCursor = page.next;
+    } while (inspectionCursor);
     let cursor: Cursor | undefined;
     let serviceConversation = false;
     let workConversation = false;
@@ -202,7 +217,15 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     if (((service && !savedService) || (operations && !operationConfig)) && (inspection.tasks.length || inspection.submissions.length)) throw new PersonalError("service_config_pending", "个人档案仍有未完成输入，请先用原配置完成处理，再启用服务能力。");
     await harness.commit(tx => verifyPersonalTelegram(tx, telegramKeys, telegramConfig), context);
     await harness.commit(async tx => { for (const key of telegramKeys) await verifyWorkMenu(tx, (await tx.doc(PersonalTelegramReceiptDoc, key, null)).receipt!, workControlsEnabled); }, context);
-    await harness.commit(tx => verifyServiceOperationRecords(tx, operationKeys), context);
+    await harness.commit(tx => verifyServiceInspections(tx, inspectionKeys), context);
+    for (const key of inspectionKeys) {
+      const value = (await harness.snapshot(PersonalInspectionDoc, key, context))!.inspection!;
+      for (const id of value.sources) {
+        const source = await storage.submission(id, context);
+        if (!source || source.type !== "input" || source.conversationId !== value.conversationId || source.entry === undefined || source.entry >= value.admission) throw new PersonalError("service_inspection_invalid", "服务检查缺少原输入，已停止恢复；请保留档案。");
+      }
+    }
+    await harness.commit(tx => verifyServiceOperationRecords(tx, operationKeys, inspectionKeys), context);
     if (operations) await harness.commit(tx => verifyServiceGrants(tx, operationKeys), context);
     if (savedIndex) await harness.commit(async tx => {
       const index = await tx.doc(PersonalAgentsDoc);
@@ -245,7 +268,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     await harness.commit(tx => verifyPersonalReports(tx, delegationKeys, reportsEnabled), context);
     await harness.commit(async tx => { for (const key of telegramKeys) await verifyDelegationMenu(tx, (await tx.doc(PersonalTelegramReceiptDoc, key, null)).receipt!, delegationsEnabled); }, context);
     await harness.commit(tx => tx.doc(PersonalFormatDoc), context);
-    const extensions = [personal, personalPermissions, personalBackgroundWork, workTools, personalWorkControls, personalWorkNotes, personalAnalysisDelegations, personalDelegationReports, telegram.extension, ...(services ? [services] : []), ...(operations ? [operations.extension] : [])];
+    const extensions = [personal, personalPermissions, personalBackgroundWork, workTools, personalWorkControls, personalWorkNotes, personalAnalysisDelegations, personalDelegationReports, telegram.extension, ...(services ? [services, personalInspectionExtension] : []), ...(operations ? [operations.extension] : [])];
     const tools = [...(services?.tools ?? []), ...workTools.tools!];
     if (service) await harness.commit(async tx => { (await tx.doc(PersonalServiceDoc)).fingerprint = service.fingerprint; }, context);
     const main = await harness.root(context, { agent: { model: { provider: options.provider.id, modelId: options.modelId }, thinkingLevel: "off", extensions, tools }, init: async tx => { await tx.doc(PersonalAgentsDoc); await tx.doc(PersonalPermissionsDoc); if (operations) { await tx.doc(PersonalServiceOperationsDoc); await tx.doc(PersonalServiceGrantsDoc); } } });
@@ -270,12 +293,14 @@ export async function openPersonalHarness(options: ({ directory: string; profile
       }
     }
     const instance = harness;
+    if (service) for (const taskId of (await instance.snapshot(PersonalPendingInspectionsDoc, context))?.tasks ?? []) await recheckServiceInspection(instance, service.config, taskId);
     instance.resume();
     return {
       harness: instance,
       main,
       work: personalWork(instance, { provider: options.provider.id, modelId: options.modelId }),
       service: operations?.api(instance),
+      inspections: service && personalInspectionControl(instance, service.config),
       telegram: telegram.api(instance),
       async submit(input: string, requestId: string) {
         return main.submit({ type: "input", content: input, requestId, whenBusy: "followUp" }, context);

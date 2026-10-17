@@ -429,3 +429,74 @@ test("服务工作：首次启用标记提交后应答丢失，新建/已有主�
     assert.deepEqual(f.calls(), []);
   });
 });
+
+
+test("服务工作：prepare 取消后检查未核实仍占来源与目标，恢复和终态不能绕过", async t => {
+  const f = await fixture(t); f.touch("inspect-delay-ms", "60000"); f.touch("inspection-stop-fails");
+  const p = await f.open({ service: { ...f.service, timeouts: { inspectMs: 90000, stopMs: 1000 } } });
+  await p.answer("重启", "owner"); const ref = await p.service!.request(input("cancel-inspection", "full_access"));
+  await until(() => f.calls().some(call => call[0] === "inspect-op"));
+  await p.service!.cancel(ref); await finish(p, ref);
+  assert.equal((await p.service!.status(ref)).operation.consumed, false);
+  assert.equal((await p.service!.status(ref)).inspectionStopVerified, false);
+  assert.equal(f.starts(), 0);
+  await assert.rejects(p.service!.request(input("bypass", "full_access")), code("service_operation_busy"));
+  await p.close(); const restored = await f.open();
+  assert.equal((await restored.service!.status(ref)).inspectionStopVerified, false);
+  await assert.rejects(restored.work.delegate({ content: "换方式", sourceRequestId: "owner", requestId: "bypass-work" }), code("work_source_paused"));
+  fs.rmSync(path.join(f.helper, "inspection-stop-fails")); fs.rmSync(path.join(f.helper, "inspect-delay-ms"));
+  await restored.service!.recheckStop(ref);
+  assert.equal((await restored.service!.status(ref)).inspectionStopVerified, true);
+  const next = await restored.service!.request(input("after-stop", "full_access")); await finish(restored, next); assert.equal(f.starts(), 1);
+});
+
+test("服务工作：预排队审批消费前复核后来占用的检查，不启动 restart", async t => {
+  const f = await fixture(t, request => request.messages.at(-1)?.content === "检查" ? { kind: "tool_calls", calls: [{ id: "inspect", name: "service_inspect", arguments: { unit: UNIT } }] } : { kind: "text", text: "收到" });
+  const p = await f.open(); await p.answer("重启", "owner");
+  const ref = await p.service!.request(input("queued", "confirm")); await ready(p, ref);
+  f.touch("inspection-stop-fails"); await p.answer("检查", "independent");
+  assert.equal((await p.inspections!.list()).length, 1);
+  await p.service!.decide(ref, "approved"); await finish(p, ref);
+  assert.equal((await p.service!.status(ref)).operation.consumed, false);
+  assert.equal((await p.service!.status(ref)).operation.result?.code, "inspection_stop_unverified");
+  assert.equal(f.starts(), 0);
+});
+
+test("委托报告：检查停止未核实跨重启等待，核实后自动汇总，HTTP前暂停可重做", async t => {
+  for (const window of ["before-admission", "before-http"] as const) await t.test(window, async t => {
+    let release!: () => void; const gate = new Promise<void>(resolve => { release = resolve; }); t.after(() => release());
+    let group!: PersonalDelegationRef;
+    const f = await fixture(t, async request => {
+      const last = request.messages.at(-1);
+      if (request.system?.includes("你是个人助手的子 Agent")) { await gate; return { kind: "text", text: "分析完成" }; }
+      if (last?.role === "tool") return { kind: "text", text: String(last.content) };
+      if (last?.content === "委派") return { kind: "tool_calls", calls: [{ id: "delegate", name: "background_work", arguments: { action: "delegate", content: "分析" } }] };
+      if (last?.content === "汇总") return { kind: "tool_calls", calls: [{ id: "report", name: "background_work", arguments: { action: "report", delegation: group.entryId } }] };
+      return { kind: "text", text: String(last?.content).startsWith("宿主委托汇总参考") ? "检查停止后的完整汇总" : "独立聊天" };
+    });
+    let p!: PersonalHarness; let op: PersonalServiceOperationRef | undefined; let armed = window === "before-http";
+    const pause = async () => { op = await p.service!.request(input("inspection-pause", "full_access")); await finish(p, op); };
+    const provider = f.options.provider;
+    p = await f.open({ provider: { ...provider, streamSimple: (model, input, options) => provider.streamSimple(model, input, { ...options, onPayload: async payload => {
+      if (armed && JSON.stringify(input.messages.at(-1)).includes("宿主委托汇总参考")) { armed = false; await pause(); }
+      return await options?.onPayload?.(payload, model) ?? payload;
+    } }) } });
+    await p.answer("委派", "owner"); group = (await p.harness.commit(tx => listPersonalDelegations(tx), context)).items[0].ref;
+    await until(() => f.server.calls.some(request => request.system?.includes("你是个人助手的子 Agent")));
+    await p.answer("汇总", "report-owner"); f.touch("inspection-stop-fails");
+    if (window === "before-admission") await pause(); release();
+    const members = (await p.harness.commit(tx => personalDelegationProgress(tx, group), context)).members;
+    await p.harness.waitForTask(members[0].ref.taskId, context);
+    await until(async () => !!op && (window === "before-admission" || (await p.harness.snapshot(PersonalDelegationDoc, String(group.entryId), context))!.delegation!.report!.attempt === 1));
+    const summaries = () => f.server.calls.filter(request => String(request.messages.at(-1)?.content).startsWith("宿主委托汇总参考"));
+    assert.equal(summaries().length, 0); assert.equal(f.starts(), 0);
+    await p.close(); p = await f.open();
+    assert.equal((await p.harness.commit(tx => personalDelegationProgress(tx, group), context)).paused, true);
+    assert.equal(await p.answer("其他聊天", "independent"), "独立聊天");
+    fs.rmSync(path.join(f.helper, "inspection-stop-fails")); await p.service!.recheckStop(op!);
+    const report = (await p.harness.snapshot(PersonalDelegationDoc, String(group.entryId), context))!.delegation!.report!;
+    assert.equal((await p.harness.waitForTask(report.taskId, context)).state.outcome.status, "completed");
+    assert.equal(summaries().length, 1); assert.equal((await p.harness.commit(tx => personalReportResult(tx, group), context)).text, "检查停止后的完整汇总");
+    await p.close(); p = await f.open(); assert.equal(summaries().length, 1);
+  });
+});

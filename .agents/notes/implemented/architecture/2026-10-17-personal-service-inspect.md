@@ -2,6 +2,8 @@
 
 Status: implemented
 
+本文无身份检查的重放接线由[持久检查归属](2026-10-17-personal-durable-inspection.md)取代；原决定保留，字节捕获、分页与宿主配置边界继续适用。
+
 ## 问题
 
 [个人迁移](../../proposed/architecture/2026-10-17-personal-pi-durable.md)需要保留服务管理，但旧 `service-tools.ts` 绑定 Task、ApprovalGate 和 ArtifactStore。直接搬入会让新个人端继续依赖旧运行权威；先开放 restart 又缺少 durable 工作归属、审批消费与未知效果暂停。

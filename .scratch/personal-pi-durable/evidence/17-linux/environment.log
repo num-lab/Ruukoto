@@ -1,0 +1,10 @@
+Sat Oct 17 07:16:06 UTC 2026
+uid=1003(eitrous) gid=1003(eitrous) groups=1003(eitrous),27(sudo),100(users),987(ruukoto-backend),988(docker)
+Linux 6.8.0-117-generic
+v24.21.0
+11.19.0
+git version 2.43.0
+Python 3.12.3
+Filesystem      Size  Used Avail Use% Mounted on
+tmpfs           1.9G   75M  1.8G   4% /dev/shm
+/dev/vda2        40G   37G  659M  99% /

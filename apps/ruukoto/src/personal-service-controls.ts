@@ -39,7 +39,7 @@ export async function personalServiceRef(tx: Tx, id: TaskId): Promise<PersonalSe
   return { ...(await personalServiceOperation(tx, { requestId: key, taskId: id })).ref };
 }
 
-export type PersonalServiceSummary = { ref: PersonalServiceOperationRef; unit: string; status: string; canResolve: boolean; canRecheck: boolean; stop?: string };
+export type PersonalServiceSummary = { ref: PersonalServiceOperationRef; unit: string; status: string; canResolve: boolean; canRecheck: boolean; canDecide: boolean; stop?: string };
 export type PersonalServicePage = { items: PersonalServiceSummary[]; nextOffset?: number };
 export type PersonalServiceDetail = { summary: PersonalServiceSummary; evidence: string; nextOffset?: number };
 
@@ -47,6 +47,8 @@ async function summary(tx: Tx, ref: PersonalServiceOperationRef): Promise<Person
   const op = await personalServiceOperation(tx, ref);
   const pending = (await tx.doc(PersonalPendingInspectionsDoc)).tasks.includes(ref.taskId);
   const unknown = op.consumed && op.result?.effect === "effect_unknown" && op.result.code !== "started";
+  const task = await tx.task(ref.taskId);
+  const canDecide = !op.telegram && op.mode !== "full_access" && !!op.snapshot && !op.consumed && !op.cancelRequested && op.decision === "pending" && task?.state.status !== "terminal" && !task?.abortRequested;
   const verification = op.result?.effect === "effect_unknown" ? `；${op.resolution ? `效果已核实：${op.resolution.effect === "applied" ? "已生效" : "未生效"}` : "未保存人工效果核实"}；${op.launcherStopped ? "原写操作停止已核实" : "原写操作停止未核实"}` : op.result ? "；写操作无需人工效果核实或停止重核" : "";
   const status = `${op.result?.code === "started" ? "已开始，结果尚未核实" : op.result?.effect === "effect_unknown" ? "效果未知" : op.result?.effect === "executed" ? "重启命令已结束，不代表业务健康" : op.result?.effect === "not_executed" ? "已知未执行" : "尚未得到执行结果"}（${op.result?.code ?? "pending"}）${verification}${pending ? "；审批前检查停止未核实，请从检查菜单管理" : ""}`;
   let stop: string | undefined;
@@ -61,7 +63,7 @@ async function summary(tx: Tx, ref: PersonalServiceOperationRef): Promise<Person
     }
     cursor = page.next;
   } while (cursor);
-  return { ref: { ...ref }, unit: op.unit, status, canResolve: !!unknown && !op.resolution, canRecheck: !!unknown && !pending && !op.launcherStopped, ...(stop ? { stop } : {}) };
+  return { ref: { ...ref }, unit: op.unit, status: canDecide ? `等待批准：在机器 ${op.snapshot!.machineId} 重启 ${op.unit}；仅本次固定策略和单元修订` : status, canDecide, canResolve: !!unknown && !op.resolution, canRecheck: !!unknown && !pending && !op.launcherStopped, ...(stop ? { stop } : {}) };
 }
 
 export async function listPersonalServices(tx: Tx, offset = 0, actor?: Entrance): Promise<PersonalServicePage> {

@@ -153,9 +153,15 @@ export async function startPersonalServer(directory: string) {
           result = { requested: true };
         } else if (req.method === "GET" && url.pathname === "/services") {
           result = await instance.harness.commit(tx => listPersonalServices(tx, queryNumber(url, "offset", 0)), context);
-        } else if ((req.method === "GET" && url.pathname === "/service") || (req.method === "POST" && ["/service/resolve", "/service/stop"].includes(url.pathname))) {
+        } else if ((req.method === "GET" && url.pathname === "/service") || (req.method === "POST" && ["/service/resolve", "/service/stop", "/service/decide"].includes(url.pathname))) {
           const ref = await instance.harness.commit(tx => personalServiceRef(tx, queryNumber(url, "service") as TaskId), context);
-          if (url.pathname === "/service/stop") { await instance.requestServiceStop(ref); result = { requested: true }; }
+          if (url.pathname === "/service/decide") {
+            const value = await readControlJSON(req);
+            if (!value || typeof value !== "object" || !("decision" in value) || (value.decision !== "approved" && value.decision !== "rejected") || Object.keys(value).length !== 1) throw new PersonalError("service_decision_invalid", "请选择批准本次或拒绝原服务操作。");
+            if (!instance.service) throw new PersonalError("service_config_missing", "服务操作未装配，请核实配置。");
+            await instance.service.decide(ref, value.decision);
+            result = { saved: true };
+          } else if (url.pathname === "/service/stop") { await instance.requestServiceStop(ref); result = { requested: true }; }
           else if (url.pathname === "/service/resolve") {
             const resolution = parsePersonalServiceResolution(await readControlJSON(req));
             await instance.harness.commit(tx => resolvePersonalServiceOperation(tx, ref, resolution.effect, resolution.evidence), context);
@@ -244,7 +250,7 @@ export async function startPersonalServer(directory: string) {
   }
 }
 
-export async function personalControl<T>(directory: string, method: "GET" | "POST", route: string, value?: PersonalInput | PersonalServiceResolution): Promise<T> {
+export async function personalControl<T>(directory: string, method: "GET" | "POST", route: string, value?: PersonalInput | PersonalServiceResolution | { decision: "approved" | "rejected" }): Promise<T> {
   const token = readPersonalToken(directory);
   return new Promise<T>((resolve, reject) => {
     const req = http.request({ socketPath: path.join(directory, "control.sock"), method, path: route, headers: { authorization: `Bearer ${token}`, "content-type": "application/json", connection: "close" } });

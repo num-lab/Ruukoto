@@ -1,0 +1,32 @@
+{
+  "passed": true,
+  "code": 0,
+  "stdinTTY": true,
+  "stdoutTTY": true,
+  "authChecks": 12,
+  "requests": 12,
+  "approvePosts": 1,
+  "rejectPosts": 1,
+  "stableSources": true,
+  "tokenRecorded": false,
+  "realPty": true,
+  "realRunPersonalCli": true,
+  "unixSocketHttp": "local stub",
+  "helper": "not invoked",
+  "systemd": "not invoked",
+  "realBackend": "not started or stopped",
+  "model": "not invoked",
+  "telegram": "not invoked",
+  "platform": "darwin",
+  "nodeVersion": "v24.15.0",
+  "sourceSHA256": {
+    "apps/ruukoto/src/personal-cli.ts": "7119ba7952022e5cd639c3fa92c43dc48f4baae1f39616a0a917be7a4890cb21",
+    "apps/ruukoto/src/personal-control.ts": "aef9c1e8f555f43bcc9564113ca3933677278579996c35be80038dea76d89726",
+    "apps/ruukoto/src/personal-service-controls.ts": "0a5ec63b96f60fae70ae064edc79b8ad0b4f6f2546262d67273c3a2d9fd9fa1d"
+  },
+  "ptyDriverPassed": true,
+  "actions": 12,
+  "internalKeysAbsentFromTerminal": true,
+  "numericMenuSelectionsOnly": true,
+  "profileAndTokenRemoved": true
+}

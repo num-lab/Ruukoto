@@ -26,6 +26,10 @@ inspect 无写入效果，`replay: safe` 允许恢复后重新观察，当前策
 
 按 service/helper、durable、服务管理和停止核实检索 active notes；rejected 目录不存在。[固定 helper](2026-10-03-service-management-helper.md)与[长期授权](../feature/2026-10-03-standing-permissions.md)部分重叠，其协议与写入授权约束继续适用；本任务不改变它们。[档案基础](2026-10-17-personal-durable-foundation.md)和[本机管理](2026-10-17-personal-local-management.md)部分重叠，本任务扩展可信 API，现有向导仍为空工具。无完全吸收或待归档笔记。
 
+## 后续服务写入
+
+子会话不下放服务写工具的部分由[子服务工作](2026-10-17-personal-subagent-service-operations.md)取代：受控 restart 沿原 WorkTask 权限、取消和未知效果收尾；独立宿主操作与其他工具的原边界继续适用。
+
 ## 备选方案
 
 - 直接复用旧服务工具：已有审批与产物支持，但依赖旧 Task/Store/SDK，违背迁移的运行权威边界。

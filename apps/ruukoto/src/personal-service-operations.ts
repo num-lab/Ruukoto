@@ -9,6 +9,7 @@ import { PersonalTelegramReceiptDoc, type TelegramControlInput } from "./persona
 import { PersonalError } from "./personal-error.ts";
 import { PersonalInspectionDoc, PersonalPendingInspectionsDoc, pendingServiceInspection, recheckServiceInspection, runServiceInspection, ServiceInspectionEntry } from "./personal-service-inspection.ts";
 import { callHelper, opUnitFor, ServiceHelperError, type HelperReply, type ServiceManagerConfig } from "./service-helper.ts";
+import { PersonalWorkDoc, personalWorkInspectionSource, requirePersonalWorkRequest, type PersonalWorkInspectionSource } from "./personal-work.ts";
 
 export type PersonalServiceMode = "auto-review" | "confirm" | "full_access";
 type Effect = { effect: "executed" | "not_executed" | "effect_unknown"; code: string; exitCode?: number };
@@ -20,7 +21,11 @@ type Operation = {
   source: { requestId: string; submissionId: SubmissionId; entryId: EntryId };
   snapshot?: Snapshot; decision: "pending" | "approved" | "rejected"; consumed: boolean; cancelRequested: boolean;
   result?: Effect; launcherStopped: boolean; resolution?: { effect: "applied" | "not_applied"; evidence: string; controlRequestId?: string };
+  work?: ServiceWork & { admission: EntryId };
 };
+export const PERSONAL_SERVICE_WORK = "personal-subagent-service-operations";
+export type ServiceWork = PersonalWorkInspectionSource & { tool: TaskId; generation: TaskId; sources: SubmissionId[] };
+export const ServiceWorkAdmission = defineEntry<{ ref: PersonalServiceOperationRef; source: Operation["source"]; work: ServiceWork; unit: string }>("ruukoto.service-work-admission");
 type Grant = { id: string; version: number; active: boolean; source: PersonalTelegramSource; snapshot: Snapshot; unit: string; operation: PersonalServiceOperationRef; controlRequestId: string; reason?: string };
 export const PersonalServiceGrantsDoc = defineDoc<{ grants: Grant[] }>({ kind: "ruukoto.service-grants", scope: "session", version: 1, initial: () => ({ grants: [] }) });
 
@@ -38,6 +43,11 @@ export async function personalServiceOperation(tx: Tx, ref: { requestId: string;
 }
 
 async function sourceValid(tx: Tx, op: Operation, active = true) {
+  if (active && op.work) {
+    const work = await tx.doc(PersonalWorkDoc, op.work.ref.requestId, null);
+    if (work.cancelRequested || !isDeepStrictEqual(work.ref, op.work.ref)) return false;
+    try { await requirePersonalWorkRequest(tx, op.work.ref.agentId); } catch (error) { if (!(error instanceof PersonalError)) throw error; return false; }
+  }
   const source = await tx.submissionByRequest(ROOT_CONVERSATION_ID, op.source.requestId);
   const entry = await tx.entry(op.source.entryId);
   if (op.source.requestId.startsWith("telegram:")) {
@@ -83,6 +93,25 @@ function classify(reply: HelperReply | undefined, op: Operation): Effect {
 
 function unresolved(op: Operation) { return op.consumed && (!op.result || (op.result.effect === "effect_unknown" && (!op.resolution || !op.launcherStopped))); }
 
+export async function interruptedPersonalService(tx: Tx, op: Operation) {
+  if (op.consumed && (!op.result || op.result.code === "started") && (await tx.task(op.ref.taskId))?.state.status === "terminal") {
+    op.result = { effect: "effect_unknown", code: "interrupted" };
+    await invalidateServiceGrants(tx, op);
+  }
+}
+
+export async function personalWorkServices(tx: Tx, taskId: TaskId) {
+  return (await personalServiceOperationsIn(tx)).filter(op => op.work?.ref.taskId === taskId);
+}
+
+export async function requirePersonalWorkServicesStopped(tx: Tx, taskId: TaskId) {
+  for (const op of await personalWorkServices(tx, taskId)) if ((await tx.task(op.ref.taskId))?.state.status !== "terminal" || unresolved(op)) throw new PersonalError("work_stop_unverified", "子工作的服务操作或效果尚未核实，占用保留；请从原服务菜单核实效果与停止。");
+}
+
+export async function waitPersonalServiceEffect(reader: DocumentObserver, ref: PersonalServiceOperationRef, context: Context) {
+  await waitForChange(reader, ref.requestId, op => !unresolved(op), context);
+}
+
 export type PersonalServiceBlocker = string | { inspection: TaskId; admission: EntryId };
 
 export async function personalServiceSourceBlocker(tx: Tx, sourceRequestId: string): Promise<PersonalServiceBlocker | undefined> {
@@ -119,8 +148,12 @@ export function personalServiceOperations(config: ServiceManagerConfig, getHarne
         const ref = { requestId: current.input.requestId, taskId: current.id };
         let op = await runtime.snapshot(PersonalServiceOperationDoc, ref.requestId, context);
         if (!op?.operation) throw new PersonalError("service_operation_missing", "服务操作缺少原记录，已停止；请检查档案。");
+        if (op.operation.work && !await getHarness().commit(tx => sourceValid(tx, op!.operation!), context)) {
+          await runtime.commit(async tx => { const value = await personalServiceOperation(tx, ref); value.result = { effect: "not_executed", code: "source_inactive" }; return { status: "terminal", outcome: { status: "completed", result: value.result } }; }, context);
+          return;
+        }
         if (!op.operation.snapshot) {
-          const inspection = await runServiceInspection(getHarness(), config, { taskId: current.id, conversationId: current.conversationId, sources: [op.operation.source.submissionId], signal: runtime.signal }, op.operation.unit);
+          const inspection = await runServiceInspection(getHarness(), config, { taskId: current.id, conversationId: current.conversationId, sources: op.operation.work?.sources ?? [op.operation.source.submissionId], signal: runtime.signal }, op.operation.unit);
           const snapshot = inspection.reply;
           const code = inspection.code;
           const evidence = inspection.evidence && await getHarness().commit(tx => tx.entry(ServiceInspectionEntry, inspection.evidence!), context);
@@ -158,7 +191,7 @@ export function personalServiceOperations(config: ServiceManagerConfig, getHarne
             const value = await personalServiceOperation(tx, ref);
             let code: string | undefined;
             if (value.cancelRequested || !await sourceValid(tx, value)) code = "source_inactive";
-            else if (await pendingServiceInspection(tx, value.unit, [value.source.submissionId])) code = "inspection_stop_unverified";
+            else if (await pendingServiceInspection(tx, value.unit, value.work?.sources ?? [value.source.submissionId])) code = "inspection_stop_unverified";
             else if (value.decision === "rejected") code = "rejected";
             else {
               let revision: string | undefined;
@@ -242,46 +275,52 @@ export function personalServiceOperations(config: ServiceManagerConfig, getHarne
     }, context);
   }
 
+  async function request(tx: Tx, input: { unit: string; sourceRequestId: string; requestId: string; mode?: PersonalServiceMode }, work?: ServiceWork): Promise<PersonalServiceOperationRef> {
+    const requestedMode = input.mode ?? "auto-review";
+    if (!/^[A-Za-z0-9_.-]+\.service$/.test(input.unit) || input.unit.length > 128 || !input.requestId || input.requestId.length > 256 || !input.sourceRequestId || input.sourceRequestId.length > 256 || !["auto-review", "confirm", "full_access"].includes(requestedMode)) throw new PersonalError("service_input_invalid", "服务目标、模式或原请求引用无效，请使用精确服务名和原输入。");
+    const record = await tx.doc(PersonalServiceOperationDoc, input.requestId, null);
+    const telegramReceipt = input.sourceRequestId.startsWith("telegram:") ? (await tx.doc(PersonalTelegramReceiptDoc, input.sourceRequestId, null)).receipt : undefined;
+    const telegram = telegramReceipt && permissionSnapshot(telegramReceipt);
+    if (input.sourceRequestId.startsWith("telegram:") && (!telegram || !await telegramSourceActive(tx, telegram))) throw new PersonalError("service_source_invalid", "原 Telegram 输入没有有效权限快照，请由当前绑定拥有者重新提交委托。");
+    if (telegram && input.mode !== undefined && input.mode !== telegram.mode) throw new PersonalError("service_mode_invalid", "服务模式必须沿用原 Telegram 输入，不能由调用者改写。");
+    const mode = work?.permission.mode ?? telegram?.mode ?? requestedMode;
+    const fingerprint = createHash("sha256").update(JSON.stringify([input.unit, input.sourceRequestId, mode])).digest("hex");
+    if (record.operation) {
+      if (record.operation.fingerprint !== fingerprint || !isDeepStrictEqual(record.operation.work && (({ admission: _admission, ...value }) => value)(record.operation.work), work)) throw new PersonalError("service_request_conflict", "同键服务操作内容不符，请查询原操作，不要换键自动重试。");
+      return { ...record.operation.ref };
+    }
+    const source = await tx.submissionByRequest(ROOT_CONVERSATION_ID, input.sourceRequestId);
+    const entry = source?.entry && await tx.entry(source.entry);
+    if (source?.type !== "input" || (source.status !== "placed" && source.status !== "done") || entry?.kind !== "pi.user") throw new PersonalError("service_source_invalid", "服务工作需要已进入主会话的拥有者输入，请先核实原输入。");
+    if (await pendingServiceInspection(tx, input.unit, work?.sources ?? [source.id])) throw new PersonalError("service_operation_busy", "服务目标或原工作仍有检查停止未核实，请查询原检查；不能换键重试。");
+    let cursor: Cursor | undefined;
+    do {
+      const page = await tx.scanTasks({ kind: task.definition.name }, 256, cursor);
+      for (const current of page.items) {
+        const requestId = current.input && typeof current.input === "object" && !Array.isArray(current.input) && current.input.requestId;
+        if (typeof requestId !== "string") throw new PersonalError("service_operation_missing", "已有服务工作记录无法核实，已拒绝新操作。");
+        const other = await personalServiceOperation(tx, { requestId, taskId: current.id });
+        if (current.state.status === "terminal" && !unresolved(other)) continue;
+        if (other.unit === input.unit || other.source.requestId === input.sourceRequestId) throw new PersonalError("service_operation_busy", "服务目标或原工作仍未结束，请查询并处理原操作；不能换键重试。");
+      }
+      cursor = page.next;
+    } while (cursor);
+    const taskId = await tx.createTask(task, { requestId: input.requestId }, { conversationId: ROOT_CONVERSATION_ID, ...(work ? { ownership: { kind: "task", taskId: work.ref.taskId } as const } : { ownership: { kind: "conversation" } as const, background: true }) });
+    const ref = { requestId: input.requestId, taskId };
+    record.operation = { ...(telegram ? { telegram } : {}), ref, unit: input.unit, mode, fingerprint, hostOpId: `op_${randomBytes(12).toString("hex")}`, source: { requestId: input.sourceRequestId, submissionId: source.id, entryId: entry.id }, decision: "pending", consumed: false, cancelRequested: false, launcherStopped: false };
+    if (work) {
+      const admission = await tx.appendEntry(ServiceWorkAdmission, work.ref.agentId, { data: { ref, unit: input.unit, source: record.operation.source, work } });
+      record.operation.work = { ...work, admission: admission.id };
+    }
+    return ref;
+  }
+
   const extension = defineExtension({ name: "personal-service-operations", tasks: [task] });
-  return { task, extension, control: serviceTelegramControl,
+  return { task, extension, request, control: serviceTelegramControl,
     api(harness: Harness) {
       return {
         async request(input: { unit: string; sourceRequestId: string; requestId: string; mode?: PersonalServiceMode }): Promise<PersonalServiceOperationRef> {
-          const requestedMode = input.mode ?? "auto-review";
-          if (!/^[A-Za-z0-9_.-]+\.service$/.test(input.unit) || input.unit.length > 128 || !input.requestId || input.requestId.length > 256 || !input.sourceRequestId || input.sourceRequestId.length > 256 || !["auto-review", "confirm", "full_access"].includes(requestedMode)) throw new PersonalError("service_input_invalid", "服务目标、模式或原请求引用无效，请使用精确服务名和原输入。");
-          const ref = await harness.commit(async tx => {
-            const record = await tx.doc(PersonalServiceOperationDoc, input.requestId, null);
-            const telegramReceipt = input.sourceRequestId.startsWith("telegram:") ? (await tx.doc(PersonalTelegramReceiptDoc, input.sourceRequestId, null)).receipt : undefined;
-            const telegram = telegramReceipt && permissionSnapshot(telegramReceipt);
-            if (input.sourceRequestId.startsWith("telegram:") && (!telegram || !await telegramSourceActive(tx, telegram))) throw new PersonalError("service_source_invalid", "原 Telegram 输入没有有效权限快照，请由当前绑定拥有者重新提交委托。");
-            if (telegram && input.mode !== undefined && input.mode !== telegram.mode) throw new PersonalError("service_mode_invalid", "服务模式必须沿用原 Telegram 输入，不能由调用者改写。");
-            const mode = telegram?.mode ?? requestedMode;
-            const fingerprint = createHash("sha256").update(JSON.stringify([input.unit, input.sourceRequestId, mode])).digest("hex");
-            if (record.operation) {
-              if (record.operation.fingerprint !== fingerprint) throw new PersonalError("service_request_conflict", "同键服务操作内容不符，请查询原操作，不要换键自动重试。");
-              return { ...record.operation.ref };
-            }
-            const source = await tx.submissionByRequest(ROOT_CONVERSATION_ID, input.sourceRequestId);
-            const entry = source?.entry && await tx.entry(source.entry);
-            if (source?.type !== "input" || (source.status !== "placed" && source.status !== "done") || entry?.kind !== "pi.user") throw new PersonalError("service_source_invalid", "服务工作需要已进入主会话的拥有者输入，请先核实原输入。");
-            if (await pendingServiceInspection(tx, input.unit, [source.id])) throw new PersonalError("service_operation_busy", "服务目标或原工作仍有检查停止未核实，请查询原检查；不能换键重试。");
-            let cursor: Cursor | undefined;
-            do {
-              const page = await tx.scanTasks({ kind: task.definition.name }, 256, cursor);
-              for (const current of page.items) {
-                const requestId = current.input && typeof current.input === "object" && !Array.isArray(current.input) && current.input.requestId;
-                if (typeof requestId !== "string") throw new PersonalError("service_operation_missing", "已有服务工作记录无法核实，已拒绝新操作。");
-                const other = await personalServiceOperation(tx, { requestId, taskId: current.id });
-                if (current.state.status === "terminal" && !unresolved(other)) continue;
-                if (other.unit === input.unit || other.source.requestId === input.sourceRequestId) throw new PersonalError("service_operation_busy", "服务目标或原工作仍未结束，请查询并处理原操作；不能换键重试。");
-              }
-              cursor = page.next;
-            } while (cursor);
-            const taskId = await tx.createTask(task, { requestId: input.requestId }, { conversationId: ROOT_CONVERSATION_ID, ownership: { kind: "conversation" }, background: true });
-            const ref = { requestId: input.requestId, taskId };
-            record.operation = { ...(telegram ? { telegram } : {}), ref, unit: input.unit, mode, fingerprint, hostOpId: `op_${randomBytes(12).toString("hex")}`, source: { requestId: input.sourceRequestId, submissionId: source.id, entryId: entry.id }, decision: "pending", consumed: false, cancelRequested: false, launcherStopped: false };
-            return ref;
-          }, context);
+          const ref = await harness.commit(tx => request(tx, input), context);
           harness.resume();
           return ref;
         },
@@ -457,16 +496,27 @@ export async function verifyServiceGrants(tx: Tx, requestIds: string[]) {
   }
 }
 
-export async function verifyServiceOperationRecords(tx: Tx, requestIds: string[], inspectionKeys: string[] = []) {
+export async function verifyServiceOperationRecords(tx: Tx, requestIds: string[], inspectionKeys: string[] = [], workEnabled = false) {
   const activeTargets = new Set<string>();
   const activeSources = new Set<string>();
   for (const requestId of requestIds) {
     const value = (await tx.doc(PersonalServiceOperationDoc, requestId, null)).operation;
     const task = value && await tx.task(value.ref.taskId);
-    if (!value || value.ref.requestId !== requestId || value.fingerprint !== createHash("sha256").update(JSON.stringify([value.unit, value.source.requestId, value.mode])).digest("hex") || !task || task.kind !== "ruukoto.service-operation" || task.version !== 1 || task.conversationId !== ROOT_CONVERSATION_ID || !task.background || task.owner !== undefined || !task.input || typeof task.input !== "object" || Array.isArray(task.input) || task.input.requestId !== requestId || !await sourceValid(tx, value, false)) throw new PersonalError("service_operation_invalid", "服务操作的来源、执行或归属无法核实，已停止恢复；请保留档案。");
+    if (!value || value.ref.requestId !== requestId || value.fingerprint !== createHash("sha256").update(JSON.stringify([value.unit, value.source.requestId, value.mode])).digest("hex") || !task || task.kind !== "ruukoto.service-operation" || task.version !== 1 || task.conversationId !== ROOT_CONVERSATION_ID || (value.work ? task.owner !== value.work.ref.taskId || task.background : !task.background || task.owner !== undefined) || !task.input || typeof task.input !== "object" || Array.isArray(task.input) || task.input.requestId !== requestId || !await sourceValid(tx, value, false)) throw new PersonalError("service_operation_invalid", "服务操作的来源、执行或归属无法核实，已停止恢复；请保留档案。");
+    if (requestId.startsWith("personal-service-tool:") && !value.work) throw new PersonalError("service_work_invalid", "子服务操作缺少原工作接纳，已停止恢复；请保留档案。");
+    if (value.work) {
+      const { admission, ...work } = value.work;
+      const original = await tx.entry(ServiceWorkAdmission, admission);
+      const source = await personalWorkInspectionSource(tx, work.ref, work.inputs, admission);
+      const facts = await tx.doc(PersonalWorkDoc, work.ref.requestId, null);
+      const call = await tx.task(work.tool);
+      const input = call?.input;
+      const assistant = input && typeof input === "object" && !Array.isArray(input) && typeof input.assistant === "number" ? await tx.entry(input.assistant as EntryId) : undefined;
+      if (!workEnabled || requestId !== `personal-service-tool:${work.tool}` || original?.conversationId !== work.ref.agentId || !isDeepStrictEqual(original.data, { ref: value.ref, source: value.source, unit: value.unit, work }) || !isDeepStrictEqual(source.work, { ref: work.ref, permission: work.permission, ...(work.telegram ? { telegram: work.telegram } : {}), inputs: work.inputs }) || !isDeepStrictEqual(source.sources, work.sources) || !isDeepStrictEqual(facts.source, value.source) || value.mode !== work.permission.mode || !isDeepStrictEqual(value.telegram, work.telegram) || call?.kind !== "pi.tool" || call.conversationId !== work.ref.agentId || call.owner !== work.generation || (await tx.task(work.generation))?.kind !== "pi.generation" || !input || typeof input !== "object" || Array.isArray(input) || input.kind !== "model" || assistant?.conversationId !== work.ref.agentId || assistant.byTaskId !== work.generation || assistant.id >= admission || !assistant.model?.some(message => message.role === "assistant" && message.content.some(part => part.type === "toolCall" && part.id === input.callId && part.name === "service_restart" && part.arguments.unit === value.unit))) throw new PersonalError("service_work_invalid", "子服务操作与原工具、来源或权限不符，已停止恢复；请保留档案。");
+    }
     const inspection = inspectionKeys.includes(String(value.ref.taskId)) ? (await tx.doc(PersonalInspectionDoc, String(value.ref.taskId), null)).inspection : undefined;
     if (value.snapshot && (!inspection?.stopped || !inspection.result?.reply || !isDeepStrictEqual(value.snapshot, { machineId: inspection.result.reply.machineId, policyRevision: inspection.result.reply.policyRevision, unitRevision: inspection.result.reply.unitRevision }))) throw new PersonalError("service_inspection_invalid", "服务审批快照缺少原检查与停止证明，已停止恢复；请保留档案。");
-    if (inspection && (inspection.unit !== value.unit || inspection.sources.length !== 1 || inspection.sources[0] !== value.source.submissionId)) throw new PersonalError("service_inspection_invalid", "服务检查的原操作来源不符，已停止恢复；请保留档案。");
+    if (inspection && (inspection.unit !== value.unit || !isDeepStrictEqual(inspection.sources, value.work?.sources ?? [value.source.submissionId]))) throw new PersonalError("service_inspection_invalid", "服务检查的原操作来源不符，已停止恢复；请保留档案。");
     if (value.telegram && value.decidedBy) {
       const decision = (await tx.doc(PersonalTelegramReceiptDoc, value.decidedBy, null)).receipt;
       if (!decision?.control || !decision.direct || !decision.serviceDecision || (value.decision === "approved" && decision.serviceDecision.decision !== "approved") || decision.serviceDecision.ref.taskId !== value.ref.taskId || decision.serviceDecision.ref.requestId !== requestId || !sameEntrance(value.telegram, decision)) throw new PersonalError("service_approval_invalid", "服务决定缺少原入口的已接受回执，已停止恢复；请保留档案。");
@@ -474,7 +524,7 @@ export async function verifyServiceOperationRecords(tx: Tx, requestIds: string[]
     if (value.telegram && value.decision === "approved" && !value.grant && !value.decidedBy) throw new PersonalError("service_approval_invalid", "服务批准缺少原入口决定，已停止恢复；请保留档案。");
     if (!value.consumed && value.source.requestId.startsWith("telegram:") && !value.telegram) value.decision = "rejected";
     if (value.telegram && !value.consumed && !await telegramSourceActive(tx, value.telegram)) value.decision = "rejected";
-    if (value.consumed && (!value.result || (task.state.status === "terminal" && value.result.code === "started"))) value.result = { effect: "effect_unknown", code: "interrupted" };
+    await interruptedPersonalService(tx, value);
     if (value.result?.effect === "effect_unknown" && unresolved(value)) await invalidateServiceGrants(tx, value);
     if (task.state.status !== "terminal" || unresolved(value)) {
       if (activeTargets.has(value.unit) || activeSources.has(value.source.requestId)) throw new PersonalError("service_operation_invalid", "服务目标或来源被多个未结束操作占用，已停止恢复；请保留档案。");
@@ -488,6 +538,21 @@ export async function verifyServiceOperationRecords(tx: Tx, requestIds: string[]
     for (const task of page.items) {
       const requestId = task.input && typeof task.input === "object" && !Array.isArray(task.input) && task.input.requestId;
       if (typeof requestId !== "string" || !requestIds.includes(requestId) || (await tx.doc(PersonalServiceOperationDoc, requestId, null)).operation?.ref.taskId !== task.id) throw new PersonalError("service_operation_invalid", "服务执行缺少原操作事实，已停止恢复；请保留档案。");
+    }
+    cursor = page.next;
+  } while (cursor);
+  do {
+    const page = await tx.scanConversations({}, 256, cursor);
+    for (const conversation of page.items) {
+      let entryCursor: Cursor | undefined;
+      do {
+        const entries = await tx.scanEntries({ conversationId: conversation.id }, 256, entryCursor);
+        for (const entry of entries.items) if (ServiceWorkAdmission.is(entry)) {
+          const op = await personalServiceOperation(tx, entry.data.ref);
+          if (!workEnabled || op.work?.admission !== entry.id || op.work.ref.agentId !== conversation.id) throw new PersonalError("service_work_invalid", "原子服务接纳缺少操作回链，已停止恢复；请保留档案。");
+        }
+        entryCursor = entries.next;
+      } while (entryCursor);
     }
     cursor = page.next;
   } while (cursor);

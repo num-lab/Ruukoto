@@ -6,7 +6,8 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { defineDoc, defineDocFamily, defineEntry, defineExtension, LiveDoc, ROOT_CONVERSATION_ID, type ConversationId, type EntryId, type Harness, type SubmissionId, type TaskId, type Tx } from "@earendil-works/pi-durable";
 import { callHelper, expectRevisions, requireOk, ServiceHelperError, type HelperReply, type ServiceInspectionId, type ServiceManagerConfig } from "./service-helper.ts";
 import { PersonalError } from "./personal-error.ts";
-import { activePersonalWorkInspection, personalWorkInspectionSource, type PersonalWorkInspectionSource } from "./personal-work.ts";
+import { activePersonalWorkInspection, personalWorkInspectionSource, requirePersonalWorkRequest, type PersonalWorkInspectionSource } from "./personal-work.ts";
+import { personalServiceOperation } from "./personal-service-operations.ts";
 
 type Reply = Extract<HelperReply, { ok: true; verb: "inspect-op" }>;
 type Identity = { taskId: TaskId; conversationId: ConversationId; taskKind: string; unit: string; machineId: string; inspectionId: ServiceInspectionId; sources: SubmissionId[]; generation?: TaskId; work?: PersonalWorkInspectionSource };
@@ -68,7 +69,7 @@ export async function pendingWorkInspection(tx: Tx, taskId: TaskId) {
   for (const id of (await tx.doc(PersonalPendingInspectionsDoc)).tasks) {
     const value = (await tx.doc(PersonalInspectionDoc, String(id), null)).inspection;
     if (!value || value.stopped) throw new PersonalError("service_inspection_invalid", "检查占用记录无法核实，已保留工作占用；请保留档案。");
-    if (value.work?.ref.taskId === taskId) return true;
+    if (value.work?.ref.taskId === taskId || (value.taskKind === "ruukoto.service-operation" && (await tx.task(value.taskId))?.owner === taskId)) return true;
   }
   return false;
 }
@@ -106,6 +107,13 @@ export async function runServiceInspection(harness: Harness, config: ServiceMana
     const live = task.kind === "pi.tool" ? await tx.doc(LiveDoc, task.conversationId) : undefined;
     if (task.kind !== "ruukoto.service-operation" && (task.kind !== "pi.tool" || !task.owner || live?.run?.taskId !== task.owner)) throw new PersonalError("service_inspection_invalid", "检查不属于原活动执行，未启动；请保留档案。");
     if (owner.conversationId !== ROOT_CONVERSATION_ID && (task.kind !== "pi.tool" || owner.sources)) throw new PersonalError("service_inspection_invalid", "子检查的执行消费者不符，未启动；请查询原工作。");
+    if (task.kind === "ruukoto.service-operation" && task.owner) {
+      const input = task.input;
+      if (!input || typeof input !== "object" || Array.isArray(input) || typeof input.requestId !== "string") throw new PersonalError("service_inspection_invalid", "子服务操作缺少原引用，未启动检查。");
+      const op = await personalServiceOperation(tx, { requestId: input.requestId, taskId: task.id });
+      if (op.work?.ref.taskId !== task.owner || !isDeepStrictEqual(op.work.sources, owner.sources) || op.unit !== unit || op.cancelRequested) throw new PersonalError("service_inspection_inactive", "子服务操作已停止或归属不符，未启动检查。");
+      await requirePersonalWorkRequest(tx, op.work.ref.agentId);
+    }
     if (owner.conversationId !== ROOT_CONVERSATION_ID) {
       const generation = task.owner && await tx.task(task.owner);
       const input = task.input;

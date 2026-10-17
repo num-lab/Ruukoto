@@ -1,0 +1,55 @@
+▶ 子服务：三模式沿原授权、单次审批、完整证据与真实请求快照，复用身份不继承批准
+  ✔ auto-review (380.472792ms)
+  ✔ confirm (218.586792ms)
+  ✔ full_access (194.959291ms)
+✔ 子服务：三模式沿原授权、单次审批、完整证据与真实请求快照，复用身份不继承批准 (794.533916ms)
+✔ 子服务：未知效果与取消保留整项占用，双事实才释放，其他聊天继续 (131.954958ms)
+▶ 子服务：审批与审批前检查取消不写入，检查停止未核实仍占用
+  ✔ approval (79.844292ms)
+  ✔ inspection (135.542834ms)
+✔ 子服务：审批与审批前检查取消不写入，检查停止未核实仍占用 (215.64975ms)
+▶ 子服务：恢复拒绝错权限、工具、输入、工作及丢失接纳，不执行外部请求
+  ✔ permission (81.006291ms)
+  ✔ tool (78.974667ms)
+  ✔ inputs (91.650084ms)
+  ✔ work (79.201375ms)
+  ✔ admission (77.650375ms)
+✔ 子服务：恢复拒绝错权限、工具、输入、工作及丢失接纳，不执行外部请求 (408.964042ms)
+[ruukoto:personal] 持久执行出现错误，请查询状态并检查档案；未自动重启。
+✔ 子服务：接纳写失败零 helper，恢复原工具只登记一次 (109.577875ms)
+✔ 子服务：消费后真实强杀恢复原子工具和工作，不重发 restart (632.150625ms)
+✔ 子服务：真实 faulted 在线转未知，双事实不足不释放，原菜单可核实 (105.435625ms)
+✔ 子服务：前置核实与检查接纳间取消，零 helper (27.565334ms)
+✔ 子服务：消费前 faulted 明确报告未执行，读取证据保留失败状态 (21.562333ms)
+✖ 子服务：封组报告等原外部操作双事实，未知期间拒绝续派与追加 (621.288333ms)
+✔ 子服务权限：跨轮保持首次模式，原菜单授权/撤销且本机不能代决 (493.16225ms)
+✔ 子服务检查：追加本机来源保留全来源，Telegram 不能管理混合检查 (127.674459ms)
+ℹ tests 22
+ℹ suites 0
+ℹ pass 21
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3896.330125
+
+✖ failing tests:
+
+test at test/personal-service-operations.test.ts:766:1
+✖ 子服务：封组报告等原外部操作双事实，未知期间拒绝续派与追加 (621.288333ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+
+  + 'not_requested'
+  - 'waiting'
+
+      at TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/personal-service-operations.test.ts:781:10)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'not_requested',
+    expected: 'waiting',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

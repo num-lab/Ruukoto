@@ -1,0 +1,7 @@
+▶ 子服务：三模式沿原授权、单次审批、完整证据与真实请求快照，复用身份不继承批准
+  ✖ auto-review (14298.279458ms)
+  ✖ confirm (14191.307958ms)
+
+Interrupted while running:
+
+⚠ test/personal-service-operations.test.ts (test/personal-service-operations.test.ts:1:1)

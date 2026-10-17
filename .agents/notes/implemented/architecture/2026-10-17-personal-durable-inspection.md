@@ -24,6 +24,10 @@ Status: implemented
 
 按 durable、service、inspect、停止核实检索 proposed/implemented/rejected。迁移提案、只读检查、服务操作、helper 退出及检查身份协议部分重叠，分别保留产品要求、审批消费与 OS 证明；本篇取代只读检查中无身份自动重放的个人 durable 接线，其他边界保持。没有完全吸收或过时提案。早期笔记保留原决定并互链，不将其原语验收扩大为完整迁移通过。
 
+## 后续服务写入
+
+子会话不下放服务写工具的部分由[子服务工作](2026-10-17-personal-subagent-service-operations.md)取代：受控 restart 沿原 WorkTask 权限、取消和未知效果收尾；独立宿主操作与其他工具的原边界继续适用。
+
 ## 备选方案
 
 - 每次 replay 使用新随机 ID：调用实现最短，但无法证明旧检查退出，也不能阻止换 Task 绕过占用。

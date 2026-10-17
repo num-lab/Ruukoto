@@ -1,0 +1,13 @@
+▶ 子服务：审批与审批前检查取消不写入，检查停止未核实仍占用
+  ✔ approval (170.252792ms)
+  ✔ inspection (159.388791ms)
+  ✔ restart (140.167083ms)
+✔ 子服务：审批与审批前检查取消不写入，检查停止未核实仍占用 (470.231042ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1011.519084

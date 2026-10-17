@@ -1,0 +1,7 @@
+PASS: Python 标准库真实 PTY 驱动完整 runPersonalCli；stdin/stdout 均 isTTY。
+PASS: 主菜单进入服务审批与核实；原列表选择第一目标并显示固定机器；刷新、批准本次各按菜单选择；再选第二目标与固定机器并拒绝。
+PASS: 两次决定分别仅一条 POST；其余刷新均为 GET；批准后显示尚未得到执行结果，未宣称重启成功。
+PASS: 所有 12 条 Unix socket HTTP 请求均验证随机本机 Bearer token；证据无 token，临时 profile 结束时清除。
+PASS: 共 12 次纯数字菜单选择；终端不显示内部 taskId/requestId/UUID，未要求输入内部键。
+范围: 仅真实 PTY 与完整 CLI/HTTP 客户端；Unix socket HTTP 服务、待审批状态与响应均为本机替身，未调用真实后台、systemd/helper、模型或 Telegram，也未启停真实服务。
+复现: python3 drive.py <repo-root>；在空白目录复制 scenario.mjs 和 drive.py 后执行，要求 repo-root 已安装依赖。

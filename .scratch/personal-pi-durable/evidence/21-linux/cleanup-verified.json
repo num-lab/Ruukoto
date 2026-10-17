@@ -1,0 +1,109 @@
+{
+  "time": "2026-10-17T09:50:14.941644+00:00",
+  "run_dir": "/tmp/rk-linux-verify.CohhCfz7",
+  "deps_dir": "/dev/shm/rk-linux-deps.H6A9ny4b",
+  "remaining_roots": {
+    "run_dir": false,
+    "deps_dir": false
+  },
+  "started_step_pids_alive": [],
+  "own_path_matches_before": [],
+  "own_path_matches_after": [],
+  "new_zombies": [],
+  "unknown_same_uid_unreadable": [],
+  "existing_mainthread_esbuild_comparison": [
+    {
+      "before": {
+        "pid": 2163755,
+        "ppid": 1,
+        "comm": "MainThread"
+      },
+      "after": {
+        "pid": 2163755,
+        "ppid": 1,
+        "comm": "MainThread"
+      },
+      "unchanged": true
+    },
+    {
+      "before": {
+        "pid": 2163766,
+        "ppid": 2163755,
+        "comm": "MainThread"
+      },
+      "after": {
+        "pid": 2163766,
+        "ppid": 2163755,
+        "comm": "MainThread"
+      },
+      "unchanged": true
+    },
+    {
+      "before": {
+        "pid": 2178158,
+        "ppid": 1,
+        "comm": "MainThread"
+      },
+      "after": {
+        "pid": 2178158,
+        "ppid": 1,
+        "comm": "MainThread"
+      },
+      "unchanged": true
+    },
+    {
+      "before": {
+        "pid": 2178169,
+        "ppid": 2178158,
+        "comm": "MainThread"
+      },
+      "after": {
+        "pid": 2178169,
+        "ppid": 2178158,
+        "comm": "MainThread"
+      },
+      "unchanged": true
+    },
+    {
+      "before": {
+        "pid": 3963064,
+        "ppid": 1,
+        "comm": "MainThread"
+      },
+      "after": {
+        "pid": 3963064,
+        "ppid": 1,
+        "comm": "MainThread"
+      },
+      "unchanged": true
+    },
+    {
+      "before": {
+        "pid": 3963076,
+        "ppid": 3963064,
+        "comm": "MainThread"
+      },
+      "after": {
+        "pid": 3963076,
+        "ppid": 3963064,
+        "comm": "MainThread"
+      },
+      "unchanged": true
+    },
+    {
+      "before": {
+        "pid": 3963095,
+        "ppid": 3963076,
+        "comm": "esbuild"
+      },
+      "after": {
+        "pid": 3963095,
+        "ppid": 3963076,
+        "comm": "esbuild"
+      },
+      "unchanged": true
+    }
+  ],
+  "signals_sent": [],
+  "process_probe": "仅比较本次路径；不输出或保存 cmdline/environ 字节；排除本次探针祖先与已存在但不可读的进程"
+}

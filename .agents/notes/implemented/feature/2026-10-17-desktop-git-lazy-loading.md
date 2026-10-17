@@ -25,3 +25,4 @@ Git graph 已支持完整历史分页，但需要反复点击加载更多，打�
 ## 后续决定
 
 [执行阶段连续反馈与reasoning批次](../bug-fix/2026-10-17-desktop-execution-activity.md)取代本篇相关展示决定；工具详情、安全身份、错误与续页生命周期仍沿用本篇。
+- 渲染窗口化由[Git graph 行窗口化](2026-10-18-desktop-git-graph-windowing.md)持有；本篇的触发、暂停与去重规则继续适用。

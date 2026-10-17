@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
@@ -9,13 +9,16 @@ import { PersonalError } from "./personal-error.ts";
 import { PERSONAL_PENDING_FILE, lockPersonalProfile } from "./personal-profile.ts";
 import { personalDevDirectory, readPersonalConfig, savePersonalConfig } from "./personal-config.ts";
 import { parsePersonalInput, personalControl, startPersonalServer, type PersonalInput, type PersonalInputStatus, type PersonalMessage, type PersonalStatus } from "./personal-control.ts";
+import { parsePersonalTelegram, readPersonalTelegram, savePersonalTelegram, telegramToken } from "./personal-telegram-config.ts";
+import { personalTelegramApi, telegramOffset, telegramText } from "./personal-telegram-api.ts";
+import type { PersonalHarness } from "./personal-harness.ts";
 
 export type PersonalCliIO = { question(prompt: string): Promise<string>; write(text: string): void };
 
-export function personalChildEnv(directory: string, credential: string, source: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+export function personalChildEnv(directory: string, credential: string | readonly string[], source: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const env = { ...source };
   for (const key of Object.keys(env)) if (key.startsWith("RUUKOTO_")) delete env[key];
-  env[credential] = source[credential];
+  for (const name of typeof credential === "string" ? [credential] : credential) env[name] = source[name];
   env.RUUKOTO_PERSONAL_DIR = directory;
   return env;
 }
@@ -50,10 +53,13 @@ export async function checkPersonalInput(directory: string, input: PersonalInput
 export async function launchPersonalServer(directory: string): Promise<void> {
   const profile = lockPersonalProfile(directory);
   let log: number;
-  let credential: string;
+  let credential: string[];
   try {
-    credential = readPersonalConfig(profile).apiKeyEnv;
-    if (!process.env[credential]) throw new PersonalError("model_credentials_missing", "请先设置模型凭据环境变量，再启动隔离后台。");
+    const modelCredential = readPersonalConfig(profile).apiKeyEnv;
+    if (!process.env[modelCredential]) throw new PersonalError("model_credentials_missing", "请先设置模型凭据环境变量，再启动隔离后台。");
+    const telegram = readPersonalTelegram(profile);
+    if (telegram?.enabled) telegramToken(telegram);
+    credential = [modelCredential, ...(telegram?.enabled ? [telegram.tokenEnv] : [])];
     log = fs.openSync(path.join(directory, "backend.log"), "a", 0o600);
   } finally { profile.release(); }
   let failed = false;
@@ -101,6 +107,52 @@ async function configure(io: PersonalCliIO, directory: string) {
   } finally { profile.release(); }
 }
 
+export async function configurePersonalTelegram(io: PersonalCliIO, directory: string) {
+  const profile = lockPersonalProfile(directory);
+  try {
+    const action = await choose(io, "Telegram 文本入口", ["配对并启用专用测试 bot", "停用入口", "返回"]);
+    if (action === 2) return;
+    if (action === 1) {
+      const current = readPersonalTelegram(profile);
+      if (current) savePersonalTelegram(profile, { ...current, generation: randomUUID(), enabled: false });
+      io.write("Telegram 入口已停用；旧目标的待发回复不转发，已开始的未知发送保留。\n");
+      return;
+    }
+    io.write("先停止此 bot 的其他后台。本向导会确认专用测试 bot 的旧待收消息；边界及之前的委托不会执行，请在配对完成后重新发送。凭据使用环境变量，不粘贴 token。输入 /back 返回。\n");
+    const apiBase = (await io.question("Telegram API 地址（默认 https://api.telegram.org）：")).trim();
+    if (apiBase === "/back") return;
+    const tokenEnv = (await io.question("Bot 凭据环境变量名：")).trim();
+    if (tokenEnv === "/back") return;
+    const draft = parsePersonalTelegram({ version: 1, enabled: true, generation: randomUUID(), apiBase: apiBase || "https://api.telegram.org", tokenEnv, tokenDigest: "0".repeat(64), botId: "1", ownerId: "1", boundary: 0 });
+    const token = process.env[draft.tokenEnv];
+    if (!token || !/^[1-9][0-9]*:[\w-]+$/.test(token)) throw new PersonalError("telegram_credentials_changed", "Bot 凭据环境变量未设置或格式无效，请设置后重新配对。");
+    const api = personalTelegramApi(draft.apiBase, token);
+    const signal = AbortSignal.timeout(180_000);
+    const bot = await api.me(signal);
+    if (bot.id !== token.split(":")[0]) throw new PersonalError("telegram_identity_invalid", "Bot 身份与凭据不符，请检查服务地址和凭据。");
+    if (await choose(io, `接管 @${bot.username} 的专用测试入口并过滤旧积压`, ["返回", "确认接管并开始配对"]) === 0) return;
+    const previous = await api.updates(signal, -1, 0);
+    const ack = previous.length ? { offset: previous[previous.length - 1].update_id + 1, receivedAt: performance.now() } : undefined;
+    const phrase = `配对 ${randomBytes(12).toString("hex")}`;
+    const started = performance.now();
+    await io.question(`请向 @${bot.username} 私聊发送“${phrase}”，3 分钟内完成后按回车：`);
+    if (performance.now() - started >= 180_000) throw new PersonalError("telegram_pairing_expired", "配对已过期，请重新运行入口向导。");
+    const updates = await api.updates(signal, telegramOffset(ack), 0);
+    const receivedAt = performance.now();
+    const candidates = updates.map(telegramText).filter((message): message is NonNullable<typeof message> => message?.text === phrase);
+    if (!candidates.length) throw new PersonalError("telegram_pairing_missing", "尚未找到本轮私聊配对消息，请检查 bot 和发送方式后重新配对。");
+    const selected = await choose(io, "选择刚才发送配对消息的拥有者", [...candidates.map(message => `${message.name}（Telegram 账号 ${message.ownerId}）`), "返回"]);
+    if (selected === candidates.length) return;
+    const boundary = updates[updates.length - 1].update_id;
+    const offset = telegramOffset({ offset: boundary + 1, receivedAt });
+    if (offset === undefined) throw new PersonalError("telegram_pairing_expired", "身份选择已过期，请重新配对；未用旧水位接管。");
+    // 成功确认本批后才保存绑定；响应中的更新仍未确认，留给后台无 offset 重收。
+    await api.updates(signal, offset, 0);
+    savePersonalTelegram(profile, { ...draft, botId: bot.id, ownerId: candidates[selected].ownerId, boundary, tokenDigest: createHash("sha256").update(token).digest("hex") });
+    io.write("Telegram 已配对。请启动隔离后台，再通过该私聊发送新消息；完整回答保存在个人会话中。\n");
+  } finally { profile.release(); }
+}
+
 async function recoverInputs(io: PersonalCliIO, directory: string) {
   for (const input of pendingPersonalInputs(directory)) {
     io.write(`\n待核实消息：${input.input.slice(0, 160)}\n`);
@@ -116,10 +168,10 @@ async function recoverInputs(io: PersonalCliIO, directory: string) {
 }
 
 export async function personalMenu(directory: string, io: PersonalCliIO): Promise<void> {
-  io.write(`个人 durable 隔离实例\n档案：${directory}\n当前仅提供主会话验证；权限、IM 与业务工具尚未接入。\n`);
+  io.write(`个人 durable 隔离实例\n档案：${directory}\n提供主会话与可选 Telegram 文本入口；权限和业务工具继续实施。\n`);
   while (true) {
-    const selected = await choose(io, "个人实例", ["配置模型（后台须停止）", "启动隔离后台", "查看状态", "发送消息", "查看最近消息", "核实上次提交", "停止隔离后台", "退出向导（后台继续运行）"]);
-    if (selected === 7) return;
+    const selected = await choose(io, "个人实例", ["配置模型（后台须停止）", "启动隔离后台", "查看状态", "发送消息", "查看最近消息", "核实上次提交", "停止隔离后台", "配置 Telegram（后台须停止）", "查看 Telegram 收发", "退出向导（后台继续运行）"]);
+    if (selected === 9) return;
     try {
       if (selected === 0) await configure(io, directory);
       else if (selected === 1) { await launchPersonalServer(directory); io.write("隔离后台已启动。\n"); }
@@ -140,9 +192,15 @@ export async function personalMenu(directory: string, io: PersonalCliIO): Promis
         if (!messages.length) io.write("尚无消息。\n");
         for (const message of messages) io.write(`\n${message.role === "user" ? "拥有者" : "助手"}${message.partial ? "（中断片段）" : ""}：${message.text}${message.truncated ? "\n（显示已截断，完整内容保留在 durable 历史中）" : ""}\n`);
       } else if (selected === 5) { if (await recoverInputs(io, directory)) io.write("没有尚待核实的提交。\n"); }
-      else {
+      else if (selected === 6) {
         const action = await choose(io, "停止后台会暂停处理，未完成输入保留供下次恢复", ["返回", "停止隔离后台"]);
         if (action === 1) { await personalControl(directory, "POST", "/stop"); io.write("已请求停止，请等待后台释放档案；连接断开本身不证明已停止。\n"); }
+      } else if (selected === 7) await configurePersonalTelegram(io, directory);
+      else {
+        const state = await personalControl<Awaited<ReturnType<PersonalHarness["telegram"]["status"]>>>(directory, "GET", "/telegram");
+        const labels = { waiting: "等待回答", pending: "等待发送", sending: "发送中，尚未核实", sent: "已发送", failed: "平台明确拒绝", effect_unknown: "发送效果未知，不自动重发", canceled: "已取消发送", unanswered: "未获得完整回答" };
+        io.write(`Telegram ${!state.enabled ? "未启用" : state.online ? "接收在线" : state.receiving ? "等待连接恢复" : "接收已停止，请检查后台日志"}；已忽略非绑定私聊文本：${state.rejected} 条。最近最多 16 条收发：\n`);
+        for (const item of state.recent) io.write(`${labels[item.delivery]}：${item.input}\n`);
       }
     } catch (error) {
       io.write(error instanceof PersonalError ? `${error.message}（${error.code}）\n` : "操作未能核实，请保留档案并检查磁盘与后台日志；未自动重试。\n");

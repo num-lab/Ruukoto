@@ -1,0 +1,49 @@
+{
+  "platform": "Linux",
+  "node": "24.21.0",
+  "npm": "11.19.0",
+  "runModelCheck": "0",
+  "setup": {
+    "command": "npm run setup -- --skip-hooks",
+    "exitCode": 0,
+    "durationSeconds": 69.236
+  },
+  "personal": {
+    "passed": 147,
+    "tests": 147,
+    "skipped": 0,
+    "exitCode": 0,
+    "durationSeconds": 21.29
+  },
+  "build": {
+    "exitCode": 0,
+    "durationSeconds": 1.719
+  },
+  "sourceFiles": 1346,
+  "sourceChangedDuringRun": [],
+  "manifestSha256": "9c66dbdc73308eb53984df353d46dfc6e0d688ce573cffb0eedb676d6bb0c713",
+  "rawEvidenceSha256": "f117e565710db9d909e3a8bd4bb1c7eb7502365650229dd4a6e8bc5b0b523cc6",
+  "finalBatchFixVerifiedOn": "macOS, new 26 Telegram checks; independent review",
+  "realIM": false,
+  "realModel": false,
+  "deployed": false,
+  "remoteRemoved": true,
+  "processesAfter": 0,
+  "socketsAfter": 0,
+  "runtimeAndTestChangesAfterLinuxSnapshot": {
+    "apps/ruukoto/src/personal-telegram-api.ts": "Later fixed getUpdates batch from 100 to 16 to fit the bounded response, added explanatory comment. No persistent format or OS lifecycle change. Existing response reader/parser was also extracted unchanged so the catch wraps one call.",
+    "test/personal-telegram.test.ts": "Later fake Bot obeys request limit and existing polling test crosses a 17-message batch boundary.",
+    "apps/ruukoto/src/personal-telegram-config.ts": "Behavior-preserving extraction of the existing write/rename statements so the typed catch wraps one call; no protocol or persistence change."
+  },
+  "changedSinceLinuxSnapshot": [
+    ".agents/notes/implemented/architecture/2026-10-17-personal-telegram-entry.md",
+    ".scratch/personal-pi-durable/issues/01-migration-plan.md",
+    ".scratch/personal-pi-durable/issues/07-telegram-entry.md",
+    "CLAUDE.md",
+    "apps/ruukoto/src/personal-telegram-api.ts",
+    "apps/ruukoto/src/personal-telegram-config.ts",
+    "docs/modules/personal-durable.md",
+    "test/personal-telegram.test.ts"
+  ],
+  "scopeNote": "Later runtime/test changes comprise the fixed batch request and equivalent read/replace helper extraction; final macOS checks cover them. Other changed paths are documentation or evidence."
+}

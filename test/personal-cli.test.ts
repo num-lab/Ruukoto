@@ -267,7 +267,7 @@ test("personal CLI：socket 已断开仍被后台持锁时，配置和第二实�
 
 test("personal CLI：向导逐步配置、返回与退出，不要求用户提供内部键", async t => {
   const dir = directory(t);
-  const answers = ["0", "1", "1", "https://model.example/v1", "chosen-model", "MODEL_TEST_KEY", "", "", "8"];
+  const answers = ["0", "1", "1", "https://model.example/v1", "chosen-model", "MODEL_TEST_KEY", "", "", "10"];
   let output = "";
   await personalMenu(dir, { question: async () => { assert.ok(answers.length); return answers.shift()!; }, write: value => { output += value; } });
   assert.match(output, /请输入列出的选项/);

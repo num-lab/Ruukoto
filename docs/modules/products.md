@@ -8,6 +8,8 @@
 
 ## 对外接口
 
+个人隔离入口可配置资料目录、具名 HTTP 凭据和 Tavily 搜索，通过主/子原生工具读取与写入文件、请求网络和分页读取产物；运行中本机向导管理资料授权、审批、核实和完整导出，Telegram `/工具` 管理原入口调用。机制见 [personal-durable](personal-durable.md)。
+
 各 bin 固定 `RUUKOTO_PRODUCT` 后注册 tsx，再进入本 app 的 `main.ts`。共享 CLI 接收 `CliProduct`，共享 `Runtime.start` 要求 `RuntimeConfig.product`，不按产品名选择装配。调用程序化入口时，显式传入所属 app 的 `product.runtime`。
 
 | 声明 | ruukoto | ruukoto-code |

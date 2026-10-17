@@ -1,3 +1,6 @@
+import { PERSONAL_TOOLS, PERSONAL_TOOL_NAMES, PersonalToolsDoc, PersonalToolDoc, personalTools, configureTools, verifyTools } from "./personal-tools.ts";
+import type { PersonalToolsConfig } from "./personal-tools-config.ts";
+import { personalToolControl, verifyToolControls } from "./personal-tools-controls.ts";
 import * as path from "node:path";
 import { closeSync, existsSync, openSync, mkdirSync } from "node:fs";
 import { isDeepStrictEqual } from "node:util";
@@ -48,6 +51,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
   telegram?: PersonalTelegramConfig;
   commands?: PersonalCommandConfig;
   mcp?: PersonalMcpConfig;
+  tools?: PersonalToolsConfig;
   mcpTimeouts?: McpTimeouts;
 }) {
   const lock = options.profile ?? lockPersonalProfile(options.directory);
@@ -63,10 +67,11 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     const serviceWork = operations && personalServiceWork(operations.request);
     const commands = options.commands && personalCommandWork(lock.directory, options.commands);
     const mcp = options.mcp && personalMcp(options.mcp, () => harness!, options.mcpTimeouts);
+    const general = options.tools && personalTools(lock.directory, options.tools, options.provider, options.modelId, () => harness!);
     const telegramConfig = options.telegram && parsePersonalTelegram(options.telegram);
     const inspectionControls = personalInspectionControls(service?.config, () => harness!);
     const serviceControls = personalServiceControls(() => harness!, () => operations?.api(harness!));
-    const telegram = personalTelegram(telegramConfig, telegramConfig?.enabled ? personalTelegramApi(telegramConfig.apiBase, telegramToken(telegramConfig)) : undefined, async (tx, value) => await personalMcpControl(tx, value, mcp?.requestRecheck) || await serviceControls.control(tx, value) || await telegramInspectionControl(tx, value, inspectionControls.request) || !!await operations?.control(tx, value));
+    const telegram = personalTelegram(telegramConfig, telegramConfig?.enabled ? personalTelegramApi(telegramConfig.apiBase, telegramToken(telegramConfig)) : undefined, async (tx, value) => await personalToolControl(tx, value, general ? lock.directory : undefined) || await personalMcpControl(tx, value, mcp?.requestRecheck) || await serviceControls.control(tx, value) || await telegramInspectionControl(tx, value, inspectionControls.request) || !!await operations?.control(tx, value));
     const registry = createRegistry();
     const workTools = personalWorkTools(() => harness!);
     const personal = defineExtension({ name: "personal", sections: [section("personal", () => PERSONAL_PROMPT + (services ? "主会话与子 Agent 均可检查宿主白名单内的服务状态，不代表业务健康。" + (serviceWork ? "子 Agent 可用 service_restart 完成原工作要求的受控服务重启；审批与未知效果由宿主处理。" : "") : "") + (commands ? "子 Agent 可用 run_command 以已配置目录执行命令，沿原工作权限；完全访问使用后台账户环境且免逐次审批，未知效果仍须在本机命令管理核实。" : ""), { tag: false })] });
@@ -87,6 +92,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     if (serviceWork) registry.install(serviceWork);
     if (commands) registry.install(commands.extension);
     if (mcp) registry.install(mcp.extension);
+    if (general) registry.install(general.extension);
     const record = async (evidence: RequestEvidence) => {
       if (!harness) throw new PersonalError("model_source_missing", "模型请求缺少已打开的个人会话，已停止请求。");
       let target: ConversationId | undefined;
@@ -150,6 +156,22 @@ export async function openPersonalHarness(options: ({ directory: string; profile
       }
       mcpCursor = page.next;
     } while (mcpCursor);
+    const toolsRecord = await storage.findDocument({ kind: PersonalToolsDoc.definition.kind, scope: { kind: "session" } }, "current", context);
+    const loadedTools = toolsRecord && await storage.document(toolsRecord.id, "current", context);
+    if (loadedTools && (loadedTools.version !== 1 || !Array.isArray(loadedTools.value.operations) || !Array.isArray(loadedTools.value.grants))) throw new PersonalError("tool_record_invalid", "工具索引版本或记录不符，已停止恢复。");
+    const savedTools = loadedTools?.value.config ? loadedTools : undefined;
+    if (savedTools && !general) throw new PersonalError("tools_config_missing", "档案的原通用工具配置缺失，已停止恢复；请恢复原配置。");
+    const toolKeys: string[] = [];
+    let toolCursor: Cursor | undefined;
+    do {
+      const page = await storage.scanDocuments({ kind: PersonalToolDoc.definition.kind, scope: { kind: "session" }, at: "current" }, 256, toolCursor, context);
+      for (const record of page.items) {
+        const saved = await storage.document(record.id, "current", context);
+        if (!savedTools || !saved || saved.version !== 1 || record.key === undefined) throw new PersonalError("tool_record_invalid", "原工具调用缺少配置或版本不符，已停止恢复。");
+        if (saved.value.operation) toolKeys.push(record.key);
+      }
+      toolCursor = page.next;
+    } while (toolCursor);
     const serviceRecord = await storage.findDocument({ kind: PersonalServiceDoc.definition.kind, scope: { kind: "session" } }, "current", context);
     const savedService = serviceRecord && await storage.document(serviceRecord.id, "current", context);
     if (savedService && (!service || savedService.version !== PersonalServiceDoc.definition.version || savedService.value.fingerprint !== service.fingerprint)) {
@@ -223,6 +245,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
         if (extensions.includes("personal-service-inspect")) serviceConversation = true;
         if (conversation.id === ROOT_CONVERSATION_ID && operationConfig && !extensions.includes("personal-service-operations")) throw new PersonalError("service_operations_config", "主会话缺少已登记的服务操作扩展，已停止恢复；请保留档案。");
         if (conversation.id === ROOT_CONVERSATION_ID && savedCommands && !extensions.includes(PERSONAL_COMMAND_WORK)) throw new PersonalError("command_config_changed", "主会话缺少原命令扩展，已停止恢复。");
+        if (extensions.includes(PERSONAL_TOOLS) && !savedTools) throw new PersonalError("tool_record_invalid", "会话缺少原工具配置，已停止恢复。");
         if (extensions.includes(PERSONAL_MCP) && !savedMcp) throw new PersonalError("mcp_config_changed", "会话缺少原 MCP 配置记录，已停止恢复。");
         if (extensions.includes(PERSONAL_COMMAND_WORK) && !savedCommands) throw new PersonalError("command_config_changed", "会话缺少原命令配置记录，已停止恢复。");
         if (extensions.includes("personal-service-operations") && !operationConfig) throw new PersonalError("service_operations_config", "会话依赖的服务操作配置记录缺失，已停止恢复；请保留档案。");
@@ -270,10 +293,12 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     const reportsEnabled = Array.isArray(savedMain?.extensions) && savedMain.extensions.includes(personalDelegationReports.name);
     const childServicesEnabled = Array.isArray(savedMain?.extensions) && savedMain.extensions.includes(personalSubAgentServices.name);
     const childWritesEnabled = Array.isArray(savedMain?.extensions) && savedMain.extensions.includes(PERSONAL_SERVICE_WORK);
+    const toolsEnabled = Array.isArray(savedMain?.extensions) && savedMain.extensions.includes(PERSONAL_TOOLS);
     const mcpEnabled = Array.isArray(savedMain?.extensions) && savedMain.extensions.includes(PERSONAL_MCP);
     const childCommandsEnabled = Array.isArray(savedMain?.extensions) && savedMain.extensions.includes(PERSONAL_COMMAND_WORK);
     const serviceControlsEnabled = Array.isArray(savedMain?.extensions) && savedMain.extensions.includes(serviceControls.extension.name);
     const inspectionControlsEnabled = Array.isArray(savedMain?.extensions) && savedMain.extensions.includes(inspectionControls.extension.name);
+    if (savedMain && general && !toolsEnabled && (inspection.tasks.length || inspection.submissions.length)) throw new PersonalError("tools_config_pending", "仍有未完成输入或工作，请先用原配置完成处理，再启用通用工具。");
     if (savedMain && !modelWorkEnabled && (inspection.tasks.length || inspection.submissions.length)) throw new PersonalError("work_tools_pending", "档案仍有未完成输入或工作，请先用原版本完成处理，再启用模型委派。");
     if (savedMain && !delegationsEnabled && (inspection.tasks.length || inspection.submissions.length)) throw new PersonalError("delegation_config_pending", "档案仍有未完成输入或分析，请先用原版本完成处理，再启用整项委托。");
     if (savedMain && !reportsEnabled && (inspection.tasks.length || inspection.submissions.length)) throw new PersonalError("report_config_pending", "档案仍有未完成输入或分析，请先用原版本完成处理，再启用委托汇报。");
@@ -332,8 +357,8 @@ export async function openPersonalHarness(options: ({ directory: string; profile
       for (const agent of index.agents) {
         if (!await tx.conversation(agent.id)) throw new PersonalError("work_agent_missing", "长期子会话缺失，已停止恢复；请保留档案。");
         const config = await tx.doc(AgentDoc, agent.id);
-        const expectedTools = [...(childServicesEnabled ? ["service_inspect", "read_service_inspection"] : []), ...(childWritesEnabled ? ["service_restart", "read_service_operation"] : []), ...(childCommandsEnabled ? ["run_command", "read_command_output"] : []), ...(mcpEnabled ? PERSONAL_MCP_TOOLS : [])];
-        const expectedExtensions = [personalSubAgent.name, personalBackgroundWork.name, ...(childServicesEnabled ? ["personal-service-inspect", personalSubAgentServices.name] : []), ...(childWritesEnabled ? [PERSONAL_SERVICE_WORK] : []), ...(childCommandsEnabled ? [PERSONAL_COMMAND_WORK] : []), ...(mcpEnabled ? [PERSONAL_MCP] : [])];
+        const expectedTools = [...(childServicesEnabled ? ["service_inspect", "read_service_inspection"] : []), ...(childWritesEnabled ? ["service_restart", "read_service_operation"] : []), ...(childCommandsEnabled ? ["run_command", "read_command_output"] : []), ...(mcpEnabled ? PERSONAL_MCP_TOOLS : []), ...(toolsEnabled ? PERSONAL_TOOL_NAMES : [])];
+        const expectedExtensions = [personalSubAgent.name, personalBackgroundWork.name, ...(childServicesEnabled ? ["personal-service-inspect", personalSubAgentServices.name] : []), ...(childWritesEnabled ? [PERSONAL_SERVICE_WORK] : []), ...(childCommandsEnabled ? [PERSONAL_COMMAND_WORK] : []), ...(mcpEnabled ? [PERSONAL_MCP] : []), ...(toolsEnabled ? [PERSONAL_TOOLS] : [])];
         if (!isDeepStrictEqual(config.tools, expectedTools) || !Array.isArray(config.extensions) || !isDeepStrictEqual([...config.extensions].sort(), expectedExtensions.sort())) throw new PersonalError("work_config_changed", "子 Agent 的固定工具配置无法核实，已停止恢复；请检查档案。");
         if (!agent.work) continue;
         const work = await tx.doc(PersonalWorkDoc, agent.work.requestId, null);
@@ -341,15 +366,18 @@ export async function openPersonalHarness(options: ({ directory: string; profile
         if (!work.ref || work.ref.taskId !== agent.work.taskId || work.ref.agentId !== agent.id || !task || task.state.status === "terminal") throw new PersonalError("work_ownership", "子 Agent 的工作占用无法核实，已停止恢复；请检查原工作和档案。");
       }
     }, context);
+    await harness.commit(tx => verifyTools(tx, toolKeys, lock.directory, general?.extension.tools), context);
+    await harness.commit(tx => verifyToolControls(tx, telegramKeys, toolsEnabled), context);
     await harness.commit(tx => verifyPersonalDelegations(tx, delegationKeys, workKeys, delegationsEnabled), context);
     await harness.commit(tx => verifyPersonalReports(tx, delegationKeys, reportsEnabled), context);
     await harness.commit(async tx => { for (const key of telegramKeys) await verifyDelegationMenu(tx, (await tx.doc(PersonalTelegramReceiptDoc, key, null)).receipt!, delegationsEnabled); }, context);
     await harness.commit(tx => tx.doc(PersonalFormatDoc), context);
-    const extensions = [personal, personalPermissions, personalBackgroundWork, workTools, personalWorkControls, personalWorkNotes, personalAnalysisDelegations, personalDelegationReports, telegram.extension, inspectionControls.extension, serviceControls.extension, ...(services ? [services, personalInspectionExtension, personalSubAgentServices] : []), ...(operations ? [operations.extension] : []), ...(serviceWork ? [serviceWork] : []), ...(commands ? [commands.extension] : []), ...(mcp ? [mcp.extension] : [])];
-    const tools = [...(services?.tools ?? []), ...workTools.tools!, ...(mcp?.extension.tools ?? [])];
+    const extensions = [personal, personalPermissions, personalBackgroundWork, workTools, personalWorkControls, personalWorkNotes, personalAnalysisDelegations, personalDelegationReports, telegram.extension, inspectionControls.extension, serviceControls.extension, ...(services ? [services, personalInspectionExtension, personalSubAgentServices] : []), ...(operations ? [operations.extension] : []), ...(serviceWork ? [serviceWork] : []), ...(commands ? [commands.extension] : []), ...(mcp ? [mcp.extension] : []), ...(general ? [general.extension] : [])];
+    const tools = [...(services?.tools ?? []), ...workTools.tools!, ...(mcp?.extension.tools ?? []), ...(general?.extension.tools ?? [])];
     if (service) await harness.commit(async tx => { (await tx.doc(PersonalServiceDoc)).fingerprint = service.fingerprint; }, context);
     const main = await harness.root(context, { agent: { model: { provider: options.provider.id, modelId: options.modelId }, thinkingLevel: "off", extensions, tools }, init: async tx => { await tx.doc(PersonalAgentsDoc); await tx.doc(PersonalPermissionsDoc); if (operations) { await tx.doc(PersonalServiceOperationsDoc); await tx.doc(PersonalServiceGrantsDoc); } } });
     if (mcp) await harness.commit(tx => configureMcp(tx, mcp.config), context);
+    if (general) await harness.commit(tx => configureTools(tx, general.config), context);
     const agent = await main.agent(context);
     if (!savedIndex && (inspection.tasks.length || inspection.submissions.length)) throw new PersonalError("work_config_pending", "个人档案仍有未完成输入，请先用原版本完成处理后再启用后台工作。");
     await harness.commit(async tx => {
@@ -357,7 +385,12 @@ export async function openPersonalHarness(options: ({ directory: string; profile
       await tx.doc(PersonalPermissionsDoc);
       if (operations) await tx.doc(PersonalServiceOperationsDoc);
       if (extensions.some(expected => !agent.extensions.some(extension => extension.name === expected.name))) await configure(tx, main.id, { extensions, tools });
-      if (services && (!childServicesEnabled || (serviceWork && !childWritesEnabled))) for (const child of (await tx.doc(PersonalAgentsDoc)).agents) await configure(tx, child.id, { extensions: [personalSubAgent, personalBackgroundWork, services, personalSubAgentServices, ...(serviceWork ? [serviceWork] : []), ...(commands && childCommandsEnabled ? [commands.extension] : []), ...(mcp && mcpEnabled ? [mcp.extension] : [])], tools: [...services.tools!, ...(serviceWork?.tools ?? []), ...(commands && childCommandsEnabled ? commands.extension.tools! : []), ...(mcp && mcpEnabled ? mcp.extension.tools! : [])] });
+      if (services && (!childServicesEnabled || (serviceWork && !childWritesEnabled))) for (const child of (await tx.doc(PersonalAgentsDoc)).agents) await configure(tx, child.id, { extensions: [personalSubAgent, personalBackgroundWork, services, personalSubAgentServices, ...(serviceWork ? [serviceWork] : []), ...(commands && childCommandsEnabled ? [commands.extension] : []), ...(mcp && mcpEnabled ? [mcp.extension] : []), ...(general && toolsEnabled ? [general.extension] : [])], tools: [...services.tools!, ...(serviceWork?.tools ?? []), ...(commands && childCommandsEnabled ? commands.extension.tools! : []), ...(mcp && mcpEnabled ? mcp.extension.tools! : []), ...(general && toolsEnabled ? general.extension.tools! : [])] });
+      if (general && !toolsEnabled) for (const child of (await tx.doc(PersonalAgentsDoc)).agents) {
+        const config = await tx.doc(AgentDoc, child.id);
+        if (!Array.isArray(config.extensions) || !Array.isArray(config.tools)) throw new PersonalError("work_config_changed", "子会话工具配置无法核实，请保留档案。");
+        config.extensions.push(PERSONAL_TOOLS); config.tools.push(...PERSONAL_TOOL_NAMES);
+      }
       if (mcp && !mcpEnabled) for (const child of (await tx.doc(PersonalAgentsDoc)).agents) {
         const config = await tx.doc(AgentDoc, child.id);
         if (!Array.isArray(config.extensions) || !Array.isArray(config.tools)) throw new PersonalError("work_config_changed", "子会话的工具配置无法核实，请保留档案。");
@@ -371,6 +404,11 @@ export async function openPersonalHarness(options: ({ directory: string; profile
           config.extensions.push(commands.extension.name);
           config.tools.push("run_command", "read_command_output");
         }
+      }
+      for (const child of (await tx.doc(PersonalAgentsDoc)).agents) {
+        const config = await tx.doc(AgentDoc, child.id);
+        config.extensions = [personalSubAgent.name, personalBackgroundWork.name, ...(services ? ["personal-service-inspect", personalSubAgentServices.name] : []), ...(serviceWork ? [PERSONAL_SERVICE_WORK] : []), ...(commands ? [PERSONAL_COMMAND_WORK] : []), ...(mcp ? [PERSONAL_MCP] : []), ...(general ? [PERSONAL_TOOLS] : [])];
+        config.tools = [...(services ? ["service_inspect", "read_service_inspection"] : []), ...(serviceWork ? ["service_restart", "read_service_operation"] : []), ...(commands ? ["run_command", "read_command_output"] : []), ...(mcp ? PERSONAL_MCP_TOOLS : []), ...(general ? PERSONAL_TOOL_NAMES : [])];
       }
     }, context);
     if (agent.model?.provider !== options.provider.id || agent.model.modelId !== options.modelId) {
@@ -393,10 +431,12 @@ export async function openPersonalHarness(options: ({ directory: string; profile
       await instance.commit(tx => verifyPersonalCommands(tx, commandKeys, commands.config, commands.workerPath), context);
     }
     if (service) for (const taskId of (await instance.snapshot(PersonalPendingInspectionsDoc, context))?.tasks ?? []) await recheckServiceInspection(instance, service.config, taskId);
+    if (general) await general.recover();
     instance.resume();
     return {
       harness: instance,
       main,
+      tools: general,
       work: personalWork(instance, { provider: options.provider.id, modelId: options.modelId }),
       service: operations?.api(instance),
       mcp: mcp && {

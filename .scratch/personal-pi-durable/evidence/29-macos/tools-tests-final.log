@@ -1,0 +1,31 @@
+✔ durable 通用工具：主子会话沿目录权限读写，二进制产物分页与请求输入可重建 (11292.743333ms)
+✔ durable 自动审查：approve 使用无工具独立请求，落盘输入与实际payload一致 (4925.730542ms)
+✔ durable 自动审查：reject 使用无工具独立请求，落盘输入与实际payload一致 (3612.557459ms)
+✔ durable 自动审查：invalid 使用无工具独立请求，落盘输入与实际payload一致 (4366.050375ms)
+✔ durable 自动审查：failure 使用无工具独立请求，落盘输入与实际payload一致 (5649.983875ms)
+✔ durable 自动审查：length 使用无工具独立请求，落盘输入与实际payload一致 (4800.275625ms)
+✔ durable 自动审查：error 使用无工具独立请求，落盘输入与实际payload一致 (8789.161958ms)
+✖ durable 确认与资料授权：逐次批准消费一次，撤销后读取重新等待且旧批准失效 (21525.007458ms)
+✔ durable 产物：子会话不能读主会话产物，原字节损坏时恢复明确拒绝 (5571.422125ms)
+✔ durable HTTP：响应后观察提交前强杀，恢复不重发并暂停同来源新工作 (2278.068833ms)
+✔ durable 模型快照：主子三模式保留实际工具定义与启用前后估算 (65.757667ms)
+ℹ {"estimatedTokens":{"before":{"main":{"systemPrompt":51,"toolSchemas":521},"child":{"systemPrompt":38,"toolSchemas":1}},"after":{"auto-review":{"main":{"systemPrompt":51,"toolSchemas":1391},"child":{"systemPrompt":38,"toolSchemas":870}},"confirm":{"main":{"systemPrompt":51,"toolSchemas":1391},"child":{"systemPrompt":38,"toolSchemas":870}},"full_access":{"main":{"systemPrompt":51,"toolSchemas":1391},"child":{"systemPrompt":38,"toolSchemas":870}}}}}
+✔ durable HTTP：未知写入同时挡住同源 MCP 和新来源同端点调用 (1036.474917ms)
+✔ durable 工具恢复：SDK转换后的数字文本写入与原始调用可跨重启核实 (5476.164375ms)
+✔ durable 搜索：SDK失败意图计入5次额度，普通视图有界且原JSON可核实 (1585.214458ms)
+✔ durable 审查证据：missing 损坏启动拒绝且不增加模型请求 (11694.226708ms)
+✔ durable 审查证据：payload 损坏启动拒绝且不增加模型请求 (12792.099167ms)
+ℹ tests 16
+ℹ suites 0
+ℹ pass 15
+ℹ fail 0
+ℹ cancelled 1
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 106366.09075
+
+✖ failing tests:
+
+test at test/personal-tools.test.ts:134:1
+✖ durable 确认与资料授权：逐次批准消费一次，撤销后读取重新等待且旧批准失效 (21525.007458ms)
+  'test timed out after 20000ms'

@@ -1,0 +1,20 @@
+✖ durable 工具恢复：SDK转换后的数字文本写入与原始调用可跨重启核实 (2859.621166ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3690.663916
+
+✖ failing tests:
+
+test at test/personal-tools.test.ts:252:1
+✖ durable 工具恢复：SDK转换后的数字文本写入与原始调用可跨重启核实 (2859.621166ms)
+  Error [PersonalError]: 工具的来源、审批或原证据不符，已停止恢复；请保留档案。
+      at invalid (/private/tmp/ruukoto-29-search/apps/ruukoto/src/personal-tools.ts:312:25)
+      at verifyTools (/private/tmp/ruukoto-29-search/apps/ruukoto/src/personal-tools.ts:327:728)
+      at async HarnessImpl.#runCommit (/private/tmp/ruukoto-29-search/node_modules/@earendil-works/pi-durable/src/session/session.ts:700:13) {
+    code: 'tool_record_invalid'
+  }

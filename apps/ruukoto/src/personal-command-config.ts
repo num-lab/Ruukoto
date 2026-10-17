@@ -18,7 +18,7 @@ export function parsePersonalCommands(value: unknown): PersonalCommandConfig {
   return { version: 1, workspace: value.workspace, identity: { dev: Number(value.identity.dev), ino: Number(value.identity.ino) }, machineId: value.machineId, tmpdir: value.tmpdir };
 }
 
-function protectedRoots(profileDirectory: string) {
+export function personalProtectedRoots(profileDirectory: string) {
   return [fs.realpathSync(profileDirectory), fs.realpathSync(fileURLToPath(new URL("../../../", import.meta.url))), ...[".ruukoto", ".ruukoto-code", ".ruukoto-dev", ".ruukoto-code-dev", ".ruukoto-durable", ".ruukoto-durable-dev", ".ssh", ".aws", ".config", ".pi"].map(name => path.join(homedir(), name))];
 }
 
@@ -28,7 +28,7 @@ export function verifyPersonalCommandConfig(config: PersonalCommandConfig, profi
     const saved = parsePersonalCommands(config);
     const workspace = fs.lstatSync(saved.workspace);
     if (!workspace.isDirectory() || workspace.isSymbolicLink() || fs.realpathSync(saved.workspace) !== saved.workspace || workspace.dev !== saved.identity.dev || workspace.ino !== saved.identity.ino || fs.readFileSync("/etc/machine-id", "utf8").trim() !== saved.machineId || fs.realpathSync(tmpdir()) !== saved.tmpdir) throw new PersonalError("command_config_changed", "命令的原目录、机器或临时目录无法核实，已停止；请恢复原环境并保留档案。");
-    assertGrantNotProtected(saved.workspace, protectedRoots(profileDirectory));
+    assertGrantNotProtected(saved.workspace, personalProtectedRoots(profileDirectory));
   } catch (error) {
     if (error instanceof PersonalError) throw error;
     throw new PersonalError("command_config_invalid", "命令目录不可用或包含受保护资料，已停止；请保留档案并检查原目录与配置。", { cause: error });
@@ -40,7 +40,7 @@ export function personalCommandEnvironment(profileDirectory: string, config: Per
   const directory = path.join(fs.realpathSync(profileDirectory), "commands");
   const stat = fs.lstatSync(directory, { throwIfNoEntry: false });
   if (stat && (!stat.isDirectory() || stat.isSymbolicLink() || stat.uid !== process.getuid?.() || (stat.mode & 0o077))) throw new PersonalError("command_config_invalid", "命令证据目录无法核实，请保留档案并恢复原私有目录。");
-  return { directory, native: { workerPath: fileURLToPath(new URL("../../../worker/personal-command-worker.mjs", import.meta.url)), dependencyRoots: [], protectedRoots: protectedRoots(profileDirectory) } };
+  return { directory, native: { workerPath: fileURLToPath(new URL("../../../worker/personal-command-worker.mjs", import.meta.url)), dependencyRoots: [], protectedRoots: personalProtectedRoots(profileDirectory) } };
 }
 
 export function readPersonalCommands(profile: PersonalProfileLock): PersonalCommandConfig | undefined {

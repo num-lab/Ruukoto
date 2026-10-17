@@ -27,8 +27,13 @@ export interface ServiceState {
   activeEnterTimestamp: string;
 }
 
+export type ServiceInspectionId = `inspect_${string}`;
+type InspectionReply = { v: 1; ok: true; machineId: string; policyRevision: string; unitRevision: string; unit: string; state: ServiceState; execIdentity?: { uid: number; gid: number }; observedAt: string };
+
 export type HelperReply =
-  | { v: 1; verb: "inspect"; ok: true; machineId: string; policyRevision: string; unitRevision: string; unit: string; state: ServiceState; execIdentity?: { uid: number; gid: number }; observedAt: string }
+  | ({ verb: "inspect" } & InspectionReply)
+  | ({ verb: "inspect-op"; inspectionId: ServiceInspectionId } & InspectionReply)
+  | { v: 1; verb: "stop-inspect"; ok: true; machineId: string; inspectionId: ServiceInspectionId; exited: boolean; detail?: string }
   | { v: 1; verb: "restart"; ok: true; machineId: string; hostOpId: string; opUnit: string; launched: true; execIdentity?: string; exitCode: number; observedAt: string }
   | { v: 1; verb: "stop-op"; ok: true; machineId: string; hostOpId: string; opUnit: string; launcherExited?: boolean; exited: boolean; detail?: string }
   | { v: 1; verb: string; ok: false; launched?: boolean; reasonCode?: string; error?: string };

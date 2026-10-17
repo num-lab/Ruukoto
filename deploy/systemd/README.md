@@ -100,4 +100,6 @@ sudo systemctl restart ruukoto-backend
 
 `inspect` 的 `systemctl show` 降到策略的非 root 检查身份，部署时填写实际启动账户 UID/GID。`restart` 在 root 的短命命令单元中执行固定 `systemctl restart`；`stop-op` 只停止该操作派生的命令单元。协议、修订与效果未知处理见 [deploy 模块](../../docs/modules/deploy.md)。命令退出码与随后服务状态分述，退出码 0 不证明业务健康，取消也不撤销已经提交给 PID 1 的重启作业。
 
+`inspect-op` / `stop-inspect` 提供固定检查的持久身份协议，现有产品工具尚未启用。它要求调用侧预存机器与检查归属，并为检查创建独立进程组；允许 sudo 监护与 helper 同组。升级 helper 不会自动启用该能力，也不扩大 sudoers 的固定路径授权。
+
 演练清理只针对演练创建的服务、启动程序、状态目录、策略项与 helper drop-in；生产资源由拥有者核实后处理。历史平台证据见 [发布验收](../../docs/release-acceptance.md#历史验证清单)。

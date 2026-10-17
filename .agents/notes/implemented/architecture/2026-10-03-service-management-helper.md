@@ -50,7 +50,7 @@ sudo 默认关闭 fd3 导致原协议通道失效，真实冒烟暴露后改为 
 
 服务器管理有真实、可核查的 root 能力，同时保留明确目标、修订绑定、单次认领与效果未知不重放。代价是部署必须维护 root-owned helper/策略/sudoers 和可信 unit，SQLite 与 systemd 不能整体原子，取消不保证撤回已提交作业。日志、其他动作和远程主机当前不支持；有实际需求时按固定协议扩展，不引入通用执行框架。[部署与服务管理](../../../../docs/modules/deploy.md)记录当前操作范围。
 
-[个人 durable 服务检查](2026-10-17-personal-service-inspect.md)复用 app 内共享传输，只提供 inspect 及证据读取；本篇写入授权与效果未知约束继续适用，不能从只读检查推得 restart 已接入。
+[个人 durable 服务检查](2026-10-17-personal-service-inspect.md)复用 app 内共享传输，只提供 inspect 及证据读取；本篇写入授权与效果未知约束继续适用，不能从只读检查推得 restart 已接入。helper 另提供[固定检查身份协议](2026-10-17-service-inspection-identity.md)，独立认领类型与前缀，不改变本篇 restart 的停止及创建请求证明。
 
 [个人 durable 服务操作](2026-10-17-personal-service-operations.md)通过另行启用的可信宿主 API 接入 restart，使用独立的 durable 后台工作与单次审批；模型尚无服务写工具，原 IM 和长期授权尚未接入。该实现要求 `launcherExited:true` 与 `exited:true` 同时成立，不能把旧部署版本的应答当作停止证明。
 

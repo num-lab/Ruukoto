@@ -17,7 +17,7 @@ import { personalProvider, type PersonalModelConfig } from "../apps/ruukoto/src/
 import { lockPersonalProfile } from "../apps/ruukoto/src/personal-profile.ts";
 import { personalDevDirectory, readPersonalConfig, savePersonalConfig } from "../apps/ruukoto/src/personal-config.ts";
 import { LocalInputDoc, parsePersonalInput, personalControl, readPersonalToken, startPersonalServer, type PersonalInputStatus, type PersonalMessage, type PersonalStatus } from "../apps/ruukoto/src/personal-control.ts";
-import { checkPersonalInput, configurePersonalServices, managePersonalInspections, launchPersonalServer, pendingPersonalInputs, personalChildEnv, personalMenu, preparePersonalInput } from "../apps/ruukoto/src/personal-cli.ts";
+import { checkPersonalInput, configurePersonalServices, managePersonalInspections, managePersonalServices, launchPersonalServer, pendingPersonalInputs, personalChildEnv, personalMenu, preparePersonalInput } from "../apps/ruukoto/src/personal-cli.ts";
 import { parsePersonalServices, readPersonalServices, savePersonalServices } from "../apps/ruukoto/src/personal-service-config.ts";
 import { PersonalServiceDoc } from "../apps/ruukoto/src/personal-services.ts";
 import { PersonalServiceGrantsDoc, PersonalServiceOperationsDoc } from "../apps/ruukoto/src/personal-service-operations.ts";
@@ -113,8 +113,8 @@ test("personal CLI：前台与 detached 均拒绝用内部环境变量充当模�
 test("personal CLI：认证前不读状态或提交，非法及超限请求无副作用", async t => {
   const f = await fixture(t);
   await f.start();
-  for (const route of ["/status", "/messages", "/inputs", "/stop"]) {
-    const result = await raw(f.dir, route === "/inputs" || route === "/stop" ? "POST" : "GET", route, JSON.stringify({ requestId: randomUUID(), input: "不要执行" }));
+  for (const route of ["/status", "/messages", "/inputs", "/stop", "/services", "/service?service=1", "/service/resolve?service=1", "/service/stop?service=1"]) {
+    const result = await raw(f.dir, route === "/inputs" || route === "/stop" || route.startsWith("/service/") ? "POST" : "GET", route, JSON.stringify({ requestId: randomUUID(), input: "不要执行" }));
     assert.equal(JSON.parse(result.body).code, "control_unauthorized");
     assert.doesNotMatch(result.body, /mock-model|test-only/);
   }
@@ -516,4 +516,60 @@ test("检查重核向导：分页固定原接纳，选择登记且刷新不重�
   await managePersonalInspections({ question: async () => { assert.ok(answers.length); return answers.shift()!; }, write: value => { output += value; } }, dir);
   assert.deepEqual(routes, ["GET /inspections?offset=0", "GET /inspections?offset=8", "POST /inspection/stop?inspection=12&admission=34", "GET /inspections?offset=0"]);
   assert.match(output, /登记不表示已停止/); assert.doesNotMatch(output, /taskId|admission|UUID/);
+});
+
+test("服务核实向导：分页选择、保存效果证据、分页原说明及独立停止登记", async t => {
+  const dir = directory(t); const token = "a".repeat(64); fs.writeFileSync(path.join(dir, "control.token"), token + "\n");
+  const routes: string[] = []; let saved = false; let stopped = false; const evidence = "独立核实服务实际效果；".repeat(130);
+  const item = { ref: { taskId: 12, requestId: "private-request" }, unit: "example.service", status: "效果未知", canResolve: true, canRecheck: true };
+  const server = http.createServer(async (req, res) => {
+    assert.equal(req.headers.authorization, `Bearer ${token}`); routes.push(`${req.method} ${req.url}`);
+    const chunks: Buffer[] = []; for await (const chunk of req) chunks.push(Buffer.from(chunk));
+    let result;
+    if (req.url === "/service/resolve?service=12") { assert.deepEqual(JSON.parse(Buffer.concat(chunks).toString()), { effect: "applied", evidence }); saved = true; result = { saved: true }; }
+    else if (req.url === "/service/stop?service=12") { stopped = true; result = { requested: true }; }
+    else if (req.url?.startsWith("/service?")) { const offset = Number(new URL(req.url, "http://localhost").searchParams.get("offset")); result = { summary: { ...item, canResolve: !saved, canRecheck: !stopped }, evidence: saved ? evidence.slice(offset, offset + 1200) : "尚未保存", ...(saved && offset === 0 ? { nextOffset: 1200 } : {}) }; }
+    else result = stopped ? { items: [] } : req.url === "/services?offset=0" ? { items: Array(8).fill(item), nextOffset: 8 } : { items: [item] };
+    res.end(JSON.stringify({ v: 1, ok: true, result }));
+  });
+  server.listen(path.join(dir, "control.sock")); await once(server, "listening"); t.after(() => new Promise<void>(resolve => server.close(() => resolve())));
+  const answers = ["9", "1", "2", evidence, "3", "2", "3", "1"]; let output = "";
+  await managePersonalServices({ question: async () => { assert.ok(answers.length); return answers.shift()!; }, write: value => { output += value; } }, dir);
+  assert.deepEqual(routes, ["GET /services?offset=0", "GET /services?offset=8", "GET /service?service=12&offset=0", "POST /service/resolve?service=12", "GET /service?service=12&offset=0", "GET /service?service=12&offset=1200", "POST /service/stop?service=12", "GET /service?service=12&offset=0", "GET /services?offset=0"]);
+  assert.match(output, /登记不表示已停止/); assert.doesNotMatch(output, /private-request|taskId|UUID/); assert.equal(answers.length, 0);
+});
+
+test("服务核实 HTTP：Linux sudo 接线、原状态刷新及慢停止不阻塞独立聊天", { skip: process.platform !== "linux" }, async t => {
+  const f = await fixture(t); const helper = directory(t); const unit = "recovery-test.service";
+  const configured = { version: 1, helperPath: path.join(helper, "helper.mjs"), policyPath: path.join(helper, "services.json"), sudoPath: path.join(helper, "sudo.mjs") };
+  fs.copyFileSync(new URL("./helpers/fake-service-helper.mjs", import.meta.url), configured.helperPath);
+  fs.writeFileSync(configured.sudoPath, `#!${process.execPath}\nimport {spawnSync} from 'node:child_process'; if(process.argv[2]!=='-n')process.exit(3);const r=spawnSync(process.execPath,process.argv.slice(3),{stdio:'inherit'});process.exit(r.status??4);\n`, { mode: 0o700 });
+  fs.mkdirSync(path.join(helper, "units")); fs.mkdirSync(path.join(helper, "ops"));
+  fs.writeFileSync(path.join(helper, "units", unit), "[Service]\nExecStart=/usr/bin/true\n");
+  fs.writeFileSync(configured.policyPath, JSON.stringify({ machineId: "test-machine", inspectUid: 1, inspectGid: 1, services: { [unit]: { actions: ["restart"] } } }));
+  fs.writeFileSync(path.join(helper, "state.json"), JSON.stringify({ [unit]: { starts: 0, loadState: "loaded", activeState: "active", subState: "running", mainPid: 123, invocationId: "before", result: "success", activeEnterTimestamp: "2026-10-17T00:00:00Z" } }));
+  fs.writeFileSync(path.join(helper, "fail-after-launch"), ""); fs.writeFileSync(path.join(helper, "stop-query-fails"), "");
+  await savePersonalServices(f.dir, configured);
+  const p = await openPersonalHarness({ directory: f.dir, provider: personalProvider(f.config), modelId: f.config.modelId, service: { ...configured, useSudo: true }, serviceOperations: true });
+  await p.answer("服务工作", "owner"); const ref = await p.service!.request({ requestId: "operation", sourceRequestId: "owner", unit, mode: "full_access" });
+  await until(async () => (await p.service!.status(ref)).operation.result?.code === "result_unverified"); await p.close();
+  await f.start();
+  type Detail = { summary: { canResolve: boolean; canRecheck: boolean; stop?: string }; evidence: string };
+  assert.equal((await personalControl<{ items: unknown[] }>(f.dir, "GET", "/services")).items.length, 1);
+  const route = `/service?service=${ref.taskId}`;
+  await assert.rejects(personalControl(f.dir, "POST", `/service/resolve?service=${ref.taskId}`, { effect: "applied", evidence: " " }), code("service_resolution_invalid"));
+  await personalControl(f.dir, "POST", `/service/resolve?service=${ref.taskId}`, { effect: "applied", evidence: "独立核实启动计数" });
+  assert.equal((await personalControl<Detail>(f.dir, "GET", route)).summary.canResolve, false);
+  await assert.rejects(personalControl(f.dir, "POST", `/service/resolve?service=${ref.taskId}`, { effect: "not_applied", evidence: "不能覆盖" }), code("service_resolution_invalid"));
+  const entered = path.join(helper, "stop-entered"); const release = path.join(helper, "stop-release");
+  fs.writeFileSync(configured.helperPath, fs.readFileSync(configured.helperPath, "utf8").replace('function cmdStopOp(hostOpId) {', `function cmdStopOp(hostOpId) { fs.writeFileSync(${JSON.stringify(entered)}, ""); while(!fs.existsSync(${JSON.stringify(release)}))sleepMs(10);`));
+  try {
+    await personalControl(f.dir, "POST", `/service/stop?service=${ref.taskId}`); await until(() => fs.existsSync(entered));
+    assert.equal(fs.existsSync(release), false); assert.equal((await personalControl<Detail>(f.dir, "GET", route)).summary.canRecheck, true);
+    const input = preparePersonalInput(f.dir, "停止重核期间独立聊天"); await personalControl(f.dir, "POST", "/inputs", input); await until(async () => (await checkPersonalInput(f.dir, input)).status === "done");
+    fs.rmSync(path.join(helper, "stop-query-fails")); fs.writeFileSync(release, "");
+    await until(async () => (await personalControl<Detail>(f.dir, "GET", route)).summary.stop === "stopped");
+    assert.equal((await personalControl<Detail>(f.dir, "GET", route)).summary.canRecheck, false);
+    assert.equal(fs.readFileSync(path.join(helper, "calls.log"), "utf8").trim().split("\n").filter(line => JSON.parse(line)[0] === "restart").length, 1);
+  } finally { fs.writeFileSync(release, ""); }
 });

@@ -19,6 +19,7 @@ import type { personalReportResult } from "./personal-report.ts";
 import { readPersonalServices, savePersonalServices } from "./personal-service-config.ts";
 import { personalServiceConfig } from "./personal-services.ts";
 import { personalInspectionDescription, type PersonalInspectionPage } from "./personal-inspection-controls.ts";
+import { personalServiceDescription, type PersonalServicePage, type PersonalServiceDetail } from "./personal-service-controls.ts";
 import { personalWorkDescription } from "./personal-work-controls.ts";
 import type { listPersonalWorks, personalWorkResult, PersonalWorkSummary } from "./personal-work.ts";
 
@@ -293,10 +294,42 @@ export async function managePersonalInspections(io: PersonalCliIO, directory: st
   }
 }
 
+export async function managePersonalServices(io: PersonalCliIO, directory: string) {
+  let offset = 0;
+  while (true) {
+    const page = await personalControl<PersonalServicePage>(directory, "GET", `/services?offset=${offset}`);
+    const choices = [...page.items.map(item => item.unit), ...(page.nextOffset === undefined ? [] : ["下一页服务"]), "返回"];
+    const selected = await choose(io, "服务效果核实与停止重核", choices);
+    if (selected === choices.length - 1) return;
+    if (selected === page.items.length) { offset = page.nextOffset!; continue; }
+    const id = page.items[selected].ref.taskId;
+    let evidenceOffset = 0;
+    while (true) {
+      const detail = await personalControl<PersonalServiceDetail>(directory, "GET", `/service?service=${id}&offset=${evidenceOffset}`);
+      io.write(`\n${personalServiceDescription(detail.summary)}\n核实说明：${detail.evidence}\n未知效果须效果和停止均核实后才释放占用；不会重新执行 restart。\n`);
+      const actions = ["刷新状态", ...(detail.summary.canResolve ? ["确认已生效", "确认未生效"] : []), ...(detail.summary.canRecheck ? ["登记原操作停止重核"] : []), ...(detail.nextOffset === undefined ? [] : ["下一页核实说明"]), "返回服务列表"];
+      const action = actions[await choose(io, "原服务操作", actions)];
+      if (action === "返回服务列表") break;
+      if (action === "下一页核实说明") { evidenceOffset = detail.nextOffset!; continue; }
+      evidenceOffset = 0;
+      if (action === "登记原操作停止重核") {
+        await personalControl(directory, "POST", `/service/stop?service=${id}`);
+        io.write("已登记原写操作停止重核；登记不表示已停止，也不确认写入效果。请刷新原状态；未核实则检查 helper 后主动重核。\n");
+      } else if (action === "确认已生效" || action === "确认未生效") {
+        const evidence = await io.question("独立核实后的证据说明（最多 8192 字符，不填凭据；/back 返回）：");
+        if (evidence === "/back") continue;
+        await personalControl(directory, "POST", `/service/resolve?service=${id}`, { effect: action === "确认已生效" ? "applied" : "not_applied", evidence });
+        io.write("原效果核实及证据已保存，不可覆盖。若失去应答，请刷新原状态，不要重复提交。\n");
+      }
+    }
+    offset = 0;
+  }
+}
+
 export async function personalMenu(directory: string, io: PersonalCliIO): Promise<void> {
   io.write(`个人 durable 隔离实例\n档案：${directory}\n提供主会话、可选 Telegram 文本入口及 Linux 服务检查；模型写工具继续实施。\n`);
   while (true) {
-    const selected = await choose(io, "个人实例", ["配置模型（后台须停止）", "启动隔离后台", "查看状态", "发送消息", "查看最近消息", "核实上次提交", "停止隔离后台", "配置 Telegram（后台须停止）", "查看 Telegram 收发", "退出向导（后台继续运行）", "配置或查看服务（后台须停止）", "管理后台分析", "管理分析委托", "管理检查停止重核"]);
+    const selected = await choose(io, "个人实例", ["配置模型（后台须停止）", "启动隔离后台", "查看状态", "发送消息", "查看最近消息", "核实上次提交", "停止隔离后台", "配置 Telegram（后台须停止）", "查看 Telegram 收发", "退出向导（后台继续运行）", "配置或查看服务（后台须停止）", "管理后台分析", "管理分析委托", "管理检查停止重核", "管理服务效果核实"]);
     if (selected === 9) return;
     try {
       if (selected === 0) await configure(io, directory);
@@ -326,6 +359,7 @@ export async function personalMenu(directory: string, io: PersonalCliIO): Promis
       else if (selected === 11) await managePersonalWorks(io, directory);
       else if (selected === 12) await managePersonalDelegations(io, directory);
       else if (selected === 13) await managePersonalInspections(io, directory);
+      else if (selected === 14) await managePersonalServices(io, directory);
       else {
         const state = await personalControl<Awaited<ReturnType<PersonalHarness["telegram"]["status"]>>>(directory, "GET", "/telegram");
         const labels = { waiting: "等待回答", pending: "等待发送", sending: "发送中，尚未核实", sent: "已发送", failed: "平台明确拒绝", effect_unknown: "发送效果未知，不自动重发", canceled: "已取消发送", unanswered: "未获得完整回答" };

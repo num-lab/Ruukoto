@@ -10,7 +10,8 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { AgentDoc, SessionFailed, type Storage } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { openPersonalHarness, type PersonalHarness } from "../apps/ruukoto/src/personal-harness.ts";
-import { PersonalServiceOperationDoc, PersonalServiceOperationsDoc, ServiceOperationEvidence, type PersonalServiceMode, type PersonalServiceOperationRef } from "../apps/ruukoto/src/personal-service-operations.ts";
+import { PersonalServiceOperationDoc, PersonalServiceOperationsDoc, resolvePersonalServiceOperation, ServiceOperationEvidence, type PersonalServiceMode, type PersonalServiceOperationRef } from "../apps/ruukoto/src/personal-service-operations.ts";
+import { listPersonalServices, personalServiceDetail } from "../apps/ruukoto/src/personal-service-controls.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
 import { PersonalWorkDoc } from "../apps/ruukoto/src/personal-work.ts";
 import { PersonalDelegationDoc, listPersonalDelegations, personalDelegationProgress, cancelPersonalDelegation, type PersonalDelegationRef } from "../apps/ruukoto/src/personal-delegation.ts";
@@ -62,6 +63,81 @@ const input = (requestId: string, mode?: PersonalServiceMode, unit = UNIT, sourc
 async function ready(p: PersonalHarness, ref: PersonalServiceOperationRef) { await until(async () => !!(await p.service!.status(ref)).operation.snapshot); }
 async function unknown(p: PersonalHarness, ref: PersonalServiceOperationRef) { await until(async () => { const result = (await p.service!.status(ref)).operation.result; return result?.effect === "effect_unknown" && result.code !== "started"; }); }
 async function finish(p: PersonalHarness, ref: PersonalServiceOperationRef) { return p.harness.waitForTask(ref.taskId, context); }
+
+test("服务核实控制：效果与停止分开保存，错误证明保留占用，原说明分页且不可覆盖", async t => {
+  const f = await fixture(t); f.touch("fail-after-launch"); f.touch("stop-query-fails");
+  let p = await f.open(); await p.answer("服务工作", "owner");
+  const ref = await p.service!.request(input("recovery", "full_access")); await unknown(p, ref);
+  const stop = await p.requestServiceStop(ref); const result = await p.harness.waitForTask(stop, context);
+  assert.deepEqual(result.state.outcome.result, { stopped: false, code: "stop_unverified" });
+  const evidence = "独立核实证据".repeat(500);
+  await p.harness.commit(tx => resolvePersonalServiceOperation(tx, ref, "applied", evidence), context);
+  await assert.rejects(p.harness.commit(tx => resolvePersonalServiceOperation(tx, ref, "not_applied", "改写"), context), code("service_resolution_invalid"));
+  await assert.rejects(p.service!.request(input("bypass", "full_access")), code("service_operation_busy"));
+  let offset = 0; let full = "";
+  do { const page = await p.harness.commit(tx => personalServiceDetail(tx, ref, offset), context); full += page.evidence; offset = page.nextOffset ?? -1; assert.equal(page.summary.stop, "stop_unverified"); } while (offset >= 0);
+  assert.equal(full, evidence);
+  // 原服务恢复和本次重核都提交停止证据后，才切换故障应答，避免原可信 helper 仍在途。
+  await until(async () => (await p.main.entries({}, 256, undefined, context)).items.filter(entry => ServiceOperationEvidence.is(entry) && entry.data.requestId === ref.requestId && entry.data.verb === "stop-op").length >= 2);
+  const proof = fs.readFileSync(f.service.helperPath, "utf8");
+  fs.rmSync(path.join(f.helper, "stop-query-fails"));
+  fs.writeFileSync(f.service.helperPath, proof.replace('machineId, hostOpId, opUnit, launcherExited: launchEnded', 'machineId: "other-machine", hostOpId, opUnit, launcherExited: launchEnded'));
+  await p.harness.waitForTask(await p.requestServiceStop(ref), context);
+  assert.equal((await p.service!.status(ref)).operation.launcherStopped, false);
+  fs.writeFileSync(f.service.helperPath, proof);
+  await p.close(); p = await f.open();
+  await p.harness.waitForTask(await p.requestServiceStop(ref), context); await finish(p, ref);
+  assert.equal((await p.service!.status(ref)).operation.launcherStopped, true);
+  assert.equal((await p.harness.commit(tx => listPersonalServices(tx), context)).items[0].stop, "stopped");
+  assert.equal(f.starts(), 1); assert.equal(f.calls().filter(call => call[0] === "restart").length, 1);
+});
+
+test("服务核实控制：仅停止不释放，审批前检查与已知结果拒绝写停止重核", async t => {
+  const f = await fixture(t); const p = await f.open(); await p.answer("服务工作", "owner");
+  const approval = await p.service!.request(input("approval")); await ready(p, approval);
+  const before = f.calls().length; await assert.rejects(p.requestServiceStop(approval), code("service_resolution_invalid")); assert.equal(f.calls().length, before);
+  await p.service!.decide(approval, "rejected"); await finish(p, approval);
+  await assert.rejects(p.requestServiceStop(approval), code("service_resolution_invalid"));
+  const detail = await p.harness.commit(tx => personalServiceDetail(tx, approval), context);
+  assert.match(detail.summary.status, /无需人工效果核实或停止重核/); assert.doesNotMatch(detail.summary.status, /原写操作停止未核实/);
+  f.touch("fail-after-launch"); const ref = await p.service!.request(input("stopped", "full_access")); await unknown(p, ref);
+  await until(async () => (await p.service!.status(ref)).operation.launcherStopped);
+  await assert.rejects(p.service!.request(input("not-yet", "full_access")), code("service_operation_busy"));
+  await p.harness.commit(tx => resolvePersonalServiceOperation(tx, ref, "not_applied", "人工独立核实未生效"), context); await finish(p, ref);
+  assert.equal((await p.service!.status(ref)).operation.result?.effect, "effect_unknown");
+});
+
+test("服务核实控制：接纳失败零停止外调，缺原执行身份拒绝恢复", async t => {
+  const f = await fixture(t); f.touch("fail-after-launch"); f.touch("stop-query-fails"); let armed = false;
+  let p = await f.open({ openStorage: async filename => {
+    const storage = await openNodeSqliteStorage(filename); const commit = storage.commit.bind(storage);
+    storage.commit = (writes, ctx) => armed && JSON.stringify(writes).includes('"ruukoto.service-stop"') ? Promise.reject(new Error("stop-admission-failed")) : commit(writes, ctx);
+    return storage;
+  } });
+  await p.answer("服务工作", "owner"); const ref = await p.service!.request(input("admission", "full_access")); await unknown(p, ref);
+  await until(() => f.calls().some(call => call[0] === "stop-op")); await delay(40); const before = f.calls().length;
+  armed = true; await assert.rejects(p.requestServiceStop(ref)); await p.harness.closed; await p.close(); assert.equal(f.calls().length, before);
+  armed = false; p = await f.open();
+  assert.equal((await p.harness.commit(tx => tx.scanTasks({ kind: "ruukoto.service-stop" }, 8), context)).items.length, 0);
+  const id = await p.requestServiceStop(ref); await p.harness.waitForTask(id, context);
+  await p.harness.commit(async tx => { (await tx.doc(PersonalServiceOperationDoc, ref.requestId, null)).operation!.hostOpId = `op_${"f".repeat(24)}`; }, context);
+  await p.close(); await assert.rejects(f.open(), code("service_control_invalid"));
+});
+
+test("服务核实控制：真实 SIGKILL 后恢复原停止 Task，不重发 restart", { timeout: 20000 }, async t => {
+  const f = await fixture(t); f.touch("fail-after-launch"); f.touch("stop-query-fails");
+  let p = await f.open(); await p.answer("服务工作", "owner"); const ref = await p.service!.request(input("kill-recovery", "full_access")); await unknown(p, ref); await p.close();
+  const marker = path.join(f.root, "stop-committed");
+  const script = `import * as fs from "node:fs"; import {openPersonalHarness} from "./apps/ruukoto/src/personal-harness.ts"; import {personalProvider} from "./apps/ruukoto/src/personal-model.ts"; import {openNodeSqliteStorage} from "@earendil-works/pi-durable/storage/sqlite/node"; const {directory,service,config,marker,ref}=JSON.parse(process.env.RUUKOTO_SERVICE_STOP_CRASH); setInterval(()=>{},1000); const p=await openPersonalHarness({directory,service,serviceOperations:true,provider:personalProvider(config),modelId:config.modelId,openStorage:async filename=>{const s=await openNodeSqliteStorage(filename);const commit=s.commit.bind(s);s.commit=async(writes,c)=>{const seq=await commit(writes,c);if(JSON.stringify(writes).includes('"ruukoto.service-stop"')){fs.writeFileSync(marker,"committed");return new Promise(()=>{});}return seq;};return s;}});await p.requestServiceStop(ref);`;
+  const child = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "--eval", script], { cwd: new URL("..", import.meta.url), env: { ...process.env, RUUKOTO_SERVICE_STOP_CRASH: JSON.stringify({ directory: f.options.directory, service: f.service, config: f.config, marker, ref }) }, stdio: ["ignore", "ignore", "pipe"] });
+  child.stderr.pipe(process.stderr); t.after(() => { if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL"); });
+  await until(() => fs.existsSync(marker)); const exited = once(child, "exit"); child.kill("SIGKILL"); assert.equal((await exited)[1], "SIGKILL");
+  p = await f.open(); const tasks = (await p.harness.commit(tx => tx.scanTasks({ kind: "ruukoto.service-stop" }, 8), context)).items;
+  assert.equal(tasks.length, 1); await p.harness.waitForTask(tasks[0].id, context);
+  const hostOpId = (await p.service!.status(ref)).operation.hostOpId;
+  assert.ok(f.calls().filter(call => call[0] === "stop-op").every(call => call[1] === hostOpId));
+  assert.equal(f.starts(), 1); assert.equal(f.calls().filter(call => call[0] === "restart").length, 1);
+});
 
 test("委托报告：未知暂停跨重启，效果和停止都核实后安全汇总；HTTP 前暂停仅重做模型尝试", async t => {
   for (const window of ["before-admission", "before-http"] as const) await t.test(window, async t => {
@@ -159,6 +235,8 @@ test("服务工作：默认自动审查和 confirm 等单次人工批准，full_
     assert.equal(settled.state.outcome.status, "completed");
     const status = await p.service!.status(ref);
     assert.equal(status.operation.mode, mode ?? "auto-review");
+    const detail = await p.harness.commit(tx => personalServiceDetail(tx, ref), context);
+    assert.match(detail.summary.status, /无需人工效果核实或停止重核/); assert.doesNotMatch(detail.summary.status, /原写操作停止未核实/);
     assert.equal(status.operation.consumed, true);
     assert.deepEqual(status.operation.result, { effect: "executed", code: "command_completed", exitCode: 0 });
     assert.equal(f.starts(), 1);

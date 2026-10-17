@@ -27,7 +27,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { parseArgs } from "node:util";
 import { fileURLToPath } from "node:url";
-import { probeControlPlane } from "@ruukoto/control/ensure-backend.ts";
+import { probeControlPlane, socketConnectable } from "@ruukoto/control/ensure-backend.ts";
 import { readOwnerToken } from "@ruukoto/control/owner-token.ts";
 import { probeModelConfig } from "@ruukoto/agent/model-config.ts";
 import { RELOAD_STATE_ENV } from "./tui/reload-state.ts";
@@ -266,7 +266,7 @@ class DevSession {
   async run(): Promise<number> {
     // 信号与兜底钩子最先装好：启动窗口内被打断也不许留下持锁子进程
     this.installSignalHandlers();
-    const running = await probeControlPlane(this.socketPath, readOwnerToken(this.profile.controlDir));
+    const running = await socketConnectable(this.socketPath);
     if (this.stopping) return await this.exitPromise;
     if (running) {
       console.error(`开发实例已在运行（${this.profile.root}）；不会启动第二个实例或接管既有进程`);

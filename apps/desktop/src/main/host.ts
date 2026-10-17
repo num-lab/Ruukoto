@@ -19,10 +19,12 @@ export interface DesktopPlatform {
 }
 
 // Note: 见 .agents/notes/implemented/architecture/2026-10-17-desktop-mygo-experiment.md
+// Note: 见 .agents/notes/implemented/bug-fix/2026-10-17-desktop-connection-startup.md
 export class DesktopHost {
   private controller: CodeController | null = null;
   private initialization: Promise<void> | null = null;
   private environment: Promise<Awaited<ReturnType<typeof selectEnvironment>>> | null = null;
+  private readonly environmentAbort = new AbortController();
   private personal: PersonalController | null = null;
   private personalInitialization: Promise<void> | null = null;
   private personalGeneration = 0;
@@ -32,21 +34,32 @@ export class DesktopHost {
   private readonly navigation = new Map<DesktopTarget, Extract<DesktopUpdate, { type: "navigate" }>>();
   private readonly notificationState: DesktopNotifications;
 
-  constructor(private readonly repository: string, private readonly userData: string, private readonly platform: DesktopPlatform) {
+  constructor(private readonly repository: string, private readonly userData: string, private readonly platform: DesktopPlatform, private readonly prepareEnvironment = (signal: AbortSignal) => selectEnvironment(process.env, undefined, signal)) {
     this.notificationState = new DesktopNotifications(platform.focused, platform.notice, platform.badge, (target, taskId) => {
       const source = target === "code" ? this.controller : this.personal;
       if (!source) throw new ControlClientError("connection_unavailable", "连接不可用", "not_sent");
       return source.request("get_task", { task_id: taskId });
     });
+    this.warmEnvironment();
   }
   private publish(target: DesktopTarget, update: DesktopUpdate): void {
     this.notificationState.update(target, update);
     if (update.type === "state") this.lastState[target] = update;
     if (this.subscribed.has(target)) this.platform.publish(target, update);
   }
-  private getEnvironment(): NonNullable<DesktopHost["environment"]> {
-    this.environment ??= selectEnvironment(process.env).then(source => { adoptEnvironment(source.env); return source; }).catch(error => { this.environment = null; throw error; });
+  private warmEnvironment(): NonNullable<DesktopHost["environment"]> {
+    this.environment ??= this.prepareEnvironment(this.environmentAbort.signal);
+    // 预热失败留给首次连接消费并报告；这里仅防止订阅前的未处理拒绝。
+    void this.environment.catch(() => {});
     return this.environment;
+  }
+  private async getEnvironment() {
+    const reading = this.warmEnvironment();
+    let source: Awaited<typeof reading>;
+    try { source = await reading; }
+    catch (error) { if (this.environment === reading) this.environment = null; throw error; }
+    if (!this.closing) adoptEnvironment(source.env);
+    return source;
   }
   private async initializeController(): Promise<void> {
     const source = await this.getEnvironment();
@@ -76,11 +89,12 @@ export class DesktopHost {
     return this.personalInitialization;
   }
   private reconnect(): Promise<void> {
+    if (this.closing) return Promise.resolve();
     if (this.initialization) return this.initialization;
     this.initialization = (async () => {
       if (!this.controller) {
         try { await this.initializeController(); }
-        catch (error) { this.publish("code", { type: "state", state: "failed", error: serializeFailure(error) }); return; }
+        catch (error) { if (!this.closing) this.publish("code", { type: "state", state: "failed", error: serializeFailure(error) }); return; }
       }
       if (!this.closing) await this.controller!.reconnect();
     })().finally(() => { this.initialization = null; });
@@ -138,7 +152,8 @@ export class DesktopHost {
     if (this.closing) return this.closing;
     ++this.personalGeneration;
     this.controller?.close();
-    this.closing = Promise.all([this.personal?.close(), this.personalInitialization, this.initialization]).then(() => {});
+    this.environmentAbort.abort();
+    this.closing = Promise.all([this.personal?.close(), this.personalInitialization, this.initialization, this.environment?.catch(() => { /* 退出取消的读取不再用于连接，连接期间的失败由消费方报告。 */ })]).then(() => {});
     return this.closing;
   }
 }

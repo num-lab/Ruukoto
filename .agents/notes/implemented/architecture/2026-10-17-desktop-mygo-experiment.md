@@ -33,3 +33,5 @@ Go 方法只接受当前窗口精确 mygo://localhost/ 顶层文档，原生同�
 ## 后果
 
 WKWebView 的输入法、滚动、CSS 与 Chromium 有差异，必须实际体验。应用仍依赖外部 Node 和构建时仓库，产物体积比较需注明这一前提；不声称总内存一定降低。两种外壳各自保留 pending 记录，试验时未知提交应在原应用核实后再换壳。MyGo 原生 API 不能照搬 Electron 的子 frame 导航回调，隔离证据来自 CSP、sandbox、绑定校验和真实探针的组合。
+
+环境准备时机与轻量就绪探测由[启动优化](../bug-fix/2026-10-17-desktop-connection-startup.md)持有；本篇其他决定继续适用。

@@ -24,7 +24,7 @@ Personal 配置保存在应用数据目录的 `personal.json`，只含 `host` �
 
 ## 主要流程
 
-日常应用启动时执行一次登录 shell，取得 node 与环境，在采用这份环境后显式解析 Code 的数据、agent、控制目录。`ensureBackend` 先探测已有后台；需要启动时用登录环境中的 node 执行构建时记录的仓库 bin。Code 后台脱离运行，关闭应用不停止它。
+Node 宿主创建时开始准备环境，与窗口加载并行。日常应用执行一次登录 shell，取得 node 与环境；首次连接复用结果，采用后显式解析 Code 的数据、agent、控制目录。预热失败由连接报告，重新连接可重试；退出取消并回收直接读取进程，迟到结果不再采用。`ensureBackend` 先经认证 ping 轻量探测已有后台，正式连接再安装一次完整快照；需要启动时用登录环境中的 node 执行构建时记录的仓库 bin。Code 后台脱离运行，关闭应用不停止它。
 
 受管开发前端使用启动器清洗后的环境，从开发控制目录读取 owner.token，不执行登录 shell，也不调用 ensureBackend；后台重载后由 ControlConnection 自动重连。桌面源码由 electron-vite 监听，渲染进程热更新，主进程重建后重启 Electron，preload 重建后重载渲染进程。启动器负责整组进程退出。
 
@@ -81,6 +81,8 @@ Personal 预检总期限为 15 秒；超时或网络失败、远端 socket 暂�
 审批决定从不自动重发。明确失效移除卡片；权限版本不符重读详情并等待重新决定；未发送保留卡片。在线应答丢失查询原审批，断线等待同实例快照，查询失败或过旧保留防重复状态并经现有提示报告；重新连接可再次核实。新快照淘汰旧详情与核实结果；换实例丢弃原操作结果。系统通知送达仍受 macOS 通知设置约束。
 
 ## 设计依据
+
+- [启动环境预热与就绪探测](../../.agents/notes/implemented/bug-fix/2026-10-17-desktop-connection-startup.md)
 
 - [MyGo 外壳试验](../../.agents/notes/implemented/architecture/2026-10-17-desktop-mygo-experiment.md)
 

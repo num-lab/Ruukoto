@@ -1,0 +1,885 @@
+[
+  {
+    "head": "c19d63e",
+    "id": "dir-deep-coding-1-0",
+    "mode": "deep",
+    "tool": "coding",
+    "round": 1,
+    "boot": 0,
+    "initialization": "new-empty-data",
+    "ensureMs": 1419.784,
+    "formalMs": 2.321,
+    "totalMs": 1422.106,
+    "backendPid": 43371,
+    "backendExitCode": 0,
+    "parent": [
+      {
+        "stage": "ensure_begin",
+        "wallMs": 1792204111834,
+        "monoMs": 1189.019
+      },
+      {
+        "stage": "socket_attempt_begin",
+        "wallMs": 1792204111834,
+        "monoMs": 1189.212
+      },
+      {
+        "stage": "socket_attempt_failed",
+        "wallMs": 1792204111834,
+        "monoMs": 1189.541,
+        "code": "connection_error"
+      },
+      {
+        "stage": "parent_spawn_begin",
+        "wallMs": 1792204111834,
+        "monoMs": 1189.67
+      },
+      {
+        "stage": "parent_spawn_return",
+        "wallMs": 1792204111835,
+        "monoMs": 1190.242,
+        "pid": 43371
+      },
+      {
+        "stage": "socket_attempt_begin",
+        "wallMs": 1792204113249,
+        "monoMs": 2603.974
+      },
+      {
+        "stage": "socket_attempt_success",
+        "wallMs": 1792204113250,
+        "monoMs": 2604.714
+      },
+      {
+        "stage": "request_begin",
+        "wallMs": 1792204113250,
+        "monoMs": 2604.797,
+        "op": "auth"
+      },
+      {
+        "stage": "request_success",
+        "wallMs": 1792204113251,
+        "monoMs": 2606.404,
+        "op": "auth"
+      },
+      {
+        "stage": "request_begin",
+        "wallMs": 1792204113251,
+        "monoMs": 2606.429,
+        "op": "ping"
+      },
+      {
+        "stage": "request_success",
+        "wallMs": 1792204113253,
+        "monoMs": 2608.533,
+        "op": "ping"
+      },
+      {
+        "stage": "ensure_return",
+        "wallMs": 1792204113254,
+        "monoMs": 2608.785,
+        "ok": true
+      },
+      {
+        "stage": "formal_start",
+        "wallMs": 1792204113254,
+        "monoMs": 2609.035
+      },
+      {
+        "stage": "socket_attempt_begin",
+        "wallMs": 1792204113254,
+        "monoMs": 2609.166
+      },
+      {
+        "stage": "socket_attempt_success",
+        "wallMs": 1792204113254,
+        "monoMs": 2609.464
+      },
+      {
+        "stage": "request_begin",
+        "wallMs": 1792204113254,
+        "monoMs": 2609.499,
+        "op": "auth"
+      },
+      {
+        "stage": "request_success",
+        "wallMs": 1792204113254,
+        "monoMs": 2609.68,
+        "op": "auth"
+      },
+      {
+        "stage": "request_begin",
+        "wallMs": 1792204113255,
+        "monoMs": 2609.793,
+        "op": "connect"
+      },
+      {
+        "stage": "request_success",
+        "wallMs": 1792204113256,
+        "monoMs": 2611.053,
+        "op": "connect"
+      },
+      {
+        "stage": "formal_snapshot",
+        "wallMs": 1792204113256,
+        "monoMs": 2611.078
+      },
+      {
+        "stage": "formal_state",
+        "wallMs": 1792204113256,
+        "monoMs": 2611.105,
+        "state": "online"
+      },
+      {
+        "stage": "formal_online",
+        "wallMs": 1792204113256,
+        "monoMs": 2611.109
+      },
+      {
+        "stage": "request_begin",
+        "wallMs": 1792204113256,
+        "monoMs": 2611.135,
+        "op": "stop"
+      },
+      {
+        "stage": "request_success",
+        "wallMs": 1792204113257,
+        "monoMs": 2612.02,
+        "op": "stop"
+      },
+      {
+        "stage": "formal_state",
+        "wallMs": 1792204113257,
+        "monoMs": 2612.121,
+        "state": "closed"
+      },
+      {
+        "stage": "backend_exit",
+        "wallMs": 1792204113281,
+        "monoMs": 2636.39,
+        "code": 0,
+        "signal": null
+      }
+    ],
+    "backend": {
+      "pid": 43371,
+      "events": [
+        {
+          "stage": "node_preload_ready",
+          "wallMs": 1792204111857,
+          "monoMs": 11.477,
+          "uptimeMs": 9.874
+        },
+        {
+          "stage": "bin_body",
+          "wallMs": 1792204111867,
+          "monoMs": 21.466,
+          "uptimeMs": 19.862
+        },
+        {
+          "stage": "tsx_register_begin",
+          "wallMs": 1792204111867,
+          "monoMs": 21.472,
+          "uptimeMs": 19.866
+        },
+        {
+          "stage": "tsx_register_end",
+          "wallMs": 1792204111868,
+          "monoMs": 22.708,
+          "uptimeMs": 21.103
+        },
+        {
+          "stage": "main_import_begin",
+          "wallMs": 1792204111869,
+          "monoMs": 22.711,
+          "uptimeMs": 21.104
+        },
+        {
+          "stage": "main_body",
+          "wallMs": 1792204111893,
+          "monoMs": 47.106,
+          "uptimeMs": 45.502
+        },
+        {
+          "stage": "runCli_begin",
+          "wallMs": 1792204111893,
+          "monoMs": 47.151,
+          "uptimeMs": 45.545
+        },
+        {
+          "stage": "runServer_begin",
+          "wallMs": 1792204111893,
+          "monoMs": 47.265,
+          "uptimeMs": 45.659
+        },
+        {
+          "stage": "runtime_import_begin",
+          "wallMs": 1792204111893,
+          "monoMs": 47.286,
+          "uptimeMs": 45.68
+        },
+        {
+          "stage": "runtime_import_end",
+          "wallMs": 1792204112629,
+          "monoMs": 783.079,
+          "uptimeMs": 781.476
+        },
+        {
+          "stage": "control_import_begin",
+          "wallMs": 1792204112629,
+          "monoMs": 783.085,
+          "uptimeMs": 781.478
+        },
+        {
+          "stage": "control_import_end",
+          "wallMs": 1792204112631,
+          "monoMs": 784.859,
+          "uptimeMs": 783.253
+        },
+        {
+          "stage": "runtime_start_begin",
+          "wallMs": 1792204112631,
+          "monoMs": 784.922,
+          "uptimeMs": 783.315
+        },
+        {
+          "stage": "db_begin",
+          "wallMs": 1792204112636,
+          "monoMs": 790.532,
+          "uptimeMs": 788.926
+        },
+        {
+          "stage": "db_end",
+          "wallMs": 1792204112640,
+          "monoMs": 793.906,
+          "uptimeMs": 792.3
+        },
+        {
+          "stage": "runtime_constructor_begin",
+          "wallMs": 1792204112640,
+          "monoMs": 793.92,
+          "uptimeMs": 792.314
+        },
+        {
+          "stage": "runtime_constructor_end",
+          "wallMs": 1792204112640,
+          "monoMs": 794.427,
+          "uptimeMs": 792.821
+        },
+        {
+          "stage": "model_runtime_begin",
+          "wallMs": 1792204112640,
+          "monoMs": 794.516,
+          "uptimeMs": 792.91
+        },
+        {
+          "stage": "model_runtime_end",
+          "wallMs": 1792204112648,
+          "monoMs": 801.847,
+          "uptimeMs": 800.243
+        },
+        {
+          "stage": "model_catalog_begin",
+          "wallMs": 1792204112648,
+          "monoMs": 801.984,
+          "uptimeMs": 800.378
+        },
+        {
+          "stage": "model_catalog_end",
+          "wallMs": 1792204112648,
+          "monoMs": 802.513,
+          "uptimeMs": 800.907
+        },
+        {
+          "stage": "app_data_begin",
+          "wallMs": 1792204112648,
+          "monoMs": 802.514,
+          "uptimeMs": 800.907
+        },
+        {
+          "stage": "app_data_end",
+          "wallMs": 1792204112649,
+          "monoMs": 803.557,
+          "uptimeMs": 801.951
+        },
+        {
+          "stage": "sources_begin",
+          "wallMs": 1792204112649,
+          "monoMs": 803.558,
+          "uptimeMs": 801.951
+        },
+        {
+          "stage": "sources_end",
+          "wallMs": 1792204112649,
+          "monoMs": 803.641,
+          "uptimeMs": 802.034
+        },
+        {
+          "stage": "host_tools_begin",
+          "wallMs": 1792204112649,
+          "monoMs": 803.672,
+          "uptimeMs": 802.065
+        },
+        {
+          "stage": "host_tools_end",
+          "wallMs": 1792204112650,
+          "monoMs": 804.232,
+          "uptimeMs": 802.626
+        },
+        {
+          "stage": "browser_recover_begin",
+          "wallMs": 1792204112650,
+          "monoMs": 804.248,
+          "uptimeMs": 802.641
+        },
+        {
+          "stage": "browser_recover_end",
+          "wallMs": 1792204112650,
+          "monoMs": 804.26,
+          "uptimeMs": 802.654
+        },
+        {
+          "stage": "runtime_recover_begin",
+          "wallMs": 1792204112650,
+          "monoMs": 804.261,
+          "uptimeMs": 802.654
+        },
+        {
+          "stage": "runtime_recover_end",
+          "wallMs": 1792204112650,
+          "monoMs": 804.676,
+          "uptimeMs": 803.069
+        },
+        {
+          "stage": "orchestrator_begin",
+          "wallMs": 1792204112651,
+          "monoMs": 805.207,
+          "uptimeMs": 803.601
+        },
+        {
+          "stage": "resolve_usable_dir_begin",
+          "wallMs": 1792204112652,
+          "monoMs": 805.784,
+          "uptimeMs": 804.178
+        },
+        {
+          "stage": "protected_grant_check_begin",
+          "wallMs": 1792204112652,
+          "monoMs": 805.969,
+          "uptimeMs": 804.363
+        },
+        {
+          "stage": "protected_grant_check_end",
+          "wallMs": 1792204113054,
+          "monoMs": 1207.788,
+          "uptimeMs": 1206.184
+        },
+        {
+          "stage": "resolve_usable_dir_end",
+          "wallMs": 1792204113054,
+          "monoMs": 1207.794,
+          "uptimeMs": 1206.188
+        },
+        {
+          "stage": "orchestrator_end",
+          "wallMs": 1792204113055,
+          "monoMs": 1209.188,
+          "uptimeMs": 1207.583
+        },
+        {
+          "stage": "runtime_start_end",
+          "wallMs": 1792204113055,
+          "monoMs": 1209.381,
+          "uptimeMs": 1207.775
+        },
+        {
+          "stage": "control_start_begin",
+          "wallMs": 1792204113055,
+          "monoMs": 1209.383,
+          "uptimeMs": 1207.776
+        },
+        {
+          "stage": "control_socket_listening",
+          "wallMs": 1792204113056,
+          "monoMs": 1210.057,
+          "uptimeMs": 1208.451
+        },
+        {
+          "stage": "control_start_end",
+          "wallMs": 1792204113056,
+          "monoMs": 1210.179,
+          "uptimeMs": 1208.573
+        },
+        {
+          "stage": "main_import_end",
+          "wallMs": 1792204113056,
+          "monoMs": 1210.428,
+          "uptimeMs": 1208.822
+        },
+        {
+          "stage": "node_exit",
+          "wallMs": 1792204113262,
+          "monoMs": 1416.181,
+          "uptimeMs": 1414.58
+        }
+      ]
+    }
+  },
+  {
+    "head": "c19d63e",
+    "id": "dir-deep-coding-1-1",
+    "mode": "deep",
+    "tool": "coding",
+    "round": 1,
+    "boot": 1,
+    "initialization": "existing-empty-data",
+    "ensureMs": 812.417,
+    "formalMs": 1.314,
+    "totalMs": 813.731,
+    "backendPid": 43459,
+    "backendExitCode": 0,
+    "parent": [
+      {
+        "stage": "ensure_begin",
+        "wallMs": 1792204113282,
+        "monoMs": 2637.012
+      },
+      {
+        "stage": "socket_attempt_begin",
+        "wallMs": 1792204113282,
+        "monoMs": 2637.114
+      },
+      {
+        "stage": "socket_attempt_failed",
+        "wallMs": 1792204113282,
+        "monoMs": 2637.378,
+        "code": "connection_error"
+      },
+      {
+        "stage": "socket_attempt_begin",
+        "wallMs": 1792204113282,
+        "monoMs": 2637.384
+      },
+      {
+        "stage": "socket_attempt_failed",
+        "wallMs": 1792204113282,
+        "monoMs": 2637.483,
+        "code": "connection_error"
+      },
+      {
+        "stage": "parent_spawn_begin",
+        "wallMs": 1792204113282,
+        "monoMs": 2637.582
+      },
+      {
+        "stage": "parent_spawn_return",
+        "wallMs": 1792204113283,
+        "monoMs": 2638.083,
+        "pid": 43459
+      },
+      {
+        "stage": "socket_attempt_begin",
+        "wallMs": 1792204113283,
+        "monoMs": 2638.134
+      },
+      {
+        "stage": "socket_attempt_failed",
+        "wallMs": 1792204113283,
+        "monoMs": 2638.285,
+        "code": "connection_error"
+      },
+      {
+        "stage": "socket_attempt_begin",
+        "wallMs": 1792204113485,
+        "monoMs": 2840.431
+      },
+      {
+        "stage": "socket_attempt_failed",
+        "wallMs": 1792204113485,
+        "monoMs": 2840.604,
+        "code": "connection_error"
+      },
+      {
+        "stage": "socket_attempt_begin",
+        "wallMs": 1792204113688,
+        "monoMs": 3042.744
+      },
+      {
+        "stage": "socket_attempt_failed",
+        "wallMs": 1792204113688,
+        "monoMs": 3042.894,
+        "code": "connection_error"
+      },
+      {
+        "stage": "socket_attempt_begin",
+        "wallMs": 1792204113890,
+        "monoMs": 3245.061
+      },
+      {
+        "stage": "socket_attempt_failed",
+        "wallMs": 1792204113890,
+        "monoMs": 3245.215,
+        "code": "connection_error"
+      },
+      {
+        "stage": "socket_attempt_begin",
+        "wallMs": 1792204114092,
+        "monoMs": 3447.293
+      },
+      {
+        "stage": "socket_attempt_success",
+        "wallMs": 1792204114092,
+        "monoMs": 3447.462
+      },
+      {
+        "stage": "request_begin",
+        "wallMs": 1792204114092,
+        "monoMs": 3447.471,
+        "op": "auth"
+      },
+      {
+        "stage": "request_success",
+        "wallMs": 1792204114093,
+        "monoMs": 3448.408,
+        "op": "auth"
+      },
+      {
+        "stage": "request_begin",
+        "wallMs": 1792204114093,
+        "monoMs": 3448.41,
+        "op": "ping"
+      },
+      {
+        "stage": "request_success",
+        "wallMs": 1792204114094,
+        "monoMs": 3449.359,
+        "op": "ping"
+      },
+      {
+        "stage": "ensure_return",
+        "wallMs": 1792204114094,
+        "monoMs": 3449.425,
+        "ok": true
+      },
+      {
+        "stage": "formal_start",
+        "wallMs": 1792204114094,
+        "monoMs": 3449.486
+      },
+      {
+        "stage": "socket_attempt_begin",
+        "wallMs": 1792204114094,
+        "monoMs": 3449.503
+      },
+      {
+        "stage": "socket_attempt_success",
+        "wallMs": 1792204114094,
+        "monoMs": 3449.605
+      },
+      {
+        "stage": "request_begin",
+        "wallMs": 1792204114094,
+        "monoMs": 3449.612,
+        "op": "auth"
+      },
+      {
+        "stage": "request_success",
+        "wallMs": 1792204114095,
+        "monoMs": 3449.987,
+        "op": "auth"
+      },
+      {
+        "stage": "request_begin",
+        "wallMs": 1792204114095,
+        "monoMs": 3449.991,
+        "op": "connect"
+      },
+      {
+        "stage": "request_success",
+        "wallMs": 1792204114096,
+        "monoMs": 3450.726,
+        "op": "connect"
+      },
+      {
+        "stage": "formal_snapshot",
+        "wallMs": 1792204114096,
+        "monoMs": 3450.733
+      },
+      {
+        "stage": "formal_state",
+        "wallMs": 1792204114096,
+        "monoMs": 3450.738,
+        "state": "online"
+      },
+      {
+        "stage": "formal_online",
+        "wallMs": 1792204114096,
+        "monoMs": 3450.74
+      },
+      {
+        "stage": "request_begin",
+        "wallMs": 1792204114096,
+        "monoMs": 3450.742,
+        "op": "stop"
+      },
+      {
+        "stage": "request_success",
+        "wallMs": 1792204114096,
+        "monoMs": 3451.366,
+        "op": "stop"
+      },
+      {
+        "stage": "formal_state",
+        "wallMs": 1792204114096,
+        "monoMs": 3451.397,
+        "state": "closed"
+      },
+      {
+        "stage": "backend_exit",
+        "wallMs": 1792204114108,
+        "monoMs": 3463.364,
+        "code": 0,
+        "signal": null
+      }
+    ],
+    "backend": {
+      "pid": 43459,
+      "events": [
+        {
+          "stage": "node_preload_ready",
+          "wallMs": 1792204113319,
+          "monoMs": 20.149,
+          "uptimeMs": 17.026
+        },
+        {
+          "stage": "bin_body",
+          "wallMs": 1792204113329,
+          "monoMs": 30.652,
+          "uptimeMs": 27.527
+        },
+        {
+          "stage": "tsx_register_begin",
+          "wallMs": 1792204113329,
+          "monoMs": 30.658,
+          "uptimeMs": 27.531
+        },
+        {
+          "stage": "tsx_register_end",
+          "wallMs": 1792204113331,
+          "monoMs": 31.995,
+          "uptimeMs": 28.868
+        },
+        {
+          "stage": "main_import_begin",
+          "wallMs": 1792204113331,
+          "monoMs": 31.998,
+          "uptimeMs": 28.87
+        },
+        {
+          "stage": "main_body",
+          "wallMs": 1792204113349,
+          "monoMs": 50.612,
+          "uptimeMs": 47.487
+        },
+        {
+          "stage": "runCli_begin",
+          "wallMs": 1792204113349,
+          "monoMs": 50.654,
+          "uptimeMs": 47.526
+        },
+        {
+          "stage": "runServer_begin",
+          "wallMs": 1792204113350,
+          "monoMs": 50.768,
+          "uptimeMs": 47.64
+        },
+        {
+          "stage": "runtime_import_begin",
+          "wallMs": 1792204113350,
+          "monoMs": 50.789,
+          "uptimeMs": 47.661
+        },
+        {
+          "stage": "runtime_import_end",
+          "wallMs": 1792204113982,
+          "monoMs": 683.363,
+          "uptimeMs": 680.238
+        },
+        {
+          "stage": "control_import_begin",
+          "wallMs": 1792204113982,
+          "monoMs": 683.369,
+          "uptimeMs": 680.241
+        },
+        {
+          "stage": "control_import_end",
+          "wallMs": 1792204113983,
+          "monoMs": 684.62,
+          "uptimeMs": 681.493
+        },
+        {
+          "stage": "runtime_start_begin",
+          "wallMs": 1792204113984,
+          "monoMs": 684.676,
+          "uptimeMs": 681.548
+        },
+        {
+          "stage": "db_begin",
+          "wallMs": 1792204113989,
+          "monoMs": 689.948,
+          "uptimeMs": 686.822
+        },
+        {
+          "stage": "db_end",
+          "wallMs": 1792204113990,
+          "monoMs": 690.893,
+          "uptimeMs": 687.765
+        },
+        {
+          "stage": "runtime_constructor_begin",
+          "wallMs": 1792204113990,
+          "monoMs": 690.9,
+          "uptimeMs": 687.772
+        },
+        {
+          "stage": "runtime_constructor_end",
+          "wallMs": 1792204113990,
+          "monoMs": 691.294,
+          "uptimeMs": 688.167
+        },
+        {
+          "stage": "model_runtime_begin",
+          "wallMs": 1792204113990,
+          "monoMs": 691.313,
+          "uptimeMs": 688.186
+        },
+        {
+          "stage": "model_runtime_end",
+          "wallMs": 1792204113993,
+          "monoMs": 694.502,
+          "uptimeMs": 691.375
+        },
+        {
+          "stage": "model_catalog_begin",
+          "wallMs": 1792204113993,
+          "monoMs": 694.612,
+          "uptimeMs": 691.484
+        },
+        {
+          "stage": "model_catalog_end",
+          "wallMs": 1792204113994,
+          "monoMs": 695.157,
+          "uptimeMs": 692.029
+        },
+        {
+          "stage": "app_data_begin",
+          "wallMs": 1792204113994,
+          "monoMs": 695.158,
+          "uptimeMs": 692.03
+        },
+        {
+          "stage": "app_data_end",
+          "wallMs": 1792204113994,
+          "monoMs": 695.562,
+          "uptimeMs": 692.435
+        },
+        {
+          "stage": "sources_begin",
+          "wallMs": 1792204113994,
+          "monoMs": 695.563,
+          "uptimeMs": 692.435
+        },
+        {
+          "stage": "sources_end",
+          "wallMs": 1792204113994,
+          "monoMs": 695.634,
+          "uptimeMs": 692.507
+        },
+        {
+          "stage": "host_tools_begin",
+          "wallMs": 1792204113994,
+          "monoMs": 695.665,
+          "uptimeMs": 692.537
+        },
+        {
+          "stage": "host_tools_end",
+          "wallMs": 1792204113995,
+          "monoMs": 696.191,
+          "uptimeMs": 693.063
+        },
+        {
+          "stage": "browser_recover_begin",
+          "wallMs": 1792204113995,
+          "monoMs": 696.206,
+          "uptimeMs": 693.078
+        },
+        {
+          "stage": "browser_recover_end",
+          "wallMs": 1792204113995,
+          "monoMs": 696.218,
+          "uptimeMs": 693.09
+        },
+        {
+          "stage": "runtime_recover_begin",
+          "wallMs": 1792204113995,
+          "monoMs": 696.218,
+          "uptimeMs": 693.09
+        },
+        {
+          "stage": "runtime_recover_end",
+          "wallMs": 1792204113996,
+          "monoMs": 696.813,
+          "uptimeMs": 693.685
+        },
+        {
+          "stage": "orchestrator_begin",
+          "wallMs": 1792204113996,
+          "monoMs": 697.337,
+          "uptimeMs": 694.209
+        },
+        {
+          "stage": "orchestrator_end",
+          "wallMs": 1792204113997,
+          "monoMs": 698.032,
+          "uptimeMs": 694.904
+        },
+        {
+          "stage": "runtime_start_end",
+          "wallMs": 1792204113997,
+          "monoMs": 698.261,
+          "uptimeMs": 695.134
+        },
+        {
+          "stage": "control_start_begin",
+          "wallMs": 1792204113997,
+          "monoMs": 698.263,
+          "uptimeMs": 695.135
+        },
+        {
+          "stage": "control_socket_listening",
+          "wallMs": 1792204113998,
+          "monoMs": 698.821,
+          "uptimeMs": 695.693
+        },
+        {
+          "stage": "control_start_end",
+          "wallMs": 1792204113998,
+          "monoMs": 698.973,
+          "uptimeMs": 695.846
+        },
+        {
+          "stage": "main_import_end",
+          "wallMs": 1792204113998,
+          "monoMs": 699.228,
+          "uptimeMs": 696.1
+        },
+        {
+          "stage": "node_exit",
+          "wallMs": 1792204114098,
+          "monoMs": 799.04,
+          "uptimeMs": 795.914
+        }
+      ]
+    }
+  }
+]

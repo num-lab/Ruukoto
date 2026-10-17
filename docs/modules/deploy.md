@@ -45,9 +45,9 @@
 |---|---|---|
 | `inspect` | `inspect <unit>` | 白名单内服务的固定状态字段与两项修订指纹；`systemctl show` 显式降到策略检查 UID/GID，应答含实际执行身份 uid/gid |
 | `restart` | `restart <hostOpId> <policyRev> <unitRev> <unit>` | 原子认领 → 复核修订与已加载配置 → `systemd-run --pipe --wait` 的短命命令单元内以 root 执行固定 `systemctl --system restart` |
-| `stop-op` | `stop-op <hostOpId>` | 只停由同一 `hostOpId` 派生的命令单元，核实整个单元退出后才报告 `exited:true` |
+| `stop-op` | `stop-op <hostOpId>` | 只停由同一 `hostOpId` 派生的命令单元，启动器进程组和整个单元均退出才报告 `exited:true` |
 
-应答是 stderr 上唯一一条 `RUUKOTO_SERVICE_REPLY ` 前缀的单行 JSON（`v: 1`），stdout 与 stderr 其余内容都是原始 systemctl 输出证据；不使用 fd3，因为 sudo 默认关闭 fd ≥ 3。`restart` 路径的 `systemd-run --pipe` 会把命令单元的 stderr 混入，机器调用方按前缀行提取。成功应答的字段：`inspect` 返回 `machineId`、`policyRevision`、`unitRevision`、`unit`、`state`、`execIdentity`、`observedAt`；`restart` 返回 `machineId`、`hostOpId`、`opUnit`、`launched`、`execIdentity`、`exitCode`、`observedAt`；`stop-op` 返回 `machineId`、`hostOpId`、`opUnit`、`exited`、`detail`。失败应答含 `ok:false`、`launched`、`reasonCode` 与 `error`。
+应答是 stderr 上唯一一条 `RUUKOTO_SERVICE_REPLY ` 前缀的单行 JSON（`v: 1`），stdout 与 stderr 其余内容都是原始 systemctl 输出证据；不使用 fd3，因为 sudo 默认关闭 fd ≥ 3。`restart` 路径的 `systemd-run --pipe` 会把命令单元的 stderr 混入，机器调用方按前缀行提取。成功应答的字段：`inspect` 返回 `machineId`、`policyRevision`、`unitRevision`、`unit`、`state`、`execIdentity`、`observedAt`；`restart` 返回 `machineId`、`hostOpId`、`opUnit`、`launched`、`execIdentity`、`exitCode`、`observedAt`；`stop-op` 返回 `machineId`、`hostOpId`、`opUnit`、`launcherExited`、`exited`、`detail`。失败应答含 `ok:false`、`launched`、`reasonCode` 与 `error`。
 
 调用侧固定入口：生产经 `/usr/bin/sudo -n <helper> …`（`RUUKOTO_SERVICE_SUDO` 决定 sudo 路径），受控替身以当前 node 直接执行脚本；两条路径都是固定 argv、`PATH` 最小化、进程组可整组回收。
 
@@ -80,11 +80,11 @@ stateDiagram-v2
   未认领 --> 已认领: mkdir 原子创建（同 ID 再创建即 EEXIST 拒绝）
   已认领 --> 已拦下: stop-op 写入 stop-requested（启动前）
   未认领 --> 已拦下: stop-op 先创建目录并写 stop-requested
-  已认领 --> 已核实退出: 命令单元 LoadState/ActiveState/MainPID/ControlPID 全部确认退出，写 stopped.json
+  已认领 --> 已核实退出: 启动器组、创建请求与命令单元退出均核实，写 stopped.json
   已认领 --> 已认领: 查询失败不释放占用
 ```
 
-`claim.json` 记录单元与两项期望修订，标记持久保留，不随瞬态单元回收而删除；它只证明执行权已认领，不是服务已重启的证据。
+`claim.json` v2 记录单元、两项期望修订与启动器 PID、Linux starttime、进程组和 boot ID；标记持久保留，只证明执行权已认领。`systemd-run --wait` 退出 0 后保存绑定原身份的 `launcher-completed.json`；停止查询实际观察到原命令单元为 loaded 时保存 `unit-observed.json`。这些证明让后续 not-found 可判为退出；缺少证明时，即使启动器组已消失，也不能排除尚未处理的 D-Bus 创建请求。旧、缺失或损坏的认领不提供停止证明，保留占用。
 
 **派生命令单元** `ruukoto-service-op-<hostOpId>.service`：`KillMode=control-group`，`RuntimeMaxSec=120`，单元内以 root 执行固定的 `systemctl --system restart`。停止协议只接受由同一操作 ID 派生的单元，不能指定任意目标。
 
@@ -142,7 +142,7 @@ sequenceDiagram
   H-->>M: 授权依据（如长期授权 ID 与版本）、管理命令结果、随后观察到的服务状态
 ```
 
-**执行与回收**。每个宿主操作派生一个短命命令单元，`RuntimeMaxSec=120` 给命令单元有界运行时间；宿主在异步启动前把该单元登记进受管执行单元表（`kind: systemd_unit`），停止路径据此调用 `stop-op`。停止协议先阻断后续启动（认领或 `stop-requested`），再停派生命令单元；只有查询确认整个单元退出才报告 `exited:true`，权限错误、bus 不可达与查询失败都不当作已退出，占用保留。已经提交 PID 1 的重启作业不撤回，取消不自动停止目标服务作为回滚。
+**执行与回收**。每个宿主操作派生一个短命命令单元，`RuntimeMaxSec=120` 给命令单元有界运行时间；宿主在异步启动前把该单元登记进受管执行单元表（`kind: systemd_unit`），停止路径据此调用 `stop-op`。停止协议先写标记、观察并停命令单元，再核实启动器身份退出、进程组消失及整个单元退出；单元已回收时还需上述创建请求证明。先手 stop-op 自己原子认领或已跨系统重启时可排除旧派发。全部成立才报告 `launcherExited:true, exited:true`；否则保留占用。权限错误、bus 不可达与查询失败不当作已退出。已经提交 PID 1 的服务重启作业不撤回，取消不自动停止目标服务作为回滚。
 
 **结果与恢复**。正常重启分述两件事：「管理命令结果」（`systemctl restart` 的退出码）与「随后观察到的服务状态」（`InvocationID` 对照：变化即确实经过新的启动周期）。退出码 0 表示 systemd 接受并完成重启动作，不等同于服务 active，更不等同于业务健康；`InvocationID` 未变化时提示核实。操作后状态查询失败保留已知命令结果并说明无法核实，不伪装成功。非零退出可能含部分效果（例如已停止但未能启动），如实报告退出码与输出，不描述为零执行。
 

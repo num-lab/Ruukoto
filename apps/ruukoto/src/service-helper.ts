@@ -30,7 +30,7 @@ export interface ServiceState {
 export type HelperReply =
   | { v: 1; verb: "inspect"; ok: true; machineId: string; policyRevision: string; unitRevision: string; unit: string; state: ServiceState; execIdentity?: { uid: number; gid: number }; observedAt: string }
   | { v: 1; verb: "restart"; ok: true; machineId: string; hostOpId: string; opUnit: string; launched: true; execIdentity?: string; exitCode: number; observedAt: string }
-  | { v: 1; verb: "stop-op"; ok: true; machineId: string; hostOpId: string; opUnit: string; exited: boolean; detail?: string }
+  | { v: 1; verb: "stop-op"; ok: true; machineId: string; hostOpId: string; opUnit: string; launcherExited?: boolean; exited: boolean; detail?: string }
   | { v: 1; verb: string; ok: false; launched?: boolean; reasonCode?: string; error?: string };
 
 export class ServiceHelperError extends Error {

@@ -25,7 +25,7 @@ npm run change-scope -- --base <已核实的基点引用>
 | 改动面 | 跑到哪一级 |
 |---|---|
 | `packages/` 或 `apps/` 某模块的行为 | 该区的定向用例，文件名从 [开发说明的映射表](../../../docs/development.md#日常反馈) 查；跨模块契约变化时加调用方的用例 |
-| `apps/ruukoto/src/personal-*.ts`（`npm run personal:durable`） | `npx tsx --test test/personal-durable.test.ts test/personal-cli.test.ts test/personal-services.test.ts test/personal-work.test.ts`；真实模型用 `verification/smoke/smoke-personal-durable.mts`，须显式开关与模型配置（见[操作手册](../../../docs/usage.md#25-个人-durable-隔离向导)）；Pi 依赖变动另跑构建和 `test/71-product-entry.test.ts`、`test/122-workflow-code-acceptance.test.ts`，不将隔离入口通过记作正式迁移完成 |
+| `apps/ruukoto/src/personal-*.ts`（`npm run personal:durable`） | `npx tsx --test test/personal-durable.test.ts test/personal-cli.test.ts test/personal-services.test.ts test/personal-work.test.ts test/personal-service-operations.test.ts`；真实模型用 `verification/smoke/smoke-personal-durable.mts`，须显式开关与模型配置（见[操作手册](../../../docs/usage.md#25-个人-durable-隔离向导)）；Pi 依赖变动另跑构建和 `test/71-product-entry.test.ts`、`test/122-workflow-code-acceptance.test.ts`，不将隔离入口通过记作正式迁移完成 |
 | `packages/core/src/` 的 schema、存储、会话身份 | `npx tsx --test test/01-concurrency.test.ts test/03-lifecycle.test.ts test/04-crash-recovery.test.ts test/05-overflow-db.test.ts`，另加直接断言该表或该状态机的用例 |
 | `packages/agent/src/` 的工具、审批、权限 | `npx tsx --test test/07-real-tools.test.ts test/08-approvals.test.ts test/10-access-modes.test.ts test/63-approval-gate.test.ts test/64-tool-op-ledger.test.ts` |
 | 浏览器管理器、宿主工具与截图 | `npx tsx --test test/browser-lifecycle.test.ts test/browser-tools.test.ts test/62-tool-availability.test.ts test/111-workflow-capabilities.test.ts`；权限、Runtime、实例锁及 CLI 导出再按对应行选回归；真实环境探针与真实模型分别记证据；显式入口为 `RUN_MODEL_CHECK=1 RUN_BROWSER_MODELS_FILE=/path/models.json npx tsx --test test/browser-model-acceptance.test.ts`，另需浏览器路径 |
@@ -53,7 +53,7 @@ npm run change-scope -- --base <已核实的基点引用>
 | `scripts/test-app.mjs` 的分批与退出 | `npx tsx --test test/124-test-app-runner.test.ts`；macOS 独占 100/101-helper 后才执行其余文件，保持完整分配与失败透传 |
 | `verification/foundation/` | `npm run test:foundation` |
 | `verification/smoke/` | 该 smoke 入口；需要 Docker、凭据或真实平台时先确认前提，缺前提报告「不可用」，不记为通过 |
-| `deploy/` | 相关 README 的步骤能否仍被执行；改 systemd 单元时加 `npm run build`、替换实际账户与 Node 路径后的模板核实，并按实际账户演练原生前置与 scope 停止 |
+| `deploy/` | 相关 README 的步骤能否仍被执行；服务 helper 加 `test/service-helper-stop.test.ts`（Linux 真实进程与系统命令桩）和 78/79 旧调用方回归；改 systemd 单元时加 `npm run build`、替换实际账户与 Node 路径后的模板核实，并按实际账户演练原生前置与 scope 停止 |
 | `package.json` 的 scripts、依赖、构建入口 | `npm run build`，加 `npm run lint` 与 `npm run typecheck` |
 
 `.scratch/` 的工单与证据不改行为，不需要跑检查；其中的验证记录要区分模拟结果与真实环境结果。

@@ -1,0 +1,11 @@
+{
+  "argv": [
+    "npm",
+    "run",
+    "setup",
+    "--",
+    "--skip-hooks"
+  ],
+  "cwd": "/tmp/ruukoto-helper-stop-06-test",
+  "result": "npm ci ENOSPC; no tests started; command journal write also failed"
+}

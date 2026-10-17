@@ -1,0 +1,61 @@
+[
+  {
+    "name": "setup",
+    "argv": [
+      "npm",
+      "run",
+      "setup",
+      "--",
+      "--skip-hooks"
+    ],
+    "cwd": "/dev/shm/ruukoto-helper-stop-06-test",
+    "RUN_MODEL_CHECK": "0",
+    "exitCode": 0,
+    "durationSeconds": 35.35809569619596
+  },
+  {
+    "name": "personal",
+    "argv": [
+      "npx",
+      "tsx",
+      "--test",
+      "test/personal-durable.test.ts",
+      "test/personal-cli.test.ts",
+      "test/personal-services.test.ts",
+      "test/personal-work.test.ts",
+      "test/personal-service-operations.test.ts"
+    ],
+    "cwd": "/dev/shm/ruukoto-helper-stop-06-test",
+    "RUN_MODEL_CHECK": "0",
+    "exitCode": 0,
+    "durationSeconds": 21.464749502018094
+  },
+  {
+    "name": "legacy-services",
+    "argv": [
+      "npx",
+      "tsx",
+      "--test",
+      "test/78-linux-service-management.test.ts",
+      "test/79-standing-permissions.test.ts"
+    ],
+    "cwd": "/dev/shm/ruukoto-helper-stop-06-test",
+    "RUN_MODEL_CHECK": "0",
+    "exitCode": 0,
+    "durationSeconds": 26.260768650099635
+  },
+  {
+    "name": "production-helper-root",
+    "argv": [
+      "sudo",
+      "-n",
+      "/usr/local/bin/node",
+      "--test",
+      "test/service-helper-stop.test.ts"
+    ],
+    "cwd": "/dev/shm/ruukoto-helper-stop-06-test",
+    "RUN_MODEL_CHECK": "0",
+    "exitCode": 0,
+    "durationSeconds": 6.959447620436549
+  }
+]

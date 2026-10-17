@@ -1,0 +1,65 @@
+command: ["/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/.bin/tsx", "--test", "--test-name-pattern=throw", "/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-mcp-review-evidence-8gqec6dk/test/mcp-transport.test.ts"]
+exit: 1
+stdout:
+✖ MCP 传输：初始化凭据 throw 不降级匿名或泄露异常，零外调 (8.167875ms)
+✖ MCP 传输：每请求重读凭据，后续 throw 在网络前停止且不重发 (19.091ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 0
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 217.297834
+
+✖ failing tests:
+
+test at ../../../../../../private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-mcp-review-evidence-8gqec6dk/test/mcp-transport.test.ts:43:3
+✖ MCP 传输：初始化凭据 throw 不降级匿名或泄露异常，零外调 (8.167875ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+
+  + 'connect_failed'
+  - 'auth_failed'
+
+      at Object.<anonymous> (/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-mcp-review-evidence-8gqec6dk/test/mcp-transport.test.ts:51:16)
+      at expectedException (node:assert:578:17)
+      at expectsError (node:assert:703:21)
+      at strict.rejects (node:assert:769:3)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async TestContext.<anonymous> (/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-mcp-review-evidence-8gqec6dk/test/mcp-transport.test.ts:46:7)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'connect_failed',
+    expected: 'auth_failed',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at ../../../../../../private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-mcp-review-evidence-8gqec6dk/test/mcp-transport.test.ts:59:3
+✖ MCP 传输：每请求重读凭据，后续 throw 在网络前停止且不重发 (19.091ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+
+  + 'connect_failed'
+  - 'auth_failed'
+
+      at Object.<anonymous> (/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-mcp-review-evidence-8gqec6dk/test/mcp-transport.test.ts:76:16)
+      at expectedException (node:assert:578:17)
+      at expectsError (node:assert:703:21)
+      at strict.rejects (node:assert:769:3)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async TestContext.<anonymous> (/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-mcp-review-evidence-8gqec6dk/test/mcp-transport.test.ts:74:7)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'connect_failed',
+    expected: 'auth_failed',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+stderr:

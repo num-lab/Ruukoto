@@ -27,6 +27,9 @@
 | channels | IM 审批 | 拥有者私聊的审批命令在同步事务内直接到终态，绑定原请求与原权限版本并单次消费 |
 | 调度通知 | 目标解析 | 调度通知目标从本次调用的任务编号读取来源事件，由拥有者 IM 入口确定 |
 | ToolRouter | 编码工具、结构化审批、产物读取 | `read` / `edit` / `write` / `bash`、`request_file_access` / `http_request`、`read_artifact` 继续经 ToolRouter；MCP 按任务钉版计划装配 |
+| MCP HTTP 传输 | `mcp/transport.ts` 的 `connectMcpEndpoint` | 接收服务标识、固定端点、超时和逐请求 token resolver；宿主负责来源范围与凭据校验，调用方持有并关闭连接；`mcp/client.ts` 适配旧项目并重导出原符号 |
+
+共享 MCP 传输用 SDK 的分页限额最多请求 16 页，达到上限且仍需继续分页时报 `too_many_pages`，不将超限结果当成功清单返回；成功汇总后仍限制最多 64 个工具。
 
 `read` 可读取文本与 JPEG、PNG、WebP 图片，按实际文件内容识别，图片结果连同正文进入会话历史与 prompt 快照。所选模型不支持 image 时，发送前以 `image_input_unsupported` 明确失败；图片处理与传输上限见 [execution](execution.md)。
 
@@ -248,6 +251,8 @@ sequenceDiagram
 宿主绑定的[工作流步骤](workflows.md)另有来源画像，普通 SubAgent 不因此扩权。步骤工具是保存的来源类别、当前配置与步骤收窄的交集；main 的编码资格只映射已有受控委派的五个工具。发送、意图和实际调用前复核来源，个人业务身份属于来源，执行与审批归步骤 Task；工作流 `verify` 独立于角色，与 `target` 互斥，只开放五个编码工具并使用原生沙箱；任意角色均不能放宽。零工具、失败或未知效果不能由通过文本覆盖，汇入前重新核实账本与冻结归属。
 
 ## 设计依据
+
+- [MCP 传输由宿主提供凭据而不持有旧项目](../../.agents/notes/implemented/architecture/2026-10-17-mcp-transport-reuse.md)：没有 resolver 才匿名，空 token 或普通解析异常在网络前拒绝；关闭本地等待不证明远端停止。
 
 - [运行中任务的收尾协议](../../.agents/notes/implemented/architecture/2026-10-16-task-ending-protocol.md)
 

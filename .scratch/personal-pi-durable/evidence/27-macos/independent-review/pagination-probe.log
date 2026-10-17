@@ -1,0 +1,5 @@
+exit: 0
+stdout:
+configured maxListPages=16; actual tools/list requests=17; returned tools=17
+
+stderr:

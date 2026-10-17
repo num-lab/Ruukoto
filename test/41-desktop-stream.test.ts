@@ -131,7 +131,7 @@ test("桌面人工重连创建了新连接时，仍以实例身份清空旧标�
 });
 
 test("桌面通知导航按实例定位后消费，同实例快照不抢回已切换的会话", () => {
-  const model = new CodeState({ request: async () => ({ ok: true, value: undefined }) }, () => {}, "personal");
+  const model = new CodeState({ request: async (_target, op) => ({ ok: true, value: op === "work_list" ? { works: [] } : op === "read_history" ? { fileAvailable: true, hasPartialTail: false, entries: [], nextBefore: null } : op === "list_tasks" ? { tasks: [], hasMore: false } : { records: [], hasMore: false } }) }, () => {}, "personal");
   const result = { seq: 0, replay: [], snapshot: fakeSnapshot({ sessions: [session, { ...session, id: "second" }] }) };
   model.update({ type: "snapshot", result, instanceChanged: false });
   model.update({ type: "navigate", instanceId: "inst-1", navigation: { sessionId: "session", taskId: "task" } });

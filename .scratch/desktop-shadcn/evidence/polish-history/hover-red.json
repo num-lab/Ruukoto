@@ -1,0 +1,26 @@
+[
+  {
+    "background": "oklch(0.269 0 0)",
+    "closeOpacity": "0.8",
+    "hover": true,
+    "mask": "linear-gradient(to right, rgb(0, 0, 0) calc(100% - 28px), rgba(0, 0, 0, 0) calc(100% - 12px))",
+    "selected": "inactive",
+    "text": "MCP stdio connection pool & backoff"
+  },
+  {
+    "background": "rgba(0, 0, 0, 0)",
+    "closeOpacity": "0",
+    "hover": false,
+    "mask": "none",
+    "selected": "inactive",
+    "text": "Tokyo JST departure time hydration fix"
+  },
+  {
+    "background": "oklch(0.269 0 0)",
+    "closeOpacity": "0",
+    "hover": false,
+    "mask": "none",
+    "selected": "active",
+    "text": "Offline IndexedDB sync for Shinkansen pass"
+  }
+]

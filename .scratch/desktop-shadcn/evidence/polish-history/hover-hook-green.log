@@ -1,0 +1,1 @@
+PASS: drag/drop/cancel suppress stale hover, pointer restores it, keyboard focus retained

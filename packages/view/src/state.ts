@@ -60,6 +60,7 @@ export class ViewState {
   execution: { backend: string; note: string } = { backend: "", note: "" };
   /** 逻辑角色绑定的会话（快照提供；角色只在后台启动时引导，不随事件新增）。 */
   roleSessionIds: string[] = [];
+  mainSessionId: string | null = null;
   /** SubAgent 的内部工作会话（快照 + work_delegation.created 事件补齐；普通工作区入口排除）。 */
   subAgentSessionIds: string[] = [];
   /** 工作委托（issue 11；快照 + work_delegation.created 事件补齐）。 */
@@ -103,6 +104,7 @@ export class ViewState {
     this.execution = result.snapshot.execution;
     this.defaultModel = result.snapshot.defaultModel ?? this.defaultModel;
     this.roleSessionIds = result.snapshot.roleSessionIds ?? [];
+    this.mainSessionId = result.snapshot.mainSessionId;
     this.subAgentSessionIds = result.snapshot.subAgentSessionIds ?? [];
     this.workDelegations = result.snapshot.workDelegations ?? [];
     this.subAgents = result.snapshot.subAgents ?? [];

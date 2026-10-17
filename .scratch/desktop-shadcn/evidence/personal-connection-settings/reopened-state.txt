@@ -1,0 +1,32 @@
+Browser tab: 4, Title: "Ruukoto · Desktop UI Demo", URL: "http://127.0.0.1:5173/".
+1 AXWebArea Ruukoto · Desktop UI Demo, URL: 127.0.0.1:5173/
+	2 container 设置, ID: radix-_r_4_
+		3 text 选择左侧类别查看设置项。
+		4 heading 设置, Value: 2, ID: radix-_r_5_
+			5 text 设置
+		6 tab group 设置类别
+			7 tab (selectable, settable, boolean) 外观, ID: radix-_r_15_-trigger-appearance, Value: 0
+外观
+			10 tab (selected, settable, boolean) PA 远程连接, Value: 1, ID: radix-_r_15_-trigger-personal-connection
+				21 image
+				22 text PA 远程连接
+			11 tab (selectable, settable, boolean) 演示状态, ID: radix-_r_15_-trigger-scenarios, Value: 0
+演示状态
+		23 container Description: PA 远程连接, ID: radix-_r_15_-content-personal-connection
+			24 heading PA 远程连接, Value: 2
+				25 text PA 远程连接
+			26 container PA 远程连接
+				27 container
+					28 text SSH 主机别名
+					29 text field (settable) SSH 主机别名, Value: pa-server, ID: personal-host
+					30 text 使用本机 SSH 配置中的主机别名。
+				31 container
+					32 text 远端控制目录
+					33 text field (settable) 远端控制目录, Value: /srv/ruukoto/control, ID: personal-control-dir
+				34 text 仅在本次演示中保存，不建立真实 SSH 连接。
+				35 button 保存配置
+		18 button 关闭
+			19 image
+			20 text 关闭
+
+The focused UI element is 10 tab (selected, settable, boolean) PA 远程连接, Value: 1, ID: radix-_r_15_-trigger-personal-connection

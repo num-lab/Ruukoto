@@ -1,0 +1,25 @@
+✔ Git 历史保留真实分叉合并、父提交、作者与显式本地/远程/标签引用 (174.611ms)
+✔ 非仓库与空仓库不同，子目录和真实 worktree 使用所在仓库 (104.284166ms)
+✔ Git 读取排除注入环境与全局配置，不执行 hook/pager/signature 命令 (65.543458ms)
+✔ 保护目录、元数据符号链接、外部对象库与目录身份替换不会返回历史 (45.084125ms)
+✔ 超过400条真实历史可连续分页到根提交，跨页分支合并无重复遗漏 (2406.306333ms)
+✔ Git游标绑定全部refs、HEAD、shallow、Git身份和工作区，非仓库也拒绝旧游标 (1429.235125ms)
+✔ worktree分页游标同时绑定外部common Git目录身份 (1196.099209ms)
+✔ grafts跨页变化淘汰旧游标，保留稳定grafts支持：普通仓库 (1283.36375ms)
+✔ grafts跨页变化淘汰旧游标，保留稳定grafts支持：common Git目录 (1259.530375ms)
+✔ 同一页log返回后grafts变化也返回changed (653.344833ms)
+✔ 同一页读取期间refs变化返回changed，不把不同修订拼入历史 (468.645417ms)
+✔ Git missing 失败有可判别 code 且不泄漏 stderr (10.7475ms)
+✔ Git failed 失败有可判别 code 且不泄漏 stderr (130.302458ms)
+✔ Git invalid 失败有可判别 code 且不泄漏 stderr (179.985458ms)
+✔ Git limit 失败有可判别 code 且不泄漏 stderr (137.414291ms)
+✔ Git timeout 失败有可判别 code 且不泄漏 stderr (5019.696208ms)
+✔ 拥有者 Git 接口只接受已登记工作区，额外路径/参数拒绝且不调用模型 (3518.5275ms)
+ℹ tests 17
+ℹ suites 0
+ℹ pass 17
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 19605.82425

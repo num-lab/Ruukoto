@@ -1,0 +1,160 @@
+Browser tab: 4, Title: "Ruukoto · Desktop UI Demo", URL: "http://127.0.0.1:5173/".
+0 AXWebArea Ruukoto · Desktop UI Demo, URL: 127.0.0.1:5173/
+	1 container root
+		2 container
+			3 container Description: 工作区导航, ID: left-sidebar
+				4 button 收起侧栏
+					5 image
+				6 button Ruukoto
+				7 text 工作区
+				8 button (collapsed) Description: 筛选工作区与会话, Secondary Actions: Expand
+					9 image
+				10 button 添加工作区
+					11 image
+				12 container
+					13 button (expanded) nexus-runtime, Secondary Actions: Collapse
+						14 image
+						15 image
+						16 text nexus-runtime
+					17 button 在 nexus-runtime 新建会话
+						18 image
+					19 container radix-_r_0_
+						20 button MCP stdio connection pool & backoff
+						21 button Zero-copy ring buffer for JSON-RPC
+				22 container
+					23 button (expanded) fumotravel-web, Secondary Actions: Collapse
+						24 image
+						25 image
+						26 text fumotravel-web
+					27 button 在 fumotravel-web 新建会话
+						28 image
+					29 container radix-_r_1_
+						30 button Offline IndexedDB sync for Shinkansen pass
+						31 button Tokyo JST departure time hydration fix
+				32 container
+					33 button (collapsed) eval-harness, Secondary Actions: Expand
+						34 image
+						35 image
+						36 text eval-harness
+					37 button 在 eval-harness 新建会话
+						38 image
+				39 container
+					40 button (collapsed) macos-menubar-kit, Secondary Actions: Expand
+						41 image
+						42 image
+						43 text macos-menubar-kit
+					44 button 在 macos-menubar-kit 新建会话
+						45 image
+				46 pop up button (collapsed) Description: 设置, Secondary Actions: Expand
+					47 image
+				48 splitter Description: 左侧栏宽度, Value: 200
+			49 tab group 已打开的会话
+				50 container
+					51 tab (selected, settable, boolean) Offline IndexedDB sync for Shinkansen pass, Value: 1, ID: radix-_r_7_-trigger-sess-ft-1
+					52 button 关闭Offline IndexedDB sync for Shinkansen pass
+						53 image
+				54 container
+					55 tab (selectable, settable, boolean) MCP stdio connection pool & backoff, Value: 0, ID: radix-_r_7_-trigger-sess-nx-1
+					56 button 关闭MCP stdio connection pool & backoff
+						57 image
+				58 container
+					59 tab (selectable, settable, boolean) Tokyo JST departure time hydration fix, Value: 0, ID: radix-_r_7_-trigger-sess-ft-2
+					60 button 关闭Tokyo JST departure time hydration fix
+						61 image
+			62 container
+				63 tab group 右侧标签
+					154 container
+						155 tab (selectable, settable, boolean) indexeddb.ts, ID: radix-_r_b_-trigger-src/lib/sync/indexeddb.ts, Value: 0
+indexeddb.ts
+						156 button 关闭右栏indexeddb.ts
+							157 image
+					158 container
+						159 tab (selectable, settable, boolean) Schema Auditor, ID: radix-_r_b_-trigger-ag-ft-1, Value: 0
+Schema Auditor
+						160 button 关闭右栏Schema Auditor
+							161 image
+					162 container
+						163 tab (selected, settable, boolean) Git graph, ID: radix-_r_b_-trigger-git:ws-fumo, Value: 1
+Git graph
+						164 button 关闭右栏Git graph
+							165 image
+				76 button 右栏新标签
+					77 image
+				78 button 收起右栏
+					79 image
+			80 container
+				166 container 会话消息
+					167 container
+						168 text Cache reserved Shinkansen seat segments in IndexedDB so travelers in mountain tunnels can view QR boarding passes offline, and reconcile CRDT timestamps on reconnect.
+						169 button Schema Auditor HLC clock verified
+							170 text Schema Auditor
+							171 text HLC clock verified
+						172 button (collapsed) Read files, edited files · 2.1s, Secondary Actions: Expand
+							173 text Read files, edited files
+							174 text ·
+							175 text 2.1s
+						176 container
+							177 text Added Hybrid Logical Clock (HLC) reconciliation in
+							178 link Description: src/lib/sync/indexeddb.ts, Value: 127.0.0.1:5173/#right-sidebar
+							179 text  and surfaced an understated offline indicator inside
+							180 link Description: src/components/PassTimeline.tsx, Value: 127.0.0.1:5173/#right-sidebar
+							181 text  when reading from cached tunnel state.
+						182 container 命令审批
+							183 text 在工作区运行命令
+							184 button 拒绝
+							185 button 批准
+							186 container
+								187 text $  pnpm test:unit src/lib/sync/indexeddb.spec.ts
+							188 text Validate CRDT merge ordering after offline tunnel reconnect
+				104 text entry area (settable) 输入消息
+				105 button 附加文件
+					106 image
+				107 combo box (collapsed) Description: 会话默认模式, Value: Auto review, Secondary Actions: Expand
+					108 text Auto review
+				109 button 上下文使用量
+				110 pop up button (collapsed) Description: 会话模型, ID: radix-_r_g_, Secondary Actions: Expand
+					111 image
+				112 button (disabled) 发送消息
+					113 image
+			114 container Description: 检查器, ID: right-sidebar
+				189 container Git graph
+					190 image
+					191 text fumotravel-web
+					192 text 只读样例
+					193 container Git 提交历史
+						194 content list
+							195 container
+								196 text 父提交：7d2c9b4、c24d8e6
+								197 button (collapsed) 分支 HEAD → main Merge offline pass caching, Secondary Actions: Expand
+									198 text 分支
+									199 text HEAD →
+									200 text main
+									201 text Merge offline pass caching
+							202 container
+								203 text 父提交：e68b2a9
+								204 button (collapsed) 远程分支 main origin Keep departure times in Asia/Tokyo, Secondary Actions: Expand
+									205 text 远程分支
+									206 text main
+									207 text origin
+									208 text Keep departure times in Asia/Tokyo
+							209 container
+								210 text 父提交：4b7a1d0
+								211 button (collapsed) Refine the pass timeline, Secondary Actions: Expand
+							212 container
+								213 text 父提交：4b7a1d0
+								214 button (collapsed) 分支 offline-cache Reconcile HLC timestamps on reconnect, Secondary Actions: Expand
+									215 text 分支
+									216 text offline-cache
+									217 text Reconcile HLC timestamps on reconnect
+							218 container
+								219 text 父提交：18f03c2
+								220 button (collapsed) 标签 v0.3.0 Cache reserved seat segments, Secondary Actions: Expand
+									221 text 标签
+									222 text v0.3.0
+									223 text Cache reserved seat segments
+							224 container
+								225 text 根提交
+								226 button (collapsed) Create Fumotravel workspace, Secondary Actions: Expand
+				153 splitter Description: 右侧栏宽度, Value: 260
+
+The focused UI element is 51 tab (selected, settable, boolean) Offline IndexedDB sync for Shinkansen pass, Value: 1, ID: radix-_r_7_-trigger-sess-ft-1

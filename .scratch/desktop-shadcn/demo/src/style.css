@@ -41,6 +41,15 @@ svg { width: 16px; height: 16px; flex-shrink: 0; stroke-width: 1.4; }
 code, pre { font-family: var(--font-mono); }
 .desktop-backdrop { width: 100%; height: 100dvh; display: flex; align-items: center; justify-content: center; }
 .app-window { width: 100%; height: 100%; max-width: 1440px; max-height: 920px; display: flex; overflow: hidden; position: relative; container-type: inline-size; --left-preferred-width: 200px; --right-preferred-width: 310px; --right-width: clamp(260px, var(--right-preferred-width), min(640px, calc(100cqw - var(--visible-left-width) - 220px))); --left-width: clamp(180px, var(--left-preferred-width), min(360px, calc(100cqw - var(--right-reserve) - 220px))); }
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+  /* 窗口的实色底会遮住玻璃层需要采样的背景。 */
+  .app-window { background: transparent; }
+  .left-sidebar, .canvas-header { background: color-mix(in oklch, var(--bg-sidebar) 72%, transparent); }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .app-window { background: var(--bg-canvas); }
+  .left-sidebar, .canvas-header { background: var(--bg-sidebar); backdrop-filter: none; -webkit-backdrop-filter: none; }
+}
 .left-sidebar { --sidebar-width: var(--left-width); position: relative; }
 .left-sidebar, .right-sidebar { width: var(--sidebar-width); flex-shrink: 0; display: flex; overflow: hidden; transition: width 200ms ease, opacity 200ms ease; }
 .left-sidebar.is-collapsed, .right-sidebar.is-collapsed { width: 0; opacity: 0; pointer-events: none; }
@@ -70,9 +79,9 @@ code, pre { font-family: var(--font-mono); }
 .workspace-add svg { height: 12px; width: 12px; }
 .workspace-sessions { margin: 3px 0 0 20px; display: flex; flex-direction: column; gap: 3px; }
 /* Radix 的折叠状态写在 data-state；保留原语源码，仅在 demo 内匹配状态。 */
-.workspace-collapse, .native-message-stream [data-slot="trace-collapsible-content"] { overflow: hidden; }
-:is(.workspace-collapse, .native-message-stream [data-slot="trace-collapsible-content"])[data-state="open"] { animation: demo-expand 180ms ease-out; }
-:is(.workspace-collapse, .native-message-stream [data-slot="trace-collapsible-content"])[data-state="closed"] { animation: demo-collapse 180ms ease-in; }
+.workspace-collapse, .git-commit-details, .native-message-stream [data-slot="trace-collapsible-content"] { overflow: hidden; }
+:is(.workspace-collapse, .git-commit-details, .native-message-stream [data-slot="trace-collapsible-content"])[data-state="open"] { animation: demo-expand 180ms ease-out; }
+:is(.workspace-collapse, .git-commit-details, .native-message-stream [data-slot="trace-collapsible-content"])[data-state="closed"] { animation: demo-collapse 180ms ease-in; }
 @keyframes demo-expand { from { height: 0; opacity: 0; } to { height: var(--radix-collapsible-content-height); opacity: 1; } }
 @keyframes demo-collapse { from { height: var(--radix-collapsible-content-height); opacity: 1; } to { height: 0; opacity: 0; } }
 .workspace-session { display: flex; align-items: center; gap: 7px; width: 100%; height: 29px; padding: 0 10px; border: 0; border-radius: 7px; background: transparent; text-align: left; font-size: 12.5px; }
@@ -97,15 +106,18 @@ code, pre { font-family: var(--font-mono); }
 .inspector-header.is-collapsed { width: 46px; gap: 0; border-bottom-color: transparent; }
 .inspector-header.is-collapsed::before { display: none; }
 .inspector-header.is-collapsed .right-header { opacity: 0; pointer-events: none; }
-.center-tabs { min-width: 0; flex: 1; overflow-x: auto; scrollbar-width: none; display: block; }
-.center-tabs [data-slot="tabs-list"], .right-tabs [data-slot="tabs-list"] { background: transparent; padding: 4px 0; height: auto; width: max-content; border-radius: 0; display: flex; gap: 4px; }
-.tab-group { display: flex; align-items: center; position: relative; flex-shrink: 0; }
+.center-tabs { min-width: 0; flex: 1; overflow-x: auto; scrollbar-width: none; display: block; container-type: inline-size; }
+.center-tabs [data-slot="tabs-list"], .right-tabs [data-slot="tabs-list"] { --tab-gap: 4px; --tab-width: clamp(96px, calc((100cqw - (var(--tab-count) - 1) * var(--tab-gap)) / var(--tab-count)), 180px); background: transparent; padding: 4px 0; height: auto; width: max-content; border-radius: 0; display: flex; gap: var(--tab-gap); }
+.tab-group { display: flex; align-items: center; position: relative; flex: 0 0 var(--tab-width); width: var(--tab-width); transform: translateX(calc(var(--tab-shift, 0) * (var(--tab-width) + var(--tab-gap)))); }
+.tab-group[data-sorting="true"] { transition: transform 160ms ease; }
+.tab-group[data-drag-source="true"] { opacity: 0; pointer-events: none; }
 .tab-group + .tab-group::before { content: ""; position: absolute; left: -2.5px; top: 50%; width: 1px; height: 12px; transform: translateY(-50%); background: var(--border); pointer-events: none; }
 .tab-group:has(> [data-state="active"])::before, .tab-group:has(> [data-state="active"]) + .tab-group::before { display: none; }
-.center-tabs .center-tab, .right-tabs .right-tab { display: flex; align-items: center; gap: 6px; height: 28px; min-width: 0; max-width: 210px; padding: 0 10px; border: 0; border-radius: 8px; color: var(--text-secondary); box-shadow: none; font-size: 12px; font-weight: 400; background: transparent; }
-.center-tab span, .right-tab span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.center-tabs .center-tab, .right-tabs .right-tab { display: flex; align-items: center; gap: 6px; justify-content: flex-start; height: 28px; min-width: 0; width: 100%; padding: 0 10px; border: 0; border-radius: 8px; color: var(--text-secondary); box-shadow: none; font-size: 12px; font-weight: 400; background: transparent; }
+.center-tab span, .right-tab span { flex: 1; min-width: 0; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .center-tabs .center-tab[data-state="active"], .right-tabs .right-tab[data-state="active"] { background: var(--accent); box-shadow: var(--segment-shadow); color: var(--text-primary); font-weight: 500; }
 .tab-group:hover > :is(.center-tab, .right-tab) { background: var(--bg-surface-hover); }
+.center-tab[draggable="true"], .right-tab[draggable="true"] { cursor: grab; }
 .tab-close { position: absolute; top: 6px; right: 5px; display: flex; align-items: center; justify-content: center; height: 16px; width: 16px; border: 0; border-radius: 4px; padding: 0; background: transparent; color: var(--text-muted); opacity: 0; }
 .tab-group:hover .tab-close, .tab-close:focus-visible { opacity: .8; }
 .tab-group:has(> .tab-close:not(:disabled)):is(:hover, :has(> .tab-close:focus-visible)) > :is(.center-tab, .right-tab) > span { mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent calc(100% - 12px)); }
@@ -173,9 +185,32 @@ code, pre { font-family: var(--font-mono); }
 .send-button:disabled { opacity: .4; }
 .right-sidebar { --sidebar-width: var(--right-width); max-width: 100%; position: relative; z-index: 20; }
 .right-header { display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0; overflow: hidden; transition: opacity 200ms ease; }
-.right-tabs { flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; display: block; }
-.right-tabs .right-tab { max-width: 148px; font-size: 11.5px; padding-left: 10px; }
+.right-tabs { flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; display: block; container-type: inline-size; }
+.right-tabs .right-tab { font-size: 11.5px; padding-left: 10px; }
 .right-tab svg { width: 12px; height: 12px; color: var(--text-muted); }
+.git-graph-panel { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
+.git-graph-panel .file-panel-heading > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.git-graph-log { flex: 1; min-height: 0; overflow: auto; padding: 0 12px; }
+.git-graph-body { list-style: none; margin: 0; padding: 0; }
+.git-graph-lines { position: absolute; top: 0; left: 0; width: var(--git-graph-width); height: 100%; pointer-events: none; }
+.git-commit { position: relative; }
+.git-commit-summary { display: flex; align-items: center; gap: 6px; width: 100%; height: var(--git-row-height); padding: 0 4px 0 calc(var(--git-graph-width) + 8px); text-align: left; border-radius: 6px; }
+.git-commit-summary:hover { background: var(--bg-surface-hover); }
+.git-commit-summary:focus-visible { outline: 1px solid var(--ring); outline-offset: -1px; }
+.git-commit-subject { flex: 1; min-width: 0; font-size: 12px; line-height: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.git-commit-refs { display: flex; flex-wrap: nowrap; gap: 4px; max-width: calc(100% - 32px); min-width: 0; overflow: hidden; }
+.git-commit-refs:empty { display: none; }
+.git-ref[data-slot="badge"] { display: inline-flex; justify-content: flex-start; flex-shrink: 1; gap: 0; min-width: 0; max-width: 100%; padding: 0; border: 0; border-radius: 3px; background: var(--accent); color: var(--text-secondary); font-size: 10px; font-weight: 400; line-height: 18px; overflow: hidden; }
+.git-ref-icon { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 18px; height: 18px; background: var(--git-lane-color); color: var(--bg-sidebar); }
+.git-ref-icon svg { width: 12px; height: 12px; stroke-width: 1.5; }
+.git-ref-name { min-width: 0; padding: 0 5px; overflow: hidden; text-overflow: ellipsis; }
+.git-ref-remote { flex-shrink: 0; padding: 0 5px; border-left: 1px solid var(--ui-border); font-style: italic; }
+.git-commit-detail-body { padding: 0 4px 14px calc(var(--git-graph-width) + 8px); font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; }
+.git-commit-detail-body > p { margin: 0 0 12px; font-size: 12px; }
+.git-commit-detail-body dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 12px; margin: 0; }
+.git-commit-detail-body dt { color: var(--text-muted); }
+.git-commit-detail-body dd { margin: 0; }
+.git-commit-detail-body code { font-size: inherit; }
 .right-viewport { flex: 1; display: flex; flex-direction: column; min-height: 0; padding: 0 14px 16px; overflow-y: auto; }
 .subagent-stream { display: flex; flex-direction: column; gap: 20px; padding: 4px 6px; }
 .diff-heading b { color: var(--diff-add-text); font-weight: 400; }
@@ -215,14 +250,13 @@ code, pre { font-family: var(--font-mono); }
 .empty-state h1 { font-size: 22px; font-weight: 400; }
 .empty-state p { color: var(--text-secondary); font-size: 12px; line-height: 1.8; margin: 15px 0 20px; max-width: 400px; }
 .empty-state > span { color: var(--text-muted); font-size: 11px; margin-top: 20px; }
-.personal-row { justify-content: flex-start; font-size: 12px; color: var(--text-secondary); }
+.personal-row { justify-content: flex-start; margin: 0 10px 10px; width: calc(100% - 20px); height: 30px; padding: 0 10px; font-size: 12.5px; }
+.personal-row.active-pill { background: var(--bg-surface-active); }
 .demo-dialog { background: var(--bg-canvas); color: var(--text-primary); border-color: var(--ui-border); border-radius: 16px; max-width: 440px; }
 .demo-dialog [data-slot="dialog-title"] { font-size: 16px; font-weight: 500; }
 .demo-dialog [data-slot="dialog-description"] { font-size: 12px; line-height: 1.8; color: var(--text-secondary); }
 .demo-dialog [data-slot="dialog-footer"] button { font-size: 12px; height: 32px; }
 .demo-dialog input { background: var(--bg-surface); border: 0; font-size: 12px; height: 34px; }
-.dialog-fields { display: flex; flex-direction: column; gap: 8px; font-size: 12px; }
-.dialog-fields p { color: var(--text-secondary); font-size: 11px; }
 .toast-pill { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); z-index: 100; display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 999px; font-size: 12px; }
 [data-slot="select-item"] { font-size: 12px; }
 @container (max-width: 480px) {
@@ -345,3 +379,62 @@ code, pre { font-family: var(--font-mono); }
 .file-markdown pre code { padding: 0; white-space: pre; }
 .file-preview-link { padding: 0; color: var(--text-primary); text-decoration: underline; text-underline-offset: 3px; text-align: left; }
 .embedded-demo-notice { display: grid; flex: 1; min-height: 0; place-content: center; gap: 8px; padding: 24px; color: var(--text-secondary); font-size: 13px; }
+
+/* 共用一张玻璃底层，侧栏、顶栏及消息区圆角之间不再分别采样。 */
+.app-window { background: var(--bg-sidebar); }
+.left-sidebar, .canvas-header { background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; }
+.content-body { background: transparent; }
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+  .app-window { background: color-mix(in oklch, var(--bg-sidebar) 72%, transparent); backdrop-filter: blur(28px) saturate(160%); -webkit-backdrop-filter: blur(28px) saturate(160%); }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .app-window { background: var(--bg-sidebar); backdrop-filter: none; -webkit-backdrop-filter: none; }
+}
+
+/* 已加载消息保留真实布局，避免快速滚动时等待屏外内容重新绘制。 */
+.stream-scroll [data-slot="message-scroller-item"], .child-scroll [data-slot="message-scroller-item"] { content-visibility: visible; contain-intrinsic-size: none; }
+
+/* Note: 见 .agents/notes/implemented/feature/2026-10-17-desktop-chrome-typography.md */
+:root { --git-lane-0: #2563eb; --git-lane-1: #15803d; --git-lane-2: #9333ea; --git-lane-3: #ea580c; --git-lane-4: #db2777; --git-lane-5: #0891b2; --selection-surface: var(--accent); --text-xs: calc(.75rem + 2px); --text-sm: calc(.875rem + 2px); --text-base: calc(1rem + 2px); --text-lg: calc(1.125rem + 2px); }
+html.dark { --git-lane-0: #60a5fa; --git-lane-1: #4ade80; --git-lane-2: #c084fc; --git-lane-3: #fb923c; --git-lane-4: #f472b6; --git-lane-5: #22d3ee; --selection-surface: rgb(255 255 255 / 14%); }
+.left-sidebar .active-pill, .center-tabs .center-tab[data-state="active"], .right-tabs .right-tab[data-state="active"] { background: var(--selection-surface); }
+.inspector-header { border-bottom: 0; }
+body { font-size: 15.5px; }
+.projects-heading, .right-tabs .right-tab, .diff-line { font-size: 13.5px; }
+.workspace-row > button:first-child, .workspace-session, .personal-row, .settings-row { font-size: 14.5px; }
+.workspace-filter input, .center-tabs .center-tab, .context-details, .context-summary, .composer-actions [data-slot="select-trigger"], .composer .model-selector, .model-menu [role="menuitemradio"], .model-menu [data-slot="dropdown-menu-label"], .git-commit-subject, .git-commit-detail-body > p, .new-tab-page > span, .new-tab-page > button, .diff-error, .empty-state p, .demo-dialog [data-slot="dialog-description"], .demo-dialog [data-slot="dialog-footer"] button, .demo-dialog input, .toast-pill, [data-slot="select-item"], .settings-categories [data-slot="tabs-trigger"], .settings-row [data-slot="select-trigger"], .file-panel-heading, .file-tree .file-tree-row, .file-panel-empty, .file-source, .file-image, .file-markdown code { font-size: 14px; }
+.attachment-chip, .git-commit-detail-body, .diff-heading, .diff-heading code, .new-tab-page > p, .new-tab-page > button code, .new-tab-page > button small, .task-notice, .task-notice button, .empty-state > span, .diff-more, .browser-toolbar [data-slot="input"], .browser-note, .browser-error, .file-panel-heading > code, .file-preview-modes button { font-size: 13px; }
+.composer [data-slot="textarea"] { font-size: 15.5px; }
+.git-ref[data-slot="badge"], .diff-line > span:first-child, .file-panel-heading small, .file-source-gutter { font-size: 12px; }
+.empty-state h1 { font-size: 24px; }
+.demo-dialog [data-slot="dialog-title"], .settings-navigation [data-slot="dialog-title"], .settings-panel > h2, .file-markdown h2 { font-size: 18px; }
+.file-markdown, .embedded-demo-notice { font-size: 15px; }
+.file-markdown h1 { font-size: 23px; }
+.file-markdown h3 { font-size: 16px; }
+@media (max-width: 500px) { .composer-actions [data-slot="select-trigger"] { font-size: 13px; } }
+.file-source { --file-line-height: 23.8px; line-height: var(--file-line-height); }
+.file-source-gutter { line-height: var(--file-line-height); }
+.conversation { font-size: 14px; --text-xs: .75rem; --text-sm: .875rem; --text-base: 1rem; --text-lg: 1.125rem; }
+/* 原生拖放会冻结旧命中位置的:hover，直到下一次指针移动才重新接受hover。 */
+[data-slot="tabs-list"][data-hover-paused="true"] .tab-group:not(:has(> [data-state="active"])) > :is(.center-tab, .right-tab) { background: transparent; }
+[data-slot="tabs-list"][data-hover-paused="true"] .tab-group > .tab-close:not(:focus-visible) { opacity: 0; pointer-events: none; }
+[data-slot="tabs-list"][data-hover-paused="true"] .tab-group:not(:has(> .tab-close:focus-visible)) > :is(.center-tab, .right-tab) > span { mask-image: none; }
+
+/* Note: 见 .agents/notes/implemented/bug-fix/2026-10-17-desktop-sidebar-toggle.md */
+.app-window { --sidebar-toggle-closed: 16px; }
+.native-window { --sidebar-toggle-closed: 84px; }
+.sidebar-toggle { position: absolute; top: 11px; left: calc(var(--left-width) - 42px); z-index: 40; transition: left 200ms ease; -webkit-app-region: no-drag; }
+.app-window[data-sidebar-open="false"] .sidebar-toggle { left: var(--sidebar-toggle-closed); }
+.session-header { transition: padding-left 200ms ease; }
+.app-window[data-sidebar-open="false"] .session-header { padding-left: calc(var(--sidebar-toggle-closed) + 30px); }
+.app-window[data-sidebar-open="true"]:has(.sidebar-resize-handle[data-dragging], .sidebar-resize-handle:focus-visible) .sidebar-toggle { transition: none; }
+.file-tree-row > .file-tree-loading { display: flex; flex-shrink: 0; margin-left: auto; }
+.file-tree-loading svg { width: 13px; height: 13px; }
+
+/* Note: 见 .agents/notes/implemented/bug-fix/2026-10-17-desktop-execution-activity.md */
+.git-graph-body { width: 100%; min-width: max-content; }
+.git-commit-subject { flex: none; overflow: visible; text-overflow: clip; }
+.git-commit-refs { flex-shrink: 0; max-width: none; overflow: visible; }
+.git-ref[data-slot="badge"] { flex-shrink: 0; }
+.git-ref-name { overflow: visible; text-overflow: clip; }
+.reasoning-content { margin: 0; font-size: 14px; line-height: 1.6; }

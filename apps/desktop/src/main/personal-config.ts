@@ -1,10 +1,12 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { createHash } from "node:crypto";
 import { DesktopError } from "./environment.ts";
 
 export interface PersonalTargetConfig { host: string; controlDir: string }
 export const DEFAULT_PERSONAL_CONTROL_DIR = "/var/lib/ruukoto/control";
 export function personalSocketPath(userData: string): string { return path.join(userData, "ssh", "personal.sock"); }
+export function personalPendingDir(userData: string, config: PersonalTargetConfig): string { return path.join(userData, "pending", "personal", createHash("sha256").update(JSON.stringify([config.host, config.controlDir])).digest("hex")); }
 export function validatePersonalConfig(value: unknown, userData: string): PersonalTargetConfig {
   if (!value || typeof value !== "object" || !("host" in value) || typeof value.host !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value.host)) throw new DesktopError("invalid_ssh_host", "SSH 主机别名须以字母或数字开头，只能含字母、数字、点、下划线与连字符。");
   const controlDir = "controlDir" in value ? value.controlDir : DEFAULT_PERSONAL_CONTROL_DIR;

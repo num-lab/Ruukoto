@@ -829,12 +829,12 @@ for (const ending of ["interrupt", "mode_failure"] as const) test(`桌面真实�
 });
 
 
-test("Personal IPC 仅新增审批与核实操作，仍拒绝其他业务写入", async () => {
-  for (const op of ["get_task", "get_confirmation_params", "respond_confirmation"] as const) {
+test("Personal IPC 允许主会话与审批操作，仍拒绝工作区和文件操作", async () => {
+  for (const op of ["get_task", "get_confirmation_params", "respond_confirmation", "submit", "set_session_mode"] as const) {
     const result = await handleRequest("personal", op, { confirmation_id: "approval" }, async () => {}, async name => name);
     assert.deepEqual(result, { ok: true, value: op });
   }
-  for (const op of ["submit", "create_session", "set_session_mode"]) {
+  for (const op of ["open_workspace", "create_session", "list_workspace_files", "read_workspace_file", "read_workspace_git"]) {
     const result = await handleRequest("personal", op, {}, async () => {}, unavailable);
     assert.equal(!result.ok && result.error.code, "op_not_allowed");
   }

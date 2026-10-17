@@ -1,0 +1,59 @@
+
+> ruukoto-workspace@0.1.0 desktop:build
+> npm run desktop:build --workspace=@ruukoto/desktop
+
+
+> @ruukoto/desktop@0.1.0 desktop:build
+> electron-vite build && node scripts/check-build.mjs && electron-builder --mac --arm64 --dir
+
+vite v8.3.4 building ssr environment for production...
+
+ WARN  inlineDynamicImports option is deprecated, please use codeSplitting: false instead.
+
+transforming...
+✓ 42 modules transformed.
+rendering chunks...
+out/main/index.js  147.76 kB
+
+✓ built in 23ms
+vite v8.3.4 building ssr environment for production...
+
+ WARN  inlineDynamicImports option is deprecated, please use codeSplitting: false instead.
+
+transforming...
+✓ 2 modules transformed.
+rendering chunks...
+out/preload/index.cjs  0.85 kB
+
+✓ built in 5ms
+vite v8.3.4 building client environment for production...
+transforming...
+✓ 1986 modules transformed.
+rendering chunks...
+out/renderer/index.html                     0.58 kB
+out/renderer/assets/index-BKzTzuiW.css    138.05 kB
+out/renderer/assets/index-B-NS_2-P.js   1,957.96 kB
+
+✓ built in 205ms
+  • electron-builder  version=26.15.3 os=27.0.0
+  • loaded configuration  file=package.json ("build" field)
+  • author is missed in the package.json  appPackageFile=/Users/eitrous/.codex/worktrees/6f13/ruukoto/apps/desktop/package.json
+  • packageManager not detected by file, falling back to environment detection  resolvedPackageManager=npm detected=/Users/eitrous/.codex/worktrees/6f13/ruukoto/apps/desktop
+  • detected workspace root for project using lock file  pm=npm config=undefined resolved=/Users/eitrous/.codex/worktrees/6f13/ruukoto projectDir=/Users/eitrous/.codex/worktrees/6f13/ruukoto/apps/desktop
+  • skipped dependencies rebuild  reason=npmRebuild is set to false
+  • packaging       platform=darwin arch=arm64 electron=44.7.2 appOutDir=/Users/eitrous/.codex/worktrees/6f13/ruukoto/dist/mac-arm64
+  • downloaded      label=electron progress=100%
+  • downloaded electron zip extracted successfully  output=/Users/eitrous/.codex/worktrees/6f13/ruukoto/dist/mac-arm64
+  • searching for node modules  pm=npm searchDir=/Users/eitrous/.codex/worktrees/6f13/ruukoto/apps/desktop
+  • no node modules found in collection, trying next search directory  searchDir=/Users/eitrous/.codex/worktrees/6f13/ruukoto/apps/desktop attempt=0
+  • searching for node modules  pm=npm searchDir=/Users/eitrous/.codex/worktrees/6f13/ruukoto
+  • searching for node modules  pm=traversal searchDir=/Users/eitrous/.codex/worktrees/6f13/ruukoto/apps/desktop
+  • using manual traversal of node_modules to build dependency tree
+  • no node modules found in collection, trying next search directory  searchDir=/Users/eitrous/.codex/worktrees/6f13/ruukoto/apps/desktop attempt=0
+  • searching for node modules  pm=traversal searchDir=/Users/eitrous/.codex/worktrees/6f13/ruukoto
+  • using manual traversal of node_modules to build dependency tree
+  • missing optional dependencies  dependencies=["@esbuild/aix-ppc64@0.28.1","@esbuild/android-arm@0.28.1","@esbuild/android-arm64@0.28.1","@esbuild/android-x64@0.28.1","@esbuild/darwin-x64@0.28.1","@esbuild/freebsd-arm64@0.28.1","@esbuild/freebsd-x64@0.28.1","@esbuild/linux-arm@0.28.1","@esbuild/linux-arm64@0.28.1","@esbuild/linux-ia32@0.28.1","@esbuild/linux-loong64@0.28.1","@esbuild/linux-mips64el@0.28.1","@esbuild/linux-ppc64@0.28.1","@esbuild/linux-riscv64@0.28.1","@esbuild/linux-s390x@0.28.1","@esbuild/linux-x64@0.28.1","@esbuild/netbsd-arm64@0.28.1","@esbuild/netbsd-x64@0.28.1","@esbuild/openbsd-arm64@0.28.1","@esbuild/openbsd-x64@0.28.1","@esbuild/openharmony-arm64@0.28.1","@esbuild/sunos-x64@0.28.1","@esbuild/win32-arm64@0.28.1","@esbuild/win32-ia32@0.28.1","@esbuild/win32-x64@0.28.1"]
+  • default Electron icon is used  reason=application icon is not set
+  • ad-hoc signing with hardenedRuntime enabled requires the com.apple.security.cs.disable-library-validation entitlement to prevent app launch failures due to library validation. See https://electron.build/code-signing for details.
+  • signing         file=/Users/eitrous/.codex/worktrees/6f13/ruukoto/dist/mac-arm64/Ruukoto.app platform=darwin type=distribution identityName=- identityHash=none provisioningProfile=none
+  • skipped macOS notarization  reason=`notarize` options were unable to be generated

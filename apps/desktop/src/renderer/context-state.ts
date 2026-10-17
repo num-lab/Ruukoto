@@ -53,7 +53,7 @@ export class DesktopContext {
     }
   }
   load(sessionId: string): Promise<void> {
-    if (this.target !== "code" || !this.online || !this.view.instanceId || !this.view.sessions.some(session => session.id === sessionId)) return Promise.resolve();
+    if (!this.online || !this.view.instanceId || !this.view.sessions.some(session => session.id === sessionId)) return Promise.resolve();
     const key = this.key(sessionId);
     const pending = this.requests.get(key);
     if (pending) return pending;

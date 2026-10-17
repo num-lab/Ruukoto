@@ -1,0 +1,1458 @@
+[
+  {
+    "label": "fumo-collapsed",
+    "rows": [
+      {
+        "arrows": 0,
+        "details": null,
+        "expanded": "false",
+        "lines": [
+          {
+            "end": 136,
+            "start": 136,
+            "stroke": "oklch(0.922 0 0)",
+            "x": 12
+          },
+          {
+            "end": 136,
+            "start": 136,
+            "stroke": "oklch(0.66195 0.15795 297.844)",
+            "x": 26
+          }
+        ],
+        "nodeY": 122,
+        "paths": [
+          "M 12 14 V 28",
+          "M 12 14 C 12 21 26 21 26 28"
+        ],
+        "refs": [
+          {
+            "iconVisible": true,
+            "rect": {
+              "bottom": 131,
+              "height": 18,
+              "left": 633,
+              "right": 726.890625,
+              "top": 113,
+              "width": 93.890625,
+              "x": 633,
+              "y": 113
+            },
+            "remoteVisible": true,
+            "text": "分支 HEAD → main"
+          }
+        ],
+        "refsHeight": 18,
+        "row": {
+          "bottom": 136,
+          "height": 28,
+          "left": 587,
+          "right": 823,
+          "top": 108,
+          "width": 236,
+          "x": 587,
+          "y": 108
+        },
+        "subject": "Merge offline pass caching",
+        "summary": {
+          "bottom": 136,
+          "height": 28,
+          "left": 587,
+          "right": 823,
+          "top": 108,
+          "width": 236,
+          "x": 587,
+          "y": 108
+        },
+        "svg": {
+          "bottom": 136,
+          "height": 28,
+          "left": 587,
+          "right": 625,
+          "top": 108,
+          "width": 38,
+          "x": 587,
+          "y": 108
+        }
+      },
+      {
+        "arrows": 0,
+        "details": null,
+        "expanded": "false",
+        "lines": [
+          {
+            "end": 150,
+            "start": 136,
+            "stroke": "oklch(0.922 0 0)",
+            "x": 12
+          },
+          {
+            "end": 164,
+            "start": 136,
+            "stroke": "oklch(0.66195 0.15795 297.844)",
+            "x": 26
+          },
+          {
+            "end": 164,
+            "start": 164,
+            "stroke": "oklch(0.922 0 0)",
+            "x": 12
+          }
+        ],
+        "nodeY": 150,
+        "paths": [
+          "M 12 14 V 28"
+        ],
+        "refs": [
+          {
+            "iconVisible": true,
+            "rect": {
+              "bottom": 159,
+              "height": 18,
+              "left": 633,
+              "right": 722.4609375,
+              "top": 141,
+              "width": 89.4609375,
+              "x": 633,
+              "y": 141
+            },
+            "remoteVisible": true,
+            "text": "远程分支 mainorigin"
+          }
+        ],
+        "refsHeight": 18,
+        "row": {
+          "bottom": 164,
+          "height": 28,
+          "left": 587,
+          "right": 823,
+          "top": 136,
+          "width": 236,
+          "x": 587,
+          "y": 136
+        },
+        "subject": "Keep departure times in Asia/Tokyo",
+        "summary": {
+          "bottom": 164,
+          "height": 28,
+          "left": 587,
+          "right": 823,
+          "top": 136,
+          "width": 236,
+          "x": 587,
+          "y": 136
+        },
+        "svg": {
+          "bottom": 164,
+          "height": 28,
+          "left": 587,
+          "right": 625,
+          "top": 136,
+          "width": 38,
+          "x": 587,
+          "y": 136
+        }
+      },
+      {
+        "arrows": 0,
+        "details": null,
+        "expanded": "false",
+        "lines": [
+          {
+            "end": 192,
+            "start": 164,
+            "stroke": "oklch(0.66195 0.15795 297.844)",
+            "x": 26
+          },
+          {
+            "end": 178,
+            "start": 164,
+            "stroke": "oklch(0.922 0 0)",
+            "x": 12
+          },
+          {
+            "end": 192,
+            "start": 192,
+            "stroke": "oklch(0.922 0 0)",
+            "x": 12
+          }
+        ],
+        "nodeY": 178,
+        "paths": [
+          "M 12 14 V 28"
+        ],
+        "refs": [],
+        "refsHeight": 0,
+        "row": {
+          "bottom": 192,
+          "height": 28,
+          "left": 587,
+          "right": 823,
+          "top": 164,
+          "width": 236,
+          "x": 587,
+          "y": 164
+        },
+        "subject": "Refine the pass timeline",
+        "summary": {
+          "bottom": 192,
+          "height": 28,
+          "left": 587,
+          "right": 823,
+          "top": 164,
+          "width": 236,
+          "x": 587,
+          "y": 164
+        },
+        "svg": {
+          "bottom": 192,
+          "height": 28,
+          "left": 587,
+          "right": 625,
+          "top": 164,
+          "width": 38,
+          "x": 587,
+          "y": 164
+        }
+      },
+      {
+        "arrows": 0,
+        "details": null,
+        "expanded": "false",
+        "lines": [
+          {
+            "end": 206,
+            "start": 192,
+            "stroke": "oklch(0.66195 0.15795 297.844)",
+            "x": 26
+          },
+          {
+            "end": 220,
+            "start": 192,
+            "stroke": "oklch(0.922 0 0)",
+            "x": 12
+          },
+          {
+            "end": 220,
+            "start": 220,
+            "stroke": "oklch(0.922 0 0)",
+            "x": 12
+          }
+        ],
+        "nodeY": 206,
+        "paths": [
+          "M 26 14 C 26 21 12 21 12 28"
+        ],
+        "refs": [
+          {
+            "iconVisible": true,
+            "rect": {
+              "bottom": 215,
+              "height": 18,
+              "left": 633,
+              "right": 725.2421875,
+              "top": 197,
+              "width": 92.2421875,
+              "x": 633,
+              "y": 197
+            },
+            "remoteVisible": true,
+            "text": "分支 offline-cache"
+          }
+        ],
+        "refsHeight": 18,
+        "row": {
+          "bottom": 220,
+          "height": 28,
+          "left": 587,
+          "right": 823,
+          "top": 192,
+          "width": 236,
+          "x": 587,
+          "y": 192
+        },
+        "subject": "Reconcile HLC timestamps on reconnect",
+        "summary": {
+          "bottom": 220,
+          "height": 28,
+          "left": 587,
+          "right": 823,
+          "top": 192,
+          "width": 236,
+          "x": 587,
+          "y": 192
+        },
+        "svg": {
+          "bottom": 220,
+          "height": 28,
+          "left": 587,
+          "right": 625,
+          "top": 192,
+          "width": 38,
+          "x": 587,
+          "y": 192
+        }
+      },
+      {
+        "arrows": 0,
+        "details": null,
+        "expanded": "false",
+        "lines": [
+          {
+            "end": 234,
+            "start": 220,
+            "stroke": "oklch(0.922 0 0)",
+            "x": 12
+          },
+          {
+            "end": 234,
+            "start": 220,
+            "stroke": "oklch(0.922 0 0)",
+            "x": 12
+          },
+          {
+            "end": 248,
+            "start": 248,
+            "stroke": "oklch(0.922 0 0)",
+            "x": 12
+          }
+        ],
+        "nodeY": 234,
+        "paths": [
+          "M 12 14 V 28"
+        ],
+        "refs": [
+          {
+            "iconVisible": true,
+            "rect": {
+              "bottom": 243,
+              "height": 18,
+              "left": 633,
+              "right": 690.4140625,
+              "top": 225,
+              "width": 57.4140625,
+              "x": 633,
+              "y": 225
+            },
+            "remoteVisible": true,
+            "text": "标签 v0.3.0"
+          }
+        ],
+        "refsHeight": 18,
+        "row": {
+          "bottom": 248,
+          "height": 28,
+          "left": 587,
+          "right": 823,
+          "top": 220,
+          "width": 236,
+          "x": 587,
+          "y": 220
+        },
+        "subject": "Cache reserved seat segments",
+        "summary": {
+          "bottom": 248,
+          "height": 28,
+          "left": 587,
+          "right": 823,
+          "top": 220,
+          "width": 236,
+          "x": 587,
+          "y": 220
+        },
+        "svg": {
+          "bottom": 248,
+          "height": 28,
+          "left": 587,
+          "right": 625,
+          "top": 220,
+          "width": 38,
+          "x": 587,
+          "y": 220
+        }
+      },
+      {
+        "arrows": 0,
+        "details": null,
+        "expanded": "false",
+        "lines": [
+          {
+            "end": 262,
+            "start": 248,
+            "stroke": "oklch(0.922 0 0)",
+            "x": 12
+          }
+        ],
+        "nodeY": 262,
+        "paths": [],
+        "refs": [],
+        "refsHeight": 0,
+        "row": {
+          "bottom": 276,
+          "height": 28,
+          "left": 587,
+          "right": 823,
+          "top": 248,
+          "width": 236,
+          "x": 587,
+          "y": 248
+        },
+        "subject": "Create Fumotravel workspace",
+        "summary": {
+          "bottom": 276,
+          "height": 28,
+          "left": 587,
+          "right": 823,
+          "top": 248,
+          "width": 236,
+          "x": 587,
+          "y": 248
+        },
+        "svg": {
+          "bottom": 276,
+          "height": 28,
+          "left": 587,
+          "right": 625,
+          "top": 248,
+          "width": 38,
+          "x": 587,
+          "y": 248
+        }
+      }
+    ]
+  },
+  {
+    "label": "fumo-expanded",
+    "rows": [
+      {
+        "arrows": 0,
+        "details": null,
+        "expanded": "false",
+        "lines": [
+          {
+            "end": 136,
+            "start": 136,
+            "stroke": "oklch(0.922 0 0)",
+            "x": 12
+          },
+          {
+            "end": 136,
+            "start": 136,
+            "stroke": "oklch(0.66195 0.15795 297.844)",
+            "x": 26
+          }
+        ],
+        "nodeY": 122,
+        "paths": [
+          "M 12 14 V 28",
+          "M 12 14 C 12 21 26 21 26 28"
+        ],
+        "refs": [
+          {
+            "iconVisible": true,
+            "rect": {
+              "bottom": 131,
+              "height": 18,
+              "left": 633,
+              "right": 726.890625,
+              "top": 113,
+              "width": 93.890625,
+              "x": 633,
+              "y": 113
+            },
+            "remoteVisible": true,
+            "text": "分支 HEAD → main"
+          }
+        ],
+        "refsHeight": 18,
+        "row": {
+          "bottom": 136,
+          "height": 28,
+          "left": 587,
+          "right": 823,
+          "top": 108,
+          "width": 236,
+          "x": 587,
+          "y": 108
+        },
+        "subject": "Merge offline pass caching",
+        "summary": {
+          "bottom": 136,
+          "height": 28,
+          "left": 587,
+          "right": 823,
+          "top": 108,
+          "width": 236,
+          "x": 587,
+          "y": 108
+        },
+        "svg": {
+          "bottom": 136,
+          "height": 28,
+          "left": 587,
+          "right": 625,
+          "top": 108,
+          "width": 38,
+          "x": 587,
+          "y": 108
+        }
+      },
+      {
+        "arrows": 0,
+        "details": null,
+        "expanded": "false",
+        "lines": [
+          {
+            "end": 150,
+            "start": 136,
+            "stroke": "oklch(0.922 0 0)",
+            "x": 12
+          },
+          {
+            "end": 164,
+            "start": 136,
+            "stroke": "oklch(0.66195 0.15795 297.844)",
+            "x": 26
+          },
+          {
+            "end": 164,
+            "start": 164,
+            "stroke": "oklch(0.922 0 0)",
+            "x": 12
+          }
+        ],
+        "nodeY": 150,
+        "paths": [
+          "M 12 14 V 28"
+        ],
+        "refs": [
+          {
+            "iconVisible": true,
+            "rect": {
+              "bottom": 159,
+              "height": 18,
+              "left": 633,
+              "right": 722.4609375,
+              "top": 141,
+              "width": 89.4609375,
+              "x": 633,
+              "y": 141
+            },
+            "remoteVisible": true,
+            "text": "远程分支 mainorigin"
+          }
+        ],
+        "refsHeight": 18,
+        "row": {
+          "bottom": 164,
+          "height": 28,
+          "left": 587,
+          "right": 823,
+          "top": 136,
+          "width": 236,
+          "x": 587,
+          "y": 136
+        },
+        "subject": "Keep departure times in Asia/Tokyo",
+        "summary": {
+          "bottom": 164,
+          "height": 28,
+          "left": 587,
+          "right": 823,
+          "top": 136,
+          "width": 236,
+          "x": 587,
+          "y": 136
+        },
+        "svg": {
+          "bottom": 164,
+          "height": 28,
+          "left": 587,
+          "right": 625,
+          "top": 136,
+          "width": 38,
+          "x": 587,
+          "y": 136
+        }
+      },
+      {
+        "arrows": 0,
+        "details": null,
+        "expanded": "false",
+        "lines": [
+          {
+            "end": 192,
+            "start": 164,
+            "stroke": "oklch(0.66195 0.15795 297.844)",
+            "x": 26
+          },
+          {
+            "end": 178,
+            "start": 164,
+            "stroke": "oklch(0.922 0 0)",
+            "x": 12
+          },
+          {
+            "end": 192,
+            "start": 192,
+            "stroke": "oklch(0.922 0 0)",
+            "x": 12
+          }
+        ],
+        "nodeY": 178,
+        "paths": [
+          "M 12 14 V 28"
+        ],
+        "refs": [],
+        "refsHeight": 0,
+        "row": {
+          "bottom": 192,
+          "height": 28,
+          "left": 587,
+          "right": 823,
+          "top": 164,
+          "width": 236,
+          "x": 587,
+          "y": 164
+        },
+        "subject": "Refine the pass timeline",
+        "summary": {
+          "bottom": 192,
+          "height": 28,
+          "left": 587,
+          "right": 823,
+          "top": 164,
+          "width": 236,
+          "x": 587,
+          "y": 164
+        },
+        "svg": {
+          "bottom": 192,
+          "height": 28,
+          "left": 587,
+          "right": 625,
+          "top": 164,
+          "width": 38,
+          "x": 587,
+          "y": 164
+        }
+      },
+      {
+        "arrows": 0,
+        "details": "Reconcile HLC timestamps on reconnect作者Demo提交时间2026-10-16短哈希c24d8e6父提交4b7a1d0",
+        "expanded": "true",
+        "lines": [
+          {
+            "end": 206,
+            "start": 192,
+            "stroke": "oklch(0.66195 0.15795 297.844)",
+            "x": 26
+          },
+          {
+            "end": 372.765625,
+            "start": 192,
+            "stroke": "oklch(0.922 0 0)",
+            "x": 12
+          },
+          {
+            "end": 372.765625,
+            "start": 220,
+            "stroke": "oklch(0.922 0 0)",
+            "x": 12
+          }
+        ],
+        "nodeY": 206,
+        "paths": [
+          "M 26 14 C 26 21 12 21 12 28"
+        ],
+        "refs": [
+          {
+            "iconVisible": true,
+            "rect": {
+              "bottom": 215,
+              "height": 18,
+              "left": 633,
+              "right": 725.2421875,
+              "top": 197,
+              "width": 92.2421875,
+              "x": 633,
+              "y": 197
+            },
+            "remoteVisible": true,
+            "text": "分支 offline-cache"
+          }
+        ],
+        "refsHeight": 18,
+        "row": {
+          "bottom": 372.765625,
+          "height": 180.765625,
+          "left": 587,
+          "right": 823,
+          "top": 192,
+          "width": 236,
+          "x": 587,
+          "y": 192
+        },
+        "subject": "Reconcile HLC timestamps on reconnect",
+        "summary": {
+          "bottom": 220,
+          "height": 28,
+          "left": 587,
+          "right": 823,
+          "top": 192,
+          "width": 236,
+          "x": 587,
+          "y": 192
+        },
+        "svg": {
+          "bottom": 372.765625,
+          "height": 180.765625,
+          "left": 587,
+          "right": 625,
+          "top": 192,
+          "width": 38,
+          "x": 587,
+          "y": 192
+        }
+      },
+      {
+        "arrows": 0,
+        "details": null,
+        "expanded": "false",
+        "lines": [
+          {
+            "end": 386.765625,
+            "start": 372.765625,
+            "stroke": "oklch(0.922 0 0)",
+            "x": 12
+          },
+          {
+            "end": 386.765625,
+            "start": 372.765625,
+            "stroke": "oklch(0.922 0 0)",
+            "x": 12
+          },
+          {
+            "end": 400.765625,
+            "start": 400.765625,
+            "stroke": "oklch(0.922 0 0)",
+            "x": 12
+          }
+        ],
+        "nodeY": 386.765625,
+        "paths": [
+          "M 12 14 V 28"
+        ],
+        "refs": [
+          {
+            "iconVisible": true,
+            "rect": {
+              "bottom": 395.765625,
+              "height": 18,
+              "left": 633,
+              "right": 690.4140625,
+              "top": 377.765625,
+              "width": 57.4140625,
+              "x": 633,
+              "y": 377.765625
+            },
+            "remoteVisible": true,
+            "text": "标签 v0.3.0"
+          }
+        ],
+        "refsHeight": 18,
+        "row": {
+          "bottom": 400.765625,
+          "height": 28,
+          "left": 587,
+          "right": 823,
+          "top": 372.765625,
+          "width": 236,
+          "x": 587,
+          "y": 372.765625
+        },
+        "subject": "Cache reserved seat segments",
+        "summary": {
+          "bottom": 400.765625,
+          "height": 28,
+          "left": 587,
+          "right": 823,
+          "top": 372.765625,
+          "width": 236,
+          "x": 587,
+          "y": 372.765625
+        },
+        "svg": {
+          "bottom": 400.765625,
+          "height": 28,
+          "left": 587,
+          "right": 625,
+          "top": 372.765625,
+          "width": 38,
+          "x": 587,
+          "y": 372.765625
+        }
+      },
+      {
+        "arrows": 0,
+        "details": null,
+        "expanded": "false",
+        "lines": [
+          {
+            "end": 414.765625,
+            "start": 400.765625,
+            "stroke": "oklch(0.922 0 0)",
+            "x": 12
+          }
+        ],
+        "nodeY": 414.765625,
+        "paths": [],
+        "refs": [],
+        "refsHeight": 0,
+        "row": {
+          "bottom": 428.765625,
+          "height": 28,
+          "left": 587,
+          "right": 823,
+          "top": 400.765625,
+          "width": 236,
+          "x": 587,
+          "y": 400.765625
+        },
+        "subject": "Create Fumotravel workspace",
+        "summary": {
+          "bottom": 428.765625,
+          "height": 28,
+          "left": 587,
+          "right": 823,
+          "top": 400.765625,
+          "width": 236,
+          "x": 587,
+          "y": 400.765625
+        },
+        "svg": {
+          "bottom": 428.765625,
+          "height": 28,
+          "left": 587,
+          "right": 625,
+          "top": 400.765625,
+          "width": 38,
+          "x": 587,
+          "y": 400.765625
+        }
+      }
+    ]
+  },
+  {
+    "label": "nexus-narrow",
+    "rows": [
+      {
+        "arrows": 0,
+        "details": null,
+        "expanded": "false",
+        "lines": [
+          {
+            "end": 136,
+            "start": 136,
+            "stroke": "oklch(0.922 0 0)",
+            "x": 12
+          }
+        ],
+        "nodeY": 122,
+        "paths": [
+          "M 12 14 V 28"
+        ],
+        "refs": [
+          {
+            "iconVisible": true,
+            "rect": {
+              "bottom": 131,
+              "height": 18,
+              "left": 619,
+              "right": 702.984375,
+              "top": 113,
+              "width": 83.984375,
+              "x": 619,
+              "y": 113
+            },
+            "remoteVisible": true,
+            "text": "分支 HEAD → main"
+          },
+          {
+            "iconVisible": true,
+            "rect": {
+              "bottom": 131,
+              "height": 18,
+              "left": 706.984375,
+              "right": 787,
+              "top": 113,
+              "width": 80.015625,
+              "x": 706.984375,
+              "y": 113
+            },
+            "remoteVisible": true,
+            "text": "远程分支 mainorigin"
+          }
+        ],
+        "refsHeight": 18,
+        "row": {
+          "bottom": 136,
+          "height": 28,
+          "left": 587,
+          "right": 823,
+          "top": 108,
+          "width": 236,
+          "x": 587,
+          "y": 108
+        },
+        "subject": "Reuse stdio connections in the pool",
+        "summary": {
+          "bottom": 136,
+          "height": 28,
+          "left": 587,
+          "right": 823,
+          "top": 108,
+          "width": 236,
+          "x": 587,
+          "y": 108
+        },
+        "svg": {
+          "bottom": 136,
+          "height": 28,
+          "left": 587,
+          "right": 611,
+          "top": 108,
+          "width": 24,
+          "x": 587,
+          "y": 108
+        }
+      },
+      {
+        "arrows": 0,
+        "details": null,
+        "expanded": "false",
+        "lines": [
+          {
+            "end": 150,
+            "start": 136,
+            "stroke": "oklch(0.922 0 0)",
+            "x": 12
+          },
+          {
+            "end": 164,
+            "start": 164,
+            "stroke": "oklch(0.922 0 0)",
+            "x": 12
+          }
+        ],
+        "nodeY": 150,
+        "paths": [
+          "M 12 14 V 28"
+        ],
+        "refs": [],
+        "refsHeight": 0,
+        "row": {
+          "bottom": 164,
+          "height": 28,
+          "left": 587,
+          "right": 823,
+          "top": 136,
+          "width": 236,
+          "x": 587,
+          "y": 136
+        },
+        "subject": "Back off reconnect attempts",
+        "summary": {
+          "bottom": 164,
+          "height": 28,
+          "left": 587,
+          "right": 823,
+          "top": 136,
+          "width": 236,
+          "x": 587,
+          "y": 136
+        },
+        "svg": {
+          "bottom": 164,
+          "height": 28,
+          "left": 587,
+          "right": 611,
+          "top": 136,
+          "width": 24,
+          "x": 587,
+          "y": 136
+        }
+      },
+      {
+        "arrows": 0,
+        "details": null,
+        "expanded": "false",
+        "lines": [
+          {
+            "end": 178,
+            "start": 164,
+            "stroke": "oklch(0.922 0 0)",
+            "x": 12
+          }
+        ],
+        "nodeY": 178,
+        "paths": [],
+        "refs": [],
+        "refsHeight": 0,
+        "row": {
+          "bottom": 192,
+          "height": 28,
+          "left": 587,
+          "right": 823,
+          "top": 164,
+          "width": 236,
+          "x": 587,
+          "y": 164
+        },
+        "subject": "Add JSON-RPC transport",
+        "summary": {
+          "bottom": 192,
+          "height": 28,
+          "left": 587,
+          "right": 823,
+          "top": 164,
+          "width": 236,
+          "x": 587,
+          "y": 164
+        },
+        "svg": {
+          "bottom": 192,
+          "height": 28,
+          "left": 587,
+          "right": 611,
+          "top": 164,
+          "width": 24,
+          "x": 587,
+          "y": 164
+        }
+      }
+    ]
+  },
+  {
+    "label": "final",
+    "rows": [
+      {
+        "arrows": 0,
+        "details": null,
+        "expanded": "false",
+        "lines": [
+          {
+            "end": 136,
+            "start": 136,
+            "stroke": "oklch(0.922 0 0)",
+            "x": 12
+          },
+          {
+            "end": 136,
+            "start": 136,
+            "stroke": "oklch(0.66195 0.15795 297.844)",
+            "x": 26
+          }
+        ],
+        "nodeY": 122,
+        "paths": [
+          "M 12 14 V 28",
+          "M 12 14 C 12 21 26 21 26 28"
+        ],
+        "refs": [
+          {
+            "iconVisible": true,
+            "rect": {
+              "bottom": 131,
+              "height": 18,
+              "left": 633,
+              "right": 726.890625,
+              "top": 113,
+              "width": 93.890625,
+              "x": 633,
+              "y": 113
+            },
+            "remoteVisible": true,
+            "text": "分支 HEAD → main"
+          }
+        ],
+        "refsHeight": 18,
+        "row": {
+          "bottom": 136,
+          "height": 28,
+          "left": 587,
+          "right": 823,
+          "top": 108,
+          "width": 236,
+          "x": 587,
+          "y": 108
+        },
+        "subject": "Merge offline pass caching",
+        "summary": {
+          "bottom": 136,
+          "height": 28,
+          "left": 587,
+          "right": 823,
+          "top": 108,
+          "width": 236,
+          "x": 587,
+          "y": 108
+        },
+        "svg": {
+          "bottom": 136,
+          "height": 28,
+          "left": 587,
+          "right": 625,
+          "top": 108,
+          "width": 38,
+          "x": 587,
+          "y": 108
+        }
+      },
+      {
+        "arrows": 0,
+        "details": null,
+        "expanded": "false",
+        "lines": [
+          {
+            "end": 150,
+            "start": 136,
+            "stroke": "oklch(0.922 0 0)",
+            "x": 12
+          },
+          {
+            "end": 164,
+            "start": 136,
+            "stroke": "oklch(0.66195 0.15795 297.844)",
+            "x": 26
+          },
+          {
+            "end": 164,
+            "start": 164,
+            "stroke": "oklch(0.922 0 0)",
+            "x": 12
+          }
+        ],
+        "nodeY": 150,
+        "paths": [
+          "M 12 14 V 28"
+        ],
+        "refs": [
+          {
+            "iconVisible": true,
+            "rect": {
+              "bottom": 159,
+              "height": 18,
+              "left": 633,
+              "right": 722.4609375,
+              "top": 141,
+              "width": 89.4609375,
+              "x": 633,
+              "y": 141
+            },
+            "remoteVisible": true,
+            "text": "远程分支 mainorigin"
+          }
+        ],
+        "refsHeight": 18,
+        "row": {
+          "bottom": 164,
+          "height": 28,
+          "left": 587,
+          "right": 823,
+          "top": 136,
+          "width": 236,
+          "x": 587,
+          "y": 136
+        },
+        "subject": "Keep departure times in Asia/Tokyo",
+        "summary": {
+          "bottom": 164,
+          "height": 28,
+          "left": 587,
+          "right": 823,
+          "top": 136,
+          "width": 236,
+          "x": 587,
+          "y": 136
+        },
+        "svg": {
+          "bottom": 164,
+          "height": 28,
+          "left": 587,
+          "right": 625,
+          "top": 136,
+          "width": 38,
+          "x": 587,
+          "y": 136
+        }
+      },
+      {
+        "arrows": 0,
+        "details": null,
+        "expanded": "false",
+        "lines": [
+          {
+            "end": 192,
+            "start": 164,
+            "stroke": "oklch(0.66195 0.15795 297.844)",
+            "x": 26
+          },
+          {
+            "end": 178,
+            "start": 164,
+            "stroke": "oklch(0.922 0 0)",
+            "x": 12
+          },
+          {
+            "end": 192,
+            "start": 192,
+            "stroke": "oklch(0.922 0 0)",
+            "x": 12
+          }
+        ],
+        "nodeY": 178,
+        "paths": [
+          "M 12 14 V 28"
+        ],
+        "refs": [],
+        "refsHeight": 0,
+        "row": {
+          "bottom": 192,
+          "height": 28,
+          "left": 587,
+          "right": 823,
+          "top": 164,
+          "width": 236,
+          "x": 587,
+          "y": 164
+        },
+        "subject": "Refine the pass timeline",
+        "summary": {
+          "bottom": 192,
+          "height": 28,
+          "left": 587,
+          "right": 823,
+          "top": 164,
+          "width": 236,
+          "x": 587,
+          "y": 164
+        },
+        "svg": {
+          "bottom": 192,
+          "height": 28,
+          "left": 587,
+          "right": 625,
+          "top": 164,
+          "width": 38,
+          "x": 587,
+          "y": 164
+        }
+      },
+      {
+        "arrows": 0,
+        "details": null,
+        "expanded": "false",
+        "lines": [
+          {
+            "end": 206,
+            "start": 192,
+            "stroke": "oklch(0.66195 0.15795 297.844)",
+            "x": 26
+          },
+          {
+            "end": 220,
+            "start": 192,
+            "stroke": "oklch(0.922 0 0)",
+            "x": 12
+          },
+          {
+            "end": 220,
+            "start": 220,
+            "stroke": "oklch(0.922 0 0)",
+            "x": 12
+          }
+        ],
+        "nodeY": 206,
+        "paths": [
+          "M 26 14 C 26 21 12 21 12 28"
+        ],
+        "refs": [
+          {
+            "iconVisible": true,
+            "rect": {
+              "bottom": 215,
+              "height": 18,
+              "left": 633,
+              "right": 725.2421875,
+              "top": 197,
+              "width": 92.2421875,
+              "x": 633,
+              "y": 197
+            },
+            "remoteVisible": true,
+            "text": "分支 offline-cache"
+          }
+        ],
+        "refsHeight": 18,
+        "row": {
+          "bottom": 220,
+          "height": 28,
+          "left": 587,
+          "right": 823,
+          "top": 192,
+          "width": 236,
+          "x": 587,
+          "y": 192
+        },
+        "subject": "Reconcile HLC timestamps on reconnect",
+        "summary": {
+          "bottom": 220,
+          "height": 28,
+          "left": 587,
+          "right": 823,
+          "top": 192,
+          "width": 236,
+          "x": 587,
+          "y": 192
+        },
+        "svg": {
+          "bottom": 220,
+          "height": 28,
+          "left": 587,
+          "right": 625,
+          "top": 192,
+          "width": 38,
+          "x": 587,
+          "y": 192
+        }
+      },
+      {
+        "arrows": 0,
+        "details": null,
+        "expanded": "false",
+        "lines": [
+          {
+            "end": 234,
+            "start": 220,
+            "stroke": "oklch(0.922 0 0)",
+            "x": 12
+          },
+          {
+            "end": 234,
+            "start": 220,
+            "stroke": "oklch(0.922 0 0)",
+            "x": 12
+          },
+          {
+            "end": 248,
+            "start": 248,
+            "stroke": "oklch(0.922 0 0)",
+            "x": 12
+          }
+        ],
+        "nodeY": 234,
+        "paths": [
+          "M 12 14 V 28"
+        ],
+        "refs": [
+          {
+            "iconVisible": true,
+            "rect": {
+              "bottom": 243,
+              "height": 18,
+              "left": 633,
+              "right": 690.4140625,
+              "top": 225,
+              "width": 57.4140625,
+              "x": 633,
+              "y": 225
+            },
+            "remoteVisible": true,
+            "text": "标签 v0.3.0"
+          }
+        ],
+        "refsHeight": 18,
+        "row": {
+          "bottom": 248,
+          "height": 28,
+          "left": 587,
+          "right": 823,
+          "top": 220,
+          "width": 236,
+          "x": 587,
+          "y": 220
+        },
+        "subject": "Cache reserved seat segments",
+        "summary": {
+          "bottom": 248,
+          "height": 28,
+          "left": 587,
+          "right": 823,
+          "top": 220,
+          "width": 236,
+          "x": 587,
+          "y": 220
+        },
+        "svg": {
+          "bottom": 248,
+          "height": 28,
+          "left": 587,
+          "right": 625,
+          "top": 220,
+          "width": 38,
+          "x": 587,
+          "y": 220
+        }
+      },
+      {
+        "arrows": 0,
+        "details": null,
+        "expanded": "false",
+        "lines": [
+          {
+            "end": 262,
+            "start": 248,
+            "stroke": "oklch(0.922 0 0)",
+            "x": 12
+          }
+        ],
+        "nodeY": 262,
+        "paths": [],
+        "refs": [],
+        "refsHeight": 0,
+        "row": {
+          "bottom": 276,
+          "height": 28,
+          "left": 587,
+          "right": 823,
+          "top": 248,
+          "width": 236,
+          "x": 587,
+          "y": 248
+        },
+        "subject": "Create Fumotravel workspace",
+        "summary": {
+          "bottom": 276,
+          "height": 28,
+          "left": 587,
+          "right": 823,
+          "top": 248,
+          "width": 236,
+          "x": 587,
+          "y": 248
+        },
+        "svg": {
+          "bottom": 276,
+          "height": 28,
+          "left": 587,
+          "right": 625,
+          "top": 248,
+          "width": 38,
+          "x": 587,
+          "y": 248
+        }
+      }
+    ]
+  }
+]

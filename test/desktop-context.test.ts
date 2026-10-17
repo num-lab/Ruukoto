@@ -171,20 +171,20 @@ test("Desktop Context 断线清除旧值，快照及当前会话终态刷新，�
   assert.equal(h.transport.requests.length, 6);
 });
 
-test("Desktop 只为 Code 放行 Context 两个只读入口，不开放 prompt 原文或 Personal UI", async () => {
+test("Desktop 双目标开放 Context 只读入口，不开放 prompt 原文", async () => {
   for (const op of ["list_prompt_requests", "get_context_breakdown"] as const) {
     assert.ok(DESKTOP_OPS.includes(op));
     const result = await handleRequest("code", op, {}, async () => {}, async name => name);
     assert.deepEqual(result, { ok: true, value: op });
-    const personal = await handleRequest("personal", op, {}, async () => {}, async () => { throw new Error("不应发送"); });
-    assert.equal(personal.ok, false);
-    if (!personal.ok) assert.equal(personal.error.code, "op_not_allowed");
+    const personal = await handleRequest("personal", op, {}, async () => {}, async name => name);
+    assert.deepEqual(personal, { ok: true, value: op });
   }
   const blocked = await handleRequest("code", "read_prompt_snapshot", {}, async () => {}, async () => { throw new Error("不应发送"); });
   assert.equal(blocked.ok, false);
   const personal = harness({}, "personal");
   await personal.context.load("a");
-  assert.equal(personal.transport.requests.length, 0);
+  assert.equal(personal.transport.requests.length, 2);
+  assert.equal(personal.context.get("a").value?.record.sessionId, "a");
 });
 
 test("Desktop Context 在途读取遇到新终态后补读最新记录，合并重复刷新", async () => {

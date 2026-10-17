@@ -5,9 +5,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 export async function checkInspector(server) {
   const { browserAddress, isDemoEntry, browserNavigation, navigateBrowser, moveBrowser, workspaceFiles, fileTree, fileTabId } = await server.ssrLoadModule("/src/inspector-data.ts");
   const { BrowserPanel, FilePreview, WorkspaceFiles } = await server.ssrLoadModule("/src/inspector-panels.tsx");
-  for (const address of ["", "javascript:alert(1)", "data:text/html,hello", "file:///tmp/example.txt", "blob:https://example.com/id", "mailto:a@example.com", "https://user:pass@example.com", "http://user@example.com", "%"]) {
+  for (const address of ["", "javascript:alert(1)", "data:text/html,hello", "file://remote/tmp/example.txt", "blob:https://example.com/id", "mailto:a@example.com", "https://user:pass@example.com", "http://user@example.com", "%"]) {
     assert.equal(browserAddress(address), null, `应拒绝地址 ${address}`);
   }
+  assert.equal(browserAddress("file:///tmp/example.txt"), "file:///tmp/example.txt");
   assert.equal(browserAddress("example.com"), "https://example.com/");
   assert.equal(browserAddress("localhost:3000/path"), "http://localhost:3000/path");
   assert.equal(browserAddress("127.0.0.1:3000"), "http://127.0.0.1:3000/");
@@ -57,7 +58,7 @@ export async function checkInspector(server) {
   assert.ok(explorer.includes('aria-expanded="true"'));
   const collapsed = renderToStaticMarkup(createElement(WorkspaceFiles, { name: "fumotravel-web", files: fumo, expanded: { src: false }, onExpand() {}, onOpen() {} }));
   assert.ok(collapsed.includes('aria-expanded="false"') && !collapsed.includes('aria-label="预览 src/lib/sync/indexeddb.ts"'));
-  assert.ok(renderToStaticMarkup(createElement(WorkspaceFiles, { name: "新工作区", files: [], expanded: {}, onExpand() {}, onOpen() {} })).includes("暂无文件"));
+  assert.doesNotMatch(renderToStaticMarkup(createElement(WorkspaceFiles, { name: "新工作区", files: [], expanded: {}, onExpand() {}, onOpen() {} })), /暂无文件/);
 
   const preview = (file, mode = "preview") => renderToStaticMarkup(createElement(FilePreview, { file, path: file?.path ?? "missing.ts", mode, onMode() {}, onFiles() {}, onUrl() {} }));
   const { highlightSource } = await server.ssrLoadModule("/src/source-highlighting.ts");
@@ -94,7 +95,9 @@ export async function checkInspector(server) {
   const browser = renderToStaticMarkup(createElement(BrowserPanel, { navigation: first, appOrigin: "http://127.0.0.1:5173", onChange() {} }));
   assert.ok(browser.includes('sandbox="allow-scripts allow-forms"') && !browser.includes("allow-same-origin"));
   assert.ok(browser.includes('referrerPolicy="no-referrer"') || browser.includes('referrerpolicy="no-referrer"'));
-  assert.ok(browser.includes('title="网页预览"') && browser.includes("部分网站不允许嵌入"));
+  assert.ok(browser.includes('title="网页预览"') && !browser.includes("部分网站不允许嵌入"));
+  const local = renderToStaticMarkup(createElement(BrowserPanel, { navigation: browserNavigation("file:///tmp/example.html"), appOrigin: "http://127.0.0.1:5173", onChange() {} }));
+  assert.ok(local.includes("本地文件预览需要桌面宿主") && !local.includes("<iframe"));
   assert.ok(!browser.includes("加载成功"));
   const error = renderToStaticMarkup(createElement(BrowserPanel, { navigation: invalid, appOrigin: "http://127.0.0.1:5173", onChange() {} }));
   assert.ok(error.includes('role="alert"') && error.includes('aria-invalid="true"'));
@@ -105,5 +108,79 @@ export async function checkInspector(server) {
   }
   assert.equal(isDemoEntry(first.draft, "http://127.0.0.1:5173"), false);
   assert.equal(isDemoEntry("https://example.com/", "http://127.0.0.1:5173"), false);
+  const { workspaceGitRepository, layoutGitGraph } = await server.ssrLoadModule("/src/git-graph-data.ts");
+  const { GitGraphPanel, GitCommitDetails } = await server.ssrLoadModule("/src/git-graph.tsx");
+  for (const id of [undefined, "personal:main", "ws-eval", "new-workspace", "constructor", "__proto__"]) assert.equal(workspaceGitRepository(id), undefined, "普通目录、PA与未知工作区不提供Git图");
+  assert.deepEqual(workspaceGitRepository("ws-menubar"), { head: null, commits: [] }, "空仓库与非仓库不同");
+  const commit = (id, parents = []) => ({ id, parents, subject: id, author: "Demo", date: "2026-10-17", refs: [] });
+  for (const [commits, expectedLanes] of [
+    [[commit("a", ["b"]), commit("b", ["c"]), commit("c")], [0, 0, 0]],
+    [[commit("a", ["b", "c"]), commit("b", ["d"]), commit("c", ["d"]), commit("d")], [0, 0, 1, 0]],
+    [[commit("a", ["b", "c", "d"]), commit("b", ["e"]), commit("c", ["e"]), commit("d", ["e"]), commit("e")], [0, 0, 1, 2, 0]],
+    [[commit("a", ["c"]), commit("b", ["c"]), commit("c")], [0, 1, 0]],
+    [[commit("a"), commit("b"), commit("c")], [0, 0, 0]],
+  ]) {
+    const original = structuredClone(commits);
+    const graph = layoutGitGraph(commits);
+    assert.deepEqual(graph.rows.map(node => node.lane), expectedLanes, "分叉保留lane，合并复用共享父lane，独立根释放lane");
+    assert.equal(graph.edges.length, commits.reduce((count, item) => count + item.parents.length, 0), "每条父关系都有连线");
+    for (const [row, item] of commits.entries()) for (const parentId of item.parents) {
+      const parent = graph.rows.find(node => node.commit.id === parentId);
+      assert.ok(graph.edges.some(edge => edge.from === row && edge.fromLane === graph.rows[row].lane && edge.to === parent.row && edge.toLane === parent.lane && !edge.continuation), "父边连接实际两端节点");
+    }
+    assert.deepEqual(commits, original, "布局不改写历史");
+  }
+  const truncated = layoutGitGraph([commit("a", ["b", "missing"]), commit("b")]);
+  assert.ok(truncated.edges.some(edge => edge.from === 0 && edge.to === 2 && edge.toLane === 1 && edge.continuation), "窗口外父边延续到底部，不误当根提交");
+  for (const id of ["ws-fumo", "ws-nexus", "ws-menubar"]) {
+    const repository = workspaceGitRepository(id);
+    const positions = new Map(repository.commits.map((item, row) => [item.id, row]));
+    for (const [row, item] of repository.commits.entries()) for (const parent of item.parents) assert.ok(positions.has(parent) && positions.get(parent) > row, "样例历史保持新到旧拓扑顺序");
+    assert.ok(repository.head === null || positions.has(repository.head));
+    const graph = layoutGitGraph(repository.commits);
+    const panel = renderToStaticMarkup(createElement(GitGraphPanel, { name: id, repository }));
+    assert.ok(panel.includes('aria-label="Git graph"') && panel.includes("只读样例"));
+    assert.ok(!/\stitle=/.test(panel), "Git图沿用不添加悬浮说明的约定");
+    assert.equal((panel.match(/class="git-commit"/g) ?? []).length, repository.commits.length);
+    const graphSvgs = [...panel.matchAll(/<svg\b[^>]*class="git-graph-lines"[^>]*>([\s\S]*?)<\/svg>/g)];
+    const graphSvg = graphSvgs.map(match => match[1]).join("");
+    assert.equal((graphSvg.match(/<path /g) ?? []).length, graph.edges.length, "每条父边均绘制到SVG");
+    assert.equal(graphSvgs.length, repository.commits.length, "每行独立SVG随详情伸展，不用整图固定行高");
+    assert.ok(graphSvgs.every(match => !match[0].includes("viewBox=")), "图线用像素定位，详情展开不得缩放摘要节点");
+    if (repository.commits.length) {
+      assert.ok(panel.includes("HEAD → "));
+      assert.ok(panel.includes('aria-label="Git 提交历史"') && !panel.includes("暂无提交"));
+      const summaries = [...panel.matchAll(/<button\b[^>]*class="git-commit-summary"[^>]*>([\s\S]*?)<\/button>/g)];
+      assert.equal(summaries.length, repository.commits.length);
+      assert.ok(summaries.every(match => match[0].includes('aria-expanded="false"') && !match[1].includes("<time") && !match[1].includes("<code")), "每个提交默认折叠，摘要不显示时间或短哈希");
+      assert.ok(panel.includes('--git-row-height:28px') && graphSvgs.every(match => /cy="14"/.test(match[1])), "紧凑摘要为28px，节点位于14px中点");
+      assert.ok(summaries.every(match => !match[1].includes("lucide-chevron-right")), "提交摘要不显示右侧展开箭头");
+      assert.ok(summaries.every(match => !match[0].includes("aria-label=")), "摘要由refs与主题生成读屏名称，不能覆盖分支、tag或HEAD");
+      assert.ok(!panel.includes('class="git-commit-detail-body'), "关闭详情不暴露隐藏元数据");
+      assert.ok(summaries.every(match => match[1].indexOf('class="git-commit-refs"') < match[1].indexOf('class="git-commit-subject"')), "分支及tag放在主题前");
+      assert.ok(summaries.some(match => match[1].includes('data-slot="badge"')), "refs使用现有设计体系Badge");
+      if (id === "ws-fumo") {
+        const branchColor = [...panel.matchAll(/--git-lane-color:([^";]+)/g)][3]?.[1];
+        assert.ok(branchColor && graphSvg.includes(`stroke="${branchColor}"`) && summaries[3][1].includes('class="git-ref-icon"') && summaries[3][1].includes("offline-cache"), "标签图标区与分叉线共用lane语义色");
+        assert.ok(summaries[1][1].includes('class="git-ref-remote">origin</em>') && summaries[1][1].includes("远程分支 "), "远程名独立展示且可读屏辨认");
+        assert.ok(summaries[4][1].includes("lucide-tag") && summaries[4][1].includes("标签 "), "tag有标签图标与读屏类型");
+      }
+      assert.ok(panel.includes('<span class="sr-only">根提交</span>'), "读屏应能辨认根提交");
+      if (id === "ws-fumo") assert.ok(panel.includes('<span class="sr-only">父提交：7d2c9b4、c24d8e6</span>'), "读屏应能辨认合并的两个父提交");
+    } else assert.ok(panel.includes("暂无提交") && !panel.includes("<svg class=\"git-graph-lines\""));
+  }
+  const graphText = renderToStaticMarkup(createElement(GitGraphPanel, { name: "<img>", repository: { head: "unsafe", commits: [{ ...commit("unsafe"), subject: "<script>alert(1)</script>", author: "<b>", refs: [{ name: "<svg>", type: "branch", remote: "<em>" }] }] } }));
+  assert.ok(graphText.includes("&lt;script&gt;") && graphText.includes("&lt;img&gt;") && graphText.includes("&lt;svg&gt;") && graphText.includes("&lt;em&gt;") && !graphText.includes("<script>"), "仓库、提交及ref名称／远程名由React转义");
+  const typedRefs = renderToStaticMarkup(createElement(GitGraphPanel, { name: "typed", repository: { head: "a", commits: [{ ...commit("a"), refs: [{ name: "v-next/topic", type: "branch" }, { name: "release", type: "tag" }, { name: "v-next/topic", type: "branch", remote: "upstream" }] }] } }));
+  assert.equal((typedRefs.match(/lucide-git-branch/g) ?? []).length, 2, "分支图标不靠v前缀猜类型，本地与远程同名也保留");
+  assert.equal((typedRefs.match(/lucide-tag/g) ?? []).length, 1);
+  assert.ok(typedRefs.includes('class="git-ref-remote">upstream</em>'));
+  const truncatedPanel = renderToStaticMarkup(createElement(GitGraphPanel, { name: "truncated", repository: { head: "a", commits: [commit("a", ["missing"])] } }));
+  assert.ok(truncatedPanel.includes('stroke-dasharray="3 3"'), "窗口外父边使用延续样式");
+  assert.ok(truncatedPanel.includes('<span class="sr-only">父提交：missing（更早提交）</span>'), "读屏应能辨认窗口外父关系");
+  const details = renderToStaticMarkup(createElement(GitCommitDetails, { commit: { ...commit("123456789abcdef", ["abcdef0123", "9876543210"]), subject: "<script>subject</script>", author: "<b>author</b>" } }));
+  assert.ok(details.includes('<time dateTime="2026-10-17">2026-10-17</time>') && details.includes("<code>1234567</code>") && details.includes("abcdef0、9876543"), "详情显示日期、短哈希与合并父提交");
+  assert.ok(details.includes("&lt;script&gt;subject&lt;/script&gt;") && details.includes("&lt;b&gt;author&lt;/b&gt;") && !details.includes("<script>"), "详情主题与作者仍按纯文本转义");
+  assert.ok(renderToStaticMarkup(createElement(GitCommitDetails, { commit: commit("root") })).includes("根提交"));
   process.stdout.write("右栏导航、文件树与预览检查通过\n");
 }

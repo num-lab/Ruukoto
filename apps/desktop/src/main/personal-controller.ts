@@ -4,8 +4,12 @@ import { ControlClientError } from "@ruukoto/control/client.ts";
 import { ControlConnection, type ConnectionConfig } from "@ruukoto/control/connection.ts";
 import type { OpParams, OpResult, TuiOp } from "@ruukoto/control/ops.ts";
 import type { DesktopUpdate } from "../shared/bridge.ts";
+import { PendingRequestStore } from "@ruukoto/control/pending-requests.ts";
+import { PERSONAL_READ_OPS, type DesktopOp } from "./ipc.ts";
 import { serializeFailure } from "./controller.ts";
-import { personalSocketPath, validatePersonalConfig, type PersonalTargetConfig } from "./personal-config.ts";
+import { personalPendingDir, personalSocketPath, validatePersonalConfig, type PersonalTargetConfig } from "./personal-config.ts";
+import { DesktopSubmissions } from "./submissions.ts";
+import { DesktopError } from "./environment.ts";
 import { SshProcess, forwardArgs, forwardFailure, tokenArgs, tokenFailure } from "./personal-ssh.ts";
 import { versionRecovery } from "./recovery.ts";
 
@@ -21,12 +25,14 @@ export class PersonalController {
   private pending: Promise<void> = Promise.resolve();
   private cleanup: Promise<void> = Promise.resolve();
   private token = "";
+  readonly submissions: DesktopSubmissions;
   readonly socketPath: string;
   readonly config: PersonalTargetConfig;
   status: Extract<DesktopUpdate, { type: "state" }> = { type: "state", state: "closed", detail: "尚未连接" };
   constructor(config: PersonalTargetConfig, userData: string, private readonly publish: (update: DesktopUpdate) => void, private readonly env: NodeJS.ProcessEnv = process.env, private readonly deps: { ssh?: string; clientFactory?: ConnectionConfig["clientFactory"] } = {}) {
     this.config = validatePersonalConfig(config, userData);
     this.socketPath = personalSocketPath(userData);
+    this.submissions = new DesktopSubmissions(new PendingRequestStore(personalPendingDir(userData, this.config)), () => this.connection, publish, (op, params) => this.request(op, params));
   }
   private current(generation: number): boolean { return !this.stopped && this.generation === generation; }
   private state(update: Extract<DesktopUpdate, { type: "state" }>): void { this.status = update; this.publish(update); }
@@ -69,7 +75,10 @@ export class PersonalController {
             if (!this.current(generation)) return;
             if (state === "online") this.forwardDelay = 500;
             if (state === "failed") this.fail(error);
-            else this.state({ type: "state", state, detail: this.token ? detail?.replaceAll(this.token, "[令牌已隐藏]") : detail });
+            else {
+              this.state({ type: "state", state, detail: this.token ? detail?.replaceAll(this.token, "[令牌已隐藏]") : detail });
+              if (state === "online") void this.submissions.reconcile().catch(() => { if (this.current(generation)) this.fail(new DesktopError("pending_read_failed", "无法核对原输入记录；请恢复应用数据目录权限后重新连接。")); });
+            }
           },
           onSnapshot: (result, context) => { if (this.current(generation)) this.publish({ type: "snapshot", result, instanceChanged: context.instanceChanged }); },
           onEvent: (event, kind) => { if (this.current(generation)) this.publish({ type: "event", event, kind }); },
@@ -113,7 +122,7 @@ export class PersonalController {
     return this.token;
   }
   async request<K extends TuiOp>(op: K, params: OpParams<K>): Promise<OpResult<K>> {
-    if (!this.connection || (this.status.state !== "online" && op !== "get_task")) throw new ControlClientError("connection_unavailable", "连接不可用：请求未发送", "not_sent");
+    if (!this.connection || this.status.state !== "online" && !PERSONAL_READ_OPS.some(read => read === op)) throw new ControlClientError("connection_unavailable", "连接不可用：请求未发送", "not_sent");
     const token = this.token;
     try { return await this.connection.request(op, params); }
     catch (error) {
@@ -121,9 +130,16 @@ export class PersonalController {
       throw new ControlClientError(failure.code, failure.message, failure.outcome, failure.versions);
     }
   }
+  async dispatch(op: DesktopOp, params: OpParams<DesktopOp>): Promise<unknown> {
+    if (op === "submit" || op === "continue") return this.submissions.submit(op, params);
+    return this.request(op, params);
+  }
+  instanceId(): string | null { return this.connection?.instanceId ?? null; }
+  connectionIdentity(): object | null { return this.connection; }
   async close(): Promise<void> {
     this.stopped = true;
     ++this.generation;
+    this.submissions.close();
     await Promise.all([this.cleanup, this.stopResources(), this.pending]);
     this.state({ type: "state", state: "closed", detail: "已主动关闭" });
   }

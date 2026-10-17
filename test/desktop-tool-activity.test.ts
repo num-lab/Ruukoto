@@ -6,6 +6,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { parseFragment, type DefaultTreeAdapterTypes } from "parse5";
 import { createServer, type ViteDevServer } from "vite";
 import react from "@vitejs/plugin-react";
+import type { FlowEntry } from "@ruukoto/view/event-flow.ts";
 import type { TaskView } from "@ruukoto/core/views.ts";
 import type { OpResult } from "@ruukoto/control/ops.ts";
 import { ViewState } from "@ruukoto/view/state.ts";
@@ -17,6 +18,7 @@ import type { DesktopBridge } from "../apps/desktop/src/shared/bridge.ts";
 
 const at = "2026-10-16T00:00:00Z";
 const task = (): TaskView => ({ id: "task", sessionId: "a", requestId: "r", input: "问题", inputPurpose: "user", modelSelection: null, submissionDigest: null, status: "running", accessMode: "confirm", planMode: false, permissionVersion: 1, sourcePermissionVersion: null, grantedPaths: [], pendingAccessMode: null, interruptReason: null, cancelRequested: false, effectUnknown: false, errorMessage: null, historyEntryIds: [], resumesTaskId: null, agentId: null, parentTaskId: null, sourceEventId: null, deadline: null, resultSummary: null, resultRef: null, workId: null, subAgentId: null, readScope: null, resultDeliveredAt: null, createdAt: at, startedAt: at, endedAt: null });
+const thinking = (extra: Partial<Extract<FlowEntry, { kind: "thinking" }>> = {}): Extract<FlowEntry, { kind: "thinking" }> => ({ kind: "thinking", key: "thinking", taskId: "task", at, seq: 0, startedAt: at, endedAt: "2026-10-16T00:00:05Z", text: "实际记录的 reasoning\n保留原有换行", ...extra });
 const tool = (extra: Partial<DiffTool> = {}): DiffTool => ({ kind: "tool", key: "tool", taskId: "task", at, seq: 1, name: "bash", target: "echo preview", toolOpId: "op", toolCallId: "call", status: "done", entryId: "entry", params: { command: "echo 完整命令" }, paramsTruncated: false, summary: null, artifactIds: [], ...extra });
 const result = (text: string | null, extra: Partial<OpResult<"read_tool_result">> = {}): OpResult<"read_tool_result"> => ({ text: text ?? "", patch: null, writeContent: null, toolName: "bash", isError: false, truncated: false, content: text === null ? null : { text, offset: 0, totalBytes: Buffer.byteLength(text), truncated: false }, ...extra });
 function harness(request: DesktopBridge["request"]) {
@@ -33,7 +35,7 @@ test("执行状态只用真实阶段，保留思考批次与任务边界，Worki
   assert.deepEqual(activityGroups([tool(), tool({ taskId: "other", key: "other" })]).map(group => group.length), [1, 1]);
   const view = new ViewState(); view.tasks.set("task", task());
   const flow = view.openSession("a").flow;
-  flow.apply({ seq: 1, sessionId: "a", taskId: "task", createdAt: at, body: { type: "task.thinking", taskId: "task", sessionId: "a", thinkingId: "thinking", messageId: "message", startedAt: at, endedAt: null, text: "不可渲染正文" } });
+  flow.apply({ seq: 1, sessionId: "a", taskId: "task", createdAt: at, body: { type: "task.thinking", taskId: "task", sessionId: "a", thinkingId: "thinking", messageId: "message", startedAt: at, endedAt: null, text: "实际记录的正文" } });
   assert.equal(conversationActivity(view, "a", true).phase, "thinking");
   assert.equal(conversationActivity(view, "a", false).phase, null);
   for (const status of ["awaiting_confirmation", "completed", "interrupted", "canceled", "failed"] as const) { view.tasks.get("task")!.status = status; assert.equal(conversationActivity(view, "a", true).phase, null); }
@@ -56,6 +58,45 @@ test("执行状态只用真实阶段，保留思考批次与任务边界，Worki
   const agentView = new ViewState(); agentView.tasks.set("task", task());
   agentView.openSession("a").flow.apply({ seq: 1, sessionId: "a", taskId: "task", createdAt: at, body: { type: "task.tool_intent", taskId: "task", toolOpId: "agent", sdkCallId: "agent", toolName: "subagent_delegate", params: { role: "general" } } });
   assert.equal(conversationActivity(agentView, "a", true).phase, "working");
+});
+
+test("请求前、工具参数生成和轮间持续显示状态，只让最新正文阶段替代 Thinking", () => {
+  const view = new ViewState(); view.tasks.set("task", task());
+  const activity = (items: FlowEntry[]) => conversationActivity(view, "a", true, items);
+  assert.equal(activity([]).phase, "thinking");
+  assert.equal(activity([thinking()]).phase, "thinking");
+  assert.equal(activity([tool()]).phase, "thinking");
+  assert.equal(activity([tool()]).thinking, undefined, "轮间不复用已经归属工具组的 reasoning");
+  const message: FlowEntry = { kind: "message", key: "message", taskId: "task", at, seq: 0, role: "assistant", text: "正在输出", streaming: true, entryId: null, totalBytes: 0, truncated: false };
+  assert.equal(activity([message]).phase, null);
+  assert.equal(activity([message, thinking()]).phase, "thinking", "旧正文的 streaming 标记不得压住新阶段");
+  const working = activity([message, thinking(), tool({ status: "running" })]);
+  assert.equal(working.phase, "working"); assert.equal(working.thinking?.text, thinking().text);
+  assert.equal(working.groups.flat().filter(item => item.kind === "thinking").length, 0);
+});
+
+test("reasoning 开启同任务工具批次，空事件仍隔开批次，消息与 Agent 不跨组", () => {
+  const first = thinking(), second = thinking({ key: "second", text: "第二轮" }), empty = thinking({ key: "empty", text: "" });
+  const groups = activityGroups([first, tool(), second, tool({ key: "two" }), empty, tool({ key: "three" }), tool({ key: "agent", name: "subagent_delegate" }), tool({ key: "four" }), thinking({ key: "other", taskId: "other" }), tool({ key: "five" })]);
+  assert.deepEqual(groups.map(group => group.map(item => item.key)), [["thinking", "tool"], ["second", "two"], ["empty", "three"], ["agent"], ["four"], ["other"], ["five"]]);
+  const view = new ViewState(); view.tasks.set("task", { ...task(), status: "completed" });
+  const history = conversationActivity(view, "a", true, [first, tool(), second, tool({ key: "two" }), empty]);
+  assert.equal(history.phase, null); assert.equal(history.groups.length, 2);
+  assert.equal(history.groups[0][0].kind, "thinking");
+  assert.equal(conversationActivity(view, "a", true, [first]).groups.length, 1, "无工具的真实 reasoning 保留独立行");
+});
+
+test("工具历史的空 assistant 不拆开 reasoning 与工具组，附件与正文保留边界", () => {
+  const view = new ViewState(); view.tasks.set("task", task());
+  const flow = view.openSession("a").flow;
+  flow.apply({ seq: 1, sessionId: "a", taskId: "task", createdAt: at, body: { type: "task.thinking", taskId: "task", sessionId: "a", thinkingId: "recorded", messageId: "message", startedAt: at, endedAt: at, text: "实际原文" } });
+  flow.addHistory({ entryId: "empty-call", taskId: "task", inputPurpose: "user", parentId: null, role: "assistant", text: "", timestamp: at, offset: 0, totalBytes: 0, truncated: false, toolCalls: [], toolCallId: null, toolName: null, isError: false, hasNonTextContent: true });
+  flow.apply({ seq: 2, sessionId: "a", taskId: "task", createdAt: at, body: { type: "task.tool_intent", taskId: "task", toolOpId: "op", sdkCallId: "call", toolName: "bash", params: { command: "echo fixture" } } });
+  const working = conversationActivity(view, "a", true);
+  assert.equal(working.phase, "working"); assert.equal(working.thinking?.text, "实际原文");
+  assert.equal(working.groups.flat().filter(item => item.kind === "thinking").length, 0);
+  const attachment: FlowEntry = { kind: "message", key: "file", taskId: "task", at, seq: 1, role: "user", text: "", entryId: "file", totalBytes: 0, truncated: false, streaming: false, attachments: [{ id: "attachment", name: "a.txt", size: 1 }] };
+  assert.equal(conversationActivity(view, "a", true, [thinking(), attachment, tool({ status: "running" })]).thinking, undefined);
 });
 
 test("inline 结果复用字节分页，失配可重试，迟到快照应答无效", async () => {
@@ -113,7 +154,7 @@ test("Read 从来源 cwd 映射登记根，截断路径迟到不打开新父会�
 });
 
 let server: ViteDevServer;
-let ToolActivity: ComponentType<{ model: CodeState; sessionId: string; tools: DiffTool[]; stateKey: string; phase?: "thinking" | "working"; expanded: Record<string, boolean>; onExpand(): void }>;
+let ToolActivity: ComponentType<{ model: CodeState; sessionId: string; tools: DiffTool[]; thinking?: Extract<FlowEntry, { kind: "thinking" }>; stateKey: string; phase?: "thinking" | "working"; expanded: Record<string, boolean>; onExpand(): void }>;
 let submitOnEnter: (event: { key: string; shiftKey: boolean; repeat: boolean; nativeEvent: { isComposing?: boolean; keyCode?: number }; preventDefault(): void }, canSend: boolean, send: () => void) => void;
 before(async () => {
   server = await createServer({ configFile: false, root: fileURLToPath(new URL("../apps/desktop/src/renderer/", import.meta.url)), plugins: [react()], server: { middlewareMode: true, hmr: false }, appType: "custom" });
@@ -170,4 +211,16 @@ test("源码高亮保留全部文本、空行与转义，未知扩展名不猜�
   const text = (node: DefaultTreeAdapterTypes.Node): string => node.nodeName === "#text" && "value" in node ? node.value : "childNodes" in node ? node.childNodes.map(text).join("") : "";
   assert.equal(text(parseFragment(highlighted)), content);
   assert.equal(highlightSource("unknown.txt", content), null);
+});
+
+test("Thinking 展示原文，工具组首行可展开 reasoning 且只出现一次", () => {
+  const model = new CodeState({ request: async () => ({ ok: true, value: {} }) }, () => {});
+  const props = { model, sessionId: "a", tools: [tool()], thinking: thinking(), stateKey: "group", expanded: { group: true, "thinking:reasoning": true }, onExpand() {} };
+  const active = renderToStaticMarkup(createElement(ToolActivity, { ...props, phase: "thinking" }));
+  assert.match(active, /Thinking/); assert.match(active, /实际记录的 reasoning/); assert.match(active, /保留原有换行/); assert.doesNotMatch(active, /Thought for/);
+  const historical = renderToStaticMarkup(createElement(ToolActivity, props));
+  assert.ok(historical.indexOf("Thought for 5s") < historical.indexOf("Ran <code>"));
+  assert.equal((historical.match(/实际记录的 reasoning/g) ?? []).length, 1);
+  const empty = renderToStaticMarkup(createElement(ToolActivity, { ...props, thinking: thinking({ text: "" }) }));
+  assert.doesNotMatch(empty, /Thought for|实际记录的 reasoning/);
 });

@@ -1,0 +1,32 @@
+[
+  {
+    "shift": "0",
+    "sorting": null,
+    "source": null,
+    "text": "Offline IndexedDB sync for Shinkansen pass"
+  },
+  {
+    "shift": "0",
+    "sorting": null,
+    "source": null,
+    "text": "MCP stdio connection pool & backoff"
+  },
+  {
+    "shift": "0",
+    "sorting": null,
+    "source": null,
+    "text": "Tokyo JST departure time hydration fix"
+  },
+  {
+    "shift": "0",
+    "sorting": null,
+    "source": null,
+    "text": "indexeddb.ts"
+  },
+  {
+    "shift": "0",
+    "sorting": null,
+    "source": null,
+    "text": "Schema Auditor"
+  }
+]

@@ -101,6 +101,7 @@ export class CodeController {
     return this.request(op, params);
   }
   instanceId(): string | null { return this.connection?.instanceId ?? null; }
+  connectionIdentity(): object | null { return this.connection; }
   async request<K extends TuiOp>(op: K, params: OpParams<K>): Promise<OpResult<K>> {
     if (!this.connection || this.stopped) throw new ControlClientError("connection_unavailable", "连接不可用：请求未发送", "not_sent");
     try { return await this.connection.request(op, params); }

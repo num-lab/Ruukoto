@@ -66,11 +66,11 @@ func (d *Desktop) PickFolder(ctx context.Context) json.RawMessage {
 	return data
 }
 
-func (d *Desktop) PickAttachments(ctx context.Context, sessionID string) json.RawMessage {
+func (d *Desktop) PickAttachments(ctx context.Context, sessionID, target string) json.RawMessage {
 	if !d.trusted(ctx) {
 		return failure("ipc_sender", "not_sent", "桌面请求来源不可用；请重新打开应用。")
 	}
-	prepared := d.call(ctx, "attachment_instance")
+	prepared := d.call(ctx, "attachment_instance", target)
 	var selection struct {
 		OK       bool   `json:"ok"`
 		Instance string `json:"value"`
@@ -85,7 +85,7 @@ func (d *Desktop) PickAttachments(ctx context.Context, sessionID string) json.Ra
 	if files == nil {
 		files = []string{}
 	}
-	return d.call(ctx, "attachments", sessionID, files, selection.Instance)
+	return d.call(ctx, "attachments", sessionID, files, selection.Instance, target)
 }
 
 func (d *Desktop) Reveal(ctx context.Context, path string) json.RawMessage {

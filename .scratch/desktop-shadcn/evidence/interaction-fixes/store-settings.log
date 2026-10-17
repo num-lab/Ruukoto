@@ -1,0 +1,12 @@
+✔ 新会话初始模式、模型与 session.created 原子落盘，失败不留下会话 (6.845125ms)
+✔ Plan 选择持久化为任务工作方式与 auto-review，默认变更和切换拒绝不改原任务 (9.137375ms)
+✔ 会话模型 CAS、不可变提交摘要及旧队列配置都与持久事件原子提交 (5.657792ms)
+✔ 旧队列批量补配置事件保持有界，所有任务可同步 (46.333083ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 134.904792

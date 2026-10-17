@@ -1,0 +1,2 @@
+sandbox_extension_issue_file_to_process failed for /tmp/Ruukoto-QA-v4.app: 1 (Operation not permitted)
+2026-10-17 16:47:34.898 Ruukoto MyGo[2379:9359283] TSM AdjustCapsLockLEDForKeyTransitionHandling - _ISSetPhysicalKeyboardCapsLockLED Inhibit

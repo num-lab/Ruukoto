@@ -13,7 +13,7 @@ import { RuntimeApiError } from "@ruukoto/core/api-error.ts";
  * Note: 见 .agents/notes/implemented/feature/2026-09-19-explicit-access-modes.md
  */
 
-import type { DataCategory,GrantedPath,Memory,MemorySourceRef,PersistentEvent,SessionDefaultMode } from "@ruukoto/core/types.ts";
+import type { DataCategory,GrantedPath,Memory,MemorySourceRef,ModelSelection,PersistentEvent,SessionDefaultMode } from "@ruukoto/core/types.ts";
 import { SESSION_DEFAULT_MODES,isAccessMode,isSessionDefaultMode } from "@ruukoto/core/types.ts";
 import { capEventForWire,frameBytes } from "@ruukoto/core/views.ts";
 import type { Runtime } from "@ruukoto/runtime/runtime.ts";
@@ -264,6 +264,7 @@ export class ControlServer {
             instanceId: snapshot.instanceId,
             execution: snapshot.execution,
             defaultModel: snapshot.defaultModel,
+            mainSessionId: snapshot.mainSessionId,
             roleSessionIds: snapshot.roleSessionIds,
             subAgentSessionIds: snapshot.subAgentSessionIds,
             workDelegations: snapshot.workDelegations,
@@ -304,13 +305,21 @@ export class ControlServer {
             ? (params["confirm_tools"] as unknown[]).map(String)
             : undefined,
           createRequestId: optionalRequestId(),
+          mode: params["mode"] as SessionDefaultMode | undefined,
+          modelSelection: params["model_selection"] as ModelSelection | undefined,
         });
       case "open_workspace":
         return runtime.openWorkspace({
           cwd: requireString("cwd"),
           projectId: typeof params["project_id"] === "string" && params["project_id"] ? params["project_id"] : undefined,
           createRequestId: optionalRequestId(),
+          mode: params["mode"] as SessionDefaultMode | undefined,
+          modelSelection: params["model_selection"] as ModelSelection | undefined,
         });
+      case "read_workspace_git": {
+        if (Object.keys(params).some(key => key !== "workspace_id" && key !== "cursor") || params["cursor"] !== undefined && typeof params["cursor"] !== "string") throw new RuntimeApiError("invalid_params", "Git 历史接口只接受登记的工作区与分页游标。");
+        return runtime.readWorkspaceGit({ workspaceId: requireString("workspace_id"), cursor: params["cursor"] as string | undefined });
+      }
       case "list_workspace_files":
       case "read_workspace_file": {
         if (Object.keys(params).some(key => key !== "workspace_id" && key !== "path") || params["path"] !== undefined && typeof params["path"] !== "string") throw new RuntimeApiError("invalid_params", "文件接口只接受工作区与相对路径。");

@@ -1,0 +1,14 @@
+
+  MyGo!!!!! v0.5.5  build
+
+  ○ Generating the TypeScript client
+  ✓ Wrote ../bindings.ts  1.8s
+  ○ Compiling darwin/arm64
+  ✓ Compiled darwin/arm64  1.0s
+  ○ Signing Ruukoto Browser QA.app
+  ✓ Signed Ruukoto Browser QA.app  41ms
+
+  ✓ Built Ruukoto Browser QA 0.1.0 in 3.0s
+
+    ../dist/darwin-arm64/
+      Ruukoto Browser QA.app     9.5 MB

@@ -4,7 +4,7 @@ import referenceData from "./reference-data.json";
 export type ActivityItem = { action: string; file: string; note?: string; openTab?: string; diffFile?: string; stat?: string; command?: string; output?: string; error?: string; diff?: Diff; status?: "running" };
 export type Step =
   | { type: "user" | "prose"; text: string }
-  | { type: "activity"; summary: string; duration: string; expanded: boolean; items: ActivityItem[]; phase?: "thinking" | "working" }
+  | { type: "activity"; summary: string; duration: string; expanded: boolean; items: ActivityItem[]; thinking?: { text: string; duration: string }; phase?: "thinking" | "working" }
   | { type: "command"; id: string; status: string; command: string; note: string; output: string };
 export type Subagent = { id: string; name: string; role: string; status: string; duration: string; task: string; steps: Step[] };
 export type Diff = { file: string; fullPath: string; add: number; del: number; lines: { type: string; no: number; code: string }[] };
@@ -13,7 +13,7 @@ export type PendingSubmission = { draft: string; attachments: Attachment[]; queu
 export type Session = { id: string; title: string; status: string; steps: Step[]; subagents: Subagent[]; diffs: Diff[]; draft: string; attachments: Attachment[]; pendingSubmission: PendingSubmission | null; model: string; effort: string; context: { usedTokens: number; maxTokens: number; systemTokens: number; toolTokens: number }; mode: string; continuing: boolean };
 export type Workspace = { id: string; name: string; expanded: boolean; sessions: Session[] };
 export type RightTab = { id: string; title: string } & (
-  | { type: "new" | "files" }
+  | { type: "new" | "files" | "git" }
   | { type: "diff" | "agent"; objectId: string }
   | { type: "file"; objectId: string; mode: "preview" | "source" }
   | { type: "browser"; navigation: BrowserNavigation }
@@ -33,7 +33,10 @@ export const scenarios: { value: Scenario; label: string }[] = [
 ];
 
 // shortcut: 原稿活动与详情均为静态样例，迁移正式 GUI 时改接已记录的工具输入与结果。
-export const initialWorkspaces: Workspace[] = (referenceData as Workspace[]).map(workspace => ({ ...workspace, sessions: workspace.sessions.map(session => ({ ...session, attachments: [], pendingSubmission: null, effort: "Medium", context: { usedTokens: 32000, maxTokens: 200000, systemTokens: 1500, toolTokens: 5300 } })) }));
+export const initialWorkspaces: Workspace[] = (referenceData as Workspace[]).map(workspace => ({ ...workspace, sessions: workspace.sessions.map(session => ({ ...session, steps: session.steps.map(step => step.type === "activity" && step.items.some(item => item.action !== "Agent") ? { ...step, thinking: { text: "演示内容：检查缓存读取与重连同步的实现。", duration: "5s" } } : step), attachments: [], pendingSubmission: null, effort: "Medium", context: { usedTokens: 32000, maxTokens: 200000, systemTokens: 1500, toolTokens: 5300 } })) }));
+
+export const PERSONAL_SESSION_ID = "personal:main";
+export const initialPersonalSession: Session = { id: PERSONAL_SESSION_ID, title: "Ruukoto", status: "idle", steps: [], subagents: [], diffs: [], draft: "", attachments: [], pendingSubmission: null, model: initialWorkspaces[1].sessions[0].model, effort: "Medium", context: { usedTokens: 0, maxTokens: 200000, systemTokens: 0, toolTokens: 0 }, mode: "auto-review", continuing: false };
 
 // Note: 见 .agents/notes/implemented/feature/2026-10-16-demo-trace-tools.md
 export function toolDetailsPreview(session: Session): Step[] {
@@ -41,7 +44,7 @@ export function toolDetailsPreview(session: Session): Step[] {
   const path = diff?.fullPath ?? "README.md";
   return [
     { type: "user", text: "Inspect the workspace files and check the local dependency setup." },
-    { type: "activity", summary: "", duration: "2.6s", expanded: true, items: [
+    { type: "activity", summary: "", thinking: { text: "演示内容：检查依赖清单与锁文件。", duration: "5s" }, duration: "2.6s", expanded: true, items: [
       { action: "Read", file: path },
       { action: "Edited", file: path, diffFile: path },
       { action: "Write", file: "notes.txt", diff: { file: "notes.txt", fullPath: "notes.txt", add: 2, del: 0, lines: [{ type: "add", no: 1, code: "Dependency setup check" }, { type: "add", no: 2, code: "Keep the lockfile in sync with package.json." }] }, stat: "+2 -0" },
@@ -54,18 +57,18 @@ export function toolDetailsPreview(session: Session): Step[] {
 
 export function executionPreview(session: Session, phase: "thinking" | "working"): Step[] {
   const diff = session.diffs[0];
-  const items: ActivityItem[] = phase === "working" ? [
+  const items: ActivityItem[] = phase === "working" && session.id !== PERSONAL_SESSION_ID ? [
     { action: "Read", file: diff?.fullPath ?? "README.md" },
     ...(diff ? [{ action: "Edited", file: diff.fullPath, diffFile: diff.fullPath, stat: `+${diff.add} -${diff.del}` }] : []),
     { action: "Bash", file: "pnpm test:unit", command: "pnpm test:unit", output: "RUN  Unit tests", status: "running" },
   ] : [];
-  return [...session.steps.filter(step => step.type !== "command" || step.status !== "pending"), { type: "activity", phase, summary: "", duration: "", expanded: true, items }];
+  return [...session.steps.filter(step => step.type !== "command" || step.status !== "pending"), { type: "activity", phase, summary: "", thinking: { text: "演示内容：正在检查缓存读取与重连同步的实现。", duration: "5s" }, duration: "", expanded: true, items }];
 }
 
 export function completeSubmission(session: Session, pending: PendingSubmission): Session {
   if (session.pendingSubmission !== pending) return session;
   const text = [pending.draft.trim(), ...pending.attachments.map(attachment => `［模拟附件：${attachment.name}］`)].filter(Boolean).join("\n");
-  return { ...session, title: session.title === "新会话" ? text.slice(0, 32) : session.title, draft: "", attachments: [], continuing: false, pendingSubmission: null, steps: [...session.steps, { type: "user", text }, { type: "prose", text: pending.queued ? "演示：输入已排队，等待当前任务结束或恢复队列。未调用真实模型。" : "这是前端模拟回复。你可以继续检查对话排版、工具差异、SubAgent 标签与审批状态；没有调用模型或执行命令。" }] };
+  return { ...session, title: session.title === "新会话" ? text.slice(0, 32) : session.title, draft: "", attachments: [], continuing: false, pendingSubmission: null, steps: [...session.steps, { type: "user", text }, { type: "prose", text: pending.queued ? "演示：输入已排队，等待当前任务结束或恢复队列。未调用真实模型。" : session.id === PERSONAL_SESSION_ID ? "这是前端模拟回复，没有调用真实模型。" : "这是前端模拟回复。你可以继续检查对话排版、工具差异、SubAgent 标签与审批状态；没有调用模型或执行命令。" }] };
 }
 
 export function activitySummary(items: ActivityItem[]): string {

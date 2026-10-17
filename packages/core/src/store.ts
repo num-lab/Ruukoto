@@ -333,6 +333,7 @@ export class Store {
     sessionFile?: string | null;
     confirmTools: string[];
     modelSelection?: ModelSelection | null;
+    defaultAccessMode?: SessionDefaultMode;
     /** 创建幂等键（issue 21；null/缺省 = 不去重，每次插入新会话）。 */
     createRequestId?: string | null;
     /** 分支发布只接受宿主预先固定的完整元数据。 */
@@ -373,7 +374,7 @@ export class Store {
       createRequestId: input.createRequestId ?? null,
       modelSelection: input.modelSelection ?? null,
       modelSelectionVersion: input.modelSelection ? 1 : 0,
-      defaultAccessMode: "confirm",
+      defaultAccessMode: input.defaultAccessMode ?? "confirm",
       defaultAccessModeVersion: 0,
       queueState: "active",
       queuePauseReason: null,

@@ -1,0 +1,17 @@
+{"count":50,"reads":52,"milliseconds":26.1,"bytes":56075}
+{"count":300,"reads":302,"milliseconds":72.33,"bytes":333300}
+node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: 已加载消息不应逐条重复排序整个flow：[{"count":50,"reads":52},{"count":300,"reads":302}]
+    at <anonymous> (/Users/eitrous/.codex/worktrees/6f13/ruukoto/.scratch/desktop-shadcn/evidence/interaction-fixes/render-repro.mts:25:10) {
+  generatedMessage: false,
+  code: 'ERR_ASSERTION',
+  actual: false,
+  expected: true,
+  operator: '==',
+  diff: 'simple'
+}
+
+Node.js v24.15.0

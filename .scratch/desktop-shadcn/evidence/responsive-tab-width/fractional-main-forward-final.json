@@ -1,0 +1,364 @@
+{
+  "baseline": [
+    {
+      "title": "Offline IndexedDB sync for Shinkansen pass",
+      "x": 236
+    },
+    {
+      "title": "Tokyo JST departure time hydration fix",
+      "x": 343.328125
+    },
+    {
+      "title": "MCP stdio connection pool & backoff",
+      "x": 450.65625
+    }
+  ],
+  "samples": [
+    {
+      "groups": [
+        {
+          "shift": "0",
+          "sorting": null,
+          "source": null,
+          "title": "Offline IndexedDB sync for Shinkansen pass",
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "width": 103.328125,
+          "x": 236
+        },
+        {
+          "shift": "0",
+          "sorting": null,
+          "source": null,
+          "title": "Tokyo JST departure time hydration fix",
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "width": 103.328125,
+          "x": 343.328125
+        },
+        {
+          "shift": "0",
+          "sorting": null,
+          "source": null,
+          "title": "MCP stdio connection pool & backoff",
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "width": 103.328125,
+          "x": 450.65625
+        }
+      ],
+      "left": 236
+    },
+    {
+      "groups": [
+        {
+          "shift": "0",
+          "sorting": null,
+          "source": null,
+          "title": "Offline IndexedDB sync for Shinkansen pass",
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "width": 103.328125,
+          "x": 236
+        },
+        {
+          "shift": "0",
+          "sorting": null,
+          "source": null,
+          "title": "Tokyo JST departure time hydration fix",
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "width": 103.328125,
+          "x": 343.328125
+        },
+        {
+          "shift": "0",
+          "sorting": null,
+          "source": null,
+          "title": "MCP stdio connection pool & backoff",
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "width": 103.328125,
+          "x": 450.65625
+        }
+      ],
+      "left": 236
+    },
+    {
+      "groups": [
+        {
+          "shift": "0",
+          "sorting": null,
+          "source": null,
+          "title": "Offline IndexedDB sync for Shinkansen pass",
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "width": 103.328125,
+          "x": 236
+        },
+        {
+          "shift": "0",
+          "sorting": null,
+          "source": null,
+          "title": "Tokyo JST departure time hydration fix",
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "width": 103.328125,
+          "x": 343.328125
+        },
+        {
+          "shift": "0",
+          "sorting": null,
+          "source": null,
+          "title": "MCP stdio connection pool & backoff",
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "width": 103.328125,
+          "x": 450.65625
+        }
+      ],
+      "left": 236
+    },
+    {
+      "groups": [
+        {
+          "shift": "0",
+          "sorting": null,
+          "source": null,
+          "title": "Offline IndexedDB sync for Shinkansen pass",
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "width": 103.328125,
+          "x": 236
+        },
+        {
+          "shift": "0",
+          "sorting": null,
+          "source": null,
+          "title": "Tokyo JST departure time hydration fix",
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "width": 103.328125,
+          "x": 343.328125
+        },
+        {
+          "shift": "0",
+          "sorting": null,
+          "source": null,
+          "title": "MCP stdio connection pool & backoff",
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "width": 103.328125,
+          "x": 450.65625
+        }
+      ],
+      "left": 236
+    },
+    {
+      "groups": [
+        {
+          "shift": "0",
+          "sorting": "true",
+          "source": "true",
+          "title": "Offline IndexedDB sync for Shinkansen pass",
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "width": 103.328125,
+          "x": 236
+        },
+        {
+          "shift": "0",
+          "sorting": "true",
+          "source": null,
+          "title": "Tokyo JST departure time hydration fix",
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "width": 103.328125,
+          "x": 343.328125
+        },
+        {
+          "shift": "0",
+          "sorting": "true",
+          "source": null,
+          "title": "MCP stdio connection pool & backoff",
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "width": 103.328125,
+          "x": 450.65625
+        }
+      ],
+      "left": 236
+    },
+    {
+      "groups": [
+        {
+          "shift": "1",
+          "sorting": "true",
+          "source": "true",
+          "title": "Offline IndexedDB sync for Shinkansen pass",
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "width": 103.328125,
+          "x": 236
+        },
+        {
+          "shift": "-1",
+          "sorting": "true",
+          "source": null,
+          "title": "Tokyo JST departure time hydration fix",
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "width": 103.328125,
+          "x": 343.328125
+        },
+        {
+          "shift": "0",
+          "sorting": "true",
+          "source": null,
+          "title": "MCP stdio connection pool & backoff",
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "width": 103.328125,
+          "x": 450.65625
+        }
+      ],
+      "left": 236
+    },
+    {
+      "groups": [
+        {
+          "shift": "1",
+          "sorting": "true",
+          "source": "true",
+          "title": "Offline IndexedDB sync for Shinkansen pass",
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "width": 103.328125,
+          "x": 236
+        },
+        {
+          "shift": "-1",
+          "sorting": "true",
+          "source": null,
+          "title": "Tokyo JST departure time hydration fix",
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "width": 103.328125,
+          "x": 343.328125
+        },
+        {
+          "shift": "0",
+          "sorting": "true",
+          "source": null,
+          "title": "MCP stdio connection pool & backoff",
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "width": 103.328125,
+          "x": 450.65625
+        }
+      ],
+      "left": 236
+    },
+    {
+      "groups": [
+        {
+          "shift": "1",
+          "sorting": "true",
+          "source": "true",
+          "title": "Offline IndexedDB sync for Shinkansen pass",
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "width": 103.328125,
+          "x": 236
+        },
+        {
+          "shift": "-1",
+          "sorting": "true",
+          "source": null,
+          "title": "Tokyo JST departure time hydration fix",
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "width": 103.328125,
+          "x": 343.328125
+        },
+        {
+          "shift": "0",
+          "sorting": "true",
+          "source": null,
+          "title": "MCP stdio connection pool & backoff",
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "width": 103.328125,
+          "x": 450.65625
+        }
+      ],
+      "left": 236
+    },
+    {
+      "groups": [
+        {
+          "shift": "2",
+          "sorting": "true",
+          "source": "true",
+          "title": "Offline IndexedDB sync for Shinkansen pass",
+          "transform": "matrix(1, 0, 0, 1, 11.1299, 0)",
+          "width": 103.32810974121094,
+          "x": 247.12989807128903
+        },
+        {
+          "shift": "-1",
+          "sorting": "true",
+          "source": null,
+          "title": "Tokyo JST departure time hydration fix",
+          "transform": "matrix(1, 0, 0, 1, -11.1299, 0)",
+          "width": 103.328125,
+          "x": 332.1982421875
+        },
+        {
+          "shift": "-1",
+          "sorting": "true",
+          "source": null,
+          "title": "MCP stdio connection pool & backoff",
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "width": 103.328125,
+          "x": 450.65625
+        }
+      ],
+      "left": 236
+    },
+    {
+      "groups": [
+        {
+          "shift": "0",
+          "sorting": null,
+          "source": null,
+          "title": "Tokyo JST departure time hydration fix",
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "width": 103.328125,
+          "x": 236
+        },
+        {
+          "shift": "0",
+          "sorting": null,
+          "source": null,
+          "title": "MCP stdio connection pool & backoff",
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "width": 103.328125,
+          "x": 343.328125
+        },
+        {
+          "shift": "0",
+          "sorting": null,
+          "source": null,
+          "title": "Offline IndexedDB sync for Shinkansen pass",
+          "transform": "matrix(1, 0, 0, 1, 0, 0)",
+          "width": 103.328125,
+          "x": 450.65625
+        }
+      ],
+      "left": 236
+    }
+  ],
+  "after": [
+    {
+      "shift": "0",
+      "sorting": null,
+      "source": null,
+      "title": "Tokyo JST departure time hydration fix",
+      "width": 103.328125,
+      "x": 236
+    },
+    {
+      "shift": "0",
+      "sorting": null,
+      "source": null,
+      "title": "MCP stdio connection pool & backoff",
+      "width": 103.328125,
+      "x": 343.328125
+    },
+    {
+      "shift": "0",
+      "sorting": null,
+      "source": null,
+      "title": "Offline IndexedDB sync for Shinkansen pass",
+      "width": 103.328125,
+      "x": 450.65625
+    }
+  ]
+}

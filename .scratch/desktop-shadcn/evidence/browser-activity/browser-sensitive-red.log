@@ -1,0 +1,26 @@
+✖ 资源不能越界、走链接或读取敏感元数据，失败不暴露绝对路径 (49.096375ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 328.910625
+
+✖ failing tests:
+
+test at test/desktop-browser-documents.test.ts:103:1
+✖ 资源不能越界、走链接或读取敏感元数据，失败不暴露绝对路径 (49.096375ms)
+  AssertionError [ERR_ASSERTION]: /8d87d51e79b40565b706a7c619f1705f00bcf60d869f7f782b8181df371e0bb1/.envrc
+      at TestContext.<anonymous> (/Users/eitrous/.codex/worktrees/6f13/ruukoto/test/desktop-browser-documents.test.ts:114:14)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }

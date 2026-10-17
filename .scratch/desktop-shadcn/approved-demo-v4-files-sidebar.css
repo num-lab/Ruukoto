@@ -1,0 +1,11 @@
+
+/* Note: 见 .agents/notes/implemented/bug-fix/2026-10-17-desktop-sidebar-toggle.md */
+.app-window { --sidebar-toggle-closed: 16px; }
+.native-window { --sidebar-toggle-closed: 84px; }
+.sidebar-toggle { position: absolute; top: 11px; left: calc(var(--left-width) - 42px); z-index: 40; transition: left 200ms ease; -webkit-app-region: no-drag; }
+.app-window[data-sidebar-open="false"] .sidebar-toggle { left: var(--sidebar-toggle-closed); }
+.session-header { transition: padding-left 200ms ease; }
+.app-window[data-sidebar-open="false"] .session-header { padding-left: calc(var(--sidebar-toggle-closed) + 30px); }
+.app-window[data-sidebar-open="true"]:has(.sidebar-resize-handle[data-dragging], .sidebar-resize-handle:focus-visible) .sidebar-toggle { transition: none; }
+.file-tree-row > .file-tree-loading { display: flex; flex-shrink: 0; margin-left: auto; }
+.file-tree-loading svg { width: 13px; height: 13px; }

@@ -58,6 +58,8 @@ export async function checkToolActivity(server) {
   assert.ok(folded.includes("ENOENT: no such file"), "失败 Read 在父分组打开时直接可见");
   assert.ok(!render({ ...read, items: [] }).includes('data-slot="trace-collapsible-trigger"'), "无工具不生成空分组");
 
+  const orphan = render({ ...activity, items: [] }, { "session:main:1:reasoning": true });
+  assert.ok(orphan.includes("Thought for 5s") && orphan.includes(activity.thinking.text));
   const thinkingSteps = executionPreview(session, "thinking");
   const workingSteps = executionPreview(session, "working");
   assert.equal(thinkingSteps.at(-1).phase, "thinking", "执行状态只能追加在消息流末尾");
@@ -67,14 +69,18 @@ export async function checkToolActivity(server) {
   assert.ok(session.steps.some(step => step.type === "command" && step.status === "pending"), "离开预览后仍有原待审批记录");
   const thinkingHtml = render(thinkingSteps.at(-1));
   assert.ok(thinkingHtml.includes('role="status">Thinking') && thinkingHtml.includes("lucide-loader-circle") && thinkingHtml.includes("animate-spin"));
-  assert.ok(!thinkingHtml.includes('data-slot="trace-collapsible-trigger"') && !thinkingHtml.includes("Thought for"), "Thinking 仅显示状态，不恢复思维链");
+  assert.ok(!thinkingHtml.includes('data-slot="trace-collapsible-trigger"') && !thinkingHtml.includes("Thought for"), "Thinking 内容直接显示，不生成 Thought 折叠行");
+  assert.ok(thinkingHtml.includes(thinkingSteps.at(-1).thinking.text));
+  const reasoningHtml = render(activity, { ...openKeys, "session:main:1:reasoning": true });
+  assert.ok(reasoningHtml.indexOf("Thought for 5s") < reasoningHtml.indexOf("Read <a"));
+  assert.equal(reasoningHtml.split(activity.thinking.text).length - 1, 1);
   const working = workingSteps.at(-1);
   const workingHtml = render(working);
   assert.ok(workingHtml.includes('role="status">Working') && workingHtml.includes('aria-expanded="true"'), "Working 默认显示调用行");
   assert.ok(workingHtml.includes('aria-label="Working"') && workingHtml.includes('aria-label="Running pnpm test:unit"'), "运行中展开入口有稳定可访问名称");
   assert.ok(workingHtml.includes("Read") && workingHtml.includes("Edited") && workingHtml.includes("Running") && workingHtml.includes("pnpm test:unit"), "完成与进行中的调用同时显示");
   assert.equal((workingHtml.match(/lucide-loader-circle/g) ?? []).length, 2, "Working 与进行中工具各显示旋转环");
-  assert.equal((workingHtml.match(/lucide-circle-check/g) ?? []).length, 2, "完成工具保留勾选标识");
+  assert.equal((workingHtml.match(/lucide-circle-check/g) ?? []).length, 3, "reasoning 和完成工具保留勾选标识");
   const workingDetails = render(working, { "session:main:1:tool:2": true });
   assert.ok(workingDetails.includes("$ pnpm test:unit\nRUN  Unit tests"), "运行中 Bash 可查看命令和已有部分输出");
   for (const action of ["Read", "Edit", "Write"]) {

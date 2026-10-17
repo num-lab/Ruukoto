@@ -19,7 +19,7 @@ import type { SubAgentExecutionSnapshot } from "./subagent-execution.ts";
 import type { WorkCopyHostSnapshot } from "./work-copy-host.ts";
 import { requireWorkspaceSnapshot, WorkspaceSnapshotError, type WorkspaceSnapshot } from "./workspace-snapshot.ts";
 
-export const PROTOCOL_VERSION = 28;
+export const PROTOCOL_VERSION = 31;
 
 export interface ModelSelection {
   provider: string;

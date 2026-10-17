@@ -1,3 +1,4 @@
+// Note: 见 .agents/notes/implemented/feature/2026-10-17-session-creation-settings.md
 import type { OpParams, OpResult } from "@ruukoto/control/ops.ts";
 import { sessionDisplayAttribution } from "@ruukoto/control/session-attribution.ts";
 import type { Session } from "@ruukoto/core/types.ts";
@@ -16,7 +17,7 @@ export class DesktopRequestError extends Error {
 }
 interface PendingCreation {
   op: "open_workspace" | "create_session";
-  params: { cwd: string; project_id?: string; request_id: string };
+  params: OpParams<"open_workspace"> & { request_id: string };
   target: DesktopTarget;
   instanceId: string;
   busy: boolean;
@@ -34,6 +35,7 @@ export class CodeState {
   readError: string | null = null;
   pendingCreation: PendingCreation | null = null;
   private generation = 0;
+  private creationSourceId: string | null = null;
   private readonly flowCursors = new Map<string, number>();
   private readonly requests = new Map<string, Promise<void>>();
   readonly writes: CodeWrites;
@@ -47,7 +49,7 @@ export class CodeState {
     this.context = new DesktopContext(bridge, this.view, changed, target);
     this.approvals = new DesktopApprovals(bridge, this.view, changed, target);
     this.writes = new CodeWrites(bridge, this.view, () => this.status.state === "online", changed, target);
-    this.inspector = new DesktopInspector(bridge, this.view, id => this.loadHistory(id), changed);
+    this.inspector = new DesktopInspector(bridge, this.view, id => this.loadHistory(id), changed, target);
   }
 
   private async request<K extends DesktopOp>(op: K, params: OpParams<K>): Promise<OpResult<K>> {
@@ -59,7 +61,7 @@ export class CodeState {
   update(update: DesktopUpdate): void {
     if (update.type === "state") {
       this.status = update;
-      if (this.target === "code") this.inspector.update(update);
+      this.inspector.update(update);
       if (update.state === "online") void this.reconcileCreation();
     } else if (update.type === "snapshot") {
       ++this.generation;
@@ -69,14 +71,12 @@ export class CodeState {
       this.readError = null;
       const instanceChanged = update.instanceChanged || (this.view.instanceId !== null && this.view.instanceId !== update.result.snapshot.instanceId);
       this.view.applySnapshot(update.result, instanceChanged);
-      if (this.target === "code") this.inspector.update({ ...update, instanceChanged });
-      if (instanceChanged) { this.tabs = []; this.notificationSelection = null; }
+      this.inspector.update({ ...update, instanceChanged });
+      if (instanceChanged) { this.tabs = []; this.notificationSelection = null; this.creationSourceId = null; }
       this.tabs = this.tabs.filter(id => this.view.sessions.some(session => session.id === id));
-      if (this.target === "code") {
-        void this.loadSummaries();
-        for (const id of this.tabs) void this.loadHistory(id);
-        if (this.inspector.childSessionId) void this.loadHistory(this.inspector.childSessionId);
-      }
+      if (this.target === "code") void this.loadSummaries();
+      for (const id of this.tabs) void this.loadHistory(id);
+      if (this.inspector.childSessionId) void this.loadHistory(this.inspector.childSessionId);
       if (this.navigation) this.navigate(this.navigation);
       void this.reconcileCreation();
     } else if (update.type === "event") {
@@ -84,8 +84,8 @@ export class CodeState {
       const body = update.event.body;
       if (this.target === "code" && (body.type === "session.created" || body.type === "session.workspace_mapped" || body.type === "project.created" || body.type === "task.queued")) void this.loadSummaries();
       if (body.type === "session.created") void this.reconcileCreation();
-      if (this.target === "code" && body.type === "task.output_entry" && (this.tabs.includes(body.sessionId) || this.inspector.childSessionId === body.sessionId)) void this.loadEntry(body.sessionId, body.entryId);
-      if (this.target === "code") this.inspector.update(update);
+      if (body.type === "task.output_entry" && (this.tabs.includes(body.sessionId) || this.inspector.childSessionId === body.sessionId)) void this.loadEntry(body.sessionId, body.entryId);
+      this.inspector.update(update);
     }
     if (update.type === "navigate") this.navigate(update);
     this.context.update(update);
@@ -100,7 +100,7 @@ export class CodeState {
     const child = this.view.subAgents.find(agent => agent.sessionId === update.navigation.sessionId);
     this.notificationSelection = update.navigation;
     this.openSession(child?.parentSessionId ?? update.navigation.sessionId);
-    if (child && this.target === "code") this.inspector.selectChild(child.sessionId);
+    if (child) this.inspector.selectChild(child.sessionId);
     this.navigation = null;
   }
   sessionsFor(workspaceId: string): Session[] {
@@ -117,17 +117,28 @@ export class CodeState {
     void this.context.load(id);
     if (!this.tabs.includes(id)) this.tabs.push(id);
     this.view.currentSessionId = id;
-    if (this.target === "code") this.inspector.openParent(id);
+    this.rememberCreationSource();
+    this.inspector.openParent(id);
     const view = this.view.openSession(id);
-    if (this.target === "code" && !view.historyLoaded) void this.loadHistory(id);
+    if (!view.historyLoaded) void this.loadHistory(id);
     this.changed();
   }
   closeSession(id: string): void {
+    this.rememberCreationSource();
     const index = this.tabs.indexOf(id);
     this.tabs = this.tabs.filter(tab => tab !== id);
     if (this.view.currentSessionId === id) this.view.currentSessionId = this.tabs[Math.max(0, index - 1)] ?? null;
-    if (this.target === "code" && this.view.currentSessionId) this.inspector.openParent(this.view.currentSessionId);
+    this.rememberCreationSource();
+    if (this.view.currentSessionId) this.inspector.openParent(this.view.currentSessionId);
     this.changed();
+  }
+  private creationSource(): Session | undefined {
+    const eligible = (session: Session) => this.target === "code" && session.kind === "dev" && !this.view.subAgentSessionIds.includes(session.id) && !this.view.roleSessionIds.includes(session.id);
+    return this.view.sessions.find(session => session.id === this.view.currentSessionId && eligible(session)) ?? this.view.sessions.find(session => session.id === this.creationSourceId && eligible(session));
+  }
+  private rememberCreationSource(): void {
+    const source = this.creationSource();
+    if (source) this.creationSourceId = source.id;
   }
   private report(text: string): void { this.message = text; this.changed(); }
   private run(key: string, action: (generation: number) => Promise<void>): Promise<void> {
@@ -137,7 +148,7 @@ export class CodeState {
     const generation = this.generation;
     const request = action(generation).catch(error => {
       if (generation === this.generation) this.readError = `读取会话失败：${error instanceof Error ? error.message : "请重新连接后再试。"}`;
-    }).finally(() => { this.requests.delete(key); if (this.target === "code") { this.inspector.seedTabs(); void this.inspector.loadDiff(); } this.changed(); });
+    }).finally(() => { this.requests.delete(key); this.inspector.seedTabs(); void this.inspector.loadDiff(); this.changed(); });
     this.requests.set(key, request);
     return request;
   }
@@ -238,60 +249,64 @@ export class CodeState {
     });
   }
 
-  async create(op: PendingCreation["op"], params: { cwd: string; project_id?: string }): Promise<void> {
+  async create(op: PendingCreation["op"], params: { cwd: string; project_id?: string }): Promise<boolean> {
     if (this.pendingCreation) return this.reconcileCreation();
-    if (!this.view.instanceId || this.status.state !== "online") { this.report("请等待连接恢复后再创建会话。"); return; }
-    const pending: PendingCreation = { op, params: { ...params, request_id: crypto.randomUUID() }, target: this.target, instanceId: this.view.instanceId, busy: false, retried: false, waitGeneration: null };
+    if (!this.view.instanceId || this.status.state !== "online") { this.report("请等待连接恢复后再创建会话。"); return false; }
+    const source = this.creationSource();
+    if (source && this.writes.settingsPending(source.id)) { this.report("会话设置仍在保存或等待核实，请确认后台实际设置后再创建会话。"); return false; }
+    const settings = source ? { mode: source.defaultAccessMode, ...(source.modelSelection ? { model_selection: { ...source.modelSelection } } : {}) } : {};
+    const pending: PendingCreation = { op, params: { ...params, ...settings, request_id: crypto.randomUUID() }, target: this.target, instanceId: this.view.instanceId, busy: false, retried: false, waitGeneration: null };
     this.pendingCreation = pending;
     this.message = null;
     this.changed();
-    await this.sendCreation(pending);
+    return this.sendCreation(pending);
   }
   private owns(pending: PendingCreation): boolean {
     if (pending.target === this.target && pending.instanceId === this.view.instanceId) return true;
     this.report("原操作结果仍未知；请连回原数据实例后核实左栏工作区树。当前实例不会重发原操作。");
     return false;
   }
-  private complete(pending: PendingCreation, session: Session): void {
-    if (!this.owns(pending)) return;
+  private complete(pending: PendingCreation, session: Session): boolean {
+    if (!this.owns(pending)) return false;
     if (!this.view.sessions.some(item => item.id === session.id)) this.view.sessions.push(session);
     this.pendingCreation = null;
     this.message = null;
     this.openSession(session.id);
     void this.loadSummaries();
+    return true;
   }
-  private async reconcileCreation(): Promise<void> {
+  private async reconcileCreation(): Promise<boolean> {
     const pending = this.pendingCreation;
-    if (!pending || !this.owns(pending) || pending.busy) return;
-    if (pending.waitGeneration !== null && this.generation <= pending.waitGeneration) return;
+    if (!pending || !this.owns(pending) || pending.busy) return false;
+    if (pending.waitGeneration !== null && this.generation <= pending.waitGeneration) return false;
     const session = this.view.sessions.find(item => item.createRequestId === pending.params.request_id);
-    if (session) { this.complete(pending, session); return; }
-    if (this.status.state !== "online") return;
-    if (pending.retried) { this.report("创建结果未知；请在左栏工作区树查看会话是否已建好，恢复连接后继续核实。"); return; }
+    if (session) return this.complete(pending, session);
+    if (this.status.state !== "online") return false;
+    if (pending.retried) { this.report("创建结果未知；请在左栏工作区树查看会话是否已建好，恢复连接后继续核实。"); return false; }
     pending.retried = true;
-    await this.sendCreation(pending);
+    return this.sendCreation(pending);
   }
-  private async sendCreation(pending: PendingCreation): Promise<void> {
-    if (!this.owns(pending)) return;
+  private async sendCreation(pending: PendingCreation): Promise<boolean> {
+    if (!this.owns(pending)) return false;
     pending.busy = true;
     const generation = this.generation;
     let result: Session | OpResult<"open_workspace">;
     try { result = await this.request(pending.op, pending.params); }
     catch (error) {
       pending.busy = false;
-      if (!this.owns(pending)) return;
+      if (!this.owns(pending)) return false;
       if (error instanceof DesktopRequestError && error.failure.outcome === "rejected") {
         this.pendingCreation = null;
         this.report(`会话创建失败：${error.message}`);
-        return;
+        return false;
       }
       if (error instanceof DesktopRequestError && error.failure.outcome === "unknown") return this.reconcileCreation();
       pending.waitGeneration = generation;
       this.report("创建结果待核实；连接恢复后将按原操作核实，请在左栏工作区树查看会话。");
-      if (this.generation > generation) await this.reconcileCreation();
-      return;
+      if (this.generation > generation) return this.reconcileCreation();
+      return false;
     }
     pending.busy = false;
-    this.complete(pending, "session" in result ? result.session : result);
+    return this.complete(pending, "session" in result ? result.session : result);
   }
 }

@@ -74,6 +74,13 @@ export function browserAddress(value: string): string | null {
   let url: URL;
   try { url = new URL(local ? `http://${address}` : qualified ? address : `https://${address}`); }
   catch { return null; }
+  if (url.protocol === "file:") {
+    if (address.includes("\\") || !/^file:\/\/(?:localhost)?\//i.test(address) || url.host || url.username || url.password || url.search || url.pathname === "/" || url.pathname.startsWith("//") || /%2f|%5c/i.test(url.pathname)) return null;
+    let pathname: string;
+    try { pathname = decodeURIComponent(url.pathname); }
+    catch { return null; }
+    return /[\\\0]/.test(pathname) ? null : url.href;
+  }
   return (url.protocol === "http:" || url.protocol === "https:") && !url.username && !url.password ? url.href : null;
 }
 

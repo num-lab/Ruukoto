@@ -130,6 +130,7 @@ import { requireSubAgentExecution, requireSubAgentExecutionScope, SubAgentExecut
 import { workCopyHostFor } from "@ruukoto/core/work-copy-host.ts";
 import { WorkspaceSnapshotError } from "@ruukoto/core/workspace-snapshot.ts";
 import { listWorkspaceFiles, readWorkspaceFile } from "./workspace-files.ts";
+import { readWorkspaceGit } from "./workspace-git.ts";
 import { WorkflowCoordinator, type WorkflowAgentExecutor } from "./workflows.ts";
 import { WorkflowSteps } from "./workflow-steps.ts";
 import { WorkflowLibrary } from "./workflow-library.ts";
@@ -2455,6 +2456,8 @@ export class Runtime {
     projectName?: string;
     cwd: string;
     confirmTools?: string[];
+    mode?: SessionDefaultMode;
+    modelSelection?: ModelSelection;
     /** 创建幂等键（issue 21）：同键同参返回已存在会话，同键异参报 request_conflict。 */
     createRequestId?: string;
   }): Promise<Session> {
@@ -2474,8 +2477,10 @@ export class Runtime {
       }
     }
     const identity = await this.resolveUsableDir(input.cwd);
+    const settings = await this.sessionCreationSettings(input);
     try {
       return this.store.withTx(() => {
+        if (!input.createRequestId || !this.store.findSessionByCreateRequestId(input.createRequestId)) settings.check?.();
         // 目录校验先于任何写入；项目与会话同一事务，会话失败则项目一并回滚
         const projectId = input.projectId ?? this.store.createProject(input.projectName!.trim(), input.createRequestId).id;
         return this.store.createSession({
@@ -2488,7 +2493,8 @@ export class Runtime {
           piSessionId: randomUUID(),
           confirmTools: input.confirmTools ?? [],
           createRequestId: input.createRequestId,
-          modelSelection: this.defaultSelection,
+          modelSelection: settings.modelSelection,
+          defaultAccessMode: settings.mode,
         });
       });
     } catch (err) {
@@ -2497,6 +2503,16 @@ export class Runtime {
       }
       throw err;
     }
+  }
+
+  private async sessionCreationSettings(input: { createRequestId?: string; mode?: SessionDefaultMode; modelSelection?: ModelSelection }) {
+    // 已提交成果先于当前模型目录核实；重发不能覆盖之后修改的会话设置。
+    if (input.createRequestId && this.store.findSessionByCreateRequestId(input.createRequestId)) return { modelSelection: this.defaultSelection, mode: "confirm" as const, check: null };
+    if (input.mode !== undefined && !isSessionDefaultMode(input.mode)) throw new RuntimeApiError("invalid_params", "会话默认模式无效");
+    const modelSelection = input.modelSelection === undefined ? this.defaultSelection : parseModelSelection(input.modelSelection);
+    const check = input.modelSelection === undefined ? null : await this.resolveSelection(modelSelection);
+    if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝新操作");
+    return { modelSelection, mode: input.mode ?? "confirm", check };
   }
 
   private branchDeps(): BranchSessionDeps {
@@ -2700,6 +2716,8 @@ export class Runtime {
    */
   async openWorkspace(input: {
     cwd: string;
+    mode?: SessionDefaultMode;
+    modelSelection?: ModelSelection;
     /** 指定既有项目（旧项目认领或显式选择）；缺省按目录身份自动复用/创建。 */
     projectId?: string;
     /** 启动请求标识（幂等键）：重发返回原会话。 */
@@ -2708,6 +2726,7 @@ export class Runtime {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝新操作");
     if (input.createRequestId && getBranchRequest(this.store, input.createRequestId)) throw new RuntimeApiError("request_conflict", "请求键已用于会话分支");
     const identity = await this.resolveUsableDir(input.cwd);
+    const settings = await this.sessionCreationSettings(input);
     try {
       return this.store.withTx(() => {
         // 应答丢失后的同一标识重发：直接返回首次成果，项目/会话都不重建；
@@ -2723,6 +2742,7 @@ export class Runtime {
             return { session: replay, projectName: this.store.getProject(replay.projectId)!.name, createdProject: false };
           }
         }
+        settings.check?.();
         let project: Project | null = null;
         let createdProject = false;
         if (input.projectId) {
@@ -2770,7 +2790,8 @@ export class Runtime {
           piSessionId: randomUUID(),
           confirmTools: [],
           createRequestId: input.createRequestId,
-          modelSelection: this.defaultSelection,
+          modelSelection: settings.modelSelection,
+          defaultAccessMode: settings.mode,
         });
         return { session, projectName: project.name, createdProject };
       });
@@ -2805,6 +2826,12 @@ export class Runtime {
     const root = this.store.getProject(input.workspaceId)?.rootDir;
     if (!root) throw new RuntimeApiError("workspace_not_found", "工作区不存在或尚未登记目录，请重新选择工作区。");
     return readWorkspaceFile(input.workspaceId, root, input.path, this.protectedRoots());
+  }
+
+  readWorkspaceGit(input: { workspaceId: string; cursor?: string }) {
+    const root = this.store.getProject(input.workspaceId)?.rootDir;
+    if (!root) throw new RuntimeApiError("workspace_not_found", "工作区不存在或尚未登记目录，请重新选择工作区。");
+    return readWorkspaceGit(input.workspaceId, root, this.protectedRoots(), input.cursor);
   }
 
   /**
@@ -3303,7 +3330,7 @@ export class Runtime {
   putAttachment(input: AttachmentUpload) {
     if (!input || typeof input.session_id !== "string" || !input.session_id) throw new RuntimeApiError("invalid_params", "请选择会话后附加文件。");
     const session = this.store.getSession(input.session_id);
-    if (!session || this.store.getSessionIdentity(session.id)?.kind !== "dev") throw new RuntimeApiError("attachment_scope", "请选择普通开发会话后附加文件。");
+    if (!session || !["dev", "main"].includes(this.store.getSessionIdentity(session.id)?.kind ?? "")) throw new RuntimeApiError("attachment_scope", "请选择用户会话后附加文件。");
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，请稍后重新选择文件。");
     try { return this.attachments.put(input); }
     catch (error) { if (error instanceof RuntimeApiError) throw error; throw new RuntimeApiError("attachment_unavailable", "附件保存失败，未提交任务；请检查后台存储后重新选择文件。"); }
@@ -4485,6 +4512,7 @@ export class Runtime {
     instanceId: string;
     execution: { backend: string; note: string };
     defaultModel: { provider: string; id: string; name: string; thinkingLevel: string };
+    mainSessionId: string | null;
     roleSessionIds: string[];
     subAgentSessionIds: string[];
     workDelegations: WorkDelegation[];
@@ -4518,6 +4546,7 @@ export class Runtime {
       instanceId: this.db.getInstanceId(),
       execution: this.executionInfo(),
       defaultModel: this.modelInfo(),
+      mainSessionId: this.store.getAgentRole("main")?.sessionId ?? null,
       roleSessionIds: this.store.listAgentRoles().map((r) => r.sessionId),
       subAgentSessionIds: this.store.listSubAgents().map((a) => a.sessionId),
       workDelegations: this.store.listWorkDelegations(),

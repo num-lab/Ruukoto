@@ -6,6 +6,8 @@
 
 ## 对外接口
 
+`personal-command-worker.ts` 是仅依赖 Node 内置模块的单次命令入口，构建为 `worker/personal-command-worker.mjs`；宿主按[执行边界](execution.md)准备显式空依赖和持久执行引用，启动返回并接好输出后提交一份有界 JSON 并关闭 stdin。它没有模型工具或向导入口，权限、操作回执、未知暂停与工作占用尚未接入，不能据此开放个人命令能力。
+
 `openPersonalHarness` 接受独立目录或已持有的 `PersonalProfileLock`、provider 与模型，接管锁的释放责任，返回主会话、Harness、提交、等待回答与关闭方法；可用 `beforeUnlock` 在放锁前收齐管理接口。可选 `service` 接受宿主固定的 helper 配置，安装 `service_inspect` 与 `read_service_inspection`，模型只能指定白名单内精确单元名或本会话的证据编号。返回的 `inspections.list/recheckStop` 供可信宿主查询未决检查与重核停止，不提供强制释放；未取消的活动检查拒绝宿主重核。`requestInspectionStop(ref)` 固定原 Task/接纳引用，仅登记后台重核并返回其 Task ID；它不等待停止。提交键由调用方保持稳定，用于 durable 会话内去重。`parsePersonalModel` 校验模型配置，`personalProvider` 按环境变量名读取凭据。个人 Pi 1.3.0 对象不传给 Coding 的 Pi 0.85.1。
 
 `startPersonalServer` 独占后台，HTTP 仅监听档案内 Unix socket，经本地令牌逐次认证；提供 `/status`、`/messages`、`/inputs`、`/input`、`/telegram`、`/works`、`/work`、`/work/cancel`、`/work/close`、`/work/notes`、`/delegations`、`/delegation`、`/delegation/cancel`、`/delegation/report`、`/inspections`、`/inspection/stop`、`/services`、`/service`、`/service/decide`、`/service/resolve`、`/service/stop` 和 `/stop`；状态的服务开关只表示能力已装配，不代表 helper 可用或业务健康。`personalControl` 为 CLI 调用；CLI 不重开 Harness。引导与前台托管见[操作手册](../usage.md#25-个人-durable-隔离向导)。

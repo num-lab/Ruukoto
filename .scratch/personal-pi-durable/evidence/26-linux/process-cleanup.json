@@ -1,0 +1,98 @@
+{
+  "remainingMatchingProcesses": [],
+  "remainingTemps": [],
+  "fixturesRemaining": [],
+  "allScopesNotFound": true,
+  "scopes": [
+    {
+      "scope": "ruukoto-native_1fd751c70408869be4b6bd1e.scope",
+      "state": "ControlGroup=\nLoadState=not-found\nActiveState=inactive\nInvocationID=",
+      "group": "evidence-before-prepare-extraction"
+    },
+    {
+      "scope": "ruukoto-native_0c80ba6d78121e0beb34e0dd.scope",
+      "state": "ControlGroup=\nLoadState=not-found\nActiveState=inactive\nInvocationID=",
+      "group": "evidence-final-section"
+    },
+    {
+      "scope": "ruukoto-native_28b46e70f6b95927010ecf55.scope",
+      "state": "ControlGroup=\nLoadState=not-found\nActiveState=inactive\nInvocationID=",
+      "group": "evidence-initial"
+    },
+    {
+      "scope": "ruukoto-native_953dbfb174257a7186a424c8.scope",
+      "state": "ControlGroup=\nLoadState=not-found\nActiveState=inactive\nInvocationID=",
+      "group": "evidence-initial"
+    },
+    {
+      "scope": "ruukoto-native_e511042685bbe2c66de4dbd0.scope",
+      "state": "ControlGroup=\nLoadState=not-found\nActiveState=inactive\nInvocationID=",
+      "group": "evidence-initial"
+    },
+    {
+      "scope": "ruukoto-native_515226b9940cfa4151d3aae5.scope",
+      "state": "ControlGroup=\nLoadState=not-found\nActiveState=inactive\nInvocationID=",
+      "group": "evidence-initial"
+    },
+    {
+      "scope": "ruukoto-native_f8060f362add77075af6edaf.scope",
+      "state": "ControlGroup=\nLoadState=not-found\nActiveState=inactive\nInvocationID=",
+      "group": "evidence-old-refusal-fixture-failure"
+    },
+    {
+      "scope": "ruukoto-native_16a1701c0c6e269f860c3d6d.scope",
+      "state": "ControlGroup=\nLoadState=not-found\nActiveState=inactive\nInvocationID=",
+      "group": "evidence-section-initial"
+    },
+    {
+      "scope": "ruukoto-native_594ee7da7352330e83cdd35a.scope",
+      "state": "ControlGroup=\nLoadState=not-found\nActiveState=inactive\nInvocationID=",
+      "group": "evidence-section-second"
+    },
+    {
+      "scope": "ruukoto-native_7e52b08b840f001e665bef91.scope",
+      "state": "ControlGroup=\nLoadState=not-found\nActiveState=inactive\nInvocationID=",
+      "group": "evidence-section-third"
+    },
+    {
+      "scope": "ruukoto-native_1fbd538c350072b168d50c13.scope",
+      "state": "ControlGroup=\nLoadState=not-found\nActiveState=inactive\nInvocationID=",
+      "group": "evidence-six-scenarios"
+    },
+    {
+      "scope": "ruukoto-native_3889fb7cb3bad7c8ad6b80d4.scope",
+      "state": "ControlGroup=\nLoadState=not-found\nActiveState=inactive\nInvocationID=",
+      "group": "evidence-six-scenarios"
+    },
+    {
+      "scope": "ruukoto-native_714dc70dee7462445163ce17.scope",
+      "state": "ControlGroup=\nLoadState=not-found\nActiveState=inactive\nInvocationID=",
+      "group": "evidence-six-scenarios"
+    },
+    {
+      "scope": "ruukoto-native_259c9c77d4cab73fe6ed3dfa.scope",
+      "state": "ControlGroup=\nLoadState=not-found\nActiveState=inactive\nInvocationID=",
+      "group": "evidence-six-scenarios"
+    },
+    {
+      "scope": "ruukoto-native_1c8298d18625fac466752ecb.scope",
+      "state": "ControlGroup=\nLoadState=not-found\nActiveState=inactive\nInvocationID=",
+      "group": "evidence-six-scenarios"
+    },
+    {
+      "scope": "ruukoto-native_96d3384b1d8cdf9a530c65a6.scope",
+      "state": "ControlGroup=\nLoadState=not-found\nActiveState=inactive\nInvocationID=",
+      "group": "evidence-six-scenarios"
+    }
+  ],
+  "cleanupGroups": [
+    "evidence-before-prepare-extraction",
+    "evidence-final-section",
+    "evidence-initial",
+    "evidence-old-refusal-fixture-failure",
+    "evidence-section-initial",
+    "evidence-section-second",
+    "evidence-section-third",
+    "evidence-six-scenarios"
+  ]
+}

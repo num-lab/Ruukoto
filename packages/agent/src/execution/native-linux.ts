@@ -1,4 +1,5 @@
-/** bubblewrap 的完整 namespace、网络过滤与 user scope 回收。
+/** 受限 bubblewrap 与持久完全访问命令共用 user scope 观察。
+ * Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-full-access-commands.md
  * Note: 见 .agents/notes/implemented/architecture/2026-10-10-native-execution-sandbox.md
  */
 import * as fs from "node:fs";
@@ -6,7 +7,7 @@ import * as path from "node:path";
 import { randomUUID } from "node:crypto";
 import { execFile, spawn } from "node:child_process";
 import { Readable } from "node:stream";
-import { ExecutionError, type LaunchedUnit, type LaunchSpec } from "./launchers.ts";
+import { ExecutionError, workerEnv, type LaunchedUnit, type LaunchSpec } from "./launchers.ts";
 import type { PreparedNativeLaunch } from "./native.ts";
 
 const BWRAP = "/usr/bin/bwrap";
@@ -69,13 +70,13 @@ export function linuxNativeArgs(input: PreparedNativeLaunch): string[] {
   return args;
 }
 
-async function prerequisites(): Promise<void> {
-  for (const binary of [BWRAP, SYSTEMD_RUN, SYSTEMCTL]) {
+async function prerequisites(fullAccess: boolean): Promise<void> {
+  for (const binary of [...(fullAccess ? [] : [BWRAP]), SYSTEMD_RUN, SYSTEMCTL]) {
     try { fs.accessSync(binary, fs.constants.X_OK); }
-    catch { throw new ExecutionError("execution_unavailable", "Linux 原生执行缺少 bubblewrap 或 user systemd；见 deploy/native", undefined, "binary_missing"); }
+    catch { throw new ExecutionError("execution_unavailable", fullAccess ? "Linux 完全访问命令缺少 user systemd；请核实系统前置" : "Linux 原生执行缺少 bubblewrap 或 user systemd；见 deploy/native", undefined, "binary_missing"); }
   }
   const restriction = "/proc/sys/kernel/apparmor_restrict_unprivileged_userns";
-  if (fs.existsSync(restriction) && fs.readFileSync(restriction, "utf8").trim() === "1" && !fs.existsSync("/etc/apparmor.d/ruukoto-bwrap")) {
+  if (!fullAccess && fs.existsSync(restriction) && fs.readFileSync(restriction, "utf8").trim() === "1" && !fs.existsSync("/etc/apparmor.d/ruukoto-bwrap")) {
     throw new ExecutionError("execution_unavailable", "Linux 原生执行缺少 bwrap 的 AppArmor userns 配置；按 deploy/native 安装后重试", undefined, "policy_missing");
   }
   const manager = await command(SYSTEMCTL, ["--user", "is-system-running"]);
@@ -94,18 +95,25 @@ export interface LinuxNativeTracking {
 }
 
 export async function launchLinuxNative(input: PreparedNativeLaunch, spec: LaunchSpec, tracking?: LinuxNativeTracking): Promise<LaunchedUnit> {
-  await prerequisites();
+  const fullAccess = spec.mode === "full_access";
+  if (fullAccess && !tracking) throw new ExecutionError("execution_unavailable", "完全访问命令需要持久执行认领", undefined, "policy_missing");
+  await prerequisites(fullAccess);
   const scope = tracking?.scope ?? `ruukoto-native-${randomUUID()}.scope`;
-  const filterPath = path.join(input.tempDir, "network.bpf");
-  fs.writeFileSync(filterPath, nativeNetworkFilter(process.arch), { mode: 0o400 });
-  const filter = fs.openSync(filterPath, "r");
+  let filter: number | undefined;
+  if (!fullAccess) {
+    const filterPath = path.join(input.tempDir, "network.bpf");
+    fs.writeFileSync(filterPath, nativeNetworkFilter(process.arch), { mode: 0o400 });
+    filter = fs.openSync(filterPath, "r");
+  }
   let child;
   try {
     tracking?.beforeSpawn();
     child = spawn(SYSTEMD_RUN, ["--user", "--scope", "--quiet", "--unit", scope, "--property", "Delegate=yes",
-      ...(tracking ? ["--property", `Description=${tracking.description}`] : []), BWRAP, ...linuxNativeArgs(input)],
-      { stdio: ["pipe", "pipe", "pipe", filter, "pipe"], env: hostEnv(), ...(tracking ? { detached: true } : {}) });
-  } finally { fs.closeSync(filter); }
+      ...(tracking ? ["--property", `Description=${tracking.description}`] : []),
+      ...(fullAccess ? [input.nodePath, "-e", "require('node:fs').writeSync(4,'started\\n');require('node:fs').closeSync(4);import(require('node:url').pathToFileURL(process.argv[1]).href)", input.workerPath] : [BWRAP, ...linuxNativeArgs(input)])],
+      { stdio: ["pipe", "pipe", "pipe", filter ?? "ignore", "pipe"], env: fullAccess ? workerEnv(spec) : hostEnv(),
+        ...(fullAccess ? { cwd: input.workspace } : {}), ...(tracking ? { detached: true } : {}) });
+  } finally { if (filter !== undefined) fs.closeSync(filter); }
   let exited = false;
   const exit = new Promise<{ code: number | null; signal: string | null }>((resolve, reject) => {
     child.on("exit", (code, signal) => { exited = true; resolve({ code, signal }); });
@@ -172,7 +180,7 @@ export async function launchLinuxNative(input: PreparedNativeLaunch, spec: Launc
       });
       void exit.then(() => { clearTimeout(timer); resolve(false); }, () => { clearTimeout(timer); resolve(false); });
     });
-    if (!await started) throw new ExecutionError("execution_unavailable", "bubblewrap 策略或 namespace 启动被拒绝；核对 deploy/native 前置", unit, "sandbox_rejected");
+    if (!await started) throw new ExecutionError("execution_unavailable", fullAccess ? "完全访问命令入口未能启动；核实原执行与停止状态" : "bubblewrap 策略或 namespace 启动被拒绝；核对 deploy/native 前置", unit, "sandbox_rejected");
     const status = await query();
     if (!status?.group || path.basename(status.group) !== scope) {
       throw new ExecutionError("execution_unavailable", "无法核实原生执行的 user scope 身份", unit, exited ? "worker_failed" : "policy_missing");

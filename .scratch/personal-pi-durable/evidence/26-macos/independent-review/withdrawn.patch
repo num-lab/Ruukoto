@@ -1,0 +1,11 @@
+--- frozen/apps/ruukoto/src/personal-command-execution.ts
++++ withdrawn/apps/ruukoto/src/personal-command-execution.ts
+@@ -177,7 +177,7 @@
+   let record: string;
+   try {
+     if (!command.trim() || command.includes("\0") || !Number.isInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 2 ** 31 - 1 ||
+-        !["confirm", "auto-review", "full_access"].includes(spec.mode) || !spec.workspaceIdentity || input.workspace !== spec.workspace ||
++        !["confirm", "auto-review"].includes(spec.mode) || !spec.workspaceIdentity || input.workspace !== spec.workspace ||
+         (spec.mode === "full_access" && (input.mounts.length || input.runtimeReadRoots.length || input.toolAliases.length || Object.keys(input.env).length || spec.env !== undefined))) throw invalid();
+     const payload = JSON.stringify({ command, workspace: { path: spec.workspace, ...spec.workspaceIdentity } });
+     if (Buffer.byteLength(payload) > 4 * 1024 * 1024) throw invalid();

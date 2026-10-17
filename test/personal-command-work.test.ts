@@ -13,7 +13,7 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { AgentDoc, ROOT_CONVERSATION_ID, SessionFailed, type StorageWrite } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { openPersonalHarness, type PersonalHarness } from "../apps/ruukoto/src/personal-harness.ts";
-import { PersonalCommandDoc, resolvePersonalCommand, type PersonalCommandRef } from "../apps/ruukoto/src/personal-command-work.ts";
+import { PersonalCommandDoc, personalCommandWork, resolvePersonalCommand, type PersonalCommandRef } from "../apps/ruukoto/src/personal-command-work.ts";
 import type { PersonalCommandConfig } from "../apps/ruukoto/src/personal-command-config.ts";
 import { personalCommandFingerprint } from "../apps/ruukoto/src/personal-command-execution.ts";
 import { PersonalWorkDoc, type PersonalWorkRef } from "../apps/ruukoto/src/personal-work.ts";
@@ -132,10 +132,10 @@ async function source(p: PersonalHarness) { await p.answer("拥有者委派来�
 async function original(p: PersonalHarness) { await until(async () => (await p.commands!.list()).items.length > 0); return (await p.commands!.list()).items[0].ref; }
 async function unknown(p: PersonalHarness, ref: PersonalCommandRef) { await until(async () => { const value = await p.commands!.detail(ref, "stdout"); return value.result?.effect === "effect_unknown" && value.result.code !== "started"; }); }
 
-for (const mode of ["confirm", "auto-review"] as const) test(`durable 命令：${mode} 保留原权限、原生 owned Task 和双流分页，非零结果也释放身份`, async t => {
+for (const mode of ["confirm", "auto-review", "full_access"] as const) test(`durable 命令：${mode} 保留原权限、原生 owned Task 和双流分页，非零结果也释放身份`, async t => {
   const exitCode = mode === "confirm" ? 0 : 37;
   const f = await fixture(t, `head -c 7000 /dev/zero; printf '\\376err' >&2; echo x >> count; exit ${exitCode}`);
-  const p = await f.open(); await source(p);
+  let p = await f.open(); await source(p);
   await p.harness.commit(async tx => { (await tx.doc(PersonalPermissionsDoc)).mode = mode; }, context);
   const work = await p.work.delegate(draft("run"));
   const command = await original(p);
@@ -143,6 +143,7 @@ for (const mode of ["confirm", "auto-review"] as const) test(`durable 命令：$
   const saved = (await p.harness.snapshot(PersonalCommandDoc, command.requestId, context))!.command!;
   const request = f.server.calls.find(call => call.system?.includes("你是个人助手的子 Agent"))!;
   assert.match(JSON.stringify(request.tools), /run_command|read_command_output/);
+  assert.ok(request.system?.includes(`当前工作命令权限：${{ confirm: "请求确认", "auto-review": "自动审查", full_access: "完全访问" }[mode]}。`));
   t.diagnostic(JSON.stringify({ mode, systemPrompt: Math.ceil(request.system!.length / 4), toolSchemas: Math.ceil(JSON.stringify(request.tools).length / 4) }));
   assert.equal(saved.started, true, JSON.stringify(await p.harness.commit(tx => tx.task(command.taskId), context)));
   assert.equal(saved.work.permission.mode, mode);
@@ -156,25 +157,25 @@ for (const mode of ["confirm", "auto-review"] as const) test(`durable 命令：$
   } while (offset >= 0);
   assert.deepEqual(Buffer.concat(parts), Buffer.alloc(7000));
   assert.deepEqual(Buffer.from((await p.commands!.detail(command, "stderr")).output!.data, "base64"), Buffer.from([254, 101, 114, 114]));
+  if (mode === "full_access") {
+    await p.close(); p = await f.open();
+    await p.harness.commit(async tx => { (await tx.doc(PersonalPermissionsDoc)).mode = "confirm"; }, context);
+  }
   const next = await p.work.delegate({ ...draft("reuse", work.agentId), content: "继续分析" });
   await p.harness.waitForTask(next.taskId, context);
+  if (mode === "full_access") {
+    const reused = f.server.calls.findLast(call => call.system?.includes("你是个人助手的子 Agent"))!;
+    assert.match(reused.system!, /当前工作命令权限：请求确认。/);
+    assert.doesNotMatch(reused.system!, /当前工作命令权限：完全访问。/);
+  }
   assert.equal(next.agentId, work.agentId); assert.equal(f.launches(), 1);
   assert.equal(fs.readFileSync(path.join(f.workspace, "count"), "utf8"), "x\n");
 });
 
-test("durable 命令：完全访问在接纳前拒绝，零 OS 执行和零命令任务", async t => {
-  const f = await fixture(t); const p = await f.open(); await source(p);
-  await p.harness.commit(async tx => { (await tx.doc(PersonalPermissionsDoc)).mode = "full_access"; }, context);
-  const work = await p.work.delegate(draft("full-access")); await p.harness.waitForTask(work.taskId, context);
-  assert.equal(f.launches(), 0); assert.equal(fs.existsSync(path.join(f.workspace, "count")), false);
-  assert.equal((await p.commands!.list()).items.length, 0);
-  assert.equal((await p.harness.commit(tx => tx.scanTasks({ kind: "ruukoto.command" }, 8), context)).items.length, 0);
-  assert.match(JSON.stringify(f.server.calls.at(-1)!.messages), /command_mode_unavailable/);
-});
-
-test("durable 命令：未知和取消跨重启保留占用，人工效果与原引用停止都核实后才复用", async t => {
+for (const mode of ["auto-review", "full_access"] as const) test(`durable 命令：${mode} 未知和取消跨重启保留占用，人工效果与原引用停止都核实后才复用`, async t => {
   const f = await fixture(t); f.failReceipt(); f.failStop();
   let p = await f.open(); await source(p);
+  await p.harness.commit(async tx => { (await tx.doc(PersonalPermissionsDoc)).mode = mode; }, context);
   const work = await p.work.delegate(draft("unknown")), ref = await original(p); await unknown(p, ref);
   assert.equal((await p.commands!.detail(ref, "stdout")).stopped, false);
   await assert.rejects(p.work.delegate(draft("other-member")), code("work_source_paused"));
@@ -234,10 +235,11 @@ test("durable 命令：首次启用拒绝未决旧工作，不恢复 provider �
   assert.equal(f.server.calls.length, requests); assert.equal(f.launches(), 0);
 });
 
-for (const mutation of ["worker", "mounts", "stop-task", "unproved-stop"] as const) test(`durable 命令：恢复拒绝 ${mutation} 损坏，零新增模型和执行`, async t => {
+for (const mutation of ["worker", "mounts", "stop-task", "unproved-stop", "full-env", "full-mounts", "full-node"] as const) test(`durable 命令：恢复拒绝 ${mutation} 损坏，零新增模型和执行`, async t => {
   const f = await fixture(t);
   if (mutation === "unproved-stop") { f.failReceipt(); f.failStop(); }
   const p = await f.open(); await source(p);
+  if (mutation.startsWith("full-")) await p.harness.commit(async tx => { (await tx.doc(PersonalPermissionsDoc)).mode = "full_access"; }, context);
   const work = await p.work.delegate(draft("invalid-proof")), ref = await original(p);
   if (mutation === "unproved-stop") await unknown(p, ref);
   else await p.harness.waitForTask(work.taskId, context);
@@ -247,12 +249,15 @@ for (const mutation of ["worker", "mounts", "stop-task", "unproved-stop"] as con
     saved.prepared!.input.workerPath = path.join(f.root, "other-worker.mjs");
     saved.prepared!.input.runtimeReadRoots.push(saved.prepared!.input.workerPath);
   } else if (mutation === "mounts") saved.prepared!.input.mounts.push({ path: f.root, access: "read_write" });
+  else if (mutation === "full-env") saved.prepared!.input.env = { TEST_VALUE: "must-not-persist" };
+  else if (mutation === "full-mounts") saved.prepared!.input.mounts.push({ path: f.workspace, access: "read_write" });
+  else if (mutation === "full-node") saved.prepared!.input.nodePath = "/bin/false";
   else if (mutation === "stop-task") saved.stopTask = work.taskId;
   else { saved.stopped = true; delete saved.observation; }
-  if (mutation === "worker" || mutation === "mounts") saved.prepared!.fingerprint = personalCommandFingerprint(saved.command, saved.prepared!.spec, saved.prepared!.input);
+  if (mutation === "worker" || mutation === "mounts" || mutation.startsWith("full-")) saved.prepared!.fingerprint = personalCommandFingerprint(saved.command, saved.prepared!.spec, saved.prepared!.input);
   await p.harness.commit(async tx => { (await tx.doc(PersonalCommandDoc, ref.requestId, null)).command = saved; }, context);
   await p.close();
-  if (mutation === "worker" || mutation === "mounts") {
+  if (mutation === "worker" || mutation === "mounts" || mutation.startsWith("full-")) {
     // 同步伪造的自算指纹与开始/观察记录，证明恢复仍核对宿主钉定的 worker 和可见目录。
     const db = new DatabaseSync(path.join(f.directory, "personal.sqlite"));
     try {
@@ -333,7 +338,7 @@ test("durable 命令：回执已落盘而结果提交失败，重启读取原回
   assert.equal(f.launches(), 1); assert.equal(fs.readFileSync(path.join(f.workspace, "count"), "utf8"), "x\n");
 });
 
-test("durable 命令：未知暂停原源服务、主会话固定检查及委托全部成员，零 helper 外调", async t => {
+for (const mode of ["auto-review", "full_access"] as const) test(`durable 命令：${mode} 未知暂停原源服务、主会话固定检查及委托全部成员，零 helper 外调`, async t => {
   let p!: PersonalHarness;
   let inspected = false;
   let release!: () => void;
@@ -360,6 +365,7 @@ test("durable 命令：未知暂停原源服务、主会话固定检查及委托
   fs.writeFileSync(path.join(helper, "state.json"), JSON.stringify({ [unit]: { loadState: "loaded", activeState: "active", subState: "running", mainPid: 123, invocationId: "before", result: "success", activeEnterTimestamp: "2026-10-17T00:00:00Z", starts: 0 } }));
   const service: ServiceManagerConfig = { helperPath, policyPath, useSudo: false, sudoPath: "/usr/bin/sudo", timeouts: { inspectMs: 1000, restartMs: 1000, stopMs: 1000 } };
   f.failReceipt(); f.failStop(); p = await f.open({ service, serviceOperations: true });
+  await p.harness.commit(async tx => { (await tx.doc(PersonalPermissionsDoc)).mode = mode; }, context);
   assert.match(await p.answer("委派并检查", "owner-source"), /work_source_paused/);
   const ref = await original(p), saved = (await p.harness.snapshot(PersonalCommandDoc, ref.requestId, context))!.command!;
   assert.deepEqual(await p.harness.commit(tx => personalServiceSourceBlocker(tx, "owner-source"), context), { command: ref.requestId, admission: saved.admission });
@@ -374,7 +380,7 @@ test("durable 命令：未知暂停原源服务、主会话固定检查及委托
   assert.equal(f.launches(), 1);
 });
 
-test("durable 命令：报告记录 command 暂停并跨重启观察原记录，效果和停止均核实才汇总", async t => {
+for (const mode of ["auto-review", "full_access"] as const) test(`durable 命令：${mode} 报告记录 command 暂停并跨重启观察原记录，效果和停止均核实才汇总`, async t => {
   let group!: PersonalDelegationRef;
   const f = await fixture(t, "echo x >> count", request => {
     const last = request.messages.at(-1);
@@ -397,6 +403,7 @@ test("durable 命令：报告记录 command 暂停并跨重启观察原记录，
     }
     return await options?.onPayload?.(payload, model) ?? payload;
   } }) } });
+  await p.harness.commit(async tx => { (await tx.doc(PersonalPermissionsDoc)).mode = mode; }, context);
   await p.answer("multi", "owner-source"); group = (await p.harness.commit(tx => listPersonalDelegations(tx), context)).items[0].ref;
   const members = (await p.harness.snapshot(PersonalDelegationDoc, String(group.entryId), context))!.delegation!.members;
   for (const member of members) await p.harness.waitForTask(member.taskId, context);
@@ -454,4 +461,16 @@ test("durable 命令：在线 faulted 立即进入可核实状态，效果与原
   assert.equal((await p.harness.commit(tx => tx.task(ref.taskId), context))!.state.outcome!.status, "faulted");
   const reused = await p.work.delegate({ ...draft("after-online-fault", work.agentId), content: "继续分析" }); await p.harness.waitForTask(reused.taskId, context);
   assert.equal(f.launches(), 1); assert.equal(fs.readFileSync(path.join(f.workspace, "count"), "utf8"), "x\n");
+});
+
+test("命令权限提示：缺工作及读取失败覆盖旧完全访问说明，主会话不渲染子权限", async t => {
+  const f = await fixture(t), p = await f.open(); await source(p);
+  const work = await p.work.delegate({ ...draft("permission-render"), content: "继续分析" });
+  await p.harness.waitForTask(work.taskId, context);
+  const render = personalCommandWork(f.directory, f.commands).extension.sections![0].render;
+  const input = { conversationId: work.agentId, agent: await p.main.agent(context), env: undefined, shown: { "command-permission": "当前工作命令权限：完全访问。" }, read: p.harness };
+  assert.equal(await render(input, context), "当前工作命令权限无法核实，请结束本轮并报告拥有者。");
+  t.mock.method(p.harness, "snapshot", async () => { throw new Error("read-failed"); });
+  assert.equal(await render(input, context), "当前工作命令权限无法核实，请结束本轮并报告拥有者。");
+  assert.equal(await render({ ...input, conversationId: ROOT_CONVERSATION_ID }, context), undefined);
 });

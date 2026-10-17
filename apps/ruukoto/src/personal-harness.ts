@@ -61,7 +61,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     const telegram = personalTelegram(telegramConfig, telegramConfig?.enabled ? personalTelegramApi(telegramConfig.apiBase, telegramToken(telegramConfig)) : undefined, async (tx, value) => await serviceControls.control(tx, value) || await telegramInspectionControl(tx, value, inspectionControls.request) || !!await operations?.control(tx, value));
     const registry = createRegistry();
     const workTools = personalWorkTools(() => harness!);
-    const personal = defineExtension({ name: "personal", sections: [section("personal", () => PERSONAL_PROMPT + (services ? "主会话与子 Agent 均可检查宿主白名单内的服务状态，不代表业务健康。" + (serviceWork ? "子 Agent 可用 service_restart 完成原工作要求的受控服务重启；审批与未知效果由宿主处理。" : "") : "") + (commands ? "子 Agent 可用 run_command 在已配置的独立目录执行受限命令；未知效果须在本机命令管理核实。" : ""), { tag: false })] });
+    const personal = defineExtension({ name: "personal", sections: [section("personal", () => PERSONAL_PROMPT + (services ? "主会话与子 Agent 均可检查宿主白名单内的服务状态，不代表业务健康。" + (serviceWork ? "子 Agent 可用 service_restart 完成原工作要求的受控服务重启；审批与未知效果由宿主处理。" : "") : "") + (commands ? "子 Agent 可用 run_command 以已配置目录执行命令，沿原工作权限；完全访问使用后台账户环境且免逐次审批，未知效果仍须在本机命令管理核实。" : ""), { tag: false })] });
     registry.install(personal);
     registry.install(personalPermissions);
     registry.install(personalBackgroundWork);

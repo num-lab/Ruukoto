@@ -210,9 +210,9 @@ export async function configurePersonalCommands(io: PersonalCliIO, directory: st
   const profile = lockPersonalProfile(directory);
   try {
     const current = readPersonalCommands(profile);
-    if (current) { io.write(`命令目录已固定：${current.workspace}\n仅供 Linux 受限子工作使用；保留原目录、机器和临时目录供恢复，其他目录请使用新隔离档案。\n`); return; }
-    if (process.platform !== "linux") throw new PersonalError("command_platform_unsupported", "受限命令需要 Linux；请在隔离 Linux 实例运行此向导。");
-    io.write("选择已存在、专供个人事务的目录；目录内允许读写，网络与目录外访问仍受限制。不要选择后台档案、源码、凭据目录或其父目录。启用后目录不能更换；完全访问命令尚不可用。输入 /back 返回。\n");
+    if (current) { io.write(`命令目录已固定：${current.workspace}\n供 Linux 子工作沿原权限使用；保留原目录、机器和临时目录供恢复，其他目录请使用新隔离档案。\n`); return; }
+    if (process.platform !== "linux") throw new PersonalError("command_platform_unsupported", "个人命令需要 Linux；请在隔离 Linux 实例运行此向导。");
+    io.write("选择已存在、专供个人事务的目录；请求确认/自动审查仅在目录内读写且不联网；完全访问使用后台账户环境，可访问目录外资料和网络。不要选择后台档案、源码、凭据目录或其父目录。启用后初始目录不能更换；完全访问也须核实未知效果和原执行停止。输入 /back 返回。\n");
     const workspace = (await io.question("命令目录绝对路径：")).trim();
     if (workspace === "/back") return;
     if (!path.isAbsolute(workspace)) throw new PersonalError("command_config_invalid", "命令目录须为已存在的绝对路径，请重新选择专用目录。");
@@ -222,9 +222,9 @@ export async function configurePersonalCommands(io: PersonalCliIO, directory: st
       const stat = fs.statSync(real);
       config = { version: 1, workspace: real, identity: { dev: stat.dev, ino: stat.ino }, machineId: fs.readFileSync("/etc/machine-id", "utf8").trim(), tmpdir: fs.realpathSync(tmpdir()) };
     } catch (error) { throw new PersonalError("command_config_invalid", "命令目录或本机身份无法读取，请检查目录和 Linux 环境后重新配置。", { cause: error }); }
-    if (await choose(io, `启用受限命令目录：${config.workspace}`, ["返回", "保存并启用"]) === 0) return;
+    if (await choose(io, `启用命令目录：${config.workspace}`, ["返回", "保存并启用"]) === 0) return;
     await savePersonalCommands(profile, config);
-    io.write("命令配置已保存。启动后台后，子 Agent 可在原工作授权内执行受限命令；未知效果或停止未核实时保留占用，请核实原操作。\n");
+    io.write("命令配置已保存。启动后台后，子 Agent 可沿原工作权限执行命令；未知效果或停止未核实时保留占用，请核实原操作。\n");
   } finally { profile.release(); }
 }
 

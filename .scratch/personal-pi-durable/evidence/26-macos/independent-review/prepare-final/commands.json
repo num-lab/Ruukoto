@@ -1,0 +1,20 @@
+[
+  {
+    "command": "node node_modules/tsx/dist/cli.mjs --test --test-name-pattern='完全访问宿主：returned' test/personal-command-execution.test.ts",
+    "stage": "baseline",
+    "exitCode": 0,
+    "log": "baseline.log"
+  },
+  {
+    "command": "node node_modules/tsx/dist/cli.mjs --test --test-name-pattern='完全访问宿主：returned' test/personal-command-execution.test.ts",
+    "stage": "withdrawn",
+    "exitCode": 1,
+    "log": "withdrawn.log"
+  },
+  {
+    "command": "node node_modules/tsx/dist/cli.mjs --test --test-name-pattern='完全访问宿主：returned' test/personal-command-execution.test.ts",
+    "stage": "restored",
+    "exitCode": 0,
+    "log": "restored.log"
+  }
+]

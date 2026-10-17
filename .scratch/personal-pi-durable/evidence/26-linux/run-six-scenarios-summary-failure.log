@@ -1,0 +1,18 @@
+node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+
+Error: ENOENT: no such file or directory, open '/tmp/ruukoto-full-26.R7idsd/fixtures/cancel-full-5v4IKi/restore-result.json'
+    at Module.readFileSync (node:fs:483:20)
+    at read (file:///tmp/ruukoto-full-26.R7idsd/source/apps/ruukoto/src/linux-command-probe.mjs:5376:37)
+    at file:///tmp/ruukoto-full-26.R7idsd/source/apps/ruukoto/src/linux-command-probe.mjs:5663:141
+    at Array.map (<anonymous>)
+    at file:///tmp/ruukoto-full-26.R7idsd/source/apps/ruukoto/src/linux-command-probe.mjs:5663:105
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5) {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/tmp/ruukoto-full-26.R7idsd/fixtures/cancel-full-5v4IKi/restore-result.json'
+}
+
+Node.js v24.21.0

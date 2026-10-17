@@ -1,4 +1,5 @@
-/** Linux 受限执行的持久认领；效果回执与工作占用仍由调用方持有。
+/** Linux 执行的持久认领；效果回执与工作占用仍由调用方持有。
+ * Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-full-access-commands.md
  * Note: 见 .agents/notes/implemented/architecture/2026-10-17-native-linux-execution-identity.md
  */
 import * as fs from "node:fs";
@@ -130,7 +131,7 @@ export async function launchLinuxExecution(directory: string, ref: LinuxExecutio
   try {
     const locationInfo = location(directory, ref);
     claimDir = locationInfo.claimDir;
-    if (spec.mode === "full_access") throw unavailable("持久原生执行只支持受限模式");
+    if (spec.mode === "full_access" && (input.workspace !== spec.workspace || input.mounts.length || input.runtimeReadRoots.length || input.toolAliases.length || Object.keys(input.env).length || spec.env !== undefined)) throw unavailable("完全访问准备输入不能包含受限挂载或环境值");
     for (const root of [input.tempDir, ...input.mounts.map(mount => mount.path), ...input.runtimeReadRoots, ...input.toolAliases.flatMap(alias => [alias.path, alias.target])]) {
       if (covers(root, directory) || covers(directory, root)) throw unavailable("执行证据目录与工作进程可见范围重叠；请使用独立保护目录");
     }

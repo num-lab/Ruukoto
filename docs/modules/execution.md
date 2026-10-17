@@ -24,7 +24,7 @@
 | `WorkCopyManager` | `prepareWriteTarget(...)`、`assertCopy(...)` | 判定修改目标是 Git worktree 还是直接写入根，逐项复核目录身份与 `.git` 指向；失效抛 `worktree_gone` |
 | 已批准越界操作 | `packages/agent/src/execution/approved-ops.ts` | 后台受信执行器完成，不进工作进程；执行参数取自审批保存的不可变请求 |
 | 受管执行单元登记表 | `packages/agent/src/managed-processes.ts` 的 `register` / `list` / `clear` | 每会话一份，登记可回收的执行单元身份 |
-| 需跨进程核实的 Linux 宿主 | `launchLinuxExecution(directory, ref, input, spec)`、`stopLinuxExecution(directory, ref, expectedFingerprint?)` | 宿主先保存执行引用；私有目录独占认领，同键不再启动；个人 durable 恢复传原启动指纹，只接受已有 launch 认领 |
+| 需跨进程核实的 Linux 宿主 | `launchLinuxExecution(directory, ref, input, spec)`、`stopLinuxExecution(directory, ref, expectedFingerprint?)` | 宿主先保存执行引用；私有目录独占认领，同键不再启动；受限输入走 bwrap，完全访问仅在持久 tracking 下直接启动 worker、继承过滤后的用户环境且不将环境值落盘；个人 durable 恢复传原启动指纹，只接受已有 launch 认领 |
 | 宿主编排调用方 | `WorkflowScriptHost`（`packages/agent/src/script-worker/host.ts`） | 先登记 `entry()` 启动占位，再 `run(script, input, invoke, options)`；`onIdentity` 在启动完成后交给宿主持久化实际身份；`identity()`、`output`、`stopFailure` 与重复 `stop()` 保留退出事实 |
 
 正式入口仅接受 `RUUKOTO_EXECUTION_BACKEND=native` 或不设覆盖；旧 local/container 覆盖被拒。运行入口与部署步骤见 [usage](../usage.md)。
@@ -69,7 +69,7 @@
 
 受管执行单元登记表记录三种身份：`process_group`（local 进程组或 macOS 原生监督器，原生停止由监督器核实全部已归属后代）、`systemd_unit`（Linux 原生 user scope 或服务 helper 命令单元）、`starting`（ready 前的占位，同样参与停止）。原生执行每单元持有独立 HOME 与 TMPDIR，临时资料仅在停止已核实时删除；未核实时与目录占用一起保留。
 
-Linux 持久认领另存于 worker 不可见的宿主私有目录：固定执行引用、本机/boot、scope、参数指纹、独立 launcher 寿命及原单元/cgroup 观察。原子认领只授予一次启动权，停止先手也占用该身份。认领和临时资料不自动删除，停止结果不代表命令效果或允许重放；调用方负责保存效果回执、工作归属和占用。
+Linux 持久认领另存于宿主私有目录，受限 worker 不可见，完全访问同账户仍可访问：固定执行引用、本机/boot、scope、参数指纹、独立 launcher 寿命及原单元/cgroup 观察。原子认领只授予一次启动权，停止先手也占用该身份。认领和临时资料不自动删除，停止结果不代表命令效果或允许重放；调用方负责保存效果回执、工作归属和占用。
 
 启动及证据存储失败通过 `ExecutionError` 报告；已创建单元的失败继续携带停止句柄。前置拒绝后连未派发证明也写入失败时，`cause` 保留原失败与证据失败，停止仍保持未核实。
 
@@ -143,7 +143,7 @@ macOS 监督器关闭自己的状态和控制 FD 后才 exec worker，可信 Nod
 
 ### Linux 常驻前提与临时资料
 
-持久认领路径先核实私有启动标记、宿主随机 Description、InvocationID 与 launcher 的 `/proc` cgroup 归属，再保存原 cgroup dev/ino。停止只向经目录 FD 核对的原 `cgroup.kill` 写入，不按单元名发信号；原 launcher/整组退出、原 cgroup 为空或消失且单元静止才返回 true。未派发或原 boot 结束可单独证明无残留。恢复传入预期启动指纹时，停止不新建认领；缺原 launch 认领、指纹不符或仅有 stop 先手均不作原退出证明。未观察、同名换代、损坏证据和查询失败保留未核实，不创建替代执行。该入口只适用 Linux 受限执行，不覆盖完全访问或远端 MCP。
+持久认领路径先核实私有启动标记、宿主随机 Description、InvocationID 与 launcher 的 `/proc` cgroup 归属，再保存原 cgroup dev/ino。停止只向经目录 FD 核对的原 `cgroup.kill` 写入，不按单元名发信号；原 launcher/整组退出、原 cgroup 为空或消失且单元静止才返回 true。未派发或原 boot 结束可单独证明无残留。恢复传入预期启动指纹时，停止不新建认领；缺原 launch 认领、指纹不符或仅有 stop 先手均不作原退出证明。未观察、同名换代、损坏证据和查询失败保留未核实，不创建替代执行。该入口适用于 Linux 受限执行及个人完全访问单次命令，不覆盖远端 MCP；完全访问的停止证明不覆盖主动迁出单元的进程或外部服务。
 
 个人后台由系统级 service 以实际账户运行。安装时为该账户启用 linger，确保 user manager 在开机后与退出登录后持续运行；系统服务固定正确的 `XDG_RUNTIME_DIR` 与 `DBUS_SESSION_BUS_ADDRESS`，并在 user manager 就绪后启动。user bus 只供可信 launcher 管理 scope，不传入受限 worker。bubblewrap/AppArmor、cgroup v2、scope 委派与 `cgroup.kill` 都必须可用；安装与核实步骤见 [systemd 部署](../../deploy/systemd/README.md)。后台单元的 `KillMode` 不证明独立 user scope 已退出。
 
@@ -186,7 +186,7 @@ sequenceDiagram
 
 ### 受管执行单元的停止与回收
 
-1. 停止入口核实已归属的执行单元：原生单元按平台协议核实；Linux user scope 必须确认 cgroup 无可执行成员。当前账户的 worker 在 Shell 主进程结束和 shutdown 时停止各已登记的命令进程组，再发送 `stopped` 应答；宿主同时核实 worker 原进程组。完全访问必须两项结论都为 true；无应答、查询失败或残留均保留占用，主 PID 消失不足以结束核实。
+1. 停止入口核实已归属的执行单元：原生单元按平台协议核实；Linux user scope 必须确认 cgroup 无可执行成员。共享编码 worker 在 Shell 主进程结束和 shutdown 时停止各已登记的命令进程组，再发送 `stopped` 应答；宿主同时核实 worker 原进程组。共享编码 worker 的完全访问必须两项结论都为 true；无应答、查询失败或残留均保留占用，主 PID 消失不足以结束核实。
 2. 同一执行记录的并发、重复停止共享一次停止结果。未创建单元的启动失败无需回收；已创建后返回 false 或抛错均保留未核实结论与身份，不因通信句柄关闭、启动 Promise 拒绝或登记清理改成成功。
 3. 任务的自然完成、失败、取消与模式切换均等待受管单元的停止核实；单个停止失败不跳过其他单元。只有核实退出才释放目录占用，核实不了时保留占用并报告 `task.tool_process_unreaped`；模式切换记为 `mode_switch_unverified`。
 4. 队列启动前复核写入目标的目录身份，被替换或消失即失败、不自动重建；占用键与串行规则见 [runtime](runtime.md)。
@@ -221,7 +221,7 @@ sequenceDiagram
 - 原生 worker 不继承宿主凭据、SSH agent、代理或控制面；项目内自带的秘密属于已授权内容，沙箱不会识别或隐藏它们。
 - 原生受限任务不获得宿主 root 权限。缺少受限后端、策略或运行依赖时以 `execution_unavailable` 明确失败，不静默改用当前账户无沙箱执行。
 - 完全访问免操作审批，使用后台启动账户已有的文件、网络与工具权限，不额外授予 root 或其他账户身份，也不需要执行启停配置或工作区 ACL。
-- 完全访问停止覆盖原 worker 组及 worker 已登记的命令组；强制崩溃未取得命令组停止应答即记未核实。主动脱离已登记组、另行提权的进程与外部服务不承诺随任务停止；取消与模式切换不撤销已发生的外部效果。
+- 共享编码 worker 的完全访问停止覆盖原 worker 组及 worker 已登记的命令组；强制崩溃未取得命令组停止应答即记未核实。主动脱离已登记组、另行提权的进程与外部服务不承诺随任务停止；取消与模式切换不撤销已发生的外部效果。
 - macOS 原生累计身份有轮询窗口，最终未知后代须保留占用；`local` 后端没有任务沙箱，不据此宣称受限隔离已生效。
 
 ### Git 与副本
@@ -252,6 +252,8 @@ sequenceDiagram
 全局保护根未作为显式只读挂载时，外部特权预存的子文件 bind 别名仍有原生旁路；显式来源只读范围和宿主文件入口按上述 inode 检查拒绝。该既有情形保留真实反例，另作原生保护审计；原生边界不承诺抵抗宿主外部特权准备。
 
 ## 设计依据
+
+- [完全访问命令的持久 scope 与原工作恢复](../../.agents/notes/implemented/architecture/2026-10-17-personal-full-access-commands.md)
 
 - [个人单次命令 worker](../../.agents/notes/implemented/architecture/2026-10-17-personal-command-worker.md)：自包含产物、显式运行依赖和停止证明的归属。
 

@@ -23,7 +23,7 @@ function protectedRoots(profileDirectory: string) {
 }
 
 export function verifyPersonalCommandConfig(config: PersonalCommandConfig, profileDirectory: string): void {
-  if (process.platform !== "linux") throw new PersonalError("command_platform_unsupported", "受限命令需要 Linux；请在原 Linux 实例配置和恢复。");
+  if (process.platform !== "linux") throw new PersonalError("command_platform_unsupported", "个人命令需要 Linux；请在原 Linux 实例配置和恢复。");
   try {
     const saved = parsePersonalCommands(config);
     const workspace = fs.lstatSync(saved.workspace);

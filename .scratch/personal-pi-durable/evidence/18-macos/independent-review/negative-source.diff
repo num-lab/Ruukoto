@@ -1,0 +1,26 @@
+--- baseline/personal-work.ts
++++ negative/personal-work.ts
+@@ -71,7 +71,6 @@
+       if (!child) throw new PersonalError("work_agent_missing", "后台工作的子会话缺失，已停止；请保留档案。");
+       if (work.cancelRequested) {
+         await child.abort(context, { background: true });
+-        await waitForInspections(runtime, task.id, context);
+         await runtime.commit(async tx => { await release(tx, task.input, task.id); return { status: "terminal", outcome: { status: "aborted" } }; }, context);
+         return;
+       }
+@@ -110,7 +109,6 @@
+           settled = await Promise.race([submission.wait(context), canceled]);
+         } finally { await watch.stop(); }
+         await child.abort(context, { background: true });
+-        await waitForInspections(runtime, task.id, context);
+         let next = false;
+         await runtime.commit(async tx => {
+           const work = await facts(tx, ref);
+@@ -131,7 +129,6 @@
+     const child = await runtime.conversation(task.input.agentId, context);
+     if (!child) throw new PersonalError("work_agent_missing", "取消时找不到子会话，占用仍保留；请检查档案。");
+     await child.abort(context, { background: true });
+-    await waitForInspections(runtime, task.id, context);
+     await runtime.commit(async tx => { await release(tx, task.input, task.id); return { status: "terminal", outcome: { status: "aborted" } }; }, context);
+   },
+ });

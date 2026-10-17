@@ -18,6 +18,10 @@ Status: implemented
 
 provider prepare 与 onPayload 都按持久 ProviderDoc.sessionId 唯一定位实际 Conversation，在保存证据的同 commit 复核活动占用与取消事实。缺失/歧义来源、空闲/关闭/取消的子身份拒绝请求，不能只靠会被跳过的 beforeRequest hook。每份证据写在实际调用会话，生成和压缩沿同一入口。恢复前核对文档版本、身份/会话双向关系、工作/占用/原生 Task 双向关系及来源；旧无工作档案仅在无未决输入/任务时启用新扩展。空闲时同步所有长期会话模型，有未决工作时拒绝换模型。
 
+## 子工具的后续边界
+
+本篇原空工具边界中的固定只读检查由[子工作检查归属](2026-10-17-personal-subagent-inspection.md)部分取代；未配置服务仍为空工具，写操作、任意命令与 MCP 不下放。原工作生命周期、来源授权及 helper 停止证明的其余决定保持。
+
 ## 既有笔记审计
 
 按 durable、长期子 Agent、后台工作、取消与 ProviderDoc 检索 active notes；没有 rejected 目录。[迁移总方案](../../proposed/architecture/2026-10-17-personal-pi-durable.md)、[档案基础](2026-10-17-personal-durable-foundation.md)、[本机管理](2026-10-17-personal-local-management.md)与[服务检查](2026-10-17-personal-service-inspect.md)部分重叠，互链并保留各自决定；本篇只增加宿主工作生命周期。[旧委派模型](2026-10-03-work-delegation-subagent-task.md)与[旧重启恢复](2026-10-05-subagent-restart-recovery.md)仍服务正式共享底座，不搬入旧状态机。[后台命令提案](../../proposed/feature/2026-10-14-bash-background-lifecycle.md)管理 OS 进程，本片没有该执行能力，属无关。无完全吸收或待归档记录。

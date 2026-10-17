@@ -1,0 +1,10 @@
+{
+  "argv": [
+    "npx",
+    "tsx",
+    "--test",
+    "test/71-product-entry.test.ts"
+  ],
+  "exit_code": 0,
+  "seconds": 31.061
+}

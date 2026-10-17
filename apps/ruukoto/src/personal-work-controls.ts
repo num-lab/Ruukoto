@@ -118,7 +118,7 @@ export async function telegramDelegationControl(tx: Tx, value: TelegramControlIn
       progress.state = progress.unverified ? "stop_unverified" : progress.active ? "canceling" : "canceled";
     }
     value.selection = { kind: "delegation", ref, ...(progress.nextOffset === undefined ? {} : { nextOffset: progress.nextOffset }) };
-    value.reply = `${personalDelegationDescription(progress)}。\n${progress.members.map(personalWorkDescription).join("\n")}\n回复本消息选择：刷新委托、查看报告、取消整项分析${progress.nextOffset === undefined ? "" : "、下一页分析"}。取消覆盖所属分析成员及尚未开始的最终回报，不关闭身份，不包含服务等外部操作。封组后不能续派或追加；未封组时单项结果与追加说明请发送 /工作 选择。`;
+    value.reply = `${personalDelegationDescription(progress)}。\n${progress.members.map(personalWorkDescription).join("\n")}\n回复本消息选择：刷新委托、查看报告、取消整项分析${progress.nextOffset === undefined ? "" : "、下一页分析"}。取消覆盖所属分析成员、其固定服务检查及尚未开始的最终回报，不关闭身份，不包含独立宿主服务写操作。封组后不能续派或追加；未封组时单项结果与追加说明请发送 /工作 选择。`;
   } catch (error) {
     if (!(error instanceof PersonalError)) throw error;
     delete value.selection;

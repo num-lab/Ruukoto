@@ -1,0 +1,12 @@
+▶ 子检查：整项暂停/取消包含成员检查，封组报告等原停止后继续
+  ✔ cancel_delegation (1100.539541ms)
+  ✔ report (746.908833ms)
+✔ 子检查：整项暂停/取消包含成员检查，封组报告等原停止后继续 (1849.599458ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 3
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 4165.18875

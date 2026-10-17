@@ -6,9 +6,10 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { defineDoc, defineDocFamily, defineEntry, defineExtension, LiveDoc, ROOT_CONVERSATION_ID, type ConversationId, type EntryId, type Harness, type SubmissionId, type TaskId, type Tx } from "@earendil-works/pi-durable";
 import { callHelper, expectRevisions, requireOk, ServiceHelperError, type HelperReply, type ServiceInspectionId, type ServiceManagerConfig } from "./service-helper.ts";
 import { PersonalError } from "./personal-error.ts";
+import { activePersonalWorkInspection, personalWorkInspectionSource, type PersonalWorkInspectionSource } from "./personal-work.ts";
 
 type Reply = Extract<HelperReply, { ok: true; verb: "inspect-op" }>;
-type Identity = { taskId: TaskId; conversationId: ConversationId; taskKind: string; unit: string; machineId: string; inspectionId: ServiceInspectionId; sources: SubmissionId[]; generation?: TaskId };
+type Identity = { taskId: TaskId; conversationId: ConversationId; taskKind: string; unit: string; machineId: string; inspectionId: ServiceInspectionId; sources: SubmissionId[]; generation?: TaskId; work?: PersonalWorkInspectionSource };
 type Inspection = Identity & { admission: EntryId; stopped: boolean; stopEvidence?: EntryId; result?: { evidence: EntryId; reply?: Reply; code: string } };
 export const PersonalInspectionDoc = defineDocFamily<{ inspection?: Inspection }, null>({ kind: "ruukoto.service-execution", scope: "session", version: 1, family: true, initial: () => ({}) });
 export const PersonalPendingInspectionsDoc = defineDoc<{ tasks: TaskId[] }>({ kind: "ruukoto.service-executions", scope: "session", version: 1, initial: () => ({ tasks: [] }) });
@@ -63,6 +64,15 @@ export async function pendingServiceInspection(tx: Tx, unit?: string, sources: r
   }
 }
 
+export async function pendingWorkInspection(tx: Tx, taskId: TaskId) {
+  for (const id of (await tx.doc(PersonalPendingInspectionsDoc)).tasks) {
+    const value = (await tx.doc(PersonalInspectionDoc, String(id), null)).inspection;
+    if (!value || value.stopped) throw new PersonalError("service_inspection_invalid", "检查占用记录无法核实，已保留工作占用；请保留档案。");
+    if (value.work?.ref.taskId === taskId) return true;
+  }
+  return false;
+}
+
 // Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-durable-inspection.md
 export async function recheckServiceInspection(harness: Harness, config: ServiceManagerConfig, taskId: TaskId, original?: Inspection) {
   const value = original ?? (await harness.snapshot(PersonalInspectionDoc, String(taskId), context))?.inspection;
@@ -92,15 +102,22 @@ export async function runServiceInspection(harness: Harness, config: ServiceMana
   const machineId = machineFor(config);
   const value = await harness.commit(async tx => {
     const task = await tx.task(owner.taskId);
-    if (owner.signal?.aborted || !task || task.state.status === "terminal" || task.abortRequested || task.conversationId !== owner.conversationId || owner.conversationId !== ROOT_CONVERSATION_ID) throw new PersonalError("service_inspection_inactive", "原检查任务已停止，未启动新检查。");
+    if (owner.signal?.aborted || !task || task.state.status === "terminal" || task.abortRequested || task.conversationId !== owner.conversationId) throw new PersonalError("service_inspection_inactive", "原检查任务已停止，未启动新检查。");
     const live = task.kind === "pi.tool" ? await tx.doc(LiveDoc, task.conversationId) : undefined;
     if (task.kind !== "ruukoto.service-operation" && (task.kind !== "pi.tool" || !task.owner || live?.run?.taskId !== task.owner)) throw new PersonalError("service_inspection_invalid", "检查不属于原活动执行，未启动；请保留档案。");
-    const sources = owner.sources ?? live!.run!.inputs.slice();
+    if (owner.conversationId !== ROOT_CONVERSATION_ID && (task.kind !== "pi.tool" || owner.sources)) throw new PersonalError("service_inspection_invalid", "子检查的执行消费者不符，未启动；请查询原工作。");
+    if (owner.conversationId !== ROOT_CONVERSATION_ID) {
+      const generation = task.owner && await tx.task(task.owner);
+      const input = task.input;
+      if (generation?.kind !== "pi.generation" || generation.conversationId !== owner.conversationId || generation.abortRequested || generation.state.status === "terminal" || !live?.tools?.some(slot => slot.taskId === owner.taskId && slot.status === "running") || !input || typeof input !== "object" || Array.isArray(input) || input.kind !== "model") throw new PersonalError("service_inspection_inactive", "子检查不属于活动模型工具，未执行；请查询原工作。");
+    }
+    const child = owner.conversationId !== ROOT_CONVERSATION_ID ? await activePersonalWorkInspection(tx, owner.conversationId, live!.run!.inputs) : undefined;
+    const sources = child?.sources ?? owner.sources ?? live!.run!.inputs.slice();
     if (!sources.length) throw new PersonalError("service_inspection_invalid", "检查缺少原输入归属，未启动；请保留档案。");
     if (await pendingServiceInspection(tx, unit, sources)) return undefined;
     const record = await tx.doc(PersonalInspectionDoc, String(owner.taskId), null);
     if (record.inspection && !sameAttempt(record.inspection, previous!)) throw new PersonalError("service_inspection_invalid", "原检查尝试已变化，未启动新检查。");
-    const identity: Identity = { taskId: owner.taskId, conversationId: owner.conversationId, taskKind: task.kind, unit, machineId, inspectionId: `inspect_${randomBytes(12).toString("hex")}`, sources, ...(task.owner ? { generation: task.owner } : {}) };
+    const identity: Identity = { taskId: owner.taskId, conversationId: owner.conversationId, taskKind: task.kind, unit, machineId, inspectionId: `inspect_${randomBytes(12).toString("hex")}`, sources, ...(task.owner ? { generation: task.owner } : {}), ...(child ? { work: child.work } : {}) };
     const admission = await tx.appendEntry(ServiceInspectionAdmission, owner.conversationId, { data: identity });
     const inspection: Inspection = { ...identity, admission: admission.id, stopped: false };
     record.inspection = inspection;
@@ -135,13 +152,18 @@ export async function verifyServiceInspections(tx: Tx, keys: string[]) {
     const task = await tx.task(value.taskId);
     const entry = await tx.entry(ServiceInspectionAdmission, value.admission);
     const { admission: _admission, stopped: _stopped, stopEvidence: _stopEvidence, result: _result, ...identity } = value;
-    if (!task || task.kind !== value.taskKind || task.conversationId !== value.conversationId || value.conversationId !== ROOT_CONVERSATION_ID || task.owner !== value.generation || !entry || entry.conversationId !== value.conversationId || !isDeepStrictEqual(entry.data, identity) || !/^inspect_[0-9a-f]{24}$/.test(value.inspectionId) || !value.sources.length) throw new PersonalError("service_inspection_invalid", "服务检查与原接纳或执行归属不符，已停止恢复；请保留档案。");
+    if (!task || task.kind !== value.taskKind || task.conversationId !== value.conversationId || task.owner !== value.generation || !entry || entry.conversationId !== value.conversationId || !isDeepStrictEqual(entry.data, identity) || !/^inspect_[0-9a-f]{24}$/.test(value.inspectionId) || !value.sources.length) throw new PersonalError("service_inspection_invalid", "服务检查与原接纳或执行归属不符，已停止恢复；请保留档案。");
     if (!["pi.tool", "ruukoto.service-operation"].includes(task.kind)) throw new PersonalError("service_inspection_invalid", "服务检查的消费者无效，已停止恢复；请保留档案。");
+    if (value.conversationId === ROOT_CONVERSATION_ID ? value.work !== undefined : !value.work || value.taskKind !== "pi.tool" || value.work.ref.agentId !== value.conversationId) throw new PersonalError("service_inspection_invalid", "服务检查的子工作归属不符，已停止恢复；请保留档案。");
+    if (value.work) {
+      const source = await personalWorkInspectionSource(tx, value.work.ref, value.work.inputs, value.admission);
+      if (!isDeepStrictEqual(source.work, value.work) || !isDeepStrictEqual(source.sources, value.sources)) throw new PersonalError("service_inspection_invalid", "子检查与原工作权限或来源不符，已停止恢复；请保留档案。");
+    }
     if (task.kind === "pi.tool") {
       const input = task.input;
       const assistant = input && typeof input === "object" && !Array.isArray(input) && typeof input.assistant === "number" ? await tx.entry(input.assistant as EntryId) : undefined;
       const message = assistant?.model?.[0];
-      if (!input || typeof input !== "object" || Array.isArray(input) || input.kind !== "model" || !value.generation || (await tx.task(value.generation))?.kind !== "pi.generation" || message?.role !== "assistant" || !message.content.some(part => part.type === "toolCall" && part.id === input.callId && part.name === "service_inspect" && part.arguments.unit === value.unit)) throw new PersonalError("service_inspection_invalid", "服务检查缺少原工具调用，已停止恢复；请保留档案。");
+      if (!input || typeof input !== "object" || Array.isArray(input) || input.kind !== "model" || !value.generation || (await tx.task(value.generation))?.kind !== "pi.generation" || (await tx.task(value.generation))?.conversationId !== value.conversationId || assistant?.conversationId !== value.conversationId || assistant.byTaskId !== value.generation || message?.role !== "assistant" || !message.content.some(part => part.type === "toolCall" && part.id === input.callId && part.name === "service_inspect" && part.arguments.unit === value.unit)) throw new PersonalError("service_inspection_invalid", "服务检查缺少原工具调用，已停止恢复；请保留档案。");
     }
     if (value.result) {
       const evidence = await tx.entry(ServiceInspectionEntry, value.result.evidence);
@@ -154,12 +176,18 @@ export async function verifyServiceInspections(tx: Tx, keys: string[]) {
     } else expected.push(value.taskId);
   }
   if (new Set(pending.tasks).size !== pending.tasks.length || !isDeepStrictEqual([...pending.tasks].sort(), expected.sort())) throw new PersonalError("service_inspection_invalid", "服务检查占用索引不符，已停止恢复；请保留档案。");
-  if (!await tx.conversation(ROOT_CONVERSATION_ID)) return;
   const latest = new Map<TaskId, EntryId>();
   let cursor;
   do {
-    const page = await tx.scanEntries({ conversationId: ROOT_CONVERSATION_ID, order: "ascending" }, 256, cursor);
-    for (const entry of page.items) if (ServiceInspectionAdmission.is(entry)) latest.set(entry.data.taskId, entry.id);
+    const page = await tx.scanConversations({}, 256, cursor);
+    for (const conversation of page.items) {
+      let entryCursor;
+      do {
+        const entries = await tx.scanEntries({ conversationId: conversation.id, order: "ascending" }, 256, entryCursor);
+        for (const entry of entries.items) if (ServiceInspectionAdmission.is(entry)) latest.set(entry.data.taskId, entry.id);
+        entryCursor = entries.next;
+      } while (entryCursor);
+    }
     cursor = page.next;
   } while (cursor);
   for (const [id, admission] of latest) {

@@ -17,7 +17,7 @@ import { personalProvider, type PersonalModelConfig } from "../apps/ruukoto/src/
 import { lockPersonalProfile } from "../apps/ruukoto/src/personal-profile.ts";
 import { personalDevDirectory, readPersonalConfig, savePersonalConfig } from "../apps/ruukoto/src/personal-config.ts";
 import { LocalInputDoc, parsePersonalInput, personalControl, readPersonalToken, startPersonalServer, type PersonalInputStatus, type PersonalMessage, type PersonalStatus } from "../apps/ruukoto/src/personal-control.ts";
-import { checkPersonalInput, configurePersonalServices, managePersonalInspections, managePersonalServices, launchPersonalServer, pendingPersonalInputs, personalChildEnv, personalMenu, preparePersonalInput } from "../apps/ruukoto/src/personal-cli.ts";
+import { checkPersonalInput, configurePersonalServices, managePersonalInspections, managePersonalServices, managePersonalCommands, launchPersonalServer, pendingPersonalInputs, personalChildEnv, personalMenu, preparePersonalInput } from "../apps/ruukoto/src/personal-cli.ts";
 import { parsePersonalServices, readPersonalServices, savePersonalServices } from "../apps/ruukoto/src/personal-service-config.ts";
 import { PersonalServiceDoc } from "../apps/ruukoto/src/personal-services.ts";
 import { PersonalServiceGrantsDoc, PersonalServiceOperationsDoc } from "../apps/ruukoto/src/personal-service-operations.ts";
@@ -113,7 +113,7 @@ test("personal CLI：前台与 detached 均拒绝用内部环境变量充当模�
 test("personal CLI：认证前不读状态或提交，非法及超限请求无副作用", async t => {
   const f = await fixture(t);
   await f.start();
-  for (const route of ["/status", "/messages", "/inputs", "/stop", "/services", "/service?service=1", "/service/resolve?service=1", "/service/stop?service=1", "/service/decide?service=1"]) {
+  for (const route of ["/status", "/messages", "/inputs", "/stop", "/services", "/service?service=1", "/service/resolve?service=1", "/service/stop?service=1", "/service/decide?service=1", "/commands", "/command?command=1", "/command/resolve?command=1", "/command/stop?command=1"]) {
     const result = await raw(f.dir, route === "/inputs" || route === "/stop" || route.startsWith("/service/") ? "POST" : "GET", route, JSON.stringify({ requestId: randomUUID(), input: "不要执行" }));
     assert.equal(JSON.parse(result.body).code, "control_unauthorized");
     assert.doesNotMatch(result.body, /mock-model|test-only/);
@@ -603,4 +603,28 @@ test("服务审批向导：选择原目标批准或拒绝，不询问内部键",
     await managePersonalServices({ question: async () => { assert.ok(answers.length); return answers.shift()!; }, write: value => { output += value; } }, dir);
     assert.equal(saved, true); assert.equal(answers.length, 0); assert.match(output, /test-machine/); assert.doesNotMatch(output, /private-request|taskId|UUID/);
   });
+});
+
+test("personal CLI：命令菜单只用已选原命令，分别保存效果证据和登记停止重核", async t => {
+  const dir = directory(t); fs.writeFileSync(path.join(dir, "control.token"), "c".repeat(64));
+  const routes: string[] = [];
+  let saved = false, stopped = false;
+  const server = http.createServer(async (req, res) => {
+    routes.push(`${req.method} ${req.url}`);
+    let result: unknown;
+    if (req.url === "/command/resolve?command=12") {
+      const chunks: Buffer[] = []; for await (const chunk of req) chunks.push(Buffer.from(chunk));
+      assert.deepEqual(JSON.parse(Buffer.concat(chunks).toString()), { effect: "applied", evidence: "原计数只有一行" }); saved = true; result = { saved: true };
+    } else if (req.url === "/command/stop?command=12") { stopped = true; result = { requested: true }; }
+    else if (req.url?.startsWith("/command?")) result = { operation: 12, command: "原命令", result: { effect: "effect_unknown", code: "interrupted" }, stopped, canResolve: !saved, canRecheck: !stopped, ...(saved ? { resolution: { effect: "applied", evidence: "原计数只有一行" } } : {}), output: { data: Buffer.from("原输出").toString("base64"), bytes: 9, complete: false } };
+    else result = { items: stopped ? [] : [{ ref: { taskId: 12, requestId: "host-key" }, command: "原命令" }] };
+    res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ v: 1, ok: true, result }));
+  });
+  server.listen(path.join(dir, "control.sock")); await once(server, "listening");
+  t.after(() => new Promise<void>(resolve => server.close(() => resolve())));
+  const answers = ["1", "3", "原计数只有一行", "3", "3", "1"]; let output = "";
+  await managePersonalCommands({ question: async () => { assert.ok(answers.length); return answers.shift()!; }, write: value => { output += value; } }, dir);
+  assert.equal(answers.length, 0); assert.equal(saved, true); assert.equal(stopped, true);
+  assert.deepEqual(routes, ["GET /commands?offset=0", "GET /command?command=12&stream=stdout&offset=0", "POST /command/resolve?command=12", "GET /command?command=12&stream=stdout&offset=0", "POST /command/stop?command=12", "GET /command?command=12&stream=stdout&offset=0", "GET /commands?offset=0"]);
+  assert.match(output, /原输出/); assert.match(output, /停止也核实后才解除暂停/); assert.match(output, /登记不表示已停止/);
 });

@@ -1,0 +1,10 @@
+{
+  "build": "node /tmp/ruukoto-command-25-linux-20261017/build-probe.mjs",
+  "runtimeDependencies": "node /tmp/ruukoto-command-25-linux-20261017/copy-runtime-dependencies.mjs",
+  "run": "ssh tx 'node /tmp/ruukoto-command-25.sSTsx4/source/apps/ruukoto/src/linux-command-probe.mjs run /tmp/ruukoto-command-25.sSTsx4 > /tmp/ruukoto-command-25.sSTsx4/run.log 2>&1'",
+  "runExitCode": 0,
+  "finalize": "ssh tx 'python3 /tmp/ruukoto-command-25.sSTsx4/finalize.py'",
+  "finalizeExitCode": 0,
+  "sourceComparison": "source-comparison.json",
+  "remoteRemoval": "remote-artifact-cleanup.json"
+}

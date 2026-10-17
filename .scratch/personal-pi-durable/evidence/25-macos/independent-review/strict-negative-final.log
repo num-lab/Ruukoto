@@ -1,0 +1,82 @@
+✖ 严格停止：native-claim 不把仍存活的原命令报为退出，恢复原证据后才能停止 (130.99675ms)
+✔ 严格停止：request 不把仍存活的原命令报为退出，恢复原证据后才能停止 (373.861833ms)
+✔ 严格停止：expected-fingerprint 不把仍存活的原命令报为退出，恢复原证据后才能停止 (395.648375ms)
+✖ 严格停止：native-fingerprint 不把仍存活的原命令报为退出，恢复原证据后才能停止 (188.089583ms)
+✖ 严格停止：stop-first 不把仍存活的原命令报为退出，恢复原证据后才能停止 (110.122709ms)
+ℹ tests 5
+ℹ suites 0
+ℹ pass 2
+ℹ fail 3
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1311.549041
+
+✖ failing tests:
+
+test at test/personal-command-execution.test.ts:8:11203
+✖ 严格停止：native-claim 不把仍存活的原命令报为退出，恢复原证据后才能停止 (130.99675ms)
+  AssertionError [ERR_ASSERTION]: Missing expected rejection (PersonalError).
+      at async TestContext.<anonymous> (/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-command-review-258hgkvy/test/personal-command-execution.test.ts:247:98)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    operator: 'rejects',
+    diff: 'simple'
+  }
+
+test at test/personal-command-execution.test.ts:8:11203
+✖ 严格停止：native-fingerprint 不把仍存活的原命令报为退出，恢复原证据后才能停止 (188.089583ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+
+    {
+  +   cleaned: true,
+  +   exited: true,
+  -   cleaned: false,
+  -   exited: false,
+      ref: {
+        executionId: 'native_bbbbbbbbbbbbbbbbbbbbbbbb',
+        machineId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+      }
+    }
+
+      at TestContext.<anonymous> (/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-command-review-258hgkvy/test/personal-command-execution.test.ts:248:15)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: { ref: { executionId: 'native_bbbbbbbbbbbbbbbbbbbbbbbb', machineId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }, exited: true, cleaned: true },
+    expected: { ref: { executionId: 'native_bbbbbbbbbbbbbbbbbbbbbbbb', machineId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }, exited: false, cleaned: false },
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at test/personal-command-execution.test.ts:8:11203
+✖ 严格停止：stop-first 不把仍存活的原命令报为退出，恢复原证据后才能停止 (110.122709ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+
+    {
+  +   cleaned: true,
+  +   exited: true,
+  -   cleaned: false,
+  -   exited: false,
+      ref: {
+        executionId: 'native_bbbbbbbbbbbbbbbbbbbbbbbb',
+        machineId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+      }
+    }
+
+      at TestContext.<anonymous> (/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-command-review-258hgkvy/test/personal-command-execution.test.ts:248:15)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: { ref: { executionId: 'native_bbbbbbbbbbbbbbbbbbbbbbbb', machineId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }, exited: true, cleaned: true },
+    expected: { ref: { executionId: 'native_bbbbbbbbbbbbbbbbbbbbbbbb', machineId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }, exited: false, cleaned: false },
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }

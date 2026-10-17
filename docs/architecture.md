@@ -7,7 +7,7 @@ Ruukoto 后台任务运行时以单仓库交付 `ruukoto` 个人 Agent 和 `ruuk
 | 模块 | 一句职责 | 主要依赖方向 |
 | --- | --- | --- |
 | [products](modules/products.md)（`apps/ruukoto`、`apps/ruukoto-code`） | 持有各产品入口、能力声明与专属装配 | 注入共享 runtime，调用共享 CLI；产品包互不依赖 |
-| [personal-durable](modules/personal-durable.md)（个人 app 内） | 会话隔离、档案保护、请求证据、本机管理、Telegram、审批、委托回报、受控服务 | 依赖 Pi 1.3.0；正式入口未接入 |
+| [personal-durable](modules/personal-durable.md)（个人 app 内） | 会话、档案保护、请求证据、本机管理、Telegram、审批、委托、服务与受限命令 | 依赖 Pi 1.3.0；正式入口未接入 |
 | [runtime](modules/runtime.md) | 拥有任务生命周期、会话身份、队列与 SubAgent 委派的编排 | 依赖 core 的存储、agent-context 的模型装配、agent-tools 的工具、execution 的执行边界；被 control 与 channels 驱动 |
 | [core](modules/core.md) | 定义数据布局、schema、任务状态机与会话身份判定 | 不依赖其他模块，被全部模块依赖 |
 | [workflows](modules/workflows.md)（runtime 内） | 为模型与拥有者入口提供定义库、固定后台运行、持久步骤及控制 | 依赖 core 的事务、agent 的脚本与执行边界；默认接真实 Driver、来源权限与冻结汇总 |

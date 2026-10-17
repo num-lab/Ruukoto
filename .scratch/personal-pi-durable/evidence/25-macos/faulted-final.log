@@ -1,0 +1,9 @@
+✔ durable 命令：在线 faulted 立即进入可核实状态，效果与原停止齐备前工作仍占用 (16125.645542ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 16800.046167

@@ -9,9 +9,9 @@ import { syncBuiltinESMExports } from "node:module";
 import { PassThrough } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { prepareNativeLaunch } from "@ruukoto/agent/execution/native.ts";
-import type { LinuxExecutionRef } from "@ruukoto/agent/execution/native-linux-identity.ts";
+import { stopLinuxExecution, type LinuxExecutionRef } from "@ruukoto/agent/execution/native-linux-identity.ts";
 import type { LaunchSpec } from "@ruukoto/agent/execution/launchers.ts";
-import { runPersonalCommand, readPersonalCommandReceipt, stopPersonalCommand } from "../apps/ruukoto/src/personal-command-execution.ts";
+import { personalCommandFingerprint, runPersonalCommand, readPersonalCommandReceipt, readPersonalCommandOutput, stopPersonalCommand } from "../apps/ruukoto/src/personal-command-execution.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
 
 const machineId = "a".repeat(32), bootId = "12345678-1234-1234-1234-123456789abc";
@@ -107,6 +107,20 @@ test("大输出完整落盘，worker 的信号映射保持为原退出观察", a
   assert.deepEqual(await readPersonalCommandReceipt(f.options.directory, f.options.ref), receipt);
 });
 
+test("双流分页核对原意图，原字节不截断，坏引用和损坏输出拒绝", async t => {
+  const f = await fixture(t), result = await f.run("head -c 4000 /dev/zero; printf '\\377err' >&2");
+  const fingerprint = result.receipt.fingerprint;
+  const first = await readPersonalCommandOutput(f.options.directory, f.options.ref, fingerprint, "stdout");
+  assert.equal(first.nextOffset, 3072); assert.equal(first.complete, true);
+  const second = await readPersonalCommandOutput(f.options.directory, f.options.ref, fingerprint, "stdout", first.nextOffset);
+  assert.equal(second.nextOffset, undefined); assert.equal(Buffer.from(second.data, "base64").length, 928);
+  assert.deepEqual(Buffer.from((await readPersonalCommandOutput(f.options.directory, f.options.ref, fingerprint, "stderr")).data, "base64"), Buffer.from([255, 101, 114, 114]));
+  await assert.rejects(readPersonalCommandOutput(f.options.directory, f.options.ref, "0".repeat(64), "stdout"), PersonalError);
+  await assert.rejects(readPersonalCommandOutput(f.options.directory, f.options.ref, fingerprint, "stdout", -1), PersonalError);
+  fs.appendFileSync(path.join(f.record, "stdout"), "tampered");
+  await assert.rejects(readPersonalCommandOutput(f.options.directory, f.options.ref, fingerprint, "stdout"), PersonalError);
+});
+
 for (const kind of ["timeout", "cancel"] as const) test(`${kind} 停止原引用但没有完成回执，已捕获输出仍保留`, async t => {
   const f = await fixture(t), controller = new AbortController();
   const command = "printf started; sleep 30";
@@ -164,7 +178,7 @@ test("停止先手和缺绑定只核实原引用，不清理或执行", async t 
   assert.deepEqual(await stopPersonalCommand(f.options.directory, f.options.ref), { ref: f.options.ref, exited: true, cleaned: false });
   await assert.rejects(f.run("touch rerun"), PersonalError); assert.equal(f.count(), 0);
   assert.equal(await readPersonalCommandReceipt(f.options.directory, f.options.ref), undefined);
-  assert.equal(fs.existsSync(f.input.tempDir), false);
+  assert.equal(fs.existsSync(f.input.tempDir), true);
 });
 
 test("取消先于 launch 返回仍不提交命令，并保留原绑定核实停止", async t => {
@@ -211,4 +225,63 @@ test("坏命令、完全访问和可见证据目录在启动前拒绝", async t 
   await assert.rejects(runPersonalCommand({ ...f.options, command: "touch marker", spec: { ...f.options.spec, mode: "full_access" } }), PersonalError);
   await assert.rejects(runPersonalCommand({ ...f.options, command: "touch marker", input: { ...f.input, runtimeReadRoots: [...f.input.runtimeReadRoots, f.options.directory] } }), PersonalError);
   assert.equal(f.count(), 0); assert.equal(fs.existsSync(f.record), false);
+});
+
+for (const missing of ["native-claim", "request", "expected-fingerprint", "native-fingerprint", "stop-first"] as const) test(`严格停止：${missing} 不把仍存活的原命令报为退出，恢复原证据后才能停止`, async t => {
+  const f = await fixture(t), command = "printf started; sleep 0.2; echo survived > surviving-process; sleep 30";
+  const fingerprint = personalCommandFingerprint(command, f.options.spec, f.options.input);
+  const pending = f.run(command);
+  const outcome = pending.then(() => "returned", error => error instanceof PersonalError ? error.code : "unexpected_error");
+  while (!fs.existsSync(path.join(f.record, "stdout")) || fs.statSync(path.join(f.record, "stdout")).size === 0) await new Promise(resolve => setTimeout(resolve, 5));
+  const claim = path.join(f.options.directory, f.options.ref.executionId), retained = path.join(f.root, "retained-claim");
+  const request = path.join(f.record, "request.json"), retainedRequest = path.join(f.root, "retained-request.json");
+  const claimFile = path.join(claim, "claim.json");
+  let original: string | undefined;
+  if (missing === "native-claim" || missing === "stop-first") {
+    fs.renameSync(claim, retained);
+    if (missing === "stop-first") assert.equal((await stopLinuxExecution(f.options.directory, f.options.ref)).exited, true);
+  } else if (missing === "request") fs.renameSync(request, retainedRequest);
+  else if (missing === "native-fingerprint") { original = fs.readFileSync(claimFile, "utf8"); fs.writeFileSync(claimFile, JSON.stringify({ ...JSON.parse(original), fingerprint: "0".repeat(64) })); }
+  const expected = missing === "expected-fingerprint" ? "0".repeat(64) : fingerprint;
+  if (missing === "request" || missing === "expected-fingerprint") await assert.rejects(readPersonalCommandReceipt(f.options.directory, f.options.ref, expected), PersonalError);
+  if (missing === "native-claim" || missing === "request" || missing === "expected-fingerprint") await assert.rejects(stopPersonalCommand(f.options.directory, f.options.ref, expected), PersonalError);
+  else assert.deepEqual(await stopPersonalCommand(f.options.directory, f.options.ref, expected), { ref: f.options.ref, exited: false, cleaned: false });
+  assert.equal(fs.existsSync(f.input.tempDir), true);
+  assert.equal(fs.existsSync(path.join(claim, "stop-requested")), missing === "stop-first");
+  if (missing === "native-claim") assert.equal(fs.existsSync(claim), false);
+  const deadline = Date.now() + 3000;
+  while (!fs.existsSync(path.join(f.workspace, "surviving-process"))) { assert.ok(Date.now() < deadline, "原命令在严格停止拒绝后应仍可继续运行"); await new Promise(resolve => setTimeout(resolve, 5)); }
+  assert.equal(fs.readFileSync(path.join(f.workspace, "surviving-process"), "utf8"), "survived\n");
+  if (missing === "stop-first") fs.rmSync(claim, { recursive: true });
+  if (missing === "native-claim" || missing === "stop-first") fs.renameSync(retained, claim);
+  else if (missing === "request") fs.renameSync(retainedRequest, request);
+  else if (original !== undefined) fs.writeFileSync(claimFile, original);
+  const stopped = await stopPersonalCommand(f.options.directory, f.options.ref, fingerprint);
+  assert.equal(stopped.exited, true); assert.equal(stopped.cleaned, true);
+  assert.equal(await outcome, "command_result_unknown");
+  assert.equal(f.count(), 1);
+});
+
+test("活调用：launch 后丢失原 claim 不认 stop-first，原临时目录与后代留待核实", async t => {
+  const f = await fixture(t), command = "printf started; while [ ! -e release-worker ]; do sleep 0.01; done; (sleep 0.1; echo survived > surviving-process; sleep 30) >/dev/null 2>&1 &";
+  const outcome = f.run(command).then(value => ({ value }), error => ({ error }));
+  while (!fs.existsSync(path.join(f.record, "stdout")) || fs.statSync(path.join(f.record, "stdout")).size === 0) await new Promise(resolve => setTimeout(resolve, 5));
+  const claim = path.join(f.options.directory, f.options.ref.executionId);
+  const launcher = JSON.parse(fs.readFileSync(path.join(claim, "launcher.json"), "utf8"));
+  let cleanupError: unknown;
+  try {
+    fs.renameSync(claim, path.join(f.root, "retained-claim"));
+    fs.writeFileSync(path.join(f.workspace, "release-worker"), "release");
+    const result = await outcome;
+    assert.ok("error" in result && result.error instanceof PersonalError && result.error.code === "command_stop_unverified", "派发后缺少原 claim 不能获得停止或清理证明");
+    assert.equal(fs.existsSync(f.input.tempDir), true);
+    assert.equal(fs.existsSync(claim), false);
+    const deadline = Date.now() + 3000;
+    while (!fs.existsSync(path.join(f.workspace, "surviving-process"))) { assert.ok(Date.now() < deadline, "原后代应在未核实停止时继续运行"); await new Promise(resolve => setTimeout(resolve, 5)); }
+    assert.equal(fs.readFileSync(path.join(f.workspace, "surviving-process"), "utf8"), "survived\n");
+  } finally {
+    try { process.kill(-Number(launcher.pid), "SIGKILL"); }
+    catch (error) { cleanupError = error; }
+  }
+  if (cleanupError !== undefined) assert.ok(cleanupError instanceof Error && "code" in cleanupError && cleanupError.code === "ESRCH");
 });

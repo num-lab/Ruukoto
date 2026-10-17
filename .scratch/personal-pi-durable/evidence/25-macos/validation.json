@@ -1,0 +1,61 @@
+{
+  "base": "9976721454118bff819e5cb3c91927d52319418b",
+  "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "node": "v24.15.0",
+  "commands": [
+    {
+      "command": "npm run setup",
+      "exitCode": 0,
+      "log": "setup.log"
+    },
+    {
+      "command": "npm run build",
+      "exitCode": 0,
+      "log": "build-final.log"
+    },
+    {
+      "command": "npm run check:static",
+      "exitCode": 0,
+      "log": "static-final.log"
+    },
+    {
+      "command": "npx tsx --test test/personal-durable.test.ts test/personal-cli.test.ts test/personal-services.test.ts test/personal-work.test.ts test/personal-work-tools.test.ts test/personal-work-controls.test.ts test/personal-work-notes.test.ts test/personal-delegations.test.ts test/personal-reports.test.ts test/personal-service-operations.test.ts test/personal-telegram.test.ts test/personal-telegram-permissions.test.ts test/personal-command-config.test.ts test/personal-command-work.test.ts test/personal-command-execution.test.ts",
+      "exitCode": 0,
+      "tests": 440,
+      "pass": 439,
+      "skip": 1,
+      "log": "personal-final.log"
+    },
+    {
+      "command": "npx tsx --test --test-name-pattern='在线 faulted' test/personal-command-work.test.ts",
+      "exitCode": 0,
+      "tests": 1,
+      "pass": 1,
+      "log": "faulted-final.log"
+    },
+    {
+      "command": "npx tsx --test test/native-linux-identity.test.ts test/101-native-linux-scope.test.ts test/101-native-execution.test.ts test/personal-command-worker.test.ts test/71-product-entry.test.ts",
+      "exitCode": 0,
+      "tests": 53,
+      "pass": 53,
+      "log": "native-tests.log"
+    },
+    {
+      "command": "npx tsx --test --test-name-pattern='严格停止|活调用|停止先手|取消先于' test/personal-command-execution.test.ts",
+      "exitCode": 0,
+      "tests": 8,
+      "pass": 8,
+      "log": "strict-final.log"
+    }
+  ],
+  "uniqueOfflineScenarios": 494,
+  "pass": 493,
+  "skip": 1,
+  "sourceFiles": 29,
+  "independentReview": "no unresolved blockers",
+  "realLinuxScenarios": 4,
+  "realModelIM": "not run",
+  "productAcceptance": "pending owner",
+  "committed": false,
+  "deployed": false
+}

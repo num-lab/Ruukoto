@@ -18,10 +18,10 @@ export function lockPersonalProfile(directory: string): PersonalProfileLock {
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
   if (!fs.lstatSync(directory).isDirectory() || fs.lstatSync(directory).isSymbolicLink()) throw new PersonalError("profile_unrecognized", "个人档案必须是普通目录，请另选空目录。");
   const names = fs.readdirSync(directory);
-  const allowed = new Set(["profile.json", "owner.sqlite", "owner.sqlite-journal", "personal.sqlite", "personal.sqlite-wal", "personal.sqlite-shm", "model.json", "model.json.tmp", "telegram.json", "telegram.json.tmp", "service.json", "service.json.tmp", "control.token", "backend.log"]);
+  const allowed = new Set(["profile.json", "owner.sqlite", "owner.sqlite-journal", "personal.sqlite", "personal.sqlite-wal", "personal.sqlite-shm", "model.json", "model.json.tmp", "telegram.json", "telegram.json.tmp", "service.json", "service.json.tmp", "command.json", "command.json.tmp", "control.token", "backend.log"]);
   if (names.some(name => {
     const stat = fs.lstatSync(path.join(directory, name), { throwIfNoEntry: false });
-    return stat && (name === "control.sock" ? !stat.isSocket() : ((!allowed.has(name) && !PERSONAL_PENDING_FILE.test(name)) || !stat.isFile()));
+    return stat && (name === "control.sock" ? !stat.isSocket() : name === "commands" ? !stat.isDirectory() || stat.isSymbolicLink() || stat.uid !== process.getuid?.() || (stat.mode & 0o077) !== 0 : ((!allowed.has(name) && !PERSONAL_PENDING_FILE.test(name)) || !stat.isFile()));
   }) || (!names.includes("profile.json") && names.some(name => !name.startsWith("owner.sqlite")))) {
     throw new PersonalError("profile_unrecognized", "所选目录不是新的个人档案。请保留原资料，另选空目录。");
   }
@@ -46,7 +46,7 @@ export function lockPersonalProfile(directory: string): PersonalProfileLock {
     owner.close();
   };
   try {
-    for (const name of fs.readdirSync(directory)) if (name !== "control.sock" && !PERSONAL_PENDING_FILE.test(name)) fs.chmodSync(path.join(directory, name), 0o600);
+    for (const name of fs.readdirSync(directory)) if (name !== "control.sock" && !PERSONAL_PENDING_FILE.test(name)) fs.chmodSync(path.join(directory, name), name === "commands" ? 0o700 : 0o600);
     const manifest = path.join(directory, "profile.json");
     if (fs.existsSync(manifest)) {
       const saved: unknown = JSON.parse(fs.readFileSync(manifest, "utf8"));

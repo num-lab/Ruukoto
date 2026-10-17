@@ -8,7 +8,7 @@ Status: implemented
 
 ## 决定
 
-为 Linux 受限执行增加独立持久认领 API，输入为宿主预先提交的执行引用和不可被 worker 读写的私有目录。原子认领发生在平台外调前，同 ID 永不再次启动。认领固定本机、boot、scope 和参数指纹；保存独立 launcher 的寿命身份。scope Description 带宿主随机 token；本次私有 started 标记、Description、InvocationID 与 launcher 的 `/proc` cgroup 成员关系全部匹配，才保存原单元及 cgroup dev/ino。停止先持久阻止迟到启动，核对原单元及 cgroup 身份后才发停止请求；未观察、同名占用和组重建不按名字杀进程，不向持久 PID/PGID 发信号。
+为 Linux 受限执行增加独立持久认领 API，输入为宿主预先提交的执行引用和不可被 worker 读写的私有目录。原子认领发生在平台外调前，同 ID 永不再次启动。认领固定本机、boot、scope 和参数指纹；保存独立 launcher 的寿命身份。scope Description 带宿主随机 token；本次私有 started 标记、Description、InvocationID 与 launcher 的 `/proc` cgroup 成员关系全部匹配，才保存原单元及 cgroup dev/ino。[durable 命令](2026-10-17-personal-durable-commands.md)恢复时传入原启动指纹，停止只接受已有且匹配的 launch 认领；缺失时不新建 stop 先手，已有 stop 先手也不能证明丢失记录的旧执行已停。默认调用保留未派发停止先手语义。停止先持久阻止迟到启动，核对原单元及 cgroup 身份后才发停止请求；未观察、同名占用和组重建不按名字杀进程，不向持久 PID/PGID 发信号。
 
 停止仅向已核对 dev/ino 的目录 FD 下打开的原 `cgroup.kill` 写入，不按名字调用 systemctl kill/stop；核对后发生同名换代也不会杀到新组。退出证明同时要求原 launcher/整组已结束、曾观察的原 cgroup 为空或消失及单元静止；未派发或跨 boot 可单独证明无剩余执行。证据缺失、损坏、身份变化或查询失败一律保留未核实和现场。停止结果不是外部命令效果回执；[单次命令宿主适配](2026-10-17-personal-command-execution.md)另存原临时目录及运行返回证据，后续 durable 仍须单独保存操作结果及未知暂停。
 

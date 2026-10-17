@@ -22,6 +22,8 @@ import { personalInspectionDescription, type PersonalInspectionPage } from "./pe
 import { personalServiceDescription, type PersonalServicePage, type PersonalServiceDetail } from "./personal-service-controls.ts";
 import { personalWorkDescription } from "./personal-work-controls.ts";
 import type { listPersonalWorks, personalWorkResult, PersonalWorkSummary } from "./personal-work.ts";
+import { readPersonalCommands, savePersonalCommands } from "./personal-command-config.ts";
+import { tmpdir } from "node:os";
 
 export type PersonalCliIO = { question(prompt: string): Promise<string>; write(text: string): void };
 
@@ -71,6 +73,7 @@ export async function launchPersonalServer(directory: string): Promise<void> {
     if (!process.env[modelCredential]) throw new PersonalError("model_credentials_missing", "请先设置模型凭据环境变量，再启动隔离后台。");
     const telegram = readPersonalTelegram(profile);
     const services = readPersonalServices(profile);
+    readPersonalCommands(profile);
     if (services) personalServiceConfig({ ...services, useSudo: true });
     if (telegram?.enabled) telegramToken(telegram);
     credential = [modelCredential, ...(telegram?.enabled ? [telegram.tokenEnv] : [])];
@@ -203,6 +206,28 @@ export async function configurePersonalServices(io: PersonalCliIO, directory: st
   } finally { profile.release(); }
 }
 
+export async function configurePersonalCommands(io: PersonalCliIO, directory: string): Promise<void> {
+  const profile = lockPersonalProfile(directory);
+  try {
+    const current = readPersonalCommands(profile);
+    if (current) { io.write(`命令目录已固定：${current.workspace}\n仅供 Linux 受限子工作使用；保留原目录、机器和临时目录供恢复，其他目录请使用新隔离档案。\n`); return; }
+    if (process.platform !== "linux") throw new PersonalError("command_platform_unsupported", "受限命令需要 Linux；请在隔离 Linux 实例运行此向导。");
+    io.write("选择已存在、专供个人事务的目录；目录内允许读写，网络与目录外访问仍受限制。不要选择后台档案、源码、凭据目录或其父目录。启用后目录不能更换；完全访问命令尚不可用。输入 /back 返回。\n");
+    const workspace = (await io.question("命令目录绝对路径：")).trim();
+    if (workspace === "/back") return;
+    if (!path.isAbsolute(workspace)) throw new PersonalError("command_config_invalid", "命令目录须为已存在的绝对路径，请重新选择专用目录。");
+    let config;
+    try {
+      const real = fs.realpathSync(workspace);
+      const stat = fs.statSync(real);
+      config = { version: 1, workspace: real, identity: { dev: stat.dev, ino: stat.ino }, machineId: fs.readFileSync("/etc/machine-id", "utf8").trim(), tmpdir: fs.realpathSync(tmpdir()) };
+    } catch (error) { throw new PersonalError("command_config_invalid", "命令目录或本机身份无法读取，请检查目录和 Linux 环境后重新配置。", { cause: error }); }
+    if (await choose(io, `启用受限命令目录：${config.workspace}`, ["返回", "保存并启用"]) === 0) return;
+    await savePersonalCommands(profile, config);
+    io.write("命令配置已保存。启动后台后，子 Agent 可在原工作授权内执行受限命令；未知效果或停止未核实时保留占用，请核实原操作。\n");
+  } finally { profile.release(); }
+}
+
 export async function managePersonalWorks(io: PersonalCliIO, directory: string) {
   let offset = 0;
   while (true) {
@@ -329,10 +354,42 @@ export async function managePersonalServices(io: PersonalCliIO, directory: strin
   }
 }
 
+export async function managePersonalCommands(io: PersonalCliIO, directory: string) {
+  let offset = 0;
+  while (true) {
+    const page = await personalControl<Awaited<ReturnType<NonNullable<PersonalHarness["commands"]>["list"]>>>(directory, "GET", `/commands?offset=${offset}`);
+    const choices = [...page.items.map(item => item.command), ...(page.nextOffset === undefined ? [] : ["下一页命令"]), "返回"];
+    const selected = await choose(io, "原命令与核实", choices);
+    if (selected === choices.length - 1) return;
+    if (selected === page.items.length) { offset = page.nextOffset!; continue; }
+    const id = page.items[selected].ref.taskId;
+    let stream: "stdout" | "stderr" = "stdout", outputOffset = 0;
+    while (true) {
+      const detail = await personalControl<Awaited<ReturnType<NonNullable<PersonalHarness["commands"]>["detail"]>>>(directory, "GET", `/command?command=${id}&stream=${stream}&offset=${outputOffset}`);
+      io.write(`\n原命令：${detail.command}\n结果：${detail.result?.effect ?? "尚未返回"}；退出码：${detail.result?.exitCode ?? "未知"}；停止：${detail.stopped ? "已核实" : "未核实"}。运行返回不代表业务成功。\n${detail.resolution ? `效果核实：${detail.resolution.effect}；${detail.resolution.evidence}\n` : ""}${detail.outputError ? `原输出无法核实（${detail.outputError}），保留现场。\n` : ""}`);
+      if (detail.output) io.write(`${stream}${detail.output.complete ? "" : "（只捕获片段）"}，${detail.output.bytes} 字节。UTF-8 预览（跨页字符可能不完整）：\n${Buffer.from(detail.output.data, "base64").toString("utf8")}\n原字节 base64：\n${detail.output.data}\n`);
+      const actions = ["刷新状态", "切换输出流", ...(detail.output?.nextOffset === undefined ? [] : ["下一页输出"]), ...(detail.canResolve ? ["确认已生效", "确认未生效"] : []), ...(detail.canRecheck ? ["登记原命令停止重核"] : []), "返回命令列表"];
+      const action = actions[await choose(io, "原命令", actions)];
+      if (action === "返回命令列表") break;
+      if (action === "下一页输出") { outputOffset = detail.output!.nextOffset!; continue; }
+      outputOffset = 0;
+      if (action === "切换输出流") stream = stream === "stdout" ? "stderr" : "stdout";
+      else if (action === "登记原命令停止重核") { await personalControl(directory, "POST", `/command/stop?command=${id}`); io.write("已登记原停止重核，登记不表示已停止；请刷新查询。\n"); }
+      else if (action === "确认已生效" || action === "确认未生效") {
+        const evidence = await io.question("独立核实后的证据说明（最多 8192 字符，不填凭据；/back 返回）：");
+        if (evidence === "/back") continue;
+        await personalControl(directory, "POST", `/command/resolve?command=${id}`, { effect: action === "确认已生效" ? "applied" : "not_applied", evidence });
+        io.write("原效果说明已保存，不可覆盖；停止也核实后才解除暂停。应答丢失请刷新原记录，勿重送。\n");
+      }
+    }
+    offset = 0;
+  }
+}
+
 export async function personalMenu(directory: string, io: PersonalCliIO): Promise<void> {
   io.write(`个人 durable 隔离实例\n档案：${directory}\n提供主会话、可选 Telegram 文本入口及 Linux 服务检查；模型写工具继续实施。\n`);
   while (true) {
-    const selected = await choose(io, "个人实例", ["配置模型（后台须停止）", "启动隔离后台", "查看状态", "发送消息", "查看最近消息", "核实上次提交", "停止隔离后台", "配置 Telegram（后台须停止）", "查看 Telegram 收发", "退出向导（后台继续运行）", "配置或查看服务（后台须停止）", "管理后台分析", "管理分析委托", "管理检查停止重核", "管理服务审批与核实"]);
+    const selected = await choose(io, "个人实例", ["配置模型（后台须停止）", "启动隔离后台", "查看状态", "发送消息", "查看最近消息", "核实上次提交", "停止隔离后台", "配置 Telegram（后台须停止）", "查看 Telegram 收发", "退出向导（后台继续运行）", "配置或查看服务（后台须停止）", "管理后台分析", "管理分析委托", "管理检查停止重核", "管理服务审批与核实", "配置或查看命令目录（后台须停止）", "管理命令效果与停止核实"]);
     if (selected === 9) return;
     try {
       if (selected === 0) await configure(io, directory);
@@ -363,6 +420,8 @@ export async function personalMenu(directory: string, io: PersonalCliIO): Promis
       else if (selected === 12) await managePersonalDelegations(io, directory);
       else if (selected === 13) await managePersonalInspections(io, directory);
       else if (selected === 14) await managePersonalServices(io, directory);
+      else if (selected === 15) await configurePersonalCommands(io, directory);
+      else if (selected === 16) await managePersonalCommands(io, directory);
       else {
         const state = await personalControl<Awaited<ReturnType<PersonalHarness["telegram"]["status"]>>>(directory, "GET", "/telegram");
         const labels = { waiting: "等待回答", pending: "等待发送", sending: "发送中，尚未核实", sent: "已发送", failed: "平台明确拒绝", effect_unknown: "发送效果未知，不自动重发", canceled: "已取消发送", unanswered: "未获得完整回答" };

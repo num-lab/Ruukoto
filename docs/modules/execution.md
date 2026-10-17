@@ -24,7 +24,7 @@
 | `WorkCopyManager` | `prepareWriteTarget(...)`、`assertCopy(...)` | 判定修改目标是 Git worktree 还是直接写入根，逐项复核目录身份与 `.git` 指向；失效抛 `worktree_gone` |
 | 已批准越界操作 | `packages/agent/src/execution/approved-ops.ts` | 后台受信执行器完成，不进工作进程；执行参数取自审批保存的不可变请求 |
 | 受管执行单元登记表 | `packages/agent/src/managed-processes.ts` 的 `register` / `list` / `clear` | 每会话一份，登记可回收的执行单元身份 |
-| 需跨进程核实的 Linux 宿主 | `launchLinuxExecution(directory, ref, input, spec)`、`stopLinuxExecution(directory, ref)` | 宿主先保存执行引用；私有目录独占认领，同键不再启动；独立停止只核实原单元，尚未接入个人 durable 工具 |
+| 需跨进程核实的 Linux 宿主 | `launchLinuxExecution(directory, ref, input, spec)`、`stopLinuxExecution(directory, ref, expectedFingerprint?)` | 宿主先保存执行引用；私有目录独占认领，同键不再启动；个人 durable 恢复传原启动指纹，只接受已有 launch 认领 |
 | 宿主编排调用方 | `WorkflowScriptHost`（`packages/agent/src/script-worker/host.ts`） | 先登记 `entry()` 启动占位，再 `run(script, input, invoke, options)`；`onIdentity` 在启动完成后交给宿主持久化实际身份；`identity()`、`output`、`stopFailure` 与重复 `stop()` 保留退出事实 |
 
 正式入口仅接受 `RUUKOTO_EXECUTION_BACKEND=native` 或不设覆盖；旧 local/container 覆盖被拒。运行入口与部署步骤见 [usage](../usage.md)。
@@ -33,7 +33,7 @@
 
 `prepareNativeLaunch` 的 `dependencyRoots` 可显式列出运行依赖，`[]` 用于自包含产物；省略时继续发现共享 Coding worker 的 Pi 安装。显式依赖使用真实路径并核对保护根，不享有旧根 node_modules 的代码资产例外，也不自动开放父目录。
 
-个人 `worker/personal-command-worker.mjs` 使用单次 stdin EOF 协议：最多 4 MiB UTF-8 JSON `{ command, workspace: { path, dev, ino } }`，拒绝空白/NUL 命令和无效身份；核对真实目录及当前 cwd 的 dev/ino 后，以继承的 cwd 运行固定 Bash，stdin 关闭、stdout/stderr 保留原字节，退出码或信号映射为进程退出状态。宿主先等待 `launchLinuxExecution` 返回并接好输出/退出消费，再提交输入；它不使用共享 ready/init 协议。错误诊断带 code，但诊断与命令输出都不是可信效果回执；非零或 125 也不能证明未执行。命令/worker 退出后仍须按原持久引用核实整 scope，未核实保留占用与临时资料；durable 命令工具与权限尚未装配。
+个人 `worker/personal-command-worker.mjs` 使用单次 stdin EOF 协议：最多 4 MiB UTF-8 JSON `{ command, workspace: { path, dev, ino } }`，拒绝空白/NUL 命令和无效身份；核对真实目录及当前 cwd 的 dev/ino 后，以继承的 cwd 运行固定 Bash，stdin 关闭、stdout/stderr 保留原字节，退出码或信号映射为进程退出状态。宿主先等待 `launchLinuxExecution` 返回并接好输出/退出消费，再提交输入；它不使用共享 ready/init 协议。错误诊断带 code，但诊断与命令输出都不是可信效果回执；非零或 125 也不能证明未执行。命令/worker 退出后仍须按原持久引用核实整 scope，未核实保留占用与临时资料；个人 durable 的工具、权限与工作归属见[个人持久会话](personal-durable.md)。
 
 | 方向 | 消息 | 载荷 |
 |---|---|---|
@@ -143,7 +143,7 @@ macOS 监督器关闭自己的状态和控制 FD 后才 exec worker，可信 Nod
 
 ### Linux 常驻前提与临时资料
 
-持久认领路径先核实私有启动标记、宿主随机 Description、InvocationID 与 launcher 的 `/proc` cgroup 归属，再保存原 cgroup dev/ino。停止只向经目录 FD 核对的原 `cgroup.kill` 写入，不按单元名发信号；原 launcher/整组退出、原 cgroup 为空或消失且单元静止才返回 true。未派发或原 boot 结束可单独证明无残留。未观察、同名换代、损坏证据和查询失败保留未核实，不创建替代执行。该入口只适用 Linux 受限执行，不覆盖完全访问或远端 MCP。
+持久认领路径先核实私有启动标记、宿主随机 Description、InvocationID 与 launcher 的 `/proc` cgroup 归属，再保存原 cgroup dev/ino。停止只向经目录 FD 核对的原 `cgroup.kill` 写入，不按单元名发信号；原 launcher/整组退出、原 cgroup 为空或消失且单元静止才返回 true。未派发或原 boot 结束可单独证明无残留。恢复传入预期启动指纹时，停止不新建认领；缺原 launch 认领、指纹不符或仅有 stop 先手均不作原退出证明。未观察、同名换代、损坏证据和查询失败保留未核实，不创建替代执行。该入口只适用 Linux 受限执行，不覆盖完全访问或远端 MCP。
 
 个人后台由系统级 service 以实际账户运行。安装时为该账户启用 linger，确保 user manager 在开机后与退出登录后持续运行；系统服务固定正确的 `XDG_RUNTIME_DIR` 与 `DBUS_SESSION_BUS_ADDRESS`，并在 user manager 就绪后启动。user bus 只供可信 launcher 管理 scope，不传入受限 worker。bubblewrap/AppArmor、cgroup v2、scope 委派与 `cgroup.kill` 都必须可用；安装与核实步骤见 [systemd 部署](../../deploy/systemd/README.md)。后台单元的 `KillMode` 不证明独立 user scope 已退出。
 

@@ -10,6 +10,7 @@ import { PersonalError } from "./personal-error.ts";
 import { PersonalInspectionDoc, PersonalPendingInspectionsDoc, pendingServiceInspection, recheckServiceInspection, runServiceInspection, ServiceInspectionEntry } from "./personal-service-inspection.ts";
 import { callHelper, opUnitFor, ServiceHelperError, type HelperReply, type ServiceManagerConfig } from "./service-helper.ts";
 import { PersonalWorkDoc, personalWorkInspectionSource, requirePersonalWorkRequest, type PersonalWorkInspectionSource } from "./personal-work.ts";
+import { personalCommandSourceBlocker } from "./personal-command-work.ts";
 
 export type PersonalServiceMode = "auto-review" | "confirm" | "full_access";
 type Effect = { effect: "executed" | "not_executed" | "effect_unknown"; code: string; exitCode?: number };
@@ -43,6 +44,7 @@ export async function personalServiceOperation(tx: Tx, ref: { requestId: string;
 }
 
 async function sourceValid(tx: Tx, op: Operation, active = true) {
+  if (active && await personalCommandSourceBlocker(tx, op.source.requestId)) return false;
   if (active && op.work) {
     const work = await tx.doc(PersonalWorkDoc, op.work.ref.requestId, null);
     if (work.cancelRequested || !isDeepStrictEqual(work.ref, op.work.ref)) return false;
@@ -112,9 +114,11 @@ export async function waitPersonalServiceEffect(reader: DocumentObserver, ref: P
   await waitForChange(reader, ref.requestId, op => !unresolved(op), context);
 }
 
-export type PersonalServiceBlocker = string | { inspection: TaskId; admission: EntryId };
+export type PersonalServiceBlocker = string | { inspection: TaskId; admission: EntryId } | { command: string; admission: EntryId };
 
 export async function personalServiceSourceBlocker(tx: Tx, sourceRequestId: string): Promise<PersonalServiceBlocker | undefined> {
+  const command = await personalCommandSourceBlocker(tx, sourceRequestId);
+  if (command) return command;
   const source = await tx.submissionByRequest(ROOT_CONVERSATION_ID, sourceRequestId);
   const inspection = source && await pendingServiceInspection(tx, undefined, [source.id]);
   if (inspection) return { inspection: inspection.taskId, admission: inspection.admission };
@@ -132,7 +136,7 @@ export async function personalServiceSourceBlocker(tx: Tx, sourceRequestId: stri
 }
 
 export async function requirePersonalServiceSourceReady(tx: Tx, sourceRequestId: string) {
-  if (await personalServiceSourceBlocker(tx, sourceRequestId)) throw new PersonalError("work_source_paused", "原工作有尚未核实的服务效果或停止状态，已暂停委派和子模型请求；请向拥有者报告并核实原操作，不要换工作重试。");
+  if (await personalServiceSourceBlocker(tx, sourceRequestId)) throw new PersonalError("work_source_paused", "原工作有尚未核实的外部效果或停止状态，已暂停委派和子模型请求；请向拥有者报告并核实原操作，不要换工作重试。");
 }
 
 function stopped(reply: HelperReply | undefined, op: Operation) {
@@ -292,6 +296,7 @@ export function personalServiceOperations(config: ServiceManagerConfig, getHarne
     const source = await tx.submissionByRequest(ROOT_CONVERSATION_ID, input.sourceRequestId);
     const entry = source?.entry && await tx.entry(source.entry);
     if (source?.type !== "input" || (source.status !== "placed" && source.status !== "done") || entry?.kind !== "pi.user") throw new PersonalError("service_source_invalid", "服务工作需要已进入主会话的拥有者输入，请先核实原输入。");
+    if (await personalCommandSourceBlocker(tx, input.sourceRequestId)) throw new PersonalError("work_source_paused", "原工作有未核实命令，未接纳服务操作；请在本机命令管理核实原效果和停止。");
     if (await pendingServiceInspection(tx, input.unit, work?.sources ?? [source.id])) throw new PersonalError("service_operation_busy", "服务目标或原工作仍有检查停止未核实，请查询原检查；不能换键重试。");
     let cursor: Cursor | undefined;
     do {

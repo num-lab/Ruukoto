@@ -6,13 +6,13 @@
 
 ## 对外接口
 
-`personal-command-worker.ts` 构建为自包含的 `worker/personal-command-worker.mjs`。可信宿主按[执行边界](execution.md)准备空依赖输入，以预先保存的原引用调用 `runPersonalCommand`；`readPersonalCommandReceipt` 校验并读取原回执，`stopPersonalCommand` 无内存句柄也按原引用停止。适配只支持 Linux 受限执行；没有模型工具或向导入口，durable 权限、未知暂停与工作占用尚未接入，不能据此开放个人命令能力。
+`personal-command-worker.ts` 构建为自包含的 `worker/personal-command-worker.mjs`。可信宿主按[执行边界](execution.md)准备空依赖输入，以预先保存的原引用调用 `runPersonalCommand`；`readPersonalCommandReceipt` 校验并读取原回执，`stopPersonalCommand` 无内存句柄也按原引用停止。Linux 停机向导固定独立目录及 dev/ino，`commands` 配置启用子会话的 `run_command`、`read_command_output`；请求确认/自动审查在原目录内执行且不联网，完全访问命令明确拒绝。原 WorkTask 持有命令 Task，接纳和开始意图分别留不可改证据；恢复只查原回执并核实原执行停止，不重跑；停止须核对原请求及原 launch 指纹，缺证据或 stop 先手不能证明旧执行已停。`readPersonalCommandOutput` 每页返回最多 3072 原字节的 base64；无回执时明确为片段。CLI 可查询、保存不可覆盖的已生效/未生效证据，并登记原停止重核。未知效果或停止未核实保留原工作占用及来源暂停，完整回执也须停止已证明才释放；共享命令目录在任一原执行未核实停止时拒绝新执行。
 
 `openPersonalHarness` 接受独立目录或已持有的 `PersonalProfileLock`、provider 与模型，接管锁的释放责任，返回主会话、Harness、提交、等待回答与关闭方法；可用 `beforeUnlock` 在放锁前收齐管理接口。可选 `service` 接受宿主固定的 helper 配置，安装 `service_inspect` 与 `read_service_inspection`，模型只能指定白名单内精确单元名或本会话的证据编号。返回的 `inspections.list/recheckStop` 供可信宿主查询未决检查与重核停止，不提供强制释放；未取消的活动检查拒绝宿主重核。`requestInspectionStop(ref)` 固定原 Task/接纳引用，仅登记后台重核并返回其 Task ID；它不等待停止。提交键由调用方保持稳定，用于 durable 会话内去重。`parsePersonalModel` 校验模型配置，`personalProvider` 按环境变量名读取凭据。个人 Pi 1.3.0 对象不传给 Coding 的 Pi 0.85.1。
 
-`startPersonalServer` 独占后台，HTTP 仅监听档案内 Unix socket，经本地令牌逐次认证；提供 `/status`、`/messages`、`/inputs`、`/input`、`/telegram`、`/works`、`/work`、`/work/cancel`、`/work/close`、`/work/notes`、`/delegations`、`/delegation`、`/delegation/cancel`、`/delegation/report`、`/inspections`、`/inspection/stop`、`/services`、`/service`、`/service/decide`、`/service/resolve`、`/service/stop` 和 `/stop`；状态的服务开关只表示能力已装配，不代表 helper 可用或业务健康。`personalControl` 为 CLI 调用；CLI 不重开 Harness。引导与前台托管见[操作手册](../usage.md#25-个人-durable-隔离向导)。
+`startPersonalServer` 独占后台，HTTP 仅监听档案内 Unix socket，经本地令牌逐次认证；提供 `/status`、`/messages`、`/inputs`、`/input`、`/telegram`、`/works`、`/work`、`/work/cancel`、`/work/close`、`/work/notes`、`/delegations`、`/delegation`、`/delegation/cancel`、`/delegation/report`、`/inspections`、`/inspection/stop`、`/services`、`/service`、`/service/decide`、`/service/resolve`、`/service/stop` 、`/commands`、`/command`、`/command/resolve`、`/command/stop` 和 `/stop`；状态的服务开关只表示能力已装配，不代表 helper 可用或业务健康。`personalControl` 为 CLI 调用；CLI 不重开 Harness。引导与前台托管见[操作手册](../usage.md#25-个人-durable-隔离向导)。
 
-可信宿主使用返回的 `work.delegate` 委派或复用长期子 Agent，`append` 为当前分析追加说明，`list/status` 查询身份和原生工作进度，`cancel` 等待取消核实，`closeAgent` 关闭空闲身份。首次委派可给名称；已有身份通过具名工作引用管理。来源须引用已进入主会话的拥有者输入请求；同工作键异参拒绝。主会话的 `background_work` 工具支持委派、列身份、分页读结果、追加说明、取消工作及关闭空闲身份；来源与请求键由宿主绑定原生工具和唯一活动输入，模型不能自行提供。CLI 的后台分析菜单直接查询历史、读原结果、请求取消与关闭空闲身份，Telegram 的 `/工作` 只管理原 bot/owner/代次的分析。菜单关闭还核实原工作仍是该身份最新工作。追加在当前回答结束后按接纳顺序处理，结果取最后说明的完整回答；取消或结束后拒绝新说明。配置服务后子会话也有固定检查与本会话证据读取；未配置时为空工具。模型取消只请求取消，后续查询停止结果，不占住主聊天。模型委派同轮归入分析委托，跨轮可指定原委托继续；`background_work` 的 delegations/progress/cancel_delegation 查询和取消整项分析。CLI 的分析委托菜单与 Telegram `/委托` 共用此归属，取消包括分析成员的固定检查和服务重启并等待效果及停止核实，不包含独立宿主服务写操作。主 Agent 安排好全部分析后通过 report 封组，原生报告 Task 等成员停止后请主会话汇总；report_result、CLI 的完整报告菜单与 Telegram「查看报告」分页查询原报告及送达状态。封组后共用入口拒绝续派和追加；未封组委托可跨轮继续。历史与可信宿主单项分析不自动归组。
+可信宿主使用返回的 `work.delegate` 委派或复用长期子 Agent，`append` 为当前分析追加说明，`list/status` 查询身份和原生工作进度，`cancel` 等待取消核实，`closeAgent` 关闭空闲身份。首次委派可给名称；已有身份通过具名工作引用管理。来源须引用已进入主会话的拥有者输入请求；同工作键异参拒绝。主会话的 `background_work` 工具支持委派、列身份、分页读结果、追加说明、取消工作及关闭空闲身份；来源与请求键由宿主绑定原生工具和唯一活动输入，模型不能自行提供。CLI 的后台分析菜单直接查询历史、读原结果、请求取消与关闭空闲身份，Telegram 的 `/工作` 只管理原 bot/owner/代次的分析。菜单关闭还核实原工作仍是该身份最新工作。追加在当前回答结束后按接纳顺序处理，结果取最后说明的完整回答；取消或结束后拒绝新说明。子会话按服务和命令配置提供相应工具；都未配置时为空工具。模型取消只请求取消，后续查询停止结果，不占住主聊天。模型委派同轮归入分析委托，跨轮可指定原委托继续；`background_work` 的 delegations/progress/cancel_delegation 查询和取消整项分析。CLI 的分析委托菜单与 Telegram `/委托` 共用此归属，取消包括分析成员的固定检查、服务重启和命令并等待效果及停止核实，不包含独立宿主服务写操作。主 Agent 安排好全部分析后通过 report 封组，原生报告 Task 等成员停止后请主会话汇总；report_result、CLI 的完整报告菜单与 Telegram「查看报告」分页查询原报告及送达状态。封组后共用入口拒绝续派和追加；未封组委托可跨轮继续。历史与可信宿主单项分析不自动归组。
 
 `serviceOperations: true` 另启用宿主 `service` API：`request` 以原拥有者输入建立独立后台 restart 工作，`list/status` 查询原生 Task 和操作事实，`decide/cancel/resolve/recheckStop` 决定原审批、取消或核实效果与停止。模式固定于创建，默认自动审查；无有效长期授权时，自动审查与请求确认的服务写入等人工批准，完全访问免逐次审批。其中查询、一次性效果核实和独立停止重核通过本机认证菜单提供；本机来源可在服务详情批准本次或拒绝，Telegram 审批仍在原私聊；本机不创建长期授权。Telegram 来源强制使用原收件的模式，不能由 API 扩大；其审批只能通过原 Telegram 宿主菜单决定。历史本机可信 API 仍显式提供模式与单次决定，不能冒充 Telegram 来源。
 
@@ -27,6 +27,8 @@
 `ruukoto.subagents` 保存长期 ownerless Conversation 的身份、名称、关闭事实与单工作占用；`ruukoto.work` 按请求键保存内容指纹、拥有者来源、Task/Submission 引用、原权限快照、Telegram 绑定、模型工具引用、追加说明/来源/原生提交引用及取消事实。每项工作是主会话拥有的 background `ruukoto.background-work` Task，状态与结果以原生 Task/Submission 为准，结果留在子会话。子会话显式选择模型、`personal-subagent` 提示和工作扩展；启用服务检查时增加 inspect/read 及 `personal-subagent-service-inspect` 标记；服务操作另增加 `service_restart`、`read_service_operation` 与 `personal-subagent-service-operations`。检查接纳另存工作、原权限/入口与实际 child inputs，来源映射到原主会话输入、委托说明与当时已接纳说明；所有新说明均有不可改接纳。
 
 `ruukoto.analysis-delegation` 以原拥有者 entry 保存固定来源、权限、入口、成员与整项取消事实；成员工作保存委托引用和本轮说明来源。`ruukoto.analysis-admission` 与委派同 commit 保存工具、原输入、本轮说明、权限和入口证明；组内追加以 `ruukoto.work-note-admission` 固定原说明。恢复与这些不可改写的 entry 对照，不能把说明替换成另一条有效旧输入。状态从原生任务及占用派生，全部成员结束只表示空闲，仍可跨轮续派；报告引用表示已封组，原生 `ruukoto.delegation-report` Task 持有等待、生成及发送阶段；接纳 entry 固定原工具、说明与模型输入，报告 document 保存各次安全模型尝试、原 Submission/answer、暂停证明和固定外发事实；检查暂停引用不可改接纳，服务暂停沿原操作键，执行状态仍从原生 Task 派生。
+
+`command.json` 保存原机器、TMPDIR、命令目录及 dev/ino；`ruukoto.commands` 钉定配置指纹。`ruukoto.command` 保存原工作权限、全部来源、执行引用、准备输入及外部事实；`ruukoto.command-admission`、`ruukoto.command-start` 和 `ruukoto.command-observation` 分别固定接纳、派发意图及结果/停止证据。`ruukoto.command-stop` 是原接纳的独立后台停止重核任务；私有 `commands/` 保留宿主双流和回执，文件与 durable 不跨存储原子。启动核对所有原 Task/document/entry 反链；缺原 worker、配置、目录或执行证据时保留现场。
 
 `service.json` 保存版本与固定 helper/策略/sudo 绝对路径，生产固定通过 sudo，不接收旧环境中的服务配置、替身开关或测试超时。停机向导首次启用、查看和保留原配置，不提供变更/停用；文件存在本身不代表已成功装配。
 
@@ -80,7 +82,7 @@ Telegram 控制消息按原始完整正文分类，回复关系只定位同 bot/
 
 `personal-work-notes` 扩展阻止旧程序读取追加记录；恢复核对本机指纹/工作、Telegram 原已送达详情菜单、模型拥有者/工具动作及原生输入正文。追加不修改原权限，接纳及后续子请求同时复核原工作与追加来源的未知服务操作。工作扩展依赖的索引缺失、文档版本不支持、会话/身份或 Task/占用关系断链均在调度前拒绝；未核实的遗留占用不因 Task 意外终态而自动清除。旧无工作档案只在无未决输入/任务时启用后台工作。模型变更有未决工作时拒绝，空闲时显式同步所有长期会话。provider 两处记录边界都复核活动占用及取消事实，缺失/歧义来源、空闲/关闭/取消身份不发模型请求。子检查逐次核实活动工作、原 generation/输入及委托暂停，三模式均只读，不继承长期授权。正常收尾及取消收齐子会话后继续等待检查停止证明，再同事务核实并释放；关闭重开重接原 Task，不将待核实抛成不可恢复终态。模型工作工具只在主会话活动工具调用中执行，变更另需唯一拥有者输入，回报输入仅可查询；首次启用有未决输入/任务时先拒绝，不固化扩展。原 Telegram 绑定失活或同来源服务效果/停止未核实时，委派与子模型请求均拒绝；历史绑定不改成新绑定，其他来源聊天仍可继续。
 
-`personal-analysis-delegations` 阻止旧程序恢复新归属，首次启用前须完成旧未决输入/任务。恢复双向核实委托/成员、原输入、权限、入口、本轮说明及精确模型委派参数；不猜测历史归属。续派、追加及子模型请求检查整项取消，以及全部成员（含终态）的原输入、本轮说明和追加来源的未知服务效果。暂停仍可查询和取消；原入口失效不能跨平台或换代续派。报告后台按暂停记录观察原服务操作或检查 document，等待效果及停止核实，不占主会话。admission 后 provider 门禁发现未知时先持久记录该尝试的暂停证据，再拒绝真实请求；该轮 unanswered 后，仅带证据的原报告可递增尝试号重做只读模型汇总，每次固定键恢复、最终外发身份唯一。普通汇总失败可查且不循环重试；取消/换代/停止未核实阻止后续请求，已领取发送仍保留真实效果。恢复核对模型输入、封组及暂停接纳、Task/Submission/answer、固定正文与发送检查点，缺关系即停止。
+`personal-analysis-delegations` 阻止旧程序恢复新归属，首次启用前须完成旧未决输入/任务。恢复双向核实委托/成员、原输入、权限、入口、本轮说明及精确模型委派参数；不猜测历史归属。续派、追加及子模型请求检查整项取消，以及全部成员（含终态）的原输入、本轮说明和追加来源的未知服务效果。暂停仍可查询和取消；原入口失效不能跨平台或换代续派。报告后台按暂停记录观察原服务操作、检查或命令 document，等待效果及停止核实，不占主会话。admission 后 provider 门禁发现未知时先持久记录该尝试的暂停证据，再拒绝真实请求；该轮 unanswered 后，仅带证据的原报告可递增尝试号重做只读模型汇总，每次固定键恢复、最终外发身份唯一。普通汇总失败可查且不循环重试；取消/换代/停止未核实阻止后续请求，已领取发送仍保留真实效果。恢复核对模型输入、封组及暂停接纳、Task/Submission/answer、固定正文与发送检查点，缺关系即停止。
 
 服务目标与同一原输入各只允许一个未结束操作；未知效果、停止未核实乃至意外 faulted 终态均保留占用，不允许换键或换目标绕过同来源暂停。效果核实不可覆盖；只有效果与停止均核实才释放占用，核实不恢复长期授权或重发 restart。停止控制接纳及执行只接受已消费且非 started 的未知写操作，不处理审批前检查；执行前复核原入口，结果写回核对原身份，失败不循环重核。本机可管理旧入口，Telegram 仅当前原代次，控制恢复核对菜单、证据、决定和 Task 回链。其他来源的独立目标与主聊天继续。原输入后来 unanswered 不破坏档案来源身份，但不能再消费未执行的批准。缺操作配置、扩展、版本或来源/Task 双向关系均拒绝调度；已保存的停止证明必须绑定本机、操作及命令单元并带 `launcherExited`，旧 helper 应答不能释放占用。
 
@@ -89,6 +91,8 @@ Telegram 数值 offset 只在一批更新收到后 60 秒内用于紧接的一�
 旧 Telegram 收件没有权限快照时不能新建服务工作；已有这类未消费操作失效，已消费操作仍保留效果核实与占用。旧代次服务批准无法消费，长期授权失效；模式变更只影响新收件。权限/授权版本及来源关联缺失或操作模式与原快照不符时拒绝恢复，不能重建默认授权。
 
 ## 设计依据
+
+- [个人命令沿原工作恢复并核实外部事实](../../.agents/notes/implemented/architecture/2026-10-17-personal-durable-commands.md)
 
 - [个人单次命令由宿主保存完成证据](../../.agents/notes/implemented/architecture/2026-10-17-personal-command-execution.md)
 

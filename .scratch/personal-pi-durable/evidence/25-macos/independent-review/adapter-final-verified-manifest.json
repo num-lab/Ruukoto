@@ -1,0 +1,73 @@
+{
+  "source_root": "/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable",
+  "review_root": "/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-command-review-258hgkvy",
+  "normalization": "仅将 adapter/test 指向隔离 native 文件的两个 import 路径还原为原包导入；其他字节相同。",
+  "files": [
+    {
+      "path": "apps/ruukoto/src/personal-command-execution.ts",
+      "sha256": "dc1d52088260bf08c913fc027619bb48bd225284d8c2e3dbe8d8eedde7016f3b",
+      "normalized_sha256": "dc1d52088260bf08c913fc027619bb48bd225284d8c2e3dbe8d8eedde7016f3b",
+      "bytes": 15938
+    },
+    {
+      "path": "apps/ruukoto/src/personal-error.ts",
+      "sha256": "f4266968ec480f657bee1a6043e69d07910134f09924ec43683aa0569b212ab4",
+      "normalized_sha256": "f4266968ec480f657bee1a6043e69d07910134f09924ec43683aa0569b212ab4",
+      "bytes": 191
+    },
+    {
+      "path": "test/personal-command-execution.test.ts",
+      "sha256": "2b4997ba0027e57f511834527773b6fa5217d969ed56177c23abef27e93bafa1",
+      "normalized_sha256": "2b4997ba0027e57f511834527773b6fa5217d969ed56177c23abef27e93bafa1",
+      "bytes": 21628
+    },
+    {
+      "path": "packages/agent/src/execution/native-linux-identity.ts",
+      "sha256": "0bfabdd2f6675f80d090b3cb1ed053851845dc95f63a62ebf6a8f0469e4aaecd",
+      "normalized_sha256": "0bfabdd2f6675f80d090b3cb1ed053851845dc95f63a62ebf6a8f0469e4aaecd",
+      "bytes": 14555
+    },
+    {
+      "path": "packages/agent/src/execution/native-linux.ts",
+      "sha256": "ceaa8c426f46f95b334656809efad89ea2b073880504d40fa5c1419650d83c47",
+      "normalized_sha256": "ceaa8c426f46f95b334656809efad89ea2b073880504d40fa5c1419650d83c47",
+      "bytes": 10986
+    },
+    {
+      "path": "packages/agent/src/execution/native.ts",
+      "sha256": "b55cc3566101824c9406f54a173cd3a8d0f3b0e5eefd94cfe595abac589f0fe7",
+      "normalized_sha256": "b55cc3566101824c9406f54a173cd3a8d0f3b0e5eefd94cfe595abac589f0fe7",
+      "bytes": 15899
+    },
+    {
+      "path": "packages/agent/src/execution/launchers.ts",
+      "sha256": "3513c531e313238fc8c91d3ba42ef28db6d8d53fc1ccdae52f49d0609622e43b",
+      "normalized_sha256": "3513c531e313238fc8c91d3ba42ef28db6d8d53fc1ccdae52f49d0609622e43b",
+      "bytes": 6600
+    },
+    {
+      "path": "packages/agent/src/execution/approved-ops.ts",
+      "sha256": "552e1f8268ebf44c20d091752cb670f7128a2189502d8647eb2b1811fc10e70b",
+      "normalized_sha256": "552e1f8268ebf44c20d091752cb670f7128a2189502d8647eb2b1811fc10e70b",
+      "bytes": 17593
+    },
+    {
+      "path": "packages/agent/src/execution/native-macos.ts",
+      "sha256": "f8643d4dd875f736b8af417117b963b2501489f87309ac26b9bb115796da8bdf",
+      "normalized_sha256": "f8643d4dd875f736b8af417117b963b2501489f87309ac26b9bb115796da8bdf",
+      "bytes": 8302
+    },
+    {
+      "path": "packages/agent/src/managed-processes.ts",
+      "sha256": "00668a2abd89e504352795bad0f103afb9870efa1773898008ade0829f490d0f",
+      "normalized_sha256": "00668a2abd89e504352795bad0f103afb9870efa1773898008ade0829f490d0f",
+      "bytes": 4091
+    },
+    {
+      "path": "worker/personal-command-worker.mjs",
+      "sha256": "c1d8bc3492be8253ce5bdf4ed5dc553e44da91fc3eda4be663eddd7d49e63cf3",
+      "normalized_sha256": "c1d8bc3492be8253ce5bdf4ed5dc553e44da91fc3eda4be663eddd7d49e63cf3",
+      "bytes": 4234
+    }
+  ]
+}

@@ -1,0 +1,147 @@
+[
+  {
+    "path": ".agents/notes/implemented/architecture/2026-10-17-native-linux-execution-identity.md",
+    "bytes": 3869,
+    "sha256": "53e12cfc1966b49306695b43bfa1112e635a92b815c60f39b2838d0c80745147"
+  },
+  {
+    "path": ".agents/notes/implemented/architecture/2026-10-17-personal-command-configuration.md",
+    "bytes": 2410,
+    "sha256": "1d422498a17dadae8ea58f36477a58ddb9cf90ac4148479ddf0f0233796bdc1f"
+  },
+  {
+    "path": ".agents/notes/implemented/architecture/2026-10-17-personal-command-execution.md",
+    "bytes": 3746,
+    "sha256": "7b01757f7436bed3cde3cd0e81b0d7c5c9de3e449668ba7c5dd1eeb60fae8fdc"
+  },
+  {
+    "path": ".agents/notes/implemented/architecture/2026-10-17-personal-durable-commands.md",
+    "bytes": 4476,
+    "sha256": "7d0374f5379b7197ab1801baa4a2ef4297435f13e9e49fe6f07bfdf06ffba805"
+  },
+  {
+    "path": ".agents/notes/proposed/architecture/2026-10-17-personal-pi-durable.md",
+    "bytes": 11666,
+    "sha256": "10bf40e0aecae66a7215ad061aa1747a30478baf2f31c7dc0175e5c256ef4851"
+  },
+  {
+    "path": ".agents/skills/pre-push-checks/SKILL.md",
+    "bytes": 11385,
+    "sha256": "195bad1afc3df05474f67df7b8c3525fae03b0dc58c5a440f1760b299f8172d8"
+  },
+  {
+    "path": "README.md",
+    "bytes": 6267,
+    "sha256": "6e440130fef65bb62141a66f97ec4b397f2fab0c0496309e295fdb527f4d5d5b"
+  },
+  {
+    "path": "apps/ruukoto/src/personal-cli.ts",
+    "bytes": 35686,
+    "sha256": "7ddd1f52769f9a107999c44025b02c9a091b9235f73428aecce7bebe81f3620f"
+  },
+  {
+    "path": "apps/ruukoto/src/personal-command-config.ts",
+    "bytes": 8263,
+    "sha256": "86147ffc92f548a67f23b35ff9c697eef24992adc8b3cc96b5f65e0c4189b0a8"
+  },
+  {
+    "path": "apps/ruukoto/src/personal-command-execution.ts",
+    "bytes": 15938,
+    "sha256": "dc1d52088260bf08c913fc027619bb48bd225284d8c2e3dbe8d8eedde7016f3b"
+  },
+  {
+    "path": "apps/ruukoto/src/personal-command-work.ts",
+    "bytes": 31310,
+    "sha256": "1f4742a1ddb3c2874822ec69793721129e752707b2c33a1fb0455e1a66bc7e75"
+  },
+  {
+    "path": "apps/ruukoto/src/personal-control.ts",
+    "bytes": 23588,
+    "sha256": "36227c406677ff157f972ca7dadd7eafd75a859b132004d63301d30117fd0a70"
+  },
+  {
+    "path": "apps/ruukoto/src/personal-harness.ts",
+    "bytes": 42711,
+    "sha256": "f90ea9fa3cb170765386743c1d5693b81613ead8298ab703d67fad36927a954b"
+  },
+  {
+    "path": "apps/ruukoto/src/personal-profile.ts",
+    "bytes": 4072,
+    "sha256": "d2a301e0eadcccd8779358393551046b84f1d920e5c8746782f4db63c431eb2f"
+  },
+  {
+    "path": "apps/ruukoto/src/personal-report.ts",
+    "bytes": 28563,
+    "sha256": "b0505f63e08fc57bf8efd18aef57a72896de4b07f1b03fa45872310567349d94"
+  },
+  {
+    "path": "apps/ruukoto/src/personal-service-inspection.ts",
+    "bytes": 20403,
+    "sha256": "eaa3e2c7346e89d194a48bfa3c0d984942998588a21a8ff455e535d734f72999"
+  },
+  {
+    "path": "apps/ruukoto/src/personal-service-operations.ts",
+    "bytes": 49445,
+    "sha256": "03432506bfe6b7c4fce7d42d4214753ba1d3c72681ca0a36d307b0666506181c"
+  },
+  {
+    "path": "apps/ruukoto/src/personal-work.ts",
+    "bytes": 39808,
+    "sha256": "6aa6810d25987adcc4e63b0e96f9364b175600df43ae605832762845b5a6e37f"
+  },
+  {
+    "path": "docs/architecture.md",
+    "bytes": 13375,
+    "sha256": "ff726678a759bd409d86d7b0c082c5945e36b66c4d5c303d226599c8be0e6488"
+  },
+  {
+    "path": "docs/development.md",
+    "bytes": 16805,
+    "sha256": "2bdb7d6b8cf6dde97554824d6ef1bc2d4237ab941803fbd5cf5dcb42e37bb3a8"
+  },
+  {
+    "path": "docs/modules/execution.md",
+    "bytes": 38028,
+    "sha256": "df3e1782886046686cd082b7f647da05ba007864bf69681a09212d75488159b8"
+  },
+  {
+    "path": "docs/modules/personal-durable.md",
+    "bytes": 33259,
+    "sha256": "8917ed3fc5b93f89ac4e56bb6c1c4316ee9c58ef1afe38b6ecdcd121b3a13f93"
+  },
+  {
+    "path": "docs/modules/products.md",
+    "bytes": 6121,
+    "sha256": "db99e73e78efbd2fad47051949314ee78ece655801c847281e27ca2e1de667d9"
+  },
+  {
+    "path": "docs/usage.md",
+    "bytes": 74487,
+    "sha256": "eb94db05d430447adac44cd59142f8f3e77eb29b037a0d1639cda60821b9a0e2"
+  },
+  {
+    "path": "packages/agent/src/execution/native-linux-identity.ts",
+    "bytes": 14555,
+    "sha256": "0bfabdd2f6675f80d090b3cb1ed053851845dc95f63a62ebf6a8f0469e4aaecd"
+  },
+  {
+    "path": "test/personal-cli.test.ts",
+    "bytes": 47983,
+    "sha256": "5fefd3da92bbdc6cb661f0551ae939b0d32285fae7c7826cfa8c85505c44e488"
+  },
+  {
+    "path": "test/personal-command-config.test.ts",
+    "bytes": 11041,
+    "sha256": "aa876fa91505867d9add21db04e00aa0b617d92e332d995b39801b25d676d770"
+  },
+  {
+    "path": "test/personal-command-execution.test.ts",
+    "bytes": 21628,
+    "sha256": "2b4997ba0027e57f511834527773b6fa5217d969ed56177c23abef27e93bafa1"
+  },
+  {
+    "path": "test/personal-command-work.test.ts",
+    "bytes": 36419,
+    "sha256": "92d87df93ea5aa8c178cb9ccadfb9c507431c95e7236f2ebf172265e7bd6478a"
+  }
+]

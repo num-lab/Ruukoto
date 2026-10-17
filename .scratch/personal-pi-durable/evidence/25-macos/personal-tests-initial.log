@@ -1,0 +1,142 @@
+✔ 个人命令配置：拒绝额外授权、相对路径及无效身份 (2.41825ms)
+✔ 个人命令配置：持锁私有保存且不可换目录，固定 worker 与空依赖 (5020.78425ms)
+✔ 个人命令配置：保护原档案、源码及其祖先，拒绝旧机器和目录替换 (1263.692209ms)
+✔ 个人命令配置：损坏和链接配置拒绝读取，不作为未配置继续 (636.248208ms)
+✔ 个人档案：命令证据目录保留私有目录权限，拒绝链接与开放权限 (1287.757583ms)
+✔ 个人命令配置：前台与 detached 启动先拒绝坏版本，零模型请求 (6.287292ms)
+✔ 个人命令配置：首次启用拒绝未决输入，原配置完成后可保存 (1632.641208ms)
+✔ 个人命令配置向导：追加菜单保留旧序号、返回不写、选择目录后固定保存 (1572.845292ms)
+✔ durable 命令：confirm 保留原权限、原生 owned Task 和双流分页，非零结果也释放身份 (13798.254792ms)
+✔ durable 命令：auto-review 保留原权限、原生 owned Task 和双流分页，非零结果也释放身份 (9590.648ms)
+✔ durable 命令：完全访问在接纳前拒绝，零 OS 执行和零命令任务 (491.341208ms)
+✔ durable 命令：未知和取消跨重启保留占用，人工效果与原引用停止都核实后才复用 (9915.083042ms)
+✔ durable 命令：恢复拒绝坏 admission，provider 与 OS 都零新增调用 (17628.738166ms)
+✔ durable 命令：恢复拒绝坏 permission，provider 与 OS 都零新增调用 (12274.718917ms)
+✔ durable 命令：首次启用拒绝未决旧工作，不恢复 provider 或补授旧工具 (748.39175ms)
+✔ durable 命令：恢复拒绝 worker 损坏，零新增模型和执行 (10666.2615ms)
+✔ durable 命令：恢复拒绝 mounts 损坏，零新增模型和执行 (18315.61525ms)
+✖ durable 命令：恢复拒绝 stop-task 损坏，零新增模型和执行 (11527.839375ms)
+✖ durable 命令：恢复拒绝 unproved-stop 损坏，零新增模型和执行 (1571.161417ms)
+✖ durable 命令：原接纳不能因任务和 document 一起丢失而静默消失 (1231.6855ms)
+✖ durable 命令：开始意图提交失败关闭 Harness，零 OS 派发 (2437.396375ms)
+✖ durable 命令：回执已落盘而结果提交失败，重启读取原回执且不重发 (33495.332333ms)
+ℹ tests 22
+ℹ suites 0
+ℹ pass 17
+ℹ fail 5
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 144373.141042
+
+✖ failing tests:
+
+test at test/personal-command-work.test.ts:230:85
+✖ durable 命令：恢复拒绝 stop-task 损坏，零新增模型和执行 (11527.839375ms)
+  Error [PersonalError]: 原命令仍在运行或尚未执行，请先取消原工作并刷新记录。
+      at Object.requestStop (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-command-work.ts:248:69)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async HarnessImpl.#runCommit (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/session.ts:700:13) {
+    code: 'command_stop_unavailable'
+  }
+
+test at test/personal-command-work.test.ts:230:85
+✖ durable 命令：恢复拒绝 unproved-stop 损坏，零新增模型和执行 (1571.161417ms)
+  Error [PersonalError]: 命令目录不可用或包含受保护资料，已停止；请保留档案并检查原目录与配置。
+      at verifyPersonalCommandConfig (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-command-config.ts:34:11)
+      at personalCommandEnvironment (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-command-config.ts:39:3)
+      ... 3 lines matching cause stack trace ...
+      at TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/personal-command-work.test.ts:233:21)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    code: 'command_config_invalid',
+    [cause]: Error: ENOENT: no such file or directory, lstat '/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-coding-agent/node_modules/xml-naming'
+        at Module.lstatSync (node:fs:1702:25)
+        at identityCovers (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/packages/agent/src/execution/approved-ops.ts:86:21)
+        at isProtectedPath (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/packages/agent/src/execution/approved-ops.ts:100:78)
+        at assertGrantNotProtected (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/packages/agent/src/execution/approved-ops.ts:115:7)
+        at verifyPersonalCommandConfig (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-command-config.ts:31:5)
+        at personalCommandEnvironment (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-command-config.ts:39:3)
+        at personalCommandWork (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-command-work.ts:102:23)
+        at openPersonalHarness (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-harness.ts:57:42)
+        at Object.open (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/personal-command-work.test.ts:121:137)
+        at TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/personal-command-work.test.ts:233:21) {
+      errno: -2,
+      code: 'ENOENT',
+      syscall: 'lstat',
+      path: '/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-coding-agent/node_modules/xml-naming'
+    }
+  }
+
+test at test/personal-command-work.test.ts:261:1
+✖ durable 命令：原接纳不能因任务和 document 一起丢失而静默消失 (1231.6855ms)
+  Error [PersonalError]: 命令目录不可用或包含受保护资料，已停止；请保留档案并检查原目录与配置。
+      at verifyPersonalCommandConfig (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-command-config.ts:34:11)
+      at personalCommandEnvironment (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-command-config.ts:39:3)
+      ... 3 lines matching cause stack trace ...
+      at TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/personal-command-work.test.ts:262:49)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    code: 'command_config_invalid',
+    [cause]: Error: ENOENT: no such file or directory, lstat '/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-coding-agent/node_modules/typebox/build/guard'
+        at Module.lstatSync (node:fs:1702:25)
+        at identityCovers (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/packages/agent/src/execution/approved-ops.ts:86:21)
+        at isProtectedPath (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/packages/agent/src/execution/approved-ops.ts:100:78)
+        at assertGrantNotProtected (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/packages/agent/src/execution/approved-ops.ts:115:7)
+        at verifyPersonalCommandConfig (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-command-config.ts:31:5)
+        at personalCommandEnvironment (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-command-config.ts:39:3)
+        at personalCommandWork (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-command-work.ts:102:23)
+        at openPersonalHarness (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-harness.ts:57:42)
+        at Object.open (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/personal-command-work.test.ts:121:137)
+        at TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/personal-command-work.test.ts:262:49) {
+      errno: -2,
+      code: 'ENOENT',
+      syscall: 'lstat',
+      path: '/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-coding-agent/node_modules/typebox/build/guard'
+    }
+  }
+
+test at test/personal-command-work.test.ts:277:1
+✖ durable 命令：开始意图提交失败关闭 Harness，零 OS 派发 (2437.396375ms)
+  Error [PersonalError]: 命令目录不可用或包含受保护资料，已停止；请保留档案并检查原目录与配置。
+      at verifyPersonalCommandConfig (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-command-config.ts:34:11)
+      at personalCommandEnvironment (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-command-config.ts:39:3)
+      ... 3 lines matching cause stack trace ...
+      at TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/personal-command-work.test.ts:279:21)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    code: 'command_config_invalid',
+    [cause]: Error: ENOENT: no such file or directory, lstat '/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-coding-agent/node_modules/@aws-crypto/sha256-browser/build/module'
+        at Module.lstatSync (node:fs:1702:25)
+        at identityCovers (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/packages/agent/src/execution/approved-ops.ts:86:21)
+        at isProtectedPath (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/packages/agent/src/execution/approved-ops.ts:100:78)
+        at assertGrantNotProtected (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/packages/agent/src/execution/approved-ops.ts:115:7)
+        at verifyPersonalCommandConfig (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-command-config.ts:31:5)
+        at personalCommandEnvironment (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-command-config.ts:39:3)
+        at personalCommandWork (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-command-work.ts:102:23)
+        at openPersonalHarness (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-harness.ts:57:42)
+        at Object.open (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/personal-command-work.test.ts:121:137)
+        at TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/personal-command-work.test.ts:279:21) {
+      errno: -2,
+      code: 'ENOENT',
+      syscall: 'lstat',
+      path: '/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-coding-agent/node_modules/@aws-crypto/sha256-browser/build/module'
+    }
+  }
+
+test at test/personal-command-work.test.ts:298:1
+✖ durable 命令：回执已落盘而结果提交失败，重启读取原回执且不重发 (33495.332333ms)
+  AssertionError [ERR_ASSERTION]: Missing expected rejection.
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/personal-command-work.test.ts:306:3)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    operator: 'rejects',
+    diff: 'simple'
+  }

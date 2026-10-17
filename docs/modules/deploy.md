@@ -39,15 +39,19 @@
 | `service_inspect` | `unit`（白名单内的精确 `.service` 名） | 只读状态查询，无写入效果 |
 | `service_manage` | `unit`、`action`（联合类型，首版只取 `restart`） | 完全访问免操作审批；其他模式按单次批准或长期授权放行 |
 
-**helper 协议**：固定三个动词，绝对路径结构化 argv，清空环境，无 shell 字符串、无自由参数。
+**helper 协议**：固定动词，绝对路径结构化 argv，清空环境，无 shell 字符串、无自由参数。
 
 | 动词 | argv | 行为 |
 |---|---|---|
 | `inspect` | `inspect <unit>` | 白名单内服务的固定状态字段与两项修订指纹；`systemctl show` 显式降到策略检查 UID/GID，应答含实际执行身份 uid/gid |
+| `inspect-op` | `inspect-op <inspectionId> <machineId> <unit>` | 先认领稳定检查身份，再执行同组只读 show；同 ID 永不重启 |
+| `stop-inspect` | `stop-inspect <inspectionId> <machineId>` | 先阻止迟到启动，再观察原启动器与进程组；不向持久 PID/PGID 发送停止信号 |
 | `restart` | `restart <hostOpId> <policyRev> <unitRev> <unit>` | 原子认领 → 复核修订与已加载配置 → `systemd-run --pipe --wait` 的短命命令单元内以 root 执行固定 `systemctl --system restart` |
 | `stop-op` | `stop-op <hostOpId>` | 只停由同一 `hostOpId` 派生的命令单元，启动器进程组和整个单元均退出才报告 `exited:true` |
 
 应答是 stderr 上唯一一条 `RUUKOTO_SERVICE_REPLY ` 前缀的单行 JSON（`v: 1`），stdout 与 stderr 其余内容都是原始 systemctl 输出证据；不使用 fd3，因为 sudo 默认关闭 fd ≥ 3。`restart` 路径的 `systemd-run --pipe` 会把命令单元的 stderr 混入，机器调用方按前缀行提取。成功应答的字段：`inspect` 返回 `machineId`、`policyRevision`、`unitRevision`、`unit`、`state`、`execIdentity`、`observedAt`；`restart` 返回 `machineId`、`hostOpId`、`opUnit`、`launched`、`execIdentity`、`exitCode`、`observedAt`；`stop-op` 返回 `machineId`、`hostOpId`、`opUnit`、`launcherExited`、`exited`、`detail`。失败应答含 `ok:false`、`launched`、`reasonCode` 与 `error`。
+
+`inspect-op` 的应答在 inspect 字段外含原 `inspectionId`，动词为 `inspect-op`；`stop-inspect` 返回 `machineId`、`inspectionId`、`exited` 与未核实原因 `detail`。这两个动词均先核对期望机器。消费者必须在首次 spawn 前持久化机器与检查归属，并逐项核对应答；现有产品工具仍调用原 inspect，尚不消费检查身份协议。
 
 调用侧固定入口：生产经 `/usr/bin/sudo -n <helper> …`（`RUUKOTO_SERVICE_SUDO` 决定 sudo 路径），受控替身以当前 node 直接执行脚本；两条路径都是固定 argv、`PATH` 最小化、进程组可整组回收。
 
@@ -85,6 +89,10 @@ stateDiagram-v2
 ```
 
 `claim.json` v2 记录单元、两项期望修订与启动器 PID、Linux starttime、进程组和 boot ID；标记持久保留，只证明执行权已认领。`systemd-run --wait` 退出 0 后保存绑定原身份的 `launcher-completed.json`；停止查询实际观察到原命令单元为 loaded 时保存 `unit-observed.json`。这些证明让后续 not-found 可判为退出；缺少证明时，即使启动器组已消失，也不能排除尚未处理的 D-Bus 创建请求。旧、缺失或损坏的认领不提供停止证明，保留占用。
+
+固定检查使用独立 `inspect_` 加 24 位小写十六进制 ID，位于同一受保护根下；`claim.json` v1 绑定检查 ID、机器、单元及启动器身份，与 restart 的 v2 分开解释。stop-inspect 写入 `stop-requested`；只有完整的停止先手认领、完整原身份跨 boot，或原 helper 身份已结束且整个原组不存在，才返回 `exited:true`。坏记录、观察失败、仍活的同组后代或组号复用均保留未核实。这只证明固定同组 show 的退出，不用于任意命令或主动脱组后代。
+
+调用侧为检查创建独立组，允许 sudo 监护与 helper 同组；helper 不必是组首领，同组的其他成员会保守延后停止核实。
 
 **派生命令单元** `ruukoto-service-op-<hostOpId>.service`：`KillMode=control-group`，`RuntimeMaxSec=120`，单元内以 root 执行固定的 `systemctl --system restart`。停止协议只接受由同一操作 ID 派生的单元，不能指定任意目标。
 
@@ -168,7 +176,7 @@ sequenceDiagram
 - 每次 helper 调用都验证 helper 自身、策略文件、操作标记目录及其每一级父目录：真实文件或目录、非符号链接、属主 root、组/他人不可写。策略路径与 helper 固定路径不一致时明确失败。
 - 策略 `machineId` 必须匹配本机；白名单只认精确 `.service` 名；固定拒绝清单（后台、Docker 与容器运行时、`ruukoto-exec-*`、`ruukoto-service-op-*`、`systemd-*`、dbus）先于白名单生效。
 - 同一 `hostOpId` 只能认领一次执行权，标记持久保留，跨进程与瞬态单元回收后仍拒绝再次启动。
-- helper 必须以 root 运行（仅实际启动账户经 sudoers 调用），且只接受三个动词与固定数量的参数。
+- helper 必须以 root 运行（仅实际启动账户经 sudoers 调用），且只接受固定动词与对应数量的参数。
 
 **审批不变量**：
 
@@ -189,7 +197,7 @@ sequenceDiagram
 | `systemd-run` spawn 只有可证明命令根本未启动（`ENOENT`、`EACCES`、`ENOTDIR`） | 报未派发，宿主记已知未执行 |
 | 启动后的错误（缓冲超限等）或被信号杀死 | 报「可能已派发」`ok:false, launched:true`，不猜退出码；宿主记效果未知、不自动重发，同目标长期授权失效 |
 | 宿主侧无结构化应答、应答不是合法 JSON、协议版本不符、应答与请求不符、原始输出保存失败 | 一律不当成功：协议错误或输出未保全按效果未知记录 |
-| 调用超时（`inspect` 默认 20 秒、`restart` 默认 150 秒、`stop-op` 默认 15 秒）或任务中止 | 整组 `SIGKILL` 回收 helper 进程组并结束调用；已消费的 `restart` 记效果未知，不自动重发 |
+| 调用超时（`inspect` 默认 20 秒、`restart` 默认 150 秒、`stop-op` 默认 15 秒）或任务中止 | 整组 `SIGKILL` 后等待调用进程与 stdio 关闭，再返回首次失败及有界输出；调用关闭不代替操作单元停止证明，已消费的 `restart` 记效果未知、不自动重发 |
 | 停止核实失败 | 保留目录占用并报告，重复停止不当作已回收；helper 内 8 秒、每 200 ms 轮询仍未确认退出时如实报 `exited:false` |
 | 非零命令退出 | 如实记录退出码，可能含部分效果，不描述为零执行 |
 | 操作后状态查询失败 | 保留已知命令结果，说明无法核实 |
@@ -206,4 +214,5 @@ sequenceDiagram
 
 - [工具工作进程与受限任务容器](../../.agents/notes/implemented/architecture/2026-09-20-tool-worker-per-task-container.md)：解释共享协议与缺隔离能力时明确失败的原始决定；两个产品的受限后端由原生决定持有。
 - [服务管理经过 root 拥有的固定 helper](../../.agents/notes/implemented/architecture/2026-10-03-service-management-helper.md)：解释白名单、固定协议、修订绑定、单次认领与效果未知不重放的取舍，以及服务 OS 授权与实际任务模式的分工。
+- [固定服务检查以受保护认领核实原执行退出](../../.agents/notes/implemented/architecture/2026-10-17-service-inspection-identity.md)：检查身份、机器绑定与只观察原组的范围。
 - [访问模式由技术边界实施，完全访问须拥有者显式选择](../../.agents/notes/implemented/feature/2026-09-19-explicit-access-modes.md)：解释拥有者显式选择访问模式与控制面认证。

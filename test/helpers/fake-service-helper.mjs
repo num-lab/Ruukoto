@@ -239,7 +239,7 @@ function cmdRestart(hostOpId, expectedPolicyRev, expectedUnitRev, unit) {
     if (err.code === "EEXIST") throw new Refuse("already_claimed", `同一操作 ID 已认领过执行权，拒绝再次启动：${hostOpId}`);
     throw new Refuse("claim_failed", `执行权认领失败：${err.message}`);
   }
-  fs.writeFileSync(path.join(claimDir, "claim.json"), JSON.stringify({ unit, expectedPolicyRev, expectedUnitRev, claimedAt: new Date().toISOString() }, null, 2), { mode: 0o600 });
+  fs.writeFileSync(path.join(claimDir, "claim.json"), JSON.stringify({ version: 2, claimedBy: "restart", launcherPid: process.pid, unit, expectedPolicyRev, expectedUnitRev, claimedAt: new Date().toISOString() }, null, 2), { mode: 0o600 });
 
   // 停止协议先手：认领后、启动前出现 stop-requested 则拦下迟到启动
   if (fs.existsSync(path.join(claimDir, "stop-requested"))) {
@@ -302,17 +302,30 @@ function cmdStopOp(hostOpId) {
   if (!HOST_OP_ID.test(hostOpId)) throw new Refuse("op_invalid", "操作 ID 形态非法");
   const claimDir = path.join(OPS_DIR, hostOpId);
   // 停止先阻止后续启动：认领目录不存在时由停止协议创建（restart 见 EEXIST 即拒绝）
-  if (!fs.existsSync(claimDir)) {
-    fs.mkdirSync(claimDir, { mode: 0o700 });
-    fs.writeFileSync(path.join(claimDir, "claim.json"), JSON.stringify({ claimedBy: "stop-op", claimedAt: new Date().toISOString() }), { mode: 0o600 });
-  }
+  let created = false;
+  try { fs.mkdirSync(claimDir, { mode: 0o700 }); created = true; } catch (error) { if (error.code !== "EEXIST") throw error; }
+  if (created) fs.writeFileSync(path.join(claimDir, "claim.json"), JSON.stringify({ version: 2, claimedBy: "stop-op", claimedAt: new Date().toISOString() }), { mode: 0o600 });
   fs.writeFileSync(path.join(claimDir, "stop-requested"), new Date().toISOString() + "\n", { mode: 0o600 });
   const opUnit = opUnitFor(hostOpId);
   if (flag("stop-query-fails")) {
-    reply({ verb: "stop-op", ok: true, machineId, hostOpId, opUnit, exited: false, detail: "query_failed" });
+    reply({ verb: "stop-op", ok: true, machineId, hostOpId, opUnit, launcherExited: false, exited: false, detail: "query_failed" });
     return;
   }
-  reply({ verb: "stop-op", ok: true, machineId, hostOpId, opUnit, exited: true });
+  let launchEnded = false;
+  const deadline = Date.now() + 1000;
+  do {
+    let claim;
+    try { claim = JSON.parse(fs.readFileSync(path.join(claimDir, "claim.json"), "utf8")); } catch { break; }
+    if (claim.version !== 2) break;
+    if (claim.claimedBy === "stop-op") launchEnded = true;
+    else if (claim.claimedBy === "restart" && Number.isSafeInteger(claim.launcherPid) && claim.launcherPid > 0) {
+      // 替身没有后代；PID 探针只模拟短期夹具，生产用 starttime/bootId 与进程组核实。
+      try { process.kill(claim.launcherPid, 0); } catch (error) { launchEnded = error.code === "ESRCH"; }
+    }
+    if (launchEnded) break;
+    sleepMs(10);
+  } while (Date.now() < deadline);
+  reply({ verb: "stop-op", ok: true, machineId, hostOpId, opUnit, launcherExited: launchEnded, exited: launchEnded });
 }
 
 function main() {

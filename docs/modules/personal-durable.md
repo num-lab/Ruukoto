@@ -2,7 +2,7 @@
 
 ## 职责与边界
 
-`apps/ruukoto/src/personal-*.ts` 提供独立的 Pi 1.3.0 会话、本机引导管理及后台工作宿主 API，只用于隔离验证。正式个人 bin、根启动脚本、开发启动器与部署入口使用[产品装配](products.md)中的共享运行时；本机向导仍为空工具会话；可信宿主 API 可单独启用主会话只读服务检查，子会话固定空工具；没有 IM、审批或有副作用的业务工具。
+`apps/ruukoto/src/personal-*.ts` 提供独立的 Pi 1.3.0 会话、本机引导管理及后台工作宿主 API，只用于隔离验证。正式个人 bin、根启动脚本、开发启动器与部署入口使用[产品装配](products.md)中的共享运行时；本机向导仍为空工具会话；可信宿主 API 可单独启用主会话只读服务检查，子会话固定空工具；没有 IM 或模型写工具。可信宿主还可显式启用独立服务操作、单次审批及效果核实。
 
 ## 对外接口
 
@@ -11,6 +11,8 @@
 `startPersonalServer` 独占后台，HTTP 仅监听档案内 Unix socket，经本地令牌逐次认证；提供 `/status`、`/messages`、`/inputs`、`/input` 和 `/stop`。`personalControl` 为 CLI 调用；CLI 不重开 Harness。引导与前台托管见[操作手册](../usage.md#25-个人-durable-隔离向导)。
 
 可信宿主使用返回的 `work.delegate` 委派或复用长期子 Agent，`list/status` 查询身份和原生工作进度，`cancel` 等待取消核实，`closeAgent` 关闭空闲身份。首次委派可给名称；已有身份通过具名工作引用管理。来源须引用已进入主会话的拥有者输入请求；同工作键异参拒绝。此 API 不装配模型委派工具，不接受追加说明，不自动外发结果；本机接口和向导尚无工作操作选项。
+
+`serviceOperations: true` 另启用宿主 `service` API：`request` 以原拥有者输入建立独立后台 restart 工作，`list/status` 查询原生 Task 和操作事实，`decide/cancel/resolve/recheckStop` 决定原审批、取消或核实效果与停止。模式固定于创建，默认自动审查；自动审查与请求确认的服务写入均等人工批准，完全访问免逐次审批。此 API 不通过本机 HTTP/CLI 暴露，不创建长期授权；原 IM 身份、长期授权和模型工作装配仍需后续接入。
 
 ## 数据与状态
 
@@ -21,6 +23,8 @@
 `ruukoto.subagents` 保存长期 ownerless Conversation 的身份、名称、关闭事实与单工作占用；`ruukoto.work` 按请求键保存内容指纹、拥有者来源、Task/Submission 引用及取消事实。每项工作是主会话拥有的 background `ruukoto.background-work` Task，状态与结果以原生 Task/Submission 为准，结果留在子会话。子会话显式选择模型、`personal-subagent` 提示、工作任务扩展及空工具，主会话的服务检查不下放。
 
 `model.json` 只保存模型配置与凭据环境变量名，临时文件加 rename 保存；`control.token` 每次启动轮换，`control.sock` 只在后台持锁时清理，`backend.log` 保存后台诊断。`pending-<UUID>.json` 是客户端发送前独占创建的原键/正文，多个 CLI 不覆盖彼此；核实原 submission 后只删对应文件。它不镜像执行状态，也不授予执行资格。
+
+`ruukoto.service-operations-config` 标记操作能力；`ruukoto.service-operation` 按请求键保存来源、模式、固定操作身份、审批快照、消费、外部效果和停止核实事实。每次操作对应主会话拥有的 background `ruukoto.service-operation` Task，执行状态以 Task 为准。`ruukoto.service-operation-evidence` 保存每次 helper 调用的原始有界字节，结果和证据同 commit；核实记录保留拥有者证据，不覆盖原未知结论。
 
 ## 主要流程
 
@@ -34,17 +38,21 @@
 
 服务检查以固定 argv 调用共享 `service-helper.ts`，helper 逐次核实本机、当前策略和白名单。原始输出先写 durable，再返回固定状态、观察时间和证据编号；`read_service_inspection` 每页最多 4096 字符，只读本会话的指定类型 entry。模型输入证据包含实际工具定义和结果；读取原文不再次调用 helper。
 
+服务操作先经 helper 只读检查并保存目标修订，再等待持久审批 document 的决定；批准消费前复核原来源和策略内容，helper 在派发前再次核对修订。消费、开始事实与恢复 checkpoint 同 commit，仅当前 invocation 派发一次 restart。可信请求前拒绝记未执行，可信非零命令退出如实保留已执行结论；进程中断、超时或结果无法核实均暂停，恢复只停止与核实原操作。拥有者的效果说明与启动器/命令单元停止证明分别保存，两者齐全才释放。
+
 ## 不变量与失败处理
 
 同一档案只允许一个拥有者，关闭清理完成或进程崩溃后释放锁，锁文件不删除。配置写入使用同一锁，不因连接失败而离线争写。不支持的版本、缺扩展或缺任务定义均阻止调度；已有数据库缺少格式记录也拒绝。输入证据写失败时不发请求；存储失败关闭 Harness 并报告，宿主不自动重开。正常关闭保留未完成输入供重开恢复，不能当作工作取消。坏令牌、链接及旧目录拒绝，不能清理后自动接管。
 
 请求体 128 KiB、消息正文 16 KiB、应答 256 KiB；客户端总时限 5 秒，后台收件 10 秒、闲置 15 秒。最近记录扫描 64 条 entry、显示最多 16 条消息，每条最多 8192 字符并标截断/中断；不返回输入证据或堆栈。终端输出过滤控制字符。
 
-服务检查 stdout/stderr 总计最多 1 MiB，超限停止检查并明确标记部分证据；畸形应答、多条前缀、目标或状态字段不符均报错，不把它们当状态。证据写入失败关闭 Harness，不能报告成功。服务配置不由模型、工具参数或本机消息正文决定；没有服务重启能力。
+服务检查 stdout/stderr 总计最多 1 MiB，超限停止检查并明确标记部分证据；畸形应答、多条前缀、目标或状态字段不符均报错，不把它们当状态。证据写入失败关闭 Harness，不能报告成功。服务配置不由模型、工具参数或本机消息正文决定；服务重启仅通过另行启用的可信宿主 API。
 
-仅使用新的隔离目录，不能以此 API 浏览或恢复旧个人档案。SQLite WAL/NORMAL 支持进程崩溃恢复，不保证断电时最近提交保留。服务检查为无写入效果工具，可在中断后安全重跑并得到新的观察；不提供有副作用操作恢复保证。
+仅使用新的隔离目录，不能以此 API 浏览或恢复旧个人档案。SQLite WAL/NORMAL 支持进程崩溃恢复，不保证断电时最近提交保留。服务检查为无写入效果工具，可在中断后安全重跑并得到新的观察；服务操作另按开始事实保守恢复，不将只读重跑规则用于 restart。
 
 工作扩展依赖的索引缺失、文档版本不支持、会话/身份或 Task/占用关系断链均在调度前拒绝；未核实的遗留占用不因 Task 意外终态而自动清除。旧无工作档案只在无未决输入/任务时启用后台工作。模型变更有未决工作时拒绝，空闲时显式同步所有长期会话。provider 两处记录边界都复核活动占用及取消事实，缺失/歧义来源、空闲/关闭/取消身份不发模型请求。子会话固定空工具，不能据此声称外部进程停止或未知写入核实已完成。
+
+服务目标与同一原输入各只允许一个未结束操作；未知效果、停止未核实乃至意外 faulted 终态均保留占用，不允许换键或换目标绕过同来源暂停。其他来源的独立目标与主聊天继续。原输入后来 unanswered 不破坏档案来源身份，但不能再消费未执行的批准。缺操作配置、扩展、版本或来源/Task 双向关系均拒绝调度；已保存的停止证明必须绑定本机、操作及命令单元并带 `launcherExited`，旧 helper 应答不能释放占用。
 
 ## 设计依据
 
@@ -52,3 +60,4 @@
 - [隔离个人实例由后台独占并通过本机接口管理](../../.agents/notes/implemented/architecture/2026-10-17-personal-local-management.md)
 - [个人 durable 服务检查复用固定 helper](../../.agents/notes/implemented/architecture/2026-10-17-personal-service-inspect.md)
 - [个人后台工作占用长期独立子会话](../../.agents/notes/implemented/architecture/2026-10-17-personal-background-work.md)
+- [个人服务操作先持久消费并核实未知效果](../../.agents/notes/implemented/architecture/2026-10-17-personal-service-operations.md)

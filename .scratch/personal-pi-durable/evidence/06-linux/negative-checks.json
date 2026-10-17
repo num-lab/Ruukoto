@@ -1,0 +1,32 @@
+[
+  {
+    "variant": "group",
+    "removed": "try { process.kill(-id.processGroup, 0); return unknown; } catch (error) { if (error.code !== \"ESRCH\") return unknown; }",
+    "argv": [
+      "sudo",
+      "-n",
+      "/usr/local/bin/node",
+      "--test",
+      "--test-name-pattern",
+      "helper 已死",
+      "test/service-helper-stop.test.ts"
+    ],
+    "exitCode": 1,
+    "durationSeconds": 0.6715282220393419
+  },
+  {
+    "variant": "queue",
+    "removed": "else if (!last.present && !launcher.missingSafe) last = { exited: false, detail: \"启动器已退出，但无法核实已发出的创建请求是否处理，保留占用\" };",
+    "argv": [
+      "sudo",
+      "-n",
+      "/usr/local/bin/node",
+      "--test",
+      "--test-name-pattern",
+      "进程组消失",
+      "test/service-helper-stop.test.ts"
+    ],
+    "exitCode": 1,
+    "durationSeconds": 0.7876843009144068
+  }
+]

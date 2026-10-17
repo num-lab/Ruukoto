@@ -14,7 +14,11 @@ main 需要按明确授权管理服务器，但它没有 bash，受限编码容�
 
 helper 接受固定 `inspect / restart / stop-op` 协议。root 拥有的策略文件固定本机身份、执行 UID/GID、精确规范的 `.service` 单元与允许动作；拒绝别名、模板实例、通配符、路径、选项注入和额外参数，固定禁止后台、Docker、执行工作进程、helper 自身操作单元及 dbus 等基础设施目标。检查降至策略执行账户，只返回固定状态字段，不暴露整个 unit、环境或任意日志。重启由 `systemd-run --pipe --wait` 创建短命命令单元，以 root 执行固定 `systemctl --system restart`，结构化 argv 与绝对路径，不提供 shell 或自由命令参数。restart 在目标不活动时会启动它，可信 unit 的依赖传播照常发生，审批必须说明这些影响。
 
-宿主操作 ID 派生命令单元（`ruukoto-service-op-<hostOpId>.service`），设置有界运行时间与 `KillMode=control-group`。固定 root 操作目录中用原子 mkdir 持久认领一次执行权，同一 ID 已有标记则拒绝；标记失败后也不自动解除，不随 transient unit 回收而删除，仅证明已认领，不证明服务已重启。stop-op 只停止同一 ID 的命令单元，不能接受任意目标。受管进程登记覆盖 starting 与迟到创建，只有核实命令单元/cgroup 已退出才释放占用，查询失败不等于退出。
+宿主操作 ID 派生命令单元（`ruukoto-service-op-<hostOpId>.service`），设置有界运行时间与 `KillMode=control-group`。固定 root 操作目录中用原子 mkdir 持久认领一次执行权，同一 ID 已有标记则拒绝；标记失败后也不自动解除，不随 transient unit 回收而删除，仅证明已认领，不证明服务已重启。stop-op 只停止同一 ID 的命令单元，不能接受任意目标。受管进程登记覆盖 starting 与迟到创建，只有核实启动器及其进程组、命令单元/cgroup 均已退出才释放占用，查询失败不等于退出。
+
+`claim.json` v2 保存 helper 的 PID、Linux starttime、进程组与 boot ID。stop-op 先写停止标记、观察并停止命令单元，再以原进程身份及 `kill(-pgid, 0)` 核实启动器已退出、进程组消失，最后检查命令单元；应答保留 `v:1`，以 `launcherExited` 区分启动器证明。只看命令单元 not-found 会漏掉已经检查过停止标记却尚未派发的 helper；只看 helper PID 又会漏掉父进程死后仍可能派发的 systemd-run 后代。PID/starttime 防 PID 复用，boot ID 区分重启；无法读取、缺失、损坏或旧版认领均不提供停止证明。stop-op 自己原子新建的认领证明从未派发，跨 boot 可排除旧进程及旧请求。重复增加停止标记检查仍有检查与派发之间的竞态，因此采用进程组消失证明；该检查可能因无关组成员或僵尸进程保守保留占用。
+
+进程组消失仍不能排除已送入 D-Bus、尚未被 PID 1 处理的创建请求，跨连接 stop/show 不提供这项顺序保证。因此 helper 仅在 `systemd-run --pipe --wait` 退出 0 后、应答前持久写 `launcher-completed.json`，非零或异常不推断结算；stop-op 只在成功查询实际看到 `LoadState=loaded` 时持久写 `unit-observed.json`。两种证明均绑定原操作、命令单元和启动器完整身份；组已消失且单元 not-found 时，还须其中一种证明才能报告 `exited:true`，先手停止认领和跨 boot 例外。缺失、半写、损坏或身份不符继续保留占用；即使命令实际结束但回执丢失且单元已回收，也不会猜测安全退出。`launcherExited:true` 单独不足以解除占用，服务重启效果仍须另外核实。
 
 `service_inspect` 是无写入效果的状态查询；`service_manage` 首版仅 restart，仅 Personal Agent/Linux/显式部署配置的可信 main 任务装配和调用。模型只提供精确白名单单元与固定动作，本机、身份、任务与操作 ID 由宿主确定。main 不因此获得 bash，执行账户不获得新增 sudo/Polkit 或策略外部署材料访问。
 
@@ -47,6 +51,8 @@ sudo 默认关闭 fd3 导致原协议通道失效，真实冒烟暴露后改为 
 服务器管理有真实、可核查的 root 能力，同时保留明确目标、修订绑定、单次认领与效果未知不重放。代价是部署必须维护 root-owned helper/策略/sudoers 和可信 unit，SQLite 与 systemd 不能整体原子，取消不保证撤回已提交作业。日志、其他动作和远程主机当前不支持；有实际需求时按固定协议扩展，不引入通用执行框架。[部署与服务管理](../../../../docs/modules/deploy.md)记录当前操作范围。
 
 [个人 durable 服务检查](2026-10-17-personal-service-inspect.md)复用 app 内共享传输，只提供 inspect 及证据读取；本篇写入授权与效果未知约束继续适用，不能从只读检查推得 restart 已接入。
+
+[个人 durable 服务操作](2026-10-17-personal-service-operations.md)通过另行启用的可信宿主 API 接入 restart，使用独立的 durable 后台工作与单次审批；模型尚无服务写工具，原 IM 和长期授权尚未接入。该实现要求 `launcherExited:true` 与 `exited:true` 同时成立，不能把旧部署版本的应答当作停止证明。
 
 ## 适用范围
 

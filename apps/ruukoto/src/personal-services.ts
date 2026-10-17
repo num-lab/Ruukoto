@@ -19,7 +19,8 @@ export function personalServiceConfig(config: ServiceManagerConfig): { config: S
   return { config: fixed, fingerprint };
 }
 
-function inspectReply(reply: HelperReply, unit: string): Extract<HelperReply, { ok: true; verb: "inspect" }> {
+export function inspectServiceReply(reply: HelperReply | undefined, unit: string): Extract<HelperReply, { ok: true; verb: "inspect" }> {
+  if (!reply) throw new ServiceHelperError("服务检查没有可信应答", "protocol_error");
   const ok = requireOk(reply, "inspect");
   if (ok.verb !== "inspect") throw new ServiceHelperError("服务检查应答动词不符", "protocol_error");
   expectRevisions(ok);
@@ -50,7 +51,7 @@ export function personalServices(config: ServiceManagerConfig) {
       }
       if (response) {
         capture = { ...response, truncated: false };
-        try { result = inspectReply(response.reply, unit); } catch (error) {
+        try { result = inspectServiceReply(response.reply, unit); } catch (error) {
           if (!(error instanceof ServiceHelperError)) throw error;
           code = error.code;
         }

@@ -6,7 +6,7 @@
 
 它不负责执行边界本身：原生沙箱或启动账户的建立、路径解析、Shell 子进程与进程回收归 [execution](execution.md)。它不做上下文组装：参考块注入、工具结果截断、上下文预算与选择记录归 [agent-context](agent-context.md)——工作清单的上下文保底与计划模式的计划说明都在那里。它不解析拥有者发来的 IM 审批命令，也不发送回执：`/approvals`、`/approve`、`/reject`、`/approve-standing`、`/revoke-service-grant` 的文本解析、终态与回执归 [channels](channels.md)。任务状态机、`endTask` 收尾事务与排队归 [runtime](runtime.md)，本模块只在收尾事务内被调用补记账本。MCP 与 Web Search 的完整命令参数属使用手册，本模块只列拥有者入口并解释机制。
 
-这里描述正式共享装配；[个人 durable](personal-durable.md)的服务检查另行装配，只复用 app 内 `service-helper.ts` 的固定进程传输，不复用旧 Task、ApprovalGate 或 ArtifactStore。
+这里描述正式共享装配；[个人 durable](personal-durable.md)的服务检查与宿主服务操作另行装配，只复用 app 内 `service-helper.ts` 的固定进程传输，不复用旧 Task、ApprovalGate 或 ArtifactStore。
 
 两件事明确不属于可用性判定：获批之后的复核属于审批闸门；Web Search 开关的现场检查与「委派沿拥有者请求、定时计划或已保存的工作授权触发」这一限定，由各工具在执行时自行完成。
 

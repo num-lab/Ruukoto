@@ -6,7 +6,7 @@
 
 ## 对外接口
 
-`personal-command-worker.ts` 构建为自包含的 `worker/personal-command-worker.mjs`。可信宿主按[执行边界](execution.md)准备空依赖输入，以预先保存的原引用调用 `runPersonalCommand`；`readPersonalCommandReceipt` 校验并读取原回执，`stopPersonalCommand` 无内存句柄也按原引用停止。Linux 停机向导固定独立目录及 dev/ino，`commands` 配置启用子会话的 `run_command`、`read_command_output`；请求确认/自动审查在原目录内执行且不联网，完全访问命令明确拒绝。原 WorkTask 持有命令 Task，接纳和开始意图分别留不可改证据；恢复只查原回执并核实原执行停止，不重跑；停止须核对原请求及原 launch 指纹，缺证据或 stop 先手不能证明旧执行已停。`readPersonalCommandOutput` 每页返回最多 3072 原字节的 base64；无回执时明确为片段。CLI 可查询、保存不可覆盖的已生效/未生效证据，并登记原停止重核。未知效果或停止未核实保留原工作占用及来源暂停，完整回执也须停止已证明才释放；共享命令目录在任一原执行未核实停止时拒绝新执行。
+`personal-command-worker.ts` 构建为自包含的 `worker/personal-command-worker.mjs`。可信宿主按[执行边界](execution.md)准备对应原模式的输入，以预先保存的原引用调用 `runPersonalCommand`；`readPersonalCommandReceipt` 校验并读取原回执，`stopPersonalCommand` 无内存句柄也按原引用停止。Linux 停机向导固定独立目录及 dev/ino，`commands` 配置启用子会话的 `run_command`、`read_command_output`；请求确认/自动审查在原目录内执行且不联网；完全访问继承后台账户环境，可访问目录外与网络，免逐次审批。完全访问仍登记独立 scope，按原身份核实停止；不承诺收回主动迁出单元的进程或外部服务。同账户可读写后台资料与证据，私有目录不构成其隔离。子会话请求展示原工作模式，按原生 section 留证据，不沿用上项工作的权限说明。原 WorkTask 持有命令 Task，接纳和开始意图分别留不可改证据；恢复只查原回执并核实原执行停止，不重跑；停止须核对原请求及原 launch 指纹，缺证据或 stop 先手不能证明旧执行已停。`readPersonalCommandOutput` 每页返回最多 3072 原字节的 base64；无回执时明确为片段。CLI 可查询、保存不可覆盖的已生效/未生效证据，并登记原停止重核。未知效果或停止未核实保留原工作占用及来源暂停，完整回执也须停止已证明才释放；共享命令目录在任一原执行未核实停止时拒绝新执行。
 
 `openPersonalHarness` 接受独立目录或已持有的 `PersonalProfileLock`、provider 与模型，接管锁的释放责任，返回主会话、Harness、提交、等待回答与关闭方法；可用 `beforeUnlock` 在放锁前收齐管理接口。可选 `service` 接受宿主固定的 helper 配置，安装 `service_inspect` 与 `read_service_inspection`，模型只能指定白名单内精确单元名或本会话的证据编号。返回的 `inspections.list/recheckStop` 供可信宿主查询未决检查与重核停止，不提供强制释放；未取消的活动检查拒绝宿主重核。`requestInspectionStop(ref)` 固定原 Task/接纳引用，仅登记后台重核并返回其 Task ID；它不等待停止。提交键由调用方保持稳定，用于 durable 会话内去重。`parsePersonalModel` 校验模型配置，`personalProvider` 按环境变量名读取凭据。个人 Pi 1.3.0 对象不传给 Coding 的 Pi 0.85.1。
 
@@ -91,6 +91,8 @@ Telegram 数值 offset 只在一批更新收到后 60 秒内用于紧接的一�
 旧 Telegram 收件没有权限快照时不能新建服务工作；已有这类未消费操作失效，已消费操作仍保留效果核实与占用。旧代次服务批准无法消费，长期授权失效；模式变更只影响新收件。权限/授权版本及来源关联缺失或操作模式与原快照不符时拒绝恢复，不能重建默认授权。
 
 ## 设计依据
+
+- [完全访问命令的持久 scope 与原工作恢复](../../.agents/notes/implemented/architecture/2026-10-17-personal-full-access-commands.md)
 
 - [个人命令沿原工作恢复并核实外部事实](../../.agents/notes/implemented/architecture/2026-10-17-personal-durable-commands.md)
 

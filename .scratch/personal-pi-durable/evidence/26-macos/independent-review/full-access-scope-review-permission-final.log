@@ -1,0 +1,14 @@
+✔ durable 命令：confirm 保留原权限、原生 owned Task 和双流分页，非零结果也释放身份 (22723.065542ms)
+ℹ {"mode":"confirm","systemPrompt":42,"toolSchemas":268}
+✔ durable 命令：auto-review 保留原权限、原生 owned Task 和双流分页，非零结果也释放身份 (30733.381583ms)
+ℹ {"mode":"auto-review","systemPrompt":42,"toolSchemas":268}
+✔ durable 命令：full_access 保留原权限、原生 owned Task 和双流分页，非零结果也释放身份 (7930.132291ms)
+ℹ {"mode":"full_access","systemPrompt":42,"toolSchemas":268}
+ℹ tests 3
+ℹ suites 0
+ℹ pass 3
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 62386.371

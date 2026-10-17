@@ -1,0 +1,1 @@
+aborted section read propagates original error; stale full_access section cannot replace cancellation: passed

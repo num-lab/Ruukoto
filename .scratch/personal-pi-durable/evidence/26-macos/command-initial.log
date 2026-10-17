@@ -1,0 +1,59 @@
+✔ 宿主先消费双流再提交 stdin，回执保留二进制/非零且同引用永不重跑 (135.187833ms)
+✔ 大输出完整落盘，worker 的信号映射保持为原退出观察 (129.695042ms)
+✔ 双流分页核对原意图，原字节不截断，坏引用和损坏输出拒绝 (111.22275ms)
+✔ timeout 停止原引用但没有完成回执，已捕获输出仍保留 (335.919209ms)
+✔ cancel 停止原引用但没有完成回执，已捕获输出仍保留 (165.740042ms)
+✔ 停止查询失败保留原临时目录，命令回执与停止是两个事实 (112.318833ms)
+✔ capture 落盘失败不发布完成，仍按原引用核实停止 (131.636916ms)
+✔ receipt 落盘失败不发布完成，仍按原引用核实停止 (107.529916ms)
+✔ 损坏输出、链接及异版本回执拒绝，未知结果不获得第二次执行权 (116.942416ms)
+✔ 停止先手和缺绑定只核实原引用，不清理或执行 (93.016834ms)
+✔ 取消先于 launch 返回仍不提交命令，并保留原绑定核实停止 (88.703333ms)
+✔ 替换临时目录后停止只保留现场，不删除替代目录 (112.211042ms)
+✔ 不同执行引用不能共用原临时目录，也不能清理其他执行的目录 (108.04575ms)
+✔ 独立停止正在执行的命令不发布完成回执 (168.026458ms)
+✔ 坏命令、混用完全访问准备及可见证据目录在启动前拒绝 (85.977791ms)
+✔ 严格停止：native-claim 不把仍存活的原命令报为退出，恢复原证据后才能停止 (376.299625ms)
+✔ 严格停止：request 不把仍存活的原命令报为退出，恢复原证据后才能停止 (365.531083ms)
+✔ 严格停止：expected-fingerprint 不把仍存活的原命令报为退出，恢复原证据后才能停止 (370.606584ms)
+✔ 严格停止：native-fingerprint 不把仍存活的原命令报为退出，恢复原证据后才能停止 (370.140291ms)
+✔ 严格停止：stop-first 不把仍存活的原命令报为退出，恢复原证据后才能停止 (371.60825ms)
+✔ 活调用：launch 后丢失原 claim 不认 stop-first，原临时目录与后代留待核实 (231.453959ms)
+✔ 完全访问宿主：returned 沿持久 scope 与原回执，环境只在启动继承 (30.948416ms)
+✔ 完全访问宿主：cancel 沿持久 scope 与原回执，环境只在启动继承 (88.262167ms)
+✔ durable 命令：confirm 保留原权限、原生 owned Task 和双流分页，非零结果也释放身份 (10015.595541ms)
+ℹ {"mode":"confirm","systemPrompt":38,"toolSchemas":268}
+✔ durable 命令：auto-review 保留原权限、原生 owned Task 和双流分页，非零结果也释放身份 (10658.281709ms)
+ℹ {"mode":"auto-review","systemPrompt":38,"toolSchemas":268}
+✔ durable 命令：full_access 保留原权限、原生 owned Task 和双流分页，非零结果也释放身份 (2023.780167ms)
+ℹ {"mode":"full_access","systemPrompt":38,"toolSchemas":268}
+✔ durable 命令：auto-review 未知和取消跨重启保留占用，人工效果与原引用停止都核实后才复用 (10511.436459ms)
+✔ durable 命令：full_access 未知和取消跨重启保留占用，人工效果与原引用停止都核实后才复用 (2501.332542ms)
+✔ durable 命令：恢复拒绝坏 admission，provider 与 OS 都零新增调用 (11328.37225ms)
+✔ durable 命令：恢复拒绝坏 permission，provider 与 OS 都零新增调用 (11953.713709ms)
+✔ durable 命令：首次启用拒绝未决旧工作，不恢复 provider 或补授旧工具 (635.577625ms)
+✔ durable 命令：恢复拒绝 worker 损坏，零新增模型和执行 (16816.551458ms)
+✔ durable 命令：恢复拒绝 mounts 损坏，零新增模型和执行 (19043.607458ms)
+✔ durable 命令：恢复拒绝 stop-task 损坏，零新增模型和执行 (26179.845541ms)
+✔ durable 命令：恢复拒绝 unproved-stop 损坏，零新增模型和执行 (35392.837042ms)
+✔ durable 命令：恢复拒绝 full-env 损坏，零新增模型和执行 (6346.3875ms)
+✔ durable 命令：恢复拒绝 full-mounts 损坏，零新增模型和执行 (6447.541083ms)
+✔ durable 命令：恢复拒绝 full-node 损坏，零新增模型和执行 (16419.772958ms)
+✔ durable 命令：原接纳不能因任务和 document 一起丢失而静默消失 (37978.260375ms)
+[ruukoto:personal] 持久执行出现错误，请查询状态并检查档案；未自动重启。
+✔ durable 命令：开始意图提交失败关闭 Harness，零 OS 派发 (22165.539167ms)
+[ruukoto:personal] 持久执行出现错误，请查询状态并检查档案；未自动重启。
+✔ durable 命令：回执已落盘而结果提交失败，重启读取原回执且不重发 (23533.914333ms)
+✔ durable 命令：auto-review 未知暂停原源服务、主会话固定检查及委托全部成员，零 helper 外调 (20825.008625ms)
+✔ durable 命令：full_access 未知暂停原源服务、主会话固定检查及委托全部成员，零 helper 外调 (3766.009458ms)
+✔ durable 命令：auto-review 报告记录 command 暂停并跨重启观察原记录，效果和停止均核实才汇总 (20049.838541ms)
+✔ durable 命令：full_access 报告记录 command 暂停并跨重启观察原记录，效果和停止均核实才汇总 (4529.425291ms)
+✔ durable 命令：在线 faulted 立即进入可核实状态，效果与原停止齐备前工作仍占用 (20632.970292ms)
+ℹ tests 46
+ℹ suites 0
+ℹ pass 46
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 340498.589084

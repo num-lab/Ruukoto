@@ -11,6 +11,17 @@ import { syncBuiltinESMExports } from "node:module";
 import { ExecutionError } from "@ruukoto/agent/execution/launchers.ts";
 import { launchLinuxNative, linuxNativeScopeEmpty } from "@ruukoto/agent/execution/native-linux.ts";
 
+test("完全访问无持久 tracking 时在平台前置探测前拒绝", async context => {
+  context.mock.method(nodeFs, "accessSync", () => assert.fail("不得探测或启动无持久身份的完全访问"));
+  syncBuiltinESMExports();
+  try {
+    await assert.rejects(launchLinuxNative({ workspace: "/", mounts: [], runtimeReadRoots: [], toolAliases: [], env: {},
+      tempDir: "/tmp", nodePath: process.execPath, workerPath: "/worker.mjs" }, {
+      taskId: "untracked-full-access", mode: "full_access", workspace: "/", grantedPaths: [],
+    }), error => error instanceof ExecutionError && error.reason === "policy_missing");
+  } finally { context.mock.restoreAll(); syncBuiltinESMExports(); }
+});
+
 test("Linux scope 只接受已知组的完整空成员证据或确认删除", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "native-scope-evidence-"));
   const group = path.join(root, "scope");

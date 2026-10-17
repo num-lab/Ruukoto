@@ -12,6 +12,8 @@ Status: implemented
 
 恢复只校验并读取原回执、按原执行引用核实停止。无回执保持未知；文件损坏或版本不符拒绝使用，不重新执行。停止不依赖内存 unit；退出核实后按原目录 dev/ino 清理临时资料，目录被替换则保留现场。私有证据是 OS 执行及产物证据，不持有 durable 工作、权限或队列状态。
 
+本篇关于完全访问尚未接通的限制由[完全访问命令](2026-10-17-personal-full-access-commands.md)取代；受限实现、既有宿主证据与停止协议的决定仍适用。
+
 ## 既有笔记审计
 
 检索个人命令、原生身份、服务回执及 tempDir。worker 与原生身份两篇部分重叠，保留并互链；[服务操作](../../implemented/architecture/2026-10-17-personal-service-operations.md)的外部 helper 回执不适用于任意命令；[后台 Bash 提案](../../proposed/feature/2026-10-14-bash-background-lifecycle.md)面向共享工具的长期终端，与本片单次个人执行无关。没有完全吸收或失效提案。

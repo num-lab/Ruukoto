@@ -1,4 +1,5 @@
 /** Linux 单次命令的宿主证据；工作、权限和未知效果由 durable 调用方持有。
+ * Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-full-access-commands.md
  * Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-command-execution.md
  */
 import * as fs from "node:fs";
@@ -10,7 +11,7 @@ import { pipeline } from "node:stream/promises";
 import { isDeepStrictEqual } from "node:util";
 import { launchLinuxExecution, stopLinuxExecution, type LinuxExecutionRef } from "@ruukoto/agent/execution/native-linux-identity.ts";
 import { ExecutionError, type LaunchedUnit, type LaunchSpec } from "@ruukoto/agent/execution/launchers.ts";
-import type { PreparedNativeLaunch } from "@ruukoto/agent/execution/native.ts";
+import { prepareNativeLaunch, type PreparedNativeLaunch, type NativeLauncherConfig } from "@ruukoto/agent/execution/native.ts";
 import { PersonalError } from "./personal-error.ts";
 
 interface Output { bytes: number; sha256: string }
@@ -31,6 +32,22 @@ const invalid = () => new PersonalError("command_record_invalid", "原命令证�
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
 const hex = (value: unknown): value is string => typeof value === "string" && /^[0-9a-f]{64}$/.test(value);
 const covers = (root: string, target: string) => root === target || target.startsWith(root + path.sep);
+
+function prepareFullAccess(config: NativeLauncherConfig, spec: LaunchSpec): PreparedNativeLaunch {
+  const workspace = fs.realpathSync(spec.workspace), stat = fs.statSync(workspace);
+  if (!stat.isDirectory() || workspace !== spec.workspace || !spec.workspaceIdentity || stat.dev !== spec.workspaceIdentity.dev || stat.ino !== spec.workspaceIdentity.ino || spec.env !== undefined || !config.workerPath) throw invalid();
+  const workerPath = fs.realpathSync(config.workerPath), nodePath = fs.realpathSync(process.execPath);
+  const tempDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-native-")));
+  return { workspace, workerPath, nodePath, tempDir, mounts: [], runtimeReadRoots: [], toolAliases: [], env: {} };
+}
+
+/** 完全访问只准备非敏感路径；用户环境在实际启动时继承，不写入执行证据。 */
+export async function preparePersonalCommand(config: NativeLauncherConfig, spec: LaunchSpec): Promise<PreparedNativeLaunch> {
+  if (spec.mode !== "full_access") return prepareNativeLaunch(config, spec);
+  try { return prepareFullAccess(config, spec); } catch (error) {
+    throw new PersonalError("command_prepare_failed", "完全访问命令的原目录或执行入口无法核实，未启动；请保留原工作并检查配置。", { cause: error });
+  }
+}
 
 function privateObject(target: string, directory: boolean) {
   const stat = fs.lstatSync(target);
@@ -162,7 +179,8 @@ export async function runPersonalCommand(options: { directory: string; ref: Linu
   let record: string;
   try {
     if (!command.trim() || command.includes("\0") || !Number.isInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 2 ** 31 - 1 ||
-        !["confirm", "auto-review"].includes(spec.mode) || !spec.workspaceIdentity || input.workspace !== spec.workspace) throw invalid();
+        !["confirm", "auto-review", "full_access"].includes(spec.mode) || !spec.workspaceIdentity || input.workspace !== spec.workspace ||
+        (spec.mode === "full_access" && (input.mounts.length || input.runtimeReadRoots.length || input.toolAliases.length || Object.keys(input.env).length || spec.env !== undefined))) throw invalid();
     const payload = JSON.stringify({ command, workspace: { path: spec.workspace, ...spec.workspaceIdentity } });
     if (Buffer.byteLength(payload) > 4 * 1024 * 1024) throw invalid();
     record = location(directory, ref);

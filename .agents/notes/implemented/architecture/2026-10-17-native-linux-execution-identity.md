@@ -14,6 +14,8 @@ Status: implemented
 
 复用现有平台启动核实，Coding 默认路径不启用认领接点。本片在 `PreparedNativeLaunch` 下层工作，暂不改旧 worker 的 Pi 依赖发现，不新增工具、运行状态副本或操作框架。
 
+本篇关于完全访问尚未接通的限制由[完全访问命令](2026-10-17-personal-full-access-commands.md)取代；受限实现、既有宿主证据与停止协议的决定仍适用。
+
 ## 既有笔记审计
 
 按个人 durable、原生执行、停止核实、服务执行身份检索 active notes。[原生沙箱](../../implemented/architecture/2026-10-10-native-execution-sandbox.md)、[个人原生执行](../../implemented/architecture/2026-10-12-personal-native-sandbox.md)部分重叠，保持原权限和 Coding 路径；[固定检查认领](../../implemented/architecture/2026-10-17-service-inspection-identity.md)提供认领与停止先手参考，但其进程组观察不替代任意命令的 cgroup 证明。没有完全吸收或失效提案。

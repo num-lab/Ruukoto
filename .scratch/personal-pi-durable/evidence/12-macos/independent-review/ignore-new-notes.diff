@@ -1,0 +1,11 @@
+--- /Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-work.ts	2026-10-17 13:37:41
++++ /tmp/ruukoto-notes-independent-xe6ipwur/snapshot/apps/ruukoto/src/personal-work.ts	2026-10-17 13:41:29
+@@ -96,7 +96,7 @@
+             await release(tx, task.input, task.id);
+             return { status: "terminal", outcome: { status: "aborted" } };
+           }
+-          if (settled?.status === "done" && (work.notes?.length ?? 0) > index + 1) { next = true; return undefined; }
++          if (false) { next = true; return undefined; }
+           await release(tx, task.input, task.id);
+           return { status: "terminal", outcome: settled?.status === "done" ? { status: "completed", result: { submissionId: submission.id } } : { status: "failed", error: { message: "子会话未完成回答，后续说明未执行；请查询原输入记录。" }, result: { submissionId: submission.id } } };
+         }, context);

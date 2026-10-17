@@ -10,7 +10,7 @@ Status: implemented
 
 可信宿主通过 `openPersonalHarness().work` 管理后台工作。子 Agent 身份是 ownerless Conversation；每次委派是主会话拥有的 background `ruukoto.background-work` Task，两者通过 `ruukoto.subagents` 索引关联。创建身份、显式配置、登记 Task、来源和占用在同一 durable commit；工作键的 SHA-256 固定内容、来源、目标及名称，同键异参拒绝，重复返回原工作。来源必须是已进入主会话的拥有者原生 input，不接受排队输入或回报。索引只保存身份、关闭事实和占用，不复制 Task 的执行状态。
 
-子会话显式装配 `personal-subagent` 提示、`personal-background-work` 任务扩展和空工具。长期上下文不携带外部执行权限；主会话现有只读服务工具不下放。[模型工作入口](2026-10-17-personal-model-work.md)在相同事务登记上增加来源核实、工作查询与取消/关闭；[宿主菜单](2026-10-17-personal-work-controls.md)提供独立 IM/CLI 控制。追加说明、结果自动外发与外部子工具的权限及未知写入处理仍由总方案推进。
+子会话显式装配 `personal-subagent` 提示、`personal-background-work` 任务扩展和空工具。长期上下文不携带外部执行权限；主会话现有只读服务工具不下放。[模型工作入口](2026-10-17-personal-model-work.md)在相同事务登记上增加来源核实、工作查询与取消/关闭；[宿主菜单](2026-10-17-personal-work-controls.md)提供独立 IM/CLI 控制。[追加说明](2026-10-17-personal-work-notes.md)由原工作逐轮处理；结果自动外发与外部子工具的权限及未知写入处理仍由总方案推进。
 
 工作 Task 用 `personal-work:<taskId>` 经原生 admission 受理，再保存 Submission 引用并等待。admission 不能与宿主登记同 commit；这个窗口依靠原键恢复，不另写一套队列或运行状态。结果和进度直接读 Task/Submission；结果留在原子会话。完成后保留身份和上下文，关闭只保存关闭事实，不删除历史。
 

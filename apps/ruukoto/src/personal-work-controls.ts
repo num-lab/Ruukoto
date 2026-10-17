@@ -1,7 +1,7 @@
 import { defineExtension, type Tx } from "@earendil-works/pi-durable";
 import { PersonalError } from "./personal-error.ts";
 import { telegramSelection } from "./personal-permissions.ts";
-import { closePersonalWorkAgent, listPersonalWorks, PersonalWorkDoc, personalWorkRef, personalWorkResult, personalWorkSummary, requestPersonalWorkCancel, type PersonalWorkSummary, type PersonalWorkRef } from "./personal-work.ts";
+import { appendPersonalWork, closePersonalWorkAgent, listPersonalWorks, PersonalWorkDoc, personalWorkRef, personalWorkResult, personalWorkSummary, requestPersonalWorkCancel, type PersonalWorkSummary, type PersonalWorkRef } from "./personal-work.ts";
 import type { TelegramControlInput, TelegramReceipt } from "./personal-telegram-records.ts";
 
 export const personalWorkControls = defineExtension({ name: "personal-work-controls" });
@@ -9,7 +9,7 @@ const ACTIONS = ["/工作", "更多分析", "刷新分析", "查看结果", "下
 
 export function personalWorkDescription(value: PersonalWorkSummary) {
   const states: Record<string, string> = { pending: "等待执行", running: "执行中", waiting: "等待处理", completing: "正在收尾", completed: "已完成", failed: "未成功完成", aborted: "已取消", faulted: "异常停止，停止尚未核实", orphaned: "执行归属异常，停止尚未核实" };
-  return `${value.label}：${value.content}；${states[value.state] ?? "状态无法核实"}${value.cancelRequested && !value.stopVerified ? "；已请求取消，停止待核实" : ""}${value.stopVerified ? "；停止已核实" : ""}${value.closed ? "；身份已关闭" : ""}`;
+  return `${value.label}：${value.content}；${states[value.state] ?? "状态无法核实"}${value.cancelRequested && !value.stopVerified ? "；已请求取消，停止待核实" : ""}${value.stopVerified ? "；停止已核实" : ""}${value.notes ? `；已接纳 ${value.notes} 条追加说明` : ""}${value.closed ? "；身份已关闭" : ""}`;
 }
 
 async function originalWork(tx: Tx, ref: PersonalWorkRef, value: TelegramControlInput) {
@@ -21,7 +21,7 @@ async function originalWork(tx: Tx, ref: PersonalWorkRef, value: TelegramControl
 // Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-work-controls.md
 export async function telegramWorkControl(tx: Tx, value: TelegramControlInput): Promise<boolean> {
   const choice = /^分析([1-8])$/.exec(value.content);
-  if (!choice && !ACTIONS.includes(value.content)) return false;
+  if (!choice && !ACTIONS.includes(value.content) && !value.content.startsWith("补充：")) return false;
   if (!value.direct) { value.reply = "请由绑定拥有者直接发送 /工作，再回复宿主菜单选择；转发和引用摘录不能控制工作。"; return true; }
   try {
     const menu = value.content === "/工作" ? undefined : (await telegramSelection(tx, value))?.selection;
@@ -35,7 +35,10 @@ export async function telegramWorkControl(tx: Tx, value: TelegramControlInput): 
     if (!ref) { value.reply = "没有改变工作。请发送 /工作，再回复已送达的宿主菜单选择列出的完整动作。"; return true; }
     await originalWork(tx, ref, value);
     value.selection = { kind: "work", ref: { ...ref } };
-    if (value.content === "取消这项分析") {
+    if (value.content.startsWith("补充：")) {
+      await appendPersonalWork(tx, ref, { requestId: value.requestId, content: value.content.slice(3), source: { kind: "telegram" } });
+      value.reply = "原分析已接纳说明，将在当前回答结束后按顺序处理；原权限保持。回复「刷新分析」查询状态。";
+    } else if (value.content === "取消这项分析") {
       await requestPersonalWorkCancel(tx, ref);
       value.reply = "已登记此分析的取消请求；停止仍须核实。回复「刷新分析」查询原工作，身份和历史保留。";
     } else if (value.content === "关闭此身份") {
@@ -50,7 +53,7 @@ export async function telegramWorkControl(tx: Tx, value: TelegramControlInput): 
         if (result.nextOffset !== undefined) value.selection.nextOffset = result.nextOffset;
         value.reply = `原分析结果：\n${result.text || "（无文本内容）"}${result.nextOffset === undefined ? "\n原回答已读完。" : "\n回复本消息选择「下一页结果」继续。"}`;
       }
-    } else value.reply = `${personalWorkDescription(await personalWorkSummary(tx, ref))}。回复本消息选择：刷新分析、查看结果、取消这项分析、关闭此身份。关闭只适用未再复用且空闲的身份。`;
+    } else value.reply = `${personalWorkDescription(await personalWorkSummary(tx, ref))}。回复本消息选择：刷新分析、查看结果、取消这项分析、关闭此身份；追加说明请回复「补充：正文」，在当前回答结束后处理。关闭只适用未再复用且空闲的身份。`;
   } catch (error) {
     if (!(error instanceof PersonalError)) throw error;
     delete value.selection;

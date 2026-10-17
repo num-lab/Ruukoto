@@ -653,6 +653,8 @@ test("子检查：后台 SIGKILL 遗留真实检查进程，恢复不换身份�
   t.after(() => { try { process.kill(pid, "SIGKILL"); } catch (error) { if (!(error instanceof Error && "code" in error && error.code === "ESRCH")) throw error; } });
   const exited = once(backend, "exit"); backend.kill("SIGKILL"); await exited;
   const p = await f.open(); const work = (await p.harness.snapshot(PersonalWorkDoc, "crashed-child", context))!.ref!;
+  // Note: 见 .agents/notes/implemented/testing/2026-10-17-inspection-stop-test-reference.md
+  const inspection = (await p.inspections!.list())[0]; assert.ok(inspection);
   assert.equal((await p.work.status(work)).stopVerified, false);
   const canceled = p.work.cancel(work); void canceled.catch(() => undefined);
   await until(async () => (await p.work.status(work)).cancelRequested);
@@ -660,7 +662,7 @@ test("子检查：后台 SIGKILL 遗留真实检查进程，恢复不换身份�
   assert.equal(await p.answer("独立聊天", "chat"), "完成");
   assert.equal(f.calls().filter(call => call[0] === "inspect-op").length, 1);
   process.kill(pid, "SIGKILL"); await delay(30); fs.rmSync(path.join(f.helper, "inspect-delay-ms"));
-  await p.inspections!.recheckStop((await p.inspections!.list())[0].taskId);
+  await p.inspections!.recheckStop(inspection.taskId);
   assert.equal((await canceled).state.outcome.status, "aborted");
   assert.equal((await p.work.list())[0].work, undefined);
   assert.equal(f.calls().filter(call => call[0] === "inspect-op").length, 1);

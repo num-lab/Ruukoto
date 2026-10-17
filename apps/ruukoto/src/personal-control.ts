@@ -16,6 +16,8 @@ import { appendPersonalWork, PersonalWorkDoc, closePersonalWorkAgent, listPerson
 import { cancelPersonalDelegation, listPersonalDelegations, personalDelegationProgress } from "./personal-delegation.ts";
 import { personalReportResult } from "./personal-report.ts";
 import { listPersonalInspections } from "./personal-inspection-controls.ts";
+import { listPersonalServices, personalServiceDetail, personalServiceRef, parsePersonalServiceResolution, type PersonalServiceResolution } from "./personal-service-controls.ts";
+import { resolvePersonalServiceOperation } from "./personal-service-operations.ts";
 
 import { LocalInputDoc, personalInputDigest } from "./personal-local-records.ts";
 export { LocalInputDoc } from "./personal-local-records.ts";
@@ -34,6 +36,19 @@ function queryNumber(url: URL, key: string, fallback?: number) {
   if (value === null && fallback !== undefined) return fallback;
   if (value === null || !/^(0|[1-9][0-9]*)$/.test(value) || !Number.isSafeInteger(Number(value))) throw new PersonalError("work_input_invalid", "工作查询参数无效，请重新选择原工作。");
   return Number(value);
+}
+
+async function readControlJSON(req: http.IncomingMessage): Promise<unknown> {
+  const chunks: Buffer[] = [];
+  let bytes = 0;
+  for await (const chunk of req) {
+    bytes += chunk.length;
+    if (bytes > MAX_REQUEST) throw new PersonalError("control_request_large", "消息请求过大，请缩短消息后再提交。");
+    chunks.push(Buffer.from(chunk));
+  }
+  try { return JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch (error) {
+    throw new PersonalError("control_request_invalid", "消息请求格式无效，请重新打开向导。", { cause: error });
+  }
 }
 
 export function parsePersonalInput(value: unknown): PersonalInput {
@@ -136,6 +151,16 @@ export async function startPersonalServer(directory: string) {
           const ref = { taskId: queryNumber(url, "inspection") as TaskId, admission: queryNumber(url, "admission") as EntryId };
           await instance.requestInspectionStop(ref);
           result = { requested: true };
+        } else if (req.method === "GET" && url.pathname === "/services") {
+          result = await instance.harness.commit(tx => listPersonalServices(tx, queryNumber(url, "offset", 0)), context);
+        } else if ((req.method === "GET" && url.pathname === "/service") || (req.method === "POST" && ["/service/resolve", "/service/stop"].includes(url.pathname))) {
+          const ref = await instance.harness.commit(tx => personalServiceRef(tx, queryNumber(url, "service") as TaskId), context);
+          if (url.pathname === "/service/stop") { await instance.requestServiceStop(ref); result = { requested: true }; }
+          else if (url.pathname === "/service/resolve") {
+            const resolution = parsePersonalServiceResolution(await readControlJSON(req));
+            await instance.harness.commit(tx => resolvePersonalServiceOperation(tx, ref, resolution.effect, resolution.evidence), context);
+            result = { saved: true };
+          } else result = await instance.harness.commit(tx => personalServiceDetail(tx, ref, queryNumber(url, "offset", 0)), context);
         } else if (req.method === "GET" && url.pathname === "/delegations") {
           result = await instance.harness.commit(tx => listPersonalDelegations(tx, queryNumber(url, "offset", 0)), context);
         } else if ((req.method === "GET" && ["/delegation", "/delegation/report"].includes(url.pathname)) || (req.method === "POST" && url.pathname === "/delegation/cancel")) {
@@ -175,18 +200,7 @@ export async function startPersonalServer(directory: string) {
             return { status: record.status, answer: message.text, truncated: message.truncated } satisfies PersonalInputStatus;
           }, context);
         } else if (req.method === "POST" && ["/inputs", "/work/notes"].includes(url.pathname)) {
-          const chunks: Buffer[] = [];
-          let bytes = 0;
-          for await (const chunk of req) {
-            bytes += chunk.length;
-            if (bytes > MAX_REQUEST) throw new PersonalError("control_request_large", "消息请求过大，请缩短消息后再提交。");
-            chunks.push(Buffer.from(chunk));
-          }
-          let value: unknown;
-          try { value = JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch (error) {
-            throw new PersonalError("control_request_invalid", "消息请求格式无效，请重新打开向导。", { cause: error });
-          }
-          const input = parsePersonalInput(value);
+          const input = parsePersonalInput(await readControlJSON(req));
           if ((url.pathname === "/work/notes") !== (input.work !== undefined)) throw new PersonalError("input_invalid", "追加说明须通过原工作入口提交，请重新打开向导。");
           // JSON 字符串编码保留孤立 UTF-16 代理的区别，直接 UTF-8 哈希会统一替换它们。
           const digest = personalInputDigest(input.input, input.work);
@@ -230,7 +244,7 @@ export async function startPersonalServer(directory: string) {
   }
 }
 
-export async function personalControl<T>(directory: string, method: "GET" | "POST", route: string, value?: PersonalInput): Promise<T> {
+export async function personalControl<T>(directory: string, method: "GET" | "POST", route: string, value?: PersonalInput | PersonalServiceResolution): Promise<T> {
   const token = readPersonalToken(directory);
   return new Promise<T>((resolve, reject) => {
     const req = http.request({ socketPath: path.join(directory, "control.sock"), method, path: route, headers: { authorization: `Bearer ${token}`, "content-type": "application/json", connection: "close" } });

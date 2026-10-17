@@ -2,19 +2,19 @@
 
 ## 职责与边界
 
-`apps/ruukoto/src/personal-*.ts` 提供独立的 Pi 1.3.0 会话、本机引导管理及模型/宿主后台工作入口，只用于隔离验证。正式个人 bin、根启动脚本、开发启动器与部署入口使用[产品装配](products.md)中的共享运行时；本机向导可在 Linux 配置主/子会话只读服务检查，可信宿主 API 也可显式注入；可经隔离向导配对 Telegram 文本私聊，没有模型写工具。可信宿主还可显式启用独立服务操作，Telegram 持有原入口审批、权限快照和精确长期授权。CLI 与 Telegram 宿主菜单可按原检查接纳请求停止重核。
+`apps/ruukoto/src/personal-*.ts` 提供独立的 Pi 1.3.0 会话、本机引导管理及模型/宿主后台工作入口，只用于隔离验证。正式个人 bin、根启动脚本、开发启动器与部署入口使用[产品装配](products.md)中的共享运行时；本机向导可在 Linux 配置主/子会话只读服务检查，可信宿主 API 也可显式注入；可经隔离向导配对 Telegram 文本私聊，没有模型写工具。可信宿主还可显式启用独立服务操作，Telegram 持有原入口审批、权限快照和精确长期授权。CLI 与 Telegram 宿主菜单可按原检查接纳请求停止重核，也可分别保存原服务写入效果核实和请求原写操作停止重核。
 
 ## 对外接口
 
 `openPersonalHarness` 接受独立目录或已持有的 `PersonalProfileLock`、provider 与模型，接管锁的释放责任，返回主会话、Harness、提交、等待回答与关闭方法；可用 `beforeUnlock` 在放锁前收齐管理接口。可选 `service` 接受宿主固定的 helper 配置，安装 `service_inspect` 与 `read_service_inspection`，模型只能指定白名单内精确单元名或本会话的证据编号。返回的 `inspections.list/recheckStop` 供可信宿主查询未决检查与重核停止，不提供强制释放；未取消的活动检查拒绝宿主重核。`requestInspectionStop(ref)` 固定原 Task/接纳引用，仅登记后台重核并返回其 Task ID；它不等待停止。提交键由调用方保持稳定，用于 durable 会话内去重。`parsePersonalModel` 校验模型配置，`personalProvider` 按环境变量名读取凭据。个人 Pi 1.3.0 对象不传给 Coding 的 Pi 0.85.1。
 
-`startPersonalServer` 独占后台，HTTP 仅监听档案内 Unix socket，经本地令牌逐次认证；提供 `/status`、`/messages`、`/inputs`、`/input`、`/telegram`、`/works`、`/work`、`/work/cancel`、`/work/close`、`/work/notes`、`/delegations`、`/delegation`、`/delegation/cancel`、`/delegation/report`、`/inspections`、`/inspection/stop` 和 `/stop`；状态的服务开关只表示能力已装配，不代表 helper 可用或业务健康。`personalControl` 为 CLI 调用；CLI 不重开 Harness。引导与前台托管见[操作手册](../usage.md#25-个人-durable-隔离向导)。
+`startPersonalServer` 独占后台，HTTP 仅监听档案内 Unix socket，经本地令牌逐次认证；提供 `/status`、`/messages`、`/inputs`、`/input`、`/telegram`、`/works`、`/work`、`/work/cancel`、`/work/close`、`/work/notes`、`/delegations`、`/delegation`、`/delegation/cancel`、`/delegation/report`、`/inspections`、`/inspection/stop`、`/services`、`/service`、`/service/resolve`、`/service/stop` 和 `/stop`；状态的服务开关只表示能力已装配，不代表 helper 可用或业务健康。`personalControl` 为 CLI 调用；CLI 不重开 Harness。引导与前台托管见[操作手册](../usage.md#25-个人-durable-隔离向导)。
 
 可信宿主使用返回的 `work.delegate` 委派或复用长期子 Agent，`append` 为当前分析追加说明，`list/status` 查询身份和原生工作进度，`cancel` 等待取消核实，`closeAgent` 关闭空闲身份。首次委派可给名称；已有身份通过具名工作引用管理。来源须引用已进入主会话的拥有者输入请求；同工作键异参拒绝。主会话的 `background_work` 工具支持委派、列身份、分页读结果、追加说明、取消工作及关闭空闲身份；来源与请求键由宿主绑定原生工具和唯一活动输入，模型不能自行提供。CLI 的后台分析菜单直接查询历史、读原结果、请求取消与关闭空闲身份，Telegram 的 `/工作` 只管理原 bot/owner/代次的分析。菜单关闭还核实原工作仍是该身份最新工作。追加在当前回答结束后按接纳顺序处理，结果取最后说明的完整回答；取消或结束后拒绝新说明。配置服务后子会话也有固定检查与本会话证据读取；未配置时为空工具。模型取消只请求取消，后续查询停止结果，不占住主聊天。模型委派同轮归入分析委托，跨轮可指定原委托继续；`background_work` 的 delegations/progress/cancel_delegation 查询和取消整项分析。CLI 的分析委托菜单与 Telegram `/委托` 共用此归属，取消包括分析成员的固定检查并等待停止证明，不包含独立宿主服务写操作。主 Agent 安排好全部分析后通过 report 封组，原生报告 Task 等成员停止后请主会话汇总；report_result、CLI 的完整报告菜单与 Telegram「查看报告」分页查询原报告及送达状态。封组后共用入口拒绝续派和追加；未封组委托可跨轮继续。历史与可信宿主单项分析不自动归组。
 
-`serviceOperations: true` 另启用宿主 `service` API：`request` 以原拥有者输入建立独立后台 restart 工作，`list/status` 查询原生 Task 和操作事实，`decide/cancel/resolve/recheckStop` 决定原审批、取消或核实效果与停止。模式固定于创建，默认自动审查；无有效长期授权时，自动审查与请求确认的服务写入等人工批准，完全访问免逐次审批。此 API 不通过本机 HTTP/CLI 暴露。Telegram 来源强制使用原收件的模式，不能由 API 扩大；其审批只能通过原 Telegram 宿主菜单决定。历史本机可信 API 仍显式提供模式与单次决定，不能冒充 Telegram 来源。
+`serviceOperations: true` 另启用宿主 `service` API：`request` 以原拥有者输入建立独立后台 restart 工作，`list/status` 查询原生 Task 和操作事实，`decide/cancel/resolve/recheckStop` 决定原审批、取消或核实效果与停止。模式固定于创建，默认自动审查；无有效长期授权时，自动审查与请求确认的服务写入等人工批准，完全访问免逐次审批。其中查询、一次性效果核实和独立停止重核通过本机认证菜单提供；发起操作、审批与取消仍由可信宿主持有。Telegram 来源强制使用原收件的模式，不能由 API 扩大；其审批只能通过原 Telegram 宿主菜单决定。历史本机可信 API 仍显式提供模式与单次决定，不能冒充 Telegram 来源。
 
-`telegram` 配置启用固定拥有者文本入口；返回的 `telegram.receive/poll/status` 分别持久接收平台更新、管理可中止轮询、查询连接和最近 16 条收发。后台仅以配对的 bot/私聊拥有者收件，所有输入使用同一 main；普通直发收件保存当时模式/权限版本；`/检查` 选择原检查并请求停止重核；`/权限` 管理以后新 Telegram 输入的模式，`/审批`、`/服务状态` 与 `/授权` 查询和管理服务工作。回复已发送宿主菜单选择动作，不要求输入内部键；控制消息不进入模型，也不等待聊天。服务请求仍需可信宿主 API，模型写工具尚未接入。配置、配对和停用见[操作手册](../usage.md#25-个人-durable-隔离向导)。
+`telegram` 配置启用固定拥有者文本入口；返回的 `telegram.receive/poll/status` 分别持久接收平台更新、管理可中止轮询、查询连接和最近 16 条收发。后台仅以配对的 bot/私聊拥有者收件，所有输入使用同一 main；普通直发收件保存当时模式/权限版本；`/检查` 选择原检查并请求停止重核；`/服务核实` 选择当前原入口服务操作，保存已生效/未生效及证据，或登记原写操作停止重核；`/权限` 管理以后新 Telegram 输入的模式，`/审批`、`/服务状态` 与 `/授权` 查询和管理服务工作。回复已发送宿主菜单选择动作，不要求输入内部键；控制消息不进入模型，也不等待聊天。服务请求仍需可信宿主 API，模型写工具尚未接入。配置、配对和停用见[操作手册](../usage.md#25-个人-durable-隔离向导)。
 
 ## 数据与状态
 
@@ -30,7 +30,7 @@
 
 `model.json` 只保存模型配置与凭据环境变量名，临时文件加 rename 保存；`control.token` 每次启动轮换，`control.sock` 只在后台持锁时清理，`backend.log` 保存后台诊断。`pending-<UUID>.json`（主聊天）与 `pending-work-<UUID>.json`（原分析追加）是客户端发送前独占创建的原键/正文，追加另含原工作引用，独立文件名前缀和接口让旧客户端/后台无法误投主聊天；多个 CLI 不覆盖彼此；核实原 submission 后只删对应文件。它不镜像执行状态，也不授予执行资格。
 
-`ruukoto.service-operations-config` 标记操作能力；`ruukoto.service-operation` 按请求键保存来源、模式、固定操作身份、审批快照、消费、外部效果和停止核实事实。每次操作对应主会话拥有的 background `ruukoto.service-operation` Task，执行状态以 Task 为准。`ruukoto.service-operation-evidence` 保存每次 helper 调用的原始有界字节，结果和证据同 commit；核实记录保留拥有者证据，不覆盖原未知结论。
+`ruukoto.service-operations-config` 标记操作能力；`ruukoto.service-operation` 按请求键保存来源、模式、固定操作身份、审批快照、消费、外部效果和停止核实事实。每次操作对应主会话拥有的 background `ruukoto.service-operation` Task，执行状态以 Task 为准。`ruukoto.service-operation-evidence` 保存每次 helper 调用的原始有界字节，结果和证据同 commit；核实记录保留拥有者证据，不覆盖原未知结论；Telegram 核实与原收件双向回链，说明每页 1200 字符。`personal-service-recovery-controls` 防止旧程序忽略新控制；独立 `ruukoto.service-stop` Task 保存原操作及启动器/机器身份，登记立即返回，最近重核状态与错误码可查询。
 
 `telegram.json` 保存入口版本、随机配置代次、bot/owner、平台接管边界、凭据环境变量及指纹，不含 token。`ruukoto.telegram` 保存当前绑定和诊断水位；`ruukoto.telegram-receipt` 按稳定平台消息键保存原文、固定来源/回复目标、原生 Task/Submission 引用与发送事实。每条消息是主会话拥有的 background Task；429 重试时刻保存在原生 checkpoint，执行状态不另建副本。
 
@@ -76,7 +76,7 @@ Telegram 控制消息按原始完整正文分类，回复关系只定位同 bot/
 
 `personal-analysis-delegations` 阻止旧程序恢复新归属，首次启用前须完成旧未决输入/任务。恢复双向核实委托/成员、原输入、权限、入口、本轮说明及精确模型委派参数；不猜测历史归属。续派、追加及子模型请求检查整项取消，以及全部成员（含终态）的原输入、本轮说明和追加来源的未知服务效果。暂停仍可查询和取消；原入口失效不能跨平台或换代续派。报告后台按暂停记录观察原服务操作或检查 document，等待效果及停止核实，不占主会话。admission 后 provider 门禁发现未知时先持久记录该尝试的暂停证据，再拒绝真实请求；该轮 unanswered 后，仅带证据的原报告可递增尝试号重做只读模型汇总，每次固定键恢复、最终外发身份唯一。普通汇总失败可查且不循环重试；取消/换代/停止未核实阻止后续请求，已领取发送仍保留真实效果。恢复核对模型输入、封组及暂停接纳、Task/Submission/answer、固定正文与发送检查点，缺关系即停止。
 
-服务目标与同一原输入各只允许一个未结束操作；未知效果、停止未核实乃至意外 faulted 终态均保留占用，不允许换键或换目标绕过同来源暂停。其他来源的独立目标与主聊天继续。原输入后来 unanswered 不破坏档案来源身份，但不能再消费未执行的批准。缺操作配置、扩展、版本或来源/Task 双向关系均拒绝调度；已保存的停止证明必须绑定本机、操作及命令单元并带 `launcherExited`，旧 helper 应答不能释放占用。
+服务目标与同一原输入各只允许一个未结束操作；未知效果、停止未核实乃至意外 faulted 终态均保留占用，不允许换键或换目标绕过同来源暂停。效果核实不可覆盖；只有效果与停止均核实才释放占用，核实不恢复长期授权或重发 restart。停止控制接纳及执行只接受已消费且非 started 的未知写操作，不处理审批前检查；执行前复核原入口，结果写回核对原身份，失败不循环重核。本机可管理旧入口，Telegram 仅当前原代次，控制恢复核对菜单、证据、决定和 Task 回链。其他来源的独立目标与主聊天继续。原输入后来 unanswered 不破坏档案来源身份，但不能再消费未执行的批准。缺操作配置、扩展、版本或来源/Task 双向关系均拒绝调度；已保存的停止证明必须绑定本机、操作及命令单元并带 `launcherExited`，旧 helper 应答不能释放占用。
 
 Telegram 数值 offset 只在一批更新收到后 60 秒内用于紧接的一次请求；失败、空批或超期清空，不能把 ID 视为永久单调。配对身份选择同样有 60 秒截止。平台明确确认与配置保存没有跨存储原子性，保存失败需重新配对；凭据变化不沿用旧配置启动。发送回执必须验证平台结果、消息身份和固定目标；原生 fetch 错误及含 token 的 URL 不进入日志。每批最多 16 条更新，HTTP 回执最多 1 MiB，正文最多 16 KiB；平台回复最多 3900 个 Unicode 字符加截断提示，完整回答保存在 durable。
 
@@ -111,3 +111,5 @@ Telegram 数值 offset 只在一批更新收到后 60 秒内用于紧接的一�
 - [子工作逐次绑定固定检查并等待原执行停止](../../.agents/notes/implemented/architecture/2026-10-17-personal-subagent-inspection.md)
 
 - [拥有者按原接纳请求固定检查停止重核](../../.agents/notes/implemented/architecture/2026-10-17-personal-inspection-stop-controls.md)
+
+- [拥有者分别核实服务效果与原写操作停止](../../.agents/notes/implemented/architecture/2026-10-17-personal-service-recovery-controls.md)

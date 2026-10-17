@@ -12,7 +12,7 @@ Status: implemented
 
 消费、开始事实与恢复 checkpoint 同 commit，helper 调用只发生在该 commit 后的当前 invocation。恢复发现开始且无结论，只核实与停止，不重新调用 restart。可信结果和原始证据同 commit；保存失败由 Harness 关闭，重开保留未知。以原生 Task 持有执行状态，document 只记审批、来源、外部效果及停止证据。
 
-未知工作保留目标占用；同一拥有者输入的服务操作串行，同目标的其他来源也不能绕过。其他目标与主聊天继续。拥有者可以核实已生效/未生效并附证据，但必须另有匹配本机/操作/命令单元的停止证明才能结束；取消不能把未知改成未执行。停止仅回收固定命令单元，不撤回 PID 1 已接收的作业。传输、固定 argv、修订和 helper 单次认领沿用[服务 helper](../../implemented/architecture/2026-10-03-service-management-helper.md)。
+[拥有者恢复菜单](2026-10-17-personal-service-recovery-controls.md)提供 CLI/原 Telegram 入口的一次性效果核实与独立停止重核，双事实规则不变。未知工作保留目标占用；同一拥有者输入的服务操作串行，同目标的其他来源也不能绕过。其他目标与主聊天继续。拥有者可以核实已生效/未生效并附证据，但必须另有匹配本机/操作/命令单元的停止证明才能结束；取消不能把未知改成未执行。停止仅回收固定命令单元，不撤回 PID 1 已接收的作业。传输、固定 argv、修订和 helper 单次认领沿用[服务 helper](../../implemented/architecture/2026-10-03-service-management-helper.md)。
 
 仅查命令单元不存在不能证明安全停止：restart helper 可能已经检查停止标记、尚未派发。claim 因此保存受保护的 Linux PID、starttime、进程组和 boot 身份。stop-op 先核实启动器与其进程组结束，再核实命令单元；已发送的跨连接 D-Bus 请求仍可能迟到，因此只有原 `--wait` 成功的持久回执、实际观察到命令单元的回执、跨 boot 或停止先手认领可使后来的 not-found 成为退出证明。回执绑定原操作和启动器身份；活跃、未知或旧 claim 保持未核实。个人端只信显式启动进程退出证明，缺该证明的旧 helper 不能释放目标。
 

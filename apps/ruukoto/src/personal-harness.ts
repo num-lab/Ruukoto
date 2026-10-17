@@ -11,7 +11,7 @@ import { lockPersonalProfile, PERSONAL_FORMAT, type PersonalProfileLock } from "
 import { PersonalServiceDoc, personalServiceConfig, personalServices, personalSubAgentServices } from "./personal-services.ts";
 import type { ServiceManagerConfig } from "./service-helper.ts";
 import { personalWorkNotes, verifyPersonalWorkNotes, PersonalAgentsDoc, personalBackgroundWork, PersonalWorkDoc, personalWork, PersonalWorkTask, personalSubAgent, requirePersonalWorkRequest } from "./personal-work.ts";
-import { PersonalServiceOperationDoc, PersonalServiceOperationsDoc, PersonalServiceGrantsDoc, personalServiceOperations, verifyServiceOperationRecords, verifyServiceGrants } from "./personal-service-operations.ts";
+import { PersonalServiceOperationDoc, PersonalServiceOperationsDoc, PersonalServiceGrantsDoc, personalServiceOperations, verifyServiceOperationRecords, verifyServiceGrants, type PersonalServiceOperationRef } from "./personal-service-operations.ts";
 import { personalTelegram, PersonalTelegramDoc, PersonalTelegramReceiptDoc, verifyPersonalTelegram } from "./personal-telegram.ts";
 import { parsePersonalTelegram, telegramToken, type PersonalTelegramConfig } from "./personal-telegram-config.ts";
 import { PersonalPermissionsDoc, personalPermissions, permissionSnapshot } from "./personal-permissions.ts";
@@ -22,6 +22,8 @@ import { PersonalDelegationDoc, personalAnalysisDelegations, verifyPersonalDeleg
 import { PersonalInspectionDoc, PersonalPendingInspectionsDoc, personalInspectionControl, personalInspectionExtension, recheckServiceInspection, verifyServiceInspections } from "./personal-service-inspection.ts";
 import { personalDelegationReports, personalReportRequest, verifyPersonalReports } from "./personal-report.ts";
 import { personalInspectionControls, telegramInspectionControl, verifyInspectionControls, type PersonalInspectionRef } from "./personal-inspection-controls.ts";
+
+import { personalServiceControls, verifyServiceControls } from "./personal-service-controls.ts";
 
 const context = BACKGROUND_CONTEXT;
 export const PersonalFormatDoc = defineDoc({ kind: "ruukoto.format", scope: "session", version: 1, initial: () => ({ ...PERSONAL_FORMAT }) });
@@ -49,7 +51,8 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     const operations = options.serviceOperations && service ? personalServiceOperations(service.config, () => harness!) : undefined;
     const telegramConfig = options.telegram && parsePersonalTelegram(options.telegram);
     const inspectionControls = personalInspectionControls(service?.config, () => harness!);
-    const telegram = personalTelegram(telegramConfig, telegramConfig?.enabled ? personalTelegramApi(telegramConfig.apiBase, telegramToken(telegramConfig)) : undefined, async (tx, value) => await telegramInspectionControl(tx, value, inspectionControls.request) || !!await operations?.control(tx, value));
+    const serviceControls = personalServiceControls(() => harness!, () => operations?.api(harness!));
+    const telegram = personalTelegram(telegramConfig, telegramConfig?.enabled ? personalTelegramApi(telegramConfig.apiBase, telegramToken(telegramConfig)) : undefined, async (tx, value) => await serviceControls.control(tx, value) || await telegramInspectionControl(tx, value, inspectionControls.request) || !!await operations?.control(tx, value));
     const registry = createRegistry();
     const workTools = personalWorkTools(() => harness!);
     const personal = defineExtension({ name: "personal", sections: [section("personal", () => PERSONAL_PROMPT + (services ? "主会话与子 Agent 均可检查宿主白名单内的服务状态，不代表业务健康。" : "子 Agent 当前没有外部工具。"), { tag: false })] });
@@ -64,6 +67,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     registry.install(personalDelegationReports);
     registry.install(telegram.extension);
     registry.install(inspectionControls.extension);
+    registry.install(serviceControls.extension);
     if (services) { registry.install(services); registry.install(personalInspectionExtension); registry.install(personalSubAgentServices); }
     if (operations) registry.install(operations.extension);
     const record = async (evidence: RequestEvidence) => {
@@ -213,6 +217,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     const delegationsEnabled = Array.isArray(savedMain?.extensions) && savedMain.extensions.includes(personalAnalysisDelegations.name);
     const reportsEnabled = Array.isArray(savedMain?.extensions) && savedMain.extensions.includes(personalDelegationReports.name);
     const childServicesEnabled = Array.isArray(savedMain?.extensions) && savedMain.extensions.includes(personalSubAgentServices.name);
+    const serviceControlsEnabled = Array.isArray(savedMain?.extensions) && savedMain.extensions.includes(serviceControls.extension.name);
     const inspectionControlsEnabled = Array.isArray(savedMain?.extensions) && savedMain.extensions.includes(inspectionControls.extension.name);
     if (savedMain && !modelWorkEnabled && (inspection.tasks.length || inspection.submissions.length)) throw new PersonalError("work_tools_pending", "档案仍有未完成输入或工作，请先用原版本完成处理，再启用模型委派。");
     if (savedMain && !delegationsEnabled && (inspection.tasks.length || inspection.submissions.length)) throw new PersonalError("delegation_config_pending", "档案仍有未完成输入或分析，请先用原版本完成处理，再启用整项委托。");
@@ -234,6 +239,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     }
     await harness.commit(tx => verifyServiceOperationRecords(tx, operationKeys, inspectionKeys), context);
     if (operations) await harness.commit(tx => verifyServiceGrants(tx, operationKeys), context);
+    await harness.commit(tx => verifyServiceControls(tx, telegramKeys, serviceControlsEnabled), context);
     if (savedIndex) await harness.commit(async tx => {
       const index = await tx.doc(PersonalAgentsDoc);
       if (new Set(index.agents.map(agent => agent.id)).size !== index.agents.length || childIds.length !== index.agents.length || childIds.some(id => !index.agents.some(agent => agent.id === id))) throw new PersonalError("work_index_missing", "长期子会话与身份索引不符，已停止恢复；请保留档案并检查存储。");
@@ -277,7 +283,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     await harness.commit(tx => verifyPersonalReports(tx, delegationKeys, reportsEnabled), context);
     await harness.commit(async tx => { for (const key of telegramKeys) await verifyDelegationMenu(tx, (await tx.doc(PersonalTelegramReceiptDoc, key, null)).receipt!, delegationsEnabled); }, context);
     await harness.commit(tx => tx.doc(PersonalFormatDoc), context);
-    const extensions = [personal, personalPermissions, personalBackgroundWork, workTools, personalWorkControls, personalWorkNotes, personalAnalysisDelegations, personalDelegationReports, telegram.extension, inspectionControls.extension, ...(services ? [services, personalInspectionExtension, personalSubAgentServices] : []), ...(operations ? [operations.extension] : [])];
+    const extensions = [personal, personalPermissions, personalBackgroundWork, workTools, personalWorkControls, personalWorkNotes, personalAnalysisDelegations, personalDelegationReports, telegram.extension, inspectionControls.extension, serviceControls.extension, ...(services ? [services, personalInspectionExtension, personalSubAgentServices] : []), ...(operations ? [operations.extension] : [])];
     const tools = [...(services?.tools ?? []), ...workTools.tools!];
     if (service) await harness.commit(async tx => { (await tx.doc(PersonalServiceDoc)).fingerprint = service.fingerprint; }, context);
     const main = await harness.root(context, { agent: { model: { provider: options.provider.id, modelId: options.modelId }, thinkingLevel: "off", extensions, tools }, init: async tx => { await tx.doc(PersonalAgentsDoc); await tx.doc(PersonalPermissionsDoc); if (operations) { await tx.doc(PersonalServiceOperationsDoc); await tx.doc(PersonalServiceGrantsDoc); } } });
@@ -311,6 +317,11 @@ export async function openPersonalHarness(options: ({ directory: string; profile
       work: personalWork(instance, { provider: options.provider.id, modelId: options.modelId }),
       service: operations?.api(instance),
       inspections: service && personalInspectionControl(instance, service.config),
+      async requestServiceStop(ref: PersonalServiceOperationRef) {
+        const id = await instance.commit(tx => serviceControls.request(tx, ref), context);
+        instance.resume();
+        return id;
+      },
       async requestInspectionStop(ref: PersonalInspectionRef) {
         const id = await instance.commit(tx => inspectionControls.request(tx, ref), context);
         instance.resume();

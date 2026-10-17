@@ -1,0 +1,7 @@
+{
+  "timestamp": "2026-10-17T09:07:16.508716+00:00",
+  "path": "test/personal-service-operations.test.ts",
+  "previous_sha256": "a8cd0bbec82c7c4a0d9f619bfecf1190936af70165808ebb8981bda9e84848a4",
+  "final_sha256": "0c5e8f525358db7f1894f0083736f450a12e9205d0d2ee8c0d877f17ab9c2bf6",
+  "reason": "原verify和显式重核两条stop-op证据都提交后再切换假helper，消除旧活调用取得可信证明的合法窗口；断言保留。"
+}

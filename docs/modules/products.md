@@ -38,7 +38,7 @@
 
 **构建。**
 
-- 根构建生成共享 `worker/worker.mjs` 和个人自包含 `worker/personal-command-worker.mjs`，再为两个 app 分别生成含 bin、源码和依赖声明的 npm 包；个人命令产物不依赖 Pi SDK，尚未接模型工具。
+- 根构建生成共享 `worker/worker.mjs` 和个人自包含 `worker/personal-command-worker.mjs`，再为两个 app 分别生成含 bin、源码和依赖声明的 npm 包；个人命令产物不依赖 Pi SDK，宿主执行适配保存原始双流和可恢复回执，尚未接模型工具。
 - app 包使用同仓共享依赖与 worker 产物；部署需要完整 workspace 安装与宿主工具链。
 
 ## 不变量与失败处理

@@ -1,0 +1,234 @@
+{
+  "passed": true,
+  "cases": 7,
+  "results": [
+    {
+      "name": "binary-nonzero",
+      "completed": {
+        "receipt": {
+          "version": 1,
+          "ref": {
+            "executionId": "native_fbe752a59a3a7ddb129c7507",
+            "machineId": "fd410411419d40079742fdbc36dec028"
+          },
+          "fingerprint": "34987d4aaa783fd197be3b87b6dc8470da2b6b6296293b2439631aa6f06245fa",
+          "exit": {
+            "code": 37,
+            "signal": null
+          },
+          "stdout": {
+            "bytes": 3,
+            "sha256": "a90a10503fbfc95789ff38a1bb5039cb71869ab9c0eb1cb51c4a9099f2933c6b"
+          },
+          "stderr": {
+            "bytes": 3,
+            "sha256": "4dfc021240021bea63b65af3916794292a336af411ede0b30e5e05566038381f"
+          }
+        },
+        "ref": {
+          "executionId": "native_fbe752a59a3a7ddb129c7507",
+          "machineId": "fd410411419d40079742fdbc36dec028"
+        },
+        "exited": true,
+        "cleaned": true
+      },
+      "repeated": {
+        "failure": {
+          "name": "PersonalError",
+          "code": "command_already_claimed",
+          "message": "原命令已登记，请查询原回执与停止状态，勿重新执行。"
+        }
+      }
+    },
+    {
+      "name": "large-output",
+      "completed": {
+        "receipt": {
+          "version": 1,
+          "ref": {
+            "executionId": "native_596cf09a99ebe1bd71504279",
+            "machineId": "fd410411419d40079742fdbc36dec028"
+          },
+          "fingerprint": "41b3b71865667057dd3a10cc8c4d17c864981a068d33f2f0cfdad9f4e5f22ee0",
+          "exit": {
+            "code": 0,
+            "signal": null
+          },
+          "stdout": {
+            "bytes": 2097152,
+            "sha256": "91d3beb88a9b2f778a6c44a1c53b63d3c79931845a9aef84b3fb414610bd1938"
+          },
+          "stderr": {
+            "bytes": 1048576,
+            "sha256": "eaeaa7acca0afcaee85d7abae4d8e5033652991ea19df161cc90ceec2803342c"
+          }
+        },
+        "ref": {
+          "executionId": "native_596cf09a99ebe1bd71504279",
+          "machineId": "fd410411419d40079742fdbc36dec028"
+        },
+        "exited": true,
+        "cleaned": true
+      }
+    },
+    {
+      "name": "timeout-descendant",
+      "child": {
+        "pid": 10,
+        "sid": 10,
+        "pgid": 10
+      },
+      "outcome": {
+        "failure": {
+          "name": "PersonalError",
+          "code": "command_result_unknown",
+          "message": "原命令没有完整宿主回执，效果待核实；请保留原工作，勿重新执行。"
+        }
+      },
+      "stop": {
+        "ref": {
+          "executionId": "native_78edfadf958d8c053c9871be",
+          "machineId": "fd410411419d40079742fdbc36dec028"
+        },
+        "exited": true,
+        "cleaned": true
+      },
+      "heartbeatBytes": 350,
+      "heartbeatFrozenForMs": 250
+    },
+    {
+      "name": "cancel-descendant",
+      "child": {
+        "pid": 10,
+        "sid": 10,
+        "pgid": 10
+      },
+      "outcome": {
+        "failure": {
+          "name": "PersonalError",
+          "code": "command_result_unknown",
+          "message": "原命令没有完整宿主回执，效果待核实；请保留原工作，勿重新执行。"
+        }
+      },
+      "stop": {
+        "ref": {
+          "executionId": "native_34f5591023ee951f6643fbb4",
+          "machineId": "fd410411419d40079742fdbc36dec028"
+        },
+        "exited": true,
+        "cleaned": true
+      },
+      "heartbeatBytes": 30,
+      "heartbeatFrozenForMs": 250
+    },
+    {
+      "name": "independent-stop-descendant",
+      "child": {
+        "pid": 10,
+        "sid": 10,
+        "pgid": 10
+      },
+      "outcome": {
+        "failure": {
+          "name": "PersonalError",
+          "code": "command_result_unknown",
+          "message": "原命令没有完整宿主回执，效果待核实；请保留原工作，勿重新执行。"
+        }
+      },
+      "independentStop": {
+        "ref": {
+          "executionId": "native_2230cd3a41d05b827f29ec43",
+          "machineId": "fd410411419d40079742fdbc36dec028"
+        },
+        "exited": true,
+        "cleaned": true
+      },
+      "stop": {
+        "ref": {
+          "executionId": "native_2230cd3a41d05b827f29ec43",
+          "machineId": "fd410411419d40079742fdbc36dec028"
+        },
+        "exited": true,
+        "cleaned": true
+      },
+      "heartbeatBytes": 40,
+      "heartbeatFrozenForMs": 250
+    },
+    {
+      "name": "owner-sigkill",
+      "ownerExit": {
+        "code": null,
+        "signal": "SIGKILL"
+      },
+      "child": {
+        "pid": 10,
+        "sid": 10,
+        "pgid": 10
+      },
+      "repeated": {
+        "failure": {
+          "name": "PersonalError",
+          "code": "command_already_claimed",
+          "message": "原命令已登记，请查询原回执与停止状态，勿重新执行。"
+        }
+      },
+      "stop": {
+        "ref": {
+          "executionId": "native_2ed752911161b9bb3da46f76",
+          "machineId": "fd410411419d40079742fdbc36dec028"
+        },
+        "exited": true,
+        "cleaned": true
+      },
+      "temp": {
+        "path": "/tmp/ruukoto-native-iYBQFE",
+        "dev": 64770,
+        "ino": 426565
+      },
+      "replacementPreserved": false,
+      "heartbeatBytes": 25,
+      "heartbeatFrozenForMs": 250,
+      "stderr": ""
+    },
+    {
+      "name": "owner-sigkill-temp-replaced",
+      "ownerExit": {
+        "code": null,
+        "signal": "SIGKILL"
+      },
+      "child": {
+        "pid": 10,
+        "sid": 10,
+        "pgid": 10
+      },
+      "repeated": {
+        "failure": {
+          "name": "PersonalError",
+          "code": "command_already_claimed",
+          "message": "原命令已登记，请查询原回执与停止状态，勿重新执行。"
+        }
+      },
+      "stop": {
+        "ref": {
+          "executionId": "native_35b793b2028749712ab2d048",
+          "machineId": "fd410411419d40079742fdbc36dec028"
+        },
+        "exited": true,
+        "cleaned": false
+      },
+      "temp": {
+        "path": "/tmp/ruukoto-native-u9RvPm",
+        "dev": 64770,
+        "ino": 426570
+      },
+      "replacementPreserved": true,
+      "heartbeatBytes": 25,
+      "heartbeatFrozenForMs": 250,
+      "stderr": ""
+    }
+  ],
+  "limitations": [
+    "不覆盖 durable 工具、权限、审批、工作暂停或占用",
+    "不覆盖完全访问、MCP、真实模型、IM 或生产部署"
+  ]
+}

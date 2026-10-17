@@ -1,0 +1,258 @@
+{
+  "allBackendsExited": true,
+  "noFixtureDirsRemain": true,
+  "checks": [
+    {
+      "tag": "matrix",
+      "pid": 36767,
+      "exit": 0,
+      "absent": true
+    },
+    {
+      "tag": "matrix",
+      "pid": 36859,
+      "exit": 0,
+      "absent": true
+    },
+    {
+      "tag": "matrix",
+      "pid": 36905,
+      "exit": 0,
+      "absent": true
+    },
+    {
+      "tag": "matrix",
+      "pid": 36985,
+      "exit": 0,
+      "absent": true
+    },
+    {
+      "tag": "matrix",
+      "pid": 37039,
+      "exit": 0,
+      "absent": true
+    },
+    {
+      "tag": "matrix",
+      "pid": 37114,
+      "exit": 0,
+      "absent": true
+    },
+    {
+      "tag": "matrix",
+      "pid": 37149,
+      "exit": 0,
+      "absent": true
+    },
+    {
+      "tag": "matrix",
+      "pid": 37244,
+      "exit": 0,
+      "absent": true
+    },
+    {
+      "tag": "matrix",
+      "pid": 37299,
+      "exit": 0,
+      "absent": true
+    },
+    {
+      "tag": "matrix",
+      "pid": 37359,
+      "exit": 0,
+      "absent": true
+    },
+    {
+      "tag": "matrix",
+      "pid": 37426,
+      "exit": 0,
+      "absent": true
+    },
+    {
+      "tag": "matrix",
+      "pid": 37486,
+      "exit": 0,
+      "absent": true
+    },
+    {
+      "tag": "matrix",
+      "pid": 37565,
+      "exit": 0,
+      "absent": true
+    },
+    {
+      "tag": "matrix",
+      "pid": 37658,
+      "exit": 0,
+      "absent": true
+    },
+    {
+      "tag": "matrix",
+      "pid": 37726,
+      "exit": 0,
+      "absent": true
+    },
+    {
+      "tag": "matrix",
+      "pid": 37787,
+      "exit": 0,
+      "absent": true
+    },
+    {
+      "tag": "matrix",
+      "pid": 37858,
+      "exit": 0,
+      "absent": true
+    },
+    {
+      "tag": "matrix",
+      "pid": 37920,
+      "exit": 0,
+      "absent": true
+    },
+    {
+      "tag": "matrix",
+      "pid": 37994,
+      "exit": 0,
+      "absent": true
+    },
+    {
+      "tag": "matrix",
+      "pid": 38071,
+      "exit": 0,
+      "absent": true
+    },
+    {
+      "tag": "matrix",
+      "pid": 38135,
+      "exit": 0,
+      "absent": true
+    },
+    {
+      "tag": "matrix",
+      "pid": 38193,
+      "exit": 0,
+      "absent": true
+    },
+    {
+      "tag": "matrix",
+      "pid": 38297,
+      "exit": 0,
+      "absent": true
+    },
+    {
+      "tag": "matrix",
+      "pid": 38353,
+      "exit": 0,
+      "absent": true
+    },
+    {
+      "tag": "matrix",
+      "pid": 38422,
+      "exit": 0,
+      "absent": true
+    },
+    {
+      "tag": "matrix",
+      "pid": 38486,
+      "exit": 0,
+      "absent": true
+    },
+    {
+      "tag": "matrix",
+      "pid": 38562,
+      "exit": 0,
+      "absent": true
+    },
+    {
+      "tag": "matrix",
+      "pid": 38633,
+      "exit": 0,
+      "absent": true
+    },
+    {
+      "tag": "matrix",
+      "pid": 38705,
+      "exit": 0,
+      "absent": true
+    },
+    {
+      "tag": "matrix",
+      "pid": 38771,
+      "exit": 0,
+      "absent": true
+    },
+    {
+      "tag": "matrix",
+      "pid": 38834,
+      "exit": 0,
+      "absent": true
+    },
+    {
+      "tag": "matrix",
+      "pid": 38932,
+      "exit": 0,
+      "absent": true
+    },
+    {
+      "tag": "matrix",
+      "pid": 39001,
+      "exit": 0,
+      "absent": true
+    },
+    {
+      "tag": "matrix",
+      "pid": 39067,
+      "exit": 0,
+      "absent": true
+    },
+    {
+      "tag": "matrix",
+      "pid": 39160,
+      "exit": 0,
+      "absent": true
+    },
+    {
+      "tag": "matrix",
+      "pid": 39227,
+      "exit": 0,
+      "absent": true
+    },
+    {
+      "tag": "deep",
+      "pid": 41391,
+      "exit": 0,
+      "absent": true
+    },
+    {
+      "tag": "deep",
+      "pid": 41483,
+      "exit": 0,
+      "absent": true
+    },
+    {
+      "tag": "deep",
+      "pid": 41548,
+      "exit": 0,
+      "absent": true
+    },
+    {
+      "tag": "deep",
+      "pid": 41632,
+      "exit": 0,
+      "absent": true
+    },
+    {
+      "tag": "dir",
+      "pid": 43371,
+      "exit": 0,
+      "absent": true
+    },
+    {
+      "tag": "dir",
+      "pid": 43459,
+      "exit": 0,
+      "absent": true
+    }
+  ]
+}

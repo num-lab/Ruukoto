@@ -14,7 +14,7 @@ Status: implemented
 
 持久会话、输入、回答和请求证据只写 `personal.sqlite`。恢复调度之前先核实业务格式、所有会话的扩展引用与版本，再核实 live Task 定义版本。主会话模型在空闲时显式更新；仍有未完成工作时换模型拒绝恢复，避免把旧请求悄悄交给另一模型。首次初始化留下不完整数据库时同样拒绝，保留现场并另选空目录，不猜测缺失状态。
 
-在 provider 边界先提交规范化输入，再在实际 API 的 `onPayload` 中提交最终请求体；两条 entry 以同一个请求键关联，保留原有 payload 改写。记录失败使 provider 的调用或 HTTP 请求不发生，不依赖 hook 的异常语义。请求体不含认证头，凭据仍经环境变量解析。持久化失败由 durable 关闭 Harness，结束后释放实例锁，不在宿主循环自动重开。
+在 provider 边界先提交规范化输入，再在实际 API 的 `onPayload` 中提交最终请求体；两条 entry 以同一个请求键关联，保留原有 payload 改写。[后台工作](2026-10-17-personal-background-work.md)通过持久 ProviderDoc.sessionId 将证据写入实际调用会话，不把子请求混入主会话。记录失败使 provider 的调用或 HTTP 请求不发生，不依赖 hook 的异常语义。请求体不含认证头，凭据仍经环境变量解析。持久化失败由 durable 关闭 Harness，结束后释放实例锁，不在宿主循环自动重开。
 
 ## 既有笔记审计
 

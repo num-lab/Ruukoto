@@ -2,7 +2,7 @@ import * as path from "node:path";
 import { closeSync, existsSync, openSync } from "node:fs";
 import { isDeepStrictEqual } from "node:util";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { AgentDoc, AssistantEntry, createRegistry, defineDoc, defineExtension, Harness, ROOT_CONVERSATION_ID, section, type Cursor, type Storage } from "@earendil-works/pi-durable";
+import { AgentDoc, AssistantEntry, configure, createRegistry, defineDoc, defineExtension, Harness, ProviderDoc, ROOT_CONVERSATION_ID, section, type ConversationId, type Cursor, type Storage } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import type { Provider } from "@earendil-works/pi-ai/models";
 import { PersonalError } from "./personal-error.ts";
@@ -10,6 +10,7 @@ import { recordedModels, type RequestEvidence } from "./personal-model.ts";
 import { lockPersonalProfile, PERSONAL_FORMAT, type PersonalProfileLock } from "./personal-profile.ts";
 import { PersonalServiceDoc, personalServiceConfig, personalServices } from "./personal-services.ts";
 import type { ServiceManagerConfig } from "./service-helper.ts";
+import { PersonalAgentsDoc, personalBackgroundWork, PersonalWorkDoc, personalWork, PersonalWorkTask, personalSubAgent, requirePersonalWorkRequest } from "./personal-work.ts";
 
 const context = BACKGROUND_CONTEXT;
 export const PersonalFormatDoc = defineDoc({ kind: "ruukoto.format", scope: "session", version: 1, initial: () => ({ ...PERSONAL_FORMAT }) });
@@ -34,10 +35,28 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     const registry = createRegistry();
     const personal = defineExtension({ name: "personal", sections: [section("personal", () => services ? "你是拥有者的个人助手。根据已有对话回答；服务检查只提供观察状态，需要管理服务时说明尚不可用。" : PERSONAL_PROMPT, { tag: false })] });
     registry.install(personal);
+    registry.install(personalBackgroundWork);
+    registry.install(personalSubAgent);
     if (services) registry.install(services);
     const record = async (evidence: RequestEvidence) => {
       if (!harness) throw new PersonalError("model_source_missing", "模型请求缺少已打开的个人会话，已停止请求。");
-      await harness.commit(tx => tx.appendEntry(ROOT_CONVERSATION_ID, { kind: "ruukoto.model-request", data: evidence }), context);
+      let target: ConversationId | undefined;
+      let cursor: Cursor | undefined;
+      do {
+        const page = await harness.commit(tx => tx.scanConversations({}, 256, cursor), context);
+        for (const conversation of page.items) {
+          if ((await harness.snapshot(ProviderDoc, conversation.id, context))?.sessionId !== evidence.sessionId) continue;
+          if (target !== undefined) throw new PersonalError("model_source_ambiguous", "模型请求的会话来源不唯一，已停止请求；请保留档案并检查存储。");
+          target = conversation.id;
+        }
+        cursor = page.next;
+      } while (cursor);
+      if (target === undefined) throw new PersonalError("model_source_missing", "模型请求的会话来源缺失，已停止请求；请保留档案并检查存储。");
+      const conversationId = target;
+      await harness.commit(async tx => {
+        await requirePersonalWorkRequest(tx, conversationId);
+        await tx.appendEntry(conversationId, { kind: "ruukoto.model-request", data: evidence });
+      }, context);
     };
     const filename = path.join(lock.directory, "personal.sqlite");
     const existing = existsSync(filename);
@@ -55,6 +74,8 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     }
     let cursor: Cursor | undefined;
     let serviceConversation = false;
+    let workConversation = false;
+    const childIds: ConversationId[] = [];
     do {
       const page = await storage.scanConversations({}, 256, cursor, context);
       for (const conversation of page.items) {
@@ -65,10 +86,26 @@ export async function openPersonalHarness(options: ({ directory: string; profile
           throw new PersonalError("extension_missing", "会话依赖的个人扩展缺失，已停止恢复，请使用与档案对应的程序。");
         }
         if (extensions.includes("personal-service-inspect")) serviceConversation = true;
+        if (extensions.includes(personalBackgroundWork.name) || extensions.includes(personalSubAgent.name)) workConversation = true;
+        if (extensions.includes(personalSubAgent.name)) childIds.push(conversation.id);
       }
       cursor = page.next;
     } while (cursor);
     if (serviceConversation && !savedService) throw new PersonalError("service_config_missing", "会话依赖的服务检查配置记录缺失，已停止恢复；请保留档案并检查存储。");
+    const indexRecord = await storage.findDocument({ kind: PersonalAgentsDoc.definition.kind, scope: { kind: "session" } }, "current", context);
+    const savedIndex = indexRecord && await storage.document(indexRecord.id, "current", context);
+    const workKeys: string[] = [];
+    do {
+      const page = await storage.scanDocuments({ kind: PersonalWorkDoc.definition.kind, scope: { kind: "session" }, at: "current" }, 256, cursor, context);
+      for (const record of page.items) {
+        const saved = await storage.document(record.id, "current", context);
+        if (!saved || saved.version !== PersonalWorkDoc.definition.version || record.key === undefined) throw new PersonalError("work_version", "后台工作记录版本不受支持，已停止恢复；请使用对应版本。");
+        workKeys.push(record.key);
+      }
+      cursor = page.next;
+    } while (cursor);
+    if ((workConversation || workKeys.length) && !savedIndex) throw new PersonalError("work_index_missing", "后台工作的身份索引缺失，已停止恢复；请保留档案并检查存储。");
+    if (savedIndex && savedIndex.version !== PersonalAgentsDoc.definition.version) throw new PersonalError("work_version", "子 Agent 索引版本不受支持，已停止恢复；请使用对应版本。");
     harness = await Harness.open(storage, { models: recordedModels(options.provider, record), registry, onReport: () => process.stderr.write("[ruukoto:personal] 持久执行出现错误，请查询状态并检查档案；未自动重启。\n") }, context);
     // Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-local-management.md
     unlocked = harness.closed.then(async () => { if (options.beforeUnlock) await options.beforeUnlock(); lock.release(); });
@@ -76,22 +113,60 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     const inspection = await harness.inspect(context);
     if (inspection.tasks.some(task => task.state.kind === "blocked" || registry.snapshot().task(task.record.kind)?.definition.version !== task.record.version)) throw new PersonalError("task_version", "档案中有当前程序无法恢复的任务，已停止恢复，请使用对应版本。");
     if (service && !savedService && (inspection.tasks.length || inspection.submissions.length)) throw new PersonalError("service_config_pending", "个人档案仍有未完成输入，请先用原空工具配置完成处理，再启用服务检查。");
+    if (savedIndex) await harness.commit(async tx => {
+      const index = await tx.doc(PersonalAgentsDoc);
+      if (new Set(index.agents.map(agent => agent.id)).size !== index.agents.length || childIds.length !== index.agents.length || childIds.some(id => !index.agents.some(agent => agent.id === id))) throw new PersonalError("work_index_missing", "长期子会话与身份索引不符，已停止恢复；请保留档案并检查存储。");
+      for (const key of workKeys) {
+        const work = await tx.doc(PersonalWorkDoc, key, null);
+        const task = work.ref && await tx.task(work.ref.taskId);
+        if (!work.ref || !work.source || !task || task.kind !== PersonalWorkTask.definition.name || !index.agents.some(agent => agent.id === work.ref?.agentId)) throw new PersonalError("work_record_missing", "后台工作的来源、执行或身份记录缺失，已停止恢复；请检查档案。");
+        const input = task.input;
+        if (work.ref.requestId !== key || task.version !== PersonalWorkTask.definition.version || task.conversationId !== ROOT_CONVERSATION_ID || !task.background || task.owner !== undefined || !input || typeof input !== "object" || Array.isArray(input) || input.requestId !== key || input.agentId !== work.ref.agentId || typeof input.content !== "string") throw new PersonalError("work_ownership", "后台工作与原生执行的归属不符，已停止恢复；请检查档案。");
+        const source = await tx.submissionByRequest(ROOT_CONVERSATION_ID, work.source.requestId);
+        if (source?.id !== work.source.submissionId || source.entry !== work.source.entryId || (await tx.entry(work.source.entryId))?.kind !== "pi.user") throw new PersonalError("work_record_missing", "后台工作的拥有者来源无法核实，已停止恢复；请检查档案。");
+        if (work.submissionId !== undefined && (await tx.submissionByRequest(work.ref.agentId, `personal-work:${task.id}`))?.id !== work.submissionId) throw new PersonalError("work_record_missing", "后台工作引用的原输入缺失，已停止恢复；请保留档案并检查存储。");
+        if (task.state.status !== "terminal" && !index.agents.some(agent => agent.id === work.ref?.agentId && agent.work?.taskId === task.id)) throw new PersonalError("work_ownership", "未结束工作的占用记录缺失，已停止恢复；请检查档案。");
+      }
+      for (const { record } of inspection.tasks) if (record.kind === PersonalWorkTask.definition.name && !index.agents.some(agent => agent.work?.taskId === record.id)) throw new PersonalError("work_ownership", "后台执行缺少身份占用，已停止恢复；请检查档案。");
+      for (const agent of index.agents) {
+        if (!await tx.conversation(agent.id)) throw new PersonalError("work_agent_missing", "长期子会话缺失，已停止恢复；请保留档案。");
+        const config = await tx.doc(AgentDoc, agent.id);
+        if (!Array.isArray(config.tools) || config.tools.length !== 0 || !Array.isArray(config.extensions) || config.extensions.length !== 2 || !config.extensions.includes(personalSubAgent.name) || !config.extensions.includes(personalBackgroundWork.name)) throw new PersonalError("work_config_changed", "子 Agent 的空工具配置无法核实，已停止恢复；请检查档案。");
+        if (!agent.work) continue;
+        const work = await tx.doc(PersonalWorkDoc, agent.work.requestId, null);
+        const task = await tx.task(agent.work.taskId);
+        if (!work.ref || work.ref.taskId !== agent.work.taskId || work.ref.agentId !== agent.id || !task || task.state.status === "terminal") throw new PersonalError("work_ownership", "子 Agent 的工作占用无法核实，已停止恢复；请检查原工作和档案。");
+      }
+    }, context);
     await harness.commit(tx => tx.doc(PersonalFormatDoc), context);
-    const extensions = services ? [personal, services] : [personal];
+    const extensions = services ? [personal, personalBackgroundWork, services] : [personal, personalBackgroundWork];
     const tools = services?.tools ?? [];
     if (service) await harness.commit(async tx => { (await tx.doc(PersonalServiceDoc)).fingerprint = service.fingerprint; }, context);
     const main = await harness.root(context, { agent: { model: { provider: options.provider.id, modelId: options.modelId }, thinkingLevel: "off", extensions, tools } });
     const agent = await main.agent(context);
-    if (services && !agent.extensions.some(extension => extension.name === services.name)) await main.configure({ extensions, tools }, context);
+    if (!savedIndex && (inspection.tasks.length || inspection.submissions.length)) throw new PersonalError("work_config_pending", "个人档案仍有未完成输入，请先用原版本完成处理后再启用后台工作。");
+    await harness.commit(async tx => {
+      await tx.doc(PersonalAgentsDoc);
+      if (!agent.extensions.some(extension => extension.name === personalBackgroundWork.name) || (services && !agent.extensions.some(extension => extension.name === services.name))) await configure(tx, main.id, { extensions, tools });
+    }, context);
     if (agent.model?.provider !== options.provider.id || agent.model.modelId !== options.modelId) {
       if (inspection.tasks.length || inspection.submissions.length) throw new PersonalError("model_changed_pending", "个人档案仍有未完成输入，模型已变更；请恢复原模型完成处理后再切换。");
       await main.configure({ model: { provider: options.provider.id, modelId: options.modelId } }, context);
+    }
+    for (const child of (await harness.snapshot(PersonalAgentsDoc, context))!.agents) {
+      const conversation = (await harness.conversation(child.id, context))!;
+      const childAgent = await conversation.agent(context);
+      if (childAgent.model?.provider !== options.provider.id || childAgent.model.modelId !== options.modelId) {
+        if (inspection.tasks.length || inspection.submissions.length) throw new PersonalError("model_changed_pending", "个人档案仍有未完成工作，模型已变更；请恢复原模型后再切换。");
+        await conversation.configure({ model: { provider: options.provider.id, modelId: options.modelId } }, context);
+      }
     }
     const instance = harness;
     instance.resume();
     return {
       harness: instance,
       main,
+      work: personalWork(instance, { provider: options.provider.id, modelId: options.modelId }),
       async submit(input: string, requestId: string) {
         return main.submit({ type: "input", content: input, requestId, whenBusy: "followUp" }, context);
       },

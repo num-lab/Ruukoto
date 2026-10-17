@@ -6,7 +6,7 @@
 
 ## 对外接口
 
-`personal-command-worker.ts` 是仅依赖 Node 内置模块的单次命令入口，构建为 `worker/personal-command-worker.mjs`；宿主按[执行边界](execution.md)准备显式空依赖和持久执行引用，启动返回并接好输出后提交一份有界 JSON 并关闭 stdin。它没有模型工具或向导入口，权限、操作回执、未知暂停与工作占用尚未接入，不能据此开放个人命令能力。
+`personal-command-worker.ts` 构建为自包含的 `worker/personal-command-worker.mjs`。可信宿主按[执行边界](execution.md)准备空依赖输入，以预先保存的原引用调用 `runPersonalCommand`；`readPersonalCommandReceipt` 校验并读取原回执，`stopPersonalCommand` 无内存句柄也按原引用停止。适配只支持 Linux 受限执行；没有模型工具或向导入口，durable 权限、未知暂停与工作占用尚未接入，不能据此开放个人命令能力。
 
 `openPersonalHarness` 接受独立目录或已持有的 `PersonalProfileLock`、provider 与模型，接管锁的释放责任，返回主会话、Harness、提交、等待回答与关闭方法；可用 `beforeUnlock` 在放锁前收齐管理接口。可选 `service` 接受宿主固定的 helper 配置，安装 `service_inspect` 与 `read_service_inspection`，模型只能指定白名单内精确单元名或本会话的证据编号。返回的 `inspections.list/recheckStop` 供可信宿主查询未决检查与重核停止，不提供强制释放；未取消的活动检查拒绝宿主重核。`requestInspectionStop(ref)` 固定原 Task/接纳引用，仅登记后台重核并返回其 Task ID；它不等待停止。提交键由调用方保持稳定，用于 durable 会话内去重。`parsePersonalModel` 校验模型配置，`personalProvider` 按环境变量名读取凭据。个人 Pi 1.3.0 对象不传给 Coding 的 Pi 0.85.1。
 
@@ -39,6 +39,8 @@
 主会话登记 `personal-telegram-permissions` 扩展，旧程序缺该扩展时拒绝恢复；`ruukoto.permissions` 保存新 Telegram 输入的模式与版本；`ruukoto.service-grants` 保存精确服务授权、原决定/操作、行版本及失效原因。控制收件保存已接受的结构化决定与授权关联，恢复时双向核实；授权只由原 pending 审批明确创建，完全访问不会自动创建授权。
 
 ## 主要流程
+
+单次命令先在独立私有证据目录认领原引用与临时目录，保存完整启动指纹后 launch；启动返回并接好双流消费才提交 stdin。原始 stdout/stderr 完整落盘并观察正常退出后原子发布回执，记录长度、哈希和退出观察；退出码及 stderr 不解释为业务效果或未执行。取消、超时、独立停止或写入失败不发布完成回执，已捕获部分保留；恢复只查询原回执与停止，不重跑。停止未核实保留原临时目录，已退出且路径/dev/ino 相符才清理，替换目录保留；命令证据始终保留。恢复要求原机器和 TMPDIR；目录绑定前崩溃可遗留未派发的临时目录，双流没有磁盘配额。
 
 启动先拒绝旧目录和链接文件，取得 SQLite EXCLUSIVE 锁并核对档案标记，再打开存储、核对业务格式与每个会话的扩展引用，最后打开 Harness 并检查 live Task 版本。检查完成才恢复调度。主会话显式选择模型、个人提示与工作管理工具；服务检查按宿主配置启用。已有空闲会话可更新模型或启用服务检查，有未完成输入/任务时拒绝增加工具或换模型恢复。子检查首次启用同样拒绝未决旧工作，全部子配置和主标记在同一事务升级；旧程序缺扩展即拒绝。首次保存服务配置前，持锁通过 Storage 核实业务格式、已有配置指纹与未完成工作，不启动 Harness 或提交业务记录；只读服务档案新增操作能力同样检查。已有指纹与操作配置匹配时允许恢复缺失文件。Harness 的首次服务启用检查先于新授权记录提交，拒绝后仍能用原配置启动。已启用检查的档案缺配置、指纹变化、配置版本不支持或记录缺失均在恢复前拒绝。
 
@@ -87,6 +89,8 @@ Telegram 数值 offset 只在一批更新收到后 60 秒内用于紧接的一�
 旧 Telegram 收件没有权限快照时不能新建服务工作；已有这类未消费操作失效，已消费操作仍保留效果核实与占用。旧代次服务批准无法消费，长期授权失效；模式变更只影响新收件。权限/授权版本及来源关联缺失或操作模式与原快照不符时拒绝恢复，不能重建默认授权。
 
 ## 设计依据
+
+- [个人单次命令由宿主保存完成证据](../../.agents/notes/implemented/architecture/2026-10-17-personal-command-execution.md)
 
 - [个人 durable 档案与请求证据先于恢复](../../.agents/notes/implemented/architecture/2026-10-17-personal-durable-foundation.md)
 - [隔离个人实例由后台独占并通过本机接口管理](../../.agents/notes/implemented/architecture/2026-10-17-personal-local-management.md)

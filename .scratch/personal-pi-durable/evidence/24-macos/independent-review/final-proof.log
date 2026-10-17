@@ -1,0 +1,5 @@
+shared temp regression: second ref rejected while original stays alive
+independent stop regression: no completed receipt
+missing request: receipt rejected, temp preserved
+missing receipt: unknown and cannot rerun
+bad temp reverse link: cleanup rejected and temp preserved

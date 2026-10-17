@@ -1,0 +1,7 @@
+{
+  "hostFileAccessible": true,
+  "hostNetworkConnected": "host-positive-control",
+  "fixtureContentSha256": "58073ef10b7f63cbfa397f15e02709bd2de4c4d5356841ccf5ce2440f4cbdccb",
+  "networkAddress": "127.0.0.1",
+  "port": 41031
+}

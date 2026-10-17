@@ -31,7 +31,7 @@
 
 ```bash
 npm run setup       # 按两份锁文件安装依赖、检查前提并安装轻量提交钩子
-npm run check       # 构建 worker 与 WASM、静态检查及全部离线测试
+npm run check       # 构建两类 worker/WASM，静态及全部离线测试
 npm link            # 可选：把 ruukoto / ruukoto-code 装进 PATH（否则用 npm start -- …）
 ```
 

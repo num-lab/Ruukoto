@@ -29,7 +29,11 @@
 
 正式入口仅接受 `RUUKOTO_EXECUTION_BACKEND=native` 或不设覆盖；旧 local/container 覆盖被拒。运行入口与部署步骤见 [usage](../usage.md)。
 
-进程间是一条有界消息协议（`packages/agent/src/tool-worker/protocol.ts`）：stdio 上换行分帧的 JSON。
+共享工具进程间是一条有界消息协议（`packages/agent/src/tool-worker/protocol.ts`）：stdio 上换行分帧的 JSON。
+
+`prepareNativeLaunch` 的 `dependencyRoots` 可显式列出运行依赖，`[]` 用于自包含产物；省略时继续发现共享 Coding worker 的 Pi 安装。显式依赖使用真实路径并核对保护根，不享有旧根 node_modules 的代码资产例外，也不自动开放父目录。
+
+个人 `worker/personal-command-worker.mjs` 使用单次 stdin EOF 协议：最多 4 MiB UTF-8 JSON `{ command, workspace: { path, dev, ino } }`，拒绝空白/NUL 命令和无效身份；核对真实目录及当前 cwd 的 dev/ino 后，以继承的 cwd 运行固定 Bash，stdin 关闭、stdout/stderr 保留原字节，退出码或信号映射为进程退出状态。宿主先等待 `launchLinuxExecution` 返回并接好输出/退出消费，再提交输入；它不使用共享 ready/init 协议。错误诊断带 code，但诊断与命令输出都不是可信效果回执；非零或 125 也不能证明未执行。命令/worker 退出后仍须按原持久引用核实整 scope，未核实保留占用与临时资料；durable 命令工具与权限尚未装配。
 
 | 方向 | 消息 | 载荷 |
 |---|---|---|
@@ -248,6 +252,8 @@ sequenceDiagram
 全局保护根未作为显式只读挂载时，外部特权预存的子文件 bind 别名仍有原生旁路；显式来源只读范围和宿主文件入口按上述 inode 检查拒绝。该既有情形保留真实反例，另作原生保护审计；原生边界不承诺抵抗宿主外部特权准备。
 
 ## 设计依据
+
+- [个人单次命令 worker](../../.agents/notes/implemented/architecture/2026-10-17-personal-command-worker.md)：自包含产物、显式运行依赖和停止证明的归属。
 
 - [Linux 原生执行的持久身份](../../.agents/notes/implemented/architecture/2026-10-17-native-linux-execution-identity.md)
 

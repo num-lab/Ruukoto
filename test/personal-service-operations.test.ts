@@ -85,8 +85,29 @@ test("服务工作：默认自动审查和 confirm 等单次人工批准，full_
     assert.equal(evidence.length, 2);
     assert.match(Buffer.from(evidence[1].data.stderr, "base64").toString(), /RUUKOTO_SERVICE_REPLY/);
     assert.deepEqual((await p.service!.list()).items.map(item => item.operation.ref), [ref]);
-    assert.deepEqual((await p.main.agent(context)).tools.map(tool => tool.name), ["service_inspect", "read_service_inspection"]);
+    assert.deepEqual((await p.main.agent(context)).tools.map(tool => tool.name), ["service_inspect", "read_service_inspection", "background_work"]);
   });
+});
+
+test("服务工作：原来源未知不能换后台工作，已登记子工作在 HTTP 前暂停，独立聊天继续", async t => {
+  const f = await fixture(t); f.touch("fail-after-launch");
+  let p!: PersonalHarness; let armed = false;
+  const base = f.options.provider;
+  p = await f.open({ provider: { ...base, streamSimple: (model, input, options) => base.streamSimple(model, input, { ...options, onPayload: async payload => {
+    if (armed) {
+      armed = false;
+      const operation = await p.service!.request({ requestId: "unknown-source", unit: UNIT, mode: "full_access", sourceRequestId: "owner" });
+      await unknown(p, operation);
+    }
+    return await options?.onPayload?.(payload, model) ?? payload;
+  } }) } });
+  await p.answer("原工作", "owner"); armed = true;
+  const ref = await p.work.delegate({ requestId: "existing", sourceRequestId: "owner", content: "后台分析" });
+  const outcome = await p.harness.waitForTask(ref.taskId, context);
+  assert.equal(outcome.state.outcome.status, "failed"); assert.equal(f.server.calls.length, 1);
+  await assert.rejects(p.work.delegate({ requestId: "bypass", sourceRequestId: "owner", content: "换身份重试" }), code("work_source_paused"));
+  assert.equal((await p.work.list()).length, 1); assert.equal(f.starts(), 1);
+  assert.equal(await p.answer("其他独立聊天", "independent"), "收到");
 });
 
 test("服务工作：拒绝、未消费取消、策略与单元修订变化均零执行", async t => {

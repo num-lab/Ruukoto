@@ -12,13 +12,14 @@ import { AgentDoc, SessionFailed } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { openPersonalHarness, type PersonalHarness } from "../apps/ruukoto/src/personal-harness.ts";
 import { personalProvider, type PersonalModelConfig } from "../apps/ruukoto/src/personal-model.ts";
+import { PersonalWorkDoc } from "../apps/ruukoto/src/personal-work.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
 import { PersonalPermissionsDoc } from "../apps/ruukoto/src/personal-permissions.ts";
-import { PersonalTelegramReceiptDoc } from "../apps/ruukoto/src/personal-telegram.ts";
+import { PersonalTelegramDoc, PersonalTelegramReceiptDoc } from "../apps/ruukoto/src/personal-telegram.ts";
 import { PersonalServiceGrantsDoc, PersonalServiceOperationDoc, type PersonalServiceOperationRef } from "../apps/ruukoto/src/personal-service-operations.ts";
 import type { PersonalTelegramConfig } from "../apps/ruukoto/src/personal-telegram-config.ts";
 import type { TelegramUpdate } from "../apps/ruukoto/src/personal-telegram-api.ts";
-import { MockModelServer } from "./helpers/mock-provider.ts";
+import { MockModelServer, type Responder } from "./helpers/mock-provider.ts";
 
 const context = BACKGROUND_CONTEXT;
 const UNIT = "approval-test.service";
@@ -28,7 +29,7 @@ async function until(check: () => Promise<boolean>) {
   while (!await check()) { assert.ok(Date.now() < deadline, "等待审批事实超时"); await delay(10); }
 }
 
-async function fixture(t: TestContext) {
+async function fixture(t: TestContext, respond: Responder = () => ({ kind: "text", text: "收到" })) {
   const root = fs.mkdtempSync(path.join(process.platform === "darwin" ? "/tmp" : tmpdir(), "rk-tg-perm-"));
   const helper = path.join(root, "helper"); fs.mkdirSync(path.join(helper, "units"), { recursive: true }); fs.mkdirSync(path.join(helper, "ops"));
   const helperPath = path.join(helper, "helper.mjs"); fs.copyFileSync(new URL("./helpers/fake-service-helper.mjs", import.meta.url), helperPath);
@@ -45,7 +46,7 @@ async function fixture(t: TestContext) {
     res.end(JSON.stringify({ ok: true, result: { message_id: sends.at(-1)!.messageId, chat: { id: Number(body.chat_id), type: "private" } } }));
   });
   bot.listen(0, "127.0.0.1"); await once(bot, "listening"); const address = bot.address(); assert.ok(address && typeof address !== "string");
-  const model = new MockModelServer(() => ({ kind: "text", text: "收到" }));
+  const model = new MockModelServer(respond);
   const config: PersonalModelConfig = { api: "openai-completions", baseUrl: await model.start(), modelId: "mock-model", apiKeyEnv: "RUUKOTO_PERMISSIONS_MODEL_KEY", contextWindow: 128000, maxTokens: 1024 };
   const telegram: PersonalTelegramConfig = { version: 1, enabled: true, generation: randomUUID(), apiBase: `http://127.0.0.1:${address.port}`, tokenEnv: "RUUKOTO_PERMISSIONS_BOT_KEY", tokenDigest: createHash("sha256").update("123:test-token").digest("hex"), botId: "123", ownerId: "456", boundary: 0 };
   const oldModel = process.env[config.apiKeyEnv]; const oldBot = process.env[telegram.tokenEnv]; process.env[config.apiKeyEnv] = "test-only"; process.env[telegram.tokenEnv] = "123:test-token";
@@ -266,4 +267,45 @@ test("Telegram 权限：主会话持有新扩展标记，旧程序不能按旧�
   assert.ok((await p.main.agent(context)).extensions.some(extension => extension.name === "personal-telegram-permissions"));
   await p.harness.commit(async tx => { const agent = await tx.doc(AgentDoc, p.main.id); assert.ok(Array.isArray(agent.extensions)); agent.extensions = agent.extensions.filter(name => name !== "personal-telegram-permissions"); }, context);
   await p.close(); await assert.rejects(f.open(), code("permissions_version")); assert.equal(f.starts(), 0);
+});
+
+
+test("Telegram 工作：原收件冻结权限，转发拒绝委派，换代不扩大旧工作权限", async t => {
+  const f = await fixture(t, request => {
+    if (request.system?.includes("你是个人助手的子 Agent")) return { kind: "text", text: "子结果" };
+    if (request.messages.at(-1)?.role === "tool") return { kind: "text", text: String(request.messages.at(-1)?.content) };
+    return { kind: "tool_calls", calls: [{ id: "delegate", name: "background_work", arguments: { action: "delegate", content: "独立分析" } }] };
+  });
+  const p = await f.open();
+  const source = await f.receive("分析工作");
+  const tasks = await p.harness.commit(tx => tx.scanTasks({ kind: "ruukoto.background-work" }, 16), context);
+  assert.equal(tasks.items.length, 1);
+  const work = (await p.work.list())[0];
+  const taskInput = tasks.items[0].input; assert.ok(taskInput && typeof taskInput === "object" && !Array.isArray(taskInput) && typeof taskInput.requestId === "string");
+  const facts = (await p.harness.snapshot(PersonalWorkDoc, taskInput.requestId, context))!;
+  assert.equal(facts.source!.requestId, source.key); assert.deepEqual(facts.permission, { mode: "auto-review", version: 1 });
+  assert.equal(facts.telegram!.generation, f.telegram.generation);
+  await p.harness.waitForTask(facts.ref!.taskId, context);
+  await f.receive("完全访问", await menu(f, "/权限"));
+  assert.deepEqual((await p.harness.snapshot(PersonalWorkDoc, taskInput.requestId, context))!.permission, { mode: "auto-review", version: 1 });
+  const forwarded = await f.receive("转发的分析", undefined, { forward_origin: { type: "user" } });
+  assert.match(forwarded.value.reply!, /work_source_invalid/);
+  assert.equal((await p.work.list()).length, 1);
+  await p.close(); const restored = await f.open(); assert.equal((await restored.work.list())[0].id, work.id);
+});
+
+
+test("Telegram 工作：HTTP 前停用原绑定拦截子请求，正常换代仍可启动主会话", async t => {
+  const f = await fixture(t, request => request.messages.at(-1)?.role === "tool" ? { kind: "text", text: "已登记" } : { kind: "tool_calls", calls: [{ id: "delegate", name: "background_work", arguments: { action: "delegate", content: "独立分析" } }] });
+  let p!: PersonalHarness; const base = f.options.provider;
+  p = await f.open({ provider: { ...base, streamSimple: (model, input, options) => base.streamSimple(model, input, { ...options, onPayload: async payload => {
+    if (JSON.stringify(input).includes("你是个人助手的子 Agent")) await p.harness.commit(async tx => { (await tx.doc(PersonalTelegramDoc)).config!.enabled = false; }, context);
+    return await options?.onPayload?.(payload, model) ?? payload;
+  } }) } });
+  await f.receive("后台工作");
+  const tasks = await p.harness.commit(tx => tx.scanTasks({ kind: "ruukoto.background-work" }, 16), context); assert.equal(tasks.items.length, 1);
+  const settled = await p.harness.waitForTask(tasks.items[0].id, context); assert.equal(settled.state.outcome.status, "failed");
+  assert.equal(f.model.calls.filter(request => request.system?.includes("你是个人助手的子 Agent")).length, 0);
+  await p.close(); const restored = await f.open({ telegram: { ...f.telegram, enabled: false, generation: randomUUID() } });
+  assert.equal((await restored.work.list()).length, 1); assert.ok(restored.main);
 });

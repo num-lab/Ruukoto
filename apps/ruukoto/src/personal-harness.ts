@@ -2,7 +2,7 @@ import * as path from "node:path";
 import { closeSync, existsSync, openSync } from "node:fs";
 import { isDeepStrictEqual } from "node:util";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { AgentDoc, AssistantEntry, configure, createRegistry, defineDoc, defineExtension, Harness, ProviderDoc, ROOT_CONVERSATION_ID, section, type ConversationId, type Cursor, type Storage } from "@earendil-works/pi-durable";
+import { AgentDoc, AssistantEntry, configure, createRegistry, defineDoc, defineExtension, Harness, ProviderDoc, ROOT_CONVERSATION_ID, section, type ConversationId, type EntryId, type Cursor, type Storage } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import type { Provider } from "@earendil-works/pi-ai/models";
 import { PersonalError } from "./personal-error.ts";
@@ -14,12 +14,13 @@ import { PersonalAgentsDoc, personalBackgroundWork, PersonalWorkDoc, personalWor
 import { PersonalServiceOperationDoc, PersonalServiceOperationsDoc, PersonalServiceGrantsDoc, personalServiceOperations, verifyServiceOperationRecords, verifyServiceGrants } from "./personal-service-operations.ts";
 import { personalTelegram, PersonalTelegramDoc, PersonalTelegramReceiptDoc, verifyPersonalTelegram } from "./personal-telegram.ts";
 import { parsePersonalTelegram, telegramToken, type PersonalTelegramConfig } from "./personal-telegram-config.ts";
-import { PersonalPermissionsDoc, personalPermissions } from "./personal-permissions.ts";
+import { PersonalPermissionsDoc, personalPermissions, permissionSnapshot } from "./personal-permissions.ts";
 import { personalTelegramApi } from "./personal-telegram-api.ts";
+import { personalWorkTools } from "./personal-work-tools.ts";
 
 const context = BACKGROUND_CONTEXT;
 export const PersonalFormatDoc = defineDoc({ kind: "ruukoto.format", scope: "session", version: 1, initial: () => ({ ...PERSONAL_FORMAT }) });
-export const PERSONAL_PROMPT = "你是拥有者的个人助手。根据已有对话回答；当前未提供外部操作工具，需要执行外部操作时说明尚不可用。";
+export const PERSONAL_PROMPT = "你是拥有者的个人助手。根据已有对话回答；可用 background_work 委派独立后台分析并查询原结果，子 Agent 没有外部工具。当前不会自动回报后台结果，拥有者后续询问时再查询。需要外部写操作时说明尚不可用。";
 
 // Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-durable-foundation.md
 export async function openPersonalHarness(options: ({ directory: string; profile?: never } | { profile: PersonalProfileLock; directory?: never }) & {
@@ -44,11 +45,13 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     const telegramConfig = options.telegram && parsePersonalTelegram(options.telegram);
     const telegram = personalTelegram(telegramConfig, telegramConfig?.enabled ? personalTelegramApi(telegramConfig.apiBase, telegramToken(telegramConfig)) : undefined, operations?.control);
     const registry = createRegistry();
-    const personal = defineExtension({ name: "personal", sections: [section("personal", () => services ? "你是拥有者的个人助手。根据已有对话回答；服务检查只提供观察状态，需要管理服务时说明尚不可用。" : PERSONAL_PROMPT, { tag: false })] });
+    const workTools = personalWorkTools(() => harness!);
+    const personal = defineExtension({ name: "personal", sections: [section("personal", () => PERSONAL_PROMPT + (services ? "服务检查仅观察宿主白名单内的状态，不代表业务健康。" : ""), { tag: false })] });
     registry.install(personal);
     registry.install(personalPermissions);
     registry.install(personalBackgroundWork);
     registry.install(personalSubAgent);
+    registry.install(workTools);
     registry.install(telegram.extension);
     if (services) registry.install(services);
     if (operations) registry.install(operations.extension);
@@ -161,11 +164,14 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     } while (cursor);
     if ((workConversation || workKeys.length) && !savedIndex) throw new PersonalError("work_index_missing", "后台工作的身份索引缺失，已停止恢复；请保留档案并检查存储。");
     if (savedIndex && savedIndex.version !== PersonalAgentsDoc.definition.version) throw new PersonalError("work_version", "子 Agent 索引版本不受支持，已停止恢复；请使用对应版本。");
-    harness = await Harness.open(storage, { models: recordedModels(options.provider, record), registry, onReport: () => process.stderr.write("[ruukoto:personal] 持久执行出现错误，请查询状态并检查档案；未自动重启。\n") }, context);
+    harness = await Harness.open(storage, { models: recordedModels(options.provider, record), registry, settings: { followUpMode: "one-at-a-time", steeringMode: "one-at-a-time" }, onReport: () => process.stderr.write("[ruukoto:personal] 持久执行出现错误，请查询状态并检查档案；未自动重启。\n") }, context);
     // Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-local-management.md
     unlocked = harness.closed.then(async () => { if (options.beforeUnlock) await options.beforeUnlock(); lock.release(); });
     void unlocked.catch(() => process.stderr.write("[ruukoto:personal] 本机管理接口未能停止，实例锁仍保留；请检查后台并核实停止。\n"));
     const inspection = await harness.inspect(context);
+    const savedMain = await harness.snapshot(AgentDoc, ROOT_CONVERSATION_ID, context);
+    const modelWorkEnabled = Array.isArray(savedMain?.extensions) && savedMain.extensions.includes(workTools.name);
+    if (savedMain && !modelWorkEnabled && (inspection.tasks.length || inspection.submissions.length)) throw new PersonalError("work_tools_pending", "档案仍有未完成输入或工作，请先用原版本完成处理，再启用模型委派。");
     if (inspection.tasks.some(task => task.state.kind === "blocked" || registry.snapshot().task(task.record.kind)?.definition.version !== task.record.version)) throw new PersonalError("task_version", "档案中有当前程序无法恢复的任务，已停止恢复，请使用对应版本。");
     // 首次启用检查先于新授权记录提交，拒绝后仍能用原配置恢复。
     if (((service && !savedService) || (operations && !operationConfig)) && (inspection.tasks.length || inspection.submissions.length)) throw new PersonalError("service_config_pending", "个人档案仍有未完成输入，请先用原配置完成处理，再启用服务能力。");
@@ -183,6 +189,17 @@ export async function openPersonalHarness(options: ({ directory: string; profile
         if (work.ref.requestId !== key || task.version !== PersonalWorkTask.definition.version || task.conversationId !== ROOT_CONVERSATION_ID || !task.background || task.owner !== undefined || !input || typeof input !== "object" || Array.isArray(input) || input.requestId !== key || input.agentId !== work.ref.agentId || typeof input.content !== "string") throw new PersonalError("work_ownership", "后台工作与原生执行的归属不符，已停止恢复；请检查档案。");
         const source = await tx.submissionByRequest(ROOT_CONVERSATION_ID, work.source.requestId);
         if (source?.id !== work.source.submissionId || source.entry !== work.source.entryId || (await tx.entry(work.source.entryId))?.kind !== "pi.user") throw new PersonalError("work_record_missing", "后台工作的拥有者来源无法核实，已停止恢复；请检查档案。");
+        if (work.modelCall !== undefined || key.startsWith("personal-tool:")) {
+          const call = work.modelCall && await tx.task(work.modelCall);
+          const callInput = call && call.input;
+          const assistant = callInput && typeof callInput === "object" && !Array.isArray(callInput) && typeof callInput.assistant === "number" ? await tx.entry(callInput.assistant as EntryId) : undefined;
+          if (key !== `personal-tool:${work.modelCall}` || !call || call.kind !== "pi.tool" || call.conversationId !== ROOT_CONVERSATION_ID || !callInput || typeof callInput !== "object" || Array.isArray(callInput) || callInput.kind !== "model" || !assistant || assistant.conversationId !== ROOT_CONVERSATION_ID || assistant.id <= work.source.entryId || !assistant.model?.some(message => message.role === "assistant" && message.content.some(part => part.type === "toolCall" && part.id === callInput.callId && part.name === "background_work")) || !modelWorkEnabled || !work.permission) throw new PersonalError("work_record_missing", "模型后台工作的工具或权限来源无法核实，已停止恢复；请保留档案。");
+        }
+        if (work.permission && (!["auto-review", "confirm", "full_access"].includes(work.permission.mode) || !Number.isSafeInteger(work.permission.version) || work.permission.version < 1)) throw new PersonalError("work_record_missing", "后台工作的原权限记录无效，已停止恢复；请保留档案。");
+        if (work.telegram) {
+          const receipt = (await tx.doc(PersonalTelegramReceiptDoc, work.source.requestId, null)).receipt;
+          if (!receipt || receipt.submissionId !== source.id || !isDeepStrictEqual(permissionSnapshot(receipt), work.telegram) || !isDeepStrictEqual(work.permission, { mode: work.telegram.mode, version: work.telegram.version })) throw new PersonalError("work_record_missing", "后台工作的原 Telegram 权限无法核实，已停止恢复；请保留档案。");
+        } else if (work.modelCall !== undefined && work.source.requestId.startsWith("telegram:")) throw new PersonalError("work_record_missing", "模型后台工作缺少原 Telegram 绑定，已停止恢复；请保留档案。");
         if (work.submissionId !== undefined && (await tx.submissionByRequest(work.ref.agentId, `personal-work:${task.id}`))?.id !== work.submissionId) throw new PersonalError("work_record_missing", "后台工作引用的原输入缺失，已停止恢复；请保留档案并检查存储。");
         if (task.state.status !== "terminal" && !index.agents.some(agent => agent.id === work.ref?.agentId && agent.work?.taskId === task.id)) throw new PersonalError("work_ownership", "未结束工作的占用记录缺失，已停止恢复；请检查档案。");
       }
@@ -198,8 +215,8 @@ export async function openPersonalHarness(options: ({ directory: string; profile
       }
     }, context);
     await harness.commit(tx => tx.doc(PersonalFormatDoc), context);
-    const extensions = [personal, personalPermissions, personalBackgroundWork, telegram.extension, ...(services ? [services] : []), ...(operations ? [operations.extension] : [])];
-    const tools = services?.tools ?? [];
+    const extensions = [personal, personalPermissions, personalBackgroundWork, workTools, telegram.extension, ...(services ? [services] : []), ...(operations ? [operations.extension] : [])];
+    const tools = [...(services?.tools ?? []), ...workTools.tools!];
     if (service) await harness.commit(async tx => { (await tx.doc(PersonalServiceDoc)).fingerprint = service.fingerprint; }, context);
     const main = await harness.root(context, { agent: { model: { provider: options.provider.id, modelId: options.modelId }, thinkingLevel: "off", extensions, tools }, init: async tx => { await tx.doc(PersonalAgentsDoc); await tx.doc(PersonalPermissionsDoc); if (operations) { await tx.doc(PersonalServiceOperationsDoc); await tx.doc(PersonalServiceGrantsDoc); } } });
     const agent = await main.agent(context);

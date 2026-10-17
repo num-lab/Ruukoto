@@ -1,0 +1,6 @@
+environment: exit 0
+git-init: exit 0
+setup: exit 0
+personal-tests: exit 0
+build: exit 0
+final-environment: exit 0

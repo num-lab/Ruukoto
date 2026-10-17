@@ -2,10 +2,11 @@
  * TUI 启动时按需拉起本机后台（agent-direction issue 02）。
  * Note: 见 .agents/notes/implemented/architecture/2026-10-02-two-agent-products.md
  * Note: 见 .agents/notes/proposed/architecture/2026-10-15-desktop-client.md
+ * Note: 见 .agents/notes/implemented/bug-fix/2026-10-17-desktop-connection-startup.md
  *
  * - 只属 ruukoto-code：Coding Agent 打开 TUI 即进入任务界面，后台按需拉起；
  *   ruukoto（个人 Agent）沿用显式 server/systemd 启动，TUI 不越权拉起；
- * - 探测优先：控制面可认证握手即视为在运行，绝不启动第二个实例；探测令牌
+ * - 探测优先：控制面认证后 ping 确认未停止才就绪，绝不启动第二个实例；探测令牌
  *   与客户端同一来源（RUUKOTO_OWNER_TOKEN → RUUKOTO_OWNER_TOKEN_FILE →
  *   控制目录 owner.token），都取不到（后台未启动、令牌未生成）视为不在运行；
  * - 并发收敛：多个终端同时拉起时由后台实例锁（<dataDir>/runtime.lock）仲裁
@@ -28,7 +29,7 @@ import { controlDirFor, defaultAgentDir, defaultDataDir, socketPathFor, tryResol
 import { INSTANCE_LOCK_EXIT_CODE } from "@ruukoto/core/instance-lock.ts";
 import { type ProductType } from "@ruukoto/core/product.ts";
 
-/** 控制面探测：socket 可连且拥有者令牌认证 + 握手通过才算在运行。 */
+/** 控制面就绪探测：拥有者认证后 ping 确认未停止，不取快照或订阅事件。 */
 export async function probeControlPlane(socketPath: string, token: string | null, timeoutMs = 1500): Promise<boolean> {
   return (await probeWithReason(socketPath, token, timeoutMs)).state === "running";
 }
@@ -39,8 +40,8 @@ type ProbeResult =
   | { state: "unreachable" };
 
 /**
- * 带原因的探测：definitive=true 的 rejected 表示连上后被服务端明确拒绝（回了拒绝
- * 应答，如 unauthorized / protocol_version，error 为原始原因）；definitive=false 表示
+ * 带原因的探测：definitive=true 的 rejected 表示收到后台应答（明确拒绝、停止中或无效就绪
+ * 响应），足以证明后台存在；definitive=false 表示
  * 无凭据可试或传输中断/超时——曾连上不代表后台仍在，须重判当前 socket。
  * unreachable 表示 socket 不可连（后台确实不在）。
  */
@@ -50,7 +51,9 @@ async function probeWithReason(socketPath: string, token: string | null, timeout
   try {
     client = await ControlClient.connect(socketPath, timeoutMs);
     await client.authenticate(token, timeoutMs);
-    await client.handshake(undefined, timeoutMs);
+    const result = await client.request<{ pong?: unknown; stopping?: unknown } | null>("ping", {}, timeoutMs);
+    if (!result || result.pong !== true || typeof result.stopping !== "boolean") throw new ControlClientError("invalid_response", "后台就绪响应无效；请确认后台版本并重新连接。", "rejected");
+    if (result.stopping) throw new ControlClientError("backend_stopping", "后台正在退出；请等待退出完成后重新连接，不重复拉起。", "rejected");
     return { state: "running" };
   } catch (err) {
     if (!client) return { state: "unreachable" };
@@ -61,8 +64,8 @@ async function probeWithReason(socketPath: string, token: string | null, timeout
   }
 }
 
-/** socket 可连性补判：非明确拒绝（传输中断、超时、无凭据、首次连不上）时区分「后台在运行」与「尚未启动」——曾连上过不代表后台仍在。 */
-async function socketConnectable(socketPath: string): Promise<boolean> {
+/** 只判断 socket 是否可连；既有实例的存在性门控与探测失败补判不能据此声称已认证或就绪。 */
+export async function socketConnectable(socketPath: string): Promise<boolean> {
   try {
     const peek = await ControlClient.connect(socketPath, 800);
     peek.close();
@@ -136,6 +139,7 @@ export async function ensureBackend(opts: EnsureBackendOptions): Promise<EnsureB
   const connectable =
     firstProbe.state === "rejected" && firstProbe.definitive ? true : await socketConnectable(socketPath);
   if (connectable) {
+    if (firstProbe.state === "rejected" && firstProbe.error instanceof ControlClientError && ["backend_stopping", "invalid_response"].includes(firstProbe.error.code)) return { ok: false, error: firstProbe.error.message, code: firstProbe.error.code };
     if (firstProbe.state === "rejected" && firstProbe.error instanceof ControlClientError && firstProbe.error.code === "protocol_version") {
       return {
         ok: false,
@@ -147,7 +151,7 @@ export async function ensureBackend(opts: EnsureBackendOptions): Promise<EnsureB
     return {
       ok: false,
       error:
-        "后台在运行（socket 可连）但认证或握手失败：核对 RUUKOTO_OWNER_TOKEN / " +
+        "后台在运行（socket 可连）但认证或就绪探测失败：核对 RUUKOTO_OWNER_TOKEN / " +
         `RUUKOTO_OWNER_TOKEN_FILE 与 ${opts.controlDir}/owner.token 是否一致；确认后重开入口`,
       code: firstProbe.state === "rejected" && firstProbe.error instanceof ControlClientError ? firstProbe.error.code : undefined,
     };

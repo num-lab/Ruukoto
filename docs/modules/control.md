@@ -30,7 +30,7 @@
 
 客户端按固定优先级取令牌：`RUUKOTO_OWNER_TOKEN` 环境变量 → `RUUKOTO_OWNER_TOKEN_FILE` 指定的文件 → 控制目录的 `owner.token`。两个环境变量两个产品同名（令牌是控制面身份，不是路径归属）。令牌不进命令行、工具环境、日志或待确认记录；比较用 `timingSafeEqual` 常数时间比较，长度不同也照样比较一次再否决。三个来源都取不到时客户端抛出带修复指引的错误，请求根本不发。
 
-**探测。** 判定「后台是否在运行」的标准是 socket 可连、令牌认证通过、一次不带游标的 `connect` 成功，三者都成立才复用而不启动第二个实例；`protocol_version` 与 `unauthorized` 这类明确拒绝本身就证明后台在运行。TUI 的按需拉起门控与退避重连见[交互终端与配置中心](tui.md)。
+**探测。** 就绪要求 socket 可连、令牌认证通过、`ping` 返回 `pong: true` 且 `stopping: false`，不取快照或订阅。正式连接再通过 `connect` 安装快照。停止中的后台或无效响应给出专属错误；仍可连接的 socket 不重复拉起；`protocol_version` 与 `unauthorized` 这类明确拒绝本身就证明后台在运行。TUI 的按需拉起门控与退避重连见[交互终端与配置中心](tui.md)。
 
 **op 目录。** `auth` 在派发之前单独处理；其余 op 由 `dispatch` 的 `switch (request.op)` 派发。未知 op 回 `unknown_op`。
 
@@ -246,6 +246,8 @@ sequenceDiagram
 **已知上限。** 两端的帧大小口径不同：服务端按字符串长度（UTF-16 码元数）比较请求行，客户端只核对收到的帧（按 UTF-8 字节数），发送前不核对请求大小。超过服务端上限的请求会让连接被直接销毁，客户端把在途请求当成应答丢失；如果那是提交，待确认记录每次上线都会被核实，`find_task` 查不到就按原参数重发，连接又被销毁，按退避初值 500 ms 重连，如此循环。这是按代码推演的结论，未实际运行验证。
 
 ## 设计依据
+
+- [环境预热与轻量就绪探测](../../.agents/notes/implemented/bug-fix/2026-10-17-desktop-connection-startup.md)：探测只认证并 ping，正式连接持有快照与订阅。
 
 - [工具结果结构化字段分页](../../.agents/notes/implemented/feature/2026-10-16-tool-result-pagination.md)
 - [桌面客户端作为又一个控制面客户端](../../.agents/notes/proposed/architecture/2026-10-15-desktop-client.md)：显式产品路径与外部 Node 启动参数。

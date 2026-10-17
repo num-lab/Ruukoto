@@ -117,3 +117,5 @@ Personal 连接监督者已落在主进程，与 Code 各自持有状态。配�
 - SSH 转发依赖本机 OpenSSH 与免交互认证；需要密码或 2FA 的主机不支持。
 - 抽取投影层会改动 TUI 的核心状态代码，回归质量取决于 TUI 既有测试的覆盖面。
 - 渲染进程使用第三方 Markdown 与 UI 库，安全依赖 CSP、op 放行名单与关闭原始 HTML 三者同时成立。
+
+环境准备时机与轻量就绪探测由[启动优化](../../implemented/bug-fix/2026-10-17-desktop-connection-startup.md)持有；本篇其他决定继续适用。

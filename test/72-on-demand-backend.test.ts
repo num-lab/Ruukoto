@@ -721,7 +721,7 @@ test("探测期间后台退出不被误判为认证拒绝：socket 消失后进�
   const server = new MockModelServer(async () => ({ kind: "text", text: "ok" }));
   const baseUrl = await server.start();
   try {
-    for (const phase of ["auth", "handshake"] as const) {
+    for (const phase of ["auth", "ping"] as const) {
       const { dirs } = await makeTestDirs(`od-drop-${phase === "auth" ? "a" : "h"}`, 0);
       await writeModelsJson(dirs, baseUrl);
       const controlDir = devOpts(dirs).controlDir;
@@ -740,8 +740,8 @@ test("探测期间后台退出不被误判为认证拒绝：socket 消失后进�
           if (idx === -1) return;
           const req = JSON.parse(buf.slice(0, idx)) as { id?: string; op?: string };
           buf = buf.slice(idx + 1);
-          if (req.op === "auth" && phase === "handshake") {
-            conn.write(JSON.stringify({ v: 9, id: req.id ?? "", ok: true, result: { authenticated: true } }) + "\n");
+          if (req.op === "auth" && phase === "ping") {
+            conn.write(JSON.stringify({ v: CONTROL_PROTOCOL_VERSION, id: req.id ?? "", ok: true, result: { authenticated: true } }) + "\n");
             return;
           }
           // 后台退出：收监听、删 socket 文件、断开全部连接（不回复任何拒绝应答）

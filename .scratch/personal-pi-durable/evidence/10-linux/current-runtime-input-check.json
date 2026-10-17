@@ -1,0 +1,132 @@
+[
+  {
+    "path": "apps/ruukoto/src/personal-cli.ts",
+    "sha256": "46c8178ec9ed2132c0c0acdf75c7e4b92934b6570987580b5e34a99eb7b83860",
+    "matchesTestedInput": true
+  },
+  {
+    "path": "apps/ruukoto/src/personal-config.ts",
+    "sha256": "27cafd1f0d8e8e984a756aefc1ea4d1102ff27a1d763cd7b4487a837a003bc5f",
+    "matchesTestedInput": true
+  },
+  {
+    "path": "apps/ruukoto/src/personal-control.ts",
+    "sha256": "0af0e5c5b00268d380b99a0e32e3eb83083b302462b5d33398eb98e8d1bd3d29",
+    "matchesTestedInput": true
+  },
+  {
+    "path": "apps/ruukoto/src/personal-entry.ts",
+    "sha256": "e74b18858a2d9a9dab3ec4e4b8091079258d6693b4345af5833387f4914434e6",
+    "matchesTestedInput": true
+  },
+  {
+    "path": "apps/ruukoto/src/personal-error.ts",
+    "sha256": "f4266968ec480f657bee1a6043e69d07910134f09924ec43683aa0569b212ab4",
+    "matchesTestedInput": true
+  },
+  {
+    "path": "apps/ruukoto/src/personal-harness.ts",
+    "sha256": "f4332656abe3eff6c17f5eace1f9015908a59b1ffce6a146a00943c6f6e3503a",
+    "matchesTestedInput": true
+  },
+  {
+    "path": "apps/ruukoto/src/personal-model.ts",
+    "sha256": "70317facba8e89c2c57632957577fdde61f348aa481f38611bd6e096ff8d5d53",
+    "matchesTestedInput": true
+  },
+  {
+    "path": "apps/ruukoto/src/personal-permissions.ts",
+    "sha256": "62dfbb7f1d302b9357bf24cecc8c35803f9efdad20379f75b79a962c78a5c901",
+    "matchesTestedInput": true
+  },
+  {
+    "path": "apps/ruukoto/src/personal-profile.ts",
+    "sha256": "3193c99b4d43330870e372b308514de50beb6a1f118389c39a53750ce94c3441",
+    "matchesTestedInput": true
+  },
+  {
+    "path": "apps/ruukoto/src/personal-service-config.ts",
+    "sha256": "b09bef20fa258872c3122506fd967537229e35ffe278a41e4ba3baf62ed56f3d",
+    "matchesTestedInput": true
+  },
+  {
+    "path": "apps/ruukoto/src/personal-service-operations.ts",
+    "sha256": "f6fd1d536ad2715d4660ddcb8b796de5e6e696fb3096fb6185af832bbf340fbd",
+    "matchesTestedInput": true
+  },
+  {
+    "path": "apps/ruukoto/src/personal-services.ts",
+    "sha256": "f390ada406dd51b55e7cc12d3106d08affecc90edf6b6fb7305adf12867aa189",
+    "matchesTestedInput": true
+  },
+  {
+    "path": "apps/ruukoto/src/personal-telegram-api.ts",
+    "sha256": "7a3531266c587a2bff8f9f67c5a07489e84472cac039269329a0f96253b6bf0c",
+    "matchesTestedInput": true
+  },
+  {
+    "path": "apps/ruukoto/src/personal-telegram-config.ts",
+    "sha256": "7ff7b82ff4c8516198e8d17768e3531d612b491f880f288d902adb4a6f983e4f",
+    "matchesTestedInput": true
+  },
+  {
+    "path": "apps/ruukoto/src/personal-telegram-records.ts",
+    "sha256": "626b646113382b8f65da289d2f3b325e34a8f00c355d024d757b4a1b88aafc95",
+    "matchesTestedInput": true
+  },
+  {
+    "path": "apps/ruukoto/src/personal-telegram.ts",
+    "sha256": "972d63808cc0496cdfe62e39d77a62572e2d6027b75423067b2fc13635c1a169",
+    "matchesTestedInput": true
+  },
+  {
+    "path": "apps/ruukoto/src/personal-work-tools.ts",
+    "sha256": "c8a6868fb49784bf959107249f0d115c0e379ed83b06a3160a0c7a0342544ebf",
+    "matchesTestedInput": true
+  },
+  {
+    "path": "apps/ruukoto/src/personal-work.ts",
+    "sha256": "71e8a7df88f98e56091f9ac981563176b1be7a60b3e0ada31dd3915124af40a9",
+    "matchesTestedInput": true
+  },
+  {
+    "path": "test/personal-cli.test.ts",
+    "sha256": "d4568c56c1001497f3ae6135bd81c9f259c8fd72d42e34eefed44dea90328670",
+    "matchesTestedInput": true
+  },
+  {
+    "path": "test/personal-durable.test.ts",
+    "sha256": "35295ae007d7c2bcb426b371a92566d4ce478efe0ff9482efbba3554cc0e2481",
+    "matchesTestedInput": true
+  },
+  {
+    "path": "test/personal-service-operations.test.ts",
+    "sha256": "583edef4f49a3b2611d802aed3096f271e6b00619aac550c73f33e8e055443f3",
+    "matchesTestedInput": true
+  },
+  {
+    "path": "test/personal-services.test.ts",
+    "sha256": "c6b622d1b37551a67dbcf57fc9455845c68666b6f3fb67bfba4393c504e74450",
+    "matchesTestedInput": true
+  },
+  {
+    "path": "test/personal-telegram-permissions.test.ts",
+    "sha256": "e061b5eb1d8b47b83a960fcfb3d292c2815a370f707a4b572f018d3f2852c2b9",
+    "matchesTestedInput": true
+  },
+  {
+    "path": "test/personal-telegram.test.ts",
+    "sha256": "84e6102ca211b45390643d896652737e29378950bfcfa374ea0e3976d23eaf92",
+    "matchesTestedInput": true
+  },
+  {
+    "path": "test/personal-work-tools.test.ts",
+    "sha256": "bec67712fbdb2dc723255b2cba6bcdb8a4aa9a9264d3e56d6b14deb821ef716e",
+    "matchesTestedInput": true
+  },
+  {
+    "path": "test/personal-work.test.ts",
+    "sha256": "5e39416976f2fcba0913736d4db498ef618837522ed6050bf6a0ebc1adf0cdec",
+    "matchesTestedInput": true
+  }
+]

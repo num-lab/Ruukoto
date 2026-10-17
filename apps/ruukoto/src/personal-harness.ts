@@ -12,6 +12,9 @@ import { PersonalServiceDoc, personalServiceConfig, personalServices } from "./p
 import type { ServiceManagerConfig } from "./service-helper.ts";
 import { PersonalAgentsDoc, personalBackgroundWork, PersonalWorkDoc, personalWork, PersonalWorkTask, personalSubAgent, requirePersonalWorkRequest } from "./personal-work.ts";
 import { PersonalServiceOperationDoc, PersonalServiceOperationsDoc, personalServiceOperations, verifyServiceOperationRecords } from "./personal-service-operations.ts";
+import { personalTelegram, PersonalTelegramDoc, PersonalTelegramReceiptDoc, verifyPersonalTelegram } from "./personal-telegram.ts";
+import { parsePersonalTelegram, telegramToken, type PersonalTelegramConfig } from "./personal-telegram-config.ts";
+import { personalTelegramApi } from "./personal-telegram-api.ts";
 
 const context = BACKGROUND_CONTEXT;
 export const PersonalFormatDoc = defineDoc({ kind: "ruukoto.format", scope: "session", version: 1, initial: () => ({ ...PERSONAL_FORMAT }) });
@@ -25,6 +28,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
   beforeUnlock?: () => Promise<void>;
   service?: ServiceManagerConfig;
   serviceOperations?: boolean;
+  telegram?: PersonalTelegramConfig;
 }) {
   const lock = options.profile ?? lockPersonalProfile(options.directory);
   let harness: Harness | undefined;
@@ -36,11 +40,14 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     const services = service && personalServices(service.config);
     if (options.serviceOperations && !service) throw new PersonalError("service_config_missing", "服务操作需要宿主配置的 helper，请先核实部署配置。");
     const operations = options.serviceOperations && service ? personalServiceOperations(service.config) : undefined;
+    const telegramConfig = options.telegram && parsePersonalTelegram(options.telegram);
+    const telegram = personalTelegram(telegramConfig, telegramConfig?.enabled ? personalTelegramApi(telegramConfig.apiBase, telegramToken(telegramConfig)) : undefined);
     const registry = createRegistry();
     const personal = defineExtension({ name: "personal", sections: [section("personal", () => services ? "你是拥有者的个人助手。根据已有对话回答；服务检查只提供观察状态，需要管理服务时说明尚不可用。" : PERSONAL_PROMPT, { tag: false })] });
     registry.install(personal);
     registry.install(personalBackgroundWork);
     registry.install(personalSubAgent);
+    registry.install(telegram.extension);
     if (services) registry.install(services);
     if (operations) registry.install(operations.extension);
     const record = async (evidence: RequestEvidence) => {
@@ -80,6 +87,20 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     const operationConfigRecord = await storage.findDocument({ kind: PersonalServiceOperationsDoc.definition.kind, scope: { kind: "session" } }, "current", context);
     const operationConfig = operationConfigRecord && await storage.document(operationConfigRecord.id, "current", context);
     if (operationConfig && (!operations || operationConfig.version !== 1 || operationConfig.value.enabled !== true)) throw new PersonalError("service_operations_config", "档案依赖的服务操作配置缺失或版本不符，已停止恢复；请使用原配置。");
+    const telegramRecord = await storage.findDocument({ kind: PersonalTelegramDoc.definition.kind, scope: { kind: "session" } }, "current", context);
+    const savedTelegram = telegramRecord && await storage.document(telegramRecord.id, "current", context);
+    if (savedTelegram && savedTelegram.version !== 1) throw new PersonalError("telegram_version", "Telegram 业务记录版本不受支持，已停止恢复；请使用对应版本。");
+    const telegramKeys: string[] = [];
+    let telegramCursor: Cursor | undefined;
+    do {
+      const page = await storage.scanDocuments({ kind: PersonalTelegramReceiptDoc.definition.kind, scope: { kind: "session" }, at: "current" }, 256, telegramCursor, context);
+      for (const record of page.items) {
+        const saved = await storage.document(record.id, "current", context);
+        if (!savedTelegram || !saved || saved.version !== 1 || record.key === undefined) throw new PersonalError("telegram_version", "Telegram 收件缺少配置或版本不受支持，已停止恢复；请保留档案。");
+        telegramKeys.push(record.key);
+      }
+      telegramCursor = page.next;
+    } while (telegramCursor);
     const operationKeys: string[] = [];
     let operationCursor: Cursor | undefined;
     do {
@@ -107,6 +128,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
         if (extensions.includes("personal-service-inspect")) serviceConversation = true;
         if (conversation.id === ROOT_CONVERSATION_ID && operationConfig && !extensions.includes("personal-service-operations")) throw new PersonalError("service_operations_config", "主会话缺少已登记的服务操作扩展，已停止恢复；请保留档案。");
         if (extensions.includes("personal-service-operations") && !operationConfig) throw new PersonalError("service_operations_config", "会话依赖的服务操作配置记录缺失，已停止恢复；请保留档案。");
+        if (conversation.id === ROOT_CONVERSATION_ID && telegramKeys.length && !extensions.includes(telegram.extension.name)) throw new PersonalError("telegram_version", "主会话缺少 Telegram 执行扩展，已停止恢复；请保留档案。");
         if (extensions.includes(personalBackgroundWork.name) || extensions.includes(personalSubAgent.name)) workConversation = true;
         if (extensions.includes(personalSubAgent.name)) childIds.push(conversation.id);
       }
@@ -134,6 +156,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     const inspection = await harness.inspect(context);
     if (inspection.tasks.some(task => task.state.kind === "blocked" || registry.snapshot().task(task.record.kind)?.definition.version !== task.record.version)) throw new PersonalError("task_version", "档案中有当前程序无法恢复的任务，已停止恢复，请使用对应版本。");
     await harness.commit(tx => verifyServiceOperationRecords(tx, operationKeys), context);
+    await harness.commit(tx => verifyPersonalTelegram(tx, telegramKeys, telegramConfig), context);
     if (service && !savedService && (inspection.tasks.length || inspection.submissions.length)) throw new PersonalError("service_config_pending", "个人档案仍有未完成输入，请先用原空工具配置完成处理，再启用服务检查。");
     if (savedIndex) await harness.commit(async tx => {
       const index = await tx.doc(PersonalAgentsDoc);
@@ -161,7 +184,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
       }
     }, context);
     await harness.commit(tx => tx.doc(PersonalFormatDoc), context);
-    const extensions = [personal, personalBackgroundWork, ...(services ? [services] : []), ...(operations ? [operations.extension] : [])];
+    const extensions = [personal, personalBackgroundWork, telegram.extension, ...(services ? [services] : []), ...(operations ? [operations.extension] : [])];
     const tools = services?.tools ?? [];
     if (service) await harness.commit(async tx => { (await tx.doc(PersonalServiceDoc)).fingerprint = service.fingerprint; }, context);
     const main = await harness.root(context, { agent: { model: { provider: options.provider.id, modelId: options.modelId }, thinkingLevel: "off", extensions, tools }, init: async tx => { await tx.doc(PersonalAgentsDoc); if (operations) await tx.doc(PersonalServiceOperationsDoc); } });
@@ -191,6 +214,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
       main,
       work: personalWork(instance, { provider: options.provider.id, modelId: options.modelId }),
       service: operations?.api(instance),
+      telegram: telegram.api(instance),
       async submit(input: string, requestId: string) {
         return main.submit({ type: "input", content: input, requestId, whenBusy: "followUp" }, context);
       },

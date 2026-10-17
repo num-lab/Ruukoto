@@ -2,17 +2,19 @@
 
 ## 职责与边界
 
-`apps/ruukoto/src/personal-*.ts` 提供独立的 Pi 1.3.0 会话、本机引导管理及后台工作宿主 API，只用于隔离验证。正式个人 bin、根启动脚本、开发启动器与部署入口使用[产品装配](products.md)中的共享运行时；本机向导仍为空工具会话；可信宿主 API 可单独启用主会话只读服务检查，子会话固定空工具；没有 IM 或模型写工具。可信宿主还可显式启用独立服务操作、单次审批及效果核实。
+`apps/ruukoto/src/personal-*.ts` 提供独立的 Pi 1.3.0 会话、本机引导管理及后台工作宿主 API，只用于隔离验证。正式个人 bin、根启动脚本、开发启动器与部署入口使用[产品装配](products.md)中的共享运行时；本机向导仍为空工具会话；可信宿主 API 可单独启用主会话只读服务检查，子会话固定空工具；可经隔离向导配对 Telegram 文本私聊，没有模型写工具。可信宿主还可显式启用独立服务操作、单次审批及效果核实。
 
 ## 对外接口
 
 `openPersonalHarness` 接受独立目录或已持有的 `PersonalProfileLock`、provider 与模型，接管锁的释放责任，返回主会话、Harness、提交、等待回答与关闭方法；可用 `beforeUnlock` 在放锁前收齐管理接口。可选 `service` 接受宿主固定的 helper 配置，安装 `service_inspect` 与 `read_service_inspection`，模型只能指定白名单内精确单元名或本会话的证据编号。提交键由调用方保持稳定，用于 durable 会话内去重。`parsePersonalModel` 校验模型配置，`personalProvider` 按环境变量名读取凭据。个人 Pi 1.3.0 对象不传给 Coding 的 Pi 0.85.1。
 
-`startPersonalServer` 独占后台，HTTP 仅监听档案内 Unix socket，经本地令牌逐次认证；提供 `/status`、`/messages`、`/inputs`、`/input` 和 `/stop`。`personalControl` 为 CLI 调用；CLI 不重开 Harness。引导与前台托管见[操作手册](../usage.md#25-个人-durable-隔离向导)。
+`startPersonalServer` 独占后台，HTTP 仅监听档案内 Unix socket，经本地令牌逐次认证；提供 `/status`、`/messages`、`/inputs`、`/input`、`/telegram` 和 `/stop`。`personalControl` 为 CLI 调用；CLI 不重开 Harness。引导与前台托管见[操作手册](../usage.md#25-个人-durable-隔离向导)。
 
 可信宿主使用返回的 `work.delegate` 委派或复用长期子 Agent，`list/status` 查询身份和原生工作进度，`cancel` 等待取消核实，`closeAgent` 关闭空闲身份。首次委派可给名称；已有身份通过具名工作引用管理。来源须引用已进入主会话的拥有者输入请求；同工作键异参拒绝。此 API 不装配模型委派工具，不接受追加说明，不自动外发结果；本机接口和向导尚无工作操作选项。
 
 `serviceOperations: true` 另启用宿主 `service` API：`request` 以原拥有者输入建立独立后台 restart 工作，`list/status` 查询原生 Task 和操作事实，`decide/cancel/resolve/recheckStop` 决定原审批、取消或核实效果与停止。模式固定于创建，默认自动审查；自动审查与请求确认的服务写入均等人工批准，完全访问免逐次审批。此 API 不通过本机 HTTP/CLI 暴露，不创建长期授权；原 IM 身份、长期授权和模型工作装配仍需后续接入。
+
+`telegram` 配置启用固定拥有者文本入口；返回的 `telegram.receive/poll/status` 分别持久接收平台更新、管理可中止轮询、查询连接和最近 16 条收发。后台仅以配对的 bot/私聊拥有者收件，所有输入使用同一 main；来源事实不等于外部操作授权，IM 审批与长期授权尚未接入。配置、配对和停用见[操作手册](../usage.md#25-个人-durable-隔离向导)。
 
 ## 数据与状态
 
@@ -25,6 +27,8 @@
 `model.json` 只保存模型配置与凭据环境变量名，临时文件加 rename 保存；`control.token` 每次启动轮换，`control.sock` 只在后台持锁时清理，`backend.log` 保存后台诊断。`pending-<UUID>.json` 是客户端发送前独占创建的原键/正文，多个 CLI 不覆盖彼此；核实原 submission 后只删对应文件。它不镜像执行状态，也不授予执行资格。
 
 `ruukoto.service-operations-config` 标记操作能力；`ruukoto.service-operation` 按请求键保存来源、模式、固定操作身份、审批快照、消费、外部效果和停止核实事实。每次操作对应主会话拥有的 background `ruukoto.service-operation` Task，执行状态以 Task 为准。`ruukoto.service-operation-evidence` 保存每次 helper 调用的原始有界字节，结果和证据同 commit；核实记录保留拥有者证据，不覆盖原未知结论。
+
+`telegram.json` 保存入口版本、随机配置代次、bot/owner、平台接管边界、凭据环境变量及指纹，不含 token。`ruukoto.telegram` 保存当前绑定和诊断水位；`ruukoto.telegram-receipt` 按稳定平台消息键保存原文、固定来源/回复目标、原生 Task/Submission 引用与发送事实。每条消息是主会话拥有的 background Task；429 重试时刻保存在原生 checkpoint，执行状态不另建副本。
 
 ## 主要流程
 
@@ -40,6 +44,10 @@
 
 服务操作先经 helper 只读检查并保存目标修订，再等待持久审批 document 的决定；批准消费前复核原来源和策略内容，helper 在派发前再次核对修订。消费、开始事实与恢复 checkpoint 同 commit，仅当前 invocation 派发一次 restart。可信请求前拒绝记未执行，可信非零命令退出如实保留已执行结论；进程中断、超时或结果无法核实均暂停，恢复只停止与核实原操作。拥有者的效果说明与启动器/命令单元停止证明分别保存，两者齐全才释放。
 
+Telegram 配对通过真实 getMe 和随机私聊短语选择身份，操作者确认后按已观察批次核实平台接管边界。运行中每批全部持久化才允许下一次轮询短期确认该批；重启不携带旧 offset，按 bot/chat/message 去重，允许平台空闲后随机生成较小 update ID。重复同键异文拒绝。每条原生 Task 用稳定消息键向 main admission，崩溃后接回原提交；只有对应的完整回答进入原目标的发送。
+
+回复正文先固定保存，再提交 sending 与 verify checkpoint，最后发请求。明确 429 拒绝延后原发送，其他明确 4xx 拒绝终止；断线、5xx、畸形回执或发送后结果落盘失败都保留效果未知，重开不重发。目标停用/换代使旧未开始输入和待发回复取消；已进入主会话的历史保留，已开始发送的未知状态保留。后台停止先收齐轮询，再关闭 Harness，故障放锁前也收齐网络与本机接口。
+
 ## 不变量与失败处理
 
 同一档案只允许一个拥有者，关闭清理完成或进程崩溃后释放锁，锁文件不删除。配置写入使用同一锁，不因连接失败而离线争写。不支持的版本、缺扩展或缺任务定义均阻止调度；已有数据库缺少格式记录也拒绝。输入证据写失败时不发请求；存储失败关闭 Harness 并报告，宿主不自动重开。正常关闭保留未完成输入供重开恢复，不能当作工作取消。坏令牌、链接及旧目录拒绝，不能清理后自动接管。
@@ -54,6 +62,8 @@
 
 服务目标与同一原输入各只允许一个未结束操作；未知效果、停止未核实乃至意外 faulted 终态均保留占用，不允许换键或换目标绕过同来源暂停。其他来源的独立目标与主聊天继续。原输入后来 unanswered 不破坏档案来源身份，但不能再消费未执行的批准。缺操作配置、扩展、版本或来源/Task 双向关系均拒绝调度；已保存的停止证明必须绑定本机、操作及命令单元并带 `launcherExited`，旧 helper 应答不能释放占用。
 
+Telegram 数值 offset 只在一批更新收到后 60 秒内用于紧接的一次请求；失败、空批或超期清空，不能把 ID 视为永久单调。配对身份选择同样有 60 秒截止。平台明确确认与配置保存没有跨存储原子性，保存失败需重新配对；凭据变化不沿用旧配置启动。发送回执必须验证平台结果、消息身份和固定目标；原生 fetch 错误及含 token 的 URL 不进入日志。每批最多 16 条更新，HTTP 回执最多 1 MiB，正文最多 16 KiB；平台回复最多 3900 个 Unicode 字符加截断提示，完整回答保存在 durable。
+
 ## 设计依据
 
 - [个人 durable 档案与请求证据先于恢复](../../.agents/notes/implemented/architecture/2026-10-17-personal-durable-foundation.md)
@@ -61,3 +71,5 @@
 - [个人 durable 服务检查复用固定 helper](../../.agents/notes/implemented/architecture/2026-10-17-personal-service-inspect.md)
 - [个人后台工作占用长期独立子会话](../../.agents/notes/implemented/architecture/2026-10-17-personal-background-work.md)
 - [个人服务操作先持久消费并核实未知效果](../../.agents/notes/implemented/architecture/2026-10-17-personal-service-operations.md)
+
+- [个人 Telegram 收件与固定回复由 durable 任务衔接](../../.agents/notes/implemented/architecture/2026-10-17-personal-telegram-entry.md)

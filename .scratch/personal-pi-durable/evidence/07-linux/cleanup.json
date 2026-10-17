@@ -1,0 +1,1 @@
+{"remoteDirectory": "/dev/shm/ruukoto-telegram-07-xs0lu2kb", "removed": true, "processesBefore": [], "processesAfter": [], "socketsBefore": [], "socketsAfter": [], "diskAfter": "Filesystem      Size  Used Avail Use% Mounted on\n/dev/vda2        40G   37G  637M  99% /\ntmpfs           1.9G   61M  1.8G   4% /dev/shm\n", "completedAtUnix": 1792204649.1059}

@@ -10,6 +10,7 @@ import { personalProvider } from "./personal-model.ts";
 import { lockPersonalProfile } from "./personal-profile.ts";
 import { readPersonalConfig } from "./personal-config.ts";
 import { PersonalError } from "./personal-error.ts";
+import { readPersonalTelegram } from "./personal-telegram-config.ts";
 
 const context = BACKGROUND_CONTEXT;
 const MAX_REQUEST = 128 * 1024;
@@ -62,13 +63,18 @@ export async function startPersonalServer(directory: string) {
   let listenerClosed: Promise<void> | undefined;
   let shutdown: Promise<void> | undefined;
   let personal: Awaited<ReturnType<typeof openPersonalHarness>> | undefined;
+  const telegramStop = new AbortController();
+  let telegramLoop: Promise<void> | undefined;
   const closeListener = () => listenerClosed ??= (async () => {
+    telegramStop.abort();
+    await telegramLoop;
     if (server.listening) await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
     await Promise.allSettled([...active]);
   })();
   const stop = () => shutdown ??= (async () => { await closeListener(); await personal?.close(); })();
   try {
     const config = readPersonalConfig(profile);
+    const telegram = readPersonalTelegram(profile);
     if (!process.env[config.apiKeyEnv]) throw new PersonalError("model_credentials_missing", "模型凭据环境变量尚未设置，请设置后再启动隔离后台。");
     if (fs.existsSync(path.join(directory, "control.token"))) readPersonalToken(directory);
     if (Buffer.byteLength(socketPath) > 100) throw new PersonalError("control_path_long", "隔离档案路径过长，请用较短的新目录启动。");
@@ -79,8 +85,9 @@ export async function startPersonalServer(directory: string) {
     server.listen(socketPath);
     await once(server, "listening");
     fs.chmodSync(socketPath, 0o600);
-    personal = await openPersonalHarness({ profile, provider: personalProvider(config), modelId: config.modelId, beforeUnlock: closeListener });
+    personal = await openPersonalHarness({ profile, provider: personalProvider(config), modelId: config.modelId, telegram, beforeUnlock: closeListener });
     const instance = personal;
+    telegramLoop = instance.telegram.poll(telegramStop.signal).catch(() => { process.stderr.write("[ruukoto:personal] Telegram 收件已停止，请查询状态并检查档案；未自动重启。\n"); });
     const respond = (res: http.ServerResponse, status: number, result: unknown) => {
       if (res.destroyed) return;
       const body = JSON.stringify(result);
@@ -103,6 +110,8 @@ export async function startPersonalServer(directory: string) {
         } else if (req.method === "GET" && url.pathname === "/messages") {
           const entries = await instance.main.entries({}, 64, undefined, context);
           result = entries.items.map(text).filter(item => item !== undefined).slice(0, 16).reverse();
+        } else if (req.method === "GET" && url.pathname === "/telegram") {
+          result = await instance.telegram.status();
         } else if (req.method === "GET" && url.pathname === "/input") {
           const requestId = url.searchParams.get("requestId") ?? "";
           if (!PERSONAL_REQUEST_ID.test(requestId)) throw new PersonalError("input_invalid", "请求标识无效，请从向导选择待核实消息。");

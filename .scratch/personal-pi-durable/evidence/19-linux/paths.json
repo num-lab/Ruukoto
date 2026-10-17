@@ -1,0 +1,6 @@
+{
+  "source": "/dev/shm/rk19-linux-20261017T082256Z",
+  "remote_logs": "/tmp/rk19-linux-20261017T082256Z",
+  "local_logs": "/tmp/rk19-linux-evidence",
+  "temp_root": "/dev/shm/k19t-082256"
+}

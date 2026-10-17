@@ -1,0 +1,10 @@
+{
+  "exit": 0,
+  "routes": [
+    "GET /inspections?offset=0",
+    "POST /inspection/stop?inspection=12&admission=34",
+    "GET /inspections?offset=0"
+  ],
+  "real_pty": true,
+  "backend": "authenticated Unix HTTP fixture, no helper/model/platform"
+}

@@ -1,0 +1,13 @@
+{
+  "at": "2026-10-17T08:29:19.232525+00:00",
+  "source_manifest_sha256": "45e5609d5978950bdbf2e52f5c9c0c28a8ca0eb6d9deb348998e792c62c1bf7a",
+  "source_content_mismatches_before": [],
+  "argv": [
+    "npx",
+    "tsx",
+    "--test",
+    "test/71-product-entry.test.ts"
+  ],
+  "exit_code": 0,
+  "seconds": 31.924
+}

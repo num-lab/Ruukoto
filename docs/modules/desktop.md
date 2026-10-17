@@ -50,7 +50,7 @@ Context 环形入口不显示百分比数字，悬浮层按 System prompt、Tool
 
 文件树首读用加载图标；文件夹读取时在行末显示图标，完成或失败后展开，失败可重试，空目录留空。读取中再次点击取消展开；缓存命中直接展开，刷新保留现有内容。左栏折叠与展开共用一个按钮，位置连续过渡，保持焦点并避开原生交通灯。
 
-Git graph 每页读取200条真实提交，滚动接近底部自动追加直到末尾，没有累计条数上限；提交主题与分支名保持自然宽度，可左右滚动，续页无可见加载文字；隐藏、离线、加载中或发生错误时暂停，追加失败显示重试。父关系、branch／tag与remote共用六种彩色lane，28px摘要只给左侧图标着色，名称保持中性。点击展开作者、时间、短哈希与父提交，可刷新。翻页绑定工作区与仓库修订，refs、HEAD、shallow、grafts或目录身份变化时要求刷新；追加失败保留已有历史并可重试，刷新或换实例丢弃旧追加。每次后台读取预算5秒，限制输出和元数据数量，拒绝受保护目录、元数据链接、alternates和配置include；超限或不安全形式明确报错。
+Git graph 每页读取200条真实提交，滚动接近底部自动追加直到末尾，没有累计条数上限；只渲染可视区附近的行与图线，窗口外行以占位撑高，横向内容宽度保存本次打开见过的最宽行，滚到短行窗口后仍可左右滚动并触发续页；Tab、读屏、文本选择与浏览器 Find 只覆盖窗口内已渲染行（窗口外焦点行旁路渲染时除外）。提交主题与分支名保持自然宽度，可左右滚动，续页无可见加载文字；隐藏、离线、加载中或发生错误时暂停，追加失败显示重试。父关系、branch／tag与remote共用六种彩色lane，28px摘要只给左侧图标着色，名称保持中性。点击展开作者、时间、短哈希与父提交，可刷新。翻页绑定工作区与仓库修订，refs、HEAD、shallow、grafts或目录身份变化时要求刷新；追加失败保留已有历史并可重试，刷新或换实例丢弃旧追加。每次后台读取预算5秒，限制输出和元数据数量，拒绝受保护目录、元数据链接、alternates和配置include；超限或不安全形式明确报错。
 
 附件加号打开系统文件选择器，每次最多 4 个、每个不超过 8 MiB；文件按原目标、连接对象与实例上传，renderer 只收到引用、名称与大小。选取与上传期间禁止发送，成功后附件与草稿一起提交；移除附件不删除后台快照，普通文件与图片的读取方式见 [runtime](runtime.md)。
 
@@ -90,6 +90,7 @@ Personal 预检总期限为 15 秒；超时或网络失败、远端 socket 暂�
 
 - [Git历史分页](../../.agents/notes/implemented/feature/2026-10-17-desktop-git-history-pages.md)
 - [Git历史自动续页](../../.agents/notes/implemented/feature/2026-10-17-desktop-git-lazy-loading.md)
+- [Git graph 行窗口化](../../.agents/notes/implemented/feature/2026-10-18-desktop-git-graph-windowing.md)
 - [文件树加载反馈](../../.agents/notes/implemented/feature/2026-10-17-desktop-file-tree-loading.md)
 - [侧栏折叠按钮](../../.agents/notes/implemented/bug-fix/2026-10-17-desktop-sidebar-toggle.md)
 - [Tab hover资格](../../.agents/notes/implemented/bug-fix/2026-10-17-desktop-tab-hover.md)

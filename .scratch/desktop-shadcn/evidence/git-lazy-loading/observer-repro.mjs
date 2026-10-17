@@ -14,6 +14,12 @@ const react = {
     const index = cursor++;
     return cells[index] ??= { current: initial };
   },
+  useState(initial) {
+    const index = cursor++;
+    if (!cells[index]) cells[index] = { value: typeof initial === 'function' ? initial() : initial };
+    const cell = cells[index];
+    return [cell.value, next => { cell.value = typeof next === 'function' ? next(cell.value) : next; }];
+  },
   useEffect(callback, dependencies) {
     const index = cursor++, prior = cells[index];
     if (!prior || dependencies.some((value, offset) => !Object.is(value, prior.dependencies[offset]))) {
@@ -32,6 +38,8 @@ function load(file) {
     if (name === 'react') return react;
     if (name === 'react/jsx-runtime') return { jsx, jsxs: jsx };
     if (name === './git-graph-data.ts') return load('apps/desktop/src/renderer/git-graph-data.ts');
+    if (name === './git-graph-model.ts') return load('apps/desktop/src/renderer/git-graph-model.ts');
+    if (name === './git-graph-window.ts') return load('apps/desktop/src/renderer/git-graph-window.ts');
     return new Proxy({}, { get: (_target, key) => key });
   }, module, module.exports);
   return module.exports;
@@ -42,6 +50,9 @@ globalThis.IntersectionObserver = class {
   disconnect() { this.disconnected = true; }
   notify(isIntersecting = true) { this.callback([{ target: this.target, isIntersecting }]); }
 };
+globalThis.ResizeObserver = class { constructor() {} observe() {} unobserve() {} disconnect() {} };
+globalThis.requestAnimationFrame = callback => setTimeout(callback, 0);
+globalThis.cancelAnimationFrame = () => {};
 const { GitGraphPanel } = load('apps/desktop/src/renderer/git-graph.tsx');
 const viewport = {}, sentinel = {};
 let calls = 0;
@@ -52,12 +63,19 @@ function render(patch = {}) {
   function mount(node) {
     if (!node || typeof node !== 'object') return;
     if (Array.isArray(node)) { node.forEach(mount); return; }
-    if (node.props?.ref) node.props.ref.current = node.props.className?.includes('git-graph-log') ? viewport : sentinel;
+    if (node.props?.ref && typeof node.props.ref === 'object') node.props.ref.current = node.props.className?.includes('git-graph-log') ? viewport : sentinel;
     mount(node.props?.children);
   }
   const list = find(tree, node => node.type === "ol");
-  if (list) assert.ok(find(list, node => node.props?.ref && node.props.ref.current !== viewport), "哨兵必须位于自然宽度的列表内，横向滚动不丢失交叉");
   mount(tree);
+  const sentinelNode = list && find(list, node => node.type === 'li' && node.props?.ref?.current === sentinel);
+  assert.ok(sentinelNode, "哨兵必须位于自然宽度的列表内，横向滚动不丢失交叉");
+  assert.notEqual(sentinelNode.props.style?.position, 'absolute', '哨兵必须留在流内以保持列表自然宽度');
+  const flatten = value => Array.isArray(value) ? value.flatMap(flatten) : value && typeof value === 'object' ? [value] : [];
+  const children = list ? flatten(list.props?.children) : [];
+  assert.equal(children.at(-1), sentinelNode, '哨兵必须是列表最后一个流内子元素');
+  assert.equal(sentinelNode.props.style?.height, 1, '哨兵保持 1px 高度');
+  assert.ok(children.filter(node => node.type === 'li' && node.props?.style && typeof node.props.style.height === 'number').length >= 2, '窗口前后占位与标尺必须留在流内');
   for (const effect of effects.splice(0)) effect();
   return tree;
 }

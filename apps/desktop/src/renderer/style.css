@@ -461,6 +461,10 @@ body { font-size: 15.5px; }
 .file-tree-row > .file-tree-loading { display: flex; flex-shrink: 0; margin-left: auto; }
 .file-tree-loading svg { width: 13px; height: 13px; }
 
+
+/* Note: 见 .agents/notes/implemented/feature/2026-10-18-desktop-git-graph-windowing.md */
+.git-graph-log { overflow-anchor: none; }
+.git-graph-body { position: relative; }
 /* Note: 见 .agents/notes/implemented/bug-fix/2026-10-17-desktop-execution-activity.md */
 .git-graph-body { width: 100%; min-width: max-content; }
 .git-commit-subject { flex: none; overflow: visible; text-overflow: clip; }

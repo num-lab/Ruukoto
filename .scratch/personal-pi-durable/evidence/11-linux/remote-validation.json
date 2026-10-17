@@ -1,0 +1,10 @@
+{
+  "command": [
+    "ssh",
+    "tx",
+    "python3 /tmp/ruukoto-work-controls-20261017T040936Z-he27jsp3/remote-runner.py /tmp/ruukoto-work-controls-20261017T040936Z-he27jsp3"
+  ],
+  "exitCode": 0,
+  "started": "2026-10-17T04:10:12.699892+00:00",
+  "ended": "2026-10-17T04:12:46.194779+00:00"
+}

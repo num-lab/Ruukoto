@@ -1,0 +1,10 @@
+{
+  "command": [
+    "ssh",
+    "tx",
+    "python3 -c '\nimport pathlib,json,subprocess,sys\nroots=[pathlib.Path(x) for x in sys.argv[1:]];pids=[]\nfor p in pathlib.Path('\"'\"'/proc'\"'\"').iterdir():\n if not p.name.isdigit():continue\n try:\n  cwd=(p/'\"'\"'cwd'\"'\"').resolve()\n  if any(cwd.is_relative_to(root) for root in roots):pids.append(int(p.name))\n except (FileNotFoundError,PermissionError,ProcessLookupError):pass\nresult={'\"'\"'remainingDirectories'\"'\"':[str(root) for root in roots if root.exists()],'\"'\"'remainingOwnedPids'\"'\"':pids};print(json.dumps(result));subprocess.run(['\"'\"'df'\"'\"','\"'\"'-h'\"'\"','\"'\"'/tmp'\"'\"','\"'\"'/dev/shm'\"'\"']);assert not result['\"'\"'remainingDirectories'\"'\"'] and not pids\n' /tmp/ruukoto-work-controls-20261017T040936Z-he27jsp3 /dev/shm/ruukoto-work-controls-20261017T040936Z-he27jsp3"
+  ],
+  "exitCode": 0,
+  "started": "2026-10-17T04:16:24.411900+00:00",
+  "ended": "2026-10-17T04:16:24.774682+00:00"
+}

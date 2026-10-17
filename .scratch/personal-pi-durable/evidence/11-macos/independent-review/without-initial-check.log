@@ -1,0 +1,19 @@
+✖ 独立审查：取消提交在 watch 附着之前也能观察 (1079.156375ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1463.148542
+
+✖ failing tests:
+
+test at test/personal-work-controls.test.ts:220:1
+✖ 独立审查：取消提交在 watch 附着之前也能观察 (1079.156375ms)
+  Error: 初值取消信号未被观察
+      at <anonymous> (/private/tmp/rk-review-controls-fv8reuo5/test/personal-work-controls.test.ts:233:112)
+      at async TestContext.<anonymous> (/private/tmp/rk-review-controls-fv8reuo5/test/personal-work-controls.test.ts:233:17)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3)

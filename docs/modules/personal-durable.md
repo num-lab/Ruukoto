@@ -8,9 +8,9 @@
 
 `openPersonalHarness` 接受独立目录或已持有的 `PersonalProfileLock`、provider 与模型，接管锁的释放责任，返回主会话、Harness、提交、等待回答与关闭方法；可用 `beforeUnlock` 在放锁前收齐管理接口。可选 `service` 接受宿主固定的 helper 配置，安装 `service_inspect` 与 `read_service_inspection`，模型只能指定白名单内精确单元名或本会话的证据编号。提交键由调用方保持稳定，用于 durable 会话内去重。`parsePersonalModel` 校验模型配置，`personalProvider` 按环境变量名读取凭据。个人 Pi 1.3.0 对象不传给 Coding 的 Pi 0.85.1。
 
-`startPersonalServer` 独占后台，HTTP 仅监听档案内 Unix socket，经本地令牌逐次认证；提供 `/status`、`/messages`、`/inputs`、`/input`、`/telegram` 和 `/stop`；状态的服务开关只表示能力已装配，不代表 helper 可用或业务健康。`personalControl` 为 CLI 调用；CLI 不重开 Harness。引导与前台托管见[操作手册](../usage.md#25-个人-durable-隔离向导)。
+`startPersonalServer` 独占后台，HTTP 仅监听档案内 Unix socket，经本地令牌逐次认证；提供 `/status`、`/messages`、`/inputs`、`/input`、`/telegram`、`/works`、`/work`、`/work/cancel`、`/work/close` 和 `/stop`；状态的服务开关只表示能力已装配，不代表 helper 可用或业务健康。`personalControl` 为 CLI 调用；CLI 不重开 Harness。引导与前台托管见[操作手册](../usage.md#25-个人-durable-隔离向导)。
 
-可信宿主使用返回的 `work.delegate` 委派或复用长期子 Agent，`list/status` 查询身份和原生工作进度，`cancel` 等待取消核实，`closeAgent` 关闭空闲身份。首次委派可给名称；已有身份通过具名工作引用管理。来源须引用已进入主会话的拥有者输入请求；同工作键异参拒绝。主会话的 `background_work` 工具支持委派、列身份、分页读结果、取消工作及关闭空闲身份；来源与请求键由宿主绑定原生工具和唯一活动输入，模型不能自行提供。子会话仍为空工具，不支持追加说明或自动最终回报；本机接口和向导尚无独立工作菜单。
+可信宿主使用返回的 `work.delegate` 委派或复用长期子 Agent，`list/status` 查询身份和原生工作进度，`cancel` 等待取消核实，`closeAgent` 关闭空闲身份。首次委派可给名称；已有身份通过具名工作引用管理。来源须引用已进入主会话的拥有者输入请求；同工作键异参拒绝。主会话的 `background_work` 工具支持委派、列身份、分页读结果、取消工作及关闭空闲身份；来源与请求键由宿主绑定原生工具和唯一活动输入，模型不能自行提供。CLI 的后台分析菜单直接查询历史、读原结果、请求取消与关闭空闲身份，Telegram 的 `/工作` 只管理原 bot/owner/代次的分析。菜单关闭还核实原工作仍是该身份最新工作。子会话仍为空工具，不支持追加说明或自动最终回报；单项控制不等于整项工作委托取消或汇报。
 
 `serviceOperations: true` 另启用宿主 `service` API：`request` 以原拥有者输入建立独立后台 restart 工作，`list/status` 查询原生 Task 和操作事实，`decide/cancel/resolve/recheckStop` 决定原审批、取消或核实效果与停止。模式固定于创建，默认自动审查；无有效长期授权时，自动审查与请求确认的服务写入等人工批准，完全访问免逐次审批。此 API 不通过本机 HTTP/CLI 暴露。Telegram 来源强制使用原收件的模式，不能由 API 扩大；其审批只能通过原 Telegram 宿主菜单决定。历史本机可信 API 仍显式提供模式与单次决定，不能冒充 Telegram 来源。
 
@@ -40,7 +40,7 @@
 
 提交先由 durable 持久化，再生成回答；同键重投返回原 submission。每次调用 provider 前保存规范化输入，实际 API 发出 HTTP 前保存最终请求体。请求证据通过持久 ProviderDoc.sessionId 唯一定位实际会话，生成和压缩都写入该会话。回答只从已完整结束的 assistant entry 读取；进程重开恢复原会话与尚未完成的输入。
 
-首次委派在同一 commit 创建子身份、显式配置、工作 Task、来源和占用。Task 经原生 admission 提交稳定键 `personal-work:<taskId>` 并保存 Submission 引用；两次提交之间崩溃时重接原键。主聊天不等待后台工作；完成或取消后保留子会话上下文供再次委派。取消先记录取消事实，再 abort 工作 Task；停止子会话时同时收齐后台压缩。正常收尾同样收齐子会话执行，比较占用仍属于本工作后，与 Task 终态一起释放；未释放前拒绝复用或关闭。模型工具读取原工作 Submission 的完整回答，每页最多 4096 字符；列身份每页 16 个。取消回执只有确认原占用释放且正常收尾才报告停止，faulted/orphaned 不作停止证明。
+首次委派在同一 commit 创建子身份、显式配置、工作 Task、来源和占用。Task 经原生 admission 提交稳定键 `personal-work:<taskId>` 并保存 Submission 引用；两次提交之间崩溃时重接原键。主聊天不等待后台工作；完成或取消后保留子会话上下文供再次委派。取消先记录取消事实，等待模型的 Task 观察取消；模型工具与可信 API 还可 abort 工作 Task。停止子会话时同时收齐后台压缩；正常收尾同样收齐子会话执行，比较占用仍属于本工作后，与 Task 终态一起释放；未释放前拒绝复用或关闭。模型工具和 CLI 读取原工作 Submission 的完整回答，每页最多 4096 个 UTF-16 单元，不拆代理对；Telegram 每页最多 2400 个，菜单历史每页 8 项，模型列身份每页 16 个。宿主取消回执只确认登记，查询在原占用释放且正常收尾后才报告停止已核实，faulted/orphaned 不作停止证明。`personal-work-controls` 扩展阻止旧程序误读新菜单，历史菜单的工作与入口在恢复前核实。
 
 本机提交先记录正文 JSON 字符串编码的 SHA-256，再调用原生 admission，同键异参拒绝。指纹提交后而 admission 前崩溃时，原 submission 查询为未受理，不自动执行；CLI 让拥有者选择原键继续或保留。应答丢失先核实，不自动重送。停止请求先完成自身应答，再停 listener、等全部 handler、关 Harness；Harness 故障关闭也完成接口清理后才放实例锁。
 
@@ -87,3 +87,5 @@ Telegram 数值 offset 只在一批更新收到后 60 秒内用于紧接的一�
 - [个人隔离向导固定服务配置](../../.agents/notes/implemented/architecture/2026-10-17-personal-service-configuration.md)
 
 - [个人模型工作由宿主固定拥有者来源](../../.agents/notes/implemented/architecture/2026-10-17-personal-model-work.md)
+
+- [个人后台分析由宿主菜单控制](../../.agents/notes/implemented/architecture/2026-10-17-personal-work-controls.md)

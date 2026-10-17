@@ -1,0 +1,12 @@
+## Eitrous/migrate-to-pi-durable
+ M apps/ruukoto/src/personal-cli.ts
+ M apps/ruukoto/src/personal-control.ts
+ M apps/ruukoto/src/personal-harness.ts
+ M apps/ruukoto/src/personal-telegram-records.ts
+ M apps/ruukoto/src/personal-telegram.ts
+ M apps/ruukoto/src/personal-work-tools.ts
+ M apps/ruukoto/src/personal-work.ts
+?? .agents/notes/proposed/architecture/2026-10-17-personal-work-controls.md
+?? .scratch/personal-pi-durable/issues/11-work-controls.md
+?? apps/ruukoto/src/personal-work-controls.ts
+?? test/personal-work-controls.test.ts

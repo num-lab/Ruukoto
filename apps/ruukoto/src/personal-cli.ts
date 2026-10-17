@@ -14,6 +14,8 @@ import { personalTelegramApi, telegramOffset, telegramText } from "./personal-te
 import type { PersonalHarness } from "./personal-harness.ts";
 import { readPersonalServices, savePersonalServices } from "./personal-service-config.ts";
 import { personalServiceConfig } from "./personal-services.ts";
+import { personalWorkDescription } from "./personal-work-controls.ts";
+import type { listPersonalWorks, personalWorkResult, PersonalWorkSummary } from "./personal-work.ts";
 
 export type PersonalCliIO = { question(prompt: string): Promise<string>; write(text: string): void };
 
@@ -193,10 +195,43 @@ export async function configurePersonalServices(io: PersonalCliIO, directory: st
   } finally { profile.release(); }
 }
 
+export async function managePersonalWorks(io: PersonalCliIO, directory: string) {
+  let offset = 0;
+  while (true) {
+    const page = await personalControl<Awaited<ReturnType<typeof listPersonalWorks>>>(directory, "GET", `/works?offset=${offset}`);
+    const options = [...page.items.map(personalWorkDescription), ...(page.nextOffset === undefined ? [] : ["下一页分析"]), "返回"];
+    const selected = await choose(io, "后台分析（单项工作）", options);
+    if (selected === options.length - 1) return;
+    if (selected === page.items.length) { offset = page.nextOffset!; continue; }
+    const ref = page.items[selected].ref;
+    while (true) {
+      const current = await personalControl<{ summary: PersonalWorkSummary; result: Awaited<ReturnType<typeof personalWorkResult>> }>(directory, "GET", `/work?work=${ref.taskId}`);
+      io.write(`\n${personalWorkDescription(current.summary)}\n`);
+      const action = await choose(io, "原分析操作", ["刷新状态", "读取原结果", "请求取消这项分析", "关闭此空闲身份", "返回分析列表"]);
+      if (action === 4) break;
+      if (action === 0) continue;
+      if (action === 1) {
+        let result = current.result;
+        while (true) {
+          io.write(result.text === undefined ? "原工作尚无成功完成的回答，请查询状态。\n" : `\n${result.text || "（无文本内容）"}\n`);
+          if (result.nextOffset === undefined || await choose(io, "原结果还有后续内容", ["下一页结果", "返回原分析"]) === 1) break;
+          result = (await personalControl<typeof current>(directory, "GET", `/work?work=${ref.taskId}&offset=${result.nextOffset}`)).result;
+        }
+      } else if (action === 2) {
+        await personalControl(directory, "POST", `/work/cancel?work=${ref.taskId}`);
+        io.write("原分析的取消请求已登记；请刷新核实停止。身份与历史保留，停止未核实前不能复用。\n");
+      } else if (await choose(io, "关闭此身份后不能再委派，历史保留", ["返回", "关闭此空闲身份"]) === 1) {
+        await personalControl(directory, "POST", `/work/close?work=${ref.taskId}`);
+        io.write("原分析的空闲身份已关闭。\n");
+      }
+    }
+  }
+}
+
 export async function personalMenu(directory: string, io: PersonalCliIO): Promise<void> {
   io.write(`个人 durable 隔离实例\n档案：${directory}\n提供主会话、可选 Telegram 文本入口及 Linux 服务检查；模型写工具继续实施。\n`);
   while (true) {
-    const selected = await choose(io, "个人实例", ["配置模型（后台须停止）", "启动隔离后台", "查看状态", "发送消息", "查看最近消息", "核实上次提交", "停止隔离后台", "配置 Telegram（后台须停止）", "查看 Telegram 收发", "退出向导（后台继续运行）", "配置或查看服务（后台须停止）"]);
+    const selected = await choose(io, "个人实例", ["配置模型（后台须停止）", "启动隔离后台", "查看状态", "发送消息", "查看最近消息", "核实上次提交", "停止隔离后台", "配置 Telegram（后台须停止）", "查看 Telegram 收发", "退出向导（后台继续运行）", "配置或查看服务（后台须停止）", "管理后台分析"]);
     if (selected === 9) return;
     try {
       if (selected === 0) await configure(io, directory);
@@ -223,6 +258,7 @@ export async function personalMenu(directory: string, io: PersonalCliIO): Promis
         if (action === 1) { await personalControl(directory, "POST", "/stop"); io.write("已请求停止，请等待后台释放档案；连接断开本身不证明已停止。\n"); }
       } else if (selected === 7) await configurePersonalTelegram(io, directory);
       else if (selected === 10) await configurePersonalServices(io, directory);
+      else if (selected === 11) await managePersonalWorks(io, directory);
       else {
         const state = await personalControl<Awaited<ReturnType<PersonalHarness["telegram"]["status"]>>>(directory, "GET", "/telegram");
         const labels = { waiting: "等待回答", pending: "等待发送", sending: "发送中，尚未核实", sent: "已发送", failed: "平台明确拒绝", effect_unknown: "发送效果未知，不自动重发", canceled: "已取消发送", unanswered: "未获得完整回答" };

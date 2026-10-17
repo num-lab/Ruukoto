@@ -21,6 +21,7 @@ import { personalWorkControls, verifyWorkMenu, verifyDelegationMenu } from "./pe
 import { PersonalDelegationDoc, personalAnalysisDelegations, verifyPersonalDelegations } from "./personal-delegation.ts";
 import { PersonalInspectionDoc, PersonalPendingInspectionsDoc, personalInspectionControl, personalInspectionExtension, recheckServiceInspection, verifyServiceInspections } from "./personal-service-inspection.ts";
 import { personalDelegationReports, personalReportRequest, verifyPersonalReports } from "./personal-report.ts";
+import { personalInspectionControls, telegramInspectionControl, verifyInspectionControls, type PersonalInspectionRef } from "./personal-inspection-controls.ts";
 
 const context = BACKGROUND_CONTEXT;
 export const PersonalFormatDoc = defineDoc({ kind: "ruukoto.format", scope: "session", version: 1, initial: () => ({ ...PERSONAL_FORMAT }) });
@@ -47,7 +48,8 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     if (options.serviceOperations && !service) throw new PersonalError("service_config_missing", "服务操作需要宿主配置的 helper，请先核实部署配置。");
     const operations = options.serviceOperations && service ? personalServiceOperations(service.config, () => harness!) : undefined;
     const telegramConfig = options.telegram && parsePersonalTelegram(options.telegram);
-    const telegram = personalTelegram(telegramConfig, telegramConfig?.enabled ? personalTelegramApi(telegramConfig.apiBase, telegramToken(telegramConfig)) : undefined, operations?.control);
+    const inspectionControls = personalInspectionControls(service?.config, () => harness!);
+    const telegram = personalTelegram(telegramConfig, telegramConfig?.enabled ? personalTelegramApi(telegramConfig.apiBase, telegramToken(telegramConfig)) : undefined, async (tx, value) => await telegramInspectionControl(tx, value, inspectionControls.request) || !!await operations?.control(tx, value));
     const registry = createRegistry();
     const workTools = personalWorkTools(() => harness!);
     const personal = defineExtension({ name: "personal", sections: [section("personal", () => PERSONAL_PROMPT + (services ? "主会话与子 Agent 均可检查宿主白名单内的服务状态，不代表业务健康。" : "子 Agent 当前没有外部工具。"), { tag: false })] });
@@ -61,6 +63,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     registry.install(personalAnalysisDelegations);
     registry.install(personalDelegationReports);
     registry.install(telegram.extension);
+    registry.install(inspectionControls.extension);
     if (services) { registry.install(services); registry.install(personalInspectionExtension); registry.install(personalSubAgentServices); }
     if (operations) registry.install(operations.extension);
     const record = async (evidence: RequestEvidence) => {
@@ -210,6 +213,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     const delegationsEnabled = Array.isArray(savedMain?.extensions) && savedMain.extensions.includes(personalAnalysisDelegations.name);
     const reportsEnabled = Array.isArray(savedMain?.extensions) && savedMain.extensions.includes(personalDelegationReports.name);
     const childServicesEnabled = Array.isArray(savedMain?.extensions) && savedMain.extensions.includes(personalSubAgentServices.name);
+    const inspectionControlsEnabled = Array.isArray(savedMain?.extensions) && savedMain.extensions.includes(inspectionControls.extension.name);
     if (savedMain && !modelWorkEnabled && (inspection.tasks.length || inspection.submissions.length)) throw new PersonalError("work_tools_pending", "档案仍有未完成输入或工作，请先用原版本完成处理，再启用模型委派。");
     if (savedMain && !delegationsEnabled && (inspection.tasks.length || inspection.submissions.length)) throw new PersonalError("delegation_config_pending", "档案仍有未完成输入或分析，请先用原版本完成处理，再启用整项委托。");
     if (savedMain && !reportsEnabled && (inspection.tasks.length || inspection.submissions.length)) throw new PersonalError("report_config_pending", "档案仍有未完成输入或分析，请先用原版本完成处理，再启用委托汇报。");
@@ -220,6 +224,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     await harness.commit(tx => verifyPersonalTelegram(tx, telegramKeys, telegramConfig), context);
     await harness.commit(async tx => { for (const key of telegramKeys) await verifyWorkMenu(tx, (await tx.doc(PersonalTelegramReceiptDoc, key, null)).receipt!, workControlsEnabled); }, context);
     await harness.commit(tx => verifyServiceInspections(tx, inspectionKeys), context);
+    await harness.commit(tx => verifyInspectionControls(tx, telegramKeys, inspectionControlsEnabled), context);
     for (const key of inspectionKeys) {
       const value = (await harness.snapshot(PersonalInspectionDoc, key, context))!.inspection!;
       for (const id of value.sources) {
@@ -272,7 +277,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     await harness.commit(tx => verifyPersonalReports(tx, delegationKeys, reportsEnabled), context);
     await harness.commit(async tx => { for (const key of telegramKeys) await verifyDelegationMenu(tx, (await tx.doc(PersonalTelegramReceiptDoc, key, null)).receipt!, delegationsEnabled); }, context);
     await harness.commit(tx => tx.doc(PersonalFormatDoc), context);
-    const extensions = [personal, personalPermissions, personalBackgroundWork, workTools, personalWorkControls, personalWorkNotes, personalAnalysisDelegations, personalDelegationReports, telegram.extension, ...(services ? [services, personalInspectionExtension, personalSubAgentServices] : []), ...(operations ? [operations.extension] : [])];
+    const extensions = [personal, personalPermissions, personalBackgroundWork, workTools, personalWorkControls, personalWorkNotes, personalAnalysisDelegations, personalDelegationReports, telegram.extension, inspectionControls.extension, ...(services ? [services, personalInspectionExtension, personalSubAgentServices] : []), ...(operations ? [operations.extension] : [])];
     const tools = [...(services?.tools ?? []), ...workTools.tools!];
     if (service) await harness.commit(async tx => { (await tx.doc(PersonalServiceDoc)).fingerprint = service.fingerprint; }, context);
     const main = await harness.root(context, { agent: { model: { provider: options.provider.id, modelId: options.modelId }, thinkingLevel: "off", extensions, tools }, init: async tx => { await tx.doc(PersonalAgentsDoc); await tx.doc(PersonalPermissionsDoc); if (operations) { await tx.doc(PersonalServiceOperationsDoc); await tx.doc(PersonalServiceGrantsDoc); } } });
@@ -306,6 +311,11 @@ export async function openPersonalHarness(options: ({ directory: string; profile
       work: personalWork(instance, { provider: options.provider.id, modelId: options.modelId }),
       service: operations?.api(instance),
       inspections: service && personalInspectionControl(instance, service.config),
+      async requestInspectionStop(ref: PersonalInspectionRef) {
+        const id = await instance.commit(tx => inspectionControls.request(tx, ref), context);
+        instance.resume();
+        return id;
+      },
       telegram: telegram.api(instance),
       async submit(input: string, requestId: string) {
         return main.submit({ type: "input", content: input, requestId, whenBusy: "followUp" }, context);

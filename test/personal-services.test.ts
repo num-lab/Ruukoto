@@ -3,6 +3,8 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { tmpdir } from "node:os";
 import { spawn } from "node:child_process";
+import * as http from "node:http";
+import { createHash, randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { setTimeout as delay } from "node:timers/promises";
 import { test, type TestContext } from "node:test";
@@ -18,6 +20,10 @@ import { lockPersonalProfile } from "../apps/ruukoto/src/personal-profile.ts";
 import type { ServiceManagerConfig } from "../apps/ruukoto/src/service-helper.ts";
 import { MockModelServer, type Responder } from "./helpers/mock-provider.ts";
 import { PersonalAgentsDoc, PersonalWorkDoc, type PersonalWorkRef } from "../apps/ruukoto/src/personal-work.ts";
+import { listPersonalInspections, personalInspectionControls, type PersonalInspectionRef } from "../apps/ruukoto/src/personal-inspection-controls.ts";
+import { PersonalTelegramReceiptDoc } from "../apps/ruukoto/src/personal-telegram-records.ts";
+import type { PersonalTelegramConfig } from "../apps/ruukoto/src/personal-telegram-config.ts";
+import type { TelegramUpdate } from "../apps/ruukoto/src/personal-telegram-api.ts";
 import { PersonalPermissionsDoc } from "../apps/ruukoto/src/personal-permissions.ts";
 import { listPersonalDelegations, personalDelegationProgress, PersonalDelegationDoc } from "../apps/ruukoto/src/personal-delegation.ts";
 
@@ -658,4 +664,209 @@ test("子检查：后台 SIGKILL 遗留真实检查进程，恢复不换身份�
   assert.equal((await canceled).state.outcome.status, "aborted");
   assert.equal((await p.work.list())[0].work, undefined);
   assert.equal(f.calls().filter(call => call[0] === "inspect-op").length, 1);
+});
+
+async function inspectionTelegram(t: TestContext) {
+  const token = "123:inspection-test";
+  const key = "RUUKOTO_INSPECTION_MENU_BOT_KEY";
+  const previous = process.env[key]; process.env[key] = token;
+  const bot = http.createServer(async (req, res) => {
+    const chunks: Buffer[] = []; for await (const chunk of req) chunks.push(Buffer.from(chunk));
+    const body = JSON.parse(Buffer.concat(chunks).toString()) as { chat_id: string };
+    res.end(JSON.stringify({ ok: true, result: { message_id: ++sent, chat: { id: Number(body.chat_id), type: "private" } } }));
+  });
+  let sent = 1000;
+  bot.listen(0, "127.0.0.1"); await once(bot, "listening"); const address = bot.address(); assert.ok(address && typeof address !== "string");
+  const telegram: PersonalTelegramConfig = { version: 1, enabled: true, generation: randomUUID(), apiBase: `http://127.0.0.1:${address.port}`, tokenEnv: key, tokenDigest: createHash("sha256").update(token).digest("hex"), botId: "123", ownerId: "456", boundary: 0 };
+  t.after(async () => { bot.closeAllConnections(); await new Promise<void>(resolve => bot.close(() => resolve())); if (previous === undefined) delete process.env[key]; else process.env[key] = previous; });
+  let id = 0;
+  return { telegram, async receive(p: PersonalHarness, text: string, replyTo?: number, extra: Record<string, unknown> = {}) {
+    const messageId = ++id;
+    const update: TelegramUpdate = { update_id: id, message: { message_id: messageId, chat: { id: 456, type: "private" }, from: { id: 456, is_bot: false }, text, ...(replyTo === undefined ? {} : { reply_to_message: { message_id: replyTo, from: { id: 123, is_bot: true } } }), ...extra } };
+    await p.telegram.receive(update);
+    const key = `telegram:123:456:${messageId}`;
+    const receipt = (await p.harness.snapshot(PersonalTelegramReceiptDoc, key, context))!.receipt!;
+    await p.harness.waitForTask(receipt.taskId, context);
+    const value = (await p.harness.snapshot(PersonalTelegramReceiptDoc, key, context))!.receipt!;
+    return { key, update, value, messageId: Number(value.platformMessageId) };
+  } };
+}
+
+async function stopResult(p: PersonalHarness, ref: PersonalInspectionRef) {
+  const task = await p.harness.waitForTask(await p.requestInspectionStop(ref), context);
+  assert.equal(task.state.outcome.status, "completed");
+  return task.state.outcome.result;
+}
+
+test("检查重核控制：原接纳、单次停止观察、错误证明保留占用及可信证明解除", async t => {
+  const f = await fixture(t); fs.writeFileSync(path.join(f.helper, "inspection-stop-fails"), "");
+  const p = await f.open(); await p.answer("检查", "owner");
+  const page = await p.harness.commit(tx => listPersonalInspections(tx), context);
+  assert.equal(page.items.length, 1); assert.equal(page.items[0].canRecheck, true);
+  const ref = page.items[0].ref;
+  await assert.rejects(p.requestInspectionStop({ ...ref, admission: ref.admission + 1000 as typeof ref.admission }), code("inspection_menu_stale"));
+  assert.deepEqual(await stopResult(p, ref), { stopped: false, code: "stop_unverified" });
+  assert.equal((await p.inspections!.list()).length, 1);
+  assert.equal(f.calls().filter(call => call[0] === "stop-inspect").length, 2);
+  fs.rmSync(path.join(f.helper, "inspection-stop-fails"));
+  assert.deepEqual(await stopResult(p, ref), { stopped: true, code: "stopped" });
+  const calls = f.calls().length;
+  assert.deepEqual(await stopResult(p, ref), { stopped: true, code: "stopped" });
+  assert.equal(f.calls().length, calls); assert.equal(f.calls().filter(call => call[0] === "inspect-op").length, 1);
+  assert.deepEqual((await p.harness.commit(tx => listPersonalInspections(tx), context)).items, []);
+  await p.close(); const reopened = await f.open(); assert.deepEqual(await reopened.inspections!.list(), []);
+});
+
+test("检查重核控制：活动检查拒绝，取消后原检查可重核并收尾子工作", async t => {
+  const f = await fixture(t, childInspect); fs.writeFileSync(path.join(f.helper, "inspect-delay-ms"), "60000"); fs.writeFileSync(path.join(f.helper, "inspection-stop-fails"), "");
+  const p = await f.open({ service: { ...f.service, timeouts: { inspectMs: 90000, stopMs: 1000 } } }); await p.answer("来源", "owner");
+  const work = await p.work.delegate({ requestId: "controlled-stop", sourceRequestId: "owner", content: "检查" });
+  await until(() => f.calls().some(call => call[0] === "inspect-op"));
+  const ref = (await p.harness.commit(tx => listPersonalInspections(tx), context)).items[0].ref;
+  await assert.rejects(p.requestInspectionStop(ref), code("service_inspection_active"));
+  const cancel = p.work.cancel(work); await until(() => f.calls().some(call => call[0] === "stop-inspect"));
+  await until(async () => (await p.harness.commit(tx => tx.task(ref.taskId), context))?.state.status === "terminal");
+  assert.equal((await p.work.status(work)).stopVerified, false);
+  fs.rmSync(path.join(f.helper, "inspection-stop-fails"));
+  assert.deepEqual(await stopResult(p, ref), { stopped: true, code: "stopped" }); await cancel;
+  assert.equal((await p.work.status(work)).stopVerified, true);
+  assert.equal(f.calls().filter(call => call[0] === "inspect-op").length, 1);
+});
+
+test("检查重核控制：Telegram 原菜单、去重、零模型、来源与代次过滤", async t => {
+  const f = await fixture(t); const tg = await inspectionTelegram(t); fs.writeFileSync(path.join(f.helper, "inspection-stop-fails"), "");
+  let p = await f.open({ telegram: tg.telegram }); await tg.receive(p, "检查");
+  const before = f.server.calls.length;
+  const list = await tg.receive(p, "/检查"); const detail = await tg.receive(p, "检查1", list.messageId);
+  assert.match(detail.value.reply!, /停止尚未核实/);
+  for (const extra of [{ forward_origin: { type: "user" } }, { quote: { text: "核实检查停止" } }, { reply_to_message: { message_id: detail.messageId, from: { id: 789, is_bot: true } } }]) {
+    const rejected = await tg.receive(p, "核实检查停止", detail.messageId, extra); assert.equal(rejected.value.inspectionStop, undefined);
+  }
+  assert.equal((await tg.receive(p, "核实检查停止")).value.inspectionStop, undefined);
+  const registered = await tg.receive(p, "核实检查停止", detail.messageId);
+  assert.match(registered.value.reply!, /已登记/); assert.ok(registered.value.inspectionStop);
+  await p.harness.waitForTask(registered.value.inspectionStop.taskId, context);
+  const calls = f.calls().length; await p.telegram.receive(registered.update); assert.equal(f.calls().length, calls);
+  fs.rmSync(path.join(f.helper, "inspection-stop-fails"));
+  const success = await tg.receive(p, "核实检查停止", detail.messageId); await p.harness.waitForTask(success.value.inspectionStop!.taskId, context);
+  assert.match((await tg.receive(p, "刷新检查", success.messageId)).value.reply!, /停止已核实/);
+  assert.equal(f.server.calls.length, before); assert.equal(f.calls().filter(call => call[0] === "inspect-op").length, 1);
+  await p.close(); p = await f.open({ telegram: { ...tg.telegram, generation: randomUUID() } });
+  assert.match((await tg.receive(p, "/检查")).value.reply!, /暂无/);
+  assert.equal((await tg.receive(p, "核实检查停止", detail.messageId)).value.inspectionStop, undefined);
+});
+
+test("检查重核控制：本机与混合来源不进入 Telegram 菜单，原来源全部匹配才显示", async t => {
+  const f = await fixture(t, request => request.messages.at(-1)?.role === "user" ? { kind: "tool_calls", calls: [{ id: "inspect", name: "service_inspect", arguments: { unit: UNIT } }] } : { kind: "text", text: "完成" }); const tg = await inspectionTelegram(t); const p = await f.open({ telegram: tg.telegram });
+  fs.writeFileSync(path.join(f.helper, "inspection-stop-fails"), ""); await p.answer("本机检查", "local");
+  assert.equal((await p.harness.commit(tx => listPersonalInspections(tx, 0, tg.telegram), context)).items.length, 0);
+  const ref = (await p.harness.commit(tx => listPersonalInspections(tx), context)).items[0].ref;
+  assert.equal((await p.harness.commit(tx => listPersonalInspections(tx, 0, { ...tg.telegram, ownerId: "789" }), context)).items.length, 0);
+  fs.rmSync(path.join(f.helper, "inspection-stop-fails")); await stopResult(p, ref);
+  // 新主会话输入只包含当前已接纳输入，混合来源另在接纳记录中构造。
+  fs.writeFileSync(path.join(f.helper, "inspection-stop-fails"), ""); const received = await tg.receive(p, "Telegram 检查");
+  const pending = (await p.inspections!.list())[0]; assert.ok(pending);
+  assert.equal((await p.harness.commit(tx => listPersonalInspections(tx, 0, tg.telegram), context)).items.length, 1);
+  await p.harness.commit(async tx => { const value = (await tx.doc(PersonalInspectionDoc, String(pending.taskId), null)).inspection!; value.sources.push((await tx.submissionByRequest(ROOT_CONVERSATION_ID, "local"))!.id); }, context);
+  assert.equal((await p.harness.commit(tx => listPersonalInspections(tx, 0, tg.telegram), context)).items.length, 0);
+  assert.ok(received.value.submissionId);
+});
+
+test("检查重核控制：原请求跨重启保留，缺收件或扩展拒绝", async t => {
+  for (const mutation of ["none", "receipt", "marker"] as const) await t.test(mutation, async t => {
+    const f = await fixture(t); const tg = await inspectionTelegram(t); fs.writeFileSync(path.join(f.helper, "inspection-stop-fails"), "");
+    let p = await f.open({ telegram: tg.telegram }); await tg.receive(p, "检查");
+    const detail = await tg.receive(p, "检查1", (await tg.receive(p, "/检查")).messageId);
+    const registered = await tg.receive(p, "核实检查停止", detail.messageId); await p.harness.waitForTask(registered.value.inspectionStop!.taskId, context);
+    if (mutation === "receipt") await p.harness.commit(async tx => { delete (await tx.doc(PersonalTelegramReceiptDoc, registered.key, null)).receipt!.inspectionStop; }, context);
+    if (mutation === "marker") await p.harness.commit(async tx => { const doc = await tx.doc(AgentDoc, ROOT_CONVERSATION_ID); assert.ok(Array.isArray(doc.extensions)); doc.extensions = doc.extensions.filter(name => name !== "personal-inspection-controls"); }, context);
+    await p.close();
+    if (mutation !== "none") { await assert.rejects(f.open({ telegram: tg.telegram }), code("inspection_control_invalid")); return; }
+    p = await f.open({ telegram: tg.telegram }); const before = f.calls().length;
+    const ref = registered.value.inspectionStop!.ref;
+    // 关闭前后均只能重核同一原身份，不重新观察服务。
+    await p.harness.commit(tx => personalInspectionControls(f.service, () => p.harness).request(tx, ref), context);
+    await p.close(); fs.rmSync(path.join(f.helper, "inspection-stop-fails")); p = await f.open({ telegram: tg.telegram });
+    await until(async () => (await p.inspections!.list()).length === 0);
+    assert.equal(f.calls().filter(call => call[0] === "inspect-op").length, 1);
+    assert.ok(f.calls().length > before);
+  });
+});
+
+test("检查重核控制：接纳后换尝试零外调，旧菜单不能改指新接纳", async t => {
+  const f = await fixture(t); fs.writeFileSync(path.join(f.helper, "inspection-stop-fails"), ""); const p = await f.open(); await p.answer("检查", "owner");
+  const ref = (await p.harness.commit(tx => listPersonalInspections(tx), context)).items[0].ref;
+  const calls = f.calls().length;
+  const id = await p.harness.commit(async tx => {
+    const original = (await tx.entry(ServiceInspectionAdmission, ref.admission))!;
+    const record = await tx.doc(PersonalInspectionDoc, String(ref.taskId), null);
+    const id = await personalInspectionControls(f.service, () => p.harness).request(tx, ref);
+    const identity = { ...original.data, inspectionId: `inspect_${"e".repeat(24)}` as const };
+    const entry = await tx.appendEntry(ServiceInspectionAdmission, original.conversationId, { data: identity });
+    record.inspection = { ...identity, admission: entry.id, stopped: false };
+    return id;
+  }, context);
+  const task = await p.harness.waitForTask(id, context);
+  assert.equal(task.state.outcome.status, "completed"); assert.deepEqual(task.state.outcome.result, { stopped: false, code: "inspection_menu_stale" });
+  assert.equal(f.calls().length, calls); assert.equal((await p.inspections!.list()).length, 1);
+});
+
+test("检查重核控制：Telegram 接纳写失败零外调，重投只登记一次", async t => {
+  const f = await fixture(t); const tg = await inspectionTelegram(t); let armed = false;
+  fs.writeFileSync(path.join(f.helper, "inspection-stop-fails"), "");
+  let p = await f.open({ telegram: tg.telegram, openStorage: async filename => {
+    const storage = await openNodeSqliteStorage(filename); const commit = storage.commit.bind(storage);
+    storage.commit = (writes, ctx) => armed && JSON.stringify(writes).includes('"ruukoto.inspection-stop"') ? Promise.reject(new Error("stop-admission-failed")) : commit(writes, ctx);
+    return storage;
+  } });
+  await tg.receive(p, "检查"); const detail = await tg.receive(p, "检查1", (await tg.receive(p, "/检查")).messageId);
+  const update: TelegramUpdate = { update_id: 50, message: { message_id: 50, chat: { id: 456, type: "private" }, from: { id: 456, is_bot: false }, text: "核实检查停止", reply_to_message: { message_id: detail.messageId, from: { id: 123, is_bot: true } } } };
+  armed = true; const calls = f.calls().length;
+  await assert.rejects(p.telegram.receive(update)); await p.harness.closed; await p.close(); assert.equal(f.calls().length, calls);
+  p = await f.open({ telegram: tg.telegram });
+  assert.equal((await p.harness.commit(tx => tx.scanTasks({ kind: "ruukoto.inspection-stop" }, 8), context)).items.length, 0);
+  assert.equal((await p.harness.snapshot(PersonalTelegramReceiptDoc, "telegram:123:456:50", context))?.receipt, undefined);
+  await p.telegram.receive(update); await p.telegram.receive(update);
+  const receipt = (await p.harness.snapshot(PersonalTelegramReceiptDoc, "telegram:123:456:50", context))!.receipt!;
+  await p.harness.waitForTask(receipt.inspectionStop!.taskId, context);
+  assert.equal((await p.harness.commit(tx => tx.scanTasks({ kind: "ruukoto.inspection-stop" }, 8), context)).items.length, 1);
+  assert.equal(f.calls().filter(call => call[0] === "inspect-op").length, 1);
+});
+
+test("检查重核控制：helper 等待不阻塞登记、独立聊天或 Telegram 宿主回执", async t => {
+  let stopRelease: string | undefined; t.after(() => { if (stopRelease) fs.writeFileSync(stopRelease, ""); });
+  const f = await fixture(t); const tg = await inspectionTelegram(t); fs.writeFileSync(path.join(f.helper, "inspection-stop-fails"), "");
+  const p = await f.open({ telegram: tg.telegram }); await tg.receive(p, "检查");
+  const detail = await tg.receive(p, "检查1", (await tg.receive(p, "/检查")).messageId);
+  const entered = path.join(f.helper, "entered-stop"); const release = path.join(f.helper, "release-stop");
+  f.script(fs.readFileSync(f.service.helperPath, "utf8").replace('function cmdStopInspect(inspectionId, expectedMachineId) {', `function cmdStopInspect(inspectionId, expectedMachineId) { fs.writeFileSync(${JSON.stringify(entered)}, ""); while (!fs.existsSync(${JSON.stringify(release)})) sleepMs(10);`));
+  stopRelease = release;
+  const registered = await tg.receive(p, "核实检查停止", detail.messageId); await until(() => fs.existsSync(entered));
+  assert.match(registered.value.reply!, /已登记/); assert.equal(fs.existsSync(release), false);
+  assert.equal(await p.answer("独立聊天", "independent-chat"), "检查结束");
+  assert.match((await tg.receive(p, "刷新检查", registered.messageId)).value.reply!, /尚未核实/);
+  fs.rmSync(path.join(f.helper, "inspection-stop-fails")); fs.writeFileSync(release, "");
+  const task = await p.harness.waitForTask(registered.value.inspectionStop!.taskId, context);
+  assert.deepEqual(task.state.outcome.result, { stopped: true, code: "stopped" });
+});
+
+test("检查重核控制：收件提交后 SIGKILL，恢复原重核与回执且不重复登记", { timeout: 20000 }, async t => {
+  const f = await fixture(t); const tg = await inspectionTelegram(t); fs.writeFileSync(path.join(f.helper, "inspection-stop-fails"), "");
+  let p = await f.open({ telegram: tg.telegram }); await tg.receive(p, "检查");
+  const detail = await tg.receive(p, "检查1", (await tg.receive(p, "/检查")).messageId); await p.close();
+  const update: TelegramUpdate = { update_id: 50, message: { message_id: 50, chat: { id: 456, type: "private" }, from: { id: 456, is_bot: false }, text: "核实检查停止", reply_to_message: { message_id: detail.messageId, from: { id: 123, is_bot: true } } } };
+  const marker = path.join(f.root, "stop-committed");
+  const script = `import * as fs from "node:fs"; import {openPersonalHarness} from "./apps/ruukoto/src/personal-harness.ts"; import {personalProvider} from "./apps/ruukoto/src/personal-model.ts"; import {openNodeSqliteStorage} from "@earendil-works/pi-durable/storage/sqlite/node"; const {directory,config,service,telegram,update,marker}=JSON.parse(process.env.RUUKOTO_INSPECTION_CRASH); setInterval(()=>{},1000); const p=await openPersonalHarness({directory,service,telegram,provider:personalProvider(config),modelId:config.modelId,openStorage:async filename=>{const s=await openNodeSqliteStorage(filename);const commit=s.commit.bind(s);s.commit=async(writes,c)=>{const seq=await commit(writes,c);if(JSON.stringify(writes).includes('"ruukoto.inspection-stop"')){fs.writeFileSync(marker,"committed");return new Promise(()=>{});}return seq;};return s;}});await p.telegram.receive(update);`;
+  const backend = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "--eval", script], { cwd: new URL("..", import.meta.url), env: { ...process.env, RUUKOTO_INSPECTION_CRASH: JSON.stringify({ directory: f.options.directory, config: f.config, service: f.service, telegram: tg.telegram, update, marker }) }, stdio: ["ignore", "ignore", "pipe"] });
+  backend.stderr.pipe(process.stderr); t.after(() => { if (backend.exitCode === null && backend.signalCode === null) backend.kill("SIGKILL"); });
+  await until(() => fs.existsSync(marker)); const exited = once(backend, "exit"); backend.kill("SIGKILL"); const exit = await exited; assert.equal(exit[1], "SIGKILL");
+  p = await f.open({ telegram: tg.telegram });
+  const receipt = (await p.harness.snapshot(PersonalTelegramReceiptDoc, "telegram:123:456:50", context))!.receipt!;
+  assert.ok(receipt.inspectionStop); await p.harness.waitForTask(receipt.inspectionStop.taskId, context); await p.harness.waitForTask(receipt.taskId, context);
+  await p.telegram.receive(update);
+  assert.equal((await p.harness.commit(tx => tx.scanTasks({ kind: "ruukoto.inspection-stop" }, 8), context)).items.length, 1);
+  assert.equal((await p.inspections!.list()).length, 1);
+  fs.rmSync(path.join(f.helper, "inspection-stop-fails")); assert.deepEqual(await stopResult(p, receipt.inspectionStop.ref), { stopped: true, code: "stopped" });
+  assert.equal(f.calls().filter(call => call[0] === "inspect-op").length, 1);
+  assert.equal(f.server.calls.length, 2);
 });

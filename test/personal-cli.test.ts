@@ -17,7 +17,7 @@ import { personalProvider, type PersonalModelConfig } from "../apps/ruukoto/src/
 import { lockPersonalProfile } from "../apps/ruukoto/src/personal-profile.ts";
 import { personalDevDirectory, readPersonalConfig, savePersonalConfig } from "../apps/ruukoto/src/personal-config.ts";
 import { LocalInputDoc, parsePersonalInput, personalControl, readPersonalToken, startPersonalServer, type PersonalInputStatus, type PersonalMessage, type PersonalStatus } from "../apps/ruukoto/src/personal-control.ts";
-import { checkPersonalInput, configurePersonalServices, launchPersonalServer, pendingPersonalInputs, personalChildEnv, personalMenu, preparePersonalInput } from "../apps/ruukoto/src/personal-cli.ts";
+import { checkPersonalInput, configurePersonalServices, managePersonalInspections, launchPersonalServer, pendingPersonalInputs, personalChildEnv, personalMenu, preparePersonalInput } from "../apps/ruukoto/src/personal-cli.ts";
 import { parsePersonalServices, readPersonalServices, savePersonalServices } from "../apps/ruukoto/src/personal-service-config.ts";
 import { PersonalServiceDoc } from "../apps/ruukoto/src/personal-services.ts";
 import { PersonalServiceGrantsDoc, PersonalServiceOperationsDoc } from "../apps/ruukoto/src/personal-service-operations.ts";
@@ -464,6 +464,28 @@ test("personal 服务配置：生产 sudo 后台接线和恢复（Linux），其
   assert.equal(entries.filter(entry => entry.kind === "ruukoto.service-inspection").length, 2);
   assert.ok(entries.some(entry => entry.kind === "ruukoto.model-request" && JSON.stringify(entry.data).includes("service_inspect")));
   await storage.close(context);
+  fs.writeFileSync(path.join(helper, "inspection-stop-fails"), "");
+  await launchPersonalServer(f.dir);
+  const input = preparePersonalInput(f.dir, "待重核的检查"); await personalControl(f.dir, "POST", "/inputs", input);
+  await until(async () => (await checkPersonalInput(f.dir, input)).status === "done");
+  type Page = { items: { ref: { taskId: number; admission: number }; canRecheck: boolean }[] };
+  const page = await personalControl<Page>(f.dir, "GET", "/inspections"); assert.equal(page.items.length, 1); assert.ok(page.items[0].canRecheck);
+  for (const route of ["/inspections?offset=-1", "/inspection/stop?inspection=1&admission=-1"]) await assert.rejects(personalControl(f.dir, route.startsWith("/inspection/stop") ? "POST" : "GET", route), code("work_input_invalid"));
+  const ref = page.items[0].ref;
+  await assert.rejects(personalControl(f.dir, "POST", `/inspection/stop?inspection=${ref.taskId}&admission=${ref.admission + 10000}`), code("inspection_menu_stale"));
+  const entered = path.join(helper, "stop-entered"); const release = path.join(helper, "stop-release");
+  fs.writeFileSync(configured.helperPath, fs.readFileSync(configured.helperPath, "utf8").replace('function cmdStopInspect(inspectionId, expectedMachineId) {', `function cmdStopInspect(inspectionId, expectedMachineId) { fs.writeFileSync(${JSON.stringify(entered)}, ""); while (!fs.existsSync(${JSON.stringify(release)})) sleepMs(10);`));
+  try {
+    const answers = ["1", "2", "3"]; let output = "";
+    await managePersonalInspections({ question: async () => { assert.ok(answers.length); return answers.shift()!; }, write: value => { output += value; } }, f.dir);
+    await until(() => fs.existsSync(entered)); assert.match(output, /已登记/); assert.equal(fs.existsSync(release), false);
+    assert.equal((await personalControl<Page>(f.dir, "GET", "/inspections")).items.length, 1);
+    fs.rmSync(path.join(helper, "inspection-stop-fails")); fs.writeFileSync(release, "");
+    await until(async () => (await personalControl<Page>(f.dir, "GET", "/inspections")).items.length === 0);
+    assert.equal(fs.readFileSync(path.join(helper, "calls.log"), "utf8").trim().split("\n").filter(line => JSON.parse(line)[0] === "inspect-op").length, 3);
+  } finally { fs.writeFileSync(release, ""); await stop(); }
+  const callsBeforeRefusal = fs.readFileSync(path.join(helper, "calls.log"), "utf8");
+  const modelCallsBeforeRefusal = f.model.calls.length;
   const filename = path.join(f.dir, "service.json");
   fs.rmSync(filename);
   await assert.rejects(f.start(), code("service_config_changed"));
@@ -473,6 +495,25 @@ test("personal 服务配置：生产 sudo 后台接线和恢复（Linux），其
   fs.writeFileSync(filename, JSON.stringify({ ...configured, policyPath: configured.policyPath + ".other" }));
   await assert.rejects(f.start(), code("service_config_changed"));
   fs.writeFileSync(filename, JSON.stringify(configured));
-  assert.equal(f.model.calls.length, 4);
-  assert.deepEqual(fs.readFileSync(path.join(helper, "calls.log"), "utf8").trim().split("\n").map(line => JSON.parse(line)), calls);
+  assert.equal(f.model.calls.length, modelCallsBeforeRefusal);
+  assert.equal(fs.readFileSync(path.join(helper, "calls.log"), "utf8"), callsBeforeRefusal);
+});
+
+
+test("检查重核向导：分页固定原接纳，选择登记且刷新不重投", async t => {
+  const dir = directory(t); const token = "a".repeat(64); fs.writeFileSync(path.join(dir, "control.token"), token + "\n");
+  const routes: string[] = []; let requested = false;
+  const item = { ref: { taskId: 12, admission: 34 }, unit: "example.service", scope: "后台分析的固定检查", canRecheck: true };
+  const server = http.createServer((req, res) => {
+    assert.equal(req.headers.authorization, `Bearer ${token}`); routes.push(`${req.method} ${req.url}`);
+    let result;
+    if (req.method === "POST") { assert.equal(req.url, "/inspection/stop?inspection=12&admission=34"); requested = true; result = { requested: true }; }
+    else result = requested ? { items: [] } : req.url === "/inspections?offset=0" ? { items: Array(8).fill(item), nextOffset: 8 } : { items: [item] };
+    res.end(JSON.stringify({ v: 1, ok: true, result }));
+  });
+  server.listen(path.join(dir, "control.sock")); await once(server, "listening"); t.after(() => new Promise<void>(resolve => server.close(() => resolve())));
+  const answers = ["9", "1", "2", "2"]; let output = "";
+  await managePersonalInspections({ question: async () => { assert.ok(answers.length); return answers.shift()!; }, write: value => { output += value; } }, dir);
+  assert.deepEqual(routes, ["GET /inspections?offset=0", "GET /inspections?offset=8", "POST /inspection/stop?inspection=12&admission=34", "GET /inspections?offset=0"]);
+  assert.match(output, /登记不表示已停止/); assert.doesNotMatch(output, /taskId|admission|UUID/);
 });

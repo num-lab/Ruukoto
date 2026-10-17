@@ -18,6 +18,7 @@ import { personalDelegationDescription, personalReportDelivery } from "./persona
 import type { personalReportResult } from "./personal-report.ts";
 import { readPersonalServices, savePersonalServices } from "./personal-service-config.ts";
 import { personalServiceConfig } from "./personal-services.ts";
+import { personalInspectionDescription, type PersonalInspectionPage } from "./personal-inspection-controls.ts";
 import { personalWorkDescription } from "./personal-work-controls.ts";
 import type { listPersonalWorks, personalWorkResult, PersonalWorkSummary } from "./personal-work.ts";
 
@@ -274,10 +275,28 @@ export async function managePersonalDelegations(io: PersonalCliIO, directory: st
   }
 }
 
+export async function managePersonalInspections(io: PersonalCliIO, directory: string) {
+  let offset = 0;
+  while (true) {
+    const page = await personalControl<PersonalInspectionPage>(directory, "GET", `/inspections?offset=${offset}`);
+    const choices = [...page.items.map(personalInspectionDescription), ...(page.nextOffset === undefined ? [] : ["下一页检查"]), "刷新列表", "返回"];
+    const selected = await choose(io, "固定检查停止重核", choices);
+    if (selected === choices.length - 1) return;
+    if (selected === choices.length - 2) { offset = 0; continue; }
+    if (selected === page.items.length) { offset = page.nextOffset!; continue; }
+    const item = page.items[selected];
+    io.write(`${personalInspectionDescription(item)}。只核实原固定检查退出，不确认服务写入效果，也不强制释放占用。\n`);
+    if (!item.canRecheck || await choose(io, "请求原检查停止重核", ["返回列表", "登记停止重核"]) === 0) continue;
+    await personalControl(directory, "POST", `/inspection/stop?inspection=${item.ref.taskId}&admission=${item.ref.admission}`);
+    io.write("已登记原检查停止重核；登记不表示已停止。请刷新列表；原检查消失才表示停止已核实，仍在列表时请检查 helper 部署后再主动重核。\n");
+    offset = 0;
+  }
+}
+
 export async function personalMenu(directory: string, io: PersonalCliIO): Promise<void> {
   io.write(`个人 durable 隔离实例\n档案：${directory}\n提供主会话、可选 Telegram 文本入口及 Linux 服务检查；模型写工具继续实施。\n`);
   while (true) {
-    const selected = await choose(io, "个人实例", ["配置模型（后台须停止）", "启动隔离后台", "查看状态", "发送消息", "查看最近消息", "核实上次提交", "停止隔离后台", "配置 Telegram（后台须停止）", "查看 Telegram 收发", "退出向导（后台继续运行）", "配置或查看服务（后台须停止）", "管理后台分析", "管理分析委托"]);
+    const selected = await choose(io, "个人实例", ["配置模型（后台须停止）", "启动隔离后台", "查看状态", "发送消息", "查看最近消息", "核实上次提交", "停止隔离后台", "配置 Telegram（后台须停止）", "查看 Telegram 收发", "退出向导（后台继续运行）", "配置或查看服务（后台须停止）", "管理后台分析", "管理分析委托", "管理检查停止重核"]);
     if (selected === 9) return;
     try {
       if (selected === 0) await configure(io, directory);
@@ -306,6 +325,7 @@ export async function personalMenu(directory: string, io: PersonalCliIO): Promis
       else if (selected === 10) await configurePersonalServices(io, directory);
       else if (selected === 11) await managePersonalWorks(io, directory);
       else if (selected === 12) await managePersonalDelegations(io, directory);
+      else if (selected === 13) await managePersonalInspections(io, directory);
       else {
         const state = await personalControl<Awaited<ReturnType<PersonalHarness["telegram"]["status"]>>>(directory, "GET", "/telegram");
         const labels = { waiting: "等待回答", pending: "等待发送", sending: "发送中，尚未核实", sent: "已发送", failed: "平台明确拒绝", effect_unknown: "发送效果未知，不自动重发", canceled: "已取消发送", unanswered: "未获得完整回答" };

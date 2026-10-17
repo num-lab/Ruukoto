@@ -1,0 +1,16 @@
+{
+  ".agents/notes/implemented/architecture/2026-10-17-personal-durable-inspection.md": "81d968988c8d6543bd00fce0be64edd2f75beb1323827f1f23effc9fec793a9a",
+  ".agents/notes/implemented/architecture/2026-10-17-personal-inspection-stop-controls.md": "de9e626a3c036e1762bec28bc8e8b911a1988edb8ad32187b097a9002ed9a3de",
+  ".agents/notes/implemented/architecture/2026-10-17-personal-subagent-inspection.md": "1ce991c9ee984e86da910d207e95217326ecd90731df98a38fb98f7992de2728",
+  "apps/ruukoto/src/personal-cli.ts": "a6ad5226f06a1e0c8942b9c04f3edee7d4dd0c28e002f72c055563af5ba731ec",
+  "apps/ruukoto/src/personal-control.ts": "df71c51e5f95d00a73b961b94bb71a82d7915b701557cc16dd8c78e0c39e04db",
+  "apps/ruukoto/src/personal-harness.ts": "f1536025e1531272f3dc392d206e5a98a0e0869137848c940b9e88c174d34e1d",
+  "apps/ruukoto/src/personal-inspection-controls.ts": "25575ab253721b06c4a933b0d23c6cfb5db77c9ad8b9140b04d40a29c9f87048",
+  "apps/ruukoto/src/personal-telegram-records.ts": "cbbceca9ab4474f1fb01e1872553d3fa6097918320b43d652a7f6859ead0e181",
+  "docs/modules/agent-tools.md": "ee1002a9b2d7f40d61ea9792a5e3c95e4e2415e1b42834124edbae345829a8bd",
+  "docs/modules/personal-durable.md": "9c1fa653eed368fea6118088af1b596fbee6770513daff15e890143c0671ee6c",
+  "docs/modules/products.md": "eadd341d6414a4eafc8886dcd949fa48ed9e7573999b0110e2930b6222f07742",
+  "docs/usage.md": "c70824bd35473dee98b04ae7d4dea35b5be3d66b0d2b9a24b641d4d34f9cb687",
+  "test/personal-cli.test.ts": "b575f9fc56046882f75a44890a59c4fa5e19548ce8a327b19eb2b00022510f83",
+  "test/personal-services.test.ts": "b2e1bb38321ad09aec41a8dbbc954561f2a05e057775ca670f73b671ec44b832"
+}

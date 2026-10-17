@@ -20,6 +20,8 @@ import { listPersonalInspections } from "./personal-inspection-controls.ts";
 import { listPersonalServices, personalServiceDetail, personalServiceRef, parsePersonalServiceResolution, type PersonalServiceResolution } from "./personal-service-controls.ts";
 import { resolvePersonalServiceOperation } from "./personal-service-operations.ts";
 import { personalCommandRef, resolvePersonalCommand } from "./personal-command-work.ts";
+import { mcpDecide, mcpDetail, mcpList, mcpResolve } from "./personal-mcp.ts";
+import { readPersonalMcp } from "./personal-mcp-config.ts";
 
 import { LocalInputDoc, personalInputDigest } from "./personal-local-records.ts";
 export { LocalInputDoc } from "./personal-local-records.ts";
@@ -108,6 +110,7 @@ export async function startPersonalServer(directory: string) {
     const telegram = readPersonalTelegram(profile);
     const services = readPersonalServices(profile);
     const commands = readPersonalCommands(profile);
+    const mcp = readPersonalMcp(profile);
     if (!process.env[config.apiKeyEnv]) throw new PersonalError("model_credentials_missing", "模型凭据环境变量尚未设置，请设置后再启动隔离后台。");
     if (fs.existsSync(path.join(directory, "control.token"))) readPersonalToken(directory);
     if (Buffer.byteLength(socketPath) > 100) throw new PersonalError("control_path_long", "隔离档案路径过长，请用较短的新目录启动。");
@@ -118,7 +121,7 @@ export async function startPersonalServer(directory: string) {
     server.listen(socketPath);
     await once(server, "listening");
     fs.chmodSync(socketPath, 0o600);
-    personal = await openPersonalHarness({ profile, provider: personalProvider(config), modelId: config.modelId, telegram, ...(services ? { service: { ...services, useSudo: true }, serviceOperations: true } : {}), ...(commands ? { commands } : {}), beforeUnlock: closeListener });
+    personal = await openPersonalHarness({ profile, provider: personalProvider(config), modelId: config.modelId, telegram, ...(services ? { service: { ...services, useSudo: true }, serviceOperations: true } : {}), ...(commands ? { commands } : {}), ...(mcp ? { mcp } : {}), beforeUnlock: closeListener });
     const instance = personal;
     telegramLoop = instance.telegram.poll(telegramStop.signal).catch(() => { process.stderr.write("[ruukoto:personal] Telegram 收件已停止，请查询状态并检查档案；未自动重启。\n"); });
     const respond = (res: http.ServerResponse, status: number, result: unknown) => {
@@ -156,6 +159,26 @@ export async function startPersonalServer(directory: string) {
           result = { requested: true };
         } else if (req.method === "GET" && url.pathname === "/services") {
           result = await instance.harness.commit(tx => listPersonalServices(tx, queryNumber(url, "offset", 0)), context);
+        } else if (req.method === "GET" && url.pathname === "/mcp/operations") {
+          result = await instance.harness.commit(tx => mcpList(tx, queryNumber(url, "offset", 0)), context);
+        } else if ((req.method === "GET" && url.pathname === "/mcp/operation") || (req.method === "POST" && ["/mcp/decide", "/mcp/resolve", "/mcp/recheck"].includes(url.pathname))) {
+          const operation = queryNumber(url, "operation") as TaskId;
+          if (operation < 1) throw new PersonalError("mcp_input_invalid", "请选择列表中的原 MCP 操作。");
+          if (url.pathname === "/mcp/decide") {
+            const value = await readControlJSON(req);
+            if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).length !== 1 || !("decision" in value) || (value.decision !== "approved" && value.decision !== "rejected")) throw new PersonalError("mcp_decision_invalid", "请选择批准本次或拒绝原 MCP 操作。");
+            await instance.harness.commit(tx => mcpDecide(tx, operation, value.decision as "approved" | "rejected"), context);
+            result = { saved: true };
+          } else if (url.pathname === "/mcp/resolve") {
+            const value = await readControlJSON(req);
+            if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).length !== 2 || !("effect" in value) || (value.effect !== "applied" && value.effect !== "not_applied") || !("evidence" in value) || typeof value.evidence !== "string") throw new PersonalError("mcp_resolution_invalid", "请选择业务已生效或未生效，并填写原 MCP 操作的核实证据。");
+            await instance.harness.commit(tx => mcpResolve(tx, operation, value.effect as "applied" | "not_applied", value.evidence as string), context);
+            result = { saved: true };
+          } else if (url.pathname === "/mcp/recheck") {
+            if (!instance.mcp) throw new PersonalError("mcp_config_missing", "MCP 未装配，请停止后台后通过向导配置服务。");
+            await instance.mcp.requestRecheck(operation);
+            result = { requested: true };
+          } else result = await instance.harness.commit(tx => mcpDetail(tx, operation, queryNumber(url, "offset", 0)), context);
         } else if (req.method === "GET" && url.pathname === "/commands") {
           if (!instance.commands) throw new PersonalError("command_config_missing", "命令未装配，请停止后台后配置独立命令目录。");
           result = await instance.commands.list(queryNumber(url, "offset", 0));

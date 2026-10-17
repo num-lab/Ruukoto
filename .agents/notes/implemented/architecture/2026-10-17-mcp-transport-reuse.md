@@ -8,7 +8,7 @@ Status: implemented
 
 ## 决定
 
-`mcp/transport.ts` 持有 SDK、端点校验、钉源 fetch、发现、调用和错误分类。`connectMcpEndpoint` 只接受服务标识、固定端点、超时及可选的逐请求 token resolver，不接受任意 fetch、headers、OAuth 刷新或请求配置。调用方持有连接并负责关闭，传输不持有任务、审批、项目或凭据存储。
+`mcp/transport.ts` 持有 SDK、端点校验、钉源 fetch、发现、调用和错误分类。`connectMcpEndpoint` 接受服务标识、固定端点、超时、可选的逐请求 token resolver 及宿主原请求/应答记录钩子，不接受任意 fetch、headers、OAuth 刷新或请求配置。调用方持有连接并负责关闭，传输不持有任务、审批、项目或凭据存储。
 
 resolver 由可信宿主核实原凭据的目标、用途和来源范围；接口本身不提供这些授权。没有 resolver 才匿名；已配置 resolver 返回空 token 或抛普通异常时，在发出该请求前报静态 auth_failed，不降级匿名、不复述异常里的秘密。宿主主动抛出的 McpError 继续保留分类与可读说明，调用方须保证说明没有秘密值。
 
@@ -16,7 +16,7 @@ resolver 由可信宿主核实原凭据的目标、用途和来源范围；接�
 
 分页由锁定 SDK 的 listMaxPages 限制为最多请求 16 页，达到上限且仍需继续分页时抛 too_many_pages，不将超限结果当成功清单返回；成功汇总后最多 64 个工具，每页沿原超时预算。SDK 的无 cursor listTools 本来就会自动汇总，外层循环不能限制其请求次数，因此不再重复手写分页；重复游标仍沿 SDK 的结束规则，不新增协议判定。
 
-HTTP 关闭、取消与超时只结束本地等待。MCP 服务可继续执行，客户端不能据此提供远端停止证明；Linux scope 的本机停止证明也不适用于远端。[MCP 写工具](../feature/2026-09-23-mcp-write-tools-approval.md)的不重发和未知效果规则继续成立。本片不把传输抽取记作个人端持久回执、工作权限或恢复能力已完成。
+HTTP 关闭、取消与超时只结束本地等待。MCP 服务可继续执行，客户端不能据此提供远端停止证明；Linux scope 的本机停止证明也不适用于远端。[MCP 写工具](../feature/2026-09-23-mcp-write-tools-approval.md)的不重发和未知效果规则继续成立。个人消费者通过[原生工具与外部证据](2026-10-17-personal-durable-mcp.md)钉定原请求并保存完整应答；共享传输提供原 SSE 流恢复 GET，只读取匹配原请求的迟到终结应答，不重发 tools/call。游标与同事件应答一起交宿主持久化，缺证据保留未知。
 
 ## 既有记录审计
 
@@ -31,4 +31,4 @@ HTTP 关闭、取消与超时只结束本地等待。MCP 服务可继续执行�
 
 ## 后果
 
-两个产品可共用纯 HTTP 传输，旧调用者继续使用原接口。代价是宿主仍须提供逐请求授权核实；HTTP 操作丢失结果后没有通用的远端停止证明，后续 durable 消费者必须保存未知并等待可信核实，不能重发或提前释放工作。回归与独立审查见[实施工单](../../../../.scratch/personal-pi-durable/issues/27-mcp-transport.md)；本片无新增用户入口，不证明真实 MCP、模型或 IM 可用。
+两个产品可共用纯 HTTP 传输，旧调用者继续使用原接口。代价是宿主仍须提供逐请求授权核实；HTTP 操作丢失结果后没有通用的远端停止证明，后续 durable 消费者必须保存未知并等待可信核实，不能重发或提前释放工作。回归与独立审查见[实施工单](../../../../.scratch/personal-pi-durable/issues/27-mcp-transport.md)；本篇只持有共享传输；个人入口与持久恢复见上述记录，不证明真实 MCP、模型或 IM 可用。

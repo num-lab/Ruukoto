@@ -6,6 +6,7 @@ import { PersonalDelegationDoc, personalDelegation, personalDelegationBlocker, p
 import { personalWorkNoteSource, personalWorkStatus } from "./personal-work.ts";
 import { PersonalInspectionDoc, ServiceInspectionAdmission } from "./personal-service-inspection.ts";
 import { PersonalServiceOperationDoc, type PersonalServiceBlocker } from "./personal-service-operations.ts";
+import { McpAdmission, PersonalMcpDoc } from "./personal-mcp.ts";
 import { CommandAdmission, PersonalCommandDoc } from "./personal-command-work.ts";
 import { PersonalTelegramDoc, PersonalTelegramReceiptDoc } from "./personal-telegram-records.ts";
 import { personalTelegramApi, PersonalTelegramApiError } from "./personal-telegram-api.ts";
@@ -100,7 +101,7 @@ export const PersonalReportTask = defineTask<ReportInput, { phase: "wait" } | { 
           }, context);
           if (stop) return;
           if (!blocker) break;
-          const watch = typeof blocker === "string" ? await runtime.watchDoc(PersonalServiceOperationDoc, blocker, context) : "command" in blocker ? await runtime.watchDoc(PersonalCommandDoc, blocker.command, context) : await runtime.watchDoc(PersonalInspectionDoc, String(blocker.inspection), context);
+          const watch = typeof blocker === "string" ? await runtime.watchDoc(PersonalServiceOperationDoc, blocker, context) : "mcp" in blocker ? await runtime.watchDoc(PersonalMcpDoc, blocker.mcp, context) : "command" in blocker ? await runtime.watchDoc(PersonalCommandDoc, blocker.command, context) : await runtime.watchDoc(PersonalInspectionDoc, String(blocker.inspection), context);
           if (!watch) throw new PersonalError("service_operation_missing", "暂停报告的服务记录缺失，请保留档案。");
           try {
             const changed = new Promise<void>(resolve => { watch.start(async () => { resolve(); }); void watch.closed.then(() => resolve()); });
@@ -274,6 +275,11 @@ export async function verifyPersonalReports(tx: Tx, keys: string[], enabled: boo
           if (typeof blocker === "string") {
             const operation = (await tx.doc(PersonalServiceOperationDoc, blocker, null)).operation;
             sourceValid = !!operation && sources.has(operation.source.requestId);
+          } else if ("mcp" in blocker) {
+            const admission = await tx.entry(McpAdmission, blocker.admission);
+            if (admission && admission.id < pause.id && String(admission.data.operation) === blocker.mcp) {
+              for (const requestId of sources) { const source = await tx.submissionByRequest(ROOT_CONVERSATION_ID, requestId); if (source && admission.data.origin.sources.includes(source.id)) sourceValid = true; }
+            }
           } else if ("command" in blocker) {
             const admission = await tx.entry(CommandAdmission, blocker.admission);
             if (admission && admission.id < pause.id && admission.data.ref.requestId === blocker.command) {

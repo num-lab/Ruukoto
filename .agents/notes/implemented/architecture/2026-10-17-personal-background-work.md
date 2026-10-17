@@ -10,11 +10,11 @@ Status: implemented
 
 可信宿主通过 `openPersonalHarness().work` 管理后台工作。子 Agent 身份是 ownerless Conversation；每次委派是主会话拥有的 background `ruukoto.background-work` Task，两者通过 `ruukoto.subagents` 索引关联。创建身份、显式配置、登记 Task、来源和占用在同一 durable commit；工作键的 SHA-256 固定内容、来源、目标及名称，同键异参拒绝，重复返回原工作。来源必须是已进入主会话的拥有者原生 input，不接受排队输入或回报。索引只保存身份、关闭事实和占用，不复制 Task 的执行状态。
 
-子会话显式装配 `personal-subagent` 提示、`personal-background-work` 任务扩展和空工具。长期上下文不携带外部执行权限；主会话现有只读服务工具不下放。[模型工作入口](2026-10-17-personal-model-work.md)在相同事务登记上增加来源核实、工作查询与取消/关闭；追加说明、结果自动外发与独立 IM/CLI 工作菜单仍未接入，不声称完成外部子工具的权限与未知写入处理。
+子会话显式装配 `personal-subagent` 提示、`personal-background-work` 任务扩展和空工具。长期上下文不携带外部执行权限；主会话现有只读服务工具不下放。[模型工作入口](2026-10-17-personal-model-work.md)在相同事务登记上增加来源核实、工作查询与取消/关闭；[宿主菜单](2026-10-17-personal-work-controls.md)提供独立 IM/CLI 控制。追加说明、结果自动外发与外部子工具的权限及未知写入处理仍由总方案推进。
 
 工作 Task 用 `personal-work:<taskId>` 经原生 admission 受理，再保存 Submission 引用并等待。admission 不能与宿主登记同 commit；这个窗口依靠原键恢复，不另写一套队列或运行状态。结果和进度直接读 Task/Submission；结果留在原子会话。完成后保留身份和上下文，关闭只保存关闭事实，不删除历史。
 
-取消先提交 `ruukoto.work` 的取消事实，再调用原生 abortTask。恢复中的 Task 同样检查取消事实；abort handler 停止目标 Conversation，跨 background 收齐压缩等执行。正常回答或失败收尾也停止子会话余下后台执行。只有确认目标会话已停，才比较占用仍属于本 Task，并在同一 Task 终态 commit 释放占用。取消事实已提交而 abortTask 尚未调用时，正常收尾直接结束为 aborted；不能用相同 checkpoint 要求上游重新调度。unexpected fault 保留占用，终态不能当作停止证明。
+取消先提交 `ruukoto.work` 的取消事实；等待回答的 Task 观察该 document，恢复中的 Task 也检查原事实，宿主模型工具和可信 API 还可调用原生 abortTask。两条路径均停止目标 Conversation，跨 background 收齐压缩等执行。正常回答或失败收尾也停止子会话余下后台执行。只有确认目标会话已停，才比较占用仍属于本 Task，并在同一 Task 终态 commit 释放占用。取消事实已提交而 abortTask 尚未调用时，同样结束为 aborted；不能用相同 checkpoint 要求上游重新调度。unexpected fault 保留占用，终态不能当作停止证明。
 
 provider prepare 与 onPayload 都按持久 ProviderDoc.sessionId 唯一定位实际 Conversation，在保存证据的同 commit 复核活动占用与取消事实。缺失/歧义来源、空闲/关闭/取消的子身份拒绝请求，不能只靠会被跳过的 beforeRequest hook。每份证据写在实际调用会话，生成和压缩沿同一入口。恢复前核对文档版本、身份/会话双向关系、工作/占用/原生 Task 双向关系及来源；旧无工作档案仅在无未决输入/任务时启用新扩展。空闲时同步所有长期会话模型，有未决工作时拒绝换模型。
 

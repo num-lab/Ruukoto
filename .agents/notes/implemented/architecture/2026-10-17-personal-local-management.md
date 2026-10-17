@@ -12,7 +12,7 @@ Status: implemented
 
 后台取得 SQLite 实例锁后读取模型配置，独占 Harness 和 Unix HTTP socket。令牌逐启动生成，只存 0600 普通文件，每次请求认证；不开放 TCP，不复用旧控制协议。坏令牌拒绝启动，不自动覆盖。目录 0700，配置、日志和客户端待核实文件 0600，socket 0600。仅持实例锁者能够写配置或清理陈旧 socket；连不上不是停机证明。配置临时文件与 rename 只保证单文件替换，不宣称与 durable 跨存储原子。
 
-CLI 启动独立后台，退出向导不停止执行。停止请求先完成自身应答，再停止接收并等待全部在途 handler，最后关闭 Harness；Harness 自行故障关闭也先执行 `beforeUnlock` 清理接口和 handler，再释放档案锁。清理失败保留锁并报告，不让第二实例覆盖仍在使用的 socket。传入已持有的具名档案锁时，Harness 接管其释放责任；`close()` 等待清理完成。
+CLI 启动独立后台，退出向导不停止执行。[后台分析菜单](2026-10-17-personal-work-controls.md)通过同一本机接口查询原工作、分页读结果、提交取消事实或关闭空闲身份，不重开 Harness。停止请求先完成自身应答，再停止接收并等待全部在途 handler，最后关闭 Harness；Harness 自行故障关闭也先执行 `beforeUnlock` 清理接口和 handler，再释放档案锁。清理失败保留锁并报告，不让第二实例覆盖仍在使用的 socket。传入已持有的具名档案锁时，Harness 接管其释放责任；`close()` 等待清理完成。
 
 每个本机输入在 admission 前提交一个 `ruukoto.local-input` doc family，键为程序生成的 UUID，值只保存正文 JSON 字符串编码的 SHA-256，不镜像执行状态；该编码保留孤立 UTF-16 代理的区别。相同键异参拒绝；指纹提交后崩溃而 submission 不存在，只能由拥有者选择原键继续提交，查询不会执行它。输入、任务与结果仍以 durable 为权威。
 

@@ -1,0 +1,10 @@
+{
+  "cwd": "/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable",
+  "command": [
+    "npx",
+    "tsx",
+    "--test",
+    "test/personal-work-controls.test.ts"
+  ],
+  "exitCode": 0
+}

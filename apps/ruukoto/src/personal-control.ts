@@ -4,7 +4,7 @@ import * as http from "node:http";
 import { once } from "node:events";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { AssistantEntry, defineDocFamily, type EntryRecord } from "@earendil-works/pi-durable";
+import { AssistantEntry, defineDocFamily, type EntryRecord, type TaskId } from "@earendil-works/pi-durable";
 import { openPersonalHarness } from "./personal-harness.ts";
 import { personalProvider } from "./personal-model.ts";
 import { lockPersonalProfile } from "./personal-profile.ts";
@@ -12,6 +12,7 @@ import { readPersonalConfig } from "./personal-config.ts";
 import { PersonalError } from "./personal-error.ts";
 import { readPersonalTelegram } from "./personal-telegram-config.ts";
 import { readPersonalServices } from "./personal-service-config.ts";
+import { closePersonalWorkAgent, listPersonalWorks, personalWorkRef, personalWorkResult, personalWorkSummary, requestPersonalWorkCancel } from "./personal-work.ts";
 
 const context = BACKGROUND_CONTEXT;
 const MAX_REQUEST = 128 * 1024;
@@ -22,6 +23,13 @@ export type PersonalInputStatus = { status: "queued" | "placed" | "done" | "unan
 export type PersonalStatus = { model: string; tasks: number; inputs: number; services: boolean };
 export type PersonalMessage = { role: "user" | "assistant"; text: string; partial: boolean; truncated: boolean };
 export const LocalInputDoc = defineDocFamily({ kind: "ruukoto.local-input", scope: "session", version: 1, family: true, initial: (digest: string) => ({ digest }) });
+
+function queryNumber(url: URL, key: string, fallback?: number) {
+  const value = url.searchParams.get(key);
+  if (value === null && fallback !== undefined) return fallback;
+  if (value === null || !/^(0|[1-9][0-9]*)$/.test(value) || !Number.isSafeInteger(Number(value))) throw new PersonalError("work_input_invalid", "工作查询参数无效，请重新选择原工作。");
+  return Number(value);
+}
 
 export function parsePersonalInput(value: unknown): PersonalInput {
   if (!value || typeof value !== "object" || !("requestId" in value) || typeof value.requestId !== "string" || !PERSONAL_REQUEST_ID.test(value.requestId)
@@ -114,6 +122,18 @@ export async function startPersonalServer(directory: string) {
           result = entries.items.map(text).filter(item => item !== undefined).slice(0, 16).reverse();
         } else if (req.method === "GET" && url.pathname === "/telegram") {
           result = await instance.telegram.status();
+        } else if (req.method === "GET" && url.pathname === "/works") {
+          const offset = queryNumber(url, "offset", 0);
+          result = await instance.harness.commit(tx => listPersonalWorks(tx, offset), context);
+        } else if ((req.method === "GET" && url.pathname === "/work") || (req.method === "POST" && ["/work/cancel", "/work/close"].includes(url.pathname))) {
+          const id = queryNumber(url, "work") as TaskId;
+          const offset = queryNumber(url, "offset", 0);
+          result = await instance.harness.commit(async tx => {
+            const ref = await personalWorkRef(tx, id);
+            if (url.pathname === "/work/cancel") { await requestPersonalWorkCancel(tx, ref); return { cancelRequested: true }; }
+            if (url.pathname === "/work/close") { await closePersonalWorkAgent(tx, ref); return { closed: true }; }
+            return { summary: await personalWorkSummary(tx, ref), result: await personalWorkResult(tx, ref, offset) };
+          }, context);
         } else if (req.method === "GET" && url.pathname === "/input") {
           const requestId = url.searchParams.get("requestId") ?? "";
           if (!PERSONAL_REQUEST_ID.test(requestId)) throw new PersonalError("input_invalid", "请求标识无效，请从向导选择待核实消息。");

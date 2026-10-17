@@ -1,7 +1,7 @@
-import { AgentDoc, AssistantEntry, defineExtension, defineTool, LiveDoc, ROOT_CONVERSATION_ID, type ConversationId, type Harness, type TaskId, type ToolExecutionApi, type Tx } from "@earendil-works/pi-durable";
+import { AgentDoc, defineExtension, defineTool, LiveDoc, ROOT_CONVERSATION_ID, type ConversationId, type Harness, type TaskId, type ToolExecutionApi, type Tx } from "@earendil-works/pi-durable";
 import { Type } from "typebox";
 import { PersonalError } from "./personal-error.ts";
-import { delegatePersonalWork, PersonalAgentsDoc, PersonalWorkDoc, PersonalWorkTask, requestPersonalWorkCancel, closePersonalAgent } from "./personal-work.ts";
+import { delegatePersonalWork, PersonalAgentsDoc, PersonalWorkDoc, personalWorkRef, personalWorkResult, personalWorkStatus, requestPersonalWorkCancel, closePersonalAgent } from "./personal-work.ts";
 import { permissionSnapshot, telegramSourceActive } from "./personal-permissions.ts";
 import { PersonalTelegramReceiptDoc } from "./personal-telegram-records.ts";
 
@@ -22,15 +22,6 @@ export async function personalToolSource(tx: Tx, api: Pick<ToolExecutionApi, "ta
     if (!telegram || receipt?.submissionId !== source.id || !await telegramSourceActive(tx, telegram)) throw new PersonalError("work_source_invalid", "原 Telegram 输入没有有效拥有者权限，请结束本轮并向拥有者报告。");
   }
   return source.requestId;
-}
-
-async function workRef(tx: Tx, id: TaskId) {
-  const task = await tx.task(id);
-  const input = task?.input;
-  if (task?.kind !== PersonalWorkTask.definition.name || !input || typeof input !== "object" || Array.isArray(input) || typeof input.requestId !== "string") throw new PersonalError("work_missing", "找不到此后台工作，请先用 list 查询身份与当前工作，或沿用 delegate 返回的工作编号。");
-  const work = await tx.doc(PersonalWorkDoc, input.requestId, null);
-  if (work.ref?.taskId !== id || work.ref.agentId !== input.agentId) throw new PersonalError("work_missing", "后台工作归属缺失，已停止；请报告拥有者检查档案。");
-  return { ...work.ref };
 }
 
 export function personalWorkTools(getHarness: () => Harness) {
@@ -69,25 +60,15 @@ export function personalWorkTools(getHarness: () => Harness) {
             return { agents: agents.slice(offset, offset + 16).map(value => ({ agent: value.id, label: value.label, closed: value.closed, ...(value.work ? { work: value.work.taskId } : {}) })), ...(offset + 16 < agents.length ? { nextOffset: offset + 16 } : {}) };
           }
           if (action === "close") { await closePersonalAgent(tx, agent as ConversationId); return { agent, state: "closed" }; }
-          const ref = await workRef(tx, work as TaskId);
+          const ref = await personalWorkRef(tx, work as TaskId);
           if (action === "cancel") { await requestPersonalWorkCancel(tx, ref); return { cancel: ref }; }
-          const task = (await tx.task(ref.taskId))!;
-          const facts = await tx.doc(PersonalWorkDoc, ref.requestId, null);
-          const state = task.state.status === "terminal" ? task.state.outcome.status : task.state.status;
-          if (state !== "completed") return { work: ref.taskId, state, cancelRequested: facts.cancelRequested, next: task.state.status === "terminal" ? "工作未成功完成，请向拥有者报告；身份仍有占用时不要重试或复用。" : "工作尚未结束，请结束本轮，后续拥有者询问时再查询。" };
-          const submission = await tx.submissionByRequest(ref.agentId, `personal-work:${ref.taskId}`);
-          const entry = submission?.status === "done" && submission.type === "input" ? await tx.entry(AssistantEntry, submission.answer) : undefined;
-          const message = entry?.model?.[0];
-          if (message?.role !== "assistant") throw new PersonalError("work_answer_missing", "原工作的完整回答缺失，请停止引用结果并报告拥有者检查档案。");
-          const text = message.content.filter(part => part.type === "text").map(part => part.text).join("");
-          return { work: ref.taskId, state, text: text.slice(offset, offset + 4096), ...(offset + 4096 < text.length ? { nextOffset: offset + 4096 } : {}) };
+          return personalWorkResult(tx, ref, offset);
         }, context);
         const harness = getHarness();
-        if (result.cancel) {
+        if ("cancel" in result && result.cancel) {
           await harness.abortTask(result.cancel.taskId, context);
-          const settled = await harness.waitForTask(result.cancel.taskId, context);
-          const agent = (await api.snapshot(PersonalAgentsDoc, context))?.agents.find(agent => agent.id === result.cancel!.agentId);
-          const stopped = agent && agent.work?.taskId !== result.cancel.taskId && ["completed", "failed", "aborted"].includes(settled.state.outcome.status);
+          await harness.waitForTask(result.cancel.taskId, context);
+          const stopped = (await api.commit(tx => personalWorkStatus(tx, result.cancel!), context)).stopVerified;
           return { output: [{ type: "text" as const, text: JSON.stringify({ work, state: stopped ? "stopped" : "stop_unverified", next: stopped ? "原工作已停止；用 result 查询其结果。身份未关闭，可用 list 查看。" : "停止仍未核实，保留占用；请向拥有者报告，不要重试或复用身份。" }) }] };
         }
         return { output: [{ type: "text" as const, text: JSON.stringify(result) }] };

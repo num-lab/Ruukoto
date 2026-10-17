@@ -1,3 +1,5 @@
+import { requireToolEndpointReady } from "./personal-tools.ts";
+import { personalToolOrigin, type PersonalToolOrigin } from "./personal-tool-source.ts";
 /** MCP 接纳与外部证据归原生工具 Task；恢复不得再次发送 tools/call。
  * Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-durable-mcp.md
  */
@@ -11,11 +13,8 @@ import { compileMcpSchema, validateRemoteTool } from "@ruukoto/agent/mcp/schema.
 import { PersonalError } from "./personal-error.ts";
 import { parsePersonalMcp, resolvePersonalMcpToken, type PersonalMcpConfig, type PersonalMcpService } from "./personal-mcp-config.ts";
 import { activePersonalWorkInspection, personalWorkInspectionSource, PersonalWorkDoc, requirePersonalWorkRequest, type PersonalWorkInspectionSource } from "./personal-work.ts";
-import { personalToolSource } from "./personal-work-tools.ts";
-import { PersonalPermissionsDoc, permissionSnapshot, telegramSourceActive, type PersonalTelegramSource } from "./personal-permissions.ts";
+import { permissionSnapshot, telegramSourceActive, type PersonalTelegramSource } from "./personal-permissions.ts";
 import { PersonalTelegramReceiptDoc } from "./personal-telegram-records.ts";
-import { requirePersonalServiceSourceReady } from "./personal-service-operations.ts";
-import type { PersonalWorkSource } from "./personal-delegation.ts";
 
 type JsonObject = { [key: string]: JsonValue };
 
@@ -23,7 +22,7 @@ export const PERSONAL_MCP = "personal-mcp";
 export const PERSONAL_MCP_TOOLS = ["mcp_tools", "mcp_call", "read_mcp_result"];
 const context = BACKGROUND_CONTEXT;
 type Evidence = Pick<NonNullable<McpConnection["callEvidence"]>, keyof NonNullable<McpConnection["callEvidence"]>>;
-type Origin = { conversationId: ConversationId; generation: TaskId; inputs: SubmissionId[]; sources: SubmissionId[]; source: PersonalWorkSource; permission: { mode: PersonalTelegramSource["mode"]; version: number }; telegram?: PersonalTelegramSource; work?: PersonalWorkInspectionSource };
+type Origin = PersonalToolOrigin;
 type Resolution = { effect: "applied" | "not_applied"; evidence: string; entry: EntryId; requestId?: string };
 export type McpOperation = { operation: TaskId; admission: EntryId; origin: Origin; config: PersonalMcpConfig; service: string; tool: string; args: JsonObject; decision: "pending" | "approved" | "rejected"; decidedBy?: string; decisionEntry?: EntryId; started: boolean; remoteEnded: boolean; effect: "not_executed" | "effect_unknown" | "returned"; code: string; evidence: Evidence; observation?: EntryId; resolution?: Resolution; recheck?: TaskId };
 export const PersonalMcpConfigDoc = defineDoc<{ config?: PersonalMcpConfig; generations: string[]; operations: TaskId[] }>({ kind: "ruukoto.mcp-config", scope: "session", version: 1, initial: () => ({ generations: [], operations: [] }) });
@@ -66,28 +65,13 @@ async function waitMcp(reader: DocumentObserver, operation: TaskId, ready: (valu
   finally { await watch.stop(); }
 }
 
-async function origin(tx: Tx, api: Pick<ToolExecutionApi, "conversationId" | "taskId">, sourceRequestId?: string): Promise<Origin> {
-  const live = await tx.doc(LiveDoc, api.conversationId), tool = await tx.task(api.taskId), generation = tool?.owner && await tx.task(tool.owner);
-  const input = tool?.input;
-  if (tool?.kind !== "pi.tool" || tool.conversationId !== api.conversationId || tool.abortRequested || tool.state.status === "terminal" || !input || typeof input !== "object" || Array.isArray(input) || input.kind !== "model" || generation?.kind !== "pi.generation" || generation.conversationId !== api.conversationId || generation.abortRequested || generation.state.status === "terminal" || live.run?.taskId !== generation.id || !live.tools?.some(slot => slot.taskId === api.taskId && slot.status === "running")) throw new PersonalError("mcp_inactive", "MCP 不属于活动模型调用，未执行；请结束本轮并报告拥有者。");
-  if (api.conversationId !== ROOT_CONVERSATION_ID) {
-    const child = await activePersonalWorkInspection(tx, api.conversationId, live.run.inputs);
-    const work = await tx.doc(PersonalWorkDoc, child.work.ref.requestId, null);
-    return { conversationId: api.conversationId, generation: generation.id, inputs: live.run.inputs.slice(), sources: child.sources, source: { ...work.source! }, permission: { ...child.work.permission }, ...(child.work.telegram ? { telegram: { ...child.work.telegram } } : {}), work: child.work };
-  }
-  const requestId = await personalToolSource(tx, api, true, sourceRequestId);
-  await requirePersonalServiceSourceReady(tx, requestId!);
-  const submission = (await tx.submissionByRequest(ROOT_CONVERSATION_ID, requestId!))!;
-  const receipt = requestId!.startsWith("telegram:") ? (await tx.doc(PersonalTelegramReceiptDoc, requestId!, null)).receipt : undefined;
-  const telegram = receipt && permissionSnapshot(receipt), permission = telegram ?? await tx.doc(PersonalPermissionsDoc);
-  return { conversationId: api.conversationId, generation: generation.id, inputs: live.run.inputs.slice(), sources: [submission.id], source: { requestId: requestId!, submissionId: submission.id, entryId: submission.entry! }, permission: { mode: permission.mode, version: permission.version }, ...(telegram ? { telegram } : {}) };
-}
 async function active(tx: Tx, value: McpOperation) {
   if (!isDeepStrictEqual((await tx.doc(PersonalMcpConfigDoc)).config, value.config)) throw new PersonalError("mcp_config_changed", "原 MCP 配置代次已失效，未执行；请查询原调用并由拥有者重新配置。");
   if (value.origin.telegram && !await telegramSourceActive(tx, value.origin.telegram)) throw new PersonalError("mcp_source_inactive", "原 MCP 拥有者入口已失效，未执行；请从原入口查询。");
-  const current = await origin(tx, { taskId: value.operation, conversationId: value.origin.conversationId }, value.origin.source.requestId);
+  const current = await personalToolOrigin(tx, { taskId: value.operation, conversationId: value.origin.conversationId }, value.origin.source.requestId);
   if (!isDeepStrictEqual(current, value.origin)) throw new PersonalError("mcp_source_changed", "原 MCP 工作或权限已改变，未执行；请查询原调用。");
   const identity = (endpoint: string) => { const url = parseMcpEndpoint(endpoint); return url.origin + url.pathname; };
+  await requireToolEndpointReady(tx, value.config.services.find(service => service.id === value.service)!.endpoint);
   const endpoint = identity(value.config.services.find(service => service.id === value.service)!.endpoint);
   if ((await mcpOperations(tx)).some(other => other.operation !== value.operation && mcpUnresolved(other) && identity(other.config.services.find(service => service.id === other.service)!.endpoint) === endpoint)) throw new PersonalError("mcp_endpoint_busy", "原 MCP 端点仍有结束或效果未核实的调用，占用保留；请查询原记录，不要换工作重试同一服务。");
 }
@@ -160,7 +144,7 @@ export function personalMcp(configValue: PersonalMcpConfig, getHarness: () => Ha
           if (!service || !tool) throw new PersonalError("mcp_tool_unavailable", "MCP 服务或工具不在当前清单，请用 mcp_tools 查询允许的原定义。");
           const compiled = compileMcpSchema("inputSchema", tool.inputSchema);
           if ("disabledReason" in compiled || !compiled.check(input.arguments)) throw new PersonalError("mcp_arguments_invalid", "MCP 参数不符原 inputSchema，请读取 mcp_tools 定义后修正。");
-          const source = await origin(tx, api, sourceRequestId);
+          const source = await personalToolOrigin(tx, api, sourceRequestId);
           const admitted = { operation: api.taskId, origin: source, config, service: input.service, tool: input.tool, args: input.arguments as JsonObject };
           const admission = await tx.appendEntry(McpAdmission, api.conversationId, { data: admitted });
           (await tx.doc(PersonalMcpDoc, String(api.taskId), null)).operation = { ...admitted, admission: admission.id, decision: "pending", started: false, remoteEnded: false, effect: "not_executed", code: "awaiting_approval", evidence: {} };

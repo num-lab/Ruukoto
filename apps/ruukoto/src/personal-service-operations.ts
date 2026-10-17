@@ -1,3 +1,4 @@
+import { toolSourceBlocker } from "./personal-tools.ts";
 import { createHash, randomBytes } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { readFileSync } from "node:fs";
@@ -116,9 +117,11 @@ export async function waitPersonalServiceEffect(reader: DocumentObserver, ref: P
   await waitForChange(reader, ref.requestId, op => !unresolved(op), context);
 }
 
-export type PersonalServiceBlocker = string | { inspection: TaskId; admission: EntryId } | { command: string; admission: EntryId } | { mcp: string; admission: EntryId };
+export type PersonalServiceBlocker = string | { inspection: TaskId; admission: EntryId } | { command: string; admission: EntryId } | { mcp: string; admission: EntryId } | { tool: string; admission: EntryId };
 
 export async function personalServiceSourceBlocker(tx: Tx, sourceRequestId: string): Promise<PersonalServiceBlocker | undefined> {
+  const tool = await toolSourceBlocker(tx, sourceRequestId);
+  if (tool) return tool;
   const mcp = await mcpSourceBlocker(tx, sourceRequestId);
   if (mcp) return mcp;
   const command = await personalCommandSourceBlocker(tx, sourceRequestId);

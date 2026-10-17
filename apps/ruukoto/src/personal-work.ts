@@ -1,3 +1,4 @@
+import { PERSONAL_TOOLS, PERSONAL_TOOL_NAMES, requireWorkToolsStopped, toolOperations, toolUnresolved, waitWorkTools } from "./personal-tools.ts";
 import { isDeepStrictEqual } from "node:util";
 import { createHash } from "node:crypto";
 import { BACKGROUND_CONTEXT, type Context } from "@earendil-works/chord/context";
@@ -43,6 +44,7 @@ async function release(tx: Tx, input: WorkInput, taskId: TaskId) {
   await requirePersonalWorkServicesStopped(tx, taskId);
   await requirePersonalCommandsStopped(tx, taskId);
   await requireWorkMcpStopped(tx, taskId);
+  await requireWorkToolsStopped(tx, taskId);
   if (await pendingWorkInspection(tx, taskId)) throw new PersonalError("work_stop_unverified", "子工作仍有未核实的检查，占用保留；请核实原检查停止。");
   delete agent.work;
 }
@@ -75,6 +77,12 @@ async function settleMcp(runtime: TaskRuntime<WorkInput, { phase: "run" }, WorkR
   await waitWorkMcp(runtime, pending, context);
 }
 
+async function settleTools(runtime: TaskRuntime<WorkInput, { phase: "run" }, WorkResult, object>, taskId: TaskId, context: Context) {
+  let ids: TaskId[] = [];
+  await runtime.commit(async tx => { ids = (await toolOperations(tx)).filter(value => value.origin.work?.ref.taskId === taskId && toolUnresolved(value)).map(value => value.operation); return undefined; }, context);
+  await waitWorkTools(runtime, ids, context);
+}
+
 // Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-subagent-inspection.md
 async function waitForInspections(runtime: TaskRuntime<WorkInput, { phase: "run" }, WorkResult, object>, taskId: TaskId, context: Context) {
   while (true) {
@@ -105,7 +113,7 @@ export const PersonalWorkTask = defineTask<WorkInput, { phase: "run" }, WorkResu
       if (!child) throw new PersonalError("work_agent_missing", "后台工作的子会话缺失，已停止；请保留档案。");
       if (work.cancelRequested) {
         await child.abort(context, { background: true });
-        await Promise.all([settleCommands(runtime, task.id, context, true), settleServices(runtime, task.id, context, true), settleMcp(runtime, task.id, context)]);
+        await Promise.all([settleCommands(runtime, task.id, context, true), settleServices(runtime, task.id, context, true), settleMcp(runtime, task.id, context), settleTools(runtime, task.id, context)]);
         await waitForInspections(runtime, task.id, context);
         await runtime.commit(async tx => { await release(tx, task.input, task.id); return { status: "terminal", outcome: { status: "aborted" } }; }, context);
         return;
@@ -146,7 +154,7 @@ export const PersonalWorkTask = defineTask<WorkInput, { phase: "run" }, WorkResu
         } finally { await watch.stop(); }
         await child.abort(context, { background: true });
         const cancel = !settled || !!(await runtime.snapshot(PersonalWorkDoc, task.input.requestId, context))?.cancelRequested;
-        await Promise.all([settleCommands(runtime, task.id, context, cancel), settleServices(runtime, task.id, context, cancel), settleMcp(runtime, task.id, context)]);
+        await Promise.all([settleCommands(runtime, task.id, context, cancel), settleServices(runtime, task.id, context, cancel), settleMcp(runtime, task.id, context), settleTools(runtime, task.id, context)]);
         await waitForInspections(runtime, task.id, context);
         let next = false;
         await runtime.commit(async tx => {
@@ -168,7 +176,7 @@ export const PersonalWorkTask = defineTask<WorkInput, { phase: "run" }, WorkResu
     const child = await runtime.conversation(task.input.agentId, context);
     if (!child) throw new PersonalError("work_agent_missing", "取消时找不到子会话，占用仍保留；请检查档案。");
     await child.abort(context, { background: true });
-    await Promise.all([settleCommands(runtime, task.id, context, true), settleServices(runtime, task.id, context, true), settleMcp(runtime, task.id, context)]);
+    await Promise.all([settleCommands(runtime, task.id, context, true), settleServices(runtime, task.id, context, true), settleMcp(runtime, task.id, context), settleTools(runtime, task.id, context)]);
     await waitForInspections(runtime, task.id, context);
     await runtime.commit(async tx => { await release(tx, task.input, task.id); return { status: "terminal", outcome: { status: "aborted" } }; }, context);
   },
@@ -224,6 +232,11 @@ export async function delegatePersonalWork(tx: Tx, model: ModelRef, input: Deleg
       if (!Array.isArray(config.extensions) || !Array.isArray(config.tools)) throw new PersonalError("work_config_changed", "子会话的 MCP 工具配置无法核实，请保留档案。");
       config.extensions.push(PERSONAL_MCP);
       config.tools.push(...PERSONAL_MCP_TOOLS);
+    }
+    if (Array.isArray(main.extensions) && main.extensions.includes(PERSONAL_TOOLS)) {
+      const config = await tx.doc(AgentDoc, child.id);
+      if (!Array.isArray(config.extensions) || !Array.isArray(config.tools)) throw new PersonalError("work_config_changed", "子会话工具配置无法核实，请保留档案。");
+      config.extensions.push(PERSONAL_TOOLS); config.tools.push(...PERSONAL_TOOL_NAMES);
     }
     index.agents.push({ id: child.id, label: input.label ?? "子 Agent", closed: false });
     agent = index.agents[index.agents.length - 1];

@@ -1,0 +1,215 @@
+{
+  "files": [
+    {
+      "path": "README.md",
+      "bytes": 5510,
+      "sha256": "84c916e1d7280837933f8bb5293ca1c54877a067ee28e9747495d64c91ae601d"
+    },
+    {
+      "path": "archive-verification.json",
+      "bytes": 150,
+      "sha256": "11fdc5d4211a3e78a7089b818147527001ff819b5beed91169472be98e977e8c"
+    },
+    {
+      "path": "artifact-manifest.json",
+      "bytes": 21668,
+      "sha256": "602b73bbee45cd53a179e84db1a5b233dc90892b9f17ff4bf8860ae4ace43b59"
+    },
+    {
+      "path": "base-runtime-dependencies.json",
+      "bytes": 23127,
+      "sha256": "13a1e657ed0a0796f07ee09a2b5daed884412a9f51976cbe982562cff5ffbf6b"
+    },
+    {
+      "path": "build-probe.mjs",
+      "bytes": 3460,
+      "sha256": "79076514ddcc84d8a770eb588b15116c27ad3fd756b2764df9ed9a54536a99fe"
+    },
+    {
+      "path": "built/leaf-fifo.test.mjs",
+      "bytes": 18650,
+      "sha256": "75b5976f66b94ebd30c8b89a0d618fe3d7dab94f0afebc0a743ab6270f3e55c4"
+    },
+    {
+      "path": "built/leaf-io.test.mjs",
+      "bytes": 41300,
+      "sha256": "3644e0cf30dd89f8481ffc3500ab9f0967e0522768596e23420e5b75f2b7a513"
+    },
+    {
+      "path": "built/leaf-search.test.mjs",
+      "bytes": 23154,
+      "sha256": "e236127276b888b607882b621de8012a2233b63faae7a2b83722d68c74f7df4b"
+    },
+    {
+      "path": "built/linux-four-scenarios-probe.mjs",
+      "bytes": 657976,
+      "sha256": "0964655c864bedfb24e6b88c9e2df8fb69274a9a6de58fbf055da8aefed0a38a"
+    },
+    {
+      "path": "built/linux-tools-probe.mjs",
+      "bytes": 657976,
+      "sha256": "0964655c864bedfb24e6b88c9e2df8fb69274a9a6de58fbf055da8aefed0a38a"
+    },
+    {
+      "path": "cleanup.json",
+      "bytes": 658,
+      "sha256": "fc92f4b682753eec3947bcca761a8da545c16fdefba65435ed2d9967dc40a260"
+    },
+    {
+      "path": "environment-preflight.log",
+      "bytes": 401,
+      "sha256": "05f03cbf2c4e5a187a2c6c22253040d73a14e894ca95d5d44196a09a4547271c"
+    },
+    {
+      "path": "environment.json",
+      "bytes": 520,
+      "sha256": "66a9da79d107e196ad4cb31d7fd1b47bbca4f28a73a315864fdcabafebd41f6a"
+    },
+    {
+      "path": "final-source-verification.json",
+      "bytes": 846,
+      "sha256": "da2287de7d82f36fb4cef5a909b736302950564964061cfe7018897f8004173d"
+    },
+    {
+      "path": "finalize.py",
+      "bytes": 4062,
+      "sha256": "70d8f3897f777fe8731f2bcbd084f7462325068ad68b15f1f9560ddb6b4f1441"
+    },
+    {
+      "path": "leaf-linux-final-tests.log",
+      "bytes": 2753,
+      "sha256": "e70d9621e70cc11c9be87bd5d4ea781023645dbd1127a445c31888653f5b53a2"
+    },
+    {
+      "path": "leaf-linux-tests.log",
+      "bytes": 2667,
+      "sha256": "fc63b80c4c7d66fbbe1fd0448dd7d249f37b89d7346a63a2124a417e1d0e5aa2"
+    },
+    {
+      "path": "leaf-source-manifest.json",
+      "bytes": 2023,
+      "sha256": "1dbdd9a11f752e4391048bcf3d5389cdbed63628b3d749b478701c2f79117a98"
+    },
+    {
+      "path": "leaf-tests.tar.gz",
+      "bytes": 7650,
+      "sha256": "f7bc2cece23dd8d7ddfb38481ab495b2de80f5a52c81e5d162f7a8895977ad1f"
+    },
+    {
+      "path": "linux-tools-probe.mjs",
+      "bytes": 657976,
+      "sha256": "0964655c864bedfb24e6b88c9e2df8fb69274a9a6de58fbf055da8aefed0a38a"
+    },
+    {
+      "path": "mcp-runtime-dependencies.json",
+      "bytes": 2536,
+      "sha256": "e0c1f2803684dca12a96b4ba934e01ee2c53611ae3e5778ced5ae00496d83e66"
+    },
+    {
+      "path": "probe-entry.mjs",
+      "bytes": 15305,
+      "sha256": "7aa453bebad966cf2e70777ce3a436ebe92f276281e042c8411de9c5ed33b646"
+    },
+    {
+      "path": "records.tar.gz",
+      "bytes": 371266,
+      "sha256": "b30e27cef8068e08f5fbc227cd69340544e0791b166cf3c2c5ecc44d0fc690b5"
+    },
+    {
+      "path": "remote-cleanup.json",
+      "bytes": 223,
+      "sha256": "5f9256ecd3a0741bbb372e5342d0586fdf3f5d9bb8071f363397ad087d6a8c4b"
+    },
+    {
+      "path": "review/fifo-after.bundle.mjs",
+      "bytes": 18807,
+      "sha256": "42e296f216074e7dc7fce8fad1a7c41f354fbff4bf901157da1e826f6d0270dc"
+    },
+    {
+      "path": "review/fifo-after.json",
+      "bytes": 584,
+      "sha256": "8b065b89564df45c90bf2ed08e7f8e2171637b80a7211fe52ba15874c6cb8f46"
+    },
+    {
+      "path": "review/fifo-before.bundle.mjs",
+      "bytes": 18753,
+      "sha256": "55ec4e1f858643c0857ffba73e302c5617a5d2677e1f5450e9d179838c4fa6ee"
+    },
+    {
+      "path": "review/fifo-before.json",
+      "bytes": 437,
+      "sha256": "822d6bf5bcd83cb9a6e2dd5d7b79f2f2f411f1772c28ac74bb791878b16f1b08"
+    },
+    {
+      "path": "review/fifo-probe.bundle.mjs",
+      "bytes": 18807,
+      "sha256": "42e296f216074e7dc7fce8fad1a7c41f354fbff4bf901157da1e826f6d0270dc"
+    },
+    {
+      "path": "review/fifo-probe.mjs",
+      "bytes": 2268,
+      "sha256": "07011a5dc79c46cde8007939e51d27fb7975ec173cabc34236a7036e1e416e34"
+    },
+    {
+      "path": "review.md",
+      "bytes": 1782,
+      "sha256": "06cf496aebb75b37500670d2003202299543918aea0d0f2cd9f20afedcc346f2"
+    },
+    {
+      "path": "run-attempt1.log",
+      "bytes": 1349,
+      "sha256": "01481e6199c1b552c1c6c76577734a3574839d2cc3110ef6a7a1f601ded791f9"
+    },
+    {
+      "path": "run-attempt2.log",
+      "bytes": 1000,
+      "sha256": "427e4b2ff4453490e8260b5227213f7ad3fc430b8005eaabe2542f7b63954359"
+    },
+    {
+      "path": "run.log",
+      "bytes": 135,
+      "sha256": "5fe00a60de4dadaf5b6e06435d06b789cde720e63cd6c15f2b8ededa28861a74"
+    },
+    {
+      "path": "source-comparison.json",
+      "bytes": 180,
+      "sha256": "dd64abd739c060cc018071c6a54dc38f22ab3ae3e0e223f84828b1b9d5886e1b"
+    },
+    {
+      "path": "source-final-delta.diff.gz",
+      "bytes": 410,
+      "sha256": "0a9b024b32cec9b899bd203846d498642f9f687cac4c2aa4ac24a2c94a74e97a"
+    },
+    {
+      "path": "source-final-manifest.json",
+      "bytes": 8770,
+      "sha256": "9855745e5c466cc0963569909347934eb3bc60adcfb18e24414d51f823495c3f"
+    },
+    {
+      "path": "source-final.tar.gz",
+      "bytes": 175936,
+      "sha256": "b6d12200fe786d6efb8874698180ad57c5b25054bd9acad9abce0cdc09071ed4"
+    },
+    {
+      "path": "source-four-scenarios-manifest.json",
+      "bytes": 9046,
+      "sha256": "c374c0205dd765ac8424c262b52e7db656ad0297cc88f51ceef0935fc37834b9"
+    },
+    {
+      "path": "source-four-scenarios.tar.gz",
+      "bytes": 184904,
+      "sha256": "3f047643d1f33aec3177aa6f24aa30524c982614dc51857991ea8767fa9a8f80"
+    },
+    {
+      "path": "source-verification.json",
+      "bytes": 207,
+      "sha256": "6a7a372c15e11402ee0f70048d9d3c492e37469b3131bb749e7211cd28245b12"
+    },
+    {
+      "path": "summary.json",
+      "bytes": 441520,
+      "sha256": "102eda6cac857054ef578922f81b22fcaeea61897117e62c4bef9abfe3426d76"
+    }
+  ],
+  "totalBytes": 3406752
+}

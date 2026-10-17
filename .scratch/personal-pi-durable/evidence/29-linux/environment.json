@@ -1,0 +1,14 @@
+{
+  "timestamp": "2026-10-17T15:04:27.170Z",
+  "platform": "linux",
+  "arch": "x64",
+  "uid": 1003,
+  "node": "v24.21.0",
+  "kernel": "Linux BJ-Tencent 6.8.0-117-generic #117-Ubuntu SMP PREEMPT_DYNAMIC Tue May  5 19:26:24 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux",
+  "bwrap": "bubblewrap 0.9.0",
+  "manager": "running",
+  "probeSha256": "0964655c864bedfb24e6b88c9e2df8fb69274a9a6de58fbf055da8aefed0a38a",
+  "noOSMock": true,
+  "provider": "HTTP/SSE replacement model",
+  "remoteService": "dedicated local HTTP fixture"
+}

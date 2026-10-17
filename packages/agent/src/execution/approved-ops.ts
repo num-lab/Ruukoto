@@ -174,9 +174,10 @@ export function executeApprovedFileOp(req: FileOpRequest): FileOpOutcome {
     if (req.access === "read") {
       if (!st) throw new ApprovedOpError("目标文件不存在（读取）");
       if (st.isSymbolicLink()) throw new ApprovedOpError("目标是符号链接，拒绝");
-      const fd = fs.openSync(resolved, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+      const fd = fs.openSync(resolved, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
       try {
         const opened = fs.fstatSync(fd);
+        if (!opened.isFile()) throw new ApprovedOpError("目标不是普通文件，未执行");
         if (req.targetDev !== null && (opened.dev !== req.targetDev || opened.ino !== req.targetIno)) {
           throw new ApprovedOpError("目标文件在等待期间已被替换，批准失效，请重新申请");
         }
@@ -195,9 +196,10 @@ export function executeApprovedFileOp(req: FileOpRequest): FileOpOutcome {
     }
     if (st) {
       if (st.isSymbolicLink()) throw new ApprovedOpError("目标已是符号链接，拒绝写入");
-      const fd = fs.openSync(resolved, fs.constants.O_RDWR | fs.constants.O_NOFOLLOW);
+      const fd = fs.openSync(resolved, fs.constants.O_RDWR | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
       try {
         const opened = fs.fstatSync(fd);
+        if (!opened.isFile()) throw new ApprovedOpError("目标不是普通文件，未执行");
         if (req.writeProtectedRoots?.length && opened.nlink > 1) throw new ApprovedOpError("来源保护任务不能写入多硬链接文件，请在独立工作目录新建检查产物");
         if (opened.dev !== req.targetDev || opened.ino !== req.targetIno) {
           throw new ApprovedOpError("目标文件在等待期间已被替换，批准失效，请重新申请");
@@ -208,10 +210,15 @@ export function executeApprovedFileOp(req: FileOpRequest): FileOpOutcome {
             throw new ApprovedOpError("目标文件内容与批准时的原文版本不一致，批准失效，请重新申请");
           }
         }
-        fs.ftruncateSync(fd, 0);
         writing = true;
+        fs.ftruncateSync(fd, 0);
         // 上面的原文校验把 fd 偏移推到末尾：写回必须显式定位到 0
-        fs.writeSync(fd, contentBuf, 0, contentBuf.length, 0);
+        let offset = 0;
+        while (offset < contentBuf.length) {
+          const count = fs.writeSync(fd, contentBuf, offset, contentBuf.length - offset, offset);
+          if (count === 0) throw new ApprovedOpError("文件写入未能继续");
+          offset += count;
+        }
         fs.fsyncSync(fd);
         return { ok: true, message: `已写入 ${resolved}（${contentBuf.length} 字节）` };
       } finally {
@@ -231,7 +238,12 @@ export function executeApprovedFileOp(req: FileOpRequest): FileOpOutcome {
     );
     writing = true;
     try {
-      fs.writeSync(fd, contentBuf, 0, contentBuf.length, 0);
+      let offset = 0;
+      while (offset < contentBuf.length) {
+        const count = fs.writeSync(fd, contentBuf, offset, contentBuf.length - offset, offset);
+        if (count === 0) throw new ApprovedOpError("文件写入未能继续");
+        offset += count;
+      }
       fs.fsyncSync(fd);
       return { ok: true, message: `已创建 ${resolved}（${contentBuf.length} 字节）` };
     } finally {

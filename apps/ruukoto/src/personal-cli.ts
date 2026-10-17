@@ -1,3 +1,4 @@
+import { configurePersonalTools, managePersonalTools } from "./personal-tools-cli.ts";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
@@ -390,7 +391,7 @@ export async function managePersonalCommands(io: PersonalCliIO, directory: strin
 export async function personalMenu(directory: string, io: PersonalCliIO): Promise<void> {
   io.write(`个人 durable 隔离实例\n档案：${directory}\n提供主会话、可选 Telegram 文本入口及 Linux 服务检查；模型写工具继续实施。\n`);
   while (true) {
-    const selected = await choose(io, "个人实例", ["配置模型（后台须停止）", "启动隔离后台", "查看状态", "发送消息", "查看最近消息", "核实上次提交", "停止隔离后台", "配置 Telegram（后台须停止）", "查看 Telegram 收发", "退出向导（后台继续运行）", "配置或查看服务（后台须停止）", "管理后台分析", "管理分析委托", "管理检查停止重核", "管理服务审批与核实", "配置或查看命令目录（后台须停止）", "管理命令效果与停止核实", "配置或查看 MCP（后台须停止）", "管理 MCP 审批、原响应与效果"]);
+    const selected = await choose(io, "个人实例", ["配置模型（后台须停止）", "启动隔离后台", "查看状态", "发送消息", "查看最近消息", "核实上次提交", "停止隔离后台", "配置 Telegram（后台须停止）", "查看 Telegram 收发", "退出向导（后台继续运行）", "配置或查看服务（后台须停止）", "管理后台分析", "管理分析委托", "管理检查停止重核", "管理服务审批与核实", "配置或查看命令目录（后台须停止）", "管理命令效果与停止核实", "配置或查看 MCP（后台须停止）", "管理 MCP 审批、原响应与效果", "配置资料与网络工具（后台须停止）", "管理工具审批、资料授权与产物"]);
     if (selected === 9) return;
     try {
       if (selected === 0) await configure(io, directory);
@@ -425,6 +426,8 @@ export async function personalMenu(directory: string, io: PersonalCliIO): Promis
       else if (selected === 16) await managePersonalCommands(io, directory);
       else if (selected === 17) await configurePersonalMcp(io, directory);
       else if (selected === 18) await managePersonalMcp(io, directory);
+      else if (selected === 19) await configurePersonalTools(io, directory);
+      else if (selected === 20) await managePersonalTools(io, directory);
       else {
         const state = await personalControl<Awaited<ReturnType<PersonalHarness["telegram"]["status"]>>>(directory, "GET", "/telegram");
         const labels = { waiting: "等待回答", pending: "等待发送", sending: "发送中，尚未核实", sent: "已发送", failed: "平台明确拒绝", effect_unknown: "发送效果未知，不自动重发", canceled: "已取消发送", unanswered: "未获得完整回答" };

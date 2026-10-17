@@ -197,6 +197,8 @@ sequenceDiagram
 
 ## 不变量与失败处理
 
+受信文件写入循环处理短写，零字节或已开始后的异常不能报告成功。个人结构化文件/HTTP 入口复用对象、内容、保护根和固定 DNS 校验；Linux 新建绑定已核实父目录句柄，祖先替换不会把创建导向另一目录，其他平台缺该原语时拒绝新建。通用 HTTP 不重试/跟随重定向，原响应有界捕获为字节并保留 partial；写入后的断线由个人 durable 保留效果与远端结束双事实。完整接线见 [personal-durable](personal-durable.md)。
+
 ### 受限脚本
 
 `SCRIPT_LIMITS` 固定脚本 128 KiB、每帧 1 MiB、排队输出 4 MiB、未决请求 32 个、进度 256 次及 256 KiB、QuickJS 堆 32 MiB、栈 256 KiB；WASM 线性内存最多 64 MiB，Node V8 old space 64 MiB。这些分别约束解释器和载荷，不能合称进程 RSS 上限。父进程计入每次发送至相应 idle 的累计墙钟时间，默认 10 秒，宿主只能收窄；WASM 初始化另限 10 秒。无宿主请求的悬空 Promise、漏 await 的调用、越限和损坏帧均失败，不能静默等待或返回成功。
@@ -252,6 +254,8 @@ sequenceDiagram
 全局保护根未作为显式只读挂载时，外部特权预存的子文件 bind 别名仍有原生旁路；显式来源只读范围和宿主文件入口按上述 inode 检查拒绝。该既有情形保留真实反例，另作原生保护审计；原生边界不承诺抵抗宿主外部特权准备。
 
 ## 设计依据
+
+- [个人通用工具执行与原字节](../../.agents/notes/implemented/architecture/2026-10-17-personal-tools-access-artifacts.md)。
 
 - [完全访问命令的持久 scope 与原工作恢复](../../.agents/notes/implemented/architecture/2026-10-17-personal-full-access-commands.md)
 

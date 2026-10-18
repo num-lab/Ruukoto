@@ -1,3 +1,5 @@
+import { managePersonalPermissions } from "../apps/ruukoto/src/personal-permissions-cli.ts";
+import { LocalInputDoc as InputPermissionDoc } from "../apps/ruukoto/src/personal-local-records.ts";
 import { managePersonalAppData } from "../apps/ruukoto/src/personal-app-data-controls.ts";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
@@ -44,7 +46,7 @@ async function fixture(t: TestContext, respond: Responder = () => ({ kind: "text
   const config: PersonalModelConfig = { api: "openai-completions", baseUrl, modelId: "mock-model", apiKeyEnv: "RUUKOTO_DURABLE_CLI_KEY", contextWindow: 128000, maxTokens: 1024 };
   const old = process.env[config.apiKeyEnv];
   process.env[config.apiKeyEnv] = "test-only";
-  savePersonalConfig(dir, config);
+  await savePersonalConfig(dir, config);
   let server: Awaited<ReturnType<typeof startPersonalServer>> | undefined;
   t.after(async () => {
     await server?.stop();
@@ -85,13 +87,13 @@ test("personal CLI：独立开发档案按真实检出隔离，子进程不继�
 test("personal CLI：配置持锁、拒绝在线修改，非法配置不覆盖原文件", async t => {
   const f = await fixture(t);
   const original = fs.readFileSync(path.join(f.dir, "model.json"));
-  assert.throws(() => savePersonalConfig(f.dir, { ...f.config, baseUrl: "http://unsafe.invalid" }), code("model_config_invalid"));
+  await assert.rejects(savePersonalConfig(f.dir, { ...f.config, baseUrl: "http://unsafe.invalid" }), code("model_config_invalid"));
   assert.deepEqual(fs.readFileSync(path.join(f.dir, "model.json")), original);
   const profile = lockPersonalProfile(f.dir);
   assert.deepEqual(readPersonalConfig(profile), f.config);
   profile.release();
   await f.start();
-  assert.throws(() => savePersonalConfig(f.dir, f.config), code("profile_busy"));
+  await assert.rejects(savePersonalConfig(f.dir, f.config), code("profile_busy"));
   assert.deepEqual(fs.readFileSync(path.join(f.dir, "model.json")), original);
   assert.equal(fs.statSync(path.join(f.dir, "model.json")).mode & 0o777, 0o600);
   assert.equal(fs.statSync(path.join(f.dir, "control.sock")).mode & 0o777, 0o600);
@@ -102,7 +104,7 @@ test("personal CLI：前台与 detached 均拒绝用内部环境变量充当模�
   const f = await fixture(t);
   for (const apiKeyEnv of ["RUUKOTO_OWNER_TOKEN", "RUUKOTO_OWNER_TOKEN_FILE", "RUUKOTO_SERVICE_HELPER", "RUUKOTO_PERSONAL_DIR", "RUUKOTO_CODE_DATA_DIR", "RUUKOTO_DESKTOP_TARGET", "RUUKOTO_PRODUCT"]) {
     const invalid = { ...f.config, apiKeyEnv };
-    assert.throws(() => savePersonalConfig(f.dir, invalid), code("model_credentials_invalid"));
+    await assert.rejects(savePersonalConfig(f.dir, invalid), code("model_credentials_invalid"));
     fs.writeFileSync(path.join(f.dir, "model.json"), JSON.stringify(invalid));
     await assert.rejects(startPersonalServer(f.dir), code("model_credentials_invalid"));
     await assert.rejects(launchPersonalServer(f.dir), code("model_credentials_invalid"));
@@ -157,7 +159,7 @@ test("personal CLI：多向导逐键保留请求，未受理只核实且指纹�
   const personal = await openPersonalHarness({ directory: f.dir, provider: personalProvider(f.config), modelId: f.config.modelId });
   await personal.harness.commit(tx => tx.doc(LocalInputDoc, one.requestId, createHash("sha256").update(JSON.stringify(one.input)).digest("hex")), context);
   await personal.close();
-  savePersonalConfig(f.dir, f.config);
+  await savePersonalConfig(f.dir, f.config);
   await f.start();
   assert.equal((await checkPersonalInput(f.dir, one)).status, "missing");
   assert.equal(f.model.calls.length, 0);
@@ -227,7 +229,7 @@ test("personal CLI：坏配置、坏令牌、链接文件及旧目录拒绝，�
   lockPersonalProfile(f.dir).release();
   fs.rmSync(path.join(f.dir, "model.json"));
   fs.symlinkSync(path.join(f.dir, "profile.json"), path.join(f.dir, "model.json"));
-  assert.throws(() => savePersonalConfig(f.dir, f.config), code("profile_unrecognized"));
+  await assert.rejects(savePersonalConfig(f.dir, f.config), code("profile_unrecognized"));
   const old = directory(t);
   fs.writeFileSync(path.join(old, "ruukoto.sqlite"), "old");
   await assert.rejects(startPersonalServer(old), code("profile_unrecognized"));
@@ -265,7 +267,7 @@ test("personal CLI：socket 已断开仍被后台持锁时，配置和第二实�
   await until(() => f.model.calls.length === 1);
   fs.rmSync(path.join(f.dir, "control.sock"));
   await assert.rejects(personalControl(f.dir, "GET", "/status"), code("control_response_lost"));
-  assert.throws(() => savePersonalConfig(f.dir, f.config), code("profile_busy"));
+  await assert.rejects(savePersonalConfig(f.dir, f.config), code("profile_busy"));
   await assert.rejects(f.start(), code("profile_busy"));
   await server.stop();
   lockPersonalProfile(f.dir).release();
@@ -273,7 +275,7 @@ test("personal CLI：socket 已断开仍被后台持锁时，配置和第二实�
 
 test("personal CLI：向导逐步配置、返回与退出，不要求用户提供内部键", async t => {
   const dir = directory(t);
-  const answers = ["0", "1", "1", "https://model.example/v1", "chosen-model", "MODEL_TEST_KEY", "", "", "1", "10"];
+  const answers = ["0", "5", "1", "1", "https://model.example/v1", "chosen-model", "MODEL_TEST_KEY", "", "", "1", "7"];
   let output = "";
   await personalMenu(dir, { question: async () => { assert.ok(answers.length); return answers.shift()!; }, write: value => { output += value; } });
   assert.match(output, /请输入列出的选项/);
@@ -353,9 +355,9 @@ test("personal 服务配置：坏文件、未知版本和链接拒绝，启动�
   }
 });
 
-test("personal 服务配置：向导保留旧菜单序号、返回不写，非 Linux 保存前拒绝", async t => {
+test("personal 服务配置：分组向导返回不写，非 Linux 保存前拒绝", async t => {
   const dir = directory(t);
-  const answers = process.platform === "linux" ? ["11", "/back", "10"] : ["11", "10"];
+  const answers = process.platform === "linux" ? ["5", "4", "/back", "7"] : ["5", "4", "7"];
   let output = "";
   await personalMenu(dir, { question: async () => { assert.ok(answers.length); return answers.shift()!; }, write: value => { output += value; } });
   assert.equal(fs.existsSync(path.join(dir, "service.json")), false);
@@ -650,4 +652,46 @@ test("本机应用数据：认证API批准原操作与CLI按列表查看，无�
   await managePersonalAppData({ question: async () => answers.shift()!, write: text => output.push(text) }, f.dir);
   assert.match(output.join(""), /app_data_delete/); assert.match(output.join(""), /committed/); assert.equal(answers.length, 0);
   await server.stop();
+});
+
+
+test("本机权限：认证API和引导菜单切模式，QQ独立且已接纳输入不扩权", async t => {
+  const f = await fixture(t); const server = await f.start();
+  const input = preparePersonalInput(f.dir, "原输入"); await personalControl(f.dir, "POST", "/inputs", input); await until(async () => (await checkPersonalInput(f.dir, input)).status === "done");
+  assert.equal(JSON.parse((await raw(f.dir, "POST", "/permissions", JSON.stringify({ mode: "full_access" }))).body).code, "control_unauthorized");
+  type Permissions = { default: { mode: string }; qq: { mode: string } };
+  assert.deepEqual(await personalControl<Permissions>(f.dir, "GET", "/permissions"), { default: { mode: "auto-review" }, qq: { mode: "auto-review" } });
+  const answers = ["1", "1", "3", "2", "3"], output: string[] = [];
+  await managePersonalPermissions({ question: async () => answers.shift()!, write: text => output.push(text) }, f.dir);
+  assert.equal(answers.length, 0); assert.match(output.join(""), /同账户凭据/);
+  assert.deepEqual(await personalControl<Permissions>(f.dir, "GET", "/permissions"), { default: { mode: "full_access" }, qq: { mode: "auto-review" } });
+  await personalControl(f.dir, "POST", "/permissions", { mode: "confirm", scope: "qq" });
+  assert.deepEqual(await personalControl<Permissions>(f.dir, "GET", "/permissions"), { default: { mode: "full_access" }, qq: { mode: "confirm" } });
+  for (const body of [{ mode: "confirm", scope: "telegram" }, { mode: "confirm", extra: true }]) assert.equal((await raw(f.dir, "POST", "/permissions", JSON.stringify(body), readPersonalToken(f.dir))).status, 400);
+  assert.deepEqual(await personalControl(f.dir, "GET", "/service/grants"), { items: [] });
+  await assert.rejects(personalControl(f.dir, "POST", "/service/grants/revoke", { id: "missing", version: 1 }), code("service_config_missing"));
+  await server.stop();
+  const storage = await openNodeSqliteStorage(path.join(f.dir, "personal.sqlite"));
+  try {
+    const ref = await storage.findDocument({ kind: InputPermissionDoc.definition.kind, scope: { kind: "session" }, key: input.requestId }, "current", context), saved = await storage.document(ref!.id, "current", context);
+    assert.deepEqual(saved!.value.permission, { mode: "auto-review", version: 1 });
+  } finally { await storage.close(context); }
+});
+
+test("本机长期授权向导：选择原范围撤销，丢答后只刷新原版本", async t => {
+  const dir = directory(t); fs.writeFileSync(path.join(dir, "control.token"), "c".repeat(64)); let revoked = false; const routes: string[] = [];
+  const server = http.createServer(async (req, res) => {
+    routes.push(`${req.method} ${req.url}`);
+    if (req.method === "POST") { const chunks: Buffer[] = []; for await (const chunk of req) chunks.push(Buffer.from(chunk)); assert.deepEqual(JSON.parse(Buffer.concat(chunks).toString()), { id: "private-grant", version: 3 }); revoked = true; res.destroy(); return; }
+    const result = req.method === "POST" ? { saved: true } : { items: [{ id: "private-grant", version: revoked ? 4 : 3, unit: "example.service", machine: "test-machine", platform: "QQ", source: "入口账号123；拥有者账号456；旧绑定", active: !revoked }] };
+    res.end(JSON.stringify({ v: 1, ok: true, result }));
+  });
+  server.listen(path.join(dir, "control.sock")); await once(server, "listening"); t.after(() => new Promise<void>(resolve => server.close(() => resolve())));
+  const answers = ["2", "1", "2"], output: string[] = [];
+  const io = { question: async () => answers.shift()!, write: (text: string) => output.push(text) };
+  await assert.rejects(managePersonalPermissions(io, dir), code("control_response_lost"));
+  answers.push("2", "2", "3");
+  await managePersonalPermissions(io, dir);
+  assert.deepEqual(routes, ["GET /service/grants?offset=0", "POST /service/grants/revoke", "GET /service/grants?offset=0"]);
+  assert.match(output.join(""), /已撤销或失效/); assert.doesNotMatch(output.join(""), /private-grant|version|requestId/);
 });

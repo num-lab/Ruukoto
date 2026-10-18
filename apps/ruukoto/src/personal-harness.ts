@@ -1,3 +1,5 @@
+import { personalOwnerControl, personalOwnerControls, verifyOwnerControls } from "./personal-owner-controls.ts";
+import { hasPendingPersonalWork } from "./personal-config-idle.ts";
 import { PERSONAL_APP_DATA, PERSONAL_APP_DATA_TOOLS, PersonalAppDataDoc, PersonalAppDataOperationDoc, personalAppData, initializeAppData, configureAppDataChild, verifyAppData } from "./personal-app-data.ts";
 import { personalAppDataControl, verifyAppDataControls } from "./personal-app-data-controls.ts";
 import { PERSONAL_MEMORY, PERSONAL_MEMORY_TOOLS, PersonalMemoriesDoc, PersonalMemoryDoc, PersonalMemoryOperationDoc, personalMemory, preparePersonalMemory, verifyPersonalMemorySelection, verifyPersonalMemories } from "./personal-memory.ts";
@@ -106,7 +108,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     const telegramConfig = options.telegram && parsePersonalTelegram(options.telegram);
     const inspectionControls = personalInspectionControls(service?.config, () => harness!);
     const serviceControls = personalServiceControls(() => harness!, () => operations?.api(harness!));
-    const telegram = personalTelegram(telegramConfig, telegramConfig?.enabled ? personalTelegramApi(telegramConfig.apiBase, telegramToken(telegramConfig)) : undefined, async (tx, value) => await personalAppDataControl(tx, value, lock.directory) || await personalBrowserControl(tx, value, browser?.requestStop) || await personalToolControl(tx, value, general ? lock.directory : undefined) || await personalMcpControl(tx, value, mcp?.requestRecheck) || await serviceControls.control(tx, value) || await telegramInspectionControl(tx, value, inspectionControls.request) || !!await operations?.control(tx, value), media, qqConfig, qqApi, (tx, value) => personalScheduleControl(tx, value, scheduler));
+    const telegram = personalTelegram(telegramConfig, telegramConfig?.enabled ? personalTelegramApi(telegramConfig.apiBase, telegramToken(telegramConfig)) : undefined, async (tx, value) => await personalOwnerControl(tx, value, commands) || await personalAppDataControl(tx, value, lock.directory) || await personalBrowserControl(tx, value, browser?.requestStop) || await personalToolControl(tx, value, general ? lock.directory : undefined) || await personalMcpControl(tx, value, mcp?.requestRecheck) || await serviceControls.control(tx, value) || await telegramInspectionControl(tx, value, inspectionControls.request) || !!await operations?.control(tx, value), media, qqConfig, qqApi, (tx, value) => personalScheduleControl(tx, value, scheduler));
     const registry = createRegistry();
     const qqExtension = defineExtension({ name: "personal-qq" });
     registry.install(qqExtension);
@@ -117,6 +119,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     registry.install(media.extension);
     if (browser) registry.install(browser.extension);
     registry.install(personalPermissions);
+    registry.install(personalOwnerControls);
     registry.install(personalBackgroundWork);
     registry.install(personalSubAgent);
     registry.install(workTools);
@@ -446,6 +449,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     unlocked = harness.closed.then(async () => { const closed = appData?.close(); if (closed) await closed; if (browser) await browser.close(); if (options.beforeUnlock) await options.beforeUnlock(); lock.release(); });
     void unlocked.catch(() => process.stderr.write("[ruukoto:personal] 本机管理接口未能停止，实例锁仍保留；请检查后台并核实停止。\n"));
     const inspection = await harness.inspect(context);
+    const pendingWork = await hasPendingPersonalWork(storage);
     await harness.commit(async tx => {
       await verifySchedules(tx, scheduleKeys, scheduleRunKeys, !!savedSchedules, scheduler.verifyCreator, (tx, plan, cancellation) => verifyPersonalScheduleCancellation(tx, plan, cancellation, scheduleTools.tools?.find(tool => tool.name === "schedule_cancel")), scheduledWork.tools?.find(tool => tool.name === "background_work"));
       for (const key of scheduleBindingKeys) {
@@ -456,11 +460,11 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     const savedMain = await harness.snapshot(AgentDoc, ROOT_CONVERSATION_ID, context);
     const appDataEnabled = Array.isArray(savedMain?.extensions) && savedMain.extensions.includes(PERSONAL_APP_DATA);
     if (savedAppData?.value.instanceId && !appDataEnabled || appDataEnabled && !savedAppData?.value.instanceId) throw new PersonalError("app_data_record_invalid", "应用数据原绑定或扩展缺失，已停止恢复；请保留档案。");
-    if (savedMain && !appDataEnabled && (inspection.tasks.some(task => task.record.kind !== SCHEDULE_SUPERVISOR_TASK) || inspection.submissions.length)) throw new PersonalError("app_data_config_pending", "仍有未完成输入或工作，请先用原程序完成处理再启用应用数据。");
+    if (savedMain && !appDataEnabled && pendingWork) throw new PersonalError("app_data_config_pending", "仍有未完成输入或工作，请先用原程序完成处理再启用应用数据。");
     await harness.commit(tx => verifyAppData(tx, appDataKeys, appData!.extension.tools), context);
     await harness.commit(tx => verifyAppDataControls(tx, telegramKeys), context);
     const referencesEnabled = Array.isArray(savedMain?.extensions) && [PERSONAL_MEMORY, PERSONAL_HISTORY, PERSONAL_SKILLS].every(name => (Array.isArray(savedMain.extensions) && savedMain.extensions.includes(name)));
-    if (savedMain && !referencesEnabled && (inspection.tasks.some(task => task.record.kind !== SCHEDULE_SUPERVISOR_TASK) || inspection.submissions.length)) throw new PersonalError("references_config_pending", "仍有未完成输入或工作，请先用原程序完成处理，再启用记忆、技能与历史检索。");
+    if (savedMain && !referencesEnabled && pendingWork) throw new PersonalError("references_config_pending", "仍有未完成输入或工作，请先用原程序完成处理，再启用记忆、技能与历史检索。");
     await harness.commit(tx => verifyPersonalMemories(tx), context);
     await harness.commit(tx => skills.verifyRecords(tx), context);
     const modelWorkEnabled = Array.isArray(savedMain?.extensions) && savedMain.extensions.includes(workTools.name);
@@ -479,22 +483,23 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     const childCommandsEnabled = Array.isArray(savedMain?.extensions) && savedMain.extensions.includes(PERSONAL_COMMAND_WORK);
     const serviceControlsEnabled = Array.isArray(savedMain?.extensions) && savedMain.extensions.includes(serviceControls.extension.name);
     const inspectionControlsEnabled = Array.isArray(savedMain?.extensions) && savedMain.extensions.includes(inspectionControls.extension.name);
-    if (savedMain && !schedulerEnabled && (inspection.tasks.length || inspection.submissions.length)) throw new PersonalError("schedule_config_pending", "原档案仍有未完成输入或工作，请先用原程序完成处理后启用调度。");
-    if (savedMain && !mediaEnabled && (inspection.tasks.length || inspection.submissions.length)) throw new PersonalError("media_config_pending", "原档案仍有未完成输入或工作，请先用原程序完成处理后启用图片。");
-    if (savedMain && browser && !browserEnabled && (inspection.tasks.length || inspection.submissions.length)) throw new PersonalError("browser_config_pending", "原档案仍有未完成输入或工作，请先用原配置完成处理后启用浏览器。");
-    if (savedMain && general && !toolsEnabled && (inspection.tasks.length || inspection.submissions.length)) throw new PersonalError("tools_config_pending", "仍有未完成输入或工作，请先用原配置完成处理，再启用通用工具。");
-    if (savedMain && !modelWorkEnabled && (inspection.tasks.length || inspection.submissions.length)) throw new PersonalError("work_tools_pending", "档案仍有未完成输入或工作，请先用原版本完成处理，再启用模型委派。");
-    if (savedMain && !delegationsEnabled && (inspection.tasks.length || inspection.submissions.length)) throw new PersonalError("delegation_config_pending", "档案仍有未完成输入或分析，请先用原版本完成处理，再启用整项委托。");
-    if (savedMain && !reportsEnabled && (inspection.tasks.length || inspection.submissions.length)) throw new PersonalError("report_config_pending", "档案仍有未完成输入或分析，请先用原版本完成处理，再启用委托汇报。");
+    if (savedMain && !schedulerEnabled && pendingWork) throw new PersonalError("schedule_config_pending", "原档案仍有未完成输入或工作，请先用原程序完成处理后启用调度。");
+    if (savedMain && !mediaEnabled && pendingWork) throw new PersonalError("media_config_pending", "原档案仍有未完成输入或工作，请先用原程序完成处理后启用图片。");
+    if (savedMain && browser && !browserEnabled && pendingWork) throw new PersonalError("browser_config_pending", "原档案仍有未完成输入或工作，请先用原配置完成处理后启用浏览器。");
+    if (savedMain && general && !toolsEnabled && pendingWork) throw new PersonalError("tools_config_pending", "仍有未完成输入或工作，请先用原配置完成处理，再启用通用工具。");
+    if (savedMain && !modelWorkEnabled && pendingWork) throw new PersonalError("work_tools_pending", "档案仍有未完成输入或工作，请先用原版本完成处理，再启用模型委派。");
+    if (savedMain && !delegationsEnabled && pendingWork) throw new PersonalError("delegation_config_pending", "档案仍有未完成输入或分析，请先用原版本完成处理，再启用整项委托。");
+    if (savedMain && !reportsEnabled && pendingWork) throw new PersonalError("report_config_pending", "档案仍有未完成输入或分析，请先用原版本完成处理，再启用委托汇报。");
     if (inspection.tasks.some(task => task.state.kind === "blocked" || registry.snapshot().task(task.record.kind)?.definition.version !== task.record.version)) throw new PersonalError("task_version", "档案中有当前程序无法恢复的任务，已停止恢复，请使用对应版本。");
     // 首次启用检查先于新授权记录提交，拒绝后仍能用原配置恢复。
-    if (((service && !savedService) || (operations && !operationConfig)) && (inspection.tasks.length || inspection.submissions.length)) throw new PersonalError("service_config_pending", "个人档案仍有未完成输入，请先用原配置完成处理，再启用服务能力。");
-    if (services && savedMain && !childServicesEnabled && (inspection.tasks.length || inspection.submissions.length)) throw new PersonalError("work_services_pending", "档案仍有未完成输入或工作，请先用原版本完成处理，再启用子检查工具。");
-    if (serviceWork && savedMain && !childWritesEnabled && (inspection.tasks.length || inspection.submissions.length)) throw new PersonalError("work_services_pending", "档案仍有未完成输入或工作，请先用原版本完成处理，再启用子服务操作。");
-    if (commands && !savedCommands && (inspection.tasks.length || inspection.submissions.length)) throw new PersonalError("command_config_pending", "档案仍有未完成输入或工作，请先用原配置完成处理，再启用命令。");
-    if (mcp && (!savedMcp || !isDeepStrictEqual(savedMcp.value.config, mcp.config) || (savedMain && !mcpEnabled)) && (inspection.tasks.length || inspection.submissions.length)) throw new PersonalError("mcp_config_pending", "档案仍有未完成输入或工作，不能启用或改变 MCP 代次；请恢复原配置完成处理。");
+    if (((service && !savedService) || (operations && !operationConfig)) && pendingWork) throw new PersonalError("service_config_pending", "个人档案仍有未完成输入，请先用原配置完成处理，再启用服务能力。");
+    if (services && savedMain && !childServicesEnabled && pendingWork) throw new PersonalError("work_services_pending", "档案仍有未完成输入或工作，请先用原版本完成处理，再启用子检查工具。");
+    if (serviceWork && savedMain && !childWritesEnabled && pendingWork) throw new PersonalError("work_services_pending", "档案仍有未完成输入或工作，请先用原版本完成处理，再启用子服务操作。");
+    if (commands && !savedCommands && pendingWork) throw new PersonalError("command_config_pending", "档案仍有未完成输入或工作，请先用原配置完成处理，再启用命令。");
+    if (mcp && (!savedMcp || !isDeepStrictEqual(savedMcp.value.config, mcp.config) || (savedMain && !mcpEnabled)) && pendingWork) throw new PersonalError("mcp_config_pending", "档案仍有未完成输入或工作，不能启用或改变 MCP 代次；请恢复原配置完成处理。");
     await harness.commit(tx => verifyMcp(tx, mcpKeys), context);
     if (mcp && savedMcp && !isDeepStrictEqual(savedMcp.value.config, mcp.config) && await harness.commit(async tx => (await mcpOperations(tx)).some(mcpUnresolved), context)) throw new PersonalError("mcp_config_pending", "MCP 原调用效果或远端结束未核实，不能更换配置；请恢复原配置并核实原调用。");
+    await harness.commit(tx => verifyOwnerControls(tx, telegramKeys, Array.isArray(savedMain?.extensions) && savedMain.extensions.includes(personalOwnerControls.name)), context);
     await harness.commit(tx => verifyMcpControls(tx, telegramKeys, mcpEnabled), context);
     await harness.commit(tx => verifyScheduleControls(tx, telegramKeys, scheduleControlsEnabled, scheduler), context);
     if (commands && savedCommands) await harness.commit(tx => verifyPersonalCommands(tx, commandKeys, commands.config, commands.workerPath), context);
@@ -564,7 +569,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     await harness.commit(tx => verifyPersonalReports(tx, delegationKeys, reportsEnabled), context);
     await harness.commit(async tx => { for (const key of telegramKeys) await verifyDelegationMenu(tx, (await tx.doc(PersonalTelegramReceiptDoc, key, null)).receipt!, delegationsEnabled); }, context);
     await harness.commit(tx => tx.doc(PersonalFormatDoc), context);
-    const extensions = [appData.extension, memory, history, skills.extension, ...(qqConfig ? [qqExtension] : []), personal, media.extension, ...(browser ? [browser.extension] : []), personalPermissions, personalBackgroundWork, workTools, personalWorkControls, personalWorkNotes, personalAnalysisDelegations, reports, telegram.extension, inspectionControls.extension, serviceControls.extension, scheduler.extension, scheduleTools, personalSchedulerControls, ...(services ? [services, personalInspectionExtension, personalSubAgentServices] : []), ...(operations ? [operations.extension] : []), ...(serviceWork ? [serviceWork] : []), ...(commands ? [commands.extension] : []), ...(mcp ? [mcp.extension] : []), ...(general ? [general.extension] : [])];
+    const extensions = [appData.extension, memory, history, skills.extension, ...(qqConfig ? [qqExtension] : []), personal, media.extension, ...(browser ? [browser.extension] : []), personalPermissions, personalOwnerControls, personalBackgroundWork, workTools, personalWorkControls, personalWorkNotes, personalAnalysisDelegations, reports, telegram.extension, inspectionControls.extension, serviceControls.extension, scheduler.extension, scheduleTools, personalSchedulerControls, ...(services ? [services, personalInspectionExtension, personalSubAgentServices] : []), ...(operations ? [operations.extension] : []), ...(serviceWork ? [serviceWork] : []), ...(commands ? [commands.extension] : []), ...(mcp ? [mcp.extension] : []), ...(general ? [general.extension] : [])];
     const tools = [...appData.extension.tools!, ...memory.tools!, ...history.tools!, ...skills.extension.tools!, ...(media.extension.tools ?? []), ...(browser?.extension.tools ?? []), ...(services?.tools ?? []), ...workTools.tools!, ...(mcp?.extension.tools ?? []), ...(general?.extension.tools ?? []), ...scheduleTools.tools!];
     if (service) await harness.commit(async tx => { (await tx.doc(PersonalServiceDoc)).fingerprint = service.fingerprint; }, context);
     const main = await harness.root(context, { agent: { model: { provider: options.provider.id, modelId: options.modelId }, thinkingLevel: "off", extensions, tools }, init: async tx => { await initializeAppData(tx); await tx.doc(PersonalAgentsDoc); await tx.doc(PersonalPermissionsDoc); if (operations) { await tx.doc(PersonalServiceOperationsDoc); await tx.doc(PersonalServiceGrantsDoc); } } });
@@ -573,7 +578,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     if (general) await harness.commit(tx => configureTools(tx, general.config), context);
     if (browser) await harness.commit(tx => configureBrowser(tx, browser!.config), context);
     const agent = await main.agent(context);
-    if (!savedIndex && (inspection.tasks.length || inspection.submissions.length)) throw new PersonalError("work_config_pending", "个人档案仍有未完成输入，请先用原版本完成处理后再启用后台工作。");
+    if (!savedIndex && pendingWork) throw new PersonalError("work_config_pending", "个人档案仍有未完成输入，请先用原版本完成处理后再启用后台工作。");
     await harness.commit(async tx => {
       await initializeAppData(tx);
       await tx.doc(PersonalAgentsDoc);
@@ -608,14 +613,14 @@ export async function openPersonalHarness(options: ({ directory: string; profile
       }
     }, context);
     if (agent.model?.provider !== options.provider.id || agent.model.modelId !== options.modelId) {
-      if (inspection.tasks.length || inspection.submissions.length) throw new PersonalError("model_changed_pending", "个人档案仍有未完成输入，模型已变更；请恢复原模型完成处理后再切换。");
+      if (pendingWork) throw new PersonalError("model_changed_pending", "个人档案仍有未完成输入，模型已变更；请恢复原模型完成处理后再切换。");
       await main.configure({ model: { provider: options.provider.id, modelId: options.modelId } }, context);
     }
     for (const child of (await harness.snapshot(PersonalAgentsDoc, context))!.agents) {
       const conversation = (await harness.conversation(child.id, context))!;
       const childAgent = await conversation.agent(context);
       if (childAgent.model?.provider !== options.provider.id || childAgent.model.modelId !== options.modelId) {
-        if (inspection.tasks.length || inspection.submissions.length) throw new PersonalError("model_changed_pending", "个人档案仍有未完成工作，模型已变更；请恢复原模型后再切换。");
+        if (pendingWork) throw new PersonalError("model_changed_pending", "个人档案仍有未完成工作，模型已变更；请恢复原模型后再切换。");
         await conversation.configure({ model: { provider: options.provider.id, modelId: options.modelId } }, context);
       }
     }

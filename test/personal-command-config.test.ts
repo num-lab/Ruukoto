@@ -109,7 +109,7 @@ test("个人命令配置：前台与 detached 启动先拒绝坏版本，零模�
   const baseUrl = await server.start(); t.after(() => server.close());
   const key = "RUUKOTO_COMMAND_START_TEST_KEY", before = process.env[key]; process.env[key] = "test-only";
   t.after(() => { if (before === undefined) delete process.env[key]; else process.env[key] = before; });
-  savePersonalConfig(f.directory, { api: "openai-completions", baseUrl, modelId: "mock-model", apiKeyEnv: key, contextWindow: 128000, maxTokens: 1024 });
+  await savePersonalConfig(f.directory, { api: "openai-completions", baseUrl, modelId: "mock-model", apiKeyEnv: key, contextWindow: 128000, maxTokens: 1024 });
   fs.writeFileSync(path.join(f.directory, "command.json"), JSON.stringify({ ...f.config, version: 2 }), { mode: 0o600 });
   await assert.rejects(startPersonalServer(f.directory), code("command_config_invalid"));
   await assert.rejects(launchPersonalServer(f.directory), code("command_config_invalid"));
@@ -142,12 +142,12 @@ test("个人命令配置：首次启用拒绝未决输入，原配置完成后�
   assert.equal(fs.existsSync(path.join(f.directory, "command.json")), true);
 });
 
-test("个人命令配置向导：追加菜单保留旧序号、返回不写、选择目录后固定保存", async t => {
-  const f = fixture(t); let output = ""; const answers = ["16", "/back", "10"];
+test("个人命令配置向导：分组入口返回不写，选择目录后固定保存", async t => {
+  const f = fixture(t); let output = ""; const answers = ["5", "5", "/back", "7"];
   await personalMenu(f.directory, { question: async () => { assert.ok(answers.length); return answers.shift()!; }, write: value => { output += value; } });
   assert.equal(fs.existsSync(path.join(f.directory, "command.json")), false);
-  assert.match(output, /16\. 配置或查看命令目录/);
-  assert.match(output, /10\. 退出向导/);
+  assert.match(output, /5\. 配置或查看命令目录/);
+  assert.match(output, /7\. 退出向导/);
   const selected = [f.workspace, "2"];
   await configurePersonalCommands({ question: async () => selected.shift()!, write: value => { output += value; } }, f.directory);
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(f.directory, "command.json"), "utf8")), f.config);

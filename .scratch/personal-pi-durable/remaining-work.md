@@ -4,7 +4,7 @@
 
 ## 当前交接
 
-2026-10-18，拥有者指示接手的 [29 通用工具](issues/29-tools-access-artifacts.md)已完成文件/HTTP/Search、资料授权、实际自动审查、产物及本机/Telegram 控制接线；工程检查、真实 Linux 四场景与独立终审通过，真实模型/Tavily/IM及操作者体验保留待验。[28 MCP](issues/28-durable-mcp.md)也继续待真实服务和产品验收。下面的 `f2e05fc` 复评与计数是建单时快照，当前实现和证据以各工单为准；[30 浏览器与媒体](issues/30-browser-media.md)已交付并经独立审查，macOS 真浏览器及两端窄检查通过，真实视觉模型/IM、Linux Chrome 沙箱与产品体验继续待验；31 的媒体工程前置已具备，[31 QQ](issues/31-qq-owner-entry.md)已交付双平台工程接线与独立终审，真实模型/IM及体验待验；[32 调度](issues/32-scheduled-work.md)已完成独立定时来源、整项执行与双平台控制的工程实现，独立终审及定向检查通过，证据以本单为准，真实模型/IM与体验仍待验；[33 记忆/技能/历史](issues/33-memory-skills-history.md)已交付工程实现、独立终审及请求/恢复反例，真实模型/IM与体验待验；[34 应用数据](issues/34-app-data.md)已交付独立业务库、审批/来源与双库回执接线并通过本机工程检查、Linux窄验及独立终审，真实模型/IM和体验仍待验；35 汇总入口；36/37 继续独立进行，正式入口与生产未切换。
+2026-10-18，拥有者指示接手的 [29 通用工具](issues/29-tools-access-artifacts.md)已完成文件/HTTP/Search、资料授权、实际自动审查、产物及本机/Telegram 控制接线；工程检查、真实 Linux 四场景与独立终审通过，真实模型/Tavily/IM及操作者体验保留待验。[28 MCP](issues/28-durable-mcp.md)也继续待真实服务和产品验收。下面的 `f2e05fc` 复评与计数是建单时快照，当前实现和证据以各工单为准；[30 浏览器与媒体](issues/30-browser-media.md)已交付并经独立审查，macOS 真浏览器及两端窄检查通过，真实视觉模型/IM、Linux Chrome 沙箱与产品体验继续待验；31 的媒体工程前置已具备，[31 QQ](issues/31-qq-owner-entry.md)已交付双平台工程接线与独立终审，真实模型/IM及体验待验；[32 调度](issues/32-scheduled-work.md)已完成独立定时来源、整项执行与双平台控制的工程实现，独立终审及定向检查通过，证据以本单为准，真实模型/IM与体验仍待验；[33 记忆/技能/历史](issues/33-memory-skills-history.md)已交付工程实现、独立终审及请求/恢复反例，真实模型/IM与体验待验；[34 应用数据](issues/34-app-data.md)已交付独立业务库、审批/来源与双库回执接线并通过本机工程检查、Linux窄验及独立终审，真实模型/IM和体验仍待验；[35配置与控制](issues/35-owner-configuration-controls.md)已完成分组CLI、本机模式/授权、双平台导航与命令核实及统一配置空闲保护，静态/相关回归/真实PTY自动走查、Linux15/15与独立终审通过；真实IM/模型及拥有者体验保持待验；36/37 继续独立进行，正式入口与生产未切换。
 
 ## 重新评估
 

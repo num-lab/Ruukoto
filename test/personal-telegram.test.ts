@@ -232,7 +232,7 @@ test("Telegram：向导从真实配对消息选择身份，确认接管边界，
 });
 
 test("Telegram：真实本机后台装配轮询，停止收齐后释放档案锁", async t => {
-  const f = await fixture(t); savePersonalConfig(f.options.directory, f.config); savePersonalTelegram(f.options.directory, f.telegram);
+  const f = await fixture(t); await savePersonalConfig(f.options.directory, f.config); savePersonalTelegram(f.options.directory, f.telegram);
   const server = await startPersonalServer(f.options.directory); t.after(() => server.stop());
   f.bot.updates.push(update(11)); await until(() => f.bot.sends.length === 1);
   const state = await personalControl<{ enabled: boolean; recent: { delivery: string }[] }>(f.options.directory, "GET", "/telegram"); assert.equal(state.enabled, true); assert.equal(state.recent[0].delivery, "sent");

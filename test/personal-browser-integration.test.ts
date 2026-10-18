@@ -59,7 +59,7 @@ async function fixture(t: TestContext, options: { general?: boolean; browser?: b
   const mode = async (value: "confirm" | "full_access" | "auto-review") => { assert.ok(current); await current.harness.commit(async tx => { const doc = await tx.doc(PersonalPermissionsDoc); doc.mode = value; doc.version++; }, context); };
   const operations = async () => { assert.ok(current); return current.harness.commit(async tx => JSON.parse(JSON.stringify(await browserOperations(tx))) as PersonalBrowserOperation[], context); };
   return { directory, root, workspace, config, browserConfig, tools, model, open, mode, operations, calls: () => calls, stop(value: boolean) { stopVerified = value; }, unknown(value: boolean) { unknown = value; },
-    async server() { savePersonalConfig(directory, config); if (options.browser !== false) await savePersonalBrowser(directory, browserConfig); if (options.general) await savePersonalTools(directory, tools); backend = await startPersonalServer(directory); state = binding(); return backend; },
+    async server() { await savePersonalConfig(directory, config); if (options.browser !== false) await savePersonalBrowser(directory, browserConfig); if (options.general) await savePersonalTools(directory, tools); backend = await startPersonalServer(directory); state = binding(); return backend; },
   };
 }
 

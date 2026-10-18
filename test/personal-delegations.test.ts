@@ -47,7 +47,7 @@ async function fixture(t: TestContext, analyze: Responder = () => ({ kind: "text
   const config: PersonalModelConfig = { api: "openai-completions", baseUrl: await model.start(), modelId: "mock-model", apiKeyEnv: "RUUKOTO_DELEGATION_MODEL_KEY", contextWindow: 128000, maxTokens: 8192 };
   const previous = [process.env[config.apiKeyEnv], process.env.RUUKOTO_DELEGATION_BOT_KEY];
   process.env[config.apiKeyEnv] = "test-only"; process.env.RUUKOTO_DELEGATION_BOT_KEY = "123:test-token";
-  savePersonalConfig(directory, config);
+  await savePersonalConfig(directory, config);
   let p: PersonalHarness;
   let server: Awaited<ReturnType<typeof startPersonalServer>> | undefined;
   let bot: http.Server | undefined;

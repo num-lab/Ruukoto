@@ -414,6 +414,20 @@ function invalidateGrant(grant: Grant, reason: string) {
   if (grant.active) { grant.active = false; grant.version++; grant.reason = reason; }
 }
 
+export async function listPersonalServiceGrants(tx: Tx, offset = 0) {
+  const all = (await tx.doc(PersonalServiceGrantsDoc)).grants, items = [];
+  for (const grant of all.slice(offset, offset + 8)) items.push({ id: grant.id, version: grant.version, unit: grant.unit, machine: grant.snapshot.machineId, platform: grant.source.platform === "qq" ? "QQ" : "Telegram", active: grant.active, source: `入口账号 ${grant.source.botId}；拥有者账号 ${grant.source.ownerId}；${await telegramSourceActive(tx, grant.source) ? "当前绑定" : "旧绑定"}` });
+  return { items, ...(offset + 8 < all.length ? { nextOffset: offset + 8 } : {}) };
+}
+
+export async function revokePersonalServiceGrant(tx: Tx, id: string, version: number) {
+  const grant = (await tx.doc(PersonalServiceGrantsDoc)).grants.find(grant => grant.id === id);
+  if (!grant || grant.version !== version) throw new PersonalError("service_grant_stale", "原授权已变化，未撤销其他授权；请刷新列表核实原记录。");
+  if (!grant.active) return;
+  invalidateGrant(grant, "owner_revoked");
+  await tx.appendEntry(ROOT_CONVERSATION_ID, { kind: "ruukoto.service-grant-revoked", data: { id, version: grant.version, source: "local" } });
+}
+
 async function invalidateServiceGrants(tx: Tx, value: Operation) {
   for (const grant of (await tx.doc(PersonalServiceGrantsDoc)).grants) {
     if (grant.snapshot.machineId === value.snapshot?.machineId && grant.unit === value.unit) invalidateGrant(grant, "effect_unknown");

@@ -1,10 +1,9 @@
+import { hasPendingPersonalWork } from "./personal-config-idle.ts";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
-import { ROOT_CONVERSATION_ID } from "@earendil-works/pi-durable";
-import { SCHEDULE_SUPERVISOR_TASK, PersonalSchedulesDoc, PersonalScheduleRunDoc } from "./personal-scheduler-records.ts";
 import { lockPersonalProfile, PERSONAL_FORMAT, type PersonalProfileLock } from "./personal-profile.ts";
 import { PersonalError } from "./personal-error.ts";
 
@@ -52,26 +51,7 @@ export async function savePersonalSkills(target: string | PersonalProfileLock, v
       try {
         const record = await storage.findDocument({ kind: "ruukoto.format", scope: { kind: "session" } }, "current", context), saved = record && await storage.document(record.id, "current", context);
         if (!saved || saved.version !== 1 || !isDeepStrictEqual(saved.value, PERSONAL_FORMAT)) throw invalid();
-        const pending = () => new PersonalError("skills_config_pending", "仍有未完成输入或工作，未更改技能配置；请先用原配置完成原工作。");
-        const scheduleRecord = await storage.findDocument({ kind: PersonalSchedulesDoc.definition.kind, scope: { kind: "session" } }, "current", context), schedules = scheduleRecord && await storage.document(scheduleRecord.id, "current", context);
-        if (schedules) {
-          if (schedules.version !== 1 || !Array.isArray(schedules.value.runs)) throw invalid();
-          for (const runId of schedules.value.runs) {
-            if (typeof runId !== "string") throw invalid();
-            const record = await storage.findDocument({ kind: PersonalScheduleRunDoc.definition.kind, scope: { kind: "session" }, key: runId }, "current", context), saved = record && await storage.document(record.id, "current", context), run = saved?.value.run;
-            if (!saved || saved.version !== 1 || !run || typeof run !== "object" || Array.isArray(run) || !run.result) throw pending();
-          }
-        }
-        for (const status of ["pending", "running", "waiting", "completing"] as const) {
-          let cursor;
-          do {
-            const page = await storage.scanTasks({ status }, 256, cursor, context);
-            for (const task of page.items) if (task.kind !== SCHEDULE_SUPERVISOR_TASK || task.version !== 1 || task.conversationId !== ROOT_CONVERSATION_ID || task.owner !== undefined || !task.background || !isDeepStrictEqual(task.input, {}) || schedules?.value.supervisor !== task.id) throw pending();
-            cursor = page.next;
-          } while (cursor);
-        }
-        const submissions = await Promise.all((["queued", "placed"] as const).map(status => storage.scanSubmissions({ status }, 1, undefined, context)));
-        if (submissions.some(page => page.items.length)) throw pending();
+        if (await hasPendingPersonalWork(storage)) throw new PersonalError("skills_config_pending", "仍有未完成输入或工作，未更改技能配置；请先用原配置完成原工作。");
       } finally { await storage.close(context); }
     }
     const temporary = path.join(profile.directory, "skills.json.tmp");

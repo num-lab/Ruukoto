@@ -1,3 +1,5 @@
+import { personalLocalPermission } from "./personal-local-records.ts";
+import { PERSONAL_MEDIA } from "./personal-media.ts";
 import { PERSONAL_TOOLS, PERSONAL_TOOL_NAMES, requireWorkToolsStopped, toolOperations, toolUnresolved, waitWorkTools } from "./personal-tools.ts";
 import { isDeepStrictEqual } from "node:util";
 import { createHash } from "node:crypto";
@@ -202,7 +204,7 @@ export async function delegatePersonalWork(tx: Tx, model: ModelRef, input: Deleg
   const telegram = receipt && permissionSnapshot(receipt);
   if (input.sourceRequestId.startsWith("telegram:") && (!telegram || receipt?.submissionId !== source.id || !await telegramSourceActive(tx, telegram))) throw new PersonalError("work_source_invalid", "原 Telegram 输入没有有效的拥有者权限快照，请由当前绑定拥有者重新提交委托。");
   await requirePersonalServiceSourceReady(tx, input.sourceRequestId);
-  const permission = telegram ?? await tx.doc(PersonalPermissionsDoc);
+  const permission = telegram ?? await personalLocalPermission(tx, input.sourceRequestId) ?? await tx.doc(PersonalPermissionsDoc);
   const index = await tx.doc(PersonalAgentsDoc);
   let agent = input.agentId && index.agents.find(agent => agent.id === input.agentId);
   if (input.agentId && !agent) throw new PersonalError("subagent_missing", "找不到此子 Agent，请查询已有身份。");
@@ -237,6 +239,11 @@ export async function delegatePersonalWork(tx: Tx, model: ModelRef, input: Deleg
       const config = await tx.doc(AgentDoc, child.id);
       if (!Array.isArray(config.extensions) || !Array.isArray(config.tools)) throw new PersonalError("work_config_changed", "子会话工具配置无法核实，请保留档案。");
       config.extensions.push(PERSONAL_TOOLS); config.tools.push(...PERSONAL_TOOL_NAMES);
+    }
+    if (Array.isArray(main.extensions) && main.extensions.includes(PERSONAL_MEDIA)) {
+      const config = await tx.doc(AgentDoc, child.id);
+      if (!Array.isArray(config.extensions)) throw new PersonalError("work_config_changed", "子会话扩展配置无法核实，请保留档案。");
+      config.extensions.splice(2, 0, PERSONAL_MEDIA);
     }
     index.agents.push({ id: child.id, label: input.label ?? "子 Agent", closed: false });
     agent = index.agents[index.agents.length - 1];

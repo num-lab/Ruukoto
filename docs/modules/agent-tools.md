@@ -8,6 +8,9 @@
 
 这里描述正式共享装配；[个人 durable](personal-durable.md)的服务检查与宿主服务操作另行装配，只复用 app 内 `service-helper.ts` 的固定进程传输，不复用旧 Task、ApprovalGate 或 ArtifactStore。共用传输在超时、取消或超限后等待调用进程与 stdio 关闭，再返回首次失败及有界输出；调用关闭不代替服务操作单元的停止核实。
 
+个人 durable 的浏览器沿相同主拥有者/完全访问资格，只复用 BrowserManager 与独立参数校验；绑定和操作事实由 durable 保存，持久回调可异步等待。截图、本地读图及 Telegram 图片用私有产物引用，provider 前恢复并核实能力；主/子资料范围、未知源暂停和 CLI 导出见[个人持久会话](personal-durable.md)。共享 Coding Browser 工具继续使用原 Store/审批和产物格式。
+
+
 部署 helper 的持久检查身份与停止核实见 [deploy](deploy.md)，正式共享装配仍用原 inspect；个人 durable 的主/子会话检查与服务审批前检查使用新动词，先提交执行归属并核实原 ID 退出，未核实时保留目标/来源占用。子检查另固定原工作与权限，正常/取消收尾等待检查停止；子会话只装配已启用能力的工具。CLI/Telegram 的停止重核由独立宿主任务执行，仅接受原检查接纳与可信退出证明，模型工具不获得重核权限。个人子会话可用 service_restart 沿原工作权限重启白名单服务，服务 Task 归 WorkTask 持有；整项取消及报告等待效果和停止核实。CLI 可批准/拒绝本机操作，Telegram 仍从原私聊审批；原证据由 read_service_operation 限原子会话分页读取。个人服务写操作另有 CLI/原 Telegram 的效果核实与停止重核，固定原操作身份且不重发写入，人工说明不能代替原启动器/命令单元退出证明。
 
 两件事明确不属于可用性判定：获批之后的复核属于审批闸门；Web Search 开关的现场检查与「委派沿拥有者请求、定时计划或已保存的工作授权触发」这一限定，由各工具在执行时自行完成。
@@ -253,6 +256,8 @@ sequenceDiagram
 宿主绑定的[工作流步骤](workflows.md)另有来源画像，普通 SubAgent 不因此扩权。步骤工具是保存的来源类别、当前配置与步骤收窄的交集；main 的编码资格只映射已有受控委派的五个工具。发送、意图和实际调用前复核来源，个人业务身份属于来源，执行与审批归步骤 Task；工作流 `verify` 独立于角色，与 `target` 互斥，只开放五个编码工具并使用原生沙箱；任意角色均不能放宽。零工具、失败或未知效果不能由通过文本覆盖，汇入前重新核实账本与冻结归属。
 
 ## 设计依据
+
+- [个人浏览器与图片](../../.agents/notes/implemented/architecture/2026-10-18-personal-browser-media.md)：异步持久回调与独立个人装配。
 
 - [个人通用工具与原字节](../../.agents/notes/implemented/architecture/2026-10-17-personal-tools-access-artifacts.md)：独立装配与共享搜索传输。
 

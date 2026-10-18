@@ -250,7 +250,7 @@ test("browser 人工暂停前已接受的排队输入不能 resume，之后的�
   const hold = new Promise<void>(resolve => { release = resolve; });
   const restore = platformFixture(async () => ({ data: {} }), () => structuredClone(current));
   const oldPause = BrowserManager.prototype.pause, oldResume = BrowserManager.prototype.resume;
-  BrowserManager.prototype.pause = (_session, taskId, afterSeq) => { current.state = "paused"; current.pauseTaskId = taskId; current.pauseAfterSeq = afterSeq!; return structuredClone(current); };
+  BrowserManager.prototype.pause = async (_session, taskId, afterSeq) => { current.state = "paused"; current.pauseTaskId = taskId; current.pauseAfterSeq = afterSeq!; return structuredClone(current); };
   BrowserManager.prototype.resume = async () => { resumed++; current.state = "ready"; current.generation = "after-manual"; return structuredClone(current); };
   const t = await startTestRuntime("browser-pause-barrier", async (_req, index) => {
     if (index === 0) { await hold; return { kind: "tool_calls", calls: [{ id: "pause", name: "browser", arguments: { action: "pause" } }] }; }
@@ -282,7 +282,7 @@ test("browser 人工暂停前已接受的排队输入不能 resume，之后的�
 test("browser 失败后人工等待的保存失败不掩盖原未知效果报告", async () => {
   const restore = platformFixture(async () => { throw new BrowserError("outcome_unknown", "原动作结果未知", true); }, session => ({ ...binding(session), state: "unavailable" }));
   const oldPause = BrowserManager.prototype.pause;
-  BrowserManager.prototype.pause = () => { throw new BrowserError("browser_state_unavailable", "存储失败"); };
+  BrowserManager.prototype.pause = async () => { throw new BrowserError("browser_state_unavailable", "存储失败"); };
   const t = await startTestRuntime("browser-unknown-storage", req => req.messages.some(message => message.role === "tool") ? { kind: "text", text: "人工核实" }
     : { kind: "tool_calls", calls: [{ id: "unknown", name: "browser", arguments: { action: "open", url: "https://example.com" } }] }, { workDirs: 1 });
   try {

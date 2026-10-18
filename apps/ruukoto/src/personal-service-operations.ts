@@ -1,4 +1,5 @@
 import { toolSourceBlocker } from "./personal-tools.ts";
+import { browserSourceBlocker } from "./personal-browser.ts";
 import { createHash, randomBytes } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { readFileSync } from "node:fs";
@@ -47,7 +48,7 @@ export async function personalServiceOperation(tx: Tx, ref: { requestId: string;
 }
 
 async function sourceValid(tx: Tx, op: Operation, active = true) {
-  if (active && (await personalCommandSourceBlocker(tx, op.source.requestId) || await mcpSourceBlocker(tx, op.source.requestId))) return false;
+  if (active && (await personalCommandSourceBlocker(tx, op.source.requestId) || await mcpSourceBlocker(tx, op.source.requestId) || await toolSourceBlocker(tx, op.source.requestId) || await browserSourceBlocker(tx, op.source.requestId))) return false;
   if (active && op.work) {
     const work = await tx.doc(PersonalWorkDoc, op.work.ref.requestId, null);
     if (work.cancelRequested || !isDeepStrictEqual(work.ref, op.work.ref)) return false;
@@ -117,9 +118,11 @@ export async function waitPersonalServiceEffect(reader: DocumentObserver, ref: P
   await waitForChange(reader, ref.requestId, op => !unresolved(op), context);
 }
 
-export type PersonalServiceBlocker = string | { inspection: TaskId; admission: EntryId } | { command: string; admission: EntryId } | { mcp: string; admission: EntryId } | { tool: string; admission: EntryId };
+export type PersonalServiceBlocker = string | { inspection: TaskId; admission: EntryId } | { command: string; admission: EntryId } | { mcp: string; admission: EntryId } | { tool: string; admission: EntryId } | { browser: string; admission: EntryId };
 
 export async function personalServiceSourceBlocker(tx: Tx, sourceRequestId: string): Promise<PersonalServiceBlocker | undefined> {
+  const browser = await browserSourceBlocker(tx, sourceRequestId);
+  if (browser) return browser;
   const tool = await toolSourceBlocker(tx, sourceRequestId);
   if (tool) return tool;
   const mcp = await mcpSourceBlocker(tx, sourceRequestId);
@@ -304,6 +307,7 @@ export function personalServiceOperations(config: ServiceManagerConfig, getHarne
     const entry = source?.entry && await tx.entry(source.entry);
     if (source?.type !== "input" || (source.status !== "placed" && source.status !== "done") || entry?.kind !== "pi.user") throw new PersonalError("service_source_invalid", "服务工作需要已进入主会话的拥有者输入，请先核实原输入。");
     if (await personalCommandSourceBlocker(tx, input.sourceRequestId)) throw new PersonalError("work_source_paused", "原工作有未核实命令，未接纳服务操作；请在本机命令管理核实原效果和停止。");
+    if (await browserSourceBlocker(tx, input.sourceRequestId)) throw new PersonalError("work_source_paused", "原工作有未核实浏览器效果或停止状态，未接纳服务操作；请从浏览器菜单核实原操作。");
     if (await pendingServiceInspection(tx, input.unit, work?.sources ?? [source.id])) throw new PersonalError("service_operation_busy", "服务目标或原工作仍有检查停止未核实，请查询原检查；不能换键重试。");
     let cursor: Cursor | undefined;
     do {

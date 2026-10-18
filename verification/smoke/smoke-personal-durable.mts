@@ -84,6 +84,10 @@ async function main() {
     await launchPersonalServer(directory);
     await answer(`请使用memory的search查找“个人隔离验收偏好标记”，再用read读取匹配条目的完整正文，从正文取出校验标记并只回复标记。`);
     await answer("请使用skill加载acceptance-reference，按该技能正文要求完成本次回答。", skillMarker);
+    await answer(`请先用app_data_query的schema查询结构，再用app_data_define_table创建acceptance_records，字段marker为text、amount为integer，最后用一次app_data_insert事务插入两行：marker分别为${marker}_A、${marker}_B，amount分别为7、11。写入理由为拥有者隔离验收；expected_schema_version采用查询结果。成功后只回复${marker}。`);
+    await stop(); running = true; await launchPersonalServer(directory);
+    await answer(`请用app_data_query的rows读取acceptance_records的marker和amount，确认${marker}_A为7、${marker}_B为11，再只回复${marker}。`);
+
     await stop();
     const db = new DatabaseSync(path.join(directory, "personal.sqlite"), { readOnly: true });
     try {
@@ -105,10 +109,13 @@ async function main() {
         const value = JSON.parse(text) as { memory?: number; items?: { memory: number }[] };
         return value.memory === saved.items[0].memory || value.items?.some(item => item.memory === saved.items[0].memory);
       }), `真实模型须成功执行memory.${action}并返回原记忆，查询和读取须发生在重启后`);
+      for (const name of ["app_data_define_table", "app_data_insert", "app_data_query"]) assert.ok(succeeded.some(({ call }) => call.name === name), `真实模型须成功执行${name}`);
       assert.ok(succeeded.some(({ call, result }) => call.name === "skill" && JSON.stringify(result.content).includes(skillMarker)), "真实模型须成功加载技能正文");
       assert.ok(entries.every(entry => !entry.record.includes(credential)), "请求证据不应包含认证值");
     } finally { db.close(); }
-    process.stdout.write(`真实个人模型往返、独立进程重启与上下文延续通过：${requested}；记忆保存、重启查阅与技能驱动共3次输入，请求及工具原文均已核实，无IM。\n`);
+    const app = new DatabaseSync(path.join(directory, "agent-data", "main.db"), { readOnly: true });
+    try { assert.deepEqual(app.prepare("SELECT marker, amount FROM acceptance_records ORDER BY _id").all().map(row => ({ ...row })), [{ marker: `${marker}_A`, amount: 7 }, { marker: `${marker}_B`, amount: 11 }]); assert.equal((app.prepare("SELECT COUNT(*) AS n FROM app_audit WHERE tool_name = 'app_data_insert'").get() as { n: number }).n, 1); } finally { app.close(); }
+    process.stdout.write(`真实个人模型往返、独立进程重启与上下文延续通过：${requested}；记忆保存、重启查阅、技能驱动和结构化事务/重启查询共5次输入，请求及工具原文均已核实，无IM。\n`);
     return 0;
   } finally {
     try { await stop(); } finally {

@@ -11,7 +11,7 @@
  */
 
 import { DatabaseSync } from "node:sqlite";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import * as path from "node:path";
 import * as fs from "node:fs";
 
@@ -92,6 +92,12 @@ export interface AuditReceipt {
   affected: string;
   resultSummary: string;
   createdAt: string;
+}
+
+/** 宿主回执的内容校验，不含自增序号和校验值自身。 */
+export function appDataReceiptFingerprint(receipt: Omit<AuditReceipt, "seq">): string {
+  const { receiptFingerprint: _fingerprint, ...operation } = receipt.operation;
+  return createHash("sha256").update(JSON.stringify([receipt.opId, receipt.toolName, receipt.taskId, receipt.sessionId, receipt.agentId, receipt.schemaVersion, receipt.revision, receipt.reason, operation, receipt.definitions, receipt.affected, receipt.resultSummary, receipt.createdAt])).digest("hex");
 }
 
 export class AppDataError extends Error {
@@ -266,40 +272,63 @@ CREATE INDEX IF NOT EXISTS idx_app_audit_seq ON app_audit (seq);
 export interface AppDataStoreOptions {
   /** 只读打开（查询子进程）；默认读写。 */
   readOnly?: boolean;
+  /** 已绑定库只核实原身份，不创建或补齐缺失记录。 */
+  expectedInstanceId?: string;
+  /** 首次初始化事务内写入宿主预先登记的身份。 */
+  initialInstanceId?: string;
 }
 
 export class AppDataStore {
   readonly file: string;
   private readonly db: DatabaseSync;
   private readonly readOnly: boolean;
+  private readonly verifyReceipts: boolean;
   /** 测试专用故障注入：下一次写入抛错（生产代码路径不设置）。 */
   faultNextWrite: Error | null = null;
 
   constructor(file: string, opts: AppDataStoreOptions = {}) {
     this.file = file;
     this.readOnly = opts.readOnly === true;
-    if (this.readOnly) {
+    this.verifyReceipts = opts.expectedInstanceId !== undefined;
+    if (this.readOnly || opts.expectedInstanceId !== undefined) {
       if (!fs.existsSync(file)) {
         throw new AppDataError("app_data_unavailable", `应用数据库不存在：${file}`);
       }
-      this.db = new DatabaseSync(file, { readOnly: true });
+      this.db = new DatabaseSync(file, { readOnly: this.readOnly });
     } else {
       fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
       this.db = new DatabaseSync(file);
       this.db.exec("PRAGMA journal_mode = WAL;");
       this.db.exec("PRAGMA synchronous = FULL;");
     }
-    this.db.exec("PRAGMA foreign_keys = ON;");
-    if (!this.readOnly) this.initStorage();
+    try {
+      if (opts.expectedInstanceId !== undefined) {
+        const meta = this.db.prepare("SELECT key, value FROM app_meta").all() as { key: string; value: string }[];
+        const value = (key: string) => meta.find(row => row.key === key)?.value;
+        if (value("instance_id") !== opts.expectedInstanceId) throw new AppDataError("app_data_identity_changed", "应用库身份不符，已停止能力；请恢复原库后核实原操作");
+        if (Number(value("storage_version")) !== APP_DATA_STORAGE_VERSION) throw new AppDataError("storage_version_unsupported", "应用库存储版本不受支持，请保留原库并使用对应程序");
+        for (const key of ["schema_version", "revision"]) if (value(key) === undefined || !Number.isSafeInteger(Number(value(key))) || Number(value(key)) < 0) throw new AppDataError("storage_corrupt", "应用库版本损坏，已停止能力；请保留原库");
+        this.db.prepare("SELECT name, fields, indexes, created_revision, updated_revision FROM app_tables LIMIT 0").all();
+        this.db.prepare("SELECT seq, op_id, tool_name, task_id, session_id, agent_id, schema_version, revision, reason, operation, definitions, affected, result_summary, created_at FROM app_audit LIMIT 0").all();
+
+      }
+      if (!this.readOnly) { this.db.exec("PRAGMA journal_mode = WAL;"); this.db.exec("PRAGMA synchronous = FULL;"); }
+      this.db.exec("PRAGMA foreign_keys = ON;");
+      if (!this.readOnly && opts.expectedInstanceId === undefined) this.initStorage(opts.initialInstanceId);
+    } catch (error) {
+      this.db.close();
+      throw error;
+    }
   }
 
-  private initStorage(): void {
+  private initStorage(initialInstanceId?: string): void {
     // 区分首次初始化与既有库验证：既有库缺少目录/审计表即损坏——停止能力，
     // 不静默重建（新建空审计表会被误当作"旧操作未提交"的证据）
     const tables = (
       this.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>
     ).map((r) => r.name);
     const isNew = !tables.includes("app_meta");
+    if (initialInstanceId && isNew && tables.length) throw new AppDataError("storage_corrupt", "首次应用库已有其他结构，未初始化");
     if (!isNew && (!tables.includes("app_tables") || !tables.includes("app_audit"))) {
       throw new AppDataError("storage_corrupt", "应用数据库缺少目录或审计表（损坏），能力停止，不重建");
     }
@@ -334,6 +363,10 @@ export class AppDataStore {
         .prepare("INSERT INTO app_meta (key, value) VALUES ('schema_version', '0') ON CONFLICT(key) DO NOTHING")
         .run();
       this.db.prepare("INSERT INTO app_meta (key, value) VALUES ('revision', '0') ON CONFLICT(key) DO NOTHING").run();
+      if (initialInstanceId) {
+        this.db.prepare("INSERT INTO app_meta (key, value) VALUES ('instance_id', ?) ON CONFLICT(key) DO NOTHING").run(initialInstanceId);
+        if (this.getInstanceId() !== initialInstanceId) throw new AppDataError("app_data_identity_changed", "首次应用库身份不符，未接管");
+      }
       this.db.exec("COMMIT");
     } catch (err) {
       try {
@@ -392,7 +425,16 @@ export class AppDataStore {
 
   getReceipt(opId: string): AuditReceipt | null {
     const row = this.db.prepare("SELECT * FROM app_audit WHERE op_id = ?").get(opId) as any;
+    if (!row && this.verifyReceipts) {
+      const audit = this.db.prepare("SELECT COUNT(*) AS n, COALESCE(MAX(revision), 0) AS revision FROM app_audit").get() as { n: number; revision: number };
+      const versions = this.getVersions();
+      if (audit.n !== versions.revision || audit.revision !== versions.revision) throw new AppDataError("receipt_corrupt", "应用库修订与审计记录不符，不能证明原操作未提交");
+    }
     return row ? this.rowToReceipt(row) : null;
+  }
+
+  hasTaskReceipt(taskId: string): boolean {
+    return !!this.db.prepare("SELECT 1 FROM app_audit WHERE task_id = ? LIMIT 1").get(taskId);
   }
 
   /** 审计分页（主键游标；查询预算统一由 query.ts 计算）。 */
@@ -628,36 +670,27 @@ export class AppDataStore {
       this.faultNextWrite = null;
       throw err;
     }
-    this.db
-      .prepare(
-        `INSERT INTO app_audit (op_id, tool_name, task_id, session_id, agent_id, schema_version, revision, reason, operation, definitions, affected, result_summary, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        entry.opId,
-        entry.toolName,
-        entry.ctx.taskId,
-        entry.ctx.sessionId,
-        entry.ctx.agentId,
-        entry.schemaVersion,
-        entry.revision,
-        entry.reason,
-        JSON.stringify(entry.operation),
-        entry.definitions ? JSON.stringify(entry.definitions) : null,
-        entry.affected,
-        entry.resultSummary,
-        new Date().toISOString(),
-      );
+    const receipt: Omit<AuditReceipt, "seq"> = {
+      opId: entry.opId, toolName: entry.toolName, taskId: entry.ctx.taskId, sessionId: entry.ctx.sessionId, agentId: entry.ctx.agentId,
+      schemaVersion: entry.schemaVersion, revision: entry.revision, reason: entry.reason,
+      operation: { ...entry.operation, ...(entry.ctx.requestFingerprint ? { requestFingerprint: entry.ctx.requestFingerprint } : {}) },
+      definitions: entry.definitions ?? null, affected: entry.affected, resultSummary: entry.resultSummary, createdAt: new Date().toISOString(),
+    };
+    if (entry.ctx.requestFingerprint) receipt.operation.receiptFingerprint = appDataReceiptFingerprint(receipt);
+    this.db.prepare(`INSERT INTO app_audit (op_id, tool_name, task_id, session_id, agent_id, schema_version, revision, reason, operation, definitions, affected, result_summary, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(receipt.opId, receipt.toolName, receipt.taskId, receipt.sessionId, receipt.agentId, receipt.schemaVersion, receipt.revision, receipt.reason, JSON.stringify(receipt.operation), receipt.definitions ? JSON.stringify(receipt.definitions) : null, receipt.affected, receipt.resultSummary, receipt.createdAt);
   }
 
   /**
    * 重复执行核实：hostOpId 已有回执时同参数返回原结果（applied=false），
    * 异参返回冲突——不自动覆盖，不在后台重算后重试。
    */
-  private replayIfDuplicate(opId: string, operation: Record<string, unknown>): AuditReceipt | null {
+  private replayIfDuplicate(opId: string, operation: Record<string, unknown>, ctx: OpContext): AuditReceipt | null {
     const existing = this.getReceipt(opId);
     if (!existing) return null;
-    if (JSON.stringify(existing.operation) !== JSON.stringify(operation)) {
+    const { receiptFingerprint, ...recordedOperation } = existing.operation;
+    if (ctx.requestFingerprint && receiptFingerprint !== appDataReceiptFingerprint(existing)) throw new AppDataError("receipt_corrupt", "原应用回执内容校验失败，未重放");
+    if (JSON.stringify(recordedOperation) !== JSON.stringify({ ...operation, ...(ctx.requestFingerprint ? { requestFingerprint: ctx.requestFingerprint } : {}) })) {
       throw new AppDataConflictError("op_conflict", `操作 ${opId} 已提交且参数不同`, {
         opId,
         revision: existing.revision,
@@ -724,11 +757,12 @@ export class AppDataStore {
     }
     const operation = { op: "define_table", table: def.name, fields: def.fields, indexes: def.indexes };
     return this.tx(() => {
-      const replay = this.replayIfDuplicate(params.opId, operation);
+      const replay = this.replayIfDuplicate(params.opId, operation, params.ctx);
       if (replay) {
         return { applied: false, schemaVersion: replay.schemaVersion, revision: replay.revision, summary: replay.resultSummary };
       }
       const versions = this.getVersions();
+      if (params.ctx.expectedRevision !== undefined && versions.revision !== params.ctx.expectedRevision) throw new AppDataConflictError("revision_conflict", "应用数据修订已变化，原批准失效；请重新查询", versions);
       if (versions.schemaVersion !== expected) {
         throw new AppDataConflictError("schema_version_conflict", `schema 版本冲突：当前 ${versions.schemaVersion}，请求预期 ${expected}`, versions as unknown as Record<string, unknown>);
       }
@@ -784,11 +818,12 @@ export class AppDataStore {
     const touchedTables = [...new Set(steps.map((s) => s.table))];
     const operation = { op: "migrate", steps };
     return this.tx(() => {
-      const replay = this.replayIfDuplicate(params.opId, operation as Record<string, unknown>);
+      const replay = this.replayIfDuplicate(params.opId, operation as Record<string, unknown>, params.ctx);
       if (replay) {
         return { applied: false, schemaVersion: replay.schemaVersion, revision: replay.revision, summary: replay.resultSummary };
       }
       const versions = this.getVersions();
+      if (params.ctx.expectedRevision !== undefined && versions.revision !== params.ctx.expectedRevision) throw new AppDataConflictError("revision_conflict", "应用数据修订已变化，原批准失效；请重新查询", versions);
       if (versions.schemaVersion !== expected) {
         throw new AppDataConflictError("schema_version_conflict", `schema 版本冲突：当前 ${versions.schemaVersion}，请求预期 ${expected}`, versions as unknown as Record<string, unknown>);
       }
@@ -1009,12 +1044,13 @@ export class AppDataStore {
     });
     const operation = { op: "insert", table: name, records: params.records };
     return this.tx(() => {
-      const replay = this.replayIfDuplicate(params.opId, operation as Record<string, unknown>);
+      const replay = this.replayIfDuplicate(params.opId, operation as Record<string, unknown>, params.ctx);
       if (replay) {
         const ids = (JSON.parse(replay.affected) as Array<{ id: number; version: number }>) ?? [];
         return { applied: false, rows: ids, schemaVersion: replay.schemaVersion, revision: replay.revision, summary: replay.resultSummary };
       }
       const versions = this.getVersions();
+      if (params.ctx.expectedRevision !== undefined && versions.revision !== params.ctx.expectedRevision) throw new AppDataConflictError("revision_conflict", "应用数据修订已变化，原批准失效；请重新查询", versions);
       this.checkExpectedSchemaVersion(params.expected_schema_version, versions);
       const revision = versions.revision + 1;
       const cols = table.fields.map((f) => quoteIdent(f.name)).join(", ");
@@ -1135,11 +1171,12 @@ export class AppDataStore {
     if (ids.size !== rows.length) throw new AppDataError("duplicate_row", "单次调用内行 ID 重复");
     const operation = { op: params.kind, table: name, rows: params.rows };
     return this.tx(() => {
-      const replay = this.replayIfDuplicate(params.opId, operation as Record<string, unknown>);
+      const replay = this.replayIfDuplicate(params.opId, operation as Record<string, unknown>, params.ctx);
       if (replay) {
         return { applied: false, updated: Number(replay.affected), schemaVersion: replay.schemaVersion, revision: replay.revision, summary: replay.resultSummary };
       }
       const versions = this.getVersions();
+      if (params.ctx.expectedRevision !== undefined && versions.revision !== params.ctx.expectedRevision) throw new AppDataConflictError("revision_conflict", "应用数据修订已变化，原批准失效；请重新查询", versions);
       this.checkExpectedSchemaVersion(params.expected_schema_version, versions);
       const revision = versions.revision + 1;
       let affected = 0;
@@ -1237,6 +1274,8 @@ export interface OpContext {
   taskId: string;
   sessionId: string;
   agentId: string;
+  requestFingerprint?: string;
+  expectedRevision?: number;
 }
 
 type MigrateStep =

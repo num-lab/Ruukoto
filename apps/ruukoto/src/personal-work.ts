@@ -1,3 +1,4 @@
+import { configureAppDataChild, requireWorkAppDataStopped, appDataOperations, appDataUnresolved, waitWorkAppData } from "./personal-app-data.ts";
 import { PERSONAL_MEMORY, PERSONAL_MEMORY_TOOLS } from "./personal-memory.ts";
 import { PERSONAL_HISTORY, PERSONAL_HISTORY_TOOLS } from "./personal-history.ts";
 import { PERSONAL_SKILLS, PERSONAL_SKILL_TOOLS } from "./personal-skills.ts";
@@ -27,7 +28,7 @@ export type PersonalWorkRef = { requestId: string; taskId: TaskId<WorkResult>; a
 type AgentIndex = { id: ConversationId; label: string; closed: boolean; work?: PersonalWorkRef };
 type NoteSource = { kind: "input"; requestId: string; submissionId: SubmissionId; entryId: EntryId; modelCall?: TaskId } | { kind: "local" } | { kind: "telegram" | "qq" };
 type WorkNote = { admission?: EntryId; requestId: string; content: string; source: NoteSource; submissionId?: SubmissionId };
-type WorkFacts = { delegationAdmission?: EntryId; delegation?: PersonalDelegationRef; instructionSource?: PersonalWorkSource; notes?: WorkNote[]; fingerprint: string; ref?: PersonalWorkRef; source?: PersonalWorkSource; submissionId?: SubmissionId; cancelRequested: boolean; permission?: { mode: PersonalTelegramSource["mode"]; version: number }; telegram?: PersonalTelegramSource; modelCall?: TaskId };
+type WorkFacts = { appData?: boolean; delegationAdmission?: EntryId; delegation?: PersonalDelegationRef; instructionSource?: PersonalWorkSource; notes?: WorkNote[]; fingerprint: string; ref?: PersonalWorkRef; source?: PersonalWorkSource; submissionId?: SubmissionId; cancelRequested: boolean; permission?: { mode: PersonalTelegramSource["mode"]; version: number }; telegram?: PersonalTelegramSource; modelCall?: TaskId };
 type WorkInput = { requestId: string; agentId: ConversationId; content: string };
 const context = BACKGROUND_CONTEXT;
 const PersonalWorkNoteAdmission = defineEntry<{ ref: PersonalWorkRef; requestId: string; content: string; source: NoteSource }>("ruukoto.work-note-admission");
@@ -53,6 +54,8 @@ async function release(tx: Tx, input: WorkInput, taskId: TaskId) {
   await requireWorkMcpStopped(tx, taskId);
   await requireWorkToolsStopped(tx, taskId);
   if (await pendingWorkInspection(tx, taskId)) throw new PersonalError("work_stop_unverified", "子工作仍有未核实的检查，占用保留；请核实原检查停止。");
+  await requireWorkAppDataStopped(tx, taskId);
+  await configureAppDataChild(tx, agent.id, false);
   delete agent.work;
 }
 
@@ -90,6 +93,12 @@ async function settleTools(runtime: TaskRuntime<WorkInput, { phase: "run" }, Wor
   await waitWorkTools(runtime, ids, context);
 }
 
+async function settleAppData(runtime: TaskRuntime<WorkInput, { phase: "run" }, WorkResult, object>, taskId: TaskId, context: Context) {
+  let ids: TaskId[] = [];
+  await runtime.commit(async tx => { ids = (await appDataOperations(tx)).filter(value => value.origin.work?.ref.taskId === taskId && appDataUnresolved(value)).map(value => value.operation); return undefined; }, context);
+  await waitWorkAppData(runtime, ids, context);
+}
+
 // Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-subagent-inspection.md
 async function waitForInspections(runtime: TaskRuntime<WorkInput, { phase: "run" }, WorkResult, object>, taskId: TaskId, context: Context) {
   while (true) {
@@ -120,7 +129,7 @@ export const PersonalWorkTask = defineTask<WorkInput, { phase: "run" }, WorkResu
       if (!child) throw new PersonalError("work_agent_missing", "后台工作的子会话缺失，已停止；请保留档案。");
       if (work.cancelRequested) {
         await child.abort(context, { background: true });
-        await Promise.all([settleCommands(runtime, task.id, context, true), settleServices(runtime, task.id, context, true), settleMcp(runtime, task.id, context), settleTools(runtime, task.id, context)]);
+        await Promise.all([settleCommands(runtime, task.id, context, true), settleServices(runtime, task.id, context, true), settleMcp(runtime, task.id, context), settleTools(runtime, task.id, context), settleAppData(runtime, task.id, context)]);
         await waitForInspections(runtime, task.id, context);
         await runtime.commit(async tx => { await release(tx, task.input, task.id); return { status: "terminal", outcome: { status: "aborted" } }; }, context);
         return;
@@ -161,7 +170,7 @@ export const PersonalWorkTask = defineTask<WorkInput, { phase: "run" }, WorkResu
         } finally { await watch.stop(); }
         await child.abort(context, { background: true });
         const cancel = !settled || !!(await runtime.snapshot(PersonalWorkDoc, task.input.requestId, context))?.cancelRequested;
-        await Promise.all([settleCommands(runtime, task.id, context, cancel), settleServices(runtime, task.id, context, cancel), settleMcp(runtime, task.id, context), settleTools(runtime, task.id, context)]);
+        await Promise.all([settleCommands(runtime, task.id, context, cancel), settleServices(runtime, task.id, context, cancel), settleMcp(runtime, task.id, context), settleTools(runtime, task.id, context), settleAppData(runtime, task.id, context)]);
         await waitForInspections(runtime, task.id, context);
         let next = false;
         await runtime.commit(async tx => {
@@ -183,7 +192,7 @@ export const PersonalWorkTask = defineTask<WorkInput, { phase: "run" }, WorkResu
     const child = await runtime.conversation(task.input.agentId, context);
     if (!child) throw new PersonalError("work_agent_missing", "取消时找不到子会话，占用仍保留；请检查档案。");
     await child.abort(context, { background: true });
-    await Promise.all([settleCommands(runtime, task.id, context, true), settleServices(runtime, task.id, context, true), settleMcp(runtime, task.id, context), settleTools(runtime, task.id, context)]);
+    await Promise.all([settleCommands(runtime, task.id, context, true), settleServices(runtime, task.id, context, true), settleMcp(runtime, task.id, context), settleTools(runtime, task.id, context), settleAppData(runtime, task.id, context)]);
     await waitForInspections(runtime, task.id, context);
     await runtime.commit(async tx => { await release(tx, task.input, task.id); return { status: "terminal", outcome: { status: "aborted" } }; }, context);
   },
@@ -192,11 +201,11 @@ export const PersonalWorkTask = defineTask<WorkInput, { phase: "run" }, WorkResu
 export const personalBackgroundWork = defineExtension({ name: "personal-background-work", tasks: [PersonalWorkTask] });
 export const personalSubAgent = defineExtension({ name: "personal-subagent", sections: [section("subagent", () => "你是个人助手的子 Agent，只处理当前委派的工作并向主 Agent 返回结果。历史上下文可供参考，不代表新工作的授权。仅使用本轮提供的工具，无法再委派或联系拥有者；需要不可用的外部操作时在结果中说明。外部操作效果或停止未核实时，宿主暂停整项委托的后续操作并保留占用；由拥有者核实后收尾，不要换方式重试。", { tag: false })] });
 
-type DelegateInput = { content: string; requestId: string; sourceRequestId: string; agentId?: ConversationId; label?: string };
+type DelegateInput = { content: string; requestId: string; sourceRequestId: string; agentId?: ConversationId; label?: string; appData?: boolean };
 
 export async function delegatePersonalWork(tx: Tx, model: ModelRef, input: DelegateInput): Promise<PersonalWorkRef> {
-  if (!input.content.trim() || input.content.length > 16384 || !input.requestId || input.requestId.length > 256 || !input.sourceRequestId || input.sourceRequestId.length > 256 || (input.label !== undefined && (!input.label.trim() || input.label.length > 128))) throw new PersonalError("work_input_invalid", "工作说明、名称或请求引用无效，请缩短说明并使用原请求引用。");
-  const fingerprint = createHash("sha256").update(JSON.stringify([input.content, input.sourceRequestId, input.agentId ?? null, input.label ?? null])).digest("hex");
+  if (input.appData !== undefined && typeof input.appData !== "boolean" || !input.content.trim() || input.content.length > 16384 || !input.requestId || input.requestId.length > 256 || !input.sourceRequestId || input.sourceRequestId.length > 256 || (input.label !== undefined && (!input.label.trim() || input.label.length > 128))) throw new PersonalError("work_input_invalid", "工作说明、名称或请求引用无效，请缩短说明并使用原请求引用。");
+  const fingerprint = createHash("sha256").update(JSON.stringify([input.content, input.sourceRequestId, input.agentId ?? null, input.label ?? null, ...(input.appData === undefined ? [] : [input.appData])])).digest("hex");
   const work = await tx.doc(PersonalWorkDoc, input.requestId, null);
   if (work.ref) {
     if (work.fingerprint !== fingerprint) throw new PersonalError("work_request_conflict", "同一后台工作请求的内容不同，请查询原工作；不要换键自动重试。");
@@ -257,6 +266,8 @@ export async function delegatePersonalWork(tx: Tx, model: ModelRef, input: Deleg
   const taskId = await tx.createTask(PersonalWorkTask, { requestId: input.requestId, agentId: agent.id, content: input.content }, { conversationId: ROOT_CONVERSATION_ID, ownership: { kind: "conversation" }, background: true });
   const ref = { requestId: input.requestId, taskId, agentId: agent.id };
   agent.work = ref;
+  if (input.appData !== undefined) work.appData = input.appData;
+  await configureAppDataChild(tx, agent.id, input.appData === true);
   work.fingerprint = fingerprint;
   work.ref = ref;
   work.source = { requestId: input.sourceRequestId, submissionId: source.id, entryId: entry.id };

@@ -1,3 +1,4 @@
+import { appDataSourceBlocker } from "./personal-app-data.ts";
 import { toolSourceBlocker } from "./personal-tools.ts";
 import { browserSourceBlocker } from "./personal-browser.ts";
 import { createHash, randomBytes } from "node:crypto";
@@ -50,7 +51,7 @@ export async function personalServiceOperation(tx: Tx, ref: { requestId: string;
 }
 
 async function sourceValid(tx: Tx, op: Operation, active = true) {
-  if (active && (await personalCommandSourceBlocker(tx, op.source.requestId) || await mcpSourceBlocker(tx, op.source.requestId) || await toolSourceBlocker(tx, op.source.requestId) || await browserSourceBlocker(tx, op.source.requestId))) return false;
+  if (active && (await appDataSourceBlocker(tx, op.source.requestId) || await personalCommandSourceBlocker(tx, op.source.requestId) || await mcpSourceBlocker(tx, op.source.requestId) || await toolSourceBlocker(tx, op.source.requestId) || await browserSourceBlocker(tx, op.source.requestId))) return false;
   if (active && op.work) {
     const work = await tx.doc(PersonalWorkDoc, op.work.ref.requestId, null);
     if (work.cancelRequested || !isDeepStrictEqual(work.ref, op.work.ref)) return false;
@@ -125,9 +126,11 @@ export async function waitPersonalServiceEffect(reader: DocumentObserver, ref: P
   await waitForChange(reader, ref.requestId, op => !unresolved(op), context);
 }
 
-export type PersonalServiceBlocker = string | { inspection: TaskId; admission: EntryId } | { command: string; admission: EntryId } | { mcp: string; admission: EntryId } | { tool: string; admission: EntryId } | { browser: string; admission: EntryId; pause?: EntryId; session?: boolean };
+export type PersonalServiceBlocker = string | { appData: string; admission: EntryId } | { inspection: TaskId; admission: EntryId } | { command: string; admission: EntryId } | { mcp: string; admission: EntryId } | { tool: string; admission: EntryId } | { browser: string; admission: EntryId; pause?: EntryId; session?: boolean };
 
 export async function personalServiceSourceBlocker(tx: Tx, sourceRequestId: string): Promise<PersonalServiceBlocker | undefined> {
+  const appData = await appDataSourceBlocker(tx, sourceRequestId);
+  if (appData) return appData;
   const browser = await browserSourceBlocker(tx, sourceRequestId);
   if (browser) return browser;
   const tool = await toolSourceBlocker(tx, sourceRequestId);

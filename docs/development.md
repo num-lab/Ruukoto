@@ -22,7 +22,7 @@ macOS 构建原生监督器另需 Command Line Tools 的 Clang。平台前置、
 | `npm run build` | 构建原生监督器、工具与脚本 worker 及 WASM，再生成两产品的 `dist/*.tgz`；无需 Docker，应用通过 tsx 运行源码 |
 | `npm run build:worker` | 打包共享 `worker/worker.mjs` 和自包含的 `worker/personal-command-worker.mjs`；个人命令 worker 已接 Linux 受限子工作工具 |
 | `npm run desktop:build` | 构建桌面三个目标、检查产物并 ad-hoc 签名 `dist/mac-arm64/Ruukoto.app`；根 build 不打包 Electron |
-| `npm run personal:durable` | 个人模型/QQ/Telegram 配对、Linux 服务/命令、MCP、浏览器与资料/网络配置、图片输入、独立调度、技能/记忆/历史、产物导出和会话向导，后台通过本机认证接口管理；默认 `~/.ruukoto-durable-dev/<realpath hash12>/`，不复用旧开发档案，无热重载；操作见[隔离向导](usage.md#25-个人-durable-隔离向导) |
+| `npm run personal:durable` | 个人模型/QQ/Telegram 配对、Linux 服务/命令、MCP、浏览器与资料/网络配置、图片输入、独立调度、技能/记忆/历史、应用数据、产物导出和会话向导，后台通过本机认证接口管理；默认 `~/.ruukoto-durable-dev/<realpath hash12>/`，不复用旧开发档案，无热重载；操作见[隔离向导](usage.md#25-个人-durable-隔离向导) |
 | `npm run build:script` | 打包 `worker/workflow-script.mjs` 并复制同目录 WASM；脚本测试前运行 |
 | `npm run lint` | 检查正确性与关键约定，不统一全库排版 |
 | `npm run typecheck` | 根测试与脚本、每个 workspace 包、基础验证各自执行静态类型检查 |
@@ -45,7 +45,7 @@ npx tsx --test verification/foundation/test/03-tools.test.ts
 | 修改位置 | 常用测试起点 |
 | --- | --- |
 | `packages/tui/src/`（cli.ts、cli-entry.ts、dev.ts）、`packages/core/src/product.ts`、`apps/ruukoto-code/src/dev.ts` | `test/29-cli-entry.test.ts`、`test/32-dev.test.ts`、`test/71-product-entry.test.ts` |
-| `apps/ruukoto/src/personal-*.ts`（独立 Pi 1.3.0） | 从[个人入口检查集](../.agents/skills/pre-push-checks/SKILL.md#2-按面选证据)选择对应窄测；图片/浏览器用 `test/personal-media.test.ts`、`test/personal-browser.test.ts`、`test/personal-browser-integration.test.ts`；定时用 `test/personal-scheduler.test.ts`、`test/personal-scheduler-authority.test.ts`、`test/personal-scheduler-integration.test.ts`、`test/personal-scheduler-browser.test.ts`、`test/personal-scheduler-controls.test.ts` 和 `test/personal-scheduler-entries.test.ts`，覆盖原生调度、固定权限、浏览器、认证 HTTP 与双平台替身。记忆/技能/历史窄测也见个人入口检查集。真实模型用 `verification/smoke/smoke-personal-durable.mts`，显式配置见[操作手册](usage.md#25-个人-durable-隔离向导)，未接正式入口 |
+| `apps/ruukoto/src/personal-*.ts`（独立 Pi 1.3.0） | 从[个人入口检查集](../.agents/skills/pre-push-checks/SKILL.md#2-按面选证据)选择对应窄测；图片/浏览器用 `test/personal-media.test.ts`、`test/personal-browser.test.ts`、`test/personal-browser-integration.test.ts`；定时用 `test/personal-scheduler.test.ts`、`test/personal-scheduler-authority.test.ts`、`test/personal-scheduler-integration.test.ts`、`test/personal-scheduler-browser.test.ts`、`test/personal-scheduler-controls.test.ts` 和 `test/personal-scheduler-entries.test.ts`，覆盖原生调度、固定权限、浏览器、认证 HTTP 与双平台替身。其余窄测见个人入口检查集。真实模型用 `verification/smoke/smoke-personal-durable.mts`，显式配置见[操作手册](usage.md#25-个人-durable-隔离向导)，未接正式入口 |
 | `apps/ruukoto/src/service-helper.ts`、`deploy/systemd/ruukoto-service.mjs` | `test/service-helper-transport.test.ts`（传输退出/捕获）、`test/service-helper-stop.test.ts`（Linux 进程/系统命令桩）；旧调用方为 `test/78-linux-service-management.test.ts`、`test/79-standing-permissions.test.ts`，新调用方为 `test/personal-services.test.ts`、`test/personal-service-operations.test.ts` |
 | `packages/runtime/src/` 与 `packages/control/src/` 的任务生命周期 | `test/01-concurrency.test.ts` 至 `test/05-overflow-db.test.ts`、`test/66-control-seam.test.ts`、`test/94-task-ending.test.ts` |
 | `packages/agent/src/` 的执行、审批与权限 | `test/07-real-tools.test.ts`、`test/08-approvals.test.ts`、`test/10-access-modes.test.ts`、`test/63-approval-gate.test.ts`、`test/64-tool-op-ledger.test.ts` |

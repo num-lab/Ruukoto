@@ -1,3 +1,5 @@
+import { PersonalImApiError } from "./personal-im-api.ts";
+import type { PersonalQqApi } from "./personal-qq-api.ts";
 import { PersonalToolDoc, ToolAdmission } from "./personal-tools.ts";
 import { PersonalBrowserOperationDoc, BrowserAdmission } from "./personal-browser.ts";
 import { isDeepStrictEqual } from "node:util";
@@ -10,8 +12,8 @@ import { PersonalInspectionDoc, ServiceInspectionAdmission } from "./personal-se
 import { PersonalServiceOperationDoc, type PersonalServiceBlocker } from "./personal-service-operations.ts";
 import { McpAdmission, PersonalMcpDoc } from "./personal-mcp.ts";
 import { CommandAdmission, PersonalCommandDoc } from "./personal-command-work.ts";
-import { PersonalTelegramDoc, PersonalTelegramReceiptDoc } from "./personal-telegram-records.ts";
-import { personalTelegramApi, PersonalTelegramApiError } from "./personal-telegram-api.ts";
+import { personalEntryConfig, PersonalTelegramDoc, PersonalTelegramReceiptDoc } from "./personal-telegram-records.ts";
+import { personalTelegramApi } from "./personal-telegram-api.ts";
 import { telegramToken } from "./personal-telegram-config.ts";
 
 type Delivery = "waiting" | "local" | "pending" | "sending" | "sent" | "failed" | "effect_unknown" | "canceled" | "blocked" | "unanswered";
@@ -69,7 +71,7 @@ function canceled(reader: DocumentObserver, ref: PersonalDelegationRef, context:
 }
 
 // Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-delegation-reports.md
-export const PersonalReportTask = defineTask<ReportInput, { phase: "wait" } | { phase: "summarize"; attempt: number } | { phase: "send"; retryAt?: number } | { phase: "verify" }, { delivery: Delivery }>({
+function personalReportTask(qqApi?: PersonalQqApi) { return defineTask<ReportInput, { phase: "wait" } | { phase: "summarize"; attempt: number } | { phase: "send"; retryAt?: number } | { phase: "verify" }, { delivery: Delivery }>({
   name: "ruukoto.delegation-report", version: 1, initial: () => ({ phase: "wait" }),
   phases: {
     async wait(current, runtime, context) {
@@ -143,12 +145,14 @@ export const PersonalReportTask = defineTask<ReportInput, { phase: "wait" } | { 
     async send(current, runtime, context) {
       if (current.state.checkpoint.retryAt) await runtime.sleep(current.state.checkpoint.retryAt, context);
       const ref = current.input.delegation;
-      const config = (await runtime.snapshot(PersonalTelegramDoc, context))?.config;
-      const api = config?.enabled ? personalTelegramApi(config.apiBase, telegramToken(config)) : undefined;
+      const source = (await runtime.snapshot(PersonalDelegationDoc, String(ref.entryId), context))?.delegation?.telegram;
+      const state = await runtime.snapshot(PersonalTelegramDoc, context);
+      const config = personalEntryConfig(state ?? {}, source ?? {});
+      const api = source?.platform === "qq" ? qqApi : state?.config?.enabled ? personalTelegramApi(state.config.apiBase, telegramToken(state.config)) : undefined;
       let owner = "", message = 0, reply = "";
       await runtime.commit(async tx => {
         const { value, report } = await reportFacts(tx, ref, current.id);
-        const currentConfig = (await tx.doc(PersonalTelegramDoc)).config;
+        const currentConfig = personalEntryConfig(await tx.doc(PersonalTelegramDoc), source ?? {});
         if (value.cancelRequested || (value.telegram && (!isDeepStrictEqual(config, currentConfig) || !config?.enabled || config.generation !== value.telegram.generation || config.botId !== value.telegram.botId || config.ownerId !== value.telegram.ownerId))) { report.delivery = "canceled"; return { status: "terminal", outcome: { status: "completed", result: { delivery: "canceled" } } }; }
         if (await personalDelegationBlocker(tx, value)) return { status: "running", checkpoint: { phase: "summarize", attempt: report.attempt } };
         if (!value.telegram) { report.delivery = "local"; return { status: "terminal", outcome: { status: "completed", result: { delivery: "local" } } }; }
@@ -160,8 +164,8 @@ export const PersonalReportTask = defineTask<ReportInput, { phase: "wait" } | { 
       }, context);
       if (!owner) return;
       let platformMessageId: string | undefined;
-      let failure: PersonalTelegramApiError | undefined;
-      try { platformMessageId = await api!.send(owner, message, reply, runtime.signal); } catch (error) { if (!(error instanceof PersonalTelegramApiError)) throw error; failure = error; }
+      let failure: PersonalImApiError | undefined;
+      try { platformMessageId = await api!.send(owner, message, reply, runtime.signal); } catch (error) { if (!(error instanceof PersonalImApiError)) throw error; failure = error; }
       await runtime.commit(async tx => {
         const { report } = await reportFacts(tx, ref, current.id);
         if (failure?.retryAfterMs) { report.delivery = "pending"; return { status: "running", checkpoint: { phase: "send", retryAt: runtime.now() + failure.retryAfterMs } }; }
@@ -184,6 +188,9 @@ export const PersonalReportTask = defineTask<ReportInput, { phase: "wait" } | { 
   },
 });
 
+}
+export const PersonalReportTask = personalReportTask();
+export function personalReports(qqApi: PersonalQqApi) { return defineExtension({ name: "personal-delegation-reports", tasks: [personalReportTask(qqApi)] }); }
 export const personalDelegationReports = defineExtension({ name: "personal-delegation-reports", tasks: [PersonalReportTask] });
 
 export async function requestPersonalReport(tx: Tx, ref: PersonalDelegationRef, sourceRequestId: string, modelCall: TaskId) {

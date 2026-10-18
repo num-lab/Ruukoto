@@ -7,7 +7,7 @@ import { copyJson } from "@earendil-works/chord";
 import { BACKGROUND_CONTEXT, type Context } from "@earendil-works/chord/context";
 import { defineDoc, defineDocFamily, defineEntry, defineExtension, defineTask, ROOT_CONVERSATION_ID, type Cursor, type DocumentObserver, type EntryId, type Harness, type SubmissionId, type TaskId, type Tx } from "@earendil-works/pi-durable";
 import { permissionSnapshot, telegramSelection, telegramSourceActive, TELEGRAM_SERVICE_ACTIONS, type PersonalTelegramSource } from "./personal-permissions.ts";
-import { PersonalTelegramReceiptDoc, type TelegramControlInput } from "./personal-telegram-records.ts";
+import { samePersonalEntry, isPersonalImRequest, PersonalTelegramReceiptDoc, type TelegramControlInput } from "./personal-telegram-records.ts";
 import { PersonalError } from "./personal-error.ts";
 import { PersonalInspectionDoc, PersonalPendingInspectionsDoc, pendingServiceInspection, recheckServiceInspection, runServiceInspection, ServiceInspectionEntry } from "./personal-service-inspection.ts";
 import { callHelper, opUnitFor, ServiceHelperError, type HelperReply, type ServiceManagerConfig } from "./service-helper.ts";
@@ -56,7 +56,7 @@ async function sourceValid(tx: Tx, op: Operation, active = true) {
   }
   const source = await tx.submissionByRequest(ROOT_CONVERSATION_ID, op.source.requestId);
   const entry = await tx.entry(op.source.entryId);
-  if (op.source.requestId.startsWith("telegram:")) {
+  if (isPersonalImRequest(op.source.requestId)) {
     const receipt = (await tx.doc(PersonalTelegramReceiptDoc, op.source.requestId, null)).receipt;
     if (!receipt || receipt.submissionId !== op.source.submissionId) return false;
     if (op.telegram && (op.mode !== op.telegram.mode || !isDeepStrictEqual(permissionSnapshot(receipt), op.telegram))) return false;
@@ -187,7 +187,7 @@ export function personalServiceOperations(config: ServiceManagerConfig, getHarne
           const value = await personalServiceOperation(tx, ref);
           if (value.mode !== "full_access" && value.decision === "pending" && value.telegram && await sourceValid(tx, value)) {
             for (const grant of (await tx.doc(PersonalServiceGrantsDoc)).grants) {
-              if (!grant.active || grant.unit !== value.unit || !sameEntrance(grant.source, value.telegram)) continue;
+              if (!grant.active || grant.unit !== value.unit || !samePersonalEntry(grant.source, value.telegram)) continue;
               if (!isDeepStrictEqual(grant.snapshot, value.snapshot)) { invalidateGrant(grant, "deployment_changed"); continue; }
               value.grant = { id: grant.id, version: grant.version };
               value.decision = "approved";
@@ -217,7 +217,7 @@ export function personalServiceOperations(config: ServiceManagerConfig, getHarne
             }
             if (!code && value.grant) {
               const grant = (await tx.doc(PersonalServiceGrantsDoc)).grants.find(grant => grant.id === value.grant!.id);
-              if (!grant || !grant.active || grant.version !== value.grant.version || !value.telegram || !sameEntrance(grant.source, value.telegram) || grant.unit !== value.unit || !isDeepStrictEqual(grant.snapshot, value.snapshot)) {
+              if (!grant || !grant.active || grant.version !== value.grant.version || !value.telegram || !samePersonalEntry(grant.source, value.telegram) || grant.unit !== value.unit || !isDeepStrictEqual(grant.snapshot, value.snapshot)) {
                 value.decision = "pending";
                 delete value.grant;
                 delete value.decidedBy;
@@ -293,10 +293,10 @@ export function personalServiceOperations(config: ServiceManagerConfig, getHarne
     const requestedMode = input.mode ?? "auto-review";
     if (!/^[A-Za-z0-9_.-]+\.service$/.test(input.unit) || input.unit.length > 128 || !input.requestId || input.requestId.length > 256 || !input.sourceRequestId || input.sourceRequestId.length > 256 || !["auto-review", "confirm", "full_access"].includes(requestedMode)) throw new PersonalError("service_input_invalid", "服务目标、模式或原请求引用无效，请使用精确服务名和原输入。");
     const record = await tx.doc(PersonalServiceOperationDoc, input.requestId, null);
-    const telegramReceipt = input.sourceRequestId.startsWith("telegram:") ? (await tx.doc(PersonalTelegramReceiptDoc, input.sourceRequestId, null)).receipt : undefined;
+    const telegramReceipt = isPersonalImRequest(input.sourceRequestId) ? (await tx.doc(PersonalTelegramReceiptDoc, input.sourceRequestId, null)).receipt : undefined;
     const telegram = telegramReceipt && permissionSnapshot(telegramReceipt);
-    if (input.sourceRequestId.startsWith("telegram:") && (!telegram || !await telegramSourceActive(tx, telegram))) throw new PersonalError("service_source_invalid", "原 Telegram 输入没有有效权限快照，请由当前绑定拥有者重新提交委托。");
-    if (telegram && input.mode !== undefined && input.mode !== telegram.mode) throw new PersonalError("service_mode_invalid", "服务模式必须沿用原 Telegram 输入，不能由调用者改写。");
+    if (isPersonalImRequest(input.sourceRequestId) && (!telegram || !await telegramSourceActive(tx, telegram))) throw new PersonalError("service_source_invalid", "原拥有者输入没有有效权限快照，请由当前绑定拥有者重新提交委托。");
+    if (telegram && input.mode !== undefined && input.mode !== telegram.mode) throw new PersonalError("service_mode_invalid", "服务模式必须沿用原拥有者输入，不能由调用者改写。");
     const mode = work?.permission.mode ?? telegram?.mode ?? requestedMode;
     const fingerprint = createHash("sha256").update(JSON.stringify([input.unit, input.sourceRequestId, mode])).digest("hex");
     if (record.operation) {
@@ -357,7 +357,7 @@ export function personalServiceOperations(config: ServiceManagerConfig, getHarne
           if (decision !== "approved" && decision !== "rejected") throw new PersonalError("service_decision_invalid", "请选择批准或拒绝原服务操作。");
           await harness.commit(async tx => {
             const value = await personalServiceOperation(tx, ref);
-            if (value.telegram || value.source.requestId.startsWith("telegram:")) throw new PersonalError("service_original_entry_required", "请由拥有者在原 Telegram 私聊查询 /审批 并决定原操作。");
+            if (value.telegram || isPersonalImRequest(value.source.requestId)) throw new PersonalError("service_original_entry_required", "请由拥有者在原私聊查询 /审批 并决定原操作。");
             if (value.decision === decision && !value.cancelRequested) return;
             const current = await tx.task(ref.taskId);
             if (!value.snapshot || value.consumed || value.cancelRequested || value.decision !== "pending" || current?.state.status === "terminal" || current?.abortRequested || !await sourceValid(tx, value)) throw new PersonalError("service_approval_invalid", "原服务审批已失效或已消费，请查询原操作。");
@@ -404,10 +404,6 @@ export async function resolvePersonalServiceOperation(tx: Tx, ref: PersonalServi
   value.resolution = { effect, evidence, ...(controlRequestId ? { controlRequestId } : {}) };
 }
 
-function sameEntrance(a: PersonalTelegramSource, b: Pick<PersonalTelegramSource, "generation" | "botId" | "ownerId">) {
-  return a.generation === b.generation && a.botId === b.botId && a.ownerId === b.ownerId;
-}
-
 function invalidateGrant(grant: Grant, reason: string) {
   if (grant.active) { grant.active = false; grant.version++; grant.reason = reason; }
 }
@@ -435,7 +431,7 @@ export async function personalServiceOperationsIn(tx: Tx) {
 
 async function pendingApproval(tx: Tx, value: Operation, actor: TelegramControlInput) {
   const task = await tx.task(value.ref.taskId);
-  return value.mode !== "full_access" && !!value.telegram && sameEntrance(value.telegram, actor) && !!value.snapshot && !value.consumed && !value.cancelRequested && value.decision === "pending" && task?.state.status !== "terminal" && !task?.abortRequested && await sourceValid(tx, value);
+  return value.mode !== "full_access" && !!value.telegram && samePersonalEntry(value.telegram, actor) && !!value.snapshot && !value.consumed && !value.cancelRequested && value.decision === "pending" && task?.state.status !== "terminal" && !task?.abortRequested && await sourceValid(tx, value);
 }
 
 async function serviceTelegramControl(tx: Tx, value: TelegramControlInput): Promise<boolean> {
@@ -454,7 +450,7 @@ async function serviceTelegramControl(tx: Tx, value: TelegramControlInput): Prom
       value.reply = `待审批：在机器 ${op.snapshot!.machineId} 重启 ${op.unit}。仅限本次固定目标及检查修订。回复这条消息选择：批准本次、批准并长期授权、拒绝、下一项。长期授权仅允许原入口在相同策略和单元修订下重复执行此重启，可用 /授权 查询和撤销。`;
     }
   } else if (value.content === "/服务状态" || (value.content === "下一项" && selection?.kind === "service-status")) {
-    const available = (await personalServiceOperationsIn(tx)).filter(op => op.telegram?.botId === value.botId && op.telegram.ownerId === value.ownerId).reverse();
+    const available = (await personalServiceOperationsIn(tx)).filter(op => samePersonalEntry(op.telegram, value)).reverse();
     const previous = selection?.kind === "service-status" ? available.findIndex(op => op.ref.taskId === selection.ref.taskId) : -1;
     const op = available[(previous + 1) % available.length];
     if (!op) value.reply = "原入口暂无服务工作。";
@@ -465,7 +461,7 @@ async function serviceTelegramControl(tx: Tx, value: TelegramControlInput): Prom
       value.reply = `服务工作：重启 ${op.unit}。${status}。回复这条消息选择「下一项」查看其他工作；审批请发送 /审批。`;
     }
   } else if (value.content === "/授权" || (value.content === "下一项" && selection?.kind === "grant")) {
-    const available = grants.filter(grant => grant.source.botId === value.botId && grant.source.ownerId === value.ownerId);
+    const available = grants.filter(grant => samePersonalEntry(grant.source, value));
     const previous = selection?.kind === "grant" ? available.findIndex(grant => grant.id === selection.id) : -1;
     const grant = available[(previous + 1) % available.length];
     if (!grant) value.reply = "原入口没有服务长期授权；授权只能从原待审批操作明确创建。";
@@ -474,7 +470,7 @@ async function serviceTelegramControl(tx: Tx, value: TelegramControlInput): Prom
       value.reply = `长期服务授权：机器 ${grant.snapshot.machineId}，重启 ${grant.unit}，状态：${grant.active ? "有效" : "已撤销或失效"}。仅适用创建时的原入口及策略/单元修订。回复这条消息选择：撤销授权、下一项。`;
     }
   } else if (value.content === "撤销授权" && selection?.kind === "grant") {
-    const grant = grants.find(grant => grant.id === selection.id && grant.source.botId === value.botId && grant.source.ownerId === value.ownerId);
+    const grant = grants.find(grant => grant.id === selection.id && samePersonalEntry(grant.source, value));
     if (!grant || grant.version !== selection.version) value.reply = "原授权已变化，请重新发送 /授权 查询当前记录。";
     else { invalidateGrant(grant, "owner_revoked"); value.reply = "原长期授权已撤销；已开始操作仍须查询原工作核实，后续操作恢复逐次审批。"; }
   } else if (["批准本次", "批准并长期授权", "拒绝"].includes(value.content) && selection?.kind === "approval") {
@@ -482,7 +478,7 @@ async function serviceTelegramControl(tx: Tx, value: TelegramControlInput): Prom
     if (!await pendingApproval(tx, op, value)) value.reply = "原审批已失效、已决定或已经消费，请重新发送 /审批 核实，不能按旧菜单重新执行。";
     else {
       if (value.content === "批准并长期授权") {
-        for (const grant of grants) if (grant.unit === op.unit && sameEntrance(grant.source, op.telegram!)) invalidateGrant(grant, "replaced");
+        for (const grant of grants) if (grant.unit === op.unit && samePersonalEntry(grant.source, op.telegram!)) invalidateGrant(grant, "replaced");
         const grant: Grant = { id: `grant_${randomBytes(12).toString("hex")}`, version: 1, active: true, source: { ...op.telegram! }, snapshot: { ...op.snapshot! }, unit: op.unit, operation: { ...op.ref }, controlRequestId: value.requestId };
         grants.push(grant);
         op.grant = { id: grant.id, version: grant.version };
@@ -508,7 +504,7 @@ export async function verifyServiceGrants(tx: Tx, requestIds: string[]) {
   }
   for (const requestId of requestIds) {
     const op = (await tx.doc(PersonalServiceOperationDoc, requestId, null)).operation!;
-    if (op.grant && !grants.some(grant => grant.id === op.grant!.id && grant.version >= op.grant!.version && grant.unit === op.unit && op.telegram && sameEntrance(grant.source, op.telegram) && isDeepStrictEqual(grant.snapshot, op.snapshot))) throw new PersonalError("service_grant_invalid", "服务操作引用的长期授权缺失或不符，已停止恢复；请保留档案。");
+    if (op.grant && !grants.some(grant => grant.id === op.grant!.id && grant.version >= op.grant!.version && grant.unit === op.unit && op.telegram && samePersonalEntry(grant.source, op.telegram) && isDeepStrictEqual(grant.snapshot, op.snapshot))) throw new PersonalError("service_grant_invalid", "服务操作引用的长期授权缺失或不符，已停止恢复；请保留档案。");
   }
 }
 
@@ -535,10 +531,10 @@ export async function verifyServiceOperationRecords(tx: Tx, requestIds: string[]
     if (inspection && (inspection.unit !== value.unit || !isDeepStrictEqual(inspection.sources, value.work?.sources ?? [value.source.submissionId]))) throw new PersonalError("service_inspection_invalid", "服务检查的原操作来源不符，已停止恢复；请保留档案。");
     if (value.telegram && value.decidedBy) {
       const decision = (await tx.doc(PersonalTelegramReceiptDoc, value.decidedBy, null)).receipt;
-      if (!decision?.control || !decision.direct || !decision.serviceDecision || (value.decision === "approved" && decision.serviceDecision.decision !== "approved") || decision.serviceDecision.ref.taskId !== value.ref.taskId || decision.serviceDecision.ref.requestId !== requestId || !sameEntrance(value.telegram, decision)) throw new PersonalError("service_approval_invalid", "服务决定缺少原入口的已接受回执，已停止恢复；请保留档案。");
+      if (!decision?.control || !decision.direct || !decision.serviceDecision || (value.decision === "approved" && decision.serviceDecision.decision !== "approved") || decision.serviceDecision.ref.taskId !== value.ref.taskId || decision.serviceDecision.ref.requestId !== requestId || !samePersonalEntry(value.telegram, decision)) throw new PersonalError("service_approval_invalid", "服务决定缺少原入口的已接受回执，已停止恢复；请保留档案。");
     }
     if (value.telegram && value.decision === "approved" && !value.grant && !value.decidedBy) throw new PersonalError("service_approval_invalid", "服务批准缺少原入口决定，已停止恢复；请保留档案。");
-    if (!value.consumed && value.source.requestId.startsWith("telegram:") && !value.telegram) value.decision = "rejected";
+    if (!value.consumed && isPersonalImRequest(value.source.requestId) && !value.telegram) value.decision = "rejected";
     if (value.telegram && !value.consumed && !await telegramSourceActive(tx, value.telegram)) value.decision = "rejected";
     await interruptedPersonalService(tx, value);
     if (value.result?.effect === "effect_unknown" && unresolved(value)) await invalidateServiceGrants(tx, value);

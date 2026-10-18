@@ -20,7 +20,7 @@ export interface MockOneBotAction {
 }
 
 /** send_group_msg 的行为注入：ok=正常返回 message_id；fail=平台明确失败（retcode≠0）；silent=不应答（客户端超时=结果不明）。 */
-export type MockSendBehavior = "ok" | "fail" | "silent" | "missing_id" | "async";
+export type MockSendBehavior = "ok" | "fail" | "internal_error" | "silent" | "missing_id" | "async";
 
 export interface MockOneBot {
   url: string;
@@ -53,6 +53,7 @@ export async function startMockOneBot(opts: {
   secret?: string | null;
   /** get_login_info 返回的账号（默认 MOCK_QQ_ACCOUNT；用于身份不匹配场景）。 */
   account?: string;
+  imageUrl?: string;
 }): Promise<MockOneBot> {
   const secret = opts.secret === undefined ? MOCK_QQ_SECRET : opts.secret;
   let account = opts.account ?? MOCK_QQ_ACCOUNT;
@@ -92,6 +93,7 @@ export async function startMockOneBot(opts: {
         reply({ status: "ok", retcode: 0, data: { user_id: Number(account), nickname: "mock-bot" } });
         return;
       }
+      if (action === "get_image") { reply({ status: "ok", retcode: 0, data: { url: opts.imageUrl } }); return; }
       if (action === "get_status") {
         reply({ status: "ok", retcode: 0, data: { online, good: online } });
         return;
@@ -102,6 +104,10 @@ export async function startMockOneBot(opts: {
           if (behavior === "silent") return; // 不应答：客户端超时 → 结果不明
           if (behavior === "fail") {
             reply({ status: "failed", retcode: 100, msg: "SEND_FAILED", wording: "模拟平台明确失败" });
+            return;
+          }
+          if (behavior === "internal_error") {
+            reply({ status: "failed", retcode: 1200, wording: "模拟执行后内部异常" });
             return;
           }
           if (behavior === "missing_id") {

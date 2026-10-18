@@ -3,7 +3,7 @@ import { Type } from "typebox";
 import { PersonalError } from "./personal-error.ts";
 import { appendPersonalWork, personalWorkNoteSource, PersonalAgentsDoc, PersonalWorkDoc, personalWorkRef, personalWorkResult, personalWorkStatus, requestPersonalWorkCancel, closePersonalAgent } from "./personal-work.ts";
 import { permissionSnapshot, telegramSourceActive } from "./personal-permissions.ts";
-import { PersonalTelegramReceiptDoc } from "./personal-telegram-records.ts";
+import { isPersonalImRequest, PersonalTelegramReceiptDoc } from "./personal-telegram-records.ts";
 import { PersonalAnalysisAdmission, cancelPersonalDelegation, delegatePersonalAnalysis, listPersonalDelegations, personalDelegationProgress } from "./personal-delegation.ts";
 import type { EntryId } from "@earendil-works/pi-durable";
 import { requestPersonalReport, personalReportResult } from "./personal-report.ts";
@@ -19,10 +19,10 @@ export async function personalToolSource(tx: Tx, api: Pick<ToolExecutionApi, "ta
   const source = sourceRequestId ? await tx.submissionByRequest(ROOT_CONVERSATION_ID, sourceRequestId) : undefined;
   const entry = source?.entry && await tx.entry(source.entry);
   if (!source?.requestId || source.id !== live.run!.inputs[0] || source.type !== "input" || source.status !== "placed" || source.conversationId !== ROOT_CONVERSATION_ID || entry?.kind !== "pi.user") throw new PersonalError("work_source_invalid", "工作变更需要本轮拥有者输入；回报或其他参考不能提供授权。请结束本轮并向拥有者报告。");
-  if (source.requestId.startsWith("telegram:")) {
+  if (isPersonalImRequest(source.requestId)) {
     const receipt = (await tx.doc(PersonalTelegramReceiptDoc, source.requestId, null)).receipt;
     const telegram = receipt && permissionSnapshot(receipt);
-    if (!telegram || receipt?.submissionId !== source.id || !await telegramSourceActive(tx, telegram)) throw new PersonalError("work_source_invalid", "原 Telegram 输入没有有效拥有者权限，请结束本轮并向拥有者报告。");
+    if (!telegram || receipt?.submissionId !== source.id || !await telegramSourceActive(tx, telegram)) throw new PersonalError("work_source_invalid", "原拥有者输入没有有效拥有者权限，请结束本轮并向拥有者报告。");
   }
   return source.requestId;
 }

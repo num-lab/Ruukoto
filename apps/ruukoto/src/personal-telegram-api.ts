@@ -1,5 +1,6 @@
 import { PersonalMediaError, type PersonalMediaDownload } from "./personal-media.ts";
 import { PersonalError } from "./personal-error.ts";
+import { PersonalImApiError } from "./personal-im-api.ts";
 
 export type TelegramUpdate = { update_id: number; message?: unknown };
 export type TelegramText = { id: number; ownerId: string; text: string; name: string; direct: boolean; media?: { identity: string; fileId: string; sizeBytes?: number }[]; replyTo?: number; replyBotId?: string };
@@ -48,9 +49,9 @@ export function telegramOffset(ack?: TelegramAck, now = performance.now()): numb
   return ack && now >= ack.receivedAt && now - ack.receivedAt < 60_000 ? ack.offset : undefined;
 }
 
-export class PersonalTelegramApiError extends PersonalError {
-  constructor(readonly effect: "not_sent" | "effect_unknown", readonly retryAfterMs?: number) {
-    super(retryAfterMs ? "telegram_rate_limited" : effect === "not_sent" ? "telegram_refused" : "telegram_unverified", retryAfterMs ? "Telegram 明确限流，原发送将延后处理。" : effect === "not_sent" ? "Telegram 明确拒绝请求，请检查入口配置与权限。" : "Telegram 请求结果未能核实，请查看收发状态；未知发送不会自动重发。");
+export class PersonalTelegramApiError extends PersonalImApiError {
+  constructor(effect: "not_sent" | "effect_unknown", retryAfterMs?: number) {
+    super(retryAfterMs ? "telegram_rate_limited" : effect === "not_sent" ? "telegram_refused" : "telegram_unverified", retryAfterMs ? "Telegram 明确限流，原发送将延后处理。" : effect === "not_sent" ? "Telegram 明确拒绝请求，请检查入口配置与权限。" : "Telegram 请求结果未能核实，请查看收发状态；未知发送不会自动重发。", effect, retryAfterMs);
   }
 }
 

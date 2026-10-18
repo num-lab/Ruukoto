@@ -3,7 +3,7 @@ import { PersonalError } from "./personal-error.ts";
 import { activePersonalWorkInspection, PersonalWorkDoc, type PersonalWorkInspectionSource } from "./personal-work.ts";
 import { personalToolSource } from "./personal-work-tools.ts";
 import { PersonalPermissionsDoc, permissionSnapshot, type PersonalTelegramSource } from "./personal-permissions.ts";
-import { PersonalTelegramReceiptDoc } from "./personal-telegram-records.ts";
+import { isPersonalImRequest, PersonalTelegramReceiptDoc } from "./personal-telegram-records.ts";
 import { requirePersonalServiceSourceReady } from "./personal-service-operations.ts";
 import type { PersonalWorkSource } from "./personal-delegation.ts";
 import { personalLocalPermission } from "./personal-local-records.ts";
@@ -22,7 +22,7 @@ export async function personalToolOrigin(tx: Tx, api: Pick<ToolExecutionApi, "co
   const requestId = await personalToolSource(tx, api, true, sourceRequestId);
   if (!options?.allowBlocked) await requirePersonalServiceSourceReady(tx, requestId!);
   const submission = (await tx.submissionByRequest(ROOT_CONVERSATION_ID, requestId!))!;
-  const receipt = requestId!.startsWith("telegram:") ? (await tx.doc(PersonalTelegramReceiptDoc, requestId!, null)).receipt : undefined;
+  const receipt = isPersonalImRequest(requestId!) ? (await tx.doc(PersonalTelegramReceiptDoc, requestId!, null)).receipt : undefined;
   const local = receipt ? undefined : await personalLocalPermission(tx, requestId!);
   const telegram = receipt && permissionSnapshot(receipt), permission = telegram ?? local ?? await tx.doc(PersonalPermissionsDoc);
   return { conversationId: api.conversationId, generation: generation.id, inputs: live.run.inputs.slice(), sources: [submission.id], source: { requestId: requestId!, submissionId: submission.id, entryId: submission.entry! }, permission: { mode: permission.mode, version: permission.version }, ...(telegram ? { telegram } : {}) };

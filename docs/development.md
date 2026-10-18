@@ -22,7 +22,7 @@ macOS 构建原生监督器另需 Command Line Tools 的 Clang。平台前置、
 | `npm run build` | 构建原生监督器、工具与脚本 worker 及 WASM，再生成两产品的 `dist/*.tgz`；无需 Docker，应用通过 tsx 运行源码 |
 | `npm run build:worker` | 打包共享 `worker/worker.mjs` 和自包含的 `worker/personal-command-worker.mjs`；个人命令 worker 已接 Linux 受限子工作工具 |
 | `npm run desktop:build` | 构建桌面三个目标、检查产物并 ad-hoc 签名 `dist/mac-arm64/Ruukoto.app`；根 build 不打包 Electron |
-| `npm run personal:durable` | 个人模型/Telegram 配对、Linux 服务/命令、MCP、浏览器与资料/网络配置、图片输入、产物导出和会话向导，后台通过本机认证接口管理；默认 `~/.ruukoto-durable-dev/<realpath hash12>/`，不复用旧开发档案，无热重载；操作见[隔离向导](usage.md#25-个人-durable-隔离向导) |
+| `npm run personal:durable` | 个人模型/QQ/Telegram 配对、Linux 服务/命令、MCP、浏览器与资料/网络配置、图片输入、产物导出和会话向导，后台通过本机认证接口管理；默认 `~/.ruukoto-durable-dev/<realpath hash12>/`，不复用旧开发档案，无热重载；操作见[隔离向导](usage.md#25-个人-durable-隔离向导) |
 | `npm run build:script` | 打包 `worker/workflow-script.mjs` 并复制同目录 WASM；脚本测试前运行 |
 | `npm run lint` | 检查正确性与关键约定，不统一全库排版 |
 | `npm run typecheck` | 根测试与脚本、每个 workspace 包、基础验证各自执行静态类型检查 |

@@ -5,11 +5,11 @@ import { defineExtension, defineTask, ROOT_CONVERSATION_ID, type Cursor, type En
 import { PersonalError } from "./personal-error.ts";
 import { PersonalInspectionDoc, PersonalPendingInspectionsDoc, ServiceInspectionAdmission, recheckServiceInspection } from "./personal-service-inspection.ts";
 import { telegramSelection } from "./personal-permissions.ts";
-import { PersonalTelegramDoc, PersonalTelegramReceiptDoc, type TelegramControlInput, type TelegramReceipt } from "./personal-telegram-records.ts";
+import { samePersonalEntry, personalEntryConfig, type PersonalEntryIdentity, PersonalTelegramDoc, PersonalTelegramReceiptDoc, type TelegramControlInput, type TelegramReceipt } from "./personal-telegram-records.ts";
 import type { ServiceManagerConfig } from "./service-helper.ts";
 
 export type PersonalInspectionRef = { taskId: TaskId; admission: EntryId };
-type Entrance = Pick<TelegramControlInput, "generation" | "botId" | "ownerId">;
+type Entrance = PersonalEntryIdentity;
 type StopInput = { ref: PersonalInspectionRef; telegramRequestId?: string };
 const NAME = "personal-inspection-controls";
 const TASK = "ruukoto.inspection-stop";
@@ -25,7 +25,7 @@ async function selectedInspection(tx: Tx, ref: PersonalInspectionRef) {
 }
 
 async function sameEntrance(tx: Tx, value: Pick<Awaited<ReturnType<typeof selectedInspection>>, "sources">, actor: Entrance, active = true) {
-  const current = (await tx.doc(PersonalTelegramDoc)).config;
+  const current = personalEntryConfig(await tx.doc(PersonalTelegramDoc), actor);
   if (active && (!current?.enabled || current.botId !== actor.botId || current.ownerId !== actor.ownerId || current.generation !== actor.generation)) return false;
   const matched = new Set<number>();
   let cursor: Cursor | undefined;
@@ -37,7 +37,7 @@ async function sameEntrance(tx: Tx, value: Pick<Awaited<ReturnType<typeof select
       const receipt = (await tx.doc(PersonalTelegramReceiptDoc, key, null)).receipt;
       if (!receipt?.submissionId || !value.sources.includes(receipt.submissionId)) continue;
       const source = await tx.submissionByRequest(ROOT_CONVERSATION_ID, key);
-      if (source?.id === receipt.submissionId && source.type === "input" && receipt.direct && !receipt.control && receipt.botId === actor.botId && receipt.ownerId === actor.ownerId && receipt.generation === actor.generation) matched.add(source.id);
+      if (source?.id === receipt.submissionId && source.type === "input" && receipt.direct && !receipt.control && samePersonalEntry(receipt, actor)) matched.add(source.id);
     }
     cursor = page.next;
   } while (cursor);

@@ -16,7 +16,7 @@ import { savePersonalArtifact, loadPersonalArtifact, type PersonalArtifact } fro
 import { parsePersonalBrowser, type PersonalBrowserConfig } from "./personal-browser-config.ts";
 import { personalToolOrigin, type PersonalToolOrigin } from "./personal-tool-source.ts";
 import { permissionSnapshot, telegramSourceActive } from "./personal-permissions.ts";
-import { PersonalTelegramReceiptDoc } from "./personal-telegram-records.ts";
+import { samePersonalEntry, type PersonalEntryIdentity, isPersonalImRequest, PersonalTelegramReceiptDoc } from "./personal-telegram-records.ts";
 import { LocalInputDoc, personalLocalPermission } from "./personal-local-records.ts";
 
 export const PERSONAL_BROWSER = "personal-browser";
@@ -52,7 +52,7 @@ export async function browserRequestAllowed(tx: Tx, conversationId: Conversation
   if (live.run?.inputs.length !== 1) return false;
   const source = sourceRequestId && await tx.submissionByRequest(ROOT_CONVERSATION_ID, sourceRequestId);
   if (!source || source.id !== live.run.inputs[0] || !source.requestId || source.type !== "input" || source.status !== "placed" || !source.entry || (await tx.entry(source.entry))?.kind !== "pi.user") return false;
-  if (source.requestId.startsWith("telegram:")) {
+  if (isPersonalImRequest(source.requestId)) {
     const receipt = (await tx.doc(PersonalTelegramReceiptDoc, source.requestId, null)).receipt, permission = receipt && permissionSnapshot(receipt);
     return !!permission && receipt?.submissionId === source.id && permission.mode === "full_access" && await telegramSourceActive(tx, permission);
   }
@@ -67,11 +67,11 @@ async function origin(tx: Tx, api: Pick<ToolExecutionApi, "conversationId" | "ta
   if (value.work || value.permission.mode !== "full_access" || !value.telegram && (!(await tx.doc(LocalInputDoc, value.source.requestId, "")).accepted || (await tx.doc(LocalInputDoc, value.source.requestId, "")).permission?.mode !== "full_access")) throw new PersonalError("browser_forbidden", "当前来源未开放浏览器，请结束本轮并报告拥有者；只能由拥有者以完全访问的新输入操作。");
   return value;
 }
-export type BrowserActor = { requestId: string; generation: string; botId: string; ownerId: string };
+export type BrowserActor = PersonalEntryIdentity & { requestId: string };
 async function original(tx: Tx, value: PersonalBrowserOperation, actor?: BrowserActor) {
   if (!actor) return;
   const source = value.origin.telegram;
-  if (!source || source.generation !== actor.generation || source.botId !== actor.botId || source.ownerId !== actor.ownerId || !await telegramSourceActive(tx, source)) throw new PersonalError("browser_original_entry", "原操作不属于当前拥有者入口，请从原入口查询。");
+  if (!source || !samePersonalEntry(source, actor) || !await telegramSourceActive(tx, source)) throw new PersonalError("browser_original_entry", "原操作不属于当前拥有者入口，请从原入口查询。");
 }
 export async function browserResolve(tx: Tx, operation: TaskId, effect: "applied" | "not_applied", evidence: string, actor?: BrowserActor) {
   const value = await browserOperation(tx, operation); await original(tx, value, actor);
@@ -80,7 +80,7 @@ export async function browserResolve(tx: Tx, operation: TaskId, effect: "applied
   value.resolution = { effect, evidence, entry: entry.id, ...(actor ? { actor: actor.requestId } : {}) };
 }
 function summary(value: Readonly<PersonalBrowserOperation>) { return { operation: value.operation, action: value.params.action, effect: value.effect, code: value.code, stopped: value.stopped, canResolve: value.effect === "effect_unknown" && value.code !== "started" && !value.resolution, canVerifyStop: value.started && value.code !== "started" && !value.stopped, ...(value.artifact ? { artifact: value.artifact.id, bytes: value.artifact.bytes } : {}) }; }
-export async function browserList(tx: Tx, offset = 0, actor?: BrowserActor) { const values = (await browserOperations(tx)).reverse().filter(value => !actor || value.origin.telegram?.generation === actor.generation && value.origin.telegram.botId === actor.botId && value.origin.telegram.ownerId === actor.ownerId); return { items: values.slice(offset, offset + 8).map(summary), ...(offset + 8 < values.length ? { nextOffset: offset + 8 } : {}) }; }
+export async function browserList(tx: Tx, offset = 0, actor?: BrowserActor) { const values = (await browserOperations(tx)).reverse().filter(value => !actor || samePersonalEntry(value.origin.telegram, actor)); return { items: values.slice(offset, offset + 8).map(summary), ...(offset + 8 < values.length ? { nextOffset: offset + 8 } : {}) }; }
 export async function browserDetail(tx: Tx, operation: TaskId, offset = 0, actor?: BrowserActor) { const value = await browserOperation(tx, operation); await original(tx, value, actor); const text = JSON.stringify(value, null, 2); return { summary: summary(value), text: text.slice(offset, offset + 3072), ...(offset + 3072 < text.length ? { nextOffset: offset + 3072 } : {}) }; }
 export type PersonalBrowserImages = { supportsImages?(): boolean; registerImage(tx: Tx, artifact: PersonalArtifact, source: { conversationId: ConversationId; taskId: TaskId }): Promise<ImageContent>; artifactReader?: ToolRegistration };
 

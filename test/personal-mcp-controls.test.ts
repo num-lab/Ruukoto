@@ -94,7 +94,7 @@ test("MCP 原入口控制：原宿主菜单批准只消费一次，转发、引�
     const rejected = await f.receive("MCP批准本次", replyTo, extra);
     assert.equal(rejected.value.control, true); assert.equal(rejected.value.mcpDecision, undefined);
   }
-  for (const changed of [{ ...f.telegram, botId: "789" }, { ...f.telegram, ownerId: "789" }, { ...f.telegram, generation: randomUUID() }]) {
+  for (const changed of [{ ...f.telegram, platform: "qq" as const }, { ...f.telegram, botId: "789" }, { ...f.telegram, ownerId: "789" }, { ...f.telegram, generation: randomUUID() }]) {
     assert.equal((await f.p.harness.commit(tx => mcpList(tx, 0, changed), context)).items.length, 0);
     await assert.rejects(f.p.harness.commit(tx => mcpOriginal(tx, f.operation, { ...changed, requestId: "wrong-entry" }), context), code("mcp_original_entry"));
   }

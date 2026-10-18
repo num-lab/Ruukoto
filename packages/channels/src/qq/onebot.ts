@@ -231,8 +231,8 @@ export class OneBotClient {
               pending.reject(
                 new OneBotError(this.redact(`动作未确认成功（retcode=${retcode ?? "?"}）${detail ? `：${detail}` : ""}`), {
                   retcode,
-                  // async / 不完整响应不能证明未发送。
-                  definite: msg["status"] === "failed" && retcode !== null && retcode !== 0,
+                  // NapCat 的 1200 包含执行后超时，async / 不完整响应同样不能证明未发送。
+                  definite: msg["status"] === "failed" && retcode !== null && retcode !== 0 && retcode !== 1200,
                 }),
               );
             }

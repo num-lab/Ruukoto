@@ -18,12 +18,12 @@
 
 双产品首期已交付：产品入口、工作区与会话、受限/完全访问执行、通用 SubAgent（委派、复用、通信、取消、汇总、重启恢复）、IM 审批、白名单服务管理与长期授权、旧实例导入。尚未完成：
 
-- 真实 QQ / Telegram 平台缺少实测证据（消息平台使用模拟验证）；
+- QQ/Telegram 缺少实测证据（消息平台使用模拟验证）；
 - 跨端共享记忆、邮件与 GitHub comment 渠道、独立的 QQ 群聊外挂（核心群聊已退役，旧群资料保留为只读归档）。
 
 [逐项验收证据](docs/release-acceptance.md)。
 
-个人：[`npm run personal:durable`](docs/usage.md#25-个人-durable-隔离向导)：Pi 1.3.0，Telegram 图文、浏览器、Linux 服务/命令、MCP、资料/网络/搜索、审批/产物/回报；Coding：Pi 0.85.1，入口未变。
+个人：[`npm run personal:durable`](docs/usage.md#25-个人-durable-隔离向导)：Pi 1.3.0，QQ/Telegram 图文、浏览器、Linux 服务/命令、MCP、资料/网络/搜索、审批/产物/回报；Coding：Pi 0.85.1，入口未变。
 
 ## 快速开始
 

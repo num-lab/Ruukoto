@@ -1,3 +1,6 @@
+import { personalQqApi } from "./personal-qq-api.ts";
+import { parsePersonalQq, qqToken, type PersonalQqConfig } from "./personal-qq-config.ts";
+import { isPersonalImRequest } from "./personal-telegram-records.ts";
 import { personalMedia, PERSONAL_MEDIA, PersonalMediaDoc, PersonalMediaMessageDoc, PersonalImageDoc } from "./personal-media.ts";
 import { personalBrowser, PERSONAL_BROWSER, PersonalBrowserDoc, PersonalBrowserOperationDoc, configureBrowser, verifyBrowser, browserRequestAllowed } from "./personal-browser.ts";
 import type { PersonalBrowserConfig } from "./personal-browser-config.ts";
@@ -29,7 +32,7 @@ import { personalWorkTools } from "./personal-work-tools.ts";
 import { personalWorkControls, verifyWorkMenu, verifyDelegationMenu } from "./personal-work-controls.ts";
 import { PersonalDelegationDoc, personalAnalysisDelegations, verifyPersonalDelegations } from "./personal-delegation.ts";
 import { PersonalInspectionDoc, PersonalPendingInspectionsDoc, personalInspectionControl, personalInspectionExtension, recheckServiceInspection, verifyServiceInspections } from "./personal-service-inspection.ts";
-import { personalDelegationReports, personalReportRequest, verifyPersonalReports } from "./personal-report.ts";
+import { personalDelegationReports, personalReportRequest, verifyPersonalReports, personalReports } from "./personal-report.ts";
 import { personalInspectionControls, telegramInspectionControl, verifyInspectionControls, type PersonalInspectionRef } from "./personal-inspection-controls.ts";
 
 import { personalServiceControls, verifyServiceControls } from "./personal-service-controls.ts";
@@ -54,6 +57,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
   service?: ServiceManagerConfig;
   serviceOperations?: boolean;
   telegram?: PersonalTelegramConfig;
+  qq?: PersonalQqConfig;
   commands?: PersonalCommandConfig;
   mcp?: PersonalMcpConfig;
   tools?: PersonalToolsConfig;
@@ -77,11 +81,16 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     const media = personalMedia(lock.directory, () => harness!, () => options.provider.getModels().find(model => model.id === options.modelId)?.input.includes("image") === true, !options.tools && !options.browser ? personalArtifactReader(lock.directory) : undefined);
     const general = options.tools && personalTools(lock.directory, options.tools, options.provider, options.modelId, () => harness!, media);
     browser = options.browser && personalBrowser(lock.directory, options.browser, () => harness!, { supportsImages: media.supportsImages, registerImage: media.registerImage, ...(!general ? { artifactReader: personalArtifactReader(lock.directory) } : {}) });
+    const qqConfig = options.qq && parsePersonalQq(options.qq);
+    const qqApi = qqConfig?.enabled ? personalQqApi(qqConfig, qqToken(qqConfig)) : undefined;
+    const reports = qqApi ? personalReports(qqApi) : personalDelegationReports;
     const telegramConfig = options.telegram && parsePersonalTelegram(options.telegram);
     const inspectionControls = personalInspectionControls(service?.config, () => harness!);
     const serviceControls = personalServiceControls(() => harness!, () => operations?.api(harness!));
-    const telegram = personalTelegram(telegramConfig, telegramConfig?.enabled ? personalTelegramApi(telegramConfig.apiBase, telegramToken(telegramConfig)) : undefined, async (tx, value) => await personalBrowserControl(tx, value, browser?.requestStop) || await personalToolControl(tx, value, general ? lock.directory : undefined) || await personalMcpControl(tx, value, mcp?.requestRecheck) || await serviceControls.control(tx, value) || await telegramInspectionControl(tx, value, inspectionControls.request) || !!await operations?.control(tx, value), media);
+    const telegram = personalTelegram(telegramConfig, telegramConfig?.enabled ? personalTelegramApi(telegramConfig.apiBase, telegramToken(telegramConfig)) : undefined, async (tx, value) => await personalBrowserControl(tx, value, browser?.requestStop) || await personalToolControl(tx, value, general ? lock.directory : undefined) || await personalMcpControl(tx, value, mcp?.requestRecheck) || await serviceControls.control(tx, value) || await telegramInspectionControl(tx, value, inspectionControls.request) || !!await operations?.control(tx, value), media, qqConfig, qqApi);
     const registry = createRegistry();
+    const qqExtension = defineExtension({ name: "personal-qq" });
+    registry.install(qqExtension);
     const workTools = personalWorkTools(() => harness!);
     const personal = defineExtension({ name: "personal", sections: [section("personal", () => PERSONAL_PROMPT + (services ? "主会话与子 Agent 均可检查宿主白名单内的服务状态，不代表业务健康。" + (serviceWork ? "子 Agent 可用 service_restart 完成原工作要求的受控服务重启；审批与未知效果由宿主处理。" : "") : "") + (commands ? "子 Agent 可用 run_command 以已配置目录执行命令，沿原工作权限；完全访问使用后台账户环境且免逐次审批，未知效果仍须在本机命令管理核实。" : ""), { tag: false })] });
     registry.install(personal);
@@ -94,7 +103,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     registry.install(personalWorkControls);
     registry.install(personalWorkNotes);
     registry.install(personalAnalysisDelegations);
-    registry.install(personalDelegationReports);
+    registry.install(reports);
     registry.install(telegram.extension);
     registry.install(inspectionControls.extension);
     registry.install(serviceControls.extension);
@@ -232,10 +241,14 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     if (operationConfig && (!operations || operationConfig.version !== 1 || operationConfig.value.enabled !== true)) throw new PersonalError("service_operations_config", "档案依赖的服务操作配置缺失或版本不符，已停止恢复；请使用原配置。");
     const telegramRecord = await storage.findDocument({ kind: PersonalTelegramDoc.definition.kind, scope: { kind: "session" } }, "current", context);
     const savedTelegram = telegramRecord && await storage.document(telegramRecord.id, "current", context);
-    if (savedTelegram && savedTelegram.version !== 1) throw new PersonalError("telegram_version", "Telegram 业务记录版本不受支持，已停止恢复；请使用对应版本。");
+    if (savedTelegram && savedTelegram.version !== 1) throw new PersonalError("telegram_version", "IM 业务记录版本不受支持，已停止恢复；请使用对应版本。");
     const permissionsRecord = await storage.findDocument({ kind: PersonalPermissionsDoc.definition.kind, scope: { kind: "session" } }, "current", context);
     const savedPermissions = permissionsRecord && await storage.document(permissionsRecord.id, "current", context);
     if (savedPermissions && (savedPermissions.version !== 1 || !["auto-review", "confirm", "full_access"].includes(String(savedPermissions.value.mode)) || !Number.isSafeInteger(savedPermissions.value.version) || Number(savedPermissions.value.version) < 1)) throw new PersonalError("permissions_version", "权限记录缺失或版本不受支持，已停止恢复；请保留档案。");
+    if (savedPermissions?.value.qq) {
+      const qq = savedPermissions.value.qq;
+      if (typeof qq !== "object" || Array.isArray(qq) || !("mode" in qq) || !["auto-review", "confirm", "full_access"].includes(String(qq.mode)) || !("version" in qq) || !Number.isSafeInteger(qq.version) || Number(qq.version) < 1) throw new PersonalError("permissions_version", "QQ 权限记录无效，已停止恢复；请保留档案。");
+    }
     const grantsRecord = await storage.findDocument({ kind: PersonalServiceGrantsDoc.definition.kind, scope: { kind: "session" } }, "current", context);
     const savedGrants = grantsRecord && await storage.document(grantsRecord.id, "current", context);
     if (savedGrants && !savedPermissions) throw new PersonalError("permissions_version", "长期授权依赖的权限记录缺失，已停止恢复；请保留档案。");
@@ -246,9 +259,10 @@ export async function openPersonalHarness(options: ({ directory: string; profile
       const page = await storage.scanDocuments({ kind: PersonalTelegramReceiptDoc.definition.kind, scope: { kind: "session" }, at: "current" }, 256, telegramCursor, context);
       for (const record of page.items) {
         const saved = await storage.document(record.id, "current", context);
-        if (!savedTelegram || !saved || saved.version !== 1 || record.key === undefined) throw new PersonalError("telegram_version", "Telegram 收件缺少配置或版本不受支持，已停止恢复；请保留档案。");
+        if (!savedTelegram || !saved || saved.version !== 1 || record.key === undefined) throw new PersonalError("telegram_version", "IM 收件缺少配置或版本不受支持，已停止恢复；请保留档案。");
         const value = saved.value.receipt;
-        if (value && typeof value === "object" && !Array.isArray(value) && (value.permission || value.control) && !savedPermissions) throw new PersonalError("permissions_version", "Telegram 原输入的权限记录缺失，已停止恢复；请保留档案。");
+        if (value && typeof value === "object" && !Array.isArray(value) && (value.permission || value.control) && !savedPermissions) throw new PersonalError("permissions_version", "IM 原输入的权限记录缺失，已停止恢复；请保留档案。");
+        if (value && typeof value === "object" && !Array.isArray(value) && value.platform === "qq" && (value.permission || value.control) && !savedPermissions?.value.qq) throw new PersonalError("permissions_version", "QQ 原输入缺少原权限记录，已停止恢复；请保留档案。");
         telegramKeys.push(record.key);
       }
       telegramCursor = page.next;
@@ -294,6 +308,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
         if (conversation.id === ROOT_CONVERSATION_ID && savedBrowser && !extensions.includes(PERSONAL_BROWSER)) throw new PersonalError("browser_config_missing", "主会话缺少原浏览器扩展，已停止恢复。");
         if (extensions.includes(PERSONAL_BROWSER) && (conversation.id !== ROOT_CONVERSATION_ID || !savedBrowser)) throw new PersonalError("browser_record_invalid", "浏览器会话身份或原配置不符，已停止恢复。");
         if (conversation.id === ROOT_CONVERSATION_ID && savedMedia && !extensions.includes(PERSONAL_MEDIA)) throw new PersonalError("media_record_invalid", "主会话缺少原媒体扩展，已停止恢复。");
+        if (conversation.id === ROOT_CONVERSATION_ID && savedTelegram?.value.qqConfig && !extensions.includes(qqExtension.name)) throw new PersonalError("qq_version", "QQ 主会话缺少原入口扩展，已停止恢复。");
         if (conversation.id === ROOT_CONVERSATION_ID && savedPermissions && !extensions.includes(personalPermissions.name)) throw new PersonalError("permissions_version", "主会话缺少已登记的权限扩展，已停止恢复；请使用对应程序。");
         if (extensions.includes("personal-service-inspect")) serviceConversation = true;
         if (conversation.id === ROOT_CONVERSATION_ID && operationConfig && !extensions.includes("personal-service-operations")) throw new PersonalError("service_operations_config", "主会话缺少已登记的服务操作扩展，已停止恢复；请保留档案。");
@@ -302,7 +317,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
         if (extensions.includes(PERSONAL_MCP) && !savedMcp) throw new PersonalError("mcp_config_changed", "会话缺少原 MCP 配置记录，已停止恢复。");
         if (extensions.includes(PERSONAL_COMMAND_WORK) && !savedCommands) throw new PersonalError("command_config_changed", "会话缺少原命令配置记录，已停止恢复。");
         if (extensions.includes("personal-service-operations") && !operationConfig) throw new PersonalError("service_operations_config", "会话依赖的服务操作配置记录缺失，已停止恢复；请保留档案。");
-        if (conversation.id === ROOT_CONVERSATION_ID && telegramKeys.length && !extensions.includes(telegram.extension.name)) throw new PersonalError("telegram_version", "主会话缺少 Telegram 执行扩展，已停止恢复；请保留档案。");
+        if (conversation.id === ROOT_CONVERSATION_ID && telegramKeys.length && !extensions.includes(telegram.extension.name)) throw new PersonalError("telegram_version", "主会话缺少 IM 执行扩展，已停止恢复；请保留档案。");
         if (extensions.includes(personalBackgroundWork.name) || extensions.includes(personalSubAgent.name)) workConversation = true;
         if (extensions.includes(personalSubAgent.name)) childIds.push(conversation.id);
       }
@@ -378,7 +393,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     if (mcp && savedMcp && !isDeepStrictEqual(savedMcp.value.config, mcp.config) && await harness.commit(async tx => (await mcpOperations(tx)).some(mcpUnresolved), context)) throw new PersonalError("mcp_config_pending", "MCP 原调用效果或远端结束未核实，不能更换配置；请恢复原配置并核实原调用。");
     await harness.commit(tx => verifyMcpControls(tx, telegramKeys, mcpEnabled), context);
     if (commands && savedCommands) await harness.commit(tx => verifyPersonalCommands(tx, commandKeys, commands.config, commands.workerPath), context);
-    await harness.commit(tx => verifyPersonalTelegram(tx, telegramKeys, telegramConfig), context);
+    await harness.commit(tx => verifyPersonalTelegram(tx, telegramKeys, telegramConfig, qqConfig), context);
     await harness.commit(async tx => { for (const key of telegramKeys) await verifyWorkMenu(tx, (await tx.doc(PersonalTelegramReceiptDoc, key, null)).receipt!, workControlsEnabled); }, context);
     await harness.commit(tx => verifyServiceInspections(tx, inspectionKeys), context);
     await harness.commit(tx => verifyInspectionControls(tx, telegramKeys, inspectionControlsEnabled), context);
@@ -414,8 +429,8 @@ export async function openPersonalHarness(options: ({ directory: string; profile
         if (localPermission && !isDeepStrictEqual(work.permission, localPermission)) throw new PersonalError("work_record_missing", "后台工作与原本机输入权限不符，已停止恢复；请保留档案。");
         if (work.telegram) {
           const receipt = (await tx.doc(PersonalTelegramReceiptDoc, work.source.requestId, null)).receipt;
-          if (!receipt || receipt.submissionId !== source.id || !isDeepStrictEqual(permissionSnapshot(receipt), work.telegram) || !isDeepStrictEqual(work.permission, { mode: work.telegram.mode, version: work.telegram.version })) throw new PersonalError("work_record_missing", "后台工作的原 Telegram 权限无法核实，已停止恢复；请保留档案。");
-        } else if (work.modelCall !== undefined && work.source.requestId.startsWith("telegram:")) throw new PersonalError("work_record_missing", "模型后台工作缺少原 Telegram 绑定，已停止恢复；请保留档案。");
+          if (!receipt || receipt.submissionId !== source.id || !isDeepStrictEqual(permissionSnapshot(receipt), work.telegram) || !isDeepStrictEqual(work.permission, { mode: work.telegram.mode, version: work.telegram.version })) throw new PersonalError("work_record_missing", "后台工作的原拥有者 IM 权限无法核实，已停止恢复；请保留档案。");
+        } else if (work.modelCall !== undefined && isPersonalImRequest(work.source.requestId)) throw new PersonalError("work_record_missing", "模型后台工作缺少原拥有者 IM 绑定，已停止恢复；请保留档案。");
         if (work.submissionId !== undefined && (await tx.submissionByRequest(work.ref.agentId, `personal-work:${task.id}`))?.id !== work.submissionId) throw new PersonalError("work_record_missing", "后台工作引用的原输入缺失，已停止恢复；请保留档案并检查存储。");
         await verifyPersonalWorkNotes(tx, work.ref, workNotesEnabled);
         if (task.state.status !== "terminal" && !index.agents.some(agent => agent.id === work.ref?.agentId && agent.work?.taskId === task.id)) throw new PersonalError("work_ownership", "未结束工作的占用记录缺失，已停止恢复；请检查档案。");
@@ -441,7 +456,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     await harness.commit(tx => verifyPersonalReports(tx, delegationKeys, reportsEnabled), context);
     await harness.commit(async tx => { for (const key of telegramKeys) await verifyDelegationMenu(tx, (await tx.doc(PersonalTelegramReceiptDoc, key, null)).receipt!, delegationsEnabled); }, context);
     await harness.commit(tx => tx.doc(PersonalFormatDoc), context);
-    const extensions = [personal, media.extension, ...(browser ? [browser.extension] : []), personalPermissions, personalBackgroundWork, workTools, personalWorkControls, personalWorkNotes, personalAnalysisDelegations, personalDelegationReports, telegram.extension, inspectionControls.extension, serviceControls.extension, ...(services ? [services, personalInspectionExtension, personalSubAgentServices] : []), ...(operations ? [operations.extension] : []), ...(serviceWork ? [serviceWork] : []), ...(commands ? [commands.extension] : []), ...(mcp ? [mcp.extension] : []), ...(general ? [general.extension] : [])];
+    const extensions = [...(qqConfig ? [qqExtension] : []), personal, media.extension, ...(browser ? [browser.extension] : []), personalPermissions, personalBackgroundWork, workTools, personalWorkControls, personalWorkNotes, personalAnalysisDelegations, reports, telegram.extension, inspectionControls.extension, serviceControls.extension, ...(services ? [services, personalInspectionExtension, personalSubAgentServices] : []), ...(operations ? [operations.extension] : []), ...(serviceWork ? [serviceWork] : []), ...(commands ? [commands.extension] : []), ...(mcp ? [mcp.extension] : []), ...(general ? [general.extension] : [])];
     const tools = [...(media.extension.tools ?? []), ...(browser?.extension.tools ?? []), ...(services?.tools ?? []), ...workTools.tools!, ...(mcp?.extension.tools ?? []), ...(general?.extension.tools ?? [])];
     if (service) await harness.commit(async tx => { (await tx.doc(PersonalServiceDoc)).fingerprint = service.fingerprint; }, context);
     const main = await harness.root(context, { agent: { model: { provider: options.provider.id, modelId: options.modelId }, thinkingLevel: "off", extensions, tools }, init: async tx => { await tx.doc(PersonalAgentsDoc); await tx.doc(PersonalPermissionsDoc); if (operations) { await tx.doc(PersonalServiceOperationsDoc); await tx.doc(PersonalServiceGrantsDoc); } } });
@@ -505,6 +520,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     if (browser) await browser.recover();
     if (general) await general.recover();
     instance.resume();
+    const im = telegram.api(instance);
     return {
       harness: instance,
       main,
@@ -536,7 +552,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
         instance.resume();
         return id;
       },
-      telegram: telegram.api(instance),
+      telegram: im, qq: im.qq,
       async submit(input: string, requestId: string) {
         await instance.commit(tx => personalLocalInput(tx, requestId, input), context);
         return main.submit({ type: "input", content: input, requestId, whenBusy: "followUp" }, context);

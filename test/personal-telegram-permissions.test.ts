@@ -15,7 +15,7 @@ import { personalProvider, type PersonalModelConfig } from "../apps/ruukoto/src/
 import { PersonalDelegationDoc, listPersonalDelegations } from "../apps/ruukoto/src/personal-delegation.ts";
 import { PersonalWorkDoc } from "../apps/ruukoto/src/personal-work.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
-import { PersonalPermissionsDoc } from "../apps/ruukoto/src/personal-permissions.ts";
+import { personalPermissionFor, PersonalPermissionsDoc } from "../apps/ruukoto/src/personal-permissions.ts";
 import { PersonalTelegramDoc, PersonalTelegramReceiptDoc } from "../apps/ruukoto/src/personal-telegram.ts";
 import { PersonalServiceGrantsDoc, PersonalServiceOperationDoc, ServiceOperationEvidence, type PersonalServiceOperationRef } from "../apps/ruukoto/src/personal-service-operations.ts";
 import { personalServiceControls, listPersonalServices } from "../apps/ruukoto/src/personal-service-controls.ts";
@@ -479,4 +479,20 @@ test("子服务检查：追加本机来源保留全来源，Telegram 不能管�
   const cancel = p.work.cancel(work); await until(async () => (await p.work.status(work)).cancelRequested);
   assert.equal((await p.work.status(work)).stopVerified, false); fs.rmSync(path.join(f.helper, "inspection-stop-fails")); await p.inspections!.recheckStop(ref.taskId); await cancel;
   assert.equal(f.starts(), 0);
+});
+
+
+test("拥有者权限：QQ 默认模式独立于 Telegram 与本机，旧输入快照保持原形", async t => {
+  const f = await fixture(t), p = await f.open();
+  await p.harness.commit(async tx => {
+    const telegram = await personalPermissionFor(tx);
+    telegram.mode = "full_access"; telegram.version++;
+    const qq = await personalPermissionFor(tx, { platform: "qq" });
+    assert.deepEqual(qq, { mode: "auto-review", version: 1 });
+    qq.mode = "confirm"; qq.version++;
+  }, context);
+  const receipt = await f.receive("各入口模式独立");
+  assert.deepEqual(receipt.value.permission, { mode: "full_access", version: 2 });
+  assert.equal("platform" in receipt.value, false);
+  assert.deepEqual((await p.harness.snapshot(PersonalPermissionsDoc, context))!.qq, { mode: "confirm", version: 2 });
 });

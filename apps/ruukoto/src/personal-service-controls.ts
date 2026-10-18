@@ -4,13 +4,13 @@ import { PersonalError } from "./personal-error.ts";
 import { PersonalPendingInspectionsDoc } from "./personal-service-inspection.ts";
 import { personalServiceOperation, personalServiceOperationsIn, resolvePersonalServiceOperation, type personalServiceOperations, type PersonalServiceOperationRef } from "./personal-service-operations.ts";
 import { telegramSelection, telegramSourceActive } from "./personal-permissions.ts";
-import { PersonalTelegramReceiptDoc, type TelegramControlInput } from "./personal-telegram-records.ts";
+import { samePersonalEntry, type PersonalEntryIdentity, PersonalTelegramReceiptDoc, type TelegramControlInput } from "./personal-telegram-records.ts";
 
 const NAME = "personal-service-recovery-controls";
 const TASK = "ruukoto.service-stop";
 const PAGE = 1200;
 const ACTIONS = ["/服务核实", "更多服务", "刷新服务", "核实操作停止", "确认已生效", "确认未生效", "更多核实说明"];
-type Entrance = Pick<TelegramControlInput, "generation" | "botId" | "ownerId">;
+type Entrance = PersonalEntryIdentity;
 type StopInput = { ref: PersonalServiceOperationRef; hostOpId: string; machineId: string; telegramRequestId?: string };
 export type PersonalServiceResolution = { effect: "applied" | "not_applied"; evidence: string };
 type ServiceAPI = ReturnType<ReturnType<typeof personalServiceOperations>["api"]>;
@@ -22,7 +22,7 @@ export function parsePersonalServiceResolution(value: unknown): PersonalServiceR
 
 async function originalService(tx: Tx, ref: PersonalServiceOperationRef, actor?: Entrance, active = true) {
   const op = await personalServiceOperation(tx, ref);
-  if (actor && (!op.telegram || (op.telegram.generation !== actor.generation || op.telegram.botId !== actor.botId || op.telegram.ownerId !== actor.ownerId) || (active && !await telegramSourceActive(tx, op.telegram)))) throw new PersonalError("service_original_entry_required", "服务操作不属于当前原入口，请从原私聊或本机向导管理。");
+  if (actor && (!op.telegram || !samePersonalEntry(op.telegram, actor) || (active && !await telegramSourceActive(tx, op.telegram)))) throw new PersonalError("service_original_entry_required", "服务操作不属于当前原入口，请从原私聊或本机向导管理。");
   return op;
 }
 
@@ -68,7 +68,7 @@ async function summary(tx: Tx, ref: PersonalServiceOperationRef): Promise<Person
 
 export async function listPersonalServices(tx: Tx, offset = 0, actor?: Entrance): Promise<PersonalServicePage> {
   const ops = (await personalServiceOperationsIn(tx)).reverse();
-  const available = ops.filter(op => !actor || !!op.telegram && op.telegram.generation === actor.generation && op.telegram.botId === actor.botId && op.telegram.ownerId === actor.ownerId);
+  const available = ops.filter(op => !actor || samePersonalEntry(op.telegram, actor));
   const items: PersonalServiceSummary[] = [];
   for (const op of available.slice(offset, offset + 8)) { await originalService(tx, op.ref, actor); items.push(await summary(tx, op.ref)); }
   return { items, ...(available.length > offset + 8 ? { nextOffset: offset + 8 } : {}) };
@@ -92,7 +92,7 @@ export function personalServiceControls(getHarness: () => Harness, getService: (
         await getHarness().commit(async tx => {
           const receipt = current.input.telegramRequestId ? (await tx.doc(PersonalTelegramReceiptDoc, current.input.telegramRequestId, null)).receipt : undefined;
           if (current.input.telegramRequestId && (!receipt || receipt.serviceStop?.taskId !== current.id || !isDeepStrictEqual(receipt.serviceStop.ref, current.input.ref))) throw new PersonalError("service_control_invalid", "原停止重核收件缺失，已保留占用。");
-          const op = await mayStop(tx, current.input.ref, receipt && { generation: receipt.generation, botId: receipt.botId, ownerId: receipt.ownerId });
+          const op = await mayStop(tx, current.input.ref, receipt);
           if (op.hostOpId !== current.input.hostOpId || op.snapshot?.machineId !== current.input.machineId) throw new PersonalError("service_control_invalid", "原操作执行身份不符，已保留占用。");
         }, ctx);
         const api = getService();
@@ -108,7 +108,7 @@ export function personalServiceControls(getHarness: () => Harness, getService: (
   });
   async function request(tx: Tx, ref: PersonalServiceOperationRef, actor?: TelegramControlInput) {
     if (!getService()) throw new PersonalError("service_config_missing", "服务操作未装配，请核实服务配置。");
-    const op = await mayStop(tx, ref, actor && { generation: actor.generation, botId: actor.botId, ownerId: actor.ownerId });
+    const op = await mayStop(tx, ref, actor);
     return tx.createTask(task, { ref: { ...ref }, hostOpId: op.hostOpId, machineId: op.snapshot!.machineId, ...(actor ? { telegramRequestId: actor.requestId } : {}) }, { conversationId: ROOT_CONVERSATION_ID, ownership: { kind: "conversation" }, background: true });
   }
   return { extension: defineExtension({ name: NAME, tasks: [task] }), request,
@@ -118,7 +118,7 @@ export function personalServiceControls(getHarness: () => Harness, getService: (
       if (!choice && evidence === undefined && !ACTIONS.includes(value.content)) return false;
       if (!value.direct) { value.reply = "请直接发送 /服务核实，再回复已送达宿主菜单；转发和引用摘录不能核实操作。"; return true; }
       async function applyControl() {
-        const actor = { generation: value.generation, botId: value.botId, ownerId: value.ownerId };
+        const actor = value;
         const menu = value.content === "/服务核实" ? undefined : (await telegramSelection(tx, value))?.selection;
         if (value.content === "/服务核实" || value.content === "更多服务" && menu?.kind === "service-list" && menu.nextOffset !== undefined) {
           const page = await listPersonalServices(tx, value.content === "/服务核实" ? 0 : menu?.kind === "service-list" ? menu.nextOffset! : 0, actor);
@@ -161,7 +161,7 @@ export async function verifyServiceControls(tx: Tx, keys: string[], enabled: boo
     const menu = value.selection;
     if (menu?.kind !== "service-list" && menu?.kind !== "service-recovery" && menu?.kind !== "service-resolution" && !value.serviceStop && !value.serviceResolution) continue;
     if (!enabled || !value.control || !value.direct) throw new PersonalError("service_control_invalid", "服务控制扩展或原收件不符，已停止恢复。");
-    const actor = { generation: value.generation, botId: value.botId, ownerId: value.ownerId };
+    const actor = value;
     const refs = menu?.kind === "service-list" ? menu.refs : menu?.kind === "service-recovery" || menu?.kind === "service-resolution" ? [menu.ref] : [];
     if (!Array.isArray(refs) || refs.length > 8 || (menu && "nextOffset" in menu && menu.nextOffset !== undefined && (!Number.isSafeInteger(menu.nextOffset) || menu.nextOffset < 0))) throw new PersonalError("service_control_invalid", "服务菜单分页无法核实，已停止恢复。");
     for (const ref of refs) await originalService(tx, ref, actor, false);

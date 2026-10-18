@@ -178,6 +178,7 @@ test("个人组合：Telegram浏览器菜单沿原actor核实效果与后台停�
   await receive(2, "/浏览器"); assert.match(sends.at(-1)!.text, /浏览器1/);
   await receive(3, "浏览器1", sends.at(-1)!.id); assert.match(sends.at(-1)!.text, /浏览器确认已生效/);
   await assert.rejects(p.harness.commit(tx => browserResolve(tx, operation.operation, "applied", "不能使用新代次", { requestId: "wrong-actor", generation: randomUUID(), botId: "123", ownerId: "456" }), context), code("browser_original_entry"));
+  await assert.rejects(p.harness.commit(tx => browserResolve(tx, operation.operation, "applied", "不能使用另一平台", { requestId: "wrong-platform", platform: "qq", generation: telegram.generation, botId: "123", ownerId: "456" }), context), code("browser_original_entry"));
   await receive(4, "浏览器确认已生效", sends.at(-1)!.id);
   const resolution = await receive(5, "浏览器核实说明 已在独立网页确认目标变更", sends.at(-1)!.id); assert.equal(resolution.browserResolution!.operation, operation.operation);
   assert.equal((await f.operations())[0].resolution!.actor, "telegram:123:456:5");

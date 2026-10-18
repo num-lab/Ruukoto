@@ -6,7 +6,7 @@ import { createHash } from "node:crypto";
 import { BACKGROUND_CONTEXT, type Context } from "@earendil-works/chord/context";
 import { AgentDoc, AssistantEntry, configure, defineDoc, defineDocFamily, defineEntry, defineExtension, defineTask, ROOT_CONVERSATION_ID, section, type ConversationId, type Cursor, type EntryId, type Harness, type ModelRef, type SubmissionId, type TaskId, type TaskRuntime, type Tx } from "@earendil-works/pi-durable";
 import { permissionSnapshot, telegramSelection, telegramSourceActive, PersonalPermissionsDoc, type PersonalTelegramSource } from "./personal-permissions.ts";
-import { PersonalTelegramReceiptDoc } from "./personal-telegram-records.ts";
+import { samePersonalEntry, type PersonalEntryIdentity, isPersonalImRequest, PersonalTelegramReceiptDoc } from "./personal-telegram-records.ts";
 import { PERSONAL_SERVICE_WORK, interruptedPersonalService, personalWorkServices, requirePersonalWorkServicesStopped, requirePersonalServiceSourceReady, waitPersonalServiceEffect, type PersonalServiceOperationRef } from "./personal-service-operations.ts";
 import { PersonalError } from "./personal-error.ts";
 import { LocalInputDoc, personalInputDigest } from "./personal-local-records.ts";
@@ -20,7 +20,7 @@ import { PERSONAL_MCP, PERSONAL_MCP_TOOLS, mcpOperations, mcpUnresolved, require
 type WorkResult = { submissionId: SubmissionId };
 export type PersonalWorkRef = { requestId: string; taskId: TaskId<WorkResult>; agentId: ConversationId };
 type AgentIndex = { id: ConversationId; label: string; closed: boolean; work?: PersonalWorkRef };
-type NoteSource = { kind: "input"; requestId: string; submissionId: SubmissionId; entryId: EntryId; modelCall?: TaskId } | { kind: "local" } | { kind: "telegram" };
+type NoteSource = { kind: "input"; requestId: string; submissionId: SubmissionId; entryId: EntryId; modelCall?: TaskId } | { kind: "local" } | { kind: "telegram" | "qq" };
 type WorkNote = { admission?: EntryId; requestId: string; content: string; source: NoteSource; submissionId?: SubmissionId };
 type WorkFacts = { delegationAdmission?: EntryId; delegation?: PersonalDelegationRef; instructionSource?: PersonalWorkSource; notes?: WorkNote[]; fingerprint: string; ref?: PersonalWorkRef; source?: PersonalWorkSource; submissionId?: SubmissionId; cancelRequested: boolean; permission?: { mode: PersonalTelegramSource["mode"]; version: number }; telegram?: PersonalTelegramSource; modelCall?: TaskId };
 type WorkInput = { requestId: string; agentId: ConversationId; content: string };
@@ -200,9 +200,9 @@ export async function delegatePersonalWork(tx: Tx, model: ModelRef, input: Deleg
   const source = await tx.submissionByRequest(ROOT_CONVERSATION_ID, input.sourceRequestId);
   const entry = source?.entry && await tx.entry(source.entry);
   if (source?.type !== "input" || (source.status !== "placed" && source.status !== "done") || !entry || entry.kind !== "pi.user") throw new PersonalError("work_source_invalid", "后台工作需要已进入主会话的拥有者输入，不能使用回报、排队或失败的输入。");
-  const receipt = input.sourceRequestId.startsWith("telegram:") ? (await tx.doc(PersonalTelegramReceiptDoc, input.sourceRequestId, null)).receipt : undefined;
+  const receipt = isPersonalImRequest(input.sourceRequestId) ? (await tx.doc(PersonalTelegramReceiptDoc, input.sourceRequestId, null)).receipt : undefined;
   const telegram = receipt && permissionSnapshot(receipt);
-  if (input.sourceRequestId.startsWith("telegram:") && (!telegram || receipt?.submissionId !== source.id || !await telegramSourceActive(tx, telegram))) throw new PersonalError("work_source_invalid", "原 Telegram 输入没有有效的拥有者权限快照，请由当前绑定拥有者重新提交委托。");
+  if (isPersonalImRequest(input.sourceRequestId) && (!telegram || receipt?.submissionId !== source.id || !await telegramSourceActive(tx, telegram))) throw new PersonalError("work_source_invalid", "原拥有者输入没有有效的权限快照，请由当前绑定拥有者重新提交委托。");
   await requirePersonalServiceSourceReady(tx, input.sourceRequestId);
   const permission = telegram ?? await personalLocalPermission(tx, input.sourceRequestId) ?? await tx.doc(PersonalPermissionsDoc);
   const index = await tx.doc(PersonalAgentsDoc);
@@ -283,10 +283,10 @@ export async function appendPersonalWork(tx: Tx, ref: PersonalWorkRef, input: { 
   if (work.delegation) await requirePersonalDelegationOpen(tx, work.delegation);
   if (work.delegation && input.source.kind === "input") await requirePersonalDelegationInput(tx, work.delegation, input.source.requestId);
   if (input.source.kind === "input") await requirePersonalServiceSourceReady(tx, input.source.requestId);
-  if (input.source.kind === "input" && input.source.requestId.startsWith("telegram:")) {
+  if (input.source.kind === "input" && isPersonalImRequest(input.source.requestId)) {
     const receipt = (await tx.doc(PersonalTelegramReceiptDoc, input.source.requestId, null)).receipt;
     const source = receipt && permissionSnapshot(receipt);
-    if (!source || !await telegramSourceActive(tx, source) || receipt?.submissionId !== input.source.submissionId || source.botId !== work.telegram?.botId || source.ownerId !== work.telegram.ownerId || source.generation !== work.telegram.generation) throw new PersonalError("work_original_entry_required", "此说明不属于原拥有者入口，未改变工作；请从原入口查询。");
+    if (!source || !await telegramSourceActive(tx, source) || receipt?.submissionId !== input.source.submissionId || !samePersonalEntry(source, work.telegram)) throw new PersonalError("work_original_entry_required", "此说明不属于原拥有者入口，未改变工作；请从原入口查询。");
   }
   if (work.telegram && !await telegramSourceActive(tx, work.telegram)) throw new PersonalError("work_source_inactive", "原拥有者入口已停用或变更，未接纳说明；请查询原工作。");
   if (work.source) await requirePersonalServiceSourceReady(tx, work.source.requestId);
@@ -311,10 +311,10 @@ export async function verifyPersonalWorkNotes(tx: Tx, ref: PersonalWorkRef, enab
     if (note.source.kind === "local") {
       const intent = await tx.doc(LocalInputDoc, note.requestId, "");
       if (intent.work !== ref.taskId || intent.digest !== personalInputDigest(note.content, ref.taskId)) throw new PersonalError("work_note_invalid", "追加说明的本机原请求不符，已停止恢复；请保留档案。");
-    } else if (note.source.kind === "telegram") {
+    } else if (note.source.kind === "telegram" || note.source.kind === "qq") {
       const receipt = (await tx.doc(PersonalTelegramReceiptDoc, note.requestId, null)).receipt;
       const menu = receipt && (await telegramSelection(tx, receipt))?.selection;
-      if (menu?.kind !== "work" || menu.ref.taskId !== ref.taskId || !receipt?.direct || !receipt.control || receipt.selection?.kind !== "work" || receipt.selection.ref.taskId !== ref.taskId || receipt.content !== `补充：${note.content}` || receipt.botId !== work.telegram?.botId || receipt.ownerId !== work.telegram.ownerId || receipt.generation !== work.telegram.generation) throw new PersonalError("work_note_invalid", "追加说明的 Telegram 原菜单或入口不符，已停止恢复；请保留档案。");
+      if (menu?.kind !== "work" || menu.ref.taskId !== ref.taskId || !receipt?.direct || !receipt.control || receipt.selection?.kind !== "work" || receipt.selection.ref.taskId !== ref.taskId || receipt.content !== `补充：${note.content}` || !samePersonalEntry(receipt, work.telegram) || (receipt.platform ?? "telegram") !== note.source.kind) throw new PersonalError("work_note_invalid", "追加说明的拥有者原菜单或入口不符，已停止恢复；请保留档案。");
     } else if (note.source.kind === "input") {
       const source = await tx.submissionByRequest(ROOT_CONVERSATION_ID, note.source.requestId);
       if (source?.id !== note.source.submissionId || source.entry !== note.source.entryId || (await tx.entry(note.source.entryId))?.kind !== "pi.user") throw new PersonalError("work_note_invalid", "追加说明的拥有者原输入缺失，已停止恢复；请保留档案。");
@@ -403,7 +403,7 @@ export async function personalWorkSummary(tx: Tx, ref: PersonalWorkRef): Promise
   return { ref, label: agent.label, content: content.slice(0, 160), state: status.task.state.status === "terminal" ? status.task.state.outcome.status : status.task.state.status, cancelRequested: status.cancelRequested, stopVerified: status.stopVerified, closed: agent.closed, notes: status.notes };
 }
 
-export async function listPersonalWorks(tx: Tx, offset = 0, source?: Pick<PersonalTelegramSource, "botId" | "ownerId" | "generation">) {
+export async function listPersonalWorks(tx: Tx, offset = 0, source?: PersonalEntryIdentity) {
   const items: PersonalWorkSummary[] = [];
   let cursor: Cursor | undefined;
   let skipped = 0;
@@ -412,7 +412,7 @@ export async function listPersonalWorks(tx: Tx, offset = 0, source?: Pick<Person
     for (const task of page.items) {
       const ref = await personalWorkRef(tx, task.id);
       const work = await facts(tx, ref);
-      if (source && (work.telegram?.botId !== source.botId || work.telegram.ownerId !== source.ownerId || work.telegram.generation !== source.generation)) continue;
+      if (source && !samePersonalEntry(work.telegram, source)) continue;
       if (skipped++ < offset) continue;
       if (items.length === 8) return { items, nextOffset: offset + 8 };
       items.push(await personalWorkSummary(tx, ref));

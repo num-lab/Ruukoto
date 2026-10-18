@@ -13,8 +13,8 @@ import { compileMcpSchema, validateRemoteTool } from "@ruukoto/agent/mcp/schema.
 import { PersonalError } from "./personal-error.ts";
 import { parsePersonalMcp, resolvePersonalMcpToken, type PersonalMcpConfig, type PersonalMcpService } from "./personal-mcp-config.ts";
 import { activePersonalWorkInspection, personalWorkInspectionSource, PersonalWorkDoc, requirePersonalWorkRequest, type PersonalWorkInspectionSource } from "./personal-work.ts";
-import { permissionSnapshot, telegramSourceActive, type PersonalTelegramSource } from "./personal-permissions.ts";
-import { PersonalTelegramReceiptDoc } from "./personal-telegram-records.ts";
+import { permissionSnapshot, telegramSourceActive } from "./personal-permissions.ts";
+import { samePersonalEntry, type PersonalEntryIdentity, PersonalTelegramReceiptDoc } from "./personal-telegram-records.ts";
 
 type JsonObject = { [key: string]: JsonValue };
 
@@ -33,7 +33,7 @@ const McpObservation = defineEntry<{ operation: TaskId; admission: EntryId; evid
 const McpDecision = defineEntry<{ operation: TaskId; decision: McpOperation["decision"]; requestId?: string }>("ruukoto.mcp-decision");
 const McpResolution = defineEntry<{ operation: TaskId; effect: Resolution["effect"]; evidence: string; requestId?: string }>("ruukoto.mcp-resolution");
 const McpConfiguration = defineEntry<{ config: PersonalMcpConfig }>("ruukoto.mcp-configuration");
-export type McpActor = Pick<PersonalTelegramSource, "botId" | "ownerId" | "generation"> & { requestId: string };
+export type McpActor = PersonalEntryIdentity & { requestId: string };
 
 export async function mcpOperation(tx: Tx, operation: TaskId) {
   const value = (await tx.doc(PersonalMcpDoc, String(operation), null)).operation;
@@ -77,7 +77,7 @@ async function active(tx: Tx, value: McpOperation) {
 }
 export async function mcpOriginal(tx: Tx, operation: TaskId, actor: McpActor, active = true) {
   const value = await mcpOperation(tx, operation), source = value.origin.telegram;
-  if (!source || source.botId !== actor.botId || source.ownerId !== actor.ownerId || source.generation !== actor.generation || (active && !await telegramSourceActive(tx, source))) throw new PersonalError("mcp_original_entry", "此 MCP 调用不属于当前原入口，未改变记录；请从发起入口查询。");
+  if (!source || !samePersonalEntry(source, actor) || (active && !await telegramSourceActive(tx, source))) throw new PersonalError("mcp_original_entry", "此 MCP 调用不属于当前原入口，未改变记录；请从发起入口查询。");
 }
 export async function mcpDecide(tx: Tx, operation: TaskId, decision: "approved" | "rejected", actor?: McpActor) {
   const value = await mcpOperation(tx, operation);
@@ -96,9 +96,9 @@ export async function mcpResolve(tx: Tx, operation: TaskId, effect: "applied" | 
   const entry = await tx.appendEntry(McpResolution, ROOT_CONVERSATION_ID, { data: { operation, effect, evidence, ...(actor ? { requestId: actor.requestId } : {}) } });
   value.resolution = { effect, evidence, entry: entry.id, ...(actor ? { requestId: actor.requestId } : {}) };
 }
-function summary(value: McpOperation, actor?: Pick<McpActor, "botId" | "ownerId" | "generation">) { return { operation: value.operation, service: value.config.services.find(service => service.id === value.service)!.label, tool: value.tool, decision: value.decision, started: value.started, remoteEnded: value.remoteEnded, effect: value.effect, code: value.code, canDecide: !value.started && !value.observation && value.decision === "pending" && (!value.origin.telegram || !!actor && value.origin.telegram.botId === actor.botId && value.origin.telegram.ownerId === actor.ownerId && value.origin.telegram.generation === actor.generation), canResolve: value.started && value.code !== "started" && value.effect === "effect_unknown" && !value.resolution, canRecheck: value.started && value.code !== "started" && !value.remoteEnded && !!value.evidence.resumptionToken }; }
-export async function mcpList(tx: Tx, offset = 0, actor?: Pick<McpActor, "botId" | "ownerId" | "generation">) {
-  const values = (await mcpOperations(tx)).reverse().filter(value => !actor || (value.origin.telegram?.botId === actor.botId && value.origin.telegram.ownerId === actor.ownerId && value.origin.telegram.generation === actor.generation));
+function summary(value: McpOperation, actor?: PersonalEntryIdentity) { return { operation: value.operation, service: value.config.services.find(service => service.id === value.service)!.label, tool: value.tool, decision: value.decision, started: value.started, remoteEnded: value.remoteEnded, effect: value.effect, code: value.code, canDecide: !value.started && !value.observation && value.decision === "pending" && (!value.origin.telegram || !!actor && samePersonalEntry(value.origin.telegram, actor)), canResolve: value.started && value.code !== "started" && value.effect === "effect_unknown" && !value.resolution, canRecheck: value.started && value.code !== "started" && !value.remoteEnded && !!value.evidence.resumptionToken }; }
+export async function mcpList(tx: Tx, offset = 0, actor?: PersonalEntryIdentity) {
+  const values = (await mcpOperations(tx)).reverse().filter(value => !actor || samePersonalEntry(value.origin.telegram, actor));
   return { items: values.slice(offset, offset + 8).map(value => summary(value, actor)), ...(offset + 8 < values.length ? { nextOffset: offset + 8 } : {}) };
 }
 export async function mcpDetail(tx: Tx, operation: TaskId, offset = 0, actor?: McpActor) {

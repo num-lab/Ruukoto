@@ -8,6 +8,8 @@
 
 ## 重新评估
 
+2026-10-18，[36 Coding 回归](issues/36-coding-regression.md)已确认并修复一项迁移前既有停止回执竞态，独立代码审查与撤修复反证通过；macOS 当前 478 个唯一用例、静态及旧 Coding schema/历史/产物保持通过，Linux 当前候选 159 通过、1 个 macOS 专用跳过，两平台基点/当前原版/修复版 122 均有有效通过证据。原 17 精确触发仍待可复现现场，36 保持 ready-for-human、A1 未关闭，38/39 不能沿用当前通过替代缺失归因；首 Linux ENOSPC 轮证据不可用且未计结果。
+
 迁移已有可运行的独立底座、Telegram 文本入口、长期子 Agent、整项汇报、受控服务和三模式命令。与上次 `3c0c8f4` 评估相比，[23](issues/23-command-worker.md)–[26](issues/26-full-access-commands.md)已把独立 worker、宿主回执、受限及完全访问命令接入原工作；“命令尚未接通”的结论不再适用。[27](issues/27-mcp-transport.md)完成共享 MCP HTTP 传输拆分和分页限额修复，但没有个人 MCP 配置/工具或持久恢复消费者。
 
 | 范围 | 当前事实 | 剩余交付 |

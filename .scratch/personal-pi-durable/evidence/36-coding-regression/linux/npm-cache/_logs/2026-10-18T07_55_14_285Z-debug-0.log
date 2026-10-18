@@ -1,0 +1,20 @@
+0 verbose cli /usr/local/bin/node /usr/local/bin/npm
+1 info using npm@11.19.0
+2 info using node@v24.21.0
+3 silly config load:file:/usr/local/lib/node_modules/npm/npmrc
+4 silly config load:file:/dev/shm/rk-coding36-linux.gaWtu6/current/.npmrc
+5 silly config load:file:/home/eitrous/.npmrc
+6 silly config load:file:/usr/local/etc/npmrc
+7 verbose title npm ls
+8 verbose argv "ls" "--all" "--parseable"
+9 verbose logfile logs-max:10 dir:/dev/shm/rk-coding36-linux.gaWtu6/npm-cache/_logs/2026-10-18T07_55_14_285Z-
+10 verbose logfile /dev/shm/rk-coding36-linux.gaWtu6/npm-cache/_logs/2026-10-18T07_55_14_285Z-debug-0.log
+11 silly logfile start cleaning logs, removing 1 files
+12 silly logfile done cleaning log files
+13 silly packumentCache heap:2153512960 maxSize:538378240 maxEntrySize:269189120
+14 verbose cwd /dev/shm/rk-coding36-linux.gaWtu6/current
+15 verbose os Linux 6.8.0-117-generic
+16 verbose node v24.21.0
+17 verbose npm  v11.19.0
+18 verbose exit 0
+19 info ok

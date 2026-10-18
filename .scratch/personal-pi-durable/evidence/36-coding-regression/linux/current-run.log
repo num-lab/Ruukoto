@@ -1,0 +1,11 @@
+setup start
+setup exit 0
+1.6G	/dev/shm/rk-coding36-linux.gaWtu6/current
+492K	/tmp/rk-coding36-linux-npm.rhwyky
+
+Filesystem      Size  Used Avail Use% Mounted on
+tmpfs           1.9G  1.7G  139M  93% /dev/shm
+
+build start
+build exit 0
+{"start": 1792309849.1683965, "cwd": "/dev/shm/rk-coding36-linux.gaWtu6/current", "command": ["timeout", "--signal=TERM", "--kill-after=10s", "300s", "npx", "tsx", "--test", "test/122-workflow-code-acceptance.test.ts"], "environment": {"TMPDIR": "/dev/shm/rk-coding36-linux.gaWtu6/current-tmp", "npm_config_cache": "/dev/shm/rk-coding36-linux.gaWtu6/npm-cache", "ELECTRON_SKIP_BINARY_DOWNLOAD": "1", "RUN_MODEL_CHECK": "0"}, "space_before": {"total": 1952030720, "used": 1808285696, "free": 143745024}, "end": 1792309996.925733, "exit": 0, "space_after": {"total": 1952030720, "used": 1813630976, "free": 138399744}}

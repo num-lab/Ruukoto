@@ -1,0 +1,13 @@
+✔ 完全访问消费 exit 后到达的停止回执：true (3.142833ms)
+✔ 完全访问消费 exit 后到达的停止回执：false (0.676125ms)
+✔ 完全访问消费 exit 后到达的停止回执：null (0.404417ms)
+✔ 完全访问消费 exit 后到达的停止回执：partial (0.386791ms)
+✔ 迟到的命令组停止成功不能覆盖 worker 组未核实 (0.261542ms)
+ℹ tests 5
+ℹ suites 0
+ℹ pass 5
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1286.817667

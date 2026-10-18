@@ -1,0 +1,40 @@
+0 verbose cli /usr/local/bin/node /usr/local/bin/npm
+1 info using npm@11.19.0
+2 info using node@v24.21.0
+3 silly config load:file:/usr/local/lib/node_modules/npm/npmrc
+4 info config found workspace root at /dev/shm/rk-coding36-linux.gaWtu6/current
+5 silly config load:file:/dev/shm/rk-coding36-linux.gaWtu6/current/.npmrc
+6 silly config load:file:/home/eitrous/.npmrc
+7 silly config load:file:/usr/local/etc/npmrc
+8 verbose title npm pack
+9 verbose argv "pack" "--pack-destination" "../../dist"
+10 verbose logfile logs-max:10 dir:/dev/shm/rk-coding36-linux.gaWtu6/npm-cache/_logs/2026-10-18T07_55_16_687Z-
+11 verbose logfile /dev/shm/rk-coding36-linux.gaWtu6/npm-cache/_logs/2026-10-18T07_55_16_687Z-debug-0.log
+12 silly logfile start cleaning logs, removing 1 files
+13 silly logfile done cleaning log files
+14 silly packumentCache heap:2153512960 maxSize:538378240 maxEntrySize:269189120
+15 notice
+16 notice 📦  ruukoto-code@0.1.0
+17 notice Tarball Contents
+18 notice 580B bin/ruukoto-code.mjs
+18 notice 575B package.json
+18 notice 96B src/dev.ts
+18 notice 80.3kB src/legacy-import.ts
+18 notice 152B src/main.ts
+18 notice 891B src/product.ts
+19 notice Tarball Details
+20 notice name: ruukoto-code
+21 notice version: 0.1.0
+22 notice filename: ruukoto-code-0.1.0.tgz
+23 notice package size: 23.1 kB
+24 notice unpacked size: 82.6 kB
+25 notice shasum: 5af04e561c9fbf84bf29f8237e3655e563ea5ed9
+26 notice integrity: sha512-XhLM4XOtSZg3y[...]FBbb4606oz4Rw==
+27 notice total files: 6
+28 notice
+29 verbose cwd /dev/shm/rk-coding36-linux.gaWtu6/current/apps/ruukoto-code
+30 verbose os Linux 6.8.0-117-generic
+31 verbose node v24.21.0
+32 verbose npm  v11.19.0
+33 verbose exit 0
+34 info ok

@@ -1,0 +1,24 @@
+setup start
+setup exit 0
+1.6G	/dev/shm/rk-coding36-linux.gaWtu6/baseline
+216M	/dev/shm/rk-coding36-linux.gaWtu6/npm-cache
+
+Filesystem      Size  Used Avail Use% Mounted on
+tmpfs           1.9G  1.9G  9.6M 100% /dev/shm
+
+build start
+build exit 0
+122-first start
+OSError: [Errno 28] No space left on device
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/dev/shm/rk-coding36-linux.gaWtu6/run-version.py", line 69, in <module>
+    result=phase('122-first',['timeout','--signal=TERM','--kill-after=10s','300s','npx','tsx','--test','test/122-workflow-code-acceptance.test.ts'])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/dev/shm/rk-coding36-linux.gaWtu6/run-version.py", line 31, in phase
+    (out/(name+'.exit')).write_text(str(result.returncode)+'\n')
+  File "/usr/lib/python3.12/pathlib.py", line 1049, in write_text
+    with self.open(mode='w', encoding=encoding, errors=errors, newline=newline) as f:
+OSError: [Errno 28] No space left on device

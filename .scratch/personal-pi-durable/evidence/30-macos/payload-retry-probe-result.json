@@ -1,0 +1,21 @@
+{
+  "environment": {
+    "platform": "darwin",
+    "arch": "arm64",
+    "node": "v24.15.0"
+  },
+  "model": "回环HTTP替身，非真实模型",
+  "injection": "首次provider.fetch在调用globalThis.fetch之前抛TypeError(fetch failed)",
+  "fetchAttempts": 2,
+  "httpRequests": 1,
+  "preparedPayloads": 2,
+  "adjacentPayloadsEqual": true,
+  "durableErrors": [
+    "Connection error."
+  ],
+  "requestIds": [
+    "09c59d3d-d7ea-4277-ad31-75e93e8f8163",
+    "545c8836-5f60-44f4-b8f9-8b3cf7ea4e9e"
+  ],
+  "passed": true
+}

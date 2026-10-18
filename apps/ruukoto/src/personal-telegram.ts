@@ -2,11 +2,12 @@ import { isDeepStrictEqual } from "node:util";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { AssistantEntry, defineExtension, defineTask, ROOT_CONVERSATION_ID, type Cursor, type Harness, type TaskId, type Tx } from "@earendil-works/pi-durable";
 import { PersonalError } from "./personal-error.ts";
-import { PersonalTelegramApiError, telegramOffset, telegramText, type PersonalTelegramApi, type TelegramAck, type TelegramUpdate } from "./personal-telegram-api.ts";
+import { PersonalTelegramApiError, telegramOffset, telegramMessage, type PersonalTelegramApi, type TelegramAck, type TelegramUpdate } from "./personal-telegram-api.ts";
 import { PersonalTelegramDoc, PersonalTelegramReceiptDoc, type TelegramReceipt as Receipt, type TelegramResult as Result, type TelegramControlInput } from "./personal-telegram-records.ts";
 import { telegramPermissionControl, PersonalPermissionsDoc, TELEGRAM_SERVICE_ACTIONS } from "./personal-permissions.ts";
 import { telegramWorkControl, telegramDelegationControl } from "./personal-work-controls.ts";
 export { PersonalTelegramDoc, PersonalTelegramReceiptDoc } from "./personal-telegram-records.ts";
+import { personalMediaRejection, type PersonalMedia } from "./personal-media.ts";
 import type { PersonalTelegramConfig } from "./personal-telegram-config.ts";
 
 const context = BACKGROUND_CONTEXT;
@@ -21,7 +22,7 @@ async function receipt(tx: Tx, requestId: string, taskId: TaskId) {
 function active(config: PersonalTelegramConfig | undefined, value: Receipt) { return config?.enabled === true && config.generation === value.generation && config.botId === value.botId && config.ownerId === value.ownerId; }
 
 // Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-telegram-entry.md
-export function personalTelegram(config?: PersonalTelegramConfig, api?: PersonalTelegramApi, control?: (tx: Tx, value: TelegramControlInput) => Promise<boolean>) {
+export function personalTelegram(config?: PersonalTelegramConfig, api?: PersonalTelegramApi, control?: (tx: Tx, value: TelegramControlInput) => Promise<boolean>, media?: PersonalMedia) {
   const task = defineTask<{ requestId: string }, { phase: "run" } | { phase: "send"; retryAt?: number } | { phase: "verify" }, Result>({
     name: TASK, version: 1, initial: () => ({ phase: "run" }),
     phases: {
@@ -36,6 +37,14 @@ export function personalTelegram(config?: PersonalTelegramConfig, api?: Personal
           return undefined;
         }, context);
         if (!allowed) return;
+        if (value.receipt.media && !media) throw new PersonalError("media_config_missing", "原图片处理模块不可用，未发送缺图请求；请恢复对应程序。");
+        const currentMedia = value.receipt.media ? await media!.message(value.receipt.media.key) : undefined;
+        if (value.receipt.media && !currentMedia) throw new PersonalError("image_reference_invalid", "原图片接收记录缺失，已停止；请保留档案。");
+        if (value.receipt.mediaRejected || currentMedia && ["rejected", "expired"].includes(currentMedia.state) || value.receipt.media && !media!.supportsImages()) {
+          const reason = currentMedia?.reason ?? "image_input_unsupported";
+          if (value.receipt.media && currentMedia?.state === "ready") await media!.reject(value.receipt.media.key, reason);
+          await runtime.commit(async tx => { const value = await receipt(tx, current.input.requestId, current.id); value.reply = personalMediaRejection(reason); value.mediaRejected = true; delete value.permission; value.delivery = "pending"; return { status: "running", checkpoint: { phase: "send" } }; }, context); return;
+        }
         if (value.receipt.control) {
           await runtime.commit(async tx => { (await receipt(tx, current.input.requestId, current.id)).delivery = "pending"; return { status: "running", checkpoint: { phase: "send" } }; }, context);
           return;
@@ -43,8 +52,8 @@ export function personalTelegram(config?: PersonalTelegramConfig, api?: Personal
         const main = await runtime.conversation(ROOT_CONVERSATION_ID, context);
         if (!main) throw new PersonalError("telegram_main_missing", "Telegram 主会话缺失，已停止；请保留档案。");
         // 配置只在停机持锁时改变；跨 admission 的窗口始终重接同一平台消息键。
-        const submission = await main.submit({ type: "input", content: value.receipt.content, requestId: current.input.requestId, whenBusy: "followUp" }, context);
-        await runtime.commit(async tx => { (await receipt(tx, current.input.requestId, current.id)).submissionId = submission.id; return undefined; }, context);
+        const submission = await main.submit({ type: "input", content: value.receipt.media ? await media!.input(value.receipt.media.key) : value.receipt.content, requestId: current.input.requestId, whenBusy: "followUp" }, context);
+        await runtime.commit(async tx => { const receipt = (await tx.doc(PersonalTelegramReceiptDoc, current.input.requestId, null)).receipt; if (!receipt || receipt.taskId !== current.id) throw new PersonalError("telegram_receipt_missing", "原收件记录缺失，请保留档案。"); receipt.submissionId = submission.id; if (receipt.media) await media!.bind(tx, receipt.media.key, submission.id); return undefined; }, context);
         const settled = await submission.wait(context);
         const entry = settled.status === "done" && settled.type === "input" ? await runtime.entry(AssistantEntry, settled.answer, context) : undefined;
         const message = entry?.model?.[0];
@@ -112,9 +121,22 @@ export function personalTelegram(config?: PersonalTelegramConfig, api?: Personal
     api(harness: Harness) {
       let receiving = false;
       let online = false;
-      const receive = async (update: TelegramUpdate) => {
-        const message = telegramText(update);
+      const receive = async (update: TelegramUpdate, signal?: AbortSignal) => {
+        const message = telegramMessage(update);
         const key = message && config ? `telegram:${config.botId}:${message.ownerId}:${message.id}` : undefined;
+        let staged: Awaited<ReturnType<PersonalMedia["stage"]>> | undefined;
+        if (message?.media && message.ownerId === config?.ownerId && key) {
+          if (!media || !api) throw new PersonalError("media_config_missing", "图片处理模块不可用，收件未确认；请检查程序配置。");
+          await harness.commit(async tx => {
+            if (!config.enabled || !isDeepStrictEqual((await tx.doc(PersonalTelegramDoc)).config, config)) throw new PersonalError("telegram_target_changed", "Telegram 入口已变化，未接纳图片。");
+          }, context);
+          const prior = (await harness.snapshot(PersonalTelegramReceiptDoc, key, context))?.receipt;
+          const priorMedia = await media.message(key);
+          if (prior && prior.generation !== config.generation || priorMedia && priorMedia.source.generation !== config.generation) {
+            await harness.commit(async tx => { const state = await tx.doc(PersonalTelegramDoc); state.rejected++; state.lastUpdateId = update.update_id; }, context); return;
+          }
+          staged = await media.stage({ key, source: { platform: "telegram", accountId: config.botId, ownerId: config.ownerId, generation: config.generation }, body: message.text, media: message.media.map(value => api.photo(value)) }, signal);
+        }
         await harness.commit(async tx => {
           const state = await tx.doc(PersonalTelegramDoc);
           if (!config?.enabled || !isDeepStrictEqual(state.config, config)) throw new PersonalError("telegram_target_changed", "Telegram 入口配置已失效，已停止收件；请检查当前配置。");
@@ -122,13 +144,19 @@ export function personalTelegram(config?: PersonalTelegramConfig, api?: Personal
           if (!message || message.ownerId !== config.ownerId || !key) { state.rejected++; return; }
           const record = await tx.doc(PersonalTelegramReceiptDoc, key, null);
           if (record.receipt) {
-            if (record.receipt.content !== message.text || (record.receipt.direct !== undefined && (record.receipt.direct !== message.direct || record.receipt.replyTo !== message.replyTo || record.receipt.replyBotId !== message.replyBotId))) throw new PersonalError("telegram_input_conflict", "Telegram 同一消息的正文不符，已停止接收；请保留档案并检查。");
+            if (record.receipt.content !== message.text || !isDeepStrictEqual(record.receipt.media?.identities, message.media?.map(value => value.identity)) || (record.receipt.direct !== undefined && (record.receipt.direct !== message.direct || record.receipt.replyTo !== message.replyTo || record.receipt.replyBotId !== message.replyBotId))) throw new PersonalError("telegram_input_conflict", "Telegram 同一消息的正文不符，已停止接收；请保留档案并检查。");
             return;
           }
           const value: TelegramControlInput = { requestId: key, generation: config.generation, botId: config.botId, ownerId: config.ownerId, messageId: message.id, updateId: update.update_id, content: message.text, direct: message.direct, ...(message.replyTo === undefined ? {} : { replyTo: message.replyTo }), ...(message.replyBotId === undefined ? {} : { replyBotId: message.replyBotId }), delivery: "waiting" };
-          if (await telegramPermissionControl(tx, value) || await telegramWorkControl(tx, value) || await telegramDelegationControl(tx, value) || await control?.(tx, value)) value.control = true;
+          if (staged) {
+            value.media = { key, identities: staged.identities };
+            if (staged.state === "rejected" || staged.state === "expired") { value.mediaRejected = true; value.reply = personalMediaRejection(staged.reason!); }
+            else if (message.direct) { const permission = await tx.doc(PersonalPermissionsDoc); value.permission = { mode: permission.mode, version: permission.version }; }
+          }
+          else if (await telegramPermissionControl(tx, value) || await telegramWorkControl(tx, value) || await telegramDelegationControl(tx, value) || await control?.(tx, value)) value.control = true;
           else if (TELEGRAM_SERVICE_ACTIONS.includes(value.content)) { value.control = true; value.reply = "当前宿主未启用服务操作；请由拥有者核实服务配置，聊天仍可继续。"; }
           else if (message.direct) { const permission = await tx.doc(PersonalPermissionsDoc); value.permission = { mode: permission.mode, version: permission.version }; }
+          value.accepted = staged?.accepted ?? (await tx.appendEntry(ROOT_CONVERSATION_ID, { kind: "ruukoto.telegram-received", data: { requestId: key, generation: config.generation } })).id;
           const taskId = await tx.createTask(task, { requestId: key }, { conversationId: ROOT_CONVERSATION_ID, ownership: { kind: "conversation" }, background: true });
           record.receipt = { ...value, taskId };
         }, context);
@@ -149,7 +177,7 @@ export function personalTelegram(config?: PersonalTelegramConfig, api?: Personal
               const updates = await api.updates(signal, offset);
               online = true;
               const receivedAt = performance.now();
-              for (const update of updates) { if (signal.aborted) return; await receive(update); }
+              for (const update of updates) { if (signal.aborted) return; await receive(update, signal); }
               if (updates.length) ack = { offset: updates[updates.length - 1].update_id + 1, receivedAt };
               backoff = 1000;
             } catch (error) {

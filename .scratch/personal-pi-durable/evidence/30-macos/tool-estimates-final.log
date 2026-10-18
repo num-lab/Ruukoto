@@ -1,0 +1,10 @@
+✔ durable 模型快照：主子三模式保留实际工具定义与启用前后估算 (150.5315ms)
+ℹ {"estimatedTokens":{"before":{"main":{"systemPrompt":51,"toolSchemas":637},"child":{"systemPrompt":38,"toolSchemas":1}},"after":{"auto-review":{"main":{"systemPrompt":51,"toolSchemas":1406},"child":{"systemPrompt":38,"toolSchemas":886}},"confirm":{"main":{"systemPrompt":51,"toolSchemas":1406},"child":{"systemPrompt":38,"toolSchemas":886}},"full_access":{"main":{"systemPrompt":51,"toolSchemas":1406},"child":{"systemPrompt":38,"toolSchemas":886}}}}}
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 747.966375

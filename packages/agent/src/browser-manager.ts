@@ -60,8 +60,9 @@ export interface BrowserManagerOptions {
   chromePath?: string;
   headed?: boolean;
   noSandbox?: boolean;
-  store: Pick<Store, "getMetaValue">;
-  persist(stateJson: string, binding: BrowserBinding): void;
+  store?: Pick<Store, "getMetaValue">;
+  initialState?: string | null;
+  persist(stateJson: string, binding: BrowserBinding): void | Promise<void>;
 }
 
 export interface BrowserCommandResult {
@@ -321,7 +322,7 @@ export class BrowserManager {
     this.env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("AGENT_BROWSER_") && !key.startsWith("AI_GATEWAY_") && !["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"].includes(key.toUpperCase())));
     for (const key of ["RUUKOTO_OWNER_TOKEN", "RUUKOTO_OWNER_TOKEN_FILE", "RUUKOTO_CONTROL_DIR", "RUUKOTO_CODE_CONTROL_DIR"]) delete this.env[key];
     this.env.AGENT_BROWSER_IDLE_TIMEOUT_MS = "3600000";
-    const stored = options.store.getMetaValue(BROWSER_META_KEY);
+    const stored = options.initialState ?? options.store?.getMetaValue(BROWSER_META_KEY) ?? null;
     if (stored !== null) {
       try { this.load(stored); }
       catch { this.loadError = new BrowserError("browser_binding_invalid", "浏览器绑定记录不合法，保留原进程与资料，请人工核实"); }
@@ -362,8 +363,8 @@ export class BrowserManager {
     return { socketDir: `/tmp/ruukoto-browser-${process.getuid?.() ?? "unknown"}-${id}`, cliSession: `rk-${id}`, profileDir: path.join(this.root, id, "profile") };
   }
 
-  private save(binding: BrowserBinding, previousGeneration?: string): void {
-    try { this.options.persist(JSON.stringify({ version: 1, bindings: [...this.bindings.values()], fingerprints: Object.fromEntries(this.fingerprints) }), structuredClone(binding)); }
+  private async save(binding: BrowserBinding, previousGeneration?: string): Promise<void> {
+    try { await this.options.persist(JSON.stringify({ version: 1, bindings: [...this.bindings.values()], fingerprints: Object.fromEntries(this.fingerprints) }), structuredClone(binding)); }
     catch { this.loadError = new BrowserError("browser_state_unavailable", "浏览器状态无法持久化，已停止继续自动化，请核实原执行"); throw this.loadError; }
     if (binding.lockDir && binding.state !== "closed" && this.lockMatches(binding, previousGeneration)) {
       const file = path.join(binding.lockDir, "owner.json"), temporary = `${file}.${randomUUID()}`;
@@ -374,9 +375,9 @@ export class BrowserManager {
     }
   }
 
-  private unavailable(binding: BrowserBinding, error: BrowserError): void {
+  private async unavailable(binding: BrowserBinding, error: BrowserError): Promise<void> {
     binding.state = "unavailable"; binding.failureCode = error.code; binding.outcomeUnknown ||= error.effectUnknown;
-    this.save(binding);
+    await this.save(binding);
   }
 
   status(sessionId: string): BrowserBinding | null {
@@ -412,7 +413,7 @@ export class BrowserManager {
     }
   }
 
-  private binding(sessionId: string, kind: BrowserBinding["kind"], headed: boolean): BrowserBinding {
+  private async binding(sessionId: string, kind: BrowserBinding["kind"], headed: boolean): Promise<BrowserBinding> {
     const old = this.bindings.get(sessionId);
     if (old && old.state !== "closed") throw new BrowserError("browser_not_ready", "原浏览器未核实关闭，不能新开实例；请先查看状态并显式关闭");
     const paths = this.paths(sessionId);
@@ -420,7 +421,7 @@ export class BrowserManager {
     if (fs.readdirSync(paths.socketDir).some(name => name.endsWith(".pid") || name.endsWith(".sock"))) throw new BrowserError("browser_stop_unverified", "浏览器控制目录残留执行记录，请核实原执行后再启动");
     fs.writeFileSync(path.join(paths.socketDir, "config.json"), "{}\n", { mode: 0o600 });
     const binding: BrowserBinding = { sessionId, generation: randomUUID(), kind, state: "starting", profileDir: kind === "owned" ? paths.profileDir : null, socketDir: paths.socketDir, cliSession: paths.cliSession, cdpUrl: null, targetId: null, chrome: null, daemon: null, dashboard: null, chromePending: false, daemonPending: false, dashboardPending: false, lockDir: null, pauseTaskId: null, pauseAfterSeq: null, outcomeUnknown: false, failureCode: null, dashboardUrl: null, headed };
-    this.bindings.set(sessionId, binding); this.save(binding);
+    this.bindings.set(sessionId, binding); await this.save(binding);
     return binding;
   }
 
@@ -443,7 +444,7 @@ export class BrowserManager {
     return unit;
   }
 
-  private captureDaemon(binding: BrowserBinding): void {
+  private async captureDaemon(binding: BrowserBinding): Promise<void> {
     const daemon = this.sidecar(binding, binding.cliSession);
     if (!daemon) throw new BrowserError("browser_identity_unverified", "浏览器 daemon 未登记进程身份，保留不可用状态");
     if (binding.daemon && (binding.daemon.pid !== daemon.pid || binding.daemon.processIdentity !== daemon.processIdentity)) throw new BrowserError("browser_identity_unverified", "浏览器 daemon 已换代，原执行状态不能核实");
@@ -451,7 +452,7 @@ export class BrowserManager {
     const previous = this.fingerprints.get(binding.sessionId);
     if (previous && (previous.config !== fingerprint.config || previous.version !== fingerprint.version)) throw new BrowserError("browser_identity_unverified", "浏览器 daemon 配置已变化，拒绝继续自动化");
     this.fingerprints.set(binding.sessionId, fingerprint);
-    binding.daemon = daemon; binding.daemonPending = false; this.save(binding);
+    binding.daemon = daemon; binding.daemonPending = false; await this.save(binding);
   }
 
   private fingerprint(binding: BrowserBinding): { config: string; version: string } {
@@ -464,7 +465,9 @@ export class BrowserManager {
 
   private async dashboard(binding: BrowserBinding, signal?: AbortSignal): Promise<void> {
     const port = await freePort();
-    binding.dashboardPending = true; this.save(binding);
+    if (signal?.aborted) throw new BrowserError("browser_not_sent", "dashboard 启动已取消");
+    binding.dashboardPending = true; await this.save(binding);
+    if (signal?.aborted) { binding.dashboardPending = false; await this.save(binding); throw new BrowserError("browser_not_sent", "dashboard 启动已取消"); }
     const result = await runProcess(this.options.binaryPath!, ["--config", path.join(binding.socketDir, "config.json"), "--json", "dashboard", "start", "--port", String(port)], { cwd: binding.socketDir, env: this.envFor(binding), timeout: 10000, signal });
     let response: unknown;
     try { response = JSON.parse(result.stdout); }
@@ -473,7 +476,7 @@ export class BrowserManager {
     binding.dashboard = this.sidecar(binding, "dashboard");
     if (!binding.dashboard || binding.dashboard.pid !== response.data.pid) throw new BrowserError("browser_identity_unverified", "dashboard 进程归属不一致");
     binding.dashboardPending = false; binding.dashboardUrl = `http://127.0.0.1:${port}/?port=${this.streamPort(binding)}`;
-    this.save(binding);
+    await this.save(binding);
   }
 
   private streamPort(binding: BrowserBinding): number {
@@ -483,12 +486,14 @@ export class BrowserManager {
   }
 
   private async initialize(binding: BrowserBinding, signal?: AbortSignal): Promise<BrowserBinding> {
-    binding.daemonPending = true; this.save(binding);
+    if (signal?.aborted) throw new BrowserError("browser_not_sent", "浏览器连接已取消");
+    binding.daemonPending = true; await this.save(binding);
+    if (signal?.aborted) { binding.daemonPending = false; await this.save(binding); throw new BrowserError("browser_not_sent", "浏览器连接已取消"); }
     await runBrowserCommand(this.options.binaryPath!, this.argv(binding), ["snapshot"], { cwd: binding.socketDir, env: this.envFor(binding), signal });
-    this.captureDaemon(binding);
+    await this.captureDaemon(binding);
     await this.dashboard(binding, signal);
     if (signal?.aborted) throw new BrowserError("browser_not_sent", "浏览器启动已取消，请关闭已登记浏览器");
-    binding.state = "ready"; this.save(binding);
+    binding.state = "ready"; await this.save(binding);
     return structuredClone(binding);
   }
 
@@ -514,12 +519,14 @@ export class BrowserManager {
     if (signal?.aborted) throw new BrowserError("browser_not_sent", "浏览器启动已取消");
     await this.prepare(true);
     if (signal.aborted) throw new BrowserError("browser_not_sent", "浏览器启动已取消");
-    const binding = this.binding(sessionId, "owned", options.headed ?? this.options.headed ?? process.platform === "darwin");
+    const binding = await this.binding(sessionId, "owned", options.headed ?? this.options.headed ?? process.platform === "darwin");
     try {
+      if (signal.aborted) throw new BrowserError("browser_not_sent", "浏览器启动已取消");
       secureDirectory(binding.profileDir!);
       if (rows().some(row => row.command.includes(`--user-data-dir=${binding.profileDir}`) && !row.state.startsWith("Z"))) throw new BrowserError("browser_stop_unverified", "该资料目录仍有浏览器进程，拒绝新开实例");
       fs.rmSync(path.join(binding.profileDir!, "DevToolsActivePort"), { force: true });
-      binding.chromePending = true; this.save(binding);
+      binding.chromePending = true; await this.save(binding);
+      if (signal.aborted) { binding.chromePending = false; await this.save(binding); throw new BrowserError("browser_not_sent", "浏览器启动已取消"); }
       const args = ["--no-first-run", "--no-default-browser-check", "--remote-debugging-address=127.0.0.1", "--remote-debugging-port=0", `--user-data-dir=${binding.profileDir}`, ...(binding.headed ? [] : ["--headless=new"]), ...(this.options.noSandbox ? ["--no-sandbox"] : []), "about:blank"];
       const child = spawn(this.options.chromePath!, args, { cwd: binding.profileDir!, env: this.env, detached: true, stdio: "ignore" });
       let spawnError: Error | null = null; child.on("error", error => { spawnError = error; }); child.unref();
@@ -527,7 +534,7 @@ export class BrowserManager {
       if (!child.pid || spawnError) { binding.chromePending = false; throw new BrowserError("browser_unavailable", "Chromium 启动失败，请核实沙箱与系统前提"); }
       binding.chrome = captureProcess(child.pid);
       if (binding.chrome.pgid !== binding.chrome.pid) throw new BrowserError("browser_identity_unverified", "Chromium 未取得独立进程组");
-      binding.chromePending = false; this.save(binding);
+      binding.chromePending = false; await this.save(binding);
       const deadline = Date.now() + 15000;
       let endpoint: Awaited<ReturnType<typeof resolveBrowserEndpoint>> | null = null;
       while (!endpoint) {
@@ -542,10 +549,10 @@ export class BrowserManager {
           endpoint = await resolveBrowserEndpoint(`ws://127.0.0.1:${port}${target}`, signal);
         } else await delay(50);
       }
-      binding.cdpUrl = endpoint.url; binding.targetId = endpoint.targetId; this.claim(binding);
+      binding.cdpUrl = endpoint.url; binding.targetId = endpoint.targetId; await this.claim(binding);
       return await this.initialize(binding, signal);
     } catch (error) {
-      this.unavailable(binding, error instanceof BrowserError ? error : new BrowserError("browser_unavailable", "浏览器启动失败，请核实原进程和资料目录"));
+      await this.unavailable(binding, error instanceof BrowserError ? error : new BrowserError("browser_unavailable", "浏览器启动失败，请核实原进程和资料目录"));
       throw error instanceof BrowserError ? error : new BrowserError("browser_unavailable", "浏览器启动失败，请核实原进程和资料目录");
     }
   }
@@ -554,13 +561,13 @@ export class BrowserManager {
     return await this.operation(sessionId, signal, current => this.attachTarget(sessionId, target, current));
   }
 
-  private claim(binding: BrowserBinding): void {
+  private async claim(binding: BrowserBinding): Promise<void> {
     const lockDir = path.join(this.locks, digest(binding.targetId!));
     try { fs.mkdirSync(lockDir, { mode: 0o700 }); }
     catch (error) { if (errno(error) === "EEXIST") throw new BrowserError("browser_target_in_use", "该浏览器已被 Ruukoto 会话占用；未核实原自动化停止前不能接管"); throw error; }
     binding.lockDir = lockDir;
     fs.writeFileSync(path.join(lockDir, "owner.json"), JSON.stringify({ dataDir: this.dataDir, sessionId: binding.sessionId, generation: binding.generation, daemon: null, daemonPending: false }), { flag: "wx", mode: 0o600 });
-    this.save(binding);
+    await this.save(binding);
   }
 
   private async attachTarget(sessionId: string, target: string, signal: AbortSignal): Promise<BrowserBinding> {
@@ -570,17 +577,17 @@ export class BrowserManager {
     const current = this.bindings.get(sessionId);
     if (current && (current.state === "ready" || current.state === "paused") && current.kind === "attached" && current.targetId === endpoint.targetId) return structuredClone(current);
     if (signal.aborted) throw new BrowserError("browser_not_sent", "浏览器附接已取消");
-    const binding = this.binding(sessionId, "attached", false);
+    const binding = await this.binding(sessionId, "attached", false);
     binding.cdpUrl = endpoint.url; binding.targetId = endpoint.targetId;
-    try { this.claim(binding); return await this.initialize(binding, signal); }
-    catch (error) { const typed = error instanceof BrowserError ? error : new BrowserError("browser_unavailable", "附接失败，请核实原自动化连接"); this.unavailable(binding, typed); throw typed; }
+    try { await this.claim(binding); return await this.initialize(binding, signal); }
+    catch (error) { const typed = error instanceof BrowserError ? error : new BrowserError("browser_unavailable", "附接失败，请核实原自动化连接"); await this.unavailable(binding, typed); throw typed; }
   }
 
-  pause(sessionId: string, taskId: string, afterSeq = 0): BrowserBinding {
+  async pause(sessionId: string, taskId: string, afterSeq = 0): Promise<BrowserBinding> {
     const binding = this.require(sessionId);
     if (!["ready", "unavailable"].includes(binding.state) || this.active.has(sessionId)) throw new BrowserError("browser_busy", "请等待当前浏览器动作结束后进入人工操作");
     if (binding.state === "ready") binding.state = "paused";
-    binding.pauseTaskId = taskId; binding.pauseAfterSeq = afterSeq; this.save(binding);
+    binding.pauseTaskId = taskId; binding.pauseAfterSeq = afterSeq; await this.save(binding);
     return structuredClone(binding);
   }
 
@@ -590,10 +597,10 @@ export class BrowserManager {
       if (!["paused", "unavailable"].includes(binding.state) || !binding.pauseTaskId || !newTaskId || newTaskId === binding.pauseTaskId) throw new BrowserError("browser_paused", "人工操作后需拥有者的新消息继续，不能由原任务自行恢复");
       if (!this.live(binding)) throw new BrowserError("browser_identity_unverified", "原浏览器身份或占用无法核实，不能恢复自动化");
       await this.prepare(false);
-      try { await runBrowserCommand(this.options.binaryPath!, this.argv(binding), ["snapshot"], { cwd: binding.socketDir, env: this.envFor(binding), signal }); this.captureDaemon(binding); }
-      catch (error) { const typed = error instanceof BrowserError ? error : new BrowserError("outcome_unknown", "恢复时浏览器读取应答未核实"); this.unavailable(binding, typed); throw typed; }
+      try { await runBrowserCommand(this.options.binaryPath!, this.argv(binding), ["snapshot"], { cwd: binding.socketDir, env: this.envFor(binding), signal }); await this.captureDaemon(binding); }
+      catch (error) { const typed = error instanceof BrowserError ? error : new BrowserError("outcome_unknown", "恢复时浏览器读取应答未核实"); await this.unavailable(binding, typed); throw typed; }
       const previousGeneration = binding.generation;
-      binding.generation = randomUUID(); binding.state = "ready"; binding.pauseTaskId = null; binding.pauseAfterSeq = null; binding.failureCode = null; binding.outcomeUnknown = false; this.save(binding, previousGeneration);
+      binding.generation = randomUUID(); binding.state = "ready"; binding.pauseTaskId = null; binding.pauseAfterSeq = null; binding.failureCode = null; binding.outcomeUnknown = false; await this.save(binding, previousGeneration);
       return structuredClone(binding);
     });
   }
@@ -607,15 +614,15 @@ export class BrowserManager {
     if (binding.state === "paused") throw new BrowserError("browser_paused", "浏览器正在人工操作，等待拥有者的新消息继续");
     if (binding.state !== "ready") throw new BrowserError("browser_not_ready", "浏览器连接不可用，本次动作未发送；请先核实原执行并显式关闭");
     if (!this.live(binding)) {
-      const error = new BrowserError("browser_identity_unverified", "浏览器进程已退出或身份变化，请先核实停止；不会自动重建实例"); this.unavailable(binding, error); throw error;
+      const error = new BrowserError("browser_identity_unverified", "浏览器进程已退出或身份变化，请先核实停止；不会自动重建实例"); await this.unavailable(binding, error); throw error;
     }
     if (!["open", "snapshot", "click", "fill", "select", "check", "uncheck", "press", "scroll", "wait", "tab", "screenshot", "get"].includes(args[0])) throw new BrowserError("browser_invalid_action", "宿主浏览器动作不在首版命令集内");
     await this.prepare(false);
-    try { const result = await runBrowserCommand(this.options.binaryPath!, this.argv(binding), args, { cwd: binding.socketDir, env: this.envFor(binding), signal }); this.captureDaemon(binding); return result; }
+    try { const result = await runBrowserCommand(this.options.binaryPath!, this.argv(binding), args, { cwd: binding.socketDir, env: this.envFor(binding), signal }); await this.captureDaemon(binding); return result; }
     catch (error) {
       const typed = error instanceof BrowserError && !["browser_identity_unverified", "browser_state_unavailable"].includes(error.code) ? error : new BrowserError("outcome_unknown", "浏览器动作应答或 daemon 状态未核实", !isReadOnly(args));
       if (!["tab_gone", "browser_action_failed", "browser_not_sent"].includes(typed.code)) {
-        try { this.unavailable(binding, typed); }
+        try { await this.unavailable(binding, typed); }
         catch { process.stderr.write("[ruukoto:browser] 浏览器失败状态无法保存；保留本次结果未知并停止自动化\n"); }
       }
       throw typed;
@@ -700,14 +707,14 @@ export class BrowserManager {
         if (!binding.daemon) binding.daemon = this.sidecar(binding, binding.cliSession);
         if (!binding.daemon) throw new BrowserError("browser_stop_unverified", "daemon 启动窗口未记录身份，不能声称已停止");
         binding.daemonPending = false;
-        try { this.save(binding); }
+        try { await this.save(binding); }
         catch { process.stderr.write("[ruukoto:browser] daemon 身份无法保存；继续停止已核实的本次进程\n"); }
       }
       if (binding.dashboardPending) {
         if (!binding.dashboard) binding.dashboard = this.sidecar(binding, "dashboard");
         if (!binding.dashboard) throw new BrowserError("browser_stop_unverified", "dashboard 启动窗口未记录身份");
         binding.dashboardPending = false;
-        try { this.save(binding); }
+        try { await this.save(binding); }
         catch { process.stderr.write("[ruukoto:browser] dashboard 身份无法保存；继续停止已核实的本次进程\n"); }
       }
       if (!this.sidecarsMatch(binding)) throw new BrowserError("browser_stop_unverified", "控制目录出现未登记进程，保留原绑定与占用");
@@ -715,13 +722,13 @@ export class BrowserManager {
       const chromeStopped = binding.kind === "owned" ? await this.closeOwned(binding) : true;
       if (!daemonStopped || !dashboardStopped || !chromeStopped) throw new BrowserError("browser_stop_unverified", "浏览器相关进程未核实停止，保留绑定与附接占用");
       if (!this.lockMatches(binding) || !this.sidecarsMatch(binding)) throw new BrowserError("browser_stop_unverified", "停止期间占用或进程记录变化，保留控制目录");
-      binding.state = "closed"; binding.pauseTaskId = null; binding.pauseAfterSeq = null; binding.failureCode = null; this.save(binding);
+      binding.state = "closed"; binding.pauseTaskId = null; binding.pauseAfterSeq = null; binding.failureCode = null; await this.save(binding);
       if (binding.lockDir) fs.rmSync(binding.lockDir, { recursive: true });
       for (const name of fs.readdirSync(binding.socketDir)) if (/\.(pid|sock|stream|config|version|target)$/.test(name)) fs.rmSync(path.join(binding.socketDir, name), { force: true });
       return true;
     } catch (error) {
       const typed = error instanceof BrowserError ? error : new BrowserError("browser_stop_unverified", "浏览器停止核实失败，保留绑定与占用");
-      try { this.unavailable(binding, typed); }
+      try { await this.unavailable(binding, typed); }
       catch { process.stderr.write("[ruukoto:browser] 浏览器停止状态无法保存；保留绑定与占用待核实\n"); }
       process.stderr.write(`[ruukoto:browser] ${typed.message}\n`); return false;
     }
@@ -729,6 +736,11 @@ export class BrowserManager {
 
   async close(sessionId: string): Promise<boolean> {
     const old = this.closing.get(sessionId); if (old) return await old;
+    const pending = this.closeSession(sessionId); this.closing.set(sessionId, pending);
+    try { return await pending; } finally { this.closing.delete(sessionId); }
+  }
+
+  private async closeSession(sessionId: string): Promise<boolean> {
     const active = this.active.get(sessionId); active?.controller.abort();
     let binding = this.bindings.get(sessionId);
     if (!binding && active) {
@@ -738,11 +750,12 @@ export class BrowserManager {
     if (!binding || binding.state === "closed") return true;
     binding.state = "unavailable"; binding.failureCode = "browser_closing";
     let recorded = true;
-    try { this.save(binding); }
+    try { await this.save(binding); }
     catch { recorded = false; process.stderr.write("[ruukoto:browser] 关闭意图无法保存；继续回收已登记进程，停止结论保持待核实\n"); }
-    const pending = this.doClose(binding).then(stopped => stopped && recorded); this.closing.set(sessionId, pending);
-    try { return await pending; } finally { this.closing.delete(sessionId); }
+    return await this.doClose(binding) && recorded;
   }
+
+  assertState(): void { if (this.loadError) throw this.loadError; }
 
   async recover(): Promise<void> {
     if (this.loadError) { process.stderr.write(`[ruukoto:browser] ${this.loadError.message}\n`); return; }
@@ -755,9 +768,9 @@ export class BrowserManager {
     try {
       for (const binding of this.bindings.values()) {
         if (!["ready", "paused"].includes(binding.state) || this.active.has(binding.sessionId) || this.closing.has(binding.sessionId)) continue;
-        if (!this.lockMatches(binding)) { this.unavailable(binding, new BrowserError("browser_identity_unverified", "附接占用记录变化，请核实原执行")); continue; }
+        if (!this.lockMatches(binding)) { await this.unavailable(binding, new BrowserError("browser_identity_unverified", "附接占用记录变化，请核实原执行")); continue; }
         if (binding.daemon && processState(binding.daemon) === "gone") await this.close(binding.sessionId);
-        else if ((binding.daemon && processState(binding.daemon) !== "alive") || (binding.chrome && processState(binding.chrome) !== "alive") || (binding.dashboard && processState(binding.dashboard) !== "alive")) this.unavailable(binding, new BrowserError("browser_identity_unverified", "浏览器进程身份或存活状态无法核实"));
+        else if ((binding.daemon && processState(binding.daemon) !== "alive") || (binding.chrome && processState(binding.chrome) !== "alive") || (binding.dashboard && processState(binding.dashboard) !== "alive")) await this.unavailable(binding, new BrowserError("browser_identity_unverified", "浏览器进程身份或存活状态无法核实"));
       }
     } catch (error) { process.stderr.write(`[ruukoto:browser] 生命周期监督失败：${error instanceof Error ? error.message : String(error)}\n`); }
     finally { this.supervising = false; }

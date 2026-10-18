@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
+import { isDeepStrictEqual } from "node:util";
 import { setTimeout as delay } from "node:timers/promises";
 import { test, type TestContext } from "node:test";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
@@ -103,7 +104,12 @@ test("durable 通用工具：主子会话沿目录权限读写，二进制产物
   const entries = (await p.main.entries({ order: "ascending" }, 256, undefined, context)).items;
   const payloads = entries.filter(entry => entry.kind === "ruukoto.model-request").map(entry => entry.data as RequestEvidence).flatMap(value => value.payload === undefined ? [] : [value.payload]);
   const mainCalls = f.model.calls.filter(request => !request.system?.includes("你是个人助手的子 Agent"));
-  assert.deepEqual(payloads, mainCalls.map(request => request.raw));
+  const requests = mainCalls.map(request => request.raw);
+  if (process.env.RUUKOTO_TOOLS_EVIDENCE) { fs.mkdirSync(process.env.RUUKOTO_TOOLS_EVIDENCE, { recursive: true }); fs.writeFileSync(path.join(process.env.RUUKOTO_TOOLS_EVIDENCE, "comparison.json"), JSON.stringify({ payloads, requests }, null, 2) + "\n"); }
+  // 原生重试可在 HTTP 到达前重复准备同一 payload；快照记录不表示请求已送达。
+  const adjacent = (values: unknown[]) => values.filter((value, index) => index === 0 || !isDeepStrictEqual(value, values[index - 1]));
+  assert.deepEqual(adjacent(payloads), adjacent(requests));
+  for (const request of requests) assert.ok(payloads.some(payload => isDeepStrictEqual(payload, request)));
   await p.close(); const reopened = await f.open(); assert.equal((await operations(reopened)).length, 4);
 });
 
@@ -228,7 +234,9 @@ test("durable 模型快照：主子三模式保留实际工具定义与启用前
     for (const request of [mainCall, childCall]) for (const name of ["read_file", "write_file", "http_request", "web_search", "read_artifact"]) assert.ok(JSON.stringify(request.tools).includes(JSON.stringify(name)));
     evidence.after[access] = { main: estimate(mainCall), child: estimate(childCall) };
   }
-  for (const request of [beforeMain, beforeChild]) assert.doesNotMatch(JSON.stringify(request.tools ?? []), /read_file|write_file|http_request|web_search|read_artifact/);
+  for (const request of [beforeMain, beforeChild]) assert.doesNotMatch(JSON.stringify(request.tools ?? []), /read_file|write_file|http_request|web_search/);
+  assert.match(JSON.stringify(beforeMain.tools), /read_artifact/);
+  assert.doesNotMatch(JSON.stringify(beforeChild.tools ?? []), /read_artifact/);
   t.diagnostic(JSON.stringify({ estimatedTokens: evidence }));
 });
 

@@ -24,6 +24,8 @@ HTTP 固定 URL、方法、头、正文、DNS 和凭据引用，不重试、不�
 
 [自动审查](../../implemented/feature/2026-09-22-auto-review-mode.md)、[原生受限执行](2026-10-10-native-execution-sandbox.md)和[旧产物导出](../../implemented/feature/2026-10-14-artifact-file-export.md)部分重叠，保留其 Coding 归属，本篇只说明个人原生接线；[个人命令](2026-10-17-personal-durable-commands.md)与[MCP](2026-10-17-personal-durable-mcp.md)继续持有原执行证据，本篇扩展共享暂停调用方；[迁移提案](../../proposed/architecture/2026-10-17-personal-pi-durable.md)仍持有整体目标，不由本片宣称正式切换完成。没有完全吸收或过时记录。
 
+个人 Pi 1.3.0 的独立装配见[浏览器与图片归属](2026-10-18-personal-browser-media.md)；本篇继续持有个人通用工具的资料授权、审批与原字节产物决定；浏览器和媒体的绑定、接纳和恢复由该篇持有。
+
 ## 备选方案
 
 复用旧 ArtifactStore/ToolRouter 可以减少表面接线，但会恢复旧项目、Db 和工具账本的运行依赖，违背 durable 唯一权威。直接保存全部响应到 durable document 更容易事务提交，但把大型二进制复制进数据库，且偏离受保护文件持有原字节的既定分工。通过 unrestricted bash 完成文件和网络调用最省代码，却绕过精确资料授权及无工具自动审查，不能采用。

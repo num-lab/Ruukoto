@@ -59,7 +59,8 @@ export async function savePersonalArtifact(profile: string | PersonalProfileLock
   }
 }
 
-function verifiedBytes(profile: string | PersonalProfileLock, ref: PersonalArtifact): Buffer {
+/** 逐次核实不可变产物的对象、权限、长度与哈希；仅供宿主恢复原字节。 */
+export function loadPersonalArtifact(profile: string | PersonalProfileLock, ref: PersonalArtifact): Buffer {
   try {
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(ref.id) || !Number.isSafeInteger(ref.bytes) || ref.bytes < 0 || ref.bytes > CAP_BYTES || !/^[0-9a-f]{64}$/.test(ref.sha256) || typeof ref.partial !== "boolean" || typeof ref.mime !== "string" || !ref.mime || ref.mime.length > 256 || /[\x00-\x1f\x7f]/.test(ref.mime) || !Number.isSafeInteger(ref.identity.dev) || !Number.isSafeInteger(ref.identity.ino)) throw unavailable();
     const target = path.join(artifactDirectory(profile), `${ref.id}.bin`), before = privateObject(target, false);
@@ -86,13 +87,13 @@ function verifiedBytes(profile: string | PersonalProfileLock, ref: PersonalArtif
 /** 每页核实原文件身份、长度与哈希，再返回最多 3072 原字节的 base64；partial 不代表完整捕获。 */
 export async function readPersonalArtifact(profile: string | PersonalProfileLock, ref: PersonalArtifact, offset = 0): Promise<{ base64: string; offset: number; nextOffset?: number; bytes: number; partial: boolean; mime: string }> {
   if (!Number.isSafeInteger(offset) || offset < 0) throw new PersonalError("artifact_input_invalid", "产物偏移须为非负安全整数，请使用结果中的 nextOffset。");
-  const bytes = verifiedBytes(profile, ref), page = bytes.subarray(offset, offset + PAGE_BYTES), next = offset + page.length;
+  const bytes = loadPersonalArtifact(profile, ref), page = bytes.subarray(offset, offset + PAGE_BYTES), next = offset + page.length;
   return { base64: page.toString("base64"), offset, ...(next < bytes.length ? { nextOffset: next } : {}), bytes: bytes.length, partial: ref.partial, mime: ref.mime };
 }
 
 /** 完整核实后原子发布到一个新文件；拒绝 partial 与已存在目标，保留原产物。 */
 export async function exportPersonalArtifact(profile: string | PersonalProfileLock, ref: PersonalArtifact, destination: string): Promise<void> {
-  const bytes = verifiedBytes(profile, ref);
+  const bytes = loadPersonalArtifact(profile, ref);
   if (ref.partial) throw new PersonalError("artifact_partial", "产物仅捕获了片段，不能完整导出；请分页查看已有字节并核实原操作。");
   const target = path.resolve(destination), directory = path.dirname(target), temporary = path.join(directory, `.ruukoto-artifact-${randomUUID()}`);
   try {

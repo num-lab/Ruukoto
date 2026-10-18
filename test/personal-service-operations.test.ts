@@ -248,7 +248,7 @@ test("服务工作：默认自动审查和 confirm 等单次人工批准，full_
     assert.equal(evidence.length, 2);
     assert.match(Buffer.from(evidence[1].data.stderr, "base64").toString(), /RUUKOTO_SERVICE_REPLY/);
     assert.deepEqual((await p.service!.list()).items.map(item => item.operation.ref), [ref]);
-    assert.deepEqual((await p.main.agent(context)).tools.map(tool => tool.name), ["service_inspect", "read_service_inspection", "background_work"]);
+    assert.deepEqual((await p.main.agent(context)).tools.map(tool => tool.name), ["read_artifact", "service_inspect", "read_service_inspection", "background_work"]);
   });
 });
 
@@ -597,8 +597,8 @@ async function childOperation(p: PersonalHarness) {
 test("子服务：三模式沿原授权、单次审批、完整证据与真实请求快照，复用身份不继承批准", async t => {
   for (const mode of ["auto-review", "confirm", "full_access"] as const) await t.test(mode, async t => {
     const f = await fixture(t, childRestart); let p = await f.open();
-    await p.answer("拥有者要求重启", "owner");
     await p.harness.commit(async tx => { const permission = await tx.doc(PersonalPermissionsDoc); permission.mode = mode; permission.version++; }, context);
+    await p.answer("拥有者要求重启", "owner");
     const work = await p.work.delegate({ content: "重启", requestId: "child-work", sourceRequestId: "owner" });
     const ref = await childOperation(p); await ready(p, ref);
     const op = (await p.service!.status(ref)).operation;
@@ -606,6 +606,7 @@ test("子服务：三模式沿原授权、单次审批、完整证据与真实�
     assert.equal((await p.harness.getTask(ref.taskId, context))!.owner, work.taskId);
     assert.equal((await p.harness.getTask(ref.taskId, context))!.background, false);
     await p.harness.commit(async tx => { (await tx.doc(PersonalPermissionsDoc)).mode = "full_access"; }, context);
+    assert.equal((await p.service!.status(ref)).operation.mode, mode);
     if (mode !== "full_access") { assert.equal(f.starts(), 0); await p.service!.decide(ref, "approved"); }
     await p.harness.waitForTask(work.taskId, context); assert.equal(f.starts(), 1);
     const child = (await p.harness.conversation(work.agentId, context))!;
@@ -619,7 +620,8 @@ test("子服务：三模式沿原授权、单次审批、完整证据与真实�
     assert.equal((await p.work.status(work)).stopVerified, true, JSON.stringify(await p.work.status(work)));
     await p.close(); p = await f.open();
     await p.harness.commit(async tx => { (await tx.doc(PersonalPermissionsDoc)).mode = "confirm"; }, context);
-    const next = await p.work.delegate({ content: "再次重启", requestId: "reuse", sourceRequestId: "owner", agentId: work.agentId });
+    await p.answer("拥有者再次要求重启", "owner-reuse");
+    const next = await p.work.delegate({ content: "再次重启", requestId: "reuse", sourceRequestId: "owner-reuse", agentId: work.agentId });
     let nextRef!: PersonalServiceOperationRef;
     await until(async () => { const item = (await p.service!.list()).items.find(item => item.operation.work?.ref.taskId === next.taskId); if (!item) return false; nextRef = item.operation.ref; return !!item.operation.snapshot; });
     assert.equal((await p.service!.status(nextRef)).operation.mode, "confirm"); assert.equal(f.starts(), 1);
@@ -629,7 +631,7 @@ test("子服务：三模式沿原授权、单次审批、完整证据与真实�
 
 test("子服务：未知效果与取消保留整项占用，双事实才释放，其他聊天继续", async t => {
   const f = await fixture(t, childRestart); f.touch("fail-after-launch"); f.touch("stop-query-fails"); const p = await f.open();
-  await p.answer("要求重启", "owner"); await p.harness.commit(async tx => { (await tx.doc(PersonalPermissionsDoc)).mode = "full_access"; }, context);
+  await p.harness.commit(async tx => { (await tx.doc(PersonalPermissionsDoc)).mode = "full_access"; }, context); await p.answer("要求重启", "owner");
   const work = await p.work.delegate({ content: "重启", requestId: "unknown-child", sourceRequestId: "owner" });
   const ref = await childOperation(p); await unknown(p, ref);
   const cancel = p.work.cancel(work); await until(async () => (await p.work.status(work)).cancelRequested);
@@ -647,8 +649,9 @@ test("子服务：审批与审批前检查取消不写入，检查停止未核�
   for (const phase of ["approval", "inspection", "restart"] as const) await t.test(phase, async t => {
     const f = await fixture(t, childRestart); if (phase === "inspection") { f.touch("inspect-delay-ms", "1000"); f.touch("inspection-stop-fails"); }
     if (phase === "restart") f.touch("restart-delay-ms", "5000");
-    const p = await f.open(); await p.answer("要求重启", "owner");
+    const p = await f.open();
     if (phase === "restart") await p.harness.commit(async tx => { (await tx.doc(PersonalPermissionsDoc)).mode = "full_access"; }, context);
+    await p.answer("要求重启", "owner");
     const work = await p.work.delegate({ content: "重启", requestId: "pending-child", sourceRequestId: "owner" });
     const ref = await childOperation(p);
     if (phase === "approval") await ready(p, ref); else await until(() => f.calls().some(call => call[0] === (phase === "restart" ? "restart" : "inspect-op")));
@@ -698,8 +701,8 @@ test("子服务：接纳写失败零 helper，恢复原工具只登记一次", a
 });
 
 test("子服务：消费后真实强杀恢复原子工具和工作，不重发 restart", { timeout: 20000 }, async t => {
-  const f = await fixture(t, childRestart); let p = await f.open(); await p.answer("要求重启", "owner");
-  await p.harness.commit(async tx => { (await tx.doc(PersonalPermissionsDoc)).mode = "full_access"; }, context); await p.close();
+  const f = await fixture(t, childRestart); let p = await f.open();
+  await p.harness.commit(async tx => { (await tx.doc(PersonalPermissionsDoc)).mode = "full_access"; }, context); await p.answer("要求重启", "owner"); await p.close();
   const marker = path.join(f.root, "child-result-blocked");
   const script = `import * as fs from "node:fs"; import {openPersonalHarness} from "./apps/ruukoto/src/personal-harness.ts"; import {personalProvider} from "./apps/ruukoto/src/personal-model.ts"; import {openNodeSqliteStorage} from "@earendil-works/pi-durable/storage/sqlite/node"; const {directory,service,config,marker}=JSON.parse(process.env.RUUKOTO_CHILD_SERVICE_CRASH);setInterval(()=>{},1000); const p=await openPersonalHarness({directory,service,serviceOperations:true,provider:personalProvider(config),modelId:config.modelId,openStorage:async filename=>{const s=await openNodeSqliteStorage(filename);const commit=s.commit.bind(s);s.commit=(writes,c)=>{if(writes.some(w=>w.type==="entry"&&w.value.kind==="ruukoto.service-operation-evidence"&&w.value.data.verb==="restart")){fs.writeFileSync(marker,"blocked");return new Promise(()=>{});}return commit(writes,c);};return s;}});await p.work.delegate({content:"重启",requestId:"child-crash",sourceRequestId:"owner"});`;
   const child = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "--eval", script], { cwd: new URL("..", import.meta.url), env: { ...process.env, RUUKOTO_CHILD_SERVICE_CRASH: JSON.stringify({ directory: f.options.directory, service: f.service, config: f.config, marker }) }, stdio: ["ignore", "ignore", "pipe"] });
@@ -715,8 +718,8 @@ test("子服务：消费后真实强杀恢复原子工具和工作，不重发 r
 });
 
 test("子服务：真实 faulted 在线转未知，双事实不足不释放，原菜单可核实", async t => {
-  const f = await fixture(t, childRestart); const p = await f.open(); await p.answer("要求重启", "owner");
-  await p.harness.commit(async tx => { (await tx.doc(PersonalPermissionsDoc)).mode = "full_access"; }, context);
+  const f = await fixture(t, childRestart); const p = await f.open();
+  await p.harness.commit(async tx => { (await tx.doc(PersonalPermissionsDoc)).mode = "full_access"; }, context); await p.answer("要求重启", "owner");
   const definition = (await p.main.agent(context)).extensions.find(extension => extension.name === "personal-service-operations")!.tasks![0].definition as ReturnType<typeof personalServiceOperations>["task"]["definition"];
   const original = definition.phases.prepare!; let injected = false;
   const prepare: typeof original = async (current, runtime, ctx) => {
@@ -807,7 +810,7 @@ test("子服务证据：完整分页不外调，其他子会话不能读取", as
     return { kind: "text", text: "已读完整证据" };
   });
   fs.writeFileSync(f.service.helperPath, fs.readFileSync(f.service.helperPath, "utf8").replace('function cmdRestart(hostOpId, expectedPolicyRev, expectedUnitRev, unit) {', 'function cmdRestart(hostOpId, expectedPolicyRev, expectedUnitRev, unit) { fs.writeSync(1, "evidence".repeat(1000));'));
-  const p = await f.open(); await p.answer("重启", "owner"); await p.harness.commit(async tx => { (await tx.doc(PersonalPermissionsDoc)).mode = "full_access"; }, context);
+  const p = await f.open(); await p.harness.commit(async tx => { (await tx.doc(PersonalPermissionsDoc)).mode = "full_access"; }, context); await p.answer("重启", "owner");
   const work = await p.work.delegate({ content: "重启", requestId: "full-evidence", sourceRequestId: "owner" }); await p.harness.waitForTask(work.taskId, context);
   const evidence = JSON.parse(all) as { verb: string; stdout: string }[];
   assert.equal(evidence.find(entry => entry.verb === "restart")!.stdout, "evidence".repeat(1000));

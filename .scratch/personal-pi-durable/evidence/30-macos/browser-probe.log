@@ -1,0 +1,10 @@
+<anonymous_script>:1
+独立聊天完成
+^
+
+SyntaxError: Unexpected token '独', "独立聊天完成" is not valid JSON
+    at JSON.parse (<anonymous>)
+    at <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/.scratch/personal-pi-durable/evidence/30-macos/browser-probe.mts:60:21)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+
+Node.js v24.15.0

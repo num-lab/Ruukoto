@@ -128,7 +128,7 @@ async function manageGrants(io: PersonalCliIO, directory: string): Promise<void>
   }
 }
 
-async function manageArtifacts(io: PersonalCliIO, directory: string): Promise<void> {
+export async function managePersonalArtifacts(io: PersonalCliIO, directory: string): Promise<void> {
   let offset = 0;
   while (true) {
     const page = await personalControl<{ items: Array<{ artifact: string; kind: string; target: string; bytes: number; partial: boolean; mime?: string }>; nextOffset?: number }>(directory, "GET", `/tools/artifacts?offset=${offset}`);
@@ -152,6 +152,6 @@ export async function managePersonalTools(io: PersonalCliIO, directory: string):
     if (selected === 3) return;
     if (selected === 0) await manageOperations(io, directory);
     else if (selected === 1) await manageGrants(io, directory);
-    else await manageArtifacts(io, directory);
+    else await managePersonalArtifacts(io, directory);
   }
 }

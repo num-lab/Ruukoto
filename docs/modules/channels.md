@@ -14,7 +14,7 @@
 
 两个适配器始终创建：QQ 私聊与 Telegram 各是一个入口，共用主会话。启动配置停用（`RUUKOTO_DISABLE_QQ` / `RUUKOTO_DISABLE_TELEGRAM`，Coding Agent 按产品边界强制）是适配器的标志：不连接、不轮询、目标为 null，入站门以 `qq_private_unavailable` / `telegram_unavailable`丢弃，与入口停用同义；outbox 视为发送器未加载而等待。入口的 `configure` / `setEnabled`信任边界校验留在各自适配器，不合并。群聊能力不在本模块内：QQ 群聊外挂是独立程序，自行管理群会话、历史与发送状态，经有限接口向 ruukoto 提供结果。
 
-本篇描述正式共享装配；个人 Pi 1.3.0 隔离入口的 Telegram 文本收发由[个人持久会话](personal-durable.md)独立装配，不使用本模块 Store、审批或 outbox。
+本篇描述正式共享装配；个人 Pi 1.3.0 隔离入口的 Telegram 文本/图片收发及原入口浏览器核实由[个人持久会话](personal-durable.md)独立装配，不使用本模块 Store、审批或 outbox。
 
 ## 对外接口
 

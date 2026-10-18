@@ -1,0 +1,221 @@
+✔ durable MCP：主会话完全访问保留原定义、原参数与完整长响应分页 (270.326333ms)
+✔ durable MCP：端点的查询别名不能绕过未知调用占用 (87.0275ms)
+✔ durable MCP：observation 原证据损坏时启动拒绝，不能重新外调 (73.150334ms)
+✔ durable MCP：arguments 原证据损坏时启动拒绝，不能重新外调 (59.560458ms)
+✔ durable MCP：approval 原证据损坏时启动拒绝，不能重新外调 (61.864625ms)
+✔ durable MCP：完整保存 tool 错误原响应且不伪装未知 (28.792291ms)
+✔ durable MCP：完整保存 rpc 错误原响应且不伪装未知 (31.381542ms)
+✔ durable MCP：confirm 不信只读标注，每次批准仅消费一次 (59.9265ms)
+✔ durable MCP：auto-review 不信只读标注，每次批准仅消费一次 (38.719959ms)
+✔ durable MCP：credential 失效在实际调用前拒绝 (20.237375ms)
+✔ durable MCP：definition 失效在实际调用前拒绝 (20.240875ms)
+✔ durable MCP：子工具超时跨重启接回同 Task，未知效果保留占用且不能人工伪造远端结束 (114.075208ms)
+✔ durable MCP：响应已到达但未提交时 SIGKILL，恢复保留同原调用且远端只执行一次 (965.213ms)
+✔ durable MCP：主工具与输入均终结后仍拒绝绕过未知调用更换配置 (109.638125ms)
+✔ durable MCP：同来源暂停服务与委托报告，重启保留原暂停和占用 (188.136417ms)
+✔ durable MCP：实际主子模型请求可重建工具定义与结果，并记录启用前后开销 (111.415959ms)
+ℹ {"estimatedTokens":{"main":{"before":{"systemPrompt":51,"toolSchemas":637},"after":{"systemPrompt":51,"toolSchemas":980}},"child":{"before":{"systemPrompt":38,"toolSchemas":1},"after":{"systemPrompt":38,"toolSchemas":344}}}}
+✔ durable MCP：取消仅停止本地等待，原调用未知和子工作占用跨重启保留 (47.702958ms)
+✔ 委托报告：多成员等待不占主聊天，封组在共用追加与续派入口生效，重复登记保持原任务 (340.0265ms)
+✔ 委托报告：汇总参考只能查询，不能据此新派分析或取消原委托 (81.388375ms)
+▶ 委托报告：HTTP 前取消零汇总请求，在途取消保留迟到回答但不外发，其他聊天继续
+  ✔ before-http (61.838541ms)
+  ✔ in-flight (81.028583ms)
+✔ 委托报告：HTTP 前取消零汇总请求，在途取消保留迟到回答但不外发，其他聊天继续 (143.15ms)
+✔ 委托报告：原生中止尚未 admission 的报告不新造输入，也不取消成员和主聊天 (57.638666ms)
+▶ 委托报告：本机菜单经后台查询完整报告，Telegram 原菜单分页零模型
+  ✔ local (87.423208ms)
+  ✔ telegram (71.681375ms)
+✔ 委托报告：本机菜单经后台查询完整报告，Telegram 原菜单分页零模型 (159.435833ms)
+▶ 委托报告：取消与发送领取按事务顺序仲裁，已开始发送保留真实效果
+  ✔ before-claim (65.177ms)
+  ✔ after-claim (52.4465ms)
+✔ 委托报告：取消与发送领取按事务顺序仲裁，已开始发送保留真实效果 (117.845958ms)
+✔ 委托报告：原 Submission 完成后真实强杀，恢复重接原回答且不串入其他主聊天 (921.799084ms)
+✔ 委托报告：Telegram 已外发但结果未提交时强杀，重开未知不重发且固定原消息 (917.360042ms)
+✔ 委托报告：Telegram 原入口换代取消待汇总，不能改发新绑定 (47.974875ms)
+▶ 委托报告：损坏报告、接纳、输入、回答或暂停关系在恢复请求前拒绝
+  ✔ extension (51.0565ms)
+  ✔ report (58.0365ms)
+  ✔ task (47.311ms)
+  ✔ admission (56.826792ms)
+  ✔ input (59.318167ms)
+  ✔ answer (45.351792ms)
+  ✔ reply (62.17575ms)
+  ✔ pause (50.375167ms)
+  ✔ model-call (64.500125ms)
+✔ 委托报告：损坏报告、接纳、输入、回答或暂停关系在恢复请求前拒绝 (495.688959ms)
+▶ 委托报告：追加与封组按事务顺序仲裁，封组后重放既有追加不另造输入
+  ✔ append-first (56.356375ms)
+  ✔ seal-first (49.950167ms)
+✔ 委托报告：追加与封组按事务顺序仲裁，封组后重放既有追加不另造输入 (106.573583ms)
+✔ 服务核实控制：效果与停止分开保存，错误证明保留占用，原说明分页且不可覆盖 (436.198292ms)
+✔ 服务核实控制：仅停止不释放，审批前检查与已知结果拒绝写停止重核 (243.365916ms)
+[ruukoto:personal] 持久执行出现错误，请查询状态并检查档案；未自动重启。
+✔ 服务核实控制：接纳失败零停止外调，缺原执行身份拒绝恢复 (224.45475ms)
+✔ 服务核实控制：真实 SIGKILL 后恢复原停止 Task，不重发 restart (965.910666ms)
+▶ 委托报告：未知暂停跨重启，效果和停止都核实后安全汇总；HTTP 前暂停仅重做模型尝试
+  ✔ before-admission (293.403709ms)
+  ✔ before-http (273.716125ms)
+✔ 委托报告：未知暂停跨重启，效果和停止都核实后安全汇总；HTTP 前暂停仅重做模型尝试 (567.502833ms)
+▶ 分析委托：终态成员说明或追加来源效果未知，整组续派/追加/子请求暂停，取消与他项继续
+  ✔ instruction (169.410416ms)
+  ✔ note (179.572458ms)
+✔ 分析委托：终态成员说明或追加来源效果未知，整组续派/追加/子请求暂停，取消与他项继续 (349.319417ms)
+▶ 服务工作：默认自动审查和 confirm 等单次人工批准，full_access 免审批；同键去重异参拒绝
+  ✔ default (111.878ms)
+  ✔ confirm (111.91825ms)
+  ✔ full_access (102.538625ms)
+✔ 服务工作：默认自动审查和 confirm 等单次人工批准，full_access 免审批；同键去重异参拒绝 (326.668583ms)
+✔ 服务工作：原来源未知不能换后台工作，已登记子工作在 HTTP 前暂停，独立聊天继续 (125.6265ms)
+✔ 服务工作：追加来源后来效果未知，不能借其他安全工作继续子请求 (157.988041ms)
+▶ 服务工作：拒绝、未消费取消、策略与单元修订变化均零执行
+  ✔ reject (89.0785ms)
+  ✔ cancel (77.929167ms)
+  ✔ policy (67.135125ms)
+  ✔ unit (92.695959ms)
+✔ 服务工作：拒绝、未消费取消、策略与单元修订变化均零执行 (327.22925ms)
+✔ 服务工作：来源/目标拒绝，等待审批重开仍等待且只消费一次 (160.55875ms)
+✔ 服务工作：同一来源的待批准操作也串行，不能预排另一目标绕过未知暂停 (100.485042ms)
+✔ 服务工作：已受理来源后来 unanswered 不阻止整个档案恢复，未消费批准仍拒绝 (88.642667ms)
+✔ 服务工作：未知效果硬拦同来源换键与同目标，其他服务/主聊天继续，核实停止后才能释放 (240.887625ms)
+✔ 服务工作：旧 stop 应答缺启动器证明，人工效果核实也不能释放 (129.353333ms)
+▶ 服务工作：在途取消和超时保持未知，停止与效果核实独立
+  ✔ cancel (141.565125ms)
+  ✔ native-abort (149.799834ms)
+  ✔ timeout (214.9255ms)
+✔ 服务工作：在途取消和超时保持未知，停止与效果核实独立 (506.66375ms)
+✔ 服务工作：效果完成而结果未提交时真实强杀，重开只核实不重发 (871.413083ms)
+[ruukoto:personal] 持久执行出现错误，请查询状态并检查档案；未自动重启。
+✔ 服务工作：结果存储失败关闭 Harness，恢复保留已开始事实并转未知 (108.855875ms)
+▶ 服务工作：命令非零、可信未启动、错操作与畸形应答按证据分类
+  ✔ nonzero (105.811625ms)
+  ✔ refused (91.951959ms)
+  ✔ wrong-operation (100.826375ms)
+  ✔ garbage (99.94475ms)
+✔ 服务工作：命令非零、可信未启动、错操作与畸形应答按证据分类 (398.916208ms)
+✔ 服务工作：意外 faulted 终态与缺结果不释放未知目标，核实证据后可继续 (211.034834ms)
+▶ 服务工作：缺配置、版本与双向关系损坏拒绝恢复，零额外 restart
+  ✔ disabled (80.389333ms)
+  ✔ config (68.2225ms)
+  ✔ version (67.162833ms)
+  ✔ record (70.871125ms)
+  ✔ task (79.082583ms)
+  ✔ extension (69.206958ms)
+✔ 服务工作：缺配置、版本与双向关系损坏拒绝恢复，零额外 restart (435.488667ms)
+[ruukoto:personal] 持久执行出现错误，请查询状态并检查档案；未自动重启。
+▶ 服务工作：首次启用标记提交后应答丢失，新建/已有主会话都能一致重开
+  ✔ fresh (9.914292ms)
+[ruukoto:personal] 持久执行出现错误，请查询状态并检查档案；未自动重启。
+  ✔ existing (11.691125ms)
+✔ 服务工作：首次启用标记提交后应答丢失，新建/已有主会话都能一致重开 (21.808167ms)
+✔ 服务工作：prepare 取消后检查未核实仍占来源与目标，恢复和终态不能绕过 (233.207417ms)
+✔ 服务工作：预排队审批消费前复核后来占用的检查，不启动 restart (142.078458ms)
+▶ 委托报告：检查停止未核实跨重启等待，核实后自动汇总，HTTP前暂停可重做
+  ✔ before-admission (168.415542ms)
+  ✔ before-http (169.2075ms)
+✔ 委托报告：检查停止未核实跨重启等待，核实后自动汇总，HTTP前暂停可重做 (338.032584ms)
+▶ 子服务：三模式沿原授权、单次审批、完整证据与真实请求快照，复用身份不继承批准
+  ✔ auto-review (216.391583ms)
+  ✔ confirm (222.346958ms)
+  ✔ full_access (195.71575ms)
+✔ 子服务：三模式沿原授权、单次审批、完整证据与真实请求快照，复用身份不继承批准 (634.759959ms)
+✔ 子服务：未知效果与取消保留整项占用，双事实才释放，其他聊天继续 (154.744416ms)
+▶ 子服务：审批与审批前检查取消不写入，检查停止未核实仍占用
+  ✔ approval (95.102417ms)
+  ✔ inspection (141.116791ms)
+  ✔ restart (154.277916ms)
+✔ 子服务：审批与审批前检查取消不写入，检查停止未核实仍占用 (390.855584ms)
+▶ 子服务：恢复拒绝错权限、工具、输入、工作及丢失接纳，不执行外部请求
+  ✔ permission (92.659875ms)
+  ✔ tool (98.978959ms)
+  ✔ inputs (83.674ms)
+  ✔ work (97.002541ms)
+  ✔ admission (107.988ms)
+✔ 子服务：恢复拒绝错权限、工具、输入、工作及丢失接纳，不执行外部请求 (480.807833ms)
+[ruukoto:personal] 持久执行出现错误，请查询状态并检查档案；未自动重启。
+✔ 子服务：接纳写失败零 helper，恢复原工具只登记一次 (152.512333ms)
+✔ 子服务：消费后真实强杀恢复原子工具和工作，不重发 restart (1292.938333ms)
+✔ 子服务：真实 faulted 在线转未知，双事实不足不释放，原菜单可核实 (106.817375ms)
+✔ 子服务：前置核实与检查接纳间取消，零 helper (30.258875ms)
+✔ 子服务：消费前 faulted 明确报告未执行，读取证据保留失败状态 (23.711167ms)
+✔ 子服务：封组报告等原外部操作双事实，未知期间拒绝续派与追加 (205.583958ms)
+✔ 子服务证据：完整分页不外调，其他子会话不能读取 (142.594625ms)
+▶ 子服务升级：空闲配置原子增加工具，未决旧工作拒绝且不半启用
+  ✔ idle (18.914041ms)
+  ✔ pending (4026.127958ms)
+✔ 子服务升级：空闲配置原子增加工具，未决旧工作拒绝且不半启用 (4045.315292ms)
+✔ 子服务：后来追加来源未知拦住原待审批写入，整项取消不误取消独立宿主操作 (216.090917ms)
+✖ durable 通用工具：主子会话沿目录权限读写，二进制产物分页与请求输入可重建 (14716.858417ms)
+✔ durable 自动审查：approve 使用无工具独立请求，落盘输入与实际payload一致 (5316.394125ms)
+✔ durable 自动审查：reject 使用无工具独立请求，落盘输入与实际payload一致 (3549.868709ms)
+✔ durable 自动审查：invalid 使用无工具独立请求，落盘输入与实际payload一致 (3963.057041ms)
+✔ durable 自动审查：failure 使用无工具独立请求，落盘输入与实际payload一致 (4551.353458ms)
+✔ durable 自动审查：length 使用无工具独立请求，落盘输入与实际payload一致 (4052.449667ms)
+✔ durable 自动审查：error 使用无工具独立请求，落盘输入与实际payload一致 (4135.911084ms)
+✔ durable 确认与资料授权：逐次批准消费一次，撤销后读取重新等待且旧批准失效 (10166.475917ms)
+✔ durable 产物：子会话不能读主会话产物，原字节损坏时恢复明确拒绝 (3214.056209ms)
+✔ durable HTTP：响应后观察提交前强杀，恢复不重发并暂停同来源新工作 (1327.053083ms)
+✔ durable 模型快照：主子三模式保留实际工具定义与启用前后估算 (47.146959ms)
+ℹ {"estimatedTokens":{"before":{"main":{"systemPrompt":51,"toolSchemas":637},"child":{"systemPrompt":38,"toolSchemas":1}},"after":{"auto-review":{"main":{"systemPrompt":51,"toolSchemas":1406},"child":{"systemPrompt":38,"toolSchemas":886}},"confirm":{"main":{"systemPrompt":51,"toolSchemas":1406},"child":{"systemPrompt":38,"toolSchemas":886}},"full_access":{"main":{"systemPrompt":51,"toolSchemas":1406},"child":{"systemPrompt":38,"toolSchemas":886}}}}}
+✔ durable HTTP：未知写入同时挡住同源 MCP 和新来源同端点调用 (613.413792ms)
+✔ durable 工具恢复：SDK转换后的数字文本写入与原始调用可跨重启核实 (3124.403417ms)
+✔ durable 搜索：SDK失败意图计入5次额度，普通视图有界且原JSON可核实 (1883.654958ms)
+✔ durable 审查证据：missing 损坏启动拒绝且不增加模型请求 (5789.732958ms)
+✔ durable 审查证据：payload 损坏启动拒绝且不增加模型请求 (5183.122167ms)
+✔ durable 文件写入：写后强杀保留未知，原同步调用已结束且不再次改写 (1082.688125ms)
+✔ durable 本机入口：真实认证接口完成工具审批、授权撤销与原产物导出 (4899.798541ms)
+✔ 后台工作：同键去重异参拒绝，完成后保留身份/上下文，显式关闭保留历史 (252.051291ms)
+✔ 后台工作：忙碌占用拒绝另一工作/关闭，取消 A 不影响主聊天和 B，迟到结果不覆盖复用 (4046.907042ms)
+✔ 后台工作：拒绝无来源/回报来源且不造记录 (6.817292ms)
+[ruukoto:personal] 持久执行出现错误，请查询状态并检查档案；未自动重启。
+✔ 后台工作：工作登记写失败，身份/Task/占用全不提交，重开不执行 (18.983917ms)
+✔ 后台工作：只落盘取消事实、尚未 abortTask 的窗口正常收尾为取消并可复用 (4083.234209ms)
+▶ 后台工作：HTTP 发出前再次检查取消事实及 provider 来源，零子请求
+  ✔ cancel (16.102292ms)
+  ✔ missing-provider (15.330375ms)
+✔ 后台工作：HTTP 发出前再次检查取消事实及 provider 来源，零子请求 (31.736708ms)
+✔ 后台工作：子会话 provider 失败如实收尾，释放已闲置身份 (13.215417ms)
+✔ 后台工作：空闲/取消后的子会话不能绕过宿主直接发模型请求，证据缺失或歧义也拦截 (18.017958ms)
+▶ 后台工作：工作扩展缺索引、版本变化和终态遗留占用均拒绝重开
+  ✔ missing-index (24.007667ms)
+  ✔ missing-agent-row (23.49325ms)
+  ✔ index-version (19.8115ms)
+  ✔ work-version (19.720709ms)
+  ✔ orphan-occupancy (20.171791ms)
+  ✔ expanded-tools (30.248667ms)
+  ✔ request-mismatch (17.663917ms)
+  ✔ submission-mismatch (17.003792ms)
+  ✔ live-occupancy (22.537417ms)
+✔ 后台工作：工作扩展缺索引、版本变化和终态遗留占用均拒绝重开 (195.371417ms)
+✔ 后台工作：空闲子会话显式同步当前模型配置 (22.696584ms)
+▶ 后台工作：正常/取消收尾都停止在途的真正后台压缩，再释放身份
+  ✔ complete (37.87925ms)
+  ✔ cancel (43.668417ms)
+✔ 后台工作：正常/取消收尾都停止在途的真正后台压缩，再释放身份 (81.825375ms)
+✔ 后台工作：已提交输入但引用未写回时进程崩溃，重开只恢复一个 submission (658.382208ms)
+✔ 后台工作：取消事实落盘后、abort 调用前强杀进程，恢复不重发且释放原占用 (1138.811292ms)
+ℹ tests 168
+ℹ suites 0
+ℹ pass 167
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 78586.757292
+
+✖ failing tests:
+
+test at test/personal-tools.test.ts:82:1
+✖ durable 通用工具：主子会话沿目录权限读写，二进制产物分页与请求输入可重建 (14716.858417ms)
+  Error: ENOENT: no such file or directory, open '.scratch/personal-pi-durable/evidence/30-macos/cross-tool-snapshots/comparison.json'
+      at Module.writeFileSync (node:fs:2414:20)
+      at TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/personal-tools.test.ts:106:46)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3) {
+    errno: -2,
+    code: 'ENOENT',
+    syscall: 'open',
+    path: '.scratch/personal-pi-durable/evidence/30-macos/cross-tool-snapshots/comparison.json'
+  }

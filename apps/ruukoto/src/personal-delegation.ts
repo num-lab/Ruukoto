@@ -1,3 +1,4 @@
+import { personalLocalPermission } from "./personal-local-records.ts";
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { defineDocFamily, defineEntry, defineExtension, ROOT_CONVERSATION_ID, type Cursor, type EntryId, type ModelRef, type SubmissionId, type TaskId, type Tx } from "@earendil-works/pi-durable";
@@ -80,7 +81,7 @@ export async function delegatePersonalAnalysis(tx: Tx, model: ModelRef, input: P
     if (ref) throw new PersonalError("delegation_missing", "找不到原委托，请查询列表；不能用未知编号创建归属。");
     const receipt = input.sourceRequestId.startsWith("telegram:") ? (await tx.doc(PersonalTelegramReceiptDoc, input.sourceRequestId, null)).receipt : undefined;
     const telegram = receipt && permissionSnapshot(receipt);
-    const permission = telegram ?? await tx.doc(PersonalPermissionsDoc);
+    const permission = telegram ?? await personalLocalPermission(tx, input.sourceRequestId) ?? await tx.doc(PersonalPermissionsDoc);
     record.delegation = { ref: selected, source: instruction, permission: { mode: permission.mode, version: permission.version }, ...(telegram ? { telegram } : {}), members: [], cancelRequested: false };
   }
   const value = record.delegation;
@@ -168,6 +169,8 @@ export async function verifyPersonalDelegations(tx: Tx, keys: string[], workKeys
     const value = (await tx.doc(PersonalDelegationDoc, key, null)).delegation;
     if (!enabled || !value || String(value.ref?.entryId) !== key || !Array.isArray(value.members) || !value.members.length || typeof value.cancelRequested !== "boolean" || new Set(value.members.map(ref => ref.taskId)).size !== value.members.length || !isDeepStrictEqual(await source(tx, value.source.requestId), value.source) || value.ref.entryId !== value.source.entryId || !["auto-review", "confirm", "full_access"].includes(value.permission?.mode) || !Number.isSafeInteger(value.permission?.version) || value.permission.version < 1) throw new PersonalError("delegation_record_invalid", "分析委托版本、来源或成员缺失，已停止恢复；请保留档案。");
     await originalEntry(tx, value, value.source.requestId);
+    const localPermission = !value.telegram && await personalLocalPermission(tx, value.source.requestId);
+    if (localPermission && !isDeepStrictEqual(value.permission, localPermission)) throw new PersonalError("delegation_record_invalid", "委托原本机输入权限不符，已停止恢复；请保留档案。");
     if (value.telegram) {
       const receipt = (await tx.doc(PersonalTelegramReceiptDoc, value.source.requestId, null)).receipt;
       if (!receipt || !isDeepStrictEqual(permissionSnapshot(receipt), value.telegram) || !isDeepStrictEqual(value.permission, { mode: value.telegram.mode, version: value.telegram.version })) throw new PersonalError("delegation_record_invalid", "委托原权限或入口不符，已停止恢复；请保留档案。");

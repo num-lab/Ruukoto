@@ -1,5 +1,10 @@
+import { exportPersonalArtifact, type PersonalArtifact } from "./personal-artifacts.ts";
+import { browserList, browserDetail, browserResolve } from "./personal-browser.ts";
+import { readPersonalBrowser } from "./personal-browser-config.ts";
+import { PersonalPermissionsDoc } from "./personal-permissions.ts";
+import { copyJson } from "@earendil-works/chord";
 import { readPersonalTools } from "./personal-tools-config.ts";
-import { PersonalToolsDoc, toolOperations, toolList, toolDetail, toolDecide, toolResolve, toolVerifyStop, toolGrant, toolRevoke } from "./personal-tools.ts";
+import { PersonalToolsDoc, personalArtifactEntries, toolList, toolDetail, toolDecide, toolResolve, toolVerifyStop, toolGrant, toolRevoke } from "./personal-tools.ts";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as http from "node:http";
@@ -32,7 +37,7 @@ const context = BACKGROUND_CONTEXT;
 const MAX_REQUEST = 128 * 1024;
 const MAX_RESPONSE = 256 * 1024;
 export const PERSONAL_REQUEST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-export type PersonalToolsControlBody = { operation: TaskId; decision: "approved" | "rejected" } | { operation: TaskId; effect: "applied" | "not_applied"; evidence: string } | { operation: TaskId; evidence: string } | { path: string } | { id: string } | { artifact: string; destination: string };
+export type PersonalToolsControlBody = { mode: "auto-review" | "confirm" | "full_access" } | { operation: TaskId; decision: "approved" | "rejected" } | { operation: TaskId; effect: "applied" | "not_applied"; evidence: string } | { operation: TaskId; evidence: string } | { path: string } | { id: string } | { artifact: string; destination: string };
 export type PersonalInput = { requestId: string; input: string; work?: TaskId };
 export type PersonalInputStatus = { status: "queued" | "placed" | "done" | "unanswered" | "missing"; answer?: string; truncated?: boolean };
 export type PersonalStatus = { model: string; tasks: number; inputs: number; services: boolean };
@@ -115,6 +120,7 @@ export async function startPersonalServer(directory: string) {
     const commands = readPersonalCommands(profile);
     const mcp = readPersonalMcp(profile);
     const tools = readPersonalTools(profile);
+    const browser = readPersonalBrowser(profile);
     if (!process.env[config.apiKeyEnv]) throw new PersonalError("model_credentials_missing", "模型凭据环境变量尚未设置，请设置后再启动隔离后台。");
     if (fs.existsSync(path.join(directory, "control.token"))) readPersonalToken(directory);
     if (Buffer.byteLength(socketPath) > 100) throw new PersonalError("control_path_long", "隔离档案路径过长，请用较短的新目录启动。");
@@ -125,7 +131,7 @@ export async function startPersonalServer(directory: string) {
     server.listen(socketPath);
     await once(server, "listening");
     fs.chmodSync(socketPath, 0o600);
-    personal = await openPersonalHarness({ profile, provider: personalProvider(config), modelId: config.modelId, telegram, ...(services ? { service: { ...services, useSudo: true }, serviceOperations: true } : {}), ...(commands ? { commands } : {}), ...(mcp ? { mcp } : {}), ...(tools ? { tools } : {}), beforeUnlock: closeListener });
+    personal = await openPersonalHarness({ profile, provider: personalProvider(config), modelId: config.modelId, telegram, ...(services ? { service: { ...services, useSudo: true }, serviceOperations: true } : {}), ...(commands ? { commands } : {}), ...(mcp ? { mcp } : {}), ...(tools ? { tools } : {}), ...(browser ? { browser } : {}), beforeUnlock: closeListener });
     const instance = personal;
     telegramLoop = instance.telegram.poll(telegramStop.signal).catch(() => { process.stderr.write("[ruukoto:personal] Telegram 收件已停止，请查询状态并检查档案；未自动重启。\n"); });
     const respond = (res: http.ServerResponse, status: number, result: unknown) => {
@@ -152,6 +158,31 @@ export async function startPersonalServer(directory: string) {
           result = entries.items.map(text).filter(item => item !== undefined).slice(0, 16).reverse();
         } else if (req.method === "GET" && url.pathname === "/telegram") {
           result = await instance.telegram.status();
+        } else if (req.method === "POST" && url.pathname === "/permissions") {
+          const value = await readControlJSON(req);
+          if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).length !== 1 || !("mode" in value) || value.mode !== "auto-review" && value.mode !== "confirm" && value.mode !== "full_access") throw new PersonalError("permissions_input_invalid", "请选择自动审查、请求确认或完全访问。");
+          const mode = value.mode;
+          await instance.harness.commit(async tx => {
+            const permission = await tx.doc(PersonalPermissionsDoc);
+            if (permission.mode === mode) return;
+            permission.mode = mode; permission.version++;
+            await tx.appendEntry(instance.main.id, { kind: "ruukoto.permissions-change", data: { mode, version: permission.version, source: "local" } });
+          }, context);
+          result = { saved: true };
+        } else if (req.method === "GET" && url.pathname === "/browser") {
+          result = { enabled: !!instance.browser, ...(instance.browser?.status() ?? {}) };
+        } else if (req.method === "GET" && url.pathname === "/browser/operations") {
+          result = await instance.harness.commit(tx => browserList(tx, queryNumber(url, "offset", 0)), context);
+        } else if (req.method === "GET" && url.pathname === "/browser/operation") {
+          result = await instance.harness.commit(tx => browserDetail(tx, queryNumber(url, "operation") as TaskId, queryNumber(url, "offset", 0)), context);
+        } else if (req.method === "POST" && url.pathname === "/browser/stop") {
+          if (!instance.browser) throw new PersonalError("browser_config_missing", "浏览器未装配，请停止后台后通过向导配置。");
+          result = { stopped: url.searchParams.has("operation") ? await instance.browser.verifyStop(queryNumber(url, "operation") as TaskId) : await instance.browser.stop() };
+        } else if (req.method === "POST" && url.pathname === "/browser/resolve") {
+          const value = await readControlJSON(req);
+          if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).length !== 2 || !("effect" in value) || value.effect !== "applied" && value.effect !== "not_applied" || !("evidence" in value) || typeof value.evidence !== "string") throw new PersonalError("browser_resolution_invalid", "请选择原网页效果并填写独立核实证据。");
+          await instance.harness.commit(tx => browserResolve(tx, queryNumber(url, "operation") as TaskId, value.effect as "applied" | "not_applied", value.evidence as string), context);
+          result = { saved: true };
         } else if (req.method === "GET" && url.pathname === "/works") {
           const offset = queryNumber(url, "offset", 0);
           result = await instance.harness.commit(tx => listPersonalWorks(tx, offset), context);
@@ -164,22 +195,25 @@ export async function startPersonalServer(directory: string) {
         } else if (req.method === "GET" && url.pathname === "/services") {
           result = await instance.harness.commit(tx => listPersonalServices(tx, queryNumber(url, "offset", 0)), context);
         } else if (req.method === "GET" && ["/tools/operations", "/tools/operation", "/tools/grants", "/tools/artifacts"].includes(url.pathname)) {
-          if (!instance.tools) throw new PersonalError("tools_config_missing", "资料与网络工具未装配，请停止后台后通过向导配置。");
+          if (!instance.tools && url.pathname !== "/tools/artifacts") throw new PersonalError("tools_config_missing", "资料与网络工具未装配，请停止后台后通过向导配置。");
           const offset = queryNumber(url, "offset", 0);
           result = await instance.harness.commit(async tx => {
             if (url.pathname === "/tools/operations") return toolList(tx, offset);
             if (url.pathname === "/tools/operation") return toolDetail(tx, queryNumber(url, "operation") as TaskId, offset);
             if (url.pathname === "/tools/grants") { const all = (await tx.doc(PersonalToolsDoc)).grants; return { items: all.slice(offset, offset + 8).map(value => ({ id: value.id, path: value.path, revoked: value.revoked })), ...(offset + 8 < all.length ? { nextOffset: offset + 8 } : {}) }; }
-            const all = (await toolOperations(tx)).filter(value => !!value.artifact);
-            return { items: all.slice(offset, offset + 8).map(value => ({ artifact: value.artifact!.id, kind: value.kind, target: value.prepared.kind === "file" ? value.prepared.request.path : value.prepared.kind === "http" ? value.prepared.request.url : "Web Search", bytes: value.artifact!.bytes, partial: value.artifact!.partial, mime: value.artifact!.mime })), ...(offset + 8 < all.length ? { nextOffset: offset + 8 } : {}) };
+            const all = await personalArtifactEntries(tx);
+            return { items: all.slice(offset, offset + 8).map(value => ({ artifact: value.artifact!.id, kind: value.kind, target: value.target, bytes: value.artifact!.bytes, partial: value.artifact!.partial, mime: value.artifact!.mime })), ...(offset + 8 < all.length ? { nextOffset: offset + 8 } : {}) };
           }, context);
         } else if (req.method === "POST" && ["/tools/decide", "/tools/resolve", "/tools/stop", "/tools/grant", "/tools/revoke", "/tools/export"].includes(url.pathname)) {
-          if (!instance.tools) throw new PersonalError("tools_config_missing", "资料与网络工具未装配，请停止后台后通过向导配置。");
+          if (!instance.tools && url.pathname !== "/tools/export") throw new PersonalError("tools_config_missing", "资料与网络工具未装配，请停止后台后通过向导配置。");
           const value = await readControlJSON(req);
           if (!value || typeof value !== "object" || Array.isArray(value)) throw new PersonalError("tool_input_invalid", "请选择原工具操作并填写所需说明。");
           if (url.pathname === "/tools/export") {
             if (Object.keys(value).length !== 2 || !("artifact" in value) || typeof value.artifact !== "string" || !("destination" in value) || typeof value.destination !== "string") throw new PersonalError("tool_input_invalid", "请选择原产物及完整导出路径。");
-            await instance.tools.export(value.artifact, value.destination);
+            const id = value.artifact;
+            const ref = await instance.harness.commit(async tx => { const ref = (await personalArtifactEntries(tx)).find(value => value.artifact.id === id)?.artifact; return ref && copyJson(ref) as PersonalArtifact; }, context);
+            if (!ref) throw new PersonalError("artifact_missing", "原产物不存在，请刷新产物列表。");
+            await exportPersonalArtifact(directory, ref, value.destination);
           } else await instance.harness.commit(async tx => {
             if (url.pathname === "/tools/grant") { if (Object.keys(value).length !== 1 || !("path" in value) || typeof value.path !== "string") throw new PersonalError("tool_input_invalid", "请选择要开放读取的绝对路径。"); await toolGrant(tx, directory, value.path); return; }
             if (url.pathname === "/tools/revoke") { if (Object.keys(value).length !== 1 || !("id" in value) || typeof value.id !== "string") throw new PersonalError("tool_input_invalid", "请选择原资料授权。"); await toolRevoke(tx, value.id); return; }

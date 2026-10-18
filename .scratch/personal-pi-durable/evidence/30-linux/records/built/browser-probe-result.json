@@ -1,0 +1,12 @@
+{
+  "environment": {
+    "platform": "linux",
+    "arch": "x64",
+    "node": "v24.21.0"
+  },
+  "model": "loopback替身，非真实视觉模型",
+  "browser": {
+    "binaryPath": "/tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/agent-browser-linux-x64",
+    "chromePath": "/tmp/ruukoto-agent-browser-0391-linux-hPuoYRCD/chrome-linux64/chrome"
+  }
+}

@@ -305,11 +305,12 @@ test("durable MCP：实际主子模型请求可重建工具定义与结果，并
   const work = await p.work.delegate({ requestId: "after-child", sourceRequestId: "after-source", content: "child-definitions", agentId: initial.agentId });
   await p.harness.waitForTask(work.taskId, context);
   const afterChild = f.model.calls.findLast(request => request.system?.includes("你是个人助手的子 Agent"))!;
+  const toolNames = (request: typeof beforeMain) => (request.tools ?? []).map(tool => { const definition = tool.function; assert.ok(definition && typeof definition === "object" && "name" in definition); return definition.name; });
   for (const request of [afterMain, afterChild]) {
-    assert.match(JSON.stringify(request.tools), /mcp_tools/); assert.match(JSON.stringify(request.tools), /mcp_call/); assert.match(JSON.stringify(request.tools), /read_mcp_result/);
+    for (const name of ["mcp_tools", "mcp_call", "read_mcp_result"]) assert.ok(toolNames(request).includes(name));
     assert.match(JSON.stringify(request.messages), /远端原定义/); assert.match(JSON.stringify(request.messages), /readOnlyHint/);
   }
-  for (const request of [beforeMain, beforeChild]) assert.doesNotMatch(JSON.stringify(request.tools ?? []), /mcp_tools|mcp_call|read_mcp_result/);
+  for (const request of [beforeMain, beforeChild]) assert.ok(toolNames(request).every(name => !["mcp_tools", "mcp_call", "read_mcp_result"].includes(String(name))));
   assert.match(JSON.stringify(afterChild.messages), /returned/);
   const estimate = (request: typeof beforeMain) => ({ systemPrompt: Math.ceil((request.system?.length ?? 0) / 4), toolSchemas: Math.ceil(JSON.stringify(request.tools ?? []).length / 4) });
   t.diagnostic(JSON.stringify({ estimatedTokens: { main: { before: estimate(beforeMain), after: estimate(afterMain) }, child: { before: estimate(beforeChild), after: estimate(afterChild) } } }));

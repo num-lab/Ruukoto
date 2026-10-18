@@ -1,7 +1,7 @@
 import type { TaskId, Tx } from "@earendil-works/pi-durable";
 import { PersonalError } from "./personal-error.ts";
 import { telegramSelection } from "./personal-permissions.ts";
-import { PersonalTelegramReceiptDoc, type TelegramControlInput } from "./personal-telegram-records.ts";
+import { samePersonalEntry, PersonalTelegramReceiptDoc, type TelegramControlInput } from "./personal-telegram-records.ts";
 import { browserList, browserDetail, browserOperation, browserOperations, browserResolve, type BrowserActor } from "./personal-browser.ts";
 
 type BrowserSummary = Awaited<ReturnType<typeof browserList>>["items"][number];
@@ -67,7 +67,7 @@ export async function verifyBrowserControls(tx: Tx, keys: string[], enabled: boo
     if (!Array.isArray(operations) || operations.length > 8 || new Set(operations).size !== operations.length || operations.some(id => !Number.isSafeInteger(id) || id < 1) || menu && "nextOffset" in menu && menu.nextOffset !== undefined && (!Number.isSafeInteger(menu.nextOffset) || menu.nextOffset < 0)) throw invalid();
     for (const id of operations) {
       const source = (await browserOperation(tx, id)).origin.telegram;
-      if (!source || source.botId !== value.botId || source.ownerId !== value.ownerId || source.generation !== value.generation) throw invalid();
+      if (!source || !samePersonalEntry(source, value)) throw invalid();
     }
     const selected = (await telegramSelection(tx, value))?.selection;
     if (value.browserResolution) {

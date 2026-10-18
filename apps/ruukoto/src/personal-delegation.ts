@@ -4,7 +4,7 @@ import { isDeepStrictEqual } from "node:util";
 import { defineDocFamily, defineEntry, defineExtension, ROOT_CONVERSATION_ID, type Cursor, type EntryId, type ModelRef, type SubmissionId, type TaskId, type Tx } from "@earendil-works/pi-durable";
 import { PersonalError } from "./personal-error.ts";
 import { permissionSnapshot, PersonalPermissionsDoc, telegramSourceActive, type PersonalTelegramSource } from "./personal-permissions.ts";
-import { PersonalTelegramReceiptDoc } from "./personal-telegram-records.ts";
+import { samePersonalEntry, type PersonalEntryIdentity, isPersonalImRequest, PersonalTelegramReceiptDoc } from "./personal-telegram-records.ts";
 import { personalServiceSourceBlocker, requirePersonalServiceSourceReady } from "./personal-service-operations.ts";
 import type { PersonalReportFacts } from "./personal-report.ts";
 import { delegatePersonalWork, PersonalWorkDoc, PersonalWorkTask, personalWorkRef, personalWorkStatus, personalWorkSummary, requestPersonalWorkCancel, type PersonalWorkRef } from "./personal-work.ts";
@@ -30,9 +30,9 @@ export async function personalDelegation(tx: Tx, ref: PersonalDelegationRef) {
 }
 
 async function originalEntry(tx: Tx, value: Delegation, requestId: string) {
-  const receipt = requestId.startsWith("telegram:") ? (await tx.doc(PersonalTelegramReceiptDoc, requestId, null)).receipt : undefined;
+  const receipt = isPersonalImRequest(requestId) ? (await tx.doc(PersonalTelegramReceiptDoc, requestId, null)).receipt : undefined;
   const telegram = receipt && permissionSnapshot(receipt);
-  if (value.telegram ? !telegram || receipt?.submissionId !== (await source(tx, requestId)).submissionId || value.telegram.botId !== telegram.botId || value.telegram.ownerId !== telegram.ownerId || value.telegram.generation !== telegram.generation : requestId.startsWith("telegram:")) throw new PersonalError("delegation_original_entry", "此说明不属于委托的原入口，未改变工作；请从原入口查询。");
+  if (value.telegram ? !telegram || receipt?.submissionId !== (await source(tx, requestId)).submissionId || !samePersonalEntry(value.telegram, telegram) : isPersonalImRequest(requestId)) throw new PersonalError("delegation_original_entry", "此说明不属于委托的原入口，未改变工作；请从原入口查询。");
 }
 
 export async function requirePersonalDelegationInput(tx: Tx, ref: PersonalDelegationRef, requestId: string) {
@@ -79,7 +79,7 @@ export async function delegatePersonalAnalysis(tx: Tx, model: ModelRef, input: P
   const record = await tx.doc(PersonalDelegationDoc, String(selected.entryId), null);
   if (!record.delegation) {
     if (ref) throw new PersonalError("delegation_missing", "找不到原委托，请查询列表；不能用未知编号创建归属。");
-    const receipt = input.sourceRequestId.startsWith("telegram:") ? (await tx.doc(PersonalTelegramReceiptDoc, input.sourceRequestId, null)).receipt : undefined;
+    const receipt = isPersonalImRequest(input.sourceRequestId) ? (await tx.doc(PersonalTelegramReceiptDoc, input.sourceRequestId, null)).receipt : undefined;
     const telegram = receipt && permissionSnapshot(receipt);
     const permission = telegram ?? await personalLocalPermission(tx, input.sourceRequestId) ?? await tx.doc(PersonalPermissionsDoc);
     record.delegation = { ref: selected, source: instruction, permission: { mode: permission.mode, version: permission.version }, ...(telegram ? { telegram } : {}), members: [], cancelRequested: false };
@@ -140,7 +140,7 @@ export async function personalDelegationProgress(tx: Tx, ref: PersonalDelegation
   return { ref: { ...value.ref }, content: content.slice(0, 160), cancelRequested: value.cancelRequested, total: value.members.length, active, unverified, paused, ...(report ? { report } : {}), state: unverified ? "stop_unverified" : value.cancelRequested ? active ? "canceling" : "canceled" : paused ? "paused" : report ? reportTask!.state.status === "terminal" ? reportTask!.state.outcome.status === "completed" ? "reported" : "report_failed" : "reporting" : active ? "active" : "idle", members, ...(offset + 8 < value.members.length ? { nextOffset: offset + 8 } : {}) };
 }
 
-export async function listPersonalDelegations(tx: Tx, offset = 0, telegram?: Pick<PersonalTelegramSource, "botId" | "ownerId" | "generation">) {
+export async function listPersonalDelegations(tx: Tx, offset = 0, telegram?: PersonalEntryIdentity) {
   const seen = new Set<EntryId>();
   const items = [];
   let cursor: Cursor | undefined;
@@ -152,7 +152,7 @@ export async function listPersonalDelegations(tx: Tx, offset = 0, telegram?: Pic
       if (!group || seen.has(group.entryId)) continue;
       seen.add(group.entryId);
       const value = await personalDelegation(tx, group);
-      if (telegram && (telegram.botId !== value.telegram?.botId || telegram.ownerId !== value.telegram.ownerId || telegram.generation !== value.telegram.generation)) continue;
+      if (telegram && !samePersonalEntry(telegram, value.telegram)) continue;
       if (offset-- > 0) continue;
       if (items.length === 8) return { items, more: true };
       const progress = await personalDelegationProgress(tx, group);

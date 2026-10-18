@@ -118,10 +118,10 @@ export function personalMedia(profile: string, getHarness: () => Harness, suppor
       const entry = submission?.entry === undefined ? undefined : await tx.entry(submission.entry);
       if (!message || message.key !== ref.source.requestId || !["ready", "bound"].includes(message.state) || !message.artifacts.some(artifact => isDeepStrictEqual(artifact, ref.artifact)) || ref.conversationId !== ROOT_CONVERSATION_ID || !submission || submission.type !== "input" || message.submissionId !== undefined && message.submissionId !== submission.id || !entry || entry.kind !== "pi.user" || entry.conversationId !== ref.conversationId || !contains(entry.model, image)) throw invalid();
       await verifyMessage(tx, message);
-      if (message.source.platform === "telegram") {
+      {
         const receipt = (await tx.doc(PersonalTelegramReceiptDoc, message.key, null)).receipt;
         const task = receipt && await tx.task(receipt.taskId);
-        if (!receipt || receipt.requestId !== message.key || receipt.media?.key !== message.key || !isDeepStrictEqual(receipt.media.identities, message.identities) || receipt.mediaRejected || receipt.control || receipt.generation !== message.source.generation || receipt.botId !== message.source.accountId || receipt.ownerId !== message.source.ownerId || receipt.content !== message.body || receipt.accepted !== message.accepted || !task || task.kind !== "ruukoto.telegram-input" || task.conversationId !== ROOT_CONVERSATION_ID || receipt.submissionId !== undefined && receipt.submissionId !== submission.id) throw invalid();
+        if (!receipt || (receipt.platform ?? "telegram") !== message.source.platform || receipt.requestId !== message.key || receipt.media?.key !== message.key || !isDeepStrictEqual(receipt.media.identities, message.identities) || receipt.mediaRejected || receipt.control || receipt.generation !== message.source.generation || receipt.botId !== message.source.accountId || receipt.ownerId !== message.source.ownerId || receipt.content !== message.body || receipt.accepted !== message.accepted || !task || task.kind !== "ruukoto.telegram-input" || task.conversationId !== ROOT_CONVERSATION_ID || receipt.submissionId !== undefined && receipt.submissionId !== submission.id) throw invalid();
       }
     } else {
       const task = await tx.task(ref.source.taskId), input = task?.input;

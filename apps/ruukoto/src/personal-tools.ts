@@ -26,7 +26,7 @@ import { savePersonalArtifact, readPersonalArtifact, exportPersonalArtifact, loa
 import { telegramSourceActive, permissionSnapshot } from "./personal-permissions.ts";
 import { requestTavily, validateParams, WebSearchError } from "@ruukoto/agent/web-search-transport.ts";
 import { personalWorkInspectionSource } from "./personal-work.ts";
-import { PersonalTelegramReceiptDoc } from "./personal-telegram-records.ts";
+import { samePersonalEntry, type PersonalEntryIdentity, PersonalTelegramReceiptDoc } from "./personal-telegram-records.ts";
 
 export const PERSONAL_TOOLS = "personal-tools";
 export const PERSONAL_TOOL_NAMES = ["read_file", "write_file", "http_request", "web_search", "read_artifact"];
@@ -127,10 +127,10 @@ async function active(tx: Tx, value: PersonalToolOperation, profile: string) {
     if (target === otherTarget) throw new PersonalError("tool_target_busy", "原目标仍有未核实的操作，未执行；请查询原操作，不要换工作重试。");
   }
 }
-export type ToolActor = { requestId: string; generation: string; botId: string; ownerId: string };
+export type ToolActor = PersonalEntryIdentity & { requestId: string };
 export async function toolOriginal(tx: Tx, id: TaskId, actor: ToolActor, current = true) {
   const source = (await toolOperation(tx, id)).origin.telegram;
-  if (!source || source.generation !== actor.generation || source.botId !== actor.botId || source.ownerId !== actor.ownerId || current && !await telegramSourceActive(tx, source)) throw new PersonalError("tool_original_entry", "此调用不属于当前原入口，请从发起入口查询。");
+  if (!source || !samePersonalEntry(source, actor) || current && !await telegramSourceActive(tx, source)) throw new PersonalError("tool_original_entry", "此调用不属于当前原入口，请从发起入口查询。");
 }
 export async function toolDecide(tx: Tx, id: TaskId, decision: "approved" | "rejected", profile: string, actor?: ToolActor) {
   const value = await toolOperation(tx, id);
@@ -153,7 +153,7 @@ export async function toolVerifyStop(tx: Tx, id: TaskId, evidence: string, actor
   value.stopEvidence = { evidence, entry: entry.id, ...(actor ? { actor: actor.requestId } : {}) }; value.stopped = true;
 }
 function summary(value: PersonalToolOperation) { return { operation: value.operation, kind: value.kind, target: value.prepared.kind === "file" ? value.prepared.request.path : value.prepared.kind === "http" ? value.prepared.request.url : "Web Search", approval: value.approval, effect: value.effect, code: value.code, stopped: value.stopped, canDecide: value.approval === "pending" && !value.started && !value.observation, canResolve: value.effect === "effect_unknown" && value.code !== "started" && !value.resolution, canVerifyStop: value.started && value.code !== "started" && !value.stopped, ...(value.artifact ? { artifact: value.artifact.id, partial: value.artifact.partial } : {}) }; }
-export async function toolList(tx: Tx, offset = 0, actor?: ToolActor) { const values = (await toolOperations(tx)).reverse().filter(value => !actor || value.origin.telegram?.generation === actor.generation && value.origin.telegram.botId === actor.botId && value.origin.telegram.ownerId === actor.ownerId); return { items: values.slice(offset, offset + 8).map(summary), ...(offset + 8 < values.length ? { nextOffset: offset + 8 } : {}) }; }
+export async function toolList(tx: Tx, offset = 0, actor?: ToolActor) { const values = (await toolOperations(tx)).reverse().filter(value => !actor || samePersonalEntry(value.origin.telegram, actor)); return { items: values.slice(offset, offset + 8).map(summary), ...(offset + 8 < values.length ? { nextOffset: offset + 8 } : {}) }; }
 export async function toolDetail(tx: Tx, id: TaskId, offset = 0) { const value = await toolOperation(tx, id), text = JSON.stringify(value, null, 2); return { summary: summary(value), text: text.slice(offset, offset + 3072), ...(offset + 3072 < text.length ? { nextOffset: offset + 3072 } : {}) }; }
 
 export function personalTools(profile: string, configValue: PersonalToolsConfig, provider: Provider, modelId: string, getHarness: () => Harness, images?: PersonalImageRegistrar) {

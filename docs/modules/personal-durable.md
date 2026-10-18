@@ -2,7 +2,7 @@
 
 ## 职责与边界
 
-`apps/ruukoto/src/personal-*.ts` 提供独立的 Pi 1.3.0 会话、本机引导管理及模型/宿主后台工作入口，只用于隔离验证。正式个人 bin、根启动脚本、开发启动器与部署入口使用[产品装配](products.md)中的共享运行时；本机向导可在 Linux 配置主/子会话只读服务检查，可信宿主 API 也可显式注入；可经隔离向导配对 Telegram 文本与图片私聊，启用服务操作后子会话可调用受控重启。可信宿主还可显式启用独立服务操作，Telegram 持有原入口审批、权限快照和精确长期授权。CLI 与 Telegram 宿主菜单可按原检查接纳请求停止重核，也可分别保存原服务写入效果核实和请求原写操作停止重核。
+`apps/ruukoto/src/personal-*.ts` 提供独立的 Pi 1.3.0 会话、本机引导管理及模型/宿主后台工作入口，只用于隔离验证。正式个人 bin、根启动脚本、开发启动器与部署入口使用[产品装配](products.md)中的共享运行时；本机向导可在 Linux 配置主/子会话只读服务检查，可信宿主 API 也可显式注入；可经隔离向导配对 QQ/Telegram 文本与图片私聊，启用服务操作后子会话可调用受控重启。可信宿主还可显式启用独立服务操作，Telegram 持有原入口审批、权限快照和精确长期授权。CLI 与 Telegram 宿主菜单可按原检查接纳请求停止重核，也可分别保存原服务写入效果核实和请求原写操作停止重核。
 
 ## 对外接口
 
@@ -10,13 +10,13 @@
 
 浏览器经 `personal-browser` 原生工具装配，只向唯一已核实的完全访问主拥有者输入发送定义；子会话、定时来源和汇总输入不开放。共享 BrowserManager 负责原生 CLI、Chrome、loopback 附接和进程身份，异步持久回调必须提交后才继续启动。CLI 配置程序与 Chromium 路径，在线管理原操作、效果核实和真实停止；Telegram `/浏览器` 仅管理原 bot/owner/代次操作。截图与长网页输出使用同一 `read_artifact` 和本机产物列表/导出，不要求先配置文件资料目录。
 
-`personal-media` 接收固定拥有者的图片并提供 provider 发送恢复；Telegram 从最大照片和 caption 接线，共用主会话，当前尚未接入 QQ，媒体接口供后续 QQ 适配器复用相同规则。仅接受 JPEG/PNG/WebP，每条最多4张、单图8MiB，下载至多3次。含图文字不解析成控制命令。输入、工具结果与请求快照只保存类型化图片引用，最终 provider 前核实原生 submission/tool-result、MIME、哈希和文件身份后恢复字节。图片模型能力由配置明确选择；入站不支持给固定回执，本地读图/截图不支持给明确工具错误，继续文本回答。原引用缺失或被改写时不发请求。
+`personal-media` 接收固定拥有者的图片并提供 provider 发送恢复；Telegram 从最大照片和 caption 接线，共用主会话，QQ 从好友私聊文本/图片段接线，缺图片 URL 时通过 get_image 取已列明 QQ HTTPS CDN 地址；不读取平台本地文件，两平台使用相同的接收及原生来源核实规则。仅接受 JPEG/PNG/WebP，每条最多4张、单图8MiB，下载至多3次。含图文字不解析成控制命令。输入、工具结果与请求快照只保存类型化图片引用，最终 provider 前核实原生 submission/tool-result、MIME、哈希和文件身份后恢复字节。图片模型能力由配置明确选择；入站不支持给固定回执，本地读图/截图不支持给明确工具错误，继续文本回答。原引用缺失或被改写时不发请求。
 
 `personal-command-worker.ts` 构建为自包含的 `worker/personal-command-worker.mjs`。可信宿主按[执行边界](execution.md)准备对应原模式的输入，以预先保存的原引用调用 `runPersonalCommand`；`readPersonalCommandReceipt` 校验并读取原回执，`stopPersonalCommand` 无内存句柄也按原引用停止。Linux 停机向导固定独立目录及 dev/ino，`commands` 配置启用子会话的 `run_command`、`read_command_output`；请求确认/自动审查在原目录内执行且不联网；完全访问继承后台账户环境，可访问目录外与网络，免逐次审批。完全访问仍登记独立 scope，按原身份核实停止；不承诺收回主动迁出单元的进程或外部服务。同账户可读写后台资料与证据，私有目录不构成其隔离。子会话请求展示原工作模式，按原生 section 留证据，不沿用上项工作的权限说明。原 WorkTask 持有命令 Task，接纳和开始意图分别留不可改证据；恢复只查原回执并核实原执行停止，不重跑；停止须核对原请求及原 launch 指纹，缺证据或 stop 先手不能证明旧执行已停。`readPersonalCommandOutput` 每页返回最多 3072 原字节的 base64；无回执时明确为片段。CLI 可查询、保存不可覆盖的已生效/未生效证据，并登记原停止重核。未知效果或停止未核实保留原工作占用及来源暂停，完整回执也须停止已证明才释放；共享命令目录在任一原执行未核实停止时拒绝新执行。
 
 `openPersonalHarness` 接受独立目录或已持有的 `PersonalProfileLock`、provider 与模型，接管锁的释放责任，返回主会话、Harness、提交、等待回答与关闭方法；可用 `beforeUnlock` 在放锁前收齐管理接口。可选 `service` 接受宿主固定的 helper 配置，安装 `service_inspect` 与 `read_service_inspection`，模型只能指定白名单内精确单元名或本会话的证据编号。返回的 `inspections.list/recheckStop` 供可信宿主查询未决检查与重核停止，不提供强制释放；未取消的活动检查拒绝宿主重核。`requestInspectionStop(ref)` 固定原 Task/接纳引用，仅登记后台重核并返回其 Task ID；它不等待停止。提交键由调用方保持稳定，用于 durable 会话内去重。`parsePersonalModel` 校验模型配置，`personalProvider` 按环境变量名读取凭据。个人 Pi 1.3.0 对象不传给 Coding 的 Pi 0.85.1。
 
-`startPersonalServer` 独占后台，HTTP 仅监听档案内 Unix socket，经本地令牌逐次认证；提供 `/status`、`/messages`、`/inputs`、`/input`、`/telegram`、`/works`、`/work`、`/work/cancel`、`/work/close`、`/work/notes`、`/delegations`、`/delegation`、`/delegation/cancel`、`/delegation/report`、`/inspections`、`/inspection/stop`、`/services`、`/service`、`/service/decide`、`/service/resolve`、`/service/stop` 、`/commands`、`/command`、`/command/resolve`、`/command/stop`、`/mcp/operations`、`/mcp/operation`、`/mcp/decide`、`/mcp/resolve`、`/mcp/recheck` 和 `/stop`；状态的服务开关只表示能力已装配，不代表 helper 可用或业务健康。`personalControl` 为 CLI 调用；CLI 不重开 Harness。引导与前台托管见[操作手册](../usage.md#25-个人-durable-隔离向导)。
+`startPersonalServer` 独占后台，HTTP 仅监听档案内 Unix socket，经本地令牌逐次认证；提供 `/status`、`/messages`、`/inputs`、`/input`、`/telegram`、`/qq`、`/works`、`/work`、`/work/cancel`、`/work/close`、`/work/notes`、`/delegations`、`/delegation`、`/delegation/cancel`、`/delegation/report`、`/inspections`、`/inspection/stop`、`/services`、`/service`、`/service/decide`、`/service/resolve`、`/service/stop` 、`/commands`、`/command`、`/command/resolve`、`/command/stop`、`/mcp/operations`、`/mcp/operation`、`/mcp/decide`、`/mcp/resolve`、`/mcp/recheck` 和 `/stop`；状态的服务开关只表示能力已装配，不代表 helper 可用或业务健康。`personalControl` 为 CLI 调用；CLI 不重开 Harness。引导与前台托管见[操作手册](../usage.md#25-个人-durable-隔离向导)。
 
 可信宿主使用返回的 `work.delegate` 委派或复用长期子 Agent，`append` 为当前分析追加说明，`list/status` 查询身份和原生工作进度，`cancel` 等待取消核实，`closeAgent` 关闭空闲身份。首次委派可给名称；已有身份通过具名工作引用管理。来源须引用已进入主会话的拥有者输入请求；同工作键异参拒绝。主会话的 `background_work` 工具支持委派、列身份、分页读结果、追加说明、取消工作及关闭空闲身份；来源与请求键由宿主绑定原生工具和唯一活动输入，模型不能自行提供。CLI 的后台分析菜单直接查询历史、读原结果、请求取消与关闭空闲身份，Telegram 的 `/工作` 只管理原 bot/owner/代次的分析。菜单关闭还核实原工作仍是该身份最新工作。追加在当前回答结束后按接纳顺序处理，结果取最后说明的完整回答；取消或结束后拒绝新说明。子会话按服务、命令和 MCP 配置提供相应工具；都未配置时为空工具。模型取消只请求取消，后续查询停止结果，不占住主聊天。模型委派同轮归入分析委托，跨轮可指定原委托继续；`background_work` 的 delegations/progress/cancel_delegation 查询和取消整项分析。CLI 的分析委托菜单与 Telegram `/委托` 共用此归属，取消包括分析成员的固定检查、服务重启、命令和 MCP 并等待效果及停止核实，不包含独立宿主服务写操作。主 Agent 安排好全部分析后通过 report 封组，原生报告 Task 等成员停止后请主会话汇总；report_result、CLI 的完整报告菜单与 Telegram「查看报告」分页查询原报告及送达状态。封组后共用入口拒绝续派和追加；未封组委托可跨轮继续。历史与可信宿主单项分析不自动归组。
 
@@ -24,9 +24,13 @@
 
 `telegram` 配置启用固定拥有者文本入口；返回的 `telegram.receive/poll/status` 分别持久接收平台更新、管理可中止轮询、查询连接和最近 16 条收发。后台仅以配对的 bot/私聊拥有者收件，所有输入使用同一 main；普通直发收件保存当时模式/权限版本；`/检查` 选择原检查并请求停止重核；`/服务核实` 选择当前原入口服务操作，保存已生效/未生效及证据，或登记原写操作停止重核；`/权限` 管理以后新 Telegram 输入的模式，`/审批`、`/服务状态` 与 `/授权` 查询和管理服务工作。回复已发送宿主菜单选择动作，不要求输入内部键；控制消息不进入模型，也不等待聊天。服务请求也可由主会话委派的子 Agent 发起，权限固定为原工作授权。配置、配对和停用见[操作手册](../usage.md#25-个人-durable-隔离向导)。
 
+`qq` 配置和返回的 `qq.receive/poll/status` 提供同一 main 的好友私聊入口，传输仅复用 OneBotClient；QQ 与 Telegram 独立配对、凭据指纹和代次，默认模式也分平台保存，QQ 换代重置为自动审查。本篇 Telegram 宿主菜单同样适用于 QQ，所有工作、审批、长期授权、效果及停止核实均按原平台/账号/owner/代次筛选；回复已送达的原菜单才能选择，控制不调用模型。后台与最终报告固定原入口，换代取消旧待发，不随另一入口聊天改发。
+
 可选 `mcp` 配置让主/子会话使用 `mcp_tools` 查询钉版原定义，`mcp_call` 沿原工作权限调用，`read_mcp_result` 分页读取完整原请求响应。调用直接使用原生工具 Task；请求确认/自动审查逐次等待原入口批准，完全访问免操作审批，仍核对来源、配置、定义与凭据。远端只读标注不提供权限。宿主 `mcp.list/detail/decide/resolve/requestRecheck` 与 CLI/Telegram 菜单分别提供原记录、业务效果说明和原 SSE 流查询；核实任务只登记后返回，不占住控制收件事务。
 
 ## 数据与状态
+
+两平台复用既有 `ruukoto.telegram`、`ruukoto.telegram-receipt` 与 `ruukoto.telegram-input` 持久 kind；QQ 来源显式保存 `platform: "qq"`，Telegram 缺省字段保持原证据。稳定消息键含平台、账号、owner 与有符号消息号，不以消息大小或到达顺序去重。QQ 扩展标记防止旧程序忽略新平台；QQ 接收连接变化及缺口另留 entry 和诊断 document，不能当作平台重投保证。
 
 `ruukoto.browser` 保存宿主配置、绑定JSON和操作索引，`ruukoto.browser-operation` 关联原生 `pi.tool`、接纳、开始、观察、效果和停止证据；历史 entries 与索引双向核实，丢掉索引不能隐藏未知动作。`ruukoto.media`、`ruukoto.media-message` 与 `ruukoto.image` 保存图片接收/拒绝/绑定、平台身份、原生来源和不可变产物引用；未绑定满24小时标失效再清理原字节，已绑定历史保留。文件和 durable 不跨存储原子。
 
@@ -87,6 +91,8 @@ Telegram 控制消息按原始完整正文分类，回复关系只定位同 bot/
 回复正文先固定保存，再提交 sending 与 verify checkpoint，最后发请求。明确 429 拒绝延后原发送，其他明确 4xx 拒绝终止；断线、5xx、畸形回执或发送后结果落盘失败都保留效果未知，重开不重发。目标停用/换代使旧未开始输入和待发回复取消；已进入主会话的历史保留，已开始发送的未知状态保留。后台停止先收齐轮询，再关闭 Harness，故障放锁前也收齐网络与本机接口。
 
 ## 不变量与失败处理
+
+OneBot 正向 WebSocket 没有收件 ACK/offset；本地事务提交才算受理，断线未持久受理的消息不保证恢复，向导展示接收缺口。未开始发送时离线可沿原目标等待；发送已开始后丢答、async、畸形回执及 NapCat 1200 都保留未知不重发。无可核实的 QQ 限流契约时不解析错误文案猜重试；Telegram 仍仅按明确 429 拒绝延后。QQ 图片 URL 不进请求快照，下载仅限受控 HTTPS 图片 CDN，源反链和字节均须核实。
 
 浏览器先保存开始事实，再发一次动作；已有开始事实的恢复仅停止原执行并补观察，不重发。写入丢答、取消或崩溃保留网页效果未知，沿共同来源暂停所有外部操作、委派和报告，独立新聊天可继续。未知时宿主关闭原浏览器，可能丢失页面现场；关闭只能证明本地执行停止，不能证明网页写入未发生或回滚。效果说明与真实停止证明均满足才解除占用。人工暂停记录接收与原生队列屏障，暂停前已收到的消息不能解除；恢复清空旧元素引用。
 

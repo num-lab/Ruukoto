@@ -60,7 +60,7 @@ test("工具宿主控制：未装配与非直接入口只给指引，不登记�
 test("工具宿主控制：原菜单分别核实效果与结束，错回复不保存且回链缺失拒绝恢复", async t => {
   const f = await fixture(t), list = await f.receive("/工具"), menu = await f.receive("工具1", list.sent);
   assert.equal(menu.value.selection?.kind, "tool"); assert.match(menu.value.reply!, /工具确认已生效/); assert.match(menu.value.reply!, /核实工具原请求结束/);
-  for (const changes of [{}, { replyTo: 9999, replyBotId: "123" }, { replyTo: menu.sent, replyBotId: "789" }, { replyTo: menu.sent, replyBotId: "123", direct: false }, { replyTo: menu.sent, replyBotId: "123", generation: randomUUID() }]) {
+  for (const changes of [{}, { replyTo: 9999, replyBotId: "123" }, { replyTo: menu.sent, replyBotId: "789" }, { replyTo: menu.sent, replyBotId: "123", direct: false }, { replyTo: menu.sent, replyBotId: "123", generation: randomUUID() }, { replyTo: menu.sent, replyBotId: "123", platform: "qq" as const }]) {
     const rejected = await f.receive("工具确认已生效", undefined, changes);
     assert.equal(rejected.value.selection, undefined); assert.equal(rejected.value.toolResolution, undefined);
   }

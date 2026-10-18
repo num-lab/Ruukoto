@@ -1,3 +1,4 @@
+import { readPersonalQq } from "./personal-qq-config.ts";
 import { exportPersonalArtifact, type PersonalArtifact } from "./personal-artifacts.ts";
 import { browserList, browserDetail, browserResolve } from "./personal-browser.ts";
 import { readPersonalBrowser } from "./personal-browser-config.ts";
@@ -105,10 +106,11 @@ export async function startPersonalServer(directory: string) {
   let shutdown: Promise<void> | undefined;
   let personal: Awaited<ReturnType<typeof openPersonalHarness>> | undefined;
   const telegramStop = new AbortController();
+  let qqLoop: Promise<void> | undefined;
   let telegramLoop: Promise<void> | undefined;
   const closeListener = () => listenerClosed ??= (async () => {
     telegramStop.abort();
-    await telegramLoop;
+    await Promise.all([telegramLoop, qqLoop]);
     if (server.listening) await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
     await Promise.allSettled([...active]);
   })();
@@ -116,6 +118,7 @@ export async function startPersonalServer(directory: string) {
   try {
     const config = readPersonalConfig(profile);
     const telegram = readPersonalTelegram(profile);
+    const qq = readPersonalQq(profile);
     const services = readPersonalServices(profile);
     const commands = readPersonalCommands(profile);
     const mcp = readPersonalMcp(profile);
@@ -131,8 +134,9 @@ export async function startPersonalServer(directory: string) {
     server.listen(socketPath);
     await once(server, "listening");
     fs.chmodSync(socketPath, 0o600);
-    personal = await openPersonalHarness({ profile, provider: personalProvider(config), modelId: config.modelId, telegram, ...(services ? { service: { ...services, useSudo: true }, serviceOperations: true } : {}), ...(commands ? { commands } : {}), ...(mcp ? { mcp } : {}), ...(tools ? { tools } : {}), ...(browser ? { browser } : {}), beforeUnlock: closeListener });
+    personal = await openPersonalHarness({ profile, provider: personalProvider(config), modelId: config.modelId, telegram, qq, ...(services ? { service: { ...services, useSudo: true }, serviceOperations: true } : {}), ...(commands ? { commands } : {}), ...(mcp ? { mcp } : {}), ...(tools ? { tools } : {}), ...(browser ? { browser } : {}), beforeUnlock: closeListener });
     const instance = personal;
+    qqLoop = instance.qq.poll(telegramStop.signal).catch(() => { process.stderr.write("[ruukoto:personal] QQ 收件已停止，请查询状态并检查档案；未自动重启。\n"); });
     telegramLoop = instance.telegram.poll(telegramStop.signal).catch(() => { process.stderr.write("[ruukoto:personal] Telegram 收件已停止，请查询状态并检查档案；未自动重启。\n"); });
     const respond = (res: http.ServerResponse, status: number, result: unknown) => {
       if (res.destroyed) return;
@@ -156,6 +160,8 @@ export async function startPersonalServer(directory: string) {
         } else if (req.method === "GET" && url.pathname === "/messages") {
           const entries = await instance.main.entries({}, 64, undefined, context);
           result = entries.items.map(text).filter(item => item !== undefined).slice(0, 16).reverse();
+        } else if (req.method === "GET" && url.pathname === "/qq") {
+          result = await instance.qq.status();
         } else if (req.method === "GET" && url.pathname === "/telegram") {
           result = await instance.telegram.status();
         } else if (req.method === "POST" && url.pathname === "/permissions") {

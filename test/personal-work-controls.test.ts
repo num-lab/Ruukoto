@@ -150,7 +150,7 @@ test("工作控制：Telegram 宿主分页与原结果零模型，旧菜单不�
   const owner = await f.receive("分析这份资料"); const ref = await delegate(p, "telegram", undefined, owner.key);
   await source(p); const local = await delegate(p, "local");
   for (let i = 0; i < 8; i++) await delegate(p, `telegram-${i}`, undefined, owner.key);
-  for (const other of [{ ...f.telegram, botId: "789" }, { ...f.telegram, ownerId: "789" }, { ...f.telegram, generation: randomUUID() }]) assert.equal((await p.harness.commit(tx => listPersonalWorks(tx, 0, other), context)).items.length, 0);
+  for (const other of [{ ...f.telegram, platform: "qq" as const }, { ...f.telegram, botId: "789" }, { ...f.telegram, ownerId: "789" }, { ...f.telegram, generation: randomUUID() }]) assert.equal((await p.harness.commit(tx => listPersonalWorks(tx, 0, other), context)).items.length, 0);
   const before = f.model.calls.length;
   const list = await f.receive("/工作"); assert.match(list.value.reply!, /分析8/); assert.match(list.value.reply!, /更多分析/);
   const more = await f.receive("更多分析", list.messageId); assert.match(more.value.reply!, /分析1/); assert.doesNotMatch(more.value.reply!, /分析2/);

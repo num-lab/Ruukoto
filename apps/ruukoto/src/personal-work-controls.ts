@@ -2,7 +2,7 @@ import { defineExtension, type Tx } from "@earendil-works/pi-durable";
 import { PersonalError } from "./personal-error.ts";
 import { telegramSelection } from "./personal-permissions.ts";
 import { appendPersonalWork, closePersonalWorkAgent, listPersonalWorks, PersonalWorkDoc, personalWorkRef, personalWorkResult, personalWorkSummary, requestPersonalWorkCancel, type PersonalWorkSummary, type PersonalWorkRef } from "./personal-work.ts";
-import type { TelegramControlInput, TelegramReceipt } from "./personal-telegram-records.ts";
+import { samePersonalEntry, type TelegramControlInput, type TelegramReceipt } from "./personal-telegram-records.ts";
 import { cancelPersonalDelegation, listPersonalDelegations, personalDelegation, personalDelegationProgress, type PersonalDelegationRef } from "./personal-delegation.ts";
 import { personalReportResult } from "./personal-report.ts";
 
@@ -17,7 +17,7 @@ export function personalWorkDescription(value: PersonalWorkSummary) {
 async function originalWork(tx: Tx, ref: PersonalWorkRef, value: TelegramControlInput) {
   const actual = await personalWorkRef(tx, ref.taskId);
   const source = (await tx.doc(PersonalWorkDoc, actual.requestId, null)).telegram;
-  if (actual.requestId !== ref.requestId || actual.agentId !== ref.agentId || source?.botId !== value.botId || source.ownerId !== value.ownerId || source.generation !== value.generation) throw new PersonalError("work_original_entry_required", "此分析不属于原拥有者入口，请重新发送 /工作 查询；没有改变工作。");
+  if (actual.requestId !== ref.requestId || actual.agentId !== ref.agentId || !samePersonalEntry(source, value)) throw new PersonalError("work_original_entry_required", "此分析不属于原拥有者入口，请重新发送 /工作 查询；没有改变工作。");
 }
 
 // Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-work-controls.md
@@ -38,7 +38,7 @@ export async function telegramWorkControl(tx: Tx, value: TelegramControlInput): 
     await originalWork(tx, ref, value);
     value.selection = { kind: "work", ref: { ...ref } };
     if (value.content.startsWith("补充：")) {
-      await appendPersonalWork(tx, ref, { requestId: value.requestId, content: value.content.slice(3), source: { kind: "telegram" } });
+      await appendPersonalWork(tx, ref, { requestId: value.requestId, content: value.content.slice(3), source: { kind: value.platform === "qq" ? "qq" : "telegram" } });
       value.reply = "原分析已接纳说明，将在当前回答结束后按顺序处理；原权限保持。回复「刷新分析」查询状态。";
     } else if (value.content === "取消这项分析") {
       await requestPersonalWorkCancel(tx, ref);
@@ -83,7 +83,7 @@ export function personalReportDelivery(delivery: string) {
 
 async function originalDelegation(tx: Tx, ref: PersonalDelegationRef, input: TelegramControlInput) {
   const source = (await personalDelegation(tx, ref)).telegram;
-  if (source?.botId !== input.botId || source.ownerId !== input.ownerId || source.generation !== input.generation) throw new PersonalError("delegation_original_entry", "委托不属于原拥有者入口，未改变工作；请发送 /委托 查询。");
+  if (!samePersonalEntry(source, input)) throw new PersonalError("delegation_original_entry", "委托不属于原拥有者入口，未改变工作；请发送 /委托 查询。");
 }
 
 // Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-analysis-delegations.md

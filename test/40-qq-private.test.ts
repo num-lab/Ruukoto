@@ -400,13 +400,13 @@ test("token 错误和登录账号不符不接任务；连接掉线、账号离�
   }
 });
 
-test("发送明确失败、超时、缺少消息 ID 与异步回执按事实收尾，重复入站不重发", async () => {
+test("发送明确失败、内部异常、超时、缺少消息 ID 与异步回执按事实收尾，重复入站不重发", async () => {
   const h = await harness("qq-private-send");
   const rt = await Runtime.start(h.config);
   try {
     await configure(rt, h.onebot);
     await waitOnline(rt);
-    const behaviors = ["fail", "silent", "missing_id", "async"] as const;
+    const behaviors = ["fail", "internal_error", "silent", "missing_id", "async"] as const;
     for (const [index, behavior] of behaviors.entries()) {
       h.onebot.setSendBehavior(behavior);
       push(h.onebot, index + 1, `MARK-SEND-${index}`);

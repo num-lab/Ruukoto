@@ -1,4 +1,4 @@
-# Agent Note: 个人 Telegram 收件与固定回复由 durable 任务衔接
+# Agent Note: 个人拥有者双平台收件与固定回复由 durable 任务衔接
 
 Status: implemented
 
@@ -20,9 +20,19 @@ Status: implemented
 
 后台独占 Harness、轮询与 Unix 管理接口。正常停止先收齐轮询，再关闭 Harness；故障关闭在放锁前收齐轮询与接口。不调用 main.abort 来停后台，不把客户端断开当作取消。CLI 提供最近 16 条收发状态与连接诊断，未知发送没有重新发送按钮。
 
+QQ 使用同一收件、Task、菜单和报告规则，只复用共享 `OneBotClient` 传输，不引入 QqAdapter 或旧 Store。为保留既有 Telegram 接纳证据，内部 document/task kind 与 `telegram` 来源字段名沿用，新增 `platform: "qq"` 区分；缺省只代表 Telegram，不把 QQ 账号编码为 Telegram 身份。入口、菜单、审批、长期授权、追加和核实逐处比较平台、账号、owner 与代次。默认模式分平台持有，QQ 换代恢复自动审查并递增权限版本，主会话历史共享不携带另一平台的权限；QQ 扩展标记使旧程序拒绝忽略新语义。
+
+QQ 停机向导核实在线登录账号，通过随机好友私聊短语选择另一拥有者账号；每次配对/停用都换代，服务地址及 token 指纹固定。只接纳 `message/private/friend`，核对事件 self_id 与真实在线连接，不接纳群临时会话、自身消息或缺失身份。消息 ID 保留有符号整数，稳定键为 `qq:account:owner:message`，按键去重，不作数值水位。以随机短语证明新鲜的配对事件保存平台时间与稳定消息身份；该消息重投、平台边界及同秒消息不执行，不用本机时钟推断平台积压，避免配对短语进入主会话；旧入口换代不移动或删除已提交历史。
+
+[OneBot 正向 WebSocket](https://github.com/botuniverse/onebot-11/blob/master/communication/ws.md)没有入站 ACK 或断线补拉。durable commit 才算本地受理；启动、断线、重连事实和接收缺口持久留存并由向导展示，不能承诺断线消息自动恢复。队列有界且逐条接纳，持久化或冲突失败停止入口；正常停止收齐接纳和连接记录，再释放后台。
+
+QQ 未开始发送且原账号离线时，沿原任务延后等待连接；请求已经发出后丢答一律未知。[NapCat 的动作处理](https://github.com/NapNeko/NapCatQQ/blob/main/packages/napcat-onebot/action/OneBotAction.ts)可把执行后的内部异常也返回 `failed/1200`，共享传输因此不再把该码当确定失败。新入口只把已知的参数/未知动作拒绝码判为未发送，不解析 wording 猜限流；OneBot/NapCat 未提供可核实的结构化限流重试契约时保留未知，Telegram 明确 429 仍按原规则延后。echo 仅关联应答，不作幂等键。
+
+QQ 图文沿共用媒体接口保存平台 file 身份，URL 只作瞬时下载凭据；缺 URL 时通过 `get_image` 解析，只从已列明的 QQ HTTPS 图片 CDN 下载，不读取平台本地路径、不携连接 token、不跟随跳转。图片与原 QQ receipt/Task/Submission 双向核实；拒绝时整条文字不单独送模型，caption 不解释为控制。
+
 ## 既有笔记审计
 
-按 durable、Telegram、入站、发送、拥有者绑定和本机管理检索 active notes；没有 rejected 目录。[本机管理](2026-10-17-personal-local-management.md)、[档案基础](2026-10-17-personal-durable-foundation.md)、[服务操作](2026-10-17-personal-service-operations.md)与迁移提案部分重叠，保留并互链；[原 IM 审批与汇报](../feature/2026-10-02-im-approval-and-final-report.md)、[长期授权](../feature/2026-10-03-standing-permissions.md)仍服务共享底座，本切片不替代其审批与授权决定。其他渠道、调度和外部执行笔记持有独立业务能力，没有完全吸收或待归档记录。
+按 durable、Telegram、入站、发送、拥有者绑定和本机管理检索 active notes；没有 rejected 目录。[本机管理](2026-10-17-personal-local-management.md)、[档案基础](2026-10-17-personal-durable-foundation.md)、[服务操作](2026-10-17-personal-service-operations.md)与迁移提案部分重叠，保留并互链；[原 IM 审批与汇报](../feature/2026-10-02-im-approval-and-final-report.md)、[长期授权](../feature/2026-10-03-standing-permissions.md)仍服务共享底座，本切片不替代其审批与授权决定。[旧 QQ 共享主会话](../feature/2026-09-24-qq-private-shared-main.md)与[媒体](2026-10-18-personal-browser-media.md)部分重叠，保留各自旧装配与媒体决定；其他渠道、调度和外部执行笔记持有独立业务能力，没有完全吸收或待归档记录。
 
 ## 备选方案
 
@@ -31,8 +41,12 @@ Status: implemented
 - 永久保存单调 update offset：轮询较直接，但平台空闲后的 ID 随机化使其不安全；采用短期单次确认和永久消息键去重。
 - 同时加入服务审批与长期授权：更快形成业务闭环，但还需要服务请求来源、操作选择、审批及未知效果核实交互；先建立可验证的入站与外发，再接这些业务。
 
+- 为 QQ 复制另一套收件与控制状态机：平台命名清楚，但会复制审批/恢复规则并使双平台权限校验漂移；只分离传输与配置，复用已有执行与控制。
+
 ## 后果
 
-拥有者可通过隔离 Telegram 与本机向导使用同一主会话；平台重投和进程恢复有稳定来源，未知发送不会制造重复回复。代价是每条入站保留来源与发送事实、一个 background Task；HTTP 错误保守分类可能需要人工通过平台核实。Telegram 宿主审批、权限和长期授权另按上述决定接入；后台分析最终外发由[委托报告](2026-10-17-personal-delegation-reports.md)持有；QQ、图片及模型写工具仍沿总方案继续。只验进程崩溃，不声称跨平台和 SQLite 原子或断电保留最近提交。
+拥有者可通过隔离 QQ、Telegram 与本机向导使用同一主会话；平台重投和进程恢复有稳定来源，未知发送不会制造重复回复。代价是每条入站保留来源与发送事实、一个 background Task；HTTP 错误保守分类可能需要人工通过平台核实。Telegram 宿主审批、权限和长期授权另按上述决定接入；后台分析最终外发由[委托报告](2026-10-17-personal-delegation-reports.md)持有；图片由共用媒体扩展提供，模型写工具按各自能力决定接入。只验进程崩溃，不声称跨平台和 SQLite 原子或断电保留最近提交。
 
 验证、独立审查与真实环境缺口见[文本入口工单](../../../../.scratch/personal-pi-durable/issues/07-telegram-entry.md)。
+
+QQ 实现及真实双平台验收缺口见[双平台入口工单](../../../../.scratch/personal-pi-durable/issues/31-qq-owner-entry.md)。

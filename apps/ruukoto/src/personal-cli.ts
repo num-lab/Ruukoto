@@ -1,3 +1,5 @@
+import { configurePersonalQq } from "./personal-qq-cli.ts";
+import { readPersonalQq, qqToken } from "./personal-qq-config.ts";
 import { configurePersonalBrowser, managePersonalBrowser } from "./personal-browser-cli.ts";
 import { configurePersonalTools, managePersonalTools } from "./personal-tools-cli.ts";
 import * as fs from "node:fs";
@@ -75,11 +77,13 @@ export async function launchPersonalServer(directory: string): Promise<void> {
     const modelCredential = readPersonalConfig(profile).apiKeyEnv;
     if (!process.env[modelCredential]) throw new PersonalError("model_credentials_missing", "请先设置模型凭据环境变量，再启动隔离后台。");
     const telegram = readPersonalTelegram(profile);
+    const qq = readPersonalQq(profile);
     const services = readPersonalServices(profile);
     readPersonalCommands(profile);
     if (services) personalServiceConfig({ ...services, useSudo: true });
     if (telegram?.enabled) telegramToken(telegram);
-    credential = [modelCredential, ...(telegram?.enabled ? [telegram.tokenEnv] : [])];
+    if (qq?.enabled) qqToken(qq);
+    credential = [modelCredential, ...(telegram?.enabled ? [telegram.tokenEnv] : []), ...(qq?.enabled ? [qq.tokenEnv] : [])];
     log = fs.openSync(path.join(directory, "backend.log"), "a", 0o600);
   } finally { profile.release(); }
   let failed = false;
@@ -392,9 +396,9 @@ export async function managePersonalCommands(io: PersonalCliIO, directory: strin
 }
 
 export async function personalMenu(directory: string, io: PersonalCliIO): Promise<void> {
-  io.write(`个人 durable 隔离实例\n档案：${directory}\n提供主会话、可选 Telegram 文本入口及 Linux 服务检查；模型写工具继续实施。\n`);
+  io.write(`个人 durable 隔离实例\n档案：${directory}\n提供主会话、QQ / Telegram 共享主会话入口及 Linux 服务检查；模型写工具继续实施。\n`);
   while (true) {
-    const selected = await choose(io, "个人实例", ["配置模型（后台须停止）", "启动隔离后台", "查看状态", "发送消息", "查看最近消息", "核实上次提交", "停止隔离后台", "配置 Telegram（后台须停止）", "查看 Telegram 收发", "退出向导（后台继续运行）", "配置或查看服务（后台须停止）", "管理后台分析", "管理分析委托", "管理检查停止重核", "管理服务审批与核实", "配置或查看命令目录（后台须停止）", "管理命令效果与停止核实", "配置或查看 MCP（后台须停止）", "管理 MCP 审批、原响应与效果", "配置资料与网络工具（后台须停止）", "管理工具审批、资料授权与产物", "配置浏览器（后台须停止）", "管理浏览器、截图与网页效果"]);
+    const selected = await choose(io, "个人实例", ["配置模型（后台须停止）", "启动隔离后台", "查看状态", "发送消息", "查看最近消息", "核实上次提交", "停止隔离后台", "配置 Telegram（后台须停止）", "查看 Telegram 收发", "退出向导（后台继续运行）", "配置或查看服务（后台须停止）", "管理后台分析", "管理分析委托", "管理检查停止重核", "管理服务审批与核实", "配置或查看命令目录（后台须停止）", "管理命令效果与停止核实", "配置或查看 MCP（后台须停止）", "管理 MCP 审批、原响应与效果", "配置资料与网络工具（后台须停止）", "管理工具审批、资料授权与产物", "配置浏览器（后台须停止）", "管理浏览器、截图与网页效果", "配置 QQ（后台须停止）", "查看 QQ 收发"]);
     if (selected === 9) return;
     try {
       if (selected === 0) await configure(io, directory);
@@ -433,10 +437,12 @@ export async function personalMenu(directory: string, io: PersonalCliIO): Promis
       else if (selected === 20) await managePersonalTools(io, directory);
       else if (selected === 21) await configurePersonalBrowser(io, directory);
       else if (selected === 22) await managePersonalBrowser(io, directory);
+      else if (selected === 23) await configurePersonalQq(io, directory);
       else {
-        const state = await personalControl<Awaited<ReturnType<PersonalHarness["telegram"]["status"]>>>(directory, "GET", "/telegram");
+        const state = await personalControl<Awaited<ReturnType<PersonalHarness["telegram"]["status"]>>>(directory, "GET", selected === 24 ? "/qq" : "/telegram");
         const labels = { waiting: "等待回答", pending: "等待发送", sending: "发送中，尚未核实", sent: "已发送", failed: "平台明确拒绝", effect_unknown: "发送效果未知，不自动重发", canceled: "已取消发送", unanswered: "未获得完整回答" };
-        io.write(`Telegram ${!state.enabled ? "未启用" : state.online ? "接收在线" : state.receiving ? "等待连接恢复" : "接收已停止，请检查后台日志"}；已忽略非绑定私聊文本：${state.rejected} 条。最近最多 16 条收发：\n`);
+        io.write(`${selected === 24 ? "QQ" : "Telegram"} ${!state.enabled ? "未启用" : state.online ? "接收在线" : state.receiving ? "等待连接恢复" : "接收已停止，请检查后台日志"}；两平台累计忽略无效收件：${state.rejected} 条。最近最多 16 条收发：\n`);
+        if (selected === 24 && state.gap) io.write("检测到接收连接缺口；该期间消息没有投递保证，请核实未受理消息后重新发送。\n");
         for (const item of state.recent) io.write(`${labels[item.delivery]}：${item.input}\n`);
       }
     } catch (error) {

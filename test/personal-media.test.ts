@@ -10,6 +10,7 @@ import { personalMedia, PersonalMediaMessageDoc, PersonalMediaDoc, type Personal
 import { personalProvider, recordedModels, type RequestEvidence } from "../apps/ruukoto/src/personal-model.ts";
 import { personalTelegram, PersonalTelegramDoc, PersonalTelegramReceiptDoc } from "../apps/ruukoto/src/personal-telegram.ts";
 import { telegramMessage, personalTelegramApi, type TelegramUpdate, type PersonalTelegramApi } from "../apps/ruukoto/src/personal-telegram-api.ts";
+import type { PersonalQqApi } from "../apps/ruukoto/src/personal-qq-api.ts";
 import { PersonalPermissionsDoc } from "../apps/ruukoto/src/personal-permissions.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
 import { lockPersonalProfile } from "../apps/ruukoto/src/personal-profile.ts";
@@ -23,16 +24,21 @@ const source = { platform: "qq" as const, accountId: "bot", ownerId: "owner", ge
 const photo = (id = 1, caption = "看看图片"): TelegramUpdate => ({ update_id: id, message: { message_id: id, from: { id: 456, is_bot: false }, chat: { id: 456, type: "private" }, caption, photo: [{ file_id: "small", file_unique_id: "small-unique", width: 1, height: 1 }, { file_id: "large", file_unique_id: "large-unique", width: 100, height: 100, file_size: png.length }] } });
 const download = (bytes = png, declaredMime = "image/png"): PersonalMediaDownload => ({ identity: randomUUID(), declaredMime, download: async () => new Response(bytes, { headers: { "content-type": declaredMime } }) });
 
-async function fixture(t: TestContext, options: { imageInput?: boolean; capture?: boolean; compaction?: boolean } = {}) {
+async function fixture(t: TestContext, options: { imageInput?: boolean; capture?: boolean; compaction?: boolean; holdInbound?: boolean } = {}) {
   const directory = fs.realpathSync(fs.mkdtempSync("/tmp/ruukoto-media-")), lock = lockPersonalProfile(directory), requests: RequestEvidence[] = [], sends: string[] = [];
   let downloads = 0, h: Harness;
   const model = new MockModelServer((_input, index) => options.capture && index === 0 ? { kind: "tool_calls", calls: [{ id: "image-call", name: "capture", arguments: {} }] } : { kind: "text", text: "图片回答" });
   const config = { api: "openai-completions" as const, baseUrl: await model.start(), modelId: "mock-model", apiKeyEnv: "RUUKOTO_MEDIA_TEST_KEY", contextWindow: 128000, maxTokens: 4096, imageInput: options.imageInput ?? true };
   const previous = process.env[config.apiKeyEnv]; process.env[config.apiKeyEnv] = "test-only";
   const provider = personalProvider(config), media = personalMedia(lock.directory, () => h, () => config.imageInput);
-  const tgConfig = { version: 1 as const, enabled: true, generation: "generation", apiBase: "https://api.telegram.org", tokenEnv: "TOKEN", tokenDigest: "0".repeat(64), botId: "123", ownerId: "456", boundary: 0 };
+  const tgConfig = { version: 1 as const, enabled: true, generation: "generation", apiBase: "https://api.telegram.org", tokenEnv: "TOKEN", tokenDigest: "0".repeat(64), botId: "123", ownerId: "456", boundary: 0, boundaryMessageId: "0" };
   const api: PersonalTelegramApi = { me: async () => ({ id: "123", username: "bot" }), updates: async () => [], send: async (_owner, _id, text) => { sends.push(text); return String(sends.length); }, photo: input => ({ identity: input.identity, declaredMime: "image/png", download: async () => { downloads++; return new Response(png, { headers: { "content-type": "image/png" } }); } }) };
-  const tg = personalTelegram(tgConfig, api, undefined, media);
+  const qqConfig = { version: 1 as const, enabled: true, generation: randomUUID(), endpoint: "ws://127.0.0.1:1", tokenEnv: "TOKEN", tokenDigest: "0".repeat(64), botId: "123", ownerId: "456", boundary: 0, boundaryMessageId: "0" };
+  const qqApi: PersonalQqApi = { online: true, poll: async () => {}, send: api.send, photo: input => api.photo({ identity: input.identity, fileId: input.identity }) };
+  const tg = personalTelegram(tgConfig, api, undefined, media, qqConfig, qqApi);
+  // 暂停真实收件任务，让手动提交落在 admission 与媒体 bind 之间；重开后恢复原任务执行。
+  const phases = tg.extension.tasks![0].definition.phases, run = phases.run;
+  if (options.holdInbound) Object.defineProperty(phases, "run", { value: async (_task: unknown, runtime: { signal: AbortSignal }) => { await new Promise<void>(resolve => { runtime.signal.addEventListener("abort", () => resolve(), { once: true }); }); } });
   const capture = defineTool({ name: "capture", description: "返回测试图片", parameters: Type.Object({}), replay: "safe", execute: async (_input, execution, callContext) => {
     const artifact = await savePersonalArtifact(lock.directory, png, { mime: "image/png" });
     const image = await execution.commit(tx => media.registerImage(tx, artifact, { conversationId: execution.conversationId, taskId: execution.taskId }), callContext);
@@ -43,12 +49,12 @@ async function fixture(t: TestContext, options: { imageInput?: boolean; capture?
     const storage = await openNodeSqliteStorage(path.join(directory, "personal.sqlite"));
     h = await Harness.open(storage, { models: recordedModels(provider, async value => { requests.push(value); await h.commit(tx => tx.appendEntry(ROOT_CONVERSATION_ID, { kind: "test.request", data: value }), context); }, media.modelMedia), registry, ...(options.compaction ? { settings: { compaction: { enabled: false, reserveTokens: 4096, keepRecentTokens: 1, backgroundTokens: 0 } } } : {}) }, context);
     const main = await h.root(context, { agent: { model: { provider: provider.id, modelId: config.modelId }, extensions: [extension, tg.extension], tools: options.capture ? [capture] : [] } });
-    await h.commit(async tx => { (await tx.doc(PersonalTelegramDoc)).config = { ...tgConfig }; }, context);
+    await h.commit(async tx => { const state = await tx.doc(PersonalTelegramDoc); state.config = { ...tgConfig }; state.qqConfig = { ...qqConfig }; }, context);
     await media.recover(); h.resume(); return { h, main, telegram: tg.api(h) };
   };
   let p = await open();
   t.after(async () => { await h.close(context); await model.close(); lock.release(); if (previous === undefined) delete process.env[config.apiKeyEnv]; else process.env[config.apiKeyEnv] = previous; fs.rmSync(directory, { recursive: true, force: true }); });
-  return { directory, media, model, requests, config, sends, tgConfig, api, get downloads() { return downloads; }, get p() { return p; }, async reopen() { await h.close(context); p = await open(); return p; } };
+  return { directory, media, model, requests, config, sends, tgConfig, api, get downloads() { return downloads; }, get p() { return p; }, async reopen() { if (options.holdInbound) Object.defineProperty(phases, "run", { value: run }); await h.close(context); p = await open(); return p; } };
 }
 async function receipt(f: Awaited<ReturnType<typeof fixture>>, id = 1) {
   const value = (await f.p.h.snapshot(PersonalTelegramReceiptDoc, `telegram:123:456:${id}`, context))!.receipt!;
@@ -129,14 +135,15 @@ test("个人图片：Telegram下载仅固定getFile路径，声明与真实字�
 
 
 test("个人图片：提交后尚未bind即可按原entry恢复，重开补bind不重复模型或下载", async t => {
-  const f = await fixture(t), key = "qq:bot:owner:gap";
-  await f.media.stage({ key, source, body: "窗口图片", media: [download()] });
+  const f = await fixture(t, { holdInbound: true }), key = "qq:123:456:-1";
+  await f.p.telegram.qq.receive({ post_type: "message", message_type: "private", sub_type: "friend", self_id: 123, user_id: 456, message_id: -1, time: 1, message: [{ type: "text", data: { text: "窗口图片" } }, { type: "image", data: { file: "gap-image" } }] });
   const submission = await f.p.main.submit({ type: "input", content: await f.media.input(key), requestId: key }, context);
   await submission.wait(context);
-  assert.equal((await f.media.message(key))!.state, "ready"); assert.equal(f.model.calls.length, 1);
+  assert.equal((await f.media.message(key))!.state, "ready"); assert.equal(f.model.calls.length, 1); assert.equal(f.downloads, 1);
   await f.reopen();
+  await f.p.h.waitForTask((await f.p.h.snapshot(PersonalTelegramReceiptDoc, key, context))!.receipt!.taskId, context);
   const message = (await f.media.message(key))!;
-  assert.equal(message.state, "bound"); assert.equal(message.submissionId, submission.id); assert.equal(f.model.calls.length, 1);
+  assert.equal(message.state, "bound"); assert.equal(message.submissionId, submission.id); assert.equal(f.model.calls.length, 1); assert.equal(f.downloads, 1);
   const sessionId = (await f.p.h.snapshot(ProviderDoc, ROOT_CONVERSATION_ID, context))!.sessionId!;
   const input = await f.media.input(key);
   assert.ok(Array.isArray(input));
@@ -238,12 +245,15 @@ test("个人图片：在途重复共享一次下载，同键异参在复用前�
 });
 
 test("个人图片：全部原字节已登记但缺ready提交时恢复原键，不重新下载", async t => {
-  const f = await fixture(t), key = "qq:complete-before-ready"; let calls = 0;
-  const original = download(), media = [{ ...original, download: async (signal: AbortSignal) => { calls++; return original.download(signal); } }];
-  const saved = await f.media.stage({ key, source, body: "已下载", media });
+  const f = await fixture(t, { holdInbound: true }), key = "qq:123:456:-1";
+  const input = { post_type: "message", message_type: "private", sub_type: "friend", self_id: 123, user_id: 456, message_id: -1, time: 1, message: [{ type: "text", data: { text: "已下载" } }, { type: "image", data: { file: "ready-image" } }] };
+  await f.p.telegram.qq.receive(input); const saved = (await f.media.message(key))!;
   await f.p.h.commit(async tx => { (await tx.doc(PersonalMediaMessageDoc, key, null)).message!.state = "staging"; }, context);
-  await f.media.recover(); assert.equal((await f.media.message(key))!.state, "ready"); assert.equal(calls, 1);
-  const replay = await f.media.stage({ key, source, body: "已下载", media }); assert.deepEqual(replay.artifacts, saved.artifacts); assert.equal(calls, 1);
+  await f.media.recover(); assert.equal((await f.media.message(key))!.state, "ready"); assert.equal(f.downloads, 1);
+  await f.p.telegram.qq.receive(input); assert.deepEqual((await f.media.message(key))!.artifacts, saved.artifacts); assert.equal(f.downloads, 1);
   await (await f.p.main.submit({ type: "input", content: await f.media.input(key), requestId: key }, context)).wait(context);
   assert.equal(f.model.calls.length, 1); assert.match(JSON.stringify(f.model.calls[0].raw), new RegExp(png.toString("base64")));
+  await f.reopen();
+  await f.p.h.waitForTask((await f.p.h.snapshot(PersonalTelegramReceiptDoc, key, context))!.receipt!.taskId, context);
+  assert.equal((await f.media.message(key))!.state, "bound"); assert.equal(f.model.calls.length, 1); assert.equal(f.downloads, 1);
 });

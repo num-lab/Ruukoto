@@ -16,7 +16,7 @@ import { LocalInputDoc, personalInputDigest } from "./personal-local-records.ts"
 import { requirePersonalDelegationOpen, requirePersonalDelegationReady, requirePersonalDelegationInput, type PersonalDelegationRef, type PersonalWorkSource } from "./personal-delegation.ts";
 import { PersonalPendingInspectionsDoc, pendingWorkInspection } from "./personal-service-inspection.ts";
 import { personalSubAgentServices } from "./personal-services.ts";
-import { PERSONAL_COMMAND_WORK, personalWorkCommands, requirePersonalCommandsStopped, waitPersonalCommand } from "./personal-command-work.ts";
+import { PERSONAL_COMMAND_WORK, personalCommandResult, personalWorkCommands, requirePersonalCommandsStopped, waitPersonalCommand } from "./personal-command-work.ts";
 
 import { PERSONAL_MCP, PERSONAL_MCP_TOOLS, mcpOperations, mcpUnresolved, requireWorkMcpStopped, waitWorkMcp } from "./personal-mcp.ts";
 import { personalSource } from "./personal-source.ts";
@@ -395,19 +395,22 @@ export async function personalWorkStatus(tx: Tx, ref: PersonalWorkRef) {
   return { task, submission, cancelRequested: work.cancelRequested, stopVerified, notes: work.notes?.length ?? 0 };
 }
 
-export type PersonalWorkResult = { work: TaskId; state: string; cancelRequested?: boolean; next?: string; text?: string; nextOffset?: number };
+export type PersonalWorkResult = { work: TaskId; state: string; cancelRequested?: boolean; next?: string; text?: string; partial?: boolean; commands?: ReturnType<typeof personalCommandResult>[]; notice?: string; nextOffset?: number };
 
 export async function personalWorkResult(tx: Tx, ref: PersonalWorkRef, offset = 0, size = 4096): Promise<PersonalWorkResult> {
   const { task, submission, cancelRequested } = await personalWorkStatus(tx, ref);
   const state = task.state.status === "terminal" ? task.state.outcome.status : task.state.status;
-  if (state !== "completed") return { work: ref.taskId, state, cancelRequested, next: task.state.status === "terminal" ? "工作未成功完成，后续已接纳说明未继续执行；请向拥有者报告，身份仍有占用时不要重试或复用。" : "工作尚未结束，请结束本轮，后续拥有者询问时再查询。" };
+  const commands = (await personalWorkCommands(tx, ref.taskId)).map(personalCommandResult);
+  const commandFacts = commands.length ? { commands, notice: `当前宿主命令事实（优先于历史子回答）：\n${commands.map(command => command.verification).join("\n")}` } : {};
+  if (state !== "completed") return { work: ref.taskId, state, ...commandFacts, cancelRequested, next: task.state.status === "terminal" ? "工作未成功完成，后续已接纳说明未继续执行；请向拥有者报告，身份仍有占用时不要重试或复用。" : "工作尚未结束，请结束本轮，后续拥有者询问时再查询。" };
   const entry = submission?.status === "done" && submission.type === "input" ? await tx.entry(AssistantEntry, submission.answer) : undefined;
   const message = entry?.model?.[0];
   if (message?.role !== "assistant") throw new PersonalError("work_answer_missing", "原工作的完整回答缺失，请停止引用结果并报告拥有者检查档案。");
   const text = message.content.filter(part => part.type === "text").map(part => part.text).join("");
   let end = Math.min(text.length, offset + size);
   if (end < text.length && /[\ud800-\udbff]/.test(text[end - 1]) && /[\udc00-\udfff]/.test(text[end])) end--;
-  return { work: ref.taskId, state, text: text.slice(offset, end), ...(end < text.length ? { nextOffset: end } : {}) };
+  const partial = message.stopReason === "length";
+  return { work: ref.taskId, state, ...commandFacts, text: text.slice(offset, end), partial, ...(partial ? { next: "模型输出因长度限制截断，仅为已保存片段；翻完页也不是完整回答。请报告遗漏，不自动续写或重试外部操作。" } : {}), ...(end < text.length ? { nextOffset: end } : {}) };
 }
 
 export type PersonalWorkSummary = { ref: PersonalWorkRef; label: string; content: string; state: string; cancelRequested: boolean; stopVerified: boolean; closed: boolean; notes: number };

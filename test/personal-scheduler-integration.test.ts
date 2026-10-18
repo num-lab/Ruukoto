@@ -77,6 +77,19 @@ test("定时组合：等待子工作时主聊天继续，创建模式不随新�
   assert.equal((await p.harness.snapshot(PersonalScheduleRunDoc, id, context))?.run?.result?.status, "completed");
 });
 
+test("定时组合：子回答因长度截断的事实进入最终汇总输入", async t => {
+  const f = await fixture(t, request => {
+    const last = request.messages.at(-1);
+    if (last?.role === "user" && last.content === "委派长度用例") return { kind: "tool_calls", calls: [{ id: "partial-child", name: "background_work", arguments: { action: "delegate", content: "长度片段" } }] };
+    return { kind: "text", text: last?.content === "长度片段" ? "只有前半部分" : "完成", finishReason: last?.content === "长度片段" ? "length" : "stop" };
+  });
+  const p = await f.open(), plan = await create(p, "委派长度用例"), id = await runFor(p, plan.id);
+  await until(async () => !!(await p.harness.snapshot(PersonalScheduleRunDoc, id, context))?.run?.result);
+  const summary = f.model.calls.flatMap(call => call.messages).find(message => message.role === "user" && String(message.content).startsWith("宿主定时整项汇总参考"));
+  assert.ok(summary); assert.match(String(summary.content), /模型输出因长度限制截断，仅为已保存片段，汇总须标记遗漏/);
+  assert.match(String(summary.content), /只有前半部分/);
+});
+
 test("定时组合：创建后新增资料授权不会扩大旧计划，配置失效时零模型", async t => {
   const f = await fixture(t), p = await f.open(); const requestId = randomUUID();
   const plan = await p.harness.commit(tx => p.scheduler.create(tx, { requestId, label: "固定范围", instruction: "检查资料", rule: { kind: "once", at: new Date(Date.now() + 60_000).toISOString(), timeZone: "UTC" } }, { kind: "local", requestId }), context);

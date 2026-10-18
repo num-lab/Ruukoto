@@ -53,8 +53,9 @@ export async function telegramWorkControl(tx: Tx, value: TelegramControlInput): 
       if (result.text === undefined) value.reply = `${personalWorkDescription(await personalWorkSummary(tx, ref))}。原工作没有成功完成的回答，请稍后刷新状态；停止未核实前不要复用身份。`;
       else {
         if (result.nextOffset !== undefined) value.selection.nextOffset = result.nextOffset;
-        value.reply = `原分析结果：\n${result.text || "（无文本内容）"}${result.nextOffset === undefined ? "\n原回答已读完。" : "\n回复本消息选择「下一页结果」继续。"}`;
+        value.reply = `原分析结果：${result.partial ? "模型输出因长度限制截断，以下仅为已保存片段。" : ""}\n${result.text || "（无文本内容）"}${result.nextOffset === undefined ? result.partial ? "\n已保存片段已读完，不能视为完整回答。" : "\n原回答已读完。" : "\n回复本消息选择「下一页结果」继续。"}`;
       }
+      if (result.notice) value.reply = `${result.notice}\n${value.reply}`;
     } else value.reply = `${personalWorkDescription(await personalWorkSummary(tx, ref))}。回复本消息选择：刷新分析、查看结果、取消这项分析、关闭此身份；追加说明请回复「补充：正文」，在当前回答结束后处理。关闭只适用未再复用且空闲的身份。`;
   } catch (error) {
     if (!(error instanceof PersonalError)) throw error;

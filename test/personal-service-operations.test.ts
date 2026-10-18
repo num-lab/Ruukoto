@@ -616,6 +616,12 @@ test("子服务：三模式沿原授权、单次审批、完整证据与真实�
     const calls = f.server.calls.filter(call => call.system?.includes("你是个人助手的子 Agent"));
     assert.match(JSON.stringify(calls[0].tools), /service_restart|read_service_operation/);
     assert.match(JSON.stringify(calls.at(-1)!.messages), /inspect-op|restart/);
+    const toolResults = calls.map(call => call.messages.at(-1)).filter(message => message?.role === "tool").map(message => JSON.parse(String(message!.content)));
+    const approval = mode === "full_access" ? "完全访问，免逐次审批" : "拥有者已在本机批准";
+    assert.equal(toolResults.find(result => "next" in result).approval, approval);
+    assert.equal(toolResults.find(result => "result" in result).result.approval, approval);
+    assert.equal(toolResults.find(result => "next" in result).mode, mode);
+    assert.equal(toolResults.find(result => "next" in result).consumed, true);
     assert.ok(entries.some(entry => entry.kind === "ruukoto.model-request" && JSON.stringify(entry.data).includes("service_restart")));
     assert.equal((await p.work.status(work)).stopVerified, true, JSON.stringify(await p.work.status(work)));
     await p.close(); p = await f.open();
@@ -764,6 +770,10 @@ test("子服务：消费前 faulted 明确报告未执行，读取证据保留�
   const modelTools = f.server.calls.filter(call => call.system?.includes("你是个人助手的子 Agent")).flatMap(call => call.messages.filter(message => message.role === "tool"));
   assert.ok(modelTools.length >= 2);
   assert.ok(modelTools.every(message => /not_executed/.test(String(message.content)) && /service_task_failed/.test(String(message.content))));
+  for (const message of modelTools) {
+    const value = JSON.parse(String(message.content)), result = value.result ?? value;
+    assert.equal(result.consumed, false); assert.equal(result.approval, "尚无有效批准");
+  }
   const entries = (await (await p.harness.conversation(work.agentId, context))!.entries({}, 256, undefined, context)).items;
   assert.ok(entries.some(entry => entry.model?.some(message => message.role === "toolResult" && message.toolName === "service_restart" && message.isError)));
   assert.equal(f.calls().length, 0);

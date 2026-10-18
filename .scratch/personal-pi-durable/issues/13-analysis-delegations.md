@@ -36,6 +36,10 @@ Status: ready-for-human
 - 模型实际 HTTP 请求与 durable payload 由独立探针深等核对；当前主/子请求完整工具定义与结果已重捕获。主 systemPrompt 估算 70→70、toolSchemas 561→691（UTF-8 字节/4 向上取整），子工具仍为空。见[输入快照](../evidence/13-macos/model-input.json)。服务启用装配由本轮既有 personal-services/CLI 窄回归覆盖，本片新增文本快照限无服务主会话与空工具子会话。
 - 工程验收：本片通过。产品验收：待拥有者体验；真实模型、Telegram/QQ、systemd 未执行，不将替身记为通过。未跑全仓 `npm run check`、Node 22 或完整 Coding 运行时；没有共享包、依赖、正式入口或部署变化。完整 A3/A6/A10/A11 与 A1–A12 整体保持待验。
 
+## 37 真实流程补证
+
+2026-10-18：撤销授权后的活动group399由实际原委托菜单取消，work408停止已核实、service422未消费；身份42保持开放可承接新独立组，不继续已取消旧组。版本、实际ID、源码候选与清理见[37证据](../evidence/37-current-live-flow/README.md)。这是限定补证，不改变本单未覆盖项或当前状态。
+
 ## Comments
 
 2026-10-17：独立方案审查 `delegation_plan_review` 核对当前代码、规格和领域后无阻断；亲跑 verify-notes、check:docs 与 diff 检查通过。

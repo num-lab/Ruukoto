@@ -1,0 +1,20 @@
+{
+  "head": "63a52f46c3af9b1d14bf61e7045b40fc477d9043",
+  "baseline": "f2e05fcf0b477e2bfc50083e2c442eeabc7dedd6",
+  "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "node": "v24.15.0",
+  "files": {
+    "apps/ruukoto/src/personal-harness.ts": "0af8803bc9bf5f2fbb2383fe9c0ccc9dcb2bb89c7662efe07c03293be5c3157c",
+    "apps/ruukoto/src/personal-model.ts": "cc2e87239d6f2b3c628498b43c28013841ea7795931d113efda80b25886db881",
+    "apps/ruukoto/src/personal-cli.ts": "16a0b43ef14cac08df9d8a45c4a1100d84331b1d898c9cc48ada20c015316624",
+    "apps/ruukoto/src/personal-work.ts": "36086a35cf973078af7cc5949eb24e22dcb30237e141ca55b713296909dea248",
+    "apps/ruukoto/src/personal-delegation.ts": "917880fa92f7cc17c670ad5ea126a86321af9881443c3a7d79138c164b5fa4ec",
+    "apps/ruukoto/src/personal-report.ts": "3c58320f32c3854455c29ffd7459d4afb283a2bcd00b57d4279b52704808ef33",
+    "apps/ruukoto/src/personal-owner-controls.ts": "8e7f9b982c5789f776ba23aab7604fe734462ade5d73c6e3da1635dcd41b45ce",
+    "apps/ruukoto/src/personal-command-work.ts": "cf509b918ecda390ffc00b99131091c826ba15b4071f736b768c7210806a6ef2",
+    "apps/ruukoto/src/personal-service-operations.ts": "85a16c0a2b4af650d17c54bc705162d1dafa7dd780285267ffe3eae2efd00bea",
+    "deploy/systemd/ruukoto-service.mjs": "3f645f2ef05ff626f1def39ef1b0065f893385f96bdb0142c14aad864fb6433f",
+    "verification/smoke/smoke-personal-durable.mts": "cca8edd0aac8b1c200ac9554730a3eb4b7da6a7184b4efc4a6022eb700d3e5bb",
+    ".scratch/personal-pi-durable/evidence/37-current-live-flow/model-probe.mts": "972fd454e025799b0442a76c6614194e73b87fd19817747370d09b3b159f3791"
+  }
+}

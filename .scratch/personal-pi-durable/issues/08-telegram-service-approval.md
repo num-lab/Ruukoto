@@ -35,3 +35,7 @@ Status: ready-for-human
 - 工程验收仅对本宿主 API/离线平台切片通过。服务配置向导、模型委派/写工具与子工作权限继续总工单；真实 Telegram、真实模型、systemd/受控测试服务及拥有者体验未验证，不计完整 A5/A6/A7/A10/A11。未跑全量 `npm run check`、Node 22 或完整 Coding 运行时；本次提交包含实现与验收材料，没有部署或切换正式入口。Coding 打包 shasum 仍为 `5af04e561c9fbf84bf29f8237e3655e563ea5ed9`，不能替代运行时验收。
 
 决定见[权限笔记](../../../.agents/notes/implemented/architecture/2026-10-17-personal-telegram-permissions.md)；[源码、测试与文档内容快照](../evidence/08-telegram-service-approval.sha256)不包含工单/证据，避免自指。
+
+## 37 真实流程补证
+
+2026-10-18：真实原审批菜单批准并创建精确restart长期授权，新工作命中v1授权；原授权菜单撤销为v2 inactive，新请求恢复待审批且随后取消未消费。版本、实际ID、源码候选与清理见[37证据](../evidence/37-current-live-flow/README.md)。这是限定补证，不改变本单未覆盖项或当前状态。

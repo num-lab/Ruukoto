@@ -24,6 +24,7 @@ Status: ready-for-human
 
 ## 验收与证据
 
+- 2026-10-18，37 在 `63a52f46` 补做真实模型本机子集：`deepseek/deepseek-flash` 实际委派、复用原身份、report 封组并用 progress/result/report_result 查询，唯一报告最终为 `local/completed`，实际主/子/汇总请求已归档并经[独立审查](../evidence/37-current-live-flow/review.md)。仅同进程持久重开，不是故障恢复或真实 IM。模型报告引用生成期间的 waiting 中间状态，拥有者体验及外发唯一性仍待验；不据此关闭本单。
 - 多成员、追加说明与失败结果完整归属，主聊天继续；report 后拒绝续派/追加，登记竞争按事务顺序仲裁。
 - 汇总与最终发送各只登记一次；重启重接原 Submission，其他主聊天回答不能串线；原入口换代不改发。
 - 取消覆盖成员、报告等待/admission/生成/发送前窗口；已开始外发如实保留效果。未知服务效果与停止未核实零汇总请求；取消不误撤无关聊天。
@@ -37,6 +38,10 @@ Status: ready-for-human
 - 真实 PTY 选择委托、查看完整本机报告并退出向导；退出后原后台状态仍可查询，随后停止后台/模型替身并删除专属档案。见[PTY 记录](../evidence/14-macos/pty.json)。自动操作者不替代拥有者体验确认。
 - 实际 HTTP 输入与 durable payload 8/8 深等，保存主/子/报告完整工具、提示与报告内查询轮次。wire 文本估算主 systemPrompt 70→122、toolSchemas 691→804，子 64/0；见[估算](../evidence/14-macos/text-estimates.json)与[输入快照](../evidence/14-macos/independent-review/model-input.json)。快照限无服务主会话与空工具子会话；服务装配由本轮 personal-services/operations 回归覆盖。
 - 工程验收：本片通过。产品验收：待拥有者体验；真实模型、Telegram/QQ、systemd 与精确 Node 矩阵未执行。未跑全仓 check，没有共享包、依赖、正式入口或部署变化。完整 A3/A6/A10/A11 及 A1–A12 整体继续待验。
+
+## 37 真实流程补证
+
+2026-10-18：实际6组各唯一报告Task/接纳，其中5份TG sent、1份local；原中断报告等待双核实后仅送一份。新更正group825报告唯一回复TG535，但正文末句误述仅留本机，缺陷原样交39，不能称正文完全准确。版本、实际ID、源码候选与清理见[37证据](../evidence/37-current-live-flow/README.md)。这是限定补证，不改变本单未覆盖项或当前状态。
 
 ## Comments
 

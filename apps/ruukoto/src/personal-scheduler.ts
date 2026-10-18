@@ -81,7 +81,7 @@ export function personalScheduler(getHarness: () => Harness, deps: PersonalSched
             const answer = run.initialAnswer && await tx.entry(AssistantEntry, run.initialAnswer), message = answer && answer.model?.[0];
             if (message?.role !== "assistant") throw new PersonalError("schedule_answer_missing", "定时首次完整回答缺失，未生成汇总；请保留档案。");
             facts += message.content.filter(part => part.type === "text").map(part => part.text).join("");
-            for (const member of run.members) { const value = await personalWorkResult(tx, member, 0, 16384); facts += `\n子工作 ${member.taskId}：${value.state}\n${value.text ?? value.next ?? ""}${value.nextOffset ? "\n结果尚有后页，可用background_work result读取。" : ""}`; }
+            for (const member of run.members) { const value = await personalWorkResult(tx, member, 0, 16384); facts += `\n子工作 ${member.taskId}：${value.state}${value.partial ? "（模型输出因长度限制截断，仅为已保存片段，汇总须标记遗漏）" : ""}\n${value.notice ? value.notice + "\n" : ""}${value.text ?? value.next ?? ""}${value.nextOffset ? "\n结果尚有后页，可用background_work result读取。" : ""}`; }
             facts += `\n宿主核实：${settlement.facts}\n部分工作未完成：${settlement.failed ? "是" : "否"}`;
             facts += "\n本轮已封组。只查询本轮结果，汇总成功、失败和未能完成之处；不能发起新的操作或委派。完成此回答后宿主固定回报原入口。";
             const admission = (await tx.appendEntry(ScheduleSummary, run.conversationId, { data: { runId: run.id, content: facts, failed: settlement.failed } })).id;

@@ -36,6 +36,10 @@ Status: ready-for-human
 - 已重捕获实际 mock 请求：主 systemPrompt 估算 70→70、toolSchemas 472→561（UTF-8 字节/4 向上取整）；子会话工具仍为空，最后请求含追加正文，主会话保留 append 工具原结果。见[模型输入](../evidence/12-macos/model-input.json)。
 - 工程验收：本片通过；Linux 清理及有效输入一致证据已归档。产品验收：待拥有者体验；真实模型、Telegram/QQ 和 systemd 未执行，不能由离线替身代替。未跑全仓 `npm run check`、Node 22 或完整 Coding 运行时；无共享包、依赖、helper、正式入口或部署变化，完整 A1–A12 保持待验。
 
+## 37 真实流程补证
+
+2026-10-18：真实服务待审批期间，从工作详情接纳追加273，原工作最后一轮实际消费并在answer285含APPEND37_OK，正式报告送回原任务。首轮命令已结束后的追加被拒，未计为成功。版本、实际ID、源码候选与清理见[37证据](../evidence/37-current-live-flow/README.md)。这是限定补证，不改变本单未覆盖项或当前状态。
+
 ## Comments
 
 2026-10-17：从总工单接手，独立调查确认原 WorkTask 只等待原回答后 abort，不能直接增加 child.submit API；将追加接纳与所有轮次等待归同一工作，保留整项最终汇报的后续边界。

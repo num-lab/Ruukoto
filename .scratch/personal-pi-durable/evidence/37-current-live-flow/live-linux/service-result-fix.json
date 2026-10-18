@@ -1,0 +1,31 @@
+{
+  "observedAt": "2026-10-18T09:29:30.907881+00:00",
+  "baseHead": "63a52f46c3af9b1d14bf61e7045b40fc477d9043",
+  "file": "apps/ruukoto/src/personal-service-work.ts",
+  "before": "de3f1310bb19469fcdb74dfa4decc8ff12c16ea7ab668b3a51a491ac1523cdee",
+  "after": "afab431b88349b523ff373c1926fde0c32c3b9d542c8b11a83a7db0a936e8177",
+  "scope": "仅投影原mode/审批依据/consumed及说明；无新持久字段、审批状态或helper协议变化",
+  "red": {
+    "command": "npx tsx --test --test-name-pattern='子服务：三模式|子服务权限：跨轮' test/personal-service-operations.test.ts test/personal-telegram-permissions.test.ts",
+    "exit": 1,
+    "failed": 5,
+    "reason": "实际模型工具结果无approval"
+  },
+  "green": {
+    "command": "npx tsx --test test/personal-service-operations.test.ts test/personal-telegram-permissions.test.ts",
+    "exit": 0,
+    "passed": 122
+  },
+  "preconsumeFailure": {
+    "passed": 1,
+    "exit": 0
+  },
+  "static": {
+    "firstFailure": "fallback类型推断不包含exitCode，已补原结果类型",
+    "afterTypeFixExit": 0,
+    "finalWordingCheckPending": false,
+    "finalExit": 0
+  },
+  "independent": "6/6且最终措辞复审无阻断；最终实际归档另经独立终审",
+  "realAcceptance": "已在work465和632实际只读复查原226/364，payload/result保留原confirm、人工或长期授权依据；原截断/错误报告保留，更正报告见group825"
+}

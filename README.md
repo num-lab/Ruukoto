@@ -12,7 +12,7 @@
 | 后台 | 打开 TUI 时按需拉起，`ruukoto-code stop` 才停止 | systemd 常驻 |
 | 档案根 | `~/.ruukoto-code/` | `~/.ruukoto/`（生产为 `/var/lib/ruukoto/`） |
 
-两端独立，停止一端不影响另一端；设计见[架构总览](docs/architecture.md)。
+两端独立启停；设计见[架构总览](docs/architecture.md)。
 
 ## 当前状态
 
@@ -23,7 +23,7 @@
 
 [逐项验收证据](docs/release-acceptance.md)。
 
-个人隔离 [`npm run personal:durable`](docs/usage.md#25-个人-durable-隔离向导)：Pi 1.3.0，QQ/Telegram、浏览器、服务/命令、MCP、资料/网络、调度、记忆/技能/历史、整项回报；Coding：Pi 0.85.1，入口未变。
+个人隔离 [`npm run personal:durable`](docs/usage.md#25-个人-durable-隔离向导)：Pi 1.3.0，QQ/Telegram、浏览器、服务/命令、MCP、资料/网络、调度、记忆/技能/历史、应用数据、整项回报；Coding：Pi 0.85.1，入口未变。
 
 ## 快速开始
 

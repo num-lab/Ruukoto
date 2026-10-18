@@ -248,7 +248,7 @@ test("服务工作：默认自动审查和 confirm 等单次人工批准，full_
     assert.equal(evidence.length, 2);
     assert.match(Buffer.from(evidence[1].data.stderr, "base64").toString(), /RUUKOTO_SERVICE_REPLY/);
     assert.deepEqual((await p.service!.list()).items.map(item => item.operation.ref), [ref]);
-    assert.deepEqual((await p.main.agent(context)).tools.map(tool => tool.name), ["memory", "history_search", "history_read", "skill", "read_artifact", "service_inspect", "read_service_inspection", "background_work", "schedule_create", "schedule_query", "schedule_cancel"]);
+    assert.deepEqual((await p.main.agent(context)).tools.map(tool => tool.name), ["app_data_define_table", "app_data_migrate", "app_data_query", "app_data_insert", "app_data_update", "app_data_delete", "memory", "history_search", "history_read", "skill", "read_artifact", "service_inspect", "read_service_inspection", "background_work", "schedule_create", "schedule_query", "schedule_cancel"]);
   });
 });
 

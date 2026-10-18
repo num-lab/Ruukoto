@@ -412,6 +412,8 @@ const QUERY_CHILD_ENTRY = fileURLToPath(new URL("./query-child.ts", import.meta.
 export interface RunnerOptions {
   /** 测试挂点：让子进程在收到请求后固定睡眠（仅测试注入；模型侧不可达）。 */
   stallMs?: number;
+  /** 个人durable固定的应用库身份，子进程打开后再次核实。 */
+  expectedInstanceId?: string;
 }
 
 /**
@@ -432,7 +434,7 @@ export class AppDataQueryRunner {
     if (this.disposed) throw new AppDataError("runner_closed", "后台正在停止，拒绝新查询");
     const child = spawn(process.execPath, ["--import", "tsx", QUERY_CHILD_ENTRY], {
       cwd: path.dirname(QUERY_CHILD_ENTRY),
-      env: { PATH: process.env.PATH ?? "/usr/bin:/bin", APP_DATA_DB_FILE: dbFile },
+      env: { PATH: process.env.PATH ?? "/usr/bin:/bin", APP_DATA_DB_FILE: dbFile, ...(opts.expectedInstanceId ? { APP_DATA_INSTANCE_ID: opts.expectedInstanceId } : {}) },
       stdio: ["pipe", "pipe", "pipe"],
     });
     this.active.add(child);

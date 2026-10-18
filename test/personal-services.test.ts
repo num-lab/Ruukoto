@@ -101,7 +101,7 @@ test("durable 服务：模型真实调用 inspect，原始字节和两工具定�
   assert.equal(requests.length, 6);
   assert.deepEqual(requests[1].payload, f.server.calls[0].raw);
   const names = f.server.calls[0].tools?.map(tool => (tool.function as { name: string }).name);
-  assert.deepEqual(names, ["memory", "history_search", "history_read", "skill", "read_artifact", "service_inspect", "read_service_inspection", "background_work", "schedule_create", "schedule_query", "schedule_cancel"]);
+  assert.deepEqual(names, ["app_data_define_table", "app_data_migrate", "app_data_query", "app_data_insert", "app_data_update", "app_data_delete", "memory", "history_search", "history_read", "skill", "read_artifact", "service_inspect", "read_service_inspection", "background_work", "schedule_create", "schedule_query", "schedule_cancel"]);
   assert.match(JSON.stringify(requests[0].input), /4096/);
   assert.ok((await personal.main.agent(context)).extensions.some(extension => extension.name === "personal-service-inspect"));
 });
@@ -109,10 +109,10 @@ test("durable 服务：模型真实调用 inspect，原始字节和两工具定�
 test("durable 服务：空闲无服务工具会话可显式启用，重开缺配置/变更/文档版本拒绝且零请求", async t => {
   const f = await fixture(t);
   const empty = await f.open({ service: undefined });
-  assert.deepEqual((await empty.main.agent(context)).tools.map(tool => tool.name), ["memory", "history_search", "history_read", "skill", "read_artifact", "background_work", "schedule_create", "schedule_query", "schedule_cancel"]);
+  assert.deepEqual((await empty.main.agent(context)).tools.map(tool => tool.name), ["app_data_define_table", "app_data_migrate", "app_data_query", "app_data_insert", "app_data_update", "app_data_delete", "memory", "history_search", "history_read", "skill", "read_artifact", "background_work", "schedule_create", "schedule_query", "schedule_cancel"]);
   await empty.close();
   const enabled = await f.open();
-  assert.deepEqual((await enabled.main.agent(context)).tools.map(tool => tool.name), ["memory", "history_search", "history_read", "skill", "read_artifact", "service_inspect", "read_service_inspection", "background_work", "schedule_create", "schedule_query", "schedule_cancel"]);
+  assert.deepEqual((await enabled.main.agent(context)).tools.map(tool => tool.name), ["app_data_define_table", "app_data_migrate", "app_data_query", "app_data_insert", "app_data_update", "app_data_delete", "memory", "history_search", "history_read", "skill", "read_artifact", "service_inspect", "read_service_inspection", "background_work", "schedule_create", "schedule_query", "schedule_cancel"]);
   await enabled.close();
   await assert.rejects(f.open({ service: undefined }), code("service_config_changed"));
   await assert.rejects(f.open({ service: { ...f.service, policyPath: f.service.policyPath + ".other" } }), code("service_config_changed"));

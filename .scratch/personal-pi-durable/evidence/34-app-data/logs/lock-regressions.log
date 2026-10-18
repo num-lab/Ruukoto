@@ -1,0 +1,24 @@
+[ruukoto:personal] 持久执行出现错误，请查询状态并检查档案；未自动重启。
+▶ durable：真实持久记录写失败关闭 Harness，阻止 HTTP 且释放实例锁
+  ✔ 记录 1 (87.860083ms)
+[ruukoto:personal] 持久执行出现错误，请查询状态并检查档案；未自动重启。
+  ✔ 记录 2 (154.499583ms)
+✔ durable：真实持久记录写失败关闭 Harness，阻止 HTTP 且释放实例锁 (243.2915ms)
+[ruukoto:personal] 持久执行出现错误，请查询状态并检查档案；未自动重启。
+▶ durable 检查：接纳落盘失败零启动，停止证明提交失败恢复原结果而不重观察
+  ✔ admission (241.586792ms)
+[ruukoto:personal] 持久执行出现错误，请查询状态并检查档案；未自动重启。
+  ✔ stop (207.444542ms)
+✔ durable 检查：接纳落盘失败零启动，停止证明提交失败恢复原结果而不重观察 (449.7975ms)
+[ruukoto:personal] 持久执行出现错误，请查询状态并检查档案；未自动重启。
+✔ 子检查：接纳提交失败零启动，恢复同工作仍只执行一次 (168.1795ms)
+[ruukoto:personal] 持久执行出现错误，请查询状态并检查档案；未自动重启。
+✔ 后台工作：工作登记写失败，身份/Task/占用全不提交，重开不执行 (290.296042ms)
+ℹ tests 8
+ℹ suites 0
+ℹ pass 8
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3158.033709

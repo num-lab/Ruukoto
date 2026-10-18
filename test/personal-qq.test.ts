@@ -1,3 +1,4 @@
+import { appDataOperations, appDataDecide } from "../apps/ruukoto/src/personal-app-data.ts";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -332,4 +333,23 @@ test("QQ：配置拒绝不受保护的端点、自身绑定、非规范边界与
   for (const patch of [{ ownerId: f.qq.botId }, { boundaryMessageId: "01" }, { tokenEnv: "RUUKOTO_OWNER_TOKEN" }]) assert.throws(() => parsePersonalQq({ ...f.qq, ...patch }), code("qq_config_invalid"));
   assert.equal(qqToken(f.qq), MOCK_QQ_SECRET); process.env[f.qq.tokenEnv] = "changed-test-secret";
   assert.throws(() => qqToken(f.qq), code("qq_credentials_changed"));
+});
+
+test("QQ：应用数据批准固定原平台，跨平台菜单无效且重启保留回执", async t => {
+  const actions = [
+    { name: "app_data_define_table", arguments: { table: "todos", fields: [{ name: "title", type: "text" }], expected_schema_version: 0, reason: "记录" } },
+    { name: "app_data_insert", arguments: { table: "todos", records: [{ title: "甲" }, { title: "乙" }], reason: "新增" } },
+    { name: "app_data_delete", arguments: { table: "todos", rows: [{ id: 1, expected_version: 1 }, { id: 2, expected_version: 1 }], reason: "完成" } },
+  ];
+  const f = await fixture(t, (_request, i) => actions[i] ? { kind: "tool_calls", calls: [{ id: `qq-app-data-${i}`, ...actions[i] }] } : { kind: "text", text: "业务已完成" }); let p = await f.open();
+  await p.qq.receive(event(80, "整理待办"));
+  const operations = () => p.harness.commit(async tx => JSON.parse(JSON.stringify(await appDataOperations(tx))) as Awaited<ReturnType<typeof appDataOperations>>, context);
+  await until(async () => (await operations()).some(op => op.name === "app_data_delete"));
+  const op = (await operations()).find(op => op.name === "app_data_delete")!;
+  const menu = await f.receive("/应用数据"), detail = await f.receive("数据1", Number(menu.value.platformMessageId));
+  const wrong = await f.receive("数据批准本次", Number(detail.value.platformMessageId), "telegram"); assert.equal(wrong.value.appDataDecision, undefined); assert.equal((await operations()).at(-1)!.decision, "pending");
+  await assert.rejects(p.harness.commit(tx => appDataDecide(tx, f.options.directory, op.operation, "approved"), context), code("app_data_original_entry"));
+  const approved = await f.receive("数据批准本次", Number(detail.value.platformMessageId)); await settled(p, 80);
+  assert.equal((await operations()).at(-1)!.result?.effect, "committed"); assert.equal((await operations()).at(-1)!.actor, approved.key);
+  await f.stop(); p = await f.open(); assert.equal((await operations()).at(-1)!.result?.effect, "committed");
 });

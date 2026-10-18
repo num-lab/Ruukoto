@@ -1,3 +1,4 @@
+import { appDataList, appDataDetail, appDataDecide, appDataRecheck } from "./personal-app-data.ts";
 import { parsePersonalMemoryControl, personalMemoryControl } from "./personal-memory-controls.ts";
 import { readPersonalMemory, searchPersonalMemory } from "./personal-memory.ts";
 import { readPersonalHistory, searchPersonalHistory } from "./personal-history.ts";
@@ -270,6 +271,21 @@ export async function startPersonalServer(directory: string) {
             else { if (!("evidence" in value) || typeof value.evidence !== "string") throw new PersonalError("tool_input_invalid", "请提供独立核实证据。"); if (url.pathname === "/tools/stop") { if (Object.keys(value).length !== 2) throw new PersonalError("tool_input_invalid", "原请求结束核实只需原操作和证据。"); await toolVerifyStop(tx, operation, value.evidence); } else { if (Object.keys(value).length !== 3 || !("effect" in value) || value.effect !== "applied" && value.effect !== "not_applied") throw new PersonalError("tool_input_invalid", "请选择实际效果并提供独立证据。"); await toolResolve(tx, operation, value.effect, value.evidence); } }
           }, context);
           result = { recorded: true };
+        } else if (req.method === "GET" && url.pathname === "/app-data/operations") {
+          result = await instance.harness.commit(tx => appDataList(tx, queryNumber(url, "offset", 0)), context);
+        } else if (req.method === "GET" && url.pathname === "/app-data/operation") {
+          result = await instance.harness.commit(tx => appDataDetail(tx, queryNumber(url, "operation") as TaskId, queryNumber(url, "offset", 0)), context);
+        } else if (req.method === "POST" && ["/app-data/decide", "/app-data/recheck"].includes(url.pathname)) {
+          const id = queryNumber(url, "operation") as TaskId;
+          const value = (req.headers["content-length"] === undefined || req.headers["content-length"] === "0") && req.headers["transfer-encoding"] === undefined ? {} : await readControlJSON(req);
+          if (url.pathname === "/app-data/decide") {
+            if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).length !== 1 || !("decision" in value) || value.decision !== "approved" && value.decision !== "rejected") throw new PersonalError("app_data_decision_invalid", "请选择批准本次或拒绝原应用数据操作。");
+            await instance.harness.commit(tx => appDataDecide(tx, directory, id, value.decision as "approved" | "rejected"), context);
+          } else {
+            if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).length) throw new PersonalError("app_data_input_invalid", "请从向导选择原操作后重新核实回执。");
+            await instance.harness.commit(tx => appDataRecheck(tx, directory, id), context);
+          }
+          result = { saved: true };
         } else if (req.method === "GET" && url.pathname === "/mcp/operations") {
           result = await instance.harness.commit(tx => mcpList(tx, queryNumber(url, "offset", 0)), context);
         } else if ((req.method === "GET" && url.pathname === "/mcp/operation") || (req.method === "POST" && ["/mcp/decide", "/mcp/resolve", "/mcp/recheck"].includes(url.pathname))) {

@@ -143,6 +143,8 @@ stateDiagram-v2
   已失效 --> [*]
 ```
 
+个人durable使用同一存储与查询实现，并从 `app-data/contract.ts` 复用参数和迁移分析；独立调用不引用旧Task/ApprovalGate。绑定打开校验实例、存储版本及必需表；查询子进程可按预期实例再次核实。可选宿主请求指纹和整份回执校验保存在operation JSON，预期revision在业务事务内校验；共享旧装配不提供这些字段时保持原格式。个人来源、审批与恢复见[个人持久会话](personal-durable.md)。
+
 main 应用数据空间保存在独立的 `<dataDir>/agent-data/main.db`，与核心 `ruukoto.db` 分离；核心任务、审批、事件与凭据表不对应用数据工具开放。每表有宿主维护的 `_id`（单调不复用）与 `_version`；存储格式版本（宿主）独立于 main 管理的 `schema_version` 与每次变更递增的 `revision`；每笔写入在单事务内提交业务变更、版本递增与追加审计回执（`hostOpId` 唯一）。
 
 MCP 任务内钉版的是工具清单与签名（服务配置版本 + 工具名/描述/schema 摘要）；签名变化时从同一历史文件重建 SDK 会话。工具暴露名带稳定命名空间 `mcp_<服务名>_<远端工具名>`（≤64 字符，截断带哈希后缀；转义后冲突的工具禁用并记录）。自动审查的审查列与文件、HTTP 审批的审查列同一套：`review_status` 取 `in_progress` / `done` / `asked_owner` / `superseded`，`review_decision` 取 `approve` / `reject` / `ask_owner`，`decision_source` 区分拥有者、自动审查与长期授权。

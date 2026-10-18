@@ -1,3 +1,4 @@
+import { PersonalAppDataOperationDoc, appDataOperations } from "./personal-app-data.ts";
 import { isDeepStrictEqual } from "node:util";
 import { AgentDoc, configure, ROOT_CONVERSATION_ID, type ConversationId, type Harness, type Tx } from "@earendil-works/pi-durable";
 import { BACKGROUND_CONTEXT, type Context } from "@earendil-works/chord/context";
@@ -19,9 +20,9 @@ import type { PersonalQqApi } from "./personal-qq-api.ts";
 export async function configurePersonalScheduledConversation(tx: Tx, conversationId: ConversationId, plan: PersonalSchedule, options: { summary: boolean }) {
   const main = await tx.doc(AgentDoc, ROOT_CONVERSATION_ID);
   if (!main.model) throw new PersonalError("model_unavailable", "当前定时模型无法核实，请查询配置。");
-  const business = ["personal-media", "personal-browser", "personal-tools", "personal-mcp", "personal-service-inspect", "personal-service-executions", "personal-memory", "personal-history", "personal-skills"];
+  const business = ["personal-app-data", "personal-media", "personal-browser", "personal-tools", "personal-mcp", "personal-service-inspect", "personal-service-executions", "personal-memory", "personal-history", "personal-skills"];
   const extensions = [PERSONAL_SCHEDULED_WORK, ...plan.scope.extensions.filter(name => business.includes(name))];
-  const tools = ["background_work", ...plan.scope.tools.filter(name => !["background_work", "schedule_create", "schedule_query", "schedule_cancel"].includes(name) && (!options.summary || ["read_artifact", "read_mcp_result", "read_service_inspection", "memory", "history_search", "history_read", "skill"].includes(name)))];
+  const tools = ["background_work", ...plan.scope.tools.filter(name => !["background_work", "schedule_create", "schedule_query", "schedule_cancel"].includes(name) && (!options.summary || ["app_data_query", "read_artifact", "read_mcp_result", "read_service_inspection", "memory", "history_search", "history_read", "skill"].includes(name)))];
   await configure(tx, conversationId, { model: main.model, thinkingLevel: "off", extensions: [], tools: [] });
   const agent = await tx.doc(AgentDoc, conversationId);
   agent.extensions = extensions; agent.tools = tools;
@@ -52,7 +53,7 @@ export async function settlePersonalScheduledRun(run: PersonalScheduleRun, runti
       let blocker: Awaited<ReturnType<typeof personalServiceSourceBlocker>>;
       await runtime.commit(async tx => { blocker = await personalServiceSourceBlocker(tx, run.requestId); return undefined; }, context);
       if (!blocker) break;
-      const watch = typeof blocker === "string" ? await runtime.watchDoc(PersonalServiceOperationDoc, blocker, context) : "browser" in blocker ? blocker.session ? await runtime.watchDoc(PersonalBrowserSessionDoc, String(run.conversationId), context) : await runtime.watchDoc(PersonalBrowserOperationDoc, blocker.browser, context) : "tool" in blocker ? await runtime.watchDoc(PersonalToolDoc, blocker.tool, context) : "mcp" in blocker ? await runtime.watchDoc(PersonalMcpDoc, blocker.mcp, context) : "command" in blocker ? await runtime.watchDoc(PersonalCommandDoc, blocker.command, context) : await runtime.watchDoc(PersonalInspectionDoc, String(blocker.inspection), context);
+      const watch = typeof blocker === "string" ? await runtime.watchDoc(PersonalServiceOperationDoc, blocker, context) : "appData" in blocker ? await runtime.watchDoc(PersonalAppDataOperationDoc, blocker.appData, context) : "browser" in blocker ? blocker.session ? await runtime.watchDoc(PersonalBrowserSessionDoc, String(run.conversationId), context) : await runtime.watchDoc(PersonalBrowserOperationDoc, blocker.browser, context) : "tool" in blocker ? await runtime.watchDoc(PersonalToolDoc, blocker.tool, context) : "mcp" in blocker ? await runtime.watchDoc(PersonalMcpDoc, blocker.mcp, context) : "command" in blocker ? await runtime.watchDoc(PersonalCommandDoc, blocker.command, context) : await runtime.watchDoc(PersonalInspectionDoc, String(blocker.inspection), context);
       if (!watch) throw new PersonalError("schedule_effect_missing", "定时运行的待核实操作缺失，已保留占用；请保留档案。");
       try {
         const changed = new Promise<void>(resolve => { watch.start(async () => resolve()); void watch.closed.then(() => resolve()); });
@@ -70,6 +71,7 @@ export async function settlePersonalScheduledRun(run: PersonalScheduleRun, runti
     let failed = false;
     const facts: string[] = [];
     await runtime.commit(async tx => {
+      for (const operation of await appDataOperations(tx)) if (operation.origin.source.requestId === run.requestId) { failed ||= operation.result?.effect !== "committed"; facts.push(`应用数据：${operation.result?.code ?? "结果缺失"}；效果${operation.result?.effect ?? "待核实"}`); }
       for (const operation of await toolOperations(tx)) if (operation.origin.source.requestId === run.requestId) { failed ||= operation.effect !== "returned"; facts.push(`资料/网络操作：${operation.code}；原效果${operation.effect}；停止${operation.stopped ? "已核实" : "未核实"}${operation.resolution ? `；拥有者已核实${operation.resolution.effect === "applied" ? "已生效" : "未生效"}` : ""}`); }
       for (const operation of await mcpOperations(tx)) if (operation.origin.source.requestId === run.requestId) { failed ||= operation.effect !== "returned"; facts.push(`MCP操作：${operation.code}；原效果${operation.effect}；原请求结束${operation.remoteEnded ? "已核实" : "未核实"}${operation.resolution ? `；拥有者已核实${operation.resolution.effect === "applied" ? "已生效" : "未生效"}` : ""}`); }
       for (const operation of await browserOperations(tx)) if (operation.origin.source.requestId === run.requestId) { failed ||= operation.effect !== "returned"; facts.push(`浏览器操作：${operation.code}；原效果${operation.effect}；停止${operation.stopped ? "已核实" : "未核实"}${operation.resolution ? `；拥有者已核实${operation.resolution.effect === "applied" ? "已生效" : "未生效"}` : ""}`); }

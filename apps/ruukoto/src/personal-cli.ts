@@ -1,3 +1,4 @@
+import { managePersonalAppData } from "./personal-app-data-controls.ts";
 import { configurePersonalSkills } from "./personal-skills-cli.ts";
 import { managePersonalMemory, managePersonalHistory } from "./personal-memory-controls.ts";
 import { configurePersonalQq } from "./personal-qq-cli.ts";
@@ -401,7 +402,7 @@ export async function managePersonalCommands(io: PersonalCliIO, directory: strin
 export async function personalMenu(directory: string, io: PersonalCliIO): Promise<void> {
   io.write(`个人 durable 隔离实例\n档案：${directory}\n提供主会话、QQ / Telegram 共享主会话入口及 Linux 服务检查；模型写工具继续实施。\n`);
   while (true) {
-    const selected = await choose(io, "个人实例", ["配置模型（后台须停止）", "启动隔离后台", "查看状态", "发送消息", "查看最近消息", "核实上次提交", "停止隔离后台", "配置 Telegram（后台须停止）", "查看 Telegram 收发", "退出向导（后台继续运行）", "配置或查看服务（后台须停止）", "管理后台分析", "管理分析委托", "管理检查停止重核", "管理服务审批与核实", "配置或查看命令目录（后台须停止）", "管理命令效果与停止核实", "配置或查看 MCP（后台须停止）", "管理 MCP 审批、原响应与效果", "配置资料与网络工具（后台须停止）", "管理工具审批、资料授权与产物", "配置浏览器（后台须停止）", "管理浏览器、截图与网页效果", "配置 QQ（后台须停止）", "查看 QQ 收发", "管理定时计划与运行", "配置或查看技能（后台须停止）", "管理长期记忆", "检索历史原文"]);
+    const selected = await choose(io, "个人实例", ["配置模型（后台须停止）", "启动隔离后台", "查看状态", "发送消息", "查看最近消息", "核实上次提交", "停止隔离后台", "配置 Telegram（后台须停止）", "查看 Telegram 收发", "退出向导（后台继续运行）", "配置或查看服务（后台须停止）", "管理后台分析", "管理分析委托", "管理检查停止重核", "管理服务审批与核实", "配置或查看命令目录（后台须停止）", "管理命令效果与停止核实", "配置或查看 MCP（后台须停止）", "管理 MCP 审批、原响应与效果", "配置资料与网络工具（后台须停止）", "管理工具审批、资料授权与产物", "配置浏览器（后台须停止）", "管理浏览器、截图与网页效果", "配置 QQ（后台须停止）", "查看 QQ 收发", "管理定时计划与运行", "配置或查看技能（后台须停止）", "管理长期记忆", "检索历史原文", "管理应用数据审批与回执"]);
     if (selected === 9) return;
     try {
       if (selected === 0) await configure(io, directory);
@@ -444,6 +445,7 @@ export async function personalMenu(directory: string, io: PersonalCliIO): Promis
       else if (selected === 25) await managePersonalSchedules(io, directory);
       else if (selected === 26) await configurePersonalSkills(io, directory);
       else if (selected === 27) await managePersonalMemory(io, directory);
+      else if (selected === 29) await managePersonalAppData(io, directory);
       else if (selected === 28) await managePersonalHistory(io, directory);
       else {
         const state = await personalControl<Awaited<ReturnType<PersonalHarness["telegram"]["status"]>>>(directory, "GET", selected === 24 ? "/qq" : "/telegram");

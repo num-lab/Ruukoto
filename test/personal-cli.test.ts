@@ -1,3 +1,4 @@
+import { managePersonalAppData } from "../apps/ruukoto/src/personal-app-data-controls.ts";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -417,7 +418,7 @@ test("personal 服务配置：只读档案有未决输入时不能半启用操�
   await assert.rejects(openPersonalHarness({ ...options, serviceOperations: true }), code("service_config_pending"));
   const original = await openPersonalHarness(options);
   assert.equal(original.service, undefined);
-  assert.deepEqual((await original.main.agent(context)).tools.map(tool => tool.name), ["memory", "history_search", "history_read", "skill", "read_artifact", "service_inspect", "read_service_inspection", "background_work", "schedule_create", "schedule_query", "schedule_cancel"]);
+  assert.deepEqual((await original.main.agent(context)).tools.map(tool => tool.name), ["app_data_define_table", "app_data_migrate", "app_data_query", "app_data_insert", "app_data_update", "app_data_delete", "memory", "history_search", "history_read", "skill", "read_artifact", "service_inspect", "read_service_inspection", "background_work", "schedule_create", "schedule_query", "schedule_cancel"]);
   await original.close();
 });
 
@@ -457,7 +458,7 @@ test("personal 服务配置：生产 sudo 后台接线和恢复（Linux），其
   const calls = fs.readFileSync(path.join(helper, "calls.log"), "utf8").trim().split("\n").map(line => JSON.parse(line));
   assert.deepEqual(calls.map(call => call[0]), ["inspect-op", "stop-inspect", "inspect-op", "stop-inspect"]);
   for (const index of [0, 2]) { assert.deepEqual(calls[index].slice(2), ["test-machine", unit]); assert.deepEqual(calls[index + 1].slice(1), [calls[index][1], "test-machine"]); }
-  assert.deepEqual(f.model.calls[0].tools?.map(tool => (tool.function as { name: string }).name), ["memory", "history_search", "history_read", "skill", "read_artifact", "service_inspect", "read_service_inspection", "background_work", "schedule_create", "schedule_query", "schedule_cancel"]);
+  assert.deepEqual(f.model.calls[0].tools?.map(tool => (tool.function as { name: string }).name), ["app_data_define_table", "app_data_migrate", "app_data_query", "app_data_insert", "app_data_update", "app_data_delete", "memory", "history_search", "history_read", "skill", "read_artifact", "service_inspect", "read_service_inspection", "background_work", "schedule_create", "schedule_query", "schedule_cancel"]);
   const storage = await openNodeSqliteStorage(path.join(f.dir, "personal.sqlite"));
   for (const token of [PersonalServiceDoc, PersonalServiceGrantsDoc, PersonalServiceOperationsDoc]) assert.ok(await storage.findDocument({ kind: token.definition.kind, scope: { kind: "session" } }, "current", context));
   const entries = (await storage.scanEntries({ conversationId: ROOT_CONVERSATION_ID }, 256, undefined, context)).items;
@@ -627,4 +628,26 @@ test("personal CLI：命令菜单只用已选原命令，分别保存效果证�
   assert.equal(answers.length, 0); assert.equal(saved, true); assert.equal(stopped, true);
   assert.deepEqual(routes, ["GET /commands?offset=0", "GET /command?command=12&stream=stdout&offset=0", "POST /command/resolve?command=12", "GET /command?command=12&stream=stdout&offset=0", "POST /command/stop?command=12", "GET /command?command=12&stream=stdout&offset=0", "GET /commands?offset=0"]);
   assert.match(output, /原输出/); assert.match(output, /停止也核实后才解除暂停/); assert.match(output, /登记不表示已停止/);
+});
+
+test("本机应用数据：认证API批准原操作与CLI按列表查看，无需输入内部键", async t => {
+  const calls = [
+    { name: "app_data_define_table", arguments: { table: "todos", fields: [{ name: "title", type: "text" }], expected_schema_version: 0, reason: "记录" } },
+    { name: "app_data_insert", arguments: { table: "todos", records: [{ title: "甲" }, { title: "乙" }], reason: "新增" } },
+    { name: "app_data_delete", arguments: { table: "todos", rows: [{ id: 1, expected_version: 1 }, { id: 2, expected_version: 1 }], reason: "完成" } },
+  ];
+  const f = await fixture(t, (_request, index) => calls[index] ? { kind: "tool_calls", calls: [{ id: `app-data-${index}`, ...calls[index] }] } : { kind: "text", text: "业务已完成" });
+  const server = await f.start();
+  const input = preparePersonalInput(f.dir, "整理待办"); await personalControl(f.dir, "POST", "/inputs", input);
+  let operation = 0;
+  await until(async () => { const page = await personalControl<{ items: { operation: number; decision: string }[] }>(f.dir, "GET", "/app-data/operations"); operation = page.items.find(value => value.decision === "pending")?.operation ?? 0; return operation > 0; });
+  const unauthorized = await raw(f.dir, "POST", `/app-data/decide?operation=${operation}`, JSON.stringify({ decision: "approved" })); assert.notEqual(unauthorized.status, 200);
+  await personalControl(f.dir, "POST", `/app-data/decide?operation=${operation}`, { decision: "approved" });
+  await until(async () => (await checkPersonalInput(f.dir, input)).status === "done");
+  const page = await personalControl<{ items: { operation: number; effect: string }[] }>(f.dir, "GET", "/app-data/operations"); assert.equal(page.items[0].effect, "committed");
+  await personalControl(f.dir, "POST", `/app-data/recheck?operation=${operation}`);
+  const answers = ["1", "1", "4"], output: string[] = [];
+  await managePersonalAppData({ question: async () => answers.shift()!, write: text => output.push(text) }, f.dir);
+  assert.match(output.join(""), /app_data_delete/); assert.match(output.join(""), /committed/); assert.equal(answers.length, 0);
+  await server.stop();
 });

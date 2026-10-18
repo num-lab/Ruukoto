@@ -15,7 +15,6 @@ import { Runtime } from "@ruukoto/runtime/runtime.ts";
 import { Db } from "@ruukoto/core/db.ts";
 import { Store } from "@ruukoto/core/store.ts";
 import { applyLegacyImport, previewLegacyImport, revertLegacyImport } from "../apps/ruukoto-code/src/legacy-import.ts";
-import { applyPersonalImport, previewPersonalImport, revertPersonalImport } from "@ruukoto/channels/personal-import.ts";
 import { ToolOpLedger } from "@ruukoto/agent/tool-op-ledger.ts";
 import { ControlClient, ControlClientError } from "@ruukoto/control/client.ts";
 import { ControlConnection } from "@ruukoto/control/connection.ts";
@@ -349,43 +348,36 @@ test("跨项目来源每次读取核实授权；撤销不借连续分支恢复",
   } finally { await t.shutdown(); }
 });
 
-test("开发导入保留分支、个人导入明确排除、回退及缺来源拒绝", async () => {
+test("Coding 导入保留分支、可回退且缺来源拒绝", async () => {
   const { t, session, h } = await fixture("branch-import");
   try {
     h.task(); h.user("旧实例原文");
     const branch = await t.runtime.branchSession({ sessionId: session.id, name: "保留名称", requestId: "imported-branch" });
     await t.runtime.stop("offline_import");
     const db = new Db(t.dirs.dataDir);
-    // 模拟含新增来源字段的旧个人实例，导入不提供跨产品分支创建入口。
+    // Coding 仍从旧个人实例读取开发资料，源格式与原文保持。
     new Store(db).setMetaValue("product.type", "ruukoto"); db.close();
-    for (const direction of ["code", "personal"] as const) {
-      const root = path.join(t.dirs.root, `target-${direction}`);
-      const deps = { targetDataDir: path.join(root, "data"), targetAgentDir: path.join(root, "agent") };
-      const preview = direction === "code" ? previewLegacyImport(deps, { from: t.dirs.dataDir }) : previewPersonalImport(deps, { from: t.dirs.dataDir });
-      const input = { plan: { from: t.dirs.dataDir }, source_instance_id: preview.source.instance_id, revision: preview.revision!, request_id: `import-${direction}` };
-      const receipt = direction === "code" ? applyLegacyImport(deps, input) : applyPersonalImport(deps, input);
-      const target = new Db(deps.targetDataDir);
-      const imported = new Store(target).getSession(branch.id);
-      if (direction === "code") {
-        assert.ok(imported);
-        assert.equal(imported.name, branch.name);
-        assert.deepEqual(imported.branchSource, branch.branchSource);
-        assert.deepEqual(fs.readFileSync(imported.sessionFile!), fs.readFileSync(branch.sessionFile!));
-      } else {
-        assert.equal(imported, null);
-        assert.ok(preview.excluded_sessions.some(row => row.id === branch.id), "个人方向明确排除普通开发资料");
-      }
-      assert.equal(target.prepare("SELECT COUNT(*) AS n FROM branch_requests").get()!.n, 0);
-      target.close();
-      const reverted = direction === "code" ? revertLegacyImport(deps, receipt.import_id) : revertPersonalImport(deps, receipt.import_id);
-      assert.equal(reverted.ok, true);
-    }
+    const root = path.join(t.dirs.root, "target-code");
+    const deps = { targetDataDir: path.join(root, "data"), targetAgentDir: path.join(root, "agent") };
+    const preview = previewLegacyImport(deps, { from: t.dirs.dataDir });
+    const input = { plan: { from: t.dirs.dataDir }, source_instance_id: preview.source.instance_id, revision: preview.revision!, request_id: "import-code" };
+    const receipt = applyLegacyImport(deps, input);
+    const target = new Db(deps.targetDataDir);
+    const imported = new Store(target).getSession(branch.id);
+    assert.ok(imported);
+    assert.equal(imported.name, branch.name);
+    assert.deepEqual(imported.branchSource, branch.branchSource);
+    assert.deepEqual(fs.readFileSync(imported.sessionFile!), fs.readFileSync(branch.sessionFile!));
+    assert.equal(target.prepare("SELECT COUNT(*) AS n FROM branch_requests").get()!.n, 0);
+    target.close();
+    const reverted = revertLegacyImport(deps, receipt.import_id);
+    assert.equal(reverted.ok, true);
     const source = new Db(t.dirs.dataDir);
     const broken = { ...branch.branchSource!, taskIds: ["不存在的来源任务"] };
     source.prepare("UPDATE sessions SET branch_source = ? WHERE id = ?").run(JSON.stringify(broken), branch.id);
     source.close();
-    const deps = { targetDataDir: path.join(t.dirs.root, "broken-data"), targetAgentDir: path.join(t.dirs.root, "broken-agent") };
-    assert.throws(() => previewLegacyImport(deps, { from: t.dirs.dataDir }), (e: any) => e.code === "source_scope_unavailable");
+    const brokenDeps = { targetDataDir: path.join(t.dirs.root, "broken-data"), targetAgentDir: path.join(t.dirs.root, "broken-agent") };
+    assert.throws(() => previewLegacyImport(brokenDeps, { from: t.dirs.dataDir }), (e: any) => e.code === "source_scope_unavailable");
 
   } finally { await t.shutdown(); }
 });

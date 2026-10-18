@@ -7,7 +7,7 @@ import { test } from "node:test";
 import { listAgentReports, listAgentWaits } from "@ruukoto/core/agent-wait.ts";
 import { getWorkflowQuestion, listWorkflowExecutions, listWorkflowRuns, requireWorkflowRun } from "@ruukoto/core/workflow.ts";
 import { Runtime } from "@ruukoto/runtime/runtime.ts";
-import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
+import { product as personalProduct } from "./helpers/legacy-product.ts";
 import { product as codeProduct } from "../apps/ruukoto-code/src/product.ts";
 import { waitFor } from "./helpers/testkit.ts";
 

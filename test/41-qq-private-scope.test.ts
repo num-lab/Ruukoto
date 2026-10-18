@@ -12,10 +12,8 @@ import { MemoryStore } from "@ruukoto/core/memory.ts";
 import { DATA_CATEGORIES, type Session, type NotifyTarget, type MemorySourceRef } from "@ruukoto/core/types.ts";
 import { ArtifactStore } from "@ruukoto/agent/artifacts.ts";
 import { createHostDataTools } from "@ruukoto/agent/host-tools.ts";
-import { createSchedulerTools } from "../apps/ruukoto/src/scheduler-tools.ts";
 import { createSourceResolver } from "@ruukoto/channels/source-resolver.ts";
 import { SchedulerStore, sha256 } from "@ruukoto/channels/scheduler/store.ts";
-import type { Scheduler } from "@ruukoto/channels/scheduler/runtime.ts";
 import { cleanupDirs, makeTestDirs } from "./helpers/testkit.ts";
 
 test("QQ 私聊资料边界：授权不能放开 main/coding 的群资料，来源检查覆盖工具与旧快照", async () => {
@@ -136,7 +134,7 @@ test("QQ 私聊资料边界：授权不能放开 main/coding 的群资料，来�
     assert.match(sources.verify(sessions.main.projectId, oldSnapshot.refs)!, /授权已撤销|不可读/);
     assert.match(sources.verify(sessions.main.projectId, [{ kind: "task_result", ref: `task:${groupTask.id}`, version: groupTask.endedAt!, sha256: sha256(texts.group) }])!, /授权已撤销|不可读/);
 
-    // 模拟升级前已经登记的群资料快照；详情查询必须在回显正文前复核来源。
+    // 旧账本保留原正文，读取资格由上面的来源核实决定。
     const sched = new SchedulerStore(store);
     const target: NotifyTarget = { channel: "mock", account: "bot", chatId: "owner", configVersion: 1 };
     const oldOp = sched.insertOp({ sourceKind: "confirmation", sourceKey: "old-group", taskId: null, hostOpId: null, target, text: oldSnapshot.text, sourceRefs: oldSnapshot.refs }).op;
@@ -146,17 +144,6 @@ test("QQ 私聊资料边界：授权不能放开 main/coding 的群资料，来�
       instruction: oldSnapshot.text, sourceRefs: oldSnapshot.refs, target,
       nextDueAt: "2026-10-01T00:00:00.000Z", tzData: "test", reason: "旧计划",
     }, "test");
-    const safeOp = sched.insertOp({ sourceKind: "confirmation", sourceKey: "safe", taskId: null, hostOpId: null, target, text: "SAFE-NOTIFICATION", sourceRefs: [] }).op;
-    const schedulerTools = createSchedulerTools({
-      coreStore: store, sched, sources, taskContext, target: () => target, now: Date.now,
-      scheduler: {} as Scheduler, verifyMain: () => null,
-      requestApproval: async () => { throw new Error("只读检查不应请求审批"); },
-    });
-    await assert.rejects(call(schedulerTools, "notification_query", { op_id: oldOp.id }), /发送资料不可读/);
-    await assert.rejects(call(schedulerTools, "schedule_query", { schedule_id: oldSchedule.id }), /计划资料不可读/);
-    assert.match(await call(schedulerTools, "notification_query", { op_id: safeOp.id }), /SAFE-NOTIFICATION/);
-    assert.doesNotMatch(await call(schedulerTools, "notification_query", {}), /QQ-GROUP-SECRET/);
-    assert.doesNotMatch(await call(schedulerTools, "schedule_query", {}), /QQ-GROUP-SECRET/);
     assert.equal(sched.getOp(oldOp.id)!.text, texts.group, "owner 控制面仍能取得旧账本正文");
     assert.equal(sched.getSchedule(oldSchedule.id)!.instruction, texts.group);
   } finally {

@@ -1,0 +1,10 @@
+✔ 系统提示：开发会话、main 各用宿主提示，SYSTEM.md / APPEND_SYSTEM.md 不被发现；chat/coding 不再引导 (937.961292ms)
+✔ 参考块块头只保留名称、id、类别与范围；资料受限会话不注入，无 skill 工具不注入技能目录；外部资料警示保留 (13.475334ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1922.016625

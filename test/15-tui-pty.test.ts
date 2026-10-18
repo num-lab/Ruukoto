@@ -178,13 +178,12 @@ async function runTuiInPty(opts: {
   size?: { columns: number; rows: number };
   expect: string[];
   timeout?: number;
-  product?: "ruukoto" | "ruukoto-code";
 }): Promise<PtyResult> {
   const args = ["tui"];
   if (opts.sessionId) args.push("--session", opts.sessionId);
   const payload = JSON.stringify({
-    cmd: ["npx", "tsx", `apps/${opts.product ?? "ruukoto"}/src/main.ts`, ...args],
-    env: opts.env,
+    cmd: ["npx", "tsx", "apps/ruukoto-code/src/main.ts", ...args],
+    env: { ...opts.env, RUUKOTO_OWNER_TOKEN: "", RUUKOTO_OWNER_TOKEN_FILE: "" },
     inputs: opts.inputs,
     size: opts.size,
     expect: opts.expect,
@@ -224,7 +223,7 @@ test("PTY：Coding Agent /compact 中文指引、真实反馈与退出后的持�
     const file = t.runtime.store.getSession(session.id)!.sessionFile!;
     const bytes = fs.readFileSync(file);
     const calls = t.server.calls.length;
-    const result = await runTuiInPty({ product: "ruukoto-code", sessionId: session.id,
+    const result = await runTuiInPty({ sessionId: session.id,
       env: { RUUKOTO_CODE_DATA_DIR: t.dirs.dataDir, RUUKOTO_CODE_AGENT_DIR: t.dirs.agentDir, RUUKOTO_CODE_CONTROL_DIR: t.runtime.controlDir(), RUUKOTO_CODE_PENDING_DIR: path.join(t.dirs.root, "pending") },
       inputs: [[4, "/compact 保留  迁移细节\r"], [10, "/quit\r"]],
       expect: ["已接收", "上下文已压缩", "已退出 TUI"], timeout: 30 });
@@ -247,7 +246,7 @@ test("PTY：工作流逐层启动与日志、宽窄缩放和 Tab 聊天均保留
     const session = (await t.runtime.openWorkspace({ cwd: t.work[0] })).session;
     const text = Array.from({ length: 40 }, (_, index) => "STAGE-LOG " + index + " 中文阶段").join("\n");
     await t.runtime.saveWorkflowDefinition({ name: "batch", script: 'await progress("state",{text:' + JSON.stringify(text) + '}); return await ask("q",{prompt:"继续?"});', expectedDigest: null, requestKey: "owner:save" });
-    const result = await runTuiInPty({ product: "ruukoto-code", sessionId: session.id, size: { columns: 140, rows: 30 },
+    const result = await runTuiInPty({ sessionId: session.id, size: { columns: 140, rows: 30 },
       env: { RUUKOTO_CODE_DATA_DIR: t.dirs.dataDir, RUUKOTO_CODE_AGENT_DIR: t.dirs.agentDir, RUUKOTO_CODE_CONTROL_DIR: t.runtime.controlDir(), RUUKOTO_CODE_PENDING_DIR: path.join(t.dirs.root, "pending") },
       inputs: [[4, "/workflow\r"], [6, "\x1b[B\r"], [7, "\r"], [8, "\r"], [9, "终端逐层操作\r"], [10, "\r"],
         [12, "\r"], [13, "\x1b[B\r"], [14, "\x1b[6~"], [15, { columns: 70, rows: 22 }],
@@ -279,11 +278,14 @@ async function startBackendProcess(dirs: { root: string; dataDir: string; agentD
   await writeModelsJson(dirs, baseUrl);
   const env = {
     ...process.env,
-    RUUKOTO_DATA_DIR: dirs.dataDir,
-    RUUKOTO_AGENT_DIR: dirs.agentDir,
-    RUUKOTO_PENDING_DIR: path.join(dirs.root, "pending"),
+    RUUKOTO_CODE_DATA_DIR: dirs.dataDir,
+    RUUKOTO_CODE_AGENT_DIR: dirs.agentDir,
+    RUUKOTO_CODE_PENDING_DIR: path.join(dirs.root, "pending"),
+    RUUKOTO_CODE_CONTROL_DIR: path.join(dirs.root, "control"),
+    RUUKOTO_OWNER_TOKEN: "",
+    RUUKOTO_OWNER_TOKEN_FILE: "",
   };
-  const child = spawn("npx", ["tsx", "apps/ruukoto/src/main.ts", "start", "--tools", "mock", "--model", "mock/mock-model"], {
+  const child = spawn("npx", ["tsx", "apps/ruukoto-code/src/main.ts", "start", "--tools", "mock", "--model", "mock/mock-model"], {
     env,
     stdio: ["ignore", "pipe", "pipe"],
     detached: true, // 独立进程组：npx 垫片被杀时其 node 孙进程随组回收，不遗留持有管道的孤儿

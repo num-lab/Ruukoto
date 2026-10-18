@@ -1,4 +1,4 @@
-import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
+import { product as personalProduct } from "./helpers/legacy-product.ts";
 /**
  * issue 13：/prompt 命令的数据层 —— 模型请求列表与 prompt 快照。
  *

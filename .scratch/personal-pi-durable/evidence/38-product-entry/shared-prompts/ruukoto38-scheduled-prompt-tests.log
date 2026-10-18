@@ -1,0 +1,11 @@
+✔ 定时工作流 success：根任务结束不提前关闭，最终仅调度路径 (667.285834ms)
+✔ 定时工作流 retry：根任务结束不提前关闭，最终仅调度路径 (586.402625ms)
+✔ 定时工作流 cancel：根任务结束不提前关闭，最终仅调度路径 (518.125834ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 3
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2615.531375

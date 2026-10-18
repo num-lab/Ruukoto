@@ -2,7 +2,7 @@
 
 Status: implemented
 
-后续提案：[个人端 pi durable 迁移](../../proposed/architecture/2026-10-17-personal-pi-durable.md)拟让新个人端退出普通开发会话；原会话保留归档，当前实现尚未改变。
+已被[个人正式入口](../simplification/2026-10-18-personal-product-entry.md)取代个人运行范围：新个人不创建或提交普通开发会话，旧会话原地归档；Coding 开发会话与原理由保留。下述决定记录旧装配，不作为恢复个人开发入口的要求。
 
 原出处：ADR 0017「补充：ruukoto 保留普通开发会话」
 

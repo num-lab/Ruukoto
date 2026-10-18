@@ -1,16 +1,5 @@
-/**
- * 产品身份（agent-direction issue 01）：ruukoto（个人 Agent，Linux 服务器、
- * IM 入口与个人调度）与 ruukoto-code（Coding Agent，开发机器、TUI 入口）共用一份代码，
- * 以兼容扩展方式区分：
- * Note: 见 .agents/notes/implemented/architecture/2026-10-02-two-agent-products.md
- * - 产品身份只经 RUUKOTO_PRODUCT 注入（对应 bin 入口固定赋值），缺省 ruukoto，
- *   旧部署与旧记录零改动；
- * - 数据目录归属经 meta 键 product.type 首次启动登记（Runtime 启动时核对，跨产品复用
- *   同一数据目录直接拒绝）；
- * - 路径环境变量按产品隔离：ruukoto 读 RUUKOTO_*_DIR，ruukoto-code 只读
- *   RUUKOTO_CODE_*_DIR，同机并存不串用；
- * - 日常档案与开发本项目的档案隔离：npm run dev 使用 ~/.ruukoto-dev，
- *   npm run code 使用 ~/.ruukoto-code-dev。
+/** 共享旧格式产品身份、meta 归属与目录工具；Coding 保留原档案，新个人使用 app 内的 durable 档案。
+ * Note: 见 .agents/notes/implemented/simplification/2026-10-18-personal-product-entry.md
  */
 
 import * as os from "node:os";

@@ -746,8 +746,8 @@ test("CLI submit：后台明确拒绝时打印「提交被拒绝」，不再提�
     const repoRoot = path.resolve(import.meta.dirname, "..");
     const child = childProcess.spawn(
       path.join(repoRoot, "node_modules", ".bin", "tsx"),
-      ["apps/ruukoto/src/main.ts", "submit", sessionId, "req-cli-reject", "你好", "--model", "mock/no-such-model", "--thinking", "off"],
-      { cwd: repoRoot, env: { ...process.env, RUUKOTO_CONTROL_DIR: controlDir } },
+      ["apps/ruukoto-code/src/main.ts", "submit", sessionId, "req-cli-reject", "你好", "--model", "mock/no-such-model", "--thinking", "off"],
+      { cwd: repoRoot, env: { ...process.env, RUUKOTO_CODE_DATA_DIR: t.dirs.dataDir, RUUKOTO_CODE_AGENT_DIR: t.dirs.agentDir, RUUKOTO_CODE_CONTROL_DIR: controlDir, RUUKOTO_CODE_PENDING_DIR: path.join(t.dirs.root, "pending"), RUUKOTO_OWNER_TOKEN: "", RUUKOTO_OWNER_TOKEN_FILE: "" } },
     );
     let stderr = "";
     child.stderr.on("data", (chunk) => (stderr += chunk));

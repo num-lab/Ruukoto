@@ -1,0 +1,69 @@
+{
+  "worktree": "/tmp/ruukoto38-pack-20261018-1",
+  "patch": "/tmp/ruukoto38-caller-fixes.patch",
+  "scope": [
+    "test/helpers/backend.ts",
+    "test/04-crash-recovery.test.ts",
+    "test/10-access-modes.test.ts",
+    "test/15-tui-pty.test.ts",
+    "test/32-dev.test.ts",
+    "test/66-control-seam.test.ts",
+    "test/73-desktop-execution.test.ts",
+    "test/85-legacy-instance-import.test.ts"
+  ],
+  "uniquePassedScenarios": 117,
+  "failures": 0,
+  "skipped": 0,
+  "checks": [
+    {
+      "description": "8 affected test files before final environment hardening",
+      "passed": 115,
+      "returncode": 0,
+      "log": "/tmp/ruukoto38-caller-fixes-tests.log",
+      "sha256": "b3f2fb949fda163446f268679476a5bfe164230a6b439b016443cb328aadd8e3",
+      "bytes": 11799
+    },
+    {
+      "description": "Coding legacy-import CLI and new personal rejection",
+      "passed": 1,
+      "returncode": 0,
+      "log": "/tmp/ruukoto38-caller-fixes-import-cli.log",
+      "sha256": "bac295d716158b09e542d23721da7b832ca5303adcb33561fee632c96f8a1a8c",
+      "bytes": 221
+    },
+    {
+      "description": "Final environment guard with inherited daily paths and token",
+      "passed": 1,
+      "returncode": 0,
+      "log": "/tmp/ruukoto38-caller-fixes-env-guard.log",
+      "sha256": "22b1fa8415d3d58101690a85fe79527bc2e7b6fc3f7b2c8c2cb83b465c2e5ebf",
+      "bytes": 223
+    },
+    {
+      "description": "Final environment-hardening rerun, overlapping recovery/CLI/PTY scenarios",
+      "passed": 10,
+      "returncode": 0,
+      "log": "/tmp/ruukoto38-caller-fixes-env-rerun.log",
+      "sha256": "a49ff53305ed2c9cd24c4c0f40bcb6b52d753dd36c0319f6d841f6c558733b0b",
+      "bytes": 1229
+    },
+    {
+      "description": "Final scoped ESLint",
+      "returncode": 0,
+      "log": "/tmp/ruukoto38-caller-fixes-eslint-final.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "description": "Final root TypeScript",
+      "returncode": 0,
+      "log": "/tmp/ruukoto38-caller-fixes-typecheck-final.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    }
+  ],
+  "completedUtc": "2026-10-18T11:05:39.755837+00:00",
+  "parentFirstFullCheck": "Interrupted by owner agent, exit 130; not counted as pass.",
+  "notRun": "No second full repo check in this isolated worker; root owns final full check.",
+  "patchSha256": "dadb19f19159cb3555827a47f022187562b8a0d1bdb0286bf0d09c1b374c303c"
+}

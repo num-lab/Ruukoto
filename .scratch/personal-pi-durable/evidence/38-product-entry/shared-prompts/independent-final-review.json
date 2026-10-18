@@ -1,0 +1,133 @@
+{
+  "identities": [
+    {
+      "identity": "scheduled",
+      "actual_kind": "scheduled",
+      "before_refs": {
+        "notification_enqueue": 2,
+        "service_manage": 2,
+        "service_inspect": 2
+      },
+      "after_refs": {
+        "notification_enqueue": 0,
+        "service_manage": 0,
+        "service_inspect": 0
+      },
+      "wire_before_refs": {
+        "notification_enqueue": 2,
+        "service_manage": 2
+      },
+      "wire_after_refs": {
+        "notification_enqueue": 0,
+        "service_manage": 0
+      },
+      "sdk_tools_equal": true,
+      "wire_tools_equal": true,
+      "tools_count": 29,
+      "estimates_before": {
+        "systemPrompt": 2088,
+        "toolSchemas": 10737
+      },
+      "estimates_after": {
+        "systemPrompt": 1790,
+        "toolSchemas": 10737
+      },
+      "retained_guidance": [
+        "- 对 telegram、qq_private 消息的最终回答会以纯文本原样发回该平台。独立定时执行只使用本次说明与明确资料，整项工作结束后由宿主向计划固定目标回报一次最终结果；子任务中间结果不自动外发。发往 Telegram、QQ 的内容保持简短，不用 Markdown（标题、表格、粗体）。",
+        "- 当前是宿主为本次定时计划创建的独立执行上下文，不读取主聊天或前次运行历史。任务按计划保存的模式执行，子任务与汇总属于本次运行。完成全部工作后给出最终结果或失败原因；宿主向创建时固定的目标发送一次最终回报，无目标则保存结果。"
+      ],
+      "before_source_fields": {
+        "driverSha256": "984280391d5a4fa95739438d958309e6c839798f9329fd3cee6f159025ddb295"
+      },
+      "after_source_fields": {
+        "driverSha256": "ae77b5b9313346ecf7249cc93d369eaa94595c0ad5b56fde5acc7a66eebcd90f",
+        "sessionFactorySha256": "47c9f0fb913202a94c848f4e9512ddf2f15628434eec2ac96483c34711021ab7"
+      }
+    },
+    {
+      "identity": "main",
+      "actual_kind": "main",
+      "before_refs": {
+        "notification_enqueue": 1,
+        "service_manage": 2,
+        "service_inspect": 2
+      },
+      "after_refs": {
+        "notification_enqueue": 0,
+        "service_manage": 0,
+        "service_inspect": 0
+      },
+      "wire_before_refs": {
+        "notification_enqueue": 1,
+        "service_manage": 2
+      },
+      "wire_after_refs": {
+        "notification_enqueue": 0,
+        "service_manage": 0
+      },
+      "sdk_tools_equal": true,
+      "wire_tools_equal": true,
+      "tools_count": 30,
+      "estimates_before": {
+        "systemPrompt": 1862,
+        "toolSchemas": 11265
+      },
+      "estimates_after": {
+        "systemPrompt": 1613,
+        "toolSchemas": 11265
+      },
+      "retained_guidance": [
+        "- 对 telegram、qq_private 消息的最终回答会以纯文本原样发回该平台。独立定时执行只使用本次说明与明确资料，整项工作结束后由宿主向计划固定目标回报一次最终结果；子任务中间结果不自动外发。发往 Telegram、QQ 的内容保持简短，不用 Markdown（标题、表格、粗体）。"
+      ],
+      "before_source_fields": {
+        "driverSha256": "984280391d5a4fa95739438d958309e6c839798f9329fd3cee6f159025ddb295",
+        "sessionFactorySha256": "3ae432f556492ab35ad6f51e3e1edfd658e4ab3a8598ddf84ed9de46a482a27f"
+      },
+      "after_source_fields": {
+        "driverSha256": "ae77b5b9313346ecf7249cc93d369eaa94595c0ad5b56fde5acc7a66eebcd90f",
+        "sessionFactorySha256": "47c9f0fb913202a94c848f4e9512ddf2f15628434eec2ac96483c34711021ab7"
+      }
+    }
+  ],
+  "main_source_comparisons": {
+    "packages/agent/src/driver.ts": {
+      "current": "ae77b5b9313346ecf7249cc93d369eaa94595c0ad5b56fde5acc7a66eebcd90f",
+      "recorded": "ae77b5b9313346ecf7249cc93d369eaa94595c0ad5b56fde5acc7a66eebcd90f",
+      "equal": true
+    },
+    "packages/agent/src/session-factory.ts": {
+      "current": "47c9f0fb913202a94c848f4e9512ddf2f15628434eec2ac96483c34711021ab7",
+      "recorded": "47c9f0fb913202a94c848f4e9512ddf2f15628434eec2ac96483c34711021ab7",
+      "equal": true
+    },
+    "test/115-workflow-final-delivery.test.ts": {
+      "current": "999f0fc042c6624a514506d095a9cb55ee6d31c8a692e49eb601e3dd054c96a5",
+      "recorded": "999f0fc042c6624a514506d095a9cb55ee6d31c8a692e49eb601e3dd054c96a5",
+      "equal": true
+    }
+  },
+  "patch_sha256": "7da5870b8b67cc259a88d02fe27a22590ef3b5c706f819b2ccb5268d2f954e0a",
+  "recorded_manifest_changed_paths": [
+    "packages/agent/src/driver.ts",
+    "packages/agent/src/session-factory.ts",
+    "test/113-workflow-source-capabilities.test.ts",
+    "test/115-workflow-final-delivery.test.ts",
+    "test/subagent-source-capabilities.test.ts"
+  ],
+  "test_status": {
+    "before": 0,
+    "before-main": 0,
+    "after": 0,
+    "after-main": 0,
+    "tests": 0,
+    "eslint": 0
+  },
+  "test_counts": {
+    "pass": 3,
+    "fail": 0,
+    "skip": 0,
+    "duration_ms": 2615.531375
+  },
+  "reviewer_ran_tests": false,
+  "result": "no_unresolved_source_findings"
+}

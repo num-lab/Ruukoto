@@ -70,7 +70,7 @@ test("工具已产生标记但未记录结果时崩溃：中断保留事实，�
     const { projectId, sessionId } = await createProjectSession(backend.client, workA);
 
     // 第二个实例必须被拒绝（进程级）
-    const second = spawnBackendRaw(["apps/ruukoto/src/main.ts", "start", "--data-dir", dirs.dataDir, "--agent-dir", dirs.agentDir]);
+    const second = spawnBackendRaw(["apps/ruukoto-code/src/main.ts", "start", "--data-dir", dirs.dataDir, "--agent-dir", dirs.agentDir], { RUUKOTO_CODE_DATA_DIR: dirs.dataDir, RUUKOTO_CODE_AGENT_DIR: dirs.agentDir, RUUKOTO_CODE_CONTROL_DIR: path.join(dirs.root, "control"), RUUKOTO_CODE_PENDING_DIR: path.join(dirs.root, "pending") });
     const secondCode: number | null = await new Promise((resolve) => {
       second.once("exit", (code) => resolve(code));
       setTimeout(() => resolve(-999), 30_000);
@@ -192,5 +192,27 @@ test("首次 assistant 消息前崩溃：不宣布消息已持久化，请求保
     if (backend) await killBackend(backend).catch(() => {});
     await server.close();
     if (dirs) await cleanupDirs(dirs);
+  }
+});
+
+test("后台夹具固定 Coding 临时目录，不继承日常控制目录与拥有者令牌", async () => {
+  const { dirs } = await makeTestDirs("backend-env", 0);
+  const server = new MockModelServer(() => ({ kind: "text", text: "ok" }));
+  const daily = path.join(dirs.root, "daily");
+  const inherited = { RUUKOTO_PRODUCT: "bogus", RUUKOTO_CODE_DATA_DIR: path.join(daily, "data"), RUUKOTO_CODE_AGENT_DIR: path.join(daily, "agent"), RUUKOTO_CODE_CONTROL_DIR: path.join(daily, "control"), RUUKOTO_CODE_PENDING_DIR: path.join(daily, "pending"), RUUKOTO_OWNER_TOKEN: "daily-token", RUUKOTO_OWNER_TOKEN_FILE: path.join(daily, "owner.token") };
+  const previous = new Map(Object.keys(inherited).map(key => [key, process.env[key]]));
+  let backend: Backend | undefined;
+  try {
+    await writeModelsJson(dirs, await server.start());
+    Object.assign(process.env, inherited);
+    backend = await spawnBackend(dirs.dataDir, dirs.agentDir);
+    assert.equal((await backend.client.handshake()).snapshot.product, "ruukoto-code");
+    assert.ok(fsSync.existsSync(path.join(dirs.root, "control", "control.sock")));
+    assert.equal(fsSync.existsSync(daily), false);
+  } finally {
+    for (const [key, value] of previous) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
+    if (backend) await killBackend(backend);
+    await server.close();
+    await cleanupDirs(dirs);
   }
 });

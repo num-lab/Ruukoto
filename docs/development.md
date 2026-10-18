@@ -22,7 +22,8 @@ macOS 构建原生监督器另需 Command Line Tools 的 Clang。平台前置、
 | `npm run build` | 构建原生监督器、工具与脚本 worker 及 WASM，再生成两产品的 `dist/*.tgz`；无需 Docker，应用通过 tsx 运行源码 |
 | `npm run build:worker` | 打包共享 `worker/worker.mjs` 和自包含的 `worker/personal-command-worker.mjs`；个人命令 worker 已接 Linux 受限子工作工具 |
 | `npm run desktop:build` | 构建桌面三个目标、检查产物并 ad-hoc 签名 `dist/mac-arm64/Ruukoto.app`；根 build 不打包 Electron |
-| `npm run personal:durable` | 个人模型/QQ/Telegram 配对、Linux 服务/命令、MCP、浏览器与资料/网络配置、图片输入、独立调度、技能/记忆/历史、应用数据、产物导出和会话向导，后台通过本机认证接口管理；默认 `~/.ruukoto-durable-dev/<realpath hash12>/`，不复用旧开发档案，无热重载；操作见[隔离向导](usage.md#25-个人-durable-隔离向导) |
+| `npm start`、`npm run personal:durable` | 同一个正式个人引导菜单；默认 `~/.ruukoto-durable/`，`RUUKOTO_PERSONAL_DIR` 可选择独立新目录；`serve` 前台后台，在线管理通过本机认证接口；见[个人操作](usage.md#25-个人-agent-引导与管理) |
+| `npm run dev`、`npm run dev -- --config` | 默认由 Node watch 托管个人开发后台；`--config` 直接运行不监听源码的同档案菜单；固定检出散列档案，不继承正式目录，已启用 QQ/Telegram 时拒绝启动，退出停止本次后台 |
 | `npm run build:script` | 打包 `worker/workflow-script.mjs` 并复制同目录 WASM；脚本测试前运行 |
 | `npm run lint` | 检查正确性与关键约定，不统一全库排版 |
 | `npm run typecheck` | 根测试与脚本、每个 workspace 包、基础验证各自执行静态类型检查 |
@@ -45,8 +46,8 @@ npx tsx --test verification/foundation/test/03-tools.test.ts
 | 修改位置 | 常用测试起点 |
 | --- | --- |
 | `packages/tui/src/`（cli.ts、cli-entry.ts、dev.ts）、`packages/core/src/product.ts`、`apps/ruukoto-code/src/dev.ts` | `test/29-cli-entry.test.ts`、`test/32-dev.test.ts`、`test/71-product-entry.test.ts` |
-| `apps/ruukoto/src/personal-*.ts`（独立 Pi 1.3.0） | 从[个人入口检查集](../.agents/skills/pre-push-checks/SKILL.md#2-按面选证据)选择对应窄测；图片、浏览器、调度及其双平台替身的窄测见该检查集。配置闭环用 `test/personal-configuration-controls.test.ts`；分组菜单、模式与授权用 `test/personal-cli.test.ts`，IM命令与恢复用 `test/personal-command-work.test.ts`。其余窄测见个人入口检查集。真实模型用 `verification/smoke/smoke-personal-durable.mts`，显式配置见[操作手册](usage.md#25-个人-durable-隔离向导)，未接正式入口 |
-| `apps/ruukoto/src/service-helper.ts`、`deploy/systemd/ruukoto-service.mjs` | `test/service-helper-transport.test.ts`（传输退出/捕获）、`test/service-helper-stop.test.ts`（Linux 进程/系统命令桩）；旧调用方为 `test/78-linux-service-management.test.ts`、`test/79-standing-permissions.test.ts`，新调用方为 `test/personal-services.test.ts`、`test/personal-service-operations.test.ts` |
+| `apps/ruukoto/src/personal-*.ts`（独立 Pi 1.3.0） | 从[个人入口检查集](../.agents/skills/pre-push-checks/SKILL.md#2-按面选证据)选择对应窄测；图片、浏览器、调度及其双平台替身的窄测见该检查集。配置闭环用 `test/personal-configuration-controls.test.ts`；分组菜单、模式与授权用 `test/personal-cli.test.ts`，IM命令与恢复用 `test/personal-command-work.test.ts`。其余窄测见个人入口检查集。真实模型用 `verification/smoke/smoke-personal-durable.mts`，显式配置见[操作手册](usage.md#25-个人-agent-引导与管理)；正式入口、旧档案拒绝、开发生命周期与打包产物另跑 `test/personal-entry.test.ts`、`test/71-product-entry.test.ts`、`test/99-workspace-boundaries.test.ts` |
+| `apps/ruukoto/src/service-helper.ts`、`deploy/systemd/ruukoto-service.mjs` | `test/service-helper-transport.test.ts`（传输退出/捕获）、`test/service-helper-stop.test.ts`（Linux 进程/系统命令桩）；helper 与旧存储规则分别为 `test/78-linux-service-management.test.ts`、`test/79-standing-permissions.test.ts`，新调用方为 `test/personal-services.test.ts`、`test/personal-service-operations.test.ts` |
 | `packages/runtime/src/` 与 `packages/control/src/` 的任务生命周期 | `test/01-concurrency.test.ts` 至 `test/05-overflow-db.test.ts`、`test/66-control-seam.test.ts`、`test/94-task-ending.test.ts` |
 | `packages/agent/src/` 的执行、审批与权限 | `test/07-real-tools.test.ts`、`test/08-approvals.test.ts`、`test/10-access-modes.test.ts`、`test/63-approval-gate.test.ts`、`test/64-tool-op-ledger.test.ts` |
 | 浏览器 | `test/browser-tools.test.ts`、`test/browser-lifecycle.test.ts`；[验收入口](../.scratch/agent-browser/evidence/implementation-checks.md) |
@@ -55,7 +56,7 @@ npx tsx --test verification/foundation/test/03-tools.test.ts
 | 工作流存储、协调器、真实步骤与宿主操作 | `test/105-workflow-runtime.test.ts` 至 `test/113-workflow-source-capabilities.test.ts`；新增角色/版本回归见 `test/workflow-*.test.ts` |
 | 回答、送达、调度与等待 | `test/114-workflow-owner-input.test.ts` 至 `test/116-workflow-notification-recovery.test.ts`；`test/125-agent-wait*.test.ts` |
 | 工作流定义与入口 | `test/117-workflow-library.test.ts` 至 `test/120-workflow-cli.test.ts`；126 侧栏与恢复，模型/IM 替身 |
-| 双产品六输入联合验收 | `test/121-workflow-personal-acceptance.test.ts`、`test/122-workflow-code-acceptance.test.ts`；真实工具、联网/IM 替身 |
+| 共享底座六输入联合验收 | `test/121-workflow-personal-acceptance.test.ts`、`test/122-workflow-code-acceptance.test.ts`；真实工具、联网/IM 替身 |
 | `packages/agent/src/` 的上下文与模型 | `test/18-model-selection.test.ts`、`test/60-context-prefix.test.ts`、`test/61-context-compaction.test.ts`、`test/98-media-model-pinning.test.ts` |
 | SubAgent、角色/工作区快照、worktree 与导入 | `test/80`–`87`、`91`、`95`；在 test/ 按 subagent-role、subagent-definition、workspace-snapshot、subagent-workspace-snapshot、work-copy-host 找文件 |
 | `packages/tui/src/tui/`、`packages/tui/src/config-tui/` | `test/13-tui-state.test.ts`、`test/14-tui-app.test.ts`、`test/15-tui-pty.test.ts`、`test/33-config-tui.test.ts` |
@@ -84,11 +85,11 @@ GitHub Actions 在 macOS / Linux × Node 22.19 / 24.15 四组环境执行 `npm r
 | 根目录命令 | 所需环境与覆盖 |
 | --- | --- |
 | `npm run linux:probes` | Linux 原生前置；bubblewrap、namespace、seccomp 与 user scope 边界探针 |
-| `npm run test:native` | Linux、已构建 worker 与原生前置；个人工具、协作、恢复、原 IM 汇报与定时委派，模型与消息平台为桩 |
+| `npm run test:native` | Linux、已构建 worker 与原生前置；Coding 工具、SubAgent 协作与恢复，模型为桩；个人 durable 能力使用个人窄测与独立外部验收 |
 | `npm run test:upgrade` | Git、依赖安装网络与基线版本；smoke-24 的 `--upgrade-only` 路径，使用 mock 模型 |
 | `npm run test:model` | `~/.pi/agent/` 的模型配置与凭据；按 provider 尝试短往返，首次成功后停止 |
 | `npm run test:release-model` | 已构建的原生执行入口、Python PTY 与显式模型配置；smoke-24 的真实模型编码、TUI 退出后继续与重连 |
-| [真实工作流模型命令](../verification/smoke/README.md) | DeepSeek 与原生 worker；双产品工具启动、等待聊天、实际工具与唯一汇总，不发送真实 IM |
+| [真实工作流模型命令](../verification/smoke/README.md) | DeepSeek 与原生 worker；保留旧底座/Coding 工具启动、等待聊天、实际工具与唯一汇总，不代表新个人入口验收 |
 
 原生边界按[平台脚本](../verification/foundation/scripts/native-isolation/README.md)单独验收；缺能力或对照时返回不可验证；离线用例不替代真实 OS 证据。
 
@@ -96,26 +97,28 @@ GitHub Actions 在 macOS / Linux × Node 22.19 / 24.15 四组环境执行 `npm r
 
 ## 开发实例
 
-`npm run dev` 启动 ruukoto 开发后台，`npm run code` 启动 ruukoto-code 开发后台并默认打开 TUI。
+`npm run dev` 使用正式个人 CLI 的同一装配，默认前台运行开发后台；`npm run code` 使用 Coding 开发启动器并默认打开 TUI。
 
 ```bash
-npm run dev                                            # ruukoto 开发后台，源码变更自动重启
-npm run dev -- --config                                # ruukoto 开发实例的配置中心
-npm run code                                           # ruukoto-code 开发后台并打开 TUI
-npm run code -- ../my-project                          # 以该目录创建/复用工作区，并进入新会话
-npm run code -- --config                               # ruukoto-code 开发实例的配置中心
-npm run code -- --import-models ~/.ruukoto-code/agent  # 只复制模型配置
+npm run dev                         # Node watch 托管个人开发后台
+npm run dev -- --config              # 个人开发档案的引导菜单
+npm run code                        # Coding 开发后台与 TUI
+npm run code -- ../my-project        # 在指定目录打开新 Coding 会话
+npm run code -- --config             # Coding 开发配置中心
+npm run code -- --import-models ~/.ruukoto-code/agent
 ```
 
-`dev` 继续使用 `~/.ruukoto-dev/<仓库>-<哈希>/`，`code` 使用 `~/.ruukoto-code-dev/<仓库>-<哈希>/`，下有 `data/agent/control/pending/logs`，稳定复用、保留各自开发历史，位于代码目录外。新 code 档案不自动迁入现有 dev 历史，两个开发档案与日常产品档案的锁和控制面分开。两个入口都支持 `--import-models <目录>`，只复制 `models.json` 与 `auth.json`，不复制服务凭据和默认模型文件；首次运行可先用对应的 `--config` 配置模型。
+个人开发档案固定为 `~/.ruukoto-durable-dev/<检出 realpath hash12>/`，忽略继承的 `RUUKOTO_PERSONAL_DIR` 与旧目录变量，保留旧 `~/.ruukoto-dev/` 归档，不复制模型或服务凭据。先用 `--config` 配置模型，凭据由本次进程环境提供。根与 app 的 dev 脚本经 tsx 进入同一薄启动器；无参由它托管 `node --watch --import tsx` 前台后台，转发停止信号并等待退出，源码变更先停原后台再重启。启动失败时 watch 可等待修正文件。`--config` 直接在本进程打开菜单，不监听源码；菜单启动的后台同进程托管，退出便停止，配置菜单源码变化须退出重开。开发档案已启用 QQ/Telegram 时直接拒绝，保留配置与记录，不连接平台或使原发送换代；真实入口配对与演练使用另选新目录的正式入口。
 
-- **工作区入口**：`npm run code -- <路径>` 路径参数只接受一个已存在的目录，按真实目录身份创建或复用工作区并进入新会话；不新建目标目录。相对路径按 npm 脚本的当前目录（通常为本仓库）解析，路径含空格时加引号，目录与 CLI 命令同名也可使用。路径不能与 `--config` 同用，`dev` 不接受路径；目录身份与保护根校验沿用日常工作区入口，代码仓库本身不能用作工作区。路径只传给首次 TUI 启动，源码重载后恢复原会话、草稿与继续意图，不再次创建会话。
-- **环境清洗**：子进程先清除两产品目录变量、生产 owner token、服务配置与外部产品身份，再按 profile 显式注入 `RUUKOTO_PRODUCT` 与本产品的 `*_DIR`；固定注入 `RUUKOTO_DISABLE_QQ=1` 与 `RUUKOTO_DISABLE_TELEGRAM=1`，每次启动生效。
-- **执行后端**：沿用产品默认值，`dev` 与 `code` 均为 `native`，受限任务无需 Docker；原生能力缺失时明确失败，开发入口不继承生产执行覆盖与完全访问账户配置。
-- **进程与重载**：两个启动器管理自己启动的整组进程；退出界面或 Ctrl+C、关闭终端都统一清理后台／界面／监听。同一开发实例已有后台时报错，不附加或停止外部进程。监听仅限 `packages/*/src/` 与 `apps/*/src/` 源码：后台代码变更优雅重启后台（活动任务保留中断事实，不自动重放），任务界面自动重连，配置界面不重连、随后台一并重载并恢复所在分区；只改任务／配置界面代码时不重启后台，`packages/view/src/` 归为任务界面重载；其他共享模块变更两者都重启。连续变更合并处理，旧进程退出并释放锁后才启动替代进程。修改共享启动器 `packages/tui/src/dev.ts` 或 `apps/*/src/dev.ts` 时提示手动重启当前 npm 命令。
-- **界面状态恢复**：code 启动的任务界面把当前会话、未提交草稿与继续任务意图原子保存到 profile 的重载状态文件（0600；秘密表单值不写入，重载后重新输入）；重载后按数据实例标识核实恢复，记录无效时给出提示并按正常入口继续，不把继续任务草稿静默改为新任务提交。该记录只在本次启动内使用。
-- **日志与终端**：后台日志写 `<profile>/logs/backend.log`，监听诊断写 `dev.log`（无界面时打印到终端），不与界面输入／绘制串写。
-- **配置引导**：对应入口的 `--config` 缺少有效模型时先打开离线配置界面；保存有效配置并释放配置锁后启动开发后台，再切换为在线配置；放弃或保存失败不启动后台。配置中心退出后结束本次开发启动。
+Coding 档案固定为 `~/.ruukoto-code-dev/<仓库>-<哈希>/`，含 `data/agent/control/pending/logs`，与日常档案的锁和控制面分开。`--import-models` 只复制 `models.json` 与 `auth.json`，不复制服务凭据和默认模型文件；首次也可用 `--config` 配置。
+
+以下为 Coding 开发启动器行为：
+
+- **工作区入口**：位置路径须为已存在目录，与 `--config` 互斥，按真实身份创建或复用工作区并进入新会话；保护根、代码目录与路径校验沿日常入口，源码重载不再次创建会话。
+- **环境与执行**：清除继承的两产品路径、生产 owner token、服务配置与执行覆盖，再固定 Coding 身份和档案；停用 QQ/Telegram，默认 native，原生前提缺失时明确失败。
+- **进程与重载**：拥有本次后台和前端进程组；退出 TUI/配置中心、Ctrl+C 或关闭终端统一清理。已有外部后台时拒绝，不附加或停止它。监听 `packages/*/src/` 与 `apps/*/src/`，后台变更优雅重启，任务界面重连；只改界面不重启后台，view 归任务界面。配置中心随后台重载并恢复分区。修改启动器须手动重启 npm 命令。
+- **界面恢复**：当前会话、未提交草稿与继续意图按实例保存，秘密表单重新输入；无效状态提示后正常进入，不静默把继续草稿转新任务。日志分别写 `backend.log` 与 `dev.log`，不与界面输入串写。
+- **配置引导**：`--config` 缺有效模型时先进入离线配置，保存并释放锁后启动后台；放弃或保存失败不启动，退出配置中心结束本次开发运行。
 
 ## 桌面客户端
 

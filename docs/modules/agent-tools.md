@@ -6,12 +6,12 @@
 
 它不负责执行边界本身：原生沙箱或启动账户的建立、路径解析、Shell 子进程与进程回收归 [execution](execution.md)。它不做上下文组装：参考块注入、工具结果截断、上下文预算与选择记录归 [agent-context](agent-context.md)——工作清单的上下文保底与计划模式的计划说明都在那里。它不解析拥有者发来的 IM 审批命令，也不发送回执：`/approvals`、`/approve`、`/reject`、`/approve-standing`、`/revoke-service-grant` 的文本解析、终态与回执归 [channels](channels.md)。任务状态机、`endTask` 收尾事务与排队归 [runtime](runtime.md)，本模块只在收尾事务内被调用补记账本。MCP 与 Web Search 的完整命令参数属使用手册，本模块只列拥有者入口并解释机制。
 
-这里描述正式共享装配；[个人 durable](personal-durable.md)的服务检查与宿主服务操作另行装配，只复用 app 内 `service-helper.ts` 的固定进程传输，不复用旧 Task、ApprovalGate 或 ArtifactStore。共用传输在超时、取消或超限后等待调用进程与 stdio 关闭，再返回首次失败及有界输出；调用关闭不代替服务操作单元的停止核实。
+这里描述 Coding 与保留的旧格式实现；[个人 durable](personal-durable.md)的服务检查与宿主服务操作另行装配，只复用 app 内 `service-helper.ts` 的固定进程传输，不复用旧 Task、ApprovalGate 或 ArtifactStore。共用传输在超时、取消或超限后等待调用进程与 stdio 关闭，再返回首次失败及有界输出；调用关闭不代替服务操作单元的停止核实。
 
 个人 durable 的浏览器向完全访问主拥有者输入及创建时已开放该能力的完全访问独立定时会话提供，各会话独立绑定，子会话和汇总不开放。它只复用 BrowserManager 与独立参数校验，绑定和操作事实由 durable 保存，持久回调可异步等待。截图、本地读图及 Telegram 图片用私有产物引用，provider 前恢复并核实能力；主/子资料范围、未知源暂停和 CLI 导出见[个人持久会话](personal-durable.md)。共享 Coding Browser 工具继续使用原 Store/审批和产物格式。
 
 
-部署 helper 的持久检查身份与停止核实见 [deploy](deploy.md)，正式共享装配仍用原 inspect；个人 durable 的主/子会话检查与服务审批前检查使用新动词，先提交执行归属并核实原 ID 退出，未核实时保留目标/来源占用。子检查另固定原工作与权限，正常/取消收尾等待检查停止；子会话只装配已启用能力的工具。CLI/Telegram 的停止重核由独立宿主任务执行，仅接受原检查接纳与可信退出证明，模型工具不获得重核权限。个人子会话可用 service_restart 沿原工作权限重启白名单服务，服务 Task 归 WorkTask 持有；整项取消及报告等待效果和停止核实。CLI 可批准/拒绝本机操作，Telegram 仍从原私聊审批；原证据由 read_service_operation 限原子会话分页读取。个人服务写操作另有 CLI/原 Telegram 的效果核实与停止重核，固定原操作身份且不重发写入，人工说明不能代替原启动器/命令单元退出证明。
+部署 helper 的持久检查身份与停止核实见 [deploy](deploy.md)，保留的旧服务调用方仍用原 inspect；个人 durable 的主/子会话检查与服务审批前检查使用新动词，先提交执行归属并核实原 ID 退出，未核实时保留目标/来源占用。子检查另固定原工作与权限，正常/取消收尾等待检查停止；子会话只装配已启用能力的工具。CLI/Telegram 的停止重核由独立宿主任务执行，仅接受原检查接纳与可信退出证明，模型工具不获得重核权限。个人子会话可用 service_restart 沿原工作权限重启白名单服务，服务 Task 归 WorkTask 持有；整项取消及报告等待效果和停止核实。CLI 可批准/拒绝本机操作，Telegram 仍从原私聊审批；原证据由 read_service_operation 限原子会话分页读取。个人服务写操作另有 CLI/原 Telegram 的效果核实与停止重核，固定原操作身份且不重发写入，人工说明不能代替原启动器/命令单元退出证明。
 
 两件事明确不属于可用性判定：获批之后的复核属于审批闸门；Web Search 开关的现场检查与「委派沿拥有者请求、定时计划或已保存的工作授权触发」这一限定，由各工具在执行时自行完成。
 
@@ -40,7 +40,7 @@
 
 `read` 可读取文本与 JPEG、PNG、WebP 图片，按实际文件内容识别，图片结果连同正文进入会话历史与 prompt 快照。所选模型不支持 image 时，发送前以 `image_input_unsupported` 明确失败；图片处理与传输上限见 [execution](execution.md)。
 
-`packages/agent/src/host-tool-families.ts` 定义族的类别、工具名、构建入口与账本声明。没有绑定器的模块测试可直接提供 `taskContext`；释放可重复调用，并发执行不共享可变的当前调用上下文。个人调度与服务工具由 ruukoto app 提供，旧群结果查询由 channels 提供；Runtime 合并共享族与产品族后派生账本声明。调度与服务的旧操作规则始终由共享账本提供，Coding Agent 停用这些能力仍可核实旧操作；应用库或个人产品的调度器、服务管理停用时，对应族提供空工具集。
+`packages/agent/src/host-tool-families.ts` 定义族的类别、工具名、构建入口与账本声明。没有绑定器的模块测试可直接提供 `taskContext`；释放可重复调用，并发执行不共享可变的当前调用上下文。旧群结果查询由 channels 提供，Runtime 合并共享族与产品族后派生账本声明。旧个人调度、通知与服务模型工具已删除；共享调度和服务账本保留旧操作分类与恢复核实，Coding 不装配这些工具。
 
 会话身份到工具类别的静态表是唯一来源，新工具族写进哪份清单才出现：
 
@@ -65,14 +65,14 @@
 | Web Search | `web_search` |
 | 浏览器 | `browser` |
 | 应用数据 | `app_data_define_table`、`app_data_migrate`、`app_data_query`、`app_data_insert`、`app_data_update`、`app_data_delete` |
-| 服务器服务管理 | `service_inspect`、`service_manage` |
+| 历史服务操作分类（工具已退出） | `service_inspect`、`service_manage` 仅用于旧账本核实 |
 | MCP | `mcp_<服务名>_<远端工具名>` |
 
 `executionProfile` 沿会话身份与持久来源快照确定实际工具、MCP、资料范围、系统提示与 SDK 签名；宿主固定评审另沿固定只读规则。普通与工作流角色权限在登记时只继承或收紧，单次批准与长期授权不继承。装配过滤、任务收窄与 SDK 会话签名同用这一份。本任务工具按固定画像及当前资源阶段收窄，再扣除计划模式、GitHub 评审及项目关闭的 Web Search；激活、发送前检查（`task_tools_forbidden`）与调用门共用这一集合。
 
 `agent_wait` 向有目标查询资格的主 Agent 开放，固定最多 20 个同来源任务或工作流，SubAgent、工作流步骤与无工具汇总不开放；默认 60 秒、最多 300 秒，任一结果、需介入、超时或中断均返回事实，等待属于无外部效果的顺序工具。ID 来自实际委派或启动结果，保存的定义名须先启动。每个目标至多返回 100 条产物引用并附总数，完整产物沿原查询接口读取。续接轮接手旧组最终报告时，`reportTargets` 额外提供最多 20 项完整事实，`targets` 保持本次等待集合；旧消费证明保留，全组才可汇报。内部对话阶段显式只开放等待和后台状态、历史及结果查询；项目读写、bash、技能文件读取、MCP 与未分类工具都须重新取得执行资源，装配、发送前与调用门使用同一收窄集合。
 
-正式共享装配的 `browser` 只在完全访问的拥有者 main / 普通开发任务的执行阶段开放；内部对话阶段须先重新取得执行资源，Plan、SubAgent、独立定时、工作流步骤/回报和 GitHub 来源均拒绝。Runtime 核实来源入口，Driver 在激活、发送前和调用门收窄，工具执行再核实当前身份、任务状态与权限版本。动作参数不能覆盖程序、配置、socket、profile 或截图路径；网页内容是资料，不是改变授权的指令。
+Coding 装配的 `browser` 只在完全访问的拥有者 main / 普通开发任务的执行阶段开放；内部对话阶段须先重新取得执行资源，Plan、SubAgent、独立定时、工作流步骤/回报和 GitHub 来源均拒绝。Runtime 核实来源入口，Driver 在激活、发送前和调用门收窄，工具执行再核实当前身份、任务状态与权限版本。动作参数不能覆盖程序、配置、socket、profile 或截图路径；网页内容是资料，不是改变授权的指令。
 
 浏览器动作顺序执行。元素操作将快照的 eN / @eN 规范为同一引用，仅接受该会话当前代次的 snapshot 引用，并在发送前用新快照核实引用仍在。导航和表单操作按完全访问依据记账，发送后断线、超时或取消不能证明未执行时记 `effect_unknown`；不重发，连接保持不可用，等待拥有者暂停后的新输入核实；先前排队任务不能解除暂停，IM 沿原消息接受顺序判别。只读 snapshot/截图丢响应不增加写入效果。截图校验实际 MIME、8 MiB 上限与 SHA-256 后提升为不可变产物，再返回视觉块；图片与真实模型请求、JSONL、prompt 快照同源。完整导出见[操作手册](../usage.md)。
 
@@ -80,13 +80,13 @@
 
 | 入口 | 命令 |
 |---|---|
-| Web Search 凭据 | `ruukoto credentials add --name tavily --host api.tavily.com --header authorization --purpose tavily_search --secret-env TAVILY_API_KEY` |
-| Web Search 开关 | `ruukoto project web-search <项目id> off`／`on` |
-| MCP 凭据 | `ruukoto credentials add --name github-mcp --host api.githubcopilot.com --header authorization --purpose mcp --secret-env GITHUB_MCP_PAT` |
-| MCP 配置 | `ruukoto mcp configure --project <id> --name github --endpoint https://api.githubcopilot.com/mcp/readonly --credential github-mcp --tools get_me,get_file_contents [--expected-version N]` |
-| MCP 查看 | `ruukoto mcp list [--project <id>]`（脱敏视图）、`ruukoto mcp check <service-id>`（连接检查 + 工具发现，先打印将联系的端点） |
-| MCP 变更 | `ruukoto mcp disable <service-id>`／`enable`／`remove <service-id> [--expected-version N]` |
-| 长期授权管理 | `ruukoto service-grant list/show/revoke` 与已认证控制面 `service_grant_*`（入口停用后仍可管理遗留记录）；创建首版只经原 IM 平台的待审批，不提供配置页面或自由范围创建 |
+| Web Search 凭据 | `ruukoto-code credentials add --name tavily --host api.tavily.com --header authorization --purpose tavily_search --secret-env TAVILY_API_KEY` |
+| Web Search 开关 | `ruukoto-code project web-search <项目id> off`／`on` |
+| MCP 凭据 | `ruukoto-code credentials add --name github-mcp --host api.githubcopilot.com --header authorization --purpose mcp --secret-env GITHUB_MCP_PAT` |
+| MCP 配置 | `ruukoto-code mcp configure --project <id> --name github --endpoint https://api.githubcopilot.com/mcp/readonly --credential github-mcp --tools get_me,get_file_contents [--expected-version N]` |
+| MCP 查看 | `ruukoto-code mcp list [--project <id>]`（脱敏视图）、`ruukoto-code mcp check <service-id>`（连接检查 + 工具发现，先打印将联系的端点） |
+| MCP 变更 | `ruukoto-code mcp disable <service-id>`／`enable`／`remove <service-id> [--expected-version N]` |
+| 长期授权管理 | `ruukoto-code service-grant list/show/revoke` 与已认证控制面 `service_grant_*`（入口停用后仍可管理遗留记录）；创建首版只经原 IM 平台的待审批，不提供配置页面或自由范围创建 |
 | 长期授权创建与撤销 | 经原 IM 平台的待审批创建，拥有者用 `/approve-standing` 保存当前批准；撤销命令与回执归 [channels](channels.md) |
 
 普通与工作流共用 `role` 目录，省略为 general；旧派发 `mode` 明确拒绝。普通代码修改/审查委派显式给 `target`，与 `read_paths` / `materials` 互斥；目标独立于角色。目标路径按原值参与幂等核实，首尾空格不同的目录不能共用同一请求键。Git 副本从当前稳定内容开始，受保护执行不能通过文件工具、路径授予或批准后的宿主操作写回来源，普通汇总只应用子增量。无目标用独立目录，非 Git 保护要求在准备前拒绝；基线损坏保留成果并报告拥有者。
@@ -212,7 +212,7 @@ sequenceDiagram
 - **工作清单**：适用会话与编码工具同一条件装配——只有普通开发会话，main 与 SubAgent 不装配。`todo_write` 的参数 `todos` 是 `{ content, status }` 数组，`status` 取 `pending` / `in_progress` / `completed`，不设 ID 或其他字段。每次调用提交整张清单并整体替换，空数组清空；结果只返回一句摘要（如「已更新：完成 3/7」）。校验最多 20 项，`content` 去除首尾空白后非空、原文不超过 120 字符，`status` 只能取上述三值，不满足时返回明确错误、不截断、当前清单不变，也不接受额外字段。清单跟随会话：会话中最近一次成功调用的参数即当前清单，跨任务延续；校验失败的调用不改变清单；新会话没有清单。不建表、不另存文件，会话历史与工具记录是唯一来源。无副作用，任何访问模式都不产生审批；用法写在工具描述中（3 步以上的工作才使用、同时只标一项进行中、完成一项立即更新），不改系统提示、不做定期提醒，「只有一项进行中」不校验。上限低于控制面参数下发的截取阈值（8 KiB 内联；超出时预览仍保留 32 项、每串 256 字符），TUI 总能拿到完整清单。当前任务的上下文保底与 token 归类归 [agent-context](agent-context.md)。
 - **计划模式**：普通开发会话可以选择 Plan，main、SubAgent、已退役归档与 IM 入口不能选择，后台按会话身份核实。工具白名单在激活、发送前与调用时三处检查：`read`、`bash`、`request_file_access`、`http_request`、`read_artifact`、`history_search`、`history_read`、`memory_list`、`memory_read`、`web_search`、`todo_write`、`skill` 与类别为只读的 MCP 工具；`edit`、`write`、`memory_save`、`memory_revoke` 与非只读 MCP 工具不可用；白名单之外的名称一律拒绝，新增工具族不写进白名单即不可用。计划模式与 GitHub 评审的按任务收窄组合生效。任务级 `switch_mode` 不能进入或退出 Plan，也不能改其固定的 Auto review 策略。计划说明的注入位置与 `「计划模式」` 上下文类别归 [agent-context](agent-context.md)。
 - **应用数据写入**：六个工具 `app_data_define_table` / `app_data_migrate` / `app_data_query` / `app_data_insert` / `app_data_update` / `app_data_delete` 在 main 与独立定时会话按个人业务类别装配（业务类别清单含应用数据类别，装配、发送前检查与调用门共用同一结论），执行入口每次重新核实宿主任务、会话、项目与个人助手宿主绑定。非破坏性变更自动执行；删表、删字段、删唯一索引、多行写与批量重写在受限模式下进入统一审批，完全访问使用任务授权免审批。执行前重核身份与版本，按不可变快照执行。所有写入在单事务内提交业务变更、版本递增与追加审计回执：`hostOpId` 唯一，同参重放返回原结果，异参冲突；审计、约束或磁盘失败回滚业务变更。版本不一致返回可识别冲突与当前版本，不自动覆盖。
-- **长期操作授权**：`service_manage` 在完全访问下使用本任务授权，跳过长期授权候选与人工审批；受限模式先经 helper 取得本次真实修订，宿主按当前 main、任务来源入口身份、钉版目标代次、本机/单元/动作与两项修订查找候选；候选不是执行依据，观察到失配的旧授权同事务明确失效。命中时在单个同步事务内重读授权版本与未撤销状态、对执行快照逐项核实完整范围、核实活动任务与取消状态，创建独立的初始已批准记录（不发布等待事件、任务保持 `running`、不启动自动审查）并经公共消费边界单次消费；许可源记为 `standing_permission` + 授权 ID/版本，事件、TUI 详情与工具结果如实标注。候选读取后撤销、取消或版本变化即整笔回滚并回落人工审批。长期授权只覆盖限定范围：同一 main、同一入口稳定身份与原目标代次、同一本机与单元、固定 `restart`、同一策略与单元修订；范围外仍逐次审批。授权存在核心库的 `standing_permissions` 表，不进入应用数据、记忆、项目指令、`grantedPaths` 或部署策略文件。
+- **旧长期操作授权**：旧服务模型工具已退出，核心库继续保留 `standing_permissions`、关联审批、使用来源与行级版本，供旧记录查询、撤销和恢复核实；不再从该工具创建或消费新授权。个人 durable 使用自己的权限与服务操作记录，见[个人持久会话](personal-durable.md)。
 - **Web Search**：默认对所有项目启用并注册；工具按 `purpose=tavily_search` 且 host 与目标一致的绑定取凭据，经 `Bearer <key>` 注入；未配置、host 或用途不匹配一律拒绝调用且不发送请求。任务开始固定工具清单，禁用中的项目任务不注册 `web_search`（模型不可见，系统提示同步重建）；任务内禁用立即阻止后续调用，重新启用从下一任务生效。
 - **正文产物**：工具输出在上游截断之前捕获为受保护的产物文件，先落盘再生成限长模型视图。中断或写失败保留已捕获部分并标 `partial`；按任务归属经工具或控制接口按 id、偏移、长度查询，跨重启可读。
 
@@ -220,7 +220,7 @@ sequenceDiagram
 
 分支来源读取与工作管理分别核实：`subagent_result` 可以读取限定清单中的已完成结果，原工作的消息、委派、复用、关闭、取消与汇总仍按原父会话归属判断。来源产物读到固定字节上限，并保留分支时的 partial 状态；当前资料授权和图片完整性校验仍生效。
 
-**可用性**。会话身份到工具类别的清单是唯一来源，任务不允许的工具在激活、发送前与调用时都被拒绝，发送被打断时以 `task_tools_forbidden` 阻断。`service_inspect` / `service_manage` 除仅限个人助手身份（main 或独立定时执行）外，还要求产品 ruukoto + Linux + 显式部署配置齐备（`RUUKOTO_SERVICE_HELPER` / `RUUKOTO_SERVICE_POLICY` 经后台单元 drop-in 注入，只设一个拒绝启动），普通开发会话、SubAgent 与 ruukoto-code 都不获得该能力，个人助手也不因此获得 `bash`。执行画像在任务开始算一次、钉到任务结束；工具集变化时重建 SDK 会话。身份与宿主操作编号一律来自宿主记录，不从模型参数取得；并发执行不共享可变的当前调用上下文，绑定在 `finally` 释放且可重复释放。工作区不进画像。
+**可用性**。会话身份到工具类别的清单是唯一来源，任务不允许的工具在激活、发送前与调用时都被拒绝，发送被打断时以 `task_tools_forbidden` 阻断。旧服务与调度模型工具没有生产装配入口，历史工具名仅用于账本核实。执行画像在任务开始算一次、钉到任务结束；工具集变化时重建 SDK 会话。身份与宿主操作编号一律来自宿主记录，不从模型参数取得；并发执行不共享可变的当前调用上下文，绑定在 `finally` 释放且可重复释放。工作区不进画像。
 
 **审批**。审批是不可变的：完整 URL、方法、正文指纹、凭据名称与用途、任务与权限版本固定后不能复用给其他 URL、方法、正文或任务。批准经 SQLite 条件更新单次消费；`permission_version` 不匹配返回 `permission_version_mismatch`。HTTP 请求不自动跟随重定向，连接固定到批准时解析的地址；凭据按预配置的目标绑定注入，值不进入审批与事件。完全访问下所有已开放工具免操作审批，执行前仍核实任务与版本、目标身份、配置修订和凭据绑定；授权字段与批准行可区分完全访问、拥有者决定、自动审查及长期操作授权。auto-review 对应用数据破坏性变更、服务管理与 MCP 工具继续转拥有者，不扩大自动批准范围。
 

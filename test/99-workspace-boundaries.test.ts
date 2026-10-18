@@ -19,13 +19,14 @@ test("workspace 安装的两条 bin 链接指向各自 app 的可执行入口", 
 
 test("每个 app 的 npm start 与 dev 脚本均能进入自己的入口", () => {
   for (const product of ["ruukoto", "ruukoto-code"]) {
+    const argumentError = product === "ruukoto" ? /cli_arguments/ : /参数错误/;
     const start = spawnSync("npm", ["start", `--workspace=${product}`, "--", "--nope"], { cwd: root, encoding: "utf8" });
     assert.equal(start.status, 1, start.stderr);
-    assert.match(start.stderr, /参数错误/);
+    assert.match(start.stderr, argumentError);
     assert.match(start.stderr, /用法/);
     const invalid = spawnSync("npm", ["run", "dev", `--workspace=${product}`, "--", "--nope"], { cwd: root, encoding: "utf8" });
     assert.equal(invalid.status, 1, invalid.stderr);
-    assert.match(invalid.stderr, /参数错误/);
+    assert.match(invalid.stderr, argumentError);
   }
 });
 

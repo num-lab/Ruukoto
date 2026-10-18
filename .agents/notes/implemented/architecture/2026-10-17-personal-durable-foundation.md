@@ -8,7 +8,7 @@ Status: implemented
 
 ## 决定
 
-基础实现集中在 `apps/ruukoto/src/personal-*.ts`，由隔离测试及[本机引导管理](2026-10-17-personal-local-management.md)调用；正式产品入口仍使用共享装配。个人依赖固定 chord、pi-ai 与 pi-durable 1.3.0，Coding 的 Pi 0.85.1 保留，两个版本不交换 SDK 对象。迁移总方案仍是 proposed，本篇只持有已经实现的基础约束。
+基础实现集中在 `apps/ruukoto/src/personal-*.ts`，由正式个人入口、隔离测试及[本机引导管理](2026-10-17-personal-local-management.md)调用；入口与制品见[独立决定](../simplification/2026-10-18-personal-product-entry.md)。个人依赖固定 chord、pi-ai 与 pi-durable 1.3.0，Coding 的 Pi 0.85.1 保留，两个版本不交换 SDK 对象。迁移总方案仍是 proposed，本篇只持有已经实现的基础约束。
 
 档案使用独立普通目录与严格格式标记，只接受已知普通文件和本机管理的指定 socket；旧目录、链接文件和不支持的产品、Pi、业务扩展版本均拒绝。目录为 0700，文件为 0600。`owner.sqlite` 的 EXCLUSIVE 事务持有实例锁，锁文件不删除；正常关闭和进程崩溃均由 SQLite/OS 释放锁，管理接口清理顺序由[本机引导管理](2026-10-17-personal-local-management.md)持有。该库不存运行状态。
 
@@ -18,7 +18,7 @@ Status: implemented
 
 ## 既有笔记审计
 
-按个人 durable、实例锁、输入快照和模型上下文检索 proposed、implemented 与 rejected。[迁移总方案](../../proposed/architecture/2026-10-17-personal-pi-durable.md)部分重叠，互链并保持未完成部分的 proposed 状态；[双产品](2026-10-02-two-agent-products.md)与[会话历史](2026-09-19-preserve-session-history.md)仍描述正式入口和 Coding 的现状，本次不取代。未发现需要吸收、删除或归档的其他决定。
+按个人 durable、实例锁、输入快照和模型上下文检索 proposed、implemented 与 rejected。[迁移总方案](../../proposed/architecture/2026-10-17-personal-pi-durable.md)部分重叠，互链并保持未完成部分的 proposed 状态；[双产品](2026-10-02-two-agent-products.md)与[会话历史](2026-09-19-preserve-session-history.md)继续约束 Coding 与保留的旧格式资料，本次不取代。未发现需要吸收、删除或归档的其他决定。
 
 ## 备选方案
 

@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { test } from "node:test";
 import { product as codeProduct } from "../apps/ruukoto-code/src/product.ts";
-import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
+import { product as personalProduct } from "./helpers/legacy-product.ts";
 import { BrowserError, BrowserManager, type BrowserBinding } from "@ruukoto/agent/browser-manager.ts";
 import { browserParams, browserTaskAllowed } from "@ruukoto/agent/browser-tools.ts";
 import { parseSessionFile } from "@ruukoto/core/history.ts";

@@ -1,5 +1,5 @@
 import { delegateFromActiveTask } from "./helpers/active-subagent-source.ts";
-import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
+import { product as personalProduct } from "./helpers/legacy-product.ts";
 /**
  * 异步工作最终结果送回原 IM 入口（agent-direction issue 18）。
  *
@@ -9,8 +9,7 @@ import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
  * - 汇报目标与正文按工作发起链钉版：不从会话最新回答或其他入口推断；
  * - 并发/重启/重复终态只产生一份汇报（同键幂等）；补充原工作再收尾产生新的一份；
  * - 离线等待、目标变化不改发、结果不明不重发、限流按 not_before 再发同一记录；
- * - 授权不扩大：未收尾唤醒不外发、唤醒轮次 notification_enqueue 仍需审批、
- *   其他外部/dev 来源零记录、工具清单无新增。
+ * - 授权不扩大：未收尾唤醒不外发，其他外部/dev 来源零记录、工具清单无新增。
  */
 
 import assert from "node:assert/strict";
@@ -581,43 +580,5 @@ test("发送结果不明记 effect_unknown 不自动重发（含重启）；Tele
   } finally {
     await rtB.stop("test_end");
     await hB.close();
-  }
-});
-
-test("授权不扩大：唤醒轮次的外发请求被拒（无可信目标），不自动外发；工作汇报不受其影响", async () => {
-  const h = await harness("fin-scope", async (req) => {
-    const text = lastUserText(req);
-    if (text.includes("[SubAgent 委派")) return { kind: "text", text: "SUB-RESULT" };
-    if (text.includes("[编排器]")) {
-      if (afterTool(req)) return { kind: "text", text: "FINAL-BODY 汇总" };
-      return { kind: "tool_calls", calls: [{ id: "n1", name: "notification_enqueue", arguments: { content: [{ kind: "text", text: "WAKE-NOTIFY 唤醒轮次要发通知" }], reason: "通知" } }] };
-    }
-    if (afterTool(req)) return { kind: "text", text: "ACCEPTED 已受理" };
-    return { kind: "tool_calls", calls: [{ id: "d1", name: "subagent_delegate", arguments: { request: "调研", key: "r1", materials: [{ kind: "text", text: "材料 A" }] } }] };
-  });
-  const rt = await Runtime.start(h.config);
-  try {
-    await prepareQq(rt, h.onebot);
-    push(h.onebot, 1, "MARK-DELEG 请调研");
-    await waitFor("工作汇报已送达", () => sendTexts(h.onebot).some((t) => t.includes("最终汇报")), 30_000);
-    const work = soleWork(rt);
-    const child = rt.store.listTasksByWork(work.id)[0]!;
-    const wake = rt.store.findTaskByRequest(mainSession(rt), `wake:${child.id}`)!;
-    // 唤醒轮次没有钉版的可信通知目标：外发请求被拒，不产生审批、不登记发送
-    const wakeToolResults = h.model.calls
-      .filter((c) => afterTool(c) && inputText(c).includes("[编排器]"))
-      .map((c) => {
-        const m = c.messages[c.messages.length - 1] as any;
-        return typeof m?.content === "string" ? m.content : JSON.stringify(m?.content ?? "");
-      })
-      .join("\n");
-    assert.match(wakeToolResults, /不能外发|未配置可信/);
-    assert.equal(rt.store.listConfirmationsByTask(wake.id).length, 0);
-    assert.ok(!sendTexts(h.onebot).some((t) => t.includes("WAKE-NOTIFY")), "被拒通知不外发");
-    assert.ok(!allOps(rt).some((op) => op.text.includes("WAKE-NOTIFY")), "被拒通知不登记发送操作");
-    assert.deepEqual(sendTexts(h.onebot), ["ACCEPTED 已受理", `[工作 ${work.id} 最终汇报]\nFINAL-BODY 汇总`]);
-  } finally {
-    await rt.stop("test_end");
-    await h.close();
   }
 });

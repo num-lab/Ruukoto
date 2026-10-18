@@ -8,7 +8,7 @@ Status: implemented
 
 ## 决定
 
-隔离入口位于个人 app，默认按检出 realpath 的 SHA-256 前 12 位分配仓库外开发档案；显式个人目录可覆盖。本机聊天接当前主会话，Linux 可由[服务配置向导](2026-10-17-personal-service-configuration.md)启用只读服务工具；可选 [Telegram 文本入口](2026-10-17-personal-telegram-entry.md)共用主会话，正式入口和部署接线继续留在迁移总工单。配置向导、后台与客户端不读取旧档案或复制旧凭据；子进程清洗旧 `RUUKOTO_*` 配置，仅重新注入个人目录、本次模型和已启用 Telegram 的凭据变量。无热重载。
+正式入口位于个人 app，默认 `~/.ruukoto-durable/`，`RUUKOTO_PERSONAL_DIR` 可选择独立新档案；开发入口固定使用检出 realpath 的 SHA-256 前 12 位分配仓库外开发档案，忽略继承目录。本机聊天接当前主会话，Linux 可由[服务配置向导](2026-10-17-personal-service-configuration.md)启用只读服务工具；可选 [Telegram 文本入口](2026-10-17-personal-telegram-entry.md)共用主会话，正式 bin、根 start、兼容命令和部署接线由[入口决定](../simplification/2026-10-18-personal-product-entry.md)持有；生产接管仍另行验收。配置向导、后台与客户端不读取旧档案或复制旧凭据；子进程清洗旧 `RUUKOTO_*` 配置，仅重新注入个人目录、本次模型和已启用 IM 的凭据变量。日常菜单不监听源码；开发默认通过薄启动器托管 Node watch 前台 serve；`--config` 直接运行同档案菜单，不监听源码，配置菜单源码变化须退出重开。菜单启动的后台由本进程持有并在退出时停止。开发先拒绝已启用 QQ/Telegram 的档案，不改配置、令牌或运行记录，不连接平台。
 
 后台取得 SQLite 实例锁后读取模型配置，独占 Harness 和 Unix HTTP socket。令牌逐启动生成，只存 0600 普通文件，每次请求认证；不开放 TCP，不复用旧控制协议。坏令牌拒绝启动，不自动覆盖。目录 0700，配置、日志和客户端待核实文件 0600，socket 0600。仅持实例锁者能够写配置或清理陈旧 socket；连不上不是停机证明。配置临时文件与 rename 只保证单文件替换，不宣称与 durable 跨存储原子。
 
@@ -28,7 +28,7 @@ CLI 启动独立后台，退出向导不停止执行。[后台分析菜单](2026
 
 ## 既有笔记审计
 
-按 durable、本机认证、实例锁、开发档案与客户端断线检索 active notes；rejected 目录不存在。[基础保护](2026-10-17-personal-durable-foundation.md)部分重叠，互链并同步调用范围；[后台与终端](2026-09-19-detach-terminal-from-task-runtime.md)和[双产品](2026-10-02-two-agent-products.md)继续描述正式共享装配，沿用其身份与断线原则，不复制旧协议。[渐进交互](../process/2026-10-14-progressive-human-interaction.md)继续持有面向人的选择原则。其他执行、审批、业务记录不被本篇取代；没有完全吸收、过时提案或应归档记录。
+按 durable、本机认证、实例锁、开发档案与客户端断线检索 active notes；rejected 目录不存在。[基础保护](2026-10-17-personal-durable-foundation.md)部分重叠，互链并同步调用范围；[后台与终端](2026-09-19-detach-terminal-from-task-runtime.md)和[双产品](2026-10-02-two-agent-products.md)继续描述 Coding 与保留的旧格式实现，沿用其身份与断线原则，不复制旧协议。[渐进交互](../process/2026-10-14-progressive-human-interaction.md)继续持有面向人的选择原则。其他执行、审批、业务记录不被本篇取代；没有完全吸收、过时提案或应归档记录。
 
 ## 备选方案
 

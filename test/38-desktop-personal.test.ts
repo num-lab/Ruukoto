@@ -14,7 +14,7 @@ import { handleRequest } from "../apps/desktop/src/main/ipc.ts";
 import type { DesktopUpdate } from "../apps/desktop/src/shared/bridge.ts";
 import { fakeSnapshot } from "./helpers/fake-control.ts";
 import { waitFor, startTestRuntime } from "./helpers/testkit.ts";
-import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
+import { product as personalProduct } from "./helpers/legacy-product.ts";
 import { product as codeProduct } from "../apps/ruukoto-code/src/product.ts";
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));

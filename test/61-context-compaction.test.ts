@@ -1,4 +1,4 @@
-import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
+import { product as personalProduct } from "./helpers/legacy-product.ts";
 /**
  * issue 30：上下文压缩（压缩点、第一层清理、滚动摘要、兜底移出标记）。
  *

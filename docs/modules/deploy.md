@@ -4,17 +4,17 @@
 
 本篇负责两个产品的部署：`ruukoto-code` 的原生沙箱、宿主工具链与按需后台前置；`ruukoto` 的当前账户后台单元、常驻 user manager 与可选服务管理 helper。两端独立安装、停止与升级。
 
-后台、CLI/TUI 与完全访问 worker 使用实际启动账户。控制面仍验证拥有者令牌；同账户完全访问能够读取该账户有权限的后台数据、凭据与令牌。账户原有文件权限继续有效，不要求另建后台与执行账户或配置工作区 ACL。
+后台、CLI 与完全访问 worker 使用实际启动账户。Coding 控制面与个人本机接口分别验证各自令牌；同账户完全访问能够读取该账户有权限的后台数据、凭据与令牌。账户原有文件权限继续有效，不要求另建后台与执行账户或配置工作区 ACL。
 
 **systemd 单元与提权入口**。`ruukoto-backend.service` 模板在安装时将 `@RUN_USER@` / `@RUN_GROUP@` / `@RUN_UID@` / `@NODE_BIN@` 替换为实际账户、UID 与 Node 绝对路径，`KillMode=control-group`、`TimeoutStopSec=30`、`Restart=on-failure`、`RestartSec=3`。完全访问不需要特权执行入口；可选服务管理只放行 root 拥有的固定 helper，sudoers 对同一实际账户授权。
 
-**宿主工具链与常驻账户**。受限任务使用宿主 Node、Bash、coreutils、Git 及任务所需工具；工作进程由 `npm run build` 打成 `worker/worker.mjs`，SDK 与其运行依赖随 workspace 安装。个人服务器为运行账户显式启用 linger；backend 系统单元依赖该账户 user manager，并固定 runtime dir 与 user bus 环境。原生 scope 使用 `Delegate=yes` 与可写 `cgroup.kill`；backend 的 `KillMode` 不替代 scope 停止核实。
+**宿主工具链与常驻账户**。受限任务使用宿主 Node、Bash、coreutils、Git 及任务所需工具；Coding 工作进程为 `worker/worker.mjs`，个人命令为自包含的 `worker/personal-command-worker.mjs`，SDK 版本分别由实际调用方解析；完整 workspace 与根构建产物一同安装。个人服务器为运行账户显式启用 linger；backend 系统单元依赖该账户 user manager，并固定 runtime dir 与 user bus 环境。原生 scope 使用 `Delegate=yes` 与可写 `cgroup.kill`；backend 的 `KillMode` 不替代 scope 停止核实。
 
-**服务器服务管理**让 main 与独立定时会话检查部署白名单内的服务状态，完全访问免操作审批，其他模式逐次批准执行管理动作（首版仅 `restart`），main 可命中经核实的长期授权，定时会话不继承长期授权。宿主工具在 `apps/ruukoto/src/service-tools.ts`；审批、通知与批准消费复用 IM 审批通道，不另建控制面。装配要求产品 `ruukoto` + Linux + 显式部署配置齐备；普通开发会话、SubAgent 与 `ruukoto-code` 都不获得该能力，个人业务工具集不因此获得 `bash`。模型只提供白名单服务名与固定动作，主机身份、`taskId`、`hostOpId`、执行身份与策略由宿主注入。
+**服务器服务管理**由个人 durable 另行装配固定检查、子工作 restart 和宿主服务操作，原工作、权限、审批、效果与停止事实由 durable 保存；工具与宿主 API 见[个人持久会话](personal-durable.md)。helper、策略、白名单和 OS sudo 授权独立配置，模型只能给固定单元和动作，不能提供路径、执行账户或内部操作身份。
 
-不负责的部分点名归属：安装、配置与故障排查的操作步骤归 [deploy/systemd/README.md](../../deploy/systemd/README.md) 与 [usage](../usage.md)，本篇只写设计并链过去；工具工作进程、原生策略、受管执行单元与回收核实归 [execution](execution.md)；长期授权（`standing_permissions`）的创建、范围、行级版本与失效语义归 [agent-tools](agent-tools.md)，本篇只写消费它的 helper、策略与执行侧；IM 命令的文本解析与回执归 [channels](channels.md)。
+不负责的部分点名归属：安装与升级操作归[部署说明](../../deploy/systemd/README.md)，个人宿主业务归[个人持久会话](personal-durable.md)，Coding 的工具进程与原生策略归[执行边界](execution.md)。本篇持有 helper 协议及真实系统执行核实。旧服务工具、ApprovalGate 和共享 IM 账本不装配到新个人实例。
 
-**两个产品的原生前置**。正式入口默认且只接受 `native`，显式 container/local 参数或环境覆盖被拒并提示迁移；原生执行使用宿主 Node、Git、Python 与编译器，`npm run build` 构建 worker，并在 macOS 用系统 clang 构建 `worker/native-macos-supervisor`。只读提供 SDK 和必要运行依赖，每单元独立 HOME/TMPDIR，不需要工具镜像。macOS 需要可用的 `sandbox-exec` 与 libproc 身份/原子信号能力；Linux 需要正式 `/usr/bin/bwrap`、允许 userns 的系统策略、cgroup v2 和可委派的 user scope。安装与检查步骤见 [deploy/native/README.md](../../deploy/native/README.md)，启动器不安装依赖、不调整系统策略。
+**两个产品的原生前置**。Coding 默认且只接受 `native`，显式 container/local 覆盖被拒；个人 Linux 命令由停机菜单配置原生边界，原生执行使用宿主 Node、Git、Python 与编译器，`npm run build` 构建 worker，并在 macOS 用系统 clang 构建 `worker/native-macos-supervisor`。只读提供 SDK 和必要运行依赖，每单元独立 HOME/TMPDIR，不需要工具镜像。macOS 需要可用的 `sandbox-exec` 与 libproc 身份/原子信号能力；Linux 需要正式 `/usr/bin/bwrap`、允许 userns 的系统策略、cgroup v2 和可委派的 user scope。安装与检查步骤见 [deploy/native/README.md](../../deploy/native/README.md)，启动器不安装依赖、不调整系统策略。
 
 ## 对外接口
 
@@ -30,9 +30,9 @@
 | `deploy/systemd/ruukoto-service.mjs` | 服务管理 helper（root 0700，无第三方依赖，不接受环境变量配置） |
 | `deploy/systemd/ruukoto-service-test.service`、`ruukoto-service-test.sh` | 可控测试服务：以实际启动账户运行、`Restart=no`、无网络、无业务凭据、最小攻击面；每次启动记 `InvocationID` 与计数，仅作辅助观察 |
 
-配置键：`RUUKOTO_DATA_DIR`、`RUUKOTO_AGENT_DIR`、`RUUKOTO_EXECUTION_BACKEND`、`XDG_RUNTIME_DIR`、`DBUS_SESSION_BUS_ADDRESS`、`RUUKOTO_SERVICE_SUDO`、`RUUKOTO_SERVICE_HELPER`、`RUUKOTO_SERVICE_POLICY`。`RUUKOTO_SERVICE_HELPER` 与 `RUUKOTO_SERVICE_POLICY` 经后台单元 drop-in 注入，只设一个拒绝启动，不静默降级为无能力。
+个人模板使用 `RUUKOTO_PERSONAL_DIR=/var/lib/ruukoto/personal-durable`、`XDG_RUNTIME_DIR` 与 `DBUS_SESSION_BUS_ADDRESS`，模型和 IM 凭据变量经受保护环境注入。helper、策略和 sudo 路径由停机菜单保存，不读取旧 `RUUKOTO_SERVICE_*` 或旧 data/agent 目录变量。
 
-**工具接口**（模型可见，main 与独立定时会话）：
+**旧工具名称**仅用于解释保留账本；新个人工具与来源权限见[个人持久会话](personal-durable.md)：
 
 | 工具 | 参数 | 语义 |
 |---|---|---|
@@ -51,13 +51,13 @@
 
 应答是 stderr 上唯一一条 `RUUKOTO_SERVICE_REPLY ` 前缀的单行 JSON（`v: 1`），stdout 与 stderr 其余内容都是原始 systemctl 输出证据；不使用 fd3，因为 sudo 默认关闭 fd ≥ 3。`restart` 路径的 `systemd-run --pipe` 会把命令单元的 stderr 混入，机器调用方按前缀行提取。成功应答的字段：`inspect` 返回 `machineId`、`policyRevision`、`unitRevision`、`unit`、`state`、`execIdentity`、`observedAt`；`restart` 返回 `machineId`、`hostOpId`、`opUnit`、`launched`、`execIdentity`、`exitCode`、`observedAt`；`stop-op` 返回 `machineId`、`hostOpId`、`opUnit`、`launcherExited`、`exited`、`detail`。失败应答含 `ok:false`、`launched`、`reasonCode` 与 `error`。
 
-`inspect-op` 的应答在 inspect 字段外含原 `inspectionId`，动词为 `inspect-op`；`stop-inspect` 返回 `machineId`、`inspectionId`、`exited` 与未核实原因 `detail`。这两个动词均先核对期望机器。消费者必须在首次 spawn 前持久化机器与检查归属，并逐项核对应答；现有产品工具仍调用原 inspect，尚不消费检查身份协议。
+`inspect-op` 的应答在 inspect 字段外含原 `inspectionId`，动词为 `inspect-op`；`stop-inspect` 返回 `machineId`、`inspectionId`、`exited` 与未核实原因 `detail`。这两个动词均先核对期望机器。消费者必须在首次 spawn 前持久化机器与检查归属，并逐项核对应答；个人 durable 在检查开始前提交身份并消费这两个动词；旧 inspect 仍供保留调用方使用。
 
-调用侧固定入口：生产经 `/usr/bin/sudo -n <helper> …`（`RUUKOTO_SERVICE_SUDO` 决定 sudo 路径），受控替身以当前 node 直接执行脚本；两条路径都是固定 argv、`PATH` 最小化、进程组可整组回收。
+调用侧固定入口：生产经 `/usr/bin/sudo -n <helper> …`（sudo 路径由个人服务配置固定），受控替身以当前 node 直接执行脚本；两条路径都是固定 argv、`PATH` 最小化、进程组可整组回收。
 
 ## 数据与状态
 
-**目录权限**：`/var/lib/ruukoto/{data,agent,agent-work,control}` 由实际启动账户拥有并以 0700 创建，socket 仍以拥有者令牌认证；`/opt/ruukoto` 是 root 拥有的代码与依赖。可选 helper、策略、操作目录及其每一级父目录由 root 拥有且组/他人不可写。完全访问能读取启动账户自己的状态与凭据，路径权限不构成同账户隔离。
+**目录权限**：新的 `/var/lib/ruukoto/personal-durable` 由实际启动账户拥有并以 0700 创建，socket 以本机令牌认证；旧 data/agent/control 目录原地归档。`/opt/ruukoto` 是 root 拥有的代码与依赖。可选 helper、策略、操作目录及其每一级父目录由 root 拥有且组/他人不可写。完全访问能读取启动账户自己的状态与凭据，路径权限不构成同账户隔离。
 
 **策略文件** `/etc/ruukoto/services.json` 固定本机身份、检查 UID/GID、精确单元与允许动作：
 
@@ -92,7 +92,7 @@ stateDiagram-v2
 
 固定检查使用独立 `inspect_` 加 24 位小写十六进制 ID，位于同一受保护根下；`claim.json` v1 绑定检查 ID、机器、单元及启动器身份，与 restart 的 v2 分开解释。stop-inspect 写入 `stop-requested`；只有完整的停止先手认领、完整原身份跨 boot，或原 helper 身份已结束且整个原组不存在，才返回 `exited:true`。坏记录、观察失败、仍活的同组后代或组号复用均保留未核实。这只证明固定同组 show 的退出，不用于任意命令或主动脱组后代。
 
-调用侧为检查创建独立组，允许 sudo 监护与 helper 同组；helper 不必是组首领，同组的其他成员会保守延后停止核实。[个人 durable](personal-durable.md)在 spawn 前保存检查 ID、机器与 Task/来源，恢复仅核实原 ID；正常结果也需停止证明，旧 helper 或错误身份应答不释放占用。正式共享装配仍使用原 inspect。
+调用侧为检查创建独立组，允许 sudo 监护与 helper 同组；helper 不必是组首领，同组的其他成员会保守延后停止核实。[个人 durable](personal-durable.md)在 spawn 前保存检查 ID、机器与 Task/来源，恢复仅核实原 ID；正常结果也需停止证明，旧 helper 或错误身份应答不释放占用。保留的旧调用方仍使用原 inspect，不参与新个人运行。
 
 **派生命令单元** `ruukoto-service-op-<hostOpId>.service`：`KillMode=control-group`，`RuntimeMaxSec=120`，单元内以 root 执行固定的 `systemctl --system restart`。停止协议只接受由同一操作 ID 派生的单元，不能指定任意目标。
 
@@ -100,7 +100,7 @@ stateDiagram-v2
 
 ```mermaid
 stateDiagram-v2
-  [*] --> 请求前检查: service_manage 先经 helper inspect 取得状态与修订
+  [*] --> 请求前检查: 原操作先经 inspect-op 并核实检查停止 取得状态与修订
   请求前检查 --> 授权核实: 构造 service_operation 范围快照
   授权核实 --> 已放行: 完全访问任务授权、拥有者批准，或长期授权逐项核实成立
   授权核实 --> 已知未执行: 未批准、被拒绝或未消费
@@ -119,25 +119,26 @@ stateDiagram-v2
 
 **部署**（步骤见 [deploy/systemd/README.md](../../deploy/systemd/README.md)）：创建当前账户的数据目录 → 安装代码、依赖与构建产物 → 放入模型配置与凭据 → 安装原生前置与宿主工具并为运行账户启用 linger → 在单元模板中替换实际账户并启用后台。完全访问不依赖原生沙箱、专用账户、执行启停包装或服务 helper。
 
-**服务状态检查**：main 或独立定时会话调用 `service_inspect` → 宿主每次重新核实任务、会话、项目与个人助手宿主绑定 → helper 校验自身、策略、标记目录及其每一级父目录都是 root 拥有且组/他人不可写，策略 `machineId` 与本机一致 → 白名单与精确单元名校验 → `systemctl show` 显式降到策略检查 UID/GID 并清空环境 → 返回固定状态字段与两项修订。别名（`show` 返回的 `Id` 不等于请求名）明确拒绝。
+**服务状态检查**：个人主/子会话按原工作权限调用固定检查，durable 先保存机器、检查 ID 与来源，再请求 helper `inspect-op`，终结后用 `stop-inspect` 核实原组退出。helper 核实自身、策略、标记根和父目录均 root 拥有且组/他人不可写，核对本机与精确白名单，再将 `systemctl show` 降到配置的检查 UID/GID。返回状态和两项修订，别名明确拒绝。
 
-**管理动作**（首版 `restart`）：
+**helper 管理动作**（`restart`，宿主业务状态由 durable 持有）：
 
 ```mermaid
 sequenceDiagram
   participant M as main / 独立定时会话
-  participant H as 宿主（service-tools）
-  participant A as 审批闸门 / IM 待审批
+  participant H as 个人宿主
+  participant A as durable 审批 / 原 IM 菜单
   participant P as helper（root，sudoers 固定入口）
   participant S as systemd
-  M->>H: service_manage { unit, action: restart }
+  M->>H: 子工作 service_restart { unit } 或可信宿主请求
   H->>H: 复核宿主绑定与产品/平台/部署配置
-  H->>P: inspect <unit>
+  H->>P: inspect-op <inspectionId> <machineId> <unit>
   P->>S: systemctl show（降到策略检查 UID/GID）
   S-->>P: 状态字段与 FragmentPath/DropInPaths
   P-->>H: state + policyRevision + unitRevision
+  H->>P: stop-inspect 原检查身份，核实原组退出
   H->>A: 当前任务模式与 service_operation 范围（本机、单元、动作、两项修订、任务与宿主操作 ID）
-  A-->>H: 完全访问授权或批准单次消费
+  A-->>H: 完全访问授权或原批准单次消费
   H->>H: 授权事务内复核宿主绑定与策略修订
   H->>P: restart <hostOpId> <policyRev> <unitRev> <unit>
   P->>P: 原子认领（mkdir）+ 写 claim.json
@@ -145,33 +146,31 @@ sequenceDiagram
   P->>S: systemd-run --pipe --wait 命令单元内 root 执行 systemctl --system restart
   S-->>P: 命令单元退出码
   P-->>H: RUUKOTO_SERVICE_REPLY 单行 JSON（含 execIdentity、exitCode）
-  H->>P: inspect <unit>（随后观察）
-  P-->>H: 新的状态与 InvocationID
-  H-->>M: 授权依据（如长期授权 ID 与版本）、管理命令结果、随后观察到的服务状态
+  H-->>M: 原授权依据、命令结果与效果/停止事实
 ```
 
-**执行与回收**。每个宿主操作派生一个短命命令单元，`RuntimeMaxSec=120` 给命令单元有界运行时间；宿主在异步启动前把该单元登记进受管执行单元表（`kind: systemd_unit`），停止路径据此调用 `stop-op`。停止协议先写标记、观察并停命令单元，再核实启动器身份退出、进程组消失及整个单元退出；单元已回收时还需上述创建请求证明。先手 stop-op 自己原子认领或已跨系统重启时可排除旧派发。全部成立才报告 `launcherExited:true, exited:true`；否则保留占用。权限错误、bus 不可达与查询失败不当作已退出。已经提交 PID 1 的服务重启作业不撤回，取消不自动停止目标服务作为回滚。
+**执行与回收**。每个宿主操作派生一个短命命令单元，`RuntimeMaxSec=120` 给命令单元有界运行时间；个人宿主在启动前把原操作和执行引用提交到 durable，停止路径据此调用 `stop-op`。停止协议先写标记、观察并停命令单元，再核实启动器身份退出、进程组消失及整个单元退出；单元已回收时还需上述创建请求证明。先手 stop-op 自己原子认领或已跨系统重启时可排除旧派发。全部成立才报告 `launcherExited:true, exited:true`；否则保留占用。权限错误、bus 不可达与查询失败不当作已退出。已经提交 PID 1 的服务重启作业不撤回，取消不自动停止目标服务作为回滚。
 
-**结果与恢复**。正常重启分述两件事：「管理命令结果」（`systemctl restart` 的退出码）与「随后观察到的服务状态」（`InvocationID` 对照：变化即确实经过新的启动周期）。退出码 0 表示 systemd 接受并完成重启动作，不等同于服务 active，更不等同于业务健康；`InvocationID` 未变化时提示核实。操作后状态查询失败保留已知命令结果并说明无法核实，不伪装成功。非零退出可能含部分效果（例如已停止但未能启动），如实报告退出码与输出，不描述为零执行。
+**结果与恢复**。服务操作保存原 `restart` 响应、退出码及效果事实，不自动追加一次状态检查。退出码 0 表示固定管理命令成功，不证明服务 active 或业务健康；要观察当前状态，另发固定检查。非零退出可能包含部分效果，如实报告原命令结果。结果未知时按原操作身份核实停止，业务效果仍由原入口另行核实，两者不能互相替代。
 
 消费后的结果分类只认可信结论：
 
 | 情形 | 结论 |
 |---|---|
-| 未消费的中断或重启、请求前的确定拒绝（`launched:false`）、`service_inspect` 的状态查询 | 已知未执行 |
+| 未消费的中断或重启、请求前的确定拒绝（`launched:false`）、固定检查的状态查询 | 已知未执行 |
 | 确定的管理命令结果（含非零退出） | 如实记录 |
 | 协议错误、应答 ID 不符、原始输出未保全、派发后失败、超时、中止 | 效果未知，不自动重发 |
 
-效果未知另使同一目标的有效长期授权失效（授权语义见 [agent-tools](agent-tools.md)）。账本规则：`service_inspect` 记 `no_effect`；`service_manage` 保存实际任务、人工或长期授权来源。
+效果未知使同一目标的有效长期授权失效；个人 durable 保存实际任务、权限来源与效果/停止证据，检查记为无写入效果，旧账本规则见[宿主工具](agent-tools.md)。
 
-**两个产品的安装与升级**。`ruukoto-backend.service` 只承载个人 Agent。Coding Agent 在开发机检出仓库、安装依赖并构建，使用 `apps/ruukoto-code/bin/ruukoto-code.mjs`（`npm link` 或把 bin 加入 PATH），档案为 `~/.ruukoto-code`；首次打开 TUI 按需拉起后台，无需预置服务单元。原生的主任务、SubAgent、worktree 创建与汇总共用已核实的边界，宿主不直接运行仓库 Git。升级先停旧后台及执行单元，再替换检出、重建并移除旧 container/local 参数与环境覆盖，重开入口；保留会话、工作副本、产物、审批与异常占用，不在线替换活动任务环境。两个产品不要求同时升级或停止，个人产品的正式受限入口同样只接受 native。
+**两个产品的安装与升级**。`ruukoto-backend.service` 只承载个人 durable，升级旧个人须使用空白新档案并另验收平台接管，原资料保留归档。Coding 在开发机安装完整 workspace 与构建产物，使用自身 bin、原档案和按需后台，不需要个人服务单元。两端独立停止与升级；切换前核实原执行单元，保留历史、产物、工作副本和未知占用，不能以后台进程退出代替停止证明。
 
 ## 不变量与失败处理
 
 **装配与权限不变量**：
 
-- 服务管理能力在产品 `ruukoto`、Linux 与显式部署配置三者齐备时才装配；只设 `RUUKOTO_SERVICE_HELPER` 与 `RUUKOTO_SERVICE_POLICY` 之一即拒绝启动。宿主可为受控测试显式放宽平台判定，生产不依赖它。
-- main 与独立定时会话不因服务管理获得 `bash`；服务 helper 的 OS 授权由拥有者独立配置；受限原生 worker 不开放 systemd bus 或控制面。
+- 个人服务管理在 Linux 与有效持久服务配置齐备时装配；路径与身份由可信宿主固定，缺失或配置损坏明确拒绝，模型不能临时启用。
+- 服务管理不因白名单 restart 而开放任意 `bash`；服务 helper 的 OS 授权由拥有者独立配置；受限原生 worker 不开放 systemd bus 或控制面。
 - 模型、任务参数与其他会话不能指定可执行文件、配置路径、执行身份或 systemd 参数；`hostOpId` 与 `taskId` 一律来自宿主记录。
 - 每次 helper 调用都验证 helper 自身、策略文件、操作标记目录及其每一级父目录：真实文件或目录、非符号链接、属主 root、组/他人不可写。策略路径与 helper 固定路径不一致时明确失败。
 - 策略 `machineId` 必须匹配本机；白名单只认精确 `.service` 名；固定拒绝清单（后台、Docker 与容器运行时、`ruukoto-exec-*`、`ruukoto-service-op-*`、`systemd-*`、dbus）先于白名单生效。
@@ -180,7 +179,7 @@ sequenceDiagram
 
 **审批不变量**：
 
-- `service_manage` 在完全访问下免操作审批，但仍复核活动任务、权限版本、目标、部署修订与 OS 授权；其他模式沿用单次批准或长期授权，自动审查对服务范围转人工。
+- 个人 restart 在完全访问下免操作审批，但仍复核活动任务、权限版本、目标、部署修订与 OS 授权；其他模式沿用单次批准或长期授权，自动审查对服务范围转人工。
 - 审批固定本机、规范单元、动作、策略与单元修订以及任务与宿主操作 ID；活动状态、PID 与 `InvocationID` 不进修订。
 - 批准单次消费；授权事务内复核个人助手宿主绑定与策略修订，helper 在请求 systemd 前再次核实全部修订。修订或入口固定身份变化即失效。
 - 已消费但 helper 证明尚未请求 systemd 的动作记为已知未执行，重新操作重新核实授权。
@@ -205,6 +204,8 @@ sequenceDiagram
 后台单元以 `KillMode=control-group` 终止子进程树，`TimeoutStopSec=30` 给受管停止有界时间；崩溃重启不重放效果未知的操作，异常中断保留中断任务的占用。
 
 ## 设计依据
+
+- [正式个人入口与制品](../../.agents/notes/implemented/simplification/2026-10-18-personal-product-entry.md)：新档案、唯一装配与旧入口退出。
 
 - [个人 Agent 复用原生受限执行并退役 Docker worker](../../.agents/notes/implemented/architecture/2026-10-12-personal-native-sandbox.md)：系统服务与常驻 user manager、宿主工具、升级核实及临时空间选择。
 

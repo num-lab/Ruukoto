@@ -2,7 +2,9 @@
 
 Status: implemented
 
-durable 迁移的 Linux 外部执行前提见[持久认领](2026-10-17-native-linux-execution-identity.md)；它在已有平台启动下层补跨进程停止证明，尚未接入 durable 工具，不改变本篇旧个人装配。
+部分取代：[个人正式入口与旧装配退出](../simplification/2026-10-18-personal-product-entry.md)替换个人运行装配与旧 CLI 参数，原生平台边界仍复用；个人命令由 durable 保存来源、执行和停止事实，旧普通开发/worktree 接线不再用于正式个人。
+
+durable 迁移的 Linux 外部执行前提见[持久认领](2026-10-17-native-linux-execution-identity.md)；它在已有平台启动下层补跨进程停止证明，durable 命令的实际接线由[命令决定](2026-10-17-personal-durable-commands.md)持有，本篇旧个人运行接线已由入口决定取代。
 
 ## 问题
 

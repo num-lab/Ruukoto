@@ -2,7 +2,9 @@
 
 Status: implemented
 
-后续提案：[个人端 pi durable 迁移](../../proposed/architecture/2026-10-17-personal-pi-durable.md)拟让新个人端安全工作自动恢复，保留未知效果与停止核实边界；本篇继续约束 Coding 和当前实现。
+部分取代：[个人正式入口与旧装配退出](../simplification/2026-10-18-personal-product-entry.md)让个人安全工作按 durable 恢复，未知效果与停止未核实继续暂停；Coding 与旧格式实现仍遵守本篇原恢复规则。
+
+个人恢复的具体来源与核实规则由[durable 迁移总方案](../../proposed/architecture/2026-10-17-personal-pi-durable.md)及各能力笔记持有；完整迁移验收仍待完成。
 
 原出处：ADR 0020「补充：后台重启恢复」
 

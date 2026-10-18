@@ -300,7 +300,7 @@ test("实际后台进程登记排队宿主操作后崩溃，接管同键仍只�
     fs.mkdirSync(copyDir);
     const input = { runId: run.id, stepKey: "write", key: "process-write", params: { marker, copyDir } };
     await rt.stop("prepare_process_fixture");
-    const productPath = pathToFileURL(path.resolve("apps/ruukoto/src/product.ts")).href;
+    const productPath = pathToFileURL(path.resolve("test/helpers/legacy-product.ts")).href;
     const config = { dataDir: rt.config.dataDir, agentDir: rt.config.agentDir, socketPath: rt.config.socketPath,
       modelProvider: "mock", modelId: "mock-model", execution: { backend: "local" } };
     const program = `

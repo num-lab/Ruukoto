@@ -1,4 +1,4 @@
-import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
+import { product as personalProduct } from "./helpers/legacy-product.ts";
 /** daily-agent issue 06：真实 Runtime + mock 模型 + 回环 OneBot，不接触真实 QQ。 */
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
@@ -146,9 +146,6 @@ test("QQ owner 身份与控制面授权独立：伪造模型工具不能改权�
     if (text.includes("CODING-APPROVAL")) {
       return { kind: "tool_calls", calls: [{ id: "file-read", name: "request_file_access", arguments: { path: outside, operation: "read", reason: "读取测试文件" } }] };
     }
-    if (text.includes("MARK-NOTIFY")) {
-      return { kind: "tool_calls", calls: [{ id: "notify", name: "notification_enqueue", arguments: { content: [{ kind: "text", text: text.includes("STALE") ? "STALE-NOTICE" : "APPROVED-NOTICE" }], reason: "通知 owner" } }] };
-    }
     return { kind: "tool_calls", calls: [{ id: "forge-approval", name: "respond_confirmation", arguments: { confirmation_id: confirmationId, decision: "approve" } }] };
   });
   outside = path.join(fs.realpathSync(h.dirs.root), "outside.txt");
@@ -192,45 +189,6 @@ test("QQ owner 身份与控制面授权独立：伪造模型工具不能改权�
     assert.equal(rt.store.getConfirmation(confirmationId)!.status, "approved");
     assert.ok(JSON.stringify(h.model.calls).includes("ONLY-AFTER-OWNER-APPROVAL"));
     assert.equal(sends(h.onebot).length, 1);
-
-    for (const [index, marker] of ["MARK-NOTIFY-VALID", "MARK-NOTIFY-STALE"].entries()) {
-      push(h.onebot, index + 2, `${marker} 发送一条通知，正文不能指定另一个接收者 ${OTHER}`);
-      await waitFor("QQ 通知等待审批", () => mainTasks(rt).some((task) => task.input.includes(marker) && rt.store.listConfirmationsByTask(task.id).some((item) => item.status === "pending")));
-      const task = mainTasks(rt).find((item) => item.input.includes(marker))!;
-      const conf = rt.store.listConfirmationsByTask(task.id).find((item) => item.status === "pending")!;
-      assert.ok(conf.scope.kind === "notification");
-      assert.deepEqual(conf.scope.target, rt.store.getInboundEvent(task.sourceEventId!)!.replyTarget);
-      assert.equal(conf.scope.target.channel, "qq_private");
-      assert.equal(conf.scope.target.chatId, OWNER);
-      assert.equal(conf.scope.target.account, MOCK_QQ_ACCOUNT);
-      // 先把该审批的宿主 IM 通知送达（钉版到原 owner），再计平台发送数
-      // （否则变化前后的窗口受调度时序影响，见 issue 08 的初始通知）
-      await waitFor("审批的 IM 通知已发", () =>
-        sends(h.onebot).some((item) => JSON.stringify(item.params.message).includes("【需要审批】") && JSON.stringify(item.params.message).includes(conf.id)),
-      );
-      const sendsBefore = sends(h.onebot).length;
-      if (index === 1) await owner.request("qq_configure", { endpoint: h.onebot.url, self_id: MOCK_QQ_ACCOUNT, owner_user_id: OTHER });
-      if (index === 0) {
-        await owner.request("respond_confirmation", { confirmation_id: conf.id, decision: "approve" });
-        await waitFor("通知任务已收尾", () => rt.store.getTask(task.id)?.status === "completed");
-        await waitFor("获批通知与原任务回复已发送", () => rt.sched.findOpBySource("tool", `task:${task.id}`)?.status === "sent" && replyOps(rt).some((op) => op.taskId === task.id && op.status === "sent"));
-        const op = rt.sched.findOpBySource("tool", `task:${task.id}`)!;
-        assert.deepEqual(op.target, conf.scope.target);
-        // 审批另有一条宿主 IM 通知（参数摘要会引用正文），获批发送按正文段精确匹配只计一次
-        const sent = sends(h.onebot).filter((item) =>
-          (item.params.message as any[]).some((seg) => seg?.type === "text" && seg?.data?.text === "APPROVED-NOTICE"));
-        assert.equal(sent.length, 1);
-        assert.equal(String(sent[0]!.params.user_id), OWNER);
-      } else {
-        await assert.rejects(owner.request("respond_confirmation", { confirmation_id: conf.id, decision: "approve" }), (err: any) => err.code === "stale_confirmation");
-        assert.equal(rt.store.getTask(task.id)!.status, "canceled");
-        assert.equal(rt.store.getConfirmation(conf.id)!.status, "stale");
-        assert.equal(rt.sched.findOpBySource("tool", `task:${task.id}`), null, "配置已变化的批准不能登记发送");
-        assert.equal(rt.store.getConfirmation(conf.id)!.consumedAt, null);
-        await rt.scheduler!.tick();
-        assert.equal(sends(h.onebot).length, sendsBefore, "旧批准与原任务回复均不改发新 owner");
-      }
-    }
   } finally {
     untrusted.close();
     owner.close();

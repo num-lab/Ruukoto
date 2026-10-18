@@ -1,0 +1,13 @@
+✔ workspace 安装的两条 bin 链接指向各自 app 的可执行入口 (13.923625ms)
+✔ 每个 app 的 npm start 与 dev 脚本均能进入自己的入口 (11573.43775ms)
+✔ 包边界：core 的类型反向引用、agent 的值反向引用与相对绕过均拒绝 (1300.047334ms)
+✔ 包边界：声明过的底层依赖、反向类型与包内引用可用 (12.391209ms)
+✔ 包边界：桌面包可用 devDependency 的值引用，其他约束照常生效 (16.133459ms)
+ℹ tests 5
+ℹ suites 0
+ℹ pass 5
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 13483.35025

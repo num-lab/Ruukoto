@@ -1,0 +1,38 @@
+{
+  "base": "a8fd60caceda3bbb243afff167a7c44751e749f4",
+  "current": "3053bf6a3d1d9bab0c06ec61755b8723bb06dbff",
+  "system": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "swVers": "ProductName:\t\tmacOS\nProductVersion:\t\t27.0.1\nBuildVersion:\t\t26A434\n",
+  "node": "v24.15.0",
+  "npm": "11.12.1",
+  "assets": {
+    "worker/worker.mjs": {
+      "base": "ec4d123259d2ee502107d66c7598a5d88ad4a7551bf4ca9d3383cd3d70bdb909",
+      "current": "ec4d123259d2ee502107d66c7598a5d88ad4a7551bf4ca9d3383cd3d70bdb909"
+    },
+    "worker/workflow-script.mjs": {
+      "base": "2e6719fd380b60ee89d7b1708de3fac33f169b398b5c73b5880a7f61b8dcf930",
+      "current": "2e6719fd380b60ee89d7b1708de3fac33f169b398b5c73b5880a7f61b8dcf930"
+    },
+    "worker/native-macos-supervisor": {
+      "base": "43441a966e3b6fb3111e57f68077dbee76b008f198e1addb3bcac690d7f85729",
+      "current": "43441a966e3b6fb3111e57f68077dbee76b008f198e1addb3bcac690d7f85729"
+    },
+    "dist/ruukoto-code-0.1.0.tgz": {
+      "base": "072d627de6a9827c8d2c3b469234331c62b30220cd79b9534a2c9b95c9400de5",
+      "current": "072d627de6a9827c8d2c3b469234331c62b30220cd79b9534a2c9b95c9400de5"
+    },
+    "package-lock.json": {
+      "base": "b64f22573ce200c99c2022a1c0cd7802b9a18490915eaef4e46831d4012ab209",
+      "current": "b64f22573ce200c99c2022a1c0cd7802b9a18490915eaef4e46831d4012ab209"
+    },
+    "packages/core/src/db.ts": {
+      "base": "ee43e3ad0e963907182c05abeb934827842a7185982dfeefe842e0b7a35bf479",
+      "current": "ee43e3ad0e963907182c05abeb934827842a7185982dfeefe842e0b7a35bf479"
+    }
+  },
+  "implementation": {
+    "packages/agent/src/tool-worker/host.ts": "100f5842d48d55416f8398647ed6a790db924643b895fd7dfcf24d49c8f288c7",
+    "test/100-worker-stop.test.ts": "f03f13862be3cf50ba60ccdbb5d0a1e75214475c4f7f9b92a3ff1c10fa99fa34"
+  }
+}

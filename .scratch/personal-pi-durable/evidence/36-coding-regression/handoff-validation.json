@@ -1,0 +1,9 @@
+{
+  "files": 7,
+  "links": 100,
+  "eol": "one-newline",
+  "paragraphs": "single-line",
+  "status": "one-current",
+  "linkTargets": "all exist, including manifest generated last",
+  "evidenceTextWhitespace": "passed"
+}

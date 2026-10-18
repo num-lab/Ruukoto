@@ -19,9 +19,9 @@ import type { PersonalQqApi } from "./personal-qq-api.ts";
 export async function configurePersonalScheduledConversation(tx: Tx, conversationId: ConversationId, plan: PersonalSchedule, options: { summary: boolean }) {
   const main = await tx.doc(AgentDoc, ROOT_CONVERSATION_ID);
   if (!main.model) throw new PersonalError("model_unavailable", "当前定时模型无法核实，请查询配置。");
-  const business = ["personal-media", "personal-browser", "personal-tools", "personal-mcp", "personal-service-inspect", "personal-service-executions"];
+  const business = ["personal-media", "personal-browser", "personal-tools", "personal-mcp", "personal-service-inspect", "personal-service-executions", "personal-memory", "personal-history", "personal-skills"];
   const extensions = [PERSONAL_SCHEDULED_WORK, ...plan.scope.extensions.filter(name => business.includes(name))];
-  const tools = ["background_work", ...plan.scope.tools.filter(name => !["background_work", "schedule_create", "schedule_query", "schedule_cancel"].includes(name) && (!options.summary || ["read_artifact", "read_mcp_result", "read_service_inspection"].includes(name)))];
+  const tools = ["background_work", ...plan.scope.tools.filter(name => !["background_work", "schedule_create", "schedule_query", "schedule_cancel"].includes(name) && (!options.summary || ["read_artifact", "read_mcp_result", "read_service_inspection", "memory", "history_search", "history_read", "skill"].includes(name)))];
   await configure(tx, conversationId, { model: main.model, thinkingLevel: "off", extensions: [], tools: [] });
   const agent = await tx.doc(AgentDoc, conversationId);
   agent.extensions = extensions; agent.tools = tools;

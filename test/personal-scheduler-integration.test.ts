@@ -134,3 +134,29 @@ test("定时组合：终态监督器的未来计划在启动时重建，零新�
   assert.notEqual(restored, original); assert.notEqual((await p.harness.commit(tx => tx.task(restored), context))!.state.status, "terminal");
   assert.equal(f.model.calls.length, before);
 });
+
+
+test("记忆接线：真实子身份带通用工具完成后可重开", async t => {
+  const f = await fixture(t); let p = await f.open();
+  await p.answer("来源", "reference-source");
+  const ref = await p.work.delegate({ content: "分析", requestId: "reference-work", sourceRequestId: "reference-source" });
+  assert.equal((await p.harness.waitForTask(ref.taskId, context)).state.outcome?.status, "completed");
+  await p.close(); p = await f.open();
+  assert.equal((await p.work.list())[0].id, ref.agentId);
+});
+
+test("定时记忆：初轮可保存，封组可查询且拒绝撤销", async t => {
+  let saved: { memory: number; version: number }; let queried = false, rejected = false;
+  const f = await fixture(t, (request, index) => {
+    const last = request.messages.at(-1);
+    if (index === 0) return { kind: "tool_calls", calls: [{ id: "create-memory", name: "memory", arguments: { action: "create", category: "experience", content: "本次定时自身经验" } }] };
+    if (index === 1) { saved = JSON.parse(String(last?.content)); return { kind: "text", text: "完成首次执行" }; }
+    if (index === 2) return { kind: "tool_calls", calls: [{ id: "query-memory", name: "memory", arguments: { action: "search", query: "自身经验" } }] };
+    if (index === 3) { assert.match(String(last?.content), /本次定时自身经验/); queried = true; return { kind: "tool_calls", calls: [{ id: "revoke-memory", name: "memory", arguments: { action: "revoke", memory: saved.memory, expectedVersion: 1 } }] }; }
+    assert.match(String(last?.content), /tool_source_sealed/); rejected = true; return { kind: "text", text: "已核实只读汇总" };
+  });
+  const p = await f.open(), plan = await create(p, "memory-plan"), id = await runFor(p, plan.id);
+  await until(async () => !!(await p.harness.snapshot(PersonalScheduleRunDoc, id, context))?.run?.result);
+  assert.equal((await p.harness.snapshot(PersonalScheduleRunDoc, id, context))?.run?.result?.status, "completed");
+  assert.equal(queried, true); assert.equal(rejected, true); assert.equal(f.model.calls.length, 5);
+});

@@ -19,7 +19,7 @@ export function lockPersonalProfile(directory: string): PersonalProfileLock {
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
   if (!fs.lstatSync(directory).isDirectory() || fs.lstatSync(directory).isSymbolicLink()) throw new PersonalError("profile_unrecognized", "个人档案必须是普通目录，请另选空目录。");
   const names = fs.readdirSync(directory);
-  const allowed = new Set(["profile.json", "owner.sqlite", "owner.sqlite-journal", "personal.sqlite", "personal.sqlite-wal", "personal.sqlite-shm", "model.json", "model.json.tmp", "telegram.json", "telegram.json.tmp", "qq.json", "qq.json.tmp", "service.json", "service.json.tmp", "command.json", "command.json.tmp", "mcp.json", "mcp.json.tmp", "tools.json", "tools.json.tmp", "browser.json", "browser.json.tmp", "control.token", "backend.log"]);
+  const allowed = new Set(["profile.json", "owner.sqlite", "owner.sqlite-journal", "personal.sqlite", "personal.sqlite-wal", "personal.sqlite-shm", "model.json", "model.json.tmp", "skills.json", "skills.json.tmp", "telegram.json", "telegram.json.tmp", "qq.json", "qq.json.tmp", "service.json", "service.json.tmp", "command.json", "command.json.tmp", "mcp.json", "mcp.json.tmp", "tools.json", "tools.json.tmp", "browser.json", "browser.json.tmp", "control.token", "backend.log"]);
   if (names.some(name => {
     const stat = fs.lstatSync(path.join(directory, name), { throwIfNoEntry: false });
     return stat && (name === "control.sock" ? !stat.isSocket() : ["commands", "artifacts", "browser"].includes(name) ? !stat.isDirectory() || stat.isSymbolicLink() || stat.uid !== process.getuid?.() || (stat.mode & 0o077) !== 0 : ((!allowed.has(name) && !PERSONAL_PENDING_FILE.test(name) && !PERSONAL_SCHEDULE_PENDING_FILE.test(name)) || !stat.isFile()));

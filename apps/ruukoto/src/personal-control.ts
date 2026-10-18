@@ -1,3 +1,7 @@
+import { parsePersonalMemoryControl, personalMemoryControl } from "./personal-memory-controls.ts";
+import { readPersonalMemory, searchPersonalMemory } from "./personal-memory.ts";
+import { readPersonalHistory, searchPersonalHistory } from "./personal-history.ts";
+import { ROOT_CONVERSATION_ID } from "@earendil-works/pi-durable";
 import { readPersonalQq } from "./personal-qq-config.ts";
 import { exportPersonalArtifact, type PersonalArtifact } from "./personal-artifacts.ts";
 import { browserList, browserDetail, browserResolve } from "./personal-browser.ts";
@@ -161,6 +165,17 @@ export async function startPersonalServer(directory: string) {
         } else if (req.method === "GET" && url.pathname === "/messages") {
           const entries = await instance.main.entries({}, 64, undefined, context);
           result = entries.items.map(text).filter(item => item !== undefined).slice(0, 16).reverse();
+        } else if (req.method === "GET" && url.pathname === "/memories") {
+          result = await instance.harness.commit(tx => searchPersonalMemory(tx, directory, ROOT_CONVERSATION_ID, url.searchParams.get("query") ?? "", queryNumber(url, "offset", 0), true), context);
+        } else if (req.method === "GET" && url.pathname === "/memory") {
+          result = await instance.harness.commit(tx => readPersonalMemory(tx, directory, ROOT_CONVERSATION_ID, queryNumber(url, "memory") as EntryId, queryNumber(url, "offset", 0)), context);
+        } else if (req.method === "POST" && url.pathname === "/memory") {
+          const input = parsePersonalMemoryControl(await readControlJSON(req));
+          result = await instance.harness.commit(tx => personalMemoryControl(tx, directory, input), context);
+        } else if (req.method === "GET" && url.pathname === "/history") {
+          result = await instance.harness.commit(tx => searchPersonalHistory(tx, ROOT_CONVERSATION_ID, { query: url.searchParams.get("query") ?? "", cursor: url.searchParams.get("cursor") ?? undefined }), context);
+        } else if (req.method === "GET" && url.pathname === "/history/entry") {
+          result = await instance.harness.commit(tx => readPersonalHistory(tx, ROOT_CONVERSATION_ID, { entry: queryNumber(url, "entry") as EntryId, offset: queryNumber(url, "offset", 0) }), context);
         } else if (req.method === "GET" && url.pathname === "/qq") {
           result = await instance.qq.status();
         } else if (req.method === "GET" && url.pathname === "/telegram") {
@@ -389,7 +404,7 @@ export async function startPersonalServer(directory: string) {
   }
 }
 
-export async function personalControl<T>(directory: string, method: "GET" | "POST", route: string, value?: PersonalInput | PersonalServiceResolution | { decision: "approved" | "rejected" } | PersonalToolsControlBody | PersonalScheduleCreateBody): Promise<T> {
+export async function personalControl<T>(directory: string, method: "GET" | "POST", route: string, value?: ReturnType<typeof parsePersonalMemoryControl> | PersonalInput | PersonalServiceResolution | { decision: "approved" | "rejected" } | PersonalToolsControlBody | PersonalScheduleCreateBody): Promise<T> {
   const token = readPersonalToken(directory);
   return new Promise<T>((resolve, reject) => {
     const req = http.request({ socketPath: path.join(directory, "control.sock"), method, path: route, headers: { authorization: `Bearer ${token}`, "content-type": "application/json", connection: "close" } });

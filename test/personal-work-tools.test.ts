@@ -73,7 +73,7 @@ test("模型工作：实际委派不阻塞主聊天，分页读原结果，复�
   assert.match(await p.answer(`复用:${work.agentId}`, "closed-reuse"), /subagent_closed/);
   const child = (await p.harness.conversation(work.agentId, context))!;
   assert.equal((await child.entries({ order: "ascending" }, 256, undefined, context)).items.filter(entry => entry.kind === "pi.user").length, 2);
-  for (const request of f.server.calls.filter(childRequest)) assert.deepEqual(request.tools ?? [], []);
+  for (const request of f.server.calls.filter(childRequest)) assert.deepEqual(request.tools?.map(tool => (tool.function as { name: string }).name), ["memory", "history_search", "history_read", "skill"]);
   const entries = (await p.main.entries({ order: "ascending" }, 256, undefined, context)).items;
   const evidence = entries.filter(entry => entry.kind === "ruukoto.model-request").map(entry => entry.data as RequestEvidence);
   assert.match(JSON.stringify(evidence[0].input), /background_work/); assert.deepEqual(evidence[1].payload, f.server.calls[0].raw);

@@ -6,6 +6,7 @@ import { anthropicMessagesApi } from "@earendil-works/pi-ai/api/anthropic-messag
 import { PersonalError } from "./personal-error.ts";
 import type { PersonalModelMedia } from "./personal-media.ts";
 import { randomUUID } from "node:crypto";
+import type { ConversationId, EntryId } from "@earendil-works/pi-durable";
 
 export type PersonalModelConfig = {
   api: "openai-completions" | "openai-responses" | "anthropic-messages";
@@ -57,23 +58,25 @@ export function personalProvider(config: PersonalModelConfig): Provider {
   });
 }
 
-export type RequestEvidence = { requestId: string; sessionId: string; provider: string; modelId: string; input: JsonValue; reasoning: string; payload?: JsonValue; imageMappings?: JsonValue };
+export type PersonalReferenceSelection = { conversationId: ConversationId; memory: { memory: EntryId; version: number; revision: EntryId }[]; skills: { version: string; snapshotEntry: EntryId } };
+export type RequestEvidence = { requestId: string; sessionId: string; provider: string; modelId: string; input: JsonValue; reasoning: string; payload?: JsonValue; imageMappings?: JsonValue; references?: PersonalReferenceSelection };
 
 function json(value: unknown): JsonValue {
   return JSON.parse(JSON.stringify(value)) as JsonValue;
 }
 
 // 所有生成与压缩请求都经过 provider；hook 普通异常不会阻止 durable 继续请求。
-export function recordedModels(provider: Provider, record: (evidence: RequestEvidence) => Promise<void>, media?: PersonalModelMedia, prepareInput?: (input: TranscriptContext, options: StreamOptions | undefined) => Promise<TranscriptContext>) {
+export function recordedModels(provider: Provider, record: (evidence: RequestEvidence) => Promise<void>, media?: PersonalModelMedia, prepareInput?: (input: TranscriptContext, options: StreamOptions | undefined) => Promise<{ input: TranscriptContext; references: PersonalReferenceSelection }>) {
   const models = createModels();
   const prepare = async (model: Model<Api>, original: Context, options: StreamOptions | undefined) => {
     if (!options?.sessionId) throw new PersonalError("model_source_missing", "模型请求缺少持久会话来源，已停止请求。");
-    const input = prepareInput ? await prepareInput(normalizeContext(original), options) : original;
+    const references = prepareInput ? await prepareInput(normalizeContext(original), options) : undefined;
+    const input = references?.input ?? original;
     const images = input.messages.some(message => message.role !== "assistant" && Array.isArray(message.content) && message.content.some(part => part.type === "image"));
     if (images && !model.input.includes("image")) throw new PersonalError("image_input_unsupported", "当前模型不支持图片，未发送缺图请求；请由拥有者选择支持图片的模型。");
     if (images && !media) throw new PersonalError("image_reference_invalid", "原图片的持久来源无法核实，已停止模型请求；请保留档案。");
     const prepared = media ? await media.prepare(input, options.sessionId) : { input, snapshot: json, imageMappings: undefined };
-    const evidence: RequestEvidence = { requestId: randomUUID(), sessionId: options.sessionId, provider: model.provider, modelId: model.id, input: prepared.snapshot(input), ...(prepared.imageMappings ? { imageMappings: prepared.imageMappings } : {}), reasoning: "reasoning" in options && typeof options.reasoning === "string" ? options.reasoning : "off" };
+    const evidence: RequestEvidence = { requestId: randomUUID(), sessionId: options.sessionId, provider: model.provider, modelId: model.id, input: prepared.snapshot(input), ...(references ? { references: references.references } : {}), ...(prepared.imageMappings ? { imageMappings: prepared.imageMappings } : {}), reasoning: "reasoning" in options && typeof options.reasoning === "string" ? options.reasoning : "off" };
     await record(evidence);
     options.signal?.throwIfAborted();
     return { input: prepared.input, options: {

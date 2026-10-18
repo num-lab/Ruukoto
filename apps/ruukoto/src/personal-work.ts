@@ -1,3 +1,6 @@
+import { PERSONAL_MEMORY, PERSONAL_MEMORY_TOOLS } from "./personal-memory.ts";
+import { PERSONAL_HISTORY, PERSONAL_HISTORY_TOOLS } from "./personal-history.ts";
+import { PERSONAL_SKILLS, PERSONAL_SKILL_TOOLS } from "./personal-skills.ts";
 import { PERSONAL_MEDIA } from "./personal-media.ts";
 import { PERSONAL_TOOLS, PERSONAL_TOOL_NAMES, requireWorkToolsStopped, toolOperations, toolUnresolved, waitWorkTools } from "./personal-tools.ts";
 import { isDeepStrictEqual } from "node:util";
@@ -242,6 +245,11 @@ export async function delegatePersonalWork(tx: Tx, model: ModelRef, input: Deleg
       const config = await tx.doc(AgentDoc, child.id);
       if (!Array.isArray(config.extensions)) throw new PersonalError("work_config_changed", "子会话扩展配置无法核实，请保留档案。");
       config.extensions.splice(2, 0, PERSONAL_MEDIA);
+    }
+    for (const [extension, tools] of [[PERSONAL_SKILLS, PERSONAL_SKILL_TOOLS], [PERSONAL_HISTORY, PERSONAL_HISTORY_TOOLS], [PERSONAL_MEMORY, PERSONAL_MEMORY_TOOLS]] as const) if (Array.isArray(main.extensions) && main.extensions.includes(extension)) {
+      const config = await tx.doc(AgentDoc, child.id);
+      if (!Array.isArray(config.extensions) || !Array.isArray(config.tools)) throw new PersonalError("work_config_changed", "子会话参考工具配置无法核实，请保留档案。");
+      config.extensions.push(extension); config.tools.unshift(...tools);
     }
     index.agents.push({ id: child.id, label: input.label ?? "子 Agent", closed: false });
     agent = index.agents[index.agents.length - 1];

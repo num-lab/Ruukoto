@@ -60,9 +60,9 @@ test("后台工作：同键去重异参拒绝，完成后保留身份/上下文�
   assert.equal(history.filter(entry => entry.kind === "pi.user").length, 2);
   const lastRequest = f.server.calls.at(-1)!;
   assert.equal(lastRequest.messages.filter(message => message.role === "user").length, 2);
-  assert.deepEqual((await child.agent(context)).tools, []);
+  assert.deepEqual((await child.agent(context)).tools.map(tool => tool.name), ["memory", "history_search", "history_read", "skill"]);
   assert.match(lastRequest.system!, /子 Agent/);
-  assert.deepEqual(lastRequest.tools ?? [], []);
+  assert.deepEqual(lastRequest.tools?.map(tool => (tool.function as { name: string }).name), ["memory", "history_search", "history_read", "skill"]);
   const evidence = history.filter(entry => entry.kind === "ruukoto.model-request").map(entry => entry.data as RequestEvidence);
   assert.equal(evidence.length, 4);
   assert.deepEqual(evidence.at(-1)!.payload, lastRequest.raw);

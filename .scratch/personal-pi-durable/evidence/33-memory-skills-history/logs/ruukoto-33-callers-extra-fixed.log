@@ -1,0 +1,144 @@
+✔ 服务核实控制：效果与停止分开保存，错误证明保留占用，原说明分页且不可覆盖 (277.695292ms)
+✔ 服务核实控制：仅停止不释放，审批前检查与已知结果拒绝写停止重核 (204.4895ms)
+[ruukoto:personal] 持久执行出现错误，请查询状态并检查档案；未自动重启。
+✔ 服务核实控制：接纳失败零停止外调，缺原执行身份拒绝恢复 (204.01ms)
+✔ 服务核实控制：真实 SIGKILL 后恢复原停止 Task，不重发 restart (1130.395625ms)
+▶ 委托报告：未知暂停跨重启，效果和停止都核实后安全汇总；HTTP 前暂停仅重做模型尝试
+  ✔ before-admission (230.934042ms)
+  ✔ before-http (243.952917ms)
+✔ 委托报告：未知暂停跨重启，效果和停止都核实后安全汇总；HTTP 前暂停仅重做模型尝试 (475.213792ms)
+▶ 分析委托：终态成员说明或追加来源效果未知，整组续派/追加/子请求暂停，取消与他项继续
+  ✔ instruction (170.428791ms)
+  ✔ note (167.214917ms)
+✔ 分析委托：终态成员说明或追加来源效果未知，整组续派/追加/子请求暂停，取消与他项继续 (337.957583ms)
+▶ 服务工作：默认自动审查和 confirm 等单次人工批准，full_access 免审批；同键去重异参拒绝
+  ✔ default (98.782833ms)
+  ✔ confirm (108.526166ms)
+  ✔ full_access (89.73425ms)
+✔ 服务工作：默认自动审查和 confirm 等单次人工批准，full_access 免审批；同键去重异参拒绝 (297.385458ms)
+✔ 服务工作：原来源未知不能换后台工作，已登记子工作在 HTTP 前暂停，独立聊天继续 (119.2685ms)
+✔ 服务工作：追加来源后来效果未知，不能借其他安全工作继续子请求 (116.81675ms)
+▶ 服务工作：拒绝、未消费取消、策略与单元修订变化均零执行
+  ✔ reject (80.899625ms)
+  ✔ cancel (74.442375ms)
+  ✔ policy (78.949042ms)
+  ✔ unit (97.8995ms)
+✔ 服务工作：拒绝、未消费取消、策略与单元修订变化均零执行 (332.575041ms)
+✔ 服务工作：来源/目标拒绝，等待审批重开仍等待且只消费一次 (155.493875ms)
+✔ 服务工作：同一来源的待批准操作也串行，不能预排另一目标绕过未知暂停 (106.436541ms)
+✔ 服务工作：已受理来源后来 unanswered 不阻止整个档案恢复，未消费批准仍拒绝 (87.997125ms)
+✔ 服务工作：未知效果硬拦同来源换键与同目标，其他服务/主聊天继续，核实停止后才能释放 (245.974458ms)
+✔ 服务工作：旧 stop 应答缺启动器证明，人工效果核实也不能释放 (118.479166ms)
+▶ 服务工作：在途取消和超时保持未知，停止与效果核实独立
+  ✔ cancel (141.426542ms)
+  ✔ native-abort (132.327458ms)
+  ✔ timeout (203.410208ms)
+✔ 服务工作：在途取消和超时保持未知，停止与效果核实独立 (477.483125ms)
+✔ 服务工作：效果完成而结果未提交时真实强杀，重开只核实不重发 (1241.233709ms)
+[ruukoto:personal] 持久执行出现错误，请查询状态并检查档案；未自动重启。
+✔ 服务工作：结果存储失败关闭 Harness，恢复保留已开始事实并转未知 (113.236541ms)
+▶ 服务工作：命令非零、可信未启动、错操作与畸形应答按证据分类
+  ✔ nonzero (98.147792ms)
+  ✔ refused (103.988958ms)
+  ✔ wrong-operation (109.952666ms)
+  ✔ garbage (127.090958ms)
+✔ 服务工作：命令非零、可信未启动、错操作与畸形应答按证据分类 (439.571708ms)
+✔ 服务工作：意外 faulted 终态与缺结果不释放未知目标，核实证据后可继续 (213.6285ms)
+▶ 服务工作：缺配置、版本与双向关系损坏拒绝恢复，零额外 restart
+  ✔ disabled (73.673083ms)
+  ✔ config (71.166541ms)
+  ✔ version (76.673542ms)
+  ✔ record (77.454417ms)
+  ✔ task (86.712208ms)
+  ✔ extension (73.616125ms)
+✔ 服务工作：缺配置、版本与双向关系损坏拒绝恢复，零额外 restart (459.805625ms)
+[ruukoto:personal] 持久执行出现错误，请查询状态并检查档案；未自动重启。
+▶ 服务工作：首次启用标记提交后应答丢失，新建/已有主会话都能一致重开
+  ✔ fresh (19.18525ms)
+[ruukoto:personal] 持久执行出现错误，请查询状态并检查档案；未自动重启。
+  ✔ existing (12.80475ms)
+✔ 服务工作：首次启用标记提交后应答丢失，新建/已有主会话都能一致重开 (32.203834ms)
+✔ 服务工作：prepare 取消后检查未核实仍占来源与目标，恢复和终态不能绕过 (230.290208ms)
+✔ 服务工作：预排队审批消费前复核后来占用的检查，不启动 restart (150.466667ms)
+▶ 委托报告：检查停止未核实跨重启等待，核实后自动汇总，HTTP前暂停可重做
+  ✔ before-admission (184.542625ms)
+  ✔ before-http (182.209708ms)
+✔ 委托报告：检查停止未核实跨重启等待，核实后自动汇总，HTTP前暂停可重做 (367.022417ms)
+▶ 子服务：三模式沿原授权、单次审批、完整证据与真实请求快照，复用身份不继承批准
+  ✔ auto-review (630.387709ms)
+  ✔ confirm (426.968834ms)
+  ✔ full_access (609.590666ms)
+✔ 子服务：三模式沿原授权、单次审批、完整证据与真实请求快照，复用身份不继承批准 (1667.297958ms)
+✔ 子服务：未知效果与取消保留整项占用，双事实才释放，其他聊天继续 (137.486667ms)
+▶ 子服务：审批与审批前检查取消不写入，检查停止未核实仍占用
+  ✔ approval (74.062875ms)
+  ✔ inspection (132.33825ms)
+  ✔ restart (135.809291ms)
+✔ 子服务：审批与审批前检查取消不写入，检查停止未核实仍占用 (342.492792ms)
+▶ 子服务：恢复拒绝错权限、工具、输入、工作及丢失接纳，不执行外部请求
+  ✔ permission (88.035416ms)
+  ✔ tool (86.777916ms)
+  ✔ inputs (88.799458ms)
+  ✔ work (86.378584ms)
+  ✔ admission (83.26525ms)
+✔ 子服务：恢复拒绝错权限、工具、输入、工作及丢失接纳，不执行外部请求 (433.67775ms)
+[ruukoto:personal] 持久执行出现错误，请查询状态并检查档案；未自动重启。
+✔ 子服务：接纳写失败零 helper，恢复原工具只登记一次 (134.889125ms)
+✔ 子服务：消费后真实强杀恢复原子工具和工作，不重发 restart (1286.9745ms)
+✔ 子服务：真实 faulted 在线转未知，双事实不足不释放，原菜单可核实 (123.799667ms)
+✔ 子服务：前置核实与检查接纳间取消，零 helper (22.111167ms)
+✔ 子服务：消费前 faulted 明确报告未执行，读取证据保留失败状态 (27.458625ms)
+✔ 子服务：封组报告等原外部操作双事实，未知期间拒绝续派与追加 (246.249834ms)
+✔ 子服务证据：完整分页不外调，其他子会话不能读取 (133.88725ms)
+▶ 子服务升级：空闲配置原子增加工具，未决旧工作拒绝且不半启用
+  ✔ idle (40.889791ms)
+  ✔ pending (4064.812417ms)
+✔ 子服务升级：空闲配置原子增加工具，未决旧工作拒绝且不半启用 (4106.132917ms)
+✔ 子服务：后来追加来源未知拦住原待审批写入，整项取消不误取消独立宿主操作 (524.1325ms)
+✔ durable 通用工具：主子会话沿目录权限读写，二进制产物分页与请求输入可重建 (12747.623667ms)
+✔ durable 自动审查：approve 使用无工具独立请求，落盘输入与实际payload一致 (5051.614042ms)
+✔ durable 自动审查：reject 使用无工具独立请求，落盘输入与实际payload一致 (3579.805416ms)
+✔ durable 自动审查：invalid 使用无工具独立请求，落盘输入与实际payload一致 (3590.144125ms)
+✔ durable 自动审查：failure 使用无工具独立请求，落盘输入与实际payload一致 (3589.281333ms)
+✔ durable 自动审查：length 使用无工具独立请求，落盘输入与实际payload一致 (3572.828667ms)
+✔ durable 自动审查：error 使用无工具独立请求，落盘输入与实际payload一致 (3839.560333ms)
+✔ durable 确认与资料授权：逐次批准消费一次，撤销后读取重新等待且旧批准失效 (8450.194625ms)
+✔ durable 产物：子会话不能读主会话产物，原字节损坏时恢复明确拒绝 (2904.15225ms)
+✔ durable HTTP：响应后观察提交前强杀，恢复不重发并暂停同来源新工作 (2227.963833ms)
+✔ durable 模型快照：主子三模式保留实际工具定义与启用前后估算 (73.302666ms)
+ℹ {"estimatedTokens":{"before":{"main":{"systemPrompt":107,"toolSchemas":1799},"child":{"systemPrompt":69,"toolSchemas":709}},"after":{"auto-review":{"main":{"systemPrompt":107,"toolSchemas":2568},"child":{"systemPrompt":69,"toolSchemas":1594}},"confirm":{"main":{"systemPrompt":107,"toolSchemas":2568},"child":{"systemPrompt":69,"toolSchemas":1594}},"full_access":{"main":{"systemPrompt":107,"toolSchemas":2568},"child":{"systemPrompt":69,"toolSchemas":1594}}}}}
+✔ durable HTTP：未知写入同时挡住同源 MCP 和新来源同端点调用 (827.822125ms)
+✔ durable 工具恢复：SDK转换后的数字文本写入与原始调用可跨重启核实 (3149.38825ms)
+✔ durable 搜索：SDK失败意图计入5次额度，普通视图有界且原JSON可核实 (1228.543833ms)
+✔ durable 审查证据：missing 损坏启动拒绝且不增加模型请求 (8300.768916ms)
+✔ durable 审查证据：payload 损坏启动拒绝且不增加模型请求 (8743.811375ms)
+✔ durable 文件写入：写后强杀保留未知，原同步调用已结束且不再次改写 (3175.31375ms)
+✖ durable 本机入口：真实认证接口完成工具审批、授权撤销与原产物导出 (8371.646333ms)
+ℹ tests 97
+ℹ suites 0
+ℹ pass 96
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 84467.213875
+
+✖ failing tests:
+
+test at test/personal-tools.test.ts:359:1
+✖ durable 本机入口：真实认证接口完成工具审批、授权撤销与原产物导出 (8371.646333ms)
+  Error [PersonalError]: 未取得后台应答；请核实原消息或后台状态，不要重复提交新消息。
+      at ClientRequest.fail (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-control.ts:411:46)
+      at ClientRequest.emit (node:events:509:28)
+      at emitErrorEvent (node:_http_client:109:11)
+      at Socket.socketErrorListener (node:_http_client:593:5)
+      at Socket.emit (node:events:509:28)
+      at emitErrorNT (node:internal/streams/destroy:170:8)
+      at emitErrorCloseNT (node:internal/streams/destroy:129:3)
+      at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {
+    code: 'control_response_lost',
+    [cause]: Error: timeout
+        at Timeout._onTimeout (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-control.ts:412:50)
+        at listOnTimeout (node:internal/timers:605:17)
+        at process.processTimers (node:internal/timers:541:7)
+  }

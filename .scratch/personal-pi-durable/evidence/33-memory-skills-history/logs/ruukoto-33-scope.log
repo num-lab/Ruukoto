@@ -1,0 +1,84 @@
+
+> ruukoto-workspace@0.1.0 change-scope
+> tsx scripts/change-scope.ts --base 2280438
+
+{
+  "formatVersion": 1,
+  "repositoryRoot": "/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable",
+  "input": {
+    "base": "2280438",
+    "head": "HEAD"
+  },
+  "resolved": {
+    "baseSha": "22804380fafc9f0cad0010d451f4b6ef34de6555",
+    "headSha": "22804380fafc9f0cad0010d451f4b6ef34de6555",
+    "mergeBaseSha": "22804380fafc9f0cad0010d451f4b6ef34de6555"
+  },
+  "paths": {
+    "committed": [],
+    "staged": [],
+    "unstaged": [
+      ".agents/notes/implemented/architecture/2026-09-19-preserve-session-history.md",
+      ".agents/notes/implemented/architecture/2026-09-26-lossy-context-compaction.md",
+      ".agents/notes/implemented/architecture/2026-10-17-personal-durable-foundation.md",
+      ".agents/notes/implemented/architecture/2026-10-18-personal-durable-scheduled-work.md",
+      ".agents/skills/pre-push-checks/SKILL.md",
+      ".scratch/personal-pi-durable/issues/33-memory-skills-history.md",
+      "CONTEXT.md",
+      "README.md",
+      "apps/ruukoto/src/personal-cli.ts",
+      "apps/ruukoto/src/personal-control.ts",
+      "apps/ruukoto/src/personal-harness.ts",
+      "apps/ruukoto/src/personal-model.ts",
+      "apps/ruukoto/src/personal-profile.ts",
+      "apps/ruukoto/src/personal-schedule-execution.ts",
+      "apps/ruukoto/src/personal-schedule-scope.ts",
+      "apps/ruukoto/src/personal-work.ts",
+      "docs/development.md",
+      "docs/modules/agent-context.md",
+      "docs/modules/personal-durable.md",
+      "docs/modules/scheduler.md",
+      "docs/usage.md",
+      "packages/core/src/memory.ts",
+      "test/personal-cli.test.ts",
+      "test/personal-scheduler-integration.test.ts",
+      "test/personal-service-operations.test.ts",
+      "test/personal-services.test.ts",
+      "test/personal-tools.test.ts",
+      "test/personal-work-tools.test.ts",
+      "test/personal-work.test.ts",
+      "verification/smoke/smoke-personal-durable.mts"
+    ],
+    "untracked": [
+      ".agents/notes/implemented/architecture/2026-10-18-personal-memory-skills-history.md",
+      ".scratch/personal-pi-durable/evidence/33-memory-skills-history/after-requests.json",
+      ".scratch/personal-pi-durable/evidence/33-memory-skills-history/before-requests.json",
+      ".scratch/personal-pi-durable/evidence/33-memory-skills-history/estimates.json",
+      ".scratch/personal-pi-durable/evidence/33-memory-skills-history/logs/ruukoto-33-callers-extra-fixed.log",
+      ".scratch/personal-pi-durable/evidence/33-memory-skills-history/logs/ruukoto-33-callers-fixed.log",
+      ".scratch/personal-pi-durable/evidence/33-memory-skills-history/logs/ruukoto-33-callers.log",
+      ".scratch/personal-pi-durable/evidence/33-memory-skills-history/logs/ruukoto-33-durable.log",
+      ".scratch/personal-pi-durable/evidence/33-memory-skills-history/logs/ruukoto-33-final-context.log",
+      ".scratch/personal-pi-durable/evidence/33-memory-skills-history/logs/ruukoto-33-final-new.log",
+      ".scratch/personal-pi-durable/evidence/33-memory-skills-history/logs/ruukoto-33-memory-final.log",
+      ".scratch/personal-pi-durable/evidence/33-memory-skills-history/logs/ruukoto-33-memory-repair-final.log",
+      ".scratch/personal-pi-durable/evidence/33-memory-skills-history/logs/ruukoto-33-new-final.log",
+      ".scratch/personal-pi-durable/evidence/33-memory-skills-history/logs/ruukoto-33-new.log",
+      ".scratch/personal-pi-durable/evidence/33-memory-skills-history/logs/ruukoto-33-real-prerequisites.log",
+      ".scratch/personal-pi-durable/evidence/33-memory-skills-history/logs/ruukoto-33-setup.log",
+      ".scratch/personal-pi-durable/evidence/33-memory-skills-history/logs/ruukoto-33-static-final.log",
+      ".scratch/personal-pi-durable/evidence/33-memory-skills-history/logs/ruukoto-33-static.log",
+      ".scratch/personal-pi-durable/evidence/33-memory-skills-history/logs/ruukoto-33-tools-http-rerun.log",
+      "apps/ruukoto/src/personal-history.ts",
+      "apps/ruukoto/src/personal-memory-controls.ts",
+      "apps/ruukoto/src/personal-memory.ts",
+      "apps/ruukoto/src/personal-skills-cli.ts",
+      "apps/ruukoto/src/personal-skills-config.ts",
+      "apps/ruukoto/src/personal-skills.ts",
+      "test/personal-history.test.ts",
+      "test/personal-memory-controls.test.ts",
+      "test/personal-memory.test.ts",
+      "test/personal-skills.test.ts"
+    ]
+  }
+}

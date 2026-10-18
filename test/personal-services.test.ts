@@ -101,18 +101,18 @@ test("durable 服务：模型真实调用 inspect，原始字节和两工具定�
   assert.equal(requests.length, 6);
   assert.deepEqual(requests[1].payload, f.server.calls[0].raw);
   const names = f.server.calls[0].tools?.map(tool => (tool.function as { name: string }).name);
-  assert.deepEqual(names, ["read_artifact", "service_inspect", "read_service_inspection", "background_work", "schedule_create", "schedule_query", "schedule_cancel"]);
+  assert.deepEqual(names, ["memory", "history_search", "history_read", "skill", "read_artifact", "service_inspect", "read_service_inspection", "background_work", "schedule_create", "schedule_query", "schedule_cancel"]);
   assert.match(JSON.stringify(requests[0].input), /4096/);
   assert.ok((await personal.main.agent(context)).extensions.some(extension => extension.name === "personal-service-inspect"));
 });
 
-test("durable 服务：空闲空工具会话可显式启用，重开缺配置/变更/文档版本拒绝且零请求", async t => {
+test("durable 服务：空闲无服务工具会话可显式启用，重开缺配置/变更/文档版本拒绝且零请求", async t => {
   const f = await fixture(t);
   const empty = await f.open({ service: undefined });
-  assert.deepEqual((await empty.main.agent(context)).tools.map(tool => tool.name), ["read_artifact", "background_work", "schedule_create", "schedule_query", "schedule_cancel"]);
+  assert.deepEqual((await empty.main.agent(context)).tools.map(tool => tool.name), ["memory", "history_search", "history_read", "skill", "read_artifact", "background_work", "schedule_create", "schedule_query", "schedule_cancel"]);
   await empty.close();
   const enabled = await f.open();
-  assert.deepEqual((await enabled.main.agent(context)).tools.map(tool => tool.name), ["read_artifact", "service_inspect", "read_service_inspection", "background_work", "schedule_create", "schedule_query", "schedule_cancel"]);
+  assert.deepEqual((await enabled.main.agent(context)).tools.map(tool => tool.name), ["memory", "history_search", "history_read", "skill", "read_artifact", "service_inspect", "read_service_inspection", "background_work", "schedule_create", "schedule_query", "schedule_cancel"]);
   await enabled.close();
   await assert.rejects(f.open({ service: undefined }), code("service_config_changed"));
   await assert.rejects(f.open({ service: { ...f.service, policyPath: f.service.policyPath + ".other" } }), code("service_config_changed"));
@@ -394,7 +394,7 @@ test("子检查：三模式逐次固定原工作来源与权限，复用身份�
     assert.equal((await p.harness.waitForTask(ref.taskId, context)).state.outcome.status, "completed");
     if (previous) assert.equal(ref.agentId, previous.agentId);
     const child = (await p.harness.conversation(ref.agentId, context))!;
-    assert.deepEqual((await child.agent(context)).tools.map(tool => tool.name), ["service_inspect", "read_service_inspection"]);
+    assert.deepEqual((await child.agent(context)).tools.map(tool => tool.name), ["memory", "history_search", "history_read", "skill", "service_inspect", "read_service_inspection"]);
     const entries = (await child.entries({ order: "ascending" }, 256, undefined, context)).items;
     const admission = entries.filter(ServiceInspectionAdmission.is).at(-1)!;
     const work = (await p.harness.snapshot(PersonalWorkDoc, ref.requestId, context))!;
@@ -404,7 +404,7 @@ test("子检查：三模式逐次固定原工作来源与权限，复用身份�
     assert.deepEqual(admission.data.sources, [work.source!.submissionId]);
     assert.deepEqual(admission.data.work?.inputs, [work.submissionId]);
     const request = f.server.calls.filter(childRequest).at(-1)!;
-    assert.deepEqual(request.tools?.map(tool => (tool.function as { name: string }).name), ["service_inspect", "read_service_inspection"]);
+    assert.deepEqual(request.tools?.map(tool => (tool.function as { name: string }).name), ["memory", "history_search", "history_read", "skill", "service_inspect", "read_service_inspection"]);
     assert.deepEqual((entries.filter(entry => entry.kind === "ruukoto.model-request").at(-1)!.data as RequestEvidence).payload, request.raw);
     if (index === 0) t.diagnostic(JSON.stringify({ childSnapshot: request.raw, toolSchemas: Math.ceil(JSON.stringify(request.tools).length / 4), systemPrompt: Math.ceil((request.system?.length ?? 0) / 4) }));
     previous = ref;
@@ -620,7 +620,7 @@ test("子检查：旧空闲子配置同事务升级，未决旧工作拒绝且�
     await p.harness.commit(async tx => {
       const main = await tx.doc(AgentDoc, ROOT_CONVERSATION_ID); assert.ok(Array.isArray(main.extensions));
       main.extensions = main.extensions.filter(name => name !== "personal-subagent-service-inspect");
-      const child = await tx.doc(AgentDoc, ref.agentId); child.extensions = ["personal-subagent", "personal-background-work", "personal-media"]; child.tools = [];
+      const child = await tx.doc(AgentDoc, ref.agentId); child.extensions = ["personal-subagent", "personal-background-work", "personal-memory", "personal-history", "personal-skills", "personal-media"]; child.tools = ["memory", "history_search", "history_read", "skill"];
     }, context);
     await p.close();
     if (active) {
@@ -631,7 +631,7 @@ test("子检查：旧空闲子配置同事务升级，未决旧工作拒绝且�
       await storage.close(context);
     } else {
       p = await f.open(); const child = (await p.harness.conversation(ref.agentId, context))!;
-      assert.deepEqual((await child.agent(context)).tools.map(tool => tool.name), ["service_inspect", "read_service_inspection"]);
+      assert.deepEqual((await child.agent(context)).tools.map(tool => tool.name), ["memory", "history_search", "history_read", "skill", "service_inspect", "read_service_inspection"]);
       assert.ok((await p.main.agent(context)).extensions.some(extension => extension.name === "personal-subagent-service-inspect"));
       await p.close(); await f.open();
     }

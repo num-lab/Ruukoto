@@ -236,7 +236,7 @@ test("durable 模型快照：主子三模式保留实际工具定义与启用前
   }
   for (const request of [beforeMain, beforeChild]) assert.doesNotMatch(JSON.stringify(request.tools ?? []), /read_file|write_file|http_request|web_search/);
   assert.match(JSON.stringify(beforeMain.tools), /read_artifact/);
-  assert.doesNotMatch(JSON.stringify(beforeChild.tools ?? []), /read_artifact/);
+  assert.ok(!beforeChild.tools?.some(tool => (tool.function as { name: string }).name === "read_artifact"));
   t.diagnostic(JSON.stringify({ estimatedTokens: evidence }));
 });
 

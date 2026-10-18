@@ -1,3 +1,5 @@
+import { samePersonalEntry, PersonalTelegramReceiptDoc } from "./personal-telegram-records.ts";
+import { telegramSourceActive } from "./personal-permissions.ts";
 /** 命令事实归原工作持有；durable 决定执行阶段，私有回执只提供外部证据。
  * Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-full-access-commands.md
  * Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-durable-commands.md
@@ -26,11 +28,11 @@ type Work = PersonalWorkInspectionSource & { tool: TaskId; generation: TaskId; s
 type ExecutionRef = Pick<LinuxExecutionRef, keyof LinuxExecutionRef>;
 type CommandSpec = Omit<LaunchSpec, "grantedPaths"> & { grantedPaths: Array<Pick<LaunchSpec["grantedPaths"][number], keyof LaunchSpec["grantedPaths"][number]>> };
 type Prepared = { spec: CommandSpec; input: Pick<PreparedNativeLaunch, keyof PreparedNativeLaunch>; fingerprint: string };
-type Command = { ref: PersonalCommandRef; command: string; execution: ExecutionRef; work: Work; admission: EntryId; started: boolean; stopped: boolean; cancelRequested: boolean; prepared?: Prepared; startEntry?: EntryId; result?: Result; observation?: EntryId; resolution?: { effect: "applied" | "not_applied"; evidence: string; entry: EntryId }; stopTask?: TaskId };
+type Command = { ref: PersonalCommandRef; command: string; execution: ExecutionRef; work: Work; admission: EntryId; started: boolean; stopped: boolean; cancelRequested: boolean; prepared?: Prepared; startEntry?: EntryId; result?: Result; observation?: EntryId; resolution?: { effect: "applied" | "not_applied"; evidence: string; entry: EntryId; actor?: string }; stopTask?: TaskId };
 export const PersonalCommandsDoc = defineDoc<{ fingerprint: string }>({ kind: "ruukoto.commands", scope: "session", version: 1, initial: () => ({ fingerprint: "" }) });
 export const PersonalCommandDoc = defineDocFamily<{ command?: Command }, null>({ kind: "ruukoto.command", scope: "session", version: 1, family: true, initial: () => ({}) });
 export const CommandAdmission = defineEntry<{ ref: PersonalCommandRef; command: string; execution: ExecutionRef; work: Work }>("ruukoto.command-admission");
-const CommandResolution = defineEntry<{ ref: PersonalCommandRef; effect: "applied" | "not_applied"; evidence: string }>("ruukoto.command-resolution");
+const CommandResolution = defineEntry<{ ref: PersonalCommandRef; effect: "applied" | "not_applied"; evidence: string; actor?: string }>("ruukoto.command-resolution");
 const CommandStart = defineEntry<{ ref: PersonalCommandRef; prepared: Prepared }>("ruukoto.command-start");
 const CommandObservation = defineEntry<{ ref: PersonalCommandRef; execution: ExecutionRef; fingerprint: string; result: Result; stopped: boolean }>("ruukoto.command-observation");
 export const personalCommandsFingerprint = (config: PersonalCommandConfig) => createHash("sha256").update(JSON.stringify(config)).digest("hex");
@@ -99,12 +101,12 @@ export async function waitPersonalCommand(reader: DocumentObserver, ref: Persona
   } finally { await watch.stop(); }
 }
 
-export async function resolvePersonalCommand(tx: Tx, ref: PersonalCommandRef, effect: "applied" | "not_applied", evidence: string) {
+export async function resolvePersonalCommand(tx: Tx, ref: PersonalCommandRef, effect: "applied" | "not_applied", evidence: string, actor?: string) {
   if (!["applied", "not_applied"].includes(effect) || !evidence.trim() || evidence.length > 8192) throw new PersonalError("command_resolution_invalid", "请选择原命令已生效或未生效，并提供最多 8192 字符的非空核实证据。");
   const value = await personalCommand(tx, ref);
   if (value.result?.effect !== "effect_unknown" || value.result.code === "started" || value.resolution) throw new PersonalError("command_resolution_invalid", "原命令尚未进入效果核实或已保存核实结果，请刷新原记录。");
-  const entry = await tx.appendEntry(CommandResolution, ROOT_CONVERSATION_ID, { data: { ref, effect, evidence } });
-  value.resolution = { effect, evidence, entry: entry.id };
+  const entry = await tx.appendEntry(CommandResolution, ROOT_CONVERSATION_ID, { data: { ref, effect, evidence, ...(actor ? { actor } : {}) } });
+  value.resolution = { effect, evidence, entry: entry.id, ...(actor ? { actor } : {}) };
 }
 
 export function personalCommandWork(profile: string, config: PersonalCommandConfig) {
@@ -197,16 +199,26 @@ export function personalCommandWork(profile: string, config: PersonalCommandConf
     }, context);
   }
 
-  const stopTask = defineTask<{ ref: PersonalCommandRef; admission: EntryId }, { phase: "stop" }, object>({
+  async function canRecheck(tx: Tx, input: { ref: PersonalCommandRef; admission: EntryId; controlRequestId?: string }, taskId: TaskId) {
+    const value = await personalCommand(tx, input.ref);
+    if (value.admission !== input.admission) throw new PersonalError("command_record_invalid", "停止重核不属于原命令。");
+    if (!input.controlRequestId) return true;
+    const actor = (await tx.doc(PersonalTelegramReceiptDoc, input.controlRequestId, null)).receipt;
+    if (!actor?.control || !actor.direct || actor.commandStop?.taskId !== taskId || !isDeepStrictEqual(actor.commandStop.ref, value.ref) || !samePersonalEntry(value.work.telegram, actor)) throw new PersonalError("command_control_invalid", "原命令停止收件无法核实，请保留档案。");
+    return telegramSourceActive(tx, actor);
+  }
+  const stopTask = defineTask<{ ref: PersonalCommandRef; admission: EntryId; controlRequestId?: string }, { phase: "stop" }, object>({
     name: "ruukoto.command-stop", version: 1, initial: () => ({ phase: "stop" }),
     phases: { async stop(current, runtime, context) {
-      await runtime.commit(async tx => { if ((await personalCommand(tx, current.input.ref)).admission !== current.input.admission) throw new PersonalError("command_record_invalid", "停止重核不属于原命令。"); return undefined; }, context);
-      await reconcile(runtime, current.input.ref, context);
+      let active = false;
+      await runtime.commit(async tx => { active = await canRecheck(tx, current.input, current.id); return undefined; }, context);
+      if (active) await reconcile(runtime, current.input.ref, context);
       await runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result: {} } }), context);
     } },
     async abort(current, runtime, context) {
-      await runtime.commit(async tx => { if ((await personalCommand(tx, current.input.ref)).admission !== current.input.admission) throw new PersonalError("command_record_invalid", "停止重核不属于原命令。"); return undefined; }, context);
-      await reconcile(runtime, current.input.ref, context);
+      let active = false;
+      await runtime.commit(async tx => { active = await canRecheck(tx, current.input, current.id); return undefined; }, context);
+      if (active) await reconcile(runtime, current.input.ref, context);
       await runtime.commit(() => ({ status: "terminal", outcome: { status: "aborted", result: {} } }), context);
     },
   });
@@ -258,21 +270,23 @@ export function personalCommandWork(profile: string, config: PersonalCommandConf
       return permissionUnavailable;
     }
   }, { tag: false })] });
+  async function detailIn(tx: Tx, ref: PersonalCommandRef, stream: "stdout" | "stderr", offset: number) {
+    const op = copyJson(await personalCommand(tx, ref)) as Command;
+    let output: Awaited<ReturnType<typeof readPersonalCommandOutput>> | undefined, outputError: string | undefined;
+    try { output = op.prepared && await readPersonalCommandOutput(directory, op.execution, op.prepared.fingerprint, stream, offset); }
+    catch (error) { if (!(error instanceof PersonalError)) throw error; outputError = error.code; }
+    return { operation: ref.taskId, command: op.command, result: op.result, stopped: op.stopped, resolution: op.resolution && { effect: op.resolution.effect, evidence: op.resolution.evidence }, canResolve: op.result?.effect === "effect_unknown" && op.result.code !== "started" && !op.resolution, canRecheck: op.started && op.result?.code !== "started", output, outputError };
+  }
   return { extension, config, reconcile, directory, workerPath: environment.native.workerPath,
-    async requestStop(tx: Tx, ref: PersonalCommandRef) {
+    async requestStop(tx: Tx, ref: PersonalCommandRef, controlRequestId?: string) {
       const value = await personalCommand(tx, ref);
       if (!value.started || value.result?.code === "started") throw new PersonalError("command_stop_unavailable", "原命令仍在运行或尚未执行，请先取消原工作并刷新记录。");
       if (value.stopTask && (await tx.task(value.stopTask))?.state.status !== "terminal") return value.stopTask;
-      value.stopTask = await tx.createTask(stopTask, { ref, admission: value.admission }, { conversationId: ROOT_CONVERSATION_ID, ownership: { kind: "conversation" }, background: true });
+      value.stopTask = await tx.createTask(stopTask, { ref, admission: value.admission, ...(controlRequestId ? { controlRequestId } : {}) }, { conversationId: ROOT_CONVERSATION_ID, ownership: { kind: "conversation" }, background: true });
       return value.stopTask;
     },
-    async detail(harness: Harness, ref: PersonalCommandRef, stream: "stdout" | "stderr", offset = 0) {
-      const op = await harness.commit(async tx => copyJson(await personalCommand(tx, ref)) as Command, context);
-      let output: Awaited<ReturnType<typeof readPersonalCommandOutput>> | undefined, outputError: string | undefined;
-      try { output = op.prepared && await readPersonalCommandOutput(directory, op.execution, op.prepared.fingerprint, stream, offset); }
-      catch (error) { if (!(error instanceof PersonalError)) throw error; outputError = error.code; }
-      return { operation: ref.taskId, command: op.command, result: op.result, stopped: op.stopped, resolution: op.resolution && { effect: op.resolution.effect, evidence: op.resolution.evidence }, canResolve: op.result?.effect === "effect_unknown" && op.result.code !== "started" && !op.resolution, canRecheck: op.started && op.result?.code !== "started", output, outputError };
-    },
+    detailIn: (tx: Tx, ref: PersonalCommandRef, stream: "stdout" | "stderr", offset = 0) => detailIn(tx, ref, stream, offset),
+    detail: (harness: Harness, ref: PersonalCommandRef, stream: "stdout" | "stderr", offset = 0) => harness.commit(tx => detailIn(tx, ref, stream, offset), context),
   };
 }
 
@@ -302,9 +316,9 @@ export async function verifyPersonalCommands(tx: Tx, keys: string[], config: Per
       const evidence = await tx.entry(CommandObservation, op.observation);
       if (!evidence || evidence.conversationId !== ROOT_CONVERSATION_ID || !op.prepared || !isDeepStrictEqual(evidence.data, { ref: op.ref, execution: op.execution, fingerprint: op.prepared.fingerprint, result: op.result, stopped: op.stopped })) throw new PersonalError("command_record_invalid", "原命令的结果或停止缺少原观察证明，已停止恢复。");
     } else if (op.stopped || op.result?.effect === "returned") throw new PersonalError("command_record_invalid", "原命令缺少结果或停止证明，已停止恢复。");
-    if (op.resolution) { const entry = await tx.entry(CommandResolution, op.resolution.entry); if (!entry || entry.conversationId !== ROOT_CONVERSATION_ID || !isDeepStrictEqual(entry.data, { ref: op.ref, effect: op.resolution.effect, evidence: op.resolution.evidence })) throw new PersonalError("command_record_invalid", "原命令核实证据不符，已停止恢复。"); }
+    if (op.resolution) { const entry = await tx.entry(CommandResolution, op.resolution.entry); if (!entry || entry.conversationId !== ROOT_CONVERSATION_ID || !isDeepStrictEqual(entry.data, { ref: op.ref, effect: op.resolution.effect, evidence: op.resolution.evidence, ...(op.resolution.actor ? { actor: op.resolution.actor } : {}) })) throw new PersonalError("command_record_invalid", "原命令核实证据不符，已停止恢复。"); }
     if (personalCommandUnresolved(op) && (!isDeepStrictEqual(original.ref, op.work.ref) || (await tx.task(op.work.ref.taskId))?.state.status === "terminal")) throw new PersonalError("command_record_invalid", "原未知命令失去工作占用，已停止恢复。");
-    if (op.stopTask) { const stop = await tx.task(op.stopTask); if (stop?.kind !== "ruukoto.command-stop" || stop.version !== 1 || stop.owner !== undefined || !stop.background || stop.conversationId !== ROOT_CONVERSATION_ID || !isDeepStrictEqual(stop.input, { ref: op.ref, admission: op.admission })) throw new PersonalError("command_record_invalid", "原命令停止重核关系不符，已停止恢复。"); }
+    if (op.stopTask) { const stop = await tx.task(op.stopTask); if (stop?.kind !== "ruukoto.command-stop" || stop.version !== 1 || stop.owner !== undefined || !stop.background || stop.conversationId !== ROOT_CONVERSATION_ID || !isDeepStrictEqual(stop.input, { ref: op.ref, admission: op.admission, ...(stop.input && typeof stop.input === "object" && !Array.isArray(stop.input) && typeof stop.input.controlRequestId === "string" ? { controlRequestId: stop.input.controlRequestId } : {}) })) throw new PersonalError("command_record_invalid", "原命令停止重核关系不符，已停止恢复。"); }
   }
   let cursor: Cursor | undefined;
   do {
@@ -325,7 +339,7 @@ export async function verifyPersonalCommands(tx: Tx, keys: string[], config: Per
   cursor = undefined;
   do {
     const page = await tx.scanTasks({ kind: "ruukoto.command-stop" }, 256, cursor);
-    for (const stop of page.items) if (stop.version !== 1 || stop.owner !== undefined || !stop.background || stop.conversationId !== ROOT_CONVERSATION_ID || !values.some(op => isDeepStrictEqual(stop.input, { ref: op.ref, admission: op.admission }))) throw new PersonalError("command_record_invalid", "命令停止任务失去原接纳，已停止恢复。");
+    for (const stop of page.items) if (stop.version !== 1 || stop.owner !== undefined || !stop.background || stop.conversationId !== ROOT_CONVERSATION_ID || !values.some(op => isDeepStrictEqual(stop.input, { ref: op.ref, admission: op.admission, ...(stop.input && typeof stop.input === "object" && !Array.isArray(stop.input) && typeof stop.input.controlRequestId === "string" ? { controlRequestId: stop.input.controlRequestId } : {}) }))) throw new PersonalError("command_record_invalid", "命令停止任务失去原接纳，已停止恢复。");
     cursor = page.next;
   } while (cursor);
 }

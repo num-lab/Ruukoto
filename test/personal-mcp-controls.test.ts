@@ -170,7 +170,7 @@ test("MCP 本机控制：先认证再校验原操作与正文，非法请求不�
   const model = new MockModelServer(() => ({ kind: "text", text: "不应调用" }));
   const config: PersonalModelConfig = { api: "openai-completions", baseUrl: await model.start(), modelId: "mock-model", apiKeyEnv: "RUUKOTO_MCP_HTTP_MODEL_KEY", contextWindow: 128000, maxTokens: 1024 };
   const previous = process.env[config.apiKeyEnv]; process.env[config.apiKeyEnv] = "test-only";
-  savePersonalConfig(dir, config);
+  await savePersonalConfig(dir, config);
   let server: Awaited<ReturnType<typeof startPersonalServer>> | undefined;
   t.after(async () => { await server?.stop(); await model.close(); fs.rmSync(dir, { recursive: true, force: true }); if (previous === undefined) delete process.env[config.apiKeyEnv]; else process.env[config.apiKeyEnv] = previous; });
   server = await startPersonalServer(dir);

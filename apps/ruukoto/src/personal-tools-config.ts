@@ -1,3 +1,4 @@
+import { hasPendingPersonalWork } from "./personal-config-idle.ts";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { isDeepStrictEqual } from "node:util";
@@ -61,8 +62,7 @@ export async function savePersonalTools(target: string | PersonalProfileLock, va
       try {
         const format = await storage.findDocument({ kind: "ruukoto.format", scope: { kind: "session" } }, "current", context), saved = format && await storage.document(format.id, "current", context);
         if (!saved || !isDeepStrictEqual(saved.value, PERSONAL_FORMAT)) throw invalid();
-        const pages = await Promise.all([...(["pending", "running", "waiting", "completing"] as const).map(status => storage.scanTasks({ status }, 1, undefined, context)), ...(["queued", "placed"] as const).map(status => storage.scanSubmissions({ status }, 1, undefined, context))]);
-        if (pages.some(page => page.items.length)) throw new PersonalError("tools_config_pending", "仍有未完成输入或工作，未更改资料与网络配置；请先完成原工作，授权可在运行中撤销。");
+        if (await hasPendingPersonalWork(storage)) throw new PersonalError("tools_config_pending", "仍有未完成输入或工作，未更改资料与网络配置；请先完成原工作，授权可在运行中撤销。");
         let cursor;
         do {
           const page = await storage.scanDocuments({ kind: "ruukoto.tool-operation", scope: { kind: "session" }, at: "current" }, 256, cursor, context);

@@ -1,3 +1,8 @@
+import * as http from "node:http";
+import { once } from "node:events";
+import { createHash, randomUUID } from "node:crypto";
+import { PersonalTelegramDoc, PersonalTelegramReceiptDoc } from "../apps/ruukoto/src/personal-telegram-records.ts";
+import { startMockOneBot, MOCK_QQ_ACCOUNT, MOCK_QQ_SECRET } from "./helpers/mock-onebot.ts";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import nodeFs from "node:fs";
@@ -45,7 +50,7 @@ async function fixture(t: TestContext, command = "echo x >> count", respond?: Re
   const platform = Object.getOwnPropertyDescriptor(process, "platform")!;
   const realSpawn = childProcess.spawn, realExecFile = childProcess.execFile;
   const readFile = nodeFs.readFileSync, exists = nodeFs.existsSync, access = nodeFs.accessSync, open = nodeFs.openSync, stat = nodeFs.statSync, rename = nodeFs.renameSync;
-  let stopFails = false, receiptFails = false;
+  let stopFails = false, receiptFails = false, stopQueries = 0;
   const alive = (child: childProcess.ChildProcess) => child.exitCode === null && child.signalCode === null;
   Object.defineProperty(process, "platform", { value: "linux" });
   t.mock.method(nodeFs, "readFileSync", (target: fs.PathOrFileDescriptor, options?: Parameters<typeof fs.readFileSync>[1]) => {
@@ -91,6 +96,7 @@ async function fixture(t: TestContext, command = "echo x >> count", respond?: Re
     if (file !== "/usr/bin/systemctl") return realExecFile(file, args, options, callback);
     if (args.includes("is-system-running")) callback(null, "running\n", "");
     else {
+      stopQueries++;
       const value = children.get(args[2])!;
       callback(stopFails && !alive(value.child) ? new Error("query failed") : null,
         `LoadState=loaded\nActiveState=${alive(value.child) ? "active" : "inactive"}\nControlGroup=${value.group}\nInvocationID=${"c".repeat(32)}\nDescription=${value.description}\n`, "");
@@ -124,7 +130,7 @@ async function fixture(t: TestContext, command = "echo x >> count", respond?: Re
   return { root, directory, workspace, commands, server, provider: options.provider,
     open: async (overrides: Partial<Omit<Parameters<typeof openPersonalHarness>[0], "directory" | "profile">> = {}) => personal = await openPersonalHarness({ ...options, ...overrides }),
     failStop: (value = true) => { stopFails = value; }, failReceipt: (value = true) => { receiptFails = value; },
-    launches: () => children.size,
+    launches: () => children.size, stopQueries: () => stopQueries,
   };
 }
 const draft = (requestId: string, agentId?: PersonalWorkRef["agentId"]) => ({ requestId, sourceRequestId: "owner-source", content: "执行命令", ...(agentId ? { agentId } : {}) });
@@ -477,4 +483,112 @@ test("命令权限提示：缺工作及读取失败覆盖旧完全访问说明�
   t.mock.method(p.harness, "snapshot", async () => { throw new Error("read-failed"); });
   assert.equal(await render(input, context), "当前工作命令权限无法核实，请结束本轮并报告拥有者。");
   assert.equal(await render({ ...input, conversationId: ROOT_CONVERSATION_ID }, context), undefined);
+});
+
+
+async function commandIm(t: TestContext, f: Awaited<ReturnType<typeof fixture>>, platform: "telegram" | "qq") {
+  const bot = await startMockOneBot({}), sends: string[] = [];
+  let loseSend = false;
+  const server = http.createServer(async (req, res) => {
+    const chunks: Buffer[] = []; for await (const chunk of req) chunks.push(Buffer.from(chunk));
+    const body = JSON.parse(Buffer.concat(chunks).toString()) as { text: string; chat_id: string }; sends.push(body.text);
+    if (loseSend) { loseSend = false; res.destroy(); return; }
+    res.end(JSON.stringify({ ok: true, result: { message_id: 1000 + sends.length, chat: { id: Number(body.chat_id), type: "private" } } }));
+  });
+  server.listen(0, "127.0.0.1"); await once(server, "listening"); const address = server.address(); assert.ok(address && typeof address !== "string");
+  const token = `${MOCK_QQ_ACCOUNT}:test-token`, env = { COMMAND_TEST_BOT: token, COMMAND_TEST_QQ: MOCK_QQ_SECRET }, previous = Object.keys(env).map(key => [key, process.env[key]] as const);
+  Object.assign(process.env, env);
+  const telegram = { version: 1 as const, enabled: true, generation: randomUUID(), apiBase: `http://127.0.0.1:${address.port}`, tokenEnv: "COMMAND_TEST_BOT", tokenDigest: createHash("sha256").update(token).digest("hex"), botId: MOCK_QQ_ACCOUNT, ownerId: "456", boundary: 0 };
+  const qq = { version: 1 as const, enabled: true, generation: randomUUID(), endpoint: bot.url, tokenEnv: "COMMAND_TEST_QQ", tokenDigest: createHash("sha256").update(MOCK_QQ_SECRET).digest("hex"), botId: MOCK_QQ_ACCOUNT, ownerId: "456", boundary: 0, boundaryMessageId: "0" };
+  let p: PersonalHarness, controller: AbortController | undefined, poll: Promise<void> | undefined, id = 0;
+  const close = async () => { controller?.abort(); await poll; await p?.close(); };
+  t.after(async () => { await close(); await bot.close(); server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); for (const [key, value] of previous) { if (value === undefined) delete process.env[key]; else process.env[key] = value; } });
+  const open = async () => {
+    p = await f.open({ telegram, qq }); controller = new AbortController(); poll = p.qq.poll(controller.signal);
+    await until(async () => (await p.qq.status()).online); return p;
+  };
+  const receive = async (text: string, replyTo?: number, from: "telegram" | "qq" = platform, extra: Record<string, unknown> = {}) => {
+    const messageId = ++id;
+    const update = { update_id: messageId, message: { message_id: messageId, chat: { id: 456, type: "private" }, from: { id: 456, is_bot: false }, text, ...(replyTo === undefined ? {} : { reply_to_message: { message_id: replyTo, from: { id: Number(MOCK_QQ_ACCOUNT), is_bot: true } } }), ...extra } };
+    const event = { post_type: "message", message_type: "private", sub_type: "friend", self_id: Number(MOCK_QQ_ACCOUNT), user_id: 456, message_id: messageId, time: 20, message: [...(replyTo === undefined ? [] : [{ type: "reply", data: { id: String(replyTo) } }]), { type: "text", data: { text } }], ...extra };
+    const replay = () => from === "telegram" ? p.telegram.receive(update) : p.qq.receive(event);
+    await replay();
+    const key = `${from}:${MOCK_QQ_ACCOUNT}:456:${messageId}`;
+    const received = (await p.harness.snapshot(PersonalTelegramReceiptDoc, key, context))!.receipt!;
+    await p.harness.waitForTask(received.taskId, context);
+    return { key, value: (await p.harness.snapshot(PersonalTelegramReceiptDoc, key, context))!.receipt!, messageId, replay };
+  };
+  return { open, close, receive, sends, telegram, qq, nextKey: () => `${platform}:${MOCK_QQ_ACCOUNT}:456:${id + 1}`, lose: () => { loseSend = true; } };
+}
+
+for (const platform of ["telegram", "qq"] as const) test(`命令菜单：${platform} 原入口核实、分页、旧菜单/跨平台拒绝、重投和重开不重发`, async t => {
+  const f = await fixture(t, "printf '原输出'; head -c 7000 /dev/zero; printf '原错误' >&2; echo x >> count"), im = await commandIm(t, f, platform); let p = await im.open();
+  f.failReceipt(); f.failStop();
+  const source = await im.receive("请安排命令");
+  await p.work.delegate({ requestId: "im-command", sourceRequestId: source.key, content: "执行命令" }); const ref = await original(p); await unknown(p, ref);
+  const before = f.server.calls.length, list = await im.receive("/命令"), detail = await im.receive("命令1", Number(list.value.platformMessageId));
+  assert.match(detail.value.reply!, /业务效果未知/); assert.match(detail.value.reply!, /原命令/);
+  for (const action of ["查看命令输出", "查看命令错误"]) assert.match((await im.receive(action, Number(detail.value.platformMessageId))).value.reply!, /原输出|原错误/);
+  let output = await im.receive("查看命令输出", Number(detail.value.platformMessageId)), pages = 1;
+  while (output.value.selection?.kind === "command" && output.value.selection.nextOffset !== undefined) { output = await im.receive("下一页命令记录", Number(output.value.platformMessageId)); pages++; }
+  assert.equal(pages, 3);
+  assert.equal((await im.receive("命令确认已生效", Number(list.value.platformMessageId))).value.commandResolution, undefined);
+  assert.equal((await im.receive("命令确认已生效", Number(detail.value.platformMessageId), platform === "qq" ? "telegram" : "qq")).value.commandResolution, undefined);
+  if (platform === "telegram") assert.equal((await im.receive("命令确认已生效", Number(detail.value.platformMessageId), platform, { forward_origin: { type: "user" } })).value.commandResolution, undefined);
+  const confirm = await im.receive("命令确认已生效", Number(detail.value.platformMessageId));
+  if (platform === "telegram") im.lose();
+  const saved = await im.receive("命令核实说明 原计数只有一行", Number(confirm.value.platformMessageId));
+  if (platform === "telegram") assert.equal(saved.value.delivery, "effect_unknown");
+  const sends = im.sends.length; await saved.replay(); assert.equal(im.sends.length, sends);
+  assert.equal((await im.receive("命令核实说明 重复证据不能覆盖", Number(confirm.value.platformMessageId))).value.commandResolution, undefined);
+  assert.equal((await p.harness.snapshot(PersonalCommandDoc, ref.requestId, context))!.command!.resolution!.actor, saved.key);
+  assert.match((await im.receive("刷新命令", Number(detail.value.platformMessageId))).value.reply!, /原计数只有一行/);
+  assert.equal(f.server.calls.length, before);
+  await im.close(); p = await im.open();
+  f.failStop(false);
+  const after = await im.receive("命令1", Number((await im.receive("/命令")).value.platformMessageId));
+  const stop = await im.receive("核实命令停止", Number(after.value.platformMessageId));
+  await p.harness.waitForTask(stop.value.commandStop!.taskId, context);
+  assert.equal((await p.commands!.detail(ref, "stdout")).stopped, true);
+  assert.equal(f.launches(), 1); assert.equal(fs.readFileSync(path.join(f.workspace, "count"), "utf8"), "x\n");
+  await im.close(); p = await im.open(); assert.equal(f.launches(), 1); await im.close();
+});
+
+test("命令停止菜单：接纳后入口换代，执行前拒绝旧控制且不重复查询外部单元", async t => {
+  const f = await fixture(t), im = await commandIm(t, f, "telegram"), p = await im.open(); f.failReceipt(); f.failStop();
+  const source = await im.receive("安排命令"); await p.work.delegate({ requestId: "entry-change", sourceRequestId: source.key, content: "执行命令" }); const ref = await original(p); await unknown(p, ref);
+  const list = await im.receive("/命令"), detail = await im.receive("命令1", Number(list.value.platformMessageId));
+  const commit = p.harness.commit.bind(p.harness), expected = im.nextKey(), before = f.stopQueries();
+  t.mock.method(p.harness, "commit", (fn: Parameters<PersonalHarness["harness"]["commit"]>[0], taskContext: Parameters<PersonalHarness["harness"]["commit"]>[1]) => commit(async tx => {
+    const result = await fn(tx);
+    const actor = (await tx.doc(PersonalTelegramReceiptDoc, expected, null)).receipt;
+    if (actor?.commandStop) (await tx.doc(PersonalTelegramDoc)).config!.generation = "changed-before-stop";
+    return result;
+  }, taskContext));
+  const stop = await im.receive("核实命令停止", Number(detail.value.platformMessageId)); await p.harness.waitForTask(stop.value.commandStop!.taskId, context);
+  t.mock.restoreAll();
+  assert.equal(f.stopQueries(), before); assert.equal((await p.commands!.detail(ref, "stdout")).stopped, false); assert.equal(f.launches(), 1);
+  await im.close();
+});
+
+
+for (const corruption of ["marker", "resolution-actor", "resolution-receipt", "stop-actor", "stop-admission"] as const) test(`命令控制恢复：${corruption} 断链拒绝，零新增模型与命令执行`, async t => {
+  const f = await fixture(t), im = await commandIm(t, f, "telegram"); let p = await im.open(); f.failReceipt();
+  const source = await im.receive("安排命令"); await p.work.delegate({ requestId: "corrupt-control", sourceRequestId: source.key, content: "执行命令" }); const ref = await original(p); await unknown(p, ref);
+  const list = await im.receive("/命令"), detail = await im.receive("命令1", Number(list.value.platformMessageId)), confirmation = await im.receive("命令确认已生效", Number(detail.value.platformMessageId));
+  const resolution = await im.receive("命令核实说明 原结果已核实", Number(confirmation.value.platformMessageId));
+  const stop = await im.receive("核实命令停止", Number(detail.value.platformMessageId)); await p.harness.waitForTask(stop.value.commandStop!.taskId, context);
+  await p.harness.commit(async tx => {
+    if (corruption === "marker") { const agent = await tx.doc(AgentDoc, ROOT_CONVERSATION_ID); assert.ok(Array.isArray(agent.extensions)); agent.extensions = agent.extensions.filter(name => name !== "personal-owner-controls"); }
+    else if (corruption === "resolution-actor") (await tx.doc(PersonalCommandDoc, ref.requestId, null)).command!.resolution!.actor = "missing-receipt";
+    else if (corruption === "resolution-receipt") delete (await tx.doc(PersonalTelegramReceiptDoc, resolution.key, null)).receipt!.commandResolution;
+  }, context);
+  await im.close();
+  if (corruption === "stop-actor" || corruption === "stop-admission") {
+    const db = new DatabaseSync(path.join(f.directory, "personal.sqlite"));
+    try { db.prepare("UPDATE tasks SET record = json_set(record, ?, ?) WHERE id = ?").run(corruption === "stop-actor" ? "$.input.controlRequestId" : "$.input.admission", corruption === "stop-actor" ? "missing-receipt" : -1, stop.value.commandStop!.taskId); } finally { db.close(); }
+  }
+  const before = f.server.calls.length;
+  await assert.rejects(im.open(), error => error instanceof PersonalError && ["command_control_invalid", "command_record_invalid"].includes(error.code));
+  assert.equal(f.server.calls.length, before); assert.equal(f.launches(), 1);
 });

@@ -41,7 +41,7 @@ async function modelFixture() {
 }
 
 test("定时HTTP入口：真实后台认证、创建去重/异参拒绝、独立运行完整报告及取消后重启", async t => {
-  const f = await modelFixture(); savePersonalConfig(f.directory, f.config);
+  const f = await modelFixture(); await savePersonalConfig(f.directory, f.config);
   let server: Awaited<ReturnType<typeof startPersonalServer>> | undefined;
   t.after(async () => { await server?.stop(); await f.close(); }); server = await startPersonalServer(f.directory);
   const denied = await new Promise<string>((resolve, reject) => {

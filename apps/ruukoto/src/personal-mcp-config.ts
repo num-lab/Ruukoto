@@ -1,3 +1,4 @@
+import { hasPendingPersonalWork } from "./personal-config-idle.ts";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { createHash } from "node:crypto";
@@ -121,8 +122,7 @@ async function checkEnablement(profile: PersonalProfileLock) {
     const format = await storage.findDocument({ kind: "ruukoto.format", scope: { kind: "session" } }, "current", context);
     const saved = format && await storage.document(format.id, "current", context);
     if (!saved || saved.version !== 1 || !isDeepStrictEqual(saved.value, PERSONAL_FORMAT)) throw new PersonalError("extension_version", "个人业务格式无法核实，未保存 MCP 配置；请保留档案并使用对应程序。");
-    const pages = await Promise.all([...(["pending", "running", "waiting", "completing"] as const).map(status => storage.scanTasks({ status }, 1, undefined, context)), ...(["queued", "placed"] as const).map(status => storage.scanSubmissions({ status }, 1, undefined, context))]);
-    if (pages.some(page => page.items.length)) throw new PersonalError("mcp_config_pending", "档案仍有未完成输入或工作，未保存 MCP 配置；请先用原配置完成处理，再修改 MCP 配置。");
+    if (await hasPendingPersonalWork(storage)) throw new PersonalError("mcp_config_pending", "档案仍有未完成输入或工作，未保存 MCP 配置；请先用原配置完成处理，再修改 MCP 配置。");
     let cursor;
     do {
       const page = await storage.scanDocuments({ kind: "ruukoto.mcp", scope: { kind: "session" }, at: "current" }, 256, cursor, context);

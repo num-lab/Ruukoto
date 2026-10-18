@@ -359,7 +359,7 @@ test("durable 文件写入：写后强杀保留未知，原同步调用已结束
 test("durable 本机入口：真实认证接口完成工具审批、授权撤销与原产物导出", { timeout: 60_000 }, async t => {
   const f = await fixture(t), target = path.join(f.outside, "api-source"); fs.writeFileSync(target, "本机接口原字节");
   const p = await f.open(); await mode(p, "confirm"); await p.close();
-  savePersonalConfig(f.directory, f.config); await savePersonalTools(f.directory, f.tools);
+  await savePersonalConfig(f.directory, f.config); await savePersonalTools(f.directory, f.tools);
   const server = await startPersonalServer(f.directory);
   try {
     const requestId = randomUUID();

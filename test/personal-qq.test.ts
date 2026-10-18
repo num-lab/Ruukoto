@@ -353,3 +353,14 @@ test("QQ：应用数据批准固定原平台，跨平台菜单无效且重启保
   assert.equal((await operations()).at(-1)!.result?.effect, "committed"); assert.equal((await operations()).at(-1)!.actor, approved.key);
   await f.stop(); p = await f.open(); assert.equal((await operations()).at(-1)!.result?.effect, "committed");
 });
+
+
+for (const platform of ["qq", "telegram"] as const) test(`拥有者导航：${platform} 帮助与状态只走宿主，不接普通聊天批准`, async t => {
+  const f = await fixture(t); await f.open();
+  const help = await f.receive("/帮助", undefined, platform), status = await f.receive("/状态", undefined, platform);
+  assert.match(help.value.reply!, /\/命令/); assert.match(help.value.reply!, /本机引导式 CLI/); assert.match(status.value.reply!, /自动审查/);
+  assert.equal(f.model.calls.length, 0);
+  const plain = await f.receive("批准本次", Number(help.value.platformMessageId), platform);
+  assert.equal(plain.value.serviceDecision, undefined); assert.equal(f.model.calls.length, 0);
+  await f.stop(); await f.open(); assert.equal(f.model.calls.length, 0);
+});

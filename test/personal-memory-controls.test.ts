@@ -21,7 +21,7 @@ test("记忆控制：wire拒绝伪造来源、版本、额外字段与内部请�
 test("记忆控制：可信本机向导保存、读取、修订、撤销，历史检索不要求输入内部编号", { timeout: 15_000 }, async t => {
   const directory = fs.realpathSync(fs.mkdtempSync("/tmp/rk-memory-ui-")), model = new MockModelServer(() => ({ kind: "text", text: "原始回答" }));
   const apiKeyEnv = "MEMORY_UI_TEST_KEY", previous = process.env[apiKeyEnv]; process.env[apiKeyEnv] = "test-only";
-  savePersonalConfig(directory, { api: "openai-completions", baseUrl: await model.start(), modelId: "mock-model", apiKeyEnv, contextWindow: 128000, maxTokens: 1024 });
+  await savePersonalConfig(directory, { api: "openai-completions", baseUrl: await model.start(), modelId: "mock-model", apiKeyEnv, contextWindow: 128000, maxTokens: 1024 });
   const server = await startPersonalServer(directory);
   t.after(async () => { await server.stop(); await model.close(); if (previous === undefined) delete process.env[apiKeyEnv]; else process.env[apiKeyEnv] = previous; fs.rmSync(directory, { recursive: true, force: true }); });
   const run = async (answers: string[], action: typeof managePersonalMemory) => { let output = ""; await action({ question: async () => { assert.ok(answers.length, output); return answers.shift()!; }, write: value => { output += value; } }, directory); assert.equal(answers.length, 0); return output; };

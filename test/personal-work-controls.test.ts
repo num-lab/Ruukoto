@@ -46,7 +46,7 @@ async function fixture(t: TestContext, respond: Responder = () => ({ kind: "text
   const telegram: PersonalTelegramConfig = { version: 1, enabled: true, generation: randomUUID(), apiBase: `http://127.0.0.1:${address.port}`, tokenEnv: "RUUKOTO_WORK_MENU_BOT_KEY", tokenDigest: createHash("sha256").update("123:test-token").digest("hex"), botId: "123", ownerId: "456", boundary: 0 };
   const previous = [process.env[config.apiKeyEnv], process.env[telegram.tokenEnv]];
   process.env[config.apiKeyEnv] = "test-only"; process.env[telegram.tokenEnv] = "123:test-token";
-  savePersonalConfig(directory, config);
+  await savePersonalConfig(directory, config);
   let p: PersonalHarness;
   let server: Awaited<ReturnType<typeof startPersonalServer>> | undefined;
   let id = 0;

@@ -55,7 +55,7 @@ async function main() {
     running = false;
   };
   try {
-    savePersonalConfig(directory, parsePersonalModel({ api: model.api ?? provider.api, baseUrl: provider.baseUrl, modelId: model.id, apiKeyEnv: credentialName, contextWindow: model.contextWindow ?? 128000, maxTokens: Math.min(model.maxTokens ?? 4096, 4096) }));
+    await savePersonalConfig(directory, parsePersonalModel({ api: model.api ?? provider.api, baseUrl: provider.baseUrl, modelId: model.id, apiKeyEnv: credentialName, contextWindow: model.contextWindow ?? 128000, maxTokens: Math.min(model.maxTokens ?? 4096, 4096) }));
     const marker = `PERSONAL_CHECK_${randomUUID().replaceAll("-", "")}`, skillMarker = `SKILL_CHECK_${randomUUID().replaceAll("-", "")}`;
     const skill = path.join(skillDirectory, "skills", "acceptance-reference"); fs.mkdirSync(skill, { recursive: true, mode: 0o700 });
     fs.writeFileSync(path.join(skill, "SKILL.md"), `---\nname: acceptance-reference\ndescription: 隔离验收技能，要求时加载并按正文回复。\n---\n本技能只供参考，不增加工具或权限。本次任务完成后的最终回答必须仅为：${skillMarker}\n`, { mode: 0o600 });

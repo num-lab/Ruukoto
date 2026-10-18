@@ -1,3 +1,4 @@
+import { managePersonalPermissions } from "./personal-permissions-cli.ts";
 import { managePersonalAppData } from "./personal-app-data-controls.ts";
 import { configurePersonalSkills } from "./personal-skills-cli.ts";
 import { managePersonalMemory, managePersonalHistory } from "./personal-memory-controls.ts";
@@ -132,7 +133,7 @@ async function configure(io: PersonalCliIO, directory: string) {
     const imageInput = await choose(io, "此模型支持图片输入吗？", ["仅文字", "支持图片", "返回"]);
     if (imageInput === 2) return;
     const config = { imageInput: imageInput === 1, api: apis[selected], baseUrl: values[0], modelId: values[1], apiKeyEnv: values[2], contextWindow: Number(values[3] || "128000"), maxTokens: Number(values[4] || "4096") };
-    savePersonalConfig(profile, config);
+    await savePersonalConfig(profile, config);
     io.write("模型配置已保存。请在启动后台的环境中设置所选凭据变量。\n");
   } finally { profile.release(); }
 }
@@ -213,7 +214,7 @@ export async function configurePersonalServices(io: PersonalCliIO, directory: st
       if (value === "/back") return;
       values.push(value || fallback);
     }
-    if (await choose(io, "启用只读服务检查与宿主审批；模型写工具仍待接入", ["返回", "保存并启用"]) === 0) return;
+    if (await choose(io, "启用服务检查与受控重启；写入沿原工作权限核实", ["返回", "保存并启用"]) === 0) return;
     await savePersonalServices(profile, { version: 1, helperPath: values[0], policyPath: values[1], sudoPath: values[2] });
     io.write("服务配置已保存。启动后台后查看装配状态；配置不代表 helper 可用或服务健康，实际检查由白名单与部署核实。\n");
   } finally { profile.release(); }
@@ -400,9 +401,23 @@ export async function managePersonalCommands(io: PersonalCliIO, directory: strin
 }
 
 export async function personalMenu(directory: string, io: PersonalCliIO): Promise<void> {
-  io.write(`个人 durable 隔离实例\n档案：${directory}\n提供主会话、QQ / Telegram 共享主会话入口及 Linux 服务检查；模型写工具继续实施。\n`);
+  io.write(`个人 durable 隔离实例\n档案：${directory}\n通过聊天、后台工作、审批核实、权限和配置菜单管理此实例；IM 可直接发送 /帮助。\n`);
   while (true) {
-    const selected = await choose(io, "个人实例", ["配置模型（后台须停止）", "启动隔离后台", "查看状态", "发送消息", "查看最近消息", "核实上次提交", "停止隔离后台", "配置 Telegram（后台须停止）", "查看 Telegram 收发", "退出向导（后台继续运行）", "配置或查看服务（后台须停止）", "管理后台分析", "管理分析委托", "管理检查停止重核", "管理服务审批与核实", "配置或查看命令目录（后台须停止）", "管理命令效果与停止核实", "配置或查看 MCP（后台须停止）", "管理 MCP 审批、原响应与效果", "配置资料与网络工具（后台须停止）", "管理工具审批、资料授权与产物", "配置浏览器（后台须停止）", "管理浏览器、截图与网页效果", "配置 QQ（后台须停止）", "查看 QQ 收发", "管理定时计划与运行", "配置或查看技能（后台须停止）", "管理长期记忆", "检索历史原文", "管理应用数据审批与回执"]);
+    const actions = ["配置模型（后台须停止）", "启动隔离后台", "查看状态", "发送消息", "查看最近消息", "核实上次提交", "停止隔离后台", "配置 Telegram（后台须停止）", "查看 Telegram 收发", "退出向导（后台继续运行）", "配置或查看服务（后台须停止）", "管理后台分析", "管理分析委托", "管理检查停止重核", "管理服务审批与核实", "配置或查看命令目录（后台须停止）", "管理命令效果与停止核实", "配置或查看 MCP（后台须停止）", "管理 MCP 审批、原响应与效果", "配置资料与网络工具（后台须停止）", "管理工具审批、资料授权与产物", "配置浏览器（后台须停止）", "管理浏览器、截图与网页效果", "配置 QQ（后台须停止）", "查看 QQ 收发", "管理定时计划与运行", "配置或查看技能（后台须停止）", "管理长期记忆", "检索历史原文", "管理应用数据审批与回执", "管理默认模式与长期授权"];
+    const groups = [
+      { title: "聊天与消息", actions: [3, 4, 5] },
+      { title: "后台工作与定时计划", actions: [11, 12, 25] },
+      { title: "审批、效果与停止核实", actions: [13, 14, 16, 18, 20, 22, 29] },
+      { title: "权限、授权与个人资料", actions: [30, 20, 27, 28] },
+      { title: "配置能力（后台须停止）", actions: [0, 7, 23, 10, 15, 17, 19, 21, 26] },
+      { title: "实例状态与启停", actions: [2, 1, 6, 8, 24] },
+    ];
+    const group = await choose(io, "个人实例", [...groups.map(group => group.title), actions[9]]);
+    if (group === groups.length) return;
+    const current = groups[group];
+    const action = await choose(io, current.title, [...current.actions.map(index => actions[index]), "返回"]);
+    if (action === current.actions.length) continue;
+    const selected = current.actions[action];
     if (selected === 9) return;
     try {
       if (selected === 0) await configure(io, directory);
@@ -410,6 +425,7 @@ export async function personalMenu(directory: string, io: PersonalCliIO): Promis
       else if (selected === 2) {
         const status = await personalControl<PersonalStatus>(directory, "GET", "/status");
         io.write(`后台在线；模型：${status.model}；未完成输入：${status.inputs}；活动任务：${status.tasks}；服务检查与宿主审批：${status.services ? "已装配" : "未装配"}。\n`);
+        if (status.capabilities) io.write(`${Object.entries(status.capabilities).map(([name, enabled]) => `${({ commands: "命令", mcp: "MCP", tools: "资料与网络", browser: "浏览器", telegram: "Telegram", qq: "QQ" } as Record<string, string>)[name]}：${enabled ? "已配置" : "未配置"}`).join("；")}。装配与配置不证明外部服务可用。\n`);
       } else if (selected === 3) {
         if (!(await recoverInputs(io, directory))) continue;
         const message = await io.question("消息（输入 /back 返回）：");
@@ -446,6 +462,7 @@ export async function personalMenu(directory: string, io: PersonalCliIO): Promis
       else if (selected === 26) await configurePersonalSkills(io, directory);
       else if (selected === 27) await managePersonalMemory(io, directory);
       else if (selected === 29) await managePersonalAppData(io, directory);
+      else if (selected === 30) await managePersonalPermissions(io, directory);
       else if (selected === 28) await managePersonalHistory(io, directory);
       else {
         const state = await personalControl<Awaited<ReturnType<PersonalHarness["telegram"]["status"]>>>(directory, "GET", selected === 24 ? "/qq" : "/telegram");

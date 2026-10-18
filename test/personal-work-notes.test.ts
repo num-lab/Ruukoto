@@ -35,12 +35,13 @@ async function fixture(t: TestContext, respond: Responder = () => ({ kind: "text
   const model = new MockModelServer(respond);
   const config: PersonalModelConfig = { api: "openai-completions", baseUrl: await model.start(), modelId: "mock-model", apiKeyEnv: "RUUKOTO_WORK_NOTE_TEST_KEY", contextWindow: 128000, maxTokens: 8192 };
   const previous = process.env[config.apiKeyEnv]; process.env[config.apiKeyEnv] = "test-only";
+  await savePersonalConfig(directory, config);
   let p: PersonalHarness;
   let server: Awaited<ReturnType<typeof startPersonalServer>> | undefined;
   t.after(async () => { await server?.stop(); await p?.close(); await model.close(); fs.rmSync(directory, { recursive: true, force: true }); if (previous === undefined) delete process.env[config.apiKeyEnv]; else process.env[config.apiKeyEnv] = previous; });
   return { directory, config, model,
     open: async () => p = await openPersonalHarness({ directory, provider: personalProvider(config), modelId: config.modelId }),
-    start: async () => { savePersonalConfig(directory, config); server = await startPersonalServer(directory); return server; },
+    start: async () => { await savePersonalConfig(directory, config); server = await startPersonalServer(directory); return server; },
   };
 }
 async function delegate(p: PersonalHarness, requestId = "work") {

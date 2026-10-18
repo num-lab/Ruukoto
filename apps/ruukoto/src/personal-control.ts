@@ -1,3 +1,4 @@
+import { listPersonalServiceGrants, revokePersonalServiceGrant } from "./personal-service-operations.ts";
 import { appDataList, appDataDetail, appDataDecide, appDataRecheck } from "./personal-app-data.ts";
 import { parsePersonalMemoryControl, personalMemoryControl } from "./personal-memory-controls.ts";
 import { readPersonalMemory, searchPersonalMemory } from "./personal-memory.ts";
@@ -7,7 +8,7 @@ import { readPersonalQq } from "./personal-qq-config.ts";
 import { exportPersonalArtifact, type PersonalArtifact } from "./personal-artifacts.ts";
 import { browserList, browserDetail, browserResolve } from "./personal-browser.ts";
 import { readPersonalBrowser } from "./personal-browser-config.ts";
-import { PersonalPermissionsDoc } from "./personal-permissions.ts";
+import { personalPermissionFor, PersonalPermissionsDoc } from "./personal-permissions.ts";
 import { copyJson } from "@earendil-works/chord";
 import { readPersonalTools } from "./personal-tools-config.ts";
 import { PersonalToolsDoc, personalArtifactEntries, toolList, toolDetail, toolDecide, toolResolve, toolVerifyStop, toolGrant, toolRevoke } from "./personal-tools.ts";
@@ -44,10 +45,10 @@ const context = BACKGROUND_CONTEXT;
 const MAX_REQUEST = 128 * 1024;
 const MAX_RESPONSE = 256 * 1024;
 export const PERSONAL_REQUEST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-export type PersonalToolsControlBody = { mode: "auto-review" | "confirm" | "full_access" } | { operation: TaskId; decision: "approved" | "rejected" } | { operation: TaskId; effect: "applied" | "not_applied"; evidence: string } | { operation: TaskId; evidence: string } | { path: string } | { id: string } | { artifact: string; destination: string };
+export type PersonalToolsControlBody = { mode: "auto-review" | "confirm" | "full_access"; scope?: "qq" } | { id: string; version: number } | { operation: TaskId; decision: "approved" | "rejected" } | { operation: TaskId; effect: "applied" | "not_applied"; evidence: string } | { operation: TaskId; evidence: string } | { path: string } | { id: string } | { artifact: string; destination: string };
 export type PersonalInput = { requestId: string; input: string; work?: TaskId };
 export type PersonalInputStatus = { status: "queued" | "placed" | "done" | "unanswered" | "missing"; answer?: string; truncated?: boolean };
-export type PersonalStatus = { model: string; tasks: number; inputs: number; services: boolean };
+export type PersonalStatus = { model: string; tasks: number; inputs: number; services: boolean; capabilities: { commands: boolean; mcp: boolean; tools: boolean; browser: boolean; telegram: boolean; qq: boolean } };
 export type PersonalMessage = { role: "user" | "assistant"; text: string; partial: boolean; truncated: boolean };
 
 function queryNumber(url: URL, key: string, fallback?: number) {
@@ -162,7 +163,7 @@ export async function startPersonalServer(directory: string) {
         let result: unknown;
         if (req.method === "GET" && url.pathname === "/status") {
           const live = await instance.harness.inspect(context);
-          result = { model: config.modelId, tasks: live.tasks.length, inputs: live.submissions.length, services: !!services } satisfies PersonalStatus;
+          result = { model: config.modelId, tasks: live.tasks.length, inputs: live.submissions.length, services: !!services, capabilities: { commands: !!commands, mcp: !!mcp?.services.length, tools: !!tools, browser: !!browser, telegram: !!telegram?.enabled, qq: !!qq?.enabled } } satisfies PersonalStatus;
         } else if (req.method === "GET" && url.pathname === "/messages") {
           const entries = await instance.main.entries({}, 64, undefined, context);
           result = entries.items.map(text).filter(item => item !== undefined).slice(0, 16).reverse();
@@ -206,15 +207,28 @@ export async function startPersonalServer(directory: string) {
             }, context);
             if (url.pathname === "/schedule/cancel") instance.harness.resume();
           }
+        } else if (req.method === "GET" && url.pathname === "/permissions") {
+          result = await instance.harness.commit(async tx => {
+            const permission = await tx.doc(PersonalPermissionsDoc);
+            return { default: { mode: permission.mode }, qq: { mode: permission.qq?.mode ?? "auto-review" } };
+          }, context);
+        } else if (req.method === "GET" && url.pathname === "/service/grants") {
+          result = instance.service ? await instance.harness.commit(tx => listPersonalServiceGrants(tx, queryNumber(url, "offset", 0)), context) : { items: [] };
+        } else if (req.method === "POST" && url.pathname === "/service/grants/revoke") {
+          if (!instance.service) throw new PersonalError("service_config_missing", "服务未装配，请停止后台后通过向导配置。");
+          const value = await readControlJSON(req);
+          if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).length !== 2 || !("id" in value) || typeof value.id !== "string" || !("version" in value) || typeof value.version !== "number" || !Number.isSafeInteger(value.version) || value.version < 1) throw new PersonalError("service_grant_invalid", "请选择原长期授权；版本由向导管理。");
+          await instance.harness.commit(tx => revokePersonalServiceGrant(tx, value.id as string, value.version as number), context);
+          result = { saved: true };
         } else if (req.method === "POST" && url.pathname === "/permissions") {
           const value = await readControlJSON(req);
-          if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).length !== 1 || !("mode" in value) || value.mode !== "auto-review" && value.mode !== "confirm" && value.mode !== "full_access") throw new PersonalError("permissions_input_invalid", "请选择自动审查、请求确认或完全访问。");
-          const mode = value.mode;
+          if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).some(key => !["mode", "scope"].includes(key)) || "scope" in value && value.scope !== "qq" || !("mode" in value) || value.mode !== "auto-review" && value.mode !== "confirm" && value.mode !== "full_access") throw new PersonalError("permissions_input_invalid", "请选择自动审查、请求确认或完全访问。");
+          const mode = value.mode, scope = "scope" in value && value.scope === "qq" ? "qq" : undefined;
           await instance.harness.commit(async tx => {
-            const permission = await tx.doc(PersonalPermissionsDoc);
+            const permission = await personalPermissionFor(tx, scope ? { platform: scope } : undefined);
             if (permission.mode === mode) return;
             permission.mode = mode; permission.version++;
-            await tx.appendEntry(instance.main.id, { kind: "ruukoto.permissions-change", data: { mode, version: permission.version, source: "local" } });
+            await tx.appendEntry(instance.main.id, { kind: "ruukoto.permissions-change", data: { mode, version: permission.version, source: "local", ...(scope ? { scope } : {}) } });
           }, context);
           result = { saved: true };
         } else if (req.method === "GET" && url.pathname === "/browser") {

@@ -1,3 +1,4 @@
+import { hasPendingPersonalWork } from "./personal-config-idle.ts";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { isDeepStrictEqual } from "node:util";
@@ -43,9 +44,7 @@ async function checkEnablement(storage: Storage, config: PersonalServiceConfig):
   const savedOperations = operations && await storage.document(operations.id, "current", context);
   if (savedOperations && (!savedService || savedOperations.version !== 1 || savedOperations.value.enabled !== true)) throw new PersonalError("service_operations_config", "原服务操作配置无法核实，未保存；请保留档案并使用原配置。");
   if (savedService && savedOperations) return;
-  const tasks = await Promise.all((["pending", "running", "waiting", "completing"] as const).map(status => storage.scanTasks({ status }, 1, undefined, context)));
-  const inputs = await Promise.all((["queued", "placed"] as const).map(status => storage.scanSubmissions({ status }, 1, undefined, context)));
-  if ([...tasks, ...inputs].some(page => page.items.length)) throw new PersonalError("service_config_pending", "档案仍有未完成输入或工作，未保存服务配置；请先用原配置启动并完成处理，再启用服务。");
+  if (await hasPendingPersonalWork(storage)) throw new PersonalError("service_config_pending", "档案仍有未完成输入或工作，未保存服务配置；请先用原配置启动并完成处理，再启用服务。");
 }
 
 async function checkProfile(profile: PersonalProfileLock, config: PersonalServiceConfig): Promise<void> {

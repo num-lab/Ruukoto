@@ -23,7 +23,7 @@
 
 [逐项验收证据](docs/release-acceptance.md)。
 
-个人隔离 [`npm run personal:durable`](docs/usage.md#25-个人-durable-隔离向导)：Pi 1.3.0，QQ/Telegram、浏览器、服务/命令、MCP、资料/网络、调度、记忆/技能/历史、应用数据、整项回报；Coding：Pi 0.85.1，入口未变。
+个人隔离 [`npm run personal:durable`](docs/usage.md#25-个人-durable-隔离向导)：Pi 1.3.0，配置与核实按操作分组，IM用 `/帮助` 查入口；能力与操作见链接。Coding：Pi 0.85.1，入口未变。
 
 ## 快速开始
 

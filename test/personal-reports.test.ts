@@ -183,7 +183,7 @@ test("委托报告：本机菜单经后台查询完整报告，Telegram 原菜�
       const next = await f.receive(f.update("下一页报告", Number(firstPage.platformMessageId)));
       assert.match(next.reply!, /固定回答/); assert.equal(f.model.calls.length, before);
     } else {
-      await p.close(); savePersonalConfig(f.directory, f.config); const backend = await startPersonalServer(f.directory); t.after(() => backend.stop());
+      await p.close(); await savePersonalConfig(f.directory, f.config); const backend = await startPersonalServer(f.directory); t.after(() => backend.stop());
       const choices = ["1", "4", "1", "3", "2"]; let output = "";
       await managePersonalDelegations({ question: async () => choices.shift()!, write: text => { output += text; } }, f.directory);
       assert.match(output, /完整报告已保存本机/); assert.match(output, /固定回答/); assert.equal(f.model.calls.length, before);

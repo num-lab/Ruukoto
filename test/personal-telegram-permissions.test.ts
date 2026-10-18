@@ -18,7 +18,7 @@ import { PersonalWorkDoc } from "../apps/ruukoto/src/personal-work.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
 import { personalPermissionFor, PersonalPermissionsDoc } from "../apps/ruukoto/src/personal-permissions.ts";
 import { PersonalTelegramDoc, PersonalTelegramReceiptDoc } from "../apps/ruukoto/src/personal-telegram.ts";
-import { PersonalServiceGrantsDoc, PersonalServiceOperationDoc, ServiceOperationEvidence, type PersonalServiceOperationRef } from "../apps/ruukoto/src/personal-service-operations.ts";
+import { listPersonalServiceGrants, revokePersonalServiceGrant, PersonalServiceGrantsDoc, PersonalServiceOperationDoc, ServiceOperationEvidence, type PersonalServiceOperationRef } from "../apps/ruukoto/src/personal-service-operations.ts";
 import { personalServiceControls, listPersonalServices } from "../apps/ruukoto/src/personal-service-controls.ts";
 import type { PersonalTelegramConfig } from "../apps/ruukoto/src/personal-telegram-config.ts";
 import type { TelegramUpdate } from "../apps/ruukoto/src/personal-telegram-api.ts";
@@ -520,4 +520,21 @@ test("定时子服务权限：已有长期授权不继承，原菜单只能批�
   await f.receive("批准本次", Number(approvalMenu.value.platformMessageId)); await done(p, operation); assert.equal(f.starts(), 2);
   await until(async () => !!(await p.harness.snapshot(PersonalScheduleRunDoc, runId, context))!.run!.result);
   assert.equal((await p.harness.snapshot(PersonalScheduleRunDoc, runId, context))!.run!.result!.status, "completed");
+});
+
+
+test("长期授权：本机只能按原版本撤销，IM旧授权菜单不恢复权限", async t => {
+  const f = await fixture(t), p = await f.open(), ref = await f.request();
+  await f.receive("批准并长期授权", await menu(f)); await done(p, ref);
+  const listed = await p.harness.commit(tx => listPersonalServiceGrants(tx), context), grant = listed.items[0];
+  assert.equal(grant.active, true); assert.equal(grant.platform, "Telegram");
+  const oldMenu = await menu(f, "/授权");
+  await assert.rejects(p.harness.commit(tx => revokePersonalServiceGrant(tx, grant.id, grant.version + 1), context), code("service_grant_stale"));
+  await p.harness.commit(tx => revokePersonalServiceGrant(tx, grant.id, grant.version), context);
+  const current = (await p.harness.commit(tx => listPersonalServiceGrants(tx), context)).items[0];
+  assert.equal(current.active, false); assert.equal(current.version, grant.version + 1);
+  await f.receive("撤销授权", oldMenu);
+  assert.equal((await p.harness.snapshot(PersonalServiceGrantsDoc, context))!.grants[0].version, current.version);
+  const next = await f.request(); assert.equal((await p.service!.status(next)).operation.decision, "pending");
+  await f.receive("拒绝", await menu(f)); await done(p, next); await p.close(); await f.open();
 });

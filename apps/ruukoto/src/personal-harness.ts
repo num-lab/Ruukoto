@@ -2,7 +2,7 @@ import { personalQqApi } from "./personal-qq-api.ts";
 import { parsePersonalQq, qqToken, type PersonalQqConfig } from "./personal-qq-config.ts";
 import { isPersonalImRequest } from "./personal-telegram-records.ts";
 import { personalMedia, PERSONAL_MEDIA, PersonalMediaDoc, PersonalMediaMessageDoc, PersonalImageDoc } from "./personal-media.ts";
-import { personalBrowser, PERSONAL_BROWSER, PersonalBrowserDoc, PersonalBrowserOperationDoc, configureBrowser, verifyBrowser, browserRequestAllowed } from "./personal-browser.ts";
+import { personalBrowser, PERSONAL_BROWSER, PersonalBrowserDoc, PersonalBrowserOperationDoc, PersonalBrowserSessionDoc, configureBrowser, verifyBrowser, browserRequestAllowed } from "./personal-browser.ts";
 import type { PersonalBrowserConfig } from "./personal-browser-config.ts";
 import { personalBrowserControl, verifyBrowserControls } from "./personal-browser-controls.ts";
 import { PERSONAL_TOOLS, PERSONAL_TOOL_NAMES, PersonalToolsDoc, PersonalToolDoc, personalTools, personalArtifactReader, configureTools, verifyTools } from "./personal-tools.ts";
@@ -43,6 +43,14 @@ import { PERSONAL_MCP, PERSONAL_MCP_TOOLS, PersonalMcpConfigDoc, PersonalMcpDoc,
 import { parsePersonalMcp, type PersonalMcpConfig } from "./personal-mcp-config.ts";
 import type { McpTimeouts } from "@ruukoto/agent/mcp/transport.ts";
 import { personalMcpControl, verifyMcpControls } from "./personal-mcp-controls.ts";
+import { personalScheduler } from "./personal-scheduler.ts";
+import { personalScheduleTools, personalScheduledWork } from "./personal-scheduler-tools.ts";
+import { PersonalSchedulesDoc, PersonalScheduleDoc, PersonalScheduleRunDoc, PersonalScheduledConversationDoc, PERSONAL_SCHEDULED_WORK, verifySchedules } from "./personal-scheduler-records.ts";
+import { authorizePersonalSchedule, verifyPersonalScheduleCreator, verifyPersonalScheduleCancellation } from "./personal-schedule-authority.ts";
+import { capturePersonalScheduleScope, verifyPersonalScheduleScope } from "./personal-schedule-scope.ts";
+import { configurePersonalScheduledConversation, settlePersonalScheduledRun, sendPersonalScheduledReport } from "./personal-schedule-execution.ts";
+import { personalSource } from "./personal-source.ts";
+import { personalScheduleControl, personalSchedulerControls, verifyScheduleControls } from "./personal-scheduler-controls.ts";
 
 const context = BACKGROUND_CONTEXT;
 export const PersonalFormatDoc = defineDoc({ kind: "ruukoto.format", scope: "session", version: 1, initial: () => ({ ...PERSONAL_FORMAT }) });
@@ -63,6 +71,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
   tools?: PersonalToolsConfig;
   browser?: PersonalBrowserConfig;
   mcpTimeouts?: McpTimeouts;
+  now?: () => number;
 }) {
   const lock = options.profile ?? lockPersonalProfile(options.directory);
   let harness: Harness | undefined;
@@ -83,14 +92,17 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     browser = options.browser && personalBrowser(lock.directory, options.browser, () => harness!, { supportsImages: media.supportsImages, registerImage: media.registerImage, ...(!general ? { artifactReader: personalArtifactReader(lock.directory) } : {}) });
     const qqConfig = options.qq && parsePersonalQq(options.qq);
     const qqApi = qqConfig?.enabled ? personalQqApi(qqConfig, qqToken(qqConfig)) : undefined;
+    const scheduler = personalScheduler(() => harness!, { authorize: authorizePersonalSchedule, verifyCreator: (tx, plan) => verifyPersonalScheduleCreator(tx, plan, scheduleTools.tools?.find(tool => tool.name === "schedule_create")), captureScope: tx => capturePersonalScheduleScope(tx, service?.config.policyPath), verifyScope: verifyPersonalScheduleScope, configure: configurePersonalScheduledConversation, settle: (run, runtime, taskContext, cancel) => settlePersonalScheduledRun(run, runtime, taskContext, cancel, browser?.stop), send: (plan, text, signal) => sendPersonalScheduledReport(harness!, plan, text, signal, qqApi), now: options.now });
+    const scheduleTools = personalScheduleTools(() => harness!, scheduler), scheduledWork = personalScheduledWork(() => harness!);
     const reports = qqApi ? personalReports(qqApi) : personalDelegationReports;
     const telegramConfig = options.telegram && parsePersonalTelegram(options.telegram);
     const inspectionControls = personalInspectionControls(service?.config, () => harness!);
     const serviceControls = personalServiceControls(() => harness!, () => operations?.api(harness!));
-    const telegram = personalTelegram(telegramConfig, telegramConfig?.enabled ? personalTelegramApi(telegramConfig.apiBase, telegramToken(telegramConfig)) : undefined, async (tx, value) => await personalBrowserControl(tx, value, browser?.requestStop) || await personalToolControl(tx, value, general ? lock.directory : undefined) || await personalMcpControl(tx, value, mcp?.requestRecheck) || await serviceControls.control(tx, value) || await telegramInspectionControl(tx, value, inspectionControls.request) || !!await operations?.control(tx, value), media, qqConfig, qqApi);
+    const telegram = personalTelegram(telegramConfig, telegramConfig?.enabled ? personalTelegramApi(telegramConfig.apiBase, telegramToken(telegramConfig)) : undefined, async (tx, value) => await personalBrowserControl(tx, value, browser?.requestStop) || await personalToolControl(tx, value, general ? lock.directory : undefined) || await personalMcpControl(tx, value, mcp?.requestRecheck) || await serviceControls.control(tx, value) || await telegramInspectionControl(tx, value, inspectionControls.request) || !!await operations?.control(tx, value), media, qqConfig, qqApi, (tx, value) => personalScheduleControl(tx, value, scheduler));
     const registry = createRegistry();
     const qqExtension = defineExtension({ name: "personal-qq" });
     registry.install(qqExtension);
+    registry.install(scheduler.extension); registry.install(scheduleTools); registry.install(scheduledWork); registry.install(personalSchedulerControls);
     const workTools = personalWorkTools(() => harness!);
     const personal = defineExtension({ name: "personal", sections: [section("personal", () => PERSONAL_PROMPT + (services ? "主会话与子 Agent 均可检查宿主白名单内的服务状态，不代表业务健康。" + (serviceWork ? "子 Agent 可用 service_restart 完成原工作要求的受控服务重启；审批与未知效果由宿主处理。" : "") : "") + (commands ? "子 Agent 可用 run_command 以已配置目录执行命令，沿原工作权限；完全访问使用后台账户环境且免逐次审批，未知效果仍须在本机命令管理核实。" : ""), { tag: false })] });
     registry.install(personal);
@@ -202,7 +214,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     if (loadedBrowser && !loadedBrowser.value.config && (loadedBrowser.value.stateJson !== undefined || loadedBrowser.value.bindingEntry !== undefined || loadedBrowser.value.pause !== undefined || (Array.isArray(loadedBrowser.value.operations) && loadedBrowser.value.operations.length))) throw new PersonalError("browser_config_missing", "浏览器原绑定缺少配置，已停止恢复；请保留档案。");
     const savedBrowser = loadedBrowser?.value.config ? loadedBrowser : undefined;
     if (savedBrowser && !browser) throw new PersonalError("browser_config_missing", "档案的原浏览器配置缺失，已停止恢复；请恢复原配置。");
-    const browserKeys: string[] = [];
+    const browserKeys: string[] = [], browserSessionKeys: string[] = [];
     let browserCursor: Cursor | undefined;
     do {
       const page = await storage.scanDocuments({ kind: PersonalBrowserOperationDoc.definition.kind, scope: { kind: "session" }, at: "current" }, 256, browserCursor, context);
@@ -210,6 +222,17 @@ export async function openPersonalHarness(options: ({ directory: string; profile
         const saved = await storage.document(record.id, "current", context);
         if (!saved || saved.version !== 1 || record.key === undefined) throw new PersonalError("browser_record_invalid", "浏览器原操作缺失或版本不符，已停止恢复。");
         if (saved.value.operation) { if (!savedBrowser) throw new PersonalError("browser_config_missing", "浏览器操作缺少原配置，已停止恢复。"); browserKeys.push(record.key); }
+      }
+      browserCursor = page.next;
+    } while (browserCursor);
+    do {
+      const page = await storage.scanDocuments({ kind: PersonalBrowserSessionDoc.definition.kind, scope: { kind: "session" }, at: "current" }, 256, browserCursor, context);
+      for (const record of page.items) {
+        const saved = await storage.document(record.id, "current", context);
+        if (!saved || saved.version !== 1 || record.key === undefined) throw new PersonalError("browser_record_invalid", "定时浏览器会话版本不符，已停止恢复。");
+        if (!savedBrowser && Object.keys(saved.value).length === 0) continue;
+        if (!savedBrowser || !browser) throw new PersonalError("browser_record_invalid", "定时浏览器原配置缺失，已停止恢复。");
+        browserSessionKeys.push(record.key);
       }
       browserCursor = page.next;
     } while (browserCursor);
@@ -292,6 +315,29 @@ export async function openPersonalHarness(options: ({ directory: string; profile
       }
       inspectionCursor = page.next;
     } while (inspectionCursor);
+    const scheduleKeys: string[] = [], scheduleRunKeys: string[] = [], scheduleBindingKeys: string[] = [];
+    const scheduledIds = new Set<ConversationId>();
+    for (const token of [PersonalScheduleDoc, PersonalScheduleRunDoc, PersonalScheduledConversationDoc]) {
+      let scheduleCursor: Cursor | undefined;
+      do {
+        const page = await storage.scanDocuments({ kind: token.definition.kind, scope: { kind: "session" }, at: "current" }, 256, scheduleCursor, context);
+        for (const record of page.items) {
+          const saved = await storage.document(record.id, "current", context);
+          if (!saved || saved.version !== 1 || record.key === undefined) throw new PersonalError("schedule_record_invalid", "定时记录版本或引用不符，已停止恢复；请保留档案。");
+          if (token === PersonalScheduleDoc && saved.value.plan) scheduleKeys.push(record.key);
+          if (token === PersonalScheduleRunDoc && saved.value.run) {
+            const run = saved.value.run;
+            if (typeof run !== "object" || Array.isArray(run) || typeof run.conversationId !== "number") throw new PersonalError("schedule_record_invalid", "定时运行的独立会话缺失，已停止恢复。");
+            scheduleRunKeys.push(record.key); scheduledIds.add(run.conversationId as ConversationId);
+          }
+          if (token === PersonalScheduledConversationDoc && saved.value.runId !== undefined) scheduleBindingKeys.push(record.key);
+        }
+        scheduleCursor = page.next;
+      } while (scheduleCursor);
+    }
+    const schedulesRecord = await storage.findDocument({ kind: PersonalSchedulesDoc.definition.kind, scope: { kind: "session" } }, "current", context);
+    const savedSchedules = schedulesRecord && await storage.document(schedulesRecord.id, "current", context);
+    if (savedSchedules && savedSchedules.version !== 1 || !savedSchedules && (scheduleKeys.length || scheduleRunKeys.length || scheduleBindingKeys.length)) throw new PersonalError("schedule_record_invalid", "定时索引版本或原记录缺失，已停止恢复。");
     let cursor: Cursor | undefined;
     let serviceConversation = false;
     let workConversation = false;
@@ -305,8 +351,10 @@ export async function openPersonalHarness(options: ({ directory: string; profile
         if (!agent || agent.version !== AgentDoc.definition.version || !Array.isArray(extensions) || extensions.some(name => typeof name !== "string" || !registry.snapshot().extension(name))) {
           throw new PersonalError("extension_missing", "会话依赖的个人扩展缺失，已停止恢复，请使用与档案对应的程序。");
         }
+        if (conversation.id === ROOT_CONVERSATION_ID && savedSchedules && !extensions.includes(scheduler.extension.name)) throw new PersonalError("schedule_record_invalid", "主会话缺少原调度扩展，已停止恢复；请保留档案。");
         if (conversation.id === ROOT_CONVERSATION_ID && savedBrowser && !extensions.includes(PERSONAL_BROWSER)) throw new PersonalError("browser_config_missing", "主会话缺少原浏览器扩展，已停止恢复。");
-        if (extensions.includes(PERSONAL_BROWSER) && (conversation.id !== ROOT_CONVERSATION_ID || !savedBrowser)) throw new PersonalError("browser_record_invalid", "浏览器会话身份或原配置不符，已停止恢复。");
+        if (extensions.includes(PERSONAL_BROWSER) && (conversation.id !== ROOT_CONVERSATION_ID && !scheduledIds.has(conversation.id) || !savedBrowser)) throw new PersonalError("browser_record_invalid", "浏览器会话身份或原配置不符，已停止恢复。");
+        if (scheduledIds.has(conversation.id) !== extensions.includes(PERSONAL_SCHEDULED_WORK)) throw new PersonalError("schedule_record_invalid", "独立定时会话的固定身份不符，已停止恢复。");
         if (conversation.id === ROOT_CONVERSATION_ID && savedMedia && !extensions.includes(PERSONAL_MEDIA)) throw new PersonalError("media_record_invalid", "主会话缺少原媒体扩展，已停止恢复。");
         if (conversation.id === ROOT_CONVERSATION_ID && savedTelegram?.value.qqConfig && !extensions.includes(qqExtension.name)) throw new PersonalError("qq_version", "QQ 主会话缺少原入口扩展，已停止恢复。");
         if (conversation.id === ROOT_CONVERSATION_ID && savedPermissions && !extensions.includes(personalPermissions.name)) throw new PersonalError("permissions_version", "主会话缺少已登记的权限扩展，已停止恢复；请使用对应程序。");
@@ -361,12 +409,21 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     unlocked = harness.closed.then(async () => { if (browser) await browser.close(); if (options.beforeUnlock) await options.beforeUnlock(); lock.release(); });
     void unlocked.catch(() => process.stderr.write("[ruukoto:personal] 本机管理接口未能停止，实例锁仍保留；请检查后台并核实停止。\n"));
     const inspection = await harness.inspect(context);
+    await harness.commit(async tx => {
+      await verifySchedules(tx, scheduleKeys, scheduleRunKeys, !!savedSchedules, scheduler.verifyCreator, (tx, plan, cancellation) => verifyPersonalScheduleCancellation(tx, plan, cancellation, scheduleTools.tools?.find(tool => tool.name === "schedule_cancel")), scheduledWork.tools?.find(tool => tool.name === "background_work"));
+      for (const key of scheduleBindingKeys) {
+        const binding = await tx.doc(PersonalScheduledConversationDoc, key, null);
+        if (!binding.runId || !scheduleRunKeys.includes(binding.runId) || String((await tx.doc(PersonalScheduleRunDoc, binding.runId, null)).run?.conversationId) !== key) throw new PersonalError("schedule_record_invalid", "定时会话绑定断链，已停止恢复。");
+      }
+    }, context);
     const savedMain = await harness.snapshot(AgentDoc, ROOT_CONVERSATION_ID, context);
     const modelWorkEnabled = Array.isArray(savedMain?.extensions) && savedMain.extensions.includes(workTools.name);
     const workControlsEnabled = Array.isArray(savedMain?.extensions) && savedMain.extensions.includes(personalWorkControls.name);
     const workNotesEnabled = Array.isArray(savedMain?.extensions) && savedMain.extensions.includes(personalWorkNotes.name);
     const delegationsEnabled = Array.isArray(savedMain?.extensions) && savedMain.extensions.includes(personalAnalysisDelegations.name);
     const reportsEnabled = Array.isArray(savedMain?.extensions) && savedMain.extensions.includes(personalDelegationReports.name);
+    const schedulerEnabled = Array.isArray(savedMain?.extensions) && savedMain.extensions.includes(scheduler.extension.name);
+    const scheduleControlsEnabled = Array.isArray(savedMain?.extensions) && savedMain.extensions.includes(personalSchedulerControls.name);
     const childServicesEnabled = Array.isArray(savedMain?.extensions) && savedMain.extensions.includes(personalSubAgentServices.name);
     const childWritesEnabled = Array.isArray(savedMain?.extensions) && savedMain.extensions.includes(PERSONAL_SERVICE_WORK);
     const mediaEnabled = Array.isArray(savedMain?.extensions) && savedMain.extensions.includes(PERSONAL_MEDIA);
@@ -376,6 +433,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     const childCommandsEnabled = Array.isArray(savedMain?.extensions) && savedMain.extensions.includes(PERSONAL_COMMAND_WORK);
     const serviceControlsEnabled = Array.isArray(savedMain?.extensions) && savedMain.extensions.includes(serviceControls.extension.name);
     const inspectionControlsEnabled = Array.isArray(savedMain?.extensions) && savedMain.extensions.includes(inspectionControls.extension.name);
+    if (savedMain && !schedulerEnabled && (inspection.tasks.length || inspection.submissions.length)) throw new PersonalError("schedule_config_pending", "原档案仍有未完成输入或工作，请先用原程序完成处理后启用调度。");
     if (savedMain && !mediaEnabled && (inspection.tasks.length || inspection.submissions.length)) throw new PersonalError("media_config_pending", "原档案仍有未完成输入或工作，请先用原程序完成处理后启用图片。");
     if (savedMain && browser && !browserEnabled && (inspection.tasks.length || inspection.submissions.length)) throw new PersonalError("browser_config_pending", "原档案仍有未完成输入或工作，请先用原配置完成处理后启用浏览器。");
     if (savedMain && general && !toolsEnabled && (inspection.tasks.length || inspection.submissions.length)) throw new PersonalError("tools_config_pending", "仍有未完成输入或工作，请先用原配置完成处理，再启用通用工具。");
@@ -392,6 +450,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     await harness.commit(tx => verifyMcp(tx, mcpKeys), context);
     if (mcp && savedMcp && !isDeepStrictEqual(savedMcp.value.config, mcp.config) && await harness.commit(async tx => (await mcpOperations(tx)).some(mcpUnresolved), context)) throw new PersonalError("mcp_config_pending", "MCP 原调用效果或远端结束未核实，不能更换配置；请恢复原配置并核实原调用。");
     await harness.commit(tx => verifyMcpControls(tx, telegramKeys, mcpEnabled), context);
+    await harness.commit(tx => verifyScheduleControls(tx, telegramKeys, scheduleControlsEnabled, scheduler), context);
     if (commands && savedCommands) await harness.commit(tx => verifyPersonalCommands(tx, commandKeys, commands.config, commands.workerPath), context);
     await harness.commit(tx => verifyPersonalTelegram(tx, telegramKeys, telegramConfig, qqConfig), context);
     await harness.commit(async tx => { for (const key of telegramKeys) await verifyWorkMenu(tx, (await tx.doc(PersonalTelegramReceiptDoc, key, null)).receipt!, workControlsEnabled); }, context);
@@ -401,7 +460,8 @@ export async function openPersonalHarness(options: ({ directory: string; profile
       const value = (await harness.snapshot(PersonalInspectionDoc, key, context))!.inspection!;
       for (const id of value.sources) {
         const source = await storage.submission(id, context);
-        if (!source || source.type !== "input" || source.conversationId !== ROOT_CONVERSATION_ID || source.entry === undefined || source.entry >= value.admission) throw new PersonalError("service_inspection_invalid", "服务检查缺少原输入，已停止恢复；请保留档案。");
+        if (!source || source.type !== "input" || source.entry === undefined || source.entry >= value.admission || source.conversationId !== ROOT_CONVERSATION_ID && (!source.requestId || !scheduledIds.has(source.conversationId))) throw new PersonalError("service_inspection_invalid", "服务检查缺少原输入，已停止恢复；请保留档案。");
+        if (source.conversationId !== ROOT_CONVERSATION_ID) await harness.commit(tx => personalSource(tx, source.requestId!), context);
       }
     }
     await harness.commit(tx => verifyServiceOperationRecords(tx, operationKeys, inspectionKeys, childWritesEnabled), context);
@@ -416,18 +476,19 @@ export async function openPersonalHarness(options: ({ directory: string; profile
         if (!work.ref || !work.source || !task || task.kind !== PersonalWorkTask.definition.name || !index.agents.some(agent => agent.id === work.ref?.agentId)) throw new PersonalError("work_record_missing", "后台工作的来源、执行或身份记录缺失，已停止恢复；请检查档案。");
         const input = task.input;
         if (work.ref.requestId !== key || task.version !== PersonalWorkTask.definition.version || task.conversationId !== ROOT_CONVERSATION_ID || !task.background || task.owner !== undefined || !input || typeof input !== "object" || Array.isArray(input) || input.requestId !== key || input.agentId !== work.ref.agentId || typeof input.content !== "string") throw new PersonalError("work_ownership", "后台工作与原生执行的归属不符，已停止恢复；请检查档案。");
-        const source = await tx.submissionByRequest(ROOT_CONVERSATION_ID, work.source.requestId);
-        if (source?.id !== work.source.submissionId || source.entry !== work.source.entryId || (await tx.entry(work.source.entryId))?.kind !== "pi.user") throw new PersonalError("work_record_missing", "后台工作的拥有者来源无法核实，已停止恢复；请检查档案。");
+        const origin = await personalSource(tx, work.source.requestId, { invalidCode: "work_source_invalid" }), source = origin.submission;
+        if (source.id !== work.source.submissionId || source.entry !== work.source.entryId) throw new PersonalError("work_record_missing", "后台工作的原来源无法核实，已停止恢复；请检查档案。");
         if (work.modelCall !== undefined || key.startsWith("personal-tool:")) {
           const call = work.modelCall && await tx.task(work.modelCall);
           const callInput = call && call.input;
           const assistant = callInput && typeof callInput === "object" && !Array.isArray(callInput) && typeof callInput.assistant === "number" ? await tx.entry(callInput.assistant as EntryId) : undefined;
-          if (key !== `personal-tool:${work.modelCall}` || !call || call.kind !== "pi.tool" || call.conversationId !== ROOT_CONVERSATION_ID || !callInput || typeof callInput !== "object" || Array.isArray(callInput) || callInput.kind !== "model" || !assistant || assistant.conversationId !== ROOT_CONVERSATION_ID || assistant.id <= work.source.entryId || !assistant.model?.some(message => message.role === "assistant" && message.content.some(part => part.type === "toolCall" && part.id === callInput.callId && part.name === "background_work")) || !modelWorkEnabled || !work.permission) throw new PersonalError("work_record_missing", "模型后台工作的工具或权限来源无法核实，已停止恢复；请保留档案。");
+          if (key !== `personal-tool:${work.modelCall}` || !call || call.kind !== "pi.tool" || call.conversationId !== source.conversationId || !callInput || typeof callInput !== "object" || Array.isArray(callInput) || callInput.kind !== "model" || !assistant || assistant.conversationId !== source.conversationId || assistant.id <= work.source.entryId || !assistant.model?.some(message => message.role === "assistant" && message.content.some(part => part.type === "toolCall" && part.id === callInput.callId && part.name === "background_work")) || !modelWorkEnabled || !work.permission) throw new PersonalError("work_record_missing", "模型后台工作的工具或权限来源无法核实，已停止恢复；请保留档案。");
         }
         if (work.permission && (!["auto-review", "confirm", "full_access"].includes(work.permission.mode) || !Number.isSafeInteger(work.permission.version) || work.permission.version < 1)) throw new PersonalError("work_record_missing", "后台工作的原权限记录无效，已停止恢复；请保留档案。");
-        const localPermission = !work.telegram && await personalLocalPermission(tx, work.source.requestId);
+        if (origin.scheduled && (!isDeepStrictEqual(origin.permission, work.permission) || !isDeepStrictEqual(origin.telegram, work.telegram))) throw new PersonalError("work_record_missing", "定时子工作的创建授权或原入口不符，已停止恢复。");
+        const localPermission = !origin.scheduled && !work.telegram && await personalLocalPermission(tx, work.source.requestId);
         if (localPermission && !isDeepStrictEqual(work.permission, localPermission)) throw new PersonalError("work_record_missing", "后台工作与原本机输入权限不符，已停止恢复；请保留档案。");
-        if (work.telegram) {
+        if (work.telegram && !origin.scheduled) {
           const receipt = (await tx.doc(PersonalTelegramReceiptDoc, work.source.requestId, null)).receipt;
           if (!receipt || receipt.submissionId !== source.id || !isDeepStrictEqual(permissionSnapshot(receipt), work.telegram) || !isDeepStrictEqual(work.permission, { mode: work.telegram.mode, version: work.telegram.version })) throw new PersonalError("work_record_missing", "后台工作的原拥有者 IM 权限无法核实，已停止恢复；请保留档案。");
         } else if (work.modelCall !== undefined && isPersonalImRequest(work.source.requestId)) throw new PersonalError("work_record_missing", "模型后台工作缺少原拥有者 IM 绑定，已停止恢复；请保留档案。");
@@ -448,7 +509,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
         if (!work.ref || work.ref.taskId !== agent.work.taskId || work.ref.agentId !== agent.id || !task || task.state.status === "terminal") throw new PersonalError("work_ownership", "子 Agent 的工作占用无法核实，已停止恢复；请检查原工作和档案。");
       }
     }, context);
-    await harness.commit(tx => verifyBrowser(tx, browserKeys, lock.directory, browser?.extension.tools), context);
+    await harness.commit(tx => verifyBrowser(tx, browserKeys, lock.directory, browser?.extension.tools, browserSessionKeys), context);
     await harness.commit(tx => verifyBrowserControls(tx, telegramKeys, browserEnabled), context);
     await harness.commit(tx => verifyTools(tx, toolKeys, lock.directory, general?.extension.tools), context);
     await harness.commit(tx => verifyToolControls(tx, telegramKeys, toolsEnabled), context);
@@ -456,8 +517,8 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     await harness.commit(tx => verifyPersonalReports(tx, delegationKeys, reportsEnabled), context);
     await harness.commit(async tx => { for (const key of telegramKeys) await verifyDelegationMenu(tx, (await tx.doc(PersonalTelegramReceiptDoc, key, null)).receipt!, delegationsEnabled); }, context);
     await harness.commit(tx => tx.doc(PersonalFormatDoc), context);
-    const extensions = [...(qqConfig ? [qqExtension] : []), personal, media.extension, ...(browser ? [browser.extension] : []), personalPermissions, personalBackgroundWork, workTools, personalWorkControls, personalWorkNotes, personalAnalysisDelegations, reports, telegram.extension, inspectionControls.extension, serviceControls.extension, ...(services ? [services, personalInspectionExtension, personalSubAgentServices] : []), ...(operations ? [operations.extension] : []), ...(serviceWork ? [serviceWork] : []), ...(commands ? [commands.extension] : []), ...(mcp ? [mcp.extension] : []), ...(general ? [general.extension] : [])];
-    const tools = [...(media.extension.tools ?? []), ...(browser?.extension.tools ?? []), ...(services?.tools ?? []), ...workTools.tools!, ...(mcp?.extension.tools ?? []), ...(general?.extension.tools ?? [])];
+    const extensions = [...(qqConfig ? [qqExtension] : []), personal, media.extension, ...(browser ? [browser.extension] : []), personalPermissions, personalBackgroundWork, workTools, personalWorkControls, personalWorkNotes, personalAnalysisDelegations, reports, telegram.extension, inspectionControls.extension, serviceControls.extension, scheduler.extension, scheduleTools, personalSchedulerControls, ...(services ? [services, personalInspectionExtension, personalSubAgentServices] : []), ...(operations ? [operations.extension] : []), ...(serviceWork ? [serviceWork] : []), ...(commands ? [commands.extension] : []), ...(mcp ? [mcp.extension] : []), ...(general ? [general.extension] : [])];
+    const tools = [...(media.extension.tools ?? []), ...(browser?.extension.tools ?? []), ...(services?.tools ?? []), ...workTools.tools!, ...(mcp?.extension.tools ?? []), ...(general?.extension.tools ?? []), ...scheduleTools.tools!];
     if (service) await harness.commit(async tx => { (await tx.doc(PersonalServiceDoc)).fingerprint = service.fingerprint; }, context);
     const main = await harness.root(context, { agent: { model: { provider: options.provider.id, modelId: options.modelId }, thinkingLevel: "off", extensions, tools }, init: async tx => { await tx.doc(PersonalAgentsDoc); await tx.doc(PersonalPermissionsDoc); if (operations) { await tx.doc(PersonalServiceOperationsDoc); await tx.doc(PersonalServiceGrantsDoc); } } });
     if (mcp) await harness.commit(tx => configureMcp(tx, mcp.config), context);
@@ -519,6 +580,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     await media.recover();
     if (browser) await browser.recover();
     if (general) await general.recover();
+    await instance.commit(tx => scheduler.start(tx), context);
     instance.resume();
     const im = telegram.api(instance);
     return {
@@ -527,6 +589,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
       tools: general,
       browser,
       media,
+      scheduler,
       work: personalWork(instance, { provider: options.provider.id, modelId: options.modelId }),
       service: operations?.api(instance),
       mcp: mcp && {

@@ -1,11 +1,10 @@
-import { personalLocalPermission } from "./personal-local-records.ts";
 import { PERSONAL_MEDIA } from "./personal-media.ts";
 import { PERSONAL_TOOLS, PERSONAL_TOOL_NAMES, requireWorkToolsStopped, toolOperations, toolUnresolved, waitWorkTools } from "./personal-tools.ts";
 import { isDeepStrictEqual } from "node:util";
 import { createHash } from "node:crypto";
 import { BACKGROUND_CONTEXT, type Context } from "@earendil-works/chord/context";
 import { AgentDoc, AssistantEntry, configure, defineDoc, defineDocFamily, defineEntry, defineExtension, defineTask, ROOT_CONVERSATION_ID, section, type ConversationId, type Cursor, type EntryId, type Harness, type ModelRef, type SubmissionId, type TaskId, type TaskRuntime, type Tx } from "@earendil-works/pi-durable";
-import { permissionSnapshot, telegramSelection, telegramSourceActive, PersonalPermissionsDoc, type PersonalTelegramSource } from "./personal-permissions.ts";
+import { permissionSnapshot, telegramSelection, telegramSourceActive, type PersonalTelegramSource } from "./personal-permissions.ts";
 import { samePersonalEntry, type PersonalEntryIdentity, isPersonalImRequest, PersonalTelegramReceiptDoc } from "./personal-telegram-records.ts";
 import { PERSONAL_SERVICE_WORK, interruptedPersonalService, personalWorkServices, requirePersonalWorkServicesStopped, requirePersonalServiceSourceReady, waitPersonalServiceEffect, type PersonalServiceOperationRef } from "./personal-service-operations.ts";
 import { PersonalError } from "./personal-error.ts";
@@ -16,6 +15,9 @@ import { personalSubAgentServices } from "./personal-services.ts";
 import { PERSONAL_COMMAND_WORK, personalWorkCommands, requirePersonalCommandsStopped, waitPersonalCommand } from "./personal-command-work.ts";
 
 import { PERSONAL_MCP, PERSONAL_MCP_TOOLS, mcpOperations, mcpUnresolved, requireWorkMcpStopped, waitWorkMcp } from "./personal-mcp.ts";
+import { personalSource } from "./personal-source.ts";
+import { scheduledConversation, SCHEDULE_SUMMARY_INPUT } from "./personal-scheduler-records.ts";
+import { LiveDoc } from "@earendil-works/pi-durable";
 
 type WorkResult = { submissionId: SubmissionId };
 export type PersonalWorkRef = { requestId: string; taskId: TaskId<WorkResult>; agentId: ConversationId };
@@ -197,14 +199,10 @@ export async function delegatePersonalWork(tx: Tx, model: ModelRef, input: Deleg
     if (work.fingerprint !== fingerprint) throw new PersonalError("work_request_conflict", "同一后台工作请求的内容不同，请查询原工作；不要换键自动重试。");
     return { ...work.ref };
   }
-  const source = await tx.submissionByRequest(ROOT_CONVERSATION_ID, input.sourceRequestId);
-  const entry = source?.entry && await tx.entry(source.entry);
-  if (source?.type !== "input" || (source.status !== "placed" && source.status !== "done") || !entry || entry.kind !== "pi.user") throw new PersonalError("work_source_invalid", "后台工作需要已进入主会话的拥有者输入，不能使用回报、排队或失败的输入。");
-  const receipt = isPersonalImRequest(input.sourceRequestId) ? (await tx.doc(PersonalTelegramReceiptDoc, input.sourceRequestId, null)).receipt : undefined;
-  const telegram = receipt && permissionSnapshot(receipt);
-  if (isPersonalImRequest(input.sourceRequestId) && (!telegram || receipt?.submissionId !== source.id || !await telegramSourceActive(tx, telegram))) throw new PersonalError("work_source_invalid", "原拥有者输入没有有效的权限快照，请由当前绑定拥有者重新提交委托。");
+  const origin = await personalSource(tx, input.sourceRequestId, { active: true, invalidCode: "work_source_invalid" });
+  const { submission: source, entry, telegram, permission } = origin;
+  if (origin.scheduled && origin.run.sealed) throw new PersonalError("work_source_sealed", "定时运行已封组收尾，未接纳新子工作；请查询本次运行并结束本轮。");
   await requirePersonalServiceSourceReady(tx, input.sourceRequestId);
-  const permission = telegram ?? await personalLocalPermission(tx, input.sourceRequestId) ?? await tx.doc(PersonalPermissionsDoc);
   const index = await tx.doc(PersonalAgentsDoc);
   let agent = input.agentId && index.agents.find(agent => agent.id === input.agentId);
   if (input.agentId && !agent) throw new PersonalError("subagent_missing", "找不到此子 Agent，请查询已有身份。");
@@ -278,6 +276,7 @@ export async function appendPersonalWork(tx: Tx, ref: PersonalWorkRef, input: { 
   }
   const task = await tx.task(ref.taskId);
   if (work.cancelRequested || !task || task.state.status === "terminal" || task.state.status === "completing" || task.abortRequested) throw new PersonalError("work_inactive", "原分析已结束或正在取消，未接纳说明；请查询原工作后决定下一步。");
+  if (work.source) { const origin = await personalSource(tx, work.source.requestId, { active: true }); if (origin.scheduled && origin.run.sealed) throw new PersonalError("work_source_sealed", "本次定时运行已封组，未接纳新说明；请查询原运行。新工作由拥有者另行提交。"); }
   await occupancy(tx, { ...ref, content: "" }, ref.taskId);
   if (work.delegation) await requirePersonalDelegationReady(tx, work.delegation);
   if (work.delegation) await requirePersonalDelegationOpen(tx, work.delegation);
@@ -467,6 +466,17 @@ export function personalWork(harness: Harness, model: ModelRef) {
 
 export async function requirePersonalWorkRequest(tx: Tx, conversationId: ConversationId) {
   if (conversationId === ROOT_CONVERSATION_ID) return;
+  const scheduled = await scheduledConversation(tx, conversationId);
+  if (scheduled) {
+    const source = await personalSource(tx, scheduled.run.requestId, { active: true });
+    const live = await tx.doc(LiveDoc, conversationId);
+    const summary = scheduled.run.summary && await tx.submissionByRequest(conversationId, `personal-schedule-summary:${scheduled.run.id}`);
+    const entry = summary?.entry && await tx.entry(summary.entry);
+    const expected = scheduled.run.sealed ? summary?.id : source.submission.id;
+    if (live.run?.inputs.length !== 1 || live.run.inputs[0] !== expected || scheduled.run.sealed && (!entry || entry.kind !== SCHEDULE_SUMMARY_INPUT || !isDeepStrictEqual(entry.data, { runId: scheduled.run.id, admission: scheduled.run.summary?.admission }) || entry.model?.[0]?.role !== "user" || entry.model[0].content !== scheduled.run.summary?.content)) throw new PersonalError("schedule_request_invalid", "定时模型请求的执行或汇总来源不符，已停止；请查询原运行。");
+    await requirePersonalServiceSourceReady(tx, scheduled.run.requestId);
+    return;
+  }
   const agent = (await tx.doc(PersonalAgentsDoc)).agents.find(agent => agent.id === conversationId);
   if (!agent) {
     const extensions = (await tx.doc(AgentDoc, conversationId)).extensions;
@@ -477,7 +487,7 @@ export async function requirePersonalWorkRequest(tx: Tx, conversationId: Convers
   const work = await facts(tx, agent.work);
   if (work.delegation) await requirePersonalDelegationReady(tx, work.delegation);
   if (work.telegram && !await telegramSourceActive(tx, work.telegram)) throw new PersonalError("work_source_inactive", "原拥有者入口已停用或变更，后台工作已停止模型请求；请向拥有者报告并查询原工作。");
-  if (work.source) await requirePersonalServiceSourceReady(tx, work.source.requestId);
+  if (work.source) { await personalSource(tx, work.source.requestId, { active: true }); await requirePersonalServiceSourceReady(tx, work.source.requestId); }
   for (const note of work.notes ?? []) if (note.source.kind === "input") await requirePersonalServiceSourceReady(tx, note.source.requestId);
   const task = await tx.task(agent.work.taskId);
   if (!task || task.state.status === "terminal" || task.state.status === "completing" || task.abortRequested) throw new PersonalError("work_inactive", "子 Agent 的工作已停止或无法核实，已停止模型请求；请查询原工作。");

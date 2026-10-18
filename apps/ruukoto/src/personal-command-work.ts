@@ -16,6 +16,7 @@ import { PersonalError } from "./personal-error.ts";
 import { activePersonalWorkInspection, PersonalAgentsDoc, PersonalWorkDoc, personalWorkInspectionSource, requirePersonalWorkRequest, type PersonalWorkInspectionSource } from "./personal-work.ts";
 import { preparePersonalCommand, personalCommandFingerprint, readPersonalCommandOutput, readPersonalCommandReceipt, runPersonalCommand, stopPersonalCommand, type PersonalCommandReceipt } from "./personal-command-execution.ts";
 import { personalCommandEnvironment, verifyPersonalCommandConfig, type PersonalCommandConfig } from "./personal-command-config.ts";
+import { personalSourceSubmission } from "./personal-source.ts";
 
 export const PERSONAL_COMMAND_WORK = "personal-command-work";
 const context = BACKGROUND_CONTEXT;
@@ -68,7 +69,7 @@ export async function personalCommandsIn(tx: Tx) {
 }
 
 export async function personalCommandSourceBlocker(tx: Tx, requestId: string) {
-  const source = await tx.submissionByRequest(ROOT_CONVERSATION_ID, requestId);
+  const source = await personalSourceSubmission(tx, requestId);
   if (!source) return;
   for (const op of await personalCommandsIn(tx)) if (op.work.sources.includes(source.id) && personalCommandUnresolved(op)) return { command: op.ref.requestId, admission: op.admission };
 }

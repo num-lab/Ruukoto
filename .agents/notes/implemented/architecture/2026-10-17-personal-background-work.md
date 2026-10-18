@@ -26,6 +26,8 @@ provider prepare 与 onPayload 都按持久 ProviderDoc.sessionId 唯一定位�
 
 按 durable、长期子 Agent、后台工作、取消与 ProviderDoc 检索 active notes；没有 rejected 目录。[迁移总方案](../../proposed/architecture/2026-10-17-personal-pi-durable.md)、[档案基础](2026-10-17-personal-durable-foundation.md)、[本机管理](2026-10-17-personal-local-management.md)与[服务检查](2026-10-17-personal-service-inspect.md)部分重叠，互链并保留各自决定；本篇只增加宿主工作生命周期。[旧委派模型](2026-10-03-work-delegation-subagent-task.md)与[旧重启恢复](2026-10-05-subagent-restart-recovery.md)仍服务正式共享底座，不搬入旧状态机。[后台命令提案](../../proposed/feature/2026-10-14-bash-background-lifecycle.md)管理 OS 进程，本片没有该执行能力，属无关。无完全吸收或待归档记录。
 
+[定时工作](2026-10-18-personal-durable-scheduled-work.md)扩展原来源限制：后台工作也可归属真实独立定时输入，仍由 ROOT 管理 Task，子会话不继承长期授权。每次请求和恢复沿原定时接纳核实，首次回答后的封组拒绝新派生；实际执行、未知事实和停止证明收齐后才释放该运行。
+
 ## 备选方案
 
 - 先做通用未知效果框架：可以为所有写工具预留入口，但尚无消费者会掩盖真实回执和权限差异；先交付有模型工作消费者的归属，再按实际写操作接入。

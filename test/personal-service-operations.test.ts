@@ -57,7 +57,7 @@ async function fixture(t: TestContext, respond: Responder = () => ({ kind: "text
   return { root, helper, config, options, server, service,
     open: async (overrides: Partial<Omit<Parameters<typeof openPersonalHarness>[0], "directory" | "profile">> = {}) => personal = await openPersonalHarness({ ...options, ...overrides }),
     starts: (unit = UNIT) => (JSON.parse(fs.readFileSync(path.join(helper, "state.json"), "utf8")) as Record<string, { starts: number }>)[unit].starts,
-    calls: () => fs.existsSync(path.join(helper, "calls.log")) ? fs.readFileSync(path.join(helper, "calls.log"), "utf8").trim().split("\n").map(line => JSON.parse(line) as string[]) : [],
+    calls: () => fs.existsSync(path.join(helper, "calls.log")) ? fs.readFileSync(path.join(helper, "calls.log"), "utf8").split("\n").slice(0, -1).map(line => JSON.parse(line) as string[]) : [],
     touch: (file: string, content = "") => fs.writeFileSync(path.join(helper, file), content),
   };
 }
@@ -248,7 +248,7 @@ test("服务工作：默认自动审查和 confirm 等单次人工批准，full_
     assert.equal(evidence.length, 2);
     assert.match(Buffer.from(evidence[1].data.stderr, "base64").toString(), /RUUKOTO_SERVICE_REPLY/);
     assert.deepEqual((await p.service!.list()).items.map(item => item.operation.ref), [ref]);
-    assert.deepEqual((await p.main.agent(context)).tools.map(tool => tool.name), ["read_artifact", "service_inspect", "read_service_inspection", "background_work"]);
+    assert.deepEqual((await p.main.agent(context)).tools.map(tool => tool.name), ["read_artifact", "service_inspect", "read_service_inspection", "background_work", "schedule_create", "schedule_query", "schedule_cancel"]);
   });
 });
 

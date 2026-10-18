@@ -101,7 +101,7 @@ test("durable 服务：模型真实调用 inspect，原始字节和两工具定�
   assert.equal(requests.length, 6);
   assert.deepEqual(requests[1].payload, f.server.calls[0].raw);
   const names = f.server.calls[0].tools?.map(tool => (tool.function as { name: string }).name);
-  assert.deepEqual(names, ["service_inspect", "read_service_inspection", "background_work"]);
+  assert.deepEqual(names, ["read_artifact", "service_inspect", "read_service_inspection", "background_work", "schedule_create", "schedule_query", "schedule_cancel"]);
   assert.match(JSON.stringify(requests[0].input), /4096/);
   assert.ok((await personal.main.agent(context)).extensions.some(extension => extension.name === "personal-service-inspect"));
 });
@@ -109,10 +109,10 @@ test("durable 服务：模型真实调用 inspect，原始字节和两工具定�
 test("durable 服务：空闲空工具会话可显式启用，重开缺配置/变更/文档版本拒绝且零请求", async t => {
   const f = await fixture(t);
   const empty = await f.open({ service: undefined });
-  assert.deepEqual((await empty.main.agent(context)).tools.map(tool => tool.name), ["background_work"]);
+  assert.deepEqual((await empty.main.agent(context)).tools.map(tool => tool.name), ["read_artifact", "background_work", "schedule_create", "schedule_query", "schedule_cancel"]);
   await empty.close();
   const enabled = await f.open();
-  assert.deepEqual((await enabled.main.agent(context)).tools.map(tool => tool.name), ["service_inspect", "read_service_inspection", "background_work"]);
+  assert.deepEqual((await enabled.main.agent(context)).tools.map(tool => tool.name), ["read_artifact", "service_inspect", "read_service_inspection", "background_work", "schedule_create", "schedule_query", "schedule_cancel"]);
   await enabled.close();
   await assert.rejects(f.open({ service: undefined }), code("service_config_changed"));
   await assert.rejects(f.open({ service: { ...f.service, policyPath: f.service.policyPath + ".other" } }), code("service_config_changed"));
@@ -620,7 +620,7 @@ test("子检查：旧空闲子配置同事务升级，未决旧工作拒绝且�
     await p.harness.commit(async tx => {
       const main = await tx.doc(AgentDoc, ROOT_CONVERSATION_ID); assert.ok(Array.isArray(main.extensions));
       main.extensions = main.extensions.filter(name => name !== "personal-subagent-service-inspect");
-      const child = await tx.doc(AgentDoc, ref.agentId); child.extensions = ["personal-subagent", "personal-background-work"]; child.tools = [];
+      const child = await tx.doc(AgentDoc, ref.agentId); child.extensions = ["personal-subagent", "personal-background-work", "personal-media"]; child.tools = [];
     }, context);
     await p.close();
     if (active) {

@@ -142,4 +142,4 @@ AppDataStore 回执字段允许记录 durable 任务/会话身份，但 `op_id` 
 
 ## 方案状态
 
-产品取舍与完整共同理解已确认，独立方案审查无未解决阻断。当前进入实施，实际成果、验证缺口和交接以工单为准；最新剩余范围与验收分工见[剩余工作评估](remaining-work.md)。正式切换仍须完成全部验收。
+产品取舍与完整共同理解已确认，独立方案审查无未解决阻断。方案与切片交接现已结单，项目仍in-progress：工程缺口及完整候选验收由[39](issues/39-final-acceptance.md)持有，本人账号动作集中[31](issues/31-qq-owner-entry.md)，生产由[40](issues/40-production-cutover.md)在另获目标/窗口授权后执行。当前职责见[剩余工作评估](remaining-work.md)，正式切换仍须完成全部验收。

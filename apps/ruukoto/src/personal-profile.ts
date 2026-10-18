@@ -11,7 +11,7 @@ export const PERSONAL_PENDING_FILE = /^pending-(?:work-)?([0-9a-f]{8}-[0-9a-f]{4
 export const PERSONAL_SCHEDULE_PENDING_FILE = /^pending-schedule-([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.json$/;
 
 export function personalDirectory(): string {
-  return path.resolve(process.env.RUUKOTO_PERSONAL_DIR ?? path.join(homedir(), ".ruukoto-durable"));
+  return path.resolve(process.env.RUUKOTO_PERSONAL_DIR || path.join(homedir(), ".ruukoto-durable"));
 }
 
 // Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-durable-foundation.md

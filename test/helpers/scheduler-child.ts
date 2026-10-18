@@ -1,4 +1,4 @@
-import { product as personalProduct } from "../../apps/ruukoto/src/product.ts";
+import { product as personalProduct } from "./legacy-product.ts";
 /**
  * issue 03 子进程崩溃窗口：启动后台，发送函数在"平台已接收"后记一行并永久挂起，
  * 由父测试 SIGKILL（本地结果不落库）。参数：dataDir agentDir receivedFile socketPath。

@@ -6,7 +6,7 @@ Status: proposed
 
 以 `f2e05fc` 复评后的[剩余工单与验收分工](../../../../.scratch/personal-pi-durable/remaining-work.md)承接本决定：当前真实流程先行验证，能力补齐后隔离验证正式制品，再执行完整验收及生产接管；不改变产品范围或降低恢复要求。
 
-[档案与请求证据基础](../../implemented/architecture/2026-10-17-personal-durable-foundation.md)已作为隔离 API 实现；[服务检查](../../implemented/architecture/2026-10-17-personal-service-inspect.md)增加只读外部调用；[后台工作](../../implemented/architecture/2026-10-17-personal-background-work.md)提供空工具长期子会话及宿主生命周期 API；[模型工作入口](../../implemented/architecture/2026-10-17-personal-model-work.md)接通主会话的委派、查询和工作取消/身份关闭；[服务操作](../../implemented/architecture/2026-10-17-personal-service-operations.md)提供独立后台服务工作、单次审批及效果/停止核实。[Telegram 文本入口](../../implemented/architecture/2026-10-17-personal-telegram-entry.md)接入隔离向导的配对、固定来源与回复。[原入口服务权限](../../implemented/architecture/2026-10-17-personal-telegram-permissions.md)接通 Telegram 权限快照、宿主审批与限定长期授权。[子服务工作](../../implemented/architecture/2026-10-17-personal-subagent-service-operations.md)将受控 restart 接到原工作权限、取消与未知效果收尾。正式入口与其余能力仍按本方案推进，不能据此将迁移标为完成。
+[档案与请求证据基础](../../implemented/architecture/2026-10-17-personal-durable-foundation.md)已作为隔离 API 实现；[服务检查](../../implemented/architecture/2026-10-17-personal-service-inspect.md)增加只读外部调用；[后台工作](../../implemented/architecture/2026-10-17-personal-background-work.md)提供空工具长期子会话及宿主生命周期 API；[模型工作入口](../../implemented/architecture/2026-10-17-personal-model-work.md)接通主会话的委派、查询和工作取消/身份关闭；[服务操作](../../implemented/architecture/2026-10-17-personal-service-operations.md)提供独立后台服务工作、单次审批及效果/停止核实。[Telegram 文本入口](../../implemented/architecture/2026-10-17-personal-telegram-entry.md)接入隔离向导的配对、固定来源与回复。[原入口服务权限](../../implemented/architecture/2026-10-17-personal-telegram-permissions.md)接通 Telegram 权限快照、宿主审批与限定长期授权。[子服务工作](../../implemented/architecture/2026-10-17-personal-subagent-service-operations.md)将受控 restart 接到原工作权限、取消与未知效果收尾。[正式入口与制品](../../implemented/simplification/2026-10-18-personal-product-entry.md)在独立新档案接入同一 durable 装配；最终组合验收、Coding 原失败归因缺口与生产接管仍未由入口替换解除，不能将迁移标为完成。
 
 ## 问题
 
@@ -50,7 +50,7 @@ Coding Agent 仍使用旧 runtime、agent、core、control、view 和 tui。仅�
 
 | 笔记范围 | 关系与处理 |
 | --- | --- |
-| [两个产品](../../implemented/architecture/2026-10-02-two-agent-products.md)、[同仓分包](../../implemented/architecture/2026-10-11-in-repo-workspace-packages.md) | 部分重叠：新个人端拟退出共同运行时与协议；两产品独立运行和 Coding 既有底座保留。互链，实施时再同步实际依赖图。 |
+| [两个产品](../../implemented/architecture/2026-10-02-two-agent-products.md)、[同仓分包](../../implemented/architecture/2026-10-11-in-repo-workspace-packages.md) | 部分重叠：新个人端拟退出共同运行时与协议；两产品独立运行和 Coding 既有底座保留。互链；入口实施后按实际依赖图同步适用范围。 |
 | [历史与上下文](../../implemented/architecture/2026-09-19-preserve-session-history.md) | 部分重叠：保留不可改写历史和可重建输入，拟改变新个人端的权威存储；旧档案与 Coding 的 JSONL 规则保留。 |
 | [SubAgent 恢复](../../implemented/architecture/2026-10-05-subagent-restart-recovery.md) | 部分重叠：新个人端安全工作改为自动恢复；Coding 仍按旧恢复规则。 |
 | [保留开发会话](../../implemented/feature/2026-10-05-ruukoto-keeps-dev-sessions.md)、[Agent 工作流](../../implemented/feature/2026-10-12-agent-workflows.md) | 部分重叠：个人端退出这些入口与语言；Coding 仍保留。 |

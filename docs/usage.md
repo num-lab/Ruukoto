@@ -12,46 +12,36 @@ npm run build       # 构建工具 worker、macOS 原生监督器与 app 包
 npm link            # 可选：把 ruukoto / ruukoto-code 装进 PATH（否则用 npm start -- …）
 ```
 
-根 `npm start -- …` 默认使用 ruukoto app，保留 `RUUKOTO_PRODUCT=ruukoto-code` 的入口选择；也可用 `npm start --workspace=ruukoto-code -- …`。各 app 的 bin 固定产品身份；构建出的 app tarball 引用同仓共享包，部署保留完整 workspace。生产部署的系统身份、systemd 单元、提权入口与服务 helper 见 [deploy/systemd/README.md](../deploy/systemd/README.md)。
+根 `npm start` 默认进入个人引导菜单，`npm start -- serve` 前台托管个人后台；保留 `RUUKOTO_PRODUCT=ruukoto-code` 的入口选择，也可用 `npm start --workspace=ruukoto-code -- …`。各 app 的 bin 固定产品身份；构建出的 app tarball 引用同仓共享包，部署保留完整 workspace。生产部署的系统身份、systemd 单元、提权入口与服务 helper 见 [deploy/systemd/README.md](../deploy/systemd/README.md)。
 
 ## 2. 运行
 
 ### 2.1 启动后台
 
 ```bash
-# 生产：原生执行后端，先完成 deploy/systemd 配置
-# server 为推荐命令，start 是同一实现的兼容别名
-npm start -- server --data-dir ~/.ruukoto/data --agent-dir ~/.ruukoto/agent \
-  --execution native --model provider/model
-
-ruukoto-code server                    # 默认原生受限执行
-npm start -- stop                     # 优雅停止（SIGTERM/SIGINT 走同一路径）
+ruukoto                         # 个人模型、凭据引用与实例管理菜单
+ruukoto serve                   # 个人前台后台，SIGTERM/SIGINT/SIGHUP 触发停止
+ruukoto-code server             # Coding 前台后台，默认原生受限执行
+ruukoto-code stop               # 优雅停止 Coding 后台
 ```
 
-两个产品均默认 native，正式入口仅接受 native；`--execution` 或 `RUUKOTO_EXECUTION_BACKEND` 中的 local/container 明确拒绝，改为 native 或移除覆盖后再启动。native 在 macOS 使用 Seatbelt 与原生监督器，在 Linux 使用 bubblewrap、namespace/seccomp 与 user scope/cgroup；缺失或失效在执行前以 `execution_unavailable` 拒绝，不回退。升级先停旧后台再重启，不在线替换活动任务的执行环境。库层 local 无隔离，只供完全访问与离线测试，不是正式受限入口。完全访问在两平台直接使用启动后台账户，继承后台实际的 PATH、HOME、代理、SSH agent 与工具凭据；清除内部 Ruukoto 控制变量，不要求执行账户入口。
+个人使用 `~/.ruukoto-durable/` 或 `RUUKOTO_PERSONAL_DIR` 指定的新目录；运行前先在菜单配置模型，凭据由环境提供。菜单可启动独立后台并查询、停止，退出日常菜单不取消已受理工作。生产 systemd 部署见[服务器部署](../deploy/systemd/README.md)，开发托管例外见[开发实例](#8-开发实例)。旧 TUI/桌面、`server/start` 和旧控制面命令不属于个人新入口。
 
-新档案一次性创建当前 schema；既有档案的版本必须与代码完全一致，旧库与较新库均明确拒绝启动，不自动升级或回填。保留原档案，用匹配版本的代码查阅；需要当前版本时使用独立新档案。跨实例导入也只接受当前格式，不能用它转换旧 schema。
+Coding 默认且只接受 native；`--execution` 或 `RUUKOTO_EXECUTION_BACKEND` 中的 local/container 明确拒绝。native 在 macOS 使用 Seatbelt 与原生监督器，在 Linux 使用 bubblewrap、namespace/seccomp 与 user scope/cgroup；缺失或失效报 `execution_unavailable`，不回退。完全访问直接使用后台账户已有权限并继承其环境，清除内部 Ruukoto 控制变量。
+
+新个人目录须为空白或已知 durable 档案，旧目录和未知版本在恢复前拒绝，不导入或改写旧资料。Coding 新档案创建当前 schema；既有库版本须与代码一致，拒绝旧库与较新库，不自动升级或回填。两种格式不互转；保留原档案与匹配代码，旧个人归档不能为查阅而启动恢复执行。
 
 ### 2.2 交互入口
 
-两个入口都需要 TTY；旧拼法 `tui` 给出迁移指引后沿用原行为（`ruukoto --session <id>`／`--demo` 对应原 `tui --session/--demo`）。
+个人菜单需要 TTY；本机与 QQ/Telegram 的聊天、配置、工作、授权与核实操作见[引导与管理](#25-个人-agent-引导与管理)。非交互运行使用 `ruukoto serve` 托管后台。
 
 ```bash
-npm start --                 # 任务界面：选择既有会话（不隐式新建）
-npm start -- /path/to/dir    # 以该目录为工作区创建新会话并进入
-npm start -- config          # 配置中心
+ruukoto-code config               # 模型与 API key，后台停机时支持离线配置
+ruukoto-code ~/code/my-repo        # 新建工作区会话，按需拉起后台
+ruukoto-code                      # 回到既有会话，不隐式新建
 ```
 
-```bash
-ruukoto-code config               # 配置模型与 API key（后台未运行时进入离线模式）
-ruukoto-code ~/code/my-repo       # 以该目录为工作区新建会话；首次自动拉起后台
-ruukoto-code                      # 回到既有会话（不隐式新建）
-ruukoto-code stop                 # 停止后台
-```
-
-工作区按真实目录身份归属：符号链接与路径变体复用同一工作区，同名不同目录不合并；一个工作区可以包含多个仓库。目录身份与保护根校验沿用日常工作区入口，代码仓库本身不能用作工作区。相对路径按客户端调用时工作目录解析（`npm run code` 按 npm 脚本的当前目录，通常为本仓库）；路径含空格时加引号；`./config` 与 `-- <路径>` 处理与命令同名的目录。
-
-非 TTY 环境不启动交互页面，改用 `status`／`events`／`submit` 等 CLI 命令；远程使用可登录服务器后启动 TUI，或由桌面客户端经 SSH 转发控制面 socket；不新增远程协议。
+Coding TUI 与配置中心需要 TTY；非 TTY 使用 `status`、`events`、`submit` 等 Coding CLI 命令。工作区按真实目录身份归属，符号链接与路径变体复用，同名不同目录分开；代码仓库本身不能用作工作区。相对路径按客户端调用目录解析，路径含空格时加引号，命令同名目录用 `./config` 或 `-- <路径>`。旧 `tui` 拼法给出迁移指引后沿用原行为。
 
 ### 2.3 按需拉起后台
 
@@ -62,27 +52,22 @@ ruukoto-code stop                 # 停止后台
 - 状态明确，拉起失败均打印错误并非零退出：socket 可连而令牌认证不通过 → 后台其实在运行，给出令牌核对指引；服务进程以非实例锁原因提前退出且宽限窗口后探测仍不通过 → 「后台启动失败」并附 spawn.log 尾部（常见原因：未配置可用模型 → 先 `ruukoto-code config`）；到期限仍未就绪 → 等待超时，单独标注且不杀进程。
 - 运行中断线仍按既有规则显示重连中，**重连只恢复观察，不会再次拉起后台**；后台不可用要再拉起时重开 TUI 即可。后台明确拒绝（令牌无效、协议版本不符）照旧终止重连并给出修复指引。
 - 拉起的后台沿用产品默认 native；显式旧后端覆盖在探测或连接已有后台前拒绝，不自动改写设置。
-- `ruukoto`（个人 Agent）不按需拉起：后台由显式 `server` 或 systemd 管理，TUI 打开时仍只连接已运行的后台。
+- 个人 Agent 不使用 Coding 按需后台或 TUI，运行方式见[引导与管理](#25-个人-agent-引导与管理)。
 - 手动后台照旧：`ruukoto-code server --data-dir … --agent-dir …` 前台运行，与按需拉起共用同一实例锁（谁在运行谁生效，重复启动被拒绝）。
 
 ### 2.4 两个产品的差别
 
-```bash
-ruukoto ...                  # 个人 Agent（bin 入口）
-ruukoto-code ...             # Coding Agent（bin 入口）：同一 CLI，产品身份经
-                             # RUUKOTO_PRODUCT=ruukoto-code 固定注入（仓库内等价于
-                             # RUUKOTO_PRODUCT=ruukoto-code npm start -- ...）
-```
+个人由 Pi durable 1.3.0 持有会话、执行、队列和恢复；Coding 使用原 Runtime/Driver 与 Pi 0.85.1。两端独立启停，目录、实例锁、配置、凭据与协议各自分开，不传递 SDK 对象。
 
-- 独立档案根 `~/.ruukoto-code/{data,agent,control,pending}`；路径环境变量只读 `RUUKOTO_CODE_DATA_DIR`／`RUUKOTO_CODE_AGENT_DIR`／`RUUKOTO_CODE_CONTROL_DIR`／`RUUKOTO_CODE_PENDING_DIR`，不读对方产品的 `RUUKOTO_*_DIR`；同机并存时目录、实例锁、配置锁、socket 与 owner token 文件各自独立，升级与互停互不牵连。**注意**：`RUUKOTO_OWNER_TOKEN`／`RUUKOTO_OWNER_TOKEN_FILE` 两产品共用（令牌是控制面身份，不是路径归属）；导出了这两个变量的 shell 对两个产品都有认证能力。
-- 不启动 QQ/Telegram 连接与个人调度（调度器不创建；状态视图按 ruukoto-code 标注停用原因）；其余命令、控制面与审批机制相同。
-- 不提供旧项目写入路径：TUI `/new-project`、在无根目录的旧项目里 `/new`／`/new-session`，以及 CLI `create-project`／`create-session` 只提示改用 `ruukoto-code <目录>` 打开工作区；旧项目保留查看，需要时经 `project migration-preview` 映射到工作区。控制面 op 不变。
-- 数据目录归属登记在核心库 meta（`product.type`，首次启动补记）；用另一产品的入口打开已归属的数据目录直接拒绝。
-- 打开 TUI 时按需拉起本机后台；显式 `ruukoto-code stop` 才结束后台。
+Coding 的独立档案为 `~/.ruukoto-code/{data,agent,control,pending}`，路径只读 `RUUKOTO_CODE_*_DIR`；拥有者认证使用 `RUUKOTO_OWNER_TOKEN`/`RUUKOTO_OWNER_TOKEN_FILE` 或控制目录令牌。它不启动 QQ/Telegram 或个人调度，旧记录仍可核实。旧项目写命令引导改用工作区，保留只读查看与组织迁移；跨产品核心库按 `meta.product.type` 拒绝。
 
-### 2.5 个人 durable 隔离向导
+个人使用引导式 CLI 与 IM，共用主会话，不提供普通开发会话、工作区编码、旧工作流脚本/定义库、GitHub 自动评审或旧资料导入。运行中菜单只访问本机认证接口，离线配置须持锁；旧客户端不能连接新后台。
 
-`npm run personal:durable` 打开个人 Pi 1.3.0 的独立引导菜单，按聊天与消息、后台工作与定时计划、审批/效果/停止核实、权限/授权/个人资料、停机配置、实例状态与启停分组：配置模型、启动隔离后台、状态、发送消息、最近消息、核实上次提交、QQ/Telegram 配对/收发、Linux 服务与命令目录配置、管理后台分析、管理检查停止重核、管理服务审批与核实、命令效果与停止核实、MCP 配置与原调用核实、管理定时计划与运行、技能配置、长期记忆、历史检索与应用数据审批/回执。默认档案为 `~/.ruukoto-durable-dev/<检出 realpath hash12>/`；可用 `RUUKOTO_PERSONAL_DIR` 显式选择另一个新目录。它提供主会话与可选 QQ/Telegram 文本/图片入口、浏览器、资料与网络工具、产物和独立调度；正式 `ruukoto`、`npm start`、`npm run dev` 与 systemd 仍使用原装配。
+<a id="25-个人-durable-隔离向导"></a>
+
+### 2.5 个人 Agent 引导与管理
+
+`ruukoto`、`npm start` 与兼容命令 `npm run personal:durable` 打开同一个个人 Pi 1.3.0 引导菜单，按聊天与消息、后台工作与定时计划、审批/效果/停止核实、权限/授权/个人资料、停机配置、实例状态与启停分组：配置模型、启动后台、状态、发送消息、最近消息、核实上次提交、QQ/Telegram 配对/收发、Linux 服务与命令目录配置、管理后台分析、管理检查停止重核、管理服务审批与核实、命令效果与停止核实、MCP 配置与原调用核实、管理定时计划与运行、技能配置、长期记忆、历史检索与应用数据审批/回执。默认档案为 `~/.ruukoto-durable/`；可用 `RUUKOTO_PERSONAL_DIR` 显式选择另一个新目录，开发入口另用固定检出散列档案。它提供主会话与可选 QQ/Telegram 文本/图片入口、浏览器、资料与网络工具、产物和独立调度；正式 bin、根 start、开发与 systemd 使用同一新装配，生产接管另行安排。
 
 本机选择「权限、授权与个人资料」→「管理默认模式与长期授权」可查看和切换新输入模式、查看或撤销原长期服务授权；本机与 Telegram 共用默认值，QQ 独立。完全访问有明确选择步骤，已有输入与工作不随默认值扩权。长期服务授权仍只能在原 IM 的具体待审批菜单创建；本机撤销按程序保存的原版本执行，包括旧入口记录，应答丢失先刷新原授权。资料读取授权从「管理工具审批、资料授权与产物」管理。
 
@@ -92,7 +77,7 @@ ruukoto-code ...             # Coding Agent（bin 入口）：同一 CLI，产�
 
 不经过模型控制时，CLI 选择“管理后台分析”，从名称、说明与状态选择原工作，查询、翻页读原结果、请求取消或关闭空闲身份；取消登记后刷新核实停止。Telegram 直接发送 `/工作`，回复已送达的宿主菜单选择“分析1”等列出的序号；需要更多记录选择“更多分析”。详情菜单支持刷新分析、查看结果、下一页结果、取消这项分析、关闭此身份；回复详情菜单发送“补充：正文”可追加说明。CLI 在原分析操作里选择“追加说明”。说明在当前回答结束后依次处理，结果取最后回答，原权限保持；取消/结束或原操作待核实时不接纳。菜单只管理原绑定入口和代次的工作。旧菜单不会改为取消该身份的新工作，身份曾复用则需重新查询才能关闭；关闭后历史保留。取消收尾异常或停止未核实时保留占用，请查询原记录并检查后台日志，不要重新委托重试。此菜单针对单项分析。另可在 CLI 选择“管理分析委托”，或在 Telegram 发送 `/委托` 并回复已送达菜单选择“委托1”等，查询所属成员、刷新或“取消整项分析”；取消后刷新核实停止。模型同轮委派归入同一委托，后续可继续原委托，保持首次入口和权限。成员全部结束只表示分析空闲；主 Agent 安排汇总后封组，不能继续委派或追加。CLI 选择「查看完整报告」，Telegram 回复详情菜单「查看报告」，可分页读完整报告并核对送达状态；发送效果未知时请在原平台核实，不自动重发。外部操作效果或停止未核实时报告在后台等待，其他聊天继续。历史及宿主单项分析不自动归组，取消涵盖分析成员、其固定服务检查、服务重启、三模式命令和尚未开始的最终回报，不包含独立宿主服务写操作；已开始发送按原效果核实。
 
-管理定时工作时，在已启动后台的 CLI 选择第26项「管理定时计划与运行」，再选择「创建定时计划」，逐步填写名称、完整任务说明，选择一次性、每日或每周规则、时区及日期/星期，核对后确认。本机计划的报告只留本机。QQ/Telegram 直接发送 `/定时`，回复已送达菜单选择「新建计划」，按原草稿逐步填写并在最终菜单回复「确认创建计划」；自由正文按当前草稿接收。也可在主聊天要求 Agent 创建计划。创建键和权限由宿主管理，不在正文中填写内部 ID 或指定模式、收件人。
+管理定时工作时，在已启动后台的 CLI 选择「后台工作与定时计划」分组中的「管理定时计划与运行」，再选择「创建定时计划」，逐步填写名称、完整任务说明，选择一次性、每日或每周规则、时区及日期/星期，核对后确认。本机计划的报告只留本机。QQ/Telegram 直接发送 `/定时`，回复已送达菜单选择「新建计划」，按原草稿逐步填写并在最终菜单回复「确认创建计划」；自由正文按当前草稿接收。也可在主聊天要求 Agent 创建计划。创建键和权限由宿主管理，不在正文中填写内部 ID 或指定模式、收件人。
 
 CLI 的「查看计划与运行」以及 `/定时` 原菜单可选择计划、查看运行、分页读取完整报告或「取消这项计划」。每次到期在独立会话执行，不占主聊天；宿主在首次回答后自动等待所有成员及外部操作停止，再汇总并回报原入口，无需另发汇报命令。取消同时停止未来触发与当前整项工作，登记后刷新核实停止；已有成果保留。繁忙或停机漏过周期会合并，不逐次补跑。发送等待不阻止下次运行；平台长报告截断，全文从原运行菜单读取。原入口停用或换代不改发，发送效果未知请在原平台核实，系统不重发。
 
@@ -108,31 +93,31 @@ CLI 的「查看计划与运行」以及 `/定时` 原菜单可选择计划、�
 
 在线选择「检索历史原文」，输入关键词后选择摘要，继续检索或分页读原文；本机可查全部已登记的新主/子/定时会话，子与定时工具只读自身。压缩前消息仍可找到，标有中断的片段不代表完整回答；该入口不打开旧归档。记忆/技能来源缺失、版本变化或请求证据保存失败时模型调用停止，请保留档案并查询后台状态。
 
-设置所选凭据环境变量后重新打开向导，选择启动隔离后台，再发送消息和查询最近消息。后台独立运行；退出向导、终端断开都不取消已受理输入。菜单停止会保留未完成输入供下次恢复；停机尚未核实时不能改配置。配置保存前核实未完成输入、工作与定时运行，拒绝时保留原文件；合法空闲调度监督不阻止配置。模型端点、API、凭据变量和图片能力的更换也须先完成原输入；相同配置仍可恢复。QQ/Telegram停用或重新配对可使未决旧入口失效，原历史与未知效果仍保留。需要前台托管时使用 `npm run personal:durable -- serve`，SIGINT/SIGTERM/SIGHUP 会关闭接口与 Harness。后台诊断写入所选档案的 `backend.log`，不在日志中输出凭据或消息正文。
+设置所选凭据环境变量后重新打开向导，选择启动后台，再发送消息和查询最近消息。后台独立运行；退出向导、终端断开都不取消已受理输入。菜单停止会保留未完成输入供下次恢复；停机尚未核实时不能改配置。配置保存前核实未完成输入、工作与定时运行，拒绝时保留原文件；合法空闲调度监督不阻止配置。模型端点、API、凭据变量和图片能力的更换也须先完成原输入；相同配置仍可恢复。QQ/Telegram停用或重新配对可使未决旧入口失效，原历史与未知效果仍保留。需要前台托管时使用 `ruukoto serve`（仓库内等价于 `npm start -- serve`），SIGINT/SIGTERM/SIGHUP 会关闭接口与 Harness。后台诊断写入所选档案的 `backend.log`，不在日志中输出凭据或消息正文。
 
 提交失去应答时，选择核实上次提交；向导按保存的原键和原工作查询，追加说明不会投到主聊天。已受理的消息不重发，尚未受理时可选择原请求继续或保留。不要手工删待核实文件、换键重交或删除 socket 来接管实例。最近消息是有界诊断视图，截断和中断片段均有标注，完整记录保留在 durable SQLite；不是旧历史查看入口。
 
-Telegram 请使用专用测试 bot，并先停止该 bot 的其他接收后台。在启动向导的环境设置 bot 凭据变量后，选择配置 Telegram，输入 API 地址（默认官方地址）与环境变量名；向导验证 bot，明确选择接管后过滤旧积压，再按提示发送随机私聊配对短语，从列出的身份选择自己。身份选择须在 60 秒内完成；确认边界及之前的消息不会执行，之后消息留待后台。配置仅存凭据指纹和环境变量名，凭据变化须重新配对。不要用此隔离入口接管日常生产 bot。
+Telegram 请使用专用测试 bot，并先停止该 bot 的其他接收后台。在启动向导的环境设置 bot 凭据变量后，选择配置 Telegram，输入 API 地址（默认官方地址）与环境变量名；向导验证 bot，明确选择接管后过滤旧积压，再按提示发送随机私聊配对短语，从列出的身份选择自己。身份选择须在 60 秒内完成；确认边界及之前的消息不会执行，之后消息留待后台。配置仅存凭据指纹和环境变量名，凭据变化须重新配对。隔离验收使用专用测试 bot；生产 bot 仅在另行完成旧连接停止与接管验收后配对。
 
-QQ 请使用专用 NapCat/OneBot v11 正向 WebSocket，并先停止该账号的其他后台。选择「配置 QQ」，输入回环 WS 或 WSS 地址与凭据环境变量名；向导核实在线登录账号，按提示用另一个拥有者好友账号发送随机配对短语，从候选身份中选择自己。配对及选择须在3分钟内完成；以选中配对消息的平台时间和消息身份固定边界，该消息及边界同秒/之前消息不执行，启动后重新发送委托。配置只保存凭据指纹，每次重新配对或停用都会换代，QQ 新代次恢复默认自动审查，需要完全访问时从新原菜单选择。不要接管生产账号；QQ 群聊、群临时会话和自身消息拒绝。OneBot 无离线补拉，查看 QQ 收发可见持久连接缺口；请核实缺口内未受理消息后重新发送。仅在请求尚未发出时，QQ 待发回复随原账号重连继续；发送后丢答与 NapCat 1200 均未知，不重发，也不猜错误文案中的限流。
+QQ 请使用专用 NapCat/OneBot v11 正向 WebSocket，并先停止该账号的其他后台。选择「配置 QQ」，输入回环 WS 或 WSS 地址与凭据环境变量名；向导核实在线登录账号，按提示用另一个拥有者好友账号发送随机配对短语，从候选身份中选择自己。配对及选择须在3分钟内完成；以选中配对消息的平台时间和消息身份固定边界，该消息及边界同秒/之前消息不执行，启动后重新发送委托。配置只保存凭据指纹，每次重新配对或停用都会换代，QQ 新代次恢复默认自动审查，需要完全访问时从新原菜单选择。隔离验收不接管生产账号；QQ 群聊、群临时会话和自身消息拒绝。OneBot 无离线补拉，查看 QQ 收发可见持久连接缺口；请核实缺口内未受理消息后重新发送。仅在请求尚未发出时，QQ 待发回复随原账号重连继续；发送后丢答与 NapCat 1200 均未知，不重发，也不猜错误文案中的限流。
 
 以下 Telegram 宿主菜单同样适用于 QQ，回复各自已送达的原菜单选择；两平台共用主会话，模式默认值、审批、长期授权、工作控制及回报仍按原平台、账号和代次隔离。QQ 图片支持平台 file/URL，缺 URL 时查询 get_image；只从已列明的 QQ HTTPS 图片 CDN 下载 JPEG/PNG/WebP，本地路径及其他来源固定拒收。QQ 图文沿同一大小/数量规则，caption 不执行控制。
 
 配对完成后启动后台，通过已绑定私聊发送新文本；与本机向导共享主会话。选择查看 Telegram 收发可看连接状态、最近最多 16 条输入与回复状态。效果未知表示平台可能已收到，系统不会重发；请通过平台核实。完整回答留在 durable，会话较长时平台单条显示截断提示。停用入口同样要求后台停止，旧待发回复取消，不改发给新绑定。可发送 Telegram 照片消息及 caption，下载后的 JPEG/PNG/WebP 每条最多4张、单张8MiB；含图文字不执行控制命令。已识别照片的格式错误、下载失败和模型不支持图片均有固定回执；文件附件、动画和其他消息类型只计为忽略。配置模型时明确选择是否支持图片，未选择时保持纯文本；不自动换模型。群消息不接纳。两平台可直接发送 `/帮助` 发现宿主管理入口，`/状态` 查看本入口默认模式与能力装配；装配不表示外部服务健康。`/权限` 返回宿主选择菜单，回复选择自动审查、请求确认或完全访问，只影响新的 Telegram 输入。启用服务配置后，`/审批` 展示原入口待审范围，回复该条消息选择批准本次、批准并长期授权、拒绝或下一项；`/服务状态` 查询结果，`/授权` 查看并回复撤销授权或下一项。转发、引用摘录和回复普通回答不能授权。批准不表示执行成功，效果未知需保留原工作并核实；回执丢失可查询，不能据此重新委托。服务请求可由主会话委派的子 Agent 按原工作权限发起。
 
-浏览器先准备[官方程序与 Chromium](#12-浏览器)，停止隔离后台，在向导选择「配置浏览器」，填写两个可执行文件的绝对路径并选择有头/无头。启动后选择「管理浏览器、截图与网页效果」查看连接、导出产物、停止并核实原执行，或为新输入选择默认模式。完全访问的主拥有者输入，以及创建时已开放浏览器的完全访问定时计划可操作各自独立浏览器；子 Agent 和最终汇总不开放，旧输入和工作保持原权限。让 Agent `start` 后操作网页，人工登录先 `pause`，完成后发送新消息 `resume`，暂停前排队的消息不能恢复；定时运行不能自行恢复人工暂停，请从原操作菜单核实或取消计划。截图要求图片模型，纯文本模型可用 `snapshot` 读取文字。
+浏览器先准备[官方程序与 Chromium](#12-浏览器)，停止后台，在向导选择「配置浏览器」，填写两个可执行文件的绝对路径并选择有头/无头。启动后选择「管理浏览器、截图与网页效果」查看连接、导出产物、停止并核实原执行，或为新输入选择默认模式。完全访问的主拥有者输入，以及创建时已开放浏览器的完全访问定时计划可操作各自独立浏览器；子 Agent 和最终汇总不开放，旧输入和工作保持原权限。让 Agent `start` 后操作网页，人工登录先 `pause`，完成后发送新消息 `resume`，暂停前排队的消息不能恢复；定时运行不能自行恢复人工暂停，请从原操作菜单核实或取消计划。截图要求图片模型，纯文本模型可用 `snapshot` 读取文字。
 
 网页动作应答丢失、取消或崩溃后不会重发，原浏览器会关闭以核实本地停止，页面现场可能丢失。通过管理菜单分别核实网页实际效果与原进程停止，两者齐全才解除占用；关闭不证明网页写入未发生。Telegram `/浏览器` 回复宿主列表选择原操作，再选择效果并回复「浏览器核实说明 你的证据」，或选择「停止并核实浏览器」登记宿主检查。仅管理当前原入口，本机可查旧入口操作。截图、长输出、文件和已绑定图片统一从产物菜单独占导出；原产物和会话历史保留，partial不能当完整导出。
 
-Linux 上先按[服务管理部署](../deploy/systemd/README.md)安装受控 helper、白名单与 sudoers，停止隔离后台后选择“配置或查看服务”。逐步确认 helper、策略和 sudo 的绝对路径，再选择保存；默认路径对应标准部署。首次启用需要没有未完成输入或工作，拒绝保存时先用原配置启动并完成处理。启用后向导只展示并保留原路径，不能停用或更换；缺失或改动会阻止恢复，不要手工删改。服务配置不安装或重启服务，状态显示“已装配”也不代表部署可用或服务健康。旧无身份服务档案需保留原件并使用对应程序完成处理，再建立新的隔离档案；不要手工修改版本。启用后长期子分析也可使用同样的固定只读检查，启用服务操作后子 Agent 可按原工作权限请求受控重启，不能执行任意命令。本机向导选择“管理服务审批与核实”，选原目标后批准本次或拒绝；Telegram 发送 /审批 并回复原菜单决定。自动审查/请求确认无有效长期授权时等待人工，完全访问免逐次审批；跨轮说明不扩大原工作权限。检查停止未核实时，子工作及身份保留占用，原目标与来源暂停自动操作，先保留档案、核实原执行及 helper 部署，不换键重试。其他部署请使用新隔离档案；macOS 向导不能启用服务。
+Linux 上先按[服务管理部署](../deploy/systemd/README.md)安装受控 helper、白名单与 sudoers，停止后台后选择“配置或查看服务”。逐步确认 helper、策略和 sudo 的绝对路径，再选择保存；默认路径对应标准部署。首次启用需要没有未完成输入或工作，拒绝保存时先用原配置启动并完成处理。启用后向导只展示并保留原路径，不能停用或更换；缺失或改动会阻止恢复，不要手工删改。服务配置不安装或重启服务，状态显示“已装配”也不代表部署可用或服务健康。旧无身份服务档案需保留原件并使用对应程序完成处理，再建立新的隔离档案；不要手工修改版本。启用后长期子分析也可使用同样的固定只读检查，启用服务操作后子 Agent 可按原工作权限请求受控重启，不能执行任意命令。本机向导选择“管理服务审批与核实”，选原目标后批准本次或拒绝；Telegram 发送 /审批 并回复原菜单决定。自动审查/请求确认无有效长期授权时等待人工，完全访问免逐次审批；跨轮说明不扩大原工作权限。检查停止未核实时，子工作及身份保留占用，原目标与来源暂停自动操作，先保留档案、核实原执行及 helper 部署，不换键重试。其他部署请使用新隔离档案；macOS 向导不能启用服务。
 
-Linux 上停止隔离后台后，选择“配置或查看命令目录”，填写已存在的专用个人事务目录并选择保存。首次启用前完成原档案未决输入和工作；不能选择后台档案、源码、凭据目录或其父目录。请求确认/自动审查仅在目录内读写且不联网；完全访问使用后台账户环境，可访问目录外资料、网络和同账户后台凭据，免逐次审批，仍须核实未知效果与原执行停止。停止覆盖原 scope 及其中后代，不承诺收回主动脱离的进程或外部服务。配置固定原目录身份、机器和 TMPDIR，保存后不能更换；恢复必须保留原环境，其他目录使用新隔离档案。命令证据留在私有档案中，不能手工删除或修改以解除占用。运行时从“管理命令效果与停止核实”选择原命令，可分页查看双流的 UTF-8 预览与原字节 base64；QQ/Telegram 发送 `/命令`，回复宿主菜单选择原命令，分页查看记录、输出或错误，按原效果确认菜单填写证据，或登记原停止重核。IM只管理当前原平台/账号/owner/代次，旧入口从本机查询；停止重核执行前再次核实入口，回执丢失先重新查询。运行返回不等于业务成功。效果未知时独立核实后选择已生效/未生效并填写证据，再登记原命令停止重核；效果与停止均核实后才释放原工作，不会重发命令。应答丢失先刷新原记录，不重复提交。
+Linux 上停止后台后，选择“配置或查看命令目录”，填写已存在的专用个人事务目录并选择保存。首次启用前完成原档案未决输入和工作；不能选择后台档案、源码、凭据目录或其父目录。请求确认/自动审查仅在目录内读写且不联网；完全访问使用后台账户环境，可访问目录外资料、网络和同账户后台凭据，免逐次审批，仍须核实未知效果与原执行停止。停止覆盖原 scope 及其中后代，不承诺收回主动脱离的进程或外部服务。配置固定原目录身份、机器和 TMPDIR，保存后不能更换；恢复必须保留原环境，其他目录使用新隔离档案。命令证据留在私有档案中，不能手工删除或修改以解除占用。运行时从“管理命令效果与停止核实”选择原命令，可分页查看双流的 UTF-8 预览与原字节 base64；QQ/Telegram 发送 `/命令`，回复宿主菜单选择原命令，分页查看记录、输出或错误，按原效果确认菜单填写证据，或登记原停止重核。IM只管理当前原平台/账号/owner/代次，旧入口从本机查询；停止重核执行前再次核实入口，回执丢失先重新查询。运行返回不等于业务成功。效果未知时独立核实后选择已生效/未生效并填写证据，再登记原命令停止重核；效果与停止均核实后才释放原工作，不会重发命令。应答丢失先刷新原记录，不重复提交。
 
 检查停止未核实时，在在线向导选择“管理检查停止重核”，选原服务检查，再选择登记停止重核。Telegram 原绑定私聊发送 `/检查`，回复宿主列表选择检查，再回复详情选择“核实检查停止”或“刷新检查”。原检查仍在执行时先取消原后台分析或等待检查结束。登记不表示停止已核实；原检查仍待核实时保留占用，请核实 helper 部署后再主动重核，不能强制释放或据此确认服务写入效果。Telegram 只列当前入口的全部原来源，本机、混合或旧代次检查请从本机向导管理。控制回执丢失先刷新查询；系统不会因此再次登记或重发回执。
 
 服务写操作效果未知时，在线向导选择“管理服务审批与核实”，选原操作，独立核实后选择“确认已生效”或“确认未生效”并填写证据；保存后不可覆盖。Telegram 发送 `/服务核实`，回复列表选择服务，再选择效果，回复确认菜单“核实说明 你的证据”（最多 8192 字符，不填凭据）。长说明可分页读取。停止未核实时选择“登记原操作停止重核”，Telegram 选择“核实操作停止”，刷新原状态查询最近重核结果；失败请检查 helper 后主动重核。只确认效果或只取得停止证明都不会释放占用，不会重发 restart；审批前检查仍从检查菜单管理。本机可管理旧入口操作，Telegram 只管理当前原入口。应答丢失先刷新原状态。
 
-停止隔离后台后选择「配置 MCP 服务」，设置服务名称与 HTTP 端点，选择显式匿名或已有私有令牌文件，再从实际发现的工具逐个选择允许范围。端点限 HTTPS，回环 HTTP 仅供测试；不支持 stdio、OAuth 或客户端代执行。凭据文件须为当前账户的私有普通文件，配置仅保存路径与内容指纹；撤销、替换或权限改变会拒绝后续请求，不会降级匿名。修改前须完成未决工作并核实原外部占用；配置代次与内部服务键由向导管理，不手工编辑。启动后主/子 Agent 可用原工具清单与完整结果读取；请求确认和自动审查均逐次批准，完全访问免逐次批准，远端只读标注不提供授权。
+停止后台后选择「配置 MCP 服务」，设置服务名称与 HTTP 端点，选择显式匿名或已有私有令牌文件，再从实际发现的工具逐个选择允许范围。端点限 HTTPS，回环 HTTP 仅供测试；不支持 stdio、OAuth 或客户端代执行。凭据文件须为当前账户的私有普通文件，配置仅保存路径与内容指纹；撤销、替换或权限改变会拒绝后续请求，不会降级匿名。修改前须完成未决工作并核实原外部占用；配置代次与内部服务键由向导管理，不手工编辑。启动后主/子 Agent 可用原工具清单与完整结果读取；请求确认和自动审查均逐次批准，完全访问免逐次批准，远端只读标注不提供授权。
 
 在线向导选择「管理 MCP 调用」，从服务名称及原工具选择记录，翻页查看完整原请求、原响应及核实事实。本机来源可批准本次或拒绝；Telegram 来源在原私聊发送 `/MCP`，回复已送达的宿主菜单选择 MCP1 等，再回复详情菜单批准或拒绝。业务效果未知时独立核实后选择已生效/未生效并填写证据，Telegram 回复确认菜单「MCP核实说明 你的证据」；人工效果说明不证明原远端请求结束。只有完整终结应答或原 SSE 流查询取得原应答才核实请求结束；具备原游标的记录可选择「核实原请求结束」，登记后刷新查询，系统只 GET 原流，不重发工具。缺游标、不支持恢复或原凭据无法核实时保留未知、原工作/报告暂停与端点占用；本地关闭或超时不能解除，不要换键、工具、配置或子 Agent 重试。其他独立工作和主聊天可继续。完整应答不表示业务成功，按原响应检查实际结果。
 
@@ -146,42 +131,42 @@ RUN_MODEL_CHECK=1 RUN_PERSONAL_MODELS_FILE=/path/models.json \
 
 ### 资料、网络与产物
 
-在个人隔离向导中选择「配置资料与网络工具」，后台须先停止。选择独立资料目录；HTTP 凭据只填写名称、目标 host、头名和环境变量名称，环境中保存完整头值（Authorization 含 Bearer 前缀）；Tavily 环境变量保存原始 key。不要粘贴凭据值。配置成功后重启后台，已有未结束工作或待核实调用会阻止变更配置。
+在个人引导菜单中选择「配置资料与网络工具」，后台须先停止。选择独立资料目录；HTTP 凭据只填写名称、目标 host、头名和环境变量名称，环境中保存完整头值（Authorization 含 Bearer 前缀）；Tavily 环境变量保存原始 key。不要粘贴凭据值。配置成功后重启后台，已有未结束工作或待核实调用会阻止变更配置。
 
 运行中选择「管理工具审批、资料授权与产物」：逐项查看原请求、批准或拒绝本次；选择绝对路径添加只读资料授权或撤销已有授权。撤销令未开始调用失效，不能扩大旧工作权限。产物按列表选择后导出到新文件，已有目标与 partial 拒绝导出；命令双流和 MCP 原响应仍在对应管理入口查看。Linux 才支持安全新建文件，其他平台可读取及改写已有普通文件。私有产物目录没有全局磁盘配额，需保留证据并关注档案空间。
 
-Telegram 直接发送 `/工具`，回复已送达的宿主菜单选择原操作、分页、批准或拒绝。未知写入后，分别独立核实业务效果与原外部请求结束，再在菜单填写证据；本地断线或取消不证明远端结束。未核实前工作和报告暂停，仍可查询或取消，主聊天可处理独立新工作。产物损坏或缺失时保留档案并恢复原文件，不通过重发外调补证据。此入口仍属隔离装配，真实模型、IM 与正式切换另验。
+Telegram 直接发送 `/工具`，回复已送达的宿主菜单选择原操作、分页、批准或拒绝。未知写入后，分别独立核实业务效果与原外部请求结束，再在菜单填写证据；本地断线或取消不证明远端结束。未核实前工作和报告暂停，仍可查询或取消，主聊天可处理独立新工作。产物损坏或缺失时保留档案并恢复原文件，不通过重发外调补证据。真实模型、IM 与生产切换按各自外部验收记录，不由菜单可用推定通过。
 
 ## 3. 控制面命令
 
-除 `server` 外都需要拥有者令牌（`RUUKOTO_OWNER_TOKEN`、`RUUKOTO_OWNER_TOKEN_FILE` 或控制面目录的 `owner.token`）。两个产品共用同一套命令；`ruukoto help` 列出全部。
+除 `server` 外都需要拥有者令牌（`RUUKOTO_OWNER_TOKEN`、`RUUKOTO_OWNER_TOKEN_FILE` 或控制面目录的 `owner.token`）。本节及第 4、7 节适用于 Coding，`ruukoto-code help` 列出命令；个人操作由上文引导菜单提供。
 
 ### 3.1 连接与查询
 
 ```bash
-export RUUKOTO_DATA_DIR=~/.ruukoto/data
-# socket：~/.ruukoto/control/control.sock；认证：RUUKOTO_OWNER_TOKEN 或 control/owner.token
+export RUUKOTO_CODE_DATA_DIR=~/.ruukoto-code/data
+# socket：~/.ruukoto-code/control/control.sock；认证：RUUKOTO_OWNER_TOKEN 或 control/owner.token
 
-npm start -- status [taskId]          # 快照或单任务（工具操作、审批、产物引用）
-npm start -- events                   # 订阅持久事件流（seq 单调递增）
+ruukoto-code status [taskId]          # 快照或单任务（工具操作、审批、产物引用）
+ruukoto-code events                   # 订阅持久事件流（seq 单调递增）
 ```
 
 ### 3.2 任务与会话
 
 ```bash
-npm start -- create-project my-project
-npm start -- create-session my-project /path/to/workdir
-npm start -- submit <sessionId> <requestId> "任务输入" \
+ruukoto-code create-project my-project
+ruukoto-code create-session my-project /path/to/workdir
+ruukoto-code submit <sessionId> <requestId> "任务输入" \
   [--mode confirm|full_access|auto-review|plan] [--grant <path>:<read|read_write>[:用途];...]
-npm start -- set-session-mode <sessionId> confirm|full_access|auto-review|plan
-npm start -- switch-mode <taskId> confirm|full_access|auto-review [--grant ...]
-npm start -- interrupt <taskId>       # 显式中断运行中/等待确认的任务
-npm start -- cancel <taskId>          # 取消排队或活动任务
-npm start -- continue <taskId> <newRequestId> "继续输入" [--mode ...]
-npm start -- resume-queue <sessionId> # 拥有者确认后恢复队列（并释放遗留占用）
-npm start -- confirm <confirmationId> approve|reject
-npm start -- read-artifact <taskId> <artifactId> [--offset N] [--length N]
-npm start -- read-artifact <taskId> <artifactId> --output /path/to/file
+ruukoto-code set-session-mode <sessionId> confirm|full_access|auto-review|plan
+ruukoto-code switch-mode <taskId> confirm|full_access|auto-review [--grant ...]
+ruukoto-code interrupt <taskId>       # 显式中断运行中/等待确认的任务
+ruukoto-code cancel <taskId>          # 取消排队或活动任务
+ruukoto-code continue <taskId> <newRequestId> "继续输入" [--mode ...]
+ruukoto-code resume-queue <sessionId> # 拥有者确认后恢复队列（并释放遗留占用）
+ruukoto-code confirm <confirmationId> approve|reject
+ruukoto-code read-artifact <taskId> <artifactId> [--offset N] [--length N]
+ruukoto-code read-artifact <taskId> <artifactId> --output /path/to/file
 ```
 
 `read-artifact` 默认向 stdout 输出一页正文（默认 256 KiB，单页最多 720 KiB）；`--offset` / `--length` 按字节切片。`--output` 自动分页导出完整的 `complete` 产物，核对每页元数据、总字节数及图片的 MIME 与 SHA-256，成功后以 0600 文件原子替换目标；读取、校验或写入失败时保留原目标。`--output` 不能与切片参数同用；`partial` 产物只能切片查看已捕获部分。
@@ -191,9 +176,9 @@ npm start -- read-artifact <taskId> <artifactId> --output /path/to/file
 ### 3.3 工作区与旧项目迁移
 
 ```bash
-ruukoto project migration-preview <项目id> [--limit N]
-ruukoto project migration-preview <项目id> --plan <文件>
-ruukoto project migration-apply --plan <文件> [--request-id <id>]
+ruukoto-code project migration-preview <项目id> [--limit N]
+ruukoto-code project migration-preview <项目id> --plan <文件>
+ruukoto-code project migration-apply --plan <文件> [--request-id <id>]
 ```
 
 `migration-preview` 只读零写入，按源项目列出目录分组、逐会话归属、歧义与异常、安全认领条件与建议计划；会话数可限制，截断如实报告且不可用于认领或生成修订。按建议编写计划文件（`action: map_sessions` 的会话 → 目标分配，或 `claim_source` 的安全认领）后，带 `--plan` 的 preview 校验选择并把绑定最终选择的修订写回计划文件。`migration-apply` 缺省请求键按计划文件内容派生（同一文件重发即原键核实），成功后 `action: "revert"` 的计划文件按回执校验当前值后只恢复显式组织字段。
@@ -203,9 +188,9 @@ ruukoto project migration-apply --plan <文件> [--request-id <id>]
 ### 3.4 模型
 
 ```bash
-npm start -- models [--provider provider] [--offset 0] [--limit 100]   # 分页查询安全目录
-npm start -- set-model <session> <provider/model> --thinking <level>   # 保存选择
-npm start -- submit ... --model provider/model --thinking level        # 本次提交显式指定
+ruukoto-code models [--provider provider] [--offset 0] [--limit 100]   # 分页查询安全目录
+ruukoto-code set-model <session> <provider/model> --thinking <level>   # 保存选择
+ruukoto-code submit ... --model provider/model --thinking level        # 本次提交显式指定
 ```
 
 后台启动可传 `--model provider/model --thinking off`；模型 ID 中后续斜杠会保留。未指定 `--model` 时取 `default-model.json` 持久默认（含思考档位），再回退到目录首个模型；未指定 `--thinking` 时沿用持久默认的档位，没有则为 `off`。显式参数优先：带 `--model`／`--thinking` 运行期间，在线设置的默认模型只写入文件，重启去掉参数后生效。具体合法档位由该模型能力校验。
@@ -215,9 +200,9 @@ npm start -- submit ... --model provider/model --thinking level        # 本次�
 ### 3.5 凭据
 
 ```bash
-npm start -- credentials list
-npm start -- credentials add --name N --host H --header H --purpose P --secret-env VAR
-npm start -- credentials remove <name>
+ruukoto-code credentials list
+ruukoto-code credentials add --name N --host H --header H --purpose P --secret-env VAR
+ruukoto-code credentials remove <name>
 ```
 
 秘密值由可信环境经 `--secret-env` 指定的环境变量提供，不进命令行、模型上下文、事件或日志。用途（purpose）与主机在登记时固定；同名修改或删除在写入前单调推进引用它的入口配置版本，旧连接、旧入站与旧批准失效，A→B→A 轮换不恢复旧代次。
@@ -225,9 +210,9 @@ npm start -- credentials remove <name>
 ### 3.6 资料授权
 
 ```bash
-ruukoto grant create --from <项目> --to <项目> --category history|artifact|memory
-ruukoto grant list [--all]
-ruukoto grant revoke <id>
+ruukoto-code grant create --from <项目> --to <项目> --category history|artifact|memory
+ruukoto-code grant list [--all]
+ruukoto-code grant revoke <id>
 ```
 
 跨项目读取只来自拥有者创建的授权（from/to 项目 + 类别），可查看、可撤销；撤销自后续查询与上下文注入起生效。
@@ -235,8 +220,8 @@ ruukoto grant revoke <id>
 ### 3.7 长期记忆与历史检索
 
 ```bash
-ruukoto memory list|show|save|revoke|restore
-ruukoto history-search <关键词> [--project P] [--session S] [--task T] [--role R]
+ruukoto-code memory list|show|save|revoke|restore
+ruukoto-code history-search <关键词> [--project P] [--session S] [--task T] [--role R]
   [--since T] [--until T] [--limit N] [--scan-limit N] [--cursor base64]
 ```
 
@@ -245,15 +230,15 @@ ruukoto history-search <关键词> [--project P] [--session S] [--task T] [--rol
 ### 3.8 选择记录
 
 ```bash
-ruukoto selection-records --task <id> | --session <id>
+ruukoto-code selection-records --task <id> | --session <id>
 ```
 
 ### 3.9 SubAgent 工作委派
 
 ```bash
-ruukoto work list | show | close | cancel
-ruukoto work close <工作ID>
-ruukoto work cancel <工作ID> [--reason R]        # 停止中拒绝
+ruukoto-code work list | show | close | cancel
+ruukoto-code work close <工作ID>
+ruukoto-code work cancel <工作ID> [--reason R]        # 停止中拒绝
 ```
 
 `work show` 的工作对象带取消三列与当前任务状态；`work_get` 的 `messages` 列表查看工作内消息。普通控制面 `submit`／`continue`／`switch-mode`／会话默认模式不能作用于子会话。
@@ -266,13 +251,13 @@ ruukoto work cancel <工作ID> [--reason R]        # 停止中拒绝
 
 ### 4.1 配置中心
 
-`ruukoto config` 打开独立配置界面：复用控制面拥有者认证与 TUI 组件，不直接打开核心数据库，也不成为绕过任务审批的入口（任务执行审批仍在任务界面）。在线管理范围：provider 与模型目录（显式端点、SDK 已支持协议、模型列表及上下文／输出参数）、模型 API key、后台默认模型、摘要模型、项目指令／Web Search／资料授权、会话默认模型／思考档位／权限模式、MCP 服务、QQ 配置、服务凭据。
+`ruukoto-code config` 打开独立配置界面：复用控制面拥有者认证与 TUI 组件，不直接打开核心数据库，也不成为绕过任务审批的入口（任务执行审批仍在任务界面）。在线管理范围：provider 与模型目录（显式端点、SDK 已支持协议、模型列表及上下文／输出参数）、模型 API key、后台默认模型、摘要模型、项目指令／Web Search／资料授权、会话默认模型／思考档位／权限模式、MCP 服务、QQ 配置、服务凭据。
 
 - **并发与修订**：模型配置以 `expected_revision`（`models.json` + `auth.json` + `default-model.json` + `summary-model.json` 的内容指纹）做条件更新；项目／会话／MCP／QQ 沿用各自的 `expected_version`。冲突时要求重新加载，不静默覆盖。
 - **模型配置应用时机**：provider、模型目录与 API key 的修改只在没有受影响的 `running`／`awaiting_confirmation`／`queued` 任务或手动压缩操作时应用；检查到应用完成之间，受影响 provider 的新提交、手动压缩与会话模型设置被拒绝（`model_config_busy`，可重试）。占用时返回 `model_config_blocked` 与任务及操作数，不先改文件、不部分应用、不自动取消任务。应用 = 校验 → 写文件（原子、0600）→ 重建 ModelRuntime／模型目录／审查器并同步到各会话驱动；任一步失败回滚文件并保持原配置。删除 provider 或模型前核对后台默认、摘要模型、会话与 `agent_roles` 引用（`provider_in_use`）。
 - **摘要模型**：上下文压缩的滚动摘要所用模型，保存为 `<agentDir>/summary-model.json`（`{provider, modelId}`，不存思考档位）。设置后，main 与开发会话较早的对话（含工具结果）会发给该模型的提供方做摘要。
 - **秘密**：API key 输入遮蔽；响应只展示是否配置与必要元数据；秘密不进入日志、事件、命令行参数或重载状态文件。模型 API key（`auth.json`）与服务凭据（`credentials.json`）分开管理。
-- **项目分区**：ruukoto-code 的「项目」分区把工作区列在前（标注「工作区」并展示根目录），旧项目列在后（标注「旧项目」）；ruukoto 产品平铺项目名称。指令与 Web Search 保存携带读取时的设置版本；「MCP 服务」入口只列本项目服务。
+- **项目分区**：ruukoto-code 的「项目」分区把工作区列在前（标注「工作区」并展示根目录），旧项目列在后（标注「旧项目」）。指令与 Web Search 保存携带读取时的设置版本；「MCP 服务」入口只列本项目服务。
 - **离线模式**：后台不可达时（或 `--offline`）进入有限离线配置：只做模型目录、默认模型、摘要模型与 API key 的初始化／修复，直接写 `<agentDir>` 下文件。互斥按规范化 agentDir 的配置锁（`<agentDir>/config.lock/`）判定：后台运行时持有该锁（不同 dataDir 共用 agentDir 也被覆盖），socket 不可达或认证失败不证明后台已停；无法取得独占时明确失败，不放宽权限、不改属主。
 
 ### 4.2 权限模式
@@ -291,15 +276,15 @@ ruukoto work cancel <工作ID> [--reason R]        # 停止中拒绝
 ### 4.3 项目设置
 
 ```bash
-ruukoto project set-instructions <项目id> <文件...>    # 工作区相对路径
-ruukoto project web-search <项目id> on|off             # 默认启用
+ruukoto-code project set-instructions <项目id> <文件...>    # 工作区相对路径
+ruukoto-code project web-search <项目id> on|off             # 默认启用
 ```
 
 项目指令从 `project.rootDir?.cwdReal ?? session.cwdReal` 起经受限读取钉版（realpath 后必须仍在基准目录内），任务内固定、下一任务重新读取。项目指令与 Web Search 共用 `projects.settings_version`：保存经 `Store.updateProjectSettings` 在同一事务核对可选期望版本、更新同一行、递增同一版本并追加 `project.settings_changed` 事件；不符 = `version_conflict`，不改配置、无事件；同值保存幂等。
 
 ### 4.4 子代理角色文件
 
-两个产品分别读取本实例 `<agentDir>/agents/*.md`，不自动扫描仓库。文件名是小写 kebab-case 角色名，同名覆盖内置 general/reviewer；新增文件新增角色。普通委派和工作流的 `role` 从同一目录选择：首次省略为 general，继续或复用沿固定角色；实际工具与权限按来源、角色及宿主约束求交。
+Coding 读取本实例 `<agentDir>/agents/*.md`，不自动扫描仓库。文件名是小写 kebab-case 角色名，同名覆盖内置 general/reviewer；新增文件新增角色。普通委派和工作流的 `role` 从同一目录选择：首次省略为 general，继续或复用沿固定角色；实际工具与权限按来源、角色及宿主约束求交。
 
 ```markdown
 ---
@@ -318,67 +303,30 @@ description: 阅读给定资料并给出有依据的结论。
 
 ### 5.1 Telegram owner 入口
 
-```bash
-TG_TOKEN=123456:ABC... ruukoto credentials add --name tg --host api.telegram.org \
-  --header none --purpose telegram_bot --secret-env TG_TOKEN
-ruukoto telegram configure --credential tg --user-id <owner user_id> [--chat-id <chat_id>] [--api-base https://...]
-ruukoto telegram enable | disable | status
-```
-
-bot token 只在 CredentialStore（purpose=`telegram_bot`，host 须与 API 地址一致；配置后 scope 收紧到 `telegram_bot`）。`--api-base` 缺省官方端点，可指向受控反代（必须 https，http 仅限回环）；Node `fetch` 不读 `HTTP(S)_PROXY`，国内服务器需要反代或网络层代理。任何配置变化递增 `config_version` 并即时重连，重新配置把轮询偏移归零（平台重投由外部 id 去重）。`ruukoto telegram status` 显示配置视图、在线状态、最近错误与偏移，不含 token；回复记录用 `ruukoto notify list|show`（`sourceKind = owner_reply`）查看。
+个人在停机引导菜单中配置凭据环境变量名、核实 bot 并配对拥有者，详见[个人引导与管理](#25-个人-agent-引导与管理)。旧 `credentials add`、`telegram configure/enable` 不用于新个人实例。
 
 ### 5.2 QQ owner 私聊
 
-```bash
-QQ_ONEBOT_TOKEN=... ruukoto credentials add --name qq-onebot --host 127.0.0.1:3001 \
-  --header authorization --purpose qq_onebot --secret-env QQ_ONEBOT_TOKEN
-ruukoto qq configure --endpoint ws://127.0.0.1:3001 --self-id <登录QQ号> \
-  --credential qq-onebot --owner-id <拥有者QQ号>
-ruukoto qq enable
-ruukoto qq status
-ruukoto notify list
-```
-
-配置中心的 QQ 页面也可绑定或清除拥有者 QQ 号。`--no-owner` 清除私聊绑定；`qq disable` 停用整个 QQ 入口。私聊必须有 token，登录号与 owner 必须不同。`qq inbox`／`qq outbox` 只显示旧群归档记录。核心群聊已退役，`qq group add|remove` 已删除，旧命令只打印退役提示。
+个人在引导菜单配对专用 NapCat/OneBot 私聊，原账号、拥有者与代次由宿主固定，详见[个人引导与管理](#25-个人-agent-引导与管理)。QQ 群聊与群临时会话拒绝。
 
 ### 5.3 私聊图片入站
 
-无需单独启用：仅个人 Agent 的 Telegram／QQ 拥有者私聊接收 JPEG、PNG、WebP，每条最多 4 张，每张最多 8 MiB。不转码或缩放；GIF、SVG、伪造 MIME、大小或数量超限永久拒绝。所选模型不支持 image 时媒体消息记为 `rejected` 并回执 `image_input_unsupported`。
+QQ/Telegram 主会话支持 JPEG、PNG、WebP，格式、大小、模型图片能力与失败回执见[个人引导与管理](#25-个人-agent-引导与管理)。
 
 ### 5.4 通用定时任务
 
-本节及通知命令适用于正式共享装配；个人 durable 的引导入口与原生调度见[隔离向导](#25-个人-durable-隔离向导)。
-
-main 使用 `schedule_create` 登记时间规则与自足任务说明。例如定时新闻查询由该次任务调用普通搜索工具完成：
-
-```json
-{
-  "create_key": "daily-tech-news",
-  "rule": { "kind": "daily", "time_zone": "Asia/Shanghai", "time": "09:00" },
-  "instruction": "检索人工智能与开源软件的近期新闻，核对原始来源并汇总带链接的摘要。",
-  "reason": "每天独立执行一次已约定的新闻查询"
-}
-```
-
-计划保存创建任务当时的访问模式与可信拥有者回报目标；模型不能指定模式或接收者。每次到期建立新的独立上下文，只输入说明与创建时明确提供的资料，保留个人业务工具与委派资格；不自动复制主聊天或上次运行历史。主会话改模式不改写已有计划。完全访问运行免操作审批，受限运行沿原策略等待决定，不阻塞主聊天；无 IM 时可在 TUI／控制面回应。
-
-整项运行及其派生任务结束后，默认向保存目标回报一次最终结果或失败；没有目标仍可创建，结果留在运行记录。目标失效不改发新目标。同计划最多一项未完成运行，忙碌时合并漏过周期，离线且无在途时最多补最近一次；发送晚到不阻塞下次运行。修改时间或说明需取消后重建，取消同时停止未来触发与该计划的整项在途工作，保留成果及未核实占用。定时任务使用原有工具前置，新闻任务需要可用的 Web Search 凭据。
+个人通过主聊天、CLI「后台工作与定时计划」或 IM `/定时` 逐步创建计划，固定创建时权限和原入口，独立上下文执行并等待整项收尾；漏期合并。配置与取消、完整报告和未知效果核实见[个人引导与管理](#25-个人-agent-引导与管理)。Coding 不创建个人调度。
 
 ### 5.5 调度与通知查看
 
-```bash
-ruukoto schedule list|show|cancel
-ruukoto notify list|show|cancel
-```
-
-每页 ≤50，列表不带正文。计划详情显示创建模式、固定回报目标与最近独立运行结果；控制面不获得发送或改目标能力。
+个人从原计划、分析委托和平台收发菜单查看实际回报状态；登记不等于平台成功，未知发送不重发。旧共享账本的只读诊断仍由 Coding 的 `schedule list/show`、`notify list/show` 提供，不接管个人新计划或发送。
 
 ### 5.6 Web Search
 
 ```bash
-ruukoto credentials add --name tavily --host api.tavily.com --header authorization \
+ruukoto-code credentials add --name tavily --host api.tavily.com --header authorization \
   --purpose tavily_search --secret-env TAVILY_API_KEY
-ruukoto project web-search <项目id> off     # on 恢复；默认对所有项目启用
+ruukoto-code project web-search <项目id> off     # on 恢复；默认对所有项目启用
 ```
 
 秘密值为 API key，工具按 `Bearer <key>` 注入；值不进入模型上下文、事件、日志、历史正文或错误文本。未配置、host 或用途不匹配一律拒绝调用且不发送请求。任务开始固定工具清单：禁用中的项目任务不注册 `web_search`；任务内禁用立即阻止后续调用；重新启用从下一任务生效。
@@ -386,14 +334,14 @@ ruukoto project web-search <项目id> off     # on 恢复；默认对所有项�
 ### 5.7 MCP 服务
 
 ```bash
-ruukoto credentials add --name github-mcp --host api.githubcopilot.com \
+ruukoto-code credentials add --name github-mcp --host api.githubcopilot.com \
   --header authorization --purpose mcp --secret-env GITHUB_MCP_PAT
-ruukoto mcp configure --project <id> --name github \
+ruukoto-code mcp configure --project <id> --name github \
   --endpoint https://api.githubcopilot.com/mcp/readonly --credential github-mcp \
   --tools get_me,get_file_contents [--expected-version N]
-ruukoto mcp list [--project <id>]        # 脱敏视图
-ruukoto mcp check <service-id>           # 连接检查 + 工具发现，标注每个远端工具是否在允许列表
-ruukoto mcp disable <service-id> | enable | remove <service-id> [--expected-version N]
+ruukoto-code mcp list [--project <id>]        # 脱敏视图
+ruukoto-code mcp check <service-id>           # 连接检查 + 工具发现，标注每个远端工具是否在允许列表
+ruukoto-code mcp disable <service-id> | enable | remove <service-id> [--expected-version N]
 ```
 
 MCP 凭据用途固定为 `mcp`，host 须与服务端点一致，经 authorization 头以 Bearer 注入；配置服务时 scope 自动收紧到该项目 + mcp 操作，已有冲突 scope 拒绝配置。首个接入对象为官方远程 GitHub MCP。
@@ -402,40 +350,14 @@ GitHub MCP 首次配置：端点 `https://api.githubcopilot.com/mcp/readonly`（
 
 ### 5.8 GitHub PR webhook
 
-先登记独立签名秘密，`GITHUB_WEBHOOK_SECRET` 由调用环境提供，值不写进启动 JSON、命令参数、任务正文或日志：
-
-```bash
-ruukoto credentials add --name github-events --host github.com \
-  --header x-hub-signature-256 --purpose github_webhook --secret-env GITHUB_WEBHOOK_SECRET
-```
-
-后台启动时通过 `--github-webhook-config /path/to/github-webhook.json` 显式启用：
-
-```json
-{
-  "port": 8787,
-  "host": "127.0.0.1",
-  "credential": "github-events",
-  "repositoryIds": [123456789],
-  "notifyChannel": "telegram"
-}
-```
-
-```bash
-ruukoto server --data-dir ~/.ruukoto/data --agent-dir ~/.ruukoto/agent \
-  --execution native --github-webhook-config /path/to/github-webhook.json
-```
-
-`port`、`credential` 和非空 `repositoryIds` 必填；仓库范围使用正整数 ID。`host` 默认 `127.0.0.1`，`notifyChannel` 可选 `telegram` 或 `qq_private`，默认 Telegram。未传文件即不开监听，开发实例不自动继承这项配置。监听路径固定为 `POST /github/webhook`；对外提供 HTTPS 时由部署侧反向代理到该入口。GitHub webhook 使用 JSON 与相同 secret，并订阅 Pull requests 事件。
-
-启用配置同时授权一次固定 owner 摘要，因此应先配置并启用所选 Telegram 或 QQ 私聊渠道。GitHub MCP 另行配置到 **main** 角色绑定的项目，使用自己的读取凭据和工具允许列表。
+新个人入口不提供 GitHub 自动评审；Coding 未因此获得个人 webhook 或 IM 能力。保留的旧事件、修订和评审归档机制见[消息渠道](modules/channels.md)，不以旧启动参数接入新个人实例。
 
 ### 5.9 Jev 上下文筛选实验
 
-实验按项目配置，默认关闭。先登记 TypeSafe API key，再在 `ruukoto config` → 项目 → 选择项目 → Jev 上下文筛选实验中选择凭据引用并启用：
+实验按项目配置，默认关闭。先登记 TypeSafe API key，再在 `ruukoto-code config` → 项目 → 选择项目 → Jev 上下文筛选实验中选择凭据引用并启用：
 
 ```sh
-ruukoto credentials add --name jev-myproject --host api.typesafe.ai \
+ruukoto-code credentials add --name jev-myproject --host api.typesafe.ai \
   --header authorization --purpose jev_context --secret-env JEV_API_KEY
 ```
 
@@ -443,27 +365,21 @@ ruukoto credentials add --name jev-myproject --host api.typesafe.ai \
 
 ### 5.10 服务器服务管理
 
-main 与独立定时会话可检查服务器部署白名单内的服务状态，完全访问免操作审批，其他模式逐次批准执行管理动作（首版仅 restart），main 可命中经核实的长期授权，定时会话不继承长期授权。要求产品 ruukoto + Linux + 显式部署配置齐备（`RUUKOTO_SERVICE_HELPER`／`RUUKOTO_SERVICE_POLICY` 经后台单元 drop-in 注入，只设一个拒绝启动）。安装步骤见 [deploy/systemd/README.md](../deploy/systemd/README.md)。
-
-```bash
-ruukoto service-grant list|show|revoke
-```
-
-拥有者可经原 IM 平台的待审批把某次 service restart 审批保存为限定长期授权（`/approve-standing`），之后独立任务命中完全相同范围时自动放行，范围外仍逐次审批。入口停用后仍可管理遗留记录。
+先按[部署说明](../deploy/systemd/README.md#服务器服务管理)安装固定 helper、白名单与 sudoers，再在个人停机菜单配置路径。原 IM `/审批` 可逐次批准或保存精确长期授权，CLI/IM 权限菜单查看、撤销授权；服务效果与停止分别核实，详见[个人引导与管理](#25-个人-agent-引导与管理)。Coding 不装配个人服务工具，旧长期授权记录可按既有诊断入口核实。
 
 ### 5.11 工作流问题与回报
 
-工作流定义和运行用于两个产品的正式共享装配；个人 durable 以独立调度和后台分析完成工作，不使用本节脚本入口。
+本节工作流定义、运行、CLI 与 TUI 用于 Coding；个人以独立调度和后台分析完成工作，不使用旧脚本语言、定义库或 IM 工作流命令。
 
-已有工作流提出问题后，可在发起时的拥有者私聊入口按通知中的完整 ID 和版本答复：`/workflow-question <运行ID> <步骤键> [字节偏移]` 查看问题、约束和已有回答；`/workflow-answer <运行ID> <步骤键> <问题运行代次> <问题版本> <JSON回答>` 提交，例如回答字符串写为 `"yes"`。问题运行代次在建立时固定，其他分支进度不改变它；暂停、取消、过期版本、错误入口及资料撤销会拒绝回答。业务回答不批准工具，需要工具批准时仍使用原审批入口。
+已有工作流的问题从 Coding 的 CLI/TUI 查看并答复，业务回答不批准工具，需要工具批准时使用任务审批入口。
 
 主 Agent 可等待明确的后台任务或工作流，收到任一结果或需介入时继续处理；超时可再次等待，新消息打断本次等待但后台工作继续。
 
-结果由有效父轮继续汇总，父轮中断则沿原键补报；同来源多个目标共用一份总结，dev 留在原会话，main 有原 IM 来源时回原入口、CLI/TUI 来源留原会话，定时来源等名下全部运行后只走调度最终回报；平台字符上限内优先保留宿主终态、覆盖、停止核实与失败事实，终态事实取代启动和中途的旧状态。停止已核实不代表写入效果已知。`delivery.status=reported` 表示汇总及适用的通知登记完成，真实发送状态用 `ruukoto notify list|show` 查看；`workflow_question` 是问题通知，最终 main 回报是 `owner_reply`。failed/effect_unknown 不自动重发，入口换代不改目标。暂停、取消与未核实停止事实保留在运行记录，已有外部效果不回滚。
+结果由有效父轮回到 Coding 来源会话汇总，父轮中断则沿原键补报，同来源多个目标共用一份总结。汇总保留终态、覆盖、停止核实与失败事实，终态事实取代中途旧状态；停止已核实不代表写入效果已知。暂停、取消、未知效果与已有成果保留，已有外部效果不回滚。
 
 定义文件在实例 `<agentDir>/workflows/<名称>.js`，名称为 1–64 位字母数字及 `_`/`-`，首位为字母数字。保存入口自动写入接口版本首行，后面是 async 函数体，接收 JSON `input`，可调用 `agent`、`ask`、`integrate`、`progress`；先让模型用 `workflow_instructions` 读取编写说明。文件/临时脚本均须通过普通文件、UTF-8、128 KiB 与 QuickJS 语法校验，符号链接和越界名称拒绝，不回退旧版本。每次运行固定版本、参数及来源授权；编辑当前文件只影响新请求。模型可在当前可信任务内自主使用，计划模式、子任务和工作流步骤不能发起嵌套运行。
 
-两产品均可用 CLI 管理定义和运行；下面用 Coding Agent 示范，个人产品将命令名前缀换成 `ruukoto`。启动固定当前会话的模型和模式；需改变授权先用已有模式入口选择，启动参数不能回填授权。
+Coding 的 CLI 管理定义和运行。启动固定当前会话的模型和模式；需改变授权先用已有模式入口选择，启动参数不能回填授权。
 
 ```sh
 ruukoto-code workflow save batch --script-file ./batch.js --request-id save-batch-1
@@ -491,24 +407,11 @@ ruukoto-code workflow question wfrun_x question-key
 
 TUI 用 `/workflow` 打开侧栏：默认列出当前会话全部活动运行和最近十项结果，历史和长列表可续读。选运行后进入详情，查看步骤、日志、业务问题及独立的停止核实、效果未知和最终回报状态，再选择回答、暂停、恢复、取消或预算；名称、含毫秒时间、展示序号和显式说明帮助辨认同名运行。选“启动工作流”后选择已保存定义、填写 JSON 业务参数与可选简短说明，再确认启动；编辑脚本通过文件或 Agent。Enter 确认、↑↓ 选择、PageUp/PageDown 阅读正文，Esc 逐层返回并在根层关闭，浏览层也可用 q 返回。宽度至少 120 列时侧栏与聊天共存，Tab 切换焦点；窄屏以独立窗口显示同一所在层，Tab 可回聊天，缩放保留选择。关闭侧栏或客户端不取消运行。稳定键、原版本和参数由程序在发送前落盘，应答丢失、重连和客户端重启先只读核实原提交；明确未接收后可选择原键原参数重试，实例变化或记录损坏时保留待核实，不向新库重发。过期操作退回最新详情，重新选择并确认。
 
-个人 IM 只接受绑定拥有者在原入口发送的完整命令，运行用完整 ID 定位；引用、转发、来源不符、旧代次、格式错误或定位歧义不改变运行。命令仍在原始文本进入模型前处理，控制回执与意图同事务提交，平台重投不重复执行。
-
-| IM 命令 | 用途 |
-| --- | --- |
-| `/workflow-definitions [列表偏移]`、`/workflow-definition <名称> [字节偏移]` | 查看命名库和脚本；保存可请模型调用保存工具或用 CLI/TUI |
-| `/workflow-run <名称> <JSON参数>` | 显式启动，不占一个模型发起轮次 |
-| `/workflow-list [列表偏移]`、`/workflow-show <完整运行ID> [字节偏移]` | 查看本入口运行与当前版本/等待原因 |
-| `/workflow-logs <运行ID> [字节偏移]`、`/workflow-step <运行ID> <步骤键> [字节偏移]` | 阶段与步骤结果 |
-| `/workflow-pause/resume/cancel <运行ID> <当前版本>` | 暂停、恢复或取消；resume 可加显式 JSON 核实项 |
-| `/workflow-budget <运行ID> <当前版本> {"maxAttempts":150,"durationMs":7200000}` | 拥有者调整预算；模型不能提高 |
-
-问题答复仍使用本节开头的 `/workflow-question`、`/workflow-answer`，不批准工具。配置变化不改发目标；未送达事实留在运行/outbox，可用 CLI 查看，不能把发送登记当作平台成功。
-
 ## 6. 导入旧实例
 
 含工作流运行、步骤、执行绑定、问题或控制记录的源实例明确报 `workflow_import_unavailable`；保留原档案用匹配代码查阅，当前导入不迁移工作流授权与执行。只有定义版本的资料不随普通资料导入。
 
-两个方向都必须离线执行：preview／apply／revert／list 都要求目标后台已停止（CLI 持目标实例锁运行，不走控制面）；源实例全程只读——源后台存活（或持锁身份无法核实）时拒绝，快照 = 把 `ruukoto.db` 及 WAL 侧车逐文件复制到临时目录后在副本上核实当前格式，源目录逐文件 sha256 不变。
+Coding 导入必须离线执行：preview／apply／revert／list 都要求目标后台已停止（CLI 持目标实例锁运行，不走控制面）；源实例全程只读——源后台存活（或持锁身份无法核实）时拒绝，快照 = 把 `ruukoto.db` 及 WAL 侧车逐文件复制到临时目录后在副本上核实当前格式，源目录逐文件 sha256 不变。
 
 ### 6.1 开发资料迁入（ruukoto-code）
 
@@ -534,30 +437,13 @@ rm -f <dataDir>/ruukoto.db-wal <dataDir>/ruukoto.db-shm
 # 复制的 JSONL 与产物正文如需一并移除，按回执 report.files 逐项删除
 ```
 
-### 6.2 个人资料迁入（ruukoto）
+<a id="62-个人资料迁入ruukoto"></a>
 
-`ruukoto legacy-import` 只在 **ruukoto** 产品下可用，把旧 ruukoto 实例中的个人资料迁入**全新** ruukoto 实例——main 会话、应用数据、调度、平台绑定与必要凭据；旧 coding/chat 档案与发送事实随迁为只读归档。目标必须未初始化：目标后台启动过（有自有角色行与 main 会话）即拒绝；源或目标后台存活、同一路径、同一实例 ID 也都拒绝。
+### 6.2 个人资料归档
 
-```bash
-ruukoto legacy-import preview --from <源数据目录> [--plan 计划文件]
-ruukoto legacy-import apply --plan 计划文件 [--request-id <id>]
-ruukoto legacy-import revert <导入ID>
-ruukoto legacy-import list
-```
+个人不提供旧实例导入、旧凭据复制、旧调度接续或在途执行迁移。原地保留旧档案及对应代码、依赖和一致备份；新实例使用空白目录，重新配置模型、平台绑定与服务。不得启动会自动恢复任务或外发的旧后台查阅归档。
 
-preview 列出**交接清单**（平台配置含 `config_version` 与 telegram 偏移、活动调度、生效中的长期授权）、应用数据与绑定核对、会话归属、各项收尾计数、记忆与授权分类、MCP／Jev 停用项、凭据动作（copy/skip/conflict）、归档计数、冲突与修订值。**必要凭据**：平台配置引用的绑定与 purpose `github_webhook` 的绑定从源 `credentials.json` 合并进目标（同名同值跳过、异值拒绝，报告只记 sha256）；MCP／Jev 凭据不复制。
-
-**拥有者务必在 apply 后停止并退役旧实例：不得再启动旧后台消费平台入站或调度**，否则两端会各自轮询同一 bot、独立触发同一批通知——这是一次性切换，导入工具不改源实例一字。GitHub webhook 监听地址为启动参数（`--github-webhook-config`），需要在目标启动时重新给出；GitHub 侧 webhook URL 指向新地址属拥有者的平台外操作。
-
-整库恢复同样为手工路径：
-
-```bash
-ruukoto stop  # 确认后台已停止
-cp <dataDir>/migration/<导入ID>/target-before.db <dataDir>/ruukoto.db
-rm -f <dataDir>/ruukoto.db-wal <dataDir>/ruukoto.db-shm <dataDir>/agent-data/main.db*
-# 复制的 JSONL/产物/归档文件需一并移除时，按回执 report.files 逐项删除；
-# 凭据摘除按回执 report.credentials 逐项核对
-```
+生产切换须另行核实旧连接、scheduler/outbox、后台与独立执行单元停止，重新登记平台接管边界；未受理委托由拥有者重新提交。回退也使用另一个空白档案并重设边界，两份原档案均保留，不能加载旧备份重新消费积压。操作归[部署说明](../deploy/systemd/README.md#升级与回退)。
 
 ## 7. 交互终端
 
@@ -623,7 +509,7 @@ Telegram／QQ 私聊不识别 `/skill:`。`/plan` 已移除，按未知命令处
 
 退出只关闭客户端，后台任务继续执行。重连后从后台重建快照、历史及任务事件，恢复思考、工具、完整正文和完成状态的顺序，按事件和消息身份去重；不自动新建任务、不恢复暂停队列。事件序号缺口或游标过旧时自动重新同步。
 
-提交前生成 `request_id` 并把完整请求原子保存到拥有者私有目录（默认 `~/.ruukoto/pending/`，`RUUKOTO_PENDING_DIR` 可覆盖，0600）；应答丢失时显示「接收结果待核实」，按 `session_id + request_id` 核实（断线的等重连后，连接仍在的当场核实这一条）：已接收则关联原任务，明确未接收才以原键原参数重试；记录绑定数据实例标识，换新数据库后不会向空后台重发。未发送或后台明确拒绝时清除记录并恢复输入。
+提交前生成 `request_id` 并把完整请求原子保存到拥有者私有目录（默认 `~/.ruukoto-code/pending/`，`RUUKOTO_CODE_PENDING_DIR` 可覆盖，0600）；应答丢失时显示「接收结果待核实」，按 `session_id + request_id` 核实（断线的等重连后，连接仍在的当场核实这一条）：已接收则关联原任务，明确未接收才以原键原参数重试；记录绑定数据实例标识，换新数据库后不会向空后台重发。未发送或后台明确拒绝时清除记录并恢复输入。
 
 `/mode`、`/model`、审批应答丢失时：连接仍在立即查询后台状态，已断线则提示结果未知、以重连快照为准，都不自动重发。
 
@@ -639,24 +525,26 @@ Telegram／QQ 私聊不识别 `/skill:`。`/plan` 已移除，按未知命令处
 
 ## 8. 开发实例
 
-`npm run dev` 启动 ruukoto 开发后台，`npm run code` 启动 ruukoto-code 开发后台并默认打开 TUI；两者都支持 `--config` 与 `--import-models <目录>`。隔离档案、源码重载与退出行为见[开发说明的开发实例一节](development.md#开发实例)。
+`npm run dev` 用固定检出散列档案前台托管个人后台，`--config` 打开同一菜单，退出停止本次后台。默认入口由薄启动器托管 Node watch，源码变化后重启、失败可等待修正文件；`--config` 不监听源码，配置菜单源码变化须退出重开。忽略继承目录，拒绝已启用 QQ/Telegram 的档案，不修改原记录或连接平台。`npm run code` 保留 Coding 开发后台、TUI、`--config` 与 `--import-models`；详情见[开发说明](development.md#开发实例)。
 
 ## 9. 数据目录
 
-以 `ruukoto` 默认值为例；`ruukoto-code` 结构相同，根目录换成 `~/.ruukoto-code/`。
+个人默认 `~/.ruukoto-durable/`，`RUUKOTO_PERSONAL_DIR` 可选新目录；目录 0700，配置、日志、证据和令牌文件 0600。`profile.json` 保存格式，`owner.sqlite` 持锁，`personal.sqlite` 保存 durable 会话与执行，`model.json` 等文件保存宿主配置；`agent-data/main.db` 是独立业务库，本机 socket 与 `control.token` 用于运行中管理。旧 `RUUKOTO_DATA_DIR/AGENT_DIR/CONTROL_DIR/PENDING_DIR` 及 owner token 不配置新个人实例。
+
+Coding 保留原结构：
 
 ```
-~/.ruukoto/data/      0700  元数据库、会话 JSONL、产物、实例锁
-~/.ruukoto/control/   0770  控制面 socket（0660）与拥有者令牌（0600）
-~/.ruukoto/agent/     0700  models.json、auth.json、credentials.json、default-model.json
-~/.ruukoto/pending/   0700  待核实的提交记录
+~/.ruukoto-code/data/      0700  元数据库、会话 JSONL、产物、实例锁
+~/.ruukoto-code/control/   0770  控制面 socket（0660）与拥有者令牌（0600）
+~/.ruukoto-code/agent/     0700  models.json、auth.json、credentials.json、default-model.json
+~/.ruukoto-code/pending/   0700  待核实的提交记录
 ```
 
-目录可用 `RUUKOTO_{DATA,AGENT,CONTROL,PENDING}_DIR` 覆盖；`ruukoto-code` 只读 `RUUKOTO_CODE_*_DIR` 这一组，跨产品打开数据目录会被拒绝。执行配置（`RUUKOTO_EXECUTION_BACKEND`）及常驻 user manager 环境见部署文档。拥有者令牌文件路径可经 `RUUKOTO_OWNER_TOKEN_FILE` 指定（显式使用其他令牌文件时）。
-
-完整布局、schema 版本与职责边界见[存储与身份](modules/core.md)。
+Coding 只读 `RUUKOTO_CODE_{DATA,AGENT,CONTROL,PENDING}_DIR`，令牌可由 `RUUKOTO_OWNER_TOKEN_FILE` 指定；核心库拒绝跨产品归属。完整机制见[存储与身份](modules/core.md)，个人格式见[个人持久会话](modules/personal-durable.md)。
 
 ## 10. 故障排查
+
+下列任务队列、事件与共享 MCP 诊断适用于 Coding。个人从菜单查询原输入、工作、效果和停止记录，按[引导与管理](#25-个人-agent-引导与管理)处理；旧目录或未知格式被拒绝时保留原资料并另选新目录，连接失败不能替代实例锁或停止证明。
 
 ### 10.1 后台起不来
 
@@ -692,13 +580,7 @@ Telegram／QQ 私聊不识别 `/skill:`。`/plan` 已移除，按未知命令处
 
 ### 10.4 消息入口
 
-| 现象 | 处理 |
-| --- | --- |
-| 消息没有触发任务 | 只接纳配置的拥有者、私聊、支持的文本或图片；其余只记 `<来源>.rejected`。核对 `qq status`／`telegram status` 的配置与在线状态 |
-| 回复被跳过 | 目标与当前钉版不一致或入口停用，记 `<来源>.reply_skipped`，不改发；重新配置目标后新消息才生效 |
-| 国内服务器连不上 Telegram | Node `fetch` 不读 `HTTP(S)_PROXY`；配置 `--api-base` 指向受控反代（必须 https）或走网络层代理 |
-| 群消息被忽略 | 核心 QQ 群聊已退役，群消息直接忽略；旧群资料只读可查（`qq inbox`／`qq outbox`） |
-| 审批命令无效 | 命令只作用于原平台、原账号、原配置版本；配置或凭据变化使旧审批失效，需重新申请 |
+个人在菜单查询 QQ/Telegram 的绑定、连接与最近收发。只接纳已配对拥有者的私聊及支持的图文；重新配对或凭据变化须更新绑定代次，旧审批与未发送回复失效、不改发。QQ 断线缺口不承诺补拉，核实未受理后重新发送；已经接纳或发送效果未知时查询原记录，不新建请求重试。完整步骤见[个人引导与管理](#25-个人-agent-引导与管理)。
 
 ### 10.5 上下文与队列
 
@@ -712,22 +594,24 @@ Telegram／QQ 私聊不识别 `/skill:`。`/plan` 已移除，按未知命令处
 
 ## 11. 已知限制
 
+前两项工作区与手工队列恢复限制属于 Coding；个人的恢复、未知效果和停止核实限制见[个人引导与管理](#25-个人-agent-引导与管理)。
+
 - 同一工作目录同时只允许一个写任务；并行修改靠 SubAgent 的 worktree，非 Git 目录串行。
 - 上下文超出预算或 provider 返回 `context_overflow` 时任务中断、队列暂停，需人工继续。
 - 原生任务使用实际后台账户的目录权限与宿主工具；HOME/TMPDIR 使用宿主临时磁盘，无单任务配额，停止未核实保留现场与占用。
 - 服务器服务管理只覆盖白名单服务的检查与重启。
-- 真实 QQ／Telegram 平台与 macOS 完全访问的正向路径缺少实测证据（目前均为模拟平台）；跨端共享记忆、邮件与 GitHub comment 渠道、独立的 QQ 群聊外挂尚未交付。逐项证据见[发布与验收说明](release-acceptance.md)。
+- 生产接管与最终候选组合另行验收；旧首期模拟与容器证据不代表新个人通过。跨端共享记忆、邮件、GitHub comment 渠道和独立 QQ 群聊外挂尚未交付；历史与当前证据入口见[发布与验收说明](release-acceptance.md)。
 
 ## 12. 浏览器
 
-正式共享入口中，两个产品的完全访问拥有者 main / 普通开发会话可直接调用 `browser` 打开网页、操作表单和看截图。其他模式、Plan、SubAgent、定时、工作流和 GitHub 评审不开放。先在运行后台的机器准备 [agent-browser v0.39.1 官方原生资产](https://github.com/vercel-labs/agent-browser/releases/tag/v0.39.1)及可运行的 Chromium；无需安装要求 Node ≥24 的 npm wrapper，宿主继续支持 Node 22.19/24。程序按官方 SHA-256 和版本核实；准备缺失只使浏览器不可用，模型任务不自动安装或提权。
+Coding 完全访问的普通开发会话可直接调用 `browser` 打开网页、操作表单和看截图。其他模式、Plan、SubAgent、定时、工作流和 GitHub 评审不开放。先在运行后台的机器准备 [agent-browser v0.39.1 官方原生资产](https://github.com/vercel-labs/agent-browser/releases/tag/v0.39.1)及可运行的 Chromium；无需安装要求 Node ≥24 的 npm wrapper，宿主继续支持 Node 22.19/24。程序按官方 SHA-256 和版本核实；准备缺失只使浏览器不可用，模型任务不自动安装或提权。
 
-个人 durable 隔离入口使用[浏览器配置向导](#25-个人-durable-隔离向导)保存路径和窗口选择；完全访问主输入及创建时已开放该能力的完全访问定时计划使用各自独立浏览器，子 Agent 和汇总不开放。它不读取下面的正式入口变量，产物从向导导出。
+个人入口使用[浏览器配置向导](#25-个人-agent-引导与管理)保存路径和窗口选择；完全访问主输入及创建时已开放该能力的完全访问定时计划使用各自独立浏览器，子 Agent 和汇总不开放。它不读取下面的 Coding 变量，产物从向导导出。
 
 ```bash
 RUUKOTO_BROWSER_BINARY=/absolute/path/agent-browser-darwin-arm64 \
-RUUKOTO_BROWSER_CHROME="/absolute/path/Chromium" ruukoto server
-# ruukoto-code server 使用同一组浏览器路径变量；各产品数据目录继续隔离
+RUUKOTO_BROWSER_CHROME="/absolute/path/Chromium" ruukoto-code server
+# 浏览器变量由 Coding 后台读取；个人通过菜单配置
 ```
 
 Linux 使用对应 linux 资产并准备系统库、可用 sandbox、持久磁盘空间；常驻服务将两个路径变量交给实际后台进程。默认 macOS 有头、Linux 无头。先让 Agent `start`，再打开登录页并 `pause`；按返回的 `dashboardUrl` 或有头窗口人工输入密码与验证码，密码不要发给 Agent。Linux 将该 URL 的端口经 `ssh -N -L 127.0.0.1:<本地端口>:127.0.0.1:<服务端端口> <主机>` 转发，只在本地打开。dashboard 只承担人工键鼠输入，不配置额外模型聊天。人工完成后发新消息让 Agent `resume`；原任务不能自行解除暂停。
@@ -744,4 +628,4 @@ Linux 使用对应 linux 资产并准备系统库、可用 sandbox、持久磁�
 
 版本不一致时，界面显示客户端与后台版本并停止自动重试。客户端较旧需重建应用；受管开发后台较旧需重启开发启动器；日常后台较旧按界面的当前控制 socket 查询步骤核对唯一 PID、所属用户与完整命令，人工结束后点“重新连接”。多 PID 或无法核对时先检查控制目录配置与 spawn.log，不发送信号；未查到监听进程先确认查询命令执行成功。桌面应用不会替你停止后台进程。仓库移动或 node 不可用时按界面提示修复环境或重建。
 
-Personal 的 SSH 连接层只支持[同账户部署](../deploy/systemd/README.md)：SSH 登录账户就是后台账户，且可访问控制目录、socket 与原 `owner.token`；只支持密钥或 ssh-agent 认证。建议在 `~/.ssh/config` 为桌面端单独配置不带 `LocalForward` 的主机别名，避免继承转发发生绑定冲突。令牌每次建连读取，本地不保存；账户或权限不符时按错误指引修正部署，不放宽令牌权限。Personal 配置与会话界面尚未开放。
+Personal SSH 连接层仅支持旧控制协议，不能连接新个人 durable 实例；它原有的连接要求是同账户部署：SSH 登录账户就是后台账户，且可访问控制目录、socket 与原 `owner.token`；只支持密钥或 ssh-agent 认证。建议在 `~/.ssh/config` 为桌面端单独配置不带 `LocalForward` 的主机别名，避免继承转发发生绑定冲突。令牌每次建连读取，本地不保存；账户或权限不符时按错误指引修正部署，不放宽令牌权限。Personal 配置与会话界面尚未开放。

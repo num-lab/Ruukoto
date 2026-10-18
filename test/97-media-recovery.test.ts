@@ -1,4 +1,4 @@
-import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
+import { product as personalProduct } from "./helpers/legacy-product.ts";
 /** 图片入站三个持久化窗口：模拟平台与模型，真实 Runtime / SQLite / 文件。 */
 import assert from "node:assert/strict";
 import * as fs from "node:fs";

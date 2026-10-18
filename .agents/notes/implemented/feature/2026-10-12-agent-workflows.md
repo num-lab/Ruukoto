@@ -2,7 +2,7 @@
 
 Status: implemented
 
-后续提案：[个人端 pi durable 迁移](../../proposed/architecture/2026-10-17-personal-pi-durable.md)拟让新个人端退出本工作流语言与定义库，Coding 继续使用本机制。
+部分取代：[个人正式入口](../simplification/2026-10-18-personal-product-entry.md)使新个人退出本工作流语言、定义库与 IM 命令；Coding 继续使用，旧个人分支和历史证据仅属保留实现。本篇原决定不要求新个人装配工作流。
 
 已确认的后续变更见[可配置子代理角色](../../implemented/architecture/2026-10-14-configurable-subagent-roles.md)：角色、来源能力和执行目标分开，实施与验收另由该方案持有；本篇原有独立决定及当前运行行为仍按其适用范围保留。
 

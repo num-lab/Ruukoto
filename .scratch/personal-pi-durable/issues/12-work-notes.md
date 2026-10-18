@@ -1,6 +1,12 @@
 # 个人 durable 当前分析的追加说明
 
-Status: ready-for-human
+Status: resolved
+
+## 结单结论
+
+2026-10-18，按拥有者最新指令取消本单重复人工走查门槛，沿用已有工程交付、独立审查及实际证据，记为resolved。尚未执行的真实环境或最终候选组合由[39](39-final-acceptance.md)统一持有，不新增测试通过结论，不再单独要求拥有者操作。
+
+具体承接与唯一人工事项见[本轮工单收敛](../evidence/owner-acceptance-2026-10-18/issue-closure.md)。下列实施记录保留当时的失败、跳过与证据范围，原逐单体验等待不再作为当前结单门槛。
 
 ## 目标与边界
 
@@ -16,8 +22,8 @@ Status: ready-for-human
 
 ## 进展与交接
 
-- 当前角色：工程交接；基点 `0648864`，分支 `Eitrous/migrate-to-pi-durable`，接手工作区干净。本次提交承载追加说明实现、测试、文档与证据，内容以相对基点的实际 diff 和[内容快照](../evidence/12-work-notes.sha256)核对；快照不含工单与证据，避免自指。
-- 下一角色：拥有者体验隔离 CLI/TG 的追加时机和结果；实施者继续整项工作归属、主 Agent 汇总与固定原入口最终回报。技术方案见[追加说明决定](../../../.agents/notes/implemented/architecture/2026-10-17-personal-work-notes.md)。
+- 实施交付时角色：工程交接；基点 `0648864`，分支 `Eitrous/migrate-to-pi-durable`，接手工作区干净。本次提交承载追加说明实现、测试、文档与证据，内容以相对基点的实际 diff 和[内容快照](../evidence/12-work-notes.sha256)核对；快照不含工单与证据，避免自指。
+- 原实施交接：拥有者体验隔离 CLI/TG 的追加时机和结果；实施者继续整项工作归属、主 Agent 汇总与固定原入口最终回报。技术方案见[追加说明决定](../../../.agents/notes/implemented/architecture/2026-10-17-personal-work-notes.md)。
 - 阻塞：无待拥有者决定的范围变化。真实模型、平台与产品体验仍分别待验。
 
 ## 验收与证据
@@ -34,7 +40,7 @@ Status: ready-for-human
 - 独立实现审查 `notes_review` 无未解决阻断；亲跑 notes/controls/service-operations 三文件 72/72、精确窗口基线 3/3，独立副本仅撤去最终事务新说明判断后两个窗口均预期失败。探针核实首次说明恰落一条、无关 list 工具及缺失 modelCall 来源均拒绝。HEAD 旧 control 路由只接当前运行依赖的隔离协议探针，当前 CLI 的新路径 POST/GET 均拒绝、保留 pending 且零误投主聊天；不将此记作旧完整二进制部署验收。见[独立审查](../evidence/12-macos/independent-review/REVIEW.md)。
 - 真实 PTY 按名称选择原工作、输入追加、刷新至完成并读取最后回答，退出向导后后台仍可查；专用后台、模型 HTTP 与档案已清理。见[PTY 记录](../evidence/12-macos/pty.json)及同目录压缩终端记录。自动操作者不替代拥有者体验确认。
 - 已重捕获实际 mock 请求：主 systemPrompt 估算 70→70、toolSchemas 472→561（UTF-8 字节/4 向上取整）；子会话工具仍为空，最后请求含追加正文，主会话保留 append 工具原结果。见[模型输入](../evidence/12-macos/model-input.json)。
-- 工程验收：本片通过；Linux 清理及有效输入一致证据已归档。产品验收：待拥有者体验；真实模型、Telegram/QQ 和 systemd 未执行，不能由离线替身代替。未跑全仓 `npm run check`、Node 22 或完整 Coding 运行时；无共享包、依赖、helper、正式入口或部署变化，完整 A1–A12 保持待验。
+- 工程验收：本片通过；Linux 清理及有效输入一致证据已归档。实施交付时产品验收记录：待拥有者体验；真实模型、Telegram/QQ 和 systemd 未执行，不能由离线替身代替。未跑全仓 `npm run check`、Node 22 或完整 Coding 运行时；无共享包、依赖、helper、正式入口或部署变化，完整 A1–A12 保持待验。
 
 ## 37 真实流程补证
 
@@ -49,3 +55,5 @@ Status: ready-for-human
 2026-10-17：工程实现与独立实现审查通过；本片仅支持原工作轮次之间的追加，不承诺中途打断生成。整项汇总和固定最终回报未由本片替代；未提交、推送或部署。
 
 2026-10-17：拥有者指示提交本轮追加说明切片；源码与已验快照一致，工程证据及独立审查结论沿用。产品体验、真实模型/IM 和整体迁移保持待验，正式入口与部署未切换。
+
+2026-10-18：拥有者明确要求只保留必须本人执行的事项，其余直接resolved；本单按上方结单结论结束独立跟踪，未验项目与原失败由39承接，不重复要求真人走查，未执行新的运行检查或生产操作。

@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { syncBuiltinESMExports } from "node:module";
 import { test } from "node:test";
 import { product as codeProduct } from "../apps/ruukoto-code/src/product.ts";
-import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
+import { product as personalProduct } from "./helpers/legacy-product.ts";
 import type { AgentWaitSnapshot } from "@ruukoto/core/agent-wait.ts";
 import { verifyDirIdentity } from "@ruukoto/core/dir-identity.ts";
 import { parseSessionFile } from "@ruukoto/core/history.ts";

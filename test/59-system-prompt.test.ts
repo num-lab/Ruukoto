@@ -43,6 +43,7 @@ function assertPrompts(rt: Runtime, sessionId: string, expected: string, label: 
     assert.equal(prompt, withCwd(expected, rt.store.getSession(sessionId)!.cwdReal), `${label} 系统提示`);
     assert.ok(!prompt.includes("PLANTED-"), `${label} 不含发现的文件`);
     assert.ok(!prompt.includes("Available tools") && !prompt.includes("node_modules"), `${label} 不含 pi 默认模板`);
+    assert.doesNotMatch(prompt, /\b(?:notification_enqueue|service_manage)\b/, `${label} 不再指导调用已退出的个人工具`);
   }
 }
 

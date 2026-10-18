@@ -1,4 +1,4 @@
-import { product as personalProduct } from "../../apps/ruukoto/src/product.ts";
+import { product as personalProduct } from "./legacy-product.ts";
 /**
  * 集成测试公共设施（沿用 issue 01 的 mock 模型 + 临时目录方式）。
  *

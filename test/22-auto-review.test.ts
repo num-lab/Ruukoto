@@ -1,4 +1,4 @@
-import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
+import { product as personalProduct } from "./helpers/legacy-product.ts";
 /**
  * 集成与单元：auto-review 自动审查模式（issue 15）。
  * Note: 见 .agents/notes/implemented/feature/2026-09-22-auto-review-mode.md

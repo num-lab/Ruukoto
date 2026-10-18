@@ -12,9 +12,9 @@
 | GitHub PR webhook 事件来源、评审链路、修订失效与一次通知 | 通用 MCP 服务的配置与工具装配（见 [Agent 工具](agent-tools.md)） |
 | QQ 群聊退役后的入站行为与只读归档（含 `chat_result_*` 复核） | 固定 coding 角色退役；旧实例的一次性导入（见 [运行时](runtime.md)） |
 
-两个适配器始终创建：QQ 私聊与 Telegram 各是一个入口，共用主会话。启动配置停用（`RUUKOTO_DISABLE_QQ` / `RUUKOTO_DISABLE_TELEGRAM`，Coding Agent 按产品边界强制）是适配器的标志：不连接、不轮询、目标为 null，入站门以 `qq_private_unavailable` / `telegram_unavailable`丢弃，与入口停用同义；outbox 视为发送器未加载而等待。入口的 `configure` / `setEnabled`信任边界校验留在各自适配器，不合并。群聊能力不在本模块内：QQ 群聊外挂是独立程序，自行管理群会话、历史与发送状态，经有限接口向 ruukoto 提供结果。
+旧底座的两个适配器始终创建：QQ 私聊与 Telegram 各是一个入口，共用主会话。启动配置停用（`RUUKOTO_DISABLE_QQ` / `RUUKOTO_DISABLE_TELEGRAM`，Coding Agent 按产品边界强制）是适配器的标志：不连接、不轮询、目标为 null，入站门以 `qq_private_unavailable` / `telegram_unavailable`丢弃，与入口停用同义；outbox 视为发送器未加载而等待。入口的 `configure` / `setEnabled`信任边界校验留在各自适配器，不合并。群聊能力不在本模块内：QQ 群聊外挂是独立程序，自行管理群会话、历史与发送状态，经有限接口向 ruukoto 提供结果。
 
-本篇描述正式共享装配；个人 Pi 1.3.0 隔离入口的 QQ/Telegram 图文收发、宿主控制及原入口回报由[个人持久会话](personal-durable.md)独立装配，只复用 OneBotClient 传输，不使用本模块 Store、审批或 outbox。
+本篇描述保留的旧消息、事件与归档实现；正式个人 Pi 1.3.0 入口的 QQ/Telegram 图文收发、宿主控制及原入口回报由[个人持久会话](personal-durable.md)独立装配，只复用 OneBotClient 传输，不使用本模块 Store、审批或 outbox。
 
 ## 对外接口
 
@@ -73,11 +73,11 @@
 ### 出站与归档查询
 
 - 回复、汇报与回执经 `SchedulerStore.insertOp` 登记：owner 回复用 `sourceKind = owner_reply`，IM 审批回执、媒体回执、GitHub 摘要用 `sourceKind = inbound_event`，审批创建通知用`sourceKind = confirmation`。
-- 归档查询：`qq inbox` / `qq outbox`（旧群收发与接收账本）、`read_history`（群会话历史）、`chat_result_list` / `chat_result_accept`（旧群结果）、`ruukoto notify list|show`（`sourceKind = owner_reply` 等发送记录）、`ruukoto telegram status`、`ruukoto qq status`。
+- 归档查询：`qq inbox` / `qq outbox`（旧群收发与接收账本）、`read_history`（群会话历史）、`chat_result_list` / `chat_result_accept`（旧群结果）、`ruukoto-code notify list|show`（`sourceKind = owner_reply` 等发送记录）、`ruukoto-code telegram status`、`ruukoto-code qq status`。
 
 ### 入口配置清单
 
-配置命令只在此列出名称，完整参数与步骤见 [使用手册](../usage.md)：`ruukoto credentials add`（Telegram bot token、QQ OneBot token、GitHub webhook 签名秘密）、`ruukoto telegram configure | enable | disable | status`、`ruukoto qq configure | enable | disable | status`、`ruukoto server --github-webhook-config`。配置中心也可绑定或清除拥有者QQ 号。
+旧渠道配置解析器和凭据存储保留在共享实现中；Coding 正式装配停用 IM 与个人调度，不能据此启用拥有者入口或 GitHub 自动评审。个人当前通过[引导式菜单](../usage.md#25-个人-agent-引导与管理)配置入口，不使用旧共享 CLI 命令。
 
 ## 数据与状态
 
@@ -164,7 +164,7 @@ sequenceDiagram
 
 接收只接纳 `chat.type = private` 且 `from.id` / `chat.id` 与配置一致的文本或 photo，其余不登记、不建任务、不调用模型，只记 `telegram.rejected`（update/chat/user id 与原因`not_owner` / `not_private` / `non_text` / `unsupported_update`，不含正文）。转发（`forward_origin` / `forward_date`）消息照常登记建任务，但其内容不解释为审批命令（不进入`commandText`）。photo 取像素面积最大的 PhotoSize，先 `getFile` 再下载，caption 可为空，回复图片消息的 caption 也可成为有界摘录。入站正文模板固定为`[Telegram 私聊] chat … user … message … 时间 …`，回复某条消息时附`回复关联：message <id>（本 bot / owner 发送）：<摘录 ≤500 字>`。已核实拥有者的私聊按创建任务时的主会话默认模式执行；消息正文不能设置模式。
 
-派发、任务启动（`runQueueLoop`）与终态回复都经 `gatePrivate` 复核来源、actor（配置owner user_id，不能由 chatId 推断）与钉版目标：版本未变的暂时离线等待恢复；停用、重绑或目标变化明确失效，`reply_target = null` 的遗留消息不补造，其 registered/queued 工作失效，历史与执行事实保留。Telegram 来源任务到达终态时，正文取本任务历史条目的最终回答（不取会话最新一条）；失败、超时或未知只发宿主固定提示；目标不可用记 `telegram.reply_skipped`。通用调度与旧 coding 子任务的唤醒不产生 `owner_reply`（调度整项运行使用唯一最终回报，主动外发按任务模式使用 `notification_enqueue`），通用 SubAgent 工作的收尾唤醒按最终汇报规则发回工作发起入口。
+派发、任务启动（`runQueueLoop`）与终态回复都经 `gatePrivate` 复核来源、actor（配置owner user_id，不能由 chatId 推断）与钉版目标：版本未变的暂时离线等待恢复；停用、重绑或目标变化明确失效，`reply_target = null` 的遗留消息不补造，其 registered/queued 工作失效，历史与执行事实保留。Telegram 来源任务到达终态时，正文取本任务历史条目的最终回答（不取会话最新一条）；失败、超时或未知只发宿主固定提示；目标不可用记 `telegram.reply_skipped`。通用调度与旧 coding 子任务的唤醒不产生 `owner_reply`（调度整项运行使用唯一最终回报），通用 SubAgent 工作的收尾唤醒按最终汇报规则发回工作发起入口。
 
 ### 发送与断线
 
@@ -290,7 +290,7 @@ QQ 群聊退役后的启动收尾按状态幂等，重复升级或重启不重�
 
 旧群资料为只读归档：`qq_inbox`（状态、撤回标记与时间、引用关联）、`qq_outbox`（发送账本）、`qq_sessions` 映射、入站事件与 chat 任务行全部保留。`qq inbox` 每条记录附 main 的接收账本行（接收时间、接收任务、理由、摘要快照）与当前复核结论（可用，或不可用的原因——归档缺失／不一致、main 不可用、来源已撤回）；`qq outbox` 查账本；拥有者 `read_history` 可读群会话历史。归档不能变成对话入口：`create_session` 拒绝群项目与角色项目（与 `open_workspace` 同一判定），`submit` / `continue` 拒绝 `qq_group` 会话与 chat／coding 角色会话；`open_workspace`认领与工作区迁移对角色／群聊项目的排除不变。隔离不因归档而扩大：AccessScope 按`sessions.kind = 'qq_group'` 判定，不依赖 chat 角色行；main／coding／SubAgent 仍读不到群项目原始历史、产物与带群来源的记忆；`chat_result` 资料仍不能用于 SubAgent 委派；已接收快照只对main 开放。
 
-群聊结果复核不变：`chat_result_list` 与 `chat_result_accept` 作用于归档中已完成且已记录结果的旧群 chat 任务。列表只给来源元数据；接收保存至多 1000 个 Unicode 字符的摘要快照及接收任务、操作和理由，不开放原始群历史或产物；接收前核对任务、会话、收件、入站事件与群映射相互匹配（chained 校验失败即明确拒绝），并按同群时间窗保守排除可能含已撤回消息的结果。已接收摘要仍可被 `notification_enqueue` / `schedule_create` 的 `{kind:'chat_result',task_id}` 引用（一次外发按任务模式授权，完全访问免审批；计划创建保存创建模式与固定目标）；查询、批准提交与发送前复核撤回与宿主来源——归档行缺失或不一致、main 不可用或来源已撤回时取消该次发送并记 `source_revoked` 原因，不会只凭接收快照正文继续发送。
+群聊结果复核不变：`chat_result_list` 与 `chat_result_accept` 作用于归档中已完成且已记录结果的旧群 chat 任务。列表只给来源元数据；接收保存至多 1000 个 Unicode 字符的摘要快照及接收任务、操作和理由，不开放原始群历史或产物；接收前核对任务、会话、收件、入站事件与群映射相互匹配（chained 校验失败即明确拒绝），并按同群时间窗保守排除可能含已撤回消息的结果。既有通知与计划账本中的 `{kind:'chat_result',task_id}` 来源继续按接收摘要核实；查询、批准提交与发送前复核撤回与宿主来源——归档行缺失或不一致、main 不可用或来源已撤回时取消该次发送并记 `source_revoked` 原因，不会只凭接收快照正文继续发送。
 
 **测试落点。** `test/85-retire-core-group-chat.test.ts` 覆盖：全新实例不引导 chat、群消息零新增（收件／会话／任务／回复／模型调用），同连接 QQ 私聊与 Telegram 照常回复；归档查询（`qq inbox`附接收与复核、`qq outbox`、`read_history`）、转 dev 会话与 `submit`／`continue` 全部拒绝；无chat 角色行的隔离不变；已接收结果通知经批准正常发送、撤回／篡改阻断并记 `source_revoked`；排队／在途／待发／未派发事件一次性收尾与三次启动幂等。旧数据由`test/helpers/legacy-group-archive.ts` 按退役前（核心库 v24）持久形态播种；真实旧代码产生数据的升级路径见 `.scratch/agent-direction/smoke-20-retire-group-chat.mts`（tx）。`test/26-qq.test.ts` 保留传输状态、配置校验与 `qq_group` 资料身份；`test/40-qq-private.test.ts`覆盖连接鉴权、身份核对、掉线重连与接收缺口；`test/49-chat-result-flow.test.ts` 用播种归档数据覆盖接收／审批／撤回复核／不凭快照外发。
 
@@ -351,7 +351,7 @@ QQ 群聊退役后的启动收尾按状态幂等，重复升级或重启不重�
 - 未配置 MCP、读取失败或资料缺失必须在评审结果中说明，不经 REST 补抓；缺失 webhook 不自动补抓。
 - Webhook review 不自动重试模型执行；父子任务与结果唤醒都有固定的 60 分钟时限，包含排队等待。重启沿用原事件、父子任务、产物和通知键补记，不重新评审。
 - 通知只登记一次，模型不能换目标或另建发送槽；过期、停用或配置变化时取消未发送操作，已在途的操作按实际回执收尾。
-- 历史 GitHub 表（`github_repo_bindings` / `github_drafts` / `github_publish_ops`）与`github.*` 事件、`github_publish` 审批记录保留为只读归档，可查看，不能响应执行；旧 CLI `ruukoto github …` 与 TUI `/github …` 只返回静态退役提示，不进补全与帮助。
+- 历史 GitHub 表（`github_repo_bindings` / `github_drafts` / `github_publish_ops`）与`github.*` 事件、`github_publish` 审批记录保留为只读归档，可查看，不能响应执行；旧 CLI `ruukoto-code github …` 与 TUI `/github …` 只返回静态退役提示，不进补全与帮助。
 
 **退役迁移（`packages/channels/src/github-retirement.ts`）** 在升级后首次启动自动执行，一次性且可重复：中断后下次启动继续，未完成不标记成功。它做四件事：
 

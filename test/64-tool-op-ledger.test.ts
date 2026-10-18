@@ -1,4 +1,4 @@
-import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
+import { product as personalProduct } from "./helpers/legacy-product.ts";
 import { product as codingProduct } from "../apps/ruukoto-code/src/product.ts";
 /**
  * 架构工单 05：工具操作账本（直接构造 Store 与假族核实，重启回归起真实 Runtime）。

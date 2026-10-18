@@ -1,0 +1,20 @@
+{
+  "base": "12b1a66cfa661f2a8bddaa9405283ab9f22cb20c",
+  "source": "tracked HEAD diff plus three task untracked files",
+  "worktree": "/tmp/ruukoto38-pack-20261018-1",
+  "evidence": "/tmp/ruukoto38-pack-evidence-20261018-1",
+  "timeUtc": "2026-10-18T10:49:54.478340+00:00",
+  "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "node": "v24.15.0",
+  "npm": "11.12.1",
+  "sourceEntries": 4045,
+  "deleted": 8,
+  "snapshotMatches": true,
+  "untrackedIncluded": [
+    ".agents/notes/implemented/simplification/2026-10-18-personal-product-entry.md",
+    "test/helpers/legacy-product.ts",
+    "test/personal-entry.test.ts"
+  ],
+  "independentDependencies": true,
+  "worktreeHasNodeModules": false
+}

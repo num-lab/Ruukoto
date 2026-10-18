@@ -1,0 +1,42 @@
+{
+  "baseline": "12b1a66cfa661f2a8bddaa9405283ab9f22cb20c",
+  "reviewed_at_utc": "2026-10-18T11:48:34.178624+00:00",
+  "files": {
+    "apps/ruukoto/bin/ruukoto.mjs": "396291a9b841718618defa51e3bb12baa0638c0f2b481a8e783dbed99e895f19",
+    "apps/ruukoto/package.json": "0774671fda0e6a7945fa9183328dbb51a0bfb60e48b25ddb5ef0133fd2c08477",
+    "apps/ruukoto/src/main.ts": "8246cd0cf81f08d219383d717bc82007e02d8a8dbca0ec677972d82671fcc703",
+    "apps/ruukoto/src/dev.ts": "d2c9c01147db399b817a766e10147a4ed304930a7d707e2bde7b5be00bae8d4b",
+    "apps/ruukoto/src/personal-cli.ts": "b2beb3ac4271b24842f4d2f8adfd23d728ae436c22d544896f82337311b72d92",
+    "apps/ruukoto/src/personal-entry.ts": "7591e2aa4f479723294a89c5cf1c7f645454dc2b3dcfe2a0e7e0bdbdf8b38a81",
+    "apps/ruukoto/src/personal-control.ts": "5b1683381c244de6fdce6d388f7a68375691dbfcc34030dcf594a07bff41e047",
+    "apps/ruukoto/src/personal-profile.ts": "ab54d3f537ef92ed1903df0c99054c16b7797a770d3bccbff04e6b47a194ab86",
+    "apps/ruukoto/src/personal-config.ts": "38ac8a87444f712c864744197737c98830a18a4b32647c6a1a2e63e00f74f15f",
+    "apps/ruukoto-code/src/legacy-import.ts": "a173ea4ca1e012e075b1e1d02f1fb94ad8f76f4e214b5a62e314ee8843dd92d6",
+    "scripts/start.ts": "b00eff9c97d9ebb9ad5ddbd70b0d6d3651541f76b92aa9d57bc1bc64002c1b5a",
+    "packages/core/src/product.ts": "9914c47ed4db854cd31a084c085ea9df9d586783954965bf1bd41d62922b3b9f",
+    "packages/agent/src/driver.ts": "ae77b5b9313346ecf7249cc93d369eaa94595c0ad5b56fde5acc7a66eebcd90f",
+    "packages/agent/src/session-factory.ts": "47c9f0fb913202a94c848f4e9512ddf2f15628434eec2ac96483c34711021ab7",
+    "test/helpers/legacy-product.ts": "9764bb053cd8dc3b5ed8faa41c346b54255cf134023a0e5486a1b26586ffd2f8",
+    "test/helpers/testkit.ts": "27886ad2a361971d55a940f84e2909cd1310cde327425e2a576a38b62642a583",
+    "test/helpers/backend.ts": "560aa1a0d42ab5051a0de81ee2170eadb0f46c61e0d5f619089d82cb82d1a2f1",
+    "test/personal-entry.test.ts": "1f52c0e93b0c8e4ed05e5fcfc7ec8875bf494abe305f5972d34e5f0cf6780ec0",
+    "test/40-qq-private.test.ts": "ce78dc245b8ba1fcbe34807547383165161478c43d04e2065db98121f6b507fe",
+    "test/49-chat-result-flow.test.ts": "ea0b5e5603e402190369f6ed7b4149b81f339d251c01f5f2b24ff9a9c4737447",
+    "test/51-generic-scheduler.test.ts": "265617303b78c9c917bb4202e99f7ed2a91a6dea5f06717caed3aaa805d4f58e",
+    "test/85-retire-core-group-chat.test.ts": "bf9ef83cb43c259b6f75ebcc371c915594b2aa0065001ea98f2a837440f98797",
+    "test/113-workflow-source-capabilities.test.ts": "ba8b0a861546b9d8a6ac51ce5f4c2045e2521b034f7249e5c06a1314a6837734",
+    "test/115-workflow-final-delivery.test.ts": "999f0fc042c6624a514506d095a9cb55ee6d31c8a692e49eb601e3dd054c96a5",
+    "test/subagent-source-capabilities.test.ts": "dbe1c7df16cbd5defc42617cdb63ad413d122151110b938e86a92be8a34cb73b",
+    ".scratch/personal-pi-durable/issues/38-product-entry-cleanup.md": "4d2e535a3e8e1ee949cfa101dd2f4be685ea289b07ba63b9bc315200dd724a82",
+    ".scratch/personal-pi-durable/issues/36-coding-regression.md": "508d0f289ab357ddf71ff550d0901c163dcfcc0c2d21a6bc037ba3a145cfb7ab",
+    ".scratch/personal-pi-durable/remaining-work.md": "f8f8272cbb12db277d35f2f351db0d9f4da5b6092cdf37dcd115f7ef8afeff97",
+    ".scratch/personal-pi-durable/evidence/38-product-entry/README.md": "7655a49ffab0a3b3e15e78ed488a21767e7126e67309b7d66b73ef5082c3a3a7",
+    ".agents/notes/implemented/simplification/2026-10-18-personal-product-entry.md": "34b970f190ce59268ad23d12c998c93b670a873878d4ea843dbee06d8efecc70"
+  },
+  "absent_paths": {
+    "apps/ruukoto/src/product.ts": true,
+    "apps/ruukoto/src/scheduler-tools.ts": true,
+    "apps/ruukoto/src/service-tools.ts": true,
+    "packages/channels/src/personal-import.ts": true
+  }
+}

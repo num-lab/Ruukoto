@@ -1,4 +1,4 @@
-import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
+import { product as personalProduct } from "./helpers/legacy-product.ts";
 /** 图片能力检查、建任务和跨重启提升沿用同一模型选择。 */
 import assert from "node:assert/strict";
 import * as fs from "node:fs";

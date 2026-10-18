@@ -1,5 +1,5 @@
 /**
- * 两个独立门禁：显式模型配置的原生编码/TUI 退出后继续，或 mock 模型的双产品升级。
+ * 两个独立门禁：显式模型配置的原生编码/TUI 退出后继续，或 mock 模型的两个 Coding 实例升级。
  * --upgrade-only 使用 SMOKE24_BASE（默认 8bccb8f）；无 Git 历史时显式提供 SMOKE24_BASE_TAR。
  * 模型配置只复制指定 provider/model；不连接真实 IM，不读取日常实例数据库。
  * 升级部分使用模拟模型，后台进程、独立安装、控制面和持久历史均为真实。
@@ -32,7 +32,7 @@ try {
   prerequisite(`参数无效：${(err as Error).message}\n${usage}`);
 }
 if (options.help) {
-  process.stdout.write(`${usage}\n升级：需要 npm、tar，以及包含 ruukoto/ruukoto-code 且控制面协议相同的 Git 基点或显式 archive；默认基点 8bccb8f。\n模型：需要构建后的原生执行入口、Python 3 pty，以及显式配置的 provider/model；会调用真实模型，可能产生费用。\n两个入口各自使用临时档案，不读取日常数据库或自动发现凭据。退出码：0 通过，1 失败，2 前提缺失。` + "\n");
+  process.stdout.write(`${usage}\n升级：需要 npm、tar，以及包含 ruukoto-code 且控制面协议相同的 Git 基点或显式 archive；默认基点 8bccb8f。\n模型：需要构建后的原生执行入口、Python 3 pty，以及显式配置的 provider/model；会调用真实模型，可能产生费用。\n两个入口各自使用临时档案，不读取日常数据库或自动发现凭据。退出码：0 通过，1 失败，2 前提缺失。` + "\n");
   process.exit(0);
 }
 if (options["upgrade-only"] && (options.models || options.model)) prerequisite(`--upgrade-only 不能与模型参数同用\n${usage}`);
@@ -45,15 +45,15 @@ if (options["upgrade-only"]) {
     execFileSync("tar", ["--version"], { stdio: "ignore", timeout: 15_000 });
     if (baseTar) {
       const entries = execFileSync("tar", ["-tf", baseTar], { encoding: "utf8", timeout: 15_000 }).split("\n");
-      for (const product of ["ruukoto", "ruukoto-code"]) {
-        if (!entries.includes(`bin/${product}.mjs`) && !entries.includes(`apps/${product}/bin/${product}.mjs`)) throw new Error("archive 缺少当前双产品入口");
+      for (const product of ["ruukoto-code"]) {
+        if (!entries.includes(`bin/${product}.mjs`) && !entries.includes(`apps/${product}/bin/${product}.mjs`)) throw new Error("archive 缺少 Coding 产品入口");
       }
     } else {
       const oldPackage = JSON.parse(execFileSync("git", ["show", `${base}:package.json`], { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 15_000 }));
-      if (!oldPackage.bin?.["ruukoto-code"] || !oldPackage.bin?.ruukoto) throw new Error("基点缺少当前双产品身份");
+      if (!oldPackage.bin?.["ruukoto-code"]) throw new Error("基点缺少 Coding 产品身份");
     }
   } catch {
-    prerequisite(`升级需要 npm、tar，以及包含当前 ruukoto/ruukoto-code 入口的基点 ${base} 或 SMOKE24_BASE_TAR；旧 ruukoto-dev 身份不属于此门禁`);
+    prerequisite(`升级需要 npm、tar，以及包含ruukoto-code 入口的基点 ${base} 或 SMOKE24_BASE_TAR；旧 ruukoto-dev 身份不属于此门禁`);
   }
 } else {
   if (!options.models || !options.model) prerequisite(`真实模型验收必须显式提供 --models 与 --model\n${usage}`);
@@ -99,12 +99,13 @@ function workModelCalls(workId: string): number {
   }).length;
 }
 
-function profile(name: string, product: "ruukoto" | "ruukoto-code") {
+function profile(name: string) {
+  const product = "ruukoto-code" as const;
   const dir = path.join(root, name);
   const dataDir = path.join(dir, "data"), agentDir = path.join(dir, "agent"), controlDir = path.join(dir, "control");
   fs.mkdirSync(agentDir, { recursive: true, mode: 0o700 });
   controls.set(controlDir, path.join(dataDir, "runtime.lock"));
-  const prefix = product === "ruukoto" ? "RUUKOTO" : "RUUKOTO_CODE";
+  const prefix = "RUUKOTO_CODE";
   const env = { PATH: process.env.PATH, HOME: process.env.HOME, TERM: "xterm-256color",
     XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR, DBUS_SESSION_BUS_ADDRESS: process.env.DBUS_SESSION_BUS_ADDRESS,
     RUUKOTO_DISABLE_QQ: "1", RUUKOTO_DISABLE_TELEGRAM: "1",
@@ -133,9 +134,9 @@ async function connect(p: Profile): Promise<ControlClient> {
 function launch(tree: string, p: Profile, legacy = false): ChildProcess {
   const entry = JSON.parse(fs.readFileSync(path.join(tree, "package.json"), "utf8")).bin[p.product];
   // 历史基点按它自己的能力声明选择入口；当前版本省略覆盖以验证产品默认。
-  const source = [path.join(tree, "apps", p.product, "src", "product.ts"), path.join(tree, "src", p.product === "ruukoto-code" ? "product-code.ts" : "product.ts")].find(file => fs.existsSync(file));
+  const source = [path.join(tree, "apps", p.product, "src", "product.ts"), path.join(tree, "src", "product-code.ts")].find(file => fs.existsSync(file));
   const declared = source ? fs.readFileSync(source, "utf8").match(/defaultExecution:\s*"(native|local|container)"/)?.[1] : undefined;
-  if (legacy && !declared) throw new Error("历史基点缺少可核实的执行能力声明；请指定当前双产品身份的 SMOKE24_BASE");
+  if (legacy && !declared) throw new Error("历史基点缺少可核实的执行能力声明；请指定Coding 产品身份的 SMOKE24_BASE");
   const allowed = source ? fs.readFileSync(source, "utf8").match(/allowedExecution:\s*\[([^\]]+)\]/)?.[1] : undefined;
   const historical = allowed?.includes('"native"') && !allowed.includes('"local"') ? "native" : "local";
   const backendArgs = legacy ? ["--execution", historical] : [];
@@ -169,7 +170,7 @@ function pass(name: string) { passed++; process.stderr.write("[ruukoto:smoke24] 
 try {
   process.stderr.write("[ruukoto:smoke24] " + `环境：${process.platform} ${process.arch}，Node ${process.version}；升级基点 ${base}` + "\n");
   if (!options["upgrade-only"]) {
-    const p = profile("real", "ruukoto-code");
+    const p = profile("real");
     fs.writeFileSync(path.join(p.agentDir, "models.json"), JSON.stringify({ providers: { [providerId]: { ...provider, models: provider.models.filter((m: any) => m.id === modelId) } } }), { mode: 0o600 });
     saveDefaultModel(p.agentDir, { provider: providerId, modelId, thinkingLevel: "off" });
     const probe = spawnSync(process.execPath, ["--import", "tsx", "--input-type", "module", "--eval",
@@ -218,8 +219,8 @@ try {
     pass(`真实 ${providerId}/${modelId} 在原生沙箱内修复并通过检查，TUI 退出后继续、重连查到 ${detail.artifacts.length} 项产物`);
   } else {
   const endpoint = await model.start();
-  const personal = profile("p", "ruukoto"), coding = profile("d", "ruukoto-code");
-  const trees = [path.join(root, "install-personal"), path.join(root, "install-coding")];
+  const peer = profile("peer"), coding = profile("coding");
+  const trees = [path.join(root, "install-peer"), path.join(root, "install-coding")];
   for (const [index, tree] of trees.entries()) {
     fs.mkdirSync(tree);
     const archive = path.join(root, `install-${index}.tar`);
@@ -234,14 +235,14 @@ try {
     run("npm", ["ci", "--no-audit", "--no-fund", "--prefer-offline"], tree);
     run("npm", ["run", "build"], tree);
   }
-  await writeModelsJson(personal, endpoint);
+  await writeModelsJson(peer, endpoint);
   await writeModelsJson(coding, endpoint);
-  const oldPersonal = launch(trees[0]!, personal, true);
+  const oldPeer = launch(trees[0]!, peer, true);
   launch(trees[1]!, coding, true);
-  let pClient = await connect(personal), dClient = await connect(coding);
+  let pClient = await connect(peer), dClient = await connect(coding);
   const pSnapshot = (await pClient.handshake()).snapshot, dSnapshot = (await dClient.handshake()).snapshot;
   assert.notEqual(pSnapshot.instanceId, dSnapshot.instanceId);
-  const pWorkspace = path.join(root, "personal-work"), dWorkspace = path.join(root, "coding-work");
+  const pWorkspace = path.join(root, "peer-work"), dWorkspace = path.join(root, "coding-work");
   fs.mkdirSync(pWorkspace); fs.mkdirSync(dWorkspace);
   for (const workspace of [pWorkspace, dWorkspace]) {
     fs.writeFileSync(path.join(workspace, "base.txt"), "baseline\n");
@@ -252,7 +253,7 @@ try {
   const dSession = (await dClient.request<any>("open_workspace", { cwd: dWorkspace, request_id: "d-workspace" })).session;
   const originalTask = await complete(dClient, dSession, "before-upgrade");
   await finished(dClient, originalTask.id);
-  for (const [client, session, p] of [[pClient, pSession, personal], [dClient, dSession, coding]] as const) {
+  for (const [client, session, p] of [[pClient, pSession, peer], [dClient, dSession, coding]] as const) {
     const approvalTask = await complete(client, session, "preserve-approval");
     let confirmationId = "";
     await waitFor("旧版本真实越界确认", async () => {
@@ -272,13 +273,13 @@ try {
       } finally { db.close(); }
     });
   }
-  pass("两份独立安装以各自配置、数据、控制面并存且实例标识不同");
+  pass("两份 Coding 独立安装以各自配置、数据、控制面并存且实例标识不同");
 
-  for (const [index, p] of [coding, personal].entries()) {
+  for (const [index, p] of [coding, peer].entries()) {
     const client = index === 0 ? dClient : pClient;
-    const survivor = index === 0 ? oldPersonal : children.at(-1)!;
+    const survivor = index === 0 ? oldPeer : children.at(-1)!;
     const survivorClient = index === 0 ? pClient : dClient;
-    const survivorProfile = index === 0 ? personal : coding;
+    const survivorProfile = index === 0 ? peer : coding;
     const survivorSession = index === 0 ? pSession : dSession;
     await stop(client, p);
     assert.equal(survivor.exitCode, null);
@@ -327,7 +328,7 @@ try {
       for (const override of ["argument", "environment"]) {
         const rejectDir = path.join(p.root, "reject-" + backend + "-" + override);
         const rejectEnv = { ...p.env,
-          [p.product === "ruukoto" ? "RUUKOTO_CONTROL_DIR" : "RUUKOTO_CODE_CONTROL_DIR"]: path.join(rejectDir, "control"),
+          ["RUUKOTO_CODE_CONTROL_DIR"]: path.join(rejectDir, "control"),
           ...(override === "environment" ? { RUUKOTO_EXECUTION_BACKEND: backend } : {}),
         };
         const entry = JSON.parse(fs.readFileSync(path.join(tree, "package.json"), "utf8")).bin[p.product];
@@ -365,16 +366,16 @@ try {
     assert.equal(upgradedDetail.toolOps.find((op: { sdkCallId: string }) => op.sdkCallId === "upgrade-native")?.isError, false, "升级后 bash 必须由真实工具成功执行");
     assert.equal(fs.readFileSync(path.join(index === 0 ? dWorkspace : pWorkspace, "upgraded-native.txt"), "utf8"), "native\n");
     assert.equal(workModelCalls(durable.workId), durable.modelCalls, "保留的效果未知子任务不调用模型或重放工具");
-    pass(`${p.product} 从 ${base} 独立升级到当前源码，另一端未重启且停端期间仍完成任务`);
+    pass(`${p.product} 从 ${base} 独立升级到当前源码，另一 Coding 实例未重启且停端期间仍完成任务`);
     assert.ok(survivorProfile.controlDir !== p.controlDir);
   }
   assert.equal((await taskStatus(dClient, originalTask.id)).task.status, "completed");
   const history = await dClient.request<any>("read_history", { session_id: dSession.id, limit: 100 });
   assert.match(JSON.stringify(history), /before-upgrade/);
-  await stop(pClient, personal);
-  await finished(dClient, (await complete(dClient, dSession, "personal-offline")).id);
+  await stop(pClient, peer);
+  await finished(dClient, (await complete(dClient, dSession, "peer-offline")).id);
   await stop(dClient, coding);
-  pass("升级前历史可查，分别停止，个人端离线后编码端完成本地任务");
+  pass("升级前历史可查，分别停止，一个实例离线后另一实例完成本地任务");
   }
   process.stderr.write("[ruukoto:smoke24] " + `结果：${passed}/${passed} 通过；真实 IM 未涉及；模式：${options["upgrade-only"] ? "模拟模型升级" : "真实模型编码"}` + "\n");
 } catch (err) {

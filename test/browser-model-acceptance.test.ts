@@ -7,7 +7,7 @@ import * as path from "node:path";
 import { test } from "node:test";
 import type { ModelOption } from "@ruukoto/agent/model-selection.ts";
 import { Runtime } from "@ruukoto/runtime/runtime.ts";
-import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
+import { product as personalProduct } from "./helpers/legacy-product.ts";
 import { product as codeProduct } from "../apps/ruukoto-code/src/product.ts";
 import { waitFor } from "./helpers/testkit.ts";
 

@@ -2,7 +2,9 @@
 
 ## 职责与边界
 
-`packages/runtime/src/workflows.ts` 持有固定脚本的后台运行、持久步骤、共享名额、计费、重放和取消。core 保存事实，agent 提供隔离脚本、结果 schema 校验与实际执行边界。`workflow-steps.ts` 默认接入真实 Driver、来源能力与冻结成果汇总；控制面与 IM 处理可信业务回答，父级送达负责整项最终汇总，调度等待名下完整工作流。`workflow-library.ts` 管理实例命名文件与不可变历史；共享模型工具和 CLI/TUI/IM 入口经 Runtime 统一核实发起与控制。
+本篇的运行状态、历史或客户端协议适用于 Coding 与保留的旧格式实现；正式个人 Agent 使用[个人持久会话](personal-durable.md)，不接入旧 Runtime、Task Store 或控制协议。
+
+`packages/runtime/src/workflows.ts` 持有固定脚本的后台运行、持久步骤、共享名额、计费、重放和取消。core 保存事实，agent 提供隔离脚本、结果 schema 校验与实际执行边界。`workflow-steps.ts` 默认接入真实 Driver、来源能力与冻结成果汇总；控制面与 IM 处理可信业务回答，父级送达负责整项最终汇总，调度等待名下完整工作流。`workflow-library.ts` 管理实例命名文件与不可变历史；Coding 模型工具和 CLI/TUI 入口经 Runtime 统一核实发起与控制；旧 IM 分支保留实现，新个人不装配工作流语言或定义库。
 
 ## 对外接口
 

@@ -1,0 +1,152 @@
+[
+  {
+    "path": "acceptance-summary.md",
+    "bytes": 4557,
+    "sha256": "80467a0d8af2f8e84da496da1fb1ed49a7ca204af86d71cae61208a7360d6408"
+  },
+  {
+    "path": "environment.json",
+    "bytes": 696,
+    "sha256": "a92d2895ef643a51b764632e82c7cc5af94a93aeaf072c367004cc3fad9c47c0"
+  },
+  {
+    "path": "source-manifest.json",
+    "bytes": 762810,
+    "sha256": "c713f3c200fc65c574442694e58d738e4804f9c21f2c13b1206844bea4292a41"
+  },
+  {
+    "path": "source.patch.gz",
+    "bytes": 253705,
+    "sha256": "e3cd304814f4eeb68973091ea037c65bceae743c73f5f22e535fcd0846f63940"
+  },
+  {
+    "path": "setup.log",
+    "bytes": 1954,
+    "sha256": "2d4e0ca8f37a93a05ed8a04baf8f1613494d94d8627047f7cea165966e2d81a7"
+  },
+  {
+    "path": "setup-status.json",
+    "bytes": 298,
+    "sha256": "763d76382b764ad97f20cf41465f9aebb180505f19495723d3b8ae49c2d33399"
+  },
+  {
+    "path": "build.log",
+    "bytes": 5270,
+    "sha256": "54a5a541f3fd64dee3dcc58d6a1e102958beaa2a3d8681919835945eb0b195b4"
+  },
+  {
+    "path": "build-status.json",
+    "bytes": 268,
+    "sha256": "36b3b8cd9295069e3101ab17f1481a225a8850756cc8d3941b39780acd798594"
+  },
+  {
+    "path": "ruukoto-tar-manifest.json",
+    "bytes": 13524,
+    "sha256": "c0d126b2962bcb59da282aa589f3b24f4fc8f7d59d91a4b18e14070435a0b10b"
+  },
+  {
+    "path": "ruukoto-code-tar-manifest.json",
+    "bytes": 1009,
+    "sha256": "e39274b47ea4f299965a31feea120db241170d4005bd8bb130498cbaf897cb2f"
+  },
+  {
+    "path": "ruukoto-0.1.0.tgz",
+    "bytes": 267647,
+    "sha256": "83418624140939f4ffebbdc17accf6e4b1f0b3366ba43d1b39a22ba65f01d4cc"
+  },
+  {
+    "path": "ruukoto-code-0.1.0.tgz",
+    "bytes": 23057,
+    "sha256": "92255af7689aaaa58324a8d7fbe10b2d075c28a80cc97d39f60c5404a95e44e9"
+  },
+  {
+    "path": "unpack-products.py",
+    "bytes": 4322,
+    "sha256": "9ae515fbac134f745ec0433c5ec395b2ccbea053f77442bb0e39892b07b8a628"
+  },
+  {
+    "path": "unpack.log",
+    "bytes": 1411,
+    "sha256": "433033ea73e62efb0e6603b46f3761d1ed400605ef8fa650bcb0d47566f62ed1"
+  },
+  {
+    "path": "unpack-status.json",
+    "bytes": 123,
+    "sha256": "16e1a1eb4ed27a0d3ab71902ff8724479aa8b1272324f8e5af4a41977ccf6aa5"
+  },
+  {
+    "path": "unpack-verification.json",
+    "bytes": 1411,
+    "sha256": "433033ea73e62efb0e6603b46f3761d1ed400605ef8fa650bcb0d47566f62ed1"
+  },
+  {
+    "path": "unpack-attempt-1-status.json",
+    "bytes": 252,
+    "sha256": "56a3b72e0ee7ae83bf39f8098e8edca1ed241c86aad8f747c42ff20803f8e345"
+  },
+  {
+    "path": "packed-tests.log",
+    "bytes": 1406,
+    "sha256": "7a679e2e26c803eab652f477d664238b0eb653defba1fa6092f8120f6b183da0"
+  },
+  {
+    "path": "tests-status.json",
+    "bytes": 409,
+    "sha256": "293471c5136c463fd5230f78644f0196b7668ff1b5536079c7ca39541baf80b0"
+  },
+  {
+    "path": "dependency-probe.mjs",
+    "bytes": 2134,
+    "sha256": "05f4c00487abdfe63fb8984a6f22fac21e6991a651f961882ce64be1a4976ae8"
+  },
+  {
+    "path": "dependency-resolution.json",
+    "bytes": 2494,
+    "sha256": "5bf843e300ef95d8b70205394be0146db37268f5fc8f7ebbaa6a87b9f21ec3c5"
+  },
+  {
+    "path": "artifact-manifest-before-tests.json",
+    "bytes": 1070,
+    "sha256": "aa877a342b00ab566eb2f67007515eba687728f98b6a46745ebdafb441f36d65"
+  },
+  {
+    "path": "artifact-manifest-after-tests.json",
+    "bytes": 1070,
+    "sha256": "aa877a342b00ab566eb2f67007515eba687728f98b6a46745ebdafb441f36d65"
+  },
+  {
+    "path": "post-test-probe.py",
+    "bytes": 1925,
+    "sha256": "001bad55b7075022292db12ad52fedd0b38f9f80280391a527bc34f09b63957a"
+  },
+  {
+    "path": "post-test.log",
+    "bytes": 370,
+    "sha256": "25e967c7f25b3746e7be81f992317a63532cf28b110fbadbbfa133468dc17bde"
+  },
+  {
+    "path": "post-test-verification.json",
+    "bytes": 370,
+    "sha256": "25e967c7f25b3746e7be81f992317a63532cf28b110fbadbbfa133468dc17bde"
+  },
+  {
+    "path": "post-test-attempt-1-status.json",
+    "bytes": 235,
+    "sha256": "982efab7d813f9bf3b737598ef3dd256d8ac1b955334dc333526d27c379299ec"
+  },
+  {
+    "path": "origin-comparison.json",
+    "bytes": 630,
+    "sha256": "1ae7bde67cea9c3a1efae7d4464238b5f631efa2dd3e989595ea47b178028458"
+  },
+  {
+    "path": "runtime-origin-comparison.json",
+    "bytes": 556,
+    "sha256": "10b017364c8b106206d7f6327fea92b21a7468d0cecf5bf727ec34964ddb3343"
+  },
+  {
+    "path": "delivery-files.json",
+    "bytes": 782,
+    "sha256": "6d9fc2a13262f679921dbb334d2e65c0ce5b9bc4025c1c6029bb0c8e54cddc4f"
+  }
+]

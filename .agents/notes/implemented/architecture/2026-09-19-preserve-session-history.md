@@ -2,6 +2,8 @@
 
 Status: implemented
 
+部分取代：[个人正式入口与旧装配退出](../simplification/2026-10-18-personal-product-entry.md)使新个人历史只由 durable SQLite 原生记录持有，不双写旧 JSONL；本篇不可覆盖历史的原则保持，JSONL 和旧索引约束仅适用于 Coding 与旧归档。
+
 后续提案：[个人端 pi durable 迁移](../../proposed/architecture/2026-10-17-personal-pi-durable.md)拟以 durable 存储承载新个人端历史，继续要求完整记录与模型输入可重建；Coding 与旧归档的 JSONL 规则保留。
 
 原编号：ADR 0001

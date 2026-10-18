@@ -1,0 +1,5 @@
+{
+  "returncode": 1,
+  "stage": "unpack-verifier",
+  "failure": "Assertion compared canonical /private/tmp paths with lexical /tmp prefix; source and archive checks before it passed. Corrected verifier to compare canonical paths; no product change."
+}

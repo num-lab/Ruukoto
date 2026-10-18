@@ -1,0 +1,43 @@
+{
+  "recorded_at": "2026-10-18T12:16:14.622Z",
+  "owner_feedback": [
+    "三项都符合预期，说明清楚",
+    "再次进入后已显示自动审查"
+  ],
+  "permissions": {
+    "default": {
+      "mode": "auto-review"
+    },
+    "qq": {
+      "mode": "auto-review"
+    }
+  },
+  "grants": {
+    "items": []
+  },
+  "model_unchanged": true,
+  "permission_changes": [
+    {
+      "kind": "ruukoto.permissions-change",
+      "data": {
+        "mode": "confirm",
+        "version": 2,
+        "source": "local"
+      },
+      "id": 21,
+      "conversationId": 1
+    },
+    {
+      "kind": "ruukoto.permissions-change",
+      "data": {
+        "mode": "auto-review",
+        "version": 3,
+        "source": "local"
+      },
+      "id": 22,
+      "conversationId": 1
+    }
+  ],
+  "online_config_rejection": "拥有者实际操作确认，拒绝本身不写入durable记录",
+  "prior_discrepancy": "human-step-02-observation.json保留当时仅切到confirm的事实；本次重新选择后auto-review已落盘，不推断为产品缺陷"
+}

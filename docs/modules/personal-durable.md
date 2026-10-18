@@ -2,9 +2,11 @@
 
 ## 职责与边界
 
-`apps/ruukoto/src/personal-*.ts` 提供独立的 Pi 1.3.0 会话、本机引导管理及模型/宿主后台工作入口，只用于隔离验证。正式个人 bin、根启动脚本、开发启动器与部署入口使用[产品装配](products.md)中的共享运行时；本机向导可在 Linux 配置主/子会话只读服务检查，可信宿主 API 也可显式注入；可经隔离向导配对 QQ/Telegram 文本与图片私聊，启用服务操作后子会话可调用受控重启。可信宿主还可显式启用独立服务操作，Telegram 持有原入口审批、权限快照和精确长期授权。CLI 与 Telegram 宿主菜单可按原检查接纳请求停止重核，也可分别保存原服务写入效果核实和请求原写操作停止重核。
+`apps/ruukoto/src/personal-*.ts` 提供正式个人 Pi 1.3.0 会话、本机引导管理及模型/宿主后台工作入口。正式 bin、根启动脚本、开发启动器与部署复用同一套[产品装配](products.md)，不装配旧 Runtime/Driver/Task Store 或控制协议；本机向导可在 Linux 配置主/子会话只读服务检查，可信宿主 API 也可显式注入；可经引导菜单配对 QQ/Telegram 文本与图片私聊，启用服务操作后子会话可调用受控重启。可信宿主还可显式启用独立服务操作，Telegram 持有原入口审批、权限快照和精确长期授权。CLI 与 Telegram 宿主菜单可按原检查接纳请求停止重核，也可分别保存原服务写入效果核实和请求原写操作停止重核。
 
 ## 对外接口
+
+`ruukoto` 与根 `npm start` 无参打开菜单，`serve` 前台托管后台，`npm run personal:durable` 是同入口兼容命令。正式默认 `~/.ruukoto-durable/`，`RUUKOTO_PERSONAL_DIR` 可选择新档案；dev 固定检出散列目录并忽略该覆盖，默认薄启动器托管 Node watch 前台后台，`--config` 直接使用同一菜单且不监听源码，拥有本次后台生命周期；配置菜单源码变化须退出重开。dev 拒绝已启用 QQ/Telegram 的配置，不改写原记录或连接平台。旧个人档案与旧开发、工作流、GitHub 自动评审及个人导入不接入本模块。
 
 CLI 按聊天、后台工作/定时、审批核实、权限/资料、停机配置及实例运维分组；在线仅访问本机认证接口。`/permissions` 查看本机/Telegram共用和QQ独立的默认模式，POST只影响新接纳；`/service/grants` 与 `/service/grants/revoke` 查看及按原版本撤销长期服务授权，创建仍限原IM审批。两平台 `/帮助`、`/状态` 由宿主给出管理路径、当前模式与装配事实，不调用模型。`personal-owner-controls` 扩展标记使旧程序拒绝忽略新命令菜单。
 
@@ -24,7 +26,7 @@ CLI 按聊天、后台工作/定时、审批核实、权限/资料、停机配�
 
 `openPersonalHarness` 接受独立目录或已持有的 `PersonalProfileLock`、provider 与模型，接管锁的释放责任，返回主会话、Harness、提交、等待回答与关闭方法；可用 `beforeUnlock` 在放锁前收齐管理接口。可选 `service` 接受宿主固定的 helper 配置，安装 `service_inspect` 与 `read_service_inspection`，模型只能指定白名单内精确单元名或本会话的证据编号。返回的 `inspections.list/recheckStop` 供可信宿主查询未决检查与重核停止，不提供强制释放；未取消的活动检查拒绝宿主重核。`requestInspectionStop(ref)` 固定原 Task/接纳引用，仅登记后台重核并返回其 Task ID；它不等待停止。提交键由调用方保持稳定，用于 durable 会话内去重。`parsePersonalModel` 校验模型配置，`personalProvider` 按环境变量名读取凭据。个人 Pi 1.3.0 对象不传给 Coding 的 Pi 0.85.1。
 
-`startPersonalServer` 独占后台，HTTP 仅监听档案内 Unix socket，经本地令牌逐次认证；提供 `/status`、`/messages`、`/inputs`、`/input`、`/telegram`、`/qq`、`/works`、`/work`、`/work/cancel`、`/work/close`、`/work/notes`、`/delegations`、`/delegation`、`/delegation/cancel`、`/delegation/report`、`/inspections`、`/inspection/stop`、`/services`、`/service`、`/service/decide`、`/service/resolve`、`/service/stop` 、`/commands`、`/command`、`/command/resolve`、`/command/stop`、`/mcp/operations`、`/mcp/operation`、`/mcp/decide`、`/mcp/resolve`、`/mcp/recheck` 和 `/stop`；状态的服务开关只表示能力已装配，不代表 helper 可用或业务健康。`personalControl` 为 CLI 调用；CLI 不重开 Harness。引导与前台托管见[操作手册](../usage.md#25-个人-durable-隔离向导)。
+`startPersonalServer` 独占后台，HTTP 仅监听档案内 Unix socket，经本地令牌逐次认证；提供 `/status`、`/messages`、`/inputs`、`/input`、`/telegram`、`/qq`、`/works`、`/work`、`/work/cancel`、`/work/close`、`/work/notes`、`/delegations`、`/delegation`、`/delegation/cancel`、`/delegation/report`、`/inspections`、`/inspection/stop`、`/services`、`/service`、`/service/decide`、`/service/resolve`、`/service/stop` 、`/commands`、`/command`、`/command/resolve`、`/command/stop`、`/mcp/operations`、`/mcp/operation`、`/mcp/decide`、`/mcp/resolve`、`/mcp/recheck` 和 `/stop`；状态的服务开关只表示能力已装配，不代表 helper 可用或业务健康。`personalControl` 为 CLI 调用；CLI 不重开 Harness。引导与前台托管见[操作手册](../usage.md#25-个人-agent-引导与管理)。
 
 `startPersonalServer` 另提供 `/schedules`、`/schedule`、`/schedule/cancel`、`/schedule/runs` 与 `/schedule/run/result`，创建和按原请求键核实共用在线认证后台。CLI「后台工作与定时计划」中的「管理定时计划与运行」与两平台 `/定时` 共用同一宿主控制函数，逐步选择规则、时区和计划；IM 草稿及确认菜单持久保存，回复已发送的原确认菜单才可创建。列表每页8项，完整报告按原运行分页，不要求拥有者填写内部键。
 
@@ -34,7 +36,7 @@ CLI 按聊天、后台工作/定时、审批核实、权限/资料、停机配�
 
 `serviceOperations: true` 另启用宿主 `service` API：`request` 以原拥有者输入建立独立后台 restart 工作，`list/status` 查询原生 Task 和操作事实，`decide/cancel/resolve/recheckStop` 决定原审批、取消或核实效果与停止。模式固定于创建，默认自动审查；无有效长期授权时，自动审查与请求确认的服务写入等人工批准，完全访问免逐次审批。其中查询、一次性效果核实和独立停止重核通过本机认证菜单提供；本机来源可在服务详情批准本次或拒绝，Telegram 审批仍在原私聊；本机不创建长期授权。Telegram 来源强制使用原收件的模式，不能由 API 扩大；其审批只能通过原 Telegram 宿主菜单决定。历史本机可信 API 仍显式提供模式与单次决定，不能冒充 Telegram 来源。
 
-`telegram` 配置启用固定拥有者文本入口；返回的 `telegram.receive/poll/status` 分别持久接收平台更新、管理可中止轮询、查询连接和最近 16 条收发。后台仅以配对的 bot/私聊拥有者收件，所有输入使用同一 main；普通直发收件保存当时模式/权限版本；`/检查` 选择原检查并请求停止重核；`/服务核实` 选择当前原入口服务操作，保存已生效/未生效及证据，或登记原写操作停止重核；`/权限` 管理以后新 Telegram 输入的模式，`/审批`、`/服务状态` 与 `/授权` 查询和管理服务工作。回复已发送宿主菜单选择动作，不要求输入内部键；控制消息不进入模型，也不等待聊天。服务请求也可由主会话委派的子 Agent 发起，权限固定为原工作授权。配置、配对和停用见[操作手册](../usage.md#25-个人-durable-隔离向导)。
+`telegram` 配置启用固定拥有者文本入口；返回的 `telegram.receive/poll/status` 分别持久接收平台更新、管理可中止轮询、查询连接和最近 16 条收发。后台仅以配对的 bot/私聊拥有者收件，所有输入使用同一 main；普通直发收件保存当时模式/权限版本；`/检查` 选择原检查并请求停止重核；`/服务核实` 选择当前原入口服务操作，保存已生效/未生效及证据，或登记原写操作停止重核；`/权限` 管理以后新 Telegram 输入的模式，`/审批`、`/服务状态` 与 `/授权` 查询和管理服务工作。回复已发送宿主菜单选择动作，不要求输入内部键；控制消息不进入模型，也不等待聊天。服务请求也可由主会话委派的子 Agent 发起，权限固定为原工作授权。配置、配对和停用见[操作手册](../usage.md#25-个人-agent-引导与管理)。
 
 `qq` 配置和返回的 `qq.receive/poll/status` 提供同一 main 的好友私聊入口，传输仅复用 OneBotClient；QQ 与 Telegram 独立配对、凭据指纹和代次，默认模式也分平台保存，QQ 换代重置为自动审查。本篇 Telegram 宿主菜单同样适用于 QQ，所有工作、审批、长期授权、效果及停止核实均按原平台/账号/owner/代次筛选；回复已送达的原菜单才能选择，控制不调用模型。后台与最终报告固定原入口，换代取消旧待发，不随另一入口聊天改发。
 
@@ -150,6 +152,7 @@ MCP 在外调前原子保存原请求及批准消费；同工具恢复与传输�
 
 ## 设计依据
 
+- [正式入口与旧装配退出](../../.agents/notes/implemented/simplification/2026-10-18-personal-product-entry.md)
 - [个人应用数据的双库回执与来源](../../.agents/notes/implemented/architecture/2026-10-18-personal-durable-app-data.md)
 
 - [个人资料、技能与实际请求参考](../../.agents/notes/implemented/architecture/2026-10-18-personal-memory-skills-history.md)

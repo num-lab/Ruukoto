@@ -2,6 +2,8 @@
 
 Status: implemented
 
+部分取代：[个人正式入口与旧装配退出](../simplification/2026-10-18-personal-product-entry.md)使新个人退出 GitHub 自动评审与旧 webhook 配置；本篇只约束保留旧实现和历史记录，Coding 未因此获得个人 IM 或评审入口。
+
 原编号：ADR 0013
 
 ## 问题

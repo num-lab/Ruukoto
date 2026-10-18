@@ -14,6 +14,16 @@ export function personalDevDirectory(repo: string, home = homedir()): string {
   return path.join(home, ".ruukoto-durable-dev", createHash("sha256").update(fs.realpathSync(repo)).digest("hex").slice(0, 12));
 }
 
+// Note: 见 .agents/notes/implemented/simplification/2026-10-18-personal-product-entry.md
+export function personalDevelopmentEnv(directory: string, source: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const env = { ...source };
+  for (const key of Object.keys(env)) {
+    if (/^RUUKOTO_(?:CODE_|SERVICE_|DESKTOP_)/.test(key) || /^RUUKOTO_(?:PRODUCT|(?:DATA|AGENT|CONTROL|PENDING|PERSONAL)_DIR|PERSONAL_WATCH_CHILD|OWNER_TOKEN(?:_FILE)?|EXECUTION_BACKEND|DISABLE_QQ|DISABLE_TELEGRAM|RELOAD_STATE_FILE)$/.test(key)) delete env[key];
+  }
+  env.RUUKOTO_PERSONAL_DIR = directory;
+  return env;
+}
+
 export function readPersonalConfig(profile: PersonalProfileLock): PersonalModelConfig {
   let saved: unknown;
   try { saved = JSON.parse(fs.readFileSync(path.join(profile.directory, "model.json"), "utf8")); } catch (error) {

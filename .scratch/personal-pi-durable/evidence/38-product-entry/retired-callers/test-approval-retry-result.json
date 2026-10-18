@@ -1,0 +1,13 @@
+{
+  "command": [
+    "node",
+    "--import",
+    "tsx",
+    "--test",
+    "--test-name-pattern=\u53d7\u9650\u8fd0\u884c\u72ec\u7acb\u7b49\u5f85\u5ba1\u6279",
+    "test/51-generic-scheduler.test.ts"
+  ],
+  "cwd": "/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto38-callers-6cugvg88",
+  "rc": 0,
+  "duration_s": 2.8360042572021484
+}

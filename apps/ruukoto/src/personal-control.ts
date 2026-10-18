@@ -101,7 +101,7 @@ export function readPersonalToken(directory: string): string {
 }
 
 // Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-local-management.md
-export async function startPersonalServer(directory: string) {
+export async function startPersonalServer(directory: string, options: { development?: boolean } = {}) {
   const profile = lockPersonalProfile(directory);
   const socketPath = path.join(directory, "control.sock");
   const active = new Set<Promise<void>>();
@@ -126,6 +126,7 @@ export async function startPersonalServer(directory: string) {
     const config = readPersonalConfig(profile);
     const telegram = readPersonalTelegram(profile);
     const qq = readPersonalQq(profile);
+    if (options.development && (telegram?.enabled || qq?.enabled)) throw new PersonalError("development_im_enabled", "开发实例不接入真实 IM。请先在开发配置菜单停用 QQ 与 Telegram；原配置与消息保持，请勿使用生产凭据配对。");
     const services = readPersonalServices(profile);
     const commands = readPersonalCommands(profile);
     const mcp = readPersonalMcp(profile);

@@ -2,76 +2,45 @@
 
 ## 职责与边界
 
-`apps/ruukoto` 是个人 Agent，`apps/ruukoto-code` 是 Coding Agent。各 app 持有自己的 bin、主入口与开发入口、`product.ts` 能力声明及专属工具或导入策略；两个 app 互不依赖。共享 CLI 在 tui 包（见 [tui](tui.md)）。正式装配的存储、模型、任务、控制面与界面由 `packages/` 下的共享包提供。
-
-个人 app 另有[持久会话与隔离向导](personal-durable.md)，使用 Pi 1.3.0 独立 SQLite、实例锁、请求证据、本机认证接口及模型/宿主后台工作入口；主会话可委派、查询、取消与复用子身份，CLI/QQ/Telegram 宿主菜单可查询、追加和控制单项分析，以及跨轮分析委托的进度、整项取消、封组汇总与原入口最终回报；并可显式启用只读服务检查，长期子会话可使用同样的固定检查；服务操作启用后可沿原工作权限重启白名单服务；Linux 可配置独立目录，为子工作沿原权限启用命令与双流读取，完全访问使用后台账户环境及独立 scope，未知效果和停止须由本机或原 IM 命令菜单分别核实后释放；MCP 配置给主/子会话提供钉版原工具调用和完整结果分页，原请求结束与业务效果分别核实；子会话另有自身记忆、历史和技能参考，应用数据须由当前工作显式授予；CLI/Telegram 可按原接纳请求固定检查停止重核，错误证明仍保留占用；服务写入由子工作或独立宿主 API 发起；CLI/原 Telegram 菜单可保存效果核实及独立重核写操作停止，双事实齐备才解除占用；隔离向导支持 Linux 服务配置与只读检查、QQ/Telegram 图文配对、共享主聊天与原入口固定回复，另有原入口权限快照、宿主服务审批及长期授权。独立调度在到期时建立真实定时来源与独立会话，按创建时模式、工具和资料范围执行，自动等待整项停止、汇总并沿固定原入口回报；本机计划只留本机结果。本机按操作分组，权限菜单提供默认模式及长期服务授权查看/撤销；两平台 `/帮助`、`/状态` 直接由宿主回答。正式入口尚未接入。除另行注明，下述产品行为均指正式共享装配。
+`apps/ruukoto` 持有个人 Agent 的正式 bin、主入口、开发入口与 durable 业务接线；`apps/ruukoto-code` 持有 Coding Agent 的 bin、主入口、开发入口、`product.ts` 和开发资料导入策略。两个产品互不依赖，各自拥有运行状态与客户端协议。个人能力见[个人持久会话](personal-durable.md)，Coding CLI 与界面见 [tui](tui.md)。
 
 ## 对外接口
 
-个人隔离入口可配置资料目录、具名 HTTP 凭据和 Tavily 搜索，通过主/子原生工具读取与写入文件、请求网络和分页读取产物；运行中本机向导管理资料授权、审批、核实和完整导出，QQ/Telegram `/工具` 管理原入口调用。CLI「后台工作与定时计划」与 QQ/Telegram `/定时` 提供计划创建、查询、整项取消及完整运行报告；创建通过逐步引导和原菜单确认，不要求内部键。工具或资料配置变化使旧计划停止后续新执行，默认模式变更不改原计划。机制见 [personal-durable](personal-durable.md)。
+个人 bin 与根 `npm start` 默认进入同一个引导式 CLI，无参打开菜单，`serve` 前台运行后台；`personal:durable` 是该入口的兼容命令。正式默认目录为 `~/.ruukoto-durable/`，可用 `RUUKOTO_PERSONAL_DIR` 选择独立新目录。个人开发入口固定检出散列档案，忽略继承目录，默认由薄启动器托管 Node watch 前台后台；`--config` 直接打开同一菜单且不监听源码，菜单启动的后台由本进程持有，退出时停止。配置菜单源码变化须退出重开。开发拒绝已启用 QQ/Telegram 的档案，不改写配置或连接平台。
 
-各 bin 固定 `RUUKOTO_PRODUCT` 后注册 tsx，再进入本 app 的 `main.ts`。共享 CLI 接收 `CliProduct`，共享 `Runtime.start` 要求 `RuntimeConfig.product`，不按产品名选择装配。调用程序化入口时，显式传入所属 app 的 `product.runtime`。
+Coding bin 固定产品身份，向共享 CLI 传入 `CliProduct`，并向 `Runtime.start` 显式传入 `product.runtime`。`npm start` 的 `RUUKOTO_PRODUCT=ruukoto-code` 选择及 app 的独立 start 保留；Coding 的工作区、会话、四种界面模式、SubAgent、工作流、按需后台与旧开发资料导入保持。
 
-| 声明 | ruukoto | ruukoto-code |
+| 能力 | ruukoto | ruukoto-code |
 | --- | --- | --- |
-| 默认执行后端 | native | native |
-| 正式入口可选执行后端 | native | native |
-| 拥有者 IM 与个人调度 | 启用；开发入口可停用真实 IM | 停用 |
-| 服务管理 | Linux 与显式部署配置齐备才装配 | 不装配 |
-| 会话分支 | 不开放创建 | `branchSessions` 开放普通开发会话分支 |
-| 手动上下文压缩 | 不开放 | `manualCompaction` 开放普通开发会话摘要 |
-| 旧项目写入口 | 保留 | 引导改用工作区 |
-| 旧实例导入 | 个人资料；channels 持有方向实现 | 开发资料；app 持有方向实现 |
+| 会话与运行权威 | Pi durable 1.3.0 | 原共享 Runtime/Driver，Pi 0.85.1 |
+| 主要界面 | QQ/Telegram 与引导式 CLI | TUI、配置中心与 Code 桌面 |
+| 持久历史 | durable SQLite | 核心元数据与原 JSONL |
+| 后台工作 | 长期子 Agent、分析委托与独立定时运行 | 通用 SubAgent、worktree 与工作流 |
+| 旧资料 | 原地归档，不导入 | 开发资料离线导入 |
+| 编码专用入口 | 不提供开发会话、worktree 汇总、旧工作流或 GitHub 自动评审 | 保留既有 Coding 能力 |
 
-任务界面、配置中心、工作区组织迁移与旧群结果查询由两个产品共用。界面按产品展示工作区或旧项目。运行与安装命令见[操作手册](../usage.md)，开发和构建见[开发说明](../development.md)。
+安装与操作见[操作手册](../usage.md)，开发与构建见[开发说明](../development.md)。个人不兼容旧 TUI、桌面 Personal 或控制面协议。
 
 ## 数据与状态
 
-产品身份在核心库 `meta` 的 `product.type` 登记；档案、锁、控制面、模型配置与凭据按产品隔离。能力声明是宿主代码，不由模型或工具参数修改。分包不改变 schema、控制面协议、会话 JSONL 与既有归属。
+个人档案、锁、本机认证 socket、配置、凭据引用及请求证据独立保存，版本和旧目录在恢复前核实。Coding 的产品身份继续登记在核心库 `meta.product.type`，档案、锁、控制面和既有格式保持。两个版本的 Pi 对象不跨产品传递，个人不双写旧 Task Store 或 JSONL。
 
 ## 主要流程
 
-**启动。**
+**启动。** 个人入口使用已配置模型打开唯一 Harness；运行中菜单仅经本机认证接口管理，离线配置持实例锁。Coding 入口按能力声明选择 native 与导入方向，装配 Runtime、控制面与客户端。日常个人后台独立于菜单，开发进程拥有其后台生命周期。
 
-- bin 固定产品身份，app 把能力声明交给共享 CLI。
-- CLI 按 `defaultExecution` 与 `allowedExecution` 选择和校验执行后端，按声明选择导入方向，将 RuntimeProduct 注入运行时。
-- 运行时按 IM、调度与工具族能力创建部件，再接上控制面。
-- 开发入口复用共享启动器，子进程仍使用对应 app 的 bin。
-
-**构建。**
-
-- 根构建生成共享 `worker/worker.mjs` 和个人自包含 `worker/personal-command-worker.mjs`，再为两个 app 分别生成含 bin、源码和依赖声明的 npm 包；个人命令产物不依赖 Pi SDK，宿主执行适配保存原始双流和可恢复回执，子会话工具沿原工作权限调用。
-- app 包使用同仓共享依赖与 worker 产物；部署需要完整 workspace 安装与宿主工具链。
+**构建。** 根构建生成共享 `worker/worker.mjs`、自包含的 `worker/personal-command-worker.mjs`、工作流脚本及平台产物，再生成两个 app 的 npm tarball。个人命令 worker 不依赖 Pi SDK，运行依赖从构建制品解析；Coding worker 保留原 SDK 与依赖。tarball 交付源码、bin 和依赖声明，安装仍需要完整 workspace、根 worker 与宿主工具链，不是独立发行版。
 
 ## 不变量与失败处理
 
-**产品隔离。**
-
-- 跨产品打开同一数据目录以 `product_mismatch` 拒绝。
-- Coding Agent 停用 IM 与调度时，旧记录仍可读，旧工具操作仍按共同账本核实。
-- 两个 app 的能力使用同一份存储、审批与执行约束。
-
-**进程与执行环境。**
-
-- 应用实例不会因退出 TUI 而停止；开发启动器则拥有其子进程生命周期。
-- 缺少执行环境明确失败，默认后端不静默降级。
-- 两个产品的正式入口均拒绝 local/container 参数与环境覆盖，并给出迁移指引；库层显式 local 注入供离线测试。普通完全访问使用后台启动账户，继承用户环境，不施加任务沙箱；工作流编码验证在原生独立副本收窄执行。
-
-**依赖方向。**
-
-- 跨包相对引用、未声明依赖与越层运行时值引用不能通过 lint。
-- core 连反向类型引用也不接受；其他共享包的反向引用只限声明过的类型，运行时协作使用注入回调。
-
-desktop 在 devDependencies 声明打包依赖，其他包的反向类型引用也在 devDependencies 声明。共享 worker、schema 与控制面协议各有单一持有者。
-
-两个产品的正式共享装配共用[真实工作流步骤](workflows.md)，沿各自来源能力装配；个人业务数据保持来源主身份，Coding Agent 不取得个人工具。编码验证共用原生沙箱，修改成果共用冻结补丁与独立验证记录；共享模型工具支持自主发起，CLI `workflow` 与 TUI `/workflow` 支持命名定义和带参运行及控制；个人 IM 通过原拥有者入口明确命令启动/控制，最终回报沿各自来源。
+- 正式个人与兼容入口只有一套装配，不加载旧 Runtime、Driver、Task Store、控制协议或个人导入器；仅复用实际共享的业务库、传输、校验、浏览器及原生执行原语。
+- 新个人档案不覆盖、迁移或自动复制旧资料和凭据；旧目录、不支持版本、锁冲突或配置未齐时明确拒绝，拒绝前不连接 IM、不恢复任务。
+- Coding 仍拒绝跨产品目录与旧 local/container 覆盖，原 schema、历史、入口和执行边界保持；个人命令模式由宿主配置，不接受旧 CLI 执行覆盖。
+- 同账户完全访问使用后台账户已有权限，外部效果未知或停止未核实仍保留原占用；退出界面不能代替停止证明。
+- 跨包引用使用 exports 与已声明依赖；反向运行时协作采用注入，core 不依赖其他 workspace 包。个人 app 直接声明 Pi 1.3.0，Coding 调用方保留 0.85.1。
 
 ## 设计依据
 
-- [个人持久调度的独立来源与整项收尾](../../.agents/notes/implemented/architecture/2026-10-18-personal-durable-scheduled-work.md)
-
-- [工作流真实步骤与冻结成果](../../.agents/notes/implemented/architecture/2026-10-13-workflow-step-capabilities.md)
-
-- [两个 Agent 产品独立运行](../../.agents/notes/implemented/architecture/2026-10-02-two-agent-products.md)
-- [手动上下文压缩由会话操作提交滚动摘要](../../.agents/notes/implemented/feature/2026-10-11-manual-context-compaction.md)
+- [个人正式入口使用唯一 durable 装配](../../.agents/notes/implemented/simplification/2026-10-18-personal-product-entry.md)
+- [两个 Agent 产品](../../.agents/notes/implemented/architecture/2026-10-02-two-agent-products.md)
 - [同仓 workspaces 分包](../../.agents/notes/implemented/architecture/2026-10-11-in-repo-workspace-packages.md)

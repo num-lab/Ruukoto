@@ -14,8 +14,8 @@ import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline/promises";
 import { PersonalError } from "./personal-error.ts";
-import { PERSONAL_PENDING_FILE, lockPersonalProfile } from "./personal-profile.ts";
-import { personalDevDirectory, readPersonalConfig, savePersonalConfig } from "./personal-config.ts";
+import { PERSONAL_PENDING_FILE, lockPersonalProfile, personalDirectory } from "./personal-profile.ts";
+import { readPersonalConfig, savePersonalConfig } from "./personal-config.ts";
 import { parsePersonalInput, personalControl, startPersonalServer, type PersonalInput, type PersonalInputStatus, type PersonalMessage, type PersonalStatus } from "./personal-control.ts";
 import { parsePersonalTelegram, readPersonalTelegram, savePersonalTelegram, telegramToken } from "./personal-telegram-config.ts";
 import { personalTelegramApi, telegramOffset, telegramText } from "./personal-telegram-api.ts";
@@ -80,7 +80,7 @@ export async function launchPersonalServer(directory: string): Promise<void> {
   let credential: string[];
   try {
     const modelCredential = readPersonalConfig(profile).apiKeyEnv;
-    if (!process.env[modelCredential]) throw new PersonalError("model_credentials_missing", "请先设置模型凭据环境变量，再启动隔离后台。");
+    if (!process.env[modelCredential]) throw new PersonalError("model_credentials_missing", "请先设置模型凭据环境变量，再启动个人后台。");
     const telegram = readPersonalTelegram(profile);
     const qq = readPersonalQq(profile);
     const services = readPersonalServices(profile);
@@ -104,7 +104,7 @@ export async function launchPersonalServer(directory: string): Promise<void> {
       if (!(error instanceof PersonalError) || !["control_unavailable", "control_response_lost", "control_starting"].includes(error.code)) throw error;
     }
   }
-  throw new PersonalError("control_start_unverified", "隔离后台启动尚未核实，请查看档案中的 backend.log 并查询状态；未接管或强制停止进程。");
+  throw new PersonalError("control_start_unverified", "个人后台启动尚未核实，请查看档案中的 backend.log 并查询状态；未接管或强制停止进程。");
 }
 
 export async function choose(io: PersonalCliIO, title: string, options: string[]): Promise<number> {
@@ -120,7 +120,7 @@ export async function choose(io: PersonalCliIO, title: string, options: string[]
 async function configure(io: PersonalCliIO, directory: string) {
   const profile = lockPersonalProfile(directory);
   try {
-    io.write("配置只用于此隔离实例；凭据使用环境变量，不粘贴密钥。输入 /back 返回。\n");
+    io.write("配置只用于此个人实例；凭据使用环境变量，不粘贴密钥。输入 /back 返回。\n");
     const selected = await choose(io, "模型接口", ["OpenAI Completions", "OpenAI Responses", "Anthropic Messages", "返回"]);
     if (selected === 3) return;
     const apis = ["openai-completions", "openai-responses", "anthropic-messages"] as const;
@@ -141,7 +141,7 @@ async function configure(io: PersonalCliIO, directory: string) {
 export async function configurePersonalTelegram(io: PersonalCliIO, directory: string) {
   const profile = lockPersonalProfile(directory);
   try {
-    const action = await choose(io, "Telegram 入口", ["配对并启用专用测试 bot", "停用入口", "返回"]);
+    const action = await choose(io, "Telegram 入口", ["配对并启用专用 bot", "停用入口", "返回"]);
     if (action === 2) return;
     if (action === 1) {
       const current = readPersonalTelegram(profile);
@@ -149,7 +149,7 @@ export async function configurePersonalTelegram(io: PersonalCliIO, directory: st
       io.write("Telegram 入口已停用；旧目标的待发回复不转发，已开始的未知发送保留。\n");
       return;
     }
-    io.write("先停止此 bot 的其他后台。本向导会确认专用测试 bot 的旧待收消息；边界及之前的委托不会执行，请在配对完成后重新发送。凭据使用环境变量，不粘贴 token。输入 /back 返回。\n");
+    io.write("先停止此 bot 的其他后台。本向导会确认专用 bot 的旧待收消息；边界及之前的委托不会执行，请在配对完成后重新发送。凭据使用环境变量，不粘贴 token。输入 /back 返回。\n");
     const apiBase = (await io.question("Telegram API 地址（默认 https://api.telegram.org）：")).trim();
     if (apiBase === "/back") return;
     const tokenEnv = (await io.question("Bot 凭据环境变量名：")).trim();
@@ -161,7 +161,7 @@ export async function configurePersonalTelegram(io: PersonalCliIO, directory: st
     const signal = AbortSignal.timeout(180_000);
     const bot = await api.me(signal);
     if (bot.id !== token.split(":")[0]) throw new PersonalError("telegram_identity_invalid", "Bot 身份与凭据不符，请检查服务地址和凭据。");
-    if (await choose(io, `接管 @${bot.username} 的专用测试入口并过滤旧积压`, ["返回", "确认接管并开始配对"]) === 0) return;
+    if (await choose(io, `接管 @${bot.username} 的专用入口并过滤旧积压`, ["返回", "确认接管并开始配对"]) === 0) return;
     const previous = await api.updates(signal, -1, 0);
     const ack = previous.length ? { offset: previous[previous.length - 1].update_id + 1, receivedAt: performance.now() } : undefined;
     const phrase = `配对 ${randomBytes(12).toString("hex")}`;
@@ -180,7 +180,7 @@ export async function configurePersonalTelegram(io: PersonalCliIO, directory: st
     // 成功确认本批后才保存绑定；响应中的更新仍未确认，留给后台无 offset 重收。
     await api.updates(signal, offset, 0);
     savePersonalTelegram(profile, { ...draft, botId: bot.id, ownerId: candidates[selected].ownerId, boundary, tokenDigest: createHash("sha256").update(token).digest("hex") });
-    io.write("Telegram 已配对。请启动隔离后台，再通过该私聊发送新消息；完整回答保存在个人会话中。\n");
+    io.write("Telegram 已配对。请启动个人后台，再通过该私聊发送新消息；完整回答保存在个人会话中。\n");
   } finally { profile.release(); }
 }
 
@@ -203,7 +203,7 @@ export async function configurePersonalServices(io: PersonalCliIO, directory: st
   try {
     const current = readPersonalServices(profile);
     if (current) {
-      io.write(`服务配置已固定：\nhelper：${current.helperPath}\n策略：${current.policyPath}\nsudo：${current.sudoPath}\n生产通过 sudo 调用。保留原配置供恢复；其他部署请使用新隔离档案。\n`);
+      io.write(`服务配置已固定：\nhelper：${current.helperPath}\n策略：${current.policyPath}\nsudo：${current.sudoPath}\n生产通过 sudo 调用。保留原配置供恢复；其他部署请使用新个人档案。\n`);
       return;
     }
     if (process.platform !== "linux") throw new PersonalError("service_platform_unsupported", "服务能力需要 Linux；请在隔离 Linux 实例运行此向导。");
@@ -224,7 +224,7 @@ export async function configurePersonalCommands(io: PersonalCliIO, directory: st
   const profile = lockPersonalProfile(directory);
   try {
     const current = readPersonalCommands(profile);
-    if (current) { io.write(`命令目录已固定：${current.workspace}\n供 Linux 子工作沿原权限使用；保留原目录、机器和临时目录供恢复，其他目录请使用新隔离档案。\n`); return; }
+    if (current) { io.write(`命令目录已固定：${current.workspace}\n供 Linux 子工作沿原权限使用；保留原目录、机器和临时目录供恢复，其他目录请使用新个人档案。\n`); return; }
     if (process.platform !== "linux") throw new PersonalError("command_platform_unsupported", "个人命令需要 Linux；请在隔离 Linux 实例运行此向导。");
     io.write("选择已存在、专供个人事务的目录；请求确认/自动审查仅在目录内读写且不联网；完全访问使用后台账户环境，可访问目录外资料和网络。不要选择后台档案、源码、凭据目录或其父目录。启用后初始目录不能更换；完全访问也须核实未知效果和原执行停止。输入 /back 返回。\n");
     const workspace = (await io.question("命令目录绝对路径：")).trim();
@@ -401,10 +401,10 @@ export async function managePersonalCommands(io: PersonalCliIO, directory: strin
   }
 }
 
-export async function personalMenu(directory: string, io: PersonalCliIO): Promise<void> {
-  io.write(`个人 durable 隔离实例\n档案：${directory}\n通过聊天、后台工作、审批核实、权限和配置菜单管理此实例；IM 可直接发送 /帮助。\n`);
+export async function personalMenu(directory: string, io: PersonalCliIO, launch?: () => Promise<void>): Promise<void> {
+  io.write(`个人 Agent${launch ? " 开发实例" : ""}\n档案：${directory}\n通过聊天、后台工作、审批核实、权限和配置菜单管理此实例；IM 可直接发送 /帮助。\n`);
   while (true) {
-    const actions = ["配置模型（后台须停止）", "启动隔离后台", "查看状态", "发送消息", "查看最近消息", "核实上次提交", "停止隔离后台", "配置 Telegram（后台须停止）", "查看 Telegram 收发", "退出向导（后台继续运行）", "配置或查看服务（后台须停止）", "管理后台分析", "管理分析委托", "管理检查停止重核", "管理服务审批与核实", "配置或查看命令目录（后台须停止）", "管理命令效果与停止核实", "配置或查看 MCP（后台须停止）", "管理 MCP 审批、原响应与效果", "配置资料与网络工具（后台须停止）", "管理工具审批、资料授权与产物", "配置浏览器（后台须停止）", "管理浏览器、截图与网页效果", "配置 QQ（后台须停止）", "查看 QQ 收发", "管理定时计划与运行", "配置或查看技能（后台须停止）", "管理长期记忆", "检索历史原文", "管理应用数据审批与回执", "管理默认模式与长期授权"];
+    const actions = ["配置模型（后台须停止）", "启动个人后台", "查看状态", "发送消息", "查看最近消息", "核实上次提交", "停止个人后台", "配置 Telegram（后台须停止）", "查看 Telegram 收发", "退出向导（后台继续运行）", "配置或查看服务（后台须停止）", "管理后台分析", "管理分析委托", "管理检查停止重核", "管理服务审批与核实", "配置或查看命令目录（后台须停止）", "管理命令效果与停止核实", "配置或查看 MCP（后台须停止）", "管理 MCP 审批、原响应与效果", "配置资料与网络工具（后台须停止）", "管理工具审批、资料授权与产物", "配置浏览器（后台须停止）", "管理浏览器、截图与网页效果", "配置 QQ（后台须停止）", "查看 QQ 收发", "管理定时计划与运行", "配置或查看技能（后台须停止）", "管理长期记忆", "检索历史原文", "管理应用数据审批与回执", "管理默认模式与长期授权"];
     const groups = [
       { title: "聊天与消息", actions: [3, 4, 5] },
       { title: "后台工作与定时计划", actions: [11, 12, 25] },
@@ -413,7 +413,7 @@ export async function personalMenu(directory: string, io: PersonalCliIO): Promis
       { title: "配置能力（后台须停止）", actions: [0, 7, 23, 10, 15, 17, 19, 21, 26] },
       { title: "实例状态与启停", actions: [2, 1, 6, 8, 24] },
     ];
-    const group = await choose(io, "个人实例", [...groups.map(group => group.title), actions[9]]);
+    const group = await choose(io, "个人实例", [...groups.map(group => group.title), launch ? "退出向导（停止本次开发后台）" : actions[9]]);
     if (group === groups.length) return;
     const current = groups[group];
     const action = await choose(io, current.title, [...current.actions.map(index => actions[index]), "返回"]);
@@ -422,7 +422,7 @@ export async function personalMenu(directory: string, io: PersonalCliIO): Promis
     if (selected === 9) return;
     try {
       if (selected === 0) await configure(io, directory);
-      else if (selected === 1) { await launchPersonalServer(directory); io.write("隔离后台已启动。\n"); }
+      else if (selected === 1) { if (launch) await launch(); else await launchPersonalServer(directory); io.write("个人后台已启动。\n"); }
       else if (selected === 2) {
         const status = await personalControl<PersonalStatus>(directory, "GET", "/status");
         io.write(`后台在线；模型：${status.model}；未完成输入：${status.inputs}；活动任务：${status.tasks}；服务检查与宿主审批：${status.services ? "已装配" : "未装配"}。\n`);
@@ -442,7 +442,7 @@ export async function personalMenu(directory: string, io: PersonalCliIO): Promis
         for (const message of messages) io.write(`\n${message.role === "user" ? "拥有者" : "助手"}${message.partial ? "（中断片段）" : ""}：${message.text}${message.truncated ? "\n（显示已截断，完整内容保留在 durable 历史中）" : ""}\n`);
       } else if (selected === 5) { if (await recoverInputs(io, directory)) io.write("没有尚待核实的提交。\n"); }
       else if (selected === 6) {
-        const action = await choose(io, "停止后台会暂停处理，未完成输入保留供下次恢复", ["返回", "停止隔离后台"]);
+        const action = await choose(io, "停止后台会暂停处理，未完成输入保留供下次恢复", ["返回", "停止个人后台"]);
         if (action === 1) { await personalControl(directory, "POST", "/stop"); io.write("已请求停止，请等待后台释放档案；连接断开本身不证明已停止。\n"); }
       } else if (selected === 7) await configurePersonalTelegram(io, directory);
       else if (selected === 10) await configurePersonalServices(io, directory);
@@ -478,24 +478,36 @@ export async function personalMenu(directory: string, io: PersonalCliIO): Promis
   }
 }
 
-export async function runPersonalCli(args: string[]): Promise<number> {
-  const directory = process.env.RUUKOTO_PERSONAL_DIR ? path.resolve(process.env.RUUKOTO_PERSONAL_DIR) : personalDevDirectory(fileURLToPath(new URL("../../../", import.meta.url)));
-  if (args.length > 1 || (args.length === 1 && args[0] !== "serve")) throw new PersonalError("cli_arguments", "用法：npm run personal:durable；前台托管使用 npm run personal:durable -- serve。");
-  if (args[0] === "serve") {
-    const server = await startPersonalServer(directory);
-    const stop = () => void server.stop().catch(() => { process.stderr.write("[ruukoto:personal] 后台停止未核实，请检查进程与档案。\n"); process.exitCode = 1; });
-    for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) process.on(signal, stop);
-    try { const result = await server.closed; return result.reason === "failed" ? 1 : 0; }
-    finally { for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) process.off(signal, stop); await server.stop(); }
-  }
-  if (!process.stdin.isTTY || !process.stdout.isTTY) throw new PersonalError("cli_terminal_required", "个人配置向导需要交互终端；前台后台使用 serve 子命令。");
-  const readline = createInterface({ input: process.stdin, output: process.stdout });
+export async function runPersonalCli(args: string[], options: { directory?: string; development?: boolean } = {}): Promise<number> {
+  const directory = options.directory ?? personalDirectory();
+  if (args.length > 1 || (args.length === 1 && args[0] !== "serve")) throw new PersonalError("cli_arguments", "用法：ruukoto 打开引导菜单；ruukoto serve 前台托管。旧个人命令已退出，请保留旧资料并使用新档案。");
+  if (!args.length && (!process.stdin.isTTY || !process.stdout.isTTY)) throw new PersonalError("cli_terminal_required", "个人配置向导需要交互终端；前台后台使用 serve 子命令。");
   const interrupted = new AbortController();
-  readline.on("SIGINT", () => interrupted.abort());
-  readline.on("close", () => interrupted.abort());
+  const aborted = new Promise<undefined>(resolve => interrupted.signal.addEventListener("abort", () => resolve(undefined), { once: true }));
+  const stop = () => interrupted.abort();
+  const signals = ["SIGINT", "SIGTERM", "SIGHUP"] as const;
+  for (const signal of signals) process.on(signal, stop);
+  let server: Awaited<ReturnType<typeof startPersonalServer>> | undefined;
+  let readline: ReturnType<typeof createInterface> | undefined;
+  const launch = async () => {
+    server = await startPersonalServer(directory, { development: options.development });
+    interrupted.signal.throwIfAborted();
+  };
   try {
-    await personalMenu(directory, { question: prompt => readline.question(prompt, { signal: interrupted.signal }), write: value => process.stdout.write(value.replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, "")) });
+    if (args[0] === "serve") {
+      await launch();
+      const result = await Promise.race([server!.closed, aborted]);
+      return result?.reason === "failed" ? 1 : 0;
+    }
+    readline = createInterface({ input: process.stdin, output: process.stdout });
+    readline.on("SIGINT", stop);
+    readline.on("close", stop);
+    await personalMenu(directory, { question: prompt => readline!.question(prompt, { signal: interrupted.signal }), write: value => process.stdout.write(value.replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, "")) }, options.development ? launch : undefined);
     return 0;
   } catch (error) { if (interrupted.signal.aborted) return 0; throw error; }
-  finally { readline.close(); }
+  finally {
+    readline?.close();
+    try { await server?.stop(); }
+    finally { for (const signal of signals) process.off(signal, stop); }
+  }
 }

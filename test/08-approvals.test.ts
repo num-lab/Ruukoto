@@ -1,4 +1,4 @@
-import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
+import { product as personalProduct } from "./helpers/legacy-product.ts";
 /**
  * 集成与单元：结构化审批与单次消费（issue 03 §4/§6.2/§6.3）。
  *

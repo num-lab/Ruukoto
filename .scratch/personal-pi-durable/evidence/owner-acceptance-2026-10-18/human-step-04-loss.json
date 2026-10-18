@@ -1,0 +1,54 @@
+{
+  "started_at": "2026-10-18T12:21:27.969Z",
+  "scenario": "真实后台接纳后由独立本机代理丢弃回包；不是原CLI自然断线",
+  "cli": {
+    "pid": 97222,
+    "start": "Sun Oct 18 21:18:14 2026"
+  },
+  "backend": {
+    "pid": 77246,
+    "start": "Sun Oct 18 21:09:04 2026"
+  },
+  "input": {
+    "requestId": "23d26bc8-3d1c-4c76-b8f9-37c4b21d1ec0",
+    "input": "不调用工具。请写80条日常整理建议，每条约35个汉字，按序号换行，最后单独写一行：CLI_LOSS_18_OK。"
+  },
+  "baseline_entry": 31,
+  "baseline_model_request_ids": [
+    "45e1b533-668c-4316-bc5b-0c73056e7695"
+  ],
+  "forwards": 1,
+  "samples": [
+    {
+      "recorded_at": "2026-10-18T12:21:27.999Z",
+      "cli_alive": true,
+      "pending": true,
+      "input_status": "placed"
+    },
+    {
+      "recorded_at": "2026-10-18T12:21:41.464Z",
+      "cli_alive": true,
+      "pending": true,
+      "input_status": "done"
+    }
+  ],
+  "result": "skipped_by_owner",
+  "client_error": "control_response_lost",
+  "pending_before_owner": true,
+  "owner_instruction": "不要浪费时间在这上面了，直接跳过",
+  "stopped_at": "2026-10-18T12:24:17.873513+00:00",
+  "observer_identity": {
+    "pid": 2551,
+    "start": "Sun Oct 18 21:21:26 2026"
+  },
+  "observer_stop_verified": true,
+  "proxy_removed": true,
+  "pending_policy": "拥有者跳过后，Agent按原键只读核实done并用现有helper清理本轮测试pending；不算真人核实通过",
+  "acceptance": "原请求只转发一次且已完成；真人核实及执行中CLI退出未完成，不记通过",
+  "agent_cleanup": {
+    "original_status": "done",
+    "pending_removed_after_original_key_verified": true,
+    "model_or_submission_replayed": false,
+    "by_owner": false
+  }
+}

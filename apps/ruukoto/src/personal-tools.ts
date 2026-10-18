@@ -27,6 +27,7 @@ import { telegramSourceActive, permissionSnapshot } from "./personal-permissions
 import { requestTavily, validateParams, WebSearchError } from "@ruukoto/agent/web-search-transport.ts";
 import { personalWorkInspectionSource } from "./personal-work.ts";
 import { samePersonalEntry, type PersonalEntryIdentity, PersonalTelegramReceiptDoc } from "./personal-telegram-records.ts";
+import { personalSource, personalSourceSubmission } from "./personal-source.ts";
 
 export const PERSONAL_TOOLS = "personal-tools";
 export const PERSONAL_TOOL_NAMES = ["read_file", "write_file", "http_request", "web_search", "read_artifact"];
@@ -56,7 +57,7 @@ export async function toolOperation(tx: Tx, operation: TaskId) {
 export async function toolOperations(tx: Tx) { const values: PersonalToolOperation[] = []; for (const id of (await tx.doc(PersonalToolsDoc)).operations) values.push(await toolOperation(tx, id)); return values; }
 export const toolUnresolved = (value: Readonly<PersonalToolOperation>) => value.started && (!value.stopped || value.effect === "effect_unknown" && !value.resolution);
 export async function toolSourceBlocker(tx: Tx, requestId: string) {
-  const source = await tx.submissionByRequest(ROOT_CONVERSATION_ID, requestId);
+  const source = await personalSourceSubmission(tx, requestId);
   if (!source) return;
   for (const value of await toolOperations(tx)) if (value.origin.sources.includes(source.id) && toolUnresolved(value)) return { tool: String(value.operation), admission: value.admission };
 }
@@ -211,7 +212,7 @@ export function personalTools(profile: string, configValue: PersonalToolsConfig,
     try {
       const prior = await harness.snapshot(PersonalToolDoc, String(api.taskId), context);
       if (!prior?.operation) {
-        const live = await api.snapshot(LiveDoc, ROOT_CONVERSATION_ID, callContext), candidate = live?.run?.inputs.length === 1 ? await harness.submission(live.run.inputs[0], callContext) : undefined, requestId = (await candidate?.status(callContext))?.requestId;
+        const live = await api.snapshot(LiveDoc, api.conversationId, callContext), candidate = live?.run?.inputs.length === 1 ? await harness.submission(live.run.inputs[0], callContext) : undefined, requestId = (await candidate?.status(callContext))?.requestId;
         const source = await api.commit(async tx => { await personalReadTool(tx, api, kind); return copyJson(await personalToolOrigin(tx, api, requestId)) as PersonalToolOrigin; }, callContext);
         if (kind === "web_search") {
           const count = await api.commit(async tx => {
@@ -341,12 +342,13 @@ export async function verifyTools(tx: Tx, keys: string[], profile: string, tools
       try { normalized = validateToolArguments(definition, { ...call, arguments: copyJson(call.arguments) as Params }) as Params; } catch { throw invalid(); }
     }
     if (!admission || admission.conversationId !== value.origin.conversationId || !isDeepStrictEqual(admission.data, { operation: value.operation, origin: value.origin, kind: value.kind, params: value.params, config: value.config, grantVersion: value.grantVersion, prepared: value.prepared, approval: admission.data.approval }) || !["pending", "unneeded"].includes(admission.data.approval) || tool?.kind !== "pi.tool" || tool.owner !== value.origin.generation || tool.conversationId !== value.origin.conversationId || !assistant || assistant.byTaskId !== value.origin.generation || assistant.id >= admission.id || call?.type !== "toolCall" || call.name !== value.kind || !isDeepStrictEqual(normalized, value.params)) throw invalid();
-    const source = await tx.submissionByRequest(ROOT_CONVERSATION_ID, value.origin.source.requestId);
-    if (source?.id !== value.origin.source.submissionId || source.entry !== value.origin.source.entryId || source.type !== "input" || (await tx.entry(source.entry!))?.kind !== "pi.user") throw invalid();
+    const original = await personalSource(tx, value.origin.source.requestId), source = original.submission;
+    if (source.id !== value.origin.source.submissionId || source.entry !== value.origin.source.entryId) throw invalid();
     if (value.origin.work) {
       if (!isDeepStrictEqual(await personalWorkInspectionSource(tx, value.origin.work.ref, value.origin.inputs, value.admission), { work: value.origin.work, sources: value.origin.sources }) || toolUnresolved(value) && (await tx.task(value.origin.work.ref.taskId))?.state.status === "terminal") throw invalid();
-    } else if (value.origin.conversationId !== ROOT_CONVERSATION_ID || !isDeepStrictEqual(value.origin.inputs, [source.id]) || !isDeepStrictEqual(value.origin.sources, [source.id])) throw invalid();
-    if (value.origin.telegram) { const receipt = (await tx.doc(PersonalTelegramReceiptDoc, value.origin.source.requestId, null)).receipt; if (!receipt || !isDeepStrictEqual(permissionSnapshot(receipt), value.origin.telegram) || !isDeepStrictEqual(value.origin.permission, { mode: value.origin.telegram.mode, version: value.origin.telegram.version })) throw invalid(); }
+    } else if (value.origin.conversationId !== source.conversationId || !isDeepStrictEqual(value.origin.inputs, [source.id]) || !isDeepStrictEqual(value.origin.sources, [source.id])) throw invalid();
+    if (value.origin.telegram && (!isDeepStrictEqual(original.telegram, value.origin.telegram) || !isDeepStrictEqual(value.origin.permission, { mode: value.origin.telegram.mode, version: value.origin.telegram.version }))) throw invalid();
+    if (original.scheduled && (!isDeepStrictEqual(original.permission, value.origin.permission) || !isDeepStrictEqual(original.telegram, value.origin.telegram))) throw invalid();
     if (!["auto-review", "confirm", "full_access"].includes(value.origin.permission.mode) || !Number.isSafeInteger(value.origin.permission.version) || value.origin.permission.version < 1 || !["pending", "approved", "rejected", "unneeded"].includes(value.approval) || !["not_executed", "no_write", "returned", "effect_unknown"].includes(value.effect) || typeof value.started !== "boolean" || typeof value.stopped !== "boolean" || value.started !== !!value.startEntry || value.started && !["approved", "unneeded"].includes(value.approval) || value.started && !value.observation && value.code !== "started" || !value.started && value.effect !== "not_executed") throw invalid();
     if (value.startEntry) { const entry = await tx.entry(ToolStart, value.startEntry); if (!entry || entry.conversationId !== value.origin.conversationId || entry.id <= value.admission || !isDeepStrictEqual(entry.data, { operation: value.operation, admission: value.admission })) throw invalid(); }
     if (value.decisionEntry) { const entry = await tx.entry(ToolDecision, value.decisionEntry); if (!entry || entry.id <= value.admission || !isDeepStrictEqual(entry.data, { operation: value.operation, decision: value.approval, ...(value.actor ? { actor: value.actor } : {}) })) throw invalid(); }

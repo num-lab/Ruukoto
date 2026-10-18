@@ -1,0 +1,13 @@
+✔ durable 命令：auto-review 未知和取消跨重启保留占用，人工效果与原引用停止都核实后才复用 (10838.229ms)
+✔ durable 命令：full_access 未知和取消跨重启保留占用，人工效果与原引用停止都核实后才复用 (2518.640125ms)
+✔ durable 命令：恢复拒绝 full-env 损坏，零新增模型和执行 (2517.822791ms)
+✔ durable 命令：恢复拒绝 full-mounts 损坏，零新增模型和执行 (2504.023625ms)
+✔ durable 命令：恢复拒绝 full-node 损坏，零新增模型和执行 (2860.741333ms)
+ℹ tests 5
+ℹ suites 0
+ℹ pass 5
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 21769.519375

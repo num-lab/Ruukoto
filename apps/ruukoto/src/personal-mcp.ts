@@ -15,6 +15,7 @@ import { parsePersonalMcp, resolvePersonalMcpToken, type PersonalMcpConfig, type
 import { activePersonalWorkInspection, personalWorkInspectionSource, PersonalWorkDoc, requirePersonalWorkRequest, type PersonalWorkInspectionSource } from "./personal-work.ts";
 import { permissionSnapshot, telegramSourceActive } from "./personal-permissions.ts";
 import { samePersonalEntry, type PersonalEntryIdentity, PersonalTelegramReceiptDoc } from "./personal-telegram-records.ts";
+import { personalSource, personalSourceSubmission } from "./personal-source.ts";
 
 type JsonObject = { [key: string]: JsonValue };
 
@@ -47,7 +48,7 @@ export async function mcpOperations(tx: Tx) {
   return values;
 }
 export async function mcpSourceBlocker(tx: Tx, requestId: string) {
-  const source = await tx.submissionByRequest(ROOT_CONVERSATION_ID, requestId);
+  const source = await personalSourceSubmission(tx, requestId);
   if (!source) return;
   for (const value of await mcpOperations(tx)) if (value.origin.sources.includes(source.id) && mcpUnresolved(value)) return { mcp: String(value.operation), admission: value.admission };
 }
@@ -135,7 +136,7 @@ export function personalMcp(configValue: PersonalMcpConfig, getHarness: () => Ha
       let connection: McpConnection | undefined;
       const harness = getHarness();
       try {
-        const live = await api.snapshot(LiveDoc, ROOT_CONVERSATION_ID, callContext), candidate = live?.run?.inputs.length === 1 ? await harness.submission(live.run.inputs[0], callContext) : undefined;
+        const live = await api.snapshot(LiveDoc, api.conversationId, callContext), candidate = live?.run?.inputs.length === 1 ? await harness.submission(live.run.inputs[0], callContext) : undefined;
         const sourceRequestId = (await candidate?.status(callContext))?.requestId;
         const previous = await api.commit(async tx => {
           const saved = (await tx.doc(PersonalMcpDoc, String(api.taskId), null)).operation;
@@ -228,11 +229,11 @@ export async function verifyMcp(tx: Tx, keys: string[]) {
     const assistant = input && typeof input === "object" && !Array.isArray(input) && typeof input.assistant === "number" ? await tx.entry(input.assistant as EntryId) : undefined;
     const call = assistant?.model?.flatMap(message => message.role === "assistant" ? message.content : []).find(part => part.type === "toolCall" && part.id === (input && typeof input === "object" && !Array.isArray(input) ? input.callId : undefined));
     if (!admission || admission.conversationId !== value.origin.conversationId || !isDeepStrictEqual(admission.data, { operation: value.operation, origin: value.origin, config: value.config, service: value.service, tool: value.tool, args: value.args }) || tool?.kind !== "pi.tool" || tool.owner !== value.origin.generation || tool.conversationId !== value.origin.conversationId || !assistant || assistant.byTaskId !== value.origin.generation || assistant.id >= admission.id || call?.type !== "toolCall" || call.name !== "mcp_call" || !isDeepStrictEqual(call.arguments, { service: value.service, tool: value.tool, arguments: value.args }) || value.remoteEnded !== (!!value.evidence.response && mcpResponseEnded(value.evidence.response)) || value.started !== !!value.evidence.request) throw new PersonalError("mcp_record_invalid", "MCP 原工具、调用参数或结束证据不符，已停止恢复；请保留档案。");
-    const source = await tx.submissionByRequest(ROOT_CONVERSATION_ID, value.origin.source.requestId);
-    if (source?.id !== value.origin.source.submissionId || source.entry !== value.origin.source.entryId || source.type !== "input" || (await tx.entry(source.entry!))?.kind !== "pi.user") throw new PersonalError("mcp_record_invalid", "MCP 原拥有者输入缺失，已停止恢复。");
+    const original = await personalSource(tx, value.origin.source.requestId), source = original.submission;
+    if (source.id !== value.origin.source.submissionId || source.entry !== value.origin.source.entryId) throw new PersonalError("mcp_record_invalid", "MCP 原工作输入缺失，已停止恢复。");
     if (value.origin.work) { const current = await personalWorkInspectionSource(tx, value.origin.work.ref, value.origin.inputs, value.admission); if (!isDeepStrictEqual(current, { work: value.origin.work, sources: value.origin.sources })) throw new PersonalError("mcp_record_invalid", "MCP 子工作原来源不符，已停止恢复。"); if (mcpUnresolved(value) && (await tx.task(value.origin.work.ref.taskId))?.state.status === "terminal") throw new PersonalError("mcp_record_invalid", "MCP 未核实调用失去原工作占用，已停止恢复。"); }
-    else if (value.origin.conversationId !== ROOT_CONVERSATION_ID || !isDeepStrictEqual(value.origin.sources, [source.id]) || !isDeepStrictEqual(value.origin.inputs, [source.id])) throw new PersonalError("mcp_record_invalid", "MCP 主工作输入关系不符，已停止恢复。");
-    if (value.origin.telegram) { const receipt = (await tx.doc(PersonalTelegramReceiptDoc, value.origin.source.requestId, null)).receipt; if (!receipt || !isDeepStrictEqual(permissionSnapshot(receipt), value.origin.telegram)) throw new PersonalError("mcp_record_invalid", "MCP 原入口与权限不符，已停止恢复。"); }
+    else if (value.origin.conversationId !== source.conversationId || !isDeepStrictEqual(value.origin.sources, [source.id]) || !isDeepStrictEqual(value.origin.inputs, [source.id])) throw new PersonalError("mcp_record_invalid", "MCP 主工作输入关系不符，已停止恢复。");
+    if (value.origin.telegram && !isDeepStrictEqual(original.telegram, value.origin.telegram) || original.scheduled && (!isDeepStrictEqual(original.permission, value.origin.permission) || !isDeepStrictEqual(original.telegram, value.origin.telegram))) throw new PersonalError("mcp_record_invalid", "MCP 原入口与权限不符，已停止恢复。");
     if (!["pending", "approved", "rejected"].includes(value.decision) || !["not_executed", "returned", "effect_unknown"].includes(value.effect) || !["auto-review", "confirm", "full_access"].includes(value.origin.permission.mode) || !Number.isSafeInteger(value.origin.permission.version) || value.origin.permission.version < 1 || (value.decision !== "pending") !== !!value.decisionEntry || (!!value.decidedBy && !value.origin.telegram) || (value.started && value.decision !== "approved" && value.origin.permission.mode !== "full_access") || (value.effect === "returned" && !value.remoteEnded) || (value.remoteEnded && !value.observation)) throw invalid();
     if (value.evidence.request) {
       const request: unknown = JSON.parse(value.evidence.request);

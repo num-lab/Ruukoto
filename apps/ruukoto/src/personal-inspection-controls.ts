@@ -7,6 +7,8 @@ import { PersonalInspectionDoc, PersonalPendingInspectionsDoc, ServiceInspection
 import { telegramSelection } from "./personal-permissions.ts";
 import { samePersonalEntry, personalEntryConfig, type PersonalEntryIdentity, PersonalTelegramDoc, PersonalTelegramReceiptDoc, type TelegramControlInput, type TelegramReceipt } from "./personal-telegram-records.ts";
 import type { ServiceManagerConfig } from "./service-helper.ts";
+import { personalSource } from "./personal-source.ts";
+import { PersonalSchedulesDoc, personalScheduleRun } from "./personal-scheduler-records.ts";
 
 export type PersonalInspectionRef = { taskId: TaskId; admission: EntryId };
 type Entrance = PersonalEntryIdentity;
@@ -28,6 +30,13 @@ async function sameEntrance(tx: Tx, value: Pick<Awaited<ReturnType<typeof select
   const current = personalEntryConfig(await tx.doc(PersonalTelegramDoc), actor);
   if (active && (!current?.enabled || current.botId !== actor.botId || current.ownerId !== actor.ownerId || current.generation !== actor.generation)) return false;
   const matched = new Set<number>();
+  for (const id of (await tx.doc(PersonalSchedulesDoc)).runs) {
+    const run = await personalScheduleRun(tx, id);
+    const source = await tx.submissionByRequest(run.conversationId, run.requestId);
+    if (!source?.entry || !value.sources.includes(source.id)) continue;
+    const origin = await personalSource(tx, run.requestId);
+    if (origin.scheduled && samePersonalEntry(origin.telegram, actor)) matched.add(source.id);
+  }
   let cursor: Cursor | undefined;
   do {
     const page = await tx.scanTasks({ kind: "ruukoto.telegram-input" }, 256, cursor);

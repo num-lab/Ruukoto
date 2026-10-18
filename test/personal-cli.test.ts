@@ -417,7 +417,7 @@ test("personal 服务配置：只读档案有未决输入时不能半启用操�
   await assert.rejects(openPersonalHarness({ ...options, serviceOperations: true }), code("service_config_pending"));
   const original = await openPersonalHarness(options);
   assert.equal(original.service, undefined);
-  assert.deepEqual((await original.main.agent(context)).tools.map(tool => tool.name), ["read_artifact", "service_inspect", "read_service_inspection", "background_work"]);
+  assert.deepEqual((await original.main.agent(context)).tools.map(tool => tool.name), ["read_artifact", "service_inspect", "read_service_inspection", "background_work", "schedule_create", "schedule_query", "schedule_cancel"]);
   await original.close();
 });
 
@@ -457,7 +457,7 @@ test("personal 服务配置：生产 sudo 后台接线和恢复（Linux），其
   const calls = fs.readFileSync(path.join(helper, "calls.log"), "utf8").trim().split("\n").map(line => JSON.parse(line));
   assert.deepEqual(calls.map(call => call[0]), ["inspect-op", "stop-inspect", "inspect-op", "stop-inspect"]);
   for (const index of [0, 2]) { assert.deepEqual(calls[index].slice(2), ["test-machine", unit]); assert.deepEqual(calls[index + 1].slice(1), [calls[index][1], "test-machine"]); }
-  assert.deepEqual(f.model.calls[0].tools?.map(tool => (tool.function as { name: string }).name), ["read_artifact", "service_inspect", "read_service_inspection", "background_work"]);
+  assert.deepEqual(f.model.calls[0].tools?.map(tool => (tool.function as { name: string }).name), ["read_artifact", "service_inspect", "read_service_inspection", "background_work", "schedule_create", "schedule_query", "schedule_cancel"]);
   const storage = await openNodeSqliteStorage(path.join(f.dir, "personal.sqlite"));
   for (const token of [PersonalServiceDoc, PersonalServiceGrantsDoc, PersonalServiceOperationsDoc]) assert.ok(await storage.findDocument({ kind: token.definition.kind, scope: { kind: "session" } }, "current", context));
   const entries = (await storage.scanEntries({ conversationId: ROOT_CONVERSATION_ID }, 256, undefined, context)).items;

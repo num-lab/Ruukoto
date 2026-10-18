@@ -27,7 +27,7 @@ async function receipt(tx: Tx, requestId: string, taskId: TaskId) {
 function active(config: PersonalTelegramConfig | PersonalQqConfig | undefined, value: Receipt) { return config?.enabled === true && config.generation === value.generation && config.botId === value.botId && config.ownerId === value.ownerId; }
 
 // Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-telegram-entry.md
-export function personalTelegram(config?: PersonalTelegramConfig, api?: PersonalTelegramApi, control?: (tx: Tx, value: TelegramControlInput) => Promise<boolean>, media?: PersonalMedia, qqConfig?: PersonalQqConfig, qqApi?: PersonalQqApi) {
+export function personalTelegram(config?: PersonalTelegramConfig, api?: PersonalTelegramApi, control?: (tx: Tx, value: TelegramControlInput) => Promise<boolean>, media?: PersonalMedia, qqConfig?: PersonalQqConfig, qqApi?: PersonalQqApi, scheduledControl?: (tx: Tx, value: TelegramControlInput) => Promise<boolean>) {
   const telegramConfig = config;
   const task = defineTask<{ requestId: string }, { phase: "run" } | { phase: "send"; retryAt?: number } | { phase: "verify" }, Result>({
     name: TASK, version: 1, initial: () => ({ phase: "run" }),
@@ -161,7 +161,7 @@ export function personalTelegram(config?: PersonalTelegramConfig, api?: Personal
             if (staged.state === "rejected" || staged.state === "expired") { value.mediaRejected = true; value.reply = personalMediaRejection(staged.reason!); }
             else if (message.direct) { const permission = await personalPermissionFor(tx, { platform }); value.permission = { mode: permission.mode, version: permission.version }; }
           }
-          else if (await telegramPermissionControl(tx, value) || await telegramWorkControl(tx, value) || await telegramDelegationControl(tx, value) || await control?.(tx, value)) value.control = true;
+          else if (await scheduledControl?.(tx, value) || await telegramPermissionControl(tx, value) || await telegramWorkControl(tx, value) || await telegramDelegationControl(tx, value) || await control?.(tx, value)) value.control = true;
           else if (TELEGRAM_SERVICE_ACTIONS.includes(value.content)) { value.control = true; value.reply = "当前宿主未启用服务操作；请由拥有者核实服务配置，聊天仍可继续。"; }
           else if (message.direct) { const permission = await personalPermissionFor(tx, { platform }); value.permission = { mode: permission.mode, version: permission.version }; }
           value.accepted = staged?.accepted ?? (await tx.appendEntry(ROOT_CONVERSATION_ID, { kind: platform === "qq" ? "ruukoto.qq-received" : "ruukoto.telegram-received", data: { requestId: key, generation: config.generation } })).id;

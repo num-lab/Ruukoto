@@ -135,8 +135,9 @@ async function unknown(p: PersonalHarness, ref: PersonalCommandRef) { await unti
 for (const mode of ["confirm", "auto-review", "full_access"] as const) test(`durable 命令：${mode} 保留原权限、原生 owned Task 和双流分页，非零结果也释放身份`, async t => {
   const exitCode = mode === "confirm" ? 0 : 37;
   const f = await fixture(t, `head -c 7000 /dev/zero; printf '\\376err' >&2; echo x >> count; exit ${exitCode}`);
-  let p = await f.open(); await source(p);
+  let p = await f.open();
   await p.harness.commit(async tx => { (await tx.doc(PersonalPermissionsDoc)).mode = mode; }, context);
+  await source(p);
   const work = await p.work.delegate(draft("run"));
   const command = await original(p);
   assert.equal((await p.harness.waitForTask(work.taskId, context)).state.outcome.status, "completed");
@@ -161,7 +162,8 @@ for (const mode of ["confirm", "auto-review", "full_access"] as const) test(`dur
     await p.close(); p = await f.open();
     await p.harness.commit(async tx => { (await tx.doc(PersonalPermissionsDoc)).mode = "confirm"; }, context);
   }
-  const next = await p.work.delegate({ ...draft("reuse", work.agentId), content: "继续分析" });
+  await p.answer("新的拥有者来源", "reuse-source");
+  const next = await p.work.delegate({ ...draft("reuse", work.agentId), sourceRequestId: "reuse-source", content: "继续分析" });
   await p.harness.waitForTask(next.taskId, context);
   if (mode === "full_access") {
     const reused = f.server.calls.findLast(call => call.system?.includes("你是个人助手的子 Agent"))!;
@@ -174,8 +176,9 @@ for (const mode of ["confirm", "auto-review", "full_access"] as const) test(`dur
 
 for (const mode of ["auto-review", "full_access"] as const) test(`durable 命令：${mode} 未知和取消跨重启保留占用，人工效果与原引用停止都核实后才复用`, async t => {
   const f = await fixture(t); f.failReceipt(); f.failStop();
-  let p = await f.open(); await source(p);
+  let p = await f.open();
   await p.harness.commit(async tx => { (await tx.doc(PersonalPermissionsDoc)).mode = mode; }, context);
+  await source(p);
   const work = await p.work.delegate(draft("unknown")), ref = await original(p); await unknown(p, ref);
   assert.equal((await p.commands!.detail(ref, "stdout")).stopped, false);
   await assert.rejects(p.work.delegate(draft("other-member")), code("work_source_paused"));
@@ -238,8 +241,9 @@ test("durable 命令：首次启用拒绝未决旧工作，不恢复 provider �
 for (const mutation of ["worker", "mounts", "stop-task", "unproved-stop", "full-env", "full-mounts", "full-node"] as const) test(`durable 命令：恢复拒绝 ${mutation} 损坏，零新增模型和执行`, async t => {
   const f = await fixture(t);
   if (mutation === "unproved-stop") { f.failReceipt(); f.failStop(); }
-  const p = await f.open(); await source(p);
+  const p = await f.open();
   if (mutation.startsWith("full-")) await p.harness.commit(async tx => { (await tx.doc(PersonalPermissionsDoc)).mode = "full_access"; }, context);
+  await source(p);
   const work = await p.work.delegate(draft("invalid-proof")), ref = await original(p);
   if (mutation === "unproved-stop") await unknown(p, ref);
   else await p.harness.waitForTask(work.taskId, context);

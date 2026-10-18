@@ -1,3 +1,4 @@
+import { PersonalSchedulesDoc, PersonalScheduleRunDoc } from "../apps/ruukoto/src/personal-scheduler-records.ts";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -495,4 +496,28 @@ test("拥有者权限：QQ 默认模式独立于 Telegram 与本机，旧输入�
   assert.deepEqual(receipt.value.permission, { mode: "full_access", version: 2 });
   assert.equal("platform" in receipt.value, false);
   assert.deepEqual((await p.harness.snapshot(PersonalPermissionsDoc, context))!.qq, { mode: "confirm", version: 2 });
+});
+
+
+test("定时子服务权限：已有长期授权不继承，原菜单只能批准本次且整项等待", async t => {
+  const f = await fixture(t, request => {
+    const last = request.messages.at(-1);
+    if (request.system?.includes("你是个人助手的子 Agent")) return last?.role === "tool" ? { kind: "text", text: "定时子服务已返回" } : { kind: "tool_calls", calls: [{ id: "restart-scheduled", name: "service_restart", arguments: { unit: UNIT } }] };
+    if (last?.role === "user" && last.content === "创建定时重启") return { kind: "tool_calls", calls: [{ id: "create-scheduled", name: "schedule_create", arguments: { label: "定时服务", instruction: "请委派定时重启", rule: { kind: "once", at: new Date(Date.now() - 1000).toISOString(), time_zone: "UTC" } } }] };
+    if (last?.role === "user" && last.content === "请委派定时重启") return { kind: "tool_calls", calls: [{ id: "delegate-scheduled", name: "background_work", arguments: { action: "delegate", content: "定时服务重启" } }] };
+    return { kind: "text", text: "工作已收尾" };
+  });
+  const p = await f.open(); const first = await f.request(); await f.receive("批准并长期授权", await menu(f)); await done(p, first); assert.equal(f.starts(), 1);
+  const originalGrant = (await p.harness.snapshot(PersonalServiceGrantsDoc, context))!.grants[0];
+  await f.receive("创建定时重启");
+  let operation!: PersonalServiceOperationRef;
+  await until(async () => { const value = (await p.service!.list()).items[0]?.operation; if (!value || value.ref.taskId === first.taskId || !value.snapshot) return false; operation = value.ref; return true; });
+  const op = (await p.service!.status(operation)).operation; assert.equal(op.decision, "pending"); assert.equal(op.grant, undefined); assert.equal(f.starts(), 1);
+  const index = await p.harness.snapshot(PersonalSchedulesDoc, context); assert.equal(index!.runs.length, 1); const runId = index!.runs[0]; assert.equal((await p.harness.snapshot(PersonalScheduleRunDoc, runId, context))!.run!.result, undefined);
+  const approvalMenu = await f.receive("/审批"); assert.doesNotMatch(approvalMenu.value.reply!, /批准并长期授权/);
+  const declined = await f.receive("批准并长期授权", Number(approvalMenu.value.platformMessageId)); assert.match(declined.value.reply!, /不能创建长期授权/); assert.equal(f.starts(), 1);
+  assert.deepEqual((await p.harness.snapshot(PersonalServiceGrantsDoc, context))!.grants, [originalGrant]);
+  await f.receive("批准本次", Number(approvalMenu.value.platformMessageId)); await done(p, operation); assert.equal(f.starts(), 2);
+  await until(async () => !!(await p.harness.snapshot(PersonalScheduleRunDoc, runId, context))!.run!.result);
+  assert.equal((await p.harness.snapshot(PersonalScheduleRunDoc, runId, context))!.run!.result!.status, "completed");
 });

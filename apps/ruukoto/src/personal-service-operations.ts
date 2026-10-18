@@ -15,6 +15,8 @@ import { PersonalWorkDoc, personalWorkInspectionSource, requirePersonalWorkReque
 import { personalCommandSourceBlocker } from "./personal-command-work.ts";
 
 import { mcpSourceBlocker } from "./personal-mcp.ts";
+import { personalSource, personalSourceSubmission } from "./personal-source.ts";
+import { personalScheduledSource } from "./personal-scheduler-records.ts";
 
 export type PersonalServiceMode = "auto-review" | "confirm" | "full_access";
 type Effect = { effect: "executed" | "not_executed" | "effect_unknown"; code: string; exitCode?: number };
@@ -53,6 +55,11 @@ async function sourceValid(tx: Tx, op: Operation, active = true) {
     const work = await tx.doc(PersonalWorkDoc, op.work.ref.requestId, null);
     if (work.cancelRequested || !isDeepStrictEqual(work.ref, op.work.ref)) return false;
     try { await requirePersonalWorkRequest(tx, op.work.ref.agentId); } catch (error) { if (!(error instanceof PersonalError)) throw error; return false; }
+  }
+  if (await personalScheduledSource(tx, op.source.requestId)) {
+    let original: Awaited<ReturnType<typeof personalSource>>;
+    try { original = await personalSource(tx, op.source.requestId, { active }); } catch (error) { if (!(error instanceof PersonalError)) throw error; return false; }
+    return original.scheduled && !op.grant && op.mode === original.permission.mode && isDeepStrictEqual(op.telegram, original.telegram) && original.submission.id === op.source.submissionId && original.entry.id === op.source.entryId;
   }
   const source = await tx.submissionByRequest(ROOT_CONVERSATION_ID, op.source.requestId);
   const entry = await tx.entry(op.source.entryId);
@@ -118,7 +125,7 @@ export async function waitPersonalServiceEffect(reader: DocumentObserver, ref: P
   await waitForChange(reader, ref.requestId, op => !unresolved(op), context);
 }
 
-export type PersonalServiceBlocker = string | { inspection: TaskId; admission: EntryId } | { command: string; admission: EntryId } | { mcp: string; admission: EntryId } | { tool: string; admission: EntryId } | { browser: string; admission: EntryId };
+export type PersonalServiceBlocker = string | { inspection: TaskId; admission: EntryId } | { command: string; admission: EntryId } | { mcp: string; admission: EntryId } | { tool: string; admission: EntryId } | { browser: string; admission: EntryId; pause?: EntryId; session?: boolean };
 
 export async function personalServiceSourceBlocker(tx: Tx, sourceRequestId: string): Promise<PersonalServiceBlocker | undefined> {
   const browser = await browserSourceBlocker(tx, sourceRequestId);
@@ -129,7 +136,7 @@ export async function personalServiceSourceBlocker(tx: Tx, sourceRequestId: stri
   if (mcp) return mcp;
   const command = await personalCommandSourceBlocker(tx, sourceRequestId);
   if (command) return command;
-  const source = await tx.submissionByRequest(ROOT_CONVERSATION_ID, sourceRequestId);
+  const source = await personalSourceSubmission(tx, sourceRequestId);
   const inspection = source && await pendingServiceInspection(tx, undefined, [source.id]);
   if (inspection) return { inspection: inspection.taskId, admission: inspection.admission };
   let cursor: Cursor | undefined;
@@ -185,7 +192,7 @@ export function personalServiceOperations(config: ServiceManagerConfig, getHarne
         }
         await runtime.commit(async tx => {
           const value = await personalServiceOperation(tx, ref);
-          if (value.mode !== "full_access" && value.decision === "pending" && value.telegram && await sourceValid(tx, value)) {
+          if (value.mode !== "full_access" && value.decision === "pending" && value.telegram && !(await personalSource(tx, value.source.requestId)).scheduled && await sourceValid(tx, value)) {
             for (const grant of (await tx.doc(PersonalServiceGrantsDoc)).grants) {
               if (!grant.active || grant.unit !== value.unit || !samePersonalEntry(grant.source, value.telegram)) continue;
               if (!isDeepStrictEqual(grant.snapshot, value.snapshot)) { invalidateGrant(grant, "deployment_changed"); continue; }
@@ -293,19 +300,15 @@ export function personalServiceOperations(config: ServiceManagerConfig, getHarne
     const requestedMode = input.mode ?? "auto-review";
     if (!/^[A-Za-z0-9_.-]+\.service$/.test(input.unit) || input.unit.length > 128 || !input.requestId || input.requestId.length > 256 || !input.sourceRequestId || input.sourceRequestId.length > 256 || !["auto-review", "confirm", "full_access"].includes(requestedMode)) throw new PersonalError("service_input_invalid", "服务目标、模式或原请求引用无效，请使用精确服务名和原输入。");
     const record = await tx.doc(PersonalServiceOperationDoc, input.requestId, null);
-    const telegramReceipt = isPersonalImRequest(input.sourceRequestId) ? (await tx.doc(PersonalTelegramReceiptDoc, input.sourceRequestId, null)).receipt : undefined;
-    const telegram = telegramReceipt && permissionSnapshot(telegramReceipt);
-    if (isPersonalImRequest(input.sourceRequestId) && (!telegram || !await telegramSourceActive(tx, telegram))) throw new PersonalError("service_source_invalid", "原拥有者输入没有有效权限快照，请由当前绑定拥有者重新提交委托。");
-    if (telegram && input.mode !== undefined && input.mode !== telegram.mode) throw new PersonalError("service_mode_invalid", "服务模式必须沿用原拥有者输入，不能由调用者改写。");
-    const mode = work?.permission.mode ?? telegram?.mode ?? requestedMode;
+    const original = await personalSource(tx, input.sourceRequestId, { active: true, invalidCode: "service_source_invalid" });
+    const { telegram, submission: source, entry } = original;
+    if ((telegram || original.scheduled) && input.mode !== undefined && input.mode !== original.permission.mode) throw new PersonalError("service_mode_invalid", "服务模式必须沿用原工作来源，不能由调用者改写。");
+    const mode = work?.permission.mode ?? (original.scheduled ? original.permission.mode : telegram?.mode) ?? requestedMode;
     const fingerprint = createHash("sha256").update(JSON.stringify([input.unit, input.sourceRequestId, mode])).digest("hex");
     if (record.operation) {
       if (record.operation.fingerprint !== fingerprint || !isDeepStrictEqual(record.operation.work && (({ admission: _admission, ...value }) => value)(record.operation.work), work)) throw new PersonalError("service_request_conflict", "同键服务操作内容不符，请查询原操作，不要换键自动重试。");
       return { ...record.operation.ref };
     }
-    const source = await tx.submissionByRequest(ROOT_CONVERSATION_ID, input.sourceRequestId);
-    const entry = source?.entry && await tx.entry(source.entry);
-    if (source?.type !== "input" || (source.status !== "placed" && source.status !== "done") || entry?.kind !== "pi.user") throw new PersonalError("service_source_invalid", "服务工作需要已进入主会话的拥有者输入，请先核实原输入。");
     if (await personalCommandSourceBlocker(tx, input.sourceRequestId)) throw new PersonalError("work_source_paused", "原工作有未核实命令，未接纳服务操作；请在本机命令管理核实原效果和停止。");
     if (await browserSourceBlocker(tx, input.sourceRequestId)) throw new PersonalError("work_source_paused", "原工作有未核实浏览器效果或停止状态，未接纳服务操作；请从浏览器菜单核实原操作。");
     if (await pendingServiceInspection(tx, input.unit, work?.sources ?? [source.id])) throw new PersonalError("service_operation_busy", "服务目标或原工作仍有检查停止未核实，请查询原检查；不能换键重试。");
@@ -447,7 +450,7 @@ async function serviceTelegramControl(tx: Tx, value: TelegramControlInput): Prom
     if (!op) value.reply = "原入口暂无可决定的服务审批。检查尚在进行时请稍后重新发送 /审批。";
     else {
       value.selection = { kind: "approval", ref: { ...op.ref } };
-      value.reply = `待审批：在机器 ${op.snapshot!.machineId} 重启 ${op.unit}。仅限本次固定目标及检查修订。回复这条消息选择：批准本次、批准并长期授权、拒绝、下一项。长期授权仅允许原入口在相同策略和单元修订下重复执行此重启，可用 /授权 查询和撤销。`;
+      value.reply = (await personalSource(tx, op.source.requestId)).scheduled ? `定时工作待审批：重启 ${op.unit}，仅限本次固定目标及检查修订。回复这条消息选择：批准本次、拒绝、下一项；定时工作不继承或创建长期授权。` : `待审批：在机器 ${op.snapshot!.machineId} 重启 ${op.unit}。仅限本次固定目标及检查修订。回复这条消息选择：批准本次、批准并长期授权、拒绝、下一项。长期授权仅允许原入口在相同策略和单元修订下重复执行此重启，可用 /授权 查询和撤销。`;
     }
   } else if (value.content === "/服务状态" || (value.content === "下一项" && selection?.kind === "service-status")) {
     const available = (await personalServiceOperationsIn(tx)).filter(op => samePersonalEntry(op.telegram, value)).reverse();
@@ -478,6 +481,7 @@ async function serviceTelegramControl(tx: Tx, value: TelegramControlInput): Prom
     if (!await pendingApproval(tx, op, value)) value.reply = "原审批已失效、已决定或已经消费，请重新发送 /审批 核实，不能按旧菜单重新执行。";
     else {
       if (value.content === "批准并长期授权") {
+        if ((await personalSource(tx, op.source.requestId)).scheduled) { value.reply = "定时运行只能批准本次具体操作，不能创建长期授权；请回复原审批菜单选择批准本次或拒绝。"; return true; }
         for (const grant of grants) if (grant.unit === op.unit && samePersonalEntry(grant.source, op.telegram!)) invalidateGrant(grant, "replaced");
         const grant: Grant = { id: `grant_${randomBytes(12).toString("hex")}`, version: 1, active: true, source: { ...op.telegram! }, snapshot: { ...op.snapshot! }, unit: op.unit, operation: { ...op.ref }, controlRequestId: value.requestId };
         grants.push(grant);
@@ -499,7 +503,7 @@ export async function verifyServiceGrants(tx: Tx, requestIds: string[]) {
     const source = (await tx.doc(PersonalTelegramReceiptDoc, grant.controlRequestId, null)).receipt;
     const op = await personalServiceOperation(tx, grant.operation);
     const menu = source && await telegramSelection(tx, source);
-    if (!source || source.serviceDecision?.decision !== "approved" || source.serviceDecision.ref.taskId !== op.ref.taskId || source.serviceDecision.grant?.id !== grant.id || source.serviceDecision.grant.version !== 1 || source.content !== "批准并长期授权" || !source.control || !op.telegram || !isDeepStrictEqual(grant.source, op.telegram) || !isDeepStrictEqual(grant.snapshot, op.snapshot) || grant.unit !== op.unit || menu?.selection?.kind !== "approval" || menu.selection.ref.taskId !== op.ref.taskId || !Number.isSafeInteger(grant.version) || grant.version < 1) throw new PersonalError("service_grant_invalid", "长期授权缺少原入口决定或范围不符，已停止恢复；请保留档案。");
+    if ((await personalSource(tx, op.source.requestId)).scheduled || !source || source.serviceDecision?.decision !== "approved" || source.serviceDecision.ref.taskId !== op.ref.taskId || source.serviceDecision.grant?.id !== grant.id || grant.version < 1 || source.serviceDecision.grant.version !== 1 || source.content !== "批准并长期授权" || !source.control || !op.telegram || !isDeepStrictEqual(grant.source, op.telegram) || !isDeepStrictEqual(grant.snapshot, op.snapshot) || grant.unit !== op.unit || menu?.selection?.kind !== "approval" || menu.selection.ref.taskId !== op.ref.taskId || !Number.isSafeInteger(grant.version)) throw new PersonalError("service_grant_invalid", "长期授权缺少原入口决定或范围不符，已停止恢复；请保留档案。");
     if (!await telegramSourceActive(tx, grant.source)) invalidateGrant(grant, "entrance_changed");
   }
   for (const requestId of requestIds) {

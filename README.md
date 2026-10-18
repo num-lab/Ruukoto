@@ -23,7 +23,7 @@
 
 [逐项验收证据](docs/release-acceptance.md)。
 
-个人：[`npm run personal:durable`](docs/usage.md#25-个人-durable-隔离向导)：Pi 1.3.0，QQ/Telegram 图文、浏览器、Linux 服务/命令、MCP、资料/网络/搜索、审批/产物/回报；Coding：Pi 0.85.1，入口未变。
+个人隔离入口 [`npm run personal:durable`](docs/usage.md#25-个人-durable-隔离向导)：Pi 1.3.0，QQ/Telegram、浏览器、服务/命令、MCP、资料/网络、独立调度与整项回报；Coding：Pi 0.85.1，入口未变。
 
 ## 快速开始
 
@@ -94,7 +94,7 @@ npm run desktop:build      # 构建并 ad-hoc 签名 dist/mac-arm64/Ruukoto.app
 npm run code -- ../my-project  # 以该目录创建/复用工作区，并进入新会话
 ```
 
-开发与桌面回归见[开发说明](docs/development.md)；[浏览器用法](docs/usage.md#12-浏览器)含登录与截图导出。
+开发、定时与桌面测试见[开发说明](docs/development.md)；[浏览器用法](docs/usage.md#12-浏览器)含登录与截图导出。
 
 ## 文档
 

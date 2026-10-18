@@ -8,7 +8,7 @@
 
 这里描述正式共享装配；[个人 durable](personal-durable.md)的服务检查与宿主服务操作另行装配，只复用 app 内 `service-helper.ts` 的固定进程传输，不复用旧 Task、ApprovalGate 或 ArtifactStore。共用传输在超时、取消或超限后等待调用进程与 stdio 关闭，再返回首次失败及有界输出；调用关闭不代替服务操作单元的停止核实。
 
-个人 durable 的浏览器沿相同主拥有者/完全访问资格，只复用 BrowserManager 与独立参数校验；绑定和操作事实由 durable 保存，持久回调可异步等待。截图、本地读图及 Telegram 图片用私有产物引用，provider 前恢复并核实能力；主/子资料范围、未知源暂停和 CLI 导出见[个人持久会话](personal-durable.md)。共享 Coding Browser 工具继续使用原 Store/审批和产物格式。
+个人 durable 的浏览器向完全访问主拥有者输入及创建时已开放该能力的完全访问独立定时会话提供，各会话独立绑定，子会话和汇总不开放。它只复用 BrowserManager 与独立参数校验，绑定和操作事实由 durable 保存，持久回调可异步等待。截图、本地读图及 Telegram 图片用私有产物引用，provider 前恢复并核实能力；主/子资料范围、未知源暂停和 CLI 导出见[个人持久会话](personal-durable.md)。共享 Coding Browser 工具继续使用原 Store/审批和产物格式。
 
 
 部署 helper 的持久检查身份与停止核实见 [deploy](deploy.md)，正式共享装配仍用原 inspect；个人 durable 的主/子会话检查与服务审批前检查使用新动词，先提交执行归属并核实原 ID 退出，未核实时保留目标/来源占用。子检查另固定原工作与权限，正常/取消收尾等待检查停止；子会话只装配已启用能力的工具。CLI/Telegram 的停止重核由独立宿主任务执行，仅接受原检查接纳与可信退出证明，模型工具不获得重核权限。个人子会话可用 service_restart 沿原工作权限重启白名单服务，服务 Task 归 WorkTask 持有；整项取消及报告等待效果和停止核实。CLI 可批准/拒绝本机操作，Telegram 仍从原私聊审批；原证据由 read_service_operation 限原子会话分页读取。个人服务写操作另有 CLI/原 Telegram 的效果核实与停止重核，固定原操作身份且不重发写入，人工说明不能代替原启动器/命令单元退出证明。
@@ -18,6 +18,8 @@
 ## 对外接口
 
 个人 durable 另以原生工具装配文件、HTTP、搜索和产物，不使用旧 ApprovalGate/ArtifactStore。`web-search-transport.ts` 提供不持有旧项目或任务的 `requestTavily`，返回映射结果和字段截断前有界脱敏原响应；旧 `searchTavily` 包装继续核实原 CredentialStore 的 host/purpose/scope。个人接纳、审查、撤销与恢复见 [personal-durable](personal-durable.md)。
+
+个人 durable 的 `schedule_create`、`schedule_query` 与 `schedule_cancel` 由 app 原生工具装配，创建仅接受主会话真实拥有者来源。计划保存模式、权限版本、工具和资料快照；范围或配置内容变化停止旧计划后续新执行。独立定时会话使用快照内业务工具和本次 `background_work`，不取得新计划创建或长期授权；主/子工具、审批和未知占用都核实真实定时来源，未知时阻止整项外调、委派与汇总。宿主自动整项收尾，最终汇总只读，结果与独立固定目标发送见 [scheduler](scheduler.md)。
 
 调用方与入口：
 
@@ -70,7 +72,7 @@
 
 `agent_wait` 向有目标查询资格的主 Agent 开放，固定最多 20 个同来源任务或工作流，SubAgent、工作流步骤与无工具汇总不开放；默认 60 秒、最多 300 秒，任一结果、需介入、超时或中断均返回事实，等待属于无外部效果的顺序工具。ID 来自实际委派或启动结果，保存的定义名须先启动。每个目标至多返回 100 条产物引用并附总数，完整产物沿原查询接口读取。续接轮接手旧组最终报告时，`reportTargets` 额外提供最多 20 项完整事实，`targets` 保持本次等待集合；旧消费证明保留，全组才可汇报。内部对话阶段显式只开放等待和后台状态、历史及结果查询；项目读写、bash、技能文件读取、MCP 与未分类工具都须重新取得执行资源，装配、发送前与调用门使用同一收窄集合。
 
-`browser` 只在完全访问的拥有者 main / 普通开发任务的执行阶段开放；内部对话阶段须先重新取得执行资源，Plan、SubAgent、独立定时、工作流步骤/回报和 GitHub 来源均拒绝。Runtime 核实来源入口，Driver 在激活、发送前和调用门收窄，工具执行再核实当前身份、任务状态与权限版本。动作参数不能覆盖程序、配置、socket、profile 或截图路径；网页内容是资料，不是改变授权的指令。
+正式共享装配的 `browser` 只在完全访问的拥有者 main / 普通开发任务的执行阶段开放；内部对话阶段须先重新取得执行资源，Plan、SubAgent、独立定时、工作流步骤/回报和 GitHub 来源均拒绝。Runtime 核实来源入口，Driver 在激活、发送前和调用门收窄，工具执行再核实当前身份、任务状态与权限版本。动作参数不能覆盖程序、配置、socket、profile 或截图路径；网页内容是资料，不是改变授权的指令。
 
 浏览器动作顺序执行。元素操作将快照的 eN / @eN 规范为同一引用，仅接受该会话当前代次的 snapshot 引用，并在发送前用新快照核实引用仍在。导航和表单操作按完全访问依据记账，发送后断线、超时或取消不能证明未执行时记 `effect_unknown`；不重发，连接保持不可用，等待拥有者暂停后的新输入核实；先前排队任务不能解除暂停，IM 沿原消息接受顺序判别。只读 snapshot/截图丢响应不增加写入效果。截图校验实际 MIME、8 MiB 上限与 SHA-256 后提升为不可变产物，再返回视觉块；图片与真实模型请求、JSONL、prompt 快照同源。完整导出见[操作手册](../usage.md)。
 
@@ -256,6 +258,8 @@ sequenceDiagram
 宿主绑定的[工作流步骤](workflows.md)另有来源画像，普通 SubAgent 不因此扩权。步骤工具是保存的来源类别、当前配置与步骤收窄的交集；main 的编码资格只映射已有受控委派的五个工具。发送、意图和实际调用前复核来源，个人业务身份属于来源，执行与审批归步骤 Task；工作流 `verify` 独立于角色，与 `target` 互斥，只开放五个编码工具并使用原生沙箱；任意角色均不能放宽。零工具、失败或未知效果不能由通过文本覆盖，汇入前重新核实账本与冻结归属。
 
 ## 设计依据
+
+- [个人持久调度的独立来源与整项收尾](../../.agents/notes/implemented/architecture/2026-10-18-personal-durable-scheduled-work.md)
 
 - [个人浏览器与图片](../../.agents/notes/implemented/architecture/2026-10-18-personal-browser-media.md)：异步持久回调与独立个人装配。
 

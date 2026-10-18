@@ -1,0 +1,15 @@
+✔ personal 服务配置：只读档案有未决输入时不能半启用操作，原检查配置仍可重开 (123.778959ms)
+✔ durable 命令：confirm 保留原权限、原生 owned Task 和双流分页，非零结果也释放身份 (15437.789667ms)
+ℹ {"mode":"confirm","systemPrompt":42,"toolSchemas":268}
+✔ durable 命令：auto-review 保留原权限、原生 owned Task 和双流分页，非零结果也释放身份 (15611.036958ms)
+ℹ {"mode":"auto-review","systemPrompt":42,"toolSchemas":268}
+✔ durable 命令：full_access 保留原权限、原生 owned Task 和双流分页，非零结果也释放身份 (3955.373458ms)
+ℹ {"mode":"full_access","systemPrompt":42,"toolSchemas":268}
+ℹ tests 4
+ℹ suites 0
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 35661.110667

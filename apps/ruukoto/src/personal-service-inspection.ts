@@ -9,6 +9,8 @@ import { PersonalError } from "./personal-error.ts";
 import { activePersonalWorkInspection, personalWorkInspectionSource, requirePersonalWorkRequest, type PersonalWorkInspectionSource } from "./personal-work.ts";
 import { personalCommandsIn, personalCommandUnresolved } from "./personal-command-work.ts";
 import { personalServiceOperation } from "./personal-service-operations.ts";
+import { scheduledConversation } from "./personal-scheduler-records.ts";
+import { personalSource } from "./personal-source.ts";
 
 type Reply = Extract<HelperReply, { ok: true; verb: "inspect-op" }>;
 type Identity = { taskId: TaskId; conversationId: ConversationId; taskKind: string; unit: string; machineId: string; inspectionId: ServiceInspectionId; sources: SubmissionId[]; generation?: TaskId; work?: PersonalWorkInspectionSource };
@@ -120,7 +122,13 @@ export async function runServiceInspection(harness: Harness, config: ServiceMana
       const input = task.input;
       if (generation?.kind !== "pi.generation" || generation.conversationId !== owner.conversationId || generation.abortRequested || generation.state.status === "terminal" || !live?.tools?.some(slot => slot.taskId === owner.taskId && slot.status === "running") || !input || typeof input !== "object" || Array.isArray(input) || input.kind !== "model") throw new PersonalError("service_inspection_inactive", "子检查不属于活动模型工具，未执行；请查询原工作。");
     }
-    const child = owner.conversationId !== ROOT_CONVERSATION_ID ? await activePersonalWorkInspection(tx, owner.conversationId, live!.run!.inputs) : undefined;
+    const scheduled = await scheduledConversation(tx, owner.conversationId);
+    if (scheduled) {
+      const origin = await personalSource(tx, scheduled.run.requestId, { active: true });
+      if (scheduled.run.sealed || live?.run?.inputs.length !== 1 || live.run.inputs[0] !== origin.submission.id) throw new PersonalError("service_inspection_inactive", "定时检查不属于活动执行输入，未启动；请查询原运行。");
+      await requirePersonalWorkRequest(tx, owner.conversationId);
+    }
+    const child = owner.conversationId !== ROOT_CONVERSATION_ID && !scheduled ? await activePersonalWorkInspection(tx, owner.conversationId, live!.run!.inputs) : undefined;
     const sources = child?.sources ?? owner.sources ?? live!.run!.inputs.slice();
     if ((await personalCommandsIn(tx)).some(op => personalCommandUnresolved(op) && op.work.sources.some(id => sources.includes(id)))) throw new PersonalError("work_source_paused", "原工作有未核实命令，未启动服务检查；请在本机命令管理核实原效果和停止。");
     if (!sources.length) throw new PersonalError("service_inspection_invalid", "检查缺少原输入归属，未启动；请保留档案。");
@@ -164,7 +172,9 @@ export async function verifyServiceInspections(tx: Tx, keys: string[]) {
     const { admission: _admission, stopped: _stopped, stopEvidence: _stopEvidence, result: _result, ...identity } = value;
     if (!task || task.kind !== value.taskKind || task.conversationId !== value.conversationId || task.owner !== value.generation || !entry || entry.conversationId !== value.conversationId || !isDeepStrictEqual(entry.data, identity) || !/^inspect_[0-9a-f]{24}$/.test(value.inspectionId) || !value.sources.length) throw new PersonalError("service_inspection_invalid", "服务检查与原接纳或执行归属不符，已停止恢复；请保留档案。");
     if (!["pi.tool", "ruukoto.service-operation"].includes(task.kind)) throw new PersonalError("service_inspection_invalid", "服务检查的消费者无效，已停止恢复；请保留档案。");
-    if (value.conversationId === ROOT_CONVERSATION_ID ? value.work !== undefined : !value.work || value.taskKind !== "pi.tool" || value.work.ref.agentId !== value.conversationId) throw new PersonalError("service_inspection_invalid", "服务检查的子工作归属不符，已停止恢复；请保留档案。");
+    const scheduled = await scheduledConversation(tx, value.conversationId);
+    if (value.conversationId === ROOT_CONVERSATION_ID || scheduled ? value.work !== undefined : !value.work || value.taskKind !== "pi.tool" || value.work.ref.agentId !== value.conversationId) throw new PersonalError("service_inspection_invalid", "服务检查的来源归属不符，已停止恢复；请保留档案。");
+    if (scheduled) { const original = await personalSource(tx, scheduled.run.requestId); if (!isDeepStrictEqual(value.sources, [original.submission.id])) throw new PersonalError("service_inspection_invalid", "定时检查的原输入不符，已停止恢复；请保留档案。"); }
     if (value.work) {
       const source = await personalWorkInspectionSource(tx, value.work.ref, value.work.inputs, value.admission);
       if (!isDeepStrictEqual(source.work, value.work) || !isDeepStrictEqual(source.sources, value.sources)) throw new PersonalError("service_inspection_invalid", "子检查与原工作权限或来源不符，已停止恢复；请保留档案。");

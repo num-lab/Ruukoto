@@ -10,7 +10,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as http from "node:http";
 import { once } from "node:events";
-import { randomBytes, timingSafeEqual } from "node:crypto";
+import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { AssistantEntry, type EntryRecord, type EntryId, type TaskId } from "@earendil-works/pi-durable";
 import { openPersonalHarness } from "./personal-harness.ts";
@@ -30,6 +30,7 @@ import { resolvePersonalServiceOperation } from "./personal-service-operations.t
 import { personalCommandRef, resolvePersonalCommand } from "./personal-command-work.ts";
 import { mcpDecide, mcpDetail, mcpList, mcpResolve } from "./personal-mcp.ts";
 import { readPersonalMcp } from "./personal-mcp-config.ts";
+import { parsePersonalScheduleCreate, type PersonalScheduleCreateBody } from "./personal-scheduler-controls.ts";
 
 import { LocalInputDoc, personalInputDigest } from "./personal-local-records.ts";
 export { LocalInputDoc } from "./personal-local-records.ts";
@@ -164,6 +165,31 @@ export async function startPersonalServer(directory: string) {
           result = await instance.qq.status();
         } else if (req.method === "GET" && url.pathname === "/telegram") {
           result = await instance.telegram.status();
+        } else if (req.method === "POST" && url.pathname === "/schedules") {
+          const input = parsePersonalScheduleCreate(await readControlJSON(req));
+          result = await instance.harness.commit(tx => instance.scheduler.create(tx, input, { kind: "local", requestId: input.requestId }), context);
+          instance.harness.resume();
+        } else if (req.method === "GET" && url.pathname === "/schedules") {
+          result = await instance.harness.commit(tx => instance.scheduler.list(tx, queryNumber(url, "offset", 0)), context);
+        } else if (req.method === "GET" && url.pathname === "/schedule/run/result") {
+          const id = url.searchParams.get("run");
+          if (!id || id.length > 256) throw new PersonalError("schedule_input_invalid", "请选择原计划列表中的运行。");
+          result = await instance.harness.commit(tx => instance.scheduler.result(tx, id, queryNumber(url, "offset", 0)), context);
+        } else if ((req.method === "GET" && ["/schedule", "/schedule/runs"].includes(url.pathname)) || (req.method === "POST" && url.pathname === "/schedule/cancel")) {
+          const requestId = url.searchParams.get("requestId");
+          if (url.pathname === "/schedule" && requestId !== null) {
+            if (!PERSONAL_REQUEST_ID.test(requestId)) throw new PersonalError("schedule_input_invalid", "请求标识无效，请从向导选择待核实计划。");
+            result = await instance.harness.commit(async tx => await instance.scheduler.createByRequest(tx, requestId) ?? null, context);
+          } else {
+            const id = url.searchParams.get("schedule");
+            if (!id || id.length > 256) throw new PersonalError("schedule_input_invalid", "请选择原定时计划。");
+            result = await instance.harness.commit(async tx => {
+              if (url.pathname === "/schedule/cancel") { await instance.scheduler.cancel(tx, id, { kind: "local", requestId: randomUUID() }); return { cancelRequested: true }; }
+              if (url.pathname === "/schedule/runs") return instance.scheduler.runs(tx, id, queryNumber(url, "offset", 0));
+              return instance.scheduler.get(tx, id);
+            }, context);
+            if (url.pathname === "/schedule/cancel") instance.harness.resume();
+          }
         } else if (req.method === "POST" && url.pathname === "/permissions") {
           const value = await readControlJSON(req);
           if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).length !== 1 || !("mode" in value) || value.mode !== "auto-review" && value.mode !== "confirm" && value.mode !== "full_access") throw new PersonalError("permissions_input_invalid", "请选择自动审查、请求确认或完全访问。");
@@ -363,7 +389,7 @@ export async function startPersonalServer(directory: string) {
   }
 }
 
-export async function personalControl<T>(directory: string, method: "GET" | "POST", route: string, value?: PersonalInput | PersonalServiceResolution | { decision: "approved" | "rejected" } | PersonalToolsControlBody): Promise<T> {
+export async function personalControl<T>(directory: string, method: "GET" | "POST", route: string, value?: PersonalInput | PersonalServiceResolution | { decision: "approved" | "rejected" } | PersonalToolsControlBody | PersonalScheduleCreateBody): Promise<T> {
   const token = readPersonalToken(directory);
   return new Promise<T>((resolve, reject) => {
     const req = http.request({ socketPath: path.join(directory, "control.sock"), method, path: route, headers: { authorization: `Bearer ${token}`, "content-type": "application/json", connection: "close" } });

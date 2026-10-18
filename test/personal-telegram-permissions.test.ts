@@ -454,6 +454,10 @@ test("子服务权限：跨轮保持首次模式，原菜单授权/撤销且本�
   assert.equal(f.starts(), 1);
   const granted = await nextOperation(); await done(p, granted); await p.harness.waitForTask((await p.service!.status(granted)).operation.work!.ref.taskId, context);
   assert.equal(f.starts(), 2);
+  const results = f.model.calls.filter(call => call.system?.includes("你是个人助手的子 Agent")).map(call => call.messages.at(-1)).filter(message => message?.role === "tool").map(message => JSON.parse(String(message!.content)));
+  assert.equal(results.find(result => result.operation === op.taskId).approval, "拥有者已在原入口批准");
+  assert.equal(results.find(result => result.operation === granted.taskId).approval, "命中原入口长期授权");
+  assert.equal(results.find(result => result.operation === granted.taskId).consumed, true);
   await f.receive("撤销授权", await menu(f, "/授权")); const revoked = await nextOperation();
   assert.equal((await p.service!.status(revoked)).operation.decision, "pending"); assert.equal(f.starts(), 2);
   await p.close(); p = await f.open({ telegram: { ...f.telegram, generation: randomUUID() } });

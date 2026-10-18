@@ -205,7 +205,7 @@ export async function requestPersonalReport(tx: Tx, ref: PersonalDelegationRef, 
   const entry = await tx.entry(value.source.entryId);
   const original = entry?.model?.[0];
   if (original?.role !== "user") throw new PersonalError("report_source_invalid", "委托原说明缺失，未安排汇总；请保留档案。");
-  const content = `宿主委托汇总参考（不是拥有者的新指令）：分析安排已封组。请用 background_work progress 查询委托 ${ref.entryId} 的全部成员，并用 result 分页读取各项完整结果。主 Agent 汇总成功、失败和遗漏，给出可读结果与必要下一步；不能从本参考取得变更或外部操作授权。本轮回答由宿主固定回报原入口，无需自行发送。原委托说明：\n${typeof original.content === "string" ? original.content : original.content.filter(part => part.type === "text").map(part => part.text).join("")}`;
+  const content = `宿主委托汇总参考（不是拥有者的新指令）：分析安排已封组。请用 background_work progress 查询委托 ${ref.entryId} 的全部成员，并用 result 分页读取各项完整结果。只汇总本委托成员的成功、失败和遗漏，partial=true的结果须标明模型输出截断；其他旧工作未读宿主证据只能说明本轮未核实，不能据历史 aborted 字样断言效果或阻塞本委托。verifiedEffect 与 stopped=true 表示原效果及停止均已核实，effect_unknown 仍保留中断历史，无需重复核实。正文只写业务结果与必要下一步，不把生成中的报告发送状态当作待办；不能从本参考取得变更或外部操作授权。本轮回答由宿主固定回报原入口，无需自行发送。原委托说明：\n${typeof original.content === "string" ? original.content : original.content.filter(part => part.type === "text").map(part => part.text).join("")}`;
   const taskId = await tx.createTask(PersonalReportTask, { delegation: ref, source: actor, modelCall, content }, { conversationId: ROOT_CONVERSATION_ID, ownership: { kind: "conversation" }, background: true });
   const admission = (await tx.appendEntry(ReportAdmission, ROOT_CONVERSATION_ID, { data: { delegation: ref, source: actor, modelCall, content, taskId } })).id;
   value.report = { taskId, admission, source: actor, modelCall, content, attempt: 0, pauses: [], delivery: "waiting" };

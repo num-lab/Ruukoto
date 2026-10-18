@@ -67,7 +67,7 @@ export async function requirePersonalDelegationOpen(tx: Tx, ref: PersonalDelegat
 
 export async function requirePersonalDelegationReady(tx: Tx, ref: PersonalDelegationRef) {
   const value = await personalDelegation(tx, ref);
-  if (value.cancelRequested) throw new PersonalError("delegation_canceled", "整项分析委托已取消，请查询原结果并向拥有者报告；不能续派或追加。");
+  if (value.cancelRequested) throw new PersonalError("delegation_canceled", "原委托已取消，不能续派或追加。本轮拥有者明确提出新的独立工作、原身份空闲且停止已核实时，主 Agent 可保留 agent、省略 delegation 建立新委托；否则查询原结果并结束本轮。不能为原未知效果换委托重试。");
   if (value.telegram && !await telegramSourceActive(tx, value.telegram)) throw new PersonalError("delegation_source_inactive", "委托原入口已失效，请查询原委托；未继续执行或改发其他入口。");
   await sourcesReady(tx, value);
 }

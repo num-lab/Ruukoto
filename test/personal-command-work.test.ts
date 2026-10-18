@@ -21,7 +21,7 @@ import { openPersonalHarness, type PersonalHarness } from "../apps/ruukoto/src/p
 import { PersonalCommandDoc, personalCommandWork, resolvePersonalCommand, type PersonalCommandRef } from "../apps/ruukoto/src/personal-command-work.ts";
 import type { PersonalCommandConfig } from "../apps/ruukoto/src/personal-command-config.ts";
 import { personalCommandFingerprint } from "../apps/ruukoto/src/personal-command-execution.ts";
-import { PersonalWorkDoc, type PersonalWorkRef } from "../apps/ruukoto/src/personal-work.ts";
+import { PersonalWorkDoc, personalWorkResult, type PersonalWorkRef } from "../apps/ruukoto/src/personal-work.ts";
 import { PersonalPermissionsDoc } from "../apps/ruukoto/src/personal-permissions.ts";
 import { PersonalDelegationDoc, delegatePersonalAnalysis, listPersonalDelegations, personalDelegationProgress, type PersonalDelegationRef } from "../apps/ruukoto/src/personal-delegation.ts";
 import { personalReportResult } from "../apps/ruukoto/src/personal-report.ts";
@@ -148,6 +148,9 @@ for (const mode of ["confirm", "auto-review", "full_access"] as const) test(`dur
   const command = await original(p);
   assert.equal((await p.harness.waitForTask(work.taskId, context)).state.outcome.status, "completed");
   const saved = (await p.harness.snapshot(PersonalCommandDoc, command.requestId, context))!.command!;
+  const result = await p.harness.commit(tx => personalWorkResult(tx, work), context);
+  assert.equal(result.commands?.[0]?.requiresVerification, false); assert.equal(result.commands?.[0]?.verifiedEffect, undefined);
+  assert.match(result.commands![0].verification, /运行已返回且停止已核实/); assert.match(result.commands![0].verification, /不证明业务成功/);
   const request = f.server.calls.find(call => call.system?.includes("你是个人助手的子 Agent"))!;
   assert.match(JSON.stringify(request.tools), /run_command|read_command_output/);
   assert.ok(request.system?.includes(`当前工作命令权限：${{ confirm: "请求确认", "auto-review": "自动审查", full_access: "完全访问" }[mode]}。`));
@@ -187,6 +190,7 @@ for (const mode of ["auto-review", "full_access"] as const) test(`durable 命令
   await source(p);
   const work = await p.work.delegate(draft("unknown")), ref = await original(p); await unknown(p, ref);
   assert.equal((await p.commands!.detail(ref, "stdout")).stopped, false);
+  assert.equal((await p.harness.commit(tx => personalWorkResult(tx, work), context)).commands?.[0]?.requiresVerification, true);
   await assert.rejects(p.work.delegate(draft("other-member")), code("work_source_paused"));
   await assert.rejects(p.work.append(work, { requestId: "append", content: "继续执行", sourceRequestId: "owner-source" }), code("work_source_paused"));
   assert.equal(await p.answer("独立聊天", "independent"), "完成");
@@ -207,14 +211,19 @@ for (const mode of ["auto-review", "full_access"] as const) test(`durable 命令
   assert.deepEqual((await p.work.list()).find(agent => agent.id === work.agentId)!.work, work);
   assert.equal((await p.harness.commit(tx => tx.task(work.taskId), context))!.state.status, "running");
   assert.equal((await p.commands!.detail(ref, "stdout")).stopped, false);
+  assert.equal((await p.harness.commit(tx => personalWorkResult(tx, work), context)).commands?.[0]?.requiresVerification, true);
   f.failStop(false); f.failReceipt(false);
   await p.harness.waitForTask(await p.commands!.stop(ref), context);
   assert.equal((await canceled).state.outcome.status, "aborted");
   const detail = await p.commands!.detail(ref, "stdout");
   assert.equal(detail.result!.effect, "effect_unknown"); assert.equal(detail.stopped, true);
   assert.equal(detail.resolution!.effect, "applied");
+  const canceledResult = await p.harness.commit(tx => personalWorkResult(tx, work), context);
+  assert.equal(canceledResult.state, "aborted"); assert.equal(canceledResult.commands?.[0]?.operation, ref.taskId);
+  assert.equal(canceledResult.commands?.[0]?.requiresVerification, false); assert.equal(canceledResult.commands?.[0]?.verifiedEffect, "applied");
   const reused = await p.work.delegate({ ...draft("reuse", work.agentId), content: "继续分析" }); await p.harness.waitForTask(reused.taskId, context);
   assert.equal(f.launches(), 1); assert.equal(fs.readFileSync(path.join(f.workspace, "count"), "utf8"), "x\n");
+  assert.equal((await p.harness.commit(tx => personalWorkResult(tx, reused), context)).commands?.length ?? 0, 0);
 });
 
 for (const mutation of ["admission", "permission"] as const) test(`durable 命令：恢复拒绝坏 ${mutation}，provider 与 OS 都零新增调用`, async t => {
@@ -436,6 +445,20 @@ for (const mode of ["auto-review", "full_access"] as const) test(`durable 命令
   assert.equal((await p.harness.waitForTask(report.taskId, context)).state.outcome.status, "completed");
   assert.deepEqual(await p.harness.commit(tx => personalReportResult(tx, group), context), { delivery: "local", state: "completed", text: "完整命令汇总" });
   assert.equal(summaryCalls().length, 1); assert.equal(f.launches(), 1); assert.equal(fs.readFileSync(path.join(f.workspace, "count"), "utf8"), "x\n");
+  const work = (await p.harness.snapshot(PersonalCommandDoc, ref.requestId, context))!.command!.work.ref;
+  await p.harness.waitForTask(work.taskId, context);
+  const message = f.server.calls.filter(call => call.system?.includes("你是个人助手的子 Agent")).map(call => call.messages.at(-1)).findLast(message => message?.role === "tool" && String(message.content).startsWith("{") && JSON.parse(String(message.content)).operation === ref.taskId);
+  assert.ok(message);
+  const result = JSON.parse(String(message.content));
+  assert.equal(result.effect, "effect_unknown"); assert.equal(result.verifiedEffect, "applied"); assert.equal(result.stopped, true);
+  assert.match(result.next, /双事实已齐/); assert.match(result.next, /无需重复核实/);
+  assert.equal(result.requiresVerification, false);
+  for (const offset of [0, 4096]) {
+    const current = await p.harness.commit(tx => personalWorkResult(tx, work, offset), context);
+    assert.equal(current.commands?.[0]?.operation, ref.taskId); assert.equal(current.commands?.[0]?.requiresVerification, false);
+    assert.equal(current.commands?.[0]?.verifiedEffect, "applied"); assert.equal(current.commands?.[0]?.stopped, true);
+    assert.match(current.notice!, /优先于历史子回答/); assert.match(current.commands![0].verification, /双事实已齐/);
+  }
 });
 
 test("durable 命令：在线 faulted 立即进入可核实状态，效果与原停止齐备前工作仍占用", async t => {

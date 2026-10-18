@@ -4,15 +4,17 @@ import { PersonalError } from "./personal-error.ts";
 import { activePersonalWorkInspection, PersonalWorkDoc } from "./personal-work.ts";
 import { PERSONAL_SERVICE_WORK, interruptedPersonalService, personalServiceOperation, personalServiceOperationsIn, ServiceOperationEvidence, type personalServiceOperations } from "./personal-service-operations.ts";
 
-function operationResult(op: Awaited<ReturnType<typeof personalServiceOperation>>, terminal: boolean): NonNullable<typeof op.result> {
-  return op.result ? { ...op.result } : { effect: op.consumed ? "effect_unknown" : "not_executed", code: terminal ? "service_task_failed" : "awaiting_result" };
+function operationResult(op: Awaited<ReturnType<typeof personalServiceOperation>>, terminal: boolean) {
+  const result: NonNullable<typeof op.result> = op.result ? { ...op.result } : { effect: op.consumed ? "effect_unknown" : "not_executed", code: terminal ? "service_task_failed" : "awaiting_result" };
+  const approval = op.mode === "full_access" ? "完全访问，免逐次审批" : op.decidedBy ? op.decision === "approved" ? "拥有者已在原入口批准" : "原入口决定为拒绝或已失效" : op.grant ? "命中原入口长期授权" : !op.telegram && op.decision === "approved" ? "拥有者已在本机批准" : "尚无有效批准";
+  return { ...result, mode: op.mode, approval, consumed: op.consumed };
 }
 
 // Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-subagent-service-operations.md
 export function personalServiceWork(request: ReturnType<typeof personalServiceOperations>["request"]) {
   const restart = defineTool({
     name: "service_restart",
-    description: "重启宿主白名单内拥有者要求的精确 .service 单元；等待原操作结束，主聊天仍可继续。沿用本工作原权限：请求确认/自动审查无有效长期授权时等待拥有者在原入口审批，完全访问免逐次审批。中断恢复只接回原操作。效果未知时整项委托暂停，须由拥有者核实原效果与停止；不要换目标、工具或新委托重试。返回 operation 可用 read_service_operation 分页读证据；命令结束不代表业务健康。",
+    description: "重启宿主白名单内拥有者要求的精确 .service 单元；等待原操作结束，主聊天仍可继续。沿用本工作原权限：请求确认/自动审查无有效长期授权时等待拥有者在原入口审批，完全访问免逐次审批。中断恢复只接回原操作。效果未知时整项委托暂停，须由拥有者核实原效果与停止；不要换目标、工具或新委托重试。调用内部等待审批，不返回等待中的中间结果；返回的 approval 说明本次批准依据，consumed 说明是否已消费，不能从最终 executed 推断没有等待审批。operation 可用 read_service_operation 分页读证据；命令结束不代表业务健康。",
     parameters: Type.Object({ unit: Type.String({ minLength: 1, maxLength: 128, pattern: "^[A-Za-z0-9_.-]+\\.service$", description: "拥有者要求且宿主白名单内的精确 .service 名，不支持路径、别名、模板或通配符。" }) }, { additionalProperties: false }),
     replay: "safe",
     executionMode: "sequential",

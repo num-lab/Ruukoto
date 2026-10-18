@@ -115,6 +115,31 @@ test("工作控制：历史分页、长结果及身份复用始终读取原工�
   assert.equal((await p.work.list()).find(agent => agent.id === original.agentId)!.closed, true);
 });
 
+test("工作控制：模型输出截断与结果分页分开标记，原工作仍完成并释放身份", async t => {
+  for (const finishReason of ["stop", "length"] as const) await t.test(finishReason, async t => {
+    const answer = "片段".repeat(1800);
+    const f = await fixture(t, request => ({ kind: "text", text: child(request) ? answer : "收到", finishReason: child(request) ? finishReason : "stop" }));
+    const p = await f.open(f.telegram), owner = await f.receive("委托");
+    const ref = await delegate(p, "partial", undefined, owner.key);
+    let offset = 0, text = "";
+    while (true) {
+      const result = await p.harness.commit(tx => personalWorkResult(tx, ref, offset, 1200), context);
+      assert.equal(result.partial, finishReason === "length");
+      text += result.text;
+      if (result.nextOffset === undefined) break;
+      offset = result.nextOffset;
+    }
+    assert.equal(text, answer); assert.equal((await p.work.status(ref)).stopVerified, true);
+    const list = await f.receive("/工作"), menu = await f.receive("分析1", list.messageId);
+    let result = await f.receive("查看结果", menu.messageId);
+    if (finishReason === "length") assert.match(result.value.reply!, /模型输出因长度限制截断/);
+    while (result.value.selection?.kind === "work" && result.value.selection.nextOffset !== undefined) result = await f.receive("下一页结果", result.messageId);
+    assert.match(result.value.reply!, finishReason === "length" ? /已保存片段已读完/ : /原回答已读完/);
+    if (finishReason === "length") assert.doesNotMatch(result.value.reply!, /原回答已读完/);
+    assert.equal(f.model.calls.filter(child).length, 1);
+  });
+});
+
 test("工作控制：持久取消打断阻塞模型，其他工作与主聊天继续且旧取消不影响复用", async t => {
   let release!: () => void; const gate = new Promise<void>(resolve => { release = resolve; }); t.after(() => release());
   const f = await fixture(t, async request => { if (child(request) && request.messages.at(-1)?.content === "阻塞") await gate; return { kind: "text", text: "完成" }; });
@@ -131,7 +156,7 @@ test("工作控制：持久取消打断阻塞模型，其他工作与主聊天�
 });
 
 test("工作控制：本机认证/参数核实与引导查询关闭不调用模型", async t => {
-  const f = await fixture(t); const p = await f.open(); await source(p); const ref = await delegate(p, "local"); await p.close(); await f.start();
+  const f = await fixture(t, request => ({ kind: "text", text: "分析完成", finishReason: child(request) ? "length" : "stop" })); const p = await f.open(); await source(p); const ref = await delegate(p, "local"); await p.close(); await f.start();
   for (const route of ["/works", `/work?work=${ref.taskId}`, `/work/cancel?work=${ref.taskId}`, `/work/close?work=${ref.taskId}`]) {
     const response = await new Promise<string>((resolve, reject) => { const request = http.request({ socketPath: path.join(f.directory, "control.sock"), path: route, method: route.includes("/work/") ? "POST" : "GET" }, response => { let body = ""; response.on("data", chunk => { body += String(chunk); }); response.on("end", () => resolve(body)); }); request.on("error", reject); request.end(); });
     assert.equal(JSON.parse(response).code, "control_unauthorized");
@@ -139,7 +164,7 @@ test("工作控制：本机认证/参数核实与引导查询关闭不调用模�
   for (const suffix of ["work=-1", "work=1.5", "work=9007199254740992", `work=${ref.taskId}&offset=-1`]) await assert.rejects(personalControl(f.directory, "GET", `/work?${suffix}`), code("work_input_invalid"));
   const answers = ["1", "2", "4", "2", "5", "2"]; let output = "";
   await managePersonalWorks({ question: async () => { assert.ok(answers.length); return answers.shift()!; }, write: value => { output += value; } }, f.directory);
-  assert.match(output, /分析完成/); assert.match(output, /空闲身份已关闭/); assert.doesNotMatch(output, /requestId|taskId|submission|UUID/);
+  assert.match(output, /分析完成/); assert.match(output, /模型输出因长度限制截断/); assert.match(output, /空闲身份已关闭/); assert.doesNotMatch(output, /requestId|taskId|submission|UUID/);
   const result = await personalControl<{ summary: { closed: boolean } }>(f.directory, "GET", `/work?work=${ref.taskId}`); assert.equal(result.summary.closed, true);
   assert.equal(f.model.calls.length, 2);
 });

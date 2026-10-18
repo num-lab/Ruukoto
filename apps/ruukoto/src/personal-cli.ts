@@ -260,7 +260,8 @@ export async function managePersonalWorks(io: PersonalCliIO, directory: string) 
       if (action === 1) {
         let result = current.result;
         while (true) {
-          io.write(result.text === undefined ? "原工作尚无成功完成的回答，请查询状态。\n" : `\n${result.text || "（无文本内容）"}\n`);
+          if (result.notice) io.write(`\n${result.notice}\n`);
+          io.write(result.text === undefined ? "原工作尚无成功完成的回答，请查询状态。\n" : `\n${result.partial ? "模型输出因长度限制截断，以下仅为已保存片段。\n" : ""}${result.text || "（无文本内容）"}\n`);
           if (result.nextOffset === undefined || await choose(io, "原结果还有后续内容", ["下一页结果", "返回原分析"]) === 1) break;
           result = (await personalControl<typeof current>(directory, "GET", `/work?work=${ref.taskId}&offset=${result.nextOffset}`)).result;
         }

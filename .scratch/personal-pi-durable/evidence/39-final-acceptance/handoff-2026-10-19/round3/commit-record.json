@@ -36,5 +36,25 @@
    }
   ]
  },
- "note": "本地 commit，未推送、未部署；拥有者 2026-10-19 授权。"
+ "note": "本地 commit，未推送、未部署；拥有者 2026-10-19 授权。",
+ "cleanup": {
+  "at": "2026-10-19T14:10:00Z",
+  "note": "上述三项未提交副本已按拥有者指示删除；等值字节保存在已提交归档包的同名成员中，可逐字节复核。",
+  "members": [
+   {
+    "archive": "reports/report-stage-final-evidence.tar.gz",
+    "member": "./before-original-private.json",
+    "sha256": "7ed01597b284ca8a15ea3946a5128a68aba1b8d9cc90403bd7a26d459364d93e"
+   },
+   {
+    "archive": "reports/report-stage-final-evidence.tar.gz",
+    "member": "./model-private/（目录，逐文件一致）"
+   },
+   {
+    "archive": "reports/qq-schedule-safe-evidence.tar.gz",
+    "member": "schedule-answer-original.txt",
+    "sha256": "747b0d817cb4a5c72eb34d8138e2ee64efda9fbdbc3e30294b1492cc9b5ea75c"
+   }
+  ]
+ }
 }

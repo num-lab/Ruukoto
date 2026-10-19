@@ -175,10 +175,32 @@ export class EventFlow {
       }
       case "task.thinking": {
         const key = `thinking:${body.thinkingId}`;
-        if (event.seq <= (this.versions.get(key) ?? -1)) return;
-        this.versions.set(key, event.seq);
-        this.entries.set(key, { key, kind: "thinking", taskId: body.taskId, at: body.startedAt, seq: this.entries.get(key)?.seq ?? event.seq,
-          text: body.text, startedAt: body.startedAt, endedAt: body.endedAt ?? this.tasks.get(body.taskId)?.endedAt ?? null });
+        const latest = event.seq > (this.versions.get(key) ?? -1);
+        const current = this.entries.get(key);
+        let text = body.text;
+        if (body.offset !== undefined) {
+          let stream = this.streams.get(key);
+          if (!stream) {
+            stream = { text: "", bytes: 0, pending: new Map() };
+            this.streams.set(key, stream);
+          }
+          if (body.offset >= stream.bytes && (body.text || !stream.pending.has(body.offset))) stream.pending.set(body.offset, body.text);
+          while (stream.pending.has(stream.bytes)) {
+            const chunk = stream.pending.get(stream.bytes)!;
+            stream.pending.delete(stream.bytes);
+            stream.text += chunk;
+            stream.bytes += utf8ByteLength(chunk);
+            if (!chunk) break;
+          }
+          text = stream.text;
+        } else {
+          if (!latest) return;
+          this.streams.delete(key);
+        }
+        if (latest) this.versions.set(key, event.seq);
+        const stage = !latest && current?.kind === "thinking" ? current : body;
+        this.entries.set(key, { key, kind: "thinking", taskId: body.taskId, at: stage.startedAt, seq: Math.min(current?.seq ?? event.seq, event.seq),
+          text, startedAt: stage.startedAt, endedAt: stage.endedAt ?? this.tasks.get(body.taskId)?.endedAt ?? null });
         return;
       }
       case "task.output_fragment": {

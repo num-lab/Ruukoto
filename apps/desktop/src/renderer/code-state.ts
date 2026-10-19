@@ -38,6 +38,7 @@ export class CodeState {
   private creationSourceId: string | null = null;
   private readonly flowCursors = new Map<string, number>();
   private readonly requests = new Map<string, Promise<void>>();
+  private readonly pendingEntries = new Map<string, string | undefined>();
   readonly writes: CodeWrites;
   readonly approvals: DesktopApprovals;
   readonly inspector: DesktopInspector;
@@ -66,6 +67,7 @@ export class CodeState {
     } else if (update.type === "snapshot") {
       ++this.generation;
       this.requests.clear();
+      this.pendingEntries.clear();
       this.flowCursors.clear();
       this.summaries.clear();
       this.readError = null;
@@ -84,7 +86,7 @@ export class CodeState {
       const body = update.event.body;
       if (this.target === "code" && (body.type === "session.created" || body.type === "session.workspace_mapped" || body.type === "project.created" || body.type === "task.queued")) void this.loadSummaries();
       if (body.type === "session.created") void this.reconcileCreation();
-      if (body.type === "task.output_entry" && (this.tabs.includes(body.sessionId) || this.inspector.childSessionId === body.sessionId)) void this.loadEntry(body.sessionId, body.entryId);
+      if (body.type === "task.output_entry" && (this.tabs.includes(body.sessionId) || this.inspector.childSessionId === body.sessionId)) void this.loadEntry(body.sessionId, body.entryId, body.taskId);
       this.inspector.update(update);
     }
     if (update.type === "navigate") this.navigate(update);
@@ -195,7 +197,7 @@ export class CodeState {
     if (generation !== this.generation) return;
     for (const entry of entries) {
       if (generation !== this.generation) return;
-      if (entry.truncated) await this.loadEntry(sessionId, entry.entryId);
+      if (entry.truncated) await this.loadEntry(sessionId, entry.entryId, entry.taskId ?? undefined);
     }
   }
   private readTaskFlow(taskId: string): Promise<void> {
@@ -222,11 +224,15 @@ export class CodeState {
       } while (true);
       for (const entryId of missing) {
         if (generation !== this.generation) return;
-        await this.loadEntry(detail.task.sessionId, entryId);
+        await this.loadEntry(detail.task.sessionId, entryId, detail.task.id);
       }
     });
   }
-  loadEntry(sessionId: string, entryId: string): Promise<void> {
+  // Note: 见 .agents/notes/implemented/feature/2026-10-18-completed-trace.md
+  historyReady(sessionId: string, taskId: string): boolean { return ![...this.pendingEntries].some(([key, pendingTask]) => key.startsWith(`${sessionId}:`) && pendingTask === taskId); }
+  loadEntry(sessionId: string, entryId: string, taskId?: string): Promise<void> {
+    const key = `${sessionId}:${entryId}`;
+    this.pendingEntries.set(key, taskId ?? this.pendingEntries.get(key));
     return this.run(`entry:${sessionId}:${entryId}`, async generation => {
       let entry: OpResult<"read_history_entry">;
       try { entry = await this.request("read_history_entry", { session_id: sessionId, entry_id: entryId, length: 64 * 1024 }); }
@@ -246,6 +252,7 @@ export class CodeState {
         offset += utf8ByteLength(page.text);
       }
       this.view.appendEntryView(sessionId, { ...entry, text, truncated: false });
+      this.pendingEntries.delete(key);
     });
   }
 

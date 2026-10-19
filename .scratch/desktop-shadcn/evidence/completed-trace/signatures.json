@@ -1,0 +1,10 @@
+{
+  "mygo": {
+    "command": "codesign --verify --deep --strict dist/mygo/darwin-arm64/Ruukoto MyGo.app",
+    "exitCode": 0
+  },
+  "electron": {
+    "command": "codesign --verify --deep --strict dist/mac-arm64/Ruukoto.app",
+    "exitCode": 0
+  }
+}

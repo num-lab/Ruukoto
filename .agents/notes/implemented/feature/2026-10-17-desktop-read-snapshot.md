@@ -2,6 +2,8 @@
 
 Status: implemented
 
+256KiB展示上限由[完整分块传输](2026-10-18-complete-reasoning-and-preview.md)部分取代；捕获来源与授权契约保持。
+
 ## 问题
 
 Read 可合法读取工作区外文件，但 Desktop 只按登记根映射路径，导致 /tmp 文件没有预览入口。

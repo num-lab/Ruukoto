@@ -71,7 +71,7 @@ export function ReadSnapshotPreview({ model, tab }: { model: CodeState; tab: Ext
   useEffect(() => { void model.inspector.loadReadSnapshot(tab); }, [model.inspector, tab, state]);
   if (!state || state.loading) return <div className="file-panel-empty">正在读取 Read 快照…</div>;
   if (state.error) return <div className="file-panel-empty"><p role="alert">{state.error}</p><Button variant="ghost" size="sm" onClick={() => void model.inspector.loadReadSnapshot(tab, true)}>重试</Button></div>;
-  return <><p className="file-panel-empty" role="status">Read 时捕获的版本{state.partial ? " · 仅捕获了部分内容" : ""}{state.truncated ? " · 仅显示前 256 KiB" : ""}</p><FilePreview file={state.file} path={tab.path} mode={tab.mode} onMode={mode => { tab.mode = mode; model.refresh(); }} onFiles={() => model.inspector.openFiles()} onUrl={url => model.inspector.openBrowser(url)} /></>;
+  return <>{state.partial && <p className="file-preview-note" role="status">仅捕获了部分内容</p>}<FilePreview file={state.file} path={tab.path} mode={tab.mode} onMode={mode => { tab.mode = mode; model.refresh(); }} onFiles={() => model.inspector.openFiles()} onUrl={url => model.inspector.openBrowser(url)} /></>;
 }
 
 export function WorkspaceFile({ model, workspaceId, path, mode, onMode }: { model: CodeState; workspaceId: string; path: string; mode: "preview" | "source"; onMode: (mode: "preview" | "source") => void }) {

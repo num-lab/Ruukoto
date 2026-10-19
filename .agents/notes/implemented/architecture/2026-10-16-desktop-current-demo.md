@@ -2,6 +2,8 @@
 
 Status: implemented
 
+文件预览总量上限由[完整分块传输](../feature/2026-10-18-complete-reasoning-and-preview.md)部分取代；原访问范围继续成立。
+
 ## 问题
 
 拥有者要求把经过多轮批注的当前 demo 迁入正式 Desktop。旧[冻结迁移](2026-10-15-desktop-shadcn-demo.md)不含 AI Elements、Context、Effort 和右栏浏览器／文件视图，直接覆盖 renderer 会丢真实状态，直接复制 fixture 会伪造数据。

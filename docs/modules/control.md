@@ -24,7 +24,7 @@
 
 **后台启动。** `ensureBackend` 接收目标的 `dataDir`、`agentDir`、`controlDir`；`spawnExecPath` 指定 Node 可执行文件，默认 `process.execPath`；`spawnArgv` 只含 bin 与服务参数。`env` 只传给子进程，路径与令牌解析仍读取调用方环境。探测到已运行后台返回 `{ ok: true, spawned: false }`；本次拉起就绪返回 `{ ok: true, spawned: true }`；失败返回 `{ ok: false, error }`。后台 detached 并 unref，客户端退出不停止后台。
 
-**监听点与帧。** 服务在 `<controlDir>/control.sock` 监听。请求是 `{v, id, op, params}`，应答是 `{v, id, ok, result|error}`，事件推送是 `{v, push:"event", event}`；每帧一行 JSON 加换行，空行忽略。当前协议版本是 `31`（`CONTROL_PROTOCOL_VERSION`，与 `PROTOCOL_VERSION` 同值）。
+**监听点与帧。** 服务在 `<controlDir>/control.sock` 监听。请求是 `{v, id, op, params}`，应答是 `{v, id, ok, result|error}`，事件推送是 `{v, push:"event", event}`；每帧一行 JSON 加换行，空行忽略。当前协议版本是 `32`（`CONTROL_PROTOCOL_VERSION`，与 `PROTOCOL_VERSION` 同值）。
 
 **拥有者认证。** 连接建立后第一个成功的操作必须是 `auth`（参数 `token`）。认证成功前，服务端对其他 op 一律回 `unauthorized`，不返回快照、不执行请求；连接保留，可以再次认证。令牌是 32 字节随机数的 hex，写入控制目录的 `owner.token`（0600）：缺失或内容去空白后不足 32 字符时后台启动时生成，已存在则复用。多用户部署由配置步骤把令牌以 0400、属主为拥有者放到拥有者可读的位置，再用 `RUUKOTO_OWNER_TOKEN_FILE` 指向它。
 
@@ -118,7 +118,7 @@ stateDiagram-v2
 
 **游标。** 两处去重：底层客户端丢弃 `seq` 不大于它记下的序号的推送，连接层丢弃 `seq` 不大于 `appliedSeq` 的事件，并且只在事件应用之后才前进游标。握手期到达的实时推送先缓冲，快照安装后再按序应用。
 
-`list_workspace_files` 与 `read_workspace_file` 是拥有者的工作区只读入口：只接登记工作区 ID 与规范相对路径，不接任意根目录；路径与文件稳定性由 runtime 核实。目录按层最多 200 项并返回 truncated；文件最多 256 KiB，文本／Markdown、验证签名的 PNG／JPEG／GIF／WebP 分型返回，其他类型与超限返回 unsupported，序列化载荷另受 768 KiB 上限约束。
+`list_workspace_files` 与 `read_workspace_file` 是拥有者的工作区只读入口：只接登记工作区 ID 与规范相对路径，不接任意根目录；路径与文件稳定性由 runtime 核实。目录按层最多 200 项并返回 truncated；文件经 offset/length/version 返回 base64 字节页，每页最多 256 KiB，无总量截断；后页以首页修订核实身份、大小和时间，变化即失败，类型由客户端完整解码后判定。
 
 ## 主要流程
 
@@ -218,7 +218,7 @@ sequenceDiagram
 | 超限帧与非法帧（客户端侧） | — | 按断线处理（`frame_too_large`、`bad_frame`），不再使用该连接、不发送请求 |
 | `PARAMS_INLINE_CAP` | 8 KiB | 事件与查询应答内联参数的上限；超限给结构保留的预览并标注 `paramsBytes` 与 `paramsTruncated`，完整参数经 `get_confirmation_params` / `get_tool_op_params` 按 ID 分段读取 |
 | `PARAMS_PREVIEW_STRING_CAP` | 256 字符 | 预览对象中单个字符串的上限 |
-| `FRAGMENT_TEXT_CAP` | 8 KiB | 运行中输出增量与思考文本尾部的上限，在源头有界化 |
+| `FRAGMENT_TEXT_CAP` | 8 KiB | 正文与思考单个增量的字节上限，完整思考不截断 |
 | `SEGMENT_DEFAULT_BYTES` / `SEGMENT_MAX_BYTES` | 64 KiB / 256 KiB | 分段读取的默认页大小与上限 |
 | `read_artifact` | 720 KiB 单次 | base64 开销后仍在 1 MiB 帧上限内 |
 | `read_history` | `limit` 默认 50、最多 200 | 条目按末端向前收集到条目数或字节预算耗尽，`entry_text_cap` 默认 16 KiB（范围 256 B–256 KiB），`page_text_budget` 默认 192 KiB（范围 `entry_text_cap`–1 MiB） |
@@ -248,6 +248,8 @@ sequenceDiagram
 拥有者只读 `read_workspace_git` 仅接受已登记 workspace_id 与可选 cursor，返回非仓库 null 或带父关系、显式 refs 及 nextCursor 的提交页；每页200条，nextCursor为null时结束，不设累计总量。游标绑定仓库修订，变化返回 workspace_git_changed，客户端刷新后重新读取；不接自定义命令或根路径。协议 v29 的快照明确提供 mainSessionId，避免客户端猜角色身份。
 
 ## 设计依据
+
+- [完整思考与文件预览](../../.agents/notes/implemented/feature/2026-10-18-complete-reasoning-and-preview.md)
 
 - [Git历史分页](../../.agents/notes/implemented/feature/2026-10-17-desktop-git-history-pages.md)
 

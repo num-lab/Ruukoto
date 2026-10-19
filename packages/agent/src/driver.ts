@@ -47,7 +47,7 @@ import type {
 import { randomId, TASK_END_MARKER, TASK_START_MARKER } from "@ruukoto/core/types.ts";
 import type { Store } from "@ruukoto/core/store.ts";
 import type { AgentWaitSnapshot } from "@ruukoto/core/agent-wait.ts";
-import { editStatsFromResult, parseSessionFile, snapUtf8End, tailTextByBytes, type ParsedSessionEntry } from "@ruukoto/core/history.ts";
+import { editStatsFromResult, parseSessionFile, snapUtf8End, type ParsedSessionEntry } from "@ruukoto/core/history.ts";
 import { FRAGMENT_TEXT_CAP } from "@ruukoto/core/views.ts";
 import type { ArtifactStore } from "./artifacts.ts";
 import type { CredentialStore } from "./execution/credentials.ts";
@@ -212,6 +212,7 @@ export class Driver {
   private sourceTextBlocks = new Map<number, string>();
   private thinking: Extract<PersistentEventBody, { type: "task.thinking" }> | null = null;
   private thinkingIndex: number | null = null;
+  private thinkingOffset = 0;
   private lastThinkingAt = 0;
   /**
    * 流式 assistant 消息标识：SDK 的 message_update 每次携带新的对象副本，
@@ -1542,13 +1543,27 @@ export class Driver {
       startedAt: new Date().toISOString(), endedAt: null, text: "",
     };
     this.thinkingIndex = null;
+    this.thinkingOffset = 0;
     this.emitThinking();
   }
 
   private emitThinking(): void {
     if (!this.thinking) return;
-    const body = { ...this.thinking };
-    this.deps.store.withTx(() => this.deps.store.appendEvent(body, { taskId: body.taskId, sessionId: body.sessionId }));
+    const thinking = this.thinking;
+    const last = thinking.text.charCodeAt(thinking.text.length - 1);
+    const text = !thinking.endedAt && last >= 0xd800 && last <= 0xdbff ? thinking.text.slice(0, -1) : thinking.text;
+    const bytes = Buffer.from(text, "utf8");
+    let offset = this.thinkingOffset;
+    // Note: 见 .agents/notes/implemented/feature/2026-10-18-complete-reasoning-and-preview.md
+    this.deps.store.withTx(() => {
+      do {
+        const end = snapUtf8End(bytes, Math.min(offset + FRAGMENT_TEXT_CAP, bytes.length));
+        const body = { ...thinking, offset, text: bytes.subarray(offset, end).toString("utf8"), endedAt: end === bytes.length ? thinking.endedAt : null };
+        this.deps.store.appendEvent(body, { taskId: body.taskId, sessionId: body.sessionId });
+        offset = end;
+      } while (offset < bytes.length);
+    });
+    this.thinkingOffset = offset;
     this.lastThinkingAt = Date.now();
   }
 
@@ -1620,12 +1635,12 @@ export class Driver {
           if (firstExplicitThinking) this.thinking!.startedAt = new Date().toISOString();
           this.thinkingIndex = update.contentIndex;
           // SDK 的 partial 对象可能已被后续队列事件更新，只消费原生 delta。
-          if (update.type === "thinking_delta") this.thinking!.text = tailTextByBytes(this.thinking!.text + update.delta, FRAGMENT_TEXT_CAP).text;
+          if (update.type === "thinking_delta") this.thinking!.text += update.delta;
           if (firstExplicitThinking || update.type === "thinking_start" || Date.now() - this.lastThinkingAt >= FRAGMENT_INTERVAL_MS) this.emitThinking();
         } else if (update.type === "thinking_end") {
           // 部分 provider 把 end 延迟到整条消息结束，不重新打开已被正文结束的阶段。
           if (this.thinking && this.thinkingIndex === update.contentIndex) {
-            if (!this.thinking.text) this.thinking.text = tailTextByBytes(update.content, FRAGMENT_TEXT_CAP).text;
+            if (update.content.startsWith(this.thinking.text)) this.thinking.text = update.content;
             this.endThinking();
           }
         } else if (update.type === "text_delta") {

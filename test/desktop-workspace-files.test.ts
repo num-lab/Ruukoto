@@ -9,7 +9,7 @@ import { resolveDirIdentitySync } from "@ruukoto/core/dir-identity.ts";
 import type { OpResult } from "@ruukoto/control/ops.ts";
 import { MAX_FRAME_BYTES } from "@ruukoto/control/protocol.ts";
 import { assertDirectoryReadNotProtected } from "@ruukoto/agent/execution/approved-ops.ts";
-import { listWorkspaceFiles, readWorkspaceFile, WORKSPACE_DIRECTORY_LIMIT, WORKSPACE_PREVIEW_BYTES } from "@ruukoto/runtime/workspace-files.ts";
+import { listWorkspaceFiles, readWorkspaceFile, WORKSPACE_DIRECTORY_LIMIT, WORKSPACE_FILE_PAGE_BYTES } from "@ruukoto/runtime/workspace-files.ts";
 import { startTestRuntime } from "./helpers/testkit.ts";
 
 const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aWQAAAABJRU5ErkJggg==", "base64");
@@ -37,13 +37,12 @@ test("工作区文件按层排序读取，文本、Markdown、空文件与图片
     assert.equal(files.path, ""); assert.equal(files.truncated, false);
     assert.deepEqual(files.entries[0], { name: "src", path: "src", kind: "directory" });
     assert.deepEqual(listWorkspaceFiles("workspace", kit.identity, "src", []).entries, [{ name: "index.ts", path: "src/index.ts", kind: "file" }]);
-    assert.deepEqual(readWorkspaceFile("workspace", kit.identity, "src/index.ts", []), { workspaceId: "workspace", path: "src/index.ts", size: 26, kind: "text", content: "const value = '<script>';\n" });
-    assert.equal(readWorkspaceFile("workspace", kit.identity, "README.md", []).kind, "markdown");
-    assert.deepEqual(readWorkspaceFile("workspace", kit.identity, "empty.txt", []), { workspaceId: "workspace", path: "empty.txt", size: 0, kind: "text", content: "" });
-    const image = readWorkspaceFile("workspace", kit.identity, "photo.png", []);
-    assert.equal(image.kind, "image");
-    if (image.kind === "image") { assert.equal(image.mimeType, "image/png"); assert.equal(image.dataUrl, `data:image/png;base64,${png.toString("base64")}`); }
-    for (const file of ["document.pdf", "vector.svg", "fake.png", "binary"]) assert.equal(readWorkspaceFile("workspace", kit.identity, file, []).kind, "unsupported");
+    const read = (file: string) => Buffer.from(readWorkspaceFile("workspace", kit.identity, file, []).data, "base64");
+    assert.equal(read("src/index.ts").toString(), "const value = '<script>';\n");
+    assert.equal(read("README.md").toString(), "# 真实文件\n");
+    assert.equal(read("empty.txt").length, 0);
+    assert.deepEqual(read("photo.png"), png);
+    for (const file of ["document.pdf", "vector.svg", "fake.png", "binary"]) assert.deepEqual(read(file), fs.readFileSync(path.join(kit.root, file)));
   } finally { kit.close(); }
 });
 
@@ -154,19 +153,29 @@ test("目录读取后重新核实新增的保护关系，扫描失败不返回�
   } finally { context.mock.restoreAll(); syncBuiltinESMExports(); kit.close(); }
 });
 
-test("每层目录、预览内容与 JSON 转义后的控制面载荷都有上限", () => {
+test("目录项有界，超过1MiB的多字节文件及控制字符按修订分页完整读取", () => {
   const kit = fixture();
   try {
     for (let index = 0; index <= WORKSPACE_DIRECTORY_LIMIT; index++) fs.writeFileSync(path.join(kit.root, `file-${index}`), "");
     const files = listWorkspaceFiles("workspace", kit.identity, "", []);
     assert.equal(files.entries.length, WORKSPACE_DIRECTORY_LIMIT); assert.equal(files.truncated, true);
-    fs.writeFileSync(path.join(kit.root, "large.txt"), Buffer.alloc(WORKSPACE_PREVIEW_BYTES + 1, 65));
-    assert.equal(readWorkspaceFile("workspace", kit.identity, "large.txt", []).kind, "unsupported");
-    fs.writeFileSync(path.join(kit.root, "bounded.txt"), Buffer.alloc(WORKSPACE_PREVIEW_BYTES, 65));
-    assert.equal(readWorkspaceFile("workspace", kit.identity, "bounded.txt", []).kind, "text");
-    fs.writeFileSync(path.join(kit.root, "escaped.txt"), Buffer.alloc(WORKSPACE_PREVIEW_BYTES, 1));
-    const escaped = readWorkspaceFile("workspace", kit.identity, "escaped.txt", []);
-    assert.equal(escaped.kind, "unsupported"); assert.ok(Buffer.byteLength(JSON.stringify(escaped)) < MAX_FRAME_BYTES);
+    const content = Buffer.from("开头" + "汉🙂\x01".repeat(160_000) + "最后一行");
+    fs.writeFileSync(path.join(kit.root, "large.txt"), content);
+    let offset = 0, version: string | undefined;
+    const chunks: Buffer[] = [];
+    do {
+      const page = readWorkspaceFile("workspace", kit.identity, "large.txt", [], { offset, version });
+      assert.equal(page.offset, offset); assert.equal(page.size, content.length);
+      assert.equal(page.encoding, "base64"); assert.ok(Buffer.byteLength(JSON.stringify(page)) < MAX_FRAME_BYTES);
+      const bytes = Buffer.from(page.data, "base64");
+      assert.equal(bytes.length, Math.min(WORKSPACE_FILE_PAGE_BYTES, content.length - offset));
+      chunks.push(bytes); version = page.version; offset += bytes.length;
+    } while (offset < content.length);
+    assert.ok(chunks.length > 4); assert.deepEqual(Buffer.concat(chunks), content);
+    const first = readWorkspaceFile("workspace", kit.identity, "large.txt", []);
+    fs.writeFileSync(path.join(kit.root, "large.txt"), "已改变");
+    assert.throws(() => readWorkspaceFile("workspace", kit.identity, "large.txt", [], { offset: WORKSPACE_FILE_PAGE_BYTES, version: first.version }), fails("workspace_file_changed"));
+    for (const page of [{ offset: -1 }, { offset: 1 }, { length: 0 }, { length: NaN }, { offset: Number.MAX_VALUE }]) assert.throws(() => readWorkspaceFile("workspace", kit.identity, "large.txt", [], page), fails("invalid_params"));
   } finally { kit.close(); }
 });
 
@@ -235,7 +244,7 @@ test("拥有者控制面仅按登记工作区读取，拒绝额外绝对路径�
     const files = await kit.client.request<OpResult<"list_workspace_files">>("list_workspace_files", { workspace_id: workspaceId });
     assert.ok(files.entries.some(entry => entry.name === "owner.txt"));
     const preview = await kit.client.request<OpResult<"read_workspace_file">>("read_workspace_file", { workspace_id: workspaceId, path: "owner.txt" });
-    assert.equal(preview.kind, "text"); if (preview.kind === "text") assert.equal(preview.content, "拥有者工作区正文");
+    assert.equal(Buffer.from(preview.data, "base64").toString(), "拥有者工作区正文");
     await assert.rejects(kit.client.request("list_workspace_files", { workspace_id: workspaceId, root: kit.work[1] }), (error: unknown) => error instanceof Error && "code" in error && error.code === "invalid_params");
     await assert.rejects(kit.client.request("read_workspace_file", { workspace_id: workspaceId, path: "../work-1/secret.txt" }), (error: unknown) => error instanceof Error && "code" in error && error.code === "invalid_params");
     await assert.rejects(kit.client.request("list_workspace_files", { workspace_id: "missing" }), (error: unknown) => error instanceof Error && "code" in error && error.code === "workspace_not_found");

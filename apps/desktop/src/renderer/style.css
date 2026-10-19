@@ -472,3 +472,25 @@ body { font-size: 15.5px; }
 .git-ref[data-slot="badge"] { flex-shrink: 0; }
 .git-ref-name { overflow: visible; text-overflow: clip; }
 .reasoning-content { margin: 0; font-size: 14px; line-height: 1.6; }
+
+/* Note: 见 .agents/notes/implemented/feature/2026-10-18-completed-trace.md */
+.reasoning-content { max-height: 6lh; overflow-y: auto; overscroll-behavior: contain; }
+.execution-trace-content { display: flex; flex-direction: column; gap: 12px; }
+.execution-trace[data-completed="false"] > [data-slot="trace-collapsible-content"] > .execution-trace-content { margin: 0; border: 0; padding: 0; }
+.file-preview-note { margin: 0; padding: 6px 12px; color: var(--text-muted); font-size: 12px; }
+
+/* Note: 见 .agents/notes/implemented/feature/2026-10-18-demo-connection-loading.md */
+.connection-loading[data-slot="dialog-content"] { inset: 0; display: flex; width: 100vw; max-width: none; height: 100dvh; flex-direction: column; align-items: center; justify-content: center; gap: 16px; transform: none; translate: initial; border: 0; border-radius: 0; padding: 24px; background: var(--bg-canvas); box-shadow: none; animation: none; }
+.connection-loading[data-state="closed"] { animation: connection-fade-out 180ms ease-in both; }
+.connection-loading [data-slot="dialog-description"] { display: flex; align-items: center; gap: 9px; margin: 0; color: var(--text-secondary); font-size: 14px; line-height: 1.5; }
+.connection-loading [data-slot="dialog-description"] svg { width: 18px; height: 18px; flex-shrink: 0; }
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+  .connection-loading[data-slot="dialog-content"] { background: color-mix(in oklch, var(--bg-canvas) 86%, transparent); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); }
+}
+@keyframes connection-fade-out { to { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .connection-loading[data-slot="dialog-content"], .connection-loading .animate-spin { animation: none; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .connection-loading[data-slot="dialog-content"] { background: var(--bg-canvas); backdrop-filter: none; -webkit-backdrop-filter: none; }
+}

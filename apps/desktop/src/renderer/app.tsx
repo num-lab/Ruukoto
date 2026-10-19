@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { ChevronRight, Folder, ListFilter, Moon, PanelLeft, PanelRight, Plus, Settings2, Sun, Sparkles, Server, WifiOff, X } from "lucide-react";
 import type { DesktopTarget } from "../shared/bridge.ts";
 import { PersonalConnectionSettings } from "./personal-connection-settings.tsx";
+import { ConnectionLoading } from "./connection-loading.tsx";
 import { reorderTab, useTabOrder } from "./tab-order.ts";
 import { CodeState } from "./code-state.ts";
 import { Conversation } from "./conversation.tsx";
@@ -18,12 +19,15 @@ import { Input } from "./components/ui/input.tsx";
 
 // Note: 见 .agents/notes/implemented/architecture/2026-10-15-desktop-shadcn-demo.md
 export function App() {
+  const [startupVisible, setStartupVisible] = useState(true);
   const [, redraw] = useState(0);
   const [activeId, setActiveId] = useState("");
   const [openTabs, setOpenTabs] = useState<string[]>([]);
   const target: DesktopTarget = activeId === "personal" ? "personal" : "code";
   const [models] = useState(() => ({ code: new CodeState(window.ruukoto, () => redraw(value => value + 1)), personal: new CodeState(window.ruukoto, () => redraw(value => value + 1), "personal") }));
   const model = models[target];
+  // Note: 见 .agents/notes/implemented/feature/2026-10-18-desktop-connection-loading.md
+  const startupPending = models.code.status.state === "connecting" || (models.code.status.state === "online" && !models.code.view.instanceId);
   const [dark, setDark] = useState(true);
   const [sidebar, setSidebar] = useState(true);
   const [sidebarWidths, setSidebarWidths] = useState<{ left?: number; right?: number }>({});
@@ -66,6 +70,7 @@ export function App() {
   }, [toast]);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      if (startupVisible) return;
       if (!(event.metaKey || event.ctrlKey)) return;
       if (event.key.toLowerCase() === "b") { event.preventDefault(); toggleSidebar(); }
       if (event.key.toLowerCase() === "j") { event.preventDefault(); toggleInspector(); }
@@ -148,7 +153,7 @@ export function App() {
   </Dialog>;
   const hasWork = (id: string) => !!models.code.view.activeTaskFor(id) || models.code.view.pendingApprovals().some(item => item.sessionId === id);
   const query = filter.toLocaleLowerCase();
-  return <><div className="macos-window app-window native-window" data-sidebar-open={sidebar} style={{ "--left-preferred-width": sidebarWidths.left === undefined ? undefined : `${sidebarWidths.left}px`, "--right-preferred-width": sidebarWidths.right === undefined ? undefined : `${sidebarWidths.right}px`, "--right-reserve": inspectorOpen ? "260px" : "0px", "--visible-left-width": sidebar ? "var(--left-width)" : "0px" } as CSSProperties}>
+  return <>{startupVisible && <ConnectionLoading pending={startupPending} onClosed={() => { setStartupVisible(false); window.requestAnimationFrame(() => { (document.querySelector<HTMLTextAreaElement>(".composer textarea") ?? expandSidebar.current)?.focus(); }); }} />}<div className="macos-window app-window native-window" inert={startupVisible} aria-busy={startupVisible} data-sidebar-open={sidebar} style={{ "--left-preferred-width": sidebarWidths.left === undefined ? undefined : `${sidebarWidths.left}px`, "--right-preferred-width": sidebarWidths.right === undefined ? undefined : `${sidebarWidths.right}px`, "--right-reserve": inspectorOpen ? "260px" : "0px", "--visible-left-width": sidebar ? "var(--left-width)" : "0px" } as CSSProperties}>
     <Button ref={expandSidebar} type="button" variant="ghost" size="icon" className="quiet-icon sidebar-toggle" aria-label={sidebar ? "收起侧栏" : "展开侧栏"} aria-controls="left-sidebar" aria-expanded={sidebar} onClick={toggleSidebar}><PanelLeft /></Button>
     <aside id="left-sidebar" className={`surface-sidebar left-sidebar ${sidebar ? "" : "is-collapsed"}`} aria-label="工作区导航" aria-hidden={!sidebar} inert={!sidebar}><div className="sidebar-content"><div className="window-controls"><div className="traffic-space" aria-hidden="true" /></div>
       <Button type="button" variant="ghost" className={`personal-row ${target === "personal" ? "active-pill text-pri" : "text-sec"}`} onClick={() => openSession("personal")}><Sparkles /><span>Ruukoto</span></Button><div className="projects-heading"><span>工作区</span><div><Button ref={filterToggle} type="button" variant="ghost" size="icon" className="quiet-icon" aria-label="筛选工作区与会话" aria-controls="workspace-filter" aria-expanded={filterOpen} onClick={() => { setFilterOpen(value => !value); setFilter(""); }}><ListFilter /></Button><IconButton label="添加工作区" disabled={picking || models.code.status.state !== "online" || !!models.code.pendingCreation} onClick={() => void pickWorkspace()}><Plus /></IconButton></div></div>

@@ -1,0 +1,115 @@
+{
+  "scrolling": [
+    {
+      "stage": "initial",
+      "value": {
+        "outer": 0,
+        "regions": [
+          {
+            "height": 134,
+            "lineHeight": "22.4px",
+            "scrollHeight": 538,
+            "top": 403
+          },
+          {
+            "height": 134,
+            "lineHeight": "22.4px",
+            "scrollHeight": 538,
+            "top": 403
+          }
+        ]
+      }
+    },
+    {
+      "stage": "append1",
+      "value": {
+        "outer": 0,
+        "regions": [
+          {
+            "height": 134,
+            "scrollHeight": 1030,
+            "tail": "LATEST_1",
+            "top": 896
+          },
+          {
+            "height": 134,
+            "scrollHeight": 1030,
+            "tail": "LATEST_1",
+            "top": 896
+          }
+        ]
+      }
+    },
+    {
+      "stage": "manual-scroll",
+      "value": {
+        "outer": 54,
+        "regions": [
+          {
+            "height": 134,
+            "scrollHeight": 1030,
+            "top": 0
+          },
+          {
+            "height": 134,
+            "scrollHeight": 1030,
+            "top": 896
+          }
+        ]
+      }
+    },
+    {
+      "stage": "append2",
+      "value": {
+        "outer": 54,
+        "regions": [
+          {
+            "height": 134,
+            "scrollHeight": 1523,
+            "tail": "LATEST_2",
+            "top": 1388.5
+          },
+          {
+            "height": 134,
+            "scrollHeight": 1523,
+            "tail": "LATEST_2",
+            "top": 1388.5
+          }
+        ]
+      }
+    }
+  ],
+  "filePreview": {
+    "chars": 1260146,
+    "height": 734,
+    "scrollHeight": 2923,
+    "tail": "容 \nFILE_PREVIEW_END_完整末尾",
+    "top": 2189
+  },
+  "historyBefore": {
+    "height": 134,
+    "scrollHeight": 538,
+    "top": 0
+  },
+  "historyAfter": {
+    "height": 134,
+    "scrollHeight": 1030,
+    "top": 0
+  },
+  "lightMetrics": {
+    "dark": false,
+    "outer": 0,
+    "regions": [
+      {
+        "height": 134,
+        "scrollHeight": 1030,
+        "top": 896
+      },
+      {
+        "height": 134,
+        "scrollHeight": 1030,
+        "top": 896
+      }
+    ]
+  }
+}

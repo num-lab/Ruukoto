@@ -27,7 +27,7 @@ const Markdown = function Markdown() {};
 const { Conversation, MessageEntry } = load('apps/desktop/src/renderer/conversation.tsx', '\nexport { MessageEntry };\n', {
   'react-markdown': { default: Markdown }, 'remark-gfm': { default() {} },
   './diff.ts': diff, './activity.ts': activity,
-  './tool-activity.tsx': dummy(['AgentActivity', 'ToolActivity']),
+  './tool-activity.tsx': dummy(['AgentActivity', 'ExecutionTrace', 'ToolActivity']),
   './approval-cards.tsx': dummy(['ApprovalCards']),
   './components/ui/bubble.tsx': dummy(['Bubble', 'BubbleContent']),
   './components/ui/message.tsx': dummy(['Message', 'MessageContent']),
@@ -40,7 +40,7 @@ let items = [];
 const tasks = new Map();
 const opened = [];
 const session = { flow: { get items() { return items; } }, historyCursor: null };
-const model = { target: 'code', status: { state: 'offline' }, view: { openSession: () => session, activeTaskFor: () => null, pendingApprovals: () => [], tasks }, inspector: { openDiff: (sessionId, tool) => opened.push({ sessionId, tool }) } };
+const model = { historyReady: () => true, target: 'code', status: { state: 'offline' }, view: { openSession: () => session, activeTaskFor: () => null, pendingApprovals: () => [], tasks }, inspector: { toolResult() {}, openDiff: (sessionId, tool) => opened.push({ sessionId, tool }) } };
 const message = (key, text, extras = {}) => ({ kind: 'message', key, text, role: 'assistant', ...extras });
 const edit = (key, target) => ({ kind: 'tool', key, name: 'edit', target, entryId: null, status: 'done' });
 const before = message('before', '`p.ts`');

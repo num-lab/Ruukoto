@@ -10,7 +10,7 @@ import type { FlowEntry } from "@ruukoto/view/event-flow.ts";
 import type { TaskView } from "@ruukoto/core/views.ts";
 import type { OpResult } from "@ruukoto/control/ops.ts";
 import { ViewState } from "@ruukoto/view/state.ts";
-import { activityGroups, conversationActivity } from "../apps/desktop/src/renderer/activity.ts";
+import { activityGroups, conversationActivity, conversationSections, executionDuration } from "../apps/desktop/src/renderer/activity.ts";
 import { DesktopInspector } from "../apps/desktop/src/renderer/inspector.ts";
 import { CodeState } from "../apps/desktop/src/renderer/code-state.ts";
 import type { DiffTool } from "../apps/desktop/src/renderer/diff.ts";
@@ -154,7 +154,7 @@ test("Read 从来源 cwd 映射登记根，截断路径迟到不打开新父会�
 });
 
 let server: ViteDevServer;
-let ToolActivity: ComponentType<{ model: CodeState; sessionId: string; tools: DiffTool[]; thinking?: Extract<FlowEntry, { kind: "thinking" }>; stateKey: string; phase?: "thinking" | "working"; expanded: Record<string, boolean>; onExpand(): void }>;
+let ToolActivity: ComponentType<{ model: CodeState; sessionId: string; tools: DiffTool[]; thinking?: Extract<FlowEntry, { kind: "thinking" }>; phase?: "thinking" | "working"; expanded: Record<string, boolean>; onExpand(): void }>;
 let submitOnEnter: (event: { key: string; shiftKey: boolean; repeat: boolean; nativeEvent: { isComposing?: boolean; keyCode?: number }; preventDefault(): void }, canSend: boolean, send: () => void) => void;
 before(async () => {
   server = await createServer({ configFile: false, root: fileURLToPath(new URL("../apps/desktop/src/renderer/", import.meta.url)), plugins: [react()], server: { middlewareMode: true, hmr: false }, appType: "custom" });
@@ -183,6 +183,8 @@ test("Trace 详情显示真实 patch／完整失败命令，Read 不折叠，按
   assert.match(agentError, /Failed to subagent_delegate/); assert.match(agentError, /错误正文/);
   const uncertain = renderToStaticMarkup(createElement(ToolActivity, { ...props, tools: [{ ...entry, status: "effect_unknown" }] }));
   assert.match(uncertain, /效果未知/); assert.doesNotMatch(uncertain, /Failed to run|data-variant="destructive"/);
+  const waiting = renderToStaticMarkup(createElement(ToolActivity, { ...props, tools: [tool({ status: "running", toolOpId: "pending-op", toolCallId: "pending-call", entryId: null })] }));
+  assert.doesNotMatch(waiting, /等待结果/); assert.match(waiting, /Running/);
   const next = renderToStaticMarkup(createElement(ToolActivity, { ...props, tools: [{ ...entry, taskId: "next", toolOpId: "next-op" }] }));
   assert.doesNotMatch(next, /\$ echo 完整命令/);
   const withoutOp = { ...props, tools: [{ ...entry, toolOpId: null }], expanded: { group: true, "a:task:tool:call": true } };
@@ -190,7 +192,7 @@ test("Trace 详情显示真实 patch／完整失败命令，Read 不折叠，按
   assert.doesNotMatch(renderToStaticMarkup(createElement(ToolActivity, { ...withoutOp, tools: [{ ...entry, toolOpId: null, taskId: "next" }] })), /\$ echo 完整命令/);
   const read = renderToStaticMarkup(createElement(ToolActivity, { ...props, tools: [tool({ name: "read", params: { path: "actual.ts" }, target: "actual.ts" })] }));
   assert.match(read, /aria-label="打开文件 actual.ts"/);
-  assert.equal((read.match(/data-slot="trace-collapsible-trigger"/g) ?? []).length, 1);
+  assert.equal((read.match(/data-slot="trace-collapsible-trigger"/g) ?? []).length, 0);
   const edit = tool({ name: "write", status: "done", entryId: "write" });
   const patch = "@@ -1 +1 @@\n-old\n+new\n";
   let verified = true;
@@ -213,14 +215,108 @@ test("源码高亮保留全部文本、空行与转义，未知扩展名不猜�
   assert.equal(highlightSource("unknown.txt", content), null);
 });
 
-test("Thinking 展示原文，工具组首行可展开 reasoning 且只出现一次", () => {
+test("Thinking 展示原文，平铺工具前可展开 reasoning 且只出现一次", () => {
   const model = new CodeState({ request: async () => ({ ok: true, value: {} }) }, () => {});
   const props = { model, sessionId: "a", tools: [tool()], thinking: thinking(), stateKey: "group", expanded: { group: true, "thinking:reasoning": true }, onExpand() {} };
   const active = renderToStaticMarkup(createElement(ToolActivity, { ...props, phase: "thinking" }));
-  assert.match(active, /Thinking/); assert.match(active, /实际记录的 reasoning/); assert.match(active, /保留原有换行/); assert.doesNotMatch(active, /Thought for/);
+  assert.match(active, /role="region" aria-label="思考内容"/); assert.match(active, /tabindex="0"/); assert.match(active, /Thinking/); assert.match(active, /实际记录的 reasoning/); assert.match(active, /保留原有换行/); assert.doesNotMatch(active, /Thought for/);
   const historical = renderToStaticMarkup(createElement(ToolActivity, props));
   assert.ok(historical.indexOf("Thought for 5s") < historical.indexOf("Ran <code>"));
   assert.equal((historical.match(/实际记录的 reasoning/g) ?? []).length, 1);
   const empty = renderToStaticMarkup(createElement(ToolActivity, { ...props, thinking: thinking({ text: "" }) }));
   assert.doesNotMatch(empty, /Thought for|实际记录的 reasoning/);
+});
+
+
+test("完成且最终正文确认后收起执行记录，延迟结果和失败状态保持展开", () => {
+  const view = new ViewState(); view.tasks.set("task", task());
+  const reply: Extract<FlowEntry, { kind: "message" }> = { kind: "message", key: "reply", taskId: "task", at, seq: 3, role: "assistant", text: "最终回复", streaming: true, entryId: null, totalBytes: 0, truncated: false };
+  const items: FlowEntry[] = [thinking(), tool(), reply];
+  const sections = () => conversationSections(view, items, conversationActivity(view, "a", true, items).timeline);
+  const activeKey = sections()[0].key;
+  assert.equal(sections()[0].completed, false);
+  view.tasks.get("task")!.status = "completed";
+  assert.equal(sections()[0].completed, false, "完成事件先到，未确认历史正文不能收起");
+  reply.streaming = false; reply.entryId = "final-entry";
+  assert.equal(sections()[0].key, activeKey, "完成前后沿用同一个 trace 容器");
+  assert.equal(sections()[0].completed, true);
+  assert.deepEqual(sections().at(-1)!.groups.flat().map(item => item.key), ["reply"]);
+  assert.equal(sections().at(-1)!.trace, false);
+  for (const status of ["running", "failed", "canceled", "interrupted", "awaiting_confirmation"] as const) { view.tasks.get("task")!.status = status; assert.ok(sections().every(section => !section.completed), status); }
+  view.tasks.get("task")!.status = "completed";
+  items.push(tool({ key: "later" }));
+  assert.ok(sections().every(section => !section.completed), "旧 assistant 后还有工具时不能当最终回复");
+  items.pop(); items.pop();
+  assert.ok(sections().every(section => !section.completed), "没有最终回复时不自动收起");
+});
+
+test("最终回复的全部分段保持可见，排队用户消息不重排或藏进 trace", () => {
+  const view = new ViewState(); view.tasks.set("task", { ...task(), status: "completed" });
+  const message = (key: string, role: string, taskId = "task"): FlowEntry => ({ kind: "message", key, taskId, at, seq: 3, role, text: key, streaming: false, entryId: role === "assistant" ? "final-entry" : key, totalBytes: 0, truncated: false });
+  const items = [thinking(), tool(), message("queued", "user", "next"), tool({ key: "after-queue" }), message("part:0", "assistant"), message("part:1", "assistant")];
+  const sections = conversationSections(view, items, activityGroups(items));
+  assert.deepEqual(sections.flatMap(section => section.groups.flat()).map(item => item.key), items.map(item => item.key));
+  for (const section of sections) if (section.trace) assert.ok(section.groups.flat().every(item => item.kind !== "message" || item.role !== "user"));
+  const final = sections.filter(section => section.groups.flat().some(item => item.key.startsWith("part:")));
+  assert.equal(final.length, 2); assert.ok(final.every(section => !section.trace));
+  const unknown = conversationSections(view, [tool({ taskId: undefined })], [[tool({ taskId: undefined })]]);
+  assert.equal(unknown[0].completed, false);
+});
+
+
+test("没有 delta 的最终正文补读成功前保持展开，缺失或失败不误认中间回复", async () => {
+  let release!: (value: Awaited<ReturnType<DesktopBridge["request"]>>) => void;
+  const model = new CodeState({ request: async () => new Promise(resolve => { release = resolve; }) }, () => {});
+  const view = model.view; view.tasks.set("task", { ...task(), status: "completed" });
+  const flow = view.openSession("a").flow;
+  flow.apply({ seq: 1, sessionId: "a", taskId: "task", createdAt: at, body: { type: "task.thinking", taskId: "task", sessionId: "a", thinkingId: "first", messageId: "first", startedAt: at, endedAt: at, text: "准备" } });
+  const intermediate = { entryId: "intermediate", taskId: "task", inputPurpose: "user" as const, parentId: null, role: "assistant" as const, text: "中间回复", timestamp: "2026-10-16T00:00:01Z", offset: 0, totalBytes: 12, truncated: false, toolCalls: [], toolCallId: null, toolName: null, isError: false, hasNonTextContent: false };
+  flow.addHistory(intermediate);
+  flow.apply({ seq: 2, sessionId: "a", taskId: "task", createdAt: at, body: { type: "task.output_entry", taskId: "task", sessionId: "a", messageId: "final", entryId: "final-entry", role: "assistant", sessionFile: "/fixture/session.jsonl" } });
+  const sections = () => { const items = flow.items; return conversationSections(view, items, activityGroups(items), undefined, id => model.historyReady("a", id)); };
+  assert.equal(sections()[0].completed, true, "补读尚未开始时，当前最后正文确实是中间回复");
+  const reading = model.loadEntry("a", "final-entry", "task");
+  assert.equal(model.historyReady("a", "task"), false); assert.ok(sections().every(section => !section.completed));
+  release({ ok: true, value: { ...intermediate, entryId: "final-entry", text: "最终回复", timestamp: "2026-10-16T00:00:02Z" } }); await reading;
+  assert.equal(model.historyReady("a", "task"), true); assert.equal(sections()[0].completed, true);
+  const failed = model.loadEntry("a", "missing", "task");
+  release({ ok: false, error: { code: "entry_not_found", outcome: "rejected", message: "not found" } }); await failed;
+  assert.equal(model.historyReady("a", "task"), false); assert.ok(sections().every(section => !section.completed));
+  view.tasks.set("old", { ...task(), id: "old", status: "completed" });
+  const oldItems: FlowEntry[] = [thinking({ taskId: "old" }), { kind: "message", key: "old-final", taskId: "old", at, seq: 3, role: "assistant", text: "旧最终回复", entryId: "old-final", streaming: false, totalBytes: 15, truncated: false }];
+  assert.equal(conversationSections(view, oldItems, activityGroups(oldItems), undefined, id => model.historyReady("a", id))[0].completed, true, "新任务补读或失败不重开旧任务 trace");
+});
+
+
+test("Worked for 使用实际任务开始结束时间，不推测缺失耗时", async () => {
+  const { ExecutionTrace } = await server.ssrLoadModule("/tool-activity.tsx");
+  const props = { completed: true, failed: false, duration: "5s", stateKey: "run", expanded: {}, onExpand() {}, children: "actual calls" };
+  const closed = renderToStaticMarkup(createElement(ExecutionTrace, props));
+  assert.match(closed, /Worked for 5s/); assert.doesNotMatch(closed, /actual calls/);
+  assert.match(renderToStaticMarkup(createElement(ExecutionTrace, { ...props, expanded: { run: true } })), /actual calls/);
+  assert.equal(executionDuration(at, "2026-10-16T00:00:05Z"), "5s");
+  assert.equal(executionDuration(at, "2026-10-16T00:01:25Z"), "1m 25s");
+  assert.equal(executionDuration("2026-10-16T00:00:00.100Z", "2026-10-16T00:00:00.000Z"), undefined);
+  assert.equal(executionDuration(null, at), undefined);
+  assert.equal(executionDuration(at, null), undefined);
+  assert.equal(executionDuration(at, "invalid"), undefined);
+  assert.equal(executionDuration("2026-10-16T00:01:00Z", at), undefined);
+});
+
+
+test("Trace 按动作显示思考、委派、读取、编辑、写入、命令和搜索图标", async () => {
+  const model = new CodeState({ request: async () => ({ ok: true, value: {} }) }, () => {});
+  const render = (tools: DiffTool[]) => renderToStaticMarkup(createElement(ToolActivity, { model, sessionId: "a", tools, expanded: {}, onExpand() {} }));
+  for (const [name, icon] of [["read", "file-text"], ["edit", "file-pen-line"], ["write", "file-plus2"], ["bash", "terminal"], ["grep", "search"], ["web_search", "search"], ["unknown", "wrench"], ["subagent_delegate", "bot"]]) {
+    const html = render([tool({ name })]);
+    assert.match(html, new RegExp(`lucide-${icon}(?: |")`));
+    assert.doesNotMatch(html, /lucide-circle-check/);
+  }
+  const thought = renderToStaticMarkup(createElement(ToolActivity, { model, sessionId: "a", tools: [], thinking: thinking(), expanded: {}, onExpand() {} }));
+  assert.match(thought, /lucide-brain/);
+  assert.match(render([tool({ status: "error" })]), /lucide-circle-alert/);
+  model.view.tasks.set("task", task()); model.status = { type: "state", state: "online" };
+  assert.match(render([tool({ status: "running" })]), /lucide-loader-circle animate-spin/);
+  const { ExecutionTrace } = await server.ssrLoadModule("/tool-activity.tsx");
+  assert.match(renderToStaticMarkup(createElement(ExecutionTrace, { completed: true, failed: false, duration: "5s", stateKey: "run", expanded: {}, onExpand() {} })), /lucide-list-checks/);
 });

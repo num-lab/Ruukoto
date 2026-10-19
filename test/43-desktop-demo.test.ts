@@ -11,9 +11,11 @@ test("正式 GUI 复用拥有者定稿样式、官方组件与侧栏交互，原
   const gui = "apps/desktop/src/renderer";
   const styles = read(`${gui}/style.css`);
   assert.ok(styles.startsWith(read(`${demo}/style.css`) + read(".scratch/desktop-shadcn/approved-demo-v4-glass.css")));
-  assert.equal(read(".scratch/desktop-shadcn/demo/src/style.css"), read(`${demo}/style.css`) + read(".scratch/desktop-shadcn/approved-demo-v4-glass.css") + read(".scratch/desktop-shadcn/approved-demo-v4-rendering.css") + read(".scratch/desktop-shadcn/approved-demo-v4-polish.css") + read(".scratch/desktop-shadcn/approved-demo-v4-files-sidebar.css") + read(".scratch/desktop-shadcn/approved-demo-v4-browser-activity.css"));
+  assert.equal(read(".scratch/desktop-shadcn/demo/src/style.css"), read(`${demo}/style.css`) + read(".scratch/desktop-shadcn/approved-demo-v4-glass.css") + read(".scratch/desktop-shadcn/approved-demo-v4-rendering.css") + read(".scratch/desktop-shadcn/approved-demo-v4-polish.css") + read(".scratch/desktop-shadcn/approved-demo-v4-files-sidebar.css") + read(".scratch/desktop-shadcn/approved-demo-v4-browser-activity.css") + read(".scratch/desktop-shadcn/approved-demo-v4-completed-trace.css") + read(".scratch/desktop-shadcn/approved-demo-v4-connection-loading.css"));
   assert.ok(styles.includes(read(".scratch/desktop-shadcn/approved-demo-v4-rendering.css")));
-  assert.ok(styles.endsWith(read(".scratch/desktop-shadcn/approved-demo-v4-browser-activity.css")));
+  assert.ok(styles.includes(read(".scratch/desktop-shadcn/approved-demo-v4-completed-trace.css")));
+  assert.ok(styles.endsWith(read(".scratch/desktop-shadcn/approved-demo-v4-connection-loading.css")));
+  assert.equal(read(`${gui}/connection-loading.tsx`), read(".scratch/desktop-shadcn/demo/src/connection-loading.tsx"), "加载展示组件逐字同步，模拟计时器留在 Demo App");
   assert.match(styles, /\.command-code code\s*\{\s*white-space:\s*pre;/, "真实多行命令必须保留换行与缩进");
   for (const file of ["reference.css", "theme.css", "sidebar-resizer.tsx", "lib/utils.ts", "source-highlighting.ts"]) assert.equal(read(`${gui}/${file}`), read(`${demo}/${file}`), file);
   const primitives = fs.readdirSync(new URL(`../${demo}/components/ui/`, import.meta.url)).sort();

@@ -5,7 +5,7 @@ import type { ViewState } from "@ruukoto/view/state.ts";
 import type { DesktopBridge, DesktopResult, DesktopTarget, DesktopUpdate } from "../shared/bridge.ts";
 import { canReadDiff, isDiffTool, type DiffTool } from "./diff.ts";
 import { toolPage } from "./tool-page.ts";
-import { READ_SNAPSHOT_BYTES, readSnapshotFile, type ReadSnapshotState } from "./read-snapshot.ts";
+import { FILE_PAGE_BYTES, readSnapshotFile, type PreviewFile, type ReadSnapshotState } from "./read-snapshot.ts";
 
 interface DiffResult { entryId: string; field?: "text" | "patch" | "writeContent"; value?: OpResult<"read_tool_result">; error?: string; moreError?: string; nextOffset?: number; totalBytes?: number; loading?: boolean }
 interface DiffSelection { sessionId: string; key: string; entryId: string | null }
@@ -33,7 +33,7 @@ export class DesktopInspector {
   diff: DiffSelection | null = null;
   result: DiffResult | null = null;
   readonly directories = new Map<string, { value?: OpResult<"list_workspace_files">; error?: string; loading: boolean }>();
-  readonly files = new Map<string, { value?: OpResult<"read_workspace_file">; error?: string; loading: boolean }>();
+  readonly files = new Map<string, { value?: PreviewFile; error?: string; loading: boolean }>();
   readonly repositories = new Map<string, GitState>();
   readonly folders = new Map<string, boolean>();
   readonly snapshots = new Map<string, ReadSnapshotState>();
@@ -249,12 +249,33 @@ export class DesktopInspector {
     const key = this.fileKey(workspaceId, path);
     if (this.files.has(key) && !retry) return;
     const generation = this.generation;
-    const state: { value?: OpResult<"read_workspace_file">; error?: string; loading: boolean } = { loading: true };
+    const state: { value?: PreviewFile; error?: string; loading: boolean } = { loading: true };
     this.files.set(key, state); this.changed();
-    const result = await this.request("read_workspace_file", { workspace_id: workspaceId, path });
-    if (generation !== this.generation || this.files.get(key) !== state) return;
+    let offset = 0, version: string | undefined, bytes: Uint8Array | undefined;
+    do {
+      const result = await this.request("read_workspace_file", { workspace_id: workspaceId, path, offset, length: FILE_PAGE_BYTES, version });
+      if (generation !== this.generation || this.files.get(key) !== state) return;
+      if (!result.ok) { state.error = result.error.message; break; }
+      const page = result.value;
+      if (page.workspaceId !== workspaceId || page.path !== path || page.offset !== offset || page.encoding !== "base64" || !Number.isSafeInteger(page.size) || page.size < offset || typeof page.version !== "string" || !page.version || version !== undefined && (page.version !== version || page.size !== bytes!.length) || typeof page.data !== "string" || page.data.length > Math.ceil(Math.min(page.size - offset, FILE_PAGE_BYTES) / 3) * 4) {
+        state.error = "文件分页来源或修订无法核实，请重新打开。"; break;
+      }
+      let chunk: Uint8Array;
+      try { chunk = Uint8Array.from(atob(page.data), character => character.charCodeAt(0)); }
+      catch { state.error = "文件分页内容无法解析，请重试。"; break; }
+      if (chunk.length !== Math.min(page.size - offset, FILE_PAGE_BYTES)) { state.error = "文件分页内容不完整，请重试。"; break; }
+      if (!bytes) {
+        try { bytes = new Uint8Array(page.size); }
+        catch { state.error = "当前窗口无法分配文件预览所需的内存。"; break; }
+        version = page.version;
+      }
+      bytes.set(chunk, offset); offset += chunk.length;
+    } while (offset < bytes!.length);
     state.loading = false;
-    if (result.ok) state.value = result.value; else state.error = result.error.message;
+    if (!state.error && bytes) {
+      try { state.value = readSnapshotFile(path, bytes, bytes.length); }
+      catch (cause) { if (!(cause instanceof RangeError)) throw cause; state.error = "当前窗口无法处理文件预览所需的内存，请关闭其他预览后重试。"; }
+    }
     this.changed();
   }
   async loadReadSnapshot(tab: Extract<InspectorTab, { kind: "read-snapshot" }>, retry = false): Promise<void> {
@@ -262,22 +283,31 @@ export class DesktopInspector {
     const generation = this.generation;
     const state: ReadSnapshotState = { loading: true };
     this.snapshots.set(tab.id, state); this.changed();
-    const result = await this.request("read_artifact", { task_id: tab.taskId, artifact_id: tab.artifactId, session_id: tab.sessionId, offset: 0, length: READ_SNAPSHOT_BYTES });
-    if (generation !== this.generation || this.snapshots.get(tab.id) !== state) return;
+    let offset = 0, bytes: Uint8Array | undefined, status: string | undefined;
+    do {
+      const result = await this.request("read_artifact", { task_id: tab.taskId, artifact_id: tab.artifactId, session_id: tab.sessionId, offset, length: FILE_PAGE_BYTES });
+      if (generation !== this.generation || this.snapshots.get(tab.id) !== state || !this.tabs().includes(tab)) return;
+      if (!result.ok) { state.error = `读取 Read 快照失败：${result.error.message}`; break; }
+      const { artifact, data, encoding } = result.value, size = artifact.byteCount;
+      if (artifact.id !== tab.artifactId || artifact.taskId !== tab.taskId || artifact.sessionId !== tab.sessionId || !["partial", "complete"].includes(artifact.status) || !Number.isSafeInteger(size) || size < offset || bytes && (size !== bytes.length || artifact.status !== status) || encoding !== "base64" || typeof data !== "string" || data.length > Math.ceil(Math.min(size - offset, FILE_PAGE_BYTES) / 3) * 4) {
+        state.error = "Read 快照来源或大小无法核实，请重试。"; break;
+      }
+      let chunk: Uint8Array;
+      try { chunk = Uint8Array.from(atob(data), character => character.charCodeAt(0)); }
+      catch { state.error = "Read 快照内容无法解析，请重试。"; break; }
+      if (chunk.length !== Math.min(size - offset, FILE_PAGE_BYTES)) { state.error = "Read 快照内容不完整，请重试。"; break; }
+      if (!bytes) {
+        try { bytes = new Uint8Array(size); }
+        catch { state.error = "当前窗口无法分配 Read 快照所需的内存。"; break; }
+        status = artifact.status;
+      }
+      bytes.set(chunk, offset); offset += chunk.length;
+    } while (offset < bytes!.length);
     state.loading = false;
-    if (!result.ok) { state.error = `读取 Read 快照失败：${result.error.message}`; this.changed(); return; }
-    const { artifact, data, encoding } = result.value;
-    const size = artifact.byteCount;
-    if (artifact.id !== tab.artifactId || artifact.taskId !== tab.taskId || artifact.sessionId !== tab.sessionId || !["partial", "complete"].includes(artifact.status) || !Number.isSafeInteger(size) || size < 0 || encoding !== "base64" || data.length > Math.ceil(Math.min(size, READ_SNAPSHOT_BYTES) / 3) * 4) {
-      state.error = "Read 快照来源或大小无法核实，请重试。"; this.changed(); return;
-    }
-    let bytes: Uint8Array;
-    try { bytes = Uint8Array.from(atob(data), character => character.charCodeAt(0)); }
-    catch { state.error = "Read 快照内容无法解析，请重试。"; this.changed(); return; }
-    if (bytes.length !== Math.min(size, READ_SNAPSHOT_BYTES)) state.error = "Read 快照内容不完整，请重试。";
-    else {
-      state.file = readSnapshotFile(tab.path, bytes, data, size);
-      state.partial = artifact.status === "partial"; state.truncated = size > bytes.length;
+    if (!state.error && bytes) {
+      try { state.file = readSnapshotFile(tab.path, bytes, bytes.length); }
+      catch (cause) { if (!(cause instanceof RangeError)) throw cause; state.error = "当前窗口无法处理 Read 快照所需的内存，请关闭其他预览后重试。"; }
+      state.partial = status === "partial";
     }
     this.changed();
   }

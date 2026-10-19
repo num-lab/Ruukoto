@@ -59,7 +59,7 @@
 | `workspace` | 授权工作区（realpath），也是工具执行目录 |
 | `grantedPaths` | 拥有者为任务显式授予的工作区外路径，每项带 `path` / `access` / `purpose`，只读范围由平台策略或只读挂载实施；native 宿主在 launch 前保存每项 dev/ino，供每调用前复核 |
 | `readRoots` | 宿主钉定的额外只读根（SubAgent 限定的资料范围、worktree 的共享 Git 目录），可带 dev/ino 供 `init` 复核；只读材料分析即使没有额外路径也显式下发空列表，由 worker 钉定其工作目录 |
-| `workspaceIdentity` | 宿主钉定的工作区目录身份（dev/ino），供 `init` 复核 cwd |
+| `workspaceIdentity` | 宿主核实登记真实路径/inode 后取得的当前 dev/ino，供 `init` 与同次执行复核 cwd |
 | `env` | 宿主注入的环境聚合包，只在 worktree 副本创建与挂载副本的任务里出现（`GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_0` / `GIT_CONFIG_VALUE_0=safe.directory=*`）；其余任务恒为空，且不进工作进程复用键 |
 
 受管执行单元登记表记录三种身份：`process_group`（local 进程组或 macOS 原生监督器，原生停止由监督器核实全部已归属后代）、`systemd_unit`（Linux 原生 user scope 或服务 helper 命令单元）、`starting`（ready 前的占位，同样参与停止）。原生执行每单元持有独立 HOME 与 TMPDIR，临时资料仅在停止已核实时删除；未核实时与目录占用一起保留。
@@ -242,6 +242,8 @@ sequenceDiagram
 全局保护根未作为显式只读挂载时，外部特权预存的子文件 bind 别名仍有原生旁路；显式来源只读范围和宿主文件入口按上述 inode 检查拒绝。该既有情形保留真实反例，另作原生保护审计；原生边界不承诺抵抗宿主外部特权准备。
 
 ## 设计依据
+
+- [登记目录与本次启动身份](../../.agents/notes/implemented/bug-fix/2026-10-18-directory-device-number.md)
 
 - [当前工作区快照与子增量](../../.agents/notes/implemented/architecture/2026-10-15-current-workspace-snapshots.md)
 

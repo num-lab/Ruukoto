@@ -19,7 +19,7 @@ import type { SubAgentExecutionSnapshot } from "./subagent-execution.ts";
 import type { WorkCopyHostSnapshot } from "./work-copy-host.ts";
 import { requireWorkspaceSnapshot, WorkspaceSnapshotError, type WorkspaceSnapshot } from "./workspace-snapshot.ts";
 
-export const PROTOCOL_VERSION = 31;
+export const PROTOCOL_VERSION = 32;
 
 export interface ModelSelection {
   provider: string;
@@ -949,7 +949,7 @@ export type PersistentEventBody =
    * message_end 会冲刷所有段；最终消息以 output_entry 关联的 JSONL 为准。
    */
   | { type: "task.output_fragment"; taskId: string; sessionId: string; messageId: string; text: string; totalBytes: number; truncated: boolean; partial: true; offset?: number; startedAt?: string; contentIndex?: number }
-  | { type: "task.thinking"; taskId: string; sessionId: string; thinkingId: string; messageId: string; startedAt: string; endedAt: string | null; text: string }
+  | { type: "task.thinking"; taskId: string; sessionId: string; thinkingId: string; messageId: string; startedAt: string; endedAt: string | null; text: string; offset?: number }
   | { type: "task.output_entry"; taskId: string; sessionId: string; entryId: string; sessionFile: string; role: string; messageId: string | null }
   /**
    * 工具/审批事件（线上载荷）：params 可能被替换为有界预览

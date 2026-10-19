@@ -14,12 +14,13 @@ import { ipcResult, type DesktopOp } from "../apps/desktop/src/main/ipc.ts";
 import type { DesktopBridge, DesktopUpdate } from "../apps/desktop/src/shared/bridge.ts";
 import { FakeTransport, fakeSnapshot, type FakeHandlers } from "./helpers/fake-control.ts";
 import { waitFor } from "./helpers/testkit.ts";
+import { FILE_PAGE_BYTES, type PreviewFile } from "../apps/desktop/src/renderer/read-snapshot.ts";
 
 const at = "2026-10-16T00:00:00.000Z";
 const workspace = (id: string): Project => ({ id, name: `真实工作区 ${id}`, createRequestId: null, rootDir: { cwd: `/work/${id}`, cwdReal: `/work/${id}`, dev: 1, ino: id === "w1" ? 1 : 2 }, instructionFiles: [], webSearch: "enabled", settingsVersion: 1, createdAt: at });
 const session = (id: string, projectId = "w1"): Session => ({ id, projectId, kind: "dev", workspaceProjectId: null, name: null, branchSource: null, cwd: `/work/${projectId}`, cwdReal: `/work/${projectId}`, cwdDev: 1, cwdIno: projectId === "w1" ? 1 : 2, piSessionId: id, sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: null, modelSelectionVersion: 0, defaultAccessMode: "confirm", defaultAccessModeVersion: 0, queueState: "active", queuePauseReason: null, createdAt: at });
 const directory = (workspaceId = "w1", path = "", name = "actual.txt"): OpResult<"list_workspace_files"> => ({ workspaceId, path, entries: [{ kind: "file", path: path ? `${path}/${name}` : name, name }], truncated: false });
-const file = (workspaceId = "w1", path = "actual.txt", content = "真实文件内容"): OpResult<"read_workspace_file"> => ({ workspaceId, path, kind: "text", size: Buffer.byteLength(content), content });
+const file = (workspaceId = "w1", path = "actual.txt", content = `真实文件内容 ${workspaceId}`, offset = 0, version = "version"): OpResult<"read_workspace_file"> => { const bytes = Buffer.from(content); return { workspaceId, path, size: bytes.length, version, offset, encoding: "base64", data: bytes.subarray(offset, offset + FILE_PAGE_BYTES).toString("base64") }; };
 function gate() {
   let release!: () => void;
   return { wait: new Promise<void>(resolve => { release = resolve; }), release: () => release() };
@@ -168,8 +169,9 @@ test("只读缓存和文件夹按工作区隔离，browser及预览模式按父�
   assert.equal(h.inspector.folders.get(h.inspector.fileKey("w2", "src")), undefined);
   await h.inspector.loadFile("w2", "actual.txt");
   await waitFor("两个工作区文件均已读取", () => !!h.inspector.files.get("w1:actual.txt")?.value);
-  assert.equal(h.inspector.files.get("w1:actual.txt")?.value?.workspaceId, "w1");
-  assert.equal(h.inspector.files.get("w2:actual.txt")?.value?.workspaceId, "w2");
+  const first = h.inspector.files.get("w1:actual.txt")?.value, second = h.inspector.files.get("w2:actual.txt")?.value;
+  assert.equal(first?.kind === "text" && first.content, "真实文件内容 w1");
+  assert.equal(second?.kind === "text" && second.content, "真实文件内容 w2");
   h.inspector.openParent("a");
   assert.equal(h.inspector.activeTab(), aBrowser);
   assert.equal(aFile?.kind === "file" && aFile.mode, "source");
@@ -193,7 +195,7 @@ test("文件树使用会话的工作区组织归属，不拿来源 cwd 冒充展
 });
 
 let server: ViteDevServer;
-let FilePreview: ComponentType<{ file: OpResult<"read_workspace_file"> | undefined; path: string; mode: "preview" | "source"; onMode: (mode: "preview" | "source") => void; onFiles: () => void; onUrl: (url: string) => void }>;
+let FilePreview: ComponentType<{ file: PreviewFile | undefined; path: string; mode: "preview" | "source"; onMode: (mode: "preview" | "source") => void; onFiles: () => void; onUrl: (url: string) => void }>;
 let WorkspaceFiles: ComponentType<{ model: CodeState; workspaceId: string }>;
 let BrowserPanel: ComponentType<{ navigation: BrowserNavigation; onChange: (navigation: BrowserNavigation) => void }>;
 let Conversation: ComponentType<{ model: CodeState; sessionId: string }>;
@@ -234,9 +236,9 @@ test("真实目录组件只展示后台返回的目录，不迁入样例或写�
 });
 
 test("文件预览使用真实正文，Markdown 和源码安全渲染，空文本保持零行", () => {
-  const render = (value: OpResult<"read_workspace_file"> | undefined, mode: "preview" | "source" = "preview") => renderToStaticMarkup(createElement(FilePreview, { file: value, path: value?.path ?? "missing.txt", mode, onMode() {}, onFiles() {}, onUrl() {} }));
+  const render = (value: PreviewFile | undefined, mode: "preview" | "source" = "preview") => renderToStaticMarkup(createElement(FilePreview, { file: value, path: value?.path ?? "missing.txt", mode, onMode() {}, onFiles() {}, onUrl() {} }));
   const content = '# 实际标题\n\n**实际正文** [网页](https://example.com/) [凭据](https://user:pass@example.com) [相对](./other.md) ![远端图片](https://example.com/remote.png)\n\n<script>alert("unsafe")</script>';
-  const markdown: OpResult<"read_workspace_file"> = { workspaceId: "w1", path: "actual.md", kind: "markdown", size: Buffer.byteLength(content), content };
+  const markdown: PreviewFile = { path: "actual.md", kind: "markdown", size: Buffer.byteLength(content), content };
   const preview = render(markdown);
   assert.match(preview, /<h1>实际标题<\/h1>/);
   assert.match(preview, /<strong>实际正文<\/strong>/);
@@ -247,12 +249,12 @@ test("文件预览使用真实正文，Markdown 和源码安全渲染，空文�
   assert.match(source, /hljs-tag/);
   assert.match(source, /&lt;/);
   assert.doesNotMatch(source, /<h1>|<script/);
-  const empty = render(file("w1", "empty.txt", ""));
+  const empty = render({ path: "empty.txt", kind: "text", size: 0, content: "" });
   assert.match(empty, /<pre><code><\/code><\/pre>/);
   assert.doesNotMatch(empty, /class="file-line"|文件不可用|空文件/);
-  assert.match(render({ workspaceId: "w1", path: "archive.bin", kind: "unsupported", size: 12 }), /暂不支持预览此文件/);
+  assert.match(render({ path: "archive.bin", kind: "unsupported", size: 12 }), /暂不支持预览此文件/);
   assert.match(render(undefined), /文件不可用/);
-  assert.match(render({ workspaceId: "w1", path: "actual.png", kind: "image", mimeType: "image/png", size: 4, dataUrl: "data:image/png;base64,iVBORw==" }), /src="data:image\/png;base64,iVBORw=="/);
+  assert.match(render({ path: "actual.png", kind: "image", mimeType: "image/png", size: 4, dataUrl: "data:image/png;base64,iVBORw==" }), /src="data:image\/png;base64,iVBORw=="/);
 });
 
 test("消息流保留实际 reasoning 折叠行和原始记录", () => {

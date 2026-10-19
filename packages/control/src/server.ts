@@ -322,10 +322,11 @@ export class ControlServer {
       }
       case "list_workspace_files":
       case "read_workspace_file": {
-        if (Object.keys(params).some(key => key !== "workspace_id" && key !== "path") || params["path"] !== undefined && typeof params["path"] !== "string") throw new RuntimeApiError("invalid_params", "文件接口只接受工作区与相对路径。");
+        const allowed = request.op === "list_workspace_files" ? ["workspace_id", "path"] : ["workspace_id", "path", "offset", "length", "version"];
+        if (Object.keys(params).some(key => !allowed.includes(key)) || params["path"] !== undefined && typeof params["path"] !== "string") throw new RuntimeApiError("invalid_params", "文件接口只接受工作区、相对路径与分页参数。");
         const workspaceId = requireString("workspace_id");
         if (request.op === "list_workspace_files") return runtime.listWorkspaceFiles({ workspaceId, path: params["path"] as string | undefined });
-        return runtime.readWorkspaceFile({ workspaceId, path: requireString("path") });
+        return runtime.readWorkspaceFile({ workspaceId, path: requireString("path"), offset: params["offset"] as number | undefined, length: params["length"] as number | undefined, version: params["version"] as string | undefined });
       }
       // ---------- agent-direction issue 07：旧数据 → 工作区组织迁移 ----------
       case "preview_workspace_migration": {

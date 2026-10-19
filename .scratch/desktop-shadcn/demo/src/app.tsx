@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useRef, useState, type ReactNode, type Ref, type CSSProperties, type DragEvent as ReactDragEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { ArrowUp, Brain, ChevronDown, ChevronRight, FileCode2, FileText, Folder, FolderTree, GitGraph, Globe, ListFilter, ListTodo, Loader2, MessageCircleQuestion, Moon, PanelLeft, PanelRight, Pause, Plus, Server, Settings2, ShieldCheck, Sparkles, Square, Sun, WifiOff, X, Zap } from "lucide-react";
 import { PersonalConnectionSettings, initialPersonalConnection } from "./personal-connection-settings.tsx";
+import { ConnectionLoading } from "./connection-loading.tsx";
 import { SidebarResizer } from "./sidebar-resizer.tsx";
 import { Button } from "./components/ui/button.tsx";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs.tsx";
@@ -13,7 +14,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./component
 import { Bubble, BubbleContent } from "./components/ui/bubble.tsx";
 import { Message, MessageContent } from "./components/ui/message.tsx";
 import { MessageScroller, MessageScrollerContent, MessageScrollerItem, MessageScrollerProvider, MessageScrollerViewport } from "./components/ui/message-scroller.tsx";
-import { ToolActivity } from "./tool-activity.tsx";
+import { ExecutionTrace, ToolActivity } from "./tool-activity.tsx";
 import { Item, ItemActions, ItemContent, ItemDescription, ItemHeader, ItemTitle } from "./components/ui/item.tsx";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "./components/ui/hover-card.tsx";
 import { Progress } from "./components/ui/progress.tsx";
@@ -84,6 +85,8 @@ export function ContextDetails({ context }: { context: Session["context"] }) {
 // Note: 见 .agents/notes/implemented/feature/2026-10-16-demo-inspector-tools.md
 // Note: 见 .agents/notes/implemented/feature/2026-10-17-demo-personal-main-tab.md
 export function App() {
+  const [connecting, setConnecting] = useState(true);
+  const [connectionPending, setConnectionPending] = useState(true);
   const [dark, setDark] = useState(true);
   const [sidebar, setSidebar] = useState(true);
   const [sidebarWidths, setSidebarWidths] = useState<{ left?: number; right?: number }>({});
@@ -149,6 +152,11 @@ export function App() {
     return () => observer.disconnect();
   }, [activeTab?.id, currentId, inspectorOpen, openSessions, rightTabOrder]);
   useEffect(() => { document.documentElement.classList.toggle("dark", dark); }, [dark]);
+  useEffect(() => {
+    if (!connecting) return;
+    const timer = window.setTimeout(() => setConnectionPending(false), 2200);
+    return () => window.clearTimeout(timer);
+  }, [connecting]);
   useEffect(() => { if (filterOpen) filterInput.current?.focus(); }, [filterOpen]);
   useEffect(() => () => { for (const timer of submissionTimers.current.values()) window.clearTimeout(timer); }, []);
   useEffect(() => {
@@ -158,6 +166,7 @@ export function App() {
   }, [toast]);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      if (connecting) return;
       if (!(event.metaKey || event.ctrlKey)) return;
       if (event.key.toLowerCase() === "b") { event.preventDefault(); toggleSidebar(); }
       if (event.key.toLowerCase() === "j") { event.preventDefault(); toggleInspector(); }
@@ -165,7 +174,7 @@ export function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [connecting]);
 
   // Note: 见 .agents/notes/implemented/bug-fix/2026-10-17-desktop-sidebar-toggle.md
   function toggleSidebar() {
@@ -374,8 +383,8 @@ export function App() {
     });
   }
   function renderSteps(steps: Step[], scope: string) {
-    return steps.map((step, index) => {
-      const key = `${currentId}:${scope}:${step.type === "activity" && step.phase ? "execution" : index}`;
+    const rendered = steps.map((step, index) => {
+      const key = `${currentId}:${scope}:${step.type === "activity" && (step.id || step.phase) ? step.id ?? "execution" : index}`;
       let content: ReactNode;
       if (step.type === "user") content = <Message align="end"><MessageContent><Bubble align="end" variant="muted"><BubbleContent className="whitespace-pre-wrap selectable-text">{step.text}</BubbleContent></Bubble></MessageContent></Message>;
       else if (step.type === "prose") content = <Message><MessageContent><p className="whitespace-pre-wrap text-pretty selectable-text">{renderProse(step.text)}</p></MessageContent></Message>;
@@ -384,10 +393,33 @@ export function App() {
         if (step.type !== "command" || step.status !== "pending") return null;
         content = <Item asChild variant="muted" size="sm"><section aria-label="命令审批"><ItemHeader className="flex-wrap"><ItemTitle>在工作区运行命令</ItemTitle><ItemActions><Button variant="ghost" size="sm" onClick={() => updateSession(item => ({ ...item, steps: item.steps.map(s => s.type === "command" && s.id === step.id ? { ...s, status: "skipped" } : s) }))}>拒绝</Button><Button size="sm" onClick={() => updateSession(item => ({ ...item, steps: item.steps.map(s => s.type === "command" && s.id === step.id ? { ...s, status: "approved" } : s) }))}>批准</Button></ItemActions></ItemHeader><ItemContent className="min-w-0 basis-full gap-3"><pre tabIndex={0} className="command-preview max-w-full overflow-x-auto rounded-lg bg-muted p-3 text-sm selectable-text"><code><span className="text-muted-foreground select-none">$ </span>{step.command}</code></pre><ItemDescription className="line-clamp-none">{step.note}</ItemDescription></ItemContent></section></Item>;
       }
-      return <MessageScrollerItem key={key} messageId={key} className={step.type === "activity" ? "trace-step" : undefined}>{content}</MessageScrollerItem>;
+      return content;
+    });
+    const completed = !steps.some(step => step.type === "activity" && step.phase) && (scenario === "completed" || session.status === "idle" || session.subagents.some(agent => agent.id === scope && ["done", "completed"].includes(agent.status)));
+    const finalIndices = new Set<number>();
+    if (completed) {
+      let last: number | undefined;
+      for (let index = 0; index <= steps.length; index++) {
+        if (index === steps.length || steps[index].type === "user") { if (last !== undefined) finalIndices.add(last); last = undefined; }
+        if (steps[index]?.type === "prose") last = index;
+      }
+    }
+    const chunks: { key: string; indices: number[]; trace: boolean }[] = [];
+    for (let index = 0; index < steps.length; index++) {
+      if (!rendered[index]) continue;
+      const step = steps[index], trace = step.type === "activity" || step.type === "prose" && !finalIndices.has(index), previous = chunks.at(-1);
+      if (trace && previous?.trace) previous.indices.push(index);
+      else chunks.push({ key: trace ? `${currentId}:${scope}:trace:${chunks.at(-1)?.indices.at(-1) ?? "start"}` : `${currentId}:${scope}:${index}`, indices: [index], trace });
+    }
+    return chunks.map(chunk => {
+      const content = chunk.indices.map(index => <Fragment key={index}>{rendered[index]}</Fragment>);
+      const trace = chunk.trace && chunk.indices.some(index => steps[index].type === "activity");
+      const duration = chunk.indices.map(index => steps[index]).flatMap(step => step.type === "activity" && step.duration ? [step.duration] : []).at(-1);
+      const failed = chunk.indices.some(index => { const step = steps[index]; return step.type === "activity" && step.items.some(item => item.error !== undefined); });
+      return <MessageScrollerItem key={chunk.key} messageId={chunk.key} className={trace ? "trace-step" : undefined}>{trace ? <ExecutionTrace stateKey={chunk.key} completed={completed} failed={failed} duration={duration} expanded={expanded} onExpand={(id, value) => setExpanded(items => ({ ...items, [id]: value }))}>{content}</ExecutionTrace> : content}</MessageScrollerItem>;
     });
   }
-  const mainSteps = executionPhase ? executionPreview(session, executionPhase) : scenario === "tool-details" && !isPersonal ? toolDetailsPreview(session) : session.steps;
+  const mainSteps = scenario === "completed" ? [...executionPreview(session, "working").map(step => step.type === "activity" && step.phase ? { ...step, phase: undefined, items: step.items.map(item => ({ ...item, status: undefined })) } : step), { type: "prose" as const, text: "演示任务已完成，执行记录已收起。" }] : executionPhase ? executionPreview(session, executionPhase) : scenario === "tool-details" && !isPersonal ? toolDetailsPreview(session) : session.steps;
   const selectedAgent = activeTab?.type === "agent" ? session.subagents.find(item => item.id === activeTab.objectId) : undefined;
   const selectedDiff = activeTab?.type === "diff" ? session.diffs.find(item => item.fullPath === activeTab.objectId) : undefined;
   const availableFiles = workspace ? workspaceFiles(workspace.id) : [];
@@ -431,12 +463,13 @@ export function App() {
               <SelectContent position="popper" align="end" sideOffset={6}>{scenarios.filter(item => !isPersonal || (item.value !== "tool-details" && !item.value.startsWith("diff-"))).map(item => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent>
             </Select>
           </div>
+          <div className="settings-row"><span>启动加载页</span><Button variant="outline" size="sm" onClick={() => { setSettingsOpen(false); setConnectionPending(true); setConnecting(true); }}><Loader2 data-icon="inline-start" />重播连接加载</Button></div>
         </TabsContent>
       </Tabs>
     </DialogContent>
   </Dialog>;
 
-  return <><div className="desktop-backdrop"><div className="macos-window app-window" data-sidebar-open={sidebar} style={{ "--left-preferred-width": sidebarWidths.left === undefined ? undefined : `${sidebarWidths.left}px`, "--right-preferred-width": sidebarWidths.right === undefined ? undefined : `${sidebarWidths.right}px`, "--right-reserve": inspectorOpen ? "260px" : "0px", "--visible-left-width": sidebar ? "var(--left-width)" : "0px" } as CSSProperties}>
+  return <>{connecting && <ConnectionLoading pending={connectionPending} onClosed={() => { setConnecting(false); window.requestAnimationFrame(() => input.current?.focus()); }} />}<div className="desktop-backdrop" inert={connecting} aria-busy={connecting}><div className="macos-window app-window" data-sidebar-open={sidebar} style={{ "--left-preferred-width": sidebarWidths.left === undefined ? undefined : `${sidebarWidths.left}px`, "--right-preferred-width": sidebarWidths.right === undefined ? undefined : `${sidebarWidths.right}px`, "--right-reserve": inspectorOpen ? "260px" : "0px", "--visible-left-width": sidebar ? "var(--left-width)" : "0px" } as CSSProperties}>
     <Button ref={expandSidebar} type="button" variant="ghost" size="icon" className="quiet-icon sidebar-toggle" aria-label={sidebar ? "收起侧栏" : "展开侧栏"} aria-controls="left-sidebar" aria-expanded={sidebar} onClick={toggleSidebar}><PanelLeft /></Button>
     <aside id="left-sidebar" className={`surface-sidebar left-sidebar ${sidebar ? "" : "is-collapsed"}`} aria-label="工作区导航" aria-hidden={!sidebar} inert={!sidebar}><div className="sidebar-content"><div className="window-controls"><div className="traffic-lights" aria-hidden="true"><i /><i /><i /></div></div><Button type="button" variant="ghost" className={`personal-row ${isPersonal ? "active-pill text-pri" : "text-sec hover-pill"}`} aria-current={isPersonal ? "page" : undefined} onClick={() => openSession(PERSONAL_SESSION_ID)}>Ruukoto</Button><div className="projects-heading"><span>工作区</span><div><Button ref={filterToggle} type="button" variant="ghost" size="icon" className="quiet-icon" aria-label="筛选工作区与会话" aria-controls="workspace-filter" aria-expanded={filterOpen} onClick={() => { setFilterOpen(value => !value); setFilter(""); }}><ListFilter /></Button><IconButton label="添加工作区" onClick={() => setDialog("workspace")}><Plus /></IconButton></div></div><div id="workspace-filter" className="workspace-filter" data-open={filterOpen} aria-hidden={!filterOpen} inert={!filterOpen}><div className="workspace-filter-clip"><div className="workspace-filter-inner"><Input ref={filterInput} aria-label="筛选工作区与会话" placeholder="筛选工作区与会话…" value={filter} onChange={event => setFilter(event.target.value)} onKeyDown={event => { if (event.key === "Escape") { setFilterOpen(false); setFilter(""); filterToggle.current?.focus(); } }} /></div></div></div><div className="workspace-tree">{workspaces.filter(ws => !filter || ws.name.toLowerCase().includes(filter.toLowerCase()) || ws.sessions.some(item => item.title.toLowerCase().includes(filter.toLowerCase()))).map(ws => <Collapsible asChild key={ws.id} open={ws.expanded || !!filter} onOpenChange={() => setWorkspaces(items => items.map(item => item.id === ws.id ? { ...item, expanded: !item.expanded } : item))}><section><div className="workspace-row"><CollapsibleTrigger asChild><button><ChevronRight className={ws.expanded || filter ? "rotate-90" : ""} /><Folder /><span>{ws.name}</span></button></CollapsibleTrigger><IconButton className="workspace-add" label={`在 ${ws.name} 新建会话`} onClick={() => newSession(ws.id)}><Plus /></IconButton></div><CollapsibleContent className="workspace-collapse" inert={!ws.expanded && !filter} aria-hidden={!ws.expanded && !filter}><div className="workspace-sessions">{ws.sessions.filter(item => !filter || ws.name.toLowerCase().includes(filter.toLowerCase()) || item.title.toLowerCase().includes(filter.toLowerCase())).map(item => <button key={item.id} className={`workspace-session ${item.id === currentId ? "active-pill text-pri" : "text-sec hover-pill"}`} aria-current={item.id === currentId ? "page" : undefined} onClick={() => openSession(item.id)}><span>{item.title}</span>{["awaiting", "running"].includes(item.status) && <i className="status-point pending" />}</button>)}</div></CollapsibleContent></section></Collapsible>)}</div><div className="sidebar-bottom">{settings}</div></div><SidebarResizer side="left" open={sidebar} onWidthChange={width => setSidebarWidths(items => ({ ...items, left: width }))} /></aside>
 

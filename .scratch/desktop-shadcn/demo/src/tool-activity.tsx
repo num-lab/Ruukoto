@@ -1,23 +1,20 @@
-import { CircleAlert, CircleCheck, LoaderCircle, Sparkles, Wrench } from "lucide-react";
+import { useLayoutEffect, useRef, type ReactNode } from "react";
+import { Bot, Brain, CircleAlert, FilePenLine, FilePlus2, FileText, ListChecks, LoaderCircle, Search, Terminal, Wrench } from "lucide-react";
 import { CodeBlock, CodeBlockContent, CodeBlockLine } from "./components/ui/code-block.tsx";
 import { Trace, TraceCollapsible, TraceCollapsibleContent, TraceCollapsibleTrigger, TraceDescription, TraceIcon, TraceLine, TraceTitle } from "./components/ui/trace.tsx";
-import { activitySummary, type ActivityItem, type Diff, type Step } from "./demo-data.ts";
+import { type ActivityItem, type Diff, type Step } from "./demo-data.ts";
 
 type Activity = Extract<Step, { type: "activity" }>;
 type Props = { step: Activity; diffs: Diff[]; stateKey: string; expanded: Record<string, boolean>; onExpand: (key: string, open: boolean) => void; onOpenFile: (path: string) => void; onOpenAgent: (name: string) => void };
 
 // Note: 见 .agents/notes/implemented/feature/2026-10-16-demo-trace-tools.md
 export function ToolActivity({ step, diffs, stateKey, expanded, onExpand, onOpenFile, onOpenAgent }: Props) {
-  const text = step.thinking?.text.trim() ? <p className="reasoning-content whitespace-pre-wrap wrap-anywhere selectable-text">{step.thinking.text}</p> : null;
+  const textRef = useRef<HTMLParagraphElement>(null);
+  useLayoutEffect(() => { if (step.phase === "thinking" && textRef.current) textRef.current.scrollTop = textRef.current.scrollHeight; }, [step.phase, step.thinking?.text]);
+  const text = step.thinking?.text.trim() ? <p ref={textRef} className="reasoning-content whitespace-pre-wrap wrap-anywhere selectable-text" tabIndex={0} role="region" aria-label="思考内容">{step.thinking.text}</p> : null;
   const thoughtKey = `${stateKey}:reasoning`, thoughtOpen = expanded[thoughtKey] ?? false;
-  const thought = text && <TraceCollapsible open={thoughtOpen} onOpenChange={value => onExpand(thoughtKey, value)}><TraceCollapsibleTrigger><TraceLine><TraceIcon><CircleCheck /></TraceIcon><TraceTitle>Thought for {step.thinking!.duration}</TraceTitle></TraceLine></TraceCollapsibleTrigger><TraceCollapsibleContent inert={!thoughtOpen} aria-hidden={!thoughtOpen}>{text}</TraceCollapsibleContent></TraceCollapsible>;
+  const thought = text && <TraceCollapsible open={thoughtOpen} onOpenChange={value => onExpand(thoughtKey, value)}><TraceCollapsibleTrigger><TraceLine><TraceIcon><Brain /></TraceIcon><TraceTitle>Thought for {step.thinking!.duration}</TraceTitle></TraceLine></TraceCollapsibleTrigger><TraceCollapsibleContent inert={!thoughtOpen} aria-hidden={!thoughtOpen}>{text}</TraceCollapsibleContent></TraceCollapsible>;
   if (step.phase === "thinking") return <Trace><TraceLine status="running" className="text-foreground"><TraceIcon><LoaderCircle className="animate-spin" /></TraceIcon><TraceTitle role="status">Thinking</TraceTitle></TraceLine>{text && <div className="ml-6 text-muted-foreground">{text}</div>}</Trace>;
-  const working = step.phase === "working";
-  const agents = step.items.filter(item => item.action === "Agent");
-  const tools = step.items.filter(item => item.action !== "Agent");
-  const open = expanded[stateKey] ?? step.expanded;
-  const failures = tools.filter(item => item.error !== undefined).length;
-
   function renderTool(item: ActivityItem, index: number) {
     const key = `${stateKey}:tool:${index}`;
     const detailOpen = expanded[key] ?? false;
@@ -28,9 +25,10 @@ export function ToolActivity({ step, diffs, stateKey, expanded, onExpand, onOpen
     const write = item.action === "Write";
     const command = item.command ?? (["Bash", "Run"].includes(item.action) ? item.file : undefined);
     const diff = item.diff ?? (running ? undefined : diffs.find(diff => diff.fullPath === (item.diffFile ?? item.file)));
+    const Icon = read ? FileText : edit ? FilePenLine : write ? FilePlus2 : command ? Terminal : item.action === "Grep" ? Search : Wrench;
     const verb = read ? "read" : edit ? "edit" : write ? "write" : command ? "run" : item.action.toLowerCase();
     const label = failed ? `Failed to ${verb}` : running ? read ? "Reading" : edit ? "Editing" : write ? "Writing" : command ? "Running" : `${item.action} in progress` : read ? "Read" : edit ? "Edited" : write ? "Wrote" : command ? "Ran" : item.action;
-    const line = <TraceLine status={failed ? "error" : running ? "running" : undefined}><TraceIcon>{failed ? <CircleAlert /> : running ? <LoaderCircle className="animate-spin" /> : <CircleCheck />}</TraceIcon>{read ? <TraceTitle>{label} <a href="#right-sidebar" aria-label={`打开文件 ${item.file}`} onClick={event => { event.preventDefault(); onOpenFile(item.file); }}><code>{item.file}</code></a></TraceTitle> : <TraceTitle>{label} <code>{command ?? item.file}</code></TraceTitle>}{!failed && !running && item.stat && <TraceDescription><span className="text-[var(--diff-add-text)]">{item.stat.split(" ")[0]}</span> <span className="text-[var(--diff-del-text)]">{item.stat.split(" ")[1]}</span></TraceDescription>}</TraceLine>;
+    const line = <TraceLine status={failed ? "error" : running ? "running" : undefined}><TraceIcon>{failed ? <CircleAlert /> : running ? <LoaderCircle className="animate-spin" /> : <Icon />}</TraceIcon>{read ? <TraceTitle>{label} <a href="#right-sidebar" aria-label={`打开文件 ${item.file}`} onClick={event => { event.preventDefault(); onOpenFile(item.file); }}><code>{item.file}</code></a></TraceTitle> : <TraceTitle>{label} <code>{command ?? item.file}</code></TraceTitle>}{!failed && !running && item.stat && <TraceDescription><span className="text-[var(--diff-add-text)]">{item.stat.split(" ")[0]}</span> <span className="text-[var(--diff-del-text)]">{item.stat.split(" ")[1]}</span></TraceDescription>}</TraceLine>;
     const error = failed && <CodeBlock size="sm" variant="destructive"><CodeBlockContent wrap className="max-h-64 data-wrap:wrap-anywhere">{item.error}</CodeBlockContent></CodeBlock>;
     if (read) return <div key={key} className="flex min-w-0 flex-col gap-2">{line}{error && <div className="ml-6 min-w-0">{error}</div>}</div>;
 
@@ -42,6 +40,11 @@ export function ToolActivity({ step, diffs, stateKey, expanded, onExpand, onOpen
     return <TraceCollapsible key={key} open={detailOpen} onOpenChange={value => onExpand(key, value)}><TraceCollapsibleTrigger aria-label={running ? `${label} ${command ?? item.file}` : undefined}>{line}</TraceCollapsibleTrigger><TraceCollapsibleContent inert={!detailOpen} aria-hidden={!detailOpen}>{detail}</TraceCollapsibleContent></TraceCollapsible>;
   }
 
-  if (!tools.length && !agents.length && !working) return <Trace>{thought}</Trace>;
-  return <Trace>{agents.map((item, index) => <button type="button" key={index} onClick={() => onOpenAgent(item.file)}><TraceLine><TraceIcon><Sparkles /></TraceIcon><TraceTitle className="shrink-0">{item.file}</TraceTitle><TraceDescription className="min-w-0 shrink truncate">{item.note}</TraceDescription></TraceLine></button>)}{(working || tools.length > 0) && <TraceCollapsible open={open} onOpenChange={value => onExpand(stateKey, value)}><TraceCollapsibleTrigger aria-label={working ? `Working${failures ? ` · ${failures} failed` : ""}` : undefined}><TraceLine status={failures ? "error" : working ? "running" : undefined} className={working ? "text-foreground" : undefined}><TraceIcon>{working ? <LoaderCircle className="animate-spin" /> : <Wrench />}</TraceIcon><TraceTitle role={working ? "status" : undefined}>{working ? "Working" : `${failures ? `${failures} failed · ` : ""}${activitySummary(tools)}`}</TraceTitle>{working ? failures > 0 && <TraceDescription>· {failures} failed</TraceDescription> : <TraceDescription>· {step.duration}</TraceDescription>}</TraceLine></TraceCollapsibleTrigger><TraceCollapsibleContent inert={!open} aria-hidden={!open}><Trace>{thought}{tools.map(renderTool)}</Trace></TraceCollapsibleContent></TraceCollapsible>}</Trace>;
+  return <Trace>{thought}{step.items.map((item, index) => item.action === "Agent" ? <button type="button" key={`${stateKey}:tool:${index}`} onClick={() => onOpenAgent(item.file)}><TraceLine><TraceIcon><Bot /></TraceIcon><TraceTitle className="shrink-0">{item.file}</TraceTitle><TraceDescription className="min-w-0 shrink truncate">{item.note}</TraceDescription></TraceLine></button> : renderTool(item, index))}</Trace>;
+}
+
+// Note: 见 .agents/notes/implemented/feature/2026-10-18-completed-trace.md
+export function ExecutionTrace({ completed, failed, duration, stateKey, expanded, onExpand, children }: Pick<Props, "expanded" | "onExpand"> & { completed: boolean; failed: boolean; duration?: string; stateKey: string; children: ReactNode }) {
+  const open = !completed || (expanded[stateKey] ?? false);
+  return <Trace><TraceCollapsible className="execution-trace" data-completed={completed} open={open} onOpenChange={value => onExpand(stateKey, value)}>{completed && <TraceCollapsibleTrigger aria-label={open ? "收起执行记录" : "展开执行记录"}><TraceLine status={failed ? "error" : undefined}><TraceIcon>{failed ? <CircleAlert /> : <ListChecks />}</TraceIcon><TraceTitle>{duration ? `Worked for ${duration}` : "Worked"}</TraceTitle></TraceLine></TraceCollapsibleTrigger>}<TraceCollapsibleContent className="execution-trace-content" inert={!open} aria-hidden={!open}>{children}</TraceCollapsibleContent></TraceCollapsible></Trace>;
 }

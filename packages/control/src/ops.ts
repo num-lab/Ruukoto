@@ -84,7 +84,7 @@ export interface TuiOps {
   /** 打开工作区（agent-direction issue 05）：按真实目录身份复用/创建工作区并新建会话。 */
   open_workspace: { params: { cwd: string; project_id?: string; request_id?: string; mode?: SessionDefaultMode; model_selection?: ModelSelection }; result: R<"openWorkspace"> };
   list_workspace_files: { params: { workspace_id: string; path?: string }; result: R<"listWorkspaceFiles"> };
-  read_workspace_file: { params: { workspace_id: string; path: string }; result: R<"readWorkspaceFile"> };
+  read_workspace_file: { params: { workspace_id: string; path: string; offset?: number; length?: number; version?: string }; result: R<"readWorkspaceFile"> };
   read_workspace_git: { params: { workspace_id: string; cursor?: string }; result: R<"readWorkspaceGit"> };
   put_attachment: { params: AttachmentUpload; result: R<"putAttachment"> };
   submit: { params: Submit; result: R<"submit"> };

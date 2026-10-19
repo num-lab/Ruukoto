@@ -2,6 +2,8 @@
 
 Status: implemented
 
+思考的尾部快照与8KiB限制由[完整分块传输](../feature/2026-10-18-complete-reasoning-and-preview.md)部分取代；本文继续持有阶段来源。
+
 ## 问题
 
 Driver在模型开始生成工具参数时结束thinking，完整参数尚未生成所以tool_intent还不存在；工具结果与下次模型请求之间也没有未结束thinking。旧前端仅凭未结束thinking显示Thinking，这两处会出现空窗。拥有者同时要求展示已记录reasoning，历史放在工具组第一行，Thinking时直接显示。
@@ -23,3 +25,7 @@ Git历史保留纵向自动续页，正文与refs使用自然宽度并允许横�
 ## 后果
 
 前端保持连续反馈，原始事件与JSONL不变；Thinking代表尚无可显示正文或运行中工具的任务阶段，工具参数生成也归入此状态，并不声称provider每一瞬间正在内部推理。Demo内容明确为静态演示，不能算真实模型验收。真实Driver重放、前端分组与SSR最窄回归见[工单24](../../../../.scratch/desktop-shadcn/issues/24-browser-activity.md)。
+
+## 展示层级的后续决定
+
+[工具平铺与完成后的执行记录](../feature/2026-10-18-completed-trace.md)取代本篇的工具摘要分组与完成后展示方式；调用详情、错误、来源与恢复约束保留。

@@ -21,6 +21,23 @@ test("桌面生产 CSP 仅给内置浏览器开放 HTTP(S)，预览图片允许 
   assert.ok(!PRODUCTION_CSP.includes("file:"));
 });
 
+test("加载页的独立位移重置在生产 CSS 压缩后保留，避免被 Dialog 默认位移拉到左上角", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-loading-css-"));
+  try {
+    fs.writeFileSync(path.join(root, "index.html"), '<html><head><link rel="stylesheet" href="/loading.css"></head><body></body></html>');
+    fs.writeFileSync(path.join(root, "loading.css"), fs.readFileSync(new URL("../.scratch/desktop-shadcn/approved-demo-v4-connection-loading.css", import.meta.url)));
+    await build({ root, configFile: false, logLevel: "silent", build: { target: "safari16", cssMinify: "lightningcss", outDir: path.join(root, "dist") } });
+    const assets = path.join(root, "dist/assets"), file = fs.readdirSync(assets).find(name => name.endsWith(".css"));
+    assert.ok(file, "必须生成生产 CSS");
+    const css = fs.readFileSync(path.join(assets, file), "utf8");
+    const rule = css.match(/\.connection-loading\[data-slot=(?:"dialog-content"|dialog-content)\]\{([^}]+)\}/)?.[1];
+    assert.ok(rule, "必须保留加载页规则");
+    assert.match(rule, /(?:^|;)translate:(?:none|initial)(?:;|$)/, "独立 translate 重置不可合并进 transform，否则 Tailwind 的 -50% 位移仍生效");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 function fixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-desktop-build-"));
   for (const directory of ["renderer", "main", "preload"]) fs.mkdirSync(path.join(root, directory));

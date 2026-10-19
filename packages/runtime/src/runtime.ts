@@ -1305,11 +1305,12 @@ export class Runtime {
     const current = this.store.getTask(task.id), session = this.store.getSession(task.sessionId);
     if (!current || !session || current.cancelRequested || !["running", "awaiting_confirmation"].includes(current.status) || this.verifyAgentReportSources(task.id)) throw new AgentWaitError("source_invalid");
     const workspace = taskWorkspaceFor({ session, work: current.workId ? this.store.getWorkDelegation(current.workId) : null });
+    const verified = await verifyDirIdentity({ cwd: workspace.path, cwdReal: workspace.path, dev: workspace.dev, ino: workspace.ino });
     const acquired = this.store.withTx(() => {
       const fresh = this.store.getTask(task.id);
       if (!fresh || fresh.cancelRequested || fresh.permissionVersion !== current.permissionVersion || !["running", "awaiting_confirmation"].includes(fresh.status) || this.verifyAgentReportSources(task.id)) throw new AgentWaitError("source_invalid");
       const held = this.store.getOccupancyByDir(workspace.path);
-      return held?.taskId === task.id || this.store.tryAcquireOccupancy({ cwdReal: workspace.path, cwdDev: workspace.dev, cwdIno: workspace.ino, sessionId: task.sessionId, taskId: task.id });
+      return held?.taskId === task.id || this.store.tryAcquireOccupancy({ cwdReal: workspace.path, cwdDev: verified.dev, cwdIno: verified.ino, sessionId: task.sessionId, taskId: task.id });
     });
     if (!acquired) return false;
     await verifyDirIdentity({ cwd: workspace.path, cwdReal: workspace.path, dev: workspace.dev, ino: workspace.ino });
@@ -2822,10 +2823,10 @@ export class Runtime {
     return listWorkspaceFiles(input.workspaceId, root, input.path ?? "", this.protectedRoots());
   }
 
-  readWorkspaceFile(input: { workspaceId: string; path: string }) {
+  readWorkspaceFile(input: { workspaceId: string; path: string; offset?: number; length?: number; version?: string }) {
     const root = this.store.getProject(input.workspaceId)?.rootDir;
     if (!root) throw new RuntimeApiError("workspace_not_found", "工作区不存在或尚未登记目录，请重新选择工作区。");
-    return readWorkspaceFile(input.workspaceId, root, input.path, this.protectedRoots());
+    return readWorkspaceFile(input.workspaceId, root, input.path, this.protectedRoots(), input);
   }
 
   readWorkspaceGit(input: { workspaceId: string; cursor?: string }) {
@@ -4032,12 +4033,12 @@ export class Runtime {
         const workLaunch = task.workId ? this.store.getWorkDelegation(task.workId) : null;
         workspaceLaunch = taskWorkspaceFor({ session, work: workLaunch });
         dialogue = this.conversationAdmitted(task) && Boolean(this.store.findBlockingOccupancy(workspaceLaunch.path, workspaceLaunch.dev, workspaceLaunch.ino));
-        if (!dialogue) await verifyDirIdentity({
+        if (!dialogue) workspaceLaunch.dev = (await verifyDirIdentity({
           cwd: workspaceLaunch.path,
           cwdReal: workspaceLaunch.path,
           dev: workspaceLaunch.dev,
           ino: workspaceLaunch.ino,
-        });
+        })).dev;
       } catch (err) {
         if (!(err instanceof DirIdentityError) && (!(err instanceof WorkspaceSnapshotError) || !["target_corrupt", "snapshot_missing", "snapshot_corrupt"].includes(err.code))) throw err;
         this.store.withTx(() => {

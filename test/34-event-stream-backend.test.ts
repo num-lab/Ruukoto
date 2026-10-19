@@ -7,6 +7,7 @@ import * as path from "node:path";
 import { Runtime } from "@ruukoto/runtime/runtime.ts";
 import { ControlServer } from "@ruukoto/control/server.ts";
 import { editStatsFromResult } from "@ruukoto/core/history.ts";
+import { EventFlow } from "@ruukoto/view/event-flow.ts";
 import { FRAGMENT_TEXT_CAP } from "@ruukoto/core/views.ts";
 import type { PersistentEvent, Task } from "@ruukoto/core/types.ts";
 import type { TaskEventsPage } from "@ruukoto/control/protocol.ts";
@@ -18,6 +19,7 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 test("真实 SDK 事件：多段思考、Edit 统计、完整 UTF-8 增量分页与中断预览", async () => {
   const { dirs, work } = await makeTestDirs("flow", 1);
   const fullText = "开头：" + "汉🙂".repeat(48_000) + "结尾";
+  const fullThought = "思考开头" + "汉🙂\x01".repeat(150_000) + "思考结尾";
   const source = "old\nkeep\n";
   fs.writeFileSync(path.join(work[0]!, "answer.txt"), source);
   let cancelRequestSeen = false;
@@ -49,8 +51,10 @@ test("真实 SDK 事件：多段思考、Edit 统计、完整 UTF-8 增量分页
       await sleep(600);
     } else if (!toolDone) {
       firstReasoningSentAt = Date.now();
-      send({ reasoning_content: "检查文件" });
+      send({ reasoning_content: "检查文件\ud83d" });
       await sleep(280);
+      send({ reasoning_content: "\ude42" });
+      send({ reasoning_content: fullThought });
       send({ reasoning_content: "，准备修改" });
       send({ tool_calls: [{ index: 0, id: "edit-1", type: "function", function: {
         name: "edit", arguments: JSON.stringify({ path: "answer.txt", edits: [{ oldText: source, newText: "new\nextra\nkeep\n" }] }),
@@ -69,7 +73,7 @@ test("真实 SDK 事件：多段思考、Edit 统计、完整 UTF-8 增量分页
   });
   await new Promise<void>((resolve) => provider.listen(0, "127.0.0.1", resolve));
   const address = provider.address() as import("node:net").AddressInfo;
-  await writeModelsJson(dirs, `http://127.0.0.1:${address.port}/v1`);
+  await writeModelsJson(dirs, `http://127.0.0.1:${address.port}/v1`, 2_000_000);
   const runtime = await Runtime.start({
     product: personalProduct.runtime,
     dataDir: dirs.dataDir, agentDir: dirs.agentDir, socketPath: path.join(dirs.root, "c.sock"),
@@ -86,7 +90,8 @@ test("真实 SDK 事件：多段思考、Edit 统计、完整 UTF-8 增量分页
     await client.handshake();
     const { sessionId } = await createProjectSession(client, work[0]!);
     const task = await client.request<Task>("submit", { session_id: sessionId, request_id: "flow-1", input: "修改文件", model_selection: selection });
-    await waitFor("任务成功", () => runtime.store.getTask(task.id)?.status === "completed", 30_000);
+    await waitFor("任务结束", () => ["completed", "failed", "interrupted"].includes(runtime.store.getTask(task.id)!.status), 30_000);
+    assert.equal(runtime.store.getTask(task.id)?.status, "completed", runtime.store.getTask(task.id)?.interruptReason ?? runtime.store.getTask(task.id)?.errorMessage ?? undefined);
     const restored: PersistentEvent[] = [];
     let after = 0;
     let pages = 0;
@@ -106,12 +111,16 @@ test("真实 SDK 事件：多段思考、Edit 统计、完整 UTF-8 增量分页
     const closed = thoughts.filter((e) => e.endedAt !== null);
     assert.equal(closed.length, 3, "工具前一段、第二轮两段思考");
     assert.equal(new Set(closed.map((e) => e.thinkingId)).size, 3);
-    assert.deepEqual(closed.map((e) => e.text), ["检查文件，准备修改", "核对结果", "继续核对"]);
+    const flow = new EventFlow(); restored.forEach(event => flow.apply(event));
+    const completeThoughts = flow.items.filter(entry => entry.kind === "thinking");
+    assert.deepEqual(completeThoughts.map(entry => entry.text), [`检查文件🙂${fullThought}，准备修改`, "核对结果", "继续核对"]);
+    assert.ok(thoughts.every(entry => Buffer.byteLength(entry.text) <= FRAGMENT_TEXT_CAP));
+    assert.ok(thoughts.every(entry => !entry.text.includes("\uFFFD")), "UTF-16代理对跨provider更新也不损坏");
     assert.equal(closed[0]!.thinkingId, thoughts[0]!.thinkingId, "公开思考沿用等待占位的身份");
     assert.ok(Date.parse(closed[0]!.startedAt) >= firstReasoningSentAt, "公开思考起点不得早于 provider 首次公开思考");
     assert.ok(Date.parse(closed[0]!.startedAt) - Date.parse(thoughts[0]!.startedAt) >= 70, "公开思考排除请求等待");
     assert.ok(Date.parse(closed[0]!.endedAt!) - Date.parse(closed[0]!.startedAt) >= 250, "明确思考本身的耗时仍被记录");
-    assert.ok(thoughts.some((e) => e.text === "检查文件，准备修改" && e.endedAt === null), "公开思考在结束前流式发出");
+    assert.ok(thoughts.some((e) => e.offset! > FRAGMENT_TEXT_CAP && e.endedAt === null), "超长公开思考在结束前流式分块发出");
     const fragments = restored.flatMap((e) => e.body.type === "task.output_fragment" ? [e.body] : []);
     const segments = new Map<number, string>();
     for (const fragment of fragments) {

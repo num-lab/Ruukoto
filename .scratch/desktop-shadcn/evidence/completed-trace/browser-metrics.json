@@ -1,0 +1,11 @@
+{
+  "animation": "animationstart:demo-collapse:radix-_r_0_;animationend:demo-collapse:radix-_r_0_;animationstart:demo-expand:radix-_r_0_;animationend:demo-expand:radix-_r_0_;",
+  "contentId": "radix-_r_0_",
+  "finalOutside": true,
+  "height": 134,
+  "lineHeight": "22.4px",
+  "overflowY": "auto",
+  "scrollHeight": 3225,
+  "theme": "",
+  "width": 231
+}

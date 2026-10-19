@@ -5,8 +5,8 @@ import remarkGfm from "remark-gfm";
 import type { FlowEntry } from "@ruukoto/view/event-flow.ts";
 import type { CodeState } from "./code-state.ts";
 import { isDiffTool, type DiffTool } from "./diff.ts";
-import { conversationActivity, isAgentTool } from "./activity.ts";
-import { AgentActivity, ToolActivity } from "./tool-activity.tsx";
+import { conversationActivity, conversationSections, executionDuration, isAgentTool } from "./activity.ts";
+import { AgentActivity, ExecutionTrace, ToolActivity } from "./tool-activity.tsx";
 import { ApprovalCards } from "./approval-cards.tsx";
 import { Bubble, BubbleContent } from "./components/ui/bubble.tsx";
 import { Message, MessageContent } from "./components/ui/message.tsx";
@@ -36,7 +36,7 @@ export function Conversation({ model, sessionId, child = false }: { model: CodeS
   const loadingOlder = useRef(false);
   const session = model.view.openSession(sessionId);
   const items = session.flow.items;
-  const { groups, phase, tools, thinking } = conversationActivity(model.view, sessionId, model.status.state === "online", items);
+  const { timeline, activeKey, phase } = conversationActivity(model.view, sessionId, model.status.state === "online", items);
   const diffTools: DiffTool[] = [];
   const references = new Map<string, { count: number; key: string }>();
   let referencesKey = "";
@@ -46,7 +46,8 @@ export function Conversation({ model, sessionId, child = false }: { model: CodeS
       referencesKey += JSON.stringify([item.key, item.entryId, item.name, item.target]);
     } else if (item.kind === "message") references.set(item.key, { count: diffTools.length, key: referencesKey });
   }
-  const executionKey = `${sessionId}:${model.view.activeTaskFor(sessionId)?.id}:execution`;
+  const taskId = model.view.activeTaskFor(sessionId)?.id;
+  const sections = conversationSections(model.view, items, timeline, phase && !activeKey && taskId ? { taskId, phase } : undefined, id => model.historyReady(sessionId, id));
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const onExpand = (key: string, open: boolean) => setExpanded(items => ({ ...items, [key]: open }));
   const older = async () => {
@@ -59,12 +60,15 @@ export function Conversation({ model, sessionId, child = false }: { model: CodeS
     const container = scroll.current!;
     if (container.scrollTop < 40) void older();
   }}><MessageScrollerContent className={`${child ? "subagent-stream" : "agent-stream"} native-message-stream selectable-text`}>
-    {groups.map(group => {
-      const entry = group[0];
-      const content = entry.kind === "message" ? <MessageEntry model={model} sessionId={sessionId} entry={entry} child={child} tools={diffTools} toolCount={references.get(entry.key)!.count} referencesKey={references.get(entry.key)!.key} />  : entry.kind === "tool" || entry.kind === "thinking" ? entry.kind === "tool" && isAgentTool(entry) && entry.status !== "error" && entry.status !== "effect_unknown" ? <AgentActivity model={model} tool={entry} /> : <ToolActivity model={model} sessionId={sessionId} tools={group.filter((item): item is DiffTool => item.kind === "tool")} thinking={group.find((item): item is Extract<FlowEntry, { kind: "thinking" }> => item.kind === "thinking")} stateKey={entry.key} expanded={expanded} onExpand={onExpand} /> : entry.kind === "task" && entry.task.errorMessage ? <p className="text-muted-foreground" role="alert">{entry.task.errorMessage}</p> : null;
-      return content && <MessageScrollerItem key={entry.key} messageId={entry.key} className={entry.kind === "tool" || entry.kind === "thinking" ? "trace-step" : undefined}>{content}</MessageScrollerItem>;
+    {sections.map(section => {
+      const contents = section.groups.map(group => {
+        const entry = group[0];
+        return <Fragment key={entry.key}>{entry.kind === "message" ? <MessageEntry model={model} sessionId={sessionId} entry={entry} child={child} tools={diffTools} toolCount={references.get(entry.key)!.count} referencesKey={references.get(entry.key)!.key} /> : entry.kind === "tool" || entry.kind === "thinking" ? entry.kind === "tool" && isAgentTool(entry) && entry.status !== "error" && entry.status !== "effect_unknown" && entry.key !== activeKey ? <AgentActivity model={model} tool={entry} /> : <ToolActivity model={model} sessionId={sessionId} tools={group.filter((item): item is DiffTool => item.kind === "tool")} thinking={group.find((item): item is Extract<FlowEntry, { kind: "thinking" }> => item.kind === "thinking")} phase={entry.key === activeKey ? phase : undefined} expanded={expanded} onExpand={onExpand} /> : entry.kind === "task" && entry.task.errorMessage ? <p className="text-muted-foreground" role="alert">{entry.task.errorMessage}</p> : null}</Fragment>;
+      });
+      const hasTrace = section.tailPhase || section.groups.some(group => group[0].kind === "tool" || group[0].kind === "thinking");
+      const failed = section.groups.some(group => group.some(item => item.kind === "tool" && (item.status === "error" || model.inspector.toolResult(sessionId, item)?.value?.isError === true)));
+      return <MessageScrollerItem key={section.key} messageId={section.key} className={hasTrace ? "trace-step" : undefined}>{hasTrace ? <ExecutionTrace stateKey={`${sessionId}:${section.key}`} completed={section.completed} failed={failed} duration={executionDuration(model.view.tasks.get(section.taskId ?? "")?.startedAt, model.view.tasks.get(section.taskId ?? "")?.endedAt)} expanded={expanded} onExpand={onExpand}>{contents}{section.tailPhase && <ToolActivity model={model} sessionId={sessionId} tools={[]} phase={section.tailPhase} expanded={expanded} onExpand={onExpand} />}</ExecutionTrace> : contents}</MessageScrollerItem>;
     })}
     <ApprovalCards model={model} sessionId={sessionId} />
-    {phase && <MessageScrollerItem key={executionKey} messageId={executionKey} className="trace-step"><ToolActivity model={model} sessionId={sessionId} tools={tools} thinking={thinking} phase={phase} stateKey={executionKey} expanded={expanded} onExpand={onExpand} /></MessageScrollerItem>}
   </MessageScrollerContent></MessageScrollerViewport>{items.length === 0 && !child && !session.historyLoaded && <div className="new-session-empty pointer-events-none absolute inset-x-6 top-3" role="status">正在加载会话…</div>}</MessageScroller></MessageScrollerProvider>;
 }

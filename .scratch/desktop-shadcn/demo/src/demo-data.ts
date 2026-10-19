@@ -4,7 +4,7 @@ import referenceData from "./reference-data.json";
 export type ActivityItem = { action: string; file: string; note?: string; openTab?: string; diffFile?: string; stat?: string; command?: string; output?: string; error?: string; diff?: Diff; status?: "running" };
 export type Step =
   | { type: "user" | "prose"; text: string }
-  | { type: "activity"; summary: string; duration: string; expanded: boolean; items: ActivityItem[]; thinking?: { text: string; duration: string }; phase?: "thinking" | "working" }
+  | { type: "activity"; id?: string; summary: string; duration: string; expanded: boolean; items: ActivityItem[]; thinking?: { text: string; duration: string }; phase?: "thinking" | "working" }
   | { type: "command"; id: string; status: string; command: string; note: string; output: string };
 export type Subagent = { id: string; name: string; role: string; status: string; duration: string; task: string; steps: Step[] };
 export type Diff = { file: string; fullPath: string; add: number; del: number; lines: { type: string; no: number; code: string }[] };
@@ -18,12 +18,13 @@ export type RightTab = { id: string; title: string } & (
   | { type: "file"; objectId: string; mode: "preview" | "source" }
   | { type: "browser"; navigation: BrowserNavigation }
 );
-export type Scenario = "normal" | "tool-details" | "running" | "working" | "paused" | "pending" | "offline" | "diff-error" | "diff-empty" | "diff-truncated";
+export type Scenario = "normal" | "completed" | "tool-details" | "running" | "working" | "paused" | "pending" | "offline" | "diff-error" | "diff-empty" | "diff-truncated";
 export const scenarios: { value: Scenario; label: string }[] = [
   { value: "normal", label: "默认对话与审批" },
+  { value: "completed", label: "任务完成 · 执行记录收起" },
   { value: "tool-details", label: "工具详情与错误" },
   { value: "running", label: "任务执行中 · Thinking" },
-  { value: "working", label: "工具调用中 · Working" },
+  { value: "working", label: "工具调用中" },
   { value: "paused", label: "队列已暂停" },
   { value: "pending", label: "输入接收结果待核实" },
   { value: "offline", label: "连接失败" },
@@ -62,7 +63,7 @@ export function executionPreview(session: Session, phase: "thinking" | "working"
     ...(diff ? [{ action: "Edited", file: diff.fullPath, diffFile: diff.fullPath, stat: `+${diff.add} -${diff.del}` }] : []),
     { action: "Bash", file: "pnpm test:unit", command: "pnpm test:unit", output: "RUN  Unit tests", status: "running" },
   ] : [];
-  return [...session.steps.filter(step => step.type !== "command" || step.status !== "pending"), { type: "activity", phase, summary: "", thinking: { text: "演示内容：正在检查缓存读取与重连同步的实现。", duration: "5s" }, duration: "", expanded: true, items }];
+  return [...session.steps.filter(step => step.type !== "command" || step.status !== "pending"), { type: "activity", id: "execution", phase, summary: "", thinking: { text: "演示内容：正在检查缓存读取与重连同步的实现。", duration: "5s" }, duration: "", expanded: true, items }];
 }
 
 export function completeSubmission(session: Session, pending: PendingSubmission): Session {

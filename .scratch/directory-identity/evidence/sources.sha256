@@ -1,0 +1,9 @@
+ef5c07f71a3cf51682477927ca8b66f8d85b03b445668f9fb4e6bd1254b23d7e  packages/core/src/dir-identity.ts
+e32720561ebdc7cf957da98d07096c9a35e6d77aa9818c02cc760889570ead87  packages/agent/src/tool-router.ts
+7759981287844c03785548187c4ecfdd30edfdc0d93d14b79b7ef274a0700235  packages/runtime/src/runtime.ts
+ff96ca2c86f840f36020df31bfb4814eb1ff71f85e112eb1792e7798b2f9f3c7  test/dir-identity.test.ts
+55a0509c428dd7eea3ebba3bfafe9e544ae2a21f30899afb1526268ff9336e69  docs/modules/core.md
+ff4193d7121e1db118899591b6071cd95ea8a50476b82db1e9100a27a48f2374  docs/modules/execution.md
+5bf6d9e8d6c72f4b34a7c3fd2168f348f46fe3ea2a34ea68d5ef90d6eb32f0cf  docs/modules/runtime.md
+30606255fe52f847d9a8f5f6a308506d645ce8a1c4fe299a2ae92a5ef71a8596  .agents/notes/implemented/bug-fix/2026-10-18-directory-device-number.md
+264e7baf9e01c29bea426b1f3b9b17ceeab8197ae42ab97963757cfab9395db7  .agents/notes/implemented/architecture/2026-10-10-native-execution-sandbox.md

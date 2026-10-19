@@ -16,17 +16,17 @@ export async function checkToolActivity(server) {
   const render = (step, expanded = {}) => renderToStaticMarkup(createElement(ToolActivity, { step, diffs: session.diffs, stateKey: "session:main:1", expanded, onExpand() {}, onOpenFile() {}, onOpenAgent() {} }));
   const openKeys = Object.fromEntries(activity.items.map((_, index) => [`session:main:1:tool:${index}`, true]));
   const closedGroup = render({ ...activity, expanded: false });
-  assert.ok(closedGroup.includes("2 failed · Read files, ran commands, edited files, wrote files"), "收起分组仍显示失败数与实际操作摘要");
+  assert.ok(!closedGroup.includes("Read files") && closedGroup.includes("Failed to run") && closedGroup.includes("Read <a"), "工具平铺展示，无摘要折叠层");
   assert.ok(closedGroup.includes('data-status="error"'));
   assert.ok(!closedGroup.includes("ERR_PNPM_OUTDATED_LOCKFILE"), "收起的详情不进入初始 DOM");
 
   const read = { type: "activity", duration: "1s", expanded: true, items: [{ action: "Read", file: "src/example.ts", note: "lines 1–88" }] };
   const readHtml = render(read);
-  assert.equal((readHtml.match(/data-slot="trace-collapsible-trigger"/g) ?? []).length, 1, "Read 只有父分组折叠，没有单条详情 trigger");
+  assert.equal((readHtml.match(/data-slot="trace-collapsible-trigger"/g) ?? []).length, 0, "Read 平铺且没有详情 trigger");
   assert.ok(readHtml.includes('aria-label="打开文件 src/example.ts"') && readHtml.includes('href="#right-sidebar"'));
   assert.ok(!readHtml.includes("lines 1–88") && !readHtml.includes('disabled=""'), "Read 路径可操作，不显示行范围");
   const failedRead = render({ ...read, items: [{ action: "Read", file: "missing.ts", error: "ENOENT <script>alert(1)</script>" }] });
-  assert.equal((failedRead.match(/data-slot="trace-collapsible-trigger"/g) ?? []).length, 1, "失败 Read 也不展开");
+  assert.equal((failedRead.match(/data-slot="trace-collapsible-trigger"/g) ?? []).length, 0, "失败 Read 也不展开");
   assert.ok(failedRead.includes("Failed to read") && failedRead.includes('data-variant="destructive"'));
   assert.ok(failedRead.includes("ENOENT &lt;script&gt;") && !failedRead.includes("<script>"), "Read 错误直接展示并转义");
 
@@ -37,6 +37,7 @@ export async function checkToolActivity(server) {
   assert.ok(all.includes("Keep the lockfile in sync with package.json."), "Write 展示自己的新增行");
   assert.ok(all.includes("$ pnpm --version\n10.18.0") && all.includes("$ pnpm install --frozen-lockfile\nERR_PNPM_OUTDATED_LOCKFILE"), "Bash 成功与失败均显示完整命令和结果");
   assert.ok(all.includes("Failed to run") && all.includes("Failed to read"));
+  for (const name of ["file-text", "file-pen-line", "file-plus2", "terminal", "circle-alert"]) assert.ok(all.includes(`lucide-${name}`), `工具与失败图标：${name}`);
 
   for (const action of ["Edit", "Edited", "Write"]) {
     const key = { "session:main:1:tool:0": true };
@@ -71,16 +72,18 @@ export async function checkToolActivity(server) {
   assert.ok(thinkingHtml.includes('role="status">Thinking') && thinkingHtml.includes("lucide-loader-circle") && thinkingHtml.includes("animate-spin"));
   assert.ok(!thinkingHtml.includes('data-slot="trace-collapsible-trigger"') && !thinkingHtml.includes("Thought for"), "Thinking 内容直接显示，不生成 Thought 折叠行");
   assert.ok(thinkingHtml.includes(thinkingSteps.at(-1).thinking.text));
+  assert.ok(thinkingHtml.includes('role="region" aria-label="思考内容"') && thinkingHtml.includes('tabindex="0"'), "思考内容支持独立键盘滚动");
   const reasoningHtml = render(activity, { ...openKeys, "session:main:1:reasoning": true });
   assert.ok(reasoningHtml.indexOf("Thought for 5s") < reasoningHtml.indexOf("Read <a"));
   assert.equal(reasoningHtml.split(activity.thinking.text).length - 1, 1);
   const working = workingSteps.at(-1);
   const workingHtml = render(working);
-  assert.ok(workingHtml.includes('role="status">Working') && workingHtml.includes('aria-expanded="true"'), "Working 默认显示调用行");
-  assert.ok(workingHtml.includes('aria-label="Working"') && workingHtml.includes('aria-label="Running pnpm test:unit"'), "运行中展开入口有稳定可访问名称");
+  assert.ok(!workingHtml.includes("Working") && workingHtml.includes("Running"), "工具执行时直接显示调用行，不显示 Working 标题");
+  assert.ok(workingHtml.includes('aria-label="Running pnpm test:unit"'), "单条运行中调用仍可展开");
   assert.ok(workingHtml.includes("Read") && workingHtml.includes("Edited") && workingHtml.includes("Running") && workingHtml.includes("pnpm test:unit"), "完成与进行中的调用同时显示");
-  assert.equal((workingHtml.match(/lucide-loader-circle/g) ?? []).length, 2, "Working 与进行中工具各显示旋转环");
-  assert.equal((workingHtml.match(/lucide-circle-check/g) ?? []).length, 3, "reasoning 和完成工具保留勾选标识");
+  assert.equal((workingHtml.match(/lucide-loader-circle/g) ?? []).length, 1, "只在进行中工具显示旋转环");
+  for (const name of ["brain", "file-text", "file-pen-line"]) assert.ok(workingHtml.includes(`lucide-${name}`), `reasoning 与完成工具使用各自动作图标：${name}`);
+  assert.ok(!workingHtml.includes("lucide-circle-check"), "不再用统一勾选代表工具动作");
   const workingDetails = render(working, { "session:main:1:tool:2": true });
   assert.ok(workingDetails.includes("$ pnpm test:unit\nRUN  Unit tests"), "运行中 Bash 可查看命令和已有部分输出");
   for (const action of ["Read", "Edit", "Write"]) {
@@ -91,7 +94,7 @@ export async function checkToolActivity(server) {
   const recordedDiff = render({ ...read, items: [{ action: "Edit", file: "partial.ts", status: "running", diff: session.diffs[0] }] }, { "session:main:1:tool:0": true });
   assert.ok(recordedDiff.includes('data-slot="code-block-line"'), "进行中已记录的部分差异可查看");
   const failedWorking = render({ ...working, items: [{ action: "Bash", file: "pnpm test", error: "Test failed" }] });
-  assert.ok(failedWorking.includes('aria-label="Working · 1 failed"'), "Working 关闭时可访问名称仍报告失败数");
+  assert.ok(failedWorking.includes("Failed to run") && failedWorking.includes('data-status="error"'), "平铺 Working 保留失败工具的红色状态");
   const interrupted = render({ ...read, items: [{ action: "Bash", file: "pnpm test", status: "running", error: "Process exited: 1" }] }, { "session:main:1:tool:0": true });
   assert.ok(interrupted.includes("Failed to run") && interrupted.includes("Process exited: 1") && !interrupted.includes("lucide-loader-circle"), "错误状态优先于过期 running 标记");
 }

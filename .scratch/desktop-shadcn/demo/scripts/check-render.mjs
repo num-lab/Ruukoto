@@ -129,6 +129,7 @@ try {
   assert.ok(!scenarios.some(item => item.value === "unknown"), "移除未知操作预览入口");
   Object.defineProperty(globalThis, "window", { value: { innerWidth: 1160 }, configurable: true });
   const html = renderToStaticMarkup(createElement(App));
+  assert.match(html, /class="desktop-backdrop" inert="" aria-busy="true"/, "启动连接时底层先隔离，Portal 交互与退出由浏览器检查");
   const personalEntry = html.match(/<button\b[^>]*class="[^"]*personal-row[^>]*>Ruukoto<\/button>/)?.[0];
   assert.ok(personalEntry?.includes('type="button"'), "工作区上方提供独立 Ruukoto 按钮");
   assert.ok(html.indexOf(personalEntry) < html.indexOf('class="projects-heading"'), "Ruukoto 行位于工作区标题上方");
@@ -198,10 +199,9 @@ try {
   }
   const referenceDetails = renderToStaticMarkup(createElement(ContextDetails, { context: { usedTokens: 18700, maxTokens: 1000000, systemTokens: 1500, toolTokens: 5300 } }));
   assert.ok(referenceDetails.includes("2%") && referenceDetails.includes("18.7K") && referenceDetails.includes("1M") && referenceDetails.includes("11.9K"), "详情使用紧凑约数格式，百分比四舍五入");
-  assert.ok(!html.includes("Thought for") && !html.includes("思考过程"), "消息流不再显示思维链");
+  assert.ok(html.includes("Thought for") && !html.includes("思考过程"), "历史思考单独平铺，可展开正文");
   const toolTriggers = [...html.matchAll(/<button\b[^>]*data-slot="trace-collapsible-trigger"[^>]*>[\s\S]*?<\/button>/g)].map(match => match[0]).filter(button => button.includes("Read files"));
-  assert.equal(toolTriggers.length, 2, "主／子消息流均应保留工具摘要");
-  assert.ok(toolTriggers.every(button => button.includes("lucide-wrench") && button.indexOf("lucide-wrench") < button.indexOf("Read files")), "工具摘要前应有扳手图标");
+  assert.equal(toolTriggers.length, 0, "主／子消息流均取消工具摘要分组");
   for (const slot of ["message-scroller", "message-scroller-viewport", "message-scroller-content", "message-scroller-item", "message", "message-content", "bubble", "bubble-content", "trace", "trace-line", "trace-collapsible", "item", "item-actions"]) {
     assert.ok(html.includes(`data-slot="${slot}"`), `消息流未接入官方 ${slot} 组件`);
   }
@@ -210,7 +210,7 @@ try {
   for (const expected of ["工作区导航", "命令审批", "输入消息", "检查器", "Schema Auditor", "indexeddb.ts", "data-slot=\"tabs-trigger\""]) {
     assert.ok(html.includes(expected), `首屏缺少 ${expected}`);
   }
-  assert.ok(html.includes("Read files, edited files"), "首屏摘要应包含读取和编辑，不显示未发生的命令和写入");
+  assert.ok(html.includes("Read <a") && html.includes("Edited <code>"), "首屏直接显示读取和编辑调用");
   assert.ok(!html.includes("查看完整参数后决定"), "审批不再要求先展开参数");
   assert.ok(!html.includes('aria-label="新建会话"'), "顶部新建会话按钮应移除");
   assert.ok(html.includes('aria-label="附加文件"'), "输入区应有附件入口");

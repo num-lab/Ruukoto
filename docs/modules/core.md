@@ -34,7 +34,7 @@
 | control、Runtime | `Db.tx` / `Store.withTx` | 单事务写入；`Db.tx` 不能嵌套 |
 | Runtime | `acquireInstanceLock(dataDir)`、`acquireConfigLock(agentDir)`（`packages/core/src/instance-lock.ts`） | 获取 `<dataDir>/runtime.lock/` 与 `<agentDir>/config.lock/` |
 | control | `packages/core/src/history.ts` 的 `readHistoryPage` / `readHistoryEntryText` / `readToolResult` | pi JSONL 的分页与分段只读读取；`history_index` 由 `packages/core/src/history-index.ts` 维护与检索 |
-| control、Runtime、execution | `packages/core/src/dir-identity.ts` 的 `resolveDirIdentity` / `verifyDirIdentity` / `sameDirIdentity` | 目录身份：`realpath` 规范化加 `dev`／`ino` |
+| control、Runtime、execution | `packages/core/src/dir-identity.ts` 的 `resolveDirIdentity` / `verifyDirIdentity` / `sameDirIdentity` | 目录身份解析、登记路径/inode 复核与物理别名判定 |
 | Runtime、control | `PRODUCT_META_KEY` 与 `packages/core/src/product.ts` 的产品解析 | 产品归属的 meta 键与 `RUUKOTO_PRODUCT` 解析 |
 | view、后台任务管理 | `ACTIVE_TASK_STATUSES` / `TERMINAL_TASK_STATUSES`（`packages/core/src/task-status.ts`） | 浏览器可用的活动与终态任务状态常量，`types.ts` 同时再导出 |
 
@@ -230,9 +230,13 @@ SubAgent 行优先于角色与类别，所以子会话不会被误判成 main �
 
 画像由此产出会话类别（`toolClass`，决定工具类别表与系统提示键）、SubAgent 工具集（只读 / 写入 / 宿主评审）、是否规划 MCP、是否资料受限与计划资格，以及 `toolSignature`。已退役归档会话求画像时明确报错「已退役的只读归档不运行任务」。
 
+### 思考事件
+
+`task.thinking` 用 thinkingId 固定阶段，新事件的 text 是 offset 指定的 UTF-8 增量，每块最多 8 KiB，完整内容不截断；旧无 offset 事件仍表示快照。阶段结束允许空增量，后台异常终态复制最后一块收束，消费方按偏移幂等处理。
+
 ### 目录身份
 
-`dev` 加 `ino` 与 `realpath` 一起构成目录身份，覆盖符号链接与挂载别名：`sameDirIdentity` 在 `cwdReal` 相同或 `dev` / `ino` 相同时判为同一目录。`verifyDirIdentity` 与同步变体在任务启动前与占用检查时核对登记值，不一致抛 `DirIdentityError`。
+目录身份记录 `realpath`、`dev` 与 `ino`。`sameDirIdentity` 在 `cwdReal` 相同或 `dev` / `ino` 相同时判为同一目录，覆盖符号链接与挂载别名。`verifyDirIdentity` 与同步变体只核对登记的真实路径和 inode，设备号变化不使目录失效；成功返回本次身份供普通任务占用和启动使用，不改写登记值。目录消失、非目录或路径/inode 不一致抛 `DirIdentityError`。
 
 ### 入站图片暂存
 
@@ -344,7 +348,7 @@ sequenceDiagram
 
 **目录与锁。**
 
-- 目录身份是 `realpath` 加 `dev` / `ino`；不一致抛 `DirIdentityError`，不按同名或别名合并目录。
+- 登记目录按真实路径与 inode 复核，不按设备号变化判失效；物理别名仍按 dev/ino 判定，不按同名合并目录。
 - 锁用 `mkdir` 原子创建；无法核实持锁进程身份时保留锁并要求人工处理，不做静默删除。实例锁与配置锁的持有者身份判据相同。
 - 同一数据目录已归属另一产品时以 `product_mismatch` 明确拒绝，并释放已取得的锁；不跨产品串用配置、数据与控制面。
 - 数据目录、`agentDir`、`sessions/`、`artifacts/`、`inbound-media/`、`migration/<导入ID>/` 均按 0700 创建，锁与凭据按更严的权限落盘；`inbound-media/` 拒绝符号链接。
@@ -360,6 +364,10 @@ sequenceDiagram
 工作流来源固定实际能力、资料授权 ID、配置摘要和工作区身份；步骤保存冻结补丁产物与独立验证记录，详情见[工作流](workflows.md)。资料读取可携带宿主固定的授权 ID 集合，与当前未撤销授权求交；新增授权不扩大旧运行。
 
 ## 设计依据
+
+- [完整思考与文件预览](../../.agents/notes/implemented/feature/2026-10-18-complete-reasoning-and-preview.md)
+
+- [登记目录不按设备号变化失效](../../.agents/notes/implemented/bug-fix/2026-10-18-directory-device-number.md)
 
 - [共享角色与工作流接口版本](../../.agents/notes/implemented/architecture/2026-10-15-workflow-role-interface.md)
 

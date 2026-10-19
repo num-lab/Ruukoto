@@ -1,0 +1,51 @@
+{
+  "initial": {
+    "background": "oklch(0.145 0 0 / 0.86)",
+    "focusInDialog": true,
+    "height": 720,
+    "isolated": true,
+    "loading": true,
+    "sidebar": "true",
+    "viewportHeight": 720,
+    "viewportWidth": 1280,
+    "width": 1280
+  },
+  "ready": {
+    "focus": "输入消息",
+    "isolated": false,
+    "loading": false
+  },
+  "replay": {
+    "focusInDialog": true,
+    "isolated": true,
+    "loading": true,
+    "settingsOpen": false
+  },
+  "exiting": {
+    "animation": "connection-fade-out",
+    "isolated": true,
+    "state": "closed"
+  },
+  "afterExit": {
+    "isolated": false,
+    "light": true
+  },
+  "light": {
+    "background": "oklch(1 0 0 / 0.86)",
+    "light": true,
+    "loading": true,
+    "overflow": false,
+    "viewport": 629,
+    "width": 629
+  },
+  "lightReady": {
+    "focus": "输入消息",
+    "isolated": false,
+    "width": 629
+  },
+  "exitShortcut": {
+    "isolated": true,
+    "sidebar": "true",
+    "state": "closed"
+  }
+}

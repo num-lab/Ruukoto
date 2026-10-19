@@ -19,6 +19,7 @@ import { Type } from "typebox";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { AccessMode, ApprovalScope, GrantedPath, Session, Task, Artifact } from "@ruukoto/core/types.ts";
 import { GIT_SAFE_DIRECTORY_ENV, taskWorkspaceFor } from "@ruukoto/core/worktree.ts";
+import { verifyDirIdentitySync } from "@ruukoto/core/dir-identity.ts";
 import type { Store } from "@ruukoto/core/store.ts";
 import type { ApprovalGate } from "./approval-gate.ts";
 import { hasNoWriteEffect, type ToolOpLedger } from "./tool-op-ledger.ts";
@@ -213,7 +214,9 @@ export class ToolRouter {
     }
     // Note: 见 .agents/notes/implemented/architecture/2026-10-10-native-execution-sandbox.md
     // Note: 见 .agents/notes/implemented/architecture/2026-10-12-personal-native-sandbox.md
-    base.workspaceIdentity = { dev: ws.dev, ino: ws.ino };
+    // Note: 见 .agents/notes/implemented/bug-fix/2026-10-18-directory-device-number.md
+    const currentWorkspace = verifyDirIdentitySync({ cwd: ws.path, cwdReal: ws.path, dev: ws.dev, ino: ws.ino });
+    base.workspaceIdentity = { dev: currentWorkspace.dev, ino: currentWorkspace.ino };
     const readRoots: Array<{ path: string; dev?: number; ino?: number }> = [];
     for (const root of protectedSource) {
       const st = fs.statSync(root);

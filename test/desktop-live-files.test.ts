@@ -11,21 +11,22 @@ import react from "@vitejs/plugin-react";
 import { resolveDirIdentitySync } from "@ruukoto/core/dir-identity.ts";
 import type { Project, Session } from "@ruukoto/core/types.ts";
 import type { OpParams, OpResult, TuiOp } from "@ruukoto/control/ops.ts";
-import { listWorkspaceFiles } from "@ruukoto/runtime/workspace-files.ts";
+import { listWorkspaceFiles, readWorkspaceFile } from "@ruukoto/runtime/workspace-files.ts";
 import { CodeState } from "../apps/desktop/src/renderer/code-state.ts";
 import type { DiffTool } from "../apps/desktop/src/renderer/diff.ts";
 import { handleRequest, ipcResult } from "../apps/desktop/src/main/ipc.ts";
 import { startFilesRefresh } from "../apps/desktop/src/renderer/files-refresh.ts";
-import { READ_SNAPSHOT_BYTES, readSnapshotFile } from "../apps/desktop/src/renderer/read-snapshot.ts";
+import { FILE_PAGE_BYTES, readSnapshotFile } from "../apps/desktop/src/renderer/read-snapshot.ts";
 import type { InspectorTab } from "../apps/desktop/src/renderer/inspector.ts";
 import { FakeTransport, fakeSnapshot, type FakeHandlers } from "./helpers/fake-control.ts";
+import { waitFor } from "./helpers/testkit.ts";
 
 const at = "2026-10-17T00:00:00Z";
 const session: Session = { id: "session", projectId: "workspace", kind: "dev", workspaceProjectId: null, name: null, branchSource: null, cwd: "/work", cwdReal: "/work", cwdDev: 1, cwdIno: 1, piSessionId: "s", sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: null, modelSelectionVersion: 0, defaultAccessMode: "confirm", defaultAccessModeVersion: 0, queueState: "active", queuePauseReason: null, createdAt: at };
 function harness(root: string, handlers: FakeHandlers = {}) {
   const identity = resolveDirIdentitySync(root);
   const project: Project = { id: "workspace", name: "工作区", rootDir: identity, createRequestId: null, instructionFiles: [], webSearch: "enabled", settingsVersion: 1, createdAt: at };
-  const transport = new FakeTransport({ handlers: { work_list: () => ({ works: [] }), list_workspace_files: params => listWorkspaceFiles(params.workspace_id, identity, params.path ?? "", []), ...handlers } });
+  const transport = new FakeTransport({ handlers: { work_list: () => ({ works: [] }), list_workspace_files: params => listWorkspaceFiles(params.workspace_id, identity, params.path ?? "", []), read_workspace_file: params => readWorkspaceFile(params.workspace_id, identity, params.path, [], params), ...handlers } });
   const model = new CodeState({ request: (_target, op, params) => ipcResult(() => transport.request(op as TuiOp, params as OpParams<TuiOp>)) }, () => {});
   model.view.applySnapshot({ snapshot: fakeSnapshot({ projects: [project], sessions: [{ ...session, cwd: identity.cwdReal, cwdReal: identity.cwdReal }] }), replay: [], seq: 0 }, false);
   model.status = { type: "state", state: "online" };
@@ -38,9 +39,32 @@ function fixture() {
   return { parent, root, close: () => fs.rmSync(parent, { recursive: true, force: true }) };
 }
 const settle = () => new Promise(resolve => setTimeout(resolve, 0));
+
+for (const source of ["snapshot", "workspace"] as const) for (const format of ["image", "text"] as const) test(`${source}${format}转换内存失败可见且可重试`, async context => {
+  const kit = fixture();
+  try {
+    const data = format === "image" ? Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]) : Buffer.from("合法文本");
+    const name = format === "image" ? "image.png" : "text.txt";
+    fs.writeFileSync(path.join(kit.root, name), data);
+    const h = harness(kit.root, { read_artifact: () => captured(data) });
+    if (format === "image") context.mock.method(globalThis, "btoa", () => { throw new RangeError("模拟图片转换内存限制"); });
+    else {
+      const decode = TextDecoder.prototype.decode;
+      context.mock.method(TextDecoder.prototype, "decode", function(this: TextDecoder, ...args: Parameters<TextDecoder["decode"]>) { if (this.fatal) throw new RangeError("模拟文本解码内存限制"); return decode.apply(this, args); });
+    }
+    if (source === "snapshot") { await h.inspector.openToolFile(session.id, readTool(`/tmp/${name}`)); await settle(); }
+    else { h.inspector.openFile("workspace", name); await settle(); }
+    const tab = h.inspector.activeTab()!;
+    const failed = source === "snapshot" ? h.inspector.snapshots.get(tab.id) : h.inspector.files.get(`workspace:${name}`);
+    assert.equal(failed?.loading, false); assert.match(failed?.error ?? "", /内存/);
+    context.mock.restoreAll();
+    if (tab.kind === "read-snapshot") { await h.inspector.loadReadSnapshot(tab, true); assert.equal(h.inspector.snapshots.get(tab.id)?.file?.kind, format); }
+    else { await h.inspector.loadFile("workspace", name, true); assert.equal(h.inspector.files.get(`workspace:${name}`)?.value?.kind, format); }
+  } finally { kit.close(); }
+});
 const readTool = (path: string, extra: Partial<DiffTool> = {}): DiffTool => ({ kind: "tool", key: "read", name: "read", target: path, params: { path }, paramsTruncated: false, status: "done", entryId: "entry", taskId: "task", toolOpId: "op", toolCallId: "sdk", at, seq: 1, summary: null, artifactIds: ["artifact"], ...extra });
-function captured(bytes: Buffer, extra: Partial<OpResult<"read_artifact">["artifact"]> = {}): OpResult<"read_artifact"> {
-  return { artifact: { id: "artifact", taskId: "task", sessionId: session.id, name: "展示名称可更改", byteCount: bytes.length, status: "complete", createdAt: at, ...extra }, encoding: "base64", data: bytes.subarray(0, READ_SNAPSHOT_BYTES).toString("base64") };
+function captured(bytes: Buffer, extra: Partial<OpResult<"read_artifact">["artifact"]> = {}, offset = 0): OpResult<"read_artifact"> {
+  return { artifact: { id: "artifact", taskId: "task", sessionId: session.id, name: "展示名称可更改", byteCount: bytes.length, status: "complete", createdAt: at, ...extra }, encoding: "base64", data: bytes.subarray(offset, offset + FILE_PAGE_BYTES).toString("base64") };
 }
 function gate() { let release!: () => void; return { wait: new Promise<void>(resolve => { release = resolve; }), release: () => release() }; }
 class RefreshHost extends EventTarget {
@@ -110,7 +134,7 @@ test("刷新保留成功树，在途focus不重复；失败可重试，删除使
     fs.writeFileSync(path.join(kit.root, "old.txt"), "old"); const blocked = gate(); let wait = false, fail = false;
     const h = harness(kit.root, { list_workspace_files: async params => { if (wait) await blocked.wait; if (fail) throw new Error("刷新失败"); return listWorkspaceFiles(params.workspace_id, resolveDirIdentitySync(kit.root), params.path ?? "", []); } });
     h.inspector.openFiles(); await settle(); await h.inspector.refreshDirectories("workspace");
-    h.inspector.files.set("workspace:old.txt", { loading: false, value: { workspaceId: "workspace", path: "old.txt", kind: "text", content: "old", size: 3 } });
+    h.inspector.files.set("workspace:old.txt", { loading: false, value: { path: "old.txt", kind: "text", content: "old", size: 3 } });
     const host = new RefreshHost(); wait = true; const stop = startFilesRefresh(h.inspector, "workspace", host);
     const count = h.transport.requests.length;
     host.dispatchEvent(new Event("focus")); host.dispatchEvent(new Event("focus"));
@@ -176,22 +200,89 @@ test("只接受成功canonical Read的唯一捕获，空文件无捕获和多义
   } finally { kit.close(); }
 });
 
-test("快照读取有界，partial与截断可见；关闭/离线丢弃迟到内容", async () => {
+test("Read捕获与工作区文件超过256KiB仍展示完整正文，中文跨页不损坏", async () => {
   const kit = fixture();
   try {
-    const bytes = Buffer.from("中".repeat(READ_SNAPSHOT_BYTES));
-    const h = harness(kit.root, { read_artifact: () => captured(bytes, { status: "partial" }) });
-    assert.equal(await h.inspector.openToolFile(session.id, readTool("/tmp/large.ts")), true); await settle();
-    const active = h.inspector.activeTab()!, state = h.inspector.snapshots.get(active.id);
-    assert.equal(state?.partial, true); assert.equal(state?.truncated, true);
-    assert.equal(state?.file?.kind === "text" && Buffer.byteLength(state.file.content), READ_SNAPSHOT_BYTES - 1);
-    assert.equal((h.transport.requests.find(request => request.op === "read_artifact")!.params as OpParams<"read_artifact">).length, READ_SNAPSHOT_BYTES);
-    for (const action of ["close", "offline"] as const) {
-      const blocked = gate(), late = harness(kit.root, { read_artifact: async () => { await blocked.wait; return captured(Buffer.from("old")); } });
-      await late.inspector.openToolFile(session.id, readTool("/tmp/late.txt")); const id = late.inspector.activeTab()!.id;
-      if (action === "close") late.inspector.closeTab(id); else late.model.update({ type: "state", state: "reconnecting" });
-      blocked.release(); await settle(); assert.equal(late.inspector.snapshots.has(id), false);
-    }
+    const content = "x".repeat(FILE_PAGE_BYTES - 1) + "中".repeat(FILE_PAGE_BYTES) + "完整末尾", bytes = Buffer.from(content);
+    const h = harness(kit.root, { read_artifact: params => captured(bytes, { status: "partial" }, params.offset) });
+    await h.inspector.openToolFile(session.id, readTool("/tmp/large.ts"));
+    await waitFor("Read捕获完整读取", () => !h.inspector.snapshots.get(h.inspector.activeTab()!.id)?.loading);
+    const snapshot = h.inspector.snapshots.get(h.inspector.activeTab()!.id)!;
+    assert.equal(snapshot.partial, true); assert.equal(snapshot.error, undefined);
+    assert.equal(snapshot.file?.kind === "text" && snapshot.file.content, content);
+    assert.deepEqual(h.transport.requests.filter(request => request.op === "read_artifact").map(request => (request.params as OpParams<"read_artifact">).offset), [0, FILE_PAGE_BYTES, FILE_PAGE_BYTES * 2, FILE_PAGE_BYTES * 3, FILE_PAGE_BYTES * 4]);
+    fs.writeFileSync(path.join(kit.root, "large.ts"), content);
+    await h.inspector.loadFile("workspace", "large.ts");
+    const current = h.inspector.files.get("workspace:large.ts")!;
+    assert.equal(current.error, undefined); assert.equal(current.value?.kind === "text" && current.value.content, content);
+    const pages = h.transport.requests.filter(request => request.op === "read_workspace_file").map(request => request.params as OpParams<"read_workspace_file">);
+    assert.equal(pages.length, 5); assert.equal(pages[0].version, undefined);
+    assert.ok(pages.slice(1).every(page => typeof page.version === "string" && page.version === pages[1].version));
+    assert.ok(pages.every(page => page.length === FILE_PAGE_BYTES));
+  } finally { kit.close(); }
+});
+
+for (const kind of ["snapshot", "workspace"] as const) for (const action of ["close", "offline"] as const) test(`${kind}后页在途时${action}不安装迟到内容或继续请求`, async () => {
+  const kit = fixture();
+  try {
+    const bytes = Buffer.from("x".repeat(FILE_PAGE_BYTES * 2 + 1)), blocked = gate(); let calls = 0;
+    fs.writeFileSync(path.join(kit.root, "late.txt"), bytes);
+    const h = harness(kit.root, {
+      read_artifact: async params => { if (++calls === 2) await blocked.wait; return captured(bytes, {}, params.offset); },
+      read_workspace_file: async params => { if (++calls === 2) await blocked.wait; return readWorkspaceFile(params.workspace_id, resolveDirIdentitySync(kit.root), params.path, [], params); },
+    });
+    if (kind === "snapshot") await h.inspector.openToolFile(session.id, readTool("/tmp/late.txt")); else h.inspector.openFile("workspace", "late.txt");
+    await waitFor("第二页已开始", () => calls === 2);
+    const id = h.inspector.activeTab()!.id;
+    if (action === "close") h.inspector.closeTab(id); else h.model.update({ type: "state", state: "reconnecting" });
+    blocked.release(); await settle();
+    assert.equal(calls, 2);
+    assert.equal(kind === "snapshot" ? h.inspector.snapshots.has(id) : h.inspector.files.has("workspace:late.txt"), false);
+  } finally { kit.close(); }
+});
+
+for (const mismatch of ["size", "status", "invalid-base64", "short-page"] as const) test(`Read捕获后页${mismatch}不展示不完整正文`, async () => {
+  const kit = fixture();
+  try {
+    const bytes = Buffer.from("x".repeat(FILE_PAGE_BYTES + 3)); let calls = 0;
+    const h = harness(kit.root, { read_artifact: params => {
+      const page = captured(bytes, {}, params.offset); calls++;
+      if (params.offset) {
+        if (mismatch === "size") page.artifact.byteCount++;
+        if (mismatch === "status") page.artifact.status = "partial";
+        if (mismatch === "invalid-base64") page.data = "%%%";
+        if (mismatch === "short-page") page.data = Buffer.from("x").toString("base64");
+      }
+      return page;
+    } });
+    await h.inspector.openToolFile(session.id, readTool("/tmp/bad-page.txt"));
+    await waitFor("后页拒绝已完成", () => !h.inspector.snapshots.get(h.inspector.activeTab()!.id)?.loading);
+    const state = h.inspector.snapshots.get(h.inspector.activeTab()!.id)!;
+    assert.equal(calls, 2); assert.ok(state.error); assert.equal(state.file, undefined);
+  } finally { kit.close(); }
+});
+
+for (const mismatch of ["size", "version", "offset", "path", "workspace", "invalid-base64", "short-page"] as const) test(`工作区文件后页${mismatch}不拼接混合版本`, async () => {
+  const kit = fixture();
+  try {
+    const bytes = Buffer.from("x".repeat(FILE_PAGE_BYTES + 3)); let calls = 0;
+    fs.writeFileSync(path.join(kit.root, "bad-page.txt"), bytes);
+    const h = harness(kit.root, { read_workspace_file: params => {
+      const page = readWorkspaceFile(params.workspace_id, resolveDirIdentitySync(kit.root), params.path, [], params); calls++;
+      if (params.offset) {
+        if (mismatch === "size") page.size++;
+        if (mismatch === "version") page.version = "other-version";
+        if (mismatch === "offset") page.offset = 0;
+        if (mismatch === "path") page.path = "other.txt";
+        if (mismatch === "workspace") page.workspaceId = "other-workspace";
+        if (mismatch === "invalid-base64") page.data = "%%%";
+        if (mismatch === "short-page") page.data = Buffer.from("x").toString("base64");
+      }
+      return page;
+    } });
+    await h.inspector.loadFile("workspace", "bad-page.txt");
+    const state = h.inspector.files.get("workspace:bad-page.txt")!;
+    assert.equal(calls, 2); assert.ok(state.error); assert.equal(state.value, undefined);
   } finally { kit.close(); }
 });
 
@@ -203,10 +294,10 @@ test("损坏的base64/长度明确报错，预览不把二进制或截断图片�
       await h.inspector.openToolFile(session.id, readTool("/tmp/bad.txt")); await settle();
       assert.ok(h.inspector.snapshots.get(h.inspector.activeTab()!.id)?.error);
     }
-    assert.equal(readSnapshotFile("/tmp/binary", new Uint8Array([0, 255]), "AP8=", 2).kind, "unsupported");
+    assert.equal(readSnapshotFile("/tmp/binary", new Uint8Array([0, 255]), 2).kind, "unsupported");
     const png = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
-    assert.equal(readSnapshotFile("/tmp/image.png", png, Buffer.from(png).toString("base64"), 9).kind, "unsupported");
-    assert.equal(readSnapshotFile("/tmp/image.png", png, Buffer.from(png).toString("base64"), 8).kind, "image");
+    assert.equal(readSnapshotFile("/tmp/image.png", png, 9).kind, "unsupported");
+    assert.equal(readSnapshotFile("/tmp/image.png", png, 8).kind, "image");
   } finally { kit.close(); }
 });
 
@@ -247,7 +338,7 @@ before(async () => {
   ({ ReadSnapshotPreview, WorkspaceFiles } = await server.ssrLoadModule("/inspector-panels.tsx"));
 });
 after(async () => { await server?.close(); });
-test("实际预览标明Read捕获/partial/上限，静默刷新不把成功树换成spinner", async () => {
+test("实际预览不显示捕获版本说明、partial紧凑提示与上限，静默刷新不把成功树换成spinner", async () => {
   const kit = fixture();
   try {
     const h = harness(kit.root, { read_artifact: () => captured(Buffer.from("const safe = '<script>';\n"), { status: "partial" }) });
@@ -255,7 +346,10 @@ test("实际预览标明Read捕获/partial/上限，静默刷新不把成功树�
     const tab = h.inspector.activeTab()!;
     assert.equal(tab.kind, "read-snapshot"); if (tab.kind !== "read-snapshot") return;
     const html = renderToStaticMarkup(createElement(ReadSnapshotPreview, { model: h.model, tab }));
-    assert.match(html, /Read 时捕获的版本.*仅捕获了部分内容/); assert.match(html, /hljs/); assert.doesNotMatch(html, /<script>/);
+    assert.doesNotMatch(html, /Read 时捕获的版本|class="file-panel-empty"/); assert.match(html, /class="file-preview-note".*仅捕获了部分内容/);
+    const snapshot = h.inspector.snapshots.get(tab.id)!; snapshot.partial = false;
+    const complete = renderToStaticMarkup(createElement(ReadSnapshotPreview, { model: h.model, tab }));
+    assert.doesNotMatch(complete, /file-preview-note|Read 时捕获的版本/); assert.match(html, /hljs/); assert.doesNotMatch(html, /<script>/);
     fs.writeFileSync(path.join(kit.root, "saved.txt"), "saved"); await h.inspector.loadDirectory("workspace", "");
     const state = h.inspector.directories.get("workspace:")!; state.loading = true;
     const tree = renderToStaticMarkup(createElement(WorkspaceFiles, { model: h.model, workspaceId: "workspace" }));

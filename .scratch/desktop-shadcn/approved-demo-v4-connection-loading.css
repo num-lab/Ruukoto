@@ -1,0 +1,16 @@
+
+/* Note: 见 .agents/notes/implemented/feature/2026-10-18-demo-connection-loading.md */
+.connection-loading[data-slot="dialog-content"] { inset: 0; display: flex; width: 100vw; max-width: none; height: 100dvh; flex-direction: column; align-items: center; justify-content: center; gap: 16px; transform: none; translate: initial; border: 0; border-radius: 0; padding: 24px; background: var(--bg-canvas); box-shadow: none; animation: none; }
+.connection-loading[data-state="closed"] { animation: connection-fade-out 180ms ease-in both; }
+.connection-loading [data-slot="dialog-description"] { display: flex; align-items: center; gap: 9px; margin: 0; color: var(--text-secondary); font-size: 14px; line-height: 1.5; }
+.connection-loading [data-slot="dialog-description"] svg { width: 18px; height: 18px; flex-shrink: 0; }
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+  .connection-loading[data-slot="dialog-content"] { background: color-mix(in oklch, var(--bg-canvas) 86%, transparent); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); }
+}
+@keyframes connection-fade-out { to { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .connection-loading[data-slot="dialog-content"], .connection-loading .animate-spin { animation: none; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .connection-loading[data-slot="dialog-content"] { background: var(--bg-canvas); backdrop-filter: none; -webkit-backdrop-filter: none; }
+}

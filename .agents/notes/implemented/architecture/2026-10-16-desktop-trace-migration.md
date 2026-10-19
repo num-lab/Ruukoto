@@ -36,3 +36,7 @@ Write 在原 worker 写入回调中复用既有写前读取与 generateUnifiedPa
 ## 后续决定
 
 [执行阶段连续反馈与reasoning批次](../bug-fix/2026-10-17-desktop-execution-activity.md)取代本篇相关展示决定；工具详情、安全身份、错误与续页生命周期仍沿用本篇。
+
+## 展示层级的后续决定
+
+[工具平铺与完成后的执行记录](../feature/2026-10-18-completed-trace.md)取代本篇的工具摘要分组与完成后展示方式；调用详情、错误、来源与恢复约束保留。

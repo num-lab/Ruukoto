@@ -1,0 +1,6 @@
+
+/* Note: 见 .agents/notes/implemented/feature/2026-10-18-completed-trace.md */
+.reasoning-content { max-height: 6lh; overflow-y: auto; overscroll-behavior: contain; }
+.execution-trace-content { display: flex; flex-direction: column; gap: 12px; }
+.execution-trace[data-completed="false"] > [data-slot="trace-collapsible-content"] > .execution-trace-content { margin: 0; border: 0; padding: 0; }
+.file-preview-note { margin: 0; padding: 6px 12px; color: var(--text-muted); font-size: 12px; }

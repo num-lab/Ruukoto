@@ -12,6 +12,24 @@ import { MAX_LOADED_ENTRIES, ViewState } from "@ruukoto/view/state.ts";
 const at = (seconds: number) => new Date(Date.UTC(2026, 8, 22, 13, 16, seconds)).toISOString();
 const event = (seq: number, body: PersistentEvent["body"]): PersistentEvent => ({ seq, body, sessionId: "session", taskId: "task", createdAt: at(seq) });
 const messages = (flow: EventFlow) => flow.items.filter((entry) => entry.kind === "message");
+
+test("思考增量完整补洞、重复幂等，结束先到不回滚阶段，旧快照继续可读", () => {
+  const flow = new EventFlow(), parts = ["开头汉", "🙂".repeat(3000), "最后一行"];
+  const thinking = (seq: number, text: string, offset?: number, endedAt: string | null = null) => event(seq, { type: "task.thinking", taskId: "task", sessionId: "session", thinkingId: "thought", messageId: "message", startedAt: at(1), endedAt, text, offset });
+  const first = thinking(1, parts[0], 0), middle = thinking(2, parts[1], Buffer.byteLength(parts[0]));
+  const last = thinking(3, parts[2], Buffer.byteLength(parts[0] + parts[1]), at(3));
+  for (const entry of [last, middle, first, middle, last, first]) flow.apply(entry);
+  const complete = flow.items.find(entry => entry.kind === "thinking");
+  assert.ok(complete?.kind === "thinking");
+  assert.equal(complete.text, parts.join("")); assert.equal(complete.endedAt, at(3)); assert.equal(complete.seq, 1);
+  flow.apply(thinking(4, "", Buffer.byteLength(parts.join("")), at(3)));
+  assert.equal(flow.items.find(entry => entry.kind === "thinking")?.text, parts.join(""), "终态复制末块或空块不会覆盖全文");
+  const legacy = new EventFlow(); legacy.apply(thinking(1, "旧片段")); legacy.apply(thinking(2, "旧版完整快照", undefined, at(2))); legacy.apply(thinking(1, "迟到旧片段"));
+  assert.equal(legacy.items.find(entry => entry.kind === "thinking")?.text, "旧版完整快照");
+  const metadata = new EventFlow();
+  for (const entry of [thinking(3, "b", 1), thinking(2, "", 1), thinking(1, "a", 0), thinking(4, "", 2, at(4))]) metadata.apply(entry);
+  assert.equal(metadata.items.find(entry => entry.kind === "thinking")?.text, "ab", "迟到空阶段事件不能覆盖待补齐的正文片段");
+});
 function task(id = "task", extra: Partial<Task> = {}): Task {
   return {
     id, sessionId: "session", requestId: `request:${id}`, input: "same input", inputPurpose: "user", modelSelection: null,

@@ -1,0 +1,15 @@
+{
+  "client": "actual node subprocess",
+  "provider": "loopback MockModelServer",
+  "realModel": false,
+  "realIM": false,
+  "clientExitCode": 0,
+  "statusAfterClientExit": "placed",
+  "modelCallsWhileBlocked": 1,
+  "statusAfterRelease": "done",
+  "answerAfterRelease": "隔离回答",
+  "reopenedStatus": "done",
+  "reopenedAnswer": "隔离回答",
+  "finalModelCalls": 1,
+  "sameSocketAfterDuplicateLaunch": true
+}

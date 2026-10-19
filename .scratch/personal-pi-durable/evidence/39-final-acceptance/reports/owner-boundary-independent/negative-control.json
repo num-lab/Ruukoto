@@ -1,0 +1,35 @@
+{
+  "at": "2026-10-18T15:02:15.971002+00:00",
+  "source": "/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable",
+  "copy": "/tmp/ruukoto39-owner-boundary-current-copy",
+  "dependencyMode": "read-only links to existing local installation, no setup/network; no native namespace or tool used",
+  "testSourceSHA256": "477adfd44103b36c1466554dc874c540726f7da0180c44b1de843e4423c35b10",
+  "sourceBeforeSHA256": "9cb36ef0fb8377ea5d9bf30d4d61e9617480389e840ed1714464a2e2610d2436",
+  "sourceRestoredSHA256": "9cb36ef0fb8377ea5d9bf30d4d61e9617480389e840ed1714464a2e2610d2436",
+  "rootSourceAfterSHA256": "9cb36ef0fb8377ea5d9bf30d4d61e9617480389e840ed1714464a2e2610d2436",
+  "removedLines": [
+    "      const current = messages[ownerPosition];\n",
+    "      if (ownerInput && current?.role === \"user\") messages[ownerPosition] = { ...current, content: typeof current.content === \"string\" ? OWNER_INPUT_PREFIX + current.content + OWNER_INPUT_SUFFIX : [{ type: \"text\", text: OWNER_INPUT_PREFIX }, ...current.content, { type: \"text\", text: OWNER_INPUT_SUFFIX }] };\n"
+  ],
+  "command": [
+    "/Users/eitrous/.local/share/mise/installs/node/24.15.0/bin/node",
+    "--import",
+    "tsx",
+    "--test",
+    "--test-concurrency=1",
+    "--test-name-pattern=^委托报告：失败参考后的拥有者输入在实际请求中保留本轮身份$",
+    "test/personal-reports.test.ts"
+  ],
+  "results": [
+    {
+      "label": "wrapper-removed-red",
+      "exitCode": 1,
+      "wallSeconds": 2.033
+    },
+    {
+      "label": "wrapper-restored-green",
+      "exitCode": 0,
+      "wallSeconds": 1.095
+    }
+  ]
+}

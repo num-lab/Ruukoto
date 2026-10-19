@@ -15,7 +15,7 @@ import { parsePersonalMcp } from "../apps/ruukoto/src/personal-mcp-config.ts";
 import { PersonalDelegationDoc, listPersonalDelegations, personalDelegationProgress, type PersonalDelegationRef } from "../apps/ruukoto/src/personal-delegation.ts";
 import { personalReportResult } from "../apps/ruukoto/src/personal-report.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
-import { MockModelServer } from "./helpers/mock-provider.ts";
+import { PersonalMockModelServer as MockModelServer } from "./helpers/mock-provider.ts";
 
 const context = BACKGROUND_CONTEXT;
 const definition = { name: "act", description: "迟到原工具定义", inputSchema: { type: "object", properties: { value: { type: "string" } }, required: ["value"], additionalProperties: false }, annotations: { readOnlyHint: true } };

@@ -25,7 +25,7 @@ import { parsePersonalServices, readPersonalServices, savePersonalServices } fro
 import { PersonalServiceDoc } from "../apps/ruukoto/src/personal-services.ts";
 import { PersonalServiceGrantsDoc, PersonalServiceOperationsDoc } from "../apps/ruukoto/src/personal-service-operations.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
-import { MockModelServer, type Responder } from "./helpers/mock-provider.ts";
+import { PersonalMockModelServer as MockModelServer, type Responder } from "./helpers/mock-provider.ts";
 
 const context = BACKGROUND_CONTEXT;
 const code = (expected: string) => (error: unknown) => error instanceof PersonalError && error.code === expected;

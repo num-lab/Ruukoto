@@ -16,7 +16,7 @@ import { savePersonalBrowser } from "../apps/ruukoto/src/personal-browser-config
 import { PersonalSchedulesDoc } from "../apps/ruukoto/src/personal-scheduler-records.ts";
 import { hasPendingPersonalWork } from "../apps/ruukoto/src/personal-config-idle.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
-import { MockModelServer } from "./helpers/mock-provider.ts";
+import { PersonalMockModelServer as MockModelServer } from "./helpers/mock-provider.ts";
 
 const context = BACKGROUND_CONTEXT;
 const code = (expected: string) => (error: unknown) => error instanceof PersonalError && error.code === expected;

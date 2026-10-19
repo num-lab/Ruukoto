@@ -14,7 +14,7 @@ import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
 import { PersonalAgentsDoc } from "../apps/ruukoto/src/personal-work.ts";
 import { changePersonalMemory, ownerPersonalMemory, PersonalMemoryDoc, preparePersonalMemory, readPersonalMemory, searchPersonalMemory, verifyPersonalMemorySelection } from "../apps/ruukoto/src/personal-memory.ts";
 import { searchPersonalHistory } from "../apps/ruukoto/src/personal-history.ts";
-import { MockModelServer, type Responder } from "./helpers/mock-provider.ts";
+import { PersonalMockModelServer as MockModelServer, type Responder } from "./helpers/mock-provider.ts";
 
 const context = BACKGROUND_CONTEXT;
 const code = (value: string) => (error: unknown) => error instanceof PersonalError && error.code === value;

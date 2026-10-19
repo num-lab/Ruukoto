@@ -1,0 +1,7 @@
+{
+  "baseCommit": "b1e975437f4cd3ca8084a8b07e451f19ba80ba17",
+  "scope": "tracked runtime/test/docs/notes diff plus two untracked source files; excludes .scratch to avoid recursive evidence",
+  "patchSha256": "a4516dadda2e90400b7ddf78421cfb66ce3d12b183cb39096f29983f3ea9e4d8",
+  "patchBytes": 116087,
+  "notACommit": true
+}

@@ -1,0 +1,18 @@
+{
+  "at": "2026-10-18T16:03:55.859889+00:00",
+  "archive": "/tmp/ruukoto39-napcat-runtime-diagnostic-safe-evidence.tar.gz",
+  "bytes": 53980,
+  "sha256": "6cf98648b097b0c151f4f8035175cf4aa69973b9593cd5502648746810024920",
+  "regularMembersScanned": 20,
+  "method": "four actual credentials plus both resource URLs, resource rkey, returned local path and identity read only in memory; raw/JSON/URL/base64/base64url/hex/unicode-escape variants; compressed archive and decompressed members; no sensitive value written or printed",
+  "credentialSources": [
+    "model-source.json providers.deepseek.apiKey",
+    "napcat.token trim",
+    "telegram.token trim",
+    "tavily.token trim"
+  ],
+  "rawEventAndPrivateResponseExcluded": true,
+  "archiveUnchanged": true,
+  "hits": [],
+  "result": "pass"
+}

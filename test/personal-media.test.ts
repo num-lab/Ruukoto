@@ -16,7 +16,7 @@ import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
 import { lockPersonalProfile } from "../apps/ruukoto/src/personal-profile.ts";
 import { savePersonalArtifact } from "../apps/ruukoto/src/personal-artifacts.ts";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
-import { MockModelServer } from "./helpers/mock-provider.ts";
+import { PersonalMockModelServer as MockModelServer } from "./helpers/mock-provider.ts";
 
 const context = BACKGROUND_CONTEXT;
 const png = Buffer.from("89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000b49444154789c636000020000050001a5f645400000000049454e44ae426082", "hex");
@@ -24,7 +24,7 @@ const source = { platform: "qq" as const, accountId: "bot", ownerId: "owner", ge
 const photo = (id = 1, caption = "看看图片"): TelegramUpdate => ({ update_id: id, message: { message_id: id, from: { id: 456, is_bot: false }, chat: { id: 456, type: "private" }, caption, photo: [{ file_id: "small", file_unique_id: "small-unique", width: 1, height: 1 }, { file_id: "large", file_unique_id: "large-unique", width: 100, height: 100, file_size: png.length }] } });
 const download = (bytes = png, declaredMime = "image/png"): PersonalMediaDownload => ({ identity: randomUUID(), declaredMime, download: async () => new Response(bytes, { headers: { "content-type": declaredMime } }) });
 
-async function fixture(t: TestContext, options: { imageInput?: boolean; capture?: boolean; compaction?: boolean; holdInbound?: boolean } = {}) {
+async function fixture(t: TestContext, options: { imageInput?: boolean; capture?: boolean; compaction?: boolean; holdInbound?: boolean; inboundMime?: "image/jpeg" } = {}) {
   const directory = fs.realpathSync(fs.mkdtempSync("/tmp/ruukoto-media-")), lock = lockPersonalProfile(directory), requests: RequestEvidence[] = [], sends: string[] = [];
   let downloads = 0, h: Harness;
   const model = new MockModelServer((_input, index) => options.capture && index === 0 ? { kind: "tool_calls", calls: [{ id: "image-call", name: "capture", arguments: {} }] } : { kind: "text", text: "图片回答" });
@@ -32,7 +32,8 @@ async function fixture(t: TestContext, options: { imageInput?: boolean; capture?
   const previous = process.env[config.apiKeyEnv]; process.env[config.apiKeyEnv] = "test-only";
   const provider = personalProvider(config), media = personalMedia(lock.directory, () => h, () => config.imageInput);
   const tgConfig = { version: 1 as const, enabled: true, generation: "generation", apiBase: "https://api.telegram.org", tokenEnv: "TOKEN", tokenDigest: "0".repeat(64), botId: "123", ownerId: "456", boundary: 0, boundaryMessageId: "0" };
-  const api: PersonalTelegramApi = { me: async () => ({ id: "123", username: "bot" }), updates: async () => [], send: async (_owner, _id, text) => { sends.push(text); return String(sends.length); }, photo: input => ({ identity: input.identity, declaredMime: "image/png", download: async () => { downloads++; return new Response(png, { headers: { "content-type": "image/png" } }); } }) };
+  const inboundMime = options.inboundMime ?? "image/png", inboundBytes = options.inboundMime ? Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 1, 2]) : png;
+  const api: PersonalTelegramApi = { me: async () => ({ id: "123", username: "bot" }), updates: async () => [], send: async (_owner, _id, text) => { sends.push(text); return String(sends.length); }, photo: input => ({ identity: input.identity, declaredMime: inboundMime, download: async () => { downloads++; return new Response(inboundBytes, { headers: { "content-type": inboundMime } }); } }) };
   const qqConfig = { version: 1 as const, enabled: true, generation: randomUUID(), endpoint: "ws://127.0.0.1:1", tokenEnv: "TOKEN", tokenDigest: "0".repeat(64), botId: "123", ownerId: "456", boundary: 0, boundaryMessageId: "0" };
   const qqApi: PersonalQqApi = { online: true, poll: async () => {}, send: api.send, photo: input => api.photo({ identity: input.identity, fileId: input.identity }) };
   const tg = personalTelegram(tgConfig, api, undefined, media, qqConfig, qqApi);
@@ -193,6 +194,37 @@ test("个人图片：相同字节不同来源的payload归一映射保留全部�
   assert.notDeepEqual(mapping.references[0], mapping.references[1]);
   assert.deepEqual(mapping.payloadReference, mapping.references[0]);
   assert.doesNotMatch(JSON.stringify(request), new RegExp(png.toString("base64")));
+});
+
+test("个人图片：Responses原生工具图片与入站图均可重建，变造仍在HTTP前拒绝", async t => {
+  const f = await fixture(t, { capture: true, inboundMime: "image/jpeg" });
+  await f.p.telegram.receive(photo()); await receipt(f);
+  const view = await f.p.main.context(context), sessionId = (await f.p.h.snapshot(ProviderDoc, ROOT_CONVERSATION_ID, context))!.sessionId!;
+  const before = f.model.calls.length;
+  for (const change of ["valid", "bytes", "drop", "remote", "duplicate"] as const) {
+    const recorded: RequestEvidence[] = [], controller = new AbortController();
+    const models = recordedModels(personalProvider({ ...f.config, api: "openai-responses" }), async value => { await f.p.h.commit(tx => tx.appendEntry(ROOT_CONVERSATION_ID, { kind: "test.responses-request", data: value }), context); recorded.push(value); if (value.payload) controller.abort(); }, f.media.modelMedia);
+    const model = models.getModel("personal", f.config.modelId)!;
+    const result = await models.streamSimple(model, { messages: [...view.messages] }, { sessionId, signal: controller.signal, onPayload: payload => {
+      const value = JSON.parse(JSON.stringify(payload)) as { input: { type?: string; output?: { type: string; image_url?: string }[] }[] };
+      const tool = value.input.find(item => item.type === "function_call_output");
+      assert.ok(tool && Array.isArray(tool.output));
+      const image = tool.output.find(part => part.type === "input_image"); assert.ok(image);
+      if (change === "bytes") image.image_url = `data:image/png;base64,${Buffer.from("changed").toString("base64")}`;
+      if (change === "drop") tool.output = tool.output.filter(part => part !== image);
+      if (change === "remote") image.image_url = "https://unregistered.invalid/image.png";
+      if (change === "duplicate") tool.output.push({ ...image });
+      return value;
+    } }).result();
+    assert.equal(result.stopReason, change === "valid" ? "aborted" : "error");
+    assert.equal(recorded.filter(value => value.payload).length, change === "valid" ? 1 : 0);
+    assert.equal(f.model.calls.length, before);
+    if (change === "valid") {
+      const saved = recorded.at(-1)!, mappings = saved.imageMappings; assert.ok(Array.isArray(mappings)); assert.equal(mappings.length, 2);
+      assert.match(JSON.stringify(saved.payload), /ruukoto-image:/); assert.match(JSON.stringify(saved.payload), /image\/jpeg/); assert.match(JSON.stringify(saved.payload), /image\/png/);
+      assert.doesNotMatch(JSON.stringify(recorded), /data:image\//); assert.doesNotMatch(JSON.stringify(recorded), new RegExp(png.toString("base64")));
+    }
+  }
 });
 
 

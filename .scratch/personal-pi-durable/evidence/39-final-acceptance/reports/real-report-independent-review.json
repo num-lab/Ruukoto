@@ -1,0 +1,100 @@
+{
+  "reviewedAt": "2026-10-18T13:06:08.316885+00:00",
+  "reviewer": "independent /root/acceptance_map context",
+  "baseHead": "b1e975437f4cd3ca8084a8b07e451f19ba80ba17",
+  "implementationVerdict": "no_unresolved_blocker_for_12_line_send_state_fix",
+  "reviewedFiles": {
+    "apps/ruukoto/src/personal-work-tools.ts": "ef0826cedc633dfe5153051deb33eb6ea0508ca93a2b09c304fedf6ea79a810a",
+    "test/personal-reports.test.ts": "a1e71ad83d3dac2183efb83ca2450d27b1954e9bed2f701c2202934992b254c2",
+    "docs/modules/personal-durable.md": "31e2d0e2d9f2a9670ae07edb86e8737b368a82925e026c86ee1c301bf3f1d57e",
+    ".agents/notes/implemented/architecture/2026-10-17-personal-delegation-reports.md": "d878fe41dc0fb5376bc215ccebbcc5685abbb91132b9c11da1393d4ea86be511"
+  },
+  "scope": [
+    "模型progress及delegations删除report与整组state，保留成员业务/停止/暂停/取消和分页",
+    "当前report输入的report_result返回成员查询指引，普通拥有者模型查询与宿主接口仍可读真实状态",
+    "不引入新状态/持久格式，不改写模型正文，不提前写sent"
+  ],
+  "checks": [
+    {
+      "command": "RUN_MODEL_CHECK=0 node --import tsx --test --test-name-pattern=不把报告生成中的发送状态带入最终正文 test/personal-reports.test.ts",
+      "log": "/tmp/ruukoto39-real-report-independent-narrow.log",
+      "exit": 0,
+      "pass": 3,
+      "fail": 0,
+      "skip": 0
+    },
+    {
+      "command": "RUN_MODEL_CHECK=0 PROBE_ACTION=progress|delegations|report_result node --import tsx /tmp/ruukoto39-real-report-read-paths-red.mts",
+      "redLogs": [
+        "/tmp/ruukoto39-real-report-progress-red-final.log",
+        "/tmp/ruukoto39-real-report-delegations-red.log",
+        "/tmp/ruukoto39-real-report-report_result-red.log"
+      ],
+      "redExits": [
+        1,
+        1,
+        1
+      ],
+      "greenLogs": [
+        "/tmp/ruukoto39-real-report-progress-fixed-independent.log",
+        "/tmp/ruukoto39-real-report-delegations-fixed-independent.log",
+        "/tmp/ruukoto39-real-report-report_result-fixed-independent.log"
+      ],
+      "greenExits": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "RUN_MODEL_CHECK=0 PROBE_ACTION=report_result node --import tsx /tmp/ruukoto39-real-report-owner-query-independent.mts",
+      "log": "/tmp/ruukoto39-real-report-owner-query-independent.log",
+      "exit": 0,
+      "ownerResult": {
+        "delivery": "local",
+        "state": "completed",
+        "text": "业务完成。"
+      }
+    }
+  ],
+  "realModel": {
+    "firstFixedRun": "/tmp/ruukoto39-real-report-2026-10-18T130116-027Z",
+    "firstFixedRunModelHttp": 14,
+    "firstFixedRunPassed": false,
+    "firstFixedRunRemainingProbeCondition": "子模型主动拒绝无材料的400条事实任务，partial=false；未将本轮计截断通过",
+    "firstFixedRunSnapshot": "/tmp/ruukoto39-real-report-2026-10-18T130116-027Z/personal-before-supplement.sqlite",
+    "supplement": "/tmp/ruukoto39-real-report-fixed-supplement-2026-10-18T130346-245Z",
+    "supplementModelHttp": 8,
+    "cumulativeModelHttp": 22,
+    "supplementPassedForTargetedSendStateAndPartialChecks": true,
+    "facts": {
+      "uniqueReportSends": 1,
+      "originalMessageId": 12,
+      "fixedOwnerId": "456",
+      "delivery": "sent",
+      "platformMessageId": "2001"
+    },
+    "partial": true,
+    "restartNoReplay": {
+      "before": {
+        "modelHttp": 8,
+        "sends": 2
+      },
+      "after": {
+        "modelHttp": 8,
+        "sends": 2
+      }
+    },
+    "finalLiveSqliteSnapshot": "/tmp/ruukoto39-real-report-fixed-supplement-2026-10-18T130346-245Z/after-personal.sqlite",
+    "stopped": true,
+    "lockReacquired": true,
+    "trueIm": false,
+    "normalCloseOpenOnly": true
+  },
+  "residualFinding": "/tmp/ruukoto39-real-report-fixed-supplement-2026-10-18T130346-245Z/offset-1-finding.json",
+  "residualAcceptance": "发送状态修复可按实际范围通过；报告全文准确仍不通过。",
+  "notChecked": [
+    "全量测试、Linux/Node22、真实IM、进程崩溃恢复、其他A1–A12残项"
+  ],
+  "repositoryEditsByReviewer": false
+}

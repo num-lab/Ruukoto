@@ -7,9 +7,11 @@ import { createHash, randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import { test, type TestContext } from "node:test";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { AgentDoc, ROOT_CONVERSATION_ID } from "@earendil-works/pi-durable";
+import { AgentDoc, ROOT_CONVERSATION_ID, type EntryId } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { PersonalWorkDoc } from "../apps/ruukoto/src/personal-work.ts";
+import { PersonalDelegationDoc } from "../apps/ruukoto/src/personal-delegation.ts";
+import { personalReportResult } from "../apps/ruukoto/src/personal-report.ts";
 import { BrowserManager, BrowserError, type BrowserBinding } from "@ruukoto/agent/browser-manager.ts";
 import { openPersonalHarness, type PersonalHarness } from "../apps/ruukoto/src/personal-harness.ts";
 import { personalProvider, type PersonalModelConfig } from "../apps/ruukoto/src/personal-model.ts";
@@ -26,7 +28,7 @@ import { PersonalTelegramReceiptDoc } from "../apps/ruukoto/src/personal-telegra
 import type { PersonalTelegramConfig } from "../apps/ruukoto/src/personal-telegram-config.ts";
 import type { TelegramUpdate } from "../apps/ruukoto/src/personal-telegram-api.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
-import { MockModelServer, type RecordedRequest, type Responder } from "./helpers/mock-provider.ts";
+import { PersonalMockModelServer as MockModelServer, type RecordedRequest, type Responder } from "./helpers/mock-provider.ts";
 
 const context = BACKGROUND_CONTEXT;
 const png = Buffer.from("89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000b49444154789c636000020000050001a5f645400000000049454e44ae426082", "hex");
@@ -95,6 +97,25 @@ test("个人组合：截图经真实media/provider恢复，无general也能读�
   const destination = path.join(f.root, "screenshot.png"); await personalControl(f.directory, "POST", "/tools/export", { artifact: operation.artifact.id, destination }); assert.deepEqual(fs.readFileSync(destination), png);
   await assert.rejects(personalControl(f.directory, "POST", "/tools/export", { artifact: operation.artifact.id, destination }), code("artifact_destination_exists"));
   await server.stop();
+});
+
+test("个人组合：已配置浏览器不阻断委托汇报，参考轮次只能查询且不开放浏览器", async t => {
+  let work: number | undefined;
+  const f = await fixture(t, { responder: (request, index) => {
+    const last = request.messages.at(-1);
+    if (last?.role === "user" && String(last.content).startsWith("宿主委托汇总参考")) return { kind: "tool_calls", calls: [{ id: "report-result", name: "background_work", arguments: { action: "result", work } }] };
+    return respond(request, index);
+  } }), p = await f.open(); await f.mode("full_access");
+  const registered = JSON.parse(await p.answer(invoke("background_work", { action: "delegate", content: "只返回已完成" }), "browser-report-owner")) as { work: number; delegation: EntryId };
+  work = registered.work;
+  assert.ok(toolNames(f.model.calls[0]).includes("browser"));
+  await p.answer(invoke("background_work", { action: "report", delegation: registered.delegation }), "browser-report-seal");
+  const group = (await p.harness.snapshot(PersonalDelegationDoc, String(registered.delegation), context))!.delegation!;
+  await p.harness.waitForTask(group.report!.taskId, context);
+  const report = await p.harness.commit(tx => personalReportResult(tx, group.ref), context);
+  assert.equal(report.delivery, "local"); assert.match(report.text!, /完成/);
+  const summaries = f.model.calls.filter(request => String(request.messages.findLast(message => message.role === "user")?.content).startsWith("宿主委托汇总参考"));
+  assert.equal(summaries.length, 2); assert.ok(summaries.every(request => !toolNames(request).includes("browser"))); assert.equal(f.calls(), 0);
 });
 
 test("个人组合：read_file沿本次授权原字节返回视觉块与可重建产物", async t => {

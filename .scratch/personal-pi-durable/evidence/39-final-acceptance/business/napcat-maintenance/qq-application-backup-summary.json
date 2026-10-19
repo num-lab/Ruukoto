@@ -1,0 +1,24 @@
+{
+  "at": "2026-10-18T16:44:15.082475+00:00",
+  "backup": "/Users/eitrous/Developer/Temp/ruukoto39-qq-before-signing-6dxov1qj",
+  "directoryMode0700": true,
+  "members": 3059,
+  "regularFiles": 2669,
+  "regularBytes": 1156947273,
+  "manifestSha256": "40f3999b79c291957481d9bd7b91461dfc208cf2f1218a1663604351586f4def",
+  "sourceUnchangedDuringCopy": true,
+  "backupBytesModesLinksMatchSource": true,
+  "signatureVerification": {
+    "source": {
+      "exitCode": 1,
+      "alreadyModifiedPackageManifest": true
+    },
+    "backup": {
+      "exitCode": 1,
+      "alreadyModifiedPackageManifest": true
+    }
+  },
+  "backupIsCurrentLocallyModifiedQQNotPristineVendorBundle": true,
+  "signingPerformed": false,
+  "qqStoppedOrRestarted": false
+}

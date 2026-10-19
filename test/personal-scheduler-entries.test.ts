@@ -18,7 +18,7 @@ import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
 import type { PersonalSchedule } from "../apps/ruukoto/src/personal-scheduler-records.ts";
 import type { PersonalTelegramConfig } from "../apps/ruukoto/src/personal-telegram-config.ts";
 import type { PersonalQqConfig } from "../apps/ruukoto/src/personal-qq-config.ts";
-import { MockModelServer } from "./helpers/mock-provider.ts";
+import { PersonalMockModelServer as MockModelServer } from "./helpers/mock-provider.ts";
 import { startMockOneBot, MOCK_QQ_ACCOUNT, MOCK_QQ_SECRET } from "./helpers/mock-onebot.ts";
 
 const context = BACKGROUND_CONTEXT;

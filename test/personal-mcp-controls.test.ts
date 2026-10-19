@@ -21,7 +21,7 @@ import { personalControl, readPersonalToken, startPersonalServer } from "../apps
 import { savePersonalConfig } from "../apps/ruukoto/src/personal-config.ts";
 import { lockPersonalProfile } from "../apps/ruukoto/src/personal-profile.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
-import { MockModelServer } from "./helpers/mock-provider.ts";
+import { PersonalMockModelServer as MockModelServer } from "./helpers/mock-provider.ts";
 import { startMockMcp } from "./helpers/mock-mcp.ts";
 
 const context = BACKGROUND_CONTEXT;

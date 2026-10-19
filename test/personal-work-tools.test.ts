@@ -13,7 +13,7 @@ import { personalProvider, type PersonalModelConfig, type RequestEvidence } from
 import { PersonalAgentsDoc, PersonalWorkDoc, type PersonalWorkRef } from "../apps/ruukoto/src/personal-work.ts";
 import { personalToolSource } from "../apps/ruukoto/src/personal-work-tools.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
-import { MockModelServer, type RecordedRequest, type Responder } from "./helpers/mock-provider.ts";
+import { PersonalMockModelServer as MockModelServer, type RecordedRequest, type Responder } from "./helpers/mock-provider.ts";
 
 const context = BACKGROUND_CONTEXT;
 const code = (expected: string) => (error: unknown) => error instanceof PersonalError && error.code === expected;
@@ -63,9 +63,13 @@ test("模型工作：实际委派不阻塞主聊天，分页读原结果，复�
   assert.match(await p.answer(`查询:${work.taskId}:0`, "running"), /running|waiting/);
   assert.equal((await p.harness.snapshot(PersonalWorkDoc, work.requestId, context))!.source!.requestId, "owner-a");
   release(); await p.harness.waitForTask(work.taskId, context);
-  const first = JSON.parse(await p.answer(`查询:${work.taskId}:0`, "page1")) as { text: string; nextOffset: number };
-  const second = JSON.parse(await p.answer(`查询:${work.taskId}:${first.nextOffset}`, "page2")) as { text: string; nextOffset?: number };
+  const first = JSON.parse(await p.answer(`查询:${work.taskId}:0`, "page1")) as { text: string; offset: number; totalChars: number; nextOffset: number };
+  const second = JSON.parse(await p.answer(`查询:${work.taskId}:${first.nextOffset}`, "page2")) as { text: string; offset: number; totalChars: number; nextOffset?: number };
   assert.equal(first.text + second.text, answer); assert.equal(second.nextOffset, undefined);
+  assert.equal(first.offset, 0); assert.equal(first.totalChars, answer.length);
+  assert.equal(second.offset, first.nextOffset); assert.equal(second.totalChars, answer.length);
+  const sliced = JSON.parse(await p.answer(`查询:${work.taskId}:1`, "slice")) as { text: string; offset: number; totalChars: number };
+  assert.equal(sliced.offset, 1); assert.equal(sliced.totalChars, answer.length); assert.equal(sliced.text, answer.slice(1, 4097));
   const next = JSON.parse(await p.answer(`复用:${work.agentId}`, "reuse")) as { work: number; agent: number };
   assert.equal(next.agent, work.agentId); await p.harness.waitForTask(next.work as TaskId, context);
   assert.match(await p.answer("列表", "list"), /分析员/);

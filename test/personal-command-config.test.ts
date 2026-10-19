@@ -14,7 +14,7 @@ import { savePersonalConfig } from "../apps/ruukoto/src/personal-config.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
 import { openPersonalHarness } from "../apps/ruukoto/src/personal-harness.ts";
 import { personalProvider } from "../apps/ruukoto/src/personal-model.ts";
-import { MockModelServer } from "./helpers/mock-provider.ts";
+import { PersonalMockModelServer as MockModelServer } from "./helpers/mock-provider.ts";
 import { setTimeout as delay } from "node:timers/promises";
 
 const code = (expected: string) => (error: unknown) => error instanceof PersonalError && error.code === expected;

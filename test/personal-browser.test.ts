@@ -18,7 +18,7 @@ import { loadPersonalArtifact } from "../apps/ruukoto/src/personal-artifacts.ts"
 import { parsePersonalBrowser, savePersonalBrowser, readPersonalBrowser } from "../apps/ruukoto/src/personal-browser-config.ts";
 import { capturePersonalScheduleScope } from "../apps/ruukoto/src/personal-schedule-scope.ts";
 import { PersonalSchedulesDoc, PersonalScheduleDoc, PersonalScheduleRunDoc, PersonalScheduledConversationDoc, ScheduleAdmission, ScheduleRunAdmission, SCHEDULE_RUN_TASK, SCHEDULE_INPUT, scheduleRequestId, scheduleAdmissionData, scheduleRunAdmissionData, type PersonalSchedule, type PersonalScheduleRun } from "../apps/ruukoto/src/personal-scheduler-records.ts";
-import { MockModelServer, type Responder } from "./helpers/mock-provider.ts";
+import { PersonalMockModelServer as MockModelServer, type Responder } from "./helpers/mock-provider.ts";
 
 const context = BACKGROUND_CONTEXT;
 const invoke = (action: string, args: Record<string, unknown> = {}) => `browser:${JSON.stringify({ action, ...args })}`;

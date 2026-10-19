@@ -65,11 +65,15 @@ export async function requirePersonalDelegationOpen(tx: Tx, ref: PersonalDelegat
   if ((await personalDelegation(tx, ref)).report) throw new PersonalError("delegation_sealed", "委托已安排最终汇总，未接纳新分析或说明；请查询原委托报告，新工作由拥有者另行提交。");
 }
 
-export async function requirePersonalDelegationReady(tx: Tx, ref: PersonalDelegationRef) {
+export async function requirePersonalDelegationActive(tx: Tx, ref: PersonalDelegationRef) {
   const value = await personalDelegation(tx, ref);
   if (value.cancelRequested) throw new PersonalError("delegation_canceled", "原委托已取消，不能续派或追加。本轮拥有者明确提出新的独立工作、原身份空闲且停止已核实时，主 Agent 可保留 agent、省略 delegation 建立新委托；否则查询原结果并结束本轮。不能为原未知效果换委托重试。");
   if (value.telegram && !await telegramSourceActive(tx, value.telegram)) throw new PersonalError("delegation_source_inactive", "委托原入口已失效，请查询原委托；未继续执行或改发其他入口。");
-  await sourcesReady(tx, value);
+  return value;
+}
+
+export async function requirePersonalDelegationReady(tx: Tx, ref: PersonalDelegationRef) {
+  await sourcesReady(tx, await requirePersonalDelegationActive(tx, ref));
 }
 
 // Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-analysis-delegations.md

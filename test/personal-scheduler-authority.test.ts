@@ -6,7 +6,7 @@ import { test } from "node:test";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { openPersonalHarness, type PersonalHarness } from "../apps/ruukoto/src/personal-harness.ts";
 import { personalProvider, type PersonalModelConfig } from "../apps/ruukoto/src/personal-model.ts";
-import { MockModelServer } from "./helpers/mock-provider.ts";
+import { PersonalMockModelServer as MockModelServer } from "./helpers/mock-provider.ts";
 
 const context = BACKGROUND_CONTEXT;
 test("定时创建授权：模型的字符串星期按同一SDK规范化恢复，原工具历史保留", async t => {

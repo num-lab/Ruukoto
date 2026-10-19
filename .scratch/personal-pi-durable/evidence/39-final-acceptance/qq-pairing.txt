@@ -1,0 +1,14 @@
+
+QQ 好友入口
+1. 配对并启用专用测试账号
+2. 停用入口
+3. 返回
+请先停止此 QQ 账号的其他后台，使用专用 NapCat/OneBot v11 正向 WebSocket。拥有者须与账号互为好友；群聊及群临时会话不接纳。凭据放在环境变量中。输入 /back 返回。
+
+HUMAN_PAIRING 请用拥有者好友向 QQ 1529851498 直接发送“配对 5cf45f8583d9cf3c9b3e13c0”，3 分钟内发送后按回车：
+
+选择刚才发送配对消息的拥有者
+1. QQ 好友 2729290885
+2. 返回
+QQ 已配对。请启动隔离后台后发送新消息；配对边界同秒及之前的消息不执行。OneBot 不提供离线补拉，断线期间请核实并重新发送未受理的消息。
+PAIRING_COMPLETE {"directory":"/home/ubuntu/.local/ruukoto39/live-profile","paired":true,"credentialValuesOmitted":true}

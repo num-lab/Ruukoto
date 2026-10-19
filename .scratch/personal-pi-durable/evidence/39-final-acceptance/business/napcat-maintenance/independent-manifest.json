@@ -1,0 +1,43 @@
+{
+  "capturedAt": "2026-10-18T16:10:13.644335+00:00",
+  "candidate": "/Users/eitrous/Developer/Temp/napcat-v4.18.38-candidate",
+  "frozen": {
+    "python": "6fea248c51a103f1eea13cf72c29cadde6e53be9d0488d391acbe0290ff0fbd5",
+    "shell": "39f96e088e6f643e5c51a1eccba75f1b5a354516fd42d24020492001067b4305",
+    "maintenanceDescription": "ef54e87608c96f392672ea0685fd0bc3bf0a26513323e84176ba16015b28546d"
+  },
+  "originalCandidateWrites": false,
+  "actualInstallationOrWorkdirAccess": false,
+  "qqProcessQueries": 0,
+  "actualUpgradeRollbackCalls": 0,
+  "syntheticTests": {
+    "run": 6,
+    "pass": 6,
+    "fail": 0,
+    "error": 0,
+    "cleaned": true
+  },
+  "patchNeeded": false,
+  "artifacts": [
+    {
+      "path": "/tmp/ruukoto39-napcat-final-audit/review.md",
+      "bytes": 3168,
+      "sha256": "75ba40666716abe77f6ed64d0ae67f4b88bfca8bbb6e500ae93968400d4bc5bc"
+    },
+    {
+      "path": "/tmp/ruukoto39-napcat-final-audit/fs-selftest.py",
+      "bytes": 7654,
+      "sha256": "439092bb2e2030460171ec6afedd667255112a4affa466a5dc65df32e5bfb1a6"
+    },
+    {
+      "path": "/tmp/ruukoto39-napcat-final-audit/fs-selftest.log",
+      "bytes": 780,
+      "sha256": "a15ada38ca4bbda9934e28a9239fd5c764c7649ad11cc497f0760e4302702178"
+    },
+    {
+      "path": "/tmp/ruukoto39-napcat-final-audit/fs-result.json",
+      "bytes": 873,
+      "sha256": "dfca2774990777a5281d3d555dd8b8a999d0f970aed36f0cd7aae117424b71b7"
+    }
+  ]
+}

@@ -29,7 +29,7 @@ export function qqPhoto(input: { identity: string; url?: string }, resolve?: (fi
     let url: URL;
     try { url = new URL(address ?? ""); } catch { throw new PersonalMediaError("download_unavailable"); }
     // OneBot 图片 URL 是独立下载凭据；不带连接 token，也不跟随重定向到本机服务。
-    if (url.protocol !== "https:" || url.username || url.password || !["multimedia.nt.qq.com", "gchat.qpic.cn", "c2cpicdw.qpic.cn"].includes(url.hostname)) throw new PersonalMediaError("download_unavailable");
+    if (url.protocol !== "https:" || url.username || url.password || !["multimedia.nt.qq.com", "multimedia.nt.qq.com.cn", "gchat.qpic.cn", "c2cpicdw.qpic.cn"].includes(url.hostname)) throw new PersonalMediaError("download_unavailable");
     try { return await fetch(url, { signal, redirect: "error" }); } catch { throw new PersonalError("media_retry", "QQ 图片下载暂时不可用，收件尚未完成；请检查网络。"); }
   } };
 }

@@ -14,7 +14,7 @@ import { parsePersonalBrowser } from "../apps/ruukoto/src/personal-browser-confi
 import { PersonalBrowserDoc, PersonalBrowserSessionDoc, browserOperations } from "../apps/ruukoto/src/personal-browser.ts";
 import { PersonalPermissionsDoc } from "../apps/ruukoto/src/personal-permissions.ts";
 import { PersonalScheduleDoc, PersonalScheduleRunDoc, PersonalSchedulesDoc } from "../apps/ruukoto/src/personal-scheduler-records.ts";
-import { MockModelServer } from "./helpers/mock-provider.ts";
+import { PersonalMockModelServer as MockModelServer } from "./helpers/mock-provider.ts";
 
 const context = BACKGROUND_CONTEXT;
 async function until(check: () => Promise<boolean>) { const deadline = Date.now() + 10000; while (!await check()) { assert.ok(Date.now() < deadline, "等待定时浏览器收尾超时"); await delay(5); } }

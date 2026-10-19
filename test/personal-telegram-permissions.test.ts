@@ -22,7 +22,7 @@ import { listPersonalServiceGrants, revokePersonalServiceGrant, PersonalServiceG
 import { personalServiceControls, listPersonalServices } from "../apps/ruukoto/src/personal-service-controls.ts";
 import type { PersonalTelegramConfig } from "../apps/ruukoto/src/personal-telegram-config.ts";
 import type { TelegramUpdate } from "../apps/ruukoto/src/personal-telegram-api.ts";
-import { MockModelServer, type Responder } from "./helpers/mock-provider.ts";
+import { PersonalMockModelServer as MockModelServer, type Responder } from "./helpers/mock-provider.ts";
 
 const context = BACKGROUND_CONTEXT;
 const UNIT = "approval-test.service";

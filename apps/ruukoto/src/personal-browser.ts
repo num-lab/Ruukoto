@@ -73,6 +73,8 @@ export async function browserRequestAllowed(tx: Tx, conversationId: Conversation
   if (live.run?.inputs.length !== 1 || !sourceRequestId) return false;
   const candidate = await personalSourceSubmission(tx, sourceRequestId);
   if (!candidate || candidate.conversationId !== conversationId || candidate.id !== live.run.inputs[0] || candidate.status !== "placed") return false;
+  const entry = candidate.entry === undefined ? undefined : await tx.entry(candidate.entry);
+  if (entry?.kind === "ruukoto.delegation-report") return false;
   const source = await personalSource(tx, sourceRequestId, { active: true });
   if (source.permission.mode !== "full_access") return false;
   return source.scheduled ? (source.scope.tools.includes("browser") && source.scope.extensions.includes(PERSONAL_BROWSER)) : conversationId === ROOT_CONVERSATION_ID && (source.telegram !== undefined || (await tx.doc(LocalInputDoc, sourceRequestId, "")).accepted !== undefined);

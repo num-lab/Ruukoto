@@ -6,7 +6,7 @@ import { personalProvider, recordedModels } from "../apps/ruukoto/src/personal-m
 import { PersonalAgentsDoc } from "../apps/ruukoto/src/personal-work.ts";
 import { PersonalSchedulesDoc, PersonalScheduleRunDoc, PersonalScheduledConversationDoc } from "../apps/ruukoto/src/personal-scheduler-records.ts";
 import { activePersonalReferenceTool, historyVisible, personalHistoryEntry, personalHistory, readPersonalHistory, searchPersonalHistory } from "../apps/ruukoto/src/personal-history.ts";
-import { MockModelServer } from "./helpers/mock-provider.ts";
+import { PersonalMockModelServer as MockModelServer } from "./helpers/mock-provider.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
 
 const context = BACKGROUND_CONTEXT;

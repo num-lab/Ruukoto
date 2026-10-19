@@ -6,7 +6,9 @@
 
 2026-10-18，拥有者明确要求只保留真正必须本人执行的事项，其余直接resolved。本轮24张方案/实现/验收切片结单，包括原23张ready-for-human中的22张，以及01方案交接、38正式入口；只剩31、39、40活动。结单是跟踪收敛，不新增测试通过结论，原始证据、失败及未验证事实保留，详见[逐单结论与原状态](evidence/owner-acceptance-2026-10-18/issue-closure.md)。
 
-31仅等待私人账号必须的配对及原入口动作，Agent先核实NapCat鉴权/连接并准备环境；39为ready-for-agent，统一承接原36/38未归因项、真实环境缺口和同一候选A1–A12，不再等待已结单切片重复人工验收；40保持planning，等39通过及拥有者明确生产目标/窗口/接管授权。方案与实现切片结单不表示迁移全部完成，生产未操作。
+31集中私人账号必须的原入口动作，本人已完成双平台配对、共用上下文文字与图片发送；39为in-progress，统一承接原36/38未归因项、真实环境缺口和同一候选A1–A12，不再等待已结单切片重复人工验收。本轮限定进展和残项见[39证据](evidence/39-final-acceptance/README.md)；40保持planning，等39通过及拥有者明确生产目标/窗口/接管授权。方案与实现切片结单不表示迁移全部完成，生产未操作。
+
+2026-10-19 晚由新接手上下文推进：本人扫码后新 Linux/Docker NapCat 4.18.38 按新代次重新配对 QQ 入口，当前候选在隔离验收后台完成真实 QQ 审批一次、专用测试服务计数 3→4、唯一报告与宿主事实一致、真实新图实际入模；独立终审无阻断，[A1 失败账本](evidence/39-final-acceptance/handoff-2026-10-19/a1-failure-ledger.md)保留三项历史未归因失败。拥有者当晚决定按披露性残余风险收口并授权本地 commit（不推送），39 据此置 resolved；[发布候选说明](evidence/39-final-acceptance/release-candidate.md)与[本轮记录](evidence/39-final-acceptance/handoff-2026-10-19/round3/README.md)已整理。40 仍为 planning，等拥有者确定生产目标/窗口/接管授权；TG 本轮无新真实证据，需要时另定范围。
 
 本轮已提供oracle-4c24g、NapCat地址、临时TG凭据及deepseek配置；工具链、沙箱、服务和测试目标由Agent准备。真实模型窄smoke及本机实际操作证据见[拥有者验收记录](evidence/owner-acceptance-2026-10-18/README.md)，不重复索取已有授权或要求逐张点击菜单。
 
@@ -37,7 +39,7 @@
 | 工单 | 当前职责 | 前置与下一责任人 |
 | --- | --- | --- |
 | [31 QQ/双平台](issues/31-qq-owner-entry.md) | 唯一本人账号事项，ready-for-human | Agent先准备有效鉴权/连接；拥有者集中完成私人账号配对和确需原入口的动作 |
-| [39 最终验收](issues/39-final-acceptance.md) | 未完工程、真实环境和A1–A12，ready-for-agent | 实现接口已具备，可直接推进；31只阻断对应平台场景，不阻止工程准备 |
+| [39 最终验收](issues/39-final-acceptance.md) | 未完工程、真实环境和A1–A12，in-progress | 已接手并持续验证；31只阻断对应平台场景，不阻止工程推进 |
 | [40 生产切换](issues/40-production-cutover.md) | 实际停机、归档、接管与回退，planning | 39通过后，由拥有者指定生产目标/窗口/授权，Agent执行 |
 
 01–30、32–38已resolved；各单原有工程/实证范围继续有效。原36的历史归因与38的原生/宽批次缺口仍未验证，由39唯一持有，不能依据其resolved状态计A1通过。39不再等待这些切片重新交付或逐单人工确认，避免循环前置。

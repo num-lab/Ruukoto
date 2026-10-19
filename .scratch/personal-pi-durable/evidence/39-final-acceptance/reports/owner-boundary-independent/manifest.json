@@ -1,0 +1,20 @@
+{
+  "at": "2026-10-18T14:59:31.391833+00:00",
+  "source": "/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable",
+  "files": {
+    "apps/ruukoto/src/personal-harness.ts": "9cb36ef0fb8377ea5d9bf30d4d61e9617480389e840ed1714464a2e2610d2436",
+    "test/helpers/mock-provider.ts": "c70adb6eb6f397e8474a43ab8a96038592cda7904e2fe98366817cc6645d8c14",
+    "test/personal-reports.test.ts": "477adfd44103b36c1466554dc874c540726f7da0180c44b1de843e4423c35b10",
+    "test/personal-mock-provider.test.ts": "7f71d9c0c0a138c963b76a58ab302a98c96023801e44db1f1e9f78eaf203b7b5"
+  },
+  "selectedReportNames": [
+    "委托报告：失败参考后的拥有者输入在实际请求中保留本轮身份",
+    "委托报告：拥有者轮次运行时的原生压缩不声明拥有者输入身份",
+    "当前输入：原生工具边界之后的合成user不冒充原拥有者消息",
+    "当前输入：显式技能先按原消息展开，只包围本轮正文且保留原记录",
+    "当前输入：绑定图片保留原parts，Responses实际payload只新增首尾文字",
+    "委托报告：汇总参考只能查询，不能据此新派分析或取消原委托"
+  ],
+  "selectionNote": "five new owner-source cases plus existing report authorization gate; parent informed",
+  "node": "/Users/eitrous/.local/share/mise/installs/node/24.15.0/bin/node"
+}

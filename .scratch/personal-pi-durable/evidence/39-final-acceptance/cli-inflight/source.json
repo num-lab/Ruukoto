@@ -1,0 +1,8 @@
+{
+  "originalFile": "/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/personal-cli.test.ts",
+  "originalSha256": "9dae0b5767f758892a855403a84a51be793ec48ace8624471515a295686efe76",
+  "proofSha256": "e3e5d228598269324bfdad7766b22eebd2289248601fdeb0040d1921a45ccb42",
+  "derivedFromTest": "personal CLI：真实后台进程退出客户端仍继续，重复启动不删原 socket，停止后可重启",
+  "node": "v24.15.0",
+  "cwd": "/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable"
+}

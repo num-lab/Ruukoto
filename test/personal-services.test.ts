@@ -18,7 +18,7 @@ import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
 import { personalProvider, type PersonalModelConfig, type RequestEvidence } from "../apps/ruukoto/src/personal-model.ts";
 import { lockPersonalProfile } from "../apps/ruukoto/src/personal-profile.ts";
 import type { ServiceManagerConfig } from "../apps/ruukoto/src/service-helper.ts";
-import { MockModelServer, type Responder } from "./helpers/mock-provider.ts";
+import { PersonalMockModelServer as MockModelServer, type Responder } from "./helpers/mock-provider.ts";
 import { PersonalAgentsDoc, PersonalWorkDoc, type PersonalWorkRef } from "../apps/ruukoto/src/personal-work.ts";
 import { listPersonalInspections, personalInspectionControls, type PersonalInspectionRef } from "../apps/ruukoto/src/personal-inspection-controls.ts";
 import { PersonalTelegramReceiptDoc } from "../apps/ruukoto/src/personal-telegram-records.ts";

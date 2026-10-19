@@ -7,12 +7,15 @@ import { parseFragment, type DefaultTreeAdapterTypes } from "parse5";
 import { createServer, type ViteDevServer } from "vite";
 import react from "@vitejs/plugin-react";
 import type { FlowEntry } from "@ruukoto/view/event-flow.ts";
+import type { HistoryEntryView } from "@ruukoto/core/history.ts";
 import type { TaskView } from "@ruukoto/core/views.ts";
-import type { OpResult } from "@ruukoto/control/ops.ts";
+import type { OpParams, OpResult } from "@ruukoto/control/ops.ts";
 import { ViewState } from "@ruukoto/view/state.ts";
 import { activityGroups, conversationActivity, conversationSections, executionDuration } from "../apps/desktop/src/renderer/activity.ts";
 import { DesktopInspector } from "../apps/desktop/src/renderer/inspector.ts";
 import { CodeState } from "../apps/desktop/src/renderer/code-state.ts";
+import { ipcResult, type DesktopOp } from "../apps/desktop/src/main/ipc.ts";
+import { FakeTransport } from "./helpers/fake-control.ts";
 import type { DiffTool } from "../apps/desktop/src/renderer/diff.ts";
 import type { DesktopBridge } from "../apps/desktop/src/shared/bridge.ts";
 
@@ -285,6 +288,45 @@ test("没有 delta 的最终正文补读成功前保持展开，缺失或失败�
   view.tasks.set("old", { ...task(), id: "old", status: "completed" });
   const oldItems: FlowEntry[] = [thinking({ taskId: "old" }), { kind: "message", key: "old-final", taskId: "old", at, seq: 3, role: "assistant", text: "旧最终回复", entryId: "old-final", streaming: false, totalBytes: 15, truncated: false }];
   assert.equal(conversationSections(view, oldItems, activityGroups(oldItems), undefined, id => model.historyReady("a", id))[0].completed, true, "新任务补读或失败不重开旧任务 trace");
+});
+
+
+test("打开会话先装入历史窗口任务状态，已收起的 trace 不先展开再收起", async () => {
+  const completed = { ...task(), status: "completed" as const, historyEntryIds: ["final-entry"] };
+  const entry = (entryId: string, role: string, text: string, timestamp: string, extra: Partial<HistoryEntryView> = {}): HistoryEntryView => ({ entryId, taskId: "task", inputPurpose: "user", parentId: null, role, text, timestamp, offset: 0, totalBytes: Buffer.byteLength(text), truncated: false, toolCalls: [], toolCallId: null, toolName: null, isError: null, hasNonTextContent: false, ...extra });
+  const transport = new FakeTransport({ handlers: {
+    list_session_summaries: () => [],
+    read_history: () => ({ fileAvailable: true, hasPartialTail: false, nextBefore: null, entries: [entry("ask", "user", "问题", "2026-10-16T00:00:01Z"), entry("progress", "assistant", "中间进度", "2026-10-16T00:00:02Z"), entry("final-entry", "assistant", "最终回复", "2026-10-16T00:00:03Z", { truncated: true, totalBytes: 40 })] }),
+    list_tasks: async () => { await settled; return { tasks: [completed], hasMore: false }; },
+    get_task: () => ({ task: completed, toolOps: [], confirmations: [], artifacts: [], outputPreview: null, seq: 5 }),
+    read_task_events: () => ({ events: [], nextAfter: null }),
+    read_history_entry: () => entry("final-entry", "assistant", "最终回复", "2026-10-16T00:00:03Z"),
+  } });
+  let resolveStatuses!: () => void;
+  const settled = new Promise<void>(resolve => { resolveStatuses = resolve; });
+  const observed: boolean[] = [];
+  const model = new CodeState({ request: (_target, op, params) => ipcResult(() => transport.request(op as DesktopOp, params as OpParams<DesktopOp>)) }, () => {
+    if (!model.view.sessionViews.get("a")?.historyLoaded) return;
+    const view = model.view, items = model.view.openSession("a").flow.items;
+    for (const section of conversationSections(view, items, activityGroups(items), undefined, id => model.historyReady("a", id))) if (section.trace) observed.push(section.completed);
+  });
+  const loading = model.loadHistory("a");
+  resolveStatuses();
+  await loading;
+  assert.ok(observed.length > 0, "历史页可见后 trace 至少渲染过一次");
+  assert.ok(observed.every(Boolean), "任务状态先于历史页装入，trace 从首次可见起就保持收起");
+});
+
+test("历史页已含条目的正文补全不挡自动收起", async () => {
+  let release!: (value: Awaited<ReturnType<DesktopBridge["request"]>>) => void;
+  const model = new CodeState({ request: async () => new Promise(resolve => { release = resolve; }) }, () => {});
+  const view = model.view; view.tasks.set("task", { ...task(), status: "completed" });
+  const final = { entryId: "final-entry", taskId: "task", inputPurpose: "user" as const, parentId: null, role: "assistant" as const, text: "最终回复", timestamp: "2026-10-16T00:00:02Z", offset: 0, totalBytes: 40, truncated: true, toolCalls: [], toolCallId: null, toolName: null, isError: false, hasNonTextContent: false };
+  view.openSession("a").flow.addHistory(final);
+  const reading = model.loadEntry("a", "final-entry", "task");
+  assert.equal(model.historyReady("a", "task"), true, "条目身份已在历史页里，补全正文不重开 trace");
+  release({ ok: true, value: { ...final, text: "最终回复的完整正文", totalBytes: Buffer.byteLength("最终回复的完整正文"), truncated: false } }); await reading;
+  assert.equal(model.historyReady("a", "task"), true);
 });
 
 

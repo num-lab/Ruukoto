@@ -5,12 +5,13 @@ import { PERSONAL_SKILLS, PERSONAL_SKILL_TOOLS } from "./personal-skills.ts";
 import { PERSONAL_MEDIA } from "./personal-media.ts";
 import { PERSONAL_TOOLS, PERSONAL_TOOL_NAMES, requireWorkToolsStopped, toolOperations, toolUnresolved, waitWorkTools } from "./personal-tools.ts";
 import { isDeepStrictEqual } from "node:util";
+import type { TranscriptContext } from "@earendil-works/pi-ai";
 import { createHash } from "node:crypto";
 import { BACKGROUND_CONTEXT, type Context } from "@earendil-works/chord/context";
 import { AgentDoc, AssistantEntry, configure, defineDoc, defineDocFamily, defineEntry, defineExtension, defineTask, ROOT_CONVERSATION_ID, section, type ConversationId, type Cursor, type EntryId, type Harness, type ModelRef, type SubmissionId, type TaskId, type TaskRuntime, type Tx } from "@earendil-works/pi-durable";
 import { permissionSnapshot, telegramSelection, telegramSourceActive, type PersonalTelegramSource } from "./personal-permissions.ts";
 import { samePersonalEntry, type PersonalEntryIdentity, isPersonalImRequest, PersonalTelegramReceiptDoc } from "./personal-telegram-records.ts";
-import { PERSONAL_SERVICE_WORK, interruptedPersonalService, personalWorkServices, requirePersonalWorkServicesStopped, requirePersonalServiceSourceReady, waitPersonalServiceEffect, type PersonalServiceOperationRef } from "./personal-service-operations.ts";
+import { PERSONAL_SERVICE_WORK, interruptedPersonalService, personalServiceOperationsIn, personalServiceResult, personalWorkServices, requirePersonalWorkServicesStopped, requirePersonalServiceSourceReady, waitPersonalServiceEffect, type PersonalServiceOperationRef } from "./personal-service-operations.ts";
 import { PersonalError } from "./personal-error.ts";
 import { LocalInputDoc, personalInputDigest } from "./personal-local-records.ts";
 import { requirePersonalDelegationOpen, requirePersonalDelegationReady, requirePersonalDelegationInput, type PersonalDelegationRef, type PersonalWorkSource } from "./personal-delegation.ts";
@@ -395,14 +396,68 @@ export async function personalWorkStatus(tx: Tx, ref: PersonalWorkRef) {
   return { task, submission, cancelRequested: work.cancelRequested, stopVerified, notes: work.notes?.length ?? 0 };
 }
 
-export type PersonalWorkResult = { work: TaskId; state: string; cancelRequested?: boolean; next?: string; text?: string; partial?: boolean; commands?: ReturnType<typeof personalCommandResult>[]; notice?: string; nextOffset?: number };
+async function workServiceResults(tx: Tx, taskId: TaskId) {
+  const results = [];
+  for (const op of await personalWorkServices(tx, taskId)) results.push(personalServiceResult(op, (await tx.task(op.ref.taskId))?.state.status === "terminal"));
+  return results;
+}
+
+// Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-subagent-service-operations.md
+export async function personalServiceTranscriptFacts(tx: Tx, conversationId: ConversationId, input: TranscriptContext) {
+  const messages = input.messages.filter(message => message.role === "toolResult").filter(message => message.toolName === "service_restart");
+  if (!messages.length || conversationId === ROOT_CONVERSATION_ID || !(await tx.doc(PersonalAgentsDoc)).agents.some(agent => agent.id === conversationId && agent.work && !agent.closed)) return [];
+  const matched = new Set<typeof messages[number]>(), results = [];
+  const invalid = () => new PersonalError("service_model_reference_invalid", "原服务工具结果无法核实，已停止模型请求；请保留档案并检查原工作。");
+  for (const op of await personalServiceOperationsIn(tx)) {
+    if (op.work?.ref.agentId !== conversationId) continue;
+    const task = await tx.task(op.work.tool), tool = task?.input;
+    if (!task || task.kind !== "pi.tool" || task.conversationId !== conversationId || !tool || typeof tool !== "object" || Array.isArray(tool) || tool.kind !== "model") throw invalid();
+    if (!messages.some(message => message.toolCallId === tool.callId) || task.state.status !== "terminal") continue;
+    const result = task.state.outcome.result;
+    const entry = result && typeof result === "object" && !Array.isArray(result) && typeof result.entryId === "number" ? await tx.entry(result.entryId as EntryId) : undefined;
+    if (!entry || entry.kind !== "pi.tool-result" || entry.conversationId !== conversationId || entry.byTaskId !== op.work.tool || !entry.model?.some(message => message.role === "toolResult" && message.toolCallId === tool.callId && message.toolName === "service_restart")) throw invalid();
+    const selected = messages.filter(message => entry.model!.some(original => isDeepStrictEqual(original, message)));
+    if (!selected.length) {
+      const assistant = typeof tool.assistant === "number" ? await tx.entry(tool.assistant as EntryId) : undefined;
+      if (!assistant || assistant.kind !== "pi.assistant" || assistant.conversationId !== conversationId || !assistant.model?.some(message => message.role === "assistant" && message.content.some(part => part.type === "toolCall" && part.id === tool.callId && part.name === "service_restart"))) throw invalid();
+      if (input.messages.some(message => assistant.model!.some(original => isDeepStrictEqual(original, message)))) throw invalid();
+      continue;
+    }
+    if (selected.length !== 1 || matched.has(selected[0])) throw invalid();
+    matched.add(selected[0]); results.push(personalServiceResult(op, (await tx.task(op.ref.taskId))?.state.status === "terminal"));
+  }
+  let cursor: Cursor | undefined;
+  while (matched.size < messages.length) {
+    const page = await tx.scanTasks({ conversationId, kind: "pi.tool", status: "terminal" }, 256, cursor);
+    for (const task of page.items) {
+      const tool = task.input;
+      if (!tool || typeof tool !== "object" || Array.isArray(tool) || tool.kind !== "model" || !messages.some(message => !matched.has(message) && message.toolCallId === tool.callId)) continue;
+      const result = task.state.status === "terminal" && task.state.outcome.result;
+      const entry = result && typeof result === "object" && !Array.isArray(result) && typeof result.entryId === "number" ? await tx.entry(result.entryId as EntryId) : undefined;
+      const selected = messages.filter(message => !matched.has(message) && entry?.model?.some(original => isDeepStrictEqual(original, message)));
+      if (!selected.length) continue;
+      const assistant = typeof tool.assistant === "number" ? await tx.entry(tool.assistant as EntryId) : undefined;
+      if (!entry || entry.kind !== "pi.tool-result" || entry.conversationId !== conversationId || entry.byTaskId !== task.id || !assistant || assistant.kind !== "pi.assistant" || assistant.conversationId !== conversationId || !assistant.model?.some(message => message.role === "assistant" && message.content.some(part => part.type === "toolCall" && part.id === tool.callId && part.name === "service_restart"))) throw invalid();
+      if (selected.length !== 1) throw invalid();
+      matched.add(selected[0]);
+    }
+    cursor = page.next;
+    if (!cursor) break;
+  }
+  if (matched.size !== messages.length) throw invalid();
+  return results;
+}
+
+export type PersonalWorkResult = { work: TaskId; state: string; cancelRequested?: boolean; next?: string; text?: string; offset?: number; totalChars?: number; partial?: boolean; commands?: ReturnType<typeof personalCommandResult>[]; services?: ReturnType<typeof personalServiceResult>[]; notice?: string; nextOffset?: number };
 
 export async function personalWorkResult(tx: Tx, ref: PersonalWorkRef, offset = 0, size = 4096): Promise<PersonalWorkResult> {
   const { task, submission, cancelRequested } = await personalWorkStatus(tx, ref);
   const state = task.state.status === "terminal" ? task.state.outcome.status : task.state.status;
   const commands = (await personalWorkCommands(tx, ref.taskId)).map(personalCommandResult);
-  const commandFacts = commands.length ? { commands, notice: `当前宿主命令事实（优先于历史子回答）：\n${commands.map(command => command.verification).join("\n")}` } : {};
-  if (state !== "completed") return { work: ref.taskId, state, ...commandFacts, cancelRequested, next: task.state.status === "terminal" ? "工作未成功完成，后续已接纳说明未继续执行；请向拥有者报告，身份仍有占用时不要重试或复用。" : "工作尚未结束，请结束本轮，后续拥有者询问时再查询。" };
+  const services = await workServiceResults(tx, ref.taskId);
+  const notice = [commands.length ? `当前宿主命令事实（优先于历史子回答）：\n${commands.map(command => command.verification).join("\n")}` : "", services.length ? `当前宿主服务事实（优先于历史子回答）：\n${services.map(service => service.verification).join("\n")}` : ""].filter(Boolean).join("\n");
+  const executionFacts = { ...(commands.length ? { commands } : {}), ...(services.length ? { services } : {}), ...(notice ? { notice } : {}) };
+  if (state !== "completed") return { work: ref.taskId, state, ...executionFacts, cancelRequested, next: task.state.status === "terminal" ? "工作未成功完成，后续已接纳说明未继续执行；请向拥有者报告，身份仍有占用时不要重试或复用。" : "工作尚未结束，请结束本轮，后续拥有者询问时再查询。" };
   const entry = submission?.status === "done" && submission.type === "input" ? await tx.entry(AssistantEntry, submission.answer) : undefined;
   const message = entry?.model?.[0];
   if (message?.role !== "assistant") throw new PersonalError("work_answer_missing", "原工作的完整回答缺失，请停止引用结果并报告拥有者检查档案。");
@@ -410,10 +465,10 @@ export async function personalWorkResult(tx: Tx, ref: PersonalWorkRef, offset = 
   let end = Math.min(text.length, offset + size);
   if (end < text.length && /[\ud800-\udbff]/.test(text[end - 1]) && /[\udc00-\udfff]/.test(text[end])) end--;
   const partial = message.stopReason === "length";
-  return { work: ref.taskId, state, ...commandFacts, text: text.slice(offset, end), partial, ...(partial ? { next: "模型输出因长度限制截断，仅为已保存片段；翻完页也不是完整回答。请报告遗漏，不自动续写或重试外部操作。" } : {}), ...(end < text.length ? { nextOffset: end } : {}) };
+  return { work: ref.taskId, state, ...executionFacts, text: text.slice(offset, end), offset, totalChars: text.length, partial, ...(partial ? { next: "模型输出因长度限制截断，仅为已保存片段。请报告遗漏，不自动续写或重试外部操作。" } : {}), ...(end < text.length ? { nextOffset: end } : {}) };
 }
 
-export type PersonalWorkSummary = { ref: PersonalWorkRef; label: string; content: string; state: string; cancelRequested: boolean; stopVerified: boolean; closed: boolean; notes: number };
+export type PersonalWorkSummary = { ref: PersonalWorkRef; label: string; content: string; state: string; cancelRequested: boolean; stopVerified: boolean; closed: boolean; notes: number; services?: ReturnType<typeof personalServiceResult>[] };
 
 export async function personalWorkSummary(tx: Tx, ref: PersonalWorkRef): Promise<PersonalWorkSummary> {
   const status = await personalWorkStatus(tx, ref);
@@ -421,7 +476,8 @@ export async function personalWorkSummary(tx: Tx, ref: PersonalWorkRef): Promise
   const input = status.task.input;
   const content = input && typeof input === "object" && !Array.isArray(input) && input.content;
   if (typeof content !== "string") throw new PersonalError("work_missing", "后台工作说明缺失，请保留档案并检查存储。");
-  return { ref, label: agent.label, content: content.slice(0, 160), state: status.task.state.status === "terminal" ? status.task.state.outcome.status : status.task.state.status, cancelRequested: status.cancelRequested, stopVerified: status.stopVerified, closed: agent.closed, notes: status.notes };
+  const services = await workServiceResults(tx, ref.taskId);
+  return { ref, label: agent.label, content: content.slice(0, 160), state: status.task.state.status === "terminal" ? status.task.state.outcome.status : status.task.state.status, cancelRequested: status.cancelRequested, stopVerified: status.stopVerified, closed: agent.closed, notes: status.notes, ...(services.length ? { services } : {}) };
 }
 
 export async function listPersonalWorks(tx: Tx, offset = 0, source?: PersonalEntryIdentity) {

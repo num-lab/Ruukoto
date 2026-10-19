@@ -9,14 +9,14 @@ import { test, type TestContext } from "node:test";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { AgentDoc, ROOT_CONVERSATION_ID } from "@earendil-works/pi-durable";
 import { openPersonalHarness, type PersonalHarness } from "../apps/ruukoto/src/personal-harness.ts";
-import { personalProvider, type PersonalModelConfig } from "../apps/ruukoto/src/personal-model.ts";
+import { personalProvider, type PersonalModelConfig, type RequestEvidence } from "../apps/ruukoto/src/personal-model.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
 import { PersonalPermissionsDoc } from "../apps/ruukoto/src/personal-permissions.ts";
 import { PERSONAL_SCHEDULER, PersonalScheduleRunDoc, PersonalSchedulesDoc, personalScheduledSource } from "../apps/ruukoto/src/personal-scheduler-records.ts";
 import { toolGrant, toolOperations, toolResolve, toolVerifyStop } from "../apps/ruukoto/src/personal-tools.ts";
 import { parsePersonalTools } from "../apps/ruukoto/src/personal-tools-config.ts";
 import { PersonalWorkDoc } from "../apps/ruukoto/src/personal-work.ts";
-import { MockModelServer, type Responder } from "./helpers/mock-provider.ts";
+import { PersonalMockModelServer as MockModelServer, type Responder } from "./helpers/mock-provider.ts";
 
 const context = BACKGROUND_CONTEXT;
 async function until(check: () => Promise<boolean>) { const end = Date.now() + 15_000; while (!await check()) { assert.ok(Date.now() < end, "等待定时运行超时"); await delay(5); } }
@@ -39,6 +39,35 @@ async function runFor(p: PersonalHarness, planId: string) {
   await until(async () => { const index = await p.harness.snapshot(PersonalSchedulesDoc, context); for (const id of index?.runs ?? []) { const run = await p.harness.snapshot(PersonalScheduleRunDoc, id, context); if (run?.run?.planId === planId) { selected = id; return true; } } return false; });
   return selected;
 }
+
+test("定时组合：主会话实际请求在说明参数列出定时动作和自动收尾", async t => {
+  const f = await fixture(t), p = await f.open();
+  await p.answer("查看计划工具", "schedule-instruction-contract");
+  const request = f.model.calls[0], tool = request.raw.tools.find((value: { function: { name: string } }) => value.function.name === "schedule_create");
+  const description = "完整任务和明确资料，不依赖主聊天中的省略指代。独立定时会话的background_work仅支持delegate/list/result/cancel；安排完子工作后结束初轮，宿主自动封组、等待全部成员和外部核实，再请求本会话汇总并固定回报原入口。";
+  assert.equal(tool.function.parameters.properties.instruction.description, description);
+  const entries = (await p.main.entries({ order: "ascending" }, 256, undefined, context)).items;
+  const saved = entries.filter(entry => entry.kind === "ruukoto.model-request").at(-1)!.data as RequestEvidence;
+  assert.ok(JSON.stringify(saved.input).includes(description)); assert.deepEqual(saved.payload, request.raw);
+});
+
+test("定时组合：实际汇总请求只交付业务正文，发送状态由宿主查询", async t => {
+  const f = await fixture(t, request => request.messages.at(-1)?.content === "委派计算后汇总" ? { kind: "tool_calls", calls: [{ id: "summary-business-child", name: "background_work", arguments: { action: "delegate", content: "计算187乘239" } }] } : { kind: "text", text: "计算结果44693" });
+  const p = await f.open(), plan = await create(p, "委派计算后汇总"), id = await runFor(p, plan.id);
+  await until(async () => (await p.harness.snapshot(PersonalScheduleRunDoc, id, context))?.run?.delivery?.state === "local");
+  const run = (await p.harness.snapshot(PersonalScheduleRunDoc, id, context))!.run!;
+  const request = f.model.calls.find(call => call.messages.some(message => message.role === "user" && String(message.content).startsWith("宿主定时整项汇总参考")))!;
+  const summary = String(request.messages.at(-1)?.content);
+  assert.ok(summary.endsWith("\n本轮已封组。只查询本轮结果，汇总业务结果、失败和未完成之处；不能发起新的操作或委派。本回答只交付最终报告正文，生成后的回报状态由宿主记录并供查询，正文不评价本次运行的发送状态。"));
+  assert.equal(summary, run.summary!.content); assert.match(summary, /计算结果44693/);
+  assert.equal(run.members.length, 1); assert.equal(run.result?.text, "计算结果44693"); assert.equal(f.model.calls.length, 4);
+  const background = request.raw.tools.find((value: { function: { name: string } }) => value.function.name === "background_work");
+  assert.deepEqual(background.function.parameters.properties.action.anyOf.map((value: { const: string }) => value.const), ["delegate", "list", "result", "cancel"]);
+  const conversation = (await p.harness.conversation(run.conversationId, context))!;
+  const entries = (await conversation.entries({ order: "ascending" }, 256, undefined, context)).items;
+  const saved = entries.filter(entry => entry.kind === "ruukoto.model-request").at(-1)!.data as RequestEvidence;
+  assert.ok(JSON.stringify(saved.input).includes(JSON.stringify(summary))); assert.deepEqual(saved.payload, request.raw);
+});
 
 test("定时组合：独立输入与主聊天隔离，结果只留本机，重启不重放", async t => {
   const f = await fixture(t); let p = await f.open();

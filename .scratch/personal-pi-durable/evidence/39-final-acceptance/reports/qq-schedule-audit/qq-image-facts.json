@@ -1,0 +1,39 @@
+{
+  "sourceEvent": 880487927,
+  "sourceHost": "gchat.qpic.cn",
+  "sourceHttps": true,
+  "userinfoAbsent": true,
+  "identityLength": 36,
+  "identityValid": true,
+  "rows": [
+    {
+      "messageId": 880487927,
+      "mediaDocument": 641,
+      "receiptDocument": 643,
+      "receivedEntry": 642,
+      "mediaState": "rejected",
+      "reason": "download_unavailable",
+      "artifacts": 0,
+      "submission": false,
+      "identityMatchesPrivateEvent": true,
+      "rejectionReceiptSent": true,
+      "rejectionPlatformMessageId": "1833531421"
+    },
+    {
+      "messageId": 940475107,
+      "mediaDocument": 659,
+      "receiptDocument": 661,
+      "receivedEntry": 660,
+      "mediaState": "rejected",
+      "reason": "download_unavailable",
+      "artifacts": 0,
+      "submission": false,
+      "identityMatchesPrivateEvent": true,
+      "rejectionReceiptSent": true,
+      "rejectionPlatformMessageId": "2091129559"
+    }
+  ],
+  "followupTextEntry": 666,
+  "followupAssistant": 671,
+  "followupImageParts": 0
+}

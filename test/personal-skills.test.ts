@@ -14,7 +14,7 @@ import { PersonalFormatDoc } from "../apps/ruukoto/src/personal-harness.ts";
 import { PersonalSchedulesDoc, SCHEDULE_SUPERVISOR_TASK } from "../apps/ruukoto/src/personal-scheduler-records.ts";
 import { personalProvider, recordedModels, type RequestEvidence } from "../apps/ruukoto/src/personal-model.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
-import { MockModelServer } from "./helpers/mock-provider.ts";
+import { PersonalMockModelServer as MockModelServer } from "./helpers/mock-provider.ts";
 
 const context = BACKGROUND_CONTEXT;
 const code = (expected: string) => (error: unknown) => error instanceof PersonalError && error.code === expected;

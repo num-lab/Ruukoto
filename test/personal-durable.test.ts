@@ -3,7 +3,6 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { tmpdir } from "node:os";
 import { execFileSync, spawn } from "node:child_process";
-import { once } from "node:events";
 import { setTimeout as delay } from "node:timers/promises";
 import { test, type TestContext } from "node:test";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
@@ -13,7 +12,7 @@ import { openPersonalHarness, PersonalFormatDoc, PERSONAL_PROMPT, type PersonalH
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
 import { parsePersonalModel, personalProvider, recordedModels, type PersonalModelConfig, type RequestEvidence } from "../apps/ruukoto/src/personal-model.ts";
 import { lockPersonalProfile, PERSONAL_FORMAT, personalDirectory } from "../apps/ruukoto/src/personal-profile.ts";
-import { MockModelServer, type Responder } from "./helpers/mock-provider.ts";
+import { PersonalMockModelServer as MockModelServer, type Responder } from "./helpers/mock-provider.ts";
 
 const context = BACKGROUND_CONTEXT;
 
@@ -173,13 +172,61 @@ test("durable：空闲主会话显式切换模型", async t => {
   assert.equal((await next.main.agent(context)).model?.modelId, "another-model");
 });
 
+// Note: 见 .agents/notes/implemented/testing/2026-10-11-await-observed-async-phases.md
 test("durable：模型流中途强杀后恢复原输入，进程锁释放且不重复受理", { timeout: 15000 }, async t => {
+  const cleanupChildren: (() => Promise<unknown>)[] = [];
+  t.after(async () => { for (const close of cleanupChildren) await close(); });
   const f = await fixture(t, (_request, index) => index === 0 ? { kind: "text", text: "未完成流".repeat(50), chunkDelayMs: 30 } : { kind: "text", text: "恢复完成" });
+  function launch(script: string) {
+    t.signal.throwIfAborted();
+    const child = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "--eval", script], {
+      cwd: new URL("..", import.meta.url), env: { ...process.env, RUUKOTO_DURABLE_TEST_OPTIONS: JSON.stringify({ directory: f.dir, config: f.config }) }, stdio: ["ignore", "ignore", "pipe", "ipc"],
+    });
+    let stderr = "", failure: Error | undefined;
+    child.stderr!.on("data", data => { stderr = (stderr + String(data)).slice(-2048); });
+    child.stderr!.pipe(process.stderr);
+    child.on("error", error => { failure = error; });
+    const closed = new Promise<[number | null, NodeJS.Signals | null]>(resolve => child.once("close", (code, signal) => resolve([code, signal])));
+    const phase = (expected: string, timeout: number) => new Promise<void>((resolve, reject) => {
+      const finish = (error?: Error) => {
+        clearTimeout(timer);
+        child.off("message", message); child.off("error", failed); child.off("exit", exited);
+        if (error) reject(error); else resolve();
+      };
+      const message = (value: unknown) => { if (value === expected) finish(); };
+      const failed = (error: Error) => finish(new Error(`子进程在 ${expected} 前启动失败：${error.message} ${stderr}`, { cause: error }));
+      const exited = (code: number | null, signal: NodeJS.Signals | null) => finish(new Error(`子进程在 ${expected} 前退出：${code ?? signal} ${stderr}`));
+      const timer = setTimeout(() => finish(new Error(`子进程等待 ${expected} 超时：${stderr}`)), timeout);
+      child.on("message", message); child.once("error", failed); child.once("exit", exited);
+      if (failure) failed(failure);
+      else if (child.exitCode !== null || child.signalCode !== null) exited(child.exitCode, child.signalCode);
+    });
+    const close = async () => {
+      if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+      return await closed;
+    };
+    cleanupChildren.push(close);
+    return { child, phase, close, errors: () => stderr };
+  }
+  const early = launch('process.stderr.write("fixture-exit"); process.exit(23);');
+  try { await assert.rejects(early.phase("ready", 5000), /ready 前退出：23/); } finally { await early.close(); }
+  assert.match(early.errors(), /fixture-exit/);
+  const silent = launch('process.send("probe-started"); setInterval(() => {}, 1000);');
+  try {
+    await silent.phase("probe-started", 5000);
+    await assert.rejects(silent.phase("ready", 25), /等待 ready 超时/);
+  } finally { await silent.close(); }
   const script = `
     import { openPersonalHarness } from "./apps/ruukoto/src/personal-harness.ts";
     import { personalProvider } from "./apps/ruukoto/src/personal-model.ts";
     import { LiveDoc } from "@earendil-works/pi-durable";
     import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+    const start = new Promise(resolve => process.once("message", message => {
+      if (message !== "start") throw new Error("崩溃夹具收到未知启动信号");
+      resolve();
+    }));
+    process.send("ready");
+    await start;
     const { directory, config } = JSON.parse(process.env.RUUKOTO_DURABLE_TEST_OPTIONS);
     const personal = await openPersonalHarness({ directory, provider: personalProvider(config), modelId: config.modelId });
     await personal.submit("崩溃前输入", "crash-input");
@@ -188,28 +235,26 @@ test("durable：模型流中途强杀后恢复原输入，进程锁释放且不�
       if (live?.generation?.message?.content?.some(part => part.type === "text" && part.text.length > 0)) break;
       await new Promise(resolve => setTimeout(resolve, 5));
     }
-    process.stdout.write("persisted-partial\\n");
+    process.send("persisted-partial");
     setInterval(() => {}, 1000);
   `;
-  const child = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "--eval", script], {
-    cwd: new URL("..", import.meta.url), env: { ...process.env, RUUKOTO_DURABLE_TEST_OPTIONS: JSON.stringify({ directory: f.dir, config: f.config }) }, stdio: ["ignore", "pipe", "pipe"],
-  });
-  let stdout = "";
-  child.stdout.on("data", data => { stdout += data; });
-  child.stderr.pipe(process.stderr);
-  t.after(() => { if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL"); });
-  await waitFor(() => stdout.includes("persisted-partial") && f.server.calls.length === 1);
-  await assert.rejects(f.open(), code("profile_busy"));
-  const exited = once(child, "exit");
-  child.kill("SIGKILL");
-  assert.deepEqual(await exited, [null, "SIGKILL"]);
-  const restored = await f.open();
-  assert.equal(await restored.answer("崩溃前输入", "crash-input"), "恢复完成");
-  assert.equal(f.server.calls.length, 2);
-  const entries = (await restored.main.entries({}, 256, undefined, context)).items;
-  assert.equal(entries.filter(entry => entry.kind === "pi.user").length, 1);
-  assert.equal(entries.filter(entry => entry.kind === "pi.assistant" && entry.model?.some(message => message.role === "assistant" && message.stopReason === "stop")).length, 1);
-  assert.ok(entries.some(entry => entry.kind === "pi.assistant" && entry.model?.some(message => message.role === "assistant" && message.stopReason === "aborted" && message.content.some(part => part.type === "text" && part.text.length > 0))));
+  const running = launch(script);
+  try {
+    await running.phase("ready", 10_000);
+    const partial = running.phase("persisted-partial", 5000);
+    const sent = new Promise<void>((resolve, reject) => running.child.send("start", error => error ? reject(error) : resolve()));
+    await Promise.all([partial, sent]);
+    assert.equal(f.server.calls.length, 1);
+    await assert.rejects(f.open(), code("profile_busy"));
+    assert.deepEqual(await running.close(), [null, "SIGKILL"]);
+    const restored = await f.open();
+    assert.equal(await restored.answer("崩溃前输入", "crash-input"), "恢复完成");
+    assert.equal(f.server.calls.length, 2);
+    const entries = (await restored.main.entries({}, 256, undefined, context)).items;
+    assert.equal(entries.filter(entry => entry.kind === "pi.user").length, 1);
+    assert.equal(entries.filter(entry => entry.kind === "pi.assistant" && entry.model?.some(message => message.role === "assistant" && message.stopReason === "stop")).length, 1);
+    assert.ok(entries.some(entry => entry.kind === "pi.assistant" && entry.model?.some(message => message.role === "assistant" && message.stopReason === "aborted" && message.content.some(part => part.type === "text" && part.text.length > 0))));
+  } finally { await running.close(); }
 });
 
 test("durable：未完成输入仍引用旧模型时拒绝换模型恢复", async t => {

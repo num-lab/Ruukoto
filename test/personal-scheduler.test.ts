@@ -13,7 +13,7 @@ import { personalProvider, recordedModels } from "../apps/ruukoto/src/personal-m
 import { PersonalImApiError } from "../apps/ruukoto/src/personal-im-api.ts";
 import { PersonalTelegramDoc, type TelegramControlInput } from "../apps/ruukoto/src/personal-telegram-records.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
-import { MockModelServer, type Responder } from "./helpers/mock-provider.ts";
+import { PersonalMockModelServer as MockModelServer, type Responder } from "./helpers/mock-provider.ts";
 
 const context = BACKGROUND_CONTEXT;
 const code = (value: string) => (error: unknown) => error instanceof PersonalError && error.code === value;

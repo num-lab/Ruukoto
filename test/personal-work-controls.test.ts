@@ -19,7 +19,7 @@ import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
 import { PersonalTelegramReceiptDoc } from "../apps/ruukoto/src/personal-telegram.ts";
 import type { PersonalTelegramConfig } from "../apps/ruukoto/src/personal-telegram-config.ts";
 import type { TelegramUpdate } from "../apps/ruukoto/src/personal-telegram-api.ts";
-import { MockModelServer, type RecordedRequest, type Responder } from "./helpers/mock-provider.ts";
+import { PersonalMockModelServer as MockModelServer, type RecordedRequest, type Responder } from "./helpers/mock-provider.ts";
 
 const context = BACKGROUND_CONTEXT;
 const code = (expected: string) => (error: unknown) => error instanceof PersonalError && error.code === expected;
@@ -125,11 +125,16 @@ test("工作控制：模型输出截断与结果分页分开标记，原工作�
     while (true) {
       const result = await p.harness.commit(tx => personalWorkResult(tx, ref, offset, 1200), context);
       assert.equal(result.partial, finishReason === "length");
+      assert.equal(result.offset, offset); assert.equal(result.totalChars, answer.length);
       text += result.text;
       if (result.nextOffset === undefined) break;
       offset = result.nextOffset;
     }
     assert.equal(text, answer); assert.equal((await p.work.status(ref)).stopVerified, true);
+    const full = await p.harness.commit(tx => personalWorkResult(tx, ref), context);
+    const slice = await p.harness.commit(tx => personalWorkResult(tx, ref, 1), context);
+    assert.equal(full.offset, 0); assert.equal(full.text, answer); assert.equal(full.nextOffset, undefined);
+    assert.equal(slice.offset, 1); assert.equal(slice.text, answer.slice(1)); assert.equal(slice.totalChars, full.totalChars); assert.equal(slice.nextOffset, undefined);
     const list = await f.receive("/工作"), menu = await f.receive("分析1", list.messageId);
     let result = await f.receive("查看结果", menu.messageId);
     if (finishReason === "length") assert.match(result.value.reply!, /模型输出因长度限制截断/);

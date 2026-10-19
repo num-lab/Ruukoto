@@ -22,7 +22,7 @@ import { appDataDecide, appDataOperations, appDataRecheck, PersonalAppDataDoc, P
 import { PersonalPermissionsDoc } from "../apps/ruukoto/src/personal-permissions.ts";
 import { AppDataStore } from "../packages/agent/src/app-data/store.ts";
 import { AppDataQueryRunner } from "../packages/agent/src/app-data/query.ts";
-import { MockModelServer, type Responder } from "./helpers/mock-provider.ts";
+import { PersonalMockModelServer as MockModelServer, type Responder } from "./helpers/mock-provider.ts";
 
 const context = BACKGROUND_CONTEXT;
 const define = { table: "todos", fields: [{ name: "title", type: "text" }], expected_schema_version: 0, reason: "记录待办" };

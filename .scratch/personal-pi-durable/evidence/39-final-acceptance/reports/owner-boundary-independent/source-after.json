@@ -1,0 +1,10 @@
+{
+  "at": "2026-10-18T15:03:15.341053+00:00",
+  "files": {
+    "apps/ruukoto/src/personal-harness.ts": "9cb36ef0fb8377ea5d9bf30d4d61e9617480389e840ed1714464a2e2610d2436",
+    "test/helpers/mock-provider.ts": "c70adb6eb6f397e8474a43ab8a96038592cda7904e2fe98366817cc6645d8c14",
+    "test/personal-reports.test.ts": "477adfd44103b36c1466554dc874c540726f7da0180c44b1de843e4423c35b10",
+    "test/personal-mock-provider.test.ts": "7f71d9c0c0a138c963b76a58ab302a98c96023801e44db1f1e9f78eaf203b7b5"
+  },
+  "allEqualToTestStart": true
+}

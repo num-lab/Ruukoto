@@ -25,7 +25,7 @@ import { personalWorkResult } from "../apps/ruukoto/src/personal-work.ts";
 import { parsePersonalMcp } from "../apps/ruukoto/src/personal-mcp-config.ts";
 import { readPersonalArtifact } from "../apps/ruukoto/src/personal-artifacts.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
-import { MockModelServer, type RecordedRequest, type Responder } from "./helpers/mock-provider.ts";
+import { PersonalMockModelServer as MockModelServer, type RecordedRequest, type Responder } from "./helpers/mock-provider.ts";
 
 const context = BACKGROUND_CONTEXT;
 let fixtureIndex = 0;

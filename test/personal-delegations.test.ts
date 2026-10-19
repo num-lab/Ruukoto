@@ -23,7 +23,7 @@ import { managePersonalDelegations } from "../apps/ruukoto/src/personal-cli.ts";
 import { PersonalTelegramReceiptDoc } from "../apps/ruukoto/src/personal-telegram-records.ts";
 import type { PersonalTelegramConfig } from "../apps/ruukoto/src/personal-telegram-config.ts";
 import type { TelegramUpdate } from "../apps/ruukoto/src/personal-telegram-api.ts";
-import { MockModelServer, type RecordedRequest, type Responder } from "./helpers/mock-provider.ts";
+import { PersonalMockModelServer as MockModelServer, type RecordedRequest, type Responder } from "./helpers/mock-provider.ts";
 
 const context = BACKGROUND_CONTEXT;
 const child = (request: RecordedRequest) => request.system?.includes("你是个人助手的子 Agent");

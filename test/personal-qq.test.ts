@@ -19,13 +19,27 @@ import { PersonalDelegationDoc, listPersonalDelegations } from "../apps/ruukoto/
 import { PersonalTelegramDoc, PersonalTelegramReceiptDoc } from "../apps/ruukoto/src/personal-telegram.ts";
 import type { PersonalTelegramConfig } from "../apps/ruukoto/src/personal-telegram-config.ts";
 import { parsePersonalQq, qqToken, readPersonalQq, savePersonalQq, type PersonalQqConfig } from "../apps/ruukoto/src/personal-qq-config.ts";
-import { personalQqApi } from "../apps/ruukoto/src/personal-qq-api.ts";
+import { personalQqApi, qqPhoto } from "../apps/ruukoto/src/personal-qq-api.ts";
+import { PersonalMediaError } from "../apps/ruukoto/src/personal-media.ts";
 import { configurePersonalQq } from "../apps/ruukoto/src/personal-qq-cli.ts";
 import { lockPersonalProfile } from "../apps/ruukoto/src/personal-profile.ts";
-import { MockModelServer, type Responder } from "./helpers/mock-provider.ts";
+import { PersonalMockModelServer as MockModelServer, type Responder } from "./helpers/mock-provider.ts";
 import { startMockOneBot, MOCK_QQ_ACCOUNT, MOCK_QQ_SECRET } from "./helpers/mock-onebot.ts";
 
 const context = BACKGROUND_CONTEXT;
+
+test("QQ：NapCat 官方 multimedia.nt.qq.com.cn 图片可直取或由 get_image 解析，连接凭据不外传", async t => {
+  const address = "https://multimedia.nt.qq.com.cn/download?appid=1407&rkey=test-only";
+  let requests = 0;
+  t.mock.method(globalThis, "fetch", async (url: Parameters<typeof fetch>[0], options?: Parameters<typeof fetch>[1]) => {
+    requests++; assert.equal(String(url), address); assert.equal(options?.redirect, "error"); assert.equal(options?.headers, undefined);
+    return new Response("image", { headers: { "content-type": "image/jpeg" } });
+  });
+  for (const url of [address, undefined]) assert.equal((await qqPhoto({ identity: "image.jpg", url }, async () => address).download(AbortSignal.timeout(1000))).ok, true);
+  assert.equal(requests, 2);
+  for (const url of [address.replace("https:", "http:"), address.replace(".com.cn/", ".com.cn.attacker.invalid/"), address.replace("https://", "https://user:secret@")]) await assert.rejects(qqPhoto({ identity: "image.jpg", url }).download(AbortSignal.timeout(1000)), error => error instanceof PersonalMediaError && error.reason === "download_unavailable");
+  assert.equal(requests, 2);
+});
 const OWNER = "880001";
 const UNIT = "qq-approval-test.service";
 const TOKEN = `${MOCK_QQ_ACCOUNT}:telegram-test-secret`;

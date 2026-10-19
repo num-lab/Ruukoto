@@ -1,0 +1,48 @@
+TAP version 13
+# (node:4032561) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: 子服务：取消后复用从实际请求及原工作查询读取宿主未执行事实
+ok 1 - 子服务：取消后复用从实际请求及原工作查询读取宿主未执行事实
+  ---
+  duration_ms: 820.086944
+  type: 'test'
+  ...
+# Subtest: 子服务：原结果被模型编辑替换时拒绝请求，零HTTP且历史保留
+ok 2 - 子服务：原结果被模型编辑替换时拒绝请求，零HTTP且历史保留
+  ---
+  duration_ms: 262.098981
+  type: 'test'
+  ...
+# Subtest: 子服务：上下文移出原调用后重复callId只映射当前服务事实
+ok 3 - 子服务：上下文移出原调用后重复callId只映射当前服务事实
+  ---
+  duration_ms: 456.321964
+  type: 'test'
+  ...
+# Subtest: 子服务：重复工具调用使服务结果歧义时零HTTP
+ok 4 - 子服务：重复工具调用使服务结果歧义时零HTTP
+  ---
+  duration_ms: 258.866202
+  type: 'test'
+  ...
+# Subtest: 子服务：未知调用引用的伪造结果在provider前拒绝
+ok 5 - 子服务：未知调用引用的伪造结果在provider前拒绝
+  ---
+  duration_ms: 300.541368
+  type: 'test'
+  ...
+# Subtest: 子服务：接纳前参数错误可核实且重复callId不增加操作
+ok 6 - 子服务：接纳前参数错误可核实且重复callId不增加操作
+  ---
+  duration_ms: 191.758648
+  type: 'test'
+  ...
+1..6
+# tests 6
+# suites 0
+# pass 6
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 7385.001288

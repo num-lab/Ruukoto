@@ -29,7 +29,7 @@ import { personalServiceSourceBlocker } from "../apps/ruukoto/src/personal-servi
 import type { ServiceManagerConfig } from "../apps/ruukoto/src/service-helper.ts";
 import { personalProvider, type PersonalModelConfig } from "../apps/ruukoto/src/personal-model.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
-import { MockModelServer, type Responder } from "./helpers/mock-provider.ts";
+import { PersonalMockModelServer as MockModelServer, type Responder } from "./helpers/mock-provider.ts";
 
 const context = BACKGROUND_CONTEXT;
 const machineId = "a".repeat(32), bootId = "12345678-1234-1234-1234-123456789abc";
@@ -399,6 +399,63 @@ for (const mode of ["auto-review", "full_access"] as const) test(`durable 命令
   assert.equal(f.launches(), 1);
 });
 
+for (const stage of ["running", "unknown", "restored"] as const) test(`durable 命令：封组登记不等待命令 ${stage}，效果和停止核实后才唯一汇总`, async t => {
+  let group!: PersonalDelegationRef;
+  const command = "echo x >> count; while [ ! -f release ]; do sleep 0.01; done";
+  const f = await fixture(t, command, request => {
+    const last = request.messages.at(-1);
+    if (request.system?.includes("你是个人助手的子 Agent")) return last?.role === "user" && last.content === "持住原命令"
+      ? { kind: "tool_calls", calls: [{ id: "held-command", name: "run_command", arguments: { command } }] }
+      : { kind: "text", text: "成员完成" };
+    if (last?.role === "tool") return { kind: "text", text: String(last.content) };
+    if (String(last?.content).startsWith("宿主委托汇总参考")) return { kind: "text", text: "完整命令汇总" };
+    if (last?.role === "user" && last.content === "start") return { kind: "tool_calls", calls: [{ id: "member", name: "background_work", arguments: { action: "delegate", content: "持住原命令" } }] };
+    if (last?.role === "user" && last.content === "report") return { kind: "tool_calls", calls: [{ id: "report", name: "background_work", arguments: { action: "report", delegation: group.entryId } }] };
+    return { kind: "text", text: "完成" };
+  });
+  if (stage !== "running") { f.failReceipt(); f.failStop(); }
+  let p = await f.open();
+  const release = () => fs.writeFileSync(path.join(f.workspace, "release"), "继续\n");
+  const summaryCalls = () => f.server.calls.filter(request => String(request.messages.findLast(message => message.role === "user")?.content).startsWith("宿主委托汇总参考"));
+  try {
+    await p.answer("start", "owner-source"); group = (await p.harness.commit(tx => listPersonalDelegations(tx), context)).items[0].ref;
+    const ref = await original(p);
+    await until(async () => !!(await p.harness.snapshot(PersonalCommandDoc, ref.requestId, context))?.command?.started && fs.existsSync(path.join(f.workspace, "count")));
+    const started = (await p.harness.snapshot(PersonalCommandDoc, ref.requestId, context))!.command!;
+    assert.deepEqual(started.result, { effect: "effect_unknown", code: "started" }); assert.equal(started.stopped, false);
+    if (stage !== "running") {
+      release(); await unknown(p, ref);
+      if (stage === "restored") { await p.close(); p = await f.open(); await unknown(p, ref); }
+    }
+    assert.match(await p.answer("report", "report-source"), /report_registered/);
+    const report = (await p.harness.snapshot(PersonalDelegationDoc, String(group.entryId), context))!.delegation!.report!;
+    await until(async () => (await p.harness.commit(tx => tx.task(report.taskId), context))?.state.status === "waiting");
+    assert.equal(report.delivery, "waiting"); assert.equal(summaryCalls().length, 0);
+    assert.equal(await p.answer("独立聊天", "independent"), "完成");
+    assert.match(await p.answer("report", "same-report"), /report_registered/);
+    assert.equal((await p.harness.snapshot(PersonalDelegationDoc, String(group.entryId), context))!.delegation!.report!.taskId, report.taskId);
+    if (stage === "running") release();
+    else {
+      await assert.rejects(p.work.delegate({ requestId: "blocked-member", sourceRequestId: "owner-source", content: "不得新派" }), code("work_source_paused"));
+      assert.equal((await p.commands!.detail(ref, "stdout")).stopped, false); assert.equal(summaryCalls().length, 0); assert.equal(f.launches(), 1);
+      if (stage === "restored") {
+        f.failStop(false); await p.harness.waitForTask(await p.commands!.stop(ref), context);
+        assert.equal((await p.commands!.detail(ref, "stdout")).stopped, true); assert.equal(summaryCalls().length, 0);
+        await assert.rejects(p.work.delegate({ requestId: "blocked-after-stop", sourceRequestId: "owner-source", content: "效果未核实不得新派" }), code("work_source_paused"));
+        await p.harness.commit(tx => resolvePersonalCommand(tx, ref, "applied", "原 count 只有一行 x。"), context);
+      } else {
+        await p.harness.commit(tx => resolvePersonalCommand(tx, ref, "applied", "原 count 只有一行 x。"), context);
+        await delay(30); assert.equal(summaryCalls().length, 0); assert.equal((await p.commands!.detail(ref, "stdout")).stopped, false);
+        await assert.rejects(p.work.delegate({ requestId: "blocked-after-effect", sourceRequestId: "owner-source", content: "停止未核实不得新派" }), code("work_source_paused"));
+        f.failStop(false); await p.harness.waitForTask(await p.commands!.stop(ref), context);
+      }
+    }
+    assert.equal((await p.harness.waitForTask(report.taskId, context)).state.outcome.status, "completed");
+    assert.deepEqual(await p.harness.commit(tx => personalReportResult(tx, group), context), { delivery: "local", state: "completed", text: "完整命令汇总", offset: 0, totalChars: 6 });
+    assert.equal(summaryCalls().length, 1); assert.equal(f.launches(), 1); assert.equal(fs.readFileSync(path.join(f.workspace, "count"), "utf8"), "x\n");
+  } finally { release(); }
+});
+
 for (const mode of ["auto-review", "full_access"] as const) test(`durable 命令：${mode} 报告记录 command 暂停并跨重启观察原记录，效果和停止均核实才汇总`, async t => {
   let group!: PersonalDelegationRef;
   const f = await fixture(t, "echo x >> count", request => {
@@ -443,7 +500,7 @@ for (const mode of ["auto-review", "full_access"] as const) test(`durable 命令
   await delay(30); assert.equal(summaryCalls().length, 0); assert.equal((await p.commands!.detail(ref, "stdout")).stopped, false);
   f.failStop(false); await p.harness.waitForTask(await p.commands!.stop(ref), context);
   assert.equal((await p.harness.waitForTask(report.taskId, context)).state.outcome.status, "completed");
-  assert.deepEqual(await p.harness.commit(tx => personalReportResult(tx, group), context), { delivery: "local", state: "completed", text: "完整命令汇总" });
+  assert.deepEqual(await p.harness.commit(tx => personalReportResult(tx, group), context), { delivery: "local", state: "completed", text: "完整命令汇总", offset: 0, totalChars: 6 });
   assert.equal(summaryCalls().length, 1); assert.equal(f.launches(), 1); assert.equal(fs.readFileSync(path.join(f.workspace, "count"), "utf8"), "x\n");
   const work = (await p.harness.snapshot(PersonalCommandDoc, ref.requestId, context))!.command!.work.ref;
   await p.harness.waitForTask(work.taskId, context);

@@ -15,7 +15,7 @@ import { personalControl, startPersonalServer } from "../apps/ruukoto/src/person
 import { checkPersonalInput, managePersonalWorks, pendingPersonalInputs, preparePersonalInput } from "../apps/ruukoto/src/personal-cli.ts";
 import { PersonalWorkDoc, PersonalWorkTask, personalWorkResult, verifyPersonalWorkNotes, type PersonalWorkRef } from "../apps/ruukoto/src/personal-work.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
-import { MockModelServer, type RecordedRequest, type Responder } from "./helpers/mock-provider.ts";
+import { PersonalMockModelServer as MockModelServer, type RecordedRequest, type Responder } from "./helpers/mock-provider.ts";
 
 const context = BACKGROUND_CONTEXT;
 const code = (expected: string) => (error: unknown) => error instanceof PersonalError && error.code === expected;

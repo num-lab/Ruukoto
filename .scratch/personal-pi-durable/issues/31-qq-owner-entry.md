@@ -1,12 +1,16 @@
 # QQ 入口与双平台主会话
 
-Status: ready-for-human
+Status: in-progress
 
 ## 当前唯一人工事项
 
-2026-10-18，按拥有者最新要求，本单保留为唯一ready-for-human切片。必须由拥有者用本人QQ好友账号发送程序生成的配对短语并确认绑定；若新TG绑定或最终组合确需原私聊输入/图片/菜单决定，合并同一轮完成，不再逐张重复走查。其余菜单、故障注入、停止/效果核实、回归与证据由Agent执行；最终组合由[39](39-final-acceptance.md)持有。
+2026-10-19更新：实际QQ委托792第一项已取消且停止已核实，第二项同身份复用误把旧工具中断当效果未知，未新增重启/批准；原报告唯一送达但正文失败，保留原件。service824未消费、已知未执行，服务计数3。NapCat首错已确定为macOS原生模块Team ID/Library Validation拒绝；拥有者选择Linux/Docker，Agent已准备独立候选、原生加载成功、仅回环端口，当前只等待本人扫码，之后需以新入口代次/边界接入，再安排新图片与剩余批准/报告；不重复已成功取消菜单。详见[39接手记录](../evidence/39-final-acceptance/handoff-2026-10-19/README.md)。
 
-Agent先准备有效NapCat鉴权/WS连接和隔离后台，确认可操作后再交给拥有者。本轮已获oracle-4c24g、NapCat地址、临时TG凭据及deepseek配置；匿名NapCat只握手后关闭、有效鉴权尚未核实，不能现在要求拥有者配对。缺少访问令牌、视觉模型等属于资源前提，不等于必须本人执行的验收。详见[工单收敛](../evidence/owner-acceptance-2026-10-18/issue-closure.md)。
+2026-10-18，本人已向程序生成的QQ和TG私聊配对短语发送消息并明确确认绑定。39的Linux隔离后台已核实两个真实入口共用主会话：QQ登记校验词后，TG正确从上下文回答；原平台、账号、拥有者、代次及收件引用保留于[39本轮证据](../evidence/39-final-acceptance/README.md)。绑定仅供隔离验收，不是生产接管。
+
+本单继续集中真正需要本人账号的图片、新输入和原入口决定。其余菜单、故障注入、停止/效果核实、回归与证据均由Agent执行；最终组合仍由[39](39-final-acceptance.md)持有，不再逐张走查。
+
+NapCat实际鉴权已核实，可经仅回环SSH隧道供oracle-4c24g使用；TG直连失败后通过固定真实上游的回环代理完成实际配对。凭据留私有文件，不入仓库。拥有者已在指定deepseek-flash配置补image并发送两张图；TG图片正确识别校验码与图形，QQ首图明确下载失败且没有降级入模。本人随后完成QQ后台复验B/TG并行聊天、QQ图片重发与TG一次性计划输入。QQ后台命令已完成且停止已核实，但活动期报告登记错误被拒绝；QQ两次新图仍download_unavailable，后续纯文字不算图片入模；TG独立定时子分析和原入口发送成立，正文另有工具流程及发送叙述偏差。报告登记及定时说明已修并通过检查，原QQ报告已唯一送达，未重复上述业务；正文仍有再次登记的误述，v3引用修复及有限真实模型对照已完成，原正文失败保留，新真实报告仍待验证。QQ原图与get_image刷新地址的单次下载均HTTP400；拥有者已提供`/Users/eitrous/Developer/Temp/napcat`可读副本，运行版本与副本均4.18.30。真实nc_get_packet_status明确拒绝当前QQ6.9.96-49738/arm64；官方4.18.38已有对应offset，发行包及保留数据的备份/回滚脚本已准备并完成6项合成检查与独立审查。本人执行维护脚本时也在读取原loader的前置检查遇Errno1，未进入程序替换，随后改用NapCat Installer完成更新。真实版本查询已确认4.18.38，但packet状态仍1400、NativePacketClient不可用，Agent正在只读定位napi2native加载失败；尚未请求新图，不重投旧失败收件。已知被OS拒绝的入口是`/Users/eitrous/Library/Containers/com.tencent.qq/Data/Documents/loadNapCat.js`，实际安装/config路径须从可读loader或拥有者提供的路径核实；不能把online_rkey当配置开关。
 
 ## 目标与边界
 

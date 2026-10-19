@@ -21,7 +21,7 @@ import { configurePersonalTelegram, personalChildEnv } from "../apps/ruukoto/src
 import { savePersonalConfig } from "../apps/ruukoto/src/personal-config.ts";
 import { personalControl, startPersonalServer } from "../apps/ruukoto/src/personal-control.ts";
 import { lockPersonalProfile } from "../apps/ruukoto/src/personal-profile.ts";
-import { MockModelServer, type Responder } from "./helpers/mock-provider.ts";
+import { PersonalMockModelServer as MockModelServer, type Responder } from "./helpers/mock-provider.ts";
 
 const context = BACKGROUND_CONTEXT;
 const TOKEN = "123:telegram-test-secret";

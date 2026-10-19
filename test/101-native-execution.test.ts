@@ -7,7 +7,7 @@ import * as path from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { ExecutionError, createLauncherFor, type LaunchSpec } from "@ruukoto/agent/execution/launchers.ts";
-import { assertNativeFileLinks, prepareNativeLaunch, type PreparedNativeLaunch } from "@ruukoto/agent/execution/native.ts";
+import { assertNativeFileLinks, prepareNativeLaunch, NATIVE_WORKER_PATH, type PreparedNativeLaunch } from "@ruukoto/agent/execution/native.ts";
 import { nativeNetworkFilter, linuxNativeArgs } from "@ruukoto/agent/execution/native-linux.ts";
 import { macosNativeProfile } from "@ruukoto/agent/execution/native-macos.ts";
 
@@ -102,6 +102,9 @@ test("原生授权规范化、保护根、嵌套只读、目录身份与环境�
     prepared.push(first);
     const second = await prepareNativeLaunch({ protectedRoots: [protectedRoot] }, spec);
     prepared.push(second);
+    const codeRoot = fs.realpathSync(fileURLToPath(new URL("../", import.meta.url)));
+    await assert.rejects(prepareNativeLaunch({ protectedRoots: [codeRoot, NATIVE_WORKER_PATH] }, spec), unavailable);
+    await assert.rejects(prepareNativeLaunch({ protectedRoots: [codeRoot], dependencyRoots: [path.join(codeRoot, "node_modules")] }, spec), unavailable);
     assert.notEqual(first.tempDir, second.tempDir);
     assert.equal(fs.statSync(first.tempDir).mode & 0o777, 0o700);
     assert.equal(first.env.HOME, path.join(first.tempDir, "home"));

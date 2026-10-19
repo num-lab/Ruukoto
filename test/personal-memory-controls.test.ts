@@ -9,7 +9,7 @@ import { parsePersonalMemoryControl, managePersonalMemory, managePersonalHistory
 import { savePersonalConfig } from "../apps/ruukoto/src/personal-config.ts";
 import { personalControl, startPersonalServer, type PersonalInputStatus } from "../apps/ruukoto/src/personal-control.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
-import { MockModelServer } from "./helpers/mock-provider.ts";
+import { PersonalMockModelServer as MockModelServer } from "./helpers/mock-provider.ts";
 import { setTimeout as delay } from "node:timers/promises";
 
 test("记忆控制：wire拒绝伪造来源、版本、额外字段与内部请求标识", () => {

@@ -7,7 +7,7 @@ import * as os from "node:os";
 import { execFile } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { ExecutionError, type LaunchSpec, type WorkerLauncher } from "./launchers.ts";
-import { assertGrantNotProtected } from "./approved-ops.ts";
+import { assertGrantNotProtected, assertGrantsNotProtected } from "./approved-ops.ts";
 import { launchMacosNative } from "./native-macos.ts";
 import { launchLinuxNative } from "./native-linux.ts";
 
@@ -246,13 +246,11 @@ export async function prepareNativeLaunch(config: NativeLauncherConfig, spec: La
     const nodePath = fs.realpathSync(process.execPath);
     const runtime = await runtimePaths(workerPath, nodePath, config.dependencyRoots);
     const codeRoot = fs.realpathSync(fileURLToPath(new URL("../../../../", import.meta.url)));
-    for (const root of runtime.roots) {
-      for (const protectedRoot of config.protectedRoots ?? []) {
-        const protectedReal = path.resolve(protectedRoot);
-        const codeAsset = protectedReal === codeRoot &&
-          (root === workerPath || (config.dependencyRoots === undefined && root === path.join(codeRoot, "node_modules")));
-        if (!codeAsset) assertGrantNotProtected(root, [protectedReal]);
-      }
+    for (const protectedRoot of config.protectedRoots ?? []) {
+      const protectedReal = path.resolve(protectedRoot);
+      const roots = runtime.roots.filter(root => !(protectedReal === codeRoot &&
+        (root === workerPath || (config.dependencyRoots === undefined && root === path.join(codeRoot, "node_modules")))));
+      assertGrantsNotProtected(roots, [protectedReal]);
     }
     const injected = spec.env ?? {};
     for (const key of Object.keys(injected)) {

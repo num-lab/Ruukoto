@@ -15,7 +15,7 @@ import { lockPersonalProfile } from "../apps/ruukoto/src/personal-profile.ts";
 import { personalControl, startPersonalServer, type PersonalStatus } from "../apps/ruukoto/src/personal-control.ts";
 import { savePersonalTelegram } from "../apps/ruukoto/src/personal-telegram-config.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
-import { MockModelServer } from "./helpers/mock-provider.ts";
+import { PersonalMockModelServer as MockModelServer } from "./helpers/mock-provider.ts";
 import { authenticateClient, cleanupDirs, makeTestDirs, writeModelsJson } from "./helpers/testkit.ts";
 
 const root = fileURLToPath(new URL("../", import.meta.url));

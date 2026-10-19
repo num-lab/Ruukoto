@@ -89,6 +89,7 @@ async function downloadImage(input: PersonalMediaDownload, parent?: AbortSignal)
 }
 
 // Note: 见 .agents/notes/implemented/architecture/2026-10-07-inbound-image-staging.md
+// Note: 见 .agents/notes/implemented/architecture/2026-10-18-personal-browser-media.md
 export function personalMedia(profile: string, getHarness: () => Harness, supportsImages: () => boolean = () => true, artifactReader?: ToolRegistration) {
   const staging = new Map<string, { source: PersonalMediaSource; body: string; identities: string[]; pending: Promise<MediaMessage> }>();
   const harness = () => getHarness();
@@ -230,7 +231,7 @@ export function personalMedia(profile: string, getHarness: () => Harness, suppor
         const messages = actualPayload && Array.isArray(result.input) ? result.input : result.messages;
         if (Array.isArray(messages)) for (const message of messages) {
           if (!object(message)) continue;
-          if (actualPayload || message.role === "user" || message.role === "toolResult") content(message.content, actualPayload);
+          if (actualPayload || message.role === "user" || message.role === "toolResult") content(actualPayload && message.type === "function_call_output" ? message.output : message.content, actualPayload);
         }
       }
       if (!isDeepStrictEqual(seen, expected)) throw invalid();

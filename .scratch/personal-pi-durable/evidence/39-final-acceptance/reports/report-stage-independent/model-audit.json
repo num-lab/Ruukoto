@@ -1,0 +1,108 @@
+{
+  "sourceSHA256": "0c0e9567ad4d576a1f7d8f6b2456cc57dbd2dffe2e94f1ba34d97cf253a5a70c",
+  "candidateContentSHA256": "0cc68107da9e9e6e3508d0298b66a1fddbe9b668e09e3d17b57865ca76fcf9a2",
+  "networkCalls": 3,
+  "networkLimit": 4,
+  "retryAttemptsBlocked": 0,
+  "toolsExecuted": 0,
+  "harnessOpened": false,
+  "imSends": 0,
+  "liveInputsSubmitted": 0,
+  "firstPayloadOnlyReportContentChanged": true,
+  "images": [
+    {
+      "step": 1,
+      "count": 2,
+      "images": [
+        {
+          "mime": "image/jpeg",
+          "bytes": 20330,
+          "sha256": "deef97fea8a999145c1e2761cfa3b9a30c28a94c020c38b12c3b16b756c7a48d"
+        },
+        {
+          "mime": "image/png",
+          "bytes": 7942,
+          "sha256": "55f666515e02981aaceb64a2aacc4faeb8ecd039efd0a820358f0499f24a3ead"
+        }
+      ],
+      "inputPayloadImagesByteEqual": true
+    },
+    {
+      "step": 2,
+      "count": 2,
+      "images": [
+        {
+          "mime": "image/jpeg",
+          "bytes": 20330,
+          "sha256": "deef97fea8a999145c1e2761cfa3b9a30c28a94c020c38b12c3b16b756c7a48d"
+        },
+        {
+          "mime": "image/png",
+          "bytes": 7942,
+          "sha256": "55f666515e02981aaceb64a2aacc4faeb8ecd039efd0a820358f0499f24a3ead"
+        }
+      ],
+      "inputPayloadImagesByteEqual": true
+    },
+    {
+      "step": 3,
+      "count": 2,
+      "images": [
+        {
+          "mime": "image/jpeg",
+          "bytes": 20330,
+          "sha256": "deef97fea8a999145c1e2761cfa3b9a30c28a94c020c38b12c3b16b756c7a48d"
+        },
+        {
+          "mime": "image/png",
+          "bytes": 7942,
+          "sha256": "55f666515e02981aaceb64a2aacc4faeb8ecd039efd0a820358f0499f24a3ead"
+        }
+      ],
+      "inputPayloadImagesByteEqual": true
+    }
+  ],
+  "replays": [
+    {
+      "resultEntry": 772,
+      "modifiedFields": [
+        "toolCallId"
+      ],
+      "allOtherFieldsByteEquivalent": true
+    },
+    {
+      "resultEntry": 778,
+      "modifiedFields": [
+        "toolCallId"
+      ],
+      "allOtherFieldsByteEquivalent": true
+    }
+  ],
+  "metrics": {
+    "before": {
+      "systemSHA256": "8f376d8c6cdea05fc8ce92cecbcc11765099b10ea349a8bb2cc299dda199be09",
+      "systemChars": 938,
+      "systemEstimatedTokens": 235,
+      "toolSchemasSHA256": "7a316ea20ca7a296abc617927747a05560d1a07a0b0ef7e8e89e88dce6cda5fd",
+      "toolSchemasChars": 18864,
+      "toolSchemasEstimatedTokens": 4716
+    },
+    "after": {
+      "systemSHA256": "8f376d8c6cdea05fc8ce92cecbcc11765099b10ea349a8bb2cc299dda199be09",
+      "systemChars": 938,
+      "systemEstimatedTokens": 235,
+      "toolSchemasSHA256": "7a316ea20ca7a296abc617927747a05560d1a07a0b0ef7e8e89e88dce6cda5fd",
+      "toolSchemasChars": 18864,
+      "toolSchemasEstimatedTokens": 4716
+    },
+    "reportReferenceEstimatedTokensBefore": 102,
+    "reportReferenceEstimatedTokensAfter": 119,
+    "method": "shared pi-coding-agent estimateTokens(role=user,text,timestamp=0), no provider-token claim"
+  },
+  "afterTextChars": 449,
+  "afterTextSHA256": "31ef47184d2fd98d5f8e8672eb02aa9b680c688ae1978db948c40b07eaa5f57f",
+  "asksReportAgain": false,
+  "claimsIHaveNotSent": false,
+  "remainingDeliveryCommentary": true,
+  "scope": "one bounded direct-model sample; no new product report/IM; original593 immutable; A10 full acceptance remains unproven"
+}

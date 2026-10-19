@@ -107,6 +107,19 @@ function classify(reply: HelperReply | undefined, op: Operation): Effect {
 
 function unresolved(op: Operation) { return op.consumed && (!op.result || (op.result.effect === "effect_unknown" && (!op.resolution || !op.launcherStopped))); }
 
+// Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-subagent-service-operations.md
+export function personalServiceResult(op: Readonly<Operation>, terminal: boolean) {
+  const result: Effect = op.result ? { ...op.result } : { effect: op.consumed ? "effect_unknown" : "not_executed", code: terminal ? "service_task_failed" : "awaiting_result" };
+  const approval = op.mode === "full_access" ? "完全访问，免逐次审批" : op.decidedBy ? op.decision === "approved" ? "拥有者已在原入口批准" : "原入口决定为拒绝或已失效" : op.grant ? "命中原入口长期授权" : !op.telegram && op.decision === "approved" ? "拥有者已在本机批准" : "尚无有效批准";
+  let verification: string;
+  if (op.resolution) verification = `业务效果已由拥有者核实为${op.resolution.effect === "applied" ? "已生效" : "未生效"}；${op.launcherStopped ? "原写操作停止已核实，双事实已齐，无需重复核实。" : "原写操作停止未核实，仍须核实原停止。"}`;
+  else if (!terminal) verification = op.consumed ? "原服务操作仍在执行或收尾，等待原结果，勿重新发起。" : "原服务写操作尚未开始，等待原任务或原入口审批。";
+  else if (unresolved(op)) verification = "原服务效果或停止尚未核实，保留原占用；由拥有者从原服务菜单核实，勿重试。";
+  else if (result.effect === "not_executed") verification = "原服务写操作已知未执行，无需人工效果核实。";
+  else verification = "原服务重启命令已结束；退出码不证明业务健康。";
+  return { operation: op.ref.taskId, unit: op.unit, ...(op.work ? { work: op.work.ref.taskId } : {}), ...result, mode: op.mode, approval, consumed: op.consumed, launcherStopped: op.launcherStopped, ...(op.resolution ? { verifiedEffect: op.resolution.effect } : {}), requiresVerification: unresolved(op), verification };
+}
+
 export async function interruptedPersonalService(tx: Tx, op: Operation) {
   if (op.consumed && (!op.result || op.result.code === "started") && (await tx.task(op.ref.taskId))?.state.status === "terminal") {
     op.result = { effect: "effect_unknown", code: "interrupted" };

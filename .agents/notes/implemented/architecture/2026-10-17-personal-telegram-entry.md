@@ -28,7 +28,7 @@ QQ 停机向导核实在线登录账号，通过随机好友私聊短语选择�
 
 QQ 未开始发送且原账号离线时，沿原任务延后等待连接；请求已经发出后丢答一律未知。[NapCat 的动作处理](https://github.com/NapNeko/NapCatQQ/blob/main/packages/napcat-onebot/action/OneBotAction.ts)可把执行后的内部异常也返回 `failed/1200`，共享传输因此不再把该码当确定失败。新入口只把已知的参数/未知动作拒绝码判为未发送，不解析 wording 猜限流；OneBot/NapCat 未提供可核实的结构化限流重试契约时保留未知，Telegram 明确 429 仍按原规则延后。echo 仅关联应答，不作幂等键。
 
-QQ 图文沿共用媒体接口保存平台 file 身份，URL 只作瞬时下载凭据；缺 URL 时通过 `get_image` 解析，只从已列明的 QQ HTTPS 图片 CDN 下载，不读取平台本地路径、不携连接 token、不跟随跳转。图片与原 QQ receipt/Task/Submission 双向核实；拒绝时整条文字不单独送模型，caption 不解释为控制。
+QQ 图文沿共用媒体接口保存平台 file 身份，URL 只作瞬时下载凭据；缺 URL 时通过 `get_image` 解析，只从已列明的 QQ HTTPS 图片 CDN 下载，包含 NapCat 当前使用的 `multimedia.nt.qq.com.cn`，不读取平台本地路径、不携连接 token、不跟随跳转。图片与原 QQ receipt/Task/Submission 双向核实；拒绝时整条文字不单独送模型，caption 不解释为控制。
 
 ## 既有笔记审计
 

@@ -2,13 +2,7 @@ import { defineExtension, defineTool, LiveDoc, ROOT_CONVERSATION_ID } from "@ear
 import { Type } from "typebox";
 import { PersonalError } from "./personal-error.ts";
 import { activePersonalWorkInspection, PersonalWorkDoc } from "./personal-work.ts";
-import { PERSONAL_SERVICE_WORK, interruptedPersonalService, personalServiceOperation, personalServiceOperationsIn, ServiceOperationEvidence, type personalServiceOperations } from "./personal-service-operations.ts";
-
-function operationResult(op: Awaited<ReturnType<typeof personalServiceOperation>>, terminal: boolean) {
-  const result: NonNullable<typeof op.result> = op.result ? { ...op.result } : { effect: op.consumed ? "effect_unknown" : "not_executed", code: terminal ? "service_task_failed" : "awaiting_result" };
-  const approval = op.mode === "full_access" ? "完全访问，免逐次审批" : op.decidedBy ? op.decision === "approved" ? "拥有者已在原入口批准" : "原入口决定为拒绝或已失效" : op.grant ? "命中原入口长期授权" : !op.telegram && op.decision === "approved" ? "拥有者已在本机批准" : "尚无有效批准";
-  return { ...result, mode: op.mode, approval, consumed: op.consumed };
-}
+import { PERSONAL_SERVICE_WORK, interruptedPersonalService, personalServiceOperation, personalServiceOperationsIn, personalServiceResult, ServiceOperationEvidence, type personalServiceOperations } from "./personal-service-operations.ts";
 
 // Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-subagent-service-operations.md
 export function personalServiceWork(request: ReturnType<typeof personalServiceOperations>["request"]) {
@@ -37,7 +31,7 @@ export function personalServiceWork(request: ReturnType<typeof personalServiceOp
           return request(tx, { unit, requestId, sourceRequestId: work.source!.requestId, mode: source.work.permission.mode }, { ...source.work, sources: source.sources, tool: api.taskId, generation: generation.id });
         }, context);
         const settled = await api.waitForTask(ref.taskId, context);
-        const result = await api.commit(async tx => { const op = await personalServiceOperation(tx, ref); await interruptedPersonalService(tx, op); return { operation: ref.taskId, unit: op.unit, ...operationResult(op, true), ...(op.resolution ? { verifiedEffect: op.resolution.effect } : {}), next: "用 read_service_operation 读取原证据；命令结束不代表业务健康。失败、未知或停止未核实请报告拥有者，不要自动重试。" }; }, context);
+        const result = await api.commit(async tx => { const op = await personalServiceOperation(tx, ref); await interruptedPersonalService(tx, op); return { ...personalServiceResult(op, true), next: "用 read_service_operation 读取原证据；verification 是宿主当前核实事实，历史 effect_unknown 不表示仍待核实。新操作仍须本轮授权，勿自动重试。" }; }, context);
         return { ...(settled.state.outcome.status !== "completed" || result.effect !== "executed" || result.exitCode !== 0 ? { isError: true } : {}), output: [{ type: "text", text: JSON.stringify(result) }] };
       } catch (error) {
         if (!(error instanceof PersonalError)) throw error;
@@ -61,7 +55,7 @@ export function personalServiceWork(request: ReturnType<typeof personalServiceOp
           cursor = page.next;
         } while (cursor);
         const text = JSON.stringify(evidence);
-        return { operation, unit: op.unit, result: operationResult(op, (await tx.task(op.ref.taskId))?.state.status === "terminal"), text: text.slice(offset, offset + 4096), ...(offset + 4096 < text.length ? { nextOffset: offset + 4096 } : {}) };
+        return { operation, unit: op.unit, result: personalServiceResult(op, (await tx.task(op.ref.taskId))?.state.status === "terminal"), text: text.slice(offset, offset + 4096), ...(offset + 4096 < text.length ? { nextOffset: offset + 4096 } : {}) };
       }, context);
       return { ...("error" in result ? { isError: true } : {}), output: [{ type: "text", text: JSON.stringify(result) }] };
     },

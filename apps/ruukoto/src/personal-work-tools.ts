@@ -27,19 +27,20 @@ export async function personalToolSource(tx: Tx, api: Pick<ToolExecutionApi, "ta
   return source.requestId;
 }
 
+// Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-delegation-reports.md
 export function personalWorkTools(getHarness: () => Harness) {
   const tool = defineTool({
     name: "background_work",
-    description: "管理长期复用的分析子 Agent；子会话只可使用宿主提供的受控工具。delegate 立即返回；同轮多项分析归同一委托，跨轮提供 delegation 继续原委托，保持原入口和授权；省略则建立本轮委托。本轮拥有者明确交办独立新工作时，可复用空闲且停止已核实的 agent，并省略 delegation；身份复用不等于续派旧委托。delegations 列委托，progress 读委托成员进度；全部分析空闲不表示整项完成。cancel_delegation 一次请求取消全部分析成员，不关闭身份；包含成员的固定服务检查和服务重启，效果或停止未核实时继续保留占用；不涵盖独立宿主服务写操作。append 补充活动 work，当前回答结束后依次处理。list 列身份，result 分页读单项已保存回答，partial=true表示模型因长度限制截断，翻完页也不是完整回答，应报告遗漏，不自动续写或重试；commands 是宿主当前原命令事实，优先于 text 中旧子回答的解释；requiresVerification=false 表示不再等待核实，不能把历史 effect_unknown 当作仍未知；cancel 请求单项取消后立即返回，用 result 查询停止结果，close 关闭空闲身份并保留历史。已取消委托不能续派/追加，但不禁止新的独立工作复用空闲身份。原入口失效或任一成员说明来源的服务效果未知会暂停整个委托，仍可查询/取消，须向拥有者报告核实，不能为原未知效果换委托重试。占用未释放或停止无法核实不能复用。安排完全部分析后调用 report 封组，宿主等待全部成员停止，再请主 Agent 汇总并固定回报原入口；封组后不能续派或追加。report_result 分页读完整报告和发送状态。未知效果会暂停报告，核实后可安全重做模型汇总，未知发送不重发。普通汇总失败请查询报告并向拥有者说明，不换委托重试。回报输入只可查询。",
+    description: "管理长期复用的分析子 Agent；子会话只可使用宿主提供的受控工具。delegate 立即返回；同轮多项分析归同一委托，跨轮提供 delegation 继续原委托，保持原入口和授权；省略则建立本轮委托。本轮拥有者明确交办独立新工作时，可复用空闲且停止已核实的 agent，并省略 delegation；身份复用不等于续派旧委托。delegations 列委托，progress 读委托成员进度；全部分析空闲不表示整项完成。cancel_delegation 一次请求取消全部分析成员，不关闭身份；包含成员的固定服务检查和服务重启，效果或停止未核实时继续保留占用；不涵盖独立宿主服务写操作。append 补充活动 work，当前回答结束后依次处理。list 列身份，result 分页读单项已保存回答，partial=true表示模型因长度限制截断，翻完页也不是完整回答，应报告遗漏，不自动续写或重试；commands/services 是宿主当前原命令/服务事实，优先于 text 中旧子回答的解释；requiresVerification=false 表示不再等待核实，不能把历史 effect_unknown 或工具中断文本自行当作仍未知；cancel 请求单项取消后立即返回，用 result 查询停止结果，close 关闭空闲身份并保留历史。已取消委托不能续派/追加，但不禁止新的独立工作复用空闲身份。原入口失效时只能查询或取消；任一成员说明来源的服务效果未知会暂停整个委托，原入口有效且未取消时仍可登记 report，须向拥有者报告核实，不能为原未知效果换委托重试。占用未释放或停止无法核实不能复用。安排完全部分析后调用 report，只登记封组，成员仍活动或效果未知时也可安排；宿主等全部成员停止与原效果核实后才生成并发送报告，封组后不能续派或追加。report_result 分页读完整报告和发送状态。未知效果会暂停报告，核实后可安全重做模型汇总，未知发送不重发。普通汇总失败请查询报告并向拥有者说明，不换委托重试。回报输入只可查询。",
     parameters: Type.Object({
-      action: Type.Union([Type.Literal("delegate"), Type.Literal("append"), Type.Literal("list"), Type.Literal("result"), Type.Literal("cancel"), Type.Literal("close"), Type.Literal("delegations"), Type.Literal("progress"), Type.Literal("cancel_delegation"), Type.Literal("report"), Type.Literal("report_result")], { description: "delegate 必填 content，可选 agent 或 label、delegation、appData；append 必填 work/content；list/delegations 仅可选 offset；result 必填 work，可选 offset；progress/report_result 必填 delegation，可选 offset；report/cancel_delegation 必填 delegation；cancel 必填 work；close 必填 agent。其余字段省略。report 安排好全部分析后调用，封组后不能续派或追加。" }),
+      action: Type.Union([Type.Literal("delegate"), Type.Literal("append"), Type.Literal("list"), Type.Literal("result"), Type.Literal("cancel"), Type.Literal("close"), Type.Literal("delegations"), Type.Literal("progress"), Type.Literal("cancel_delegation"), Type.Literal("report"), Type.Literal("report_result")], { description: "delegate 必填 content，可选 agent 或 label、delegation、appData；append 必填 work/content；list/delegations 仅可选 offset；result 必填 work，可选 offset；progress/report_result 必填 delegation，可选 offset；report/cancel_delegation 必填 delegation；cancel 必填 work；close 必填 agent。其余字段省略。report 新登记须原入口有效且未取消，只登记封组，成员仍活动或效果未知时也可安排；宿主等成员停止与原效果核实后才生成并发送报告，封组后不能续派或追加。" }),
       appData: Type.Optional(Type.Boolean({ description: "仅delegate：本次子工作确需应用数据时显式设true，默认无资格；复用身份不继承上次资格。" })),
       delegation: Type.Optional(Type.Integer({ minimum: 1, description: "delegate/delegations 返回的委托编号；progress/cancel_delegation/report/report_result 必填。delegate 仅继续未取消、未封组的原委托时提供；本轮独立新工作省略 delegation，即使同时用 agent 复用身份。不能用 work 或 agent 编号代替，不能为原未知效果换委托重试。" })),
       content: Type.Optional(Type.String({ minLength: 1, maxLength: 16384, description: "delegate/append 的完整分析要求，须含所需资料；子会话不读取主聊天。" })),
       agent: Type.Optional(Type.Integer({ minimum: 1, description: "list 或 delegate 返回的长期子 Agent 身份编号，不是委托编号。delegate 复用空闲、未关闭且停止已核实的身份，省略则新建；独立新工作复用身份时省略 delegation。close 必填。" })),
       label: Type.Optional(Type.String({ minLength: 1, maxLength: 128, description: "仅新建身份时使用的名称；复用 agent 时省略。" })),
       work: Type.Optional(Type.Integer({ minimum: 1, description: "delegate 或 list 返回的工作编号，用于 result/append/cancel；不使用子 Agent 编号代替。" })),
-      offset: Type.Optional(Type.Integer({ minimum: 0, description: "list/result/delegations/progress 从 0 开始，后续页用 nextOffset；身份每页16个、委托和成员每页8项、结果每页4096字符。" })),
+      offset: Type.Optional(Type.Integer({ minimum: 0, description: "result/report_result 是从 0 开始的文本位置，返回 offset 和完整保存文本的 totalChars；list/delegations/progress 是从 0 开始的条目位置。后页只用 nextOffset，缺失表示本页已到保存内容末尾；partial=true 是模型生成截断，与分页无关。身份每页16个、委托和成员每页8项、文本每页4096字符。" })),
     }, { additionalProperties: false }),
     replay: "safe",
     executionMode: "sequential",
@@ -53,14 +54,19 @@ export function personalWorkTools(getHarness: () => Harness) {
         const sourceRequestId = (await candidate?.status(context))?.requestId;
         const result = await api.commit(async tx => {
           const source = await personalToolSource(tx, api, !["list", "result", "delegations", "progress", "report_result"].includes(action), sourceRequestId);
-          if (action === "report_result") return personalReportResult(tx, { entryId: delegation as EntryId }, offset);
+          if (action === "report_result") {
+            const submission = sourceRequestId ? await tx.submissionByRequest(ROOT_CONVERSATION_ID, sourceRequestId) : undefined;
+            const entry = submission?.entry ? await tx.entry(submission.entry) : undefined;
+            if (entry?.kind === "ruukoto.delegation-report") return { next: "请用 progress 查询本委托成员，再用 result 分页读取业务结果并完成正文；本轮结束后由宿主处理发送，正文无需判断报告发送状态。" };
+            return personalReportResult(tx, { entryId: delegation as EntryId }, offset);
+          }
           if (action === "report") { await requestPersonalReport(tx, { entryId: delegation as EntryId }, source!, api.taskId); return { delegation, state: "report_registered", next: "已固定最终汇总安排，全部成员停止后宿主请主 Agent 汇总并回报原入口。结束本轮即可继续其他聊天；不能再为此委托续派或追加，后续用 report_result 查询完整报告。" }; }
           if (action === "delegations") {
             const page = await listPersonalDelegations(tx, offset);
-            return { delegations: page.items.map(({ ref, ...value }) => ({ delegation: ref.entryId, ...value })), ...(page.more ? { nextOffset: offset + 8 } : {}) };
+            return { delegations: page.items.map(({ ref, report: _report, state: _state, ...value }) => ({ delegation: ref.entryId, ...value })), ...(page.more ? { nextOffset: offset + 8 } : {}) };
           }
           if (action === "progress") {
-            const { ref, members, ...value } = await personalDelegationProgress(tx, { entryId: delegation as EntryId }, offset);
+            const { ref, members, report: _report, state: _state, ...value } = await personalDelegationProgress(tx, { entryId: delegation as EntryId }, offset);
             return { delegation: ref.entryId, ...value, members: members.map(({ ref, ...member }) => ({ work: ref.taskId, ...member })) };
           }
           if (action === "cancel_delegation") {

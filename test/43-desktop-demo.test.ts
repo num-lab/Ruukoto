@@ -15,6 +15,7 @@ test("正式 GUI 复用拥有者定稿样式、官方组件与侧栏交互，原
   assert.ok(styles.includes(read(".scratch/desktop-shadcn/approved-demo-v4-rendering.css")));
   assert.ok(styles.includes(read(".scratch/desktop-shadcn/approved-demo-v4-completed-trace.css")));
   assert.ok(styles.endsWith(read(".scratch/desktop-shadcn/approved-demo-v4-connection-loading.css")));
+  assert.ok(styles.lastIndexOf("transition-property: rotate") > styles.lastIndexOf("transition: transform 150ms"), "工作区箭头的 rotate 过渡必须晚于冻结前缀里匹配不到 rotate 的 transform 过渡");
   assert.equal(read(`${gui}/connection-loading.tsx`), read(".scratch/desktop-shadcn/demo/src/connection-loading.tsx"), "加载展示组件逐字同步，模拟计时器留在 Demo App");
   assert.match(styles, /\.command-code code\s*\{\s*white-space:\s*pre;/, "真实多行命令必须保留换行与缩进");
   for (const file of ["reference.css", "theme.css", "sidebar-resizer.tsx", "lib/utils.ts", "source-highlighting.ts"]) assert.equal(read(`${gui}/${file}`), read(`${demo}/${file}`), file);

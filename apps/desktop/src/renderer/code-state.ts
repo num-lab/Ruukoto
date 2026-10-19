@@ -1,6 +1,7 @@
 // Note: 见 .agents/notes/implemented/feature/2026-10-17-session-creation-settings.md
 import type { OpParams, OpResult } from "@ruukoto/control/ops.ts";
 import { sessionDisplayAttribution } from "@ruukoto/control/session-attribution.ts";
+import type { HistoryEntryView } from "@ruukoto/core/history.ts";
 import type { Session } from "@ruukoto/core/types.ts";
 import { ViewState, isActiveStatus } from "@ruukoto/view/state.ts";
 import { utf8ByteLength } from "@ruukoto/view/utf8.ts";
@@ -35,6 +36,9 @@ export class CodeState {
   readError: string | null = null;
   pendingCreation: PendingCreation | null = null;
   private generation = 0;
+  /** 恢复窗口内累计的变更只画一次：中间投影会把已收起 trace 画成展开态。 */
+  private quiet = 0;
+  private dirty = false;
   private creationSourceId: string | null = null;
   private readonly flowCursors = new Map<string, number>();
   private readonly requests = new Map<string, Promise<void>>();
@@ -45,7 +49,7 @@ export class CodeState {
   readonly context: DesktopContext;
   navigation: Extract<DesktopUpdate, { type: "navigate" }> | null = null;
   notificationSelection: { sessionId: string; taskId: string } | null = null;
-  refresh(): void { this.changed(); }
+  refresh(): void { this.mark(); }
   constructor(private readonly bridge: Pick<DesktopBridge, "request">, private readonly changed: () => void, readonly target: DesktopTarget = "code") {
     this.context = new DesktopContext(bridge, this.view, changed, target);
     this.approvals = new DesktopApprovals(bridge, this.view, changed, target);
@@ -58,6 +62,20 @@ export class CodeState {
     if (!result.ok) throw new DesktopRequestError(result.error);
     // preload 的响应是 IPC wire 数据，主进程只转发同仓控制面返回值。
     return result.value as OpResult<K>;
+  }
+  /** 恢复期间合并重绘；最外层结束后才把最终投影交给界面。 */
+  private settle<T>(action: () => Promise<T>): Promise<T> {
+    ++this.quiet;
+    return action().finally(() => {
+      if (--this.quiet > 0 || !this.dirty) return;
+      this.dirty = false;
+      this.changed();
+    });
+  }
+  /** 恢复窗口内只记下需要重绘，窗口关闭时统一发出。 */
+  private mark(): void {
+    if (this.quiet > 0) { this.dirty = true; return; }
+    this.changed();
   }
   update(update: DesktopUpdate): void {
     if (update.type === "state") {
@@ -93,7 +111,7 @@ export class CodeState {
     this.context.update(update);
     this.approvals.update(update);
     this.writes.update(update);
-    this.changed();
+    this.mark();
   }
   private navigate(update: Extract<DesktopUpdate, { type: "navigate" }>): void {
     this.navigation = update;
@@ -123,7 +141,7 @@ export class CodeState {
     this.inspector.openParent(id);
     const view = this.view.openSession(id);
     if (!view.historyLoaded) void this.loadHistory(id);
-    this.changed();
+    this.mark();
   }
   closeSession(id: string): void {
     this.rememberCreationSource();
@@ -132,7 +150,7 @@ export class CodeState {
     if (this.view.currentSessionId === id) this.view.currentSessionId = this.tabs[Math.max(0, index - 1)] ?? null;
     this.rememberCreationSource();
     if (this.view.currentSessionId) this.inspector.openParent(this.view.currentSessionId);
-    this.changed();
+    this.mark();
   }
   private creationSource(): Session | undefined {
     const eligible = (session: Session) => this.target === "code" && session.kind === "dev" && !this.view.subAgentSessionIds.includes(session.id) && !this.view.roleSessionIds.includes(session.id);
@@ -142,7 +160,7 @@ export class CodeState {
     const source = this.creationSource();
     if (source) this.creationSourceId = source.id;
   }
-  private report(text: string): void { this.message = text; this.changed(); }
+  private report(text: string): void { this.message = text; this.mark(); }
   private run(key: string, action: (generation: number) => Promise<void>): Promise<void> {
     key = `${this.generation}:${key}`;
     const pending = this.requests.get(key);
@@ -150,7 +168,7 @@ export class CodeState {
     const generation = this.generation;
     const request = action(generation).catch(error => {
       if (generation === this.generation) this.readError = `读取会话失败：${error instanceof Error ? error.message : "请重新连接后再试。"}`;
-    }).finally(() => { this.requests.delete(key); this.inspector.seedTabs(); void this.inspector.loadDiff(); this.changed(); });
+    }).finally(() => { this.requests.delete(key); this.inspector.seedTabs(); void this.inspector.loadDiff(); this.mark(); });
     this.requests.set(key, request);
     return request;
   }
@@ -169,20 +187,31 @@ export class CodeState {
       if (mode === "prepend" && !view.historyCursor) return;
       const page = await this.request("read_history", { session_id: sessionId, before: mode === "prepend" ? view.historyCursor ?? undefined : undefined, limit: 50 });
       if (generation !== this.generation) return;
-      this.view.installHistoryPage(sessionId, page, mode);
-      this.changed();
-      await this.restoreEventFlow(sessionId, generation);
+      // 有界快照只带近期任务；旧任务状态晚到会让历史页首次渲染把已完成 trace 当成展开态再收起。
+      // 状态读取失败时仍先装历史页，保持原先「历史可见、错误报到 readError」的降级。
+      // Note: 见 .agents/notes/implemented/bug-fix/2026-10-19-trace-hydration-flash.md
+      let relevant: Set<string> | null = null;
+      await this.settle(async () => {
+        relevant = await this.restoreTaskStatuses(sessionId, page.entries, generation).catch(error => {
+          this.view.installHistoryPage(sessionId, page, mode);
+          throw error;
+        });
+        if (!relevant) return;
+        this.view.installHistoryPage(sessionId, page, mode);
+        this.mark();
+        await this.restoreEventFlow(sessionId, generation, relevant);
+      });
     });
   }
-  private async restoreEventFlow(sessionId: string, generation: number): Promise<void> {
-    const entries = this.view.openSession(sessionId).flow.historyEntries;
+  /** 装入历史窗口内任务的状态，返回需要补读事件流与工具详情的任务；代次变化时返回 null。 */
+  private async restoreTaskStatuses(sessionId: string, entries: HistoryEntryView[], generation: number): Promise<Set<string> | null> {
     const earliest = entries.reduce((at, entry) => !at || entry.timestamp < at ? entry.timestamp : at, "");
     const ids = new Set(entries.map(entry => entry.entryId));
     const relevant = new Set<string>();
     let before: string | undefined;
     do {
       const page = await this.request("list_tasks", { session_id: sessionId, before, limit: 50 });
-      if (generation !== this.generation) return;
+      if (generation !== this.generation) return null;
       for (const task of page.tasks) {
         if (!earliest || isActiveStatus(task.status) || (task.endedAt ?? task.createdAt) >= earliest || task.historyEntryIds.some(id => ids.has(id))) {
           if (!this.view.getTask(task.id)) this.view.upsertTask(task);
@@ -193,9 +222,12 @@ export class CodeState {
       if (!page.hasMore || !last || !earliest || (last.endedAt ?? last.createdAt) < earliest) break;
       before = last.id;
     } while (true);
+    return relevant;
+  }
+  private async restoreEventFlow(sessionId: string, generation: number, relevant: Set<string>): Promise<void> {
     await Promise.all([...relevant].map(taskId => this.readTaskFlow(taskId)));
     if (generation !== this.generation) return;
-    for (const entry of entries) {
+    for (const entry of this.view.openSession(sessionId).flow.historyEntries) {
       if (generation !== this.generation) return;
       if (entry.truncated) await this.loadEntry(sessionId, entry.entryId, entry.taskId ?? undefined);
     }
@@ -218,7 +250,7 @@ export class CodeState {
           after = Math.max(after, event.seq);
         }
         this.flowCursors.set(taskId, after);
-        this.changed();
+        this.mark();
         if (page.nextAfter === null) break;
         after = page.nextAfter;
       } while (true);
@@ -229,10 +261,13 @@ export class CodeState {
     });
   }
   // Note: 见 .agents/notes/implemented/feature/2026-10-18-completed-trace.md
+  // Note: 见 .agents/notes/implemented/bug-fix/2026-10-19-trace-hydration-flash.md
   historyReady(sessionId: string, taskId: string): boolean { return ![...this.pendingEntries].some(([key, pendingTask]) => key.startsWith(`${sessionId}:`) && pendingTask === taskId); }
   loadEntry(sessionId: string, entryId: string, taskId?: string): Promise<void> {
     const key = `${sessionId}:${entryId}`;
-    this.pendingEntries.set(key, taskId ?? this.pendingEntries.get(key));
+    // 已在历史页里的条目只会补全正文，身份已可见；再挡自动收起会让打开会话时已收起的 trace 先展开再收起。
+    const known = this.view.openSession(sessionId).flow.historyEntries.some(entry => entry.entryId === entryId);
+    if (!known) this.pendingEntries.set(key, taskId ?? this.pendingEntries.get(key));
     return this.run(`entry:${sessionId}:${entryId}`, async generation => {
       let entry: OpResult<"read_history_entry">;
       try { entry = await this.request("read_history_entry", { session_id: sessionId, entry_id: entryId, length: 64 * 1024 }); }
@@ -265,7 +300,7 @@ export class CodeState {
     const pending: PendingCreation = { op, params: { ...params, ...settings, request_id: crypto.randomUUID() }, target: this.target, instanceId: this.view.instanceId, busy: false, retried: false, waitGeneration: null };
     this.pendingCreation = pending;
     this.message = null;
-    this.changed();
+    this.mark();
     return this.sendCreation(pending);
   }
   private owns(pending: PendingCreation): boolean {

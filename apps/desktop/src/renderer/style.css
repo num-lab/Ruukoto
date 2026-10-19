@@ -479,6 +479,16 @@ body { font-size: 15.5px; }
 .execution-trace[data-completed="false"] > [data-slot="trace-collapsible-content"] > .execution-trace-content { margin: 0; border: 0; padding: 0; }
 .file-preview-note { margin: 0; padding: 6px 12px; color: var(--text-muted); font-size: 12px; }
 
+/* Note: 见 .agents/notes/implemented/feature/2026-10-19-desktop-motion-polish.md */
+/* 手写按钮不经过界面原语的 transition-all，补齐 hover 与显隐过渡。 */
+.workspace-row, .workspace-session, .personal-row, .git-commit-summary, .new-tab-page > button, .attachment-chip > button { transition: background-color 120ms ease, color 120ms ease, opacity 120ms ease; }
+.workspace-add, .tab-close { transition: opacity 120ms ease, background-color 120ms ease, color 120ms ease; }
+/* Tailwind 的 rotate-90 写在 rotate 属性上，冻结前缀里的 transform 过渡匹配不到它。 */
+.workspace-row > button:first-child > svg:first-child { transition-property: rotate; }
+.file-tree-row > svg:first-child { transition: rotate 150ms; }
+.toast-pill { animation: toast-in 180ms ease-out; }
+@keyframes toast-in { from { opacity: 0; translate: 0 6px; } }
+
 /* Note: 见 .agents/notes/implemented/feature/2026-10-18-demo-connection-loading.md */
 .connection-loading[data-slot="dialog-content"] { inset: 0; display: flex; width: 100vw; max-width: none; height: 100dvh; flex-direction: column; align-items: center; justify-content: center; gap: 16px; transform: none; translate: initial; border: 0; border-radius: 0; padding: 24px; background: var(--bg-canvas); box-shadow: none; animation: none; }
 .connection-loading[data-state="closed"] { animation: connection-fade-out 180ms ease-in both; }

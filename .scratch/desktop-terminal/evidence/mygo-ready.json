@@ -1,0 +1,18 @@
+{
+  "pid": 83876,
+  "executable": "/Users/eitrous/Developer/ruukoto/dist/mygo/darwin-arm64/Ruukoto MyGo.app/Contents/MacOS/Ruukoto MyGo",
+  "workspaces": [
+    {
+      "cwd": "/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-it-terminal-native-qa-1AwQto/work-0",
+      "sessionId": "sess_f9e2799603a312cccb1d8a61",
+      "workspaceId": "proj_ff30250ddf5d5096286a38c9"
+    },
+    {
+      "cwd": "/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-it-terminal-native-qa-1AwQto/work-1",
+      "sessionId": "sess_33578ab46ba2796e5400f36b",
+      "workspaceId": "proj_e60c341754e691d3939a9d5e"
+    }
+  ],
+  "profile": "/tmp/rtq-MJEpM2/profile",
+  "control": "/tmp/rtq-MJEpM2/control"
+}

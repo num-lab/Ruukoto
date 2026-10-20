@@ -37,7 +37,7 @@ else {
   savePersonalConfig(userData, { host: "test-personal", controlDir: "/var/lib/ruukoto/control" });
   const env = { ...previous, PATH: `${temporary}:${previous.PATH}`, RUUKOTO_DESKTOP_MANAGED: "1", RUUKOTO_CODE_CONTROL_DIR: controlDir, RUUKOTO_CODE_DATA_DIR: code.dirs.dataDir, RUUKOTO_CODE_AGENT_DIR: code.dirs.agentDir, PA_SOCKET: personal.runtime.socketPath(), PA_TOKEN_FILE: path.join(personal.runtime.controlDir(), "owner.token") };
   const updates: Record<DesktopTarget, DesktopUpdate[]> = { code: [], personal: [] };
-  const host = new DesktopHost(path.resolve(import.meta.dirname, ".."), userData, { publish: (target, update) => updates[target].push(update), focused: () => true, notice() {}, badge() {} }, async () => ({ env, node: process.execPath }));
+  const host = new DesktopHost(path.resolve(import.meta.dirname, ".."), userData, { publish: (target, update) => { updates[target].push(update); }, focused: () => true, notice() {}, badge() {} }, async () => ({ env, node: process.execPath }));
   const online = (target: DesktopTarget) => updates[target].filter(update => update.type === "state").at(-1)?.state === "online";
   try {
     const codeSession = (await code.runtime.openWorkspace({ cwd: code.work[0] })).session.id;

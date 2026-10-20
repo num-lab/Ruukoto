@@ -8,12 +8,12 @@ declare const __RUUKOTO_REPOSITORY__: string;
 const userData = process.argv[2];
 if (!userData) throw new DesktopError("user_data_missing", "MyGo 应用数据目录不可用；请重新构建应用。");
 let focused = false;
-const send = (message: object) => process.stdout.write(`${JSON.stringify(message)}\n`);
+const send = (message: object): Promise<void> => new Promise((resolve, reject) => { process.stdout.write(`${JSON.stringify(message)}\n`, error => error ? reject(error) : resolve()); });
 const host = new DesktopHost(__RUUKOTO_REPOSITORY__, userData, {
   publish: (target, update) => send({ kind: "update", target, update }),
   focused: () => focused,
-  notice: notice => send({ kind: "notice", notice }),
-  badge: count => send({ kind: "badge", count }),
+  notice: notice => { void send({ kind: "notice", notice }).catch(() => { process.stderr.write("[ruukoto:desktop] MyGo 通知未送达，请重新打开应用。\n"); }); },
+  badge: count => { void send({ kind: "badge", count }).catch(() => { process.stderr.write("[ruukoto:desktop] MyGo 角标未送达，请重新打开应用。\n"); }); },
 });
 const input = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
 let closing: Promise<void> | null = null;
@@ -31,6 +31,7 @@ async function receive(line: string): Promise<void> {
     if (closing) throw new DesktopError("bridge_closed", "MyGo 正在退出；请重新打开应用后核实原操作。");
     switch (method) {
       case "subscribe": return host.subscribe(args[0]);
+      case "terminal_reset": return host.resetTerminals();
       case "request": return host.request(args[0], args[1], args[2]);
       case "attachment_instance": return host.attachmentInstance(args[0] ?? "code");
       case "attachments": {
@@ -51,7 +52,7 @@ async function receive(line: string): Promise<void> {
     }
   });
   // request 已沿用控制面结果，不能再包一层，否则 renderer 会丢失失败分类。
-  send({ kind: "result", id, result: method === "request" && result.ok ? result.value : result });
+  await send({ kind: "result", id, result: method === "request" && result.ok ? result.value : result });
 }
 input.on("line", line => {
   if (Buffer.byteLength(line) > 16 * 1024 * 1024) { process.stderr.write("[ruukoto:desktop] MyGo 消息超限，正在关闭连接；请重新打开应用并核实原操作。\n"); input.close(); process.stdin.destroy(); return; }

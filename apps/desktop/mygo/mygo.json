@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "frontendDist": "../out/mygo/renderer",
   "bindings": "../out/mygo/bindings.ts",
-  "resources": ["../out/mygo/sidecar.mjs", "../out/mygo/launch.json"],
+  "resources": ["../out/mygo/sidecar.mjs", "../out/mygo/launch.json", "../out/mygo/vendor"],
   "out": "../../../dist/mygo",
   "macos": { "signingIdentity": "-" }
 }

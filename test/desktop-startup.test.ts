@@ -26,7 +26,7 @@ test("宿主在订阅前预热，重复订阅共用环境且只安装一次正�
   const original = t.runtime.snapshot.bind(t.runtime);
   t.runtime.snapshot = () => { snapshots++; return original(); };
   const updates: DesktopUpdate[] = [];
-  const host = new DesktopHost(path.resolve(import.meta.dirname, ".."), path.join(t.dirs.root, "user"), { publish: (_target, update) => updates.push(update), focused: () => true, notice() {}, badge() {} }, () => { reads++; return reading; });
+  const host = new DesktopHost(path.resolve(import.meta.dirname, ".."), path.join(t.dirs.root, "user"), { publish: (_target, update) => { updates.push(update); }, focused: () => true, notice() {}, badge() {} }, () => { reads++; return reading; });
   try {
     assert.equal(reads, 1, "构造时开始，不等订阅");
     await setImmediate();
@@ -52,7 +52,7 @@ test("订阅前的预热失败可见，显式重新连接可重试环境读取",
   let reads = 0;
   const failure = new DesktopError("shell_environment", "请修复登录 shell 后重新连接。");
   const updates: DesktopUpdate[] = [];
-  const host = new DesktopHost(import.meta.dirname, os.tmpdir(), { publish: (_target, update) => updates.push(update), focused: () => true, notice() {}, badge() {} }, async () => { reads++; throw failure; });
+  const host = new DesktopHost(import.meta.dirname, os.tmpdir(), { publish: (_target, update) => { updates.push(update); }, focused: () => true, notice() {}, badge() {} }, async () => { reads++; throw failure; });
   try {
     await setImmediate();
     assert.equal(reads, 1);
@@ -73,7 +73,7 @@ test("关闭取消预热并等待结束，迟到环境不被采用也不创建�
   let signal!: AbortSignal;
   const reading = new Promise<DesktopEnvironment>(resolve => { finish = resolve; });
   const updates: DesktopUpdate[] = [];
-  const host = new DesktopHost(import.meta.dirname, os.tmpdir(), { publish: (_target, update) => updates.push(update), focused: () => true, notice() {}, badge() {} }, supplied => { signal = supplied; return reading; });
+  const host = new DesktopHost(import.meta.dirname, os.tmpdir(), { publish: (_target, update) => { updates.push(update); }, focused: () => true, notice() {}, badge() {} }, supplied => { signal = supplied; return reading; });
   host.subscribe("code");
   const closing = host.close();
   let closed = false;

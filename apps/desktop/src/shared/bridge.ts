@@ -15,6 +15,8 @@ export type PendingOp = "desktop_pending_read" | "desktop_pending_clear";
 export type BrowserDocumentId = string;
 export interface BrowserDocumentHandle { id: BrowserDocumentId; url: string }
 export type DesktopTarget = "code" | "personal";
+export type DesktopTerminalId = string;
+export type DesktopTerminalUpdate = { type: "terminal"; id: DesktopTerminalId } & ({ kind: "output"; data: string } | { kind: "exit"; exitCode: number; signal?: number });
 export interface DesktopFailure {
   code: string;
   outcome: RequestOutcome;
@@ -24,6 +26,7 @@ export interface DesktopFailure {
 export type DesktopResult<T> = { ok: true; value: T } | { ok: false; error: DesktopFailure };
 export interface DesktopNavigation { sessionId: string; taskId: string }
 export type DesktopUpdate =
+  | DesktopTerminalUpdate
   | { type: "navigate"; instanceId: string; navigation: DesktopNavigation }
   | { type: "state"; state: ConnectionState; detail?: string; error?: DesktopFailure; recovery?: string[] }
   | { type: "snapshot"; result: ConnectResult; instanceChanged: boolean }
@@ -39,4 +42,8 @@ export interface DesktopBridge {
   uploadDraftAttachments(sessionId: string, tokens: string[], target?: DesktopTarget): Promise<DesktopResult<DesktopAttachment[]>>;
   pickFolder(): Promise<DesktopResult<string | null>>;
   reveal(path: string): Promise<DesktopResult<void>>;
+  openTerminal(id: DesktopTerminalId, workspaceId: string, instanceId: string, cols: number, rows: number): Promise<DesktopResult<{ id: DesktopTerminalId; cwd: string }>>;
+  inputTerminal(id: DesktopTerminalId, data: string): Promise<DesktopResult<void>>;
+  resizeTerminal(id: DesktopTerminalId, cols: number, rows: number): Promise<DesktopResult<void>>;
+  killTerminal(id: DesktopTerminalId): Promise<DesktopResult<void>>;
 }

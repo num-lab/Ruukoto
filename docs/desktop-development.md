@@ -4,6 +4,8 @@
 
 `npm run desktop:build` 在 macOS Apple Silicon 产出目录应用，无 DMG、公证或自动更新。安装依赖时若设置过 `ELECTRON_SKIP_BINARY_DOWNLOAD=1`，需先取消该变量并运行 `node node_modules/electron/install.js` 才能开发。构建链在打包前核对生产 CSP、单文件 CommonJS preload 与外部依赖；`codesign --verify --deep --strict dist/mac-arm64/Ruukoto.app` 核对签名。日常应用按构建时仓库路径调用登录 shell 的 node，仓库移动后需重新构建。
 
+两外壳构建把node-pty运行代码、native及macOS的spawn-helper放入vendor；Electron解包native/helper，MyGo保留目录与执行位。缺文件或helper不可执行会阻断构建。终端真实PTY回归不可跳过，定向运行`npx tsx --test test/desktop-terminal.test.ts test/38-desktop-build.test.ts test/desktop-mygo.test.ts`；实际两壳输入法、隐藏恢复、明暗与退出另验。
+
 桌面依赖全部在 apps/desktop 的 devDependencies，根锁文件统一管理，包含正文渲染的 react-markdown 与 remark-gfm；生产安装 `npm ci --omit=dev` 不装 Electron。创建与应答丢失回归见 `test/40-desktop-creation.test.ts`，流恢复与快照代次见 `test/41-desktop-stream.test.ts`。安全选项、CSP 实际拒绝脚本、明暗外观与真实 HMR 需另做 Electron 验收，纯逻辑测试不能代替。
 
 开发入口：`npm run code -- --desktop`。构建入口：`npm run desktop:build`。返回[开发说明](development.md#桌面客户端)。
@@ -12,7 +14,7 @@
 
 | 修改位置 | 常用测试起点 |
 | --- | --- |
-| `apps/desktop/` | `test/38-desktop-main.test.ts`、`test/38-desktop-personal.test.ts`、`test/38-desktop-build.test.ts`、`test/39-desktop-recovery-guide.test.ts`、`test/40-desktop-creation.test.ts`、`test/41-desktop-stream.test.ts`、`test/42-desktop-inspector.test.ts`、`test/43-desktop-demo.test.ts`、`test/desktop-attachments.test.ts`、`test/desktop-agent-display.test.ts`、`test/desktop-context.test.ts`、`test/desktop-composer.test.ts`、`test/desktop-inspector-tools.test.ts`、`test/desktop-tool-activity.test.ts`、`test/desktop-workspace-files.test.ts`、`test/desktop-browser-security.test.ts`、`test/desktop-mygo.test.ts`、`test/desktop-personal-interface.test.ts`、`test/desktop-workspace-git.test.ts`、`test/desktop-demo-v4.test.ts`、`test/desktop-session-settings.test.ts`、`test/desktop-live-files.test.ts`、`test/desktop-interaction-regressions.test.ts`、`test/desktop-polish.test.ts`、`test/desktop-git-lazy.test.ts`、`test/desktop-file-tree-loading.test.ts`、`test/desktop-git-layout.test.ts`、`test/desktop-git-windowing.test.ts`；MyGo 另跑 `cd apps/desktop/mygo && go test -race ./...`；真实外壳另验 |
+| `apps/desktop/` | `test/desktop-terminal.test.ts`、`test/38-desktop-main.test.ts`、`test/38-desktop-personal.test.ts`、`test/38-desktop-build.test.ts`、`test/39-desktop-recovery-guide.test.ts`、`test/40-desktop-creation.test.ts`、`test/41-desktop-stream.test.ts`、`test/42-desktop-inspector.test.ts`、`test/43-desktop-demo.test.ts`、`test/desktop-attachments.test.ts`、`test/desktop-agent-display.test.ts`、`test/desktop-context.test.ts`、`test/desktop-composer.test.ts`、`test/desktop-inspector-tools.test.ts`、`test/desktop-tool-activity.test.ts`、`test/desktop-workspace-files.test.ts`、`test/desktop-browser-security.test.ts`、`test/desktop-mygo.test.ts`、`test/desktop-personal-interface.test.ts`、`test/desktop-workspace-git.test.ts`、`test/desktop-demo-v4.test.ts`、`test/desktop-session-settings.test.ts`、`test/desktop-live-files.test.ts`、`test/desktop-interaction-regressions.test.ts`、`test/desktop-polish.test.ts`、`test/desktop-git-lazy.test.ts`、`test/desktop-file-tree-loading.test.ts`、`test/desktop-git-layout.test.ts`、`test/desktop-git-windowing.test.ts`；MyGo 另跑 `cd apps/desktop/mygo && go test -race ./...`；真实外壳另验 |
 
 ## MyGo 试验
 

@@ -7,6 +7,7 @@ import { test } from "node:test";
 import { build } from "vite";
 import { checkBuild, DesktopBuildError } from "../apps/desktop/scripts/check-build.mjs";
 import { PRODUCTION_CSP, productionCspPlugin } from "../apps/desktop/build/security.mjs";
+import { vendorTerminal } from "../apps/desktop/build/terminal.mjs";
 
 const encodedCsp = PRODUCTION_CSP.replaceAll("'", "&#39;");
 const cspMeta = `<meta http-equiv="Content-Security-Policy" content="${encodedCsp}">`;
@@ -41,6 +42,7 @@ test("加载页的独立位移重置在生产 CSS 压缩后保留，避免被 Di
 function fixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-desktop-build-"));
   for (const directory of ["renderer", "main", "preload"]) fs.mkdirSync(path.join(root, directory));
+  vendorTerminal(path.join(root, "main"));
   fs.writeFileSync(path.join(root, "renderer/index.html"), `<!doctype html><html><head>${cspMeta}<meta charset="utf-8"></head><body></body></html>`);
   fs.writeFileSync(path.join(root, "main/index.js"), 'import { app } from "electron"; import fs from "node:fs"; await import("node:sqlite");');
   fs.writeFileSync(path.join(root, "preload/index.cjs"), 'const { contextBridge } = require("electron"); const path = require("path");');
@@ -142,4 +144,22 @@ test("桌面产物：两个 Node 目标拒绝 workspace、相对路径和未知�
       fs.rmSync(root, { recursive: true, force: true });
     }
   }
+});
+
+test("终端运行依赖仅精确引用放行，native或helper缺失及不可执行阻断构建", () => {
+  const root = fixture();
+  try {
+    fs.writeFileSync(path.join(root, "main/index.js"), 'import pty from "./vendor/node-pty/lib/index.js";');
+    assert.doesNotThrow(() => checkBuild(root));
+    fs.writeFileSync(path.join(root, "preload/index.cjs"), 'require("./vendor/node-pty/lib/index.js");');
+    assert.throws(() => checkBuild(root), DesktopBuildError);
+    fs.writeFileSync(path.join(root, "preload/index.cjs"), 'require("electron");');
+    const native = path.join(root, "main/vendor/node-pty/build/Release/pty.node");
+    fs.renameSync(native, `${native}.held`); assert.throws(() => checkBuild(root), DesktopBuildError); fs.renameSync(`${native}.held`, native);
+    if (process.platform === "darwin") {
+      const helper = path.join(root, "main/vendor/node-pty/build/Release/spawn-helper");
+      fs.chmodSync(helper, 0o644); assert.throws(() => checkBuild(root), DesktopBuildError); fs.chmodSync(helper, 0o755);
+      fs.unlinkSync(helper); assert.throws(() => checkBuild(root), DesktopBuildError);
+    }
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

@@ -50,6 +50,23 @@ test("MyGo 传输拒绝保留 disconnected，不能变成未发送或自动重�
   assert.equal(f.calls.filter(call => call.method === "Desktop.Request").length, 1);
 });
 
+test("MyGo终端四方法复用本机Request并按ID透传输出", async () => {
+  const f = fixture(), updates: DesktopUpdate[] = [];
+  f.window.ruukoto!.subscribe("code", update => updates.push(update));
+  await f.window.ruukoto!.openTerminal("terminal", "workspace", "instance", 80, 24);
+  await f.window.ruukoto!.inputTerminal("terminal", "中文\r");
+  await f.window.ruukoto!.resizeTerminal("terminal", 100, 30);
+  await f.window.ruukoto!.killTerminal("terminal");
+  assert.deepEqual(JSON.parse(JSON.stringify(f.calls.slice(1))), [
+    { method: "Desktop.Request", args: ["code", "desktop_terminal_open", { id: "terminal", workspace_id: "workspace", instance_id: "instance", cols: 80, rows: 24 }] },
+    { method: "Desktop.Request", args: ["code", "desktop_terminal_input", { id: "terminal", data: "中文\r" }] },
+    { method: "Desktop.Request", args: ["code", "desktop_terminal_resize", { id: "terminal", cols: 100, rows: 30 }] },
+    { method: "Desktop.Request", args: ["code", "desktop_terminal_kill", { id: "terminal" }] },
+  ]);
+  f.send("code", { type: "terminal", id: "terminal", kind: "output", data: "eA==" });
+  assert.equal(updates.at(-1)?.type, "terminal");
+});
+
 test("共用 DesktopHost 经真实控制面订阅和限制操作，选择器期间的旧实例不读取附件", async () => {
   const { startTestRuntime, waitFor } = await import("./helpers/testkit.ts");
   const { product } = await import("../apps/ruukoto-code/src/product.ts");

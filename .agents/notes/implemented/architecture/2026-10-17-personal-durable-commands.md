@@ -33,3 +33,5 @@ Harness 恢复前双向核对配置、Task、document、接纳、原模型工具
 ## 后果
 
 沿 durable 原生 Task 等待和取消，不增加平行运行状态机。代价是外部文件和数据库仍非原子；保存执行意图后、外部请求/launch 认领写入前崩溃，或原认领丢失后，会保守保留效果及停止未核实；不能以新 stop 先手替代原证明，prepare 到意图提交前仍可能遗留未派发临时目录。原机器、TMPDIR、证据及目录身份须保持，缺失时保留现场。真实 Linux、模型、IM 与产品体验的证据见[工单](../../../../.scratch/personal-pi-durable/issues/25-durable-commands.md)，完整迁移不由本片替代。
+
+相关未实施方案：[跨轮后台执行](../../proposed/feature/2026-10-14-bash-background-lifecycle.md)增加个人主会话的显式后台能力，另行接纳与持有，不延长本篇run_command的执行寿命。

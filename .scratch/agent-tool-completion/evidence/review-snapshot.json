@@ -1,0 +1,90 @@
+{
+  "revision": 2,
+  "base": "224cfd7cc00662b3ef60d8a6f54bdcfe5de6e34a",
+  "files": [
+    {
+      "path": ".agents/notes/implemented/architecture/2026-09-20-tool-worker-per-task-container.md",
+      "sha256": "21035ae9347dfa6357c717cd258a10c529c1aa1c460acbd96b47b59c0206dfaa"
+    },
+    {
+      "path": ".agents/notes/implemented/architecture/2026-10-10-native-execution-sandbox.md",
+      "sha256": "96696aff92e1660e75a0b7642c7c7df0c16ccbcb6762b5507b457da63b5ac0c0"
+    },
+    {
+      "path": ".agents/notes/implemented/architecture/2026-10-14-agent-wait-and-report-ownership.md",
+      "sha256": "320fdc02b730e6913b494bbe6880f540db5547d0fba3a87990789e64ff658319"
+    },
+    {
+      "path": ".agents/notes/implemented/architecture/2026-10-17-personal-durable-commands.md",
+      "sha256": "0002a9c4f8ebf144c4f87ddf278b588a980e73e652326ff3090199c489776267"
+    },
+    {
+      "path": ".agents/notes/implemented/architecture/2026-10-17-personal-local-management.md",
+      "sha256": "0318012885bd0a421c88c53a7bdee6a3178e7a008fb2a1b0f916e92d64adca7d"
+    },
+    {
+      "path": ".agents/notes/implemented/architecture/2026-10-17-personal-telegram-entry.md",
+      "sha256": "e0b2bfe56b520e4a26db9ed1dbb4e2414ac94be25edf54d768bbeed5753764bc"
+    },
+    {
+      "path": ".agents/notes/implemented/architecture/2026-10-17-personal-tools-access-artifacts.md",
+      "sha256": "e6bd149283b71c62a2a420f387901e25e2cec6b4a6b45fd9ae6d9094e6bd7b83"
+    },
+    {
+      "path": ".agents/notes/implemented/architecture/2026-10-18-personal-memory-skills-history.md",
+      "sha256": "00ed747dd049e75f6e2b638b9623f3c0f7a39dc8fb657ab24314eba153c7366e"
+    },
+    {
+      "path": ".agents/notes/implemented/bug-fix/2026-10-11-preserve-unverified-worker-stop.md",
+      "sha256": "372d69b3305c25b25918766f9294e761dce0d0cbede3a6ece1ac2393c84577c2"
+    },
+    {
+      "path": ".agents/notes/implemented/feature/2026-10-13-workflow-owner-input-and-delivery.md",
+      "sha256": "6f2909386d16fa8c0cf2a9b4bfb35bd292f34bf453510090c7d2d01cf2c3c8ae"
+    },
+    {
+      "path": ".agents/notes/implemented/feature/2026-10-14-agent-browser.md",
+      "sha256": "409797e416bd7869af0296d5b7ee942f55890b358deb4394ce89e453e0a7ef2b"
+    },
+    {
+      "path": ".agents/notes/implemented/process/2026-10-14-progressive-human-interaction.md",
+      "sha256": "6fe806fcdceb1cd057c4494a3c0f09bbf3799f858d05bcef0e4e2a662f97251e"
+    },
+    {
+      "path": ".agents/notes/proposed/feature/2026-10-14-bash-background-lifecycle.md",
+      "sha256": "63f752750f102fea56ca9496705453262928856f0df4fbfbbc0a054c5664d346"
+    },
+    {
+      "path": ".agents/notes/proposed/feature/2026-10-21-controlled-file-search.md",
+      "sha256": "a28332d42125da681f7266b81851f8ffc844a30ec4e9f34675b75c7022a59e4d"
+    },
+    {
+      "path": ".agents/notes/proposed/feature/2026-10-21-persistent-owner-questions.md",
+      "sha256": "0af415fdbbd17102816cae0538b67a56f53bf957efed0c833f67ac7c5ddb211b"
+    },
+    {
+      "path": ".scratch/agent-tool-completion/evidence/investigation.md",
+      "sha256": "1f1617607373ef30d9e352b3e6fc69030fab94ee22b47cf5b961a6cda4198fae"
+    },
+    {
+      "path": ".scratch/agent-tool-completion/issues/01-coding-file-search.md",
+      "sha256": "e299547857472af617d0499d8c0bb1995467ba1770e073d16585c476f6f509f6"
+    },
+    {
+      "path": ".scratch/agent-tool-completion/issues/02-coding-owner-questions.md",
+      "sha256": "e29720129b2397ab9984e37c36b60787cea48c79b91799f2ccc32ec349f04586"
+    },
+    {
+      "path": ".scratch/agent-tool-completion/issues/03-coding-background-processes.md",
+      "sha256": "1f9fc6078fbc6eb36dc8adc8a0e4db1cbea60448dca397dcdf6b4ea2b16ab33d"
+    },
+    {
+      "path": ".scratch/agent-tool-completion/issues/04-personal-adapters.md",
+      "sha256": "7429759d01e20641cd55eae602759f8916417d00756f638f018c7a28e19b5373"
+    },
+    {
+      "path": ".scratch/agent-tool-completion/spec.md",
+      "sha256": "37dcb8a94d55848402bfc54f00fd5999f077fe54265d822b7749bc548eada400"
+    }
+  ]
+}

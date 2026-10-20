@@ -90,3 +90,5 @@ Coding Agent 正式入口默认且只允许 native，显式 container/local 参�
 当前执行接线由[个人 Agent 原生执行与 Docker worker 退役](../../implemented/architecture/2026-10-12-personal-native-sandbox.md)与[原生执行沙箱](2026-10-10-native-execution-sandbox.md)持有：两个产品正式受限入口默认且只接受 native；Docker worker、镜像配置与 container 类型已退役。完全访问采用[当前账户决定](../feature/2026-10-12-full-access-current-account.md)。本篇原容器参数、VM 例外、容器生命周期与专用账户叙述保留为被部分取代的原决定；完整 worker、协议、批准消费与停止核实原则仍适用。当前接口回归由 `test/10-access-modes.test.ts`、`test/73-desktop-execution.test.ts`、`test/100-worker-stop.test.ts` 与 `test/101-native-linux-scope.test.ts` 覆盖；本篇验证节保存原时点的记录，旧容器命令不作为当前活跃入口。
 
 完全访问的账户、环境、免审批及宿主任务授权传播采用[本决定](../feature/2026-10-12-full-access-current-account.md)；本篇其他独立规则继续适用。
+
+相关未实施方案：[受控文件检索](../../proposed/feature/2026-10-21-controlled-file-search.md)补worker工具清单；[跨轮后台执行](../../proposed/feature/2026-10-14-bash-background-lifecycle.md)另定独立执行归属。本篇原决定及当前受限执行的后续接管关系保留。

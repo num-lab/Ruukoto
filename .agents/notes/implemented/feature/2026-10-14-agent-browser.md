@@ -61,3 +61,5 @@ CLI + skill 最省代码，也能服务普通开发会话，但不能覆盖 main
 ## 验证
 
 `test/browser-lifecycle.test.ts` 覆盖单发 batch、结构码、取消、loopback、附接冷恢复、PID/锁不符、启动窗口和指纹变化；`test/browser-tools.test.ts` 经真实 Runtime/SDK/账本验证双产品图片历史、权限切换、在途取消、引用失效及截图失败。macOS Node 22/24 和 Linux 的真实浏览器事实、原始环境缺口及可复现脚本见工单证据；导出单独由双产品正式 bin 和控制面分页验证。
+
+相关未实施方案：[跨轮后台执行](../../proposed/feature/2026-10-14-bash-background-lifecycle.md)为本地预览服务另定生命周期，并提议在后台占用目录时沿完全访问来源开放浏览器；本篇当前装配范围尚未改变。

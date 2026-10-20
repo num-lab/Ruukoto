@@ -1,0 +1,215 @@
+{
+  "baseline": "8bbcbc4abb4d3c7c5268ef172b72798d09636ebb",
+  "environment": {
+    "node": "v24.15.0",
+    "platform": "Darwin",
+    "arch": "arm64"
+  },
+  "files": [
+    {
+      "path": ".agents/notes/implemented/architecture/2026-09-23-main-app-data-space.md",
+      "bytes": 22904,
+      "sha256": "f3d349419ad58dc867ec722a5ee35ea09ac18e2f9e9775adf575b47e143e4ba5"
+    },
+    {
+      "path": ".agents/notes/implemented/architecture/2026-10-17-personal-tools-access-artifacts.md",
+      "bytes": 5898,
+      "sha256": "6ca5c706bad5b006e7d7447840448eeef4acb9718ed745f2e0429842b1b69f5b"
+    },
+    {
+      "path": ".agents/notes/implemented/architecture/2026-10-18-personal-durable-app-data.md",
+      "bytes": 4883,
+      "sha256": "12879b4034443e65d3f3858e75399e651ff289905074034e18093deb91b3f239"
+    },
+    {
+      "path": ".agents/notes/implemented/architecture/2026-10-18-personal-durable-scheduled-work.md",
+      "bytes": 6840,
+      "sha256": "f29c251076b1e8b838760acd1ad54fcfa55429e571411551f9699f46833f6f24"
+    },
+    {
+      "path": ".agents/skills/pre-push-checks/SKILL.md",
+      "bytes": 12229,
+      "sha256": "ba99f07293d9ddc748d34149d85cec6b85036f5231fdafeea0287415b5a4d156"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/issues/34-app-data.md",
+      "bytes": 5758,
+      "sha256": "aa46e6821233f62458ef8d56c223aea1768a9465c21ed959b50fee271b00c4ea"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/remaining-work.md",
+      "bytes": 11164,
+      "sha256": "619af98905cdc95a4f3f903c39b3d24308e75b8c2576341fb73f5a8c652d0a83"
+    },
+    {
+      "path": "README.md",
+      "bytes": 6242,
+      "sha256": "865914779843c9dd6437c247dd1f80f28c4ff3412f6bedee679844a431497b59"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-app-data-controls.ts",
+      "bytes": 9547,
+      "sha256": "8b52a6c73d338581394438d4ecff3e7fa3dd842597d344aa2aed82bd5baab80a"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-app-data.ts",
+      "bytes": 34099,
+      "sha256": "de5821460d6ebbe7d8503acc0f9aa5e23bd5a1c5eb7720772f1cc4492d2317b3"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-cli.ts",
+      "bytes": 38388,
+      "sha256": "c1e8bb36999fb74d3bbb12dda477a434fb308f0e14346e9862590b3676738929"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-control.ts",
+      "bytes": 40990,
+      "sha256": "9f5eb0af34ed65f9fa2442758bb03aea81a48c357df9c41daf103d5095913aeb"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-delegation.ts",
+      "bytes": 18104,
+      "sha256": "917880fa92f7cc17c670ad5ea126a86321af9881443c3a7d79138c164b5fa4ec"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-harness.ts",
+      "bytes": 77733,
+      "sha256": "5e716b3e4d043ef6c2bc784a4f4a187781fcaf306f922a14dda8fd837f4e35ae"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-profile.ts",
+      "bytes": 4510,
+      "sha256": "911ba9ed714294348377691812ce34fff0a6d52bbfda03bfbda846751e396820"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-report.ts",
+      "bytes": 31214,
+      "sha256": "3c58320f32c3854455c29ffd7459d4afb283a2bcd00b57d4279b52704808ef33"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-schedule-execution.ts",
+      "bytes": 11245,
+      "sha256": "030098257418ac61cf89162eb7d3916ed6e57326a32789552912e0fcc560638d"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-schedule-scope.ts",
+      "bytes": 3409,
+      "sha256": "e29b4de866915628cb8f63c4a4171e1bad0e723b1e8d426fa08b7e086de66cde"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-scheduler-records.ts",
+      "bytes": 28292,
+      "sha256": "4cc8815b921b316d58e5eb93c17992e1036c4385e0619aa9b67a8de585ae392a"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-scheduler-tools.ts",
+      "bytes": 13166,
+      "sha256": "8b4aad85318960267febb8fd1291845e3c000f40707f7a1c5100d6a09ea5b3e4"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-service-operations.ts",
+      "bytes": 51041,
+      "sha256": "389e77c57e68c9bd6ee31fbbad6ad93eb5015c7d45292d1db9629b189c8482c1"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-telegram-records.ts",
+      "bytes": 5491,
+      "sha256": "a0a4f5891f817e0dbc2b16b2382173b3cb5408ca9af75cf258febb3cb660f500"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-work-tools.ts",
+      "bytes": 14302,
+      "sha256": "7cee1384a23cd3690f001098795b64e3a6434ed96521a2f459c47c28fb4e7cb1"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-work.ts",
+      "bytes": 45283,
+      "sha256": "36086a35cf973078af7cc5949eb24e22dcb30237e141ca55b713296909dea248"
+    },
+    {
+      "path": "docs/development.md",
+      "bytes": 16986,
+      "sha256": "91e85a99b98f71d26cde1f1fe5db71a021cdd54d6b1a3e1b8078e80fa50605fa"
+    },
+    {
+      "path": "docs/modules/agent-tools.md",
+      "bytes": 53460,
+      "sha256": "8a8d21bdd66ee7191ec04d32cac38c9d880cd29d082e636b1362276bff7a09c9"
+    },
+    {
+      "path": "docs/modules/personal-durable.md",
+      "bytes": 51197,
+      "sha256": "fa21d3525a987bdfe135ff3c593fbdbd559ec99f8a1d18b8d8cceddc8b1dfc2d"
+    },
+    {
+      "path": "docs/modules/products.md",
+      "bytes": 7400,
+      "sha256": "44225c3e6450070ba7140ccc104928898779bf8ef20e5422cdaac433640eeaee"
+    },
+    {
+      "path": "docs/usage.md",
+      "bytes": 87256,
+      "sha256": "697ead0ca3a01aa72c573062dade1402f51898a9fd5042329fdfeefc0365190e"
+    },
+    {
+      "path": "packages/agent/src/app-data/contract.ts",
+      "bytes": 7145,
+      "sha256": "e372ffe1127499721aeca922b11bbdc31342e495a06205c017fc82d9d6e31306"
+    },
+    {
+      "path": "packages/agent/src/app-data/query-child.ts",
+      "bytes": 2925,
+      "sha256": "7927b114b3fa437a972c9afbaaa9c74233f0e3278ea0a113f8b770d7bf5e724e"
+    },
+    {
+      "path": "packages/agent/src/app-data/query.ts",
+      "bytes": 21736,
+      "sha256": "6786496e5d39613f72faad3cc677cece952c4b4b3e79be80a85065e87452bb24"
+    },
+    {
+      "path": "packages/agent/src/app-data/store.ts",
+      "bytes": 57667,
+      "sha256": "f91a0297300be70e599b0cb7708107c0c4a3df6e21ca4cb9163be96c9d900512"
+    },
+    {
+      "path": "packages/agent/src/app-data/tools.ts",
+      "bytes": 19256,
+      "sha256": "982d08dda1e61b1c123f7da3f0a427264dd046a9a66838e279b5857c1d73e06f"
+    },
+    {
+      "path": "test/helpers/personal-app-data-crash.mts",
+      "bytes": 1614,
+      "sha256": "4c94af0d3939805919fde0677108d2a1599291eaadcfd46ad7060a4a9871f88b"
+    },
+    {
+      "path": "test/personal-app-data.test.ts",
+      "bytes": 26087,
+      "sha256": "4cf28874d3429c4f6c8510b2cf5a41c27f73df3f9422faacf97af9caeb3fb293"
+    },
+    {
+      "path": "test/personal-cli.test.ts",
+      "bytes": 50740,
+      "sha256": "2ac4ab744149af563e5f837d0ced42846c86ebfca3aa07dcabb50cab35342ec0"
+    },
+    {
+      "path": "test/personal-qq.test.ts",
+      "bytes": 32410,
+      "sha256": "e4508db5845206348dbce8bc1f434014d7afc9ff64e27d95400aebb58e3aa2c8"
+    },
+    {
+      "path": "test/personal-service-operations.test.ts",
+      "bytes": 76079,
+      "sha256": "ad4580e9a7438bca81aaf338080ee834d37b5a8dd5f989d912ade3d3321cfbdb"
+    },
+    {
+      "path": "test/personal-services.test.ts",
+      "bytes": 71036,
+      "sha256": "d463897ad5e9a437e969338890ceaec8e6fbc4636d5c419bf0a97a1ff8511cc0"
+    },
+    {
+      "path": "verification/smoke/smoke-personal-durable.mts",
+      "bytes": 12078,
+      "sha256": "e1954dc7d7803f32333a2d773371df6f3ae4148baf7d1ac5815df5c445f1533a"
+    }
+  ]
+}

@@ -22,6 +22,8 @@ Telegram 与 QQ 拥有者私聊的图片必须在登记普通入站事件前下�
 
 Telegram 从 message.photo 选最大 PhotoSize，经 getFile 下载；QQ 只用 OneBot 图片段 url/file，不根据消息正文读取任意 URL。caption 和 QQ 文本按同一用户消息保留，图片保持平台原顺序。Telegram 在最终决定前不推进 offset，永久失败后推进；QQ 在适配器内重试耗尽后保留拒绝。旧代次图片重投仍受原钉版目标核实，不能用新入口重新包装。图片损坏时已建任务明确收尾，后续文本仍能运行，固定拒绝回执与普通失败回执不重复发送。
 
+个人 Pi 1.3.0 的独立装配见[浏览器与图片归属](2026-10-18-personal-browser-media.md)；本篇继续持有既有共享装配与权限/媒体规则，个人 durable 的绑定、接纳和恢复由该篇持有。
+
 ## 备选方案
 
 将完整 base64 写入 JSONL，可让历史本身携带模型重放所需内容；但同图在首次与继续中重复落盘，模糊完整历史与本次模型上下文边界。按[工单 25](../../../../.scratch/agent-direction/issues/25-multimedia-messages.md)「历史语义」及 grilling 记录，历史保存稳定媒体引用和元数据，发送前恢复 image block。

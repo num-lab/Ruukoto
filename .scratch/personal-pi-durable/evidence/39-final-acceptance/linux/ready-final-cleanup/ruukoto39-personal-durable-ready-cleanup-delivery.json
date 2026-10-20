@@ -1,0 +1,74 @@
+{
+  "supersedes_patch": "f36cf9d6b5ec02edb3256f2b1dc98e485200252cc358775f16d821535fa620b9",
+  "patch": "/tmp/ruukoto39-personal-durable-ready-cleanup.patch",
+  "patch_sha256": "cef442b75bb742583ef213d8f76f22bab1946b84428550cc7572d479b6703d50",
+  "cleanup_only_patch": "/tmp/ruukoto39-personal-durable-ready-cleanup-only.patch",
+  "cleanup_only_sha256": "5ca75629dc1b37502e7ea2fe50da9f7ced7058c77781c60e5ef2084040c03c6f",
+  "files": [
+    {
+      "path": "test/personal-durable.test.ts",
+      "sha256": "9ec19a0a1194a2d265b48df2a09b71fbbc3ca7d91874ab02a584751c56a0c12a"
+    },
+    {
+      "path": ".agents/notes/implemented/testing/2026-10-11-await-observed-async-phases.md",
+      "sha256": "bd6fb88e56458273033e9bac4b6d84d82e41375b1d9ce03fccbc1e515a11ac07"
+    }
+  ],
+  "changes": "Before fixture register after that awaits every launched child close; launch refuses t.signal abort; local finally remains. Whole15s/partial5s/ready10s unchanged.",
+  "checks": {
+    "normal_narrow_mac22": "exit0,1/1",
+    "normal_narrow_mac24": "exit0,1/1",
+    "root_tsc_no_emit": 0,
+    "target_eslint": 0,
+    "verify_notes": 0,
+    "diff_check": 0,
+    "independent_timeout_counterexample": "reuse reviewer fixed: every child close precedes fixture rm and no child spawned after rm; author did not repeat15s test at parent request",
+    "earlier_whole_file_static": "Previous f36 variant had whole27/27 mac22/24 and static0; this cleanup delta only reran affected narrow/type/lint/notes, not claiming final whole27 rerun"
+  },
+  "artifacts": [
+    {
+      "path": "/tmp/ruukoto39-personal-durable-ready-cleanup.patch",
+      "sha256": "cef442b75bb742583ef213d8f76f22bab1946b84428550cc7572d479b6703d50"
+    },
+    {
+      "path": "/tmp/ruukoto39-personal-durable-ready-cleanup-only.patch",
+      "sha256": "5ca75629dc1b37502e7ea2fe50da9f7ced7058c77781c60e5ef2084040c03c6f"
+    },
+    {
+      "path": "/tmp/ruukoto39-personal-durable-ready-cleanup-results.json",
+      "sha256": "16d68a2d661ffbc7ec7903d9c834a8120961f0a76f8e2c7a4749aad9eebec57f"
+    },
+    {
+      "path": "/tmp/ruukoto39-personal-durable-ready-cleanup-tsc.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "/tmp/ruukoto39-personal-durable-ready-cleanup-eslint.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "/tmp/ruukoto39-personal-durable-ready-cleanup-notes.log",
+      "sha256": "316ffc850a3c14e0394dfcefcec9d02f48fad4d0289d1d485426aeebecbd302a"
+    },
+    {
+      "path": "/tmp/ruukoto39-personal-durable-ready-cleanup-review-logic.json",
+      "sha256": "a59019a9a914b5b4aa5de346fb7f13f58115079872ea422544db3d76d7fd41b1"
+    },
+    {
+      "path": "/tmp/ruukoto39-durable-ready-timeout-audit/events.jsonl",
+      "sha256": "f277c698175e3543edb550ed102a72df1193d7ec458df610d690a95dc62f7052"
+    },
+    {
+      "path": "/tmp/ruukoto39-durable-ready-timeout-audit/fixed-events.jsonl",
+      "sha256": "11e62757bf2050101375ca6f5d7d9b86e0dd2acf0aa69a82150f9a7cc387fa9d"
+    },
+    {
+      "path": "/tmp/ruukoto39-durable-ready-timeout-audit/run.log",
+      "sha256": "a6152ee8da27241f737213f55ebb577346eac949f72cff0d3c2c3140da60ff2f"
+    },
+    {
+      "path": "/tmp/ruukoto39-durable-ready-timeout-audit/fixed.log",
+      "sha256": "329ebb388eed434dde775c18cebd585a9d52153e92f6ab72a912ecf05c92661a"
+    }
+  ]
+}

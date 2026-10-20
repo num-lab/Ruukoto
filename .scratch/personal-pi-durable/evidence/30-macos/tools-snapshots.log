@@ -1,0 +1,11 @@
+✔ durable 通用工具：主子会话沿目录权限读写，二进制产物分页与请求输入可重建 (11302.430708ms)
+✔ durable 模型快照：主子三模式保留实际工具定义与启用前后估算 (46.1505ms)
+ℹ {"estimatedTokens":{"before":{"main":{"systemPrompt":51,"toolSchemas":637},"child":{"systemPrompt":38,"toolSchemas":1}},"after":{"auto-review":{"main":{"systemPrompt":51,"toolSchemas":1393},"child":{"systemPrompt":38,"toolSchemas":873}},"confirm":{"main":{"systemPrompt":51,"toolSchemas":1393},"child":{"systemPrompt":38,"toolSchemas":873}},"full_access":{"main":{"systemPrompt":51,"toolSchemas":1393},"child":{"systemPrompt":38,"toolSchemas":873}}}}}
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 11951.068167

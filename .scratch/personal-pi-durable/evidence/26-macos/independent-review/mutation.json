@@ -1,0 +1,10 @@
+{
+  "mutation": "撤去完全访问宿主模式准入，恢复旧 confirm/auto-review 白名单",
+  "file": "apps/ruukoto/src/personal-command-execution.ts",
+  "before": "2c8ebfd04b0a885485014cad0fa91492cdcc5934b928019eef2ae3170a444431",
+  "withdrawn": "06a5a05edb59410863b507fbc2dab03fea5d38d84b369cbed72d91d78b661cc6",
+  "replacement": {
+    "from": "![\"confirm\", \"auto-review\", \"full_access\"].includes(spec.mode)",
+    "to": "![\"confirm\", \"auto-review\"].includes(spec.mode)"
+  }
+}

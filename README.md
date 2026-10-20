@@ -10,20 +10,20 @@
 | 主要入口 | TUI | QQ 私聊、Telegram（共用一个 main 会话） |
 | 组织方式 | 工作区 → 会话 | 一个持续的 main 会话 |
 | 后台 | 打开 TUI 时按需拉起，`ruukoto-code stop` 才停止 | systemd 常驻 |
-| 档案根 | `~/.ruukoto-code/` | `~/.ruukoto/`（生产为 `/var/lib/ruukoto/`） |
+| 档案根 | `~/.ruukoto-code/` | `~/.ruukoto-durable/`（生产须显式选择新目录） |
 
-两端独立运行，停止一端不影响另一端；设计见[架构总览](docs/architecture.md)。
+两端独立启停；设计见[架构总览](docs/architecture.md)。
 
 ## 当前状态
 
-双产品首期已交付：两个产品入口、工作区与会话、受限/完全访问执行、通用 SubAgent（委派、复用、通信、取消、汇总、重启恢复）、IM 审批、白名单服务管理与长期授权、旧实例导入。尚未完成：
+个人正式入口使用 Pi durable，Coding 保留原有工作区、会话、SubAgent、工作流与开发资料导入。个人保留能力及入口制品在隔离档案验收，生产切换另行安排。尚未完成：
 
-- 真实 QQ / Telegram 平台缺少实测证据（消息平台目前使用模拟验证）；
+- 最终候选组合验收与生产接管，旧首期平台替身不能替代当前真实验收；
 - 跨端共享记忆、邮件与 GitHub comment 渠道、独立的 QQ 群聊外挂（核心群聊已退役，旧群资料保留为只读归档）。
 
-[角色与汇总用法](docs/usage.md#44-子代理角色文件)。
-
 [逐项验收证据](docs/release-acceptance.md)。
+
+个人 [`ruukoto`](docs/usage.md#25-个人-agent-引导与管理) 使用 Pi 1.3.0；无参打开配置与管理菜单，`serve` 前台托管后台，`npm run personal:durable` 是同入口兼容命令。IM 用 `/帮助` 查入口。Coding 使用 Pi 0.85.1，入口与档案保持。
 
 ## 快速开始
 
@@ -31,7 +31,7 @@
 
 ```bash
 npm run setup       # 按两份锁文件安装依赖、检查前提并安装轻量提交钩子
-npm run check       # 构建 worker 与 WASM、静态检查及全部离线测试
+npm run check       # 构建两类 worker/WASM，静态及全部离线测试
 npm link            # 可选：把 ruukoto / ruukoto-code 装进 PATH（否则用 npm start -- …）
 ```
 
@@ -56,45 +56,32 @@ ruukoto-code stop                 # 停止后台
 
 ### ruukoto（Linux 服务器）
 
-当前账户、原生沙箱与宿主工具、常驻 user manager、systemd 单元以及可选的固定服务管理 helper，安装步骤见[deploy/systemd/README.md](deploy/systemd/README.md)。部署后拥有者的日常环境：
+当前账户、Linux 原生命令前置、常驻 user manager、systemd 单元和可选服务 helper 的安装步骤见[部署说明](deploy/systemd/README.md)。先使用新档案配置模型与凭据环境变量，再配对专用 QQ/Telegram 入口；旧档案保留归档，不导入。
 
 ```bash
-export RUUKOTO_DATA_DIR=/var/lib/ruukoto/data
-ruukoto status
+ruukoto                       # 模型、IM、权限、工作与实例管理菜单
+ruukoto serve                 # 前台托管后台，信号触发停止
+# 显式隔离目录：RUUKOTO_PERSONAL_DIR=/absolute/new-profile ruukoto
 ```
 
-绑定 IM 入口（token 只经环境变量传入，不进命令行）：
-
-```bash
-TG_TOKEN=... ruukoto credentials add --name tg --host api.telegram.org \
-  --header none --purpose telegram_bot --secret-env TG_TOKEN
-ruukoto telegram configure --credential tg --user-id <拥有者 user_id>
-ruukoto telegram enable
-
-QQ_ONEBOT_TOKEN=... ruukoto credentials add --name qq-onebot --host 127.0.0.1:3001 \
-  --header authorization --purpose qq_onebot --secret-env QQ_ONEBOT_TOKEN
-ruukoto qq configure --endpoint ws://127.0.0.1:3001 --self-id <登录 QQ 号> \
-  --credential qq-onebot --owner-id <拥有者 QQ 号>
-ruukoto qq enable
-```
-
-绑定的拥有者可在原私聊里查看、批准或拒绝审批。main 委派长任务后继续回应新消息，最终结果沿发起时的入口汇报。
+QQ/Telegram 共用主会话；后台分析完成后沿首次入口回报。退出日常菜单不停止已启动的后台，停止从菜单操作。
 
 ### 开发本项目
 
-支持[后台工作流](docs/modules/workflows.md)与可打断等待：`workflow` 管理定义与运行，旧定义保存升级；TUI `/workflow` 侧栏启动与控制，Tab 切聊天、Esc 返回；IM 用明确命令。[操作说明](docs/usage.md#511-工作流问题与回报)与[测试导航](docs/development.md#日常反馈)列六输入组合及真实模型验证。
+后台工作流与可打断等待见[操作说明](docs/usage.md#511-工作流问题与回报)，六输入组合及真实模型验证见[测试导航](docs/development.md#日常反馈)。
 
 修改时先运行 `npm run check:static` 与相关测试，按改动面选最小检查集（[提交前检查](.agents/skills/pre-push-checks/SKILL.md)）；全量 `npm run check` 由 CI 与显式复跑执行。macOS 应用测试先串行隔离共享 UID 的进程夹具，其余并行。
 
 ```bash
-npm run dev                # 启动 ruukoto 开发后台，源码变更自动重启
+npm run dev                # 隔离个人开发档案，前台后台随源码变更重启
+npm run dev -- --config     # 同一开发档案的配置菜单，退出停止本次后台
 npm run code               # 启动 ruukoto-code 开发后台并打开 TUI
 npm run code -- --desktop   # 以桌面前端连接开发后台（macOS）
 npm run desktop:build      # 构建并 ad-hoc 签名 dist/mac-arm64/Ruukoto.app
 npm run code -- ../my-project  # 以该目录创建/复用工作区，并进入新会话
 ```
 
-开发与桌面回归见[开发说明](docs/development.md)；[浏览器用法](docs/usage.md#12-浏览器)含登录与截图导出。
+开发、定时与桌面测试见[开发说明](docs/development.md)；[浏览器用法](docs/usage.md#12-浏览器)含登录与截图导出。
 
 ## 文档
 

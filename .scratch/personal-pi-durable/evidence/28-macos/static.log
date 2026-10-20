@@ -1,0 +1,17 @@
+
+> ruukoto-workspace@0.1.0 check:static
+> npm run lint && npm run typecheck && npm run verify-notes && npm run check:docs
+
+
+> ruukoto-workspace@0.1.0 lint
+> eslint . --max-warnings=0
+
+
+> ruukoto-workspace@0.1.0 typecheck
+> tsc --noEmit && npm run typecheck --workspaces && npm --prefix verification/foundation run typecheck
+
+test/personal-mcp-config.test.ts(21,179): error TS2322: Type '{ inputSchema: { [x: string]: unknown; type: "object"; properties?: { [x: string]: string | number | boolean | { [x: string]: string | number | boolean | ... | (string | number | boolean | ... | (string | number | boolean | ... | (string | ... 4 more ... | null)[] | null)[] | null)[] | null; } | (string | ... 4 more...' is not assignable to type 'PersonalMcpTool'.
+  Type '{ inputSchema: { [x: string]: unknown; type: "object"; properties?: { [x: string]: string | number | boolean | { [x: string]: string | number | boolean | ... | (string | number | boolean | ... | (string | number | boolean | ... | (string | ... 4 more ... | null)[] | null)[] | null)[] | null; } | (string | ... 4 more...' is not assignable to type 'JsonObject'.
+    Property 'inputSchema' is incompatible with index signature.
+      Type '{ [x: string]: unknown; type: "object"; properties?: { [x: string]: string | number | boolean | { [x: string]: string | number | boolean | ... | (string | number | boolean | ... | (string | number | boolean | ... | (string | ... 4 more ... | null)[] | null)[] | null)[] | null; } | (string | ... 4 more ... | null)[] ...' is not assignable to type 'JsonValue'.
+        Type '{ [x: string]: unknown; type: "object"; properties?: { [x: string]: string | number | boolean | { [x: string]: string | number | boolean | ... | (string | number | boolean | ... | (string | number | boolean | ... | (string | ... 4 more ... | null)[] | null)[] | null)[] | null; } | (string | ... 4 more ... | null)[] ...' is missing the following properties from type 'JsonValue[]': length, pop, push, concat, and 35 more.

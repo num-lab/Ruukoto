@@ -1,0 +1,12 @@
+--- a/packages/agent/src/execution/approved-ops.ts
++++ b/packages/agent/src/execution/approved-ops.ts
+@@ -210,8 +210,8 @@
+             throw new ApprovedOpError("目标文件内容与批准时的原文版本不一致，批准失效，请重新申请");
+           }
+         }
++        fs.ftruncateSync(fd, 0);
+         writing = true;
+-        fs.ftruncateSync(fd, 0);
+         // 上面的原文校验把 fd 偏移推到末尾：写回必须显式定位到 0
+         let offset = 0;
+         while (offset < contentBuf.length) {

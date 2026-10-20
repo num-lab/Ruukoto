@@ -1,0 +1,23 @@
+$ node --import tsx --test --test-reporter=tap '--test-name-pattern=拥有者导航' test/personal-qq.test.ts
+TAP version 13
+# Subtest: 拥有者导航：qq 帮助与状态只走宿主，不接普通聊天批准
+ok 1 - 拥有者导航：qq 帮助与状态只走宿主，不接普通聊天批准
+  ---
+  duration_ms: 182.156415
+  type: 'test'
+  ...
+# Subtest: 拥有者导航：telegram 帮助与状态只走宿主，不接普通聊天批准
+ok 2 - 拥有者导航：telegram 帮助与状态只走宿主，不接普通聊天批准
+  ---
+  duration_ms: 106.570218
+  type: 'test'
+  ...
+1..2
+# tests 2
+# suites 0
+# pass 2
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 3650.722978

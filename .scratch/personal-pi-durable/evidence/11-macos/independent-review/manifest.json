@@ -1,0 +1,46 @@
+[
+  {
+    "name": "baseline",
+    "cwd": "/tmp/rk-review-controls-fv8reuo5",
+    "command": [
+      "npx",
+      "tsx",
+      "--test",
+      "--test-name-pattern=独立审查",
+      "test/personal-work-controls.test.ts"
+    ],
+    "exit": 0,
+    "expectedExit": 0
+  },
+  {
+    "name": "without-initial-check",
+    "cwd": "/tmp/rk-review-controls-fv8reuo5",
+    "command": [
+      "npx",
+      "tsx",
+      "--test",
+      "--test-name-pattern=独立审查：取消提交在 watch",
+      "test/personal-work-controls.test.ts"
+    ],
+    "exit": 1,
+    "expectedExit": 1
+  },
+  {
+    "name": "without-final-check",
+    "cwd": "/tmp/rk-review-controls-fv8reuo5",
+    "command": [
+      "npx",
+      "tsx",
+      "--test",
+      "--test-name-pattern=独立审查：正常回答",
+      "test/personal-work-controls.test.ts"
+    ],
+    "exit": 1,
+    "expectedExit": 1,
+    "log": "without-final-check.log.gz",
+    "sha256": "129f9bcf1de0468ca8aeb447aee34efead360b396fb59a31d56e27082472f4ed",
+    "bytes": 612,
+    "uncompressedSha256": "09da679453dea38bf979df4918b89af95910f5260ef271062a00c746ccc20018",
+    "uncompressedBytes": 1045
+  }
+]

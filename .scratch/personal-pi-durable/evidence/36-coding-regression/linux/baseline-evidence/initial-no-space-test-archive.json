@@ -1,0 +1,7 @@
+{
+  "time": 1792310183.6907725,
+  "roots": [
+    "/dev/shm/rk-coding36-linux.gaWtu6/baseline-tmp/ruukoto-it-workflow-code-batch-FuZDsY"
+  ],
+  "reason": "retain files left by unusable initial122 while preserving zero-byte output/exit and runner ENOSPC traceback"
+}

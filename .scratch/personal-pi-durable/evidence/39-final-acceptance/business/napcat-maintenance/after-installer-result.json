@@ -1,0 +1,13 @@
+{
+  "humanMaintenanceResult": "preflight stopped at loadNapCat.js with Errno 1 Operation not permitted",
+  "maintenanceScriptUpgradeReached": false,
+  "humanUsedNapCatInstaller": true,
+  "actualVersion": "4.18.38",
+  "versionQueries": 1,
+  "packetStatusQueries": 2,
+  "secondStatusQueryReason": "first returned unclassified 1400; persisted raw response privately and retained sanitized exact native loading error",
+  "packetStatusPassed": false,
+  "nativeLoadingError": "NativePacketClient 不可用，NapCat.Packet将不会加载！",
+  "newImageRequested": false,
+  "rawResponsesIncluded": false
+}

@@ -1,0 +1,19 @@
+[DEBUG-rk20] {"pending":[],"original":{"inspection":{"taskId":35,"conversationId":21,"taskKind":"pi.tool","unit":"ruukoto-service-test.service","machineId":"fake-machine","inspectionId":"inspect_ae11907f8ad279aba9062841","sources":[14],"generation":30,"work":{"ref":{"requestId":"crashed-child","taskId":27,"agentId":21},"permission":{"mode":"auto-review","version":1},"inputs":[29]},"admission":37,"stopped":true,"stopEvidence":45}}}
+✖ 子检查：后台 SIGKILL 遗留真实检查进程，恢复不换身份且原工作取消等退出 (806.235083ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1601.224375
+
+✖ failing tests:
+
+test at test/personal-services.test.ts:642:1
+✖ 子检查：后台 SIGKILL 遗留真实检查进程，恢复不换身份且原工作取消等退出 (806.235083ms)
+  TypeError: Cannot read properties of undefined (reading 'taskId')
+      at TestContext.<anonymous> (/private/tmp/rk20-baseline-ue489c1x/test/personal-services.test.ts:666:47)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3)

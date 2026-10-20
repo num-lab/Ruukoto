@@ -1,0 +1,24 @@
+✔ 文件写入开始后 fsync 失败保留真实改动并报告效果未知；版本拒绝仍已知未执行 (1.750125ms)
+✖ 受信文件写入：截短已开始后异常不能报告未执行 (1.39425ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 1
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1629.72425
+
+✖ failing tests:
+
+test at test/personal-tool-io.test.ts:215:1
+✖ 受信文件写入：截短已开始后异常不能报告未执行 (1.39425ms)
+  TypeError [ERR_INVALID_ARG_TYPE]: The "path" argument must be of type string. Received an instance of Object
+      at Module.join (node:path:1339:7)
+      at TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/personal-tool-io.test.ts:216:45)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1201:25)
+      at Test.start (node:internal/test_runner/test:1096:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:385:17) {
+    code: 'ERR_INVALID_ARG_TYPE'
+  }

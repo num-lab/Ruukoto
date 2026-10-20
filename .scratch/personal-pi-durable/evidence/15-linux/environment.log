@@ -1,0 +1,11 @@
+Linux 6.8.0-117-generic
+uid=1003(eitrous) gid=1003(eitrous) groups=1003(eitrous),27(sudo),100(users),987(ruukoto-backend),988(docker)
+v24.21.0
+11.19.0
+Python 3.12.3
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/vda2        40G   37G  661M  99% /
+tmpfs           1.9G   75M  1.8G   4% /dev/shm
+b64f22573ce200c99c2022a1c0cd7802b9a18490915eaef4e46831d4012ab209  package-lock.json
+4e2d4e98e3e5aa35f971489f256f13f97de1442692b9ebc4e146f742bd2a3f4c  apps/ruukoto/src/service-helper.ts
+ee3ca759f46a526c5c65ab66e29b831a125a5b84738b1e783b9ad0bbca0c92b7  test/service-helper-transport.test.ts

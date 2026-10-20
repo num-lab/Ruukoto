@@ -1,0 +1,6 @@
+command: ["/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/.bin/tsx", "/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-mcp-review-evidence-8gqec6dk/identity-probe.mts"]
+exit: 0
+stdout:
+typed resolver error: same instance/code preserved; init and later requests send zero after rejection
+
+stderr:

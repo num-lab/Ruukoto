@@ -1,0 +1,35 @@
+{
+  "action": "nc_get_packet_status",
+  "startedAt": "2026-10-18T16:24:19.495Z",
+  "deadlineMs": 12000,
+  "retries": 0,
+  "outboundActions": [
+    "nc_get_packet_status"
+  ],
+  "opened": true,
+  "matchedResponse": true,
+  "qqPacketOperationsRequested": 0,
+  "mediaHttpRequests": 0,
+  "getRkeyActions": 0,
+  "imSends": 0,
+  "modelRequests": 0,
+  "rawResponsePersisted": false,
+  "sentAt": "2026-10-18T16:24:19.511Z",
+  "status": "failed",
+  "retcode": 1400,
+  "responseKeys": [
+    "data",
+    "echo",
+    "message",
+    "retcode",
+    "status",
+    "stream",
+    "wording"
+  ],
+  "errorCategories": [],
+  "packetStatusInferred": null,
+  "unclassifiedFailure": true,
+  "result": "response",
+  "endedAt": "2026-10-18T16:24:19.513Z",
+  "elapsedMs": 18
+}

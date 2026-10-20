@@ -46,7 +46,7 @@ function main(): void {
           respond({ ok: false, code: "missing_db", error: "缺少应用数据库路径" });
           return;
         }
-        const store = new AppDataStore(dbPath, { readOnly: true });
+        const store = new AppDataStore(dbPath, { readOnly: true, ...(process.env.APP_DATA_INSTANCE_ID ? { expectedInstanceId: process.env.APP_DATA_INSTANCE_ID } : {}) });
         try {
           const result: QueryResponse = runQuery(store, request);
           respond(result);

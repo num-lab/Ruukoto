@@ -1,0 +1,41 @@
+$ TMPDIR=/tmp/rk35-linux-tmp.av2wbesz node --import tsx --test --test-reporter=tap test/personal-configuration-controls.test.ts
+TAP version 13
+# Subtest: 配置闭环：合法空闲调度监督允许启用和更换能力，保存后可重开且零模型
+ok 1 - 配置闭环：合法空闲调度监督允许启用和更换能力，保存后可重开且零模型
+  ---
+  duration_ms: 324.714972
+  type: 'test'
+  ...
+# Subtest: 配置闭环：未决输入拒绝同模型换端点和能力配置，文件原样保留；同配置仍可恢复
+ok 2 - 配置闭环：未决输入拒绝同模型换端点和能力配置，文件原样保留；同配置仍可恢复
+  ---
+  duration_ms: 349.128659
+  type: 'test'
+  ...
+# Subtest: 配置空闲：supervisor-id 不能冒充空闲监督任务
+ok 3 - 配置空闲：supervisor-id 不能冒充空闲监督任务
+  ---
+  duration_ms: 39.495822
+  type: 'test'
+  ...
+# Subtest: 配置空闲：unclosed-run 不能冒充空闲监督任务
+ok 4 - 配置空闲：unclosed-run 不能冒充空闲监督任务
+  ---
+  duration_ms: 37.966311
+  type: 'test'
+  ...
+# Subtest: 配置空闲：queued-input 不能冒充空闲监督任务
+ok 5 - 配置空闲：queued-input 不能冒充空闲监督任务
+  ---
+  duration_ms: 41.123691
+  type: 'test'
+  ...
+1..5
+# tests 5
+# suites 0
+# pass 5
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 4653.851433

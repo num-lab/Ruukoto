@@ -1,0 +1,48 @@
+{
+  "authorAndScopeFiles": 26,
+  "sourceManifestSHA256": "75abfe52405fab31be3c6e07885a4afa7ae9eb34f56bcd8b19f1ef6739d58144",
+  "linuxTestedFiles": 1394,
+  "linuxTextOnlyDifferences": [
+    ".agents/notes/implemented/architecture/2026-10-17-personal-subagent-service-operations.md",
+    ".agents/notes/proposed/architecture/2026-10-17-personal-pi-durable.md",
+    "docs/modules/products.md",
+    "docs/usage.md"
+  ],
+  "runtimeAndTestsMatch": true,
+  "linuxChecksumsVerified": 42,
+  "linuxCounts": {
+    "personal-12.log": {
+      "tests": 394,
+      "pass": 394,
+      "fail": 0,
+      "skipped": 0
+    },
+    "product-entry.log": {
+      "tests": 17,
+      "pass": 17,
+      "fail": 0,
+      "skipped": 0
+    },
+    "personal-cli-final.log": {
+      "tests": 26,
+      "pass": 26,
+      "fail": 0,
+      "skipped": 0
+    }
+  },
+  "linuxStepsExit0": 4,
+  "rawNormalizedLogRelationships": [
+    "new-tests-first.log",
+    "new-tests-sixth.log",
+    "new-tests-seventh.log"
+  ],
+  "modelSnapshotHashes": "verified",
+  "pty": "12 selections/12 authenticated requests; stub HTTP only",
+  "cleanup": "two roots absent in recorded proof; no own processes/new zombies; baseline 7 unchanged; no signals",
+  "remoteRootsIndependentlyChecked": {
+    "command": "ssh tx, Python Path.exists 只读检查；不执行测试或进程操作",
+    "/tmp/rk-linux-verify.CohhCfz7": false,
+    "/dev/shm/rk-linux-deps.H6A9ny4b": false
+  },
+  "currentHandoff": "21 ready-for-human / 总工单 in-progress；26实施文件未提交；真实模型/平台/systemd/体验和完整迁移待验。工单已准确列Linux剩余4篇文本差异，无剩余表述问题。"
+}

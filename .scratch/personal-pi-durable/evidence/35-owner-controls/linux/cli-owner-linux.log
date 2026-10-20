@@ -1,0 +1,35 @@
+$ node --import tsx --test --test-reporter=tap '--test-name-pattern=本机权限|本机长期授权|分组向导|服务核实 HTTP：Linux sudo' test/personal-cli.test.ts
+TAP version 13
+# Subtest: personal 服务配置：分组向导返回不写，非 Linux 保存前拒绝
+ok 1 - personal 服务配置：分组向导返回不写，非 Linux 保存前拒绝
+  ---
+  duration_ms: 7.490932
+  type: 'test'
+  ...
+# Subtest: 服务核实 HTTP：Linux sudo 接线、原状态刷新及慢停止不阻塞独立聊天
+ok 2 - 服务核实 HTTP：Linux sudo 接线、原状态刷新及慢停止不阻塞独立聊天
+  ---
+  duration_ms: 1111.143568
+  type: 'test'
+  ...
+# Subtest: 本机权限：认证API和引导菜单切模式，QQ独立且已接纳输入不扩权
+ok 3 - 本机权限：认证API和引导菜单切模式，QQ独立且已接纳输入不扩权
+  ---
+  duration_ms: 70.640424
+  type: 'test'
+  ...
+# Subtest: 本机长期授权向导：选择原范围撤销，丢答后只刷新原版本
+ok 4 - 本机长期授权向导：选择原范围撤销，丢答后只刷新原版本
+  ---
+  duration_ms: 5.722083
+  type: 'test'
+  ...
+1..4
+# tests 4
+# suites 0
+# pass 4
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 4517.342945

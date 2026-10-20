@@ -1,0 +1,727 @@
+{
+  "head": "12b1a66cfa661f2a8bddaa9405283ab9f22cb20c",
+  "time": "2026-10-18T11:46:23.646049+00:00",
+  "scope": "Final changed/untracked source, docs and issues, excluding this evidence directory; deleted paths recorded explicitly.",
+  "files": [
+    {
+      "path": ".agents/notes/implemented/architecture/2026-09-19-preserve-session-history.md",
+      "state": "present",
+      "sha256": "4d0e04ad2727a2e67f66bfe878cfa67d19cb0f8d39212958ac831fceed06df75"
+    },
+    {
+      "path": ".agents/notes/implemented/architecture/2026-10-02-two-agent-products.md",
+      "state": "present",
+      "sha256": "95a37b8e110b33acd4aeba9fe92bf218bb6f936371638f78b9be812abd30bc10"
+    },
+    {
+      "path": ".agents/notes/implemented/architecture/2026-10-05-personal-instance-import.md",
+      "state": "present",
+      "sha256": "f6bdc019cb3b15a6578dce1e2e1bd8bef5b330691cf47878b8afba2bdf78b1d3"
+    },
+    {
+      "path": ".agents/notes/implemented/architecture/2026-10-05-subagent-restart-recovery.md",
+      "state": "present",
+      "sha256": "0beb2b082a7ddfbdd8ca4eacfbce97d53accb1030b3b0d006cfbff75bacc2794"
+    },
+    {
+      "path": ".agents/notes/implemented/architecture/2026-10-10-native-execution-sandbox.md",
+      "state": "present",
+      "sha256": "ed0c5578d7f0933bed974de080b1c905573ddaef047b05890fced0d8b6b9ffbf"
+    },
+    {
+      "path": ".agents/notes/implemented/architecture/2026-10-11-in-repo-workspace-packages.md",
+      "state": "present",
+      "sha256": "8c84708de6e8c71cd62e3b6be0df6bf8fa80cb41dfd7063143496dac4bb3433e"
+    },
+    {
+      "path": ".agents/notes/implemented/architecture/2026-10-12-personal-native-sandbox.md",
+      "state": "present",
+      "sha256": "4ff232d4be2bec7fc383fbdee6cba86da5532b80bea2e868c7ca81b44ad9b485"
+    },
+    {
+      "path": ".agents/notes/implemented/architecture/2026-10-17-personal-durable-foundation.md",
+      "state": "present",
+      "sha256": "ab9c34a17eee36ff4aeb09325377ecedb90b0b6ee48d0bfefc1f721eb8ac7a50"
+    },
+    {
+      "path": ".agents/notes/implemented/architecture/2026-10-17-personal-durable-inspection.md",
+      "state": "present",
+      "sha256": "96195ea6c6de11c5c1b3c3447ab1826c3d41923127c3b182b1bbcd97970e66ea"
+    },
+    {
+      "path": ".agents/notes/implemented/architecture/2026-10-17-personal-local-management.md",
+      "state": "present",
+      "sha256": "0a96a861109875724910fafe4a5204eb91ce518234bb80bac8c1ee75789105ba"
+    },
+    {
+      "path": ".agents/notes/implemented/feature/2026-09-24-github-event-review.md",
+      "state": "present",
+      "sha256": "a6b5efc00109471613b3948ec5e855d4e3e5274fab2f4eb60afb275d4cfe037e"
+    },
+    {
+      "path": ".agents/notes/implemented/feature/2026-10-05-ruukoto-keeps-dev-sessions.md",
+      "state": "present",
+      "sha256": "8f2d3f2681676ba058322760c304c212c7f2c700dce568a41272eb3422ffad7e"
+    },
+    {
+      "path": ".agents/notes/implemented/feature/2026-10-12-agent-workflows.md",
+      "state": "present",
+      "sha256": "3fabfbdc7f8ced11050d1bcca12ba35a69e2f6134ef8d3c65af63a158d613ab1"
+    },
+    {
+      "path": ".agents/notes/implemented/process/2026-10-09-dev-launchers.md",
+      "state": "present",
+      "sha256": "2c1bad7f92f692f73f88e02e927429e9e5b6dc1d7dcc17a3256ff16b6b9b0f48"
+    },
+    {
+      "path": ".agents/notes/implemented/simplification/2026-10-18-personal-product-entry.md",
+      "state": "present",
+      "sha256": "34b970f190ce59268ad23d12c998c93b670a873878d4ea843dbee06d8efecc70"
+    },
+    {
+      "path": ".agents/notes/proposed/architecture/2026-10-15-desktop-client.md",
+      "state": "present",
+      "sha256": "813c5f3ab56d9a153c399db6788f2c298155722227796b9026f91cf8a778af12"
+    },
+    {
+      "path": ".agents/notes/proposed/architecture/2026-10-17-personal-pi-durable.md",
+      "state": "present",
+      "sha256": "4ab1ff9db6130a253526397894a24b7e97da15604f2248bbde7a90b77abc6420"
+    },
+    {
+      "path": ".agents/skills/pre-push-checks/SKILL.md",
+      "state": "present",
+      "sha256": "45e5d4c2d1586a5a590dbf2ec934712eed68c020ff6f6c366ee0c4c3145498ee"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/issues/36-coding-regression.md",
+      "state": "present",
+      "sha256": "508d0f289ab357ddf71ff550d0901c163dcfcc0c2d21a6bc037ba3a145cfb7ab"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/issues/38-product-entry-cleanup.md",
+      "state": "present",
+      "sha256": "4d2e535a3e8e1ee949cfa101dd2f4be685ea289b07ba63b9bc315200dd724a82"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/remaining-work.md",
+      "state": "present",
+      "sha256": "f8f8272cbb12db277d35f2f351db0d9f4da5b6092cdf37dcd115f7ef8afeff97"
+    },
+    {
+      "path": "CONTEXT.md",
+      "state": "present",
+      "sha256": "7fa9b2586ad3c7aa8240a35fbbd281b4d6d5ea98b713dc4fa577ef72800b0137"
+    },
+    {
+      "path": "README.md",
+      "state": "present",
+      "sha256": "69fc78ec3142b6649524cbb5e1ee3f5273924630d06e7b9098de33a4eaba3068"
+    },
+    {
+      "path": "apps/ruukoto-code/src/legacy-import.ts",
+      "state": "present",
+      "sha256": "a173ea4ca1e012e075b1e1d02f1fb94ad8f76f4e214b5a62e314ee8843dd92d6"
+    },
+    {
+      "path": "apps/ruukoto/bin/ruukoto.mjs",
+      "state": "present",
+      "sha256": "396291a9b841718618defa51e3bb12baa0638c0f2b481a8e783dbed99e895f19"
+    },
+    {
+      "path": "apps/ruukoto/package.json",
+      "state": "present",
+      "sha256": "0774671fda0e6a7945fa9183328dbb51a0bfb60e48b25ddb5ef0133fd2c08477"
+    },
+    {
+      "path": "apps/ruukoto/src/dev.ts",
+      "state": "present",
+      "sha256": "d2c9c01147db399b817a766e10147a4ed304930a7d707e2bde7b5be00bae8d4b"
+    },
+    {
+      "path": "apps/ruukoto/src/main.ts",
+      "state": "present",
+      "sha256": "8246cd0cf81f08d219383d717bc82007e02d8a8dbca0ec677972d82671fcc703"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-cli.ts",
+      "state": "present",
+      "sha256": "b2beb3ac4271b24842f4d2f8adfd23d728ae436c22d544896f82337311b72d92"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-config.ts",
+      "state": "present",
+      "sha256": "38ac8a87444f712c864744197737c98830a18a4b32647c6a1a2e63e00f74f15f"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-control.ts",
+      "state": "present",
+      "sha256": "5b1683381c244de6fdce6d388f7a68375691dbfcc34030dcf594a07bff41e047"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-entry.ts",
+      "state": "present",
+      "sha256": "7591e2aa4f479723294a89c5cf1c7f645454dc2b3dcfe2a0e7e0bdbdf8b38a81"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-profile.ts",
+      "state": "present",
+      "sha256": "ab54d3f537ef92ed1903df0c99054c16b7797a770d3bccbff04e6b47a194ab86"
+    },
+    {
+      "path": "apps/ruukoto/src/product.ts",
+      "state": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "apps/ruukoto/src/scheduler-tools.ts",
+      "state": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "apps/ruukoto/src/service-tools.ts",
+      "state": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "deploy/native/README.md",
+      "state": "present",
+      "sha256": "70ff6f93b5ea7576e078e5a1ab5ffdcaed21f6228d7785415a071b6c3fdac6d0"
+    },
+    {
+      "path": "deploy/systemd/README.md",
+      "state": "present",
+      "sha256": "b6ef6627086f39cea105828c08ed96e030b6bf70fe08061e013082b1c2a31686"
+    },
+    {
+      "path": "deploy/systemd/ruukoto-backend.service",
+      "state": "present",
+      "sha256": "97d0055a4a3e7d006421a92fbf8ae1b4ac17e77d46b8ac3844ffb69481144ff8"
+    },
+    {
+      "path": "docs/architecture.md",
+      "state": "present",
+      "sha256": "b22dff498b87779b9044d694c1cc024a75b3cc79c8b5db30118e8424204b22fe"
+    },
+    {
+      "path": "docs/development.md",
+      "state": "present",
+      "sha256": "8659933de2b91ac79222ad7b26ecab40e4849b7c69552cc8c5d031d632d46012"
+    },
+    {
+      "path": "docs/modules/agent-context.md",
+      "state": "present",
+      "sha256": "c3888c3c8c3af3accd80771a7039ef261a3fcb9466a890ec2398f79a665540fe"
+    },
+    {
+      "path": "docs/modules/agent-tools.md",
+      "state": "present",
+      "sha256": "857eedace6f75541abc219a3a5d8ca0a87b9a7e66389573599f8b1ae1dc53edc"
+    },
+    {
+      "path": "docs/modules/channels.md",
+      "state": "present",
+      "sha256": "3ce5dae35d9fdd418c3a426b4206eff8d6e54215c1001e3e665254331f515c3e"
+    },
+    {
+      "path": "docs/modules/control.md",
+      "state": "present",
+      "sha256": "be8a1fcfa9a9ad19ed7e2c36cb7efbbbe4aed8ad909833c684195041b5a1933a"
+    },
+    {
+      "path": "docs/modules/core.md",
+      "state": "present",
+      "sha256": "d2fa6aa0d58c2a18ab63321f950f6abac19bc77500120673cea009c1d0668a0c"
+    },
+    {
+      "path": "docs/modules/deploy.md",
+      "state": "present",
+      "sha256": "fcb1f328a6c32697db2368e74d9ccab892099e4146123b79d024207275b9db40"
+    },
+    {
+      "path": "docs/modules/desktop.md",
+      "state": "present",
+      "sha256": "f5ab7476bfabb9320a7cf3238752c2cf1f61dfbe7c135158b345613e35f59109"
+    },
+    {
+      "path": "docs/modules/execution.md",
+      "state": "present",
+      "sha256": "24ce1e89d9b15636ab223356f46c310eda218898758d2dacb4d5f8db3a45cdb8"
+    },
+    {
+      "path": "docs/modules/personal-durable.md",
+      "state": "present",
+      "sha256": "3b1363d270a1d7ad61d29590dba9a910160bf6fefcc32937628c8dfd16bb1306"
+    },
+    {
+      "path": "docs/modules/products.md",
+      "state": "present",
+      "sha256": "095a023e5abb48fd3b224b58cfdf1ad1b2fadbff6cfdcf5e1297f70a922d6c1e"
+    },
+    {
+      "path": "docs/modules/runtime.md",
+      "state": "present",
+      "sha256": "39797a6fc065759bfb4dd3e12a806a674d4c3e68d83cac0235aef38f5ffb27cd"
+    },
+    {
+      "path": "docs/modules/scheduler.md",
+      "state": "present",
+      "sha256": "bcfaf0bde54aaaa2857a32aa9bbbe00424519ffa833c2794b601a1589e6a9caa"
+    },
+    {
+      "path": "docs/modules/tui.md",
+      "state": "present",
+      "sha256": "19c21cefd3d0cbcaa54791207111f05c2d07e4363dd2b50abcbfe36809af6455"
+    },
+    {
+      "path": "docs/modules/view.md",
+      "state": "present",
+      "sha256": "96ef603773df6dfa26c19d86c1694daee9f519692c8985bffb6bbc47edd159ac"
+    },
+    {
+      "path": "docs/modules/workflows.md",
+      "state": "present",
+      "sha256": "7d7e130fc6c40bbe051d6f8a93b83ff0484814f2d3d0c611066da21944c6aada"
+    },
+    {
+      "path": "docs/release-acceptance.md",
+      "state": "present",
+      "sha256": "d6f77310b9294095d14196579879a3900f869a3656ad544cbfbbd2277c99d15a"
+    },
+    {
+      "path": "docs/usage.md",
+      "state": "present",
+      "sha256": "bba5983113cd57a2eca3d88388ff92754c47696dfeffaf29592e7382e7be300a"
+    },
+    {
+      "path": "package-lock.json",
+      "state": "present",
+      "sha256": "446035b166165717ce1b020e863152967296abeb0257f679427223e928ac159c"
+    },
+    {
+      "path": "package.json",
+      "state": "present",
+      "sha256": "3822d716b33d556ed38057dc68b168a8dd595d52cdd03283fc632eb2e52dfb6f"
+    },
+    {
+      "path": "packages/agent/src/driver.ts",
+      "state": "present",
+      "sha256": "ae77b5b9313346ecf7249cc93d369eaa94595c0ad5b56fde5acc7a66eebcd90f"
+    },
+    {
+      "path": "packages/agent/src/session-factory.ts",
+      "state": "present",
+      "sha256": "47c9f0fb913202a94c848f4e9512ddf2f15628434eec2ac96483c34711021ab7"
+    },
+    {
+      "path": "packages/channels/src/personal-import.ts",
+      "state": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "packages/core/src/product.ts",
+      "state": "present",
+      "sha256": "9914c47ed4db854cd31a084c085ea9df9d586783954965bf1bd41d62922b3b9f"
+    },
+    {
+      "path": "scripts/start.ts",
+      "state": "present",
+      "sha256": "b00eff9c97d9ebb9ad5ddbd70b0d6d3651541f76b92aa9d57bc1bc64002c1b5a"
+    },
+    {
+      "path": "test/01-concurrency.test.ts",
+      "state": "present",
+      "sha256": "9c466c60a62b8172cf48f23699a60450335736105725c7affbd46236e9b9cae2"
+    },
+    {
+      "path": "test/04-crash-recovery.test.ts",
+      "state": "present",
+      "sha256": "36a29204657e35bd2e62147e74bc342a2e1060e416faa29c5e60c0c5f33e0b15"
+    },
+    {
+      "path": "test/06-connectivity.test.ts",
+      "state": "present",
+      "sha256": "ccdcdc9d411c52888622441d08eff12b357a358196dd82f2fabca1864fa207bb"
+    },
+    {
+      "path": "test/08-approvals.test.ts",
+      "state": "present",
+      "sha256": "a99637bfe6fcbf208c81a0ff761fa78863b5aa74950c80b29e27b4df47c6ee3f"
+    },
+    {
+      "path": "test/09-artifacts.test.ts",
+      "state": "present",
+      "sha256": "2e3511fd80b2d4833ac802e3f4f73fb257dd6d197eb3a47a460e638a51e7e976"
+    },
+    {
+      "path": "test/10-access-modes.test.ts",
+      "state": "present",
+      "sha256": "95608bdf0877fe503f4ba56ce7170fba8213ef6dc8e553a615d103010b2e4f4d"
+    },
+    {
+      "path": "test/102-branch-session.test.ts",
+      "state": "present",
+      "sha256": "658676f19d6a71d45df0f9bbe481d307010965a5ef60d105db21346b0503ed39"
+    },
+    {
+      "path": "test/106-workflow-host.test.ts",
+      "state": "present",
+      "sha256": "141203d320714cf816d83fcf6348eacfaee814b71a791ad6dde79865547f06cf"
+    },
+    {
+      "path": "test/108-workflow-import.test.ts",
+      "state": "present",
+      "sha256": "d85a384cea455b3bfe1bc2a1362304618c1f12b0fb424412837e8bf1841b73e9"
+    },
+    {
+      "path": "test/109-workflow-cold-recovery.test.ts",
+      "state": "present",
+      "sha256": "2623cc94f173cfcbfb43a4d0a4fb642a1d3427401dcca901e6afbc88f851db70"
+    },
+    {
+      "path": "test/113-workflow-source-capabilities.test.ts",
+      "state": "present",
+      "sha256": "ba8b0a861546b9d8a6ac51ce5f4c2045e2521b034f7249e5c06a1314a6837734"
+    },
+    {
+      "path": "test/115-workflow-final-delivery.test.ts",
+      "state": "present",
+      "sha256": "999f0fc042c6624a514506d095a9cb55ee6d31c8a692e49eb601e3dd054c96a5"
+    },
+    {
+      "path": "test/12-reconnect-pending.test.ts",
+      "state": "present",
+      "sha256": "d0c70a28def252e926d3686f87c29b196a2a1e3f9145db8e34f22963bc5625f3"
+    },
+    {
+      "path": "test/121-workflow-personal-acceptance.test.ts",
+      "state": "present",
+      "sha256": "5a03ac3428f22b85031b1d333888d6b8882c6fef086a488866381c1a11c12a47"
+    },
+    {
+      "path": "test/123-workflow-model-acceptance.test.ts",
+      "state": "present",
+      "sha256": "2ba8c089fe440657f2615f518ed8aa24f465963c5e3ece5490af00d17f579e90"
+    },
+    {
+      "path": "test/125-agent-wait-import.test.ts",
+      "state": "present",
+      "sha256": "a46166747992c1670ed44d9e35d52482d439dfe2dca2ba72cb17aeb013bd0db7"
+    },
+    {
+      "path": "test/125-agent-wait-model.test.ts",
+      "state": "present",
+      "sha256": "51e5e78bc905c2e7719a09d53c78d2294f90e869f4f8cdc8801330c3e955bced"
+    },
+    {
+      "path": "test/125-agent-wait-resource.test.ts",
+      "state": "present",
+      "sha256": "d4cbf4fbde1a3a475f217c1c49debd0ddfc7d49ee7e159c4aef02140be62fafb"
+    },
+    {
+      "path": "test/15-tui-pty.test.ts",
+      "state": "present",
+      "sha256": "ae688ea6e4c32b3d247f11cecdcc5486e9b19d17aa3308f7fdcd6f388634eeee"
+    },
+    {
+      "path": "test/17-github-retirement.test.ts",
+      "state": "present",
+      "sha256": "87437a0964975bd201a26e8b82fad0bccf3fcc64959eb4363e5d69a47419aaa3"
+    },
+    {
+      "path": "test/18-model-selection.test.ts",
+      "state": "present",
+      "sha256": "0f6f7ef6379c4407f82a9c53e6fffd7dfa6f7f6f91f2377de66f4b0f84189771"
+    },
+    {
+      "path": "test/20-prompt-inspector.test.ts",
+      "state": "present",
+      "sha256": "c5d05d84d3a417e81b4e127e120e5370a23dfa5b2990f03b6e28cebb0c5dbb66"
+    },
+    {
+      "path": "test/22-auto-review.test.ts",
+      "state": "present",
+      "sha256": "decc5fd9d47c450c263f270b41c114322419d3f18534fa529174960c5f03da6b"
+    },
+    {
+      "path": "test/27-orchestration.test.ts",
+      "state": "present",
+      "sha256": "f25d2ba6b32ebb53ef13782679cb3033a550371581b34d8dc0ff14ba65dab74e"
+    },
+    {
+      "path": "test/28-main-data.test.ts",
+      "state": "present",
+      "sha256": "546860dc5ba5785d786f7880af157e7090b305478d08a327fd4526314cb1bae3"
+    },
+    {
+      "path": "test/29-cli-entry.test.ts",
+      "state": "present",
+      "sha256": "c33353f932cb6f78531a6407fc4281a6d4fa4b954a08fc4cc20c3e16aa92d585"
+    },
+    {
+      "path": "test/31-model-config.test.ts",
+      "state": "present",
+      "sha256": "64e78825244cc8429ebcdddea3c683bb2ccb9a9533ee00d0fc8e935b8a389ba1"
+    },
+    {
+      "path": "test/32-dev.test.ts",
+      "state": "present",
+      "sha256": "3820d586d358bf087ce77fddb2b9013349bd23548677a6fbfa88861aed7ad729"
+    },
+    {
+      "path": "test/34-event-stream-backend.test.ts",
+      "state": "present",
+      "sha256": "dd9b80df7a329e4bdd8374651d37a4a8b5fd7fd1cb7787b00b8ea044ede0a0e4"
+    },
+    {
+      "path": "test/37-scheduler-outbox.test.ts",
+      "state": "present",
+      "sha256": "331091a9cade88d951a469ebaac70fe6c6bc4a06bb61c5f7dc6e2001cd3230f1"
+    },
+    {
+      "path": "test/38-desktop-personal.test.ts",
+      "state": "present",
+      "sha256": "27ed8b68b431f88dcff8b102e6ee28eb432d568ab73764bcf7ab9ed1793fa72f"
+    },
+    {
+      "path": "test/38-telegram-owner.test.ts",
+      "state": "present",
+      "sha256": "95bee20a2194a9ac873382e5e58caadc17b0c55044a74e04a8c07f308a465199"
+    },
+    {
+      "path": "test/40-qq-private.test.ts",
+      "state": "present",
+      "sha256": "ce78dc245b8ba1fcbe34807547383165161478c43d04e2065db98121f6b507fe"
+    },
+    {
+      "path": "test/41-qq-private-scope.test.ts",
+      "state": "present",
+      "sha256": "2355b2ef60c952262565db974c85f8c76fcec762059994308b6548e944ae833c"
+    },
+    {
+      "path": "test/45-github-events.test.ts",
+      "state": "present",
+      "sha256": "18b5a51ff25799f62796495cf55ae7a0117c367b38dc6537be8811b16da4da9d"
+    },
+    {
+      "path": "test/46-github-recovery.test.ts",
+      "state": "present",
+      "sha256": "4d639f1267098383875f871154c5ef51c54b59141f5864dfe2be3e8976e61165"
+    },
+    {
+      "path": "test/49-chat-result-flow.test.ts",
+      "state": "present",
+      "sha256": "ea0b5e5603e402190369f6ed7b4149b81f339d251c01f5f2b24ff9a9c4737447"
+    },
+    {
+      "path": "test/51-generic-scheduler.test.ts",
+      "state": "present",
+      "sha256": "265617303b78c9c917bb4202e99f7ed2a91a6dea5f06717caed3aaa805d4f58e"
+    },
+    {
+      "path": "test/59-system-prompt.test.ts",
+      "state": "present",
+      "sha256": "4e8e17adc2f19858986259a9b13c275c88d6061350f1a2e983d6ed7f9d11d319"
+    },
+    {
+      "path": "test/61-context-compaction.test.ts",
+      "state": "present",
+      "sha256": "e5c3ee148ea548e9994d7d1ad9b2053457128bae29298255e5df037d6c5903b3"
+    },
+    {
+      "path": "test/64-tool-op-ledger.test.ts",
+      "state": "present",
+      "sha256": "dd66e0f13f5862313f71924f8905117cbdc55a29c3f349e7aba487cc23e0c619"
+    },
+    {
+      "path": "test/66-control-seam.test.ts",
+      "state": "present",
+      "sha256": "5d6e65f14f56f6a79c6fc92937fa76f2036b2b42e0f2d04ee7acd25c28c84f7b"
+    },
+    {
+      "path": "test/71-product-entry.test.ts",
+      "state": "present",
+      "sha256": "bc9336b8ea963255e13d94d009404f68f2da61cbe5a426283deb19299fcac93a"
+    },
+    {
+      "path": "test/73-desktop-execution.test.ts",
+      "state": "present",
+      "sha256": "b8e28d717439c1c7eda3ed20c27d0d7edd1552b32f72def7add2c4d14c664772"
+    },
+    {
+      "path": "test/77-im-approvals.test.ts",
+      "state": "present",
+      "sha256": "ba21ae251bacb138709113ff80d731be311a9f843c82110520b03265a1536df4"
+    },
+    {
+      "path": "test/78-linux-service-management.test.ts",
+      "state": "present",
+      "sha256": "2515970d1976e4fc7b9ede5ec5fa587adb952047c8d38949e59e713cf1fa67b6"
+    },
+    {
+      "path": "test/79-standing-permissions.test.ts",
+      "state": "present",
+      "sha256": "ef05691022d48ce63de784da90ecaa3f69b73290d71c6595bcdd40b4343dab0c"
+    },
+    {
+      "path": "test/80-subagent-delegation.test.ts",
+      "state": "present",
+      "sha256": "ac0220843d040e3dda0de68c92fc2da8145e6d8f4fb46f76be4d194ff0192747"
+    },
+    {
+      "path": "test/81-subagent-reuse-close.test.ts",
+      "state": "present",
+      "sha256": "59d991d41865887d176bd40f7794aec54b2a942719b4bb2b77085edef283eb79"
+    },
+    {
+      "path": "test/84-im-final-delivery.test.ts",
+      "state": "present",
+      "sha256": "b77f4dcda8ebb2c715b78e087ba2c706df99b8651ba6286bd3385113fb6ba890"
+    },
+    {
+      "path": "test/85-legacy-instance-import.test.ts",
+      "state": "present",
+      "sha256": "e031d838b9aa4fc4c8fc644ad91be16688e64620d3202d62e3fee4d918efc0e2"
+    },
+    {
+      "path": "test/85-retire-core-group-chat.test.ts",
+      "state": "present",
+      "sha256": "bf9ef83cb43c259b6f75ebcc371c915594b2aa0065001ea98f2a837440f98797"
+    },
+    {
+      "path": "test/86-personal-instance-import.test.ts",
+      "state": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "test/86-subagent-recovery.test.ts",
+      "state": "present",
+      "sha256": "c12fa6face716bf7083d3cfad50a7759449bb0e411a48df1f73967e5d7e630b4"
+    },
+    {
+      "path": "test/87-retire-coding-role.test.ts",
+      "state": "present",
+      "sha256": "1c4f1344354eee47c13e74c9b065dc94c3529138cdb9db6cc641d7c7042f2a84"
+    },
+    {
+      "path": "test/95-media-adapters.test.ts",
+      "state": "present",
+      "sha256": "e3335fd91cf004a1caae270043fa595a9377b8a498ce7828265cc4190ce9f059"
+    },
+    {
+      "path": "test/97-media-recovery.test.ts",
+      "state": "present",
+      "sha256": "708aeea927f4c80ba3e8dbc8af5d4129cf4b03a342467ff57378c06dda50f4b8"
+    },
+    {
+      "path": "test/98-media-model-pinning.test.ts",
+      "state": "present",
+      "sha256": "dd3fec1a82d7decd8c510c7badc22ccd571811c229ac33b1d8761ea112b31799"
+    },
+    {
+      "path": "test/99-verification-entrypoints.test.ts",
+      "state": "present",
+      "sha256": "e67347420cc7797e39665fbf624190d11d12827a93d4a5420f110df8220628ae"
+    },
+    {
+      "path": "test/99-workspace-boundaries.test.ts",
+      "state": "present",
+      "sha256": "bbb0a446225ee915e7dbd7e2542e79400c6eefb3b000cdaffc88d2d844fbfdc5"
+    },
+    {
+      "path": "test/browser-model-acceptance.test.ts",
+      "state": "present",
+      "sha256": "aa9500fc8ea567f4dd00c7783ab67f399e9e368cebf1526530efc823560fa6fd"
+    },
+    {
+      "path": "test/browser-tools.test.ts",
+      "state": "present",
+      "sha256": "e750e35d4b78037efd4ca7762a09a5a8c6c548cced99efb0367a8f45eae31d27"
+    },
+    {
+      "path": "test/helpers/backend.ts",
+      "state": "present",
+      "sha256": "560aa1a0d42ab5051a0de81ee2170eadb0f46c61e0d5f619089d82cb82d1a2f1"
+    },
+    {
+      "path": "test/helpers/legacy-product.ts",
+      "state": "present",
+      "sha256": "9764bb053cd8dc3b5ed8faa41c346b54255cf134023a0e5486a1b26586ffd2f8"
+    },
+    {
+      "path": "test/helpers/scheduler-child.ts",
+      "state": "present",
+      "sha256": "64f6b0f1e3e94f1bf4995b3a5dde681af02b1a72081cda322c03cdf380145f4c"
+    },
+    {
+      "path": "test/helpers/testkit.ts",
+      "state": "present",
+      "sha256": "27886ad2a361971d55a940f84e2909cd1310cde327425e2a576a38b62642a583"
+    },
+    {
+      "path": "test/personal-entry.test.ts",
+      "state": "present",
+      "sha256": "1f52c0e93b0c8e4ed05e5fcfc7ec8875bf494abe305f5972d34e5f0cf6780ec0"
+    },
+    {
+      "path": "test/subagent-role-driver.test.ts",
+      "state": "present",
+      "sha256": "fb6557ac48ce1f4ffa7cacc8180394c790dd1f6068805e01f4237a647d8c571a"
+    },
+    {
+      "path": "test/subagent-source-capabilities.test.ts",
+      "state": "present",
+      "sha256": "dbe1c7df16cbd5defc42617cdb63ad413d122151110b938e86a92be8a34cb73b"
+    },
+    {
+      "path": "test/subagent-workspace-snapshot.test.ts",
+      "state": "present",
+      "sha256": "d9716fae169e0c7086f9554073da92e6a140f156a8d060b874f3b94b2fcc7f76"
+    },
+    {
+      "path": "test/workflow-role-integration.test.ts",
+      "state": "present",
+      "sha256": "69d702fa91ac563df28d93d553273932c5f9622e039d4c4906050bc0efb64396"
+    },
+    {
+      "path": "verification/smoke/README.md",
+      "state": "present",
+      "sha256": "82259ddec93aef67ce6aab7f81d6d2556da0d3e2b6443367cc433808dab04a42"
+    },
+    {
+      "path": "verification/smoke/smoke-04-desktop-execution.mts",
+      "state": "present",
+      "sha256": "ebc0d79cbe0d2514ba099a2d9f4134e04572476abaefb8c99c19178169363dda"
+    },
+    {
+      "path": "verification/smoke/smoke-13-subagent-messaging.mts",
+      "state": "present",
+      "sha256": "9ae3781108229ee86243be449b877c1c727bd439e127d6304ce8ece7ab4b50d0"
+    },
+    {
+      "path": "verification/smoke/smoke-15-recover-subagents.mts",
+      "state": "present",
+      "sha256": "bd9f62e0799af375f4d67b4ddcf19fde1e75555faa32f23592477bccf3164ca8"
+    },
+    {
+      "path": "verification/smoke/smoke-18-im-final-delivery.mts",
+      "state": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "verification/smoke/smoke-24-release-acceptance.mts",
+      "state": "present",
+      "sha256": "f84e10b8da422f0033c41299482d4fffec12d2d17c034122d6e0b657f61ee5dc"
+    },
+    {
+      "path": "verification/smoke/smoke-27-native-service.mts",
+      "state": "deleted",
+      "sha256": null
+    },
+    {
+      "path": "verification/smoke/smoke-28-personal-native.mts",
+      "state": "deleted",
+      "sha256": null
+    }
+  ]
+}

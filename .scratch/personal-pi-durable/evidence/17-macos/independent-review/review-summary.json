@@ -1,0 +1,77 @@
+{
+  "reviewer": "inspection_audit",
+  "conclusion": "当前实现无未解决阻断；仅对下列内容快照及所列检查负责",
+  "sourceSha256": {
+    "apps/ruukoto/src/personal-service-inspection.ts": "35481ac2272ae83afdd31f31311a6e3c703ca6a02aad6e0c22f9443583086ba2",
+    "apps/ruukoto/src/personal-services.ts": "fc8432f43104e43174ba35cc228a74d9333577229477eb52c00c51ea41a1466e",
+    "apps/ruukoto/src/personal-service-operations.ts": "902c34dedac408aa1ff6317263a21d12d6a5c0a3e3a415672285d11d94038b15",
+    "apps/ruukoto/src/personal-harness.ts": "bc91e7cbf886dee544bc8839ba4d1069d5bf6a71af586695d234a40d8ed18e04",
+    "apps/ruukoto/src/personal-service-config.ts": "c497af39e09f5b3e72736ac1fdb128113bc7251211e286916d2ca1a1622475c5",
+    "apps/ruukoto/src/service-helper.ts": "84eafdb5a127655168a9b5404d0a8bc85d5de4f30bd9bb73c8528e1c5d681c1e",
+    "test/personal-services.test.ts": "4fd665deb3ade5977c5823c01af967a464a4351d972ccede6098827d4a10c2dc",
+    "test/personal-service-operations.test.ts": "b5932b211dab8ebf7836f9259d5a53997bc20aed4cea2da348e73ad90619bee0",
+    "test/personal-cli.test.ts": "d43d63240ef00d81d1242ff881b7024263b19b2eb419c40260a702d305a4c598",
+    "test/helpers/fake-service-helper.mjs": "b263be43c0cc0f5e8943dbd3b0f51f04294eb360073eb247405dbaf46a05d349",
+    "apps/ruukoto/src/personal-report.ts": "55fc4b29105ae8ecccf14315d334dcdc39df0baf916d03addb2a5f8d58fabc75",
+    "test/personal-reports.test.ts": "024c12232a8fd7aeecc1df2b3691ad8ec7f9b4d74d044b6e62dd19eb6490217e"
+  },
+  "tests": {
+    "command": "npx tsx --test test/personal-services.test.ts test/personal-service-operations.test.ts test/personal-cli.test.ts",
+    "passed": 104,
+    "failed": 0,
+    "skipped": 0,
+    "log": "final-three-files.log"
+  },
+  "probes": {
+    "lateI1Proof": "通过；真实子进程，内存 Harness 替身",
+    "withoutAttemptComparison": "隔离模块撤去 sameAttempt 比较后按预期断言失败",
+    "queuedRestartBeforeFix": "真实 SQLite/模型传输/子进程替身，观察 pending=1/restarts=1；当次源码未另存完整快照",
+    "queuedRestartAfterFix": "同探针通过，pending=1/restarts=0",
+    "admissionBeforeSpawn": "实际 SQLite 接纳提交后、提交应答前 SIGKILL；0 次旧检查启动，恢复 stop 原 ID、新 ID 观察，迟到旧 ID 拒绝"
+  },
+  "notCovered": [
+    "真实模型与真实 IM",
+    "真实 systemd/sudoers 部署",
+    "Linux 与 CI 精确版本矩阵（由实施者另持证据）",
+    "断电持久性",
+    "通用命令或 MCP 后代停止",
+    "整个迁移 A1–A12"
+  ],
+  "followup": {
+    "change": "占用索引比较前移到无 root 的提前返回之前",
+    "command": "npx tsx --test --test-name-pattern='模型真实调用 inspect|无身份旧服务配置' test/personal-services.test.ts",
+    "passed": 2,
+    "failed": 0,
+    "skipped": 0,
+    "log": "index-order-followup.log",
+    "counting": "为最终 104 项中两项的受影响复核，不累加唯一用例"
+  },
+  "reportFollowup": {
+    "scope": "blocker返回类型扩展后的报告等待、等值竞态判断与暂停恢复；此范围原结论失效，本次续审后替换",
+    "sourceReview": [
+      "全部personalServiceSourceBlocker/personalDelegationBlocker值消费者",
+      "旧string服务操作与新inspection/admission union",
+      "watch实际持有记录的document与deepEqual复核",
+      "ReportPause按不可变admission验证来源，允许历史attempt已被覆盖"
+    ],
+    "tests": [
+      {
+        "command": "npx tsx --test --test-name-pattern='委托报告' test/personal-service-operations.test.ts",
+        "passed": 6,
+        "failed": 0,
+        "skipped": 0,
+        "log": "report-blocker-followup.log",
+        "counting": "含旧服务暂停3项与新检查暂停3项，不与既有104项重复累加"
+      },
+      {
+        "command": "npx tsx --test test/personal-reports.test.ts",
+        "passed": 28,
+        "failed": 0,
+        "skipped": 0,
+        "log": "report-regression-followup.log"
+      }
+    ],
+    "negative": "隔离源码副本只将新inspection watcher换成旧ServiceOperationDoc；新两窗口及父项共3项按预期失败（faulted vs completed）；脚本、变体源码、日志均在report-watcher-negative.*；副本已清理",
+    "conclusion": "无未解决阻断"
+  }
+}

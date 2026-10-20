@@ -1,0 +1,10 @@
+✔ 完全访问宿主：returned 沿持久 scope 与原回执，环境只在启动继承 (38.9295ms)
+✔ 完全访问宿主：cancel 沿持久 scope 与原回执，环境只在启动继承 (91.009917ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 263.852791

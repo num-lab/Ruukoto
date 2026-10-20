@@ -1,0 +1,11 @@
+--- a/apps/ruukoto/src/personal-tools.ts
++++ b/apps/ruukoto/src/personal-tools.ts
+@@ -324,7 +324,7 @@
+       if (!definition) throw invalid();
+       try { normalized = validateToolArguments(definition, { ...call, arguments: copyJson(call.arguments) as Params }) as Params; } catch { throw invalid(); }
+     }
+-    if (!admission || admission.conversationId !== value.origin.conversationId || !isDeepStrictEqual(admission.data, { operation: value.operation, origin: value.origin, kind: value.kind, params: value.params, config: value.config, grantVersion: value.grantVersion, prepared: value.prepared, approval: admission.data.approval }) || !["pending", "unneeded"].includes(admission.data.approval) || tool?.kind !== "pi.tool" || tool.owner !== value.origin.generation || tool.conversationId !== value.origin.conversationId || !assistant || assistant.byTaskId !== value.origin.generation || assistant.id >= admission.id || call?.type !== "toolCall" || call.name !== value.kind || !isDeepStrictEqual(normalized, value.params)) throw invalid();
++    if (!admission || admission.conversationId !== value.origin.conversationId || !isDeepStrictEqual(admission.data, { operation: value.operation, origin: value.origin, kind: value.kind, params: value.params, config: value.config, grantVersion: value.grantVersion, prepared: value.prepared, approval: admission.data.approval }) || !["pending", "unneeded"].includes(admission.data.approval) || tool?.kind !== "pi.tool" || tool.owner !== value.origin.generation || tool.conversationId !== value.origin.conversationId || !assistant || assistant.byTaskId !== value.origin.generation || assistant.id >= admission.id || call?.type !== "toolCall" || call.name !== value.kind || !isDeepStrictEqual(call.arguments, value.params)) throw invalid();
+     const source = await tx.submissionByRequest(ROOT_CONVERSATION_ID, value.origin.source.requestId);
+     if (source?.id !== value.origin.source.submissionId || source.entry !== value.origin.source.entryId || source.type !== "input" || (await tx.entry(source.entry!))?.kind !== "pi.user") throw invalid();
+     if (value.origin.work) {

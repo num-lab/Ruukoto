@@ -1,0 +1,106 @@
+✔ personal CLI：独立开发档案按真实检出隔离，子进程不继承旧产品配置 (4.529899ms)
+✔ personal CLI：配置持锁、拒绝在线修改，非法配置不覆盖原文件 (78.258736ms)
+✔ personal CLI：前台与 detached 均拒绝用内部环境变量充当模型凭据 (20.638303ms)
+✔ personal CLI：认证前不读状态或提交，非法及超限请求无副作用 (52.998835ms)
+✔ personal CLI：同键去重与异参拒绝，断开后完成并可重开查询 (430.484092ms)
+✔ personal CLI：多向导逐键保留请求，未受理只核实且指纹提前提交可恢复 (92.679799ms)
+✔ personal CLI：提交后应答丢失保留原键，核实后不重发 (58.862812ms)
+[ruukoto:personal] 持久执行出现错误，请查询状态并检查档案；未自动重启。
+✔ personal CLI：存储故障先关闭 listener 再放锁，旧清理不会删除新实例 socket (62.249839ms)
+✔ personal CLI：坏配置、坏令牌、链接文件及旧目录拒绝，失败后可重新持锁 (10.984984ms)
+✔ personal CLI：真实后台进程退出客户端仍继续，重复启动不删原 socket，停止后可重启 (4561.509158ms)
+✔ personal CLI：socket 已断开仍被后台持锁时，配置和第二实例均拒绝 (42.531051ms)
+✔ personal CLI：向导逐步配置、返回与退出，不要求用户提供内部键 (2.246057ms)
+✔ personal CLI：关闭清理完成才释放锁，初始化失败接管并释放已有锁 (10.327503ms)
+✔ durable：个人与 Coding 分别解析 Pi 1.3.0 / 0.85.1 (172.626886ms)
+✔ durable：拒绝旧资料目录和链接，不修改原文件 (4.959969ms)
+✔ durable：实例锁真实互斥，释放后可重开，档案仅拥有者可读 (3.214872ms)
+✔ durable：档案格式或 Pi 版本不符时拒绝，拒绝后不遗留锁 (2.967105ms)
+✔ durable：输入与回答落盘，同键重投去重，重开后保留历史和请求证据 (476.415606ms)
+✔ durable：缺扩展时在任何恢复请求前拒绝 (59.965016ms)
+✔ durable：业务扩展版本不符时拒绝恢复 (34.404107ms)
+✔ durable：业务 document 定义版本不符时拒绝恢复 (31.110547ms)
+▶ durable：缺失或不支持的任务定义不启动恢复
+  ✔ missing-task / 1 (34.22182ms)
+  ✔ pi.generation / 2 (21.428628ms)
+✔ durable：缺失或不支持的任务定义不启动恢复 (56.976247ms)
+✔ durable：空闲主会话显式切换模型 (25.097569ms)
+✔ durable：模型流中途强杀后恢复原输入，进程锁释放且不重复受理 (1949.896701ms)
+✔ durable：未完成输入仍引用旧模型时拒绝换模型恢复 (53.785956ms)
+▶ durable：三种 API 的输入或实际 payload 记录失败时 HTTP 请求为零
+  ✔ openai-completions / 记录 1 (2.659201ms)
+  ✔ openai-completions / 记录 2 (2.291034ms)
+  ✔ openai-responses / 记录 1 (1.409333ms)
+  ✔ openai-responses / 记录 2 (15.752841ms)
+  ✔ anthropic-messages / 记录 1 (2.942397ms)
+  ✔ anthropic-messages / 记录 2 (160.617321ms)
+✔ durable：三种 API 的输入或实际 payload 记录失败时 HTTP 请求为零 (186.789265ms)
+✔ durable：保留 onPayload 改写且记录真正发出的内容 (32.318198ms)
+[ruukoto:personal] 初始化清理失败，已停止启动；请保留档案并检查存储。
+✔ durable：初始化拒绝且存储关闭失败，原错误可见并释放锁 (24.209455ms)
+[ruukoto:personal] 持久执行出现错误，请查询状态并检查档案；未自动重启。
+▶ durable：真实持久记录写失败关闭 Harness，阻止 HTTP 且释放实例锁
+  ✔ 记录 1 (29.413942ms)
+[ruukoto:personal] 持久执行出现错误，请查询状态并检查档案；未自动重启。
+  ✔ 记录 2 (24.660121ms)
+✔ durable：真实持久记录写失败关闭 Harness，阻止 HTTP 且释放实例锁 (55.019909ms)
+✔ durable：模型配置验证不接受带凭据 URL、非法 API 与过量输出 (1.126222ms)
+✔ durable 服务：模型真实调用 inspect，原始字节和两工具定义可重建，证据读取不再访问服务 (505.236262ms)
+✔ durable 服务：空闲空工具会话可显式启用，重开缺配置/变更/文档版本拒绝且零请求 (53.657602ms)
+✔ durable 服务：未完成输入不能中途增加工具 (92.584819ms)
+✔ durable 服务：已启用扩展缺配置记录时拒绝补造 (27.896082ms)
+▶ durable 服务：目标拒绝、畸形应答、重复前缀和缺 helper 都保存失败证据，不假报状态
+  ✔ wrong-unit (109.581145ms)
+  ✔ missing-state (94.893336ms)
+  ✔ invalid-state (135.783478ms)
+  ✔ invalid-revision (124.293894ms)
+  ✔ invalid-error (162.563267ms)
+  ✔ null (111.639397ms)
+  ✔ duplicate (103.159131ms)
+  ✔ garbage (104.239365ms)
+  ✔ missing (117.836751ms)
+  ✔ not-whitelisted (117.671155ms)
+✔ durable 服务：目标拒绝、畸形应答、重复前缀和缺 helper 都保存失败证据，不假报状态 (1185.571297ms)
+✔ durable 服务：输出硬上限保留有界部分并报错 (128.775677ms)
+[ruukoto:personal] 持久执行出现错误，请查询状态并检查档案；未自动重启。
+✔ durable 服务：证据保存失败关闭 Harness，不生成成功结果或发出后续模型请求 (123.833089ms)
+✔ durable 服务：分页只读取本会话的检查证据，拒绝其他会话或类型 (130.437661ms)
+✔ durable 服务：真实进程崩溃后只读调用重跑，未完成记录保留而不引入 restart (1927.414309ms)
+✔ 后台工作：同键去重异参拒绝，完成后保留身份/上下文，显式关闭保留历史 (328.786042ms)
+✔ 后台工作：忙碌占用拒绝另一工作/关闭，取消 A 不影响主聊天和 B，迟到结果不覆盖复用 (4119.977609ms)
+✔ 后台工作：拒绝无来源/回报来源且不造记录 (10.048663ms)
+[ruukoto:personal] 持久执行出现错误，请查询状态并检查档案；未自动重启。
+✔ 后台工作：工作登记写失败，身份/Task/占用全不提交，重开不执行 (34.819775ms)
+✔ 后台工作：只落盘取消事实、尚未 abortTask 的窗口正常收尾为取消并可复用 (334.462876ms)
+▶ 后台工作：HTTP 发出前再次检查取消事实及 provider 来源，零子请求
+  ✔ cancel (37.197524ms)
+  ✔ missing-provider (33.62295ms)
+✔ 后台工作：HTTP 发出前再次检查取消事实及 provider 来源，零子请求 (71.858337ms)
+✔ 后台工作：子会话 provider 失败如实收尾，释放已闲置身份 (53.621377ms)
+✔ 后台工作：空闲/取消后的子会话不能绕过宿主直接发模型请求，证据缺失或歧义也拦截 (57.043842ms)
+▶ 后台工作：工作扩展缺索引、版本变化和终态遗留占用均拒绝重开
+  ✔ missing-index (33.750802ms)
+  ✔ missing-agent-row (36.122355ms)
+  ✔ index-version (41.04104ms)
+  ✔ work-version (38.391217ms)
+  ✔ orphan-occupancy (37.216ms)
+  ✔ expanded-tools (60.594127ms)
+  ✔ request-mismatch (36.688118ms)
+  ✔ submission-mismatch (35.411809ms)
+  ✔ live-occupancy (4051.891576ms)
+✔ 后台工作：工作扩展缺索引、版本变化和终态遗留占用均拒绝重开 (4373.764786ms)
+✔ 后台工作：空闲子会话显式同步当前模型配置 (41.318932ms)
+▶ 后台工作：正常/取消收尾都停止在途的真正后台压缩，再释放身份
+  ✔ complete (97.088906ms)
+  ✔ cancel (75.073567ms)
+✔ 后台工作：正常/取消收尾都停止在途的真正后台压缩，再释放身份 (173.169582ms)
+✔ 后台工作：已提交输入但引用未写回时进程崩溃，重开只恢复一个 submission (1083.871204ms)
+✔ 后台工作：取消事实落盘后、abort 调用前强杀进程，恢复不重发且释放原占用 (1299.19055ms)
+ℹ tests 85
+ℹ suites 0
+ℹ pass 85
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 18191.141788

@@ -1,0 +1,13 @@
+
+> ruukoto-workspace@0.1.0 check:static
+> npm run lint && npm run typecheck && npm run verify-notes && npm run check:docs
+
+
+> ruukoto-workspace@0.1.0 lint
+> eslint . --max-warnings=0
+
+
+> ruukoto-workspace@0.1.0 typecheck
+> tsc --noEmit && npm run typecheck --workspaces && npm --prefix verification/foundation run typecheck
+
+test/personal-browser.test.ts(69,98): error TS2554: Expected 2 arguments, but got 1.

@@ -1,0 +1,383 @@
+{
+  "run": {
+    "run": {
+      "id": "wfrun_68ced16cbf3d835493c308ae",
+      "sessionId": "sess_b3bb29e881f840aa1ea34e21",
+      "definitionId": "wfdef_eb3f003e0bebaa7c2d714e14",
+      "scriptDigest": "a1fc03a822cced50bfb63a4f03d1ff146447981ae73973c9875700b64051a1fb",
+      "inputDigest": "17ec0c346922df8a32b8fee47a41171e9d6fddd3b46b04f9c3a70d9eb7b14af7",
+      "number": 1,
+      "displayName": "six",
+      "description": null,
+      "createdAt": "2026-10-17T07:26:03.949Z",
+      "stopUnverified": true,
+      "effectUnknown": false,
+      "status": "paused",
+      "version": 24,
+      "reason": "write_result_missing",
+      "attempts": 5,
+      "maxAttempts": 100,
+      "usedMs": 24597,
+      "durationMs": 3600000,
+      "clockVerified": true,
+      "scriptStopVerified": true
+    },
+    "steps": [
+      {
+        "key": "change_1",
+        "kind": "agent",
+        "status": "running",
+        "resultRecorded": false,
+        "attempts": 1,
+        "question": null,
+        "outputArtifact": null
+      },
+      {
+        "key": "change_2",
+        "kind": "agent",
+        "status": "running",
+        "resultRecorded": false,
+        "attempts": 1,
+        "question": null,
+        "outputArtifact": null
+      },
+      {
+        "key": "change_3",
+        "kind": "agent",
+        "status": "running",
+        "resultRecorded": false,
+        "attempts": 1,
+        "question": null,
+        "outputArtifact": null
+      },
+      {
+        "key": "change_4",
+        "kind": "agent",
+        "status": "queued",
+        "resultRecorded": false,
+        "attempts": 1,
+        "question": null,
+        "outputArtifact": null
+      },
+      {
+        "key": "change_5",
+        "kind": "agent",
+        "status": "queued",
+        "resultRecorded": false,
+        "attempts": 1,
+        "question": null,
+        "outputArtifact": null
+      },
+      {
+        "key": "change_6",
+        "kind": "agent",
+        "status": "queued",
+        "resultRecorded": false,
+        "attempts": 0,
+        "question": null,
+        "outputArtifact": null
+      }
+    ],
+    "stepOffset": 0,
+    "totalSteps": 6,
+    "nextStepOffset": null,
+    "executions": [
+      {
+        "id": "wfexec_ea7ee437f037ef4093e09042",
+        "runId": "wfrun_68ced16cbf3d835493c308ae",
+        "stepKey": "change_1",
+        "kind": "agent",
+        "taskId": "task_e4319e2f5ec79396cbe8ac70",
+        "number": 1,
+        "status": "finished",
+        "units": [
+          {
+            "kind": "starting",
+            "id": "driver:task_e4319e2f5ec79396cbe8ac70",
+            "label": "workflow:wfrun_68ced16cbf3d835493c308ae:change_1"
+          },
+          {
+            "kind": "process_group",
+            "id": "3165117",
+            "label": "tool-worker local pid=3165117 task=task_e4319e2f5ec79396cbe8ac70"
+          }
+        ],
+        "stopVerified": true
+      },
+      {
+        "id": "wfexec_15095236bfe2431ddc206d50",
+        "runId": "wfrun_68ced16cbf3d835493c308ae",
+        "stepKey": "change_1",
+        "kind": "host",
+        "taskId": "task_7d6036b12cc8ec92e6f98a90",
+        "number": 1,
+        "status": "finished",
+        "units": [
+          {
+            "kind": "process_group",
+            "id": "3164699",
+            "label": "tool-worker local pid=3164699 task=task_7d6036b12cc8ec92e6f98a90-wt_ba1f5aa784eefcdeadb44aed"
+          },
+          {
+            "kind": "process_group",
+            "id": "3164781",
+            "label": "tool-worker local pid=3164781 task=task_7d6036b12cc8ec92e6f98a90-wt_9b9028dd7ae3ce5e64495dfa"
+          }
+        ],
+        "stopVerified": true
+      },
+      {
+        "id": "wfexec_b8fb4515468a180126145a8b",
+        "runId": "wfrun_68ced16cbf3d835493c308ae",
+        "stepKey": "change_2",
+        "kind": "agent",
+        "taskId": "task_1e9feee405d00e45bee3d6b3",
+        "number": 1,
+        "status": "finished",
+        "units": [
+          {
+            "kind": "starting",
+            "id": "driver:task_1e9feee405d00e45bee3d6b3",
+            "label": "workflow:wfrun_68ced16cbf3d835493c308ae:change_2"
+          },
+          {
+            "kind": "process_group",
+            "id": "3165125",
+            "label": "tool-worker local pid=3165125 task=task_1e9feee405d00e45bee3d6b3"
+          }
+        ],
+        "stopVerified": false
+      },
+      {
+        "id": "wfexec_9d60c49685f633153b92677f",
+        "runId": "wfrun_68ced16cbf3d835493c308ae",
+        "stepKey": "change_3",
+        "kind": "agent",
+        "taskId": "task_80f43137733c90ed8a00487e",
+        "number": 1,
+        "status": "finished",
+        "units": [
+          {
+            "kind": "starting",
+            "id": "driver:task_80f43137733c90ed8a00487e",
+            "label": "workflow:wfrun_68ced16cbf3d835493c308ae:change_3"
+          },
+          {
+            "kind": "process_group",
+            "id": "3165132",
+            "label": "tool-worker local pid=3165132 task=task_80f43137733c90ed8a00487e"
+          }
+        ],
+        "stopVerified": true
+      },
+      {
+        "id": "wfexec_ee15ee3f836ff76164c1c430",
+        "runId": "wfrun_68ced16cbf3d835493c308ae",
+        "stepKey": "change_4",
+        "kind": "agent",
+        "taskId": "task_353f19a68fbda3c5497463c6",
+        "number": 1,
+        "status": "finished",
+        "units": [
+          {
+            "kind": "starting",
+            "id": "driver:task_353f19a68fbda3c5497463c6",
+            "label": "workflow:wfrun_68ced16cbf3d835493c308ae:change_4"
+          }
+        ],
+        "stopVerified": true
+      },
+      {
+        "id": "wfexec_fa60545d0c879f6a0ca87acb",
+        "runId": "wfrun_68ced16cbf3d835493c308ae",
+        "stepKey": "change_5",
+        "kind": "agent",
+        "taskId": "task_29434002c00069df07664989",
+        "number": 1,
+        "status": "finished",
+        "units": [
+          {
+            "kind": "starting",
+            "id": "driver:task_29434002c00069df07664989",
+            "label": "workflow:wfrun_68ced16cbf3d835493c308ae:change_5"
+          }
+        ],
+        "stopVerified": true
+      },
+      {
+        "id": "wfexec_882c27df20c08d82224c748e",
+        "runId": "wfrun_68ced16cbf3d835493c308ae",
+        "stepKey": "change_6",
+        "kind": "agent",
+        "taskId": "task_e9199c55eb65f4ceb6a96035",
+        "number": 1,
+        "status": "queued",
+        "units": [],
+        "stopVerified": null
+      },
+      {
+        "id": "wfexec_20c1dda8100e31e39534bb60",
+        "runId": "wfrun_68ced16cbf3d835493c308ae",
+        "stepKey": "change_2",
+        "kind": "host",
+        "taskId": "task_23cdc7d8f5ea1c33195dc3af",
+        "number": 1,
+        "status": "finished",
+        "units": [
+          {
+            "kind": "process_group",
+            "id": "3164889",
+            "label": "tool-worker local pid=3164889 task=task_23cdc7d8f5ea1c33195dc3af-wt_4111341b4c49c3e340bb60ca"
+          },
+          {
+            "kind": "process_group",
+            "id": "3164960",
+            "label": "tool-worker local pid=3164960 task=task_23cdc7d8f5ea1c33195dc3af-wt_e13352075229d1001e4b13d5"
+          }
+        ],
+        "stopVerified": true
+      },
+      {
+        "id": "wfexec_1281822af03aa161e0896571",
+        "runId": "wfrun_68ced16cbf3d835493c308ae",
+        "stepKey": "change_3",
+        "kind": "host",
+        "taskId": "task_b921b94090487a22e7e954ce",
+        "number": 1,
+        "status": "finished",
+        "units": [
+          {
+            "kind": "process_group",
+            "id": "3165005",
+            "label": "tool-worker local pid=3165005 task=task_b921b94090487a22e7e954ce-wt_383d35046d61a9e49cae81bc"
+          },
+          {
+            "kind": "process_group",
+            "id": "3165079",
+            "label": "tool-worker local pid=3165079 task=task_b921b94090487a22e7e954ce-wt_7b284c34bd39a223fd6be7a9"
+          }
+        ],
+        "stopVerified": true
+      },
+      {
+        "id": "wfexec_4c9db39fd2a79adecbff6f7c",
+        "runId": "wfrun_68ced16cbf3d835493c308ae",
+        "stepKey": "change_4",
+        "kind": "host",
+        "taskId": "task_3fda2a5e1adfeaf0d46cb1e1",
+        "number": 1,
+        "status": "finished",
+        "units": [
+          {
+            "kind": "process_group",
+            "id": "3165167",
+            "label": "tool-worker local pid=3165167 task=task_3fda2a5e1adfeaf0d46cb1e1-wt_379b54ef13026b1bd30ec339"
+          },
+          {
+            "kind": "process_group",
+            "id": "3165240",
+            "label": "tool-worker local pid=3165240 task=task_3fda2a5e1adfeaf0d46cb1e1-wt_99ac67505b167c92d0b1b130"
+          }
+        ],
+        "stopVerified": true
+      },
+      {
+        "id": "wfexec_471c99960da643b40ad54d95",
+        "runId": "wfrun_68ced16cbf3d835493c308ae",
+        "stepKey": "change_1",
+        "kind": "host",
+        "taskId": "task_e6d8a40067a19e13bb7431db",
+        "number": 2,
+        "status": "queued",
+        "units": [],
+        "stopVerified": null
+      },
+      {
+        "id": "wfexec_0bad86476b62cf9e2fc24b12",
+        "runId": "wfrun_68ced16cbf3d835493c308ae",
+        "stepKey": "change_2",
+        "kind": "host",
+        "taskId": "task_1746f850a274a85c954b54b2",
+        "number": 2,
+        "status": "finished",
+        "units": [],
+        "stopVerified": true
+      },
+      {
+        "id": "wfexec_0bdb9d9693b18b7c1e6a4075",
+        "runId": "wfrun_68ced16cbf3d835493c308ae",
+        "stepKey": "change_5",
+        "kind": "host",
+        "taskId": "task_5d9f0d0e539fc5bd935fe999",
+        "number": 1,
+        "status": "finished",
+        "units": [
+          {
+            "kind": "process_group",
+            "id": "3165284",
+            "label": "tool-worker local pid=3165284 task=task_5d9f0d0e539fc5bd935fe999-wt_3ed9cea28c824f95459eec01"
+          }
+        ],
+        "stopVerified": true
+      },
+      {
+        "id": "wfexec_e8ecbba7bccac7abce7e7b90",
+        "runId": "wfrun_68ced16cbf3d835493c308ae",
+        "stepKey": "change_3",
+        "kind": "host",
+        "taskId": "task_98e6213a60392ff7c2a6688a",
+        "number": 2,
+        "status": "queued",
+        "units": [],
+        "stopVerified": null
+      }
+    ]
+  },
+  "tasks": [
+    {
+      "id": "task_ad9e20f89028b8fc57d74179",
+      "status": "completed",
+      "error": null
+    },
+    {
+      "id": "task_7d6036b12cc8ec92e6f98a90",
+      "status": "completed",
+      "error": null
+    },
+    {
+      "id": "task_23cdc7d8f5ea1c33195dc3af",
+      "status": "completed",
+      "error": null
+    },
+    {
+      "id": "task_b921b94090487a22e7e954ce",
+      "status": "completed",
+      "error": null
+    },
+    {
+      "id": "task_3fda2a5e1adfeaf0d46cb1e1",
+      "status": "completed",
+      "error": null
+    },
+    {
+      "id": "task_e6d8a40067a19e13bb7431db",
+      "status": "queued",
+      "error": null
+    },
+    {
+      "id": "task_1746f850a274a85c954b54b2",
+      "status": "failed",
+      "error": "busy"
+    },
+    {
+      "id": "task_5d9f0d0e539fc5bd935fe999",
+      "status": "interrupted",
+      "error": null
+    },
+    {
+      "id": "task_98e6213a60392ff7c2a6688a",
+      "status": "queued",
+      "error": null
+    }
+  ]
+}

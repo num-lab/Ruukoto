@@ -1,0 +1,38 @@
+{
+  "recordedUtc": "2026-10-18T13:36:58Z",
+  "method": "一次ssh tx内运行32份独立TemporaryDirectory，创建后立即新增文件，比对mtime_ns/ctime_ns/size；TemporaryDirectory按自身归属清理。",
+  "source": "前一条exec/write_stdin工具输出原数字转存；未重跑SSH",
+  "exitCode": 0,
+  "stdout": {
+    "samples": 32,
+    "mtimeAndCtimeUnchanged": 29,
+    "examples": [
+      {
+        "mtimeBefore": 1792330335689475851,
+        "mtimeAfter": 1792330335689475851,
+        "ctimeBefore": 1792330335689475851,
+        "ctimeAfter": 1792330335689475851,
+        "sizeBefore": 4096,
+        "sizeAfter": 4096
+      },
+      {
+        "mtimeBefore": 1792330335690475858,
+        "mtimeAfter": 1792330335690475858,
+        "ctimeBefore": 1792330335690475858,
+        "ctimeAfter": 1792330335690475858,
+        "sizeBefore": 4096,
+        "sizeAfter": 4096
+      },
+      {
+        "mtimeBefore": 1792330335690475858,
+        "mtimeAfter": 1792330335690475858,
+        "ctimeBefore": 1792330335690475858,
+        "ctimeAfter": 1792330335690475858,
+        "sizeBefore": 4096,
+        "sizeAfter": 4096
+      }
+    ]
+  },
+  "productionOrRepoOperations": false,
+  "limitation": "只说明该tx文件系统的目录修订时间存在粗粒度；不证明目录未变化或整个文件系统原子性。"
+}

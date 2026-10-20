@@ -1,0 +1,105 @@
+{
+  "base": "2a10e749710d9e1620358617a0c5a2f311d183de",
+  "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "node": "v24.15.0",
+  "npm": "11.12.1",
+  "setup": {
+    "exit": 0,
+    "log": "setup.log"
+  },
+  "regression": {
+    "exit": 0,
+    "files": 13,
+    "tests": 351,
+    "pass": 351,
+    "fail": 0,
+    "skipped": 0,
+    "log": "regression.log",
+    "command": "npx tsx --test test/personal-durable.test.ts test/personal-cli.test.ts test/personal-services.test.ts test/personal-work.test.ts test/personal-work-tools.test.ts test/personal-work-controls.test.ts test/personal-work-notes.test.ts test/personal-delegations.test.ts test/personal-reports.test.ts test/personal-service-operations.test.ts test/personal-telegram.test.ts test/personal-telegram-permissions.test.ts test/71-product-entry.test.ts"
+  },
+  "incrementBeforeSync": {
+    "exit": 1,
+    "tests": 95,
+    "pass": 93,
+    "fail": 2,
+    "log": "increment-before-test-sync.log",
+    "reason": "新增group report测试未等恢复工具终态就调用宿主重核，正确拒绝；父子项同时计失败，校准前提后最终服务61/61"
+  },
+  "servicesFinal": {
+    "exit": 0,
+    "tests": 61,
+    "pass": 61,
+    "fail": 0,
+    "skipped": 0,
+    "log": "services-final.log",
+    "command": "npx tsx --test test/personal-services.test.ts"
+  },
+  "passingUniqueScenarios": 352,
+  "build": {
+    "exit": 0,
+    "log": "build.log"
+  },
+  "modelInputs": {
+    "before": "model-before.json",
+    "after": "model-after.json",
+    "estimates": {
+      "before": {
+        "main": {
+          "toolSchemas": 753,
+          "systemPrompt": 54
+        },
+        "child": {
+          "toolSchemas": 1,
+          "systemPrompt": 24
+        }
+      },
+      "after": {
+        "main": {
+          "toolSchemas": 768,
+          "systemPrompt": 58
+        },
+        "child": {
+          "toolSchemas": 249,
+          "systemPrompt": 36
+        }
+      }
+    }
+  },
+  "source": "source-manifest.json",
+  "unverified": [
+    "真实模型",
+    "真实IM",
+    "真实systemd",
+    "任意命令/MCP/服务写入的子工具归属",
+    "完整迁移与正式切换"
+  ],
+  "codingPackageSha1": "5af04e561c9fbf84bf29f8237e3655e563ea5ed9",
+  "delegationsFinal": {
+    "exit": 0,
+    "tests": 23,
+    "pass": 23,
+    "fail": 0,
+    "skipped": 0,
+    "command": "npx tsx --test test/personal-delegations.test.ts",
+    "log": "delegations-final.log",
+    "reason": "同步取消菜单的新边界断言"
+  },
+  "finalMenus": {
+    "tests": 34,
+    "pass": 34,
+    "fail": 0,
+    "files": [
+      "test/personal-cli.test.ts",
+      "test/personal-work-controls.test.ts"
+    ],
+    "log": "increment-before-test-sync.log",
+    "reason": "同轮95个用例中的两个独立文件全过；该轮失败仅在后来已修正的服务组测试前提"
+  },
+  "static": {
+    "exit": 0,
+    "command": "npm run check:static",
+    "log": "static-final.log"
+  },
+  "independentReview": "independent-review/README.md",
+  "sourceMatch": "独立终审22文件中的20个实施文件（非总/窄工单）逐项SHA-256一致"
+}

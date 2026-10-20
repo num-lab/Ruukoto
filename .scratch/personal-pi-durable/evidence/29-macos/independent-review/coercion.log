@@ -1,0 +1,4 @@
+{"writeCode":"file_returned","writeEffect":"returned","readCode":"file_returned","readPreview":"123"}
+{"artifactRead":"{\"base64\":\"MTIz\",\"offset\":0,\"bytes\":3,\"partial\":false,\"mime\":\"application/octet-stream\",\"text\":\"123\"}"}
+exported
+{"reopened":true,"operations":2,"artifacts":1}

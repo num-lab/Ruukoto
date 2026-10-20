@@ -1,0 +1,12 @@
+[ruukoto:tool-worker task_5f925637a66390795df8aaa2] [ruukoto:native] 执行停止未核实（identity_unavailable）；保留目录占用，等待拥有者核实
+✖ 编码六输入：共享三名额、失败依赖跳过、独立验证与实际五份冻结成果汇总，唯一部分失败回报 (220212.843875ms)
+ℹ tests 381
+ℹ pass 380
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ duration_ms 223730.766375
+test at test/122-workflow-code-acceptance.test.ts:19:1
+✖ 编码六输入：共享三名额、失败依赖跳过、独立验证与实际五份冻结成果汇总，唯一部分失败回报 (220212.843875ms)
+  Error: 等待超时: 六输入整项回报
+      at async TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/122-workflow-code-acceptance.test.ts:47:11)

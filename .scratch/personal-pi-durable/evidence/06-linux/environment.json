@@ -1,0 +1,10 @@
+{
+  "node": "v24.21.0",
+  "npm": "11.19.0",
+  "platform": "Linux BJ-Tencent 6.8.0-117-generic #117-Ubuntu SMP PREEMPT_DYNAMIC Tue May  5 19:26:24 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux",
+  "identity": "uid=1003(eitrous) gid=1003(eitrous) groups=1003(eitrous),27(sudo),100(users),987(ruukoto-backend),988(docker)",
+  "python": "Python 3.12.3",
+  "sourceManifestSha256": "cc7a8d343cba6030bfb4a75538d6d2ed6628ba81fce624e9c49ce7356c004639",
+  "cwd": "/dev/shm/ruukoto-helper-stop-06-test",
+  "storage": "tmpfs after original filesystem ENOSPC"
+}

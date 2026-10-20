@@ -1,0 +1,35 @@
+{
+  "observedAt": "2026-10-18T08:53:23.746436+00:00",
+  "attempts": [
+    {
+      "kind": "initialRuntimeTransfer",
+      "result": "superseded",
+      "detail": "首个82MB归档低速传输被主动停止，改用35.9MB保留原模块解析路径的分片归档；首次提前解包缺文件失败，尚未加载产品或执行命令。"
+    },
+    {
+      "kind": "archiveExtraction",
+      "result": "completed",
+      "detail": "macOS扩展属性触发GNU tar未知关键字警告，源码与运行导入验证继续通过；不将警告计产品缺陷。"
+    },
+    {
+      "kind": "telegramDirectFromTx",
+      "result": "unavailable",
+      "detail": "官方Telegram直连URLError，改用本轮私有SSH反向隧道TLS CONNECT；官方HTTPS证书和原API均保持，非平台替身。"
+    },
+    {
+      "kind": "firstOwnerPairing",
+      "result": "notSaved",
+      "detail": "原短语消息及Eitrous身份已识别，选择后telegram_unverified，telegram.json未保存；重新按实际向导配对，不手工补绑定。"
+    },
+    {
+      "kind": "localReadonlyProbeRequestKey",
+      "result": "rejectedBeforeAdmission",
+      "detail": "第一次本机只读复验使用非UUIDv4请求键，被宿主参数校验拒绝；改用预先记录的UUIDv4才接纳。没有工作、报告或外部效果，未计Telegram验收。"
+    },
+    {
+      "kind": "cleanupReplyParser",
+      "result": "corrected",
+      "detail": "清理控制器最初误把helper回复当stdout裸JSON；实际为stderr固定RUUKOTO_SERVICE_REPLY前缀。已修正解析并用相同原ID重新核实stop，未发起restart或新命令；计数保持不变。"
+    }
+  ]
+}

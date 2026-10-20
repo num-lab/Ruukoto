@@ -1,0 +1,5 @@
+personal-tests.log: npx tsx --test test/personal-durable.test.ts test/personal-cli.test.ts test/personal-services.test.ts test/personal-work.test.ts test/personal-service-operations.test.ts
+shared-tests.log: npx tsx --test test/personal-durable.test.ts test/personal-cli.test.ts test/personal-services.test.ts test/personal-work.test.ts test/personal-service-operations.test.ts test/service-helper-stop.test.ts test/78-linux-service-management.test.ts test/79-standing-permissions.test.ts
+shared-tests.log 用于旧服务/长期授权 50/50；其中 personal 为首次启用原子性补测前版本，最终 121/121 以 personal-tests.log 为准。四项 Linux helper 用例按平台跳过，不计通过。
+static.log: npm run check:static
+build.log: npm run build

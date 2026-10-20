@@ -1,0 +1,10 @@
+✔ 独立审查：取消提交在 watch 附着之前也能观察 (124.31975ms)
+✔ 独立审查：正常回答停止后且最终事务前提交取消，以取消事实收尾 (17.171459ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1769.337

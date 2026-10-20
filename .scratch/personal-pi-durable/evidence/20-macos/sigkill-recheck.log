@@ -1,0 +1,18 @@
+✖ 子检查：后台 SIGKILL 遗留真实检查进程，恢复不换身份且原工作取消等退出 (575.258958ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 928.229667
+
+✖ failing tests:
+
+test at test/personal-services.test.ts:642:1
+✖ 子检查：后台 SIGKILL 遗留真实检查进程，恢复不换身份且原工作取消等退出 (575.258958ms)
+  TypeError: Cannot read properties of undefined (reading 'taskId')
+      at TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/personal-services.test.ts:663:69)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3)

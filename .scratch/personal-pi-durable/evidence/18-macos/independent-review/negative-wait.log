@@ -1,0 +1,32 @@
+▶ 子检查：正常收尾及取消等待停止证明，重开重接原任务且重核后不重查
+  ✖ 正常 (816.628125ms)
+  ℹ {"state":{"status":"terminal","outcome":{"status":"faulted","error":{"message":"子工作仍有未核实的检查，占用保留；请核实原检查停止。"}}},"stopVerified":false}
+✖ 子检查：正常收尾及取消等待停止证明，重开重接原任务且重核后不重查 (819.202042ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 0
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2914.188958
+
+✖ failing tests:
+
+test at test/personal-services.test.ts:412:41
+✖ 正常 (816.628125ms)
+  AssertionError [ERR_ASSERTION]: Expected "actual" to be strictly unequal to:
+
+  'terminal'
+      at TestContext.<anonymous> (/private/tmp/rk-18-review/negative/test/personal-services.test.ts:422:12)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async TestContext.<anonymous> (/private/tmp/rk-18-review/negative/test/personal-services.test.ts:412:33)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'terminal',
+    expected: 'terminal',
+    operator: 'notStrictEqual',
+    diff: 'simple'
+  }

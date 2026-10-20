@@ -1,0 +1,72 @@
+{
+  "installed": false,
+  "humanTccActionPending": true,
+  "officialZipKeptOutsideRepository": "/Users/eitrous/Developer/Temp/napcat-v4.18.38-candidate/NapCat.Shell.zip",
+  "files": [
+    {
+      "path": "candidate-private-material-scan.json",
+      "bytes": 686,
+      "sha256": "3c1614059e6bd5504f898b960ebdf157b15954ab466635f97ebbeb49fa845789"
+    },
+    {
+      "path": "candidate-validation.json",
+      "bytes": 2114,
+      "sha256": "a1e1c85d7903fc66c7e45199ac8c6ebf62fa7ff789a4f5c32710da5f7b464b31"
+    },
+    {
+      "path": "diagnostic-private-material-scan.json",
+      "bytes": 794,
+      "sha256": "29312f8ed07560e02f88bc0564ecefaf68762ff2273b707286c5ffb2dc5f2c01"
+    },
+    {
+      "path": "diagnostic-safe-evidence.tar.gz",
+      "bytes": 53980,
+      "sha256": "6cf98648b097b0c151f4f8035175cf4aa69973b9593cd5502648746810024920"
+    },
+    {
+      "path": "download-status.json",
+      "bytes": 134,
+      "sha256": "768c7ee82f6aaa7e2a0184d07e7fd32954e1f174e212325a3f98170e85ecdaaf"
+    },
+    {
+      "path": "independent-fs-result.json",
+      "bytes": 873,
+      "sha256": "dfca2774990777a5281d3d555dd8b8a999d0f970aed36f0cd7aae117424b71b7"
+    },
+    {
+      "path": "independent-fs-selftest.log",
+      "bytes": 780,
+      "sha256": "a15ada38ca4bbda9934e28a9239fd5c764c7649ad11cc497f0760e4302702178"
+    },
+    {
+      "path": "independent-fs-selftest.py",
+      "bytes": 7654,
+      "sha256": "439092bb2e2030460171ec6afedd667255112a4affa466a5dc65df32e5bfb1a6"
+    },
+    {
+      "path": "independent-manifest.json",
+      "bytes": 1428,
+      "sha256": "8928f206ab2318a63a38e359239ab47d667a60d18378ffa4d0f77b7e4f5322f1"
+    },
+    {
+      "path": "independent-review.md",
+      "bytes": 3168,
+      "sha256": "75ba40666716abe77f6ed64d0ae67f4b88bfca8bbb6e500ae93968400d4bc5bc"
+    },
+    {
+      "path": "napcat-maintenance.py",
+      "bytes": 13823,
+      "sha256": "6fea248c51a103f1eea13cf72c29cadde6e53be9d0488d391acbe0290ff0fbd5"
+    },
+    {
+      "path": "napcat-maintenance.sh",
+      "bytes": 138,
+      "sha256": "39f96e088e6f643e5c51a1eccba75f1b5a354516fd42d24020492001067b4305"
+    },
+    {
+      "path": "维护说明.md",
+      "bytes": 3519,
+      "sha256": "ef54e87608c96f392672ea0685fd0bc3bf0a26513323e84176ba16015b28546d"
+    }
+  ]
+}

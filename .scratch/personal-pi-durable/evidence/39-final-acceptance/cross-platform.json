@@ -1,0 +1,53 @@
+{
+  "messages": [
+    {
+      "entry": 26,
+      "conversation": 1,
+      "kind": "pi.user",
+      "role": "user",
+      "text": "本轮跨平台校验词是蓝莓39-1018，只回复QQ已记住"
+    },
+    {
+      "entry": 32,
+      "conversation": 1,
+      "kind": "pi.assistant",
+      "role": "assistant",
+      "text": "QQ已记住"
+    },
+    {
+      "entry": 36,
+      "conversation": 1,
+      "kind": "pi.user",
+      "role": "user",
+      "text": "我刚才在QQ给你的校验词是什么？只回复该词"
+    },
+    {
+      "entry": 41,
+      "conversation": 1,
+      "kind": "pi.assistant",
+      "role": "assistant",
+      "text": "蓝莓39-1018"
+    }
+  ],
+  "receipt_documents": [
+    {
+      "id": 23,
+      "kind": "ruukoto.telegram-receipt",
+      "key": "qq:1529851498:2729290885:1116844390",
+      "scope": {
+        "kind": "session"
+      },
+      "createdAt": 18
+    },
+    {
+      "id": 33,
+      "kind": "ruukoto.telegram-receipt",
+      "key": "telegram:8360611835:8432157389:539",
+      "scope": {
+        "kind": "session"
+      },
+      "createdAt": 37
+    }
+  ],
+  "request_evidence_entries": 4
+}

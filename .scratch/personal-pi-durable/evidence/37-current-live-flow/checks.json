@@ -1,0 +1,36 @@
+{
+  "observedAt": "2026-10-18T08:33:26.380105+00:00",
+  "checks": [
+    {
+      "command": "npm run check:static",
+      "exitCode": 0,
+      "scope": "lint、根/各workspace/基础验证typecheck、notes、docs"
+    },
+    {
+      "command": "git diff --check",
+      "exitCode": 0
+    },
+    {
+      "command": "npx tsx .scratch/personal-pi-durable/evidence/37-current-live-flow/model-probe.mts",
+      "environment": {
+        "RUN_MODEL_CHECK": "1",
+        "RUN_PERSONAL_MODEL": "deepseek/deepseek-flash",
+        "RUN_PERSONAL_MODELS_FILE": "/Users/eitrous/.pi/agent/models.json"
+      },
+      "exitCode": 0,
+      "scope": "真实模型本机正常子集；非IM/服务/命令或故障恢复"
+    },
+    {
+      "command": "inline markdown/source/database verification",
+      "exitCode": 0,
+      "details": "record-checks.json"
+    }
+  ],
+  "notRun": [
+    "npm run check",
+    "离线应用/基础验证全套",
+    "真实Telegram",
+    "真实Linux服务/命令效果",
+    "实际拥有者菜单体验"
+  ]
+}

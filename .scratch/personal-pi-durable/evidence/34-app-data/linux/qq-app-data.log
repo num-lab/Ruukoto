@@ -1,0 +1,10 @@
+$ node --import tsx --test '--test-name-pattern=应用数据批准' test/personal-qq.test.ts
+✔ QQ：应用数据批准固定原平台，跨平台菜单无效且重启保留回执 (574.010022ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3937.426327

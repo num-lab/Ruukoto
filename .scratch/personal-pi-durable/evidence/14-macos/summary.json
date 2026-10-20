@@ -1,0 +1,48 @@
+{
+  "base": "0c6f60c5a03b46f145e5737eacc07d82ce1fda3b",
+  "environment": {
+    "platform": "27.0.1",
+    "node": "v24.15.0",
+    "npm": "11.12.1"
+  },
+  "checks": {
+    "setup": "完成（首次检出 npm run setup；日志由工具输出持有）",
+    "personalBaseline": {
+      "pass": 285,
+      "fail": 0,
+      "skipped": 0,
+      "log": "personal-tests.log"
+    },
+    "finalReportFile": {
+      "pass": 28,
+      "fail": 0,
+      "skipped": 0,
+      "log": "reports-final.log"
+    },
+    "uniquePersonalCases": 288,
+    "counting": "完整基线285包含当时报告25；最新报告28重跑包含新增3项，唯一288，不把重复执行累计",
+    "checkStatic": {
+      "exitCode": 0,
+      "log": "check-static.log"
+    },
+    "finalTestsLintAndRootTsc": {
+      "exitCode": 0
+    },
+    "build": {
+      "exitCode": 0,
+      "log": "build.log",
+      "codingTarballShasum": "5af04e561c9fbf84bf29f8237e3655e563ea5ed9"
+    },
+    "pty": "pty.json",
+    "modelInput": "independent-review/model-input.json",
+    "estimates": "text-estimates.json"
+  },
+  "notRun": [
+    "真实模型",
+    "真实IM",
+    "真实systemd",
+    "完整全仓check",
+    "Node22矩阵",
+    "正式入口切换或部署"
+  ]
+}

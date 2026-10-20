@@ -1,0 +1,16 @@
+{
+  "command": "npm run personal:durable",
+  "platform": "Darwin",
+  "menu": "Telegram configure -> return -> exit",
+  "exitCode": 0,
+  "realPty": true,
+  "realIM": false,
+  "temporaryProfileRemoved": true,
+  "earlierProbe": "failed: sent next choice before full input prompt; fixture now waits for prompt and drains PTY",
+  "transcript": {
+    "file": "pty.log.gz",
+    "encoding": "gzip",
+    "rawSha256": "f8bef3c664f5785aff6aeae9770b6a9ddce15212068d712c6e9461c0116c1654",
+    "rawBytes": 1049
+  }
+}

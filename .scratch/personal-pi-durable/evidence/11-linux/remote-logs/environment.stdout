@@ -1,0 +1,29 @@
+Linux BJ-Tencent 6.8.0-117-generic #117-Ubuntu SMP PREEMPT_DYNAMIC Tue May  5 19:26:24 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux
+PRETTY_NAME="Ubuntu 24.04.4 LTS"
+NAME="Ubuntu"
+VERSION_ID="24.04"
+VERSION="24.04.4 LTS (Noble Numbat)"
+VERSION_CODENAME=noble
+ID=ubuntu
+ID_LIKE=debian
+HOME_URL="https://www.ubuntu.com/"
+SUPPORT_URL="https://help.ubuntu.com/"
+BUG_REPORT_URL="https://bugs.launchpad.net/ubuntu/"
+PRIVACY_POLICY_URL="https://www.ubuntu.com/legal/terms-and-policies/privacy-policy"
+UBUNTU_CODENAME=noble
+LOGO=ubuntu-logo
+v24.21.0
+11.19.0
+Python 3.12.3
+git version 2.43.0
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/vda2        40G   37G  569M  99% /
+tmpfs           1.9G  140M  1.7G   8% /dev/shm
+               total        used        free      shared  buff/cache   available
+Mem:           3.6Gi       919Mi       2.3Gi        80Mi       835Mi       2.7Gi
+Swap:          1.9Gi       740Mi       1.2Gi
+udev on /dev type devtmpfs (rw,nosuid,relatime,size=1864528k,nr_inodes=466132,mode=755,inode64)
+tmpfs on /run type tmpfs (rw,nosuid,nodev,noexec,relatime,size=381260k,mode=755,inode64)
+tmpfs on /dev/shm type tmpfs (rw,nosuid,nodev,inode64)
+tmpfs on /run/lock type tmpfs (rw,nosuid,nodev,noexec,relatime,size=5120k,inode64)
+tmpfs on /run/user/1003 type tmpfs (rw,nosuid,nodev,relatime,size=381256k,nr_inodes=95314,mode=700,uid=1003,gid=1003,inode64)

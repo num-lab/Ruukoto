@@ -1,0 +1,7 @@
+import assert from 'node:assert/strict';import * as fs from 'node:fs';import * as path from 'node:path';
+import {openPersonalHarness} from '/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-harness.ts';
+import {personalProvider} from '/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-model.ts';
+import {MockModelServer} from '/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/helpers/mock-provider.ts';
+const f=JSON.parse(fs.readFileSync(process.argv[2],'utf8')),server=new MockModelServer(()=>({kind:'text',text:'unexpected'}));
+const model={api:'openai-completions',baseUrl:await server.start(),modelId:'mock-model',apiKeyEnv:'RUUKOTO_OLD_TEST_KEY',contextWindow:128000,maxTokens:1024};process.env[model.apiKeyEnv]='test-only';
+const originalBefore=fs.readFileSync(path.join(f.originalProfile,'personal.sqlite'));let p;try{let rejected;try{p=await openPersonalHarness({directory:f.profile,commands:f.config,provider:personalProvider(model),modelId:model.modelId})}catch(error){rejected={code:error.code,message:error.message}}assert.equal(rejected?.code,'command_record_invalid');assert.equal(server.calls.length,0);assert.ok(fs.readFileSync(path.join(f.originalProfile,'personal.sqlite')).equals(originalBefore));fs.writeFileSync(path.join(f.root,'old-refusal.json'),JSON.stringify({commit:'89b37f3',profileCopy:f.profile,rejected,modelCalls:server.calls.length,originalProfileModified:false},null,2)+'\n');}finally{await p?.close();await server.close()}

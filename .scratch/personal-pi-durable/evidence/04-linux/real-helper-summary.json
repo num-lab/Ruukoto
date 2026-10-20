@@ -1,0 +1,33 @@
+{
+  "outcome": "passed",
+  "platform": "linux",
+  "node": "v24.21.0",
+  "unit": "ruukoto-service-test.service",
+  "state": {
+    "id": "ruukoto-service-test.service",
+    "loadState": "not-found",
+    "activeState": "inactive",
+    "subState": "dead",
+    "mainPid": 0,
+    "invocationId": "",
+    "result": "success",
+    "activeEnterTimestamp": ""
+  },
+  "helper": "/usr/local/libexec/ruukoto/ruukoto-service",
+  "verb": "inspect",
+  "inspectEvidenceCount": 1,
+  "tools": [
+    "service_inspect",
+    "read_service_inspection"
+  ],
+  "modelRequests": 3,
+  "recordedRequests": 6,
+  "stdoutBytes": 195,
+  "stderrBytes": 573,
+  "stdoutSha256": "c214c6418d32af51e30337934c9419f26e4be77eb62944c31564c51695278384",
+  "stderrSha256": "9d3d6d0baa8bc4563d2a983538e037163b98fd50c0f7a18a1c79a880af6f1da7",
+  "policySha256": "e88ad69786acb813d0e6aa0796684fdc13a468d68ac27677e8d6b80c34d92d68",
+  "reopenedEvidenceUnchanged": true,
+  "missingConfigRefused": true,
+  "policyUnchanged": true
+}

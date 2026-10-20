@@ -1,0 +1,38 @@
+✖ 独立审查：续派说明替换为其他历史输入后恢复必须拒绝 (118.956834ms)
+✖ 独立审查：组内追加来源替换为有效旧输入后恢复拒绝 (32.564416ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 0
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 608.652042
+
+✖ failing tests:
+
+test at ../../../../../../private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-delegation-review-_h5h2tno/mutated-probe.test.ts:224:1
+✖ 独立审查：续派说明替换为其他历史输入后恢复必须拒绝 (118.956834ms)
+  AssertionError [ERR_ASSERTION]: Missing expected rejection.
+      at async TestContext.<anonymous> (/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-delegation-review-_h5h2tno/mutated-probe.test.ts:236:3)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    operator: 'rejects',
+    diff: 'simple'
+  }
+
+test at ../../../../../../private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-delegation-review-_h5h2tno/mutated-probe.test.ts:262:1
+✖ 独立审查：组内追加来源替换为有效旧输入后恢复拒绝 (32.564416ms)
+  AssertionError [ERR_ASSERTION]: Missing expected rejection.
+      at async TestContext.<anonymous> (/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-delegation-review-_h5h2tno/mutated-probe.test.ts:268:52)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    operator: 'rejects',
+    diff: 'simple'
+  }

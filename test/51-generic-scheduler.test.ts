@@ -118,11 +118,17 @@ test("取消整项运行停止子任务与汇总，迟到新委派或消息被�
 });
 
 test("受限运行独立等待审批，主聊天继续响应，计划保存模式跨默认变化与重启不重算", async () => {
+  let stage = 0;
   const k = await kit(async (req) => {
     const input = lastUserText(req);
-    if (input.includes("RUN-APPROVAL") && !afterTool(req)) return { kind: "tool_calls", calls: [{ id: "notify", name: "notification_enqueue", arguments: {
-      content: [{ kind: "text", text: "APPROVED-ONE" }], reason: "执行明确发送要求",
-    } }] };
+    if (input.includes("RUN-APPROVAL")) {
+      const action = [
+        { name: "app_data_define_table", arguments: { table: "todos", fields: [{ name: "title", type: "text" }], expected_schema_version: 0, reason: "建表" } },
+        { name: "app_data_insert", arguments: { table: "todos", records: [{ title: "一" }, { title: "二" }], reason: "准备审批资料" } },
+        { name: "app_data_delete", arguments: { table: "todos", rows: [{ id: 1, expected_version: 1 }, { id: 2, expected_version: 1 }], reason: "删除两行需要审批" } },
+      ][stage++];
+      if (action) return { kind: "tool_calls", calls: [{ id: `call-${stage}`, ...action }] };
+    }
     return { kind: "text", text: input.includes("MAIN-RESPOND") ? "MAIN-RESPONDED" : "RUN-DONE" };
   });
   let rt = k.runtime;
@@ -133,6 +139,7 @@ test("受限运行独立等待审批，主聊天继续响应，计划保存模�
     await k.fire();
     const run = rt.sched.listRuns(plan.id, 1)[0]!;
     await waitFor("调度请求审批", () => rt.store.getTask(run.rootTaskId!)!.status === "awaiting_confirmation");
+    assert.equal(rt.store.listConfirmationsByTask(run.rootTaskId!)[0]!.toolName, "app_data_delete");
     assert.equal(rt.store.getTask(run.rootTaskId!)!.accessMode, "confirm");
     const chat = await rt.submit({ sessionId: main.id, requestId: "chat", input: "MAIN-RESPOND", modelSelection: rt.defaultSelection });
     await waitFor("主聊天响应", () => rt.store.getTask(chat.id)!.status === "completed");
@@ -264,34 +271,7 @@ test("退出未核实占用阻止整项关闭与下轮重叠，核实后保留�
   } finally { await k.shutdown(); }
 });
 
-test("运行通过 schedule_cancel 取消自身：工具返回后停止，不等待自己的 SDK abort", { timeout: 5_000 }, async () => {
-  let planId = "";
-  const k = await kit((req) => {
-    if (lastUserText(req).includes("SELF-CANCEL") && !afterTool(req)) return { kind: "tool_calls", calls: [{ id: "cancel", name: "schedule_cancel", arguments: {
-      schedule_id: planId, expected_version: 1, reason: "本任务取消自己的后续执行",
-    } }] };
-    return { kind: "text", text: "SELF-CANCEL-RETURNED" };
-  });
-  try {
-    const plan = k.plan("SELF-CANCEL");
-    planId = plan.id;
-    await k.fire();
-    const run = k.runtime.sched.listRuns(plan.id, 1)[0]!;
-    await waitFor("自身取消工具返回并收尾", () => {
-      const root = k.runtime.store.getTask(run.rootTaskId!)!;
-      return root.status === "canceled" && k.runtime.store.listToolOpsByTask(root.id).some((op) => op.toolName === "schedule_cancel" && op.resultSummary !== null);
-    }, 3_000);
-    await k.settle();
-    assert.equal(k.runtime.sched.getRun(run.id)!.resultStatus, "canceled");
-    k.clock.now += 24 * 60 * 60_000;
-    await k.settle();
-    assert.equal(k.runtime.sched.listRuns(plan.id, 10).length, 1);
-    assert.equal(k.reports.length, 0);
-  } finally { await k.shutdown(); }
-});
-
-test("自身取消停止未核实：工具返回、task中断及占用可见，运行继续开放等待核实", { timeout: 5_000 }, async () => {
-  let planId = "";
+test("宿主取消停止未核实：task中断及占用可见，运行继续开放等待核实", { timeout: 5_000 }, async () => {
   let entered = false;
   let release!: () => void;
   const gate = new Promise<void>((resolve) => { release = resolve; });
@@ -299,27 +279,25 @@ test("自身取消停止未核实：工具返回、task中断及占用可见，�
     if (lastUserText(req).includes("SELF-UNKNOWN") && !afterTool(req)) {
       entered = true;
       await gate;
-      return { kind: "tool_calls", calls: [{ id: "cancel", name: "schedule_cancel", arguments: {
-        schedule_id: planId, expected_version: 1, reason: "取消本运行",
-      } }] };
+      return { kind: "text", text: "取消后迟到的结果" };
     }
-    return { kind: "text", text: "工具已返回" };
+    return { kind: "text", text: "运行结果" };
   });
   try {
     const plan = k.plan("SELF-UNKNOWN");
-    planId = plan.id;
     await k.fire();
     const run = k.runtime.sched.listRuns(plan.id, 1)[0]!;
     await waitFor("模型已进入任务", () => entered);
     const drivers = Reflect.get(k.runtime, "drivers") as Map<string, Driver>;
     drivers.get(run.sessionId!)!.stopManagedProcesses = async () => false;
+    const canceled = await k.runtime.scheduleCancel({ scheduleId: plan.id, expectedVersion: plan.version, reason: "取消本运行" });
+    assert.equal(canceled.status, "canceled");
     release();
     await waitFor("停止未核实的持久终态", () => ["canceled", "interrupted"].includes(k.runtime.store.getTask(run.rootTaskId!)!.status), 3_000);
     await k.settle();
     assert.equal(k.runtime.sched.getRun(run.id)!.closedAt, null);
     assert.ok(k.runtime.scheduleGet(plan.id).runs[0]!.stopUnverifiedTaskIds.includes(run.rootTaskId!));
     assert.equal(k.runtime.store.getTask(run.rootTaskId!)!.cancelRequested, true);
-    assert.ok(k.runtime.store.listToolOpsByTask(run.rootTaskId!).some((op) => op.toolName === "schedule_cancel" && op.resultSummary !== null));
     assert.equal(k.reports.length, 0);
   } finally { release(); await k.shutdown(); }
 });

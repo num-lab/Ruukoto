@@ -1,0 +1,11 @@
+✔ 完全访问无持久 tracking 时在平台前置探测前拒绝 (0.78175ms)
+[ruukoto:personal] command_permission_unavailable：原命令权限无法读取，模型仅收到停止提示。
+✔ 命令权限提示：缺工作及读取失败覆盖旧完全访问说明，主会话不渲染子权限 (1056.753542ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1729.232042

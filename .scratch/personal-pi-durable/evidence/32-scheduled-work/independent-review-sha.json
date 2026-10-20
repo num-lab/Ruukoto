@@ -1,0 +1,128 @@
+[
+  {
+    "name": "personal-scheduler-records.ts",
+    "current_source_sha256": "e43c22ac51b73d864eeb839944575e344c36722c4bc5ccea286ee67a5b73f9e6",
+    "same": true,
+    "source": "/tmp/ruukoto-32-core-audit-1018/apps/ruukoto/src/personal-scheduler-records.ts",
+    "wide_test_sha256": "e43c22ac51b73d864eeb839944575e344c36722c4bc5ccea286ee67a5b73f9e6",
+    "reviewed_final_sha256": "e43c22ac51b73d864eeb839944575e344c36722c4bc5ccea286ee67a5b73f9e6",
+    "final_verification": "54/54 snapshot"
+  },
+  {
+    "name": "personal-scheduler.ts",
+    "current_source_sha256": "a7bef953cd14b7d8be047325feac0dd412c3226816612e74c1532ba49c525afb",
+    "same": true,
+    "source": "/tmp/ruukoto-32-core-audit-1018/apps/ruukoto/src/personal-scheduler.ts",
+    "wide_test_sha256": "8fc7a17486a097692c736f4a34ee45b21108e1857f186791fd2320c24f495403",
+    "reviewed_final_sha256": "a7bef953cd14b7d8be047325feac0dd412c3226816612e74c1532ba49c525afb",
+    "final_verification": "4/4 cross-period boundary plus static delta review"
+  },
+  {
+    "name": "personal-scheduler-tools.ts",
+    "current_source_sha256": "cca8b9fe7bf1f22abe76f4c45bd28a9dba240d2726e77b819f192ebbb6d9ee38",
+    "same": true,
+    "source": "/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-scheduler-tools.ts",
+    "wide_test_sha256": "cca8b9fe7bf1f22abe76f4c45bd28a9dba240d2726e77b819f192ebbb6d9ee38",
+    "reviewed_final_sha256": "cca8b9fe7bf1f22abe76f4c45bd28a9dba240d2726e77b819f192ebbb6d9ee38",
+    "final_verification": "54/54 snapshot"
+  },
+  {
+    "name": "personal-scheduler-controls.ts",
+    "current_source_sha256": "853b7277bd42bba06d1f1efe6d8382a400a010011b5255dba531741ff7ac80e8",
+    "same": true,
+    "source": "/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-scheduler-controls.ts",
+    "wide_test_sha256": "853b7277bd42bba06d1f1efe6d8382a400a010011b5255dba531741ff7ac80e8",
+    "reviewed_final_sha256": "853b7277bd42bba06d1f1efe6d8382a400a010011b5255dba531741ff7ac80e8",
+    "final_verification": "54/54 snapshot"
+  },
+  {
+    "name": "personal-scheduler-cli.ts",
+    "current_source_sha256": "6d940995b6f8713e3e643ad1ca72ed90d15262d25ca2deaadbe7b61e8aa4699f",
+    "same": true,
+    "source": "/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-scheduler-cli.ts",
+    "wide_test_sha256": "6d940995b6f8713e3e643ad1ca72ed90d15262d25ca2deaadbe7b61e8aa4699f",
+    "reviewed_final_sha256": "6d940995b6f8713e3e643ad1ca72ed90d15262d25ca2deaadbe7b61e8aa4699f",
+    "final_verification": "54/54 snapshot"
+  },
+  {
+    "name": "personal-control.ts",
+    "current_source_sha256": "e77467ca472032d170c82ddaabbd82d631658a347254dba4f3ed5d6848a2fb4b",
+    "same": true,
+    "source": "/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-control.ts",
+    "wide_test_sha256": "e77467ca472032d170c82ddaabbd82d631658a347254dba4f3ed5d6848a2fb4b",
+    "reviewed_final_sha256": "e77467ca472032d170c82ddaabbd82d631658a347254dba4f3ed5d6848a2fb4b",
+    "final_verification": "54/54 snapshot"
+  },
+  {
+    "name": "personal-cli.ts",
+    "current_source_sha256": "bdaca60028a24f9ea14252ce782aa9a3224f96bd6c3ab7e235e367ef6954f8dd",
+    "same": true,
+    "source": "/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-cli.ts",
+    "wide_test_sha256": "bdaca60028a24f9ea14252ce782aa9a3224f96bd6c3ab7e235e367ef6954f8dd",
+    "reviewed_final_sha256": "bdaca60028a24f9ea14252ce782aa9a3224f96bd6c3ab7e235e367ef6954f8dd",
+    "final_verification": "54/54 snapshot"
+  },
+  {
+    "name": "personal-harness.ts",
+    "current_source_sha256": "0a30c9cbcb849fc590a96b60ac7b4af8807fd9d0292d33a1d2128dd1f7ea9364",
+    "same": true,
+    "source": "/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-harness.ts",
+    "wide_test_sha256": "af6ec64cfcca2ccc4b78224b5ab5fe6dc740ff7d1dc8f114cf463fe4900bb07c",
+    "reviewed_final_sha256": "0a30c9cbcb849fc590a96b60ac7b4af8807fd9d0292d33a1d2128dd1f7ea9364",
+    "final_verification": "static one-line ROOT extension guard review after 54/54"
+  },
+  {
+    "name": "personal-schedule-authority.ts",
+    "current_source_sha256": "4d5a582003706a1bbd9944688e517ffdcc70f57fb00ccf44e1abf8fd0503af9e",
+    "same": true,
+    "source": "/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-schedule-authority.ts",
+    "wide_test_sha256": "4d5a582003706a1bbd9944688e517ffdcc70f57fb00ccf44e1abf8fd0503af9e",
+    "reviewed_final_sha256": "4d5a582003706a1bbd9944688e517ffdcc70f57fb00ccf44e1abf8fd0503af9e",
+    "final_verification": "54/54 snapshot"
+  },
+  {
+    "name": "personal-schedule-execution.ts",
+    "current_source_sha256": "634027a64d416a9084ff8f01b637cff6a0a24e2784dc5e9dc233cc2a291edf75",
+    "same": true,
+    "source": "/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-schedule-execution.ts",
+    "wide_test_sha256": "634027a64d416a9084ff8f01b637cff6a0a24e2784dc5e9dc233cc2a291edf75",
+    "reviewed_final_sha256": "634027a64d416a9084ff8f01b637cff6a0a24e2784dc5e9dc233cc2a291edf75",
+    "final_verification": "54/54 snapshot"
+  },
+  {
+    "name": "personal-schedule-scope.ts",
+    "current_source_sha256": "ef588e13252f60f0d4dba0a06d8e142eacfe1a6d36fa471d27b1565ccb65c745",
+    "same": true,
+    "source": "/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-schedule-scope.ts",
+    "wide_test_sha256": "ef588e13252f60f0d4dba0a06d8e142eacfe1a6d36fa471d27b1565ccb65c745",
+    "reviewed_final_sha256": "ef588e13252f60f0d4dba0a06d8e142eacfe1a6d36fa471d27b1565ccb65c745",
+    "final_verification": "54/54 snapshot"
+  },
+  {
+    "name": "personal-source.ts",
+    "current_source_sha256": "2f7bb23334985c711a5adacfa23cdb29e3386dab6203c1c5bc82714c0dc4652c",
+    "same": true,
+    "source": "/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-source.ts",
+    "wide_test_sha256": "2f7bb23334985c711a5adacfa23cdb29e3386dab6203c1c5bc82714c0dc4652c",
+    "reviewed_final_sha256": "2f7bb23334985c711a5adacfa23cdb29e3386dab6203c1c5bc82714c0dc4652c",
+    "final_verification": "54/54 snapshot"
+  },
+  {
+    "name": "personal-tool-source.ts",
+    "current_source_sha256": "1c9b0648ab26001944a0dbee288006fdb4faebdad670f1bf7e391656929e9d63",
+    "same": true,
+    "source": "/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-tool-source.ts",
+    "wide_test_sha256": "1c9b0648ab26001944a0dbee288006fdb4faebdad670f1bf7e391656929e9d63",
+    "reviewed_final_sha256": "1c9b0648ab26001944a0dbee288006fdb4faebdad670f1bf7e391656929e9d63",
+    "final_verification": "54/54 snapshot"
+  },
+  {
+    "name": "personal-work.ts",
+    "current_source_sha256": "b1f7a36e6eb20f21c8d1fadf9dc2343472f5e20c9579808934aba66c207e4dcd",
+    "same": true,
+    "source": "/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-work.ts",
+    "wide_test_sha256": "b1f7a36e6eb20f21c8d1fadf9dc2343472f5e20c9579808934aba66c207e4dcd",
+    "reviewed_final_sha256": "b1f7a36e6eb20f21c8d1fadf9dc2343472f5e20c9579808934aba66c207e4dcd",
+    "final_verification": "54/54 snapshot"
+  }
+]

@@ -1,0 +1,27 @@
+# 当前拥有者正文边界：独立方案审查
+
+2026-10-18，只读方案结论。此前笼统system来源事实及位置C对照均未产生新delegate或最终行为成功；不能把未完成的模型链记作修复通过。本报告没有发真实请求、修改根仓库或操作live。
+
+方案可行：沿用ROOT、正常personal系统section、唯一活动Submission和持久kind的门；只在本次input最后user与原source entry.model中的user逐对象深相等时确定其index，技能展开后在同位置的当前拥有者content加首尾宿主身份文字。原pi.user、receipt、历史、工具及权限不改写，报告保持原只读来源事实，未匹配时只保留基本来源说明。新增内容必须进入现有model-request input与实际payload。
+
+同时保留prefix和suffix有实际用途：前者把归属放在本轮内容开头，后者明确这条拥有者输入正文的终点，不依赖相邻历史user之间的视觉分隔。无需继续堆叠system位置句。宿主标签是归属说明，不是新的授权协议或对抗提示注入的安全边界；用户文本出现同样字符也不能决定持久来源。不能声称已证明provider合并消息，已有材料证明的是独立相邻user被模型误读。
+
+string直接以首尾文字包围。数组应创建新数组，在原parts前后各加一个text，原caption/text/image等逐项保留，不join、不stringify、不改MIME、图片引用、顺序或出现次数。只替换当前message对象，不就地改写原消息或source entry。显式skill先按原source判定位置，再包围已展开内容；SkillExpansion继续保存自己的原input/expanded，宿主包围留在请求证据，下一轮历史技能不保留上一轮标签。
+
+实际SDK的固定cutoff使已捕获input不被并发model-visible write/compaction改写，原personal section gate排除压缩本身。但工具边界可以放置排队write，onYield也能添加合成user而沿用run.inputs；因此不匹配fallback有必要，不能从唯一Submission直接推导最后user身份。
+
+## 最小回归范围
+
+1. 扩现有“失败参考→新owner”例：实际input和payload只在当前owner正文有完整首尾，原pi.user/receipt及旧report正文不变；report和child没有包围。保留旧门禁和无新权限断言。
+2. 扩现有并发compaction例：摘要system和序列化user均无包围，owner请求有包围；不另造压缩框架。
+3. 一个实际PersonalHarness显式skill例：原消息匹配后包围展开内容，原pi.user保留`/skill`原串，原Expansion不带宿主标签；下一轮历史技能不被继续标成本轮owner。
+4. 一个实际已绑定图片的产品例：user数组首尾text，中间原parts逐项深相等；实际Responses payload中的图片位置/数量与imageMappings不变，落盘仍只有原引用，没有base64。既有三API媒体叶例可复用，不需身份×API全乘积。
+5. 一个真实SDK write fallback例：首轮owner请求由Mock gate留住并返回安全history_search工具；期间提交model-visible synthetic-user write。工具边界放置write后run.inputs仍是原owner，第二轮最后user与source不匹配，必须不包围synthetic user，仅保留基本来源事实。这直接覆盖合法实际路径，不需新增生产hook或测试purpose字段。
+
+## 夹具影响
+
+所有root pi.user统一包围会改变现有MockModelServer脚本读取的字符串；reports的`args:`、browser的`tool:`和多个正文等值responder会失配。这是测试输入协议适配成本，不能通过删除门禁测试或让真实记录隐藏包围来绕过。
+
+若复用测试辅助适配，应只给脚本responder一个明确的正文视图，实际`calls`、raw payload、请求快照和新边界断言继续保留真实包围内容。不能全局改写已经记录的输入以让回归假绿，也不在生产增加测试用去标记协议。具体最小实现由主写入者按实际受影响夹具选择，方案不要求新模块或通用框架。
+
+真实模型对照仍应有明确预算，先证明在相同旧历史下模型看见的新包围和原正文逐字一致；新/未知工具意图只记录不执行。单次看到新delegate意图也只证明这一轮理解，不能代替真实新消息到工作、停止、固定原入口报告的完整验收。

@@ -1,0 +1,18 @@
+✔ 工具已产生标记但未记录结果时崩溃：中断保留事实，不重放，排队不自动启动 (6176.505334ms)
+✔ 首次 assistant 消息前崩溃：不宣布消息已持久化，请求保留，历史不伪造 (3295.642667ms)
+✔ CLI：set-session-mode、submit --mode plan 与 continue --mode plan 使用同一可信选择 (5342.99725ms)
+✔ PTY：Coding Agent /compact 中文指引、真实反馈与退出后的持久结果 (12033.937125ms)
+✔ PTY：工作流逐层启动与日志、宽窄缩放和 Tab 聊天均保留后台运行 (30978.616ms)
+✔ PTY：80×24 布局、中文输入、流式输出、Ctrl+C 退出后终端恢复且任务继续 (31534.213167ms)
+✔ mcp：后台崩溃重启 —— 在途调用标 effect_unknown，不重放 (4452.491292ms)
+✔ mcp 写：崩溃重启 —— 已消费的在途写调用标 effect_unknown，不重放 (4498.692042ms)
+✔ mcp 写：崩溃重启 —— 审批待决未消费 = 已知未执行，不标 effect_unknown (3209.045958ms)
+✔ CLI submit：后台明确拒绝时打印「提交被拒绝」，不再提示按原键核实 (1871.679292ms)
+ℹ tests 10
+ℹ suites 0
+ℹ pass 10
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 76132.379666

@@ -1,0 +1,10 @@
+{
+  "command": [
+    "ssh",
+    "tx",
+    "python3 -c '\nimport pathlib,json,hashlib,datetime,sys\nroot=pathlib.Path(sys.argv[1]);repo=root/'\"'\"'repo'\"'\"';m=json.loads((root/'\"'\"'input-manifest.json'\"'\"').read_text());overlay=json.loads((root/'\"'\"'logs/input-overlay.json'\"'\"').read_text());items=[]\nfor x in m:\n if not (x['\"'\"'path'\"'\"'].startswith('\"'\"'apps/ruukoto/src/personal-'\"'\"') or x['\"'\"'path'\"'\"'].startswith('\"'\"'test/personal-'\"'\"')):continue\n expected=overlay['\"'\"'sha256'\"'\"'] if x['\"'\"'path'\"'\"']==overlay['\"'\"'path'\"'\"'] else x['\"'\"'sha256'\"'\"'];actual=hashlib.sha256((repo/x['\"'\"'path'\"'\"']).read_bytes()).hexdigest();items.append({'\"'\"'path'\"'\"':x['\"'\"'path'\"'\"'],'\"'\"'expectedSha256'\"'\"':expected,'\"'\"'actualSha256'\"'\"':actual,'\"'\"'matches'\"'\"':actual==expected})\nresult={'\"'\"'checkedAt'\"'\"':datetime.datetime.now(datetime.timezone.utc).isoformat(),'\"'\"'allMatch'\"'\"':all(x['\"'\"'matches'\"'\"'] for x in items),'\"'\"'files'\"'\"':items};(root/'\"'\"'logs/final-runtime-input-check.json'\"'\"').write_text(json.dumps(result,ensure_ascii=False,indent=2)+'\"'\"'\\n'\"'\"');print(json.dumps({'\"'\"'files'\"'\"':len(items),'\"'\"'allMatch'\"'\"':result['\"'\"'allMatch'\"'\"']}));assert result['\"'\"'allMatch'\"'\"']\n' /tmp/ruukoto-work-controls-20261017T040936Z-he27jsp3"
+  ],
+  "exitCode": 0,
+  "started": "2026-10-17T04:16:11.391891+00:00",
+  "ended": "2026-10-17T04:16:11.733955+00:00"
+}

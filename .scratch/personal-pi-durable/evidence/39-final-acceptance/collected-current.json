@@ -1,0 +1,277 @@
+{
+  "files": [
+    {
+      "path": "native-protection/author-delivery.json",
+      "source": "/tmp/ruukoto39-native-batch-delivery.json",
+      "sha256": "23f083a2578436a499691cd0d43b60bbd0af444d4a82f232c7dc7db96d1237a3",
+      "bytes": 16299
+    },
+    {
+      "path": "native-protection/author-ruukoto39-native-batch-setup.log.gz",
+      "source": "/tmp/ruukoto39-native-batch-setup.log",
+      "sha256": "c85d9c48658e6de9f9ae2fecaaaceacfe37cc20ac970ab54256c464619c51582",
+      "bytes": 857
+    },
+    {
+      "path": "native-protection/author-ruukoto39-native-batch-build.log.gz",
+      "source": "/tmp/ruukoto39-native-batch-build.log",
+      "sha256": "84aca2c264b76b2d248f9725a61e9f8a7c7d65bb799c60ae8bb2f275b6fd987f",
+      "bytes": 1349
+    },
+    {
+      "path": "native-protection/author-ruukoto39-native-batch-boundary-before.log.gz",
+      "source": "/tmp/ruukoto39-native-batch-boundary-before.log",
+      "sha256": "ebcf2863d702dc37d828be6dca808d0f95ed921b65839b1f182499adeb0784c3",
+      "bytes": 1020
+    },
+    {
+      "path": "native-protection/author-ruukoto39-native-batch-boundary-after.log.gz",
+      "source": "/tmp/ruukoto39-native-batch-boundary-after.log",
+      "sha256": "4bca1af180bd84144b0bfb6410d244848aa77c0c229a674440c6357903350083",
+      "bytes": 493
+    },
+    {
+      "path": "native-protection/author-ruukoto39-native-batch-root-read-before.log.gz",
+      "source": "/tmp/ruukoto39-native-batch-root-read-before.log",
+      "sha256": "5efd3aa9bcb96bbf000bc4e4b3bf223301eec14ddb8804b95041f2af4478da85",
+      "bytes": 914
+    },
+    {
+      "path": "native-protection/author-ruukoto39-native-batch-root-read-after.log.gz",
+      "source": "/tmp/ruukoto39-native-batch-root-read-after.log",
+      "sha256": "9da672797f3558dfa396a38d4b25f7aee592998ee81e1646b743850ceb9b730f",
+      "bytes": 561
+    },
+    {
+      "path": "native-protection/author-ruukoto39-native-batch-regression.log.gz",
+      "source": "/tmp/ruukoto39-native-batch-regression.log",
+      "sha256": "1740f834f48897be4afad6cfb348059fb6fe58f506ef7a382ec4b5499ab45323",
+      "bytes": 4422
+    },
+    {
+      "path": "native-protection/author-ruukoto39-native-batch-worker-final.log.gz",
+      "source": "/tmp/ruukoto39-native-batch-worker-final.log",
+      "sha256": "c03462a0dcad0e1622d8d534d99536a9f2bbf0f99b49b0e64a0139bf1a3d7e10",
+      "bytes": 250
+    },
+    {
+      "path": "native-protection/author-ruukoto39-native-batch-static-final.log.gz",
+      "source": "/tmp/ruukoto39-native-batch-static-final.log",
+      "sha256": "9bfb2b7b2ecb76024ff217224d9dad59f7c4394ff671678b4f8695e2591eae3c",
+      "bytes": 254
+    },
+    {
+      "path": "native-protection/author-ruukoto39-native-batch-static-final-fixed.log.gz",
+      "source": "/tmp/ruukoto39-native-batch-static-final-fixed.log",
+      "sha256": "3f517395a8bbb8d35dda6943ed4e16c46a8c0c619042690dcde3c30f85422db3",
+      "bytes": 616
+    },
+    {
+      "path": "native-protection/author-ruukoto39-native-batch-final-targeted.log.gz",
+      "source": "/tmp/ruukoto39-native-batch-final-targeted.log",
+      "sha256": "8b1859e7e07002693f90386f53dacb3928342d5f8bf8256e86cd88a3e3868590",
+      "bytes": 1247
+    },
+    {
+      "path": "native-protection/ruukoto39-coding-audit-native-batch-baseline-load-summary.json",
+      "source": "/tmp/ruukoto39-coding-audit-native-batch-baseline-load-summary.json",
+      "sha256": "a1bf9fc4bde61a7b2ea088cc986e801a0766a72d024655663c6d588ac9332d15",
+      "bytes": 1783
+    },
+    {
+      "path": "native-protection/ruukoto39-coding-audit-native-batch-baseline-load-1.log.gz",
+      "source": "/tmp/ruukoto39-coding-audit-native-batch-baseline-load-1.log",
+      "sha256": "86404880227819ad4759b5e60e56bfc30f1544a409b628847c4af71830fbf704",
+      "bytes": 489
+    },
+    {
+      "path": "native-protection/ruukoto39-coding-audit-native-batch-baseline-load-2.log.gz",
+      "source": "/tmp/ruukoto39-coding-audit-native-batch-baseline-load-2.log",
+      "sha256": "87f4df12c80a2ecac409a77ccc7b836cd6f12bc105849732bb0a449b0dece735",
+      "bytes": 488
+    },
+    {
+      "path": "native-protection/ruukoto39-coding-audit-native-batch-patched-load-summary.json",
+      "source": "/tmp/ruukoto39-coding-audit-native-batch-patched-load-summary.json",
+      "sha256": "60aeb444468236c1c50f3617d7f5a67aa01bde6c41e7b117e86e3314ab69a3c0",
+      "bytes": 1779
+    },
+    {
+      "path": "native-protection/ruukoto39-coding-audit-native-batch-patched-load-1.log.gz",
+      "source": "/tmp/ruukoto39-coding-audit-native-batch-patched-load-1.log",
+      "sha256": "74d87091364a6043cc520042d19f5362667eb1424a37442fadc5f85ecb2c850b",
+      "bytes": 243
+    },
+    {
+      "path": "native-protection/ruukoto39-coding-audit-native-batch-patched-load-2.log.gz",
+      "source": "/tmp/ruukoto39-coding-audit-native-batch-patched-load-2.log",
+      "sha256": "59f1ebf83580f034af583d9ea3c21adda695f161d87c9678d258a3eb787a221c",
+      "bytes": 243
+    },
+    {
+      "path": "native-protection/ruukoto39-coding-audit-native-batch-final-load-summary.json",
+      "source": "/tmp/ruukoto39-coding-audit-native-batch-final-load-summary.json",
+      "sha256": "682db3ff90b526dbddd26fadea7090cbf7b17b08b3568fb551e0e8f417bc36d5",
+      "bytes": 1775
+    },
+    {
+      "path": "native-protection/ruukoto39-coding-audit-native-batch-final-load-1.log.gz",
+      "source": "/tmp/ruukoto39-coding-audit-native-batch-final-load-1.log",
+      "sha256": "0fcb25786953d4e5ea2ef9924b87b60d94296d50e205e6425425033c106e2d2d",
+      "bytes": 243
+    },
+    {
+      "path": "native-protection/ruukoto39-coding-audit-native-batch-final-load-2.log.gz",
+      "source": "/tmp/ruukoto39-coding-audit-native-batch-final-load-2.log",
+      "sha256": "63d25b707c33eea08b97ee2b504d3f86e651f70555da5552f0f2f14d2db5b803",
+      "bytes": 241
+    },
+    {
+      "path": "native-protection/ruukoto39-coding-audit-native-batch-final-v2-load-summary.json",
+      "source": "/tmp/ruukoto39-coding-audit-native-batch-final-v2-load-summary.json",
+      "sha256": "fb8d5e5c0406f5fc1594b73af15fe25846fc1f373934a21d55cf5f082904c59a",
+      "bytes": 1755
+    },
+    {
+      "path": "native-protection/ruukoto39-coding-audit-native-batch-final-v2-load-1.log.gz",
+      "source": "/tmp/ruukoto39-coding-audit-native-batch-final-v2-load-1.log",
+      "sha256": "d0435536990a9fad1f856ae3563fadda65036f70b14b9a1433589b85648a3a0e",
+      "bytes": 243
+    },
+    {
+      "path": "native-protection/ruukoto39-coding-audit-native-batch-final-v2-load-2.log.gz",
+      "source": "/tmp/ruukoto39-coding-audit-native-batch-final-v2-load-2.log",
+      "sha256": "f3317fd66e48a1579abe701f80c09b0824ac209fda7f00ff3bcb8fbed83a800b",
+      "bytes": 243
+    },
+    {
+      "path": "native-protection/native-batch.patch",
+      "source": "/tmp/ruukoto39-native-batch.patch",
+      "sha256": "6e72961295cdef84083158955b6ecc7320f024d4cc85a2dca29fc90c652c0b0c",
+      "bytes": 29353
+    },
+    {
+      "path": "native-protection/native-batch-clock-delta.patch",
+      "source": "/tmp/ruukoto39-native-batch-clock-delta.patch",
+      "sha256": "65069719570e326458659f27c08cd002b713814cbab8948f06ffc3e3ae320a50",
+      "bytes": 1091
+    },
+    {
+      "path": "native-protection/native-batch-review.md",
+      "source": "/tmp/ruukoto39-native-batch-review.md",
+      "sha256": "0007d0cfa799a5925ee07d8342f9bac3585238c2889f2600e914ae7e01139997",
+      "bytes": 4139
+    },
+    {
+      "path": "native-protection/qq-host-review.md",
+      "source": "/tmp/ruukoto39-qq-host-review.md",
+      "sha256": "ab327f43f3102d51d0aa5c1895cc0951a3df04324edd35a4bc54cea777bf8d9c",
+      "bytes": 2095
+    },
+    {
+      "path": "native-protection/dir-clock-linux.json",
+      "source": "/tmp/ruukoto39-dir-clock-linux.json",
+      "sha256": "3d8e5b3a770237e784e49095dca8c830d0a3bc59c5a52adb43004f851704c5fa",
+      "bytes": 1327
+    },
+    {
+      "path": "native-protection/stop-unattributed-analysis.md",
+      "source": "/tmp/ruukoto39-stop-unattributed-analysis.md",
+      "sha256": "649062c7a9b90cc2441aeddadced00eaca4ce5231c59b8c5a0d20c7944aae374",
+      "bytes": 7214
+    },
+    {
+      "path": "native-protection/stop-unattributed-manifest.json",
+      "source": "/tmp/ruukoto39-stop-unattributed-manifest.json",
+      "sha256": "25658bd6e65c63893a854a660b79e39e41439cffd75929d84f30f0a8abec215a",
+      "bytes": 2830
+    },
+    {
+      "path": "macos/integrated-build-worker.log.gz",
+      "source": "/tmp/ruukoto39-integrated-build-worker.log",
+      "sha256": "92c5fad9256246c681bc3967db1e290b71143df3943836e693d3b209d692d7bd",
+      "bytes": 251
+    },
+    {
+      "path": "macos/integrated-static.log.gz",
+      "source": "/tmp/ruukoto39-integrated-static.log",
+      "sha256": "3f517395a8bbb8d35dda6943ed4e16c46a8c0c619042690dcde3c30f85422db3",
+      "bytes": 616
+    },
+    {
+      "path": "macos/integrated-native.log.gz",
+      "source": "/tmp/ruukoto39-integrated-native.log",
+      "sha256": "cb28aec73fbfa81ccf071d59269b0129fae4741df96f5cbf1ac601b5deb5d295",
+      "bytes": 2296
+    },
+    {
+      "path": "macos/integrated-batch-clock.log.gz",
+      "source": "/tmp/ruukoto39-integrated-batch-clock.log",
+      "sha256": "3ef71c2d265e53861ae0a223134ecc0eb34555fdd996b9b46e60b72ab3f37257",
+      "bytes": 552
+    },
+    {
+      "path": "macos/result-page-red.log.gz",
+      "source": "/tmp/ruukoto39-result-page-red.log",
+      "sha256": "d1c0d7b0ff87ee3f8b09b22436a559b1b2d14bb0671ed8d4b05235d398e8b8c1",
+      "bytes": 2874
+    },
+    {
+      "path": "macos/result-page-green.log.gz",
+      "source": "/tmp/ruukoto39-result-page-green.log",
+      "sha256": "6afcbc950fefc31febcaeacfef396081a8b2b56c9cdf8169ca8ad25f657bcc02",
+      "bytes": 2326
+    },
+    {
+      "path": "macos/page-static.log.gz",
+      "source": "/tmp/ruukoto39-page-static.log",
+      "sha256": "3f517395a8bbb8d35dda6943ed4e16c46a8c0c619042690dcde3c30f85422db3",
+      "bytes": 616
+    },
+    {
+      "path": "macos/qq-host-final-exact.log.gz",
+      "source": "/tmp/ruukoto39-qq-host-final-exact.log",
+      "sha256": "dbb42a314ecd265071549b607b172f15db9acf43d27c493803986fbfecd05a65",
+      "bytes": 224
+    },
+    {
+      "path": "business/preparation.md",
+      "source": "/tmp/ruukoto39-business-preparation.md",
+      "sha256": "57b2ba08dff910b48d2ecfa04bfb519cfe92e022cda39b75af0e26d7cd79ba0e",
+      "bytes": 4740
+    },
+    {
+      "path": "business/preparation.json",
+      "source": "/tmp/ruukoto39-business-preparation.json",
+      "sha256": "be0ba343eae24eb2b131757f30403878875614b544ecff6732852b36ebc4a6e8",
+      "bytes": 20976
+    },
+    {
+      "path": "business/preparation-evidence.tar.gz",
+      "source": "/tmp/ruukoto39-business-preparation-evidence.tar.gz",
+      "sha256": "bbd12fb3487cca31daf16a8944c7114c51373fe47d93c16f223eef5aa3316f75",
+      "bytes": 18564
+    },
+    {
+      "path": "linux/native-file-bind.mjs",
+      "source": "/tmp/ruukoto39-native-file-bind.mjs",
+      "sha256": "f60a856736db86bc518838cce77adbe4102af1248f0fa513aa18ec1d224b7f54",
+      "bytes": 1107
+    },
+    {
+      "path": "linux/native-file-bind.sh",
+      "source": "/tmp/ruukoto39-native-file-bind.sh",
+      "sha256": "e1627212517a2cd6c8479b81b6f9cbd629075ce6fe8655456cd0f859b24c3cb6",
+      "bytes": 727
+    },
+    {
+      "path": "linux/final-native24.log.gz",
+      "source": "/tmp/ruukoto39-final-linux-native24.log",
+      "sha256": "d1c2bb46a70ec5a1f317e0b10512eab8d6f59ae4bf6f6eea7dee19122208d1bd",
+      "bytes": 2134
+    }
+  ],
+  "secretVariants": 9,
+  "matchedFiles": 0,
+  "archiveInteriorScans": "报告与业务归档分别由各自准备清单持有；此扫描只检查本批原文件字节。"
+}

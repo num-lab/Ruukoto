@@ -1,6 +1,6 @@
 # Linux 原生沙箱前置
 
-此目录提供 Ubuntu 24.04 的 bubblewrap 安装与 AppArmor 配置。两个产品的正式受限执行均默认且只接受 native，任务启动器不安装依赖或调整系统策略；原生启动失败报告不可用，不回退。个人后台的系统服务、user manager 常驻与运行环境按[服务器部署](../systemd/README.md)配置。
+此目录提供 Ubuntu 24.04 的 bubblewrap 安装与 AppArmor 配置。Coding 受限执行和个人 Linux 命令均使用原生边界，任务启动器不安装依赖或调整系统策略；原生启动失败报告不可用，不回退。个人后台的系统服务、user manager 常驻与运行环境按[服务器部署](../systemd/README.md)配置。
 
 ## 安装
 
@@ -32,9 +32,9 @@ python3 verification/foundation/scripts/native-isolation/linux-native-probes.py 
 
 ## 从容器配置迁移
 
-两个产品的迁移均先用旧版本停止后台，并按实例核实旧执行单元退出；未核实则保留占用和现场，停止切换。核实后备份原配置与档案，再替换检出并安装依赖、运行 `npm run build`。保留工作副本、会话 JSONL、审批、产物和异常占用，不在线替换活动任务的环境；个人后台的完整升级与回退步骤见[服务器部署](../systemd/README.md#升级与回退)。后台只接受当前 schema 的档案，不提供旧库升级或回填，启动前按[操作手册](../../docs/usage.md)核实格式。
+升级先用原版本停止后台，并按实例核实旧执行单元退出；未核实则保留占用和现场，停止切换。核实后备份原配置与档案，再替换检出并安装依赖、运行 `npm run build`。保留工作副本、会话 JSONL、审批、产物和异常占用，不在线替换活动任务的环境；个人后台的完整升级与回退步骤见[服务器部署](../systemd/README.md#升级与回退)。Coding 核心库只接受当前 schema，不提供旧库升级或回填；个人迁入 durable 须重新配置空白档案，原档案只归档，不导入或恢复执行，见[操作手册](../../docs/usage.md)。
 
-`--execution container` / `local` 与 `RUUKOTO_EXECUTION_BACKEND=container` / `local` 在两个产品的正式入口明确拒绝；移除覆盖或显式改为 native，并移除旧 worker 镜像、容器 UID/GID 配置。完全访问直接使用启动后台账户，不要求原生沙箱、容器或专用执行入口。原生单元的独立临时 HOME/TMPDIR 使用宿主磁盘，不保留容器 `/tmp` 的 64 MiB 上限；停止核实后清理，未核实则保留。入口与故障排查见[操作手册](../../docs/usage.md)。
+Coding 的 `--execution container` / `local` 与 `RUUKOTO_EXECUTION_BACKEND=container` / `local` 明确拒绝；Coding 移除覆盖或显式改为 native，并移除旧 worker 镜像、容器 UID/GID 配置；新个人不读取这些旧执行参数，命令能力通过菜单配置。完全访问直接使用启动后台账户，不要求原生沙箱、容器或专用执行入口。原生单元的独立临时 HOME/TMPDIR 使用宿主磁盘，不保留容器 `/tmp` 的 64 MiB 上限；停止核实后清理，未核实则保留。入口与故障排查见[操作手册](../../docs/usage.md)。
 
 ## 移除
 

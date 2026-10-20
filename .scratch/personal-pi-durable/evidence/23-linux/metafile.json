@@ -1,0 +1,451 @@
+{
+  "inputs": {
+    "packages/agent/src/managed-processes.ts": {
+      "bytes": 4091,
+      "imports": [
+        {
+          "path": "node:child_process",
+          "kind": "import-statement",
+          "external": true
+        }
+      ],
+      "format": "esm"
+    },
+    "packages/agent/src/execution/launchers.ts": {
+      "bytes": 6600,
+      "imports": [
+        {
+          "path": "node:child_process",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:url",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "packages/agent/src/managed-processes.ts",
+          "kind": "import-statement",
+          "original": "../managed-processes.ts"
+        },
+        {
+          "path": "packages/agent/src/execution/native.ts",
+          "kind": "import-statement",
+          "original": "./native.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "packages/agent/src/execution/approved-ops.ts": {
+      "bytes": 17593,
+      "imports": [
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:crypto",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:http",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:https",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:dns",
+          "kind": "import-statement",
+          "external": true
+        }
+      ],
+      "format": "esm"
+    },
+    "packages/agent/src/execution/native-macos.ts": {
+      "bytes": 8302,
+      "imports": [
+        {
+          "path": "node:child_process",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:stream",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "packages/agent/src/execution/launchers.ts",
+          "kind": "import-statement",
+          "original": "./launchers.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "packages/agent/src/execution/native-linux.ts": {
+      "bytes": 10986,
+      "imports": [
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:crypto",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:child_process",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:stream",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "packages/agent/src/execution/launchers.ts",
+          "kind": "import-statement",
+          "original": "./launchers.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "packages/agent/src/execution/native.ts": {
+      "bytes": 15899,
+      "imports": [
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:os",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:child_process",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:url",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "packages/agent/src/execution/launchers.ts",
+          "kind": "import-statement",
+          "original": "./launchers.ts"
+        },
+        {
+          "path": "packages/agent/src/execution/approved-ops.ts",
+          "kind": "import-statement",
+          "original": "./approved-ops.ts"
+        },
+        {
+          "path": "packages/agent/src/execution/native-macos.ts",
+          "kind": "import-statement",
+          "original": "./native-macos.ts"
+        },
+        {
+          "path": "packages/agent/src/execution/native-linux.ts",
+          "kind": "import-statement",
+          "original": "./native-linux.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "packages/agent/src/execution/native-linux-identity.ts": {
+      "bytes": 14012,
+      "imports": [
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:crypto",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:child_process",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "packages/agent/src/execution/launchers.ts",
+          "kind": "import-statement",
+          "original": "./launchers.ts"
+        },
+        {
+          "path": "packages/agent/src/execution/native-linux.ts",
+          "kind": "import-statement",
+          "original": "./native-linux.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "../../../../../../private/tmp/ruukoto-worker-23.rJsV2n/probe-entry.mjs": {
+      "bytes": 13815,
+      "imports": [
+        {
+          "path": "node:assert/strict",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:os",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:net",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:child_process",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:crypto",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:url",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:stream/promises",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "packages/agent/src/execution/native.ts",
+          "kind": "import-statement",
+          "original": "/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/packages/agent/src/execution/native.ts"
+        },
+        {
+          "path": "packages/agent/src/execution/native-linux-identity.ts",
+          "kind": "import-statement",
+          "original": "/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/packages/agent/src/execution/native-linux-identity.ts"
+        }
+      ],
+      "format": "esm"
+    }
+  },
+  "outputs": {
+    "../../../../../../tmp/ruukoto-worker-23.rJsV2n/source/packages/agent/src/execution/linux-probe.mjs": {
+      "imports": [
+        {
+          "path": "node:assert/strict",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:net",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:child_process",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:crypto",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:url",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:stream/promises",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:os",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:child_process",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:url",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:crypto",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:child_process",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:stream",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:crypto",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:child_process",
+          "kind": "import-statement",
+          "external": true
+        }
+      ],
+      "exports": [],
+      "entryPoint": "../../../../../../private/tmp/ruukoto-worker-23.rJsV2n/probe-entry.mjs",
+      "inputs": {
+        "../../../../../../private/tmp/ruukoto-worker-23.rJsV2n/probe-entry.mjs": {
+          "bytesInOutput": 14461
+        },
+        "packages/agent/src/execution/native.ts": {
+          "bytesInOutput": 13225
+        },
+        "packages/agent/src/execution/launchers.ts": {
+          "bytesInOutput": 229
+        },
+        "packages/agent/src/execution/approved-ops.ts": {
+          "bytesInOutput": 2433
+        },
+        "packages/agent/src/execution/native-linux.ts": {
+          "bytesInOutput": 10295
+        },
+        "packages/agent/src/execution/native-linux-identity.ts": {
+          "bytesInOutput": 12967
+        }
+      },
+      "bytes": 54047
+    }
+  }
+}

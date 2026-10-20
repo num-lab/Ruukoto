@@ -1,0 +1,35 @@
+{
+  "at": "2026-10-18T16:36:18.045662+00:00",
+  "reason": "earlier task-owned local proxy/tunnel were absent; remote QQ preflight offline",
+  "proxy": {
+    "proxyPid": 14192,
+    "proxyNode": "/Users/eitrous/.local/share/mise/installs/node/24.15.0/bin/node",
+    "scriptSha256": "e1ff3d6782c6957780325973a4400ec032ee410ecddb6dcad293b0d78d739d93",
+    "fixedUpstream": "api.telegram.org",
+    "port": 33141
+  },
+  "sshMasterPid": 18647,
+  "remoteLoopbackPorts": [
+    33139,
+    33140
+  ],
+  "localTargets": [
+    "127.0.0.1:3001",
+    "127.0.0.1:33141"
+  ],
+  "sshEarlierAttempts": "two closed before SSH server banner; later same target connection succeeded with per-process IPQoS=none; cause not uniquely attributed",
+  "hostSshConfigChanged": false,
+  "qqAfterRestoration": {
+    "enabled": true,
+    "receiving": true,
+    "online": true
+  },
+  "statusAfterRestoration": {
+    "tasks": 0,
+    "inputs": 0
+  },
+  "permissionsChanged": false,
+  "maintenanceModelRequests": 0,
+  "maintenanceImSends": 0,
+  "newOwnerInputNowRequested": true
+}

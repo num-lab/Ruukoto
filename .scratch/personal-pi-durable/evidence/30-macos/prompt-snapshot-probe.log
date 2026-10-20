@@ -1,0 +1,10 @@
+✔ 个人组合：browser仅主会话原完全访问输入可见，默认变化不扩旧排队输入或子工作 (229.67975ms)
+ℹ {"browserEstimates":{"restrictedMain":{"systemPrompt":51,"toolSchemas":637},"fullMain":{"systemPrompt":51,"toolSchemas":1106},"child":{"systemPrompt":38,"toolSchemas":1}}}
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1355.886125

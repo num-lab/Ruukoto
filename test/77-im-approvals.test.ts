@@ -1,4 +1,4 @@
-import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
+import { product as personalProduct } from "./helpers/legacy-product.ts";
 /**
  * agent-direction issue 08：绑定拥有者在 QQ 私聊 / Telegram 私聊完成审批。
  *

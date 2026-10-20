@@ -1,0 +1,9 @@
+✔ 受限运行独立等待审批，主聊天继续响应，计划保存模式跨默认变化与重启不重算 (341.668209ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2018.141208

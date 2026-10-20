@@ -1,0 +1,4 @@
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/vda2        40G   37G  623M  99% /
+tmpfs           1.9G   61M  1.8G   4% /dev/shm
+{"remainingDirectories": [], "remainingOwnedPids": []}

@@ -1,0 +1,63 @@
+
+  worker/worker.mjs  15.6kb
+
+⚡ Done in 11ms
+npm notice
+npm notice 📦  ruukoto@0.1.0
+npm notice Tarball Contents
+npm notice 580B bin/ruukoto.mjs
+npm notice 861B package.json
+npm notice 91B src/dev.ts
+npm notice 152B src/main.ts
+npm notice 21.6kB src/personal-cli.ts
+npm notice 1.8kB src/personal-config.ts
+npm notice 16.0kB src/personal-control.ts
+npm notice 438B src/personal-entry.ts
+npm notice 191B src/personal-error.ts
+npm notice 28.3kB src/personal-harness.ts
+npm notice 5.5kB src/personal-model.ts
+npm notice 4.7kB src/personal-permissions.ts
+npm notice 3.9kB src/personal-profile.ts
+npm notice 6.4kB src/personal-service-config.ts
+npm notice 38.9kB src/personal-service-operations.ts
+npm notice 6.9kB src/personal-services.ts
+npm notice 6.3kB src/personal-telegram-api.ts
+npm notice 4.2kB src/personal-telegram-config.ts
+npm notice 1.9kB src/personal-telegram-records.ts
+npm notice 16.3kB src/personal-telegram.ts
+npm notice 6.4kB src/personal-work-controls.ts
+npm notice 8.9kB src/personal-work-tools.ts
+npm notice 20.1kB src/personal-work.ts
+npm notice 1.8kB src/product.ts
+npm notice 22.3kB src/scheduler-tools.ts
+npm notice 8.2kB src/service-helper.ts
+npm notice 20.9kB src/service-tools.ts
+npm notice Tarball Details
+npm notice name: ruukoto
+npm notice version: 0.1.0
+npm notice filename: ruukoto-0.1.0.tgz
+npm notice package size: 67.8 kB
+npm notice unpacked size: 253.7 kB
+npm notice shasum: 92ed20bf1b8b0ab0e6ed0cf8e4c6f59d88320c76
+npm notice integrity: sha512-mxrmabgrwyZ6w[...]YKgbUUNm4jtZg==
+npm notice total files: 27
+npm notice
+npm notice
+npm notice 📦  ruukoto-code@0.1.0
+npm notice Tarball Contents
+npm notice 580B bin/ruukoto-code.mjs
+npm notice 575B package.json
+npm notice 96B src/dev.ts
+npm notice 80.3kB src/legacy-import.ts
+npm notice 152B src/main.ts
+npm notice 891B src/product.ts
+npm notice Tarball Details
+npm notice name: ruukoto-code
+npm notice version: 0.1.0
+npm notice filename: ruukoto-code-0.1.0.tgz
+npm notice package size: 23.1 kB
+npm notice unpacked size: 82.6 kB
+npm notice shasum: 5af04e561c9fbf84bf29f8237e3655e563ea5ed9
+npm notice integrity: sha512-XhLM4XOtSZg3y[...]FBbb4606oz4Rw==
+npm notice total files: 6
+npm notice

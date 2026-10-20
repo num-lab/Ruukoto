@@ -1,0 +1,10 @@
+✔ durable 服务：模型真实调用 inspect，原始字节和两工具定义可重建，证据读取不再访问服务 (172.59875ms)
+✔ durable 检查：无身份旧服务配置拒绝恢复且不触发 helper (17.760125ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 583.526542

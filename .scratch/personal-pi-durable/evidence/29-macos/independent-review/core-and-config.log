@@ -1,0 +1,24 @@
+✔ 资料配置：写盘失败保留待保存私有文件，再次保存可恢复 (2683.594583ms)
+✔ 资料配置：写盘失败保留原配置，再次保存可恢复 (2579.716542ms)
+✔ 资料配置：非法凭据host返回类型化错误，系统执行与设备路径明确排除 (0.34925ms)
+✔ durable 通用工具：主子会话沿目录权限读写，二进制产物分页与请求输入可重建 (16911.234333ms)
+✔ durable 自动审查：approve 使用无工具独立请求，落盘输入与实际payload一致 (12838.353833ms)
+✔ durable 自动审查：reject 使用无工具独立请求，落盘输入与实际payload一致 (10395.549042ms)
+✔ durable 自动审查：invalid 使用无工具独立请求，落盘输入与实际payload一致 (9667.534042ms)
+✔ durable 自动审查：failure 使用无工具独立请求，落盘输入与实际payload一致 (8986.246583ms)
+✔ durable 自动审查：length 使用无工具独立请求，落盘输入与实际payload一致 (9184.850458ms)
+✔ durable 自动审查：error 使用无工具独立请求，落盘输入与实际payload一致 (8134.024375ms)
+✔ durable 确认与资料授权：逐次批准消费一次，撤销后读取重新等待且旧批准失效 (18283.673666ms)
+✔ durable 产物：子会话不能读主会话产物，原字节损坏时恢复明确拒绝 (2541.1535ms)
+✔ durable HTTP：响应后观察提交前强杀，恢复不重发并暂停同来源新工作 (1621.694083ms)
+✔ durable 模型快照：主子三模式保留实际工具定义与启用前后估算 (42.563458ms)
+ℹ {"estimatedTokens":{"before":{"main":{"systemPrompt":51,"toolSchemas":521},"child":{"systemPrompt":38,"toolSchemas":1}},"after":{"auto-review":{"main":{"systemPrompt":51,"toolSchemas":1391},"child":{"systemPrompt":38,"toolSchemas":870}},"confirm":{"main":{"systemPrompt":51,"toolSchemas":1391},"child":{"systemPrompt":38,"toolSchemas":870}},"full_access":{"main":{"systemPrompt":51,"toolSchemas":1391},"child":{"systemPrompt":38,"toolSchemas":870}}}}}
+✔ durable HTTP：未知写入同时挡住同源 MCP 和新来源同端点调用 (617.209833ms)
+ℹ tests 15
+ℹ suites 0
+ℹ pass 15
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 100809.059959

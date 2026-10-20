@@ -1,3 +1,4 @@
+/** 旧共享工作流组合的回归，不代表新个人 durable 产品验收。 */
 import assert from "node:assert/strict";
 import * as http from "node:http";
 import * as path from "node:path";
@@ -23,7 +24,7 @@ if(answer.status==="completed" && answer.value==="record") {
 return {coverage,answer:answer.value};
 `;
 
-test("个人六输入命名工作流：实际搜索工具与应用数据、独立检查、单项 JSON 失败、等待聊天及唯一 IM 替身回报", async () => {
+test("旧共享装配六输入命名工作流：实际搜索工具与应用数据、独立检查、单项 JSON 失败、等待聊天及唯一 IM 替身回报", async () => {
   let release!: () => void;
   const gate = new Promise<void>(resolve => { release = resolve; });
   const queries: string[] = [];

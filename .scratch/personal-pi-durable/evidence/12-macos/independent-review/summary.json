@@ -1,0 +1,35 @@
+{
+  "base": "06488645e1d50ed48e50230459c484cc0b2ac17f",
+  "utc": "2026-10-17T04:41:29.610164+00:00",
+  "node": "v24.15.0",
+  "positive_tests": {
+    "command": "npx tsx --test test/personal-work-notes.test.ts test/personal-work-controls.test.ts test/personal-service-operations.test.ts",
+    "pass": 72,
+    "fail": 0,
+    "skipped": 0,
+    "log": "ruukoto-notes-review-tests.log"
+  },
+  "negative_test": {
+    "command": [
+      "node",
+      "--import",
+      "tsx",
+      "--test",
+      "--test-name-pattern=原回答 done 至 abort",
+      "test/personal-work-notes.test.ts"
+    ],
+    "cwd": "snapshot",
+    "exit_code": 1,
+    "log": "ignore-new-notes-test.log.gz",
+    "mutation": "ignore-new-notes.diff"
+  },
+  "workspace_inputs_unchanged": true,
+  "output": "/tmp/ruukoto-notes-independent-xe6ipwur",
+  "baseline_stop_test": {
+    "pass": 3,
+    "fail": 0,
+    "skipped": 0,
+    "log": "baseline-stop-test.log"
+  },
+  "review": "无未解决实现阻断；修复后首次接纳、模型来源核实、旧后台隔离路由及最终事务竞争反证通过。"
+}

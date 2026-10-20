@@ -112,11 +112,11 @@ test("错误情形 → help + error", () => {
 // ---- 进程级冒烟（不需要后台） ----
 
 async function runCli(args: string[], opts: { bin?: boolean; product?: "ruukoto" | "ruukoto-code"; env?: NodeJS.ProcessEnv } = {}): Promise<{ status: number; stdout: Buffer; stderr: string }> {
-  const product = opts.product ?? "ruukoto";
+  const product = opts.product ?? "ruukoto-code";
   const cmd = opts.bin ? process.execPath : tsxBin;
   const argv = opts.bin ? [path.join(repoRoot, "apps", product, "bin", `${product}.mjs`), ...args] : ["scripts/start.ts", ...args];
   return await new Promise((resolve, reject) => {
-    childProcess.execFile(cmd, argv, { cwd: repoRoot, env: opts.env, encoding: "buffer", timeout: 120_000 }, (error, stdout, stderr) => {
+    childProcess.execFile(cmd, argv, { cwd: repoRoot, env: { ...process.env, ...opts.env, RUUKOTO_PRODUCT: "ruukoto-code" }, encoding: "buffer", timeout: 120_000 }, (error, stdout, stderr) => {
       if (error && typeof error.code !== "number") { reject(error); return; }
       resolve({ status: error ? Number(error.code) : 0, stdout, stderr: stderr.toString("utf8") });
     });
@@ -154,7 +154,7 @@ test("进程：config 非 TTY 拒绝", async () => {
   assert.match(r.stderr, /TTY/);
 });
 
-test("进程：双产品完整导出超过 720 KiB 的 PNG；分页失败、元数据变化与坏图均保留原目标", async () => {
+test("进程：Coding 完整导出超过 720 KiB 的 PNG；分页失败、元数据变化与坏图均保留原目标", async () => {
   const t = await startTestRuntime("art-cli", async () => ({ kind: "text", text: "done" }), { config: { socketPath: undefined } });
   const query = t.runtime.queryArtifact.bind(t.runtime);
   try {
@@ -177,7 +177,7 @@ test("进程：双产品完整导出超过 720 KiB 的 PNG；分页失败、元�
       RUUKOTO_CODE_DATA_DIR: t.dirs.dataDir, RUUKOTO_CODE_AGENT_DIR: t.dirs.agentDir, RUUKOTO_CODE_CONTROL_DIR: t.runtime.controlDir() };
     const offsets: number[] = [];
     t.runtime.queryArtifact = (input) => { offsets.push(input.offset ?? 0); return query(input); };
-    for (const product of ["ruukoto", "ruukoto-code"] as const) {
+    for (const product of ["ruukoto-code"] as const) {
       offsets.length = 0;
       const result = await runCli([...args, "--output", output], { bin: true, product, env });
       assert.equal(result.status, 0, result.stderr);

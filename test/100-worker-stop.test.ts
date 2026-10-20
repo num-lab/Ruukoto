@@ -23,7 +23,7 @@ import { realTools, startTestRuntime, waitFor } from "./helpers/testkit.ts";
 
 const spec: LaunchSpec = { taskId: "worker-stop", mode: "confirm", workspace: process.cwd(), grantedPaths: [] };
 
-function controlledUnit(stop: () => Promise<boolean>, opts: { fatal?: boolean; initError?: boolean } = {}) {
+function controlledUnit(stop: () => Promise<boolean>, opts: { fatal?: boolean; initError?: boolean; shutdownOutput?: string } = {}) {
   const stdout = new PassThrough();
   const stderr = new PassThrough();
   const requests: string[] = [];
@@ -33,7 +33,10 @@ function controlledUnit(stop: () => Promise<boolean>, opts: { fatal?: boolean; i
     stdin: new Writable({ write(chunk, _encoding, callback) {
       const request = JSON.parse(chunk.toString());
       requests.push(request.type);
-      if (request.type === "shutdown") exit({ code: 0, signal: null });
+      if (request.type === "shutdown") {
+        exit({ code: 0, signal: null });
+        if (opts.shutdownOutput !== undefined) setImmediate(() => stdout.end(opts.shutdownOutput));
+      }
       callback(request.type === "init" && opts.initError ? new ExecutionError("init_write_failed", "模拟 init 写入失败") : undefined);
       if (request.type === "init" && opts.initError) exit({ code: 1, signal: null });
     } }),
@@ -367,6 +370,32 @@ for (const reaped of [true, false, null]) {
     if (reaped !== true) assert.equal(host.stopFailure?.code, "worker_stop_unverified");
   });
 }
+
+for (const reaped of [true, false, null, "partial"] as const) {
+  test(`完全访问消费 exit 后到达的停止回执：${reaped}`, async () => {
+    const frame = JSON.stringify({ type: "stopped", reaped: true });
+    const shutdownOutput = reaped === "partial" ? frame : reaped === null ? "" : JSON.stringify({ type: "stopped", reaped }) + "\n";
+    const controlled = controlledUnit(async () => true, { shutdownOutput });
+    const host = await ToolWorkerHost.start(controlled.launcher, { ...spec, mode: "full_access" });
+    assert.equal(await host.stop(), reaped === true);
+    assert.equal(await host.stop(), reaped === true);
+    if (reaped !== true) assert.equal(host.stopFailure?.code, "worker_stop_unverified");
+  });
+}
+
+test("迟到的命令组停止成功不能覆盖 worker 组未核实", async () => {
+  const controlled = controlledUnit(async () => false, { shutdownOutput: JSON.stringify({ type: "stopped", reaped: true }) + "\n" });
+  const host = await ToolWorkerHost.start(controlled.launcher, { ...spec, mode: "full_access" });
+  assert.equal(await host.stop(), false);
+  assert.equal(host.stopFailure?.code, "worker_stop_unverified");
+});
+
+test("完全访问缺回执且 stdout 未关闭时有界返回未核实", { timeout: 10_000 }, async () => {
+  const controlled = controlledUnit(async () => true);
+  const host = await ToolWorkerHost.start(controlled.launcher, { ...spec, mode: "full_access" });
+  assert.equal(await host.stop(), false);
+  assert.equal(host.stopFailure?.code, "worker_stop_unverified");
+});
 
 test("内置启动器 spawn 拒绝保留原 code，未创建单元无需停止", async context => {
   context.mock.method(childProcess, "spawn", () => {

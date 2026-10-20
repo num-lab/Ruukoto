@@ -1,0 +1,9 @@
+✔ durable 文件写入：写后强杀保留未知，原同步调用已结束且不再次改写 (1139.623042ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1964.930542

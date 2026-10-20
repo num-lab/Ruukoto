@@ -1,0 +1,10 @@
+{"code":"extension_missing","message":"会话依赖的个人扩展缺失，已停止恢复，请使用与档案对应的程序。"}
+✔ 独立审查：a54d5b6 原入口拒绝已发送新工作菜单档案 (401.9615ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 799.2795

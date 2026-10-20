@@ -1,0 +1,39 @@
+{
+  "observedAt": "2026-10-18T09:06:50.026700+00:00",
+  "baseHead": "63a52f46c3af9b1d14bf61e7045b40fc477d9043",
+  "files": {
+    "apps/ruukoto/src/personal-work-tools.ts": {
+      "before": "7cee1384a23cd3690f001098795b64e3a6434ed96521a2f459c47c28fb4e7cb1",
+      "after": "2ec2ea5cb46dbe5f9de5af2a4cc46271645db1abe551aa92ec091497b470aa73"
+    },
+    "apps/ruukoto/src/personal-delegation.ts": {
+      "before": "917880fa92f7cc17c670ad5ea126a86321af9881443c3a7d79138c164b5fa4ec",
+      "after": "546df7e390a9d509a1b9ccdd394612872fa47a5894c368161e1488e378bf6cf0"
+    }
+  },
+  "scope": "仅模型工具/字段说明与取消错误文本，code/条件/状态机/权限不变",
+  "checks": {
+    "red": {
+      "command": "npx tsx --test --test-name-pattern='整项取消覆盖' test/personal-delegations.test.ts",
+      "exit": 1,
+      "assertion": "旧错误缺新的独立工作指引"
+    },
+    "green": {
+      "command": "npx tsx --test test/personal-delegations.test.ts test/personal-work-tools.test.ts",
+      "exit": 0,
+      "passed": 35
+    },
+    "static": {
+      "command": "npm run check:static",
+      "exit": 0
+    },
+    "independent": {
+      "passed": 3,
+      "cases": [
+        "取消旧委托后同身份新建",
+        "faulted保持占用",
+        "auto-review未知和取消跨重启保留占用"
+      ]
+    }
+  }
+}

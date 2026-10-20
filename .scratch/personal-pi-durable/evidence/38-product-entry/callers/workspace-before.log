@@ -1,0 +1,37 @@
+✖ 每个 app 的 npm start 与 dev 脚本均能进入自己的入口 (4474.024208ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 4897.867917
+
+✖ failing tests:
+
+test at test/99-workspace-boundaries.test.ts:20:1
+✖ 每个 app 的 npm start 与 dev 脚本均能进入自己的入口 (4474.024208ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /参数错误/. Input:
+
+  '[ruukoto:personal] cli_arguments：用法：ruukoto 打开引导菜单；ruukoto serve 前台托管。旧个人命令已退出，请保留旧资料并使用新档案。\n' +
+    'npm error Lifecycle script `start` failed with error:\n' +
+    'npm error code 1\n' +
+    'npm error path /Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto\n' +
+    'npm error workspace ruukoto@0.1.0\n' +
+    'npm error location /Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto\n' +
+    'npm error command failed\n' +
+    'npm error command sh -c node bin/ruukoto.mjs --nope\n'
+
+      at TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/99-workspace-boundaries.test.ts:24:12)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1201:25)
+      at Test.start (node:internal/test_runner/test:1096:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:385:17) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '[ruukoto:personal] cli_arguments：用法：ruukoto 打开引导菜单；ruukoto serve 前台托管。旧个人命令已退出，请保留旧资料并使用新档案。\nnpm error Lifecycle script `start` failed with error:\nnpm error code 1\nnpm error path /Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto\nnpm error workspace ruukoto@0.1.0\nnpm error location /Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto\nnpm error command failed\nnpm error command sh -c node bin/ruukoto.mjs --nope\n',
+    expected: /参数错误/,
+    operator: 'match',
+    diff: 'simple'
+  }

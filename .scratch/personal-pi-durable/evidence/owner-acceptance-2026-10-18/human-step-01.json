@@ -1,0 +1,29 @@
+{
+  "recorded_at": "2026-10-18T12:09:53.998Z",
+  "owner_feedback": "配置保存成功，后台在线",
+  "model": {
+    "api": "openai-responses",
+    "baseUrl": "https://api.deepseek.com",
+    "modelId": "deepseek-flash",
+    "apiKeyEnv": "RUUKOTO_ACCEPTANCE_MODEL_KEY",
+    "contextWindow": 1000000,
+    "maxTokens": 4096,
+    "imageInput": false
+  },
+  "status": {
+    "model": "deepseek-flash",
+    "tasks": 0,
+    "inputs": 0,
+    "services": false,
+    "capabilities": {
+      "commands": false,
+      "mcp": false,
+      "tools": false,
+      "browser": false,
+      "telegram": false,
+      "qq": false
+    }
+  },
+  "profile_mode": 448,
+  "model_mode": 384
+}

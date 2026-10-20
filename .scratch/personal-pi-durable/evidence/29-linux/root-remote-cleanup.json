@@ -1,0 +1,16 @@
+{
+  "directoryExists": false,
+  "scopes": [
+    {
+      "unit": "ruukoto-native_893e53d969dbd3356945862c.scope",
+      "exitCode": 0,
+      "stdout": "ControlGroup=\nLoadState=not-found\nActiveState=inactive"
+    },
+    {
+      "unit": "ruukoto-native_6a64c83d6833d6b094881afa.scope",
+      "exitCode": 0,
+      "stdout": "ControlGroup=\nLoadState=not-found\nActiveState=inactive"
+    }
+  ],
+  "matchingNodeProcesses": []
+}

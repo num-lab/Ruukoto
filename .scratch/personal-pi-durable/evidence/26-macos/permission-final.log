@@ -1,0 +1,16 @@
+✔ durable 命令：confirm 保留原权限、原生 owned Task 和双流分页，非零结果也释放身份 (25782.079ms)
+ℹ {"mode":"confirm","systemPrompt":42,"toolSchemas":268}
+✔ durable 命令：auto-review 保留原权限、原生 owned Task 和双流分页，非零结果也释放身份 (33855.139667ms)
+ℹ {"mode":"auto-review","systemPrompt":42,"toolSchemas":268}
+✔ durable 命令：full_access 保留原权限、原生 owned Task 和双流分页，非零结果也释放身份 (5979.684ms)
+ℹ {"mode":"full_access","systemPrompt":42,"toolSchemas":268}
+[ruukoto:personal] command_permission_unavailable：原命令权限无法读取，模型仅收到停止提示。
+✔ 命令权限提示：缺工作及读取失败覆盖旧完全访问说明，主会话不渲染子权限 (2635.781ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 69345.953541

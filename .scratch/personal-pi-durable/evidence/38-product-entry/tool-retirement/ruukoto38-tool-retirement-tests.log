@@ -1,0 +1,55 @@
+✔ 工作流步骤从持久来源装配技能目录与真实 skill 调用 (6438.626542ms)
+✔ 真实个人步骤修改应用 schema 后仍可继续，main 来源具有受控编码委派工具 (2294.276958ms)
+✔ 个人来源的修改步骤只增加已有委派的五个编码工具 (16765.629875ms)
+✔ memory_list 的预览来源落盘，祖先记忆撤销阻止间接缓存进入后续模型 (5443.305167ms)
+✔ 运行后新增资料授权不扩大步骤范围，真实产物读取使用固定授权 (5538.0995ms)
+✔ 同一来源的不同运行隔离真实产物与子历史 (5318.617792ms)
+✔ 真实工作流 MCP：full_access 的调用、批准与来源失效 (4500.432791ms)
+✔ 真实工作流 MCP：confirm 的调用、批准与来源失效 (5180.150875ms)
+✔ 真实工作流 MCP：configuration 的调用、批准与来源失效 (4429.202375ms)
+✔ 真实工作流 MCP：revoke 的调用、批准与来源失效 (4337.20025ms)
+✔ dev 最终汇总排在当前聊天之后，冻结终态代次、零工具且只唤醒一次；普通请求键不能伪造绑定 (12656.201291ms)
+✔ 终态停止事实区分已核实、未知和未启动；登记脚本仍未收尾时不汇总 (105.876833ms)
+✔ dev 冷恢复 queued：复用原汇总任务和键，结果事务补记一次 (4091.831583ms)
+✔ dev 冷恢复 result-missing：复用原汇总任务和键，结果事务补记一次 (5606.06325ms)
+✔ telegram 真实适配器替身：等待不占聊天，业务回答去重，最终仅沿原入口一次回报 (3254.283084ms)
+✔ qq_private 真实适配器替身：等待不占聊天，业务回答去重，最终仅沿原入口一次回报 (3164.435584ms)
+✔ 定时工作流 success：根任务结束不提前关闭，最终仅调度路径 (2524.3235ms)
+✔ 定时工作流 retry：根任务结束不提前关闭，最终仅调度路径 (3214.295ms)
+✔ 定时工作流 cancel：根任务结束不提前关闭，最终仅调度路径 (2870.315708ms)
+✔ ruukoto 普通与工作流默认角色具有同源工具并在独立目录实际执行 bash (12235.793667ms)
+✔ ruukoto-code 普通与工作流默认角色具有同源工具并在独立目录实际执行 bash (12250.11675ms)
+✔ 普通来源项目指令、技能与角色正文可从子任务模型快照重建，父聊天和个人记忆不自动复制 (7498.351166ms)
+✔ 普通个人来源执行 app_data，应用回执与账本归属真实子 Task (5566.753875ms)
+✔ 显式角色缺工具或 MCP 远端缺失在登记前失败，工具意图和模型请求为空 (4627.483333ms)
+✔ MCP 未装配原因覆盖远端缺失与非法 schema，停用服务无需发现 (4440.002083ms)
+[ruukoto:parent-delivery] 子任务 task_b2dfa3bd24753f035cf1bf3d 的来源不可核实（subagent_source_invalid）；结果与记录保留，请核实后继续
+[ruukoto:parent-delivery] 子任务 task_b2dfa3bd24753f035cf1bf3d 的来源不可核实（subagent_source_invalid）；结果与记录保留，请核实后继续
+✔ 普通子任务模型应答后 MCP 配置变化在工具意图前阻断，无远端副作用 (6589.507042ms)
+✔ 普通个人通知解析使用保存的 grant IDs，后来新增的资料授权不能扩大范围 (6357.080083ms)
+✔ 工作流显式缺少一个工具在 Agent Task 登记前暂停，没有模型调用或工具操作 (3839.1635ms)
+[ruukoto:parent-delivery] 子任务 task_0a9cc9849c95ee3c47ce2d42 的来源不可核实（subagent_source_invalid）；结果与记录保留，请核实后继续
+[ruukoto:parent-delivery] 子任务 task_0a9cc9849c95ee3c47ce2d42 的来源不可核实（subagent_source_invalid）；结果与记录保留，请核实后继续
+✔ 普通来源资料授权在模型应答后撤销，工具意图和下一次模型请求均被阻断 (5220.085917ms)
+[ruukoto:parent-delivery] 子任务 task_745fc775a5980ceaa08bb61e 的来源不可核实（execution_corrupt）；结果与记录保留，请核实后继续
+[ruukoto:parent-delivery] 子任务 task_745fc775a5980ceaa08bb61e 的来源不可核实（execution_corrupt）；结果与记录保留，请核实后继续
+✔ 普通执行快照首次发送后损坏，真实工具与后续模型请求停止 (4909.426167ms)
+✔ 消息按保存的角色与来源能力收紧，冷恢复不读新文件，缺失或损坏快照不创建消息任务 (5356.372542ms)
+[ruukoto:parent-delivery] 子任务 task_ced268bf368d65e3764581e0 的来源不可核实（subagent_memory_revoked）；结果与记录保留，请核实后继续
+[ruukoto:parent-delivery] 子任务 task_ced268bf368d65e3764581e0 的来源不可核实（subagent_memory_revoked）；结果与记录保留，请核实后继续
+✔ 普通 memory_list 的读取记录持久化，记忆撤销后复用不能发送旧正文 (4625.473417ms)
+[ruukoto:parent-delivery] 子任务 task_7bd1e738896ab09d9f8c1d4a 的来源不可核实（subagent_memory_revoked）；结果与记录保留，请核实后继续
+[ruukoto:parent-delivery] 子任务 task_7bd1e738896ab09d9f8c1d4a 的来源不可核实（subagent_memory_revoked）；结果与记录保留，请核实后继续
+✔ 普通 memory_read 的读取记录持久化，记忆撤销后复用不能发送旧正文 (5171.730917ms)
+[ruukoto:parent-delivery] 子任务 task_1f3e843a5e3e551c7e33dd92 的来源不可核实（subagent_source_invalid）；结果与记录保留，请核实后继续
+[ruukoto:parent-delivery] 子任务 task_1f3e843a5e3e551c7e33dd92 的来源不可核实（subagent_source_invalid）；结果与记录保留，请核实后继续
+✔ 普通 MCP 旧配置的结果不能通过身份复用洗成新来源上下文 (5349.754541ms)
+✔ 完全访问消息不提升已受保护的继承角色，仍以原 confirm 执行 (5348.115042ms)
+ℹ tests 35
+ℹ suites 0
+ℹ pass 35
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 103250.788333

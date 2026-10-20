@@ -1,0 +1,18 @@
+diff --git a/test/protected-path-batch.test.ts b/test/protected-path-batch.test.ts
+index ace1b0eb..162aef4b 100644
+--- a/test/protected-path-batch.test.ts
++++ b/test/protected-path-batch.test.ts
+@@ -57,7 +57,12 @@ for (const damage of ["target", "protected_root", "directory_entries"] as const)
+         fs.renameSync(f.targets[0], f.targets[0] + "-old"); fs.writeFileSync(f.targets[0], "replacement");
+       } else if (damage === "protected_root") {
+         fs.renameSync(f.protectedRoot, f.protectedRoot + "-old"); fs.mkdirSync(f.nested, { recursive: true }); fs.writeFileSync(f.source, "replacement");
+-      } else fs.writeFileSync(path.join(f.protectedRoot, "late"), "new entry");
++      } else {
++        const revision = fs.statSync(f.protectedRoot);
++        fs.writeFileSync(path.join(f.protectedRoot, "late"), "new entry");
++        // Linux 可将同一时间片的目录变化记成相同时间，显式推进修订以测试已观察变化。
++        fs.utimesSync(f.protectedRoot, revision.atime, new Date(revision.mtimeMs + 1000));
++      }
+     }
+     return names;
+   });

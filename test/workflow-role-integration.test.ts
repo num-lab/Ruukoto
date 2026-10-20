@@ -7,7 +7,7 @@ import { requireSubAgentExecution } from "@ruukoto/core/subagent-execution.ts";
 import type { Session, Task } from "@ruukoto/core/types.ts";
 import { getWorkflowStep, listWorkflowExecutions, listWorkflowSteps, requireWorkflowRun, WORKFLOW_INTERFACE_VERSION, workflowTerminal } from "@ruukoto/core/workflow.ts";
 import { Runtime } from "@ruukoto/runtime/runtime.ts";
-import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
+import { product as personalProduct } from "./helpers/legacy-product.ts";
 import { product as codeProduct } from "../apps/ruukoto-code/src/product.ts";
 import { delegateFromActiveTask } from "./helpers/active-subagent-source.ts";
 import { holdParentResponse } from "./helpers/active-parent.ts";

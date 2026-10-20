@@ -1,0 +1,27 @@
+(node:3246301) ExperimentalWarning: Transform Types is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ Linux scope 只接受已知组的完整空成员证据或确认删除 (5.12868ms)
+✔ Linux manager 可用但缺 scope-group 时拒绝并保留停止身份 (12.822028ms)
+✔ Linux manager 可用但缺 writable-kill 时拒绝并保留停止身份 (2.915604ms)
+(node:3246302) ExperimentalWarning: Transform Types is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ 停止先手持久认领，跨调用同键不再启动且零平台外调 (11.141901ms)
+✔ 异机器、非保护目录及 worker 可见证据目录在认领前拒绝 (4.465494ms)
+✔ 认领缺失字段、坏 JSON 与原单元未观察不能形成停止证明 (3.162815ms)
+✔ 完整认领跨 boot 可证明退出，未派发证明必须匹配本次 token (2.652545ms)
+✔ 停止拒绝 invocation，保留认领且不按单元名发信号 (3.148548ms)
+✔ 停止拒绝 description，保留认领且不按单元名发信号 (2.458559ms)
+✔ 停止拒绝 inode，保留认领且不按单元名发信号 (2.214413ms)
+✔ 停止拒绝 query，保留认领且不按单元名发信号 (2.891083ms)
+✔ 停止拒绝 kill，保留认领且不按单元名发信号 (2.637317ms)
+✔ 停止拒绝 missing-events，保留认领且不按单元名发信号 (53.62771ms)
+✔ 仅经原组 FD 停止，后续独立重核可证明原 launcher 与空组均退出 (55.687269ms)
+✔ 启动后的证据写入失败交出持久停止句柄，同键不能再次派发 (4.992503ms)
+ℹ tests 15
+ℹ suites 0
+ℹ pass 15
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 519.807303

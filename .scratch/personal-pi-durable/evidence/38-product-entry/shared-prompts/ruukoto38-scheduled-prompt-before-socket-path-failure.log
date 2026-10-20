@@ -1,0 +1,21 @@
+node:net:1986
+      const error = new UVExceptionWithHostPort(rval, 'listen', address, port);
+                    ^
+
+Error: listen EINVAL: invalid argument /var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-it-workflow-final-scheduler-prompt-PHhFsZ/c.sock
+    at Server.setupListenHandle [as _listen2] (node:net:1986:21)
+    at listenInCluster (node:net:2065:12)
+    at Server.listen (node:net:2187:5)
+    at <anonymous> (/private/tmp/ruukoto38-pack-20261018-1/packages/control/src/server.ts:65:21)
+    at new Promise (<anonymous>)
+    at ControlServer.start (/private/tmp/ruukoto38-pack-20261018-1/packages/control/src/server.ts:63:11)
+    at startTestRuntime (/private/tmp/ruukoto38-pack-20261018-1/test/helpers/testkit.ts:122:23)
+    at async <anonymous> (/private/tmp/ruukoto38-scheduled-prompt-probe.mts:11:11) {
+  code: 'EINVAL',
+  errno: -22,
+  syscall: 'listen',
+  address: '/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-it-workflow-final-scheduler-prompt-PHhFsZ/c.sock',
+  port: -1
+}
+
+Node.js v24.15.0

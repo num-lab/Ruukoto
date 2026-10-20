@@ -1,0 +1,80 @@
+{
+  "cwd": "/private/tmp/ruukoto38-docs-20261018",
+  "head": "12b1a66cfa661f2a8bddaa9405283ab9f22cb20c",
+  "argv": [
+    "/Users/eitrous/.local/share/mise/installs/node/24.15.0/bin/node",
+    "--import",
+    "tsx",
+    "--test",
+    "--test-concurrency=1",
+    "--test-name-pattern=macOS 控制通道关闭回收独立进程组内忽略 TERM 的已累计后代",
+    "test/101-native-macos-helper.test.ts"
+  ],
+  "env": {
+    "RUN_MODEL_CHECK": "0"
+  },
+  "sourceEquivalence": [
+    {
+      "path": "test/101-native-macos-helper.test.ts",
+      "baselineSha256": "faf17b4f3d568639671bce3e9fe775d452d962388c37829bbe91139ac0f83aaf",
+      "candidateSha256": "faf17b4f3d568639671bce3e9fe775d452d962388c37829bbe91139ac0f83aaf",
+      "headSha256": "faf17b4f3d568639671bce3e9fe775d452d962388c37829bbe91139ac0f83aaf",
+      "allEqual": true
+    },
+    {
+      "path": "packages/agent/src/execution/native-macos-supervisor.c",
+      "baselineSha256": "1d183131d2905e9c1dfbb19dfb3ec8b5a55a3da4cb89ed8053c3e790bfde8bcf",
+      "candidateSha256": "1d183131d2905e9c1dfbb19dfb3ec8b5a55a3da4cb89ed8053c3e790bfde8bcf",
+      "headSha256": "1d183131d2905e9c1dfbb19dfb3ec8b5a55a3da4cb89ed8053c3e790bfde8bcf",
+      "allEqual": true
+    },
+    {
+      "path": "packages/agent/src/execution/native-macos.ts",
+      "baselineSha256": "f8643d4dd875f736b8af417117b963b2501489f87309ac26b9bb115796da8bdf",
+      "candidateSha256": "f8643d4dd875f736b8af417117b963b2501489f87309ac26b9bb115796da8bdf",
+      "headSha256": "f8643d4dd875f736b8af417117b963b2501489f87309ac26b9bb115796da8bdf",
+      "allEqual": true
+    },
+    {
+      "path": "packages/agent/src/execution/native.ts",
+      "baselineSha256": "b55cc3566101824c9406f54a173cd3a8d0f3b0e5eefd94cfe595abac589f0fe7",
+      "candidateSha256": "b55cc3566101824c9406f54a173cd3a8d0f3b0e5eefd94cfe595abac589f0fe7",
+      "headSha256": "b55cc3566101824c9406f54a173cd3a8d0f3b0e5eefd94cfe595abac589f0fe7",
+      "allEqual": true
+    },
+    {
+      "path": "scripts/build-native.mjs",
+      "baselineSha256": "7948656ca35666e9029456c14d2433ff744fc6ada59b388b9ffa420c8fa599fe",
+      "candidateSha256": "7948656ca35666e9029456c14d2433ff744fc6ada59b388b9ffa420c8fa599fe",
+      "headSha256": "7948656ca35666e9029456c14d2433ff744fc6ada59b388b9ffa420c8fa599fe",
+      "allEqual": true
+    }
+  ],
+  "binaryHashes": {
+    "baseline": "43441a966e3b6fb3111e57f68077dbee76b008f198e1addb3bcac690d7f85729",
+    "candidate": "43441a966e3b6fb3111e57f68077dbee76b008f198e1addb3bcac690d7f85729"
+  },
+  "binaryEqual": true,
+  "results": [
+    {
+      "run": 1,
+      "exit": 0,
+      "startedUtc": "2026-10-18T11:12:06.202414+00:00",
+      "log": "baseline-1.log"
+    },
+    {
+      "run": 2,
+      "exit": 0,
+      "startedUtc": "2026-10-18T11:12:10.257830+00:00",
+      "log": "baseline-2.log"
+    },
+    {
+      "run": 3,
+      "exit": 0,
+      "startedUtc": "2026-10-18T11:12:12.608988+00:00",
+      "log": "baseline-3.log"
+    }
+  ],
+  "remainingFixtureProcesses": [],
+  "dependencyNote": "baseline worktree reuses current node_modules link; target test directly invokes independently compiled HEAD C supervisor, and all referenced native TS files/test bytes equal HEAD."
+}

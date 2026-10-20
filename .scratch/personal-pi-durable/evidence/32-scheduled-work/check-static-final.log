@@ -1,0 +1,16 @@
+
+> ruukoto-workspace@0.1.0 check:static
+> npm run lint && npm run typecheck && npm run verify-notes && npm run check:docs
+
+
+> ruukoto-workspace@0.1.0 lint
+> eslint . --max-warnings=0
+
+
+> ruukoto-workspace@0.1.0 typecheck
+> tsc --noEmit && npm run typecheck --workspaces && npm --prefix verification/foundation run typecheck
+
+test/personal-scheduler-integration.test.ts(122,119): error TS18048: 'agent.extensions' is possibly 'undefined'.
+test/personal-scheduler-integration.test.ts(122,136): error TS2339: Property 'filter' does not exist on type 'string[] | { add?: string[] | undefined; remove?: string[] | undefined; }'.
+  Property 'filter' does not exist on type '{ add?: string[] | undefined; remove?: string[] | undefined; }'.
+test/personal-scheduler-integration.test.ts(122,143): error TS7006: Parameter 'name' implicitly has an 'any' type.

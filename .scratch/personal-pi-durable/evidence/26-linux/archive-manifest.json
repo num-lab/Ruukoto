@@ -1,0 +1,19 @@
+{
+  "records": [
+    {
+      "path": "records.tar.gz",
+      "bytes": 3253041,
+      "sha256": "b719a2e663916ffac772db49fa1f4081b2f1c275b21a377238b56bdee2dd84be"
+    },
+    {
+      "path": "source-files-tested.tar.gz",
+      "bytes": 313626,
+      "sha256": "51acddb307fe08f647f498d486ef5bca439a40b2f33624d98c04e3213d54cb5b"
+    },
+    {
+      "path": "source-with-runtime-final.tar.gz",
+      "bytes": 23071654,
+      "sha256": "486c02b49606170c5e1a752df60c4e680ac90b88e8c63341d5df333159bdb159"
+    }
+  ]
+}

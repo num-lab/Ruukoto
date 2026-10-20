@@ -1,0 +1,11 @@
+$ node --import tsx --test '--test-name-pattern=本机应用数据|服务核实 HTTP：Linux sudo' test/personal-cli.test.ts
+✔ 服务核实 HTTP：Linux sudo 接线、原状态刷新及慢停止不阻塞独立聊天 (1101.352918ms)
+✔ 本机应用数据：认证API批准原操作与CLI按列表查看，无需输入内部键 (164.988744ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 4670.656179

@@ -1,0 +1,11 @@
+{
+  "root": "/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable",
+  "work": "/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto38-callers-6cugvg88",
+  "evidence": "/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto38-callers-evidence-zuebquk2",
+  "files": [
+    "test/40-qq-private.test.ts",
+    "test/49-chat-result-flow.test.ts",
+    "test/51-generic-scheduler.test.ts",
+    "test/85-retire-core-group-chat.test.ts"
+  ]
+}

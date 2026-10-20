@@ -1,0 +1,5 @@
+735 files: final sha256 matches local snapshot.
+apps/ruukoto/src/personal-report.ts 55fc4b29105ae8ecccf14315d334dcdc39df0baf916d03addb2a5f8d58fabc75
+apps/ruukoto/src/personal-service-inspection.ts 35481ac2272ae83afdd31f31311a6e3c703ca6a02aad6e0c22f9443583086ba2
+apps/ruukoto/src/personal-service-operations.ts 902c34dedac408aa1ff6317263a21d12d6a5c0a3e3a415672285d11d94038b15
+test/personal-service-operations.test.ts b5932b211dab8ebf7836f9259d5a53997bc20aed4cea2da348e73ad90619bee0

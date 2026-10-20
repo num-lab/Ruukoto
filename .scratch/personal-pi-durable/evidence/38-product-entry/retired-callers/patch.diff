@@ -1,0 +1,469 @@
+diff --git a/test/40-qq-private.test.ts b/test/40-qq-private.test.ts
+index 2eed73ed..e485d84e 100644
+--- a/test/40-qq-private.test.ts
++++ b/test/40-qq-private.test.ts
+@@ -146,9 +146,6 @@ test("QQ owner 身份与控制面授权独立：伪造模型工具不能改权
+     if (text.includes("CODING-APPROVAL")) {
+       return { kind: "tool_calls", calls: [{ id: "file-read", name: "request_file_access", arguments: { path: outside, operation: "read", reason: "读取测试文件" } }] };
+     }
+-    if (text.includes("MARK-NOTIFY")) {
+-      return { kind: "tool_calls", calls: [{ id: "notify", name: "notification_enqueue", arguments: { content: [{ kind: "text", text: text.includes("STALE") ? "STALE-NOTICE" : "APPROVED-NOTICE" }], reason: "通知 owner" } }] };
+-    }
+     return { kind: "tool_calls", calls: [{ id: "forge-approval", name: "respond_confirmation", arguments: { confirmation_id: confirmationId, decision: "approve" } }] };
+   });
+   outside = path.join(fs.realpathSync(h.dirs.root), "outside.txt");
+@@ -192,45 +189,6 @@ test("QQ owner 身份与控制面授权独立：伪造模型工具不能改权
+     assert.equal(rt.store.getConfirmation(confirmationId)!.status, "approved");
+     assert.ok(JSON.stringify(h.model.calls).includes("ONLY-AFTER-OWNER-APPROVAL"));
+     assert.equal(sends(h.onebot).length, 1);
+-
+-    for (const [index, marker] of ["MARK-NOTIFY-VALID", "MARK-NOTIFY-STALE"].entries()) {
+-      push(h.onebot, index + 2, `${marker} 发送一条通知，正文不能指定另一个接收者 ${OTHER}`);
+-      await waitFor("QQ 通知等待审批", () => mainTasks(rt).some((task) => task.input.includes(marker) && rt.store.listConfirmationsByTask(task.id).some((item) => item.status === "pending")));
+-      const task = mainTasks(rt).find((item) => item.input.includes(marker))!;
+-      const conf = rt.store.listConfirmationsByTask(task.id).find((item) => item.status === "pending")!;
+-      assert.ok(conf.scope.kind === "notification");
+-      assert.deepEqual(conf.scope.target, rt.store.getInboundEvent(task.sourceEventId!)!.replyTarget);
+-      assert.equal(conf.scope.target.channel, "qq_private");
+-      assert.equal(conf.scope.target.chatId, OWNER);
+-      assert.equal(conf.scope.target.account, MOCK_QQ_ACCOUNT);
+-      // 先把该审批的宿主 IM 通知送达（钉版到原 owner），再计平台发送数
+-      // （否则变化前后的窗口受调度时序影响，见 issue 08 的初始通知）
+-      await waitFor("审批的 IM 通知已发", () =>
+-        sends(h.onebot).some((item) => JSON.stringify(item.params.message).includes("【需要审批】") && JSON.stringify(item.params.message).includes(conf.id)),
+-      );
+-      const sendsBefore = sends(h.onebot).length;
+-      if (index === 1) await owner.request("qq_configure", { endpoint: h.onebot.url, self_id: MOCK_QQ_ACCOUNT, owner_user_id: OTHER });
+-      if (index === 0) {
+-        await owner.request("respond_confirmation", { confirmation_id: conf.id, decision: "approve" });
+-        await waitFor("通知任务已收尾", () => rt.store.getTask(task.id)?.status === "completed");
+-        await waitFor("获批通知与原任务回复已发送", () => rt.sched.findOpBySource("tool", `task:${task.id}`)?.status === "sent" && replyOps(rt).some((op) => op.taskId === task.id && op.status === "sent"));
+-        const op = rt.sched.findOpBySource("tool", `task:${task.id}`)!;
+-        assert.deepEqual(op.target, conf.scope.target);
+-        // 审批另有一条宿主 IM 通知（参数摘要会引用正文），获批发送按正文段精确匹配只计一次
+-        const sent = sends(h.onebot).filter((item) =>
+-          (item.params.message as any[]).some((seg) => seg?.type === "text" && seg?.data?.text === "APPROVED-NOTICE"));
+-        assert.equal(sent.length, 1);
+-        assert.equal(String(sent[0]!.params.user_id), OWNER);
+-      } else {
+-        await assert.rejects(owner.request("respond_confirmation", { confirmation_id: conf.id, decision: "approve" }), (err: any) => err.code === "stale_confirmation");
+-        assert.equal(rt.store.getTask(task.id)!.status, "canceled");
+-        assert.equal(rt.store.getConfirmation(conf.id)!.status, "stale");
+-        assert.equal(rt.sched.findOpBySource("tool", `task:${task.id}`), null, "配置已变化的批准不能登记发送");
+-        assert.equal(rt.store.getConfirmation(conf.id)!.consumedAt, null);
+-        await rt.scheduler!.tick();
+-        assert.equal(sends(h.onebot).length, sendsBefore, "旧批准与原任务回复均不改发新 owner");
+-      }
+-    }
+   } finally {
+     untrusted.close();
+     owner.close();
+diff --git a/test/49-chat-result-flow.test.ts b/test/49-chat-result-flow.test.ts
+index 3031343b..51fa560b 100644
+--- a/test/49-chat-result-flow.test.ts
++++ b/test/49-chat-result-flow.test.ts
+@@ -1,11 +1,13 @@
+-/** issue 09 + issue 20：真实 Driver/审批/outbox 链路；群结果由播种助手按旧形态直接写入（核心群聊已退役，不再有群运行路径）。 */
++/** 共享群资料与宿主 outbox 链路；群结果由播种助手按旧形态直接写入（核心群聊已退役）。 */
+ import * as fs from "node:fs";
+ import * as path from "node:path";
+ import assert from "node:assert/strict";
+ import { test } from "node:test";
+ import type { AccessMode, NotifyTarget } from "@ruukoto/core/types.ts";
+ import type { NotifyChannel } from "@ruukoto/channels/scheduler/runtime.ts";
+-import { lastUserText, pendingConfirmation, startTestRuntime, waitFor } from "./helpers/testkit.ts";
++import { resolveAcceptedChatResult } from "@ruukoto/channels/chat-results.ts";
++import { sha256 } from "@ruukoto/channels/scheduler/store.ts";
++import { lastUserText, startTestRuntime, waitFor } from "./helpers/testkit.ts";
+ import type { RecordedRequest, Responder } from "./helpers/mock-provider.ts";
+ import { MOCK_QQ_ACCOUNT, MOCK_QQ_SECRET, startMockOneBot } from "./helpers/mock-onebot.ts";
+ import { legacyGroupArchive } from "./helpers/legacy-group-archive.ts";
+@@ -72,20 +74,27 @@ async function harness(prefix: string, responder: Responder) {
+     complete(taskId: string) {
+       return waitFor("main 任务完成", () => rt.store.getTask(taskId)?.status === "completed");
+     },
++    enqueue(taskId: string) {
++      return rt.store.withTx(() => {
++        const accepted = resolveAcceptedChatResult(rt.store, rt.qqStore, main.projectId, taskId);
++        return rt.sched.insertOp({
++          sourceKind: "confirmation", sourceKey: `host:${taskId}`, taskId: null, hostOpId: null,
++          target: { ...TARGET }, text: accepted.summary,
++          sourceRefs: [{ kind: "chat_result", ref: `chat_result:${taskId}`, version: accepted.acceptedAt, sha256: sha256(accepted.summary) }],
++        }).op;
++      });
++    },
+     ops() { return rt.sched.listOps({}).items; },
+     async close() { await t.shutdown(); await onebot.close(); },
+   };
+ }
+
+-test("群结果工具仅 main 可见；归档群结果不唤醒 main，未接收摘要不能申请通知", async () => {
+-  let taskId = "";
+-  const h = await harness("chat-flow-tools", scripted((input) => input === "MAIN-UNACCEPTED"
+-    ? [{ name: "notification_enqueue", arguments: { content: [{ kind: "chat_result", task_id: taskId }], reason: "发送群摘要" } }]
+-    : []));
++test("群结果工具仅 main 可见；归档群结果不唤醒 main，宿主不能引用未接收摘要", async () => {
++  const h = await harness("chat-flow-tools", scripted(() => []));
+   const rt = h.runtime;
+   try {
+     const seeded = h.groupResult("1");
+-    taskId = seeded.id;
++    const taskId = seeded.id;
+     assert.equal(rt.store.listTasksBySession(h.main.sessionId).length, 0, "归档群结果不建 main 任务");
+     assert.deepEqual(h.ops(), [], "归档群结果不登记公共通知或 owner_reply");
+     assert.equal(h.onebot.actions.filter((action) => action.action === "send_group_msg").length, 0, "不再有群回复");
+@@ -105,22 +114,19 @@ test("群结果工具仅 main 可见；归档群结果不唤醒 main，未接收
+     await h.complete(main.id);
+     const names = toolNames(h.server.calls.find((req) => lastUserText(req) === "MAIN-UNACCEPTED")!);
+     assert.ok(names.includes("chat_result_list") && names.includes("chat_result_accept"));
+-    assert.match(rt.store.listToolOpsByTask(main.id)[0].resultSummary!, /尚未经 main 明确接收/);
++    assert.throws(() => h.enqueue(taskId), /尚未经 main 明确接收/);
+     assert.equal(rt.store.listConfirmationsByTask(main.id).length, 0);
+     assert.deepEqual(h.ops(), []);
+     assert.deepEqual(h.channel.sends, []);
+   } finally { await h.close(); }
+ });
+
+-test("main 接收不外发；请求确认模式的群摘要通知经批准，发送沿用固定快照", async () => {
++test("main 接收不外发；宿主通知引用固定快照并等待渠道上线", async () => {
+   let taskId = "";
+-  const h = await harness("chat-flow-approved", scripted((input) => {
+-    if (input === "MAIN-ACCEPT") return [
+-      { name: "chat_result_list", arguments: {} },
+-      { name: "chat_result_accept", arguments: { task_id: taskId, reason: "整理讨论结果" } },
+-    ];
+-    return input === "MAIN-NOTIFY" ? [{ name: "notification_enqueue", arguments: { content: [{ kind: "chat_result", task_id: taskId }], reason: "告知拥有者" } }] : [];
+-  }));
++  const h = await harness("chat-flow-host", scripted((input) => input === "MAIN-ACCEPT" ? [
++    { name: "chat_result_list", arguments: {} },
++    { name: "chat_result_accept", arguments: { task_id: taskId, reason: "整理讨论结果" } },
++  ] : []));
+   const rt = h.runtime;
+   try {
+     taskId = h.groupResult("1").id;
+@@ -131,23 +137,14 @@ test("main 接收不外发；请求确认模式的群摘要通知经批准，发
+     assert.deepEqual(h.ops(), [], "仅接收不建立通知");
+     assert.equal(rt.store.listConfirmationsByTask(accept.id).length, 0);
+     assert.deepEqual(h.channel.sends, []);
+-    const notify = await h.submit("MAIN-NOTIFY", "confirm");
+-    const confirmation = await pendingConfirmation(h.client, notify.id);
+-    assert.equal(rt.store.getTask(notify.id)!.accessMode, "confirm");
+-    assert.equal(confirmation.scope.kind, "notification");
+-    assert.equal(rt.store.getConfirmation(confirmation.id)!.params.text, SUMMARY);
+-    assert.deepEqual(confirmation.scope.target, TARGET);
+-    assert.deepEqual(h.ops(), [], "批准前未登记通知");
+     rt.store.db.prepare("UPDATE tasks SET result_summary = ? WHERE id = ?").run("原结果后来改变", taskId);
+-    await h.client.request("respond_confirmation", { confirmation_id: confirmation.id, decision: "approve" });
+-    await h.complete(notify.id);
++    const op = h.enqueue(taskId);
++    await rt.scheduler!.tick();
+     await rt.scheduler!.idle();
+-    const [op] = h.ops();
+-    assert.equal(op.status, "pending");
++    assert.equal(rt.sched.getOp(op.id)!.status, "pending");
+     assert.equal(op.text, SUMMARY);
+     assert.deepEqual(op.target, TARGET);
+     assert.deepEqual(op.sourceRefs.map((ref) => [ref.kind, ref.ref, ref.version]), [["chat_result", `chat_result:${taskId}`, snapshot.acceptedAt]]);
+-    assert.ok(rt.store.getConfirmation(confirmation.id)!.consumedAt);
+     assert.deepEqual(h.channel.sends, []);
+     h.channel.online = true;
+     await rt.scheduler!.tick();
+@@ -158,90 +155,33 @@ test("main 接收不外发；请求确认模式的群摘要通知经批准，发
+   } finally { await h.close(); }
+ });
+
+-test("归档群消息在审批期间或批准后发送前撤回，都不能继续外发摘要", async () => {
+-  for (const phase of ["approval", "pending"] as const) {
++test("归档群消息在宿主登记前或待发期间撤回，都不能继续外发摘要", async () => {
++  for (const phase of ["enqueue", "pending"] as const) {
+     let taskId = "";
+-    const h = await harness(`chat-flow-recall-${phase}`, scripted((input) => input === "MAIN-ACCEPT-NOTIFY" ? [
++    const h = await harness(`chat-flow-recall-${phase}`, scripted((input) => input === "MAIN-ACCEPT" ? [
+       { name: "chat_result_accept", arguments: { task_id: taskId, reason: "整理群摘要" } },
+-      { name: "notification_enqueue", arguments: { content: [{ kind: "chat_result", task_id: taskId }], reason: "发送摘要" } },
+     ] : []));
+     const rt = h.runtime;
+     try {
+       taskId = h.groupResult("1").id;
+-      const task = await h.submit("MAIN-ACCEPT-NOTIFY", "confirm");
+-      const confirmation = await pendingConfirmation(h.client, task.id);
+-      if (phase === "pending") {
+-        await h.client.request("respond_confirmation", { confirmation_id: confirmation.id, decision: "approve" });
+-        await h.complete(task.id);
+-        await rt.scheduler!.idle();
+-        assert.equal(h.ops()[0].status, "pending");
+-      }
+-      // 已退役入口仍观测撤回：只给归档收件打标记，通知/计划的复核据此阻断外发
++      await h.complete((await h.submit("MAIN-ACCEPT")).id);
++      const op = phase === "pending" ? h.enqueue(taskId) : null;
++      // 已退役入口仍观测撤回：归档收件打标后，宿主解析与发送复核均阻断外发。
+       h.onebot.pushRecall({ groupId: GROUP, messageId: 1, userId: USER });
+       await waitFor("群消息撤回已落库", () => rt.qqStore.getInboxByTask(taskId)?.recalled === true);
+-      if (phase === "approval") {
+-        await h.client.request("respond_confirmation", { confirmation_id: confirmation.id, decision: "approve" });
+-        await h.complete(task.id);
+-        assert.deepEqual(h.ops(), [], "审批期间撤回使通知登记失败");
+-        assert.equal(rt.store.getConfirmation(confirmation.id)!.consumedAt, null);
+-        assert.equal(rt.store.getConfirmation(confirmation.id)!.status, "stale", "复核失败的批准标为失效（架构工单 04）");
+-        assert.match(rt.store.listToolOpsByTask(task.id).find((op) => op.toolName === "notification_enqueue")!.resultSummary!, /通知资料已失效.*撤回/);
++      if (phase === "enqueue") {
++        assert.throws(() => h.enqueue(taskId), /撤回/);
++        assert.deepEqual(h.ops(), [], "失效来源不能登记通知");
+       }
+       h.channel.online = true;
+       await rt.scheduler!.tick();
+       await rt.scheduler!.idle();
+-      if (phase === "pending") {
+-        assert.equal(h.ops()[0].status, "canceled");
+-        assert.match(h.ops()[0].errorMessage!, /source_revoked.*撤回/);
++      if (op) {
++        assert.equal(rt.sched.getOp(op.id)!.status, "canceled");
++        assert.match(rt.sched.getOp(op.id)!.errorMessage!, /source_revoked.*撤回/);
+       }
+       assert.deepEqual(h.channel.sends, [], `${phase} 撤回后不调用通知发送器`);
+-      assert.ok(h.ops().every((op) => op.sourceKind !== "owner_reply"));
++      assert.ok(h.ops().every((item) => item.sourceKind !== "owner_reply"));
+     } finally { await h.close(); }
+   }
+ });
+-
+-test("完全访问群摘要：免审批使用固定接收快照，撤回的来源仍拒绝外发", async () => {
+-  for (const phase of ["fixed", "revoked"] as const) {
+-    let taskId = "";
+-    const h = await harness(`chat-flow-full-${phase}`, scripted((input) => {
+-      if (input === "MAIN-ACCEPT") return [{ name: "chat_result_accept", arguments: { task_id: taskId, reason: "整理讨论结果" } }];
+-      return input === "MAIN-NOTIFY" ? [{ name: "notification_enqueue", arguments: { content: [{ kind: "chat_result", task_id: taskId }], reason: "汇报结果" } }] : [];
+-    }));
+-    try {
+-      const rt = h.runtime;
+-      taskId = h.groupResult("1").id;
+-      await h.complete((await h.submit("MAIN-ACCEPT")).id);
+-      const accepted = rt.store.getAcceptedChatResult(h.main.projectId, taskId)!;
+-      assert.deepEqual(h.ops(), [], "接收资料不授权外发");
+-      if (phase === "revoked") {
+-        h.onebot.pushRecall({ groupId: GROUP, messageId: 1, userId: USER });
+-        await waitFor("完全访问来源撤回已落库", () => rt.qqStore.getInboxByTask(taskId)?.recalled === true);
+-      }
+-      const notify = await h.submit("MAIN-NOTIFY");
+-      await h.complete(notify.id);
+-      await rt.scheduler!.idle();
+-      assert.equal(rt.store.listConfirmationsByTask(notify.id).length, 0);
+-      const call = rt.store.listToolOpsByTask(notify.id).find((op) => op.toolName === "notification_enqueue")!;
+-      if (phase === "revoked") {
+-        assert.equal(call.isError, true);
+-        assert.match(call.resultSummary ?? "", /撤回/);
+-        assert.equal(call.authorization, null, "来源失效不登记执行授权");
+-        assert.deepEqual(h.ops(), []);
+-      } else {
+-        assert.equal(call.authorization?.source, "full_access");
+-        const [op] = h.ops();
+-        assert.equal(op.status, "pending");
+-        assert.equal(op.text, SUMMARY);
+-        assert.deepEqual(op.target, TARGET);
+-        assert.equal(op.sourceRefs[0].version, accepted.acceptedAt);
+-        rt.store.db.prepare("UPDATE tasks SET result_summary = ? WHERE id = ?").run("修改原任务结果", taskId);
+-      }
+-      h.channel.online = true;
+-      await rt.scheduler!.tick();
+-      await rt.scheduler!.idle();
+-      assert.deepEqual(h.channel.sends, phase === "revoked" ? [] : [{ opId: h.ops()[0].id, text: SUMMARY, target: TARGET }]);
+-    } finally {
+-      await h.close();
+-    }
+-  }
+-});
+diff --git a/test/51-generic-scheduler.test.ts b/test/51-generic-scheduler.test.ts
+index dc3de4a3..525ee829 100644
+--- a/test/51-generic-scheduler.test.ts
++++ b/test/51-generic-scheduler.test.ts
+@@ -118,11 +118,17 @@ test("取消整项运行停止子任务与汇总，迟到新委派或消息被
+ });
+
+ test("受限运行独立等待审批，主聊天继续响应，计划保存模式跨默认变化与重启不重算", async () => {
++  let stage = 0;
+   const k = await kit(async (req) => {
+     const input = lastUserText(req);
+-    if (input.includes("RUN-APPROVAL") && !afterTool(req)) return { kind: "tool_calls", calls: [{ id: "notify", name: "notification_enqueue", arguments: {
+-      content: [{ kind: "text", text: "APPROVED-ONE" }], reason: "执行明确发送要求",
+-    } }] };
++    if (input.includes("RUN-APPROVAL")) {
++      const action = [
++        { name: "app_data_define_table", arguments: { table: "todos", fields: [{ name: "title", type: "text" }], expected_schema_version: 0, reason: "建表" } },
++        { name: "app_data_insert", arguments: { table: "todos", records: [{ title: "一" }, { title: "二" }], reason: "准备审批资料" } },
++        { name: "app_data_delete", arguments: { table: "todos", rows: [{ id: 1, expected_version: 1 }, { id: 2, expected_version: 1 }], reason: "删除两行需要审批" } },
++      ][stage++];
++      if (action) return { kind: "tool_calls", calls: [{ id: `call-${stage}`, ...action }] };
++    }
+     return { kind: "text", text: input.includes("MAIN-RESPOND") ? "MAIN-RESPONDED" : "RUN-DONE" };
+   });
+   let rt = k.runtime;
+@@ -133,6 +139,7 @@ test("受限运行独立等待审批，主聊天继续响应，计划保存模
+     await k.fire();
+     const run = rt.sched.listRuns(plan.id, 1)[0]!;
+     await waitFor("调度请求审批", () => rt.store.getTask(run.rootTaskId!)!.status === "awaiting_confirmation");
++    assert.equal(rt.store.listConfirmationsByTask(run.rootTaskId!)[0]!.toolName, "app_data_delete");
+     assert.equal(rt.store.getTask(run.rootTaskId!)!.accessMode, "confirm");
+     const chat = await rt.submit({ sessionId: main.id, requestId: "chat", input: "MAIN-RESPOND", modelSelection: rt.defaultSelection });
+     await waitFor("主聊天响应", () => rt.store.getTask(chat.id)!.status === "completed");
+@@ -264,34 +271,7 @@ test("退出未核实占用阻止整项关闭与下轮重叠，核实后保留
+   } finally { await k.shutdown(); }
+ });
+
+-test("运行通过 schedule_cancel 取消自身：工具返回后停止，不等待自己的 SDK abort", { timeout: 5_000 }, async () => {
+-  let planId = "";
+-  const k = await kit((req) => {
+-    if (lastUserText(req).includes("SELF-CANCEL") && !afterTool(req)) return { kind: "tool_calls", calls: [{ id: "cancel", name: "schedule_cancel", arguments: {
+-      schedule_id: planId, expected_version: 1, reason: "本任务取消自己的后续执行",
+-    } }] };
+-    return { kind: "text", text: "SELF-CANCEL-RETURNED" };
+-  });
+-  try {
+-    const plan = k.plan("SELF-CANCEL");
+-    planId = plan.id;
+-    await k.fire();
+-    const run = k.runtime.sched.listRuns(plan.id, 1)[0]!;
+-    await waitFor("自身取消工具返回并收尾", () => {
+-      const root = k.runtime.store.getTask(run.rootTaskId!)!;
+-      return root.status === "canceled" && k.runtime.store.listToolOpsByTask(root.id).some((op) => op.toolName === "schedule_cancel" && op.resultSummary !== null);
+-    }, 3_000);
+-    await k.settle();
+-    assert.equal(k.runtime.sched.getRun(run.id)!.resultStatus, "canceled");
+-    k.clock.now += 24 * 60 * 60_000;
+-    await k.settle();
+-    assert.equal(k.runtime.sched.listRuns(plan.id, 10).length, 1);
+-    assert.equal(k.reports.length, 0);
+-  } finally { await k.shutdown(); }
+-});
+-
+-test("自身取消停止未核实：工具返回、task中断及占用可见，运行继续开放等待核实", { timeout: 5_000 }, async () => {
+-  let planId = "";
++test("宿主取消停止未核实：task中断及占用可见，运行继续开放等待核实", { timeout: 5_000 }, async () => {
+   let entered = false;
+   let release!: () => void;
+   const gate = new Promise<void>((resolve) => { release = resolve; });
+@@ -299,27 +279,25 @@ test("自身取消停止未核实：工具返回、task中断及占用可见，
+     if (lastUserText(req).includes("SELF-UNKNOWN") && !afterTool(req)) {
+       entered = true;
+       await gate;
+-      return { kind: "tool_calls", calls: [{ id: "cancel", name: "schedule_cancel", arguments: {
+-        schedule_id: planId, expected_version: 1, reason: "取消本运行",
+-      } }] };
++      return { kind: "text", text: "取消后迟到的结果" };
+     }
+-    return { kind: "text", text: "工具已返回" };
++    return { kind: "text", text: "运行结果" };
+   });
+   try {
+     const plan = k.plan("SELF-UNKNOWN");
+-    planId = plan.id;
+     await k.fire();
+     const run = k.runtime.sched.listRuns(plan.id, 1)[0]!;
+     await waitFor("模型已进入任务", () => entered);
+     const drivers = Reflect.get(k.runtime, "drivers") as Map<string, Driver>;
+     drivers.get(run.sessionId!)!.stopManagedProcesses = async () => false;
++    const canceled = await k.runtime.scheduleCancel({ scheduleId: plan.id, expectedVersion: plan.version, reason: "取消本运行" });
++    assert.equal(canceled.status, "canceled");
+     release();
+     await waitFor("停止未核实的持久终态", () => ["canceled", "interrupted"].includes(k.runtime.store.getTask(run.rootTaskId!)!.status), 3_000);
+     await k.settle();
+     assert.equal(k.runtime.sched.getRun(run.id)!.closedAt, null);
+     assert.ok(k.runtime.scheduleGet(plan.id).runs[0]!.stopUnverifiedTaskIds.includes(run.rootTaskId!));
+     assert.equal(k.runtime.store.getTask(run.rootTaskId!)!.cancelRequested, true);
+-    assert.ok(k.runtime.store.listToolOpsByTask(run.rootTaskId!).some((op) => op.toolName === "schedule_cancel" && op.resultSummary !== null));
+     assert.equal(k.reports.length, 0);
+   } finally { release(); await k.shutdown(); }
+ });
+diff --git a/test/85-retire-core-group-chat.test.ts b/test/85-retire-core-group-chat.test.ts
+index f379e33d..849c63b7 100644
+--- a/test/85-retire-core-group-chat.test.ts
++++ b/test/85-retire-core-group-chat.test.ts
+@@ -34,7 +34,6 @@ import type { NotifyTarget } from "@ruukoto/core/types.ts";
+ import {
+   lastUserText,
+   makeTestDirs,
+-  pendingConfirmation,
+   startTestRuntime,
+   cleanupDirs,
+   waitFor,
+@@ -250,20 +249,6 @@ test("验收3：无 chat 角色行的实例中 main/coding/SubAgent 仍读不到
+
+ // ---------- 验收 4：通知与调度中的群结果引用仍复核 ----------
+
+-type Call = { name: string; arguments: Record<string, unknown> };
+-function scripted(actions: (input: string) => Call[]): Responder {
+-  const steps = new Map<string, number>();
+-  return async (req) => {
+-    const input = lastUserText(req);
+-    const step = steps.get(input) ?? 0;
+-    steps.set(input, step + 1);
+-    const action = actions(input)[step];
+-    return action
+-      ? { kind: "tool_calls", calls: [{ id: `call-${step}`, ...action }] }
+-      : { kind: "text", text: "处理完成" };
+-  };
+-}
+-
+ async function notifyHarness(prefix: string, responder: Responder) {
+   const onebot = await startMockOneBot({});
+   const channel = {
+@@ -297,37 +282,36 @@ async function notifyHarness(prefix: string, responder: Responder) {
+     const done = g.seedTask({ userId: OWNER, messageId, state: "completed", summary });
+     return seedAcceptedResult(rt.store, { mainProjectId: main.projectId, acceptedByTaskId: done.task!.id, taskId: done.task!.id, summary });
+   };
+-  const submit = (input: string) => rt.submit({ sessionId: main.sessionId, requestId: input, input, accessMode: "confirm", modelSelection: rt.defaultSelection });
+-  const complete = (taskId: string) => waitFor("main 任务完成", () => rt.store.getTask(taskId)?.status === "completed");
+   return {
+-    ...t, rt, onebot, channel, main, archive, group, acceptResult, submit, complete,
++    ...t, rt, onebot, channel, main, archive, group, acceptResult,
+     ops: () => rt.sched.listOps({ limit: 50 }).items,
+     async close() { await t.shutdown(); await onebot.close(); },
+   };
+ }
+
+-test("验收4a：已接收群结果的通知经批准后在退役后正常发送", async () => {
+-  let taskId = "";
+-  const h = await notifyHarness("retire-notify-ok", scripted((input) =>
+-    input === "MAIN-NOTIFY" ? [{ name: "notification_enqueue", arguments: { content: [{ kind: "chat_result", task_id: taskId }], reason: "告知拥有者" } }] : [],
+-  ));
++test("验收4a：宿主登记的已接收群结果通知在退役后正常发送", async () => {
++  const h = await notifyHarness("retire-notify-ok", async () => ({ kind: "text", text: "不应调用模型" }));
+   try {
+     const accepted = h.acceptResult("1", "群讨论结果：周五发布");
+-    taskId = accepted.taskId;
+-    const task = await h.submit("MAIN-NOTIFY");
+-    const confirmation = await pendingConfirmation(h.client, task.id);
+-    await h.client.request("respond_confirmation", { confirmation_id: confirmation.id, decision: "approve" });
+-    await h.complete(task.id);
++    const op = h.rt.store.withTx(() => {
++      const snapshot = resolveAcceptedChatResult(h.rt.store, h.rt.qqStore, h.main.projectId, accepted.taskId);
++      return h.rt.sched.insertOp({
++        sourceKind: "confirmation", sourceKey: `host:${snapshot.taskId}`, taskId: null, hostOpId: null,
++        target: { ...TARGET }, text: snapshot.summary,
++        sourceRefs: [{ kind: "chat_result", ref: `chat_result:${snapshot.taskId}`, version: snapshot.acceptedAt, sha256: sha256(snapshot.summary) }],
++      }).op;
++    });
++    await h.rt.scheduler!.tick();
+     await h.rt.scheduler!.idle();
+-    const [op] = h.ops();
+     assert.equal(op.status, "pending");
+-    assert.deepEqual(op.sourceRefs.map((r) => [r.kind, r.ref, r.version]), [["chat_result", `chat_result:${taskId}`, accepted.acceptedAt]]);
++    assert.deepEqual(op.sourceRefs.map((r) => [r.kind, r.ref, r.version]), [["chat_result", `chat_result:${accepted.taskId}`, accepted.acceptedAt]]);
+     assert.equal(h.rt.sched.getOp(op.id)!.status, "pending", "渠道离线等待，未完成发送");
+     h.channel.online = true;
+     await h.rt.scheduler!.tick();
+     await h.rt.scheduler!.idle();
+     assert.equal(h.rt.sched.getOp(op.id)!.status, "sent");
+     assert.deepEqual(h.channel.sends.map((s) => s.text), ["群讨论结果：周五发布"]);
++    assert.equal(h.server.calls.length, 0);
+   } finally { await h.close(); }
+ });
+
+@@ -335,7 +319,7 @@ test("验收4b/4c/4d：撤回与归档篡改阻断待发通知与调度运行（
+   const h = await notifyHarness("retire-notify-blocked", async () => ({ kind: "text", text: "ok" }));
+   try {
+     const rt = h.rt;
+-    /** 直接登记一条待发通知（批准路径在 4a/49 已覆盖；这里只验证发送前复核）。 */
++    /** 宿主直接登记待发通知，验证发送前的来源复核。 */
+     const accepted = (messageId: string, summary: string, g?: typeof h.group) => {
+       const a = h.acceptResult(messageId, summary, g);
+       const ref: SourceRef = { kind: "chat_result", ref: `chat_result:${a.taskId}`, version: a.acceptedAt, sha256: sha256(summary) };

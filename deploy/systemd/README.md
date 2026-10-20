@@ -1,68 +1,74 @@
 # ruukoto 目标服务器部署（Linux）
 
-后台、CLI/TUI 与完全访问 worker 使用实际运行账户。完全访问继承后台启动时的用户环境，具有该账户已有的文件、网络和凭据权限；内部 Ruukoto 控制变量不传给 worker。控制面仍验证拥有者令牌。受限任务使用原生沙箱，服务管理另需可选的固定 helper 与 OS 授权。
+个人正式入口由 Pi durable 持有运行状态，CLI 只管理同一后台；完全访问使用实际运行账户已有权限。以下安装步骤用于新的个人档案，旧后台、旧档案和生产渠道的接管按“升级与回退”另行安排。Coding 的本机 TUI、控制协议和档案不随本部署更改。
 
-<!-- Note: 见 .agents/notes/implemented/feature/2026-10-12-full-access-current-account.md -->
+<!-- Note: 见 .agents/notes/implemented/simplification/2026-10-18-personal-product-entry.md -->
 
 ## 安装步骤
 
-以下示例把代码装在 `/opt/ruukoto`，数据装在 `/var/lib/ruukoto`，以当前既有账户运行后台。先安装 Node（最低 22.19，建议 24）、Git、Bash、coreutils、Python 3 与 dbus-user-session，并按[原生前置](../native/README.md)安装正式 bwrap/profile。后台使用宿主工具，不依赖 Docker。模板的账户、数值 UID 与 Node 绝对路径均须按实际安装值替换，不能假定 `/usr/bin/node` 是所需版本。逐步执行，任一步失败时先处理，不继续启动后台。
+以下示例把完整 workspace 装在 `/opt/ruukoto`，新个人档案放在 `/var/lib/ruukoto/personal-durable`，以既有普通账户运行。先准备 Node ≥22.19、Git、Bash、coreutils、Python 3、dbus-user-session；Linux 命令能力另需[原生前置](../native/README.md)。模板账户、UID 和 Node 路径按实际值替换。已有同名单元、代码目录或目标档案时先核对归属，不覆盖运行中的部署。逐步执行，任一步失败先处理，不继续启动后台。
 
 ```bash
-# 1. 数据目录与代码（不创建系统账户）
+# 1. 新档案与完整workspace；确认目标未被旧资料占用
 run_user=$(id -un)
 run_group=$(id -gn)
 run_uid=$(id -u)
 node_bin=$(node -p 'process.execPath')
 "$node_bin" -e 'const [major,minor]=process.versions.node.split(".").map(Number); if(major<22||(major===22&&minor<19))process.exit(1)'
-sudo install -d -o "$run_user" -g "$run_group" -m 0700 /var/lib/ruukoto/{data,agent,agent-work,control}
+test ! -e /var/lib/ruukoto/personal-durable
+sudo install -d -o "$run_user" -g "$run_group" -m 0700 /var/lib/ruukoto/personal-durable
 sudo rsync -a --delete --exclude node_modules --exclude .git --exclude .scratch --exclude .DS_Store ./ /opt/ruukoto/
 sudo env PATH="$(dirname "$node_bin"):/usr/local/bin:/usr/bin:/bin" sh -c 'cd /opt/ruukoto && npm ci --omit=dev && npm run build'
 
-# 2. 模型配置与凭据（替换为实际文件路径；缺可用模型时拒绝启动）
-sudo install -o "$run_user" -g "$run_group" -m 0600 <models.json> /var/lib/ruukoto/agent/models.json
-sudo install -o "$run_user" -g "$run_group" -m 0600 <auth.json> /var/lib/ruukoto/agent/auth.json
+# 2. 在运行账户的终端配置新实例；密钥由该终端的环境提供
+RUUKOTO_PERSONAL_DIR=/var/lib/ruukoto/personal-durable \
+  "$node_bin" /opt/ruukoto/apps/ruukoto/bin/ruukoto.mjs
+# 在菜单配置模型、专用测试IM、资料及服务；完成后从菜单停止后台。
 
-# 3. user manager 开机启动并在退出登录后继续运行
+# 3. user manager：命令scope在开机和退出登录后仍需可用
 sudo loginctl enable-linger "$run_user"
 sudo systemctl start "user@$run_uid.service"
 sudo -u "$run_user" env XDG_RUNTIME_DIR="/run/user/$run_uid" \
   DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$run_uid/bus" systemctl --user is-system-running
 
-# 4. 后台单元：安装前替换账户占位值
-python3 - "$run_user" "$run_group" "$run_uid" "$node_bin" <<'PY' | sudo tee /etc/systemd/system/ruukoto-backend.service >/dev/null
+# 4. 安装模板前替换实际账户和Node路径
+python3 - "$run_user" "$run_group" "$run_uid" "$node_bin" <<'PYCODE' | sudo tee /etc/systemd/system/ruukoto-backend.service >/dev/null
 from pathlib import Path
 import sys
 text = Path("deploy/systemd/ruukoto-backend.service").read_text()
 for name, value in zip(("RUN_USER", "RUN_GROUP", "RUN_UID", "NODE_BIN"), sys.argv[1:]):
     text = text.replace("@" + name + "@", value)
 print(text, end="")
-PY
-sudo systemctl daemon-reload
-sudo systemctl enable --now ruukoto-backend
-# 单元由 systemd 设置账户 HOME；代理、SSH_AUTH_SOCK 等按需在 drop-in
-# 的 Environment/EnvironmentFile 指定，worker 继承后台实际获得的环境。
-
-# 5. 连接同一账户的后台
-export RUUKOTO_DATA_DIR=/var/lib/ruukoto/data
-ruukoto
+PYCODE
 ```
 
-`linger` 使该账户的 user manager 在开机后和无登录会话时继续运行；停止后台不会停止它管理的其他用户服务。受限 worker 不继承 user bus。`running` 或 `degraded` 的 manager 才能供 launcher 使用，仍需核实每个 `Delegate=yes` scope 与可写 `cgroup.kill`。正常停止和启动拒绝的检查应以服务实际账户及同样环境执行，不能用登录 shell 代替系统服务。
+模型和已配对 IM 的凭据环境变量名由菜单保存，systemd 不继承交互 shell。启动前用 root 保护的 `EnvironmentFile` 或既有秘密管理方式向后台注入相同变量；文件只保存变量赋值，不能包含 shell 命令，不将秘密值写进单元、命令参数或仓库。配置文件与令牌不从旧 `agent/` 复制。需要代理或 SSH agent 时同样显式提供后台环境。以服务实际账户及同样环境核实命令 scope 和停止路径，登录 shell 成功不替代系统服务前提。
 
-完全访问无需专用执行账户、启停包装、工作区 ACL 或额外 sudo 配置。账号原有的文件权限仍有效。原生临时 HOME/TMPDIR 使用宿主磁盘，没有单任务容量上限；停止核实后清理，未核实则保留现场与占用。日常入口见 [usage](../../docs/usage.md)。
+新安装与专用测试入口准备完成后，安装者可以执行：
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now ruukoto-backend
+# 日常管理：连接同一新档案的本机菜单
+RUUKOTO_PERSONAL_DIR=/var/lib/ruukoto/personal-durable \
+  "$node_bin" /opt/ruukoto/apps/ruukoto/bin/ruukoto.mjs
+```
+
+`serve` 是模板的前台入口，SIGTERM/SIGINT/SIGHUP 收齐接口与 Harness 后退出。菜单可查询、停止后台；日常菜单退出不停止独立后台。档案使用独立 SQLite、0700 目录、0600 配置/日志/令牌和认证 socket，不使用旧 `RUUKOTO_DATA_DIR/AGENT_DIR/CONTROL_DIR` 或旧 owner token。worker 和依赖由完整 workspace 构建提供，单独 app tarball 不能替代安装。
 
 ## 升级与回退
 
-先用旧版本入口停止后台并按该实例的执行单元身份核实所有旧 worker 已退出。系统服务的 `KillMode=control-group` 只覆盖该单元内进程，不能证明另一 user scope 或旧容器已退出；查询失败或停止未核实时保留占用和现场，停止版本切换。不要用全局容器清理处理旧 worker。
+旧个人装配升级至 durable 是一次空白实例接管：先以旧版本停止 scheduler/outbox、IM、后台与独立执行单元，停用旧单元自动重启，再核实所有原身份退出。`KillMode=control-group` 只覆盖后台单元内进程，不能证明另一 user scope 已退出；停止未核实时保留占用与现场并停止切换。
 
-核实停止后备份配置、数据库、JSONL 历史、审批、产物及工作副本，保留异常占用记录。安装宿主工具与原生前置，移除启动参数、单元 drop-in 和 EnvironmentFile 中的旧 `container` / `local` 执行覆盖以及 worker 镜像、容器 UID/GID 配置，再替换检出、构建和单元。用同一原档案启动，核实档案 schema 与代码匹配，并验收受限工具、委派、调度与中断状态；档案格式规则见[操作手册](../../docs/usage.md)。
+原地保留旧档案、代码/依赖版本与受保护的一致备份和清单，不移动、覆盖或删除已提交会话；不能为查阅归档启动会恢复任务和外发的旧后台。新实例使用 `/var/lib/ruukoto/personal-durable` 等独立空白目录，重新配置模型、凭据、平台绑定与服务。旧历史、记忆、应用数据、日程、审批和在途工作均不导入，旧控制协议、开发会话、工作流和 GitHub 自动评审不接入。
 
-回退旧版本前也必须先停止并核实新原生单元，保留资料和待核实状态；不承诺在线无损切换或已执行操作回滚。Docker 卸载和既有 docker 组权限清理是独立运维决定，不自动执行。
+生产接管另行完成最终验收：核实旧接收者和发送者停止，登记平台水位及配对边界，过滤旧积压与重投；暂停窗口中未受理委托由拥有者重新提交。不要仅凭新入口构建或隔离验证通过启用生产 bot、账号或服务。durable 后续升级同样先停并核实原执行，保留完整档案与未知效果；未知版本明确拒绝，不手改格式或记录。
+
+回退先停用并核实新实例和独立执行，原 durable 与旧档案都继续归档。只回退代码，旧版本也使用另一个空白档案并重新配置、重设平台边界；不能恢复旧备份执行其中已有入站、发送与计划。外部已执行操作不回滚，两端不同时消费同一平台。Coding 安装与升级独立，保留其原 schema、JSONL 与客户端流程。
 
 ## 服务器服务管理
 
-`service_inspect` / `service_manage` 仅在个人产品、Linux 与显式 helper 配置齐备时装配。完全访问免操作审批，其他模式沿用单次批准与长期授权规则。helper 始终固定目标与修订、单次认领操作 ID，并要求已有 OS 授权；没有 helper 或 sudo 权限会明确失败，不阻碍普通完全访问执行。
+个人在 Linux 停机菜单中保存 helper、策略与 sudo 的绝对路径后装配服务能力；模型不能改这些路径。主/子固定检查、子工作 restart 与独立宿主操作由 durable 保存原身份、权限和回执。完全访问免操作审批，其他模式沿原 IM 的单次批准或精确长期授权；没有 helper 或 sudo 权限明确失败，不降级任意 root 执行。
 
 ```bash
 # 1. root 拥有的固定 helper、策略与标记目录
@@ -89,15 +95,16 @@ sudo install -d -o "$(id -un)" -g "$(id -gn)" -m 0750 /var/lib/ruukoto-service-t
 sudo systemctl daemon-reload
 sudo systemctl start ruukoto-service-test
 
-# 3. 后台单元 drop-in（helper 与 policy 缺一拒绝启动）
-# [Service]
-# Environment=RUUKOTO_SERVICE_HELPER=/usr/local/libexec/ruukoto/ruukoto-service
-# Environment=RUUKOTO_SERVICE_POLICY=/etc/ruukoto/services.json
-# 可选 RUUKOTO_SERVICE_SUDO 指定 sudo 路径，默认 /usr/bin/sudo。
-sudo systemctl daemon-reload
-sudo systemctl restart ruukoto-backend
+# 3. 停止后台后，在同一新档案的菜单配置服务路径
+# helper: /usr/local/libexec/ruukoto/ruukoto-service
+# policy: /etc/ruukoto/services.json
+# sudo: /usr/bin/sudo
+# 保存后重新启动；service配置不安装或重启服务。
+
 ```
 
 `inspect` 的 `systemctl show` 降到策略的非 root 检查身份，部署时填写实际启动账户 UID/GID。`restart` 在 root 的短命命令单元中执行固定 `systemctl restart`；`stop-op` 只停止该操作派生的命令单元。协议、修订与效果未知处理见 [deploy 模块](../../docs/modules/deploy.md)。命令退出码与随后服务状态分述，退出码 0 不证明业务健康，取消也不撤销已经提交给 PID 1 的重启作业。
+
+`inspect-op` / `stop-inspect` 为个人 durable 的固定检查提供持久身份协议。它要求调用侧预存机器与检查归属，并为检查创建独立进程组；允许 sudo 监护与 helper 同组。升级 helper 不会自动启用该能力，也不扩大 sudoers 的固定路径授权。
 
 演练清理只针对演练创建的服务、启动程序、状态目录、策略项与 helper drop-in；生产资源由拥有者核实后处理。历史平台证据见 [发布验收](../../docs/release-acceptance.md#历史验证清单)。

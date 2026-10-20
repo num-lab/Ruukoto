@@ -1,0 +1,63 @@
+{
+  "remote": "/tmp/ruukoto-tools-29.6uZBBr",
+  "moduleUrlStrategy": "仓库 TypeScript 模块保留各自远端原目录 URL；Pi 与 typebox 使用原 ESM 包。",
+  "records": [
+    {
+      "path": "apps/ruukoto/src/personal-error.ts",
+      "bytes": 191,
+      "sha256": "f4266968ec480f657bee1a6043e69d07910134f09924ec43683aa0569b212ab4"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-tool-io.ts",
+      "bytes": 15632,
+      "sha256": "f20135709c10cae84ad8b62c456fab9d633bbf6ad7467c68be2656ca3a3283a5"
+    },
+    {
+      "path": "packages/agent/src/execution/approved-ops.ts",
+      "bytes": 18275,
+      "sha256": "819f2bfa7bdac96bd09143aef98fb5611838d3daa63898182f4bb83138d2dd0e"
+    },
+    {
+      "path": "packages/agent/src/web-search-transport.ts",
+      "bytes": 16654,
+      "sha256": "8a37ac38192df8b4eeb2fa65f5a44fa8dbdfde0a567690390b7fd741d4c75d0b"
+    },
+    {
+      "path": "test/personal-tool-io.test.ts",
+      "bytes": 16313,
+      "sha256": "0d8cd7a399d0e1944a9583b703984277303ee759854e99bbc6b7a29d3ae94865"
+    },
+    {
+      "path": "test/web-search-transport.test.ts",
+      "bytes": 8553,
+      "sha256": "3ceed0f7cf3885a36dfc37279c2af28db8925de23496d4892180d513a44cd293"
+    }
+  ],
+  "bundles": [
+    {
+      "name": "leaf-fifo.test.mjs",
+      "bytes": 18650,
+      "sha256": "75b5976f66b94ebd30c8b89a0d618fe3d7dab94f0afebc0a743ab6270f3e55c4"
+    },
+    {
+      "name": "leaf-io.test.mjs",
+      "bytes": 41300,
+      "sha256": "3644e0cf30dd89f8481ffc3500ab9f0967e0522768596e23420e5b75f2b7a513"
+    },
+    {
+      "name": "leaf-search.test.mjs",
+      "bytes": 23154,
+      "sha256": "e236127276b888b607882b621de8012a2233b63faae7a2b83722d68c74f7df4b"
+    },
+    {
+      "name": "linux-four-scenarios-probe.mjs",
+      "bytes": 657976,
+      "sha256": "0964655c864bedfb24e6b88c9e2df8fb69274a9a6de58fbf055da8aefed0a38a"
+    },
+    {
+      "name": "linux-tools-probe.mjs",
+      "bytes": 657976,
+      "sha256": "0964655c864bedfb24e6b88c9e2df8fb69274a9a6de58fbf055da8aefed0a38a"
+    }
+  ]
+}

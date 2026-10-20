@@ -1,14 +1,12 @@
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { createHash } from "node:crypto";
 import { test } from "node:test";
 import { AccessScope } from "@ruukoto/core/access.ts";
-import { randomId, type Artifact, type Session, type Task } from "@ruukoto/core/types.ts";
+import { randomId, type Session, type Task } from "@ruukoto/core/types.ts";
 import { listWorkflowExecutions, requireWorkflowRun, type WorkflowRun } from "@ruukoto/core/workflow.ts";
 import { ArtifactStore } from "@ruukoto/agent/artifacts.ts";
 import type { Runtime } from "@ruukoto/runtime/runtime.ts";
-import type { SourceRef } from "@ruukoto/channels/scheduler/store.ts";
 import { startMockMcp } from "./helpers/mock-mcp.ts";
 import { afterTool, inputText, realTools, startTestRuntime, toolNamesOf, waitFor } from "./helpers/testkit.ts";
 import { initGitRepo } from "./helpers/git-fixture.ts";
@@ -56,13 +54,6 @@ async function finished(rt: Runtime, run: WorkflowRun): Promise<WorkflowRun> {
   return requireWorkflowRun(rt.store, run.id);
 }
 
-function seedNotice(rt: Runtime, source: Task, artifact: Artifact, text: string): string {
-  const ref: SourceRef = { kind: "artifact", ref: `artifact:${artifact.id}@0+${Buffer.byteLength(text)}`,
-    version: String(artifact.byteCount), sha256: createHash("sha256").update(text).digest("hex") };
-  return rt.sched.insertOp({ sourceKind: "tool", sourceKey: randomId("notice"), taskId: source.id, hostOpId: null,
-    target: { channel: "mock", account: "mock", chatId: "mock", configVersion: 1 }, text, sourceRefs: [ref] }).op.id;
-}
-
 test("工作流步骤从持久来源装配技能目录与真实 skill 调用", async () => {
   const t = await startTestRuntime("workflow-skill-binding", req => {
     assert.match(inputText(req), /\[技能目录\]/);
@@ -90,7 +81,7 @@ test("真实个人步骤修改应用 schema 后仍可继续，main 来源具有�
     assert.equal((await finished(rt, run)).status, "succeeded");
     assert.equal(t.server.calls.length, 2);
     const names = toolNamesOf(t.server.calls[0]);
-    for (const name of ["app_data_define_table", "app_data_query", "schedule_query", "read", "edit", "write", "bash", "read_artifact"]) assert.ok(names.includes(name), name);
+    for (const name of ["app_data_define_table", "app_data_query", "read", "edit", "write", "bash", "read_artifact"]) assert.ok(names.includes(name), name);
     for (const name of ["http_request", "request_file_access", "todo_write", "subagent_delegate", "workflow_start", "browser"]) assert.ok(!names.includes(name), name);
     const taskId = listWorkflowExecutions(rt.store, run.id).find(execution => execution.kind === "agent")!.taskId;
     const ops = rt.store.listToolOpsByTask(taskId);
@@ -104,7 +95,7 @@ test("个人来源的修改步骤只增加已有委派的五个编码工具", as
   const t = await startTestRuntime("workflow-personal-modify", req => {
     if (afterTool(req)) return { kind: "text", text: "修改完成" };
     const names = toolNamesOf(req);
-    for (const name of ["read", "edit", "write", "bash", "read_artifact", "app_data_query", "schedule_query"]) assert.ok(names.includes(name), name);
+    for (const name of ["read", "edit", "write", "bash", "read_artifact", "app_data_query"]) assert.ok(names.includes(name), name);
     for (const name of ["http_request", "request_file_access", "todo_write"]) assert.ok(!names.includes(name), name);
     return { kind: "tool_calls", calls: [{ id: "write", name: "write", arguments: { path: "value.txt", content: "changed\n" } }] };
   }, { config: realTools() });
@@ -139,13 +130,12 @@ test("memory_list 的预览来源落盘，祖先记忆撤销阻止间接缓存�
   } finally { await t.shutdown(); }
 });
 
-test("运行后新增资料授权不扩大步骤范围，直接产物与通知查询使用同一固定授权", async () => {
-  let access!: AccessScope, from = "", to = "", artifactId = "", noticeId = "";
+test("运行后新增资料授权不扩大步骤范围，真实产物读取使用固定授权", async () => {
+  let access!: AccessScope, from = "", to = "", artifactId = "";
   const t = await startTestRuntime("workflow-new-grant", req => {
     if (afterTool(req)) return { kind: "text", text: "范围核实完成" };
     access.createGrant({ fromProjectId: from, toProjectId: to, category: "artifact" });
-    return { kind: "tool_calls", calls: [{ id: "direct", name: "read_artifact", arguments: { artifact_id: artifactId } },
-      { id: "notice", name: "notification_query", arguments: { op_id: noticeId } }] };
+    return { kind: "tool_calls", calls: [{ id: "direct", name: "read_artifact", arguments: { artifact_id: artifactId } }] };
   }, { config: realTools() });
   try {
     const rt = t.runtime, source = personalSource(rt), sourceSession = rt.store.getSession(source.sessionId)!;
@@ -161,21 +151,19 @@ test("运行后新增资料授权不扩大步骤范围，直接产物与通知�
     artifacts.append(artifact.id, Buffer.from(text));
     artifacts.complete(artifact.id);
     artifactId = artifact.id;
-    noticeId = seedNotice(rt, source, rt.store.getArtifact(artifact.id)!, text);
     const run = rt.workflows!.start({ sourceTaskId: source.id, requestKey: "fixed-grants",
-      script: 'return await agent("scope",{request:"核实资料范围",tools:["read_artifact","notification_query"]});', input: null });
+      script: 'return await agent("scope",{request:"核实资料范围",tools:["read_artifact"]});', input: null });
     assert.deepEqual(run.source.authority!.grantIds, []);
     assert.equal((await finished(rt, run)).status, "succeeded");
     const textAfter = inputText(t.server.calls[1]);
     assert.match(textAfter, /产物不属于可读取范围/);
-    assert.match(textAfter, /发送资料不可读/);
     assert.ok(!textAfter.includes(text));
     assert.equal(access.listGrants().length, 1);
   } finally { await t.shutdown(); }
 });
 
-test("同一来源的不同运行隔离真实产物、子历史与引用产物的通知正文", async () => {
-  let old = true, sourceFile = "", artifactId = "", previousSession = "", noticeId = "";
+test("同一来源的不同运行隔离真实产物与子历史", async () => {
+  let old = true, sourceFile = "", artifactId = "", previousSession = "";
   let active: Runtime | null = null;
   const t = await startTestRuntime("workflow-cross-run", req => {
     if (afterTool(req)) return { kind: "text", text: "步骤完成" };
@@ -186,8 +174,7 @@ test("同一来源的不同运行隔离真实产物、子历史与引用产物�
       return { kind: "tool_calls", calls: [{ id: "read", name: "read", arguments: { path: sourceFile } }] };
     }
     return { kind: "tool_calls", calls: [{ id: "artifact", name: "read_artifact", arguments: { artifact_id: artifactId } },
-      { id: "history", name: "history_read", arguments: { session_id: previousSession, entry_id: "private" } },
-      { id: "notice", name: "notification_query", arguments: { op_id: noticeId } }] };
+      { id: "history", name: "history_read", arguments: { session_id: previousSession, entry_id: "private" } }] };
   }, { config: realTools() });
   try {
     const rt = t.runtime, source = personalSource(rt), text = "PRIOR_RUN_RESULT_BODY";
@@ -200,17 +187,15 @@ test("同一来源的不同运行隔离真实产物、子历史与引用产物�
     const artifact = rt.store.listArtifactsByTask(previousTask).find(item => item.name === "read 文件正文")!;
     assert.ok(artifact);
     artifactId = artifact.id;
-    noticeId = seedNotice(rt, source, artifact, text);
     assert.match(inputText(t.server.calls[1]), /PRIOR_RUN_RESULT_BODY/);
     old = false;
     const callIndex = t.server.calls.length;
     const second = rt.workflows!.start({ sourceTaskId: source.id, requestKey: "second",
-      script: 'return await agent("scope",{request:"核实本次运行资料",tools:["read_artifact","history_read","notification_query"]});', input: null });
+      script: 'return await agent("scope",{request:"核实本次运行资料",tools:["read_artifact","history_read"]});', input: null });
     assert.equal((await finished(rt, second)).status, "succeeded");
     const textAfter = inputText(t.server.calls[callIndex + 1]);
     assert.match(textAfter, /产物不属于可读取范围/);
     assert.match(textAfter, /该会话不在本步骤的资料范围/);
-    assert.match(textAfter, /发送资料不可读/);
     assert.ok(!textAfter.includes(text));
   } finally { await t.shutdown(); }
 });

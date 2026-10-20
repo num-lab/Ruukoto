@@ -1,0 +1,23 @@
+{
+  "timestamp": "2026-10-17T11:00:02.083Z",
+  "platform": "linux",
+  "arch": "x64",
+  "node": "v24.21.0",
+  "executable": "/usr/local/bin/node",
+  "uid": 1003,
+  "kernel": "Linux BJ-Tencent 6.8.0-117-generic #117-Ubuntu SMP PREEMPT_DYNAMIC Tue May  5 19:26:24 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux",
+  "bwrap": "bubblewrap 0.9.0",
+  "systemd": "systemd 255 (255.4-1ubuntu8.15)",
+  "userManager": "running",
+  "cgroupVersion": 2,
+  "worker": {
+    "path": "/tmp/ruukoto-worker-23.VR3OvX/source/worker/personal-command-worker.mjs",
+    "sha256": "c1d8bc3492be8253ce5bdf4ed5dc553e44da91fc3eda4be663eddd7d49e63cf3"
+  },
+  "probe": {
+    "path": "/tmp/ruukoto-worker-23.VR3OvX/source/packages/agent/src/execution/linux-probe.mjs",
+    "sha256": "c993274813ab3931b3d1e0da50856e5b9feadb949aa46a94a268a8964c4d86a9"
+  },
+  "codeRoot": "/tmp/ruukoto-worker-23.VR3OvX/source/",
+  "hasNodeModules": false
+}

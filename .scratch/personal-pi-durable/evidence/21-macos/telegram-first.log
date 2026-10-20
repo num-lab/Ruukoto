@@ -1,0 +1,19 @@
+✖ 子服务权限：跨轮保持首次模式，原菜单授权/撤销且本机不能代决 (146.646958ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 849.434542
+
+✖ failing tests:
+
+test at test/personal-telegram-permissions.test.ts:425:1
+✖ 子服务权限：跨轮保持首次模式，原菜单授权/撤销且本机不能代决 (146.646958ms)
+  TypeError: Cannot read properties of undefined (reading 'taskId')
+      at TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/personal-telegram-permissions.test.ts:438:83)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3)

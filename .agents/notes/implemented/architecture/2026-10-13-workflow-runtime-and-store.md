@@ -20,7 +20,7 @@ core 的 `workflow.ts` 保存不可变定义版本、完整有界参数、运行
 
 Agent 尝试继续建立既有工作、SubAgent、独立 Session 与 Task；宿主操作任务使用来源会话，不建立 SDK 会话，任务的模型选择为空。`workflow_executions` 保存具名归属、起始与实际单元身份、停止结论；普通队列与父级结果送达排除这些绑定，工作流步骤不接受普通任务/工作控制或复用。WorkflowCoordinator 写绑定步骤的身份指针，普通身份仍由 SubAgentManager 管理。终态缺输出补记中断事实以支持拥有者核实占用，不将其伪装为可复用宿主结果。
 
-`workflowHostOperation` 按稳定键持有短期任务，`HostExecutionManager` 负责登记、账本快照、停止与终态。`executeWorkCopy` 接受具名执行归属：普通路径仍要求活动 Driver，运行路径要求活动宿主任务及来源授权，二者共用 launcher、worker 与占用收尾。已登记未执行的宿主任务按原键恢复；已有完整宿主缓存可穿过步骤结果尚未提交的崩溃窗口复用。停止 false/异常缓存原结论，源与副本占用、实际身份及已收到结果保留。
+`workflowHostOperation` 按稳定键持有短期任务，`HostExecutionManager` 负责登记与停止，账本快照和终态协议由[任务收尾](2026-10-16-task-ending-protocol.md)持有。`executeWorkCopy` 接受具名执行归属：普通路径仍要求活动 Driver，运行路径要求活动宿主任务及来源授权，二者共用 launcher、worker 与占用收尾。已登记未执行的宿主任务按原键恢复；已有完整宿主缓存可穿过步骤结果尚未提交的崩溃窗口复用。停止 false/异常缓存原结论，源与副本占用、实际身份及已收到结果保留。
 
 结果校验使用现有 TypeBox 的基础 JSON Schema，限 16 KiB、256 个 schema 节点和 16 层，支持对象、数组和标量；正则、外部引用与复杂组合关键词在执行前拒绝。校验发生在后台，允许灾难性正则会阻塞取消与资源计时，因此不能直接复用 MCP 的对象 schema 预检。
 

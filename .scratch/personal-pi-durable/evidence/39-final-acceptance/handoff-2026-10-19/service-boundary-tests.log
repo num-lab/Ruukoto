@@ -1,0 +1,10 @@
+✔ 子服务：取消后复用从实际请求及原工作查询读取宿主未执行事实 (645.342166ms)
+✔ 子服务：原结果被模型编辑替换时拒绝请求，零HTTP且历史保留 (91.602ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2137.6175

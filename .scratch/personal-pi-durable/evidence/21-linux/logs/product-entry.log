@@ -1,0 +1,25 @@
+✔ productFromEnv：未设置/空串默认 ruukoto，ruukoto-code 显式可选 (1.489049ms)
+✔ productFromEnv：非法取值直接报错（不静默落到错误产品） (0.526694ms)
+✔ 产品枚举恰好两个且不重叠 (0.911148ms)
+✔ productRootDir：两产品独立根，均不等于开发实例根 ~/.ruukoto-dev (0.273898ms)
+✔ dirEnvFor：ruukoto 读 RUUKOTO_*_DIR，ruukoto-code 只读 RUUKOTO_CODE_*_DIR (0.278527ms)
+✔ ruukoto（默认产品）：沿用 ~/.ruukoto 布局与 RUUKOTO_*_DIR 覆盖 (0.574104ms)
+✔ ruukoto-code：独立档案根与 RUUKOTO_CODE_*_DIR 覆盖，不读对方产品的路径变量 (0.525759ms)
+✔ 显式产品：全局产品固定时可交替解析两个产品的目录与 socket (0.436741ms)
+✔ 显式产品：双方 DATA、AGENT、CONTROL 环境覆盖并存时互不串用 (0.399325ms)
+✔ buildChildEnv：双开发入口覆盖继承身份，清洗双方日常目录并钉定各自档案 (1.072648ms)
+✔ ruukoto-code：停用 QQ/Telegram 连接与轮询、个人调度不可用、旧记录仍可读 (716.748733ms)
+✔ ruukoto（默认产品）：调度器照常启动 (603.209278ms)
+✔ 数据目录归属：跨产品复用被拒绝，同产品重启正常（meta 兼容扩展） (605.384073ms)
+✔ 进程：apps/ruukoto-code/bin/ruukoto-code.mjs 入口引导 TS，未知名字按工作区处理（非 TTY 退出 1） (2283.053792ms)
+✔ 进程：非法 RUUKOTO_PRODUCT 快速失败并说明取值 (1932.872206ms)
+✔ 进程级：两产品同机并存、独立停止；跨产品打开目录被拒绝 (10646.16062ms)
+✔ 进程级：bin 入口固定产品身份——继承相反 RUUKOTO_PRODUCT 时启动/查询/停止只作用于本产品（评审 R6） (10264.750701ms)
+ℹ tests 17
+ℹ suites 0
+ℹ pass 17
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 31435.905287

@@ -1,0 +1,9 @@
+✔ macOS 控制通道关闭回收独立进程组内忽略 TERM 的已累计后代 (2585.026833ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2717.231041

@@ -1,0 +1,15 @@
+
+> ruukoto-workspace@0.1.0 check:static
+> npm run lint && npm run typecheck && npm run verify-notes && npm run check:docs
+
+
+> ruukoto-workspace@0.1.0 lint
+> eslint . --max-warnings=0
+
+
+> ruukoto-workspace@0.1.0 typecheck
+> tsc --noEmit && npm run typecheck --workspaces && npm --prefix verification/foundation run typecheck
+
+test/mcp-transport.test.ts(126,30): error TS2550: Property 'withResolvers' does not exist on type 'PromiseConstructor'. Do you need to change your target library? Try changing the 'lib' compiler option to 'es2024' or later.
+test/mcp-transport.test.ts(126,71): error TS2550: Property 'withResolvers' does not exist on type 'PromiseConstructor'. Do you need to change your target library? Try changing the 'lib' compiler option to 'es2024' or later.
+test/mcp-transport.test.ts(126,114): error TS2550: Property 'withResolvers' does not exist on type 'PromiseConstructor'. Do you need to change your target library? Try changing the 'lib' compiler option to 'es2024' or later.

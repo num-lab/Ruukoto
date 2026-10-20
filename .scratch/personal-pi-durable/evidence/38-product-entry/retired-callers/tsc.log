@@ -1,0 +1,5 @@
+verification/smoke/smoke-04-desktop-execution.mts(1,44): error TS2307: Cannot find module '../../apps/ruukoto/src/product.ts' or its corresponding type declarations.
+verification/smoke/smoke-13-subagent-messaging.mts(1,44): error TS2307: Cannot find module '../../apps/ruukoto/src/product.ts' or its corresponding type declarations.
+verification/smoke/smoke-15-recover-subagents.mts(1,44): error TS2307: Cannot find module '../../apps/ruukoto/src/product.ts' or its corresponding type declarations.
+verification/smoke/smoke-27-native-service.mts(13,25): error TS2307: Cannot find module '../../apps/ruukoto/src/product.ts' or its corresponding type declarations.
+verification/smoke/smoke-28-personal-native.mts(5,44): error TS2307: Cannot find module '../../apps/ruukoto/src/product.ts' or its corresponding type declarations.

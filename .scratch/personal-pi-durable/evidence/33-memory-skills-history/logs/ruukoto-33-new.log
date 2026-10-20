@@ -1,0 +1,75 @@
+✔ 历史：主会话只读已登记新会话，子身份只读自身且复用保留原文 (10.434833ms)
+✔ 历史：压缩仅改变模型上下文，原始消息仍能查找和完整分页读取 (1.605042ms)
+✔ 历史：检索扫描有界，空页仍给续页并且不漏较早消息 (5.721333ms)
+✔ 历史：定时只读自身；系统提示与账本字段不作为消息来源 (3.13325ms)
+✔ 历史：工具入口拒绝不属于活动模型的伪造调用 (1.941833ms)
+✔ 历史：实际模型工具调用持久保存定义和读取结果 (197.34675ms)
+✔ 记忆控制：wire拒绝伪造来源、版本、额外字段与内部请求标识 (1.365625ms)
+✖ 记忆控制：可信本机向导保存、读取、修订、撤销，历史检索不要求输入内部编号 (53.208875ms)
+✔ 记忆：版本冲突、同操作重放与撤销均持久，撤销不再查询或注入 (73.07025ms)
+✔ 记忆：来源缺失、类别及正文边界拒绝，不能凭模型伪造拥有者记录 (12.581416ms)
+✔ 记忆：子身份复用只参考自身；主修订不能把父聊天注入子记忆 (18.259209ms)
+✔ 记忆：模型实际保存后重启仍注入同版本，压缩保留原历史与来源 (121.643ms)
+✔ 记忆：引用entry被破坏时重启拒绝，provider未收到请求 (12.400875ms)
+[ruukoto:personal] 持久执行出现错误，请查询状态并检查档案；未自动重启。
+▶ 记忆：带参考的两处证据提交失败均阻止实际provider请求
+  ✔ 1 (23.66975ms)
+[ruukoto:personal] 持久执行出现错误，请查询状态并检查档案；未自动重启。
+  ✔ 2 (14.340875ms)
+✔ 记忆：带参考的两处证据提交失败均阻止实际provider请求 (38.299917ms)
+ℹ tests 16
+ℹ suites 0
+ℹ pass 15
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1987.596083
+
+✖ failing tests:
+
+test at test/personal-memory-controls.test.ts:19:1
+✖ 记忆控制：可信本机向导保存、读取、修订、撤销，历史检索不要求输入内部编号 (53.208875ms)
+  AssertionError [ERR_ASSERTION]:
+  长期记忆
+  1. 查找、读取或撤销记忆
+  2. 新建拥有者记忆
+  3. 返回
+
+  选择记忆
+  1. preference：测试偏好
+  2. 返回
+  测试偏好
+
+  记忆操作
+  1. 返回列表
+  2. 修订
+  3. 撤销
+
+  保存修订：修订偏好
+  1. 返回
+  2. 保存修订
+  记忆修订已保存。
+
+  选择记忆
+  1. 返回
+  请输入列出的选项序号。
+
+  选择记忆
+  1. 返回
+
+      at Object.question (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/personal-memory-controls.test.ts:25:146)
+      at choose (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-cli.ts:111:30)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async managePersonalMemory (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-memory-controls.ts:45:19)
+      at async run (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/personal-memory-controls.test.ts:25:100)
+      at async TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/personal-memory-controls.test.ts:28:16)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }

@@ -1,0 +1,11 @@
+✔ personal CLI：认证前不读状态或提交，非法及超限请求无副作用 (30.484833ms)
+✔ 服务核实向导：分页选择、保存效果证据、分页原说明及独立停止登记 (4.585375ms)
+﹣ 服务核实 HTTP：Linux sudo 接线、原状态刷新及慢停止不阻塞独立聊天 (0.034458ms) # SKIP
+ℹ tests 3
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 1
+ℹ todo 0
+ℹ duration_ms 713.07425

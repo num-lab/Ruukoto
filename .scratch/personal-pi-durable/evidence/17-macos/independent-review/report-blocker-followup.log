@@ -1,0 +1,16 @@
+▶ 委托报告：未知暂停跨重启，效果和停止都核实后安全汇总；HTTP 前暂停仅重做模型尝试
+  ✔ before-admission (368.847375ms)
+  ✔ before-http (235.209958ms)
+✔ 委托报告：未知暂停跨重启，效果和停止都核实后安全汇总；HTTP 前暂停仅重做模型尝试 (604.477292ms)
+▶ 委托报告：检查停止未核实跨重启等待，核实后自动汇总，HTTP前暂停可重做
+  ✔ before-admission (156.069417ms)
+  ✔ before-http (160.397167ms)
+✔ 委托报告：检查停止未核实跨重启等待，核实后自动汇总，HTTP前暂停可重做 (316.744125ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 6
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1612.012083

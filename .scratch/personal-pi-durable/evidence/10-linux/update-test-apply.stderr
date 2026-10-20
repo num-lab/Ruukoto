@@ -1,0 +1,3 @@
+Traceback (most recent call last):
+  File "<string>", line 8, in <module>
+OSError: [Errno 18] Invalid cross-device link: '/tmp/ruukoto-personal-linux-20261017T034917Z-attempt2/updated-personal-work-tools.test.ts' -> '/tmp/ruukoto-personal-linux-20261017T034917Z-attempt2/repo/test/personal-work-tools.test.ts'

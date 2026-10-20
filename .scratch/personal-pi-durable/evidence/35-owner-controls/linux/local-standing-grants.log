@@ -1,0 +1,17 @@
+$ node --import tsx --test --test-reporter=tap '--test-name-pattern=长期授权：本机' test/personal-telegram-permissions.test.ts
+TAP version 13
+# Subtest: 长期授权：本机只能按原版本撤销，IM旧授权菜单不恢复权限
+ok 1 - 长期授权：本机只能按原版本撤销，IM旧授权菜单不恢复权限
+  ---
+  duration_ms: 733.98505
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 4083.862495

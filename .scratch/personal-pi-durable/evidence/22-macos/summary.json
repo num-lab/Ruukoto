@@ -1,0 +1,33 @@
+{
+  "setup": {
+    "exit": 0,
+    "source": "作者工具返回；未另存完整日志"
+  },
+  "build": {
+    "exit": 0,
+    "log": "build-final.log"
+  },
+  "static": {
+    "exit": 0,
+    "log": "static-final.log"
+  },
+  "nativeTests": {
+    "passed": 31,
+    "failed": 0,
+    "log": "tests-final.log",
+    "note": "P2修复后最终内容"
+  },
+  "productEntry": {
+    "passed": 17,
+    "failed": 0,
+    "log": "product-entry.log"
+  },
+  "sourceManifest": "source-manifest.json",
+  "notRun": [
+    "全仓 check",
+    "Coding 完整生命周期",
+    "真实模型/IM",
+    "正式部署"
+  ],
+  "finalReview": "final-review.md"
+}

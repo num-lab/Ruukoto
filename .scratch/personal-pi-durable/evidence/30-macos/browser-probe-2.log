@@ -1,0 +1,14 @@
+/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/node_modules/@earendil-works/chord/src/delta/tracker.ts:502
+	if (node === undefined) throw new TypeError("Cannot use a settled overlay");
+	                              ^
+
+TypeError: Cannot use a settled overlay
+    at nodeForTarget (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/node_modules/@earendil-works/chord/src/delta/tracker.ts:502:32)
+    at Object.get (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/node_modules/@earendil-works/chord/src/delta/tracker.ts:395:16)
+    at <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/.scratch/personal-pi-durable/evidence/30-macos/browser-probe.mts:75:118)
+    at Array.some (<anonymous>)
+    at <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/.scratch/personal-pi-durable/evidence/30-macos/browser-probe.mts:75:98)
+    at async until (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/.scratch/personal-pi-durable/evidence/30-macos/browser-probe.mts:27:125)
+    at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/.scratch/personal-pi-durable/evidence/30-macos/browser-probe.mts:75:3)
+
+Node.js v24.15.0

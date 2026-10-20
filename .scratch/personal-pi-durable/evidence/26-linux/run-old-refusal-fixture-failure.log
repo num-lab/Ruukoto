@@ -1,0 +1,40 @@
+node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
++ actual - expected
+
++ 'profile_unrecognized'
+- 'command_record_invalid'
+
+    at file:///tmp/ruukoto-full-26.R7idsd/source/apps/ruukoto/src/linux-command-probe-old.mjs:5265:10
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5) {
+  generatedMessage: true,
+  code: 'ERR_ASSERTION',
+  actual: 'profile_unrecognized',
+  expected: 'command_record_invalid',
+  operator: 'strictEqual',
+  diff: 'simple'
+}
+
+Node.js v24.21.0
+
+
+1 !== 0
+
+    at file:///tmp/ruukoto-full-26.R7idsd/source/apps/ruukoto/src/linux-command-probe.mjs:5619:18
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5) {
+  generatedMessage: false,
+  code: 'ERR_ASSERTION',
+  actual: 1,
+  expected: 0,
+  operator: 'strictEqual',
+  diff: 'simple'
+}
+
+Node.js v24.21.0

@@ -1,0 +1,22 @@
+✖ 完全访问宿主：returned 沿持久 scope 与原回执，环境只在启动继承 (2.156083ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 96.962458
+
+✖ failing tests:
+
+test at test/personal-command-execution.test.ts:295:53
+✖ 完全访问宿主：returned 沿持久 scope 与原回执，环境只在启动继承 (2.156083ms)
+  Error [PersonalError]: 原命令证据无法核实，请保留现场并查询原工作，勿重新执行。
+      at invalid (/private/tmp/rk-full-access-prepare-final-2mmurr3e/apps/ruukoto/src/personal-command-execution.ts:31:23)
+      at runPersonalCommand (/private/tmp/rk-full-access-prepare-final-2mmurr3e/apps/ruukoto/src/personal-command-execution.ts:183:191)
+      at TestContext.<anonymous> (/private/tmp/rk-full-access-prepare-final-2mmurr3e/test/personal-command-execution.test.ts:302:55)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3) {
+    code: 'command_record_invalid'
+  }

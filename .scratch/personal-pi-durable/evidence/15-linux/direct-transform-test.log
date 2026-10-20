@@ -1,0 +1,16 @@
+(node:3122408) ExperimentalWarning: Transform Types is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ helper 传输：aborted 在调用关闭前保持等待并保留尾部字节 (73.860121ms)
+✔ helper 传输：timeout 在调用关闭前保持等待并保留尾部字节 (1017.168775ms)
+✔ helper 传输：已取消输入不启动 helper (1.282663ms)
+✔ helper 传输：spawn 后监听安装前取消仍按取消收尾 (4.777014ms)
+✔ helper 传输：输出超限在关闭后返回有界原始捕获 (38.275046ms)
+✔ helper 传输：异步启动失败收齐 close 后返回原失败码 (4.098562ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 6
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1339.983753

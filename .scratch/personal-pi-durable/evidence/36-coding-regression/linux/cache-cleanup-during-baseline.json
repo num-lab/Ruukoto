@@ -1,0 +1,15 @@
+{
+  "time": 1792308884.3545346,
+  "path": "/dev/shm/rk-coding36-linux.gaWtu6/npm-cache/_cacache",
+  "reason": "setup finished; dependency/cache allocation left under 10MiB before first122, free only this run npm content cache while retaining install/logs/source/test artifacts",
+  "before": {
+    "total": 1952030720,
+    "used": 1952030720,
+    "free": 0
+  },
+  "after": {
+    "total": 1952030720,
+    "used": 1726418944,
+    "free": 225611776
+  }
+}

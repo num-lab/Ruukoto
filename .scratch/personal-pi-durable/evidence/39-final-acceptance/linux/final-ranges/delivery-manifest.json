@@ -1,0 +1,49 @@
+{
+  "files": [
+    {
+      "file": "README.md",
+      "bytes": 2425,
+      "sha256": "31c892e7c98045bd4ac96b39990f7601a5f870b269ba982e41ace520b729596a"
+    },
+    {
+      "file": "a6-four-credential-scan.json",
+      "bytes": 907,
+      "sha256": "f6640b0995e488586d4e0a5b7a65b1a396b9ffb9b6e919de550d8a5a99623270"
+    },
+    {
+      "file": "collector-metadata.json",
+      "bytes": 458,
+      "sha256": "0eef3daba3ed2c189e74d2b6c043211d69e850d92137c9f81fcf68ea4a99299b"
+    },
+    {
+      "file": "ruukoto39-final-durable-ready22.log",
+      "bytes": 5753,
+      "sha256": "2619bf3ef0d0102b1d3ee4966ab4dc2508e6fc57ed6bc25d9667ffd5719c3333"
+    },
+    {
+      "file": "ruukoto39-final-durable-ready24.log",
+      "bytes": 2566,
+      "sha256": "6f582927274ad279a59ff53b8c3c74939a6128b526b704e286deb46e09ffdf63"
+    },
+    {
+      "file": "ruukoto39-final-linux-build.log",
+      "bytes": 5271,
+      "sha256": "42914802094ca6b963ed5f3b8383c99c625ea515901812cc4264686a9280594f"
+    },
+    {
+      "file": "ruukoto39-final-personal22.log",
+      "bytes": 26163,
+      "sha256": "9cbbdc91d1e3114995acbab8c5603d0df4bc58f961a1d6e54ece33739bbebef6"
+    },
+    {
+      "file": "ruukoto39-final-personal24.log",
+      "bytes": 11111,
+      "sha256": "d3e350341a4ace1a68569a754e87ddbf50c82bb4ff78ddce80bedb58e2420ce3"
+    },
+    {
+      "file": "summary.json",
+      "bytes": 5189,
+      "sha256": "28b9e09ba5fc5b2827e7d842eadb11b3aef771c0748815d7d29f7d47235758a4"
+    }
+  ]
+}

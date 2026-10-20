@@ -1,0 +1,10 @@
+✔ personal 服务配置：生产 sudo 后台接线和恢复（Linux），其他平台安全拒绝 (11342.240971ms)
+✔ 服务核实 HTTP：Linux sudo 接线、原状态刷新及慢停止不阻塞独立聊天 (1242.385835ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 15908.699906

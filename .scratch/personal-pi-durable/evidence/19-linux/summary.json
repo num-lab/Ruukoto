@@ -1,0 +1,104 @@
+{
+  "started_at": "2026-10-17T08:23:31.644637+00:00",
+  "source_manifest_sha256": "7220363210d0f10549d17cf1707fa57ad78aca1ebd811cd4f5640e774547fb33",
+  "source_files": 738,
+  "commands": [
+    {
+      "name": "git-init",
+      "argv": [
+        "git",
+        "init",
+        "--quiet"
+      ],
+      "exit_code": 0,
+      "seconds": 0.022
+    },
+    {
+      "name": "git-add",
+      "argv": [
+        "git",
+        "add",
+        "."
+      ],
+      "exit_code": 0,
+      "seconds": 0.321
+    },
+    {
+      "name": "git-snapshot",
+      "argv": [
+        "git",
+        "-c",
+        "user.name=Linux validation",
+        "-c",
+        "user.email=linux-validation@localhost",
+        "-c",
+        "core.hooksPath=/dev/null",
+        "commit",
+        "--quiet",
+        "-m",
+        "isolated validation source snapshot"
+      ],
+      "exit_code": 0,
+      "seconds": 0.036
+    },
+    {
+      "name": "setup",
+      "argv": [
+        "npm",
+        "run",
+        "setup",
+        "--",
+        "--skip-hooks"
+      ],
+      "exit_code": 0,
+      "seconds": 195.85
+    },
+    {
+      "name": "inspection-controls-targeted",
+      "argv": [
+        "npx",
+        "tsx",
+        "--test",
+        "--test-name-pattern=\u68c0\u67e5\u91cd\u6838",
+        "test/personal-services.test.ts",
+        "test/personal-cli.test.ts"
+      ],
+      "exit_code": 0,
+      "seconds": 6.113
+    },
+    {
+      "name": "personal-tests",
+      "argv": [
+        "npx",
+        "tsx",
+        "--test",
+        "test/personal-durable.test.ts",
+        "test/personal-cli.test.ts",
+        "test/personal-services.test.ts",
+        "test/personal-work.test.ts",
+        "test/personal-work-tools.test.ts",
+        "test/personal-work-controls.test.ts",
+        "test/personal-work-notes.test.ts",
+        "test/personal-delegations.test.ts",
+        "test/personal-reports.test.ts",
+        "test/personal-service-operations.test.ts",
+        "test/personal-telegram.test.ts",
+        "test/personal-telegram-permissions.test.ts"
+      ],
+      "exit_code": 0,
+      "seconds": 59.567
+    },
+    {
+      "name": "build",
+      "argv": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "exit_code": 0,
+      "seconds": 1.809
+    }
+  ],
+  "source_content_mismatches_after": [],
+  "finished_at": "2026-10-17T08:27:55.420146+00:00"
+}

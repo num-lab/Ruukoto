@@ -1,6 +1,6 @@
 import { BUILTIN_SUBAGENT_ROLES, subAgentRoleLibrary } from "@ruukoto/agent/subagent-roles.ts";
 import { delegateFromActiveTask, messageFromActiveTask } from "./helpers/active-subagent-source.ts";
-import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
+import { product as personalProduct } from "./helpers/legacy-product.ts";
 /**
  * SubAgent 继续委派、跨工作复用与显式关闭（agent-direction issue 12）。
  * Note: 见 .agents/notes/implemented/feature/2026-10-04-subagent-reuse-close.md

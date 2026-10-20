@@ -1,0 +1,22 @@
+{
+  "test/40-qq-private.test.ts": {
+    "before": "18ac6a0f6412d1136b8e4c9776550577236f6d33e73acd2937991fbf28463203",
+    "after": "ce78dc245b8ba1fcbe34807547383165161478c43d04e2065db98121f6b507fe",
+    "main_current": "18ac6a0f6412d1136b8e4c9776550577236f6d33e73acd2937991fbf28463203"
+  },
+  "test/49-chat-result-flow.test.ts": {
+    "before": "51b508583470f3c83e913cb22a1c96e0cc35e5b4ef774e4e66051c198c322bc2",
+    "after": "ea0b5e5603e402190369f6ed7b4149b81f339d251c01f5f2b24ff9a9c4737447",
+    "main_current": "51b508583470f3c83e913cb22a1c96e0cc35e5b4ef774e4e66051c198c322bc2"
+  },
+  "test/51-generic-scheduler.test.ts": {
+    "before": "ddb8c84eee1ca4cc5dbd4b275654e7f51e5c495ae509dba0e3b579c7fd018645",
+    "after": "265617303b78c9c917bb4202e99f7ed2a91a6dea5f06717caed3aaa805d4f58e",
+    "main_current": "ddb8c84eee1ca4cc5dbd4b275654e7f51e5c495ae509dba0e3b579c7fd018645"
+  },
+  "test/85-retire-core-group-chat.test.ts": {
+    "before": "74daa88fbab2045728011c0caf2d2219c5f64666dd47fc4c976a17253c6b2055",
+    "after": "bf9ef83cb43c259b6f75ebcc371c915594b2aa0065001ea98f2a837440f98797",
+    "main_current": "74daa88fbab2045728011c0caf2d2219c5f64666dd47fc4c976a17253c6b2055"
+  }
+}

@@ -2,6 +2,8 @@
 
 ## 职责与边界
 
+本篇的运行状态、历史或客户端协议适用于 Coding 与保留的旧格式实现；正式个人 Agent 使用[个人持久会话](personal-durable.md)，不接入旧 Runtime、Task Store 或控制协议。
+
 任务运行时（`packages/runtime/src/`）是后台的编排中心：它拥有任务生命周期与队列、会话身份与执行画像、任务收尾、父级送达、SubAgent 生命周期与全部委派行为、后台崩溃恢复，以及旧实例导入的设计。单个后台进程持有调度、任务状态与事件，每个会话用独立的 pi SDK 实例驱动；交互终端（TUI、CLI、IM 入口、GitHub 事件来源）只提交与观察，断开或关闭不取消任务。
 
 它负责：
@@ -25,7 +27,7 @@
 
 `Runtime.start(config)` 要求 app 注入 `config.product`（`RuntimeProduct`）：身份用于数据目录登记，IM 与调度能力决定启停，产品工具族由 app 的工厂提供。共享运行时不按产品名装配。具体产品归属见[产品装配](products.md)。
 
-**驱动本模块的入口。** 控制面（[control](control.md) 与 CLI/TUI）提供 `submit`、`continue`、`interrupt`、`cancel`、`resume_queue`、`switch_mode`、`set_session_mode`、`confirm`，以及工作维度的只读查询 `work_list` / `work_get` 与写操作 `work_cancel`、`subagent_close`（CLI 分别对应 `ruukoto work list` / `ruukoto work show` / `ruukoto work cancel` / `ruukoto work close`）。普通控制面的 `submit` / `continue` / `switch-mode` / 会话默认模式不能作用于子会话。channels 与 scheduler 经入站事件与唤醒任务驱动建任务；每个任务带 `source_event_id` 时出队走既有入站门。
+**驱动本模块的入口。** 控制面（[control](control.md) 与 CLI/TUI）提供 `submit`、`continue`、`interrupt`、`cancel`、`resume_queue`、`switch_mode`、`set_session_mode`、`confirm`，以及工作维度的只读查询 `work_list` / `work_get` 与写操作 `work_cancel`、`subagent_close`（CLI 分别对应 `ruukoto-code work list` / `ruukoto-code work show` / `ruukoto-code work cancel` / `ruukoto-code work close`）。普通控制面的 `submit` / `continue` / `switch-mode` / 会话默认模式不能作用于子会话。channels 与 scheduler 经入站事件与唤醒任务驱动建任务；每个任务带 `source_event_id` 时出队走既有入站门。
 
 **本模块提供给模型的宿主工具。** `subagent_delegate`（登记一次委派，分析或修改）、`subagent_result`（读取结果，省略 `work_id` 时列出本会话 SubAgent 总览，`part=messages` 查看工作内消息）、`subagent_cancel`（整项取消）、`subagent_close`（显式关闭）、`subagent_message`（工作内消息）、`subagent_integrate`（改动汇总）。这些工具属 `subagent` 类别，由 [agent-tools](agent-tools.md) 按执行画像装配；每次调用重新核实宿主任务、会话与身份绑定。
 
@@ -47,7 +49,7 @@
 
 **执行画像。** `tool-availability.ts` 的 `executionProfile` 按会话身份、持久来源、角色与宿主限制确定工具类别、MCP、资料范围、计划资格及 SDK 签名。普通与工作流共用来源计算；显式角色工具必须全部可用，步骤 `tools` 只能进一步收窄。宿主固定评审另限 `read` / `read_artifact` 与只读 MCP，禁消息。画像在任务开始固定，激活、发送前检查与调用门共用；工作区与占用由 `core/worktree.ts` 的 `taskWorkspaceFor` 解析。
 
-Runtime 另持有跨任务的 `BrowserManager`，两个产品共享装配；Driver 的每任务 registry 不承担浏览器归属。正常任务结束保留浏览器，活动任务的取消、有效模式切换和后台停止先核实自有 Chrome、CLI daemon 与 dashboard 的停止；附接只停自己的连接进程。改变同会话另一排队任务的模式不关闭当前任务的浏览器。启动先恢复浏览器绑定、核实旧执行停止，再恢复任务，不重放旧动作；未核实状态仅影响浏览器能力。
+Runtime 另持有跨任务的 `BrowserManager`，Coding 底座持有；Driver 的每任务 registry 不承担浏览器归属。正常任务结束保留浏览器，活动任务的取消、有效模式切换和后台停止先核实自有 Chrome、CLI daemon 与 dashboard 的停止；附接只停自己的连接进程。改变同会话另一排队任务的模式不关闭当前任务的浏览器。启动先恢复浏览器绑定、核实旧执行停止，再恢复任务，不重放旧动作；未核实状态仅影响浏览器能力。
 
 ## 数据与状态
 
@@ -141,7 +143,9 @@ stateDiagram-v2
 
 `agent_wait` 固定同来源的一组任务或工作流，先订阅提交后事件再查询持久事实；停止核实后才让出目录，新可信拥有者输入成功提交会打断旧等待但不取消后台工作。结果与报告权分别登记：有效父轮接管后继续处理，固定组全部就绪及完整输入被接受后才最终汇报；介入问句保留消费并释放报告权。续接轮只等最后一项也须通过 `reportTargets` 接受全组再汇报，原消费不改。未完成报告沿持久原键补报；已经开始的汇总不再授予第二份报告权，同源多目标共用一份总结及适用外发。
 
-所有在线终态路径先停止并核实受管执行单元，再经 `Store.endTask` 在一个事务内做条件更新：只有当前状态仍在起点集合时才继续，随后清除待生效模式、使未消费审批失效、写入对应 `task.*` 事件并按任务 ID 决定占用。驱动器在这条事务内先交工具账本补记效果未知；停止返回 false 或抛错时显式保留占用并写 `task.tool_process_unreaped`。自然完成的已知结果与退出未核实分别记录，失败、取消和重复收尾同样不能丢掉未核实事实。重启与缺失驱动器的停止路径也保留占用，终态更新的竞争不会产生重复事件。
+运行中任务经 agent 的 `endTaskExecution`：先保存取消意图与首次中止快照，再由执行归属停止并核实；共享上下文贯穿队列、Driver 与嵌套工作流，停止后重读快照，在终态事务补已知结论，仅条件更新成功才标未知效果、清待生效模式、失效未消费审批及写终态事件。只有成功释放占用才唤醒队列；未中止的自然收尾不补工具结果。queued、重启恢复与零执行单元启动的即时任务仍直接用 `Store.endTask`。
+
+停止 false、抛错或归属缺失保留占用并写 `task.tool_process_unreaped`。普通队列仅在 `getDriver` 尚未返回、任务尚未启动时可按已核实结束；取得 Driver 后的异常即使 worker 已停也保守保留，防止终态事务回滚丢失浏览器等停止失败事实。工作副本父任务停止失败的兜底沿用请求前捕获的快照，不再次停止或释放占用；兜底落盘再次失败则报告诊断、保留现场待恢复。自然完成的已知结果与退出未核实分别记录；已提交终态不被后续兜底覆盖。
 
 ### 通用定时执行
 
@@ -186,7 +190,7 @@ sequenceDiagram
 
 - **继续**（`work_id`）：沿原工作追加任务；**复用**（`sub_agent_id`）：同一父会话内把相关的另一项工作交给同一个空闲 SubAgent，登记一条新 `work_delegations` 行指向既有 Agent（同一子会话，保留上下文），任务输入带宿主说明「此前的范围不延续」。两者各自登记独立任务记录（id/工作/readScope/结果互不改写），每次执行重新固定读范围、资料、发起任务的访问模式与截止时间，前次批准不延续。
 - **可用性**：继续与复用要求目标 Agent 同一父会话、未关闭、`idle` 且无活动任务（忙碌明确拒绝，不排队），工作目录 realpath 与 dev/ino 和子会话记录一致（目录被删除/替换时报「请新建 SubAgent」）；准备前与登记事务内各核一次。复用另复核该 Agent 历史任务来源引用与本次的并集，任一撤销即拒绝。继续、复用、协作加入、消息登记与冲刷共用管理器的私有资格判断：关闭、跨父会话、宿主固定评审、工作取消或已转做其他工作均明确拒绝或记未投递；委派遇忙碌拒绝，消息遇忙碌或名额满保留待投递。
-- **关闭**：`sub_agents.closed_at` / `closed_by` 独立两列（`owner` 或 `agent:<任务ID>`），未关闭的行两列为空，`state` 语义不变。主 Agent 用 `subagent_close` 关闭本会话名下的 Agent；拥有者经控制面 `subagent_close`（CLI `ruukoto work close`）关闭；已关闭幂等返回；有活动任务拒绝并给出任务 id（先取消任务再关闭）。关闭不删除工作目录、会话、JSONL、产物与工作记录；关闭后新委派报「已关闭」，同键同参重放仍返回原记录；发 `subagent.closed` 事件（refs 指向父会话）。关闭保持同步：关闭事务内用同一 `pendingMessageContext` 资格判定清理发给该 Agent 的待投递消息，不异步冲刷其他 Agent；关闭前无活动任务，因此不需要释放名额。
+- **关闭**：`sub_agents.closed_at` / `closed_by` 独立两列（`owner` 或 `agent:<任务ID>`），未关闭的行两列为空，`state` 语义不变。主 Agent 用 `subagent_close` 关闭本会话名下的 Agent；拥有者经控制面 `subagent_close`（CLI `ruukoto-code work close`）关闭；已关闭幂等返回；有活动任务拒绝并给出任务 id（先取消任务再关闭）。关闭不删除工作目录、会话、JSONL、产物与工作记录；关闭后新委派报「已关闭」，同键同参重放仍返回原记录；发 `subagent.closed` 事件（refs 指向父会话）。关闭保持同步：关闭事务内用同一 `pendingMessageContext` 资格判定清理发给该 Agent 的待投递消息，不异步冲刷其他 Agent；关闭前无活动任务，因此不需要释放名额。
 - **竞争**：关闭与新委派在同一个同步事务内定胜负——先关闭则委派报「已关闭」且零新任务，先登记则关闭报「有活动任务」；不存在「已关闭且有活动任务」的中间态。
 - **不自动关闭**：任务终态、TUI 退出（控制面断开）与等待都不关闭；空闲零模型/worker 进程；重启后关闭状态与空闲 Agent 的可复用性原样保持。
 
@@ -204,7 +208,7 @@ sequenceDiagram
 
 ### 整项取消
 
-- **入口与状态**：拥有者经控制面 `work_cancel`（CLI `ruukoto work cancel <工作ID> [--reason R]`，停止中拒绝）；主 Agent 用 `subagent_cancel(work_id, reason?)`（回报唤醒轮次也允许，取消只收窄能力）。SubAgent 自身与其他父会话的旧工作一律拒绝。取消用 `work_delegations` 的独立三列 `canceled_at` / `canceled_by` / `cancel_reason`，条件 `canceled_at IS NULL` 一次写入，重复取消幂等返回原记录与当前任务状态；工作状态由列与任务状态派生，不改写已结束任务的结果。取消 SubAgent 名下的其他工作不受影响。
+- **入口与状态**：拥有者经控制面 `work_cancel`（CLI `ruukoto-code work cancel <工作ID> [--reason R]`，停止中拒绝）；主 Agent 用 `subagent_cancel(work_id, reason?)`（回报唤醒轮次也允许，取消只收窄能力）。SubAgent 自身与其他父会话的旧工作一律拒绝。取消用 `work_delegations` 的独立三列 `canceled_at` / `canceled_by` / `cancel_reason`，条件 `canceled_at IS NULL` 一次写入，重复取消幂等返回原记录与当前任务状态；工作状态由列与任务状态派生，不改写已结束任务的结果。取消 SubAgent 名下的其他工作不受影响。
 - **一个事务登记，停止在事务外完成**：事务内写取消字段；该工作的 queued 任务直接转为 `canceled`（`errorMessage` 记 `work_canceled`）；running/awaiting_confirmation 任务写 `cancel_requested=1`；追加 `work_delegation.canceled` 事件（`canceledTaskIds` 与 `stoppingTaskIds` 分开记录）。提交后对每个活动任务调用现有 `cancelTask` 停止路径（账本快照、解除审批等待、abort、回收进程组、终态补记），`Promise.allSettled` 等待完成；效果未知的已有操作只标记、不重放；无法回收的执行按现有逻辑保留占用，SubAgent 记 `unverified`。
 - **竞争口径**：登记事务与委派登记都是同步事务、天然串行——先登记的任务必然在取消清单内，后登记的字段已写入即被拒。委派在准备前与登记事务内各核一次 `canceled_at`，命中报 `invalid_state: 工作已取消`（零新任务）；同键同参重放的查重仍最先执行，返回原记录不新建任务。新工作与其他工作不受影响；已取消的工作不能再登记新执行。
 - **单任务取消窗口**：`Runtime.cancelTask` 的 running 分支先在事务内写 `cancel_requested=1` 再 `requestStop`；`Driver.runInner` 开头读到该标记直接定态 `canceled`、不调用模型——取消要么被启动检查拦下，要么 `requestStop` 已能找到 `currentTask`，「已转 running、未进 Driver」的窗口吞不掉取消。已知上限：超时取消若正好落在该窗口，终态记 `canceled`（不知原因）而非 `timeout`。
@@ -237,7 +241,7 @@ sequenceDiagram
 
 - 终态沿用 `setTaskResult` 一次写入与结果提取；结果引用明确 `workId` / `subAgentId` / `taskId` / 原直接父任务 / 所属父会话 / `outcome` / `artifactIds`。编排器在同一结果事务内调用管理器 `resultRecorded(task)`，只在当前任务仍是本任务时按占用记 `unverified` 或 `idle` 并清空当前任务；旧任务首次补记保留结果与事件，不倒写新工作与任务。完成/失败/超时/结果未知如实保存，重复终态只记一份；不自动重试。
 - dev 父会话：持久 `subagent_task.*` 事件指向父会话（TUI 可见归属），默认在下轮注入有界摘要与引用，模型实际接受后才标记 `result_delivered_at`；曾被等待覆盖的结果另有持久自动补报资格，不依赖拥有者再发一轮。main 沿用稳定 `wake:<childId>` 回报键（沿终态子任务模式，不复制原 IM 来源事件）；消费记录与等待父轮共用，已消费不再注入，已取消不注入、不唤醒。
-- **工作最终汇报**：未经过等待的 IM（QQ 私聊/Telegram 私聊）来源工作，在其 main 唤醒轮次到达终态时由宿主判定收尾并登记一次最终汇报——判定 = 该工作没有 queued/running/awaiting_confirmation 的执行任务，且每条已终态执行任务的 `wake:<id>` 都已存在并记录结果（本轮除外，因此并发或补充委派时由后一个收尾的唤醒汇报）。唤醒输入附宿主固定说明，告知本轮最终回答会成为汇报。汇报经 `owner_reply` 槽登记，发送键 = `<发起事件 id>#work:<workId>:<收尾执行任务 id>`（同键幂等，重复终态与补记只产生一份；补充原工作再次收尾键不同即新的一份），任务引用 = 收尾唤醒任务。目标 = 发起任务来源事件钉版的 `reply_target`（与当前固定目标核对；不从会话最新回答或当前入口推断；续派来自另一入口仍发回发起入口；登记时目标不一致按 `work_report:` 前缀记 `*.reply_skipped`，发送前再核对一次，停用或变化即取消不改发）。正文 = 首行 `[工作 <workId> 最终汇报]` + 该唤醒任务的最终回答；唤醒失败/超时/被重启中断时发宿主固定提示并注明详情见 TUI；两平台均引用原入站消息（来源键按 `#` 截断取原事件）。发送等待、限流重试、结果未知不重发全部沿用 outbox 语义（见 [scheduler](scheduler.md)）；正文与来源经 `ruukoto notify show` 可查。已取消的工作不自动汇报。TUI、定时、群与 GitHub 发起的工作一律不汇报；该路径不新增工具、不扩大 main 的外发授权。GitHub 来源工作继续走固定通知。
+- **工作最终汇报**：未经过等待的 IM（QQ 私聊/Telegram 私聊）来源工作，在其 main 唤醒轮次到达终态时由宿主判定收尾并登记一次最终汇报——判定 = 该工作没有 queued/running/awaiting_confirmation 的执行任务，且每条已终态执行任务的 `wake:<id>` 都已存在并记录结果（本轮除外，因此并发或补充委派时由后一个收尾的唤醒汇报）。唤醒输入附宿主固定说明，告知本轮最终回答会成为汇报。汇报经 `owner_reply` 槽登记，发送键 = `<发起事件 id>#work:<workId>:<收尾执行任务 id>`（同键幂等，重复终态与补记只产生一份；补充原工作再次收尾键不同即新的一份），任务引用 = 收尾唤醒任务。目标 = 发起任务来源事件钉版的 `reply_target`（与当前固定目标核对；不从会话最新回答或当前入口推断；续派来自另一入口仍发回发起入口；登记时目标不一致按 `work_report:` 前缀记 `*.reply_skipped`，发送前再核对一次，停用或变化即取消不改发）。正文 = 首行 `[工作 <workId> 最终汇报]` + 该唤醒任务的最终回答；唤醒失败/超时/被重启中断时发宿主固定提示并注明详情见 TUI；两平台均引用原入站消息（来源键按 `#` 截断取原事件）。发送等待、限流重试、结果未知不重发全部沿用 outbox 语义（见 [scheduler](scheduler.md)）；正文与来源经 `ruukoto-code notify show` 可查。已取消的工作不自动汇报。TUI、定时、群与 GitHub 发起的工作一律不汇报；该路径不新增工具、不扩大 main 的外发授权。GitHub 来源工作继续走固定通知。
 - 等待覆盖的工作沿报告认领收尾：同源多目标由有效父轮或共享后备总结一次；普通 `owner_reply` 与完整总结在结果事务合并为一份 outbox，阶段问句不消耗最终报告资格。排队后备转交保留原任务、输入与键，停车别名不再出队；已开始的后备不转交，报告任务不再唤醒自己的结果。每次模型请求、最终登记及实际发送从本轮 JSONL 与认领事件重核全部报告来源及子任务依赖，释放认领不解绑；输入损坏或缺失即拒绝。宿主将终态、停止核实和未知效果事实置于模型正文前；定时来源只随整项运行回报。
 - 身份在完成、TUI 退出与等待后仍保留，空闲零模型/worker 进程；任务收尾后释放子会话的 Driver 运行对象（SDK 缓存），释放不等于删除身份。
 - `coding_result` 按同一归属窄口兼容读取本会话委派的 SubAgent 执行结果；GitHub webhook 评审经宿主固定 SubAgent。
@@ -296,16 +300,11 @@ sequenceDiagram
 
 ### 旧实例导入
 
-两个产品方向各有一个离线导入流程，机制骨架相同：拥有者先只读预览、在计划文件中确认修订、再应用；预览、应用、回退与列举都要求目标后台已停止（CLI 持目标实例锁运行，不走控制面）。
+Coding 的离线导入由 app 持有方向策略，core 提供快照、文件校验及回执辅助。拥有者先只读预览并确认计划，再应用或回退；目标全程持实例锁，源后台存活或锁身份无法核实时拒绝。源资料不改写，导入不调用模型、不重放外发。
 
-- **源全程只读。** 源后台存活（或持锁身份无法核实）时拒绝。快照 = 把源库及其 WAL 侧车逐文件复制到临时目录后在副本上核实当前格式，不用 SQLite 连接直读源目录（读 WAL 库会在源目录生成写入侧车）。整个流程源目录逐文件 sha256 不变，任何路径都不删除或修改源资料。
-- **目标侧离线、单事务逐行写入。** 目标库先以 `VACUUM INTO` 备份到 `<dataDir>/migration/<导入ID>/target-before.db`（回执记录 sha256），复制文件走临时名 + rename（目标已有同 sha 文件跳过，sha 不同拒绝），最后单事务插入全部行、条目账本与回执；事务失败整体回滚，中断后用同一计划重跑。
-- **导入单位是 allow-list，行 ID 原样保留。** 每张表按方向自有的 `TABLE_POLICY` 登记导入或排除与理由，未登记的新表使导入拒绝。开发方向导入源项目内的普通 dev 会话及其任务、工具操作、审批、产物、选择记录、压缩点、事件与 SubAgent 一层（子会话以关闭状态登记）、项目配置、范围内记忆、双端都在导入范围的资料授权、MCP 与 Jev 配置（缺凭据绑定时以停用导入），排除角色绑定会话、QQ 群会话与 main 资料、inbound/调度/通知/长期授权/平台配置、历史索引、目录占用、agentDir 配置与凭据。个人方向导入 main/coding/chat 角色行及其项目与会话、QQ 群会话与群归档、内全部入站事件、调度与运行、发送账本、长期授权、平台配置（含 `last_update_id`）、GitHub 归档与应用数据文件，以及必要凭据（平台配置引用的绑定与 `github_webhook` 用途的绑定；MCP/Jev 凭据不复制）；普通 dev 会话及其项目按开发方向处理，排除历史索引、目录占用、导入账本自身与模型目录。个人方向要求目标是**全新**实例（已有自有角色行即拒绝），角色工作目录在目标按角色重建并取目标身份，角色会话 cwd 随之改写。
-- **不重放收尾。** 未终态任务收尾为 canceled（queued）或 interrupted（running/awaiting_confirmation，原因 `migration`），结果未登记且可能已开始执行的工具操作与任务置 `effect_unknown`（审批未消费挡住的操作属已知未执行）；未消费审批 stale；开发方向 `full_access` 会话默认降为 confirm，个人方向 main 会话访问模式原样保留；queued 会话不在目标入队——导入不调用模型、不重放外发。两方向保留等待/报告事实、原任务键及 JSONL；等待结束并记 `instance_imported`，pending 报告记 `undelivered`，后备及停车别名继续被排除出队。个人方向另把未关闭的调度运行置 `closed_at`、发送账本 pending→canceled（`error_kind=migration`，已知未发送不当作新请求重发）、sending→`effect_unknown`、入站 registered/queued→failed、SubAgent 按关闭状态登记。
-- **幂等与回执。** 请求键由计划文件派生：同键同参返回原回执，异参报 `request_conflict`。修订值 = 导入集合（每行整行规范化哈希、文件 sha256）+ 目标冲突状态的规范化哈希：源或目标在预览后变化，应用即报 `revision_conflict`。回执（`instance_imports`）永久保留（`applied` / `reverted`），条目账本标识各项资料属于哪次导入；个人方向对易变资料（调度运行、发送账本、入站事件、群归档、GitHub 归档）不逐行入账，而以回执 manifest（导入行 id 与转换后整行 sha256）管理续跑去重与回退核对——同源 `applied` 回执的 manifest 是「目标行确为本源导入所写」的唯一证据。
-- **回退边界。** 回退按账本删除导入的行、事件区间与经 sha256 核对的复制文件（个人方向另按回执摘除导入的凭据绑定）。导入后目标侧的自有活动逐项列出并拒绝回退：导入的会话/项目/记忆有新任务、新事件、新会话、新授权、组织引用或新版本；目标启动后新增入站事件、发送操作、调度或运行、长期授权；导入行被运行时改写（已发送、已 advance、已消费偏移、撤回标记更新）；应用数据文件被写；导入凭据被轮换。阻挡时返回 `ok: false`、`status: applied`，回执与已导入资料保持原状；成功回退返回 `status: reverted`。即：切换期间新增的执行及发送事实是目标侧事实，不能抹掉，回退只在一皆未发生时整体移除。导入写入的产品归属与目标备份不随回退移除——回退回到「已登记该产品的空实例」。整库恢复为手工路径，仅在回退路径不可用且确认无切换后事实时使用，恢复出的旧库不重演备份后的任何发送与调度。
-- **执行归属交接。** 个人方向在应用完成后把平台连接与调度的执行归属移到目标：目标以导入的 telegram `last_update_id` 继续消费（入站去重表随行，不看旧事件）、活动调度在目标按恢复语义各触发一次（旧 pending 发送已取消，不产生双发）、长期授权在同机同入口身份下继续有效（不符即在使用侧 fail-closed）。拥有者务必在应用后停止并退役旧实例：不得再启动旧后台消费平台入站或调度，否则两端会各自轮询同一 bot、独立触发同一批通知——这是一次性切换，导入工具不改源实例一字。GitHub webhook 监听地址为启动参数，需要在目标启动时重新给出；GitHub 侧 webhook URL 指向新地址属拥有者的平台外操作。
-- **不做增量同步。** 源侧新增只在报告列出，可再次导入；两个方向都复用各自的模块与辅助，不抽象通用迁移框架。
+范围按 allow-list 固定，保留普通开发会话、任务、审批、工具操作、产物、JSONL、项目配置和适用的一层 SubAgent；缺凭据配置以停用状态导入。应用前备份目标库，文件按原字节核对，最后在目标事务写行、条目账本与回执；源或目标修订变化拒绝。导入后出现新活动、资料变化或新授权时，回退保留原回执并报告阻挡。含工作流执行绑定的源拒绝导入，完整范围与命令见[操作手册](../usage.md#6-导入旧实例)。
+
+正式个人 Agent 从新档案开始，旧历史、平台绑定、调度、凭据和在途执行仅归档，不提供旧个人导入方向或旧库恢复运行入口。
 
 ## 不变量与失败处理
 
@@ -343,6 +342,8 @@ sequenceDiagram
 
 ## 设计依据
 
+- [运行中任务的收尾协议](../../.agents/notes/implemented/architecture/2026-10-16-task-ending-protocol.md)
+
 - [共享角色与工作流接口版本](../../.agents/notes/implemented/architecture/2026-10-15-workflow-role-interface.md)
 
 - [当前工作区快照与子增量](../../.agents/notes/implemented/architecture/2026-10-15-current-workspace-snapshots.md)
@@ -371,7 +372,7 @@ sequenceDiagram
 - [独立历史快照与限定来源](../../.agents/notes/implemented/feature/2026-10-11-branch-session-snapshot.md)
 
 - [任务由后台进程持有，终端只负责交互](../../.agents/notes/implemented/architecture/2026-09-19-detach-terminal-from-task-runtime.md)：任务生命周期独立于交互入口、每会话串行与 FIFO 队列、实例锁、恢复与不重放原则的来源。
-- [两个 Agent 产品独立运行，固定 coding 与 chat 角色退役](../../.agents/notes/implemented/architecture/2026-10-02-two-agent-products.md)：两个产品共用一层 SubAgent 模型与任务运行时，固定角色退役后旧身份只读归档。
+- [两个 Agent 产品独立运行，固定 coding 与 chat 角色退役](../../.agents/notes/implemented/architecture/2026-10-02-two-agent-products.md)：产品独立与一层 SubAgent 目标保留；共同旧任务运行时仅适用于 Coding 与保留实现。
 - [工作委托、SubAgent 与执行任务分开保存](../../.agents/notes/implemented/architecture/2026-10-03-work-delegation-subagent-task.md)：工作/身份/执行三张记录、两级幂等键、登记与调度分离、能力按工作钉定、管理器为唯一写入者。
 - [SubAgent 修改委派每项工作使用独立 worktree](../../.agents/notes/implemented/architecture/2026-10-04-subagent-worktrees.md)：写入目标首次钉定、宿主生成 worktree、不提交规则与祖先/子孙占用判定。
 - [原生执行沙箱](../../.agents/notes/implemented/architecture/2026-10-10-native-execution-sandbox.md)：按实际后端核实目录身份、保护根与临时单元停止。

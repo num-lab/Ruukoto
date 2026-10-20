@@ -1,0 +1,9 @@
+✔ durable 确认与资料授权：逐次批准消费一次，撤销后读取重新等待且旧批准失效 (10897.5905ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 12244.304791

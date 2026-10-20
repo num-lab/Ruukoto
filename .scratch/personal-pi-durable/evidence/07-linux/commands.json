@@ -1,0 +1,33 @@
+[
+  {
+    "name": "personal",
+    "argv": [
+      "npx",
+      "--no-install",
+      "tsx",
+      "--test",
+      "test/personal-durable.test.ts",
+      "test/personal-cli.test.ts",
+      "test/personal-services.test.ts",
+      "test/personal-work.test.ts",
+      "test/personal-service-operations.test.ts",
+      "test/personal-telegram.test.ts"
+    ],
+    "cwd": "/dev/shm/ruukoto-telegram-07-xs0lu2kb/source",
+    "RUN_MODEL_CHECK": "0",
+    "exitCode": 0,
+    "durationSeconds": 21.29
+  },
+  {
+    "name": "build",
+    "argv": [
+      "npm",
+      "run",
+      "build"
+    ],
+    "cwd": "/dev/shm/ruukoto-telegram-07-xs0lu2kb/source",
+    "RUN_MODEL_CHECK": "0",
+    "exitCode": 0,
+    "durationSeconds": 1.719
+  }
+]

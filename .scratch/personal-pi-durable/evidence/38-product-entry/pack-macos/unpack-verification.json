@@ -1,0 +1,39 @@
+{
+  "timeUtc": "2026-10-18T10:51:41.287569+00:00",
+  "returncode": 0,
+  "completeWorkspaceRequired": true,
+  "personalTarContainsRemovedEntryFamilies": false,
+  "channelsPersonalImportAbsent": true,
+  "allSourceEntriesStillMatchSnapshot": true,
+  "products": [
+    {
+      "product": "ruukoto",
+      "archive": "/private/tmp/ruukoto38-pack-20261018-1/dist/ruukoto-0.1.0.tgz",
+      "archiveSha256": "83418624140939f4ffebbdc17accf6e4b1f0b3366ba43d1b39a22ba65f01d4cc",
+      "fileCount": 75,
+      "unpackedReplaced": [
+        "src",
+        "bin",
+        "package.json"
+      ],
+      "keptInstalledNodeModules": "/private/tmp/ruukoto38-pack-20261018-1/apps/ruukoto/node_modules",
+      "unpackedFilesMatchArchive": true
+    },
+    {
+      "product": "ruukoto-code",
+      "archive": "/private/tmp/ruukoto38-pack-20261018-1/dist/ruukoto-code-0.1.0.tgz",
+      "archiveSha256": "92255af7689aaaa58324a8d7fbe10b2d075c28a80cc97d39f60c5404a95e44e9",
+      "fileCount": 6,
+      "unpackedReplaced": [
+        "src",
+        "bin",
+        "package.json"
+      ],
+      "keptInstalledNodeModules": null,
+      "unpackedFilesMatchArchive": true
+    }
+  ],
+  "independentNodeModulesRoot": "/private/tmp/ruukoto38-pack-20261018-1/node_modules",
+  "workspaceAgentLink": "/private/tmp/ruukoto38-pack-20261018-1/packages/agent",
+  "personalBinLink": "/private/tmp/ruukoto38-pack-20261018-1/apps/ruukoto/bin/ruukoto.mjs"
+}

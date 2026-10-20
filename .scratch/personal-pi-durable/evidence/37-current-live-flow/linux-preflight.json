@@ -1,0 +1,70 @@
+{
+  "observedAt": "2026-10-18T08:29:55.914645+00:00",
+  "platform": "Linux",
+  "uid": 1003,
+  "gid": 1003,
+  "node": {
+    "exit": 0,
+    "stdout": "v24.21.0",
+    "stderr": ""
+  },
+  "userManager": {
+    "exit": 0,
+    "stdout": "running",
+    "stderr": ""
+  },
+  "disk": {
+    "rootFreeBytes": 923947008,
+    "shmFreeBytes": 1678950400
+  },
+  "files": [
+    {
+      "path": "/usr/bin/bwrap",
+      "exists": true,
+      "uid": 0,
+      "gid": 0,
+      "mode": "0o755",
+      "sha256": "e318903862396f96de3df57264e0158682b952fd3fb53ac23d876413e7b30f71"
+    },
+    {
+      "path": "/etc/apparmor.d/ruukoto-bwrap",
+      "exists": true,
+      "uid": 0,
+      "gid": 0,
+      "mode": "0o644",
+      "sha256": "52fc781685539c90a28cdfd79b4e3a8b45eb8cdabbafd4a2d9ed3a64ddd2ca64"
+    },
+    {
+      "path": "/usr/local/libexec/ruukoto/ruukoto-service",
+      "sha256": "55abe1c06fe72bd6da6da01fb517841e95f093655ec42c5c3763e8880f9c16f1",
+      "readExit": 0
+    }
+  ],
+  "policy": {
+    "execUid": 986,
+    "execGid": 986
+  },
+  "policyHasCurrentIdentityFields": false,
+  "testUnit": {
+    "exit": 0,
+    "stdout": "MainPID=0\nLoadState=not-found\nActiveState=inactive\nSubState=dead",
+    "stderr": ""
+  },
+  "productionBackend": {
+    "exit": 0,
+    "stdout": "MainPID=3963064\nUser=ruukoto-backend\nGroup=ruukoto-backend\nLoadState=loaded\nActiveState=active\nSubState=running",
+    "stderr": ""
+  },
+  "isolationPathExists": {
+    "/etc/ruukoto-live-37": false,
+    "/var/lib/ruukoto-live-37": false,
+    "/usr/local/libexec/ruukoto-live-37": false,
+    "/tmp/ruukoto-live-37": false
+  },
+  "newTestUnit": {
+    "exit": 0,
+    "stdout": "MainPID=0\nLoadState=not-found\nActiveState=inactive\nSubState=dead",
+    "stderr": ""
+  },
+  "mutationsPerformed": false
+}

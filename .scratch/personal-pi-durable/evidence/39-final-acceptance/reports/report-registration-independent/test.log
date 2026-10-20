@@ -1,0 +1,11 @@
+✔ durable 命令：封组登记不等待命令 running，效果和停止核实后才唯一汇总 (4404.137333ms)
+✔ durable 命令：封组登记不等待命令 unknown，效果和停止核实后才唯一汇总 (1299.522291ms)
+✔ durable 命令：封组登记不等待命令 restored，效果和停止核实后才唯一汇总 (723.009209ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 3
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 7346.954709

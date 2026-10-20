@@ -1,0 +1,86 @@
+[
+  {
+    "path": "package.json",
+    "sha256": "6b93cb1622229f73827927b8d1120efa7083f3578a9c82a32c79b633f59ace16",
+    "matchesFrozen": true,
+    "copyMatchesProduction": true
+  },
+  {
+    "path": "test/personal-command-execution.test.ts",
+    "sha256": "d5867c07ebef567bd50c1c2d5812c8d2cea1e39381ff07434993a07109308bf6",
+    "matchesFrozen": true,
+    "copyMatchesProduction": true
+  },
+  {
+    "path": "apps/ruukoto/src/personal-command-execution.ts",
+    "sha256": "c1356517fc5ea86a84b72ccb26355f5453e6f607eadd51836dbe1ff45b2620d6",
+    "matchesFrozen": true,
+    "copyMatchesProduction": true
+  },
+  {
+    "path": "apps/ruukoto/src/personal-error.ts",
+    "sha256": "f4266968ec480f657bee1a6043e69d07910134f09924ec43683aa0569b212ab4",
+    "matchesFrozen": true,
+    "copyMatchesProduction": true
+  },
+  {
+    "path": "worker/personal-command-worker.mjs",
+    "sha256": "c1d8bc3492be8253ce5bdf4ed5dc553e44da91fc3eda4be663eddd7d49e63cf3",
+    "matchesFrozen": true,
+    "copyMatchesProduction": true
+  },
+  {
+    "path": "packages/agent/src/execution/launchers.ts",
+    "sha256": "2f03fcce41bc68282cbd144202f0224f6f8fe17ed9e530cd00d746190e88529c",
+    "matchesFrozen": true,
+    "copyMatchesProduction": true
+  },
+  {
+    "path": "packages/agent/src/execution/native-linux.ts",
+    "sha256": "f71e77920a71d1bbdbcf77236fe02606206848bd522dcc0c67f88844f53aa74b",
+    "matchesFrozen": true,
+    "copyMatchesProduction": true
+  },
+  {
+    "path": "packages/agent/src/execution/native-linux-identity.ts",
+    "sha256": "b440337265a70e6fdbbce8086e9c838ec4354578357df48bce925372646c5fcf",
+    "matchesFrozen": true,
+    "copyMatchesProduction": true
+  },
+  {
+    "path": "packages/agent/src/execution/native.ts",
+    "sha256": "b55cc3566101824c9406f54a173cd3a8d0f3b0e5eefd94cfe595abac589f0fe7",
+    "matchesFrozen": true,
+    "copyMatchesProduction": true
+  },
+  {
+    "path": "packages/agent/src/execution/native-macos.ts",
+    "sha256": "f8643d4dd875f736b8af417117b963b2501489f87309ac26b9bb115796da8bdf",
+    "matchesFrozen": true,
+    "copyMatchesProduction": true
+  },
+  {
+    "path": "packages/agent/src/execution/approved-ops.ts",
+    "sha256": "552e1f8268ebf44c20d091752cb670f7128a2189502d8647eb2b1811fc10e70b",
+    "matchesFrozen": true,
+    "copyMatchesProduction": true
+  },
+  {
+    "path": "packages/agent/src/managed-processes.ts",
+    "sha256": "00668a2abd89e504352795bad0f103afb9870efa1773898008ade0829f490d0f",
+    "matchesFrozen": true,
+    "copyMatchesProduction": true
+  },
+  {
+    "path": "apps/ruukoto/src/personal-command-work.ts",
+    "sha256": "fe83a6b585237e5761d04f7a60db6e993b416d5176255e7c99884a579d2e391f",
+    "matchesFrozen": true,
+    "copyMatchesProduction": true
+  },
+  {
+    "path": "test/personal-command-work.test.ts",
+    "sha256": "497c72dcfbc5be80a0edfb1ce21f4de2161ceafa640810cae68829f22d5741e5",
+    "matchesFrozen": true,
+    "copyMatchesProduction": true
+  }
+]

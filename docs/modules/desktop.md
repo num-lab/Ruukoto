@@ -24,7 +24,7 @@ Personal 配置保存在应用数据目录的 `personal.json`，只含 `host` �
 
 提交与继续的完整参数、原请求键和数据实例标识先保存在应用数据目录的 `pending/code/<控制目录摘要>`，Personal 使用 `pending/personal/<主机及控制目录摘要>`，再发送；目录按目标与配置隔离。待核实状态按请求键更新，原始记录与损坏记录留在主进程；额外恢复诊断界面暂不开放。同会话有待核实输入时禁用发送，同原任务的待核实继续不会另建请求键。
 
-本机终端及xterm滚动历史只在本次应用内存中保留，最多同时8个，滚动历史5000行；关闭终端标签或所属会话、换数据实例、页面重载／崩溃与应用退出均回收，普通断线、同实例快照和切换标签／会话／Personal保留。终端用应用全局等宽字体，明暗主题各带完整ANSI 16色。
+本机终端及xterm滚动历史只在本次应用内存中保留，最多同时8个，滚动历史5000行；关闭终端标签或所属会话、换数据实例、页面重载／崩溃与应用退出均回收，普通断线、同实例快照和切换标签／会话／Personal保留。终端用与全局一致的等宽字体栈，明暗主题各带完整ANSI 16色；样式依赖生产CSP对内联样式的放行。
 
 ## 主要流程
 
@@ -56,7 +56,7 @@ Context 环形入口不显示百分比数字，悬浮层按 System prompt、Tool
 
 浏览器初始为空页，地址接受无凭据 HTTP(S) 与本机file，提供后退、前进与刷新；历史记录只覆盖地址栏提交。本机文档由Host分配临时loopback地址与随机令牌，保留原始file地址；可读取同目录／子目录相对资源，拒绝越界、链接、`.env*`、`.git-credentials`等敏感元数据及userData。每文件8MiB、每文档累计32MiB／256次请求，至多8份文档和16个并发读取；地址栏导航、刷新、关闭与Host退出释放能力，iframe内部导航不记历史或保证即时释放。模块与fetch支持无凭据CORS，本地HTML可用CDN和联网，其脚本可能转交同目录能力，不能把此功能当作不可信JS防泄密执行器。网页使用无 same-origin、顶层导航、弹窗或下载权限的 iframe，不加载桌面开发来源；远程 frame 无 preload／IPC／Node，所有网页权限、设备与屏幕捕获均拒绝。站点禁止嵌入时不能预览，界面不显示固定嵌入提示。普通Web Demo没有任意本机读取能力。
 
-右栏新标签页的终端入口是与文件树同形的按钮，点击为当前会话归属的工作区开新终端，无归属工作区或未登记根目录时禁用；宿主按预期数据实例与工作区根真实身份选择cwd，启动默认登录shell；不调用后台，也不受Agent任务沙箱限制。输入、resize和base64输出按终端引用分流，output直接写xterm，不重绘React；隐藏终端常驻，重新显示后更新尺寸，明暗跟随应用并各自提供完整16色，字体取全局var(--font-mono)，Ctrl组合交给shell。
+右栏新标签页的终端入口是与文件树同形的按钮，点击为当前会话归属的工作区开新终端，无归属工作区或未登记根目录时禁用；宿主按预期数据实例与工作区根真实身份选择cwd，启动默认登录shell；不调用后台，也不受Agent任务沙箱限制。输入、resize和base64输出按终端引用分流，output直接写xterm，不重绘React；隐藏终端常驻，重新显示后更新尺寸，明暗跟随应用并各自提供完整16色，字体使用具体等宽字体栈（与全局--font-mono同值；canvas字体语法不解析var()，CSS变量会静默回退比例字体并压错行高），Ctrl组合交给shell。
 
 文件树首读用加载图标；文件夹读取时在行末显示图标，完成或失败后展开，失败可重试，空目录留空。读取中再次点击取消展开；缓存命中直接展开，刷新保留现有内容。左栏折叠与展开共用一个按钮，位置连续过渡，保持焦点并避开原生交通灯。
 
@@ -78,7 +78,7 @@ Git graph 每页读取200条真实提交，滚动接近底部自动追加直到�
 
 MyGo 仅在精确 `mygo://localhost/` 顶层文档安装 bridge，每个 Go 方法另核对调用窗口及文档 URL，原生拒绝子 frame IPC。保留生产 CSP 与 iframe sandbox，拒绝网页权限、下载和全部新窗口，主文档外链交系统浏览器。子 frame 隔离不依赖主文档导航回调。未写入 Node 的请求为 not_sent，交付后丢答保留 unknown／disconnected，禁止自动重放；坏帧、EOF、写入故障或传输期限使全部在途调用失败并报告 failed，旧更新不再安装。退出先等待 Node 回收连接与 SSH，再有界升级终止；日常后台继续运行。
 
-Electron 窗口启用 sandbox、contextIsolation，关闭 nodeIntegration。sandbox preload 构建为单个 CommonJS 文件；preload除Electron与Node内置模块外的依赖全部打包；主进程另精确允许vendor node-pty，包含runtime JS、本平台native与macOS spawn-helper，native/helper从asar解包。生产 HTML 的 head 首个元素是严格 CSP meta；开发页面只使用带本次 nonce 的响应头策略，放行 dev server 的 HTTP 与 WebSocket 源，不开放 unsafe-inline。开发页面仅允许对配置的完整文档 URL 自身重载；其他导航被拦截，只有主页面 HTTP(S) 链接交给系统浏览器。CSP 仅对 iframe 增加 HTTP(S)、预览图片增加 data 来源；脚本 nonce、主 frame IPC 与主页面导航限制保持。
+Electron 窗口启用 sandbox、contextIsolation，关闭 nodeIntegration。sandbox preload 构建为单个 CommonJS 文件；preload除Electron与Node内置模块外的依赖全部打包；主进程另精确允许vendor node-pty，包含runtime JS、本平台native与macOS spawn-helper，native/helper从asar解包。生产 HTML 的 head 首个元素是严格 CSP meta，样式额外放行内联，因 xterm 运行时注入无 nonce 的 style 元素承载终端颜色与字体；开发页面只使用带本次 nonce 的响应头策略，放行 dev server 的 HTTP 与 WebSocket 源，脚本不开放 unsafe-inline。开发页面仅允许对配置的完整文档 URL 自身重载；其他导航被拦截，只有主页面 HTTP(S) 链接交给系统浏览器。CSP 仅对 iframe 增加 HTTP(S)、预览图片增加 data 来源；脚本 nonce、主 frame IPC 与主页面导航限制保持。
 
 版本不一致显示双方版本与更新方向：客户端较旧时重建应用；受管后台较旧时重启开发启动器；日常后台较旧时按当前 control.sock 的 lsof 指引核对唯一 PID、用户和完整后台命令，由拥有者手动结束后重新连接。未查到监听进程时先核对命令是否成功，多匹配或无法核实时停止操作。桌面客户端不向后台进程发送信号。仓库移动或 node 不可用会提示修复环境或重建。
 

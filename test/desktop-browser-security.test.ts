@@ -19,14 +19,14 @@ test("内置网页仅接受无凭据 HTTP(S) 与默认空页，整个开发界�
   assert.equal(externalUrl("https://name:password@example.com/"), null);
 });
 
-test("开发 CSP 保留 nonce 与精确连接来源，开发界面不能被其他 frame 嵌入", () => {
+test("开发 CSP 保留 nonce 与精确连接来源，样式放行内联以容纳 xterm 运行时注入", () => {
   const policy = cspFor("http://localhost:5173/path", "nonce_1234567890abcd");
   assert.match(policy, /script-src 'self' http:\/\/localhost:5173 'nonce-nonce_1234567890abcd'/);
-  assert.match(policy, /style-src 'self' http:\/\/localhost:5173 'nonce-nonce_1234567890abcd'/);
+  assert.match(policy, /style-src 'self' http:\/\/localhost:5173 'nonce-nonce_1234567890abcd' 'unsafe-inline'/);
   assert.match(policy, /connect-src 'self' http:\/\/localhost:5173 ws:\/\/localhost:5173;/);
   assert.match(policy, /frame-src http: https:;/);
   assert.match(policy, /frame-ancestors 'none'/);
-  assert.ok(!policy.includes("unsafe-inline")); assert.ok(!policy.includes("unsafe-eval"));
+  assert.ok(!policy.includes("unsafe-eval"));
 });
 
 test("网页权限检查、请求、设备与屏幕捕获均拒绝，不依赖 Electron 默认授权", () => {

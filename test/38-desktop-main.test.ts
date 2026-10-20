@@ -115,12 +115,13 @@ test("主进程请求名单拒绝越界操作，IPC 错误保留分类与版本�
   assert.deepEqual(lost, { ok: false, error: { code: "request_timeout", outcome: "unknown", message: "应答丢失" } });
 });
 
-test("桌面开发 CSP 限定来源与 nonce，系统链接仅开放 HTTP(S)", () => {
+test("桌面开发 CSP 限定来源与 nonce，样式内联放行供 xterm 运行时注入，系统链接仅开放 HTTP(S)", () => {
   const policy = cspFor("http://localhost:5173/path", "nonce_1234567890abcd");
   assert.ok(policy.includes("http://localhost:5173"));
   assert.ok(policy.includes("ws://localhost:5173"));
   assert.ok(policy.includes("'nonce-nonce_1234567890abcd'"));
-  assert.ok(!policy.includes("unsafe-inline"));
+  assert.ok(policy.includes("style-src") && policy.includes("'unsafe-inline'"));
+  assert.ok(!policy.match(/script-src[^;]*unsafe-inline/));
   assert.throws(() => cspFor("https://example.com", "nonce_1234567890abcd"));
   assert.throws(() => cspFor("http://localhost:5173", "bad'nonce"));
   assert.equal(externalUrl("javascript:alert(1)"), null);

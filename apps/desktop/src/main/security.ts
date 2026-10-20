@@ -6,7 +6,8 @@ export function cspFor(devServerUrl: string, nonce: string): string {
   if (url.protocol !== "http:" || !/^[A-Za-z0-9_-]{16,}$/.test(nonce)) throw new Error("开发页面需要 HTTP 地址与启动器生成的 nonce");
   const socket = new URL(url.origin);
   socket.protocol = "ws:";
-  return `default-src 'self'; script-src 'self' ${url.origin} 'nonce-${nonce}'; style-src 'self' ${url.origin} 'nonce-${nonce}'; connect-src 'self' ${url.origin} ${socket.origin}; object-src 'none'; base-uri 'none'; frame-src http: https:; img-src 'self' data:; frame-ancestors 'none'`;
+  // style-src 的 'unsafe-inline' 与生产策略一致：xterm 运行时注入无 nonce 的 <style>，拦截即失去终端颜色与字体。
+  return `default-src 'self'; script-src 'self' ${url.origin} 'nonce-${nonce}'; style-src 'self' ${url.origin} 'nonce-${nonce}' 'unsafe-inline'; connect-src 'self' ${url.origin} ${socket.origin}; object-src 'none'; base-uri 'none'; frame-src http: https:; img-src 'self' data:; frame-ancestors 'none'`;
 }
 
 export function externalUrl(value: string): string | null {

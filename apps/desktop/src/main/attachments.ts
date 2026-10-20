@@ -6,6 +6,8 @@ import { ControlClientError } from "@ruukoto/control/client.ts";
 import type { DesktopAttachment } from "../shared/bridge.ts";
 import { DesktopError } from "./environment.ts";
 
+export interface StagedAttachment { token: string; name: string; size: number; path: string }
+
 interface AttachmentPicker {
   instanceId(): string | null;
   pick(): Promise<string[]>;
@@ -61,4 +63,21 @@ export async function pickAttachments(sessionId: string, source: AttachmentPicke
     attachments.push(attachment);
   }
   return attachments;
+}
+
+/** 新对话尚未建会话：先只登记所选文件并读元数据，等会话建好后按 token 补做上传。 */
+export function stageAttachments(files: string[]): StagedAttachment[] {
+  if (files.length > MAX_ATTACHMENTS) throw new DesktopError("attachment_limit", `每次最多选择 ${MAX_ATTACHMENTS} 个文件。`);
+  return files.map(file => {
+    let fd: number | undefined;
+    try {
+      fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+      const stat = fs.fstatSync(fd);
+      if (!stat.isFile() || stat.size > MAX_ATTACHMENT_BYTES) throw new DesktopError("attachment_limit", "请选择不超过 8 MiB 的普通文件。");
+      return { token: `draft_${randomUUID()}`, name: path.basename(file), size: stat.size, path: file };
+    } catch (error) {
+      if (error instanceof DesktopError) throw error;
+      throw new DesktopError("attachment_read_failed", "所选文件不可读，未附加；请检查文件后重新选择。");
+    } finally { if (fd !== undefined) fs.closeSync(fd); }
+  });
 }

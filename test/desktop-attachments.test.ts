@@ -5,6 +5,9 @@ import * as path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { test } from "node:test";
 import { pickAttachments } from "../apps/desktop/src/main/attachments.ts";
+import { DesktopHost } from "../apps/desktop/src/main/host.ts";
+import { adoptEnvironment } from "../apps/desktop/src/main/environment.ts";
+import type { DesktopUpdate } from "../apps/desktop/src/shared/bridge.ts";
 import { ATTACHMENT_CHUNK_BYTES, type AttachmentMetadata, type AttachmentUpload } from "@ruukoto/core/attachments.ts";
 import type { TaskView } from "@ruukoto/core/views.ts";
 import { parseSessionFile, readHistoryPage } from "@ruukoto/core/history.ts";
@@ -198,4 +201,30 @@ test("附件引用错误用具名code跨上下文发送边界，消息不承载�
     await assert.rejects(kit.send(assembly, [{ role: "user", content: "输入", ruukotoAttachmentRefs: [{}] }]), error => error instanceof ContextSendBlocked && error.code === "attachment_reference_invalid" && !error.message.includes(error.code));
     assert.equal(kit.server.calls.length, 0);
   } finally { await kit.close(); }
+});
+
+test("新对话草稿暂存附件只在建好会话后上传，token 用后失效", async () => {
+  const t = await startTestRuntime("desktop-draft-file", () => ({ kind: "text", text: "完成" }), { config: { product: codeProduct.runtime } });
+  const previous = { ...process.env };
+  const control = fs.mkdtempSync(path.join(path.dirname(t.dirs.root), "rdc-"));
+  fs.symlinkSync(path.join(t.runtime.controlDir(), "owner.token"), path.join(control, "owner.token"));
+  fs.symlinkSync(t.runtime.socketPath(), path.join(control, "control.sock"));
+  Object.assign(process.env, { RUUKOTO_DESKTOP_MANAGED: "1", RUUKOTO_CODE_CONTROL_DIR: control, RUUKOTO_CODE_DATA_DIR: t.dirs.dataDir, RUUKOTO_CODE_AGENT_DIR: t.dirs.agentDir });
+  const updates: DesktopUpdate[] = [];
+  const host = new DesktopHost(path.resolve(import.meta.dirname, ".."), path.join(t.dirs.root, "draft-user-data"), { publish: (target, update) => { if (target === "code") updates.push(update); }, focused: () => true, notice() {}, badge() {} });
+  try {
+    host.subscribe("code");
+    await waitFor("草稿页安装真实快照", () => updates.some(update => update.type === "snapshot"));
+    const file = path.join(t.work[0], "草稿附件.txt");
+    fs.writeFileSync(file, "草稿正文");
+    const staged = await host.pickDraftAttachments(async () => [file]);
+    assert.deepEqual(staged.map(item => item.name), ["草稿附件.txt"]);
+    assert.equal(staged[0].size, Buffer.byteLength("草稿正文"));
+    const { sessionId } = await createProjectSession(t.client, t.work[0]);
+    assert.throws(() => host.uploadDraftAttachments(sessionId, ["draft_missing"]), { code: "attachment_expired" });
+    const uploaded = await host.uploadDraftAttachments(sessionId, staged.map(item => item.id));
+    assert.deepEqual(uploaded.map(item => item.name), ["草稿附件.txt"]);
+    assert.deepEqual(t.runtime.attachments.prepare(sessionId, uploaded)[0].bytes, Buffer.from("草稿正文"));
+    assert.throws(() => host.uploadDraftAttachments(sessionId, staged.map(item => item.id)), { code: "attachment_expired" }, "token 用后即失效");
+  } finally { await host.close(); adoptEnvironment(previous); fs.rmSync(control, { recursive: true, force: true }); await t.shutdown(); }
 });

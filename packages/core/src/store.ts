@@ -356,6 +356,8 @@ export class Store {
         return existing;
       }
     }
+    // 分支沿用来来源的存档状态：分支是同一份工作的延续，不因复制而重新出现在列表。
+    const archivedAt = input.branchSession ? input.branchSession.archivedAt ?? null : null;
     const session: Session = input.branchSession ?? {
       id: randomId("sess"),
       name: null,
@@ -378,6 +380,7 @@ export class Store {
       defaultAccessModeVersion: 0,
       queueState: "active",
       queuePauseReason: null,
+      archivedAt,
       createdAt: new Date().toISOString(),
     };
     try {
@@ -385,8 +388,8 @@ export class Store {
         .prepare(
           `INSERT INTO sessions (id, project_id, kind, cwd, cwd_real, cwd_dev, cwd_ino, pi_session_id,
            session_file, confirm_tools, create_request_id, queue_state, queue_pause_reason, created_at, model_selection, model_selection_version,
-           default_access_mode, default_access_mode_version, workspace_project_id, name, branch_source)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NULL, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           default_access_mode, default_access_mode_version, workspace_project_id, name, branch_source, archived_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           session.id,
@@ -408,6 +411,7 @@ export class Store {
           session.workspaceProjectId,
           session.name,
           session.branchSource ? JSON.stringify(session.branchSource) : null,
+          session.archivedAt,
         );
     } catch (err) {
       if (input.createRequestId && isCreateRequestIdClash(err, "sessions")) {
@@ -562,6 +566,20 @@ export class Store {
     return this.getSession(sessionId)!;
   }
 
+  /**
+   * 拥有者存档或取消存档：只改列表可见性，不动资料身份、历史、任务归属或排队
+   * 状态。同值幂等（不产生事件）。调用方须以 withTx 包住。
+   */
+  setSessionArchived(sessionId: string, archived: boolean): Session {
+    const session = this.getSession(sessionId);
+    if (!session) throw new StoreConflictError(`会话不存在：${sessionId}`, "not_found");
+    const archivedAt = archived ? session.archivedAt ?? new Date().toISOString() : null;
+    if (session.archivedAt === archivedAt) return session;
+    this.db.prepare("UPDATE sessions SET archived_at = ? WHERE id = ?").run(archivedAt, sessionId);
+    this.appendEvent({ type: "session.archive_changed", sessionId, archivedAt }, { sessionId });
+    return this.getSession(sessionId)!;
+  }
+
   /** 与占用检查和恢复队列共享调用方事务；旧任务摘要仍为空，不伪造原始权限。 */
   fillLegacyQueuedModelSelections(sessionId: string, selection: ModelSelection): void {
     const rows = this.db.prepare("SELECT id FROM tasks WHERE session_id = ? AND status = 'queued' AND model_selection IS NULL AND json_type(read_scope, '$.workCopyHost') IS NULL AND request_id NOT LIKE 'work-copy-host:%' AND NOT EXISTS (SELECT 1 FROM workflow_executions e WHERE e.task_id = tasks.id) ORDER BY created_at, id").all(sessionId) as Array<{ id: string }>;
@@ -605,6 +623,7 @@ export class Store {
       defaultAccessModeVersion: Number(row.default_access_mode_version ?? 0),
       queueState: row.queue_state as "active" | "paused",
       queuePauseReason: row.queue_pause_reason,
+      archivedAt: row.archived_at ?? null,
       createdAt: row.created_at,
     };
   }

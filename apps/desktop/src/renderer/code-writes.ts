@@ -292,6 +292,13 @@ export class CodeWrites {
     const saved = await this.write("set_session_model", { session_id: session.id, expected_version: session.modelSelectionVersion, model_selection: selection }, { op: "settings", sessionId: session.id, instanceId: this.view.instanceId });
     if (saved) { this.applySession(saved); this.changed(); }
   }
+  async setArchived(sessionId: string, archived: boolean): Promise<void> {
+    const saved = await this.write("set_session_archived", { session_id: sessionId, archived }, { op: "settings", sessionId, instanceId: this.view.instanceId });
+    if (!saved) return;
+    const session = this.view.sessions.find(item => item.id === saved.id);
+    if (session) session.archivedAt = saved.archivedAt;
+    this.changed();
+  }
   async setMode(session: Session, mode: SessionDefaultMode): Promise<void> {
     const saved = await this.write("set_session_mode", { session_id: session.id, expected_version: session.defaultAccessModeVersion, mode }, { op: "settings", sessionId: session.id, instanceId: this.view.instanceId });
     if (saved) { this.applySession(saved); this.changed(); }

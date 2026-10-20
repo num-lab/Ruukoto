@@ -89,7 +89,7 @@ function fakeSession(over: Partial<Session> & { id: string; projectId: string })
     defaultAccessMode: "confirm",
     defaultAccessModeVersion: 0,
     queueState: "active",
-    queuePauseReason: null,
+    queuePauseReason: null, archivedAt: null,
     createdAt: "2026-01-01T00:00:00Z",
     ...over,
   };
@@ -662,4 +662,30 @@ test("ruukoto-code：无映射旧会话选择状态不变；旧项目不再新�
     delete process.env.RUUKOTO_PRODUCT;
     await t.shutdown();
   }
+});
+
+test("会话存档只影响列表可见性：历史任务保留，取消存档后恢复，架构间事件可重放", async () => {
+  const t = await startTestRuntime("session-archive", async () => ({ kind: "text", text: "完成" }), { workDirs: 1 });
+  try {
+    const workspace = await t.runtime.openWorkspace({ cwd: t.work[0] });
+    const session = workspace.session;
+    const task = await t.runtime.submit({ sessionId: session.id, requestId: "archive-task", input: "先跑一次", modelSelection: t.runtime.defaultSelection });
+    await waitFor("任务完成", () => t.runtime.store.getTask(task.id)?.status === "completed");
+    const archived = await t.client.request<Session>("set_session_archived", { session_id: session.id, archived: true });
+    assert.ok(archived.archivedAt, "存档写入时间戳");
+    const stored = t.runtime.store.getSession(session.id)!;
+    assert.deepEqual({ archivedAt: stored.archivedAt, queueState: stored.queueState, projectId: stored.projectId }, { archivedAt: archived.archivedAt, queueState: "active", projectId: session.projectId }, "只改存档标记");
+    assert.equal(t.runtime.store.listTasksBySession(session.id).length, 1, "任务不受影响");
+    assert.ok((await t.client.request<{ entries: unknown[] }>("read_history", { session_id: session.id })).entries.length > 0, "历史仍可读");
+    const event = t.runtime.store.getEventsAfter(0).filter(item => item.body.type === "session.archive_changed").at(-1)!;
+    const state = new ViewState();
+    state.applySnapshot(await t.client.handshake(), false);
+    state.applyEvent(event, "live");
+    assert.equal(state.sessions.find(item => item.id === session.id)?.archivedAt, archived.archivedAt, "事件把存档状态投影进视图");
+    const restored = await t.client.request<Session>("set_session_archived", { session_id: session.id, archived: false });
+    assert.equal(restored.archivedAt, null);
+    const again = await t.client.request<Session>("set_session_archived", { session_id: session.id, archived: false });
+    assert.equal(again.archivedAt, null, "同值幂等");
+    await assert.rejects(t.client.request("set_session_archived", { session_id: "sess_missing", archived: true }), /不存在/);
+  } finally { await t.shutdown(); }
 });

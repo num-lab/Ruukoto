@@ -489,6 +489,82 @@ body { font-size: 15.5px; }
 .toast-pill { animation: toast-in 180ms ease-out; }
 @keyframes toast-in { from { opacity: 0; translate: 0 6px; } }
 
+/* 触发按钮同时显示模型名与思考强度：上限放宽到两者合计，名字仍可截断但不因强度提前变短。 */
+.composer-right .model-selector { max-width: 240px; }
+.model-selector-effort { flex-shrink: 0; color: var(--text-muted); font-weight: 400; }
+@container (max-width: 480px) { .composer .model-selector-effort { display: none; } }
+
+/* 工作区行用开合文件夹表示折叠状态，不再保留独立箭头：首个图标即是状态本身。 */
+.workspace-row > button:first-child > svg:first-child { width: 14px; height: 14px; color: var(--text-secondary); }
+.workspace-row > button:first-child > svg:nth-child(2) { width: 13px; height: 13px; color: var(--text-secondary); }
+
+/* 收起后保留两个图标宽的轨道，只留 PA 与设置；其余行 display:none，不再进入可达树。 */
+.app-window { --sidebar-rail: 48px; }
+.left-sidebar.is-collapsed { width: var(--sidebar-rail); opacity: 1; pointer-events: auto; }
+.left-sidebar.is-collapsed .sidebar-content { width: var(--sidebar-rail); }
+.left-sidebar.is-collapsed .sidebar-content > :not(.window-controls, .personal-row, .scheduled-row, .sidebar-bottom) { display: none; }
+/* 收起与展开共用同一条行网格，只把行宽收窄到图标大小；图标位置在切换时不变。 */
+.personal-row { margin-top: 10px; }
+.scheduled-row { margin-top: -4px; }
+.left-sidebar.is-collapsed .personal-row { width: 30px; margin-inline: auto; padding: 0; justify-content: center; }
+/* 悬停底色直接取选中色，避免两条变量各自演变后出现两种近似的灰。 */
+.hover-pill:hover, .personal-row:hover, .tab-group:hover > :is(.center-tab, .right-tab), .workspace-row:hover, .quiet-icon:hover, .tab-close:hover { background: var(--selection-surface); }
+/* 创建在途时发起行的加号换成加载图标；禁用态会调暗，这里保持不透明，旋转动画照常。 */
+.workspace-row .workspace-add:has(.animate-spin) { opacity: 1; }
+/* 展开态 PA 选中沿用整行圆角底色；收起态行本身收窄成 30px 方块，与行高一致。
+   hover 与选中共用同一行元素，收起态两者都是方块，无需另画伪元素。 */
+.personal-row.active-pill { border-radius: 7px; }
+.left-sidebar.is-collapsed .personal-row { border-radius: 6px; }
+.left-sidebar.is-collapsed .personal-row span, .left-sidebar.is-collapsed .scheduled-row span { display: none; }
+.left-sidebar.is-collapsed .sidebar-bottom { justify-content: center; margin-top: auto; padding-inline: 0; }
+.left-sidebar.is-collapsed > .sidebar-resize-handle { display: none; }
+/* 顶栏起点随轨道左移，展开按钮与首个标签的间距保持不变。 */
+.native-window[data-sidebar-open="false"] .session-header { padding-left: calc(var(--sidebar-toggle-closed) + 30px - var(--sidebar-rail)); }
+/* PA／Scheduled、设置、侧栏切换、右栏新标签与关闭键的图标各放大 2px。 */
+.personal-row svg { width: 18px; height: 18px; }
+.sidebar-bottom .quiet-icon svg, .sidebar-toggle svg, .right-header .quiet-icon svg { width: 17px; height: 17px; }
+.tab-close svg { width: 12px; height: 12px; }
+
+/* New chat 草稿页：会话等到首条消息发出时才创建；输入区与既有会话页一致，工作区选择在输入框外。 */
+.new-chat-row { margin-top: -4px; }
+.new-chat-page { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: flex-end; }
+.new-chat-page .workspace-picker { display: flex; align-items: center; justify-content: flex-start; gap: 7px; width: fit-content; max-width: 100%; height: 28px; margin: 0 0 8px 2px; padding: 0 10px; border: 0; border-radius: 7px; background: transparent; color: var(--text-secondary); font-size: 14px; text-align: left; }
+.new-chat-page .workspace-picker:hover { background: var(--selection-surface); color: var(--text-primary); }
+.new-chat-page .workspace-picker > svg { width: 15px; height: 15px; flex-shrink: 0; }
+.new-chat-page .workspace-picker > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.new-chat-page .workspace-picker > span.is-empty { color: var(--text-muted); }
+.new-chat-page .workspace-picker .workspace-picker-chevron { width: 13px; height: 13px; flex-shrink: 0; color: var(--text-muted); }
+/* 工作区菜单：顶部搜索、项目列表、底部新建，与既有菜单同一浮层样式。 */
+.workspace-menu { width: 264px; padding: 6px; }
+.workspace-menu [data-slot="dropdown-menu-separator"] { margin: 4px -6px; }
+.workspace-menu-search { position: relative; display: flex; align-items: center; }
+.workspace-menu-search > svg { position: absolute; left: 8px; width: 14px; height: 14px; color: var(--text-muted); pointer-events: none; }
+.workspace-menu-search [data-slot="input"] { height: 30px; padding: 0 8px 0 28px; border: 0; border-radius: 6px; background: transparent; box-shadow: none; font-size: 14px; }
+.workspace-menu-search [data-slot="input"]:focus-visible { border: 0; box-shadow: none; outline: none; }
+.workspace-menu-list { max-height: 260px; overflow-y: auto; }
+.workspace-menu [data-slot="dropdown-menu-item"] { height: 30px; padding: 0 8px; border-radius: 6px; font-size: 14px; }
+.workspace-menu [data-slot="dropdown-menu-item"] > svg { width: 15px; height: 15px; color: var(--text-secondary); }
+.workspace-menu [data-slot="dropdown-menu-item"] > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-menu-empty { margin: 0; padding: 8px; color: var(--text-muted); font-size: 13px; }
+
+/* 会话行右侧的存档键：与创建键一样平时不可见，行悬停或聚焦时浮现。 */
+.workspace-session-row { display: flex; align-items: center; gap: 2px; border-radius: 7px; }
+.workspace-session-row .workspace-session { flex: 1; min-width: 0; }
+.workspace-session-row .session-archive { opacity: 0; width: 20px; height: 20px; padding: 4px; flex-shrink: 0; transition: opacity 120ms ease, background-color 120ms ease, color 120ms ease; }
+.workspace-session-row:hover .session-archive, .session-archive:focus-visible { opacity: 1; }
+.workspace-session-row .session-archive svg { width: 12px; height: 12px; }
+/* 设置页已存档会话：名称与来源在上，取消存档键在右。 */
+.settings-hint { margin: 0 0 16px; color: var(--text-muted); font-size: 13px; }
+.archived-sessions { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.archived-sessions > li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 8px; border-radius: 7px; }
+.archived-sessions > li:hover { background: var(--bg-surface-hover); }
+.archived-sessions > li > div { display: flex; flex-direction: column; min-width: 0; gap: 2px; }
+.archived-sessions > li > div > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+.archived-sessions > li > div > small { color: var(--text-muted); font-size: 12px; }
+.archived-sessions .unarchive-button { flex-shrink: 0; gap: 6px; color: var(--text-secondary); }
+.archived-sessions .unarchive-button svg { width: 14px; height: 14px; }
+.archived-sessions .unarchive-button:hover { background: var(--selection-surface); color: var(--text-primary); }
+
 /* Note: 见 .agents/notes/implemented/feature/2026-10-18-demo-connection-loading.md */
 .connection-loading[data-slot="dialog-content"] { inset: 0; display: flex; width: 100vw; max-width: none; height: 100dvh; flex-direction: column; align-items: center; justify-content: center; gap: 16px; transform: none; translate: initial; border: 0; border-radius: 0; padding: 24px; background: var(--bg-canvas); box-shadow: none; animation: none; }
 .connection-loading[data-state="closed"] { animation: connection-fade-out 180ms ease-in both; }

@@ -19,7 +19,7 @@ import type { SubAgentExecutionSnapshot } from "./subagent-execution.ts";
 import type { WorkCopyHostSnapshot } from "./work-copy-host.ts";
 import { requireWorkspaceSnapshot, WorkspaceSnapshotError, type WorkspaceSnapshot } from "./workspace-snapshot.ts";
 
-export const PROTOCOL_VERSION = 32;
+export const PROTOCOL_VERSION = 33;
 
 export interface ModelSelection {
   provider: string;
@@ -539,6 +539,11 @@ export interface Session {
   defaultAccessModeVersion: number;
   queueState: SessionQueueState;
   queuePauseReason: string | null;
+  /**
+   * 拥有者存档时间（null = 未存档）。存档只把会话从工作区会话列表隐藏，
+   * 不改资料身份、历史、任务归属或排队状态；设置页列出并可取消存档。
+   */
+  archivedAt: string | null;
   createdAt: string;
 }
 
@@ -910,6 +915,8 @@ export type PersistentEventBody =
   | { type: "session.workspace_mapped"; sessionId: string; projectId: string; workspaceProjectId: string | null }
   | { type: "session.model_selection_changed"; sessionId: string; modelSelection: ModelSelection; modelSelectionVersion: number }
   | { type: "session.default_mode_changed"; sessionId: string; defaultAccessMode: SessionDefaultMode; defaultAccessModeVersion: number }
+  /** 拥有者存档状态变化：仅影响列表可见性，任务与历史不受影响。 */
+  | { type: "session.archive_changed"; sessionId: string; archivedAt: string | null }
   | { type: "session.context_compaction"; sessionId: string; requestId: string; status: SessionCompactionRequest["status"] }
   | { type: "tasks.model_selection_recorded"; sessionId: string; taskIds: string[]; modelSelection: ModelSelection }
   | { type: "task.attachments"; taskId: string; sessionId: string; attachments: AttachmentReference[] }

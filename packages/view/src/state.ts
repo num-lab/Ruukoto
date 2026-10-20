@@ -210,6 +210,7 @@ export class ViewState {
             defaultAccessModeVersion: 0,
             queueState: "active",
             queuePauseReason: null,
+            archivedAt: null,
             createdAt: event.createdAt,
           });
         }
@@ -257,6 +258,11 @@ export class ViewState {
       case "session.model_selection_changed":
         this.applySessionModel(body.sessionId, body.modelSelection, body.modelSelectionVersion);
         return;
+      case "session.archive_changed": {
+        const session = this.sessions.find((s) => s.id === body.sessionId);
+        if (session) session.archivedAt = body.archivedAt;
+        return;
+      }
       case "session.default_mode_changed":
         this.applySessionDefaultMode(body.sessionId, body.defaultAccessMode, body.defaultAccessModeVersion);
         return;

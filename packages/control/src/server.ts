@@ -425,6 +425,10 @@ export class ControlServer {
         }
         return runtime.setSessionDefaultMode({ sessionId: requireString("session_id"), mode, expectedVersion: params["expected_version"] as number });
       }
+      case "set_session_archived": {
+        if (typeof params["archived"] !== "boolean") throw new RuntimeApiError("invalid_params", "archived 必须是布尔值");
+        return runtime.setSessionArchived({ sessionId: requireString("session_id"), archived: params["archived"] });
+      }
       case "put_attachment":
         return runtime.putAttachment(params as unknown as import("@ruukoto/core/attachments.ts").AttachmentUpload);
       case "submit":

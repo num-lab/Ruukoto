@@ -72,6 +72,7 @@ export interface TuiOps {
     params: { session_id: string; expected_version: number; model_selection: ModelSelection };
     result: R<"setSessionModel">;
   };
+  set_session_archived: { params: { session_id: string; archived: boolean }; result: R<"setSessionArchived"> };
   set_session_mode: {
     params: { session_id: string; mode: SessionDefaultMode; expected_version: number };
     result: R<"setSessionDefaultMode">;

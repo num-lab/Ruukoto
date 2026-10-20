@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
-import { ChevronRight, Folder, ListFilter, Moon, PanelLeft, PanelRight, Plus, Settings2, Sun, Sparkles, Server, WifiOff, X } from "lucide-react";
+import { Archive, CalendarClock, FolderClosed, FolderOpen, FolderPlus, ListFilter, Loader2, MessagesCircle, Moon, PanelLeft, PanelRight, Settings, Sparkles, SquarePen, Sun, Server, WifiOff, X } from "lucide-react";
 import type { DesktopTarget } from "../shared/bridge.ts";
 import { PersonalConnectionSettings } from "./personal-connection-settings.tsx";
 import { ConnectionLoading } from "./connection-loading.tsx";
 import { reorderTab, useTabOrder } from "./tab-order.ts";
 import { CodeState } from "./code-state.ts";
 import { Conversation } from "./conversation.tsx";
-import { Composer } from "./composer.tsx";
+import { Composer, selectionForModel } from "./composer.tsx";
+import { NewChatDraft, type NewChatDraftState } from "./new-chat.tsx";
 import { InspectorHeader, InspectorPanel } from "./inspector-panel.tsx";
 import { SidebarResizer } from "./sidebar-resizer.tsx";
 import { IconButton } from "./ui.tsx";
@@ -38,6 +39,9 @@ export function App() {
   const filterToggle = useRef<HTMLButtonElement>(null);
   useEffect(() => { if (filterOpen) filterInput.current?.focus(); }, [filterOpen]);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // 新对话先停在草稿页：选好工作区并发出首条消息后才真正建会话。
+  const [newChat, setNewChat] = useState<(NewChatDraftState & { returnTo: string }) | null>(null);
+  const [startingChat, setStartingChat] = useState(false);
   const [dialog, setDialog] = useState<"workspace" | null>(null);
   const [settingsCategory, setSettingsCategory] = useState("appearance");
   const [workspacePath, setWorkspacePath] = useState("");
@@ -53,7 +57,7 @@ export function App() {
   useEffect(() => { document.documentElement.classList.toggle("dark", dark); }, [dark]);
   useEffect(() => {
     models.code.inspector.visible = window.innerWidth >= 1100;
-    const unsubscribes = (["code", "personal"] as const).map(source => window.ruukoto.subscribe(source, update => { models[source].update(update); if (update.type === "navigate") { const id = source === "personal" ? "personal" : `code:${models.code.view.currentSessionId}`; setOpenTabs(tabs => tabs.includes(id) ? tabs : [...tabs, id]); setActiveId(id); } }));
+    const unsubscribes = (["code", "personal"] as const).map(source => window.ruukoto.subscribe(source, update => { models[source].update(update); if (update.type === "navigate") { const id = source === "personal" ? "personal" : `code:${models.code.view.currentSessionId}`; if (source !== "personal") setOpenTabs(tabs => tabs.includes(id) ? tabs : [...tabs, id]); setActiveId(id); } }));
     return () => unsubscribes.forEach(unsubscribe => unsubscribe());
   }, [models]);
   useEffect(() => {
@@ -106,11 +110,35 @@ export function App() {
     } catch { setToast("无法选择工作区，请重新打开应用后重试。"); }
     finally { setPicking(false); }
   }
+  // 草稿没选模型时沿用当前 Code 会话，没有会话则用后台默认模型；都无法确定才要求选择。
+  function draftSelection(draft: NewChatDraftState) {
+    if (draft.modelSelection) return draft.modelSelection;
+    const option = models.code.writes.models.find(item => item.available && item.provider === models.code.view.defaultModel.provider && item.modelId === models.code.view.defaultModel.id);
+    return option ? selectionForModel(option, null) : null;
+  }
+  async function startChat() {
+    if (!newChat || startingChat) return;
+    const draft = newChat;
+    setStartingChat(true);
+    try {
+      const sessionId = await models.code.startChat({ workspaceId: draft.workspaceId, text: draft.text, attachments: draft.attachments, mode: draft.mode, modelSelection: draftSelection(draft) }, async (sessionId, tokens) => {
+        const uploaded = await window.ruukoto.uploadDraftAttachments(sessionId, tokens);
+        if (!uploaded.ok) throw new Error(uploaded.error.message);
+        return uploaded.value;
+      });
+      // 创建期间草稿页可能已被收起；此时只切到新会话，不再改动草稿。
+      if (sessionId) { setNewChat(null); setActiveId(`code:${sessionId}`); }
+      else if (models.code.message) setToast(models.code.message);
+    } finally { setStartingChat(false); }
+  }
   function openSession(id: string) {
+    setNewChat(null);
     const source = id === "personal" ? models.personal : models.code;
     if (id === "personal") { if (source.view.mainSessionId) source.openSession(source.view.mainSessionId); }
     else source.openSession(id.slice(5));
-    setOpenTabs(tabs => tabs.includes(id) ? tabs : [...tabs, id]); setActiveId(id);
+    // PA 是常驻视图，只切换目标，不新开标签。
+    if (id !== "personal") setOpenTabs(tabs => tabs.includes(id) ? tabs : [...tabs, id]);
+    setActiveId(id);
   }
   function closeSession(id: string) {
     const index = openTabs.indexOf(id), rest = openTabs.filter(tab => tab !== id);
@@ -121,7 +149,7 @@ export function App() {
   useEffect(() => {
     const codeTabs = models.code.tabs.map(id => `code:${id}`);
     setOpenTabs(tabs => {
-      const next = [...tabs.filter(id => id === "personal" || codeTabs.includes(id)), ...codeTabs.filter(id => !tabs.includes(id))];
+      const next = [...tabs.filter(id => codeTabs.includes(id)), ...codeTabs.filter(id => !tabs.includes(id))];
       return next.join("\0") === tabs.join("\0") ? tabs : next;
     });
   });
@@ -141,29 +169,32 @@ export function App() {
     } catch { setToast("添加结果待核实，请恢复连接后查看工作区。"); }
     finally { setSaving(false); }
   }
-  const settings = <Dialog open={sidebar && settingsOpen} onOpenChange={setSettingsOpen}>
-    <DialogTrigger asChild><Button type="button" variant="ghost" size="icon" className="quiet-icon" aria-label="设置"><Settings2 /></Button></DialogTrigger>
+  const settings = <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
+    <DialogTrigger asChild><Button type="button" variant="ghost" size="icon" className="quiet-icon" aria-label="设置"><Settings /></Button></DialogTrigger>
     <DialogContent className="settings-dialog" onCloseAutoFocus={event => { if (!sidebar) { event.preventDefault(); expandSidebar.current?.focus(); } }}>
       <DialogDescription className="sr-only">选择左侧类别查看设置项。</DialogDescription>
-      <Tabs value={settingsCategory} onValueChange={setSettingsCategory} orientation="vertical" className="settings-tabs"><div className="settings-navigation"><DialogTitle>设置</DialogTitle><TabsList className="settings-categories" aria-label="设置类别"><TabsTrigger value="appearance">{dark ? <Moon /> : <Sun />}外观</TabsTrigger><TabsTrigger value="personal"><Server />PA 远程连接</TabsTrigger></TabsList></div>
+      <Tabs value={settingsCategory} onValueChange={setSettingsCategory} orientation="vertical" className="settings-tabs"><div className="settings-navigation"><DialogTitle>设置</DialogTitle><TabsList className="settings-categories" aria-label="设置类别"><TabsTrigger value="appearance">{dark ? <Moon /> : <Sun />}外观</TabsTrigger><TabsTrigger value="personal"><Server />PA 远程连接</TabsTrigger><TabsTrigger value="archived"><Archive />已存档会话</TabsTrigger></TabsList></div>
         <TabsContent value="appearance" className="settings-panel"><h2>外观</h2><div className="settings-row"><label htmlFor="settings-theme">主题</label><Select value={dark ? "dark" : "light"} onValueChange={value => setDark(value === "dark")}><SelectTrigger id="settings-theme" aria-label="主题"><SelectValue /></SelectTrigger><SelectContent position="popper" align="end" sideOffset={6}><SelectItem value="light">浅色</SelectItem><SelectItem value="dark">深色</SelectItem></SelectContent></Select></div></TabsContent>
         <TabsContent value="personal" className="settings-panel"><h2>PA 远程连接</h2><PersonalConnectionSettings /></TabsContent>
+        <TabsContent value="archived" className="settings-panel"><h2>已存档会话</h2><p className="settings-hint">存档只把这些会话从左栏隐藏，历史与任务仍保留。</p>{models.code.archivedSessions().length ? <ul className="archived-sessions">{models.code.archivedSessions().map(session => <li key={session.id}><div><span>{models.code.sessionName(session.id)}</span><small>{models.code.view.projects.find(project => project.id === (session.workspaceProjectId ?? session.projectId))?.name ?? "未知工作区"} · {session.archivedAt?.slice(0, 10)}</small></div><Button type="button" variant="ghost" size="sm" className="unarchive-button" aria-label={`取消存档 ${models.code.sessionName(session.id)}`} disabled={models.code.status.state !== "online"} onClick={() => void models.code.setArchived(session.id, false)}><Archive /><span>取消存档</span></Button></li>)}</ul> : <p className="settings-hint">没有已存档的会话。</p>}</TabsContent>
       </Tabs>
     </DialogContent>
   </Dialog>;
   const hasWork = (id: string) => !!models.code.view.activeTaskFor(id) || models.code.view.pendingApprovals().some(item => item.sessionId === id);
   const query = filter.toLocaleLowerCase();
-  return <>{startupVisible && <ConnectionLoading pending={startupPending} onClosed={() => { setStartupVisible(false); window.requestAnimationFrame(() => { (document.querySelector<HTMLTextAreaElement>(".composer textarea") ?? expandSidebar.current)?.focus(); }); }} />}<div className="macos-window app-window native-window" inert={startupVisible} aria-busy={startupVisible} data-sidebar-open={sidebar} style={{ "--left-preferred-width": sidebarWidths.left === undefined ? undefined : `${sidebarWidths.left}px`, "--right-preferred-width": sidebarWidths.right === undefined ? undefined : `${sidebarWidths.right}px`, "--right-reserve": inspectorOpen ? "260px" : "0px", "--visible-left-width": sidebar ? "var(--left-width)" : "0px" } as CSSProperties}>
+  return <>{startupVisible && <ConnectionLoading pending={startupPending} onClosed={() => { setStartupVisible(false); window.requestAnimationFrame(() => { (document.querySelector<HTMLTextAreaElement>(".composer textarea") ?? expandSidebar.current)?.focus(); }); }} />}<div className="macos-window app-window native-window" inert={startupVisible} aria-busy={startupVisible} data-sidebar-open={sidebar} style={{ "--left-preferred-width": sidebarWidths.left === undefined ? undefined : `${sidebarWidths.left}px`, "--right-preferred-width": sidebarWidths.right === undefined ? undefined : `${sidebarWidths.right}px`, "--right-reserve": inspectorOpen ? "260px" : "0px", "--visible-left-width": sidebar ? "var(--left-width)" : "var(--sidebar-rail)" } as CSSProperties}>
     <Button ref={expandSidebar} type="button" variant="ghost" size="icon" className="quiet-icon sidebar-toggle" aria-label={sidebar ? "收起侧栏" : "展开侧栏"} aria-controls="left-sidebar" aria-expanded={sidebar} onClick={toggleSidebar}><PanelLeft /></Button>
-    <aside id="left-sidebar" className={`surface-sidebar left-sidebar ${sidebar ? "" : "is-collapsed"}`} aria-label="工作区导航" aria-hidden={!sidebar} inert={!sidebar}><div className="sidebar-content"><div className="window-controls"><div className="traffic-space" aria-hidden="true" /></div>
-      <Button type="button" variant="ghost" className={`personal-row ${target === "personal" ? "active-pill text-pri" : "text-sec"}`} onClick={() => openSession("personal")}><Sparkles /><span>Ruukoto</span></Button><div className="projects-heading"><span>工作区</span><div><Button ref={filterToggle} type="button" variant="ghost" size="icon" className="quiet-icon" aria-label="筛选工作区与会话" aria-controls="workspace-filter" aria-expanded={filterOpen} onClick={() => { setFilterOpen(value => !value); setFilter(""); }}><ListFilter /></Button><IconButton label="添加工作区" disabled={picking || models.code.status.state !== "online" || !!models.code.pendingCreation} onClick={() => void pickWorkspace()}><Plus /></IconButton></div></div>
+    <aside id="left-sidebar" className={`surface-sidebar left-sidebar ${sidebar ? "" : "is-collapsed"}`}><div className="sidebar-content"><div className="window-controls"><div className="traffic-space" aria-hidden="true" /></div>
+      <Button type="button" variant="ghost" className={`personal-row ${target === "personal" ? "active-pill text-pri" : "text-sec"}`} aria-label="Ruukoto" onClick={() => openSession("personal")}><MessagesCircle /><span>Ruukoto</span></Button><Button type="button" variant="ghost" className="personal-row scheduled-row text-sec" aria-label="Scheduled" onClick={() => setToast("Scheduled 尚未开放")}><CalendarClock /><span>Scheduled</span></Button><Button type="button" variant="ghost" className={`personal-row new-chat-row ${newChat ? "active-pill text-pri" : "text-sec"}`} aria-label="New chat" onClick={() => { if (newChat) { setActiveId(newChat.returnTo); setNewChat(null); } else { const source = models.code.view.sessions.find(session => session.id === current?.id && target === "code"); setNewChat({ workspaceId: "", text: "", mode: source?.defaultAccessMode ?? "confirm", modelSelection: source?.modelSelection ?? null, attachments: [], returnTo: activeId }); setActiveId(""); } }}><SquarePen /><span>New chat</span></Button><div className="projects-heading"><span>工作区</span><div><Button ref={filterToggle} type="button" variant="ghost" size="icon" className="quiet-icon" aria-label="筛选工作区与会话" aria-controls="workspace-filter" aria-expanded={filterOpen} onClick={() => { setFilterOpen(value => !value); setFilter(""); }}><ListFilter /></Button><IconButton label="添加工作区" disabled={picking || models.code.status.state !== "online" || !!models.code.pendingCreation} onClick={() => void pickWorkspace()}><FolderPlus /></IconButton></div></div>
       <div id="workspace-filter" className="workspace-filter" data-open={filterOpen} aria-hidden={!filterOpen} inert={!filterOpen}><div className="workspace-filter-clip"><div className="workspace-filter-inner"><Input ref={filterInput} aria-label="筛选工作区与会话" placeholder="筛选工作区与会话…" value={filter} onChange={event => setFilter(event.target.value)} onKeyDown={event => { if (event.key === "Escape") { setFilterOpen(false); setFilter(""); filterToggle.current?.focus(); } }} /></div></div></div>
       <div className="workspace-tree">{workspaces.filter(project => !query || project.name.toLocaleLowerCase().includes(query) || models.code.sessionsFor(project.id).some(session => models.code.sessionName(session.id).toLocaleLowerCase().includes(query))).map(project => {
         const open = expanded[project.id] ?? true;
-        return <Collapsible asChild key={project.id} open={open || !!query} onOpenChange={() => setExpanded(items => ({ ...items, [project.id]: !open }))}><section><div className="workspace-row"><CollapsibleTrigger asChild><button><ChevronRight className={open || query ? "rotate-90" : ""} /><Folder /><span>{project.name}</span></button></CollapsibleTrigger><IconButton className="workspace-add" label={`在 ${project.name} 新建会话`} disabled={models.code.status.state !== "online" || !!models.code.pendingCreation} onClick={() => { setExpanded(items => ({ ...items, [project.id]: true })); void models.code.create("create_session", { project_id: project.id, cwd: project.rootDir!.cwdReal }).then(created => { if (!created) { setToast(models.code.message ?? "创建结果待核实，请查看工作区列表后再试。"); return; } if (models.code.view.currentSessionId) openSession(`code:${models.code.view.currentSessionId}`); }); }}><Plus /></IconButton></div><CollapsibleContent className="workspace-collapse" inert={!open && !query} aria-hidden={!open && !query}><div className="workspace-sessions">{models.code.sessionsFor(project.id).filter(session => !query || project.name.toLocaleLowerCase().includes(query) || models.code.sessionName(session.id).toLocaleLowerCase().includes(query)).map(session => <button key={session.id} className={`workspace-session ${target === "code" && session.id === current?.id ? "active-pill text-pri" : "text-sec hover-pill"}`} aria-current={target === "code" && session.id === current?.id ? "page" : undefined} onClick={() => openSession(`code:${session.id}`)}><span>{models.code.sessionName(session.id)}</span>{hasWork(session.id) && <i className="status-point pending" />}</button>)}</div></CollapsibleContent></section></Collapsible>;
+        // 创建进行中只把发起它的那行加号换成加载图标，其余行保持禁用。
+        const creating = models.code.pendingCreation?.op === "create_session" && models.code.pendingCreation.params.project_id === project.id;
+        return <Collapsible asChild key={project.id} open={open || !!query} onOpenChange={() => setExpanded(items => ({ ...items, [project.id]: !open }))}><section><div className="workspace-row"><CollapsibleTrigger asChild><button>{open || query ? <FolderOpen /> : <FolderClosed />}<span>{project.name}</span></button></CollapsibleTrigger><IconButton className="workspace-add" label={creating ? "正在新建会话" : `在 ${project.name} 新建会话`} disabled={models.code.status.state !== "online" || !!models.code.pendingCreation} onClick={() => { setExpanded(items => ({ ...items, [project.id]: true })); void models.code.create("create_session", { project_id: project.id, cwd: project.rootDir!.cwdReal }).then(created => { if (!created) { setToast(models.code.message ?? "创建结果待核实，请查看工作区列表后再试。"); return; } if (models.code.view.currentSessionId) openSession(`code:${models.code.view.currentSessionId}`); }); }}>{creating ? <Loader2 className="animate-spin" /> : <SquarePen />}</IconButton></div><CollapsibleContent className="workspace-collapse" inert={!open && !query} aria-hidden={!open && !query}><div className="workspace-sessions">{models.code.sessionsFor(project.id).filter(session => !query || project.name.toLocaleLowerCase().includes(query) || models.code.sessionName(session.id).toLocaleLowerCase().includes(query)).map(session => <div className={`workspace-session-row ${target === "code" && session.id === current?.id ? "is-active" : ""}`} key={session.id}><button className={`workspace-session ${target === "code" && session.id === current?.id ? "active-pill text-pri" : "text-sec hover-pill"}`} aria-current={target === "code" && session.id === current?.id ? "page" : undefined} onClick={() => openSession(`code:${session.id}`)}><span>{models.code.sessionName(session.id)}</span>{hasWork(session.id) && <i className="status-point pending" />}</button><IconButton className="session-archive" label={`存档 ${models.code.sessionName(session.id)}`} disabled={models.code.status.state !== "online" || models.code.writes.busy.has(session.id)} onClick={() => void models.code.setArchived(session.id, true)}><Archive /></IconButton></div>)}</div></CollapsibleContent></section></Collapsible>;
       })}</div><div className="sidebar-bottom">{settings}</div></div><SidebarResizer side="left" open={sidebar} onWidthChange={width => setSidebarWidths(items => ({ ...items, left: width }))} /></aside>
     <div className="content-area"><header className="surface-sidebar canvas-header"><div className="session-header"><Tabs className="center-tabs" value={activeId} onValueChange={openSession}><TabsList aria-label="已打开的会话" {...tabOrder.list}>{openTabs.map(id => <div className="tab-group" key={id} {...tabOrder.group(id)}><TabsTrigger value={id} className="center-tab" {...tabOrder.trigger(id)}>{id === "personal" ? <Sparkles /> : hasWork(id.slice(5)) && <i className="status-point pending" />}<span>{tabTitle(id)}</span></TabsTrigger><button className="tab-close" aria-label={`关闭${tabTitle(id)}`} onClick={() => closeSession(id)}><X /></button></div>)}</TabsList></Tabs><span className="sr-only" role="status">{tabOrder.announcement}</span></div><div className={`inspector-header ${inspectorOpen ? "" : "is-collapsed"}`}><InspectorHeader model={model} open={inspectorOpen} /><IconButton label={inspectorOpen ? "收起右栏" : "展开右栏"} buttonRef={inspectorToggle} disabled={target === "code" && !current} onClick={toggleInspector}><PanelRight /></IconButton></div></header>
-      <div className="content-body"><main className="surface-canvas main-canvas">{status.state !== "online" || !current ? <div className="empty-state"><div className="empty-symbol">{target === "personal" ? <Sparkles /> : <WifiOff />}</div><h1>{target === "personal" ? status.state === "online" ? "PA 主会话尚未就绪" : "连接你的个人 Agent" : status.state === "online" ? "你的工作区" : status.state === "connecting" ? "正在连接" : "暂时无法连接"}</h1><p>{target === "personal" ? status.error?.message ?? status.detail ?? "在设置中配置 PA 远程连接。" : status.state === "online" ? "从左侧选择工作区。" : status.error?.message ?? status.detail ?? "请确认本地后台已启动，然后重新连接。"}</p>{target === "personal" ? <><Button onClick={() => { setSettingsCategory("personal"); setSidebar(true); setSettingsOpen(true); }}>PA 远程连接</Button>{status.state !== "online" && <Button variant="ghost" disabled={status.state === "connecting"} onClick={() => void reconnect()}>重新连接</Button>}</> : status.state !== "online" && <Button disabled={status.state === "connecting"} onClick={() => void reconnect()}>重新连接</Button>}</div> : <><Conversation key={`conversation:${target}:${view.instanceId}:${current.id}`} model={model} sessionId={current.id} /><Composer key={`composer:${target}:${view.instanceId}:${current.id}`} model={model} session={current} /></>}</main>
+      <div className="content-body"><main className="surface-canvas main-canvas">{target === "code" && newChat ? <NewChatDraft model={models.code} workspaces={workspaces} value={newChat} fallbackSelection={draftSelection(newChat)} onAddWorkspace={() => void pickWorkspace()} onChange={value => setNewChat(current => current && { ...value, returnTo: current.returnTo })} onSend={() => void startChat()} starting={startingChat} blocked={!!models.code.pendingCreation} /> : status.state !== "online" || !current ? <div className="empty-state"><div className="empty-symbol">{target === "personal" ? <Sparkles /> : <WifiOff />}</div><h1>{target === "personal" ? status.state === "online" ? "PA 主会话尚未就绪" : "连接你的个人 Agent" : status.state === "online" ? "你的工作区" : status.state === "connecting" ? "正在连接" : "暂时无法连接"}</h1><p>{target === "personal" ? status.error?.message ?? status.detail ?? "在设置中配置 PA 远程连接。" : status.state === "online" ? "从左侧选择工作区。" : status.error?.message ?? status.detail ?? "请确认本地后台已启动，然后重新连接。"}</p>{target === "personal" ? <><Button onClick={() => { setSettingsCategory("personal"); setSidebar(true); setSettingsOpen(true); }}>PA 远程连接</Button>{status.state !== "online" && <Button variant="ghost" disabled={status.state === "connecting"} onClick={() => void reconnect()}>重新连接</Button>}</> : status.state !== "online" && <Button disabled={status.state === "connecting"} onClick={() => void reconnect()}>重新连接</Button>}</div> : <><Conversation key={`conversation:${target}:${view.instanceId}:${current.id}`} model={model} sessionId={current.id} /><Composer key={`composer:${target}:${view.instanceId}:${current.id}`} model={model} session={current} /></>}</main>
       <InspectorPanel model={model} open={inspectorOpen} onWidthChange={width => setSidebarWidths(items => ({ ...items, right: width }))} />
     </div></div>
   </div>

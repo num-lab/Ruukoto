@@ -140,7 +140,7 @@ test("完整命令按 UTF-8 分页，核实来源后解析，不把截断参数�
 
 test("Read 从来源 cwd 映射登记根，截断路径迟到不打开新父会话", async () => {
   const h = harness(async () => ({ ok: true, value: { ...paramPage('{"path":"file.ts"}'), toolOp: { ...paramPage('{}').toolOp, toolName: "read" } } }));
-  const session = { id: "a", projectId: "workspace", kind: "dev" as const, workspaceProjectId: null, name: null, branchSource: null, cwd: "/work/root/sub", cwdReal: "/work/root/sub", cwdDev: 1, cwdIno: 1, piSessionId: "a", sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: null, modelSelectionVersion: 0, defaultAccessMode: "confirm" as const, defaultAccessModeVersion: 0, queueState: "active" as const, queuePauseReason: null, createdAt: at };
+  const session = { id: "a", projectId: "workspace", kind: "dev" as const, workspaceProjectId: null, name: null, branchSource: null, cwd: "/work/root/sub", cwdReal: "/work/root/sub", cwdDev: 1, cwdIno: 1, piSessionId: "a", sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: null, modelSelectionVersion: 0, defaultAccessMode: "confirm" as const, defaultAccessModeVersion: 0, queueState: "active" as const, queuePauseReason: null, archivedAt: null, createdAt: at };
   h.view.sessions = [session];
   h.view.projects = [{ id: "workspace", name: "工作区", createRequestId: null, instructionFiles: [], webSearch: "enabled", settingsVersion: 1, createdAt: at, rootDir: { cwd: "/work/root", cwdReal: "/work/root", dev: 1, ino: 1 } }];
   const read = tool({ name: "read", params: { path: "../file.ts" } });

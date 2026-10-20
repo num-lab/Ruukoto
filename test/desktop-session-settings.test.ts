@@ -202,3 +202,17 @@ for (const op of ["open_workspace", "create_session"] as const) {
     assert.equal(runtime.store.getMaxSeq(), seq);
   });
 }
+
+for (const archived of [true, false]) test(`Desktop ${archived ? "存档隐藏" : "取消存档恢复"}工作区会话列表`, async t => {
+  const { runtime, client, model, source } = await fixture(t);
+  const kept = (await runtime.createSession({ projectId: source.projectId, cwd: source.cwdReal })).id;
+  model.update({ type: "snapshot", result: await client.handshake(), instanceChanged: false });
+  await model.setArchived(source.id, archived);
+  const listed = model.sessionsFor(source.projectId).map(session => session.id);
+  const archivedIds = model.archivedSessions().map(session => session.id);
+  assert.deepEqual(listed.includes(source.id), !archived, "工作区树按存档状态过滤");
+  assert.deepEqual(archivedIds.includes(source.id), archived, "设置页只列已存档会话");
+  assert.ok(listed.includes(kept), "其余会话不受影响");
+  assert.equal(runtime.store.getSession(source.id)!.archivedAt === null, !archived);
+  assert.equal(runtime.store.listTasksBySession(source.id).length, 0, "存档不建任务");
+});

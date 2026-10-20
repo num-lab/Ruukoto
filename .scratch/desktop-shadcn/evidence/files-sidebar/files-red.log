@@ -1,0 +1,15 @@
+node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: 首读必须显示可访问加载图标
+    at file:///Users/eitrous/.codex/worktrees/6f13/ruukoto/.scratch/desktop-shadcn/evidence/files-sidebar/file-tree-repro.mjs:22:10 {
+  generatedMessage: false,
+  code: 'ERR_ASSERTION',
+  actual: '<section class="workspace-files" aria-label="工作区文件"><div class="file-panel-heading"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-folder"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"></path></svg><span>测试工作区</span></div><nav aria-label="测试工作区 文件" class="file-tree"><ul><li class="file-panel-empty">正在读取…</li></ul></nav></section>',
+  expected: /role="status"[^>]*aria-label="正在加载文件树"/,
+  operator: 'match',
+  diff: 'simple'
+}
+
+Node.js v24.15.0

@@ -1,0 +1,11 @@
+{
+  "darkGlass": true,
+  "lightGlass": true,
+  "bothTabAreas": true,
+  "windowDoesNotOcclude": true,
+  "contentRemainsOpaque": true,
+  "layoutUnchanged": true,
+  "settingsVisible": true,
+  "sidebarsToggle": true,
+  "noConsoleErrors": true
+}

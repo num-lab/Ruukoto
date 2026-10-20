@@ -8,6 +8,7 @@
  * - 持久事件与引发它的状态变更同事务写入；事务提交成功后才对外广播。
  */
 
+import type { AttachmentReference } from "./attachments.ts";
 import type { Db } from "./db.ts";
 import { classifySession, type SessionIdentity } from "./session-identity.ts";
 import { SubAgentDefinitionError, requireSubAgentDefinition, subAgentDefinitionFromJson } from "./subagent-definition.ts";
@@ -332,6 +333,7 @@ export class Store {
     sessionFile?: string | null;
     confirmTools: string[];
     modelSelection?: ModelSelection | null;
+    defaultAccessMode?: SessionDefaultMode;
     /** 创建幂等键（issue 21；null/缺省 = 不去重，每次插入新会话）。 */
     createRequestId?: string | null;
     /** 分支发布只接受宿主预先固定的完整元数据。 */
@@ -354,6 +356,8 @@ export class Store {
         return existing;
       }
     }
+    // 分支沿用来来源的存档状态：分支是同一份工作的延续，不因复制而重新出现在列表。
+    const archivedAt = input.branchSession ? input.branchSession.archivedAt ?? null : null;
     const session: Session = input.branchSession ?? {
       id: randomId("sess"),
       name: null,
@@ -372,10 +376,11 @@ export class Store {
       createRequestId: input.createRequestId ?? null,
       modelSelection: input.modelSelection ?? null,
       modelSelectionVersion: input.modelSelection ? 1 : 0,
-      defaultAccessMode: "confirm",
+      defaultAccessMode: input.defaultAccessMode ?? "confirm",
       defaultAccessModeVersion: 0,
       queueState: "active",
       queuePauseReason: null,
+      archivedAt,
       createdAt: new Date().toISOString(),
     };
     try {
@@ -383,8 +388,8 @@ export class Store {
         .prepare(
           `INSERT INTO sessions (id, project_id, kind, cwd, cwd_real, cwd_dev, cwd_ino, pi_session_id,
            session_file, confirm_tools, create_request_id, queue_state, queue_pause_reason, created_at, model_selection, model_selection_version,
-           default_access_mode, default_access_mode_version, workspace_project_id, name, branch_source)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NULL, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           default_access_mode, default_access_mode_version, workspace_project_id, name, branch_source, archived_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           session.id,
@@ -406,6 +411,7 @@ export class Store {
           session.workspaceProjectId,
           session.name,
           session.branchSource ? JSON.stringify(session.branchSource) : null,
+          session.archivedAt,
         );
     } catch (err) {
       if (input.createRequestId && isCreateRequestIdClash(err, "sessions")) {
@@ -560,6 +566,20 @@ export class Store {
     return this.getSession(sessionId)!;
   }
 
+  /**
+   * 拥有者存档或取消存档：只改列表可见性，不动资料身份、历史、任务归属或排队
+   * 状态。同值幂等（不产生事件）。调用方须以 withTx 包住。
+   */
+  setSessionArchived(sessionId: string, archived: boolean): Session {
+    const session = this.getSession(sessionId);
+    if (!session) throw new StoreConflictError(`会话不存在：${sessionId}`, "not_found");
+    const archivedAt = archived ? session.archivedAt ?? new Date().toISOString() : null;
+    if (session.archivedAt === archivedAt) return session;
+    this.db.prepare("UPDATE sessions SET archived_at = ? WHERE id = ?").run(archivedAt, sessionId);
+    this.appendEvent({ type: "session.archive_changed", sessionId, archivedAt }, { sessionId });
+    return this.getSession(sessionId)!;
+  }
+
   /** 与占用检查和恢复队列共享调用方事务；旧任务摘要仍为空，不伪造原始权限。 */
   fillLegacyQueuedModelSelections(sessionId: string, selection: ModelSelection): void {
     const rows = this.db.prepare("SELECT id FROM tasks WHERE session_id = ? AND status = 'queued' AND model_selection IS NULL AND json_type(read_scope, '$.workCopyHost') IS NULL AND request_id NOT LIKE 'work-copy-host:%' AND NOT EXISTS (SELECT 1 FROM workflow_executions e WHERE e.task_id = tasks.id) ORDER BY created_at, id").all(sessionId) as Array<{ id: string }>;
@@ -603,6 +623,7 @@ export class Store {
       defaultAccessModeVersion: Number(row.default_access_mode_version ?? 0),
       queueState: row.queue_state as "active" | "paused",
       queuePauseReason: row.queue_pause_reason,
+      archivedAt: row.archived_at ?? null,
       createdAt: row.created_at,
     };
   }
@@ -2596,12 +2617,16 @@ export class Store {
   }
 
   createImageArtifact(input: { id: string; taskId: string; sessionId: string; name: string; mimeType: ImageMimeType; contentHash: string; byteCount: number }): Artifact {
+    return this.createImmutableArtifact(input);
+  }
+
+  createImmutableArtifact(input: { id: string; taskId: string; sessionId: string; name: string; mimeType: ImageMimeType | null; contentHash: string; byteCount: number }): Artifact {
     this.db.prepare(`INSERT INTO artifacts (id, task_id, session_id, name, byte_count, status, mime_type, content_hash, created_at)
       VALUES (?, ?, ?, ?, ?, 'complete', ?, ?, ?) ON CONFLICT (id) DO NOTHING`)
       .run(input.id, input.taskId, input.sessionId, input.name, input.byteCount, input.mimeType, input.contentHash, new Date().toISOString());
     const artifact = this.getArtifact(input.id)!;
-    if (artifact.taskId !== input.taskId || artifact.sessionId !== input.sessionId || artifact.contentHash !== input.contentHash || artifact.mimeType !== input.mimeType || artifact.byteCount !== input.byteCount) {
-      throw new Error("图片产物归属或内容不一致");
+    if (artifact.taskId !== input.taskId || artifact.sessionId !== input.sessionId || artifact.name !== input.name || artifact.contentHash !== input.contentHash || artifact.mimeType !== input.mimeType || artifact.byteCount !== input.byteCount) {
+      throw new Error("不可变产物归属或内容不一致");
     }
     return artifact;
   }
@@ -2764,6 +2789,12 @@ export class Store {
       seq: Number(row.seq), taskId: row.task_id, sessionId: row.session_id,
       body: JSON.parse(row.body) as PersistentEventBody, createdAt: row.created_at,
     }));
+  }
+
+  taskAttachments(taskId: string): AttachmentReference[] {
+    const rows = this.db.prepare("SELECT body FROM events WHERE task_id = ? AND json_extract(body, '$.type') = 'task.attachments' ORDER BY seq").all(taskId) as { body: string }[];
+    if (rows.length > 1) throw new Error("附件来源事件重复");
+    return rows.length ? (JSON.parse(rows[0].body) as Extract<PersistentEventBody, { type: "task.attachments" }>).attachments : [];
   }
 
   /** 任务最新一条输出片段事件（重连预览重建的持久来源）。 */

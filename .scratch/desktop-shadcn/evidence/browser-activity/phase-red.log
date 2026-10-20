@@ -1,0 +1,116 @@
+{
+  "stages": [
+    {
+      "name": "running-before-model-request",
+      "phase": null,
+      "groups": [
+        [
+          "message"
+        ],
+        [
+          "task"
+        ]
+      ],
+      "tools": []
+    },
+    {
+      "name": "provider-request-started",
+      "phase": "thinking",
+      "groups": [
+        [
+          "message"
+        ],
+        [
+          "task"
+        ]
+      ],
+      "tools": []
+    },
+    {
+      "name": "recorded-reasoning",
+      "phase": "thinking",
+      "groups": [
+        [
+          "message"
+        ],
+        [
+          "task"
+        ]
+      ],
+      "tools": []
+    },
+    {
+      "name": "provider-still-streaming-tool-arguments",
+      "phase": null,
+      "groups": [
+        [
+          "message"
+        ],
+        [
+          "task"
+        ]
+      ],
+      "tools": []
+    },
+    {
+      "name": "tool-intent-finally-recorded",
+      "phase": "working",
+      "groups": [
+        [
+          "message"
+        ],
+        [
+          "task"
+        ]
+      ],
+      "tools": [
+        "running"
+      ]
+    },
+    {
+      "name": "between-tool-result-and-next-model-request",
+      "phase": null,
+      "groups": [
+        [
+          "message"
+        ],
+        [
+          "tool"
+        ],
+        [
+          "task"
+        ]
+      ],
+      "tools": []
+    }
+  ],
+  "recordedThinking": [
+    {
+      "ended": false,
+      "text": ""
+    },
+    {
+      "ended": false,
+      "text": "测试事件里实际记录的 reasoning"
+    },
+    {
+      "ended": true,
+      "text": "测试事件里实际记录的 reasoning"
+    }
+  ]
+}
+node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: 工具参数仍在provider中生成时，尾部不应完全消失直到tool_intent到达
+    at <anonymous> (/Users/eitrous/.codex/worktrees/6f13/ruukoto/.scratch/desktop-shadcn/evidence/browser-activity/phase-repro.mts:24:8) {
+  generatedMessage: false,
+  code: 'ERR_ASSERTION',
+  actual: null,
+  expected: null,
+  operator: 'notStrictEqual',
+  diff: 'simple'
+}
+
+Node.js v24.15.0

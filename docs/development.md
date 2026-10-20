@@ -21,6 +21,7 @@ macOS 构建原生监督器另需 Command Line Tools 的 Clang。平台前置、
 | --- | --- |
 | `npm run build` | 构建原生监督器、工具与脚本 worker 及 WASM，再生成两产品的 `dist/*.tgz`；无需 Docker，应用通过 tsx 运行源码 |
 | `npm run build:worker` | 打包共享 `worker/worker.mjs` 和自包含的 `worker/personal-command-worker.mjs`；个人命令 worker 已接 Linux 受限子工作工具 |
+| `npm run desktop:mygo` / `npm run desktop:mygo:build` | 重建并启动／只构建 MyGo 试验应用，要求 macOS arm64 和 Go ≥ 1.27.1；详见[桌面开发](desktop-development.md) |
 | `npm run desktop:build` | 构建桌面三个目标、检查产物并 ad-hoc 签名 `dist/mac-arm64/Ruukoto.app`；根 build 不打包 Electron |
 | `npm start`、`npm run personal:durable` | 同一个正式个人引导菜单；默认 `~/.ruukoto-durable/`，`RUUKOTO_PERSONAL_DIR` 可选择独立新目录；`serve` 前台后台，在线管理通过本机认证接口；见[个人操作](usage.md#25-个人-agent-引导与管理) |
 | `npm run dev`、`npm run dev -- --config` | 默认由 Node watch 托管个人开发后台；`--config` 直接运行不监听源码的同档案菜单；固定检出散列档案，不继承正式目录，已启用 QQ/Telegram 时拒绝启动，退出停止本次后台 |
@@ -60,7 +61,7 @@ npx tsx --test verification/foundation/test/03-tools.test.ts
 | `packages/agent/src/` 的上下文与模型 | `test/18-model-selection.test.ts`、`test/60-context-prefix.test.ts`、`test/61-context-compaction.test.ts`、`test/98-media-model-pinning.test.ts` |
 | SubAgent、角色/工作区快照、worktree 与导入 | `test/80`–`87`、`91`、`95`；在 test/ 按 subagent-role、subagent-definition、workspace-snapshot、subagent-workspace-snapshot、work-copy-host 找文件 |
 | `packages/tui/src/tui/`、`packages/tui/src/config-tui/` | `test/13-tui-state.test.ts`、`test/14-tui-app.test.ts`、`test/15-tui-pty.test.ts`、`test/33-config-tui.test.ts` |
-| `apps/desktop/` | `test/38-desktop-main.test.ts`、`test/38-desktop-personal.test.ts`、`test/38-desktop-build.test.ts`、`test/39-desktop-recovery-guide.test.ts`、`test/40-desktop-creation.test.ts`、`test/41-desktop-stream.test.ts`、`test/42-desktop-inspector.test.ts`；Electron 实测另验 |
+| `apps/desktop/` | 纯逻辑测试、MyGo 检查与真实外壳验收见[桌面开发](desktop-development.md#测试导航) |
 | `packages/view/src/` 的共享投影与浏览器约束 | `test/36-event-flow-state.test.ts`、`test/37-view-browser.test.ts`；TUI 调用方另跑 13/14/34/19 |
 | `packages/channels/src/qq/`、`packages/channels/src/telegram/`、`packages/channels/src/scheduler/` | `test/26-qq.test.ts`、`test/37-scheduler-outbox.test.ts`、`test/38-telegram-owner.test.ts`、`test/40-qq-private.test.ts`、`test/89-im-entries.test.ts` |
 
@@ -123,6 +124,8 @@ Coding 档案固定为 `~/.ruukoto-code-dev/<仓库>-<哈希>/`，含 `data/agen
 ## 桌面客户端
 
 `npm run code -- --desktop` 使用隔离开发档案，与 --config 和位置路径互斥；electron-vite 负责桌面及其依赖的重建和 HMR，启动器管理后台与整组退出。构建、Electron 下载前提及验收见[桌面开发](desktop-development.md)。
+
+纯前端界面参考见 [shadcn demo](../.scratch/desktop-shadcn/demo/README.md)，独立安装与启动，不依赖 Electron 或后台；正式 GUI 按已冻结定稿迁移，冻结源码与验收证据位于同一目录。
 
 ## 耗时基线与后续批次
 

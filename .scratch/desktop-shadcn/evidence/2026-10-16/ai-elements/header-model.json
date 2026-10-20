@@ -1,0 +1,258 @@
+{
+  "collapsed": {
+    "aside": 0,
+    "focus": "展开右栏",
+    "hidden": "true",
+    "inert": true
+  },
+  "keyboardResize": {
+    "aside": {
+      "bottom": 807,
+      "height": 739,
+      "left": 682,
+      "right": 1073,
+      "top": 68,
+      "width": 391,
+      "x": 682,
+      "y": 68
+    },
+    "asideTransition": "0s",
+    "handle": {
+      "bottom": 807,
+      "height": 739,
+      "left": 682,
+      "right": 687,
+      "top": 68,
+      "width": 5,
+      "x": 682,
+      "y": 68
+    },
+    "header": {
+      "bottom": 68,
+      "height": 48,
+      "left": 682,
+      "right": 1073,
+      "top": 20,
+      "width": 391,
+      "x": 682,
+      "y": 20
+    },
+    "headerTransition": "0s"
+  },
+  "pointerResize": {
+    "aside": {
+      "bottom": 807,
+      "height": 739,
+      "left": 658,
+      "right": 1073,
+      "top": 68,
+      "width": 415,
+      "x": 658,
+      "y": 68
+    },
+    "header": {
+      "bottom": 68,
+      "height": 48,
+      "left": 658,
+      "right": 1073,
+      "top": 20,
+      "width": 415,
+      "x": 658,
+      "y": 20
+    },
+    "modelIcon": "none"
+  },
+  "modelAt321": {
+    "contentWidth": 321,
+    "icon": "none",
+    "name": "block",
+    "overflow": false,
+    "trigger": {
+      "bottom": 776.5,
+      "height": 27,
+      "left": 411.6796875,
+      "right": 488.328125,
+      "top": 749.5,
+      "width": 76.6484375,
+      "x": 411.6796875,
+      "y": 749.5
+    }
+  },
+  "modelAt319": {
+    "contentWidth": 319,
+    "description": "o3-mini · Effort: High",
+    "icon": "block",
+    "name": "none",
+    "overflow": false,
+    "trigger": {
+      "bottom": 776.5,
+      "height": 27,
+      "left": 435.5,
+      "right": 462.5,
+      "top": 749.5,
+      "width": 27,
+      "x": 435.5,
+      "y": 749.5
+    }
+  },
+  "minimum": {
+    "aside": {
+      "bottom": 815,
+      "height": 755,
+      "left": 432,
+      "right": 748,
+      "top": 60,
+      "width": 316,
+      "x": 432,
+      "y": 60
+    },
+    "contentWidth": 144,
+    "controls": [
+      {
+        "label": "上下文使用量",
+        "rect": {
+          "bottom": 784.5,
+          "height": 27,
+          "left": 250,
+          "right": 277,
+          "top": 757.5,
+          "width": 27,
+          "x": 250,
+          "y": 757.5
+        }
+      },
+      {
+        "label": "会话模型",
+        "rect": {
+          "bottom": 784.5,
+          "height": 27,
+          "left": 308,
+          "right": 335,
+          "top": 757.5,
+          "width": 27,
+          "x": 308,
+          "y": 757.5
+        }
+      },
+      {
+        "label": "发送消息",
+        "rect": {
+          "bottom": 785,
+          "height": 28,
+          "left": 366,
+          "right": 394,
+          "top": 757,
+          "width": 28,
+          "x": 366,
+          "y": 757
+        }
+      }
+    ],
+    "form": {
+      "bottom": 795,
+      "height": 137,
+      "left": 236,
+      "right": 408,
+      "top": 658,
+      "width": 172,
+      "x": 236,
+      "y": 658
+    },
+    "header": {
+      "bottom": 60,
+      "height": 48,
+      "left": 432,
+      "right": 748,
+      "top": 12,
+      "width": 316,
+      "x": 432,
+      "y": 12
+    },
+    "icon": "block",
+    "overflow": false
+  },
+  "light": {
+    "approvalButton": [
+      {
+        "background": "rgba(0, 0, 0, 0)",
+        "color": "oklch(0.145 0 0)",
+        "text": "拒绝"
+      },
+      {
+        "background": "oklch(0.205 0 0)",
+        "color": "oklch(0.985 0 0)",
+        "text": "批准"
+      }
+    ],
+    "aside": {
+      "bottom": 807,
+      "height": 739,
+      "left": 698,
+      "right": 1073,
+      "top": 68,
+      "width": 375,
+      "x": 698,
+      "y": 68
+    },
+    "dark": false,
+    "header": {
+      "bottom": 68,
+      "height": 48,
+      "left": 698,
+      "right": 1073,
+      "top": 20,
+      "width": 375,
+      "x": 698,
+      "y": 20
+    },
+    "traceGaps": {
+      "activityRows": "16px",
+      "activityToProse": 24,
+      "thoughtToActivity": 16
+    }
+  },
+  "menu": {
+    "enterScale": "1",
+    "enterY": "0",
+    "rect": {
+      "bottom": 743.484375,
+      "height": 222.984375,
+      "left": 348,
+      "right": 542.7265625,
+      "top": 520.5,
+      "width": 194.7265625,
+      "x": 348,
+      "y": 520.5
+    },
+    "selectedIcons": [
+      {
+        "height": "8px",
+        "width": "8px"
+      },
+      {
+        "height": "8px",
+        "width": "8px"
+      }
+    ],
+    "side": "top"
+  },
+  "pending": {
+    "disabled": true,
+    "draft": "菜单检查",
+    "readonly": true
+  },
+  "checks": {
+    "modelAndEffortIndependent": true,
+    "sessionIsolation": true,
+    "newSessionInheritance": true,
+    "keyboardSkipDisabledAndSelectEffort": true,
+    "escapeReturnsFocus": true,
+    "singleTabHasNoDivider": true,
+    "closeLastTabCreatesNewTab": true,
+    "topPlusAddsTab": true,
+    "fileAndAgentReopen": true,
+    "contextFocusProgress16": true,
+    "viewportReset": true
+  },
+  "scope": "demo only; mock data; no desktop or backend changes"
+}

@@ -151,6 +151,46 @@ export function assertGrantNotProtected(resolved: string, protectedRoots: string
   }
 }
 
+// Note: 见 .agents/notes/implemented/bug-fix/2026-10-17-directory-protection-cost.md
+export function assertDirectoryReadNotProtected(workspaceRoot: string, target: string, protectedRoots: string[]): void {
+  const root = path.resolve(workspaceRoot), targets = [...new Set([root, path.resolve(target)])];
+  const identities = new Set<string>();
+  for (const directory of targets) {
+    let current = directory;
+    for (;;) {
+      const stat = fs.statSync(current, { bigint: true });
+      if (!stat.isDirectory()) throw new ApprovedOpError("目录保护检查的目标不是目录");
+      identities.add(`${stat.dev}:${stat.ino}`);
+      const ancestor = path.dirname(current);
+      if (ancestor === current) break;
+      current = ancestor;
+    }
+  }
+  const visited = new Set<string>();
+  const prefix = root.endsWith(path.sep) ? root : root + path.sep;
+  for (const protectedRoot of protectedRoots) {
+    const protectedPath = path.resolve(protectedRoot);
+    if (targets.some(directory => directory === protectedPath || directory.startsWith(protectedPath + path.sep)) || protectedPath === root || protectedPath.startsWith(prefix) || identityCovers(root, protectedPath)) throw new ApprovedOpError("目录与后台保护范围重叠");
+    if (!fs.existsSync(protectedPath)) continue;
+    const pending = [fs.realpathSync(protectedPath)];
+    while (pending.length) {
+      const directory = pending.pop()!;
+      const before = fs.lstatSync(directory, { bigint: true });
+      if (!before.isDirectory()) continue;
+      const key = `${before.dev}:${before.ino}`;
+      if (identities.has(key)) throw new ApprovedOpError("目录与后台保护范围重叠");
+      if (visited.has(key)) continue;
+      visited.add(key);
+      for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+        if (entry.isDirectory()) pending.push(path.join(directory, entry.name));
+      }
+      // Dirent 分类只能用于枚举期间保持稳定的目录；文件被换成目录时不能按旧分类跳过。
+      const after = fs.lstatSync(directory, { bigint: true });
+      if (before.dev !== after.dev || before.ino !== after.ino || before.mode !== after.mode || before.mtimeNs !== after.mtimeNs || before.ctimeNs !== after.ctimeNs) throw new ApprovedOpError("目录保护范围在检查期间发生变化");
+    }
+  }
+}
+
 /** 一次同步核对复用候选祖先集合；变化或读取失败均拒绝，不保留跨调用放行结果。 */
 // Note: 见 .agents/notes/implemented/bug-fix/2026-10-18-batch-native-protection-checks.md
 export function assertGrantsNotProtected(paths: readonly string[], protectedRoots: readonly string[]): void {

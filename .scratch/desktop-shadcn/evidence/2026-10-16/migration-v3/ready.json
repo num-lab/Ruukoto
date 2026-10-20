@@ -1,0 +1,15 @@
+{
+  "profile": "/tmp/r-v3-profile-mOx5YJ",
+  "controlDir": "/tmp/r-v3-control-OUb8yI",
+  "cwd": "/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-it-desktop-ui-v3-Nj1it4/work-0/fumotravel-web",
+  "sessionId": "sess_0c8381a5d1e300a3f88492d4",
+  "liveSessionId": "sess_2d2364fe99217b41a6d8fd1e",
+  "scrollSessionId": "sess_bdc35a8048e68dc77a042a8f",
+  "approvalSessionId": "sess_0c4b19a1d8a876d20146cc42",
+  "filesTaskId": "task_eac3f42b81a2f75a842a3e4e",
+  "cdpEndpoint": "http://127.0.0.1:18329",
+  "backend": "临时真实 Code Runtime / ControlServer / local tool worker",
+  "model": "确定性本地 MockModelServer",
+  "userDataIsolated": true,
+  "pid": 5726
+}

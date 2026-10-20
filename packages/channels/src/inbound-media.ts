@@ -8,8 +8,8 @@ import type { Store } from "@ruukoto/core/store.ts";
 import type { ImageMimeType, InboundEvent, InboundMedia, InboundMediaMessage, NotifyTarget } from "@ruukoto/core/types.ts";
 export type { InboundMediaMessage } from "@ruukoto/core/types.ts";
 
-export const MAX_INBOUND_IMAGES = 4;
-export const MAX_INBOUND_IMAGE_BYTES = 8 * 1024 * 1024;
+import { MAX_ATTACHMENTS as MAX_INBOUND_IMAGES, MAX_ATTACHMENT_BYTES as MAX_INBOUND_IMAGE_BYTES } from "@ruukoto/core/attachments.ts";
+export { MAX_INBOUND_IMAGES, MAX_INBOUND_IMAGE_BYTES };
 export const INBOUND_MEDIA_ORPHAN_TTL_MS = 24 * 60 * 60 * 1000;
 export const INBOUND_MEDIA_DOWNLOAD_ATTEMPTS = 3;
 export const INBOUND_MEDIA_DOWNLOAD_TIMEOUT_MS = 15_000;

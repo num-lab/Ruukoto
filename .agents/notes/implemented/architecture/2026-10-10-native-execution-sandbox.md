@@ -24,7 +24,7 @@ macOS 没有本实现可用的不可逃逸内核进程成员集合：`posix_spaw
 
 ### 共享授权、身份与临时资料
 
-- `LaunchSpec` 是平台启动的授权来源。工作区必须带宿主钉定的 dev/ino；工作区、授予与只读根使用已核实真实路径，别名输入与身份不匹配在创建单元前拒绝。只读祖先内嵌读写授权也拒绝，不能由挂载或规则顺序扩大权限；可写工作区内的只读子根保留只读约束。
+- `LaunchSpec` 是平台启动的授权来源。工作区必须带宿主钉定的 dev/ino；工作区、授予与只读根使用已核实真实路径，别名输入与身份不匹配在创建单元前拒绝。只读祖先内嵌读写授权也拒绝，不能由挂载或规则顺序扩大权限；可写工作区内的只读子根保留只读约束。持久登记目录的跨启动复核与当前启动身份转换见[登记设备号](../bug-fix/2026-10-18-directory-device-number.md)。
 - 保护范围共用 `approved-ops.ts` 的物理身份判定：除文本路径外，以 dev/ino 比对保护根及目标的祖先，拒绝保护根的挂载别名与物理别名；目录授权也反向排除保护根祖先。原生授权、运行依赖、工作区及已批准文件操作使用同一判定。宿主按目标及祖先 inode 核对保护树内子对象，拒绝其 bind/hardlink 别名；原生运行依赖按保护根[批量核对](../bug-fix/2026-10-18-batch-native-protection-checks.md)，单次同步调用内复核固定身份与已观察目录变化。
 - Seatbelt 与只读 bind 都无法识别预存文件硬链接的另一可写名字。`assertNativeFileLinks` 遍历显式授权树，按目录 dev/ino 去重；文件以父目录 dev/ino 加真实 basename 识别独立目录条目，不能把 `/System/Volumes/Data` 的目录或文件别名重复计数。显式文件名必须精确出现在父目录 readdir 结果中，APFS 大小写或 Unicode 等价名字不是第二个授权条目。对 nlink 大于 1 的文件，同一对象所有条目都在授权内且访问等级一致才接受；nlink 超过已授权条目数、同一目录/条目/文件的只读与读写冲突或复核变化都拒绝，同权限授权内的正常硬链接保留。启动与每调用前重核，失败先停止旧单元再拒绝调用；此显式授权遍历不扫描保护目录、凭据树或整个宿主，也不跟随符号链接递归；保护树身份核对由上一条独立执行。成本随每次调用的授权树条目数、授权范围数与硬链接复核增加，大仓库的这项遍历不能记作常数成本。
 - Runtime 下发代码、后台数据、agent 与控制面保护根。代码根仅对可信构建的 `worker/worker.mjs` 与实际运行依赖 `node_modules` 开放只读例外；不开放整个源码根、整个 HOME 或 `/System/Volumes/Data`。工具安装版本、实际动态库与必要 SDK 只读进入边界；未知安装布局只提供实际可执行文件，不能从 bin 向上猜一个资料父目录。
@@ -119,3 +119,5 @@ macOS 未知残留可能继续写工作区和消耗 CPU/内存，保留占用会
 两个产品的正式入口均默认且只接受 native；个人后台的系统 service、user manager、bus 与 cgroup 常驻前提由[个人 Agent 原生执行与 Docker worker 退役](../../implemented/architecture/2026-10-12-personal-native-sandbox.md)持有。`ToolRouter.launchSpecFor` 和临时 `Runtime.executeWorkCopy` 统一下发宿主 dev/ino；`WorkCopyManager` 权限预检统一使用实际账户的 `accessSync`，包括补充组与 ACL，不保留容器 UID/GID 或 Docker Desktop VM 例外。本篇原个人容器部署与专用完全访问账户条目按新决定的适用范围解释，平台机制及原始真实验证保留。
 
 完全访问的账户、环境、免审批及宿主任务授权传播采用[本决定](../feature/2026-10-12-full-access-current-account.md)；本篇其他独立规则继续适用。
+
+[目录保护优化](../bug-fix/2026-10-17-directory-protection-cost.md)为文件树目录列表增加仅遍历目录的批量检查；通用文件保护与本篇原生执行规则继续沿用。

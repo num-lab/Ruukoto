@@ -1,0 +1,38 @@
+{
+  "cardBefore": {
+    "background": "rgba(0, 0, 0, 0)",
+    "border": "rgba(0, 0, 0, 0)",
+    "padding": "12px 14px"
+  },
+  "cardAfter": {
+    "background": "oklab(0.269 0 0 / 0.5)",
+    "border": "rgba(0, 0, 0, 0)",
+    "padding": "12px 14px"
+  },
+  "mode": {
+    "animation": "enter",
+    "exitScale": "1",
+    "menu": "[data-radix-select-viewport]{scrollbar-width:none;-ms-overflow-style:none;-webkit-overflow-scrolling:touch;}[data-radix-select-viewport]::-webkit-scrollbar{display:none}Ask for approvalAuto reviewFull accessPlan",
+    "opacity": "0",
+    "scale": "1",
+    "side": "top",
+    "translate": "0px -4px",
+    "x": "0",
+    "y": "0"
+  },
+  "model": {
+    "animation": "enter",
+    "exitScale": "1",
+    "opacity": "0",
+    "scale": "1",
+    "side": "top",
+    "translate": "0px -4px",
+    "x": "0",
+    "y": "0"
+  },
+  "lightCard": {
+    "background": "oklab(0.329004 0 0 / 0.5)",
+    "border": "rgba(0, 0, 0, 0)",
+    "padding": "12px 14px"
+  }
+}

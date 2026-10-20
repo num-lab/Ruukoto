@@ -31,6 +31,7 @@ for (const op of ["open_workspace", "create_session"] as const) {
         const accepted = deferred<void>();
         const release = deferred<void>();
         let first = true;
+        let refreshes = 0;
         const model = new CodeState({ request: (target, name, input) => handleRequest(target, name, input, async () => {}, async (name, input) => {
           if (name !== op) return t.client.request(name, input);
           calls.push(String((input as OpParams<"open_workspace">).request_id));
@@ -42,12 +43,14 @@ for (const op of ["open_workspace", "create_session"] as const) {
           await release.promise;
           if (outcome === "disconnected" || outcome === "not_sent") t.client.close();
           throw new ControlClientError("injected", "模拟应答丢失", outcome);
-        }) }, () => {});
+        }) }, () => { refreshes += 1; });
         await install(model, t);
         const operation = model.create(op, params);
         if (outcome !== "rejected") {
           await accepted.promise;
           const record = model.pendingCreation;
+          assert.equal(record?.busy, true, "在途创建标记为忙碌，界面据此把发起行的加号换成加载图标");
+          assert.ok(refreshes > 0, "在途创建会重绘，加载图标不等到应答才出现");
           await model.create(op, params);
           assert.equal(model.pendingCreation, record);
           assert.equal(calls.length, 1, "在途重复点击不另发请求");
@@ -151,4 +154,41 @@ test("桌面二次未知保留原操作，迟到创建事件能确认原会话",
     await waitFor("迟到事件确认", () => model.pendingCreation === null);
     assert.equal(model.view.currentSessionId, result.session.id);
   } finally { await t.shutdown(); }
+});
+
+test("桌面新对话：未选工作区不建会话，首条消息在建好后发送给该工作区", async () => {
+  const t = await startTestRuntime("desktop-new-chat", async () => ({ kind: "text", text: "ok" }), { config: { product: product.runtime } });
+  try {
+    const sent: Array<{ sessionId: string; text: string; attachments?: Array<{ id: string; name: string; size: number }> }> = [];
+    const uploads: Array<{ sessionId: string; tokens: string[] }> = [];
+    const model = new CodeState({ request: async (target, name, input) => {
+      const result = await handleRequest(target, name, input, async () => {}, (op, params) => t.client.request(op, params));
+      if ((name === "submit" || name === "continue") && result.ok) {
+        const params = input as OpParams<"submit">;
+        sent.push({ sessionId: params.session_id, text: params.input, attachments: params.attachments });
+      }
+      return result;
+    } }, () => {});
+    await install(model, t);
+    const draft = { workspaceId: "missing", text: "你好", attachments: [], mode: "full_access" as const, modelSelection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" as const } };
+    const upload = async (sessionId: string, tokens: string[]) => { uploads.push({ sessionId, tokens }); return tokens.map(token => ({ id: `att_${token}`, name: "note.txt", size: 3 })); };
+    assert.equal(await model.startChat({ ...draft, modelSelection: null }, upload), null, "没有模型不建会话");
+    assert.match(model.message!, /模型/);
+    const before = t.runtime.store.listSessions().length;
+    assert.equal(await model.startChat(draft, upload), null, "未选工作区不建会话");
+    assert.equal(t.runtime.store.listSessions().length, before);
+    assert.match(model.message!, /工作区/);
+    const workspace = await t.client.request<OpResult<"open_workspace">>("open_workspace", { cwd: t.work[0], request_id: "fixture" });
+    await install(model, t);
+    const sessionId = await model.startChat({ ...draft, workspaceId: workspace.session.projectId, text: "写一个测试" }, upload);
+    assert.ok(sessionId);
+    assert.equal(model.view.currentSessionId, sessionId);
+    const session = t.runtime.store.getSession(sessionId!)!;
+    assert.equal(session.projectId, workspace.session.projectId, "会话归属所选工作区");
+    assert.deepEqual({ mode: session.defaultAccessMode, model: session.modelSelection }, { mode: "full_access", model: draft.modelSelection }, "草稿选择的模式与模型随创建生效");
+    await waitFor("首条消息送达", () => sent.length === 1);
+    assert.deepEqual({ sessionId: sent[0].sessionId, text: sent[0].text }, { sessionId, text: "写一个测试" });
+    assert.deepEqual(uploads, [], "没有附件时不上传");
+    assert.equal(t.runtime.store.listTasksBySession(sessionId!).length, 1);
+  } finally { t.client.close(); await t.shutdown(); }
 });

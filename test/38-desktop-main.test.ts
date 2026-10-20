@@ -1,3 +1,4 @@
+import type { DesktopBridge } from "../apps/desktop/src/shared/bridge.ts";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import * as fs from "node:fs";
@@ -134,6 +135,7 @@ test("桌面开发 CSP 限定来源与 nonce，系统链接仅开放 HTTP(S)", (
 test("版本恢复方向使用结构化值，Code 指引按当前 socket 且正确转义路径", () => {
   const controlDir = "/tmp/控制目录 with 'quote'";
   for (const target of ["code", "personal"] as const) assert.match(versionRecovery(target, { client: 24, server: 25 }, false, controlDir).join("\n"), /重建应用/);
+  assert.match(versionRecovery("code", { client: 24, server: 25 }, false, controlDir).join("\n"), /desktop:mygo:build/);
   assert.match(versionRecovery("personal", { client: 26, server: 25 }, false, controlDir).join("\n"), /服务器部署同一 commit/);
   const guide = versionRecovery("code", { client: 26, server: 25 }, false, controlDir).join("\n");
   assert.match(guide, /恰好只有一个 PID/);
@@ -149,7 +151,7 @@ test("版本恢复方向使用结构化值，Code 指引按当前 socket 且正�
 });
 
 test("仓库缺失与 node 不可用显示可操作错误，关闭期间不再新建连接", async () => {
-  assert.throws(() => codeTargetConfig("/missing-repository", { env: {}, node: process.execPath }), (error: unknown) => error instanceof DesktopError && error.code === "repository_missing" && error.message.includes("desktop:build"));
+  assert.throws(() => codeTargetConfig("/missing-repository", { env: {}, node: process.execPath }), (error: unknown) => error instanceof DesktopError && error.code === "repository_missing" && error.message.includes("desktop:build") && error.message.includes("desktop:mygo:build"));
   await assert.rejects(selectEnvironment({ PATH: "/missing-node", RUUKOTO_DESKTOP_MANAGED: "1" }), (error: unknown) => error instanceof DesktopError && error.code === "node_unavailable" && error.message.includes("启动器"));
   const f = fixture();
   try {
@@ -183,7 +185,7 @@ import { product } from "../apps/ruukoto-code/src/product.ts";
 
 const selection: ModelSelection = { provider: "mock", modelId: "mock-model", thinkingLevel: "off" };
 function desktopSession(overrides: Partial<Session> = {}): Session {
-  return { id: "session", projectId: "project", workspaceProjectId: null, name: null, branchSource: null, kind: "dev", cwd: "/work", cwdReal: "/work", cwdDev: 1, cwdIno: 1, piSessionId: "pi", sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: selection, modelSelectionVersion: 1, defaultAccessMode: "confirm", defaultAccessModeVersion: 1, queueState: "active", queuePauseReason: null, createdAt: new Date().toISOString(), ...overrides };
+  return { id: "session", projectId: "project", workspaceProjectId: null, name: null, branchSource: null, kind: "dev", cwd: "/work", cwdReal: "/work", cwdDev: 1, cwdIno: 1, piSessionId: "pi", sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: selection, modelSelectionVersion: 1, defaultAccessMode: "confirm", defaultAccessModeVersion: 1, queueState: "active", queuePauseReason: null, archivedAt: null, createdAt: new Date().toISOString(), ...overrides };
 }
 function desktopTask(overrides: Partial<TaskView> = {}): TaskView {
   return { id: "task", sessionId: "session", requestId: "original", input: "输入", inputPurpose: "user", modelSelection: selection, submissionDigest: null, status: "queued", accessMode: "confirm", planMode: false, permissionVersion: 1, sourcePermissionVersion: null, grantedPaths: [], pendingAccessMode: null, interruptReason: null, cancelRequested: false, effectUnknown: false, errorMessage: null, historyEntryIds: [], resumesTaskId: null, agentId: null, parentTaskId: null, sourceEventId: null, deadline: null, resultSummary: null, resultRef: null, workId: null, subAgentId: null, readScope: null, resultDeliveredAt: null, createdAt: new Date().toISOString(), startedAt: null, endedAt: null, ...overrides };
@@ -827,12 +829,12 @@ for (const ending of ["interrupt", "mode_failure"] as const) test(`桌面真实�
 });
 
 
-test("Personal IPC 仅新增审批与核实操作，仍拒绝其他业务写入", async () => {
-  for (const op of ["get_task", "get_confirmation_params", "respond_confirmation"] as const) {
+test("Personal IPC 允许主会话与审批操作，仍拒绝工作区和文件操作", async () => {
+  for (const op of ["get_task", "get_confirmation_params", "respond_confirmation", "submit", "set_session_mode"] as const) {
     const result = await handleRequest("personal", op, { confirmation_id: "approval" }, async () => {}, async name => name);
     assert.deepEqual(result, { ok: true, value: op });
   }
-  for (const op of ["submit", "create_session", "set_session_mode"]) {
+  for (const op of ["open_workspace", "create_session", "list_workspace_files", "read_workspace_file", "read_workspace_git"]) {
     const result = await handleRequest("personal", op, {}, async () => {}, unavailable);
     assert.equal(!result.ok && result.error.code, "op_not_allowed");
   }
@@ -883,4 +885,111 @@ test("真实快照仅含20个终态，新实例有效旧游标补发21个历史�
     assert.equal(beforeOnline, true);
     assert.deepEqual(h.notices.map(notice => notice.taskId), ["new-live"]);
   } finally { connection?.close(); await t.shutdown(); }
+});
+
+test("定稿输入在原请求接收前保留，主进程沿用发送前分配的请求键", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  let began = false;
+  const h = desktopHarness({ handshake: () => ({ seq: 0, replay: [], snapshot: fakeSnapshot({ sessions: [desktopSession()] }) }), handlers: { submit: async params => { began = true; await gate; return desktopTask({ requestId: params.request_id, input: params.input }); } } });
+  try {
+    await h.start(); h.writes.edit("session", "保留原文");
+    const send = h.writes.send("session");
+    await waitFor("发送在途", () => began);
+    assert.equal(h.writes.draft("session").text, "保留原文");
+    assert.equal(h.writes.checking("session"), true);
+    const request = h.fake.transports.at(-1)!.requests.find(item => item.op === "submit")!;
+    assert.equal(h.store.list().records[0].requestId, (request.params as { request_id: string }).request_id);
+    release(); await send;
+    assert.equal(h.writes.draft("session").text, "");
+    assert.equal(h.writes.checking("session"), false);
+  } finally { release(); h.close(); }
+});
+
+test("旧请求先核实且新发送返回 pending_existing 时，不清空未发送的新草稿", async () => {
+  const view = new ViewState();
+  view.applySnapshot({ snapshot: fakeSnapshot({ sessions: [desktopSession()] }), seq: 0, replay: [] }, false);
+  let finish!: (value: Awaited<ReturnType<DesktopBridge["request"]>>) => void;
+  const writes = new CodeWrites({ request: async () => new Promise(resolve => { finish = resolve; }) }, view, () => true, () => {}, "code");
+  writes.edit("session", "未发送的新草稿");
+  const send = writes.send("session");
+  const record = pendingRecord();
+  writes.update({ type: "submission", record, result: { kind: "linked", requestId: record.requestId, taskId: "old-task" } });
+  assert.equal(writes.draft("session").text, "未发送的新草稿");
+  finish({ ok: true, value: { kind: "pending_existing", record } }); await send;
+  assert.equal(writes.draft("session").text, "未发送的新草稿");
+  assert.equal(writes.entries.size, 0, "已核实旧记录的迟到应答不重新锁住输入");
+});
+
+test("同请求核实早于 IPC 应答时仅清理原输入，不回滚后续草稿", async () => {
+  const view = new ViewState();
+  view.applySnapshot({ snapshot: fakeSnapshot({ sessions: [desktopSession()] }), seq: 0, replay: [] }, false);
+  let finish!: (value: Awaited<ReturnType<DesktopBridge["request"]>>) => void;
+  let params: Record<string, unknown> = {};
+  const writes = new CodeWrites({ request: async (_target, _op, input) => { params = input; return new Promise(resolve => { finish = resolve; }); } }, view, () => true, () => {}, "code");
+  writes.edit("session", "原文");
+  const send = writes.send("session");
+  const record = pendingRecord({ requestId: String(params.request_id), params });
+  writes.update({ type: "pending", entries: [{ record }], corrupt: [], dir: "/owned" });
+  writes.update({ type: "submission", record, result: { kind: "linked", requestId: record.requestId, taskId: "task" } });
+  assert.equal(writes.draft("session").text, "");
+  writes.edit("session", "下一段草稿");
+  finish({ ok: true, value: { kind: "pending_verification", requestId: record.requestId, outcome: "unknown", reason: "丢答" } }); await send;
+  assert.equal(writes.draft("session").text, "下一段草稿");
+  assert.equal(writes.checking("session"), false);
+});
+
+test("审批权威成功立即移除卡片，权限变化不得沿用已加载旧参数", async () => {
+  const h = approvalHarness({ respond_confirmation: () => approval({ status: "approved" }) });
+  await h.model.load(h.c.id); await h.model.respond(h.c, "approve");
+  assert.equal(h.view.pendingApprovals().length, 0);
+  assert.equal(h.model.decisions.size, 0);
+  h.snapshot(); await h.model.load(h.c.id);
+  h.view.confirmations = [approval({ permissionVersion: 2 })];
+  h.model.update({ type: "event", kind: "live", event: noticeEvent(1, { type: "task.completed", taskId: "unrelated", sessionId: "session" }) });
+  assert.equal(h.model.details.size, 0);
+  await h.model.respond(h.view.pendingApprovals()[0], "approve");
+  assert.equal(h.transport.requests.filter(item => item.op === "respond_confirmation").length, 1);
+});
+
+test("渲染进程分配请求键也不能覆盖另一会话的未决持久记录", async () => {
+  const record = pendingRecord();
+  const h = desktopHarness({ handshake: () => ({ seq: 0, replay: [], snapshot: fakeSnapshot({ sessions: [desktopSession()] }) }), handlers: { find_task: () => { throw new ControlClientError("timeout", "保留", "unknown"); } } }, [record]);
+  try {
+    await h.start();
+    const response = await h.request("code", "submit", { session_id: "different", request_id: record.requestId, input: "新输入", model_selection: selection });
+    assert.equal(response.ok, false);
+    if (!response.ok) assert.equal(response.error.code, "request_conflict");
+    assert.deepEqual(h.store.read(record.requestId), { kind: "record", record });
+    assert.equal(h.fake.transports.at(-1)!.requests.filter(item => item.op === "submit").length, 0);
+  } finally { h.close(); }
+});
+
+test("核实中 IPC 先于 pending 更新时仍保留原文并禁止重复提交", async () => {
+  const view = new ViewState();
+  view.applySnapshot({ snapshot: fakeSnapshot({ sessions: [desktopSession()] }), seq: 0, replay: [] }, false);
+  let params: Record<string, unknown> = {};
+  const writes = new CodeWrites({ request: async (_target, _op, input) => { params = input; return { ok: true, value: { kind: "pending_verification", requestId: input.request_id, outcome: "unknown", reason: "丢答" } }; } }, view, () => true, () => {}, "code");
+  writes.edit("session", "原输入"); await writes.send("session");
+  assert.equal(writes.checking("session"), true);
+  assert.equal(writes.blocked("session"), true);
+  assert.equal(writes.draft("session").text, "原输入");
+  const record = pendingRecord({ requestId: String(params.request_id), params });
+  writes.update({ type: "submission", record, result: { kind: "linked", requestId: record.requestId, taskId: "task" } });
+  assert.equal(writes.draft("session").text, "");
+  assert.equal(writes.checking("session"), false);
+});
+
+test("附件选取与上传状态按实例会话留在草稿，重新挂载不能绕过提交保护", async () => {
+  const view = new ViewState();
+  view.applySnapshot({ snapshot: fakeSnapshot({ sessions: [desktopSession()] }), seq: 0, replay: [] }, false);
+  let sends = 0;
+  const writes = new CodeWrites({ request: async () => { sends++; return { ok: true, value: undefined }; } }, view, () => true, () => {}, "code");
+  writes.edit("session", "带附件的原文");
+  writes.draft("session").attaching = true;
+  assert.equal(writes.draft("session").attaching, true);
+  await writes.send("session");
+  assert.equal(sends, 0);
+  writes.draft("session").attaching = false;
+  assert.equal(writes.blocked("session"), false);
 });

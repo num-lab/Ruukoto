@@ -4,7 +4,7 @@
  * 任务开始前与占用检查都用它核对目录身份，覆盖：
  * - 符号链接：realpath 解析后指向同一真实路径；
  * - 同一目录的挂载别名：dev+ino 相同；
- * - 排队期间目录被替换或失效：realpath/stat 与登记值不一致时拒绝启动。
+ * - 排队期间目录被替换或失效：真实路径或 inode 与登记值不一致时拒绝启动。
  *
  * 互斥保证只覆盖本后台管理的任务；外部编辑器写入不在此列。
  */
@@ -105,28 +105,30 @@ export function resolveDirIdentitySync(cwd: string): DirIdentity {
 }
 
 /** 目录身份比对：与登记值不一致抛 DirIdentityError（异步/同步核实共用）。 */
+// Note: 见 .agents/notes/implemented/bug-fix/2026-10-18-directory-device-number.md
 function assertIdentityUnchanged(identity: DirIdentity, current: DirIdentity): void {
-  if (current.cwdReal !== identity.cwdReal || current.dev !== identity.dev || current.ino !== identity.ino) {
+  if (current.cwdReal !== identity.cwdReal || current.ino !== identity.ino) {
     throw new DirIdentityError(
-      `工作目录身份已变化：${identity.cwdReal} (dev=${identity.dev},ino=${identity.ino}) → ` +
-        `${current.cwdReal} (dev=${current.dev},ino=${current.ino})`,
+      `工作目录身份已变化：${identity.cwdReal} (ino=${identity.ino}) → ` +
+        `${current.cwdReal} (ino=${current.ino})`,
     );
   }
 }
 
-/** 校验目录仍是登记时的身份；不一致抛 DirIdentityError。 */
-export async function verifyDirIdentity(identity: DirIdentity): Promise<void> {
+/** 核实登记的真实路径与 inode，返回本次身份；失效或不一致抛 DirIdentityError。 */
+export async function verifyDirIdentity(identity: DirIdentity): Promise<DirIdentity> {
   const current = await resolveDirIdentity(identity.cwdReal).catch((err) => {
     throw new DirIdentityError(`工作目录已失效：${identity.cwdReal}（${(err as Error).message}）`);
   });
   assertIdentityUnchanged(identity, current);
+  return current;
 }
 
 /**
  * verifyDirIdentity 的同步变体（agent-direction issue 06）：上下文装配在构造期
- * 同步执行，不能用异步版本；判定规则相同（realpath + dev + ino）。
+ * 同步执行，不能用异步版本；同样核实真实路径与 inode，返回本次身份。
  */
-export function verifyDirIdentitySync(identity: DirIdentity): void {
+export function verifyDirIdentitySync(identity: DirIdentity): DirIdentity {
   let current: DirIdentity;
   try {
     const real = fs.realpathSync(identity.cwdReal);
@@ -137,4 +139,5 @@ export function verifyDirIdentitySync(identity: DirIdentity): void {
     throw new DirIdentityError(`工作目录已失效：${identity.cwdReal}（${(err as Error).message}）`);
   }
   assertIdentityUnchanged(identity, current);
+  return current;
 }

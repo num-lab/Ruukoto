@@ -11,11 +11,13 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { TASK_END_MARKER, TASK_START_MARKER } from "@ruukoto/core/types.ts";
+import { MAX_FRAME_BYTES } from "@ruukoto/control/protocol.ts";
 import {
   HistoryReadError,
   parseSessionFileStrict,
   readHistoryEntryText,
   readHistoryPage,
+  readToolResult,
   sliceTextByBytes,
 } from "@ruukoto/core/history.ts";
 
@@ -57,6 +59,114 @@ test("分页和单条读取保留原任务关联；中断缺结束标记后新�
       }
     }
   } finally { fs.rmSync(path.dirname(file), { recursive: true, force: true }); }
+});
+
+test("工具结果分页：字段独立、UTF-8 连续偏移、末尾空页与空写入", () => {
+  const patch = "a中文🙂\n尾行";
+  const file = tmpFile([
+    msgEntry("edit-page", "toolResult", "普通结果不是补丁", { toolName: "edit", isError: false, details: { patch } }),
+    msgEntry("write-page", "toolResult", "写入结果不是补丁", { toolName: "write", isError: false, details: { patch } }),
+    msgEntry("empty-call", "assistant", "", { content: [{ type: "toolCall", id: "empty", name: "write", arguments: { content: "" } }] }),
+    msgEntry("empty-result", "toolResult", "写入成功", { toolName: "write", toolCallId: "empty", isError: false, details: { patch: "" } }),
+    msgEntry("legacy-write", "toolResult", "未记录补丁的旧写入", { toolName: "write", isError: false }),
+    msgEntry("missing", "toolResult", "看起来像补丁的普通结果", { toolName: "edit", isError: false }),
+  ]);
+  try {
+    const totalBytes = Buffer.byteLength(patch);
+    for (const entryId of ["edit-page", "write-page"]) {
+      let offset = 0;
+      let assembled = "";
+      do {
+        const result = readToolResult(file, entryId, 4, { field: "patch", offset });
+        assert.ok(result.content);
+        assert.equal(result.content.offset, offset);
+        assert.equal(result.content.totalBytes, totalBytes);
+        assert.ok(result.content.text.length > 0);
+        assert.equal(result.content.text.includes("\uFFFD"), false);
+        assembled += result.content.text;
+        offset += Buffer.byteLength(result.content.text);
+      } while (offset < totalBytes);
+      assert.equal(assembled, patch);
+    }
+    assert.deepEqual(readToolResult(file, "edit-page", 4, { field: "patch", offset: totalBytes }).content, { text: "", offset: totalBytes, totalBytes, truncated: true });
+    const empty = readToolResult(file, "empty-result", 4, { field: "writeContent" });
+    assert.deepEqual(empty.content, { text: "", offset: 0, totalBytes: 0, truncated: false });
+    assert.equal(empty.writeTotalLines, 0);
+    assert.deepEqual(readToolResult(file, "empty-result", 4, { field: "patch" }).content, { text: "", offset: 0, totalBytes: 0, truncated: false });
+    assert.equal(readToolResult(file, "legacy-write", 4, { field: "patch" }).content, null);
+    assert.equal(readToolResult(file, "missing", 4, { field: "patch" }).content, null);
+    assert.equal(readToolResult(file, "edit-page", 4, { field: "writeContent" }).content, null);
+    for (const read of [
+      () => readToolResult(file, "edit-page", 4, { field: "patch", offset: 2 }),
+      () => readToolResult(file, "edit-page", 4, { field: "patch", offset: totalBytes + 1 }),
+      () => readToolResult(file, "edit-page", 4, { field: "patch", offset: -1 }),
+      () => readToolResult(file, "edit-page", 3, { field: "patch" }),
+      () => readToolResult(file, "edit-page", 65_537, { field: "patch" }),
+      () => readToolResult(file, "missing", 4, { field: "patch", offset: 1 }),
+    ]) assert.throws(read, (error: unknown) => error instanceof HistoryReadError && error.code === "invalid_params");
+  } finally { fs.rmSync(path.dirname(file), { recursive: true, force: true }); }
+});
+
+test("read_tool_result：真实控制面跨 64KiB 补丁与 Write 分页保持总长及旧预览", async () => {
+  const t = await startTestRuntime("tool-result-pages", routeResponder([]));
+  const patch = "@@ -1 +1 @@\n-旧中文🙂\n+新中文🙂\n".repeat(4_000);
+  const written = "新中文🙂\r\n".repeat(9_000) + "末行";
+  const file = tmpFile([
+    msgEntry("patch", "toolResult", "普通摘要", { toolName: "edit", isError: false, details: { patch, secret: "不公开" } }),
+    msgEntry("write-patch", "toolResult", "写入摘要", { toolName: "write", isError: false, details: { patch } }),
+    msgEntry("write-call", "assistant", "", { content: [{ type: "toolCall", id: "write-call", name: "write", arguments: { content: written } }] }),
+    msgEntry("write-result", "toolResult", "写入摘要", { toolName: "write", toolCallId: "write-call", isError: true }),
+    msgEntry("empty-call", "assistant", "", { content: [{ type: "toolCall", id: "empty-call", name: "write", arguments: { content: "" } }] }),
+    msgEntry("empty-result", "toolResult", "写入摘要", { toolName: "write", toolCallId: "empty-call", isError: false }),
+    msgEntry("missing-patch", "toolResult", "@@ 不是结构化补丁", { toolName: "edit" }),
+    msgEntry("escaped-patch", "toolResult", "\u0001".repeat(100_000), { toolName: "edit", isError: false, details: { patch: "\u0001".repeat(100_000) } }),
+  ]);
+  try {
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    t.runtime.store.setSessionFile(sessionId, file);
+    const read = (entryId: string, extra: Record<string, unknown> = {}) => t.client.request<ReturnType<typeof readToolResult>>("read_tool_result", { session_id: sessionId, entry_id: entryId, ...extra });
+    for (const [entryId, field, expected] of [["patch", "patch", patch], ["write-patch", "patch", patch], ["write-result", "writeContent", written]] as const) {
+      const preview = await read(entryId);
+      assert.equal("content" in preview, false, "旧调用不增加响应字段");
+      let offset = 0;
+      let assembled = "";
+      const totalBytes = Buffer.byteLength(expected);
+      do {
+        const result = await read(entryId, { field, offset, length: 65_536 });
+        const { content, ...legacy } = result;
+        assert.deepEqual(legacy, preview, "分页不改变旧预览或成功判定字段");
+        assert.ok(content);
+        assert.equal(content.offset, offset);
+        assert.equal(content.totalBytes, totalBytes);
+        const bytes = Buffer.byteLength(content.text);
+        assert.ok(bytes > 0 && bytes <= 65_536);
+        assert.equal(content.text.includes("\uFFFD"), false);
+        assembled += content.text;
+        offset += bytes;
+        if (offset < totalBytes) fs.appendFileSync(file, msgEntry(`later-${entryId}-${offset}`, "user", "后续条目不改变原字段总长") + "\n");
+      } while (offset < totalBytes);
+      assert.equal(assembled, expected);
+      const last = await read(entryId, { field, offset });
+      assert.equal(last.content?.text, "");
+      assert.equal(last.content?.offset, totalBytes);
+      assert.equal(last.content?.totalBytes, totalBytes);
+    }
+    assert.deepEqual((await read("patch", { field: "text", length: 65_536 })).content, { text: "普通摘要", offset: 0, totalBytes: 12, truncated: false });
+    assert.deepEqual((await read("empty-result", { field: "writeContent" })).content, { text: "", offset: 0, totalBytes: 0, truncated: false });
+    assert.equal((await read("missing-patch", { field: "patch" })).content, null);
+    assert.equal((await read("missing-patch", { field: "patch" })).isError, null);
+    const escaped = await read("escaped-patch", { field: "patch", length: 65_536 });
+    assert.equal(escaped.text.length, 16_384);
+    assert.equal(escaped.patch?.length, 16_384);
+    assert.equal(escaped.content?.text, "\u0001".repeat(65_536));
+    assert.ok(Buffer.byteLength(JSON.stringify(escaped)) < MAX_FRAME_BYTES, "六倍 JSON 转义仍可经真实控制面传回");
+    const escapedTail = await read("escaped-patch", { field: "patch", offset: 65_536, length: 65_536 });
+    assert.equal(escapedTail.content?.text, "\u0001".repeat(34_464));
+    assert.equal(escapedTail.content?.totalBytes, 100_000);
+    for (const extra of [{ field: "bad" }, { field: null }, { offset: 0 }, { field: "patch", offset: "0" }, { field: "patch", offset: -1 }, { field: "patch", offset: 0.5 }, { field: "patch", offset: Number.MAX_SAFE_INTEGER + 1 }, { field: "patch", offset: 1_000_000 }, { field: "patch", offset: 14 }, { field: "patch", length: 3 }, { field: "patch", length: 65_537 }]) {
+      await assert.rejects(read("patch", extra), { code: "invalid_params" });
+    }
+  } finally { await t.shutdown(); fs.rmSync(path.dirname(file), { recursive: true, force: true }); }
 });
 
 test("最新一页与向前翻页：游标链覆盖全部条目且不重复", () => {

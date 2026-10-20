@@ -1,0 +1,47 @@
+✔ 正式 GUI 复用拥有者定稿样式、官方组件与侧栏交互，原生适配只追加 (7.237667ms)
+✔ 工具摘要只列实际活动类别，覆盖真实 bash，SubAgent 独立于相邻工具组 (0.176333ms)
+✔ Desktop Context 读取最新选择记录，三分类与窗口来自当时估算而非 provider usage (1.350875ms)
+✔ Desktop Context 无记录和旧记录无窗口保持未知，不替补容量或伪造零占用 (0.214292ms)
+✔ Desktop Context 读取错误可见且可手动重试，不保留过期数字 (0.285541ms)
+✔ Desktop Context 快照换代丢弃 list_prompt_requests 迟到结果 (40.717584ms)
+✔ Desktop Context 快照换代丢弃 list_prompt_requests 迟到错误 (41.285375ms)
+✔ Desktop Context 快照换代丢弃 get_context_breakdown 迟到结果 (40.85125ms)
+✔ Desktop Context 快照换代丢弃 get_context_breakdown 迟到错误 (41.547292ms)
+✔ Desktop Context 实例与会话隔离，旧实例错误不覆盖当前实例 (41.505625ms)
+✔ Desktop Context 拒绝会话或记录不匹配的 wire 响应 (0.334625ms)
+✔ Desktop Context 断线清除旧值，快照及当前会话终态刷新，其他会话和 replay 不触发 (0.140791ms)
+✔ Desktop 只为 Code 放行 Context 两个只读入口，不开放 prompt 原文或 Personal UI (0.189625ms)
+✔ Desktop Context 在途读取遇到新终态后补读最新记录，合并重复刷新 (41.084125ms)
+✔ 内置浏览器仅接受无凭据 HTTP(S)，域名和本机简写归一化 (322.166167ms)
+✔ 浏览器前后退保留分支边界，重复地址刷新，非法地址不改变当前页 (0.304458ms)
+✔ 只读directory跨snapshot不安装迟到内容 (41.050292ms)
+✔ 只读directory跨snapshot不安装迟到错误 (41.61025ms)
+✔ 只读directory跨instance不安装迟到内容 (41.408209ms)
+✔ 只读directory跨instance不安装迟到错误 (41.431667ms)
+✔ 只读directory跨offline不安装迟到内容 (40.589125ms)
+✔ 只读directory跨offline不安装迟到错误 (40.490209ms)
+✔ 只读file跨snapshot不安装迟到内容 (40.813667ms)
+✔ 只读file跨snapshot不安装迟到错误 (41.357041ms)
+✔ 只读file跨instance不安装迟到内容 (41.4585ms)
+✔ 只读file跨instance不安装迟到错误 (41.35625ms)
+✔ 只读file跨offline不安装迟到内容 (41.339458ms)
+✔ 只读file跨offline不安装迟到错误 (40.564541ms)
+✔ CodeState 真实断线路径转发只读缓存失效，迟到文件不在离线时复活 (41.618125ms)
+✔ 文件关闭重开丢弃原读取，目录手动重试只安装最新请求 (124.272583ms)
+✔ 只读缓存和文件夹按工作区隔离，browser及预览模式按父会话隔离 (0.401875ms)
+✔ 文件树使用会话的工作区组织归属，不拿来源 cwd 冒充展示根 (39.955292ms)
+✔ 浏览器实际组件保持空初始页、sandbox、无 referrer，非法输入有明确结果 (7.907042ms)
+✔ 真实目录组件只展示后台返回的目录，不迁入样例或写操作 (2.498417ms)
+✔ 文件预览使用真实正文，Markdown 和源码安全渲染，空文本保持零行 (6.661459ms)
+✔ Thought 实际组件按真实时间戳显示耗时并读取原文，不使用 demo 摘要 (1.207583ms)
+✔ 空的 thinking 帧不产生无内容的折叠行 (0.051042ms)
+✔ 消息流排除空 thinking 的外层 item，避免多余空白间距 (1.061041ms)
+✔ 工具调用的空 assistant 正文不占消息间距 (1.829542ms)
+ℹ tests 39
+ℹ suites 0
+ℹ pass 39
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2716.453667

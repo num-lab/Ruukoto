@@ -1,0 +1,14 @@
+{
+  ".scratch/desktop-shadcn/demo/src/app.tsx": "0fdbadb43f75a4d05e8154149be5f08a1ab35d94658cae220e72c335205ed72f",
+  ".scratch/desktop-shadcn/demo/src/demo-data.ts": "eabbcf3c6714e3f92553a12ee6d16c00afde43dc7494981f33c86fa2e5d2f5d4",
+  ".scratch/desktop-shadcn/demo/src/inspector-data.ts": "f8404ad904f5376147b8df37eee5b467c6ee3f7f755dd5bc9ce9ed5b7a796cce",
+  ".scratch/desktop-shadcn/demo/src/inspector-panels.tsx": "1f0a772d5e338cc972a6025d4ce3b8bd7ca39a75d6dd24fb63be1a5f5841a3a7",
+  ".scratch/desktop-shadcn/demo/src/style.css": "093643bef0580797bd38f2e06eb2330088d4d0033db8eebfc06d2a25c14a2231",
+  ".scratch/desktop-shadcn/demo/src/main.tsx": "73ddf1a2faf9e3addad0d1b10df7386a743b9d353d87aad3307660e7551b1eb9",
+  ".scratch/desktop-shadcn/demo/scripts/check-inspector.mjs": "a4c0a5ffa28747f4bf10b06a2c35dfc5a2e97d98e0a1e15b60727c6a962aeb76",
+  ".scratch/desktop-shadcn/demo/scripts/check-render.mjs": "284598e10b2f735b1faff56181761cabacda6b36a7aa4863ef8c1f8c8f4f8817",
+  ".scratch/desktop-shadcn/demo/package.json": "5a5b6a2494e6b3f2f7a4bff4b90400a3413afca7f272e2406662dd067a30098e",
+  ".scratch/desktop-shadcn/demo/package-lock.json": "27ad94c37cce21cac127859c15fb47cd1871078c0f6e9ebc65135a1a1502f02a",
+  ".scratch/desktop-shadcn/demo/public/browser-preview.html": "05aea60472ab23565b3f890cbabe127886c7dba367cc8ca1d8c189285f614fbb",
+  ".scratch/desktop-shadcn/demo/public/sample-pass.svg": "68ee261a28202d99a981456e5b83947b41e92c67433c9413fc637d0d0de4f3e0"
+}

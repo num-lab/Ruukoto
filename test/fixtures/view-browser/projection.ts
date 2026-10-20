@@ -11,14 +11,14 @@ export function runProjection() {
   const snapshot: ConnectResult = {
     seq: 10, replay: [],
     snapshot: {
-      product: "ruukoto-code",
+      product: "ruukoto-code", mainSessionId: null,
       instanceId: "instance", execution: { backend: "native", note: "" },
       defaultModel: { provider: "mock", id: "mock", name: "Mock", thinkingLevel: "off" },
       projects: [{ id: "project", name: "工作区", rootDir: null, createRequestId: null, instructionFiles: [], webSearch: "enabled", settingsVersion: 1, createdAt: at }],
       sessions: [{ id: "session", projectId: "project", workspaceProjectId: null, name: null, branchSource: null,
         kind: "dev", cwd: "/work", cwdReal: "/work", cwdDev: 1, cwdIno: 1, piSessionId: "pi-session", sessionFile: null,
         confirmTools: [], createRequestId: null, modelSelection: null, modelSelectionVersion: 0,
-        defaultAccessMode: "confirm", defaultAccessModeVersion: 0, queueState: "active", queuePauseReason: null, createdAt: at }],
+        defaultAccessMode: "confirm", defaultAccessModeVersion: 0, queueState: "active", queuePauseReason: null, archivedAt: null, createdAt: at }],
       tasks: [{ id: "task", sessionId: "session", requestId: "request", input: "中文🙂", inputPurpose: "user", modelSelection: null,
         submissionDigest: null, status: "running", accessMode: "confirm", planMode: false, permissionVersion: 1,
         sourcePermissionVersion: null, grantedPaths: [], pendingAccessMode: null, interruptReason: null,

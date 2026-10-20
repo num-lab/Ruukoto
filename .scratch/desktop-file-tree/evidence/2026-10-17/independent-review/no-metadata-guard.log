@@ -1,0 +1,26 @@
+✖ 目录保护枚举的旧文件分类被替换时拒绝结果 (3.242667ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1190.168125
+
+✖ failing tests:
+
+test at test/desktop-workspace-files.test.ts:1:7880
+✖ 目录保护枚举的旧文件分类被替换时拒绝结果 (3.242667ms)
+  AssertionError [ERR_ASSERTION]: Missing expected exception.
+      at TestContext.<anonymous> (/Users/eitrous/.codex/worktrees/6f13/ruukoto/test/desktop-workspace-files.test.ts:131:12)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1201:25)
+      at Test.start (node:internal/test_runner/test:1096:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:385:17) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    operator: 'throws',
+    diff: 'simple'
+  }

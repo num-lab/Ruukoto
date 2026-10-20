@@ -1,0 +1,106 @@
+{
+  "before": {
+    "meta": 1,
+    "pathRects": [
+      {
+        "height": 19.6875,
+        "width": 270.890625,
+        "x": 285.8984375,
+        "y": 323.15625
+      },
+      {
+        "height": 16.5,
+        "width": 261.296875,
+        "x": 290.6953125,
+        "y": 324.75
+      }
+    ],
+    "preHeight": 44,
+    "scrollbar": "auto",
+    "width": 549,
+    "wrap": "wrap"
+  },
+  "after": {
+    "clientWidth": 208,
+    "meta": 0,
+    "overflow": false,
+    "path": [
+      {
+        "rects": [
+          {
+            "height": 16.5,
+            "width": 25.2890625,
+            "x": 248.796875,
+            "y": 335.75
+          }
+        ],
+        "text": "src"
+      },
+      {
+        "rects": [
+          {
+            "height": 16.5,
+            "width": 8.4296875,
+            "x": 274.0859375,
+            "y": 335.75
+          }
+        ],
+        "text": "/"
+      },
+      {
+        "rects": [
+          {
+            "height": 16.5,
+            "width": 84.2890625,
+            "x": 282.515625,
+            "y": 335.75
+          }
+        ],
+        "text": "components"
+      },
+      {
+        "rects": [
+          {
+            "height": 16.5,
+            "width": 8.4296875,
+            "x": 366.8046875,
+            "y": 335.75
+          }
+        ],
+        "text": "/"
+      },
+      {
+        "rects": [
+          {
+            "height": 16.5,
+            "width": 134.859375,
+            "x": 244,
+            "y": 356.25
+          }
+        ],
+        "text": "PassTimeline.tsx"
+      }
+    ],
+    "pathText": "src/components/PassTimeline.tsx",
+    "preHeight": 44,
+    "preOverflow": "auto",
+    "scrollWidth": 420,
+    "scrollbar": "none",
+    "webkitBar": "none",
+    "width": 238,
+    "wrap": "pretty"
+  },
+  "commandScroll": {
+    "height": 44,
+    "left": 40,
+    "scrollbar": "none"
+  },
+  "narrow": {
+    "fileRects": 1,
+    "meta": 0,
+    "overflow": false,
+    "scrollbar": "none",
+    "streamOverflow": false,
+    "width": 177
+  }
+}

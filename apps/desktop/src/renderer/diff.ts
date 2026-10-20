@@ -2,7 +2,7 @@ import type { ToolResultView } from "@ruukoto/core/history.ts";
 import type { FlowEntry } from "@ruukoto/view/event-flow.ts";
 
 export type DiffTool = Extract<FlowEntry, { kind: "tool" }>;
-export interface PatchLine { kind: "header" | "hunk" | "added" | "removed" | "context" | "notice"; text: string }
+export interface PatchLine { kind: "header" | "hunk" | "added" | "removed" | "context" | "notice"; text: string; number?: number }
 export type DiffDisplay = { kind: "status" | "error" | "effect_unknown" | "unavailable" | "patch" | "write"; text: string; truncated: boolean };
 
 export function isDiffTool(tool: DiffTool): boolean { return tool.name.toLowerCase() === "edit" || tool.name.toLowerCase() === "write"; }
@@ -24,12 +24,19 @@ export function diffDisplay(tool: DiffTool, result?: ToolResultView): DiffDispla
 
 export function parsePatch(patch: string): PatchLine[] {
   let inHunk = false;
+  let oldLine = 0, newLine = 0;
   const lines = patch.split("\n");
   if (lines.at(-1) === "") lines.pop();
   return lines.map(text => {
-    if (text.startsWith("@@")) { inHunk = true; return { kind: "hunk", text }; }
+    if (text.startsWith("@@")) {
+      const range = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(text);
+      if (range) { oldLine = Number(range[1]); newLine = Number(range[2]); }
+      inHunk = !!range;
+      return { kind: "hunk", text };
+    }
     if (text.startsWith("diff ")) inHunk = false;
     const kind = inHunk ? text.startsWith("+") ? "added" : text.startsWith("-") ? "removed" : text.startsWith(" ") ? "context" : "notice" : "header";
-    return { kind, text };
+    const number = kind === "added" ? newLine++ : kind === "removed" ? oldLine++ : kind === "context" ? (oldLine++, newLine++) : undefined;
+    return { kind, text, ...(number === undefined ? {} : { number }) };
   });
 }

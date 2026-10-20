@@ -13,6 +13,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { createHash } from "node:crypto";
+import { MAX_ATTACHMENT_BYTES } from "@ruukoto/core/attachments.ts";
 import type { Artifact, ImageMimeType } from "@ruukoto/core/types.ts";
 import type { Store } from "@ruukoto/core/store.ts";
 import { randomId } from "@ruukoto/core/types.ts";
@@ -59,7 +60,7 @@ export class ArtifactStore {
   /** 追加原始字节。失败抛 ArtifactWriteError（调用方据此停止执行）。 */
   append(artifactId: string, chunk: Buffer): void {
     try {
-      if (this.store.getArtifact(artifactId)?.mimeType) throw new Error("图片产物不可修改");
+      if (this.store.getArtifact(artifactId)?.contentHash) throw new Error("不可变产物不可修改");
       if (chunk.length === 0) return;
       fs.appendFileSync(this.fileFor(artifactId), chunk);
       this.store.addArtifactBytes(artifactId, chunk.length);
@@ -78,6 +79,11 @@ export class ArtifactStore {
     if (bytes.length !== input.byteCount || imageMime(bytes) !== input.mimeType || createHash("sha256").update(bytes).digest("hex") !== input.contentHash) {
       throw new ArtifactWriteError("图片产物内容校验失败");
     }
+    return this.importAttachment(input, bytes);
+  }
+
+  importAttachment(input: { id: string; taskId: string; sessionId: string; name: string; mimeType: ImageMimeType | null; contentHash: string; byteCount: number }, bytes: Buffer): Artifact {
+    if (bytes.length !== input.byteCount || bytes.length > MAX_ATTACHMENT_BYTES || imageMime(bytes) !== input.mimeType || createHash("sha256").update(bytes).digest("hex") !== input.contentHash) throw new ArtifactWriteError("附件内容校验失败");
     const target = this.fileFor(input.id);
     const temporary = `${target}.${randomId("tmp")}`;
     try {
@@ -85,22 +91,22 @@ export class ArtifactStore {
       try { fs.linkSync(temporary, target); }
       catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-        const existing = this.readImageFile(input.id);
-        if (createHash("sha256").update(existing).digest("hex") !== input.contentHash) throw new Error("图片产物文件冲突");
+        const existing = this.readImmutableFile(input.id);
+        if (createHash("sha256").update(existing).digest("hex") !== input.contentHash) throw new Error("不可变产物文件冲突");
       }
-      return this.store.createImageArtifact(input);
+      return this.store.createImmutableArtifact(input);
     } catch (error) {
-      throw new ArtifactWriteError(`图片产物提升失败：${(error as Error).message}`);
+      throw new ArtifactWriteError(`不可变产物提升失败：${(error as Error).message}`);
     } finally {
       fs.rmSync(temporary, { force: true });
     }
   }
 
-  private readImageFile(artifactId: string): Buffer {
+  private readImmutableFile(artifactId: string): Buffer {
     const fd = fs.openSync(this.fileFor(artifactId), fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
     try {
       const stat = fs.fstatSync(fd);
-      if (!stat.isFile() || stat.size > 8 * 1024 * 1024) throw new Error("图片产物大小或文件类型不合法");
+      if (!stat.isFile() || stat.size > MAX_ATTACHMENT_BYTES) throw new Error("不可变产物大小或文件类型不合法");
       return fs.readFileSync(fd);
     } finally { fs.closeSync(fd); }
   }
@@ -112,7 +118,7 @@ export class ArtifactStore {
       if (!artifact || artifact.status !== "complete" || !artifact.mimeType || !artifact.contentHash ||
         (owner.taskId !== undefined && artifact.taskId !== owner.taskId) ||
         (owner.sessionId !== undefined && artifact.sessionId !== owner.sessionId)) throw new Error("图片产物归属或元数据不合法");
-      const bytes = this.readImageFile(artifactId);
+      const bytes = this.readImmutableFile(artifactId);
       if (bytes.length !== artifact.byteCount || imageMime(bytes) !== artifact.mimeType || createHash("sha256").update(bytes).digest("hex") !== artifact.contentHash) throw new Error("图片产物内容校验失败");
       return { type: "image", mimeType: artifact.mimeType, data: bytes.toString("base64") };
     } catch {
@@ -122,9 +128,17 @@ export class ArtifactStore {
 
   /**
    * 读取产物正文片段（offset/length 字节；跨重启可查）。
-   * 按偏移读取，不把整个大文件加载进内存后切片。
+   * 工具大正文按偏移读取；不可变附件先全量核实，最大 8 MiB。
    */
   read(artifactId: string, offset = 0, length = 256 * 1024): Buffer {
+    const artifact = this.store.getArtifact(artifactId);
+    if (artifact?.contentHash) {
+      let bytes: Buffer;
+      try { bytes = this.readImmutableFile(artifactId); }
+      catch { throw new ArtifactReadError(`不可变产物不可读：${artifactId}`); }
+      if (bytes.length !== artifact.byteCount || createHash("sha256").update(bytes).digest("hex") !== artifact.contentHash) throw new ArtifactReadError(`不可变产物内容校验失败：${artifactId}`);
+      return bytes.subarray(Math.max(0, offset), Math.max(0, offset) + Math.max(0, length));
+    }
     const file = this.fileFor(artifactId);
     let fd: number;
     try {

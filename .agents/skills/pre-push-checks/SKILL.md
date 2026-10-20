@@ -42,7 +42,7 @@ npm run change-scope -- --base <已核实的基点引用>
 | `packages/runtime/src/`、`packages/control/src/` 的任务生命周期 | `npx tsx --test test/01-concurrency.test.ts test/66-control-seam.test.ts test/94-task-ending.test.ts` |
 | `packages/tui/src/cli.ts` 的管理命令与产物导出 | `npx tsx --test test/29-cli-entry.test.ts`；触及产品入口再加 `test/71-product-entry.test.ts` |
 | `packages/tui/src/tui/`、`packages/tui/src/config-tui/` | `npx tsx --test test/13-tui-state.test.ts test/14-tui-app.test.ts test/33-config-tui.test.ts`；改终端交互再加 `test/15-tui-pty.test.ts` |
-| `apps/desktop/` | `npx tsx --test test/38-desktop-main.test.ts test/38-desktop-personal.test.ts test/38-desktop-build.test.ts test/39-desktop-recovery-guide.test.ts test/40-desktop-creation.test.ts test/41-desktop-stream.test.ts test/42-desktop-inspector.test.ts`，`npm run desktop:build` 与签名检查；真实 Electron、CSP/HMR、明暗和进程生命周期另记外部验收；共用控制面加 12/66/72，开发入口加 32/71 |
+| `apps/desktop/` | `npx tsx --test test/38-desktop-main.test.ts test/38-desktop-personal.test.ts test/38-desktop-build.test.ts test/39-desktop-recovery-guide.test.ts test/40-desktop-creation.test.ts test/41-desktop-stream.test.ts test/42-desktop-inspector.test.ts test/43-desktop-demo.test.ts test/desktop-attachments.test.ts test/desktop-agent-display.test.ts test/desktop-context.test.ts test/desktop-composer.test.ts test/desktop-inspector-tools.test.ts test/desktop-tool-activity.test.ts test/desktop-workspace-files.test.ts test/desktop-browser-security.test.ts test/desktop-mygo.test.ts`，MyGo 另跑 `cd apps/desktop/mygo && go test -race ./...`、`npm run desktop:mygo:build`；`npm run desktop:build` 与签名检查；真实 Electron、CSP/HMR、明暗和进程生命周期另记外部验收；共用控制面加 12/66/72，开发入口加 32/71 |
 | `packages/view/src/` | `npx tsx --test test/36-event-flow-state.test.ts test/37-view-browser.test.ts`；TUI 抽取回归加 13/14/34/19，命令恢复加 `test/37-command-history.test.ts`，重载分类加 `test/32-dev.test.ts` |
 | `packages/channels/src/qq/`、`packages/channels/src/telegram/`、`packages/channels/src/scheduler/` | `npx tsx --test test/26-qq.test.ts test/37-scheduler-outbox.test.ts test/38-telegram-owner.test.ts test/89-im-entries.test.ts` |
 | 子代理角色定义与快照 | `npx tsx --test test/subagent-role-library.test.ts test/subagent-definition-core.test.ts test/subagent-role-runtime.test.ts test/subagent-role-driver.test.ts`；再加 80/83/62、GitHub 45/46、实际导入与 core 生命周期回归 |
@@ -59,7 +59,7 @@ npm run change-scope -- --base <已核实的基点引用>
 | `deploy/` | 相关 README 的步骤能否仍被执行；服务 helper 加 `test/service-helper-stop.test.ts`（Linux 真实进程与系统命令桩）和 78 helper／79 旧存储规则回归；改 systemd 单元时加 `npm run build`、替换实际账户与 Node 路径后的模板核实，并按实际账户演练原生前置与 scope 停止 |
 | `package.json` 的 scripts、依赖、构建入口 | `npm run build`，加 `npm run lint` 与 `npm run typecheck` |
 
-`.scratch/` 的工单与证据不改行为，不需要跑检查；其中的验证记录要区分模拟结果与真实环境结果。
+`.scratch/` 的工单与证据不改行为，不需要跑检查；其中的验证记录要区分模拟结果与真实环境结果。可执行的 [desktop shadcn demo](../../../.scratch/desktop-shadcn/demo/README.md) 例外：运行 `npm --prefix .scratch/desktop-shadcn/demo run check`，并检查明暗、窗口尺寸与受影响交互；不将模拟结果记为真实 Electron 验收。
 
 ## 3. 静态门禁的位置
 

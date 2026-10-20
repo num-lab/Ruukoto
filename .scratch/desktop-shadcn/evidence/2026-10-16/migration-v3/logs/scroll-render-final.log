@@ -1,0 +1,33 @@
+✔ 内置浏览器仅接受无凭据 HTTP(S)，域名和本机简写归一化 (263.516833ms)
+✔ 浏览器前后退保留分支边界，重复地址刷新，非法地址不改变当前页 (0.290916ms)
+✔ 只读directory跨snapshot不安装迟到内容 (42.92675ms)
+✔ 只读directory跨snapshot不安装迟到错误 (42.768792ms)
+✔ 只读directory跨instance不安装迟到内容 (41.324167ms)
+✔ 只读directory跨instance不安装迟到错误 (40.714125ms)
+✔ 只读directory跨offline不安装迟到内容 (41.219709ms)
+✔ 只读directory跨offline不安装迟到错误 (41.727167ms)
+✔ 只读file跨snapshot不安装迟到内容 (42.705875ms)
+✔ 只读file跨snapshot不安装迟到错误 (42.457ms)
+✔ 只读file跨instance不安装迟到内容 (42.411875ms)
+✔ 只读file跨instance不安装迟到错误 (42.489709ms)
+✔ 只读file跨offline不安装迟到内容 (41.854958ms)
+✔ 只读file跨offline不安装迟到错误 (41.474625ms)
+✔ CodeState 真实断线路径转发只读缓存失效，迟到文件不在离线时复活 (42.765542ms)
+✔ 文件关闭重开丢弃原读取，目录手动重试只安装最新请求 (125.40075ms)
+✔ 只读缓存和文件夹按工作区隔离，browser及预览模式按父会话隔离 (0.696208ms)
+✔ 文件树使用会话的工作区组织归属，不拿来源 cwd 冒充展示根 (42.5675ms)
+✔ 浏览器实际组件保持空初始页、sandbox、无 referrer，非法输入有明确结果 (10.881583ms)
+✔ 真实目录组件只展示后台返回的目录，不迁入样例或写操作 (2.6875ms)
+✔ 文件预览使用真实正文，Markdown 和源码安全渲染，空文本保持零行 (11.262542ms)
+✔ 消息流隐藏已记录的思考正文，保留原始记录 (1.19875ms)
+✔ 消息流排除空 thinking 的外层 item，避免多余空白间距 (0.331125ms)
+✔ 工具调用的空 assistant 正文不占消息间距 (1.776584ms)
+✔ 加载和空态占位不消耗消息滚动器的首次 start 定位 (2.440125ms)
+ℹ tests 25
+ℹ suites 0
+ℹ pass 25
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2388.85175

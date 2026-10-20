@@ -11,6 +11,7 @@
  *   不会出现乱码）。
  */
 
+import type { AttachmentMetadata, AttachmentReference } from "./attachments.ts";
 import * as fs from "node:fs";
 import { createHash } from "node:crypto";
 import type { BoundedText, InputPurpose } from "./views.ts";
@@ -31,8 +32,8 @@ export function snapUtf8End(buf: Buffer, index: number): number {
 }
 
 export class HistoryReadError extends Error {
-  readonly code: "history_corrupt" | "entry_not_found";
-  constructor(code: "history_corrupt" | "entry_not_found", message: string) {
+  readonly code: "history_corrupt" | "entry_not_found" | "invalid_params";
+  constructor(code: "history_corrupt" | "entry_not_found" | "invalid_params", message: string) {
     super(message);
     this.code = code;
   }
@@ -261,6 +262,7 @@ export interface HistoryEntryView {
   editStats?: EditStats;
   /** 内容含图片/思考等未内联展示的部分。 */
   hasNonTextContent: boolean;
+  attachments?: AttachmentMetadata[];
 }
 
 /** 从实际 unified patch 统计变更行，不计上下文与文件头。 */
@@ -314,7 +316,15 @@ function extractMessageView(entry: ParsedSessionEntry, taskId: string | null = n
   const content = message.content;
   const textParts: string[] = [];
   const toolCalls: HistoryToolCallRef[] = [];
-  let hasNonTextContent = Array.isArray(message.ruukotoMediaRefs) && message.ruukotoMediaRefs.length > 0;
+  let attachments: AttachmentMetadata[] | undefined;
+  if (message.ruukotoAttachmentRefs !== undefined) {
+    if (role !== "user" || !Array.isArray(message.ruukotoAttachmentRefs)) throw new HistoryReadError("history_corrupt", "历史附件引用格式无效");
+    attachments = (message.ruukotoAttachmentRefs as AttachmentReference[]).map(ref => {
+      if (!ref || typeof ref.id !== "string" || typeof ref.name !== "string" || /[/\\\x00-\x1f\x7f]/.test(ref.name) || !Number.isSafeInteger(ref.size) || ref.size < 0) throw new HistoryReadError("history_corrupt", "历史附件引用格式无效");
+      return { id: ref.id, name: ref.name, size: ref.size };
+    });
+  }
+  let hasNonTextContent = !!attachments?.length || Array.isArray(message.ruukotoMediaRefs) && message.ruukotoMediaRefs.length > 0;
   if (typeof content === "string") {
     textParts.push(content);
   } else if (Array.isArray(content)) {
@@ -351,6 +361,7 @@ function extractMessageView(entry: ParsedSessionEntry, taskId: string | null = n
       isError: toolResult && typeof message.isError === "boolean" ? message.isError : null,
       hasNonTextContent,
       ...(editStats ? { editStats } : {}),
+      ...(attachments?.length ? { attachments } : {}),
     },
   };
 }
@@ -469,6 +480,8 @@ export function readHistoryEntryText(
 }
 
 
+export type ToolResultField = "text" | "patch" | "writeContent";
+export interface ToolResultPageOptions { field: ToolResultField; offset?: number }
 export interface ToolResultView {
   text: string;
   patch: string | null;
@@ -477,10 +490,26 @@ export interface ToolResultView {
   truncated: boolean;
   toolName: string | null;
   isError: boolean | null;
+  content?: BoundedText | null;
 }
 
-/** 只暴露工具结果正文、Edit patch 与对应 Write 原文，不回传其他 details。 */
-export function readToolResult(sessionFile: string | null, entryId: string, length = 16 * 1024): ToolResultView {
+function toolResultPage(content: string | null, offset: number, length: number): BoundedText | null {
+  if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(length) || length < 4 || length > 64 * 1024) {
+    throw new HistoryReadError("invalid_params", "分页 offset 必须是非负安全整数，length 必须是 4–65536 的整数字节数");
+  }
+  if (content === null) {
+    if (offset !== 0) throw new HistoryReadError("invalid_params", "缺失字段不接受非零 offset");
+    return null;
+  }
+  const page = sliceTextByBytes(content, offset, length);
+  if (page.offset !== offset) throw new HistoryReadError("invalid_params", "offset 必须位于字段的 UTF-8 字符边界内或字段末尾");
+  return page;
+}
+
+/** 只暴露结果正文、Edit／Write 已记录的 patch 与 Write 原文；分页拒绝越界或非 UTF-8 边界的偏移，缺字段与空原文分别返回 null 与空页。 */
+// Note: 见 .agents/notes/implemented/feature/2026-10-16-tool-result-pagination.md
+// Note: 见 .agents/notes/implemented/architecture/2026-10-16-desktop-trace-migration.md
+export function readToolResult(sessionFile: string | null, entryId: string, length = 16 * 1024, page?: ToolResultPageOptions): ToolResultView {
   if (!sessionFile || !fs.existsSync(sessionFile)) {
     throw new HistoryReadError("entry_not_found", `会话文件尚未落盘，条目不可读：${entryId}`);
   }
@@ -493,11 +522,12 @@ export function readToolResult(sessionFile: string | null, entryId: string, leng
   }
   const message = entry!.message as Record<string, unknown>;
   const details = message.details as Record<string, unknown> | null;
-  const cap = Math.min(Math.max(1, length), 64 * 1024);
+  const cap = page ? 16 * 1024 : Math.min(Math.max(1, length), 64 * 1024);
   const text = sliceTextByBytes(extracted.text, 0, cap);
-  const patch = extracted.view.toolName === "edit" && typeof details?.patch === "string"
-    ? sliceTextByBytes(details.patch, 0, cap) : null;
+  const patchContent = (extracted.view.toolName === "edit" || extracted.view.toolName === "write") && typeof details?.patch === "string" ? details.patch : null;
+  const patch = patchContent === null ? null : sliceTextByBytes(patchContent, 0, cap);
   let writeContent = null;
+  let fullWriteContent: string | null = null;
   let writeTotalLines: number | undefined;
   if (extracted.view.toolName === "write" && typeof message.toolCallId === "string") {
     for (let i = index - 1; i >= 0; i--) {
@@ -508,6 +538,7 @@ export function readToolResult(sessionFile: string | null, entryId: string, leng
       if (!call) continue;
       if (call.name === "write" && typeof call.arguments?.content === "string") {
         const content = call.arguments.content as string;
+        fullWriteContent = content;
         writeContent = sliceTextByBytes(content, 0, cap);
         writeTotalLines = content.length === 0 ? 0 : content.split("\n").length - Number(content.endsWith("\n"));
       }
@@ -519,5 +550,6 @@ export function readToolResult(sessionFile: string | null, entryId: string, leng
     ...(writeTotalLines !== undefined ? { writeTotalLines } : {}),
     truncated: text.truncated || !!patch?.truncated || !!writeContent?.truncated,
     toolName: extracted.view.toolName, isError: extracted.view.isError,
+    ...(page ? { content: toolResultPage(page.field === "text" ? extracted.text : page.field === "patch" ? patchContent : fullWriteContent, page.offset ?? 0, length) } : {}),
   };
 }

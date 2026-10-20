@@ -1,0 +1,197 @@
+{
+  "tasks": [
+    {
+      "id": "task_6f10e235f356b7cf5312a282",
+      "sessionId": "sess_fef66057904f4700c2113ed8",
+      "requestId": "ad3b9d8c-4eb8-4825-a3d4-59dde794a031",
+      "input": "gui-files: Cache reserved Shinkansen seat segments in IndexedDB so travelers in mountain tunnels can view QR boarding passes offline, and reconcile CRDT timestamps on reconnect.",
+      "modelSelection": {
+        "provider": "mock",
+        "modelId": "mock-model",
+        "thinkingLevel": "off"
+      },
+      "submissionDigest": "request-v2:660728359aafdb9463891631d8bd3b956c6d140cb23cfbae8ee71e41f65ceab6",
+      "status": "completed",
+      "accessMode": "full_access",
+      "planMode": false,
+      "permissionVersion": 1,
+      "grantedPaths": [],
+      "pendingAccessMode": null,
+      "interruptReason": null,
+      "cancelRequested": false,
+      "effectUnknown": false,
+      "errorMessage": null,
+      "historyEntryIds": [
+        "72e30469",
+        "0d7b89d4",
+        "2794fd8d",
+        "3292d610",
+        "ebf29294",
+        "711e21d3",
+        "1e147f8a"
+      ],
+      "resumesTaskId": null,
+      "agentId": null,
+      "parentTaskId": null,
+      "sourcePermissionVersion": null,
+      "sourceEventId": null,
+      "deadline": null,
+      "resultSummary": null,
+      "resultRef": null,
+      "workId": null,
+      "subAgentId": null,
+      "readScope": null,
+      "resultDeliveredAt": null,
+      "createdAt": "2026-10-16T10:55:09.711Z",
+      "startedAt": "2026-10-16T10:55:09.713Z",
+      "endedAt": "2026-10-16T10:55:10.452Z"
+    }
+  ],
+  "approval": {
+    "seq": 393,
+    "task": {
+      "id": "task_f84b696620c8ae3ad0d2e253",
+      "sessionId": "sess_e28be6f5be0b474f36410709",
+      "requestId": "ui-approval",
+      "input": "gui-approval: 核对工作区外的离线配置。",
+      "modelSelection": {
+        "provider": "mock",
+        "modelId": "mock-model",
+        "thinkingLevel": "off"
+      },
+      "submissionDigest": "request-v2:c0917ee0181cf877abcc0c1b737e4005e9295fe41c14931783a9ba7cdc49a617",
+      "status": "awaiting_confirmation",
+      "accessMode": "confirm",
+      "planMode": false,
+      "permissionVersion": 1,
+      "grantedPaths": [],
+      "pendingAccessMode": null,
+      "interruptReason": null,
+      "cancelRequested": false,
+      "effectUnknown": false,
+      "errorMessage": null,
+      "historyEntryIds": [
+        "ff68a111",
+        "e471f88e"
+      ],
+      "resumesTaskId": null,
+      "agentId": null,
+      "parentTaskId": null,
+      "sourcePermissionVersion": null,
+      "sourceEventId": null,
+      "deadline": null,
+      "resultSummary": null,
+      "resultRef": null,
+      "workId": null,
+      "subAgentId": null,
+      "readScope": null,
+      "resultDeliveredAt": null,
+      "createdAt": "2026-10-16T10:55:11.983Z",
+      "startedAt": "2026-10-16T10:55:11.984Z",
+      "endedAt": null,
+      "inputPurpose": "user",
+      "resourcePhase": "execution"
+    },
+    "toolOps": [
+      {
+        "id": "op_cc881eb28ff33435cd538613",
+        "taskId": "task_f84b696620c8ae3ad0d2e253",
+        "toolName": "request_file_access",
+        "sdkCallId": "outside-read",
+        "params": {
+          "path": "/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-it-desktop-ui-zsiEYS/approval.txt",
+          "operation": "read",
+          "reason": "核对离线缓存配置"
+        },
+        "intentRecordedAt": "2026-10-16T10:55:11.990Z",
+        "authorization": null,
+        "resultSummary": null,
+        "isError": null,
+        "effectUnknown": false,
+        "recordedResultAt": null,
+        "paramsBytes": 164,
+        "paramsTruncated": false
+      }
+    ],
+    "confirmations": [
+      {
+        "id": "conf_cc55c72309d870bdafcf7500",
+        "taskId": "task_f84b696620c8ae3ad0d2e253",
+        "sessionId": "sess_e28be6f5be0b474f36410709",
+        "toolOpId": "op_cc881eb28ff33435cd538613",
+        "toolName": "request_file_access",
+        "params": {
+          "path": "/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-it-desktop-ui-zsiEYS/approval.txt",
+          "operation": "read",
+          "reason": "核对离线缓存配置"
+        },
+        "scope": {
+          "kind": "file_operation",
+          "path": "/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-it-desktop-ui-zsiEYS/approval.txt",
+          "access": "read",
+          "originalSha256": null,
+          "contentSha256": null,
+          "contentBytes": null
+        },
+        "cwdDev": 16777232,
+        "cwdIno": 78041534,
+        "permissionVersion": 1,
+        "status": "pending",
+        "createdAt": "2026-10-16T10:55:12.326Z",
+        "respondedAt": null,
+        "consumedAt": null,
+        "reviewStatus": null,
+        "reviewDecision": null,
+        "reviewReason": null,
+        "reviewModel": null,
+        "reviewPolicyVersion": null,
+        "decisionSource": null,
+        "standingPermissionId": null,
+        "standingPermissionVersion": null,
+        "paramsBytes": 164,
+        "paramsTruncated": false
+      }
+    ],
+    "artifacts": [
+      {
+        "id": "art_b474ab850512cac160b10b37",
+        "taskId": "task_f84b696620c8ae3ad0d2e253",
+        "sessionId": "sess_e28be6f5be0b474f36410709",
+        "name": "prompt-snapshot:sel_df74eddb83a971673c98ce6a",
+        "byteCount": 27060,
+        "status": "complete",
+        "mimeType": null,
+        "contentHash": null,
+        "createdAt": "2026-10-16T10:55:11.987Z"
+      }
+    ],
+    "outputPreview": null
+  },
+  "agents": [
+    {
+      "id": "sagent_9c9a663333c80f949a6c39ed",
+      "definition": {
+        "kind": "role",
+        "name": "general",
+        "raw": "---\ndescription: 完成委派任务，按来源许可使用工具并报告结果。\n---\n完成主 Agent 明确委派的工作；按实际工具与资料范围执行，报告结果、依据及未完成项。",
+        "description": "完成委派任务，按来源许可使用工具并报告结果。",
+        "tools": null,
+        "permissions": {
+          "mode": "inherit",
+          "protectSource": false
+        },
+        "body": "完成主 Agent 明确委派的工作；按实际工具与资料范围执行，报告结果、依据及未完成项。",
+        "digest": "79d672aded7152595df3c005ff577cb8b04ce21bcdb119bb5320b672be5d9357"
+      },
+      "parentSessionId": "sess_eb5d2def42c3f4ccafb9988a",
+      "sessionId": "sess_2a784f14e0447929b4418abd",
+      "workDir": "/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-it-desktop-ui-zsiEYS/agent-work/sub-agents/sagent_9c9a663333c80f949a6c39ed",
+      "activeWorkId": "work_4d0390cda8a66b28a7a3a156",
+      "currentTaskId": "task_cdc8d17a85c74551c89215c7",
+      "state": "running",
+      "closedAt": null,
+      "closedBy": null,
+      "createdAt": "2026-10-16T10:55:11.188Z"
+    }
+  ]
+}

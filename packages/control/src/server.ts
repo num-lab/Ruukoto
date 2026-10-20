@@ -13,7 +13,7 @@ import { RuntimeApiError } from "@ruukoto/core/api-error.ts";
  * Note: 见 .agents/notes/implemented/feature/2026-09-19-explicit-access-modes.md
  */
 
-import type { DataCategory,GrantedPath,Memory,MemorySourceRef,PersistentEvent,SessionDefaultMode } from "@ruukoto/core/types.ts";
+import type { DataCategory,GrantedPath,Memory,MemorySourceRef,ModelSelection,PersistentEvent,SessionDefaultMode } from "@ruukoto/core/types.ts";
 import { SESSION_DEFAULT_MODES,isAccessMode,isSessionDefaultMode } from "@ruukoto/core/types.ts";
 import { capEventForWire,frameBytes } from "@ruukoto/core/views.ts";
 import type { Runtime } from "@ruukoto/runtime/runtime.ts";
@@ -264,6 +264,7 @@ export class ControlServer {
             instanceId: snapshot.instanceId,
             execution: snapshot.execution,
             defaultModel: snapshot.defaultModel,
+            mainSessionId: snapshot.mainSessionId,
             roleSessionIds: snapshot.roleSessionIds,
             subAgentSessionIds: snapshot.subAgentSessionIds,
             workDelegations: snapshot.workDelegations,
@@ -304,13 +305,29 @@ export class ControlServer {
             ? (params["confirm_tools"] as unknown[]).map(String)
             : undefined,
           createRequestId: optionalRequestId(),
+          mode: params["mode"] as SessionDefaultMode | undefined,
+          modelSelection: params["model_selection"] as ModelSelection | undefined,
         });
       case "open_workspace":
         return runtime.openWorkspace({
           cwd: requireString("cwd"),
           projectId: typeof params["project_id"] === "string" && params["project_id"] ? params["project_id"] : undefined,
           createRequestId: optionalRequestId(),
+          mode: params["mode"] as SessionDefaultMode | undefined,
+          modelSelection: params["model_selection"] as ModelSelection | undefined,
         });
+      case "read_workspace_git": {
+        if (Object.keys(params).some(key => key !== "workspace_id" && key !== "cursor") || params["cursor"] !== undefined && typeof params["cursor"] !== "string") throw new RuntimeApiError("invalid_params", "Git 历史接口只接受登记的工作区与分页游标。");
+        return runtime.readWorkspaceGit({ workspaceId: requireString("workspace_id"), cursor: params["cursor"] as string | undefined });
+      }
+      case "list_workspace_files":
+      case "read_workspace_file": {
+        const allowed = request.op === "list_workspace_files" ? ["workspace_id", "path"] : ["workspace_id", "path", "offset", "length", "version"];
+        if (Object.keys(params).some(key => !allowed.includes(key)) || params["path"] !== undefined && typeof params["path"] !== "string") throw new RuntimeApiError("invalid_params", "文件接口只接受工作区、相对路径与分页参数。");
+        const workspaceId = requireString("workspace_id");
+        if (request.op === "list_workspace_files") return runtime.listWorkspaceFiles({ workspaceId, path: params["path"] as string | undefined });
+        return runtime.readWorkspaceFile({ workspaceId, path: requireString("path"), offset: params["offset"] as number | undefined, length: params["length"] as number | undefined, version: params["version"] as string | undefined });
+      }
       // ---------- agent-direction issue 07：旧数据 → 工作区组织迁移 ----------
       case "preview_workspace_migration": {
         const plan = params["plan"];
@@ -408,12 +425,19 @@ export class ControlServer {
         }
         return runtime.setSessionDefaultMode({ sessionId: requireString("session_id"), mode, expectedVersion: params["expected_version"] as number });
       }
+      case "set_session_archived": {
+        if (typeof params["archived"] !== "boolean") throw new RuntimeApiError("invalid_params", "archived 必须是布尔值");
+        return runtime.setSessionArchived({ sessionId: requireString("session_id"), archived: params["archived"] });
+      }
+      case "put_attachment":
+        return runtime.putAttachment(params as unknown as import("@ruukoto/core/attachments.ts").AttachmentUpload);
       case "submit":
         return runtime.submit({
           sessionId: requireString("session_id"),
           requestId: requireString("request_id"),
           modelSelection: parseModelSelection(params["model_selection"]),
-          input: requireString("input"),
+          input: typeof params["input"] === "string" ? params["input"] : requireString("input"),
+          attachments: params["attachments"] as import("@ruukoto/core/attachments.ts").AttachmentMetadata[] | undefined,
           accessMode: this.parseAccessMode(params),
           grantedPaths: this.parseGrantedPaths(params),
         });
@@ -423,7 +447,8 @@ export class ControlServer {
           taskId: requireString("task_id"),
           requestId: requireString("request_id"),
           modelSelection: parseModelSelection(params["model_selection"]),
-          input: requireString("input"),
+          input: typeof params["input"] === "string" ? params["input"] : requireString("input"),
+          attachments: params["attachments"] as import("@ruukoto/core/attachments.ts").AttachmentMetadata[] | undefined,
           accessMode: this.parseAccessMode(params),
           grantedPaths: this.parseGrantedPaths(params),
         });
@@ -574,11 +599,23 @@ export class ControlServer {
       }
       case "read_tool_result": {
         const length = params["length"];
+        const field = params["field"];
+        const offset = params["offset"];
         if (length !== undefined && (!Number.isSafeInteger(length) || (length as number) < 1)) {
-          throw Object.assign(new Error("length 必须是正整数"), { code: "invalid_params" });
+          throw new RuntimeApiError("invalid_params", "length 必须是正安全整数");
+        }
+        if (field !== undefined && field !== "text" && field !== "patch" && field !== "writeContent") {
+          throw new RuntimeApiError("invalid_params", "field 必须是 text、patch 或 writeContent");
+        }
+        if (offset !== undefined && (field === undefined || !Number.isSafeInteger(offset) || (offset as number) < 0)) {
+          throw new RuntimeApiError("invalid_params", "offset 必须配合 field 使用，且是非负安全整数");
+        }
+        if (field !== undefined && length !== undefined && ((length as number) < 4 || (length as number) > 64 * 1024)) {
+          throw new RuntimeApiError("invalid_params", "分页 length 必须是 4–65536 的整数字节数");
         }
         return runtime.readToolResult({
           sessionId: requireString("session_id"), entryId: requireString("entry_id"), length: length as number | undefined,
+          field, offset: offset as number | undefined,
         });
       }
       case "read_history_entry":

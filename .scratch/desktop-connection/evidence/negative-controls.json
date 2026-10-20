@@ -1,0 +1,15 @@
+{
+  "baseline": "e90b4fa",
+  "results": [
+    {
+      "test": "old-startup.test.ts",
+      "exit": 1,
+      "assertion": "0 !== 1"
+    },
+    {
+      "test": "old-readiness.test.ts",
+      "exit": 1,
+      "assertion": "'connect'"
+    }
+  ]
+}

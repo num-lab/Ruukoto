@@ -1,0 +1,1 @@
+bwrap --unshare-user --uid 0 --gid 0 --unshare-pid --unshare-net --ro-bind / / --proc /proc --dev /dev --tmpfs /tmp --ro-bind /tmp/ruukoto-directory-bind.Zb6Kyt /tmp/source --cap-add CAP_SYS_ADMIN -- node /tmp/source/check-bind.ts

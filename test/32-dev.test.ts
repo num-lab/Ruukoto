@@ -509,7 +509,7 @@ test("code：有效模型但非 TTY 时非零退出并清理后台", { timeout: 
   }
 });
 
-test("code --config：控制面启动探测挂起时 SIGTERM 退出，不继续启动离线配置", { timeout: 30_000 }, async () => {
+test("code --config：已有 socket 即拒绝接管，不等认证或把停止中的后台重复拉起", { timeout: 30_000 }, async () => {
   const home = tmpHome();
   const profile = devProfileFor(repoRoot, home, "ruukoto-code");
   fs.mkdirSync(profile.controlDir, { recursive: true });
@@ -523,10 +523,9 @@ test("code --config：控制面启动探测挂起时 SIGTERM 退出，不继续�
   await new Promise<void>((resolve) => stalled.listen(path.join(profile.controlDir, "control.sock"), resolve));
   const run = runDev(home, ["--config"], {}, "ruukoto-code");
   try {
-    await waitFor("开发入口已开始控制面探测", () => accepted, 10_000);
-    run.child.kill("SIGTERM");
-    await waitFor("启动探测期间收到 SIGTERM 后退出", () => run.child.exitCode !== null || run.child.signalCode !== null, 5_000);
-    assert.equal(await run.waitExit(), 0, run.stderr());
+    assert.equal(await run.waitExit(), 1, run.stderr());
+    assert.equal(accepted, true);
+    assert.match(run.stderr(), /已在运行/);
     assert.ok(!run.stderr().includes("先打开离线配置中心"), run.stderr());
     assert.ok(!run.stderr().includes("配置中心需要交互式终端"), "终止后不派生配置进程");
     assert.ok(!fs.existsSync(path.join(profile.agentDir, "config.lock")), "未启动离线配置或留下配置锁");

@@ -1,0 +1,46 @@
+[
+  {
+    "test": "every measured group is equal width and follows 96–180px formula",
+    "pass": true
+  },
+  {
+    "test": "wide group reaches maximum 180px",
+    "pass": true
+  },
+  {
+    "test": "minimum width preserves horizontal overflow",
+    "pass": true
+  },
+  {
+    "test": "main count change reallocates width",
+    "pass": true
+  },
+  {
+    "test": "empty right group safe count and no children",
+    "pass": true
+  },
+  {
+    "test": "single right tab capped at 180px",
+    "pass": true
+  },
+  {
+    "test": "fractional main drag preview and commit",
+    "pass": true
+  },
+  {
+    "test": "fractional main reverse returns original order",
+    "pass": true
+  },
+  {
+    "test": "fractional right drag preview and commit",
+    "pass": true
+  },
+  {
+    "test": "overflow drag uses scrolled list coordinates",
+    "pass": true
+  },
+  {
+    "test": "cancel restores order and clears preview",
+    "pass": true
+  }
+]

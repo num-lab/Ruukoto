@@ -1,0 +1,11 @@
+{
+  "halfHeight": true,
+  "allSummaries28": true,
+  "noRightArrows": true,
+  "centeredNodes": true,
+  "singleLineRefs": true,
+  "sourceEdgesScaled": true,
+  "continuousEdges": true,
+  "keyboardOpenAndClose": true,
+  "sameNameRefsAccessible": true
+}

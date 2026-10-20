@@ -26,20 +26,20 @@
 
 **后台启动。** `ensureBackend` 接收目标的 `dataDir`、`agentDir`、`controlDir`；`spawnExecPath` 指定 Node 可执行文件，默认 `process.execPath`；`spawnArgv` 只含 bin 与服务参数。`env` 只传给子进程，路径与令牌解析仍读取调用方环境。探测到已运行后台返回 `{ ok: true, spawned: false }`；本次拉起就绪返回 `{ ok: true, spawned: true }`；失败返回 `{ ok: false, error }`。后台 detached 并 unref，客户端退出不停止后台。
 
-**监听点与帧。** 服务在 `<controlDir>/control.sock` 监听。请求是 `{v, id, op, params}`，应答是 `{v, id, ok, result|error}`，事件推送是 `{v, push:"event", event}`；每帧一行 JSON 加换行，空行忽略。当前协议版本是 `26`（`CONTROL_PROTOCOL_VERSION`，与 `PROTOCOL_VERSION` 同值）。
+**监听点与帧。** 服务在 `<controlDir>/control.sock` 监听。请求是 `{v, id, op, params}`，应答是 `{v, id, ok, result|error}`，事件推送是 `{v, push:"event", event}`；每帧一行 JSON 加换行，空行忽略。当前协议版本是 `32`（`CONTROL_PROTOCOL_VERSION`，与 `PROTOCOL_VERSION` 同值）。
 
 **拥有者认证。** 连接建立后第一个成功的操作必须是 `auth`（参数 `token`）。认证成功前，服务端对其他 op 一律回 `unauthorized`，不返回快照、不执行请求；连接保留，可以再次认证。令牌是 32 字节随机数的 hex，写入控制目录的 `owner.token`（0600）：缺失或内容去空白后不足 32 字符时后台启动时生成，已存在则复用。多用户部署由配置步骤把令牌以 0400、属主为拥有者放到拥有者可读的位置，再用 `RUUKOTO_OWNER_TOKEN_FILE` 指向它。
 
 客户端按固定优先级取令牌：`RUUKOTO_OWNER_TOKEN` 环境变量 → `RUUKOTO_OWNER_TOKEN_FILE` 指定的文件 → 控制目录的 `owner.token`。这两个变量只作用于该旧控制协议，新个人本机接口使用独立令牌。令牌不进命令行、工具环境、日志或待确认记录；比较用 `timingSafeEqual` 常数时间比较，长度不同也照样比较一次再否决。三个来源都取不到时客户端抛出带修复指引的错误，请求根本不发。
 
-**探测。** 判定「后台是否在运行」的标准是 socket 可连、令牌认证通过、一次不带游标的 `connect` 成功，三者都成立才复用而不启动第二个实例；`protocol_version` 与 `unauthorized` 这类明确拒绝本身就证明后台在运行。TUI 的按需拉起门控与退避重连见[交互终端与配置中心](tui.md)。
+**探测。** 就绪要求 socket 可连、令牌认证通过、`ping` 返回 `pong: true` 且 `stopping: false`，不取快照或订阅。正式连接再通过 `connect` 安装快照。停止中的后台或无效响应给出专属错误；仍可连接的 socket 不重复拉起；`protocol_version` 与 `unauthorized` 这类明确拒绝本身就证明后台在运行。TUI 的按需拉起门控与退避重连见[交互终端与配置中心](tui.md)。
 
 **op 目录。** `auth` 在派发之前单独处理；其余 op 由 `dispatch` 的 `switch (request.op)` 派发。未知 op 回 `unknown_op`。
 
 | 类别 | op | 说明与能力边界 |
 | --- | --- | --- |
 | 连接与后台 | `ping`、`connect`、`stop` | `ping` 返回 `pong` 与 `stopping`；`connect` 是握手（见下）；`stop` 请求后台停止，立即回 `accepted` |
-| 项目、会话与工作区 | `create_project`、`create_session`、`open_workspace`、`get_session`、`list_session_summaries`、`get_session_usage` | `create_project` / `create_session` / `open_workspace` 带可选幂等键 `request_id`；`list_session_summaries` 的 `project_id`（原身份）与 `workspace_id`（组织归属）互斥且必须给一个 |
+| 项目、会话与工作区 | `create_project`、`create_session`、`open_workspace`、`get_session`、`list_session_summaries`、`get_session_usage` | `create_project` / `create_session` / `open_workspace` 带可选幂等键 `request_id`；后两者可提供初始 `mode` 与 `model_selection`（含 thinkingLevel），省略沿后台默认，已有成果重放不覆盖后续设置；`list_session_summaries` 的 `project_id`（原身份）与 `workspace_id`（组织归属）互斥且必须给一个 |
 | 旧数据迁移 | `preview_workspace_migration`、`apply_workspace_migration` | 预览只读；应用必须带 `instance_id`，另用 `request_id` 回执与 `expected_revision`（回退除外）防重 |
 | 会话分支 | `branch_session`、`find_branch_session`、`get_session_todos` | 创建只接收来源 `session_id`、可选名称与必填请求键；按原键查询准备、发布或失败状态；清单从完整历史恢复 |
 | 手动上下文压缩 | `compact_session`、`get_session_compaction`、`interrupt_session_compaction` | 接收只传会话、请求键及本次指引；查询原请求或会话最新结果；取消核实请求所属会话 |
@@ -61,7 +61,7 @@
 
 **握手。** `connect` 的 `since` 可选，是非负整数游标；返回 `{seq, replay, snapshot}`。快照读取与订阅注册在同一个同步段内完成，保证快照序号 `seq` 与实时推送之间无缺口；`replay` 是 `(since, seq]` 的补发事件，fresh connect（不带 `since`）为空。补发不推给监听者，由调用方先安装快照再按序应用。
 
-`seq` 是快照截止的事件序号，`snapshot.instanceId` 是数据实例的稳定标识（新数据库分配新标识），`snapshot.execution` 是后台实际配置的执行后端与说明（两产品正式入口默认 native；库层 `local` 无隔离必须显式展示），`snapshot.defaultModel` 是后台启动默认模型。快照有界：全部活动任务加上每个会话最近结束的 20 条任务（更早的经 `list_tasks` 分页）、`pending` 状态的审批请求（参数为有界预览）、活动任务的产物、活动与中断任务的最新输出预览（缺失片段如实为空）。快照另带 `roleSessionIds`、`subAgentSessionIds`、`workDelegations` 与 `subAgents`。
+`seq` 是快照截止的事件序号，`snapshot.instanceId` 是数据实例的稳定标识（新数据库分配新标识），`snapshot.execution` 是后台实际配置的执行后端与说明（两产品正式入口默认 native；库层 `local` 无隔离必须显式展示），`snapshot.defaultModel` 是后台启动默认模型。快照有界：全部活动任务加上每个会话最近结束的 20 条任务（更早的经 `list_tasks` 分页）、`pending` 状态的审批请求（参数为有界预览）、活动任务的产物、活动与中断任务的最新输出预览（缺失片段如实为空）。快照另带 `roleSessionIds`、`subAgentSessionIds`、`workDelegations` 与 `subAgents`。协议 v33 起会话记录带 `archivedAt`，`set_session_archived` 只改这一个字段，不发任务事件。
 
 **事件流。** 持久事件与状态变化在同一事务写入事件表，提交成功后才广播，回滚的事务不产生事件。事件体带单调递增的 `seq`，客户端按 `seq` 去重。慢客户端或断开很久的客户端不由服务端在内存里积压事件，重连时凭游标补发，补发不了就重取快照。事件携带消息 ID、正文段序号、UTF-8 字节偏移与段开始时间，接收端按偏移拼接完整正文；消息完成后仍以会话历史为准，事件投影不替代历史。
 
@@ -119,6 +119,8 @@ stateDiagram-v2
 **待确认请求记录。** Coding 档案根下的 `pending/`（默认 `~/.ruukoto-code/pending`，`RUUKOTO_CODE_PENDING_DIR` 可覆盖；旧个人路径只用于保留协议实现）：目录 0700、记录 0600，写临时文件再 `rename`。一条记录含 `requestId`、op（输入提交、会话分支、压缩或工作流启动/回答/控制）、完整请求参数、提交时握手返回的 `instanceId`、创建时间。解析不了的文件留在磁盘上单独列出，不静默丢弃；令牌等凭据永不写入这里。记录用于核实原请求及关联其结果，不是会话历史的副本。
 
 **游标。** 两处去重：底层客户端丢弃 `seq` 不大于它记下的序号的推送，连接层丢弃 `seq` 不大于 `appliedSeq` 的事件，并且只在事件应用之后才前进游标。握手期到达的实时推送先缓冲，快照安装后再按序应用。
+
+`list_workspace_files` 与 `read_workspace_file` 是拥有者的工作区只读入口：只接登记工作区 ID 与规范相对路径，不接任意根目录；路径与文件稳定性由 runtime 核实。目录按层最多 200 项并返回 truncated；文件经 offset/length/version 返回 base64 字节页，每页最多 256 KiB，无总量截断；后页以首页修订核实身份、大小和时间，变化即失败，类型由客户端完整解码后判定。
 
 ## 主要流程
 
@@ -186,7 +188,7 @@ sequenceDiagram
 
 `respond_confirmation` 接受 `approve` / `reject`，可带 `permission_version` 绑定审批时的权限版本。权限版本不匹配回 `permission_version_mismatch`，该批准不可用。批准只适用于该次操作及明确列出的范围，在执行前单次消费。
 
-`workflow_answer` 是独立业务回答，要求 `run_id`、`step_key`、`run_version`（问题建立代次）、`question_version`、`request_id` 和 JSON `answer`；同步事务核实状态、来源、依赖资料和约束，原键重放只返回原回执。`workflow_question` 以 `offset`/`length` 读取完整问题与回答，单页最多 64 KiB；`workflow_get` 保留暂停、取消、执行单元及未核实停止事实。`workflow_get` 的步骤按 `step_offset` 每页 100 项，执行返回最近 100 项；`workflow_definition` 的名称历史按 `version_offset` 每页 100 项，用 `nextVersionOffset` 续读。列表/详情只含送达摘要，最终事实与回报正文由 `workflow_logs` 分页读取；正文 `workflow_step`/`workflow_logs`/`workflow_definition` 按字节分页，每页最多 64 KiB。`workflow_start` 接受会话、名称或临时脚本、参数、稳定键及更小预算；临时脚本必填 `title`，可显式提供 `description`，不接受授权字段。运行视图返回固定 `displayName`、`description`、`createdAt` 与只读展示序号 `number`，`effectUnknown` 来自持久效果未知原因或所属执行任务，`stopUnverified` 从全部执行及脚本状态汇总，独立于效果未知字段；`workflow_list.scope=current` 先取所有活动及最近十项终态再分页，缺省或 `history` 返回全部历史；`workflow_control` 的 `control.action` 为 pause/resume/cancel/budget，要求当前版本和请求键。模型与执行入口的已知错误按工作流 code 返回。协议版本为 26，旧客户端明确拒绝。
+`workflow_answer` 是独立业务回答，要求 `run_id`、`step_key`、`run_version`（问题建立代次）、`question_version`、`request_id` 和 JSON `answer`；同步事务核实状态、来源、依赖资料和约束，原键重放只返回原回执。`workflow_question` 以 `offset`/`length` 读取完整问题与回答，单页最多 64 KiB；`workflow_get` 保留暂停、取消、执行单元及未核实停止事实。`workflow_get` 的步骤按 `step_offset` 每页 100 项，执行返回最近 100 项；`workflow_definition` 的名称历史按 `version_offset` 每页 100 项，用 `nextVersionOffset` 续读。列表/详情只含送达摘要，最终事实与回报正文由 `workflow_logs` 分页读取；正文 `workflow_step`/`workflow_logs`/`workflow_definition` 按字节分页，每页最多 64 KiB。`workflow_start` 接受会话、名称或临时脚本、参数、稳定键及更小预算；临时脚本必填 `title`，可显式提供 `description`，不接受授权字段。运行视图返回固定 `displayName`、`description`、`createdAt` 与只读展示序号 `number`，`effectUnknown` 来自持久效果未知原因或所属执行任务，`stopUnverified` 从全部执行及脚本状态汇总，独立于效果未知字段；`workflow_list.scope=current` 先取所有活动及最近十项终态再分页，缺省或 `history` 返回全部历史；`workflow_control` 的 `control.action` 为 pause/resume/cancel/budget，要求当前版本和请求键。模型与执行入口的已知错误按工作流 code 返回。协议不兼容的旧客户端明确拒绝。
 
 `workflow_receipt` 按 `run_id`、原 `request_id` 和 `operation`（`workflow_answer` / `workflow_control`）只读查询原提交回执，返回原接受状态与版本；不存在时返回 `null`，不推进运行、不重复回答，也不回传答案或授权内容。工作流未决记录保存完整参数及原版本，重连或客户端重启先核实 `instanceId`，启动经 `workflow_find`、回答和控制经此回执查询；查询失败或实例变化保留原记录，只有明确未接收才允许原键原参数重试。
 
@@ -218,15 +220,18 @@ sequenceDiagram
 | 超限帧与非法帧（客户端侧） | — | 按断线处理（`frame_too_large`、`bad_frame`），不再使用该连接、不发送请求 |
 | `PARAMS_INLINE_CAP` | 8 KiB | 事件与查询应答内联参数的上限；超限给结构保留的预览并标注 `paramsBytes` 与 `paramsTruncated`，完整参数经 `get_confirmation_params` / `get_tool_op_params` 按 ID 分段读取 |
 | `PARAMS_PREVIEW_STRING_CAP` | 256 字符 | 预览对象中单个字符串的上限 |
-| `FRAGMENT_TEXT_CAP` | 8 KiB | 运行中输出增量与思考文本尾部的上限，在源头有界化 |
+| `FRAGMENT_TEXT_CAP` | 8 KiB | 正文与思考单个增量的字节上限，完整思考不截断 |
 | `SEGMENT_DEFAULT_BYTES` / `SEGMENT_MAX_BYTES` | 64 KiB / 256 KiB | 分段读取的默认页大小与上限 |
 | `read_artifact` | 720 KiB 单次 | base64 开销后仍在 1 MiB 帧上限内 |
 | `read_history` | `limit` 默认 50、最多 200 | 条目按末端向前收集到条目数或字节预算耗尽，`entry_text_cap` 默认 16 KiB（范围 256 B–256 KiB），`page_text_budget` 默认 192 KiB（范围 `entry_text_cap`–1 MiB） |
-| `read_tool_result` | 每字段默认 16 KiB、最多 64 KiB | 读工具结果正文、Edit 补丁与 Write 调用原文 |
+| `put_attachment` | 每块 192 KiB，每文件 8 MiB | 按原附件引用与偏移幂等暂存，submit / continue 携安全元数据绑定 |
+| `read_tool_result` | 旧预览每字段默认 16 KiB、最多 64 KiB；指定字段分页为 4–65536 B，附带预览固定 16 KiB | 读工具结果正文、Edit／Write 已记录补丁与 Write 调用原文 |
 | `read_task_events` | `limit` 默认 100、最多 500 | 单页序列化字节上限 `SEGMENT_MAX_BYTES`；单个事件超过单页上限回 `event_too_large` |
 | `connect` 补发 | 5000 条 | 超过回 `cursor_too_old`，要求重新取快照 |
 
 **游标失败。** 非法游标回 `invalid_cursor`，补发区间过大回 `cursor_too_old`；两者都让客户端重新取完整快照，不重新执行任务。
+
+`read_tool_result` 指定 `field: text | patch | writeContent` 时，在旧预览外附加 `content: { text, offset, totalBytes, truncated } | null`。offset 为指定字段的 UTF-8 字节偏移，缺省零，必须精确落在字符边界或总长处；越界、非整数、切断字符及未指定 field 的 offset 均回 `invalid_params`。缺字段返回 null，空原文返回零长空页。客户端按返回 offset 加正文实际字节数续读，核实 totalBytes 不变，达到总长即结束；后续页的 truncated 不能表示是否还有下一页。
 
 **应答丢失不换键。** 任何 `unknown` / `disconnected` 的写请求都不自动换新键重发。有幂等键的（提交、工作区入口）按原键核实，确认未接收才以原键原参数重发；其余先查询后台状态，再由拥有者决定。「应答丢失」针对控制面请求，「效果未知」针对工具操作，两者不混称。
 
@@ -242,8 +247,17 @@ sequenceDiagram
 
 **已知上限。** 两端的帧大小口径不同：服务端按字符串长度（UTF-16 码元数）比较请求行，客户端只核对收到的帧（按 UTF-8 字节数），发送前不核对请求大小。超过服务端上限的请求会让连接被直接销毁，客户端把在途请求当成应答丢失；如果那是提交，待确认记录每次上线都会被核实，`find_task` 查不到就按原参数重发，连接又被销毁，按退避初值 500 ms 重连，如此循环。这是按代码推演的结论，未实际运行验证。
 
+拥有者只读 `read_workspace_git` 仅接受已登记 workspace_id 与可选 cursor，返回非仓库 null 或带父关系、显式 refs 及 nextCursor 的提交页；每页200条，nextCursor为null时结束，不设累计总量。游标绑定仓库修订，变化返回 workspace_git_changed，客户端刷新后重新读取；不接自定义命令或根路径。协议 v29 的快照明确提供 mainSessionId，避免客户端猜角色身份。
+
 ## 设计依据
 
+- [完整思考与文件预览](../../.agents/notes/implemented/feature/2026-10-18-complete-reasoning-and-preview.md)
+
+- [Git历史分页](../../.agents/notes/implemented/feature/2026-10-17-desktop-git-history-pages.md)
+
+- [环境预热与轻量就绪探测](../../.agents/notes/implemented/bug-fix/2026-10-17-desktop-connection-startup.md)：探测只认证并 ping，正式连接持有快照与订阅。
+
+- [工具结果结构化字段分页](../../.agents/notes/implemented/feature/2026-10-16-tool-result-pagination.md)
 - [桌面客户端作为又一个控制面客户端](../../.agents/notes/proposed/architecture/2026-10-15-desktop-client.md)：显式产品路径与外部 Node 启动参数。
 - [共享角色与工作流接口版本](../../.agents/notes/implemented/architecture/2026-10-15-workflow-role-interface.md)
 

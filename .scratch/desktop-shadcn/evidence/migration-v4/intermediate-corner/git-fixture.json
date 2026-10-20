@@ -1,0 +1,74 @@
+{
+  "git": {
+    "workspaceId": "proj_2aa349ae1170cc29fb4247f5",
+    "repository": {
+      "head": "7f5fe9860c89476e54198d1b7732d1f1b9d26e36",
+      "commits": [
+        {
+          "id": "7f5fe9860c89476e54198d1b7732d1f1b9d26e36",
+          "parents": [
+            "bf8aeb313e5bd8f3a26ee2ad25614a78f88026e1",
+            "93dde368f5624bf5a284dd11ad0830ba6a6fd7b0"
+          ],
+          "subject": "合并离线缓存支持",
+          "author": "Desktop QA",
+          "date": "2026-10-17T16:33:34+09:00",
+          "refs": [
+            {
+              "name": "main",
+              "type": "branch"
+            }
+          ]
+        },
+        {
+          "id": "93dde368f5624bf5a284dd11ad0830ba6a6fd7b0",
+          "parents": [
+            "38fc6f2b45e13ae0decf59b3bdb808f4047fb80a"
+          ],
+          "subject": "增加离线缓存读取",
+          "author": "Desktop QA",
+          "date": "2026-10-17T16:33:34+09:00",
+          "refs": [
+            {
+              "name": "feature/offline-cache",
+              "type": "branch"
+            },
+            {
+              "name": "v0.1.0",
+              "type": "tag"
+            }
+          ]
+        },
+        {
+          "id": "bf8aeb313e5bd8f3a26ee2ad25614a78f88026e1",
+          "parents": [
+            "38fc6f2b45e13ae0decf59b3bdb808f4047fb80a"
+          ],
+          "subject": "统一行程时区显示",
+          "author": "Desktop QA",
+          "date": "2026-10-17T16:33:34+09:00",
+          "refs": [
+            {
+              "name": "main",
+              "type": "branch",
+              "remote": "origin"
+            }
+          ]
+        },
+        {
+          "id": "38fc6f2b45e13ae0decf59b3bdb808f4047fb80a",
+          "parents": [],
+          "subject": "建立行程预览与验收文件",
+          "author": "Desktop QA",
+          "date": "2026-10-17T16:33:34+09:00",
+          "refs": []
+        }
+      ],
+      "truncated": false
+    }
+  },
+  "ordinary": {
+    "workspaceId": "proj_bb262029772c3f55754d1e8d",
+    "repository": null
+  }
+}

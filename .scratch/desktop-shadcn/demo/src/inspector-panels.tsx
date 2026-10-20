@@ -1,0 +1,59 @@
+import { useMemo, useState } from "react";
+import Markdown from "react-markdown";
+import { ArrowLeft, ArrowRight, ChevronRight, FileCode2, FileText, Folder, Image, RotateCw } from "lucide-react";
+import { Button } from "./components/ui/button.tsx";
+import { Input } from "./components/ui/input.tsx";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./components/ui/collapsible.tsx";
+import { browserAddress, fileTree, isDemoEntry, moveBrowser, navigateBrowser, type BrowserNavigation, type FileNode, type PreviewFile } from "./inspector-data.ts";
+import { highlightSource } from "./source-highlighting.ts";
+
+// Note: 见 .agents/notes/implemented/feature/2026-10-16-demo-inspector-tools.md
+export function BrowserPanel({ navigation, appOrigin, onChange }: { navigation: BrowserNavigation; appOrigin: string; onChange: (navigation: BrowserNavigation) => void }) {
+  const url = navigation.history[navigation.index];
+  return <section className="browser-panel" aria-label="内置浏览器">
+    <form className="browser-toolbar" onSubmit={event => { event.preventDefault(); onChange(navigateBrowser(navigation, navigation.draft)); }}>
+      <Button type="button" variant="ghost" size="icon" className="quiet-icon" aria-label="后退" disabled={navigation.index === 0} onClick={() => onChange(moveBrowser(navigation, -1))}><ArrowLeft /></Button>
+      <Button type="button" variant="ghost" size="icon" className="quiet-icon" aria-label="前进" disabled={navigation.index === navigation.history.length - 1} onClick={() => onChange(moveBrowser(navigation, 1))}><ArrowRight /></Button>
+      <Button type="button" variant="ghost" size="icon" className="quiet-icon" aria-label="刷新网页" onClick={() => onChange({ ...navigation, draft: url, revision: navigation.revision + 1, error: false })}><RotateCw /></Button>
+      <Input aria-label="网页地址" aria-invalid={navigation.error} aria-describedby={navigation.error ? "browser-address-error" : undefined} inputMode="url" autoComplete="off" spellCheck={false} placeholder="输入网址" value={navigation.draft} onChange={event => onChange({ ...navigation, draft: event.target.value, error: false })} />
+    </form>
+    {navigation.error && <p id="browser-address-error" className="browser-error" role="alert">地址无效，请检查后重试。</p>}
+    {url.startsWith("file:") ? <div className="file-panel-empty" role="alert">本地文件预览需要桌面宿主。</div> : isDemoEntry(url, appOrigin) ? <div className="embedded-demo-notice"><p>此地址是演示界面本身。</p><p>请在地址栏输入要预览的网页地址。</p></div> : <iframe key={`${navigation.revision}:${url}`} title="网页预览" src={url} sandbox="allow-scripts allow-forms" referrerPolicy="no-referrer" />}
+  </section>;
+}
+
+export function WorkspaceFiles({ name, files, expanded, onExpand, onOpen }: { name: string; files: PreviewFile[]; expanded: Record<string, boolean>; onExpand: (path: string, open: boolean) => void; onOpen: (path: string) => void }) {
+  function nodes(entries: FileNode[]) {
+    return entries.map(node => node.kind === "directory" ? <Collapsible asChild key={node.path} open={expanded[node.path] ?? true} onOpenChange={open => onExpand(node.path, open)}><li>
+      <CollapsibleTrigger asChild><Button type="button" variant="ghost" className="file-tree-row" aria-label={node.path}><ChevronRight className={expanded[node.path] === false ? "" : "rotate-90"} /><Folder /><span>{node.name}</span></Button></CollapsibleTrigger>
+      <CollapsibleContent asChild><ul>{nodes(node.children)}</ul></CollapsibleContent>
+    </li></Collapsible> : <li key={node.path}><Button type="button" variant="ghost" className="file-tree-row file-tree-file" aria-label={`预览 ${node.path}`} onClick={() => onOpen(node.path)}>{node.file.kind === "image" ? <Image /> : node.file.kind === "markdown" ? <FileText /> : <FileCode2 />}<span>{node.name}</span></Button></li>);
+  }
+  return <section className="workspace-files" aria-label="工作区文件">
+    <div className="file-panel-heading"><Folder /><span>{name}</span><small>只读样例</small></div>
+    <nav aria-label={`${name} 文件`} className="file-tree"><ul>{nodes(fileTree(files))}</ul></nav>
+  </section>;
+}
+
+function SourcePreview({ content, path }: { content: string; path: string }) {
+  const highlighted = useMemo(() => highlightSource(path, content), [path, content]);
+  return <div className="file-source selectable-text" role="region" aria-label="文件源码" tabIndex={0}><div className="file-lines"><div className="file-source-gutter" aria-hidden="true">{(content === "" ? [] : content.split("\n")).map((_line, index) => <span className="file-line" key={index}>{index + 1}</span>)}</div><pre>{highlighted === null ? <code>{content}</code> : <code dangerouslySetInnerHTML={{ __html: highlighted }} />}</pre></div></div>;
+}
+
+function ImagePreview({ file }: { file: Extract<PreviewFile, { kind: "image" }> }) {
+  const [failed, setFailed] = useState(false);
+  return <div className="file-image">{failed ? <p role="alert">图片无法显示，请重新打开文件。</p> : <img src={file.src} alt={file.path} onError={() => setFailed(true)} />}</div>;
+}
+
+export function FilePreview({ file, path, mode, onMode, onFiles, onUrl }: { file: PreviewFile | undefined; path: string; mode: "preview" | "source"; onMode: (mode: "preview" | "source") => void; onFiles: () => void; onUrl: (url: string) => void }) {
+  return <section className="file-preview" aria-label="文件预览">
+    <div className="file-panel-heading"><code>{path}</code>{file?.kind === "markdown" && <div className="file-preview-modes"><Button type="button" variant="ghost" size="xs" aria-pressed={mode === "preview"} onClick={() => onMode("preview")}>预览</Button><Button type="button" variant="ghost" size="xs" aria-pressed={mode === "source"} onClick={() => onMode("source")}>源码</Button></div>}</div>
+    {!file ? <div className="file-panel-empty"><p>文件不可用</p><Button type="button" variant="ghost" size="sm" onClick={onFiles}>打开文件树</Button></div>
+      : file.kind === "unsupported" ? <div className="file-panel-empty"><FileText /><p>暂不支持预览此文件</p></div>
+      : file.kind === "image" ? <ImagePreview key={file.path} file={file} />
+      : file.kind === "markdown" && mode === "preview" ? <div className="file-markdown selectable-text"><Markdown skipHtml components={{
+        a: ({ href, children }) => { const url = href && /^https?:\/\//i.test(href) ? browserAddress(href) : null; return url ? <button type="button" className="file-preview-link" onClick={() => onUrl(url)}>{children}</button> : <span>{children}</span>; },
+        img: ({ alt }) => <span className="text-muted-foreground">[图片{alt ? `：${alt}` : ""}]</span>,
+      }}>{file.content}</Markdown></div> : <SourcePreview path={file.path} content={file.content} />}
+  </section>;
+}

@@ -1,0 +1,8 @@
+
+/* Note: 见 .agents/notes/implemented/bug-fix/2026-10-17-desktop-execution-activity.md */
+.git-graph-body { width: 100%; min-width: max-content; }
+.git-commit-subject { flex: none; overflow: visible; text-overflow: clip; }
+.git-commit-refs { flex-shrink: 0; max-width: none; overflow: visible; }
+.git-ref[data-slot="badge"] { flex-shrink: 0; }
+.git-ref-name { overflow: visible; text-overflow: clip; }
+.reasoning-content { margin: 0; font-size: 14px; line-height: 1.6; }

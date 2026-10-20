@@ -1,0 +1,16 @@
+
+  MyGo!!!!! v0.5.5  build
+
+  ○ Generating the TypeScript client
+  ✓ Wrote ../bindings.ts  3.0s
+  ○ Compiling darwin/arm64
+  ✓ Compiled darwin/arm64  619ms
+  ○ Signing Ruukoto File Tree QA.app
+  ✓ Signed Ruukoto File Tree QA.app  19ms
+
+  ✓ Built Ruukoto File Tree QA 0.1.0 in 3.7s
+
+    ../dist/darwin-arm64/
+      Ruukoto File Tree QA.app     9.8 MB
+
+QA app built: /private/tmp/ruukoto-mygo-file-tree-qa.cNYsDo/dist/darwin-arm64/Ruukoto File Tree QA.app

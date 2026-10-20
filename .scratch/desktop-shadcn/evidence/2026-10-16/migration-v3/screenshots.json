@@ -1,0 +1,100 @@
+[
+  {
+    "path": "output/playwright/read-file-highlight.png",
+    "round": 2,
+    "sha256": "1d163cc10859ac0b28a84f8f07d42b3d693f929ef4aca0d02cf5066639765d7b",
+    "width": 1280,
+    "height": 827
+  },
+  {
+    "path": "output/playwright/inline-edit-write.png",
+    "round": 2,
+    "sha256": "cac8ecca271400d12c6008281c1b11be18192408b583dd268eec979e6ef5e4a3",
+    "width": 1280,
+    "height": 827
+  },
+  {
+    "path": "output/playwright/failed-tools.png",
+    "round": 2,
+    "sha256": "a0dadee480c810e51604ae434a15861995d2eb6be2a617608b700bfe447922fa",
+    "width": 1280,
+    "height": 827
+  },
+  {
+    "path": "output/playwright/tab-hover-dark.png",
+    "round": 2,
+    "sha256": "18753554876fbfae551572e0de51c161f26480812a556eb02625529c69e7c355",
+    "width": 1280,
+    "height": 827
+  },
+  {
+    "path": "output/playwright/narrow-dark.png",
+    "round": 2,
+    "sha256": "45758838ba489a71cfb6eef224aff4dee2d80ca7e3655b2e3854ac4d6c2fe033",
+    "width": 833,
+    "height": 827
+  },
+  {
+    "path": "output/playwright/light.png",
+    "round": 2,
+    "sha256": "16066d6a06e66a83e0af563004c7a663ffdc1f846d7f87ce4700938182a1a807",
+    "width": 1280,
+    "height": 827
+  },
+  {
+    "path": "output/playwright/thinking.png",
+    "round": 2,
+    "sha256": "6e01bcd40ce2988465a7736b870730e338be337593de6f48e2dc670980b94d10",
+    "width": 1280,
+    "height": 827
+  },
+  {
+    "path": "output/playwright/working-running.png",
+    "round": 2,
+    "sha256": "ba7b76db633d963cc631fd3dd63a1eb339d61ca66fce4cc4584d8248690474bf",
+    "width": 1280,
+    "height": 827
+  },
+  {
+    "path": "output/playwright/working-result-arrival.png",
+    "round": 2,
+    "sha256": "61fb87a8c9894203c154f099847e5cc3a7bb9527956f05cb7a1d886d6ac803bd",
+    "width": 1280,
+    "height": 827
+  },
+  {
+    "path": "output/playwright/approval.png",
+    "round": 2,
+    "sha256": "6f2d21d1cabe7a7e9a10b9113620271e908932c47a585efd3d6b558192055f20",
+    "width": 1280,
+    "height": 827
+  },
+  {
+    "path": "output/playwright/history-after-prepend.png",
+    "round": 3,
+    "sha256": "f277603dd81873ecfdeca2d73b70810a27cf6f0e593d560e7c2bb2faa9432cad",
+    "width": 1280,
+    "height": 827
+  },
+  {
+    "path": "output/playwright/history-follow-bottom.png",
+    "round": 3,
+    "sha256": "60805cf6ac17bd8691f8f32dd74e954117fed60436660bff7df199d678614a04",
+    "width": 1280,
+    "height": 827
+  },
+  {
+    "path": "output/playwright/working-scroll-follow.png",
+    "round": 3,
+    "sha256": "a328f9de5d34403aa305a152eb8496fef6941fe85c7f30cd8dddb690251dde00",
+    "width": 1280,
+    "height": 827
+  },
+  {
+    "path": "output/playwright/working-result-follow-bottom.png",
+    "round": 3,
+    "sha256": "02a5e224bb4e849468e2994045082afe86038020a934506d03aec8a730aeec1e",
+    "width": 1280,
+    "height": 827
+  }
+]

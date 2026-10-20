@@ -1,0 +1,83 @@
+Browser tab: 4, Title: "Ruukoto · Desktop UI Demo", URL: "http://127.0.0.1:5173/".
+1 AXWebArea Ruukoto · Desktop UI Demo, URL: 127.0.0.1:5173/
+	2 container root
+		3 container
+			288 button 展开侧栏
+				289 image
+			50 tab group 已打开的会话
+				55 container
+					56 tab (selectable, settable, boolean) MCP stdio connection pool & backoff, Value: 0, ID: radix-_r_7_-trigger-sess-nx-1
+					57 button 关闭MCP stdio connection pool & backoff
+						58 image
+				105 container
+					106 tab (selectable, settable, boolean) Tokyo JST departure time hydration fix, Value: 0, ID: radix-_r_7_-trigger-sess-ft-2
+					107 button 关闭Tokyo JST departure time hydration fix
+						108 image
+				231 container
+					232 tab (selectable, settable, boolean) Ruukoto, Value: 0, ID: radix-_r_7_-trigger-personal:main
+					233 button 关闭Ruukoto
+						234 image
+				246 container
+					247 tab (selected, settable, boolean) Offline IndexedDB sync for Shinkansen pass, Value: 1, ID: radix-_r_7_-trigger-sess-ft-1
+					248 button 关闭Offline IndexedDB sync for Shinkansen pass
+						249 image
+			111 container
+				112 tab group 右侧标签
+					290 container
+						291 tab (selectable, settable, boolean) Schema Auditor, ID: radix-_r_b_-trigger-ag-ft-1, Value: 0
+Schema Auditor
+						292 button 关闭右栏Schema Auditor
+							293 image
+					317 container
+						318 tab (selected, settable, boolean) indexeddb.ts, ID: radix-_r_b_-trigger-src/lib/sync/indexeddb.ts, Value: 1
+indexeddb.ts
+						319 button 关闭右栏indexeddb.ts
+							320 image
+				121 button 右栏新标签
+					122 image
+				123 button 收起右栏
+					124 image
+			65 container
+				294 container 会话消息
+					295 container
+						296 text Cache reserved Shinkansen seat segments in IndexedDB so travelers in mountain tunnels can view QR boarding passes offline, and reconcile CRDT timestamps on reconnect.
+						297 button Schema Auditor HLC clock verified
+							298 text Schema Auditor
+							299 text HLC clock verified
+						300 button (collapsed) Read files, edited files · 2.1s, Secondary Actions: Expand
+							301 text Read files, edited files
+							302 text ·
+							303 text 2.1s
+						304 container
+							305 text Added Hybrid Logical Clock (HLC) reconciliation in
+							306 link Description: src/lib/sync/indexeddb.ts, Value: 127.0.0.1:5173/#right-sidebar
+							307 text  and surfaced an understated offline indicator inside
+							308 link Description: src/components/PassTimeline.tsx, Value: 127.0.0.1:5173/#right-sidebar
+							309 text  when reading from cached tunnel state.
+						310 container 命令审批
+							311 text 在工作区运行命令
+							312 button 拒绝
+							313 button 批准
+							314 container
+								315 text $  pnpm test:unit src/lib/sync/indexeddb.spec.ts
+							316 text Validate CRDT merge ordering after offline tunnel reconnect
+				89 text entry area (settable) Description: 输入消息, Value: 标签排序草稿
+				90 button 附加文件
+					91 image
+				92 combo box (collapsed) Description: 会话默认模式, Value: Auto review, Secondary Actions: Expand
+					93 text Auto review
+				94 button 上下文使用量
+				95 pop up button (collapsed) Description: 会话模型, ID: radix-_r_g_, Secondary Actions: Expand
+					138 image
+				98 button 发送消息
+					99 image
+			125 container Description: 检查器, ID: right-sidebar
+				321 text src/lib/sync/indexeddb.ts
+				322 container
+					323 text + 38 − 8
+				324 container
+					325 text 29 export async function syncPassSegments(passId: string) { 30 −   const remote = await fetchPassSegments(passId); 30 +   const local = await idbGetSegments(passId); 31 +   if (!navigator.onLine) return { segments: local, offline: true }; 32 +   const merged = reconcileHlcClock(local, await fetchPassSegments(passId)); 33 +   await idbPutSegments(passId, merged); 34 +   return { segments: merged, offline: false }; 35 }
+				137 splitter Description: 右侧栏宽度, Value: 438
+		104 text Ruukoto已移至第 3 位，共 4 个。
+
+The focused UI element is 306 link Description: src/lib/sync/indexeddb.ts, URL: 127.0.0.1:5173/#right-sidebar

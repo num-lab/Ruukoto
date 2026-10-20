@@ -48,7 +48,7 @@ import type {
 import { randomId, TASK_END_MARKER, TASK_START_MARKER } from "@ruukoto/core/types.ts";
 import type { Store } from "@ruukoto/core/store.ts";
 import type { AgentWaitSnapshot } from "@ruukoto/core/agent-wait.ts";
-import { editStatsFromResult, parseSessionFile, snapUtf8End, tailTextByBytes, type ParsedSessionEntry } from "@ruukoto/core/history.ts";
+import { editStatsFromResult, parseSessionFile, snapUtf8End, type ParsedSessionEntry } from "@ruukoto/core/history.ts";
 import { FRAGMENT_TEXT_CAP } from "@ruukoto/core/views.ts";
 import type { ArtifactStore } from "./artifacts.ts";
 import type { CredentialStore } from "./execution/credentials.ts";
@@ -81,6 +81,8 @@ import { planMcpTaskTools, EMPTY_MCP_PLAN, type McpTaskPlan } from "./mcp/tools.
 import type { McpTimeouts } from "./mcp/client.ts";
 import type { McpStore, McpToolEffect } from "./mcp/store.ts";
 import type { Accessor } from "@ruukoto/core/access.ts";
+import { taskAttachmentReferences } from "./owner-attachments.ts";
+import type { AttachmentReference } from "@ruukoto/core/attachments.ts";
 import { hasImageInput, IMAGE_INPUT_UNSUPPORTED, taskImageReferences, type ImageReference } from "./inbound-images.ts";
 
 const FRAGMENT_INTERVAL_MS = 250;
@@ -212,6 +214,7 @@ export class Driver {
   private sourceTextBlocks = new Map<number, string>();
   private thinking: Extract<PersistentEventBody, { type: "task.thinking" }> | null = null;
   private thinkingIndex: number | null = null;
+  private thinkingOffset = 0;
   private lastThinkingAt = 0;
   /**
    * 流式 assistant 消息标识：SDK 的 message_update 每次携带新的对象副本，
@@ -257,6 +260,7 @@ export class Driver {
   private workflowManagedUnits: ((entries: ManagedEntry[]) => void) | null = null;
   /** 用户消息落盘前附稳定图片引用；不把图片正文交给 SDK 历史写入。 */
   private pendingUserImages: ImageReference[] = [];
+  private pendingUserAttachments: AttachmentReference[] = [];
   private resourcePhase: AgentResourcePhase = "execution";
   private activeToolCalls = new Set<string>();
   private injection: ReturnType<ParentDelivery["takeInjection"]> | null = null;
@@ -832,6 +836,7 @@ export class Driver {
     this.hostToolArtifacts = new Map();
     this.lastBlockedReason = null;
     this.pendingUserImages = [];
+    this.pendingUserAttachments = [];
     this.taskTools = null;
     this.resourcePhase = resourcePhase;
     this.recordResourcePhase(task);
@@ -952,6 +957,7 @@ export class Driver {
       if (!task.modelSelection) throw new Error("model_selection_missing:任务未记录模型配置");
       const model = await this.deps.modelCatalog.resolve(task.modelSelection);
       this.pendingUserImages = taskImageReferences(task, this.deps.store);
+      this.pendingUserAttachments = taskAttachmentReferences(task, this.deps.store);
       if (this.pendingUserImages.length > 0 && !model?.input?.includes("image")) {
         throw new Error(`${IMAGE_INPUT_UNSUPPORTED}:所选模型不支持图片输入`);
       }
@@ -1525,13 +1531,27 @@ export class Driver {
       startedAt: new Date().toISOString(), endedAt: null, text: "",
     };
     this.thinkingIndex = null;
+    this.thinkingOffset = 0;
     this.emitThinking();
   }
 
   private emitThinking(): void {
     if (!this.thinking) return;
-    const body = { ...this.thinking };
-    this.deps.store.withTx(() => this.deps.store.appendEvent(body, { taskId: body.taskId, sessionId: body.sessionId }));
+    const thinking = this.thinking;
+    const last = thinking.text.charCodeAt(thinking.text.length - 1);
+    const text = !thinking.endedAt && last >= 0xd800 && last <= 0xdbff ? thinking.text.slice(0, -1) : thinking.text;
+    const bytes = Buffer.from(text, "utf8");
+    let offset = this.thinkingOffset;
+    // Note: 见 .agents/notes/implemented/feature/2026-10-18-complete-reasoning-and-preview.md
+    this.deps.store.withTx(() => {
+      do {
+        const end = snapUtf8End(bytes, Math.min(offset + FRAGMENT_TEXT_CAP, bytes.length));
+        const body = { ...thinking, offset, text: bytes.subarray(offset, end).toString("utf8"), endedAt: end === bytes.length ? thinking.endedAt : null };
+        this.deps.store.appendEvent(body, { taskId: body.taskId, sessionId: body.sessionId });
+        offset = end;
+      } while (offset < bytes.length);
+    });
+    this.thinkingOffset = offset;
     this.lastThinkingAt = Date.now();
   }
 
@@ -1603,12 +1623,12 @@ export class Driver {
           if (firstExplicitThinking) this.thinking!.startedAt = new Date().toISOString();
           this.thinkingIndex = update.contentIndex;
           // SDK 的 partial 对象可能已被后续队列事件更新，只消费原生 delta。
-          if (update.type === "thinking_delta") this.thinking!.text = tailTextByBytes(this.thinking!.text + update.delta, FRAGMENT_TEXT_CAP).text;
+          if (update.type === "thinking_delta") this.thinking!.text += update.delta;
           if (firstExplicitThinking || update.type === "thinking_start" || Date.now() - this.lastThinkingAt >= FRAGMENT_INTERVAL_MS) this.emitThinking();
         } else if (update.type === "thinking_end") {
           // 部分 provider 把 end 延迟到整条消息结束，不重新打开已被正文结束的阶段。
           if (this.thinking && this.thinkingIndex === update.contentIndex) {
-            if (!this.thinking.text) this.thinking.text = tailTextByBytes(update.content, FRAGMENT_TEXT_CAP).text;
+            if (update.content.startsWith(this.thinking.text)) this.thinking.text = update.content;
             this.endThinking();
           }
         } else if (update.type === "text_delta") {
@@ -1626,6 +1646,15 @@ export class Driver {
         return;
       }
       case "message_end": {
+        if (event.message.role === "toolResult") {
+          // SDK 在监听返回后同步落盘；逐条发引用，不等待同批其他工具结束。
+          setImmediate(() => this.flushEntryRefs(task));
+          return;
+        }
+        if (event.message.role === "user" && this.pendingUserAttachments.length > 0) {
+          (event.message as any).ruukotoAttachmentRefs = this.pendingUserAttachments;
+          this.pendingUserAttachments = [];
+        }
         if (event.message.role === "user" && this.pendingUserImages.length > 0) {
           // pi 的监听通知先于 appendMessage；同一对象也留在 agent.state 中。
           (event.message as any).ruukotoMediaRefs = this.pendingUserImages;
@@ -1687,7 +1716,9 @@ export class Driver {
   }
 
   /** 读 JSONL，把本次任务尚未引用过的消息条目补发为 output_entry（先核实落盘）。 */
+  // Note: 见 .agents/notes/implemented/architecture/2026-10-16-desktop-trace-migration.md
   private flushEntryRefs(task: Task): void {
+    if (this.managedTaskId !== task.id) return;
     try {
       const file = this.sdk?.sessionFile;
       if (!file || !fs.existsSync(file)) return;

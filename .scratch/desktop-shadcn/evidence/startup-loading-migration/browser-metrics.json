@@ -1,0 +1,80 @@
+{
+  "desktopLoading": {
+    "centerX": 639.99609375,
+    "centerY": 360,
+    "hiddenTitle": "auto",
+    "isolated": true,
+    "loading": true,
+    "text": "正在连接后台…",
+    "title": "连接后台",
+    "viewportX": 640,
+    "viewportY": 360
+  },
+  "sync": {
+    "focusInSettings": true,
+    "isolated": false,
+    "loading": false,
+    "settingsOpen": true
+  },
+  "failed": {
+    "isolated": false,
+    "loading": false,
+    "main": "暂时无法连接隔离连接失败。重新连接"
+  },
+  "retry": {
+    "isolated": false,
+    "loading": false,
+    "main": "暂时无法连接隔离连接正在重试。重新连接"
+  },
+  "closed": {
+    "isolated": false,
+    "loading": false,
+    "main": "暂时无法连接隔离连接关闭。重新连接"
+  },
+  "explicitReconnect": {
+    "isolated": false,
+    "loading": false
+  },
+  "normalDisconnect": {
+    "isolated": false,
+    "loading": false,
+    "main": "暂时无法连接隔离连接正在重试。重新连接"
+  },
+  "personalSettings": {
+    "form": true,
+    "isolated": false,
+    "loading": false,
+    "settingsOpen": true
+  },
+  "beforeSnapshot": {
+    "elapsed": 6095,
+    "isolated": true,
+    "loading": true
+  },
+  "snapshotReady": {
+    "elapsed": 15515,
+    "focus": "收起侧栏",
+    "isolated": false,
+    "loading": false
+  },
+  "demo": {
+    "centerX": 314.49609375,
+    "centerY": 413.5,
+    "isolated": true,
+    "loading": true,
+    "title": "连接后台",
+    "titleWidth": 1,
+    "viewportX": 314.5,
+    "viewportY": 413.5
+  },
+  "demoReplay": {
+    "focusInDialog": true,
+    "isolated": true,
+    "loading": true
+  },
+  "demoReady": {
+    "focus": "输入消息",
+    "isolated": false,
+    "loading": false
+  }
+}

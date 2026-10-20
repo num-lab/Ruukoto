@@ -1,0 +1,5 @@
+command
+ready.json
+fixture-progress.json
+backend-status.json
+electron-stderr.log

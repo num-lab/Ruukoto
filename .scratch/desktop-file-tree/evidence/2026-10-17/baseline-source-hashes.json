@@ -1,0 +1,7 @@
+{
+  "head": "632db30",
+  "paths": {
+    "packages/agent/src/execution/approved-ops.ts": "552e1f8268ebf44c20d091752cb670f7128a2189502d8647eb2b1811fc10e70b",
+    "packages/runtime/src/workspace-files.ts": "980c58650c6684b13118cee9b2627e7527a0d16a5876701df573dd8ed46f33bd"
+  }
+}

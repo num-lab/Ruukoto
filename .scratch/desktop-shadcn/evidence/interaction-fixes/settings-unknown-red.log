@@ -1,0 +1,29 @@
+✖ Desktop 未知降权不能被恢复队列覆盖，快照核实后继承后台实际模式 (924.956167ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2331.168208
+
+✖ failing tests:
+
+test at test/desktop-session-settings.test.ts:87:1
+✖ Desktop 未知降权不能被恢复队列覆盖，快照核实后继承后台实际模式 (924.956167ms)
+  AssertionError [ERR_ASSERTION]: 恢复队列不能替代未知设置的核实
+
+  1 !== 0
+
+      at TestContext.<anonymous> (/Users/eitrous/.codex/worktrees/6f13/ruukoto/test/desktop-session-settings.test.ts:101:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

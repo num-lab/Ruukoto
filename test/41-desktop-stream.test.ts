@@ -17,7 +17,7 @@ function history(entryId: string, text: string, extra: Partial<HistoryEntryView>
   return { entryId, taskId: "task", inputPurpose: "user", parentId: null, role: "assistant", text, timestamp: at(5), offset: 0, totalBytes: Buffer.byteLength(text), truncated: false, toolCalls: [], toolCallId: null, toolName: null, isError: null, hasNonTextContent: false, ...extra };
 }
 const event = (seq: number, body: PersistentEvent["body"]): PersistentEvent => ({ seq, body, sessionId: "session", taskId: "task", createdAt: at(seq) });
-const session: Session = { id: "session", projectId: "workspace", kind: "dev", workspaceProjectId: null, name: null, branchSource: null, cwd: "/w", cwdReal: "/w", cwdDev: 1, cwdIno: 1, piSessionId: "pi", sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: null, modelSelectionVersion: 0, defaultAccessMode: "confirm", defaultAccessModeVersion: 0, queueState: "active", queuePauseReason: null, createdAt: at(0) };
+const session: Session = { id: "session", projectId: "workspace", kind: "dev", workspaceProjectId: null, name: null, branchSource: null, cwd: "/w", cwdReal: "/w", cwdDev: 1, cwdIno: 1, piSessionId: "pi", sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: null, modelSelectionVersion: 0, defaultAccessMode: "confirm", defaultAccessModeVersion: 0, queueState: "active", queuePauseReason: null, archivedAt: null, createdAt: at(0) };
 function harness(handlers: FakeHandlers) {
   const transport = new FakeTransport({ handlers: { list_session_summaries: () => [], list_tasks: () => ({ tasks: [], hasMore: false }), read_history: () => ({ fileAvailable: true, hasPartialTail: false, entries: [], nextBefore: null }), ...handlers } });
   const model = new CodeState({ request: (_target, op, params) => ipcResult(() => transport.request(op as DesktopOp, params as OpParams<DesktopOp>)) }, () => {});
@@ -131,7 +131,7 @@ test("桌面人工重连创建了新连接时，仍以实例身份清空旧标�
 });
 
 test("桌面通知导航按实例定位后消费，同实例快照不抢回已切换的会话", () => {
-  const model = new CodeState({ request: async () => ({ ok: true, value: undefined }) }, () => {}, "personal");
+  const model = new CodeState({ request: async (_target, op) => ({ ok: true, value: op === "work_list" ? { works: [] } : op === "read_history" ? { fileAvailable: true, hasPartialTail: false, entries: [], nextBefore: null } : op === "list_tasks" ? { tasks: [], hasMore: false } : { records: [], hasMore: false } }) }, () => {}, "personal");
   const result = { seq: 0, replay: [], snapshot: fakeSnapshot({ sessions: [session, { ...session, id: "second" }] }) };
   model.update({ type: "snapshot", result, instanceChanged: false });
   model.update({ type: "navigate", instanceId: "inst-1", navigation: { sessionId: "session", taskId: "task" } });

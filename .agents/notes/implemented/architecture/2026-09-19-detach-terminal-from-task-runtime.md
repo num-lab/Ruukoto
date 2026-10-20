@@ -63,3 +63,5 @@ Status: implemented
 ## 适用范围
 
 完全访问的账户、环境、免审批及宿主任务授权传播采用[本决定](../feature/2026-10-12-full-access-current-account.md)；本篇其他独立规则继续适用。
+
+环境准备时机与轻量就绪探测由[启动优化](../bug-fix/2026-10-17-desktop-connection-startup.md)持有；本篇其他决定继续适用。

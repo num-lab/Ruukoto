@@ -1,0 +1,35 @@
+{
+  "phase": "leave-after-preview",
+  "nativeDragActive": "true",
+  "sourceHidden": "true",
+  "before": [
+    2,
+    -1,
+    -1
+  ],
+  "after": [
+    0,
+    0,
+    0
+  ],
+  "projected": [
+    {
+      "id": "a",
+      "hidden": true,
+      "x": 138.66666666666669
+    },
+    {
+      "id": "b",
+      "hidden": false,
+      "x": 34.66666666666666
+    },
+    {
+      "id": "c",
+      "hidden": false,
+      "x": 138.66666666666666
+    }
+  ],
+  "overlap": 0,
+  "moves": []
+}
+PASS: source lifecycle, cancel, re-entry, drop, scope reset

@@ -1,0 +1,12 @@
+✔ dev：后台就绪（QQ 停用、环境可认证），SIGINT 后无锁无孤儿进程 (4203.503084ms)
+✔ dev：开发实例已在运行 → 报错退出且不碰外来后台 (5684.690667ms)
+✔ code：有效模型但非 TTY 时非零退出并清理后台 (4569.206417ms)
+✔ code --config：已有 socket 即拒绝接管，不等认证或把停止中的后台重复拉起 (819.279208ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 17811.400625

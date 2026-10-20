@@ -1,12 +1,15 @@
+// Note: 见 .agents/notes/implemented/feature/2026-10-17-session-creation-settings.md
 import type { OpParams, OpResult } from "@ruukoto/control/ops.ts";
 import { sessionDisplayAttribution } from "@ruukoto/control/session-attribution.ts";
-import type { Session } from "@ruukoto/core/types.ts";
+import type { HistoryEntryView } from "@ruukoto/core/history.ts";
+import type { ModelSelection, Session, SessionDefaultMode } from "@ruukoto/core/types.ts";
 import { ViewState, isActiveStatus } from "@ruukoto/view/state.ts";
 import { utf8ByteLength } from "@ruukoto/view/utf8.ts";
 import type { DesktopOp } from "../main/ipc.ts";
-import type { DesktopBridge, DesktopFailure, DesktopTarget, DesktopUpdate } from "../shared/bridge.ts";
+import type { DesktopAttachment, DesktopBridge, DesktopFailure, DesktopTarget, DesktopUpdate } from "../shared/bridge.ts";
 import { DesktopApprovals } from "./approvals.ts";
 import { CodeWrites } from "./code-writes.ts";
+import { DesktopContext } from "./context-state.ts";
 import { DesktopInspector } from "./inspector.ts";
 
 export class DesktopRequestError extends Error {
@@ -15,7 +18,7 @@ export class DesktopRequestError extends Error {
 }
 interface PendingCreation {
   op: "open_workspace" | "create_session";
-  params: { cwd: string; project_id?: string; request_id: string };
+  params: OpParams<"open_workspace"> & { request_id: string };
   target: DesktopTarget;
   instanceId: string;
   busy: boolean;
@@ -33,18 +36,26 @@ export class CodeState {
   readError: string | null = null;
   pendingCreation: PendingCreation | null = null;
   private generation = 0;
+  /** 恢复窗口内累计的变更只画一次：中间投影会把已收起 trace 画成展开态。 */
+  private quiet = 0;
+  private dirty = false;
+  private creationSourceId: string | null = null;
   private readonly flowCursors = new Map<string, number>();
   private readonly requests = new Map<string, Promise<void>>();
+  private readonly pendingEntries = new Map<string, string | undefined>();
   readonly writes: CodeWrites;
   readonly approvals: DesktopApprovals;
   readonly inspector: DesktopInspector;
+  readonly context: DesktopContext;
   navigation: Extract<DesktopUpdate, { type: "navigate" }> | null = null;
   notificationSelection: { sessionId: string; taskId: string } | null = null;
-  refresh(): void { this.changed(); }
+  refresh(): void { this.mark(); }
+  // Note: 见 .agents/notes/implemented/feature/2026-10-20-desktop-creation-spinner.md
   constructor(private readonly bridge: Pick<DesktopBridge, "request">, private readonly changed: () => void, readonly target: DesktopTarget = "code") {
+    this.context = new DesktopContext(bridge, this.view, changed, target);
     this.approvals = new DesktopApprovals(bridge, this.view, changed, target);
     this.writes = new CodeWrites(bridge, this.view, () => this.status.state === "online", changed, target);
-    this.inspector = new DesktopInspector(bridge, this.view, id => this.loadHistory(id), changed);
+    this.inspector = new DesktopInspector(bridge, this.view, id => this.loadHistory(id), changed, target);
   }
 
   private async request<K extends DesktopOp>(op: K, params: OpParams<K>): Promise<OpResult<K>> {
@@ -53,26 +64,40 @@ export class CodeState {
     // preload 的响应是 IPC wire 数据，主进程只转发同仓控制面返回值。
     return result.value as OpResult<K>;
   }
+  /** 恢复期间合并重绘；最外层结束后才把最终投影交给界面。 */
+  private settle<T>(action: () => Promise<T>): Promise<T> {
+    ++this.quiet;
+    return action().finally(() => {
+      if (--this.quiet > 0 || !this.dirty) return;
+      this.dirty = false;
+      this.changed();
+    });
+  }
+  /** 恢复窗口内只记下需要重绘，窗口关闭时统一发出。 */
+  private mark(): void {
+    if (this.quiet > 0) { this.dirty = true; return; }
+    this.changed();
+  }
   update(update: DesktopUpdate): void {
     if (update.type === "state") {
       this.status = update;
+      this.inspector.update(update);
       if (update.state === "online") void this.reconcileCreation();
     } else if (update.type === "snapshot") {
       ++this.generation;
       this.requests.clear();
+      this.pendingEntries.clear();
       this.flowCursors.clear();
       this.summaries.clear();
       this.readError = null;
       const instanceChanged = update.instanceChanged || (this.view.instanceId !== null && this.view.instanceId !== update.result.snapshot.instanceId);
       this.view.applySnapshot(update.result, instanceChanged);
-      if (this.target === "code") this.inspector.update({ ...update, instanceChanged });
-      if (instanceChanged) { this.tabs = []; this.notificationSelection = null; }
+      this.inspector.update({ ...update, instanceChanged });
+      if (instanceChanged) { this.tabs = []; this.notificationSelection = null; this.creationSourceId = null; }
       this.tabs = this.tabs.filter(id => this.view.sessions.some(session => session.id === id));
-      if (this.target === "code") {
-        void this.loadSummaries();
-        for (const id of this.tabs) void this.loadHistory(id);
-        if (this.inspector.childSessionId) void this.loadHistory(this.inspector.childSessionId);
-      }
+      if (this.target === "code") void this.loadSummaries();
+      for (const id of this.tabs) void this.loadHistory(id);
+      if (this.inspector.childSessionId) void this.loadHistory(this.inspector.childSessionId);
       if (this.navigation) this.navigate(this.navigation);
       void this.reconcileCreation();
     } else if (update.type === "event") {
@@ -80,13 +105,14 @@ export class CodeState {
       const body = update.event.body;
       if (this.target === "code" && (body.type === "session.created" || body.type === "session.workspace_mapped" || body.type === "project.created" || body.type === "task.queued")) void this.loadSummaries();
       if (body.type === "session.created") void this.reconcileCreation();
-      if (this.target === "code" && body.type === "task.output_entry" && (this.tabs.includes(body.sessionId) || this.inspector.childSessionId === body.sessionId)) void this.loadEntry(body.sessionId, body.entryId);
-      if (this.target === "code") this.inspector.update(update);
+      if (body.type === "task.output_entry" && (this.tabs.includes(body.sessionId) || this.inspector.childSessionId === body.sessionId)) void this.loadEntry(body.sessionId, body.entryId, body.taskId);
+      this.inspector.update(update);
     }
     if (update.type === "navigate") this.navigate(update);
+    this.context.update(update);
     this.approvals.update(update);
     this.writes.update(update);
-    this.changed();
+    this.mark();
   }
   private navigate(update: Extract<DesktopUpdate, { type: "navigate" }>): void {
     this.navigation = update;
@@ -95,11 +121,22 @@ export class CodeState {
     const child = this.view.subAgents.find(agent => agent.sessionId === update.navigation.sessionId);
     this.notificationSelection = update.navigation;
     this.openSession(child?.parentSessionId ?? update.navigation.sessionId);
-    if (child && this.target === "code") this.inspector.selectChild(child.sessionId);
+    if (child) this.inspector.selectChild(child.sessionId);
     this.navigation = null;
   }
+  /** 工作区树只列未存档的普通会话；存档只影响这份列表，历史与任务仍按会话 id 读取。 */
   sessionsFor(workspaceId: string): Session[] {
-    return this.view.sessions.filter(session => sessionDisplayAttribution(session, this.view.projects).projectId === workspaceId && !this.view.subAgentSessionIds.includes(session.id) && !this.view.roleSessionIds.includes(session.id) && session.kind === "dev");
+    return this.view.sessions.filter(session => sessionDisplayAttribution(session, this.view.projects).projectId === workspaceId && !this.view.subAgentSessionIds.includes(session.id) && !this.view.roleSessionIds.includes(session.id) && session.kind === "dev" && session.archivedAt === null);
+  }
+  /** 设置页的已存档会话：同一批普通开发会话，只看存档状态。 */
+  archivedSessions(): Session[] {
+    return this.view.sessions.filter(session => session.archivedAt !== null && session.kind === "dev" && !this.view.subAgentSessionIds.includes(session.id) && !this.view.roleSessionIds.includes(session.id)).sort((a, b) => (b.archivedAt ?? "").localeCompare(a.archivedAt ?? ""));
+  }
+  /** 存档或取消存档；失败按既有设置写入的提示呈现。 */
+  async setArchived(sessionId: string, archived: boolean): Promise<void> {
+    await this.writes.setArchived(sessionId, archived);
+    // 存档的会话不该留在打开的标签里，否则列表与标签互相矛盾。
+    if (archived && this.tabs.includes(sessionId)) this.closeSession(sessionId);
   }
   sessionName(id: string): string {
     for (const summaries of this.summaries.values()) {
@@ -109,21 +146,33 @@ export class CodeState {
     return this.view.sessions.find(session => session.id === id)?.name ?? "新会话";
   }
   openSession(id: string): void {
+    void this.context.load(id);
     if (!this.tabs.includes(id)) this.tabs.push(id);
     this.view.currentSessionId = id;
-    if (this.target === "code") this.inspector.openParent(id);
+    this.rememberCreationSource();
+    this.inspector.openParent(id);
     const view = this.view.openSession(id);
-    if (this.target === "code" && !view.historyLoaded) void this.loadHistory(id);
-    this.changed();
+    if (!view.historyLoaded) void this.loadHistory(id);
+    this.mark();
   }
   closeSession(id: string): void {
+    this.rememberCreationSource();
     const index = this.tabs.indexOf(id);
     this.tabs = this.tabs.filter(tab => tab !== id);
     if (this.view.currentSessionId === id) this.view.currentSessionId = this.tabs[Math.max(0, index - 1)] ?? null;
-    if (this.target === "code" && this.view.currentSessionId) this.inspector.openParent(this.view.currentSessionId);
-    this.changed();
+    this.rememberCreationSource();
+    if (this.view.currentSessionId) this.inspector.openParent(this.view.currentSessionId);
+    this.mark();
   }
-  private report(text: string): void { this.message = text; this.changed(); }
+  private creationSource(): Session | undefined {
+    const eligible = (session: Session) => this.target === "code" && session.kind === "dev" && !this.view.subAgentSessionIds.includes(session.id) && !this.view.roleSessionIds.includes(session.id);
+    return this.view.sessions.find(session => session.id === this.view.currentSessionId && eligible(session)) ?? this.view.sessions.find(session => session.id === this.creationSourceId && eligible(session));
+  }
+  private rememberCreationSource(): void {
+    const source = this.creationSource();
+    if (source) this.creationSourceId = source.id;
+  }
+  private report(text: string): void { this.message = text; this.mark(); }
   private run(key: string, action: (generation: number) => Promise<void>): Promise<void> {
     key = `${this.generation}:${key}`;
     const pending = this.requests.get(key);
@@ -131,7 +180,7 @@ export class CodeState {
     const generation = this.generation;
     const request = action(generation).catch(error => {
       if (generation === this.generation) this.readError = `读取会话失败：${error instanceof Error ? error.message : "请重新连接后再试。"}`;
-    }).finally(() => { this.requests.delete(key); if (this.target === "code") void this.inspector.loadDiff(); this.changed(); });
+    }).finally(() => { this.requests.delete(key); this.inspector.seedTabs(); void this.inspector.loadDiff(); this.mark(); });
     this.requests.set(key, request);
     return request;
   }
@@ -150,20 +199,31 @@ export class CodeState {
       if (mode === "prepend" && !view.historyCursor) return;
       const page = await this.request("read_history", { session_id: sessionId, before: mode === "prepend" ? view.historyCursor ?? undefined : undefined, limit: 50 });
       if (generation !== this.generation) return;
-      this.view.installHistoryPage(sessionId, page, mode);
-      this.changed();
-      await this.restoreEventFlow(sessionId, generation);
+      // 有界快照只带近期任务；旧任务状态晚到会让历史页首次渲染把已完成 trace 当成展开态再收起。
+      // 状态读取失败时仍先装历史页，保持原先「历史可见、错误报到 readError」的降级。
+      // Note: 见 .agents/notes/implemented/bug-fix/2026-10-19-trace-hydration-flash.md
+      let relevant: Set<string> | null = null;
+      await this.settle(async () => {
+        relevant = await this.restoreTaskStatuses(sessionId, page.entries, generation).catch(error => {
+          this.view.installHistoryPage(sessionId, page, mode);
+          throw error;
+        });
+        if (!relevant) return;
+        this.view.installHistoryPage(sessionId, page, mode);
+        this.mark();
+        await this.restoreEventFlow(sessionId, generation, relevant);
+      });
     });
   }
-  private async restoreEventFlow(sessionId: string, generation: number): Promise<void> {
-    const entries = this.view.openSession(sessionId).flow.historyEntries;
+  /** 装入历史窗口内任务的状态，返回需要补读事件流与工具详情的任务；代次变化时返回 null。 */
+  private async restoreTaskStatuses(sessionId: string, entries: HistoryEntryView[], generation: number): Promise<Set<string> | null> {
     const earliest = entries.reduce((at, entry) => !at || entry.timestamp < at ? entry.timestamp : at, "");
     const ids = new Set(entries.map(entry => entry.entryId));
     const relevant = new Set<string>();
     let before: string | undefined;
     do {
       const page = await this.request("list_tasks", { session_id: sessionId, before, limit: 50 });
-      if (generation !== this.generation) return;
+      if (generation !== this.generation) return null;
       for (const task of page.tasks) {
         if (!earliest || isActiveStatus(task.status) || (task.endedAt ?? task.createdAt) >= earliest || task.historyEntryIds.some(id => ids.has(id))) {
           if (!this.view.getTask(task.id)) this.view.upsertTask(task);
@@ -174,11 +234,14 @@ export class CodeState {
       if (!page.hasMore || !last || !earliest || (last.endedAt ?? last.createdAt) < earliest) break;
       before = last.id;
     } while (true);
+    return relevant;
+  }
+  private async restoreEventFlow(sessionId: string, generation: number, relevant: Set<string>): Promise<void> {
     await Promise.all([...relevant].map(taskId => this.readTaskFlow(taskId)));
     if (generation !== this.generation) return;
-    for (const entry of entries) {
+    for (const entry of this.view.openSession(sessionId).flow.historyEntries) {
       if (generation !== this.generation) return;
-      if (entry.truncated) await this.loadEntry(sessionId, entry.entryId);
+      if (entry.truncated) await this.loadEntry(sessionId, entry.entryId, entry.taskId ?? undefined);
     }
   }
   private readTaskFlow(taskId: string): Promise<void> {
@@ -199,17 +262,24 @@ export class CodeState {
           after = Math.max(after, event.seq);
         }
         this.flowCursors.set(taskId, after);
-        this.changed();
+        this.mark();
         if (page.nextAfter === null) break;
         after = page.nextAfter;
       } while (true);
       for (const entryId of missing) {
         if (generation !== this.generation) return;
-        await this.loadEntry(detail.task.sessionId, entryId);
+        await this.loadEntry(detail.task.sessionId, entryId, detail.task.id);
       }
     });
   }
-  loadEntry(sessionId: string, entryId: string): Promise<void> {
+  // Note: 见 .agents/notes/implemented/feature/2026-10-18-completed-trace.md
+  // Note: 见 .agents/notes/implemented/bug-fix/2026-10-19-trace-hydration-flash.md
+  historyReady(sessionId: string, taskId: string): boolean { return ![...this.pendingEntries].some(([key, pendingTask]) => key.startsWith(`${sessionId}:`) && pendingTask === taskId); }
+  loadEntry(sessionId: string, entryId: string, taskId?: string): Promise<void> {
+    const key = `${sessionId}:${entryId}`;
+    // 已在历史页里的条目只会补全正文，身份已可见；再挡自动收起会让打开会话时已收起的 trace 先展开再收起。
+    const known = this.view.openSession(sessionId).flow.historyEntries.some(entry => entry.entryId === entryId);
+    if (!known) this.pendingEntries.set(key, taskId ?? this.pendingEntries.get(key));
     return this.run(`entry:${sessionId}:${entryId}`, async generation => {
       let entry: OpResult<"read_history_entry">;
       try { entry = await this.request("read_history_entry", { session_id: sessionId, entry_id: entryId, length: 64 * 1024 }); }
@@ -229,63 +299,93 @@ export class CodeState {
         offset += utf8ByteLength(page.text);
       }
       this.view.appendEntryView(sessionId, { ...entry, text, truncated: false });
+      this.pendingEntries.delete(key);
     });
   }
 
-  async create(op: PendingCreation["op"], params: { cwd: string; project_id?: string }): Promise<void> {
+  // Note: 见 .agents/notes/implemented/feature/2026-10-20-desktop-new-chat.md
+  /** 新对话在首条消息落地时才建会话：按所选工作区与草稿设置建好后把草稿交给它发送。 */
+  async startChat(input: { workspaceId: string; text: string; attachments: DesktopAttachment[]; mode: SessionDefaultMode; modelSelection: ModelSelection | null }, upload: (sessionId: string, tokens: string[]) => Promise<DesktopAttachment[]>): Promise<string | null> {
+    if (!input.text.trim() && !input.attachments.length) return null;
+    if (!input.modelSelection) { this.report("请选择模型后再发送。"); return null; }
+    const workspace = this.view.projects.find(project => project.id === input.workspaceId && project.rootDir !== null);
+    if (!workspace?.rootDir) { this.report("所选工作区已不可用，请重新选择。"); return null; }
+    // create() 在途时不另发请求：先拒绝，免得把草稿交给正在核实的另一个会话。
+    if (this.pendingCreation) { this.report("上一个创建仍在核实，请稍后再发送。"); return null; }
+    if (!await this.create("create_session", { project_id: workspace.id, cwd: workspace.rootDir.cwdReal }, { mode: input.mode, modelSelection: input.modelSelection })) return null;
+    const sessionId = this.view.currentSessionId;
+    if (!sessionId) return null;
+    // 附件按草稿登记的 token 现在才上传：上传需要会话身份，失败时不发送。
+    let attachments: DesktopAttachment[] = [];
+    if (input.attachments.length) {
+      try { attachments = await upload(sessionId, input.attachments.map(item => item.id)); }
+      catch (error) { this.report(error instanceof Error ? error.message : "附件未能上传，请重新选择。"); return null; }
+    }
+    this.writes.edit(sessionId, input.text);
+    if (attachments.length) this.writes.draft(sessionId).attachments = attachments;
+    void this.writes.send(sessionId);
+    return sessionId;
+  }
+
+  async create(op: PendingCreation["op"], params: { cwd: string; project_id?: string }, settingsOverride?: { mode: SessionDefaultMode; modelSelection: ModelSelection | null }): Promise<boolean> {
     if (this.pendingCreation) return this.reconcileCreation();
-    if (!this.view.instanceId || this.status.state !== "online") { this.report("请等待连接恢复后再创建会话。"); return; }
-    const pending: PendingCreation = { op, params: { ...params, request_id: crypto.randomUUID() }, target: this.target, instanceId: this.view.instanceId, busy: false, retried: false, waitGeneration: null };
+    if (!this.view.instanceId || this.status.state !== "online") { this.report("请等待连接恢复后再创建会话。"); return false; }
+    const source = this.creationSource();
+    if (source && this.writes.settingsPending(source.id)) { this.report("会话设置仍在保存或等待核实，请确认后台实际设置后再创建会话。"); return false; }
+    const settings = settingsOverride ? { mode: settingsOverride.mode, ...(settingsOverride.modelSelection ? { model_selection: { ...settingsOverride.modelSelection } } : {}) } : source ? { mode: source.defaultAccessMode, ...(source.modelSelection ? { model_selection: { ...source.modelSelection } } : {}) } : {};
+    const pending: PendingCreation = { op, params: { ...params, ...settings, request_id: crypto.randomUUID() }, target: this.target, instanceId: this.view.instanceId, busy: false, retried: false, waitGeneration: null };
     this.pendingCreation = pending;
-    this.message = "正在创建会话…";
-    this.changed();
-    await this.sendCreation(pending);
+    this.message = null;
+    this.mark();
+    return this.sendCreation(pending);
   }
   private owns(pending: PendingCreation): boolean {
     if (pending.target === this.target && pending.instanceId === this.view.instanceId) return true;
     this.report("原操作结果仍未知；请连回原数据实例后核实左栏工作区树。当前实例不会重发原操作。");
     return false;
   }
-  private complete(pending: PendingCreation, session: Session): void {
-    if (!this.owns(pending)) return;
+  private complete(pending: PendingCreation, session: Session): boolean {
+    if (!this.owns(pending)) return false;
     if (!this.view.sessions.some(item => item.id === session.id)) this.view.sessions.push(session);
     this.pendingCreation = null;
     this.message = null;
     this.openSession(session.id);
     void this.loadSummaries();
+    return true;
   }
-  private async reconcileCreation(): Promise<void> {
+  private async reconcileCreation(): Promise<boolean> {
     const pending = this.pendingCreation;
-    if (!pending || !this.owns(pending) || pending.busy) return;
-    if (pending.waitGeneration !== null && this.generation <= pending.waitGeneration) return;
+    if (!pending || !this.owns(pending) || pending.busy) return false;
+    if (pending.waitGeneration !== null && this.generation <= pending.waitGeneration) return false;
     const session = this.view.sessions.find(item => item.createRequestId === pending.params.request_id);
-    if (session) { this.complete(pending, session); return; }
-    if (this.status.state !== "online") return;
-    if (pending.retried) { this.report("创建结果未知；请在左栏工作区树查看会话是否已建好，恢复连接后继续核实。"); return; }
+    if (session) return this.complete(pending, session);
+    if (this.status.state !== "online") return false;
+    if (pending.retried) { this.report("创建结果未知；请在左栏工作区树查看会话是否已建好，恢复连接后继续核实。"); return false; }
     pending.retried = true;
-    await this.sendCreation(pending);
+    return this.sendCreation(pending);
   }
-  private async sendCreation(pending: PendingCreation): Promise<void> {
-    if (!this.owns(pending)) return;
+  private async sendCreation(pending: PendingCreation): Promise<boolean> {
+    if (!this.owns(pending)) return false;
     pending.busy = true;
+    this.mark();
     const generation = this.generation;
     let result: Session | OpResult<"open_workspace">;
     try { result = await this.request(pending.op, pending.params); }
     catch (error) {
       pending.busy = false;
-      if (!this.owns(pending)) return;
+      if (!this.owns(pending)) return false;
       if (error instanceof DesktopRequestError && error.failure.outcome === "rejected") {
         this.pendingCreation = null;
         this.report(`会话创建失败：${error.message}`);
-        return;
+        return false;
       }
       if (error instanceof DesktopRequestError && error.failure.outcome === "unknown") return this.reconcileCreation();
       pending.waitGeneration = generation;
       this.report("创建结果待核实；连接恢复后将按原操作核实，请在左栏工作区树查看会话。");
-      if (this.generation > generation) await this.reconcileCreation();
-      return;
+      if (this.generation > generation) return this.reconcileCreation();
+      return false;
     }
     pending.busy = false;
-    this.complete(pending, "session" in result ? result.session : result);
+    return this.complete(pending, "session" in result ? result.session : result);
   }
 }

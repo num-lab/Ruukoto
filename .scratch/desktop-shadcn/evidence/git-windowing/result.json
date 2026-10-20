@@ -1,0 +1,145 @@
+{
+  "failed": 0,
+  "checks": [
+    {
+      "name": "initialRowsBounded",
+      "pass": true
+    },
+    {
+      "name": "loadedParentNotMarked",
+      "pass": true
+    },
+    {
+      "name": "ariaSetsize",
+      "pass": true
+    },
+    {
+      "name": "ariaPosinset",
+      "pass": true
+    },
+    {
+      "name": "horizontalScrollable",
+      "pass": true
+    },
+    {
+      "name": "scrollLeftAvailable",
+      "pass": true
+    },
+    {
+      "name": "scrolledRight",
+      "pass": true
+    },
+    {
+      "name": "sentinelSpansContent",
+      "pass": true
+    },
+    {
+      "name": "horizontalObserverFires",
+      "pass": true
+    },
+    {
+      "name": "rowsBoundedAfterPage",
+      "pass": true
+    },
+    {
+      "name": "ariaSetsizeAfterPage",
+      "pass": true
+    },
+    {
+      "name": "ariaSetsizeFinal",
+      "pass": true
+    },
+    {
+      "name": "rowsBoundedFinal",
+      "pass": true
+    },
+    {
+      "name": "offscreenParentMarked",
+      "pass": true
+    },
+    {
+      "name": "expandHeight",
+      "pass": true
+    },
+    {
+      "name": "expandPushesRows",
+      "pass": true
+    },
+    {
+      "name": "detailsVisible",
+      "pass": true
+    },
+    {
+      "name": "collapseRestores",
+      "pass": true
+    },
+    {
+      "name": "focusPinned",
+      "pass": true
+    },
+    {
+      "name": "focusRowRendered",
+      "pass": true
+    },
+    {
+      "name": "focusPinnedInList",
+      "pass": true
+    },
+    {
+      "name": "rowsBoundedWithFocus",
+      "pass": true
+    },
+    {
+      "name": "widthResizeRows",
+      "pass": true
+    },
+    {
+      "name": "widthResizeScrollStable",
+      "pass": true
+    },
+    {
+      "name": "widthResizeExpanded",
+      "pass": true
+    },
+    {
+      "name": "reentryRemeasured",
+      "pass": true
+    },
+    {
+      "name": "reentryHeightAccounting",
+      "pass": true
+    },
+    {
+      "name": "refreshNotEmpty",
+      "pass": true
+    },
+    {
+      "name": "refreshSetsize",
+      "pass": true
+    },
+    {
+      "name": "refreshScrollClamped",
+      "pass": true
+    },
+    {
+      "name": "refreshShowsTail",
+      "pass": true
+    },
+    {
+      "name": "emptyState",
+      "pass": true
+    },
+    {
+      "name": "emptyThenFullRows",
+      "pass": true
+    },
+    {
+      "name": "emptyThenFullScrolls",
+      "pass": true
+    }
+  ],
+  "viewportWidth": 315,
+  "contentWidth": 6115,
+  "scrollLeft": 5800,
+  "requests": 2
+}

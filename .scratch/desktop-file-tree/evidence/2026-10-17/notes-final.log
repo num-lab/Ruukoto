@@ -1,0 +1,7 @@
+
+> ruukoto-workspace@0.1.0 verify-notes
+> tsx .agents/skills/maintain-notes/scripts/verify-agent-note-tree.ts && tsx .agents/skills/maintain-notes/scripts/verify-agent-note-format.ts && tsx .agents/skills/maintain-notes/scripts/verify-archived-agent-notes.ts
+
+ok: 87 note(s) tree and relative links verified
+ok: 87 note(s) verified
+ok: 1 archived note(s) verified, 1 seal(s) in manifest

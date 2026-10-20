@@ -1,0 +1,12 @@
+{
+  "at": "2026-10-17T02:05:08.981Z",
+  "paths": {
+    "apps/desktop/out/mygo/sidecar.mjs": "96db8e9acf97beed11b6769f6a450e96f3fd6317a1214bca869ae493c2be3b9b",
+    "apps/desktop/out/mygo/launch.json": "5811bf3e33a4f8b5110d144c282969f0fc13415cb19ef0895a1f0d747e56c772",
+    "apps/desktop/src/main/environment.ts": "a1673cc367797911542ffa616c22166e047f53b04046c1b76846ad63b165ee15",
+    "apps/desktop/src/main/host.ts": "d98e425761b37725f29e8fae62ef8eb1701ceb9eae704803e315053f553081b9",
+    "packages/control/src/ensure-backend.ts": "8786bd7b8ae5abb9b77ad27034e62c0256d1bb824818047f443c0b12922212ea",
+    "apps/desktop/mygo/main.go": "9bf3e964668098202c547d44ac2eb37383ebaf3affe0f80e54c7b1c26cc23d6f",
+    "apps/desktop/mygo/transport.go": "89ccc40e17c3d2524ae17f04457b15bf6d9be787f57e651b625765ce76614dff"
+  }
+}

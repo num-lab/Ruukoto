@@ -6,21 +6,21 @@
  * 只有发往客户端的载荷经这里的有界视图转换：
  * - 大参数对象 → 结构保留的预览（长字符串截断并标注），完整序列化正文经
  *   get_confirmation_params / get_tool_op_params 按 ID 分段读取；
- * - 运行中输出增量与思考文本在源头（Driver）已按 FRAGMENT_TEXT_CAP 有界化。
+ * - 运行中正文与思考在源头按 FRAGMENT_TEXT_CAP 分块，不限制完整内容长度。
  */
 
 import type { ConfirmationRequest, PersistentEvent, Task, ToolOp } from "./types.ts";
 
 export type InputPurpose = "user" | "internal_report";
 
-/** 用途由宿主持久绑定派生，不写入任务存储或采信客户端字段。 */
-export type TaskView = Task & { inputPurpose: InputPurpose; wait?: import("./agent-wait.ts").AgentWaitView; resourcePhase?: "execution" | "conversation"; reportParked?: boolean };
+/** 用途由宿主持久绑定派生，不采信客户端字段；displayInput 仅任务详情携带，不改任务或历史原文。 */
+export type TaskView = Task & { inputPurpose: InputPurpose; displayInput?: string; wait?: import("./agent-wait.ts").AgentWaitView; resourcePhase?: "execution" | "conversation"; reportParked?: boolean };
 
 /** 事件与查询应答中内联参数的上限（序列化字节）。 */
 export const PARAMS_INLINE_CAP = 8 * 1024;
 /** 预览对象中单个字符串的上限（字符）。 */
 export const PARAMS_PREVIEW_STRING_CAP = 256;
-/** 运行中输出增量及思考文本尾部的上限（字节）。 */
+/** 正文与思考单个增量的上限（字节）。 */
 export const FRAGMENT_TEXT_CAP = 8 * 1024;
 /** 历史/参数等分段读取的默认页大小与上限。 */
 export const SEGMENT_DEFAULT_BYTES = 64 * 1024;

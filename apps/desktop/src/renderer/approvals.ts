@@ -4,7 +4,7 @@ import type { ViewState } from "@ruukoto/view/state.ts";
 import { utf8ByteLength } from "@ruukoto/view/utf8.ts";
 import type { DesktopBridge, DesktopFailure, DesktopTarget, DesktopUpdate } from "../shared/bridge.ts";
 
-interface ApprovalDetail { text: string; complete: boolean; loading: boolean; error?: string }
+interface ApprovalDetail { version: number; text: string; complete: boolean; loading: boolean; error?: string }
 interface Decision { instanceId: string; taskId: string; version: number }
 class ApprovalFailure extends Error {
   constructor(readonly failure: DesktopFailure) { super(failure.message); }
@@ -30,6 +30,10 @@ export class DesktopApprovals {
       this.seq = Math.max(this.seq, update.event.seq);
       for (const id of this.decisions.keys()) if (!this.view.pendingApprovals().some(item => item.id === id)) this.decisions.delete(id);
     }
+    for (const [id, detail] of this.details) {
+      const approval = this.view.pendingApprovals().find(item => item.id === id);
+      if (!approval || approval.permissionVersion !== detail.version) this.details.delete(id);
+    }
     if (update.type !== "snapshot") return;
     ++this.generation;
     this.seq = update.result.seq;
@@ -50,7 +54,7 @@ export class DesktopApprovals {
     if (!this.view.pendingApprovals().some(item => item.id === id) || this.details.get(id)?.loading) return;
     const generation = this.generation;
     const version = this.view.pendingApprovals().find(item => item.id === id)!.permissionVersion;
-    const detail: ApprovalDetail = { text: "", complete: false, loading: true };
+    const detail: ApprovalDetail = { version, text: "", complete: false, loading: true };
     this.details.set(id, detail);
     this.changed();
     let offset = 0;
@@ -78,14 +82,14 @@ export class DesktopApprovals {
   }
   async respond(approval: ConfirmationRequestView, decision: "approve" | "reject"): Promise<void> {
     const current = this.view.pendingApprovals().find(item => item.id === approval.id);
-    if (!current || current.permissionVersion !== approval.permissionVersion || this.decisions.has(approval.id) || !this.details.get(approval.id)?.complete) return;
+    if (!current || current.permissionVersion !== approval.permissionVersion || this.decisions.has(approval.id) || !this.details.get(approval.id)?.complete || this.details.get(approval.id)?.version !== approval.permissionVersion) return;
     const generation = this.generation;
     const bound: Decision = { instanceId: this.view.instanceId!, taskId: approval.taskId, version: approval.permissionVersion };
     this.decisions.set(approval.id, bound);
     this.changed();
     try {
       await this.request("respond_confirmation", { confirmation_id: approval.id, permission_version: bound.version, decision });
-      if (generation === this.generation) { this.report("决定已接收，等待后台事件更新审批状态。"); }
+      if (generation === this.generation) { this.remove(approval.id); this.decisions.delete(approval.id); this.changed(); }
     } catch (error) {
       if (generation !== this.generation) return;
       const failure = error instanceof ApprovalFailure ? error.failure : { code: "ipc_failed", outcome: "unknown", message: "审批应答未收到" };

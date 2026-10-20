@@ -33,6 +33,7 @@ export function fakeSnapshot(overrides: Partial<ConnectResult["snapshot"]> = {})
     instanceId: "inst-1",
     execution: { backend: "local", note: "local 执行后端：无隔离" },
     defaultModel: { provider: "mock", id: "mock-model", name: "Mock", thinkingLevel: "off" },
+    mainSessionId: null,
     ...overrides,
   };
 }

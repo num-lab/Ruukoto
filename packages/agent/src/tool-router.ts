@@ -19,6 +19,7 @@ import { Type } from "typebox";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { AccessMode, ApprovalScope, GrantedPath, Session, Task, Artifact } from "@ruukoto/core/types.ts";
 import { GIT_SAFE_DIRECTORY_ENV, taskWorkspaceFor } from "@ruukoto/core/worktree.ts";
+import { verifyDirIdentitySync } from "@ruukoto/core/dir-identity.ts";
 import type { Store } from "@ruukoto/core/store.ts";
 import type { ApprovalGate } from "./approval-gate.ts";
 import { hasNoWriteEffect, type ToolOpLedger } from "./tool-op-ledger.ts";
@@ -213,7 +214,9 @@ export class ToolRouter {
     }
     // Note: 见 .agents/notes/implemented/architecture/2026-10-10-native-execution-sandbox.md
     // Note: 见 .agents/notes/implemented/architecture/2026-10-12-personal-native-sandbox.md
-    base.workspaceIdentity = { dev: ws.dev, ino: ws.ino };
+    // Note: 见 .agents/notes/implemented/bug-fix/2026-10-18-directory-device-number.md
+    const currentWorkspace = verifyDirIdentitySync({ cwd: ws.path, cwdReal: ws.path, dev: ws.dev, ino: ws.ino });
+    base.workspaceIdentity = { dev: currentWorkspace.dev, ino: currentWorkspace.ino };
     const readRoots: Array<{ path: string; dev?: number; ino?: number }> = [];
     for (const root of protectedSource) {
       const st = fs.statSync(root);
@@ -869,7 +872,7 @@ export function createCodingTools(router: ToolRouter): ToolDefinition[] {
   const readArtifact = routedTool({
     name: ARTIFACT_TOOL_NAME,
     label: ARTIFACT_TOOL_NAME,
-    description: "按产物 id、偏移和长度读取本任务已捕获的工具完整正文。",
+    description: "按产物 id、偏移和长度读取已授权的工具完整正文或用户附件。文本可用 utf8，二进制可用 base64。",
     parameters: Type.Object({
       artifact_id: Type.String({ description: "产物 id（见工具结果中的 artifact 引用）" }),
       offset: Type.Optional(Type.Number({ description: "起始字节，默认 0" })),

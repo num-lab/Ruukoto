@@ -1,0 +1,451 @@
+{
+  "phase": "ui",
+  "service": [
+    {
+      "phase": "baseline",
+      "workspaceId": "proj_25fa97bd806a0cb4da536b9a",
+      "path": "",
+      "elapsedMs": 881.124,
+      "count": 30,
+      "at": "2026-10-16T18:02:51.223Z"
+    },
+    {
+      "phase": "baseline",
+      "workspaceId": "proj_25fa97bd806a0cb4da536b9a",
+      "path": "",
+      "elapsedMs": 841.995,
+      "count": 30,
+      "at": "2026-10-16T18:02:52.066Z"
+    },
+    {
+      "phase": "baseline",
+      "workspaceId": "proj_25fa97bd806a0cb4da536b9a",
+      "path": "",
+      "elapsedMs": 742.587,
+      "count": 30,
+      "at": "2026-10-16T18:02:52.808Z"
+    },
+    {
+      "phase": "baseline",
+      "workspaceId": "proj_25fa97bd806a0cb4da536b9a",
+      "path": "",
+      "elapsedMs": 559.929,
+      "count": 30,
+      "at": "2026-10-16T18:02:53.369Z"
+    },
+    {
+      "phase": "baseline",
+      "workspaceId": "proj_25fa97bd806a0cb4da536b9a",
+      "path": "",
+      "elapsedMs": 550.182,
+      "count": 30,
+      "at": "2026-10-16T18:02:53.920Z"
+    },
+    {
+      "phase": "baseline",
+      "workspaceId": "proj_25fa97bd806a0cb4da536b9a",
+      "path": "",
+      "elapsedMs": 525.209,
+      "count": 30,
+      "at": "2026-10-16T18:02:54.445Z"
+    },
+    {
+      "phase": "baseline",
+      "workspaceId": "proj_25fa97bd806a0cb4da536b9a",
+      "path": "",
+      "elapsedMs": 567.334,
+      "count": 30,
+      "at": "2026-10-16T18:02:55.015Z"
+    },
+    {
+      "phase": "baseline",
+      "workspaceId": "proj_25fa97bd806a0cb4da536b9a",
+      "path": "",
+      "elapsedMs": 808.57,
+      "count": 30,
+      "at": "2026-10-16T18:02:55.823Z"
+    },
+    {
+      "phase": "baseline",
+      "workspaceId": "proj_25fa97bd806a0cb4da536b9a",
+      "path": "",
+      "elapsedMs": 906.275,
+      "count": 30,
+      "at": "2026-10-16T18:02:56.731Z"
+    },
+    {
+      "phase": "baseline",
+      "workspaceId": "proj_25fa97bd806a0cb4da536b9a",
+      "path": "",
+      "elapsedMs": 630.852,
+      "count": 30,
+      "at": "2026-10-16T18:02:57.362Z"
+    },
+    {
+      "phase": "baseline",
+      "workspaceId": "proj_25fa97bd806a0cb4da536b9a",
+      "path": "sample-dir",
+      "elapsedMs": 525.466,
+      "count": 200,
+      "at": "2026-10-16T18:02:57.888Z"
+    },
+    {
+      "phase": "baseline",
+      "workspaceId": "proj_25fa97bd806a0cb4da536b9a",
+      "path": "sample-dir",
+      "elapsedMs": 544.616,
+      "count": 200,
+      "at": "2026-10-16T18:02:58.433Z"
+    },
+    {
+      "phase": "baseline",
+      "workspaceId": "proj_25fa97bd806a0cb4da536b9a",
+      "path": "sample-dir",
+      "elapsedMs": 462.003,
+      "count": 200,
+      "at": "2026-10-16T18:02:58.896Z"
+    },
+    {
+      "phase": "baseline",
+      "workspaceId": "proj_25fa97bd806a0cb4da536b9a",
+      "path": "sample-dir",
+      "elapsedMs": 371.599,
+      "count": 200,
+      "at": "2026-10-16T18:02:59.268Z"
+    },
+    {
+      "phase": "baseline",
+      "workspaceId": "proj_25fa97bd806a0cb4da536b9a",
+      "path": "sample-dir",
+      "elapsedMs": 383.977,
+      "count": 200,
+      "at": "2026-10-16T18:02:59.653Z"
+    },
+    {
+      "phase": "baseline",
+      "workspaceId": "proj_25fa97bd806a0cb4da536b9a",
+      "path": "sample-dir",
+      "elapsedMs": 375.034,
+      "count": 200,
+      "at": "2026-10-16T18:03:00.028Z"
+    },
+    {
+      "phase": "baseline",
+      "workspaceId": "proj_25fa97bd806a0cb4da536b9a",
+      "path": "sample-dir",
+      "elapsedMs": 505.123,
+      "count": 200,
+      "at": "2026-10-16T18:03:00.534Z"
+    },
+    {
+      "phase": "baseline",
+      "workspaceId": "proj_25fa97bd806a0cb4da536b9a",
+      "path": "sample-dir",
+      "elapsedMs": 507.088,
+      "count": 200,
+      "at": "2026-10-16T18:03:01.042Z"
+    },
+    {
+      "phase": "baseline",
+      "workspaceId": "proj_25fa97bd806a0cb4da536b9a",
+      "path": "sample-dir",
+      "elapsedMs": 400.698,
+      "count": 200,
+      "at": "2026-10-16T18:03:01.444Z"
+    },
+    {
+      "phase": "baseline",
+      "workspaceId": "proj_25fa97bd806a0cb4da536b9a",
+      "path": "sample-dir",
+      "elapsedMs": 372.942,
+      "count": 200,
+      "at": "2026-10-16T18:03:01.817Z"
+    },
+    {
+      "phase": "baseline",
+      "workspaceId": "proj_25fa97bd806a0cb4da536b9a",
+      "path": "empty-dir",
+      "elapsedMs": 363.328,
+      "count": 0,
+      "at": "2026-10-16T18:03:02.181Z"
+    },
+    {
+      "phase": "baseline",
+      "workspaceId": "proj_25fa97bd806a0cb4da536b9a",
+      "path": "empty-dir",
+      "elapsedMs": 367.186,
+      "count": 0,
+      "at": "2026-10-16T18:03:02.548Z"
+    },
+    {
+      "phase": "baseline",
+      "workspaceId": "proj_25fa97bd806a0cb4da536b9a",
+      "path": "empty-dir",
+      "elapsedMs": 408.73,
+      "count": 0,
+      "at": "2026-10-16T18:03:02.958Z"
+    },
+    {
+      "phase": "baseline",
+      "workspaceId": "proj_25fa97bd806a0cb4da536b9a",
+      "path": "empty-dir",
+      "elapsedMs": 489.279,
+      "count": 0,
+      "at": "2026-10-16T18:03:03.447Z"
+    },
+    {
+      "phase": "baseline",
+      "workspaceId": "proj_25fa97bd806a0cb4da536b9a",
+      "path": "empty-dir",
+      "elapsedMs": 536.019,
+      "count": 0,
+      "at": "2026-10-16T18:03:03.985Z"
+    },
+    {
+      "phase": "baseline",
+      "workspaceId": "proj_25fa97bd806a0cb4da536b9a",
+      "path": "empty-dir",
+      "elapsedMs": 518.026,
+      "count": 0,
+      "at": "2026-10-16T18:03:04.503Z"
+    },
+    {
+      "phase": "baseline",
+      "workspaceId": "proj_25fa97bd806a0cb4da536b9a",
+      "path": "empty-dir",
+      "elapsedMs": 556.571,
+      "count": 0,
+      "at": "2026-10-16T18:03:05.060Z"
+    },
+    {
+      "phase": "baseline",
+      "workspaceId": "proj_25fa97bd806a0cb4da536b9a",
+      "path": "empty-dir",
+      "elapsedMs": 468.916,
+      "count": 0,
+      "at": "2026-10-16T18:03:05.530Z"
+    },
+    {
+      "phase": "baseline",
+      "workspaceId": "proj_25fa97bd806a0cb4da536b9a",
+      "path": "empty-dir",
+      "elapsedMs": 502.786,
+      "count": 0,
+      "at": "2026-10-16T18:03:06.033Z"
+    },
+    {
+      "phase": "baseline",
+      "workspaceId": "proj_25fa97bd806a0cb4da536b9a",
+      "path": "empty-dir",
+      "elapsedMs": 527.409,
+      "count": 0,
+      "at": "2026-10-16T18:03:06.561Z"
+    },
+    {
+      "phase": "ui",
+      "workspaceId": "proj_25fa97bd806a0cb4da536b9a",
+      "path": "",
+      "elapsedMs": 477.808,
+      "count": 30,
+      "at": "2026-10-16T18:04:44.837Z"
+    },
+    {
+      "phase": "ui",
+      "workspaceId": "proj_25fa97bd806a0cb4da536b9a",
+      "path": "sample-dir",
+      "elapsedMs": 489.641,
+      "count": 200,
+      "at": "2026-10-16T18:05:09.384Z"
+    },
+    {
+      "phase": "ui",
+      "workspaceId": "proj_25fa97bd806a0cb4da536b9a",
+      "path": "empty-dir",
+      "elapsedMs": 463.617,
+      "count": 0,
+      "at": "2026-10-16T18:06:00.856Z"
+    }
+  ],
+  "controlRoundTrips": [
+    {
+      "path": "",
+      "sample": 0,
+      "elapsedMs": 881.821,
+      "count": 30
+    },
+    {
+      "path": "",
+      "sample": 1,
+      "elapsedMs": 842.275,
+      "count": 30
+    },
+    {
+      "path": "",
+      "sample": 2,
+      "elapsedMs": 742.873,
+      "count": 30
+    },
+    {
+      "path": "",
+      "sample": 3,
+      "elapsedMs": 560.926,
+      "count": 30
+    },
+    {
+      "path": "",
+      "sample": 4,
+      "elapsedMs": 550.506,
+      "count": 30
+    },
+    {
+      "path": "",
+      "sample": 5,
+      "elapsedMs": 526.34,
+      "count": 30
+    },
+    {
+      "path": "",
+      "sample": 6,
+      "elapsedMs": 568.329,
+      "count": 30
+    },
+    {
+      "path": "",
+      "sample": 7,
+      "elapsedMs": 809.684,
+      "count": 30
+    },
+    {
+      "path": "",
+      "sample": 8,
+      "elapsedMs": 906.654,
+      "count": 30
+    },
+    {
+      "path": "",
+      "sample": 9,
+      "elapsedMs": 631.527,
+      "count": 30
+    },
+    {
+      "path": "sample-dir",
+      "sample": 0,
+      "elapsedMs": 525.927,
+      "count": 200
+    },
+    {
+      "path": "sample-dir",
+      "sample": 1,
+      "elapsedMs": 545.488,
+      "count": 200
+    },
+    {
+      "path": "sample-dir",
+      "sample": 2,
+      "elapsedMs": 462.334,
+      "count": 200
+    },
+    {
+      "path": "sample-dir",
+      "sample": 3,
+      "elapsedMs": 372.444,
+      "count": 200
+    },
+    {
+      "path": "sample-dir",
+      "sample": 4,
+      "elapsedMs": 384.251,
+      "count": 200
+    },
+    {
+      "path": "sample-dir",
+      "sample": 5,
+      "elapsedMs": 375.872,
+      "count": 200
+    },
+    {
+      "path": "sample-dir",
+      "sample": 6,
+      "elapsedMs": 505.759,
+      "count": 200
+    },
+    {
+      "path": "sample-dir",
+      "sample": 7,
+      "elapsedMs": 508.271,
+      "count": 200
+    },
+    {
+      "path": "sample-dir",
+      "sample": 8,
+      "elapsedMs": 400.945,
+      "count": 200
+    },
+    {
+      "path": "sample-dir",
+      "sample": 9,
+      "elapsedMs": 373.73,
+      "count": 200
+    },
+    {
+      "path": "empty-dir",
+      "sample": 0,
+      "elapsedMs": 363.545,
+      "count": 0
+    },
+    {
+      "path": "empty-dir",
+      "sample": 1,
+      "elapsedMs": 367.915,
+      "count": 0
+    },
+    {
+      "path": "empty-dir",
+      "sample": 2,
+      "elapsedMs": 408.957,
+      "count": 0
+    },
+    {
+      "path": "empty-dir",
+      "sample": 3,
+      "elapsedMs": 490.448,
+      "count": 0
+    },
+    {
+      "path": "empty-dir",
+      "sample": 4,
+      "elapsedMs": 536.259,
+      "count": 0
+    },
+    {
+      "path": "empty-dir",
+      "sample": 5,
+      "elapsedMs": 518.912,
+      "count": 0
+    },
+    {
+      "path": "empty-dir",
+      "sample": 6,
+      "elapsedMs": 556.83,
+      "count": 0
+    },
+    {
+      "path": "empty-dir",
+      "sample": 7,
+      "elapsedMs": 469.747,
+      "count": 0
+    },
+    {
+      "path": "empty-dir",
+      "sample": 8,
+      "elapsedMs": 503.08,
+      "count": 0
+    },
+    {
+      "path": "empty-dir",
+      "sample": 9,
+      "elapsedMs": 528.642,
+      "count": 0
+    }
+  ]
+}

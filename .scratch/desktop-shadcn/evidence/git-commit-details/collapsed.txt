@@ -1,0 +1,155 @@
+Browser tab: 4, Title: "Ruukoto · Desktop UI Demo", URL: "http://127.0.0.1:5173/".
+1 AXWebArea Ruukoto · Desktop UI Demo, URL: 127.0.0.1:5173/
+	2 container root
+		3 container
+			4 container Description: 工作区导航, ID: left-sidebar
+				5 button 收起侧栏
+					6 image
+				7 button Ruukoto
+				8 text 工作区
+				9 button (collapsed) Description: 筛选工作区与会话, Secondary Actions: Expand
+					10 image
+				11 button 添加工作区
+					12 image
+				13 container
+					14 button (expanded) nexus-runtime, Secondary Actions: Collapse
+						15 image
+						16 image
+						17 text nexus-runtime
+					18 button 在 nexus-runtime 新建会话
+						19 image
+					20 container radix-_r_0_
+						21 button MCP stdio connection pool & backoff
+						22 button Zero-copy ring buffer for JSON-RPC
+				23 container
+					24 button (expanded) fumotravel-web, Secondary Actions: Collapse
+						25 image
+						26 image
+						27 text fumotravel-web
+					28 button 在 fumotravel-web 新建会话
+						29 image
+					30 container radix-_r_1_
+						31 button Offline IndexedDB sync for Shinkansen pass
+						32 button Tokyo JST departure time hydration fix
+				33 container
+					34 button (collapsed) eval-harness, Secondary Actions: Expand
+						35 image
+						36 image
+						37 text eval-harness
+					38 button 在 eval-harness 新建会话
+						39 image
+				40 container
+					41 button (collapsed) macos-menubar-kit, Secondary Actions: Expand
+						42 image
+						43 image
+						44 text macos-menubar-kit
+					45 button 在 macos-menubar-kit 新建会话
+						46 image
+				47 pop up button (collapsed) Description: 设置, Secondary Actions: Expand
+					48 image
+				49 splitter Description: 左侧栏宽度, Value: 200
+			50 tab group 已打开的会话
+				51 container
+					52 tab (selected, settable, boolean) Offline IndexedDB sync for Shinkansen pass, Value: 1, ID: radix-_r_7_-trigger-sess-ft-1
+					53 button 关闭Offline IndexedDB sync for Shinkansen pass
+						54 image
+				55 container
+					56 tab (selectable, settable, boolean) MCP stdio connection pool & backoff, Value: 0, ID: radix-_r_7_-trigger-sess-nx-1
+					57 button 关闭MCP stdio connection pool & backoff
+						58 image
+				59 container
+					60 tab (selectable, settable, boolean) Tokyo JST departure time hydration fix, Value: 0, ID: radix-_r_7_-trigger-sess-ft-2
+					61 button 关闭Tokyo JST departure time hydration fix
+						62 image
+			100 container
+				101 tab group 右侧标签
+					102 container
+						103 tab (selectable, settable, boolean) indexeddb.ts, ID: radix-_r_b_-trigger-src/lib/sync/indexeddb.ts, Value: 0
+indexeddb.ts
+						104 button 关闭右栏indexeddb.ts
+							105 image
+					106 container
+						107 tab (selectable, settable, boolean) Schema Auditor, ID: radix-_r_b_-trigger-ag-ft-1, Value: 0
+Schema Auditor
+						108 button 关闭右栏Schema Auditor
+							109 image
+					110 container
+						111 tab (selected, settable, boolean) Git graph, ID: radix-_r_b_-trigger-git:ws-fumo, Value: 1
+Git graph
+						112 button 关闭右栏Git graph
+							113 image
+				114 button 右栏新标签
+					115 image
+				116 button 收起右栏
+					117 image
+			65 container
+				66 container 会话消息
+					67 container
+						68 text Cache reserved Shinkansen seat segments in IndexedDB so travelers in mountain tunnels can view QR boarding passes offline, and reconcile CRDT timestamps on reconnect.
+						69 button Schema Auditor HLC clock verified
+							70 text Schema Auditor
+							71 text HLC clock verified
+						72 button (collapsed) Read files, edited files · 2.1s, Secondary Actions: Expand
+							73 text Read files, edited files
+							74 text ·
+							75 text 2.1s
+						76 container
+							77 text Added Hybrid Logical Clock (HLC) reconciliation in
+							78 link Description: src/lib/sync/indexeddb.ts, Value: 127.0.0.1:5173/#right-sidebar
+							79 text  and surfaced an understated offline indicator inside
+							80 link Description: src/components/PassTimeline.tsx, Value: 127.0.0.1:5173/#right-sidebar
+							81 text  when reading from cached tunnel state.
+						82 container 命令审批
+							83 text 在工作区运行命令
+							84 button 拒绝
+							85 button 批准
+							86 container
+								87 text $  pnpm test:unit src/lib/sync/indexeddb.spec.ts
+							88 text Validate CRDT merge ordering after offline tunnel reconnect
+				89 text entry area (settable) 输入消息
+				90 button 附加文件
+					91 image
+				92 combo box (collapsed) Description: 会话默认模式, Value: Auto review, Secondary Actions: Expand
+					93 text Auto review
+				94 button 上下文使用量
+				95 pop up button (collapsed) Description: 会话模型, ID: radix-_r_g_, Secondary Actions: Expand
+					118 image
+				98 button (disabled) 发送消息
+					99 image
+			119 container Description: 检查器, ID: right-sidebar
+				120 container Git graph
+					121 image
+					122 text fumotravel-web
+					123 text 只读样例
+					124 container Git 提交历史
+						125 content list
+							126 container
+								127 text 父提交：7d2c9b4、c24d8e6
+								128 button (collapsed) HEAD → main Merge offline pass caching, Secondary Actions: Expand
+									129 text HEAD →
+									130 text main
+									131 text Merge offline pass caching
+							132 container
+								133 text 父提交：e68b2a9
+								134 button (collapsed) origin/main Keep departure times in Asia/Tokyo, Secondary Actions: Expand
+									135 text origin/main
+									136 text Keep departure times in Asia/Tokyo
+							137 container
+								138 text 父提交：4b7a1d0
+								139 button (collapsed) Refine the pass timeline, Secondary Actions: Expand
+							140 container
+								141 text 父提交：4b7a1d0
+								142 button (collapsed) offline-cache Reconcile HLC timestamps on reconnect, Secondary Actions: Expand
+									143 text offline-cache
+									144 text Reconcile HLC timestamps on reconnect
+							145 container
+								146 text 父提交：18f03c2
+								147 button (collapsed) v0.3.0 Cache reserved seat segments, Secondary Actions: Expand
+									148 text v0.3.0
+									149 text Cache reserved seat segments
+							150 container
+								151 text 根提交
+								152 button (collapsed) Create Fumotravel workspace, Secondary Actions: Expand
+				153 splitter Description: 右侧栏宽度, Value: 310
+
+The focused UI element is 1 AXWebArea Ruukoto · Desktop UI Demo, URL: 127.0.0.1:5173/

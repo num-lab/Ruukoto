@@ -1,64 +1,74 @@
-import { useEffect, useRef, useState } from "react";
+// Note: 见 .agents/notes/implemented/bug-fix/2026-10-17-desktop-transcript-rendering.md
+import { Fragment, useMemo, useRef, useState } from "react";
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { FlowEntry } from "@ruukoto/view/event-flow.ts";
-import { formatTaskStatus } from "@ruukoto/view/state.ts";
 import type { CodeState } from "./code-state.ts";
-import { isDiffTool } from "./diff.ts";
+import { isDiffTool, type DiffTool } from "./diff.ts";
+import { conversationActivity, conversationSections, executionDuration, isAgentTool } from "./activity.ts";
+import { AgentActivity, ExecutionTrace, ToolActivity } from "./tool-activity.tsx";
+import { ApprovalCards } from "./approval-cards.tsx";
+import { Bubble, BubbleContent } from "./components/ui/bubble.tsx";
+import { Message, MessageContent } from "./components/ui/message.tsx";
+import { MessageScroller, MessageScrollerContent, MessageScrollerItem, MessageScrollerProvider, MessageScrollerViewport } from "./components/ui/message-scroller.tsx";
 
-// Note: 见 .agents/notes/proposed/architecture/2026-10-15-desktop-client.md
-// file 页面中的相对图片也能指向工作区；图片仅显示说明，避免绕过控制面读取本机文件。
-const markdownComponents: Components = { img: ({ alt }) => <span className="muted">[图片{alt ? `：${alt}` : ""}]</span> };
-
-function Thinking({ entry }: { entry: Extract<FlowEntry, { kind: "thinking" }> }) {
-  const [now, setNow] = useState(Date.now());
-  useEffect(() => {
-    if (entry.endedAt) return;
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, [entry.endedAt]);
-  const seconds = Math.max(0, Math.round(((entry.endedAt ? Date.parse(entry.endedAt) : now) - Date.parse(entry.startedAt)) / 1000));
-  return <details className="thinking"><summary>{entry.endedAt ? "思考" : "正在思考"} · {seconds} 秒</summary><div className="markdown"><Markdown skipHtml remarkPlugins={[remarkGfm]} components={markdownComponents}>{entry.text}</Markdown></div></details>;
+function MessageEntry({ model, sessionId, entry, child, tools, toolCount, referencesKey }: { model: CodeState; sessionId: string; entry: Extract<FlowEntry, { kind: "message" }>; child: boolean; tools: DiffTool[]; toolCount: number; referencesKey: string }) {
+  const text = child && entry.role === "user" && entry.taskId ? model.view.tasks.get(entry.taskId)?.displayInput ?? entry.text : entry.text;
+  const markdown = useMemo(() => {
+    const components: Components = {
+      img: ({ alt }) => <span className="text-muted-foreground">[图片{alt ? `：${alt}` : ""}]</span>,
+      code: ({ className, children }) => {
+        const path = String(children);
+        let diff: DiffTool | undefined;
+        if (model.target === "code" && !className) for (let index = toolCount - 1; index >= 0; index--) if (tools[index].target === path) { diff = tools[index]; break; }
+        const code = <code className={className ?? "relative rounded bg-muted px-[0.3rem] py-[0.1rem] font-mono text-[13px] font-normal wrap-anywhere"}>{diff ? path.split("/").map((segment, index) => <Fragment key={index}>{index > 0 && "/"}{index > 0 && <wbr />}{segment}</Fragment>) : children}</code>;
+        return diff ? <a className="file-reference" href="#right-sidebar" onClick={event => { event.preventDefault(); const current = model.view.openSession(sessionId).flow.items.find(item => item.key === diff.key); if (current?.kind === "tool") model.inspector.openDiff(sessionId, current); }}>{code}</a> : code;
+      },
+    };
+    return <div className="markdown"><Markdown skipHtml remarkPlugins={[remarkGfm]} components={components}>{text}</Markdown></div>;
+  }, [text, model, sessionId, referencesKey]);
+  const content = <>{markdown}{entry.attachments?.map(attachment => <div key={attachment.id}>［附件：{attachment.name}］</div>)}</>;
+  return <Message align={entry.role === "user" ? "end" : "start"}><MessageContent>{entry.role === "user" ? <Bubble variant="muted" align="end"><BubbleContent>{content}</BubbleContent></Bubble> : content}</MessageContent></Message>;
 }
-function Message({ entry }: { entry: Extract<FlowEntry, { kind: "message" }> }) {
-  return <article className={`message message-${entry.role}`}><div className="message-role">{entry.role === "user" ? "你" : "Ruukoto"}{entry.streaming && <span> · 正在输出</span>}</div><div className="markdown"><Markdown skipHtml remarkPlugins={[remarkGfm]} components={markdownComponents}>{entry.text}</Markdown></div>{entry.truncated && <p className="muted">正文尚未完整加载</p>}</article>;
-}
-export function Conversation({ model, sessionId }: { model: CodeState; sessionId: string }) {
+// Note: 见 .agents/notes/implemented/architecture/2026-10-16-desktop-trace-migration.md
+export function Conversation({ model, sessionId, child = false }: { model: CodeState; sessionId: string; child?: boolean }) {
   const scroll = useRef<HTMLDivElement>(null);
-  const following = useRef(true);
-  const items = model.view.openSession(sessionId).flow.items;
-  const groups: FlowEntry[][] = [];
+  const loadingOlder = useRef(false);
+  const session = model.view.openSession(sessionId);
+  const items = session.flow.items;
+  const { timeline, activeKey, phase } = conversationActivity(model.view, sessionId, model.status.state === "online", items);
+  const diffTools: DiffTool[] = [];
+  const references = new Map<string, { count: number; key: string }>();
+  let referencesKey = "";
   for (const item of items) {
-    if (item.kind === "tool" && groups.at(-1)?.at(-1)?.kind === "tool") groups.at(-1)!.push(item);
-    else groups.push([item]);
+    if (item.kind === "tool" && isDiffTool(item) && model.target === "code") {
+      diffTools.push(item);
+      referencesKey += JSON.stringify([item.key, item.entryId, item.name, item.target]);
+    } else if (item.kind === "message") references.set(item.key, { count: diffTools.length, key: referencesKey });
   }
-  useEffect(() => {
-    const container = scroll.current;
-    if (container && following.current) container.scrollTop = container.scrollHeight;
-  });
+  const taskId = model.view.activeTaskFor(sessionId)?.id;
+  const sections = conversationSections(model.view, items, timeline, phase && !activeKey && taskId ? { taskId, phase } : undefined, id => model.historyReady(sessionId, id));
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const onExpand = (key: string, open: boolean) => setExpanded(items => ({ ...items, [key]: open }));
   const older = async () => {
-    const container = scroll.current;
-    if (!container) return;
-    following.current = false;
-    const height = container.scrollHeight;
-    const top = container.scrollTop;
-    await model.loadHistory(sessionId, "prepend");
-    requestAnimationFrame(() => { if (scroll.current === container) container.scrollTop = top + container.scrollHeight - height; });
+    if (!session.historyCursor || loadingOlder.current) return;
+    loadingOlder.current = true;
+    try { await model.loadHistory(sessionId, "prepend"); }
+    finally { loadingOlder.current = false; }
   };
-  return <div ref={scroll} className="conversation" onScroll={() => {
+  return <MessageScrollerProvider autoScroll defaultScrollPosition="start"><MessageScroller className={child ? "conversation subagent-conversation" : "conversation"}><MessageScrollerViewport ref={scroll} className={child ? "child-scroll selectable-text" : "stream-scroll selectable-text"} preserveScrollOnPrepend aria-label={child ? "子 Agent 消息" : "会话消息"} onScroll={() => {
     const container = scroll.current!;
-    following.current = container.scrollHeight - container.scrollTop - container.clientHeight < 60;
-  }}><div className="conversation-content">
-    {model.view.openSession(sessionId).historyCursor && <button className="load-older" onClick={() => void older()}>加载更早的记录</button>}
-    {groups.map(group => {
-      const entry = group[0];
-      if (entry.kind === "message") return <Message key={entry.key} entry={entry} />;
-      if (entry.kind === "thinking") return <Thinking key={entry.key} entry={entry} />;
-      if (entry.kind === "tool") return <details className="tool-group" key={entry.key}><summary>工具活动 · {group.length} 项{group.some(item => item.kind === "tool" && item.status === "running") ? " · 执行中" : ""}</summary>{group.map(item => item.kind === "tool" && <div className="tool-row" key={item.key}><div>{isDiffTool(item) ? <button className="diff-link" onClick={() => model.inspector.openDiff(sessionId, item)}>{item.name} · 查看差异</button> : <strong>{item.name}</strong>}<span className={`tool-status ${item.status}`}>{{ running: "执行中", done: "已完成", error: "失败", effect_unknown: "效果未知" }[item.status]}</span></div><pre>{item.target}</pre>{item.summary && <pre>{item.summary}</pre>}</div>)}</details>;
-      if (entry.kind === "task") return <p className="task-status" key={entry.key}>{formatTaskStatus(entry.task.status)}{entry.task.errorMessage && ` · ${entry.task.errorMessage}`}</p>;
-      if (entry.kind === "note") return <p className="flow-note" key={entry.key}>{entry.text}</p>;
-      return null;
+    if (container.scrollTop < 40) void older();
+  }}><MessageScrollerContent className={`${child ? "subagent-stream" : "agent-stream"} native-message-stream selectable-text`}>
+    {sections.map(section => {
+      const contents = section.groups.map(group => {
+        const entry = group[0];
+        return <Fragment key={entry.key}>{entry.kind === "message" ? <MessageEntry model={model} sessionId={sessionId} entry={entry} child={child} tools={diffTools} toolCount={references.get(entry.key)!.count} referencesKey={references.get(entry.key)!.key} /> : entry.kind === "tool" || entry.kind === "thinking" ? entry.kind === "tool" && isAgentTool(entry) && entry.status !== "error" && entry.status !== "effect_unknown" && entry.key !== activeKey ? <AgentActivity model={model} tool={entry} /> : <ToolActivity model={model} sessionId={sessionId} tools={group.filter((item): item is DiffTool => item.kind === "tool")} thinking={group.find((item): item is Extract<FlowEntry, { kind: "thinking" }> => item.kind === "thinking")} phase={entry.key === activeKey ? phase : undefined} expanded={expanded} onExpand={onExpand} /> : entry.kind === "task" && entry.task.errorMessage ? <p className="text-muted-foreground" role="alert">{entry.task.errorMessage}</p> : null}</Fragment>;
+      });
+      const hasTrace = section.tailPhase || section.groups.some(group => group[0].kind === "tool" || group[0].kind === "thinking");
+      const failed = section.groups.some(group => group.some(item => item.kind === "tool" && (item.status === "error" || model.inspector.toolResult(sessionId, item)?.value?.isError === true)));
+      return <MessageScrollerItem key={section.key} messageId={section.key} className={hasTrace ? "trace-step" : undefined}>{hasTrace ? <ExecutionTrace stateKey={`${sessionId}:${section.key}`} completed={section.completed} failed={failed} duration={executionDuration(model.view.tasks.get(section.taskId ?? "")?.startedAt, model.view.tasks.get(section.taskId ?? "")?.endedAt)} expanded={expanded} onExpand={onExpand}>{contents}{section.tailPhase && <ToolActivity model={model} sessionId={sessionId} tools={[]} phase={section.tailPhase} expanded={expanded} onExpand={onExpand} />}</ExecutionTrace> : contents}</MessageScrollerItem>;
     })}
-    {items.length === 0 && <p className="conversation-empty muted">{model.view.openSession(sessionId).historyLoaded ? "还没有对话记录。" : "正在加载会话…"}</p>}
-  </div></div>;
+    <ApprovalCards model={model} sessionId={sessionId} />
+  </MessageScrollerContent></MessageScrollerViewport>{items.length === 0 && !child && !session.historyLoaded && <div className="new-session-empty pointer-events-none absolute inset-x-6 top-3" role="status">正在加载会话…</div>}</MessageScroller></MessageScrollerProvider>;
 }

@@ -1,0 +1,24 @@
+{
+  "base": "6afb20a3f06143355f6eb5f664ddcbf5c275d621",
+  "frozen": {
+    "approved-demo": {
+      "files": 23,
+      "mismatches": []
+    },
+    "approved-demo-v2": {
+      "files": 41,
+      "mismatches": []
+    }
+  },
+  "files": {
+    ".scratch/desktop-shadcn/demo/src/app.tsx": "ca866e0774dd6ee1e536121a54f44964a9bd773a19bf45bcb35490e8aa02e9b7",
+    ".scratch/desktop-shadcn/demo/src/inspector-panels.tsx": "1cafd1aa72b4cf595cc40a06e586151db6332a5f1b134041ded4642d1ede2eb1",
+    ".scratch/desktop-shadcn/demo/src/source-highlighting.ts": "f1874f92d5e1ca39c8245c8930060fe738243b7f2492ccd56eee3d1493a2c4af",
+    ".scratch/desktop-shadcn/demo/src/style.css": "6b18063092a524fe0176d5e1eb0aaf11fd375de91af84e65a9b0e1424e541f40",
+    ".scratch/desktop-shadcn/demo/src/theme.css": "8ad6f91a0a546436cadc01bf8e61a47a649c7cf4aa78d3a4154283761d4a43c1",
+    ".scratch/desktop-shadcn/demo/scripts/check-render.mjs": "e76655e65e35593541dd5de12b1f64bef475eb73bec3bb7984d4cda2e25e0b9d",
+    ".scratch/desktop-shadcn/demo/scripts/check-inspector.mjs": "eea6dfdd749aa4360eb2c566adcca090450cfeaea90011de8d8184a22aaae81a",
+    ".scratch/desktop-shadcn/demo/package.json": "a9861ec5b238b70c19b0df5694c735ca4ce2a4ec5dacd65384408b6c545d3e9b",
+    ".scratch/desktop-shadcn/demo/package-lock.json": "06658715c017005030781771d770fe1cc4ac7b64c56cf592e43e595ee53d51d0"
+  }
+}

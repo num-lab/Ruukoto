@@ -1,0 +1,15 @@
+{
+  "tree": {
+    "heading": "14px",
+    "row": "14px"
+  },
+  "source": {
+    "codeFont": "14px",
+    "codeLine": "23.8px",
+    "gutterFont": "12px",
+    "gutterLine": "23.8px",
+    "highlighted": 36,
+    "sourceFont": "14px",
+    "sourceLine": "23.8px"
+  }
+}

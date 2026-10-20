@@ -1,3 +1,4 @@
+import type { AttachmentMetadata } from "@ruukoto/core/attachments.ts";
 import { utf8ByteLength } from "./utf8.ts";
 import type { TaskView as Task } from "@ruukoto/core/views.ts";
 import type { PersistentEvent } from "@ruukoto/core/types.ts";
@@ -13,7 +14,7 @@ interface FlowPosition {
 }
 
 export type FlowEntry = FlowPosition & (
-  | { kind: "message"; role: string; text: string; entryId: string | null; totalBytes: number; truncated: boolean; streaming: boolean }
+  | { kind: "message"; role: string; text: string; entryId: string | null; totalBytes: number; truncated: boolean; streaming: boolean; attachments?: AttachmentMetadata[] }
   | { kind: "thinking"; text: string; startedAt: string; endedAt: string | null }
   | { kind: "tool"; toolOpId: string | null; toolCallId: string | null; name: string; params: Record<string, unknown>; target: string; status: "running" | "done" | "error" | "effect_unknown"; summary: string | null; editStats?: { added: number; removed: number }; entryId: string | null; paramsTruncated: boolean; artifactIds: string[] }
   | { kind: "command"; line: string; result: string | null; isError: boolean }
@@ -100,6 +101,8 @@ export class EventFlow {
       this.entries.set(key, { key, taskId: task.id, kind: "task", task, at: task.endedAt ?? task.startedAt ?? task.createdAt, seq: Number.MAX_SAFE_INTEGER });
     }
     const inputKey = `input:${task.id}`;
+    const pendingInput = this.entries.get(inputKey);
+    if (task.input.trim() && pendingInput?.kind === "message" && pendingInput.entryId === null && pendingInput.text === "") { pendingInput.text = task.input; pendingInput.totalBytes = utf8ByteLength(task.input); }
     if (task.inputPurpose === "internal_report") this.entries.delete(inputKey);
     else if (task.input.trim() && !this.entries.has(inputKey)) {
       this.entries.set(inputKey, { key: inputKey, taskId: task.id, kind: "message", role: "user", text: task.input, at: task.createdAt, seq: -1,
@@ -147,6 +150,15 @@ export class EventFlow {
   apply(event: PersistentEvent): void {
     const body = event.body;
     switch (body.type) {
+      case "task.attachments": {
+        const key = `input:${body.taskId}`;
+        const old = this.entries.get(key);
+        const task = this.tasks.get(body.taskId);
+        const attachments = body.attachments.map(ref => ({ id: ref.id, name: ref.name, size: ref.size }));
+        if (old?.kind === "message") old.attachments = attachments;
+        else this.entries.set(key, { key, taskId: body.taskId, kind: "message", role: "user", text: task?.input ?? "", at: task?.createdAt ?? event.createdAt, seq: -1, entryId: null, totalBytes: utf8ByteLength(task?.input ?? ""), truncated: false, streaming: false, attachments });
+        return;
+      }
       case "workflow.changed":
       case "workflow.step":
       case "workflow.execution": {
@@ -163,10 +175,32 @@ export class EventFlow {
       }
       case "task.thinking": {
         const key = `thinking:${body.thinkingId}`;
-        if (event.seq <= (this.versions.get(key) ?? -1)) return;
-        this.versions.set(key, event.seq);
-        this.entries.set(key, { key, kind: "thinking", taskId: body.taskId, at: body.startedAt, seq: this.entries.get(key)?.seq ?? event.seq,
-          text: body.text, startedAt: body.startedAt, endedAt: body.endedAt ?? this.tasks.get(body.taskId)?.endedAt ?? null });
+        const latest = event.seq > (this.versions.get(key) ?? -1);
+        const current = this.entries.get(key);
+        let text = body.text;
+        if (body.offset !== undefined) {
+          let stream = this.streams.get(key);
+          if (!stream) {
+            stream = { text: "", bytes: 0, pending: new Map() };
+            this.streams.set(key, stream);
+          }
+          if (body.offset >= stream.bytes && (body.text || !stream.pending.has(body.offset))) stream.pending.set(body.offset, body.text);
+          while (stream.pending.has(stream.bytes)) {
+            const chunk = stream.pending.get(stream.bytes)!;
+            stream.pending.delete(stream.bytes);
+            stream.text += chunk;
+            stream.bytes += utf8ByteLength(chunk);
+            if (!chunk) break;
+          }
+          text = stream.text;
+        } else {
+          if (!latest) return;
+          this.streams.delete(key);
+        }
+        if (latest) this.versions.set(key, event.seq);
+        const stage = !latest && current?.kind === "thinking" ? current : body;
+        this.entries.set(key, { key, kind: "thinking", taskId: body.taskId, at: stage.startedAt, seq: Math.min(current?.seq ?? event.seq, event.seq),
+          text, startedAt: stage.startedAt, endedAt: stage.endedAt ?? this.tasks.get(body.taskId)?.endedAt ?? null });
         return;
       }
       case "task.output_fragment": {
@@ -315,7 +349,7 @@ export class EventFlow {
     this.entries.set(key, { key, kind: "message", role: history.role, taskId,
       at: old?.at || history.timestamp, seq: old?.seq ?? ref?.seq ?? 0,
       text: keepFull && old.kind === "message" ? old.text : history.text,
-      entryId: history.entryId, totalBytes: history.totalBytes, truncated: keepFull ? false : history.truncated, streaming: false });
+      entryId: history.entryId, totalBytes: history.totalBytes, truncated: keepFull ? false : history.truncated, streaming: false, ...(history.attachments ? { attachments: history.attachments } : old?.kind === "message" && old.attachments ? { attachments: old.attachments } : {}) });
   }
 
   /** 正常分段保持原顺序；缺失或异常 delta 时以完整 JSONL 正文纠正显示。 */

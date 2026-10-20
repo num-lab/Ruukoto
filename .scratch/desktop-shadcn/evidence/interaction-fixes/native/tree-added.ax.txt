@@ -1,0 +1,64 @@
+Window: "Ruukoto MyGo", App: Ruukoto Regression QA.
+0 standard window Ruukoto MyGo, Secondary Actions: Raise
+	1 scroll area
+		2 HTML content Description: Ruukoto, URL: mygo://localhost/
+			3 container 工作区导航
+				4 button 收起侧栏
+				5 button Ruukoto
+				6 text 工作区
+				7 button (collapsed) 筛选工作区与会话, Secondary Actions: Expand
+				8 button 添加工作区
+				9 button (expanded) git-workspace, Secondary Actions: Collapse
+				10 button 在 git-workspace 新建会话
+				11 button 检查离线缓存的 Git 提交
+				12 button 第二个 Code 会话，用于标签拖动
+				13 button (expanded) ordinary-workspace, Secondary Actions: Collapse
+				14 button 在 ordinary-workspace 新建会话
+				15 button 普通目录会话，没有 Git graph
+				16 pop up button 设置
+				17 splitter 左侧栏宽度, Value: 232
+			18 container
+				19 tab group (selectable) 已打开的会话
+					20 tab (selected) 检查离线缓存的 Git 提交
+					21 button 关闭检查离线缓存的 Git 提交
+				22 tab group (selectable) 右侧标签
+					23 tab (selected) 文件树
+					24 button 关闭右栏文件树
+				25 button 右栏新标签
+				26 button 收起右栏
+			27 container
+				28 container 会话消息
+				29 text entry area (settable) 输入消息, Value: [text entry area: 输入消息], Placeholder: 描述你想做的事…
+					30 text 描述你想做的事…
+				31 button 附加文件
+				32 combo box (collapsed, settable) 会话默认模式, Value: Ask for approval, Secondary Actions: Expand
+					33 text Ask for approval
+				34 button 上下文使用量
+				35 pop up button 会话模型
+				36 button (disabled) 发送消息
+			37 container 检查器
+				38 container 工作区文件
+					39 text git-workspace
+					40 container git-workspace 文件
+						41 content list
+							42 button (collapsed) .git, Secondary Actions: Expand
+							43 container
+								44 button (expanded) src, Secondary Actions: Collapse
+								45 content list
+									46 button 预览 src/index.ts
+									47 button 预览 src/offline.ts
+									48 button 预览 src/qa-live-nested.ts
+							49 button 预览 .ruukoto-qa-owner.json
+							50 button 预览 qa-live-added.ts
+							51 button 预览 README.md
+							52 button 预览 sample.txt
+				53 splitter 右侧栏宽度, Value: 375
+	54 close button
+	55 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window
+	56 minimize button
+57 menu bar
+	58 Ruukoto Regression QA
+	59 File
+	60 Edit
+	61 View
+	62 Window

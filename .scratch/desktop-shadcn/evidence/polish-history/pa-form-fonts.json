@@ -1,0 +1,57 @@
+[
+  {
+    "font": "16px",
+    "tag": "P",
+    "text": "选择左侧类别查看设置项。"
+  },
+  {
+    "font": "14px",
+    "tag": "BUTTON",
+    "text": "外观"
+  },
+  {
+    "font": "14px",
+    "tag": "BUTTON",
+    "text": "PA 远程连接"
+  },
+  {
+    "font": "14px",
+    "tag": "BUTTON",
+    "text": "演示状态"
+  },
+  {
+    "font": "16px",
+    "tag": "LABEL",
+    "text": "SSH 主机别名"
+  },
+  {
+    "font": "15.5px",
+    "tag": "INPUT",
+    "text": "如：pa-server"
+  },
+  {
+    "font": "16px",
+    "tag": "P",
+    "text": "使用本机 SSH 配置中的主机别名。"
+  },
+  {
+    "font": "16px",
+    "tag": "LABEL",
+    "text": "远端控制目录"
+  },
+  {
+    "font": "16px",
+    "tag": "P",
+    "text": "仅在本次演示中保存，不建立真实 SSH 连接。"
+  },
+  {
+    "font": "15.5px",
+    "tag": "BUTTON",
+    "text": "保存配置"
+  },
+  {
+    "font": "15.5px",
+    "tag": "BUTTON",
+    "text": "关闭"
+  }
+]

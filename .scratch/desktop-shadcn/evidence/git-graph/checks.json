@@ -1,0 +1,50 @@
+[
+  {
+    "test": "repository launcher present",
+    "pass": true
+  },
+  {
+    "test": "non-git directory has no launcher tab or graph",
+    "pass": true
+  },
+  {
+    "test": "fumo history shows six commits six edges and HEAD",
+    "pass": true
+  },
+  {
+    "test": "reopening existing graph deduplicates",
+    "pass": true
+  },
+  {
+    "test": "other repository has separate history",
+    "pass": true
+  },
+  {
+    "test": "returning restores previous repository graph",
+    "pass": true
+  },
+  {
+    "test": "empty repository has entry and empty state",
+    "pass": true
+  },
+  {
+    "test": "graph tab drag preserves panel and new order",
+    "pass": true
+  },
+  {
+    "test": "close removes graph and reopen restores one graph",
+    "pass": true
+  },
+  {
+    "test": "every rendered node aligns with its commit row",
+    "pass": true
+  },
+  {
+    "test": "graph strokes resolve and no new native tooltips",
+    "pass": true
+  },
+  {
+    "test": "minimum right width and light theme preserve six aligned rows",
+    "pass": true
+  }
+]

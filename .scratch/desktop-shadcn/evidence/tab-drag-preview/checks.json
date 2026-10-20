@@ -1,0 +1,81 @@
+{
+  "checks": [
+    {
+      "test": "main forward preview and commit",
+      "pass": true
+    },
+    {
+      "test": "cancel outside restores order and clears preview",
+      "pass": true
+    },
+    {
+      "test": "reverse preview and commit",
+      "pass": true
+    },
+    {
+      "test": "drop in original tab gap after enter handler",
+      "pass": true
+    },
+    {
+      "test": "close area accepts drop without closing",
+      "pass": true
+    },
+    {
+      "test": "right scrollbar offset preview and reorder, default active preserved",
+      "pass": true
+    },
+    {
+      "test": "cross group leaves both orders unchanged and clears preview",
+      "pass": true
+    },
+    {
+      "test": "keyboard sort preserves focus active tab and draft",
+      "pass": true
+    },
+    {
+      "test": "light theme native drag preview and reverse commit",
+      "pass": true
+    },
+    {
+      "test": "final tabs remain equal width and preview cleared",
+      "pass": true
+    }
+  ],
+  "finalGeometry": {
+    "tabViewport": {
+      "bottom": 54,
+      "height": 36,
+      "left": 228,
+      "right": 639,
+      "top": 18,
+      "width": 411,
+      "x": 228,
+      "y": 18
+    },
+    "tabs": [
+      {
+        "shift": "0",
+        "sorting": null,
+        "source": null,
+        "title": "Offline IndexedDB sync for Shinkansen pass",
+        "width": 180
+      },
+      {
+        "shift": "0",
+        "sorting": null,
+        "source": null,
+        "title": "MCP stdio connection pool & backoff",
+        "width": 180
+      },
+      {
+        "shift": "0",
+        "sorting": null,
+        "source": null,
+        "title": "Tokyo JST departure time hydration fix",
+        "width": 180
+      }
+    ],
+    "theme": "dark",
+    "viewportWidth": 713
+  }
+}

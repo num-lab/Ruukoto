@@ -1,0 +1,23 @@
+Browser tab: 4, Title: "Ruukoto · Desktop UI Demo", URL: "http://127.0.0.1:5173/".
+1 AXWebArea Ruukoto · Desktop UI Demo, URL: 127.0.0.1:5173/
+	2 container 设置, ID: radix-_r_4_
+		3 text 选择左侧类别查看设置项。
+		4 heading 设置, Value: 2, ID: radix-_r_5_
+			5 text 设置
+		6 tab group 设置类别
+			7 tab (selected, settable, boolean) 外观, Value: 1, ID: radix-_r_2q_-trigger-appearance
+				8 image
+				9 text 外观
+			10 tab (selectable, settable, boolean) 演示状态, ID: radix-_r_2q_-trigger-scenarios, Value: 0
+演示状态
+		11 container Description: 外观, ID: radix-_r_2q_-content-appearance
+			12 heading 外观, Value: 2
+				13 text 外观
+			14 text 主题
+			15 combo box (collapsed) Description: 主题, Value: 深色, ID: settings-theme, Secondary Actions: Expand
+				16 text 深色
+		17 button 关闭
+			18 image
+			19 text 关闭
+
+The focused UI element is 7 tab (selected, settable, boolean) 外观, Value: 1, ID: radix-_r_2q_-trigger-appearance

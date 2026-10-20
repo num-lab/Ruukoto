@@ -1,0 +1,220 @@
+{
+  "code": {
+    "sess_923534f97d3af6da8f81e585": [],
+    "sess_3dfb0b30bb904971eb69ffbe": [
+      {
+        "id": "task_9a401ba25503a6e6abe8ec32",
+        "sessionId": "sess_3dfb0b30bb904971eb69ffbe",
+        "requestId": "dba5a320-56f8-41a7-9af7-d3cb00e9e9c0",
+        "input": "检查离线缓存的 Git 提交",
+        "modelSelection": {
+          "provider": "mock",
+          "modelId": "mock-model",
+          "thinkingLevel": "off"
+        },
+        "submissionDigest": "request-v2:573b46ec2ba25444d79e0130405aa80f30876c6d3863ba8c1726d2d39bd8b6d1",
+        "status": "completed",
+        "accessMode": "confirm",
+        "planMode": false,
+        "permissionVersion": 1,
+        "grantedPaths": [],
+        "pendingAccessMode": null,
+        "interruptReason": null,
+        "cancelRequested": false,
+        "effectUnknown": false,
+        "errorMessage": null,
+        "historyEntryIds": [
+          "9e35c5c6",
+          "a3dc1e96"
+        ],
+        "resumesTaskId": null,
+        "agentId": null,
+        "parentTaskId": null,
+        "sourcePermissionVersion": null,
+        "sourceEventId": null,
+        "deadline": null,
+        "resultSummary": null,
+        "resultRef": null,
+        "workId": null,
+        "subAgentId": null,
+        "readScope": null,
+        "resultDeliveredAt": null,
+        "createdAt": "2026-10-17T07:45:24.244Z",
+        "startedAt": "2026-10-17T07:45:24.246Z",
+        "endedAt": "2026-10-17T07:45:24.327Z"
+      }
+    ],
+    "sess_01fbba89ae8c84a53fe0b755": [
+      {
+        "id": "task_82a3dfdf52bf53e116fa6935",
+        "sessionId": "sess_01fbba89ae8c84a53fe0b755",
+        "requestId": "6fb63832-31a8-43e2-823a-8cb5bae6b4b2",
+        "input": "第二个 Code 会话，用于标签拖动",
+        "modelSelection": {
+          "provider": "mock",
+          "modelId": "mock-model",
+          "thinkingLevel": "off"
+        },
+        "submissionDigest": "request-v2:f5c6ee738364f732dc221a7b9acc33ed85a8ce6c356424f9e9534f779c666e90",
+        "status": "completed",
+        "accessMode": "confirm",
+        "planMode": false,
+        "permissionVersion": 1,
+        "grantedPaths": [],
+        "pendingAccessMode": null,
+        "interruptReason": null,
+        "cancelRequested": false,
+        "effectUnknown": false,
+        "errorMessage": null,
+        "historyEntryIds": [
+          "3fa4ec4c",
+          "1c496162"
+        ],
+        "resumesTaskId": null,
+        "agentId": null,
+        "parentTaskId": null,
+        "sourcePermissionVersion": null,
+        "sourceEventId": null,
+        "deadline": null,
+        "resultSummary": null,
+        "resultRef": null,
+        "workId": null,
+        "subAgentId": null,
+        "readScope": null,
+        "resultDeliveredAt": null,
+        "createdAt": "2026-10-17T07:45:24.360Z",
+        "startedAt": "2026-10-17T07:45:24.361Z",
+        "endedAt": "2026-10-17T07:45:24.368Z"
+      }
+    ],
+    "sess_863f3606a2e9d41b5a5cecce": [
+      {
+        "id": "task_a4297871df008f36ff5bb7e4",
+        "sessionId": "sess_863f3606a2e9d41b5a5cecce",
+        "requestId": "cbb522cf-c3b5-4bd6-9853-16ecf8d10030",
+        "input": "普通目录会话，没有 Git graph",
+        "modelSelection": {
+          "provider": "mock",
+          "modelId": "mock-model",
+          "thinkingLevel": "off"
+        },
+        "submissionDigest": "request-v2:f4eca26b5496219fea7fccb5e5f7e736d4967bd48aa7bf1492ab0620e83e5d0e",
+        "status": "completed",
+        "accessMode": "confirm",
+        "planMode": false,
+        "permissionVersion": 1,
+        "grantedPaths": [],
+        "pendingAccessMode": null,
+        "interruptReason": null,
+        "cancelRequested": false,
+        "effectUnknown": false,
+        "errorMessage": null,
+        "historyEntryIds": [
+          "e2a53773",
+          "0752447c"
+        ],
+        "resumesTaskId": null,
+        "agentId": null,
+        "parentTaskId": null,
+        "sourcePermissionVersion": null,
+        "sourceEventId": null,
+        "deadline": null,
+        "resultSummary": null,
+        "resultRef": null,
+        "workId": null,
+        "subAgentId": null,
+        "readScope": null,
+        "resultDeliveredAt": null,
+        "createdAt": "2026-10-17T07:45:24.403Z",
+        "startedAt": "2026-10-17T07:45:24.404Z",
+        "endedAt": "2026-10-17T07:45:24.411Z"
+      }
+    ]
+  },
+  "personal": {
+    "sess_ee58b821a404c90dabe3477b": [
+      {
+        "id": "task_a4def3e352eea2ddffedee49",
+        "sessionId": "sess_ee58b821a404c90dabe3477b",
+        "requestId": "e0138b5f-4191-44a8-8c32-ea46e6cc14e9",
+        "input": "你好，Ruukoto。",
+        "modelSelection": {
+          "provider": "mock",
+          "modelId": "mock-model",
+          "thinkingLevel": "off"
+        },
+        "submissionDigest": "request-v2:1f26169f4ffadfc4bca172fc40c4effb74df179f52fa364a11a1392389f55d1d",
+        "status": "completed",
+        "accessMode": "confirm",
+        "planMode": false,
+        "permissionVersion": 1,
+        "grantedPaths": [],
+        "pendingAccessMode": null,
+        "interruptReason": null,
+        "cancelRequested": false,
+        "effectUnknown": false,
+        "errorMessage": null,
+        "historyEntryIds": [
+          "14626593",
+          "1c3aec78"
+        ],
+        "resumesTaskId": null,
+        "agentId": null,
+        "parentTaskId": null,
+        "sourcePermissionVersion": null,
+        "sourceEventId": null,
+        "deadline": null,
+        "resultSummary": null,
+        "resultRef": null,
+        "workId": null,
+        "subAgentId": null,
+        "readScope": null,
+        "resultDeliveredAt": null,
+        "createdAt": "2026-10-17T07:45:24.446Z",
+        "startedAt": "2026-10-17T07:45:24.447Z",
+        "endedAt": "2026-10-17T07:45:24.456Z"
+      },
+      {
+        "id": "task_da9feba6f32514fa7fcf3da7",
+        "sessionId": "sess_ee58b821a404c90dabe3477b",
+        "requestId": "01c4fab5-3272-494d-8475-93169d34c6a6",
+        "input": "最终 PA 回归",
+        "modelSelection": {
+          "provider": "mock",
+          "modelId": "mock-model",
+          "thinkingLevel": "off"
+        },
+        "submissionDigest": "request-v2:8f97186f18cd68d067fc61696e68ef1ceae227c5510b32d7e8454cd4276add84",
+        "status": "completed",
+        "accessMode": "confirm",
+        "planMode": false,
+        "permissionVersion": 1,
+        "grantedPaths": [],
+        "pendingAccessMode": null,
+        "interruptReason": null,
+        "cancelRequested": false,
+        "effectUnknown": false,
+        "errorMessage": null,
+        "historyEntryIds": [
+          "5c8651aa",
+          "0f5ecc7a"
+        ],
+        "resumesTaskId": null,
+        "agentId": null,
+        "parentTaskId": null,
+        "sourcePermissionVersion": null,
+        "sourceEventId": null,
+        "deadline": null,
+        "resultSummary": null,
+        "resultRef": null,
+        "workId": null,
+        "subAgentId": null,
+        "readScope": null,
+        "resultDeliveredAt": null,
+        "createdAt": "2026-10-17T07:48:24.702Z",
+        "startedAt": "2026-10-17T07:48:24.707Z",
+        "endedAt": "2026-10-17T07:48:24.745Z"
+      }
+    ]
+  }
+}

@@ -179,7 +179,7 @@ function fakeSession(over: Partial<Session> & { id: string; projectId: string })
     defaultAccessMode: "confirm",
     defaultAccessModeVersion: 0,
     queueState: "active",
-    queuePauseReason: null,
+    queuePauseReason: null, archivedAt: null,
     createdAt: "2026-01-01T00:00:00Z",
     ...over,
   };
@@ -192,7 +192,7 @@ test("ViewState 投影 session.workspace_mapped：更新组织归属，来源标
       seq: 1,
       replay: [],
       snapshot: {
-        product: "ruukoto-code",
+        product: "ruukoto-code", mainSessionId: null,
         projects: [
           { id: "p_leg", name: "旧项目", createRequestId: null, rootDir: null, instructionFiles: [], webSearch: "enabled", settingsVersion: 1, createdAt: "2026-01-01T00:00:00Z" },
           { id: "p_ws", name: "工作区", createRequestId: null, rootDir: { cwd: "/w", cwdReal: "/w", dev: 1, ino: 2 }, instructionFiles: [], webSearch: "enabled", settingsVersion: 1, createdAt: "2026-01-01T00:00:00Z" },

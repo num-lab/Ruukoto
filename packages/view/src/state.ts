@@ -60,6 +60,7 @@ export class ViewState {
   execution: { backend: string; note: string } = { backend: "", note: "" };
   /** 逻辑角色绑定的会话（快照提供；角色只在后台启动时引导，不随事件新增）。 */
   roleSessionIds: string[] = [];
+  mainSessionId: string | null = null;
   /** SubAgent 的内部工作会话（快照 + work_delegation.created 事件补齐；普通工作区入口排除）。 */
   subAgentSessionIds: string[] = [];
   /** 工作委托（issue 11；快照 + work_delegation.created 事件补齐）。 */
@@ -91,7 +92,11 @@ export class ViewState {
   applySnapshot(result: ConnectResult, instanceChanged: boolean): void {
     this.projects = result.snapshot.projects;
     this.sessions = result.snapshot.sessions;
-    this.tasks = new Map(result.snapshot.tasks.map((t) => [t.id, t]));
+    const sameInstance = !instanceChanged && this.instanceId === result.snapshot.instanceId;
+    this.tasks = new Map(result.snapshot.tasks.map((t) => {
+      const displayInput = t.displayInput ?? (sameInstance ? this.tasks.get(t.id)?.displayInput : undefined);
+      return [t.id, displayInput === undefined ? t : { ...t, displayInput }];
+    }));
     this.taskSeq = new Map(result.snapshot.tasks.map((t) => [t.id, result.seq]));
     this.confirmations = result.snapshot.confirmations;
     this.artifacts = new Map(result.snapshot.artifacts.map((a) => [a.id, a]));
@@ -99,6 +104,7 @@ export class ViewState {
     this.execution = result.snapshot.execution;
     this.defaultModel = result.snapshot.defaultModel ?? this.defaultModel;
     this.roleSessionIds = result.snapshot.roleSessionIds ?? [];
+    this.mainSessionId = result.snapshot.mainSessionId;
     this.subAgentSessionIds = result.snapshot.subAgentSessionIds ?? [];
     this.workDelegations = result.snapshot.workDelegations ?? [];
     this.subAgents = result.snapshot.subAgents ?? [];
@@ -204,6 +210,7 @@ export class ViewState {
             defaultAccessModeVersion: 0,
             queueState: "active",
             queuePauseReason: null,
+            archivedAt: null,
             createdAt: event.createdAt,
           });
         }
@@ -251,6 +258,11 @@ export class ViewState {
       case "session.model_selection_changed":
         this.applySessionModel(body.sessionId, body.modelSelection, body.modelSelectionVersion);
         return;
+      case "session.archive_changed": {
+        const session = this.sessions.find((s) => s.id === body.sessionId);
+        if (session) session.archivedAt = body.archivedAt;
+        return;
+      }
       case "session.default_mode_changed":
         this.applySessionDefaultMode(body.sessionId, body.defaultAccessMode, body.defaultAccessModeVersion);
         return;
@@ -573,6 +585,8 @@ export class ViewState {
       this.taskSeq.set(task.id, seq);
     } else {
       const current = this.tasks.get(task.id);
+      // 展示正文来自同一任务的固定来源，不跟随后到详情的旧状态序号回滚。
+      if (current && task.displayInput !== undefined) current.displayInput = task.displayInput;
       if (current && !current.input && task.input) {
         current.input = task.input;
         current.inputPurpose = task.inputPurpose;
@@ -604,6 +618,7 @@ export class ViewState {
 
   upsertTask(task: Task): void {
     const current = this.tasks.get(task.id);
+    if (task.displayInput === undefined && current?.displayInput !== undefined) task = { ...task, displayInput: current.displayInput };
     // 提交应答可能在任务终态事件之后到达，输入元数据仍可补齐，终态不可回滚。
     if (current && ((current.endedAt && !task.endedAt) || (current.status !== "queued" && task.status === "queued"))) {
       task = { ...task, ...current, input: task.input || current.input, inputPurpose: task.inputPurpose };

@@ -35,8 +35,16 @@ export class DesktopSubmissions {
     if (typeof params.session_id !== "string" || typeof params.input !== "string" || (op === "continue" && typeof params.task_id !== "string")) throw new DesktopError("invalid_params", "请选择会话与继续来源后再发送。");
     const existing = this.store.list().records.find(record => record.op === op && (op === "continue" ? record.params.task_id === params.task_id : record.params.session_id === params.session_id));
     if (existing) return { kind: "pending_existing", record: existing };
+    const requestId = params.request_id;
+    if (requestId !== undefined && (typeof requestId !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(requestId))) throw new DesktopError("invalid_params", "输入请求标识无效，请重新发送。");
+    if (typeof requestId === "string") {
+      let previous: ReturnType<PendingRequestStore["read"]>;
+      try { previous = this.store.read(requestId); }
+      catch { throw new DesktopError("pending_read_failed", "无法核对原输入记录，本次没有发送；请恢复应用数据目录权限后重试。"); }
+      if (previous.kind !== "absent") throw new DesktopError("request_conflict", "输入请求标识已被占用，本次没有发送；原记录仍保留。");
+    }
     const guard = this.guard();
-    const pending = guard.submit(op, params);
+    const pending = guard.submit(op, params, typeof requestId === "string" ? { requestId } : {});
     const record = this.store.list().records.find(record => record.op === op && (op === "continue" ? record.params.task_id === params.task_id : record.params.session_id === params.session_id));
     if (record) this.sending.add(record.requestId);
     this.refresh();

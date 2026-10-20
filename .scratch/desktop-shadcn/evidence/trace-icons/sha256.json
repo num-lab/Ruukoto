@@ -1,0 +1,20 @@
+{
+  "base": "4026a2e5af693ef0b77e779688c8052946a04fbe",
+  "sources": {
+    "apps/desktop/src/renderer/tool-activity.tsx": "5a191772448a9a6325744cc77e07496e39d845c723efcc30e32b0c4df8a94c17",
+    ".scratch/desktop-shadcn/demo/src/tool-activity.tsx": "3a45c3e656455b11f8815fcc3cbb944f28ddb0e699ae0a8842929dd9b8e53c24",
+    "test/desktop-tool-activity.test.ts": "ccafbc138965e25bfbd68db4bb4fd3b17e9f80b06eda40c838fb3632ffcecc42",
+    ".scratch/desktop-shadcn/demo/scripts/check-tool-activity.mjs": "3133fe65f7b8a650225517f05b63404d648d3d6fdc71667027d7a88dae0e31df",
+    ".agents/notes/implemented/feature/2026-10-18-completed-trace.md": "5c7a0ce58dd319a3f3ac0ad2982c13e0a31037988273e1d6d765754b9d41495c",
+    ".scratch/desktop-shadcn/demo/README.md": "d7648944b77392c8eda81b30a9c866b99ddc603855eace6197e1b9fa8f47be9f"
+  },
+  "evidence": {
+    ".scratch/desktop-shadcn/evidence/trace-icons/README.md": "04546044f3c23895511d5d3d444988defa34edcad1cf5596f45b0f555042d320",
+    ".scratch/desktop-shadcn/evidence/trace-icons/demo-icons.png": "f05755ef125f51cc28fdd8f229e432e6f4593e488e9810b689338031dfce59b7",
+    ".scratch/desktop-shadcn/evidence/trace-icons/demo.log": "19ea40fe2b656a7fb0432f643e3e16d36a06be73d452566c781fb089547f0955",
+    ".scratch/desktop-shadcn/evidence/trace-icons/electron-build.log": "ce06e7211036ccaa4adc4f599664ee22df70765e4de4152906e2ab9e6f02fb93",
+    ".scratch/desktop-shadcn/evidence/trace-icons/mygo-build.log": "ae7c6844306f7afa41dc82343017d7cdbfc3905e2c1cbb2b03e22e0fc9e05cfe",
+    ".scratch/desktop-shadcn/evidence/trace-icons/static.log": "fc2afa0d8a62ed106c56863b6ec2157c7d691a9c9b0801b72dba1d06ece1b9d0",
+    ".scratch/desktop-shadcn/evidence/trace-icons/tools.log": "939448db8e15ce566aa4a88d4b6f34f31b7b6c259b6de1c6dbafdecc5284bf88"
+  }
+}

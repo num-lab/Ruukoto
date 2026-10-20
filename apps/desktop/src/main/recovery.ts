@@ -8,7 +8,7 @@ export function socketLookupCommand(socketPath: string): string {
   return `lsof -nP -a -U -- ${shellQuote(socketPath)}`;
 }
 export function versionRecovery(target: DesktopTarget, versions: { client: number; server: number }, managed: boolean, controlDir: string): string[] {
-  if (versions.client < versions.server) return ["客户端版本较旧；请在当前仓库运行 npm run desktop:build 重建应用后重新打开。"];
+  if (versions.client < versions.server) return ["客户端版本较旧；请在当前仓库运行 npm run desktop:build（Electron）或 npm run desktop:mygo:build（MyGo）重建应用后重新打开。"];
   if (target === "personal") return ["服务器后台版本较旧；请在服务器部署同一 commit 并重启服务后重新连接。"];
   if (managed) return ["开发后台版本较旧；请重启开发启动器。"];
   return [

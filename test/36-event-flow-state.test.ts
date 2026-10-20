@@ -12,6 +12,24 @@ import { MAX_LOADED_ENTRIES, ViewState } from "@ruukoto/view/state.ts";
 const at = (seconds: number) => new Date(Date.UTC(2026, 8, 22, 13, 16, seconds)).toISOString();
 const event = (seq: number, body: PersistentEvent["body"]): PersistentEvent => ({ seq, body, sessionId: "session", taskId: "task", createdAt: at(seq) });
 const messages = (flow: EventFlow) => flow.items.filter((entry) => entry.kind === "message");
+
+test("思考增量完整补洞、重复幂等，结束先到不回滚阶段，旧快照继续可读", () => {
+  const flow = new EventFlow(), parts = ["开头汉", "🙂".repeat(3000), "最后一行"];
+  const thinking = (seq: number, text: string, offset?: number, endedAt: string | null = null) => event(seq, { type: "task.thinking", taskId: "task", sessionId: "session", thinkingId: "thought", messageId: "message", startedAt: at(1), endedAt, text, offset });
+  const first = thinking(1, parts[0], 0), middle = thinking(2, parts[1], Buffer.byteLength(parts[0]));
+  const last = thinking(3, parts[2], Buffer.byteLength(parts[0] + parts[1]), at(3));
+  for (const entry of [last, middle, first, middle, last, first]) flow.apply(entry);
+  const complete = flow.items.find(entry => entry.kind === "thinking");
+  assert.ok(complete?.kind === "thinking");
+  assert.equal(complete.text, parts.join("")); assert.equal(complete.endedAt, at(3)); assert.equal(complete.seq, 1);
+  flow.apply(thinking(4, "", Buffer.byteLength(parts.join("")), at(3)));
+  assert.equal(flow.items.find(entry => entry.kind === "thinking")?.text, parts.join(""), "终态复制末块或空块不会覆盖全文");
+  const legacy = new EventFlow(); legacy.apply(thinking(1, "旧片段")); legacy.apply(thinking(2, "旧版完整快照", undefined, at(2))); legacy.apply(thinking(1, "迟到旧片段"));
+  assert.equal(legacy.items.find(entry => entry.kind === "thinking")?.text, "旧版完整快照");
+  const metadata = new EventFlow();
+  for (const entry of [thinking(3, "b", 1), thinking(2, "", 1), thinking(1, "a", 0), thinking(4, "", 2, at(4))]) metadata.apply(entry);
+  assert.equal(metadata.items.find(entry => entry.kind === "thinking")?.text, "ab", "迟到空阶段事件不能覆盖待补齐的正文片段");
+});
 function task(id = "task", extra: Partial<Task> = {}): Task {
   return {
     id, sessionId: "session", requestId: `request:${id}`, input: "same input", inputPurpose: "user", modelSelection: null,
@@ -251,4 +269,28 @@ test("不同任务复用 SDK 调用 ID 时，晚到的历史关联不串工具�
   assert.equal(secondTool.status, "error");
   assert.equal(secondTool.target, "second.py");
   assert.equal(secondTool.summary, "access denied");
+});
+
+
+test("附件事件先到、任务详情后到补全占位正文；真实历史不被迟到任务覆盖", () => {
+  const flow = new EventFlow();
+  flow.task(task("task", { input: "", status: "queued" }));
+  const attachment = { id: "att-reference", name: "资料.txt", size: 3, taskId: "task", sessionId: "session", mimeType: null, contentHash: "hash" };
+  flow.apply(event(1, { type: "task.attachments", taskId: "task", sessionId: "session", attachments: [attachment] }));
+  assert.equal(messages(flow).length, 1);
+  assert.equal(messages(flow)[0].text, "");
+  flow.task(task("task", { input: "实际用户原文", status: "failed", endedAt: at(2) }));
+  assert.equal(messages(flow).length, 1);
+  assert.equal(messages(flow)[0].key, "input:task");
+  assert.equal(messages(flow)[0].text, "实际用户原文");
+  assert.deepEqual(messages(flow)[0].attachments, [{ id: attachment.id, name: attachment.name, size: attachment.size }]);
+  flow.task(task("task", { input: "迟到的不同元数据" }));
+  assert.equal(messages(flow)[0].text, "实际用户原文", "已补全的同身份原文保持不变");
+  flow.apply(reference(3, "user-entry", "user", "task", null));
+  flow.addHistory(history("user-entry", "user", "历史原文", { taskId: "task" }));
+  flow.task(task("task", { input: "迟到的原始任务值" }));
+  assert.equal(messages(flow).length, 1);
+  assert.equal(messages(flow)[0].entryId, "user-entry");
+  assert.equal(messages(flow)[0].text, "历史原文");
+  assert.deepEqual(messages(flow)[0].attachments, [{ id: attachment.id, name: attachment.name, size: attachment.size }]);
 });

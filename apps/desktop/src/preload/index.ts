@@ -9,6 +9,9 @@ const bridge: DesktopBridge = {
     return () => { ipcRenderer.removeListener("desktop:update", receive); };
   },
   request: (target, op, params) => ipcRenderer.invoke("desktop:request", target, op, params),
+  pickAttachments: (sessionId, target = "code") => ipcRenderer.invoke("desktop:pick-attachments", sessionId, target),
+  pickDraftAttachments: () => ipcRenderer.invoke("desktop:pick-draft-attachments"),
+  uploadDraftAttachments: (sessionId, tokens, target = "code") => ipcRenderer.invoke("desktop:upload-draft-attachments", sessionId, tokens, target),
   pickFolder: () => ipcRenderer.invoke("desktop:pick-folder"),
   reveal: path => ipcRenderer.invoke("desktop:reveal", path),
 };

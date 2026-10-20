@@ -64,7 +64,7 @@ Coding 正式入口仅接受 `RUUKOTO_EXECUTION_BACKEND=native` 或不设覆盖�
 | `workspace` | 授权工作区（realpath），也是工具执行目录 |
 | `grantedPaths` | 拥有者为任务显式授予的工作区外路径，每项带 `path` / `access` / `purpose`，只读范围由平台策略或只读挂载实施；native 宿主在 launch 前保存每项 dev/ino，供每调用前复核 |
 | `readRoots` | 宿主钉定的额外只读根（SubAgent 限定的资料范围、worktree 的共享 Git 目录），可带 dev/ino 供 `init` 复核；只读材料分析即使没有额外路径也显式下发空列表，由 worker 钉定其工作目录 |
-| `workspaceIdentity` | 宿主钉定的工作区目录身份（dev/ino），供 `init` 复核 cwd |
+| `workspaceIdentity` | 宿主核实登记真实路径/inode 后取得的当前 dev/ino，供 `init` 与同次执行复核 cwd |
 | `env` | 宿主注入的环境聚合包，只在 worktree 副本创建与挂载副本的任务里出现（`GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_0` / `GIT_CONFIG_VALUE_0=safe.directory=*`）；其余任务恒为空，且不进工作进程复用键 |
 
 受管执行单元登记表记录三种身份：`process_group`（local 进程组或 macOS 原生监督器，原生停止由监督器核实全部已归属后代）、`systemd_unit`（Linux 原生 user scope 或服务 helper 命令单元）、`starting`（ready 前的占位，同样参与停止）。原生执行每单元持有独立 HOME 与 TMPDIR，临时资料仅在停止已核实时删除；未核实时与目录占用一起保留。
@@ -213,6 +213,7 @@ sequenceDiagram
 - 宿主工具一律声明 `executionMode: "sequential"`：工作进程按「工具名 → 当前调用」关联原始输出流，同一轮并发的同名调用会串流。
 - 正文捕获在工作进程侧完成：经 `BashOperations.onData` 与文件 Operations 包装器，在上游工具截断之前把原始输出与文件正文流回后台；后台先存为任务产物，再生成限长的模型视图，并在工具结果里附产物引用。中断或写失败保留已捕获部分并标 partial。
 - 协议有界：单帧上限 `MAX_FRAME_BYTES` 为 4 MiB，正文数据按 `DATA_CHUNK_BYTES` 为 512 KiB 分块并以 base64 传输，写入侧有背压。
+- Write 复用边界内已有的写前读取，成功后把捕获文本与写入内容的补丁及统计保存在结果 details；同进程相同文件的 Edit／Write 经上游队列串行，不保证阻止外部进程改写。写前读取或补丁生成失败不改变写入结果；补丁使最终 JSON 帧超限时仅省略补丁，保留成功与统计，不截断伪装完整差异。
 - 工作进程启动超时 30 秒（`worker_timeout`）；`ready` 或初始化发送失败时先停止再抛原错误，停止未核实保留到任务收尾。启动中取消阻止迟到的工作进程服务；单次调用超时（`tool_timeout`）由工作进程中止执行。
 
 ### 执行边界
@@ -255,6 +256,7 @@ sequenceDiagram
 
 ## 设计依据
 
+- [登记目录与本次启动身份](../../.agents/notes/implemented/bug-fix/2026-10-18-directory-device-number.md)
 - [原生依赖批量核对保护树](../../.agents/notes/implemented/bug-fix/2026-10-18-batch-native-protection-checks.md)
 
 - [个人通用工具执行与原字节](../../.agents/notes/implemented/architecture/2026-10-17-personal-tools-access-artifacts.md)。
@@ -292,3 +294,4 @@ sequenceDiagram
 - [退役专用 GitHub 模块，GitHub 作为普通 MCP 工具](../../.agents/notes/implemented/simplification/2026-09-23-retire-github-module.md)：解释为什么没有 GitHub 专用的执行路径——它与其他 MCP 服务共用本篇的边界、审批与结果保存流程。
 
 - [普通与工作流的可信来源能力](../../.agents/notes/implemented/architecture/2026-10-15-subagent-source-capabilities.md)。
+- [目录保护优化](../../.agents/notes/implemented/bug-fix/2026-10-17-directory-protection-cost.md)：只读文件树使用目录批量核实；通用文件保护仍检查全部对象。

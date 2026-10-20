@@ -1,0 +1,10 @@
+[
+  {
+    "app": "dist/mac-arm64/Ruukoto.app",
+    "verified": true
+  },
+  {
+    "app": "dist/mygo/darwin-arm64/Ruukoto MyGo.app",
+    "verified": true
+  }
+]

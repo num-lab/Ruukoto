@@ -1,0 +1,131 @@
+{
+  "before": [
+    {
+      "before": "none",
+      "height": 28,
+      "text": "Offline IndexedDB sync for Shinkansen pass",
+      "width": 210,
+      "x": 236,
+      "y": 30
+    },
+    {
+      "before": "none",
+      "height": 28,
+      "text": "MCP stdio connection pool & backoff",
+      "width": 210,
+      "x": 450,
+      "y": 30
+    },
+    {
+      "before": "none",
+      "height": 28,
+      "text": "Tokyo JST departure time hydration fix",
+      "width": 210,
+      "x": 664,
+      "y": 30
+    },
+    {
+      "before": "none",
+      "height": 28,
+      "text": "indexeddb.ts",
+      "width": 123.0390625,
+      "x": 517,
+      "y": 77.5
+    },
+    {
+      "before": "none",
+      "height": 28,
+      "text": "Schema Auditor",
+      "width": 141.53125,
+      "x": 644.0390625,
+      "y": 77.5
+    }
+  ],
+  "dark": [
+    {
+      "background": "rgba(0, 0, 0, 0)",
+      "before": "none",
+      "height": 28,
+      "left": "auto",
+      "lineHeight": "auto",
+      "lineWidth": "auto",
+      "pointerEvents": "auto",
+      "text": "Offline IndexedDB sync for Shinkansen pass",
+      "width": 210,
+      "x": 236,
+      "y": 30
+    },
+    {
+      "background": "oklch(1 0 0 / 0.1)",
+      "before": "\"\"",
+      "height": 28,
+      "left": "-2.5px",
+      "lineHeight": "12px",
+      "lineWidth": "1px",
+      "pointerEvents": "none",
+      "text": "MCP stdio connection pool & backoff",
+      "width": 210,
+      "x": 450,
+      "y": 30
+    },
+    {
+      "background": "oklch(1 0 0 / 0.1)",
+      "before": "\"\"",
+      "height": 28,
+      "left": "-2.5px",
+      "lineHeight": "12px",
+      "lineWidth": "1px",
+      "pointerEvents": "none",
+      "text": "Tokyo JST departure time hydration fix",
+      "width": 210,
+      "x": 664,
+      "y": 30
+    },
+    {
+      "background": "rgba(0, 0, 0, 0)",
+      "before": "none",
+      "height": 28,
+      "left": "auto",
+      "lineHeight": "auto",
+      "lineWidth": "auto",
+      "pointerEvents": "auto",
+      "text": "indexeddb.ts",
+      "width": 123.0390625,
+      "x": 517,
+      "y": 77.5
+    },
+    {
+      "background": "oklch(1 0 0 / 0.1)",
+      "before": "\"\"",
+      "height": 28,
+      "left": "-2.5px",
+      "lineHeight": "12px",
+      "lineWidth": "1px",
+      "pointerEvents": "none",
+      "text": "Schema Auditor",
+      "width": 141.53125,
+      "x": 644.0390625,
+      "y": 77.5
+    }
+  ],
+  "light": {
+    "dark": false,
+    "lines": [
+      {
+        "background": "oklch(0.922 0 0)",
+        "height": "12px"
+      },
+      {
+        "background": "oklch(0.922 0 0)",
+        "height": "12px"
+      },
+      {
+        "background": "oklch(0.922 0 0)",
+        "height": "12px"
+      }
+    ]
+  },
+  "singleRightTab": [
+    "none"
+  ]
+}

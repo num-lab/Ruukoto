@@ -1,0 +1,105 @@
+{
+  "task": {
+    "id": "task_f84b696620c8ae3ad0d2e253",
+    "sessionId": "sess_e28be6f5be0b474f36410709",
+    "requestId": "ui-approval",
+    "input": "gui-approval: 核对工作区外的离线配置。",
+    "modelSelection": {
+      "provider": "mock",
+      "modelId": "mock-model",
+      "thinkingLevel": "off"
+    },
+    "submissionDigest": "request-v2:c0917ee0181cf877abcc0c1b737e4005e9295fe41c14931783a9ba7cdc49a617",
+    "status": "awaiting_confirmation",
+    "accessMode": "confirm",
+    "planMode": false,
+    "permissionVersion": 1,
+    "grantedPaths": [],
+    "pendingAccessMode": null,
+    "interruptReason": null,
+    "cancelRequested": false,
+    "effectUnknown": false,
+    "errorMessage": null,
+    "historyEntryIds": [
+      "ff68a111",
+      "e471f88e"
+    ],
+    "resumesTaskId": null,
+    "agentId": null,
+    "parentTaskId": null,
+    "sourcePermissionVersion": null,
+    "sourceEventId": null,
+    "deadline": null,
+    "resultSummary": null,
+    "resultRef": null,
+    "workId": null,
+    "subAgentId": null,
+    "readScope": null,
+    "resultDeliveredAt": null,
+    "createdAt": "2026-10-16T10:55:11.983Z",
+    "startedAt": "2026-10-16T10:55:11.984Z",
+    "endedAt": null,
+    "inputPurpose": "user",
+    "resourcePhase": "execution"
+  },
+  "toolOps": [
+    {
+      "id": "op_cc881eb28ff33435cd538613",
+      "taskId": "task_f84b696620c8ae3ad0d2e253",
+      "toolName": "request_file_access",
+      "sdkCallId": "outside-read",
+      "params": {
+        "path": "/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-it-desktop-ui-zsiEYS/approval.txt",
+        "operation": "read",
+        "reason": "核对离线缓存配置"
+      },
+      "intentRecordedAt": "2026-10-16T10:55:11.990Z",
+      "authorization": null,
+      "resultSummary": null,
+      "isError": null,
+      "effectUnknown": false,
+      "recordedResultAt": null,
+      "paramsBytes": 164,
+      "paramsTruncated": false
+    }
+  ],
+  "confirmations": [
+    {
+      "id": "conf_cc55c72309d870bdafcf7500",
+      "taskId": "task_f84b696620c8ae3ad0d2e253",
+      "sessionId": "sess_e28be6f5be0b474f36410709",
+      "toolOpId": "op_cc881eb28ff33435cd538613",
+      "toolName": "request_file_access",
+      "params": {
+        "path": "/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-it-desktop-ui-zsiEYS/approval.txt",
+        "operation": "read",
+        "reason": "核对离线缓存配置"
+      },
+      "scope": {
+        "kind": "file_operation",
+        "path": "/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-it-desktop-ui-zsiEYS/approval.txt",
+        "access": "read",
+        "originalSha256": null,
+        "contentSha256": null,
+        "contentBytes": null
+      },
+      "cwdDev": 16777232,
+      "cwdIno": 78041534,
+      "permissionVersion": 1,
+      "status": "pending",
+      "createdAt": "2026-10-16T10:55:12.326Z",
+      "respondedAt": null,
+      "consumedAt": null,
+      "reviewStatus": null,
+      "reviewDecision": null,
+      "reviewReason": null,
+      "reviewModel": null,
+      "reviewPolicyVersion": null,
+      "decisionSource": null,
+      "standingPermissionId": null,
+      "standingPermissionVersion": null,
+      "paramsBytes": 164,
+      "paramsTruncated": false
+    }
+  ]
+}

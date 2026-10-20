@@ -77,11 +77,11 @@ npm run dev                # 隔离个人开发档案，前台后台随源码变
 npm run dev -- --config     # 同一开发档案的配置菜单，退出停止本次后台
 npm run code               # 启动 ruukoto-code 开发后台并打开 TUI
 npm run code -- --desktop   # 以桌面前端连接开发后台（macOS）
-npm run desktop:build      # 构建并 ad-hoc 签名 dist/mac-arm64/Ruukoto.app
+npm run desktop:build      # 构建 Electron 应用
 npm run code -- ../my-project  # 以该目录创建/复用工作区，并进入新会话
 ```
 
-开发、定时与桌面测试见[开发说明](docs/development.md)；[浏览器用法](docs/usage.md#12-浏览器)含登录与截图导出。
+开发与测试见[开发说明](docs/development.md)；MyGo：`npm run desktop:mygo`，见[桌面开发](docs/desktop-development.md)；[浏览器用法](docs/usage.md#12-浏览器)含登录与截图导出。
 
 ## 文档
 

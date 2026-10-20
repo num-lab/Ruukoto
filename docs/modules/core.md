@@ -36,9 +36,13 @@
 | control、Runtime | `Db.tx` / `Store.withTx` | 单事务写入；`Db.tx` 不能嵌套 |
 | Runtime | `acquireInstanceLock(dataDir)`、`acquireConfigLock(agentDir)`（`packages/core/src/instance-lock.ts`） | 获取 `<dataDir>/runtime.lock/` 与 `<agentDir>/config.lock/` |
 | control | `packages/core/src/history.ts` 的 `readHistoryPage` / `readHistoryEntryText` / `readToolResult` | pi JSONL 的分页与分段只读读取；`history_index` 由 `packages/core/src/history-index.ts` 维护与检索 |
-| control、Runtime、execution | `packages/core/src/dir-identity.ts` 的 `resolveDirIdentity` / `verifyDirIdentity` / `sameDirIdentity` | 目录身份：`realpath` 规范化加 `dev`／`ino` |
+| control、Runtime、execution | `packages/core/src/dir-identity.ts` 的 `resolveDirIdentity` / `verifyDirIdentity` / `sameDirIdentity` | 目录身份解析、登记路径/inode 复核与物理别名判定 |
 | Runtime、control | `PRODUCT_META_KEY` 与 `packages/core/src/product.ts` 的产品解析 | 产品归属的 meta 键与 `RUUKOTO_PRODUCT` 解析 |
 | view、后台任务管理 | `ACTIVE_TASK_STATUSES` / `TERMINAL_TASK_STATUSES`（`packages/core/src/task-status.ts`） | 浏览器可用的活动与终态任务状态常量，`types.ts` 同时再导出 |
+
+`TaskView.displayInput` 是任务详情可选的展示输入，由 runtime 从可核实的父级委派调用派生；不落入 Task 行，也不改写 JSONL 或模型输入。
+
+`readToolResult` 保留逐字段预览，另可按指定结构字段返回 UTF-8 分页；精确偏移、空内容与缺字段的区别见[控制面](control.md#不变量与失败处理)。Edit／Write 的 patch 只取调用结果中已保存的补丁，Write 原文只取对应调用参数；不从普通结果文本或当前文件推导差异，也不把原文存在当作工具执行成功。旧记录缺少 patch 时返回 null，已记录的无变化补丁返回空字符串。
 
 路径与配置键：
 
@@ -49,7 +53,7 @@
 | `product.type` | 核心库 `meta` 表里登记的产品归属；跨产品复用同一数据目录被拒绝 |
 | `schema_version` / `instance_id` | `meta` 表里的 schema 版本与数据实例标识 |
 
-控制接口按 id、偏移与长度读取产物正文：`queryArtifact({ taskId, artifactId, offset?, length? })` 校验产物属于该任务，`offset` 下限 0，`length` 默认 256 KiB、上限 720 KiB（按线上帧约束：base64 膨胀 4/3 加 JSON 开销必须留在 `MAX_FRAME_BYTES` 即 4 MiB 内），返回 `base64` 编码的片段。模型侧读产物的工具是 `read_artifact`，参数 `artifact_id` / `offset` / `length`，单次上限 64 KiB，默认按 `utf8`、可显式选 `base64`。
+控制接口按 id、偏移与长度读取产物正文：`queryArtifact({ taskId, artifactId, offset?, length? })` 校验产物属于该任务，`offset` 下限 0，`length` 默认 256 KiB、上限 720 KiB（按线上帧约束：base64 膨胀 4/3 加 JSON 开销必须留在 `MAX_FRAME_BYTES` 即 1 MiB 内），返回 `base64` 编码的片段。模型侧读产物的工具是 `read_artifact`，参数 `artifact_id` / `offset` / `length`，单次上限 64 KiB，默认按 `utf8`、可显式选 `base64`。
 
 ## 数据与状态
 
@@ -79,7 +83,7 @@ Coding 档案根为 `~/.ruukoto-code`，开发实例为 `~/.ruukoto-code-dev/<�
 
 ```
 <dataDir>/                     # 0700（RUUKOTO_CODE_DATA_DIR，默认 ~/.ruukoto-code/data）
-├── ruukoto.db                 # node:sqlite 元数据（WAL，schema v45）
+├── ruukoto.db                 # node:sqlite 元数据（WAL，schema v46）
 ├── agent-data/main.db         # main 应用数据空间（独立库；实例 ID 登记在核心库 meta）
 ├── sessions/                  # pi JSONL 会话文件（消息历史唯一权威副本）
 ├── browser/                  # 0700；按实例与会话隔离 profile、保留截图
@@ -94,7 +98,7 @@ Coding 档案根为 `~/.ruukoto-code`，开发实例为 `~/.ruukoto-code-dev/<�
 ├── control.sock               # 控制面 Unix socket（0660）
 └── owner.token                # 拥有者令牌（0600；部署时复制给拥有者 0400）
 
-<dataDir>/artifacts/           # 0700；工具正文与不可变图片产物（<artifactId>.bin）
+<dataDir>/artifacts/           # 0700；工具正文、不可变图片与用户附件（<artifactId>.bin）
 
 <agentDir>/                    # 0700（RUUKOTO_CODE_AGENT_DIR，默认 ~/.ruukoto-code/agent）
 ├── models.json                # 模型配置（显式指定，不读 ~/.pi/agent）
@@ -121,13 +125,13 @@ Coding 档案根为 `~/.ruukoto-code`，开发实例为 `~/.ruukoto-code-dev/<�
 |---|---|---|---|
 | pi JSONL（`sessions/`） | 消息历史，唯一权威副本，只追加 | 每会话一个 pi SDK 实例 | `SQLite` 的 `history_index` 只是可重建的派生索引；文件登记在 `sessions.session_file` |
 | SQLite（`ruukoto.db`） | 元数据与事件 | `Store` 的 SQL 原语 | 不存消息历史正文，也不存产物正文 |
-| 产物文件（`artifacts/<artifactId>.bin`） | 工具正文与不可变图片产物 | `ArtifactStore` | SQLite 的 `artifacts` 只存归属、字节数、`status`、`mime_type` 与 `content_hash` |
+| 产物文件（`artifacts/<artifactId>.bin`） | 工具正文、不可变图片与用户附件 | `ArtifactStore` | SQLite 的 `artifacts` 只存归属、字节数、`status`、`mime_type` 与 `content_hash` |
 
 三者没有跨文件事务，不得声称原子提交。会话文件与库记录的对应关系在启动恢复时修复：登记的 `session_file` 缺失而同 `pi_session_id` 的文件存在时改用最新一份并发 `session.history_unreadable`，孤立记录也发同一事件；损坏的 JSONL 不覆盖、不静默跳过。
 
 ### schema 版本与创建
 
-`SCHEMA_VERSION` 是 `44`，写在 `meta` 表的 `schema_version` 键。
+`SCHEMA_VERSION` 是 `46`，写在 `meta` 表的 `schema_version` 键。
 
 - 文件版本高于或低于程序版本：以 `schema_version_unsupported` 明确拒绝，不转换旧格式、不回填权限字段。保留原档案，由匹配代码查阅；当前代码使用独立新档案。
 - 文件版本等于程序版本：沿用当前表定义，不自动补列或重建表。
@@ -227,9 +231,13 @@ SubAgent 行优先于角色与类别，所以子会话不会被误判成 main �
 
 画像由此产出会话类别（`toolClass`，决定工具类别表与系统提示键）、SubAgent 工具集（只读 / 写入 / 宿主评审）、是否规划 MCP、是否资料受限与计划资格，以及 `toolSignature`。已退役归档会话求画像时明确报错「已退役的只读归档不运行任务」。
 
+### 思考事件
+
+`task.thinking` 用 thinkingId 固定阶段，新事件的 text 是 offset 指定的 UTF-8 增量，每块最多 8 KiB，完整内容不截断；旧无 offset 事件仍表示快照。阶段结束允许空增量，后台异常终态复制最后一块收束，消费方按偏移幂等处理。
+
 ### 目录身份
 
-`dev` 加 `ino` 与 `realpath` 一起构成目录身份，覆盖符号链接与挂载别名：`sameDirIdentity` 在 `cwdReal` 相同或 `dev` / `ino` 相同时判为同一目录。`verifyDirIdentity` 与同步变体在任务启动前与占用检查时核对登记值，不一致抛 `DirIdentityError`。
+目录身份记录 `realpath`、`dev` 与 `ino`。`sameDirIdentity` 在 `cwdReal` 相同或 `dev` / `ino` 相同时判为同一目录，覆盖符号链接与挂载别名。`verifyDirIdentity` 与同步变体只核对登记的真实路径和 inode，设备号变化不使目录失效；成功返回本次身份供普通任务占用和启动使用，不改写登记值。目录消失、非目录或路径/inode 不一致抛 `DirIdentityError`。
 
 ### 入站图片暂存
 
@@ -310,7 +318,7 @@ sequenceDiagram
 2. `append` 先落盘再累加字节数；上游据此生成限长模型视图。先落盘再生成视图，避免先在工具里丢弃内容再声称全量留存。
 3. 结果回收后 `complete` 定稿；中断或写失败保持 `partial` 并保留已捕获部分与失败原因，不继续丢弃输出后报告完整成功。
 4. 读取按 `offset` / `length` 打开文件后定位读取，不把整个大文件加载进内存再切片；跨后台重启可按 id 查询。
-5. 图片产物走 `importImage`：先用实际文件签名核对 MIME，再核对字节数与 sha256，临时文件加 `linkSync` 落位（已存在同内容文件则复用，内容不同则报冲突），随后在同一事务里登记元数据；读取时每次核实归属、MIME、大小与哈希。图片产物大小上限 8 MiB，且不可修改。
+5. 图片产物走 `importImage`：先用实际文件签名核对 MIME，再核对字节数与 sha256，临时文件加 `linkSync` 落位（已存在同内容文件则复用，内容不同则报冲突），随后在同一事务里登记元数据；读取时每次核实归属、MIME、大小与哈希。图片产物大小上限 8 MiB，且不可修改。用户附件沿用不可变产物存储；附件元数据与 `task.attachments` 来源事件同任务事务登记，正文仍在产物文件，JSONL 只保存稳定引用。
 
 ### 旧实例导入留下的数据痕迹
 
@@ -341,7 +349,7 @@ sequenceDiagram
 
 **目录与锁。**
 
-- 目录身份是 `realpath` 加 `dev` / `ino`；不一致抛 `DirIdentityError`，不按同名或别名合并目录。
+- 登记目录按真实路径与 inode 复核，不按设备号变化判失效；物理别名仍按 dev/ino 判定，不按同名合并目录。
 - 锁用 `mkdir` 原子创建；无法核实持锁进程身份时保留锁并要求人工处理，不做静默删除。实例锁与配置锁的持有者身份判据相同。
 - 同一数据目录已归属另一产品时以 `product_mismatch` 明确拒绝，并释放已取得的锁；不跨产品串用配置、数据与控制面。
 - 数据目录、`agentDir`、`sessions/`、`artifacts/`、`inbound-media/`、`migration/<导入ID>/` 均按 0700 创建，锁与凭据按更严的权限落盘；`inbound-media/` 拒绝符号链接。
@@ -357,6 +365,10 @@ sequenceDiagram
 工作流来源固定实际能力、资料授权 ID、配置摘要和工作区身份；步骤保存冻结补丁产物与独立验证记录，详情见[工作流](workflows.md)。资料读取可携带宿主固定的授权 ID 集合，与当前未撤销授权求交；新增授权不扩大旧运行。
 
 ## 设计依据
+
+- [完整思考与文件预览](../../.agents/notes/implemented/feature/2026-10-18-complete-reasoning-and-preview.md)
+
+- [登记目录不按设备号变化失效](../../.agents/notes/implemented/bug-fix/2026-10-18-directory-device-number.md)
 
 - [共享角色与工作流接口版本](../../.agents/notes/implemented/architecture/2026-10-15-workflow-role-interface.md)
 
@@ -388,3 +400,5 @@ sequenceDiagram
 - [向全新个人实例导入资料并交接平台与调度归属](../../.agents/notes/implemented/architecture/2026-10-05-personal-instance-import.md)：解释应用数据文件的文件级迁移、绑定 meta 随迁与凭据合并的边界，以及导入写入的产品归属为什么不随回退移除。
 
 - [普通与工作流的可信来源能力](../../.agents/notes/implemented/architecture/2026-10-15-subagent-source-capabilities.md)。
+
+Store.createSession 可接受宿主核实的初始 defaultAccessMode 与 modelSelection，与会话及 session.created 同事务写入；未提供模式仍为 confirm。创建幂等重放只返回首次成果，不重设当前设置，无数据库 schema 变化。

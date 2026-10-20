@@ -1,0 +1,17 @@
+import * as fs from 'node:fs/promises';
+import { resolve, join } from 'node:path';
+import { build } from 'vite';
+import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
+import { productionCspPlugin } from '../../../../apps/desktop/build/security.mjs';
+const root=process.cwd(), temporary='/tmp/ruukoto-mygo-browser-qa', renderer=join(temporary,'renderer'), native=join(temporary,'native');
+await fs.mkdir(renderer,{recursive:true}); await fs.mkdir(native,{recursive:true});
+await fs.rm(join(temporary,'node_modules'),{force:true}); await fs.symlink(join(root,'node_modules'),join(temporary,'node_modules'));
+const ready=JSON.parse(await fs.readFile('/tmp/desktop-local-browser-ready.json','utf8'));
+await fs.writeFile(join(renderer,'index.html'), '<!doctype html><html><head><meta charset="UTF-8"></head><body><div id="root"></div><script type="module" src="/fixture.tsx"></script></body></html>');
+const entry=join(renderer,'fixture.tsx');
+await fs.writeFile(entry, `import React,{useState,useEffect}from'${root}/node_modules/react/index.js';import{createRoot}from'${root}/node_modules/react-dom/client.js';import{BrowserPanel}from'${root}/apps/desktop/src/renderer/inspector-panels.tsx';import{browserNavigation}from'${root}/apps/desktop/src/renderer/browser-navigation.ts';import'${root}/apps/desktop/src/renderer/style.css';function Fixture(){const[proof,setProof]=useState(null);const[navigation,onChange]=useState(()=>browserNavigation(${JSON.stringify(ready.fileURL)}));useEffect(()=>{const listener=event=>{if(event.source===document.querySelector('iframe')?.contentWindow&&event.data?.type==='fixture-result')setProof(event.data);};window.addEventListener('message',listener);return()=>window.removeEventListener('message',listener);},[]);return <><div style={{height:500,display:'flex'}}><BrowserPanel navigation={navigation} onChange={onChange}/></div><output role="status">{JSON.stringify({native:!!window.ruukoto,...proof})}</output></>;};createRoot(document.getElementById('root')).render(<Fixture/>);`);
+await build({configFile:false,root:renderer,plugins:[react(),tailwindcss(),productionCspPlugin()],build:{outDir:join(temporary,'frontend'),emptyOutDir:true,target:'safari16'}});
+for(const file of ['main.go','transport.go','preload.js','go.mod','go.sum'])await fs.copyFile(join(root,'apps/desktop/mygo',file),join(native,file));
+await fs.writeFile(join(native,'mygo.json'),JSON.stringify({name:'Ruukoto Browser QA',identifier:'dev.ruukoto.desktop.browserqa',version:'0.1.0',frontendDist:'../frontend',bindings:'../bindings.ts',resources:[join(root,'apps/desktop/out/mygo/sidecar.mjs'),join(root,'apps/desktop/out/mygo/launch.json')],out:'../dist',macos:{signingIdentity:'-'}})+'\n');
+process.stdout.write(native+'\n');

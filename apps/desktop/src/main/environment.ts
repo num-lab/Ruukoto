@@ -1,5 +1,6 @@
-import { execFile } from "node:child_process";
+import { execFile, type ExecFileOptions } from "node:child_process";
 import { promisify } from "node:util";
+import { addAbortListener } from "node:events";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { defaultDataDir, defaultAgentDir, controlDirFor, socketPathFor } from "@ruukoto/control/connect.ts";
@@ -27,17 +28,28 @@ function parseProbe(stdout: string): DesktopEnvironment {
   return { node: result.node, env: result.env as NodeJS.ProcessEnv };
 }
 
-export async function readLoginEnvironment(inherited: NodeJS.ProcessEnv): Promise<DesktopEnvironment> {
+async function executeProbe(command: string, args: string[], options: ExecFileOptions): Promise<string> {
+  const { signal, ...execution } = options;
+  const reading = execute(command, args, { ...execution, encoding: "utf8", killSignal: "SIGKILL" });
+  if (!reading.child) return (await reading).stdout;
+  // execFile 未把 killSignal 转给内部 spawn 的取消路径，直接回收读取进程并等 close。
+  const cancellation = signal ? addAbortListener(signal, () => { reading.child.kill("SIGKILL"); }) : undefined;
+  const closed = new Promise<void>(resolve => reading.child.once("close", () => resolve()));
+  try { return (await reading).stdout; }
+  finally { await closed; cancellation?.[Symbol.dispose](); }
+}
+
+export async function readLoginEnvironment(inherited: NodeJS.ProcessEnv, signal?: AbortSignal): Promise<DesktopEnvironment> {
   let stdout: string;
-  try { ({ stdout } = await execute(inherited.SHELL || "/bin/zsh", ["-ilc", `node -e '${probe}'`], { env: inherited, timeout: 15000, maxBuffer: 4 * 1024 * 1024 })); }
+  try { stdout = await executeProbe(inherited.SHELL || "/bin/zsh", ["-ilc", `node -e '${probe}'`], { env: inherited, signal, timeout: 15000, maxBuffer: 4 * 1024 * 1024 }); }
   catch { throw new DesktopError("shell_environment", "无法从登录 shell 读取 node 与环境；请确认登录 shell 能运行 node（≥ 22.19）后重新连接。"); }
   return parseProbe(stdout);
 }
 
-export async function selectEnvironment(inherited: NodeJS.ProcessEnv, login = readLoginEnvironment): Promise<DesktopEnvironment> {
-  if (inherited.RUUKOTO_DESKTOP_MANAGED !== "1") return login(inherited);
+export async function selectEnvironment(inherited: NodeJS.ProcessEnv, login = readLoginEnvironment, signal?: AbortSignal): Promise<DesktopEnvironment> {
+  if (inherited.RUUKOTO_DESKTOP_MANAGED !== "1") return login(inherited, signal);
   let stdout: string;
-  try { ({ stdout } = await execute("node", ["-e", probe], { env: inherited, timeout: 5000 })); }
+  try { stdout = await executeProbe("node", ["-e", probe], { env: inherited, signal, timeout: 5000 }); }
   catch { throw new DesktopError("node_unavailable", "开发环境中找不到 node；请修正 PATH 后重启开发启动器。"); }
   return { node: parseProbe(stdout).node, env: { ...inherited } };
 }
@@ -54,7 +66,7 @@ export interface CodeTargetConfig extends EnsureBackendOptions {
 }
 export function codeTargetConfig(repository: string, source: DesktopEnvironment): CodeTargetConfig {
   const bin = path.join(repository, "apps/ruukoto-code/bin/ruukoto-code.mjs");
-  if (!path.isAbsolute(repository) || !fs.existsSync(bin)) throw new DesktopError("repository_missing", "构建时的仓库路径不可用；请在当前仓库运行 npm run desktop:build 重建应用。");
+  if (!path.isAbsolute(repository) || !fs.existsSync(bin)) throw new DesktopError("repository_missing", "构建时的仓库路径不可用；请在当前仓库运行 npm run desktop:build（Electron）或 npm run desktop:mygo:build（MyGo）重建应用。");
   const product = "ruukoto-code";
   const dataDir = path.resolve(defaultDataDir(product));
   const controlDir = path.resolve(controlDirFor(dataDir, product));

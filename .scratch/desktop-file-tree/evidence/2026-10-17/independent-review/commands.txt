@@ -1,0 +1,11 @@
+Run from /Users/eitrous/.codex/worktrees/6f13/ruukoto:
+
+node --import tsx --test --test-name-pattern '目录保护|目录读取后|受保护来源可读' test/desktop-workspace-files.test.ts test/subagent-execution-core.test.ts
+Output: targeted.log; exit 0; 5/5 passed.
+
+node --import tsx /tmp/ruukoto-file-tree-plan.lsdznG/review/extra-checks.mts
+Output: extra-checks.log; exit 0; six additional checks passed.
+
+node --import tsx --import /tmp/ruukoto-file-tree-plan.lsdznG/review/register-no-metadata-guard.mjs --test --test-name-pattern '目录保护枚举的旧文件分类被替换时拒绝结果' test/desktop-workspace-files.test.ts
+Output: no-metadata-guard.log; exit 1; Missing expected exception.
+This temporary resolve loader redirects only the approved-ops import to a temporary .mts copy with exactly the metadata guard removed. It never edits the official checkout.

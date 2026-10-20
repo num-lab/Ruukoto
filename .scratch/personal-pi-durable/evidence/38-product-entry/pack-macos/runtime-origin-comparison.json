@@ -1,0 +1,16 @@
+{
+  "runtimeChangesSinceSnapshot": false,
+  "sourceDrift": [
+    {
+      "path": "packages/core/src/product.ts",
+      "emittedJavaScriptEqual": true,
+      "emittedSha256": "42b97582ad3813d858d85efec000afac2f9f96f3ba07a916d3be35cba4ecb5e1"
+    },
+    {
+      "path": "verification/smoke/smoke-04-desktop-execution.mts",
+      "emittedJavaScriptEqual": true,
+      "emittedSha256": "63bd69de400dfb7da5a18d4db17767e9c6ad9c78085af068d5b09ae5e2fac726"
+    }
+  ],
+  "otherDrift": "Documentation and skill text; frozen source manifest remains authoritative."
+}

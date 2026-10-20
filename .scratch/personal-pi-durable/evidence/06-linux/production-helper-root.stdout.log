@@ -1,0 +1,12 @@
+✔ helper 停止：检查停止标记后尚未派发的启动器不能被 not-found 误判为停止 (905.048037ms)
+✔ helper 停止：helper 已死但 systemd-run 后代仍可能派发时保留占用 (787.718169ms)
+✔ helper 停止：旧、缺失或损坏认领不提供停止证明；先手停止认领阻止新启动 (3118.592344ms)
+✔ helper 停止：进程组消失仍不能把尚未处理的跨连接创建请求当成已结束 (1900.866084ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 6883.054346

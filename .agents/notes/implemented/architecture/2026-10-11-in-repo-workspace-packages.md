@@ -2,6 +2,8 @@
 
 Status: implemented
 
+部分取代：[个人正式入口](../simplification/2026-10-18-personal-product-entry.md)让个人独立使用 durable，仅复用实际共用的业务库、传输、校验与执行原语；Coding 共享包和同仓交付约束保持。整体迁移验收仍由[总方案](../../proposed/architecture/2026-10-17-personal-pi-durable.md)持有。
+
 ## 问题
 
 两个产品共用单代码包，产品差异缺少显式归属，模块依赖只能靠文档约束。[产品入口决定](2026-10-02-two-agent-products.md)原先只在独立发货需要出现时重访分包；这次驱动是产品装配与可检查的依赖方向。原提案测得约 76% 源码是共享底座，拆仓会放大 worker、schema、协议与共享测试的版本协调成本。
@@ -16,38 +18,38 @@ Status: implemented
 | --- | --- |
 | `@ruukoto/core` | 存储、身份、schema、历史读取；导入方向共用的快照、文件校验、行与回执辅助；模型选择字段解析 |
 | `@ruukoto/agent` | 模型、上下文、通用工具、审批与执行边界；SubAgent 格式化与账本核实 |
-| `@ruukoto/channels` | QQ、Telegram、GitHub、调度；IM 审批、入口表、入站媒体、个人导入、GitHub 退役；资料来源核实、旧群结果查询与个人工具的旧账本规则 |
+| `@ruukoto/channels` | 保留的旧 QQ、Telegram、GitHub、调度；IM 审批、入口表、入站媒体、GitHub 退役；资料来源核实、旧群结果查询与个人工具的旧账本规则 |
 | `@ruukoto/runtime` | 任务生命周期、编排器、SubAgent、父级送达、工作副本与工作区组织迁移 |
 | `@ruukoto/control` | 控制面协议、认证、客户端与服务器 |
 | `@ruukoto/view` | 浏览器可用的快照、事件、历史与任务详情投影，客户端共用选择器与状态文字 |
 | `@ruukoto/tui` | 共享 CLI、任务界面、配置中心、开发启动器与程序化聚合入口 |
 | `@ruukoto/desktop` | macOS 桌面主进程、sandbox preload、React 渲染进程与应用打包 |
-| `ruukoto` app | 个人产品 bin、主入口、开发入口、能力声明、调度与服务工具装配 |
+| `ruukoto` app | 个人产品 bin、主入口、开发入口、durable 会话与业务工具、本机管理 |
 | `ruukoto-code` app | Coding 产品 bin、主入口、开发入口、能力声明与旧开发资料导入策略 |
 
-产品能力在各 app 的 `product.ts` 持有：RuntimeProduct 提供身份、IM、调度、服务可用性与工具族工厂；CliProduct 提供默认执行后端、旧项目写资格与导入方向。Runtime.start 必须接收显式产品声明，共享运行时不按 ProductType 分支装配。身份继续用于 `product.type` 登记和跨产品目录拒绝，不由模型或任务参数决定。
+Coding 与保留旧底座的产品能力在 `product.ts` 持有：RuntimeProduct 提供身份、IM、调度、服务可用性与工具族工厂；CliProduct 提供默认执行后端、旧项目写资格与导入方向。Runtime.start 必须接收显式产品声明，共享运行时不按 ProductType 分支装配。身份继续用于 `product.type` 登记和跨产品目录拒绝，不由模型或任务参数决定。
 
-两个 bin 各自固定身份。根 `npm start` 通过 `scripts/start.ts` 保留已有环境身份选择，默认 ruukoto；各 app 的 start 固定自己的 bin。root 的 dev/code 直接运行对应 app 的开发入口，公共启动器监听各 workspace 包的源码，view 变化只重载任务界面，子进程仍使用所属产品的 bin。
+两个 bin 各自固定身份。根 `npm start` 通过 `scripts/start.ts` 保留已有环境身份选择，默认 ruukoto；各 app 的 start 固定自己的 bin。root 的 dev/code 直接运行对应 app 的开发入口，Coding 公共启动器监听各 workspace 包源码，view 变化只重载任务界面；个人开发默认通过薄启动器托管 Node watch 前台后台；`--config` 直接运行受管菜单且不监听源码。各自固定开发目录；个人拒绝已启用 IM 的档案。
 
 ## 依赖与兼容
 
-运行时值依赖固定为 `agent → core`、`channels → agent/core`、`runtime → channels/agent/core`、`control → core`、`view → control/core`、`tui → view/control/runtime/agent/core`。各 app 可以依赖共享包，产品包之间没有依赖。desktop 的依赖全部放在 devDependencies，主进程与 preload 只外置 Electron 和 Node 内置模块，其余源码打进产物；生产安装不需要桌面依赖。ESLint 仅对此包允许 devDependencies 的值引用，未声明、跨包相对路径与动态 import 的检查仍成立。其他包的反向类型放进 devDependencies，core 不接受任何反向引用；跨层运行时协作使用回调或已注入的实例。ESLint 检查静态 import、re-export、类型引用与动态 import，拒绝未声明依赖、越层值引用与跨包相对路径；包内动态 import 使用静态模块字符串。
+运行时值依赖固定为 `agent → core`、`channels → agent/core`、`runtime → channels/agent/core`、`control → core`、`view → control/core`、`tui → view/control/runtime/agent/core`。各 app 可以依赖共享包，产品包之间没有依赖。个人 app 不直接依赖共享 tui、runtime 或旧 Pi SDK；其 Pi 1.3.0 与 Coding 调用方的 0.85.1 分别解析，不跨版本传 SDK 对象。desktop 的依赖全部放在 devDependencies，主进程与 preload 只外置 Electron 和 Node 内置模块，其余源码打进产物；生产安装不需要桌面依赖。ESLint 仅对此包允许 devDependencies 的值引用，未声明、跨包相对路径与动态 import 的检查仍成立。其他包的反向类型放进 devDependencies，core 不接受任何反向引用；跨层运行时协作使用回调或已注入的实例。ESLint 检查静态 import、re-export、类型引用与动态 import，拒绝未声明依赖、越层值引用与跨包相对路径；包内动态 import 使用静态模块字符串。
 
 view 沿用[桌面客户端提案](../../proposed/architecture/2026-10-15-desktop-client.md)的共用投影决定，先承载 `ViewState` 与 `EventFlow`。纯状态常量与展示归属从依赖 Node 的模块拆出，原入口再导出以保持调用方兼容；UTF-8 字节用 `TextEncoder` 计数。view 源码禁止 Node 引用，全部导出以浏览器目标打包后仅按浏览器全局检查，覆盖传递依赖中的未执行分支，再用无 Node 全局的 VM 核实实际投影。
 
 命令执行与 SQLite 持久化留在 TUI 的 `ViewState` 子类，加载/保存失败继续显示提示，保存失败的本地结果不会被旧存储覆盖。EventFlow 保留纯内存命令条目及其统一排序，使重同步保留本地提示与命令；不为这次抽取新增命令存储接口。每次安装快照都由调用方更换异步请求代次，过时代次结果不得安装；全局 seq 缺口检测仍归 `ControlConnection`。
 
-原提案把开发启动器、工作区组织迁移与群结果工具归为产品专属。当前代码中的两个产品都使用前两项，群结果工具也承担旧归档查询，因此它们保留共享。这样无需让个人 app 引用 Coding app，也不删除现有普通开发会话的能力。个人导入原先从 Coding 导入文件复用的通用辅助下沉 core，各方向保留自己的表策略、权限收尾与交接判断。
+原提案把开发启动器、工作区组织迁移与群结果工具归为产品专属。当前 Coding 继续使用开发启动器、工作区迁移与群归档查询；个人 durable 不接入这些运行路径。导入快照、文件和回执辅助留在 core，Coding app 持有开发方向的表策略和权限收尾；旧个人导入器退出。
 
-调度与服务工具实现归个人 app，但旧工具操作的规则、只读分类与提交核实留在共享包，始终提供给 ToolOpLedger。Coding Agent 停用能力不改变遗留操作的恢复结论，也不丢失旧群资料的只读查询。
+个人调度与服务由 durable app 持有，旧个人调度/服务工具装配退出；旧工具操作的规则、只读分类与提交核实留在共享包，始终提供给 ToolOpLedger。Coding Agent 停用能力不改变遗留操作的恢复结论，也不丢失旧群资料的只读查询。
 
 测试和 test/helpers 保留在根目录，不新增测试包、不改变编号或裸 SQL 布局断言。foundation 保持 workspaces 之外的独立 SDK 验证包、锁文件与 typecheck；setup 继续对根和 foundation 各执行 npm ci。schema 与控制面协议不因分包升版，JSONL、数据目录、授权与凭据格式不迁移。
 
 ## 构建与检查
 
-根 build:worker 是 worker 的唯一构建入口，产物仍为 `worker/worker.mjs`；两个 app 的 build 各自产出包含 bin、源码和共享依赖声明的 npm tarball。根 build 先构建 worker，再聚合 app 构建。tarball 不是独立单文件发行版，部署仍使用完整 workspace 安装与同一 worker 镜像；没有引入外部包发布流程。
+根 build:worker 构建 `worker/worker.mjs` 与自包含的 `worker/personal-command-worker.mjs`；两个 app 的 build 各自产出包含 bin、源码和共享依赖声明的 npm tarball。根 build 先构建 worker，再聚合 app 构建。tarball 不是独立单文件发行版，部署仍使用完整 workspace 安装与根 worker 产物；没有引入外部包发布流程。
 
-worker 镜像在构建阶段复制 workspace 源码与清单，按根锁文件安装，单次构建 worker 后移除开发依赖；运行阶段只复制生产依赖与 worker 产物。systemd 使用个人 app 的 bin。desktop 不定义 build 脚本，根 build 不触发 Electron；显式 desktop:build 依次构建、检查产物与 electron-builder --mac --arm64 --dir 打包，根 dist 接收 ad-hoc 签名应用。桌面 lint/typecheck 与纯逻辑测试进入现有检查，CI 禁止下载 Electron 二进制。
+worker 与部署依赖从完整 workspace 的根锁文件和构建产物解析，systemd 使用个人 app 的 bin 及 `serve`。desktop 不定义 build 脚本，根 build 不触发 Electron；显式 desktop:build 依次构建、检查产物与 electron-builder --mac --arm64 --dir 打包，根 dist 接收 ad-hoc 签名应用。桌面 lint/typecheck 与纯逻辑测试进入现有检查，CI 禁止下载 Electron 二进制。
 
 根 typecheck 检查测试和脚本，再逐包与 foundation 执行独立检查；check 继续聚合构建、静态门禁与离线测试。
 

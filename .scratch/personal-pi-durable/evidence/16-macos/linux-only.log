@@ -1,0 +1,19 @@
+﹣ helper 停止：检查停止标记后尚未派发的启动器不能被 not-found 误判为停止 (0.897583ms) # SKIP
+﹣ helper 检查身份：真实后台强杀后旧 detached 检查仍占用，退出后才可核实 (0.055459ms) # SKIP
+﹣ helper 检查身份：原 helper 已死但同组 systemctl 仍活，不能释放 (0.028667ms) # SKIP
+﹣ helper 检查身份：停止先手和已结束检查均禁止同键重启，机器与旧协议不能混用 (0.023333ms) # SKIP
+﹣ helper 检查身份：半写、损坏、错绑及非法 launcher 均保留占用，跨 boot 也先验完整身份 (0.030291ms) # SKIP
+﹣ helper 检查身份：认领到启动窗口收到停止标记时不执行 systemctl (0.021792ms) # SKIP
+﹣ helper 检查身份：检查过停止标记但尚未 spawn 时，活启动器阻止提前判停 (0.02175ms) # SKIP
+﹣ helper 检查身份：原组或 proc 观察失败不能形成停止证明 (0.020792ms) # SKIP
+﹣ helper 停止：helper 已死但 systemd-run 后代仍可能派发时保留占用 (0.12925ms) # SKIP
+﹣ helper 停止：旧、缺失或损坏认领不提供停止证明；先手停止认领阻止新启动 (0.158667ms) # SKIP
+﹣ helper 停止：进程组消失仍不能把尚未处理的跨连接创建请求当成已结束 (0.063667ms) # SKIP
+ℹ tests 11
+ℹ suites 0
+ℹ pass 0
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 11
+ℹ todo 0
+ℹ duration_ms 133.064875

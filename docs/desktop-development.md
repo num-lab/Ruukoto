@@ -8,6 +8,12 @@
 
 开发入口：`npm run code -- --desktop`。构建入口：`npm run desktop:build`。返回[开发说明](development.md#桌面客户端)。
 
+## 测试导航
+
+| 修改位置 | 常用测试起点 |
+| --- | --- |
+| `apps/desktop/` | `test/38-desktop-main.test.ts`、`test/38-desktop-personal.test.ts`、`test/38-desktop-build.test.ts`、`test/39-desktop-recovery-guide.test.ts`、`test/40-desktop-creation.test.ts`、`test/41-desktop-stream.test.ts`、`test/42-desktop-inspector.test.ts`、`test/43-desktop-demo.test.ts`、`test/desktop-attachments.test.ts`、`test/desktop-agent-display.test.ts`、`test/desktop-context.test.ts`、`test/desktop-composer.test.ts`、`test/desktop-inspector-tools.test.ts`、`test/desktop-tool-activity.test.ts`、`test/desktop-workspace-files.test.ts`、`test/desktop-browser-security.test.ts`、`test/desktop-mygo.test.ts`、`test/desktop-personal-interface.test.ts`、`test/desktop-workspace-git.test.ts`、`test/desktop-demo-v4.test.ts`、`test/desktop-session-settings.test.ts`、`test/desktop-live-files.test.ts`、`test/desktop-interaction-regressions.test.ts`、`test/desktop-polish.test.ts`、`test/desktop-git-lazy.test.ts`、`test/desktop-file-tree-loading.test.ts`、`test/desktop-git-layout.test.ts`、`test/desktop-git-windowing.test.ts`；MyGo 另跑 `cd apps/desktop/mygo && go test -race ./...`；真实外壳另验 |
+
 ## MyGo 试验
 
 macOS Apple Silicon 安装 Go ≥ 1.27.1 后，`npm run desktop:mygo` 重建并打开 MyGo 应用，`npm run desktop:mygo:build` 只构建；产物是 `dist/mygo/darwin-arm64/Ruukoto MyGo.app`，原 Electron 入口继续可用。MyGo Go module 固定 v0.5.5，首次构建会下载 Go 依赖；无需 Bun。`codesign --verify --deep --strict "dist/mygo/darwin-arm64/Ruukoto MyGo.app"` 检查签名。

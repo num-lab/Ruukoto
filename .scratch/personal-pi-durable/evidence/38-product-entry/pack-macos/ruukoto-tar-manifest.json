@@ -1,0 +1,452 @@
+[
+  {
+    "path": "package/package.json",
+    "bytes": 731,
+    "mode": "0o644",
+    "sha256": "0774671fda0e6a7945fa9183328dbb51a0bfb60e48b25ddb5ef0133fd2c08477"
+  },
+  {
+    "path": "package/bin/ruukoto.mjs",
+    "bytes": 408,
+    "mode": "0o755",
+    "sha256": "396291a9b841718618defa51e3bb12baa0638c0f2b481a8e783dbed99e895f19"
+  },
+  {
+    "path": "package/src/dev.ts",
+    "bytes": 1943,
+    "mode": "0o644",
+    "sha256": "d2c9c01147db399b817a766e10147a4ed304930a7d707e2bde7b5be00bae8d4b"
+  },
+  {
+    "path": "package/src/main.ts",
+    "bytes": 529,
+    "mode": "0o644",
+    "sha256": "8246cd0cf81f08d219383d717bc82007e02d8a8dbca0ec677972d82671fcc703"
+  },
+  {
+    "path": "package/src/personal-app-data-controls.ts",
+    "bytes": 9547,
+    "mode": "0o644",
+    "sha256": "8b52a6c73d338581394438d4ecff3e7fa3dd842597d344aa2aed82bd5baab80a"
+  },
+  {
+    "path": "package/src/personal-app-data.ts",
+    "bytes": 34099,
+    "mode": "0o644",
+    "sha256": "de5821460d6ebbe7d8503acc0f9aa5e23bd5a1c5eb7720772f1cc4492d2317b3"
+  },
+  {
+    "path": "package/src/personal-artifacts.ts",
+    "bytes": 7627,
+    "mode": "0o644",
+    "sha256": "84f876e76ad191336352b90659ed3a9a2ccbf0fb2aaf94dccd67bf111081f732"
+  },
+  {
+    "path": "package/src/personal-browser-cli.ts",
+    "bytes": 6949,
+    "mode": "0o644",
+    "sha256": "7032a4fa1a6812d171e0f99a64b9209d421b32c6eaefbb9db5548532baea778a"
+  },
+  {
+    "path": "package/src/personal-browser-config.ts",
+    "bytes": 5624,
+    "mode": "0o644",
+    "sha256": "82714a24e2a0d6891fdb464a5cfaa9da370a4787494e7a72271e352eec46a80e"
+  },
+  {
+    "path": "package/src/personal-browser-controls.ts",
+    "bytes": 10013,
+    "mode": "0o644",
+    "sha256": "f233238a2ba5d51d860e74c0c65cc11c668a3087edfc09afa65b7c9384c53666"
+  },
+  {
+    "path": "package/src/personal-browser.ts",
+    "bytes": 46233,
+    "mode": "0o644",
+    "sha256": "c0bae7ffd37cab6d53bd9ea9e3b3f6af36409faaf7e7fa0ab67615ea9f784d4b"
+  },
+  {
+    "path": "package/src/personal-cli.ts",
+    "bytes": 40396,
+    "mode": "0o644",
+    "sha256": "b2beb3ac4271b24842f4d2f8adfd23d728ae436c22d544896f82337311b72d92"
+  },
+  {
+    "path": "package/src/personal-command-config.ts",
+    "bytes": 8082,
+    "mode": "0o644",
+    "sha256": "2aee9680052e88873b3520d3b66f30dd3bb8a4bc71b8a9227b8196194b5a8c7e"
+  },
+  {
+    "path": "package/src/personal-command-execution.ts",
+    "bytes": 17589,
+    "mode": "0o644",
+    "sha256": "c1356517fc5ea86a84b72ccb26355f5453e6f607eadd51836dbe1ff45b2620d6"
+  },
+  {
+    "path": "package/src/personal-command-work.ts",
+    "bytes": 35798,
+    "mode": "0o644",
+    "sha256": "7b892d1ef45934914963d74534292cd3f044dcb9418d551fd334b1fa6b07d8f1"
+  },
+  {
+    "path": "package/src/personal-command-worker.ts",
+    "bytes": 3764,
+    "mode": "0o644",
+    "sha256": "c13a477a2432fd1b06ad1dfb5a7d0bb85135acb9e422eb564de80fffa7519503"
+  },
+  {
+    "path": "package/src/personal-config-idle.ts",
+    "bytes": 2377,
+    "mode": "0o644",
+    "sha256": "c47dcc7109a8c6f8d8d9979f895d48699886590ee13996effd4588e13cdf9d27"
+  },
+  {
+    "path": "package/src/personal-config.ts",
+    "bytes": 3795,
+    "mode": "0o644",
+    "sha256": "38ac8a87444f712c864744197737c98830a18a4b32647c6a1a2e63e00f74f15f"
+  },
+  {
+    "path": "package/src/personal-control.ts",
+    "bytes": 43390,
+    "mode": "0o644",
+    "sha256": "5b1683381c244de6fdce6d388f7a68375691dbfcc34030dcf594a07bff41e047"
+  },
+  {
+    "path": "package/src/personal-delegation.ts",
+    "bytes": 18285,
+    "mode": "0o644",
+    "sha256": "546df7e390a9d509a1b9ccdd394612872fa47a5894c368161e1488e378bf6cf0"
+  },
+  {
+    "path": "package/src/personal-entry.ts",
+    "bytes": 20,
+    "mode": "0o644",
+    "sha256": "7591e2aa4f479723294a89c5cf1c7f645454dc2b3dcfe2a0e7e0bdbdf8b38a81"
+  },
+  {
+    "path": "package/src/personal-error.ts",
+    "bytes": 191,
+    "mode": "0o644",
+    "sha256": "f4266968ec480f657bee1a6043e69d07910134f09924ec43683aa0569b212ab4"
+  },
+  {
+    "path": "package/src/personal-harness.ts",
+    "bytes": 77374,
+    "mode": "0o644",
+    "sha256": "0af8803bc9bf5f2fbb2383fe9c0ccc9dcb2bb89c7662efe07c03293be5c3157c"
+  },
+  {
+    "path": "package/src/personal-history.ts",
+    "bytes": 11363,
+    "mode": "0o644",
+    "sha256": "84619761723b7b8b517b8a8ae369b1e4da15bb56dab03f576ed2062d27537234"
+  },
+  {
+    "path": "package/src/personal-im-api.ts",
+    "bytes": 263,
+    "mode": "0o644",
+    "sha256": "4322ad73f27f542fdac70988f43ed4ad2bad8a20b4fee14f0ca41c8561f8220f"
+  },
+  {
+    "path": "package/src/personal-inspection-controls.ts",
+    "bytes": 14980,
+    "mode": "0o644",
+    "sha256": "8522bf3e57ab2215d9d35f3182355146d26c0fb1b8c3e0c63d75f174bc5a5096"
+  },
+  {
+    "path": "package/src/personal-local-records.ts",
+    "bytes": 3079,
+    "mode": "0o644",
+    "sha256": "6dbcf6ac373d530d0f9370ff409b256221aa8b0f52e78523c324fb5d2d2a5b4a"
+  },
+  {
+    "path": "package/src/personal-mcp-cli.ts",
+    "bytes": 7233,
+    "mode": "0o644",
+    "sha256": "1961a3fb4bc30fcd09a498d6cc1676e86be484f1b722e245377a71cf31f246c0"
+  },
+  {
+    "path": "package/src/personal-mcp-config.ts",
+    "bytes": 11631,
+    "mode": "0o644",
+    "sha256": "79084270d5e5945a0d4ff652b16367bfe8dfa28e7493fc6d4e47ada409653c49"
+  },
+  {
+    "path": "package/src/personal-mcp-controls.ts",
+    "bytes": 11050,
+    "mode": "0o644",
+    "sha256": "cabcbb3950a7954ae4730875a42814772f376c08ee7f500d40f46e2894405b12"
+  },
+  {
+    "path": "package/src/personal-mcp.ts",
+    "bytes": 36742,
+    "mode": "0o644",
+    "sha256": "8d45efd93b786c63ceb6416b872a3a8accab14cd225d76b322522750157ffeba"
+  },
+  {
+    "path": "package/src/personal-media.ts",
+    "bytes": 27668,
+    "mode": "0o644",
+    "sha256": "f983c22c894a5739afb2f76e3142f3f491c2e7b3e8a77686e98997c27f7c1860"
+  },
+  {
+    "path": "package/src/personal-memory-controls.ts",
+    "bytes": 8992,
+    "mode": "0o644",
+    "sha256": "8a7def4a9c6f90becd28d9c4ada4b696f225e95cc8681035c472e9be79e6d813"
+  },
+  {
+    "path": "package/src/personal-memory.ts",
+    "bytes": 20668,
+    "mode": "0o644",
+    "sha256": "af37772a435ae0ce86a1b20b198d51637fe2499007b1d4ad7fd9006a56ad4861"
+  },
+  {
+    "path": "package/src/personal-model.ts",
+    "bytes": 7577,
+    "mode": "0o644",
+    "sha256": "cc2e87239d6f2b3c628498b43c28013841ea7795931d113efda80b25886db881"
+  },
+  {
+    "path": "package/src/personal-owner-controls.ts",
+    "bytes": 14802,
+    "mode": "0o644",
+    "sha256": "8e7f9b982c5789f776ba23aab7604fe734462ade5d73c6e3da1635dcd41b45ce"
+  },
+  {
+    "path": "package/src/personal-permissions-cli.ts",
+    "bytes": 3256,
+    "mode": "0o644",
+    "sha256": "c459f14bb16cfdd18b171532208639ab0aaa9493b7558c956845bae51103c909"
+  },
+  {
+    "path": "package/src/personal-permissions.ts",
+    "bytes": 5223,
+    "mode": "0o644",
+    "sha256": "023a8d4b99910463f749fdcc4413fe756c14b058bc0eb805738fbb7129ffb703"
+  },
+  {
+    "path": "package/src/personal-profile.ts",
+    "bytes": 4510,
+    "mode": "0o644",
+    "sha256": "ab54d3f537ef92ed1903df0c99054c16b7797a770d3bccbff04e6b47a194ab86"
+  },
+  {
+    "path": "package/src/personal-qq-api.ts",
+    "bytes": 7816,
+    "mode": "0o644",
+    "sha256": "47385c2dbd807fb5a213019a72917ebec67426e3aaa85891f793ac518676f4d8"
+  },
+  {
+    "path": "package/src/personal-qq-cli.ts",
+    "bytes": 4544,
+    "mode": "0o644",
+    "sha256": "1f1f19231d03ca65f425492ae5168d46f1ac9632c28583b4708030479c06212e"
+  },
+  {
+    "path": "package/src/personal-qq-config.ts",
+    "bytes": 4344,
+    "mode": "0o644",
+    "sha256": "c30e0f600ac3a63c2931449381510afd6365675c3dcf2681864c719df2075dff"
+  },
+  {
+    "path": "package/src/personal-report.ts",
+    "bytes": 31590,
+    "mode": "0o644",
+    "sha256": "9b523445bc0a02ee06a9300c1abf95023f9fd7b35d77ad1d4cf3365c75f11380"
+  },
+  {
+    "path": "package/src/personal-schedule-authority.ts",
+    "bytes": 9499,
+    "mode": "0o644",
+    "sha256": "4d5a582003706a1bbd9944688e517ffdcc70f57fb00ccf44e1abf8fd0503af9e"
+  },
+  {
+    "path": "package/src/personal-schedule-execution.ts",
+    "bytes": 11245,
+    "mode": "0o644",
+    "sha256": "030098257418ac61cf89162eb7d3916ed6e57326a32789552912e0fcc560638d"
+  },
+  {
+    "path": "package/src/personal-schedule-scope.ts",
+    "bytes": 3409,
+    "mode": "0o644",
+    "sha256": "e29b4de866915628cb8f63c4a4171e1bad0e723b1e8d426fa08b7e086de66cde"
+  },
+  {
+    "path": "package/src/personal-scheduler-cli.ts",
+    "bytes": 9974,
+    "mode": "0o644",
+    "sha256": "6d940995b6f8713e3e643ad1ca72ed90d15262d25ca2deaadbe7b61e8aa4699f"
+  },
+  {
+    "path": "package/src/personal-scheduler-controls.ts",
+    "bytes": 20573,
+    "mode": "0o644",
+    "sha256": "853b7277bd42bba06d1f1efe6d8382a400a010011b5255dba531741ff7ac80e8"
+  },
+  {
+    "path": "package/src/personal-scheduler-records.ts",
+    "bytes": 28292,
+    "mode": "0o644",
+    "sha256": "4cc8815b921b316d58e5eb93c17992e1036c4385e0619aa9b67a8de585ae392a"
+  },
+  {
+    "path": "package/src/personal-scheduler-tools.ts",
+    "bytes": 13166,
+    "mode": "0o644",
+    "sha256": "8b4aad85318960267febb8fd1291845e3c000f40707f7a1c5100d6a09ea5b3e4"
+  },
+  {
+    "path": "package/src/personal-scheduler.ts",
+    "bytes": 32679,
+    "mode": "0o644",
+    "sha256": "e004931e656481358d7cdefc4d88693ed70fdc4bb654e792a5d8f40579f47511"
+  },
+  {
+    "path": "package/src/personal-service-config.ts",
+    "bytes": 6204,
+    "mode": "0o644",
+    "sha256": "f02e0d953d3b831300b40fd4fffa9776da034cdf1e433949be1cbba63eb121f0"
+  },
+  {
+    "path": "package/src/personal-service-controls.ts",
+    "bytes": 19536,
+    "mode": "0o644",
+    "sha256": "5f1d298d794dd987bce8b3870a948901b490e41132645367465c91cf630a1be3"
+  },
+  {
+    "path": "package/src/personal-service-inspection.ts",
+    "bytes": 21424,
+    "mode": "0o644",
+    "sha256": "144002d3442075b5aae5638a639bdec08f32b0f3f92a1e029e5cf41d584d100c"
+  },
+  {
+    "path": "package/src/personal-service-operations.ts",
+    "bytes": 52262,
+    "mode": "0o644",
+    "sha256": "85a16c0a2b4af650d17c54bc705162d1dafa7dd780285267ffe3eae2efd00bea"
+  },
+  {
+    "path": "package/src/personal-service-work.ts",
+    "bytes": 7677,
+    "mode": "0o644",
+    "sha256": "afab431b88349b523ff373c1926fde0c32c3b9d542c8b11a83a7db0a936e8177"
+  },
+  {
+    "path": "package/src/personal-services.ts",
+    "bytes": 5661,
+    "mode": "0o644",
+    "sha256": "ce96966b93adb9cb72d2fd84bd2086bccd7987b060744c8f77ed92811640478f"
+  },
+  {
+    "path": "package/src/personal-skills-cli.ts",
+    "bytes": 2406,
+    "mode": "0o644",
+    "sha256": "625c36d658279450c7dda75ee0dfbeee3da32e6d5fcdaa8674bffbd780876cf4"
+  },
+  {
+    "path": "package/src/personal-skills-config.ts",
+    "bytes": 4784,
+    "mode": "0o644",
+    "sha256": "ae4a1f7183ebf4d4caab4b0261383e39acecebb543d8da84d1218bedc0a7bddd"
+  },
+  {
+    "path": "package/src/personal-skills.ts",
+    "bytes": 15885,
+    "mode": "0o644",
+    "sha256": "ef066e05659eafd2e5b2bfc829f7a3f4af593d6f19b945fb801f4d28bf2a9e1f"
+  },
+  {
+    "path": "package/src/personal-source.ts",
+    "bytes": 2803,
+    "mode": "0o644",
+    "sha256": "2f7bb23334985c711a5adacfa23cdb29e3386dab6203c1c5bc82714c0dc4652c"
+  },
+  {
+    "path": "package/src/personal-telegram-api.ts",
+    "bytes": 9339,
+    "mode": "0o644",
+    "sha256": "73f23efc889e418d8a33c9aa0b02d035d78e983f5ceba57a62cb7e8ba395c4d6"
+  },
+  {
+    "path": "package/src/personal-telegram-config.ts",
+    "bytes": 4235,
+    "mode": "0o644",
+    "sha256": "7ff7b82ff4c8516198e8d17768e3531d612b491f880f288d902adb4a6f983e4f"
+  },
+  {
+    "path": "package/src/personal-telegram-records.ts",
+    "bytes": 5979,
+    "mode": "0o644",
+    "sha256": "e2c333f14857cf0e6ce8d412252c5c6b13eee35258107779d840655c0301d4e2"
+  },
+  {
+    "path": "package/src/personal-telegram.ts",
+    "bytes": 24409,
+    "mode": "0o644",
+    "sha256": "fb7818ecff810af816d741ffb1f6d7e1d542f87eca3df30827219006a5917701"
+  },
+  {
+    "path": "package/src/personal-tool-io.ts",
+    "bytes": 15632,
+    "mode": "0o644",
+    "sha256": "f20135709c10cae84ad8b62c456fab9d633bbf6ad7467c68be2656ca3a3283a5"
+  },
+  {
+    "path": "package/src/personal-tool-source.ts",
+    "bytes": 4887,
+    "mode": "0o644",
+    "sha256": "1c9b0648ab26001944a0dbee288006fdb4faebdad670f1bf7e391656929e9d63"
+  },
+  {
+    "path": "package/src/personal-tools-cli.ts",
+    "bytes": 12034,
+    "mode": "0o644",
+    "sha256": "1c6b85b92db8b9da5ae1d8b9180e3135716855dd3f018caf0ab363ed8f545912"
+  },
+  {
+    "path": "package/src/personal-tools-config.ts",
+    "bytes": 8651,
+    "mode": "0o644",
+    "sha256": "0a6f627c3530b0a21b44d0459ebe5c09293d4a284f159036afa94fac885e1cbd"
+  },
+  {
+    "path": "package/src/personal-tools-controls.ts",
+    "bytes": 13474,
+    "mode": "0o644",
+    "sha256": "7bfd5c36c5ef26e22ca30a021c76e5553af2361560d9def38671984b94d2e5e9"
+  },
+  {
+    "path": "package/src/personal-tools.ts",
+    "bytes": 57118,
+    "mode": "0o644",
+    "sha256": "fc5a1a1061d3162ea8fb327731d56cd8c251ded62d70f51598306bea60b53594"
+  },
+  {
+    "path": "package/src/personal-work-controls.ts",
+    "bytes": 14610,
+    "mode": "0o644",
+    "sha256": "17dbb21c146ff9276f52295fd675b60841083ab4121865256d79c252d79ef048"
+  },
+  {
+    "path": "package/src/personal-work-tools.ts",
+    "bytes": 15084,
+    "mode": "0o644",
+    "sha256": "3a7db40a7c1df90061dedc11b3f7aeda3be5ca4a697fcf401726c2f9a674e1c1"
+  },
+  {
+    "path": "package/src/personal-work.ts",
+    "bytes": 45957,
+    "mode": "0o644",
+    "sha256": "a1a60ebfb78d38e15c4bbb3396b2dae6891123d39ef1ea2c21ad7c5ba3d12254"
+  },
+  {
+    "path": "package/src/service-helper.ts",
+    "bytes": 8857,
+    "mode": "0o644",
+    "sha256": "84eafdb5a127655168a9b5404d0a8bc85d5de4f30bd9bb73c8528e1c5d681c1e"
+  }
+]

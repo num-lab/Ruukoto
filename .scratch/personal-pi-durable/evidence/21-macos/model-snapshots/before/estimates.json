@@ -1,0 +1,19 @@
+{
+  "method": "UTF-16 字符数除以 4 向上取整；只作统一近似，不是模型 tokenizer 计数。",
+  "estimates": [
+    {
+      "role": "main",
+      "systemPromptCharacters": 229,
+      "toolSchemasCharacters": 3072,
+      "systemPrompt": 58,
+      "toolSchemas": 768
+    },
+    {
+      "role": "subagent",
+      "systemPromptCharacters": 143,
+      "toolSchemasCharacters": 996,
+      "systemPrompt": 36,
+      "toolSchemas": 249
+    }
+  ]
+}

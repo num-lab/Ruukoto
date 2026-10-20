@@ -1,0 +1,634 @@
+✔ 个人产物：二进制与跨页 UTF-8 保留原字节，引用固定身份、长度与哈希 (26.341125ms)
+✔ 个人产物：超出 8 MiB 与主动片段均标 partial，只允许分页核实 (43.578375ms)
+▶ 个人产物：缺失、损坏、同内容换 inode、链接与不受保护对象均明确拒绝
+  ✔ 缺失 (9.646333ms)
+  ✔ 截短 (9.186125ms)
+  ✔ 等长损坏 (9.968959ms)
+  ✔ 同内容替换 (8.60875ms)
+  ✔ 文件符号链接 (8.648667ms)
+  ✔ 文件硬链接 (9.68175ms)
+  ✔ 公开文件 (8.506625ms)
+  ✔ 公开目录 (9.351167ms)
+  ✔ 公开档案 (9.214125ms)
+  ✔ 目录符号链接 (19.13675ms)
+  ✔ 坏引用 (8.855ms)
+✔ 个人产物：缺失、损坏、同内容换 inode、链接与不受保护对象均明确拒绝 (111.927708ms)
+✔ 个人产物：完整核实后独占导出，已有目标与链接不被覆盖 (27.3105ms)
+✔ 个人产物：保存写盘失败保留受保护字节且不声称成功，错误不泄露内部路径 (6.855208ms)
+✔ durable 浏览器：仅当前唯一拥有者的完全访问来源开放，旧本机输入不随默认模式扩权 (372.553416ms)
+✔ durable 浏览器：导航丢答仅发送一次，网页效果与实际停止分开核实 (61.403833ms)
+✔ durable 浏览器：暂停前已排队输入不能恢复，新拥有者接纳才可恢复 (81.571375ms)
+✔ durable 浏览器：截图先落可校验产物，视觉结果只保留稳定图片引用 (68.133625ms)
+✔ durable 浏览器：取消在途写动作先收旧浏览器，保留网页效果未知 (23.466333ms)
+✔ durable 浏览器：缺观察恢复只停止原浏览器，不重发已开始动作 (46.801584ms)
+✔ durable 浏览器：停止未核实继续保留占用，后台停止核实不解除未知网页效果 (24.132541ms)
+✔ durable 浏览器：长网页结果只返回预览，完整原JSON作为产物保留 (32.253333ms)
+✔ durable 浏览器配置拒绝模型管理参数、相同代次改写与不安全文件 (8.129916ms)
+✔ personal CLI：独立开发档案按真实检出隔离，子进程不继承旧产品配置 (3.369625ms)
+✔ personal CLI：配置持锁、拒绝在线修改，非法配置不覆盖原文件 (60.28825ms)
+✔ personal CLI：前台与 detached 均拒绝用内部环境变量充当模型凭据 (14.118292ms)
+✔ personal CLI：认证前不读状态或提交，非法及超限请求无副作用 (37.249083ms)
+✔ personal CLI：同键去重与异参拒绝，断开后完成并可重开查询 (195.411458ms)
+✔ personal CLI：多向导逐键保留请求，未受理只核实且指纹提前提交可恢复 (35.041166ms)
+✔ personal CLI：提交后应答丢失保留原键，核实后不重发 (25.13725ms)
+[ruukoto:personal] 持久执行出现错误，请查询状态并检查档案；未自动重启。
+✔ personal CLI：存储故障先关闭 listener 再放锁，旧清理不会删除新实例 socket (29.130042ms)
+✔ personal CLI：坏配置、坏令牌、链接文件及旧目录拒绝，失败后可重新持锁 (45.842167ms)
+✔ personal CLI：真实后台进程退出客户端仍继续，重复启动不删原 socket，停止后可重启 (2982.81975ms)
+✔ personal CLI：socket 已断开仍被后台持锁时，配置和第二实例均拒绝 (38.552791ms)
+✔ personal CLI：向导逐步配置、返回与退出，不要求用户提供内部键 (3.360542ms)
+✔ personal CLI：关闭清理完成才释放锁，初始化失败接管并释放已有锁 (11.046417ms)
+✔ personal 服务配置：严格解析、固定内容与文件权限，非法输入不覆盖原配置 (8.271666ms)
+✔ personal 服务配置：坏文件、未知版本和链接拒绝，启动前不请求模型 (13.1415ms)
+✔ personal 服务配置：向导保留旧菜单序号、返回不写，非 Linux 保存前拒绝 (1.001834ms)
+✔ personal 服务配置：未决输入阻止固化文件和授权，原空工具仍能重启完成后启用 (81.118917ms)
+✔ personal 服务配置：无法核实业务格式不保存，原文件和锁保留 (4.055792ms)
+✖ personal 服务配置：只读档案有未决输入时不能半启用操作，原检查配置仍可重开 (45.890208ms)
+✔ personal 服务配置：生产 sudo 后台接线和恢复（Linux），其他平台安全拒绝 (5.1915ms)
+✔ 检查重核向导：分页固定原接纳，选择登记且刷新不重投 (6.675583ms)
+✔ 服务核实向导：分页选择、保存效果证据、分页原说明及独立停止登记 (7.865583ms)
+﹣ 服务核实 HTTP：Linux sudo 接线、原状态刷新及慢停止不阻塞独立聊天 (0.064583ms) # SKIP
+▶ 服务审批向导：选择原目标批准或拒绝，不询问内部键
+  ✔ approved (3.503625ms)
+  ✔ rejected (2.956833ms)
+✔ 服务审批向导：选择原目标批准或拒绝，不询问内部键 (6.737041ms)
+✔ personal CLI：命令菜单只用已选原命令，分别保存效果证据和登记停止重核 (4.608959ms)
+✔ durable：个人与 Coding 分别解析 Pi 1.3.0 / 0.85.1 (96.936583ms)
+✔ durable：拒绝旧资料目录和链接，不修改原文件 (3.322542ms)
+✔ durable：实例锁真实互斥，释放后可重开，档案仅拥有者可读 (3.482541ms)
+✔ durable：档案格式或 Pi 版本不符时拒绝，拒绝后不遗留锁 (1.302417ms)
+✔ durable：输入与回答落盘，同键重投去重，重开后保留历史和请求证据 (251.975958ms)
+✔ durable：缺扩展时在任何恢复请求前拒绝 (28.866042ms)
+✔ durable：业务扩展版本不符时拒绝恢复 (11.173542ms)
+✔ durable：业务 document 定义版本不符时拒绝恢复 (13.010667ms)
+▶ durable：缺失或不支持的任务定义不启动恢复
+  ✔ missing-task / 1 (11.63675ms)
+  ✔ pi.generation / 2 (14.817791ms)
+✔ durable：缺失或不支持的任务定义不启动恢复 (26.731084ms)
+✔ durable：空闲主会话显式切换模型 (16.943416ms)
+✔ durable：模型流中途强杀后恢复原输入，进程锁释放且不重复受理 (1055.459333ms)
+✔ durable：未完成输入仍引用旧模型时拒绝换模型恢复 (31.606292ms)
+▶ durable：三种 API 的输入或实际 payload 记录失败时 HTTP 请求为零
+  ✔ openai-completions / 记录 1 (0.743792ms)
+  ✔ openai-completions / 记录 2 (0.843291ms)
+  ✔ openai-responses / 记录 1 (1.33475ms)
+  ✔ openai-responses / 记录 2 (6.709583ms)
+  ✔ anthropic-messages / 记录 1 (0.530875ms)
+  ✔ anthropic-messages / 记录 2 (105.684166ms)
+✔ durable：三种 API 的输入或实际 payload 记录失败时 HTTP 请求为零 (116.34325ms)
+✔ durable：保留 onPayload 改写且记录真正发出的内容 (4.833916ms)
+[ruukoto:personal] 初始化清理失败，已停止启动；请保留档案并检查存储。
+✔ durable：初始化拒绝且存储关闭失败，原错误可见并释放锁 (8.9435ms)
+[ruukoto:personal] 持久执行出现错误，请查询状态并检查档案；未自动重启。
+▶ durable：真实持久记录写失败关闭 Harness，阻止 HTTP 且释放实例锁
+  ✖ 记录 1 (10.856334ms)
+[ruukoto:personal] 持久执行出现错误，请查询状态并检查档案；未自动重启。
+  ✖ 记录 2 (12.288583ms)
+✖ durable：真实持久记录写失败关闭 Harness，阻止 HTTP 且释放实例锁 (23.564625ms)
+✔ durable：模型配置验证不接受带凭据 URL、非法 API 与过量输出 (0.388917ms)
+✔ 个人图片：最大Telegram照片、caption不执行控制、原生图输入与证据按引用重建 (263.574916ms)
+✔ 个人图片：纯文本模型固定拒绝、错拥有者不下载、旧代次重投不重新包装 (46.12375ms)
+✔ 个人图片：格式、上限、下载失败、取消和未绑定过期保留明确事实 (783.444583ms)
+✔ 个人图片：toolResult原生归属、缺失/损坏/伪造/partial均不发模型请求 (51.312583ms)
+✔ 个人图片：Telegram下载仅固定getFile路径，声明与真实字节均校验 (0.848875ms)
+✖ Telegram 服务核实：原确认菜单保存证据、重投不覆盖、错误停止不释放且控制零模型 (384.72825ms)
+✖ Telegram 服务核实：未送达确认与旧代次菜单不能核实，本机保留管理资格 (156.877833ms)
+▶ Telegram 服务核实：效果、停止与原收件双向回链缺失或扩展缺失拒绝恢复
+  ✖ resolution (104.723208ms)
+  ✖ evidence (115.019583ms)
+  ✖ stop (85.998708ms)
+  ✖ marker (86.350416ms)
+✖ Telegram 服务核实：效果、停止与原收件双向回链缺失或扩展缺失拒绝恢复 (392.741792ms)
+✖ Telegram 服务核实：收件接纳失败零外调，同一重投只登记一次 (127.253ms)
+✖ Telegram 服务停止：接纳后换代在执行前拒绝，不调用原 helper (102.821375ms)
+✖ Telegram 权限：模式只作用新输入，API 不扩权，宿主控制零模型 (37.995833ms)
+✖ Telegram 审批：原菜单批准、重投及异回复冲突，普通聊天继续 (110.63925ms)
+✖ Telegram 长期授权：来源可追溯、独立再用、原入口撤销后恢复人工 (115.132042ms)
+▶ Telegram 审批：换代及旧无快照服务工作不能按本机批准消费
+  ✖ rebind (95.578708ms)
+  ✖ legacy (93.38075ms)
+✖ Telegram 审批：换代及旧无快照服务工作不能按本机批准消费 (189.387916ms)
+✖ Telegram 授权：未知效果撤销授权并保留目标占用，主聊天继续 (107.351458ms)
+✖ Telegram 控制：菜单未知发送不能批准，待审批重启后仍可按新菜单决定 (97.44825ms)
+✖ Telegram 控制：决定提交后应答丢失，原消息恢复只有一个授权及执行 (128.860792ms)
+▶ Telegram 权限：原权限记录或授权来源缺失拒绝恢复，零额外副作用
+  ✖ permissions (104.443416ms)
+  ✖ grant-source (111.248625ms)
+✖ Telegram 权限：原权限记录或授权来源缺失拒绝恢复，零额外副作用 (216.1055ms)
+▶ Telegram 授权：撤销与消费按事务先后决定，旧候选不得沿用
+  ✖ revoke-first (93.093166ms)
+  ✖ consume-first (143.244708ms)
+✖ Telegram 授权：撤销与消费按事务先后决定，旧候选不得沿用 (236.742666ms)
+▶ Telegram 授权：策略或单元修订变化失效，原单次批准独立
+  ✖ policy (162.7725ms)
+  ✖ unit (133.753042ms)
+✖ Telegram 授权：策略或单元修订变化失效，原单次批准独立 (297.469834ms)
+✖ Telegram 授权：服务结果写失败后恢复撤销授权且不重发 (129.028334ms)
+✖ Telegram 授权：历史未知核实后新建的授权跨重启保持有效 (106.295583ms)
+▶ Telegram 恢复：篡改原模式或改指未接受的控制回执均拒绝
+  ✖ mode (121.186959ms)
+  ✖ declined-receipt (175.126667ms)
+✖ Telegram 恢复：篡改原模式或改指未接受的控制回执均拒绝 (296.778542ms)
+▶ Telegram 单次批准：未知可核实，接受回执的决定损坏拒绝恢复
+  ✖ resolve (187.589125ms)
+  ✖ decision (129.13125ms)
+✖ Telegram 单次批准：未知可核实，接受回执的决定损坏拒绝恢复 (317.182292ms)
+✔ Telegram 权限：主会话持有新扩展标记，旧程序不能按旧审批语义恢复 (12.364708ms)
+✖ Telegram 工作：原收件冻结权限，转发拒绝委派，换代不扩大旧工作权限 (54.394875ms)
+✔ Telegram 工作：HTTP 前停用原绑定拦截子请求，正常换代仍可启动主会话 (40.646042ms)
+✖ 子服务权限：跨轮保持首次模式，原菜单授权/撤销且本机不能代决 (179.983416ms)
+✖ 子服务检查：追加本机来源保留全来源，Telegram 不能管理混合检查 (148.6655ms)
+✔ Telegram：绑定私聊、稳定消息去重与同键异参，回复严格归属自己的提交 (268.667166ms)
+✔ Telegram：一次性短期确认，空批/重启/一周空闲后的较小 update_id 不漏收 (313.523792ms)
+▶ Telegram：断线/5xx/畸形成功/错误目标/代理429都记未知且重启不重发
+  ✔ lost (36.379041ms)
+  ✔ 500 (19.873959ms)
+  ✔ json (22.227959ms)
+  ✔ wrong-target (19.760291ms)
+  ✔ proxy429 (19.97825ms)
+✔ Telegram：断线/5xx/畸形成功/错误目标/代理429都记未知且重启不重发 (118.699625ms)
+✔ Telegram：明确429持久延后原发送，明确403失败不重试 (1031.420666ms)
+✔ Telegram：超长回答单条截断且不破坏 Unicode，完整回答留在会话 (36.33575ms)
+▶ Telegram：unanswered 中断片段不外发；换代未发送回复取消，普通主聊天继续
+  ✔ abort (4036.228917ms)
+  ✔ rebind (526.051042ms)
+✔ Telegram：unanswered 中断片段不外发；换代未发送回复取消，普通主聊天继续 (4562.64025ms)
+[ruukoto:personal] 持久执行出现错误，请查询状态并检查档案；未自动重启。
+✔ Telegram：收件事务已经提交而 admission 未执行就故障，重开原键补接一次 (41.397875ms)
+✔ Telegram：发送已生效但结果未提交时真实强杀，重开转未知且零重复 (1200.992125ms)
+▶ Telegram：配置、收件、Task 与版本断链拒绝恢复
+  ✔ config (24.518333ms)
+  ✔ binding (18.329625ms)
+  ✔ receipt (17.352292ms)
+  ✔ task (17.410917ms)
+  ✔ version (17.615208ms)
+  ✔ missing (21.639959ms)
+  ✔ same-generation (17.1835ms)
+✔ Telegram：配置、收件、Task 与版本断链拒绝恢复 (134.798416ms)
+✔ Telegram：向导从真实配对消息选择身份，确认接管边界，离线文件无凭据 (74.909292ms)
+✔ Telegram：真实本机后台装配轮询，停止收齐后释放档案锁 (122.367625ms)
+✔ Telegram：配对身份选择过期，不发送旧确认水位或保存绑定 (48.711416ms)
+✔ durable 通用工具：主子会话沿目录权限读写，二进制产物分页与请求输入可重建 (16789.445375ms)
+✔ durable 自动审查：approve 使用无工具独立请求，落盘输入与实际payload一致 (5133.453584ms)
+✔ durable 自动审查：reject 使用无工具独立请求，落盘输入与实际payload一致 (3347.406375ms)
+✔ durable 自动审查：invalid 使用无工具独立请求，落盘输入与实际payload一致 (3298.195958ms)
+✔ durable 自动审查：failure 使用无工具独立请求，落盘输入与实际payload一致 (3305.936459ms)
+✔ durable 自动审查：length 使用无工具独立请求，落盘输入与实际payload一致 (3284.942458ms)
+✔ durable 自动审查：error 使用无工具独立请求，落盘输入与实际payload一致 (3306.927083ms)
+✔ durable 确认与资料授权：逐次批准消费一次，撤销后读取重新等待且旧批准失效 (8168.434333ms)
+✔ durable 产物：子会话不能读主会话产物，原字节损坏时恢复明确拒绝 (3263.361583ms)
+✔ durable HTTP：响应后观察提交前强杀，恢复不重发并暂停同来源新工作 (1263.442208ms)
+✖ durable 模型快照：主子三模式保留实际工具定义与启用前后估算 (60.3805ms)
+✔ durable HTTP：未知写入同时挡住同源 MCP 和新来源同端点调用 (571.287833ms)
+✔ durable 工具恢复：SDK转换后的数字文本写入与原始调用可跨重启核实 (2561.088916ms)
+✔ durable 搜索：SDK失败意图计入5次额度，普通视图有界且原JSON可核实 (928.442875ms)
+✔ durable 审查证据：missing 损坏启动拒绝且不增加模型请求 (4494.534875ms)
+✔ durable 审查证据：payload 损坏启动拒绝且不增加模型请求 (4464.28275ms)
+✔ durable 文件写入：写后强杀保留未知，原同步调用已结束且不再次改写 (1046.223667ms)
+✖ durable 本机入口：真实认证接口完成工具审批、授权撤销与原产物导出 (3382.239833ms)
+ℹ tests 168
+ℹ suites 0
+ℹ pass 123
+ℹ fail 44
+ℹ cancelled 0
+ℹ skipped 1
+ℹ todo 0
+ℹ duration_ms 70091.073958
+
+✖ failing tests:
+
+test at test/personal-cli.test.ts:410:1
+✖ personal 服务配置：只读档案有未决输入时不能半启用操作，原检查配置仍可重开 (45.890208ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+
+    [
+  +   'read_artifact',
+      'service_inspect',
+      'read_service_inspection',
+      'background_work'
+    ]
+
+      at TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/personal-cli.test.ts:420:10)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ 'read_artifact', 'service_inspect', 'read_service_inspection', 'background_work' ],
+    expected: [ 'service_inspect', 'read_service_inspection', 'background_work' ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at test/personal-durable.test.ts:274:40
+✖ 记录 1 (10.856334ms)
+  Error [PersonalError]: 个人实例或配置向导正在使用此档案，请连接运行中实例或等待它停止。
+      at lockPersonalProfile (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-profile.ts:38:13)
+      at TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/personal-durable.test.ts:292:5)
+      ... 3 lines matching cause stack trace ...
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    code: 'profile_busy',
+    [cause]: Error: database is locked
+        at lockPersonalProfile (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-profile.ts:34:11)
+        at TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/personal-durable.test.ts:292:5)
+        at async Test.run (node:internal/test_runner/test:1208:7)
+        at async TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/personal-durable.test.ts:274:32)
+        at async Test.run (node:internal/test_runner/test:1208:7)
+        at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+      code: 'ERR_SQLITE_ERROR',
+      errcode: 5,
+      errstr: 'database is locked'
+    }
+  }
+
+test at test/personal-durable.test.ts:274:40
+✖ 记录 2 (12.288583ms)
+  Error [PersonalError]: 个人实例或配置向导正在使用此档案，请连接运行中实例或等待它停止。
+      at lockPersonalProfile (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-profile.ts:38:13)
+      at TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/personal-durable.test.ts:292:5)
+      ... 3 lines matching cause stack trace ...
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    code: 'profile_busy',
+    [cause]: Error: database is locked
+        at lockPersonalProfile (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-profile.ts:34:11)
+        at TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/personal-durable.test.ts:292:5)
+        at async Test.run (node:internal/test_runner/test:1208:7)
+        at async TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/personal-durable.test.ts:274:32)
+        at async Test.run (node:internal/test_runner/test:1208:7)
+        at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+      code: 'ERR_SQLITE_ERROR',
+      errcode: 5,
+      errstr: 'database is locked'
+    }
+  }
+
+test at test/personal-telegram-permissions.test.ts:85:1
+✖ Telegram 服务核实：原确认菜单保存证据、重投不覆盖、错误停止不释放且控制零模型 (384.72825ms)
+  ReadAfterWrite: Tx.scanTasks() cannot read tables after the first table write
+      at Transaction.#read (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:925:35)
+      at Transaction.scanTasks (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:265:20)
+      at personalServiceOperationsIn (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-service-operations.ts:425:27)
+      at Object.serviceTelegramControl (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-service-operations.ts:448:28)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-harness.ts:83:513)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-telegram.ts:154:152)
+      at async HarnessImpl.#runCommit (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/session.ts:700:13)
+
+test at test/personal-telegram-permissions.test.ts:123:1
+✖ Telegram 服务核实：未送达确认与旧代次菜单不能核实，本机保留管理资格 (156.877833ms)
+  ReadAfterWrite: Tx.scanTasks() cannot read tables after the first table write
+      at Transaction.#read (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:925:35)
+      at Transaction.scanTasks (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:265:20)
+      at personalServiceOperationsIn (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-service-operations.ts:425:27)
+      at Object.serviceTelegramControl (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-service-operations.ts:448:28)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-harness.ts:83:513)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-telegram.ts:154:152)
+      at async HarnessImpl.#runCommit (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/session.ts:700:13)
+
+test at test/personal-telegram-permissions.test.ts:138:89
+✖ resolution (104.723208ms)
+  ReadAfterWrite: Tx.scanTasks() cannot read tables after the first table write
+      at Transaction.#read (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:925:35)
+      at Transaction.scanTasks (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:265:20)
+      at personalServiceOperationsIn (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-service-operations.ts:425:27)
+      at Object.serviceTelegramControl (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-service-operations.ts:448:28)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-harness.ts:83:513)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-telegram.ts:154:152)
+      at async HarnessImpl.#runCommit (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/session.ts:700:13)
+
+test at test/personal-telegram-permissions.test.ts:138:89
+✖ evidence (115.019583ms)
+  ReadAfterWrite: Tx.scanTasks() cannot read tables after the first table write
+      at Transaction.#read (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:925:35)
+      at Transaction.scanTasks (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:265:20)
+      at personalServiceOperationsIn (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-service-operations.ts:425:27)
+      at Object.serviceTelegramControl (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-service-operations.ts:448:28)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-harness.ts:83:513)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-telegram.ts:154:152)
+      at async HarnessImpl.#runCommit (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/session.ts:700:13)
+
+test at test/personal-telegram-permissions.test.ts:138:89
+✖ stop (85.998708ms)
+  ReadAfterWrite: Tx.scanTasks() cannot read tables after the first table write
+      at Transaction.#read (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:925:35)
+      at Transaction.scanTasks (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:265:20)
+      at personalServiceOperationsIn (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-service-operations.ts:425:27)
+      at Object.serviceTelegramControl (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-service-operations.ts:448:28)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-harness.ts:83:513)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-telegram.ts:154:152)
+      at async HarnessImpl.#runCommit (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/session.ts:700:13)
+
+test at test/personal-telegram-permissions.test.ts:138:89
+✖ marker (86.350416ms)
+  ReadAfterWrite: Tx.scanTasks() cannot read tables after the first table write
+      at Transaction.#read (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:925:35)
+      at Transaction.scanTasks (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:265:20)
+      at personalServiceOperationsIn (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-service-operations.ts:425:27)
+      at Object.serviceTelegramControl (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-service-operations.ts:448:28)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-harness.ts:83:513)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-telegram.ts:154:152)
+      at async HarnessImpl.#runCommit (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/session.ts:700:13)
+
+test at test/personal-telegram-permissions.test.ts:153:1
+✖ Telegram 服务核实：收件接纳失败零外调，同一重投只登记一次 (127.253ms)
+  ReadAfterWrite: Tx.scanTasks() cannot read tables after the first table write
+      at Transaction.#read (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:925:35)
+      at Transaction.scanTasks (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:265:20)
+      at personalServiceOperationsIn (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-service-operations.ts:425:27)
+      at Object.serviceTelegramControl (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-service-operations.ts:448:28)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-harness.ts:83:513)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-telegram.ts:154:152)
+      at async HarnessImpl.#runCommit (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/session.ts:700:13)
+
+test at test/personal-telegram-permissions.test.ts:172:1
+✖ Telegram 服务停止：接纳后换代在执行前拒绝，不调用原 helper (102.821375ms)
+  ReadAfterWrite: Tx.scanTasks() cannot read tables after the first table write
+      at Transaction.#read (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:925:35)
+      at Transaction.scanTasks (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:265:20)
+      at personalServiceOperationsIn (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-service-operations.ts:425:27)
+      at Object.serviceTelegramControl (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-service-operations.ts:448:28)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-harness.ts:83:513)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-telegram.ts:154:152)
+      at async HarnessImpl.#runCommit (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/session.ts:700:13)
+
+test at test/personal-telegram-permissions.test.ts:188:1
+✖ Telegram 权限：模式只作用新输入，API 不扩权，宿主控制零模型 (37.995833ms)
+  ReadAfterWrite: Tx.scanTasks() cannot read tables after the first table write
+      at Transaction.#read (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:925:35)
+      at Transaction.scanTasks (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:265:20)
+      at telegramSelection (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-permissions.ts:26:27)
+      at telegramPermissionControl (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-permissions.ts:56:21)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-telegram.ts:154:20)
+      at async HarnessImpl.#runCommit (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/session.ts:700:13)
+
+test at test/personal-telegram-permissions.test.ts:205:1
+✖ Telegram 审批：原菜单批准、重投及异回复冲突，普通聊天继续 (110.63925ms)
+  ReadAfterWrite: Tx.scanTasks() cannot read tables after the first table write
+      at Transaction.#read (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:925:35)
+      at Transaction.scanTasks (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:265:20)
+      at personalServiceOperationsIn (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-service-operations.ts:425:27)
+      at Object.serviceTelegramControl (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-service-operations.ts:448:28)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-harness.ts:83:513)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-telegram.ts:154:152)
+      at async HarnessImpl.#runCommit (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/session.ts:700:13)
+
+test at test/personal-telegram-permissions.test.ts:218:1
+✖ Telegram 长期授权：来源可追溯、独立再用、原入口撤销后恢复人工 (115.132042ms)
+  ReadAfterWrite: Tx.scanTasks() cannot read tables after the first table write
+      at Transaction.#read (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:925:35)
+      at Transaction.scanTasks (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:265:20)
+      at personalServiceOperationsIn (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-service-operations.ts:425:27)
+      at Object.serviceTelegramControl (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-service-operations.ts:448:28)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-harness.ts:83:513)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-telegram.ts:154:152)
+      at async HarnessImpl.#runCommit (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/session.ts:700:13)
+
+test at test/personal-telegram-permissions.test.ts:232:61
+✖ rebind (95.578708ms)
+  ReadAfterWrite: Tx.scanTasks() cannot read tables after the first table write
+      at Transaction.#read (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:925:35)
+      at Transaction.scanTasks (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:265:20)
+      at personalServiceOperationsIn (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-service-operations.ts:425:27)
+      at Object.serviceTelegramControl (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-service-operations.ts:448:28)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-harness.ts:83:513)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-telegram.ts:154:152)
+      at async HarnessImpl.#runCommit (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/session.ts:700:13)
+
+test at test/personal-telegram-permissions.test.ts:232:61
+✖ legacy (93.38075ms)
+  ReadAfterWrite: Tx.scanTasks() cannot read tables after the first table write
+      at Transaction.#read (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:925:35)
+      at Transaction.scanTasks (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:265:20)
+      at personalServiceOperationsIn (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-service-operations.ts:425:27)
+      at Object.serviceTelegramControl (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-service-operations.ts:448:28)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-harness.ts:83:513)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-telegram.ts:154:152)
+      at async HarnessImpl.#runCommit (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/session.ts:700:13)
+
+test at test/personal-telegram-permissions.test.ts:242:1
+✖ Telegram 授权：未知效果撤销授权并保留目标占用，主聊天继续 (107.351458ms)
+  ReadAfterWrite: Tx.scanTasks() cannot read tables after the first table write
+      at Transaction.#read (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:925:35)
+      at Transaction.scanTasks (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:265:20)
+      at personalServiceOperationsIn (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-service-operations.ts:425:27)
+      at Object.serviceTelegramControl (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-service-operations.ts:448:28)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-harness.ts:83:513)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-telegram.ts:154:152)
+      at async HarnessImpl.#runCommit (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/session.ts:700:13)
+
+test at test/personal-telegram-permissions.test.ts:252:1
+✖ Telegram 控制：菜单未知发送不能批准，待审批重启后仍可按新菜单决定 (97.44825ms)
+  ReadAfterWrite: Tx.scanTasks() cannot read tables after the first table write
+      at Transaction.#read (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:925:35)
+      at Transaction.scanTasks (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:265:20)
+      at personalServiceOperationsIn (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-service-operations.ts:425:27)
+      at Object.serviceTelegramControl (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-service-operations.ts:448:28)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-harness.ts:83:513)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-telegram.ts:154:152)
+      at async HarnessImpl.#runCommit (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/session.ts:700:13)
+
+test at test/personal-telegram-permissions.test.ts:259:1
+✖ Telegram 控制：决定提交后应答丢失，原消息恢复只有一个授权及执行 (128.860792ms)
+  ReadAfterWrite: Tx.scanTasks() cannot read tables after the first table write
+      at Transaction.#read (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:925:35)
+      at Transaction.scanTasks (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:265:20)
+      at personalServiceOperationsIn (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-service-operations.ts:425:27)
+      at Object.serviceTelegramControl (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-service-operations.ts:448:28)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-harness.ts:83:513)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-telegram.ts:154:152)
+      at async HarnessImpl.#runCommit (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/session.ts:700:13)
+
+test at test/personal-telegram-permissions.test.ts:273:72
+✖ permissions (104.443416ms)
+  ReadAfterWrite: Tx.scanTasks() cannot read tables after the first table write
+      at Transaction.#read (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:925:35)
+      at Transaction.scanTasks (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:265:20)
+      at personalServiceOperationsIn (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-service-operations.ts:425:27)
+      at Object.serviceTelegramControl (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-service-operations.ts:448:28)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-harness.ts:83:513)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-telegram.ts:154:152)
+      at async HarnessImpl.#runCommit (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/session.ts:700:13)
+
+test at test/personal-telegram-permissions.test.ts:273:72
+✖ grant-source (111.248625ms)
+  ReadAfterWrite: Tx.scanTasks() cannot read tables after the first table write
+      at Transaction.#read (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:925:35)
+      at Transaction.scanTasks (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:265:20)
+      at personalServiceOperationsIn (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-service-operations.ts:425:27)
+      at Object.serviceTelegramControl (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-service-operations.ts:448:28)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-harness.ts:83:513)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-telegram.ts:154:152)
+      at async HarnessImpl.#runCommit (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/session.ts:700:13)
+
+test at test/personal-telegram-permissions.test.ts:284:75
+✖ revoke-first (93.093166ms)
+  ReadAfterWrite: Tx.scanTasks() cannot read tables after the first table write
+      at Transaction.#read (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:925:35)
+      at Transaction.scanTasks (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:265:20)
+      at personalServiceOperationsIn (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-service-operations.ts:425:27)
+      at Object.serviceTelegramControl (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-service-operations.ts:448:28)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-harness.ts:83:513)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-telegram.ts:154:152)
+      at async HarnessImpl.#runCommit (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/session.ts:700:13)
+
+test at test/personal-telegram-permissions.test.ts:284:75
+✖ consume-first (143.244708ms)
+  ReadAfterWrite: Tx.scanTasks() cannot read tables after the first table write
+      at Transaction.#read (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:925:35)
+      at Transaction.scanTasks (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:265:20)
+      at personalServiceOperationsIn (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-service-operations.ts:425:27)
+      at Object.serviceTelegramControl (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-service-operations.ts:448:28)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-harness.ts:83:513)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-telegram.ts:154:152)
+      at async HarnessImpl.#runCommit (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/session.ts:700:13)
+
+test at test/personal-telegram-permissions.test.ts:315:59
+✖ policy (162.7725ms)
+  ReadAfterWrite: Tx.scanTasks() cannot read tables after the first table write
+      at Transaction.#read (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:925:35)
+      at Transaction.scanTasks (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:265:20)
+      at personalServiceOperationsIn (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-service-operations.ts:425:27)
+      at Object.serviceTelegramControl (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-service-operations.ts:448:28)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-harness.ts:83:513)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-telegram.ts:154:152)
+      at async HarnessImpl.#runCommit (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/session.ts:700:13)
+
+test at test/personal-telegram-permissions.test.ts:315:59
+✖ unit (133.753042ms)
+  ReadAfterWrite: Tx.scanTasks() cannot read tables after the first table write
+      at Transaction.#read (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:925:35)
+      at Transaction.scanTasks (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:265:20)
+      at personalServiceOperationsIn (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-service-operations.ts:425:27)
+      at Object.serviceTelegramControl (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-service-operations.ts:448:28)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-harness.ts:83:513)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-telegram.ts:154:152)
+      at async HarnessImpl.#runCommit (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/session.ts:700:13)
+
+test at test/personal-telegram-permissions.test.ts:324:1
+✖ Telegram 授权：服务结果写失败后恢复撤销授权且不重发 (129.028334ms)
+  ReadAfterWrite: Tx.scanTasks() cannot read tables after the first table write
+      at Transaction.#read (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:925:35)
+      at Transaction.scanTasks (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:265:20)
+      at personalServiceOperationsIn (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-service-operations.ts:425:27)
+      at Object.serviceTelegramControl (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-service-operations.ts:448:28)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-harness.ts:83:513)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-telegram.ts:154:152)
+      at async HarnessImpl.#runCommit (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/session.ts:700:13)
+
+test at test/personal-telegram-permissions.test.ts:338:1
+✖ Telegram 授权：历史未知核实后新建的授权跨重启保持有效 (106.295583ms)
+  ReadAfterWrite: Tx.scanTasks() cannot read tables after the first table write
+      at Transaction.#read (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:925:35)
+      at Transaction.scanTasks (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:265:20)
+      at personalServiceOperationsIn (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-service-operations.ts:425:27)
+      at Object.serviceTelegramControl (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-service-operations.ts:448:28)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-harness.ts:83:513)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-telegram.ts:154:152)
+      at async HarnessImpl.#runCommit (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/session.ts:700:13)
+
+test at test/personal-telegram-permissions.test.ts:348:69
+✖ mode (121.186959ms)
+  ReadAfterWrite: Tx.scanTasks() cannot read tables after the first table write
+      at Transaction.#read (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:925:35)
+      at Transaction.scanTasks (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:265:20)
+      at personalServiceOperationsIn (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-service-operations.ts:425:27)
+      at Object.serviceTelegramControl (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-service-operations.ts:448:28)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-harness.ts:83:513)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-telegram.ts:154:152)
+      at async HarnessImpl.#runCommit (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/session.ts:700:13)
+
+test at test/personal-telegram-permissions.test.ts:348:69
+✖ declined-receipt (175.126667ms)
+  ReadAfterWrite: Tx.scanTasks() cannot read tables after the first table write
+      at Transaction.#read (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:925:35)
+      at Transaction.scanTasks (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:265:20)
+      at personalServiceOperationsIn (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-service-operations.ts:425:27)
+      at Object.serviceTelegramControl (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-service-operations.ts:448:28)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-harness.ts:83:513)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-telegram.ts:154:152)
+      at async HarnessImpl.#runCommit (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/session.ts:700:13)
+
+test at test/personal-telegram-permissions.test.ts:362:64
+✖ resolve (187.589125ms)
+  ReadAfterWrite: Tx.scanTasks() cannot read tables after the first table write
+      at Transaction.#read (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:925:35)
+      at Transaction.scanTasks (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:265:20)
+      at personalServiceOperationsIn (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-service-operations.ts:425:27)
+      at Object.serviceTelegramControl (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-service-operations.ts:448:28)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-harness.ts:83:513)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-telegram.ts:154:152)
+      at async HarnessImpl.#runCommit (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/session.ts:700:13)
+
+test at test/personal-telegram-permissions.test.ts:362:64
+✖ decision (129.13125ms)
+  ReadAfterWrite: Tx.scanTasks() cannot read tables after the first table write
+      at Transaction.#read (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:925:35)
+      at Transaction.scanTasks (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:265:20)
+      at personalServiceOperationsIn (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-service-operations.ts:425:27)
+      at Object.serviceTelegramControl (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-service-operations.ts:448:28)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-harness.ts:83:513)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-telegram.ts:154:152)
+      at async HarnessImpl.#runCommit (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/session.ts:700:13)
+
+test at test/personal-telegram-permissions.test.ts:386:1
+✖ Telegram 工作：原收件冻结权限，转发拒绝委派，换代不扩大旧工作权限 (54.394875ms)
+  ReadAfterWrite: Tx.scanTasks() cannot read tables after the first table write
+      at Transaction.#read (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:925:35)
+      at Transaction.scanTasks (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:265:20)
+      at telegramSelection (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-permissions.ts:26:27)
+      at telegramPermissionControl (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-permissions.ts:56:21)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-telegram.ts:154:20)
+      at async HarnessImpl.#runCommit (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/session.ts:700:13)
+
+test at test/personal-telegram-permissions.test.ts:426:1
+✖ 子服务权限：跨轮保持首次模式，原菜单授权/撤销且本机不能代决 (179.983416ms)
+  ReadAfterWrite: Tx.scanTasks() cannot read tables after the first table write
+      at Transaction.#read (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:925:35)
+      at Transaction.scanTasks (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:265:20)
+      at personalServiceOperationsIn (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-service-operations.ts:425:27)
+      at Object.serviceTelegramControl (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-service-operations.ts:448:28)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-harness.ts:83:513)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-telegram.ts:154:152)
+      at async HarnessImpl.#runCommit (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/session.ts:700:13)
+
+test at test/personal-telegram-permissions.test.ts:462:1
+✖ 子服务检查：追加本机来源保留全来源，Telegram 不能管理混合检查 (148.6655ms)
+  ReadAfterWrite: Tx.scanTasks() cannot read tables after the first table write
+      at Transaction.#read (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:925:35)
+      at Transaction.scanTasks (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/transaction.ts:265:20)
+      at sameEntrance (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-inspection-controls.ts:33:27)
+      at async listPersonalInspections (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-inspection-controls.ts:64:19)
+      at async applyControl (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-inspection-controls.ts:113:20)
+      at async telegramInspectionControl (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-inspection-controls.ts:128:9)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-harness.ts:83:437)
+      at async <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-telegram.ts:154:152)
+      at async HarnessImpl.#runCommit (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/session.ts:700:13)
+
+test at test/personal-tools.test.ts:210:1
+✖ durable 模型快照：主子三模式保留实际工具定义与启用前后估算 (60.3805ms)
+  AssertionError [ERR_ASSERTION]: The input was expected to not match the regular expression /read_file|write_file|http_request|web_search|read_artifact/. Input:
+
+  '[{"type":"function","function":{"name":"read_artifact","description":"读取文件、网络、搜索、浏览器截图或入站图片返回的artifact，不重新外调。主会话可读本实例产物，子Agent只能读本子会话产物。offset从0开始，后续用nextOffset，每页3072原字节base64；按base64重组保真，文本预览不替代原字节。partial表示仅保存片段，不能当作完整结果。命令双流用read_command_output，MCP原响应用read_mcp_result，不复制正文。","parameters":{"type":"object","required":["artifact"],"properties":{"artifact":{"type":"string","minLength":1},"offset":{"type":"integer","minimum":0}},"additionalProperties":false}}},{"type":"function","function":{"name":"background_work","description":"管理长期复用的分析子 Agent；子会话只可使用宿主提供的受控工具。delegate 立即返回；同轮多项分析归同一委托，跨轮提供 delegation 继续原委托，保持原入口和授权；省略则建立本轮委托。delegations 列委托，progress 读委托成员进度；全部分析空闲不表示整项完成。cancel_delegation 一次请求取消全部分析成员，不关闭身份；包含成员的固定服务检查和服务重启，效果或停止未核实时继续保留占用；不涵盖独立宿主服务写操作。append 补充活动 work，当前回答结束后依次处理。list 列身份，result 分页读单项完整回答；cancel 请求单项取消后立即返回，用 result 查询停止结果，close 关闭空闲身份并保留历史。委托取消后不能续派/追加；原入口失效或任一成员说明来源的服务效果未知会暂停整个委托，仍可查询/取消，须向拥有者报告核实，不换委托重试。占用未释放或停止无法核实不能复用。安排完全部分析后调用 report 封组，宿主等待全部成员停止，再请主 Agent 汇总并固定回报原入口；封组后不能续派或追加。report_result 分页读完整报告和发送状态。未知效果会暂停报告，核实后可安全重做模型汇总，未知发送不重发。普通汇总失败请查询报告并向拥有者说明，不换委托重试。回报输入只可查询。","parameters":{"type":"object","required":["action"],"properties":{"action":{"anyOf":[{"const":"delegate"},{"const":"append"},{"const":"list"},{"const":"result"},{"const":"cancel"},{"const":"close"},{"const":"delegations"},{"const":"progress"},{"const":"cancel_delegation"},{"const":"report"},{"const":"report_result"}],"description":"delegate 必填 content，可选 agent 或 label、delegation；append 必填 work/content；list/delegations 仅可选 offset；result 必填 work，可选 offset；progress/report_result 必填 delegation，可选 offset；report/cancel_delegation 必填 delegation；cancel 必填 work；close 必填 agent。其余字段省略。report 安排好全部分析后调用，封组后不能续派或追加。"},"delegation":{"type":"integer","minimum":1,"description":"delegate/delegations 返回的委托编号；progress/cancel_delegation/report/report_result 必填。delegate 跨轮继续原委托时提供，不能使用 work 或 agent 编号代替。"},"content":{"type":"string","minLength":1,"maxLength":16384,"description":"delegate/append 的完整分析要求，须含所需资料；子会话不读取主聊天。"},"agent":{"type":"integer","minimum":1,"description":"list 或 delegate 返回的子 Agent 编号；delegate 复用空闲且未关闭的身份，省略则新建；close 必填。"},"label":{"type":"string","minLength":1,"maxLength":128,"description":"仅新建身份时使用的名称；复用 agent 时省略。"},"work":{"type":"integer","minimum":1,"description":"delegate 或 list 返回的工作编号，用于 result/append/cancel；不使用子 Agent 编号代替。"},"offset":{"type":"integer","minimum":0,"description":"list/result/delegations/progress 从 0 开始，后续页用 nextOffset；身份每页16个、委托和成员每页8项、结果每页4096字符。"}},"additionalProperties":false}}}]'
+
+      at TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/personal-tools.test.ts:231:59)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '[{"type":"function","function":{"name":"read_artifact","description":"读取文件、网络、搜索、浏览器截图或入站图片返回的artifact，不重新外调。主会话可读本实例产物，子Agent只能读本子会话产物。offset从0开始，后续用nextOffset，每页3072原字节base64；按base64重组保真，文本预览不替代原字节。partial表示仅保存片段，不能当作完整结果。命令双流用read_command_output，MCP原响应用read_mcp_result，不复制正文。","parameters":{"type":"object","required":["artifact"],"properties":{"artifact":{"type":"string","minLength":1},"offset":{"type":"integer","minimum":0}},"additionalProperties":false}}},{"type":"function","function":{"name":"background_work","description":"管理长期复用的分析子 Agent；子会话只可使用宿主提供的受控工具。delegate 立即返回；同轮多项分析归同一委托，跨轮提供 delegation 继续原委托，保持原入口和授权；省略则建立本轮委托。delegations 列委托，progress 读委托成员进度；全部分析空闲不表示整项完成。cancel_delegation 一次请求取消全部分析成员，不关闭身份；包含成员的固定服务检查和服务重启，效果或停止未核实时继续保留占用；不涵盖独立宿主服务写操作。append 补充活动 work，当前回答结束后依次处理。list 列身份，result 分页读单项完整回答；cancel 请求单项取消后立即返回，用 result 查询停止结果，close 关闭空闲身份并保留历史。委托取消后不能续派/追加；原入口失效或任一成员说明来源的服务效果未知会暂停整个委托，仍可查询/取消，须向拥有者报告核实，不换委托重试。占用未释放或停止无法核实不能复用。安排完全部分析后调用 report 封组，宿主等待全部成员停止，再请主 Agent 汇总并固定回报原入口；封组后不能续派或追加。report_result 分页读完整报告和发送状态。未知效果会暂停报告，核实后可安全重做模型汇总，未知发送不重发。普通汇总失败请查询报告并向拥有者说明，不换委托重试。回报输入只可查询。","parameters":{"type":"object","required":["action"],"properties":{"action":{"anyOf":[{"const":"delegate"},{"const":"append"},{"const":"list"},{"const":"result"},{"const":"cancel"},{"const":"close"},{"const":"delegations"},{"const":"progress"},{"const":"cancel_delegation"},{"const":"report"},{"const":"report_result"}],"description":"delegate 必填 content，可选 agent 或 label、delegation；append 必填 work/content；list/delegations 仅可选 offset；result 必填 work，可选 offset；progress/report_result 必填 delegation，可选 offset；report/cancel_delegation 必填 delegation；cancel 必填 work；close 必填 agent。其余字段省略。report 安排好全部分析后调用，封组后不能续派或追加。"},"delegation":{"type":"integer","minimum":1,"description":"delegate/delegations 返回的委托编号；progress/cancel_delegation/report/report_result 必填。delegate 跨轮继续原委托时提供，不能使用 work 或 agent 编号代替。"},"content":{"type":"string","minLength":1,"maxLength":16384,"description":"delegate/append 的完整分析要求，须含所需资料；子会话不读取主聊天。"},"agent":{"type":"integer","minimum":1,"description":"list 或 delegate 返回的子 Agent 编号；delegate 复用空闲且未关闭的身份，省略则新建；close 必填。"},"label":{"type":"string","minLength":1,"maxLength":128,"description":"仅新建身份时使用的名称；复用 agent 时省略。"},"work":{"type":"integer","minimum":1,"description":"delegate 或 list 返回的工作编号，用于 result/append/cancel；不使用子 Agent 编号代替。"},"offset":{"type":"integer","minimum":0,"description":"list/result/delegations/progress 从 0 开始，后续页用 nextOffset；身份每页16个、委托和成员每页8项、结果每页4096字符。"}},"additionalProperties":false}}}]',
+    expected: /read_file|write_file|http_request|web_search|read_artifact/,
+    operator: 'doesNotMatch',
+    diff: 'simple'
+  }
+
+test at test/personal-tools.test.ts:351:1
+✖ durable 本机入口：真实认证接口完成工具审批、授权撤销与原产物导出 (3382.239833ms)
+  Error [PersonalError]: 原产物缺失、损坏或权限无法核实，请保留档案并报告拥有者。
+      at IncomingMessage.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-control.ts:381:18)
+      at IncomingMessage.emit (node:events:521:24)
+      at endReadableNT (node:internal/streams/readable:1729:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {
+    code: 'artifact_unavailable'
+  }

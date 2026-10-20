@@ -1,0 +1,9 @@
+
+> ruukoto-workspace@0.1.0 setup
+> node scripts/setup.mjs --skip-hooks
+
+
+added 847 packages in 1m
+
+added 269 packages in 10s
+开发环境就绪（CI/隔离验证或已有钩子已自行接入：未安装提交钩子）

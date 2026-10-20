@@ -1,0 +1,16 @@
+✔ 工具已产生标记但未记录结果时崩溃：中断保留事实，不重放，排队不自动启动 (8351.973125ms)
+✔ 首次 assistant 消息前崩溃：不宣布消息已持久化，请求保留，历史不伪造 (4216.133ms)
+✔ 后台夹具固定 Coding 临时目录，不继承日常控制目录与拥有者令牌 (1415.821084ms)
+✔ CLI：set-session-mode、submit --mode plan 与 continue --mode plan 使用同一可信选择 (7623.621083ms)
+✔ mcp：后台崩溃重启 —— 在途调用标 effect_unknown，不重放 (6423.0455ms)
+✔ mcp 写：崩溃重启 —— 已消费的在途写调用标 effect_unknown，不重放 (6182.20175ms)
+✔ mcp 写：崩溃重启 —— 审批待决未消费 = 已知未执行，不标 effect_unknown (4442.88125ms)
+✔ CLI submit：后台明确拒绝时打印「提交被拒绝」，不再提示按原键核实 (3858.733292ms)
+ℹ tests 8
+ℹ suites 0
+ℹ pass 8
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 43338.941

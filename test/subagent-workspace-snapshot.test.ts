@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { test } from "node:test";
-import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
+import { product as personalProduct } from "./helpers/legacy-product.ts";
 import { product as codingProduct } from "../apps/ruukoto-code/src/product.ts";
 import type { SubAgentDelegation } from "@ruukoto/runtime/subagents.ts";
 import { workCopyHostFor } from "@ruukoto/core/work-copy-host.ts";

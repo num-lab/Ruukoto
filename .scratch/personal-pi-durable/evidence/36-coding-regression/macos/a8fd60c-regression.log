@@ -1,0 +1,18 @@
+node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: 完整停止证明经 stdout 迟到仍应被消费
+
+false !== true
+
+    at <anonymous> (/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/rk36-stop-race-xe61_3o2/regression.mjs:37:10) {
+  generatedMessage: false,
+  code: 'ERR_ASSERTION',
+  actual: false,
+  expected: true,
+  operator: 'strictEqual',
+  diff: 'simple'
+}
+
+Node.js v24.15.0

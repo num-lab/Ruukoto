@@ -9,9 +9,8 @@ import { Store } from "@ruukoto/core/store.ts";
 import { sha256File } from "@ruukoto/core/import-support.ts";
 import { WORKFLOW_INTERFACE_VERSION, createWorkflowRun, saveWorkflowDefinition, workflowDigest } from "@ruukoto/core/workflow.ts";
 import { applyLegacyImport, previewLegacyImport } from "../apps/ruukoto-code/src/legacy-import.ts";
-import { applyPersonalImport, previewPersonalImport } from "@ruukoto/channels/personal-import.ts";
 
-for (const [direction, preview, apply] of [["coding", previewLegacyImport, applyLegacyImport], ["personal", previewPersonalImport, applyPersonalImport]] as const) {
+for (const [direction, preview, apply] of [["coding", previewLegacyImport, applyLegacyImport]] as const) {
   test(`${direction} preview 与 apply 均拒绝丢弃工作流执行绑定，源字节不变且不导入资料`, () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "workflow-import-"));
     const data = path.join(root, "data");
@@ -56,7 +55,7 @@ for (const [direction, preview, apply] of [["coding", previewLegacyImport, apply
   });
 }
 
-for (const [direction, preview] of [["coding", previewLegacyImport], ["personal", previewPersonalImport]] as const) {
+for (const [direction, preview] of [["coding", previewLegacyImport]] as const) {
   test(`${direction} 导入拒绝旧 schema，不回填工作流接口版本`, () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "workflow-import-version-"));
     const data = path.join(root, "data");

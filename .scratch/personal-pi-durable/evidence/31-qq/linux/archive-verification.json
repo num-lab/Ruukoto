@@ -1,0 +1,75 @@
+{
+  "archiveSha256": "c32215e631ac3ccab5b9359bcb14e7ce73b3bc41b9e3939abdbd3b21bda350da",
+  "files": [
+    {
+      "path": "cleanup-preflight.json",
+      "bytes": 446,
+      "sha256": "67e0dfec5c78cdaee8a122254cec1de11e6a3b1fd3a02c71546860602d2a4d66"
+    },
+    {
+      "path": "environment.json",
+      "bytes": 138,
+      "sha256": "80d580bac310b03adcf778e69dbb4f4d5a906112d27188710aadf1ddb6dabe84"
+    },
+    {
+      "path": "personal-load-attempt1.log",
+      "bytes": 2808,
+      "sha256": "966f4fd5463768adcbd051f42d18e0bcfe478318d8bb34e83813131ce6c58c69"
+    },
+    {
+      "path": "personal-tests.log",
+      "bytes": 5154,
+      "sha256": "92d9166bbb590ecea1afa58ff9ce2281f5a2061e1d9463ea4c5b6a21d209e653"
+    },
+    {
+      "path": "run-tests.py",
+      "bytes": 1348,
+      "sha256": "ae0f48bc069b61167c9063b14e5c72a9a24b4dcc94748c94e6e2c64e66e7fc14"
+    },
+    {
+      "path": "runtime-dependencies.json",
+      "bytes": 65187,
+      "sha256": "43cb32c1548458ea9d45dca86236494f826b3247ad186f8954e5b5e93a3d12a1"
+    },
+    {
+      "path": "setup.log",
+      "bytes": 370,
+      "sha256": "7927a3649eaadb000f1b5e92c0f92cc0900c2bb93f4d985dc3c003dc7f340203"
+    },
+    {
+      "path": "shared-tests.log",
+      "bytes": 2306,
+      "sha256": "f1e840fb5f69bb3c1793d9cdd73bb32fa071628d3316899063d764b2527c0013"
+    },
+    {
+      "path": "source-manifest.json",
+      "bytes": 102271,
+      "sha256": "1e7e63915076587434dbdb45ba8a402c2b58c575597b0fda1b69cf1ac9d83ae7"
+    },
+    {
+      "path": "source-verification.json",
+      "bytes": 70,
+      "sha256": "25c40c39ad700dd3f7b16c2d441f67280a9ef155f23b0cefb6a8fda4fe1c2ab4"
+    },
+    {
+      "path": "test-results-attempt1.json",
+      "bytes": 792,
+      "sha256": "cdf2c90d174801200608fbff4b9dcd9fa7a5e80440722302068eba04f9dbfad9"
+    },
+    {
+      "path": "test-results-personal.json",
+      "bytes": 363,
+      "sha256": "752283b19aecde59abfe6b590563761d223fe95df6c0b0b70acafe411d852b42"
+    },
+    {
+      "path": "test-results.json",
+      "bytes": 792,
+      "sha256": "cdf2c90d174801200608fbff4b9dcd9fa7a5e80440722302068eba04f9dbfad9"
+    },
+    {
+      "path": "verify.py",
+      "bytes": 785,
+      "sha256": "83e8b7bd55071a3420b214e06fc5532d23d418792c7c329f2265e45694731da2"
+    }
+  ]
+}

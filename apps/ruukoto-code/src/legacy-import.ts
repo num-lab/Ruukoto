@@ -6,7 +6,7 @@ import { verifyImportedBranchSources, verifyImportedAgentWaitReferences, archive
  * 本方向的唯一实现处：预览（preview）、应用（apply）、回退（revert）与列表的
  * 全部判断都集中在本模块；CLI（ruukoto-code legacy-import）只做离线接线，不走
  * 控制面。镜像方向（个人资料迁入全新 ruukoto 实例，issue 22）在
- * channels/personal-import.ts；两个方向共用 core/import-support.ts 的快照、账本与行工具。
+ * core/import-support.ts 的快照、账本与行工具；个人 durable 不导入旧实例。
  * 边界：
  * Note: 见 .agents/notes/implemented/architecture/2026-10-02-two-agent-products.md
  * Note: 见 .agents/notes/implemented/architecture/2026-10-03-legacy-workspace-org-attribution.md

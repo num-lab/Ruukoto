@@ -1,0 +1,45 @@
+✔ 个人 MCP 配置：保留完整工具定义，拒绝端点、版本、未知字段和重复允许项 (11.242709ms)
+✔ 个人 MCP 配置：持锁私有原子保存，幂等不覆写，变更必须换代 (25.934042ms)
+✔ 个人 MCP 配置：invalid-json 拒绝读取，不能当未配置继续 (4.666625ms)
+✔ 个人 MCP 配置：version 拒绝读取，不能当未配置继续 (3.903834ms)
+✔ 个人 MCP 配置：mode 拒绝读取，不能当未配置继续 (6.850083ms)
+✔ 个人 MCP 配置：symlink 拒绝读取，不能当未配置继续 (5.692958ms)
+✔ 个人 MCP 配置：hardlink 拒绝读取，不能当未配置继续 (8.326667ms)
+✔ 个人 MCP 凭据：每次重读，撤销、替换、链接和开放权限均不能降级匿名 (21.433125ms)
+✔ 个人 MCP 配置：不安全暂存文件拒绝写入，原配置和外部文件保留 (21.425709ms)
+✔ 个人 MCP 发现：固定凭据与原清单，凭据撤销后零外调 (145.350375ms)
+✔ 个人 MCP 配置：首次启用拒绝未决 task，幂等保留原配置 (98.74425ms)
+✔ 个人 MCP 配置：首次启用拒绝未决 submission，幂等保留原配置 (33.825625ms)
+✔ 个人 MCP 配置：变更拒绝未决 task，幂等保留原配置 (67.981959ms)
+✔ 个人 MCP 配置：变更拒绝未决 submission，幂等保留原配置 (56.983459ms)
+✔ MCP 原入口控制：原宿主菜单批准只消费一次，转发、引用、错回复与代次不能审批 (797.430083ms)
+✔ MCP 效果核实：原菜单保存业务证据仍不证明远端结束，回链缺失拒绝恢复 (179.654875ms)
+✔ MCP 配置向导：显式匿名、逐项允许工具，服务键和配置代次由程序生成 (26.419041ms)
+✔ MCP 操作向导：分页固定原操作，批准和效果核实分别提交且不伪造远端结束 (21.803ms)
+✔ MCP 本机控制：先认证再校验原操作与正文，非法请求不调用模型或远端 (39.050667ms)
+✔ durable MCP：主会话完全访问保留原定义、原参数与完整长响应分页 (750.116208ms)
+✔ durable MCP：端点的查询别名不能绕过未知调用占用 (177.231417ms)
+✔ durable MCP：observation 原证据损坏时启动拒绝，不能重新外调 (122.076709ms)
+✔ durable MCP：arguments 原证据损坏时启动拒绝，不能重新外调 (105.503167ms)
+✔ durable MCP：approval 原证据损坏时启动拒绝，不能重新外调 (109.63225ms)
+✔ durable MCP：完整保存 tool 错误原响应且不伪装未知 (70.434459ms)
+✔ durable MCP：完整保存 rpc 错误原响应且不伪装未知 (101.082666ms)
+✔ durable MCP：confirm 不信只读标注，每次批准仅消费一次 (89.482417ms)
+✔ durable MCP：auto-review 不信只读标注，每次批准仅消费一次 (98.602708ms)
+✔ durable MCP：credential 失效在实际调用前拒绝 (64.3785ms)
+✔ durable MCP：definition 失效在实际调用前拒绝 (63.875875ms)
+✔ durable MCP：子工具超时跨重启接回同 Task，未知效果保留占用且不能人工伪造远端结束 (176.808833ms)
+✔ durable MCP：响应已到达但未提交时 SIGKILL，恢复保留同原调用且远端只执行一次 (2048.96475ms)
+✔ durable MCP：主工具与输入均终结后仍拒绝绕过未知调用更换配置 (124.47175ms)
+✔ durable MCP：同来源暂停服务与委托报告，重启保留原暂停和占用 (296.00825ms)
+✔ durable MCP：实际主子模型请求可重建工具定义与结果，并记录启用前后开销 (214.7275ms)
+ℹ {"estimatedTokens":{"main":{"before":{"systemPrompt":51,"toolSchemas":521},"after":{"systemPrompt":51,"toolSchemas":864}},"child":{"before":{"systemPrompt":38,"toolSchemas":1},"after":{"systemPrompt":38,"toolSchemas":344}}}}
+✔ durable MCP：取消仅停止本地等待，原调用未知和子工作占用跨重启保留 (115.952083ms)
+ℹ tests 36
+ℹ suites 0
+ℹ pass 36
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 8115.434917

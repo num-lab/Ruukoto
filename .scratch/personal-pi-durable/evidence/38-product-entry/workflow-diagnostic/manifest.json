@@ -1,0 +1,54 @@
+{
+  "README.md": {
+    "sha256": "da19c0e2f7d5289e3c1c387c71dfa22b0194c663d4c52fc68069bc9a67be5987",
+    "bytes": 2409
+  },
+  "ruukoto38-112-cpu-parse.py": {
+    "sha256": "3a116f3887ecae73b4bbdab1ff7cd82c3e036c44ef226459ac7fd5d36832a421",
+    "bytes": 1029
+  },
+  "ruukoto38-112-cpu-profile.json": {
+    "sha256": "2e5661c6dcadcc8b239ae87e90256cbe1eda515f84e3781281af0b2f92d2b8d7",
+    "bytes": 10496
+  },
+  "ruukoto38-112-cpu-summary.json": {
+    "sha256": "2fa93c79bf5a09329e00569bc50abe1ea674fcbed0f70e193d4762703b6a09e8",
+    "bytes": 3663
+  },
+  "ruukoto38-112-environment-observation.json": {
+    "sha256": "f02f5a3c5302f4e17309263f4d4c862d43d78b50f829e84157bba3f159e59381",
+    "bytes": 6093
+  },
+  "ruukoto38-112-inspector-close.json": {
+    "sha256": "98c06a0649447902e95dd680f8d95a0599ba9f68edb9cc7de68257c5f944831f",
+    "bytes": 132
+  },
+  "ruukoto38-112-inspector-close.log": {
+    "sha256": "5d00fb706b4d9a7296d739b78228e9942d42fe3179dd8962781858427ea2fb41",
+    "bytes": 86
+  },
+  "ruukoto38-112-inspector-command.log": {
+    "sha256": "e07a0f71ad34905aee8553273a90fdcf50e71fbfaaf730ff7030f60ad3ca69f3",
+    "bytes": 1288
+  },
+  "ruukoto38-112-inspector-summary.json": {
+    "sha256": "e07a0f71ad34905aee8553273a90fdcf50e71fbfaaf730ff7030f60ad3ca69f3",
+    "bytes": 1288
+  },
+  "ruukoto38-112-sample-command.log": {
+    "sha256": "634fd2922096a732da716017cbae5ebbdea8fe4cb3d3d9901d5852fedd04f95b",
+    "bytes": 206
+  },
+  "ruukoto38-112-sample.txt": {
+    "sha256": "9de800721fa247f592749ecc1a0928b7b491bb8ef1d476bca79e95c7b52e2ea6",
+    "bytes": 146112
+  },
+  "ruukoto38-close112-inspector.mjs": {
+    "sha256": "46fae1a6ea83fb802b5338332059defadee1507491cd87dccde8799b537abf40",
+    "bytes": 1579
+  },
+  "ruukoto38-inspect112.mjs": {
+    "sha256": "f9d9f2eb136a90b99688c775b5c1a1bb3bb2fba036dcb1425760db2f7f08753c",
+    "bytes": 2902
+  }
+}

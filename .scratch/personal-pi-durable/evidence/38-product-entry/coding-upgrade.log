@@ -1,0 +1,489 @@
+
+> ruukoto-workspace@0.1.0 test:upgrade
+> tsx verification/smoke/smoke-24-release-acceptance.mts --upgrade-only
+
+[ruukoto:smoke24] 环境：darwin arm64，Node v24.15.0；升级基点 12b1a66c
+npm warn deprecated inflight@1.0.6: This module is not supported, and leaks memory. Do not use it. Check out lru-cache if you want a good and tested way to coalesce async requests by a key value, which is much more comprehensive and powerful.
+npm warn deprecated rimraf@2.6.3: Rimraf versions prior to v4 are no longer supported
+npm warn deprecated glob@7.2.3: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+npm warn deprecated boolean@3.2.0: Package no longer supported. Contact Support at https://www.npmjs.com/support for more info.
+npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+
+  worker/worker.mjs                   15.6kb
+  worker/personal-command-worker.mjs   4.1kb
+
+⚡ Done in 5ms
+npm notice
+npm notice 📦  ruukoto@0.1.0
+npm notice Tarball Contents
+npm notice 580B bin/ruukoto.mjs
+npm notice 861B package.json
+npm notice 91B src/dev.ts
+npm notice 152B src/main.ts
+npm notice 9.5kB src/personal-app-data-controls.ts
+npm notice 34.1kB src/personal-app-data.ts
+npm notice 7.6kB src/personal-artifacts.ts
+npm notice 6.9kB src/personal-browser-cli.ts
+npm notice 5.6kB src/personal-browser-config.ts
+npm notice 10.0kB src/personal-browser-controls.ts
+npm notice 46.2kB src/personal-browser.ts
+npm notice 40.0kB src/personal-cli.ts
+npm notice 8.1kB src/personal-command-config.ts
+npm notice 17.6kB src/personal-command-execution.ts
+npm notice 35.8kB src/personal-command-work.ts
+npm notice 3.8kB src/personal-command-worker.ts
+npm notice 2.4kB src/personal-config-idle.ts
+npm notice 3.2kB src/personal-config.ts
+npm notice 43.1kB src/personal-control.ts
+npm notice 18.3kB src/personal-delegation.ts
+npm notice 438B src/personal-entry.ts
+npm notice 191B src/personal-error.ts
+npm notice 77.4kB src/personal-harness.ts
+npm notice 11.4kB src/personal-history.ts
+npm notice 263B src/personal-im-api.ts
+npm notice 15.0kB src/personal-inspection-controls.ts
+npm notice 3.1kB src/personal-local-records.ts
+npm notice 7.2kB src/personal-mcp-cli.ts
+npm notice 11.6kB src/personal-mcp-config.ts
+npm notice 11.1kB src/personal-mcp-controls.ts
+npm notice 36.7kB src/personal-mcp.ts
+npm notice 27.7kB src/personal-media.ts
+npm notice 9.0kB src/personal-memory-controls.ts
+npm notice 20.7kB src/personal-memory.ts
+npm notice 7.6kB src/personal-model.ts
+npm notice 14.8kB src/personal-owner-controls.ts
+npm notice 3.3kB src/personal-permissions-cli.ts
+npm notice 5.2kB src/personal-permissions.ts
+npm notice 4.5kB src/personal-profile.ts
+npm notice 7.8kB src/personal-qq-api.ts
+npm notice 4.5kB src/personal-qq-cli.ts
+npm notice 4.3kB src/personal-qq-config.ts
+npm notice 31.6kB src/personal-report.ts
+npm notice 9.5kB src/personal-schedule-authority.ts
+npm notice 11.2kB src/personal-schedule-execution.ts
+npm notice 3.4kB src/personal-schedule-scope.ts
+npm notice 10.0kB src/personal-scheduler-cli.ts
+npm notice 20.6kB src/personal-scheduler-controls.ts
+npm notice 28.3kB src/personal-scheduler-records.ts
+npm notice 13.2kB src/personal-scheduler-tools.ts
+npm notice 32.7kB src/personal-scheduler.ts
+npm notice 6.2kB src/personal-service-config.ts
+npm notice 19.5kB src/personal-service-controls.ts
+npm notice 21.4kB src/personal-service-inspection.ts
+npm notice 52.3kB src/personal-service-operations.ts
+npm notice 7.7kB src/personal-service-work.ts
+npm notice 5.7kB src/personal-services.ts
+npm notice 2.4kB src/personal-skills-cli.ts
+npm notice 4.8kB src/personal-skills-config.ts
+npm notice 15.9kB src/personal-skills.ts
+npm notice 2.8kB src/personal-source.ts
+npm notice 9.3kB src/personal-telegram-api.ts
+npm notice 4.2kB src/personal-telegram-config.ts
+npm notice 6.0kB src/personal-telegram-records.ts
+npm notice 24.4kB src/personal-telegram.ts
+npm notice 15.6kB src/personal-tool-io.ts
+npm notice 4.9kB src/personal-tool-source.ts
+npm notice 12.0kB src/personal-tools-cli.ts
+npm notice 8.7kB src/personal-tools-config.ts
+npm notice 13.5kB src/personal-tools-controls.ts
+npm notice 57.1kB src/personal-tools.ts
+npm notice 14.6kB src/personal-work-controls.ts
+npm notice 15.1kB src/personal-work-tools.ts
+npm notice 46.0kB src/personal-work.ts
+npm notice 1.8kB src/product.ts
+npm notice 22.3kB src/scheduler-tools.ts
+npm notice 8.9kB src/service-helper.ts
+npm notice 20.9kB src/service-tools.ts
+npm notice Tarball Details
+npm notice name: ruukoto
+npm notice version: 0.1.0
+npm notice filename: ruukoto-0.1.0.tgz
+npm notice package size: 280.2 kB
+npm notice unpacked size: 1.2 MB
+npm notice shasum: 8781ba15624e79b41ed2b6573781877867aed632
+npm notice integrity: sha512-2JGGyKj+D+XHB[...]SRDStCcv4fRag==
+npm notice total files: 78
+npm notice
+npm notice
+npm notice 📦  ruukoto-code@0.1.0
+npm notice Tarball Contents
+npm notice 580B bin/ruukoto-code.mjs
+npm notice 575B package.json
+npm notice 96B src/dev.ts
+npm notice 80.3kB src/legacy-import.ts
+npm notice 152B src/main.ts
+npm notice 891B src/product.ts
+npm notice Tarball Details
+npm notice name: ruukoto-code
+npm notice version: 0.1.0
+npm notice filename: ruukoto-code-0.1.0.tgz
+npm notice package size: 23.1 kB
+npm notice unpacked size: 82.6 kB
+npm notice shasum: 5af04e561c9fbf84bf29f8237e3655e563ea5ed9
+npm notice integrity: sha512-XhLM4XOtSZg3y[...]FBbb4606oz4Rw==
+npm notice total files: 6
+npm notice
+npm warn deprecated inflight@1.0.6: This module is not supported, and leaks memory. Do not use it. Check out lru-cache if you want a good and tested way to coalesce async requests by a key value, which is much more comprehensive and powerful.
+npm warn deprecated rimraf@2.6.3: Rimraf versions prior to v4 are no longer supported
+npm warn deprecated glob@7.2.3: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+npm warn deprecated boolean@3.2.0: Package no longer supported. Contact Support at https://www.npmjs.com/support for more info.
+npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+
+  worker/worker.mjs                   15.6kb
+  worker/personal-command-worker.mjs   4.1kb
+
+⚡ Done in 6ms
+npm notice
+npm notice 📦  ruukoto@0.1.0
+npm notice Tarball Contents
+npm notice 580B bin/ruukoto.mjs
+npm notice 861B package.json
+npm notice 91B src/dev.ts
+npm notice 152B src/main.ts
+npm notice 9.5kB src/personal-app-data-controls.ts
+npm notice 34.1kB src/personal-app-data.ts
+npm notice 7.6kB src/personal-artifacts.ts
+npm notice 6.9kB src/personal-browser-cli.ts
+npm notice 5.6kB src/personal-browser-config.ts
+npm notice 10.0kB src/personal-browser-controls.ts
+npm notice 46.2kB src/personal-browser.ts
+npm notice 40.0kB src/personal-cli.ts
+npm notice 8.1kB src/personal-command-config.ts
+npm notice 17.6kB src/personal-command-execution.ts
+npm notice 35.8kB src/personal-command-work.ts
+npm notice 3.8kB src/personal-command-worker.ts
+npm notice 2.4kB src/personal-config-idle.ts
+npm notice 3.2kB src/personal-config.ts
+npm notice 43.1kB src/personal-control.ts
+npm notice 18.3kB src/personal-delegation.ts
+npm notice 438B src/personal-entry.ts
+npm notice 191B src/personal-error.ts
+npm notice 77.4kB src/personal-harness.ts
+npm notice 11.4kB src/personal-history.ts
+npm notice 263B src/personal-im-api.ts
+npm notice 15.0kB src/personal-inspection-controls.ts
+npm notice 3.1kB src/personal-local-records.ts
+npm notice 7.2kB src/personal-mcp-cli.ts
+npm notice 11.6kB src/personal-mcp-config.ts
+npm notice 11.1kB src/personal-mcp-controls.ts
+npm notice 36.7kB src/personal-mcp.ts
+npm notice 27.7kB src/personal-media.ts
+npm notice 9.0kB src/personal-memory-controls.ts
+npm notice 20.7kB src/personal-memory.ts
+npm notice 7.6kB src/personal-model.ts
+npm notice 14.8kB src/personal-owner-controls.ts
+npm notice 3.3kB src/personal-permissions-cli.ts
+npm notice 5.2kB src/personal-permissions.ts
+npm notice 4.5kB src/personal-profile.ts
+npm notice 7.8kB src/personal-qq-api.ts
+npm notice 4.5kB src/personal-qq-cli.ts
+npm notice 4.3kB src/personal-qq-config.ts
+npm notice 31.6kB src/personal-report.ts
+npm notice 9.5kB src/personal-schedule-authority.ts
+npm notice 11.2kB src/personal-schedule-execution.ts
+npm notice 3.4kB src/personal-schedule-scope.ts
+npm notice 10.0kB src/personal-scheduler-cli.ts
+npm notice 20.6kB src/personal-scheduler-controls.ts
+npm notice 28.3kB src/personal-scheduler-records.ts
+npm notice 13.2kB src/personal-scheduler-tools.ts
+npm notice 32.7kB src/personal-scheduler.ts
+npm notice 6.2kB src/personal-service-config.ts
+npm notice 19.5kB src/personal-service-controls.ts
+npm notice 21.4kB src/personal-service-inspection.ts
+npm notice 52.3kB src/personal-service-operations.ts
+npm notice 7.7kB src/personal-service-work.ts
+npm notice 5.7kB src/personal-services.ts
+npm notice 2.4kB src/personal-skills-cli.ts
+npm notice 4.8kB src/personal-skills-config.ts
+npm notice 15.9kB src/personal-skills.ts
+npm notice 2.8kB src/personal-source.ts
+npm notice 9.3kB src/personal-telegram-api.ts
+npm notice 4.2kB src/personal-telegram-config.ts
+npm notice 6.0kB src/personal-telegram-records.ts
+npm notice 24.4kB src/personal-telegram.ts
+npm notice 15.6kB src/personal-tool-io.ts
+npm notice 4.9kB src/personal-tool-source.ts
+npm notice 12.0kB src/personal-tools-cli.ts
+npm notice 8.7kB src/personal-tools-config.ts
+npm notice 13.5kB src/personal-tools-controls.ts
+npm notice 57.1kB src/personal-tools.ts
+npm notice 14.6kB src/personal-work-controls.ts
+npm notice 15.1kB src/personal-work-tools.ts
+npm notice 46.0kB src/personal-work.ts
+npm notice 1.8kB src/product.ts
+npm notice 22.3kB src/scheduler-tools.ts
+npm notice 8.9kB src/service-helper.ts
+npm notice 20.9kB src/service-tools.ts
+npm notice Tarball Details
+npm notice name: ruukoto
+npm notice version: 0.1.0
+npm notice filename: ruukoto-0.1.0.tgz
+npm notice package size: 280.2 kB
+npm notice unpacked size: 1.2 MB
+npm notice shasum: 8781ba15624e79b41ed2b6573781877867aed632
+npm notice integrity: sha512-2JGGyKj+D+XHB[...]SRDStCcv4fRag==
+npm notice total files: 78
+npm notice
+npm notice
+npm notice 📦  ruukoto-code@0.1.0
+npm notice Tarball Contents
+npm notice 580B bin/ruukoto-code.mjs
+npm notice 575B package.json
+npm notice 96B src/dev.ts
+npm notice 80.3kB src/legacy-import.ts
+npm notice 152B src/main.ts
+npm notice 891B src/product.ts
+npm notice Tarball Details
+npm notice name: ruukoto-code
+npm notice version: 0.1.0
+npm notice filename: ruukoto-code-0.1.0.tgz
+npm notice package size: 23.1 kB
+npm notice unpacked size: 82.6 kB
+npm notice shasum: 5af04e561c9fbf84bf29f8237e3655e563ea5ed9
+npm notice integrity: sha512-XhLM4XOtSZg3y[...]FBbb4606oz4Rw==
+npm notice total files: 6
+npm notice
+[ruukoto:smoke24] PASS 两份 Coding 独立安装以各自配置、数据、控制面并存且实例标识不同
+npm warn deprecated inflight@1.0.6: This module is not supported, and leaks memory. Do not use it. Check out lru-cache if you want a good and tested way to coalesce async requests by a key value, which is much more comprehensive and powerful.
+npm warn deprecated rimraf@2.6.3: Rimraf versions prior to v4 are no longer supported
+npm warn deprecated glob@7.2.3: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+npm warn deprecated boolean@3.2.0: Package no longer supported. Contact Support at https://www.npmjs.com/support for more info.
+npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+
+  worker/worker.mjs                   15.6kb
+  worker/personal-command-worker.mjs   4.1kb
+
+⚡ Done in 7ms
+npm notice
+npm notice 📦  ruukoto@0.1.0
+npm notice Tarball Contents
+npm notice 408B bin/ruukoto.mjs
+npm notice 731B package.json
+npm notice 1.9kB src/dev.ts
+npm notice 529B src/main.ts
+npm notice 9.5kB src/personal-app-data-controls.ts
+npm notice 34.1kB src/personal-app-data.ts
+npm notice 7.6kB src/personal-artifacts.ts
+npm notice 6.9kB src/personal-browser-cli.ts
+npm notice 5.6kB src/personal-browser-config.ts
+npm notice 10.0kB src/personal-browser-controls.ts
+npm notice 46.2kB src/personal-browser.ts
+npm notice 40.4kB src/personal-cli.ts
+npm notice 8.1kB src/personal-command-config.ts
+npm notice 17.6kB src/personal-command-execution.ts
+npm notice 35.8kB src/personal-command-work.ts
+npm notice 3.8kB src/personal-command-worker.ts
+npm notice 2.4kB src/personal-config-idle.ts
+npm notice 3.8kB src/personal-config.ts
+npm notice 43.4kB src/personal-control.ts
+npm notice 18.3kB src/personal-delegation.ts
+npm notice 20B src/personal-entry.ts
+npm notice 191B src/personal-error.ts
+npm notice 77.4kB src/personal-harness.ts
+npm notice 11.4kB src/personal-history.ts
+npm notice 263B src/personal-im-api.ts
+npm notice 15.0kB src/personal-inspection-controls.ts
+npm notice 3.1kB src/personal-local-records.ts
+npm notice 7.2kB src/personal-mcp-cli.ts
+npm notice 11.6kB src/personal-mcp-config.ts
+npm notice 11.1kB src/personal-mcp-controls.ts
+npm notice 36.7kB src/personal-mcp.ts
+npm notice 27.7kB src/personal-media.ts
+npm notice 9.0kB src/personal-memory-controls.ts
+npm notice 20.7kB src/personal-memory.ts
+npm notice 7.6kB src/personal-model.ts
+npm notice 14.8kB src/personal-owner-controls.ts
+npm notice 3.3kB src/personal-permissions-cli.ts
+npm notice 5.2kB src/personal-permissions.ts
+npm notice 4.5kB src/personal-profile.ts
+npm notice 7.8kB src/personal-qq-api.ts
+npm notice 4.5kB src/personal-qq-cli.ts
+npm notice 4.3kB src/personal-qq-config.ts
+npm notice 31.6kB src/personal-report.ts
+npm notice 9.5kB src/personal-schedule-authority.ts
+npm notice 11.2kB src/personal-schedule-execution.ts
+npm notice 3.4kB src/personal-schedule-scope.ts
+npm notice 10.0kB src/personal-scheduler-cli.ts
+npm notice 20.6kB src/personal-scheduler-controls.ts
+npm notice 28.3kB src/personal-scheduler-records.ts
+npm notice 13.2kB src/personal-scheduler-tools.ts
+npm notice 32.7kB src/personal-scheduler.ts
+npm notice 6.2kB src/personal-service-config.ts
+npm notice 19.5kB src/personal-service-controls.ts
+npm notice 21.4kB src/personal-service-inspection.ts
+npm notice 52.3kB src/personal-service-operations.ts
+npm notice 7.7kB src/personal-service-work.ts
+npm notice 5.7kB src/personal-services.ts
+npm notice 2.4kB src/personal-skills-cli.ts
+npm notice 4.8kB src/personal-skills-config.ts
+npm notice 15.9kB src/personal-skills.ts
+npm notice 2.8kB src/personal-source.ts
+npm notice 9.3kB src/personal-telegram-api.ts
+npm notice 4.2kB src/personal-telegram-config.ts
+npm notice 6.0kB src/personal-telegram-records.ts
+npm notice 24.4kB src/personal-telegram.ts
+npm notice 15.6kB src/personal-tool-io.ts
+npm notice 4.9kB src/personal-tool-source.ts
+npm notice 12.0kB src/personal-tools-cli.ts
+npm notice 8.7kB src/personal-tools-config.ts
+npm notice 13.5kB src/personal-tools-controls.ts
+npm notice 57.1kB src/personal-tools.ts
+npm notice 14.6kB src/personal-work-controls.ts
+npm notice 15.1kB src/personal-work-tools.ts
+npm notice 46.0kB src/personal-work.ts
+npm notice 8.9kB src/service-helper.ts
+npm notice Tarball Details
+npm notice name: ruukoto
+npm notice version: 0.1.0
+npm notice filename: ruukoto-0.1.0.tgz
+npm notice package size: 267.6 kB
+npm notice unpacked size: 1.1 MB
+npm notice shasum: 352e100b78adb54eeaf160b9ad631b11324e7be2
+npm notice integrity: sha512-pkUYJpIzsHnV+[...]m8VGkZ7KhylyQ==
+npm notice total files: 75
+npm notice
+npm notice
+npm notice 📦  ruukoto-code@0.1.0
+npm notice Tarball Contents
+npm notice 580B bin/ruukoto-code.mjs
+npm notice 575B package.json
+npm notice 96B src/dev.ts
+npm notice 80.3kB src/legacy-import.ts
+npm notice 152B src/main.ts
+npm notice 891B src/product.ts
+npm notice Tarball Details
+npm notice name: ruukoto-code
+npm notice version: 0.1.0
+npm notice filename: ruukoto-code-0.1.0.tgz
+npm notice package size: 23.1 kB
+npm notice unpacked size: 82.6 kB
+npm notice shasum: c9e0f70eeb11ca76aa71c9135a7585385d18fb82
+npm notice integrity: sha512-cSHefB3X8foMI[...]RWfsZ7geU994g==
+npm notice total files: 6
+npm notice
+[ruukoto:smoke24] PASS ruukoto-code 从 12b1a66c 独立升级到当前源码，另一 Coding 实例未重启且停端期间仍完成任务
+npm warn deprecated inflight@1.0.6: This module is not supported, and leaks memory. Do not use it. Check out lru-cache if you want a good and tested way to coalesce async requests by a key value, which is much more comprehensive and powerful.
+npm warn deprecated rimraf@2.6.3: Rimraf versions prior to v4 are no longer supported
+npm warn deprecated glob@7.2.3: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+npm warn deprecated boolean@3.2.0: Package no longer supported. Contact Support at https://www.npmjs.com/support for more info.
+npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+
+  worker/worker.mjs                   15.6kb
+  worker/personal-command-worker.mjs   4.1kb
+
+⚡ Done in 5ms
+npm notice
+npm notice 📦  ruukoto@0.1.0
+npm notice Tarball Contents
+npm notice 408B bin/ruukoto.mjs
+npm notice 731B package.json
+npm notice 1.9kB src/dev.ts
+npm notice 529B src/main.ts
+npm notice 9.5kB src/personal-app-data-controls.ts
+npm notice 34.1kB src/personal-app-data.ts
+npm notice 7.6kB src/personal-artifacts.ts
+npm notice 6.9kB src/personal-browser-cli.ts
+npm notice 5.6kB src/personal-browser-config.ts
+npm notice 10.0kB src/personal-browser-controls.ts
+npm notice 46.2kB src/personal-browser.ts
+npm notice 40.4kB src/personal-cli.ts
+npm notice 8.1kB src/personal-command-config.ts
+npm notice 17.6kB src/personal-command-execution.ts
+npm notice 35.8kB src/personal-command-work.ts
+npm notice 3.8kB src/personal-command-worker.ts
+npm notice 2.4kB src/personal-config-idle.ts
+npm notice 3.8kB src/personal-config.ts
+npm notice 43.4kB src/personal-control.ts
+npm notice 18.3kB src/personal-delegation.ts
+npm notice 20B src/personal-entry.ts
+npm notice 191B src/personal-error.ts
+npm notice 77.4kB src/personal-harness.ts
+npm notice 11.4kB src/personal-history.ts
+npm notice 263B src/personal-im-api.ts
+npm notice 15.0kB src/personal-inspection-controls.ts
+npm notice 3.1kB src/personal-local-records.ts
+npm notice 7.2kB src/personal-mcp-cli.ts
+npm notice 11.6kB src/personal-mcp-config.ts
+npm notice 11.1kB src/personal-mcp-controls.ts
+npm notice 36.7kB src/personal-mcp.ts
+npm notice 27.7kB src/personal-media.ts
+npm notice 9.0kB src/personal-memory-controls.ts
+npm notice 20.7kB src/personal-memory.ts
+npm notice 7.6kB src/personal-model.ts
+npm notice 14.8kB src/personal-owner-controls.ts
+npm notice 3.3kB src/personal-permissions-cli.ts
+npm notice 5.2kB src/personal-permissions.ts
+npm notice 4.5kB src/personal-profile.ts
+npm notice 7.8kB src/personal-qq-api.ts
+npm notice 4.5kB src/personal-qq-cli.ts
+npm notice 4.3kB src/personal-qq-config.ts
+npm notice 31.6kB src/personal-report.ts
+npm notice 9.5kB src/personal-schedule-authority.ts
+npm notice 11.2kB src/personal-schedule-execution.ts
+npm notice 3.4kB src/personal-schedule-scope.ts
+npm notice 10.0kB src/personal-scheduler-cli.ts
+npm notice 20.6kB src/personal-scheduler-controls.ts
+npm notice 28.3kB src/personal-scheduler-records.ts
+npm notice 13.2kB src/personal-scheduler-tools.ts
+npm notice 32.7kB src/personal-scheduler.ts
+npm notice 6.2kB src/personal-service-config.ts
+npm notice 19.5kB src/personal-service-controls.ts
+npm notice 21.4kB src/personal-service-inspection.ts
+npm notice 52.3kB src/personal-service-operations.ts
+npm notice 7.7kB src/personal-service-work.ts
+npm notice 5.7kB src/personal-services.ts
+npm notice 2.4kB src/personal-skills-cli.ts
+npm notice 4.8kB src/personal-skills-config.ts
+npm notice 15.9kB src/personal-skills.ts
+npm notice 2.8kB src/personal-source.ts
+npm notice 9.3kB src/personal-telegram-api.ts
+npm notice 4.2kB src/personal-telegram-config.ts
+npm notice 6.0kB src/personal-telegram-records.ts
+npm notice 24.4kB src/personal-telegram.ts
+npm notice 15.6kB src/personal-tool-io.ts
+npm notice 4.9kB src/personal-tool-source.ts
+npm notice 12.0kB src/personal-tools-cli.ts
+npm notice 8.7kB src/personal-tools-config.ts
+npm notice 13.5kB src/personal-tools-controls.ts
+npm notice 57.1kB src/personal-tools.ts
+npm notice 14.6kB src/personal-work-controls.ts
+npm notice 15.1kB src/personal-work-tools.ts
+npm notice 46.0kB src/personal-work.ts
+npm notice 8.9kB src/service-helper.ts
+npm notice Tarball Details
+npm notice name: ruukoto
+npm notice version: 0.1.0
+npm notice filename: ruukoto-0.1.0.tgz
+npm notice package size: 267.6 kB
+npm notice unpacked size: 1.1 MB
+npm notice shasum: 352e100b78adb54eeaf160b9ad631b11324e7be2
+npm notice integrity: sha512-pkUYJpIzsHnV+[...]m8VGkZ7KhylyQ==
+npm notice total files: 75
+npm notice
+npm notice
+npm notice 📦  ruukoto-code@0.1.0
+npm notice Tarball Contents
+npm notice 580B bin/ruukoto-code.mjs
+npm notice 575B package.json
+npm notice 96B src/dev.ts
+npm notice 80.3kB src/legacy-import.ts
+npm notice 152B src/main.ts
+npm notice 891B src/product.ts
+npm notice Tarball Details
+npm notice name: ruukoto-code
+npm notice version: 0.1.0
+npm notice filename: ruukoto-code-0.1.0.tgz
+npm notice package size: 23.1 kB
+npm notice unpacked size: 82.6 kB
+npm notice shasum: c9e0f70eeb11ca76aa71c9135a7585385d18fb82
+npm notice integrity: sha512-cSHefB3X8foMI[...]RWfsZ7geU994g==
+npm notice total files: 6
+npm notice
+[ruukoto:smoke24] PASS ruukoto-code 从 12b1a66c 独立升级到当前源码，另一 Coding 实例未重启且停端期间仍完成任务
+[ruukoto:smoke24] PASS 升级前历史可查，分别停止，一个实例离线后另一实例完成本地任务
+[ruukoto:smoke24] 结果：4/4 通过；真实 IM 未涉及；模式：模拟模型升级
+[ruukoto:smoke24] 预期保留异常占用档案 /private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/rk24-rLvZsV；任务 task_41e6171b8228fccd58a2d4d4, task_e7522a4d0750edbe2a7f710e

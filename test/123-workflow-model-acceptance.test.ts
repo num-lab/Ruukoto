@@ -6,7 +6,7 @@ import { test } from "node:test";
 import { getWorkflowQuestion, getWorkflowStep, listWorkflowExecutions, listWorkflowRuns, requireWorkflowRun } from "@ruukoto/core/workflow.ts";
 import { Runtime } from "@ruukoto/runtime/runtime.ts";
 import { AppDataStore } from "@ruukoto/agent/app-data/store.ts";
-import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
+import { product as personalProduct } from "./helpers/legacy-product.ts";
 import { product as codeProduct } from "../apps/ruukoto-code/src/product.ts";
 import { initGitRepo } from "./helpers/git-fixture.ts";
 import { waitFor } from "./helpers/testkit.ts";

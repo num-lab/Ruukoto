@@ -1,0 +1,369 @@
+{
+  "recorded_at": "2026-10-18T12:33:22.865087+00:00",
+  "instruction": "检查剩余的工单，只挑出真正必须我来执行的，其余直接记resolved",
+  "scope": "取消重复逐单人工门槛并收敛跟踪；未执行验证不记通过，最终工程由39持有，生产由40持有",
+  "before": {
+    "1": {
+      "path": ".scratch/personal-pi-durable/issues/01-migration-plan.md",
+      "status": "in-progress",
+      "sha256": "014828a668747eee4fee37d87383e1633a597c2bba8ac351d22aa6f7a8c76b50"
+    },
+    "2": {
+      "path": ".scratch/personal-pi-durable/issues/02-harness-foundation.md",
+      "status": "resolved",
+      "sha256": "c6cc073776c46ed45185faa69e9836af4b515a886f12edea0e4f8afd1c7f6ad8"
+    },
+    "3": {
+      "path": ".scratch/personal-pi-durable/issues/03-local-cli.md",
+      "status": "ready-for-human",
+      "sha256": "557f73e8daaaea8172f06839f2a28ea0cebbdb196ba317a6fc5b01e352da489d"
+    },
+    "4": {
+      "path": ".scratch/personal-pi-durable/issues/04-service-inspect.md",
+      "status": "resolved",
+      "sha256": "f65be3095fee02050fbb70f12c23b806032eddb99acdb87f2ec9eb55a76513c5"
+    },
+    "5": {
+      "path": ".scratch/personal-pi-durable/issues/05-background-work.md",
+      "status": "resolved",
+      "sha256": "33a1ba32324a91f5e81b3dc8d87e6831a0b6a8cf193e7d7ad549de265c2def4b"
+    },
+    "6": {
+      "path": ".scratch/personal-pi-durable/issues/06-service-operations.md",
+      "status": "resolved",
+      "sha256": "cbda7531d2a208459e6606262b05f79dfef20507cae82a55a3c8230283ea6215"
+    },
+    "7": {
+      "path": ".scratch/personal-pi-durable/issues/07-telegram-entry.md",
+      "status": "ready-for-human",
+      "sha256": "8ce0c45fc51ff305a9723f17b0363367c5521e25b605d3e832c94584505f393f"
+    },
+    "8": {
+      "path": ".scratch/personal-pi-durable/issues/08-telegram-service-approval.md",
+      "status": "ready-for-human",
+      "sha256": "343ea58aa1ec49b3455429388478bc1fe9e6830b541287ee5e66c0776e2f7324"
+    },
+    "9": {
+      "path": ".scratch/personal-pi-durable/issues/09-service-configuration.md",
+      "status": "ready-for-human",
+      "sha256": "031f27c8f3cd57638b0863c5fbd225a76f68c407b489475c62847b165176fc6b"
+    },
+    "10": {
+      "path": ".scratch/personal-pi-durable/issues/10-model-background-work.md",
+      "status": "ready-for-human",
+      "sha256": "503e7e0a527b80139b9813aad8ce81779818c3d009fe175daead160b9ba60cdd"
+    },
+    "11": {
+      "path": ".scratch/personal-pi-durable/issues/11-work-controls.md",
+      "status": "ready-for-human",
+      "sha256": "bddfeb5ca52b9ef4b656b4b6414e3656894b8ed5767a690435b3aec000559c85"
+    },
+    "12": {
+      "path": ".scratch/personal-pi-durable/issues/12-work-notes.md",
+      "status": "ready-for-human",
+      "sha256": "45f7d1d78846374dc9a42e3cf65aed18cc0c86df1e07e64a16aaeeff40a5799c"
+    },
+    "13": {
+      "path": ".scratch/personal-pi-durable/issues/13-analysis-delegations.md",
+      "status": "ready-for-human",
+      "sha256": "e944d9e71e717b44802d0883460424504324fcc33ee754083c9a5cb5fccc8d17"
+    },
+    "14": {
+      "path": ".scratch/personal-pi-durable/issues/14-delegation-reports.md",
+      "status": "ready-for-human",
+      "sha256": "d0187abbad69a89ecfb503e9a0a16bd46750923971b68d9639a6d3e4a93d462b"
+    },
+    "15": {
+      "path": ".scratch/personal-pi-durable/issues/15-helper-exit.md",
+      "status": "resolved",
+      "sha256": "d9e3ae2c601495154513f17474e4eee74c839644f7382c36059e29abbc2e6bf1"
+    },
+    "16": {
+      "path": ".scratch/personal-pi-durable/issues/16-inspection-identity.md",
+      "status": "resolved",
+      "sha256": "8ea3fbd47af6b5232b6f774040b34f18133471cc616f3021a220b3ecc243cde3"
+    },
+    "17": {
+      "path": ".scratch/personal-pi-durable/issues/17-durable-inspection.md",
+      "status": "resolved",
+      "sha256": "31a3af15b9abb2170ee31fb46e081fa983287590d39243c187e1a41f17b20b39"
+    },
+    "18": {
+      "path": ".scratch/personal-pi-durable/issues/18-subagent-inspection.md",
+      "status": "resolved",
+      "sha256": "708097b67a1bb173c25cd47d399f1eb41d2adc0da4777709c915db0d894c391e"
+    },
+    "19": {
+      "path": ".scratch/personal-pi-durable/issues/19-inspection-stop-controls.md",
+      "status": "ready-for-human",
+      "sha256": "89163d56b6d1b0e2b862c8146a3376cc7945e3512f362faaebcc7005baab81e4"
+    },
+    "20": {
+      "path": ".scratch/personal-pi-durable/issues/20-service-recovery-controls.md",
+      "status": "ready-for-human",
+      "sha256": "f5b0785f8faf8d76db9bbbb14c70d637216196d6e08304d51a6a284758959f50"
+    },
+    "21": {
+      "path": ".scratch/personal-pi-durable/issues/21-subagent-service-operations.md",
+      "status": "ready-for-human",
+      "sha256": "582ec3acae093d63b59a2f101ba434c19312fa08dba05698a5f04c9e68f578f1"
+    },
+    "22": {
+      "path": ".scratch/personal-pi-durable/issues/22-native-execution-identity.md",
+      "status": "resolved",
+      "sha256": "24db144021b624fdb624caaed8bf8eca1e249844bd5f0251ee964cdc295b0241"
+    },
+    "23": {
+      "path": ".scratch/personal-pi-durable/issues/23-command-worker.md",
+      "status": "resolved",
+      "sha256": "8979ee976b3b91b68fa57789aad4061ba64a373fda0692e2da205bfbab9bb379"
+    },
+    "24": {
+      "path": ".scratch/personal-pi-durable/issues/24-command-execution.md",
+      "status": "resolved",
+      "sha256": "77b1c4f8a28a2717a20d5620a2a8a60bbc41bfd20c0c81e3ce14f66595f16eb0"
+    },
+    "25": {
+      "path": ".scratch/personal-pi-durable/issues/25-durable-commands.md",
+      "status": "ready-for-human",
+      "sha256": "9b26470b38b9b42cc78874292506b2e3eced034e8b6e7e3f615dde6e36fa461a"
+    },
+    "26": {
+      "path": ".scratch/personal-pi-durable/issues/26-full-access-commands.md",
+      "status": "ready-for-human",
+      "sha256": "bed11870f1481ffae63221abab71c9849f83c0452f8440c8ab2a83d94e490d7c"
+    },
+    "27": {
+      "path": ".scratch/personal-pi-durable/issues/27-mcp-transport.md",
+      "status": "resolved",
+      "sha256": "1c0e64c8cf7a4f727e8beef84ec9a32a300c80f3522ea3be01a9983fb8aaedbb"
+    },
+    "28": {
+      "path": ".scratch/personal-pi-durable/issues/28-durable-mcp.md",
+      "status": "ready-for-human",
+      "sha256": "c05170fc0eeb55b75db77beffe7af7fc3aceadc5040af854275a6fc2f05f217d"
+    },
+    "29": {
+      "path": ".scratch/personal-pi-durable/issues/29-tools-access-artifacts.md",
+      "status": "ready-for-human",
+      "sha256": "49df1ec2c78a4629a427b306335059638c14e61e9b6d0310870f865b3340da57"
+    },
+    "30": {
+      "path": ".scratch/personal-pi-durable/issues/30-browser-media.md",
+      "status": "ready-for-human",
+      "sha256": "ce2f37561ef1151282bddf547f126a3028f898905883a7d36eb2b84a13ef0816"
+    },
+    "31": {
+      "path": ".scratch/personal-pi-durable/issues/31-qq-owner-entry.md",
+      "status": "ready-for-human",
+      "sha256": "cce7208ce02d84c70d77478b7c707997a684d628c97420915e0a7139f556a97d"
+    },
+    "32": {
+      "path": ".scratch/personal-pi-durable/issues/32-scheduled-work.md",
+      "status": "ready-for-human",
+      "sha256": "427bf91c6efa60c47e8450fe79afef32e1be5c1258ddb61eb8eeb9e16a88121c"
+    },
+    "33": {
+      "path": ".scratch/personal-pi-durable/issues/33-memory-skills-history.md",
+      "status": "ready-for-human",
+      "sha256": "787d7f2c06fddcfe975e86e41840b455425499243d1fb65e34aaf77d73184a53"
+    },
+    "34": {
+      "path": ".scratch/personal-pi-durable/issues/34-app-data.md",
+      "status": "ready-for-human",
+      "sha256": "e7074c60f134012e277ec2b2cb48b359d3e5ee738299a8595cf7736d581f7e58"
+    },
+    "35": {
+      "path": ".scratch/personal-pi-durable/issues/35-owner-configuration-controls.md",
+      "status": "ready-for-human",
+      "sha256": "a1a837c7beab2e1790f216e1dfb8ed787af0c014e72a35e9c0a34bd56c1768ff"
+    },
+    "36": {
+      "path": ".scratch/personal-pi-durable/issues/36-coding-regression.md",
+      "status": "ready-for-human",
+      "sha256": "508d0f289ab357ddf71ff550d0901c163dcfcc0c2d21a6bc037ba3a145cfb7ab"
+    },
+    "37": {
+      "path": ".scratch/personal-pi-durable/issues/37-current-live-flow.md",
+      "status": "resolved",
+      "sha256": "bb5e764c9b9d74ea99467b51aeb79ff05a778d397ec6ecb1055efeb633a527d9"
+    },
+    "38": {
+      "path": ".scratch/personal-pi-durable/issues/38-product-entry-cleanup.md",
+      "status": "in-review",
+      "sha256": "4d2e535a3e8e1ee949cfa101dd2f4be685ea289b07ba63b9bc315200dd724a82"
+    },
+    "39": {
+      "path": ".scratch/personal-pi-durable/issues/39-final-acceptance.md",
+      "status": "planning",
+      "sha256": "97570d08c0e22585e0453102a2a948d66cc493d942c6cacce13614a372659d4a"
+    },
+    "40": {
+      "path": ".scratch/personal-pi-durable/issues/40-production-cutover.md",
+      "status": "planning",
+      "sha256": "8b0e7e713f678a7e61f35be53982a49007d0fce8abad8a0b59e2818723a0ee36"
+    }
+  },
+  "closed": [
+    1,
+    3,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    19,
+    20,
+    21,
+    25,
+    26,
+    28,
+    29,
+    30,
+    32,
+    33,
+    34,
+    35,
+    36,
+    38
+  ],
+  "human_only": [
+    31
+  ],
+  "agent_work": [
+    39
+  ],
+  "production_window": [
+    40
+  ],
+  "after": {
+    "1": "resolved",
+    "2": "resolved",
+    "3": "resolved",
+    "4": "resolved",
+    "5": "resolved",
+    "6": "resolved",
+    "7": "resolved",
+    "8": "resolved",
+    "9": "resolved",
+    "10": "resolved",
+    "11": "resolved",
+    "12": "resolved",
+    "13": "resolved",
+    "14": "resolved",
+    "15": "resolved",
+    "16": "resolved",
+    "17": "resolved",
+    "18": "resolved",
+    "19": "resolved",
+    "20": "resolved",
+    "21": "resolved",
+    "22": "resolved",
+    "23": "resolved",
+    "24": "resolved",
+    "25": "resolved",
+    "26": "resolved",
+    "27": "resolved",
+    "28": "resolved",
+    "29": "resolved",
+    "30": "resolved",
+    "31": "ready-for-human",
+    "32": "resolved",
+    "33": "resolved",
+    "34": "resolved",
+    "35": "resolved",
+    "36": "resolved",
+    "37": "resolved",
+    "38": "resolved",
+    "39": "ready-for-agent",
+    "40": "planning"
+  },
+  "changed_markdown": [
+    ".scratch/personal-pi-durable/issues/01-migration-plan.md",
+    ".scratch/personal-pi-durable/issues/03-local-cli.md",
+    ".scratch/personal-pi-durable/issues/07-telegram-entry.md",
+    ".scratch/personal-pi-durable/issues/08-telegram-service-approval.md",
+    ".scratch/personal-pi-durable/issues/09-service-configuration.md",
+    ".scratch/personal-pi-durable/issues/10-model-background-work.md",
+    ".scratch/personal-pi-durable/issues/11-work-controls.md",
+    ".scratch/personal-pi-durable/issues/12-work-notes.md",
+    ".scratch/personal-pi-durable/issues/13-analysis-delegations.md",
+    ".scratch/personal-pi-durable/issues/14-delegation-reports.md",
+    ".scratch/personal-pi-durable/issues/19-inspection-stop-controls.md",
+    ".scratch/personal-pi-durable/issues/20-service-recovery-controls.md",
+    ".scratch/personal-pi-durable/issues/21-subagent-service-operations.md",
+    ".scratch/personal-pi-durable/issues/25-durable-commands.md",
+    ".scratch/personal-pi-durable/issues/26-full-access-commands.md",
+    ".scratch/personal-pi-durable/issues/28-durable-mcp.md",
+    ".scratch/personal-pi-durable/issues/29-tools-access-artifacts.md",
+    ".scratch/personal-pi-durable/issues/30-browser-media.md",
+    ".scratch/personal-pi-durable/issues/32-scheduled-work.md",
+    ".scratch/personal-pi-durable/issues/33-memory-skills-history.md",
+    ".scratch/personal-pi-durable/issues/34-app-data.md",
+    ".scratch/personal-pi-durable/issues/35-owner-configuration-controls.md",
+    ".scratch/personal-pi-durable/issues/36-coding-regression.md",
+    ".scratch/personal-pi-durable/issues/38-product-entry-cleanup.md",
+    ".scratch/personal-pi-durable/issues/31-qq-owner-entry.md",
+    ".scratch/personal-pi-durable/issues/39-final-acceptance.md",
+    ".scratch/personal-pi-durable/issues/40-production-cutover.md",
+    ".scratch/personal-pi-durable/remaining-work.md",
+    ".scratch/personal-pi-durable/spec.md",
+    ".scratch/personal-pi-durable/evidence/owner-acceptance-2026-10-18/README.md",
+    ".scratch/personal-pi-durable/evidence/owner-acceptance-2026-10-18/issue-closure.md"
+  ],
+  "after_markdown_sha256": {
+    ".scratch/personal-pi-durable/issues/01-migration-plan.md": "51cacc45e9df2d7474990990ef9a8e7db6e0f2729f8d2e83d8c47e33c5bae20b",
+    ".scratch/personal-pi-durable/issues/03-local-cli.md": "988e8134a99ee658a0d6cd09510e0f86a4186c25d5679f4f5d515317486733c7",
+    ".scratch/personal-pi-durable/issues/07-telegram-entry.md": "83bc15c825517f90c75c9718a5446aa743e5df7c4ac58dc28660020019b6f42a",
+    ".scratch/personal-pi-durable/issues/08-telegram-service-approval.md": "38c319ad62ade16e0da514978ea47a61457a6ebd350ad165b9b071d52619922f",
+    ".scratch/personal-pi-durable/issues/09-service-configuration.md": "c5f8e5b2d6fa96165141a991e51f848b3d61ef869e9a2ebd7ddba2a7ea999e8f",
+    ".scratch/personal-pi-durable/issues/10-model-background-work.md": "d076dc591ce46ab703948f0c8ed581682525c257ad70a7d434d546cc7757e5a7",
+    ".scratch/personal-pi-durable/issues/11-work-controls.md": "125a6517475c434eb5edb7b1754d486dd6745c8ff3968f0177127767a93cafd3",
+    ".scratch/personal-pi-durable/issues/12-work-notes.md": "6c821226f92873ae4b574952f99480cf297328bec6b83521eaf0e05e80557ecc",
+    ".scratch/personal-pi-durable/issues/13-analysis-delegations.md": "72bec5df64d85326f6d6b392758c2e4e6403e3a8591f72fb938c0cd8685ba9c3",
+    ".scratch/personal-pi-durable/issues/14-delegation-reports.md": "6c6e447496ce78aa204a6e2f9d8894ffddedd8c908b208fe43941b6e3579096c",
+    ".scratch/personal-pi-durable/issues/19-inspection-stop-controls.md": "449a1e248b132a12caa8d9fdc7c997307794ec7870daffbe65ced1c5929a0d91",
+    ".scratch/personal-pi-durable/issues/20-service-recovery-controls.md": "b6fd349048c9cd50f06e8c81b8d0203394a52557047b57c147bc6fb98905861d",
+    ".scratch/personal-pi-durable/issues/21-subagent-service-operations.md": "0952d66ffbff7b4d546806e06d36363af07e477372cff51178dad704e116e287",
+    ".scratch/personal-pi-durable/issues/25-durable-commands.md": "539147c01ac97edabbb5c35e80f2e49d66c0bf6cd34feecb088b7cf7412a0cea",
+    ".scratch/personal-pi-durable/issues/26-full-access-commands.md": "e9ee035cf8336deb409f0b5b152ed2b96889532d840cf79faabc138f9726ee38",
+    ".scratch/personal-pi-durable/issues/28-durable-mcp.md": "c9ea58877e30418fd5620bdb62b89fc1e52aa32f6a743ed3065facf5b4396a9b",
+    ".scratch/personal-pi-durable/issues/29-tools-access-artifacts.md": "7e75ccf696bd5b9dd86f87cc02ef49aade9f8c6f954f4e276a5057dbd074ff6e",
+    ".scratch/personal-pi-durable/issues/30-browser-media.md": "4a46bc0e76dd12b4470f53b0df15c97508f5b57987a4e02f2a25740937ca1ea4",
+    ".scratch/personal-pi-durable/issues/32-scheduled-work.md": "4584a965005752fe2a847fb3579543deeb74e91fcd135e0f1fb70d2c609b0346",
+    ".scratch/personal-pi-durable/issues/33-memory-skills-history.md": "944db66672dc1b94e3ccf2676e7e0c72577eb645cb504d8868b35815708cf2b8",
+    ".scratch/personal-pi-durable/issues/34-app-data.md": "e489876601dabe78670faba9de6c19e024136ab2828535ba873b789c183f245a",
+    ".scratch/personal-pi-durable/issues/35-owner-configuration-controls.md": "1a571b4b66aa129e6585ddbe81c8076bc4c2208053c186df9a232a415c8ce095",
+    ".scratch/personal-pi-durable/issues/36-coding-regression.md": "4f86c92cb67e0da5e6d9ca1005c4a026314ba7d78e6aed47a9bc7501f04052ce",
+    ".scratch/personal-pi-durable/issues/38-product-entry-cleanup.md": "41c1425c6ee51ede21c8578b1623f53a33271033c178cb7c44a32d782752a007",
+    ".scratch/personal-pi-durable/issues/31-qq-owner-entry.md": "25cce12a54b4695a9fbc3b9ca09303c53a995a2127a3df7596fa927fbee4dfc9",
+    ".scratch/personal-pi-durable/issues/39-final-acceptance.md": "da16585335d6685d20ca67bf6adde12fd784127cbb3248fd07b89643f380dc80",
+    ".scratch/personal-pi-durable/issues/40-production-cutover.md": "a2a4f47a3136c6672dc30fdcf62d7468e35c371819be15a7aceffe24320193a2",
+    ".scratch/personal-pi-durable/remaining-work.md": "e29764001e1ccc80e1680a5acbe6becaa22ca554153842883e62d8b92e8b9d0d",
+    ".scratch/personal-pi-durable/spec.md": "79c93583b0b34efdc4b0742337f0654f5877a0bdc26ff6053dd579aae5bc8af6",
+    ".scratch/personal-pi-durable/evidence/owner-acceptance-2026-10-18/README.md": "6a1bd1d7ce11aff29b0ee24cd6b1132d187384f7759e9936f84978d983a22682",
+    ".scratch/personal-pi-durable/evidence/owner-acceptance-2026-10-18/issue-closure.md": "f70ce60c9d7a703bfb4095142e2f6f5342778349c7d5e5e4821a8721efdd944f"
+  },
+  "checks": {
+    "markdown_files": 31,
+    "links": 357,
+    "one_status": true,
+    "one_trailing_newline": true,
+    "wrapped_paragraphs": 0,
+    "statuses": {
+      "resolved": 37,
+      "ready-for-human": 1,
+      "ready-for-agent": 1,
+      "planning": 1
+    },
+    "new_runtime_checks": false
+  },
+  "independent_review": {
+    "early_acceptance": "通过；亲核状态、357处链接/3处锚点、格式、658份源码指纹和diff",
+    "coding_blocker": "通过；已补39的退出窗口表述及32-dev宽批次残项",
+    "new_runtime_or_external_checks": false
+  }
+}

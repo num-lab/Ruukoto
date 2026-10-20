@@ -1,0 +1,13 @@
+✔ durable 命令：恢复拒绝 stop-task 损坏，零新增模型和执行 (15759.421875ms)
+✔ durable 命令：恢复拒绝 unproved-stop 损坏，零新增模型和执行 (22180.63075ms)
+✔ durable 命令：原接纳不能因任务和 document 一起丢失而静默消失 (12979.944834ms)
+[ruukoto:personal] 持久执行出现错误，请查询状态并检查档案；未自动重启。
+✔ durable 命令：开始意图提交失败关闭 Harness，零 OS 派发 (52472.62425ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 103840.492917

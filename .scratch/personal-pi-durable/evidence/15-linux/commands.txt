@@ -1,0 +1,30 @@
+快照：当前工作区 rsync 至 tx:/dev/shm/rk-helper-exit.2x5Coh/repo，排除 .git、各级 node_modules、dist、.scratch、.DS_Store；只在远端专属副本 git init，未使用旧工单副本。
+所有测试设置 TMPDIR=/dev/shm/rk-helper-exit.2x5Coh/tmp RUN_MODEL_CHECK=0。
+
+direct-test.log / direct-test.exit:
+node --test test/service-helper-transport.test.ts
+
+direct-transform-test.log / direct-transform-test.exit:
+node --experimental-transform-types --test test/service-helper-transport.test.ts
+
+setup-no-git.log / setup-no-git.exit:
+TMPDIR=/dev/shm/rk-helper-exit.2x5Coh/tmp npm_config_cache=/dev/shm/rk-helper-exit.2x5Coh/npm-cache ELECTRON_SKIP_BINARY_DOWNLOAD=1 RUN_MODEL_CHECK=0 npm run setup -- --skip-hooks
+首次快照未含 Git 元数据，环境门禁拒绝；在专属副本 git init -q 后使用同一命令再次运行 setup。
+
+setup.log / setup.exit:
+TMPDIR=/dev/shm/rk-helper-exit.2x5Coh/tmp npm_config_cache=/dev/shm/rk-helper-exit.2x5Coh/npm-cache ELECTRON_SKIP_BINARY_DOWNLOAD=1 RUN_MODEL_CHECK=0 npm run setup -- --skip-hooks
+
+setup 完成后：删除本次专属 npm-cache（216 MiB），释放 tmpfs；不删除依赖。
+
+build.log / build.exit:
+TMPDIR=/dev/shm/rk-helper-exit.2x5Coh/tmp ELECTRON_SKIP_BINARY_DOWNLOAD=1 RUN_MODEL_CHECK=0 npm run build
+build 内 npm 创建的默认缓存调试日志，按内容包含本次唯一副本路径识别并清理；文件列表见 build-default-cache-log-cleanup.txt。
+
+regression.log / regression.exit:
+TMPDIR=/dev/shm/rk-helper-exit.2x5Coh/tmp npm_config_cache=/dev/shm/rk-helper-exit.2x5Coh/npm-cache ELECTRON_SKIP_BINARY_DOWNLOAD=1 RUN_MODEL_CHECK=0 npx tsx --test --test-concurrency=1 test/service-helper-transport.test.ts test/personal-services.test.ts test/personal-service-operations.test.ts test/78-linux-service-management.test.ts test/79-standing-permissions.test.ts test/service-helper-stop.test.ts
+
+final-hashes.txt:
+sha256sum package-lock.json apps/ruukoto/src/service-helper.ts test/service-helper-transport.test.ts
+
+cleanup.log:
+扫描 /proc 本用户进程 cwd，确认本次唯一副本下无残留进程，然后删除 /dev/shm/rk-helper-exit.2x5Coh 整棵树（源码、依赖、缓存、TMPDIR 和夹具）；验证目录不存在。

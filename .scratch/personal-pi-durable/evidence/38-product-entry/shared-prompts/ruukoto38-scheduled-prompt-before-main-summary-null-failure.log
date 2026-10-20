@@ -1,0 +1,9 @@
+/private/tmp/ruukoto38-pack-20261018-1/test/helpers/testkit.ts:233
+    if (Date.now() - start > timeoutMs) throw new Error(`等待超时: ${desc}`);
+                                              ^
+
+Error: 等待超时: 根请求完成
+    at waitFor (/private/tmp/ruukoto38-pack-20261018-1/test/helpers/testkit.ts:233:47)
+    at async <anonymous> (/private/tmp/ruukoto38-scheduled-prompt-probe.mts:32:3)
+
+Node.js v24.15.0

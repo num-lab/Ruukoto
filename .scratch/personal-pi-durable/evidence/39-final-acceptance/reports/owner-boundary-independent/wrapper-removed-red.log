@@ -1,0 +1,31 @@
+✖ 委托报告：失败参考后的拥有者输入在实际请求中保留本轮身份 (204.22875ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1999.662041
+
+✖ failing tests:
+
+test at test/personal-reports.test.ts:1:6781
+✖ 委托报告：失败参考后的拥有者输入在实际请求中保留本轮身份 (204.22875ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + '请处理本轮要求，也可查询旧事'
+  - '【本轮拥有者输入，独立于此前宿主汇总参考】\n请处理本轮要求，也可查询旧事\n【本轮拥有者输入结束】'
+  
+      at TestContext.<anonymous> (/private/tmp/ruukoto39-owner-boundary-current-copy/test/personal-reports.test.ts:124:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '请处理本轮要求，也可查询旧事',
+    expected: '【本轮拥有者输入，独立于此前宿主汇总参考】\n请处理本轮要求，也可查询旧事\n【本轮拥有者输入结束】',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

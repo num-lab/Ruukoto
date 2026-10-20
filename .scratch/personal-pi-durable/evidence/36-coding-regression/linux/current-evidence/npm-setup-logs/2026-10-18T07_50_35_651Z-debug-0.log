@@ -1,0 +1,891 @@
+0 verbose cli /usr/local/bin/node /usr/local/bin/npm
+1 info using npm@11.19.0
+2 info using node@v24.21.0
+3 silly config load:file:/usr/local/lib/node_modules/npm/npmrc
+4 silly config load:file:/dev/shm/rk-coding36-linux.gaWtu6/current/verification/foundation/.npmrc
+5 silly config load:file:/home/eitrous/.npmrc
+6 silly config load:file:/usr/local/etc/npmrc
+7 verbose title npm ci
+8 verbose argv "ci"
+9 verbose logfile logs-max:10 dir:/tmp/rk-coding36-linux-npm.rhwyky/_logs/2026-10-18T07_50_35_651Z-
+10 verbose logfile /tmp/rk-coding36-linux-npm.rhwyky/_logs/2026-10-18T07_50_35_651Z-debug-0.log
+11 silly logfile done cleaning log files
+12 silly packumentCache heap:2153512960 maxSize:538378240 maxEntrySize:269189120
+13 silly packumentCache heap:2153512960 maxSize:538378240 maxEntrySize:269189120
+14 silly idealTree buildDeps
+15 silly reify moves {}
+16 http cache @earendil-works/pi-coding-agent@https://registry.npmjs.org/@earendil-works/pi-coding-agent/-/pi-coding-agent-0.85.1.tgz 1ms (cache hit)
+17 silly audit bulk request {
+17 silly audit   '@anthropic-ai/sdk': [ '0.123.0' ],
+17 silly audit   '@aws-crypto/sha256-browser': [ '5.2.0' ],
+17 silly audit   '@aws-crypto/sha256-js': [ '5.2.0' ],
+17 silly audit   '@aws-crypto/supports-web-crypto': [ '5.2.0' ],
+17 silly audit   '@aws-crypto/util': [ '5.2.0' ],
+17 silly audit   '@aws-sdk/client-bedrock-runtime': [ '3.1048.0' ],
+17 silly audit   '@aws-sdk/core': [ '3.978.0', '3.974.11' ],
+17 silly audit   '@aws-sdk/credential-provider-env': [ '3.972.71', '3.972.37' ],
+17 silly audit   '@aws-sdk/credential-provider-http': [ '3.972.73', '3.972.39' ],
+17 silly audit   '@smithy/node-http-handler': [ '4.12.1', '4.7.3' ],
+17 silly audit   '@aws-sdk/credential-provider-ini': [ '3.973.16', '3.972.41' ],
+17 silly audit   '@aws-sdk/credential-provider-login': [ '3.972.78', '3.972.41' ],
+17 silly audit   '@aws-sdk/credential-provider-node': [ '3.972.83', '3.972.42' ],
+17 silly audit   '@aws-sdk/credential-provider-process': [ '3.972.71', '3.972.37' ],
+17 silly audit   '@aws-sdk/credential-provider-sso': [ '3.973.15', '3.972.41' ],
+17 silly audit   '@aws-sdk/token-providers': [ '3.1129.0', '3.1048.0' ],
+17 silly audit   '@aws-sdk/credential-provider-web-identity': [ '3.972.77', '3.972.41' ],
+17 silly audit   '@aws-sdk/eventstream-handler-node': [ '3.972.34', '3.972.16' ],
+17 silly audit   '@aws-sdk/middleware-eventstream': [ '3.972.29', '3.972.12' ],
+17 silly audit   '@aws-sdk/middleware-websocket': [ '3.972.53', '3.972.19' ],
+17 silly audit   '@aws-sdk/nested-clients': [ '3.997.45', '3.997.9' ],
+17 silly audit   '@aws-sdk/signature-v4-multi-region': [ '3.996.46', '3.996.27' ],
+17 silly audit   '@aws-sdk/types': [ '3.974.5', '3.973.8' ],
+17 silly audit   '@aws-sdk/util-locate-window': [ '3.965.10', '3.965.5' ],
+17 silly audit   '@aws-sdk/xml-builder': [ '3.972.40', '3.972.24' ],
+17 silly audit   '@aws/lambda-invoke-store': [ '0.3.0', '0.2.4' ],
+17 silly audit   '@babel/runtime': [ '7.29.7', '7.29.2' ],
+17 silly audit   '@earendil-works/chord': [ '0.85.1' ],
+17 silly audit   '@earendil-works/pi-agent-core': [ '0.85.1' ],
+17 silly audit   typebox: [ '1.3.7', '1.0.12' ],
+17 silly audit   '@earendil-works/pi-ai': [ '0.85.1' ],
+17 silly audit   '@earendil-works/pi-coding-agent': [ '0.85.1' ],
+17 silly audit   '@earendil-works/pi-telemetry': [ '0.85.1' ],
+17 silly audit   '@esbuild/aix-ppc64': [ '0.28.1' ],
+17 silly audit   '@esbuild/android-arm': [ '0.28.1' ],
+17 silly audit   '@esbuild/android-arm64': [ '0.28.1' ],
+17 silly audit   '@esbuild/android-x64': [ '0.28.1' ],
+17 silly audit   '@esbuild/darwin-arm64': [ '0.28.1' ],
+17 silly audit   '@esbuild/darwin-x64': [ '0.28.1' ],
+17 silly audit   '@esbuild/freebsd-arm64': [ '0.28.1' ],
+17 silly audit   '@esbuild/freebsd-x64': [ '0.28.1' ],
+17 silly audit   '@esbuild/linux-arm': [ '0.28.1' ],
+17 silly audit   '@esbuild/linux-arm64': [ '0.28.1' ],
+17 silly audit   '@esbuild/linux-ia32': [ '0.28.1' ],
+17 silly audit   '@esbuild/linux-loong64': [ '0.28.1' ],
+17 silly audit   '@esbuild/linux-mips64el': [ '0.28.1' ],
+17 silly audit   '@esbuild/linux-ppc64': [ '0.28.1' ],
+17 silly audit   '@esbuild/linux-riscv64': [ '0.28.1' ],
+17 silly audit   '@esbuild/linux-s390x': [ '0.28.1' ],
+17 silly audit   '@esbuild/linux-x64': [ '0.28.1' ],
+17 silly audit   '@esbuild/netbsd-arm64': [ '0.28.1' ],
+17 silly audit   '@esbuild/netbsd-x64': [ '0.28.1' ],
+17 silly audit   '@esbuild/openbsd-arm64': [ '0.28.1' ],
+17 silly audit   '@esbuild/openbsd-x64': [ '0.28.1' ],
+17 silly audit   '@esbuild/openharmony-arm64': [ '0.28.1' ],
+17 silly audit   '@esbuild/sunos-x64': [ '0.28.1' ],
+17 silly audit   '@esbuild/win32-arm64': [ '0.28.1' ],
+17 silly audit   '@esbuild/win32-ia32': [ '0.28.1' ],
+17 silly audit   '@esbuild/win32-x64': [ '0.28.1' ],
+17 silly audit   '@google/genai': [ '1.52.0' ],
+17 silly audit   '@protobufjs/aspromise': [ '1.1.2' ],
+17 silly audit   '@protobufjs/base64': [ '1.1.2' ],
+17 silly audit   '@protobufjs/codegen': [ '2.0.5' ],
+17 silly audit   '@protobufjs/eventemitter': [ '1.1.1' ],
+17 silly audit   '@protobufjs/fetch': [ '1.1.1' ],
+17 silly audit   '@protobufjs/float': [ '1.0.2' ],
+17 silly audit   '@protobufjs/path': [ '1.1.2' ],
+17 silly audit   '@protobufjs/pool': [ '1.1.0' ],
+17 silly audit   '@protobufjs/utf8': [ '1.1.2', '1.1.1' ],
+17 silly audit   '@smithy/core': [ '3.34.1', '3.24.3' ],
+17 silly audit   '@smithy/credential-provider-imds': [ '4.5.2', '4.3.3' ],
+17 silly audit   '@smithy/fetch-http-handler': [ '5.8.0', '5.4.3' ],
+17 silly audit   '@smithy/is-array-buffer': [ '2.2.0' ],
+17 silly audit   '@smithy/signature-v4': [ '5.7.3', '5.4.3' ],
+17 silly audit   '@smithy/types': [ '4.18.0', '4.14.2' ],
+17 silly audit   '@smithy/util-buffer-from': [ '2.2.0' ],
+17 silly audit   '@smithy/util-utf8': [ '2.3.0' ],
+17 silly audit   '@stablelib/base64': [ '1.0.1' ],
+17 silly audit   '@types/node': [ '24.13.6', '22.19.19' ],
+17 silly audit   'agent-base': [ '7.1.4' ],
+17 silly audit   'base64-js': [ '1.5.1' ],
+17 silly audit   'bignumber.js': [ '9.3.1' ],
+17 silly audit   bowser: [ '2.14.1' ],
+17 silly audit   'buffer-equal-constant-time': [ '1.0.1' ],
+17 silly audit   'data-uri-to-buffer': [ '4.0.1' ],
+17 silly audit   debug: [ '4.4.3' ],
+17 silly audit   diff: [ '8.0.4' ],
+17 silly audit   'ecdsa-sig-formatter': [ '1.0.11' ],
+17 silly audit   esbuild: [ '0.28.1' ],
+17 silly audit   extend: [ '3.0.2' ],
+17 silly audit   'fast-sha256': [ '1.3.0' ],
+17 silly audit   'fetch-blob': [ '3.2.0' ],
+17 silly audit   'formdata-polyfill': [ '4.0.10' ],
+17 silly audit   gaxios: [ '7.3.1', '7.1.4' ],
+17 silly audit   'gcp-metadata': [ '8.1.2' ],
+17 silly audit   'google-auth-library': [ '10.9.1', '10.6.2' ],
+17 silly audit   'google-logging-utils': [ '1.1.3' ],
+17 silly audit   'http-proxy-agent': [ '7.0.2' ],
+17 silly audit   'https-proxy-agent': [ '7.0.6' ],
+17 silly audit   ignore: [ '7.0.5' ],
+17 silly audit   'json-bigint': [ '1.0.0' ],
+17 silly audit   'json-schema-to-ts': [ '3.1.1' ],
+17 silly audit   jwa: [ '2.0.1' ],
+17 silly audit   jws: [ '4.0.1' ],
+17 silly audit   long: [ '5.3.2' ],
+17 silly audit   ms: [ '2.1.3' ],
+17 silly audit   'node-domexception': [ '1.0.0' ],
+17 silly audit   'node-fetch': [ '3.3.2' ],
+17 silly audit   openai: [ '6.40.0' ],
+17 silly audit   'p-retry': [ '4.6.2' ],
+17 silly audit   '@types/retry': [ '0.12.0' ],
+17 silly audit   'partial-json': [ '0.1.7' ],
+17 silly audit   retry: [ '0.13.1', '0.12.0' ],
+17 silly audit   protobufjs: [ '7.6.6', '7.6.5' ],
+17 silly audit   'safe-buffer': [ '5.2.1' ],
+17 silly audit   standardwebhooks: [ '1.1.1' ],
+17 silly audit   'ts-algebra': [ '2.0.0' ],
+17 silly audit   tslib: [ '2.8.1' ],
+17 silly audit   'undici-types': [ '7.18.2', '6.21.0' ],
+17 silly audit   'web-streams-polyfill': [ '3.3.3' ],
+17 silly audit   ws: [ '8.21.3', '8.21.0' ],
+17 silly audit   yaml: [ '2.9.0' ],
+17 silly audit   '@earendil-works/pi-session-backend-sqlite-node': [ '0.85.1' ],
+17 silly audit   fsevents: [ '2.3.3' ],
+17 silly audit   tsx: [ '4.23.13' ],
+17 silly audit   typescript: [ '5.9.3' ],
+17 silly audit   '@aws-crypto/crc32': [ '5.2.0' ],
+17 silly audit   '@earendil-works/pi-tui': [ '0.85.1' ],
+17 silly audit   '@mariozechner/clipboard': [ '0.3.9' ],
+17 silly audit   '@mariozechner/clipboard-darwin-arm64': [ '0.3.9' ],
+17 silly audit   '@mariozechner/clipboard-darwin-universal': [ '0.3.9' ],
+17 silly audit   '@mariozechner/clipboard-darwin-x64': [ '0.3.9' ],
+17 silly audit   '@mariozechner/clipboard-linux-arm64-gnu': [ '0.3.9' ],
+17 silly audit   '@mariozechner/clipboard-linux-arm64-musl': [ '0.3.9' ],
+17 silly audit   '@mariozechner/clipboard-linux-riscv64-gnu': [ '0.3.9' ],
+17 silly audit   '@mariozechner/clipboard-linux-x64-gnu': [ '0.3.9' ],
+17 silly audit   '@mariozechner/clipboard-linux-x64-musl': [ '0.3.9' ],
+17 silly audit   '@mariozechner/clipboard-win32-arm64-msvc': [ '0.3.9' ],
+17 silly audit   '@mariozechner/clipboard-win32-x64-msvc': [ '0.3.9' ],
+17 silly audit   '@nodable/entities': [ '2.1.0' ],
+17 silly audit   '@silvia-odwyer/photon-node': [ '0.3.4' ],
+17 silly audit   'balanced-match': [ '4.0.4' ],
+17 silly audit   'brace-expansion': [ '5.0.9' ],
+17 silly audit   chalk: [ '5.6.2' ],
+17 silly audit   'cross-spawn': [ '7.0.6' ],
+17 silly audit   'fast-xml-builder': [ '1.2.0' ],
+17 silly audit   'fast-xml-parser': [ '5.7.3' ],
+17 silly audit   'get-east-asian-width': [ '1.6.0' ],
+17 silly audit   'graceful-fs': [ '4.2.11' ],
+17 silly audit   'grok-mermaid': [ '0.2.2' ],
+17 silly audit   'highlight.js': [ '10.7.3' ],
+17 silly audit   'hosted-git-info': [ '9.0.3' ],
+17 silly audit   isexe: [ '2.0.0' ],
+17 silly audit   jiti: [ '2.7.0' ],
+17 silly audit   'lru-cache': [ '11.4.0' ],
+17 silly audit   marked: [ '18.0.5' ],
+17 silly audit   minimatch: [ '10.2.5' ],
+17 silly audit   'path-expression-matcher': [ '1.5.0' ],
+17 silly audit   'path-key': [ '3.1.1' ],
+17 silly audit   'proper-lockfile': [ '4.1.2' ],
+17 silly audit   semver: [ '7.8.0' ],
+17 silly audit   'shebang-command': [ '2.0.0' ],
+17 silly audit   'shebang-regex': [ '3.0.0' ],
+17 silly audit   'signal-exit': [ '3.0.7' ],
+17 silly audit   strnum: [ '2.3.0' ],
+17 silly audit   undici: [ '8.9.0' ],
+17 silly audit   which: [ '2.0.2' ],
+17 silly audit   'xml-naming': [ '0.1.0' ]
+17 silly audit }
+18 http cache yaml@https://registry.npmjs.org/yaml/-/yaml-2.9.0.tgz 0ms (cache hit)
+19 http cache ws@https://registry.npmjs.org/ws/-/ws-8.21.3.tgz 0ms (cache hit)
+20 http cache web-streams-polyfill@https://registry.npmjs.org/web-streams-polyfill/-/web-streams-polyfill-3.3.3.tgz 0ms (cache hit)
+21 http cache undici-types@https://registry.npmjs.org/undici-types/-/undici-types-7.18.2.tgz 0ms (cache hit)
+22 http cache typebox@https://registry.npmjs.org/typebox/-/typebox-1.0.12.tgz 0ms (cache hit)
+23 http cache typescript@https://registry.npmjs.org/typescript/-/typescript-5.9.3.tgz 0ms (cache hit)
+24 http cache tsx@https://registry.npmjs.org/tsx/-/tsx-4.23.13.tgz 0ms (cache hit)
+25 http cache tslib@https://registry.npmjs.org/tslib/-/tslib-2.8.1.tgz 0ms (cache hit)
+26 http cache ts-algebra@https://registry.npmjs.org/ts-algebra/-/ts-algebra-2.0.0.tgz 0ms (cache hit)
+27 http cache standardwebhooks@https://registry.npmjs.org/standardwebhooks/-/standardwebhooks-1.1.1.tgz 0ms (cache hit)
+28 http cache safe-buffer@https://registry.npmjs.org/safe-buffer/-/safe-buffer-5.2.1.tgz 0ms (cache hit)
+29 http cache protobufjs@https://registry.npmjs.org/protobufjs/-/protobufjs-7.6.6.tgz 0ms (cache hit)
+30 http cache retry@https://registry.npmjs.org/retry/-/retry-0.13.1.tgz 0ms (cache hit)
+31 http cache partial-json@https://registry.npmjs.org/partial-json/-/partial-json-0.1.7.tgz 0ms (cache hit)
+32 http cache p-retry@https://registry.npmjs.org/p-retry/-/p-retry-4.6.2.tgz 0ms (cache hit)
+33 http cache openai@https://registry.npmjs.org/openai/-/openai-6.40.0.tgz 0ms (cache hit)
+34 http cache node-fetch@https://registry.npmjs.org/node-fetch/-/node-fetch-3.3.2.tgz 0ms (cache hit)
+35 http cache node-domexception@https://registry.npmjs.org/node-domexception/-/node-domexception-1.0.0.tgz 0ms (cache hit)
+36 http cache ms@https://registry.npmjs.org/ms/-/ms-2.1.3.tgz 0ms (cache hit)
+37 http cache long@https://registry.npmjs.org/long/-/long-5.3.2.tgz 0ms (cache hit)
+38 http cache jwa@https://registry.npmjs.org/jwa/-/jwa-2.0.1.tgz 0ms (cache hit)
+39 http cache json-schema-to-ts@https://registry.npmjs.org/json-schema-to-ts/-/json-schema-to-ts-3.1.1.tgz 0ms (cache hit)
+40 http cache jws@https://registry.npmjs.org/jws/-/jws-4.0.1.tgz 0ms (cache hit)
+41 http cache json-bigint@https://registry.npmjs.org/json-bigint/-/json-bigint-1.0.0.tgz 0ms (cache hit)
+42 http cache ignore@https://registry.npmjs.org/ignore/-/ignore-7.0.5.tgz 0ms (cache hit)
+43 http cache https-proxy-agent@https://registry.npmjs.org/https-proxy-agent/-/https-proxy-agent-7.0.6.tgz 0ms (cache hit)
+44 http cache http-proxy-agent@https://registry.npmjs.org/http-proxy-agent/-/http-proxy-agent-7.0.2.tgz 0ms (cache hit)
+45 http cache google-auth-library@https://registry.npmjs.org/google-auth-library/-/google-auth-library-10.9.1.tgz 0ms (cache hit)
+46 http cache google-logging-utils@https://registry.npmjs.org/google-logging-utils/-/google-logging-utils-1.1.3.tgz 0ms (cache hit)
+47 http cache gcp-metadata@https://registry.npmjs.org/gcp-metadata/-/gcp-metadata-8.1.2.tgz 0ms (cache hit)
+48 http cache gaxios@https://registry.npmjs.org/gaxios/-/gaxios-7.3.1.tgz 0ms (cache hit)
+49 http cache formdata-polyfill@https://registry.npmjs.org/formdata-polyfill/-/formdata-polyfill-4.0.10.tgz 0ms (cache hit)
+50 http cache fetch-blob@https://registry.npmjs.org/fetch-blob/-/fetch-blob-3.2.0.tgz 0ms (cache hit)
+51 http cache extend@https://registry.npmjs.org/extend/-/extend-3.0.2.tgz 0ms (cache hit)
+52 http cache fast-sha256@https://registry.npmjs.org/fast-sha256/-/fast-sha256-1.3.0.tgz 0ms (cache hit)
+53 http cache esbuild@https://registry.npmjs.org/esbuild/-/esbuild-0.28.1.tgz 0ms (cache hit)
+54 http cache ecdsa-sig-formatter@https://registry.npmjs.org/ecdsa-sig-formatter/-/ecdsa-sig-formatter-1.0.11.tgz 0ms (cache hit)
+55 http cache diff@https://registry.npmjs.org/diff/-/diff-8.0.4.tgz 0ms (cache hit)
+56 http cache debug@https://registry.npmjs.org/debug/-/debug-4.4.3.tgz 0ms (cache hit)
+57 http cache data-uri-to-buffer@https://registry.npmjs.org/data-uri-to-buffer/-/data-uri-to-buffer-4.0.1.tgz 0ms (cache hit)
+58 http cache buffer-equal-constant-time@https://registry.npmjs.org/buffer-equal-constant-time/-/buffer-equal-constant-time-1.0.1.tgz 0ms (cache hit)
+59 http cache bowser@https://registry.npmjs.org/bowser/-/bowser-2.14.1.tgz 0ms (cache hit)
+60 http cache base64-js@https://registry.npmjs.org/base64-js/-/base64-js-1.5.1.tgz 0ms (cache hit)
+61 http cache @types/retry@https://registry.npmjs.org/@types/retry/-/retry-0.12.0.tgz 0ms (cache hit)
+62 http cache @types/node@https://registry.npmjs.org/@types/node/-/node-24.13.6.tgz 0ms (cache hit)
+63 http cache bignumber.js@https://registry.npmjs.org/bignumber.js/-/bignumber.js-9.3.1.tgz 0ms (cache hit)
+64 http cache @smithy/util-buffer-from@https://registry.npmjs.org/@smithy/util-buffer-from/-/util-buffer-from-2.2.0.tgz 0ms (cache hit)
+65 http cache @smithy/types@https://registry.npmjs.org/@smithy/types/-/types-4.18.0.tgz 0ms (cache hit)
+66 http cache agent-base@https://registry.npmjs.org/agent-base/-/agent-base-7.1.4.tgz 0ms (cache hit)
+67 http cache @smithy/signature-v4@https://registry.npmjs.org/@smithy/signature-v4/-/signature-v4-5.7.3.tgz 0ms (cache hit)
+68 http cache @smithy/node-http-handler@https://registry.npmjs.org/@smithy/node-http-handler/-/node-http-handler-4.7.3.tgz 0ms (cache hit)
+69 http cache @smithy/is-array-buffer@https://registry.npmjs.org/@smithy/is-array-buffer/-/is-array-buffer-2.2.0.tgz 0ms (cache hit)
+70 http cache @smithy/fetch-http-handler@https://registry.npmjs.org/@smithy/fetch-http-handler/-/fetch-http-handler-5.8.0.tgz 0ms (cache hit)
+71 http cache @smithy/credential-provider-imds@https://registry.npmjs.org/@smithy/credential-provider-imds/-/credential-provider-imds-4.5.2.tgz 0ms (cache hit)
+72 http cache @smithy/core@https://registry.npmjs.org/@smithy/core/-/core-3.34.1.tgz 0ms (cache hit)
+73 http cache @stablelib/base64@https://registry.npmjs.org/@stablelib/base64/-/base64-1.0.1.tgz 0ms (cache hit)
+74 http cache @protobufjs/pool@https://registry.npmjs.org/@protobufjs/pool/-/pool-1.1.0.tgz 0ms (cache hit)
+75 http cache @protobufjs/utf8@https://registry.npmjs.org/@protobufjs/utf8/-/utf8-1.1.2.tgz 0ms (cache hit)
+76 http cache @protobufjs/path@https://registry.npmjs.org/@protobufjs/path/-/path-1.1.2.tgz 0ms (cache hit)
+77 http cache @protobufjs/float@https://registry.npmjs.org/@protobufjs/float/-/float-1.0.2.tgz 0ms (cache hit)
+78 http cache @protobufjs/fetch@https://registry.npmjs.org/@protobufjs/fetch/-/fetch-1.1.1.tgz 0ms (cache hit)
+79 http cache @protobufjs/eventemitter@https://registry.npmjs.org/@protobufjs/eventemitter/-/eventemitter-1.1.1.tgz 0ms (cache hit)
+80 http cache @protobufjs/codegen@https://registry.npmjs.org/@protobufjs/codegen/-/codegen-2.0.5.tgz 0ms (cache hit)
+81 http cache @protobufjs/base64@https://registry.npmjs.org/@protobufjs/base64/-/base64-1.1.2.tgz 0ms (cache hit)
+82 http cache @protobufjs/aspromise@https://registry.npmjs.org/@protobufjs/aspromise/-/aspromise-1.1.2.tgz 0ms (cache hit)
+83 http cache @esbuild/linux-x64@https://registry.npmjs.org/@esbuild/linux-x64/-/linux-x64-0.28.1.tgz 0ms (cache hit)
+84 http cache @earendil-works/pi-telemetry@https://registry.npmjs.org/@earendil-works/pi-telemetry/-/pi-telemetry-0.85.1.tgz 0ms (cache hit)
+85 http cache @earendil-works/pi-session-backend-sqlite-node@https://registry.npmjs.org/@earendil-works/pi-session-backend-sqlite-node/-/pi-session-backend-sqlite-node-0.85.1.tgz 0ms (cache hit)
+86 http cache @earendil-works/pi-ai@https://registry.npmjs.org/@earendil-works/pi-ai/-/pi-ai-0.85.1.tgz 0ms (cache hit)
+87 http cache @google/genai@https://registry.npmjs.org/@google/genai/-/genai-1.52.0.tgz 0ms (cache hit)
+88 http cache @earendil-works/pi-agent-core@https://registry.npmjs.org/@earendil-works/pi-agent-core/-/pi-agent-core-0.85.1.tgz 0ms (cache hit)
+89 http cache @earendil-works/chord@https://registry.npmjs.org/@earendil-works/chord/-/chord-0.85.1.tgz 0ms (cache hit)
+90 http cache @babel/runtime@https://registry.npmjs.org/@babel/runtime/-/runtime-7.29.7.tgz 0ms (cache hit)
+91 http cache @aws/lambda-invoke-store@https://registry.npmjs.org/@aws/lambda-invoke-store/-/lambda-invoke-store-0.3.0.tgz 0ms (cache hit)
+92 http cache @aws-sdk/xml-builder@https://registry.npmjs.org/@aws-sdk/xml-builder/-/xml-builder-3.972.40.tgz 0ms (cache hit)
+93 http cache @aws-sdk/util-locate-window@https://registry.npmjs.org/@aws-sdk/util-locate-window/-/util-locate-window-3.965.10.tgz 0ms (cache hit)
+94 http cache @aws-sdk/types@https://registry.npmjs.org/@aws-sdk/types/-/types-3.974.5.tgz 0ms (cache hit)
+95 http cache @aws-sdk/token-providers@https://registry.npmjs.org/@aws-sdk/token-providers/-/token-providers-3.1048.0.tgz 0ms (cache hit)
+96 http cache @aws-sdk/signature-v4-multi-region@https://registry.npmjs.org/@aws-sdk/signature-v4-multi-region/-/signature-v4-multi-region-3.996.46.tgz 0ms (cache hit)
+97 http cache @aws-sdk/middleware-websocket@https://registry.npmjs.org/@aws-sdk/middleware-websocket/-/middleware-websocket-3.972.53.tgz 0ms (cache hit)
+98 http cache @aws-sdk/nested-clients@https://registry.npmjs.org/@aws-sdk/nested-clients/-/nested-clients-3.997.45.tgz 0ms (cache hit)
+99 http cache @aws-sdk/middleware-eventstream@https://registry.npmjs.org/@aws-sdk/middleware-eventstream/-/middleware-eventstream-3.972.29.tgz 0ms (cache hit)
+100 http cache @aws-sdk/eventstream-handler-node@https://registry.npmjs.org/@aws-sdk/eventstream-handler-node/-/eventstream-handler-node-3.972.34.tgz 0ms (cache hit)
+101 http cache @aws-sdk/credential-provider-web-identity@https://registry.npmjs.org/@aws-sdk/credential-provider-web-identity/-/credential-provider-web-identity-3.972.77.tgz 0ms (cache hit)
+102 http cache @aws-sdk/credential-provider-process@https://registry.npmjs.org/@aws-sdk/credential-provider-process/-/credential-provider-process-3.972.71.tgz 0ms (cache hit)
+103 http cache @aws-sdk/credential-provider-sso@https://registry.npmjs.org/@aws-sdk/credential-provider-sso/-/credential-provider-sso-3.973.15.tgz 0ms (cache hit)
+104 http cache @aws-sdk/credential-provider-node@https://registry.npmjs.org/@aws-sdk/credential-provider-node/-/credential-provider-node-3.972.83.tgz 0ms (cache hit)
+105 http cache @aws-sdk/credential-provider-login@https://registry.npmjs.org/@aws-sdk/credential-provider-login/-/credential-provider-login-3.972.78.tgz 0ms (cache hit)
+106 http cache @aws-sdk/credential-provider-ini@https://registry.npmjs.org/@aws-sdk/credential-provider-ini/-/credential-provider-ini-3.973.16.tgz 0ms (cache hit)
+107 http cache @aws-sdk/credential-provider-http@https://registry.npmjs.org/@aws-sdk/credential-provider-http/-/credential-provider-http-3.972.73.tgz 0ms (cache hit)
+108 http cache @aws-sdk/credential-provider-env@https://registry.npmjs.org/@aws-sdk/credential-provider-env/-/credential-provider-env-3.972.71.tgz 0ms (cache hit)
+109 http cache @aws-sdk/core@https://registry.npmjs.org/@aws-sdk/core/-/core-3.978.0.tgz 0ms (cache hit)
+110 http cache @aws-sdk/client-bedrock-runtime@https://registry.npmjs.org/@aws-sdk/client-bedrock-runtime/-/client-bedrock-runtime-3.1048.0.tgz 0ms (cache hit)
+111 http cache @aws-crypto/supports-web-crypto@https://registry.npmjs.org/@aws-crypto/supports-web-crypto/-/supports-web-crypto-5.2.0.tgz 0ms (cache hit)
+112 http cache @aws-crypto/util@https://registry.npmjs.org/@aws-crypto/util/-/util-5.2.0.tgz 0ms (cache hit)
+113 http cache @aws-crypto/sha256-browser@https://registry.npmjs.org/@aws-crypto/sha256-browser/-/sha256-browser-5.2.0.tgz 0ms (cache hit)
+114 http cache @aws-crypto/sha256-js@https://registry.npmjs.org/@aws-crypto/sha256-js/-/sha256-js-5.2.0.tgz 0ms (cache hit)
+115 http cache @anthropic-ai/sdk@https://registry.npmjs.org/@anthropic-ai/sdk/-/sdk-0.123.0.tgz 0ms (cache hit)
+116 http cache yaml@https://registry.npmjs.org/yaml/-/yaml-2.9.0.tgz 0ms (cache hit)
+117 http cache ws@https://registry.npmjs.org/ws/-/ws-8.21.0.tgz 0ms (cache hit)
+118 http cache xml-naming@https://registry.npmjs.org/xml-naming/-/xml-naming-0.1.0.tgz 0ms (cache hit)
+119 http cache which@https://registry.npmjs.org/which/-/which-2.0.2.tgz 0ms (cache hit)
+120 http cache web-streams-polyfill@https://registry.npmjs.org/web-streams-polyfill/-/web-streams-polyfill-3.3.3.tgz 0ms (cache hit)
+121 http cache undici-types@https://registry.npmjs.org/undici-types/-/undici-types-6.21.0.tgz 0ms (cache hit)
+122 http cache undici@https://registry.npmjs.org/undici/-/undici-8.9.0.tgz 0ms (cache hit)
+123 http cache tslib@https://registry.npmjs.org/tslib/-/tslib-2.8.1.tgz 0ms (cache hit)
+124 http cache typebox@https://registry.npmjs.org/typebox/-/typebox-1.3.7.tgz 0ms (cache hit)
+125 http cache ts-algebra@https://registry.npmjs.org/ts-algebra/-/ts-algebra-2.0.0.tgz 0ms (cache hit)
+126 http cache strnum@https://registry.npmjs.org/strnum/-/strnum-2.3.0.tgz 0ms (cache hit)
+127 http cache standardwebhooks@https://registry.npmjs.org/standardwebhooks/-/standardwebhooks-1.1.1.tgz 0ms (cache hit)
+128 http cache signal-exit@https://registry.npmjs.org/signal-exit/-/signal-exit-3.0.7.tgz 0ms (cache hit)
+129 http cache shebang-regex@https://registry.npmjs.org/shebang-regex/-/shebang-regex-3.0.0.tgz 0ms (cache hit)
+130 http cache shebang-command@https://registry.npmjs.org/shebang-command/-/shebang-command-2.0.0.tgz 0ms (cache hit)
+131 http cache semver@https://registry.npmjs.org/semver/-/semver-7.8.0.tgz 0ms (cache hit)
+132 http cache safe-buffer@https://registry.npmjs.org/safe-buffer/-/safe-buffer-5.2.1.tgz 0ms (cache hit)
+133 http cache proper-lockfile@https://registry.npmjs.org/proper-lockfile/-/proper-lockfile-4.1.2.tgz 0ms (cache hit)
+134 http cache retry@https://registry.npmjs.org/retry/-/retry-0.13.1.tgz 0ms (cache hit)
+135 http cache protobufjs@https://registry.npmjs.org/protobufjs/-/protobufjs-7.6.5.tgz 0ms (cache hit)
+136 http cache retry@https://registry.npmjs.org/retry/-/retry-0.12.0.tgz 0ms (cache hit)
+137 http cache path-key@https://registry.npmjs.org/path-key/-/path-key-3.1.1.tgz 0ms (cache hit)
+138 http cache path-expression-matcher@https://registry.npmjs.org/path-expression-matcher/-/path-expression-matcher-1.5.0.tgz 0ms (cache hit)
+139 http cache partial-json@https://registry.npmjs.org/partial-json/-/partial-json-0.1.7.tgz 0ms (cache hit)
+140 http cache p-retry@https://registry.npmjs.org/p-retry/-/p-retry-4.6.2.tgz 0ms (cache hit)
+141 http cache openai@https://registry.npmjs.org/openai/-/openai-6.40.0.tgz 0ms (cache hit)
+142 http cache @types/retry@https://registry.npmjs.org/@types/retry/-/retry-0.12.0.tgz 0ms (cache hit)
+143 http cache node-fetch@https://registry.npmjs.org/node-fetch/-/node-fetch-3.3.2.tgz 0ms (cache hit)
+144 http cache node-domexception@https://registry.npmjs.org/node-domexception/-/node-domexception-1.0.0.tgz 0ms (cache hit)
+145 http cache ms@https://registry.npmjs.org/ms/-/ms-2.1.3.tgz 0ms (cache hit)
+146 http cache marked@https://registry.npmjs.org/marked/-/marked-18.0.5.tgz 0ms (cache hit)
+147 http cache minimatch@https://registry.npmjs.org/minimatch/-/minimatch-10.2.5.tgz 0ms (cache hit)
+148 http cache lru-cache@https://registry.npmjs.org/lru-cache/-/lru-cache-11.4.0.tgz 0ms (cache hit)
+149 http cache long@https://registry.npmjs.org/long/-/long-5.3.2.tgz 0ms (cache hit)
+150 http cache jws@https://registry.npmjs.org/jws/-/jws-4.0.1.tgz 0ms (cache hit)
+151 http cache json-schema-to-ts@https://registry.npmjs.org/json-schema-to-ts/-/json-schema-to-ts-3.1.1.tgz 0ms (cache hit)
+152 http cache jwa@https://registry.npmjs.org/jwa/-/jwa-2.0.1.tgz 0ms (cache hit)
+153 http cache json-bigint@https://registry.npmjs.org/json-bigint/-/json-bigint-1.0.0.tgz 0ms (cache hit)
+154 http cache jiti@https://registry.npmjs.org/jiti/-/jiti-2.7.0.tgz 0ms (cache hit)
+155 http cache isexe@https://registry.npmjs.org/isexe/-/isexe-2.0.0.tgz 0ms (cache hit)
+156 http cache ignore@https://registry.npmjs.org/ignore/-/ignore-7.0.5.tgz 0ms (cache hit)
+157 http cache https-proxy-agent@https://registry.npmjs.org/https-proxy-agent/-/https-proxy-agent-7.0.6.tgz 0ms (cache hit)
+158 http cache http-proxy-agent@https://registry.npmjs.org/http-proxy-agent/-/http-proxy-agent-7.0.2.tgz 0ms (cache hit)
+159 http cache hosted-git-info@https://registry.npmjs.org/hosted-git-info/-/hosted-git-info-9.0.3.tgz 0ms (cache hit)
+160 http cache highlight.js@https://registry.npmjs.org/highlight.js/-/highlight.js-10.7.3.tgz 0ms (cache hit)
+161 http cache grok-mermaid@https://registry.npmjs.org/grok-mermaid/-/grok-mermaid-0.2.2.tgz 0ms (cache hit)
+162 http cache graceful-fs@https://registry.npmjs.org/graceful-fs/-/graceful-fs-4.2.11.tgz 0ms (cache hit)
+163 http cache google-logging-utils@https://registry.npmjs.org/google-logging-utils/-/google-logging-utils-1.1.3.tgz 0ms (cache hit)
+164 http cache get-east-asian-width@https://registry.npmjs.org/get-east-asian-width/-/get-east-asian-width-1.6.0.tgz 0ms (cache hit)
+165 http cache gcp-metadata@https://registry.npmjs.org/gcp-metadata/-/gcp-metadata-8.1.2.tgz 0ms (cache hit)
+166 http cache google-auth-library@https://registry.npmjs.org/google-auth-library/-/google-auth-library-10.6.2.tgz 0ms (cache hit)
+167 http cache gaxios@https://registry.npmjs.org/gaxios/-/gaxios-7.1.4.tgz 0ms (cache hit)
+168 http cache formdata-polyfill@https://registry.npmjs.org/formdata-polyfill/-/formdata-polyfill-4.0.10.tgz 0ms (cache hit)
+169 http cache fetch-blob@https://registry.npmjs.org/fetch-blob/-/fetch-blob-3.2.0.tgz 0ms (cache hit)
+170 http cache fast-xml-parser@https://registry.npmjs.org/fast-xml-parser/-/fast-xml-parser-5.7.3.tgz 0ms (cache hit)
+171 http cache fast-xml-builder@https://registry.npmjs.org/fast-xml-builder/-/fast-xml-builder-1.2.0.tgz 0ms (cache hit)
+172 http cache fast-sha256@https://registry.npmjs.org/fast-sha256/-/fast-sha256-1.3.0.tgz 0ms (cache hit)
+173 http cache extend@https://registry.npmjs.org/extend/-/extend-3.0.2.tgz 0ms (cache hit)
+174 http cache esbuild@https://registry.npmjs.org/esbuild/-/esbuild-0.28.1.tgz 0ms (cache hit)
+175 http cache ecdsa-sig-formatter@https://registry.npmjs.org/ecdsa-sig-formatter/-/ecdsa-sig-formatter-1.0.11.tgz 0ms (cache hit)
+176 http cache diff@https://registry.npmjs.org/diff/-/diff-8.0.4.tgz 0ms (cache hit)
+177 http cache debug@https://registry.npmjs.org/debug/-/debug-4.4.3.tgz 0ms (cache hit)
+178 http cache data-uri-to-buffer@https://registry.npmjs.org/data-uri-to-buffer/-/data-uri-to-buffer-4.0.1.tgz 0ms (cache hit)
+179 http cache cross-spawn@https://registry.npmjs.org/cross-spawn/-/cross-spawn-7.0.6.tgz 0ms (cache hit)
+180 http cache chalk@https://registry.npmjs.org/chalk/-/chalk-5.6.2.tgz 0ms (cache hit)
+181 http cache buffer-equal-constant-time@https://registry.npmjs.org/buffer-equal-constant-time/-/buffer-equal-constant-time-1.0.1.tgz 0ms (cache hit)
+182 http cache brace-expansion@https://registry.npmjs.org/brace-expansion/-/brace-expansion-5.0.9.tgz 0ms (cache hit)
+183 http cache bowser@https://registry.npmjs.org/bowser/-/bowser-2.14.1.tgz 0ms (cache hit)
+184 http cache base64-js@https://registry.npmjs.org/base64-js/-/base64-js-1.5.1.tgz 0ms (cache hit)
+185 http cache bignumber.js@https://registry.npmjs.org/bignumber.js/-/bignumber.js-9.3.1.tgz 0ms (cache hit)
+186 http cache balanced-match@https://registry.npmjs.org/balanced-match/-/balanced-match-4.0.4.tgz 0ms (cache hit)
+187 http cache agent-base@https://registry.npmjs.org/agent-base/-/agent-base-7.1.4.tgz 0ms (cache hit)
+188 http cache @types/node@https://registry.npmjs.org/@types/node/-/node-22.19.19.tgz 0ms (cache hit)
+189 http cache @stablelib/base64@https://registry.npmjs.org/@stablelib/base64/-/base64-1.0.1.tgz 0ms (cache hit)
+190 http cache @smithy/util-utf8@https://registry.npmjs.org/@smithy/util-utf8/-/util-utf8-2.3.0.tgz 0ms (cache hit)
+191 http cache @smithy/util-buffer-from@https://registry.npmjs.org/@smithy/util-buffer-from/-/util-buffer-from-2.2.0.tgz 0ms (cache hit)
+192 http cache @smithy/types@https://registry.npmjs.org/@smithy/types/-/types-4.14.2.tgz 0ms (cache hit)
+193 http cache @smithy/signature-v4@https://registry.npmjs.org/@smithy/signature-v4/-/signature-v4-5.4.3.tgz 0ms (cache hit)
+194 http cache @smithy/node-http-handler@https://registry.npmjs.org/@smithy/node-http-handler/-/node-http-handler-4.7.3.tgz 0ms (cache hit)
+195 http cache @smithy/is-array-buffer@https://registry.npmjs.org/@smithy/is-array-buffer/-/is-array-buffer-2.2.0.tgz 0ms (cache hit)
+196 http cache @smithy/fetch-http-handler@https://registry.npmjs.org/@smithy/fetch-http-handler/-/fetch-http-handler-5.4.3.tgz 0ms (cache hit)
+197 http cache @smithy/credential-provider-imds@https://registry.npmjs.org/@smithy/credential-provider-imds/-/credential-provider-imds-4.3.3.tgz 0ms (cache hit)
+198 http cache @smithy/core@https://registry.npmjs.org/@smithy/core/-/core-3.24.3.tgz 0ms (cache hit)
+199 http cache @silvia-odwyer/photon-node@https://registry.npmjs.org/@silvia-odwyer/photon-node/-/photon-node-0.3.4.tgz 0ms (cache hit)
+200 http cache @protobufjs/utf8@https://registry.npmjs.org/@protobufjs/utf8/-/utf8-1.1.1.tgz 0ms (cache hit)
+201 http cache @protobufjs/pool@https://registry.npmjs.org/@protobufjs/pool/-/pool-1.1.0.tgz 0ms (cache hit)
+202 http cache @protobufjs/path@https://registry.npmjs.org/@protobufjs/path/-/path-1.1.2.tgz 0ms (cache hit)
+203 http cache @protobufjs/float@https://registry.npmjs.org/@protobufjs/float/-/float-1.0.2.tgz 0ms (cache hit)
+204 http cache @protobufjs/fetch@https://registry.npmjs.org/@protobufjs/fetch/-/fetch-1.1.1.tgz 0ms (cache hit)
+205 http cache @protobufjs/eventemitter@https://registry.npmjs.org/@protobufjs/eventemitter/-/eventemitter-1.1.1.tgz 0ms (cache hit)
+206 http cache @protobufjs/codegen@https://registry.npmjs.org/@protobufjs/codegen/-/codegen-2.0.5.tgz 0ms (cache hit)
+207 http cache @protobufjs/aspromise@https://registry.npmjs.org/@protobufjs/aspromise/-/aspromise-1.1.2.tgz 0ms (cache hit)
+208 http cache @protobufjs/base64@https://registry.npmjs.org/@protobufjs/base64/-/base64-1.1.2.tgz 0ms (cache hit)
+209 http cache @nodable/entities@https://registry.npmjs.org/@nodable/entities/-/entities-2.1.0.tgz 0ms (cache hit)
+210 http cache @mariozechner/clipboard-win32-x64-msvc@https://registry.npmjs.org/@mariozechner/clipboard-win32-x64-msvc/-/clipboard-win32-x64-msvc-0.3.9.tgz 0ms (cache hit)
+211 http cache @mariozechner/clipboard-win32-arm64-msvc@https://registry.npmjs.org/@mariozechner/clipboard-win32-arm64-msvc/-/clipboard-win32-arm64-msvc-0.3.9.tgz 0ms (cache hit)
+212 http cache @mariozechner/clipboard-linux-x64-musl@https://registry.npmjs.org/@mariozechner/clipboard-linux-x64-musl/-/clipboard-linux-x64-musl-0.3.9.tgz 0ms (cache hit)
+213 http cache @mariozechner/clipboard-linux-x64-gnu@https://registry.npmjs.org/@mariozechner/clipboard-linux-x64-gnu/-/clipboard-linux-x64-gnu-0.3.9.tgz 0ms (cache hit)
+214 http cache @mariozechner/clipboard-linux-arm64-gnu@https://registry.npmjs.org/@mariozechner/clipboard-linux-arm64-gnu/-/clipboard-linux-arm64-gnu-0.3.9.tgz 0ms (cache hit)
+215 http cache @mariozechner/clipboard-linux-riscv64-gnu@https://registry.npmjs.org/@mariozechner/clipboard-linux-riscv64-gnu/-/clipboard-linux-riscv64-gnu-0.3.9.tgz 0ms (cache hit)
+216 http cache @mariozechner/clipboard-linux-arm64-musl@https://registry.npmjs.org/@mariozechner/clipboard-linux-arm64-musl/-/clipboard-linux-arm64-musl-0.3.9.tgz 0ms (cache hit)
+217 http cache @mariozechner/clipboard-darwin-x64@https://registry.npmjs.org/@mariozechner/clipboard-darwin-x64/-/clipboard-darwin-x64-0.3.9.tgz 0ms (cache hit)
+218 http cache @mariozechner/clipboard-darwin-universal@https://registry.npmjs.org/@mariozechner/clipboard-darwin-universal/-/clipboard-darwin-universal-0.3.9.tgz 0ms (cache hit)
+219 http cache @mariozechner/clipboard-darwin-arm64@https://registry.npmjs.org/@mariozechner/clipboard-darwin-arm64/-/clipboard-darwin-arm64-0.3.9.tgz 0ms (cache hit)
+220 http cache @mariozechner/clipboard@https://registry.npmjs.org/@mariozechner/clipboard/-/clipboard-0.3.9.tgz 0ms (cache hit)
+221 http cache @google/genai@https://registry.npmjs.org/@google/genai/-/genai-1.52.0.tgz 0ms (cache hit)
+222 http cache @esbuild/win32-x64@https://registry.npmjs.org/@esbuild/win32-x64/-/win32-x64-0.28.1.tgz 0ms (cache hit)
+223 http cache @esbuild/win32-ia32@https://registry.npmjs.org/@esbuild/win32-ia32/-/win32-ia32-0.28.1.tgz 0ms (cache hit)
+224 http cache @esbuild/win32-arm64@https://registry.npmjs.org/@esbuild/win32-arm64/-/win32-arm64-0.28.1.tgz 0ms (cache hit)
+225 http cache @esbuild/sunos-x64@https://registry.npmjs.org/@esbuild/sunos-x64/-/sunos-x64-0.28.1.tgz 0ms (cache hit)
+226 http cache @esbuild/openharmony-arm64@https://registry.npmjs.org/@esbuild/openharmony-arm64/-/openharmony-arm64-0.28.1.tgz 0ms (cache hit)
+227 http cache @esbuild/openbsd-x64@https://registry.npmjs.org/@esbuild/openbsd-x64/-/openbsd-x64-0.28.1.tgz 0ms (cache hit)
+228 http cache @esbuild/openbsd-arm64@https://registry.npmjs.org/@esbuild/openbsd-arm64/-/openbsd-arm64-0.28.1.tgz 0ms (cache hit)
+229 http cache @esbuild/netbsd-x64@https://registry.npmjs.org/@esbuild/netbsd-x64/-/netbsd-x64-0.28.1.tgz 0ms (cache hit)
+230 http cache @esbuild/netbsd-arm64@https://registry.npmjs.org/@esbuild/netbsd-arm64/-/netbsd-arm64-0.28.1.tgz 0ms (cache hit)
+231 http cache @esbuild/linux-x64@https://registry.npmjs.org/@esbuild/linux-x64/-/linux-x64-0.28.1.tgz 0ms (cache hit)
+232 http cache @esbuild/linux-s390x@https://registry.npmjs.org/@esbuild/linux-s390x/-/linux-s390x-0.28.1.tgz 0ms (cache hit)
+233 http cache @esbuild/linux-riscv64@https://registry.npmjs.org/@esbuild/linux-riscv64/-/linux-riscv64-0.28.1.tgz 0ms (cache hit)
+234 http cache @esbuild/linux-ppc64@https://registry.npmjs.org/@esbuild/linux-ppc64/-/linux-ppc64-0.28.1.tgz 0ms (cache hit)
+235 http cache @esbuild/linux-mips64el@https://registry.npmjs.org/@esbuild/linux-mips64el/-/linux-mips64el-0.28.1.tgz 0ms (cache hit)
+236 http cache @esbuild/linux-loong64@https://registry.npmjs.org/@esbuild/linux-loong64/-/linux-loong64-0.28.1.tgz 0ms (cache hit)
+237 http cache @esbuild/linux-ia32@https://registry.npmjs.org/@esbuild/linux-ia32/-/linux-ia32-0.28.1.tgz 0ms (cache hit)
+238 http cache @esbuild/linux-arm64@https://registry.npmjs.org/@esbuild/linux-arm64/-/linux-arm64-0.28.1.tgz 0ms (cache hit)
+239 http cache @esbuild/linux-arm@https://registry.npmjs.org/@esbuild/linux-arm/-/linux-arm-0.28.1.tgz 0ms (cache hit)
+240 http cache @esbuild/freebsd-x64@https://registry.npmjs.org/@esbuild/freebsd-x64/-/freebsd-x64-0.28.1.tgz 0ms (cache hit)
+241 http cache @esbuild/freebsd-arm64@https://registry.npmjs.org/@esbuild/freebsd-arm64/-/freebsd-arm64-0.28.1.tgz 0ms (cache hit)
+242 http cache @esbuild/darwin-x64@https://registry.npmjs.org/@esbuild/darwin-x64/-/darwin-x64-0.28.1.tgz 0ms (cache hit)
+243 http cache @esbuild/darwin-arm64@https://registry.npmjs.org/@esbuild/darwin-arm64/-/darwin-arm64-0.28.1.tgz 5ms (cache hit)
+244 http cache @esbuild/android-x64@https://registry.npmjs.org/@esbuild/android-x64/-/android-x64-0.28.1.tgz 0ms (cache hit)
+245 http cache @esbuild/android-arm64@https://registry.npmjs.org/@esbuild/android-arm64/-/android-arm64-0.28.1.tgz 0ms (cache hit)
+246 http cache @esbuild/android-arm@https://registry.npmjs.org/@esbuild/android-arm/-/android-arm-0.28.1.tgz 0ms (cache hit)
+247 http cache @esbuild/aix-ppc64@https://registry.npmjs.org/@esbuild/aix-ppc64/-/aix-ppc64-0.28.1.tgz 0ms (cache hit)
+248 http cache @babel/runtime@https://registry.npmjs.org/@babel/runtime/-/runtime-7.29.2.tgz 0ms (cache hit)
+249 http cache @aws/lambda-invoke-store@https://registry.npmjs.org/@aws/lambda-invoke-store/-/lambda-invoke-store-0.2.4.tgz 0ms (cache hit)
+250 http cache @aws-sdk/xml-builder@https://registry.npmjs.org/@aws-sdk/xml-builder/-/xml-builder-3.972.24.tgz 0ms (cache hit)
+251 http cache @aws-sdk/util-locate-window@https://registry.npmjs.org/@aws-sdk/util-locate-window/-/util-locate-window-3.965.5.tgz 0ms (cache hit)
+252 http cache @aws-sdk/types@https://registry.npmjs.org/@aws-sdk/types/-/types-3.973.8.tgz 0ms (cache hit)
+253 http cache @aws-sdk/signature-v4-multi-region@https://registry.npmjs.org/@aws-sdk/signature-v4-multi-region/-/signature-v4-multi-region-3.996.27.tgz 0ms (cache hit)
+254 http cache @aws-sdk/nested-clients@https://registry.npmjs.org/@aws-sdk/nested-clients/-/nested-clients-3.997.9.tgz 0ms (cache hit)
+255 http cache @aws-sdk/token-providers@https://registry.npmjs.org/@aws-sdk/token-providers/-/token-providers-3.1048.0.tgz 0ms (cache hit)
+256 http cache @aws-sdk/middleware-websocket@https://registry.npmjs.org/@aws-sdk/middleware-websocket/-/middleware-websocket-3.972.19.tgz 0ms (cache hit)
+257 http cache @aws-sdk/middleware-eventstream@https://registry.npmjs.org/@aws-sdk/middleware-eventstream/-/middleware-eventstream-3.972.12.tgz 0ms (cache hit)
+258 http cache @aws-sdk/eventstream-handler-node@https://registry.npmjs.org/@aws-sdk/eventstream-handler-node/-/eventstream-handler-node-3.972.16.tgz 0ms (cache hit)
+259 http cache @aws-sdk/credential-provider-sso@https://registry.npmjs.org/@aws-sdk/credential-provider-sso/-/credential-provider-sso-3.972.41.tgz 0ms (cache hit)
+260 http cache @aws-sdk/credential-provider-web-identity@https://registry.npmjs.org/@aws-sdk/credential-provider-web-identity/-/credential-provider-web-identity-3.972.41.tgz 0ms (cache hit)
+261 http cache @aws-sdk/credential-provider-process@https://registry.npmjs.org/@aws-sdk/credential-provider-process/-/credential-provider-process-3.972.37.tgz 0ms (cache hit)
+262 http cache @aws-sdk/credential-provider-node@https://registry.npmjs.org/@aws-sdk/credential-provider-node/-/credential-provider-node-3.972.42.tgz 0ms (cache hit)
+263 http cache @aws-sdk/credential-provider-login@https://registry.npmjs.org/@aws-sdk/credential-provider-login/-/credential-provider-login-3.972.41.tgz 0ms (cache hit)
+264 http cache @aws-sdk/credential-provider-http@https://registry.npmjs.org/@aws-sdk/credential-provider-http/-/credential-provider-http-3.972.39.tgz 0ms (cache hit)
+265 http cache @aws-sdk/credential-provider-ini@https://registry.npmjs.org/@aws-sdk/credential-provider-ini/-/credential-provider-ini-3.972.41.tgz 0ms (cache hit)
+266 http cache @aws-sdk/credential-provider-env@https://registry.npmjs.org/@aws-sdk/credential-provider-env/-/credential-provider-env-3.972.37.tgz 0ms (cache hit)
+267 http cache @aws-sdk/core@https://registry.npmjs.org/@aws-sdk/core/-/core-3.974.11.tgz 0ms (cache hit)
+268 http cache @aws-sdk/client-bedrock-runtime@https://registry.npmjs.org/@aws-sdk/client-bedrock-runtime/-/client-bedrock-runtime-3.1048.0.tgz 0ms (cache hit)
+269 http cache @aws-crypto/supports-web-crypto@https://registry.npmjs.org/@aws-crypto/supports-web-crypto/-/supports-web-crypto-5.2.0.tgz 0ms (cache hit)
+270 http cache @aws-crypto/util@https://registry.npmjs.org/@aws-crypto/util/-/util-5.2.0.tgz 0ms (cache hit)
+271 http cache @aws-crypto/sha256-js@https://registry.npmjs.org/@aws-crypto/sha256-js/-/sha256-js-5.2.0.tgz 0ms (cache hit)
+272 http cache @aws-crypto/sha256-browser@https://registry.npmjs.org/@aws-crypto/sha256-browser/-/sha256-browser-5.2.0.tgz 0ms (cache hit)
+273 http cache @aws-crypto/crc32@https://registry.npmjs.org/@aws-crypto/crc32/-/crc32-5.2.0.tgz 0ms (cache hit)
+274 http cache @anthropic-ai/sdk@https://registry.npmjs.org/@anthropic-ai/sdk/-/sdk-0.123.0.tgz 0ms (cache hit)
+275 http cache typebox@https://registry.npmjs.org/typebox/-/typebox-1.3.7.tgz 0ms (cache hit)
+276 http cache typebox@https://registry.npmjs.org/typebox/-/typebox-1.3.7.tgz 0ms (cache hit)
+277 http cache @aws-sdk/token-providers@https://registry.npmjs.org/@aws-sdk/token-providers/-/token-providers-3.1129.0.tgz 0ms (cache hit)
+278 http cache @smithy/node-http-handler@https://registry.npmjs.org/@smithy/node-http-handler/-/node-http-handler-4.12.1.tgz 0ms (cache hit)
+279 http cache @smithy/node-http-handler@https://registry.npmjs.org/@smithy/node-http-handler/-/node-http-handler-4.12.1.tgz 0ms (cache hit)
+280 http cache @smithy/util-utf8@https://registry.npmjs.org/@smithy/util-utf8/-/util-utf8-2.3.0.tgz 0ms (cache hit)
+281 silly tarball no local data for @earendil-works/pi-session-backend-sqlite-node@https://registry.npmjs.org/@earendil-works/pi-session-backend-sqlite-node/-/pi-session-backend-sqlite-node-0.85.1.tgz. Extracting by manifest.
+282 warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+283 warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+284 http fetch POST 200 https://registry.npmjs.org/-/npm/v1/security/advisories/bulk 3604ms
+285 silly audit report {
+285 silly audit report   'brace-expansion': [
+285 silly audit report     {
+285 silly audit report       id: 1240107,
+285 silly audit report       url: 'https://github.com/advisories/GHSA-qhr7-859c-m2p7',
+285 silly audit report       title: 'brace-expansion: DoS via uncontrolled recursion on nested brace groups causing stack exhaustion',
+285 silly audit report       severity: 'high',
+285 silly audit report       vulnerable_versions: '>=4.0.0 <5.0.11',
+285 silly audit report       cwe: [Array],
+285 silly audit report       cvss: [Object]
+285 silly audit report     },
+285 silly audit report     {
+285 silly audit report       id: 1240111,
+285 silly audit report       url: 'https://github.com/advisories/GHSA-6j4f-fj2g-mc7p',
+285 silly audit report       title: 'brace-expansion: DoS via uncontrolled recursion in parseCommaParts causing stack exhaustion',
+285 silly audit report       severity: 'high',
+285 silly audit report       vulnerable_versions: '>=4.0.0 <5.0.10',
+285 silly audit report       cwe: [Array],
+285 silly audit report       cvss: [Object]
+285 silly audit report     },
+285 silly audit report     {
+285 silly audit report       id: 1240103,
+285 silly audit report       url: 'https://github.com/advisories/GHSA-q2hr-2g5m-vwhr',
+285 silly audit report       title: 'brace-expansion: Quadratic-time expansion of the `{a},b}` rewrite causes CPU denial of service',
+285 silly audit report       severity: 'moderate',
+285 silly audit report       vulnerable_versions: '>=4.0.0 <5.0.12',
+285 silly audit report       cwe: [Array],
+285 silly audit report       cvss: [Object]
+285 silly audit report     }
+285 silly audit report   ],
+285 silly audit report   undici: [
+285 silly audit report     {
+285 silly audit report       id: 1239932,
+285 silly audit report       url: 'https://github.com/advisories/GHSA-3wwx-pv8p-q78v',
+285 silly audit report       title: 'undici vulnerable to Denial of Service via unhandled error in WebSocket permessage-deflate decompression',
+285 silly audit report       severity: 'moderate',
+285 silly audit report       vulnerable_versions: '>=8.1.0 <8.10.2',
+285 silly audit report       cwe: [Array],
+285 silly audit report       cvss: [Object]
+285 silly audit report     },
+285 silly audit report     {
+285 silly audit report       id: 1240035,
+285 silly audit report       url: 'https://github.com/advisories/GHSA-pmjh-fq2x-6v4x',
+285 silly audit report       title: 'undici vulnerable to Denial of Service via orphaned RetryHandler response body',
+285 silly audit report       severity: 'moderate',
+285 silly audit report       vulnerable_versions: '>=8.0.0 <8.10.2',
+285 silly audit report       cwe: [Array],
+285 silly audit report       cvss: [Object]
+285 silly audit report     },
+285 silly audit report     {
+285 silly audit report       id: 1240037,
+285 silly audit report       url: 'https://github.com/advisories/GHSA-r53p-7pc4-xj5r',
+285 silly audit report       title: 'undici vulnerable to downstream response splitting via retry interceptor',
+285 silly audit report       severity: 'low',
+285 silly audit report       vulnerable_versions: '>=8.0.0 <8.10.2',
+285 silly audit report       cwe: [Array],
+285 silly audit report       cvss: [Object]
+285 silly audit report     },
+285 silly audit report     {
+285 silly audit report       id: 1240040,
+285 silly audit report       url: 'https://github.com/advisories/GHSA-rfgv-xxqx-mfg5',
+285 silly audit report       title: 'undici vulnerable to Denial of Service via unrequested WebSocket subprotocol',
+285 silly audit report       severity: 'high',
+285 silly audit report       vulnerable_versions: '>=8.0.0 <8.10.2',
+285 silly audit report       cwe: [Array],
+285 silly audit report       cvss: [Object]
+285 silly audit report     },
+285 silly audit report     {
+285 silly audit report       id: 1240043,
+285 silly audit report       url: 'https://github.com/advisories/GHSA-3xpg-4rpp-hhhm',
+285 silly audit report       title: 'undici vulnerable to Denial of Service via unbounded decompression of compressed responses',
+285 silly audit report       severity: 'moderate',
+285 silly audit report       vulnerable_versions: '>=8.0.0 <8.10.2',
+285 silly audit report       cwe: [Array],
+285 silly audit report       cvss: [Object]
+285 silly audit report     },
+285 silly audit report     {
+285 silly audit report       id: 1240045,
+285 silly audit report       url: 'https://github.com/advisories/GHSA-2jfj-6hjv-fm6j',
+285 silly audit report       title: 'undici vulnerable to cross-user cookie disclosure via Set-Cookie caching in shared caches',
+285 silly audit report       severity: 'moderate',
+285 silly audit report       vulnerable_versions: '>=8.0.0 <8.10.2',
+285 silly audit report       cwe: [Array],
+285 silly audit report       cvss: [Object]
+285 silly audit report     },
+285 silly audit report     {
+285 silly audit report       id: 1240047,
+285 silly audit report       url: 'https://github.com/advisories/GHSA-2gqq-gqf2-x968',
+285 silly audit report       title: 'undici vulnerable to response truncation via oversized chunked responses in the dump interceptor',
+285 silly audit report       severity: 'low',
+285 silly audit report       vulnerable_versions: '>=8.0.0 <8.10.2',
+285 silly audit report       cwe: [Array],
+285 silly audit report       cvss: [Object]
+285 silly audit report     },
+285 silly audit report     {
+285 silly audit report       id: 1240049,
+285 silly audit report       url: 'https://github.com/advisories/GHSA-w293-vg96-wgc3',
+285 silly audit report       title: 'undici vulnerable to TLS certificate validation bypass via dropped connect options in BalancedPool',
+285 silly audit report       severity: 'high',
+285 silly audit report       vulnerable_versions: '>=8.0.0 <8.10.2',
+285 silly audit report       cwe: [Array],
+285 silly audit report       cvss: [Object]
+285 silly audit report     },
+285 silly audit report     {
+285 silly audit report       id: 1240051,
+285 silly audit report       url: 'https://github.com/advisories/GHSA-8436-99hf-9mmv',
+285 silly audit report       title: 'undici vulnerable to caching and replay of unsafe HTTP method responses',
+285 silly audit report       severity: 'low',
+285 silly audit report       vulnerable_versions: '>=8.0.0 <8.10.2',
+285 silly audit report       cwe: [Array],
+285 silly audit report       cvss: [Object]
+285 silly audit report     },
+285 silly audit report     {
+285 silly audit report       id: 1240054,
+285 silly audit report       url: 'https://github.com/advisories/GHSA-rx4f-c7p8-82vq',
+285 silly audit report       title: 'undici vulnerable to Denial of Service via WebSocketStream unclean close',
+285 silly audit report       severity: 'moderate',
+285 silly audit report       vulnerable_versions: '>=8.0.0 <8.10.2',
+285 silly audit report       cwe: [Array],
+285 silly audit report       cvss: [Object]
+285 silly audit report     }
+285 silly audit report   ]
+285 silly audit report }
+286 silly packumentCache corgi:https://registry.npmjs.org/brace-expansion cache-miss
+287 silly packumentCache corgi:https://registry.npmjs.org/undici cache-miss
+288 http cache https://registry.npmjs.org/brace-expansion 78ms (cache hit)
+289 silly packumentCache corgi:https://registry.npmjs.org/brace-expansion set size:45109 disposed:false
+290 http cache https://registry.npmjs.org/undici 81ms (cache hit)
+291 silly packumentCache corgi:https://registry.npmjs.org/undici set size:474633 disposed:false
+292 silly packumentCache corgi:https://registry.npmjs.org/minimatch cache-miss
+293 http fetch GET 200 https://registry.npmjs.org/@earendil-works/chord/-/chord-0.85.1.tgz 3576ms (cache revalidated)
+294 http fetch GET 200 https://registry.npmjs.org/@earendil-works/pi-agent-core/-/pi-agent-core-0.85.1.tgz 3592ms (cache revalidated)
+295 http fetch GET 200 https://registry.npmjs.org/@earendil-works/pi-ai/-/pi-ai-0.85.1.tgz 3620ms (cache revalidated)
+296 http cache https://registry.npmjs.org/minimatch 130ms (cache hit)
+297 silly packumentCache corgi:https://registry.npmjs.org/minimatch set size:169442 disposed:false
+298 silly packumentCache corgi:https://registry.npmjs.org/@earendil-works%2fpi-coding-agent cache-miss
+299 http cache https://registry.npmjs.org/@earendil-works%2fpi-coding-agent 56ms (cache hit)
+300 silly packumentCache corgi:https://registry.npmjs.org/@earendil-works%2fpi-coding-agent set size:98359 disposed:false
+301 http fetch GET 200 https://registry.npmjs.org/@earendil-works/pi-telemetry/-/pi-telemetry-0.85.1.tgz 4069ms (cache revalidated)
+302 http fetch GET 200 https://registry.npmjs.org/@earendil-works/pi-session-backend-sqlite-node/-/pi-session-backend-sqlite-node-0.85.1.tgz 4544ms (cache miss)
+303 http fetch GET 200 https://registry.npmjs.org/@earendil-works/pi-tui/-/pi-tui-0.85.1.tgz 4974ms (cache revalidated)
+304 info run @google/genai@1.52.0 preinstall node_modules/@google/genai echo 'preinstall: no-op'
+305 info run @google/genai@1.52.0 preinstall node_modules/@earendil-works/pi-coding-agent/node_modules/@google/genai echo 'preinstall: no-op'
+306 info run @google/genai@1.52.0 preinstall { code: 0, signal: null }
+307 info run @google/genai@1.52.0 preinstall { code: 0, signal: null }
+308 info run esbuild@0.28.1 postinstall node_modules/esbuild node install.js
+309 info run protobufjs@7.6.6 postinstall node_modules/protobufjs node scripts/postinstall
+310 info run esbuild@0.28.1 postinstall node_modules/@earendil-works/pi-coding-agent/node_modules/esbuild node install.js
+311 info run esbuild@0.28.1 postinstall { code: 0, signal: null }
+312 info run protobufjs@7.6.5 postinstall node_modules/@earendil-works/pi-coding-agent/node_modules/protobufjs node scripts/postinstall
+313 info run protobufjs@7.6.6 postinstall { code: 0, signal: null }
+314 info run esbuild@0.28.1 postinstall { code: 0, signal: null }
+315 info run protobufjs@7.6.5 postinstall { code: 0, signal: null }
+316 silly ADD node_modules/yaml
+317 silly ADD node_modules/ws
+318 silly ADD node_modules/web-streams-polyfill
+319 silly ADD node_modules/undici-types
+320 silly ADD node_modules/typescript
+321 silly ADD node_modules/typebox
+322 silly ADD node_modules/tsx
+323 silly ADD node_modules/tslib
+324 silly ADD node_modules/ts-algebra
+325 silly ADD node_modules/standardwebhooks
+326 silly ADD node_modules/safe-buffer
+327 silly ADD node_modules/retry
+328 silly ADD node_modules/protobufjs
+329 silly ADD node_modules/partial-json
+330 silly ADD node_modules/p-retry
+331 silly ADD node_modules/openai
+332 silly ADD node_modules/node-fetch
+333 silly ADD node_modules/node-domexception
+334 silly ADD node_modules/ms
+335 silly ADD node_modules/long
+336 silly ADD node_modules/jws
+337 silly ADD node_modules/jwa
+338 silly ADD node_modules/json-schema-to-ts
+339 silly ADD node_modules/json-bigint
+340 silly ADD node_modules/ignore
+341 silly ADD node_modules/https-proxy-agent
+342 silly ADD node_modules/http-proxy-agent
+343 silly ADD node_modules/google-logging-utils
+344 silly ADD node_modules/google-auth-library
+345 silly ADD node_modules/gcp-metadata
+346 silly ADD node_modules/gaxios
+347 silly ADD node_modules/formdata-polyfill
+348 silly ADD node_modules/fetch-blob
+349 silly ADD node_modules/fast-sha256
+350 silly ADD node_modules/extend
+351 silly ADD node_modules/esbuild
+352 silly ADD node_modules/ecdsa-sig-formatter
+353 silly ADD node_modules/diff
+354 silly ADD node_modules/debug
+355 silly ADD node_modules/data-uri-to-buffer
+356 silly ADD node_modules/buffer-equal-constant-time
+357 silly ADD node_modules/bowser
+358 silly ADD node_modules/bignumber.js
+359 silly ADD node_modules/base64-js
+360 silly ADD node_modules/agent-base
+361 silly ADD node_modules/@types/retry
+362 silly ADD node_modules/@types/node
+363 silly ADD node_modules/@stablelib/base64
+364 silly ADD node_modules/@smithy/util-utf8
+365 silly ADD node_modules/@smithy/util-buffer-from
+366 silly ADD node_modules/@smithy/types
+367 silly ADD node_modules/@smithy/signature-v4
+368 silly ADD node_modules/@smithy/node-http-handler
+369 silly ADD node_modules/@smithy/is-array-buffer
+370 silly ADD node_modules/@smithy/fetch-http-handler
+371 silly ADD node_modules/@smithy/credential-provider-imds
+372 silly ADD node_modules/@smithy/core
+373 silly ADD node_modules/@protobufjs/utf8
+374 silly ADD node_modules/@protobufjs/pool
+375 silly ADD node_modules/@protobufjs/path
+376 silly ADD node_modules/@protobufjs/float
+377 silly ADD node_modules/@protobufjs/fetch
+378 silly ADD node_modules/@protobufjs/eventemitter
+379 silly ADD node_modules/@protobufjs/codegen
+380 silly ADD node_modules/@protobufjs/base64
+381 silly ADD node_modules/@protobufjs/aspromise
+382 silly ADD node_modules/@google/genai
+383 silly ADD node_modules/@esbuild/linux-x64
+384 silly ADD node_modules/@earendil-works/pi-telemetry
+385 silly ADD node_modules/@earendil-works/pi-session-backend-sqlite-node
+386 silly ADD node_modules/@earendil-works/pi-coding-agent
+387 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/yaml
+388 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/xml-naming
+389 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/ws
+390 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/which
+391 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/web-streams-polyfill
+392 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/undici-types
+393 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/undici
+394 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/typebox
+395 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/tslib
+396 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/ts-algebra
+397 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/strnum
+398 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/standardwebhooks
+399 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/signal-exit
+400 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/shebang-regex
+401 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/shebang-command
+402 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/semver
+403 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/safe-buffer
+404 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/retry
+405 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/protobufjs
+406 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/proper-lockfile
+407 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/proper-lockfile/node_modules/retry
+408 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/path-key
+409 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/path-expression-matcher
+410 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/partial-json
+411 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/p-retry
+412 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/p-retry/node_modules/@types/retry
+413 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/openai
+414 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/node-fetch
+415 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/node-domexception
+416 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/ms
+417 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/minimatch
+418 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/marked
+419 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/lru-cache
+420 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/long
+421 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/jws
+422 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/jwa
+423 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/json-schema-to-ts
+424 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/json-bigint
+425 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/jiti
+426 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/isexe
+427 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/ignore
+428 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/https-proxy-agent
+429 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/http-proxy-agent
+430 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/hosted-git-info
+431 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/highlight.js
+432 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/grok-mermaid
+433 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/graceful-fs
+434 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/google-logging-utils
+435 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/google-auth-library
+436 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/get-east-asian-width
+437 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/gcp-metadata
+438 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/gaxios
+439 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/formdata-polyfill
+440 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/fetch-blob
+441 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/fast-xml-parser
+442 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/fast-xml-builder
+443 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/fast-sha256
+444 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/extend
+445 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/esbuild
+446 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/ecdsa-sig-formatter
+447 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/diff
+448 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/debug
+449 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/data-uri-to-buffer
+450 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/cross-spawn
+451 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/chalk
+452 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/buffer-equal-constant-time
+453 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/brace-expansion
+454 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/bowser
+455 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/bignumber.js
+456 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/base64-js
+457 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/balanced-match
+458 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/agent-base
+459 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@types/node
+460 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@stablelib/base64
+461 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@smithy/util-utf8
+462 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@smithy/util-buffer-from
+463 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@smithy/types
+464 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@smithy/signature-v4
+465 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@smithy/node-http-handler
+466 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@smithy/is-array-buffer
+467 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@smithy/fetch-http-handler
+468 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@smithy/credential-provider-imds
+469 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@smithy/core
+470 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@silvia-odwyer/photon-node
+471 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@protobufjs/utf8
+472 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@protobufjs/pool
+473 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@protobufjs/path
+474 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@protobufjs/float
+475 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@protobufjs/fetch
+476 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@protobufjs/eventemitter
+477 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@protobufjs/codegen
+478 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@protobufjs/base64
+479 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@protobufjs/aspromise
+480 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@nodable/entities
+481 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@mariozechner/clipboard-win32-x64-msvc
+482 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@mariozechner/clipboard-win32-arm64-msvc
+483 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@mariozechner/clipboard-linux-x64-musl
+484 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@mariozechner/clipboard-linux-x64-gnu
+485 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@mariozechner/clipboard-linux-riscv64-gnu
+486 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@mariozechner/clipboard-linux-arm64-musl
+487 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@mariozechner/clipboard-linux-arm64-gnu
+488 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@mariozechner/clipboard-darwin-x64
+489 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@mariozechner/clipboard-darwin-universal
+490 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@mariozechner/clipboard-darwin-arm64
+491 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@mariozechner/clipboard
+492 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@google/genai
+493 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@esbuild/win32-x64
+494 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@esbuild/win32-ia32
+495 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@esbuild/win32-arm64
+496 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@esbuild/sunos-x64
+497 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@esbuild/openharmony-arm64
+498 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@esbuild/openbsd-x64
+499 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@esbuild/openbsd-arm64
+500 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@esbuild/netbsd-x64
+501 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@esbuild/netbsd-arm64
+502 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@esbuild/linux-x64
+503 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@esbuild/linux-s390x
+504 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@esbuild/linux-riscv64
+505 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@esbuild/linux-ppc64
+506 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@esbuild/linux-mips64el
+507 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@esbuild/linux-loong64
+508 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@esbuild/linux-ia32
+509 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@esbuild/linux-arm64
+510 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@esbuild/linux-arm
+511 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@esbuild/freebsd-x64
+512 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@esbuild/freebsd-arm64
+513 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@esbuild/darwin-x64
+514 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@esbuild/darwin-arm64
+515 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@esbuild/android-x64
+516 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@esbuild/android-arm64
+517 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@esbuild/android-arm
+518 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@esbuild/aix-ppc64
+519 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-tui
+520 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-telemetry
+521 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai
+522 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-agent-core
+523 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/chord
+524 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@babel/runtime
+525 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@aws/lambda-invoke-store
+526 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@aws-sdk/xml-builder
+527 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@aws-sdk/util-locate-window
+528 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@aws-sdk/types
+529 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@aws-sdk/token-providers
+530 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@aws-sdk/signature-v4-multi-region
+531 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@aws-sdk/nested-clients
+532 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@aws-sdk/middleware-websocket
+533 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@aws-sdk/middleware-eventstream
+534 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@aws-sdk/eventstream-handler-node
+535 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@aws-sdk/credential-provider-web-identity
+536 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@aws-sdk/credential-provider-sso
+537 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@aws-sdk/credential-provider-process
+538 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@aws-sdk/credential-provider-node
+539 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@aws-sdk/credential-provider-login
+540 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@aws-sdk/credential-provider-ini
+541 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@aws-sdk/credential-provider-http
+542 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@aws-sdk/credential-provider-env
+543 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@aws-sdk/core
+544 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@aws-sdk/client-bedrock-runtime
+545 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@aws-crypto/util
+546 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@aws-crypto/supports-web-crypto
+547 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@aws-crypto/sha256-js
+548 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@aws-crypto/sha256-browser
+549 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@aws-crypto/crc32
+550 silly ADD node_modules/@earendil-works/pi-coding-agent/node_modules/@anthropic-ai/sdk
+551 silly ADD node_modules/@earendil-works/pi-ai
+552 silly ADD node_modules/@earendil-works/pi-ai/node_modules/typebox
+553 silly ADD node_modules/@earendil-works/pi-agent-core
+554 silly ADD node_modules/@earendil-works/pi-agent-core/node_modules/typebox
+555 silly ADD node_modules/@earendil-works/chord
+556 silly ADD node_modules/@babel/runtime
+557 silly ADD node_modules/@aws/lambda-invoke-store
+558 silly ADD node_modules/@aws-sdk/xml-builder
+559 silly ADD node_modules/@aws-sdk/util-locate-window
+560 silly ADD node_modules/@aws-sdk/types
+561 silly ADD node_modules/@aws-sdk/token-providers
+562 silly ADD node_modules/@aws-sdk/signature-v4-multi-region
+563 silly ADD node_modules/@aws-sdk/nested-clients
+564 silly ADD node_modules/@aws-sdk/nested-clients/node_modules/@smithy/node-http-handler
+565 silly ADD node_modules/@aws-sdk/middleware-websocket
+566 silly ADD node_modules/@aws-sdk/middleware-eventstream
+567 silly ADD node_modules/@aws-sdk/eventstream-handler-node
+568 silly ADD node_modules/@aws-sdk/credential-provider-web-identity
+569 silly ADD node_modules/@aws-sdk/credential-provider-sso
+570 silly ADD node_modules/@aws-sdk/credential-provider-sso/node_modules/@aws-sdk/token-providers
+571 silly ADD node_modules/@aws-sdk/credential-provider-process
+572 silly ADD node_modules/@aws-sdk/credential-provider-node
+573 silly ADD node_modules/@aws-sdk/credential-provider-login
+574 silly ADD node_modules/@aws-sdk/credential-provider-ini
+575 silly ADD node_modules/@aws-sdk/credential-provider-http
+576 silly ADD node_modules/@aws-sdk/credential-provider-http/node_modules/@smithy/node-http-handler
+577 silly ADD node_modules/@aws-sdk/credential-provider-env
+578 silly ADD node_modules/@aws-sdk/core
+579 silly ADD node_modules/@aws-sdk/client-bedrock-runtime
+580 silly ADD node_modules/@aws-crypto/util
+581 silly ADD node_modules/@aws-crypto/supports-web-crypto
+582 silly ADD node_modules/@aws-crypto/sha256-js
+583 silly ADD node_modules/@aws-crypto/sha256-browser
+584 silly ADD node_modules/@anthropic-ai/sdk
+585 warn install-scripts 6 packages have install scripts not yet covered by allowScripts:
+585 warn install-scripts   @google/genai@1.52.0 (preinstall: echo 'preinstall: no-op')
+585 warn install-scripts   esbuild@0.28.1 (postinstall: node install.js)
+585 warn install-scripts   protobufjs@7.6.6 (postinstall: node scripts/postinstall)
+585 warn install-scripts   @google/genai@1.52.0 (preinstall: echo 'preinstall: no-op')
+585 warn install-scripts   esbuild@0.28.1 (postinstall: node install.js)
+585 warn install-scripts   protobufjs@7.6.5 (postinstall: node scripts/postinstall)
+585 warn install-scripts
+585 warn install-scripts Run `npm install-scripts ls` to review, or `npm install-scripts approve <pkg>` to allow.
+586 verbose cwd /dev/shm/rk-coding36-linux.gaWtu6/current/verification/foundation
+587 verbose os Linux 6.8.0-117-generic
+588 verbose node v24.21.0
+589 verbose npm  v11.19.0
+590 verbose exit 0
+591 info ok

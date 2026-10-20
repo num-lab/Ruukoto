@@ -1,0 +1,107 @@
+▶ 子服务：三模式沿原授权、单次审批、完整证据与真实请求快照，复用身份不继承批准
+  ✖ auto-review (239.855458ms)
+  ✖ confirm (114.625291ms)
+  ✖ full_access (105.153ms)
+✖ 子服务：三模式沿原授权、单次审批、完整证据与真实请求快照，复用身份不继承批准 (460.161292ms)
+✖ 子服务：未知效果与取消保留整项占用，双事实才释放，其他聊天继续 (129.471958ms)
+▶ 子服务：审批与审批前检查取消不写入，检查停止未核实仍占用
+  ✖ approval (81.316583ms)
+  ✖ inspection (123.048583ms)
+✖ 子服务：审批与审批前检查取消不写入，检查停止未核实仍占用 (204.638583ms)
+▶ 子服务：恢复拒绝错权限、工具、输入、工作及丢失接纳，不执行外部请求
+  ✔ permission (68.965625ms)
+  ✔ tool (76.924375ms)
+  ✔ inputs (65.470875ms)
+  ✔ work (65.548667ms)
+  ✔ admission (77.424042ms)
+✔ 子服务：恢复拒绝错权限、工具、输入、工作及丢失接纳，不执行外部请求 (354.781667ms)
+ℹ tests 14
+ℹ suites 0
+ℹ pass 6
+ℹ fail 8
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1846.8195
+
+✖ failing tests:
+
+test at test/personal-service-operations.test.ts:598:82
+✖ auto-review (239.855458ms)
+  Error [PersonalError]: 子 Agent 的工作占用无法核实，已停止恢复；请检查原工作和档案。
+      at <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-harness.ts:284:149)
+      at async HarnessImpl.#runCommit (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/session.ts:700:13) {
+    code: 'work_ownership'
+  }
+
+test at test/personal-service-operations.test.ts:598:82
+✖ confirm (114.625291ms)
+  Error [PersonalError]: 子 Agent 的工作占用无法核实，已停止恢复；请检查原工作和档案。
+      at <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-harness.ts:284:149)
+      at async HarnessImpl.#runCommit (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/session.ts:700:13) {
+    code: 'work_ownership'
+  }
+
+test at test/personal-service-operations.test.ts:598:82
+✖ full_access (105.153ms)
+  Error [PersonalError]: 子 Agent 的工作占用无法核实，已停止恢复；请检查原工作和档案。
+      at <anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-harness.ts:284:149)
+      at async HarnessImpl.#runCommit (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/pi-durable/src/session/session.ts:700:13) {
+    code: 'work_ownership'
+  }
+
+test at test/personal-service-operations.test.ts:629:1
+✖ 子服务：未知效果与取消保留整项占用，双事实才释放，其他聊天继续 (129.471958ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+  false !== true
+
+      at TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/personal-service-operations.test.ts:641:24)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at test/personal-service-operations.test.ts:646:68
+✖ approval (81.316583ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+  false !== true
+
+      at TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/personal-service-operations.test.ts:658:26)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/personal-service-operations.test.ts:646:60)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at test/personal-service-operations.test.ts:646:68
+✖ inspection (123.048583ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+  false !== true
+
+      at TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/personal-service-operations.test.ts:658:26)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/personal-service-operations.test.ts:646:60)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

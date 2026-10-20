@@ -1,0 +1,22 @@
+✖ 独立停止正在执行的命令不发布完成回执 (134.379125ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 274.105375
+
+✖ failing tests:
+
+test at ../../../../../../private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/command-24-negative-1lwliou1/test/personal-command-execution.test.ts:198:1
+✖ 独立停止正在执行的命令不发布完成回执 (134.379125ms)
+  AssertionError [ERR_ASSERTION]: Missing expected rejection.
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    operator: 'rejects',
+    diff: 'simple'
+  }

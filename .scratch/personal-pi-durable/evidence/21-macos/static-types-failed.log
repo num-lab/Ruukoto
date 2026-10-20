@@ -1,0 +1,14 @@
+
+> ruukoto-workspace@0.1.0 check:static
+> npm run lint && npm run typecheck && npm run verify-notes && npm run check:docs
+
+
+> ruukoto-workspace@0.1.0 lint
+> eslint . --max-warnings=0
+
+
+> ruukoto-workspace@0.1.0 typecheck
+> tsc --noEmit && npm run typecheck --workspaces && npm --prefix verification/foundation run typecheck
+
+test/personal-service-operations.test.ts(839,48): error TS18048: 'agent' is possibly 'undefined'.
+test/personal-service-operations.test.ts(840,53): error TS18048: 'agent' is possibly 'undefined'.

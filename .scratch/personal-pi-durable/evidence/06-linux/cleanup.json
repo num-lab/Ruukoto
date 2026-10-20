@@ -1,0 +1,10 @@
+{
+  "sourceDirectoryRemoved": true,
+  "evidenceDirectoryRemoved": true,
+  "relatedProcessesBefore": 0,
+  "relatedSocketsBefore": 0,
+  "testFixturesBefore": 0,
+  "temporaryDiskSnapshotRemoved": true,
+  "temporaryDiskEvidenceRemoved": true,
+  "disk": "Filesystem      Size  Used Avail Use% Mounted on\n/dev/vda2        40G   37G  642M  99% /\ntmpfs           1.9G   61M  1.8G   4% /dev/shm\n"
+}

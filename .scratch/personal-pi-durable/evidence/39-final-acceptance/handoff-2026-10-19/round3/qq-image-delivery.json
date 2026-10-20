@@ -1,0 +1,77 @@
+{
+ "at": "2026-10-19T13:50:00Z",
+ "inputTask": {
+  "task": 993,
+  "kind": "ruukoto.telegram-input",
+  "requestId": "qq:1529851498:2729290885:1591777344",
+  "outcome": {
+   "status": "completed",
+   "result": {
+    "delivery": "sent"
+   }
+  }
+ },
+ "mediaEntry": 989,
+ "imageReferenceEntry": 991,
+ "modelInputEntry": 994,
+ "modelRequestEntries": [
+  997,
+  998
+ ],
+ "assistantEntry": 999,
+ "finalState": {
+  "at": "2026-10-19T13:50:12Z",
+  "status": {
+   "v": 1,
+   "ok": true,
+   "result": {
+    "model": "deepseek-flash",
+    "tasks": 0,
+    "inputs": 0,
+    "services": true,
+    "capabilities": {
+     "commands": true,
+     "mcp": true,
+     "tools": true,
+     "browser": true,
+     "telegram": true,
+     "qq": true
+    }
+   }
+  },
+  "qq": {
+   "enabled": true,
+   "receiving": true,
+   "online": true,
+   "rejected": 332
+  },
+  "telegram": {
+   "enabled": true,
+   "receiving": true,
+   "online": false,
+   "rejected": 332
+  },
+  "permissions": {
+   "v": 1,
+   "ok": true,
+   "result": {
+    "default": {
+     "mode": "auto-review"
+    },
+    "qq": {
+     "mode": "auto-review"
+    }
+   }
+  },
+  "serviceGrants": {
+   "v": 1,
+   "ok": true,
+   "result": {
+    "items": []
+   }
+  },
+  "testServiceCount": "4",
+  "testServiceActive": "active"
+ },
+ "conclusion": "新图片经新代次 QQ 入口入站、产物化、作为 image part 进入实际模型请求，回答已送达原入口（delivery=sent）；模型正文与根 Agent 独立读图一致。"
+}

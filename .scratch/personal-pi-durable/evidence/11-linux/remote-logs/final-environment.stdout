@@ -1,0 +1,6 @@
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/vda2        40G   38G  349M 100% /
+tmpfs           1.9G  1.7G  176M  91% /dev/shm
+               total        used        free      shared  buff/cache   available
+Mem:           3.6Gi       2.4Gi       941Mi       1.5Gi       2.1Gi       1.2Gi
+Swap:          1.9Gi       849Mi       1.1Gi

@@ -1,0 +1,21 @@
+node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
++ actual - expected
+
++ 'browser_unavailable'
+- 'returned'
+
+    at file:///tmp/ruukoto-30-independent.QDMBbM/built/browser-probe.mjs:10174:10
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5) {
+  generatedMessage: true,
+  code: 'ERR_ASSERTION',
+  actual: 'browser_unavailable',
+  expected: 'returned',
+  operator: 'strictEqual',
+  diff: 'simple'
+}
+
+Node.js v24.21.0

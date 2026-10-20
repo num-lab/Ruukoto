@@ -1,0 +1,24 @@
+✔ 文件竞态：prepare 打开前换成真实 FIFO，立即拒绝而不阻塞宿主 (105.37875ms)
+✔ 文件竞态：read 打开前换成真实 FIFO，立即拒绝而不阻塞宿主 (57.859333ms)
+✔ 文件竞态：approved-read 打开前换成真实 FIFO，立即拒绝而不阻塞宿主 (55.15675ms)
+✔ durable 通用工具：主子会话沿目录权限读写，二进制产物分页与请求输入可重建 (10831.0175ms)
+✔ durable 自动审查：approve 使用无工具独立请求，落盘输入与实际payload一致 (4833.576084ms)
+✔ durable 自动审查：reject 使用无工具独立请求，落盘输入与实际payload一致 (3783.238875ms)
+✔ durable 自动审查：invalid 使用无工具独立请求，落盘输入与实际payload一致 (4257.880541ms)
+✔ durable 自动审查：failure 使用无工具独立请求，落盘输入与实际payload一致 (4714.637834ms)
+✔ durable 自动审查：length 使用无工具独立请求，落盘输入与实际payload一致 (4966.818125ms)
+✔ durable 自动审查：error 使用无工具独立请求，落盘输入与实际payload一致 (4575.241666ms)
+✔ durable 确认与资料授权：逐次批准消费一次，撤销后读取重新等待且旧批准失效 (11448.002542ms)
+✔ durable 产物：子会话不能读主会话产物，原字节损坏时恢复明确拒绝 (3330.52025ms)
+✔ durable HTTP：响应后观察提交前强杀，恢复不重发并暂停同来源新工作 (1648.899416ms)
+✔ durable 模型快照：主子三模式保留实际工具定义与启用前后估算 (46.506667ms)
+ℹ {"estimatedTokens":{"before":{"main":{"systemPrompt":51,"toolSchemas":521},"child":{"systemPrompt":38,"toolSchemas":1}},"after":{"auto-review":{"main":{"systemPrompt":51,"toolSchemas":1384},"child":{"systemPrompt":38,"toolSchemas":864}},"confirm":{"main":{"systemPrompt":51,"toolSchemas":1384},"child":{"systemPrompt":38,"toolSchemas":864}},"full_access":{"main":{"systemPrompt":51,"toolSchemas":1384},"child":{"systemPrompt":38,"toolSchemas":864}}}}}
+✔ durable HTTP：未知写入同时挡住同源 MCP 和新来源同端点调用 (739.778584ms)
+ℹ tests 15
+ℹ suites 0
+ℹ pass 15
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 56040.362292

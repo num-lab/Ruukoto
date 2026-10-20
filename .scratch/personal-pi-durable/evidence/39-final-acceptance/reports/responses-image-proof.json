@@ -1,0 +1,82 @@
+{
+  "facts": [
+    {
+      "change": "valid",
+      "stopReason": "aborted",
+      "payloadRecords": 1,
+      "inputRecords": 1,
+      "fetchAttempts": 0,
+      "fixtureHttpCallsBeforeProbe": 2
+    },
+    {
+      "change": "bytes",
+      "stopReason": "error",
+      "payloadRecords": 0,
+      "inputRecords": 1,
+      "fetchAttempts": 0,
+      "fixtureHttpCallsBeforeProbe": 2
+    },
+    {
+      "change": "drop",
+      "stopReason": "error",
+      "payloadRecords": 0,
+      "inputRecords": 1,
+      "fetchAttempts": 0,
+      "fixtureHttpCallsBeforeProbe": 2
+    },
+    {
+      "change": "remote",
+      "stopReason": "error",
+      "payloadRecords": 0,
+      "inputRecords": 1,
+      "fetchAttempts": 0,
+      "fixtureHttpCallsBeforeProbe": 2
+    },
+    {
+      "change": "duplicate",
+      "stopReason": "error",
+      "payloadRecords": 0,
+      "inputRecords": 1,
+      "fetchAttempts": 0,
+      "fixtureHttpCallsBeforeProbe": 2
+    }
+  ],
+  "diskReads": [
+    {
+      "change": "valid",
+      "entry": 31,
+      "payload": false,
+      "matchedActualSqliteRecord": true
+    },
+    {
+      "change": "valid",
+      "entry": 32,
+      "payload": true,
+      "matchedActualSqliteRecord": true
+    },
+    {
+      "change": "bytes",
+      "entry": 33,
+      "payload": false,
+      "matchedActualSqliteRecord": true
+    },
+    {
+      "change": "drop",
+      "entry": 34,
+      "payload": false,
+      "matchedActualSqliteRecord": true
+    },
+    {
+      "change": "remote",
+      "entry": 35,
+      "payload": false,
+      "matchedActualSqliteRecord": true
+    },
+    {
+      "change": "duplicate",
+      "entry": 36,
+      "payload": false,
+      "matchedActualSqliteRecord": true
+    }
+  ]
+}

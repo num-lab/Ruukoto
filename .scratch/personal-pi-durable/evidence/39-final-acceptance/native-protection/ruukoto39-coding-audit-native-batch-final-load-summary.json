@@ -1,0 +1,60 @@
+[
+  {
+    "command": [
+      "node",
+      "--import",
+      "tsx",
+      "--test",
+      "--test-concurrency=1",
+      "--test-name-pattern=^ruukoto-code 完全访问父级",
+      "/tmp/ruukoto39-native-batch/test/subagent-workspace-snapshot.test.ts"
+    ],
+    "index": 1,
+    "startedUtc": "2026-10-18T13:21:26Z",
+    "probeSha256": "d9716fae169e0c7086f9554073da92e6a140f156a8d060b874f3b94b2fcc7f76",
+    "method": "独立setup/build副本的原Code场景并行；原等待15秒/夹具原文不变，未接派生finally捕获。",
+    "exitCode": 0,
+    "durationMs": 9712.762,
+    "knownPids": [
+      92666,
+      92670,
+      92718,
+      92879,
+      92889,
+      93187,
+      93467
+    ],
+    "knownPidPostState": "",
+    "log": "/tmp/ruukoto39-coding-audit-native-batch-final-load-1.log",
+    "logSha256": "b85e4f22e5b86aa8b8260740c9a6bd9e9061b34e0fae81d9aea3696386b9f4e4"
+  },
+  {
+    "command": [
+      "node",
+      "--import",
+      "tsx",
+      "--test",
+      "--test-concurrency=1",
+      "--test-name-pattern=^ruukoto-code 完全访问父级",
+      "/tmp/ruukoto39-native-batch/test/subagent-workspace-snapshot.test.ts"
+    ],
+    "index": 2,
+    "startedUtc": "2026-10-18T13:21:26Z",
+    "probeSha256": "d9716fae169e0c7086f9554073da92e6a140f156a8d060b874f3b94b2fcc7f76",
+    "method": "独立setup/build副本的原Code场景并行；原等待15秒/夹具原文不变，未接派生finally捕获。",
+    "exitCode": 0,
+    "durationMs": 9712.674,
+    "knownPids": [
+      92667,
+      92671,
+      92717,
+      92878,
+      92890,
+      93188,
+      93468
+    ],
+    "knownPidPostState": "",
+    "log": "/tmp/ruukoto39-coding-audit-native-batch-final-load-2.log",
+    "logSha256": "ba8c967c688f1ead9b0ef6f4587f2e66e53d1d8c5cc85712cd1b0885c2598e08"
+  }
+]

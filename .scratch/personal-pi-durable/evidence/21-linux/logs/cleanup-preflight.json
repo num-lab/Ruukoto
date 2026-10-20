@@ -1,0 +1,136 @@
+{
+  "own_path_matches": [],
+  "unreadable_same_uid_fields": [
+    {
+      "pid": 1484323,
+      "field": "environ"
+    },
+    {
+      "pid": 1484323,
+      "field": "cwd"
+    },
+    {
+      "pid": 1484323,
+      "field": "exe"
+    },
+    {
+      "pid": 1484326,
+      "field": "environ"
+    },
+    {
+      "pid": 1484326,
+      "field": "cwd"
+    },
+    {
+      "pid": 1484326,
+      "field": "exe"
+    },
+    {
+      "pid": 3235595,
+      "field": "environ"
+    },
+    {
+      "pid": 3235595,
+      "field": "cwd"
+    },
+    {
+      "pid": 3235595,
+      "field": "exe"
+    }
+  ],
+  "existing_mainthread_esbuild_comparison": [
+    {
+      "before": {
+        "pid": 2163755,
+        "ppid": 1,
+        "comm": "MainThread"
+      },
+      "after": {
+        "pid": 2163755,
+        "ppid": 1,
+        "comm": "MainThread"
+      },
+      "unchanged": true
+    },
+    {
+      "before": {
+        "pid": 2163766,
+        "ppid": 2163755,
+        "comm": "MainThread"
+      },
+      "after": {
+        "pid": 2163766,
+        "ppid": 2163755,
+        "comm": "MainThread"
+      },
+      "unchanged": true
+    },
+    {
+      "before": {
+        "pid": 2178158,
+        "ppid": 1,
+        "comm": "MainThread"
+      },
+      "after": {
+        "pid": 2178158,
+        "ppid": 1,
+        "comm": "MainThread"
+      },
+      "unchanged": true
+    },
+    {
+      "before": {
+        "pid": 2178169,
+        "ppid": 2178158,
+        "comm": "MainThread"
+      },
+      "after": {
+        "pid": 2178169,
+        "ppid": 2178158,
+        "comm": "MainThread"
+      },
+      "unchanged": true
+    },
+    {
+      "before": {
+        "pid": 3963064,
+        "ppid": 1,
+        "comm": "MainThread"
+      },
+      "after": {
+        "pid": 3963064,
+        "ppid": 1,
+        "comm": "MainThread"
+      },
+      "unchanged": true
+    },
+    {
+      "before": {
+        "pid": 3963076,
+        "ppid": 3963064,
+        "comm": "MainThread"
+      },
+      "after": {
+        "pid": 3963076,
+        "ppid": 3963064,
+        "comm": "MainThread"
+      },
+      "unchanged": true
+    },
+    {
+      "before": {
+        "pid": 3963095,
+        "ppid": 3963076,
+        "comm": "esbuild"
+      },
+      "after": {
+        "pid": 3963095,
+        "ppid": 3963076,
+        "comm": "esbuild"
+      },
+      "unchanged": true
+    }
+  ],
+  "process_count": 157,
+  "excluded_probe_pid": 3235596
+}

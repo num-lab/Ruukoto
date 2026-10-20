@@ -1,5 +1,5 @@
 import { delegateFromActiveTask, messageFromActiveTask } from "./helpers/active-subagent-source.ts";
-import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
+import { product as personalProduct } from "./helpers/legacy-product.ts";
 import { HOST_REVIEW_DEFINITION } from "@ruukoto/agent/subagent-roles.ts";
 import { CredentialStore } from "@ruukoto/agent/execution/credentials.ts";
 import type { GitHubPullRequestEvent } from "@ruukoto/channels/github/webhook.ts";

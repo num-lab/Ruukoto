@@ -1,0 +1,211 @@
+TAP version 13
+# (node:4108839) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: 子服务：取消后复用从实际请求及原工作查询读取宿主未执行事实
+ok 1 - 子服务：取消后复用从实际请求及原工作查询读取宿主未执行事实
+  ---
+  duration_ms: 816.133968
+  type: 'test'
+  ...
+# Subtest: 子服务：三模式沿原授权、单次审批、完整证据与真实请求快照，复用身份不继承批准
+    # Subtest: auto-review
+    ok 1 - auto-review
+      ---
+      duration_ms: 699.656556
+      type: 'test'
+      ...
+    # Subtest: confirm
+    ok 2 - confirm
+      ---
+      duration_ms: 628.81896
+      type: 'test'
+      ...
+    # Subtest: full_access
+    ok 3 - full_access
+      ---
+      duration_ms: 613.400714
+      type: 'test'
+      ...
+    1..3
+ok 2 - 子服务：三模式沿原授权、单次审批、完整证据与真实请求快照，复用身份不继承批准
+  ---
+  duration_ms: 1943.026236
+  type: 'test'
+  ...
+# Subtest: 子服务：未知效果与取消保留整项占用，双事实才释放，其他聊天继续
+ok 3 - 子服务：未知效果与取消保留整项占用，双事实才释放，其他聊天继续
+  ---
+  duration_ms: 360.821299
+  type: 'test'
+  ...
+# Subtest: 子服务：审批与审批前检查取消不写入，检查停止未核实仍占用
+    # Subtest: approval
+    ok 1 - approval
+      ---
+      duration_ms: 248.931593
+      type: 'test'
+      ...
+    # Subtest: inspection
+    ok 2 - inspection
+      ---
+      duration_ms: 317.293416
+      type: 'test'
+      ...
+    # Subtest: restart
+    ok 3 - restart
+      ---
+      duration_ms: 316.37493
+      type: 'test'
+      ...
+    1..3
+ok 4 - 子服务：审批与审批前检查取消不写入，检查停止未核实仍占用
+  ---
+  duration_ms: 883.923828
+  type: 'test'
+  ...
+# Subtest: 子服务：恢复拒绝错权限、工具、输入、工作及丢失接纳，不执行外部请求
+    # Subtest: permission
+    ok 1 - permission
+      ---
+      duration_ms: 255.631231
+      type: 'test'
+      ...
+    # Subtest: tool
+    ok 2 - tool
+      ---
+      duration_ms: 241.254071
+      type: 'test'
+      ...
+    # Subtest: inputs
+    ok 3 - inputs
+      ---
+      duration_ms: 252.630414
+      type: 'test'
+      ...
+    # Subtest: work
+    ok 4 - work
+      ---
+      duration_ms: 242.679638
+      type: 'test'
+      ...
+    # Subtest: admission
+    ok 5 - admission
+      ---
+      duration_ms: 242.941839
+      type: 'test'
+      ...
+    1..5
+ok 5 - 子服务：恢复拒绝错权限、工具、输入、工作及丢失接纳，不执行外部请求
+  ---
+  duration_ms: 1236.577962
+  type: 'test'
+  ...
+# [ruukoto:personal] 持久执行出现错误，请查询状态并检查档案；未自动重启。
+# Subtest: 子服务：接纳写失败零 helper，恢复原工具只登记一次
+ok 6 - 子服务：接纳写失败零 helper，恢复原工具只登记一次
+  ---
+  duration_ms: 377.779395
+  type: 'test'
+  ...
+# (node:4109280) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: 子服务：消费后真实强杀恢复原子工具和工作，不重发 restart
+ok 7 - 子服务：消费后真实强杀恢复原子工具和工作，不重发 restart
+  ---
+  duration_ms: 5212.305535
+  type: 'test'
+  ...
+# Subtest: 子服务：真实 faulted 在线转未知，双事实不足不释放，原菜单可核实
+ok 8 - 子服务：真实 faulted 在线转未知，双事实不足不释放，原菜单可核实
+  ---
+  duration_ms: 284.02275
+  type: 'test'
+  ...
+# Subtest: 子服务：前置核实与检查接纳间取消，零 helper
+ok 9 - 子服务：前置核实与检查接纳间取消，零 helper
+  ---
+  duration_ms: 130.34225
+  type: 'test'
+  ...
+# Subtest: 子服务：消费前 faulted 明确报告未执行，读取证据保留失败状态
+ok 10 - 子服务：消费前 faulted 明确报告未执行，读取证据保留失败状态
+  ---
+  duration_ms: 160.201537
+  type: 'test'
+  ...
+# Subtest: 子服务：封组报告等原外部操作双事实，未知期间拒绝续派与追加
+ok 11 - 子服务：封组报告等原外部操作双事实，未知期间拒绝续派与追加
+  ---
+  duration_ms: 634.984995
+  type: 'test'
+  ...
+# Subtest: 子服务证据：完整分页不外调，其他子会话不能读取
+ok 12 - 子服务证据：完整分页不外调，其他子会话不能读取
+  ---
+  duration_ms: 463.814036
+  type: 'test'
+  ...
+# Subtest: 子服务升级：空闲配置原子增加工具，未决旧工作拒绝且不半启用
+    # Subtest: idle
+    ok 1 - idle
+      ---
+      duration_ms: 154.527585
+      type: 'test'
+      ...
+    # Subtest: pending
+    ok 2 - pending
+      ---
+      duration_ms: 141.906754
+      type: 'test'
+      ...
+    1..2
+ok 13 - 子服务升级：空闲配置原子增加工具，未决旧工作拒绝且不半启用
+  ---
+  duration_ms: 297.139463
+  type: 'test'
+  ...
+# Subtest: 子服务：后来追加来源未知拦住原待审批写入，整项取消不误取消独立宿主操作
+ok 14 - 子服务：后来追加来源未知拦住原待审批写入，整项取消不误取消独立宿主操作
+  ---
+  duration_ms: 530.382449
+  type: 'test'
+  ...
+# Subtest: 子服务：原结果被模型编辑替换时拒绝请求，零HTTP且历史保留
+ok 15 - 子服务：原结果被模型编辑替换时拒绝请求，零HTTP且历史保留
+  ---
+  duration_ms: 226.451947
+  type: 'test'
+  ...
+# Subtest: 子服务：上下文移出原调用后重复callId只映射当前服务事实
+ok 16 - 子服务：上下文移出原调用后重复callId只映射当前服务事实
+  ---
+  duration_ms: 427.057711
+  type: 'test'
+  ...
+# Subtest: 子服务：重复工具调用使服务结果歧义时零HTTP
+ok 17 - 子服务：重复工具调用使服务结果歧义时零HTTP
+  ---
+  duration_ms: 237.981132
+  type: 'test'
+  ...
+# Subtest: 子服务：未知调用引用的伪造结果在provider前拒绝
+ok 18 - 子服务：未知调用引用的伪造结果在provider前拒绝
+  ---
+  duration_ms: 237.56645
+  type: 'test'
+  ...
+# Subtest: 子服务：接纳前参数错误可核实且重复callId不增加操作
+ok 19 - 子服务：接纳前参数错误可核实且重复callId不增加操作
+  ---
+  duration_ms: 176.057746
+  type: 'test'
+  ...
+1..19
+# tests 32
+# suites 0
+# pass 32
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 19581.771526

@@ -1,0 +1,28 @@
+{
+  "time": 1792310260.1833854,
+  "commands": {
+    "exact-pid": [
+      "sudo",
+      "-n",
+      "journalctl",
+      "--utc",
+      "--no-pager",
+      "--output=short-iso-precise",
+      "--since=2026-10-17 07:26:00 UTC",
+      "--until=2026-10-17 07:28:00 UTC",
+      "_PID=3165125"
+    ],
+    "pid-mention": [
+      "sudo",
+      "-n",
+      "journalctl",
+      "--utc",
+      "--no-pager",
+      "--output=short-iso-precise",
+      "--since=2026-10-17 07:26:00 UTC",
+      "--until=2026-10-17 07:28:00 UTC",
+      "--grep=(^|[^0-9])3165125([^0-9]|$)"
+    ]
+  },
+  "purpose": "only original17 Linux unreaped worker PID and two-minute original time window"
+}

@@ -1,0 +1,141 @@
+{
+  "method": "UTF-16 JSON string.length / 4 rounded up; approximate input-token size only, not tokenizer or billing",
+  "artifact": "/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-32-request-size-G4w6dq",
+  "report": [
+    {
+      "stage": "main",
+      "input": {
+        "chars": 7767,
+        "approximateTokens": 1942
+      },
+      "wire": {
+        "chars": 7885,
+        "approximateTokens": 1972
+      },
+      "system": {
+        "chars": 204,
+        "approximateTokens": 51
+      },
+      "messagesWithoutSystem": {
+        "chars": 44,
+        "approximateTokens": 11
+      },
+      "tools": {
+        "chars": 7466,
+        "approximateTokens": 1867
+      },
+      "toolNames": [
+        "background_work",
+        "read_file",
+        "write_file",
+        "http_request",
+        "web_search",
+        "read_artifact",
+        "schedule_create",
+        "schedule_query",
+        "schedule_cancel"
+      ],
+      "lastUser": {
+        "chars": 14,
+        "approximateTokens": 4
+      },
+      "addedSchemas": [
+        {
+          "name": "schedule_create",
+          "chars": 1088,
+          "approximateTokens": 272
+        },
+        {
+          "name": "schedule_query",
+          "chars": 372,
+          "approximateTokens": 93
+        },
+        {
+          "name": "schedule_cancel",
+          "chars": 350,
+          "approximateTokens": 88
+        }
+      ],
+      "addedSchemasArrayDelta": {
+        "chars": 1813,
+        "approximateTokens": 454
+      }
+    },
+    {
+      "stage": "scheduled",
+      "input": {
+        "chars": 4561,
+        "approximateTokens": 1141
+      },
+      "wire": {
+        "chars": 4679,
+        "approximateTokens": 1170
+      },
+      "system": {
+        "chars": 190,
+        "approximateTokens": 48
+      },
+      "messagesWithoutSystem": {
+        "chars": 52,
+        "approximateTokens": 13
+      },
+      "tools": {
+        "chars": 4266,
+        "approximateTokens": 1067
+      },
+      "toolNames": [
+        "background_work",
+        "read_file",
+        "write_file",
+        "http_request",
+        "web_search",
+        "read_artifact"
+      ],
+      "lastUser": {
+        "chars": 22,
+        "approximateTokens": 6
+      },
+      "addedSchemas": [],
+      "addedSchemasArrayDelta": {
+        "chars": 0,
+        "approximateTokens": 0
+      }
+    },
+    {
+      "stage": "summary",
+      "input": {
+        "chars": 1664,
+        "approximateTokens": 416
+      },
+      "wire": {
+        "chars": 1782,
+        "approximateTokens": 446
+      },
+      "system": {
+        "chars": 190,
+        "approximateTokens": 48
+      },
+      "messagesWithoutSystem": {
+        "chars": 262,
+        "approximateTokens": 66
+      },
+      "tools": {
+        "chars": 1159,
+        "approximateTokens": 290
+      },
+      "toolNames": [
+        "background_work",
+        "read_artifact"
+      ],
+      "lastUser": {
+        "chars": 131,
+        "approximateTokens": 33
+      },
+      "addedSchemas": [],
+      "addedSchemasArrayDelta": {
+        "chars": 0,
+        "approximateTokens": 0
+      }
+    }
+  ]
+}

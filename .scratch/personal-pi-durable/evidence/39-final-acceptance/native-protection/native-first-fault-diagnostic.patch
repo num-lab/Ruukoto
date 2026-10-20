@@ -1,0 +1,251 @@
+diff --git a/packages/agent/src/execution/native-macos-supervisor.c b/packages/agent/src/execution/native-macos-supervisor.c
+index c7a1080f..24b44b6c 100644
+--- a/packages/agent/src/execution/native-macos-supervisor.c
++++ b/packages/agent/src/execution/native-macos-supervisor.c
+@@ -51,6 +51,30 @@ static volatile sig_atomic_t stop_requested;
+ static bool uncertain;
+ static const char *uncertain_reason = "none";
+ static double last_sample;
++static const char *diagnostic_phase = "startup";
++static const char *identity_site = "direct_identity";
++static struct {
++  bool present;
++  bool emitted;
++  double at;
++  const char *phase;
++  const char *site;
++  const char *api;
++  const char *detail;
++  const char *errno_scope;
++  pid_t pid;
++  int attempt;
++  int count;
++  int expected;
++  int saved_errno;
++  int needed;
++  size_t capacity;
++  bool full_identity;
++  uint32_t reported_pid;
++  bool pid_matches;
++  bool unique_nonzero;
++  bool cached_member_pid;
++} first_fault;
+ 
+ static double monotonic(void) {
+   struct timespec value;
+@@ -58,6 +82,46 @@ static double monotonic(void) {
+   return (double)value.tv_sec + (double)value.tv_nsec / 1000000000.0;
+ }
+ 
++/* 只保存首个已拒绝分支；不增加查询或改变原失败结论。 */
++static void remember_fault(const char *site, const char *api, const char *detail, pid_t pid, int attempt,
++                           int count, int expected, int saved_errno, const char *errno_scope,
++                           const struct process_info *value, int needed, size_t capacity) {
++  if (first_fault.present || uncertain) return;
++  int preserved_errno = errno;
++  first_fault.present = true;
++  first_fault.at = monotonic();
++  first_fault.phase = diagnostic_phase;
++  first_fault.site = site;
++  first_fault.api = api;
++  first_fault.detail = detail;
++  first_fault.errno_scope = errno_scope;
++  first_fault.pid = pid;
++  first_fault.attempt = attempt;
++  first_fault.count = count;
++  first_fault.expected = expected;
++  first_fault.saved_errno = saved_errno;
++  first_fault.needed = needed;
++  first_fault.capacity = capacity;
++  first_fault.full_identity = value != NULL && count == sizeof(*value);
++  if (first_fault.full_identity) {
++    first_fault.reported_pid = value->bsd.pbi_pid;
++    first_fault.pid_matches = value->bsd.pbi_pid == (uint32_t)pid;
++    first_fault.unique_nonzero = value->unique.uniqueid != 0;
++  }
++  for (size_t i = 0; i < members.length; i++) if (members.items[i].bsd.pbi_pid == (uint32_t)pid) first_fault.cached_member_pid = true;
++  errno = preserved_errno;
++}
++
++static void emit_first_fault(void) {
++  if (!first_fault.present || first_fault.emitted) return;
++  first_fault.emitted = true;
++  fprintf(stderr, "[ruukoto:native] first_fault {\"at_monotonic\":%.9f,\"phase\":\"%s\",\"site\":\"%s\",\"api\":\"%s\",\"detail\":\"%s\",\"pid\":%d,\"attempt\":%d,\"count\":%d,\"expected\":%d,\"saved_errno\":%d,\"errno_scope\":\"%s\",\"needed\":%d,\"capacity\":%zu,\"full_identity\":%s,\"reported_pid\":%u,\"pid_matches\":%s,\"unique_nonzero\":%s,\"cached_member_pid\":%s}\n",
++          first_fault.at, first_fault.phase, first_fault.site, first_fault.api, first_fault.detail,
++          first_fault.pid, first_fault.attempt, first_fault.count, first_fault.expected, first_fault.saved_errno,
++          first_fault.errno_scope, first_fault.needed, first_fault.capacity, first_fault.full_identity ? "true" : "false",
++          first_fault.reported_pid, first_fault.pid_matches ? "true" : "false", first_fault.unique_nonzero ? "true" : "false", first_fault.cached_member_pid ? "true" : "false");
++}
++
+ static bool same_process(const struct process_info *left, const struct process_info *right) {
+   return left->bsd.pbi_pid == right->bsd.pbi_pid && left->unique.uniqueid == right->unique.uniqueid &&
+          left->bsd.pbi_start_tvsec == right->bsd.pbi_start_tvsec && left->bsd.pbi_start_tvusec == right->bsd.pbi_start_tvusec;
+@@ -78,14 +142,30 @@ static int identity(pid_t pid, struct process_info *value) {
+   for (int attempt = 0; attempt < 3; attempt++) {
+     memset(value, 0, sizeof(*value)); errno = 0;
+     int count = proc_pidinfo(pid, 18, 0, value, sizeof(*value));
++    int saved_errno = errno;
+     if (count == 0 && errno == ESRCH) return 0;
+-    if (count == sizeof(*value)) return value->bsd.pbi_pid == (uint32_t)pid && value->unique.uniqueid != 0 ? 1 : -1;
+-    if (count > 0 || attempt == 2) return -1;
++    if (count == sizeof(*value)) {
++      bool valid = value->bsd.pbi_pid == (uint32_t)pid && value->unique.uniqueid != 0;
++      if (!valid) remember_fault(identity_site, "proc_pidinfo", "invalid_complete_identity", pid, attempt + 1, count, sizeof(*value), saved_errno, "uninterpreted_nonerror_return", value, 0, 0);
++      return valid ? 1 : -1;
++    }
++    if (count > 0 || attempt == 2) {
++      remember_fault(identity_site, "proc_pidinfo", count > 0 ? "partial_identity" : "query_unavailable", pid, attempt + 1, count, sizeof(*value), saved_errno, count == 0 && saved_errno != 0 ? "error_return_after_clear" : "uninterpreted", NULL, 0, 0);
++      return -1;
++    }
+     struct timespec delay = {.tv_nsec = 1000000}; nanosleep(&delay, NULL);
+   }
+   return -1;
+ }
+ 
++static int identity_at(pid_t pid, struct process_info *value, const char *site) {
++  const char *previous = identity_site;
++  identity_site = site;
++  int result = identity(pid, value);
++  identity_site = previous;
++  return result;
++}
++
+ /* flavor 18 要求同 UID；PID 1 的身份用可跨 UID 的 flavor 17，不读取环境或参数。 */
+ static bool launchd_identity(struct unique_info *value) {
+   memset(value, 0, sizeof(*value));
+@@ -112,33 +192,39 @@ static bool contains(const struct process_list *list, const struct process_info
+ static bool owner_processes(struct process_list *list) {
+   list->length = 0;
+   int needed = proc_listpids(PROC_UID_ONLY, getuid(), NULL, 0);
+-  if (needed <= 0) return false;
++  int saved_errno = errno;
++  if (needed <= 0) {
++    remember_fault("owner_processes", "proc_listpids", "size_query_unavailable", 0, 1, needed, 0, saved_errno, "raw_not_cleared", NULL, needed, 0);
++    return false;
++  }
+   pid_t *pids = NULL;
+   int count = 0;
+   for (int attempt = 0; attempt < 4; attempt++) {
+     size_t size = (size_t)needed + 64 * sizeof(pid_t);
+     pid_t *grown = realloc(pids, size);
+-    if (!grown) { free(pids); return false; }
++    saved_errno = errno;
++    if (!grown) { remember_fault("owner_processes", "realloc", "pid_buffer_unavailable", 0, attempt + 1, 0, 0, saved_errno, "allocation_error_return", NULL, needed, size); free(pids); return false; }
+     pids = grown;
+     count = proc_listpids(PROC_UID_ONLY, getuid(), pids, (int)size);
+-    if (count <= 0 || count % sizeof(pid_t) != 0) { free(pids); return false; }
++    saved_errno = errno;
++    if (count <= 0 || count % sizeof(pid_t) != 0) { remember_fault("owner_processes", "proc_listpids", count <= 0 ? "list_query_unavailable" : "misaligned_list", 0, attempt + 1, count, sizeof(pid_t), saved_errno, "raw_not_cleared", NULL, needed, size); free(pids); return false; }
+     if ((size_t)count < size) break;
+     needed = (int)(size * 2);
+-    if (attempt == 3) { free(pids); return false; }
++    if (attempt == 3) { remember_fault("owner_processes", "proc_listpids", "list_saturated", 0, attempt + 1, count, 0, saved_errno, "uninterpreted_nonerror_return", NULL, needed, size); free(pids); return false; }
+   }
+   for (size_t i = 0; i < (size_t)count / sizeof(pid_t); i++) {
+     if (pids[i] <= 0) continue;
+     struct process_info value;
+-    int result = identity(pids[i], &value);
++    int result = identity_at(pids[i], &value, "owner_processes");
+     if (result < 0) { free(pids); return false; }
+-    if (result == 1 && !zombie(&value) && !append(list, &value)) { free(pids); return false; }
++    if (result == 1 && !zombie(&value) && !append(list, &value)) { saved_errno = errno; remember_fault("owner_processes", "realloc", "identity_storage_unavailable", pids[i], 1, 0, 0, saved_errno, "allocation_error_return", NULL, 0, list->capacity); free(pids); return false; }
+   }
+   free(pids);
+   return true;
+ }
+ 
+ static void mark_uncertain(const char *reason) {
+-  if (!uncertain) uncertain_reason = reason;
++  if (!uncertain) { remember_fault("mark_uncertain", "none", reason, 0, 0, -1, -1, 0, "not_applicable", NULL, 0, 0); uncertain_reason = reason; }
+   uncertain = true;
+ }
+ 
+@@ -184,7 +270,7 @@ static bool sample(struct process_list *current) {
+ /* audit token 把 pidversion 的比较与 signal 放在同一个内核操作中。 */
+ static void signal_member(const struct process_info *expected, int sig) {
+   struct process_info actual;
+-  int result = identity(expected->bsd.pbi_pid, &actual);
++  int result = identity_at(expected->bsd.pbi_pid, &actual, "signal_member");
+   if (result < 0) { mark_uncertain("identity_unavailable"); return; }
+   if (result == 0 || zombie(&actual) || !same_process(expected, &actual)) return;
+   audit_token_t token = {{0}};
+@@ -199,7 +285,7 @@ static size_t alive_members(void) {
+   size_t alive = 0;
+   for (size_t i = 0; i < members.length; i++) {
+     struct process_info actual;
+-    int result = identity(members.items[i].bsd.pbi_pid, &actual);
++    int result = identity_at(members.items[i].bsd.pbi_pid, &actual, "alive_members");
+     if (result < 0) { mark_uncertain("identity_unavailable"); alive++; }
+     else if (result == 1 && !zombie(&actual) && same_process(&members.items[i], &actual)) alive++;
+   }
+@@ -228,7 +314,7 @@ static bool check_capability(void) {
+   if (!pidversion_wrapped(UINT32_MAX, 1) || pidversion_wrapped(41, 42) ||
+       pidversion_wrapped(41, 41) || pidversion_wrapped(INT32_MAX, (uint32_t)INT32_MAX + 1)) return false;
+   struct process_info self;
+-  if (identity(getpid(), &self) != 1) return false;
++  if (identity_at(getpid(), &self, "check_capability") != 1) return false;
+   audit_token_t wrong = {{0}};
+   wrong.val[5] = getpid();
+   wrong.val[7] = (uint32_t)self.unique.pidversion ^ 1;
+@@ -239,6 +325,7 @@ static bool status_message(const char *type, const char *reason, int reaped) {
+   int result = reaped < 0
+     ? dprintf(3, "{\"type\":\"%s\",\"reason\":\"%s\"}\n", type, reason)
+     : dprintf(3, "{\"type\":\"%s\",\"reaped\":%s,\"reason\":\"%s\"}\n", type, reaped ? "true" : "false", reason);
++  if (strcmp(type, "stopped") == 0) emit_first_fault();
+   return result > 0;
+ }
+ 
+@@ -255,9 +342,11 @@ static void pause_observation(int milliseconds) {
+ }
+ 
+ static bool stop_worker(void) {
++  diagnostic_phase = "stop_enter";
+   struct process_list current = {0};
+   if (monotonic() < 0) mark_uncertain("clock_unavailable");
+   for (int phase = 0; phase < 2; phase++) {
++    diagnostic_phase = phase == 0 ? "term" : "kill";
+     double deadline = monotonic() + (phase == 0 ? 1.0 : 3.0);
+     for (;;) {
+       bool sampled = sample(&current);
+@@ -269,6 +358,7 @@ static bool stop_worker(void) {
+     }
+   }
+   /* 给短命后代 100ms 自行收敛；最终连续完整快照核实，未知归属始终不发送信号。 */
++  diagnostic_phase = "settle";
+   double settle_deadline = monotonic() + 0.1;
+   int clean_samples = 0;
+   for (int i = 0; i < 16; i++) {
+@@ -283,6 +373,7 @@ static bool stop_worker(void) {
+     struct timespec delay = {.tv_nsec = 10000000};
+     nanosleep(&delay, NULL);
+   }
++  diagnostic_phase = "final";
+   size_t alive = alive_members();
+   if (alive > 0) mark_uncertain("descendant_alive");
+   bool reaped = !uncertain && alive == 0;
+@@ -307,6 +398,7 @@ int main(int argc, char **argv) {
+   signal(SIGHUP, request_stop);
+   fcntl(3, F_SETFD, FD_CLOEXEC);
+   fcntl(4, F_SETFD, FD_CLOEXEC);
++  diagnostic_phase = "baseline";
+   if (!check_capability() || !owner_processes(&baseline)) {
+     status_message("failed", "capability_or_baseline_unavailable", -1);
+     status_message("stopped", "not_created", 1);
+@@ -346,7 +438,8 @@ int main(int argc, char **argv) {
+     free(baseline.items);
+     return 2;
+   }
+-  if (identity(worker_pid, &root) != 1 || !append(&members, &root)) {
++  diagnostic_phase = "startup_identity";
++  if (identity_at(worker_pid, &root, "startup_identity") != 1 || !append(&members, &root)) {
+     /* gate 未放行，子进程尚未 exec；仍按精确身份回收，不用裸 PID 补位。 */
+     mark_uncertain("startup_identity_unavailable");
+     stop_requested = 1;
+@@ -358,6 +451,7 @@ int main(int argc, char **argv) {
+   int child_status = 0;
+   bool child_exited = false;
+   last_sample = monotonic();
++  diagnostic_phase = "observe";
+   while (!stop_requested) {
+     sample(&current);
+     pid_t result = waitpid(worker_pid, &child_status, WNOHANG);

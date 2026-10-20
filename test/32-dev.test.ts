@@ -23,7 +23,6 @@ import * as net from "node:net";
 import * as path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
-import type { ProductType } from "@ruukoto/core/product.ts";
 import { FakeTerminal } from "./helpers/fake-terminal.ts";
 import {
   buildChildEnv,
@@ -76,8 +75,8 @@ interface DevRun {
   waitExit: () => Promise<number | null>;
 }
 
-function runDev(home: string, args: string[] = [], extraEnv: NodeJS.ProcessEnv = {}, product: ProductType = "ruukoto"): DevRun {
-  const entry = product === "ruukoto" ? "apps/ruukoto/src/dev.ts" : "apps/ruukoto-code/src/dev.ts";
+function runDev(home: string, args: string[] = [], extraEnv: NodeJS.ProcessEnv = {}, product: "ruukoto-code" = "ruukoto-code"): DevRun {
+  const entry = `apps/${product}/src/dev.ts`;
   const child = spawn(process.execPath, ["--import", "tsx", entry, ...args], {
     cwd: repoRoot,
     env: { ...process.env, HOME: home, ...extraEnv },
@@ -406,7 +405,7 @@ setInterval(() => {}, 1000);
   }
 });
 
-for (const product of ["ruukoto", "ruukoto-code"] as const) {
+for (const product of ["ruukoto-code"] as const) {
   for (const flag of ["--tui", "--nope"]) {
     test(`${product} 开发入口：${flag} 在建目录前失败（无副作用）`, { timeout: 60_000 }, async () => {
       const home = tmpHome();
@@ -430,7 +429,7 @@ for (const product of ["ruukoto", "ruukoto-code"] as const) {
     try {
       assert.equal(await run.waitExit(), 1);
       assert.ok(run.stderr().includes("未配置有效模型"), run.stderr());
-      assert.ok(run.stderr().includes(`npm run ${product === "ruukoto" ? "dev" : "code"} -- --config`), run.stderr());
+      assert.ok(run.stderr().includes("npm run code -- --config"), run.stderr());
       assert.ok(!fs.existsSync(path.join(profile.controlDir, "control.sock")), "后台未启动");
       assert.ok(!fs.existsSync(path.join(profile.logsDir, "backend.log")), "未产生后台日志");
     } finally {
@@ -440,13 +439,13 @@ for (const product of ["ruukoto", "ruukoto-code"] as const) {
   });
 }
 
-test("dev --import-models：复制后进入门禁；无效配置退出且 credentials.json 未导入", { timeout: 60_000 }, async () => {
+test("code --import-models：复制后进入门禁；无效配置退出且 credentials.json 未导入", { timeout: 60_000 }, async () => {
   const home = tmpHome();
   const dir = tmpHome("ruukoto-test-import-src-");
   fs.writeFileSync(path.join(dir, "models.json"), JSON.stringify({ providers: {} }));
   fs.writeFileSync(path.join(dir, "auth.json"), "{}");
   fs.writeFileSync(path.join(dir, "credentials.json"), "{}");
-  const profile = devProfileFor(repoRoot, home);
+  const profile = devProfileFor(repoRoot, home, "ruukoto-code");
   const run = runDev(home, ["--import-models", dir]);
   try {
     const code = await run.waitExit();
@@ -464,66 +463,9 @@ test("dev --import-models：复制后进入门禁；无效配置退出且 creden
   }
 });
 
-test(
-  "dev：后台就绪（QQ 停用、环境可认证），SIGINT 后无锁无孤儿进程",
-  { timeout: 180_000 },
-  async () => {
-    const home = tmpHome();
-    const profile = devProfileFor(repoRoot, home);
-    const server = new MockModelServer(async () => ({ kind: "text", text: "ok" }));
-    const baseUrl = await server.start();
-    await writeMockModelConfig(profile.agentDir, baseUrl);
-    const tokenInjection = { RUUKOTO_OWNER_TOKEN: "x".repeat(40), RUUKOTO_EXECUTION_BACKEND: "container" }; // 被清洗，不得进入子进程
-    const run = runDev(home, [], tokenInjection);
-    try {
-      await waitFor(
-        "dev 后台就绪",
-        async () => {
-          if (run.child.exitCode !== null || run.child.signalCode !== null) {
-            throw new Error(`dev 在后台就绪前退出（code=${run.child.exitCode} signal=${run.child.signalCode}）\nstdout:\n${run.stdout().slice(-2000)}\nstderr:\n${run.stderr().slice(-2000)}`);
-          }
-          return probeControlPlane(path.join(profile.controlDir, "control.sock"), readOwnerToken(profile.controlDir), 800);
-        },
-        120_000,
-      );
-      // 令牌来自档案文件（清洗后的环境），QQ 入口按 dev 标记停用
-      const client = await ControlClient.connect(path.join(profile.controlDir, "control.sock"), 3000);
-      try {
-        await client.authenticate(readOwnerToken(profile.controlDir)!);
-        const qq = await client.request<Record<string, unknown>>("qq_status", {});
-        assert.equal((await client.handshake()).snapshot.execution.backend, "native", "dev 清理旧覆盖并沿用个人产品 native 默认");
-        assert.equal(qq.disabledByConfig, true, "QQ 按启动配置停用");
-        assert.ok(String(qq.stateDetail).includes("停用"), String(qq.stateDetail));
-      } finally {
-        client.close();
-      }
-
-      run.child.kill("SIGINT");
-      const code = await run.waitExit();
-      assert.equal(code, 0, `收到 SIGINT 后 dev 正常清理退出；dev 输出：\n${run.stderr().slice(-1500)}`);
-      assert.ok(run.stderr().includes("日志"), "退出时提示日志位置");
-      await waitFor("实例锁释放", () => !fs.existsSync(path.join(profile.dataDir, "runtime.lock")), 15_000);
-      assert.ok(!fs.existsSync(path.join(profile.controlDir, "control.sock")), "socket 已清理");
-      // 后台 pid 从 backend.log 解析：进程必须已不存在（无孤儿）
-      const backendLog = fs.readFileSync(path.join(profile.logsDir, "backend.log"), "utf8");
-      const pid = Number(/\(pid (\d+)\)/.exec(backendLog)?.[1]);
-      assert.ok(Number.isInteger(pid) && pid > 0, `backend.log 应含后台 pid：${backendLog.slice(-300)}`);
-      assert.throws(() => process.kill(pid, 0), /ESRCH/, "后台进程已退出，无孤儿");
-      assert.ok(
-        !(await probeControlPlane(path.join(profile.controlDir, "control.sock"), readOwnerToken(profile.controlDir), 500)),
-        "控制面不再可连",
-      );
-    } finally {
-      await killDev(run);
-      await server.close();
-      fs.rmSync(home, { recursive: true, force: true });
-    }
-  },
-);
-
-test("dev：开发实例已在运行 → 报错退出且不碰外来后台", { timeout: 180_000 }, async () => {
+test("code：开发实例已在运行 → 报错退出且不碰外来后台", { timeout: 180_000 }, async () => {
   const home = tmpHome();
-  const profile = devProfileFor(repoRoot, home);
+  const profile = devProfileFor(repoRoot, home, "ruukoto-code");
   fs.mkdirSync(profile.dataDir, { recursive: true });
   fs.mkdirSync(profile.agentDir, { recursive: true });
   const server = new MockModelServer(async () => ({ kind: "text", text: "ok" }));

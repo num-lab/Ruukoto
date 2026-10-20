@@ -1,0 +1,65 @@
+0 verbose cli /usr/local/bin/node /usr/local/bin/npm
+1 info using npm@11.19.0
+2 info using node@v24.21.0
+3 silly config load:file:/usr/local/lib/node_modules/npm/npmrc
+4 info config found workspace root at /dev/shm/rk-personal-plan.t64tGq/repo
+5 silly config load:file:/dev/shm/rk-personal-plan.t64tGq/repo/.npmrc
+6 silly config load:file:/home/eitrous/.npmrc
+7 silly config load:file:/usr/local/etc/npmrc
+8 verbose title npm pack
+9 verbose argv "pack" "--pack-destination" "../../dist"
+10 verbose logfile logs-max:10 dir:/dev/shm/rk-personal-plan.t64tGq/npm-cache/_logs/2026-10-17T07_29_51_322Z-
+11 verbose logfile /dev/shm/rk-personal-plan.t64tGq/npm-cache/_logs/2026-10-17T07_29_51_322Z-debug-0.log
+12 silly logfile start cleaning logs, removing 1 files
+13 silly logfile done cleaning log files
+14 silly packumentCache heap:2153512960 maxSize:538378240 maxEntrySize:269189120
+15 notice
+16 notice 📦  ruukoto@0.1.0
+17 notice Tarball Contents
+18 notice 580B bin/ruukoto.mjs
+18 notice 861B package.json
+18 notice 91B src/dev.ts
+18 notice 152B src/main.ts
+18 notice 25.4kB src/personal-cli.ts
+18 notice 1.8kB src/personal-config.ts
+18 notice 18.8kB src/personal-control.ts
+18 notice 17.7kB src/personal-delegation.ts
+18 notice 438B src/personal-entry.ts
+18 notice 191B src/personal-error.ts
+18 notice 33.8kB src/personal-harness.ts
+18 notice 500B src/personal-local-records.ts
+18 notice 5.5kB src/personal-model.ts
+18 notice 4.7kB src/personal-permissions.ts
+18 notice 3.9kB src/personal-profile.ts
+18 notice 27.9kB src/personal-report.ts
+18 notice 6.5kB src/personal-service-config.ts
+18 notice 16.4kB src/personal-service-inspection.ts
+18 notice 41.8kB src/personal-service-operations.ts
+18 notice 5.6kB src/personal-services.ts
+18 notice 6.3kB src/personal-telegram-api.ts
+18 notice 4.2kB src/personal-telegram-config.ts
+18 notice 2.1kB src/personal-telegram-records.ts
+18 notice 16.4kB src/personal-telegram.ts
+18 notice 14.4kB src/personal-work-controls.ts
+18 notice 13.7kB src/personal-work-tools.ts
+18 notice 32.3kB src/personal-work.ts
+18 notice 1.8kB src/product.ts
+18 notice 22.3kB src/scheduler-tools.ts
+18 notice 8.9kB src/service-helper.ts
+18 notice 20.9kB src/service-tools.ts
+19 notice Tarball Details
+20 notice name: ruukoto
+21 notice version: 0.1.0
+22 notice filename: ruukoto-0.1.0.tgz
+23 notice package size: 89.2 kB
+24 notice unpacked size: 356.0 kB
+25 notice shasum: fbc88210b8724f2c1c4658fdf5511652c4f290af
+26 notice integrity: sha512-+xHaVZfiks19I[...]O/Bv0/pNikmfw==
+27 notice total files: 31
+28 notice
+29 verbose cwd /dev/shm/rk-personal-plan.t64tGq/repo/apps/ruukoto
+30 verbose os Linux 6.8.0-117-generic
+31 verbose node v24.21.0
+32 verbose npm  v11.19.0
+33 verbose exit 0
+34 info ok

@@ -1,0 +1,28 @@
+{"done":{"status":"terminal","outcome":{"status":"completed","result":{"delivery":"canceled"}}},"result":{"delivery":"canceled","state":"completed","text":"本报告的固定回答"}}
+✔ 独立探针：停用Telegram并移除token后恢复pending报告应取消 (600.106542ms)
+{"stage":"before-admission","result":{"delivery":"canceled","state":"completed"},"sent":0,"summaryRequests":0}
+▶ 独立探针：取消与报告精确窗口
+  ✔ before-admission (48.704ms)
+{"stage":"after-admission","result":{"delivery":"canceled","state":"completed"},"sent":0,"summaryRequests":1}
+  ✔ after-admission (43.360375ms)
+{"stage":"before-send-claim","result":{"delivery":"canceled","state":"completed","text":"本报告的固定回答"},"sent":0,"summaryRequests":1}
+  ✔ before-send-claim (37.98425ms)
+{"stage":"after-send-claim","result":{"delivery":"sent","state":"completed","text":"本报告的固定回答"},"sent":1,"summaryRequests":1}
+  ✔ after-send-claim (41.327542ms)
+✔ 独立探针：取消与报告精确窗口 (171.765625ms)
+{"counts":{"http":8,"payloads":8},"estimates":{"main":{"systemPrompt":122,"toolSchemas":804},"sub":{"systemPrompt":64,"toolSchemas":0}}}
+✔ 独立探针：真实HTTP输入与持久payload完整相等 (43.903209ms)
+{"kind":"group-cancel","delivery":"canceled","reportSubmission":"unanswered","other":"done"}
+▶ 独立探针：整项取消和native abort只撤回该报告队列输入
+  ✔ group-cancel (39.929292ms)
+{"kind":"native-abort","delivery":"canceled","reportSubmission":"unanswered","other":"done"}
+  ✔ native-abort (40.481042ms)
+✔ 独立探针：整项取消和native abort只撤回该报告队列输入 (80.636ms)
+ℹ tests 10
+ℹ suites 0
+ℹ pass 10
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1518.628333

@@ -1,0 +1,13 @@
+✔ macOS 监督器核实 libproc、原子信号、版本回卷与跨 UID 的 PID 1 身份 (2285.404875ms)
+✔ macOS 监督器不把宿主状态和控制 FD 传给执行进程 (124.47375ms)
+✔ macOS 真实 Seatbelt 中 Node 完成启动标记后才加载 worker，启动前失败保留机器原因 (320.800875ms)
+✔ macOS 控制通道关闭回收独立进程组内忽略 TERM 的已累计后代 (2190.1595ms)
+✔ macOS 轮询漏记短命父亲后的新孤儿保留为未核实，且不向未知归属发信号 (1807.260917ms)
+ℹ tests 5
+ℹ suites 0
+ℹ pass 5
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 6814.273208

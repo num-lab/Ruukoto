@@ -1,0 +1,48 @@
+✔ QQ owner 私聊复用 main、采用会话默认模式、先登记且去重；群与陌生人消息不串入；凭据不外泄 (807.063709ms)
+✔ QQ owner 身份与控制面授权独立：伪造模型工具不能改权限或批准开发会话操作 (763.928667ms)
+✔ QQ 与 Telegram 共享 main；通用计划独立执行并固定回报，其他外部事件不自动外发 (1088.077917ms)
+✔ token 错误和登录账号不符不接任务；连接掉线、账号离线与坏心跳停止接收并可恢复 (2189.774959ms)
+✔ 发送明确失败、内部异常、超时、缺少消息 ID 与异步回执按事实收尾，重复入站不重发 (1424.855375ms)
+✔ 私聊配置必须有 token 和固定 owner；停用、换 owner、清除 owner 使旧发送与排队任务失效 (898.815792ms)
+✔ 启动配置停用的 QQ 入口按停用处理：排队任务按 qq_private_unavailable 取消，main 队列后面的任务照常运行 (306.033833ms)
+[ruukoto:orchestrator] 恢复 1 条已登记未建任务的入站事件
+✔ 重启恢复已登记未建任务；补登只取原任务回答；sending 记未知且重投不重复 (702.3355ms)
+✔ 群结果工具仅 main 可见；归档群结果不唤醒 main，宿主不能引用未接收摘要 (881.861625ms)
+✔ main 接收不外发；宿主通知引用固定快照并等待渠道上线 (349.877375ms)
+✔ 归档群消息在宿主登记前或待发期间撤回，都不能继续外发摘要 (894.297042ms)
+✔ 子任务与协作消息完成后才关闭整项运行；一次最终汇报，模式与上下文独立 (1246.708ms)
+✔ 取消整项运行停止子任务与汇总，迟到新委派或消息被拒，成果记录保留 (401.253792ms)
+✖ 受限运行独立等待审批，主聊天继续响应，计划保存模式跨默认变化与重启不重算 (15300.148375ms)
+✔ queued 首次执行与已登记汇总重启沿原任务键、模式、目标和独立上下文继续 (1032.99825ms)
+[ruukoto:orchestrator] 事件 evt_20a28746668fb87561298203 建任务失败：INJECTED-BIND-FAILURE
+✔ 独立执行绑定失败回滚会话、任务与来源关联，运行记录失败且只回报一次 (201.620125ms)
+[ruukoto:parent-delivery] 子任务 task_1fa60a1862e115b3df096e4c 的来源不可核实（subagent_source_invalid）；结果与记录保留，请核实后继续
+✔ 取消尚未执行的 root、子任务及待消息：结果均登记，运行关闭且不调用模型 (400.7795ms)
+✔ 退出未核实占用阻止整项关闭与下轮重叠，核实后保留原结果再收尾 (716.934458ms)
+✔ 宿主取消停止未核实：task中断及占用可见，运行继续开放等待核实 (476.027334ms)
+✔ 验收1：全新实例只有 main（chat/coding 已退役，issue 20/23）；群消息零新增；同连接私聊与 Telegram 照常回复 (1495.2215ms)
+✔ 验收2：inbox 附接收与复核结论、outbox 账本、read_history 可读；转 dev 会话与提交全部拒绝 (386.916375ms)
+✔ 验收3：无 chat 角色行的实例中 main/coding/SubAgent 仍读不到群项目；已接收快照仅 main (279.526ms)
+✔ 验收4a：宿主登记的已接收群结果通知在退役后正常发送 (228.412625ms)
+[ruukoto:orchestrator] 事件 evt_7d5ad8879cb7570637a99722 建任务失败：调度资料授权已失效，未开始执行
+✔ 验收4b/4c/4d：撤回与归档篡改阻断待发通知与调度运行（source_revoked 及原因），不只凭快照正文继续 (331.899291ms)
+[ruukoto:orchestrator] 恢复 1 条已登记未建任务的入站事件
+✔ 验收5：排队/在途/待发/未派发事件一次性收尾只定终态；三次启动幂等 (2301.107958ms)
+ℹ tests 25
+ℹ suites 0
+ℹ pass 24
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 24713.055458
+
+✖ failing tests:
+
+test at test/51-generic-scheduler.test.ts:1:7076
+✖ 受限运行独立等待审批，主聊天继续响应，计划保存模式跨默认变化与重启不重算 (15300.148375ms)
+  Error: 等待超时: 调度请求审批
+      at waitFor (/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto38-callers-6cugvg88/test/helpers/testkit.ts:233:47)
+      at async TestContext.<anonymous> (/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto38-callers-6cugvg88/test/51-generic-scheduler.test.ts:139:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7)

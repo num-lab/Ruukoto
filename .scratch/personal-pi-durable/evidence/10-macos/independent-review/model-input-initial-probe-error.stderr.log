@@ -1,0 +1,9 @@
+/private/tmp/ruukoto-model-review-tJYsF1/input-verification.mts:13
+ const works=await p.work.list(); await p.harness.waitForTask(works[0].work.taskId,(await import('/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/@earendil-works/chord/dist/context/index.js')).BACKGROUND_CONTEXT);
+                                                                            ^
+
+TypeError: Cannot read properties of undefined (reading 'taskId')
+    at <anonymous> (/private/tmp/ruukoto-model-review-tJYsF1/input-verification.mts:13:77)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+
+Node.js v24.15.0

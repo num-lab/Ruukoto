@@ -1,0 +1,28 @@
+{
+  "at": "2026-10-18T15:09:45.389899+00:00",
+  "worktree": "/tmp/ruukoto39-report-registration-worktree",
+  "selectedNames": [
+    "durable 命令：封组登记不等待命令 running，效果和停止核实后才唯一汇总",
+    "durable 命令：封组登记不等待命令 unknown，效果和停止核实后才唯一汇总",
+    "durable 命令：封组登记不等待命令 restored，效果和停止核实后才唯一汇总"
+  ],
+  "command": [
+    "/Users/eitrous/.local/share/mise/installs/node/24.15.0/bin/node",
+    "--import",
+    "tsx",
+    "--test",
+    "--test-concurrency=1",
+    "--test-name-pattern=^(durable\\ 命令：封组登记不等待命令\\ running，效果和停止核实后才唯一汇总|durable\\ 命令：封组登记不等待命令\\ unknown，效果和停止核实后才唯一汇总|durable\\ 命令：封组登记不等待命令\\ restored，效果和停止核实后才唯一汇总)$",
+    "test/personal-command-work.test.ts"
+  ],
+  "files": {
+    "apps/ruukoto/src/personal-delegation.ts": "a4e3c1116180bbbc93b9c05c5cc6ce0e586461076bcd409176a6af508dab7a41",
+    "apps/ruukoto/src/personal-report.ts": "5d373f90175dee7d1f6bbe1a3822aa615a4726f89de9f151855829d356fb942d",
+    "apps/ruukoto/src/personal-work-tools.ts": "6264d40d87768d53656ee96d4942eae592d90c770464f1b1f7a6a859cc2b9f74",
+    "test/personal-command-work.test.ts": "1674ffef156c3973b36eb956268dcd1fdb37ed469d97fc8dfdbd4216bad49ee7",
+    "docs/modules/personal-durable.md": "a7d3d548d6543776aa010f7254f5588bfb73345df3d04a3fc6f1259f5f54909c",
+    ".agents/notes/implemented/architecture/2026-10-17-personal-delegation-reports.md": "a2d73afa83d55a3fc51969ee0a8de71e23fe5fcd0138df8a141c453eea9fa93f"
+  },
+  "patchSHA256": "dd9ab86d6f0238a586f4c9b2dd37a0ec5f35471f7d8b5c8988529bedcb5e39a0",
+  "scope": "independent narrow test; fixture uses real own command worker/shell but mocks Linux/systemd/cgroup interfaces; no real model/IM/service/live"
+}

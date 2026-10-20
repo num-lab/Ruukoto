@@ -1,0 +1,19 @@
+✔ Telegram 服务核实：原确认菜单保存证据、重投不覆盖、错误停止不释放且控制零模型 (330.056ms)
+✔ Telegram 服务核实：未送达确认与旧代次菜单不能核实，本机保留管理资格 (142.277625ms)
+▶ Telegram 服务核实：效果、停止与原收件双向回链缺失或扩展缺失拒绝恢复
+  ✔ resolution (161.99575ms)
+  ✔ evidence (157.388875ms)
+  ✔ stop (163.156833ms)
+  ✔ marker (157.451167ms)
+✔ Telegram 服务核实：效果、停止与原收件双向回链缺失或扩展缺失拒绝恢复 (640.375667ms)
+[ruukoto:personal] 持久执行出现错误，请查询状态并检查档案；未自动重启。
+✔ Telegram 服务核实：收件接纳失败零外调，同一重投只登记一次 (159.026042ms)
+✔ Telegram 服务停止：接纳后换代在执行前拒绝，不调用原 helper (130.7985ms)
+ℹ tests 9
+ℹ suites 0
+ℹ pass 9
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2086.226208

@@ -1,0 +1,1 @@
+[ruukoto:personal] 真实模型验收需要 RUN_MODEL_CHECK=1、RUN_PERSONAL_MODELS_FILE 和 RUN_PERSONAL_MODEL；未执行模型请求。

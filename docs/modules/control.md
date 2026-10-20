@@ -2,6 +2,8 @@
 
 ## 职责与边界
 
+本篇的运行状态、历史或客户端协议适用于 Coding 与保留的旧格式实现；正式个人 Agent 使用[个人持久会话](personal-durable.md)，不接入旧 Runtime、Task Store 或控制协议。
+
 控制面（`packages/control/src/`）是后台对外的唯一进程边界：后台在受控目录的 Unix socket 上暴露换行分帧 JSON 协议，客户端经它认证、提交与查询任务、订阅事件。单个后台进程服务一个数据目录，控制面自己不做业务判断。
 
 它负责：
@@ -28,7 +30,7 @@
 
 **拥有者认证。** 连接建立后第一个成功的操作必须是 `auth`（参数 `token`）。认证成功前，服务端对其他 op 一律回 `unauthorized`，不返回快照、不执行请求；连接保留，可以再次认证。令牌是 32 字节随机数的 hex，写入控制目录的 `owner.token`（0600）：缺失或内容去空白后不足 32 字符时后台启动时生成，已存在则复用。多用户部署由配置步骤把令牌以 0400、属主为拥有者放到拥有者可读的位置，再用 `RUUKOTO_OWNER_TOKEN_FILE` 指向它。
 
-客户端按固定优先级取令牌：`RUUKOTO_OWNER_TOKEN` 环境变量 → `RUUKOTO_OWNER_TOKEN_FILE` 指定的文件 → 控制目录的 `owner.token`。两个环境变量两个产品同名（令牌是控制面身份，不是路径归属）。令牌不进命令行、工具环境、日志或待确认记录；比较用 `timingSafeEqual` 常数时间比较，长度不同也照样比较一次再否决。三个来源都取不到时客户端抛出带修复指引的错误，请求根本不发。
+客户端按固定优先级取令牌：`RUUKOTO_OWNER_TOKEN` 环境变量 → `RUUKOTO_OWNER_TOKEN_FILE` 指定的文件 → 控制目录的 `owner.token`。这两个变量只作用于该旧控制协议，新个人本机接口使用独立令牌。令牌不进命令行、工具环境、日志或待确认记录；比较用 `timingSafeEqual` 常数时间比较，长度不同也照样比较一次再否决。三个来源都取不到时客户端抛出带修复指引的错误，请求根本不发。
 
 **探测。** 就绪要求 socket 可连、令牌认证通过、`ping` 返回 `pong: true` 且 `stopping: false`，不取快照或订阅。正式连接再通过 `connect` 安装快照。停止中的后台或无效响应给出专属错误；仍可连接的 socket 不重复拉起；`protocol_version` 与 `unauthorized` 这类明确拒绝本身就证明后台在运行。TUI 的按需拉起门控与退避重连见[交互终端与配置中心](tui.md)。
 
@@ -114,7 +116,7 @@ stateDiagram-v2
 
 退避重连的初始间隔 500 ms、上限 8000 ms；令牌提供函数或后台明确拒绝（`ControlClientError.outcome === "rejected"`）、产品不符时进 `failed` 并停止重试；`onState` 的第三个参数携带原始 `ControlClientError`。重连只恢复观察：不发送 `resume_queue`、批准或继续请求。
 
-**待确认请求记录。** 每个产品存档根下的 `pending/`（默认 `~/.ruukoto/pending` 或 `~/.ruukoto-code/pending`，`RUUKOTO_PENDING_DIR` / `RUUKOTO_CODE_PENDING_DIR` 可覆盖）：目录 0700、记录 0600，写临时文件再 `rename`。一条记录含 `requestId`、op（输入提交、会话分支、压缩或工作流启动/回答/控制）、完整请求参数、提交时握手返回的 `instanceId`、创建时间。解析不了的文件留在磁盘上单独列出，不静默丢弃；令牌等凭据永不写入这里。记录用于核实原请求及关联其结果，不是会话历史的副本。
+**待确认请求记录。** Coding 档案根下的 `pending/`（默认 `~/.ruukoto-code/pending`，`RUUKOTO_CODE_PENDING_DIR` 可覆盖；旧个人路径只用于保留协议实现）：目录 0700、记录 0600，写临时文件再 `rename`。一条记录含 `requestId`、op（输入提交、会话分支、压缩或工作流启动/回答/控制）、完整请求参数、提交时握手返回的 `instanceId`、创建时间。解析不了的文件留在磁盘上单独列出，不静默丢弃；令牌等凭据永不写入这里。记录用于核实原请求及关联其结果，不是会话历史的副本。
 
 **游标。** 两处去重：底层客户端丢弃 `seq` 不大于它记下的序号的推送，连接层丢弃 `seq` 不大于 `appliedSeq` 的事件，并且只在事件应用之后才前进游标。握手期到达的实时推送先缓冲，快照安装后再按序应用。
 

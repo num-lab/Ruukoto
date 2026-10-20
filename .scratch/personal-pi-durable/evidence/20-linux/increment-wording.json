@@ -1,0 +1,21 @@
+{
+  "timestamp": "2026-10-17T09:04:34.330567+00:00",
+  "updates": [
+    {
+      "path": "apps/ruukoto/src/personal-service-controls.ts",
+      "previous_sha256": "8adda829e5a4ddc612daf63bba0628fc8c3194d57d3a9f4222cdacc39868902a",
+      "final_sha256": "f4414dd64ce54ab317beebdcfd5f9307b26ce813d2bb64d7f67f3eed5206dae1"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-cli.ts",
+      "previous_sha256": "0be16a8ab3db8dbf5df991e14d17d884ec9f5923d897af6c31dc32ab73511e25",
+      "final_sha256": "7d364a1072e1e1b69869774d408dc850e081d72739dcf7d78913baa5a2f2edff"
+    },
+    {
+      "path": "test/personal-service-operations.test.ts",
+      "previous_sha256": "13441618c2634ace2452218b20d4e5b4fd0c6cd5e02da51077a9cde575af8a34",
+      "final_sha256": "a8cd0bbec82c7c4a0d9f619bfecf1190936af70165808ebb8981bda9e84848a4"
+    }
+  ],
+  "reason": "已知 executed/not_executed 不展示未知双核实状态；只对未知效果提示人工核实；已知成功/拒绝新增详情断言。"
+}

@@ -1,0 +1,11 @@
+Linux BJ-Tencent 6.8.0-117-generic #117-Ubuntu SMP PREEMPT_DYNAMIC Tue May  5 19:26:24 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/vda2        40G   37G  624M  99% /
+/dev/vda2        40G   37G  624M  99% /
+tmpfs           1.9G   61M  1.8G   4% /dev/shm
+               total        used        free      shared  buff/cache   available
+Mem:            3723         777        2546           1         698        2945
+Swap:           1987         740        1247
+v24.21.0
+11.19.0
+Python 3.12.3

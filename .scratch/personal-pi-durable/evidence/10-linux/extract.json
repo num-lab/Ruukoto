@@ -1,0 +1,10 @@
+{
+  "command": [
+    "ssh",
+    "tx",
+    "tar -xzf /tmp/ruukoto-personal-linux-20261017T034917Z-attempt2/source.tar.gz -C /tmp/ruukoto-personal-linux-20261017T034917Z-attempt2/repo"
+  ],
+  "exitCode": 0,
+  "started": "2026-10-17T03:51:06.581099+00:00",
+  "ended": "2026-10-17T03:51:07.426410+00:00"
+}

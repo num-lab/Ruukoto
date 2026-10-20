@@ -1,0 +1,30 @@
+{
+  "passed": true,
+  "scope": "actual function with minimal Tx branch double; no HTTP or durable writes",
+  "facts": [
+    {
+      "mode": "unknown_kind",
+      "result": "source_invalid",
+      "submissionReads": 2,
+      "entryReads": 2
+    },
+    {
+      "mode": "missing_record",
+      "result": "source_invalid",
+      "submissionReads": 2,
+      "entryReads": 2
+    },
+    {
+      "mode": "missing_entry_id",
+      "result": "source_invalid",
+      "submissionReads": 2,
+      "entryReads": 0
+    },
+    {
+      "mode": "report",
+      "result": false,
+      "submissionReads": 1,
+      "entryReads": 1
+    }
+  ]
+}

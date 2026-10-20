@@ -1,0 +1,51 @@
+以下为已完成工具响应的转录摘录，不是完整原始日志；没有重跑。
+
+新传输窄测试：
+✔ helper 传输：aborted 在调用关闭前保持等待并保留尾部字节 (43.009542ms)
+✔ helper 传输：timeout 在调用关闭前保持等待并保留尾部字节 (1020.409958ms)
+✔ helper 传输：已取消输入不启动 helper (2.140541ms)
+✔ helper 传输：spawn 后监听安装前取消仍按取消收尾 (6.018292ms)
+✔ helper 传输：输出超限在关闭后返回有界原始捕获 (45.180834ms)
+✔ helper 传输：异步启动失败收齐 close 后返回原失败码 (1.329375ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 6
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1170.321875
+
+四文件调用方回归摘要（中间用例输出省略）：
+ℹ tests 113
+ℹ suites 0
+ℹ pass 113
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 19982.581125
+
+事件探针输出：
+{"first":"spawn_failed","pendingBeforeClose":true,"preservedFirstCode":true,"finalBoundedCapture":true}
+{"first":"aborted","pendingBeforeClose":true,"preservedFirstCode":true,"finalBoundedCapture":true}
+
+旧 HEAD 反证输出摘要（堆栈省略）：
+OLD_HEAD_REPLAY_EXIT=1
+✖ helper 传输：aborted 在调用关闭前保持等待并保留尾部字节 (35.092625ms)
+✖ helper 传输：timeout 在调用关闭前保持等待并保留尾部字节 (1003.780583ms)
+✔ helper 传输：已取消输入不启动 helper (1.715792ms)
+✖ helper 传输：spawn 后监听安装前取消仍按取消收尾 (1003.231125ms)
+✔ helper 传输：输出超限在关闭后返回有界原始捕获 (34.403791ms)
+✔ helper 传输：异步启动失败收齐 close 后返回原失败码 (1.036792ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 3
+ℹ fail 3
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2148.264375
+REVIEW_DIRECTORY_REMOVED=True
+
+反证失败依据转录：aborted 的 stdout 为 'before-stop\n'，缺少 after-stop；timeout 的 settled=true 而期望 false；监听窗口捕获 Error: 服务管理 helper 调用超时（1000ms），不符合期望的 aborted。

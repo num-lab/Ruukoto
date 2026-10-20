@@ -1,0 +1,4 @@
+tests_exit=0 tests_seconds=24
+build_exit=0 build_seconds=2
+source_hash_exit=0
+complete

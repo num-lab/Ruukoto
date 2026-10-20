@@ -1,0 +1,70 @@
+来源：已完成命令的工具捕获输出转录；原执行没有重定向成文件，未为落盘重复运行。
+原 functions.exec session_id: 77023；最终 write_stdin chunk_id: e1804f；exit_code: 0。
+工作目录：/tmp/ruukoto-32-browser-1018a
+命令：npx tsx --test test/personal-scheduler.test.ts test/personal-scheduler-authority.test.ts test/personal-scheduler-integration.test.ts test/personal-scheduler-controls.test.ts test/personal-scheduler-entries.test.ts test/review-32-recovery-probe.test.ts test/review-32-merge-probe.test.ts
+
+✔ 定时创建授权：模型的字符串星期按同一SDK规范化恢复，原工具历史保留 (276.310208ms)
+✔ 调度向导：选择每周与IANA时区并保存多星期，用户不提供内部键 (46.231ms)
+✔ 调度向导：创建已接纳但应答丢失，恢复只查原程序键且不创建第二份 (9.319917ms)
+✔ 调度向导：从计划选择原运行、分页完整报告与整项取消，始终通过认证后台 (30.432ms)
+✔ 调度向导：坏规则不保存，返回不创建，独立待核实文件可由原档案保护 (4.949667ms)
+✔ 双平台定时菜单：逐步草稿与确认回链零模型，同草稿重复确认只创建一项 (23.175917ms)
+✔ 定时菜单：跨平台、摘录、未送达及无原菜单不能创建或取消，坏草稿恢复拒绝 (2.855458ms)
+✔ 定时HTTP入口：真实后台认证、创建去重/异参拒绝、独立运行完整报告及取消后重启 (325.356792ms)
+✔ 双平台真实收件：定时草稿中的权限名/补充前缀/工作命令只作正文，确认去重与原入口取消可恢复 (181.645ms)
+✔ 双平台定时回报：真实宿主发送固定原确认消息，长报告菜单保留全文且重启不重发 (300.565334ms)
+✔ 定时组合：独立输入与主聊天隔离，结果只留本机，重启不重放 (398.596875ms)
+✔ 定时组合：等待子工作时主聊天继续，创建模式不随新默认扩大 (117.512125ms)
+✔ 定时组合：创建后新增资料授权不会扩大旧计划，配置失效时零模型 (2076.074458ms)
+✔ 定时组合：未知HTTP写入保留整项占用，取消与重启不重发 (1069.554291ms)
+✔ 定时组合：子工作SDK规范化参数可恢复，原始调用仍可追溯 (89.968083ms)
+✔ 定时：创建同键去重、异参拒绝；一次性接纳和真实custom source反链跨重启保持 (268.405875ms)
+✔ 定时：停机多期只接最近一次；活动漏期合并且外部核实前不关闭，主聊天独立 (79.35075ms)
+✔ 定时：配置新增不扩大旧计划；执行前失效保留通用失败及创建范围 (12.125791ms)
+✔ 定时：已受理取消禁止晚结果复活；只取消原计划并保留完整结果 (18.944042ms)
+✔ 定时：外部收尾失败进入确定失败结果，反链损坏拒绝恢复 (35.136792ms)
+✔ 定时：回报认领后丢答及重启只保留未知，不重复发送；配置目标换代不改发 (110.045166ms)
+✔ 定时：最终发送等待不占计划下一周期；限流原意图延后，换代只取消旧目标 (37.401625ms)
+✔ 定时：取消不可变证据和同IM草稿重复确认；无未来计划不建立supervisor (10.185ms)
+▶ 定时恢复：监督任务与原索引双向唯一，损坏指针不能另造控制器
+  ✔ missing (7.821583ms)
+  ✔ foreign (7.631667ms)
+  ✔ duplicate (6.387333ms)
+  ✔ older-active (7.835ms)
+  ✔ conversation (8.453458ms)
+  ✔ input (8.086292ms)
+✔ 定时恢复：监督任务与原索引双向唯一，损坏指针不能另造控制器 (46.97975ms)
+▶ 定时恢复：首次回答与汇总必须来自原会话，宿主历史不能因删字段失踪
+  ✔ initial-answer (30.283542ms)
+  ✔ initial-answer-deleted (28.646792ms)
+  ✔ summary-submission (28.872959ms)
+  ✔ summary-answer (35.530917ms)
+  ✔ summary-answer-deleted (29.879667ms)
+  ✔ failed-summary-answer-deleted (43.377333ms)
+  ✔ summary-deleted (25.092542ms)
+  ✔ summary-failed (24.353792ms)
+  ✔ result-deleted (23.903417ms)
+  ✔ orphan-summary (24.444875ms)
+  ✔ orphan-result (25.517167ms)
+  ✔ orphan-send (25.972583ms)
+✔ 定时恢复：首次回答与汇总必须来自原会话，宿主历史不能因删字段失踪 (347.03325ms)
+▶ 定时恢复：删除已受理取消字段不能恢复计划或当前运行
+  ✔ plan (8.298625ms)
+  ✔ run (8.022125ms)
+✔ 定时恢复：删除已受理取消字段不能恢复计划或当前运行 (16.651291ms)
+✔ 定时：跨下一到期点后先结束再扫描，也把漏期合入原运行 (18.231917ms)
+✔ review finish records missed boundary before next supervisor scan (239.691667ms)
+✔ review recovery rejects supervisor-index (318.79325ms)
+✔ review recovery rejects summary-submission (73.840625ms)
+✔ review recovery rejects summary-answer (71.749916ms)
+✔ review recovery rejects initial-answer (60.085334ms)
+✔ review recovery rejects deleted-summary (68.591375ms)
+✔ review recovery rejects deleted cancellation fact (23.394209ms)
+ℹ tests 54
+ℹ suites 0
+ℹ pass 54
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 5232.094167

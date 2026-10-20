@@ -40,6 +40,8 @@ profile 按 dataDir 和会话隔离，socket 与 CLI session 使用宿主生成�
 
 本地网页预览所依赖的 HTTP 服务存活问题见[后台生命周期提案](../../proposed/feature/2026-10-14-bash-background-lifecycle.md)。提案尚未落地；本篇继续持有 Chrome 的归属和生命周期，不负责 bash 启动的服务。
 
+个人 Pi 1.3.0 的独立装配见[浏览器与图片归属](../architecture/2026-10-18-personal-browser-media.md)；本篇继续持有既有共享装配与权限/媒体规则，个人 durable 的绑定、接纳和恢复由该篇持有。
+
 ## 备选方案
 
 CLI + skill 最省代码，也能服务普通开发会话，但不能覆盖 main 的直接调用、跨轮归属或附接回收，所以采用专属宿主工具。

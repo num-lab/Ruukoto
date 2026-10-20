@@ -1,0 +1,10 @@
+✔ 文件写入开始后 fsync 失败保留真实改动并报告效果未知；版本拒绝仍已知未执行 (1.668958ms)
+✔ 受信文件写入：截短已开始后异常不能报告未执行 (1.707041ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1309.226708

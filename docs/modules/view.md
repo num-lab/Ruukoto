@@ -2,6 +2,8 @@
 
 ## 职责与边界
 
+本篇的运行状态、历史或客户端协议适用于 Coding 与保留的旧格式实现；正式个人 Agent 使用[个人持久会话](personal-durable.md)，不接入旧 Runtime、Task Store 或控制协议。
+
 `@ruukoto/view`（`packages/view/src/`）把控制面的快照、持久事件、历史页与任务详情投影为内存状态，供客户端共用。它可以在浏览器运行，不打开连接或文件，不持久化状态，也不渲染界面。连接与全局事件序号恢复归 [control](control.md)；命令执行、命令持久化、输入历史、工作流侧栏与终端样式归 [tui](tui.md)。
 
 ## 对外接口

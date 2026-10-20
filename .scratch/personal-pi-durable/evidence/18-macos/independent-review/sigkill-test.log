@@ -1,0 +1,9 @@
+✔ 子检查：后台 SIGKILL 遗留真实检查进程，恢复不换身份且原工作取消等退出 (1492.001958ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2908.348

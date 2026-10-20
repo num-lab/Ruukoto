@@ -1,0 +1,26 @@
+✖ 活调用：launch 后丢失原 claim 不认 stop-first，原临时目录与后代留待核实 (440.474708ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 740.557625
+
+✖ failing tests:
+
+test at test/personal-command-execution.test.ts:265:1
+✖ 活调用：launch 后丢失原 claim 不认 stop-first，原临时目录与后代留待核实 (440.474708ms)
+  AssertionError [ERR_ASSERTION]: 派发后缺少原 claim 不能获得停止或清理证明
+      at TestContext.<anonymous> (/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-command-review-258hgkvy/test/personal-command-execution.test.ts:275:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }

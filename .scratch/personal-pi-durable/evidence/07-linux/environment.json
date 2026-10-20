@@ -1,0 +1,14 @@
+{
+  "node": "v24.21.0",
+  "npm": "11.19.0",
+  "platform": "Linux BJ-Tencent 6.8.0-117-generic #117-Ubuntu SMP PREEMPT_DYNAMIC Tue May  5 19:26:24 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux",
+  "identity": "uid=1003(eitrous) gid=1003(eitrous) groups=1003(eitrous),27(sudo),100(users),987(ruukoto-backend),988(docker)",
+  "python": "Python 3.12.3",
+  "cwd": "/dev/shm/ruukoto-telegram-07-xs0lu2kb/source",
+  "sourceManifestSha256": "9c66dbdc73308eb53984df353d46dfc6e0d688ce573cffb0eedb676d6bb0c713",
+  "archiveSha256": "afdd2cc30d52d5b0504a85b6a6333c3fef80b6c7c9633d86c99f1cc4867e464c",
+  "RUN_MODEL_CHECK": "0",
+  "inheritedEnvironment": false,
+  "npmConfiguration": "isolated empty user/global rc",
+  "diskBefore": "Filesystem      Size  Used Avail Use% Mounted on\n/dev/vda2        40G   38G  462M  99% /\ntmpfs           1.9G  1.6G  226M  88% /dev/shm"
+}

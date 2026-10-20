@@ -349,7 +349,7 @@ test("Worked for 使用实际任务开始结束时间，不推测缺失耗时", 
 test("Trace 按动作显示思考、委派、读取、编辑、写入、命令和搜索图标", async () => {
   const model = new CodeState({ request: async () => ({ ok: true, value: {} }) }, () => {});
   const render = (tools: DiffTool[]) => renderToStaticMarkup(createElement(ToolActivity, { model, sessionId: "a", tools, expanded: {}, onExpand() {} }));
-  for (const [name, icon] of [["read", "file-text"], ["edit", "file-pen-line"], ["write", "file-plus2"], ["bash", "terminal"], ["grep", "search"], ["web_search", "search"], ["unknown", "wrench"], ["subagent_delegate", "bot"]]) {
+  for (const [name, icon] of [["read", "file-text"], ["edit", "file-pen-line"], ["write", "file-plus-2"], ["bash", "terminal"], ["grep", "search"], ["web_search", "search"], ["unknown", "wrench"], ["subagent_delegate", "bot"]]) {
     const html = render([tool({ name })]);
     assert.match(html, new RegExp(`lucide-${icon}(?: |")`));
     assert.doesNotMatch(html, /lucide-circle-check/);
@@ -358,7 +358,7 @@ test("Trace 按动作显示思考、委派、读取、编辑、写入、命令�
   assert.match(thought, /lucide-brain/);
   assert.match(render([tool({ status: "error" })]), /lucide-circle-alert/);
   model.view.tasks.set("task", task()); model.status = { type: "state", state: "online" };
-  assert.match(render([tool({ status: "running" })]), /lucide-loader-circle animate-spin/);
+  assert.match(render([tool({ status: "running" })]), /class="[^"]*\blucide-loader-circle\b[^"]*\banimate-spin\b/);
   const { ExecutionTrace } = await server.ssrLoadModule("/tool-activity.tsx");
   assert.match(renderToStaticMarkup(createElement(ExecutionTrace, { completed: true, failed: false, duration: "5s", stateKey: "run", expanded: {}, onExpand() {} })), /lucide-list-checks/);
 });

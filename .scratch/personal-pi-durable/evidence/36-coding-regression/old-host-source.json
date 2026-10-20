@@ -1,0 +1,18 @@
+{
+  "path": "packages/agent/src/tool-worker/host.ts",
+  "identical": true,
+  "revisions": {
+    "498fc62": {
+      "commit": "498fc624311dc148da965d4095f74e7ad6575605",
+      "sha256": "05cb6bad09b52c508124e0c1feec10aee2c173c8ad368ad26a6017a38cd42ade"
+    },
+    "a8fd60c": {
+      "commit": "a8fd60caceda3bbb243afff167a7c44751e749f4",
+      "sha256": "05cb6bad09b52c508124e0c1feec10aee2c173c8ad368ad26a6017a38cd42ade"
+    },
+    "3053bf6": {
+      "commit": "3053bf6a3d1d9bab0c06ec61755b8723bb06dbff",
+      "sha256": "05cb6bad09b52c508124e0c1feec10aee2c173c8ad368ad26a6017a38cd42ade"
+    }
+  }
+}

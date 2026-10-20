@@ -1,0 +1,171 @@
+{
+  "commit": "89b37f3",
+  "records": [
+    {
+      "path": "apps/ruukoto/src/personal-error.ts",
+      "sha256": "f4266968ec480f657bee1a6043e69d07910134f09924ec43683aa0569b212ab4",
+      "matches": true
+    },
+    {
+      "path": "apps/ruukoto/src/personal-model.ts",
+      "sha256": "70317facba8e89c2c57632957577fdde61f348aa481f38611bd6e096ff8d5d53",
+      "matches": true
+    },
+    {
+      "path": "apps/ruukoto/src/personal-profile.ts",
+      "sha256": "d2a301e0eadcccd8779358393551046b84f1d920e5c8746782f4db63c431eb2f",
+      "matches": true
+    },
+    {
+      "path": "apps/ruukoto/src/service-helper.ts",
+      "sha256": "84eafdb5a127655168a9b5404d0a8bc85d5de4f30bd9bb73c8528e1c5d681c1e",
+      "matches": true
+    },
+    {
+      "path": "apps/ruukoto/src/personal-telegram-records.ts",
+      "sha256": "79b8ea3a0984e2518d1d21f23103f8b9d99e1136401a922e9c6cf3f7b0af73a7",
+      "matches": true
+    },
+    {
+      "path": "apps/ruukoto/src/personal-permissions.ts",
+      "sha256": "62dfbb7f1d302b9357bf24cecc8c35803f9efdad20379f75b79a962c78a5c901",
+      "matches": true
+    },
+    {
+      "path": "packages/agent/src/managed-processes.ts",
+      "sha256": "00668a2abd89e504352795bad0f103afb9870efa1773898008ade0829f490d0f",
+      "matches": true
+    },
+    {
+      "path": "packages/agent/src/execution/launchers.ts",
+      "sha256": "3513c531e313238fc8c91d3ba42ef28db6d8d53fc1ccdae52f49d0609622e43b",
+      "matches": true
+    },
+    {
+      "path": "packages/agent/src/execution/approved-ops.ts",
+      "sha256": "552e1f8268ebf44c20d091752cb670f7128a2189502d8647eb2b1811fc10e70b",
+      "matches": true
+    },
+    {
+      "path": "packages/agent/src/execution/native-macos.ts",
+      "sha256": "f8643d4dd875f736b8af417117b963b2501489f87309ac26b9bb115796da8bdf",
+      "matches": true
+    },
+    {
+      "path": "packages/agent/src/execution/native-linux.ts",
+      "sha256": "ceaa8c426f46f95b334656809efad89ea2b073880504d40fa5c1419650d83c47",
+      "matches": true
+    },
+    {
+      "path": "packages/agent/src/execution/native.ts",
+      "sha256": "b55cc3566101824c9406f54a173cd3a8d0f3b0e5eefd94cfe595abac589f0fe7",
+      "matches": true
+    },
+    {
+      "path": "packages/agent/src/execution/native-linux-identity.ts",
+      "sha256": "0bfabdd2f6675f80d090b3cb1ed053851845dc95f63a62ebf6a8f0469e4aaecd",
+      "matches": true
+    },
+    {
+      "path": "apps/ruukoto/src/personal-command-execution.ts",
+      "sha256": "dc1d52088260bf08c913fc027619bb48bd225284d8c2e3dbe8d8eedde7016f3b",
+      "matches": true
+    },
+    {
+      "path": "apps/ruukoto/src/personal-command-config.ts",
+      "sha256": "86147ffc92f548a67f23b35ff9c697eef24992adc8b3cc96b5f65e0c4189b0a8",
+      "matches": true
+    },
+    {
+      "path": "apps/ruukoto/src/personal-command-work.ts",
+      "sha256": "1f4742a1ddb3c2874822ec69793721129e752707b2c33a1fb0455e1a66bc7e75",
+      "matches": true
+    },
+    {
+      "path": "apps/ruukoto/src/personal-service-operations.ts",
+      "sha256": "03432506bfe6b7c4fce7d42d4214753ba1d3c72681ca0a36d307b0666506181c",
+      "matches": true
+    },
+    {
+      "path": "apps/ruukoto/src/personal-local-records.ts",
+      "sha256": "7a33ceba2fd850394072a7d53f13cbae300a698701f0e32ac8058b84c3542806",
+      "matches": true
+    },
+    {
+      "path": "apps/ruukoto/src/personal-delegation.ts",
+      "sha256": "07702c0ee18cc07013cd80f13c7753b67942d3cc04e33b66d9cc2b169638bfd7",
+      "matches": true
+    },
+    {
+      "path": "apps/ruukoto/src/personal-work.ts",
+      "sha256": "6aa6810d25987adcc4e63b0e96f9364b175600df43ae605832762845b5a6e37f",
+      "matches": true
+    },
+    {
+      "path": "apps/ruukoto/src/personal-service-inspection.ts",
+      "sha256": "eaa3e2c7346e89d194a48bfa3c0d984942998588a21a8ff455e535d734f72999",
+      "matches": true
+    },
+    {
+      "path": "apps/ruukoto/src/personal-services.ts",
+      "sha256": "ce96966b93adb9cb72d2fd84bd2086bccd7987b060744c8f77ed92811640478f",
+      "matches": true
+    },
+    {
+      "path": "apps/ruukoto/src/personal-service-work.ts",
+      "sha256": "de3f1310bb19469fcdb74dfa4decc8ff12c16ea7ab668b3a51a491ac1523cdee",
+      "matches": true
+    },
+    {
+      "path": "apps/ruukoto/src/personal-telegram-api.ts",
+      "sha256": "7a3531266c587a2bff8f9f67c5a07489e84472cac039269329a0f96253b6bf0c",
+      "matches": true
+    },
+    {
+      "path": "apps/ruukoto/src/personal-telegram-config.ts",
+      "sha256": "7ff7b82ff4c8516198e8d17768e3531d612b491f880f288d902adb4a6f983e4f",
+      "matches": true
+    },
+    {
+      "path": "apps/ruukoto/src/personal-report.ts",
+      "sha256": "b0505f63e08fc57bf8efd18aef57a72896de4b07f1b03fa45872310567349d94",
+      "matches": true
+    },
+    {
+      "path": "apps/ruukoto/src/personal-work-controls.ts",
+      "sha256": "8d770805e38e2ea2b105cb3ac85e4d03a1c42fb14364ee66d829a94cacdf219b",
+      "matches": true
+    },
+    {
+      "path": "apps/ruukoto/src/personal-telegram.ts",
+      "sha256": "286cd83cb8ffcfdcb5d765f2fc2b8aa7006f2bb97543167f7c694f5e9eeb012d",
+      "matches": true
+    },
+    {
+      "path": "apps/ruukoto/src/personal-work-tools.ts",
+      "sha256": "c9f589561f7a9525f8ebb02fde71de0cc5e3395f31c4616965c195580b8bea51",
+      "matches": true
+    },
+    {
+      "path": "apps/ruukoto/src/personal-inspection-controls.ts",
+      "sha256": "25575ab253721b06c4a933b0d23c6cfb5db77c9ad8b9140b04d40a29c9f87048",
+      "matches": true
+    },
+    {
+      "path": "apps/ruukoto/src/personal-service-controls.ts",
+      "sha256": "0a5ec63b96f60fae70ae064edc79b8ad0b4f6f2546262d67273c3a2d9fd9fa1d",
+      "matches": true
+    },
+    {
+      "path": "apps/ruukoto/src/personal-harness.ts",
+      "sha256": "f90ea9fa3cb170765386743c1d5693b81613ead8298ab703d67fad36927a954b",
+      "matches": true
+    },
+    {
+      "path": "test/helpers/mock-provider.ts",
+      "sha256": "cedd022dc70b1339dfbbe0d42e56bdfe58726685f199779a7a37689254f0efe1",
+      "matches": true
+    }
+  ],
+  "allMatch": true
+}

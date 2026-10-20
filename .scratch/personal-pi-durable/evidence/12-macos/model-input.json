@@ -1,0 +1,107 @@
+{
+  "method": "ceil(UTF-8 bytes / 4)",
+  "before": {
+    "systemPrompt": 70,
+    "toolSchemas": 472
+  },
+  "after": {
+    "systemPrompt": 70,
+    "toolSchemas": 561
+  },
+  "main": {
+    "system": "你是拥有者的个人助手。根据已有对话回答；可用 background_work 委派独立后台分析并查询原结果，子 Agent 没有外部工具。当前不会自动回报后台结果，拥有者后续询问时再查询。需要外部写操作时说明尚不可用。",
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "background_work",
+          "description": "管理可长期复用的后台分析子 Agent。delegate 登记后立即返回，主聊天可继续；子 Agent 只有对话分析能力，没有外部工具，不能再委派或联系拥有者。append 用 work 与 content 补充仍在运行的原工作，当前回答结束后按顺序处理；接纳不代表执行或完成，不改变原权限；已取消/结束或原操作待核实则拒绝，请结束本轮向拥有者报告。list 分页列身份与当前工作；result 分页读原工作的完整文本。运行中请结束本轮，后续拥有者询问时再查询；当前不会自动回报。cancel 等待当前工作停止，取消不关闭身份；close 只关闭空闲身份，历史保留。占用未释放时不能复用或关闭，停止无法核实须向拥有者报告。回报输入可查询，不能变更工作。",
+          "parameters": {
+            "type": "object",
+            "required": [
+              "action"
+            ],
+            "properties": {
+              "action": {
+                "anyOf": [
+                  {
+                    "const": "delegate"
+                  },
+                  {
+                    "const": "append"
+                  },
+                  {
+                    "const": "list"
+                  },
+                  {
+                    "const": "result"
+                  },
+                  {
+                    "const": "cancel"
+                  },
+                  {
+                    "const": "close"
+                  }
+                ],
+                "description": "delegate 需要 content，可选 agent 或 label；append 只需 work 与 content，补充当前工作，当前回答结束后处理；list 仅可选 offset；result 需要 work，可选 offset；cancel 只需 work；close 只需 agent。其余字段须省略。"
+              },
+              "content": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 16384,
+                "description": "delegate/append 的完整分析要求，须含所需资料；子会话不读取主聊天。"
+              },
+              "agent": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "list 或 delegate 返回的子 Agent 编号；delegate 复用空闲且未关闭的身份，省略则新建；close 必填。"
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "description": "仅新建身份时使用的名称；复用 agent 时省略。"
+              },
+              "work": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "delegate 或 list 返回的工作编号，用于 result/append/cancel；不使用子 Agent 编号代替。"
+              },
+              "offset": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "list/result 从 0 开始；后续页使用返回的 nextOffset。list 每页 16 个身份，result 每页 4096 字符。"
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      }
+    ],
+    "toolResults": [
+      {
+        "role": "tool",
+        "content": "{\"work\":25,\"state\":\"note_accepted\",\"next\":\"说明已归原工作，将在当前回答结束后处理；结束本轮，后续查询原结果。权限保持原范围。\"}",
+        "tool_call_id": "append"
+      }
+    ]
+  },
+  "child": {
+    "system": "你是个人助手的子 Agent，只处理当前委派的工作并向主 Agent 返回结果。历史上下文可供参考，不代表新工作的授权。当前没有外部工具，无法委派或联系拥有者；需要外部操作时在结果中说明。",
+    "tools": [],
+    "lastMessages": [
+      {
+        "role": "user",
+        "content": "分析资料"
+      },
+      {
+        "role": "assistant",
+        "content": "追加分析结果"
+      },
+      {
+        "role": "user",
+        "content": "限定本次分析范围"
+      }
+    ]
+  }
+}

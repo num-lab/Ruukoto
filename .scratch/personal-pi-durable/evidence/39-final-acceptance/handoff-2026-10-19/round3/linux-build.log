@@ -1,0 +1,138 @@
+
+> ruukoto-workspace@0.1.0 build
+> npm run build:native && npm run build:worker && npm run build:script && npm run build --workspaces --if-present
+
+
+> ruukoto-workspace@0.1.0 build:native
+> node scripts/build-native.mjs
+
+
+> ruukoto-workspace@0.1.0 build:worker
+> esbuild packages/agent/src/tool-worker/worker.ts apps/ruukoto/src/personal-command-worker.ts --bundle --format=esm --platform=node --target=node24 --external:@earendil-works/* --outdir=worker --entry-names=[name] --out-extension:.js=.mjs
+
+
+  worker/worker.mjs                   15.6kb
+  worker/personal-command-worker.mjs   4.1kb
+
+⚡ Done in 11ms
+
+> ruukoto-workspace@0.1.0 build:script
+> node scripts/build-workflow-script.mjs
+
+
+> ruukoto@0.1.0 build
+> mkdir -p ../../dist && npm pack --pack-destination ../../dist
+
+npm notice
+npm notice 📦  ruukoto@0.1.0
+npm notice Tarball Contents
+npm notice 408B bin/ruukoto.mjs
+npm notice 731B package.json
+npm notice 1.9kB src/dev.ts
+npm notice 529B src/main.ts
+npm notice 9.5kB src/personal-app-data-controls.ts
+npm notice 34.1kB src/personal-app-data.ts
+npm notice 7.6kB src/personal-artifacts.ts
+npm notice 6.9kB src/personal-browser-cli.ts
+npm notice 5.6kB src/personal-browser-config.ts
+npm notice 10.0kB src/personal-browser-controls.ts
+npm notice 46.4kB src/personal-browser.ts
+npm notice 40.4kB src/personal-cli.ts
+npm notice 8.1kB src/personal-command-config.ts
+npm notice 17.6kB src/personal-command-execution.ts
+npm notice 35.8kB src/personal-command-work.ts
+npm notice 3.8kB src/personal-command-worker.ts
+npm notice 2.4kB src/personal-config-idle.ts
+npm notice 3.8kB src/personal-config.ts
+npm notice 43.4kB src/personal-control.ts
+npm notice 18.4kB src/personal-delegation.ts
+npm notice 20B src/personal-entry.ts
+npm notice 191B src/personal-error.ts
+npm notice 79.4kB src/personal-harness.ts
+npm notice 11.4kB src/personal-history.ts
+npm notice 263B src/personal-im-api.ts
+npm notice 15.0kB src/personal-inspection-controls.ts
+npm notice 3.1kB src/personal-local-records.ts
+npm notice 7.2kB src/personal-mcp-cli.ts
+npm notice 11.6kB src/personal-mcp-config.ts
+npm notice 11.1kB src/personal-mcp-controls.ts
+npm notice 36.7kB src/personal-mcp.ts
+npm notice 27.8kB src/personal-media.ts
+npm notice 9.0kB src/personal-memory-controls.ts
+npm notice 20.7kB src/personal-memory.ts
+npm notice 7.6kB src/personal-model.ts
+npm notice 14.8kB src/personal-owner-controls.ts
+npm notice 3.3kB src/personal-permissions-cli.ts
+npm notice 5.2kB src/personal-permissions.ts
+npm notice 4.5kB src/personal-profile.ts
+npm notice 7.8kB src/personal-qq-api.ts
+npm notice 4.5kB src/personal-qq-cli.ts
+npm notice 4.3kB src/personal-qq-config.ts
+npm notice 31.9kB src/personal-report.ts
+npm notice 9.5kB src/personal-schedule-authority.ts
+npm notice 11.2kB src/personal-schedule-execution.ts
+npm notice 3.4kB src/personal-schedule-scope.ts
+npm notice 10.0kB src/personal-scheduler-cli.ts
+npm notice 20.6kB src/personal-scheduler-controls.ts
+npm notice 28.3kB src/personal-scheduler-records.ts
+npm notice 13.4kB src/personal-scheduler-tools.ts
+npm notice 32.8kB src/personal-scheduler.ts
+npm notice 6.2kB src/personal-service-config.ts
+npm notice 19.5kB src/personal-service-controls.ts
+npm notice 21.4kB src/personal-service-inspection.ts
+npm notice 54.2kB src/personal-service-operations.ts
+npm notice 6.9kB src/personal-service-work.ts
+npm notice 5.7kB src/personal-services.ts
+npm notice 2.4kB src/personal-skills-cli.ts
+npm notice 4.8kB src/personal-skills-config.ts
+npm notice 15.9kB src/personal-skills.ts
+npm notice 2.8kB src/personal-source.ts
+npm notice 9.3kB src/personal-telegram-api.ts
+npm notice 4.2kB src/personal-telegram-config.ts
+npm notice 6.0kB src/personal-telegram-records.ts
+npm notice 24.4kB src/personal-telegram.ts
+npm notice 15.6kB src/personal-tool-io.ts
+npm notice 4.9kB src/personal-tool-source.ts
+npm notice 12.0kB src/personal-tools-cli.ts
+npm notice 8.7kB src/personal-tools-config.ts
+npm notice 13.5kB src/personal-tools-controls.ts
+npm notice 57.1kB src/personal-tools.ts
+npm notice 14.6kB src/personal-work-controls.ts
+npm notice 16.3kB src/personal-work-tools.ts
+npm notice 51.3kB src/personal-work.ts
+npm notice 8.9kB src/service-helper.ts
+npm notice Tarball Details
+npm notice name: ruukoto
+npm notice version: 0.1.0
+npm notice filename: ruukoto-0.1.0.tgz
+npm notice package size: 270.2 kB
+npm notice unpacked size: 1.1 MB
+npm notice shasum: 6736303b18f4640778e8878b5a6523715f7a64e4
+npm notice integrity: sha512-Rc6E9Fw6YShDJ[...]AYQlgYrQQ6TIg==
+npm notice total files: 75
+npm notice
+ruukoto-0.1.0.tgz
+
+> ruukoto-code@0.1.0 build
+> mkdir -p ../../dist && npm pack --pack-destination ../../dist
+
+npm notice
+npm notice 📦  ruukoto-code@0.1.0
+npm notice Tarball Contents
+npm notice 580B bin/ruukoto-code.mjs
+npm notice 575B package.json
+npm notice 96B src/dev.ts
+npm notice 80.3kB src/legacy-import.ts
+npm notice 152B src/main.ts
+npm notice 891B src/product.ts
+npm notice Tarball Details
+npm notice name: ruukoto-code
+npm notice version: 0.1.0
+npm notice filename: ruukoto-code-0.1.0.tgz
+npm notice package size: 23.1 kB
+npm notice unpacked size: 82.6 kB
+npm notice shasum: c9e0f70eeb11ca76aa71c9135a7585385d18fb82
+npm notice integrity: sha512-cSHefB3X8foMI[...]RWfsZ7geU994g==
+npm notice total files: 6
+npm notice
+ruukoto-code-0.1.0.tgz

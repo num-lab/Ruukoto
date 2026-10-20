@@ -1,0 +1,11 @@
+MainPID=0
+Result=success
+Id=ruukoto-service-test.service
+LoadState=not-found
+ActiveState=inactive
+SubState=dead
+FragmentPath=
+DropInPaths=
+ActiveEnterTimestamp=
+NeedDaemonReload=no
+InvocationID=

@@ -1,0 +1,26 @@
+
+> ruukoto-workspace@0.1.0 test:foundation
+> RUN_MODEL_CHECK=0 npm --prefix verification/foundation test
+
+
+> ruukoto-foundation-verification@0.1.0 test
+> tsx --test test/*.test.ts
+
+✔ 压缩开启时阈值会触发压缩（对照组） (446.39625ms)
+✔ compaction.enabled=false 时阈值不再触发压缩，磁盘历史完整 (99.304667ms)
+✔ 扩展可通过 session_before_compact 拦截压缩（阻止非预期摘要） (100.840292ms)
+✔ context 事件过滤早期消息，磁盘原文完整保留 (417.193083ms)
+✔ 内置 bash 工具可直接复用（宿主无需重写基础工具） (368.466584ms)
+✔ 自定义工具注册、执行与结果回传 (81.484333ms)
+✔ 多会话并行执行、事件订阅与状态隔离 (828.762917ms)
+✔ 可信插件：宿主数据工具、tool_call 阻断、生命周期订阅、状态持久化 (421.047291ms)
+✔ RPC 子进程模式：prompt 命令与事件流 (1156.83625ms)
+﹣ 真实模型连通性：一次短往返 (0.632375ms) # 设置 RUN_MODEL_CHECK=1 后运行
+ℹ tests 10
+ℹ suites 0
+ℹ pass 9
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 1
+ℹ todo 0
+ℹ duration_ms 3723.70325

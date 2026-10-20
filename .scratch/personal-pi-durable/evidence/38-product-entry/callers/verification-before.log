@@ -1,0 +1,55 @@
+✖ 冒烟拒绝旧远端参数，退出 2 且不创建后台或尝试 SSH (8386.128ms)
+✔ 原生前提失败核实停止后报告不可用，停止未知保留现场 (3.870042ms)
+✔ 发布模型入口要求显式配置，help 与升级入口各自可核实 (12137.09675ms)
+✔ 特权验收源码完整归档为文本，没有可执行的 mts 入口 (0.848458ms)
+✔ Runtime 停止失败时仍关闭模型桩，返回清理失败并保留现场 (1.411084ms)
+✔ 自包含模型缺凭据时离线速退 2，不继承 API key 或个人 auth，不启动 TUI (6515.6545ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 5
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 29146.291708
+
+✖ failing tests:
+
+test at test/99-verification-entrypoints.test.ts:21:1
+✖ 冒烟拒绝旧远端参数，退出 2 且不创建后台或尝试 SSH (8386.128ms)
+  AssertionError [ERR_ASSERTION]: smoke-18-im-final-delivery.mts：node:internal/modules/esm/resolve:271
+      throw new ERR_MODULE_NOT_FOUND(
+            ^
+
+  Error [ERR_MODULE_NOT_FOUND]: Cannot find module '/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/verification/smoke/smoke-18-im-final-delivery.mts' imported from /Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/
+      at finalizeResolution (node:internal/modules/esm/resolve:271:11)
+      at moduleResolve (node:internal/modules/esm/resolve:861:10)
+      at defaultResolve (node:internal/modules/esm/resolve:988:11)
+      at #cachedDefaultResolve (node:internal/modules/esm/loader:697:20)
+      at #resolveAndMaybeBlockOnLoaderThread (node:internal/modules/esm/loader:714:38)
+      at nextStep (node:internal/modules/customization_hooks:189:26)
+      at resolveBaseSync (file:///Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/tsx/dist/register-SoqaU4rg.mjs:2:10932)
+      at resolveDirectorySync (file:///Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/tsx/dist/register-SoqaU4rg.mjs:2:12238)
+      at resolveTsPathsSync (file:///Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/tsx/dist/register-SoqaU4rg.mjs:2:13445)
+      at resolve (file:///Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/tsx/dist/register-SoqaU4rg.mjs:2:15991) {
+    code: 'ERR_MODULE_NOT_FOUND',
+    url: 'file:///Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/verification/smoke/smoke-18-im-final-delivery.mts'
+  }
+
+  Node.js v24.15.0
+
+
+  1 !== 2
+
+      at TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/99-verification-entrypoints.test.ts:24:12)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1201:25)
+      at Test.start (node:internal/test_runner/test:1096:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:385:17) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 2,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

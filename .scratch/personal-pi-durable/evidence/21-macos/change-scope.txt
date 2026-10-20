@@ -1,0 +1,90 @@
+
+> ruukoto-workspace@0.1.0 change-scope
+> tsx scripts/change-scope.ts --base b385f7a
+
+{
+  "formatVersion": 1,
+  "repositoryRoot": "/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable",
+  "input": {
+    "base": "b385f7a",
+    "head": "HEAD"
+  },
+  "resolved": {
+    "baseSha": "b385f7a302eb099acdce716964dcf97ca8d8f632",
+    "headSha": "b385f7a302eb099acdce716964dcf97ca8d8f632",
+    "mergeBaseSha": "b385f7a302eb099acdce716964dcf97ca8d8f632"
+  },
+  "paths": {
+    "committed": [],
+    "staged": [],
+    "unstaged": [
+      ".agents/notes/implemented/architecture/2026-10-17-personal-durable-inspection.md",
+      ".agents/notes/implemented/architecture/2026-10-17-personal-model-work.md",
+      ".agents/notes/implemented/architecture/2026-10-17-personal-service-configuration.md",
+      ".agents/notes/implemented/architecture/2026-10-17-personal-service-inspect.md",
+      ".agents/notes/implemented/architecture/2026-10-17-personal-service-operations.md",
+      ".agents/notes/implemented/architecture/2026-10-17-personal-service-recovery-controls.md",
+      ".agents/notes/implemented/architecture/2026-10-17-personal-subagent-inspection.md",
+      "apps/ruukoto/src/personal-cli.ts",
+      "apps/ruukoto/src/personal-control.ts",
+      "apps/ruukoto/src/personal-harness.ts",
+      "apps/ruukoto/src/personal-service-controls.ts",
+      "apps/ruukoto/src/personal-service-inspection.ts",
+      "apps/ruukoto/src/personal-service-operations.ts",
+      "apps/ruukoto/src/personal-work-controls.ts",
+      "apps/ruukoto/src/personal-work-tools.ts",
+      "apps/ruukoto/src/personal-work.ts",
+      "docs/modules/agent-tools.md",
+      "docs/modules/personal-durable.md",
+      "docs/modules/products.md",
+      "docs/usage.md",
+      "test/personal-cli.test.ts",
+      "test/personal-service-operations.test.ts",
+      "test/personal-telegram-permissions.test.ts"
+    ],
+    "untracked": [
+      ".agents/notes/implemented/architecture/2026-10-17-personal-subagent-service-operations.md",
+      ".scratch/personal-pi-durable/evidence/21-macos/build.log",
+      ".scratch/personal-pi-durable/evidence/21-macos/cancel-fixed.log",
+      ".scratch/personal-pi-durable/evidence/21-macos/first-baseline-tests.log",
+      ".scratch/personal-pi-durable/evidence/21-macos/group-consume.log",
+      ".scratch/personal-pi-durable/evidence/21-macos/macos-final-tests.log",
+      ".scratch/personal-pi-durable/evidence/21-macos/model-snapshots/after-tool-roundtrip.json",
+      ".scratch/personal-pi-durable/evidence/21-macos/model-snapshots/after/estimates.json",
+      ".scratch/personal-pi-durable/evidence/21-macos/model-snapshots/after/main.json",
+      ".scratch/personal-pi-durable/evidence/21-macos/model-snapshots/after/subagent.json",
+      ".scratch/personal-pi-durable/evidence/21-macos/model-snapshots/before/estimates.json",
+      ".scratch/personal-pi-durable/evidence/21-macos/model-snapshots/before/main.json",
+      ".scratch/personal-pi-durable/evidence/21-macos/model-snapshots/before/subagent.json",
+      ".scratch/personal-pi-durable/evidence/21-macos/model-snapshots/capture.mts",
+      ".scratch/personal-pi-durable/evidence/21-macos/model-snapshots/comparison.json",
+      ".scratch/personal-pi-durable/evidence/21-macos/new-tests-fifth.log",
+      ".scratch/personal-pi-durable/evidence/21-macos/new-tests-first.log",
+      ".scratch/personal-pi-durable/evidence/21-macos/new-tests-fourth.log",
+      ".scratch/personal-pi-durable/evidence/21-macos/new-tests-second-interrupted.log",
+      ".scratch/personal-pi-durable/evidence/21-macos/new-tests-seventh.log",
+      ".scratch/personal-pi-durable/evidence/21-macos/new-tests-sixth.log",
+      ".scratch/personal-pi-durable/evidence/21-macos/new-tests-third.log",
+      ".scratch/personal-pi-durable/evidence/21-macos/pty/actions.json",
+      ".scratch/personal-pi-durable/evidence/21-macos/pty/drive.py",
+      ".scratch/personal-pi-durable/evidence/21-macos/pty/observations.txt",
+      ".scratch/personal-pi-durable/evidence/21-macos/pty/requests.json",
+      ".scratch/personal-pi-durable/evidence/21-macos/pty/result.json",
+      ".scratch/personal-pi-durable/evidence/21-macos/pty/scenario.mjs",
+      ".scratch/personal-pi-durable/evidence/21-macos/pty/source-sha256.json",
+      ".scratch/personal-pi-durable/evidence/21-macos/pty/terminal.raw.log.gz",
+      ".scratch/personal-pi-durable/evidence/21-macos/pty/terminal.txt",
+      ".scratch/personal-pi-durable/evidence/21-macos/report-fixed.log",
+      ".scratch/personal-pi-durable/evidence/21-macos/review-focused.log",
+      ".scratch/personal-pi-durable/evidence/21-macos/review-probes.mts",
+      ".scratch/personal-pi-durable/evidence/21-macos/source-manifest.json",
+      ".scratch/personal-pi-durable/evidence/21-macos/static-first.log",
+      ".scratch/personal-pi-durable/evidence/21-macos/static-types-failed.log",
+      ".scratch/personal-pi-durable/evidence/21-macos/static.log",
+      ".scratch/personal-pi-durable/evidence/21-macos/telegram-first.log",
+      ".scratch/personal-pi-durable/evidence/21-macos/telegram-fixed.log",
+      ".scratch/personal-pi-durable/issues/21-subagent-service-operations.md",
+      "apps/ruukoto/src/personal-service-work.ts"
+    ]
+  }
+}

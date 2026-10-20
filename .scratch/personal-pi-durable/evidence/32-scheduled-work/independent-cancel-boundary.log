@@ -1,0 +1,13 @@
+▶ 定时：跨下一到期点后先收尾或取消再扫描，也把漏期合入原运行
+  ✔ finish (173.184375ms)
+  ✔ cancel (21.618041ms)
+  ✔ abort (14.287333ms)
+✔ 定时：跨下一到期点后先收尾或取消再扫描，也把漏期合入原运行 (209.779292ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1244.516667

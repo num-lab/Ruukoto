@@ -1,0 +1,18 @@
+{
+  "action": "nc_get_packet_status",
+  "startedAt": "2026-10-18T16:25:34.237Z",
+  "previousPostInstallerStatusQueries": 1,
+  "queriesThisScript": 1,
+  "retries": 0,
+  "modelRequests": 0,
+  "imSends": 0,
+  "mediaHttpRequests": 0,
+  "reason": "previous pure status returned unclassified 1400; capture exact error once without losing raw private response",
+  "status": "failed",
+  "retcode": 1400,
+  "errorText": "packetBackend不可用，请参照文档 <url-redacted> 和启动日志检查packetBackend状态或进行配置！错误堆栈信息：Error: [Core] [Packet] NativePacketClient 不可用，NapCat.Packet将不会加载！\n    at RK.newClient (<url-redacted>\n    at new RK (<url-redacted>\n    at new QK (<url-redacted>\n    at new GK (<url-redacted>\n    at qK.InitSendPacket (<url-redacted>\n    at qK.initApi (<url-redacted>\n    at S0.initCore (<url-redacted>\n    at ZAe.InitNapCat (<url-redacted>\n    at NL (<url-redacted>\n    at async l2e (<url-redacted>\npacketBackend不可用，请参照文档 <url-redacted> 和启动日志检查packetBackend状态或进行配置！错误堆栈信息：Error: [Core] [Packet] NativePacketClient 不可用，NapCat.Packet将不会加载！\n    at RK.newClient (<url-redacted>\n    at new RK (<url-redacted>\n    at new QK (<url-redacted>\n    at new GK (<url-redacted>\n    at qK.InitSendPacket (<url-redacted>\n    at qK.initApi (<url-redacted>\n    at S0.initCore (<url-redacted>\n    at ZAe.InitNapCat (<url-redacted>\n    at NL (<url-redacted>\n    at async l2e (<url-redacted>",
+  "errorTextTruncated": false,
+  "rawResponseSavedPrivately": true,
+  "result": "response",
+  "endedAt": "2026-10-18T16:25:34.254Z"
+}

@@ -1,0 +1,106 @@
+{
+  "base_head": "9d6d7f747fdaeed0096a58078fd11639a7b58af3",
+  "scope": "09最终冻结运行时代码的隔离Linux回归；全源码快照排除历史evidence，不声称随后文档改动在Linux验证",
+  "environment": {
+    "host": "BJ-Tencent",
+    "platform": "Linux-6.8.0-117-generic-x86_64-with-glibc2.39",
+    "node": "v24.21.0",
+    "npm": "11.19.0",
+    "python": "Python 3.12.3",
+    "uid": 1003,
+    "python_pty_probe": "passed"
+  },
+  "setup_attempt_1": {
+    "exit": 1,
+    "seconds": 0.418,
+    "reason": "快照未初始化Git元数据，被setup环境检查拒绝；未开始安装或测试",
+    "source_files_unchanged": 1354
+  },
+  "setup_attempt_2": {
+    "exit": 0,
+    "seconds": 84.963,
+    "change": "仅在本轮隔离副本git init，源码内容未变；独立/tmp缓存避免旧轮ENOSPC"
+  },
+  "final_validation": {
+    "RUN_MODEL_CHECK": 0,
+    "test_files": 7,
+    "tests": 181,
+    "suites": 0,
+    "pass": 181,
+    "fail": 0,
+    "cancelled": 0,
+    "skipped": 0,
+    "todo": 0,
+    "duration_ms": 30035.765776,
+    "tests_exit": 0,
+    "tests_seconds": 30.755,
+    "build_exit": 0,
+    "build_seconds": 1.624,
+    "linux_real_subprocess_sudo_stub_case": "passed；生产useSudo:true路径与后台重启，固定命令桩替代真实sudo/helper/systemd"
+  },
+  "source_evidence": {
+    "snapshot_files": 1354,
+    "runtime_test_build_files": 566,
+    "snapshot_before_content_and_mode_match": true,
+    "snapshot_after_content_unchanged": true,
+    "snapshot_after_executable_bits_unchanged": true,
+    "mode_changes": [
+      {
+        "path": "apps/ruukoto-code/bin/ruukoto-code.mjs",
+        "expected_octal": "0o755",
+        "actual_octal": "0o775"
+      },
+      {
+        "path": "apps/ruukoto/bin/ruukoto.mjs",
+        "expected_octal": "0o755",
+        "actual_octal": "0o775"
+      }
+    ],
+    "strict_mode_runner_exit": 1,
+    "strict_mode_runner_exit_reason": "npm安装将两个workspace bin从0755调整为0775；所有源码内容及可执行位一致",
+    "runtime_matches_final_workspace": true,
+    "runtime_manifest_sha256": "443dff48a06f8d5c5a9d97fee486c602f7bc981b12029867e24035afe8b8d3fc",
+    "source_manifest_sha256": "e980d62ece262f2ac5dab0fd01e74219b45bcb4d12aeb0ee746a74d73a1b4895"
+  },
+  "workspace_document_differences": {
+    "source_snapshot_matches_later_workspace": false,
+    "added": [
+      ".agents/notes/implemented/architecture/2026-10-17-personal-service-configuration.md"
+    ],
+    "removed": [
+      ".agents/notes/proposed/architecture/2026-10-17-personal-service-configuration.md"
+    ],
+    "changed": [
+      ".agents/notes/implemented/architecture/2026-10-17-personal-local-management.md",
+      ".agents/notes/implemented/architecture/2026-10-17-personal-service-inspect.md",
+      ".agents/notes/implemented/architecture/2026-10-17-personal-service-operations.md",
+      ".scratch/personal-pi-durable/issues/09-service-configuration.md",
+      "README.md",
+      "docs/development.md",
+      "docs/modules/personal-durable.md",
+      "docs/modules/products.md",
+      "docs/usage.md"
+    ],
+    "note": "仅docs/notes/README/工单变化；566运行时输入完全一致，文档差异不作运行时失败"
+  },
+  "cleanup": {
+    "remote_source": "/dev/shm/rpd09.6ksdtsk1/src",
+    "remote_outer": "/dev/shm/rpd09.6ksdtsk1",
+    "remote_cache": "/tmp/rpd09-cache.fl05nhfw",
+    "matching_processes_before": [],
+    "active_socket_paths_before": [],
+    "socket_files_before": [],
+    "source_removed": true,
+    "cache_removed": true,
+    "matching_processes_after": [],
+    "active_socket_paths_after": [],
+    "cleanup_complete": true
+  },
+  "not_verified": [
+    "真实模型",
+    "真实Telegram平台",
+    "真实sudo/root helper或systemd业务服务",
+    "CI Node22.19/24.15完整矩阵",
+    "macOS（由主代理已有证据负责）"
+  ]
+}

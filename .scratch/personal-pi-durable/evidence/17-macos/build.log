@@ -1,0 +1,93 @@
+
+> ruukoto-workspace@0.1.0 build
+> npm run build:native && npm run build:worker && npm run build:script && npm run build --workspaces --if-present
+
+
+> ruukoto-workspace@0.1.0 build:native
+> node scripts/build-native.mjs
+
+
+> ruukoto-workspace@0.1.0 build:worker
+> esbuild packages/agent/src/tool-worker/worker.ts --bundle --format=esm --platform=node --target=node24 --external:@earendil-works/* --outfile=worker/worker.mjs
+
+
+  worker/worker.mjs  15.6kb
+
+⚡ Done in 8ms
+
+> ruukoto-workspace@0.1.0 build:script
+> node scripts/build-workflow-script.mjs
+
+
+> ruukoto@0.1.0 build
+> mkdir -p ../../dist && npm pack --pack-destination ../../dist
+
+npm notice
+npm notice 📦  ruukoto@0.1.0
+npm notice Tarball Contents
+npm notice 580B bin/ruukoto.mjs
+npm notice 861B package.json
+npm notice 91B src/dev.ts
+npm notice 152B src/main.ts
+npm notice 25.4kB src/personal-cli.ts
+npm notice 1.8kB src/personal-config.ts
+npm notice 18.8kB src/personal-control.ts
+npm notice 17.7kB src/personal-delegation.ts
+npm notice 438B src/personal-entry.ts
+npm notice 191B src/personal-error.ts
+npm notice 33.8kB src/personal-harness.ts
+npm notice 500B src/personal-local-records.ts
+npm notice 5.5kB src/personal-model.ts
+npm notice 4.7kB src/personal-permissions.ts
+npm notice 3.9kB src/personal-profile.ts
+npm notice 27.9kB src/personal-report.ts
+npm notice 6.5kB src/personal-service-config.ts
+npm notice 16.4kB src/personal-service-inspection.ts
+npm notice 41.8kB src/personal-service-operations.ts
+npm notice 5.6kB src/personal-services.ts
+npm notice 6.3kB src/personal-telegram-api.ts
+npm notice 4.2kB src/personal-telegram-config.ts
+npm notice 2.1kB src/personal-telegram-records.ts
+npm notice 16.4kB src/personal-telegram.ts
+npm notice 14.4kB src/personal-work-controls.ts
+npm notice 13.7kB src/personal-work-tools.ts
+npm notice 32.3kB src/personal-work.ts
+npm notice 1.8kB src/product.ts
+npm notice 22.3kB src/scheduler-tools.ts
+npm notice 8.9kB src/service-helper.ts
+npm notice 20.9kB src/service-tools.ts
+npm notice Tarball Details
+npm notice name: ruukoto
+npm notice version: 0.1.0
+npm notice filename: ruukoto-0.1.0.tgz
+npm notice package size: 89.2 kB
+npm notice unpacked size: 356.0 kB
+npm notice shasum: fbc88210b8724f2c1c4658fdf5511652c4f290af
+npm notice integrity: sha512-+xHaVZfiks19I[...]O/Bv0/pNikmfw==
+npm notice total files: 31
+npm notice
+ruukoto-0.1.0.tgz
+
+> ruukoto-code@0.1.0 build
+> mkdir -p ../../dist && npm pack --pack-destination ../../dist
+
+npm notice
+npm notice 📦  ruukoto-code@0.1.0
+npm notice Tarball Contents
+npm notice 580B bin/ruukoto-code.mjs
+npm notice 575B package.json
+npm notice 96B src/dev.ts
+npm notice 80.3kB src/legacy-import.ts
+npm notice 152B src/main.ts
+npm notice 891B src/product.ts
+npm notice Tarball Details
+npm notice name: ruukoto-code
+npm notice version: 0.1.0
+npm notice filename: ruukoto-code-0.1.0.tgz
+npm notice package size: 23.1 kB
+npm notice unpacked size: 82.6 kB
+npm notice shasum: 5af04e561c9fbf84bf29f8237e3655e563ea5ed9
+npm notice integrity: sha512-XhLM4XOtSZg3y[...]FBbb4606oz4Rw==
+npm notice total files: 6
+npm notice
+ruukoto-code-0.1.0.tgz

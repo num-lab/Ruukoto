@@ -1,5 +1,5 @@
 /**
- * 真实子进程后台（崩溃恢复测试共用）：tsx 启动 packages/tui/src/cli.ts start，
+ * 真实子进程后台（崩溃恢复测试共用）：tsx 启动 Coding main 的共享 CLI start，
  * 按进程组 SIGKILL；连接控制面并以拥有者令牌认证。
  */
 
@@ -13,8 +13,8 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."
 const tsxBin = path.join(repoRoot, "node_modules", ".bin", "tsx");
 
 /** 直接 spawn 后台进程（重复启动拒绝等进程级断言用；常规路径用 spawnBackend）。 */
-export function spawnBackendRaw(args: string[]): childProcess.ChildProcess {
-  return childProcess.spawn(tsxBin, args, { cwd: repoRoot, stdio: "ignore" });
+export function spawnBackendRaw(args: string[], env: NodeJS.ProcessEnv = {}): childProcess.ChildProcess {
+  return childProcess.spawn(tsxBin, args, { cwd: repoRoot, env: { ...process.env, RUUKOTO_PRODUCT: "ruukoto-code", RUUKOTO_OWNER_TOKEN: "", RUUKOTO_OWNER_TOKEN_FILE: "", ...env }, stdio: "ignore" });
 }
 
 export interface Backend {
@@ -33,16 +33,17 @@ export function killProcessTree(child: childProcess.ChildProcess): void {
 }
 
 export async function spawnBackend(dataDir: string, agentDir: string): Promise<Backend> {
+  const profileRoot = path.dirname(path.resolve(dataDir));
+  const controlDir = path.join(profileRoot, "control");
   const child = childProcess.spawn(
     tsxBin,
-    ["apps/ruukoto/src/main.ts", "start", "--data-dir", dataDir, "--agent-dir", agentDir, "--tools", "mock"],
-    { cwd: repoRoot, stdio: ["ignore", "ignore", "pipe"], detached: true },
+    ["apps/ruukoto-code/src/main.ts", "start", "--data-dir", dataDir, "--agent-dir", agentDir, "--tools", "mock"],
+    { cwd: repoRoot, env: { ...process.env, RUUKOTO_PRODUCT: "ruukoto-code", RUUKOTO_CODE_DATA_DIR: dataDir, RUUKOTO_CODE_AGENT_DIR: agentDir, RUUKOTO_CODE_CONTROL_DIR: controlDir, RUUKOTO_CODE_PENDING_DIR: path.join(profileRoot, "pending"), RUUKOTO_OWNER_TOKEN: "", RUUKOTO_OWNER_TOKEN_FILE: "" }, stdio: ["ignore", "ignore", "pipe"], detached: true },
   );
   let stderr = "";
   child.stderr!.on("data", (c: Buffer) => {
     stderr += c.toString("utf8");
   });
-  const controlDir = path.join(path.dirname(path.resolve(dataDir)), "control");
   const socketPath = path.join(controlDir, "control.sock");
   const deadline = Date.now() + 60_000;
   for (;;) {

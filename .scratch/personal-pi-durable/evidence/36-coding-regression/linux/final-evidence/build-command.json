@@ -1,0 +1,16 @@
+{
+  "start": 1792310115.3162642,
+  "end": 1792310117.0018134,
+  "cwd": "/dev/shm/rk-coding36-linux.gaWtu6/current",
+  "command": [
+    "npm",
+    "run",
+    "build"
+  ],
+  "environment": {
+    "TMPDIR": "/dev/shm/rk-coding36-linux.gaWtu6/current-tmp",
+    "npm_config_cache": "/dev/shm/rk-coding36-linux.gaWtu6/npm-cache",
+    "ELECTRON_SKIP_BINARY_DOWNLOAD": "1",
+    "RUN_MODEL_CHECK": "0"
+  }
+}

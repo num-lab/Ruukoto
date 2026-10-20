@@ -1,0 +1,37 @@
+{
+  "worktree": "/tmp/ruukoto39-report-registration-worktree",
+  "patch": "/tmp/ruukoto39-report-registration.patch",
+  "patchSha256": "dd9ab86d6f0238a586f4c9b2dd37a0ec5f35471f7d8b5c8988529bedcb5e39a0",
+  "files": [
+    {
+      "path": "apps/ruukoto/src/personal-delegation.ts",
+      "baselineSha256": "546df7e390a9d509a1b9ccdd394612872fa47a5894c368161e1488e378bf6cf0",
+      "candidateSha256": "a4e3c1116180bbbc93b9c05c5cc6ce0e586461076bcd409176a6af508dab7a41"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-report.ts",
+      "baselineSha256": "ef35a890669034c7bad3c9e2946d1d6a801e430f1944becbcd29fe8ff3da51f6",
+      "candidateSha256": "5d373f90175dee7d1f6bbe1a3822aa615a4726f89de9f151855829d356fb942d"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-work-tools.ts",
+      "baselineSha256": "2060f12faf870185380130b5af2aced5142ece3cf0057a4f62433e9b66ced2e9",
+      "candidateSha256": "6264d40d87768d53656ee96d4942eae592d90c770464f1b1f7a6a859cc2b9f74"
+    },
+    {
+      "path": "test/personal-command-work.test.ts",
+      "baselineSha256": "75c03e2a232cc6e8ab60dba3a9167f63c4240105e06e4b946fcf1ba34f83e7ed",
+      "candidateSha256": "1674ffef156c3973b36eb956268dcd1fdb37ed469d97fc8dfdbd4216bad49ee7"
+    },
+    {
+      "path": "docs/modules/personal-durable.md",
+      "baselineSha256": "697c83c3d9cc33156fd7ea482b924a3bcbfb3ab5a4157e57c4d3fcca0e91cf1b",
+      "candidateSha256": "a7d3d548d6543776aa010f7254f5588bfb73345df3d04a3fc6f1259f5f54909c"
+    },
+    {
+      "path": ".agents/notes/implemented/architecture/2026-10-17-personal-delegation-reports.md",
+      "baselineSha256": "c8f2e20ce148ab7bd90d6f3f1bea12b5df3ba258bf942fcb3013fa285b03bec2",
+      "candidateSha256": "a2d73afa83d55a3fc51969ee0a8de71e23fe5fcd0138df8a141c453eea9fa93f"
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+✔ Telegram：绑定私聊、稳定消息去重与同键异参，回复严格归属自己的提交 (142.316875ms)
+✔ Telegram：一次性短期确认，空批/重启/一周空闲后的较小 update_id 不漏收 (164.173459ms)
+▶ Telegram：断线/5xx/畸形成功/错误目标/代理429都记未知且重启不重发
+  ✔ lost (10.83875ms)
+  ✔ 500 (9.637416ms)
+  ✔ json (9.542291ms)
+  ✔ wrong-target (8.728208ms)
+  ✔ proxy429 (8.607708ms)
+✔ Telegram：断线/5xx/畸形成功/错误目标/代理429都记未知且重启不重发 (47.699917ms)
+✔ Telegram：明确429持久延后原发送，明确403失败不重试 (1017.643083ms)
+✔ Telegram：超长回答单条截断且不破坏 Unicode，完整回答留在会话 (30.497834ms)
+▶ Telegram：unanswered 中断片段不外发；换代未发送回复取消，普通主聊天继续
+  ✔ abort (253.61325ms)
+  ✔ rebind (499.840625ms)
+✔ Telegram：unanswered 中断片段不外发；换代未发送回复取消，普通主聊天继续 (753.839459ms)
+[ruukoto:personal] 持久执行出现错误，请查询状态并检查档案；未自动重启。
+✔ Telegram：收件事务已经提交而 admission 未执行就故障，重开原键补接一次 (24.650834ms)
+✔ Telegram：发送已生效但结果未提交时真实强杀，重开转未知且零重复 (476.406792ms)
+▶ Telegram：配置、收件、Task 与版本断链拒绝恢复
+  ✔ config (9.968333ms)
+  ✔ binding (9.539542ms)
+  ✔ receipt (9.662125ms)
+  ✔ task (16.008792ms)
+  ✔ version (9.075917ms)
+  ✔ missing (8.901084ms)
+  ✔ same-generation (8.993708ms)
+✔ Telegram：配置、收件、Task 与版本断链拒绝恢复 (72.579042ms)
+✔ Telegram：向导从真实配对消息选择身份，确认接管边界，离线文件无凭据 (69.743208ms)
+✔ Telegram：真实本机后台装配轮询，停止收齐后释放档案锁 (103.206667ms)
+✔ Telegram：配对身份选择过期，不发送旧确认水位或保存绑定 (47.477542ms)
+ℹ tests 26
+ℹ suites 0
+ℹ pass 26
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3732.292541

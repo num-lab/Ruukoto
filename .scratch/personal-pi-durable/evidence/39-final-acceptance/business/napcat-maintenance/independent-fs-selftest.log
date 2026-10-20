@@ -1,0 +1,11 @@
+test_rollback_preserves_current_keep_and_external_data (__main__.Tests.test_rollback_preserves_current_keep_and_external_data) ... ok
+test_stage_all_nonkeep_posthash (__main__.Tests.test_stage_all_nonkeep_posthash) ... ok
+test_stage_directory_collision_refused (__main__.Tests.test_stage_directory_collision_refused) ... ok
+test_stage_hash_drift_refused (__main__.Tests.test_stage_hash_drift_refused) ... ok
+test_swap_metadata_failure_preserves_both_and_restores_original (__main__.Tests.test_swap_metadata_failure_preserves_both_and_restores_original) ... ok
+test_swap_stage_rename_failure_restores_original (__main__.Tests.test_swap_stage_rename_failure_restores_original) ... ok
+
+----------------------------------------------------------------------
+Ran 6 tests in 0.011s
+
+OK

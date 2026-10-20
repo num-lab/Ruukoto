@@ -1,0 +1,12 @@
+✔ durable 工具恢复：SDK转换后的数字文本写入与原始调用可跨重启核实 (4342.765458ms)
+✔ durable 搜索：SDK失败意图计入5次额度，普通视图有界且原JSON可核实 (1388.254ms)
+✔ durable 审查证据：missing 损坏启动拒绝且不增加模型请求 (10000.106791ms)
+✔ durable 审查证据：payload 损坏启动拒绝且不增加模型请求 (9668.478292ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 26433.44575

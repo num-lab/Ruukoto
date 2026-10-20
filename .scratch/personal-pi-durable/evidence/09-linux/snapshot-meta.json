@@ -1,0 +1,11 @@
+{
+  "created_at": "2026-10-17T03:30:21.352476+00:00",
+  "source_files": 1354,
+  "runtime_files": 566,
+  "archive_bytes": 5508390,
+  "new_config_sha256": "b09bef20fa258872c3122506fd967537229e35ffe278a41e4ba3baf62ed56f3d",
+  "test_sha256": "4f8439177e96245c022654011cc76dff451000d04b232d5eff624033b0a47402",
+  "archive_sha256": "632b1bf5e4caf32afa4c244a2cdafdc3758785a32f7da9a32371b1b1fccb1e8e",
+  "archive_retained": false,
+  "archive_note": "临时传输副本已删除；完整输入指纹由source-manifest和runtime-manifest保留。"
+}

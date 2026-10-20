@@ -1,0 +1,80 @@
+{
+  "archiveSha256": "2fce28af84f6c360fc29785ebf55208ebb3a233cd7da69428653dfe129df689b",
+  "files": [
+    {
+      "path": "owned-processes-after.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "matches": true
+    },
+    {
+      "path": "source-manifest.json",
+      "sha256": "9de725f6be1a37b01e28cd64577ac6434ae3ad79ea853245206c08413151dc0f",
+      "matches": true
+    },
+    {
+      "path": "browser-probe-exit.json",
+      "sha256": "53c40d9582981abc330f043dea469ff86cda8e9832453e90edd4d92d9ef7fdde",
+      "matches": true
+    },
+    {
+      "path": "cleanup-before-archive.json",
+      "sha256": "6638fa07f34ff3252c9f2a6dc44e4c8ad74d6f39497e36e77aa923b95c1540e4",
+      "matches": true
+    },
+    {
+      "path": "runtime-dependencies.json",
+      "sha256": "3e2169f467c796c689fe0a923a9472b7720d6752e5afd7e3db92e692342f9b48",
+      "matches": true
+    },
+    {
+      "path": "chrome-prerequisite.json",
+      "sha256": "8f08d34656583739f0558112b8a44068714224d1ef6f4d11eb1c1967bd3ca32f",
+      "matches": true
+    },
+    {
+      "path": "browser-probe.log",
+      "sha256": "eda991f30817777a374534f97bdbd780ef66370e3dc92f138648c5ee8a145eb8",
+      "matches": true
+    },
+    {
+      "path": "control-directories-after.json",
+      "sha256": "749ea7de3592847225ae42a3df64d000fbb331128ce5abb52ad57ecb1ed1f40f",
+      "matches": true
+    },
+    {
+      "path": "browser-environment.json",
+      "sha256": "a62e0c223aac3e7578f2913fec8a484a273766a60e50999ee642e2f60e2b87e0",
+      "matches": true
+    },
+    {
+      "path": "source-verification.json",
+      "sha256": "882986f0b1845559499f189da71a15bc3092ca6acb8630bb3403e62264a98b31",
+      "matches": true
+    },
+    {
+      "path": "chrome-prerequisite.log",
+      "sha256": "591874bce2d2848731cd188237ae95bfd2bb7de633fcae8ed22c816a8601ad4c",
+      "matches": true
+    },
+    {
+      "path": "leaf-tests-result.json",
+      "sha256": "1e05a3780e775b9f514b56dd40a07cd6fcb30d09e934211738566ab430cf01b4",
+      "matches": true
+    },
+    {
+      "path": "leaf-tests.log",
+      "sha256": "b48978d16b12e77033404d69b63f951f2869d4af64c28afbff040a253ac2d450",
+      "matches": true
+    },
+    {
+      "path": "environment.json",
+      "sha256": "26dc4963301c9adec7bf79892437cdbf08a76f429fb1c8bfdb4f15361570c329",
+      "matches": true
+    },
+    {
+      "path": "built/browser-probe-result.json",
+      "sha256": "4c4bd1eb70a45f0598a7f93eee20b813db74f77396c3b972b1b2d4ce3313af7c",
+      "matches": true
+    }
+  ]
+}

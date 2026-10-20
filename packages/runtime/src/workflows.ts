@@ -1,6 +1,7 @@
 /** 持久工作流协调器：脚本只登记步骤，实际执行、计费、重放和停止归宿主。
  * Note: 见 .agents/notes/implemented/architecture/2026-10-13-workflow-runtime-and-store.md
  * Note: 见 .agents/notes/implemented/architecture/2026-10-15-workflow-role-interface.md
+ * Note: 见 .agents/notes/implemented/architecture/2026-10-16-task-ending-protocol.md
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -10,6 +11,7 @@ import { WorkflowScriptHost } from "@ruukoto/agent/script-worker/host.ts";
 import { isRecord, ScriptExecutionError, type ScriptCall } from "@ruukoto/agent/script-worker/protocol.ts";
 import { compileWorkflowOutput } from "@ruukoto/agent/workflow-output.ts";
 import { ToolOpLedger } from "@ruukoto/agent/tool-op-ledger.ts";
+import { endTaskExecution, type TaskEndingContext } from "@ruukoto/agent/task-ending.ts";
 import { SubAgentRoleError, validateSubAgentRoleLibrary, type SubAgentRoleLibrary } from "@ruukoto/agent/subagent-roles.ts";
 import { SubAgentDefinitionError, type SubAgentDefinitionSnapshot } from "@ruukoto/core/subagent-definition.ts";
 import { SubAgentExecutionError, type SubAgentExecutionSnapshot } from "@ruukoto/core/subagent-execution.ts";
@@ -19,7 +21,7 @@ import { selectSubAgentRole } from "./subagent-role-library.ts";
 import { WorkCopyError } from "./work-copy.ts";
 import { createManagedProcessRegistry, type ManagedEntry, type ManagedProcessRegistry } from "@ruukoto/agent/managed-processes.ts";
 import type { Store } from "@ruukoto/core/store.ts";
-import { randomId, isTerminalTaskStatus, type ModelSelection, type PersistentEvent, type Task } from "@ruukoto/core/types.ts";
+import { randomId, isTerminalTaskStatus, type ConfirmationRequest, type ModelSelection, type PersistentEvent, type Task, type ToolOp } from "@ruukoto/core/types.ts";
 import {
   WORKFLOW_LIMITS, WORKFLOW_INTERFACE_VERSION, WorkflowError, bindWorkflowExecution, chargeWorkflow, controlWorkflow, createWorkflowRun,
   deliverWorkflowStep, findWorkflowRun, finishWorkflowStep, getWorkflowExecution, getWorkflowQuestion,
@@ -33,6 +35,7 @@ export interface WorkflowAgentContext {
   run: WorkflowRun;
   step: WorkflowStep;
   task: Task;
+  ending: TaskEndingContext;
   signal: AbortSignal;
   /** 启动实际单元前登记起始句柄；stop 须等待启动收尾，实际身份沿该句柄更新。 */
   register(entry: ManagedEntry): void;
@@ -71,10 +74,12 @@ interface ScriptRun {
   integrations: Map<string, Promise<void>>;
 }
 interface AgentJob {
+  ending: TaskEndingContext;
   controller: AbortController;
   registry: ManagedProcessRegistry;
   promise: Promise<void>;
   stop?: Promise<boolean>;
+  abort?: Promise<boolean>;
 }
 export interface WorkflowStart {
   sourceTaskId: string;
@@ -495,7 +500,7 @@ export class WorkflowCoordinator {
   }
 
   private runAgent(execution: WorkflowExecution): void {
-    const job: AgentJob = { controller: new AbortController(), registry: createManagedProcessRegistry(), promise: Promise.resolve() };
+    const job: AgentJob = { ending: { taskId: execution.taskId, stopSnapshot: null }, controller: new AbortController(), registry: createManagedProcessRegistry(), promise: Promise.resolve() };
     this.jobs.set(execution.taskId, job);
     const task = this.store.getTask(execution.taskId)!;
     const step = getWorkflowStep(this.store, execution.runId, execution.stepKey)!;
@@ -503,7 +508,7 @@ export class WorkflowCoordinator {
       let output: { output: string; isError?: boolean } | undefined;
       let failure: unknown;
       try {
-        output = await this.deps.agent!({ run: requireWorkflowRun(this.store, execution.runId), step, task, signal: job.controller.signal,
+        output = await this.deps.agent!({ run: requireWorkflowRun(this.store, execution.runId), step, task, ending: job.ending, signal: job.controller.signal,
           register: entry => {
             const current = this.store.getTask(task.id);
             if (job.stop || job.controller.signal.aborted || current?.status !== "running" || current.cancelRequested) throw new WorkflowError("task_ending");
@@ -532,65 +537,62 @@ export class WorkflowCoordinator {
           this.store.withTx(() => this.store.setTaskResult(task.id, `原始输出保存在产物 ${artifact.id}，超过脚本结果上限`, JSON.stringify({ artifactId: artifact.id })));
         } catch (error) { failure = error; rawOutput = null; }
       }
-      const reaped = await this.stopJob(task.id, false);
-      this.store.withTx(() => {
-        const current = this.store.getTask(task.id)!;
-        updateWorkflowExecution(this.store, task.id, { status: "finished", stopVerified: reaped });
-        if (!isTerminalTaskStatus(current.status)) this.store.endTask(task.id, ["running", "awaiting_confirmation"], output && !output.isError && !failure ? "completed" : "failed", {
-          errorMessage: failure instanceof WorkflowError ? failure.code : failure ? "workflow_execution_failed" : output?.isError ? "workflow_agent_failed" : undefined,
-          keepOccupancy: !reaped, occupancyIssueReason: !reaped ? "workflow_stop_unverified" : null });
-        this.store.setSubAgentState(task.subAgentId!, reaped ? "idle" : "unverified", { activeWorkId: task.workId, currentTaskId: null });
-        const run = requireWorkflowRun(this.store, execution.runId);
-        if (rawOutput !== null) this.store.setTaskResult(task.id, rawOutput, JSON.stringify({ workflowRunId: run.id, stepKey: step.key, taskId: task.id }));
-        const hostUnsafe = listWorkflowExecutions(this.store, execution.runId).filter(item => item.kind === "host" && item.stepKey === step.key).map(item => {
-          const hostTask = this.store.getTask(item.taskId);
-          return !hostTask ? "result_missing" : item.status === "finished" && item.stopVerified !== true ? "stop_unverified" : this.unsafeReason(hostTask, hostTask.resultSummary !== null);
-        }).find(Boolean);
-        const unsafe = hostUnsafe ?? this.unsafeReason(this.store.getTask(task.id)!, output !== undefined);
-        if (unsafe) { if (!workflowTerminal(run.status)) setWorkflowState(this.store, run.id, "paused", unsafe, this.now()); return; }
-        if (!this.admitted(run)) {
-          if (run.status === "paused" && this.safeToRetry(task)) {
-            if (step.attempts <= WORKFLOW_LIMITS.retries) updateWorkflowStep(this.store, { ...step, status: "queued" });
-            else finishWorkflowStep(this.store, run.id, step.key, "failed", { status: "failed", code: "retry_limit" });
+      await endTaskExecution({ store: this.store, ledger: this.ledger, onReleased: this.deps.onReleased }, task, job.ending, {
+        terminal: output && !output.isError && !failure ? "completed" : "failed",
+        reason: failure instanceof WorkflowError ? failure.code : failure ? "workflow_execution_failed" : output?.isError ? "workflow_agent_failed" : undefined,
+        unreapedReason: "workflow_stop_unverified", halt: () => this.stopJob(task.id, false),
+        inTx: ({ reaped }) => {
+          updateWorkflowExecution(this.store, task.id, { status: "finished", stopVerified: reaped });
+          this.store.setSubAgentState(task.subAgentId!, reaped ? "idle" : "unverified", { activeWorkId: task.workId, currentTaskId: null });
+          const run = requireWorkflowRun(this.store, execution.runId);
+          if (rawOutput !== null) this.store.setTaskResult(task.id, rawOutput, JSON.stringify({ workflowRunId: run.id, stepKey: step.key, taskId: task.id }));
+          const hostUnsafe = listWorkflowExecutions(this.store, execution.runId).filter(item => item.kind === "host" && item.stepKey === step.key).map(item => {
+            const hostTask = this.store.getTask(item.taskId);
+            return !hostTask ? "result_missing" : item.status === "finished" && item.stopVerified !== true ? "stop_unverified" : this.unsafeReason(hostTask, hostTask.resultSummary !== null);
+          }).find(Boolean);
+          const unsafe = hostUnsafe ?? this.unsafeReason(this.store.getTask(task.id)!, output !== undefined);
+          if (unsafe) { if (!workflowTerminal(run.status)) setWorkflowState(this.store, run.id, "paused", unsafe, this.now()); return; }
+          if (!this.admitted(run)) {
+            if (run.status === "paused" && this.safeToRetry(task)) {
+              if (step.attempts <= WORKFLOW_LIMITS.retries) updateWorkflowStep(this.store, { ...step, status: "queued" });
+              else finishWorkflowStep(this.store, run.id, step.key, "failed", { status: "failed", code: "retry_limit" });
+            }
+            return;
           }
-          return;
-        }
-        if (failure || output?.isError) {
-          if (!(failure instanceof WorkflowError && ["output_limit", "output_invalid", "git_required", "binding_invalid", "source_invalid", "verification_invalid", "verification_required"].includes(failure.code)) && this.safeToRetry(task) && step.attempts <= WORKFLOW_LIMITS.retries) updateWorkflowStep(this.store, { ...getWorkflowStep(this.store, run.id, step.key)!, status: "queued" });
-          else finishWorkflowStep(this.store, run.id, step.key, "failed", { status: "failed", code: failure instanceof WorkflowError ? failure.code : "agent_failed" }, rawOutput);
-          if (!this.safeToRetry(task)) setWorkflowState(this.store, run.id, "paused", "write_result_missing", this.now());
-          return;
-        }
-        try {
-          if (!output || typeof output.output !== "string") throw new WorkflowError("result_missing");
-          const params = step.params as Record<string, unknown>;
-          const check = this.outputCheck(params.output);
-          const value: unknown = check ? JSON.parse(output.output) : output.output;
-          if (check && !check(value)) throw new WorkflowError("output_invalid");
-          if (params.verify !== undefined && (!isRecord(value) || typeof value.passed !== "boolean")) throw new WorkflowError("output_invalid");
-          workflowJson(value);
-          const evidence = getWorkflowStep(this.store, run.id, step.key)?.verification;
-          const failed = params.verify !== undefined && (!evidence?.passed || (isRecord(value) && value.passed === false));
-          finishWorkflowStep(this.store, run.id, step.key, failed ? "failed" : "completed", { status: failed ? "failed" : "completed", value }, output.output);
-          this.store.setTaskResult(task.id, output.output, JSON.stringify({ workflowRunId: run.id, stepKey: step.key, taskId: task.id }));
-        } catch (error) {
-          finishWorkflowStep(this.store, run.id, step.key, "failed", { status: "failed", code: error instanceof WorkflowError ? error.code : "output_invalid" }, rawOutput);
-          if (!this.safeToRetry(task)) setWorkflowState(this.store, run.id, "paused", "write_result_missing", this.now());
-        }
+          if (failure || output?.isError) {
+            if (!(failure instanceof WorkflowError && ["output_limit", "output_invalid", "git_required", "binding_invalid", "source_invalid", "verification_invalid", "verification_required"].includes(failure.code)) && this.safeToRetry(task) && step.attempts <= WORKFLOW_LIMITS.retries) updateWorkflowStep(this.store, { ...getWorkflowStep(this.store, run.id, step.key)!, status: "queued" });
+            else finishWorkflowStep(this.store, run.id, step.key, "failed", { status: "failed", code: failure instanceof WorkflowError ? failure.code : "agent_failed" }, rawOutput);
+            if (!this.safeToRetry(task)) setWorkflowState(this.store, run.id, "paused", "write_result_missing", this.now());
+            return;
+          }
+          try {
+            if (!output || typeof output.output !== "string") throw new WorkflowError("result_missing");
+            const params = step.params as Record<string, unknown>;
+            const check = this.outputCheck(params.output);
+            const value: unknown = check ? JSON.parse(output.output) : output.output;
+            if (check && !check(value)) throw new WorkflowError("output_invalid");
+            if (params.verify !== undefined && (!isRecord(value) || typeof value.passed !== "boolean")) throw new WorkflowError("output_invalid");
+            workflowJson(value);
+            const evidence = getWorkflowStep(this.store, run.id, step.key)?.verification;
+            const failed = params.verify !== undefined && (!evidence?.passed || (isRecord(value) && value.passed === false));
+            finishWorkflowStep(this.store, run.id, step.key, failed ? "failed" : "completed", { status: failed ? "failed" : "completed", value }, output.output);
+            this.store.setTaskResult(task.id, output.output, JSON.stringify({ workflowRunId: run.id, stepKey: step.key, taskId: task.id }));
+          } catch (error) {
+            finishWorkflowStep(this.store, run.id, step.key, "failed", { status: "failed", code: error instanceof WorkflowError ? error.code : "output_invalid" }, rawOutput);
+            if (!this.safeToRetry(task)) setWorkflowState(this.store, run.id, "paused", "write_result_missing", this.now());
+          }
+        },
       });
       this.jobs.delete(task.id);
-      if (reaped) this.deps.onReleased?.();
       this.flush(execution.runId);
       this.kick();
-    })().catch(error => {
-      this.store.withTx(() => {
-        const reaped = getWorkflowExecution(this.store, task.id)?.stopVerified === true;
-        this.store.endTask(task.id, ["running", "awaiting_confirmation"], "interrupted", { interruptReason: "workflow_result_missing", keepOccupancy: !reaped,
-          occupancyIssueReason: reaped ? null : "workflow_stop_unverified" });
-        updateWorkflowExecution(this.store, task.id, { status: "finished" });
+    })().catch(async error => {
+      await endTaskExecution({ store: this.store, ledger: this.ledger, onReleased: this.deps.onReleased }, task, job.ending, {
+        terminal: "interrupted", reason: "workflow_result_missing", unreapedReason: "workflow_stop_unverified",
+        halt: async () => getWorkflowExecution(this.store, task.id)?.stopVerified === true,
+        inTx: () => { updateWorkflowExecution(this.store, task.id, { status: "finished" }); },
       });
       this.jobs.delete(task.id);
-      this.deps.onReleased?.();
       this.pause(execution.runId, error instanceof WorkflowError ? error.code : "result_missing");
     });
   }
@@ -621,40 +623,49 @@ export class WorkflowCoordinator {
       return hash.digest("hex") === ref.hash;
     } catch { return false; }
   }
+  private noWriteEffect(op: ToolOp, confirmations: ConfirmationRequest[]): boolean {
+    const own = confirmations.filter(confirmation => confirmation.toolOpId === op.id);
+    return this.ledger.hasNoWriteEffect(op) || (own.length > 0 && own.every(confirmation => confirmation.consumedAt === null));
+  }
   private safeToRetry(task: Task): boolean {
     const confirmations = this.store.listConfirmationsByTask(task.id);
-    return !task.effectUnknown && this.store.listToolOpsByTask(task.id).every(op => {
-      const own = confirmations.filter(confirmation => confirmation.toolOpId === op.id);
-      return this.ledger.hasNoWriteEffect(op) || (own.length > 0 && own.every(confirmation => confirmation.consumedAt === null));
-    });
+    return !task.effectUnknown && this.store.listToolOpsByTask(task.id).every(op => this.noWriteEffect(op, confirmations));
   }
   private unsafeReason(task: Task, hasOutput = false): string | null {
     if (this.store.listAllOccupancy().some(held => held.taskId === task.id) && isTerminalTaskStatus(task.status)) return "stop_unverified";
-    if (task.effectUnknown || this.store.listToolOpsByTask(task.id).some(op => op.effectUnknown)) return "effect_unknown";
+    const ops = this.store.listToolOpsByTask(task.id);
+    if (task.effectUnknown || ops.some(op => op.effectUnknown)) return "effect_unknown";
+    const confirmations = this.store.listConfirmationsByTask(task.id);
+    if (ops.some(op => op.resultSummary === null && !this.noWriteEffect(op, confirmations))) return "write_result_missing";
     if (!hasOutput && !this.safeToRetry(task)) return "write_result_missing";
     return null;
   }
   private async stopJob(taskId: string, abort: boolean): Promise<boolean> {
     const job = this.jobs.get(taskId);
     if (!job) return getWorkflowExecution(this.store, taskId)?.stopVerified === true;
+    if (abort) {
+      if (job.abort) return job.abort;
+      const task = this.store.getTask(taskId)!;
+      const canceled = requireWorkflowRun(this.store, getWorkflowExecution(this.store, taskId)!.runId).status === "canceled";
+      job.abort = endTaskExecution({ store: this.store, ledger: this.ledger, onReleased: this.deps.onReleased }, task, job.ending, {
+        terminal: canceled ? "canceled" : "interrupted", reason: "workflow_stopped", abort: true,
+        unreapedReason: "workflow_stop_unverified",
+        halt: () => { job.controller.abort(); return this.stopJob(taskId, false); },
+        inTx: ({ reaped }) => { updateWorkflowExecution(this.store, taskId, { stopVerified: reaped }); },
+      }).then(result => result.reaped);
+      return job.abort;
+    }
     if (job.stop) return job.stop;
-    const task = this.store.getTask(taskId)!;
-    const unknown = abort ? this.ledger.beginStop(taskId) : [];
-    if (abort) job.controller.abort();
     job.stop = (async () => {
       let reaped = true;
       for (const entry of job.registry.list()) {
         try { if (!await entry.stop()) reaped = false; }
-        catch { reaped = false; }
+        catch {
+          reaped = false;
+          process.stderr.write(`[ruukoto:workflows] 任务 ${taskId} 的执行单元停止未核实，保留目录占用待拥有者核实\n`);
+        }
       }
-      this.store.withTx(() => {
-        for (const opId of this.ledger.settleTask(task, unknown)) this.ledger.markEffectUnknown(task, opId);
-        updateWorkflowExecution(this.store, taskId, { stopVerified: reaped });
-        const canceled = requireWorkflowRun(this.store, getWorkflowExecution(this.store, taskId)!.runId).status === "canceled";
-        if (abort) this.store.endTask(taskId, ["running", "awaiting_confirmation"], canceled ? "canceled" : "interrupted", { interruptReason: "workflow_stopped", keepOccupancy: !reaped,
-          occupancyIssueReason: !reaped ? "workflow_stop_unverified" : null });
-      });
-      if (abort && reaped) this.deps.onReleased?.();
+      this.store.withTx(() => updateWorkflowExecution(this.store, taskId, { stopVerified: reaped }));
       return reaped;
     })();
     return job.stop;

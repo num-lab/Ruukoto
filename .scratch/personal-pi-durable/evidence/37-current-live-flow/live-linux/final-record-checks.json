@@ -1,0 +1,176 @@
+{
+  "observedAt": "2026-10-18T10:23:05.024937+00:00",
+  "markdown": {
+    "files": [
+      ".agents/notes/implemented/architecture/2026-10-17-personal-analysis-delegations.md",
+      ".agents/notes/implemented/architecture/2026-10-17-personal-durable-commands.md",
+      ".agents/notes/implemented/architecture/2026-10-17-personal-subagent-service-operations.md",
+      ".agents/notes/implemented/architecture/2026-10-17-personal-work-controls.md",
+      ".scratch/personal-pi-durable/issues/03-local-cli.md",
+      ".scratch/personal-pi-durable/issues/07-telegram-entry.md",
+      ".scratch/personal-pi-durable/issues/08-telegram-service-approval.md",
+      ".scratch/personal-pi-durable/issues/09-service-configuration.md",
+      ".scratch/personal-pi-durable/issues/10-model-background-work.md",
+      ".scratch/personal-pi-durable/issues/11-work-controls.md",
+      ".scratch/personal-pi-durable/issues/12-work-notes.md",
+      ".scratch/personal-pi-durable/issues/13-analysis-delegations.md",
+      ".scratch/personal-pi-durable/issues/14-delegation-reports.md",
+      ".scratch/personal-pi-durable/issues/18-subagent-inspection.md",
+      ".scratch/personal-pi-durable/issues/21-subagent-service-operations.md",
+      ".scratch/personal-pi-durable/issues/25-durable-commands.md",
+      ".scratch/personal-pi-durable/issues/26-full-access-commands.md",
+      ".scratch/personal-pi-durable/issues/29-tools-access-artifacts.md",
+      ".scratch/personal-pi-durable/issues/35-owner-configuration-controls.md",
+      ".scratch/personal-pi-durable/issues/37-current-live-flow.md",
+      ".scratch/personal-pi-durable/issues/39-final-acceptance.md",
+      ".scratch/personal-pi-durable/remaining-work.md",
+      "docs/modules/personal-durable.md",
+      "docs/usage.md",
+      ".scratch/personal-pi-durable/evidence/37-current-live-flow/README.md",
+      ".scratch/personal-pi-durable/evidence/37-current-live-flow/live-linux/environment-review.md",
+      ".scratch/personal-pi-durable/evidence/37-current-live-flow/live-linux/final-review.md",
+      ".scratch/personal-pi-durable/evidence/37-current-live-flow/live-linux/observer-review.md",
+      ".scratch/personal-pi-durable/evidence/37-current-live-flow/review.md"
+    ],
+    "links": 267,
+    "hardwraps": 0,
+    "singleStatus": true,
+    "endLF": true
+  },
+  "diffCheckExit": 0,
+  "finalSourceFilesMatched": 21,
+  "historicalSourceFilesMatchedAgainstHistoricalHead": 12,
+  "archiveMembersVerified": 123,
+  "databaseArchiveMatched": true,
+  "historicalDatabaseMatched": true,
+  "knownSecretsScan": {
+    "files": 68,
+    "secrets": 2,
+    "variants": 5,
+    "hits": 0,
+    "compressedMembersScanned": true
+  },
+  "botTokenShapeHits": 0,
+  "artifacts": {
+    "README.md": {
+      "bytes": 8616,
+      "sha256": "5eadb35efa490b4929ffd9283de00092cfd77b04caad1148672d6ffead067833"
+    },
+    "checks.json": {
+      "bytes": 1024,
+      "sha256": "bcaa7ce449e44a85b2b10186dc30cbc0e6191869ffca8f4963b0093c69a0ea1b"
+    },
+    "linux-preflight.json": {
+      "bytes": 1759,
+      "sha256": "9dd9522bf4a3ec627e73f686e7f8a38392dbf03f4e008563882b32d00a33244d"
+    },
+    "live-linux/archive-manifest.json": {
+      "bytes": 23007,
+      "sha256": "ee0d53e912caec4f3b0064d2c977bbb29ebccdaf1fbe1a931bf231b1e223decb"
+    },
+    "live-linux/build.json": {
+      "bytes": 97340,
+      "sha256": "ac97cbdacce915d3873e600a45c3b4d1b7c202c35b5e89407e0ad87810489f18"
+    },
+    "live-linux/cleanup-linux.json": {
+      "bytes": 3689,
+      "sha256": "e8f95558cc847902302d7aee4d0e887abc4b40dcabc306f63dd4b32672c8d81c"
+    },
+    "live-linux/cleanup-local.json": {
+      "bytes": 858,
+      "sha256": "ff124e196c7bd9ada95ab0f0f2053b4798cc4ff9fe2c06755ebcacf439db5fe2"
+    },
+    "live-linux/deploy-source.json": {
+      "bytes": 254,
+      "sha256": "5aeed22ef15413495d585bb16123afed118bc5f332a1bf279aaf16a2cff1b68f"
+    },
+    "live-linux/environment-review.md": {
+      "bytes": 1472,
+      "sha256": "f415ffe90dfa26b0fe5adcad43d1044d598000f4c8f786d9cdcd961e94f239c8"
+    },
+    "live-linux/final-change.diff.gz": {
+      "bytes": 23145,
+      "sha256": "bb36f947db31676969980d7e7d91aafe4f93547eb27236a9e112888d66164a41"
+    },
+    "live-linux/final-checks.json": {
+      "bytes": 6202,
+      "sha256": "aafd0ee03ce0e407e5126d2ec1ec086476c92a3eda7076997760f027f9bf07dd"
+    },
+    "live-linux/final-review.md": {
+      "bytes": 5470,
+      "sha256": "90f3e27a6cc88f6207f73a7b8a2339738dafde9276200acb4d2bda507f24b458"
+    },
+    "live-linux/final-text-estimates.json": {
+      "bytes": 1707,
+      "sha256": "7263fcfc02f797081af5a7ad748aa43eba62b311b6bfdbddeb923093ea6d37c5"
+    },
+    "live-linux/helper-deploy.diff.gz": {
+      "bytes": 292,
+      "sha256": "a5cee74671b79208bc14672fa695c1da0e9b0bbfe833451f4e95a124d36fa0aa"
+    },
+    "live-linux/observe-command-crash.py": {
+      "bytes": 10129,
+      "sha256": "ab74afc7a3c4a43de9f5374cd4488bb50b2f850ea8d5430e589464ce84cc8688"
+    },
+    "live-linux/observer-review.md": {
+      "bytes": 1127,
+      "sha256": "80a3fab6d7f003667bf66b416b4bcae7b9bb4831bee4376eccb2cc2f7055c2ce"
+    },
+    "live-linux/personal-live.sqlite.gz": {
+      "bytes": 7901441,
+      "sha256": "b5cbd6615c6ad4e0553ee2f2bc2913e1409f7b8f9aae80878d091d6aac709600"
+    },
+    "live-linux/preparation-attempts.json": {
+      "bytes": 1669,
+      "sha256": "da43db38a29f47bead3c9e1643f9e0aa41a2aa452ba74ecac2263e4901c3f43a"
+    },
+    "live-linux/runtime-records.tar.gz": {
+      "bytes": 8062989,
+      "sha256": "4c13441515ba3a3e68c933f15902b26027247ed36eb4038b7a745e909eeb1d1b"
+    },
+    "live-linux/service-result-fix.diff.gz": {
+      "bytes": 1504,
+      "sha256": "e744cb083e74a085476712f0c9df740d308bf01414fd94874aedb902fed4753c"
+    },
+    "live-linux/service-result-fix.json": {
+      "bytes": 1434,
+      "sha256": "00eecca7600dbba6ff47567bb9f52c8f8cac40881f12f833c527d9b2a7433dcb"
+    },
+    "live-linux/text-fix.diff.gz": {
+      "bytes": 6680,
+      "sha256": "0be13fbb3a6721eea2f2a9a0e6d108abc364f6f05f95bfabc54fe7da135f7a4b"
+    },
+    "live-linux/text-fix.json": {
+      "bytes": 1344,
+      "sha256": "cc28df3dc248e788032a22bc9b3d4c02f4840cea1afb600625dea83d8a338c90"
+    },
+    "model-cleanup.json": {
+      "bytes": 231,
+      "sha256": "aba0c86142f862197c86cc796e66f966b81fa61df3c157c964692f7d17df4417"
+    },
+    "model-personal.sqlite.gz": {
+      "bytes": 119184,
+      "sha256": "6fb64063337f79ad5fe041066d2d8afceb02b1c817824bfa476147c0574d1005"
+    },
+    "model-probe.mts": {
+      "bytes": 8271,
+      "sha256": "972fd454e025799b0442a76c6614194e73b87fd19817747370d09b3b159f3791"
+    },
+    "model-result.json": {
+      "bytes": 1986,
+      "sha256": "a7141f37a0b5c07c038489b177533e78477e4dadb666f76bb2b92030d843c28f"
+    },
+    "record-checks.json": {
+      "bytes": 658,
+      "sha256": "a28e4599b4e70c41a77336b7009480dbb0e81fc4d72c77e18b2e4236fcc82af9"
+    },
+    "review.md": {
+      "bytes": 2228,
+      "sha256": "3c0cb544c9f2f141b59836b32c8546e7a9e88cc24b412f5604518e8aedffdfda"
+    },
+    "source-manifest.json": {
+      "bytes": 1612,
+      "sha256": "5427310599d65c99b6dd1bb966df02cf4ae174e38563575ca96d540537b3ffc0"
+    }
+  }
+}

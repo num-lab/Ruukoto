@@ -1,0 +1,13 @@
+{
+  "root": "/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable",
+  "files": {
+    "apps/ruukoto/src/personal-harness.ts": "cbdf8f9616e79f0dea6030af7f4ed0e90d10ca5643f0a9cba3b879daaa0d10e5",
+    "apps/ruukoto/src/personal-service-operations.ts": "e47b801c1e1f9c1fc87c1d5918ad9af96753a22d50d396add68c9e923adabb77",
+    "apps/ruukoto/src/personal-service-work.ts": "ee6c8dc1676090f956d1a0afc934a3b1b7de2082f743feea1b6e15b9a580004b",
+    "apps/ruukoto/src/personal-work-tools.ts": "09caf041abfea8a454adfda26000b25f03e16bf24abf25df2ebf9d5e528c97f5",
+    "apps/ruukoto/src/personal-work.ts": "a076508a6831e3f3936a670d9391b2256a2c6a754936a39e33697adb2ea1b913",
+    "test/personal-service-operations.test.ts": "2e928bf26cdbe8ea196c081a8b6294e919ac20facfdb300f64f0b4abc602b45c",
+    ".agents/notes/implemented/architecture/2026-10-17-personal-subagent-service-operations.md": "188630685b0f1e046a360b6398bf4ba6cce32bae0a7eef097a311ad12ac8c833",
+    "docs/modules/personal-durable.md": "2c3a59dd159e39eb732177ba1b1f17dce6f789279e87d5bfc1e15f1a33453721"
+  }
+}

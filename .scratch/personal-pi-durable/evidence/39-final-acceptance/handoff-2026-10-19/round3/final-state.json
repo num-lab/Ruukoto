@@ -1,0 +1,10 @@
+{
+"at": "2026-10-19T13:51:36Z",
+"status": {"v":1,"ok":true,"result":{"model":"deepseek-flash","tasks":0,"inputs":0,"services":true,"capabilities":{"commands":true,"mcp":true,"tools":true,"browser":true,"telegram":true,"qq":true}}},
+"qq": {"enabled": true, "receiving": true, "online": true, "rejected": 335},
+"telegram": {"enabled": true, "receiving": true, "online": false, "rejected": 335},
+"permissions": {"v":1,"ok":true,"result":{"default":{"mode":"auto-review"},"qq":{"mode":"auto-review"}}},
+"serviceGrants": {"v":1,"ok":true,"result":{"items":[]}},
+"testServiceCount": "4",
+"testServiceActive": "active"
+}

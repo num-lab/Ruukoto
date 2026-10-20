@@ -1,0 +1,29 @@
+✖ durable 命令：confirm 保留原权限、原生 owned Task 和双流分页，非零结果也释放身份 (19424.877792ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 20056.276875
+
+✖ failing tests:
+
+test at test/personal-command-work.test.ts:135:72
+✖ durable 命令：confirm 保留原权限、原生 owned Task 和双流分页，非零结果也释放身份 (19424.877792ms)
+  AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+
+    assert.ok(request.system?.includes(`当前工作命令权限：${{ confirm: "请求确认", "auto-review": "自动审查", full_access: "完全访问" }[mode]}。`))
+
+      at TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/personal-command-work.test.ts:146:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }

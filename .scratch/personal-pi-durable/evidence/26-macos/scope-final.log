@@ -1,0 +1,12 @@
+✔ 完全访问无持久 tracking 时在平台前置探测前拒绝 (1.932917ms)
+✔ Linux scope 只接受已知组的完整空成员证据或确认删除 (2.411333ms)
+✔ Linux manager 可用但缺 scope-group 时拒绝并保留停止身份 (8.461083ms)
+✔ Linux manager 可用但缺 writable-kill 时拒绝并保留停止身份 (3.194084ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 281.330458

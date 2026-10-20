@@ -12,12 +12,11 @@ import { PRODUCT_META_KEY } from "@ruukoto/core/product.ts";
 import { TASK_END_MARKER, TASK_START_MARKER } from "@ruukoto/core/types.ts";
 import type { WorkflowSource } from "@ruukoto/core/workflow.ts";
 import { applyLegacyImport, previewLegacyImport, revertLegacyImport } from "../apps/ruukoto-code/src/legacy-import.ts";
-import { applyPersonalImport, previewPersonalImport, revertPersonalImport } from "@ruukoto/channels/personal-import.ts";
 import { AppDataStore } from "@ruukoto/agent/app-data/store.ts";
 import { canonicalJson, sha256 } from "@ruukoto/core/import-files.ts";
 import { fixtureSubAgentDefinition } from "./helpers/subagent-definition.ts";
 
-function fixture(personal: boolean) {
+function fixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-wait-import-")), sourceDir = path.join(root, "source", "data");
   fs.mkdirSync(sourceDir, { recursive: true });
   const db = new Db(sourceDir), store = new Store(db), stat = fs.statSync(root);
@@ -27,7 +26,6 @@ function fixture(personal: boolean) {
   const parentSession = store.withTx(session), subSession = store.withTx(session);
   const parent = store.withTx(() => {
     db.prepare("INSERT INTO meta (key, value) VALUES (?, ?)").run(PRODUCT_META_KEY, "ruukoto");
-    if (personal) store.insertAgentRole({ id: "main", projectId: project.id, sessionId: parentSession.id, workDir: root, modelSelection: null, tools: [], createdAt: parentSession.createdAt });
     const task = store.insertQueuedTask({ sessionId: parentSession.id, requestId: "parent", input: "等待两项工作", submissionDigest: "parent", modelSelection: { provider: "fake", modelId: "fake", thinkingLevel: "off" } }).task;
     store.transitionTask(task.id, ["queued"], "running");
     store.insertSubAgent({ id: "sub", definition: fixtureSubAgentDefinition(), parentSessionId: parentSession.id, sessionId: subSession.id, workDir: root, activeWorkId: "work", currentTaskId: null, state: "idle", closedAt: null, closedBy: null, createdAt: parentSession.createdAt });
@@ -81,10 +79,10 @@ function fixture(personal: boolean) {
   return { root, sourceDir, deps, parentSession, parent, children, reports, proof, file, instanceId, cleanup: () => fs.rmSync(root, { recursive: true, force: true }) };
 }
 
-for (const [direction, personal, preview, apply, revert] of [["coding", false, previewLegacyImport, applyLegacyImport, revertLegacyImport], ["personal", true, previewPersonalImport, applyPersonalImport, revertPersonalImport]] as const) {
+for (const [direction, preview, apply, revert] of [["coding", previewLegacyImport, applyLegacyImport, revertLegacyImport]] as const) {
   test(`${direction} 子代理或等待目录快照损坏时拒绝导入且不写目标`, () => {
     for (const corrupted of ["definition", "catalog"] as const) {
-      const f = fixture(personal);
+      const f = fixture();
       try {
         const db = new Db(f.sourceDir);
         if (corrupted === "definition") db.prepare("UPDATE sub_agents SET definition = '{}' WHERE id = 'sub'").run();
@@ -103,7 +101,7 @@ for (const [direction, personal, preview, apply, revert] of [["coding", false, p
   });
 
   test(`${direction} 报告依赖的旧任务读取了未导入记忆时明确拒绝，完整记忆则随资料保留`, () => {
-    const f = fixture(personal);
+    const f = fixture();
     try {
       const db = new Db(f.sourceDir), store = new Store(db), report = getAgentReport(store, f.reports[1].key)!;
       assert.equal(report.dependencyTaskIds.includes(f.children[0].id), true);
@@ -134,7 +132,7 @@ for (const [direction, personal, preview, apply, revert] of [["coding", false, p
   });
 
   test(`${direction} 应用数据来源必须有本方向实际保留的实例快照`, () => {
-    const f = fixture(personal);
+    const f = fixture();
     try {
       const file = path.join(f.sourceDir, "agent-data", "main.db"), app = new AppDataStore(file), ctx = { taskId: f.parent.id, sessionId: f.parentSession.id, agentId: "main" };
       app.defineTable({ table: "items", fields: [{ name: "name", type: "text" }], expected_schema_version: 0, opId: "define", reason: "归档用例", ctx });
@@ -146,37 +144,15 @@ for (const [direction, personal, preview, apply, revert] of [["coding", false, p
       source.prepare("UPDATE agent_reports SET payload = ? WHERE report_key = ?").run(JSON.stringify({ ...report, source: { ...report.source, references } }), report.key);
       source.close();
       const hash = sha256File(path.join(f.sourceDir, "ruukoto.db")), appHash = sha256File(file);
-      if (!personal) {
-        assert.throws(() => preview(f.deps, { from: f.sourceDir }), { code: "agent_wait_import_reference_missing" });
-        assert.equal(fs.existsSync(f.deps.targetDataDir), false);
-      } else {
-        fs.renameSync(file, `${file}.saved`);
-        assert.throws(() => preview(f.deps, { from: f.sourceDir }), { code: "agent_wait_import_reference_missing" });
-        assert.equal(fs.existsSync(f.deps.targetDataDir), false);
-        fs.renameSync(`${file}.saved`, file);
-        const raw = new Db(f.sourceDir);
-        raw.prepare("UPDATE agent_reports SET payload = ? WHERE report_key = ?").run(JSON.stringify({ ...report, source: { ...report.source, references: [{ ...references[0], ref: "app_data:missing-instance/items#1.name" }] } }), report.key);
-        raw.close();
-        assert.throws(() => preview(f.deps, { from: f.sourceDir }), { code: "agent_wait_import_reference_missing" });
-        assert.equal(fs.existsSync(f.deps.targetDataDir), false);
-        const original = new Db(f.sourceDir);
-        original.prepare("UPDATE agent_reports SET payload = ? WHERE report_key = ?").run(JSON.stringify({ ...report, source: { ...report.source, references } }), report.key);
-        original.close();
-        const plan = preview(f.deps, { from: f.sourceDir });
-        const result = apply(f.deps, { plan: { from: f.sourceDir }, source_instance_id: f.instanceId, revision: plan.revision!, request_id: "app-data-complete" });
-        assert.equal(result.counts.agent_reports, 2);
-        assert.equal(sha256File(path.join(f.deps.targetDataDir, "agent-data", "main.db")), appHash);
-        const target = new Db(f.deps.targetDataDir);
-        try { assert.deepEqual(getAgentReport(new Store(target), report.key)!.source.references, references); }
-        finally { target.close(); }
-      }
+      assert.throws(() => preview(f.deps, { from: f.sourceDir }), { code: "agent_wait_import_reference_missing" });
+      assert.equal(fs.existsSync(f.deps.targetDataDir), false);
       assert.equal(sha256File(path.join(f.sourceDir, "ruukoto.db")), hash);
       assert.equal(sha256File(file), appHash);
     } finally { f.cleanup(); }
   });
 
   test(`${direction} 导入保留等待与报告 UUID、消费证明和 JSONL，归档后不重放且可回退`, () => {
-    const f = fixture(personal);
+    const f = fixture();
     try {
       const originalDb = sha256File(path.join(f.sourceDir, "ruukoto.db")), originalHistory = fs.readFileSync(f.file);
       const plan = preview(f.deps, { from: f.sourceDir });
@@ -209,7 +185,7 @@ for (const [direction, personal, preview, apply, revert] of [["coding", false, p
       } finally { db.close(); }
       const repeated = preview(f.deps, { from: f.sourceDir });
       assert.equal(repeated.conflicts.ids.length, 0);
-      if ("manifest" in repeated.conflicts) assert.equal(repeated.conflicts.manifest.length, 0);
+      assert.equal(repeated.conflicts.files.length, 0);
       const reverted = revert(f.deps, result.import_id);
       assert.equal(reverted.ok, true);
       assert.equal(reverted.removed.agent_waits, 1);
@@ -220,7 +196,7 @@ for (const [direction, personal, preview, apply, revert] of [["coding", false, p
   });
 
   test(`${direction} 缺失依赖任务时预览明确拒绝，不写目标或丢弃来源绑定`, () => {
-    const f = fixture(personal);
+    const f = fixture();
     try {
       const db = new Db(f.sourceDir);
       const report = getAgentReport(new Store(db), f.reports[1].key)!;
@@ -234,7 +210,7 @@ for (const [direction, personal, preview, apply, revert] of [["coding", false, p
   });
 
   test(`${direction} 等待行变化使原修订失效，导入后的报告改写阻挡回退`, () => {
-    const f = fixture(personal);
+    const f = fixture();
     try {
       const plan = preview(f.deps, { from: f.sourceDir });
       const db = new Db(f.sourceDir), wait = getAgentWait(new Store(db), "wait")!;
@@ -248,12 +224,12 @@ for (const [direction, personal, preview, apply, revert] of [["coding", false, p
       target.close();
       assert.equal(revert(f.deps, result.import_id).ok, false);
       const conflicts = preview(f.deps, { from: f.sourceDir });
-      assert.equal(conflicts.conflicts.ids.length > 0 || ("manifest" in conflicts.conflicts && conflicts.conflicts.manifest.length > 0), true);
+      assert.equal(conflicts.conflicts.ids.length > 0 || conflicts.conflicts.files.length > 0, true);
     } finally { f.cleanup(); }
   });
 
   test(`${direction} 新源等待事实不覆盖已有归档，其他等待附着原父会话时回退明确拒绝`, () => {
-    const f = fixture(personal);
+    const f = fixture();
     try {
       const plan = preview(f.deps, { from: f.sourceDir });
       const result = apply(f.deps, { plan: { from: f.sourceDir }, source_instance_id: f.instanceId, revision: plan.revision!, request_id: "original" });
@@ -261,7 +237,7 @@ for (const [direction, personal, preview, apply, revert] of [["coding", false, p
       source.prepare("UPDATE agent_waits SET payload = ? WHERE id = 'wait'").run(JSON.stringify({ ...before, reason: "new-source-fact" }));
       source.close();
       const updated = preview(f.deps, { from: f.sourceDir });
-      assert.equal(updated.conflicts.ids.length > 0 || ("manifest" in updated.conflicts && updated.conflicts.manifest.length > 0), true);
+      assert.equal(updated.conflicts.ids.length > 0 || updated.conflicts.files.length > 0, true);
       const target = new Db(f.deps.targetDataDir), archived = getAgentWait(new Store(target), "wait")!;
       assert.equal(archived.reason, "instance_imported");
       target.prepare("INSERT INTO agent_waits (id, task_id, session_id, payload) VALUES (?, ?, ?, ?)").run("attached", archived.taskId, archived.sessionId, JSON.stringify({ ...archived, id: "attached" }));

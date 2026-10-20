@@ -1,0 +1,4 @@
+npm run setup -- --skip-hooks
+# 首轮：隔离 /dev/shm npm 缓存导致 ENOSPC（67 秒）；仅迁移本次缓存后同一副本安装通过（32 秒）。最终源码三文件补丁不改 package/lock，复用该安装。
+RUN_MODEL_CHECK=0 npx tsx --test test/personal-durable.test.ts test/personal-cli.test.ts test/personal-services.test.ts test/personal-work.test.ts test/personal-service-operations.test.ts test/personal-telegram.test.ts test/personal-telegram-permissions.test.ts
+npm run build

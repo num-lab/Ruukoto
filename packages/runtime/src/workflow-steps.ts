@@ -232,7 +232,7 @@ export class WorkflowSteps {
       }
     });
     started = true;
-    await driver!.run(this.store.getTask(task.id)!);
+    await driver!.run(this.store.getTask(task.id)!, context.ending);
     context.updateIdentity(entry);
     const current = this.store.getTask(task.id)!;
     if (current.status !== "completed") return { output: current.errorMessage ?? current.interruptReason ?? "步骤未完成", isError: true };

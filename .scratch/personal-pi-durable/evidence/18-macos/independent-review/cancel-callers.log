@@ -1,0 +1,10 @@
+✔ 模型工作：取消停止原工作且身份可复用，回报输入只可读不能变更 (885.170417ms)
+✔ 模型工作：取消处理 faulted 不声称已停止，保留原占用并报告未核实 (170.703792ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3402.164041

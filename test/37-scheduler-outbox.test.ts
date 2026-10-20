@@ -1,4 +1,4 @@
-import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
+import { product as personalProduct } from "./helpers/legacy-product.ts";
 /**
  * 调度器与通知 outbox 集成测试（daily-agent issue 03）。
  *
@@ -77,9 +77,8 @@ import { createMockTools } from "@ruukoto/agent/mock-tools.ts";
 import { Db } from "@ruukoto/core/db.ts";
 import { NotSentError, type NotifyChannel } from "@ruukoto/channels/scheduler/runtime.ts";
 import type { NotifyTarget } from "@ruukoto/core/types.ts";
-import { cleanupDirs, lastUserText, makeTestDirs, pendingConfirmation, waitFor, writeModelsJson, connectAuthedClient } from "./helpers/testkit.ts";
+import { cleanupDirs, lastUserText, makeTestDirs, waitFor, writeModelsJson } from "./helpers/testkit.ts";
 import { MockModelServer, type Responder } from "./helpers/mock-provider.ts";
-import { ControlServer } from "@ruukoto/control/server.ts";
 import { DatabaseSync } from "node:sqlite";
 
 const TARGET: NotifyTarget = { channel: "mock", account: "bot1", chatId: "owner-chat", configVersion: 1 };
@@ -148,7 +147,7 @@ async function harness(prefix: string, startIso: string, responder?: Responder, 
   };
 }
 
-/** 宿主播种只验证调度机制；工具创建的来源复核由工具用例承担。 */
+/** 宿主播种只验证共享调度与旧账本恢复，不装配退出的个人模型工具。 */
 function addPlan(rt: Runtime, h: Harness, input: { key: string; rule: Record<string, unknown>; text: string; accessMode?: "confirm" | "full_access"; target?: NotifyTarget | null }) {
   const rule = parseRule(input.rule);
   return rt.store.withTx(() => rt.sched.insertSchedule({
@@ -385,52 +384,6 @@ function toolScript(scripts: Record<string, Array<{ name: string; arguments: Rec
   };
 }
 
-test("工具：通用计划固定创建模式、目标与资料；重复键幂等、旧动作及模型指定模式拒绝", async () => {
-  const rule = { kind: "once", at: "2099-01-01T00:00:00Z", time_zone: "UTC" };
-  const plan = { create_key: "plan", rule, instruction: "检查明确资料", content: [{ kind: "text", text: "MATERIAL-MARK" }], reason: "定时检查" };
-  const h = await harness("schedule-tool-mode", "2026-09-24T00:00:00Z", toolScript({
-    "CREATE": [
-      { name: "schedule_create", arguments: plan },
-      { name: "schedule_create", arguments: plan },
-      { name: "schedule_create", arguments: { ...plan, instruction: "不同说明" } },
-      { name: "schedule_create", arguments: { ...plan, create_key: "old", action: "news" } },
-      { name: "schedule_create", arguments: { ...plan, create_key: "mode", access_mode: "full_access" } },
-    ],
-    "NO-TARGET": [{ name: "schedule_create", arguments: { create_key: "no-target", rule, instruction: "不要求消息推送", reason: "仅留记录" } }],
-  }));
-  let rt = await Runtime.start(h.config);
-  try {
-    const main = rt.store.getAgentRole("main")!;
-    const task = await rt.submit({ sessionId: main.sessionId, requestId: "create", input: "CREATE", accessMode: "full_access", modelSelection: rt.defaultSelection });
-    await waitFor("通用计划创建完成", () => rt.store.getTask(task.id)!.status === "completed");
-    const [schedule] = rt.sched.listSchedules({}).items;
-    assert.equal(rt.sched.countActive(), 1);
-    assert.equal(schedule.accessMode, "full_access");
-    assert.equal(schedule.projectId, main.projectId);
-    assert.equal(schedule.createTaskId, task.id);
-    assert.equal(schedule.createPermissionVersion, task.permissionVersion);
-    assert.deepEqual(schedule.target, TARGET);
-    assert.match(schedule.instruction, /MATERIAL-MARK/);
-    const calls = rt.store.listToolOpsByTask(task.id);
-    assert.match(calls[1].resultSummary ?? "", /重复登记返回原计划/);
-    assert.equal(calls.slice(2).every((call) => call.isError), true);
-    assert.equal(rt.store.listConfirmationsByTask(task.id).length, 0);
-    const session = rt.store.getSession(main.sessionId)!;
-    await rt.setSessionDefaultMode({ sessionId: main.sessionId, mode: "confirm", expectedVersion: session.defaultAccessModeVersion });
-    h.channel.cfg = null;
-    const noTarget = await rt.submit({ sessionId: main.sessionId, requestId: "no-target", input: "NO-TARGET", accessMode: "confirm", modelSelection: rt.defaultSelection });
-    await waitFor("无目标计划创建完成", () => rt.store.getTask(noTarget.id)!.status === "completed");
-    assert.equal(rt.sched.findScheduleByCreateKey("main:no-target")!.target, null);
-    await rt.stop("test_restart");
-    rt = await Runtime.start(h.config);
-    assert.equal(rt.sched.getSchedule(schedule.id)!.accessMode, "full_access", "会话改模式与重启不重算已登记计划");
-    assert.deepEqual(rt.sched.getSchedule(schedule.id)!.target, TARGET, "原目标不改发");
-  } finally {
-    await rt.stop("test_end");
-    await h.close();
-  }
-});
-
 test("通用计划：无IM目标仍独立运行并保留结果，终态与回报失败同事务回滚", async () => {
   const h = await harness("schedule-no-target", "2026-09-24T00:00:00Z");
   const rt = await Runtime.start(h.config);
@@ -502,267 +455,6 @@ test("独立定时执行：应用数据免审批并审计真实scheduled身份",
       app.close();
     }
   } finally {
-    await rt.stop("test_end");
-    await h.close();
-  }
-});
-
-test("工具：受限一次通知须拥有者确认；批准前零发送；同槽幂等；非 main 无工具", async () => {
-  const h = await harness("sched-tools", "2026-09-24T00:00:00Z", toolScript({
-    "ONCE-NOTIFY": [
-      { name: "notification_enqueue", arguments: { content: [{ kind: "text", text: "构建完成" }], reason: "告知" } },
-      { name: "notification_enqueue", arguments: { content: [{ kind: "text", text: "构建完成" }], reason: "告知" } },
-      { name: "notification_enqueue", arguments: { content: [{ kind: "text", text: "换个说法" }], reason: "告知" } },
-      { name: "notification_query", arguments: {} },
-    ],
-    "REJECT-NOTIFY": [{ name: "notification_enqueue", arguments: { content: [{ kind: "text", text: "不该发" }], reason: "x" } }],
-  }));
-  const rt = await Runtime.start(h.config);
-  await ControlServer.start(rt);
-  const client = await connectAuthedClient(rt);
-  await client.handshake();
-  try {
-    const main = rt.store.getAgentRole("main")!;
-    const once = await rt.submit({ sessionId: main.sessionId, requestId: "o1", input: "ONCE-NOTIFY", modelSelection: rt.defaultSelection });
-    const c2 = await pendingConfirmation(client, once.id);
-    assert.equal(c2.scope.mode, "once");
-    await client.request("respond_confirmation", { confirmation_id: c2.id, decision: "approve" });
-    await waitFor("一次通知任务完成", () => rt.store.getTask(once.id)!.status === "completed");
-    await rt.scheduler!.idle();
-    const onceOps = rt.store.listToolOpsByTask(once.id);
-    assert.match(onceOps[0]!.resultSummary!, /已排队/);
-    assert.match(onceOps[1]!.resultSummary!, /重复调用返回原操作/);
-    assert.match(onceOps[2]!.resultSummary!, /不能换键重发/);
-    assert.equal(h.channel.sends.filter((x) => x.text === "构建完成").length, 1);
-
-    const rej = await rt.submit({ sessionId: main.sessionId, requestId: "r1", input: "REJECT-NOTIFY", modelSelection: rt.defaultSelection });
-    const c3 = await pendingConfirmation(client, rej.id);
-    await client.request("respond_confirmation", { confirmation_id: c3.id, decision: "reject" });
-    await waitFor("拒绝任务完成", () => rt.store.getTask(rej.id)!.status === "completed");
-    assert.equal(opsOf(rt).some((o) => o.text === "不该发"), false);
-
-    const sentOp = opsOf(rt).find((o) => o.text === "构建完成")!;
-    assert.equal((await client.request<any>("notification_get", { op_id: sentOp.id })).operation.status, "sent");
-
-    // 非 main 会话看不到 scheduler 工具（按实际请求载荷）
-    const project = rt.createProject("plain");
-    const dev = await rt.createSession({ projectId: project.id, cwd: h.dirs.root + "/work-0" });
-    const devTask = await rt.submit({ sessionId: dev.id, requestId: "d1", input: "DEV-PLAIN", modelSelection: rt.defaultSelection });
-    await waitFor("dev 完成", () => rt.store.getTask(devTask.id)!.status === "completed");
-    const devReq = h.reqs.find((r: any) => lastUserText(r).includes("DEV-PLAIN"))!;
-    const names = (devReq.tools ?? []).map((t: any) => t.function?.name ?? t.name);
-    assert.equal(names.some((n: string) => n.startsWith("schedule_") || n.startsWith("notification_")), false);
-    const mainReq = h.reqs.find((r: any) => lastUserText(r).includes("ONCE-NOTIFY"))!;
-    assert.ok((mainReq.tools ?? []).some((t: any) => (t.function?.name ?? t.name) === "schedule_create"));
-  } finally {
-    client.close();
-    await rt.stop("test_end");
-    await h.close();
-  }
-});
-
-test("完全访问一次通知：零审批、单次认领与正文固定，完成后跨重启发送", async () => {
-  const h = await harness("notify-full-access", "2026-09-24T00:00:00Z", toolScript({
-    "ONCE": [
-      { name: "notification_enqueue", arguments: { content: [{ kind: "text", text: "已完成" }], reason: "汇报" } },
-      { name: "notification_enqueue", arguments: { content: [{ kind: "text", text: "已完成" }], reason: "汇报" } },
-      { name: "notification_enqueue", arguments: { content: [{ kind: "text", text: "更换正文" }], reason: "汇报" } },
-    ],
-  }));
-  h.channel.online = false;
-  let rt = await Runtime.start(h.config);
-  try {
-    const main = rt.store.getAgentRole("main")!;
-    const task = await rt.submit({ sessionId: main.sessionId, requestId: "full", input: "ONCE", accessMode: "full_access", modelSelection: rt.defaultSelection });
-    await waitFor("通知登记任务完成", () => rt.store.getTask(task.id)!.status === "completed");
-    await rt.scheduler!.idle();
-    assert.equal(rt.store.listConfirmationsByTask(task.id).length, 0);
-    const calls = rt.store.listToolOpsByTask(task.id);
-    assert.equal(calls[0].authorization?.source, "full_access");
-    assert.match(calls[1].resultSummary ?? "", /重复调用返回原操作/);
-    assert.match(calls[2].resultSummary ?? "", /不能换键重发/);
-    const [op] = opsOf(rt);
-    assert.equal(op.sourceKind, "tool");
-    assert.equal(op.hostOpId, calls[0].id);
-    assert.equal(op.status, "pending");
-    assert.equal(h.channel.sends.length, 0);
-    await rt.stop("test_restart");
-    h.channel.online = true;
-    rt = await Runtime.start(h.config);
-    await rt.scheduler!.idle();
-    assert.equal(rt.sched.getOp(op.id)!.status, "sent");
-    assert.deepEqual(h.channel.sends.map((item) => item.text), ["已完成"]);
-    await tickAt(rt, h, "2026-09-24T00:00:01Z");
-    assert.equal(h.channel.sends.length, 1);
-    assert.equal(rt.store.getToolOp(op.hostOpId!)!.authorization?.source, "full_access");
-  } finally {
-    await rt.stop("test_end");
-    await h.close();
-  }
-});
-
-test("完全访问一次通知：权限变更、取消、目标或正文失配拒绝发送；登记失败回滚授权", async () => {
-  const actions = ["permission", "cancel", "target", "text", "commit-failure"];
-  const h = await harness("notify-full-access-recheck", "2026-09-24T00:00:00Z", toolScript(Object.fromEntries(actions.map((action) => [action, [
-    { name: "notification_enqueue", arguments: { content: [{ kind: "text", text: action }], reason: "验证" } },
-  ]]))));
-  h.channel.online = false;
-  const rt = await Runtime.start(h.config);
-  try {
-    const main = rt.store.getAgentRole("main")!;
-    for (const action of actions) {
-      if (action === "commit-failure") rt.store.db.exec("CREATE TRIGGER fail_notification_insert BEFORE INSERT ON notification_ops BEGIN SELECT RAISE(ABORT, 'notification insert failed'); END");
-      const task = await rt.submit({ sessionId: main.sessionId, requestId: action, input: action, accessMode: "full_access", modelSelection: rt.defaultSelection });
-      await waitFor("通知登记结束", () => rt.store.getTask(task.id)!.status === "completed");
-      await rt.scheduler!.idle();
-      assert.equal(rt.store.listConfirmationsByTask(task.id).length, 0);
-      const hostOp = rt.store.listToolOpsByTask(task.id)[0];
-      if (action === "commit-failure") {
-        assert.equal(hostOp.authorization, null, "授权与 outbox 同事务回滚");
-        assert.equal(rt.sched.findOpBySource("tool", `task:${task.id}`), null);
-        rt.store.db.exec("DROP TRIGGER fail_notification_insert");
-        continue;
-      }
-      const op = rt.sched.findOpBySource("tool", `task:${task.id}`)!;
-      rt.store.withTx(() => {
-        if (action === "permission") rt.store.applyModeSwitch(task.id, "confirm");
-        else if (action === "cancel") rt.store.db.prepare("UPDATE tasks SET cancel_requested = 1 WHERE id = ?").run(task.id);
-        else if (action === "target") rt.store.db.prepare("UPDATE notification_ops SET target = ? WHERE id = ?").run(JSON.stringify({ ...TARGET, chatId: "other" }), op.id);
-        else rt.store.db.prepare("UPDATE notification_ops SET text_sha256 = ? WHERE id = ?").run("different", op.id);
-      });
-      h.channel.online = true;
-      rt.scheduler!.kickSender();
-      await rt.scheduler!.idle();
-      assert.equal(rt.sched.getOp(op.id)!.status, "canceled");
-      h.channel.online = false;
-    }
-    assert.equal(h.channel.sends.length, 0);
-  } finally {
-    await rt.stop("test_end");
-    await h.close();
-  }
-});
-
-test("完全访问一次通知：发送结果未知保持原键，不重发", async () => {
-  const h = await harness("notify-full-access-unknown", "2026-09-24T00:00:00Z", toolScript({
-    "UNKNOWN": [{ name: "notification_enqueue", arguments: { content: [{ kind: "text", text: "未知" }], reason: "汇报" } }],
-  }));
-  h.channel.behavior = async () => { throw new Error("模拟发送后断线"); };
-  const rt = await Runtime.start(h.config);
-  try {
-    const task = await rt.submit({ sessionId: rt.store.getAgentRole("main")!.sessionId, requestId: "u", input: "UNKNOWN", accessMode: "full_access", modelSelection: rt.defaultSelection });
-    await waitFor("发送任务完成", () => rt.store.getTask(task.id)!.status === "completed");
-    await rt.scheduler!.idle();
-    const op = rt.sched.findOpBySource("tool", `task:${task.id}`)!;
-    assert.equal(op.status, "effect_unknown");
-    await tickAt(rt, h, "2026-09-24T00:00:01Z");
-    assert.equal(h.channel.sends.length, 1);
-    assert.equal(rt.store.listConfirmationsByTask(task.id).length, 0);
-  } finally {
-    await rt.stop("test_end");
-    await h.close();
-  }
-});
-
-test("取消通用计划：来源任务已完成的pending一次通知与最终回报均不再发送", async () => {
-  const h = await harness("schedule-cancel-pending", "2026-09-24T00:00:00Z", toolScript({
-    "ROOT-NOTICE": [{ name: "notification_enqueue", arguments: { content: [{ kind: "text", text: "普通通知" }], reason: "汇报" } }],
-  }));
-  h.channel.online = false;
-  const rt = await Runtime.start(h.config);
-  try {
-    const schedule = addPlan(rt, h, { key: "cancel-notice", accessMode: "full_access", rule: { kind: "daily", time: "01:00", time_zone: "UTC" }, text: "ROOT-NOTICE" });
-    await tickAt(rt, h, "2026-09-24T01:00:00Z");
-    await waitFor("运行整项收尾", () => {
-      rt.scheduler!.closeFinished();
-      return Boolean(rt.sched.listRuns(schedule.id, 10)[0]?.closedAt);
-    });
-    const [run] = rt.sched.listRuns(schedule.id, 10);
-    const notice = rt.sched.findOpBySource("tool", `task:${run.rootTaskId}`)!;
-    assert.equal(rt.store.getTask(run.rootTaskId!)!.status, "completed");
-    assert.equal(notice.status, "pending");
-    await rt.scheduleCancel({ scheduleId: schedule.id, expectedVersion: 1, reason: "停止计划与待发消息" });
-    h.channel.online = true;
-    await tickAt(rt, h, "2026-09-24T01:00:01Z");
-    assert.equal(rt.sched.getOp(notice.id)!.status, "canceled");
-    assert.equal(rt.sched.getOp(run.notificationOpId!)!.status, "canceled");
-    assert.equal(h.channel.sends.length, 0);
-    assert.equal(rt.sched.getRun(run.id)!.resultStatus, "completed", "取消保留已完成的执行事实");
-  } finally {
-    await rt.stop("test_end");
-    await h.close();
-  }
-});
-
-test("工具：同一批并行的宿主工具先结束，不影响获批通知的复核与登记（架构工单 04）", async () => {
-  // main 的宿主工具并行执行：notification_query 在审批等待期间结束并解绑宿主上下文；
-  // 获批后的身份复核必须用调用开始时捕获的上下文
-  let step = 0;
-  const h = await harness("sched-parallel", "2026-09-24T00:00:00Z", async (req) => {
-    if (!lastUserText(req).includes("PARALLEL-NOTIFY") || step++ > 0) return { kind: "text", text: "done" };
-    return {
-      kind: "tool_calls",
-      calls: [
-        { id: "p-0", name: "notification_enqueue", arguments: { content: [{ kind: "text", text: "并行批次" }], reason: "告知" } },
-        { id: "p-1", name: "notification_query", arguments: {} },
-      ],
-    };
-  });
-  const rt = await Runtime.start(h.config);
-  await ControlServer.start(rt);
-  const client = await connectAuthedClient(rt);
-  await client.handshake();
-  try {
-    const main = rt.store.getAgentRole("main")!;
-    const task = await rt.submit({ sessionId: main.sessionId, requestId: "par1", input: "PARALLEL-NOTIFY", modelSelection: rt.defaultSelection });
-    const conf = await pendingConfirmation(client, task.id);
-    await waitFor("并行的查询先结束", () => rt.store.listToolOpsByTask(task.id).some((op) => op.toolName === "notification_query" && op.resultSummary !== null));
-    await client.request("respond_confirmation", { confirmation_id: conf.id, decision: "approve" });
-    await waitFor("任务完成", () => rt.store.getTask(task.id)!.status === "completed");
-    const enqueue = rt.store.listToolOpsByTask(task.id).find((op) => op.toolName === "notification_enqueue")!;
-    assert.match(enqueue.resultSummary!, /已排队/);
-    assert.notEqual(rt.store.getConfirmation(conf.id)!.consumedAt, null, "批准已消费");
-    assert.equal(opsOf(rt).filter((o) => o.text === "并行批次").length, 1);
-  } finally {
-    client.close();
-    await rt.stop("test_end");
-    await h.close();
-  }
-});
-
-test("工具：未配置可信目标拒绝外发；应用数据快照登记后行修改不改变正文", async () => {
-  const h = await harness("sched-snapshot", "2026-09-24T00:00:00Z", toolScript({
-    "SNAP-NOTIFY": [{ name: "notification_enqueue", arguments: { content: [{ kind: "app_data", table: "notes", row_id: 1, field: "body" }], reason: "快照" } }],
-    "NO-TARGET": [{ name: "notification_enqueue", arguments: { content: [{ kind: "text", text: "x" }], reason: "x" } }],
-  }));
-  h.channel.online = false;
-  const rt = await Runtime.start(h.config);
-  await ControlServer.start(rt);
-  const client = await connectAuthedClient(rt);
-  await client.handshake();
-  try {
-    const app = (rt as any).appDataStore;
-    const ctx = { taskId: "t", sessionId: "s", agentId: "main" };
-    app.defineTable({ table: "notes", fields: [{ name: "body", type: "text" }], expected_schema_version: 0, reason: "r", opId: "a1", ctx });
-    app.insert({ table: "notes", records: [{ body: "原始正文" }], reason: "r", opId: "a2", ctx });
-    const main = rt.store.getAgentRole("main")!;
-    const t = await rt.submit({ sessionId: main.sessionId, requestId: "s1", input: "SNAP-NOTIFY", modelSelection: rt.defaultSelection });
-    const conf = await pendingConfirmation(client, t.id);
-    assert.match(conf.scope.sourceRefs[0], /^app_data:.*notes#1\.body$/);
-    await client.request("respond_confirmation", { confirmation_id: conf.id, decision: "approve" });
-    await waitFor("快照任务完成", () => rt.store.getTask(t.id)!.status === "completed");
-    app.updateRows({ table: "notes", rows: [{ id: 1, expected_version: 1, set: { body: "改过了" } }], reason: "r", opId: "a3", ctx });
-    h.channel.online = true;
-    await tickAt(rt, h, "2026-09-24T02:00:00Z");
-    assert.deepEqual(h.channel.sends.map((x) => x.text), ["原始正文"], "已批准正文不随业务数据变化");
-
-    h.channel.cfg = null;
-    const t2 = await rt.submit({ sessionId: main.sessionId, requestId: "s2", input: "NO-TARGET", modelSelection: rt.defaultSelection });
-    await waitFor("无目标任务完成", () => rt.store.getTask(t2.id)!.status === "completed");
-    assert.match(rt.store.listToolOpsByTask(t2.id)[0]!.resultSummary!, /未配置可信 owner 通知目标/);
-    assert.equal(rt.store.listConfirmationsByTask(t2.id).length, 0, "无目标不产生审批");
-  } finally {
-    client.close();
     await rt.stop("test_end");
     await h.close();
   }

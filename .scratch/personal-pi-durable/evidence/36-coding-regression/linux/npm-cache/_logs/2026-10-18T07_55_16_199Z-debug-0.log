@@ -1,0 +1,112 @@
+0 verbose cli /usr/local/bin/node /usr/local/bin/npm
+1 info using npm@11.19.0
+2 info using node@v24.21.0
+3 silly config load:file:/usr/local/lib/node_modules/npm/npmrc
+4 info config found workspace root at /dev/shm/rk-coding36-linux.gaWtu6/current
+5 silly config load:file:/dev/shm/rk-coding36-linux.gaWtu6/current/.npmrc
+6 silly config load:file:/home/eitrous/.npmrc
+7 silly config load:file:/usr/local/etc/npmrc
+8 verbose title npm pack
+9 verbose argv "pack" "--pack-destination" "../../dist"
+10 verbose logfile logs-max:10 dir:/dev/shm/rk-coding36-linux.gaWtu6/npm-cache/_logs/2026-10-18T07_55_16_199Z-
+11 verbose logfile /dev/shm/rk-coding36-linux.gaWtu6/npm-cache/_logs/2026-10-18T07_55_16_199Z-debug-0.log
+12 silly logfile start cleaning logs, removing 1 files
+13 silly logfile done cleaning log files
+14 silly packumentCache heap:2153512960 maxSize:538378240 maxEntrySize:269189120
+15 notice
+16 notice 📦  ruukoto@0.1.0
+17 notice Tarball Contents
+18 notice 580B bin/ruukoto.mjs
+18 notice 861B package.json
+18 notice 91B src/dev.ts
+18 notice 152B src/main.ts
+18 notice 9.5kB src/personal-app-data-controls.ts
+18 notice 34.1kB src/personal-app-data.ts
+18 notice 7.6kB src/personal-artifacts.ts
+18 notice 6.9kB src/personal-browser-cli.ts
+18 notice 5.6kB src/personal-browser-config.ts
+18 notice 10.0kB src/personal-browser-controls.ts
+18 notice 46.2kB src/personal-browser.ts
+18 notice 39.8kB src/personal-cli.ts
+18 notice 8.1kB src/personal-command-config.ts
+18 notice 17.6kB src/personal-command-execution.ts
+18 notice 34.5kB src/personal-command-work.ts
+18 notice 3.8kB src/personal-command-worker.ts
+18 notice 2.4kB src/personal-config-idle.ts
+18 notice 3.2kB src/personal-config.ts
+18 notice 43.1kB src/personal-control.ts
+18 notice 18.1kB src/personal-delegation.ts
+18 notice 438B src/personal-entry.ts
+18 notice 191B src/personal-error.ts
+18 notice 77.4kB src/personal-harness.ts
+18 notice 11.4kB src/personal-history.ts
+18 notice 263B src/personal-im-api.ts
+18 notice 15.0kB src/personal-inspection-controls.ts
+18 notice 3.1kB src/personal-local-records.ts
+18 notice 7.2kB src/personal-mcp-cli.ts
+18 notice 11.6kB src/personal-mcp-config.ts
+18 notice 11.1kB src/personal-mcp-controls.ts
+18 notice 36.7kB src/personal-mcp.ts
+18 notice 27.7kB src/personal-media.ts
+18 notice 9.0kB src/personal-memory-controls.ts
+18 notice 20.7kB src/personal-memory.ts
+18 notice 7.6kB src/personal-model.ts
+18 notice 14.8kB src/personal-owner-controls.ts
+18 notice 3.3kB src/personal-permissions-cli.ts
+18 notice 5.2kB src/personal-permissions.ts
+18 notice 4.5kB src/personal-profile.ts
+18 notice 7.8kB src/personal-qq-api.ts
+18 notice 4.5kB src/personal-qq-cli.ts
+18 notice 4.3kB src/personal-qq-config.ts
+18 notice 31.2kB src/personal-report.ts
+18 notice 9.5kB src/personal-schedule-authority.ts
+18 notice 11.2kB src/personal-schedule-execution.ts
+18 notice 3.4kB src/personal-schedule-scope.ts
+18 notice 10.0kB src/personal-scheduler-cli.ts
+18 notice 20.6kB src/personal-scheduler-controls.ts
+18 notice 28.3kB src/personal-scheduler-records.ts
+18 notice 13.2kB src/personal-scheduler-tools.ts
+18 notice 32.5kB src/personal-scheduler.ts
+18 notice 6.2kB src/personal-service-config.ts
+18 notice 19.5kB src/personal-service-controls.ts
+18 notice 21.4kB src/personal-service-inspection.ts
+18 notice 52.3kB src/personal-service-operations.ts
+18 notice 7.1kB src/personal-service-work.ts
+18 notice 5.7kB src/personal-services.ts
+18 notice 2.4kB src/personal-skills-cli.ts
+18 notice 4.8kB src/personal-skills-config.ts
+18 notice 15.9kB src/personal-skills.ts
+18 notice 2.8kB src/personal-source.ts
+18 notice 9.3kB src/personal-telegram-api.ts
+18 notice 4.2kB src/personal-telegram-config.ts
+18 notice 6.0kB src/personal-telegram-records.ts
+18 notice 24.4kB src/personal-telegram.ts
+18 notice 15.6kB src/personal-tool-io.ts
+18 notice 4.9kB src/personal-tool-source.ts
+18 notice 12.0kB src/personal-tools-cli.ts
+18 notice 8.7kB src/personal-tools-config.ts
+18 notice 13.5kB src/personal-tools-controls.ts
+18 notice 57.1kB src/personal-tools.ts
+18 notice 14.4kB src/personal-work-controls.ts
+18 notice 14.3kB src/personal-work-tools.ts
+18 notice 45.3kB src/personal-work.ts
+18 notice 1.8kB src/product.ts
+18 notice 22.3kB src/scheduler-tools.ts
+18 notice 8.9kB src/service-helper.ts
+18 notice 20.9kB src/service-tools.ts
+19 notice Tarball Details
+20 notice name: ruukoto
+21 notice version: 0.1.0
+22 notice filename: ruukoto-0.1.0.tgz
+23 notice package size: 278.5 kB
+24 notice unpacked size: 1.2 MB
+25 notice shasum: 0bfd507c54f295e63a29fa6b01c81e9d97be6466
+26 notice integrity: sha512-DS3gZcynxU4X/[...]t3iEcDjM1Kokw==
+27 notice total files: 78
+28 notice
+29 verbose cwd /dev/shm/rk-coding36-linux.gaWtu6/current/apps/ruukoto
+30 verbose os Linux 6.8.0-117-generic
+31 verbose node v24.21.0
+32 verbose npm  v11.19.0
+33 verbose exit 0
+34 info ok

@@ -1,0 +1,14 @@
+{
+  "time": 1792308604.298801,
+  "reason": "archive included excluded .scratch bytes in transit; use filtered compressed archive to avoid slow unrelated evidence transfer",
+  "processes": [
+    {
+      "pid": 21988,
+      "command": "git archive --format=tar a8fd60caceda3bbb243afff167a7c44751e749f4"
+    },
+    {
+      "pid": 21989,
+      "command": "ssh tx mkdir -p /dev/shm/rk-coding36-linux.gaWtu6/baseline; tar -xf - --exclude=.scratch -C /dev/shm/rk-coding36-linux.gaWtu6/baseline"
+    }
+  ]
+}

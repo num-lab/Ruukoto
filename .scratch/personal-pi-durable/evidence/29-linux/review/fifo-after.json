@@ -1,0 +1,23 @@
+{
+  "phase": "after",
+  "node": "v24.15.0",
+  "platform": "darwin",
+  "results": [
+    {
+      "operation": "prepare",
+      "blocked": false,
+      "code": 0,
+      "signal": null,
+      "stdout": "swapped-to-real-fifo\n{\"code\":\"file_target_invalid\"}\n",
+      "stderr": ""
+    },
+    {
+      "operation": "execute",
+      "blocked": false,
+      "code": 0,
+      "signal": null,
+      "stdout": "swapped-to-real-fifo\n{\"effect\":\"not_executed\",\"code\":\"file_target_changed\",\"bytes\":{\"type\":\"Buffer\",\"data\":[]},\"partial\":false}\n",
+      "stderr": ""
+    }
+  ]
+}

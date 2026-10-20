@@ -1,0 +1,33 @@
+--- a/test/personal-durable.test.ts
++++ b/test/personal-durable.test.ts
+@@ -174,8 +174,11 @@
+ 
+ // Note: 见 .agents/notes/implemented/testing/2026-10-11-await-observed-async-phases.md
+ test("durable：模型流中途强杀后恢复原输入，进程锁释放且不重复受理", { timeout: 15000 }, async t => {
++  const cleanupChildren: (() => Promise<unknown>)[] = [];
++  t.after(async () => { for (const close of cleanupChildren) await close(); });
+   const f = await fixture(t, (_request, index) => index === 0 ? { kind: "text", text: "未完成流".repeat(50), chunkDelayMs: 30 } : { kind: "text", text: "恢复完成" });
+   function launch(script: string) {
++    t.signal.throwIfAborted();
+     const child = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "--eval", script], {
+       cwd: new URL("..", import.meta.url), env: { ...process.env, RUUKOTO_DURABLE_TEST_OPTIONS: JSON.stringify({ directory: f.dir, config: f.config }) }, stdio: ["ignore", "ignore", "pipe", "ipc"],
+     });
+@@ -202,6 +205,7 @@
+       if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+       return await closed;
+     };
++    cleanupChildren.push(close);
+     return { child, phase, close, errors: () => stderr };
+   }
+   const early = launch('process.stderr.write("fixture-exit"); process.exit(23);');
+--- a/.agents/notes/implemented/testing/2026-10-11-await-observed-async-phases.md
++++ b/.agents/notes/implemented/testing/2026-10-11-await-observed-async-phases.md
+@@ -21,7 +21,7 @@
+ - macOS 未知孤儿夹具先 `setsid` 并确认 `ppid == 1`，再报告就绪并恢复监督器；停止回执后在既有 5 秒等待期限内等新心跳，仍严格要求未核实原因与 `reaped: false`。500ms 心跳刻意超过旧 80ms 窗口，让现有用例检出固定短窗的回归。夹具正常生命期由 `release` 文件控制，`finally` 先释放，已经报告就绪的孤儿还要等关闭心跳文件后的 `finished` 标记才删目录；20 秒上限仅在宿主测试中断时兜底，不改变验收等待期限，也不向未知 PID 发信号。
+ - macOS 已归属后代使用长期运行的 detached Node，安装 TERM handler 后报告父 PID，停止前等待新的 500ms 心跳；停止回执严格为 true，后代写出的 TERM 标记另证明它收到并忽略 TERM。后代仅继承 stdout 且从不自行关闭它，既有 5 秒等待期限内的共享管道 EOF 独立证明后代退出，再核对停止回执后的心跳冻结。`release` 仅在 `finally` 写入，不能帮助受测停止通过；20 秒生命上限用于异常测试退出后的兜底。
+ 
+-- 个人 durable 流中强杀的子进程在静态 import 后、打开 Harness 前通过 IPC 报 ready，并等待父进程 start。父端独立有界等待 ready，先安装原 5 秒持久 partial 等待再发 start；partial 仍由真实 LiveDoc 中非空文本确认。ready 至多 10 秒、整例仍为 15 秒；启动失败、提前退出和缺 ready 明确失败并保留 stderr，结束时先强杀并等本次子进程关闭，再关闭档案夹具。局部自检要求非零提前退出可见、已启动但缺 ready 必须超时。
++- 个人 durable 流中强杀的子进程在静态 import 后、打开 Harness 前通过 IPC 报 ready，并等待父进程 start。父端独立有界等待 ready，先安装原 5 秒持久 partial 等待再发 start；partial 仍由真实 LiveDoc 中非空文本确认。ready 至多 10 秒、整例仍为 15 秒；启动失败、提前退出和缺 ready 明确失败并保留 stderr，在档案夹具前注册 after，强杀并等本例全部子进程关闭后才允许删档案；各分支 finally 保留，launch 拒绝在 t.signal 已取消后创建子进程，防止整例超时后异步体继续启动。局部自检要求非零提前退出可见、已启动但缺 ready 必须超时。
+ 
+ 两项机制分别沿用[自动审查](../feature/2026-09-22-auto-review-mode.md)与[工作内消息](../feature/2026-10-05-subagent-messaging.md)的既有契约，没有改变生产语义。
+ 

@@ -1,0 +1,119 @@
+[
+  {
+    "pid": 492887,
+    "ppid": 1,
+    "pgid": 492885,
+    "sid": 492885,
+    "state": "S",
+    "cwd": "/tmp",
+    "cmdline": "grep -v DeprecationWarning"
+  },
+  {
+    "pid": 492888,
+    "ppid": 1,
+    "pgid": 492885,
+    "sid": 492885,
+    "state": "S",
+    "cwd": "/tmp",
+    "cmdline": "grep -v pid = os.fork"
+  },
+  {
+    "pid": 492894,
+    "ppid": 1,
+    "pgid": 492894,
+    "sid": 492894,
+    "state": "S",
+    "cwd": "/tmp",
+    "cmdline": "/usr/bin/python3 -I -c import os,signal,time,socket,sys\nos.setsid()\nsignal.signal(signal.SIGTERM, signal.SIG_IGN)\nr={}\ntry:\n open('/tmp/ll-secret-hbbz6wck/creds.json').read(); r['secret']='ALLOWED'\nexcept OSError as e: r['secret']='DENIED:%d'%e.errno\ntry:\n s=socket.socket(); s.settimeout(2); s.connect(('127.0.0.1',55321)); r['tcp']='ALLOWED'\nexcept OSError as e: r['tcp']='DENIED:%d'%e.errno\nopen('/tmp/ll-secret-hbbz6wck/beat.txt','w').write(repr(r))\ni=0\nwhile True:\n i+=1\n open('/tmp/ll-secret-hbbz6wck/beat.txt'+'.n','w').write(str(i))\n time.sleep(0.2)"
+  },
+  {
+    "pid": 1484323,
+    "ppid": 1,
+    "pgid": 1484323,
+    "sid": 1484323,
+    "state": "S",
+    "cwd": null,
+    "cmdline": "/usr/lib/systemd/systemd --user"
+  },
+  {
+    "pid": 1484326,
+    "ppid": 1484323,
+    "pgid": 1484323,
+    "sid": 1484323,
+    "state": "S",
+    "cwd": null,
+    "cmdline": "(sd-pam)"
+  },
+  {
+    "pid": 1485967,
+    "ppid": 1,
+    "pgid": 1485967,
+    "sid": 1485967,
+    "state": "S",
+    "cwd": "/home/eitrous",
+    "cmdline": "/home/eitrous/.vscode-server/code-7debcd0e2acdea1c52de81bf9ee1620444407dda --cli-data-dir /home/eitrous/.vscode-server/cli agent host"
+  },
+  {
+    "pid": 2163755,
+    "ppid": 1,
+    "pgid": 2162630,
+    "sid": 2162630,
+    "state": "S",
+    "cwd": "/opt/ruukoto",
+    "cmdline": "node /opt/ruukoto/node_modules/.bin/tsx src/cli.ts start --execution local --tools mock --model mock/mock-model"
+  },
+  {
+    "pid": 2163766,
+    "ppid": 2163755,
+    "pgid": 2162630,
+    "sid": 2162630,
+    "state": "S",
+    "cwd": "/opt/ruukoto",
+    "cmdline": "/usr/local/bin/node --require /opt/ruukoto/node_modules/tsx/dist/preflight.cjs --import file:///opt/ruukoto/node_modules/tsx/dist/loader.mjs src/cli.ts start --execution local --tools mock --model mock/mock-model"
+  },
+  {
+    "pid": 2178158,
+    "ppid": 1,
+    "pgid": 2177496,
+    "sid": 2177496,
+    "state": "S",
+    "cwd": "/opt/ruukoto",
+    "cmdline": "node /opt/ruukoto/node_modules/.bin/tsx src/cli.ts start --execution local --tools mock --model mock/mock-model"
+  },
+  {
+    "pid": 2178169,
+    "ppid": 2178158,
+    "pgid": 2177496,
+    "sid": 2177496,
+    "state": "S",
+    "cwd": "/opt/ruukoto",
+    "cmdline": "/usr/local/bin/node --require /opt/ruukoto/node_modules/tsx/dist/preflight.cjs --import file:///opt/ruukoto/node_modules/tsx/dist/loader.mjs src/cli.ts start --execution local --tools mock --model mock/mock-model"
+  },
+  {
+    "pid": 3186969,
+    "ppid": 3186920,
+    "pgid": 3186920,
+    "sid": 3186920,
+    "state": "S",
+    "cwd": null,
+    "cmdline": "sshd: eitrous@notty"
+  },
+  {
+    "pid": 3186970,
+    "ppid": 3186969,
+    "pgid": 3186970,
+    "sid": 3186970,
+    "state": "R",
+    "cwd": "/home/eitrous",
+    "cmdline": "python3 /tmp/rk19-linux-20261017T082256Z/run-validation.py"
+  },
+  {
+    "pid": 4007794,
+    "ppid": 1484323,
+    "pgid": 4007794,
+    "sid": 4007794,
+    "state": "S",
+    "cwd": "/home/eitrous",
+    "cmdline": "/usr/bin/dbus-daemon --session --address=systemd: --nofork --nopidfile --systemd-activation --syslog-only"
+  }
+]

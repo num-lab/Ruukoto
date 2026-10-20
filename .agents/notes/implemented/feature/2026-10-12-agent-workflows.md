@@ -2,6 +2,8 @@
 
 Status: implemented
 
+部分取代：[个人正式入口](../simplification/2026-10-18-personal-product-entry.md)使新个人退出本工作流语言、定义库与 IM 命令；Coding 继续使用，旧个人分支和历史证据仅属保留实现。本篇原决定不要求新个人装配工作流。
+
 已确认的后续变更见[可配置子代理角色](../../implemented/architecture/2026-10-14-configurable-subagent-roles.md)：角色、来源能力和执行目标分开，实施与验收另由该方案持有；本篇原有独立决定及当前运行行为仍按其适用范围保留。
 
 后续改进：[交互与等待规格](../../../../.scratch/agent-workflow/experience-spec.md)已于 2026-10-14 经拥有者确认，实施另由 08–11 工单持有；[等待与报告归属方案](../../implemented/architecture/2026-10-14-agent-wait-and-report-ownership.md)补充可打断等待与父轮继续处理，本篇后台运行、来源授权和唯一回报目标不变。

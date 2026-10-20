@@ -1,0 +1,21 @@
+✖ durable 本机入口：真实认证接口完成工具审批、授权撤销与原产物导出 (1059.6075ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2083.061541
+
+✖ failing tests:
+
+test at test/personal-tools.test.ts:351:1
+✖ durable 本机入口：真实认证接口完成工具审批、授权撤销与原产物导出 (1059.6075ms)
+  Error [PersonalError]: 此管理操作不可用，请更新向导与后台到相同版本。
+      at IncomingMessage.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/apps/ruukoto/src/personal-control.ts:348:18)
+      at IncomingMessage.emit (node:events:521:24)
+      at endReadableNT (node:internal/streams/readable:1729:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {
+    code: 'control_route_missing'
+  }

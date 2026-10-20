@@ -1,0 +1,598 @@
+
+> ruukoto-workspace@0.1.0 check
+> node scripts/check-environment.mjs && npm run build && npm run check:static && npm test
+
+开发环境检查通过
+
+> ruukoto-workspace@0.1.0 build
+> npm run build:native && npm run build:worker && npm run build:script && npm run build --workspaces --if-present
+
+
+> ruukoto-workspace@0.1.0 build:native
+> node scripts/build-native.mjs
+
+
+> ruukoto-workspace@0.1.0 build:worker
+> esbuild packages/agent/src/tool-worker/worker.ts apps/ruukoto/src/personal-command-worker.ts --bundle --format=esm --platform=node --target=node24 --external:@earendil-works/* --outdir=worker --entry-names=[name] --out-extension:.js=.mjs
+
+
+  worker/worker.mjs                   15.6kb
+  worker/personal-command-worker.mjs   4.1kb
+
+⚡ Done in 8ms
+
+> ruukoto-workspace@0.1.0 build:script
+> node scripts/build-workflow-script.mjs
+
+
+> ruukoto@0.1.0 build
+> mkdir -p ../../dist && npm pack --pack-destination ../../dist
+
+npm notice
+npm notice 📦  ruukoto@0.1.0
+npm notice Tarball Contents
+npm notice 408B bin/ruukoto.mjs
+npm notice 731B package.json
+npm notice 1.9kB src/dev.ts
+npm notice 529B src/main.ts
+npm notice 9.5kB src/personal-app-data-controls.ts
+npm notice 34.1kB src/personal-app-data.ts
+npm notice 7.6kB src/personal-artifacts.ts
+npm notice 6.9kB src/personal-browser-cli.ts
+npm notice 5.6kB src/personal-browser-config.ts
+npm notice 10.0kB src/personal-browser-controls.ts
+npm notice 46.2kB src/personal-browser.ts
+npm notice 40.4kB src/personal-cli.ts
+npm notice 8.1kB src/personal-command-config.ts
+npm notice 17.6kB src/personal-command-execution.ts
+npm notice 35.8kB src/personal-command-work.ts
+npm notice 3.8kB src/personal-command-worker.ts
+npm notice 2.4kB src/personal-config-idle.ts
+npm notice 3.8kB src/personal-config.ts
+npm notice 43.4kB src/personal-control.ts
+npm notice 18.3kB src/personal-delegation.ts
+npm notice 20B src/personal-entry.ts
+npm notice 191B src/personal-error.ts
+npm notice 77.4kB src/personal-harness.ts
+npm notice 11.4kB src/personal-history.ts
+npm notice 263B src/personal-im-api.ts
+npm notice 15.0kB src/personal-inspection-controls.ts
+npm notice 3.1kB src/personal-local-records.ts
+npm notice 7.2kB src/personal-mcp-cli.ts
+npm notice 11.6kB src/personal-mcp-config.ts
+npm notice 11.1kB src/personal-mcp-controls.ts
+npm notice 36.7kB src/personal-mcp.ts
+npm notice 27.7kB src/personal-media.ts
+npm notice 9.0kB src/personal-memory-controls.ts
+npm notice 20.7kB src/personal-memory.ts
+npm notice 7.6kB src/personal-model.ts
+npm notice 14.8kB src/personal-owner-controls.ts
+npm notice 3.3kB src/personal-permissions-cli.ts
+npm notice 5.2kB src/personal-permissions.ts
+npm notice 4.5kB src/personal-profile.ts
+npm notice 7.8kB src/personal-qq-api.ts
+npm notice 4.5kB src/personal-qq-cli.ts
+npm notice 4.3kB src/personal-qq-config.ts
+npm notice 31.6kB src/personal-report.ts
+npm notice 9.5kB src/personal-schedule-authority.ts
+npm notice 11.2kB src/personal-schedule-execution.ts
+npm notice 3.4kB src/personal-schedule-scope.ts
+npm notice 10.0kB src/personal-scheduler-cli.ts
+npm notice 20.6kB src/personal-scheduler-controls.ts
+npm notice 28.3kB src/personal-scheduler-records.ts
+npm notice 13.2kB src/personal-scheduler-tools.ts
+npm notice 32.7kB src/personal-scheduler.ts
+npm notice 6.2kB src/personal-service-config.ts
+npm notice 19.5kB src/personal-service-controls.ts
+npm notice 21.4kB src/personal-service-inspection.ts
+npm notice 52.3kB src/personal-service-operations.ts
+npm notice 7.7kB src/personal-service-work.ts
+npm notice 5.7kB src/personal-services.ts
+npm notice 2.4kB src/personal-skills-cli.ts
+npm notice 4.8kB src/personal-skills-config.ts
+npm notice 15.9kB src/personal-skills.ts
+npm notice 2.8kB src/personal-source.ts
+npm notice 9.3kB src/personal-telegram-api.ts
+npm notice 4.2kB src/personal-telegram-config.ts
+npm notice 6.0kB src/personal-telegram-records.ts
+npm notice 24.4kB src/personal-telegram.ts
+npm notice 15.6kB src/personal-tool-io.ts
+npm notice 4.9kB src/personal-tool-source.ts
+npm notice 12.0kB src/personal-tools-cli.ts
+npm notice 8.7kB src/personal-tools-config.ts
+npm notice 13.5kB src/personal-tools-controls.ts
+npm notice 57.1kB src/personal-tools.ts
+npm notice 14.6kB src/personal-work-controls.ts
+npm notice 15.1kB src/personal-work-tools.ts
+npm notice 46.0kB src/personal-work.ts
+npm notice 8.9kB src/service-helper.ts
+npm notice Tarball Details
+npm notice name: ruukoto
+npm notice version: 0.1.0
+npm notice filename: ruukoto-0.1.0.tgz
+npm notice package size: 267.6 kB
+npm notice unpacked size: 1.1 MB
+npm notice shasum: 352e100b78adb54eeaf160b9ad631b11324e7be2
+npm notice integrity: sha512-pkUYJpIzsHnV+[...]m8VGkZ7KhylyQ==
+npm notice total files: 75
+npm notice
+ruukoto-0.1.0.tgz
+
+> ruukoto-code@0.1.0 build
+> mkdir -p ../../dist && npm pack --pack-destination ../../dist
+
+npm notice
+npm notice 📦  ruukoto-code@0.1.0
+npm notice Tarball Contents
+npm notice 580B bin/ruukoto-code.mjs
+npm notice 575B package.json
+npm notice 96B src/dev.ts
+npm notice 80.3kB src/legacy-import.ts
+npm notice 152B src/main.ts
+npm notice 891B src/product.ts
+npm notice Tarball Details
+npm notice name: ruukoto-code
+npm notice version: 0.1.0
+npm notice filename: ruukoto-code-0.1.0.tgz
+npm notice package size: 23.1 kB
+npm notice unpacked size: 82.6 kB
+npm notice shasum: c9e0f70eeb11ca76aa71c9135a7585385d18fb82
+npm notice integrity: sha512-cSHefB3X8foMI[...]RWfsZ7geU994g==
+npm notice total files: 6
+npm notice
+ruukoto-code-0.1.0.tgz
+
+> ruukoto-workspace@0.1.0 check:static
+> npm run lint && npm run typecheck && npm run verify-notes && npm run check:docs
+
+
+> ruukoto-workspace@0.1.0 lint
+> eslint . --max-warnings=0
+
+
+> ruukoto-workspace@0.1.0 typecheck
+> tsc --noEmit && npm run typecheck --workspaces && npm --prefix verification/foundation run typecheck
+
+
+> @ruukoto/agent@0.1.0 typecheck
+> tsc --noEmit
+
+
+> @ruukoto/channels@0.1.0 typecheck
+> tsc --noEmit
+
+
+> @ruukoto/control@0.1.0 typecheck
+> tsc --noEmit
+
+
+> @ruukoto/core@0.1.0 typecheck
+> tsc --noEmit
+
+
+> @ruukoto/runtime@0.1.0 typecheck
+> tsc --noEmit
+
+
+> @ruukoto/tui@0.1.0 typecheck
+> tsc --noEmit
+
+
+> @ruukoto/view@0.1.0 typecheck
+> tsc --noEmit
+
+
+> @ruukoto/desktop@0.1.0 typecheck
+> tsc --noEmit
+
+
+> ruukoto@0.1.0 typecheck
+> tsc --noEmit
+
+
+> ruukoto-code@0.1.0 typecheck
+> tsc --noEmit
+
+
+> ruukoto-foundation-verification@0.1.0 typecheck
+> tsc --noEmit
+
+
+> ruukoto-workspace@0.1.0 verify-notes
+> tsx .agents/skills/maintain-notes/scripts/verify-agent-note-tree.ts && tsx .agents/skills/maintain-notes/scripts/verify-agent-note-format.ts && tsx .agents/skills/maintain-notes/scripts/verify-archived-agent-notes.ts
+
+ok: 110 note(s) tree and relative links verified
+ok: 110 note(s) verified
+ok: 1 archived note(s) verified, 1 seal(s) in manifest
+
+> ruukoto-workspace@0.1.0 check:docs
+> npm run verify-md-links && npm run verify-doc-refs && npm run verify-doc-budgets && npm run verify-md-wrap
+
+
+> ruukoto-workspace@0.1.0 verify-md-links
+> tsx scripts/verify-md-links.ts
+
+verify-md-links：169 个文件的相对链接与锚点均可解析。
+
+> ruukoto-workspace@0.1.0 verify-doc-refs
+> tsx scripts/verify-doc-refs.ts
+
+verify-doc-refs：309 个源码文件里的文档引用均可解析。
+
+> ruukoto-workspace@0.1.0 verify-doc-budgets
+> tsx scripts/verify-doc-budgets.ts
+
+verify-doc-budgets：8 份常驻文档均在上限内。
+
+> ruukoto-workspace@0.1.0 verify-md-wrap
+> tsx scripts/verify-md-wrap.ts
+
+verify-md-wrap：169 个文件无跨行段落。
+
+> ruukoto-workspace@0.1.0 test
+> node scripts/check-environment.mjs && npm run test:app && npm run test:foundation
+
+开发环境检查通过
+
+> ruukoto-workspace@0.1.0 test:app
+> node scripts/test-app.mjs
+
+✔ 同一 host 并发与重复停止保留 false，只回收一次 (3.05825ms)
+✔ ready 失败保留单元与停止结论：true (0.421ms)
+✔ ready 失败保留单元与停止结论：false (0.201417ms)
+[ruukoto:tool-worker] task=worker-stop stop=fake_stop_failed；退出未核实，保留占用
+✔ ready 失败保留单元与停止结论：throws (0.259459ms)
+✔ 原生 ready 失败保留类型化原因、停止结论与单元身份 (0.337125ms)
+✔ 尚未创建单元的拒绝无需回收，停止先于 start 时不启动 (0.107375ms)
+✔ launch 期间停止回收迟到单元，不发送 init 或提供服务 (41.576709ms)
+✔ launcher 已产生单元后拒绝保留停止身份 (0.168416ms)
+✔ init 排队写入失败仍核实停止，不交出可服务 host (2.168083ms)
+✔ 真实原进程组：主进程先退出仍停止同组后代心跳 (454.41775ms)
+✔ 真实原进程组：短暂查询失败在停止预算内继续核实 (263.500792ms)
+✔ 信号 EPERM 仍核实原进程组：已退出 (0.152ms)
+✔ 信号 EPERM 仍核实原进程组：持续未知 (0.071917ms)
+✔ 原进程组持续存在且查询失败：预算耗尽仍保留未核实 (41.358959ms)
+✔ 原进程组持续存在且查询输出不完整：预算耗尽仍保留未核实 (42.794125ms)
+✔ 停止预算：查询超时与休眠受剩余预算限制，耗尽后不再发 ps (2.173958ms)
+✔ 零停止预算仍核实首次结果：ESRCH (0.349458ms)
+✔ 零停止预算仍核实首次结果：僵尸 (0.238708ms)
+✔ 零停止预算仍核实首次结果：查询失败 (0.226667ms)
+✔ 静态 start 失败交出可核实的宿主记录与原错误 (0.684583ms)
+✔ router 的 starting 与实际登记保留 ready 失败，不重建未知退出单元 (9.570708ms)
+✔ router 在 launch 前登记；启动期间取消不会安装迟到 worker (47.148792ms)
+✔ 完全访问同时核实命令组与 worker 组：命令组结论=true (0.456375ms)
+✔ 完全访问同时核实命令组与 worker 组：命令组结论=false (0.242125ms)
+✔ 完全访问同时核实命令组与 worker 组：命令组结论=null (3000.939333ms)
+✔ 完全访问消费 exit 后到达的停止回执：true (1.494625ms)
+✔ 完全访问消费 exit 后到达的停止回执：false (0.793917ms)
+✔ 完全访问消费 exit 后到达的停止回执：null (0.501ms)
+✔ 完全访问消费 exit 后到达的停止回执：partial (0.472792ms)
+✔ 迟到的命令组停止成功不能覆盖 worker 组未核实 (0.595375ms)
+✔ 完全访问缺回执且 stdout 未关闭时有界返回未核实 (3000.243042ms)
+✔ 内置启动器 spawn 拒绝保留原 code，未创建单元无需停止 (1.76175ms)
+✔ start 与已取消调用不重复启动或发送工具帧 (0.883417ms)
+✔ router 每次启动使用独立 starting 身份 (13.474166ms)
+✔ launcher 同步抛错也保留已产生的单元 (0.472917ms)
+✔ Runtime 实际 SDK 的 ready 失败：stop false 保留终态、原因与父目录占用 (1354.520334ms)
+[ruukoto:tool-worker] task=task_b08c3b6bd99858348e2c156a stop=fake_stop_failed；退出未核实，保留占用
+✔ Runtime 实际 SDK 的 ready 失败：stop throw 保留终态、原因与父目录占用 (1248.23775ms)
+✔ 拥有者同进程核实恢复后使用新 worker，旧停止失败与命令不重放 (1345.032333ms)
+✔ 真实完全访问 worker 停止独立 Shell 组及忽略 TERM 的同组后代 (3762.776083ms)
+✔ macOS 监督器核实 libproc、原子信号、版本回卷与跨 UID 的 PID 1 身份 (1252.816ms)
+✔ macOS 监督器不把宿主状态和控制 FD 传给执行进程 (123.502333ms)
+✔ macOS 真实 Seatbelt 中 Node 完成启动标记后才加载 worker，启动前失败保留机器原因 (321.600209ms)
+✔ macOS 控制通道关闭回收独立进程组内忽略 TERM 的已累计后代 (2197.039083ms)
+✔ macOS 轮询漏记短命父亲后的新孤儿保留为未核实，且不向未知归属发信号 (1122.336667ms)
+ℹ tests 44
+ℹ suites 0
+ℹ pass 44
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 20966.255375
+✔ 同会话 FIFO：后提交任务排队，按序执行 (5448.563625ms)
+✔ 不同目录并行执行；同目录符号链接别名互斥 (8318.933584ms)
+✔ 等待确认期间保留目录占用 (6237.591667ms)
+✔ 重复后台启动被实例锁拒绝 (2099.157833ms)
+✔ 幂等提交：重试返回原任务；同键异参冲突 (3960.331667ms)
+✔ 断开重连：游标补发无缺口；片段与条目引用可恢复 (4735.422542ms)
+✔ 已接收请求以不可变提交参数核实，不重新验证认证或任务当前权限 (3939.568708ms)
+✔ 快照：每个会话只带最近结束的 20 个任务 (3981.877584ms)
+✔ 显式中断：模型调用被取消，不自动重试，终态 interrupted (4172.196875ms)
+✔ 取消排队任务不执行；取消活动任务记录取消意图 (3735.194459ms)
+✔ 取消与自然完成竞争：只有一个终态，重复取消无额外效果 (3738.266083ms)
+✔ 拒绝确认：只阻止该操作，模型按拒绝结果继续；失效确认不得再执行 (3972.823ms)
+✔ 等待确认时中断：任务中断、确认失效、被确认的工具不得执行 (4077.001291ms)
+✔ 拒绝正常终止的子进程：中断时升级强制回收，占用随后释放 (7209.896125ms)
+✖ 工具已产生标记但未记录结果时崩溃：中断保留事实，不重放，排队不自动启动 (2632.310458ms)
+✖ 首次 assistant 消息前崩溃：不宣布消息已持久化，请求保留，历史不伪造 (2422.261542ms)
+✔ 上下文超限：任务中断并暂停会话队列，不摘要不重试 (4162.019541ms)
+✔ 数据库写入失败：不应答成功、不启动外部操作 (3818.019583ms)
+﹣ 真实模型连通性（RUN_MODEL_CHECK=1 开启） (0.321625ms) # SKIP
+✔ read 图片：普通读取按实际内容识别，原始字节只捕获一次，文本不变 (1413.552083ms)
+✔ read 图片：工作区读取按实际内容识别，原始字节只捕获一次，文本不变 (1293.527542ms)
+✔ read 图片：资料根读取按实际内容识别，原始字节只捕获一次，文本不变 (1332.172042ms)
+✔ read 图片：结果帧超限返回工具错误，完整原文保留，后续读取仍可用 (1188.998333ms)
+✔ read 图片：视觉模型实际收到图像且会话可重建 (5505.635667ms)
+✔ read 图片：仅文本模型在图片请求发出前明确失败 (5143.986ms)
+✔ 真实工具：读取—修改—检查失败—修复—检查通过，正文捕获为产物 (5016.406708ms)
+✔ 真实 Write：新建与覆盖文件的 diff 统计持久化 (5125.902333ms)
+✔ 断开客户端后任务继续；重连可见改动、检查结果与产物引用 (5094.342208ms)
+✔ 工作进程启动窗口的中断：启动中的执行单元同样被回收 (5149.612917ms)
+✔ 执行入口不可用：明确失败，不回退到后台账户执行 (5952.122ms)
+✔ 文件写入开始后 fsync 失败保留真实改动并报告效果未知；版本拒绝仍已知未执行 (3.825458ms)
+✔ schema 直接替换：旧版本与较新版本均拒绝启动，不建表、不回填授权或改写数据 (18.740417ms)
+✔ 完全访问：结构化文件读写和 HTTP 无审批，保护根与符号链接按启动账户可访问 (3988.529667ms)
+✔ 越界文件读取/写入：形成具体审批，批准后按批准的对象与内容执行一次 (11514.052916ms)
+✔ 符号链接组件与控制面/数据目录目标：提出审批前即拒绝 (4095.48525ms)
+✔ 文件系统别名不能旁路保护范围：虚拟资料的宿主对照成功，执行器拒绝同一对象 (2.908625ms)
+✔ 执行器级：等待期间目标被替换、内容变化、符号链接与保护目录都失败 (8.963958ms)
+✔ 单次 HTTP 请求：批准前零调用、批准后仅一次；其他目标需新的批准 (4203.4785ms)
+✔ 重定向不自动跟随；凭据按目标绑定注入，不转发到其他地址 (7347.820125ms)
+✔ 拒绝只阻止该操作；无客户端时保持等待，重连后参数完整 (3923.453292ms)
+✔ 任务结束后的迟到批准被拒绝，操作不执行 (3157.433125ms)
+✔ 批准消费：重复消费、权限版本变化、任务结束后都拒绝 (12.167417ms)
+✔ 崩溃恢复区分审批消费状态：已消费标 effect_unknown，未消费为已知未执行（计划 §6.6） (1900.383625ms)
+✔ DNS 在批准时固定：不可解析目标在提出审批前失败（防重绑定的前置校验） (4254.470667ms)
+✔ 批准绑定权限版本：版本不匹配的应答被拒绝 (4688.623792ms)
+✔ 带 scope 的凭据不得被通用 http_request 借用；同名轮换保留 scope (3940.9625ms)
+✔ 带 scope 的凭据在审批前拒绝：不请拥有者批准注定失败的 HTTP 请求（架构工单 04） (4415.545916ms)
+✔ HTTP 写请求发出后的传输失败记效果未知；发出前失败与 GET 记已知错误（架构工单 05） (5313.909417ms)
+✔ 停止挂起的 HTTP 写请求：中止信号让停止不等超时，操作记效果未知（架构工单 05） (5287.467917ms)
+✔ 超长 stdout 与跨分块 UTF-8：完整捕获、按偏移读取、切片重组一致 (4776.422042ms)
+✔ 中断保留已捕获部分（partial）与失败原因，不报告完整成功 (5080.839917ms)
+✔ 产物查询按任务归属：其他任务与其他会话读不到本任务正文 (7305.602834ms)
+✔ 产物跨后台重启可读 (5379.649209ms)
+[ruukoto] prompt 快照捕获失败（记录 sel_a1db8869120c45e56aa89f43）：产物写入失败（已保留部分数据）：EACCES: permission denied, open '/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-it-artifact-deny-v4hQHW/data/artifacts/art_81c700cd59040c5471ec7aa0.bin'
+[ruukoto] prompt 快照捕获失败（记录 sel_af1a9000588224819d9cf81d）：产物写入失败（已保留部分数据）：EACCES: permission denied, open '/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-it-artifact-deny-v4hQHW/data/artifacts/art_bdbdb5259db296086a2c980f.bin'
+✔ 产物磁盘写入失败：停止执行、保留已捕获部分与失败原因，不报告完整成功 (4628.106167ms)
+✔ read_artifact 工具单次最多 64KB，单页在模型视图中完整（issue 27） (11119.132625ms)
+✔ 产物读取上限：base64 开销后仍在帧上限内（超限长度被收敛而非发送失败） (5612.584709ms)
+✔ 提交幂等比较包含访问模式与授权范围 (6116.530125ms)
+✔ continue 新任务默认请求确认，拥有者可显式选择完全访问 (4067.564ms)
+✔ 提交摘要只接受当前格式：模式变化后重试固定任务，显隐式选择仍有区别 (3931.929292ms)
+✔ Plan 默认值与任务固定模式跨后台重启保留，控制面握手恢复真实选择 (3904.823625ms)
+✖ CLI：set-session-mode、submit --mode plan 与 continue --mode plan 使用同一可信选择 (5970.071584ms)
+✔ 会话默认模式：CAS 更新、新任务固定提交瞬间的默认值、既有任务不改写 (6602.381167ms)
+✔ 会话默认模式支持 auto-review：CAS 接受、任务固定、显式覆盖、任务级切换、跨重启保留 (7083.004208ms)
+✔ switch-mode 在无执行中工具的边界生效；任务结束后拒绝切换 (7594.31225ms)
+✔ 完全访问任务不逐次确认；缺少执行入口时不静默降级 (10841.372875ms)
+✔ 完全访问直接选择当前账户启动器，受限原生入口仍不降级 (0.220083ms)
+✔ 控制面拥有者认证：认证前不返回快照、不执行请求 (2734.2015ms)
+✔ 模型不能提升任务模式：不存在这种工具 (5581.51525ms)
+✔ 保护根双向排除：授予保护根的祖先或服务代码目录被拒绝；工作区同样受限 (14514.245375ms)
+✔ assertGrantNotProtected：根目录视为所有保护根的祖先 (3.582375ms)
+✔ Git worktree：授予共享 Git 元数据时用途标注其影响；不授予则不自动包含 (8984.988958ms)
+✔ 离线检查的 RUN_MODEL_CHECK=0 必须跳过真实模型，不能按非空字符串开启 (1908.853792ms)
+✔ 实例锁以真实启动身份核实当前进程，不依赖检出名；只读探测和重复获取不改写 owner (32.874667ms)
+✔ 真实子进程改名后仍持锁，退出后允许接管 (170.193208ms)
+✔ 相同 PID 的启动标识不同表示遗留锁，损坏的新身份保持待核实 (217.928125ms)
+✔ 旧 owner 沿命令兼容核实；ps 不可用保留锁，身份采集失败不创建新锁 (16.095042ms)
+✔ macOS 身份有界重查只接受明确退出或完整身份，持续权限失败与损坏字段拒绝 (593.39025ms)
+✔ 原生网络过滤拒绝路径 socket、socketpair 外发、io_uring 与另一 ABI，并保留 libuv 管道 (0.692667ms)
+✔ native 完全访问使用启动账户，库层 local 仍可注入 (0.19475ms)
+✔ 硬链接的所有名字须在同权限授权内；工作区内合法链接保留，外部与只读别名拒绝 (7.186625ms)
+✔ 原生授权规范化、保护根、嵌套只读、目录身份与环境拒绝在创建单元前完成 (792.336625ms)
+✔ 完全访问无持久 tracking 时在平台前置探测前拒绝 (1.433458ms)
+✔ Linux scope 只接受已知组的完整空成员证据或确认删除 (2.537625ms)
+✔ Linux manager 可用但缺 scope-group 时拒绝并保留停止身份 (14.443166ms)
+✔ Linux manager 可用但缺 writable-kill 时拒绝并保留停止身份 (2.358583ms)
+✔ 严格安全点：完整用户尾、活动批次回退、旧孤儿及重复调用 ID、坏行与部分尾行 (8257.774833ms)
+✔ 空历史、未映射旧会话、main/归档和目录替换零创建；映射旧会话保持资料身份与各默认模式 (13746.668083ms)
+✔ 真实等待审批与排队期间分支只取用户安全尾，新任务等待同目录占用，原审批不转移 (5589.746917ms)
+✔ 幂等独立历史、名称及设置；首个新任务只统计自己的请求，压缩与清单各自延续 (14828.928791ms)
+✔ 分支独立复制手动压缩来源，原操作回执与取消资格不转移 (7642.380083ms)
+✔ 连续分支恢复原图片的实际模型 payload，伪造、缺失和损坏图片均拒绝且零请求 (17034.020041ms)
+✔ partial 产物固定字节与状态，正文任意 ID 不进入宿主来源，连续分支保留上限 (11871.453083ms)
+[ruukoto:branch] 请求 recover-branch 准备失败：注入元数据提交失败
+✔ 发布失败保留原回执，重启核实原快照；成功文件缺失明确拒绝 (17040.97425ms)
+✔ 跨项目来源每次读取核实授权；撤销不借连续分支恢复 (14072.899ms)
+✔ Coding 导入保留分支、可回退且缺来源拒绝 (9485.590625ms)
+[ruukoto:branch] 请求 failed-file 准备失败：EACCES: permission denied, open '/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-it-branch-file-failure-hBiIOz/data/sessions/2026-10-18T10-56-19-060Z_c268069e-d059-4f66-acea-7b7bf1163506.jsonl.preparing'
+✔ 文件写入失败及来源前缀改变：按原回执拒绝恢复，无可选半成品与源删除 (11411.033833ms)
+✔ 真实 SIGKILL 窗口：文件已安装而会话未发布，重启仅按原请求发布一次 (13207.426042ms)
+✔ 来源 SubAgent 结果固定到原任务；连续分支只读，后续复用结果和所有管理操作被拒绝 (23351.805375ms)
+✔ 两个真实控制客户端与 TUI：中文名称、完整设置、应答丢失原键核实、父命令历史与失败草稿 (7854.704ms)
+✔ 手动来源可空且索引约束唯一有效点 (12.946458ms)
+✔ 同键复用、异参和忙时拒绝；取消与成功只产生一个终态，成功事件提交后才可见 (16.118416ms)
+✔ 提交事件失败整体回滚；旧点变化拒绝发布；重启仅中断在途请求，不覆盖已成功结果 (14.574458ms)
+✔ 低水位长任务主动摘要：同键只调用一次，prompt 单次生效，JSONL 不变且下一任务使用手动点 (4372.219416ms)
+✔ 摘要占用与取消：新提交、继续、配置与另一压缩被拒，其他会话和只读分支仍可用 (7268.062542ms)
+✔ 接收先占会话，覆盖提交解析窗口与任务启动窗口；无历史无需模型，身份由后台拒绝 (8371.491375ms)
+✔ 失败和提交冲突保留原点，坏行及部分尾不修复；已失效旧点明确作废 (4252.216333ms)
+✔ 超时/模型不可用终态保留原历史；源文件变化不提交 (4453.088083ms)
+✔ 断线与重启核实原结果，遗留在途中断不重调；取消旧请求不能取消新请求 (4334.987959ms)
+✔ 接收与完成的广播抛错后仍核实原事务，只执行一次摘要且不留下在途孤儿 (4208.708583ms)
+✔ 无消息也先核实 header 身份；已有点的历史消失明确失败并作废，不误报无需压缩 (4831.644333ms)
+✔ 摘要底层结果尚未收尾时保持会话与 provider 占用，后台等待后才关库 (5093.454042ms)
+✔ 排队、运行、等待确认及暂停队列均拒绝压缩，不创建回执或模型请求 (5388.183917ms)
+✔ 没有新增覆盖时无需解析不可用摘要模型；有指引需要摘要时明确失败 (5614.022ms)
+✔ 接收事件内同步取消先取得终态，接收应答返回取消且不启动摘要 (5880.605083ms)
+✔ 真实 Coding Agent 后台摘要中 SIGKILL：重启中断原请求，旧点与历史不变且不重调模型 (9108.677042ms)
+✔ 配置摘要模型单次钉版；接收后清配置与改会话模型不改原调用，下一次采用会话模型 (6228.170375ms)
+✔ 同步 WASM 支持串行、并发、分支和循环，四种原语仅传 JSON (108.124958ms)
+✔ 宿主拒绝为解释器内错误，其他分支继续 (85.697375ms)
+✔ 脚本没有 Node、文件、网络、凭据、时钟、随机数和定时器 (81.1765ms)
+✔ 静态模块故意失败后，进程已回收 (106.925917ms)
+✔ 动态模块故意失败后，进程已回收 (102.884292ms)
+✔ 语法故意失败后，进程已回收 (103.662417ms)
+✔ 调用参数故意失败后，进程已回收 (101.247833ms)
+✔ 未等待工作故意失败后，进程已回收 (98.684959ms)
+✔ 悬空 Promise故意失败后，进程已回收 (110.134917ms)
+✔ 纯计算故意失败后，进程已回收 (585.656375ms)
+✔ 微任务故意失败后，进程已回收 (585.51825ms)
+✔ 长内建故意失败后，进程已回收 (587.414375ms)
+✔ 内存故意失败后，进程已回收 (190.201ms)
+✔ 栈故意失败后，进程已回收 (108.158208ms)
+✔ 输出故意失败后，进程已回收 (128.085458ms)
+✔ 并发请求故意失败后，进程已回收 (91.094167ms)
+✔ 日志故意失败后，进程已回收 (169.752292ms)
+✔ 等待宿主不耗脚本预算，取消后迟到结果不能继续脚本 (268.812625ms)
+✔ 启动前取消不创建进程 (0.359375ms)
+✔ 单帧 UTF-8 字节及无换行缓冲有界，非法 JSON 不被忽略 (0.597833ms)
+✔ 背压阻塞时，输出队列到限明确拒绝 (13.37ms)
+✔ 超大输入与脚本在启动前拒绝 (0.644375ms)
+✔ JSON __proto__ 在入参和返回中保持普通字段 (83.3575ms)
+✔ 脚本改写全局 JSON 和 Promise 不影响宿主转换及推进 (80.619958ms)
+✔ 解释器内存和栈分别拒绝分配与递归，不借计时失败代替 (208.011334ms)
+✔ 结果保留，停止未核实及重复停止不变：false (0.967958ms)
+[ruukoto:workflow-script] stop=script_stop_unverified；退出未核实，保留执行身份
+✔ 结果保留，停止未核实及重复停止不变：throws (0.74975ms)
+✔ 已创建单元后的启动失败仍停止且保留未核实身份 (0.272042ms)
+✔ 启动器同步抛错也保留已创建单元 (0.185875ms)
+✔ 启动期间取消覆盖迟到单元 (0.1855ms)
+✔ 零请求的 idle 与损坏协议停止进程，不执行同帧迟到请求 (1.353416ms)
+✔ 同名运行的启动占位不覆盖 (0.149708ms)
+✔ 结果已到但进程异常退出保留结果并报失败 (0.624167ms)
+✔ 授权拒绝不能被脚本 catch 变成成功 (99.593166ms)
+✔ 超大宿主结果停止进程且不继续下一步骤 (102.626375ms)
+✔ 转换中的无限 getter 或 toJSON 也被父进程停止 (370.680125ms)
+✔ 32 个合法并发请求与长微任务链可以同时推进 (154.952666ms)
+✔ 结果 schema 支持对象、数组和标量，拒绝正则、引用及过深输入 (3.921667ms)
+✔ 恶意结果正则在宿主校验前拒绝，实际子进程可及时返回 (303.508625ms)
+✔ 后台停止等待尚未完成的工具预检，迟到结果不创建 Task 或访问已关闭的库 (144.428375ms)
+✔ 运行固定定义、输入、模型与来源；发起任务结束后仍执行，创建键先去重 (132.631291ms)
+✔ 四个工作流分支与普通委派共享三个名额，满额只排队 (191.576792ms)
+✔ 只读失败最多重试两次；无关分支完成，失败依赖不执行 (113.880583ms)
+✔ 失败依赖同时阻止汇总、人工问题与进度原语，汇总不产生外部效果 (134.055333ms)
+✔ 人工等待及其依赖中的 Agent 与汇总均不可执行，整项停计直到回答 (112.52875ms)
+✔ 重放检测稳定键异参并保留现场 (109.492375ms)
+✔ 重放检测稳定键调用次序分歧并保留现场 (122.071541ms)
+✔ Promise.race 按持久交付顺序恢复，完成步骤缓存不计尝试 (268.663667ms)
+✔ 已生效写操作缺少结果不会重复外部效果 (124.505917ms)
+✔ 已生效写操作输出格式失败不会重复外部效果 (124.597125ms)
+✔ 已生效写操作效果未知不会重复外部效果 (122.037166ms)
+✔ 仅格式失败不自动重跑只读 Agent，保留原始输出 (110.381291ms)
+✔ 已完成写步骤在等待人工时重启，复用结果并保留一次真实外部效果 (219.4695ms)
+✔ UTF-8 超大 Agent 输出保留完整产物、摘要与字节数，格式失败不触发重试 (123.88975ms)
+✔ JSON 转义 超大 Agent 输出保留完整产物、摘要与字节数，格式失败不触发重试 (118.293125ms)
+✔ 大输出产物丢失时恢复暂停，保留成果且不重跑 (133.9845ms)
+✔ 大输出产物摘要损坏时恢复暂停，保留成果且不重跑 (127.518792ms)
+✔ 尝试限额暂停保留成果，可信预算调整后恢复且不重做缓存 (218.380375ms)
+✔ 暂停后恢复再重发旧暂停请求，只去重且不停止新脚本或新 Agent (201.741917ms)
+✔ 人工问题旁的脚本收到进度回复后继续计算仍计费，到限前不启动后续 Agent (123.025125ms)
+✔ 人工等待整项停计，另有分支运行时继续按墙钟计费 (101.858792ms)
+✔ 时限暂停停止只读在途尝试，预算调整后恢复且已计时间不归零 (222.196875ms)
+✔ 崩溃时未核实时钟先暂停，可信确认后保留已有消耗 (213.131042ms)
+✔ 人工等待重启保留脚本进程身份，停止未核实先暂停并拒绝回答 (215.64775ms)
+✔ 取消先登记意图，迟到结果、回答与未核实停止不能释放占用或继续 (139.963792ms)
+✔ 真实 SQLite 双连接竞争：同一版本控制只有一次提交且事件对应 (306.773167ms)
+✔ 真实 SQLite 双连接竞争：最后一次尝试只被领取一次 (316.85775ms)
+✔ 真实 SQLite 双连接竞争：最后一个共享名额只被领取一次 (322.687416ms)
+✔ 真实 SQLite 双连接竞争：取消与启动按运行版本仲裁，不会取消后重新领取 (419.778333ms)
+✔ 真实 SQLite 双连接竞争：预算提高与排队领取按提交顺序生效 (313.875667ms)
+✔ 已开始的只读尝试崩溃后，停止与计费经可信核实才重排，不重复旧尝试 (118.13325ms)
+✔ 工作流沿 Runtime 的宿主族效果分类：中止 history_read 没有写入效果，可以有限重试 (131.396083ms)
+✔ 脚本入口缺失保存稳定失败码，不发起 Agent (23.991917ms)
+✔ 依赖结果汇入步骤输入超限时持久暂停，不反复创建空子上下文 (234.834959ms)
+✔ 自动审批审查与并行未决工具仍计费，只有纯人工审批等待才停计 (149.902875ms)
+✔ 工作流调用 旧分析 在 Agent 启动前拒绝，先前步骤保留 (119.30125ms)
+✔ 工作流调用 旧修改 在 Agent 启动前拒绝，先前步骤保留 (121.386125ms)
+✔ 工作流调用 旧验证 在 Agent 启动前拒绝，先前步骤保留 (120.253709ms)
+✔ 工作流调用 冲突目标 在 Agent 启动前拒绝，先前步骤保留 (117.015875ms)
+✔ 工作流调用 缺少依赖 在 Agent 启动前拒绝，先前步骤保留 (119.894916ms)
+✔ 工作流调用 未知角色 在 Agent 启动前拒绝，先前步骤保留 (118.335834ms)
+✔ agent 写操作结果缺失且最终输出合法：暂停并阻止依赖 (110.889708ms)
+✔ agent 写操作结果完整且最终输出合法：正常完成 (98.879083ms)
+✔ host 写操作结果缺失且最终输出合法：暂停并阻止依赖 (126.119458ms)
+✔ host 写操作结果完整且最终输出合法：正常完成 (109.209583ms)
+✔ 未消费审批的自然失败可有限重试，不补操作结果 (121.120167ms)
+✔ 自然停止单元已开始后首次中止：先保存快照和取消意图再复用停止 Promise (128.543458ms)
+✔ 工作流并发重复中止复用整次收尾，不重复写取消意图或停止记录 (136.686542ms)
+✔ 原任务结束后宿主任务真实创建和汇总 Git 副本，不创建模型会话或计 Agent 尝试 (11545.356666ms)
+✔ 宿主任务 ready 阶段取消且停止未核实，身份和双方占用保留，后续操作不重入 (3447.619584ms)
+✔ 宿主任务 call 阶段取消且停止未核实，身份和双方占用保留，后续操作不重入 (4406.697667ms)
+✔ 宿主操作入口在原任务结束后创建和汇总真实副本，同键缓存不再运行 Git (13603.594875ms)
+✔ 宿主操作排队后 pause，同键恢复原登记且真实写入只有一次 (6488.590792ms)
+✔ 宿主操作排队后 restart，同键恢复原登记且真实写入只有一次 (7001.1825ms)
+✔ 实际后台进程登记排队宿主操作后崩溃，接管同键仍只产生一次写入 (9572.973875ms)
+✔ 宿主中止竞争失败：清取消意图、补记只读结论与停止记录，不追加未知或重复唤醒 (5923.439417ms)
+✔ 宿主自然停止已开始后首次取消：共享快照先于复用停止，迟到结果仍未知且只唤醒一次 (5945.487ms)
+✔ 宿主自然完成后的重复中止沿用结论，不补账本或重写取消意图 (6102.128042ms)
+✔ Runtime 的运行授权独立于原任务，主会话可继续，步骤结果不逐个唤醒或注入 (4079.446292ms)
+✔ 普通 SubAgent 在真实 Runtime 出队时与三个工作流步骤抢同一来源名额 (3552.960334ms)
+✔ 脚本汇总等目录占用时暂停，恢复重放原宿主操作，实际写入一次 (3650.283917ms)
+✔ 重启使用真实步骤执行器时，恢复持久人工等待 (4554.740208ms)
+✔ 重启使用真实步骤执行器时，保留已有暂停原因 (4647.75075ms)
+✔ coding preview 与 apply 均拒绝丢弃工作流执行绑定，源字节不变且不导入资料 (53.312625ms)
+✔ coding 导入拒绝旧 schema，不回填工作流接口版本 (16.428917ms)
+✔ 宿主结果已提交但步骤未收尾时真实崩溃，核实后脚本复用同键缓存，不重复写入 (6628.586416ms)
+✔ 只读 Agent 真实崩溃后先核实占用与脚本，再恢复为一次新的执行尝试 (9250.639333ms)
+✔ 协调器登记宿主排队操作后真实崩溃，释放旧占用并核实后同任务只执行一次 (7921.748959ms)
+✔ 分页和单条读取保留原任务关联；中断缺结束标记后新任务仍可读取，旧无标记消息保留 (4.153667ms)
+✔ 最新一页与向前翻页：游标链覆盖全部条目且不重复 (0.943333ms)
+✔ before 指向不存在的条目：明确 entry_not_found (0.511791ms)
+✔ 文件尚未落盘：fileAvailable=false，不是错误 (0.10825ms)
+✔ 尾部未换行的行是部分记录，不是损坏 (0.508333ms)
+✔ 完整行损坏：history_corrupt，不静默跳过 (0.686917ms)
+✔ 缺少 type/id 的行同样视为损坏 (0.532459ms)
+✔ 超大单条消息：页内截断 + 分段读取可完整拼回（中文跨分块） (2.184416ms)
+✔ sliceTextByBytes：任意偏移不产生乱码 (0.387167ms)
+✔ 工具关联：assistant 工具调用与 toolResult 消息 (0.738791ms)
+✔ 整页字节预算：保证至少 1 条，超出预算停止收集 (1.004708ms)
+✔ parseSessionFileStrict：空文件与仅空白行 (0.062792ms)
+✔ read_tool_result：实际控制面只返回白名单字段，UTF-8 截断与归属校验 (6654.685458ms)
+✔ 工作流非 Git 修改在创建副本或写入前拒绝，普通委派仍可直接写入 (2.418959ms)
+✔ 冻结补丁保留完整非 UTF-8 与二进制字节，验证副本按固定旧基线重建且写入独立 (1840.985667ms)
+✔ 验证后改写副本字节使旧冻结成果失效，目标零套用 (1391.750292ms)
+✔ 验证后新增副本字节使旧冻结成果失效，目标零套用 (1429.723375ms)
+✔ 验证后删除副本字节使旧冻结成果失效，目标零套用 (1340.51775ms)
+✔ 冻结补丁与工作、基线或摘要不符在执行前拒绝，摘要自洽的伪造字节仍不能套用 (1289.372333ms)
+✔ 空冻结成果可建立独立验证副本，汇总没有写入 (1501.523708ms)
+✔ 冻结汇总幂等，冲突零套用且保留双方成果 (2549.491417ms)
+✔ 宿主步骤画像按来源收窄，旧固定画像不获得额外能力 (1.63225ms)
+✔ 真实 Driver 装配来源业务与技能，步骤自身的技能结果落盘且来源任务结束不影响执行 (234.6505ms)
+✔ 步骤与普通 SubAgent 以独立身份通过同一来源的个人业务宿主重核 (93.848208ms)
+✔ 派生记忆的来源产物仍受步骤范围限制，直接工具和记忆入口都拒绝 prompt 快照 (48.825167ms)
+✔ 发送后资料撤销在工具意图前阻断，后续模型请求也不会发送 (38.519458ms)
+✔ 登记意图后、真实宿主 execute 取得绑定前再次撤销，个人能力没有产生效果 (40.335583ms)
+✔ 步骤宿主资料工具拒绝宿主排除的会话历史，显式收窄不扩大来源工具 (44.591708ms)
+✔ 真实 Driver 的普通委派默认执行 bash，预检不改变执行状态 (1193.86025ms)
+✔ 真实 Driver 的工作流步骤默认执行 bash，预检不改变执行状态 (1272.2325ms)
+✔ 预检缺少显式工具或步骤削减角色要求时拒绝，操作账本为空 (25.163708ms)
+✔ 真实 Driver 的普通委派注入来源项目指令和技能，正文进入请求快照 (38.835542ms)
+✔ 真实 Driver 的工作流步骤注入来源项目指令和技能，正文进入请求快照 (34.290167ms)
+✔ 来源执行快照缺失时真实 Driver 不发送请求、不登记工具操作 (20.079292ms)
+✔ 子代理内部对话只使用持久参考快照，不读取当前项目指令或技能 (44.640833ms)
+✔ 同一 Driver 的来源工具不变、工作目录切换时重建 SDK 并保留历史 (145.979291ms)
+
+Interrupted while running:
+
+⚠ test/112-workflow-real-steps.test.ts (test/112-workflow-real-steps.test.ts:1:1)
+⚠ test/113-workflow-source-capabilities.test.ts (test/113-workflow-source-capabilities.test.ts:1:1)
+⚠ test/114-workflow-owner-input.test.ts (test/114-workflow-owner-input.test.ts:1:1)
+⚠ test/115-workflow-final-delivery.test.ts (test/115-workflow-final-delivery.test.ts:1:1)
+⚠ test/116-workflow-notification-recovery.test.ts (test/116-workflow-notification-recovery.test.ts:1:1)
+⚠ test/117-workflow-library.test.ts (test/117-workflow-library.test.ts:1:1)
+⚠ test/118-workflow-entries.test.ts (test/118-workflow-entries.test.ts:1:1)
+⚠ test/119-workflow-im-controls.test.ts (test/119-workflow-im-controls.test.ts:1:1)
+⚠ test/12-reconnect-pending.test.ts (test/12-reconnect-pending.test.ts:1:1)
+⚠ test/120-workflow-cli.test.ts (test/120-workflow-cli.test.ts:1:1)
+⚠ test/121-workflow-personal-acceptance.test.ts (test/121-workflow-personal-acceptance.test.ts:1:1)
+⚠ test/122-workflow-code-acceptance.test.ts (test/122-workflow-code-acceptance.test.ts:1:1)
+⚠ test/123-workflow-model-acceptance.test.ts (test/123-workflow-model-acceptance.test.ts:1:1)
+⚠ test/124-test-app-runner.test.ts (test/124-test-app-runner.test.ts:1:1)
+⚠ test/125-agent-wait-attention-report.test.ts (test/125-agent-wait-attention-report.test.ts:1:1)
+⚠ test/125-agent-wait-core.test.ts (test/125-agent-wait-core.test.ts:1:1)
+⚠ test/125-agent-wait-group-boundaries.test.ts (test/125-agent-wait-group-boundaries.test.ts:1:1)
+⚠ test/125-agent-wait-import.test.ts (test/125-agent-wait-import.test.ts:1:1)
+⚠ test/125-agent-wait-model.test.ts (test/125-agent-wait-model.test.ts:1:1)
+⚠ test/125-agent-wait-queued-group.test.ts (test/125-agent-wait-queued-group.test.ts:1:1)
+⚠ test/125-agent-wait-recovery.test.ts (test/125-agent-wait-recovery.test.ts:1:1)
+⚠ test/125-agent-wait-report.test.ts (test/125-agent-wait-report.test.ts:1:1)
+⚠ test/125-agent-wait-resource.test.ts (test/125-agent-wait-resource.test.ts:1:1)
+⚠ test/125-agent-wait-view.test.ts (test/125-agent-wait-view.test.ts:1:1)
+⚠ test/125-agent-wait.test.ts (test/125-agent-wait.test.ts:1:1)
+⚠ test/126-workflow-sidebar.test.ts (test/126-workflow-sidebar.test.ts:1:1)
+⚠ test/13-tui-state.test.ts (test/13-tui-state.test.ts:1:1)
+⚠ test/14-tui-app.test.ts (test/14-tui-app.test.ts:1:1)
+⚠ test/15-tui-pty.test.ts (test/15-tui-pty.test.ts:1:1)
+⚠ test/16-context-memory.test.ts (test/16-context-memory.test.ts:1:1)
+⚠ test/17-github-retirement.test.ts (test/17-github-retirement.test.ts:1:1)
+⚠ test/18-model-selection-store.test.ts (test/18-model-selection-store.test.ts:1:1)
+⚠ test/18-model-selection.test.ts (test/18-model-selection.test.ts:1:1)
+⚠ test/19-tui-demo.test.ts (test/19-tui-demo.test.ts:1:1)
+⚠ test/20-prompt-inspector.test.ts (test/20-prompt-inspector.test.ts:1:1)
+⚠ test/21-context-breakdown.test.ts (test/21-context-breakdown.test.ts:1:1)
+⚠ test/22-auto-review.test.ts (test/22-auto-review.test.ts:1:1)

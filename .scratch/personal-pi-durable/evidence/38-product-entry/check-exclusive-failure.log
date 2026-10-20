@@ -1,0 +1,314 @@
+
+> ruukoto-workspace@0.1.0 check
+> node scripts/check-environment.mjs && npm run build && npm run check:static && npm test
+
+开发环境检查通过
+
+> ruukoto-workspace@0.1.0 build
+> npm run build:native && npm run build:worker && npm run build:script && npm run build --workspaces --if-present
+
+
+> ruukoto-workspace@0.1.0 build:native
+> node scripts/build-native.mjs
+
+
+> ruukoto-workspace@0.1.0 build:worker
+> esbuild packages/agent/src/tool-worker/worker.ts apps/ruukoto/src/personal-command-worker.ts --bundle --format=esm --platform=node --target=node24 --external:@earendil-works/* --outdir=worker --entry-names=[name] --out-extension:.js=.mjs
+
+
+  worker/worker.mjs                   15.6kb
+  worker/personal-command-worker.mjs   4.1kb
+
+⚡ Done in 7ms
+
+> ruukoto-workspace@0.1.0 build:script
+> node scripts/build-workflow-script.mjs
+
+
+> ruukoto@0.1.0 build
+> mkdir -p ../../dist && npm pack --pack-destination ../../dist
+
+npm notice
+npm notice 📦  ruukoto@0.1.0
+npm notice Tarball Contents
+npm notice 408B bin/ruukoto.mjs
+npm notice 731B package.json
+npm notice 1.9kB src/dev.ts
+npm notice 529B src/main.ts
+npm notice 9.5kB src/personal-app-data-controls.ts
+npm notice 34.1kB src/personal-app-data.ts
+npm notice 7.6kB src/personal-artifacts.ts
+npm notice 6.9kB src/personal-browser-cli.ts
+npm notice 5.6kB src/personal-browser-config.ts
+npm notice 10.0kB src/personal-browser-controls.ts
+npm notice 46.2kB src/personal-browser.ts
+npm notice 40.4kB src/personal-cli.ts
+npm notice 8.1kB src/personal-command-config.ts
+npm notice 17.6kB src/personal-command-execution.ts
+npm notice 35.8kB src/personal-command-work.ts
+npm notice 3.8kB src/personal-command-worker.ts
+npm notice 2.4kB src/personal-config-idle.ts
+npm notice 3.8kB src/personal-config.ts
+npm notice 43.4kB src/personal-control.ts
+npm notice 18.3kB src/personal-delegation.ts
+npm notice 20B src/personal-entry.ts
+npm notice 191B src/personal-error.ts
+npm notice 77.4kB src/personal-harness.ts
+npm notice 11.4kB src/personal-history.ts
+npm notice 263B src/personal-im-api.ts
+npm notice 15.0kB src/personal-inspection-controls.ts
+npm notice 3.1kB src/personal-local-records.ts
+npm notice 7.2kB src/personal-mcp-cli.ts
+npm notice 11.6kB src/personal-mcp-config.ts
+npm notice 11.1kB src/personal-mcp-controls.ts
+npm notice 36.7kB src/personal-mcp.ts
+npm notice 27.7kB src/personal-media.ts
+npm notice 9.0kB src/personal-memory-controls.ts
+npm notice 20.7kB src/personal-memory.ts
+npm notice 7.6kB src/personal-model.ts
+npm notice 14.8kB src/personal-owner-controls.ts
+npm notice 3.3kB src/personal-permissions-cli.ts
+npm notice 5.2kB src/personal-permissions.ts
+npm notice 4.5kB src/personal-profile.ts
+npm notice 7.8kB src/personal-qq-api.ts
+npm notice 4.5kB src/personal-qq-cli.ts
+npm notice 4.3kB src/personal-qq-config.ts
+npm notice 31.6kB src/personal-report.ts
+npm notice 9.5kB src/personal-schedule-authority.ts
+npm notice 11.2kB src/personal-schedule-execution.ts
+npm notice 3.4kB src/personal-schedule-scope.ts
+npm notice 10.0kB src/personal-scheduler-cli.ts
+npm notice 20.6kB src/personal-scheduler-controls.ts
+npm notice 28.3kB src/personal-scheduler-records.ts
+npm notice 13.2kB src/personal-scheduler-tools.ts
+npm notice 32.7kB src/personal-scheduler.ts
+npm notice 6.2kB src/personal-service-config.ts
+npm notice 19.5kB src/personal-service-controls.ts
+npm notice 21.4kB src/personal-service-inspection.ts
+npm notice 52.3kB src/personal-service-operations.ts
+npm notice 7.7kB src/personal-service-work.ts
+npm notice 5.7kB src/personal-services.ts
+npm notice 2.4kB src/personal-skills-cli.ts
+npm notice 4.8kB src/personal-skills-config.ts
+npm notice 15.9kB src/personal-skills.ts
+npm notice 2.8kB src/personal-source.ts
+npm notice 9.3kB src/personal-telegram-api.ts
+npm notice 4.2kB src/personal-telegram-config.ts
+npm notice 6.0kB src/personal-telegram-records.ts
+npm notice 24.4kB src/personal-telegram.ts
+npm notice 15.6kB src/personal-tool-io.ts
+npm notice 4.9kB src/personal-tool-source.ts
+npm notice 12.0kB src/personal-tools-cli.ts
+npm notice 8.7kB src/personal-tools-config.ts
+npm notice 13.5kB src/personal-tools-controls.ts
+npm notice 57.1kB src/personal-tools.ts
+npm notice 14.6kB src/personal-work-controls.ts
+npm notice 15.1kB src/personal-work-tools.ts
+npm notice 46.0kB src/personal-work.ts
+npm notice 8.9kB src/service-helper.ts
+npm notice Tarball Details
+npm notice name: ruukoto
+npm notice version: 0.1.0
+npm notice filename: ruukoto-0.1.0.tgz
+npm notice package size: 267.6 kB
+npm notice unpacked size: 1.1 MB
+npm notice shasum: 352e100b78adb54eeaf160b9ad631b11324e7be2
+npm notice integrity: sha512-pkUYJpIzsHnV+[...]m8VGkZ7KhylyQ==
+npm notice total files: 75
+npm notice
+ruukoto-0.1.0.tgz
+
+> ruukoto-code@0.1.0 build
+> mkdir -p ../../dist && npm pack --pack-destination ../../dist
+
+npm notice
+npm notice 📦  ruukoto-code@0.1.0
+npm notice Tarball Contents
+npm notice 580B bin/ruukoto-code.mjs
+npm notice 575B package.json
+npm notice 96B src/dev.ts
+npm notice 80.3kB src/legacy-import.ts
+npm notice 152B src/main.ts
+npm notice 891B src/product.ts
+npm notice Tarball Details
+npm notice name: ruukoto-code
+npm notice version: 0.1.0
+npm notice filename: ruukoto-code-0.1.0.tgz
+npm notice package size: 23.1 kB
+npm notice unpacked size: 82.6 kB
+npm notice shasum: c9e0f70eeb11ca76aa71c9135a7585385d18fb82
+npm notice integrity: sha512-cSHefB3X8foMI[...]RWfsZ7geU994g==
+npm notice total files: 6
+npm notice
+ruukoto-code-0.1.0.tgz
+
+> ruukoto-workspace@0.1.0 check:static
+> npm run lint && npm run typecheck && npm run verify-notes && npm run check:docs
+
+
+> ruukoto-workspace@0.1.0 lint
+> eslint . --max-warnings=0
+
+
+> ruukoto-workspace@0.1.0 typecheck
+> tsc --noEmit && npm run typecheck --workspaces && npm --prefix verification/foundation run typecheck
+
+
+> @ruukoto/agent@0.1.0 typecheck
+> tsc --noEmit
+
+
+> @ruukoto/channels@0.1.0 typecheck
+> tsc --noEmit
+
+
+> @ruukoto/control@0.1.0 typecheck
+> tsc --noEmit
+
+
+> @ruukoto/core@0.1.0 typecheck
+> tsc --noEmit
+
+
+> @ruukoto/runtime@0.1.0 typecheck
+> tsc --noEmit
+
+
+> @ruukoto/tui@0.1.0 typecheck
+> tsc --noEmit
+
+
+> @ruukoto/view@0.1.0 typecheck
+> tsc --noEmit
+
+
+> @ruukoto/desktop@0.1.0 typecheck
+> tsc --noEmit
+
+
+> ruukoto@0.1.0 typecheck
+> tsc --noEmit
+
+
+> ruukoto-code@0.1.0 typecheck
+> tsc --noEmit
+
+
+> ruukoto-foundation-verification@0.1.0 typecheck
+> tsc --noEmit
+
+
+> ruukoto-workspace@0.1.0 verify-notes
+> tsx .agents/skills/maintain-notes/scripts/verify-agent-note-tree.ts && tsx .agents/skills/maintain-notes/scripts/verify-agent-note-format.ts && tsx .agents/skills/maintain-notes/scripts/verify-archived-agent-notes.ts
+
+ok: 110 note(s) tree and relative links verified
+ok: 110 note(s) verified
+ok: 1 archived note(s) verified, 1 seal(s) in manifest
+
+> ruukoto-workspace@0.1.0 check:docs
+> npm run verify-md-links && npm run verify-doc-refs && npm run verify-doc-budgets && npm run verify-md-wrap
+
+
+> ruukoto-workspace@0.1.0 verify-md-links
+> tsx scripts/verify-md-links.ts
+
+verify-md-links：169 个文件的相对链接与锚点均可解析。
+
+> ruukoto-workspace@0.1.0 verify-doc-refs
+> tsx scripts/verify-doc-refs.ts
+
+verify-doc-refs：309 个源码文件里的文档引用均可解析。
+
+> ruukoto-workspace@0.1.0 verify-doc-budgets
+> tsx scripts/verify-doc-budgets.ts
+
+verify-doc-budgets：8 份常驻文档均在上限内。
+
+> ruukoto-workspace@0.1.0 verify-md-wrap
+> tsx scripts/verify-md-wrap.ts
+
+verify-md-wrap：169 个文件无跨行段落。
+
+> ruukoto-workspace@0.1.0 test
+> node scripts/check-environment.mjs && npm run test:app && npm run test:foundation
+
+开发环境检查通过
+
+> ruukoto-workspace@0.1.0 test:app
+> node scripts/test-app.mjs
+
+✔ 同一 host 并发与重复停止保留 false，只回收一次 (3.632584ms)
+✔ ready 失败保留单元与停止结论：true (0.520833ms)
+✔ ready 失败保留单元与停止结论：false (0.303125ms)
+[ruukoto:tool-worker] task=worker-stop stop=fake_stop_failed；退出未核实，保留占用
+✔ ready 失败保留单元与停止结论：throws (0.412125ms)
+✔ 原生 ready 失败保留类型化原因、停止结论与单元身份 (0.419709ms)
+✔ 尚未创建单元的拒绝无需回收，停止先于 start 时不启动 (0.113083ms)
+✔ launch 期间停止回收迟到单元，不发送 init 或提供服务 (41.510458ms)
+✔ launcher 已产生单元后拒绝保留停止身份 (0.167542ms)
+✔ init 排队写入失败仍核实停止，不交出可服务 host (2.269458ms)
+✔ 真实原进程组：主进程先退出仍停止同组后代心跳 (447.451209ms)
+✔ 真实原进程组：短暂查询失败在停止预算内继续核实 (260.864667ms)
+✔ 信号 EPERM 仍核实原进程组：已退出 (0.142708ms)
+✔ 信号 EPERM 仍核实原进程组：持续未知 (0.063167ms)
+✔ 原进程组持续存在且查询失败：预算耗尽仍保留未核实 (42.733125ms)
+✔ 原进程组持续存在且查询输出不完整：预算耗尽仍保留未核实 (42.420166ms)
+✔ 停止预算：查询超时与休眠受剩余预算限制，耗尽后不再发 ps (1.672125ms)
+✔ 零停止预算仍核实首次结果：ESRCH (0.212584ms)
+✔ 零停止预算仍核实首次结果：僵尸 (0.148708ms)
+✔ 零停止预算仍核实首次结果：查询失败 (0.145625ms)
+✔ 静态 start 失败交出可核实的宿主记录与原错误 (0.401833ms)
+✔ router 的 starting 与实际登记保留 ready 失败，不重建未知退出单元 (7.365542ms)
+✔ router 在 launch 前登记；启动期间取消不会安装迟到 worker (47.566041ms)
+✔ 完全访问同时核实命令组与 worker 组：命令组结论=true (0.33525ms)
+✔ 完全访问同时核实命令组与 worker 组：命令组结论=false (0.186708ms)
+✔ 完全访问同时核实命令组与 worker 组：命令组结论=null (3000.860666ms)
+✔ 完全访问消费 exit 后到达的停止回执：true (1.598958ms)
+✔ 完全访问消费 exit 后到达的停止回执：false (0.538875ms)
+✔ 完全访问消费 exit 后到达的停止回执：null (0.438708ms)
+✔ 完全访问消费 exit 后到达的停止回执：partial (0.390875ms)
+✔ 迟到的命令组停止成功不能覆盖 worker 组未核实 (0.437083ms)
+✔ 完全访问缺回执且 stdout 未关闭时有界返回未核实 (3001.5355ms)
+✔ 内置启动器 spawn 拒绝保留原 code，未创建单元无需停止 (2.734625ms)
+✔ start 与已取消调用不重复启动或发送工具帧 (1.097625ms)
+✔ router 每次启动使用独立 starting 身份 (14.348708ms)
+✔ launcher 同步抛错也保留已产生的单元 (0.551042ms)
+✔ Runtime 实际 SDK 的 ready 失败：stop false 保留终态、原因与父目录占用 (1443.571125ms)
+[ruukoto:tool-worker] task=task_8c9a3ffb3d6607ab6ca74878 stop=fake_stop_failed；退出未核实，保留占用
+✔ Runtime 实际 SDK 的 ready 失败：stop throw 保留终态、原因与父目录占用 (1416.052625ms)
+✔ 拥有者同进程核实恢复后使用新 worker，旧停止失败与命令不重放 (1424.918709ms)
+✔ 真实完全访问 worker 停止独立 Shell 组及忽略 TERM 的同组后代 (3733.2525ms)
+✔ macOS 监督器核实 libproc、原子信号、版本回卷与跨 UID 的 PID 1 身份 (1125.035291ms)
+✔ macOS 监督器不把宿主状态和控制 FD 传给执行进程 (128.894083ms)
+✔ macOS 真实 Seatbelt 中 Node 完成启动标记后才加载 worker，启动前失败保留机器原因 (312.803875ms)
+✖ macOS 控制通道关闭回收独立进程组内忽略 TERM 的已累计后代 (2200.547167ms)
+✔ macOS 轮询漏记短命父亲后的新孤儿保留为未核实，且不向未知归属发信号 (1095.647292ms)
+ℹ tests 44
+ℹ suites 0
+ℹ pass 43
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 20977.624292
+
+✖ failing tests:
+
+test at test/101-native-macos-helper.test.ts:1:5251
+✖ macOS 控制通道关闭回收独立进程组内忽略 TERM 的已累计后代 (2200.547167ms)
+  AssertionError [ERR_ASSERTION]: [{"type":"started","pid":92332},{"type":"stopped","reaped":false,"reason":"identity_unavailable"}] [ruukoto:native] 执行停止未核实（identity_unavailable）；保留目录占用，等待拥有者核实
+
+
+  false !== true
+
+      at TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/101-native-macos-helper.test.ts:132:12)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+[ruukoto:test] 应用测试退出码 1；剩余批次未运行

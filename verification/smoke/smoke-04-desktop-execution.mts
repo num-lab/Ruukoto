@@ -1,5 +1,5 @@
-import { product as personalProduct } from "../../apps/ruukoto/src/product.ts";
-/** 个人产品真实原生四工具、边界、审批、当前账户完全访问与中断回收；模型使用本地桩。
+import { product as codingProduct } from "../../apps/ruukoto-code/src/product.ts";
+/** Coding 产品真实原生四工具、边界、审批、当前账户完全访问与中断回收；模型使用本地桩。
  * Note: 见 .agents/notes/implemented/feature/2026-09-19-explicit-access-modes.md
  */
 
@@ -130,7 +130,7 @@ try {
   t = await startTestRuntime("smoke04", flowRouter(), {
     workDirs: 0,
     config: {
-      product: personalProduct.runtime,
+      product: codingProduct.runtime,
       ...realTools(),
       execution: { backend: "native" },
     },

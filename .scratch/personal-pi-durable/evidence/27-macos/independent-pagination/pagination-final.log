@@ -1,0 +1,16 @@
+command: ["/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules/.bin/tsx", "--test", "--test-name-pattern=页发现遵守|SDK 汇总后", "/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/mcp-transport.test.ts"]
+exit: 0
+stdout:
+✔ MCP 传输：16 页发现遵守 16 页上限 (33.758667ms)
+✔ MCP 传输：17 页发现遵守 16 页上限 (11.827625ms)
+✔ MCP 传输：SDK 汇总后仍拒绝超过 64 个工具 (2.990083ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 3
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 223.717625
+
+stderr:

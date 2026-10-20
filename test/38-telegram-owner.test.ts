@@ -1,4 +1,4 @@
-import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
+import { product as personalProduct } from "./helpers/legacy-product.ts";
 /**
  * Telegram owner 入口集成测试（daily-agent issue 04）：本地模拟 Bot API + mock 模型。
  *

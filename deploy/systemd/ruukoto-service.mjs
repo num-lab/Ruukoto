@@ -3,6 +3,7 @@
  * ruukoto 服务器服务管理 helper（agent-direction issue 09）。
  * Note: 见 .agents/notes/implemented/feature/2026-10-12-full-access-current-account.md
  * Note: 见 .agents/notes/implemented/architecture/2026-10-03-service-management-helper.md
+ * Note: 见 .agents/notes/implemented/architecture/2026-10-17-service-inspection-identity.md
  *
  * 唯一可信的 systemd 服务管理入口：root 拥有 0700，仅启动账户经 sudoers 以
  * 固定 argv 调用；Node 标准库实现，无第三方依赖，不接受环境变量配置。
@@ -14,14 +15,16 @@
  * 在生产必然断开）：
  *   inspect <unit>                              白名单内服务状态与修订（systemctl
  *                                               show 显式降到策略中的检查 UID/GID）
+ *   inspect-op <inspectionId> <machineId> <unit>  先持久认领，再执行同组只读检查
+ *   stop-inspect <inspectionId> <machineId>       阻止迟到启动，只观察原启动器组退出
  *   restart <hostOpId> <policyRev> <unitRev> <unit>
  *                                               原子认领（mkdir，同 ID 拒绝再次启动）
  *                                               → 核对修订与已加载配置 → systemd-run
  *                                               --pipe --wait 的短命命令单元中以 root
  *                                               执行固定 systemctl --system restart
  *   stop-op <hostOpId>                          只停派生命令单元 ruukoto-service-op-
- *                                               <hostOpId>.service，并在确认整个单元
- *                                               退出后才报告 exited:true
+ *                                               <hostOpId>.service，启动器进程组和
+ *                                               整个单元均退出才报告 exited:true
  *
  * 纪律：无 shell 字符串、无自由参数；目标必须精确匹配 root 拥有的策略（拒绝别名
  * /模板实例/路径/通配符/选项注入/额外参数）；固定拒绝后台、Docker、执行工作进程
@@ -105,6 +108,7 @@ function assertTrustedPath(target, what) {
 }
 
 const HOST_OP_ID = /^op_[0-9a-f]{24}$/;
+const INSPECTION_ID = /^inspect_[0-9a-f]{24}$/;
 const HEX64 = /^[0-9a-f]{64}$/;
 
 /** restart 是否已派发 systemd（顶层 catch 决定应答的 launched 标志：派发后的
@@ -227,15 +231,26 @@ function inspectState(props) {
   };
 }
 
-function cmdInspect(unit) {
+function cmdInspect(unit, inspectionId, expectedMachineId) {
   const { policy, policyRevision, inspectUid, inspectGid } = loadPolicy();
+  if (inspectionId !== undefined) {
+    assertInspectionIdentity(inspectionId, expectedMachineId, policy.machineId);
+  }
   policyEntry(policy, unit);
+  if (inspectionId !== undefined) {
+    const launcher = launcherIdentity();
+    const claimDir = path.join(OPS_DIR, inspectionId);
+    claimInspection(claimDir);
+    fs.writeFileSync(path.join(claimDir, "claim.json"), JSON.stringify({ version: 1, claimedBy: "inspect-op", inspectionId, machineId: policy.machineId, unit, launcher }), { mode: 0o600 });
+    if (fs.existsSync(path.join(claimDir, "stop-requested"))) throw new Refuse("stop_requested", "原检查已收到停止标记；未执行检查");
+  }
   const props = systemctlShow(unit, inspectUid, inspectGid);
   if (props.Id !== unit) {
     throw new Refuse("alias_refused", `目标是别名（实际单元 ${props.Id}），白名单只认精确名：${unit}`);
   }
   reply({
-    verb: "inspect",
+    verb: inspectionId === undefined ? "inspect" : "inspect-op",
+    ...(inspectionId === undefined ? {} : { inspectionId }),
     ok: true,
     machineId: policy.machineId,
     policyRevision,
@@ -249,6 +264,89 @@ function cmdInspect(unit) {
 
 function opUnitFor(hostOpId) {
   return `${OP_UNIT_PREFIX}${hostOpId}.service`;
+}
+
+function launcherIdentity() {
+  const fields = fs.readFileSync(`/proc/${process.pid}/stat`, "utf8").split(/\) /).at(-1).split(" ");
+  return { pid: process.pid, startTime: fields[19], processGroup: Number(fields[2]), bootId: fs.readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim() };
+}
+
+function launcherProcessState(id) {
+  const unknown = { exited: false, rebooted: false };
+  if (!id || !Number.isSafeInteger(id.pid) || id.pid <= 0 || !Number.isSafeInteger(id.processGroup) || id.processGroup <= 0 || typeof id.startTime !== "string" || !/^[0-9]+$/.test(id.startTime) || typeof id.bootId !== "string" || !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/.test(id.bootId)) return unknown;
+  let bootId;
+  try { bootId = fs.readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim(); } catch { return unknown; }
+  if (!/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/.test(bootId)) return unknown;
+  if (bootId !== id.bootId) return { exited: true, rebooted: true };
+  let fields;
+  try { fields = fs.readFileSync(`/proc/${id.pid}/stat`, "utf8").split(/\) /).at(-1).split(" "); } catch (error) {
+    if (error.code !== "ENOENT" && error.code !== "ESRCH") return unknown;
+  }
+  if (fields && !/^[0-9]+$/.test(fields[19] ?? "")) return unknown;
+  if (fields?.[19] === id.startTime) return unknown;
+  // 原 helper 已退出仍可能有同组后代；持久组号只用于观察，绝不据此发停止信号。
+  try { process.kill(-id.processGroup, 0); return unknown; } catch (error) { if (error.code !== "ESRCH") return unknown; }
+  return { exited: true, rebooted: false };
+}
+
+function launcherState(claimDir, hostOpId, opUnit) {
+  const unknown = { exited: false, missingSafe: false };
+  let claim;
+  try { claim = JSON.parse(fs.readFileSync(path.join(claimDir, "claim.json"), "utf8")); } catch { return unknown; }
+  if (claim?.version !== 2) return unknown;
+  if (claim.claimedBy === "stop-op") return { exited: true, missingSafe: true };
+  if (claim.claimedBy !== "restart") return unknown;
+  const id = claim.launcher;
+  const observed = launcherProcessState(id);
+  if (!observed.exited) return unknown;
+  if (observed.rebooted) return { exited: true, missingSafe: true };
+  const proof = name => {
+    let saved;
+    try { saved = JSON.parse(fs.readFileSync(path.join(claimDir, name), "utf8")); } catch { return false; }
+    return saved?.version === 1 && saved.hostOpId === hostOpId && saved.opUnit === opUnit && JSON.stringify(saved.launcher) === JSON.stringify(id);
+  };
+  return { exited: true, missingSafe: proof("launcher-completed.json") || proof("unit-observed.json") };
+}
+
+function assertInspectionIdentity(inspectionId, expectedMachineId, machineId) {
+  if (!INSPECTION_ID.test(inspectionId)) throw new Refuse("inspection_invalid", "检查 ID 形态非法（须为 inspect_ + 24 位小写十六进制）");
+  if (expectedMachineId !== machineId) throw new Refuse("wrong_machine", "原检查不属于本机；保留占用并核实原机器");
+}
+
+function claimInspection(claimDir) {
+  try { fs.mkdirSync(claimDir, { mode: 0o700 }); } catch (error) {
+    if (error.code === "EEXIST") throw new Refuse("already_claimed", "原检查 ID 已认领，拒绝再次启动");
+    throw new Refuse("claim_failed", "检查身份认领失败；未启动检查");
+  }
+}
+
+function inspectionExited(claimDir, inspectionId, machineId) {
+  let claim;
+  try { claim = JSON.parse(fs.readFileSync(path.join(claimDir, "claim.json"), "utf8")); } catch { return false; }
+  if (claim?.version !== 1 || claim.inspectionId !== inspectionId || claim.machineId !== machineId) return false;
+  if (claim.claimedBy === "stop-inspect") return true;
+  if (claim.claimedBy !== "inspect-op" || typeof claim.unit !== "string") return false;
+  try { assertWellFormedUnit(claim.unit); } catch (error) { if (error instanceof Refuse) return false; throw error; }
+  return launcherProcessState(claim.launcher).exited;
+}
+
+function cmdStopInspect(inspectionId, expectedMachineId) {
+  const { policy } = loadPolicy();
+  assertInspectionIdentity(inspectionId, expectedMachineId, policy.machineId);
+  const claimDir = path.join(OPS_DIR, inspectionId);
+  let created = false;
+  try { fs.mkdirSync(claimDir, { mode: 0o700 }); created = true; } catch (error) { if (error.code !== "EEXIST") throw error; }
+  if (created) fs.writeFileSync(path.join(claimDir, "claim.json"), JSON.stringify({ version: 1, claimedBy: "stop-inspect", inspectionId, machineId: policy.machineId }), { mode: 0o600 });
+  fs.writeFileSync(path.join(claimDir, "stop-requested"), new Date().toISOString() + "\n", { mode: 0o600 });
+  const exited = inspectionExited(claimDir, inspectionId, policy.machineId);
+  reply({ verb: "stop-inspect", ok: true, machineId: policy.machineId, inspectionId, exited, ...(exited ? {} : { detail: "原检查或同组后代仍存活，或身份无法核实；保留占用并核实原执行" }) });
+}
+
+function recordUnitObserved(claimDir, hostOpId, opUnit) {
+  let claim;
+  try { claim = JSON.parse(fs.readFileSync(path.join(claimDir, "claim.json"), "utf8")); } catch { return; }
+  if (claim?.version !== 2 || claim.claimedBy !== "restart" || !claim.launcher) return;
+  fs.writeFileSync(path.join(claimDir, "unit-observed.json"), JSON.stringify({ version: 1, hostOpId, opUnit, launcher: claim.launcher }), { mode: 0o600 });
 }
 
 function cmdRestart(hostOpId, expectedPolicyRev, expectedUnitRev, unit) {
@@ -266,7 +364,8 @@ function cmdRestart(hostOpId, expectedPolicyRev, expectedUnitRev, unit) {
     if (err.code === "EEXIST") throw new Refuse("already_claimed", `同一操作 ID 已认领过执行权，拒绝再次启动：${hostOpId}`);
     throw new Refuse("claim_failed", `执行权认领失败：${err.message}`);
   }
-  fs.writeFileSync(path.join(claimDir, "claim.json"), JSON.stringify({ unit, expectedPolicyRev, expectedUnitRev, claimedAt: new Date().toISOString() }, null, 2), { mode: 0o600 });
+  const launcher = launcherIdentity();
+  fs.writeFileSync(path.join(claimDir, "claim.json"), JSON.stringify({ version: 2, claimedBy: "restart", launcher, unit, expectedPolicyRev, expectedUnitRev, claimedAt: new Date().toISOString() }, null, 2), { mode: 0o600 });
 
   // 停止协议先手：认领后、启动前出现 stop-requested 则拦下迟到启动
   if (fs.existsSync(path.join(claimDir, "stop-requested"))) {
@@ -311,6 +410,7 @@ function cmdRestart(hostOpId, expectedPolicyRev, expectedUnitRev, unit) {
   if (run.stderr?.length) fs.writeSync(2, run.stderr);
   if (run.error) throw new Error(`systemd-run 已启动但结果不确定（spawn 错误：${run.error.message}）`);
   if (run.status === null) throw new Error(`systemd-run 已启动但被信号${run.signal ? ` ${run.signal}` : ""}结束，restart 是否完成不确定`);
+  if (run.status === 0) fs.writeFileSync(path.join(claimDir, "launcher-completed.json"), JSON.stringify({ version: 1, hostOpId, opUnit, launcher }), { mode: 0o600 });
   reply({
     verb: "restart",
     ok: true,
@@ -337,12 +437,13 @@ function opUnitExited(opUnit) {
     const idx = line.indexOf("=");
     if (idx > 0) props[line.slice(0, idx)] = line.slice(idx + 1);
   }
-  if (props.LoadState === "not-found") return { exited: true };
+  if (props.LoadState === "not-found") return { exited: true, present: false };
+  if (props.LoadState !== "loaded") return { exited: false, present: false, detail: "单元加载状态无法核实" };
   const inactive = props.ActiveState === "inactive" || props.ActiveState === "failed";
   const quiet = (props.MainPID ?? "") === "0" && (props.ControlPID ?? "") === "0";
   return inactive && quiet
-    ? { exited: true }
-    : { exited: false, detail: `ActiveState=${props.ActiveState}/${props.SubState} MainPID=${props.MainPID} ControlPID=${props.ControlPID}` };
+    ? { exited: true, present: true }
+    : { exited: false, present: true, detail: `ActiveState=${props.ActiveState}/${props.SubState} MainPID=${props.MainPID} ControlPID=${props.ControlPID}` };
 }
 
 function cmdStopOp(hostOpId) {
@@ -351,25 +452,31 @@ function cmdStopOp(hostOpId) {
   const claimDir = path.join(OPS_DIR, hostOpId);
   // 停止先阻止后续启动：认领目录不存在时由停止协议创建（restart 见 EEXIST 即
   // 拒绝）；已存在则写入 stop-requested，restart 在启动前发现即拦下
-  if (!fs.existsSync(claimDir)) {
-    fs.mkdirSync(claimDir, { mode: 0o700 });
-    fs.writeFileSync(path.join(claimDir, "claim.json"), JSON.stringify({ claimedBy: "stop-op", claimedAt: new Date().toISOString() }), { mode: 0o600 });
-  }
+  let created = false;
+  try { fs.mkdirSync(claimDir, { mode: 0o700 }); created = true; } catch (error) { if (error.code !== "EEXIST") throw error; }
+  if (created) fs.writeFileSync(path.join(claimDir, "claim.json"), JSON.stringify({ version: 2, claimedBy: "stop-op", claimedAt: new Date().toISOString() }), { mode: 0o600 });
   fs.writeFileSync(path.join(claimDir, "stop-requested"), new Date().toISOString() + "\n", { mode: 0o600 });
 
   const opUnit = opUnitFor(hostOpId);
+  if (opUnitExited(opUnit).present) recordUnitObserved(claimDir, hostOpId, opUnit);
   spawnSync(SYSTEMCTL, ["--system", "stop", opUnit], { env: {}, encoding: "buffer" }); // 未加载/未运行的错误由核实步骤兜底
   const deadline = Date.now() + STOP_TIMEOUT_MS;
   let last = { exited: false, detail: "未经查询" };
+  let launchEnded = false;
   while (Date.now() < deadline) {
+    const launcher = launcherState(claimDir, hostOpId, opUnit);
+    launchEnded = launcher.exited;
     last = opUnitExited(opUnit);
+    if (last.present) recordUnitObserved(claimDir, hostOpId, opUnit);
+    if (!launchEnded) last = { exited: false, detail: "启动器或其进程组仍存活，或认领身份无法核实" };
+    else if (!last.present && !launcher.missingSafe) last = { exited: false, detail: "启动器已退出，但无法核实已发出的创建请求是否处理，保留占用" };
     if (last.exited) break;
     sleepMs(STOP_POLL_MS);
   }
   if (last.exited) {
     fs.writeFileSync(path.join(claimDir, "stopped.json"), JSON.stringify({ opUnit, stoppedAt: new Date().toISOString() }), { mode: 0o600 });
   }
-  reply({ verb: "stop-op", ok: true, machineId: fs.readFileSync(MACHINE_ID_PATH, "utf8").trim(), hostOpId, opUnit, exited: last.exited, detail: last.detail });
+  reply({ verb: "stop-op", ok: true, machineId: fs.readFileSync(MACHINE_ID_PATH, "utf8").trim(), hostOpId, opUnit, launcherExited: launchEnded, exited: last.exited, detail: last.detail });
 }
 
 function main() {
@@ -382,6 +489,12 @@ function main() {
     case "inspect":
       if (args.length !== 2) throw new Refuse("usage", "用法：inspect <unit>");
       return cmdInspect(args[1]);
+    case "inspect-op":
+      if (args.length !== 4) throw new Refuse("usage", "用法：inspect-op <inspectionId> <machineId> <unit>");
+      return cmdInspect(args[3], args[1], args[2]);
+    case "stop-inspect":
+      if (args.length !== 3) throw new Refuse("usage", "用法：stop-inspect <inspectionId> <machineId>");
+      return cmdStopInspect(args[1], args[2]);
     case "restart":
       if (args.length !== 5) throw new Refuse("usage", "用法：restart <hostOpId> <policyRev> <unitRev> <unit>");
       return cmdRestart(args[1], args[2], args[3], args[4]);
@@ -389,7 +502,7 @@ function main() {
       if (args.length !== 2) throw new Refuse("usage", "用法：stop-op <hostOpId>");
       return cmdStopOp(args[1]);
     default:
-      throw new Refuse("usage", "用法：<inspect|restart|stop-op> …（固定协议，无自由参数）");
+      throw new Refuse("usage", "用法：<inspect|inspect-op|stop-inspect|restart|stop-op> …（固定协议，无自由参数）");
   }
 }
 

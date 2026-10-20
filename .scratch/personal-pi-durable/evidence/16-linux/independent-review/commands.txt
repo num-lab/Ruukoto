@@ -1,0 +1,11 @@
+本机：
+npm run verify-notes && npm run check:docs && git diff --check
+npx tsx --test test/service-helper-transport.test.ts test/personal-services.test.ts test/personal-service-operations.test.ts test/78-linux-service-management.test.ts test/79-standing-permissions.test.ts
+Linux 独立副本（最终快照）：
+node --experimental-transform-types --test test/service-helper-stop.test.ts
+sudo -n /usr/local/bin/node --experimental-transform-types --test test/service-helper-stop.test.ts
+Linux root 反证：
+cd final-no-group
+sudo -n /usr/local/bin/node --experimental-transform-types --test --test-name-pattern="原 helper 已死但同组 systemctl" test/service-helper-stop.test.ts
+cd ../final-no-stop-marker
+sudo -n /usr/local/bin/node --experimental-transform-types --test --test-name-pattern="认领到启动窗口收到停止标记时不执行 systemctl" test/service-helper-stop.test.ts

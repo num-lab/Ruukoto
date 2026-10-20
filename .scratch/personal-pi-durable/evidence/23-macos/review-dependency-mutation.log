@@ -1,0 +1,25 @@
+✖ 显式空依赖不发现旧 Pi，显式依赖受保护根约束且缺省仍要求旧安装 (813.01475ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 947.669792
+
+✖ failing tests:
+
+test at test/personal-command-worker.test.ts:96:1
+✖ 显式空依赖不发现旧 Pi，显式依赖受保护根约束且缺省仍要求旧安装 (813.01475ms)
+  AssertionError [ERR_ASSERTION]: Missing expected rejection (rejected).
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async TestContext.<anonymous> (/private/tmp/ruukoto-worker-review-mi5fn41r/test/personal-command-worker.test.ts:113:3)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    operator: 'rejects',
+    diff: 'simple'
+  }

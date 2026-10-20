@@ -199,3 +199,62 @@ for (const targeted of [false, true]) test(`真实 Driver ${targeted ? "目标�
     assert.equal(controlled.requests.some(request => request.type === "tool_call"), false);
   } finally { controlled.finish(); await t.shutdown(); }
 });
+
+test("默认工作流从启动共享首次快照：真实嵌套停止遇迟到结果不自锁，唯一终态先写未知效果", async () => {
+  const t = await startTestRuntime("workflow-shared-ending", () => ({ kind: "text", text: "不应调用模型" }), { config: realTools() });
+  const rt = t.runtime, getDriver = (rt as any).getDriver, steps = (rt as any).workflowSteps;
+  const agent = steps.agent;
+  let context: import("@ruukoto/runtime/workflows.ts").WorkflowAgentContext | undefined;
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  let promptEntered = false, releases = 0;
+  try {
+    steps.agent = (value: import("@ruukoto/runtime/workflows.ts").WorkflowAgentContext) => { context = value; return agent.call(steps, value); };
+    const workflowDeps = (rt.workflows as any).deps;
+    const onReleased = workflowDeps.onReleased;
+    workflowDeps.onReleased = () => { releases++; onReleased(); };
+    (rt as any).getDriver = async (session: Session) => {
+      const driver = await getDriver.call(rt, session);
+      if (rt.store.getSessionIdentity(session.id)?.kind !== "subagent") return driver;
+      const run = driver.run.bind(driver), ensureSdk = driver.ensureSdk.bind(driver), requestStop = driver.requestStop.bind(driver);
+      driver.run = (task: import("@ruukoto/core/types.ts").Task, ending: import("@ruukoto/agent/task-ending.ts").TaskEndingContext) => {
+        assert.equal(ending, context!.ending);
+        assert.equal(ending, (rt.workflows as any).jobs.get(task.id).ending);
+        return run(task, ending);
+      };
+      const driverReleased = driver.deps.onOccupancyReleased;
+      driver.deps.onOccupancyReleased = () => { releases++; driverReleased(); };
+      driver.ensureSdk = async (...params: unknown[]) => {
+        const sdk = await ensureSdk(...params);
+        assert.equal(driver.currentTaskEnding, context!.ending);
+        sdk.prompt = async () => {
+          rt.store.withTx(() => rt.store.recordToolIntent({ id: "nested-write", taskId: context!.task.id, sessionId: context!.task.sessionId, toolName: "write", params: {} }));
+          promptEntered = true;
+          await gate;
+        };
+        return sdk;
+      };
+      driver.requestStop = async (...params: Parameters<typeof requestStop>) => {
+        assert.deepEqual(context!.ending.stopSnapshot, ["nested-write"]);
+        rt.store.withTx(() => (rt as any).ledger.recordResult(context!.task, "nested-write", "迟到结果", true));
+        return requestStop(...params);
+      };
+      return driver;
+    };
+    const session = await rt.createSession({ projectName: "nested", cwd: t.work[0] }), parent = source(rt, session);
+    const run = rt.workflows!.start({ sourceTaskId: parent.id, requestKey: "nested", script: 'return await agent("step",{request:"停止竞争"});', input: null });
+    rt.store.withTx(() => rt.store.endTask(parent.id, ["running"], "completed"));
+    await waitFor("真实步骤 Driver 已启动", () => promptEntered);
+    await rt.workflows!.control(run.id, "cancel", requireWorkflowRun(rt.store, run.id).version, { action: "cancel" });
+    release();
+    await waitFor("嵌套停止完成", () => listWorkflowExecutions(rt.store, run.id).every(item => item.status === "finished"));
+    assert.equal(rt.store.getToolOp("nested-write")!.effectUnknown, true);
+    const events = rt.store.getTaskEventsAfter(context!.task.id, 0, 100);
+    const terminal = events.findIndex(e => e.body.type === "task.canceled");
+    assert.ok(events.findIndex(e => e.body.type === "task.tool_effect_unknown") >= 0);
+    assert.ok(events.findIndex(e => e.body.type === "task.tool_effect_unknown") < terminal);
+    assert.equal(events.filter(e => e.body.type === "task.canceled").length, 1);
+    assert.equal(releases, 1);
+    assert.equal(t.server.calls.length, 0);
+  } finally { release(); steps.agent = agent; (rt as any).getDriver = getDriver; await t.shutdown(); }
+});

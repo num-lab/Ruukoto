@@ -2,6 +2,10 @@
 
 Status: implemented
 
+部分取代：[个人正式入口与旧装配退出](../simplification/2026-10-18-personal-product-entry.md)使新个人历史只由 durable SQLite 原生记录持有，不双写旧 JSONL；本篇不可覆盖历史的原则保持，JSONL 和旧索引约束仅适用于 Coding 与旧归档。
+
+后续提案：[个人端 pi durable 迁移](../../proposed/architecture/2026-10-17-personal-pi-durable.md)拟以 durable 存储承载新个人端历史，继续要求完整记录与模型输入可重建；Coding 与旧归档的 JSONL 规则保留。
+
 原编号：ADR 0001
 
 ## 问题
@@ -25,6 +29,8 @@ Status: implemented
 - **让 Jev 同时清理上下文与长期记忆** — 这是拥有者第 2 轮提出的方向：一个机制同时处理上下文和记忆的清理，概念更少。不选，是因为两类清理的后果不同，删除原文又是另一回事：上下文筛选只影响一次调用的视图，失败可回退；记忆清理改动持久的派生数据，需要单独定义来源、撤销与保留行为；删除原文属于数据保留问题。社区实现也只证明了视图筛选，不能证明跨会话长期记忆的清理已经解决。第 3 轮据此定下边界：Jev 先用于本轮上下文选择，长期记忆清理独立实验并保留撤销记录，历史原文删除由独立数据保留规则决定。（见 personal-agent spec 第 2、3 轮回答，research.md「第 3 轮补充：Jev 与历史筛选」，personal-agent issue 08 实施范围）
 
 ## 后果
+
+独立个人端的新历史、记忆、技能及请求参考由[个人资料归属](2026-10-18-personal-memory-skills-history.md)持有；本篇其余适用范围保留。
 
 独立会话的历史快照与限定来源读取另见[会话分支](../feature/2026-10-11-branch-session-snapshot.md)；它复用完整历史原则，按批次清理模型视图中的孤儿记录，来源快照不改写原会话。
 

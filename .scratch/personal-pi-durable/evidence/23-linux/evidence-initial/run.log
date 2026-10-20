@@ -1,0 +1,19 @@
+node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+
+  assert.ok(!prepared.runtimeReadRoots.some((root) => root.includes("node_modules")))
+
+    at run (file:///tmp/ruukoto-worker-23.QhtYYA/source/packages/agent/src/execution/linux-probe.mjs:953:12)
+    at async file:///tmp/ruukoto-worker-23.QhtYYA/source/packages/agent/src/execution/linux-probe.mjs:979:5 {
+  generatedMessage: true,
+  code: 'ERR_ASSERTION',
+  actual: false,
+  expected: true,
+  operator: '==',
+  diff: 'simple'
+}
+
+Node.js v24.21.0

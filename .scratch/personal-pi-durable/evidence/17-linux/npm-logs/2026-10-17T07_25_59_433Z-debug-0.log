@@ -1,0 +1,19 @@
+0 verbose cli /usr/local/bin/node /usr/local/lib/node_modules/npm/bin/npm-cli.js
+1 info using npm@11.19.0
+2 info using node@v24.21.0
+3 silly config load:file:/usr/local/lib/node_modules/npm/npmrc
+4 silly config load:file:/dev/shm/rk-personal-plan.t64tGq/repo/.npmrc
+5 silly config load:file:/home/eitrous/.npmrc
+6 silly config load:file:/usr/local/etc/npmrc
+7 verbose title npm exec tsx --test test/122-workflow-code-acceptance.test.ts
+8 verbose argv "exec" "--" "tsx" "--test" "test/122-workflow-code-acceptance.test.ts"
+9 verbose logfile logs-max:10 dir:/dev/shm/rk-personal-plan.t64tGq/npm-cache/_logs/2026-10-17T07_25_59_433Z-
+10 verbose logfile /dev/shm/rk-personal-plan.t64tGq/npm-cache/_logs/2026-10-17T07_25_59_433Z-debug-0.log
+11 silly logfile start cleaning logs, removing 1 files
+12 silly logfile done cleaning log files
+13 verbose cwd /dev/shm/rk-personal-plan.t64tGq/repo
+14 verbose os Linux 6.8.0-117-generic
+15 verbose node v24.21.0
+16 verbose npm  v11.19.0
+17 verbose exit 1
+18 verbose code 1

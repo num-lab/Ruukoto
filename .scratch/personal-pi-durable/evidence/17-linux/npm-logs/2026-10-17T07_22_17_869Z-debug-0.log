@@ -1,0 +1,18 @@
+0 verbose cli /usr/local/bin/node /usr/local/lib/node_modules/npm/bin/npm-cli.js
+1 info using npm@11.19.0
+2 info using node@v24.21.0
+3 silly config load:file:/usr/local/lib/node_modules/npm/npmrc
+4 silly config load:file:/dev/shm/rk-personal-plan.t64tGq/repo/.npmrc
+5 silly config load:file:/home/eitrous/.npmrc
+6 silly config load:file:/usr/local/etc/npmrc
+7 verbose title npm exec tsx --test --test-concurrency=1 test/personal-durable.test.ts test/personal-cli.test.ts test/personal-services.test.ts test/personal-work.test.ts test/personal-work-tools.test.ts test/personal-work-controls.test.ts test/personal-work-notes.test.ts test/personal-delegations.test.ts test/personal-reports.test.ts test/personal-service-operations.test.ts test/personal-telegram.test.ts test/personal-telegram-permissions.test.ts test/service-helper-transport.test.ts test/service-helper-stop.test.ts test/78-linux-service-management.test.ts test/79-standing-permissions.test.ts test/71-product-entry.test.ts
+8 verbose argv "exec" "--" "tsx" "--test" "--test-concurrency=1" "test/personal-durable.test.ts" "test/personal-cli.test.ts" "test/personal-services.test.ts" "test/personal-work.test.ts" "test/personal-work-tools.test.ts" "test/personal-work-controls.test.ts" "test/personal-work-notes.test.ts" "test/personal-delegations.test.ts" "test/personal-reports.test.ts" "test/personal-service-operations.test.ts" "test/personal-telegram.test.ts" "test/personal-telegram-permissions.test.ts" "test/service-helper-transport.test.ts" "test/service-helper-stop.test.ts" "test/78-linux-service-management.test.ts" "test/79-standing-permissions.test.ts" "test/71-product-entry.test.ts"
+9 verbose logfile logs-max:10 dir:/dev/shm/rk-personal-plan.t64tGq/npm-cache/_logs/2026-10-17T07_22_17_869Z-
+10 verbose logfile /dev/shm/rk-personal-plan.t64tGq/npm-cache/_logs/2026-10-17T07_22_17_869Z-debug-0.log
+11 silly logfile done cleaning log files
+12 verbose cwd /dev/shm/rk-personal-plan.t64tGq/repo
+13 verbose os Linux 6.8.0-117-generic
+14 verbose node v24.21.0
+15 verbose npm  v11.19.0
+16 verbose exit 0
+17 info ok

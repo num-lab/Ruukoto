@@ -1,0 +1,21 @@
+{
+  "at": "2026-10-17T15:08:14.861711+00:00",
+  "command": [
+    "npx",
+    "tsx",
+    "--test",
+    "--test-name-pattern=SDK转换后的数字文本",
+    "test/personal-tools.test.ts"
+  ],
+  "mutation": "仅把恢复核对从SDK标准化参数改回原始assistant参数；其余代码不变。",
+  "unfixed": {
+    "exitCode": 1,
+    "expectedFailureObserved": true
+  },
+  "restored": {
+    "exitCode": 0
+  },
+  "runtimeSha256Before": "ac42e6f491d2d479e2f0bb3baf1ee03498ac104e2c775828383efe334910491b",
+  "runtimeSha256Unfixed": "c9f2a0c2916e291e5f13554e329519210e2834059b8b954d05f3c52f58d391b3",
+  "runtimeSha256Restored": "ac42e6f491d2d479e2f0bb3baf1ee03498ac104e2c775828383efe334910491b"
+}

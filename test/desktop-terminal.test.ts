@@ -112,6 +112,21 @@ test("终端标签跨父会话保留、输出不重绘、关闭与迟到open回�
   } finally { f.cleanup(); }
 });
 
+test("终端按钮打开当前会话归属的工作区，未归属或无根目录不开", () => {
+  const f = fixture(), view = new ViewState();
+  view.instanceId = "inst-1";
+  view.projects = ["w1", "w2"].map(id => ({ id, name: id, rootDir: id === "w2" ? null : f.identity, createRequestId: null, instructionFiles: [], webSearch: "enabled", settingsVersion: 1, createdAt: "" }));
+  view.sessions = [{ id: "a", projectId: "w1", workspaceProjectId: null, kind: "dev", name: null, branchSource: null, cwd: "/work/w1", cwdReal: "/work/w1", cwdDev: 1, cwdIno: 1, piSessionId: "a", sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: null, modelSelectionVersion: 0, defaultAccessMode: "confirm", defaultAccessModeVersion: 0, queueState: "active", queuePauseReason: null, archivedAt: null, createdAt: "" }];
+  const inspector = new DesktopInspector({ request: async () => { throw new Error("打开前不应请求"); } }, view, async () => {}, () => {});
+  try {
+    inspector.parentSessionId = "a"; inspector.openTerminal();
+    const [tab] = inspector.terminalTabs();
+    assert.equal(tab.workspaceId, "w1"); assert.equal(tab.cwd, f.identity.cwdReal); assert.equal(tab.instanceId, "inst-1");
+    // 无当前会话时按 w2 显式调用，但 w2 没有登记根目录，按钮禁用路径同样不开终端。
+    inspector.parentSessionId = null; inspector.openTerminal("w2"); assert.equal(inspector.terminalTabs().length, 1);
+  } finally { f.cleanup(); }
+});
+
 function realFactory(root: string): PtyFactory {
   vendorTerminal(root);
   // 隔离副本验证 runtime JS、native 与 helper，禁止回退到仓库 node_modules。

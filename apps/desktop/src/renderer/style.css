@@ -337,7 +337,6 @@ html.dark .terminal-panel { background: #171717; }
 .terminal-heading { color: var(--text-secondary); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-bottom: 8px; }
 .terminal-screen { flex: 1; min-height: 0; min-width: 0; }
 .terminal-status { color: var(--text-secondary); font-size: 12px; padding-bottom: 8px; }
-.terminal-workspace-select { width: 100%; justify-content: flex-start; height: 40px; border: 0; box-shadow: none; background: transparent; padding-inline: 12px; }
 .browser-toolbar { display: flex; align-items: center; gap: 3px; padding: 7px 8px; flex-shrink: 0; border-bottom: 1px solid var(--ui-border); }
 .browser-toolbar [data-slot="input"] { height: 28px; border: 0; padding: 0 8px; background: var(--muted); box-shadow: none; font-size: 11px; }
 .browser-toolbar .quiet-icon:disabled { opacity: .3; }
@@ -555,12 +554,17 @@ body { font-size: 15.5px; }
 .workspace-menu [data-slot="dropdown-menu-item"] > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-menu-empty { margin: 0; padding: 8px; color: var(--text-muted); font-size: 13px; }
 
-/* 会话行右侧的存档键：与创建键一样平时不可见，行悬停或聚焦时浮现。 */
-.workspace-session-row { display: flex; align-items: center; gap: 2px; border-radius: 7px; }
-.workspace-session-row .workspace-session { flex: 1; min-width: 0; }
-.workspace-session-row .session-archive { opacity: 0; width: 20px; height: 20px; padding: 4px; flex-shrink: 0; transition: opacity 120ms ease, background-color 120ms ease, color 120ms ease; }
-.workspace-session-row:hover .session-archive, .session-archive:focus-visible { opacity: 1; }
+/* 会话存档键叠在会话按钮右端内部：与创建键一样平时不可见，行悬停或聚焦时浮现。
+   按钮固定预留键位，图标不压住状态点；名称始终撑满内容宽并渐隐收尾（不用省略号），
+   短名尾端没有文字，不会被渐隐波及；状态点排在渐隐区左侧。 */
+.workspace-session-row { position: relative; display: flex; align-items: center; border-radius: 7px; }
+.workspace-session-row .workspace-session { flex: 1; min-width: 0; padding-right: 26px; }
+.workspace-session-row .workspace-session > span { flex: 1; padding-right: 18px; text-overflow: clip; mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent calc(100% - 18px)); }
+.workspace-session-row .session-archive { position: absolute; top: 50%; right: 3px; z-index: 1; translate: 0 -50%; opacity: 0; width: 20px; height: 20px; padding: 4px; pointer-events: none; transition: opacity 120ms ease, background-color 120ms ease, color 120ms ease; }
+.workspace-session-row:hover .session-archive, .session-archive:focus-visible { opacity: 1; pointer-events: auto; }
 .workspace-session-row .session-archive svg { width: 12px; height: 12px; }
+/* 指针落到存档键上时按钮不再处于 :hover 链，行级悬停接替保持底色。 */
+.workspace-session-row:hover .workspace-session { background: var(--selection-surface); }
 /* 设置页已存档会话：名称与来源在上，取消存档键在右。 */
 .settings-hint { margin: 0 0 16px; color: var(--text-muted); font-size: 13px; }
 .archived-sessions { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }

@@ -34,9 +34,9 @@ Personal 只支持 SSH 登录账户与后台账户相同的部署。每次控制
 
 两条 SSH 命令均设 `BatchMode=yes`、`ControlMaster=no`、`ControlPath=none`、`ControlPersist=no`、`ForkAfterAuthentication=no`、`RemoteCommand=none`、`ConnectTimeout=10`；读取另设 `ClearAllForwardings=yes`、`RequestTTY=no`，转发设 `ExitOnForwardFailure=yes`、`StreamLocalBindUnlink=yes`、`ServerAliveInterval=15`。主机前加 `--`，远端预检路径经 shell 单引号转义。SSH 主机、密钥与 ProxyJump 等仍沿用 ssh_config。仅控制面完成认证和快照安装才报告 online。
 
-左右侧栏支持收起、展开和拖动调宽，方向键可调节边界；关闭内容不可聚焦，减少动态效果时关闭过渡。左下设置打开分类浮窗，外观切换明暗主题，PA 远程连接编辑 SSH host 与 controlDir；工作区上方 Ruukoto 打开唯一 Personal 主标签，身份由快照 mainSessionId 提供。名称筛选只过滤已加载的工作区与会话，不查询全文历史。
+左右侧栏支持收起、展开和拖动调宽，方向键可调节边界；左栏收起后保留两个图标宽的轨道，只留 Ruukoto 与设置两个图标，其余内容不渲染也不可聚焦，右栏关闭内容不可聚焦，减少动态效果时关闭过渡。左下设置打开分类浮窗，外观切换明暗主题，PA 远程连接编辑 SSH host 与 controlDir；工作区上方 Ruukoto 切换到唯一 Personal 主会话，不新开顶部标签，身份由快照 mainSessionId 提供；选中时图标周围显示圆角方块底色。名称筛选只过滤已加载的工作区与会话，不查询全文历史。
 
-左栏按工作区组织归属列出普通开发会话，摘要按 `workspace_id` 查询，排除角色与 SubAgent 会话。添加工作区先打开系统文件夹选择框，再带新请求键调用 `open_workspace`；新建会话同样带键调用 `create_session`，成功后打开原会话。成功之后再次添加同一目录会在已有工作区下新建会话。新会话在首次点击时继承当前或最近 Code 会话的模式、模型与 Effort，跨工作区同样适用；关闭最后标签仍保留本次连接来源，换实例清除。设置保存中或结果未知先核实，不建立旧设置的新会话。初始选择随原创建键固定，和 session.created 同事务保存；重放不覆盖后来设置。
+左栏按工作区组织归属列出普通开发会话，摘要按 `workspace_id` 查询，排除角色与 SubAgent 会话与已存档会话；会话行悬停时右侧出现存档键，存档后从列表与顶部标签移除，历史与任务保持不变，可在设置的「已存档会话」中取消存档。Ruukoto 下方的 New chat 打开不含会话的新对话草稿页：输入区与既有会话页一致，带附件、模式与模型选择（未选时继承当前会话或后台默认值），工作区选择器位于输入框之外，菜单顶部按名称搜索、底部可直接新建工作区，未选中时不能开始对话；发出首条消息时才按所选工作区与草稿设置创建会话、补传附件并提交，创建在途或失败时草稿保留原文、不发送，切换会话即收起草稿页。添加工作区先打开系统文件夹选择框，再带新请求键调用 `open_workspace`；新建会话同样带键调用 `create_session`，成功后打开原会话；请求在途时只有发起该请求的工作区行把加号换成加载图标，其余新建入口保持禁用。成功之后再次添加同一目录会在已有工作区下新建会话。新会话在首次点击时继承当前或最近 Code 会话的模式、模型与 Effort，跨工作区同样适用；关闭最后标签仍保留本次连接来源，换实例清除。设置保存中或结果未知先核实，不建立旧设置的新会话。初始选择随原创建键固定，和 session.created 同事务保存；重放不覆盖后来设置。
 
 对话恢复先取历史页与历史窗口内的任务状态，任务状态先装入再公开历史页，随后安装带 seq 的任务详情并从零起分页补读任务事件；恢复期间的重绘合并为一次，打开会话时已收起的 trace 从首次可见起保持收起。长正文按连续 UTF-8 字节偏移补全，历史页里已有条目的补全不阻止自动收起。每条工具结果落盘后即补发条目引用，同批后续工具仍运行时，已展开详情也能自动读取。每次新快照都更换异步代次并清空流游标，旧代次结果丢弃；向前翻页保留已加载条目。正文用 react-markdown 与 remark-gfm 渲染并关闭原始 HTML；正文中的图片仅显示说明，防止 file 页面通过相对路径加载本机图片。历史在滚动到顶部时补读并保留锚点，工具与 SubAgent 按时间顺序逐条显示，单条调用保留各自的详情展开。已记录 reasoning 使用 Thought 行，Thinking 下直接显示当前原文，两处均限6行视觉高度并可内部滚动（Driver 只记录8KiB尾部）；在线 running 的请求前、参数生成及工具轮间显示 Thinking，最新同任务非空正文流接替状态，工具执行时直接显示本批次已完成／进行中调用，不显示 Working 标题；任务完成且最终 assistant 正文已确认后，动画收起此前连续的执行记录及中间进度正文，摘要显示 Worked for 与实际任务耗时（缺时间显示 Worked），可重新展开，最终回复、用户输入和审批卡保持可见，不跨排队输入重排记录；等待审批、取消、暂停及终态不留旋转状态，TUI 操作说明与工作流提示不显示。标签关闭键仅 hover／焦点时覆盖显示并渐隐邻近文本；拖动结束及取消后暂停旧位置hover，隐藏关闭键并停止其鼠标命中，待本组指针移动后恢复，键盘焦点提示保留。选中标签两侧不显示分隔，左右标签区以短竖线隔开，右栏正文与顶部标签之间没有横向分割线；关闭标签不删除会话。两组标签独立等宽，按空间在96至180px调整；拖动邻项避让，放下提交顺序，取消恢复，Alt+Shift+左右方向键也可排序。整个窗口提供单层半透明模糊，左栏、顶部与消息区圆角露出同一底层，减少透明效果回退实色。筛选与工作区／工具折叠有开合动画，关闭内容不接收焦点，遵守减弱动画；手写行按钮的 hover、悬停显露的关闭与添加键、展开箭头旋转和提示条出现也有短过渡。
 
@@ -101,6 +101,10 @@ Personal 预检总期限为 15 秒；超时或网络失败、远端 socket 暂�
 - [Git graph 行窗口化](../../.agents/notes/implemented/feature/2026-10-18-desktop-git-graph-windowing.md)
 - [文件树加载反馈](../../.agents/notes/implemented/feature/2026-10-17-desktop-file-tree-loading.md)
 - [侧栏折叠按钮](../../.agents/notes/implemented/bug-fix/2026-10-17-desktop-sidebar-toggle.md)
+- [收起后的左栏图标轨道](../../.agents/notes/implemented/feature/2026-10-19-desktop-sidebar-rail.md)
+- [新建会话在途显示加载图标](../../.agents/notes/implemented/feature/2026-10-20-desktop-creation-spinner.md)
+- [新对话在首条消息时创建会话](../../.agents/notes/implemented/feature/2026-10-20-desktop-new-chat.md)
+- [会话存档只影响列表可见性](../../.agents/notes/implemented/feature/2026-10-20-desktop-session-archive.md)
 - [Tab hover资格](../../.agents/notes/implemented/bug-fix/2026-10-17-desktop-tab-hover.md)
 - [非消息字号与选中样式](../../.agents/notes/implemented/feature/2026-10-17-desktop-chrome-typography.md)
 

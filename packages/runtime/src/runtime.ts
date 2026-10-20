@@ -3571,6 +3571,25 @@ export class Runtime {
    * 拥有者设置会话默认访问模式（issue 12）：只影响之后新建且未显式指定
    * 模式的任务；不改写既有任务、待生效模式或待处理审批。
    */
+  /**
+   * 拥有者存档/取消存档：只把会话从工作区会话列表隐藏，不改资料身份、历史、
+   * 任务或排队状态。宿主独立执行会话（角色、SubAgent、定时）不允许存档，避免
+   * 隐藏后无人可见的长期执行会话。存档不要求空闲；运行中任务继续执行。
+   */
+  async setSessionArchived(input: { sessionId: string; archived: boolean }): Promise<Session> {
+    if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
+    this.getSession(input.sessionId);
+    if (typeof input.archived !== "boolean") throw new RuntimeApiError("invalid_params", "archived 必须是布尔值");
+    const kind = this.store.getSessionIdentity(input.sessionId)?.kind;
+    if (kind !== "dev" && kind !== "main") throw new RuntimeApiError("invalid_state", "宿主独立执行会话不能存档");
+    try {
+      return this.store.withTx(() => this.store.setSessionArchived(input.sessionId, input.archived));
+    } catch (err) {
+      if (err instanceof StoreConflictError) throw new RuntimeApiError(err.code, err.message);
+      throw err;
+    }
+  }
+
   async setSessionDefaultMode(input: { sessionId: string; mode: SessionDefaultMode; expectedVersion: number }): Promise<Session> {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
     this.getSession(input.sessionId);

@@ -35,7 +35,9 @@ test("MyGo 只在固定顶层文档安装 bridge，监听先于订阅且支持�
   assert.deepEqual(f.calls[1], { method: "Desktop.Request", args: ["code", "read_history", { session_id: "s" }] });
   await f.window.ruukoto!.pickAttachments("code-session");
   await f.window.ruukoto!.pickAttachments("main-session", "personal");
-  assert.deepEqual(f.calls.slice(2), [{ method: "Desktop.PickAttachments", args: ["code-session", "code"] }, { method: "Desktop.PickAttachments", args: ["main-session", "personal"] }]);
+  await f.window.ruukoto!.pickDraftAttachments();
+  await f.window.ruukoto!.uploadDraftAttachments("code-session", ["draft_1"]);
+  assert.deepEqual(f.calls.slice(2), [{ method: "Desktop.PickAttachments", args: ["code-session", "code"] }, { method: "Desktop.PickAttachments", args: ["main-session", "personal"] }, { method: "Desktop.PickDraftAttachments", args: [] }, { method: "Desktop.UploadDraftAttachments", args: ["code-session", ["draft_1"], "code"] }]);
 });
 
 test("MyGo 传输拒绝保留 disconnected，不能变成未发送或自动重放", async () => {

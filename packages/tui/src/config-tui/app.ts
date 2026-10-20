@@ -500,6 +500,9 @@ export class ConfigTuiApp {
         // agent-direction issue 07：仅组织展示归属，与任务 TUI 的 ViewState 同源更新
         this.sessions = this.sessions.map((s) => (s.id === body.sessionId ? { ...s, workspaceProjectId: body.workspaceProjectId } : s));
         break;
+      case "session.archive_changed":
+        this.sessions = this.sessions.map((s) => (s.id === body.sessionId ? { ...s, archivedAt: body.archivedAt } : s));
+        break;
       case "session.default_mode_changed":
         this.sessions = this.sessions.map((s) => (s.id === body.sessionId ? { ...s, defaultAccessMode: body.defaultAccessMode, defaultAccessModeVersion: body.defaultAccessModeVersion } : s));
         break;

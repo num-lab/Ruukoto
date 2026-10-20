@@ -9,7 +9,7 @@ import { BrowserDocuments } from "./browser-documents.ts";
 import { PersonalController } from "./personal-controller.ts";
 import { loadPersonalConfig, savePersonalConfig } from "./personal-config.ts";
 import { DesktopNotifications, type DesktopNotice } from "./notifications.ts";
-import { pickAttachments } from "./attachments.ts";
+import { pickAttachments, stageAttachments } from "./attachments.ts";
 import type { DesktopTarget, DesktopUpdate } from "../shared/bridge.ts";
 
 export interface DesktopPlatform {
@@ -34,6 +34,8 @@ export class DesktopHost {
   private readonly lastState: Record<DesktopTarget, DesktopUpdate> = { code: { type: "state", state: "connecting" }, personal: { type: "state", state: "closed", detail: "尚未配置 Personal 连接" } };
   private readonly navigation = new Map<DesktopTarget, Extract<DesktopUpdate, { type: "navigate" }>>();
   private readonly attachmentConnections = new WeakMap<object, string>();
+  /** 新对话草稿暂存的附件：token → 本机路径，建好会话后再上传。 */
+  private draftAttachments = new Map<string, string>();
   private readonly notificationState: DesktopNotifications;
   private readonly browserDocuments: BrowserDocuments;
 
@@ -172,6 +174,23 @@ export class DesktopHost {
         if (!current()) throw new DesktopError("attachment_instance_changed", "连接目标已变化，未附加文件；请重新选择。");
         return source.request("put_attachment", params);
       },
+    });
+  }
+  /** 会话尚未创建时先登记所选文件；返回的 id 是仅本次应用有效的暂存 token。 */
+  pickDraftAttachments(pick: () => Promise<string[]>) {
+    return pick().then(files => {
+      const staged = stageAttachments(files);
+      for (const item of staged) this.draftAttachments.set(item.token, item.path);
+      return staged.map(({ token, name, size }) => ({ id: token, name, size }));
+    });
+  }
+  uploadDraftAttachments(sessionId: unknown, tokens: unknown, target: unknown = "code") {
+    if (!Array.isArray(tokens) || tokens.some(token => typeof token !== "string")) throw new DesktopError("invalid_params", "附件引用无效，请重新选择。");
+    const files = tokens.map(token => this.draftAttachments.get(token));
+    if (files.some(file => file === undefined)) throw new DesktopError("attachment_expired", "附件已失效，请重新选择。");
+    return this.pickAttachments(sessionId, async () => files as string[], undefined, target).then(attachments => {
+      for (const token of tokens) this.draftAttachments.delete(token);
+      return attachments;
     });
   }
   close(): Promise<void> {

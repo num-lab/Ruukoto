@@ -42,7 +42,7 @@ const TUI_OPS: Record<TuiOp, true> = {
   compact_session: true, get_session_compaction: true, interrupt_session_compaction: true,
   get_task: true, find_task: true, list_tasks: true, read_task_events: true, read_history: true, read_tool_result: true, read_history_entry: true,
   get_tool_op_params: true, get_confirmation_params: true, read_artifact: true, get_session_usage: true, get_session: true, list_session_summaries: true, list_models: true,
-  set_session_model: true, set_session_mode: true, create_project: true, create_session: true, open_workspace: true, submit: true, continue: true,
+  set_session_model: true, set_session_mode: true, set_session_archived: true, create_project: true, create_session: true, open_workspace: true, submit: true, continue: true,
   interrupt: true, cancel: true, resume_queue: true, respond_confirmation: true, list_selection_records: true,
   get_context_breakdown: true, list_prompt_requests: true, read_prompt_snapshot: true, search_history: true, list_skills: true, list_subagent_roles: true,
   list_memories: true, get_memory: true, revoke_memory: true, restore_memory: true, qq_status: true, qq_set_enabled: true,
@@ -207,7 +207,7 @@ function session(overrides: Partial<Session> = {}): Session {
     branchSource: null, kind: "dev", cwd: os.tmpdir(), cwdReal: os.tmpdir(), cwdDev: 0, cwdIno: 0,
     piSessionId: "pi_fake", sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: { ...MODEL },
     modelSelectionVersion: 1, defaultAccessMode: "confirm", defaultAccessModeVersion: 1, queueState: "active",
-    queuePauseReason: null, createdAt: T0, ...overrides,
+    queuePauseReason: null, archivedAt: null, createdAt: T0, ...overrides,
   };
 }
 

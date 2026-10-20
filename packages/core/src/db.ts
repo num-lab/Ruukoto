@@ -12,7 +12,7 @@ import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 
-export const SCHEMA_VERSION = 45;
+export const SCHEMA_VERSION = 46;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS agent_waits (
@@ -115,6 +115,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   create_request_id TEXT,
   queue_state TEXT NOT NULL DEFAULT 'active' CHECK (queue_state IN ('active','paused')),
   queue_pause_reason TEXT,
+  -- 拥有者存档：非空即从工作区会话列表隐藏，仅设置页列出；只影响列表可见性
+  archived_at TEXT,
   -- 工作区组织归属（agent-direction issue 07）：仅展示归属；资料身份仍是 project_id
   workspace_project_id TEXT REFERENCES projects(id),
   created_at TEXT NOT NULL

@@ -11,6 +11,8 @@
     request: (target, op, params) => call("Request", target, op, params),
     pickFolder: () => call("PickFolder"),
     pickAttachments: (sessionId, target = "code") => call("PickAttachments", sessionId, target),
+    pickDraftAttachments: () => call("PickDraftAttachments"),
+    uploadDraftAttachments: (sessionId, tokens, target = "code") => call("UploadDraftAttachments", sessionId, tokens, target),
     reveal: path => call("Reveal", path),
   };
   document.addEventListener("click", event => {

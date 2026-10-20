@@ -94,6 +94,17 @@ ipcMain.handle("desktop:pick-attachments", (event, sessionId: unknown, target: u
     return selection.canceled ? [] : selection.filePaths;
   }, undefined, target);
 }));
+ipcMain.handle("desktop:pick-draft-attachments", event => ipcResult(async () => {
+  assertTrusted(event);
+  return host.pickDraftAttachments(async () => {
+    const selection = await dialog.showOpenDialog(window!, { properties: ["openFile", "multiSelections"], title: "选择附件" });
+    return selection.canceled ? [] : selection.filePaths;
+  });
+}));
+ipcMain.handle("desktop:upload-draft-attachments", (event, sessionId: unknown, tokens: unknown, target: unknown = "code") => ipcResult(async () => {
+  assertTrusted(event);
+  return host.uploadDraftAttachments(sessionId, tokens, target);
+}));
 ipcMain.handle("desktop:pick-folder", event => ipcResult(async () => {
   assertTrusted(event);
   const result = await dialog.showOpenDialog(window!, { properties: ["openDirectory"], title: "选择工作区" });

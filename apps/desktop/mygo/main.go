@@ -88,6 +88,24 @@ func (d *Desktop) PickAttachments(ctx context.Context, sessionID, target string)
 	return d.call(ctx, "attachments", sessionID, files, selection.Instance, target)
 }
 
+func (d *Desktop) PickDraftAttachments(ctx context.Context) json.RawMessage {
+	if !d.trusted(ctx) {
+		return failure("ipc_sender", "not_sent", "桌面请求来源不可用；请重新打开应用。")
+	}
+	files, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Parent: d.window, Multiple: true, Title: "选择附件"})
+	if err != nil {
+		return failure("dialog_failed", "not_sent", "无法打开附件选择器；请重新选择。")
+	}
+	if files == nil {
+		files = []string{}
+	}
+	return d.call(ctx, "draft_pick", files)
+}
+
+func (d *Desktop) UploadDraftAttachments(ctx context.Context, sessionID string, tokens []string, target string) json.RawMessage {
+	return d.call(ctx, "draft_upload", sessionID, tokens, target)
+}
+
 func (d *Desktop) Reveal(ctx context.Context, path string) json.RawMessage {
 	if !d.trusted(ctx) || !filepath.IsAbs(path) || strings.ContainsRune(path, 0) {
 		return failure("invalid_path", "not_sent", "请选择有效的本机绝对路径。")

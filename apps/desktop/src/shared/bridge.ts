@@ -34,6 +34,9 @@ export interface DesktopBridge {
   subscribe(target: DesktopTarget, listener: (update: DesktopUpdate) => void): () => void;
   request(target: DesktopTarget, op: string, params: Record<string, unknown>): Promise<DesktopResult<unknown>>;
   pickAttachments(sessionId: string, target?: DesktopTarget): Promise<DesktopResult<DesktopAttachment[]>>;
+  /** 会话尚未创建时选择附件：只登记本机文件，建好会话后由 uploadDraftAttachments 上传。 */
+  pickDraftAttachments(): Promise<DesktopResult<DesktopAttachment[]>>;
+  uploadDraftAttachments(sessionId: string, tokens: string[], target?: DesktopTarget): Promise<DesktopResult<DesktopAttachment[]>>;
   pickFolder(): Promise<DesktopResult<string | null>>;
   reveal(path: string): Promise<DesktopResult<void>>;
 }

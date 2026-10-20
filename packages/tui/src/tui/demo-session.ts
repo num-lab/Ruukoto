@@ -115,7 +115,7 @@ const SESSION: Session = {
   defaultAccessMode: "confirm",
   defaultAccessModeVersion: 0,
   queueState: "paused",
-  queuePauseReason: "backend_restart",
+  queuePauseReason: "backend_restart", archivedAt: null,
   createdAt: ts(120),
 };
 

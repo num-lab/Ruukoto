@@ -2,11 +2,11 @@
 import type { OpParams, OpResult } from "@ruukoto/control/ops.ts";
 import { sessionDisplayAttribution } from "@ruukoto/control/session-attribution.ts";
 import type { HistoryEntryView } from "@ruukoto/core/history.ts";
-import type { Session } from "@ruukoto/core/types.ts";
+import type { ModelSelection, Session, SessionDefaultMode } from "@ruukoto/core/types.ts";
 import { ViewState, isActiveStatus } from "@ruukoto/view/state.ts";
 import { utf8ByteLength } from "@ruukoto/view/utf8.ts";
 import type { DesktopOp } from "../main/ipc.ts";
-import type { DesktopBridge, DesktopFailure, DesktopTarget, DesktopUpdate } from "../shared/bridge.ts";
+import type { DesktopAttachment, DesktopBridge, DesktopFailure, DesktopTarget, DesktopUpdate } from "../shared/bridge.ts";
 import { DesktopApprovals } from "./approvals.ts";
 import { CodeWrites } from "./code-writes.ts";
 import { DesktopContext } from "./context-state.ts";
@@ -50,6 +50,7 @@ export class CodeState {
   navigation: Extract<DesktopUpdate, { type: "navigate" }> | null = null;
   notificationSelection: { sessionId: string; taskId: string } | null = null;
   refresh(): void { this.mark(); }
+  // Note: 见 .agents/notes/implemented/feature/2026-10-20-desktop-creation-spinner.md
   constructor(private readonly bridge: Pick<DesktopBridge, "request">, private readonly changed: () => void, readonly target: DesktopTarget = "code") {
     this.context = new DesktopContext(bridge, this.view, changed, target);
     this.approvals = new DesktopApprovals(bridge, this.view, changed, target);
@@ -123,8 +124,19 @@ export class CodeState {
     if (child) this.inspector.selectChild(child.sessionId);
     this.navigation = null;
   }
+  /** 工作区树只列未存档的普通会话；存档只影响这份列表，历史与任务仍按会话 id 读取。 */
   sessionsFor(workspaceId: string): Session[] {
-    return this.view.sessions.filter(session => sessionDisplayAttribution(session, this.view.projects).projectId === workspaceId && !this.view.subAgentSessionIds.includes(session.id) && !this.view.roleSessionIds.includes(session.id) && session.kind === "dev");
+    return this.view.sessions.filter(session => sessionDisplayAttribution(session, this.view.projects).projectId === workspaceId && !this.view.subAgentSessionIds.includes(session.id) && !this.view.roleSessionIds.includes(session.id) && session.kind === "dev" && session.archivedAt === null);
+  }
+  /** 设置页的已存档会话：同一批普通开发会话，只看存档状态。 */
+  archivedSessions(): Session[] {
+    return this.view.sessions.filter(session => session.archivedAt !== null && session.kind === "dev" && !this.view.subAgentSessionIds.includes(session.id) && !this.view.roleSessionIds.includes(session.id)).sort((a, b) => (b.archivedAt ?? "").localeCompare(a.archivedAt ?? ""));
+  }
+  /** 存档或取消存档；失败按既有设置写入的提示呈现。 */
+  async setArchived(sessionId: string, archived: boolean): Promise<void> {
+    await this.writes.setArchived(sessionId, archived);
+    // 存档的会话不该留在打开的标签里，否则列表与标签互相矛盾。
+    if (archived && this.tabs.includes(sessionId)) this.closeSession(sessionId);
   }
   sessionName(id: string): string {
     for (const summaries of this.summaries.values()) {
@@ -291,12 +303,36 @@ export class CodeState {
     });
   }
 
-  async create(op: PendingCreation["op"], params: { cwd: string; project_id?: string }): Promise<boolean> {
+  // Note: 见 .agents/notes/implemented/feature/2026-10-20-desktop-new-chat.md
+  /** 新对话在首条消息落地时才建会话：按所选工作区与草稿设置建好后把草稿交给它发送。 */
+  async startChat(input: { workspaceId: string; text: string; attachments: DesktopAttachment[]; mode: SessionDefaultMode; modelSelection: ModelSelection | null }, upload: (sessionId: string, tokens: string[]) => Promise<DesktopAttachment[]>): Promise<string | null> {
+    if (!input.text.trim() && !input.attachments.length) return null;
+    if (!input.modelSelection) { this.report("请选择模型后再发送。"); return null; }
+    const workspace = this.view.projects.find(project => project.id === input.workspaceId && project.rootDir !== null);
+    if (!workspace?.rootDir) { this.report("所选工作区已不可用，请重新选择。"); return null; }
+    // create() 在途时不另发请求：先拒绝，免得把草稿交给正在核实的另一个会话。
+    if (this.pendingCreation) { this.report("上一个创建仍在核实，请稍后再发送。"); return null; }
+    if (!await this.create("create_session", { project_id: workspace.id, cwd: workspace.rootDir.cwdReal }, { mode: input.mode, modelSelection: input.modelSelection })) return null;
+    const sessionId = this.view.currentSessionId;
+    if (!sessionId) return null;
+    // 附件按草稿登记的 token 现在才上传：上传需要会话身份，失败时不发送。
+    let attachments: DesktopAttachment[] = [];
+    if (input.attachments.length) {
+      try { attachments = await upload(sessionId, input.attachments.map(item => item.id)); }
+      catch (error) { this.report(error instanceof Error ? error.message : "附件未能上传，请重新选择。"); return null; }
+    }
+    this.writes.edit(sessionId, input.text);
+    if (attachments.length) this.writes.draft(sessionId).attachments = attachments;
+    void this.writes.send(sessionId);
+    return sessionId;
+  }
+
+  async create(op: PendingCreation["op"], params: { cwd: string; project_id?: string }, settingsOverride?: { mode: SessionDefaultMode; modelSelection: ModelSelection | null }): Promise<boolean> {
     if (this.pendingCreation) return this.reconcileCreation();
     if (!this.view.instanceId || this.status.state !== "online") { this.report("请等待连接恢复后再创建会话。"); return false; }
     const source = this.creationSource();
     if (source && this.writes.settingsPending(source.id)) { this.report("会话设置仍在保存或等待核实，请确认后台实际设置后再创建会话。"); return false; }
-    const settings = source ? { mode: source.defaultAccessMode, ...(source.modelSelection ? { model_selection: { ...source.modelSelection } } : {}) } : {};
+    const settings = settingsOverride ? { mode: settingsOverride.mode, ...(settingsOverride.modelSelection ? { model_selection: { ...settingsOverride.modelSelection } } : {}) } : source ? { mode: source.defaultAccessMode, ...(source.modelSelection ? { model_selection: { ...source.modelSelection } } : {}) } : {};
     const pending: PendingCreation = { op, params: { ...params, ...settings, request_id: crypto.randomUUID() }, target: this.target, instanceId: this.view.instanceId, busy: false, retried: false, waitGeneration: null };
     this.pendingCreation = pending;
     this.message = null;
@@ -331,6 +367,7 @@ export class CodeState {
   private async sendCreation(pending: PendingCreation): Promise<boolean> {
     if (!this.owns(pending)) return false;
     pending.busy = true;
+    this.mark();
     const generation = this.generation;
     let result: Session | OpResult<"open_workspace">;
     try { result = await this.request(pending.op, pending.params); }

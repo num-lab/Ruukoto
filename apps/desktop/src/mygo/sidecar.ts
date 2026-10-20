@@ -38,6 +38,12 @@ async function receive(line: string): Promise<void> {
         if (!Array.isArray(files) || files.some(file => typeof file !== "string") || typeof args[2] !== "string") throw new DesktopError("invalid_params", "所选附件无效；请重新选择。");
         return host.pickAttachments(args[0], async () => files as string[], args[2], args[3] ?? "code");
       }
+      case "draft_pick": {
+        const files: unknown = args[0];
+        if (!Array.isArray(files) || files.some(file => typeof file !== "string")) throw new DesktopError("invalid_params", "所选附件无效；请重新选择。");
+        return host.pickDraftAttachments(async () => files as string[]);
+      }
+      case "draft_upload": return host.uploadDraftAttachments(args[0], args[1], args[2] ?? "code");
       case "focus": focused = args[0] === true; return;
       case "navigate": return host.navigate(args[0] as DesktopNotice);
       case "close": return close();

@@ -7,7 +7,8 @@ import { parseFragment, type DefaultTreeAdapterTypes } from "parse5";
 import { createServer, type ViteDevServer } from "vite";
 import react from "@vitejs/plugin-react";
 import type { OpParams, OpResult } from "@ruukoto/control/ops.ts";
-import type { ModelSelection, SelectionRecord, Session } from "@ruukoto/core/types.ts";
+import type { ModelSelection, Project, SelectionRecord, Session, SessionDefaultMode } from "@ruukoto/core/types.ts";
+import type { DesktopAttachment } from "../apps/desktop/src/shared/bridge.ts";
 import { selectionBreakdown } from "@ruukoto/agent/context-selector.ts";
 import { ViewState } from "@ruukoto/view/state.ts";
 import { CodeState } from "../apps/desktop/src/renderer/code-state.ts";
@@ -21,12 +22,16 @@ import { waitFor } from "./helpers/testkit.ts";
 type ModelOption = OpResult<"list_models">["models"][number];
 let server: ViteDevServer;
 let Composer: ComponentType<{ model: CodeState; session: Session }>;
+type DraftValue = { workspaceId: string; text: string; mode: SessionDefaultMode; modelSelection: ModelSelection | null; attachments: DesktopAttachment[]; attaching?: boolean };
+let NewChatDraft: ComponentType<{ model: CodeState; workspaces: Project[]; value: DraftValue; fallbackSelection: ModelSelection | null; onChange: (value: DraftValue) => void; onSend: () => void; onAddWorkspace: () => void; starting: boolean; blocked: boolean }>;
+let filterWorkspaces: (workspaces: Project[], query: string) => Project[];
 let ContextDetails: ComponentType<{ context: DesktopContextState }>;
 let ContextIndicator: ComponentType<{ context: DesktopContextState; onOpen: () => void }>;
 let selectionForModel: (option: ModelOption, current: ModelSelection | null) => ModelSelection | null;
 before(async () => {
   server = await createServer({ configFile: false, root: fileURLToPath(new URL("../apps/desktop/src/renderer/", import.meta.url)), plugins: [react()], server: { middlewareMode: true, hmr: false }, appType: "custom" });
   ({ Composer, selectionForModel } = await server.ssrLoadModule("/composer.tsx"));
+  ({ NewChatDraft, filterWorkspaces } = await server.ssrLoadModule("/new-chat.tsx"));
   ({ ContextDetails, ContextIndicator } = await server.ssrLoadModule("/context-indicator.tsx"));
 });
 after(async () => { await server?.close(); });
@@ -35,7 +40,7 @@ const selection: ModelSelection = { provider: "mock", modelId: "model", thinking
 const option = (overrides: Partial<ModelOption> = {}): ModelOption => ({ provider: "mock", modelId: "model", name: "Current model", contextWindow: 200_000, maxTokens: 1000, thinkingLevels: ["off", "high"], available: true, errorCode: null, ...overrides });
 const at = "2026-10-16T00:00:00.000Z";
 function session(): Session {
-  return { id: "a", projectId: "workspace", kind: "dev", workspaceProjectId: null, name: null, branchSource: null, cwd: "/work", cwdReal: "/work", cwdDev: 1, cwdIno: 1, piSessionId: "pi", sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: selection, modelSelectionVersion: 1, defaultAccessMode: "auto-review", defaultAccessModeVersion: 1, queueState: "active", queuePauseReason: null, createdAt: at };
+  return { id: "a", projectId: "workspace", kind: "dev", workspaceProjectId: null, name: null, branchSource: null, cwd: "/work", cwdReal: "/work", cwdDev: 1, cwdIno: 1, piSessionId: "pi", sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: selection, modelSelectionVersion: 1, defaultAccessMode: "auto-review", defaultAccessModeVersion: 1, queueState: "active", queuePauseReason: null, archivedAt: null, createdAt: at };
 }
 function harness(handlers: FakeHandlers = {}, request?: DesktopBridge["request"]) {
   const transport = new FakeTransport({ handlers });
@@ -76,7 +81,7 @@ test("Desktop 模型切换保留支持的真实档位，否则选目录首档，
 
 test("Desktop 输入区匹配 demo 控件结构，四模式有图标且只保留一个模式 Select", () => {
   const h = harness();
-  for (const [value, label, icon] of [["confirm", "Ask for approval", "message-circle-question"], ["auto-review", "Auto review", "shield-check"], ["full_access", "Full access", "zap"], ["plan", "Plan", "list-todo"]] as const) {
+  for (const [value, label, icon] of [["confirm", "Ask for approval", "message-circle-question"], ["auto-review", "Auto review", "shield-check"], ["full_access", "Full access", "shield-off"], ["plan", "Plan", "list-todo"]] as const) {
     h.current.defaultAccessMode = value;
     const html = renderToStaticMarkup(createElement(Composer, { model: h.model, session: h.current }));
     assert.match(attr(button(html, "附加文件"), "class")!, /attachment-button/);
@@ -89,6 +94,8 @@ test("Desktop 输入区匹配 demo 控件结构，四模式有图标且只保留
     assert.match(html, /model-selector-icon/);
     assert.match(html, /Current model/);
     assert.equal(attr(button(html, "会话模型"), "aria-description"), "Current model · Effort: High");
+    assert.match(attr(button(html, "会话模型"), "class")!, /model-selector/);
+    assert.match(html, /model-selector-name">Current model<\/span><span class="model-selector-effort">High<\/span>/, "思考强度跟在模型名后显示");
     assert.ok(hasAttr(button(html, "发送消息"), "disabled"), "无输入仍禁止发送");
   }
 });
@@ -172,4 +179,42 @@ for (const instanceChanged of [false, true]) for (const fails of [false, true]) 
   assert.equal(writes.models[0].name, "新模型");
   assert.equal(writes.message, null);
   assert.equal(transport.requests.length, 2, "不继续旧目录的下一页");
+});
+
+test("Desktop 新对话草稿：工作区选择在输入框外，未选工作区禁止发送，控件与会话输入区一致", () => {
+  const projects: Project[] = [{ id: "p1", name: "ruukoto", createRequestId: null, rootDir: { cwd: "/work", cwdReal: "/work", dev: 1, ino: 1 }, instructionFiles: [], webSearch: "enabled", settingsVersion: 1, createdAt: at }];
+  const h = harness();
+  const draft = (workspaceId: string, modelSelection: ModelSelection | null = selection) => renderToStaticMarkup(createElement(NewChatDraft, { model: h.model, workspaces: projects, value: { workspaceId, text: "写一个测试", mode: "auto-review", modelSelection, attachments: [] }, fallbackSelection: null, onChange() {}, onSend() {}, onAddWorkspace() {}, starting: false, blocked: false }));
+  const empty = draft("");
+  assert.match(attr(button(empty, "选择工作区"), "class")!, /workspace-picker/);
+  assert.equal(attr(button(empty, "选择工作区"), "aria-description"), undefined);
+  assert.match(empty, /选择工作区后开始对话/);
+  assert.ok(hasAttr(button(empty, "发送消息"), "disabled"), "未选工作区不能开始对话");
+  const chosen = draft("p1");
+  assert.equal(attr(button(chosen, "选择工作区"), "aria-description"), "ruukoto");
+  assert.ok(!hasAttr(button(chosen, "发送消息"), "disabled"));
+  // 工作区选择器在 composer 表单之外，输入区仍带附件、模式与模型控件。
+  assert.match(chosen, /workspace-picker[\s\S]*<form class="surface-composer composer"/);
+  for (const name of ["附加文件", "会话默认模式", "会话模型", "发送消息"]) assert.ok(button(chosen, name), name);
+  assert.equal(attr(button(chosen, "会话默认模式"), "aria-description"), "Auto review");
+  assert.equal(elements(chosen).filter(element => attr(element, "data-slot") === "select-trigger").length, 1);
+  assert.match(chosen, /Current model/);
+  // 草稿未选模型时沿用当前会话/后台默认值，模型名后不加额外标注。
+  const inherited = renderToStaticMarkup(createElement(NewChatDraft, { model: h.model, workspaces: projects, value: { workspaceId: "p1", text: "写一个测试", mode: "confirm", modelSelection: null, attachments: [] }, fallbackSelection: selection, onChange() {}, onSend() {}, onAddWorkspace() {}, starting: false, blocked: false }));
+  assert.doesNotMatch(inherited, /model-selector-note|继承/);
+  assert.match(inherited, /Current model/);
+  assert.ok(!hasAttr(button(inherited, "发送消息"), "disabled"));
+  const noModel = renderToStaticMarkup(createElement(NewChatDraft, { model: h.model, workspaces: projects, value: { workspaceId: "p1", text: "写一个测试", mode: "confirm", modelSelection: null, attachments: [] }, fallbackSelection: null, onChange() {}, onSend() {}, onAddWorkspace() {}, starting: false, blocked: false }));
+  assert.ok(hasAttr(button(noModel, "发送消息"), "disabled"), "没有可用模型时不能开始");
+});
+
+test("工作区菜单按名称筛选，空结果与未登记工作区都有明确文案", () => {
+  const projects: Project[] = ["ruukoto", "ruukoto-avatar", "dev"].map((name, index) => ({ id: `p${index}`, name, createRequestId: null, rootDir: { cwd: `/${name}`, cwdReal: `/${name}`, dev: 1, ino: index + 1 }, instructionFiles: [], webSearch: "enabled", settingsVersion: 1, createdAt: at }));
+  assert.deepEqual(filterWorkspaces(projects, "").map(project => project.name), ["ruukoto", "ruukoto-avatar", "dev"]);
+  assert.deepEqual(filterWorkspaces(projects, "  AVATAR ").map(project => project.name), ["ruukoto-avatar"]);
+  assert.deepEqual(filterWorkspaces(projects, "zzz"), []);
+  // 菜单内容经 Radix 门户在打开后才挂载，SSR 只验证触发器仍是选择器本身。
+  const h = harness();
+  const html = renderToStaticMarkup(createElement(NewChatDraft, { model: h.model, workspaces: projects, value: { workspaceId: "", text: "", mode: "confirm", modelSelection: selection, attachments: [] }, fallbackSelection: null, onChange() {}, onSend() {}, onAddWorkspace() {}, starting: false, blocked: false }));
+  assert.equal(attr(button(html, "选择工作区"), "aria-expanded"), "false");
 });

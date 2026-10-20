@@ -2,7 +2,7 @@ import { browserAddress, browserNavigation, navigateBrowser, type BrowserNavigat
 import { sessionDisplayAttribution } from "@ruukoto/control/session-attribution.ts";
 import type { OpParams, OpResult } from "@ruukoto/control/ops.ts";
 import type { ViewState } from "@ruukoto/view/state.ts";
-import type { DesktopBridge, DesktopResult, DesktopTarget, DesktopUpdate } from "../shared/bridge.ts";
+import type { DesktopBridge, DesktopResult, DesktopTarget, DesktopUpdate, DesktopTerminalId, DesktopTerminalUpdate } from "../shared/bridge.ts";
 import { canReadDiff, isDiffTool, type DiffTool } from "./diff.ts";
 import { toolPage } from "./tool-page.ts";
 import { FILE_PAGE_BYTES, readSnapshotFile, type PreviewFile, type ReadSnapshotState } from "./read-snapshot.ts";
@@ -11,7 +11,8 @@ interface DiffResult { entryId: string; field?: "text" | "patch" | "writeContent
 interface DiffSelection { sessionId: string; key: string; entryId: string | null }
 interface ToolParams { loading: boolean; value?: Record<string, unknown>; error?: string }
 interface GitState { value?: OpResult<"read_workspace_git">; error?: string; loading: boolean; loadingMore?: boolean; moreError?: string }
-export type InspectorTab = { id: string; kind: "read-snapshot"; title: string; path: string; sessionId: string; taskId: string; artifactId: string; mode: "preview" | "source" } | { id: string; kind: "git"; title: string; workspaceId: string } | { id: string; kind: "diff"; title: string; selection: DiffSelection } | { id: string; kind: "agent"; title: string; sessionId: string } | { id: string; kind: "new"; title: string } | { id: string; kind: "browser"; title: string; navigation: BrowserNavigation } | { id: string; kind: "files"; title: string; workspaceId: string } | { id: string; kind: "file"; title: string; workspaceId: string; path: string; mode: "preview" | "source" };
+export type TerminalTab = { id: DesktopTerminalId; kind: "terminal"; title: string; workspaceId: string; cwd: string; instanceId: string; error?: string; exitCode?: number };
+export type InspectorTab = TerminalTab | { id: string; kind: "read-snapshot"; title: string; path: string; sessionId: string; taskId: string; artifactId: string; mode: "preview" | "source" } | { id: string; kind: "git"; title: string; workspaceId: string } | { id: string; kind: "diff"; title: string; selection: DiffSelection } | { id: string; kind: "agent"; title: string; sessionId: string } | { id: string; kind: "new"; title: string } | { id: string; kind: "browser"; title: string; navigation: BrowserNavigation } | { id: string; kind: "files"; title: string; workspaceId: string } | { id: string; kind: "file"; title: string; workspaceId: string; path: string; mode: "preview" | "source" };
 
 // Note: 见 .agents/notes/proposed/architecture/2026-10-15-desktop-client.md
 export class DesktopInspector {
@@ -23,6 +24,9 @@ export class DesktopInspector {
   private readonly toolResults = new Map<string, DiffResult>();
   private readonly params = new Map<string, ToolParams>();
   private online = true;
+  private readonly terminalListeners = new Map<DesktopTerminalId, (update: DesktopTerminalUpdate) => void>();
+  private readonly terminalWrites = new Map<DesktopTerminalId, Promise<void>>();
+  readonly terminalStopFailures = new Map<DesktopTerminalId, { message: string; retrying: boolean }>();
   parentSessionId: string | null = null;
   childSessionId: string | null = null;
   workId: string | null = null;
@@ -52,6 +56,7 @@ export class DesktopInspector {
   }
 
   update(update: DesktopUpdate): void {
+    if (update.type === "terminal") { this.terminalListeners.get(update.id)?.(update); return; }
     if (update.type === "state") this.online = update.state === "online";
     if (update.type === "state" && !this.online) { ++this.generation; this.directories.clear(); this.files.clear(); this.repositories.clear(); this.snapshots.clear(); this.toolResults.clear(); this.params.clear(); this.results.clear(); this.result = null; return; }
     if (update.type === "snapshot") {
@@ -60,6 +65,7 @@ export class DesktopInspector {
       this.directories.clear(); this.files.clear(); this.repositories.clear(); this.snapshots.clear();
       this.works = []; this.detail = null; this.result = null; this.results.clear(); this.workError = null;
       if (update.instanceChanged || (this.parentSessionId && !this.view.sessions.some(session => session.id === this.parentSessionId))) {
+        for (const tab of this.terminalTabs()) this.releaseTerminal(tab.id);
         this.parentSessionId = null; this.childSessionId = null; this.workId = null; this.diff = null; this.tabsByParent.clear(); this.activeByParent.clear(); this.folders.clear();
       }
       if (this.parentSessionId) void this.loadWorks();
@@ -113,6 +119,7 @@ export class DesktopInspector {
     const rest = tabs.filter(tab => tab.id !== id);
     this.results.delete(id);
     const closing = tabs.find(tab => tab.id === id);
+    if (closing?.kind === "terminal") this.releaseTerminal(closing.id);
     if (closing?.kind === "file") this.files.delete(this.fileKey(closing.workspaceId, closing.path));
     if (closing?.kind === "read-snapshot") this.snapshots.delete(id);
     if (!rest.length) rest.push({ id: crypto.randomUUID(), kind: "new", title: "新标签" });
@@ -129,6 +136,51 @@ export class DesktopInspector {
     this.tabsByParent.set(this.parentSessionId ?? "", next);
     if (active) this.activeByParent.set(this.parentSessionId ?? "", active.id);
     this.changed();
+  }
+  terminalTabs(): TerminalTab[] { return [...this.tabsByParent.values()].flat().filter((tab): tab is TerminalTab => tab.kind === "terminal"); }
+  openTerminal(workspaceId = this.workspace()?.id): void {
+    const workspace = this.view.projects.find(project => project.id === workspaceId);
+    if (this.target !== "code" || !workspace?.rootDir || !this.view.instanceId) return;
+    this.addTab({ id: crypto.randomUUID(), kind: "terminal", title: `终端 · ${workspace.name}`, workspaceId: workspace.id, cwd: workspace.rootDir.cwdReal, instanceId: this.view.instanceId });
+  }
+  listenTerminal(id: DesktopTerminalId, listener: (update: DesktopTerminalUpdate) => void): () => void {
+    this.terminalListeners.set(id, listener);
+    return () => { this.terminalListeners.delete(id); };
+  }
+  async startTerminal(tab: TerminalTab, cols: number, rows: number): Promise<boolean> {
+    let result: DesktopResult<unknown>;
+    try { result = await this.bridge.request("code", "desktop_terminal_open", { id: tab.id, workspace_id: tab.workspaceId, instance_id: tab.instanceId, cols, rows }); }
+    catch { result = { ok: false, error: { code: "ipc_unavailable", outcome: "not_sent", message: "终端连接不可用，请关闭标签后重新打开应用。" } }; }
+    if (!this.terminalTabs().includes(tab)) { if (result.ok) this.releaseTerminal(tab.id); return false; }
+    if (!result.ok) { tab.error = result.error.message; this.changed(); return false; }
+    return true;
+  }
+  sendTerminal(tab: TerminalTab, op: "desktop_terminal_input" | "desktop_terminal_resize", params: Record<string, unknown>): Promise<void> {
+    const sending = (this.terminalWrites.get(tab.id) ?? Promise.resolve()).then(async () => {
+      if (!this.terminalTabs().includes(tab) || tab.error || tab.exitCode !== undefined) return;
+      let result: DesktopResult<unknown>;
+      try { result = await this.bridge.request("code", op, { id: tab.id, ...params }); }
+      catch { result = { ok: false, error: { code: "ipc_unavailable", outcome: "unknown", message: "终端输入或尺寸更新未能核实，请关闭标签后重新打开终端。" } }; }
+      if (!result.ok && this.terminalTabs().includes(tab)) { tab.error = result.error.message; this.changed(); }
+    });
+    this.terminalWrites.set(tab.id, sending);
+    void sending.then(() => { if (this.terminalWrites.get(tab.id) === sending) this.terminalWrites.delete(tab.id); });
+    return sending;
+  }
+  private releaseTerminal(id: DesktopTerminalId): void {
+    const failed = this.terminalStopFailures.get(id);
+    if (failed) failed.retrying = true;
+    void this.bridge.request("code", "desktop_terminal_kill", { id }).then(result => {
+      if (result.ok) this.terminalStopFailures.delete(id);
+      else this.terminalStopFailures.set(id, { message: result.error.message, retrying: false });
+      this.changed();
+    }).catch(() => { this.terminalStopFailures.set(id, { message: "终端回收无法核实，请在系统活动监视器中检查仍运行的命令。", retrying: false }); this.changed(); });
+  }
+  retryTerminalStop(id: DesktopTerminalId): void { this.releaseTerminal(id); this.changed(); }
+  closeParent(sessionId: string): void {
+    const tabs = this.tabsByParent.get(sessionId) ?? [];
+    for (const tab of tabs) if (tab.kind === "terminal") this.releaseTerminal(tab.id);
+    this.tabsByParent.delete(sessionId); this.activeByParent.delete(sessionId);
   }
   openGit(): void {
     const workspace = this.workspace();

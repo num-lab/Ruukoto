@@ -6,6 +6,7 @@ import { spawnSync } from "node:child_process";
 import { parse } from "parse5";
 import ts from "typescript";
 import { PRODUCTION_CSP } from "../build/security.mjs";
+import { TERMINAL_MODULE } from "../build/terminal.mjs";
 
 export class DesktopBuildError extends Error {
   code = "desktop_build_invalid";
@@ -37,8 +38,8 @@ function checkHtml(file) {
 function checkJavaScript(file, preload) {
   const source = ts.createSourceFile(file, fs.readFileSync(file, "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
   const checkModule = (node) => {
-    if (!node || !ts.isStringLiteralLike(node) || (node.text !== "electron" && !isBuiltin(node.text))) {
-      fail(`${file} 含有未打包的依赖；外部引用只允许 electron 与 Node 内置模块。`);
+    if (!node || !ts.isStringLiteralLike(node) || (node.text !== "electron" && !isBuiltin(node.text) && !(!preload && node.text === TERMINAL_MODULE))) {
+      fail(`${file} 含有未打包的依赖；外部引用只允许 electron、Node 内置模块与指定终端运行依赖。`);
     }
   };
   const visit = (node) => {
@@ -61,6 +62,14 @@ function checkJavaScript(file, preload) {
 }
 
 export function checkBuild(outDir = fileURLToPath(new URL("../out", import.meta.url))) {
+  const vendor = path.join(outDir, "main/vendor/node-pty");
+  for (const file of ["lib/index.js", "lib/unixTerminal.js", "lib/utils.js", "build/Release/pty.node", "package.json", "LICENSE"]) {
+    if (!fs.existsSync(path.join(vendor, file)) || !fs.statSync(path.join(vendor, file)).isFile() || fs.statSync(path.join(vendor, file)).size === 0) fail("终端运行依赖缺失；请重新构建桌面应用。");
+  }
+  if (process.platform === "darwin") {
+    const helper = path.join(vendor, "build/Release/spawn-helper");
+    if (!fs.existsSync(helper) || !fs.statSync(helper).isFile() || !(fs.statSync(helper).mode & 0o111)) fail("终端 spawn-helper 缺失或不可执行；请重新构建桌面应用。");
+  }
   checkHtml(path.join(outDir, "renderer", "index.html"));
   const preloadDir = path.join(outDir, "preload");
   const entries = fs.readdirSync(preloadDir, { withFileTypes: true });
@@ -72,6 +81,7 @@ export function checkBuild(outDir = fileURLToPath(new URL("../out", import.meta.
     let checked = 0;
     for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
       const file = path.join(directory, entry.name);
+      if (file === path.join(outDir, "main/vendor")) continue;
       if (entry.isDirectory()) checked += checkMain(file);
       else if (/\.(?:c|m)?js$/.test(entry.name)) {
         checkJavaScript(file, false);

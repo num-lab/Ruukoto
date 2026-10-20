@@ -7,6 +7,7 @@ import { build as buildRenderer } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { productionCspPlugin } from "../build/security.mjs";
+import { TERMINAL_MODULE, vendorTerminal } from "../build/terminal.mjs";
 
 const desktop = fileURLToPath(new URL("../", import.meta.url));
 const repository = path.resolve(desktop, "../..");
@@ -20,7 +21,8 @@ if (!["build", "run"].includes(mode) || process.platform !== "darwin" || process
 try {
   execFileSync("go", ["version"], { stdio: "pipe" });
   fs.mkdirSync(output, { recursive: true });
-  await bundle({ entryPoints: [path.join(desktop, "src/mygo/sidecar.ts")], outfile: path.join(output, "sidecar.mjs"), bundle: true, platform: "node", format: "esm", target: "node22.19", define: { __RUUKOTO_REPOSITORY__: JSON.stringify(repository) } });
+  vendorTerminal(output);
+  await bundle({ entryPoints: [path.join(desktop, "src/mygo/sidecar.ts")], outfile: path.join(output, "sidecar.mjs"), bundle: true, platform: "node", format: "esm", target: "node22.19", plugins: [{ name: "terminal-runtime", setup: build => build.onResolve({ filter: /^node-pty$/ }, () => ({ path: TERMINAL_MODULE, external: true })) }], define: { __RUUKOTO_REPOSITORY__: JSON.stringify(repository) } });
   await buildRenderer({
     configFile: false,
     root: path.join(desktop, "src/renderer"),

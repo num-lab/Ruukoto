@@ -9,13 +9,15 @@ export type DesktopOp = typeof DESKTOP_OPS[number];
 export const PERSONAL_READ_OPS = ["read_history", "read_history_entry", "list_tasks", "get_task", "read_task_events", "work_list", "work_get", "read_tool_result", "get_tool_op_params", "list_models", "get_session", "get_confirmation_params", "list_prompt_requests", "get_context_breakdown"] as const satisfies readonly DesktopOp[];
 export const PERSONAL_OPS = [...PERSONAL_READ_OPS, "set_session_model", "set_session_mode", "set_session_archived", "interrupt", "cancel", "resume_queue", "respond_confirmation", "submit", "continue"] as const satisfies readonly DesktopOp[];
 export type PersonalConfigOp = "desktop_personal_config_read" | "desktop_personal_config_save";
+export const TERMINAL_OPS = ["desktop_terminal_open", "desktop_terminal_input", "desktop_terminal_resize", "desktop_terminal_kill"] as const;
+type LocalOp = PendingOp | typeof TERMINAL_OPS[number];
 
 export async function ipcResult<T>(action: () => T | Promise<T>): Promise<DesktopResult<T>> {
   try { return { ok: true, value: await action() }; }
   catch (error) { return { ok: false, error: serializeFailure(error) }; }
 }
 
-export async function handleRequest(target: unknown, op: unknown, params: unknown, reconnect: () => Promise<void>, request: (op: DesktopOp, params: OpParams<DesktopOp>) => Promise<unknown>, local?: (op: PendingOp, params: Record<string, unknown>) => unknown, personalConfig?: (op: PersonalConfigOp, params: Record<string, unknown>) => unknown): Promise<DesktopResult<unknown>> {
+export async function handleRequest(target: unknown, op: unknown, params: unknown, reconnect: () => Promise<void>, request: (op: DesktopOp, params: OpParams<DesktopOp>) => Promise<unknown>, local?: (op: LocalOp, params: Record<string, unknown>) => unknown, personalConfig?: (op: PersonalConfigOp, params: Record<string, unknown>) => unknown): Promise<DesktopResult<unknown>> {
   return ipcResult(async () => {
     if (target !== "code" && target !== "personal") throw new DesktopError("target_unavailable", "此连接目标尚未启用。");
     if (target === "personal" && (op === "desktop_personal_config_read" || op === "desktop_personal_config_save")) {
@@ -24,7 +26,7 @@ export async function handleRequest(target: unknown, op: unknown, params: unknow
       return personalConfig(op, params as Record<string, unknown>);
     }
     if (target === "personal" && op !== "reconnect" && op !== "desktop_pending_read" && op !== "desktop_pending_clear" && !PERSONAL_OPS.some(value => value === op)) throw new DesktopError("op_not_allowed", "此操作未向 Personal 开放。");
-    if (typeof op !== "string" || (op !== "reconnect" && op !== "desktop_pending_read" && op !== "desktop_pending_clear" && !DESKTOP_OPS.some(value => value === op))) throw new DesktopError("op_not_allowed", "此操作未向桌面客户端开放。");
+    if (typeof op !== "string" || (op !== "reconnect" && op !== "desktop_pending_read" && op !== "desktop_pending_clear" && !TERMINAL_OPS.some(value => value === op) && !DESKTOP_OPS.some(value => value === op))) throw new DesktopError("op_not_allowed", "此操作未向桌面客户端开放。");
     if (!params || typeof params !== "object" || Array.isArray(params)) throw new DesktopError("invalid_params", "操作参数必须是对象。");
     if (target === "personal" && (op === "set_session_mode" && "mode" in params && params.mode === "plan" || (op === "submit" || op === "continue") && "access_mode" in params && params.access_mode === "plan")) throw new DesktopError("invalid_params", "Plan 只能在普通开发会话中使用。");
     if (op === "reconnect") {
@@ -34,6 +36,10 @@ export async function handleRequest(target: unknown, op: unknown, params: unknow
     if (op === "desktop_pending_read" || op === "desktop_pending_clear") {
       if (!local) throw new DesktopError("connection_unavailable", "请等待连接恢复后再处理原输入。");
       return local(op, params as Record<string, unknown>);
+    }
+    if (TERMINAL_OPS.some(value => value === op)) {
+      if (!local) throw new DesktopError("terminal_closed", "终端宿主不可用，请重新打开应用。");
+      return local(op as typeof TERMINAL_OPS[number], params as Record<string, unknown>);
     }
     // IPC 是不可信输入；各 op 的字段与权限继续由控制面校验。
     return request(op as DesktopOp, params as OpParams<DesktopOp>);

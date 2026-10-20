@@ -209,7 +209,7 @@ function desktopHarness(script: FakeScript, seed: PendingRequest[] = [], existin
     if (update.type === "state") online = update.state === "online";
     writes.update(update);
   }, { ensure: async () => { throw new Error("受管目标不能拉起后台"); }, connection: (config, callbacks) => new ControlConnection({ ...config, reconnectInitialMs: 5, reconnectMaxMs: 10, clientFactory: fake.factory }, callbacks) }, store);
-  const request = (target: unknown, op: unknown, params: unknown) => handleRequest(target, op, params, () => controller.reconnect(), (op, params) => controller.dispatch(op, params), (op, params) => controller.submissions!.local(op, params));
+  const request = (target: unknown, op: unknown, params: unknown) => handleRequest(target, op, params, () => controller.reconnect(), (op, params) => controller.dispatch(op, params), (op, params) => { if (op !== "desktop_pending_read" && op !== "desktop_pending_clear") throw new Error("终端不进入提交恢复"); return controller.submissions!.local(op, params); });
   const writes = new CodeWrites({ request }, view, () => online, () => {}, "code");
   return { store, controller, updates, fake, view, writes, request, dir: f.dir, async start() { await controller.reconnect(); await controller.submissions!.reconcile(); }, close() { controller.close(); f.restore(); } };
 }

@@ -11,9 +11,12 @@ import { loadPersonalConfig, savePersonalConfig } from "./personal-config.ts";
 import { DesktopNotifications, type DesktopNotice } from "./notifications.ts";
 import { pickAttachments, stageAttachments } from "./attachments.ts";
 import type { DesktopTarget, DesktopUpdate } from "../shared/bridge.ts";
+import type { DirIdentity } from "@ruukoto/core/dir-identity.ts";
+import { spawn } from "node-pty";
+import { TerminalManager, type PtyFactory } from "./terminal.ts";
 
 export interface DesktopPlatform {
-  publish(target: DesktopTarget, update: DesktopUpdate): void;
+  publish(target: DesktopTarget, update: DesktopUpdate): void | Promise<void>;
   focused(): boolean;
   notice(notice: DesktopNotice): void;
   badge(count: number): void;
@@ -38,9 +41,17 @@ export class DesktopHost {
   private draftAttachments = new Map<string, string>();
   private readonly notificationState: DesktopNotifications;
   private readonly browserDocuments: BrowserDocuments;
+  private readonly terminals: TerminalManager;
+  private readonly terminalRoots = new Map<string, DirIdentity>();
+  private terminalInstance: string | null = null;
+  private terminalGeneration = 0;
+  private terminalReset: Promise<void> = Promise.resolve();
+  private readonly terminalOpening = new Set<string>();
+  private readonly terminalCanceled = new Set<string>();
 
-  constructor(private readonly repository: string, private readonly userData: string, private readonly platform: DesktopPlatform, private readonly prepareEnvironment = (signal: AbortSignal) => selectEnvironment(process.env, undefined, signal)) {
+  constructor(private readonly repository: string, private readonly userData: string, private readonly platform: DesktopPlatform, private readonly prepareEnvironment = (signal: AbortSignal) => selectEnvironment(process.env, undefined, signal), terminalFactory: PtyFactory = spawn) {
     this.browserDocuments = new BrowserDocuments([userData]);
+    this.terminals = new TerminalManager(terminalFactory, update => this.platform.publish("code", update));
     this.notificationState = new DesktopNotifications(platform.focused, platform.notice, platform.badge, (target, taskId) => {
       const source = target === "code" ? this.controller : this.personal;
       if (!source) throw new ControlClientError("connection_unavailable", "连接不可用", "not_sent");
@@ -49,9 +60,20 @@ export class DesktopHost {
     this.warmEnvironment();
   }
   private publish(target: DesktopTarget, update: DesktopUpdate): void {
+    if (target === "code" && update.type === "snapshot") {
+      const instance = update.result.snapshot.instanceId;
+      if (this.terminalInstance && (update.instanceChanged || this.terminalInstance !== instance)) this.resetTerminals();
+      this.terminalInstance = instance;
+      this.terminalRoots.clear();
+      for (const project of update.result.snapshot.projects) if (project.rootDir) this.terminalRoots.set(project.id, project.rootDir);
+    }
+    if (target === "code" && update.type === "event") {
+      const body = update.event.body;
+      if ((body.type === "project.created" || body.type === "project.root_attached") && body.rootDir) this.terminalRoots.set(body.projectId, body.rootDir);
+    }
     this.notificationState.update(target, update);
     if (update.type === "state") this.lastState[target] = update;
-    if (this.subscribed.has(target)) this.platform.publish(target, update);
+    if (this.subscribed.has(target)) void Promise.resolve(this.platform.publish(target, update)).catch(() => { process.stderr.write("[ruukoto:desktop] 界面更新未送达，请重新打开应用核实当前状态。\n"); });
   }
   private warmEnvironment(): NonNullable<DesktopHost["environment"]> {
     this.environment ??= this.prepareEnvironment(this.environmentAbort.signal);
@@ -109,6 +131,7 @@ export class DesktopHost {
   subscribe(target: unknown): void {
     if (target !== "code" && target !== "personal") throw new DesktopError("target_unavailable", "此连接目标尚未启用。");
     this.subscribed.add(target);
+    if (target === "code") this.resetTerminals();
     this.publish(target, this.lastState[target]);
     const intent = this.navigation.get(target);
     if (intent) { this.navigation.delete(target); this.publish(target, intent); }
@@ -138,6 +161,7 @@ export class DesktopHost {
       if (!this.controller) throw new ControlClientError("connection_unavailable", "连接不可用：请求未发送", "not_sent");
       return this.controller.dispatch(op, params);
     }, (op, params) => {
+      if (op !== "desktop_pending_read" && op !== "desktop_pending_clear") return this.terminalRequest(op, params);
       const source = target === "personal" ? this.personal : this.controller;
       if (!source?.submissions) throw new DesktopError("connection_unavailable", "请等待连接恢复后再处理原输入。");
       return source.submissions.local(op, params);
@@ -147,6 +171,33 @@ export class DesktopHost {
       await this.reconnectPersonal(true);
       return config;
     });
+  }
+  resetTerminals(): void {
+    ++this.terminalGeneration;
+    this.terminalReset = this.terminalReset.then(() => this.terminals.reset());
+    // 保留失败给后续打开消费；诊断由 TerminalManager 报告。
+    void this.terminalReset.catch(() => {});
+  }
+  private async terminalRequest(op: string, params: Record<string, unknown>) {
+    if (this.closing) throw new DesktopError("terminal_closed", "终端宿主已关闭，请重新打开应用。");
+    const keys = op === "desktop_terminal_open" ? ["id", "workspace_id", "instance_id", "cols", "rows"] : op === "desktop_terminal_input" ? ["id", "data"] : op === "desktop_terminal_resize" ? ["id", "cols", "rows"] : ["id"];
+    if (Object.keys(params).length !== keys.length || keys.some(key => !(key in params))) throw new DesktopError("invalid_params", "终端参数无效，请重新打开终端。");
+    if (op === "desktop_terminal_input") return this.terminals.input(params.id, params.data);
+    if (op === "desktop_terminal_resize") return this.terminals.resize(params.id, params.cols, params.rows);
+    if (op === "desktop_terminal_kill") { if (typeof params.id === "string" && this.terminalOpening.has(params.id)) this.terminalCanceled.add(params.id); return this.terminals.kill(params.id); }
+    const generation = this.terminalGeneration;
+    if (typeof params.workspace_id !== "string" || params.instance_id !== this.terminalInstance || !this.terminalInstance) throw new DesktopError("terminal_workspace_changed", "终端工作区已变化，请重新选择工作区。");
+    const root = this.terminalRoots.get(params.workspace_id);
+    if (!root) throw new DesktopError("terminal_workspace_missing", "工作区尚未就绪，请连接 Code 后选择工作区。");
+    if (typeof params.id !== "string" || this.terminalOpening.has(params.id)) throw new DesktopError("invalid_params", "终端引用无效或正在打开，请切换到原标签。");
+    const id = params.id;
+    this.terminalOpening.add(id);
+    try {
+      const environment = await this.getEnvironment();
+      await this.terminalReset;
+      if (this.closing || this.terminalCanceled.has(id) || generation !== this.terminalGeneration || this.terminalRoots.get(params.workspace_id) !== root) throw new DesktopError("terminal_workspace_changed", "终端工作区已变化或标签已关闭，请重新选择工作区。");
+      return this.terminals.open(id, root, params.cols, params.rows, environment.env);
+    } finally { this.terminalOpening.delete(id); this.terminalCanceled.delete(id); }
   }
   private attachmentSource(target: unknown) {
     if (target !== "code" && target !== "personal") throw new DesktopError("target_unavailable", "此连接目标尚未启用。");
@@ -198,7 +249,7 @@ export class DesktopHost {
     ++this.personalGeneration;
     this.controller?.close();
     this.environmentAbort.abort();
-    this.closing = Promise.all([this.browserDocuments.close(), this.personal?.close(), this.personalInitialization, this.initialization, this.environment?.catch(() => { /* 退出取消的读取不再用于连接，连接期间的失败由消费方报告。 */ })]).then(() => {});
+    this.closing = Promise.all([this.terminals.close(), this.terminalReset, this.browserDocuments.close(), this.personal?.close(), this.personalInitialization, this.initialization, this.environment?.catch(() => { /* 退出取消的读取不再用于连接，连接期间的失败由消费方报告。 */ })]).then(() => {});
     return this.closing;
   }
 }

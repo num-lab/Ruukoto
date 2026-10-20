@@ -61,6 +61,8 @@ async function createWindow(): Promise<void> {
   }
   window = new BrowserWindow({ width: 1160, height: 780, minWidth: 760, minHeight: 500, title: "Ruukoto", titleBarStyle: "hiddenInset", vibrancy: "sidebar", webPreferences: { preload: fileURLToPath(new URL("../preload/index.cjs", import.meta.url)), sandbox: true, contextIsolation: true, nodeIntegration: false, nodeIntegrationInSubFrames: false, webviewTag: false } });
   const contents = window.webContents;
+  contents.on("render-process-gone", () => host.resetTerminals());
+  contents.on("did-start-navigation", (_event, _url, _inPlace, isMainFrame) => { if (isMainFrame) host.resetTerminals(); });
   contents.on("will-frame-navigate", event => {
     if (!event.isMainFrame && !browserFrameAllowed(event.url, devUrl) || event.isMainFrame && event.initiator && event.initiator !== contents.mainFrame) event.preventDefault();
   });

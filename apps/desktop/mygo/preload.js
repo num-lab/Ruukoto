@@ -14,6 +14,10 @@
     pickDraftAttachments: () => call("PickDraftAttachments"),
     uploadDraftAttachments: (sessionId, tokens, target = "code") => call("UploadDraftAttachments", sessionId, tokens, target),
     reveal: path => call("Reveal", path),
+    openTerminal: (id, workspaceId, instanceId, cols, rows) => call("Request", "code", "desktop_terminal_open", { id, workspace_id: workspaceId, instance_id: instanceId, cols, rows }),
+    inputTerminal: (id, data) => call("Request", "code", "desktop_terminal_input", { id, data }),
+    resizeTerminal: (id, cols, rows) => call("Request", "code", "desktop_terminal_resize", { id, cols, rows }),
+    killTerminal: id => call("Request", "code", "desktop_terminal_kill", { id }),
   };
   document.addEventListener("click", event => {
     const link = event.target instanceof Element ? event.target.closest("a[href]") : null;

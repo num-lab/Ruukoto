@@ -4,11 +4,11 @@
 
 本模块的 Personal SSH 连接仅识别旧控制协议，不支持新个人 durable 入口；新个人使用 IM 与引导式 CLI。Code 桌面能力保持。
 
-`apps/desktop` 是 macOS 上的控制面客户端，与 TUI 共用后台。Code 目标提供工作区与会话树、添加工作区、新建会话、会话标签页、对话流、输入提交、模型／Effort 与会话默认模式选择、停止与继续、暂停队列恢复，以及右栏独立标签中的 SubAgent 历史与单次工具差异、隔离浏览器、工作区只读文件树／预览与 Git graph；Code 在会话内展示审批卡片，两个目标共用系统通知与 Dock 角标；Personal 提供旧控制协议下的 Ruukoto 单一主会话及审批，两个后台连接并存。后台事实只经控制面取得，不通过数据库、JSONL、工作区文件或 git 重建；主进程读取拥有者选择的附件快照，以及地址栏明确打开的本机文档与同目录静态资源。
+`apps/desktop` 是 macOS 上的控制面客户端，与 TUI 共用后台。Code 目标提供工作区与会话树、添加工作区、新建会话、会话标签页、对话流、输入提交、模型／Effort 与会话默认模式选择、停止与继续、暂停队列恢复，以及右栏独立标签中的 SubAgent 历史与单次工具差异、隔离浏览器、工作区只读文件树／预览、Git graph与本机集成终端；Code 在会话内展示审批卡片，两个目标共用系统通知与 Dock 角标；Personal 提供旧控制协议下的 Ruukoto 单一主会话及审批，两个后台连接并存。后台事实只经控制面取得，不通过数据库、JSONL、工作区文件或 git 重建；主进程为终端核实已登记工作区根目录，并读取拥有者选择的附件快照，以及地址栏明确打开的本机文档与同目录静态资源。
 
 ## 对外接口
 
-Electron 或 MyGo 共用的 Node DesktopHost 持有令牌、`ControlConnection`、SSH 子进程和后台拉起。preload 只向渲染进程暴露 `subscribe(target, listener)`、`request(target, op, params)`、`pickFolder()`、`pickAttachments(sessionId, target?)` 与 `reveal(path)`。主进程校验 IPC 来源和操作名单：本地 `reconnect`、`desktop_browser_open`／`desktop_browser_release`，以及后台的 `list_session_summaries`、`open_workspace`、`create_session`、`read_history`、`read_history_entry`、`list_tasks`、`get_task`、`read_task_events`、`work_list`、`work_get`、`read_tool_result`、`read_artifact`、`get_tool_op_params`、`list_models`、`set_session_model`、`set_session_mode`、`get_session`、`interrupt`、`cancel`、`resume_queue`、`get_confirmation_params`、`respond_confirmation`、`list_prompt_requests`、`get_context_breakdown`、`list_workspace_files`、`read_workspace_file`、`read_workspace_git`。`submit` 与 `continue` 交主进程的 SubmissionGuard，`find_task` 仅供守护内部使用；本地 `desktop_pending_read` 与 `desktop_pending_clear` 处理输入恢复。Personal 开放历史、任务、工具、委派、模型、Context、审批、输入与恢复操作及本地 `desktop_personal_config_read`／`desktop_personal_config_save`，拒绝工作区创建、文件、Git 与 Plan。字段与权限继续由控制面校验。错误作为 `{ code, outcome, message, versions? }` 响应数据跨 IPC 传递，保留应答丢失分类。
+Electron 或 MyGo 共用的 Node DesktopHost 持有令牌、`ControlConnection`、SSH 子进程和后台拉起。preload 只向渲染进程暴露 `subscribe(target, listener)`、`request(target, op, params)`、`pickFolder()`、`pickAttachments(sessionId, target?)` 与 `reveal(path)`及终端的open/input/resize/kill四方法。主进程校验 IPC 来源和操作名单：本地 `reconnect`、`desktop_browser_open`／`desktop_browser_release`及仅向Code开放的`desktop_terminal_open/input/resize/kill`，以及后台的 `list_session_summaries`、`open_workspace`、`create_session`、`read_history`、`read_history_entry`、`list_tasks`、`get_task`、`read_task_events`、`work_list`、`work_get`、`read_tool_result`、`read_artifact`、`get_tool_op_params`、`list_models`、`set_session_model`、`set_session_mode`、`get_session`、`interrupt`、`cancel`、`resume_queue`、`get_confirmation_params`、`respond_confirmation`、`list_prompt_requests`、`get_context_breakdown`、`list_workspace_files`、`read_workspace_file`、`read_workspace_git`。`submit` 与 `continue` 交主进程的 SubmissionGuard，`find_task` 仅供守护内部使用；本地 `desktop_pending_read` 与 `desktop_pending_clear` 处理输入恢复。Personal 开放历史、任务、工具、委派、模型、Context、审批、输入与恢复操作及本地 `desktop_personal_config_read`／`desktop_personal_config_save`，拒绝工作区创建、文件、Git 与 Plan。字段与权限继续由控制面校验。错误作为 `{ code, outcome, message, versions? }` 响应数据跨 IPC 传递，保留应答丢失分类。
 
 渲染进程使用 React、Tailwind v4、shadcn 源码组件与 AI Elements、Lucide，主题和三栏布局以定稿 demo 为准，消费 `@ruukoto/view` 的快照和事件投影。开发与构建命令见[开发说明](../development.md#桌面客户端)，启动与故障恢复见[操作手册](../usage.md#桌面客户端)。
 
@@ -23,6 +23,8 @@ Personal 配置保存在应用数据目录的 `personal.json`，只含 `host` �
 会话标签页和待完成创建记录仅保存在渲染进程内存。创建记录持有原请求键、参数、连接目标和数据实例，结果核实前阻止另起创建；安装新快照不会丢弃它。同实例快照保留标签页，换实例清空旧标签与会话视图。普通草稿、附件引用、主题、侧栏宽度与折叠状态仅在渲染进程内存中保存；草稿按实例和会话隔离，退出或重载后丢失。提交中的原文、附件引用与继续来源留在输入区并锁定，权威接收后才清空；未确认原文继续保存在主进程记录里。
 
 提交与继续的完整参数、原请求键和数据实例标识先保存在应用数据目录的 `pending/code/<控制目录摘要>`，Personal 使用 `pending/personal/<主机及控制目录摘要>`，再发送；目录按目标与配置隔离。待核实状态按请求键更新，原始记录与损坏记录留在主进程；额外恢复诊断界面暂不开放。同会话有待核实输入时禁用发送，同原任务的待核实继续不会另建请求键。
+
+本机终端及xterm滚动历史只在本次应用内存中保留，最多同时8个，滚动历史5000行；关闭终端标签或所属会话、换数据实例、页面重载／崩溃与应用退出均回收，普通断线、同实例快照和切换标签／会话／Personal保留。
 
 ## 主要流程
 
@@ -54,6 +56,8 @@ Context 环形入口不显示百分比数字，悬浮层按 System prompt、Tool
 
 浏览器初始为空页，地址接受无凭据 HTTP(S) 与本机file，提供后退、前进与刷新；历史记录只覆盖地址栏提交。本机文档由Host分配临时loopback地址与随机令牌，保留原始file地址；可读取同目录／子目录相对资源，拒绝越界、链接、`.env*`、`.git-credentials`等敏感元数据及userData。每文件8MiB、每文档累计32MiB／256次请求，至多8份文档和16个并发读取；地址栏导航、刷新、关闭与Host退出释放能力，iframe内部导航不记历史或保证即时释放。模块与fetch支持无凭据CORS，本地HTML可用CDN和联网，其脚本可能转交同目录能力，不能把此功能当作不可信JS防泄密执行器。网页使用无 same-origin、顶层导航、弹窗或下载权限的 iframe，不加载桌面开发来源；远程 frame 无 preload／IPC／Node，所有网页权限、设备与屏幕捕获均拒绝。站点禁止嵌入时不能预览，界面不显示固定嵌入提示。普通Web Demo没有任意本机读取能力。
 
+右栏新标签页的终端入口先选择已登记工作区，宿主按预期数据实例与工作区根真实身份选择cwd，启动默认登录shell；不调用后台，也不受Agent任务沙箱限制。输入、resize和base64输出按终端引用分流，output直接写xterm，不重绘React；隐藏终端常驻，重新显示后更新尺寸，明暗跟随应用，Ctrl组合交给shell。
+
 文件树首读用加载图标；文件夹读取时在行末显示图标，完成或失败后展开，失败可重试，空目录留空。读取中再次点击取消展开；缓存命中直接展开，刷新保留现有内容。左栏折叠与展开共用一个按钮，位置连续过渡，保持焦点并避开原生交通灯。
 
 Git graph 每页读取200条真实提交，滚动接近底部自动追加直到末尾，没有累计条数上限；只渲染可视区附近的行与图线，窗口外行以占位撑高，横向内容宽度保存本次打开见过的最宽行，滚到短行窗口后仍可左右滚动并触发续页；Tab、读屏、文本选择与浏览器 Find 只覆盖窗口内已渲染行（窗口外焦点行旁路渲染时除外）。提交主题与分支名保持自然宽度，可左右滚动，续页无可见加载文字；隐藏、离线、加载中或发生错误时暂停，追加失败显示重试。父关系、branch／tag与remote共用六种彩色lane，28px摘要只给左侧图标着色，名称保持中性。点击展开作者、时间、短哈希与父提交，可刷新。翻页绑定工作区与仓库修订，refs、HEAD、shallow、grafts或目录身份变化时要求刷新；追加失败保留已有历史并可重试，刷新或换实例丢弃旧追加。每次后台读取预算5秒，限制输出和元数据数量，拒绝受保护目录、元数据链接、alternates和配置include；超限或不安全形式明确报错。
@@ -70,9 +74,11 @@ Git graph 每页读取200条真实提交，滚动接近底部自动追加直到�
 
 ## 不变量与失败处理
 
+终端参数不接受任意cwd；仅按当前Code实例已登记根的真实路径和inode启动，迟到打开或实例变化拒绝。输出16ms合并／发送节流、单帧最多64KiB，pending达64KiB暂停PTY，MyGo等待管道写完后继续。回收先核实shell及当前后代进程组，TERM后500ms升级KILL，不因shell先退出取消；回收失败保留记录和界面提示，提供重试回收入口；输入与尺寸更新逐终端串行，失败后停止后续发送。主动脱离、已经成为孤儿或回收快照后新派生的外部进程无法保证追回；工作区只限制启动cwd，终端可访问应用账户可访问的其他目录。
+
 MyGo 仅在精确 `mygo://localhost/` 顶层文档安装 bridge，每个 Go 方法另核对调用窗口及文档 URL，原生拒绝子 frame IPC。保留生产 CSP 与 iframe sandbox，拒绝网页权限、下载和全部新窗口，主文档外链交系统浏览器。子 frame 隔离不依赖主文档导航回调。未写入 Node 的请求为 not_sent，交付后丢答保留 unknown／disconnected，禁止自动重放；坏帧、EOF、写入故障或传输期限使全部在途调用失败并报告 failed，旧更新不再安装。退出先等待 Node 回收连接与 SSH，再有界升级终止；日常后台继续运行。
 
-Electron 窗口启用 sandbox、contextIsolation，关闭 nodeIntegration。sandbox preload 构建为单个 CommonJS 文件；主进程与 preload 除 Electron、Node 内置模块外的依赖全部打包。生产 HTML 的 head 首个元素是严格 CSP meta；开发页面只使用带本次 nonce 的响应头策略，放行 dev server 的 HTTP 与 WebSocket 源，不开放 unsafe-inline。开发页面仅允许对配置的完整文档 URL 自身重载；其他导航被拦截，只有主页面 HTTP(S) 链接交给系统浏览器。CSP 仅对 iframe 增加 HTTP(S)、预览图片增加 data 来源；脚本 nonce、主 frame IPC 与主页面导航限制保持。
+Electron 窗口启用 sandbox、contextIsolation，关闭 nodeIntegration。sandbox preload 构建为单个 CommonJS 文件；preload除Electron与Node内置模块外的依赖全部打包；主进程另精确允许vendor node-pty，包含runtime JS、本平台native与macOS spawn-helper，native/helper从asar解包。生产 HTML 的 head 首个元素是严格 CSP meta；开发页面只使用带本次 nonce 的响应头策略，放行 dev server 的 HTTP 与 WebSocket 源，不开放 unsafe-inline。开发页面仅允许对配置的完整文档 URL 自身重载；其他导航被拦截，只有主页面 HTTP(S) 链接交给系统浏览器。CSP 仅对 iframe 增加 HTTP(S)、预览图片增加 data 来源；脚本 nonce、主 frame IPC 与主页面导航限制保持。
 
 版本不一致显示双方版本与更新方向：客户端较旧时重建应用；受管后台较旧时重启开发启动器；日常后台较旧时按当前 control.sock 的 lsof 指引核对唯一 PID、用户和完整后台命令，由拥有者手动结束后重新连接。未查到监听进程时先核对命令是否成功，多匹配或无法核实时停止操作。桌面客户端不向后台进程发送信号。仓库移动或 node 不可用会提示修复环境或重建。
 
@@ -93,6 +99,8 @@ Personal 预检总期限为 15 秒；超时或网络失败、远端 socket 暂�
 审批决定从不自动重发。明确失效移除卡片；权限版本不符重读详情并等待重新决定；未发送保留卡片。在线应答丢失查询原审批，断线等待同实例快照，查询失败或过旧保留防重复状态并经现有提示报告；重新连接可再次核实。新快照淘汰旧详情与核实结果；换实例丢弃原操作结果。系统通知送达仍受 macOS 通知设置约束。
 
 ## 设计依据
+
+- [本机集成终端](../../.agents/notes/implemented/feature/2026-10-20-desktop-integrated-terminal.md)
 
 - [首次连接加载页](../../.agents/notes/implemented/feature/2026-10-18-desktop-connection-loading.md)
 

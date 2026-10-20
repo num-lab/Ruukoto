@@ -1,0 +1,2 @@
+2026-10-20 18:40:40.720 Ruukoto MyGo[20109:2203000] TSM AdjustCapsLockLEDForKeyTransitionHandling - _ISSetPhysicalKeyboardCapsLockLED Inhibit
+2026-10-20 18:40:40.724 Ruukoto MyGo[20109:2203000] error messaging the mach port for IMKCFRunLoopWakeUpReliable

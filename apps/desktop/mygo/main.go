@@ -170,6 +170,11 @@ func (d *Desktop) event(data json.RawMessage) {
 func (d *Desktop) ready() {
 	d.window = mygo.NewWindow(mygo.WindowOptions{Title: "Ruukoto MyGo", Width: 1160, Height: 780, MinWidth: 760, MinHeight: 500, TitleBarStyle: mygo.TitleBarHiddenInset, Vibrancy: mygo.VibrancySidebar, Page: mygo.PageOptions{PreloadScript: preload}})
 	page := d.window.Page()
+	page.OnRenderProcessGone(func(string) {
+		if d.child != nil {
+			go d.child.call(context.Background(), "terminal_reset")
+		}
+	})
 	page.OnPageTitleUpdated(func(event *mygo.TitleEvent) { event.PreventDefault() })
 	page.SetPermissionHandler(func(mygo.PermissionRequest) bool { return false })
 	page.OnWillDownload(func(event *mygo.DownloadEvent) { event.PreventDefault() })

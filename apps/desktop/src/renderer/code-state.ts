@@ -79,6 +79,7 @@ export class CodeState {
     this.changed();
   }
   update(update: DesktopUpdate): void {
+    if (update.type === "terminal") { this.inspector.update(update); return; }
     if (update.type === "state") {
       this.status = update;
       this.inspector.update(update);
@@ -156,6 +157,7 @@ export class CodeState {
     this.mark();
   }
   closeSession(id: string): void {
+    this.inspector.closeParent(id);
     this.rememberCreationSource();
     const index = this.tabs.indexOf(id);
     this.tabs = this.tabs.filter(tab => tab !== id);

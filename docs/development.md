@@ -61,7 +61,7 @@ npx tsx --test verification/foundation/test/03-tools.test.ts
 | `packages/agent/src/` 的上下文与模型 | `test/18-model-selection.test.ts`、`test/60-context-prefix.test.ts`、`test/61-context-compaction.test.ts`、`test/98-media-model-pinning.test.ts` |
 | SubAgent、角色/工作区快照、worktree 与导入 | `test/80`–`87`、`91`、`95`；在 test/ 按 subagent-role、subagent-definition、workspace-snapshot、subagent-workspace-snapshot、work-copy-host 找文件 |
 | `packages/tui/src/tui/`、`packages/tui/src/config-tui/` | `test/13-tui-state.test.ts`、`test/14-tui-app.test.ts`、`test/15-tui-pty.test.ts`、`test/33-config-tui.test.ts` |
-| `apps/desktop/` | 纯逻辑测试、MyGo 检查与真实外壳验收见[桌面开发](desktop-development.md#测试导航) |
+| `apps/desktop/` | 终端必跑`test/desktop-terminal.test.ts`；纯逻辑测试、MyGo 检查与真实外壳验收见[桌面开发](desktop-development.md#测试导航) |
 | `packages/view/src/` 的共享投影与浏览器约束 | `test/36-event-flow-state.test.ts`、`test/37-view-browser.test.ts`；TUI 调用方另跑 13/14/34/19 |
 | `packages/channels/src/qq/`、`packages/channels/src/telegram/`、`packages/channels/src/scheduler/` | `test/26-qq.test.ts`、`test/37-scheduler-outbox.test.ts`、`test/38-telegram-owner.test.ts`、`test/40-qq-private.test.ts`、`test/89-im-entries.test.ts` |
 

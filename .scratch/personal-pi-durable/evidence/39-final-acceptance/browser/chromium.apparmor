@@ -1,0 +1,7 @@
+abi <abi/4.0>,
+include <tunables/global>
+
+# 仅为固定、root 拥有的官方 Chromium 路径开放 userns；浏览器自身仍启用 namespace/seccomp 沙箱。
+profile ruukoto39-chromium /opt/ruukoto39-chromium/chrome flags=(unconfined) {
+  userns,
+}

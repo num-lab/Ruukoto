@@ -1,0 +1,405 @@
+diff --git a/test/04-crash-recovery.test.ts b/test/04-crash-recovery.test.ts
+index e322afa..0a3d373 100644
+--- a/test/04-crash-recovery.test.ts
++++ b/test/04-crash-recovery.test.ts
+@@ -70,7 +70,7 @@ test("工具已产生标记但未记录结果时崩溃：中断保留事实，
+     const { projectId, sessionId } = await createProjectSession(backend.client, workA);
+
+     // 第二个实例必须被拒绝（进程级）
+-    const second = spawnBackendRaw(["apps/ruukoto/src/main.ts", "start", "--data-dir", dirs.dataDir, "--agent-dir", dirs.agentDir]);
++    const second = spawnBackendRaw(["apps/ruukoto-code/src/main.ts", "start", "--data-dir", dirs.dataDir, "--agent-dir", dirs.agentDir], { RUUKOTO_CODE_DATA_DIR: dirs.dataDir, RUUKOTO_CODE_AGENT_DIR: dirs.agentDir, RUUKOTO_CODE_CONTROL_DIR: path.join(dirs.root, "control"), RUUKOTO_CODE_PENDING_DIR: path.join(dirs.root, "pending") });
+     const secondCode: number | null = await new Promise((resolve) => {
+       second.once("exit", (code) => resolve(code));
+       setTimeout(() => resolve(-999), 30_000);
+@@ -194,3 +194,25 @@ test("首次 assistant 消息前崩溃：不宣布消息已持久化，请求保
+     if (dirs) await cleanupDirs(dirs);
+   }
+ });
++
++test("后台夹具固定 Coding 临时目录，不继承日常控制目录与拥有者令牌", async () => {
++  const { dirs } = await makeTestDirs("backend-env", 0);
++  const server = new MockModelServer(() => ({ kind: "text", text: "ok" }));
++  const daily = path.join(dirs.root, "daily");
++  const inherited = { RUUKOTO_PRODUCT: "bogus", RUUKOTO_CODE_DATA_DIR: path.join(daily, "data"), RUUKOTO_CODE_AGENT_DIR: path.join(daily, "agent"), RUUKOTO_CODE_CONTROL_DIR: path.join(daily, "control"), RUUKOTO_CODE_PENDING_DIR: path.join(daily, "pending"), RUUKOTO_OWNER_TOKEN: "daily-token", RUUKOTO_OWNER_TOKEN_FILE: path.join(daily, "owner.token") };
++  const previous = new Map(Object.keys(inherited).map(key => [key, process.env[key]]));
++  let backend: Backend | undefined;
++  try {
++    await writeModelsJson(dirs, await server.start());
++    Object.assign(process.env, inherited);
++    backend = await spawnBackend(dirs.dataDir, dirs.agentDir);
++    assert.equal((await backend.client.handshake()).snapshot.product, "ruukoto-code");
++    assert.ok(fsSync.existsSync(path.join(dirs.root, "control", "control.sock")));
++    assert.equal(fsSync.existsSync(daily), false);
++  } finally {
++    for (const [key, value] of previous) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
++    if (backend) await killBackend(backend);
++    await server.close();
++    await cleanupDirs(dirs);
++  }
++});
+diff --git a/test/10-access-modes.test.ts b/test/10-access-modes.test.ts
+index 5d2b57a..af84ce1 100644
+--- a/test/10-access-modes.test.ts
++++ b/test/10-access-modes.test.ts
+@@ -237,10 +237,10 @@ test("CLI：set-session-mode、submit --mode plan 与 continue --mode plan 使
+     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+     fs.symlinkSync(t.runtime.socketPath(), path.join(t.runtime.controlDir(), "control.sock"));
+     const cli = async (...args: string[]) => {
+-      const { stdout } = await promisify(execFile)(process.execPath, [fileURLToPath(new URL("../apps/ruukoto/bin/ruukoto.mjs", import.meta.url)), ...args], {
++      const { stdout } = await promisify(execFile)(process.execPath, [fileURLToPath(new URL("../apps/ruukoto-code/bin/ruukoto-code.mjs", import.meta.url)), ...args], {
+         timeout: 20_000,
+-        env: { ...process.env, RUUKOTO_DATA_DIR: t.dirs.dataDir, RUUKOTO_AGENT_DIR: t.dirs.agentDir,
+-          RUUKOTO_CONTROL_DIR: t.runtime.controlDir(), RUUKOTO_OWNER_TOKEN: "", RUUKOTO_OWNER_TOKEN_FILE: "" },
++        env: { ...process.env, RUUKOTO_CODE_DATA_DIR: t.dirs.dataDir, RUUKOTO_CODE_AGENT_DIR: t.dirs.agentDir,
++          RUUKOTO_CODE_CONTROL_DIR: t.runtime.controlDir(), RUUKOTO_CODE_PENDING_DIR: path.join(t.dirs.root, "pending"), RUUKOTO_OWNER_TOKEN: "", RUUKOTO_OWNER_TOKEN_FILE: "" },
+       });
+       return JSON.parse(stdout);
+     };
+diff --git a/test/15-tui-pty.test.ts b/test/15-tui-pty.test.ts
+index 4854d0c..21aea1c 100644
+--- a/test/15-tui-pty.test.ts
++++ b/test/15-tui-pty.test.ts
+@@ -178,13 +178,12 @@ async function runTuiInPty(opts: {
+   size?: { columns: number; rows: number };
+   expect: string[];
+   timeout?: number;
+-  product?: "ruukoto" | "ruukoto-code";
+ }): Promise<PtyResult> {
+   const args = ["tui"];
+   if (opts.sessionId) args.push("--session", opts.sessionId);
+   const payload = JSON.stringify({
+-    cmd: ["npx", "tsx", `apps/${opts.product ?? "ruukoto"}/src/main.ts`, ...args],
+-    env: opts.env,
++    cmd: ["npx", "tsx", "apps/ruukoto-code/src/main.ts", ...args],
++    env: { ...opts.env, RUUKOTO_OWNER_TOKEN: "", RUUKOTO_OWNER_TOKEN_FILE: "" },
+     inputs: opts.inputs,
+     size: opts.size,
+     expect: opts.expect,
+@@ -224,7 +223,7 @@ test("PTY：Coding Agent /compact 中文指引、真实反馈与退出后的持
+     const file = t.runtime.store.getSession(session.id)!.sessionFile!;
+     const bytes = fs.readFileSync(file);
+     const calls = t.server.calls.length;
+-    const result = await runTuiInPty({ product: "ruukoto-code", sessionId: session.id,
++    const result = await runTuiInPty({ sessionId: session.id,
+       env: { RUUKOTO_CODE_DATA_DIR: t.dirs.dataDir, RUUKOTO_CODE_AGENT_DIR: t.dirs.agentDir, RUUKOTO_CODE_CONTROL_DIR: t.runtime.controlDir(), RUUKOTO_CODE_PENDING_DIR: path.join(t.dirs.root, "pending") },
+       inputs: [[4, "/compact 保留  迁移细节\r"], [10, "/quit\r"]],
+       expect: ["已接收", "上下文已压缩", "已退出 TUI"], timeout: 30 });
+@@ -247,7 +246,7 @@ test("PTY：工作流逐层启动与日志、宽窄缩放和 Tab 聊天均保留
+     const session = (await t.runtime.openWorkspace({ cwd: t.work[0] })).session;
+     const text = Array.from({ length: 40 }, (_, index) => "STAGE-LOG " + index + " 中文阶段").join("\n");
+     await t.runtime.saveWorkflowDefinition({ name: "batch", script: 'await progress("state",{text:' + JSON.stringify(text) + '}); return await ask("q",{prompt:"继续?"});', expectedDigest: null, requestKey: "owner:save" });
+-    const result = await runTuiInPty({ product: "ruukoto-code", sessionId: session.id, size: { columns: 140, rows: 30 },
++    const result = await runTuiInPty({ sessionId: session.id, size: { columns: 140, rows: 30 },
+       env: { RUUKOTO_CODE_DATA_DIR: t.dirs.dataDir, RUUKOTO_CODE_AGENT_DIR: t.dirs.agentDir, RUUKOTO_CODE_CONTROL_DIR: t.runtime.controlDir(), RUUKOTO_CODE_PENDING_DIR: path.join(t.dirs.root, "pending") },
+       inputs: [[4, "/workflow\r"], [6, "\x1b[B\r"], [7, "\r"], [8, "\r"], [9, "终端逐层操作\r"], [10, "\r"],
+         [12, "\r"], [13, "\x1b[B\r"], [14, "\x1b[6~"], [15, { columns: 70, rows: 22 }],
+@@ -279,11 +278,14 @@ async function startBackendProcess(dirs: { root: string; dataDir: string; agentD
+   await writeModelsJson(dirs, baseUrl);
+   const env = {
+     ...process.env,
+-    RUUKOTO_DATA_DIR: dirs.dataDir,
+-    RUUKOTO_AGENT_DIR: dirs.agentDir,
+-    RUUKOTO_PENDING_DIR: path.join(dirs.root, "pending"),
++    RUUKOTO_CODE_DATA_DIR: dirs.dataDir,
++    RUUKOTO_CODE_AGENT_DIR: dirs.agentDir,
++    RUUKOTO_CODE_PENDING_DIR: path.join(dirs.root, "pending"),
++    RUUKOTO_CODE_CONTROL_DIR: path.join(dirs.root, "control"),
++    RUUKOTO_OWNER_TOKEN: "",
++    RUUKOTO_OWNER_TOKEN_FILE: "",
+   };
+-  const child = spawn("npx", ["tsx", "apps/ruukoto/src/main.ts", "start", "--tools", "mock", "--model", "mock/mock-model"], {
++  const child = spawn("npx", ["tsx", "apps/ruukoto-code/src/main.ts", "start", "--tools", "mock", "--model", "mock/mock-model"], {
+     env,
+     stdio: ["ignore", "pipe", "pipe"],
+     detached: true, // 独立进程组：npx 垫片被杀时其 node 孙进程随组回收，不遗留持有管道的孤儿
+diff --git a/test/32-dev.test.ts b/test/32-dev.test.ts
+index e5741db..d1bcd33 100644
+--- a/test/32-dev.test.ts
++++ b/test/32-dev.test.ts
+@@ -23,7 +23,6 @@ import * as net from "node:net";
+ import * as path from "node:path";
+ import { DatabaseSync } from "node:sqlite";
+ import { fileURLToPath } from "node:url";
+-import type { ProductType } from "@ruukoto/core/product.ts";
+ import { FakeTerminal } from "./helpers/fake-terminal.ts";
+ import {
+   buildChildEnv,
+@@ -76,8 +75,8 @@ interface DevRun {
+   waitExit: () => Promise<number | null>;
+ }
+
+-function runDev(home: string, args: string[] = [], extraEnv: NodeJS.ProcessEnv = {}, product: ProductType = "ruukoto"): DevRun {
+-  const entry = product === "ruukoto" ? "apps/ruukoto/src/dev.ts" : "apps/ruukoto-code/src/dev.ts";
++function runDev(home: string, args: string[] = [], extraEnv: NodeJS.ProcessEnv = {}, product: "ruukoto-code" = "ruukoto-code"): DevRun {
++  const entry = `apps/${product}/src/dev.ts`;
+   const child = spawn(process.execPath, ["--import", "tsx", entry, ...args], {
+     cwd: repoRoot,
+     env: { ...process.env, HOME: home, ...extraEnv },
+@@ -406,7 +405,7 @@ setInterval(() => {}, 1000);
+   }
+ });
+
+-for (const product of ["ruukoto", "ruukoto-code"] as const) {
++for (const product of ["ruukoto-code"] as const) {
+   for (const flag of ["--tui", "--nope"]) {
+     test(`${product} 开发入口：${flag} 在建目录前失败（无副作用）`, { timeout: 60_000 }, async () => {
+       const home = tmpHome();
+@@ -430,7 +429,7 @@ for (const product of ["ruukoto", "ruukoto-code"] as const) {
+     try {
+       assert.equal(await run.waitExit(), 1);
+       assert.ok(run.stderr().includes("未配置有效模型"), run.stderr());
+-      assert.ok(run.stderr().includes(`npm run ${product === "ruukoto" ? "dev" : "code"} -- --config`), run.stderr());
++      assert.ok(run.stderr().includes("npm run code -- --config"), run.stderr());
+       assert.ok(!fs.existsSync(path.join(profile.controlDir, "control.sock")), "后台未启动");
+       assert.ok(!fs.existsSync(path.join(profile.logsDir, "backend.log")), "未产生后台日志");
+     } finally {
+@@ -440,13 +439,13 @@ for (const product of ["ruukoto", "ruukoto-code"] as const) {
+   });
+ }
+
+-test("dev --import-models：复制后进入门禁；无效配置退出且 credentials.json 未导入", { timeout: 60_000 }, async () => {
++test("code --import-models：复制后进入门禁；无效配置退出且 credentials.json 未导入", { timeout: 60_000 }, async () => {
+   const home = tmpHome();
+   const dir = tmpHome("ruukoto-test-import-src-");
+   fs.writeFileSync(path.join(dir, "models.json"), JSON.stringify({ providers: {} }));
+   fs.writeFileSync(path.join(dir, "auth.json"), "{}");
+   fs.writeFileSync(path.join(dir, "credentials.json"), "{}");
+-  const profile = devProfileFor(repoRoot, home);
++  const profile = devProfileFor(repoRoot, home, "ruukoto-code");
+   const run = runDev(home, ["--import-models", dir]);
+   try {
+     const code = await run.waitExit();
+@@ -464,66 +463,9 @@ test("dev --import-models：复制后进入门禁；无效配置退出且 creden
+   }
+ });
+
+-test(
+-  "dev：后台就绪（QQ 停用、环境可认证），SIGINT 后无锁无孤儿进程",
+-  { timeout: 180_000 },
+-  async () => {
+-    const home = tmpHome();
+-    const profile = devProfileFor(repoRoot, home);
+-    const server = new MockModelServer(async () => ({ kind: "text", text: "ok" }));
+-    const baseUrl = await server.start();
+-    await writeMockModelConfig(profile.agentDir, baseUrl);
+-    const tokenInjection = { RUUKOTO_OWNER_TOKEN: "x".repeat(40), RUUKOTO_EXECUTION_BACKEND: "container" }; // 被清洗，不得进入子进程
+-    const run = runDev(home, [], tokenInjection);
+-    try {
+-      await waitFor(
+-        "dev 后台就绪",
+-        async () => {
+-          if (run.child.exitCode !== null || run.child.signalCode !== null) {
+-            throw new Error(`dev 在后台就绪前退出（code=${run.child.exitCode} signal=${run.child.signalCode}）\nstdout:\n${run.stdout().slice(-2000)}\nstderr:\n${run.stderr().slice(-2000)}`);
+-          }
+-          return probeControlPlane(path.join(profile.controlDir, "control.sock"), readOwnerToken(profile.controlDir), 800);
+-        },
+-        120_000,
+-      );
+-      // 令牌来自档案文件（清洗后的环境），QQ 入口按 dev 标记停用
+-      const client = await ControlClient.connect(path.join(profile.controlDir, "control.sock"), 3000);
+-      try {
+-        await client.authenticate(readOwnerToken(profile.controlDir)!);
+-        const qq = await client.request<Record<string, unknown>>("qq_status", {});
+-        assert.equal((await client.handshake()).snapshot.execution.backend, "native", "dev 清理旧覆盖并沿用个人产品 native 默认");
+-        assert.equal(qq.disabledByConfig, true, "QQ 按启动配置停用");
+-        assert.ok(String(qq.stateDetail).includes("停用"), String(qq.stateDetail));
+-      } finally {
+-        client.close();
+-      }
+-
+-      run.child.kill("SIGINT");
+-      const code = await run.waitExit();
+-      assert.equal(code, 0, `收到 SIGINT 后 dev 正常清理退出；dev 输出：\n${run.stderr().slice(-1500)}`);
+-      assert.ok(run.stderr().includes("日志"), "退出时提示日志位置");
+-      await waitFor("实例锁释放", () => !fs.existsSync(path.join(profile.dataDir, "runtime.lock")), 15_000);
+-      assert.ok(!fs.existsSync(path.join(profile.controlDir, "control.sock")), "socket 已清理");
+-      // 后台 pid 从 backend.log 解析：进程必须已不存在（无孤儿）
+-      const backendLog = fs.readFileSync(path.join(profile.logsDir, "backend.log"), "utf8");
+-      const pid = Number(/\(pid (\d+)\)/.exec(backendLog)?.[1]);
+-      assert.ok(Number.isInteger(pid) && pid > 0, `backend.log 应含后台 pid：${backendLog.slice(-300)}`);
+-      assert.throws(() => process.kill(pid, 0), /ESRCH/, "后台进程已退出，无孤儿");
+-      assert.ok(
+-        !(await probeControlPlane(path.join(profile.controlDir, "control.sock"), readOwnerToken(profile.controlDir), 500)),
+-        "控制面不再可连",
+-      );
+-    } finally {
+-      await killDev(run);
+-      await server.close();
+-      fs.rmSync(home, { recursive: true, force: true });
+-    }
+-  },
+-);
+-
+-test("dev：开发实例已在运行 → 报错退出且不碰外来后台", { timeout: 180_000 }, async () => {
++test("code：开发实例已在运行 → 报错退出且不碰外来后台", { timeout: 180_000 }, async () => {
+   const home = tmpHome();
+-  const profile = devProfileFor(repoRoot, home);
++  const profile = devProfileFor(repoRoot, home, "ruukoto-code");
+   fs.mkdirSync(profile.dataDir, { recursive: true });
+   fs.mkdirSync(profile.agentDir, { recursive: true });
+   const server = new MockModelServer(async () => ({ kind: "text", text: "ok" }));
+diff --git a/test/66-control-seam.test.ts b/test/66-control-seam.test.ts
+index 3181f4f..8b776db 100644
+--- a/test/66-control-seam.test.ts
++++ b/test/66-control-seam.test.ts
+@@ -746,8 +746,8 @@ test("CLI submit：后台明确拒绝时打印「提交被拒绝」，不再提
+     const repoRoot = path.resolve(import.meta.dirname, "..");
+     const child = childProcess.spawn(
+       path.join(repoRoot, "node_modules", ".bin", "tsx"),
+-      ["apps/ruukoto/src/main.ts", "submit", sessionId, "req-cli-reject", "你好", "--model", "mock/no-such-model", "--thinking", "off"],
+-      { cwd: repoRoot, env: { ...process.env, RUUKOTO_CONTROL_DIR: controlDir } },
++      ["apps/ruukoto-code/src/main.ts", "submit", sessionId, "req-cli-reject", "你好", "--model", "mock/no-such-model", "--thinking", "off"],
++      { cwd: repoRoot, env: { ...process.env, RUUKOTO_CODE_DATA_DIR: t.dirs.dataDir, RUUKOTO_CODE_AGENT_DIR: t.dirs.agentDir, RUUKOTO_CODE_CONTROL_DIR: controlDir, RUUKOTO_CODE_PENDING_DIR: path.join(t.dirs.root, "pending"), RUUKOTO_OWNER_TOKEN: "", RUUKOTO_OWNER_TOKEN_FILE: "" } },
+     );
+     let stderr = "";
+     child.stderr.on("data", (chunk) => (stderr += chunk));
+diff --git a/test/73-desktop-execution.test.ts b/test/73-desktop-execution.test.ts
+index 82227ba..ee38741 100644
+--- a/test/73-desktop-execution.test.ts
++++ b/test/73-desktop-execution.test.ts
+@@ -6,8 +6,7 @@
+  * Note: 见 .agents/notes/implemented/architecture/2026-10-10-native-execution-sandbox.md
+  *
+  * 测试接缝（预先约定）：
+- * - ruukoto/ruukoto-code 的 `server` 进程入口：执行后端按产品解析默认值
+- *   （两产品均为 native），旧 local/container 覆盖拒绝并提供迁移指引；
++ * - ruukoto-code 的 `server` 进程入口：默认使用 native，旧 local/container 覆盖拒绝并提供迁移指引；
+  * - 握手快照 `snapshot.execution`（TUI 展示的来源）后台声明的实际后端；
+  * - `submit`：完全访问直接使用启动账户；confirm 仍保留受限后端。
+  *
+@@ -44,7 +43,7 @@ interface SpawnedBackend {
+ }
+
+ async function spawnBackend(opts: {
+-  product: "ruukoto" | "ruukoto-code";
++  product: "ruukoto-code";
+   dataDir: string;
+   agentDir: string;
+   root: string;
+@@ -53,8 +52,8 @@ async function spawnBackend(opts: {
+ }): Promise<SpawnedBackend> {
+   const controlDir = nodePath.join(opts.root, "control");
+   const env: NodeJS.ProcessEnv = { PATH: process.env.PATH, HOME: process.env.HOME, ...opts.extraEnv };
+-  env[opts.product === "ruukoto" ? "RUUKOTO_CONTROL_DIR" : "RUUKOTO_CODE_CONTROL_DIR"] = controlDir;
+-  const binFile = opts.product === "ruukoto" ? "ruukoto.mjs" : "ruukoto-code.mjs";
++  env.RUUKOTO_CODE_CONTROL_DIR = controlDir;
++  const binFile = "ruukoto-code.mjs";
+   const child = childProcess.spawn(
+     process.execPath,
+     [nodePath.join(repoRoot, "apps", binFile.replace(/\.mjs$/, ""), "bin", binFile), "server", "--data-dir", opts.dataDir, "--agent-dir", opts.agentDir, "--tools", "mock", ...(opts.extraArgv ?? [])],
+@@ -117,7 +116,7 @@ async function stopBackend(backend: SpawnedBackend): Promise<void> {
+
+ type TestDirs = { dataDir: string; agentDir: string; root: string };
+
+-for (const product of ["ruukoto", "ruukoto-code"] as const) {
++for (const product of ["ruukoto-code"] as const) {
+ test(`${product} 默认执行后端 = native；完全访问无需额外执行入口`, async () => {
+   const { dirs, work } = await makeTestDirs("x73dev", 1);
+   const server = new MockModelServer(async () => ({ kind: "text", text: "ok" }));
+@@ -200,9 +199,9 @@ test(`${product} 的旧 local/container flag 与环境覆盖拒绝，并给出
+           [nodePath.join(repoRoot, "apps", product, "bin", product + ".mjs"), ...argv],
+           { cwd: repoRoot, encoding: "utf8", timeout: 60_000, env: {
+             PATH: process.env.PATH, HOME: process.env.HOME,
+-            [product === "ruukoto" ? "RUUKOTO_DATA_DIR" : "RUUKOTO_CODE_DATA_DIR"]: dirs.dataDir,
+-            [product === "ruukoto" ? "RUUKOTO_AGENT_DIR" : "RUUKOTO_CODE_AGENT_DIR"]: dirs.agentDir,
+-            [product === "ruukoto" ? "RUUKOTO_CONTROL_DIR" : "RUUKOTO_CODE_CONTROL_DIR"]: nodePath.join(dirs.root, "control"), RUUKOTO_EXECUTION_BACKEND: argv.includes("--execution") ? undefined : execution,
++            RUUKOTO_CODE_DATA_DIR: dirs.dataDir,
++            RUUKOTO_CODE_AGENT_DIR: dirs.agentDir,
++            RUUKOTO_CODE_CONTROL_DIR: nodePath.join(dirs.root, "control"), RUUKOTO_EXECUTION_BACKEND: argv.includes("--execution") ? undefined : execution,
+           } });
+         assert.equal(result.status, 1, `${execution}: ${argv.join(" ")}`);
+         assert.match(result.stderr, /--execution 取值无效/);
+@@ -223,9 +222,9 @@ test(`${product} 非法执行后端在 server、TUI、工作区与旧 tui 入口
+         [nodePath.join(repoRoot, "apps", product, "bin", product + ".mjs"), ...argv],
+         { cwd: repoRoot, encoding: "utf8", timeout: 60_000, env: {
+           PATH: process.env.PATH, HOME: process.env.HOME,
+-          [product === "ruukoto" ? "RUUKOTO_DATA_DIR" : "RUUKOTO_CODE_DATA_DIR"]: dirs.dataDir,
+-          [product === "ruukoto" ? "RUUKOTO_AGENT_DIR" : "RUUKOTO_CODE_AGENT_DIR"]: dirs.agentDir,
+-          [product === "ruukoto" ? "RUUKOTO_CONTROL_DIR" : "RUUKOTO_CODE_CONTROL_DIR"]: nodePath.join(dirs.root, "control"),
++          RUUKOTO_CODE_DATA_DIR: dirs.dataDir,
++          RUUKOTO_CODE_AGENT_DIR: dirs.agentDir,
++          RUUKOTO_CODE_CONTROL_DIR: nodePath.join(dirs.root, "control"),
+           RUUKOTO_EXECUTION_BACKEND: argv.includes("--execution") ? undefined : "bogus",
+         } });
+       assert.equal(result.status, 1);
+diff --git a/test/85-legacy-instance-import.test.ts b/test/85-legacy-instance-import.test.ts
+index 11f10b2..6902ed4 100644
+--- a/test/85-legacy-instance-import.test.ts
++++ b/test/85-legacy-instance-import.test.ts
+@@ -895,7 +895,7 @@ test("v20 旧库：拒绝旧格式且源 sha 不变", () => {
+
+ // ---------- 8. CLI：真实 bin 入口与产品分流 ----------
+
+-test("CLI：preview/apply/list/revert 全流程与 ruukoto 侧分流", async () => {
++test("CLI：Coding preview/apply/list/revert 全流程，新个人入口拒绝 legacy-import", async () => {
+   const src = await buildSource("li-cli");
+   const { dirs } = await makeTestDirs("li-tcli");
+   const personal = await makeTestDirs("li-tcli-personal");
+@@ -906,6 +906,7 @@ test("CLI：preview/apply/list/revert 全流程与 ruukoto 侧分流", async ()
+     RUUKOTO_CODE_AGENT_DIR: dirs.agentDir,
+     RUUKOTO_DATA_DIR: personal.dirs.dataDir,
+     RUUKOTO_AGENT_DIR: personal.dirs.agentDir,
++    RUUKOTO_PERSONAL_DIR: personal.dirs.dataDir,
+   };
+   const run = (bin: string, args: string[]) =>
+     spawnSync(process.execPath, [path.join(repoRoot, "apps", bin.replace(/\.mjs$/, ""), "bin", bin), ...args], {
+@@ -917,11 +918,12 @@ test("CLI：preview/apply/list/revert 全流程与 ruukoto 侧分流", async ()
+     });
+   try {
+     const sourceHashBefore = hashTree(src.root);
+-    // issue 22 起两产品都提供 legacy-import 并按产品分流：ruukoto 侧为个人方向；
+-    // 环境变量指向独立临时目录，不触碰真实档案
++    // 新个人入口退出旧导入命令，参数拒绝先于读取或创建档案。
+     const gate = run("ruukoto.mjs", ["legacy-import", "list"]);
+-    assert.equal(gate.status, 0, `ruukoto 侧分流到个人方向（list 空目标）：${gate.stderr}`);
+-    assert.deepEqual(JSON.parse(gate.stdout), [], "ruukoto 侧空目标无导入回执");
++    assert.equal(gate.status, 1, gate.stderr);
++    assert.match(gate.stderr, /cli_arguments/);
++    assert.equal(gate.stdout, "");
++    assert.deepEqual(fs.readdirSync(personal.dirs.dataDir), [], "新个人拒绝旧命令时不创建档案");
+
+     const planFile = path.join(dirs.root, "plan.json");
+     const preview = run("ruukoto-code.mjs", ["legacy-import", "preview", "--from", src.srcDataDir, "--plan", planFile]);
+diff --git a/test/helpers/backend.ts b/test/helpers/backend.ts
+index 421c8c9..c33853b 100644
+--- a/test/helpers/backend.ts
++++ b/test/helpers/backend.ts
+@@ -1,5 +1,5 @@
+ /**
+- * 真实子进程后台（崩溃恢复测试共用）：tsx 启动 packages/tui/src/cli.ts start，
++ * 真实子进程后台（崩溃恢复测试共用）：tsx 启动 Coding main 的共享 CLI start，
+  * 按进程组 SIGKILL；连接控制面并以拥有者令牌认证。
+  */
+
+@@ -13,8 +13,8 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."
+ const tsxBin = path.join(repoRoot, "node_modules", ".bin", "tsx");
+
+ /** 直接 spawn 后台进程（重复启动拒绝等进程级断言用；常规路径用 spawnBackend）。 */
+-export function spawnBackendRaw(args: string[]): childProcess.ChildProcess {
+-  return childProcess.spawn(tsxBin, args, { cwd: repoRoot, stdio: "ignore" });
++export function spawnBackendRaw(args: string[], env: NodeJS.ProcessEnv = {}): childProcess.ChildProcess {
++  return childProcess.spawn(tsxBin, args, { cwd: repoRoot, env: { ...process.env, RUUKOTO_PRODUCT: "ruukoto-code", RUUKOTO_OWNER_TOKEN: "", RUUKOTO_OWNER_TOKEN_FILE: "", ...env }, stdio: "ignore" });
+ }
+
+ export interface Backend {
+@@ -33,16 +33,17 @@ export function killProcessTree(child: childProcess.ChildProcess): void {
+ }
+
+ export async function spawnBackend(dataDir: string, agentDir: string): Promise<Backend> {
++  const profileRoot = path.dirname(path.resolve(dataDir));
++  const controlDir = path.join(profileRoot, "control");
+   const child = childProcess.spawn(
+     tsxBin,
+-    ["apps/ruukoto/src/main.ts", "start", "--data-dir", dataDir, "--agent-dir", agentDir, "--tools", "mock"],
+-    { cwd: repoRoot, stdio: ["ignore", "ignore", "pipe"], detached: true },
++    ["apps/ruukoto-code/src/main.ts", "start", "--data-dir", dataDir, "--agent-dir", agentDir, "--tools", "mock"],
++    { cwd: repoRoot, env: { ...process.env, RUUKOTO_PRODUCT: "ruukoto-code", RUUKOTO_CODE_DATA_DIR: dataDir, RUUKOTO_CODE_AGENT_DIR: agentDir, RUUKOTO_CODE_CONTROL_DIR: controlDir, RUUKOTO_CODE_PENDING_DIR: path.join(profileRoot, "pending"), RUUKOTO_OWNER_TOKEN: "", RUUKOTO_OWNER_TOKEN_FILE: "" }, stdio: ["ignore", "ignore", "pipe"], detached: true },
+   );
+   let stderr = "";
+   child.stderr!.on("data", (c: Buffer) => {
+     stderr += c.toString("utf8");
+   });
+-  const controlDir = path.join(path.dirname(path.resolve(dataDir)), "control");
+   const socketPath = path.join(controlDir, "control.sock");
+   const deadline = Date.now() + 60_000;
+   for (;;) {

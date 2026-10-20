@@ -1,0 +1,15 @@
+{
+  "stage": "setup",
+  "argv": [
+    "npm",
+    "run",
+    "setup",
+    "--",
+    "--skip-hooks"
+  ],
+  "cwd": "/tmp/ruukoto38-pack-20261018-1",
+  "startedUtc": "2026-10-18T10:50:03.858232+00:00",
+  "returncode": 0,
+  "elapsedSeconds": 9.622,
+  "finishedUtc": "2026-10-18T10:50:13.479842+00:00"
+}

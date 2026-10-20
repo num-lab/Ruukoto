@@ -1,0 +1,12 @@
+{
+  "at": "2026-10-18T16:02:44.502982+00:00",
+  "candidateDirectory": "/Users/eitrous/Developer/Temp/napcat-v4.18.38-candidate",
+  "officialZipSha256": "735f2e633247df3ffd6e8ee8b84d7039c315b2655f5807e5f0029f93d2c30016",
+  "archiveUnchanged": true,
+  "objectsScanned": 2067,
+  "method": "four actual credentials read only in memory; raw/JSON/URL/base64/base64url/hex/unicode-escape variants; official ZIP bytes and decompressed members plus all candidate files; credential material never output; public rkey literals in untouched official software are outside this four-credential scan",
+  "hits": [],
+  "result": "pass",
+  "liveFilesReadOrChanged": false,
+  "endToEndOrDryRun": false
+}

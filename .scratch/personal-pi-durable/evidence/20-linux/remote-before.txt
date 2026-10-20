@@ -1,0 +1,148 @@
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/vda2        40G   37G  619M  99% /
+    PID    PPID STAT COMMAND
+      1       0 Ss   /usr/lib/systemd/systemd --system --deserialize=36 showopts
+      2       0 S    [kthreadd]
+      3       2 S    [pool_workqueue_release]
+      4       2 I<   [kworker/R-rcu_g]
+      5       2 I<   [kworker/R-rcu_p]
+      6       2 I<   [kworker/R-slub_]
+      7       2 I<   [kworker/R-netns]
+      9       2 I<   [kworker/0:0H-events_highpri]
+     12       2 I<   [kworker/R-mm_pe]
+     13       2 I    [rcu_tasks_kthread]
+     14       2 I    [rcu_tasks_rude_kthread]
+     15       2 I    [rcu_tasks_trace_kthread]
+     16       2 S    [ksoftirqd/0]
+     17       2 I    [rcu_preempt]
+     18       2 S    [migration/0]
+     19       2 S    [idle_inject/0]
+     20       2 S    [cpuhp/0]
+     21       2 S    [cpuhp/1]
+     22       2 S    [idle_inject/1]
+     23       2 S    [migration/1]
+     24       2 S    [ksoftirqd/1]
+     26       2 I<   [kworker/1:0H-kblockd]
+     27       2 S    [cpuhp/2]
+     28       2 S    [idle_inject/2]
+     29       2 S    [migration/2]
+     30       2 S    [ksoftirqd/2]
+     32       2 I<   [kworker/2:0H-events_highpri]
+     33       2 S    [cpuhp/3]
+     34       2 S    [idle_inject/3]
+     35       2 S    [migration/3]
+     36       2 S    [ksoftirqd/3]
+     38       2 I<   [kworker/3:0H-kblockd]
+     39       2 S    [kdevtmpfs]
+     40       2 I<   [kworker/R-inet_]
+     41       2 S    [kauditd]
+     42       2 S    [khungtaskd]
+     43       2 S    [oom_reaper]
+     45       2 I<   [kworker/R-write]
+     47       2 S    [kcompactd0]
+     48       2 SN   [ksmd]
+     50       2 SN   [khugepaged]
+     51       2 I<   [kworker/R-kinte]
+     52       2 I<   [kworker/R-kbloc]
+     53       2 I<   [kworker/R-blkcg]
+     54       2 S    [irq/9-acpi]
+     56       2 I<   [kworker/R-tpm_d]
+     57       2 I<   [kworker/R-ata_s]
+     58       2 I<   [kworker/R-md]
+     59       2 I<   [kworker/R-md_bi]
+     60       2 I<   [kworker/R-edac-]
+     61       2 I<   [kworker/R-devfr]
+     62       2 S    [watchdogd]
+     63       2 I<   [kworker/R-quota]
+     64       2 I<   [kworker/2:1H-kblockd]
+     66       2 S    [kswapd0]
+     67       2 S    [ecryptfs-kthread]
+     68       2 I<   [kworker/R-kthro]
+     69       2 I<   [kworker/R-acpi_]
+     70       2 S    [scsi_eh_0]
+     71       2 I<   [kworker/R-scsi_]
+     72       2 S    [scsi_eh_1]
+     73       2 I<   [kworker/R-scsi_]
+     74       2 I<   [kworker/0:1H-kblockd]
+     76       2 I<   [kworker/R-mld]
+     77       2 I<   [kworker/R-ipv6_]
+     84       2 I<   [kworker/R-kstrp]
+     86       2 I<   [kworker/u9:0]
+     91       2 I<   [kworker/R-crypt]
+     93       2 I<   [kworker/1:1H-kblockd]
+    104       2 I<   [kworker/R-charg]
+    203       2 I<   [kworker/R-raid5]
+    248       2 S    [jbd2/vda2-8]
+    249       2 I<   [kworker/R-ext4-]
+    364       2 I<   [kworker/R-kmpat]
+    365       2 I<   [kworker/R-kmpat]
+    785       2 I<   [kworker/R-nfit]
+    967       2 I<   [kworker/R-cfg80]
+    994       1 Ss   @dbus-daemon --system --address=systemd: --nofork --nopidfile --systemd-activation --syslog-only
+   1000       1 Ss   /usr/bin/python3 /usr/bin/networkd-dispatcher --run-startup-triggers
+   1008       1 Ss   /usr/lib/systemd/systemd-logind
+   1052       1 Ss+  /sbin/agetty -o -p -- \u --keep-baud 115200,57600,38400,9600 - vt220
+   1056       1 Ssl  /usr/bin/python3 /usr/share/unattended-upgrades/unattended-upgrade-shutdown --wait-for-signal
+   1061       1 Ss+  /sbin/agetty -o -p -- \u --noclear - linux
+   1487       2 I<   [kworker/R-tls-s]
+   1567       1 Sl   /usr/local/qcloud/stargate/bin/sgagent -d
+   2866       1 S    barad_agent
+   2877    2866 S    barad_agent
+   2878    2866 Sl   barad_agent
+  35098       1 Ssl  /usr/bin/dockerd -H fd:// --containerd=/run/containerd/containerd.sock
+[已脱敏：无关 cloudflared 进程命令行含凭据]
+ 336932       1 Ssl  /usr/local/qcloud/YunJing/YDEyes/YDService
+ 337011       1 Sl   /usr/local/qcloud/YunJing/YDLive/YDLive
+ 337253       1 Ssl  /bin/sh -c sleep 100
+ 492887       1 S    grep -v DeprecationWarning
+ 492888       1 S    grep -v pid = os.fork
+ 492894       1 Ss   /usr/bin/python3 -I -c import os,signal,time,socket,sys os.setsid() signal.signal(signal.SIGTERM, signal.SIG_IGN) r={} try:  open('/tmp/ll-secret-hbbz6wck/creds.json').read(); r['secret']='ALLOWED' except OSError as e: r['secret']='DENIED:%d'%e.errno try:  s=socket.socket(); s.settimeout(2); s.connect(('127.0.0.1',55321)); r['tcp']='ALLOWED' except OSError as e: r['tcp']='DENIED:%d'%e.errno open('/tmp/ll-secret-hbbz6wck/beat.txt','w').write(repr(r)) i=0 while True:  i+=1  open('/tmp/ll-secret-hbbz6wck/beat.txt'+'.n','w').write(str(i))  time.sleep(0.2)
+1133370       2 I<   [kworker/3:1H]
+1133373       2 S    [psimon]
+1484323       1 Ss   /usr/lib/systemd/systemd --user
+1484326 1484323 S    (sd-pam)
+1485967       1 Ssl  /home/eitrous/.vscode-server/code-7debcd0e2acdea1c52de81bf9ee1620444407dda --cli-data-dir /home/eitrous/.vscode-server/cli agent host
+1914666       1 Sl   /usr/local/qcloud/tat_agent/tat_agent
+1916532       1 Ss   /usr/sbin/cron -f -P
+1916535       1 Ss   /usr/sbin/acpid
+1916553       1 SLsl /sbin/multipathd -d -s
+1916555       1 Ssl  /usr/bin/containerd
+1916573       1 S    /usr/sbin/chronyd -F 1
+1916575 1916573 S    /usr/sbin/chronyd -F 1
+1916577       1 S<s  /usr/lib/systemd/systemd-journald
+1916586       1 Ssl  /usr/libexec/upowerd
+1916592       1 Ss   sshd: /usr/sbin/sshd -D [listener] 0 of 10-100 startups
+1916596       1 Ss   /usr/lib/systemd/systemd-udevd
+1916602       1 Ssl  /usr/libexec/udisks2/udisksd
+1916616       1 Ssl  /usr/lib/polkit-1/polkitd --no-debug
+1916620       1 Ssl  /usr/sbin/rsyslogd -n -iNONE
+1916622       1 Ss   /usr/lib/systemd/systemd-resolved
+1916630       2 S    [psimon]
+1916631       1 Ss   /usr/lib/systemd/systemd-networkd
+1916640       1 Ssl  /usr/sbin/ModemManager
+2163755       1 Sl   node /opt/ruukoto/node_modules/.bin/tsx src/cli.ts start --execution local --tools mock --model mock/mock-model
+2163766 2163755 Sl   /usr/local/bin/node --require /opt/ruukoto/node_modules/tsx/dist/preflight.cjs --import file:///opt/ruukoto/node_modules/tsx/dist/loader.mjs src/cli.ts start --execution local --tools mock --model mock/mock-model
+2178158       1 Sl   node /opt/ruukoto/node_modules/.bin/tsx src/cli.ts start --execution local --tools mock --model mock/mock-model
+2178169 2178158 Sl   /usr/local/bin/node --require /opt/ruukoto/node_modules/tsx/dist/preflight.cjs --import file:///opt/ruukoto/node_modules/tsx/dist/loader.mjs src/cli.ts start --execution local --tools mock --model mock/mock-model
+3121548       2 I    [kworker/1:0-events]
+3138899       2 I    [kworker/0:0-events]
+3173493       2 I    [kworker/1:2-cgroup_free]
+3178732       2 I    [kworker/2:0-events]
+3183134       2 I    [kworker/u8:0-events_power_efficient]
+3195353       2 I    [kworker/3:1-cgroup_free]
+3196630       2 I    [kworker/u8:2-iou_exit]
+3198361       2 I    [kworker/0:3-cgroup_free]
+3199800       2 I    [kworker/3:0-events]
+3200064       2 I    [kworker/2:3-events]
+3200693       2 I    [kworker/u8:1-events_power_efficient]
+3201907       2 I    [kworker/u8:3]
+3201908       2 I    [kworker/0:1]
+3201909       2 I    [kworker/0:2-cgroup_free]
+3202051 1916592 Ss   sshd: eitrous [priv]
+3202052       2 I    [kworker/1:1]
+3202101 3202051 S    sshd: eitrous@notty
+3202102 3202101 Rs   ps -eo pid,ppid,stat,args
+3963064       1 Ssl  /usr/bin/node /opt/ruukoto/node_modules/.bin/tsx /opt/ruukoto/src/cli.ts start --model deepseek/deepseek-flash
+3963076 3963064 Sl   /usr/local/bin/node --require /opt/ruukoto/node_modules/tsx/dist/preflight.cjs --import file:///opt/ruukoto/node_modules/tsx/dist/loader.mjs /opt/ruukoto/src/cli.ts start --model deepseek/deepseek-flash
+3963095 3963076 Sl   /opt/ruukoto/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.28.1 --ping
+4007794 1484323 Ss   /usr/bin/dbus-daemon --session --address=systemd: --nofork --nopidfile --systemd-activation --syslog-only

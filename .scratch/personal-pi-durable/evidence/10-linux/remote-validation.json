@@ -1,0 +1,10 @@
+{
+  "command": [
+    "ssh",
+    "tx",
+    "python3 /tmp/ruukoto-personal-linux-20261017T034917Z-attempt2/remote-runner.py /tmp/ruukoto-personal-linux-20261017T034917Z-attempt2"
+  ],
+  "exitCode": 0,
+  "started": "2026-10-17T03:51:07.426708+00:00",
+  "ended": "2026-10-17T03:53:10.881164+00:00"
+}

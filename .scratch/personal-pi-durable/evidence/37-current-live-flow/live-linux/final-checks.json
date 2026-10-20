@@ -1,0 +1,116 @@
+{
+  "observedAt": "2026-10-18T10:19:47.285789+00:00",
+  "baseHead": "63a52f46c3af9b1d14bf61e7045b40fc477d9043",
+  "scope": "9个个人应用文件的接口/查询修复；未提交、未推送、未切正式入口或生产",
+  "checks": [
+    {
+      "command": "npx tsx --test test/personal-delegations.test.ts test/personal-work-tools.test.ts",
+      "passed": 35,
+      "exit": 0,
+      "candidate": "取消后复用说明修复，回归先红后绿"
+    },
+    {
+      "command": "npx tsx --test test/personal-service-operations.test.ts test/personal-telegram-permissions.test.ts",
+      "passed": 122,
+      "exit": 0,
+      "candidate": "服务结果审批投影；另消费前故障1项及独立6项通过"
+    },
+    {
+      "command": "npx tsx --test test/personal-work-controls.test.ts test/personal-work-tools.test.ts test/personal-reports.test.ts test/personal-scheduler.test.ts",
+      "passed": 92,
+      "exit": 0,
+      "candidate": "截断/核实下一步说明阶段"
+    },
+    {
+      "command": "npx tsx --test test/personal-work-controls.test.ts test/personal-work-tools.test.ts test/personal-reports.test.ts test/personal-scheduler-integration.test.ts",
+      "passed": 67,
+      "skipped": 0,
+      "exit": 0,
+      "candidate": "最终当前命令事实投影"
+    },
+    {
+      "file": "test/personal-command-work.test.ts",
+      "passed": 7,
+      "exit": 0,
+      "candidate": "最终投影：正常三模式3、auto未知报告2、独立full未知报告2；定向匹配，非全文件"
+    },
+    {
+      "command": "npm run check:static",
+      "exit": 0,
+      "candidate": "最终源和测试；lint/typecheck/notes/docs均通过"
+    }
+  ],
+  "notRun": [
+    "npm run check 全仓",
+    "QQ/MCP/浏览器/调度真实组合",
+    "所有服务与写类型崩溃窗口",
+    "生产切换"
+  ],
+  "sourceHashes": {
+    ".agents/notes/implemented/architecture/2026-10-17-personal-analysis-delegations.md": "50bc7829806cd635f8a361da7ce07d8d300109c0b74a79d8cc49e9e30dd02a9a",
+    ".agents/notes/implemented/architecture/2026-10-17-personal-durable-commands.md": "c23a647608d0016e915ee2a425a3c5de9a1615fefdb50003f03b826b8ee5cd19",
+    ".agents/notes/implemented/architecture/2026-10-17-personal-subagent-service-operations.md": "2f46459286a5310b9399ae618ba3959ced64ceef685ea28f674c9b03a5a0367c",
+    ".agents/notes/implemented/architecture/2026-10-17-personal-work-controls.md": "4dc52a62f2346acc7467690d5eee18433dcae722f10057f6ad59c6de0fbcea6a",
+    "apps/ruukoto/src/personal-cli.ts": "44f2b3c42517616844d801e93cb413509d01b21691d74f4de5492af750e429c2",
+    "apps/ruukoto/src/personal-command-work.ts": "7b892d1ef45934914963d74534292cd3f044dcb9418d551fd334b1fa6b07d8f1",
+    "apps/ruukoto/src/personal-delegation.ts": "546df7e390a9d509a1b9ccdd394612872fa47a5894c368161e1488e378bf6cf0",
+    "apps/ruukoto/src/personal-report.ts": "9b523445bc0a02ee06a9300c1abf95023f9fd7b35d77ad1d4cf3365c75f11380",
+    "apps/ruukoto/src/personal-scheduler.ts": "e004931e656481358d7cdefc4d88693ed70fdc4bb654e792a5d8f40579f47511",
+    "apps/ruukoto/src/personal-service-work.ts": "afab431b88349b523ff373c1926fde0c32c3b9d542c8b11a83a7db0a936e8177",
+    "apps/ruukoto/src/personal-work-controls.ts": "17dbb21c146ff9276f52295fd675b60841083ab4121865256d79c252d79ef048",
+    "apps/ruukoto/src/personal-work-tools.ts": "3a7db40a7c1df90061dedc11b3f7aeda3be5ca4a697fcf401726c2f9a674e1c1",
+    "apps/ruukoto/src/personal-work.ts": "a1a60ebfb78d38e15c4bbb3396b2dae6891123d39ef1ea2c21ad7c5ba3d12254",
+    "docs/modules/personal-durable.md": "e15805c8ba60e3c315f25684e27cadeb2d16bb72a04dac04d1fc90a77f3756df",
+    "docs/usage.md": "3aff8a4c02b881cb9cd1a1f77f67a0abf055944ae2d8414b02bc59130c1201b2",
+    "test/personal-command-work.test.ts": "4a6cc5990a918459628d6934c10eff7827ae8bde55ba43d2ac9c51ef5b4811de",
+    "test/personal-delegations.test.ts": "88a593f9fa1b4c2ecee64594402832ea7af4f04c17343b92e529d3d7364469ce",
+    "test/personal-scheduler-integration.test.ts": "55edec657d067bb0efd537fa0483fb166011a51b592b8a05d33d6958e8e3b99a",
+    "test/personal-service-operations.test.ts": "c7373d0328e0f656844db1399b7b08d23649eb65537f4d81c5a4a04e33624919",
+    "test/personal-telegram-permissions.test.ts": "4a489d093b4bcdcb3915683cec12b13c94071f41bb79ffce8cc5bdf2390463e8",
+    "test/personal-work-controls.test.ts": "e22bb83839cc6642fe0adbf67e05f74fbc69c8d109bbce17f94c93d665aa64ea"
+  },
+  "linuxSource": {
+    "server": 6,
+    "pid": 3613468,
+    "startTime": "1176080477",
+    "sourceHashes": {
+      "apps/ruukoto/src/personal-cli.ts": "44f2b3c42517616844d801e93cb413509d01b21691d74f4de5492af750e429c2",
+      "apps/ruukoto/src/personal-command-work.ts": "7b892d1ef45934914963d74534292cd3f044dcb9418d551fd334b1fa6b07d8f1",
+      "apps/ruukoto/src/personal-delegation.ts": "546df7e390a9d509a1b9ccdd394612872fa47a5894c368161e1488e378bf6cf0",
+      "apps/ruukoto/src/personal-report.ts": "9b523445bc0a02ee06a9300c1abf95023f9fd7b35d77ad1d4cf3365c75f11380",
+      "apps/ruukoto/src/personal-scheduler.ts": "e004931e656481358d7cdefc4d88693ed70fdc4bb654e792a5d8f40579f47511",
+      "apps/ruukoto/src/personal-service-work.ts": "afab431b88349b523ff373c1926fde0c32c3b9d542c8b11a83a7db0a936e8177",
+      "apps/ruukoto/src/personal-work-controls.ts": "17dbb21c146ff9276f52295fd675b60841083ab4121865256d79c252d79ef048",
+      "apps/ruukoto/src/personal-work-tools.ts": "3a7db40a7c1df90061dedc11b3f7aeda3be5ca4a697fcf401726c2f9a674e1c1",
+      "apps/ruukoto/src/personal-work.ts": "a1a60ebfb78d38e15c4bbb3396b2dae6891123d39ef1ea2c21ad7c5ba3d12254"
+    },
+    "independentComparison": {
+      "files": 250,
+      "changedFilesMatched": 9,
+      "baselineFilesMatched": 241,
+      "missing": 0,
+      "mismatch": 0
+    }
+  },
+  "actualRequests": {
+    "pairedRecords": 168,
+    "requests": 84,
+    "assistantStopReasons": {
+      "toolUse": 50,
+      "stop": 33,
+      "length": 1
+    },
+    "reviewerRecords": [
+      494,
+      495,
+      496
+    ],
+    "doNotAggregateWithHistoricalCandidates": true
+  },
+  "knownProductDefect": {
+    "answer": 876,
+    "text": "末句仅留本机误述；actual delivery=sent/platform537 回复TG535",
+    "blockingFor37FixedRouteUniqueness": false,
+    "followupIssue": 39
+  }
+}

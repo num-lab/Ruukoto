@@ -63,6 +63,8 @@ export class ToolWorkerHost {
   private rejectReady: ((error: ExecutionError) => void) | null = null;
   private stopped = false;
   private childrenReaped: boolean | null = null;
+  private stopOutput: Promise<void> | null = null;
+  private finishStopOutput: (() => void) | null = null;
   private nativeGrantIdentities: Array<{ path: string; dev: number; ino: number }> = [];
   private writeChain: Promise<void> = Promise.resolve();
   stopFailure: ExecutionError | null = null;
@@ -131,7 +133,11 @@ export class ToolWorkerHost {
         });
       });
       unit.stdout.setEncoding("utf8");
+      this.stopOutput = new Promise(resolve => { this.finishStopOutput = resolve; });
       unit.stdout.on("data", (chunk: string) => this.handleStdout(chunk));
+      unit.stdout.once("end", this.finishStopOutput!);
+      unit.stdout.once("close", this.finishStopOutput!);
+      unit.stdout.once("error", error => { this.finishStopOutput?.(); this.channelFailed(error); });
       unit.stderr.setEncoding("utf8");
       unit.stderr.on("data", (chunk: string) => process.stderr.write(`[ruukoto:tool-worker ${this.spec.taskId}] ${chunk}`));
       unit.stdin.on("error", error => this.channelFailed(error));
@@ -219,6 +225,7 @@ export class ToolWorkerHost {
       }
       case "stopped":
         this.childrenReaped = msg.reaped === true;
+        this.finishStopOutput?.();
         break;
       case "fatal":
         this.failAllPending(new ExecutionError("worker_fatal", msg.message));
@@ -367,6 +374,11 @@ export class ToolWorkerHost {
     if (timer) clearTimeout(timer);
     if (!graceful) unit.stdin.destroy();
     const unitReaped = await unit.entry.stop();
+    // exit 可先于 stdout 尾帧；通道结束只结束等待，不能替代命令组回执。
+    if (unitReaped && this.mode === "full_access" && this.launcher.kind === "local" && this.childrenReaped === null && this.stopOutput) {
+      await Promise.race([this.stopOutput, new Promise<void>(resolve => { timer = setTimeout(resolve, 3000); })]);
+      if (timer) clearTimeout(timer);
+    }
     const reaped = unitReaped && (this.mode !== "full_access" || this.launcher.kind !== "local" || this.childrenReaped === true);
     if (!reaped) this.stopFailure = new ExecutionError("worker_stop_unverified", "无法核实工具执行单元已退出");
     return reaped;

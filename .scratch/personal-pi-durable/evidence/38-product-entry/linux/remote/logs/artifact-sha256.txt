@@ -1,0 +1,3 @@
+ec4d123259d2ee502107d66c7598a5d88ad4a7551bf4ca9d3383cd3d70bdb909  worker/worker.mjs
+c1d8bc3492be8253ce5bdf4ed5dc553e44da91fc3eda4be663eddd7d49e63cf3  worker/personal-command-worker.mjs
+b4953ee65326cdc94ed8c2083a12b8c82e12e5b20f694f58b0a438466186cc7c  /tmp/r38-linux-JgNUHm/ruukoto-backend.service

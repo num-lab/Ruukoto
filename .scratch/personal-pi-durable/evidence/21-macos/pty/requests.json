@@ -1,0 +1,56 @@
+[
+  {
+    "route": "GET /services?offset=0",
+    "authenticated": true
+  },
+  {
+    "route": "GET /service?service=730011&offset=0",
+    "authenticated": true
+  },
+  {
+    "route": "GET /service?service=730011&offset=0",
+    "authenticated": true
+  },
+  {
+    "route": "POST /service/decide?service=730011",
+    "body": {
+      "decision": "approved"
+    },
+    "authenticated": true
+  },
+  {
+    "route": "GET /service?service=730011&offset=0",
+    "authenticated": true
+  },
+  {
+    "route": "GET /service?service=730011&offset=0",
+    "authenticated": true
+  },
+  {
+    "route": "GET /services?offset=0",
+    "authenticated": true
+  },
+  {
+    "route": "GET /service?service=730012&offset=0",
+    "authenticated": true
+  },
+  {
+    "route": "POST /service/decide?service=730012",
+    "body": {
+      "decision": "rejected"
+    },
+    "authenticated": true
+  },
+  {
+    "route": "GET /service?service=730012&offset=0",
+    "authenticated": true
+  },
+  {
+    "route": "GET /service?service=730012&offset=0",
+    "authenticated": true
+  },
+  {
+    "route": "GET /services?offset=0",
+    "authenticated": true
+  }
+]

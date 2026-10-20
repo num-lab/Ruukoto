@@ -62,36 +62,62 @@ function lstatNoFollow(p: string): fs.Stats {
   return fs.lstatSync(p);
 }
 
+function sameIdentity(before: fs.BigIntStats, after: fs.BigIntStats): boolean {
+  return before.dev === after.dev && before.ino === after.ino && (before.mode & 0o170000n) === (after.mode & 0o170000n);
+}
+
+function observeIdentity(observed: Map<string, fs.BigIntStats> | undefined, target: string, stat: fs.BigIntStats): void {
+  if (!observed) return;
+  const previous = observed.get(target);
+  if (previous && !sameIdentity(previous, stat)) throw new ApprovedOpError("授权路径身份在保护核对期间变化；本次执行未启动，请报告拥有者核实路径");
+  observed.set(target, stat);
+}
+
 /** 挂载别名与硬链接可有不同文本路径，保护范围仍按同一文件系统对象判定。 */
-function identityCovers(parent: string, target: string, descendants = false): boolean {
-  if (!fs.existsSync(parent)) return false;
+function identityOverlap(parent: string, targets: readonly string[], descendants = false, observed?: Map<string, fs.BigIntStats>): string | undefined {
+  if (!fs.existsSync(parent)) return undefined;
   const pinned = fs.statSync(parent, { bigint: true });
-  const targetIdentities = new Set<string>();
-  let current = path.resolve(target);
-  for (;;) {
-    if (fs.existsSync(current)) {
-      const stat = fs.statSync(current, { bigint: true });
-      if (stat.dev === pinned.dev && stat.ino === pinned.ino) return true;
-      if (descendants) targetIdentities.add(`${stat.dev}:${stat.ino}`);
+  observeIdentity(observed, parent, pinned);
+  const targetIdentities = new Map<string, string>();
+  for (const target of targets) {
+    let current = path.resolve(target);
+    for (;;) {
+      if (fs.existsSync(current)) {
+        const stat = fs.statSync(current, { bigint: true });
+        observeIdentity(observed, current, stat);
+        if (stat.dev === pinned.dev && stat.ino === pinned.ino) return target;
+        if (descendants) targetIdentities.set(`${stat.dev}:${stat.ino}`, target);
+      }
+      const ancestor = path.dirname(current);
+      if (ancestor === current) break;
+      current = ancestor;
     }
-    const ancestor = path.dirname(current);
-    if (ancestor === current) break;
-    current = ancestor;
   }
-  if (!descendants || !pinned.isDirectory()) return false;
+  if (!descendants || !pinned.isDirectory()) return undefined;
   // 子对象的 bind 别名不含保护根的祖先身份；不跟随符号链接，遍历失败向调用方传播。
-  const pending = [fs.realpathSync(parent)], visited = new Set<string>();
+  const pending: Array<{ path: string; after?: fs.BigIntStats }> = [{ path: fs.realpathSync(parent) }], visited = new Set<string>();
   while (pending.length) {
     const entry = pending.pop()!;
-    const stat = fs.lstatSync(entry, { bigint: true });
+    const stat = fs.lstatSync(entry.path, { bigint: true });
+    if (entry.after) {
+      if (!sameIdentity(entry.after, stat) || entry.after.mtimeNs !== stat.mtimeNs || entry.after.ctimeNs !== stat.ctimeNs) {
+        throw new ApprovedOpError("保护目录在核对期间变化；本次执行未启动，请报告拥有者核实目录");
+      }
+      continue;
+    }
     if (stat.isSymbolicLink()) continue;
-    const key = `${stat.dev}:${stat.ino}`;
-    if (targetIdentities.has(key)) return true;
+    const key = `${stat.dev}:${stat.ino}`, match = targetIdentities.get(key);
+    if (match !== undefined) return match;
     if (!stat.isDirectory() || visited.has(key)) continue;
     visited.add(key);
-    pending.push(...fs.readdirSync(entry).map(name => path.join(entry, name)));
+    if (observed) pending.push({ path: entry.path, after: stat });
+    pending.push(...fs.readdirSync(entry.path).map(name => ({ path: path.join(entry.path, name) })));
   }
-  return false;
+  return undefined;
+}
+
+function identityCovers(parent: string, target: string, descendants = false): boolean {
+  return identityOverlap(parent, [target], descendants) !== undefined;
 }
 
 export function isProtectedPath(resolved: string, protectedRoots: string[]): boolean {
@@ -165,6 +191,42 @@ export function assertDirectoryReadNotProtected(workspaceRoot: string, target: s
   }
 }
 
+/** 一次同步核对复用候选祖先集合；变化或读取失败均拒绝，不保留跨调用放行结果。 */
+// Note: 见 .agents/notes/implemented/bug-fix/2026-10-18-batch-native-protection-checks.md
+export function assertGrantsNotProtected(paths: readonly string[], protectedRoots: readonly string[]): void {
+  if (!paths.length || !protectedRoots.length) return;
+  for (const resolved of paths) for (const root of protectedRoots) {
+    const realRoot = path.resolve(root);
+    if (resolved === realRoot || resolved.startsWith(realRoot + path.sep)) {
+      throw new ApprovedOpError(`路径位于控制面/服务数据目录内，始终排除：${resolved}`);
+    }
+    const prefix = resolved.endsWith(path.sep) ? resolved : resolved + path.sep;
+    if (realRoot === resolved || realRoot.startsWith(prefix)) {
+      throw new ApprovedOpError(`路径是控制面/服务数据目录的父级，始终排除：${resolved}`);
+    }
+  }
+  const observed = new Map<string, fs.BigIntStats>();
+  for (const target of paths) observeIdentity(observed, target, fs.statSync(target, { bigint: true }));
+  for (const root of protectedRoots) {
+    const realRoot = path.resolve(root);
+    let pinned: fs.BigIntStats | undefined;
+    try { pinned = fs.statSync(realRoot, { bigint: true }); }
+    catch (error) {
+      // 忽略：ENOENT 表示保护根尚不存在，其路径仍受上面的文本范围限制。
+      if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") throw error;
+    }
+    if (pinned) observeIdentity(observed, realRoot, pinned);
+    const match = identityOverlap(realRoot, paths, true, observed);
+    if (match !== undefined) throw new ApprovedOpError(`路径位于控制面/服务数据目录内，始终排除：${match}`);
+    for (const target of paths) if (identityOverlap(target, [realRoot], false, observed) !== undefined) {
+      throw new ApprovedOpError(`路径是控制面/服务数据目录的父级，始终排除：${target}`);
+    }
+  }
+  for (const [target, stat] of observed) if (!sameIdentity(stat, fs.statSync(target, { bigint: true }))) {
+    throw new ApprovedOpError("授权路径身份在保护核对期间变化；本次执行未启动，请报告拥有者核实路径");
+  }
+}
+
 /**
  * 受限解析：逐段检查并拒绝符号链接组件，返回受限解析路径。
  * - allowMissingLast：目标本身可以不存在（新建文件场景）；中间段缺失仍拒绝。
@@ -214,9 +276,10 @@ export function executeApprovedFileOp(req: FileOpRequest): FileOpOutcome {
     if (req.access === "read") {
       if (!st) throw new ApprovedOpError("目标文件不存在（读取）");
       if (st.isSymbolicLink()) throw new ApprovedOpError("目标是符号链接，拒绝");
-      const fd = fs.openSync(resolved, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+      const fd = fs.openSync(resolved, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
       try {
         const opened = fs.fstatSync(fd);
+        if (!opened.isFile()) throw new ApprovedOpError("目标不是普通文件，未执行");
         if (req.targetDev !== null && (opened.dev !== req.targetDev || opened.ino !== req.targetIno)) {
           throw new ApprovedOpError("目标文件在等待期间已被替换，批准失效，请重新申请");
         }
@@ -235,9 +298,10 @@ export function executeApprovedFileOp(req: FileOpRequest): FileOpOutcome {
     }
     if (st) {
       if (st.isSymbolicLink()) throw new ApprovedOpError("目标已是符号链接，拒绝写入");
-      const fd = fs.openSync(resolved, fs.constants.O_RDWR | fs.constants.O_NOFOLLOW);
+      const fd = fs.openSync(resolved, fs.constants.O_RDWR | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
       try {
         const opened = fs.fstatSync(fd);
+        if (!opened.isFile()) throw new ApprovedOpError("目标不是普通文件，未执行");
         if (req.writeProtectedRoots?.length && opened.nlink > 1) throw new ApprovedOpError("来源保护任务不能写入多硬链接文件，请在独立工作目录新建检查产物");
         if (opened.dev !== req.targetDev || opened.ino !== req.targetIno) {
           throw new ApprovedOpError("目标文件在等待期间已被替换，批准失效，请重新申请");
@@ -248,10 +312,15 @@ export function executeApprovedFileOp(req: FileOpRequest): FileOpOutcome {
             throw new ApprovedOpError("目标文件内容与批准时的原文版本不一致，批准失效，请重新申请");
           }
         }
-        fs.ftruncateSync(fd, 0);
         writing = true;
+        fs.ftruncateSync(fd, 0);
         // 上面的原文校验把 fd 偏移推到末尾：写回必须显式定位到 0
-        fs.writeSync(fd, contentBuf, 0, contentBuf.length, 0);
+        let offset = 0;
+        while (offset < contentBuf.length) {
+          const count = fs.writeSync(fd, contentBuf, offset, contentBuf.length - offset, offset);
+          if (count === 0) throw new ApprovedOpError("文件写入未能继续");
+          offset += count;
+        }
         fs.fsyncSync(fd);
         return { ok: true, message: `已写入 ${resolved}（${contentBuf.length} 字节）` };
       } finally {
@@ -271,7 +340,12 @@ export function executeApprovedFileOp(req: FileOpRequest): FileOpOutcome {
     );
     writing = true;
     try {
-      fs.writeSync(fd, contentBuf, 0, contentBuf.length, 0);
+      let offset = 0;
+      while (offset < contentBuf.length) {
+        const count = fs.writeSync(fd, contentBuf, offset, contentBuf.length - offset, offset);
+        if (count === 0) throw new ApprovedOpError("文件写入未能继续");
+        offset += count;
+      }
       fs.fsyncSync(fd);
       return { ok: true, message: `已创建 ${resolved}（${contentBuf.length} 字节）` };
     } finally {

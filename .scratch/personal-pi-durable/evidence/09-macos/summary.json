@@ -1,0 +1,57 @@
+{
+  "base": "9d6d7f747fdaeed0096a58078fd11639a7b58af3",
+  "system": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "node": "v24.15.0",
+  "npm": "11.12.1",
+  "commands": [
+    {
+      "command": "npm run setup",
+      "exit": 0
+    },
+    {
+      "command": "npx tsx --test test/personal-durable.test.ts test/personal-cli.test.ts test/personal-services.test.ts test/personal-work.test.ts test/personal-service-operations.test.ts test/personal-telegram.test.ts test/personal-telegram-permissions.test.ts",
+      "exit": 0,
+      "tests": 181,
+      "passed": 181,
+      "skipped": 0,
+      "log": "personal.log"
+    },
+    {
+      "command": "npm run check:static",
+      "exit": 0,
+      "log": "static.log"
+    },
+    {
+      "command": "npm run build",
+      "exit": 0,
+      "log": "build.log"
+    },
+    {
+      "command": "git diff --check",
+      "exit": 0
+    }
+  ],
+  "pty": {
+    "method": "exec_command tty + write_stdin (native terminal)",
+    "result": "menu 11 rejects macOS before saving, menu 10 exits 0",
+    "service_config_created": false,
+    "earlier_python_driver": "Two driver attempts timed out while waiting for exit; both children terminated and test profiles cleaned. Rechecked with native terminal tools successfully."
+  },
+  "review": {
+    "agent": "next_slice_audit",
+    "conclusion": "no unresolved blockers",
+    "narrow_tests": 7,
+    "independent_probes": 2,
+    "mutation": "moving the gate after grants caused the new regression to fail as expected",
+    "evidence": "independent-review/summary.json"
+  },
+  "unverified": [
+    "real systemd/sudoers",
+    "real IM",
+    "real model (no model input or tool definition changed)",
+    "Node 22",
+    "full Coding runtime",
+    "whole migration acceptance"
+  ],
+  "coding_package_shasum": "5af04e561c9fbf84bf29f8237e3655e563ea5ed9"
+}

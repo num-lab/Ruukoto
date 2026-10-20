@@ -1,0 +1,61 @@
+{
+  "base": "3d53f60a61f3231e572207cff792c604998955a7",
+  "environment": {
+    "macOS": "27.0.1",
+    "kernel": "27.0.0",
+    "node": "v24.15.0",
+    "npm": "11.12.1"
+  },
+  "tests": {
+    "tests": 361,
+    "pass": 361,
+    "fail": 0,
+    "cancelled": 0,
+    "skipped": 0
+  },
+  "commands": [
+    {
+      "command": "npm run setup",
+      "exitCode": 0,
+      "log": "setup.log"
+    },
+    {
+      "command": "npx eslint apps/ruukoto/src/service-helper.ts test/service-helper-transport.test.ts && npx tsc --noEmit",
+      "exitCode": 0,
+      "log": null
+    },
+    {
+      "command": "npm run build",
+      "exitCode": 0,
+      "log": "build.log"
+    },
+    {
+      "command": "npm run check:static",
+      "exitCode": 0,
+      "log": "check-static.log"
+    },
+    {
+      "command": "RUN_MODEL_CHECK=0 npx tsx --test test/service-helper-transport.test.ts test/personal-durable.test.ts test/personal-cli.test.ts test/personal-services.test.ts test/personal-work.test.ts test/personal-work-tools.test.ts test/personal-work-controls.test.ts test/personal-work-notes.test.ts test/personal-delegations.test.ts test/personal-reports.test.ts test/personal-service-operations.test.ts test/personal-telegram.test.ts test/personal-telegram-permissions.test.ts test/78-linux-service-management.test.ts test/79-standing-permissions.test.ts test/71-product-entry.test.ts",
+      "exitCode": 0,
+      "log": "tests.log"
+    },
+    {
+      "command": "git diff --check && npm run check:docs",
+      "exitCode": 0,
+      "log": "docs-final.log"
+    }
+  ],
+  "source": {
+    "apps/ruukoto/src/service-helper.ts": "4e2d4e98e3e5aa35f971489f256f13f97de1442692b9ebc4e146f742bd2a3f4c",
+    "test/service-helper-transport.test.ts": "ee3ca759f46a526c5c65ab66e29b831a125a5b84738b1e783b9ad0bbca0c92b7"
+  },
+  "notVerified": [
+    "real systemd/sudo",
+    "real model or IM",
+    "full npm run check",
+    "detached helper recovery after backend SIGKILL",
+    "child tools remain disabled"
+  ],
+  "contentManifest": "../15-helper-exit.sha256",
+  "independentReview": "independent-review/README.md"
+}

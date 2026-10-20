@@ -1,0 +1,58 @@
+--- test/personal-cli.test.ts:243
++++ proof.test.ts:243
+@@ -1,18 +1,38 @@
+-test("personal CLI：真实后台进程退出客户端仍继续，重复启动不删原 socket，停止后可重启", async t => {
+-  const f = await fixture(t);
+-  await launchPersonalServer(f.dir);
+-  const socket = fs.statSync(path.join(f.dir, "control.sock")).ino;
+-  await assert.rejects(launchPersonalServer(f.dir), code("profile_busy"));
+-  assert.equal(fs.statSync(path.join(f.dir, "control.sock")).ino, socket);
+-  const input = preparePersonalInput(f.dir, "客户端离开后继续");
+-  // 真实客户端只等 admission，随即退出；后台不依赖客户端进程维持。
+-  const source = `import { personalControl } from './apps/ruukoto/src/personal-control.ts'; await personalControl(process.env.RUUKOTO_PERSONAL_DIR, 'POST', '/inputs', JSON.parse(process.env.RK_TEST_INPUT));`;
+-  const child = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "--eval", source], { env: { ...process.env, RUUKOTO_PERSONAL_DIR: f.dir, RK_TEST_INPUT: JSON.stringify(input) }, stdio: ["ignore", "pipe", "pipe"] });
+-  assert.equal((await once(child, "exit"))[0], 0);
+-  await until(async () => (await checkPersonalInput(f.dir, input)).status === "done");
+-  assert.equal(f.model.calls.length, 1);
+-  await personalControl(f.dir, "POST", "/stop");
+-  await until(() => { try { const lock = lockPersonalProfile(f.dir); lock.release(); return true; } catch (error) { if (code("profile_busy")(error)) return false; throw error; } });
+-  await launchPersonalServer(f.dir);
+-  assert.equal((await personalControl<PersonalMessage[]>(f.dir, "GET", "/messages")).at(-1)?.text, "隔离回答");
++test("独立A11：真实客户端在模型执行中退出，后台完成原输入且重开不重发", { timeout: 20000 }, async t => {
++  let release!: () => void;
++  const waiting = new Promise<void>(resolve => { release = resolve; });
++  const f = await fixture(t, async () => { await waiting; return { kind: "text", text: "隔离回答" }; });
++  const facts: Record<string, unknown> = { client: "actual node subprocess", provider: "loopback MockModelServer", realModel: false, realIM: false };
++  try {
++    await launchPersonalServer(f.dir);
++    const socket = fs.statSync(path.join(f.dir, "control.sock")).ino;
++    await assert.rejects(launchPersonalServer(f.dir), code("profile_busy"));
++    assert.equal(fs.statSync(path.join(f.dir, "control.sock")).ino, socket);
++    const input = preparePersonalInput(f.dir, "客户端离开后继续");
++    const clientSource = `import { personalControl } from './apps/ruukoto/src/personal-control.ts'; await personalControl(process.env.RUUKOTO_PERSONAL_DIR, 'POST', '/inputs', JSON.parse(process.env.RK_TEST_INPUT));`;
++    const child = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "--eval", clientSource], { env: { ...process.env, RUUKOTO_PERSONAL_DIR: f.dir, RK_TEST_INPUT: JSON.stringify(input) }, stdio: ["ignore", "pipe", "pipe"] });
++    let clientError = ""; child.stderr.on("data", value => { clientError += value; });
++    facts.clientExitCode = (await once(child, "exit"))[0];
++    assert.equal(facts.clientExitCode, 0, clientError);
++    try {
++      await until(() => f.model.calls.length === 1);
++      const active = await personalControl<PersonalInputStatus>(f.dir, "GET", `/input?requestId=${input.requestId}`);
++      facts.statusAfterClientExit = active.status; facts.modelCallsWhileBlocked = f.model.calls.length;
++      assert.equal(active.status, "placed"); assert.equal(active.answer, undefined);
++      assert.equal(f.model.calls.length, 1);
++    } finally { release(); }
++    await until(async () => (await checkPersonalInput(f.dir, input)).status === "done");
++    const done = await personalControl<PersonalInputStatus>(f.dir, "GET", `/input?requestId=${input.requestId}`);
++    assert.equal(done.answer, "隔离回答"); assert.equal(f.model.calls.length, 1);
++    facts.statusAfterRelease = done.status; facts.answerAfterRelease = done.answer;
++    await personalControl(f.dir, "POST", "/stop");
++    await until(() => { try { const lock = lockPersonalProfile(f.dir); lock.release(); return true; } catch (error) { if (code("profile_busy")(error)) return false; throw error; } });
++    await launchPersonalServer(f.dir);
++    const recovered = await personalControl<PersonalInputStatus>(f.dir, "GET", `/input?requestId=${input.requestId}`);
++    assert.equal(recovered.status, "done"); assert.equal(recovered.answer, "隔离回答");
++    assert.equal((await personalControl<PersonalMessage[]>(f.dir, "GET", "/messages")).at(-1)?.text, "隔离回答");
++    assert.equal(f.model.calls.length, 1);
++    facts.reopenedStatus = recovered.status; facts.reopenedAnswer = recovered.answer; facts.finalModelCalls = f.model.calls.length; facts.sameSocketAfterDuplicateLaunch = true;
++    fs.writeFileSync("/tmp/ruukoto39-a11-inflight-cli/facts.json", JSON.stringify(facts, null, 2) + "\n");
++  } finally { release(); }
+ });

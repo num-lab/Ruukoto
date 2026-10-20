@@ -1,4 +1,4 @@
-import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
+import { product as personalProduct } from "./helpers/legacy-product.ts";
 /**
  * 真实模型连通性检查（默认跳过，凭 RUN_MODEL_CHECK=1 开启）。
  *

@@ -1,0 +1,28 @@
+{
+  "ref": {
+    "executionId": "native_7d8fc81ecfc52b43d9f39dd5",
+    "machineId": "fd410411419d40079742fdbc36dec028"
+  },
+  "observation": {
+    "group": "/sys/fs/cgroup/user.slice/user-1003.slice/user@1003.service/app.slice/ruukoto-native_7d8fc81ecfc52b43d9f39dd5.scope",
+    "invocationId": "0b2f1d56db0e44c88ab24c57ebc29730",
+    "dev": 29,
+    "ino": 2135191
+  },
+  "stopped": {
+    "ref": {
+      "executionId": "native_7d8fc81ecfc52b43d9f39dd5",
+      "machineId": "fd410411419d40079742fdbc36dec028"
+    },
+    "exited": true
+  },
+  "repeated": {
+    "ref": {
+      "executionId": "native_7d8fc81ecfc52b43d9f39dd5",
+      "machineId": "fd410411419d40079742fdbc36dec028"
+    },
+    "exited": true
+  },
+  "sameRefRejected": true,
+  "tempDir": "/tmp/ruukoto-native-sbgSPt"
+}

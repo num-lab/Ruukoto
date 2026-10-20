@@ -1,0 +1,29 @@
+[
+  {
+    "command": "node node_modules/tsx/dist/cli.mjs --test --test-name-pattern='完全访问宿主：returned' test/personal-command-execution.test.ts",
+    "cwd": "/tmp/rk-full-access-independent-review-czlwytme",
+    "source": "frozen",
+    "exitCode": 0,
+    "log": "baseline.log"
+  },
+  {
+    "command": "node node_modules/tsx/dist/cli.mjs --test --test-name-pattern='完全访问宿主：returned' test/personal-command-execution.test.ts",
+    "cwd": "/tmp/rk-full-access-independent-review-czlwytme",
+    "source": "withdrawn full_access admission",
+    "exitCode": 1,
+    "log": "withdrawn.log"
+  },
+  {
+    "command": "node node_modules/tsx/dist/cli.mjs --test --test-name-pattern='完全访问宿主：returned' test/personal-command-execution.test.ts",
+    "cwd": "/tmp/rk-full-access-independent-review-czlwytme",
+    "source": "restored frozen",
+    "exitCode": 0,
+    "log": "restored.log"
+  },
+  {
+    "command": "node --import tsx /tmp/rk-full-access-independent-review-czlwytme/abort-check.mjs",
+    "source": "production frozen",
+    "exitCode": 0,
+    "log": "abort-check.log"
+  }
+]

@@ -1,0 +1,47 @@
+{
+  "records": [
+    {
+      "path": "packages/agent/src/managed-processes.ts",
+      "sha256": "00668a2abd89e504352795bad0f103afb9870efa1773898008ade0829f490d0f"
+    },
+    {
+      "path": "packages/agent/src/execution/approved-ops.ts",
+      "sha256": "552e1f8268ebf44c20d091752cb670f7128a2189502d8647eb2b1811fc10e70b"
+    },
+    {
+      "path": "packages/agent/src/execution/native-macos.ts",
+      "sha256": "f8643d4dd875f736b8af417117b963b2501489f87309ac26b9bb115796da8bdf"
+    },
+    {
+      "path": "packages/agent/src/execution/native-linux.ts",
+      "sha256": "ceaa8c426f46f95b334656809efad89ea2b073880504d40fa5c1419650d83c47"
+    },
+    {
+      "path": "packages/agent/src/execution/native.ts",
+      "sha256": "b55cc3566101824c9406f54a173cd3a8d0f3b0e5eefd94cfe595abac589f0fe7"
+    },
+    {
+      "path": "packages/agent/src/execution/launchers.ts",
+      "sha256": "3513c531e313238fc8c91d3ba42ef28db6d8d53fc1ccdae52f49d0609622e43b"
+    },
+    {
+      "path": "packages/agent/src/execution/native-linux-identity.ts",
+      "sha256": "a7c6632abc1196cdd3154618490f06cb5181593c1a00432237d669a9fdd1c65f"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-error.ts",
+      "sha256": "f4266968ec480f657bee1a6043e69d07910134f09924ec43683aa0569b212ab4"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-command-execution.ts",
+      "sha256": "5fa8335b2350f910e90ee9c0433ef9502a59ea300f73f42d8556f8dd14ab4771"
+    },
+    {
+      "path": "worker/personal-command-worker.mjs",
+      "sha256": "c1d8bc3492be8253ce5bdf4ed5dc553e44da91fc3eda4be663eddd7d49e63cf3"
+    }
+  ],
+  "probeSha256": "f9d6a38944c430eb9606dd1be15203663596f9ef3ff6760aab029eeb7755bd1b",
+  "bundleSha256": "23ae6cd546780ab37e580aab2453035f59d89deb0824c37d842f565112432e0e",
+  "moduleUrlStrategy": "each bundled repository TypeScript module keeps its original directory under remote source/"
+}

@@ -1,0 +1,13 @@
+{
+  "remote_source": "/dev/shm/rpd09.6ksdtsk1/src",
+  "remote_outer": "/dev/shm/rpd09.6ksdtsk1",
+  "remote_cache": "/tmp/rpd09-cache.fl05nhfw",
+  "matching_processes_before": [],
+  "active_socket_paths_before": [],
+  "socket_files_before": [],
+  "source_removed": true,
+  "cache_removed": true,
+  "matching_processes_after": [],
+  "active_socket_paths_after": [],
+  "cleanup_complete": true
+}

@@ -1,0 +1,51 @@
+{
+  "inspections": [
+    {
+      "docId": 390,
+      "taskId": 389,
+      "inspectionId": "inspect_bd23abba31f078ed1958ada8",
+      "resultEntry": 392,
+      "stopEntry": 393,
+      "stopped": true,
+      "source": [
+        332
+      ],
+      "modelCall": "service_inspect",
+      "taskState": "terminal",
+      "stopExited": true,
+      "admissionMatchesIdentity": true
+    },
+    {
+      "docId": 409,
+      "taskId": 407,
+      "inspectionId": "inspect_0cf781bd2fea0946e31ad959",
+      "resultEntry": 411,
+      "stopEntry": 412,
+      "stopped": true,
+      "source": [
+        332
+      ],
+      "taskState": "terminal",
+      "stopExited": true,
+      "admissionMatchesIdentity": true
+    },
+    {
+      "docId": 427,
+      "taskId": 426,
+      "inspectionId": "inspect_e816bcd0dbeb4b8a887f9017",
+      "resultEntry": 429,
+      "stopEntry": 430,
+      "stopped": true,
+      "source": [
+        332
+      ],
+      "modelCall": "service_inspect",
+      "taskState": "terminal",
+      "stopExited": true,
+      "admissionMatchesIdentity": true
+    }
+  ],
+  "pending": {
+    "tasks": []
+  }
+}

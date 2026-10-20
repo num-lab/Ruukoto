@@ -1,0 +1,2 @@
+3f645f2ef05ff626f1def39ef1b0065f893385f96bdb0142c14aad864fb6433f  deploy/systemd/ruukoto-service.mjs
+7ffa1dbe754f45627c553eef329a7cdb84bd01f77a9e5dffc6484a6ae711f30c  test/service-helper-stop.test.ts

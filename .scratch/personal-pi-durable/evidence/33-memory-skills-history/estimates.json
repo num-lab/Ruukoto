@@ -1,0 +1,53 @@
+{
+  "method": "ceil(characters/4), actual OpenAI-compatible mock payload; empty skills/memory",
+  "items": [
+    {
+      "stage": "before",
+      "kind": "main",
+      "systemPrompt": 51,
+      "toolSchemas": 1090
+    },
+    {
+      "stage": "before",
+      "kind": "subagent",
+      "systemPrompt": 38,
+      "toolSchemas": 1
+    },
+    {
+      "stage": "before",
+      "kind": "scheduled",
+      "systemPrompt": 48,
+      "toolSchemas": 290
+    },
+    {
+      "stage": "before",
+      "kind": "summary",
+      "systemPrompt": 48,
+      "toolSchemas": 290
+    },
+    {
+      "stage": "after",
+      "kind": "main",
+      "systemPrompt": 107,
+      "toolSchemas": 1799
+    },
+    {
+      "stage": "after",
+      "kind": "subagent",
+      "systemPrompt": 69,
+      "toolSchemas": 709
+    },
+    {
+      "stage": "after",
+      "kind": "scheduled",
+      "systemPrompt": 78,
+      "toolSchemas": 999
+    },
+    {
+      "stage": "after",
+      "kind": "summary",
+      "systemPrompt": 78,
+      "toolSchemas": 999
+    }
+  ]
+}

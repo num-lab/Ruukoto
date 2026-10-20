@@ -18,7 +18,7 @@ import type { DesktopSubmitResult, DesktopUpdate } from "../apps/desktop/src/sha
 import { fakeControl, fakeSnapshot } from "./helpers/fake-control.ts";
 import { ViewState } from "@ruukoto/view/state.ts";
 import { waitFor, startTestRuntime } from "./helpers/testkit.ts";
-import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
+import { product as personalProduct } from "./helpers/legacy-product.ts";
 import { product as codeProduct } from "../apps/ruukoto-code/src/product.ts";
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));

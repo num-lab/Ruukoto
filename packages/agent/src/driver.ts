@@ -21,6 +21,7 @@ import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
  */
 
 import * as fs from "node:fs";
+import { endTaskExecution, type TaskEndingContext } from "./task-ending.ts";
 import { isDeepStrictEqual } from "node:util";
 import {
   type AgentSession,
@@ -200,6 +201,7 @@ export class Driver {
   private ending = false;
   readonly router: ToolRouter;
   private currentTask: Task | null = null;
+  private taskEnding: TaskEndingContext | null = null;
   private stopRequested = false;
   /** 审批闸门（架构工单 04）：审批请求全程；Driver 只接线应答、模式切换与停止。 */
   private readonly approvals: ApprovalGate;
@@ -461,6 +463,10 @@ export class Driver {
     return this.currentTask?.id ?? null;
   }
 
+  get currentTaskEnding(): TaskEndingContext | null {
+    return this.taskEnding;
+  }
+
   /** 会话记录更新后同步（如 sessionFile 落盘回填）。 */
   syncSessionRecord(latest: Session): void {
     if (this.session.cwdReal !== latest.cwdReal || this.session.cwdDev !== latest.cwdDev || this.session.cwdIno !== latest.cwdIno) this.dropSdkForToolChange();
@@ -609,7 +615,7 @@ export class Driver {
       systemPrompt: (this.profile.workflow
         ? SYSTEM_PROMPTS.workflow
         : this.profile.toolSignature === "scheduled"
-        ? `${SYSTEM_PROMPTS.main}\n- 当前是宿主为本次定时计划创建的独立执行上下文，不读取主聊天或前次运行历史。任务按计划保存的模式执行，子任务与汇总属于本次运行。完成全部工作后给出最终结果或失败原因；宿主向创建时固定的目标发送一次最终回报，无目标则保存结果。无需为这份默认回报调用 notification_enqueue；任务明确要求另行发送时才用该工具。`
+        ? `${SYSTEM_PROMPTS.main}\n- 当前是宿主为本次定时计划创建的独立执行上下文，不读取主聊天或前次运行历史。任务按计划保存的模式执行，子任务与汇总属于本次运行。完成全部工作后给出最终结果或失败原因；宿主向创建时固定的目标发送一次最终回报，无目标则保存结果。`
         : SYSTEM_PROMPTS[this.profile.toolClass]) + (this.pinnedDefinition ? `\n[${this.pinnedDefinition.kind === "role" ? `子代理角色 ${this.pinnedDefinition.name}` : "宿主固定评审"}]\n${this.pinnedDefinition.body}\n[/子代理定义]` : ""),
       hooks: {
         onToolCall: (event) => this.handleToolCall(event),
@@ -780,7 +786,7 @@ export class Driver {
 
   // ---------- 运行 ----------
 
-  async run(task: Task): Promise<void> {
+  async run(task: Task, ending?: TaskEndingContext): Promise<void> {
     if (this.runPromise) {
       throw new Error(`会话 ${this.session.id} 已有任务在运行`);
     }
@@ -808,6 +814,7 @@ export class Driver {
     const referenceSnapshot = resourcePhase === "conversation" ? this.deps.agentWait?.snapshot(task) ?? null : null;
     if (this.pinnedExecution && resourcePhase === "conversation" && !referenceSnapshot) throw new SubAgentExecutionError("reference_snapshot_missing", "内部对话所需的参考快照缺失；停止本次执行并报告拥有者。");
     this.currentTask = task;
+    this.taskEnding = ending ?? { taskId: task.id, stopSnapshot: null };
     this.stopRequested = false;
     this.stopPromise = null;
     this.flushedEntryIds = new Set();
@@ -881,6 +888,7 @@ export class Driver {
       this.mcpToolNames = new Set();
       this.runPromise = null;
       this.currentTask = null;
+      this.taskEnding = null;
       this.activeToolCalls.clear();
     }
   }
@@ -1147,11 +1155,14 @@ export class Driver {
     const task = this.currentTask;
     if (!task || task.id !== taskId || this.stopRequested) throw new ExecutionError("task_mismatch", "等待任务已停止或不属于当前 Driver");
     if (this.activeToolCalls.size > 1) throw new ExecutionError("tool_boundary_busy", "其他工具仍在执行，请等当前工具完成后再等待后台工作");
+    const ending = this.taskEnding!, previous = ending.stopSnapshot;
+    const candidate = ending.stopSnapshot ??= this.deps.ledger.beginStop(task.id);
     if (!await this.stopManagedProcesses(task.id)) {
       this.stopRequested = true;
-      await this.finalize(task, "interrupted", { interruptReason: "tool_process_unreaped", keepOccupancy: true });
+      await this.finalize(task, "interrupted", { interruptReason: "tool_process_unreaped", keepOccupancy: true, abort: true });
       return false;
     }
+    if (!this.stopRequested && ending.stopSnapshot === candidate) ending.stopSnapshot = previous;
     this.restoreMcpSignature = this.currentMcpPlan?.signature ?? "";
     await this.closeMcpConns();
     this.resourcePhase = "conversation";
@@ -1238,46 +1249,26 @@ export class Driver {
     opts: { terminal: "canceled" | "interrupted"; reason: string; cancelIntent: boolean; modeSwitchFailure?: { to: AccessMode; reason: string } },
   ): Promise<boolean> {
     this.stopRequested = true;
-    this.assembly?.abort();
-
-    // 1. 提交停止意图（独立事务持久化）
-    this.deps.store.withTx(() => {
-      this.deps.store.setCancelRequested(task.id, opts.cancelIntent);
-    });
-
-    // 在中止与回收之前快照已开始执行的操作（工具操作账本）：效果以停止瞬间为准，
-    // 中止期间才落下的结果不改变结论
-    const uncertainAtStop = this.deps.ledger.beginStop(task.id);
-
-    // 2. 解除确认等待（门以 block 结束，不执行该操作）；进行中的自动审查一并中止
-    this.approvals.cancelAll();
-
-    // 3. 中止模型调用与确认等待；受管工具进程组的终止与 abort 并行进行：
-    //    abort() 会等待在执行的工具返回，若工具在等待子进程退出，必须同时
-    //    回收进程组（TERM → 超时 KILL）才能解除等待，否则互相死锁。
-    const abortPromise = this.sdk?.isStreaming ? this.sdk.abort().catch(() => {
-      // SDK 中止失败仍由执行单元回收与任务终态保护占用。
-    }) : null;
-    const [managedReaped, browserReaped] = await Promise.all([this.killManagedProcesses(), this.deps.browser?.close(task.sessionId) ?? true]);
-    const reaped = managedReaped && browserReaped;
-    if (abortPromise) await abortPromise;
-    // MCP 连接随任务停止回收：在途调用已被 abort 中断，迟到结果由 SDK 丢弃
-    await this.closeMcpConns();
-
-    // 3b. 中止完成后按账本的分类器补记结果缺失的操作：无写入效果、审批未消费、
-    //     工具族核实（应用库回执、调度账本、子任务、接收账本）；其余与快照一起
-    //     在终态事务里标 effect_unknown
-    const effectUnknownOpIds = this.deps.store.withTx(() => this.deps.ledger.settleTask(task, uncertainAtStop));
-
-    // 4. 终态与占用释放（仅当尚未被自然完成抢先）
-    await this.finalize(task, opts.terminal, {
-      interruptReason: opts.reason,
-      effectUnknownOpIds,
-      keepOccupancy: !reaped,
-      occupancyIssueReason: reaped ? null : opts.modeSwitchFailure ? "mode_switch_unverified" : "tool_process_unreaped",
+    const result = await endTaskExecution({ store: this.deps.store, ledger: this.deps.ledger, onReleased: this.deps.onOccupancyReleased }, task, this.taskEnding!, {
+      terminal: opts.terminal, reason: opts.reason, abort: true,
+      unreapedReason: opts.modeSwitchFailure ? "mode_switch_unverified" : "tool_process_unreaped",
       modeSwitchFailure: opts.modeSwitchFailure,
+      halt: async () => {
+        this.assembly?.abort();
+        this.approvals.cancelAll();
+        // SDK 中止等待工具返回，须并行回收进程组以解除工具等待。
+        const abortPromise = this.sdk?.isStreaming ? this.sdk.abort().catch(() => {
+          // SDK 中止失败仍由执行单元回收与任务终态保护占用。
+        }) : null;
+        const [managedReaped, browserReaped] = await Promise.all([this.killManagedProcesses(), this.deps.browser?.close(task.sessionId) ?? true]);
+        if (abortPromise) await abortPromise;
+        await this.closeMcpConns();
+        this.flushOutput();
+        this.endThinking();
+        return managedReaped && browserReaped;
+      },
     });
-    return reaped;
+    return result.reaped;
   }
 
   private async killManagedProcesses(): Promise<boolean> {
@@ -1335,33 +1326,22 @@ export class Driver {
     extra: {
       interruptReason?: string;
       errorMessage?: string;
-      /** 已开始但结果未知的操作（在停止前快照）；拒绝/未执行的审批不在其中。 */
-      effectUnknownOpIds?: string[];
       keepOccupancy?: boolean;
+      abort?: true;
       occupancyIssueReason?: string | null;
       modeSwitchFailure?: { to: AccessMode; reason: string };
     },
   ): Promise<void> {
-    const reaped = await this.killManagedProcesses();
-    const keepOccupancy = extra.keepOccupancy || !reaped;
-    this.flushOutput();
-    this.endThinking();
-    const changed = this.deps.store.withTx(() => {
-      const store = this.deps.store;
-      return store.endTask(task.id, ["running", "awaiting_confirmation"], to, {
-        interruptReason: extra.interruptReason ?? null,
-        errorMessage: extra.errorMessage ?? null,
-        endedAt: new Date().toISOString(),
-        keepOccupancy,
-        occupancyIssueReason: extra.occupancyIssueReason ?? (reaped ? null : "tool_process_unreaped"),
-        modeSwitchFailure: extra.modeSwitchFailure,
-        onChanged: () => {
-          for (const opId of extra.effectUnknownOpIds ?? []) this.deps.ledger.markEffectUnknown(task, opId);
-        },
-      });
+    await endTaskExecution({ store: this.deps.store, ledger: this.deps.ledger, onReleased: this.deps.onOccupancyReleased }, task, this.taskEnding!, {
+      terminal: to, reason: extra.interruptReason ?? extra.errorMessage, abort: extra.abort,
+      unreapedReason: extra.occupancyIssueReason ?? "tool_process_unreaped", modeSwitchFailure: extra.modeSwitchFailure,
+      halt: async () => {
+        const reaped = await this.killManagedProcesses();
+        this.flushOutput();
+        this.endThinking();
+        return !extra.keepOccupancy && reaped;
+      },
     });
-    // 占用释放后唤醒其他会话的排队任务
-    if (changed && !keepOccupancy) this.deps.onOccupancyReleased();
   }
 
   private pauseQueue(reason: string): void {
@@ -1382,13 +1362,20 @@ export class Driver {
    */
   private async boundaryTask(task: Task): Promise<Task> {
     if (!task.pendingAccessMode || task.pendingAccessMode === task.accessMode) return task;
+    // 交接失败沿停止前事实收尾；成功且没有并发中止时撤去候选，避免自然结束补账本。
+    // Note: 见 .agents/notes/implemented/architecture/2026-10-16-task-ending-protocol.md
+    const ending = this.taskEnding!, previous = ending.stopSnapshot;
+    const candidate = ending.stopSnapshot ??= this.deps.ledger.beginStop(task.id);
+    let reaped = false;
     try {
       const [managedReaped, browserReaped] = await Promise.all([this.stopManagedProcesses(task.id), this.deps.browser?.close(task.sessionId) ?? true]);
-      if (!managedReaped || !browserReaped) {
+      reaped = managedReaped && browserReaped;
+      if (!reaped) {
         throw new ExecutionError("mode_switch_unverified", "无法核实旧执行单元已退出，模式切换失败");
       }
       const switched = await this.router.prepareToolBoundary(task);
       this.refreshTaskTools(switched);
+      if (!this.stopRequested && ending.stopSnapshot === candidate) ending.stopSnapshot = previous;
       return switched;
     } catch (err) {
       // 切换失败（无法核实旧执行单元退出）：任务无法安全继续
@@ -1396,7 +1383,8 @@ export class Driver {
       const reason = err instanceof ExecutionError ? err.code : "mode_switch_failed";
       await this.finalize(task, "interrupted", {
         interruptReason: reason,
-        effectUnknownOpIds: [],
+        abort: true,
+        keepOccupancy: !reaped,
         occupancyIssueReason: "mode_switch_unverified",
         modeSwitchFailure: { to: task.pendingAccessMode, reason },
       });

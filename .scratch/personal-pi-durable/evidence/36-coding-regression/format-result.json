@@ -1,0 +1,19 @@
+{
+  "baselineSchemaVersion": [
+    {
+      "key": "schema_version",
+      "value": "45"
+    }
+  ],
+  "schemaObjects": 147,
+  "schemaSha256": "10cb6b68a004856b3a7adbe29e2c470dfd6fd282d9dc5e01e418974713b5a5d1",
+  "oldTaskStatus": "completed",
+  "oldTaskSha256": "37a543d533b9c679963a23ba69589a1a238a0ddd3ea62615f4d05b8f5b7688c6",
+  "oldHistorySha256": "83bc12b1c95ef659e73a631a0e191fcc139833810649a5a7b90364d7b41cad0c",
+  "oldHistoryBytes": 3300,
+  "continuedHistoryBytes": 6173,
+  "prefixPreserved": true,
+  "artifactCount": 1,
+  "replayedRequests": 0,
+  "continuationRequests": 1
+}

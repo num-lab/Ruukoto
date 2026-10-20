@@ -1,0 +1,856 @@
+{
+  "source_log": "/tmp/ruukoto38-app-rest.log",
+  "source_log_sha256": "7d0ecd5b373694f7875d7fdf16be88d023f135926a5b8b47e1acb06a4c0d6e63",
+  "runner_summary": {
+    "tests": 2542,
+    "pass": 2480,
+    "fail": 40,
+    "cancelled": 3,
+    "skipped": 19,
+    "duration_ms": 1306358.471583
+  },
+  "failure_summary_blocks": 43,
+  "observed_counts": {
+    "abort_timeout": 5,
+    "assertion": 6,
+    "file_test_failed": 2,
+    "test_timeout": 3,
+    "type_error": 2,
+    "wait_timeout": 25
+  },
+  "retired_tool_contract_blocks": 15,
+  "blocks": [
+    {
+      "location": "test/112-workflow-real-steps.test.ts:1:1500",
+      "name": "✖ 真实 ruukoto Driver：原任务结束后修改、冻结、独立验证及汇总，验证写入留在独立副本 (27694.156542ms)",
+      "message": "AssertionError [ERR_ASSERTION]: {\"reason\":\"script_cpu_limit\",\"steps\":[{\"key\":\"change\",\"status\":\"completed\"},{\"key\":\"validate\",\"status\":\"running\"}],\"ops\":[{\"tool\":\"write\",\"error\":false,\"result\":\"Successfully wrote to value.txt\"},{\"tool\":\"worktree_start\",\"error\":false,\"result\":\"工作副本执行单元已启动，Git 命令尚未调用\"},{\"tool\":\"worktree_capture\",\"error\":false,\"result\":\"RUUKOTO_SNAPSHOT={\\\"head\\\":\\\"dd47aa4407bd6d951c8ea9d94c73a1b8c287f76d\\\",\\\"commonGitPath\\\":\\\"/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-it-workflow-real-IcCgg0/work-0/.git\\\",\\\"indexDigest\\\":\\\"97684c88f839427cab53ea107776141bb0d0fe98344e84b24b5e2138ce20ae50\\\",\\\"dev\\\":16777234,\\\"ino\\\":86237337,\\\"tree\\\":\\\"49fbe41ea65306122e336c79edc0540d8825d373\\\"}\"},{\"tool\":\"worktree_start\",\"error\":false,\"result\":\"工作副本执行单元已启动，Git 命令尚未调用\"},{\"tool\":\"worktree_create\",\"error\":false,\"result\":\"(no output)\"},{\"tool\":\"worktree_start\",\"error\":false,\"result\":\"工作副本执行单元已启动，Git 命令尚未调用\"},{\"tool\":\"worktree_freeze\",\"error\":false,\"result\":\"(no output)\"},{\"tool\":\"worktree_start\",\"error\":null,\"result\":null}]}",
+      "details": [
+        "✖ 真实 ruukoto Driver：原任务结束后修改、冻结、独立验证及汇总，验证写入留在独立副本 (27694.156542ms)",
+        "  AssertionError [ERR_ASSERTION]: {\"reason\":\"script_cpu_limit\",\"steps\":[{\"key\":\"change\",\"status\":\"completed\"},{\"key\":\"validate\",\"status\":\"running\"}],\"ops\":[{\"tool\":\"write\",\"error\":false,\"result\":\"Successfully wrote to value.txt\"},{\"tool\":\"worktree_start\",\"error\":false,\"result\":\"工作副本执行单元已启动，Git 命令尚未调用\"},{\"tool\":\"worktree_capture\",\"error\":false,\"result\":\"RUUKOTO_SNAPSHOT={\\\"head\\\":\\\"dd47aa4407bd6d951c8ea9d94c73a1b8c287f76d\\\",\\\"commonGitPath\\\":\\\"/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-it-workflow-real-IcCgg0/work-0/.git\\\",\\\"indexDigest\\\":\\\"97684c88f839427cab53ea107776141bb0d0fe98344e84b24b5e2138ce20ae50\\\",\\\"dev\\\":16777234,\\\"ino\\\":86237337,\\\"tree\\\":\\\"49fbe41ea65306122e336c79edc0540d8825d373\\\"}\"},{\"tool\":\"worktree_start\",\"error\":false,\"result\":\"工作副本执行单元已启动，Git 命令尚未调用\"},{\"tool\":\"worktree_create\",\"error\":false,\"result\":\"(no output)\"},{\"tool\":\"worktree_start\",\"error\":false,\"result\":\"工作副本执行单元已启动，Git 命令尚未调用\"},{\"tool\":\"worktree_freeze\",\"error\":false,\"result\":\"(no output)\"},{\"tool\":\"worktree_start\",\"error\":null,\"result\":null}]}",
+        "  + actual - expected",
+        "  ",
+        "  + 'paused'",
+        "  - 'succeeded'",
+        "  ",
+        "      at TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/112-workflow-real-steps.test.ts:41:12)",
+        "      at async Test.run (node:internal/test_runner/test:1208:7)",
+        "      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3) {",
+        "    generatedMessage: false,",
+        "    code: 'ERR_ASSERTION',",
+        "    actual: 'paused',",
+        "    expected: 'succeeded',",
+        "    operator: 'strictEqual',",
+        "    diff: 'simple'",
+        "  }",
+        ""
+      ],
+      "id": 1,
+      "observed_kind": "assertion",
+      "retired_tool_contract": null,
+      "interruption_context": null
+    },
+    {
+      "location": "test/112-workflow-real-steps.test.ts:1:1500",
+      "name": "✖ 真实 ruukoto-code Driver：原任务结束后修改、冻结、独立验证及汇总，验证写入留在独立副本 (111219.337833ms)",
+      "message": "Error: 等待超时: 真实工作流结束",
+      "details": [
+        "✖ 真实 ruukoto-code Driver：原任务结束后修改、冻结、独立验证及汇总，验证写入留在独立副本 (111219.337833ms)",
+        "  Error: 等待超时: 真实工作流结束",
+        "      at waitFor (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/helpers/testkit.ts:233:47)",
+        "      at runNextTicks (node:internal/process/task_queues:65:5)",
+        "      at process.processTimers (node:internal/timers:538:9)",
+        "      at async TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/112-workflow-real-steps.test.ts:39:5)",
+        "      at async Test.run (node:internal/test_runner/test:1208:7)",
+        "      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7)",
+        ""
+      ],
+      "id": 2,
+      "observed_kind": "wait_timeout",
+      "retired_tool_contract": null,
+      "interruption_context": null
+    },
+    {
+      "location": "test/112-workflow-real-steps.test.ts:1:6280",
+      "name": "✖ 完全访问来源的验证命令不能写回待审副本，工具失败不能伪称通过 (66262.835292ms)",
+      "message": "Error: 等待超时: 验证拒绝写回",
+      "details": [
+        "✖ 完全访问来源的验证命令不能写回待审副本，工具失败不能伪称通过 (66262.835292ms)",
+        "  Error: 等待超时: 验证拒绝写回",
+        "      at waitFor (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/helpers/testkit.ts:233:47)",
+        "      at async TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/112-workflow-real-steps.test.ts:105:5)",
+        "      at async Test.run (node:internal/test_runner/test:1208:7)",
+        "      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7)",
+        ""
+      ],
+      "id": 3,
+      "observed_kind": "wait_timeout",
+      "retired_tool_contract": null,
+      "interruption_context": null
+    },
+    {
+      "location": "test/112-workflow-real-steps.test.ts:1:8512",
+      "name": "✖ 冻结成果 stale：旧结论不能放行新字节或绕过验证，已套用成果保留 (108308.924125ms)",
+      "message": "Error: 等待超时: 冻结/验证后等待",
+      "details": [
+        "✖ 冻结成果 stale：旧结论不能放行新字节或绕过验证，已套用成果保留 (108308.924125ms)",
+        "  Error: 等待超时: 冻结/验证后等待",
+        "      at waitFor (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/helpers/testkit.ts:233:47)",
+        "      at runNextTicks (node:internal/process/task_queues:65:5)",
+        "      at process.processTimers (node:internal/timers:538:9)",
+        "      at async TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/112-workflow-real-steps.test.ts:130:5)",
+        "      at async Test.run (node:internal/test_runner/test:1208:7)",
+        "      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7)",
+        ""
+      ],
+      "id": 4,
+      "observed_kind": "wait_timeout",
+      "retired_tool_contract": null,
+      "interruption_context": null
+    },
+    {
+      "location": "test/112-workflow-real-steps.test.ts:1:8512",
+      "name": "✖ 冻结成果 check_failure：旧结论不能放行新字节或绕过验证，已套用成果保留 (66315.757417ms)",
+      "message": "Error: 等待超时: 冻结/验证后等待",
+      "details": [
+        "✖ 冻结成果 check_failure：旧结论不能放行新字节或绕过验证，已套用成果保留 (66315.757417ms)",
+        "  Error: 等待超时: 冻结/验证后等待",
+        "      at waitFor (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/helpers/testkit.ts:233:47)",
+        "      at async TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/112-workflow-real-steps.test.ts:130:5)",
+        "      at async Test.run (node:internal/test_runner/test:1208:7)",
+        "      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7)",
+        ""
+      ],
+      "id": 5,
+      "observed_kind": "wait_timeout",
+      "retired_tool_contract": null,
+      "interruption_context": null
+    },
+    {
+      "location": "test/112-workflow-real-steps.test.ts:1:8512",
+      "name": "✖ 冻结成果 snapshot_missing：旧结论不能放行新字节或绕过验证，已套用成果保留 (88085.417625ms)",
+      "message": "Error: 等待超时: 冻结/验证后等待",
+      "details": [
+        "✖ 冻结成果 snapshot_missing：旧结论不能放行新字节或绕过验证，已套用成果保留 (88085.417625ms)",
+        "  Error: 等待超时: 冻结/验证后等待",
+        "      at waitFor (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/helpers/testkit.ts:233:47)",
+        "      at runNextTicks (node:internal/process/task_queues:65:5)",
+        "      at process.processTimers (node:internal/timers:538:9)",
+        "      at async TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/112-workflow-real-steps.test.ts:130:5)",
+        "      at async Test.run (node:internal/test_runner/test:1208:7)",
+        "      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7)",
+        ""
+      ],
+      "id": 6,
+      "observed_kind": "wait_timeout",
+      "retired_tool_contract": null,
+      "interruption_context": null
+    },
+    {
+      "location": "test/112-workflow-real-steps.test.ts:1:8512",
+      "name": "✖ 冻结成果 snapshot_mismatch：旧结论不能放行新字节或绕过验证，已套用成果保留 (98732.474708ms)",
+      "message": "Error: 等待超时: 冻结/验证后等待",
+      "details": [
+        "✖ 冻结成果 snapshot_mismatch：旧结论不能放行新字节或绕过验证，已套用成果保留 (98732.474708ms)",
+        "  Error: 等待超时: 冻结/验证后等待",
+        "      at waitFor (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/helpers/testkit.ts:233:47)",
+        "      at runNextTicks (node:internal/process/task_queues:65:5)",
+        "      at process.processTimers (node:internal/timers:538:9)",
+        "      at async TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/112-workflow-real-steps.test.ts:130:5)",
+        "      at async Test.run (node:internal/test_runner/test:1208:7)",
+        "      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7)",
+        ""
+      ],
+      "id": 7,
+      "observed_kind": "wait_timeout",
+      "retired_tool_contract": null,
+      "interruption_context": null
+    },
+    {
+      "location": "test/112-workflow-real-steps.test.ts:1:8512",
+      "name": "✖ 冻结成果 ledger_unknown：旧结论不能放行新字节或绕过验证，已套用成果保留 (65934.522041ms)",
+      "message": "Error: 等待超时: 冻结/验证后等待",
+      "details": [
+        "✖ 冻结成果 ledger_unknown：旧结论不能放行新字节或绕过验证，已套用成果保留 (65934.522041ms)",
+        "  Error: 等待超时: 冻结/验证后等待",
+        "      at waitFor (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/helpers/testkit.ts:233:47)",
+        "      at async TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/112-workflow-real-steps.test.ts:130:5)",
+        "      at async Test.run (node:internal/test_runner/test:1208:7)",
+        "      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7)",
+        ""
+      ],
+      "id": 8,
+      "observed_kind": "wait_timeout",
+      "retired_tool_contract": null,
+      "interruption_context": null
+    },
+    {
+      "location": "test/113-workflow-source-capabilities.test.ts:1:5192",
+      "name": "✖ 真实个人步骤修改应用 schema 后仍可继续，main 来源具有受控编码委派工具 (3140.733666ms)",
+      "message": "AssertionError [ERR_ASSERTION]: schedule_query",
+      "details": [
+        "✖ 真实个人步骤修改应用 schema 后仍可继续，main 来源具有受控编码委派工具 (3140.733666ms)",
+        "  AssertionError [ERR_ASSERTION]: schedule_query",
+        "      at TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/113-workflow-source-capabilities.test.ts:93:144)",
+        "      at async Test.run (node:internal/test_runner/test:1208:7)",
+        "      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {",
+        "    generatedMessage: false,",
+        "    code: 'ERR_ASSERTION',",
+        "    actual: false,",
+        "    expected: true,",
+        "    operator: '==',",
+        "    diff: 'simple'",
+        "  }",
+        ""
+      ],
+      "id": 9,
+      "observed_kind": "assertion",
+      "retired_tool_contract": "schedule_query 正向工具断言",
+      "interruption_context": null
+    },
+    {
+      "location": "test/113-workflow-source-capabilities.test.ts:1:6768",
+      "name": "✖ 个人来源的修改步骤只增加已有委派的五个编码工具 (22557.240292ms)",
+      "message": "Error: 等待超时: 工作流收尾",
+      "details": [
+        "✖ 个人来源的修改步骤只增加已有委派的五个编码工具 (22557.240292ms)",
+        "  Error: 等待超时: 工作流收尾",
+        "      at waitFor (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/helpers/testkit.ts:233:47)",
+        "      at runNextTicks (node:internal/process/task_queues:65:5)",
+        "      at process.processTimers (node:internal/timers:538:9)",
+        "      at async finished (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/113-workflow-source-capabilities.test.ts:55:3)",
+        "      at async TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/113-workflow-source-capabilities.test.ts:115:19)",
+        "      at async Test.run (node:internal/test_runner/test:1208:7)",
+        "      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7)",
+        ""
+      ],
+      "id": 10,
+      "observed_kind": "wait_timeout",
+      "retired_tool_contract": "模型响应器含 schedule_query 正向断言（本日志只有等待超时）",
+      "interruption_context": null
+    },
+    {
+      "location": "test/113-workflow-source-capabilities.test.ts:1:9822",
+      "name": "✖ 运行后新增资料授权不扩大步骤范围，直接产物与通知查询使用同一固定授权 (6332.886416ms)",
+      "message": "AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:",
+      "details": [
+        "✖ 运行后新增资料授权不扩大步骤范围，直接产物与通知查询使用同一固定授权 (6332.886416ms)",
+        "  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:",
+        "  + actual - expected",
+        "  ",
+        "  + 'paused'",
+        "  - 'succeeded'",
+        "  ",
+        "      at TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/113-workflow-source-capabilities.test.ts:168:12)",
+        "      at async Test.run (node:internal/test_runner/test:1208:7)",
+        "      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {",
+        "    generatedMessage: true,",
+        "    code: 'ERR_ASSERTION',",
+        "    actual: 'paused',",
+        "    expected: 'succeeded',",
+        "    operator: 'strictEqual',",
+        "    diff: 'simple'",
+        "  }",
+        ""
+      ],
+      "id": 11,
+      "observed_kind": "assertion",
+      "retired_tool_contract": "步骤显式要求 notification_query",
+      "interruption_context": null
+    },
+    {
+      "location": "test/113-workflow-source-capabilities.test.ts:1:11963",
+      "name": "✖ 同一来源的不同运行隔离真实产物、子历史与引用产物的通知正文 (5168.898792ms)",
+      "message": "AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:",
+      "details": [
+        "✖ 同一来源的不同运行隔离真实产物、子历史与引用产物的通知正文 (5168.898792ms)",
+        "  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:",
+        "  + actual - expected",
+        "  ",
+        "  + 'paused'",
+        "  - 'succeeded'",
+        "  ",
+        "      at TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/113-workflow-source-capabilities.test.ts:209:12)",
+        "      at async Test.run (node:internal/test_runner/test:1208:7)",
+        "      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {",
+        "    generatedMessage: true,",
+        "    code: 'ERR_ASSERTION',",
+        "    actual: 'paused',",
+        "    expected: 'succeeded',",
+        "    operator: 'strictEqual',",
+        "    diff: 'simple'",
+        "  }",
+        ""
+      ],
+      "id": 12,
+      "observed_kind": "assertion",
+      "retired_tool_contract": "步骤显式要求 notification_query",
+      "interruption_context": null
+    },
+    {
+      "location": "test/115-workflow-final-delivery.test.ts:1:24322",
+      "name": "✖ 真实工作流步骤取消自身计划：工具返回后核实停止，不等待自己的 SDK abort (18031.952458ms)",
+      "message": "Error: 等待超时: 自身取消工具已返回并完成停止",
+      "details": [
+        "✖ 真实工作流步骤取消自身计划：工具返回后核实停止，不等待自己的 SDK abort (18031.952458ms)",
+        "  Error: 等待超时: 自身取消工具已返回并完成停止",
+        "      at waitFor (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/helpers/testkit.ts:233:47)",
+        "      at async TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/115-workflow-final-delivery.test.ts:319:5)",
+        "      at async Test.run (node:internal/test_runner/test:1208:7)",
+        "      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7)",
+        ""
+      ],
+      "id": 13,
+      "observed_kind": "wait_timeout",
+      "retired_tool_contract": "模型 schedule_cancel 自取消",
+      "interruption_context": null
+    },
+    {
+      "location": "test/118-workflow-entries.test.ts:1:12387",
+      "name": "✖ ruukoto-code 空闲会话显式启动、带参复用与多个运行不占聊天，原键拒绝授权字段 (5882.446541ms)",
+      "message": "AssertionError [ERR_ASSERTION]: 核实原回答不重复推进或发事件",
+      "details": [
+        "✖ ruukoto-code 空闲会话显式启动、带参复用与多个运行不占聊天，原键拒绝授权字段 (5882.446541ms)",
+        "  AssertionError [ERR_ASSERTION]: 核实原回答不重复推进或发事件",
+        "  ",
+        "  63 !== 61",
+        "  ",
+        "      at TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/118-workflow-entries.test.ts:194:12)",
+        "      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)",
+        "      at async Test.run (node:internal/test_runner/test:1208:7)",
+        "      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {",
+        "    generatedMessage: false,",
+        "    code: 'ERR_ASSERTION',",
+        "    actual: 63,",
+        "    expected: 61,",
+        "    operator: 'strictEqual',",
+        "    diff: 'simple'",
+        "  }",
+        ""
+      ],
+      "id": 14,
+      "observed_kind": "assertion",
+      "retired_tool_contract": null,
+      "interruption_context": null
+    },
+    {
+      "location": "test/122-workflow-code-acceptance.test.ts:7:3",
+      "name": "✖ 编码六输入：共享三名额、失败依赖跳过、独立验证与实际五份冻结成果汇总，唯一部分失败回报 (254879.103709ms)",
+      "message": "Error: 等待超时: 六输入整项回报",
+      "details": [
+        "✖ 编码六输入：共享三名额、失败依赖跳过、独立验证与实际五份冻结成果汇总，唯一部分失败回报 (254879.103709ms)",
+        "  Error: 等待超时: 六输入整项回报",
+        "      at waitFor (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/helpers/testkit.ts:233:47)",
+        "      at runNextTicks (node:internal/process/task_queues:65:5)",
+        "      at process.processTimers (node:internal/timers:538:9)",
+        "      at async TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/122-workflow-code-acceptance.test.ts:47:11)",
+        "      at async Test.run (node:internal/test_runner/test:1208:7)",
+        "      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3)",
+        ""
+      ],
+      "id": 15,
+      "observed_kind": "wait_timeout",
+      "retired_tool_contract": null,
+      "interruption_context": null
+    },
+    {
+      "location": "test/125-agent-wait.test.ts:1:1140",
+      "name": "✖ agent_wait ruukoto：父轮让出真实 worker 与目录，修改、冻结、验证、汇总后继续检查且唯一报告 (110265.897625ms)",
+      "message": "Error: 等待超时: 等待父轮完成真实工作流",
+      "details": [
+        "✖ agent_wait ruukoto：父轮让出真实 worker 与目录，修改、冻结、验证、汇总后继续检查且唯一报告 (110265.897625ms)",
+        "  Error: 等待超时: 等待父轮完成真实工作流",
+        "      at waitFor (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/helpers/testkit.ts:233:47)",
+        "      at runNextTicks (node:internal/process/task_queues:65:5)",
+        "      at process.processTimers (node:internal/timers:538:9)",
+        "      at async TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/125-agent-wait.test.ts:52:5)",
+        "      at async Test.run (node:internal/test_runner/test:1208:7)",
+        "      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3)",
+        ""
+      ],
+      "id": 16,
+      "observed_kind": "wait_timeout",
+      "retired_tool_contract": null,
+      "interruption_context": null
+    },
+    {
+      "location": "test/125-agent-wait.test.ts:1:1140",
+      "name": "✖ agent_wait ruukoto-code：父轮让出真实 worker 与目录，修改、冻结、验证、汇总后继续检查且唯一报告 (106093.077708ms)",
+      "message": "Error: 等待超时: 等待父轮完成真实工作流",
+      "details": [
+        "✖ agent_wait ruukoto-code：父轮让出真实 worker 与目录，修改、冻结、验证、汇总后继续检查且唯一报告 (106093.077708ms)",
+        "  Error: 等待超时: 等待父轮完成真实工作流",
+        "      at waitFor (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/helpers/testkit.ts:233:47)",
+        "      at runNextTicks (node:internal/process/task_queues:65:5)",
+        "      at process.processTimers (node:internal/timers:538:9)",
+        "      at async TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/125-agent-wait.test.ts:52:5)",
+        "      at async Test.run (node:internal/test_runner/test:1208:7)",
+        "      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7)",
+        ""
+      ],
+      "id": 17,
+      "observed_kind": "wait_timeout",
+      "retired_tool_contract": null,
+      "interruption_context": null
+    },
+    {
+      "location": "test/22-auto-review.test.ts:1:2778",
+      "name": "✖ 自动批准：越界读取经审查批准后真实执行一次，审查记录落库 (67948.556167ms)",
+      "message": "Error: 等待超时: 任务完成",
+      "details": [
+        "✖ 自动批准：越界读取经审查批准后真实执行一次，审查记录落库 (67948.556167ms)",
+        "  Error: 等待超时: 任务完成",
+        "      at waitFor (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/helpers/testkit.ts:233:47)",
+        "      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)",
+        "      at async TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/22-auto-review.test.ts:123:7)",
+        "      at async Test.run (node:internal/test_runner/test:1208:7)",
+        "      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3)",
+        ""
+      ],
+      "id": 18,
+      "observed_kind": "wait_timeout",
+      "retired_tool_contract": null,
+      "interruption_context": null
+    },
+    {
+      "location": "test/22-auto-review.test.ts:1:8996",
+      "name": "✖ 确定性策略：写操作直接转人工，不发起审查调用 (74952.713ms)",
+      "message": "Error: 等待超时: 任务完成",
+      "details": [
+        "✖ 确定性策略：写操作直接转人工，不发起审查调用 (74952.713ms)",
+        "  Error: 等待超时: 任务完成",
+        "      at waitFor (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/helpers/testkit.ts:233:47)",
+        "      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)",
+        "      at async TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/22-auto-review.test.ts:274:7)",
+        "      at async Test.run (node:internal/test_runner/test:1208:7)",
+        "      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7)",
+        ""
+      ],
+      "id": 19,
+      "observed_kind": "wait_timeout",
+      "retired_tool_contract": null,
+      "interruption_context": null
+    },
+    {
+      "location": "test/22-auto-review.test.ts:1:11947",
+      "name": "✖ 审查超时：转人工；超时后迟到的批准不生效 (73225.391208ms)",
+      "message": "Error: 等待超时: 任务完成",
+      "details": [
+        "✖ 审查超时：转人工；超时后迟到的批准不生效 (73225.391208ms)",
+        "  Error: 等待超时: 任务完成",
+        "      at waitFor (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/helpers/testkit.ts:233:47)",
+        "      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)",
+        "      at async TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/22-auto-review.test.ts:352:7)",
+        "      at async Test.run (node:internal/test_runner/test:1208:7)",
+        "      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7)",
+        ""
+      ],
+      "id": 20,
+      "observed_kind": "wait_timeout",
+      "retired_tool_contract": null,
+      "interruption_context": null
+    },
+    {
+      "location": "test/32-dev.test.ts:1:1",
+      "name": "✖ test/32-dev.test.ts (820528.914791ms)",
+      "message": "'test failed'",
+      "details": [
+        "✖ test/32-dev.test.ts (820528.914791ms)",
+        "  'test failed'",
+        ""
+      ],
+      "id": 21,
+      "observed_kind": "file_test_failed",
+      "retired_tool_contract": null,
+      "interruption_context": "该文件在自有INT记录中；具体用例失败先后须按日志核对"
+    },
+    {
+      "location": "test/40-qq-private.test.ts:1:7821",
+      "name": "✖ QQ owner 身份与控制面授权独立：伪造模型工具不能改权限或批准开发会话操作 (25126.796292ms)",
+      "message": "Error: 等待超时: QQ 通知等待审批",
+      "details": [
+        "✖ QQ owner 身份与控制面授权独立：伪造模型工具不能改权限或批准开发会话操作 (25126.796292ms)",
+        "  Error: 等待超时: QQ 通知等待审批",
+        "      at waitFor (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/helpers/testkit.ts:233:47)",
+        "      at async TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/40-qq-private.test.ts:198:7)",
+        "      at async Test.run (node:internal/test_runner/test:1208:7)",
+        "      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7)",
+        ""
+      ],
+      "id": 22,
+      "observed_kind": "wait_timeout",
+      "retired_tool_contract": "模型 notification_enqueue 等待审批",
+      "interruption_context": null
+    },
+    {
+      "location": "test/45-github-events.test.ts:1:8072",
+      "name": "✖ GitHub webhook：登记去重快速返回，宿主评审走通用 SubAgent、完整产物、main 摘要与 owner outbox (4727.995583ms)",
+      "message": null,
+      "details": [
+        "✖ GitHub webhook：登记去重快速返回，宿主评审走通用 SubAgent、完整产物、main 摘要与 owner outbox (4727.995583ms)",
+        "  [TimeoutError: The operation was aborted due to timeout]",
+        ""
+      ],
+      "id": 23,
+      "observed_kind": "abort_timeout",
+      "retired_tool_contract": null,
+      "interruption_context": null
+    },
+    {
+      "location": "test/45-github-events.test.ts:1:15133",
+      "name": "✖ GitHub 修订：每个修订一个新 SubAgent，旧 coding 与新 SubAgent 结果都标过期并取消待发通知 (4491.046625ms)",
+      "message": null,
+      "details": [
+        "✖ GitHub 修订：每个修订一个新 SubAgent，旧 coding 与新 SubAgent 结果都标过期并取消待发通知 (4491.046625ms)",
+        "  [TimeoutError: The operation was aborted due to timeout]",
+        ""
+      ],
+      "id": 24,
+      "observed_kind": "abort_timeout",
+      "retired_tool_contract": null,
+      "interruption_context": null
+    },
+    {
+      "location": "test/45-github-events.test.ts:1:20538",
+      "name": "✖ GitHub 通知：换 owner 目标和停用 webhook 都取消旧 pending，不改发 (5652.307125ms)",
+      "message": null,
+      "details": [
+        "✖ GitHub 通知：换 owner 目标和停用 webhook 都取消旧 pending，不改发 (5652.307125ms)",
+        "  [TimeoutError: The operation was aborted due to timeout]",
+        ""
+      ],
+      "id": 25,
+      "observed_kind": "abort_timeout",
+      "retired_tool_contract": null,
+      "interruption_context": null
+    },
+    {
+      "location": "test/45-github-events.test.ts:1:21474",
+      "name": "✖ GitHub 修订：同时间戳不同 SHA 保守失效，关闭事件不创建新 review (4641.532208ms)",
+      "message": null,
+      "details": [
+        "✖ GitHub 修订：同时间戳不同 SHA 保守失效，关闭事件不创建新 review (4641.532208ms)",
+        "  [TimeoutError: The operation was aborted due to timeout]",
+        ""
+      ],
+      "id": 26,
+      "observed_kind": "abort_timeout",
+      "retired_tool_contract": null,
+      "interruption_context": null
+    },
+    {
+      "location": "test/45-github-events.test.ts:1:22711",
+      "name": "✖ GitHub 通知结果未知：重复 delivery、重复扫描和 Runtime 重启都不重新发送或创建任务 (4926.051375ms)",
+      "message": null,
+      "details": [
+        "✖ GitHub 通知结果未知：重复 delivery、重复扫描和 Runtime 重启都不重新发送或创建任务 (4926.051375ms)",
+        "  [TimeoutError: The operation was aborted due to timeout]",
+        ""
+      ],
+      "id": 27,
+      "observed_kind": "abort_timeout",
+      "retired_tool_contract": null,
+      "interruption_context": null
+    },
+    {
+      "location": "test/49-chat-result-flow.test.ts:1:2824",
+      "name": "✖ 群结果工具仅 main 可见；归档群结果不唤醒 main，未接收摘要不能申请通知 (6478.11675ms)",
+      "message": null,
+      "details": [
+        "✖ 群结果工具仅 main 可见；归档群结果不唤醒 main，未接收摘要不能申请通知 (6478.11675ms)",
+        "  TypeError: Cannot read properties of undefined (reading 'resultSummary')",
+        "      at TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/49-chat-result-flow.test.ts:108:55)",
+        "      at async Test.run (node:internal/test_runner/test:1208:7)",
+        "      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3)",
+        ""
+      ],
+      "id": 28,
+      "observed_kind": "type_error",
+      "retired_tool_contract": "模型 notification_enqueue 已无账本结果",
+      "interruption_context": null
+    },
+    {
+      "location": "test/49-chat-result-flow.test.ts:1:4879",
+      "name": "✖ main 接收不外发；请求确认模式的群摘要通知经批准，发送沿用固定快照 (63291.082875ms)",
+      "message": "Error: 等待超时: 出现待审批操作",
+      "details": [
+        "✖ main 接收不外发；请求确认模式的群摘要通知经批准，发送沿用固定快照 (63291.082875ms)",
+        "  Error: 等待超时: 出现待审批操作",
+        "      at waitFor (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/helpers/testkit.ts:233:47)",
+        "      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)",
+        "      at async pendingConfirmation (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/helpers/testkit.ts:262:3)",
+        "      at async TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/49-chat-result-flow.test.ts:135:26)",
+        "      at async Test.run (node:internal/test_runner/test:1208:7)",
+        "      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7)",
+        ""
+      ],
+      "id": 29,
+      "observed_kind": "wait_timeout",
+      "retired_tool_contract": "模型 notification_enqueue 等待审批",
+      "interruption_context": null
+    },
+    {
+      "location": "test/49-chat-result-flow.test.ts:1:7279",
+      "name": "✖ 归档群消息在审批期间或批准后发送前撤回，都不能继续外发摘要 (62035.995875ms)",
+      "message": "Error: 等待超时: 出现待审批操作",
+      "details": [
+        "✖ 归档群消息在审批期间或批准后发送前撤回，都不能继续外发摘要 (62035.995875ms)",
+        "  Error: 等待超时: 出现待审批操作",
+        "      at waitFor (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/helpers/testkit.ts:233:47)",
+        "      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)",
+        "      at async pendingConfirmation (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/helpers/testkit.ts:262:3)",
+        "      at async TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/49-chat-result-flow.test.ts:172:28)",
+        "      at async Test.run (node:internal/test_runner/test:1208:7)",
+        "      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7)",
+        ""
+      ],
+      "id": 30,
+      "observed_kind": "wait_timeout",
+      "retired_tool_contract": "模型 notification_enqueue 等待审批",
+      "interruption_context": null
+    },
+    {
+      "location": "test/49-chat-result-flow.test.ts:1:9453",
+      "name": "✖ 完全访问群摘要：免审批使用固定接收快照，撤回的来源仍拒绝外发 (3158.831125ms)",
+      "message": null,
+      "details": [
+        "✖ 完全访问群摘要：免审批使用固定接收快照，撤回的来源仍拒绝外发 (3158.831125ms)",
+        "  TypeError: Cannot read properties of undefined (reading 'authorization')",
+        "      at TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/49-chat-result-flow.test.ts:231:27)",
+        "      at async Test.run (node:internal/test_runner/test:1208:7)",
+        "      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7)",
+        ""
+      ],
+      "id": 31,
+      "observed_kind": "type_error",
+      "retired_tool_contract": "模型 notification_enqueue 已无授权账本",
+      "interruption_context": null
+    },
+    {
+      "location": "test/51-generic-scheduler.test.ts:1:7045",
+      "name": "✖ 受限运行独立等待审批，主聊天继续响应，计划保存模式跨默认变化与重启不重算 (17353.472041ms)",
+      "message": "Error: 等待超时: 调度请求审批",
+      "details": [
+        "✖ 受限运行独立等待审批，主聊天继续响应，计划保存模式跨默认变化与重启不重算 (17353.472041ms)",
+        "  Error: 等待超时: 调度请求审批",
+        "      at waitFor (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/helpers/testkit.ts:233:47)",
+        "      at async TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/51-generic-scheduler.test.ts:135:5)",
+        "      at async Test.run (node:internal/test_runner/test:1208:7)",
+        "      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7)",
+        ""
+      ],
+      "id": 32,
+      "observed_kind": "wait_timeout",
+      "retired_tool_contract": "模型 notification_enqueue 等待审批",
+      "interruption_context": null
+    },
+    {
+      "location": "test/51-generic-scheduler.test.ts:1:15784",
+      "name": "✖ 运行通过 schedule_cancel 取消自身：工具返回后停止，不等待自己的 SDK abort (5000.403292ms)",
+      "message": "'test timed out after 5000ms'",
+      "details": [
+        "✖ 运行通过 schedule_cancel 取消自身：工具返回后停止，不等待自己的 SDK abort (5000.403292ms)",
+        "  'test timed out after 5000ms'",
+        ""
+      ],
+      "id": 33,
+      "observed_kind": "test_timeout",
+      "retired_tool_contract": "模型 schedule_cancel 自取消",
+      "interruption_context": null
+    },
+    {
+      "location": "test/51-generic-scheduler.test.ts:1:16987",
+      "name": "✖ 自身取消停止未核实：工具返回、task中断及占用可见，运行继续开放等待核实 (5000.9945ms)",
+      "message": "'test timed out after 5000ms'",
+      "details": [
+        "✖ 自身取消停止未核实：工具返回、task中断及占用可见，运行继续开放等待核实 (5000.9945ms)",
+        "  'test timed out after 5000ms'",
+        ""
+      ],
+      "id": 34,
+      "observed_kind": "test_timeout",
+      "retired_tool_contract": "模型 schedule_cancel 自取消",
+      "interruption_context": null
+    },
+    {
+      "location": "test/83-subagent-worktrees.test.ts:1:43771",
+      "name": "✖ 后台停止覆盖 SDK 中的 integrate 临时 worker ready 阶段，重连资料保留占用与现场 (23840.84025ms)",
+      "message": "Error: 等待超时: 目标临时单元已产生",
+      "details": [
+        "✖ 后台停止覆盖 SDK 中的 integrate 临时 worker ready 阶段，重连资料保留占用与现场 (23840.84025ms)",
+        "  Error: 等待超时: 目标临时单元已产生",
+        "      at waitFor (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/helpers/testkit.ts:233:47)",
+        "      at runNextTicks (node:internal/process/task_queues:65:5)",
+        "      at process.processTimers (node:internal/timers:538:9)",
+        "      at async TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/83-subagent-worktrees.test.ts:881:9)",
+        "      at async Test.run (node:internal/test_runner/test:1208:7)",
+        "      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7)",
+        ""
+      ],
+      "id": 35,
+      "observed_kind": "wait_timeout",
+      "retired_tool_contract": null,
+      "interruption_context": null
+    },
+    {
+      "location": "test/85-retire-core-group-chat.test.ts:1:13907",
+      "name": "✖ 验收4a：已接收群结果的通知经批准后在退役后正常发送 (63318.029541ms)",
+      "message": "Error: 等待超时: 出现待审批操作",
+      "details": [
+        "✖ 验收4a：已接收群结果的通知经批准后在退役后正常发送 (63318.029541ms)",
+        "  Error: 等待超时: 出现待审批操作",
+        "      at waitFor (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/helpers/testkit.ts:233:47)",
+        "      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)",
+        "      at async pendingConfirmation (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/helpers/testkit.ts:262:3)",
+        "      at async TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/85-retire-core-group-chat.test.ts:318:26)",
+        "      at async Test.run (node:internal/test_runner/test:1208:7)",
+        "      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7)",
+        ""
+      ],
+      "id": 36,
+      "observed_kind": "wait_timeout",
+      "retired_tool_contract": "模型 notification_enqueue 等待审批",
+      "interruption_context": null
+    },
+    {
+      "location": "test/personal-command-work.test.ts:1:1",
+      "name": "✖ test/personal-command-work.test.ts (432488.428042ms)",
+      "message": "'test failed'",
+      "details": [
+        "✖ test/personal-command-work.test.ts (432488.428042ms)",
+        "  'test failed'",
+        ""
+      ],
+      "id": 37,
+      "observed_kind": "file_test_failed",
+      "retired_tool_contract": null,
+      "interruption_context": "该文件在自有INT记录中；具体用例失败先后须按日志核对"
+    },
+    {
+      "location": "test/personal-tools.test.ts:1:5738",
+      "name": "✖ durable 通用工具：主子会话沿目录权限读写，二进制产物分页与请求输入可重建 (60722.339583ms)",
+      "message": "'test timed out after 60000ms'",
+      "details": [
+        "✖ durable 通用工具：主子会话沿目录权限读写，二进制产物分页与请求输入可重建 (60722.339583ms)",
+        "  'test timed out after 60000ms'",
+        ""
+      ],
+      "id": 38,
+      "observed_kind": "test_timeout",
+      "retired_tool_contract": null,
+      "interruption_context": "该文件在自有INT记录中；具体用例失败先后须按日志核对"
+    },
+    {
+      "location": "test/subagent-source-capabilities.test.ts:5:6114",
+      "name": "✖ 普通个人来源执行 app_data，应用回执与账本归属真实子 Task (6615.047833ms)",
+      "message": "AssertionError [ERR_ASSERTION]: schedule_query",
+      "details": [
+        "✖ 普通个人来源执行 app_data，应用回执与账本归属真实子 Task (6615.047833ms)",
+        "  AssertionError [ERR_ASSERTION]: schedule_query",
+        "      at TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/subagent-source-capabilities.test.ts:144:77)",
+        "      at async Test.run (node:internal/test_runner/test:1208:7)",
+        "      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {",
+        "    generatedMessage: false,",
+        "    code: 'ERR_ASSERTION',",
+        "    actual: false,",
+        "    expected: true,",
+        "    operator: '==',",
+        "    diff: 'simple'",
+        "  }",
+        ""
+      ],
+      "id": 39,
+      "observed_kind": "assertion",
+      "retired_tool_contract": "schedule_query 正向工具断言",
+      "interruption_context": null
+    },
+    {
+      "location": "test/subagent-workspace-snapshot.test.ts:1:710",
+      "name": "✖ ruukoto 完全访问父级派发 reviewer 审当前内容，真实 native 拒绝源码、Git 与基线写旁路 (109228.894958ms)",
+      "message": "Error: 等待超时: reviewer 终态",
+      "details": [
+        "✖ ruukoto 完全访问父级派发 reviewer 审当前内容，真实 native 拒绝源码、Git 与基线写旁路 (109228.894958ms)",
+        "  Error: 等待超时: reviewer 终态",
+        "      at waitFor (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/helpers/testkit.ts:233:47)",
+        "      at runNextTicks (node:internal/process/task_queues:65:5)",
+        "      at process.processTimers (node:internal/timers:538:9)",
+        "      at async TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/subagent-workspace-snapshot.test.ts:61:5)",
+        "      at async Test.run (node:internal/test_runner/test:1208:7)",
+        "      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3)",
+        ""
+      ],
+      "id": 40,
+      "observed_kind": "wait_timeout",
+      "retired_tool_contract": null,
+      "interruption_context": null
+    },
+    {
+      "location": "test/subagent-workspace-snapshot.test.ts:1:710",
+      "name": "✖ ruukoto-code 完全访问父级派发 reviewer 审当前内容，真实 native 拒绝源码、Git 与基线写旁路 (66451.813625ms)",
+      "message": "Error: 等待超时: reviewer 终态",
+      "details": [
+        "✖ ruukoto-code 完全访问父级派发 reviewer 审当前内容，真实 native 拒绝源码、Git 与基线写旁路 (66451.813625ms)",
+        "  Error: 等待超时: reviewer 终态",
+        "      at waitFor (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/helpers/testkit.ts:233:47)",
+        "      at runNextTicks (node:internal/process/task_queues:65:5)",
+        "      at process.processTimers (node:internal/timers:538:9)",
+        "      at async TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/subagent-workspace-snapshot.test.ts:61:5)",
+        "      at async Test.run (node:internal/test_runner/test:1208:7)",
+        "      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7)",
+        ""
+      ],
+      "id": 41,
+      "observed_kind": "wait_timeout",
+      "retired_tool_contract": null,
+      "interruption_context": null
+    },
+    {
+      "location": "test/subagent-workspace-snapshot.test.ts:12:2636",
+      "name": "✖ 受保护角色的结构化文件工具与宿主批准入口都不能写来源或私有基线 (49372.828125ms)",
+      "message": "Error: 等待超时: 保护任务终态",
+      "details": [
+        "✖ 受保护角色的结构化文件工具与宿主批准入口都不能写来源或私有基线 (49372.828125ms)",
+        "  Error: 等待超时: 保护任务终态",
+        "      at waitFor (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/helpers/testkit.ts:233:47)",
+        "      at runNextTicks (node:internal/process/task_queues:65:5)",
+        "      at process.processTimers (node:internal/timers:538:9)",
+        "      at async TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/subagent-workspace-snapshot.test.ts:113:5)",
+        "      at async Test.run (node:internal/test_runner/test:1208:7)",
+        "      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7)",
+        ""
+      ],
+      "id": 42,
+      "observed_kind": "wait_timeout",
+      "retired_tool_contract": null,
+      "interruption_context": null
+    },
+    {
+      "location": "test/workflow-role-integration.test.ts:1:3287",
+      "name": "✖ ruukoto 的普通与工作流 reviewer 使用同来源、当前内容及固定角色，真实 bash 不能改来源 (107718.26775ms)",
+      "message": "Error: 等待超时: 普通审查完成",
+      "details": [
+        "✖ ruukoto 的普通与工作流 reviewer 使用同来源、当前内容及固定角色，真实 bash 不能改来源 (107718.26775ms)",
+        "  Error: 等待超时: 普通审查完成",
+        "      at waitFor (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/helpers/testkit.ts:233:47)",
+        "      at runNextTicks (node:internal/process/task_queues:65:5)",
+        "      at process.processTimers (node:internal/timers:538:9)",
+        "      at async TestContext.<anonymous> (/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/test/workflow-role-integration.test.ts:92:5)",
+        "      at async Test.run (node:internal/test_runner/test:1208:7)",
+        "      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3)"
+      ],
+      "id": 43,
+      "observed_kind": "wait_timeout",
+      "retired_tool_contract": null,
+      "interruption_context": "该文件在自有INT记录中；具体用例失败先后须按日志核对"
+    }
+  ],
+  "limitations": [
+    "本批含6个自有文件的有界INT中断及后续已修订测试，不作为最终完整覆盖。",
+    "旧工具组依据旧源契约与日志匹配；其中超时仍不能仅据该匹配认定唯一机制。",
+    "112采样热点不能证明所有超时同因；118 Code事件数63!=61独立保留。",
+    "本部分日志未出现reaped:false/identity_unavailable；原全仓native101失败仍另存未关闭。"
+  ],
+  "interrupt_evidence": {
+    "app-rest-interrupt.json": "plannedTargets=5，actualSignalsSent=3；两个计划目标在枚举前已退出",
+    "app-rest-test32-interrupt.json": "test32另有1个自有INT；合计4个，主代理已核实"
+  }
+}

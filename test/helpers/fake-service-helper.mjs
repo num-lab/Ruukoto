@@ -177,9 +177,18 @@ function assertNotAlias(state, unit) {
   }
 }
 
-function cmdInspect(unit) {
+function cmdInspect(unit, inspectionId, expectedMachineId) {
   const { policy, machineId, policyRevision } = loadPolicy();
   policyEntry(policy, unit);
+  if (inspectionId !== undefined) {
+    if (!/^inspect_[0-9a-f]{24}$/.test(inspectionId) || machineId !== expectedMachineId) throw new Refuse("wrong_machine", "检查身份或机器不符");
+    const dir = path.join(DIR, "inspections", inspectionId);
+    fs.mkdirSync(path.dirname(dir), { recursive: true });
+    try { fs.mkdirSync(dir); } catch (error) { if (error.code === "EEXIST") throw new Refuse("already_claimed", "原检查已认领"); throw error; }
+    fs.writeFileSync(path.join(dir, "claim.json"), JSON.stringify({ inspectionId, machineId, pid: process.pid }));
+    if (flag("inspect-delay-ms")) sleepMs(Number(fs.readFileSync(path.join(DIR, "inspect-delay-ms"), "utf8")));
+    if (fs.existsSync(path.join(dir, "stop-requested"))) throw new Refuse("stop_requested", "检查已停止");
+  }
   const { state } = readState(unit);
   assertNotAlias(state, unit);
   if (flag("fail-inspect-after-restart") && flag("restarted")) {
@@ -199,7 +208,8 @@ function cmdInspect(unit) {
   ];
   fs.writeSync(1, lines.join("\n") + "\n");
   reply({
-    verb: "inspect",
+    verb: inspectionId === undefined ? "inspect" : "inspect-op",
+    ...(inspectionId === undefined ? {} : { inspectionId }),
     ok: true,
     machineId,
     policyRevision,
@@ -239,7 +249,7 @@ function cmdRestart(hostOpId, expectedPolicyRev, expectedUnitRev, unit) {
     if (err.code === "EEXIST") throw new Refuse("already_claimed", `同一操作 ID 已认领过执行权，拒绝再次启动：${hostOpId}`);
     throw new Refuse("claim_failed", `执行权认领失败：${err.message}`);
   }
-  fs.writeFileSync(path.join(claimDir, "claim.json"), JSON.stringify({ unit, expectedPolicyRev, expectedUnitRev, claimedAt: new Date().toISOString() }, null, 2), { mode: 0o600 });
+  fs.writeFileSync(path.join(claimDir, "claim.json"), JSON.stringify({ version: 2, claimedBy: "restart", launcherPid: process.pid, unit, expectedPolicyRev, expectedUnitRev, claimedAt: new Date().toISOString() }, null, 2), { mode: 0o600 });
 
   // 停止协议先手：认领后、启动前出现 stop-requested 则拦下迟到启动
   if (fs.existsSync(path.join(claimDir, "stop-requested"))) {
@@ -302,17 +312,49 @@ function cmdStopOp(hostOpId) {
   if (!HOST_OP_ID.test(hostOpId)) throw new Refuse("op_invalid", "操作 ID 形态非法");
   const claimDir = path.join(OPS_DIR, hostOpId);
   // 停止先阻止后续启动：认领目录不存在时由停止协议创建（restart 见 EEXIST 即拒绝）
-  if (!fs.existsSync(claimDir)) {
-    fs.mkdirSync(claimDir, { mode: 0o700 });
-    fs.writeFileSync(path.join(claimDir, "claim.json"), JSON.stringify({ claimedBy: "stop-op", claimedAt: new Date().toISOString() }), { mode: 0o600 });
-  }
+  let created = false;
+  try { fs.mkdirSync(claimDir, { mode: 0o700 }); created = true; } catch (error) { if (error.code !== "EEXIST") throw error; }
+  if (created) fs.writeFileSync(path.join(claimDir, "claim.json"), JSON.stringify({ version: 2, claimedBy: "stop-op", claimedAt: new Date().toISOString() }), { mode: 0o600 });
   fs.writeFileSync(path.join(claimDir, "stop-requested"), new Date().toISOString() + "\n", { mode: 0o600 });
   const opUnit = opUnitFor(hostOpId);
   if (flag("stop-query-fails")) {
-    reply({ verb: "stop-op", ok: true, machineId, hostOpId, opUnit, exited: false, detail: "query_failed" });
+    reply({ verb: "stop-op", ok: true, machineId, hostOpId, opUnit, launcherExited: false, exited: false, detail: "query_failed" });
     return;
   }
-  reply({ verb: "stop-op", ok: true, machineId, hostOpId, opUnit, exited: true });
+  let launchEnded = false;
+  const deadline = Date.now() + 1000;
+  do {
+    let claim;
+    try { claim = JSON.parse(fs.readFileSync(path.join(claimDir, "claim.json"), "utf8")); } catch { break; }
+    if (claim.version !== 2) break;
+    if (claim.claimedBy === "stop-op") launchEnded = true;
+    else if (claim.claimedBy === "restart" && Number.isSafeInteger(claim.launcherPid) && claim.launcherPid > 0) {
+      // 替身没有后代；PID 探针只模拟短期夹具，生产用 starttime/bootId 与进程组核实。
+      try { process.kill(claim.launcherPid, 0); } catch (error) { launchEnded = error.code === "ESRCH"; }
+    }
+    if (launchEnded) break;
+    sleepMs(10);
+  } while (Date.now() < deadline);
+  reply({ verb: "stop-op", ok: true, machineId, hostOpId, opUnit, launcherExited: launchEnded, exited: launchEnded });
+}
+
+function cmdStopInspect(inspectionId, expectedMachineId) {
+  const { machineId } = loadPolicy();
+  if (!/^inspect_[0-9a-f]{24}$/.test(inspectionId) || machineId !== expectedMachineId) throw new Refuse("wrong_machine", "检查身份或机器不符");
+  const dir = path.join(DIR, "inspections", inspectionId);
+  fs.mkdirSync(path.dirname(dir), { recursive: true });
+  let created = false;
+  try { fs.mkdirSync(dir); created = true; } catch (error) { if (error.code !== "EEXIST") throw error; }
+  if (created) fs.writeFileSync(path.join(dir, "claim.json"), JSON.stringify({ inspectionId, machineId, stoppedFirst: true }));
+  fs.writeFileSync(path.join(dir, "stop-requested"), "");
+  const claim = JSON.parse(fs.readFileSync(path.join(dir, "claim.json"), "utf8"));
+  let exited = claim.stoppedFirst === true;
+  if (!exited && Number.isSafeInteger(claim.pid)) {
+    // 替身没有后代；生产的 boot/starttime/进程组核实另由 Linux helper 用例证明。
+    try { process.kill(claim.pid, 0); } catch (error) { exited = error.code === "ESRCH"; }
+  }
+  if (flag("inspection-stop-fails")) exited = false;
+  reply({ verb: "stop-inspect", ok: true, machineId, inspectionId, exited });
 }
 
 function main() {
@@ -322,6 +364,12 @@ function main() {
     case "inspect":
       if (args.length !== 2) throw new Refuse("usage", "用法：inspect <unit>");
       return cmdInspect(args[1]);
+    case "inspect-op":
+      if (args.length !== 4) throw new Refuse("usage", "inspect-op 参数不符");
+      return cmdInspect(args[3], args[1], args[2]);
+    case "stop-inspect":
+      if (args.length !== 3) throw new Refuse("usage", "stop-inspect 参数不符");
+      return cmdStopInspect(args[1], args[2]);
     case "restart":
       if (args.length !== 5) throw new Refuse("usage", "用法：restart <hostOpId> <policyRev> <unitRev> <unit>");
       return cmdRestart(args[1], args[2], args[3], args[4]);

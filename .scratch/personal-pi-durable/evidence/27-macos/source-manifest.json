@@ -1,0 +1,42 @@
+{
+  "base": "9243e63",
+  "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "node": "24.15.0",
+  "files": [
+    {
+      "path": "packages/agent/src/mcp/client.ts",
+      "bytes": 1920,
+      "sha256": "33f2ce45c23edc19ad22026eb064036c118236977fa164c8941d41715eff3ee9"
+    },
+    {
+      "path": "packages/agent/src/mcp/transport.ts",
+      "bytes": 11215,
+      "sha256": "aaeb26354970035732cdcde7095fb937d3f9f63a438697645ec723cddaa91e3d"
+    },
+    {
+      "path": "test/mcp-transport.test.ts",
+      "bytes": 10957,
+      "sha256": "755dfe1572134a16ce396c905fc69fb99e590ad55597fe48ce988a4c56b3bba2"
+    },
+    {
+      "path": "docs/modules/agent-tools.md",
+      "bytes": 50554,
+      "sha256": "4aa55e28228a0fbd095e3ca1fc2781e7213283e350dd2c628db4e266b5abe601"
+    },
+    {
+      "path": ".agents/notes/implemented/architecture/2026-09-23-mcp-client.md",
+      "bytes": 13072,
+      "sha256": "74250217a1bc3794eb664036c5524cad9c789f1ae69b1042ae9e8db3ab9ce94f"
+    },
+    {
+      "path": ".agents/notes/implemented/architecture/2026-10-17-personal-full-access-commands.md",
+      "bytes": 4583,
+      "sha256": "69c9281f5801d7eb628e79ed9f1d3e63057d272ae8936fafea07dae12573d48c"
+    },
+    {
+      "path": ".agents/notes/implemented/architecture/2026-10-17-mcp-transport-reuse.md",
+      "bytes": 4424,
+      "sha256": "564199af31a655c2b391a1744d493ed1dad018bbb763b07c1a6f6bd9eda2d842"
+    }
+  ]
+}

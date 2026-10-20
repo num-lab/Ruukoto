@@ -1,0 +1,109 @@
+{
+  "scope": "仅规范提交材料展示，原阶段指纹按archive原成员核对",
+  "archive": "commit-raw-evidence.tar.gz",
+  "archive_sha256": "17e780ba07692452e034ab50cf9f61a062bb1391950e8e27b6de47870c5641ca",
+  "members": {
+    "README.md": {
+      "raw_sha256": "7655a49ffab0a3b3e15e78ed488a21767e7126e67309b7d66b73ef5082c3a3a7",
+      "raw_bytes": 10714,
+      "display_sha256": "765a3ef35fb20dc4ca5758fbb0d49cf3739edf4b73e4b1ffc81fc0723d148093",
+      "display_bytes": 11280
+    },
+    "app-rest-partial.log": {
+      "raw_sha256": "7d0ecd5b373694f7875d7fdf16be88d023f135926a5b8b47e1acb06a4c0d6e63",
+      "raw_bytes": 338772,
+      "display_sha256": "973911c25ceb7e6fdd827868b8184ea6e16110055293201d2fdd8f2411e5656a",
+      "display_bytes": 338756
+    },
+    "callers/ruukoto38-caller-fixes.patch": {
+      "raw_sha256": "dadb19f19159cb3555827a47f022187562b8a0d1bdb0286bf0d09c1b374c303c",
+      "raw_bytes": 25192,
+      "display_sha256": "8ce133ac77061107cc0b5a0155a385e4cf7f59b2ce03770f03e8312bed1f80a3",
+      "display_bytes": 25177
+    },
+    "callers/verification-before.log": {
+      "raw_sha256": "308ccece8e0ed23906ee4d37331417d9b51f4d1af52d862e4c68dcf47c34fc7a",
+      "raw_bytes": 3022,
+      "display_sha256": "92a1497f64df15f5d273d10a4055bcd73981fe094b3be5052158f7fe6c437895",
+      "display_bytes": 3012
+    },
+    "callers/workspace-before.log": {
+      "raw_sha256": "79824cb0fc1c6ab71aac50daf8aa4883cc89cc41e16564f964a684a9be5dc608",
+      "raw_bytes": 2164,
+      "display_sha256": "3b2eb3b32903a54190206cea9a47c4cedb4822032a2490b322ac0bc1f5075bba",
+      "display_bytes": 2160
+    },
+    "check-exclusive-failure.log": {
+      "raw_sha256": "e8ac76c48477bb0bc04b387f40cd39d72d9a0d942d0384d91889443137f5fa84",
+      "raw_bytes": 12609,
+      "display_sha256": "f09e807e7cd3e4e90baf30a42d406b7693526f794242882d3c13ec71382e1d07",
+      "display_bytes": 12603
+    },
+    "pty/r38-pty-72xadznc/SIGINT.log": {
+      "raw_sha256": "03d5a28102c4b53f765970deee635eb8c970ff4afe49b3132a49df648523450d",
+      "raw_bytes": 967,
+      "display_sha256": "901881cf5db80fb834e38da1b5e66102cbc0e8cc6b856c678bc6974adad1acdd",
+      "display_bytes": 931
+    },
+    "pty/r38-pty-72xadznc/SIGTERM.log": {
+      "raw_sha256": "03d5a28102c4b53f765970deee635eb8c970ff4afe49b3132a49df648523450d",
+      "raw_bytes": 967,
+      "display_sha256": "901881cf5db80fb834e38da1b5e66102cbc0e8cc6b856c678bc6974adad1acdd",
+      "display_bytes": 931
+    },
+    "pty/r38-pty-72xadznc/foreign-lock.log": {
+      "raw_sha256": "5fd88aaf5c810586b51bec08203807edf3d58f50dc8f0954e44f24476933849f",
+      "raw_bytes": 1058,
+      "display_sha256": "d16dd3753a05d952c0d86063be26b076a9b8f4410b34d987620dda12f2d4d26b",
+      "display_bytes": 1022
+    },
+    "pty/r38-pty-caw44cbl/menu-exit.log": {
+      "raw_sha256": "c89a6b63c3caf554a8c350e923f020aebdddc603f46f5ad6ebf1ba0b8aa9b220",
+      "raw_bytes": 1096,
+      "display_sha256": "dfc9d6c3416595d229985538b4b1f0457b325d4487eda6b8ce24824dfb928372",
+      "display_bytes": 1059
+    },
+    "pty/r38-pty-d7oel8k2/menu-exit.log": {
+      "raw_sha256": "f3c67b709505d627f3f770cc8df1c6c281a5ae97781439ee8525a99d8b4b55fd",
+      "raw_bytes": 968,
+      "display_sha256": "ced8093b047f12dd75ee97a71874062e764929933f6005ba23d35b34064feaa1",
+      "display_bytes": 932
+    },
+    "retired-callers/base.patch": {
+      "raw_sha256": "991033bee1537275bf5faf09d89da99271985dc408e8f8845de8fa9368d8f57a",
+      "raw_bytes": 517355,
+      "display_sha256": "ccbd4d012b33d38291ebb7df4558376230efb8f07bb721a0153eb7311e424468",
+      "display_bytes": 517266
+    },
+    "retired-callers/changes.patch": {
+      "raw_sha256": "579f9227d8f75d9f5f6704da2893243133aa205b5d5908b5e527cd328a4b0efc",
+      "raw_bytes": 28569,
+      "display_sha256": "effabaf32aacfeada68128535cfbaecf9da743cc2a14d8249602c01963b8192e",
+      "display_bytes": 28560
+    },
+    "retired-callers/patch.diff": {
+      "raw_sha256": "579f9227d8f75d9f5f6704da2893243133aa205b5d5908b5e527cd328a4b0efc",
+      "raw_bytes": 28569,
+      "display_sha256": "effabaf32aacfeada68128535cfbaecf9da743cc2a14d8249602c01963b8192e",
+      "display_bytes": 28560
+    },
+    "shared-prompts/ruukoto38-scheduled-prompt-assertions.patch": {
+      "raw_sha256": "7da5870b8b67cc259a88d02fe27a22590ef3b5c706f819b2ccb5268d2f954e0a",
+      "raw_bytes": 1684,
+      "display_sha256": "d6d9ce81c3da25013730251d51da08df1baa5b094a517729045e8f3fa7d04082",
+      "display_bytes": 1683
+    },
+    "tool-retirement/ruukoto38-tool-retirement.patch": {
+      "raw_sha256": "414605cafaaee5db8716bc131af4464f7d0bdc3c26030e80fd0ac91eb283149d",
+      "raw_bytes": 13204,
+      "display_sha256": "2384fd5356e55c05d4ead3bcef5f75466343a986ddc40aa725e0360b4ae8bf03",
+      "display_bytes": 13198
+    },
+    "workflow-diagnostic/ruukoto38-112-cpu-profile.json": {
+      "raw_sha256": "2e5661c6dcadcc8b239ae87e90256cbe1eda515f84e3781281af0b2f92d2b8d7",
+      "raw_bytes": 10496,
+      "display_sha256": "ac24320dd225a193c41cc1d7911ad234b4820bff8b218feaf10455b1465a38f4",
+      "display_bytes": 10497
+    }
+  }
+}

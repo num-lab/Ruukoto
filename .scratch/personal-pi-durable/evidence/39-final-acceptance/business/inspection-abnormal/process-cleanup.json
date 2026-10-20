@@ -1,0 +1,11 @@
+{
+  "at": 1792338449.8640137,
+  "readOnly": true,
+  "profileClosed": true,
+  "probePathProcessMatches": [],
+  "originalHelperPidPresent": false,
+  "originalBackendPidPresent": false,
+  "tracerPidPresent": false,
+  "signalsSent": 0,
+  "source": "Exact stdout from final sudo Python /proc read-only probe; command retained in task tool log"
+}

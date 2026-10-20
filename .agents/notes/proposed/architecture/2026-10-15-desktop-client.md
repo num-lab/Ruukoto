@@ -2,6 +2,10 @@
 
 Status: proposed
 
+个人目标范围由[正式个人入口](../../implemented/simplification/2026-10-18-personal-product-entry.md)收窄：新个人不支持本提案旧控制协议、SSH 客户端或 Personal 会话界面；Code 桌面与已有旧连接实现保留，不能将它们当作 durable 客户端。
+
+个人目标范围受[个人端 pi durable 迁移提案](2026-10-17-personal-pi-durable.md)收窄：新个人端采用 IM 与引导式 CLI，不兼容旧桌面控制协议；本篇 Code 能力与既有实现记录保留。
+
 ## 问题
 
 两个产品的交互入口只有 TUI、CLI 与 IM。拥有者需要一个 macOS 桌面界面，在同一窗口里操作本机的 ruukoto-code 与服务器上的 ruukoto，界面参考 [ui-demo](../../../../.scratch/desktop-gui/ui-demo.html)。

@@ -1,4 +1,4 @@
-import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
+import { product as personalProduct } from "./helpers/legacy-product.ts";
 /**
  * 集成：工具正文产物（issue 03 §5/§6.6）。
  *

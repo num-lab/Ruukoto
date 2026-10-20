@@ -1,0 +1,32 @@
+{
+  "files": {
+    "result.json": {
+      "bytes": 126,
+      "sha256": "a2c462bbfbee8a500a6da76a80da6424afba7d0d8ef0464c6838341b3ac7a371"
+    },
+    "author-red.log": {
+      "bytes": 3815,
+      "sha256": "4eda3281a047e52c6cb65d438795ad22777f0da21e7a07463a0f06846b7d3c5b"
+    },
+    "test.log": {
+      "bytes": 461,
+      "sha256": "2270e68be89b0a9a0f4fd71cf85a88ee2ead313eca03f5c8b98f5b1438e093d5"
+    },
+    "reviewed.patch": {
+      "bytes": 23390,
+      "sha256": "dd9ab86d6f0238a586f4c9b2dd37a0ec5f35471f7d8b5c8988529bedcb5e39a0"
+    },
+    "author-manifest.json": {
+      "bytes": 1770,
+      "sha256": "df26198477817a9f80080a1890108ceffc7d00750a09b216e32d93ae561480f9"
+    },
+    "manifest.json": {
+      "bytes": 1942,
+      "sha256": "5290255176b4b89dfe6d756f5b32193a4e0200d4816d070cd4a2713c803ca4a5"
+    },
+    "review.md": {
+      "bytes": 4367,
+      "sha256": "0807a16a378fd6a8c8bc3cbef11ddd2433724ecd358ab046ef05c959f18928ad"
+    }
+  }
+}

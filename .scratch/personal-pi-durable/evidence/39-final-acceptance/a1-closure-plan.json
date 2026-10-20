@@ -1,0 +1,536 @@
+{
+  "capturedAt": "2026-10-18T16:25:25.678194+00:00",
+  "scope": "issue39 A1 original38 broad-batch follow-up only; readonly evidence/source hashing; no tests, business, model, IM, NapCat or workspace writes",
+  "baseCommit": "b1e975437f4cd3ca8084a8b07e451f19ba80ba17",
+  "candidateManifest": "/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/.scratch/personal-pi-durable/evidence/39-final-acceptance/candidate-current-source.json",
+  "candidateManifestSha256": "59c4bcac4716b860185df732b96fb3c6f5ada0b383572f31e72016d62b3d0c34",
+  "candidateCapturedAt": "2026-10-18T15:55:37.699636+00:00",
+  "candidateFileCount": 649,
+  "candidateFilesMatchedNow": 649,
+  "candidateMismatches": [],
+  "notAReleaseCommit": true,
+  "conclusion": "本范围未识别必须新增运行的当前实现检查；最小收口是补现存四组叶日志关联、最终候选范围和明确保留历史风险。不是A1已全通过，不改issue状态，不取消39现有历史验收门槛。",
+  "requiredNewTestCommands": [],
+  "minimumActions": [
+    {
+      "action": "archive_existing_four_group_leaves",
+      "files": [
+        {
+          "path": "/tmp/ruukoto39-coding-audit-groups-summary.json",
+          "sha256": "efc40fc08ba5c334a1aa7764a25798386bd1d87bb939fdc4ca749facdae63a29"
+        },
+        {
+          "path": "/tmp/ruukoto39-coding-audit-125.log",
+          "sha256": "03d71a3041f4d8866a7a93fe9c0e96713ef4dc0526f0c17a2348b00a92c4911a"
+        },
+        {
+          "path": "/tmp/ruukoto39-coding-audit-22.log",
+          "sha256": "1c6dfe812d736fbc32c9c18ff7578fa919215a27d4bacaee0061041f1b01cd02"
+        },
+        {
+          "path": "/tmp/ruukoto39-coding-audit-45.log",
+          "sha256": "ca48b77f47973a6cdced3fe2f97b4e96be2c0287d010fb56906ac9c18ab41bb0"
+        },
+        {
+          "path": "/tmp/ruukoto39-coding-audit-83.log",
+          "sha256": "a69492bc7d775c1b80307c14231760e9def89d64b122bb97628539848c12dbbb"
+        }
+      ],
+      "note": "根负责归档；四份result JSON也提供备选精确路径/SHA，groups-summary已含四份结果，最小五文件足够。"
+    },
+    {
+      "action": "bind_candidate_range",
+      "note": "引用当前649份源码/v3两平台构建、锁和worker指纹；若后续源码变化，仅重看该delta，不追建全矩阵。"
+    },
+    {
+      "action": "preserve_history_and_acceptance_decision",
+      "note": "明确63≠61、112预算/宽批次时序、原17/36/native101首次停止归因未解决；由最终验收明确残余风险处置，不能仅凭绿叶自动关闭A1。"
+    }
+  ],
+  "rows": [
+    {
+      "key": "112",
+      "currentEvidence": [
+        "112",
+        "native86",
+        "native18",
+        "integrated38"
+      ],
+      "status": "reuse_with_recorded_native_delta",
+      "decision": "14/14整文件和86批次中的修改/冻结/验证路径均绿；晚初始stat守卫由最终边界/18项/根38调用方及原15秒负载红绿补证。86运行中有最后守卫变化，不能称最终单快照86全绿，也不解释原script_cpu_limit及其余超时。无需再为历史现场重跑112。"
+    },
+    {
+      "key": "118",
+      "currentEvidence": [
+        "118"
+      ],
+      "status": "reuse",
+      "decision": "10/10含原重复回答的事件数量断言通过；测试/核心runtime与事件链未变。之后native保护扫描改变不增加事件协议，个人报告/来源文案不等于Coding入口变化；63≠61历史原因未得，不抹除旧失败。"
+    },
+    {
+      "key": "125/22/45/83",
+      "currentEvidence": [
+        "fourTemporaryGroups"
+      ],
+      "status": "archive_existing_leaves",
+      "decision": "四个本轮逐文件均exit0、测试前后SHA不变，当前测试hash仍相同。原生共享delta另用最终安全/调用方叶证明；补现存日志和groups-summary即可，不重跑。"
+    },
+    {
+      "key": "SubAgent snapshot",
+      "currentEvidence": [
+        "native86",
+        "native18",
+        "integrated38",
+        "native-protection/ruukoto39-coding-audit-native-batch-final-v2-load-summary.json"
+      ],
+      "status": "reuse_red_green",
+      "decision": "最初39首轮仍红已保留；同原Code场景15秒/原夹具双进程在基线红，最终approved-ops/native完整源码下两条均绿。最终单文件调用方同时保留双产品保护边界；不靠扩预算通过。"
+    },
+    {
+      "key": "workflow-role-integration",
+      "currentEvidence": [
+        "native86"
+      ],
+      "status": "reuse_with_recorded_native_delta",
+      "decision": "最初逐文件计划因snapshot失败未到此文件，但后续86日志明确两个产品普通/工作流reviewer均通过。最后stat guard是独立保守保护检查，最终18/根38和边界负例已补；不得把停止的计划误记role已跑，也不需要再建lost现场诊断。"
+    },
+    {
+      "key": "32-dev",
+      "currentEvidence": [
+        "personal75"
+      ],
+      "status": "reuse",
+      "decision": "本轮75日志包含开发25项及其余个人原失败文件，均pass；38另有25/25。原宽批次逾13分钟后INT无业务断言，不推出新当前缺陷，也不把单文件绿解释成宽批次根因。32测试与开发入口未新增行为delta；共享Mock原类保持原文的独立用例已验证。"
+    },
+    {
+      "key": "personal-tools",
+      "currentEvidence": [
+        "personal75",
+        "personal787"
+      ],
+      "status": "reuse_plus_affected_delta_leaves",
+      "decision": "原个人文件组合75/75以及后续个人广组均无personal-tools失败；后续当前来源/分页/报告/媒体按现有窄叶补，而非重跑整个787。原60秒中断保留历史，不能冒称已唯一归因。"
+    },
+    {
+      "key": "personal-command-work",
+      "currentEvidence": [
+        "personal787",
+        "command40",
+        "reports/report-registration-independent/manifest.json"
+      ],
+      "status": "reuse_fixed_expectations_and_report_registration",
+      "decision": "787的仅两fail是offset/totalChars旧期望，修正后当前命令/夹具40/40；running/unknown/restored三条报告登记先红后绿与作者126/独立3条另证。原文件级INT不是新业务断言；不需要再跑787。"
+    },
+    {
+      "key": "122/supervisor historical boundary",
+      "currentEvidence": [
+        "integrated38",
+        "native18",
+        "native-protection/a1-first-fault-evidence.tar.gz"
+      ],
+      "status": "retain_historical_risk",
+      "decision": "122当前正常/停止已有整链与Linux窄叶，原36/17和38 native101身份/停止首次现场仍缺。当前绿色不是历史原因；若未来真实再现再取首故障，不能无限绿跑等待自发重现。"
+    }
+  ],
+  "fourTemporaryGroups": [
+    {
+      "group": "125",
+      "testFile": "test/125-agent-wait.test.ts",
+      "testSha256": "19f6d72b7b99b4eb8cd828a0899edff36b1a0e2241b34be393d3ee0ab6c1ef18",
+      "currentTestMatches": true,
+      "resultPath": "/tmp/ruukoto39-coding-audit-125-result.json",
+      "resultSha256": "ced125b2ac201c554d2c01255a6e8318d1e829d0c2945e0572e04b49ff675602",
+      "log": {
+        "path": "/tmp/ruukoto39-coding-audit-125.log",
+        "storedSha256": "03d71a3041f4d8866a7a93fe9c0e96713ef4dc0526f0c17a2348b00a92c4911a",
+        "uncompressedSha256": "03d71a3041f4d8866a7a93fe9c0e96713ef4dc0526f0c17a2348b00a92c4911a",
+        "summary": {
+          "tests": 5,
+          "pass": 5,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "duration_ms": 85054.418583
+        }
+      },
+      "exitCode": 0,
+      "command": [
+        "node",
+        "--import",
+        "tsx",
+        "--test",
+        "--test-concurrency=1",
+        "test/125-agent-wait.test.ts"
+      ],
+      "scope": "逐文件首轮；不代表原宽批次组合复现；残留核实仅覆盖采样期间捕获的自有PID树",
+      "environment": {
+        "RUN_MODEL_CHECK": "0"
+      },
+      "startedUtc": "2026-10-18T12:53:09Z",
+      "endedUtc": "2026-10-18T12:54:34Z"
+    },
+    {
+      "group": "22",
+      "testFile": "test/22-auto-review.test.ts",
+      "testSha256": "decc5fd9d47c450c263f270b41c114322419d3f18534fa529174960c5f03da6b",
+      "currentTestMatches": true,
+      "resultPath": "/tmp/ruukoto39-coding-audit-22-result.json",
+      "resultSha256": "c25763dc9f864fd362be625c277300f705bd5656a926b0407cef7b24565177a2",
+      "log": {
+        "path": "/tmp/ruukoto39-coding-audit-22.log",
+        "storedSha256": "1c6dfe812d736fbc32c9c18ff7578fa919215a27d4bacaee0061041f1b01cd02",
+        "uncompressedSha256": "1c6dfe812d736fbc32c9c18ff7578fa919215a27d4bacaee0061041f1b01cd02",
+        "summary": {
+          "tests": 17,
+          "pass": 17,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "duration_ms": 50467.494833
+        }
+      },
+      "exitCode": 0,
+      "command": [
+        "node",
+        "--import",
+        "tsx",
+        "--test",
+        "--test-concurrency=1",
+        "test/22-auto-review.test.ts"
+      ],
+      "scope": "逐文件首轮；不代表原宽批次组合复现；残留核实仅覆盖采样期间捕获的自有PID树",
+      "environment": {
+        "RUN_MODEL_CHECK": "0"
+      },
+      "startedUtc": "2026-10-18T12:54:34Z",
+      "endedUtc": "2026-10-18T12:55:25Z"
+    },
+    {
+      "group": "45",
+      "testFile": "test/45-github-events.test.ts",
+      "testSha256": "18b5a51ff25799f62796495cf55ae7a0117c367b38dc6537be8811b16da4da9d",
+      "currentTestMatches": true,
+      "resultPath": "/tmp/ruukoto39-coding-audit-45-result.json",
+      "resultSha256": "de8b272b3c6c1cad08100515f45b87cbeb8f8878b572b31f034302ba00dbd19b",
+      "log": {
+        "path": "/tmp/ruukoto39-coding-audit-45.log",
+        "storedSha256": "ca48b77f47973a6cdced3fe2f97b4e96be2c0287d010fb56906ac9c18ab41bb0",
+        "uncompressedSha256": "ca48b77f47973a6cdced3fe2f97b4e96be2c0287d010fb56906ac9c18ab41bb0",
+        "summary": {
+          "tests": 7,
+          "pass": 7,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "duration_ms": 14635.5005
+        }
+      },
+      "exitCode": 0,
+      "command": [
+        "node",
+        "--import",
+        "tsx",
+        "--test",
+        "--test-concurrency=1",
+        "test/45-github-events.test.ts"
+      ],
+      "scope": "逐文件首轮；不代表原宽批次组合复现；残留核实仅覆盖采样期间捕获的自有PID树",
+      "environment": {
+        "RUN_MODEL_CHECK": "0"
+      },
+      "startedUtc": "2026-10-18T12:55:25Z",
+      "endedUtc": "2026-10-18T12:55:40Z"
+    },
+    {
+      "group": "83",
+      "testFile": "test/83-subagent-worktrees.test.ts",
+      "testSha256": "ff078ef4f82e509ddedc783f1bca130c3c4cba9d7976d5e16cb116cd6c838d91",
+      "currentTestMatches": true,
+      "resultPath": "/tmp/ruukoto39-coding-audit-83-result.json",
+      "resultSha256": "d2f69560854f9d1de70a813ec7e2b6025270a2beca9ab0db0b24b30be30fcd73",
+      "log": {
+        "path": "/tmp/ruukoto39-coding-audit-83.log",
+        "storedSha256": "a69492bc7d775c1b80307c14231760e9def89d64b122bb97628539848c12dbbb",
+        "uncompressedSha256": "a69492bc7d775c1b80307c14231760e9def89d64b122bb97628539848c12dbbb",
+        "summary": {
+          "tests": 24,
+          "pass": 24,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "duration_ms": 121906.24
+        }
+      },
+      "exitCode": 0,
+      "command": [
+        "node",
+        "--import",
+        "tsx",
+        "--test",
+        "--test-concurrency=1",
+        "test/83-subagent-worktrees.test.ts"
+      ],
+      "scope": "逐文件首轮；不代表原宽批次组合复现；残留核实仅覆盖采样期间捕获的自有PID树",
+      "environment": {
+        "RUN_MODEL_CHECK": "0"
+      },
+      "startedUtc": "2026-10-18T12:55:40Z",
+      "endedUtc": "2026-10-18T12:57:42Z"
+    }
+  ],
+  "logs": {
+    "112": {
+      "path": "/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/.scratch/personal-pi-durable/evidence/39-final-acceptance/macos/coding-audit-112.log.gz",
+      "storedSha256": "75b8ae979fa977176cd3be4f1b14c7de234ad65a62fd1a52a648e3666d41706d",
+      "uncompressedSha256": "32f28197f0c13e8efc708f2675caeb8d35d0087391c85eaddcc04f2546ea800d",
+      "summary": {
+        "tests": 14,
+        "pass": 14,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 0,
+        "duration_ms": 153739.519625
+      }
+    },
+    "118": {
+      "path": "/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/.scratch/personal-pi-durable/evidence/39-final-acceptance/macos/coding-audit-118.log.gz",
+      "storedSha256": "747dd58cbbe8f20b2b54eb8c61d9ecce47bedda2e5f77bac883ce3a22414ddc0",
+      "uncompressedSha256": "38fedac003b81e9867a26ce042261404395ee8c0de428fed383c89a269269a03",
+      "summary": {
+        "tests": 10,
+        "pass": 10,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 0,
+        "duration_ms": 11369.014
+      }
+    },
+    "native86": {
+      "path": "/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/.scratch/personal-pi-durable/evidence/39-final-acceptance/native-protection/author-ruukoto39-native-batch-regression.log.gz",
+      "storedSha256": "1740f834f48897be4afad6cfb348059fb6fe58f506ef7a382ec4b5499ab45323",
+      "uncompressedSha256": "5ec44d5fb23859f69d98e3d057802baef0bf93df67444614f477a21d08d2b8c1",
+      "summary": {
+        "tests": 86,
+        "pass": 86,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 0,
+        "duration_ms": 274760.190875
+      }
+    },
+    "native18": {
+      "path": "/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/.scratch/personal-pi-durable/evidence/39-final-acceptance/native-protection/author-ruukoto39-native-batch-final-targeted.log.gz",
+      "storedSha256": "8b1859e7e07002693f90386f53dacb3928342d5f8bf8256e86cd88a3e3868590",
+      "uncompressedSha256": "9f02daec05268b006163e2f0682a41d207a01068f459db0bf1c2108de58e39c3",
+      "summary": {
+        "tests": 18,
+        "pass": 18,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 0,
+        "duration_ms": 72010.267916
+      }
+    },
+    "integrated38": {
+      "path": "/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/.scratch/personal-pi-durable/evidence/39-final-acceptance/macos/integrated-native.log.gz",
+      "storedSha256": "cb28aec73fbfa81ccf071d59269b0129fae4741df96f5cbf1ac601b5deb5d295",
+      "uncompressedSha256": "d6cc4f95c369e7d08149212e2a258e6a1f58972f55fcf06296822652e4143b68",
+      "summary": {
+        "tests": 38,
+        "pass": 38,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 0,
+        "duration_ms": 86830.031209
+      }
+    },
+    "personal75": {
+      "path": "/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/.scratch/personal-pi-durable/evidence/39-final-acceptance/macos/original-personal-failures.log.gz",
+      "storedSha256": "d2ff47928a6589636798ce479042b0b88c459e8fe45e5a222bd5688583204418",
+      "uncompressedSha256": "6b34ba5a3e2250d2b538caddb341ce485673e692fe154a5f281bada9a821e32d",
+      "summary": {
+        "tests": 75,
+        "pass": 75,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 0,
+        "duration_ms": 528917.391167
+      }
+    },
+    "personal787": {
+      "path": "/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/.scratch/personal-pi-durable/evidence/39-final-acceptance/macos/owner-boundary-personal-regressions.log.gz",
+      "storedSha256": "3ecb303d1fe29768f955852b9584b5e1967069e895d02fd33d6345153244d449",
+      "uncompressedSha256": "cf861ac08a2b636157024bad3c7412ccb16f9ab61632dc3c8d80855990f5bcca",
+      "summary": {
+        "tests": 787,
+        "pass": 784,
+        "fail": 2,
+        "cancelled": 0,
+        "skipped": 1,
+        "duration_ms": 251990.050375
+      }
+    },
+    "command40": {
+      "path": "/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/.scratch/personal-pi-durable/evidence/39-final-acceptance/macos/report-registration-root.log.gz",
+      "storedSha256": "0994148e12bac7c00cf95e97d13680d1c3cb45d21ac48e8a0eef6c47248d4ab5",
+      "uncompressedSha256": "b625c6dd1d6a57fef3eb0a9c3617714e6c3a251ce239e3b39e01a5b8b8a3123f",
+      "summary": {
+        "tests": 40,
+        "pass": 40,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 0,
+        "duration_ms": 116448.128792
+      }
+    }
+  },
+  "selectedCurrentHashes": {
+    "package-lock.json": "446035b166165717ce1b020e863152967296abeb0257f679427223e928ac159c",
+    "worker/worker.mjs": "ec4d123259d2ee502107d66c7598a5d88ad4a7551bf4ca9d3383cd3d70bdb909",
+    "worker/workflow-script.mjs": "2e6719fd380b60ee89d7b1708de3fac33f169b398b5c73b5880a7f61b8dcf930",
+    "worker/native-macos-supervisor": "43441a966e3b6fb3111e57f68077dbee76b008f198e1addb3bcac690d7f85729",
+    "packages/agent/src/execution/native-macos-supervisor.c": "1d183131d2905e9c1dfbb19dfb3ec8b5a55a3da4cb89ed8053c3e790bfde8bcf",
+    "packages/agent/src/execution/approved-ops.ts": "3a14e1a80ac1f94f97d5848e56eb6251ed85c485a0bf44e7616233f0474362c1",
+    "packages/agent/src/execution/native.ts": "0d43d36e8d14f4da3595daaaabeea0c07e49624b95c8c285887dacd9e4f0271d",
+    "packages/agent/src/script-worker/host.ts": "9b9dba9580a64792d566c23e9f7b25df1f9ee11ef8fc8f3d4817e3e58fdc353f",
+    "packages/runtime/src/runtime.ts": "1dac5c12517e2ef4f23228429e2e7597d1001674393d03b7cedfe16f9c3ef2ef",
+    "packages/runtime/src/parent-delivery.ts": "4d1236f674b7997360824da2243a7807be236b6f9d29a8e0d5eaeed3718a9995",
+    "test/helpers/mock-provider.ts": "c70adb6eb6f397e8474a43ab8a96038592cda7904e2fe98366817cc6645d8c14",
+    "test/112-workflow-real-steps.test.ts": "412791264755d467f2914c5ad5c28a8367be3a6b3a9d4d4235e20d5e570957cf",
+    "test/118-workflow-entries.test.ts": "0f20981f8c8f57144b496efac15fd42344e3c16fcb84d9497d55f4b1f40e15d5",
+    "test/125-agent-wait.test.ts": "19f6d72b7b99b4eb8cd828a0899edff36b1a0e2241b34be393d3ee0ab6c1ef18",
+    "test/22-auto-review.test.ts": "decc5fd9d47c450c263f270b41c114322419d3f18534fa529174960c5f03da6b",
+    "test/45-github-events.test.ts": "18b5a51ff25799f62796495cf55ae7a0117c367b38dc6537be8811b16da4da9d",
+    "test/83-subagent-worktrees.test.ts": "ff078ef4f82e509ddedc783f1bca130c3c4cba9d7976d5e16cb116cd6c838d91",
+    "test/subagent-workspace-snapshot.test.ts": "d9716fae169e0c7086f9554073da92e6a140f156a8d060b874f3b94b2fcc7f76",
+    "test/workflow-role-integration.test.ts": "69d702fa91ac563df28d93d553273932c5f9622e039d4c4906050bc0efb64396",
+    "test/32-dev.test.ts": "3820d586d358bf087ce77fddb2b9013349bd23548677a6fbfa88861aed7ad729",
+    "test/personal-tools.test.ts": "77aca6182cd287dcce190cc4c838e33c0c875be8c37dbedeca6320f9ebd5d3c8",
+    "test/personal-command-work.test.ts": "1674ffef156c3973b36eb956268dcd1fdb37ed469d97fc8dfdbd4216bad49ee7"
+  },
+  "leaf112118Comparison": {
+    "package-lock.json": {
+      "leaf112118Sha256": "446035b166165717ce1b020e863152967296abeb0257f679427223e928ac159c",
+      "currentSha256": "446035b166165717ce1b020e863152967296abeb0257f679427223e928ac159c",
+      "equal": true,
+      "currentHashSource": "649-source-manifest + actual-file"
+    },
+    "worker/worker.mjs": {
+      "leaf112118Sha256": "ec4d123259d2ee502107d66c7598a5d88ad4a7551bf4ca9d3383cd3d70bdb909",
+      "currentSha256": "ec4d123259d2ee502107d66c7598a5d88ad4a7551bf4ca9d3383cd3d70bdb909",
+      "equal": true,
+      "currentHashSource": "actual generated worker file + macos/final-v3-artifacts.json"
+    },
+    "worker/workflow-script.mjs": {
+      "leaf112118Sha256": "2e6719fd380b60ee89d7b1708de3fac33f169b398b5c73b5880a7f61b8dcf930",
+      "currentSha256": "2e6719fd380b60ee89d7b1708de3fac33f169b398b5c73b5880a7f61b8dcf930",
+      "equal": true,
+      "currentHashSource": "actual generated worker file + macos/final-v3-artifacts.json"
+    },
+    "worker/native-macos-supervisor": {
+      "leaf112118Sha256": "43441a966e3b6fb3111e57f68077dbee76b008f198e1addb3bcac690d7f85729",
+      "currentSha256": "43441a966e3b6fb3111e57f68077dbee76b008f198e1addb3bcac690d7f85729",
+      "equal": true,
+      "currentHashSource": "actual generated worker file + macos/final-v3-artifacts.json"
+    },
+    "packages/agent/src/execution/native-macos-supervisor.c": {
+      "leaf112118Sha256": "1d183131d2905e9c1dfbb19dfb3ec8b5a55a3da4cb89ed8053c3e790bfde8bcf",
+      "currentSha256": "1d183131d2905e9c1dfbb19dfb3ec8b5a55a3da4cb89ed8053c3e790bfde8bcf",
+      "equal": true,
+      "currentHashSource": "649-source-manifest + actual-file"
+    },
+    "packages/agent/src/execution/approved-ops.ts": {
+      "leaf112118Sha256": "819f2bfa7bdac96bd09143aef98fb5611838d3daa63898182f4bb83138d2dd0e",
+      "currentSha256": "3a14e1a80ac1f94f97d5848e56eb6251ed85c485a0bf44e7616233f0474362c1",
+      "equal": false,
+      "currentHashSource": "649-source-manifest + actual-file"
+    },
+    "packages/agent/src/script-worker/host.ts": {
+      "leaf112118Sha256": "9b9dba9580a64792d566c23e9f7b25df1f9ee11ef8fc8f3d4817e3e58fdc353f",
+      "currentSha256": "9b9dba9580a64792d566c23e9f7b25df1f9ee11ef8fc8f3d4817e3e58fdc353f",
+      "equal": true,
+      "currentHashSource": "649-source-manifest + actual-file"
+    },
+    "packages/runtime/src/runtime.ts": {
+      "leaf112118Sha256": "1dac5c12517e2ef4f23228429e2e7597d1001674393d03b7cedfe16f9c3ef2ef",
+      "currentSha256": "1dac5c12517e2ef4f23228429e2e7597d1001674393d03b7cedfe16f9c3ef2ef",
+      "equal": true,
+      "currentHashSource": "649-source-manifest + actual-file"
+    },
+    "packages/runtime/src/parent-delivery.ts": {
+      "leaf112118Sha256": "4d1236f674b7997360824da2243a7807be236b6f9d29a8e0d5eaeed3718a9995",
+      "currentSha256": "4d1236f674b7997360824da2243a7807be236b6f9d29a8e0d5eaeed3718a9995",
+      "equal": true,
+      "currentHashSource": "649-source-manifest + actual-file"
+    },
+    "test/112-workflow-real-steps.test.ts": {
+      "leaf112118Sha256": "412791264755d467f2914c5ad5c28a8367be3a6b3a9d4d4235e20d5e570957cf",
+      "currentSha256": "412791264755d467f2914c5ad5c28a8367be3a6b3a9d4d4235e20d5e570957cf",
+      "equal": true,
+      "currentHashSource": "649-source-manifest + actual-file"
+    },
+    "test/118-workflow-entries.test.ts": {
+      "leaf112118Sha256": "0f20981f8c8f57144b496efac15fd42344e3c16fcb84d9497d55f4b1f40e15d5",
+      "currentSha256": "0f20981f8c8f57144b496efac15fd42344e3c16fcb84d9497d55f4b1f40e15d5",
+      "equal": true,
+      "currentHashSource": "649-source-manifest + actual-file"
+    }
+  },
+  "finalNativeImplementationHashes": {
+    "packages/agent/src/execution/approved-ops.ts": "3a14e1a80ac1f94f97d5848e56eb6251ed85c485a0bf44e7616233f0474362c1",
+    "packages/agent/src/execution/native.ts": "0d43d36e8d14f4da3595daaaabeea0c07e49624b95c8c285887dacd9e4f0271d"
+  },
+  "hashBoundaryNotes": [
+    "112/118叶环境11项仅approved-ops与最终不同；现native.ts早期未列入该11项，不能声称11项是完整依赖闭包。",
+    "最终native作者清单的approved-ops/native与当前一致；最后初始stat守卫时序由交付清单显式保留，复用边界与调用方叶，不能把重叠计数合成新的一次大批次。",
+    "此项不增加完整OS×Node四次全量，也不承诺已经有一次完整当前CI通过。",
+    "个人v2/v3晚变化已有owner/report/scheduler窄叶，与原38 Coding事件协议保持区分；有原787两条失败日志并有后40修正结果，不改写为787全绿。"
+  ],
+  "sourceDocuments": [
+    {
+      "path": "/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/.scratch/personal-pi-durable/spec.md",
+      "sha256": "79c93583b0b34efdc4b0742337f0654f5877a0bdc26ff6053dd579aae5bc8af6"
+    },
+    {
+      "path": "/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/.scratch/personal-pi-durable/issues/39-final-acceptance.md",
+      "sha256": "e8f022d580dd8a913746a940e452372f8ba99c3d68ec2fd62a1de1f36b9dadf4"
+    },
+    {
+      "path": "/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/.scratch/personal-pi-durable/evidence/38-product-entry/app-rest-failure-analysis/README.md",
+      "sha256": "3f4af6a99022cfb373a91ad34debe6a0d638ff3b54a1de6ad2ab68f768b9452d"
+    },
+    {
+      "path": "/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/.scratch/personal-pi-durable/evidence/38-product-entry/app-rest-failure-analysis/failure-groups.json",
+      "sha256": "01b8ca590541ced11539ec279e9b532a7a15f191d2c17aa10ad85346ffe4e4bc"
+    },
+    {
+      "path": "/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/.scratch/personal-pi-durable/evidence/39-final-acceptance/native-protection/author-delivery.json",
+      "sha256": "23f083a2578436a499691cd0d43b60bbd0af444d4a82f232c7dc7db96d1237a3"
+    },
+    {
+      "path": "/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/.scratch/personal-pi-durable/evidence/39-final-acceptance/macos/coding-audit-environment.json",
+      "sha256": "d58ddde7f27fbeb6b0bbc5dc4237beaa0091aed69169e0ecb37ddae2bc125931"
+    }
+  ],
+  "generatedWorkerComparison": {
+    "worker/worker.mjs": {
+      "actualSha256": "ec4d123259d2ee502107d66c7598a5d88ad4a7551bf4ca9d3383cd3d70bdb909",
+      "v3ArtifactSha256": "ec4d123259d2ee502107d66c7598a5d88ad4a7551bf4ca9d3383cd3d70bdb909",
+      "equal": true,
+      "in649SourceManifest": false
+    },
+    "worker/workflow-script.mjs": {
+      "actualSha256": "2e6719fd380b60ee89d7b1708de3fac33f169b398b5c73b5880a7f61b8dcf930",
+      "v3ArtifactSha256": "2e6719fd380b60ee89d7b1708de3fac33f169b398b5c73b5880a7f61b8dcf930",
+      "equal": true,
+      "in649SourceManifest": false
+    },
+    "worker/native-macos-supervisor": {
+      "actualSha256": "43441a966e3b6fb3111e57f68077dbee76b008f198e1addb3bcac690d7f85729",
+      "v3ArtifactSha256": "43441a966e3b6fb3111e57f68077dbee76b008f198e1addb3bcac690d7f85729",
+      "equal": true,
+      "in649SourceManifest": false
+    }
+  },
+  "hashCollectionClarification": "649源码清单不含这三份生成worker；它们从实际worker路径计算，并与macos/final-v3-artifacts.json及112/118旧环境逐项匹配。修正此前仅查源码清单产生的null；未修改历史叶或扩大测试范围。"
+}

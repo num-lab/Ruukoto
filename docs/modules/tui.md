@@ -2,13 +2,15 @@
 
 ## 职责与边界
 
-共享 CLI（`packages/tui/src/cli.ts`，顶层分发在 `cli-entry.ts`）是两个产品的唯一命令入口：按 app 传入的产品声明分发任务界面、工作区、配置中心与后台启动，`server` 在本进程装配运行时，`packages/tui/src/index.ts` 另提供程序化聚合入口。开发启动器（`packages/tui/src/dev.ts`）只服务于开发本项目。命令清单与参数见[操作手册](../usage.md)，开发启动器的行为见[开发说明](../development.md#开发实例)，本篇不重复。
+本篇的运行状态、历史或客户端协议适用于 Coding 与保留的旧格式实现；正式个人 Agent 使用[个人持久会话](personal-durable.md)，不接入旧 Runtime、Task Store 或控制协议。
 
-交互终端（`packages/tui/src/tui/`）与配置中心（`packages/tui/src/config-tui/`）是后台的两个拥有者入口，共用控制面拥有者认证与 TUI 组件。交互终端是全屏交互页面：顶部一行显示项目、会话、工作目录、连接状态、任务权限模式与执行后端，中间滚动显示消息与工具记录，输入框上横线右侧显示工作区目录名，底栏显示权限模式、token 用量与模型选择；工作清单经 `/todo` 悬浮层查看。配置中心经 `ruukoto config` 打开独立配置界面，不直接打开核心数据库，也不成为绕过任务审批的入口——任务执行审批仍在任务界面。
+共享 CLI（`packages/tui/src/cli.ts`，顶层分发在 `cli-entry.ts`）是 Coding 产品及保留旧底座的命令入口：按 app 传入的产品声明分发任务界面、工作区、配置中心与后台启动，`server` 在本进程装配运行时，`packages/tui/src/index.ts` 另提供程序化聚合入口。开发启动器（`packages/tui/src/dev.ts`）只服务于开发本项目。命令清单与参数见[操作手册](../usage.md)，开发启动器的行为见[开发说明](../development.md#开发实例)，本篇不重复。
+
+交互终端（`packages/tui/src/tui/`）与配置中心（`packages/tui/src/config-tui/`）是后台的两个拥有者入口，共用控制面拥有者认证与 TUI 组件。交互终端是全屏交互页面：顶部一行显示项目、会话、工作目录、连接状态、任务权限模式与执行后端，中间滚动显示消息与工具记录，输入框上横线右侧显示工作区目录名，底栏显示权限模式、token 用量与模型选择；工作清单经 `/todo` 悬浮层查看。配置中心经 `ruukoto-code config` 打开独立配置界面，不直接打开核心数据库，也不成为绕过任务审批的入口——任务执行审批仍在任务界面。
 
 交互终端负责：
 
-- 只经本机 Unix socket 加拥有者令牌连接后台，不创建 SDK 会话、不加载模型凭据、不直接读取后台数据库或 JSONL。ruukoto 只连接已运行的后台；ruukoto-code 在连接前按需拉起本机后台，拉起规则是产品入口行为，归[操作手册](../usage.md)与[架构总览](../architecture.md)。
+- 只经本机 Unix socket 加拥有者令牌连接后台，不创建 SDK 会话、不加载模型凭据、不直接读取后台数据库或 JSONL。正式个人入口不使用本界面；ruukoto-code 在连接前按需拉起本机后台，拉起规则是产品入口行为，归[操作手册](../usage.md)与[架构总览](../architecture.md)。
 - 采集拥有者输入，生成提交请求并处理请求去重，维护客户端私有的输入历史、命令回显与待核实记录。
 - 渲染事件流：用户输入、工具记录、模型正文、思考段与任务状态，含工具结果展开、Edit/Write 增删行统计与 Mermaid 代码块转换。
 - 维护连接生命周期：断线后按有上限的退避重连，从后台重建快照、历史与任务事件。
@@ -25,7 +27,7 @@
 
 ## 对外接口
 
-后台入口按 app 的 `CliProduct.defaultExecution` 与 `allowedExecution` 校验执行后端：两个产品均默认且仅允许 native。任务 TUI 在连接已有后台前也校验环境覆盖。开发启动器与按需后台复用所属 app 的 bin，使用同一声明；库层 local 注入不经 CLI 限制。
+后台入口按 app 的 `CliProduct.defaultExecution` 与 `allowedExecution` 校验执行后端：Coding 默认且仅允许 native。任务 TUI 在连接已有后台前也校验环境覆盖。开发启动器与按需后台复用所属 app 的 bin，使用同一声明；库层 local 注入不经 CLI 限制。
 
 开发启动器的 `--desktop` 只适用于 ruukoto-code，与配置中心和工作区路径参数互斥。它把清洗后的开发档案环境、受管标记与本次随机 CSP nonce 交给 electron-vite；桌面客户端只连接受管后台。桌面源码与 workspace 客户端依赖的重建、Electron 重启和渲染热更新由 electron-vite 接手，开发启动器只按源码分类重启后台；退出时清理 electron-vite、Electron 的整组进程和后台。
 
@@ -96,7 +98,7 @@ CLI 完整产物导出复用 `read_artifact`，在同一连接上分页读取已
 | `/prompt`、`/search`、`/memory`、`/qq` | 正常内容在可关闭的窗口中展示 |
 | `/quit` | 退出客户端，不记录命令行 |
 
-终端调用的本地文件：`~/.ruukoto/pending/`（`RUUKOTO_PENDING_DIR` 可覆盖）、`~/.ruukoto/tui/commands.sqlite`、`<agentDir>/auth.json`、`<agentDir>/default-model.json`、`<agentDir>/summary-model.json`、`<agentDir>/credentials.json`、`<agentDir>/config.lock/`。
+终端调用的本地文件：`~/.ruukoto-code/pending/`（`RUUKOTO_CODE_PENDING_DIR` 可覆盖）、`~/.ruukoto-code/tui/commands.sqlite`、`<agentDir>/auth.json`、`<agentDir>/default-model.json`、`<agentDir>/summary-model.json`、`<agentDir>/credentials.json`、`<agentDir>/config.lock/`。
 
 ## 数据与状态
 
@@ -124,9 +126,9 @@ stateDiagram-v2
 
 连接状态显示在顶部一行；重连不会悄悄另起同一任务。
 
-**待发送请求记录**：提交前生成 `request_id`，把完整请求原子保存到拥有者私有目录（默认 `~/.ruukoto/pending/`，`RUUKOTO_PENDING_DIR` 可覆盖，权限 0600）。记录绑定数据实例标识，换新数据库后不会向空后台重发。未发送或后台明确拒绝时清除记录并恢复输入。
+**待发送请求记录**：提交前生成 `request_id`，把完整请求原子保存到拥有者私有目录（默认 `~/.ruukoto-code/pending/`，`RUUKOTO_CODE_PENDING_DIR` 可覆盖，权限 0600）。记录绑定数据实例标识，换新数据库后不会向空后台重发。未发送或后台明确拒绝时清除记录并恢复输入。
 
-**命令行私有记录**：当前会话的命令行及其结果保存到 `tui/commands.sqlite`（位于待确认请求目录的同级目录，默认 `~/.ruukoto/tui/commands.sqlite`；dev 沿用独立 profile）。记录按数据实例和会话隔离，退出后重新进入会话仍按原时间显示，恢复记录不会再次执行命令；`/quit` 不记录。
+**命令行私有记录**：当前会话的命令行及其结果保存到 `tui/commands.sqlite`（位于待确认请求目录的同级目录，默认 `~/.ruukoto-code/tui/commands.sqlite`；dev 沿用独立 profile）。记录按数据实例和会话隔离，退出后重新进入会话仍按原时间显示，恢复记录不会再次执行命令；`/quit` 不记录。
 
 **配置中心状态**：模型配置以 `expected_revision` 标示，它是 models.json、auth.json、default-model.json 与 summary-model.json 的内容指纹；项目、会话、MCP、QQ 沿用各自的 `expected_version`。项目指令与 Web Search 共用 `projects.settings_version`（只保护这两项，不与 MCP/Jev/会话默认各自的版本列合并），旧项目初始版本为 1。后台默认模型保存为 `<agentDir>/default-model.json`，摘要模型保存为 `<agentDir>/summary-model.json`（形如 `{provider, modelId}`，不存思考档位）；显式启动参数 `--model` 优先于默认模型文件。模型 API key 在 auth.json，服务凭据在 credentials.json，分开管理。离线模式的互斥按规范化 agentDir 的配置锁 `<agentDir>/config.lock/` 判定；后台运行时持有该锁（不同 dataDir 共用 agentDir 也被覆盖）。
 
@@ -142,11 +144,11 @@ stateDiagram-v2
 
 开发启动器先检查 socket 可连性，有既有监听者就拒绝接管；等待自己启动的后台就绪使用认证后的 ping，不读取完整快照。
 
-**启动与连接**：解析入口参数（`ruukoto <路径>`、`ruukoto --session <id>`、`--demo`；拼作 `ruukoto tui` 时给出迁移指引并沿用同一行为），建立到本机后台的连接并握手。后台不可达（含启动时后台尚未就绪）、认证或同步超时、断线时显示连接状态并按有上限的退避重连；只有后台明确拒绝（令牌无效、协议版本不符）才停止重连并给出修复指引。
+**启动与连接**：解析入口参数（`ruukoto-code <路径>`、`ruukoto-code --session <id>`、`--demo`；拼作 `ruukoto-code tui` 时给出迁移指引并沿用同一行为），建立到本机后台的连接并握手。后台不可达（含启动时后台尚未就绪）、认证或同步超时、断线时显示连接状态并按有上限的退避重连；只有后台明确拒绝（令牌无效、协议版本不符）才停止重连并给出修复指引。
 
 **`--demo` 合成调试会话**：不连后台，只应答展示所需的读操作，其余操作明确拒绝（提交恢复草稿），待核实记录写到临时目录。
 
-**工作区入口**：`ruukoto <路径>` 以该目录为工作区创建新会话并直接进入。`./config` 与 `-- <路径>` 用于处理与命令同名的目录；相对路径按客户端调用时的工作目录解析。请求经 `open_workspace` 发出：已确认归属的工作区直接复用；尚未归属的旧项目作为候选，经选择列表确认后认领根目录（多个候选先选择，取消则不创建任何记录，`project.root_attached` 事件留痕）；从未使用的目录自动创建工作区项目。认领或建项目与建会话在同一事务，失败不留空项目。后台继续校验目录存在性、realpath、dev/ino、保护根与权限，只接受已有目录；归属判定按真实目录身份，同名不同目录各自成工作区（项目名仅展示层去重，重名追加序号，绝不合并）。角色或群聊会话所在的项目（含混合旧项目），以及会话分布在多个真实目录的旧项目，都不可经目录入口认领；后者的机制与命令归 [runtime](runtime.md) 的旧数据组织迁移与[操作手册](../usage.md)。每次独立启动创建一个新会话；创建请求带稳定启动请求标识（`open_workspace` / `create_project` / `create_session` 幂等键），断线重连后按标识在新快照中核实，不重复创建；连接仍在的应答丢失当场核实一次，仍未确认则回到正常启动并提示用 `/project` 查看。
+**工作区入口**：`ruukoto-code <路径>` 以该目录为工作区创建新会话并直接进入。`./config` 与 `-- <路径>` 用于处理与命令同名的目录；相对路径按客户端调用时的工作目录解析。请求经 `open_workspace` 发出：已确认归属的工作区直接复用；尚未归属的旧项目作为候选，经选择列表确认后认领根目录（多个候选先选择，取消则不创建任何记录，`project.root_attached` 事件留痕）；从未使用的目录自动创建工作区项目。认领或建项目与建会话在同一事务，失败不留空项目。后台继续校验目录存在性、realpath、dev/ino、保护根与权限，只接受已有目录；归属判定按真实目录身份，同名不同目录各自成工作区（项目名仅展示层去重，重名追加序号，绝不合并）。角色或群聊会话所在的项目（含混合旧项目），以及会话分布在多个真实目录的旧项目，都不可经目录入口认领；后者的机制与命令归 [runtime](runtime.md) 的旧数据组织迁移与[操作手册](../usage.md)。每次独立启动创建一个新会话；创建请求带稳定启动请求标识（`open_workspace` / `create_project` / `create_session` 幂等键），断线重连后按标识在新快照中核实，不重复创建；连接仍在的应答丢失当场核实一次，仍未确认则回到正常启动并提示用 `/project` 查看。
 
 **提交与请求去重**：
 
@@ -213,7 +215,7 @@ sequenceDiagram
 
 **断开与重连**：退出或断开只关闭客户端，后台任务继续执行。重连后从后台重建快照、历史及任务事件，恢复思考、工具、完整正文和完成状态的顺序，按事件和消息身份去重。旧历史只展示已有可靠信息，缺少的思考耗时和 Edit 统计不补造。命令回显从客户端私有记录恢复。重连不自动新建任务、不恢复暂停队列。事件序号缺口或游标过旧时自动重新同步。
 
-**配置中心在线保存**：`ruukoto config` 在线管理 provider 与模型目录（显式端点、SDK 已支持协议、模型列表及上下文/输出参数）、模型 API key、后台默认模型、摘要模型、项目指令/Web Search/资料授权、会话默认模型/思考档位/权限模式、MCP 服务、QQ 配置与服务凭据。项目详情内完成指令、Web Search、Jev、MCP 与资料授权：指令与 Web Search 保存携带读取时的设置版本；「MCP 服务」入口只列本项目服务，新增固定归属并跳过项目选择（全局 MCP 分区复用同一页面与表单，新增仍按工作区/旧项目选择项目；进入归属不符的服务详情会提示并返回）；资料授权页标注出向/入向，新建方向固定为本项目 → 目标（目标按工作区/旧项目选择），撤销按单条授权 ID，同范围（同来源/目标/类别）还有其他有效授权时确认与结果都明示「不关闭该类访问」，「查看已撤销」为只读记录（含撤销时间）。服务凭据的同名修改或删除（`add_credential` / `remove_credential`）在写入前单调推进引用它的 QQ/Telegram 配置 `config_version`：旧连接、旧入站与旧批准失效，A→B→A 轮换不恢复旧代次，写入失败不恢复旧版本。
+**配置中心在线保存**：`ruukoto-code config` 在线管理 provider 与模型目录（显式端点、SDK 已支持协议、模型列表及上下文/输出参数）、模型 API key、后台默认模型、摘要模型、项目指令/Web Search/资料授权、会话默认模型/思考档位/权限模式、MCP 服务、QQ 配置与服务凭据。项目详情内完成指令、Web Search、Jev、MCP 与资料授权：指令与 Web Search 保存携带读取时的设置版本；「MCP 服务」入口只列本项目服务，新增固定归属并跳过项目选择（全局 MCP 分区复用同一页面与表单，新增仍按工作区/旧项目选择项目；进入归属不符的服务详情会提示并返回）；资料授权页标注出向/入向，新建方向固定为本项目 → 目标（目标按工作区/旧项目选择），撤销按单条授权 ID，同范围（同来源/目标/类别）还有其他有效授权时确认与结果都明示「不关闭该类访问」，「查看已撤销」为只读记录（含撤销时间）。服务凭据的同名修改或删除（`add_credential` / `remove_credential`）在写入前单调推进引用它的 QQ/Telegram 配置 `config_version`：旧连接、旧入站与旧批准失效，A→B→A 轮换不恢复旧代次，写入失败不恢复旧版本。
 
 **配置中心项目分区**：ruukoto-code 的「项目」分区把工作区列在前（标注「工作区」并展示根目录），旧项目列在后（标注「旧项目」）；ruukoto 产品平铺项目名称，列表不展示工作区分类或根目录前缀。ruukoto-code 的项目详情显示分类与根目录。工作区详情经已映射会话派生列出「关联旧资料来源」（来源 ID、会话数、MCP/Jev、授权出入向、设置版本、指令基准；并列显示不合并，来源设置各按来源项目 ID 与自身版本访问）。
 
@@ -250,7 +252,7 @@ sequenceDiagram
 - **`--demo` 明确拒绝**：不连后台，只应答展示所需的读操作，其余操作明确拒绝（提交恢复草稿）。
 - **重连不补造历史**：旧历史只展示已有可靠信息，缺少的思考耗时和 Edit 统计不补造；事件序号缺口或游标过旧时自动重新同步。
 - **视口下限**：窄小视口至少保留一行用于显示历史事件。
-- **待确认请求目录**：`~/.ruukoto/pending/`（`RUUKOTO_PENDING_DIR` 可覆盖）权限为 0600；`tui/commands.sqlite` 位于它的同级目录，dev 沿用独立 profile。
+- **待确认请求目录**：`~/.ruukoto-code/pending/`（`RUUKOTO_CODE_PENDING_DIR` 可覆盖）权限为 0600；`tui/commands.sqlite` 位于它的同级目录，dev 沿用独立 profile。
 
 ## 设计依据
 

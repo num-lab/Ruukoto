@@ -1,0 +1,487 @@
+{
+  "version": 1,
+  "baseCommit": "1bd0d021ca1ed1432abd2b69f087d402ed22eb5f",
+  "scope": "30 最终交接工单、剩余工作和两平台证据；不含本清单自身，源码由implementation-manifest定位。",
+  "records": [
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-linux/README.md",
+      "bytes": 2906,
+      "sha256": "6139e22db347d40d0625f6c4ca474a9f07d85e25571c7d91918730f4bbda47fc"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-linux/build.mjs",
+      "bytes": 2910,
+      "sha256": "30e426e5cb2992676ee141cd9911aed30b7ff3b43c5c609eac9d78c8ed2dde8f"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-linux/final-source-comparison.json",
+      "bytes": 718,
+      "sha256": "e89d95a8c74b726906c3bc1d2858e753f453809665d0095d6ddda8740f1898af"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-linux/final-source-difference.patch",
+      "bytes": 9522,
+      "sha256": "003fbfc4b99ec4a951caeb7036172f6eb3a6151923b469dd8d1d5bd2fabbb07e"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-linux/local-archive-verification.json",
+      "bytes": 2508,
+      "sha256": "498845889c13c7370cf22f04e1f286dfc2701f646906b2e3ed51acebaf51eb2a"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-linux/records/browser-environment.json",
+      "bytes": 330,
+      "sha256": "a62e0c223aac3e7578f2913fec8a484a273766a60e50999ee642e2f60e2b87e0"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-linux/records/browser-probe-exit.json",
+      "bytes": 377,
+      "sha256": "53c40d9582981abc330f043dea469ff86cda8e9832453e90edd4d92d9ef7fdde"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-linux/records/browser-probe.log",
+      "bytes": 540,
+      "sha256": "eda991f30817777a374534f97bdbd780ef66370e3dc92f138648c5ee8a145eb8"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-linux/records/built/browser-probe-result.json",
+      "bytes": 348,
+      "sha256": "4c4bd1eb70a45f0598a7f93eee20b813db74f77396c3b972b1b2d4ce3313af7c"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-linux/records/chrome-prerequisite.json",
+      "bytes": 341,
+      "sha256": "8f08d34656583739f0558112b8a44068714224d1ef6f4d11eb1c1967bd3ca32f"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-linux/records/chrome-prerequisite.log",
+      "bytes": 3040,
+      "sha256": "591874bce2d2848731cd188237ae95bfd2bb7de633fcae8ed22c816a8601ad4c"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-linux/records/cleanup-before-archive.json",
+      "bytes": 357,
+      "sha256": "6638fa07f34ff3252c9f2a6dc44e4c8ad74d6f39497e36e77aa923b95c1540e4"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-linux/records/control-directories-after.json",
+      "bytes": 124,
+      "sha256": "749ea7de3592847225ae42a3df64d000fbb331128ce5abb52ad57ecb1ed1f40f"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-linux/records/environment.json",
+      "bytes": 356,
+      "sha256": "26dc4963301c9adec7bf79892437cdbf08a76f429fb1c8bfdb4f15361570c329"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-linux/records/leaf-tests-result.json",
+      "bytes": 626,
+      "sha256": "1e05a3780e775b9f514b56dd40a07cd6fcb30d09e934211738566ab430cf01b4"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-linux/records/leaf-tests.log",
+      "bytes": 7388,
+      "sha256": "b48978d16b12e77033404d69b63f951f2869d4af64c28afbff040a253ac2d450"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-linux/records/owned-processes-after.json",
+      "bytes": 3,
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-linux/records/runtime-dependencies.json",
+      "bytes": 32290,
+      "sha256": "3e2169f467c796c689fe0a923a9472b7720d6752e5afd7e3db92e692342f9b48"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-linux/records/source-manifest.json",
+      "bytes": 12561,
+      "sha256": "9de725f6be1a37b01e28cd64577ac6434ae3ad79ea853245206c08413151dc0f"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-linux/records/source-verification.json",
+      "bytes": 108,
+      "sha256": "882986f0b1845559499f189da71a15bc3092ca6acb8630bb3403e62264a98b31"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-linux/records.tar.gz",
+      "bytes": 18161,
+      "sha256": "2fce28af84f6c360fc29785ebf55208ebb3a233cd7da69428653dfe129df689b"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-linux/remote-cleanup.json",
+      "bytes": 188,
+      "sha256": "a523cd4cba861e146fe656f3d4ab8b6b8b30f4eb1a0dfa3e6147667f8ba5584b"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-linux/root-source-comparison.json",
+      "bytes": 70,
+      "sha256": "cc3a33044d4e80ace5ade674b94894ec0dd959d1619e7cfbb2a9f17c487b0b45"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-linux/runtime-dependencies.json",
+      "bytes": 32290,
+      "sha256": "3e2169f467c796c689fe0a923a9472b7720d6752e5afd7e3db92e692342f9b48"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-linux/source-manifest.json",
+      "bytes": 12561,
+      "sha256": "9de725f6be1a37b01e28cd64577ac6434ae3ad79ea853245206c08413151dc0f"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-linux/source-update.tar.gz",
+      "bytes": 735084,
+      "sha256": "cd94c944c2d4f681c032996ef4a76a6fc65423746a38e846d06602f4db6959d7"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/README.md",
+      "bytes": 7543,
+      "sha256": "18025343feffdee86cfcfd7f430d61c502df7c4671023fb2da159615c7a1ab48"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/browser-probe-2.log",
+      "bytes": 1353,
+      "sha256": "ed846777e00b3928a57bc8f67e6c4329745e470a3b17ce6a9b1d7ead18ef8e70"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/browser-probe-3.log",
+      "bytes": 775,
+      "sha256": "43c2d3fedd03690fc07ca3ed468f50360b9784ae37f74be44beb839680654d05"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/browser-probe-final.log",
+      "bytes": 723,
+      "sha256": "b5ab052bd22b4908bba40a335c3da56a82f69f082c8a634d82d95227fa220e49"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/browser-probe-result.json",
+      "bytes": 914,
+      "sha256": "c9f3173a1e1e3abc04cc5f4e3c2427b08c7412505e34f4e8cdd23740ddae3241"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/browser-probe.log",
+      "bytes": 405,
+      "sha256": "a19d8b2533691eb841fe365bd72099911f4b623722cef2e75566f5a9fec9be11"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/browser-probe.mts",
+      "bytes": 9452,
+      "sha256": "28086d31194fe7f50921856b6884272006f3a264204b786cb9f068c4370a795e"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/callers-final.log",
+      "bytes": 10540,
+      "sha256": "7fe22203baf71796159a3f3832febc0be10ba28116d7eb9d1193d14bf7d2518c"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/change-scope.log",
+      "bytes": 10242,
+      "sha256": "f3829fbec033a88d2295fcc53cf35a5358d6cd8c491877a939f595709d7bb984"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/coding-final.log",
+      "bytes": 8413,
+      "sha256": "f4a8c99447f4f3f6701a3e1c030f3aa6107deaa6101a7633546001b29d6488fa"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/core-initial.log",
+      "bytes": 69153,
+      "sha256": "2e8f0d88684809f71f5babe66ccf10c238619d92a858314c61a94588d69a4045"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/cross-tool-snapshots/comparison.json",
+      "bytes": 1518411,
+      "sha256": "09877a44919528b89649659ad2686a95b2314b1523da92635c708b5f2da3a9ed"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/cross-tool-snapshots/requests-1.json",
+      "bytes": 1619738,
+      "sha256": "31b9bd82f604b17bf41a1afa13ad7e9f037efa27b7d897f7ca20254004eabd78"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/cross-tool-snapshots/requests-10.json",
+      "bytes": 97612,
+      "sha256": "0d0e8d8ccd60729985e9acb44ffb2f0f88cda186d640c3cdf078c64a9e2a5eb2"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/cross-tool-snapshots/requests-11.json",
+      "bytes": 172318,
+      "sha256": "d8ebbab72191cd2ad04fc525292583422354ddeaffcf79a152500109f73519a6"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/cross-tool-snapshots/requests-12.json",
+      "bytes": 204265,
+      "sha256": "f0b8bcdd71a3f66b0f2598287b9ee1ba86cc3253d9b5bc1763719e6f32e69d6b"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/cross-tool-snapshots/requests-13.json",
+      "bytes": 63878,
+      "sha256": "b46a4edd44ed8462a7c9d557c145251b62d1304cc4240af0fc9e558287ccb2c6"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/cross-tool-snapshots/requests-14.json",
+      "bytes": 587333,
+      "sha256": "8971303ecf9e33f2691c786f59e02c5a434fff14b06b4e922d379bde82e4049b"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/cross-tool-snapshots/requests-15.json",
+      "bytes": 69055,
+      "sha256": "9abb3118e4db7bba10de421628798d428402a1f5d1cc6d0c5060f2e6aed20ca3"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/cross-tool-snapshots/requests-16.json",
+      "bytes": 69055,
+      "sha256": "738aa9b61d9ab39aa4480ec2c551b73a29a54cbfa36b197cb1476b30cafd11d1"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/cross-tool-snapshots/requests-17.json",
+      "bytes": 31104,
+      "sha256": "7ed1d9b11a602fb218ebd82a06614b731e821b4ee15c0c61830985305e80cc5b"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/cross-tool-snapshots/requests-18.json",
+      "bytes": 64289,
+      "sha256": "6199ddcd5605e22db93cac0449f814995ff286f73081de9c6d1125cea30baee5"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/cross-tool-snapshots/requests-2.json",
+      "bytes": 69093,
+      "sha256": "490d3f3719a79161f5883fc648bc86bded7fc99b9aaab60c63c8b257f759bd63"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/cross-tool-snapshots/requests-3.json",
+      "bytes": 68844,
+      "sha256": "a4181b615b576dce8540a4e3131c73af1a79627d6525ca3f4f520c597e71254e"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/cross-tool-snapshots/requests-4.json",
+      "bytes": 68845,
+      "sha256": "8752c40b4274d89921b2c57bf6372ee51c6f83f62e698fca5e4d6520f8ac9838"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/cross-tool-snapshots/requests-5.json",
+      "bytes": 68845,
+      "sha256": "3e8d83ebafff5425e234466a956f69ac0c67207c4aae36df53367ce83fed4edc"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/cross-tool-snapshots/requests-6.json",
+      "bytes": 68844,
+      "sha256": "dc08df02631371b12bdf8295c52e403e5acb44f880106f8af4d777591fe5529d"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/cross-tool-snapshots/requests-7.json",
+      "bytes": 68843,
+      "sha256": "45171a9719a2352f5154c7433803bc09230cbedda07d015032ac8a42095b122a"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/cross-tool-snapshots/requests-8.json",
+      "bytes": 175278,
+      "sha256": "ede0b9d03400ca50f15497b40bc6f264d499423bae74535082cacd3395a036e5"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/cross-tool-snapshots/requests-9.json",
+      "bytes": 106130,
+      "sha256": "9d42c538c1a25500775db0f0067f8ccb5bb1f7cce732371ff3a1461c8e895afb"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/cross-tools-diagnostic-2.log",
+      "bytes": 16253,
+      "sha256": "12371b46d1128a7c36ee58b1534824cf5a186671cb48006aca65dd64fcf59c43"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/cross-tools-diagnostic-3.log",
+      "bytes": 110678,
+      "sha256": "ddc3ab22d7d66f35f9d4af63891bf16b25b9ffe52d841a523cbd3c086b704c8f"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/cross-tools-diagnostic.log",
+      "bytes": 17137,
+      "sha256": "9a350cb70d73bc8ec1e77ba3f45755f3cf92c02490c7b660400b73641a828289"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/cross-tools-final-2.log",
+      "bytes": 110559,
+      "sha256": "ee93783418df2679f07d02e371be75a2b326458b34053cabf5e94c696e7c02be"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/cross-tools-final.log",
+      "bytes": 128690,
+      "sha256": "f410874a2e2496b6371ff4dbff53e8d64e1e55af23cfdb49ec716e889ddb295c"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/cross-tools-handoff.log",
+      "bytes": 20439,
+      "sha256": "abc6dbb0c27512a9955460746f466ef23a6b2b58f94e3a0ae62c0e8996a8b797"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/failure-log-normalization.json",
+      "bytes": 1548,
+      "sha256": "492627699b733e43b7e2753c303ce01413ddf39be3f64a197a0823385a347ed9"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/failure-logs-original.tar.gz",
+      "bytes": 47788,
+      "sha256": "2f94c681f3d799b942fe0b7c0f4278bca1c7f5dab92d726080f08b65c08c70f6"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/handoff-check.json",
+      "bytes": 199,
+      "sha256": "c8cbd498388980339dc88720d168ac75f2f605f0743ae7a95da0d2dfc08a281c"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/implementation-manifest.json",
+      "bytes": 7989,
+      "sha256": "6a9cf0011cfa3a6edbe251a035a6521cbcf44217ca426ed568340fc488776ccb"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/independent-review.md",
+      "bytes": 4287,
+      "sha256": "212a6e54c9fff1a1de2d51766c2d1d6f54b7b7d90c0ae046becc22ac70978db2"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/media-browser-final.log",
+      "bytes": 5293,
+      "sha256": "e071e97777a505d52bf9f6d7f14397dd45c4fb9208e5dad75b311bf0b5f977d8"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/media-independent-review-probe.log",
+      "bytes": 214,
+      "sha256": "d47552baafa2af87c36a19fb139917cc9e6f2e8eed30e881a1decb004f792892"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/media-independent-review-probe.mts",
+      "bytes": 3489,
+      "sha256": "f83cd46ff07d7bf420229009fdcaeab1d747b44e5f8dea96deea5b32493a901f"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/note-anchors.log",
+      "bytes": 1449,
+      "sha256": "3e50b13c32f0d515dae376dc70fcc4ee992e1420234e881cc2d3b7c742e62ba2"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/payload-retry-observed.json",
+      "bytes": 1603886,
+      "sha256": "f142a96fb2d50cc1756b00d710d8318e012fbda35e3926b938f0882f1715e3a0"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/payload-retry-probe-records.json",
+      "bytes": 52270,
+      "sha256": "0de6e1e603dae56475f503590d7341438d78321c296a04a37f4b8ac319e6e177"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/payload-retry-probe-result.json",
+      "bytes": 521,
+      "sha256": "7048dab1c970edb363d87ccbd27c4a59fb20dc303d4793b1256e4b5f2663ea5c"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/payload-retry-probe.log",
+      "bytes": 438,
+      "sha256": "de7b7a26d0d46d1a2cddd2d0447b2fad119251a74a3bc41d45d4b299ec89e0d2"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/payload-retry-probe.mts",
+      "bytes": 3898,
+      "sha256": "b600688c01429be461b4a75e2a5dce2f52cedfb1c05bb440ce882d7544c57970"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/prompt-snapshot-final.log",
+      "bytes": 421,
+      "sha256": "fdbb8c29f1ebb99a2a2a62eb19ce418cbfe8a306ae9b310829587b331303e00e"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/prompt-snapshot-probe.log",
+      "bytes": 420,
+      "sha256": "877c56bcc88420e2c3858e87641aa2b17a9a4c97473c2d1c85d93c2b8c5677d9"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/prompt-snapshot-probe.mts",
+      "bytes": 21820,
+      "sha256": "77fd0708e93b621fef72decd0ed6710507c8ddd0240ce28a93fca1ef9c1244c7"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/prompt-snapshot-requests.json",
+      "bytes": 129416,
+      "sha256": "8fef1af33ef0f9ef3eb752b3f369cbe73cb7d806ea8a71aaf204a54482fd79ae"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/static-delivery.log",
+      "bytes": 1985,
+      "sha256": "1699ea3d648f850c8d7e643a6494bc6c0d54289b61a4446dee902d1400cb6ef1"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/static-final-2.log",
+      "bytes": 2100,
+      "sha256": "26976b92ce607959e77d2e34cefb77efc1b482d57adfab7030dc3c13e869ca51"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/static-final-3.log",
+      "bytes": 1985,
+      "sha256": "1699ea3d648f850c8d7e643a6494bc6c0d54289b61a4446dee902d1400cb6ef1"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/static-final.log",
+      "bytes": 2100,
+      "sha256": "3129c8e30f3b7ae7a45aa4cd1ff42e362ff3cba018641edd2e34c0b1c4d10525"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/static-handoff.log",
+      "bytes": 1985,
+      "sha256": "1699ea3d648f850c8d7e643a6494bc6c0d54289b61a4446dee902d1400cb6ef1"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/static-initial.log",
+      "bytes": 410,
+      "sha256": "941a59faf96d93f9869d74d5a328d6cd045366857ecd927a4462db7c0118b23c"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/tool-estimates-final/requests-1.json",
+      "bytes": 172318,
+      "sha256": "1ddea3389a1416d66e9864b1efc4c2a5ae0c633fa0b35f1237972c5025d88b06"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/tool-estimates-final.log",
+      "bytes": 672,
+      "sha256": "222924bc2dbdba162a62165b4abfec07ccd73169f96f964f9fb2f0d30eddffd5"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/tools-snapshots/requests-1.json",
+      "bytes": 1616508,
+      "sha256": "e67264bf21243f769c489e89e40c732ba852238785bb874325599ced5b308ad3"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/tools-snapshots/requests-2.json",
+      "bytes": 171178,
+      "sha256": "1b7acecd5adf847f27d879a88ac45d3fd83a2b0c64fba6bd9c518ddc9dec0800"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/tools-snapshots.log",
+      "bytes": 799,
+      "sha256": "dc807427690ba548b1d276190aae13581480bf40a0e589f220436fc22a3ac164"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/evidence/30-macos/verify-handoff.mts",
+      "bytes": 3663,
+      "sha256": "7d41305e3170c8bd0f4a78e6512052069fcdc6818af8ec435e8a0b4a5a607c5e"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/issues/01-migration-plan.md",
+      "bytes": 39128,
+      "sha256": "2ad6b563df28480c2cda5a0455e9a63ca973bbfafd191a25127506e4b4600931"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/issues/30-browser-media.md",
+      "bytes": 7513,
+      "sha256": "92eddbc9af4dd159e84871cad605a0fc71b9b59c72617d0c9b49d0c2925235b9"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/issues/31-qq-owner-entry.md",
+      "bytes": 2740,
+      "sha256": "36157c74dafec971d81669e9fc84534f35f49cfbdf11ba8aefab82c9c582b402"
+    },
+    {
+      "path": ".scratch/personal-pi-durable/remaining-work.md",
+      "bytes": 10521,
+      "sha256": "81db8e96c2dbee678192b64d0c54651e190dcaa76549a431300d5dec37fd9bb6"
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "method": "ceil(UTF-8 bytes / 4), tools use actual HTTP wire definitions",
+  "before": {
+    "systemPrompt": 70,
+    "toolSchemas": 691
+  },
+  "after": {
+    "systemPrompt": 122,
+    "toolSchemas": 804
+  },
+  "sub": {
+    "systemPrompt": 64,
+    "toolSchemas": 0
+  },
+  "httpRequestsCompared": {
+    "http": 8,
+    "payloads": 8
+  }
+}

@@ -2,11 +2,13 @@
 
 ## 职责与边界
 
+本篇的运行状态、历史或客户端协议适用于 Coding 与保留的旧格式实现；正式个人 Agent 使用[个人持久会话](personal-durable.md)，不接入旧 Runtime、Task Store 或控制协议。
+
 `packages/core/src/` 是全部模块的最底层，定义数据的落盘形态与「这个会话是什么」的判定。它持有档案根与目录布局、SQLite 核心库（`ruukoto.db`）与 `agent-data/main.db` 的 schema 与版本校验、pi JSONL 会话文件、产物正文文件与入站图片暂存的读写边界、任务状态机及其字段、会话身份解析与执行画像的取数、目录与实例锁、以及产品归属登记。它不依赖其他模块，被全部模块依赖。
 
 它负责：
 
-- 决定数据目录里有什么：`dataDir`、`agentDir`、`control` 三个目录的默认位置、权限位与内容，以及两个产品与两个开发 profile 的档案根。
+- 决定数据目录里有什么：`dataDir`、`agentDir`、`control` 三个目录的默认位置、权限位与内容，以及 Coding 与保留旧格式 profile 的档案根。
 - 建库与核实 schema：全新库在同一事务内建全部表与版本号；格式不等于当前版本的数据库在写入前拒绝，不回填任务或计划授权。
 - 写任务状态：状态集合、`interrupt_reason`／`cancel_requested`／`effect_unknown` 三列，以及终态的条件更新原语。
 - 判定会话身份：`Store.getSessionIdentity` 读取会话、角色、SubAgent 与调度运行绑定，纯函数 `classifySession` 给出对应身份；`executionProfile` 的输入由这里的身份、工作与任务行提供。
@@ -55,15 +57,15 @@
 
 ## 数据与状态
 
-`sub_agents.definition` 保存完整定义快照：用途（用户角色或宿主固定评审）、名称、原文、规范字段、正文及内容摘要。Store 写入拒绝缺失或坏摘要；查询坏行保留身份并返回 `definition: null` 与 `definitionError`，执行必须经 `requireSubAgentDefinition` 拒绝继续。两方向导入保留并校验快照，不从实例角色文件补回。工作流运行固定角色目录及诊断；等待参考快照保留父模型已使用的目录。
+`sub_agents.definition` 保存完整定义快照：用途（用户角色或宿主固定评审）、名称、原文、规范字段、正文及内容摘要。Store 写入拒绝缺失或坏摘要；查询坏行保留身份并返回 `definition: null` 与 `definitionError`，执行必须经 `requireSubAgentDefinition` 拒绝继续。开发资料导入保留并校验快照，不从实例角色文件补回。工作流运行固定角色目录及诊断；等待参考快照保留父模型已使用的目录。
 
-`tasks.read_scope.execution` 保存可信来源、角色摘要、有效模式、来源保护、实际工具、MCP 签名与内容摘要；paths、sourceRefs 和 readMemories 必须完整，缺失或损坏只允许查询，不能执行。普通子代理的记忆预览与正文读取 ID 同事务写入 readMemories 和 task.memory_accessed，后续发送/调用复核历史来源及记忆撤销，字段丢失不能解释成从未读取。两方向导入校验来源任务/会话及角色绑定，保留内联记录，不授予目标实例来源权限。
+`tasks.read_scope.execution` 保存可信来源、角色摘要、有效模式、来源保护、实际工具、MCP 签名与内容摘要；paths、sourceRefs 和 readMemories 必须完整，缺失或损坏只允许查询，不能执行。普通子代理的记忆预览与正文读取 ID 同事务写入 readMemories 和 task.memory_accessed，后续发送/调用复核历史来源及记忆撤销，字段丢失不能解释成从未读取。开发资料导入校验来源任务/会话及角色绑定，保留内联记录，不授予目标实例来源权限。
 
 历史页与单条读取在同一次 JSONL 解析内按宿主任务标记关联原 `taskId`；分支保留原任务。缺结束标记允许下一开始标记接替，无效 taskId 或结束不匹配报 `history_corrupt`。用途与关联诊断由 Runtime 查询可信绑定派生，core 不新增用途存储列。
 
 工作流的不可变定义、名称历史/保存回执、运行、步骤、执行绑定、问题与控制回执由 `packages/core/src/workflow.ts` 持有，使用同一核心库和事件事务。定义与运行保存 `interfaceVersion`，新接口摘要包含版本；旧定义正文不改写，旧运行不能恢复为新接口。运行 payload 固定展示名称、显式简短说明和宿主创建时刻，启动摘要覆盖标题与说明；已有无标题记录在查询时按创建时刻回退，不改写持久事实。有界控制正文完整保存，步骤绑定既有 Task/Work/SubAgent，身份解析为 SubAgent 增加来源运行绑定；具体状态、预算、重放和停止核实见[工作流](workflows.md)。
 
-`agent_waits` 保存父任务、SDK 调用、固定目标、截止时间、来源、参考快照、阶段与中断原因；`agent_reports` 分别保存消费证明、报告认领、资料依赖和最终回复/outbox 证明，状态及事件同事务提交。结果先进入 JSONL，再在模型实际接受后记消费；报告权整组转交保留旧消费、原后备任务与键，使用其他轮消费的报告还须当前完整输入凭据。持久认领事件保留任务的历史来源绑定，释放认领不解除资料依赖。重启只在本任务标记范围核实消费及最终回复，不宣称 JSONL 与 SQLite 原子。`AgentWaitView` 提供目标标签/状态、截止时间、阶段和中断原因，工作流标签使用固定名称或无标题时间回退；`task.resources_changed` 提交执行/对话阶段，供查询与事件重建。两方向实例导入保留这些事实，结束旧等待并将 pending 报告记为 `undelivered`，不启动后备。
+`agent_waits` 保存父任务、SDK 调用、固定目标、截止时间、来源、参考快照、阶段与中断原因；`agent_reports` 分别保存消费证明、报告认领、资料依赖和最终回复/outbox 证明，状态及事件同事务提交。结果先进入 JSONL，再在模型实际接受后记消费；报告权整组转交保留旧消费、原后备任务与键，使用其他轮消费的报告还须当前完整输入凭据。持久认领事件保留任务的历史来源绑定，释放认领不解除资料依赖。重启只在本任务标记范围核实消费及最终回复，不宣称 JSONL 与 SQLite 原子。`AgentWaitView` 提供目标标签/状态、截止时间、阶段和中断原因，工作流标签使用固定名称或无标题时间回退；`task.resources_changed` 提交执行/对话阶段，供查询与事件重建。开发资料导入保留这些事实，结束旧等待并将 pending 报告记为 `undelivered`，不启动后备。
 
 `Task.parentTaskId` 与 `sourcePermissionVersion` 保存宿主确定的触发任务及其权限版本，派生任务的 `accessMode` 在登记时固定。协作消息另存登记时模式和来源版本，延迟投递沿用这些字段。`tool_ops.authorization` 保存完全访问或单次批准的真实执行依据，授权和 `task.tool_authorized` 在执行事务内单次登记；完全访问不产生审批行。
 
@@ -77,11 +79,10 @@
 
 ### 档案根与目录布局
 
-档案根按产品分开：ruukoto 默认 `~/.ruukoto`，`ruukoto-code` 默认 `~/.ruukoto-code`，两者的内容结构一致。两个产品的开发实例另用 `~/.ruukoto-dev/<仓库>-<哈希>/` 与 `~/.ruukoto-code-dev/<仓库>-<哈希>/`，与日常实例完全隔离，不继承生产凭据与配置；ruukoto 的开发 profile 保留现有开发历史，ruukoto-code 的开发 profile 不自动迁入 dev 历史。以下为单个产品实例的布局（以 ruukoto 默认路径为例）：
+Coding 档案根为 `~/.ruukoto-code`，开发实例为 `~/.ruukoto-code-dev/<仓库>-<哈希>/`。旧 `~/.ruukoto` 与 `~/.ruukoto-dev/` 资料保留归档；新个人使用独立 durable 格式，不复用这些目录。以下布局以 Coding 档案为例：
 
 ```
-<dataDir>/                     # 0700（RUUKOTO_DATA_DIR，默认 ~/.ruukoto/data）
-├── ruukoto.db                 # node:sqlite 元数据（WAL，schema v46）
+<dataDir>/                     # 0700（RUUKOTO_CODE_DATA_DIR，默认 ~/.ruukoto-code/data）
 ├── ruukoto.db                 # node:sqlite 元数据（WAL，schema v46）
 ├── agent-data/main.db         # main 应用数据空间（独立库；实例 ID 登记在核心库 meta）
 ├── sessions/                  # pi JSONL 会话文件（消息历史唯一权威副本）
@@ -93,13 +94,13 @@
 
 <dataDir>/../qq-work/           # QQ 群会话专用空工作目录（每 账号_群 一个，0700）
 
-<dataDir>/../control/          # 0770（RUUKOTO_CONTROL_DIR 可覆盖）
+<dataDir>/../control/          # 0770（RUUKOTO_CODE_CONTROL_DIR 可覆盖）
 ├── control.sock               # 控制面 Unix socket（0660）
 └── owner.token                # 拥有者令牌（0600；部署时复制给拥有者 0400）
 
 <dataDir>/artifacts/           # 0700；工具正文、不可变图片与用户附件（<artifactId>.bin）
 
-<agentDir>/                    # 0700（RUUKOTO_AGENT_DIR，默认 ~/.ruukoto/agent）
+<agentDir>/                    # 0700（RUUKOTO_CODE_AGENT_DIR，默认 ~/.ruukoto-code/agent）
 ├── models.json                # 模型配置（显式指定，不读 ~/.pi/agent）
 ├── auth.json                  # 模型凭据（同上；配置中心在线/离线维护，0600）
 ├── default-model.json         # 后台默认模型（0600；--model 启动参数优先）
@@ -110,13 +111,13 @@
 
 ~/.ruukoto-code/                  # ruukoto-code 产品档案根（0700）：data/ agent/ control/ pending/
 
-~/.ruukoto-dev/<仓库>-<哈希>/      # ruukoto 开发 profile（npm run dev，0700）：
+~/.ruukoto-dev/<仓库>-<哈希>/      # 旧个人开发归档（当前 dev 不使用）：
                                   #   data/ agent/ control/ pending/ logs/
 ~/.ruukoto-code-dev/<仓库>-<哈希>/ # ruukoto-code 开发 profile（npm run code，0700）：
                                   #   同上结构
 ```
 
-`RUUKOTO_CONTROL_DIR` 覆盖时控制面目录可落在档案之外；默认下它是数据目录的兄弟目录。`control.sock` 的 `chmod` 在个别平台不支持，此时目录权限仍然生效。
+`RUUKOTO_CODE_CONTROL_DIR` 覆盖时控制面目录可落在档案之外；默认下它是数据目录的兄弟目录。`control.sock` 的 `chmod` 在个别平台不支持，此时目录权限仍然生效。
 
 ### 三种存储的职责边界
 

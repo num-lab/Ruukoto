@@ -1,0 +1,27 @@
+# 593真实原报告：独立只读核验
+
+报告762已按唯一原目标送达，正文合同仍有缺陷，不能把sent计为全文正确。原552字符报告完整保留在私有report-full-original.txt，answer782、固定reply与全文SHA-256均为ac7f05c76a79f9cb08ea2122b147bbb5edd0de516d89e6fb547a3da44f833296。该上下文没有开Harness、重发、跑模型或服务动作；原593不修改、不重发。
+
+根单次维护的result记录modelCalls=3/httpCalls=3/reportFrames=1、retryAttemptsBlocked=0、otherQqFrames=0/newOwnerEvents=0、pollClosed/harnessClosed=true。独立SQLite在线backup以live源URI mode=ro创建，副本普通0600，27,123,712字节、SHA-256 0d85a85cd5f09d225de3fc046d07c5a23a22bff260dda8798a0588cb829cfd38；其后所有原文/状态分析均读副本，未阻断或重开正常后台。
+
+## 送达与来源
+
+持久化唯一ruukoto.report-admission为763，唯一ruukoto.delegation-report为762，原modelCall仍为620，source与593原来源一致。ReportDoc只出现一次waiting→pending→sending→sent，修订序列依次1884、1946、1947、1948，最后platformMessageId=676103229；answer782逐字节形成固定外发reply。原QQreceipt、委托telegram来源及持久QQ配置的owner/bot/generation全部相同，receipt.submissionId关联593原Submission；维护冻结observer精确约束同owner、原messageId的reply及当前sending的固定正文，原帧1与产品sent回执构成双证据。没有从人工确认推测网络成功，也不声称只靠数据库能证明所有外部网络包。
+
+新范围没有命令接纳/启动entry，也没有新增命令/工作Task。原616仍returned/exit0/stopped且归602，602仍completed；原620终态/621的work_source_paused保留，未覆写历史工具错误。首轮错误是启动壳Node实路径前提不符，另存launcher-amendment，不混作产品缺陷或报告重试。
+
+三个真实请求分别有768/769、774/775、780/781双entry：每对同requestId，前条完整input，后条同input加实际payload；三对input均深等，每次完整input及实际payload都含原report.content。会话/模型/参考来源、完整原始payload及后续工具回答保留在actual-full-private.json和SQLite副本，安全摘要仅输出hash和引用ID。此处没有用mock或仅有onPayload前的对象替代实际请求证据。
+
+## 正文问题与最小方案
+
+782正文要求原入口再次调用report，并称“我也未发送”，把模型本身只查询、宿主已登记报告及后续固定外发混在一段业务正文里。生成前的三次input均无这两句，它们是本轮新增。新工具772证明active=0/unverified=0/paused=false、602 completed/stopVerified=true；778证明616 returned/exit0/stopped/requiresVerification=false、完整成员结果14字符且partial=false。报告“此前report被拒”来自历史上下文，三次input各有6处work_source_paused；fresh两工具结果不单独支持“未执行其他所有能力”的全域否定，不能笼统记为全部业务断言正确。
+
+实际content开头说明封组与宿主回报，结尾却用“原委托说明：”直接拼原owner“安排整项最终回报并结束当前轮次，让我继续聊天”，没有参考结束边界。三次system的personal-current-source都仅写“本轮来源为宿主委托汇总参考。请读取成员结果并汇总；本轮只提供查询资格。”，没有明确已登记报告正在生成正文。当前模型确有偏离，但接口在来源和时序上存在可修的歧义，不能证明裸拼接是唯一原因，也不能据此保证改文后模型必然正确。
+
+建议仅把原目标完整编码在有首尾的参考段中，将当前报告任务置于参考之后，说明本轮交付已登记报告的业务正文，宿主回答结束后按原固定目标唯一回报，无需再次report或新授权，发送状态由宿主查询。JSON字符串编码可避免原目标自身换行或类似结束标记破坏展示结构；文本边界不替代现有source/权限/unknown/写工具硬门。是否同步system该句只限补充当前已登记报告阶段，保留只查询权限。
+
+最窄反例沿用reports实际模型请求/Responses入站夹具，原owner目标用本次含“安排最终回报”的文本，断言input与payload都有完整目标参考和位于参考之后的当前阶段说明；旧裸拼接/旧末句会红。再保留无变更资格的写工具0HTTP负例与报告唯一登记/固定回报行为。该反例证明请求合同，不冒充真实模型语义已修；如后续要真实验证，使用根另行授权的新委托，绝不重发593。
+
+## 归档范围
+
+原始private包包含一致DB、原报告全文、全部新entries、实际三input/payload、私有原QQ目标和root结果；仅作为私有证据，不含四凭据文件。安全摘要actual-audit.json只写原目标hash和布尔关系，正文正确性明确false。四凭据按本地既知原值及JSON/URL/base64/base64url/hex/unicode-escape常见变体扫描压缩包字节和每个解压普通文件；结果另附，不输出凭据。核验器初稿误将receipt.accepted当pi.user593，实际该字段是接纳entry591；已按产品契约更正为submissionId来源关联，非产品异常。

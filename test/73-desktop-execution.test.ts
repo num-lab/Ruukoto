@@ -6,8 +6,7 @@
  * Note: 见 .agents/notes/implemented/architecture/2026-10-10-native-execution-sandbox.md
  *
  * 测试接缝（预先约定）：
- * - ruukoto/ruukoto-code 的 `server` 进程入口：执行后端按产品解析默认值
- *   （两产品均为 native），旧 local/container 覆盖拒绝并提供迁移指引；
+ * - ruukoto-code 的 `server` 进程入口：默认使用 native，旧 local/container 覆盖拒绝并提供迁移指引；
  * - 握手快照 `snapshot.execution`（TUI 展示的来源）后台声明的实际后端；
  * - `submit`：完全访问直接使用启动账户；confirm 仍保留受限后端。
  *
@@ -44,7 +43,7 @@ interface SpawnedBackend {
 }
 
 async function spawnBackend(opts: {
-  product: "ruukoto" | "ruukoto-code";
+  product: "ruukoto-code";
   dataDir: string;
   agentDir: string;
   root: string;
@@ -53,8 +52,8 @@ async function spawnBackend(opts: {
 }): Promise<SpawnedBackend> {
   const controlDir = nodePath.join(opts.root, "control");
   const env: NodeJS.ProcessEnv = { PATH: process.env.PATH, HOME: process.env.HOME, ...opts.extraEnv };
-  env[opts.product === "ruukoto" ? "RUUKOTO_CONTROL_DIR" : "RUUKOTO_CODE_CONTROL_DIR"] = controlDir;
-  const binFile = opts.product === "ruukoto" ? "ruukoto.mjs" : "ruukoto-code.mjs";
+  env.RUUKOTO_CODE_CONTROL_DIR = controlDir;
+  const binFile = "ruukoto-code.mjs";
   const child = childProcess.spawn(
     process.execPath,
     [nodePath.join(repoRoot, "apps", binFile.replace(/\.mjs$/, ""), "bin", binFile), "server", "--data-dir", opts.dataDir, "--agent-dir", opts.agentDir, "--tools", "mock", ...(opts.extraArgv ?? [])],
@@ -117,7 +116,7 @@ async function stopBackend(backend: SpawnedBackend): Promise<void> {
 
 type TestDirs = { dataDir: string; agentDir: string; root: string };
 
-for (const product of ["ruukoto", "ruukoto-code"] as const) {
+for (const product of ["ruukoto-code"] as const) {
 test(`${product} 默认执行后端 = native；完全访问无需额外执行入口`, async () => {
   const { dirs, work } = await makeTestDirs("x73dev", 1);
   const server = new MockModelServer(async () => ({ kind: "text", text: "ok" }));
@@ -200,9 +199,9 @@ test(`${product} 的旧 local/container flag 与环境覆盖拒绝，并给出�
           [nodePath.join(repoRoot, "apps", product, "bin", product + ".mjs"), ...argv],
           { cwd: repoRoot, encoding: "utf8", timeout: 60_000, env: {
             PATH: process.env.PATH, HOME: process.env.HOME,
-            [product === "ruukoto" ? "RUUKOTO_DATA_DIR" : "RUUKOTO_CODE_DATA_DIR"]: dirs.dataDir,
-            [product === "ruukoto" ? "RUUKOTO_AGENT_DIR" : "RUUKOTO_CODE_AGENT_DIR"]: dirs.agentDir,
-            [product === "ruukoto" ? "RUUKOTO_CONTROL_DIR" : "RUUKOTO_CODE_CONTROL_DIR"]: nodePath.join(dirs.root, "control"), RUUKOTO_EXECUTION_BACKEND: argv.includes("--execution") ? undefined : execution,
+            RUUKOTO_CODE_DATA_DIR: dirs.dataDir,
+            RUUKOTO_CODE_AGENT_DIR: dirs.agentDir,
+            RUUKOTO_CODE_CONTROL_DIR: nodePath.join(dirs.root, "control"), RUUKOTO_EXECUTION_BACKEND: argv.includes("--execution") ? undefined : execution,
           } });
         assert.equal(result.status, 1, `${execution}: ${argv.join(" ")}`);
         assert.match(result.stderr, /--execution 取值无效/);
@@ -223,9 +222,9 @@ test(`${product} 非法执行后端在 server、TUI、工作区与旧 tui 入口
         [nodePath.join(repoRoot, "apps", product, "bin", product + ".mjs"), ...argv],
         { cwd: repoRoot, encoding: "utf8", timeout: 60_000, env: {
           PATH: process.env.PATH, HOME: process.env.HOME,
-          [product === "ruukoto" ? "RUUKOTO_DATA_DIR" : "RUUKOTO_CODE_DATA_DIR"]: dirs.dataDir,
-          [product === "ruukoto" ? "RUUKOTO_AGENT_DIR" : "RUUKOTO_CODE_AGENT_DIR"]: dirs.agentDir,
-          [product === "ruukoto" ? "RUUKOTO_CONTROL_DIR" : "RUUKOTO_CODE_CONTROL_DIR"]: nodePath.join(dirs.root, "control"),
+          RUUKOTO_CODE_DATA_DIR: dirs.dataDir,
+          RUUKOTO_CODE_AGENT_DIR: dirs.agentDir,
+          RUUKOTO_CODE_CONTROL_DIR: nodePath.join(dirs.root, "control"),
           RUUKOTO_EXECUTION_BACKEND: argv.includes("--execution") ? undefined : "bogus",
         } });
       assert.equal(result.status, 1);

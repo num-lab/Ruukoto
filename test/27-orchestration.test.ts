@@ -1,5 +1,5 @@
 import { delegateFromActiveTask } from "./helpers/active-subagent-source.ts";
-import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
+import { product as personalProduct } from "./helpers/legacy-product.ts";
 /**
  * 编排器集成测试（issue 01 日常助手：角色、事件与子任务编排）。
  *

@@ -1,10 +1,12 @@
 # 双产品迁移首期发布与验收
 
-首期交付包含开发机上的 Coding Agent `ruukoto-code`、Linux 服务器上的个人 Agent `ruukoto`、一层通用 SubAgent，以及旧实例的两种离线导入方向。两个产品各自使用档案、控制面和模型配置。开发本项目时，`npm run dev` 启动隔离的 `ruukoto` 后台，`npm run code` 启动隔离的 `ruukoto-code` 后台并打开 TUI；两者分别使用`~/.ruukoto-dev/` 与 `~/.ruukoto-code-dev/` 下的仓库档案，与日常实例分开。开发实例退出界面后停止后台；下文的 TUI 退出后继续执行指日常产品入口。产品定位与保留普通开发会话的决定见[两个 Agent 产品](../.agents/notes/implemented/architecture/2026-10-02-two-agent-products.md)。
+本页保留双产品迁移首期的决定和证据。当前个人正式入口已使用独立 durable，旧个人导入、开发会话、工作流与 GitHub 自动评审退出；当前操作以[操作手册](usage.md)、[部署说明](../deploy/systemd/README.md)及[个人迁移验收](../.scratch/personal-pi-durable/issues/39-final-acceptance.md)为准。历史检查数不代表当前候选通过，生产接管另验。
+
+当时首期交付包含开发机上的 Coding Agent `ruukoto-code`、Linux 服务器上的个人 Agent `ruukoto`、一层通用 SubAgent，以及旧实例的两种离线导入方向。两个产品各自使用档案、控制面和模型配置。开发本项目时，`npm run dev` 启动隔离的 `ruukoto` 后台，`npm run code` 启动隔离的 `ruukoto-code` 后台并打开 TUI；两者分别使用`~/.ruukoto-dev/` 与 `~/.ruukoto-code-dev/` 下的仓库档案，与日常实例分开。开发实例退出界面后停止后台；下文的 TUI 退出后继续执行指日常产品入口。产品定位与保留普通开发会话的决定见[两个 Agent 产品](../.agents/notes/implemented/architecture/2026-10-02-two-agent-products.md)。
 
 首期验收顺序固定为：本地仓库修改与测试 → IM 服务器管理 → 长任务期间持续响应、协作、复用与显式关闭。下面汇总工单 01–23 已有证据；本次联合演练、检查结果和尚未通过的项目单独记录在 [工单 24](../.scratch/agent-direction/issues/24-release-acceptance.md)的 Comments。此前通过的模拟测试不能替代真实平台验收。真实 QQ/Telegram 和 macOS 完全访问的正向执行路径仍缺证据，完整发布验收尚未通过。
 
-## 已交付行为
+## 首期交付行为
 
 `ruukoto-code` 以工作区和会话组织编码工作，首次打开 TUI 时按需拉起后台，退出 TUI 后任务继续。受限任务默认使用原生沙箱，缺少执行能力时明确失败；完全访问直接使用启动后台的当前账户。Git 修改委派按工作生成 worktree，主 Agent 汇总到父工作区待提交区后验证；冲突时保留双方成果，非 Git 写入按目录占用串行。
 
@@ -26,9 +28,9 @@ SubAgent 的身份、工作与执行任务分别保存。任务结束且退出�
 | Linux Coding Agent 完全访问 | tx `ruukoto-code` 的真实 Runtime，经临时固定 sudo/systemd 入口运行当前 worker，`uid:gid=986:986` | [full-access 历史源码](../verification/archive/release-24-linux-full-access.mts.txt) 一次任务的四次工具操作完成修前失败/修后通过，后台 `owner.token` 与核心库拒读；模型为桩，未使用 macOS 原生完全访问入口 |
 | 场景 2：IM 服务管理与限定长期授权 | tx 真实 systemd、sudo、root helper、测试服务与账本 | [smoke-09 历史源码](../verification/archive/smoke-09-linux-service-management.mts.txt) 14/14、[smoke-10 历史源码](../verification/archive/smoke-10-standing-permissions.mts.txt) 14/14；模型、OneBot 与 Bot API 为桩，真实重启和授权保存/使用/撤销/失效有外部效果证据 |
 | 场景 3：同项工作协作 | tx 真实 Runtime、控制面、SQLite、独立 JSONL 与受限容器 | [smoke-13](../verification/smoke/smoke-13-subagent-messaging.mts) 6/6；模型为桩，双向消息、来源、复用后旧资格拒绝、显式关闭与重启记录核实 |
-| 场景 3：恢复与原入口最终汇报 | tx 真实容器、CLI、后台重启与 SIGKILL、outbox | [smoke-15](../verification/smoke/smoke-15-recover-subagents.mts) 首次 Linux 复验 8/8、[smoke-18](../verification/smoke/smoke-18-im-final-delivery.mts) 7/7；模型和消息平台为桩，持续响应、固定原入口、离线等待、重绑失效与一次汇报已核实 |
+| 场景 3：恢复与原入口最终汇报 | tx 真实容器、CLI、后台重启与 SIGKILL、outbox | [smoke-15](../verification/smoke/smoke-15-recover-subagents.mts) 首次 Linux 复验 8/8、[smoke-18 历史记录](../.scratch/agent-direction/issues/18-im-final-delivery.md) 7/7；模型和消息平台为桩，持续响应、固定原入口、离线等待、重绑失效与一次汇报已核实 |
 | 迁移→重启→协作→取消→冲突→回退联合路径 | macOS 的真实 Runtime、SQLite、JSONL、Git 与文件 | [test/91](../test/91-release-acceptance.test.ts) 1/1；模型为桩，工具后端 local，无隔离证据。两次重启、取消后迟到消息零新模型调用、冲突零写入与成果保全、源库/产物字节不变、活动回退阻挡与干净回退均覆盖 |
-| 回退状态修复 | 两方向导入的真实数据库与回执 | [test/85](../test/85-legacy-instance-import.test.ts) 与 [test/86 personal](../test/86-personal-instance-import.test.ts) 合计 12/12；联合检查先捕获旧错误，再验证阻挡响应 `status: applied` 与回执一致，成功才为 `reverted` |
+| 回退状态修复 | 两方向导入的真实数据库与回执 | [test/85](../test/85-legacy-instance-import.test.ts) 与 [test/86 personal 历史记录](../.scratch/agent-direction/issues/22-migrate-personal-instance.md) 合计 12/12；联合检查先捕获旧错误，再验证阻挡响应 `status: applied` 与回执一致，成功才为 `reverted` |
 
 本次发现并修复了两方向回退被阻挡时响应误报 `reverted` 的问题；数据库原本保留`applied`，现在响应与回执一致。配置中心项目列表的根目录描述也收回到 `ruukoto-code`产品，个人产品 `ruukoto` 继续平铺项目名称。最终 macOS `npm test` 为 915 项、913 通过、1 跳过、1 失败：`test/08` 的 DNS 前提在本机不成立，`nonexistent.invalid` 解析到 `198.18.0.71`，干净基线 `33571b4` 同用例也超时。最终 Linux `npm test` 为 915 项、914 通过、1 跳过、零失败，两端类型检查和图解检查通过。Linux 首轮的 5 个失败已分别复现并修正：目录夹具需保证 inode 确实不同、档案路径不应假定检出名、工作进程测试需等待模型门闩，配置界面需按产品显示根目录。命令、基线对照及最终结果保存在工单 24 Comments 与[Linux 实机记录](../.scratch/agent-direction/release-24-linux-results.md)；macOS 环境失败不计为全量通过。
 
@@ -36,7 +38,7 @@ SubAgent 的身份、工作与执行任务分别保存。任务结束且退出�
 
 ## 当前复跑入口
 
-关键验收脚本及 PTY 助手已经进入 `verification/smoke/`，完整 clone 可按[运行说明](../verification/smoke/README.md)复跑。先在根目录完成 `npm run setup` 与`npm run check`；个人原生验收先完成 Linux 常驻前置并运行 `npm run build`，再运行 `npm run test:native`；表内旧 Docker 结果保留为当时版本的证据，不是当前脚本的原生结果。升级使用 `npm run test:upgrade`；真实模型编码验收显式指定配置和模型，避免读取某位开发者的固定档案：
+关键验收脚本及 PTY 助手已经进入 `verification/smoke/`，完整 clone 可按[运行说明](../verification/smoke/README.md)复跑。先在根目录完成 `npm run setup` 与`npm run check`；Coding 原生验收先完成 Linux 前置并运行 `npm run build`，再运行 `npm run test:native`；个人 durable 使用独立能力检查与最终验收；表内旧 Docker 结果保留为当时版本的证据，不是当前脚本的原生结果。升级使用 `npm run test:upgrade`；真实模型编码验收显式指定配置和模型，避免读取某位开发者的固定档案：
 
 ```bash
 npm run test:release-model -- --models /path/to/models.json --model provider/model
@@ -75,24 +77,20 @@ Linux systemd / sudo 演练的六份相关源码保存在[特权脚本归档](..
 | [19 PR 评审](../.scratch/agent-direction/issues/19-github-subagent-review.md) | [test/42](../test/42-github-webhook.test.ts) 至 [test/46](../test/46-github-recovery.test.ts) | macOS + Linux 真实后台、容器、修订与恢复路径 | GitHub 投递、MCP 与通知平台为桩；comment 对话未交付 |
 | [20 核心群聊退役](../.scratch/agent-direction/issues/20-retire-core-group-chat.md) | [test/85 group](../test/85-retire-core-group-chat.test.ts) | macOS + Linux 旧代码真实产生记录后升级、收尾与幂等 | 真实 QQ 群/NapCat 未实测；正式外挂未交付 |
 | [21 开发资料导入](../.scratch/agent-direction/issues/21-migrate-coding-instance.md) | [test/85 import](../test/85-legacy-instance-import.test.ts) | macOS + Linux 进程冒烟；macOS `~/.ruukoto` 代表性真实资料导入/查阅/回退 | tx 生产库未演练；凭据不迁入 Coding Agent |
-| [22 个人资料导入](../.scratch/agent-direction/issues/22-migrate-personal-instance.md) | [test/86 personal](../test/86-personal-instance-import.test.ts) | macOS + Linux 进程冒烟；macOS 真实资料导入/查阅/回退 | 真实资料无平台配置/调度/记忆，平台偏移与交接由桩覆盖；tx 生产库未演练 |
+| [22 个人资料导入](../.scratch/agent-direction/issues/22-migrate-personal-instance.md) | [test/86 personal 历史记录](../.scratch/agent-direction/issues/22-migrate-personal-instance.md) | macOS + Linux 进程冒烟；macOS 真实资料导入/查阅/回退 | 真实资料无平台配置/调度/记忆，平台偏移与交接由桩覆盖；tx 生产库未演练 |
 | [23 固定角色收尾](../.scratch/agent-direction/issues/23-contract-legacy-roles.md) | [test/87](../test/87-retire-coding-role.test.ts) | macOS + Linux 两版本真实 bin 升级、SIGKILL、旧任务收尾 | 旧 CHECK/角色标识保留读取；ruukoto 普通开发会话按拥有者决定保留 |
 
 ## 安装、升级与切换
 
-开发端在开发机检出代码、安装依赖、构建 worker 与原生监督器，通过`ruukoto-code config` 配置本端模型后打开目录。个人端按[systemd 部署说明](../deploy/systemd/README.md) 配置当前启动账户、原生沙箱、常驻 user manager 和可选服务 helper。不要将两个产品指向同一个数据目录；产品归属不符时会拒绝启动。
+Coding 在开发机安装完整 workspace、构建 worker 与原生监督器，通过 `ruukoto-code config` 配置模型后打开目录；开发资料导入使用 `ruukoto-code legacy-import`，按预览、确认计划、应用和回执核对执行，目标新增事实会阻挡回退，详见[操作手册](usage.md#6-导入旧实例)。
 
-升级前停止需要升级的产品，保留其档案并替换该端检出。修改 worker 或其使用的核心代码后重建镜像；`ruukoto-code stop` 后重开 TUI 可拉起新代码，个人端按部署说明重启systemd 单元。分别安装在各自机器或检出中的产品不要求同时升级，另一端不提供本地任务执行所需的控制面或存储。协议与 schema 版本以本端代码为准。
-
-迁移时先停止旧实例和目标后台，开发资料使用 `ruukoto-code legacy-import`，个人资料使用 `ruukoto legacy-import`；依次执行 `preview`、核对计划、`apply`、目标启动查阅。个人方向必须使用全新目标，核对入口代次、Telegram 偏移、长期授权与发送账本后，把平台和调度执行权交给目标，旧实例保持停止。命令不会修改或停用源实例。
-
-需要回退时先停止目标并检查 `revert` 的阻挡项。目标切换后的新入站、发送、调度推进、授权、凭据轮换或资料改写属于新事实，不能用导入回退抹掉。阻挡时响应为`ok: false`、`status: applied`，回执和目标资料保持原状；成功回退才返回`status: reverted`。干净回退保留回执和目标备份，复制文件及凭据按回执逐项核对。历史、产物、旧标识和来源授权范围都要核对，已消费但结局未知的操作先查账和核实外部效果，不能通过回退或重新绑定自动重放。详细步骤见[操作手册](usage.md#6-导入旧实例)“旧实例开发资料迁入”和“旧实例个人资料迁入”。
+个人按[systemd 部署说明](../deploy/systemd/README.md)准备新 durable 目录、凭据环境、原生前置与可选 helper。旧个人档案原地归档，不导入或恢复执行；生产接管须另行核实旧服务及独立执行停止、登记平台边界并重新配置。回退代码也使用另一个空白档案，不加载含旧入站、通知或计划的备份执行。两产品独立升级，历史资料和未知效果保留。
 
 ## 发布验收边界
 
 完全访问在 macOS 与 tx Linux 的两个产品取得真实 Runtime、SDK 与 worker 证据：启动账户 UID/GID、用户环境与虚拟凭据继承、工作区外读写、本机 HTTP 联网、正常与已归属后代停止，以及强杀 worker 后保留未知停止结论。模型为桩、凭据为临时虚拟数据，未修改真实部署。受限原生的外部文件与网络拒绝同时验证。执行范围与原始证据见[完全访问决定](../.agents/notes/implemented/feature/2026-10-12-full-access-current-account.md)，历史专用账户证据仅证明当时实现。
 
-真实 QQ/Telegram 审批、消息格式、限流/重投、原入口异步送达，以及 tx 生产库的切换仍需独立的真实部署演练。Linux TUI 的 IME、缩放和断开重连人工检查也没有由自动PTY 测试完整替代。这些项目是否在本次补齐，以工单 24 Comments 的实际记录为准。部署机制见[部署模块](modules/deploy.md)，复跑步骤见[smoke 运行说明](../verification/smoke/README.md)。完整的历史验证清单见下节。
+上述首期历史验收未覆盖真实 QQ/Telegram 审批、消息格式、限流/重投、原入口异步送达或 tx 生产切换。新个人的实际能力证据与剩余缺口以[当前工单](../.scratch/personal-pi-durable/issues/39-final-acceptance.md)为准。Linux TUI 的 IME、缩放和断开重连人工检查也没有由自动PTY 测试完整替代。这些项目是否在本次补齐，以工单 24 Comments 的实际记录为准。部署机制见[部署模块](modules/deploy.md)，复跑步骤见[smoke 运行说明](../verification/smoke/README.md)。完整的历史验证清单见下节。
 
 ## 历史验证清单
 

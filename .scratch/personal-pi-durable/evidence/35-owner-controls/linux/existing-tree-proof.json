@@ -1,0 +1,13 @@
+{
+  "before": {
+    "root": "/home/eitrous/ruukoto",
+    "entries": 33309,
+    "metadata_sha256": "a88713e3a0a0c1b338ba160544c0d3bbff16b74ca6185ad301d2f3382c593206"
+  },
+  "after": {
+    "root": "/home/eitrous/ruukoto",
+    "entries": 33309,
+    "metadata_sha256": "a88713e3a0a0c1b338ba160544c0d3bbff16b74ca6185ad301d2f3382c593206"
+  },
+  "unchanged": true
+}

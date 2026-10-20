@@ -1,4 +1,4 @@
-import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
+import { product as personalProduct } from "./helpers/legacy-product.ts";
 /**
  * 集成：访问模式绑定任务与拥有者入口（issue 03 §2/§5/§6.3/§6.4）。
  *
@@ -237,10 +237,10 @@ test("CLI：set-session-mode、submit --mode plan 与 continue --mode plan 使�
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
     fs.symlinkSync(t.runtime.socketPath(), path.join(t.runtime.controlDir(), "control.sock"));
     const cli = async (...args: string[]) => {
-      const { stdout } = await promisify(execFile)(process.execPath, [fileURLToPath(new URL("../apps/ruukoto/bin/ruukoto.mjs", import.meta.url)), ...args], {
+      const { stdout } = await promisify(execFile)(process.execPath, [fileURLToPath(new URL("../apps/ruukoto-code/bin/ruukoto-code.mjs", import.meta.url)), ...args], {
         timeout: 20_000,
-        env: { ...process.env, RUUKOTO_DATA_DIR: t.dirs.dataDir, RUUKOTO_AGENT_DIR: t.dirs.agentDir,
-          RUUKOTO_CONTROL_DIR: t.runtime.controlDir(), RUUKOTO_OWNER_TOKEN: "", RUUKOTO_OWNER_TOKEN_FILE: "" },
+        env: { ...process.env, RUUKOTO_CODE_DATA_DIR: t.dirs.dataDir, RUUKOTO_CODE_AGENT_DIR: t.dirs.agentDir,
+          RUUKOTO_CODE_CONTROL_DIR: t.runtime.controlDir(), RUUKOTO_CODE_PENDING_DIR: path.join(t.dirs.root, "pending"), RUUKOTO_OWNER_TOKEN: "", RUUKOTO_OWNER_TOKEN_FILE: "" },
       });
       return JSON.parse(stdout);
     };

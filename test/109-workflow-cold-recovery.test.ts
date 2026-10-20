@@ -35,7 +35,7 @@ function seedRun(rt: Runtime, parent: Task, session: Session, script: string): W
 }
 
 function launchColdProcess(rt: Runtime, body: string): ColdProcess {
-  const productPath = pathToFileURL(path.resolve("apps/ruukoto/src/product.ts")).href;
+  const productPath = pathToFileURL(path.resolve("test/helpers/legacy-product.ts")).href;
   const config = { dataDir: rt.config.dataDir, agentDir: rt.config.agentDir, socketPath: rt.config.socketPath,
     modelProvider: "mock", modelId: "mock-model", execution: { backend: "local" } };
   const program = `

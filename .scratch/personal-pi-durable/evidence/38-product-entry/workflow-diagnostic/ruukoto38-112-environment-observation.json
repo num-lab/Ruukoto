@@ -1,0 +1,122 @@
+{
+  "observed_at_utc": "2026-10-18T11:28:39.045385+00:00",
+  "sources": [
+    {
+      "path": "packages/agent/src/execution/approved-ops.ts",
+      "sha256": "819f2bfa7bdac96bd09143aef98fb5611838d3daa63898182f4bb83138d2dd0e",
+      "baseline_sha256": "819f2bfa7bdac96bd09143aef98fb5611838d3daa63898182f4bb83138d2dd0e",
+      "equals_baseline": true
+    },
+    {
+      "path": "packages/agent/src/execution/native.ts",
+      "sha256": "b55cc3566101824c9406f54a173cd3a8d0f3b0e5eefd94cfe595abac589f0fe7",
+      "baseline_sha256": "b55cc3566101824c9406f54a173cd3a8d0f3b0e5eefd94cfe595abac589f0fe7",
+      "equals_baseline": true
+    },
+    {
+      "path": "packages/runtime/src/runtime.ts",
+      "sha256": "1dac5c12517e2ef4f23228429e2e7597d1001674393d03b7cedfe16f9c3ef2ef",
+      "baseline_sha256": "1dac5c12517e2ef4f23228429e2e7597d1001674393d03b7cedfe16f9c3ef2ef",
+      "equals_baseline": true
+    },
+    {
+      "path": "packages/agent/src/skills.ts",
+      "sha256": "6cb54fd413fd1eb5ecc8f7fe86e788cedd69ac15fb8bee41d38722d2212000b8",
+      "baseline_sha256": "6cb54fd413fd1eb5ecc8f7fe86e788cedd69ac15fb8bee41d38722d2212000b8",
+      "equals_baseline": true
+    },
+    {
+      "path": "test/112-workflow-real-steps.test.ts",
+      "sha256": "412791264755d467f2914c5ad5c28a8367be3a6b3a9d4d4235e20d5e570957cf",
+      "baseline_sha256": "412791264755d467f2914c5ad5c28a8367be3a6b3a9d4d4235e20d5e570957cf",
+      "equals_baseline": true
+    },
+    {
+      "path": "test/122-workflow-code-acceptance.test.ts",
+      "sha256": "c37206ab1f4f05a9c15038f45d6bff1b27f8123a7dfd87a461e4b246fded343e",
+      "baseline_sha256": "c37206ab1f4f05a9c15038f45d6bff1b27f8123a7dfd87a461e4b246fded343e",
+      "equals_baseline": true
+    },
+    {
+      "path": "test/helpers/testkit.ts",
+      "sha256": "27886ad2a361971d55a940f84e2909cd1310cde327425e2a576a38b62642a583",
+      "baseline_sha256": "f52d2e3cf1fd6069fb2428d6cce324877c0da07d39cf0cea28d67c5494d3b13d",
+      "equals_baseline": false
+    },
+    {
+      "path": "test/helpers/legacy-product.ts",
+      "sha256": "9764bb053cd8dc3b5ed8faa41c346b54255cf134023a0e5486a1b26586ffd2f8",
+      "baseline_sha256": null,
+      "equals_baseline": false
+    }
+  ],
+  "directory_forms": [
+    {
+      "root": "/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable",
+      "exists": true,
+      "is_symlink": false,
+      "link_target": null,
+      "realpath": "/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules"
+    },
+    {
+      "root": "/tmp/ruukoto38-docs-20261018",
+      "exists": true,
+      "is_symlink": true,
+      "link_target": "/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules",
+      "realpath": "/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules"
+    },
+    {
+      "root": "/tmp/ruukoto38-tests-20261018-1",
+      "exists": true,
+      "is_symlink": true,
+      "link_target": "/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules",
+      "realpath": "/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/node_modules"
+    },
+    {
+      "root": "/tmp/ruukoto38-pack-20261018-1",
+      "exists": true,
+      "is_symlink": false,
+      "link_target": null,
+      "realpath": "/private/tmp/ruukoto38-pack-20261018-1/node_modules"
+    }
+  ],
+  "own_112_pid": {
+    "pid": 49528,
+    "ps_returncode": 1,
+    "stdout": ""
+  },
+  "inspector_listener": {
+    "returncode": 1,
+    "stdout": ""
+  },
+  "112_streamed_block": [
+    "✖ 真实 ruukoto Driver：原任务结束后修改、冻结、独立验证及汇总，验证写入留在独立副本 (27694.156542ms)",
+    "✖ 真实 ruukoto-code Driver：原任务结束后修改、冻结、独立验证及汇总，验证写入留在独立副本 (111219.337833ms)",
+    "✔ 非 Git 修改在真实 worker 与模型前拒绝；无目标通用步骤仍可执行来源工具 (10354.989ms)",
+    "✖ 完全访问来源的验证命令不能写回待审副本，工具失败不能伪称通过 (66262.835292ms)",
+    "✖ 冻结成果 stale：旧结论不能放行新字节或绕过验证，已套用成果保留 (108308.924125ms)",
+    "✖ 冻结成果 check_failure：旧结论不能放行新字节或绕过验证，已套用成果保留 (66315.757417ms)",
+    "✔ 冻结成果 ordinary_bypass：旧结论不能放行新字节或绕过验证，已套用成果保留 (17415.86875ms)",
+    "Debugger listening on ws://127.0.0.1:9229/4baa14a4-4a93-42c9-9d96-d2d9fc5deaf9",
+    "For help, see: https://nodejs.org/en/docs/inspector",
+    "Debugger attached.",
+    "Debugger listening on ws://127.0.0.1:9229/5e7c88a1-a8fd-49a9-8bfd-d4152a6d0e71",
+    "For help, see: https://nodejs.org/en/docs/inspector",
+    "✖ 冻结成果 snapshot_missing：旧结论不能放行新字节或绕过验证，已套用成果保留 (88085.417625ms)",
+    "Debugger attached.",
+    "✖ 冻结成果 snapshot_mismatch：旧结论不能放行新字节或绕过验证，已套用成果保留 (98732.474708ms)",
+    "✖ 冻结成果 ledger_unknown：旧结论不能放行新字节或绕过验证，已套用成果保留 (65934.522041ms)",
+    "✔ 脚本伪造通过值不能生成验证记录或汇入任何字节 (5992.198375ms)",
+    "✔ 真实 Driver 独立目录 启动中取消，迟到实际身份和停止 false 沿原 Task 保留 (6207.763542ms)",
+    "✔ 真实 Driver 目标副本 启动中取消，迟到实际身份和停止 false 沿原 Task 保留 (11884.283333ms)",
+    "✔ 默认工作流从启动共享首次快照：真实嵌套停止遇迟到结果不自锁，唯一终态先写未知效果 (5636.570459ms)"
+  ],
+  "112_streamed_failure_count": 8,
+  "112_streamed_pass_count": 6,
+  "limitations": [
+    "CPU profile identifies the sampled synchronous hotspot, not assertion failure causality.",
+    "Full final npm run check remains failed; remaining app batch is still running.",
+    "Author caller115 worktree and independent44 main tree both have real node_modules; cannot attribute their success to symlink topology.",
+    "No claim that 112, native101, or original issue36 share a cause."
+  ]
+}

@@ -305,6 +305,7 @@ function demoEvents(): PersistentEvent[] {
     { type: "project.created", projectId: PROJECT_ID, name: PROJECT.name, createRequestId: null, rootDir: null },
     { type: "project.root_attached", projectId: PROJECT_ID, rootDir: { cwd: SESSION.cwd, cwdReal: SESSION.cwd, dev: 1, ino: 1 } },
     { type: "session.created", sessionId: SESSION_ID, projectId: PROJECT_ID, kind: "dev", cwd: SESSION.cwd, modelSelection: MODEL, modelSelectionVersion: 1, createRequestId: null },
+    { type: "session.archive_changed", sessionId: SESSION_ID, archivedAt: null },
     // agent-direction issue 07：会话工作区组织归属（仅展示归属，资料身份仍是原 projectId）
     { type: "session.workspace_mapped", sessionId: SESSION_ID, projectId: PROJECT_ID, workspaceProjectId: PROJECT_ID },
     { type: "session.usage_updated", sessionId: SESSION_ID },
@@ -323,6 +324,7 @@ function demoEvents(): PersistentEvent[] {
     { type: "session.default_mode_changed", sessionId: SESSION_ID, defaultAccessMode: "confirm", defaultAccessModeVersion: 1 },
     { type: "session.context_compaction", sessionId: SESSION_ID, requestId: "cmp_demo00000001", status: "succeeded" },
     { type: "task.queued", taskId: "task_completed000", sessionId: SESSION_ID, requestId: "req-1", accessMode: "full_access", planMode: false, modelSelection: MODEL },
+    { type: "task.attachments", taskId: "task_completed000", sessionId: SESSION_ID, attachments: [] },
     { type: "task.started", taskId: "task_completed000", sessionId: SESSION_ID },
     { type: "task.context_compaction", taskId: "task_completed000", sessionId: SESSION_ID, compactionId: "compact_demo0001", phase: "finished", checkpointId: null, summaryModel: null, estimateBefore: 8000, estimateAfter: 6000, clearedResults: 1, summarizedCount: 0 },
     { type: "task.output_fragment", taskId: "task_completed000", sessionId: SESSION_ID, messageId: "msg_1", text: first, totalBytes: Buffer.byteLength(first), truncated: false, partial: true, contentIndex: 0, offset: 0, startedAt: ts(39.5) },

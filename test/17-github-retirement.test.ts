@@ -1,4 +1,4 @@
-import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
+import { product as personalProduct } from "./helpers/legacy-product.ts";
 /**
  * issue 17 集成测试：GitHub 专用模块退役与历史资料归档。
  *

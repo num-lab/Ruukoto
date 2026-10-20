@@ -1,0 +1,11 @@
+{
+  "packages/agent/src/execution/native-linux-identity.ts": "a7c6632abc1196cdd3154618490f06cb5181593c1a00432237d669a9fdd1c65f",
+  "packages/agent/src/execution/native-linux.ts": "ceaa8c426f46f95b334656809efad89ea2b073880504d40fa5c1419650d83c47",
+  "test/native-linux-identity.test.ts": "6a88e96abfc7a37855a498d68b456d76e5c791a439492847687c74ce379ad1d1",
+  "docs/modules/execution.md": "0ad0e5b978c0ad325f2d518307aaef181ee0fb8b9fcdea8ea685eb2e1c0f1762",
+  ".agents/notes/implemented/architecture/2026-10-17-native-linux-execution-identity.md": "8b9a84d251eb2f5881027b429ab520f90a7e02be3985fe7571f51e73b055aa86",
+  ".agents/notes/implemented/architecture/2026-10-10-native-execution-sandbox.md": "1638f9700647d2440d1a91b51fab8c8d1b14d1b64026622fb83315fc84f504be",
+  ".agents/notes/implemented/architecture/2026-10-12-personal-native-sandbox.md": "d1ea31a732ee49c67f0b6c45a9eee9a7c971ee3abd1fb4719fd131d27cbf2a81",
+  ".agents/notes/implemented/architecture/2026-10-17-service-inspection-identity.md": "bbc5c56424827ebae9e09e882dd21abac62a8fba682e8566286c3acfcd85bf90",
+  ".agents/notes/proposed/architecture/2026-10-17-personal-pi-durable.md": "eb53a03a8538fd16087825cf269a12832468dd2e339efc9e376e4388511cc027"
+}

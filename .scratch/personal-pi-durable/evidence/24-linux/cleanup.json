@@ -1,0 +1,56 @@
+{
+  "timestamp": "2026-10-17T11:21:32.114Z",
+  "fixturesRemoved": true,
+  "scopes": [
+    {
+      "scope": "ruukoto-native_fbe752a59a3a7ddb129c7507.scope",
+      "state": "ControlGroup=\nLoadState=not-found\nActiveState=inactive",
+      "tempDir": "/tmp/ruukoto-native-MrbbO9",
+      "tempExists": false,
+      "movedTempExists": false
+    },
+    {
+      "scope": "ruukoto-native_34f5591023ee951f6643fbb4.scope",
+      "state": "ControlGroup=\nLoadState=not-found\nActiveState=inactive",
+      "tempDir": "/tmp/ruukoto-native-3hXnDk",
+      "tempExists": false,
+      "movedTempExists": false
+    },
+    {
+      "scope": "ruukoto-native_2230cd3a41d05b827f29ec43.scope",
+      "state": "ControlGroup=\nLoadState=not-found\nActiveState=inactive",
+      "tempDir": "/tmp/ruukoto-native-28R54D",
+      "tempExists": false,
+      "movedTempExists": false
+    },
+    {
+      "scope": "ruukoto-native_596cf09a99ebe1bd71504279.scope",
+      "state": "ControlGroup=\nLoadState=not-found\nActiveState=inactive",
+      "tempDir": "/tmp/ruukoto-native-H6VnsJ",
+      "tempExists": false,
+      "movedTempExists": false
+    },
+    {
+      "scope": "ruukoto-native_2ed752911161b9bb3da46f76.scope",
+      "state": "ControlGroup=\nLoadState=not-found\nActiveState=inactive",
+      "tempDir": "/tmp/ruukoto-native-iYBQFE",
+      "tempExists": false,
+      "movedTempExists": false
+    },
+    {
+      "scope": "ruukoto-native_35b793b2028749712ab2d048.scope",
+      "state": "ControlGroup=\nLoadState=not-found\nActiveState=inactive",
+      "tempDir": "/tmp/ruukoto-native-u9RvPm",
+      "tempExists": false,
+      "movedTempExists": false
+    },
+    {
+      "scope": "ruukoto-native_78edfadf958d8c053c9871be.scope",
+      "state": "ControlGroup=\nLoadState=not-found\nActiveState=inactive",
+      "tempDir": "/tmp/ruukoto-native-AvLhQF",
+      "tempExists": false,
+      "movedTempExists": false
+    }
+  ],
+  "remainingMatchingProcesses": []
+}

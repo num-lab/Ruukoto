@@ -1,0 +1,38 @@
+{
+  "environment": {
+    "platform": "darwin",
+    "arch": "arm64",
+    "node": "v24.15.0"
+  },
+  "model": "loopback替身，非真实视觉模型",
+  "browser": {
+    "binaryPath": "/tmp/ruukoto-browser-v0391-c_t0kicm/agent-browser-darwin-arm64",
+    "chromePath": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+  },
+  "normal": {
+    "snapshotRefs": 3,
+    "screenshotBytes": 7000,
+    "sha256": "54b62d2e9671eb6dfa513b61c76850e82c671191cbcac3f368c21988bc8e1255",
+    "pauseResume": true,
+    "export": true,
+    "state": {
+      "state": "closed",
+      "kind": "owned"
+    }
+  },
+  "crash": {
+    "requests": 1,
+    "effect": "effect_unknown",
+    "stopped": true,
+    "browserState": "closed",
+    "sourceBlocked": true,
+    "independentChat": true
+  },
+  "cancel": {
+    "requests": 1,
+    "effect": "effect_unknown",
+    "stopped": true,
+    "browserState": "closed"
+  },
+  "passed": true
+}

@@ -1,12 +1,13 @@
 # 架构总览
 
-Ruukoto 后台任务运行时以单仓库交付 `ruukoto` 个人 Agent 和 `ruukoto-code` Coding Agent。本页列出模块与四条跨模块主流程；细节见[模块文档](modules/)。
+`ruukoto` 个人 Agent 与 `ruukoto-code` Coding Agent 同仓交付；个人端由 durable 持有运行状态，Coding 继续使用共享底座；模块与主流程如下，细节见[模块文档](modules/)。
 
 ## 模块地图
 
 | 模块 | 一句职责 | 主要依赖方向 |
 | --- | --- | --- |
-| [products](modules/products.md)（`apps/ruukoto`、`apps/ruukoto-code`） | 持有各产品入口、能力声明与专属装配 | 注入共享 runtime，调用共享 CLI；产品包互不依赖 |
+| [products](modules/products.md)（`apps/ruukoto`、`apps/ruukoto-code`） | 持有各产品入口与专属业务装配 | 个人装配 durable，Coding 注入共享 runtime/CLI；产品包互不依赖 |
+| [personal-durable](modules/personal-durable.md)（个人 app 内） | 个人会话、工作、档案与请求证据、权限、IM/本机管理和工具 | 依赖 Pi 1.3.0 与独立底层能力；正式 bin/start/dev 同装配 |
 | [runtime](modules/runtime.md) | 拥有任务生命周期、会话身份、队列与 SubAgent 委派的编排 | 依赖 core 的存储、agent-context 的模型装配、agent-tools 的工具、execution 的执行边界；被 control 与 channels 驱动 |
 | [core](modules/core.md) | 定义数据布局、schema、任务状态机与会话身份判定 | 不依赖其他模块，被全部模块依赖 |
 | [workflows](modules/workflows.md)（runtime 内） | 为模型与拥有者入口提供定义库、固定后台运行、持久步骤及控制 | 依赖 core 的事务、agent 的脚本与执行边界；默认接真实 Driver、来源权限与冻结汇总 |
@@ -21,11 +22,13 @@ Ruukoto 后台任务运行时以单仓库交付 `ruukoto` 个人 Agent 和 `ruuk
 | [scheduler](modules/scheduler.md) | 持久调度计划与通知 outbox 的发送账本 | 依赖 core；驱动 runtime 建唤醒任务；经 channels 发送 |
 | [deploy](modules/deploy.md) | 部署的系统身份、单元、提权入口与服务管理 | 不参与运行时调用；定义当前账户的后台与可选服务 OS 授权 |
 
-七个共享包在 `packages/{core,agent,channels,runtime,control,view,tui}`。agent-context、agent-tools 与 execution 属于 agent，scheduler 属于 channels；各 app 的 `product.ts` 声明差异。
+`packages/` 含七个共享包；agent-context、agent-tools 与 execution 属于 agent，scheduler 属于 channels；Coding 的 `product.ts` 声明旧底座能力，个人 app 直接持有 durable 业务接线。
 
-运行时值依赖为 `agent → core`、`channels → agent/core`、`runtime → channels/agent/core`、`control → core`、`view → control/core`、`tui → view/control/runtime/agent/core`；control 通过注入的 Runtime 实例提供服务。desktop 使用 devDependencies 声明打包依赖；其他包的反向类型引用在 devDependencies 声明。ESLint 拒绝未声明依赖、越层值引用与跨包相对路径。worker、schema 与控制面协议单点持有。
+运行时值依赖为 `agent → core`、`channels → agent/core`、`runtime → channels/agent/core`、`control → core`、`view → control/core`、`tui → view/control/runtime/agent/core`；control 通过注入的 Runtime 实例提供服务。依赖声明与静态约束见[产品装配](modules/products.md#不变量与失败处理)。
 
 ## 主流程一：任务生命周期
+
+以下任务、工具与 SubAgent 图描述 Coding 底座；保留的旧个人身份分支不构成新个人入口。个人会话、执行、队列与恢复由 durable 原生记录持有，宿主只记录业务归属与外部证据，见[个人持久会话](modules/personal-durable.md)。
 
 任务由会话提交产生，持久化后由队列串行执行，终态在一个事务内收尾。
 
@@ -62,36 +65,24 @@ sequenceDiagram
 
 ## 主流程二：入站消息到回复
 
-入站消息先成为持久事件，再建 main 任务，结果沿发起入口回送。
+个人 QQ/Telegram 与本机菜单共用 durable 主会话；平台消息先提交持久接纳事实，再推进接管水位。
 
 ```mermaid
 sequenceDiagram
-  participant P as 平台（Telegram / QQ / GitHub / 调度器）
-  participant Ad as channels 适配器
-  participant St as core（inbound_events）
-  participant O as runtime 编排器
-  participant M as main 会话任务
-  participant Ob as scheduler 通知 outbox
-  participant P2 as 原平台
-
-  P->>Ad: 消息 / webhook / 到期计划
-  Ad->>Ad: 身份与目标核对（门）
-  Ad->>St: 登记入站事件（含钉版 reply_target）
-  Ad->>P: 推进平台偏移（仅登记成功后）
-  O->>St: 取已登记未派发事件，按 evt:<id> 建任务
-  O->>M: main 任务（可信来源模式）
-  M-->>O: 终态与最终回答
-  O->>Ob: 登记 owner_reply（目标 = 钉版 reply_target）
-  Ob->>P2: 核对启停、目标与配置版本后发送
+  participant P as QQ / Telegram / 本机菜单
+  participant A as 个人入口
+  participant H as durable Harness
+  participant M as main Conversation
+  participant R as 原入口回复 Task
+  P->>A: 输入与固定来源
+  A->>H: 提交来源、稳定请求与后台 Task
+  H->>M: 原键 admission
+  M-->>H: 对应 Submission 的回答
+  H->>R: 固定平台、账号、owner 与代次
+  R->>P: 核实原入口后发送
 ```
 
-要点：
-
-- 绑定拥有者的私聊取创建时 main 默认模式；其他外部事件按入口约束固定模式，正文不能指定权限来源。平台身份不等于通用控制面访问权。
-- 先持久化再推进平台偏移：崩溃或断线后平台重投命中原外部 id，不重复建任务。
-- 回复目标在收件时钉版（平台、账号、chat 与配置版本）；派发、任务启动与终态回复都复核，配置变化不改发。
-- 结果分类统一：可证明未发送记 `failed`、超时与断线记 `effect_unknown`，都不自动重发；平台限流退回 `pending` 按建议时间重试。
-- 未被识别的入口消息默认拒绝；拥有者私聊可执行 IM 审批命令，但只作用于原平台、原账号与原配置版本。
+重复消息定位原 Submission，不新建第二份执行；QQ/Telegram 配置换代使旧审批和未发送回复失效，不改发。未知发送保留事实、不自动重发；客户端断开不取消工作。独立定时会话和后台分析先等整项工作及外部停止核实，再沿原来源汇总，详见[个人持久会话](modules/personal-durable.md)。旧 channels/outbox 的记录与实现见[消息渠道](modules/channels.md)，正式个人入口不装配它们。
 
 ## 主流程三：工具调用与审批
 
@@ -162,12 +153,12 @@ sequenceDiagram
 
 ## 一条消息穿过全部模块
 
-一次请求的路径：`channels` 把平台消息变成入站事件，`runtime` 建任务并在队列里取出，`agent-context` 组装上下文，`agent-tools` 判定可用性并取审批，`execution` 在边界内执行，`core` 存下每一步的事实，`control` 把事件流推给 `tui`，`scheduler` 的 outbox 把结果送回原平台。
+Coding 请求由 `control` 交给 `runtime` 建任务并取出，`agent-context` 组装上下文，`agent-tools` 判定可用性并取审批，`execution` 在边界内执行，`core` 存下每一步的事实，`control` 把事件流推给 `tui`，个人请求由 app 的 durable 会话与发送 Task 衔接 IM，运行事实不写旧 Task Store。
 
 ## 设计依据
 
 - [后台任务与终端](../.agents/notes/implemented/architecture/2026-09-19-detach-terminal-from-task-runtime.md)：后台与客户端分离、事件流恢复与请求幂等的基础决定。
-- [两个 Agent 产品](../.agents/notes/implemented/architecture/2026-10-02-two-agent-products.md)：两个产品共用一个仓库与一套控制面，各自独立档案与实例锁。
+- [两个 Agent 产品](../.agents/notes/implemented/architecture/2026-10-02-two-agent-products.md)：两个产品同仓交付，各自独立运行、档案与实例锁。
 - [同仓 workspaces 分包](../.agents/notes/implemented/architecture/2026-10-11-in-repo-workspace-packages.md)：产品装配、共享包与 import 检查的归属。
 - [工具工作进程与受限容器](../.agents/notes/implemented/architecture/2026-09-20-tool-worker-per-task-container.md)：执行边界的形态与失败策略。
 - [Coding Agent 的原生受限执行](../.agents/notes/implemented/architecture/2026-10-10-native-execution-sandbox.md)：原生工具链、停止核实与占用保留。

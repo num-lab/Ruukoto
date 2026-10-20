@@ -78,7 +78,7 @@ export function classifyForReview(scope: ApprovalScope): "reviewable" | "ask_own
   return "ask_owner";
 }
 
-const SYSTEM_PROMPT = `你是个人 Agent 的审批审查员。任务：对一次待执行的越界读取操作裁决是否自动批准。
+export const REVIEW_SYSTEM_PROMPT = `你是个人 Agent 的审批审查员。任务：对一次待执行的越界读取操作裁决是否自动批准。
 
 只允许批准同时满足全部条件的操作：与拥有者原始请求直接相关、目标明确、无需凭据、且不向外传送私有数据的外部文件读取或 HTTP 读取。
 
@@ -161,7 +161,7 @@ export function createApprovalReviewer(deps: {
       try {
         const stream = deps.modelRuntime.streamSimple(
           resolved,
-          { systemPrompt: SYSTEM_PROMPT, messages: [{ role: "user", content, timestamp: Date.now() }] },
+          { systemPrompt: REVIEW_SYSTEM_PROMPT, messages: [{ role: "user", content, timestamp: Date.now() }] },
           { maxTokens, signal: controller.signal },
         );
         const aborted = new Promise<never>((_, reject) => {

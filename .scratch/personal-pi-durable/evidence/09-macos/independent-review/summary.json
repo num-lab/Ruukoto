@@ -1,0 +1,57 @@
+{
+  "reviewer": "next_slice_audit",
+  "repo": "/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable",
+  "system": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "node": "v24.15.0",
+  "results": [
+    {
+      "name": "positive",
+      "command": [
+        "node",
+        "--import",
+        "tsx",
+        "/tmp/ruukoto-09-independent-gayudm6_/positive-probe.mts"
+      ],
+      "exitCode": 0
+    },
+    {
+      "name": "mutation",
+      "command": [
+        "/opt/homebrew/opt/python@3.14/bin/python3.14",
+        "/tmp/ruukoto-09-independent-gayudm6_/mutation-gate.py"
+      ],
+      "exitCode": 0
+    }
+  ],
+  "inputs": {
+    "apps/ruukoto/src/personal-service-operations.ts": "d5aa7be078e4517e4e4a15936cea84d3b30d16f8edc9bc9ddde7baaf420363b0",
+    "apps/ruukoto/src/personal-services.ts": "f390ada406dd51b55e7cc12d3106d08affecc90edf6b6fb7305adf12867aa189",
+    "apps/ruukoto/src/personal-error.ts": "f4266968ec480f657bee1a6043e69d07910134f09924ec43683aa0569b212ab4",
+    "apps/ruukoto/src/main.ts": "02a754121a8b0c0291a0d787bc62bd422b8c533b91db1b361338b5fa2b0809a0",
+    "apps/ruukoto/src/dev.ts": "48173d6886dd7c117ccd055abc668c194fa5d4e343e32ae7174648198ce25432",
+    "apps/ruukoto/src/personal-cli.ts": "46c8178ec9ed2132c0c0acdf75c7e4b92934b6570987580b5e34a99eb7b83860",
+    "apps/ruukoto/src/personal-telegram.ts": "972d63808cc0496cdfe62e39d77a62572e2d6027b75423067b2fc13635c1a169",
+    "apps/ruukoto/src/personal-work.ts": "48ff1eef62bb58064b9431ec96547005bd037dd0f8f1ab3cc99988b87991f80b",
+    "apps/ruukoto/src/product.ts": "3c0530d199e9906d3ef95f8fd374bf0c765d093a2f5483cbf4d3248911887274",
+    "apps/ruukoto/src/personal-config.ts": "27cafd1f0d8e8e984a756aefc1ea4d1102ff27a1d763cd7b4487a837a003bc5f",
+    "apps/ruukoto/src/personal-permissions.ts": "62dfbb7f1d302b9357bf24cecc8c35803f9efdad20379f75b79a962c78a5c901",
+    "apps/ruukoto/src/personal-telegram-config.ts": "7ff7b82ff4c8516198e8d17768e3531d612b491f880f288d902adb4a6f983e4f",
+    "apps/ruukoto/src/personal-service-config.ts": "b09bef20fa258872c3122506fd967537229e35ffe278a41e4ba3baf62ed56f3d",
+    "apps/ruukoto/src/personal-model.ts": "70317facba8e89c2c57632957577fdde61f348aa481f38611bd6e096ff8d5d53",
+    "apps/ruukoto/src/personal-harness.ts": "c863719d4dd3280913eddcd866dfef40178f60e6fd7a31e559576b377d558f5f",
+    "apps/ruukoto/src/personal-entry.ts": "e74b18858a2d9a9dab3ec4e4b8091079258d6693b4345af5833387f4914434e6",
+    "apps/ruukoto/src/personal-telegram-records.ts": "626b646113382b8f65da289d2f3b325e34a8f00c355d024d757b4a1b88aafc95",
+    "apps/ruukoto/src/service-tools.ts": "1130eb8dda23c90179859ffd582238b776518b8ad348d2c86137de4d6dff4950",
+    "apps/ruukoto/src/scheduler-tools.ts": "967077f69ae9e7ed9ae25bf89825e2b798d3fbf2b092bbaaec18e193025c9e58",
+    "apps/ruukoto/src/service-helper.ts": "9bc1f8ec0ae4eb8b7ced4d5d11d1fc83c51763191fdab8aae4f74a3d79bd87bf",
+    "apps/ruukoto/src/personal-profile.ts": "3193c99b4d43330870e372b308514de50beb6a1f118389c39a53750ce94c3441",
+    "apps/ruukoto/src/personal-control.ts": "0af0e5c5b00268d380b99a0e32e3eb83083b302462b5d33398eb98e8d1bd3d29",
+    "apps/ruukoto/src/personal-telegram-api.ts": "7a3531266c587a2bff8f9f67c5a07489e84472cac039269329a0f96253b6bf0c",
+    "test/personal-cli.test.ts": "4f8439177e96245c022654011cc76dff451000d04b232d5eff624033b0a47402",
+    "test/helpers/mock-provider.ts": "cedd022dc70b1339dfbbe0d42e56bdfe58726685f199779a7a37689254f0efe1"
+  },
+  "limits": [
+    "Positive probe mocks process.platform to Linux; no helper/systemd/IM executed.",
+    "Mutation is confined to temporary copy; expected regression failure is wrapped by successful assertion."
+  ]
+}

@@ -1,0 +1,56 @@
+{
+  "node": "v24.15.0",
+  "platform": "darwin",
+  "arch": "arm64",
+  "cursorPages": [
+    {
+      "hits": [
+        "cursor-a-e1"
+      ],
+      "complete": false
+    },
+    {
+      "hits": [
+        "cursor-b-e1"
+      ],
+      "complete": false
+    },
+    {
+      "hits": [
+        "cursor-a-e1"
+      ],
+      "complete": false
+    },
+    {
+      "hits": [
+        "cursor-b-e1"
+      ],
+      "complete": false
+    },
+    {
+      "hits": [
+        "cursor-a-e1"
+      ],
+      "complete": false
+    }
+  ],
+  "boundaryCursor": {
+    "sessionId": "cursor-b",
+    "byteOffset": 0
+  },
+  "boundaryContinuationHits": [],
+  "sessions": 1000,
+  "messages": 100000,
+  "bodyMiB": 61.03515625,
+  "jsonlMiB": 76.04598999023438,
+  "cold": {
+    "syncMs": 4384.240458,
+    "scanMs": 29.10729100000026,
+    "totalMs": 4413.3477490000005
+  },
+  "hot": {
+    "syncMs": 24.79441599999973,
+    "scanMs": 26.968166000000565,
+    "totalMs": 51.76258200000029
+  }
+}

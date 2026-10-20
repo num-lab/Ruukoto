@@ -334,7 +334,6 @@ code, pre { font-family: var(--font-mono); }
 .terminal-container[hidden] { display: none; }
 .terminal-panel { background: #fff; padding: 10px; }
 html.dark .terminal-panel { background: #171717; }
-.terminal-heading { color: var(--text-secondary); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-bottom: 8px; }
 .terminal-screen { flex: 1; min-height: 0; min-width: 0; }
 .terminal-status { color: var(--text-secondary); font-size: 12px; padding-bottom: 8px; }
 .browser-toolbar { display: flex; align-items: center; gap: 3px; padding: 7px 8px; flex-shrink: 0; border-bottom: 1px solid var(--ui-border); }

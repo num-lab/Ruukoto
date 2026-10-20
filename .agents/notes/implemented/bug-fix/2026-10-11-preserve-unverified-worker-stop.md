@@ -61,3 +61,5 @@ TERM/KILL 返回失败也进入同一预算的退出核实。macOS 原组只有�
 [固定脚本入口](../architecture/2026-10-13-workflow-script-isolation.md)复用本篇的 starting、单元身份和未核实结果保留；脚本能力与 WASM 回收由该决定持有，不改变工具工作进程的任务收尾。
 
 完全访问的账户、环境、免审批及宿主任务授权传播采用[本决定](../feature/2026-10-12-full-access-current-account.md)；本篇其他独立规则继续适用。
+
+相关未实施方案：[跨轮后台执行](../../proposed/feature/2026-10-14-bash-background-lifecycle.md)将本篇停止未核实保留规则延伸至独立会话执行，不把Task终态当作停止证明。

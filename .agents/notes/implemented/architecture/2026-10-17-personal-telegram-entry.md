@@ -50,3 +50,5 @@ QQ 图文沿共用媒体接口保存平台 file 身份，URL 只作瞬时下载�
 验证、独立审查与真实环境缺口见[文本入口工单](../../../../.scratch/personal-pi-durable/issues/07-telegram-entry.md)。
 
 QQ 实现及真实双平台验收缺口见[双平台入口工单](../../../../.scratch/personal-pi-durable/issues/31-qq-owner-entry.md)。
+
+相关未实施方案：[持久提问](../../proposed/feature/2026-10-21-persistent-owner-questions.md)使用新的可信回答接纳与固定键续接，不把答案伪装为旧IM原文。

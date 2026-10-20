@@ -1,0 +1,42 @@
+{
+  "revision": 1,
+  "base": "224cfd7cc00662b3ef60d8a6f54bdcfe5de6e34a",
+  "files": [
+    {
+      "path": ".agents/notes/proposed/feature/2026-10-14-bash-background-lifecycle.md",
+      "sha256": "e6411f820264a5e4edfbfaf9c71cd0ba6653d9e6d5de621ef5bd2f9773c8120d"
+    },
+    {
+      "path": ".agents/notes/proposed/feature/2026-10-21-controlled-file-search.md",
+      "sha256": "102fafb18ca7972a9d794db9ce66059c9929e8834fa609a0c460c1ce60f98fba"
+    },
+    {
+      "path": ".agents/notes/proposed/feature/2026-10-21-persistent-owner-questions.md",
+      "sha256": "0af415fdbbd17102816cae0538b67a56f53bf957efed0c833f67ac7c5ddb211b"
+    },
+    {
+      "path": ".scratch/agent-tool-completion/evidence/investigation.md",
+      "sha256": "c5f5968b16d31be0ebbd4f3c02378a30503b7175a636ddcaf515d4025d0ce3bf"
+    },
+    {
+      "path": ".scratch/agent-tool-completion/issues/01-coding-file-search.md",
+      "sha256": "b4b4c4281bdd75eb182accb6c6e9a4999ba69cff3b051d96b813172faf00a098"
+    },
+    {
+      "path": ".scratch/agent-tool-completion/issues/02-coding-owner-questions.md",
+      "sha256": "e29720129b2397ab9984e37c36b60787cea48c79b91799f2ccc32ec349f04586"
+    },
+    {
+      "path": ".scratch/agent-tool-completion/issues/03-coding-background-processes.md",
+      "sha256": "7a9165f4d30af68988feca0c04b486695999e987d19596cde87c4a4101f00d22"
+    },
+    {
+      "path": ".scratch/agent-tool-completion/issues/04-personal-adapters.md",
+      "sha256": "093c240cfaad8a7a669e4088a446811c4c3c4e387776c65e17920294224e5288"
+    },
+    {
+      "path": ".scratch/agent-tool-completion/spec.md",
+      "sha256": "490d415d4904dab791eeeba220421e2e11bb20794660c7f982dfe68b0354333f"
+    }
+  ]
+}

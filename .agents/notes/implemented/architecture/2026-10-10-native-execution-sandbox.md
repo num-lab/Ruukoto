@@ -121,3 +121,5 @@ macOS 未知残留可能继续写工作区和消耗 CPU/内存，保留占用会
 完全访问的账户、环境、免审批及宿主任务授权传播采用[本决定](../feature/2026-10-12-full-access-current-account.md)；本篇其他独立规则继续适用。
 
 [目录保护优化](../bug-fix/2026-10-17-directory-protection-cost.md)为文件树目录列表增加仅遍历目录的批量检查；通用文件保护与本篇原生执行规则继续沿用。
+
+相关未实施工具方案：[文件检索](../../proposed/feature/2026-10-21-controlled-file-search.md)沿用本篇受限范围；[跨轮后台执行](../../proposed/feature/2026-10-14-bash-background-lifecycle.md)另定会话占用与恢复，不改变当前按任务执行的事实。

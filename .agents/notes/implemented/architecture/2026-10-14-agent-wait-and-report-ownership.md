@@ -71,3 +71,5 @@ TaskView 以宿主可信报告绑定派生 inputPurpose，覆盖专属工作流�
 `test/125-agent-wait*.test.ts` 覆盖真实目录让出/重取、双产品工作流修改/冻结/验证/汇入、超时/订阅前完成/人工介入、新输入竞争、来源整批核实、停车与共享 canonical，以及真实 SQLite/SDK JSONL 冷恢复。恢复测试还通过真实 main 入站、Driver、工具消费和本地 TelegramAdapter 发送器覆盖两结果只登记一份 owner_reply、发送前撤销子资料；缺失对应机制时的失败日志归工单证据。ParentDelivery 与既有 88/115/116 回归继续覆盖未等待路径，导入测试覆盖两方向事实归档及回退。
 
 这些离线与本地适配器结果不等于真实模型、真实 IM 或拥有者体验验收。原生停止需在 macOS/Linux 分别验证；外部前提、失败诊断及最终源码快照归[有效工单](../../../../.scratch/agent-workflow/issues/10-agent-wait.md)，本篇不宣称全路径验收通过。资源释放或来源恢复证明不足时必须保留未核实事实，不能用新增工具 schema 作为完成标准。
+
+相关未实施方案：[持久提问](../../proposed/feature/2026-10-21-persistent-owner-questions.md)使用独立回答续接；[跨轮后台执行](../../proposed/feature/2026-10-14-bash-background-lifecycle.md)保留独立目录占用，不能由当前Task等待让出。当前行为仍以本篇决定为准。

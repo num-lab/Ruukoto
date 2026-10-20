@@ -44,5 +44,5 @@ export function TerminalPanel({ model, tab, active }: { model: CodeState; tab: T
     return () => { disposed = true; activation.current = () => {}; unsubscribe(); input.dispose(); observer.disconnect(); appearance.disconnect(); terminal.dispose(); };
   }, [model, tab]);
   useEffect(() => { if (active) activation.current(); }, [active]);
-  return <section className="terminal-panel" aria-label={tab.title}><div className="terminal-heading" title={tab.cwd}>{tab.cwd}</div>{tab.error && <p role="alert" className="terminal-status">{tab.error}</p>}{tab.exitCode !== undefined && <p className="terminal-status" role="status">终端已退出（{tab.exitCode}）</p>}<div ref={container} className="terminal-screen" /></section>;
+  return <section className="terminal-panel" aria-label={tab.title}>{tab.error && <p role="alert" className="terminal-status">{tab.error}</p>}{tab.exitCode !== undefined && <p className="terminal-status" role="status">终端已退出（{tab.exitCode}）</p>}<div ref={container} className="terminal-screen" /></section>;
 }

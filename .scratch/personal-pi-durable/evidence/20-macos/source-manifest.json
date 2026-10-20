@@ -1,0 +1,22 @@
+{
+  "base": "9a27e87",
+  "files": {
+    ".agents/notes/implemented/architecture/2026-10-17-personal-service-operations.md": "dbcaee560df61ca6f3ff18181ef950d8eec01c910072b1c0df901ea30c9acbd8",
+    ".agents/notes/implemented/architecture/2026-10-17-personal-service-recovery-controls.md": "042bd3bad97872f57a5b345aad5f767330f94b6e8b571727cccb01a572cc1daf",
+    ".agents/notes/implemented/testing/2026-10-17-inspection-stop-test-reference.md": "bdb15a66d0d3b3248f9a65d788228a8c14d4f57d18466c00689daf82d48c00d3",
+    "apps/ruukoto/src/personal-cli.ts": "7d364a1072e1e1b69869774d408dc850e081d72739dcf7d78913baa5a2f2edff",
+    "apps/ruukoto/src/personal-control.ts": "f898d5d6b11efe9a9addbfcf404e1adf88cec0295b1ba723c37fba599b604f8e",
+    "apps/ruukoto/src/personal-harness.ts": "56b42e95992783d4997a76eb1c9c945b5f072dc2911bf17e22b9143c09617b0a",
+    "apps/ruukoto/src/personal-service-controls.ts": "f4414dd64ce54ab317beebdcfd5f9307b26ce813d2bb64d7f67f3eed5206dae1",
+    "apps/ruukoto/src/personal-service-operations.ts": "ce3b190d5da49585075fa2e7d0107a9ee2d571f0a29ab24e67c45c833a6fce8f",
+    "apps/ruukoto/src/personal-telegram-records.ts": "79b8ea3a0984e2518d1d21f23103f8b9d99e1136401a922e9c6cf3f7b0af73a7",
+    "docs/modules/agent-tools.md": "749549d75665f3e4d20a0f7dd5bd7fa7d811d7de51d33cdfed368038aff09c11",
+    "docs/modules/personal-durable.md": "dbc55d7345de54c3e502d948e916ca890d013e79e416f1cc73c071884d477a8a",
+    "docs/modules/products.md": "8b83686cc6bde92f10bae6a22f4f21fe39677a4a2f1d963a3f9d7d16ff4d93c6",
+    "docs/usage.md": "47856ac7c1978141514f881c6da98eca3f006b32a616e12139044fb24ec71e82",
+    "test/personal-cli.test.ts": "84ec8bfe037463da5cd1996c24398ae3d9c569a085b3993a716385c5e552b68c",
+    "test/personal-service-operations.test.ts": "0c5e8f525358db7f1894f0083736f450a12e9205d0d2ee8c0d877f17ab9c2bf6",
+    "test/personal-services.test.ts": "da6878d70670f96d9d07e1dc3c129acee38e63505ab9ece02af15d34ad7710cc",
+    "test/personal-telegram-permissions.test.ts": "152fce1e2a0971de6626445773be6a98e4354fa40b3ac92587d06d40b22ab3cc"
+  }
+}

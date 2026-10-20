@@ -1,0 +1,50 @@
+本次唯一目录：/dev/shm/rk-personal-plan.t64tGq
+
+ssh tx 'mktemp -d /dev/shm/rk-personal-plan.XXXXXX'
+rsync -a --exclude=.git --exclude=node_modules --exclude=dist --exclude=.scratch --exclude=.DS_Store ./ tx:/dev/shm/rk-personal-plan.t64tGq/repo/
+
+远端目录内执行：
+mkdir /dev/shm/rk-personal-plan.t64tGq/tmp /dev/shm/rk-personal-plan.t64tGq/npm-cache
+cd /dev/shm/rk-personal-plan.t64tGq/repo
+git init -q
+export TMPDIR=/dev/shm/rk-personal-plan.t64tGq/tmp
+export npm_config_cache=/dev/shm/rk-personal-plan.t64tGq/npm-cache
+export ELECTRON_SKIP_BINARY_DOWNLOAD=1
+npm run setup -- --skip-hooks
+
+setup 标准输出和标准错误完整保存为 setup.log，退出码保存为 setup.exit；environment.log 包含本次时间、身份、系统与工具版本及空间信息。源码仍由主代理修改，后续测试前需重新同步最终源码；本次复制不构成最终源码验证。
+
+setup.exit 为 0 后，以 Python shutil.rmtree 仅删除 /dev/shm/rk-personal-plan.t64tGq/npm-cache/_cacache，详情见 cache-cleanup.log；保留依赖、npm 调试日志和全部阶段日志。没有修改系统目录、既有检出或其他缓存。
+
+主代理冻结源码后再次执行相同 rsync；source-sha256.json 记录 735 个文件的本机 SHA-256，远端逐项校验，结果见 source-verification.log，包含新增 personal-service-inspection.ts。
+
+npm run build
+
+构建标准输出和标准错误保存为 build.log，退出码保存为 build.exit。以下回归按文件串行运行，避免并发资源争抢；保留前述 TMPDIR、npm cache 和 Electron 环境。
+
+RUN_MODEL_CHECK=0 npx tsx --test --test-concurrency=1 test/personal-durable.test.ts test/personal-cli.test.ts test/personal-services.test.ts test/personal-work.test.ts test/personal-work-tools.test.ts test/personal-work-controls.test.ts test/personal-work-notes.test.ts test/personal-delegations.test.ts test/personal-reports.test.ts test/personal-service-operations.test.ts test/personal-telegram.test.ts test/personal-telegram-permissions.test.ts test/service-helper-transport.test.ts test/service-helper-stop.test.ts test/78-linux-service-management.test.ts test/79-standing-permissions.test.ts test/71-product-entry.test.ts
+
+主组标准输出和标准错误保存为 regression.log，退出码保存为 regression.exit。
+
+主组通过后，独立运行额外编码验收；设置外层超时防止清理阶段无限挂住，保留原始测试超时诊断。
+
+RUN_MODEL_CHECK=0 timeout --signal=TERM --kill-after=10s 300s npx tsx --test test/122-workflow-code-acceptance.test.ts
+
+额外组标准输出和标准错误保存为 extra122.log，退出码为 extra122.exit，开始与结束时间为 extra122-time.log。
+
+主代理通知末轮修补 personal-report.ts、personal-service-operations.ts 及相关回归；上述主组是修补前快照。后续另存最终源码哈希，仅对三个受影响测试文件补跑，不覆盖本轮原始证据。
+
+122 自身等待超时后正常退出 1，外层 timeout 未触发；完整诊断另解析为 extra122-diagnostic.json，未修改测试或重试。
+
+末轮再次执行相同 rsync；final-source-sha256.json 为最终 735 文件哈希，final-source-delta.json 记录首轮以来 5 文件差异，远端核实见 final-source-verification.log。随后在相同隔离环境执行：
+
+npm run build
+RUN_MODEL_CHECK=0 npx tsx --test --test-concurrency=1 test/personal-service-operations.test.ts test/personal-reports.test.ts test/personal-services.test.ts
+
+末轮 build 保存 final-build.log/final-build.exit；三文件补验保存 final-regression.log/final-regression.exit。未重复无关回归。
+
+主代理确认清理后，再核实最终 735 文件与当前本机及远端一致，无新增源码遗漏，见 final-local-verification.json 与 pre-cleanup-processes.json；仅 .scratch 不在源码集。31 份远端阶段日志、退出码和 npm 日志与本机逐项 SHA-256 一致，见 evidence-transfer-verification.json。
+
+清理前后均以 sudo -n python3 只读扫描 /proc，核对本目录 cwd（含 deleted 后缀）与绝对脚本参数，匹配进程为零；未执行 root helper 组。普通用户 UID 1003 用 Python shutil.rmtree 删除唯一 /dev/shm/rk-personal-plan.t64tGq，路径、所有权与非符号链接均断言通过。cleanup.log 保留前后空间与目录消失证明，未触碰其他目录。
+
+首轮 395 项与末轮 115 项不能直接相加；末轮新增 3 项，总计覆盖 398 个唯一通过用例。额外 122 单列失败。

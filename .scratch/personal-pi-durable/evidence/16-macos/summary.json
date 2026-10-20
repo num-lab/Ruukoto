@@ -1,0 +1,16 @@
+{
+  "base": "3f38ad97abcf533d0ab26e256f42a1cd90dbfaff",
+  "environment": { "os": "macOS 27.0.1 / Darwin 27.0.0", "node": "24.15.0", "npm": "11.12.1" },
+  "setup": { "command": "npm run setup", "exit": 0, "evidence": "本轮工具响应；未另存完整原始日志" },
+  "static": { "command": "npm run check:static", "exit": 0, "log": "static-final.log" },
+  "build": { "command": "npm run build", "exit": 0, "log": "build.log" },
+  "regression": {
+    "command": "RUN_MODEL_CHECK=0 npx tsx --test test/service-helper-transport.test.ts test/personal-services.test.ts test/personal-service-operations.test.ts test/78-linux-service-management.test.ts test/79-standing-permissions.test.ts test/71-product-entry.test.ts",
+    "exit": 0, "tests": 136, "pass": 136, "fail": 0, "skip": 0, "log": "regression.log"
+  },
+  "codingPackageSha1": "5af04e561c9fbf84bf29f8237e3655e563ea5ed9",
+  "initialStaticFailure": "测试曾使用 spawnSync 的 undocumented detached 选项，类型检查拒绝；改为同步调用支持 detached 的 spawn bootstrap 后最终静态通过。初次输出仅在工具响应，未另存原始日志。",
+  "independentReview": "../16-linux/independent-review/README.md",
+  "scope": "change-scope.json",
+  "limits": ["未跑全仓 check", "Linux 专属场景不计 macOS 通过", "未验证正式 helper/sudoers、真实 systemd、模型/IM 或 durable 消费"]
+}

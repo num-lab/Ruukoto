@@ -2,6 +2,8 @@
 
 Status: implemented
 
+部分取代：[个人正式入口](../simplification/2026-10-18-personal-product-entry.md)使个人由 durable 独立持有运行时与本机协议；本篇原共同运行时、旧个人档案/客户端、开发会话、旧导入、工作流和 GitHub 评审仅描述保留旧实现与原决定。两产品身份、独立运行与 Coding 行为保持。
+
 原编号：ADR 0017
 
 部分取代：[个人 Agent 原生执行与 Docker worker 退役](../../implemented/architecture/2026-10-12-personal-native-sandbox.md)接管个人产品的受限后端与常驻部署；两产品的身份、Linux 服务器定位、会话与能力声明仍由本篇持有。
@@ -64,7 +66,7 @@ Coding Agent 正式入口默认且只接受 native，显式 container/local 参�
 
 ## 适用范围
 
-两个产品的能力声明均为 `defaultExecution: native`、`allowedExecution: [native]`，正式 CLI/server 拒绝旧 local/container 参数与环境覆盖；dev 清理继承覆盖后沿用 native。个人后台继续独立启动，其原生常驻部署由[个人 Agent 原生执行与 Docker worker 退役](../../implemented/architecture/2026-10-12-personal-native-sandbox.md)持有。两个产品的身份、档案、独立升级、会话与业务能力保持本篇规则；验证节中的个人容器与 SDK 数值保留原始时点的结果，不作为本次原生迁移证据。
+Coding 能力声明为 `defaultExecution: native`、`allowedExecution: [native]`，正式 CLI/server 拒绝旧 local/container 参数与环境覆盖；其开发启动器保持原规则。个人正式 bin/start 无参进入同一菜单，`serve` 前台后台，默认 `~/.ruukoto-durable/` 或 `RUUKOTO_PERSONAL_DIR` 新目录，不兼容旧协议或导入旧资料；开发目录固定且退出停止本次后台。平台原生前置由[个人 Agent 原生执行与 Docker worker 退役](../../implemented/architecture/2026-10-12-personal-native-sandbox.md)持有。本篇的两产品独立身份与升级原则保持；个人档案、运行与退出能力以入口新决定为准，验证节中的个人容器与 SDK 数值保留原始时点的结果，不作为本次原生迁移证据。
 
 完全访问的账户、环境、免审批及宿主任务授权传播采用[本决定](../feature/2026-10-12-full-access-current-account.md)；本篇其他独立规则继续适用。
 

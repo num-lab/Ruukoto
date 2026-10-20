@@ -1,0 +1,10 @@
+{
+  "removedRemoteArtifactRoots": [
+    "/tmp/ruukoto-worker-23.QhtYYA",
+    "/tmp/ruukoto-worker-23.RPT3xo",
+    "/tmp/ruukoto-worker-23.VR3OvX"
+  ],
+  "remainingRemoteArtifactRoots": [],
+  "fixtureCleanupProof": "evidence/cleanup.json",
+  "scopeAndNativeCleanupBeforeArtifactRemoval": true
+}

@@ -1,0 +1,7 @@
+# 固定检查异常链：根独立核证
+
+根独立读取原方案、实际gate/helper路径、原始包及审计器，校验原包SHA后解到另一个0700目录，在自己的副本运行只读SQLite审计；没有再启动Harness、检查、服务、IM或模型。两份快照quick_check通过，唯一admission51绑定原inspection，零检查结果，原stop52/53为false、55为true且结构回执与原stderr逐字节匹配；正式控制56完成，原work39中止并释放身份33，pending为空。结果见root-independent-audit.json。
+
+原systemctl show已执行、helper stdout写出前的故障窗口和两次未退出证明足以覆盖本次指定异常链；宿主pidfd结束自己的冻结helper属于仪器收尾，解除占用的依据仍是产品正式stop-inspect的原身份退出证明。早请求service_inspection_active是驱动未等取消传播，保留原失败，不记为产品异常，也未新建第二项检查。作者两次重开与计数记录证明零后续inspect/restart；真实服务count3及helper/policy未改变。根没有重新执行OS故障，独立亲跑仅限已取得原证据的SQL/字节交叉核证。
+
+该源对应649份v2；后来个人报告参考的文本调整不改变helper、固定检查、状态/停止与来源契约。范围仅此孤儿检查窗口，不能代替其他迟到窗口、真实QQ控制菜单或完整A1–A12。

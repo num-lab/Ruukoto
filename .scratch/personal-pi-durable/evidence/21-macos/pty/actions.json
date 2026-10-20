@@ -1,0 +1,50 @@
+[
+  {
+    "input": "15",
+    "purpose": "完整个人向导选择管理服务审批与核实"
+  },
+  {
+    "input": "1",
+    "purpose": "从原列表选择 alpha-worker.service"
+  },
+  {
+    "input": "1",
+    "purpose": "核对固定机器 isolated-host-alpha 后刷新原操作"
+  },
+  {
+    "input": "2",
+    "purpose": "批准本次固定服务操作，只发一次批准 POST"
+  },
+  {
+    "input": "1",
+    "purpose": "批准后刷新原状态，不重复提交"
+  },
+  {
+    "input": "2",
+    "purpose": "返回原服务列表"
+  },
+  {
+    "input": "2",
+    "purpose": "从原列表选择第二操作 beta-worker.service"
+  },
+  {
+    "input": "3",
+    "purpose": "核对固定机器 isolated-host-beta 后拒绝，只发一次拒绝 POST"
+  },
+  {
+    "input": "1",
+    "purpose": "拒绝后刷新原状态，不重复提交"
+  },
+  {
+    "input": "2",
+    "purpose": "返回原服务列表"
+  },
+  {
+    "input": "3",
+    "purpose": "返回个人主菜单"
+  },
+  {
+    "input": "10",
+    "purpose": "退出完整向导"
+  }
+]

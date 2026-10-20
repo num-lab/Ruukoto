@@ -1,0 +1,32 @@
+{
+  "baseCommit": "b1e975437f4cd3ca8084a8b07e451f19ba80ba17",
+  "manifestSha256": "59c4bcac4716b860185df732b96fb3c6f5ada0b383572f31e72016d62b3d0c34",
+  "count": 649,
+  "matched": 643,
+  "differences": {
+    "apps/ruukoto/src/personal-harness.ts": {
+      "v3": "9cb36ef0fb8377ea5d9bf30d4d61e9617480389e840ed1714464a2e2610d2436",
+      "current": "cbdf8f9616e79f0dea6030af7f4ed0e90d10ca5643f0a9cba3b879daaa0d10e5"
+    },
+    "apps/ruukoto/src/personal-service-operations.ts": {
+      "v3": "85a16c0a2b4af650d17c54bc705162d1dafa7dd780285267ffe3eae2efd00bea",
+      "current": "e47b801c1e1f9c1fc87c1d5918ad9af96753a22d50d396add68c9e923adabb77"
+    },
+    "apps/ruukoto/src/personal-service-work.ts": {
+      "v3": "afab431b88349b523ff373c1926fde0c32c3b9d542c8b11a83a7db0a936e8177",
+      "current": "ee6c8dc1676090f956d1a0afc934a3b1b7de2082f743feea1b6e15b9a580004b"
+    },
+    "apps/ruukoto/src/personal-work-tools.ts": {
+      "v3": "6264d40d87768d53656ee96d4942eae592d90c770464f1b1f7a6a859cc2b9f74",
+      "current": "09caf041abfea8a454adfda26000b25f03e16bf24abf25df2ebf9d5e528c97f5"
+    },
+    "apps/ruukoto/src/personal-work.ts": {
+      "v3": "264c6aea90b21decaa5481a1698359e93ef1e16575b0e56cb7f1bf22a37d4956",
+      "current": "98ac0e004b9a246eb8ede1d2c810e243a036d1a1e68b3c9de9d6355d9c0ff51c"
+    },
+    "test/personal-service-operations.test.ts": {
+      "v3": "ed6eb360f2533107df7543646e87eefa78ce556562b7ec7b8d4fcb5972d4c714",
+      "current": "0560c8546183832843dd4a25838db3f5f9dc1a2b5d56d11c3b186378542402d1"
+    }
+  }
+}

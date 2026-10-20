@@ -1,0 +1,53 @@
+{
+  "method": "ceil(characters/4), actual offline OpenAI-compatible payload; empty memory/skills",
+  "baseline": "8bbcbc4; before payloads reused from committed 33-memory-skills-history/after-requests.json",
+  "before": [
+    {
+      "kind": "main",
+      "systemPrompt": 107,
+      "toolSchemas": 1799
+    },
+    {
+      "kind": "subagent",
+      "systemPrompt": 69,
+      "toolSchemas": 709
+    },
+    {
+      "kind": "scheduled",
+      "systemPrompt": 78,
+      "toolSchemas": 999
+    },
+    {
+      "kind": "summary",
+      "systemPrompt": 78,
+      "toolSchemas": 999
+    }
+  ],
+  "after": [
+    {
+      "kind": "main",
+      "systemPrompt": 107,
+      "toolSchemas": 3302
+    },
+    {
+      "kind": "subagent",
+      "systemPrompt": 69,
+      "toolSchemas": 709
+    },
+    {
+      "kind": "subagent-app-data",
+      "systemPrompt": 69,
+      "toolSchemas": 2187
+    },
+    {
+      "kind": "scheduled",
+      "systemPrompt": 78,
+      "toolSchemas": 2494
+    },
+    {
+      "kind": "summary",
+      "systemPrompt": 78,
+      "toolSchemas": 1306
+    }
+  ]
+}

@@ -19,7 +19,7 @@ const entry = (name: string, args: string[], env: NodeJS.ProcessEnv = process.en
 };
 
 test("冒烟拒绝旧远端参数，退出 2 且不创建后台或尝试 SSH", () => {
-  for (const name of ["smoke-04-desktop-execution.mts", "smoke-13-subagent-messaging.mts", "smoke-15-recover-subagents.mts", "smoke-18-im-final-delivery.mts", "smoke-28-personal-native.mts"]) {
+  for (const name of ["smoke-04-desktop-execution.mts", "smoke-13-subagent-messaging.mts", "smoke-15-recover-subagents.mts"]) {
     const result = entry(name, ["--remote"], { ...process.env, PATH: "" });
     assert.equal(result.status, 2, `${name}：${result.stderr}`);
     assert.match(result.stderr, /前提缺失：此入口不接受参数：--remote/, name);

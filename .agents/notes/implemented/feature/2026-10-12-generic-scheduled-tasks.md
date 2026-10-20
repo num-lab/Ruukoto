@@ -79,6 +79,8 @@ full-access 不请求操作审批。confirm 或 auto-review 遇到需要拥有�
 
 其余命中不改变原决定：应用数据空间及长期服务授权的接口范围、显式访问与自动审查的受限规则、Telegram／QQ 平台连接、终端与后台分离、旧实例开发资料导入、SubAgent 复用关闭、停止未核实保留、核心群聊退役、分支快照、手动上下文压缩、workspace 包组织、文档分层与写作规范、异步测试观察点。本篇引用这些机制不另立它们的实现副本。
 
+[个人 durable 定时工作](../../implemented/architecture/2026-10-18-personal-durable-scheduled-work.md)保留本篇独立上下文、固定授权与整项回报契约；新 app 仅复用时间计算和传输，计划、运行与发送使用原生 durable Tasks，不使用本篇旧 SchedulerStore/Runtime/outbox。
+
 ## 备选方案
 
 - 只删除 news，保留通用唤醒与定时固定通知：改动小，简单提醒没有模型费用；仍有两种执行方式，且共享主会话唤醒保留阻塞与结果回报缺口。选择统一任务入口，接受简单提醒的模型成本。

@@ -1,0 +1,56 @@
+{
+  "transformation": "部分原始日志有行尾空白；阅览副本仅去除控制符/行尾空白并规范末尾换行，gzip保存完整原字节。",
+  "files": [
+    {
+      "file": "focused-final.log",
+      "raw": "focused-final.log.raw.gz",
+      "raw_sha256": "be6b108aa5ff651cbb16b8a1e7af7bad1473533a822b82c4c87fbcff7e5ca357"
+    },
+    {
+      "file": "processes-after.txt",
+      "raw_sha256": "bc7148c242984fa3223115336bdbfdd4c636999cecf6539d13901571cdf30862",
+      "raw_storage": "仓库外0700目录，原件0600；未入库",
+      "transformation": "原始字节仅在仓库外保存；仓内整条无关cloudflared凭据进程记录已脱敏，另规范行尾。"
+    },
+    {
+      "file": "remote-after-first.txt",
+      "raw_sha256": "23045f7a936623c08970c6e4d9d46a7fa4df6496233b9182814c56fd2981bfc1",
+      "raw_storage": "仓库外0700目录，原件0600；未入库",
+      "transformation": "原始字节仅在仓库外保存；仓内整条无关cloudflared凭据进程记录已脱敏，另规范行尾。"
+    },
+    {
+      "file": "remote-before.txt",
+      "raw_sha256": "c1e54b956209cacaa275cd3df58bf1e00169ab4e305ecfd4943557589df5d49d",
+      "raw_storage": "仓库外0700目录，原件0600；未入库",
+      "transformation": "原始字节仅在仓库外保存；仓内整条无关cloudflared凭据进程记录已脱敏，另规范行尾。"
+    },
+    {
+      "file": "remote-final.txt",
+      "raw_sha256": "5bc9767a76f58fc8534f9ccd14107284c01a1a937ffb1d6c87556bb96fdd0a19",
+      "raw_storage": "仓库外0700目录，原件0600；未入库",
+      "transformation": "原始字节仅在仓库外保存；仓内整条无关cloudflared凭据进程记录已脱敏，另规范行尾。"
+    }
+  ],
+  "redaction": {
+    "files": [
+      {
+        "file": "remote-before.txt",
+        "redacted_lines": 1
+      },
+      {
+        "file": "remote-after-first.txt",
+        "redacted_lines": 1
+      },
+      {
+        "file": "remote-final.txt",
+        "redacted_lines": 1
+      },
+      {
+        "file": "processes-after.txt",
+        "redacted_lines": 1
+      }
+    ],
+    "private_storage": "/tmp/rk20-protected-evidence-99x0ycdx",
+    "note": "原字节含无关命令行凭据，不能用gzip代替脱敏；原SHA-256仍可核对。"
+  }
+}

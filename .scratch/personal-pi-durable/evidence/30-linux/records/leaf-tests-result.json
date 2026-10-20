@@ -1,0 +1,22 @@
+{
+  "command": [
+    "node",
+    "--test",
+    "built/personal-media.test.mjs",
+    "built/personal-browser.test.mjs",
+    "built/browser-lifecycle.test.mjs",
+    "built/personal-browser-integration.test.mjs"
+  ],
+  "exitCode": 0,
+  "environment": {
+    "uname": "Linux BJ-Tencent 6.8.0-117-generic #117-Ubuntu SMP PREEMPT_DYNAMIC Tue May  5 19:26:24 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux",
+    "node": "v24.21.0",
+    "uid": 1003,
+    "sourceFiles": 66,
+    "bundles": 5,
+    "dependencyPackages": 119,
+    "sourceManifestVerified": true,
+    "dependencyManifestVerified": true,
+    "timeUtc": "2026-10-18T02:57:38Z"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "archive": "/tmp/ruukoto39-report593-final-private-evidence.tar.gz",
+  "sha256": "6bb4f33868108508304cdbeb72c6682713174152487e00c1f8f959d7f8a4588e",
+  "bytes": 7287787,
+  "mode": "0o600",
+  "fourCredentialScan": "/tmp/ruukoto39-report593-final-four-credential-scan.json",
+  "safeReview": "/tmp/ruukoto39-report593-actual-review.md",
+  "safeAudit": "/tmp/ruukoto39-report593-actual-audit.json",
+  "bodyCorrectness": false,
+  "transportAndSource": true
+}

@@ -1,7 +1,5 @@
 #!/usr/bin/env node
-// 个人 Agent 产品入口：与 ruukoto-code 同一 CLI，
-// 产品身份由入口固定注入——不读取外部环境中的 RUUKOTO_PRODUCT，避免落到错误产品。
-// Note: 见 .agents/notes/implemented/architecture/2026-10-02-two-agent-products.md
+// Note: 见 .agents/notes/implemented/simplification/2026-10-18-personal-product-entry.md
 process.env.RUUKOTO_PRODUCT = "ruukoto";
 import { register } from "tsx/esm/api";
 import { pathToFileURL, fileURLToPath } from "node:url";

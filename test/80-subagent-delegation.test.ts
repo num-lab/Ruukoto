@@ -1,5 +1,5 @@
 import { delegateFromActiveTask } from "./helpers/active-subagent-source.ts";
-import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
+import { product as personalProduct } from "./helpers/legacy-product.ts";
 /**
  * 通用 SubAgent 委派（agent-direction issue 11）。
  *

@@ -109,7 +109,7 @@ function persistedFixture(unit: BrowserProcess | null) {
   fs.writeFileSync(path.join(socketDir, `${binding.cliSession}.config`), "0123456789abcdef");
   fs.writeFileSync(path.join(socketDir, `${binding.cliSession}.version`), "0.39.1");
   let state = JSON.stringify({ version: 1, bindings: [binding], fingerprints: { [sessionId]: { config: "0123456789abcdef", version: "0.39.1" } } });
-  const make = (beforePersist?: () => void) => new BrowserManager({ dataDir, binaryPath: process.execPath, store: { getMetaValue: () => state }, persist: value => { beforePersist?.(); state = value; } });
+  const make = (beforePersist?: () => void | Promise<void>) => new BrowserManager({ dataDir, binaryPath: process.execPath, store: { getMetaValue: () => state }, persist: async value => { await beforePersist?.(); state = value; } });
   return { root, binding, ownerFile, make, setState: (value: BrowserBinding) => { state = JSON.stringify({ version: 1, bindings: [value] }); }, cleanup: () => { fs.rmSync(root, { recursive: true, force: true }); fs.rmSync(socketDir, { recursive: true, force: true }); fs.rmSync(lockDir, { recursive: true, force: true }); } };
 }
 
@@ -131,7 +131,7 @@ test("进程启动身份不匹配不发信号、不放锁、不允许新开；�
     for (const args of [["snapshot"], ["click", "@e1"]]) await assert.rejects(manager.command("session", args), error("browser_not_ready", false));
     assert.equal(manager.status("session")?.outcomeUnknown, true);
     assert.equal(await manager.close("session"), false); assert.equal(processIdentity(c.unit.pid), c.unit.processIdentity); assert.equal(fs.existsSync(f.ownerFile), true);
-    manager.pause("session", "old"); assert.equal(manager.status("session")?.state, "unavailable");
+    await manager.pause("session", "old"); assert.equal(manager.status("session")?.state, "unavailable");
     await assert.rejects(manager.resume("session", "old"), error("browser_paused", false));
     await assert.rejects(manager.resume("session", "new"), error("browser_identity_unverified", false));
     await assert.rejects(manager.start("session"), BrowserError); assert.equal(processIdentity(c.unit.pid), c.unit.processIdentity);
@@ -220,4 +220,32 @@ for (const canceled of [true, false]) test(`CDP discovery 持续慢流仍响应$
     await Promise.race([assertion, new Promise<never>((_resolve, reject) => { deadline = setTimeout(() => reject(new Error("discovery 未在总预算内结束")), 5000); })]);
     assert.ok(Date.now() - start < (canceled ? 1000 : 4500));
   } finally { clearTimeout(deadline); controller.abort(); server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); await assertion; }
+});
+
+
+test("浏览器异步持久边界完成前不发送停止信号", async () => {
+  const c = await childUnit(), f = persistedFixture(c.unit);
+  let entered = false, release!: () => void;
+  const hold = new Promise<void>(resolve => { release = resolve; });
+  const manager = f.make(async () => { entered = true; await hold; });
+  const closing = manager.close("session");
+  try {
+    await waitFor(() => entered);
+    await new Promise(resolve => setTimeout(resolve, 50));
+    assert.equal(processIdentity(c.unit.pid), c.unit.processIdentity);
+    release(); assert.equal(await closing, true); await c.exited;
+  } finally { release(); await closing; await manager.shutdown(); if (c.child.exitCode === null && c.child.signalCode === null) c.child.kill(); await c.exited; f.cleanup(); }
+});
+
+
+test("浏览器启动意图提交期间取消不启动Chrome，不留下待核实启动窗口", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "rk-browser-cancel-persist-")), chrome = path.join(root, "chrome"), marker = path.join(root, "spawned");
+  fs.writeFileSync(chrome, `#!${process.execPath}\nimport fs from 'node:fs';fs.writeFileSync(${JSON.stringify(marker)},'started');setInterval(()=>{},1000);`, { mode: 0o700 });
+  let entered = false, release!: () => void;
+  const hold = new Promise<void>(resolve => { release = resolve; }), controller = new AbortController();
+  const manager = new BrowserManager({ dataDir: root, binaryPath: process.execPath, chromePath: chrome, initialState: null, persist: async (_state, binding) => { if (binding.chromePending && !entered) { entered = true; await hold; } } });
+  Object.assign(manager, { prepare: async () => {} });
+  const pending = manager.start("session", {}, controller.signal), assertion = assert.rejects(pending, error("browser_not_sent", false));
+  try { await waitFor(() => entered); controller.abort(); release(); await assertion; assert.equal(fs.existsSync(marker), false); assert.equal(manager.status("session")?.chromePending, false); }
+  finally { release(); await assertion; await manager.shutdown(); fs.rmSync(root, { recursive: true, force: true }); const id = createHash("sha256").update(`${root}\0session`).digest("hex").slice(0, 24); fs.rmSync(`/tmp/ruukoto-browser-${process.getuid?.() ?? "unknown"}-${id}`, { recursive: true, force: true }); }
 });

@@ -313,7 +313,7 @@ for (const failure of ["result_missing", "format", "unknown"] as const) {
     const output = failure === "format" ? `,output:{format:"json",schema:{type:"object",properties:{ok:{type:"boolean"}},required:["ok"]}}` : "";
     const run = f.start(`return await agent("write",{request:"write"${output}});`);
     await until("写入恢复暂停", () => f.run(run.id).status === "paused");
-    assert.equal(f.run(run.id).reason, failure === "unknown" ? "effect_unknown" : "write_result_missing");
+    assert.equal(f.run(run.id).reason, "write_result_missing");
     await f.restart();
     await assert.rejects(f.coordinator.control(run.id, "unsafe-resume", f.run(run.id).version, { action: "resume", clockConfirmed: true }), { code: "verification_required" });
     await f.coordinator.control(run.id, "pause-again", f.run(run.id).version, { action: "pause" });
@@ -323,7 +323,7 @@ for (const failure of ["result_missing", "format", "unknown"] as const) {
     assert.equal(fs.readFileSync(path.join(f.root, "external-effects"), "utf8"), "write\n");
     assert.equal(listWorkflowExecutions(f.store, run.id).length, 1);
     const taskId = listWorkflowExecutions(f.store, run.id)[0].taskId;
-    assert.equal(f.store.getTask(taskId)!.effectUnknown, failure === "unknown");
+    assert.equal(f.store.getTask(taskId)!.effectUnknown, false);
   });
 }
 
@@ -779,7 +779,7 @@ test("工作流沿 Runtime 的宿主族效果分类：中止 history_read 没有
   assert.equal(f.run(run.id).attempts, 2);
   assert.equal(starts, 2);
   assert.equal(f.store.getToolOp("host-read")!.effectUnknown, false);
-  assert.match(f.store.getToolOp("host-read")!.resultSummary!, /无写入效果/);
+  assert.equal(f.store.getToolOp("host-read")!.resultSummary, null);
 });
 
 test("脚本入口缺失保存稳定失败码，不发起 Agent", async t => {
@@ -852,4 +852,114 @@ for (const [params, code] of [
   assert.equal(getWorkflowStep(f.store, run.id, "source")!.status, "completed");
   assert.equal(listWorkflowExecutions(f.store, run.id).length, 0);
   assert.equal(f.store.listSubAgents().length, 0);
+});
+
+for (const kind of ["agent", "host"] as const) {
+  for (const recorded of [false, true]) {
+    test(`${kind} 写操作${recorded ? "结果完整" : "结果缺失"}且最终输出合法：${recorded ? "正常完成" : "暂停并阻止依赖"}`, async t => {
+      const calls: string[] = [];
+      let writtenTask: Task | undefined;
+      const f = fixture(t, async ({ task, step, run }) => {
+        calls.push(step.key);
+        if (step.key === "write") {
+          writtenTask = task;
+          f.store.withTx(() => {
+            if (kind === "host") {
+              const host = f.store.insertQueuedTask({ sessionId: task.sessionId, requestId: "missing-host", input: "host", modelSelection: null, submissionDigest: "host" }).task;
+              f.store.transitionTask(host.id, ["queued"], "running");
+              bindWorkflowExecution(f.store, { id: randomId("wfexec"), taskId: host.id, runId: run.id, stepKey: step.key, kind: "host", number: 1, status: "finished", units: [], stopVerified: true });
+              f.store.setTaskResult(host.id, "host output", "host");
+              f.store.endTask(host.id, ["running"], "completed");
+              writtenTask = host;
+            }
+            f.store.recordToolIntent({ id: "missing-write", taskId: writtenTask!.id, sessionId: writtenTask!.sessionId, toolName: "write", params: {} });
+            if (recorded) new ToolOpLedger(f.store).recordResult(writtenTask!, "missing-write", "已完成写入", false);
+          });
+        }
+        return { output: '{"ok":true}' };
+      });
+      const run = f.start('const write=agent("write",{request:"write",output:{format:"json",schema:{type:"object",properties:{ok:{type:"boolean"}},required:["ok"]}}}); const dependent=agent("dependent",{request:"later",dependsOn:["write"]}); return await Promise.all([write,dependent]);');
+      if (recorded) { await f.terminal(run.id); assert.equal(f.run(run.id).status, "succeeded"); assert.deepEqual(calls, ["write", "dependent"]); }
+      else {
+        await until("缺失写结果暂停", () => f.run(run.id).status === "paused");
+        assert.equal(f.run(run.id).reason, "write_result_missing");
+        assert.deepEqual(calls, ["write"]);
+        assert.equal(getWorkflowStep(f.store, run.id, "write")!.resultRecorded, false);
+        assert.equal(f.store.getToolOp("missing-write")!.resultSummary, null);
+        assert.equal(f.store.getToolOp("missing-write")!.effectUnknown, false);
+        assert.equal(f.store.getTask(writtenTask!.id)!.effectUnknown, false);
+      }
+    });
+  }
+}
+
+test("未消费审批的自然失败可有限重试，不补操作结果", async t => {
+  let attempts = 0;
+  const f = fixture(t, async ({ task }) => {
+    attempts++;
+    f.store.withTx(() => {
+      const id = `unconsumed-${attempts}`;
+      f.store.recordToolIntent({ id, taskId: task.id, sessionId: task.sessionId, toolName: "write", params: {} });
+      f.store.createConfirmation({ taskId: task.id, sessionId: task.sessionId, toolOpId: id, toolName: "write", params: {}, scope: { kind: "tool", workspaceOnly: true }, permissionVersion: 1 });
+    });
+    throw new Error("审批未消费");
+  });
+  const run = f.start('return await agent("retry",{request:"write"});');
+  await f.terminal(run.id);
+  assert.equal(attempts, 3);
+  for (let i = 1; i <= attempts; i++) { assert.equal(f.store.getToolOp(`unconsumed-${i}`)!.resultSummary, null); assert.equal(f.store.getToolOp(`unconsumed-${i}`)!.effectUnknown, false); }
+});
+
+test("自然停止单元已开始后首次中止：先保存快照和取消意图再复用停止 Promise", async t => {
+  const stopped = deferred<boolean>();
+  let stopping = false;
+  let context: Parameters<WorkflowAgentExecutor>[0] | undefined;
+  let releases = 0;
+  const f = fixture(t, async value => {
+    context = value;
+    f.store.withTx(() => f.store.recordToolIntent({ id: "late-abort-write", taskId: value.task.id, sessionId: value.task.sessionId, toolName: "write", params: {} }));
+    value.register({ kind: "starting", id: "gate", label: "gate", stop: () => { stopping = true; return stopped.promise; } });
+    return { output: "valid" };
+  });
+  f.deps.onReleased = () => { releases++; };
+  const run = f.start('return await agent("work",{request:"work"});');
+  try {
+    await until("自然停止已进入", () => stopping);
+    assert.equal(context!.ending.stopSnapshot, null);
+    const cancel = f.coordinator.control(run.id, "cancel", f.run(run.id).version, { action: "cancel" });
+    await until("后到中止已保存快照", () => context!.signal.aborted);
+    assert.deepEqual(context!.ending.stopSnapshot, ["late-abort-write"]);
+    assert.equal(f.store.getTask(context!.task.id)!.cancelRequested, true);
+    f.store.withTx(() => new ToolOpLedger(f.store).recordResult(context!.task, "late-abort-write", "迟到结果", true));
+    stopped.resolve(true);
+    await cancel;
+    await until("作业收尾", () => listWorkflowExecutions(f.store, run.id).every(item => item.status === "finished"));
+    assert.equal(f.store.getToolOp("late-abort-write")!.effectUnknown, true);
+    const events = f.store.getTaskEventsAfter(context!.task.id, 0, 100);
+    assert.equal(events.filter(e => ["task.completed", "task.canceled", "task.interrupted"].includes(e.body.type)).length, 1);
+    assert.equal(releases, 1);
+  } finally { stopped.resolve(true); }
+});
+
+test("工作流并发重复中止复用整次收尾，不重复写取消意图或停止记录", async t => {
+  const finished = deferred<{ output: string }>();
+  let context: Parameters<WorkflowAgentExecutor>[0] | undefined, stops = 0, intents = 0;
+  const f = fixture(t, async value => {
+    context = value;
+    value.register({ kind: "starting", id: "repeat-stop", label: "repeat-stop", stop: async () => { stops++; return true; } });
+    return finished.promise;
+  });
+  const setCancelRequested = f.store.setCancelRequested.bind(f.store);
+  t.mock.method(f.store, "setCancelRequested", (taskId: string, requested: boolean) => { intents++; return setCancelRequested(taskId, requested); });
+  const run = f.start('return await agent("work",{request:"work"});');
+  try {
+    await until("作业已启动", () => context !== undefined);
+    const stopJob = (f.coordinator as any).stopJob.bind(f.coordinator);
+    assert.deepEqual(await Promise.all([stopJob(context!.task.id, true), stopJob(context!.task.id, true)]), [true, true]);
+    assert.equal(stops, 1);
+    assert.equal(intents, 1);
+  } finally {
+    finished.resolve({ output: "stopped" });
+    await until("作业已结束", () => listWorkflowExecutions(f.store, run.id).every(item => item.status === "finished"));
+  }
 });

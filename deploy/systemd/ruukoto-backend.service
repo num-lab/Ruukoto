@@ -9,11 +9,10 @@ Type=simple
 # Note: 见 .agents/notes/implemented/feature/2026-10-12-full-access-current-account.md
 User=@RUN_USER@
 Group=@RUN_GROUP@
-Environment=RUUKOTO_DATA_DIR=/var/lib/ruukoto/data
-Environment=RUUKOTO_AGENT_DIR=/var/lib/ruukoto/agent
+Environment=RUUKOTO_PERSONAL_DIR=/var/lib/ruukoto/personal-durable
 Environment=XDG_RUNTIME_DIR=/run/user/@RUN_UID@
 Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/@RUN_UID@/bus
-ExecStart="@NODE_BIN@" /opt/ruukoto/apps/ruukoto/bin/ruukoto.mjs server
+ExecStart="@NODE_BIN@" /opt/ruukoto/apps/ruukoto/bin/ruukoto.mjs serve
 Restart=on-failure
 RestartSec=3
 # 本设置覆盖后台单元内的进程；原生 user scope 另行核实，重启保留待核实占用。

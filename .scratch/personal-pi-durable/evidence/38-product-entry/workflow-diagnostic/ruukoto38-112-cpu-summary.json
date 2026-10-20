@@ -1,0 +1,153 @@
+{
+  "sampleCount": 780,
+  "durationMicroseconds": 1272125,
+  "hotInclusive": [
+    {
+      "inclusiveSamples": 780,
+      "selfSamples": 0,
+      "function": "(root)",
+      "url": "",
+      "line": 0
+    },
+    {
+      "inclusiveSamples": 779,
+      "selfSamples": 5,
+      "function": "isProtectedPath",
+      "url": "file:///Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/packages/agent/src/execution/approved-ops.ts",
+      "line": 1
+    },
+    {
+      "inclusiveSamples": 779,
+      "selfSamples": 0,
+      "function": "assertGrantNotProtected",
+      "url": "file:///Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/packages/agent/src/execution/approved-ops.ts",
+      "line": 1
+    },
+    {
+      "inclusiveSamples": 779,
+      "selfSamples": 0,
+      "function": "prepareNativeLaunch",
+      "url": "file:///Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/packages/agent/src/execution/native.ts",
+      "line": 1
+    },
+    {
+      "inclusiveSamples": 779,
+      "selfSamples": 0,
+      "function": "processTicksAndRejections",
+      "url": "node:internal/process/task_queues",
+      "line": 72
+    },
+    {
+      "inclusiveSamples": 774,
+      "selfSamples": 24,
+      "function": "identityCovers",
+      "url": "file:///Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/packages/agent/src/execution/approved-ops.ts",
+      "line": 1
+    },
+    {
+      "inclusiveSamples": 476,
+      "selfSamples": 2,
+      "function": "lstatSync",
+      "url": "node:fs",
+      "line": 1696
+    },
+    {
+      "inclusiveSamples": 470,
+      "selfSamples": 470,
+      "function": "lstat",
+      "url": "",
+      "line": 0
+    },
+    {
+      "inclusiveSamples": 243,
+      "selfSamples": 0,
+      "function": "readdirSync",
+      "url": "node:fs",
+      "line": 1559
+    },
+    {
+      "inclusiveSamples": 242,
+      "selfSamples": 242,
+      "function": "readdir",
+      "url": "",
+      "line": 0
+    },
+    {
+      "inclusiveSamples": 31,
+      "selfSamples": 11,
+      "function": "",
+      "url": "file:///Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/packages/agent/src/execution/approved-ops.ts",
+      "line": 1
+    },
+    {
+      "inclusiveSamples": 20,
+      "selfSamples": 20,
+      "function": "join",
+      "url": "node:path",
+      "line": 1332
+    },
+    {
+      "inclusiveSamples": 2,
+      "selfSamples": 2,
+      "function": "getStatsFromBinding",
+      "url": "node:internal/fs/utils",
+      "line": 548
+    },
+    {
+      "inclusiveSamples": 2,
+      "selfSamples": 2,
+      "function": "",
+      "url": "node:internal/fs/utils",
+      "line": 698
+    },
+    {
+      "inclusiveSamples": 2,
+      "selfSamples": 0,
+      "function": "wrappedFn",
+      "url": "node:internal/errors",
+      "line": 537
+    },
+    {
+      "inclusiveSamples": 2,
+      "selfSamples": 0,
+      "function": "",
+      "url": "node:internal/fs/utils",
+      "line": 720
+    },
+    {
+      "inclusiveSamples": 2,
+      "selfSamples": 0,
+      "function": "wrappedFn",
+      "url": "node:internal/errors",
+      "line": 537
+    },
+    {
+      "inclusiveSamples": 1,
+      "selfSamples": 1,
+      "function": "",
+      "url": "node:internal/fs/utils",
+      "line": 698
+    },
+    {
+      "inclusiveSamples": 1,
+      "selfSamples": 0,
+      "function": "wrappedFn",
+      "url": "node:internal/errors",
+      "line": 537
+    },
+    {
+      "inclusiveSamples": 1,
+      "selfSamples": 0,
+      "function": "",
+      "url": "node:internal/fs/utils",
+      "line": 720
+    },
+    {
+      "inclusiveSamples": 1,
+      "selfSamples": 1,
+      "function": "(garbage collector)",
+      "url": "",
+      "line": 0
+    }
+  ]
+}

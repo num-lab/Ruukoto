@@ -1,11 +1,11 @@
-import { product as personalProduct } from "../../apps/ruukoto/src/product.ts";
+import { product as codingProduct } from "../../apps/ruukoto-code/src/product.ts";
 /**
  * 同项工作内 SubAgent 相互通信（agent-direction issue 13）的本机冒烟。
  *
  * 模拟：模型（MockModelServer 确定性脚本）与消息平台（不启用）。
  * 真实：Runtime + 控制面 + SQLite 库 + 独立 JSONL + 真实受限工具工作进程
  * （native 原生后端）+ 真实文件读取与
- * 只读范围 + 真实 CLI（apps/ruukoto/bin/ruukoto.mjs work show，经 socket 与拥有者令牌）。
+ * 只读范围 + 真实 CLI（apps/ruukoto-code/bin/ruukoto-code.mjs work show，经 socket 与拥有者令牌）。
  *
  * 覆盖（与工单验收对应）：
  *  S1. 协作加入：B 经 work_id + sub_agent_id 拉入既有工作 W，执行记录独立；
@@ -115,7 +115,7 @@ const responder: Responder = async (req) => {
   return { kind: "text", text: "收到" };
 };
 
-// ============ ruukoto：真实原生 worker worker + 真实 CLI ============
+// ============ ruukoto-code：真实原生 worker worker + 真实 CLI ============
 const server = new MockModelServer(responder);
 const baseUrl = await server.start();
 const dataDir = path.join(root, "data");
@@ -129,7 +129,7 @@ const config: RuntimeConfig = {
   thinkingLevel: "off",
   modelProvider: "mock",
   modelId: "mock-model",
-  product: personalProduct.runtime,
+  product: codingProduct.runtime,
   ...realTools(),
   execution: { backend: "native" },
 };
@@ -312,9 +312,9 @@ try {
       }
     }
     const env = { PATH: process.env.PATH, HOME: process.env.HOME, XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR,
-    DBUS_SESSION_BUS_ADDRESS: process.env.DBUS_SESSION_BUS_ADDRESS, RUUKOTO_DATA_DIR: dataDir,
-      RUUKOTO_AGENT_DIR: agentDir, RUUKOTO_CONTROL_DIR: rt.controlDir() };
-    const { stdout } = await execFileAsync(process.execPath, [path.join(repoRoot, "apps", "ruukoto", "bin", "ruukoto.mjs"), "work", "show", wId], { encoding: "utf8", env, timeout: 60_000 });
+    DBUS_SESSION_BUS_ADDRESS: process.env.DBUS_SESSION_BUS_ADDRESS, RUUKOTO_CODE_DATA_DIR: dataDir,
+      RUUKOTO_CODE_AGENT_DIR: agentDir, RUUKOTO_CODE_CONTROL_DIR: rt.controlDir() };
+    const { stdout } = await execFileAsync(process.execPath, [path.join(repoRoot, "apps", "ruukoto-code", "bin", "ruukoto-code.mjs"), "work", "show", wId], { encoding: "utf8", env, timeout: 60_000 });
     const parsed = JSON.parse(stdout);
     assert.ok(Array.isArray(parsed.messages) && parsed.messages.length === 4, `work show 消息数：${parsed.messages?.length}`);
     assert.ok(parsed.messages.some((m: any) => m.fromSubAgentId === aId && m.toSubAgentId === bId && m.deliveredTaskId));

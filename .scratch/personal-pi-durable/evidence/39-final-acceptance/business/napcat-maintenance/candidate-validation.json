@@ -1,0 +1,42 @@
+{
+  "package": {
+    "name": "napcat",
+    "version": "0.0.1",
+    "type": "module"
+  },
+  "bundleContainsReleaseVersionLiteral": true,
+  "bundleSha256": "f80e4be3e8640369d23846cf3e8bcfd2a5b6dc5920f50d7ad733d7cca18179e6",
+  "runtimeKey": "6.9.96-49738-arm64",
+  "runtimeKeyLine": 12431,
+  "runtimeMapExcerpt": "  \"6.9.96-49738-arm64\": { send: \"2785BB8\", recv: \"A29880\" },\n  \"9.9.32-50828-x64\": { send: \"0B245CC\", recv: \"2073D65\" },\n  \"3.2.30-50828-x64\": { send: \"6340530\", recv: \"346DA50\" },\n  \"3.2.30-50828-arm64\": { send: \"4327764\", recv: \"15e3184\" },\n  \"9.9.32-50969-x64\": { send: \"0B2E2AC\", recv: \"209C709\" },",
+  "workdirSource": [
+    {
+      "line": 33447,
+      "code": "    process.env.NAPCAT_WORKDIR ? n = process.env.NAPCAT_WORKDIR : Sn.platform() === \"darwin\" ? n = xe.join(Sn.homedir(), \"Library\", \"Application Support\", \"QQ\", \"NapCat\") : n = this.binaryPath, this.logsPath = xe.join(n, \"logs\"), this.configPath = xe.join(n, \"config\"), this.pluginPath = xe.join(n, \"plugins\"), this.cachePath = xe.join(n, \"cache\"), this.staticPath = xe.join(this.binaryPath, \"static\"), fe.existsSync(this.logsPath) || fe.mkdirSync(this.logsPath, { recursive: !0 }), fe.existsSync(this.configPath) || fe.mkdirSync(this.configPath, { recursive: !0 }), fe.existsSync(this.cachePath) || fe.mkdirSync(this.cachePath, { recursive: !0 });"
+    }
+  ],
+  "darwinArm64Natives": [
+    {
+      "path": "native/packet/MoeHoo.darwin.arm64.node",
+      "bytes": 1174752,
+      "sha256": "72e9c8ca9ba48f5e3e8ffd5182d57e3f567dcd71331b04fd3aacdf1c4b36e7bf",
+      "magicHex": "cffaedfe",
+      "cpuType": 16777228,
+      "isMachOArm64": true
+    },
+    {
+      "path": "native/napi2native/napi2native.darwin.arm64.node",
+      "bytes": 9906560,
+      "sha256": "5a48995703afbb2889c73ee4624b1df41dc5fbc563e77d9224aa5f2aec048953",
+      "magicHex": "cffaedfe",
+      "cpuType": 16777228,
+      "isMachOArm64": true
+    }
+  ],
+  "candidateDefaultConfigNames": [
+    "napcat.json"
+  ],
+  "executedCandidate": false,
+  "modifiedInstalledFiles": false,
+  "copiedUserCredentials": false
+}

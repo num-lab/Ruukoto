@@ -2,7 +2,9 @@
 
 ## 职责与边界
 
-`packages/runtime/src/workflows.ts` 持有固定脚本的后台运行、持久步骤、共享名额、计费、重放和取消。core 保存事实，agent 提供隔离脚本、结果 schema 校验与实际执行边界。`workflow-steps.ts` 默认接入真实 Driver、来源能力与冻结成果汇总；控制面与 IM 处理可信业务回答，父级送达负责整项最终汇总，调度等待名下完整工作流。`workflow-library.ts` 管理实例命名文件与不可变历史；共享模型工具和 CLI/TUI/IM 入口经 Runtime 统一核实发起与控制。
+本篇的运行状态、历史或客户端协议适用于 Coding 与保留的旧格式实现；正式个人 Agent 使用[个人持久会话](personal-durable.md)，不接入旧 Runtime、Task Store 或控制协议。
+
+`packages/runtime/src/workflows.ts` 持有固定脚本的后台运行、持久步骤、共享名额、计费、重放和取消。core 保存事实，agent 提供隔离脚本、结果 schema 校验与实际执行边界。`workflow-steps.ts` 默认接入真实 Driver、来源能力与冻结成果汇总；控制面与 IM 处理可信业务回答，父级送达负责整项最终汇总，调度等待名下完整工作流。`workflow-library.ts` 管理实例命名文件与不可变历史；Coding 模型工具和 CLI/TUI 入口经 Runtime 统一核实发起与控制；旧 IM 分支保留实现，新个人不装配工作流语言或定义库。
 
 ## 对外接口
 
@@ -15,7 +17,7 @@
 | `WorkflowLibrary` | 保存/加载命名文件，保留名称版本和保存回执；同一 QuickJS 包装只编译校验 |
 | `Runtime.getWorkflowDetail` / `getWorkflowStep` / `getWorkflowLogs` / `getWorkflowQuestion` / `answerWorkflowQuestion` | 查询运行、步骤结果和阶段日志，按 UTF-8 分页读取正文及问题/回答；来源授权不回填到 wire |
 | `Runtime.workflowHostOperation` | 宿主按运行与步骤派生短期操作任务、复用完整缓存；callback 负责调用固定工作副本操作 |
-| `HostExecutionManager` | 绑定实际任务、登记起始/实际单元、核实活动资格、快照账本并停止；不创建模型会话 |
+| `HostExecutionManager` | 绑定实际任务、登记起始/实际单元、核实活动资格并停止，由统一收尾函数处理账本及终态；不创建模型会话 |
 | core `workflow.ts` | 定义版本、运行、步骤、执行、问题、控制回执及事务内启动/交付原语 |
 
 脚本只调用 `agent(key, params)`、`ask(key, params)`、`integrate(key, params)` 和 `progress(key, params)`。四类都可声明 `dependsOn`，依赖必须已登记；Agent 参数含非空 `request`，输出默认文本，或 `{output:{format:"json",schema:...}}`。有界基础 schema 支持对象、数组、标量及属性、必填、数组项、枚举/常量、长度和数值范围；拒绝正则、引用与复杂组合，避免阻塞后台校验。失败与跳过返回具名状态，格式不符保留原输出。
@@ -62,6 +64,8 @@ Agent 参数 `role` 从运行固定的共享目录选择，省略为 general，�
 
 来源、资料或固定定义失效，调用/交付记录分歧、结果/产物缺失、格式失败后的写入、已知写入缺输出和未知效果均暂停保留现场。恢复复核接口版本、真实 Task、角色与执行快照、目标基线、操作分类和停止状态；旧接口只供查询与取消，不能恢复执行。临时脚本的旧字段在调用时拒绝，此前已执行步骤保留真实副作用，不自动重放。只读或全部批准未消费才可有限重试。停止和计时分别核实，拥有者需先通过既有占用核实出口确认旧执行停止，再从可信控制提供相应确认；不能把旧运行的用量清零。
 
+同一 Agent 尝试从 `AgentJob` 经执行器到 Driver 共享首次中止快照；后到中止即使遇到自然停止 Promise，也先保存快照和取消意图。宿主自然收尾期间首次中止也先保存快照再复用停止。自然结束只停止单元，不补工具结果；逐操作写结果缺失即以 `write_result_missing` 暂停，即使最终输出合法也不完成步骤或派发依赖。完整写结果与合法输出正常完成，只读或全部审批未消费仍可有限重试。
+
 取消先提交状态和事件，再停止脚本及所属执行，阻止新登记、回答和迟到结果推进。原外部效果不回滚，停止未核实保留实际身份、账本与占用。重发历史控制键只返回已有事实，不再停止已经恢复的执行。工作流步骤拒绝普通任务继续/模式切换、普通任务中断/取消及工作委托取消，运行控制持有其生命周期。
 
 问题通知失败或效果未知仍保留待答；入口换代和依赖资料撤销阻止回答及旧正文发送，不改发。汇总任务靠持久绑定识别，每次模型请求再次核实全部步骤来源；用户 request_id 前缀不能获得汇总身份。取消报告只陈述取消及停止事实。定时计划等待全部运行和汇总，安全重试已恢复的旧尝试不算整项失败；自身取消先提交意图，再异步停止，让当前工具能返回。
@@ -69,6 +73,8 @@ Agent 参数 `role` 从运行固定的共享目录选择，省略为 general，�
 跨实例导入拒绝含工作流执行记录的源，不能通过丢掉绑定把步骤当普通 SubAgent 继续；原实例保留可查。操作见[导入说明](../usage.md#6-导入旧实例)。
 
 ## 设计依据
+
+- [运行中任务的收尾协议](../../.agents/notes/implemented/architecture/2026-10-16-task-ending-protocol.md)
 
 - [共享角色与工作流接口版本](../../.agents/notes/implemented/architecture/2026-10-15-workflow-role-interface.md)
 

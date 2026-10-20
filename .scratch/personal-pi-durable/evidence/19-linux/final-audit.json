@@ -1,0 +1,68 @@
+{
+  "at": "2026-10-17T08:29:27.589174+00:00",
+  "manifest_sha256": "122f60843ac8e44fce8ae590612ebd0201c85ea6b17a88bd22b04a14c54167ae",
+  "content_mismatches": [],
+  "mode_changes": [
+    {
+      "path": "apps/ruukoto-code/bin/ruukoto-code.mjs",
+      "before": "0o755",
+      "after": "0o775"
+    },
+    {
+      "path": "apps/ruukoto/bin/ruukoto.mjs",
+      "before": "0o755",
+      "after": "0o775"
+    }
+  ],
+  "owned_processes": [],
+  "original_backends": [
+    {
+      "pid": 2163755,
+      "still_present": true,
+      "cmdline_unchanged": true,
+      "cwd_unchanged": true
+    },
+    {
+      "pid": 2163766,
+      "still_present": true,
+      "cmdline_unchanged": true,
+      "cwd_unchanged": true
+    },
+    {
+      "pid": 2178158,
+      "still_present": true,
+      "cmdline_unchanged": true,
+      "cwd_unchanged": true
+    },
+    {
+      "pid": 2178169,
+      "still_present": true,
+      "cmdline_unchanged": true,
+      "cwd_unchanged": true
+    }
+  ],
+  "tmp_entries_before_cleanup": [
+    "node-compile-cache",
+    "tsx-1003"
+  ],
+  "new_processes_since_baseline": [
+    {
+      "pid": 3195163,
+      "ppid": 3195112,
+      "pgid": 3195112,
+      "sid": 3195112,
+      "state": "S",
+      "cwd": null,
+      "cmdline": "sshd: eitrous@notty"
+    },
+    {
+      "pid": 3195164,
+      "ppid": 3195163,
+      "pgid": 3195164,
+      "sid": 3195164,
+      "state": "R",
+      "cwd": "/home/eitrous",
+      "cmdline": "python3 /tmp/rk19-linux-20261017T082256Z/audit-cleanup.py"
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "sourceExecution": "独立最小源码副本；Node --experimental-transform-types，无 npm 安装或 Linux 全产品 build",
+  "tests": {
+    "passed": 26,
+    "failed": 0,
+    "log": "tests.log"
+  },
+  "realOS": {
+    "passed": 2,
+    "failed": 0,
+    "log": "real.log"
+  },
+  "initialFailure": {
+    "log": "real-initial-failure.log",
+    "run": "run-initial.log",
+    "cause": "夹具生成的 JS 内 Python 字符串未正确转义；仅夹具改用 JSON.stringify 后通过"
+  },
+  "sourceArchives": {
+    "source-initial.tar.gz": "首轮所有运行依赖源码、旧测试及旧夹具",
+    "source-final.tar.gz": "最终两个生产文件、两个测试及修正后夹具；未重复收录无变化依赖"
+  },
+  "sourceComparison": "source-comparison.json",
+  "cleanup": "cleanup.json / source-comparison.json",
+  "finalRuntime": "P2修复后26项及2真实场景通过；初始tar对应修复前"
+}

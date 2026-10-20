@@ -1,4 +1,4 @@
-import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
+import { product as personalProduct } from "./helpers/legacy-product.ts";
 /**
  * 核心群聊退役与旧群资料保全（agent-direction issue 20）。
  * Note: 见 .agents/notes/implemented/architecture/2026-10-02-two-agent-products.md
@@ -34,7 +34,6 @@ import type { NotifyTarget } from "@ruukoto/core/types.ts";
 import {
   lastUserText,
   makeTestDirs,
-  pendingConfirmation,
   startTestRuntime,
   cleanupDirs,
   waitFor,
@@ -250,20 +249,6 @@ test("验收3：无 chat 角色行的实例中 main/coding/SubAgent 仍读不到
 
 // ---------- 验收 4：通知与调度中的群结果引用仍复核 ----------
 
-type Call = { name: string; arguments: Record<string, unknown> };
-function scripted(actions: (input: string) => Call[]): Responder {
-  const steps = new Map<string, number>();
-  return async (req) => {
-    const input = lastUserText(req);
-    const step = steps.get(input) ?? 0;
-    steps.set(input, step + 1);
-    const action = actions(input)[step];
-    return action
-      ? { kind: "tool_calls", calls: [{ id: `call-${step}`, ...action }] }
-      : { kind: "text", text: "处理完成" };
-  };
-}
-
 async function notifyHarness(prefix: string, responder: Responder) {
   const onebot = await startMockOneBot({});
   const channel = {
@@ -297,37 +282,36 @@ async function notifyHarness(prefix: string, responder: Responder) {
     const done = g.seedTask({ userId: OWNER, messageId, state: "completed", summary });
     return seedAcceptedResult(rt.store, { mainProjectId: main.projectId, acceptedByTaskId: done.task!.id, taskId: done.task!.id, summary });
   };
-  const submit = (input: string) => rt.submit({ sessionId: main.sessionId, requestId: input, input, accessMode: "confirm", modelSelection: rt.defaultSelection });
-  const complete = (taskId: string) => waitFor("main 任务完成", () => rt.store.getTask(taskId)?.status === "completed");
   return {
-    ...t, rt, onebot, channel, main, archive, group, acceptResult, submit, complete,
+    ...t, rt, onebot, channel, main, archive, group, acceptResult,
     ops: () => rt.sched.listOps({ limit: 50 }).items,
     async close() { await t.shutdown(); await onebot.close(); },
   };
 }
 
-test("验收4a：已接收群结果的通知经批准后在退役后正常发送", async () => {
-  let taskId = "";
-  const h = await notifyHarness("retire-notify-ok", scripted((input) =>
-    input === "MAIN-NOTIFY" ? [{ name: "notification_enqueue", arguments: { content: [{ kind: "chat_result", task_id: taskId }], reason: "告知拥有者" } }] : [],
-  ));
+test("验收4a：宿主登记的已接收群结果通知在退役后正常发送", async () => {
+  const h = await notifyHarness("retire-notify-ok", async () => ({ kind: "text", text: "不应调用模型" }));
   try {
     const accepted = h.acceptResult("1", "群讨论结果：周五发布");
-    taskId = accepted.taskId;
-    const task = await h.submit("MAIN-NOTIFY");
-    const confirmation = await pendingConfirmation(h.client, task.id);
-    await h.client.request("respond_confirmation", { confirmation_id: confirmation.id, decision: "approve" });
-    await h.complete(task.id);
+    const op = h.rt.store.withTx(() => {
+      const snapshot = resolveAcceptedChatResult(h.rt.store, h.rt.qqStore, h.main.projectId, accepted.taskId);
+      return h.rt.sched.insertOp({
+        sourceKind: "confirmation", sourceKey: `host:${snapshot.taskId}`, taskId: null, hostOpId: null,
+        target: { ...TARGET }, text: snapshot.summary,
+        sourceRefs: [{ kind: "chat_result", ref: `chat_result:${snapshot.taskId}`, version: snapshot.acceptedAt, sha256: sha256(snapshot.summary) }],
+      }).op;
+    });
+    await h.rt.scheduler!.tick();
     await h.rt.scheduler!.idle();
-    const [op] = h.ops();
     assert.equal(op.status, "pending");
-    assert.deepEqual(op.sourceRefs.map((r) => [r.kind, r.ref, r.version]), [["chat_result", `chat_result:${taskId}`, accepted.acceptedAt]]);
+    assert.deepEqual(op.sourceRefs.map((r) => [r.kind, r.ref, r.version]), [["chat_result", `chat_result:${accepted.taskId}`, accepted.acceptedAt]]);
     assert.equal(h.rt.sched.getOp(op.id)!.status, "pending", "渠道离线等待，未完成发送");
     h.channel.online = true;
     await h.rt.scheduler!.tick();
     await h.rt.scheduler!.idle();
     assert.equal(h.rt.sched.getOp(op.id)!.status, "sent");
     assert.deepEqual(h.channel.sends.map((s) => s.text), ["群讨论结果：周五发布"]);
+    assert.equal(h.server.calls.length, 0);
   } finally { await h.close(); }
 });
 
@@ -335,7 +319,7 @@ test("验收4b/4c/4d：撤回与归档篡改阻断待发通知与调度运行（
   const h = await notifyHarness("retire-notify-blocked", async () => ({ kind: "text", text: "ok" }));
   try {
     const rt = h.rt;
-    /** 直接登记一条待发通知（批准路径在 4a/49 已覆盖；这里只验证发送前复核）。 */
+    /** 宿主直接登记待发通知，验证发送前的来源复核。 */
     const accepted = (messageId: string, summary: string, g?: typeof h.group) => {
       const a = h.acceptResult(messageId, summary, g);
       const ref: SourceRef = { kind: "chat_result", ref: `chat_result:${a.taskId}`, version: a.acceptedAt, sha256: sha256(summary) };

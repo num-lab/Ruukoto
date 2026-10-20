@@ -1,0 +1,351 @@
+diff --git a/.agents/notes/implemented/architecture/2026-10-10-native-execution-sandbox.md b/.agents/notes/implemented/architecture/2026-10-10-native-execution-sandbox.md
+index 2951f70a..0299908b 100644
+--- a/.agents/notes/implemented/architecture/2026-10-10-native-execution-sandbox.md
++++ b/.agents/notes/implemented/architecture/2026-10-10-native-execution-sandbox.md
+@@ -25,8 +25,8 @@ macOS 没有本实现可用的不可逃逸内核进程成员集合：`posix_spaw
+ ### 共享授权、身份与临时资料
+ 
+ - `LaunchSpec` 是平台启动的授权来源。工作区必须带宿主钉定的 dev/ino；工作区、授予与只读根使用已核实真实路径，别名输入与身份不匹配在创建单元前拒绝。只读祖先内嵌读写授权也拒绝，不能由挂载或规则顺序扩大权限；可写工作区内的只读子根保留只读约束。
+-- 保护范围共用 `approved-ops.ts` 的物理身份判定：除文本路径外，以 dev/ino 比对保护根及目标的祖先，拒绝保护根的挂载别名与物理别名；目录授权也反向排除保护根祖先。原生授权、运行依赖、工作区及已批准文件操作使用同一判定。此检查识别的是同一保护对象和祖先关系，不扫描整个资料树的硬链接。
+-- Seatbelt 与只读 bind 都无法识别预存文件硬链接的另一可写名字。`assertNativeFileLinks` 遍历显式授权树，按目录 dev/ino 去重；文件以父目录 dev/ino 加真实 basename 识别独立目录条目，不能把 `/System/Volumes/Data` 的目录或文件别名重复计数。显式文件名必须精确出现在父目录 readdir 结果中，APFS 大小写或 Unicode 等价名字不是第二个授权条目。对 nlink 大于 1 的文件，同一对象所有条目都在授权内且访问等级一致才接受；nlink 超过已授权条目数、同一目录/条目/文件的只读与读写冲突或复核变化都拒绝，同权限授权内的正常硬链接保留。启动与每调用前重核，失败先停止旧单元再拒绝调用；不扫描保护目录、凭据树或整个宿主，也不跟随符号链接递归。成本随每次调用的授权树条目数、授权范围数与硬链接复核增加，大仓库的这项遍历不能记作常数成本。
++- 保护范围共用 `approved-ops.ts` 的物理身份判定：除文本路径外，以 dev/ino 比对保护根及目标的祖先，拒绝保护根的挂载别名与物理别名；目录授权也反向排除保护根祖先。原生授权、运行依赖、工作区及已批准文件操作使用同一判定。宿主按目标及祖先 inode 核对保护树内子对象，拒绝其 bind/hardlink 别名；原生运行依赖按保护根[批量核对](../bug-fix/2026-10-18-batch-native-protection-checks.md)，单次同步调用内复核固定身份与已观察目录变化。
++- Seatbelt 与只读 bind 都无法识别预存文件硬链接的另一可写名字。`assertNativeFileLinks` 遍历显式授权树，按目录 dev/ino 去重；文件以父目录 dev/ino 加真实 basename 识别独立目录条目，不能把 `/System/Volumes/Data` 的目录或文件别名重复计数。显式文件名必须精确出现在父目录 readdir 结果中，APFS 大小写或 Unicode 等价名字不是第二个授权条目。对 nlink 大于 1 的文件，同一对象所有条目都在授权内且访问等级一致才接受；nlink 超过已授权条目数、同一目录/条目/文件的只读与读写冲突或复核变化都拒绝，同权限授权内的正常硬链接保留。启动与每调用前重核，失败先停止旧单元再拒绝调用；此显式授权遍历不扫描保护目录、凭据树或整个宿主，也不跟随符号链接递归；保护树身份核对由上一条独立执行。成本随每次调用的授权树条目数、授权范围数与硬链接复核增加，大仓库的这项遍历不能记作常数成本。
+ - Runtime 下发代码、后台数据、agent 与控制面保护根。代码根仅对可信构建的 `worker/worker.mjs` 与实际运行依赖 `node_modules` 开放只读例外；不开放整个源码根、整个 HOME 或 `/System/Volumes/Data`。工具安装版本、实际动态库与必要 SDK 只读进入边界；未知安装布局只提供实际可执行文件，不能从 bin 向上猜一个资料父目录。
+ - PATH 包含实际 Node、选定宿主工具目录与系统工具目录。工具符号链接和动态库别名保留来源与真实目标，不把 `/opt/homebrew` 或用户自定义工具父目录作为通用可读根。macOS 提供系统只读根、选中的 Xcode/CommandLineTools 安装根与精确许可 plist，不开放整个 `/Applications` 或 `/Library/Developer`；`GIT_CONFIG_NOSYSTEM=1` 防止工具读取系统 Git 配置。
+ - `ToolWorkerHost.startUnit` 在 native launch 前为全部 grantedPaths 保存 realpath/stat 得到的 dev/ino，不改变公开 LaunchSpec 字段。`call` 每次合并工作区、带身份的只读根和全部授予身份重新核实；只读或读写授予被替换也必须阻止调用，不能只检查工作区。身份变化先请求停止旧单元，再拒绝发送该调用；停止结果仍留在同一宿主记录，不能因目录变化或句柄关闭释放占用。worker init 另核实工作区与只读根 dev/ino；只有实际 macOS container 路径保留 Docker Desktop 的 inode 例外。
+diff --git a/.agents/notes/implemented/bug-fix/2026-10-18-batch-native-protection-checks.md b/.agents/notes/implemented/bug-fix/2026-10-18-batch-native-protection-checks.md
+new file mode 100644
+index 00000000..177698db
+--- /dev/null
++++ b/.agents/notes/implemented/bug-fix/2026-10-18-batch-native-protection-checks.md
+@@ -0,0 +1,23 @@
++# Agent Note: 原生依赖批量核对保护树
++
++Status: implemented
++
++## 问题
++
++原生启动逐个运行依赖核对保护根，每个候选都同步遍历同一保护树。代码根包含依赖和证据资料，多个真实 worker 并行准备时，重复扫描使正常工作超过测试等待，也阻塞宿主推进其他事件。保护树子对象的 bind 与硬链接别名仍须按物理身份拒绝，不能用文本路径或 nlink 快速放行。
++
++## 决定
++
++同次原生启动对每个保护根批量核对运行依赖。候选与祖先的 dev/ino 汇成集合，按既有不跟随符号链接、目录 inode 去重的算法遍历保护树一次；命中任一身份即拒绝，保护根的文本/物理祖先也拒绝。代码资产的只读例外仍逐保护根计算；显式挂载、文件别名权限与硬链接条目闭合检查保持。
++
++批量核对只在一个同步调用内保存固定路径身份；返回前复核候选、祖先和保护根。目录退出遍历时核对其身份及目录项修订，读取错误或已观察变化向调用方传播，原生单元尚未创建。单目标入口复用物理扫描算法，保留既有判定和错误；不保存跨调用或跨启动的放行结果。
++
++本篇补充[原生执行](../architecture/2026-10-10-native-execution-sandbox.md)的核对成本与批量实现，不改[当前工作区快照](../architecture/2026-10-15-current-workspace-snapshots.md)的来源保护要求。两篇仍分别持有执行身份和来源/副本契约；其他笔记未发现同一批量决定。
++
++## 备选方案
++
++完整保护树 inode 索引可服务多个候选，但内存随保护树条目数增加，索引生命周期还容易跨过异步准备；采用目标祖先集合反向核对，遍历结束即丢弃。全局缓存能减少跨启动扫描，却无法可靠观察外部路径、硬链接或挂载变化，不能作为放行依据。延长等待或统一串行测试能减少超时，但重复同步扫描仍阻塞宿主，因此保留原等待与并发入口。
++
++## 后果
++
++运行依赖保护核对的遍历成本随保护树条目数增加，不再额外乘以候选数；单目标调用仍按次扫描，授权树和大仓库的遍历成本没有消失。核对不构成文件系统原子快照，宿主外部特权准备的原生旁路仍按既有范围单列；本修复不解释历史停止身份核实失败。
+diff --git a/docs/modules/execution.md b/docs/modules/execution.md
+index 7abf9730..7e298b77 100644
+--- a/docs/modules/execution.md
++++ b/docs/modules/execution.md
+@@ -128,11 +128,11 @@ sequenceDiagram
+ 
+ ### 原生受限执行
+ 
+-Coding 正式入口默认 `native`，`--execution` 与 `RUUKOTO_EXECUTION_BACKEND` 只接受 native；显式 container/local 被拒并提示迁移，库层仍可注入 local。原生 worker 使用实际宿主 UID/GID、补充组与 ACL，通过宿主 Node 和构建出的 `worker/worker.mjs` 运行；只读提供 SDK 依赖、选定工具安装版本与实际动态库，不开放整个 HOME、工具资料父目录、源码根、后台数据或控制面。原生工作区必须有钉定 dev/ino，授予与只读根使用真实路径，重叠只读祖先与读写子授权被拒。宿主保护与已批准操作同时核实目标/祖先 inode 和保护树内子对象，不因 `/System/Volumes/Data` 等别名放开同一保护目录。
++Coding 正式入口默认 `native`，`--execution` 与 `RUUKOTO_EXECUTION_BACKEND` 只接受 native；显式 container/local 被拒并提示迁移，库层仍可注入 local。原生 worker 使用实际宿主 UID/GID、补充组与 ACL，通过宿主 Node 和构建出的 `worker/worker.mjs` 运行；只读提供 SDK 依赖、选定工具安装版本与实际动态库，不开放整个 HOME、工具资料父目录、源码根、后台数据或控制面。原生工作区必须有钉定 dev/ino，授予与只读根使用真实路径，重叠只读祖先与读写子授权被拒。宿主保护与已批准操作同时核实目标/祖先 inode 和保护树内子对象，不因 `/System/Volumes/Data` 等别名放开同一保护目录。 原生运行依赖逐保护根批量核对，候选祖先身份共用一次保护树遍历；返回前复核固定路径和已观察目录，变化或读取失败在创建单元前拒绝，不保存跨调用放行结果。
+ 
+ 原生启动和 worker init 复核工作区与带身份的只读根；宿主在 launch 前另为全部 grantedPaths 保存 dev/ino，每次 `ToolWorkerHost.call` 合并这三类身份重新核实。调用前发现工作区、只读根或任一读写/只读授予被替换或无法读取，先请求停止旧单元，再拒绝发送命令，未核实停止仍保留占用。白名单环境使用每单元 HOME/TMPDIR，不继承凭据、代理、SSH agent、控制面或 systemd bus 变量；只额外接受宿主固定 Git 配置。汇总补丁写在独立临时目录内，资料仅在已核实停止后删除。
+ 
+-启动与每调用前还遍历显式授权文件树，按目录 dev/ino 去重，文件条目按父目录 dev/ino 加真实 basename 只计一次；显式文件名须精确匹配 readdir，Data 路径、APFS 大小写或 Unicode 别名不能充当另一个授权条目。所有普通文件的 dev/ino 同样核实权限等级，nlink=1 的 file bind 也不能横跨只读/读写范围；nlink 大于 1 的文件还须全部目录条目在同等级授权内；范围外名字、同一对象的只读/读写冲突或复核变化明确拒绝，同权限范围内的硬链接可用。遍历不跟随符号链接、不扫描保护目录或真实凭据树，成本随授权树条目数增加。Seatbelt 和只读 bind 的路径规则不能单独保证预存硬链接别名只读，因此该入口检查同时用于两平台。
++启动与每调用前还遍历显式授权文件树，按目录 dev/ino 去重，文件条目按父目录 dev/ino 加真实 basename 只计一次；显式文件名须精确匹配 readdir，Data 路径、APFS 大小写或 Unicode 别名不能充当另一个授权条目。所有普通文件的 dev/ino 同样核实权限等级，nlink=1 的 file bind 也不能横跨只读/读写范围；nlink 大于 1 的文件还须全部目录条目在同等级授权内；范围外名字、同一对象的只读/读写冲突或复核变化明确拒绝，同权限范围内的硬链接可用。此显式授权遍历不跟随符号链接，不扫描保护目录或真实凭据树；保护树身份核对另行执行，成本分别随授权树与保护树条目数增加。Seatbelt 和只读 bind 的路径规则不能单独保证预存硬链接别名只读，因此该入口检查同时用于两平台。
+ 
+ | 平台 | 边界与前置 | 停止核实 |
+ |---|---|---|
+@@ -255,6 +255,8 @@ sequenceDiagram
+ 
+ ## 设计依据
+ 
++- [原生依赖批量核对保护树](../../.agents/notes/implemented/bug-fix/2026-10-18-batch-native-protection-checks.md)
++
+ - [个人通用工具执行与原字节](../../.agents/notes/implemented/architecture/2026-10-17-personal-tools-access-artifacts.md)。
+ 
+ - [完全访问命令的持久 scope 与原工作恢复](../../.agents/notes/implemented/architecture/2026-10-17-personal-full-access-commands.md)
+diff --git a/packages/agent/src/execution/approved-ops.ts b/packages/agent/src/execution/approved-ops.ts
+index 52cd1ce6..db379934 100644
+--- a/packages/agent/src/execution/approved-ops.ts
++++ b/packages/agent/src/execution/approved-ops.ts
+@@ -62,36 +62,62 @@ function lstatNoFollow(p: string): fs.Stats {
+   return fs.lstatSync(p);
+ }
+ 
++function sameIdentity(before: fs.BigIntStats, after: fs.BigIntStats): boolean {
++  return before.dev === after.dev && before.ino === after.ino && (before.mode & 0o170000n) === (after.mode & 0o170000n);
++}
++
++function observeIdentity(observed: Map<string, fs.BigIntStats> | undefined, target: string, stat: fs.BigIntStats): void {
++  if (!observed) return;
++  const previous = observed.get(target);
++  if (previous && !sameIdentity(previous, stat)) throw new ApprovedOpError("授权路径身份在保护核对期间变化；本次执行未启动，请报告拥有者核实路径");
++  observed.set(target, stat);
++}
++
+ /** 挂载别名与硬链接可有不同文本路径，保护范围仍按同一文件系统对象判定。 */
+-function identityCovers(parent: string, target: string, descendants = false): boolean {
+-  if (!fs.existsSync(parent)) return false;
++function identityOverlap(parent: string, targets: readonly string[], descendants = false, observed?: Map<string, fs.BigIntStats>): string | undefined {
++  if (!fs.existsSync(parent)) return undefined;
+   const pinned = fs.statSync(parent, { bigint: true });
+-  const targetIdentities = new Set<string>();
+-  let current = path.resolve(target);
+-  for (;;) {
+-    if (fs.existsSync(current)) {
+-      const stat = fs.statSync(current, { bigint: true });
+-      if (stat.dev === pinned.dev && stat.ino === pinned.ino) return true;
+-      if (descendants) targetIdentities.add(`${stat.dev}:${stat.ino}`);
++  observeIdentity(observed, parent, pinned);
++  const targetIdentities = new Map<string, string>();
++  for (const target of targets) {
++    let current = path.resolve(target);
++    for (;;) {
++      if (fs.existsSync(current)) {
++        const stat = fs.statSync(current, { bigint: true });
++        observeIdentity(observed, current, stat);
++        if (stat.dev === pinned.dev && stat.ino === pinned.ino) return target;
++        if (descendants) targetIdentities.set(`${stat.dev}:${stat.ino}`, target);
++      }
++      const ancestor = path.dirname(current);
++      if (ancestor === current) break;
++      current = ancestor;
+     }
+-    const ancestor = path.dirname(current);
+-    if (ancestor === current) break;
+-    current = ancestor;
+   }
+-  if (!descendants || !pinned.isDirectory()) return false;
++  if (!descendants || !pinned.isDirectory()) return undefined;
+   // 子对象的 bind 别名不含保护根的祖先身份；不跟随符号链接，遍历失败向调用方传播。
+-  const pending = [fs.realpathSync(parent)], visited = new Set<string>();
++  const pending: Array<{ path: string; after?: fs.BigIntStats }> = [{ path: fs.realpathSync(parent) }], visited = new Set<string>();
+   while (pending.length) {
+     const entry = pending.pop()!;
+-    const stat = fs.lstatSync(entry, { bigint: true });
++    const stat = fs.lstatSync(entry.path, { bigint: true });
++    if (entry.after) {
++      if (!sameIdentity(entry.after, stat) || entry.after.mtimeNs !== stat.mtimeNs || entry.after.ctimeNs !== stat.ctimeNs) {
++        throw new ApprovedOpError("保护目录在核对期间变化；本次执行未启动，请报告拥有者核实目录");
++      }
++      continue;
++    }
+     if (stat.isSymbolicLink()) continue;
+-    const key = `${stat.dev}:${stat.ino}`;
+-    if (targetIdentities.has(key)) return true;
++    const key = `${stat.dev}:${stat.ino}`, match = targetIdentities.get(key);
++    if (match !== undefined) return match;
+     if (!stat.isDirectory() || visited.has(key)) continue;
+     visited.add(key);
+-    pending.push(...fs.readdirSync(entry).map(name => path.join(entry, name)));
++    if (observed) pending.push({ path: entry.path, after: stat });
++    pending.push(...fs.readdirSync(entry.path).map(name => ({ path: path.join(entry.path, name) })));
+   }
+-  return false;
++  return undefined;
++}
++
++function identityCovers(parent: string, target: string, descendants = false): boolean {
++  return identityOverlap(parent, [target], descendants) !== undefined;
+ }
+ 
+ export function isProtectedPath(resolved: string, protectedRoots: string[]): boolean {
+@@ -125,6 +151,42 @@ export function assertGrantNotProtected(resolved: string, protectedRoots: string
+   }
+ }
+ 
++/** 一次同步核对复用候选祖先集合；变化或读取失败均拒绝，不保留跨调用放行结果。 */
++// Note: 见 .agents/notes/implemented/bug-fix/2026-10-18-batch-native-protection-checks.md
++export function assertGrantsNotProtected(paths: readonly string[], protectedRoots: readonly string[]): void {
++  if (!paths.length || !protectedRoots.length) return;
++  for (const resolved of paths) for (const root of protectedRoots) {
++    const realRoot = path.resolve(root);
++    if (resolved === realRoot || resolved.startsWith(realRoot + path.sep)) {
++      throw new ApprovedOpError(`路径位于控制面/服务数据目录内，始终排除：${resolved}`);
++    }
++    const prefix = resolved.endsWith(path.sep) ? resolved : resolved + path.sep;
++    if (realRoot === resolved || realRoot.startsWith(prefix)) {
++      throw new ApprovedOpError(`路径是控制面/服务数据目录的父级，始终排除：${resolved}`);
++    }
++  }
++  const observed = new Map<string, fs.BigIntStats>();
++  for (const target of paths) observeIdentity(observed, target, fs.statSync(target, { bigint: true }));
++  for (const root of protectedRoots) {
++    const realRoot = path.resolve(root);
++    let pinned: fs.BigIntStats | undefined;
++    try { pinned = fs.statSync(realRoot, { bigint: true }); }
++    catch (error) {
++      // 忽略：ENOENT 表示保护根尚不存在，其路径仍受上面的文本范围限制。
++      if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") throw error;
++    }
++    if (pinned) observeIdentity(observed, realRoot, pinned);
++    const match = identityOverlap(realRoot, paths, true, observed);
++    if (match !== undefined) throw new ApprovedOpError(`路径位于控制面/服务数据目录内，始终排除：${match}`);
++    for (const target of paths) if (identityOverlap(target, [realRoot], false, observed) !== undefined) {
++      throw new ApprovedOpError(`路径是控制面/服务数据目录的父级，始终排除：${target}`);
++    }
++  }
++  for (const [target, stat] of observed) if (!sameIdentity(stat, fs.statSync(target, { bigint: true }))) {
++    throw new ApprovedOpError("授权路径身份在保护核对期间变化；本次执行未启动，请报告拥有者核实路径");
++  }
++}
++
+ /**
+  * 受限解析：逐段检查并拒绝符号链接组件，返回受限解析路径。
+  * - allowMissingLast：目标本身可以不存在（新建文件场景）；中间段缺失仍拒绝。
+diff --git a/packages/agent/src/execution/native.ts b/packages/agent/src/execution/native.ts
+index f298b100..8242476f 100644
+--- a/packages/agent/src/execution/native.ts
++++ b/packages/agent/src/execution/native.ts
+@@ -7,7 +7,7 @@ import * as os from "node:os";
+ import { execFile } from "node:child_process";
+ import { fileURLToPath } from "node:url";
+ import { ExecutionError, type LaunchSpec, type WorkerLauncher } from "./launchers.ts";
+-import { assertGrantNotProtected } from "./approved-ops.ts";
++import { assertGrantNotProtected, assertGrantsNotProtected } from "./approved-ops.ts";
+ import { launchMacosNative } from "./native-macos.ts";
+ import { launchLinuxNative } from "./native-linux.ts";
+ 
+@@ -246,13 +246,11 @@ export async function prepareNativeLaunch(config: NativeLauncherConfig, spec: La
+     const nodePath = fs.realpathSync(process.execPath);
+     const runtime = await runtimePaths(workerPath, nodePath, config.dependencyRoots);
+     const codeRoot = fs.realpathSync(fileURLToPath(new URL("../../../../", import.meta.url)));
+-    for (const root of runtime.roots) {
+-      for (const protectedRoot of config.protectedRoots ?? []) {
+-        const protectedReal = path.resolve(protectedRoot);
+-        const codeAsset = protectedReal === codeRoot &&
+-          (root === workerPath || (config.dependencyRoots === undefined && root === path.join(codeRoot, "node_modules")));
+-        if (!codeAsset) assertGrantNotProtected(root, [protectedReal]);
+-      }
++    for (const protectedRoot of config.protectedRoots ?? []) {
++      const protectedReal = path.resolve(protectedRoot);
++      const roots = runtime.roots.filter(root => !(protectedReal === codeRoot &&
++        (root === workerPath || (config.dependencyRoots === undefined && root === path.join(codeRoot, "node_modules")))));
++      assertGrantsNotProtected(roots, [protectedReal]);
+     }
+     const injected = spec.env ?? {};
+     for (const key of Object.keys(injected)) {
+diff --git a/test/101-native-execution.test.ts b/test/101-native-execution.test.ts
+index 133dbdb0..bc13d4df 100644
+--- a/test/101-native-execution.test.ts
++++ b/test/101-native-execution.test.ts
+@@ -7,7 +7,7 @@ import * as path from "node:path";
+ import { execFileSync } from "node:child_process";
+ import { fileURLToPath } from "node:url";
+ import { ExecutionError, createLauncherFor, type LaunchSpec } from "@ruukoto/agent/execution/launchers.ts";
+-import { assertNativeFileLinks, prepareNativeLaunch, type PreparedNativeLaunch } from "@ruukoto/agent/execution/native.ts";
++import { assertNativeFileLinks, prepareNativeLaunch, NATIVE_WORKER_PATH, type PreparedNativeLaunch } from "@ruukoto/agent/execution/native.ts";
+ import { nativeNetworkFilter, linuxNativeArgs } from "@ruukoto/agent/execution/native-linux.ts";
+ import { macosNativeProfile } from "@ruukoto/agent/execution/native-macos.ts";
+ 
+@@ -102,6 +102,9 @@ test("原生授权规范化、保护根、嵌套只读、目录身份与环境
+     prepared.push(first);
+     const second = await prepareNativeLaunch({ protectedRoots: [protectedRoot] }, spec);
+     prepared.push(second);
++    const codeRoot = fs.realpathSync(fileURLToPath(new URL("../", import.meta.url)));
++    await assert.rejects(prepareNativeLaunch({ protectedRoots: [codeRoot, NATIVE_WORKER_PATH] }, spec), unavailable);
++    await assert.rejects(prepareNativeLaunch({ protectedRoots: [codeRoot], dependencyRoots: [path.join(codeRoot, "node_modules")] }, spec), unavailable);
+     assert.notEqual(first.tempDir, second.tempDir);
+     assert.equal(fs.statSync(first.tempDir).mode & 0o777, 0o700);
+     assert.equal(first.env.HOME, path.join(first.tempDir, "home"));
+diff --git a/test/protected-path-batch.test.ts b/test/protected-path-batch.test.ts
+new file mode 100644
+index 00000000..ace1b0eb
+--- /dev/null
++++ b/test/protected-path-batch.test.ts
+@@ -0,0 +1,90 @@
++import assert from "node:assert/strict";
++import fs from "node:fs";
++import os from "node:os";
++import path from "node:path";
++import { syncBuiltinESMExports } from "node:module";
++import { test, type TestContext } from "node:test";
++import { ApprovedOpError, assertGrantNotProtected, assertGrantsNotProtected } from "@ruukoto/agent/execution/approved-ops.ts";
++
++function fixture(t: TestContext) {
++  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "protected-batch-")));
++  const protectedRoot = path.join(root, "private"), nested = path.join(protectedRoot, "nested"), safe = path.join(root, "safe");
++  fs.mkdirSync(nested, { recursive: true }); fs.mkdirSync(safe);
++  const source = path.join(nested, "source"); fs.writeFileSync(source, "private");
++  const targets = ["one", "two", "three"].map(name => path.join(safe, name));
++  for (const target of targets) fs.writeFileSync(target, "safe");
++  t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports(); fs.rmSync(root, { recursive: true, force: true }); });
++  return { root, protectedRoot, nested, source, safe, targets };
++}
++
++test("批量保护核对每个保护目录只遍历一次，单目标拒绝消息保持", t => {
++  const f = fixture(t), readdir = t.mock.method(fs, "readdirSync");
++  syncBuiltinESMExports();
++  assertGrantsNotProtected(f.targets, [f.protectedRoot]);
++  assert.equal(readdir.mock.calls.filter(call => call.arguments[0] === f.protectedRoot).length, 1);
++  assert.equal(readdir.mock.calls.filter(call => call.arguments[0] === f.nested).length, 1);
++  assert.throws(() => assertGrantNotProtected(f.source, [f.protectedRoot]), { message: `路径位于控制面/服务数据目录内，始终排除：${f.source}` });
++  assert.throws(() => assertGrantNotProtected(f.root, [f.protectedRoot]), { message: `路径是控制面/服务数据目录的父级，始终排除：${f.root}` });
++});
++
++test("批量核对拒绝后面的子文件硬链接、根与祖先；后续调用不沿用旧放行", t => {
++  const f = fixture(t);
++  assertGrantsNotProtected(f.targets, [f.protectedRoot]);
++  fs.unlinkSync(f.targets[2]); fs.linkSync(f.source, f.targets[2]);
++  assert.throws(() => assertGrantsNotProtected(f.targets, [f.protectedRoot]), ApprovedOpError);
++  assert.throws(() => assertGrantsNotProtected([f.targets[0], f.protectedRoot], [f.protectedRoot]), ApprovedOpError);
++  assert.throws(() => assertGrantsNotProtected([f.targets[0], f.root], [f.protectedRoot]), ApprovedOpError);
++});
++
++test("批量核对按子对象身份拒绝 nlink 为一的 bind 别名，不跟随保护树符号链接", t => {
++  const f = fixture(t), original = fs.statSync;
++  fs.symlinkSync(f.safe, path.join(f.protectedRoot, "outside"));
++  assertGrantsNotProtected(f.targets, [f.protectedRoot]);
++  // 只替换宿主 stat 的对象身份，真实 Linux file bind 另由 OS 探针证明。
++  t.mock.method(fs, "statSync", (target: fs.PathLike, options?: Parameters<typeof fs.statSync>[1]) => original(target === f.targets[2] ? f.source : target, options));
++  syncBuiltinESMExports();
++  assert.throws(() => assertGrantsNotProtected(f.targets, [f.protectedRoot]), ApprovedOpError);
++});
++
++for (const damage of ["target", "protected_root", "directory_entries"] as const) test(`批量核对在扫描中遇到 ${damage} 变化时拒绝`, t => {
++  const f = fixture(t), original = fs.readdirSync;
++  let changed = false;
++  t.mock.method(fs, "readdirSync", (...args: Parameters<typeof fs.readdirSync>) => {
++    const names = original(...args);
++    if (args[0] === f.protectedRoot && !changed) {
++      changed = true;
++      if (damage === "target") {
++        fs.renameSync(f.targets[0], f.targets[0] + "-old"); fs.writeFileSync(f.targets[0], "replacement");
++      } else if (damage === "protected_root") {
++        fs.renameSync(f.protectedRoot, f.protectedRoot + "-old"); fs.mkdirSync(f.nested, { recursive: true }); fs.writeFileSync(f.source, "replacement");
++      } else fs.writeFileSync(path.join(f.protectedRoot, "late"), "new entry");
++    }
++    return names;
++  });
++  syncBuiltinESMExports();
++  assert.throws(() => assertGrantsNotProtected(f.targets, [f.protectedRoot]), ApprovedOpError);
++  assert.equal(changed, true);
++});
++
++test("批量保护树读取失败向调用方传播，不当成没有保护对象", t => {
++  const f = fixture(t), original = fs.readdirSync, failure = new Error("read-failed");
++  t.mock.method(fs, "readdirSync", (...args: Parameters<typeof fs.readdirSync>) => {
++    if (args[0] === f.nested) throw failure;
++    return original(...args);
++  });
++  syncBuiltinESMExports();
++  assert.throws(() => assertGrantsNotProtected(f.targets, [f.protectedRoot]), error => error === failure);
++});
++
++test("批量保护根 stat 失败不被 existsSync 的 false 隐去；确定缺失的根仍按文本保护", t => {
++  const f = fixture(t), originalStat = fs.statSync, originalExists = fs.existsSync;
++  const missing = path.join(f.root, "missing"), failure = Object.assign(new Error("read-denied"), { code: "EACCES" });
++  assert.doesNotThrow(() => assertGrantsNotProtected(f.targets, [missing]));
++  t.mock.method(fs, "existsSync", (target: fs.PathLike) => target === f.protectedRoot ? false : originalExists(target));
++  t.mock.method(fs, "statSync", (target: fs.PathLike, options?: Parameters<typeof fs.statSync>[1]) => {
++    if (target === f.protectedRoot) throw failure;
++    return originalStat(target, options);
++  });
++  syncBuiltinESMExports();
++  assert.throws(() => assertGrantsNotProtected(f.targets, [f.protectedRoot]), error => error === failure);
++});

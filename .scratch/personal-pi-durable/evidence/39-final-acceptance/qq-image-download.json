@@ -1,0 +1,20 @@
+{
+  "read_only": true,
+  "events": [
+    {
+      "open": true
+    },
+    {
+      "echo": "39-login",
+      "status": "ok",
+      "retcode": 0
+    },
+    {
+      "timeout": true
+    },
+    {
+      "closed": 1006,
+      "reason": ""
+    }
+  ]
+}

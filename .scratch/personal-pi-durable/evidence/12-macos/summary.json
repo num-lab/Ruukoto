@@ -1,0 +1,76 @@
+{
+  "base": "06488645e1d50ed48e50230459c484cc0b2ac17f",
+  "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "node": "v24.15.0",
+  "npm": "11.12.1",
+  "at": "2026-10-17T04:43:25.593298+00:00",
+  "results": {
+    "setup": {
+      "command": "npm run setup",
+      "exitCode": 0,
+      "note": "首次检出安装完成，未更改锁文件"
+    },
+    "personal": {
+      "command": "npx tsx --test test/personal-durable.test.ts test/personal-cli.test.ts test/personal-services.test.ts test/personal-work.test.ts test/personal-work-tools.test.ts test/personal-work-controls.test.ts test/personal-work-notes.test.ts test/personal-service-operations.test.ts test/personal-telegram.test.ts test/personal-telegram-permissions.test.ts",
+      "pass": 231,
+      "fail": 0,
+      "skipped": 0,
+      "log": "personal.log"
+    },
+    "static": {
+      "command": "npm run check:static",
+      "exitCode": 0,
+      "log": "static-final.log",
+      "initial": "static.log 首轮仅README超预算2字符；保留事实压缩后全部通过"
+    },
+    "build": {
+      "command": "npm run build",
+      "exitCode": 0,
+      "log": "build.log",
+      "codingPackageShasum": "5af04e561c9fbf84bf29f8237e3655e563ea5ed9"
+    },
+    "modelInput": {
+      "command": "npx tsx .scratch/personal-pi-durable/evidence/12-macos/capture-model-input.mts",
+      "exitCode": 0,
+      "log": "model-input.log",
+      "before": {
+        "systemPrompt": 70,
+        "toolSchemas": 472
+      },
+      "after": {
+        "systemPrompt": 70,
+        "toolSchemas": 561
+      }
+    },
+    "pty": {
+      "exitCode": 0,
+      "evidence": "pty.json"
+    },
+    "independentReview": {
+      "result": "无未解决阻断",
+      "evidence": "independent-review/REVIEW.md",
+      "pass": 72
+    }
+  },
+  "notRun": [
+    "full npm run check",
+    "Node 22",
+    "full Coding runtime suite",
+    "real model",
+    "real Telegram/QQ",
+    "real systemd",
+    "production switch"
+  ],
+  "scope": "仅隔离个人入口；整项委托归属/汇总/固定最终回报尚未实施",
+  "linux": {
+    "passUnique": 231,
+    "initialPass": 230,
+    "incrementPass": 20,
+    "actualExecutions": 250,
+    "build": "passed",
+    "setup": "passed",
+    "currentPersonalInputsMatched": 30,
+    "cleanup": "专属目录不存在，残留进程为零",
+    "evidence": "../12-linux/RESULT.md"
+  }
+}

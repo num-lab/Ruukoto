@@ -1,0 +1,10 @@
+{
+  "command": [
+    "ssh",
+    "tx",
+    "tar -xzf /tmp/ruukoto-work-controls-20261017T040936Z-he27jsp3/source.tar.gz -C /tmp/ruukoto-work-controls-20261017T040936Z-he27jsp3/repo"
+  ],
+  "exitCode": 0,
+  "started": "2026-10-17T04:10:11.865633+00:00",
+  "ended": "2026-10-17T04:10:12.699361+00:00"
+}

@@ -1,0 +1,18 @@
+[
+  {
+    "group": "personal",
+    "command": [
+      "node",
+      "--import",
+      "tsx",
+      "--test",
+      "--test-concurrency=1",
+      "test/personal-qq.test.ts",
+      "test/personal-cli.test.ts"
+    ],
+    "cwd": "/tmp/ruukoto-31-linux.zdImFh/repo",
+    "started": 1792294933.3828368,
+    "elapsedSeconds": 28.984514474868774,
+    "exitCode": 0
+  }
+]

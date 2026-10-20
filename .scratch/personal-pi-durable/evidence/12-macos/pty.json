@@ -1,0 +1,14 @@
+{
+  "method": "exec_command tty + native script + write_stdin",
+  "command": "script -q pty.log env RUUKOTO_PERSONAL_DIR=<isolated profile> npx tsx apps/ruukoto/src/personal-entry.ts",
+  "exitCode": 0,
+  "checks": [
+    "从向导第12项按名称选原分析",
+    "追加说明，无需内部键",
+    "接纳后仍在执行且显示1条说明",
+    "原回答完成后读取最后追加回答",
+    "退出向导后认证接口仍可查询，停止已核实",
+    "专用后台和模型HTTP已关闭，档案已清理"
+  ],
+  "limits": "真实PTY/SQLite/socket/HTTP/SSE；模型和平台均为离线替身"
+}

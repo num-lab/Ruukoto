@@ -7,7 +7,7 @@ import * as os from "node:os";
 import { execFile } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { ExecutionError, type LaunchSpec, type WorkerLauncher } from "./launchers.ts";
-import { assertGrantNotProtected } from "./approved-ops.ts";
+import { assertGrantNotProtected, assertGrantsNotProtected } from "./approved-ops.ts";
 import { launchMacosNative } from "./native-macos.ts";
 import { launchLinuxNative } from "./native-linux.ts";
 
@@ -15,6 +15,8 @@ export interface NativeLauncherConfig {
   /** 宿主构建产物；不使用 tsx 或开放源码根。 */
   workerPath?: string;
   helperPath?: string;
+  /** 显式运行依赖；空列表用于自包含产物，省略时发现共享 Coding worker 的 Pi 依赖。 */
+  dependencyRoots?: string[];
   /** Runtime 注入后台数据、凭据、控制面与代码根。 */
   protectedRoots?: string[];
 }
@@ -114,7 +116,7 @@ function runFile(command: string, args: string[]): Promise<string> {
 }
 
 /** 只开放安装目录与实际动态库；PATH 别名另行保留，不开放拥有者 HOME。 */
-async function runtimePaths(workerPath: string, nodePath: string): Promise<{
+async function runtimePaths(workerPath: string, nodePath: string, dependencyRoots?: string[]): Promise<{
   roots: string[]; aliases: PreparedNativeLaunch["toolAliases"]; pathValue: string;
 }> {
   const roots = new Set<string>([workerPath, nodePath]);
@@ -125,17 +127,22 @@ async function runtimePaths(workerPath: string, nodePath: string): Promise<{
     ? ["/System/Library", "/usr/lib", "/usr/share", "/usr/bin", "/bin", "/usr/sbin", "/sbin", "/Library/Developer/CommandLineTools", "/private/var/select"]
     : ["/usr/bin", "/usr/sbin", "/usr/lib", "/usr/lib64", "/usr/libexec", "/usr/include", "/usr/share", "/bin", "/sbin", "/lib", "/lib64"];
   for (const root of systemRoots) if (fs.existsSync(root)) roots.add(fs.realpathSync(root));
-  let modulesParent = path.dirname(workerPath);
-  while (modulesParent !== path.dirname(modulesParent)) {
-    const modules = path.join(modulesParent, "node_modules");
-    if (fs.existsSync(path.join(modules, "@earendil-works/pi-coding-agent"))) {
-      roots.add(fs.realpathSync(modules));
-      break;
+  // Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-command-worker.md
+  if (dependencyRoots !== undefined) {
+    for (const root of dependencyRoots) roots.add(canonicalExisting(root));
+  } else {
+    let modulesParent = path.dirname(workerPath);
+    while (modulesParent !== path.dirname(modulesParent)) {
+      const modules = path.join(modulesParent, "node_modules");
+      if (fs.existsSync(path.join(modules, "@earendil-works/pi-coding-agent"))) {
+        roots.add(fs.realpathSync(modules));
+        break;
+      }
+      modulesParent = path.dirname(modulesParent);
     }
-    modulesParent = path.dirname(modulesParent);
-  }
-  if (![...roots].some(root => path.basename(root) === "node_modules")) {
-    throw new ExecutionError("execution_unavailable", "工具工作进程的运行依赖未安装：先运行 npm run setup 和 npm run build", undefined, "binary_missing");
+    if (![...roots].some(root => path.basename(root) === "node_modules")) {
+      throw new ExecutionError("execution_unavailable", "工具工作进程的运行依赖未安装：先运行 npm run setup 和 npm run build", undefined, "binary_missing");
+    }
   }
   const executables = new Set<string>([nodePath]);
   for (const name of ["node", "npm", "npx", "git", "python3", "cc", "c++", "clang", "make"]) {
@@ -237,15 +244,13 @@ export async function prepareNativeLaunch(config: NativeLauncherConfig, spec: La
     assertNativeFileLinks(mounts);
     const workerPath = fs.realpathSync(config.workerPath ?? NATIVE_WORKER_PATH);
     const nodePath = fs.realpathSync(process.execPath);
-    const runtime = await runtimePaths(workerPath, nodePath);
+    const runtime = await runtimePaths(workerPath, nodePath, config.dependencyRoots);
     const codeRoot = fs.realpathSync(fileURLToPath(new URL("../../../../", import.meta.url)));
-    for (const root of runtime.roots) {
-      for (const protectedRoot of config.protectedRoots ?? []) {
-        const protectedReal = path.resolve(protectedRoot);
-        const codeAsset = protectedReal === codeRoot &&
-          (root === workerPath || root === path.join(codeRoot, "node_modules"));
-        if (!codeAsset) assertGrantNotProtected(root, [protectedReal]);
-      }
+    for (const protectedRoot of config.protectedRoots ?? []) {
+      const protectedReal = path.resolve(protectedRoot);
+      const roots = runtime.roots.filter(root => !(protectedReal === codeRoot &&
+        (root === workerPath || (config.dependencyRoots === undefined && root === path.join(codeRoot, "node_modules")))));
+      assertGrantsNotProtected(roots, [protectedReal]);
     }
     const injected = spec.env ?? {};
     for (const key of Object.keys(injected)) {

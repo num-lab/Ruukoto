@@ -1,0 +1,12 @@
+{
+  "node": "v24.15.0",
+  "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "dependencies": "Existing main installation read-only symlinks with @ruukoto workspace aliases pointed into isolated source; not a clean install",
+  "worker_path": "/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable/worker",
+  "worker_sha256": {
+    "personal-command-worker.mjs": "c1d8bc3492be8253ce5bdf4ed5dc553e44da91fc3eda4be663eddd7d49e63cf3",
+    "worker.mjs": "ec4d123259d2ee502107d66c7598a5d88ad4a7551bf4ca9d3383cd3d70bdb909",
+    "workflow-script.mjs": "2e6719fd380b60ee89d7b1708de3fac33f169b398b5c73b5880a7f61b8dcf930"
+  },
+  "patch_sha256": "579f9227d8f75d9f5f6704da2893243133aa205b5d5908b5e527cd328a4b0efc"
+}

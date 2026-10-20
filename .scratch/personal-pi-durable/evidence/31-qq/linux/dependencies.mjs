@@ -1,0 +1,11 @@
+import fs from 'node:fs';import path from 'node:path';import {createHash} from 'node:crypto';
+const repo='/Users/eitrous/orca/workspaces/ruukoto/migrate-to-pi-durable',out='/tmp/ruukoto-31-linux.aiC1bq/repo';
+const roots=['apps/ruukoto','packages/agent','packages/core','packages/channels','packages/control','packages/runtime','packages/tui'];
+const seen=new Map();
+function resolve(name,from){let at=from;while(true){const p=path.join(at,'node_modules',name);if(fs.existsSync(path.join(p,'package.json')))return fs.realpathSync(p);const parent=path.dirname(at);if(parent===at)throw new Error(name+' from '+from);at=parent;}}
+function visit(dir){if(seen.has(dir))return;const json=JSON.parse(fs.readFileSync(path.join(dir,'package.json'),'utf8'));if(json.os&&!json.os.includes('linux')||json.cpu&&!json.cpu.includes('x64'))return;seen.set(dir,json);for(const name of Object.keys({...json.dependencies,...json.optionalDependencies})){if(name.startsWith('@ruukoto/')||name==='ruukoto'||name==='ruukoto-code')continue;try{visit(resolve(name,dir));}catch(error){if(!json.optionalDependencies?.[name])throw error;}}}
+for(const root of roots){for(const name of Object.keys(JSON.parse(fs.readFileSync(path.join(repo,root,'package.json'),'utf8')).dependencies??{})){if(name.startsWith('@ruukoto/'))continue;visit(resolve(name,path.join(repo,root)));}}
+visit(resolve('ws',repo));visit(resolve('tsx',repo));
+const records=[];for(const [dir,pkg]of seen){const rel=path.relative(repo,dir);if(!rel.includes('node_modules'))continue;const dest=path.join(out,rel);fs.mkdirSync(path.dirname(dest),{recursive:true});fs.cpSync(dir,dest,{recursive:true,dereference:true,filter:p=>path.relative(dir,p).split(path.sep)[0]!=='node_modules'});records.push({name:pkg.name,version:pkg.version,path:rel,packageJsonSha256:createHash('sha256').update(fs.readFileSync(path.join(dir,'package.json'))).digest('hex')});}
+for(const root of roots){const name=JSON.parse(fs.readFileSync(path.join(repo,root,'package.json'),'utf8')).name;const dest=path.join(out,'node_modules',name);fs.mkdirSync(path.dirname(dest),{recursive:true});if(!fs.existsSync(dest))fs.symlinkSync(path.relative(path.dirname(dest),path.join(out,root)),dest);}
+fs.writeFileSync('/tmp/ruukoto-31-linux.aiC1bq/runtime-dependencies.json',JSON.stringify(records,null,2)+'\n');console.log(records.length);

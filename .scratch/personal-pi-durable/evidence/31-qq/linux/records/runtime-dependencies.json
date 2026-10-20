@@ -1,0 +1,1712 @@
+[
+  {
+    "name": "@earendil-works/chord",
+    "version": "1.3.0",
+    "path": "apps/ruukoto/node_modules/@earendil-works/chord",
+    "packageJsonSha256": "1cfccb1c93b8e96d1be4ae8a19b4f10e545b9d3e0b9f005b199c3722da0512f8"
+  },
+  {
+    "name": "typebox",
+    "version": "1.3.27",
+    "path": "apps/ruukoto/node_modules/@earendil-works/chord/node_modules/typebox",
+    "packageJsonSha256": "c59ddfd977ce941f1e8ee8b0a0b14396c332fa27cc5fa6fa165227ffd5a3992f"
+  },
+  {
+    "name": "@earendil-works/pi-ai",
+    "version": "1.3.0",
+    "path": "apps/ruukoto/node_modules/@earendil-works/pi-ai",
+    "packageJsonSha256": "4e9ed07b06a91d844485874c251f312b610d015a4a4fd32c78cde58a7862a3f1"
+  },
+  {
+    "name": "@anthropic-ai/sdk",
+    "version": "0.129.0",
+    "path": "apps/ruukoto/node_modules/@anthropic-ai/sdk",
+    "packageJsonSha256": "3da3840a09a3bfeac32aed68cfd7fa9ac952f41a00cabe335f806caa2966f3f1"
+  },
+  {
+    "name": "standardwebhooks",
+    "version": "1.1.1",
+    "path": "node_modules/standardwebhooks",
+    "packageJsonSha256": "686397f0f0202e0b693cfd3f6241d7a8da3df326f9642867a484fbbd295690b6"
+  },
+  {
+    "name": "@stablelib/base64",
+    "version": "1.0.1",
+    "path": "node_modules/@stablelib/base64",
+    "packageJsonSha256": "7821116cc9ab0fb2542c1407ac5e34ff78bcc70b2d1295b753a9ea16134b3df7"
+  },
+  {
+    "name": "fast-sha256",
+    "version": "1.3.0",
+    "path": "node_modules/fast-sha256",
+    "packageJsonSha256": "d312f1993364bfb4f217f820ff7f9e0a6b1d87930bfc2605138ab660e8d29806"
+  },
+  {
+    "name": "json-schema-to-ts",
+    "version": "3.1.1",
+    "path": "node_modules/json-schema-to-ts",
+    "packageJsonSha256": "9439fa620a0f7a930950239ec4445d902c7d29590cddf0985a83bea531b2e81e"
+  },
+  {
+    "name": "@babel/runtime",
+    "version": "7.29.7",
+    "path": "node_modules/@babel/runtime",
+    "packageJsonSha256": "8c4bf20c55e3f3a93df034b12746bf72185cf2acb0ef52847a3465d6e67c61e7"
+  },
+  {
+    "name": "ts-algebra",
+    "version": "2.0.0",
+    "path": "node_modules/ts-algebra",
+    "packageJsonSha256": "6c6f692e1a3ad9943c77b5fa4eb04b0f63cb708353c67dcc5d86b35b2f7e5c30"
+  },
+  {
+    "name": "@aws-sdk/client-bedrock-runtime",
+    "version": "3.1127.0",
+    "path": "apps/ruukoto/node_modules/@aws-sdk/client-bedrock-runtime",
+    "packageJsonSha256": "d38839f240b6f89020c1abf351691d9749f7d35e6680abd6a6fc4415823c10e0"
+  },
+  {
+    "name": "@aws-sdk/core",
+    "version": "3.978.0",
+    "path": "node_modules/@aws-sdk/core",
+    "packageJsonSha256": "bf5d1a76418d30b454d576ee90710bc2c656a8f24cb04d02fc144d808cbe26d0"
+  },
+  {
+    "name": "@aws-sdk/types",
+    "version": "3.974.5",
+    "path": "node_modules/@aws-sdk/types",
+    "packageJsonSha256": "e714ed119d7ed0e06ea5d89b4e28fcecfbbcb9f2c52c724a8bc52b4dd23b14f7"
+  },
+  {
+    "name": "@smithy/types",
+    "version": "4.18.0",
+    "path": "node_modules/@smithy/types",
+    "packageJsonSha256": "7ebaa9023dcc247162ed27daf93ac21e269bdf20da83e58dcf86cedd32dc3da6"
+  },
+  {
+    "name": "tslib",
+    "version": "2.8.1",
+    "path": "node_modules/tslib",
+    "packageJsonSha256": "f02b4851df316f29bdfcd404aa1eb41e4e216b5859015f81fcd3e91caf8be931"
+  },
+  {
+    "name": "@aws-sdk/xml-builder",
+    "version": "3.972.40",
+    "path": "node_modules/@aws-sdk/xml-builder",
+    "packageJsonSha256": "e59293b6e8c39a53773e214b5cf550822d0d30b69bc8a90c23d1194a1e1656f1"
+  },
+  {
+    "name": "@aws/lambda-invoke-store",
+    "version": "0.3.0",
+    "path": "node_modules/@aws/lambda-invoke-store",
+    "packageJsonSha256": "67dd0cc15cb17df9e12654a78486e710e13a2e96623cb28c683056378fa973dc"
+  },
+  {
+    "name": "@smithy/core",
+    "version": "3.34.1",
+    "path": "node_modules/@smithy/core",
+    "packageJsonSha256": "945ea56345d855ccf5fe579deaa7b74b99dd1b46a7404bf69a9b62f614c61068"
+  },
+  {
+    "name": "@smithy/signature-v4",
+    "version": "5.7.3",
+    "path": "node_modules/@smithy/signature-v4",
+    "packageJsonSha256": "311248fd3c1829d286f59813f53bb5d2805a57bc48d883849d78b39545ebe616"
+  },
+  {
+    "name": "bowser",
+    "version": "2.14.1",
+    "path": "node_modules/bowser",
+    "packageJsonSha256": "b12b643998a1a7febff9933b5a05e53045c722ff4de13fab751391b2d346a974"
+  },
+  {
+    "name": "@aws-sdk/credential-provider-node",
+    "version": "3.972.83",
+    "path": "node_modules/@aws-sdk/credential-provider-node",
+    "packageJsonSha256": "9359091ecef63075e07243a281696523cdb0f8a5dfb87ad17b2d993dd4efcf67"
+  },
+  {
+    "name": "@aws-sdk/credential-provider-env",
+    "version": "3.972.71",
+    "path": "node_modules/@aws-sdk/credential-provider-env",
+    "packageJsonSha256": "00f48fb7611be252c380a93ef2af6280e4188489b9dda8a27c150cec27004ba7"
+  },
+  {
+    "name": "@aws-sdk/credential-provider-http",
+    "version": "3.972.73",
+    "path": "node_modules/@aws-sdk/credential-provider-http",
+    "packageJsonSha256": "053a07f9837ab56732facd808e115f12410ee118f60732ccb591be0258e6cb46"
+  },
+  {
+    "name": "@smithy/fetch-http-handler",
+    "version": "5.8.0",
+    "path": "node_modules/@smithy/fetch-http-handler",
+    "packageJsonSha256": "3319f9f00b71ae85d49473c1f5d5a0151c89547d7724753abe8d189471decffe"
+  },
+  {
+    "name": "@smithy/node-http-handler",
+    "version": "4.12.1",
+    "path": "node_modules/@aws-sdk/credential-provider-http/node_modules/@smithy/node-http-handler",
+    "packageJsonSha256": "e685e00a1e28371390ffab5711e5300b81743b7a7d5f5bf1a994e40197467221"
+  },
+  {
+    "name": "@aws-sdk/credential-provider-ini",
+    "version": "3.973.16",
+    "path": "node_modules/@aws-sdk/credential-provider-ini",
+    "packageJsonSha256": "99790093397c17239cb3bd6063d554b427b8b55e4414575f263e90348b66640c"
+  },
+  {
+    "name": "@aws-sdk/credential-provider-login",
+    "version": "3.972.78",
+    "path": "node_modules/@aws-sdk/credential-provider-login",
+    "packageJsonSha256": "d1a6cbfc0477ab590ba4656917d1d9da02ffe28b635db579ad5c407dac54b156"
+  },
+  {
+    "name": "@aws-sdk/nested-clients",
+    "version": "3.997.45",
+    "path": "node_modules/@aws-sdk/nested-clients",
+    "packageJsonSha256": "032d9e44c92d97643efc9ec1df81a76b535fe804d956ac70632edf27f5a95d2c"
+  },
+  {
+    "name": "@aws-sdk/signature-v4-multi-region",
+    "version": "3.996.46",
+    "path": "node_modules/@aws-sdk/signature-v4-multi-region",
+    "packageJsonSha256": "9edd78872c722b55ee176c5b4714020422ad073c4d13528f446a0421df553d7b"
+  },
+  {
+    "name": "@smithy/node-http-handler",
+    "version": "4.12.1",
+    "path": "node_modules/@aws-sdk/nested-clients/node_modules/@smithy/node-http-handler",
+    "packageJsonSha256": "e685e00a1e28371390ffab5711e5300b81743b7a7d5f5bf1a994e40197467221"
+  },
+  {
+    "name": "@aws-sdk/credential-provider-process",
+    "version": "3.972.71",
+    "path": "node_modules/@aws-sdk/credential-provider-process",
+    "packageJsonSha256": "7dfce59e4a808e3e5968646ae49906f17ed2ac556252d93500e0004636575fdd"
+  },
+  {
+    "name": "@aws-sdk/credential-provider-sso",
+    "version": "3.973.15",
+    "path": "node_modules/@aws-sdk/credential-provider-sso",
+    "packageJsonSha256": "406303270304d92eeb9f01764d6e47b5f4272fd9b670cbdffeb8438eb712b8d8"
+  },
+  {
+    "name": "@aws-sdk/token-providers",
+    "version": "3.1129.0",
+    "path": "node_modules/@aws-sdk/credential-provider-sso/node_modules/@aws-sdk/token-providers",
+    "packageJsonSha256": "8172a1549424b7c8aec79fc532584a3725a6ae121e870b4dddae8336c44116a4"
+  },
+  {
+    "name": "@aws-sdk/credential-provider-web-identity",
+    "version": "3.972.77",
+    "path": "node_modules/@aws-sdk/credential-provider-web-identity",
+    "packageJsonSha256": "8ec6395837beeec2f3415bd08c2ea81886a7df9b1d72d437946c03ae671fcaa8"
+  },
+  {
+    "name": "@smithy/credential-provider-imds",
+    "version": "4.5.2",
+    "path": "node_modules/@smithy/credential-provider-imds",
+    "packageJsonSha256": "1e3b437bfaf7800cbcd770cc744084ab9e3b6c445196b707fde90e2f66e0403c"
+  },
+  {
+    "name": "@aws-sdk/eventstream-handler-node",
+    "version": "3.972.34",
+    "path": "node_modules/@aws-sdk/eventstream-handler-node",
+    "packageJsonSha256": "05123c43610246bdd113ad45b04a5557a2f35f9d358ecf49fb2f5ea45bb7d6ef"
+  },
+  {
+    "name": "@aws-sdk/middleware-eventstream",
+    "version": "3.972.29",
+    "path": "node_modules/@aws-sdk/middleware-eventstream",
+    "packageJsonSha256": "f6c349485e796b7507604e42f2f69155d6b6043632fa2e79da3d90033a667b1b"
+  },
+  {
+    "name": "@aws-sdk/middleware-websocket",
+    "version": "3.972.53",
+    "path": "node_modules/@aws-sdk/middleware-websocket",
+    "packageJsonSha256": "fa6d93a11c2baeedf01ee8a9b7a3a6dd5235366e691329e49584cb9f2a1f6db9"
+  },
+  {
+    "name": "@aws-sdk/token-providers",
+    "version": "3.1127.0",
+    "path": "apps/ruukoto/node_modules/@aws-sdk/token-providers",
+    "packageJsonSha256": "fcb7e0ea77d0466b548fe3fc04efa0c13ced2dfbed14c62e7dc0995e1153dcd8"
+  },
+  {
+    "name": "@smithy/node-http-handler",
+    "version": "4.12.1",
+    "path": "apps/ruukoto/node_modules/@smithy/node-http-handler",
+    "packageJsonSha256": "e685e00a1e28371390ffab5711e5300b81743b7a7d5f5bf1a994e40197467221"
+  },
+  {
+    "name": "@earendil-works/pi-telemetry",
+    "version": "1.3.0",
+    "path": "apps/ruukoto/node_modules/@earendil-works/pi-telemetry",
+    "packageJsonSha256": "386479e7767a2aff572fea6339558405b1b23e9e7951504731515fc71b7db6ae"
+  },
+  {
+    "name": "@google/genai",
+    "version": "2.21.0",
+    "path": "apps/ruukoto/node_modules/@google/genai",
+    "packageJsonSha256": "64e3cd991d6b4749cd4b3afe46c8a0ad2f5d983f33df94081343797693fdbc81"
+  },
+  {
+    "name": "google-auth-library",
+    "version": "10.9.1",
+    "path": "node_modules/google-auth-library",
+    "packageJsonSha256": "d502e0b8f9b83f97f5f78aaee9ba5e7cd7067a81d2f8f0215c47b2877814a9c9"
+  },
+  {
+    "name": "base64-js",
+    "version": "1.5.1",
+    "path": "node_modules/base64-js",
+    "packageJsonSha256": "9758f3ab8c45e07bb9a368e32f9a8b3729623bbf47cbbb205b32d674ab2a91f0"
+  },
+  {
+    "name": "ecdsa-sig-formatter",
+    "version": "1.0.11",
+    "path": "node_modules/ecdsa-sig-formatter",
+    "packageJsonSha256": "f8c0805a13487310192db6ae04452c4315f5538ae87d7bc20de2904902c34027"
+  },
+  {
+    "name": "safe-buffer",
+    "version": "5.2.1",
+    "path": "node_modules/safe-buffer",
+    "packageJsonSha256": "e4018fdbfe625433371f48274fee26f520bbe865e0d8c85bf3aa07424134b90c"
+  },
+  {
+    "name": "gaxios",
+    "version": "7.3.1",
+    "path": "node_modules/gaxios",
+    "packageJsonSha256": "6d8ac1fadd9a3e890a0407f04f49dd8b919e418e46d10e65df9cba295ce319ad"
+  },
+  {
+    "name": "extend",
+    "version": "3.0.2",
+    "path": "node_modules/extend",
+    "packageJsonSha256": "8d891b3f00bead114c4741d8a594e7aaa59114f53782ec9a9319a619709dc14f"
+  },
+  {
+    "name": "https-proxy-agent",
+    "version": "7.0.6",
+    "path": "node_modules/https-proxy-agent",
+    "packageJsonSha256": "b08c1977d38f14f4be7fb5be33aab545e3e5a6e2e12100733a6ad97dec995206"
+  },
+  {
+    "name": "agent-base",
+    "version": "7.1.4",
+    "path": "node_modules/agent-base",
+    "packageJsonSha256": "7a08cb2fe1d2b788e0a7bf6a9b7597dbeeeae804698c2fbd15de786d284d327c"
+  },
+  {
+    "name": "debug",
+    "version": "4.4.3",
+    "path": "node_modules/debug",
+    "packageJsonSha256": "ea8e33d63fe5f3a4c36609b6c3df8e2ef1f8b8ba2fc3a2e1e53cb27291f384af"
+  },
+  {
+    "name": "ms",
+    "version": "2.1.3",
+    "path": "node_modules/ms",
+    "packageJsonSha256": "1a6b4d9739790c0b94ab96c8cc0507e281c164c311ff4fbf5e57fb8d26290b40"
+  },
+  {
+    "name": "node-fetch",
+    "version": "3.3.2",
+    "path": "node_modules/node-fetch",
+    "packageJsonSha256": "058acbc2474901ffa0b95c3f9d0903111426b118b55f928300e448d7252fc27d"
+  },
+  {
+    "name": "data-uri-to-buffer",
+    "version": "4.0.1",
+    "path": "node_modules/data-uri-to-buffer",
+    "packageJsonSha256": "ad4f90a737ab5d8af4dad265e9218456e3779ca5beb70df38dd5feecf80121dd"
+  },
+  {
+    "name": "fetch-blob",
+    "version": "3.2.0",
+    "path": "node_modules/fetch-blob",
+    "packageJsonSha256": "ee47bb73168049962586a09317017c44b1b10b2a90fc74e5c4561efdb361411b"
+  },
+  {
+    "name": "node-domexception",
+    "version": "1.0.0",
+    "path": "node_modules/node-domexception",
+    "packageJsonSha256": "1ff59c11ab7aef2b2f7fa393e8b871362e21b8a2defbd4922a8f8a5082fbfa06"
+  },
+  {
+    "name": "web-streams-polyfill",
+    "version": "3.3.3",
+    "path": "node_modules/web-streams-polyfill",
+    "packageJsonSha256": "13e22b076747f7673afc2afad4b932843844b1ffb2e5bd613442937eacdaf7d7"
+  },
+  {
+    "name": "formdata-polyfill",
+    "version": "4.0.10",
+    "path": "node_modules/formdata-polyfill",
+    "packageJsonSha256": "09767e86a596171ef17e8ec4977eb11f530654740fa3105dbbd7cd545753421e"
+  },
+  {
+    "name": "gcp-metadata",
+    "version": "8.1.2",
+    "path": "node_modules/gcp-metadata",
+    "packageJsonSha256": "1d50f7d982a12c539356257f1b26631ec06f569b804a596dc926ec8773224fa4"
+  },
+  {
+    "name": "google-logging-utils",
+    "version": "1.1.3",
+    "path": "node_modules/google-logging-utils",
+    "packageJsonSha256": "74980e1fd2db59c71a20ddf6accf42704c67da3b905fc5d2134ee39807dad42f"
+  },
+  {
+    "name": "json-bigint",
+    "version": "1.0.0",
+    "path": "node_modules/json-bigint",
+    "packageJsonSha256": "1c3b07ce46552112606922f0782b316383529b3da935d637c0606cb38a8caa5a"
+  },
+  {
+    "name": "bignumber.js",
+    "version": "9.3.1",
+    "path": "node_modules/bignumber.js",
+    "packageJsonSha256": "192208575108629a3272453526258511a5911a8127ab955371fb1f25ac79e99d"
+  },
+  {
+    "name": "jws",
+    "version": "4.0.1",
+    "path": "node_modules/jws",
+    "packageJsonSha256": "a934389f53e2ac8909d5399410c1ede3e35397be9e9f521bde25b61e1fee0b2f"
+  },
+  {
+    "name": "jwa",
+    "version": "2.0.1",
+    "path": "node_modules/jwa",
+    "packageJsonSha256": "53610fa0143c2cdef9d280e0c029ededf688930648358d4f3e35a081d75219d8"
+  },
+  {
+    "name": "buffer-equal-constant-time",
+    "version": "1.0.1",
+    "path": "node_modules/buffer-equal-constant-time",
+    "packageJsonSha256": "2d3df7ecb57811cf6fc43be180d9801c7c70928e5388391a6f258d889449ef4e"
+  },
+  {
+    "name": "p-retry",
+    "version": "4.6.2",
+    "path": "node_modules/p-retry",
+    "packageJsonSha256": "ee4376966f4f8db899019ec955b3dc25fd972e12587a0da10d8313dc7b617b3f"
+  },
+  {
+    "name": "@types/retry",
+    "version": "0.12.0",
+    "path": "node_modules/@types/retry",
+    "packageJsonSha256": "5d07cffb225eba4439977949ad9e8729620e51d1acc04f60fc8bad712183e063"
+  },
+  {
+    "name": "retry",
+    "version": "0.13.1",
+    "path": "node_modules/retry",
+    "packageJsonSha256": "7ae366b6b8133485abf27abe657c0ffa2d32600611ecf2c4fe5246165bed73d5"
+  },
+  {
+    "name": "protobufjs",
+    "version": "7.6.6",
+    "path": "node_modules/protobufjs",
+    "packageJsonSha256": "0e56b70de03bffc143e74311b42ae22b557370a4a1f4b5066568fbc77857639a"
+  },
+  {
+    "name": "@protobufjs/aspromise",
+    "version": "1.1.2",
+    "path": "node_modules/@protobufjs/aspromise",
+    "packageJsonSha256": "4a39ee1c94f6ee038d2944196aa6167785d3429a91727f828a1274262919e2d8"
+  },
+  {
+    "name": "@protobufjs/base64",
+    "version": "1.1.2",
+    "path": "node_modules/@protobufjs/base64",
+    "packageJsonSha256": "7ff6a89f566b95c0f21a5a9cb12df5718f0b06ef96d4186a92d650c0849fa2c5"
+  },
+  {
+    "name": "@protobufjs/codegen",
+    "version": "2.0.5",
+    "path": "node_modules/@protobufjs/codegen",
+    "packageJsonSha256": "818bf10387c19ab09b3814004ec672ab8d975302cdaf2dd65466bdb604764d65"
+  },
+  {
+    "name": "@protobufjs/eventemitter",
+    "version": "1.1.1",
+    "path": "node_modules/@protobufjs/eventemitter",
+    "packageJsonSha256": "d157d364fe4aee21cfd517abff35bca312ff51e6e6e90abdbec16225057e5914"
+  },
+  {
+    "name": "@protobufjs/fetch",
+    "version": "1.1.1",
+    "path": "node_modules/@protobufjs/fetch",
+    "packageJsonSha256": "52f997898a745acce5d68751883aad6296bcc2f152468ced0ed30e3c3c5a1c72"
+  },
+  {
+    "name": "@protobufjs/float",
+    "version": "1.0.2",
+    "path": "node_modules/@protobufjs/float",
+    "packageJsonSha256": "1cae4ded1bc97375a67fe4608f87ee59990734ea738fabb98e9061ab23669cdf"
+  },
+  {
+    "name": "@protobufjs/path",
+    "version": "1.1.2",
+    "path": "node_modules/@protobufjs/path",
+    "packageJsonSha256": "b19802dd696ceb8a4aa4839f35ab1c8312e97693d93485ff3c3e4f19cca183c4"
+  },
+  {
+    "name": "@protobufjs/pool",
+    "version": "1.1.0",
+    "path": "node_modules/@protobufjs/pool",
+    "packageJsonSha256": "7a33b609e770020fe1e09690cfebc23bbdd6e1306e3f0dd98ba5048966cb7fec"
+  },
+  {
+    "name": "@protobufjs/utf8",
+    "version": "1.1.2",
+    "path": "node_modules/@protobufjs/utf8",
+    "packageJsonSha256": "80fdb6b9f633023846b6cdf352ea795523abcf27affd4d54afd4b50a90a87411"
+  },
+  {
+    "name": "@types/node",
+    "version": "24.13.6",
+    "path": "node_modules/@types/node",
+    "packageJsonSha256": "0c855c9c76ecf4e8bc5097b617bc4db97fcfd6a37cf2794b386d44d9d58d9297"
+  },
+  {
+    "name": "undici-types",
+    "version": "7.18.2",
+    "path": "node_modules/undici-types",
+    "packageJsonSha256": "01701286a0441eddf1cd47d488047d363ce7d75466e7b6c89f1c605fba1c3957"
+  },
+  {
+    "name": "long",
+    "version": "5.3.2",
+    "path": "node_modules/long",
+    "packageJsonSha256": "982e554a35d140981c7962fbba77855563e5890de200f8dc0a249135e4d9acb8"
+  },
+  {
+    "name": "ws",
+    "version": "8.21.3",
+    "path": "node_modules/ws",
+    "packageJsonSha256": "a56a3fd55945a3ce177e3ca165dafae6f7eb03b7aefd58c092ac723d5741a6fb"
+  },
+  {
+    "name": "http-proxy-agent",
+    "version": "9.1.0",
+    "path": "apps/ruukoto/node_modules/http-proxy-agent",
+    "packageJsonSha256": "03703c6c566b00d8fd85ba57cd6460b14d0b762f694e26f0efbfe4e5384e3081"
+  },
+  {
+    "name": "agent-base",
+    "version": "9.0.0",
+    "path": "apps/ruukoto/node_modules/agent-base",
+    "packageJsonSha256": "13df46dd018fcf2e4231a0f47a1a007dd7d5441d9f8efb108f50f9fb64a17138"
+  },
+  {
+    "name": "proxy-agent-negotiate",
+    "version": "1.1.0",
+    "path": "node_modules/proxy-agent-negotiate",
+    "packageJsonSha256": "7b7c2579ea138d20d4f7699ca78ef16c526f35168dbf694f1d47cc861b0954d4"
+  },
+  {
+    "name": "https-proxy-agent",
+    "version": "9.1.0",
+    "path": "apps/ruukoto/node_modules/https-proxy-agent",
+    "packageJsonSha256": "50d17385a8c63c0ed0e138069617d4d9236ce92bddbe6f52cfec0e3a834c97a0"
+  },
+  {
+    "name": "openai",
+    "version": "7.19.0",
+    "path": "apps/ruukoto/node_modules/openai",
+    "packageJsonSha256": "8a855f81669a434ce894e2d1ae2f18e9050e93c57d14091f155cd543056bdc30"
+  },
+  {
+    "name": "partial-json",
+    "version": "0.1.7",
+    "path": "node_modules/partial-json",
+    "packageJsonSha256": "42b3ae6c99ec959249f8eb4d3da7fdb44ec1f96ec627fa7f9ca5487a4e80963f"
+  },
+  {
+    "name": "typebox",
+    "version": "1.3.27",
+    "path": "apps/ruukoto/node_modules/@earendil-works/pi-ai/node_modules/typebox",
+    "packageJsonSha256": "c59ddfd977ce941f1e8ee8b0a0b14396c332fa27cc5fa6fa165227ffd5a3992f"
+  },
+  {
+    "name": "@earendil-works/pi-coding-agent",
+    "version": "0.85.1",
+    "path": "node_modules/@earendil-works/pi-coding-agent",
+    "packageJsonSha256": "f1738e4b42203e5f22bcb513f13fb2fb224f1e98d1f129ff042f87048665a94c"
+  },
+  {
+    "name": "@earendil-works/chord",
+    "version": "0.85.1",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/chord",
+    "packageJsonSha256": "73d036ecc3b0c95a3a518f49ad168b77876849aa38568f0b110c776ad9d416d1"
+  },
+  {
+    "name": "esbuild",
+    "version": "0.28.1",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/esbuild",
+    "packageJsonSha256": "d55d1d19fcc5b6079e4a71dd4111340c79c682bc36835ac7058a0c364c7db58a"
+  },
+  {
+    "name": "@esbuild/linux-x64",
+    "version": "0.28.1",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@esbuild/linux-x64",
+    "packageJsonSha256": "2332dc7d04175b16730f136b5bf32b31203eecea5be03b66e9453a4658b3d971"
+  },
+  {
+    "name": "@earendil-works/pi-agent-core",
+    "version": "0.85.1",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-agent-core",
+    "packageJsonSha256": "f4c388363706ae0eb8eca4e7663f85f231bf0882d7e32c16f7cfd98153b26551"
+  },
+  {
+    "name": "@earendil-works/pi-ai",
+    "version": "0.85.1",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai",
+    "packageJsonSha256": "b54df5a36d523febdeebfc5682dc4faed101fee10aba913d5f3679582f018da3"
+  },
+  {
+    "name": "@anthropic-ai/sdk",
+    "version": "0.123.0",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@anthropic-ai/sdk",
+    "packageJsonSha256": "50fd5b7f7909f5aca75572f37fc6456f14fa11eaf77da18d6add98ea96240896"
+  },
+  {
+    "name": "standardwebhooks",
+    "version": "1.1.1",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/standardwebhooks",
+    "packageJsonSha256": "686397f0f0202e0b693cfd3f6241d7a8da3df326f9642867a484fbbd295690b6"
+  },
+  {
+    "name": "@stablelib/base64",
+    "version": "1.0.1",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@stablelib/base64",
+    "packageJsonSha256": "7821116cc9ab0fb2542c1407ac5e34ff78bcc70b2d1295b753a9ea16134b3df7"
+  },
+  {
+    "name": "fast-sha256",
+    "version": "1.3.0",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/fast-sha256",
+    "packageJsonSha256": "d312f1993364bfb4f217f820ff7f9e0a6b1d87930bfc2605138ab660e8d29806"
+  },
+  {
+    "name": "json-schema-to-ts",
+    "version": "3.1.1",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/json-schema-to-ts",
+    "packageJsonSha256": "9439fa620a0f7a930950239ec4445d902c7d29590cddf0985a83bea531b2e81e"
+  },
+  {
+    "name": "@babel/runtime",
+    "version": "7.29.2",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@babel/runtime",
+    "packageJsonSha256": "a34bfb8ab99545a10b211e8918e4a58cc66740366644298cb8efa3b766537ee0"
+  },
+  {
+    "name": "ts-algebra",
+    "version": "2.0.0",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/ts-algebra",
+    "packageJsonSha256": "6c6f692e1a3ad9943c77b5fa4eb04b0f63cb708353c67dcc5d86b35b2f7e5c30"
+  },
+  {
+    "name": "@aws-sdk/client-bedrock-runtime",
+    "version": "3.1048.0",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@aws-sdk/client-bedrock-runtime",
+    "packageJsonSha256": "9746220119a62fd75ffa8e79e9d846940d755b2d46a1eced7c682ab45f7d1c44"
+  },
+  {
+    "name": "@aws-crypto/sha256-browser",
+    "version": "5.2.0",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@aws-crypto/sha256-browser",
+    "packageJsonSha256": "d768636e0883273cb642a6d43d56b251a612cf76259c615a6f3d273efd11d183"
+  },
+  {
+    "name": "@aws-crypto/sha256-js",
+    "version": "5.2.0",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@aws-crypto/sha256-js",
+    "packageJsonSha256": "8e1d54418b4d45e154048127dbbd0aa1e64381d3a925f9f4cb2313285b1a12d4"
+  },
+  {
+    "name": "@aws-crypto/util",
+    "version": "5.2.0",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@aws-crypto/util",
+    "packageJsonSha256": "24070453bb4864338a412e74822bf3bfa0af5a58608b59cef1ba42a9f49d131e"
+  },
+  {
+    "name": "@aws-sdk/types",
+    "version": "3.973.8",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@aws-sdk/types",
+    "packageJsonSha256": "c689f9d7e15097b328d2ca2085ebcb94f1f0069bf531cb51176b2fe213b0572c"
+  },
+  {
+    "name": "@smithy/types",
+    "version": "4.14.2",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@smithy/types",
+    "packageJsonSha256": "d5db82eef63cea884e5898e247590f305529149581b91de90627d398d913fe97"
+  },
+  {
+    "name": "tslib",
+    "version": "2.8.1",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/tslib",
+    "packageJsonSha256": "f02b4851df316f29bdfcd404aa1eb41e4e216b5859015f81fcd3e91caf8be931"
+  },
+  {
+    "name": "@smithy/util-utf8",
+    "version": "2.3.0",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@smithy/util-utf8",
+    "packageJsonSha256": "29a106e642afa19962dc0e33cfd019293b450a8b5c906041cfd13f649384829f"
+  },
+  {
+    "name": "@smithy/util-buffer-from",
+    "version": "2.2.0",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@smithy/util-buffer-from",
+    "packageJsonSha256": "832f2b74d1ed39244e70aee576330270e50355c8043bd9c063051d7384683a3a"
+  },
+  {
+    "name": "@smithy/is-array-buffer",
+    "version": "2.2.0",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@smithy/is-array-buffer",
+    "packageJsonSha256": "3a190be525bed484e272c54b4853e4184029f83546d4c30f62382073c1997e8e"
+  },
+  {
+    "name": "@aws-crypto/supports-web-crypto",
+    "version": "5.2.0",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@aws-crypto/supports-web-crypto",
+    "packageJsonSha256": "17f3f7e7d103a17d360e5eb46bb16ece4fa306872c3ac303ae29c197cdebc3e0"
+  },
+  {
+    "name": "@aws-sdk/util-locate-window",
+    "version": "3.965.5",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@aws-sdk/util-locate-window",
+    "packageJsonSha256": "75e99cb71375f785ace05766d98d789eab9d8a398c91bfa377eb62c462471d21"
+  },
+  {
+    "name": "@aws-sdk/core",
+    "version": "3.974.11",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@aws-sdk/core",
+    "packageJsonSha256": "e4217b0678811ac027eb4eb905c0d7967ef31502b8d8020c593ab909b49ef183"
+  },
+  {
+    "name": "@aws-sdk/xml-builder",
+    "version": "3.972.24",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@aws-sdk/xml-builder",
+    "packageJsonSha256": "0b3038d8de7098cb07350711791cf09efd1db4e0518d6916a7cdc93804972655"
+  },
+  {
+    "name": "@nodable/entities",
+    "version": "2.1.0",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@nodable/entities",
+    "packageJsonSha256": "db5fa4f8833459b26f9e0569927c63bae1ed032f6392633552bbb6e77f5c29aa"
+  },
+  {
+    "name": "fast-xml-parser",
+    "version": "5.7.3",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/fast-xml-parser",
+    "packageJsonSha256": "a9165d1ed4ad2ad8ebca75206bee95b6916375eb80580c81a40a6da5229db849"
+  },
+  {
+    "name": "fast-xml-builder",
+    "version": "1.2.0",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/fast-xml-builder",
+    "packageJsonSha256": "b57ae9951d95bf88b89874196d0fbafed74aacfc022a80917f2340c09b0388b2"
+  },
+  {
+    "name": "path-expression-matcher",
+    "version": "1.5.0",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/path-expression-matcher",
+    "packageJsonSha256": "dbbb1f8cc3c95652f23c516e6d22f9bb9d3f7106ad7f3cb872806002e91c2a4f"
+  },
+  {
+    "name": "xml-naming",
+    "version": "0.1.0",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/xml-naming",
+    "packageJsonSha256": "b69775b228da8fb7f25c98f309bab65a3a27444a2fd6b96f6793ece74be1acdc"
+  },
+  {
+    "name": "strnum",
+    "version": "2.3.0",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/strnum",
+    "packageJsonSha256": "ffdd39d68a0b182b0634b4653fb0c64fc521fd326c94fa8c2735a1703eaece4f"
+  },
+  {
+    "name": "@aws/lambda-invoke-store",
+    "version": "0.2.4",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@aws/lambda-invoke-store",
+    "packageJsonSha256": "51ae61277f87ad3511ce7399fbceb96110a512352e1987bd68c63897f6e58037"
+  },
+  {
+    "name": "@smithy/core",
+    "version": "3.24.3",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@smithy/core",
+    "packageJsonSha256": "4fed9d38d81abc28b9d9131360df721f151224b815e0ac1140b149d5f89b1552"
+  },
+  {
+    "name": "@aws-crypto/crc32",
+    "version": "5.2.0",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@aws-crypto/crc32",
+    "packageJsonSha256": "81f125b9766e49fb980098600b0c1a686d1b0a727e5da9dadb610e96906c490d"
+  },
+  {
+    "name": "@smithy/signature-v4",
+    "version": "5.4.3",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@smithy/signature-v4",
+    "packageJsonSha256": "f4bc3ac18c85ef9947473ca98293bca5101a56a52d40353eedcb6248b526cc92"
+  },
+  {
+    "name": "bowser",
+    "version": "2.14.1",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/bowser",
+    "packageJsonSha256": "b12b643998a1a7febff9933b5a05e53045c722ff4de13fab751391b2d346a974"
+  },
+  {
+    "name": "@aws-sdk/credential-provider-node",
+    "version": "3.972.42",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@aws-sdk/credential-provider-node",
+    "packageJsonSha256": "a2a32417d665a4849c700363c2e51232cb4378761f0e27a79dd89bbcd1747452"
+  },
+  {
+    "name": "@aws-sdk/credential-provider-env",
+    "version": "3.972.37",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@aws-sdk/credential-provider-env",
+    "packageJsonSha256": "7f34b25b89bc5630ac6eb4c233469c2cc9ed6d5d50d609c3e77aa21ef29bb531"
+  },
+  {
+    "name": "@aws-sdk/credential-provider-http",
+    "version": "3.972.39",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@aws-sdk/credential-provider-http",
+    "packageJsonSha256": "2f8527e9e3bf43c40dbb0586bdb768deb20249b9656c5475223038dde86cd2f6"
+  },
+  {
+    "name": "@smithy/fetch-http-handler",
+    "version": "5.4.3",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@smithy/fetch-http-handler",
+    "packageJsonSha256": "7e796e748fad3cca1c6e20901c2c90c5920bc2e4bcf8ed9266e4e06513567fc0"
+  },
+  {
+    "name": "@smithy/node-http-handler",
+    "version": "4.7.3",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@smithy/node-http-handler",
+    "packageJsonSha256": "4e7f7aa591f5176b0e5169560c0a50c480882f44c684efd0c3b806f1d558033b"
+  },
+  {
+    "name": "@aws-sdk/credential-provider-ini",
+    "version": "3.972.41",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@aws-sdk/credential-provider-ini",
+    "packageJsonSha256": "e70d8503948a2b8328d6192c9a05ec9817e840d88cf35f2871bcc4ac5415a34f"
+  },
+  {
+    "name": "@aws-sdk/credential-provider-login",
+    "version": "3.972.41",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@aws-sdk/credential-provider-login",
+    "packageJsonSha256": "d0e508985b771d99a5f0cfc9c99f38a6c4ded76ba7d034e8cf267bbfa1b4b803"
+  },
+  {
+    "name": "@aws-sdk/nested-clients",
+    "version": "3.997.9",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@aws-sdk/nested-clients",
+    "packageJsonSha256": "f36d35c65732c2afd333cc5d9a9abe9b7d8c1f41da4d18b933c7d3045dc40d20"
+  },
+  {
+    "name": "@aws-sdk/signature-v4-multi-region",
+    "version": "3.996.27",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@aws-sdk/signature-v4-multi-region",
+    "packageJsonSha256": "fba1f399a8cc6d871d092fe9c4947be2c282e1d07c53ad96565c32062481b5b0"
+  },
+  {
+    "name": "@aws-sdk/credential-provider-process",
+    "version": "3.972.37",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@aws-sdk/credential-provider-process",
+    "packageJsonSha256": "26216dc37f48559cf2bf179f30ad96d485cf9a9cf8faaa25d412170cea2c1a22"
+  },
+  {
+    "name": "@aws-sdk/credential-provider-sso",
+    "version": "3.972.41",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@aws-sdk/credential-provider-sso",
+    "packageJsonSha256": "bbd2a6e803c26e5630ca16a814a0be5991566c1e0eb392565d7841c4a201d6c0"
+  },
+  {
+    "name": "@aws-sdk/token-providers",
+    "version": "3.1048.0",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@aws-sdk/token-providers",
+    "packageJsonSha256": "3f73420ab1769a288bf1352af3bc6689f301dacf7af2077bffee79ecc1f0ccac"
+  },
+  {
+    "name": "@aws-sdk/credential-provider-web-identity",
+    "version": "3.972.41",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@aws-sdk/credential-provider-web-identity",
+    "packageJsonSha256": "a430f6d2a39e3ee41eb2190195559adc18812f6170144c7a9967702c8ceaf2be"
+  },
+  {
+    "name": "@smithy/credential-provider-imds",
+    "version": "4.3.3",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@smithy/credential-provider-imds",
+    "packageJsonSha256": "b0e7ad9318c17813bb25116cad064310639898db587ba616324046d590782537"
+  },
+  {
+    "name": "@aws-sdk/eventstream-handler-node",
+    "version": "3.972.16",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@aws-sdk/eventstream-handler-node",
+    "packageJsonSha256": "c5f9350a767f76465d4e248c5734baa3627672408d33f9f23bcaf5078ccc9bee"
+  },
+  {
+    "name": "@aws-sdk/middleware-eventstream",
+    "version": "3.972.12",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@aws-sdk/middleware-eventstream",
+    "packageJsonSha256": "91f5cca2bc7e76900c046875b12fb01e90b524c556530d1e5a7f53cf8a8ab559"
+  },
+  {
+    "name": "@aws-sdk/middleware-websocket",
+    "version": "3.972.19",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@aws-sdk/middleware-websocket",
+    "packageJsonSha256": "86e2087bd122075119eb788cd32814b300cb2babede9b19a38f069df9e32c7f4"
+  },
+  {
+    "name": "@earendil-works/pi-telemetry",
+    "version": "0.85.1",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-telemetry",
+    "packageJsonSha256": "ef1fd481ce3c32458a6f4b41cf20dadf99765e9cbd31f44cc5a9ceabe4af8fcf"
+  },
+  {
+    "name": "@google/genai",
+    "version": "1.52.0",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@google/genai",
+    "packageJsonSha256": "ec761756421ea5502c23dbebfb4bc2b74c3ff842597199f2f330afc49cbdedc7"
+  },
+  {
+    "name": "google-auth-library",
+    "version": "10.6.2",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/google-auth-library",
+    "packageJsonSha256": "717e643e6ae916804b50abb3ec0319fdabd539625ce3076d6ff253e233c7c462"
+  },
+  {
+    "name": "base64-js",
+    "version": "1.5.1",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/base64-js",
+    "packageJsonSha256": "9758f3ab8c45e07bb9a368e32f9a8b3729623bbf47cbbb205b32d674ab2a91f0"
+  },
+  {
+    "name": "ecdsa-sig-formatter",
+    "version": "1.0.11",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/ecdsa-sig-formatter",
+    "packageJsonSha256": "f8c0805a13487310192db6ae04452c4315f5538ae87d7bc20de2904902c34027"
+  },
+  {
+    "name": "safe-buffer",
+    "version": "5.2.1",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/safe-buffer",
+    "packageJsonSha256": "e4018fdbfe625433371f48274fee26f520bbe865e0d8c85bf3aa07424134b90c"
+  },
+  {
+    "name": "gaxios",
+    "version": "7.1.4",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/gaxios",
+    "packageJsonSha256": "f0021f603f3760b635b30f8b9d18b1bf80118b1cf1080e59cea42ba420f703c7"
+  },
+  {
+    "name": "extend",
+    "version": "3.0.2",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/extend",
+    "packageJsonSha256": "8d891b3f00bead114c4741d8a594e7aaa59114f53782ec9a9319a619709dc14f"
+  },
+  {
+    "name": "https-proxy-agent",
+    "version": "7.0.6",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/https-proxy-agent",
+    "packageJsonSha256": "b08c1977d38f14f4be7fb5be33aab545e3e5a6e2e12100733a6ad97dec995206"
+  },
+  {
+    "name": "agent-base",
+    "version": "7.1.4",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/agent-base",
+    "packageJsonSha256": "7a08cb2fe1d2b788e0a7bf6a9b7597dbeeeae804698c2fbd15de786d284d327c"
+  },
+  {
+    "name": "debug",
+    "version": "4.4.3",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/debug",
+    "packageJsonSha256": "ea8e33d63fe5f3a4c36609b6c3df8e2ef1f8b8ba2fc3a2e1e53cb27291f384af"
+  },
+  {
+    "name": "ms",
+    "version": "2.1.3",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/ms",
+    "packageJsonSha256": "1a6b4d9739790c0b94ab96c8cc0507e281c164c311ff4fbf5e57fb8d26290b40"
+  },
+  {
+    "name": "node-fetch",
+    "version": "3.3.2",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/node-fetch",
+    "packageJsonSha256": "058acbc2474901ffa0b95c3f9d0903111426b118b55f928300e448d7252fc27d"
+  },
+  {
+    "name": "data-uri-to-buffer",
+    "version": "4.0.1",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/data-uri-to-buffer",
+    "packageJsonSha256": "ad4f90a737ab5d8af4dad265e9218456e3779ca5beb70df38dd5feecf80121dd"
+  },
+  {
+    "name": "fetch-blob",
+    "version": "3.2.0",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/fetch-blob",
+    "packageJsonSha256": "ee47bb73168049962586a09317017c44b1b10b2a90fc74e5c4561efdb361411b"
+  },
+  {
+    "name": "node-domexception",
+    "version": "1.0.0",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/node-domexception",
+    "packageJsonSha256": "1ff59c11ab7aef2b2f7fa393e8b871362e21b8a2defbd4922a8f8a5082fbfa06"
+  },
+  {
+    "name": "web-streams-polyfill",
+    "version": "3.3.3",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/web-streams-polyfill",
+    "packageJsonSha256": "13e22b076747f7673afc2afad4b932843844b1ffb2e5bd613442937eacdaf7d7"
+  },
+  {
+    "name": "formdata-polyfill",
+    "version": "4.0.10",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/formdata-polyfill",
+    "packageJsonSha256": "09767e86a596171ef17e8ec4977eb11f530654740fa3105dbbd7cd545753421e"
+  },
+  {
+    "name": "gcp-metadata",
+    "version": "8.1.2",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/gcp-metadata",
+    "packageJsonSha256": "1d50f7d982a12c539356257f1b26631ec06f569b804a596dc926ec8773224fa4"
+  },
+  {
+    "name": "google-logging-utils",
+    "version": "1.1.3",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/google-logging-utils",
+    "packageJsonSha256": "74980e1fd2db59c71a20ddf6accf42704c67da3b905fc5d2134ee39807dad42f"
+  },
+  {
+    "name": "json-bigint",
+    "version": "1.0.0",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/json-bigint",
+    "packageJsonSha256": "1c3b07ce46552112606922f0782b316383529b3da935d637c0606cb38a8caa5a"
+  },
+  {
+    "name": "bignumber.js",
+    "version": "9.3.1",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/bignumber.js",
+    "packageJsonSha256": "192208575108629a3272453526258511a5911a8127ab955371fb1f25ac79e99d"
+  },
+  {
+    "name": "jws",
+    "version": "4.0.1",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/jws",
+    "packageJsonSha256": "a934389f53e2ac8909d5399410c1ede3e35397be9e9f521bde25b61e1fee0b2f"
+  },
+  {
+    "name": "jwa",
+    "version": "2.0.1",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/jwa",
+    "packageJsonSha256": "53610fa0143c2cdef9d280e0c029ededf688930648358d4f3e35a081d75219d8"
+  },
+  {
+    "name": "buffer-equal-constant-time",
+    "version": "1.0.1",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/buffer-equal-constant-time",
+    "packageJsonSha256": "2d3df7ecb57811cf6fc43be180d9801c7c70928e5388391a6f258d889449ef4e"
+  },
+  {
+    "name": "p-retry",
+    "version": "4.6.2",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/p-retry",
+    "packageJsonSha256": "ee4376966f4f8db899019ec955b3dc25fd972e12587a0da10d8313dc7b617b3f"
+  },
+  {
+    "name": "@types/retry",
+    "version": "0.12.0",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/p-retry/node_modules/@types/retry",
+    "packageJsonSha256": "5d07cffb225eba4439977949ad9e8729620e51d1acc04f60fc8bad712183e063"
+  },
+  {
+    "name": "retry",
+    "version": "0.13.1",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/retry",
+    "packageJsonSha256": "7ae366b6b8133485abf27abe657c0ffa2d32600611ecf2c4fe5246165bed73d5"
+  },
+  {
+    "name": "protobufjs",
+    "version": "7.6.5",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/protobufjs",
+    "packageJsonSha256": "893c7c89175f609c08fa04329c89cefb411faf5ad7da76213f64498485e81404"
+  },
+  {
+    "name": "@protobufjs/aspromise",
+    "version": "1.1.2",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@protobufjs/aspromise",
+    "packageJsonSha256": "4a39ee1c94f6ee038d2944196aa6167785d3429a91727f828a1274262919e2d8"
+  },
+  {
+    "name": "@protobufjs/base64",
+    "version": "1.1.2",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@protobufjs/base64",
+    "packageJsonSha256": "7ff6a89f566b95c0f21a5a9cb12df5718f0b06ef96d4186a92d650c0849fa2c5"
+  },
+  {
+    "name": "@protobufjs/codegen",
+    "version": "2.0.5",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@protobufjs/codegen",
+    "packageJsonSha256": "818bf10387c19ab09b3814004ec672ab8d975302cdaf2dd65466bdb604764d65"
+  },
+  {
+    "name": "@protobufjs/eventemitter",
+    "version": "1.1.1",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@protobufjs/eventemitter",
+    "packageJsonSha256": "d157d364fe4aee21cfd517abff35bca312ff51e6e6e90abdbec16225057e5914"
+  },
+  {
+    "name": "@protobufjs/fetch",
+    "version": "1.1.1",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@protobufjs/fetch",
+    "packageJsonSha256": "52f997898a745acce5d68751883aad6296bcc2f152468ced0ed30e3c3c5a1c72"
+  },
+  {
+    "name": "@protobufjs/float",
+    "version": "1.0.2",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@protobufjs/float",
+    "packageJsonSha256": "1cae4ded1bc97375a67fe4608f87ee59990734ea738fabb98e9061ab23669cdf"
+  },
+  {
+    "name": "@protobufjs/path",
+    "version": "1.1.2",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@protobufjs/path",
+    "packageJsonSha256": "b19802dd696ceb8a4aa4839f35ab1c8312e97693d93485ff3c3e4f19cca183c4"
+  },
+  {
+    "name": "@protobufjs/pool",
+    "version": "1.1.0",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@protobufjs/pool",
+    "packageJsonSha256": "7a33b609e770020fe1e09690cfebc23bbdd6e1306e3f0dd98ba5048966cb7fec"
+  },
+  {
+    "name": "@protobufjs/utf8",
+    "version": "1.1.1",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@protobufjs/utf8",
+    "packageJsonSha256": "0487ccf34c45f9a65ebc1cc553a9898df191e3f9cd530bf2aea7ad341c02afdc"
+  },
+  {
+    "name": "@types/node",
+    "version": "22.19.19",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@types/node",
+    "packageJsonSha256": "ba8f6326a685af9e7dce89a99f55e0dc3cef450046acf00a20f7cb673562f581"
+  },
+  {
+    "name": "undici-types",
+    "version": "6.21.0",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/undici-types",
+    "packageJsonSha256": "11f873b423b96a5ad444a099685ca6b9de1379dcd83fd8d368e757ddb53658e4"
+  },
+  {
+    "name": "long",
+    "version": "5.3.2",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/long",
+    "packageJsonSha256": "982e554a35d140981c7962fbba77855563e5890de200f8dc0a249135e4d9acb8"
+  },
+  {
+    "name": "ws",
+    "version": "8.21.0",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/ws",
+    "packageJsonSha256": "584ce6e7516587ba249dc910b0c04e2753f6b3f451fc3a5bc324f7735bdacc71"
+  },
+  {
+    "name": "http-proxy-agent",
+    "version": "7.0.2",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/http-proxy-agent",
+    "packageJsonSha256": "38b61961aa0ba3028f2e120b3d883179281f6ba25fe22ff2214bf9f363161b65"
+  },
+  {
+    "name": "openai",
+    "version": "6.40.0",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/openai",
+    "packageJsonSha256": "62ce25ffb47afe5cbbf80e8574297d79ea72b2ef3e5087d91e0e3e1bf38c2ebc"
+  },
+  {
+    "name": "partial-json",
+    "version": "0.1.7",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/partial-json",
+    "packageJsonSha256": "42b3ae6c99ec959249f8eb4d3da7fdb44ec1f96ec627fa7f9ca5487a4e80963f"
+  },
+  {
+    "name": "typebox",
+    "version": "1.3.7",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/typebox",
+    "packageJsonSha256": "0d54851ecbd094c1e0ea211e53d097eea3b1f9f05c7d895f072587c84d6131ed"
+  },
+  {
+    "name": "diff",
+    "version": "8.0.4",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/diff",
+    "packageJsonSha256": "372a1ad33bcaded0234d5d327d1164c18968ee3f2e9f362ddd22e4489e91e369"
+  },
+  {
+    "name": "ignore",
+    "version": "7.0.5",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/ignore",
+    "packageJsonSha256": "9aea50de5a5f199b29b8f6d5e3c46ffac58958dd4d4f525bfde14214ad39417f"
+  },
+  {
+    "name": "yaml",
+    "version": "2.9.0",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/yaml",
+    "packageJsonSha256": "20b8b197cbd10dad245d45e463dfe58e4c8c25a47e24bc4256ad9ab58bf35683"
+  },
+  {
+    "name": "@earendil-works/pi-tui",
+    "version": "0.85.1",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-tui",
+    "packageJsonSha256": "94897cdb5eccf9f578eb51e16d3b35c408c297461e5ade1cebd53be35c031a44"
+  },
+  {
+    "name": "get-east-asian-width",
+    "version": "1.6.0",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/get-east-asian-width",
+    "packageJsonSha256": "d263e50dd1a43aee9acda4d7f066e66b0d0bde1f2852ea6e7153750a5e3a3e52"
+  },
+  {
+    "name": "marked",
+    "version": "18.0.5",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/marked",
+    "packageJsonSha256": "835873ede7f8ef8d7283ef40e455228d88ddf283d1160f1ef48b2b091464ea2d"
+  },
+  {
+    "name": "@silvia-odwyer/photon-node",
+    "version": "0.3.4",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@silvia-odwyer/photon-node",
+    "packageJsonSha256": "a1362f6a9e9d942d6b77555f1e40b19a6b3e2cc04bfb8af95e452a6f769fe7db"
+  },
+  {
+    "name": "chalk",
+    "version": "5.6.2",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/chalk",
+    "packageJsonSha256": "ef029c254479723c952a24c0d8d758378bd8ddf031f5bd6f027f65e1a3d030f3"
+  },
+  {
+    "name": "cross-spawn",
+    "version": "7.0.6",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/cross-spawn",
+    "packageJsonSha256": "2e106cd9b4ae4e34ead35218371a0d4e172da72515a4f8f97d69a2e1fe3dee82"
+  },
+  {
+    "name": "path-key",
+    "version": "3.1.1",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/path-key",
+    "packageJsonSha256": "25594dab72681c910d9cc919263a4daf27d77a75e0d2c26a4d958d6d6b798f86"
+  },
+  {
+    "name": "shebang-command",
+    "version": "2.0.0",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/shebang-command",
+    "packageJsonSha256": "44de390ae5ed6c5f9758b8b9c90b93fa53977d5361731600429f1de08f4b3f30"
+  },
+  {
+    "name": "shebang-regex",
+    "version": "3.0.0",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/shebang-regex",
+    "packageJsonSha256": "b8018c6b8cc9900dfd1ac18a54956ba34c453fdc2da5e5fe555ee8f04133a1c5"
+  },
+  {
+    "name": "which",
+    "version": "2.0.2",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/which",
+    "packageJsonSha256": "43010039ed5e89f7186960be682b3cb5cda5ab6cdfb06cbfd4f081cf0e7b4260"
+  },
+  {
+    "name": "isexe",
+    "version": "2.0.0",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/isexe",
+    "packageJsonSha256": "395c2af9abeeaafe7391974c1eacfb2a2bdeef187f21c3f5582c49e0368e59bf"
+  },
+  {
+    "name": "grok-mermaid",
+    "version": "0.2.2",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/grok-mermaid",
+    "packageJsonSha256": "352aa3c5ce52ba2a936422dd72ba658274049f858533455f4ae13cdbb2e0f31e"
+  },
+  {
+    "name": "highlight.js",
+    "version": "10.7.3",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/highlight.js",
+    "packageJsonSha256": "4f657beb931cb9613e5173414855b2a01e698696c0661d21973bfbbd50e184cf"
+  },
+  {
+    "name": "hosted-git-info",
+    "version": "9.0.3",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/hosted-git-info",
+    "packageJsonSha256": "7c3774e4843581832aec08133a19df318625a91c1ca6c90fef1a328d4e02705e"
+  },
+  {
+    "name": "lru-cache",
+    "version": "11.4.0",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/lru-cache",
+    "packageJsonSha256": "f46461a60ce544a6a1cad7dabc1ee1a260841e66c353a5db0179cfd21cc0efb5"
+  },
+  {
+    "name": "jiti",
+    "version": "2.7.0",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/jiti",
+    "packageJsonSha256": "aab8aafc42d9aeec14a6e2fe0e15ea1514c0c205a624055a7e776f2ec456283c"
+  },
+  {
+    "name": "minimatch",
+    "version": "10.2.5",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/minimatch",
+    "packageJsonSha256": "4b3a08a7ad20dead8bbe4b4fe97a2746bded7c51d218ef3034eb4e330ad31f08"
+  },
+  {
+    "name": "brace-expansion",
+    "version": "5.0.9",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/brace-expansion",
+    "packageJsonSha256": "f8a0e0d0a6cbb58106ce6832205e0939a00b9583637011bf8ef4167f4a52fbda"
+  },
+  {
+    "name": "balanced-match",
+    "version": "4.0.4",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/balanced-match",
+    "packageJsonSha256": "c984e6ae5c41fac085a07a732b665b22e0a26f28b61c692ba18ff458a8ecc95a"
+  },
+  {
+    "name": "proper-lockfile",
+    "version": "4.1.2",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/proper-lockfile",
+    "packageJsonSha256": "23888ecc7abd83a8e98e132da556eda2172792cc04c4e6d157b590667802bd2a"
+  },
+  {
+    "name": "graceful-fs",
+    "version": "4.2.11",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/graceful-fs",
+    "packageJsonSha256": "5747d4ba6b17165c6ecac30ab3a331715f41c7ad546e1f1574dab1bdcb116181"
+  },
+  {
+    "name": "retry",
+    "version": "0.12.0",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/proper-lockfile/node_modules/retry",
+    "packageJsonSha256": "c0733eb226e2a6572c7c9c2bc8b4a0efabe233971b0dee1e6d62c6898257e1da"
+  },
+  {
+    "name": "signal-exit",
+    "version": "3.0.7",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/signal-exit",
+    "packageJsonSha256": "cec1bba4c97e0cf653c13c8c79f745aac2232131ee718c93c4236c1b9577a201"
+  },
+  {
+    "name": "semver",
+    "version": "7.8.0",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/semver",
+    "packageJsonSha256": "55c0bf1b742691521220be5da502e87a0d963027b5c889c52eb6bb9ae7cbf6c6"
+  },
+  {
+    "name": "undici",
+    "version": "8.9.0",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/undici",
+    "packageJsonSha256": "7f3ceff33b99699c2c63574d9368f84035b1a11fa33a7d14e8184498eb19dd5b"
+  },
+  {
+    "name": "@mariozechner/clipboard",
+    "version": "0.3.9",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@mariozechner/clipboard",
+    "packageJsonSha256": "780f1b41356ce9e5bb0d31d3ce111af941d141e9a96ac8e1b8ca0a298add4547"
+  },
+  {
+    "name": "@mariozechner/clipboard-linux-x64-gnu",
+    "version": "0.3.9",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@mariozechner/clipboard-linux-x64-gnu",
+    "packageJsonSha256": "ac256de47c8d1f3fffa3caa9ab93ceb0b97229b97d417462b8644e730eded567"
+  },
+  {
+    "name": "@mariozechner/clipboard-linux-x64-musl",
+    "version": "0.3.9",
+    "path": "node_modules/@earendil-works/pi-coding-agent/node_modules/@mariozechner/clipboard-linux-x64-musl",
+    "packageJsonSha256": "69a868a0ebb08f108f9f25e4fc2bd05ec01357f72ec90c1b61bf80467f2c2095"
+  },
+  {
+    "name": "@earendil-works/pi-durable",
+    "version": "1.3.0",
+    "path": "node_modules/@earendil-works/pi-durable",
+    "packageJsonSha256": "7877411c036932f74af4226563ff37f121013a9f69d4f9ceb55f5cdbcf6e5c54"
+  },
+  {
+    "name": "@earendil-works/chord",
+    "version": "1.3.0",
+    "path": "node_modules/@earendil-works/pi-durable/node_modules/@earendil-works/chord",
+    "packageJsonSha256": "1cfccb1c93b8e96d1be4ae8a19b4f10e545b9d3e0b9f005b199c3722da0512f8"
+  },
+  {
+    "name": "typebox",
+    "version": "1.3.27",
+    "path": "node_modules/@earendil-works/pi-durable/node_modules/typebox",
+    "packageJsonSha256": "c59ddfd977ce941f1e8ee8b0a0b14396c332fa27cc5fa6fa165227ffd5a3992f"
+  },
+  {
+    "name": "@earendil-works/pi-ai",
+    "version": "1.3.0",
+    "path": "node_modules/@earendil-works/pi-durable/node_modules/@earendil-works/pi-ai",
+    "packageJsonSha256": "4e9ed07b06a91d844485874c251f312b610d015a4a4fd32c78cde58a7862a3f1"
+  },
+  {
+    "name": "@anthropic-ai/sdk",
+    "version": "0.129.0",
+    "path": "node_modules/@earendil-works/pi-durable/node_modules/@anthropic-ai/sdk",
+    "packageJsonSha256": "3da3840a09a3bfeac32aed68cfd7fa9ac952f41a00cabe335f806caa2966f3f1"
+  },
+  {
+    "name": "@aws-sdk/client-bedrock-runtime",
+    "version": "3.1127.0",
+    "path": "node_modules/@earendil-works/pi-durable/node_modules/@aws-sdk/client-bedrock-runtime",
+    "packageJsonSha256": "d38839f240b6f89020c1abf351691d9749f7d35e6680abd6a6fc4415823c10e0"
+  },
+  {
+    "name": "@aws-sdk/token-providers",
+    "version": "3.1127.0",
+    "path": "node_modules/@earendil-works/pi-durable/node_modules/@aws-sdk/token-providers",
+    "packageJsonSha256": "fcb7e0ea77d0466b548fe3fc04efa0c13ced2dfbed14c62e7dc0995e1153dcd8"
+  },
+  {
+    "name": "@smithy/node-http-handler",
+    "version": "4.12.1",
+    "path": "node_modules/@earendil-works/pi-durable/node_modules/@smithy/node-http-handler",
+    "packageJsonSha256": "e685e00a1e28371390ffab5711e5300b81743b7a7d5f5bf1a994e40197467221"
+  },
+  {
+    "name": "@earendil-works/pi-telemetry",
+    "version": "1.3.0",
+    "path": "node_modules/@earendil-works/pi-durable/node_modules/@earendil-works/pi-telemetry",
+    "packageJsonSha256": "386479e7767a2aff572fea6339558405b1b23e9e7951504731515fc71b7db6ae"
+  },
+  {
+    "name": "@google/genai",
+    "version": "2.21.0",
+    "path": "node_modules/@earendil-works/pi-durable/node_modules/@google/genai",
+    "packageJsonSha256": "64e3cd991d6b4749cd4b3afe46c8a0ad2f5d983f33df94081343797693fdbc81"
+  },
+  {
+    "name": "http-proxy-agent",
+    "version": "9.1.0",
+    "path": "node_modules/@earendil-works/pi-durable/node_modules/http-proxy-agent",
+    "packageJsonSha256": "03703c6c566b00d8fd85ba57cd6460b14d0b762f694e26f0efbfe4e5384e3081"
+  },
+  {
+    "name": "agent-base",
+    "version": "9.0.0",
+    "path": "node_modules/@earendil-works/pi-durable/node_modules/agent-base",
+    "packageJsonSha256": "13df46dd018fcf2e4231a0f47a1a007dd7d5441d9f8efb108f50f9fb64a17138"
+  },
+  {
+    "name": "https-proxy-agent",
+    "version": "9.1.0",
+    "path": "node_modules/@earendil-works/pi-durable/node_modules/https-proxy-agent",
+    "packageJsonSha256": "50d17385a8c63c0ed0e138069617d4d9236ce92bddbe6f52cfec0e3a834c97a0"
+  },
+  {
+    "name": "openai",
+    "version": "7.19.0",
+    "path": "node_modules/@earendil-works/pi-durable/node_modules/openai",
+    "packageJsonSha256": "8a855f81669a434ce894e2d1ae2f18e9050e93c57d14091f155cd543056bdc30"
+  },
+  {
+    "name": "@earendil-works/pi-codemode",
+    "version": "1.3.0",
+    "path": "node_modules/@earendil-works/pi-codemode",
+    "packageJsonSha256": "537cbc71ff74ac9aee012faa7d0f8b7a082115434d2e3fa4305b434b3f9c000f"
+  },
+  {
+    "name": "quickjs-wasi",
+    "version": "3.6.2",
+    "path": "node_modules/quickjs-wasi",
+    "packageJsonSha256": "efa1d0d3b440dd7a31f55690d414f9c7f59e6a15395075efee884454c86715c2"
+  },
+  {
+    "name": "@silvia-odwyer/photon",
+    "version": "0.3.3",
+    "path": "node_modules/@silvia-odwyer/photon",
+    "packageJsonSha256": "20bd07f096f177f4fb12d1cb7893c788bda42edf1722ca5450dc2355701769f8"
+  },
+  {
+    "name": "diff",
+    "version": "8.0.4",
+    "path": "node_modules/diff",
+    "packageJsonSha256": "372a1ad33bcaded0234d5d327d1164c18968ee3f2e9f362ddd22e4489e91e369"
+  },
+  {
+    "name": "tsx",
+    "version": "4.23.13",
+    "path": "node_modules/tsx",
+    "packageJsonSha256": "3ace2493a0acd26fc72a8433a38113ee04d5a1976910a3f40815f9e779d5c426"
+  },
+  {
+    "name": "esbuild",
+    "version": "0.28.1",
+    "path": "node_modules/esbuild",
+    "packageJsonSha256": "d55d1d19fcc5b6079e4a71dd4111340c79c682bc36835ac7058a0c364c7db58a"
+  },
+  {
+    "name": "typebox",
+    "version": "1.0.12",
+    "path": "node_modules/typebox",
+    "packageJsonSha256": "6ffa49bd1a2eefbf7472830aeaa058c4d707f25c160a005207ddf02cc1f0b1fb"
+  },
+  {
+    "name": "@earendil-works/pi-ai",
+    "version": "0.85.1",
+    "path": "node_modules/@earendil-works/pi-ai",
+    "packageJsonSha256": "b54df5a36d523febdeebfc5682dc4faed101fee10aba913d5f3679582f018da3"
+  },
+  {
+    "name": "@anthropic-ai/sdk",
+    "version": "0.123.0",
+    "path": "node_modules/@anthropic-ai/sdk",
+    "packageJsonSha256": "50fd5b7f7909f5aca75572f37fc6456f14fa11eaf77da18d6add98ea96240896"
+  },
+  {
+    "name": "@aws-sdk/client-bedrock-runtime",
+    "version": "3.1048.0",
+    "path": "node_modules/@aws-sdk/client-bedrock-runtime",
+    "packageJsonSha256": "9746220119a62fd75ffa8e79e9d846940d755b2d46a1eced7c682ab45f7d1c44"
+  },
+  {
+    "name": "@aws-crypto/sha256-browser",
+    "version": "5.2.0",
+    "path": "node_modules/@aws-crypto/sha256-browser",
+    "packageJsonSha256": "d768636e0883273cb642a6d43d56b251a612cf76259c615a6f3d273efd11d183"
+  },
+  {
+    "name": "@aws-crypto/sha256-js",
+    "version": "5.2.0",
+    "path": "node_modules/@aws-crypto/sha256-js",
+    "packageJsonSha256": "8e1d54418b4d45e154048127dbbd0aa1e64381d3a925f9f4cb2313285b1a12d4"
+  },
+  {
+    "name": "@aws-crypto/util",
+    "version": "5.2.0",
+    "path": "node_modules/@aws-crypto/util",
+    "packageJsonSha256": "24070453bb4864338a412e74822bf3bfa0af5a58608b59cef1ba42a9f49d131e"
+  },
+  {
+    "name": "@smithy/util-utf8",
+    "version": "2.3.0",
+    "path": "node_modules/@smithy/util-utf8",
+    "packageJsonSha256": "29a106e642afa19962dc0e33cfd019293b450a8b5c906041cfd13f649384829f"
+  },
+  {
+    "name": "@smithy/util-buffer-from",
+    "version": "2.2.0",
+    "path": "node_modules/@smithy/util-buffer-from",
+    "packageJsonSha256": "832f2b74d1ed39244e70aee576330270e50355c8043bd9c063051d7384683a3a"
+  },
+  {
+    "name": "@smithy/is-array-buffer",
+    "version": "2.2.0",
+    "path": "node_modules/@smithy/is-array-buffer",
+    "packageJsonSha256": "3a190be525bed484e272c54b4853e4184029f83546d4c30f62382073c1997e8e"
+  },
+  {
+    "name": "@aws-crypto/supports-web-crypto",
+    "version": "5.2.0",
+    "path": "node_modules/@aws-crypto/supports-web-crypto",
+    "packageJsonSha256": "17f3f7e7d103a17d360e5eb46bb16ece4fa306872c3ac303ae29c197cdebc3e0"
+  },
+  {
+    "name": "@aws-sdk/util-locate-window",
+    "version": "3.965.10",
+    "path": "node_modules/@aws-sdk/util-locate-window",
+    "packageJsonSha256": "b947cfff51e6f1249ff8c2931320bc9614b6bcafc541ea3e7483f83065395387"
+  },
+  {
+    "name": "@aws-sdk/token-providers",
+    "version": "3.1048.0",
+    "path": "node_modules/@aws-sdk/token-providers",
+    "packageJsonSha256": "3f73420ab1769a288bf1352af3bc6689f301dacf7af2077bffee79ecc1f0ccac"
+  },
+  {
+    "name": "@smithy/node-http-handler",
+    "version": "4.7.3",
+    "path": "node_modules/@smithy/node-http-handler",
+    "packageJsonSha256": "4e7f7aa591f5176b0e5169560c0a50c480882f44c684efd0c3b806f1d558033b"
+  },
+  {
+    "name": "@earendil-works/pi-telemetry",
+    "version": "0.85.1",
+    "path": "node_modules/@earendil-works/pi-telemetry",
+    "packageJsonSha256": "ef1fd481ce3c32458a6f4b41cf20dadf99765e9cbd31f44cc5a9ceabe4af8fcf"
+  },
+  {
+    "name": "@google/genai",
+    "version": "1.52.0",
+    "path": "node_modules/@google/genai",
+    "packageJsonSha256": "ec761756421ea5502c23dbebfb4bc2b74c3ff842597199f2f330afc49cbdedc7"
+  },
+  {
+    "name": "http-proxy-agent",
+    "version": "7.0.2",
+    "path": "node_modules/http-proxy-agent",
+    "packageJsonSha256": "38b61961aa0ba3028f2e120b3d883179281f6ba25fe22ff2214bf9f363161b65"
+  },
+  {
+    "name": "openai",
+    "version": "6.40.0",
+    "path": "node_modules/openai",
+    "packageJsonSha256": "62ce25ffb47afe5cbbf80e8574297d79ea72b2ef3e5087d91e0e3e1bf38c2ebc"
+  },
+  {
+    "name": "typebox",
+    "version": "1.3.7",
+    "path": "node_modules/@earendil-works/pi-ai/node_modules/typebox",
+    "packageJsonSha256": "0d54851ecbd094c1e0ea211e53d097eea3b1f9f05c7d895f072587c84d6131ed"
+  },
+  {
+    "name": "@jitl/quickjs-wasmfile-release-sync",
+    "version": "0.32.0",
+    "path": "node_modules/@jitl/quickjs-wasmfile-release-sync",
+    "packageJsonSha256": "f1d8c02102ee441a6a85bf31522a9bc436e66600b31392ac9b0dddb15b33245d"
+  },
+  {
+    "name": "@jitl/quickjs-ffi-types",
+    "version": "0.32.0",
+    "path": "node_modules/@jitl/quickjs-ffi-types",
+    "packageJsonSha256": "94fec038d66a1b64e3bc0b5bbcd87a8ab217badf5291085a53e97b2bafbd4e3f"
+  },
+  {
+    "name": "@modelcontextprotocol/client",
+    "version": "2.0.0",
+    "path": "node_modules/@modelcontextprotocol/client",
+    "packageJsonSha256": "e82352cb01cda68e239b73ba7ca2065b3078fa9bb8d762e7cff04fcc5a141ccb"
+  },
+  {
+    "name": "cross-spawn",
+    "version": "7.0.6",
+    "path": "node_modules/cross-spawn",
+    "packageJsonSha256": "2e106cd9b4ae4e34ead35218371a0d4e172da72515a4f8f97d69a2e1fe3dee82"
+  },
+  {
+    "name": "path-key",
+    "version": "3.1.1",
+    "path": "node_modules/path-key",
+    "packageJsonSha256": "25594dab72681c910d9cc919263a4daf27d77a75e0d2c26a4d958d6d6b798f86"
+  },
+  {
+    "name": "shebang-command",
+    "version": "2.0.0",
+    "path": "node_modules/shebang-command",
+    "packageJsonSha256": "44de390ae5ed6c5f9758b8b9c90b93fa53977d5361731600429f1de08f4b3f30"
+  },
+  {
+    "name": "shebang-regex",
+    "version": "3.0.0",
+    "path": "node_modules/shebang-regex",
+    "packageJsonSha256": "b8018c6b8cc9900dfd1ac18a54956ba34c453fdc2da5e5fe555ee8f04133a1c5"
+  },
+  {
+    "name": "which",
+    "version": "2.0.2",
+    "path": "node_modules/which",
+    "packageJsonSha256": "43010039ed5e89f7186960be682b3cb5cda5ab6cdfb06cbfd4f081cf0e7b4260"
+  },
+  {
+    "name": "isexe",
+    "version": "2.0.0",
+    "path": "node_modules/isexe",
+    "packageJsonSha256": "395c2af9abeeaafe7391974c1eacfb2a2bdeef187f21c3f5582c49e0368e59bf"
+  },
+  {
+    "name": "eventsource",
+    "version": "3.0.7",
+    "path": "node_modules/eventsource",
+    "packageJsonSha256": "99cec0bc0f4919b5de13302b0ce28cb0dd966b316cd2c961e0e7c73f884f7524"
+  },
+  {
+    "name": "eventsource-parser",
+    "version": "3.1.1",
+    "path": "node_modules/eventsource-parser",
+    "packageJsonSha256": "27a8440c43f6bb12ec3d93338d93efcc4130e8be1ec7f33f5b31c05c2147430b"
+  },
+  {
+    "name": "jose",
+    "version": "6.2.12",
+    "path": "node_modules/jose",
+    "packageJsonSha256": "faa28d9e4362c02c81ce4c7a3b62443495343830c53de2efcbd8c1088e4ba931"
+  },
+  {
+    "name": "pkce-challenge",
+    "version": "5.0.1",
+    "path": "node_modules/pkce-challenge",
+    "packageJsonSha256": "74fd5b54078ebad49e15421f928d285f63926caae3220356d95a9afc6fa0e417"
+  },
+  {
+    "name": "zod",
+    "version": "4.6.5",
+    "path": "node_modules/zod",
+    "packageJsonSha256": "a046ed85fa09571dba539fee9ef236152d12dabd1f229b014ec3bd2ebaad9000"
+  },
+  {
+    "name": "@modelcontextprotocol/core",
+    "version": "2.0.0",
+    "path": "node_modules/@modelcontextprotocol/core",
+    "packageJsonSha256": "dc2e8e1fc31878b0b537b0ea034d4a11284cce20fe81f4c6ea823dd6db7e7ad5"
+  },
+  {
+    "name": "quickjs-emscripten-core",
+    "version": "0.32.0",
+    "path": "node_modules/quickjs-emscripten-core",
+    "packageJsonSha256": "9e6ee511f4dd74ca9283848b1dd7e4a94abe94581bae1c62f98e42e00c12d765"
+  },
+  {
+    "name": "@js-temporal/polyfill",
+    "version": "0.5.1",
+    "path": "node_modules/@js-temporal/polyfill",
+    "packageJsonSha256": "8406de0f5b7642ee1518c01c40ee6b797da7bc97575fea406e1f17876493e9cc"
+  },
+  {
+    "name": "jsbi",
+    "version": "4.3.2",
+    "path": "node_modules/jsbi",
+    "packageJsonSha256": "756c2c1b6e80e9e8488fe7ad66403a8307b115a0dc141966e69adf41eb39efc6"
+  },
+  {
+    "name": "@earendil-works/pi-tui",
+    "version": "0.85.1",
+    "path": "node_modules/@earendil-works/pi-tui",
+    "packageJsonSha256": "94897cdb5eccf9f578eb51e16d3b35c408c297461e5ade1cebd53be35c031a44"
+  },
+  {
+    "name": "get-east-asian-width",
+    "version": "1.6.0",
+    "path": "node_modules/get-east-asian-width",
+    "packageJsonSha256": "d263e50dd1a43aee9acda4d7f066e66b0d0bde1f2852ea6e7153750a5e3a3e52"
+  },
+  {
+    "name": "marked",
+    "version": "18.0.5",
+    "path": "node_modules/marked",
+    "packageJsonSha256": "835873ede7f8ef8d7283ef40e455228d88ddf283d1160f1ef48b2b091464ea2d"
+  },
+  {
+    "name": "beautiful-mermaid",
+    "version": "1.1.3",
+    "path": "node_modules/beautiful-mermaid",
+    "packageJsonSha256": "d040cc19d582a7914dea5284b32f19ecd0705f03110af25a1834b17e31fbc83c"
+  },
+  {
+    "name": "elkjs",
+    "version": "0.11.1",
+    "path": "node_modules/elkjs",
+    "packageJsonSha256": "ceb0e021feb67f6e85b78c1db6e268582e20b0addedee75c6c775465ebb6ae12"
+  },
+  {
+    "name": "entities",
+    "version": "7.0.1",
+    "path": "node_modules/entities",
+    "packageJsonSha256": "b33b5d3fd4a8e196d3245c10ebb8feb2e076fc8d392f99a1050377d6e2b8b641"
+  },
+  {
+    "name": "@earendil-works/chord",
+    "version": "0.85.1",
+    "path": "node_modules/@earendil-works/chord",
+    "packageJsonSha256": "73d036ecc3b0c95a3a518f49ad168b77876849aa38568f0b110c776ad9d416d1"
+  }
+]

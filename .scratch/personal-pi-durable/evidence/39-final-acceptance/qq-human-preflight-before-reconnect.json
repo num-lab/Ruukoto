@@ -1,0 +1,106 @@
+{
+  "version": 3,
+  "startedAt": "2026-10-18T16:30:04.869Z",
+  "finishedAt": "2026-10-18T16:30:04.924Z",
+  "scope": "Existing control GET + exact service read-only show/count/hash/config; no POST/Harness/WS/model/IM/helper invocation/service mutation",
+  "host": "oracle-4c24g",
+  "node": {
+    "version": "v24.15.0",
+    "execPath": "/home/ubuntu/.local/ruukoto39/node-v24.15.0-linux-arm64/bin/node",
+    "formalNode24": true
+  },
+  "status": {
+    "online": true,
+    "initial": {
+      "tasks": 0,
+      "inputs": 0,
+      "services": true
+    },
+    "final": {
+      "tasks": 0,
+      "inputs": 0,
+      "services": true
+    },
+    "qqEnabled": true,
+    "qqReceiving": true,
+    "qqOnline": false
+  },
+  "permissions": {
+    "default": {
+      "mode": "auto-review"
+    },
+    "qq": {
+      "mode": "auto-review"
+    }
+  },
+  "serviceGrants": {
+    "count": 0,
+    "zero": true
+  },
+  "serviceOccupancy": {
+    "recordedOperations": 1,
+    "unresolvedOperations": 0,
+    "pendingInspections": 0,
+    "none": true
+  },
+  "unit": {
+    "name": "ruukoto39-test.service",
+    "loadState": "loaded",
+    "activeState": "active",
+    "subState": "running",
+    "mainPid": 3463107,
+    "invocationId": "6220900834c14d8597e2979d513947bf",
+    "restartPolicy": "no",
+    "nRestarts": 0,
+    "fragmentPath": "/etc/systemd/system/ruukoto39-test.service",
+    "count": 3,
+    "previousCount3": true,
+    "sameInvocationAsInspectionProbe": true,
+    "samePidAsInspectionProbe": true
+  },
+  "trustedPaths": {
+    "helper": "/usr/local/libexec/ruukoto39/ruukoto-service",
+    "policy": "/etc/ruukoto/services.json",
+    "helperSha256": "3f645f2ef05ff626f1def39ef1b0065f893385f96bdb0142c14aad864fb6433f",
+    "policySha256": "83cbea028f2c5954d6ffe06d559a8c8862fa65e5bae02700743b3f5854c654da",
+    "helperMatchesOriginal": true,
+    "policyMatchesOriginal": true,
+    "onlyAllowedUnitAndRestart": true
+  },
+  "qqBinding": {
+    "enabled": true,
+    "generationMatchesOriginal": true,
+    "accountsMatchOriginal": true,
+    "endpointMatchesOriginal": true,
+    "credentialDigestMatchesOriginal": true,
+    "entireConfigMatchesOriginal": true,
+    "identifiersAndCredentialsOmitted": true
+  },
+  "method": {
+    "getOnly": true,
+    "controlRoutes": [
+      "/status",
+      "/permissions",
+      "/service/grants",
+      "/services",
+      "/inspections",
+      "/qq"
+    ],
+    "pagesExhausted": true,
+    "newHarness": false,
+    "newWebSocket": false,
+    "modelRequests": false,
+    "imRequests": false,
+    "serviceWrites": false,
+    "readOnlySystemctl": true,
+    "rawResponsesPrivate": true,
+    "rawDirectory": "/tmp/ruukoto39-qq-human-preflight-private-42XB9S"
+  },
+  "readyForFirstOwnerDelegation": false,
+  "privateEvidencePermissions": {
+    "directory0700": true,
+    "files0600": true,
+    "files": 3
+  },
+  "decision": "暂不可请求本人发送第一条QQ委托：QQ连接offline；其余权限、占用、服务计数、可信路径及绑定前提通过。根先在现有连接诊断范围处理，不由本探针做重连/WS/IM。"
+}

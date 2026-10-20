@@ -17,7 +17,8 @@
 
 import { createHash } from "node:crypto";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { Compile } from "typebox/compile";
+import { validateRemoteTool } from "./schema.ts";
+export { validateRemoteTool } from "./schema.ts";
 import type { ArtifactStore } from "../artifacts.ts";
 import type { CredentialStore } from "../execution/credentials.ts";
 import {
@@ -86,44 +87,6 @@ function exposedNameFor(serviceName: string, remoteName: string): string {
   if (base.length <= TOOL_NAME_CAP) return base;
   const suffix = createHash("sha256").update(base).digest("hex").slice(0, 8);
   return `${base.slice(0, TOOL_NAME_CAP - 9)}_${suffix}`;
-}
-
-/** schema 预检：普通对象、根类型 object（MCP 规范）、大小上限、TypeBox 可编译；返回校验器或禁用原因。 */
-function compileSchema(label: string, raw: unknown): { schema: Record<string, unknown>; check: (value: unknown) => boolean } | { disabledReason: string } {
-  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
-    return { disabledReason: `${label} 不是普通对象（不支持布尔/数组 schema）` };
-  }
-  const schema = raw as Record<string, unknown>;
-  if (schema.type !== undefined && schema.type !== "object") {
-    return { disabledReason: `${label} 根类型必须是 object（收到 ${String(schema.type)}）` };
-  }
-  const schemaBytes = Buffer.byteLength(JSON.stringify(schema), "utf8");
-  if (schemaBytes > MCP_LIMITS.maxToolSchemaBytes) {
-    return { disabledReason: `${label} 超过 ${MCP_LIMITS.maxToolSchemaBytes} 字节上限（${schemaBytes}）` };
-  }
-  try {
-    // 与 pi 参数校验同一能力边界：编译不过即不支持，明确禁用
-    const validator: { Check(value: unknown): boolean } = Compile(schema as any) as any;
-    return { schema, check: (value) => validator.Check(value) };
-  } catch (err) {
-    return { disabledReason: `${label} 不受支持（${(err as Error).message.slice(0, 120)}）` };
-  }
-}
-
-/**
- * 单工具校验（inputSchema 与可选的 outputSchema 同一套预检）；不通过返回禁用原因。
- * outputSchema 钉版为结果校验器：SDK 不做本地输出校验（见 client.callTool），
- * 远端成功应答后由路由器按它校验结构化结果。
- */
-export function validateRemoteTool(
-  tool: McpRemoteTool,
-): { inputSchema: Record<string, unknown>; checkOutput?: (value: unknown) => boolean } | { disabledReason: string } {
-  const input = compileSchema("inputSchema", tool.inputSchema ?? { type: "object", properties: {} });
-  if ("disabledReason" in input) return input;
-  if (tool.outputSchema === undefined) return { inputSchema: input.schema };
-  const output = compileSchema("outputSchema", tool.outputSchema);
-  if ("disabledReason" in output) return output;
-  return { inputSchema: input.schema, checkOutput: output.check };
 }
 
 /**

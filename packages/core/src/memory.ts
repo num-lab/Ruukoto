@@ -304,6 +304,8 @@ function validateCategory(category: MemoryCategory): void {
   }
 }
 
+export { validateContent as validateMemoryContent, validateCategory as validateMemoryCategory };
+
 function validateSourceRefs(refs: MemorySourceRef[]): void {
   if (!Array.isArray(refs) || refs.length === 0) {
     throw new MemoryValidationError("记忆必须关联至少一个来源");

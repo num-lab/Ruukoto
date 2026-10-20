@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
-import { product as personalProduct } from "../apps/ruukoto/src/product.ts";
+import { product as personalProduct } from "./helpers/legacy-product.ts";
 import { product as codingProduct } from "../apps/ruukoto-code/src/product.ts";
 import { randomId, type Session, type Task } from "@ruukoto/core/types.ts";
 import { AccessScope } from "@ruukoto/core/access.ts";
@@ -141,7 +141,7 @@ test("普通个人来源执行 app_data，应用回执与账本归属真实子 T
       assert.deepEqual({ ...receipt }, { task_id: child.task.id, session_id: child.task.sessionId, agent_id: child.agent.id, op_id: operation.id });
     } finally { app.close(); }
     assert.equal(rt.store.listToolOpsByTask(source.id).length, 0);
-    for (const name of ["app_data_query", "schedule_query", "bash"]) assert.ok(toolNamesOf(t.server.calls[0]).includes(name), name);
+    for (const name of ["app_data_query", "bash"]) assert.ok(toolNamesOf(t.server.calls[0]).includes(name), name);
   } finally { await t.shutdown(); }
 });
 

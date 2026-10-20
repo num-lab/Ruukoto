@@ -1,0 +1,35 @@
+{
+  "command": [
+    "/Users/eitrous/.local/share/mise/installs/node/24.15.0/bin/node",
+    "--import",
+    "tsx",
+    "--import",
+    "/tmp/ruukoto39-native-first-fault-tee.mjs",
+    "--test",
+    "--test-concurrency=1",
+    "--test-name-pattern=^macOS 控制通道关闭回收独立进程组内忽略 TERM 的已累计后代$",
+    "test/101-native-macos-helper.test.ts"
+  ],
+  "cwd": "/tmp/ruukoto39-native-batch",
+  "started_at": "2026-10-18T14:32:09.212360+00:00",
+  "elapsed_seconds": 2.788913541000511,
+  "exit": 0,
+  "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "node": "v24.15.0",
+  "source_before_sha256": "1d183131d2905e9c1dfbb19dfb3ec8b5a55a3da4cb89ed8053c3e790bfde8bcf",
+  "source_after_sha256": "a265db23e70f760c6a965ba5476f15e0cc1826b2c01a5c6d9acd5145678744de",
+  "helper_sha256": "4777b6d309f35516f7fb11e15d3fe57d006ed0fd627ae27ebfcb6825715202cb",
+  "test_sha256": "faf17b4f3d568639671bce3e9fe775d452d962388c37829bbe91139ac0f83aaf",
+  "log": "/tmp/ruukoto39-native-first-fault-actual.log",
+  "log_sha256": "f0200a3c6aeb6ee718f078d3af7fb09f7a82da0b8a9667e049b85c1b02a76146",
+  "scope": "One original38 helper case only, real macOS libproc/processes. Diagnostic stderr tee only observes this child; no root writes, global installation, old write replay, models, IM or services.",
+  "actual_first_fault": null,
+  "reproduction": "not reproduced: 1/1, stopped.reaped true",
+  "tee_observation": {
+    "first_run_source": "/tmp/ruukoto39-native-first-fault-tee-first-run.mjs",
+    "sha256": "ed033274434ce7285bbe4b7b8caa1a7965c4f92a7043ca47e37ea62c113b4d14",
+    "matched_children": 0,
+    "limitation": "Initial tee compared /tmp literal while test imported canonical /private/tmp path; no raw stderr sidecar. Target test still proves reaped=true; do not claim a collected raw first-fault trace.",
+    "future_fix": "Current tee accepts both canonical and alias path; not rerun merely to make an additional green result."
+  }
+}

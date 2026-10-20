@@ -151,3 +151,78 @@ test("定时运行收尾读取 Agent 的回复，较晚结束的宿主账本不�
     assert.ok(!reports[0].includes("HOST-NONMODEL-RESULT"));
   } finally { await t.shutdown(); }
 });
+
+for (const rollback of [false, true]) test(`宿主 attach 同步失败：零单元启动，结果、终态与停止结论${rollback ? "一起回滚" : "同事务提交"}`, async () => {
+  const gate = holdParentResponse(async () => ({ kind: "text", text: "完成" }));
+  const t = await startTestRuntime("ordinary-host-attach", gate.responder, { config: realTools() });
+  const rt = t.runtime, attach = rt.hostExecutions.attach.bind(rt.hostExecutions), endTask = rt.store.endTask.bind(rt.store);
+  const controlled = controlledWorkCopy(async () => true, "不可执行");
+  try {
+    const session = await rt.createSession({ projectName: "attach", cwd: t.work[0] });
+    const parent = await rt.submit({ sessionId: session.id, requestId: "parent", input: "开始捕获", modelSelection: rt.defaultSelection });
+    await waitFor("父任务执行", () => t.server.calls.length > 0);
+    rt.hostExecutions.attach = () => { throw new Error("attach failure"); };
+    rt.launcherFor = () => controlled.launcher;
+    rt.store.endTask = (...args) => {
+      const changed = endTask(...args);
+      if (rollback && changed && args[0] !== parent.id) throw new Error("host terminal transaction failure");
+      return changed;
+    };
+    const copyDir = fs.realpathSync(t.work[1]);
+    await assert.rejects(rt.executeWorkCopy({ parentTaskId: parent.id, workId: "attach", operation: "capture", workspace: session.cwdReal, copyDir, branch: "attach", command: "capture" }), rollback ? /host terminal transaction failure/ : /attach failure/);
+    const host = rt.store.listTasksBySession(session.id).find(task => workCopyHostFor(task))!;
+    assert.equal(controlled.specs.length, 0);
+    assert.equal(rt.hostExecutions.has(host.id), false);
+    assert.equal(host.status, rollback ? "running" : "failed");
+    assert.equal(host.resultSummary === null, rollback);
+    assert.equal(workCopyHostFor(host)!.stopVerified, rollback ? null : true);
+    assert.equal(rt.store.getOccupancyByDir(copyDir)?.taskId ?? null, rollback ? host.id : null);
+    assert.equal(rt.store.getTaskEventsAfter(host.id, 0, 100).filter(e => e.body.type === "task.failed").length, rollback ? 0 : 1);
+  } finally { rt.hostExecutions.attach = attach; rt.store.endTask = endTask; gate.release(); controlled.finish(); await t.shutdown(); }
+});
+
+for (const rollback of [false, true]) test(`父任务停止失败兜底：保留请求前上下文与占用${rollback ? "，再次落盘失败可见且不产生未处理拒绝" : "，迟到结果仍按首次快照结算"}`, async tctx => {
+  const gate = holdParentResponse(async () => ({ kind: "text", text: "完成" }));
+  const t = await startTestRuntime("ordinary-parent-fallback", gate.responder, { config: realTools() });
+  const rt = t.runtime, controlled = controlledWorkCopy(async () => false, "captured");
+  const endTask = rt.store.endTask.bind(rt.store);
+  let driver: any, requestStop: any, ending: any;
+  const diagnostics: string[] = [];
+  const write = process.stderr.write.bind(process.stderr);
+  tctx.mock.method(process.stderr, "write", (chunk: string) => { diagnostics.push(String(chunk)); return write(chunk); });
+  try {
+    const session = await rt.createSession({ projectName: "fallback", cwd: t.work[0] });
+    const parent = await rt.submit({ sessionId: session.id, requestId: "parent", input: "开始捕获", modelSelection: rt.defaultSelection });
+    await waitFor("父任务执行", () => t.server.calls.length > 0);
+    driver = await (rt as any).getDriver(session); requestStop = driver.requestStop; ending = driver.currentTaskEnding;
+    let stops = 0, snapshots = 0, releases = 0;
+    const ledger = (rt as any).ledger, beginStop = ledger.beginStop.bind(ledger);
+    tctx.mock.method(ledger, "beginStop", (taskId: string) => { if (taskId === parent.id) snapshots++; return beginStop(taskId); });
+    const released = driver.deps.onOccupancyReleased;
+    driver.deps.onOccupancyReleased = () => { releases++; released(); };
+    rt.store.withTx(() => rt.store.recordToolIntent({ id: "parent-write", taskId: parent.id, sessionId: parent.sessionId, toolName: "write", params: {} }));
+    driver.requestStop = async () => {
+      stops++;
+      ending.stopSnapshot = ledger.beginStop(parent.id);
+      rt.store.withTx(() => ledger.recordResult(parent, "parent-write", "迟到结果", true));
+      driver.taskEnding = { taskId: "later-task", stopSnapshot: [] };
+      throw new Error("parent stop failure");
+    };
+    rt.store.endTask = (...args) => { const changed = endTask(...args); if (rollback && args[0] === parent.id) throw new Error("fallback transaction failure"); return changed; };
+    rt.launcherFor = () => controlled.launcher;
+    const copyDir = fs.realpathSync(t.work[1]);
+    await assert.rejects(rt.executeWorkCopy({ parentTaskId: parent.id, workId: "fallback", operation: "capture", workspace: session.cwdReal, copyDir, branch: "fallback", command: "capture" }), { code: "worker_stop_unverified" });
+    await waitFor("兜底处理完成", () => rollback ? diagnostics.some(line => line.includes("兜底收尾未落盘")) : rt.store.getTask(parent.id)!.status === "interrupted");
+    assert.equal(stops, 1); assert.equal(snapshots, 1); assert.equal(releases, 0);
+    assert.equal(rt.store.getOccupancyByDir(session.cwdReal)!.taskId, parent.id);
+    assert.equal(rt.store.getToolOp("parent-write")!.effectUnknown, !rollback);
+    assert.equal(rt.store.getTask(parent.id)!.status, rollback ? "running" : "interrupted");
+    assert.ok(diagnostics.some(line => line.includes("工作副本来源停止收尾失败")));
+    if (rollback) assert.ok(diagnostics.some(line => line.includes("保留任务与占用")));
+    await new Promise(resolve => setImmediate(resolve));
+  } finally {
+    rt.store.endTask = endTask;
+    if (driver) { driver.requestStop = requestStop; driver.taskEnding = ending; }
+    gate.release(); controlled.finish(); await t.shutdown();
+  }
+});

@@ -1,0 +1,3 @@
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/vda2        40G   37G  606M  99% /
+tmpfs           1.9G  1.8G   19M 100% /dev/shm

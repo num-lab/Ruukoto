@@ -1,0 +1,10 @@
+{
+  "command": [
+    "ssh",
+    "tx",
+    "python3 -c '\nimport pathlib,os,signal,subprocess,time,shutil,json\nroots=[pathlib.Path('\"'\"'/tmp/ruukoto-personal-linux-20261017T034917Z-attempt2'\"'\"'),pathlib.Path('\"'\"'/dev/shm/ruukoto-personal-linux-20261017T034917Z-attempt2'\"'\"')]\nowned=[]\nfor p in pathlib.Path('\"'\"'/proc'\"'\"').iterdir():\n if not p.name.isdigit() or int(p.name)==os.getpid():continue\n try:\n  cwd=(p/'\"'\"'cwd'\"'\"').resolve()\n  if any(cwd.is_relative_to(r) for r in roots):owned.append(int(p.name))\n except (FileNotFoundError,PermissionError,ProcessLookupError):pass\nfor pid in owned:\n try:os.kill(pid,signal.SIGTERM)\n except ProcessLookupError:pass\nif owned:time.sleep(1)\nfor pid in owned:\n try:os.kill(pid,signal.SIGKILL)\n except ProcessLookupError:pass\nfor r in roots:shutil.rmtree(r)\nprint(json.dumps({'\"'\"'terminatedOwnedPids'\"'\"':owned,'\"'\"'removed'\"'\"':[str(r) for r in roots],'\"'\"'remaining'\"'\"':[str(r) for r in roots if r.exists()]}))\n'"
+  ],
+  "exitCode": 0,
+  "started": "2026-10-17T03:53:13.646857+00:00",
+  "ended": "2026-10-17T03:53:16.003029+00:00"
+}

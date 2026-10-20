@@ -1,0 +1,8 @@
+2026-10-17T08:58:20Z
+Linux BJ-Tencent 6.8.0-117-generic #117-Ubuntu SMP PREEMPT_DYNAMIC Tue May  5 19:26:24 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux
+v24.21.0
+11.19.0
+uid=1003(eitrous) gid=1003(eitrous) groups=1003(eitrous),27(sudo),100(users),987(ruukoto-backend),988(docker)
+/usr/bin/sudo
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/vda2        40G   37G  597M  99% /

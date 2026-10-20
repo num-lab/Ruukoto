@@ -2,68 +2,45 @@
 
 ## 职责与边界
 
-`apps/ruukoto` 是个人 Agent，`apps/ruukoto-code` 是 Coding Agent。各 app 持有自己的 bin、主入口与开发入口、`product.ts` 能力声明及专属工具或导入策略；两个 app 互不依赖。共享 CLI 在 tui 包（见 [tui](tui.md)）。存储、模型、任务、控制面与界面由 `packages/` 下的共享包提供。
+`apps/ruukoto` 持有个人 Agent 的正式 bin、主入口、开发入口与 durable 业务接线；`apps/ruukoto-code` 持有 Coding Agent 的 bin、主入口、开发入口、`product.ts` 和开发资料导入策略。两个产品互不依赖，各自拥有运行状态与客户端协议。个人能力见[个人持久会话](personal-durable.md)，Coding CLI 与界面见 [tui](tui.md)。
 
 ## 对外接口
 
-各 bin 固定 `RUUKOTO_PRODUCT` 后注册 tsx，再进入本 app 的 `main.ts`。共享 CLI 接收 `CliProduct`，共享 `Runtime.start` 要求 `RuntimeConfig.product`，不按产品名选择装配。调用程序化入口时，显式传入所属 app 的 `product.runtime`。
+个人 bin 与根 `npm start` 默认进入同一个引导式 CLI，无参打开菜单，`serve` 前台运行后台；`personal:durable` 是该入口的兼容命令。正式默认目录为 `~/.ruukoto-durable/`，可用 `RUUKOTO_PERSONAL_DIR` 选择独立新目录。个人开发入口固定检出散列档案，忽略继承目录，默认由薄启动器托管 Node watch 前台后台；`--config` 直接打开同一菜单且不监听源码，菜单启动的后台由本进程持有，退出时停止。配置菜单源码变化须退出重开。开发拒绝已启用 QQ/Telegram 的档案，不改写配置或连接平台。
 
-| 声明 | ruukoto | ruukoto-code |
+Coding bin 固定产品身份，向共享 CLI 传入 `CliProduct`，并向 `Runtime.start` 显式传入 `product.runtime`。`npm start` 的 `RUUKOTO_PRODUCT=ruukoto-code` 选择及 app 的独立 start 保留；Coding 的工作区、会话、四种界面模式、SubAgent、工作流、按需后台与旧开发资料导入保持。
+
+| 能力 | ruukoto | ruukoto-code |
 | --- | --- | --- |
-| 默认执行后端 | native | native |
-| 正式入口可选执行后端 | native | native |
-| 拥有者 IM 与个人调度 | 启用；开发入口可停用真实 IM | 停用 |
-| 服务管理 | Linux 与显式部署配置齐备才装配 | 不装配 |
-| 会话分支 | 不开放创建 | `branchSessions` 开放普通开发会话分支 |
-| 手动上下文压缩 | 不开放 | `manualCompaction` 开放普通开发会话摘要 |
-| 旧项目写入口 | 保留 | 引导改用工作区 |
-| 旧实例导入 | 个人资料；channels 持有方向实现 | 开发资料；app 持有方向实现 |
+| 会话与运行权威 | Pi durable 1.3.0 | 原共享 Runtime/Driver，Pi 0.85.1 |
+| 主要界面 | QQ/Telegram 与引导式 CLI | TUI、配置中心与 Code 桌面 |
+| 持久历史 | durable SQLite | 核心元数据与原 JSONL |
+| 后台工作 | 长期子 Agent、分析委托与独立定时运行 | 通用 SubAgent、worktree 与工作流 |
+| 旧资料 | 原地归档，不导入 | 开发资料离线导入 |
+| 编码专用入口 | 不提供开发会话、worktree 汇总、旧工作流或 GitHub 自动评审 | 保留既有 Coding 能力 |
 
-任务界面、配置中心、工作区组织迁移与旧群结果查询由两个产品共用。界面按产品展示工作区或旧项目。运行与安装命令见[操作手册](../usage.md)，开发和构建见[开发说明](../development.md)。
+安装与操作见[操作手册](../usage.md)，开发与构建见[开发说明](../development.md)。个人不兼容旧 TUI、桌面 Personal 或控制面协议。
 
 ## 数据与状态
 
-产品身份在核心库 `meta` 的 `product.type` 登记；档案、锁、控制面、模型配置与凭据按产品隔离。能力声明是宿主代码，不由模型或工具参数修改。分包不改变 schema、控制面协议、会话 JSONL 与既有归属。
+个人档案、锁、本机认证 socket、配置、凭据引用及请求证据独立保存，版本和旧目录在恢复前核实。Coding 的产品身份继续登记在核心库 `meta.product.type`，档案、锁、控制面和既有格式保持。两个版本的 Pi 对象不跨产品传递，个人不双写旧 Task Store 或 JSONL。
 
 ## 主要流程
 
-**启动。**
+**启动。** 个人入口使用已配置模型打开唯一 Harness；运行中菜单仅经本机认证接口管理，离线配置持实例锁。Coding 入口按能力声明选择 native 与导入方向，装配 Runtime、控制面与客户端。日常个人后台独立于菜单，开发进程拥有其后台生命周期。
 
-- bin 固定产品身份，app 把能力声明交给共享 CLI。
-- CLI 按 `defaultExecution` 与 `allowedExecution` 选择和校验执行后端，按声明选择导入方向，将 RuntimeProduct 注入运行时。
-- 运行时按 IM、调度与工具族能力创建部件，再接上控制面。
-- 开发入口复用共享启动器，子进程仍使用对应 app 的 bin。
-
-**构建。**
-
-- 根构建单次生成 `worker/worker.mjs`，再为两个 app 分别生成含 bin、源码和依赖声明的 npm 包。
-- app 包使用同仓共享依赖与 worker 产物；部署需要完整 workspace 安装与宿主工具链。
+**构建。** 根构建生成共享 `worker/worker.mjs`、自包含的 `worker/personal-command-worker.mjs`、工作流脚本及平台产物，再生成两个 app 的 npm tarball。个人命令 worker 不依赖 Pi SDK，运行依赖从构建制品解析；Coding worker 保留原 SDK 与依赖。tarball 交付源码、bin 和依赖声明，安装仍需要完整 workspace、根 worker 与宿主工具链，不是独立发行版。
 
 ## 不变量与失败处理
 
-**产品隔离。**
-
-- 跨产品打开同一数据目录以 `product_mismatch` 拒绝。
-- Coding Agent 停用 IM 与调度时，旧记录仍可读，旧工具操作仍按共同账本核实。
-- 两个 app 的能力使用同一份存储、审批与执行约束。
-
-**进程与执行环境。**
-
-- 应用实例不会因退出 TUI 而停止；开发启动器则拥有其子进程生命周期。
-- 缺少执行环境明确失败，默认后端不静默降级。
-- 两个产品的正式入口均拒绝 local/container 参数与环境覆盖，并给出迁移指引；库层显式 local 注入供离线测试。普通完全访问使用后台启动账户，继承用户环境，不施加任务沙箱；工作流编码验证在原生独立副本收窄执行。
-
-**依赖方向。**
-
-- 跨包相对引用、未声明依赖与越层运行时值引用不能通过 lint。
-- core 连反向类型引用也不接受；其他共享包的反向引用只限声明过的类型，运行时协作使用注入回调。
-
-两个产品共用[真实工作流步骤](workflows.md)，沿各自来源能力装配；个人业务数据保持来源主身份，Coding Agent 不取得个人工具。编码验证共用原生沙箱，修改成果共用冻结补丁与独立验证记录；共享模型工具支持自主发起，CLI `workflow` 与 TUI `/workflow` 支持命名定义和带参运行及控制；个人 IM 通过原拥有者入口明确命令启动/控制，最终回报沿各自来源。
+- 正式个人与兼容入口只有一套装配，不加载旧 Runtime、Driver、Task Store、控制协议或个人导入器；仅复用实际共享的业务库、传输、校验、浏览器及原生执行原语。
+- 新个人档案不覆盖、迁移或自动复制旧资料和凭据；旧目录、不支持版本、锁冲突或配置未齐时明确拒绝，拒绝前不连接 IM、不恢复任务。
+- Coding 仍拒绝跨产品目录与旧 local/container 覆盖，原 schema、历史、入口和执行边界保持；个人命令模式由宿主配置，不接受旧 CLI 执行覆盖。
+- 同账户完全访问使用后台账户已有权限，外部效果未知或停止未核实仍保留原占用；退出界面不能代替停止证明。
+- 跨包引用使用 exports 与已声明依赖；反向运行时协作采用注入，core 不依赖其他 workspace 包。个人 app 直接声明 Pi 1.3.0，Coding 调用方保留 0.85.1。
 
 ## 设计依据
 
-- [工作流真实步骤与冻结成果](../../.agents/notes/implemented/architecture/2026-10-13-workflow-step-capabilities.md)
-
-- [两个 Agent 产品独立运行](../../.agents/notes/implemented/architecture/2026-10-02-two-agent-products.md)
-- [手动上下文压缩由会话操作提交滚动摘要](../../.agents/notes/implemented/feature/2026-10-11-manual-context-compaction.md)
+- [个人正式入口使用唯一 durable 装配](../../.agents/notes/implemented/simplification/2026-10-18-personal-product-entry.md)
+- [两个 Agent 产品](../../.agents/notes/implemented/architecture/2026-10-02-two-agent-products.md)
 - [同仓 workspaces 分包](../../.agents/notes/implemented/architecture/2026-10-11-in-repo-workspace-packages.md)

@@ -1,0 +1,240 @@
+{
+  "baseline_ref": "a8fd60caceda3bbb243afff167a7c44751e749f4",
+  "current_ref": "3053bf6a3d1d9bab0c06ec61755b8723bb06dbff",
+  "final_patch": {
+    "packages/agent/src/tool-worker/host.ts": "100f5842d48d55416f8398647ed6a790db924643b895fd7dfcf24d49c8f288c7",
+    "test/100-worker-stop.test.ts": "f03f13862be3cf50ba60ccdbb5d0a1e75214475c4f7f9b92a3ff1c10fa99fa34"
+  },
+  "environment": {
+    "node": "v24.21.0",
+    "npm": "11.19.0",
+    "kernel": "Linux 6.8.0-117-generic x86_64",
+    "uid": 1003
+  },
+  "runs": {
+    "baseline-controlled-space": {
+      "start": 1792309133.9924612,
+      "cwd": "/dev/shm/rk-coding36-linux.gaWtu6/baseline",
+      "command": [
+        "timeout",
+        "--signal=TERM",
+        "--kill-after=10s",
+        "300s",
+        "npx",
+        "tsx",
+        "--test",
+        "test/122-workflow-code-acceptance.test.ts"
+      ],
+      "environment": {
+        "TMPDIR": "/dev/shm/rk-coding36-linux.gaWtu6/baseline-tmp",
+        "npm_config_cache": "/dev/shm/rk-coding36-linux.gaWtu6/npm-cache",
+        "ELECTRON_SKIP_BINARY_DOWNLOAD": "1",
+        "RUN_MODEL_CHECK": "0"
+      },
+      "space_before": {
+        "total": 1952030720,
+        "used": 1726431232,
+        "free": 225599488
+      },
+      "end": 1792309279.9547133,
+      "exit": 0,
+      "space_after": {
+        "total": 1952030720,
+        "used": 1726689280,
+        "free": 225341440
+      }
+    },
+    "current-first": {
+      "start": 1792309849.1683965,
+      "cwd": "/dev/shm/rk-coding36-linux.gaWtu6/current",
+      "command": [
+        "timeout",
+        "--signal=TERM",
+        "--kill-after=10s",
+        "300s",
+        "npx",
+        "tsx",
+        "--test",
+        "test/122-workflow-code-acceptance.test.ts"
+      ],
+      "environment": {
+        "TMPDIR": "/dev/shm/rk-coding36-linux.gaWtu6/current-tmp",
+        "npm_config_cache": "/dev/shm/rk-coding36-linux.gaWtu6/npm-cache",
+        "ELECTRON_SKIP_BINARY_DOWNLOAD": "1",
+        "RUN_MODEL_CHECK": "0"
+      },
+      "space_before": {
+        "total": 1952030720,
+        "used": 1808285696,
+        "free": 143745024
+      },
+      "end": 1792309996.925733,
+      "exit": 0,
+      "space_after": {
+        "total": 1952030720,
+        "used": 1813630976,
+        "free": 138399744
+      }
+    },
+    "final-minimal": {
+      "start": 1792310117.0493286,
+      "cwd": "/dev/shm/rk-coding36-linux.gaWtu6/current",
+      "command": [
+        "timeout",
+        "--signal=TERM",
+        "--kill-after=10s",
+        "300s",
+        "npx",
+        "tsx",
+        "--test",
+        "--test-concurrency=1",
+        "test/100-worker-stop.test.ts",
+        "test/101-native-execution.test.ts",
+        "test/101-native-linux-scope.test.ts",
+        "test/native-linux-identity.test.ts",
+        "test/71-product-entry.test.ts",
+        "test/24-mcp.test.ts",
+        "test/25-mcp-write.test.ts",
+        "test/mcp-transport.test.ts"
+      ],
+      "environment": {
+        "TMPDIR": "/dev/shm/rk-coding36-linux.gaWtu6/current-tmp",
+        "npm_config_cache": "/dev/shm/rk-coding36-linux.gaWtu6/npm-cache",
+        "ELECTRON_SKIP_BINARY_DOWNLOAD": "1",
+        "RUN_MODEL_CHECK": "0"
+      },
+      "space_before": {
+        "total": 1952030720,
+        "used": 1814159360,
+        "free": 137871360
+      },
+      "minimum_free_bytes": 67108864,
+      "minimum_free_reason": "first usable122 consumed under 1MiB net plus warmed tsx cache; reserve 64MiB, stop new batch if below",
+      "end": 1792310286.7363007,
+      "exit": 0,
+      "space_after": {
+        "total": 1952030720,
+        "used": 1815572480,
+        "free": 136458240
+      }
+    },
+    "final-122": {
+      "start": 1792310286.8369076,
+      "cwd": "/dev/shm/rk-coding36-linux.gaWtu6/current",
+      "command": [
+        "timeout",
+        "--signal=TERM",
+        "--kill-after=10s",
+        "300s",
+        "npx",
+        "tsx",
+        "--test",
+        "test/122-workflow-code-acceptance.test.ts"
+      ],
+      "environment": {
+        "TMPDIR": "/dev/shm/rk-coding36-linux.gaWtu6/current-tmp",
+        "npm_config_cache": "/dev/shm/rk-coding36-linux.gaWtu6/npm-cache",
+        "ELECTRON_SKIP_BINARY_DOWNLOAD": "1",
+        "RUN_MODEL_CHECK": "0"
+      },
+      "space_before": {
+        "total": 1952030720,
+        "used": 1815588864,
+        "free": 136441856
+      },
+      "minimum_free_bytes": 67108864,
+      "minimum_free_reason": "first usable122 consumed under 1MiB net plus warmed tsx cache; reserve 64MiB, stop new batch if below",
+      "end": 1792310431.6434994,
+      "exit": 0,
+      "space_after": {
+        "total": 1952030720,
+        "used": 1815724032,
+        "free": 136306688
+      }
+    }
+  },
+  "final_counts": {
+    "passed": 159,
+    "failed": 0,
+    "skipped": 1,
+    "skip_reason": "macOS-only identity check on Linux"
+  },
+  "unusable_attempts": [
+    {
+      "kind": "setup_preflight_missing_git",
+      "exit": 1,
+      "meaning": "environment check rejected archive copy; git init restored the original17 premise"
+    },
+    {
+      "kind": "initial122_space_full",
+      "test_exit": null,
+      "output_bytes": 0,
+      "exit_file_bytes": 0,
+      "meaning": "execution result and process evidence unavailable; runner failed to write exit status due ENOSPC; cannot claim no request/execution"
+    }
+  ],
+  "snapshot_semantics": "last in-flight snapshot, normally at 30 seconds; baseline usable snapshot also contains unusable first fixture; not terminal state",
+  "original17_exact_trigger": "unknown; bounded journal PID and mention queries yielded no entries",
+  "remote_base": "/dev/shm/rk-coding36-linux.gaWtu6",
+  "root_setup_cache": "/tmp/rk-coding36-linux-npm.rhwyky",
+  "current_dependency_cleanup": {
+    "time": 1792310996.4214342,
+    "pre_cleanup_process_check": {
+      "time": 1792310849.0653365,
+      "reader_uid": 0,
+      "prefixes": [
+        "/dev/shm/rk-coding36-linux.gaWtu6/current",
+        "/dev/shm/rk-coding36-linux.gaWtu6/current-tmp"
+      ],
+      "matches": [],
+      "inaccessible_target_uid_processes": []
+    },
+    "no_new_test_execution_since_check": true,
+    "before_shm": {
+      "total": 1952030720,
+      "used": 1816276992,
+      "free": 135753728
+    },
+    "before_root": {
+      "total": 42156257280,
+      "used": 39387713536,
+      "free": 926683136
+    },
+    "paths": [
+      {
+        "path": "/dev/shm/rk-coding36-linux.gaWtu6/current/node_modules",
+        "bytes": 784285489
+      },
+      {
+        "path": "/dev/shm/rk-coding36-linux.gaWtu6/current/verification/foundation/node_modules",
+        "bytes": 522853291
+      }
+    ],
+    "after_shm": {
+      "total": 1952030720,
+      "used": 273076224,
+      "free": 1678954496
+    },
+    "after_root": {
+      "total": 42156257280,
+      "used": 39387721728,
+      "free": 926674944
+    },
+    "retained": [
+      "baseline/current source",
+      "worker artifacts",
+      "initial unusable fixture",
+      "last in-flight snapshots",
+      "all stage logs",
+      "npm trees",
+      "compile caches",
+      "unique npm cache logs"
+    ]
+  },
+  "remote_state": {
+    "baseline_dependencies_removed": true,
+    "current_dependencies_removed": true,
+    "source_worker_test_evidence_retained": true,
+    "process_check": "sudo read-only zero matches and zero inaccessible; no new test execution after check"
+  }
+}

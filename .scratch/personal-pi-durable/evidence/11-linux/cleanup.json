@@ -1,0 +1,10 @@
+{
+  "command": [
+    "ssh",
+    "tx",
+    "python3 -c '\nimport pathlib,os,signal,time,shutil,json,sys\nroots=[pathlib.Path(sys.argv[1]),pathlib.Path(sys.argv[2])]\ndef belongs(pid):\n try:return any((pathlib.Path('\"'\"'/proc'\"'\"')/str(pid)/'\"'\"'cwd'\"'\"').resolve().is_relative_to(r) for r in roots)\n except (FileNotFoundError,PermissionError,ProcessLookupError):return False\ndef owned():\n return [int(p.name) for p in pathlib.Path('\"'\"'/proc'\"'\"').iterdir() if p.name.isdigit() and int(p.name)!=os.getpid() and belongs(int(p.name))]\npids=owned()\nfor pid in pids:\n if belongs(pid):\n  try:os.kill(pid,signal.SIGTERM)\n  except ProcessLookupError:pass\nif pids:time.sleep(1)\nfor pid in pids:\n if belongs(pid):\n  try:os.kill(pid,signal.SIGKILL)\n  except ProcessLookupError:pass\nremaining=owned()\nif remaining:raise RuntimeError('\"'\"'owned processes remain: '\"'\"'+repr(remaining))\nfor root in roots:shutil.rmtree(root)\nprint(json.dumps({'\"'\"'terminatedOwnedPids'\"'\"':pids,'\"'\"'remainingOwnedPids'\"'\"':owned(),'\"'\"'removed'\"'\"':[str(r) for r in roots],'\"'\"'remainingDirectories'\"'\"':[str(r) for r in roots if r.exists()]}))\n' /tmp/ruukoto-work-controls-20261017T040936Z-he27jsp3 /dev/shm/ruukoto-work-controls-20261017T040936Z-he27jsp3"
+  ],
+  "exitCode": 0,
+  "started": "2026-10-17T04:16:12.230954+00:00",
+  "ended": "2026-10-17T04:16:14.136950+00:00"
+}

@@ -1,0 +1,115 @@
+{
+  "created_at": "2026-10-18T13:53:27.686944+00:00",
+  "patch": "/tmp/ruukoto39-personal-durable-ready.patch",
+  "patch_sha256": "f36cf9d6b5ec02edb3256f2b1dc98e485200252cc358775f16d821535fa620b9",
+  "worktree": "/tmp/ruukoto39-native-batch",
+  "changed_files": [
+    {
+      "path": "test/personal-durable.test.ts",
+      "sha256": "bc23120aa30900ff40fe6b8277729abc61c736bc291b7d0c83f5bcd50381e7ea"
+    },
+    {
+      "path": ".agents/notes/implemented/testing/2026-10-11-await-observed-async-phases.md",
+      "sha256": "5efee45aa546060b0deb9abfcca12003d2156539d1022738f1c9a59ccbb6b481"
+    }
+  ],
+  "behavior": "Only the crash-stream test fixture and existing testing note change. Imports finish before ready; parent installs original 5s persisted-partial wait before start; ready10s/whole-test15s. Same real LiveDoc, lock, SIGKILL, recovery and unique history assertions.",
+  "checks": {
+    "final_frozen_mac22": {
+      "exit": 0,
+      "pass": 27,
+      "fail": 0,
+      "skipped": 0
+    },
+    "final_frozen_mac24": {
+      "exit": 0,
+      "pass": 27,
+      "fail": 0,
+      "skipped": 0
+    },
+    "check_static_frozen": {
+      "exit": 0
+    },
+    "diff_check": {
+      "exit": 0
+    },
+    "embedded_fixture_self_checks": "real child exit23 exposes exit status and stderr; real started child without ready rejects bounded wait",
+    "derived_slow_ready": "5.5s delay before ready passes with unchanged whole15s and partial5s",
+    "derived_missing_partial": "removing only IPC partial receipt after true LiveDoc observation rejects at original5s; exit1 expected"
+  },
+  "validation_scope": [
+    "MockModelServer only, no real models or IM",
+    "Narrow original test first passed independently on mac22/24; final whole-file runs overlap isolated check:static",
+    "Do not add repeated narrow/file successes as unique coverage",
+    "Linux integration remains parent task; no new SSH or OS-wide process probes",
+    "No root worktree writes; no products/schema/worker changes",
+    "First static failed only nullable pipe handle typing; final static0 preserved separately",
+    "Original stock red logs preserved; later timing supports fixture correction but does not establish original failures unique cause"
+  ],
+  "artifacts": [
+    {
+      "path": "/tmp/ruukoto39-personal-durable-ready.patch",
+      "sha256": "f36cf9d6b5ec02edb3256f2b1dc98e485200252cc358775f16d821535fa620b9"
+    },
+    {
+      "path": "/tmp/ruukoto39-personal-durable-ready-frozen-results.json",
+      "sha256": "0eab04a336577c0f6ca8003173680135fbe8b94a619938fdadcdd9f26f0d5799"
+    },
+    {
+      "path": "/tmp/ruukoto39-personal-durable-ready-frozen-mac22.log",
+      "sha256": "b474b90474d37ced2ab0e855dc75a41d08411468d824f95d03402326cbd811d1"
+    },
+    {
+      "path": "/tmp/ruukoto39-personal-durable-ready-frozen-mac24.log",
+      "sha256": "42d3b1b14aebea3f0251e70a41e60641f727174ab4dbc98fd6fe88966ddc8190"
+    },
+    {
+      "path": "/tmp/ruukoto39-personal-durable-ready-static.log",
+      "sha256": "40565b7675b1447e3bb8afa05f97d862f400bbd55835bd7a5d857e21835f522d"
+    },
+    {
+      "path": "/tmp/ruukoto39-personal-durable-ready-static-final.log",
+      "sha256": "ad69e7d038f593b59e5512f203ae94c2ecf460d6881c049593a10fdd3b370aa4"
+    },
+    {
+      "path": "/tmp/ruukoto39-personal-durable-ready-static-frozen.log",
+      "sha256": "ad69e7d038f593b59e5512f203ae94c2ecf460d6881c049593a10fdd3b370aa4"
+    },
+    {
+      "path": "/tmp/ruukoto39-personal-durable-ready-probe-results.json",
+      "sha256": "8dc9afd6ececf82a19ea861782a4f0f069dce8d7f3a1c5a30a40264a90654c0b"
+    },
+    {
+      "path": "/tmp/ruukoto39-personal-durable-ready-probe-slow-ready.log",
+      "sha256": "f9eb7d63271feacb482e21b357ece76136860cc8a2ae61bb39c3f2a446b38f5f"
+    },
+    {
+      "path": "/tmp/ruukoto39-personal-durable-ready-probe-missing-partial.log",
+      "sha256": "ba68bd7dadbd5731d3c01fb5d4ac3b4fdcf2ca012e2a53716324b997294be85e"
+    },
+    {
+      "path": "/tmp/ruukoto39-personal-durable-ready-probes/slow-ready.test.ts",
+      "sha256": "0364134b938d57f3d5005fe87b7f2c20a5c7d08a07cdaad90c96ee5c0934ab8b"
+    },
+    {
+      "path": "/tmp/ruukoto39-personal-durable-ready-probes/missing-partial.test.ts",
+      "sha256": "8e868b4b0b1ba3d5a50aa1b38e4d4fda92ac19160d78668807b1047cd7c7f406"
+    },
+    {
+      "path": "/tmp/ruukoto39-personal-durable-stock.test.ts",
+      "sha256": "35295ae007d7c2bcb426b371a92566d4ce478efe0ff9482efbba3554cc0e2481"
+    },
+    {
+      "path": "/tmp/ruukoto39-personal-durable-stock-source.json",
+      "sha256": "c6a5a9e237926723b95e8203eb7a53ab69f4a79cab24b11f31d30cf2afee0aec"
+    },
+    {
+      "path": "/tmp/ruukoto39-node22-stream-v3-success.json",
+      "sha256": "dc14e09993a95182ff961fd8050f60f85dfd4029e2fbcdf78fdbbce10bdcdef2"
+    },
+    {
+      "path": "/tmp/ruukoto39-node-stream-phase-timing.json",
+      "sha256": "5c39a3b8e548544c27a5e0edfa30829cbf33d60ff1ecb3d536a54352461ea4a9"
+    }
+  ]
+}

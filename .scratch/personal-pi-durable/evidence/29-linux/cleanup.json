@@ -1,0 +1,24 @@
+{
+  "scopes": [
+    {
+      "unit": "ruukoto-native_893e53d969dbd3356945862c.scope",
+      "showExitCode": 0,
+      "ControlGroup": "",
+      "LoadState": "not-found",
+      "ActiveState": "inactive",
+      "temporary": "/tmp/ruukoto-native-yxqHSG",
+      "temporaryExists": false
+    },
+    {
+      "unit": "ruukoto-native_6a64c83d6833d6b094881afa.scope",
+      "showExitCode": 0,
+      "ControlGroup": "",
+      "LoadState": "not-found",
+      "ActiveState": "inactive",
+      "temporary": "/tmp/ruukoto-native-daAGgp",
+      "temporaryExists": false
+    }
+  ],
+  "matchingNodeProcesses": [],
+  "fixtureArchivesRetainedBeforeOwnedDirectoryRemoval": true
+}

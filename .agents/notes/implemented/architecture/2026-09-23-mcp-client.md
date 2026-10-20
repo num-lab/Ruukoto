@@ -25,11 +25,13 @@ Status: implemented
 
 ## 实现落点
 
+共享传输与旧项目装配分别位于 `mcp/transport.ts` 和 `mcp/client.ts`，接口分工及逐请求 token resolver 的失败规则见[传输复用](2026-10-17-mcp-transport-reuse.md)。下文项目配置和凭据存储仍属于旧装配；新接口不授予项目或个人来源权限，HTTP 取消语义不变。
+
 运维步骤与排查见[操作手册](../../../../docs/usage.md#57-mcp-服务)「MCP 服务」节。承载上述决定的契约如下：
 
 - **配置表。** 后台 SQLite 的 `mcp_services` 表（schema v8 引入，`UNIQUE (project_id, name)`），列为服务 ID、项目、名称（项目内唯一的小写 slug，也是工具名命名空间）、端点、凭据绑定名（值不入表）、`tool_allowlist`、`enabled`、`config_version`。任何字段变化都递增 `config_version`；变更带期望版本校验，不符以 `version_conflict` 拒绝；配置变更与 `mcp.service_changed` 事件同事务写入。代码在 `packages/agent/src/mcp/store.ts`。
 - **管理入口。** 控制面操作 `mcp_configure`、`mcp_list`、`mcp_set_enabled`、`mcp_remove`、`mcp_check`，CLI `ruukoto mcp …` 与配置中心复用它们；模型工具不能调用。`mcp_list` 与 `mcp_check` 返回脱敏视图，`mcp_check` 先展示将联系的端点。
-- **端点。** 生产只接受 `https`，`http` 仅限回环地址上的模拟服务；拒绝带 userinfo 的 URL。请求经钉源 fetch 发出：只连配置端点的同源同路径，任何重定向都报错（`packages/agent/src/mcp/client.ts`）。
+- **端点。** 生产只接受 `https`，`http` 仅限回环地址上的模拟服务；拒绝带 userinfo 的 URL。请求经钉源 fetch 发出：只连配置端点的同源同路径，任何重定向都报错（`packages/agent/src/mcp/transport.ts`）。
 - **凭据。** 配置时要求凭据 `purpose=mcp`、host 与端点 host 一致、经 `authorization` 头注入；已有 scope 与本项目或 `mcp` 操作冲突时拒绝配置，否则把 scope 收紧到本项目加 `mcp` 操作，通用 `http_request` 与其他项目不能借用同名凭据。每个请求都重新解析凭据，撤销立即生效。
 - **工具注册。** 暴露名为 `mcp_<服务名>_<远端工具名>`（小写，非法字符转 `_`，不超过 64 字符，超长截断并带哈希后缀）；截断或转义后冲突的工具禁用。远端 `inputSchema` 与 `outputSchema` 须为普通对象、根类型 `object`、不超过 16 KiB 且能经 TypeBox `Compile` 编译，不满足即禁用该工具，不靠类型断言绕过运行时校验。工具数、分页页数、描述长度与各环节超时的上限集中在 `MCP_LIMITS`。
 - **钉版与 SDK 会话。** 工具清单签名由服务配置版本与暴露名、描述、schema 摘要组成；签名变化时从同一历史文件重建 SDK 会话并重新绑定宿主钩子（`packages/agent/src/driver.ts`）。显式启用但初始化失败的服务记 `mcp.service_unavailable` 事件并列为不可用，任务不带它的工具继续；没有 MCP 配置的项目照常启动。工具定义计入既有上下文预算。

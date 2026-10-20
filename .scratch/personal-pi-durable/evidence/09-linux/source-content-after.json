@@ -1,0 +1,19 @@
+{
+  "checked_files": 1354,
+  "content_unchanged": true,
+  "executable_bits_unchanged": true,
+  "content_failures": [],
+  "executable_failures": [],
+  "mode_changes": [
+    {
+      "path": "apps/ruukoto-code/bin/ruukoto-code.mjs",
+      "expected_octal": "0o755",
+      "actual_octal": "0o775"
+    },
+    {
+      "path": "apps/ruukoto/bin/ruukoto.mjs",
+      "expected_octal": "0o755",
+      "actual_octal": "0o775"
+    }
+  ]
+}

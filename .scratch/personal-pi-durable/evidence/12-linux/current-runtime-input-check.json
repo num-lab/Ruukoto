@@ -1,0 +1,191 @@
+{
+  "checkedAt": "2026-10-17T04:44:25.169229+00:00",
+  "files": [
+    {
+      "path": "apps/ruukoto/src/personal-cli.ts",
+      "expected": "3f1dac89261438fb4d59be6e118557fa74e17fc54477f07704e982b536345d05",
+      "observed": "3f1dac89261438fb4d59be6e118557fa74e17fc54477f07704e982b536345d05",
+      "matches": true
+    },
+    {
+      "path": "apps/ruukoto/src/personal-config.ts",
+      "expected": "27cafd1f0d8e8e984a756aefc1ea4d1102ff27a1d763cd7b4487a837a003bc5f",
+      "observed": "27cafd1f0d8e8e984a756aefc1ea4d1102ff27a1d763cd7b4487a837a003bc5f",
+      "matches": true
+    },
+    {
+      "path": "apps/ruukoto/src/personal-control.ts",
+      "expected": "dd5b7dc6bca7500da3ee12575928e381eb40378aa2575bf37cd4658f711985ad",
+      "observed": "dd5b7dc6bca7500da3ee12575928e381eb40378aa2575bf37cd4658f711985ad",
+      "matches": true
+    },
+    {
+      "path": "apps/ruukoto/src/personal-entry.ts",
+      "expected": "e74b18858a2d9a9dab3ec4e4b8091079258d6693b4345af5833387f4914434e6",
+      "observed": "e74b18858a2d9a9dab3ec4e4b8091079258d6693b4345af5833387f4914434e6",
+      "matches": true
+    },
+    {
+      "path": "apps/ruukoto/src/personal-error.ts",
+      "expected": "f4266968ec480f657bee1a6043e69d07910134f09924ec43683aa0569b212ab4",
+      "observed": "f4266968ec480f657bee1a6043e69d07910134f09924ec43683aa0569b212ab4",
+      "matches": true
+    },
+    {
+      "path": "apps/ruukoto/src/personal-harness.ts",
+      "expected": "a4a1d14072e98e2d9c44634dfd7967ac6767c6a21cedc32b7565b90c569f2edf",
+      "observed": "a4a1d14072e98e2d9c44634dfd7967ac6767c6a21cedc32b7565b90c569f2edf",
+      "matches": true
+    },
+    {
+      "path": "apps/ruukoto/src/personal-local-records.ts",
+      "expected": "7a33ceba2fd850394072a7d53f13cbae300a698701f0e32ac8058b84c3542806",
+      "observed": "7a33ceba2fd850394072a7d53f13cbae300a698701f0e32ac8058b84c3542806",
+      "matches": true
+    },
+    {
+      "path": "apps/ruukoto/src/personal-model.ts",
+      "expected": "70317facba8e89c2c57632957577fdde61f348aa481f38611bd6e096ff8d5d53",
+      "observed": "70317facba8e89c2c57632957577fdde61f348aa481f38611bd6e096ff8d5d53",
+      "matches": true
+    },
+    {
+      "path": "apps/ruukoto/src/personal-permissions.ts",
+      "expected": "62dfbb7f1d302b9357bf24cecc8c35803f9efdad20379f75b79a962c78a5c901",
+      "observed": "62dfbb7f1d302b9357bf24cecc8c35803f9efdad20379f75b79a962c78a5c901",
+      "matches": true
+    },
+    {
+      "path": "apps/ruukoto/src/personal-profile.ts",
+      "expected": "1296839ebe768f4977472c6b7cf695cf37af8c8d903eeea79dd4ded52b8877d4",
+      "observed": "1296839ebe768f4977472c6b7cf695cf37af8c8d903eeea79dd4ded52b8877d4",
+      "matches": true
+    },
+    {
+      "path": "apps/ruukoto/src/personal-service-config.ts",
+      "expected": "b09bef20fa258872c3122506fd967537229e35ffe278a41e4ba3baf62ed56f3d",
+      "observed": "b09bef20fa258872c3122506fd967537229e35ffe278a41e4ba3baf62ed56f3d",
+      "matches": true
+    },
+    {
+      "path": "apps/ruukoto/src/personal-service-operations.ts",
+      "expected": "f6fd1d536ad2715d4660ddcb8b796de5e6e696fb3096fb6185af832bbf340fbd",
+      "observed": "f6fd1d536ad2715d4660ddcb8b796de5e6e696fb3096fb6185af832bbf340fbd",
+      "matches": true
+    },
+    {
+      "path": "apps/ruukoto/src/personal-services.ts",
+      "expected": "f390ada406dd51b55e7cc12d3106d08affecc90edf6b6fb7305adf12867aa189",
+      "observed": "f390ada406dd51b55e7cc12d3106d08affecc90edf6b6fb7305adf12867aa189",
+      "matches": true
+    },
+    {
+      "path": "apps/ruukoto/src/personal-telegram-api.ts",
+      "expected": "7a3531266c587a2bff8f9f67c5a07489e84472cac039269329a0f96253b6bf0c",
+      "observed": "7a3531266c587a2bff8f9f67c5a07489e84472cac039269329a0f96253b6bf0c",
+      "matches": true
+    },
+    {
+      "path": "apps/ruukoto/src/personal-telegram-config.ts",
+      "expected": "7ff7b82ff4c8516198e8d17768e3531d612b491f880f288d902adb4a6f983e4f",
+      "observed": "7ff7b82ff4c8516198e8d17768e3531d612b491f880f288d902adb4a6f983e4f",
+      "matches": true
+    },
+    {
+      "path": "apps/ruukoto/src/personal-telegram-records.ts",
+      "expected": "dca9af48116544d6963c9857144436a3ad0cb2312bf1afb8700fa208bd49163b",
+      "observed": "dca9af48116544d6963c9857144436a3ad0cb2312bf1afb8700fa208bd49163b",
+      "matches": true
+    },
+    {
+      "path": "apps/ruukoto/src/personal-telegram.ts",
+      "expected": "1abeb95bf52414bc94e4b7564ef0373d1b267f1def347d72b72578dc3519ab94",
+      "observed": "1abeb95bf52414bc94e4b7564ef0373d1b267f1def347d72b72578dc3519ab94",
+      "matches": true
+    },
+    {
+      "path": "apps/ruukoto/src/personal-work-controls.ts",
+      "expected": "aa8f4fa8d96512821c5086696d97e02694490a047638309e13b37fe00b3028e6",
+      "observed": "aa8f4fa8d96512821c5086696d97e02694490a047638309e13b37fe00b3028e6",
+      "matches": true
+    },
+    {
+      "path": "apps/ruukoto/src/personal-work-tools.ts",
+      "expected": "4353549ebab9540e4a087f1a4382adcd0cf7dc529df9993fb9997a0becfe9597",
+      "observed": "4353549ebab9540e4a087f1a4382adcd0cf7dc529df9993fb9997a0becfe9597",
+      "matches": true
+    },
+    {
+      "path": "apps/ruukoto/src/personal-work.ts",
+      "expected": "a8227251158f5c96308092bead3dbee18b10e263fa7119f5686351ed55e867cf",
+      "observed": "a8227251158f5c96308092bead3dbee18b10e263fa7119f5686351ed55e867cf",
+      "matches": true
+    },
+    {
+      "path": "test/personal-cli.test.ts",
+      "expected": "d4568c56c1001497f3ae6135bd81c9f259c8fd72d42e34eefed44dea90328670",
+      "observed": "d4568c56c1001497f3ae6135bd81c9f259c8fd72d42e34eefed44dea90328670",
+      "matches": true
+    },
+    {
+      "path": "test/personal-durable.test.ts",
+      "expected": "35295ae007d7c2bcb426b371a92566d4ce478efe0ff9482efbba3554cc0e2481",
+      "observed": "35295ae007d7c2bcb426b371a92566d4ce478efe0ff9482efbba3554cc0e2481",
+      "matches": true
+    },
+    {
+      "path": "test/personal-service-operations.test.ts",
+      "expected": "af8dfe09cdb0aaf636402ab2d2df5d1fa6d1df72ebcbd462e9180beaa2b4b3a3",
+      "observed": "af8dfe09cdb0aaf636402ab2d2df5d1fa6d1df72ebcbd462e9180beaa2b4b3a3",
+      "matches": true
+    },
+    {
+      "path": "test/personal-services.test.ts",
+      "expected": "c6b622d1b37551a67dbcf57fc9455845c68666b6f3fb67bfba4393c504e74450",
+      "observed": "c6b622d1b37551a67dbcf57fc9455845c68666b6f3fb67bfba4393c504e74450",
+      "matches": true
+    },
+    {
+      "path": "test/personal-telegram-permissions.test.ts",
+      "expected": "e061b5eb1d8b47b83a960fcfb3d292c2815a370f707a4b572f018d3f2852c2b9",
+      "observed": "e061b5eb1d8b47b83a960fcfb3d292c2815a370f707a4b572f018d3f2852c2b9",
+      "matches": true
+    },
+    {
+      "path": "test/personal-telegram.test.ts",
+      "expected": "84e6102ca211b45390643d896652737e29378950bfcfa374ea0e3976d23eaf92",
+      "observed": "84e6102ca211b45390643d896652737e29378950bfcfa374ea0e3976d23eaf92",
+      "matches": true
+    },
+    {
+      "path": "test/personal-work-controls.test.ts",
+      "expected": "4eb9d7458e1d7c3ac1d1f10cd8a503b82c4ae9aa013b725406cfee26b8ca6b76",
+      "observed": "4eb9d7458e1d7c3ac1d1f10cd8a503b82c4ae9aa013b725406cfee26b8ca6b76",
+      "matches": true
+    },
+    {
+      "path": "test/personal-work-notes.test.ts",
+      "expected": "bc27b32981d6fd6b97148d0a94f39f136a0caddf166d608f0264f0c8ee52fa4f",
+      "observed": "bc27b32981d6fd6b97148d0a94f39f136a0caddf166d608f0264f0c8ee52fa4f",
+      "matches": true
+    },
+    {
+      "path": "test/personal-work-tools.test.ts",
+      "expected": "bec67712fbdb2dc723255b2cba6bcdb8a4aa9a9264d3e56d6b14deb821ef716e",
+      "observed": "bec67712fbdb2dc723255b2cba6bcdb8a4aa9a9264d3e56d6b14deb821ef716e",
+      "matches": true
+    },
+    {
+      "path": "test/personal-work.test.ts",
+      "expected": "5e39416976f2fcba0913736d4db498ef618837522ed6050bf6a0ebc1adf0cdec",
+      "observed": "5e39416976f2fcba0913736d4db498ef618837522ed6050bf6a0ebc1adf0cdec",
+      "matches": true
+    }
+  ],
+  "expectedFiles": 30,
+  "actualFiles": 30,
+  "pathSetsMatch": true,
+  "extraFiles": [],
+  "missingFiles": [],
+  "allMatch": true
+}

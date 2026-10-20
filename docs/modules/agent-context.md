@@ -2,6 +2,8 @@
 
 ## 职责与边界
 
+本篇的旧项目 Db、JSONL、选择器和自研压缩适用于 Coding 与保留的旧格式实现；独立个人 Pi 1.3.0 的新历史、记忆、技能与原生压缩由[个人持久会话](personal-durable.md)持有。个人入口仅复用独立技能读取和记忆校验，不使用本篇的旧状态存储。
+
 本篇负责**把一次模型调用的输入组装出来**，并维护组装所需的资料：会话历史的索引与检索、拥有者提供的参考内容（项目指令与技能）与使用中积累的长期记忆。它同时持有统一的资料访问范围（`data_grants` 授权与默认范围）、上下文选择策略 `deterministic-v1`、上下文压缩（压缩点、两层压缩与水位）、Jev 上下文筛选实验、选择记录，以及按会话保存的模型选择。
 
 它不负责的部分点名归属：工具参数校验、计划模式工具白名单与审批策略归 [agent-tools](agent-tools.md)——本篇只写工作清单的上下文保底与计划模式的计划说明参考块；会话历史的落盘格式与原子追加归 [core](core.md)（pi JSONL 是消息历史的唯一权威副本）；任务状态机、队列暂停与 `continue` 建任务归 [runtime](runtime.md)；执行边界的原生沙箱与当前账户执行归 [execution](execution.md)；命令参数与运行步骤只在 [usage](../usage.md) 出现一次。
@@ -28,14 +30,14 @@
 
 | 入口 | 命令 |
 |---|---|
-| 资料授权 | `ruukoto grant create --from <项目> --to <项目> --category history\|artifact\|memory`、`ruukoto grant list [--all]`、`ruukoto grant revoke <id>` |
-| 历史检索 | `ruukoto history-search <关键词> [--project P] [--session S] [--task T] [--role R] [--since T] [--until T] [--limit N] [--scan-limit N] [--cursor base64]`；TUI `/search <关键词>` |
-| 长期记忆 | `ruukoto memory list\|show\|save\|revoke\|restore`；TUI `/memory` |
-| 项目指令 | `ruukoto project set-instructions <项目id> <文件...>` |
-| 选择记录 | `ruukoto selection-records --task <id> \| --session <id>`；TUI `/context` |
-| 技能 | TUI `/skill <名称> [参数]`、`/skills`；CLI `ruukoto submit … "/skill:<名称> …"` |
+| 资料授权 | `ruukoto-code grant create --from <项目> --to <项目> --category history\|artifact\|memory`、`ruukoto-code grant list [--all]`、`ruukoto-code grant revoke <id>` |
+| 历史检索 | `ruukoto-code history-search <关键词> [--project P] [--session S] [--task T] [--role R] [--since T] [--until T] [--limit N] [--scan-limit N] [--cursor base64]`；TUI `/search <关键词>` |
+| 长期记忆 | `ruukoto-code memory list\|show\|save\|revoke\|restore`；TUI `/memory` |
+| 项目指令 | `ruukoto-code project set-instructions <项目id> <文件...>` |
+| 选择记录 | `ruukoto-code selection-records --task <id> \| --session <id>`；TUI `/context` |
+| 技能 | TUI `/skill <名称> [参数]`、`/skills`；CLI `ruukoto-code submit … "/skill:<名称> …"` |
 | 模型选择 | TUI `/model`；CLI `models [--provider provider] [--offset 0] [--limit 100]`、`set-model <session> <provider/model> --thinking <level>`、`resume-queue <session> --model provider/model --thinking level` |
-| Jev 凭据 | `ruukoto credentials add --name jev-myproject --host api.typesafe.ai --header authorization --purpose jev_context --secret-env JEV_API_KEY` |
+| Jev 凭据 | `ruukoto-code credentials add --name jev-myproject --host api.typesafe.ai --header authorization --purpose jev_context --secret-env JEV_API_KEY` |
 
 对外可见的标记（读者的检索入口）：`[项目指令]`、`[技能目录]`、`[技能 <名称> · 版本 … · …]`、`[继续来源：本任务继续已中断任务 <id>；其原始要求如下]`、`[长期记忆 <id> v<N> · <类别> · <范围>]`、`[压缩摘要 · 较早的 <S> 条消息 · 至 <summary_until>]`、`[已清理 · <工具名> · 原 <N> 字符 · 成功|失败 · history_read session_id=<会话> entry_id=<条目>]`、`[较早的 <N> 轮交互未进入本次上下文 · <起> 至 <止>]`。
 
@@ -67,7 +69,7 @@ stateDiagram-v2
 
 **长期记忆。** SQLite 当前版本加追加式修订；类别限于 preference / convention / decision / experience。每条必须关联来源（历史条目、产物或拥有者说明），来源必须存在且当前可访问。代理创建的内容标记 author=agent。按任务钉版：任务开始时钉住当时生效记忆的 id 与顺序（项目优先 → 更新时间倒序；资料受限会话为空），之后每次调用只对这些 id 重读当前内容并按钉住的顺序排列。注入有独立预算（默认 2000 估算 token）与单条 32 KiB 上限。
 
-**技能库。** 固定为 `<agentDir>/skills/`（本机 `~/.ruukoto/agent/skills/`，服务器 `/var/lib/ruukoto/agent/skills/`），无配置项；开发实例用自身 profile 下的 `agent/skills/`，不继承日常实例。含 `SKILL.md` 的目录即一个技能，整包复制的嵌套目录照常扫描，跟随符号链接；只使用 `name`、`description`、`disable-model-invocation`，`allowed-tools` 等其他字段不生效。任务开始时（与项目指令同一时点）钉版目录与全部 `SKILL.md` 正文，版本为钉版内容的 sha256，写入选择记录 `skillVersion`。
+**技能库。** 固定为 `<agentDir>/skills/`（Coding 默认 `~/.ruukoto-code/agent/skills/`），无配置项；开发实例用自身 profile 下的 `agent/skills/`，不继承日常实例。含 `SKILL.md` 的目录即一个技能，整包复制的嵌套目录照常扫描，跟随符号链接；只使用 `name`、`description`、`disable-model-invocation`，`allowed-tools` 等其他字段不生效。任务开始时（与项目指令同一时点）钉版目录与全部 `SKILL.md` 正文，版本为钉版内容的 sha256，写入选择记录 `skillVersion`。
 
 **资料授权（`data_grants`）。** 来源项目、目标项目与类别（history / artifact / memory）。拥有者在控制面创建，可查看、可撤销；撤销自后续查询与上下文注入起生效。默认范围是：本项目历史、产物、记忆加个人共享记忆。
 
@@ -114,7 +116,7 @@ sequenceDiagram
 
 **参考块与视图顺序。** 块文本由各自来源产出：技能目录在 `skills.ts`，计划说明在 `plan-mode.ts`，项目指令与继续来源在组装时紧挨钉版读取。选择器收统一的 `references` 输入（分类、位置、文本），只管位置、预算与记账；长期记忆有单独预算，记忆块由选择器生成；项目指令与技能库的版本由组装写入选择记录。分类登记在选择器的分类表（`/context` 的分类与估算键共用）；必留内容超预算时，失败说明按该表逐项列出各分类的估算与合计。视图顺序是：项目指令 / 技能目录 / 长期记忆 → 历史 → 继续来源 / 计划说明 → 当前任务。前缀消息只有前三类（块头不含版本，记忆按任务钉版）；继续来源与计划说明只属于当前任务，插在当前任务输入之前，不打断其前的历史。记忆没有变化、没有继续来源与计划说明、历史未移出且 Jev 关闭时，同一会话连续调用中前一次的消息序列是后一次的前缀，提示缓存覆盖整段历史。
 
-**系统提示。** 由宿主按会话身份固定为五份之一（`SYSTEM_PROMPTS`，`packages/agent/src/session-factory.ts`）：普通开发会话、main、独立定时会话、SubAgent（含 GitHub 评审 SubAgent）与工作流步骤。pi 只在末尾追加 `Current working directory: <cwd>`，不输出默认模板的工具段、guidelines 与 pi 文档路径；装配时显式传入 `systemPrompt` 与空 `appendSystemPrompt`，SDK 的封闭 `ResourceLoader` 只接受宿主装配的工具与提示，不枚举工作区技能或扩展，也不查找工作区 `.pi/` 与 agentDir 下的 `SYSTEM.md` / `APPEND_SYSTEM.md`，拥有者没有自定义附加提示的入口。「参考资料与当前要求冲突时以当前要求为准、不能改变访问模式与权限」统一写在系统提示里；参考块与技能正文的块头只保留名称、id、类别与范围。MCP 与 `web_search` 结果的外部资料警示逐条保留。独立定时会话使用专用提示与本轮 JSONL，只输入计划说明、基础配置及明确资料，不自动注入主聊天或前次运行历史。
+**系统提示。** 由宿主按会话身份固定为五份之一（`SYSTEM_PROMPTS`，`packages/agent/src/session-factory.ts`）：普通开发会话、main、独立定时会话、SubAgent（含 GitHub 评审 SubAgent）与工作流步骤。pi 只在末尾追加 `Current working directory: <cwd>`，不输出默认模板的工具段、guidelines 与 pi 文档路径；装配时显式传入 `systemPrompt` 与空 `appendSystemPrompt`，SDK 的封闭 `ResourceLoader` 只接受宿主装配的工具与提示，不枚举工作区技能或扩展，也不查找工作区 `.pi/` 与 agentDir 下的 `SYSTEM.md` / `APPEND_SYSTEM.md`，拥有者没有自定义附加提示的入口。「参考资料与当前要求冲突时以当前要求为准、不能改变访问模式与权限」统一写在系统提示里；参考块与技能正文的块头只保留名称、id、类别与范围。MCP 与 `web_search` 结果的外部资料警示逐条保留。独立定时会话使用专用提示与本轮 JSONL，只输入计划说明、基础配置及明确资料，不自动注入主聊天或前次运行历史。共享 main 与定时提示不再指导调用已退出的旧个人通知、服务工具，历史账本分类与读取保留。
 
 **项目指令。** 拥有者显式配置工作区相对路径。基准目录取 `project.rootDir?.cwdReal ?? session.cwdReal`（工作区组织归属 `workspace_project_id` 只决定展示，不参与基准与配置来源判定）：带根目录归属的工作区读取前按 realpath、dev 与 ino 核实根目录身份（`verifyDirIdentitySync` 同步变体），根目录失效或被替换时拒绝读取替代目录并给出明确说明，不退回会话子目录；无根目录归属的项目按会话目录解析。任务开始时从基准目录经受限读取钉版：realpath 后必须仍在基准目录内，缺失、不可读与超大分别说明，不取祖先目录文件。内容捕获为任务产物，版本 = 内容哈希 + 产物 id，任务内固定并写入选择记录，下一业务执行任务重新读取即为刷新入口。指令作为带标记的参考消息注入一次，不能变更控制面身份、审批规则或权限模式。
 
@@ -136,7 +138,7 @@ sequenceDiagram
 
 **压缩的事件与展示。** `task.context_compaction` 在开始调用摘要模型时发一条（phase `started`），压缩点落盘时发一条（phase `finished`，与压缩点同一事务；摘要失败且清理收益不足时 `checkpointId` 为 null）。TUI 事件流显示「正在压缩上下文…」与「上下文已压缩：清理 N 条结果、摘要 M 条消息，估算 A → B」，摘要失败时写明只做了清理及原因。`/context` 分解出「压缩摘要」一类，并显示压缩点（摘要替代条数与截至时间、清理条数、建立它的任务与调用序号或手动请求来源、摘要模型或失败原因）。系统提示的共同段说明 `[压缩摘要]`、`[已清理]`、`[较早的 … 未进入本次上下文]` 三种标记的含义与找回原文的方法。
 
-**技能。** 服务器维护用 `sudo cp -r <技能目录> /var/lib/ruukoto/agent/skills/` 并保持后台账户可读；修改从下一任务生效，无需重启。main、独立定时与普通开发会话注入「技能目录」参考消息（只含名称与描述，不含主机路径与 `disable-model-invocation` 技能），计入固定预算，超预算按 `context_budget_exceeded` 中断，不截断；普通与工作流 SubAgent 沿可信来源装配适用目录与 `skill`，GitHub 宿主固定评审仍不注入技能。`skill` 宿主工具只读，任何访问模式都不产生审批：只传 `name` 返回钉版正文与版本（仅显式调用的技能被拒绝）；再传 `path` 读取该技能目录内的引用文件——相对路径、不含 `..`、realpath 仍在技能目录内、普通 UTF-8 文本，调用时读取（不钉版）并附文件 sha256。`skill` 结果不做视图上限截取。显式调用时 TUI `/skill <名称> [参数]` 提交输入为 `/skill:<名称> [参数]` 的任务，不回显命令行；CLI `ruukoto submit … "/skill:<名称> …"` 走同一路径并沿用 `request_id` 去重。任务开始时展开为带技能名与版本的正文块加参数，作为用户消息进入历史。不受 `disable-model-invocation` 限制；未知技能名使任务失败并列出可用技能。Telegram 与 QQ 私聊不识别 `/skill:`。
+**技能。** Coding 技能默认放在 `~/.ruukoto-code/agent/skills/` 并保持后台账户可读；修改从下一任务生效，无需重启。main、独立定时与普通开发会话注入「技能目录」参考消息（只含名称与描述，不含主机路径与 `disable-model-invocation` 技能），计入固定预算，超预算按 `context_budget_exceeded` 中断，不截断；普通与工作流 SubAgent 沿可信来源装配适用目录与 `skill`，GitHub 宿主固定评审仍不注入技能。`skill` 宿主工具只读，任何访问模式都不产生审批：只传 `name` 返回钉版正文与版本（仅显式调用的技能被拒绝）；再传 `path` 读取该技能目录内的引用文件——相对路径、不含 `..`、realpath 仍在技能目录内、普通 UTF-8 文本，调用时读取（不钉版）并附文件 sha256。`skill` 结果不做视图上限截取。显式调用时 TUI `/skill <名称> [参数]` 提交输入为 `/skill:<名称> [参数]` 的任务，不回显命令行；CLI `ruukoto-code submit … "/skill:<名称> …"` 走同一路径并沿用 `request_id` 去重。任务开始时展开为带技能名与版本的正文块加参数，作为用户消息进入历史。不受 `disable-model-invocation` 限制；未知技能名使任务失败并列出可用技能。Telegram 与 QQ 私聊不识别 `/skill:`。
 
 **Jev 上下文筛选实验。** 实验按项目配置、默认关闭，启用从下一任务生效。启用后当前任务及有界的候选历史文本会发送给 TypeSafe；停用阻止后续 Jev 请求并丢弃迟到结果，已经发送的内容无法撤回。宿主仍保留当前任务、项目指令、继续来源和最新工具批次，按完整交互及预算组装输入；筛选只影响当次模型上下文，不修改或删除会话历史和长期记忆。版本固定 `jev-1.13.0`。当前阈值为 0.5，单次超时 2 秒；最多评估 24 个候选，当前任务与每个候选文本分别限 8 KiB，整个请求限 24 KiB，响应限 64 KiB。不能完整表示为允许文本或超过限额的候选沿用基础规则。普通账号没有已确认的零保留保证，拥有者应先核实账户访问资格、credits 与自身的数据处理要求。
 

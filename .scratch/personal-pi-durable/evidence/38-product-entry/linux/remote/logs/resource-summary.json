@@ -1,0 +1,9 @@
+{
+  "timestamp": "2026-10-18T11:00:17Z",
+  "scope": "仅本轮新目录；不安装完整workspace，不修改现存依赖、源码、单元或服务",
+  "rootDependencies": "/opt/ruukoto/node_modules",
+  "extraReadOnlyDependencies": "/tmp/ruukoto-agent-wait-20261014-root/node_modules",
+  "personalDependencies": "/tmp/r38-linux-JgNUHm/sdk/node_modules",
+  "dependencyMode": "共享依赖只读复用，个人最小prefix新装1.3；非干净全workspace安装",
+  "remainingProcesses": 0
+}

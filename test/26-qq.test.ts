@@ -56,6 +56,8 @@ test("OneBot：在线状态独立于连接、账号切换、异步回执与停�
     await waitFor("重新核实切换后的登录账号", () => client.online && client.selfId === USER_2);
     onebot.setSendBehavior("async");
     await assert.rejects(client.call("send_private_msg", { user_id: Number(USER_1), message: [] }), (err: unknown) => err instanceof OneBotError && !err.definite);
+    onebot.setSendBehavior("internal_error");
+    await assert.rejects(client.call("send_private_msg", { user_id: Number(USER_1), message: [] }), (err: unknown) => err instanceof OneBotError && !err.definite && err.retcode === 1200);
     await assert.rejects(client.call("unknown_action", {}), (err: unknown) => err instanceof OneBotError && err.definite);
     onebot.dropConnections();
     await waitFor("连接断开", () => !client.online);

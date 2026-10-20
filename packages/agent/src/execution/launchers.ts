@@ -77,7 +77,7 @@ export function workerEntryPath(): string {
   return fileURLToPath(new URL("../tool-worker/worker.ts", import.meta.url));
 }
 
-function workerEnv(spec: LaunchSpec): NodeJS.ProcessEnv {
+export function workerEnv(spec: LaunchSpec): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = spec.mode === "full_access" ? { ...process.env } : {};
   if (spec.mode !== "full_access") {
     for (const key of ["PATH", "HOME", "LANG", "LC_ALL", "TMPDIR"]) {

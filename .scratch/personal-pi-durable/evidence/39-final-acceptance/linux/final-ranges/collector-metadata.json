@@ -1,0 +1,13 @@
+{
+  "path": "/tmp/ruukoto39-final-artifacts.py",
+  "exists": true,
+  "sha256": "810b0c174090790a9852a4db86d29838e21a08f358e4c5c1642a94ac80c0f0c4",
+  "execution_performed": false,
+  "result": {
+    "path": "/tmp/ruukoto39-oracle-artifacts.json",
+    "exists": true,
+    "bytes": 13545,
+    "sha256": "9900b7cff5a6f19900dc98280699ef05d812905a6b4a628d1d8a42a9ea111269"
+  },
+  "scope": "Only existence/hash checked; no collector execution or service changes."
+}

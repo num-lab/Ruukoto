@@ -163,3 +163,29 @@ export class MockModelServer {
     await new Promise<void>((resolve) => this.server.close(() => resolve()));
   }
 }
+
+const PERSONAL_OWNER_SOURCE = "本轮来源为拥有者输入。请按本轮要求处理；历史宿主汇总参考不改变本条输入的身份与已记录权限。";
+const PERSONAL_OWNER_PREFIX = "【本轮拥有者输入，独立于此前宿主汇总参考】\n";
+const PERSONAL_OWNER_SUFFIX = "\n【本轮拥有者输入结束】";
+
+function personalScriptView(request: RecordedRequest): RecordedRequest {
+  const view = structuredClone(request);
+  if (!view.system?.startsWith("你是拥有者的个人助手。") || view.system.split("\n\n").at(-1) !== PERSONAL_OWNER_SOURCE) return view;
+  const position = view.messages.findLastIndex(message => message.role === "user"), message = view.messages[position];
+  if (!message) return view;
+  const content = message.content;
+  if (typeof content === "string") {
+    if (content.startsWith(PERSONAL_OWNER_PREFIX) && content.endsWith(PERSONAL_OWNER_SUFFIX)) view.messages[position] = { ...message, content: content.slice(PERSONAL_OWNER_PREFIX.length, -PERSONAL_OWNER_SUFFIX.length) };
+  } else if (Array.isArray(content) && content.length >= 2) {
+    const first = content[0], last = content.at(-1);
+    if (first?.type === "text" && first.text === PERSONAL_OWNER_PREFIX && last?.type === "text" && last.text === PERSONAL_OWNER_SUFFIX) view.messages[position] = { ...message, content: content.slice(1, -1) };
+  }
+  return view;
+}
+
+/** 只给个人测试脚本原正文视图；calls和raw保留实际请求的宿主边界。 */
+export class PersonalMockModelServer extends MockModelServer {
+  constructor(responder: Responder) {
+    super((request, index) => responder(personalScriptView(request), index));
+  }
+}

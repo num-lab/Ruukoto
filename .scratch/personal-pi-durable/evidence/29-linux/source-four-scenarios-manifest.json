@@ -1,0 +1,263 @@
+{
+  "remote": "/tmp/ruukoto-tools-29.6uZBBr",
+  "moduleUrlStrategy": "仓库 TypeScript 模块保留各自远端原目录 URL；Pi 与 typebox 使用原 ESM 包。",
+  "records": [
+    {
+      "path": "apps/ruukoto/src/personal-artifacts.ts",
+      "bytes": 7495,
+      "sha256": "4ab7aec9783e16021c932bdaf96f6045ec837bce74f811ef264681679fe9e63b"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-command-config.ts",
+      "bytes": 8294,
+      "sha256": "955477b162aee0ecfab705e96e3eb12645149922120be803136a91a9dddb6a5d"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-command-execution.ts",
+      "bytes": 17589,
+      "sha256": "c1356517fc5ea86a84b72ccb26355f5453e6f607eadd51836dbe1ff45b2620d6"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-command-work.ts",
+      "bytes": 32762,
+      "sha256": "fe83a6b585237e5761d04f7a60db6e993b416d5176255e7c99884a579d2e391f"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-delegation.ts",
+      "bytes": 17703,
+      "sha256": "07702c0ee18cc07013cd80f13c7753b67942d3cc04e33b66d9cc2b169638bfd7"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-error.ts",
+      "bytes": 191,
+      "sha256": "f4266968ec480f657bee1a6043e69d07910134f09924ec43683aa0569b212ab4"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-harness.ts",
+      "bytes": 52267,
+      "sha256": "2f3bf2759778ee09562a708b5308e8625f2ca4132cf29dc798406a45c097882d"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-inspection-controls.ts",
+      "bytes": 14432,
+      "sha256": "25575ab253721b06c4a933b0d23c6cfb5db77c9ad8b9140b04d40a29c9f87048"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-local-records.ts",
+      "bytes": 500,
+      "sha256": "7a33ceba2fd850394072a7d53f13cbae300a698701f0e32ac8058b84c3542806"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-mcp-config.ts",
+      "bytes": 11843,
+      "sha256": "6ae2cc67347d73c6291b1e7bbb4829f7ebc15dd4d22f5c9576b5f3ee45f3bc7e"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-mcp-controls.ts",
+      "bytes": 11050,
+      "sha256": "cabcbb3950a7954ae4730875a42814772f376c08ee7f500d40f46e2894405b12"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-mcp.ts",
+      "bytes": 37102,
+      "sha256": "6619c1476c105e0ddbcd25fd3d1f5751d77acc081f2a91885316d9acafcc8ea8"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-model.ts",
+      "bytes": 5532,
+      "sha256": "70317facba8e89c2c57632957577fdde61f348aa481f38611bd6e096ff8d5d53"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-permissions.ts",
+      "bytes": 4733,
+      "sha256": "62dfbb7f1d302b9357bf24cecc8c35803f9efdad20379f75b79a962c78a5c901"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-profile.ts",
+      "bytes": 4174,
+      "sha256": "aaa8a25a75ad5813beec659a597c44815d6f8035a7e8e997082488107b98b04a"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-report.ts",
+      "bytes": 29618,
+      "sha256": "1be3206dc83c77e52f22d6ced087c83089b2f06ce77fe5e7aeb11edac305c362"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-service-controls.ts",
+      "bytes": 20024,
+      "sha256": "0a5ec63b96f60fae70ae064edc79b8ad0b4f6f2546262d67273c3a2d9fd9fa1d"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-service-inspection.ts",
+      "bytes": 20403,
+      "sha256": "eaa3e2c7346e89d194a48bfa3c0d984942998588a21a8ff455e535d734f72999"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-service-operations.ts",
+      "bytes": 49855,
+      "sha256": "2966d2753e4bc990ab6c8d0c272d4367f4119d5515536f9ce8cc6fee131fb830"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-service-work.ts",
+      "bytes": 7066,
+      "sha256": "de3f1310bb19469fcdb74dfa4decc8ff12c16ea7ab668b3a51a491ac1523cdee"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-services.ts",
+      "bytes": 5661,
+      "sha256": "ce96966b93adb9cb72d2fd84bd2086bccd7987b060744c8f77ed92811640478f"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-telegram-api.ts",
+      "bytes": 6297,
+      "sha256": "7a3531266c587a2bff8f9f67c5a07489e84472cac039269329a0f96253b6bf0c"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-telegram-config.ts",
+      "bytes": 4235,
+      "sha256": "7ff7b82ff4c8516198e8d17768e3531d612b491f880f288d902adb4a6f983e4f"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-telegram-records.ts",
+      "bytes": 3703,
+      "sha256": "9ddf2e949a028a75a2982b528801c34478fc0671dfb0c3a6a8ffb834c43a585b"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-telegram.ts",
+      "bytes": 16411,
+      "sha256": "286cd83cb8ffcfdcb5d765f2fc2b8aa7006f2bb97543167f7c694f5e9eeb012d"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-tool-io.ts",
+      "bytes": 15632,
+      "sha256": "f20135709c10cae84ad8b62c456fab9d633bbf6ad7467c68be2656ca3a3283a5"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-tool-source.ts",
+      "bytes": 3384,
+      "sha256": "91d81c3f6c752bc45325247891c1e9bcd78034575899a265ecefdef403c4e3a8"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-tools-config.ts",
+      "bytes": 8867,
+      "sha256": "f4eff511598c09255aa0c83c8155c568864b316fe0e58fa7d7f791a670177652"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-tools-controls.ts",
+      "bytes": 13474,
+      "sha256": "7bfd5c36c5ef26e22ca30a021c76e5553af2361560d9def38671984b94d2e5e9"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-tools.ts",
+      "bytes": 54787,
+      "sha256": "ac42e6f491d2d479e2f0bb3baf1ee03498ac104e2c775828383efe334910491b"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-work-controls.ts",
+      "bytes": 14455,
+      "sha256": "8d770805e38e2ea2b105cb3ac85e4d03a1c42fb14364ee66d829a94cacdf219b"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-work-tools.ts",
+      "bytes": 14023,
+      "sha256": "c9f589561f7a9525f8ebb02fde71de0cc5e3395f31c4616965c195580b8bea51"
+    },
+    {
+      "path": "apps/ruukoto/src/personal-work.ts",
+      "bytes": 42115,
+      "sha256": "aecf4faf4ed0463c2b34d893391f07a1b6145b5326a094467cbb84c01a36c469"
+    },
+    {
+      "path": "apps/ruukoto/src/service-helper.ts",
+      "bytes": 8857,
+      "sha256": "84eafdb5a127655168a9b5404d0a8bc85d5de4f30bd9bb73c8528e1c5d681c1e"
+    },
+    {
+      "path": "packages/agent/src/execution/approved-ops.ts",
+      "bytes": 18275,
+      "sha256": "d3b9344a67867bf1f9517c7a7a81b2ef02507340594e085ee525641a273d75b0"
+    },
+    {
+      "path": "packages/agent/src/execution/launchers.ts",
+      "bytes": 6607,
+      "sha256": "2f03fcce41bc68282cbd144202f0224f6f8fe17ed9e530cd00d746190e88529c"
+    },
+    {
+      "path": "packages/agent/src/execution/native-linux-identity.ts",
+      "bytes": 14849,
+      "sha256": "b440337265a70e6fdbbce8086e9c838ec4354578357df48bce925372646c5fcf"
+    },
+    {
+      "path": "packages/agent/src/execution/native-linux.ts",
+      "bytes": 11942,
+      "sha256": "f71e77920a71d1bbdbcf77236fe02606206848bd522dcc0c67f88844f53aa74b"
+    },
+    {
+      "path": "packages/agent/src/execution/native-macos.ts",
+      "bytes": 8302,
+      "sha256": "f8643d4dd875f736b8af417117b963b2501489f87309ac26b9bb115796da8bdf"
+    },
+    {
+      "path": "packages/agent/src/execution/native.ts",
+      "bytes": 15899,
+      "sha256": "b55cc3566101824c9406f54a173cd3a8d0f3b0e5eefd94cfe595abac589f0fe7"
+    },
+    {
+      "path": "packages/agent/src/managed-processes.ts",
+      "bytes": 4091,
+      "sha256": "00668a2abd89e504352795bad0f103afb9870efa1773898008ade0829f490d0f"
+    },
+    {
+      "path": "packages/agent/src/mcp/schema.ts",
+      "bytes": 2310,
+      "sha256": "e9bbb732274eb729aa08a5faf76aab6b8ebe94e824556439213825698b7e32c0"
+    },
+    {
+      "path": "packages/agent/src/mcp/transport.ts",
+      "bytes": 20634,
+      "sha256": "ab86486923ecfaf50290775afb40718c9d9d45bbc5bf21d50cf2d3af0752ebdc"
+    },
+    {
+      "path": "packages/agent/src/review.ts",
+      "bytes": 9064,
+      "sha256": "d669695c4b7b624b6c7ea993edd0e45b077eca99cbe52ec5d88ef763f9ca8e61"
+    },
+    {
+      "path": "packages/agent/src/web-search-transport.ts",
+      "bytes": 16654,
+      "sha256": "8a37ac38192df8b4eeb2fa65f5a44fa8dbdfde0a567690390b7fd741d4c75d0b"
+    },
+    {
+      "path": "test/helpers/mock-provider.ts",
+      "bytes": 6076,
+      "sha256": "cedd022dc70b1339dfbbe0d42e56bdfe58726685f199779a7a37689254f0efe1"
+    },
+    {
+      "path": "worker/personal-command-worker.mjs",
+      "bytes": 4234,
+      "sha256": "c1d8bc3492be8253ce5bdf4ed5dc553e44da91fc3eda4be663eddd7d49e63cf3"
+    }
+  ],
+  "bundles": [
+    {
+      "name": "leaf-fifo.test.mjs",
+      "bytes": 18650,
+      "sha256": "15d96a3145af63efb40e34b67cec46ec246f462e7f18c3655c68363236d2561b"
+    },
+    {
+      "name": "leaf-io.test.mjs",
+      "bytes": 40344,
+      "sha256": "c77a643425f86dac3f99ba2f5de985cd77ff54677f54ad808c70c31b89a51af1"
+    },
+    {
+      "name": "leaf-search.test.mjs",
+      "bytes": 23154,
+      "sha256": "e236127276b888b607882b621de8012a2233b63faae7a2b83722d68c74f7df4b"
+    },
+    {
+      "name": "linux-tools-probe.mjs",
+      "bytes": 657976,
+      "sha256": "0964655c864bedfb24e6b88c9e2df8fb69274a9a6de58fbf055da8aefed0a38a"
+    }
+  ]
+}

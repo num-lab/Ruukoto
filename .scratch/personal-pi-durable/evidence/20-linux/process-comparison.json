@@ -1,0 +1,103 @@
+{
+  "new_zombies": [],
+  "existing_background": [
+    {
+      "pid": 2163755,
+      "before": {
+        "ppid": 1,
+        "state": "Sl",
+        "args": "node /opt/ruukoto/node_modules/.bin/tsx src/cli.ts start --execution local --tools mock --model mock/mock-model"
+      },
+      "after": {
+        "ppid": 1,
+        "state": "Sl",
+        "args": "node /opt/ruukoto/node_modules/.bin/tsx src/cli.ts start --execution local --tools mock --model mock/mock-model"
+      },
+      "unchanged": true
+    },
+    {
+      "pid": 2163766,
+      "before": {
+        "ppid": 2163755,
+        "state": "Sl",
+        "args": "/usr/local/bin/node --require /opt/ruukoto/node_modules/tsx/dist/preflight.cjs --import file:///opt/ruukoto/node_modules/tsx/dist/loader.mjs src/cli.ts start --execution local --tools mock --model mock/mock-model"
+      },
+      "after": {
+        "ppid": 2163755,
+        "state": "Sl",
+        "args": "/usr/local/bin/node --require /opt/ruukoto/node_modules/tsx/dist/preflight.cjs --import file:///opt/ruukoto/node_modules/tsx/dist/loader.mjs src/cli.ts start --execution local --tools mock --model mock/mock-model"
+      },
+      "unchanged": true
+    },
+    {
+      "pid": 2178158,
+      "before": {
+        "ppid": 1,
+        "state": "Sl",
+        "args": "node /opt/ruukoto/node_modules/.bin/tsx src/cli.ts start --execution local --tools mock --model mock/mock-model"
+      },
+      "after": {
+        "ppid": 1,
+        "state": "Sl",
+        "args": "node /opt/ruukoto/node_modules/.bin/tsx src/cli.ts start --execution local --tools mock --model mock/mock-model"
+      },
+      "unchanged": true
+    },
+    {
+      "pid": 2178169,
+      "before": {
+        "ppid": 2178158,
+        "state": "Sl",
+        "args": "/usr/local/bin/node --require /opt/ruukoto/node_modules/tsx/dist/preflight.cjs --import file:///opt/ruukoto/node_modules/tsx/dist/loader.mjs src/cli.ts start --execution local --tools mock --model mock/mock-model"
+      },
+      "after": {
+        "ppid": 2178158,
+        "state": "Sl",
+        "args": "/usr/local/bin/node --require /opt/ruukoto/node_modules/tsx/dist/preflight.cjs --import file:///opt/ruukoto/node_modules/tsx/dist/loader.mjs src/cli.ts start --execution local --tools mock --model mock/mock-model"
+      },
+      "unchanged": true
+    },
+    {
+      "pid": 3963064,
+      "before": {
+        "ppid": 1,
+        "state": "Ssl",
+        "args": "/usr/bin/node /opt/ruukoto/node_modules/.bin/tsx /opt/ruukoto/src/cli.ts start --model deepseek/deepseek-flash"
+      },
+      "after": {
+        "ppid": 1,
+        "state": "Ssl",
+        "args": "/usr/bin/node /opt/ruukoto/node_modules/.bin/tsx /opt/ruukoto/src/cli.ts start --model deepseek/deepseek-flash"
+      },
+      "unchanged": true
+    },
+    {
+      "pid": 3963076,
+      "before": {
+        "ppid": 3963064,
+        "state": "Sl",
+        "args": "/usr/local/bin/node --require /opt/ruukoto/node_modules/tsx/dist/preflight.cjs --import file:///opt/ruukoto/node_modules/tsx/dist/loader.mjs /opt/ruukoto/src/cli.ts start --model deepseek/deepseek-flash"
+      },
+      "after": {
+        "ppid": 3963064,
+        "state": "Sl",
+        "args": "/usr/local/bin/node --require /opt/ruukoto/node_modules/tsx/dist/preflight.cjs --import file:///opt/ruukoto/node_modules/tsx/dist/loader.mjs /opt/ruukoto/src/cli.ts start --model deepseek/deepseek-flash"
+      },
+      "unchanged": true
+    },
+    {
+      "pid": 3963095,
+      "before": {
+        "ppid": 3963076,
+        "state": "Sl",
+        "args": "/opt/ruukoto/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.28.1 --ping"
+      },
+      "after": {
+        "ppid": 3963076,
+        "state": "Sl",
+        "args": "/opt/ruukoto/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.28.1 --ping"
+      },
+      "unchanged": true
+    }
+  ]
+}

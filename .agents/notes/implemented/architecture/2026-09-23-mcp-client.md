@@ -2,6 +2,8 @@
 
 Status: implemented
 
+相关未实施方案：[桌面设置管理](../../proposed/feature/2026-10-21-desktop-settings-management.md)复用本篇服务配置与发现，不扩展传输和授权。
+
 原编号：ADR 0006
 
 ## 问题

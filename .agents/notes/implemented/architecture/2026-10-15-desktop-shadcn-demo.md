@@ -2,6 +2,8 @@
 
 Status: implemented
 
+相关未实施方案：[设置管理](../../proposed/feature/2026-10-21-desktop-settings-management.md)拟扩展本篇暂缓的配置能力，保留分类浮窗与视觉；实施前不改变现行交付范围。
+
 ## 问题
 
 拥有者需要用 shadcn 统一 desktop 组件，先制作纯前端 demo，调整后再严格迁移正式 GUI。拥有者审阅第一版后明确指定[原始 ui-demo.html](../../../../.scratch/desktop-gui/ui-demo.html)作为外观依据；自拟的品牌块、大标题和固定检查器分页不符合预期。[既有客户端提案](../../proposed/architecture/2026-10-15-desktop-client.md)的业务边界仍然成立。

@@ -1,0 +1,59 @@
+{
+  "base": "614d97cecb693f934b80486d20723fcda533a993",
+  "reviewer": "/root/revision_review",
+  "conclusion": "P1/P2 方案复审通过，无未解决技术阻断；不代表产品实现或验收已通过。",
+  "initial_snapshot_sha256": "2bba31c9b4248f54c21b4c1bee6ab23b0bf5bf645602c8b92c563389143a2b98",
+  "reviewed_files": [
+    {
+      "path": ".agents/notes/implemented/architecture/2026-10-17-personal-durable-foundation.md",
+      "sha256": "a6451c02c40f18d7093ee2e11c81721d0563b7961dc7c958fa6a043ec52e596e"
+    },
+    {
+      "path": ".agents/notes/proposed/feature/2026-10-21-desktop-settings-management.md",
+      "sha256": "acca22239b204693931c0a93137390e6b18d7460a983af73f2fef3f753d8b8b4"
+    },
+    {
+      "path": ".scratch/desktop-settings/issues/02-code-models.md",
+      "sha256": "83c3511a831e15488f5527c8d39b47a6dfaad2a8e80e1236d73310394b79c919"
+    },
+    {
+      "path": ".scratch/desktop-settings/issues/04-managed-skills.md",
+      "sha256": "29d117068e2ef637306f8195d7e44b738a3c9247e6b5a82ae19f95db360f243a"
+    },
+    {
+      "path": ".scratch/desktop-settings/issues/06-personal-settings-api.md",
+      "sha256": "e6cc477fb6fca28928e1f91ca2ef11ba654d4dc257997beaafafc8a21c1e3f17"
+    },
+    {
+      "path": ".scratch/desktop-settings/spec.md",
+      "sha256": "7d6afec99869786aa546b859aa394fa1485f6c4fb9c2cbed08f04ee32e1c534d"
+    }
+  ],
+  "final_files": [
+    {
+      "path": ".agents/notes/implemented/architecture/2026-10-17-personal-durable-foundation.md",
+      "sha256": "a6451c02c40f18d7093ee2e11c81721d0563b7961dc7c958fa6a043ec52e596e"
+    },
+    {
+      "path": ".agents/notes/proposed/feature/2026-10-21-desktop-settings-management.md",
+      "sha256": "acca22239b204693931c0a93137390e6b18d7460a983af73f2fef3f753d8b8b4"
+    },
+    {
+      "path": ".scratch/desktop-settings/issues/02-code-models.md",
+      "sha256": "78830626bedfdde4a5c2a04afdc68209d4f8a9aa7bdf599eaba1050005a291f0"
+    },
+    {
+      "path": ".scratch/desktop-settings/issues/04-managed-skills.md",
+      "sha256": "bb8f6f225e848e1be94dc1258cdef1a4275624fd4bca7faa6127c8773c579842"
+    },
+    {
+      "path": ".scratch/desktop-settings/issues/06-personal-settings-api.md",
+      "sha256": "ba4d0a8ac30a14f64ef42925ed6d38ed93e0414636fe2fccc440249435fa5a6c"
+    },
+    {
+      "path": ".scratch/desktop-settings/spec.md",
+      "sha256": "882a9395c12f22937f9c79fa8e038cc5f03e2151eebcb9d991ecc294f03a23b0"
+    }
+  ],
+  "finalization": "独立复审通过后仅更新Status、交接/结论文字与Comments；技术方案不变。审查记录与清单自身不纳入自引用哈希。"
+}

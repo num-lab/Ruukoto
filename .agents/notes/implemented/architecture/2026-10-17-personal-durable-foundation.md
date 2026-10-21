@@ -2,6 +2,8 @@
 
 Status: implemented
 
+相关未实施方案：[桌面设置管理](../../proposed/feature/2026-10-21-desktop-settings-management.md)拟将可选托管技能根纳入严格档案布局与权限分类，保留本篇持锁、未知目录拒绝和历史证据要求。
+
 ## 问题
 
 [个人端迁移方案](../../proposed/architecture/2026-10-17-personal-pi-durable.md)要求独立档案、单进程拥有者、未知版本拒绝执行及模型输入可重建。Pi 1.3.0 的 SQLite 没有进程锁，扩展名缺失会被忽略，`beforeRequest` 的普通异常也不能阻止请求；只接上 Harness 不能满足这些要求。

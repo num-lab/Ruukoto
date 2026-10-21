@@ -70,6 +70,14 @@ export interface TuiOps {
   /** project_id 按原身份查询；workspace_id 按组织归属查询（issue 07）；两参互斥。 */
   list_session_summaries: { params: { project_id?: string; workspace_id?: string; scope?: "workspace_chats" }; result: R<"listSessionSummaries"> };
   list_models: { params: { provider?: string; offset?: number; limit?: number }; result: R<"listModels"> };
+  get_model_config: { params: None; result: R<"getModelConfig"> };
+  save_model_catalog: { params: { providers: Record<string, unknown>; expected_revision: string }; result: R<"saveModelCatalog"> };
+  set_model_api_key: { params: { provider: string; api_key: string; expected_revision: string }; result: R<"setModelApiKey"> };
+  remove_model_api_key: { params: { provider: string; expected_revision: string }; result: R<"removeModelApiKey"> };
+  remove_model_provider: { params: { provider: string; expected_revision: string }; result: R<"removeModelProvider"> };
+  set_default_model: { params: { provider: string; model_id: string; thinking_level: string; expected_revision: string }; result: R<"setDefaultModel"> };
+  set_summary_model: { params: { provider: string | null; model_id: string | null; expected_revision: string }; result: R<"setSummaryModel"> };
+  test_model_connection: { params: { provider: string; model_id: string }; result: R<"testModelConnection"> };
   set_session_model: {
     params: { session_id: string; expected_version: number; model_selection: ModelSelection };
     result: R<"setSessionModel">;

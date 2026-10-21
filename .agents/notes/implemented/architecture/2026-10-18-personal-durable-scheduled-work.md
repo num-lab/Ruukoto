@@ -24,6 +24,8 @@ Status: implemented
 
 ## 既有笔记审计
 
+[个人会话后台](../feature/2026-10-21-personal-background-processes.md)只沿真实主拥有者来源启动；定时配置显式排除process工具族，来源scope包含共享目录认领版本，不扩大原计划权限。
+
 按定时、调度、personal durable、来源、权限与整项回报检索 implemented、proposed；rejected 无同主题命中。迁移总方案与通用定时任务部分重叠：本篇持有新 durable 接线，旧产品既有实现及其时间/外发决定保留。[后台工作](../../implemented/architecture/2026-10-17-personal-background-work.md)、[子服务操作](../../implemented/architecture/2026-10-17-personal-subagent-service-operations.md)、[通用工具](../../implemented/architecture/2026-10-17-personal-tools-access-artifacts.md)、[浏览器与媒体](../../implemented/architecture/2026-10-18-personal-browser-media.md)部分重叠，现均补充定时来源适用范围和本篇链接；没有完全吸收、删除或归档的记录。
 
 ## 备选方案

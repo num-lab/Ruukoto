@@ -1,0 +1,27 @@
+✔ macOS 持久执行核实忽略 TERM 且继承双管道的后代，同 ID 不重放，错误指纹不停止 (1470.922375ms)
+✔ macOS 停止先手占用执行 ID，缺认领或错误指纹不能证明原启动已退出 (28.562459ms)
+✔ macOS 确认 spawn 尚未创建 helper 的失败留未派发证明，恢复不重放 (29.984292ms)
+✔ macOS 宿主 SIGKILL 后从持久回执恢复，输出和控制断管不丢停止证明 (1438.810084ms)
+✔ macOS 监督器身份换代拒绝发信号，持久证据目录替换不能释放原占用 (1442.89725ms)
+✔ macOS helper SIGKILL 后无停止回执，只保守未核实且不向旧 worker PID 发信号 (1398.002417ms)
+✔ macOS 输出背压不阻塞停止核实，丢失预览与进程停止分别记录 (2220.041417ms)
+✔ macOS 完全访问继承过滤后的环境，私有认领与指纹不保存环境秘密 (211.171583ms)
+✔ macOS 停止标记抢先到达 fork 后启动门，命令零派发且回执可恢复 (541.32325ms)
+▶ macOS 完全访问只核实原执行组和已累计后代，未知主动脱离者仍须释放继承管道
+  ✔ ordinary-double-fork (1572.012583ms)
+  ✔ detached-closed-pipes (543.371208ms)
+  ✔ detached-inherited-pipes (4539.498875ms)
+  ✔ known-detached-short-ancestry (518.171125ms)
+  ✔ known-joined-unseen-group (527.830791ms)
+✔ macOS 完全访问只核实原执行组和已累计后代，未知主动脱离者仍须释放继承管道 (7701.676333ms)
+✔ macOS 启动门前的根进程快照不把宿主组和会话纳入后台停止范围 (412.915458ms)
+✔ 个人检索：原生只读资料根、过滤、原字节和持久停止 (17747.106375ms)
+✔ 个人检索：取消保留部分、停止核实且原身份不重放 (17.548375ms)
+ℹ tests 18
+ℹ suites 0
+ℹ pass 18
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 36885.897125

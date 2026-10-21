@@ -8,6 +8,8 @@ Status: proposed
 
 ## 方案
 
+个人 durable 的实现与首版题型由[个人真实答复续接](../../implemented/feature/2026-10-21-personal-owner-questions.md)取代；本篇保留提出时的共享理由。
+
 Coding 部分由[持久问题与可信续接](../../implemented/feature/2026-10-21-coding-owner-questions.md)落地；本篇保留个人 durable 的待实施方案和两端共享语义，个人入口不因 Coding 落地而取得新能力。
 
 ask_user提交问题后立即返回pending，结束本轮，拥有者从专用问题卡片/原菜单回答后继续；不新增Task状态，不阻塞个人main。个人首版仍按单选或自由文本规划，Coding 的多选、推荐、说明与跳题由[题型扩展](../../implemented/feature/2026-10-21-owner-question-choice-types.md)取代；每会话一个待答批次，具体字段、预算、资格和状态位于[共享规格](../../../../.scratch/agent-tool-completion/spec.md#2-结构化提问)。

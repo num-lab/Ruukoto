@@ -1,3 +1,4 @@
+import { personalSource, personalSourceImReceipt } from "./personal-source.ts";
 import { AppDataAdmission, PersonalAppDataOperationDoc } from "./personal-app-data.ts";
 import { PersonalImApiError } from "./personal-im-api.ts";
 import type { PersonalQqApi } from "./personal-qq-api.ts";
@@ -157,7 +158,7 @@ function personalReportTask(qqApi?: PersonalQqApi) { return defineTask<ReportInp
         if (value.cancelRequested || (value.telegram && (!isDeepStrictEqual(config, currentConfig) || !config?.enabled || config.generation !== value.telegram.generation || config.botId !== value.telegram.botId || config.ownerId !== value.telegram.ownerId))) { report.delivery = "canceled"; return { status: "terminal", outcome: { status: "completed", result: { delivery: "canceled" } } }; }
         if (await personalDelegationBlocker(tx, value)) return { status: "running", checkpoint: { phase: "summarize", attempt: report.attempt } };
         if (!value.telegram) { report.delivery = "local"; return { status: "terminal", outcome: { status: "completed", result: { delivery: "local" } } }; }
-        const receipt = (await tx.doc(PersonalTelegramReceiptDoc, value.source.requestId, null)).receipt;
+        const receipt = await personalSourceImReceipt(tx, value.source.requestId);
         if (!receipt || !report.reply || report.delivery !== "pending" || !api) throw new PersonalError("report_send_invalid", "报告固定目标或正文缺失，已停止发送；请保留档案。");
         owner = value.telegram.ownerId; message = receipt.messageId; reply = report.reply;
         report.delivery = "sending";
@@ -266,7 +267,7 @@ export async function verifyPersonalReports(tx: Tx, keys: string[], enabled: boo
     if (!enabled || task?.kind !== PersonalReportTask.definition.name || task.version !== 1 || task.conversationId !== ROOT_CONVERSATION_ID || !task.background || task.owner !== undefined || !isDeepStrictEqual(task.input, expected) || !admission || admission.conversationId !== ROOT_CONVERSATION_ID || !isDeepStrictEqual(admission.data, { ...expected, taskId: report.taskId }) || !Number.isSafeInteger(report.attempt) || report.attempt < 0 || !Array.isArray(report.pauses) || report.pauses.length < report.attempt || report.pauses.length > report.attempt + 1 || typeof report.content !== "string" || !["waiting", "local", "pending", "sending", "sent", "failed", "effect_unknown", "canceled", "blocked", "unanswered"].includes(report.delivery)) throw new PersonalError("report_record_invalid", "报告版本、接纳或执行归属不符，已停止恢复；请保留档案。");
     await requirePersonalDelegationInput(tx, value.ref, report.source.requestId);
     const source = await tx.submissionByRequest(ROOT_CONVERSATION_ID, report.source.requestId);
-    if (source?.type !== "input" || source.id !== report.source.submissionId || source.entry !== report.source.entryId || (await tx.entry(report.source.entryId))?.kind !== "pi.user") throw new PersonalError("report_record_invalid", "报告原说明不符，已停止恢复。");
+    if (source?.type !== "input" || source.id !== report.source.submissionId || source.entry !== report.source.entryId || !isDeepStrictEqual((await personalSource(tx, report.source.requestId)).source, report.source)) throw new PersonalError("report_record_invalid", "报告原说明不符，已停止恢复。");
     const call = await tx.task(report.modelCall);
     const input = call?.input;
     const assistant = input && typeof input === "object" && !Array.isArray(input) && typeof input.assistant === "number" ? await tx.entry(input.assistant as EntryId) : undefined;

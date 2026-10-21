@@ -8,7 +8,7 @@ const ACTIONS = ["/工具", "更多工具操作", "刷新工具", "下一页工�
 const EFFECT_EVIDENCE = "工具核实说明 ", STOP_EVIDENCE = "工具结束说明 ";
 
 export function personalToolDescription(item: Awaited<ReturnType<typeof toolList>>["items"][number]): string {
-  const kind = { read_file: "读取文件", write_file: "写入文件", http_request: "HTTP 请求", web_search: "网页搜索" }[item.kind];
+  const kind = { read_file: "读取文件", write_file: "写入文件", http_request: "HTTP 请求", web_search: "网页搜索", list_files: "列出文件", search_files: "检索文件" }[item.kind];
   const target = Array.from(item.target), display = target.length > 96 ? `${target.slice(0, 72).join("")}…${target.slice(-24).join("")}` : item.target;
   const approval = { pending: "等待本次批准", approved: "本次已批准", rejected: "本次已拒绝", unneeded: "无需本次批准" }[item.approval];
   const effect = { not_executed: "已知未执行", no_write: "无写入效果", effect_unknown: "业务效果未知", returned: "已返回，请核对原结果" }[item.effect];

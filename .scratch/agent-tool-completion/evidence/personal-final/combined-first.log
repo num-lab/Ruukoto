@@ -1,0 +1,169 @@
+✔ 个人后台：跨轮保留独立Task和目录，原字节日志可读；同轮业务工具被挡，停止核实后写入恢复 (14202.718833ms)
+✔ 个人后台：交接后取消创建轮不停止独立后台，后续显式停止才释放 (12948.932375ms)
+✔ 个人后台：SDK规范化原始数字参数后接纳，恢复仍按实际工具定义核实且不重放 (7660.024042ms)
+✔ 个人后台本机：认证socket与逐步CLI可查双流及结束，未决稳定键只查原回执 (9901.959916ms)
+✔ 个人后台结束屏障：Telegram结束不拦住此前接纳的本机输入 (6481.261083ms)
+✔ 个人后台：停止未核实保留claim，后续write和普通命令认领均拒绝，可信重核才释放 (7514.114625ms)
+✔ 个人后台：预算停止保留16MiB原字节和partial，篡改日志明确拒绝 (5134.840292ms)
+✔ 个人后台：结束原键固定目标；恢复拒绝missing认领断链且零新增派发 (12005.916125ms)
+✔ 个人后台：结束原键固定目标；恢复拒绝pointer认领断链且零新增派发 (13011.538125ms)
+[ruukoto:personal] 持久执行出现错误，请查询状态并检查档案；未自动重启。
+[ruukoto:background] background_persistence_failed：后台事实提交失败，已停止受管执行并关闭会话；原认领保留。
+✔ 个人后台：日志事实提交失败关闭Harness并停止原unit，后续查询明确失败且不重放 (7321.572042ms)
+✔ 个人文件claim：同步写入效果未知保留认领，人工核实同commit释放并可恢复 (9868.811625ms)
+✔ 个人后台原菜单：telegram 查询/双流/停止；拒绝未引用和跨平台，重投不重复，重开双向核实 (16062.873167ms)
+✔ 个人后台原菜单：qq 查询/双流/停止；拒绝未引用和跨平台，重投不重复，重开双向核实 (12707.621625ms)
+✔ 个人问题与后台：答复接纳后关闭，排队续接不能借稍后main entry穿过关闭屏障 (7551.9245ms)
+✔ 个人目录认领：父子路径与dev/ino别名冲突，相邻前缀不冲突 (0.141375ms)
+﹣ 个人后台真实Linux：原scope启动跨轮保留，停止并核实后唯一认领释放，重开不重放 (0.023458ms) # SKIP
+✔ durable 命令：confirm 保留原权限、原生 owned Task 和双流分页，非零结果也释放身份 (18807.354125ms)
+ℹ {"mode":"confirm","systemPrompt":73,"toolSchemas":1006}
+✔ durable 命令：auto-review 保留原权限、原生 owned Task 和双流分页，非零结果也释放身份 (10951.420334ms)
+ℹ {"mode":"auto-review","systemPrompt":73,"toolSchemas":1006}
+✔ durable 命令：full_access 保留原权限、原生 owned Task 和双流分页，非零结果也释放身份 (10466.123083ms)
+ℹ {"mode":"full_access","systemPrompt":73,"toolSchemas":1006}
+✔ durable 命令：auto-review 未知和取消跨重启保留占用，人工效果与原引用停止都核实后才复用 (14326.997834ms)
+✔ durable 命令：full_access 未知和取消跨重启保留占用，人工效果与原引用停止都核实后才复用 (11995.077375ms)
+✔ durable 命令：恢复拒绝坏 admission，provider 与 OS 都零新增调用 (21694.812208ms)
+✔ durable 命令：恢复拒绝坏 permission，provider 与 OS 都零新增调用 (17494.824542ms)
+✔ durable 命令：恢复拒绝坏 claim，provider 与 OS 都零新增调用 (22651.44ms)
+✔ durable 命令：首次启用拒绝未决旧工作，不恢复 provider 或补授旧工具 (4496.701791ms)
+✔ durable 命令：恢复拒绝 worker 损坏，零新增模型和执行 (14354.568041ms)
+✔ durable 命令：恢复拒绝 mounts 损坏，零新增模型和执行 (10690.290584ms)
+✔ durable 命令：恢复拒绝 stop-task 损坏，零新增模型和执行 (18855.139375ms)
+✔ durable 命令：恢复拒绝 unproved-stop 损坏，零新增模型和执行 (13705.681375ms)
+✔ durable 命令：恢复拒绝 full-env 损坏，零新增模型和执行 (7432.618375ms)
+✔ durable 命令：恢复拒绝 full-mounts 损坏，零新增模型和执行 (6537.04ms)
+✔ durable 命令：恢复拒绝 full-node 损坏，零新增模型和执行 (12779.12075ms)
+✔ durable 命令：原接纳不能因任务和 document 一起丢失而静默消失 (20349.890667ms)
+[ruukoto:personal] 持久执行出现错误，请查询状态并检查档案；未自动重启。
+✔ durable 命令：prepare认领提交后崩溃可恢复原准备，claim保留且实际命令只启动一次 (12029.436042ms)
+[ruukoto:personal] 持久执行出现错误，请查询状态并检查档案；未自动重启。
+✔ durable 命令：开始意图提交失败关闭 Harness，零 OS 派发 (16704.033125ms)
+[ruukoto:personal] 持久执行出现错误，请查询状态并检查档案；未自动重启。
+✔ durable 命令：回执已落盘而结果提交失败，重启读取原回执且不重发 (14487.412958ms)
+✔ durable 命令：auto-review 未知暂停原源服务、主会话固定检查及委托全部成员，零 helper 外调 (12486.181958ms)
+✔ durable 命令：full_access 未知暂停原源服务、主会话固定检查及委托全部成员，零 helper 外调 (10055.799834ms)
+✔ durable 命令：封组登记不等待命令 running，效果和停止核实后才唯一汇总 (7590.039458ms)
+✔ durable 命令：封组登记不等待命令 unknown，效果和停止核实后才唯一汇总 (5676.115333ms)
+✔ durable 命令：封组登记不等待命令 restored，效果和停止核实后才唯一汇总 (5640.802541ms)
+✔ durable 命令：auto-review 报告记录 command 暂停并跨重启观察原记录，效果和停止均核实才汇总 (5246.389292ms)
+✔ durable 命令：full_access 报告记录 command 暂停并跨重启观察原记录，效果和停止均核实才汇总 (5029.791292ms)
+✔ durable 命令：在线 faulted 立即进入可核实状态，效果与原停止齐备前工作仍占用 (4192.634541ms)
+[ruukoto:personal] command_permission_unavailable：原命令权限无法读取，模型仅收到停止提示。
+✔ 命令权限提示：缺工作及读取失败覆盖旧完全访问说明，主会话不渲染子权限 (1502.235208ms)
+✔ 命令菜单：telegram 原入口核实、分页、旧菜单/跨平台拒绝、重投和重开不重发 (9594.451542ms)
+✔ 命令菜单：qq 原入口核实、分页、旧菜单/跨平台拒绝、重投和重开不重发 (7554.622541ms)
+✔ 命令停止菜单：接纳后入口换代，执行前拒绝旧控制且不重复查询外部单元 (7158.990375ms)
+✔ 命令控制恢复：marker 断链拒绝，零新增模型与命令执行 (22901.978208ms)
+✔ 命令控制恢复：resolution-actor 断链拒绝，零新增模型与命令执行 (10777.259042ms)
+✔ 命令控制恢复：resolution-receipt 断链拒绝，零新增模型与命令执行 (8726.892ms)
+✔ 命令控制恢复：stop-actor 断链拒绝，零新增模型与命令执行 (7470.620375ms)
+✔ 命令控制恢复：stop-admission 断链拒绝，零新增模型与命令执行 (11536.88325ms)
+✔ durable：个人与 Coding 分别解析 Pi 1.3.0 / 0.85.1 (81.109417ms)
+✔ durable：拒绝旧资料目录和链接，不修改原文件 (3.745083ms)
+✔ durable：实例锁真实互斥，释放后可重开，档案仅拥有者可读 (2.143083ms)
+✔ durable：档案格式或 Pi 版本不符时拒绝，拒绝后不遗留锁 (1.665583ms)
+✔ durable：输入与回答落盘，同键重投去重，重开后保留历史和请求证据 (252.180625ms)
+✔ durable：缺扩展时在任何恢复请求前拒绝 (36.486458ms)
+✔ durable：业务扩展版本不符时拒绝恢复 (19.83725ms)
+✔ durable：业务 document 定义版本不符时拒绝恢复 (22.736042ms)
+▶ durable：缺失或不支持的任务定义不启动恢复
+  ✔ missing-task / 1 (20.016375ms)
+  ✔ pi.generation / 2 (21.7745ms)
+✔ durable：缺失或不支持的任务定义不启动恢复 (42.242792ms)
+✔ durable：空闲主会话显式切换模型 (21.374375ms)
+✔ durable：模型流中途强杀后恢复原输入，进程锁释放且不重复受理 (2187.774333ms)
+✔ durable：未完成输入仍引用旧模型时拒绝换模型恢复 (86.103584ms)
+▶ durable：三种 API 的输入或实际 payload 记录失败时 HTTP 请求为零
+  ✔ openai-completions / 记录 1 (1.198417ms)
+  ✔ openai-completions / 记录 2 (2.072916ms)
+  ✔ openai-responses / 记录 1 (0.80325ms)
+  ✔ openai-responses / 记录 2 (7.862292ms)
+  ✔ anthropic-messages / 记录 1 (0.846959ms)
+  ✔ anthropic-messages / 记录 2 (102.442292ms)
+✔ durable：三种 API 的输入或实际 payload 记录失败时 HTTP 请求为零 (115.753542ms)
+✔ durable：保留 onPayload 改写且记录真正发出的内容 (4.913125ms)
+fixture-exit[ruukoto:personal] 初始化清理失败，已停止启动；请保留档案并检查存储。
+✔ durable：初始化拒绝且存储关闭失败，原错误可见并释放锁 (21.834583ms)
+[ruukoto:personal] 持久执行出现错误，请查询状态并检查档案；未自动重启。
+▶ durable：真实持久记录写失败关闭 Harness，阻止 HTTP 且释放实例锁
+  ✔ 记录 1 (23.619625ms)
+[ruukoto:personal] 持久执行出现错误，请查询状态并检查档案；未自动重启。
+  ✔ 记录 2 (27.281ms)
+✔ durable：真实持久记录写失败关闭 Harness，阻止 HTTP 且释放实例锁 (51.173167ms)
+✔ durable：模型配置验证不接受带凭据 URL、非法 API 与过量输出 (0.434833ms)
+✔ 个人问题：主聊天继续、实际答案权限、同键回执与重开唯一续接 (345.536792ms)
+✔ 个人问题：第二批不覆盖、回答取消竞争与空答案完整校验 (81.89175ms)
+✔ 个人问题：接纳后同轮伪造业务工具仍被调用门阻止 (80.559083ms)
+✔ 个人问题：索引丢失与答案Task断链均拒绝恢复 (54.810167ms)
+✔ 个人问题：新来源可用文件与委派工具，按实际权限保存并能恢复 (18567.362042ms)
+✔ 个人问题：规范请求已记录后来源被改，payload边界仍拒绝零外发 (71.45925ms)
+✔ 个人问题：payload改写重新加入业务工具也在发送前拒绝 (48.736166ms)
+▶ 个人问题：答复commit与main已接纳两处真实强杀，重开只续接一次
+  ✔ answer (3453.601709ms)
+  ✔ submission (2051.753542ms)
+✔ 个人问题：答复commit与main已接纳两处真实强杀，重开只续接一次 (5506.012417ms)
+✔ 个人问题：同时抹去索引与document也不能隐藏不可改接纳entry (75.39625ms)
+✔ 个人问题：创建已提交而工具result未落盘时强杀，恢复返回原pending (1968.713583ms)
+✔ 个人问题：SDK规范化的multiple与recommended布尔值恢复仍一致 (57.12475ms)
+✖ 定时组合：文件检索沿创建工具快照和资料根执行 (17502.773166ms)
+✔ 定时组合：主会话实际请求在说明参数列出定时动作和自动收尾 (50.567416ms)
+✔ 定时组合：实际汇总请求只交付业务正文，发送状态由宿主查询 (116.591416ms)
+✔ 定时组合：独立输入与主聊天隔离，结果只留本机，重启不重放 (206.381666ms)
+✔ 定时组合：等待子工作时主聊天继续，创建模式不随新默认扩大 (146.998375ms)
+✔ 定时组合：子回答因长度截断的事实进入最终汇总输入 (130.772292ms)
+✔ 定时组合：创建后新增资料授权不会扩大旧计划，配置失效时零模型 (2618.745708ms)
+✔ 定时组合：未知HTTP写入保留整项占用，取消与重启不重发 (2885.075042ms)
+✔ 定时组合：子工作SDK规范化参数可恢复，原始调用仍可追溯 (193.691792ms)
+✔ 定时组合：已有索引缺原调度扩展拒绝恢复，零新增模型 (25.843583ms)
+✔ 定时组合：终态监督器的未来计划在启动时重建，零新增模型 (31.007458ms)
+✔ 记忆接线：真实子身份带通用工具完成后可重开 (78.648667ms)
+✔ 定时记忆：初轮可保存，封组可查询且拒绝撤销 (131.421084ms)
+✔ durable 文件检索：资料根、撤权、子来源、原流产物与重开 (54567.2675ms)
+✔ durable 通用工具：主子会话沿目录权限读写，二进制产物分页与请求输入可重建 (53343.426334ms)
+✔ durable 自动审查：approve 使用无工具独立请求，落盘输入与实际payload一致 (25497.209334ms)
+✔ durable 自动审查：reject 使用无工具独立请求，落盘输入与实际payload一致 (12898.844375ms)
+✔ durable 自动审查：invalid 使用无工具独立请求，落盘输入与实际payload一致 (9255.878375ms)
+✔ durable 自动审查：failure 使用无工具独立请求，落盘输入与实际payload一致 (16455.763833ms)
+✔ durable 自动审查：length 使用无工具独立请求，落盘输入与实际payload一致 (11637.241208ms)
+✔ durable 自动审查：error 使用无工具独立请求，落盘输入与实际payload一致 (11136.429292ms)
+✔ durable 确认与资料授权：逐次批准消费一次，撤销后读取重新等待且旧批准失效 (39175.725375ms)
+✔ durable 产物：子会话不能读主会话产物，原字节损坏时恢复明确拒绝 (5810.53025ms)
+✔ durable HTTP：响应后观察提交前强杀，恢复不重发并暂停同来源新工作 (4206.716208ms)
+✔ durable 模型快照：主子三模式保留实际工具定义与启用前后估算 (186.384083ms)
+ℹ {"estimatedTokens":{"before":{"main":{"systemPrompt":119,"toolSchemas":3705},"child":{"systemPrompt":69,"toolSchemas":709}},"after":{"auto-review":{"main":{"systemPrompt":119,"toolSchemas":4946},"child":{"systemPrompt":69,"toolSchemas":2065}},"confirm":{"main":{"systemPrompt":119,"toolSchemas":4946},"child":{"systemPrompt":69,"toolSchemas":2065}},"full_access":{"main":{"systemPrompt":119,"toolSchemas":4946},"child":{"systemPrompt":69,"toolSchemas":2065}}}}}
+✔ durable HTTP：未知写入同时挡住同源 MCP 和新来源同端点调用 (3797.945875ms)
+✔ durable 工具恢复：SDK转换后的数字文本写入与原始调用可跨重启核实 (15433.901834ms)
+✔ durable 搜索：SDK失败意图计入5次额度，普通视图有界且原JSON可核实 (3104.562541ms)
+✔ durable 审查证据：missing 损坏启动拒绝且不增加模型请求 (17848.5525ms)
+✔ durable 审查证据：payload 损坏启动拒绝且不增加模型请求 (20961.9005ms)
+✔ durable 文件写入：写后强杀保留未知，原同步调用已结束且不再次改写 (2444.387083ms)
+✔ durable 本机入口：真实认证接口完成工具审批、授权撤销与原产物导出 (10051.882542ms)
+ℹ tests 125
+ℹ suites 0
+ℹ pass 123
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 1
+ℹ todo 0
+ℹ duration_ms 426341.891125
+
+✖ failing tests:
+
+test at test/personal-scheduler-integration.test.ts:43:1
+✖ 定时组合：文件检索沿创建工具快照和资料根执行 (17502.773166ms)
+  AssertionError [ERR_ASSERTION]: 等待定时运行超时
+      at until (/Users/eitrous/mirasim-worktrees/ruukoto/lucky-sailing-sparrow/test/personal-scheduler-integration.test.ts:22:120)
+      at runNextTicks (node:internal/process/task_queues:65:5)
+      at process.processTimers (node:internal/timers:538:9)
+      at async TestContext.<anonymous> (/Users/eitrous/mirasim-worktrees/ruukoto/lucky-sailing-sparrow/test/personal-scheduler-integration.test.ts:48:3)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }

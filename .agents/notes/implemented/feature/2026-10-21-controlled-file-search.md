@@ -8,7 +8,7 @@ Coding能经bash运行rg，但只读调研缺少稳定的目录发现和内容�
 
 ## 决定
 
-Coding 提供 list_files 和 search_files；个人接入仍由独立工单持有，未装配到个人 durable。两端沿同一参数和结果契约。字面检索和单个glob覆盖首版需求，工具只负责发现和定位，不建立索引、不修改文件。具体schema、固定预算、资格和结果位于[共享规格](../../../../.scratch/agent-tool-completion/spec.md#1-文件检索)。
+Coding 与个人提供 list_files 和 search_files；[个人接入](2026-10-21-personal-file-search.md)沿独立 durable 和只读原生执行保存来源。两端沿同一参数和结果契约。字面检索和单个glob覆盖首版需求，工具只负责发现和定位，不建立索引、不修改文件。具体schema、固定预算、资格和结果位于[共享规格](../../../../.scratch/agent-tool-completion/spec.md#1-文件检索)。
 
 复用已安装rg及现有worker/native边界，参数数组调用，禁止调用时下载或退回宿主扫描。固定排除父级/global/config影响，使同一授权根的检索不隐式依赖用户HOME配置。无glob时沿根内ignore并跳隐藏；显式glob沿rg原生语义可以覆盖ignore/隐藏过滤，但仍不跟随链接、不接纳二进制文件或扩大授权。描述和结果说明此区别，不为维持表面简单而承诺不存在的过滤保证。先捕获原流，再裁模型预览，区分扫描不完整与展示截断，避免漏项被当作无匹配。
 
@@ -30,7 +30,7 @@ Coding 提供 list_files 和 search_files；个人接入仍由独立工单持有
 - Coding 的普通、Plan、只读/写入 SubAgent、宿主固定评审和原工作流能力可检索；显式旧角色工具快照仍只继承原清单，不改写持久授权。宿主固定评审定义摘要变化后，旧固定定义沿原校验明确拒绝，不迁移成新工具集。
 - 根越界、链接、目录替换、父级/global ignore干扰、显式glob覆盖隐藏/ignore、rg缺失及非零退出都有最窄用例，不在宿主绕行。
 - 预览裁剪仍可读完整证据；捕获/时间预算中止必须partial，取消无写入效果但仍核实执行停止。
-- macOS/Linux真实受限边界与模型闭环分别记录，个人来源恢复仍未实施；测试及证据由[实施工单](../../../../.scratch/agent-tool-completion/issues/01-coding-file-search.md)持有。
+- macOS/Linux真实受限边界与模型闭环分别记录，Coding测试及证据由[实施工单](../../../../.scratch/agent-tool-completion/issues/01-coding-file-search.md)持有；个人证据沿其独立工单验收。
 
 新增 rg 环境前提；setup 只检查、不下载。列文件的 rg --files 不过滤二进制，worker 因此对普通候选分块检查 NUL 至 EOF；内容命中等对应 end 无 binary_offset 后才接纳，不让晚发现的二进制保留早期命中。额外读取沿同一预算，文本文件多的大目录更容易达到时间限制。原始 rg 流按原字节保存，可能包含最终被二进制判定排除的早期记录，模型预览和 capturedCount 只计接纳的文本命中。
 

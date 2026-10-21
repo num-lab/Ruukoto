@@ -28,6 +28,8 @@ Agent 启动开发服务器、文件监听或测试依赖服务后，需要继�
 
 ## 既有笔记审计
 
+[个人会话后台决定](../../implemented/feature/2026-10-21-personal-background-processes.md)持有个人durable实现与共享目录认领，最终真实环境验收仍由工单记录；本篇保留最初跨产品取舍与验收目标。
+
 按 bash、Shell、后台进程、执行句柄与停止归属检索 proposed / implemented；rejected 目录不存在，未发现同主题提案或可完全吸收的旧篇。
 
 - [工具工作进程](../../implemented/architecture/2026-09-20-tool-worker-per-task-container.md)、[完全访问](../../implemented/feature/2026-10-12-full-access-current-account.md)和[停止未核实保留](../../implemented/bug-fix/2026-10-11-preserve-unverified-worker-stop.md)：部分重叠，保留其执行边界、授权与停止核实；本篇提出正常命令返回后的存活时点，互链但不改写已交付决定。

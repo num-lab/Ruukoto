@@ -9,6 +9,7 @@ import { execFile, spawn } from "node:child_process";
 import type { Readable, Writable } from "node:stream";
 import { ExecutionError, workerEnv, type LaunchedUnit, type LaunchSpec } from "./launchers.ts";
 import type { PreparedNativeLaunch } from "./native.ts";
+import { macosNativeProfile } from "./native-macos.ts";
 
 export interface MacosExecutionRef { executionId: string }
 export interface MacosExecutionStop { ref: MacosExecutionRef; exited: boolean; outputComplete?: boolean }
@@ -126,14 +127,14 @@ async function hostIdentity(): Promise<HostIdentity> {
   return { machineId: raw.machineId, bootId: raw.bootId };
 }
 
-/** 同 ID 只认领一次；宿主先持久保存 ref。完全访问继承过滤后的用户环境，环境值不落盘；失败保留原认领与停止身份。 */
+/** 同 ID 只认领一次；宿主先持久保存 ref。受限执行沿只读挂载生成 Seatbelt，完全访问继承用户环境；失败保留原认领与停止身份。 */
 export async function launchMacosExecution(directory: string, ref: MacosExecutionRef, input: PreparedNativeLaunch, spec: LaunchSpec): Promise<LaunchedUnit> {
   let claimDir: string;
   let claim: Claim;
   try {
     claimDir = location(directory, ref);
-    if (spec.mode !== "full_access" || input.workspace !== spec.workspace || input.mounts.length || input.runtimeReadRoots.length || input.toolAliases.length || Object.keys(input.env).length || spec.env !== undefined) {
-      throw unavailable("持久 macOS 执行仅接受不含受限挂载或环境值的完全访问输入");
+    if (input.workspace !== spec.workspace || spec.mode === "full_access" && (input.mounts.length || input.runtimeReadRoots.length || input.toolAliases.length || Object.keys(input.env).length || spec.env !== undefined)) {
+      throw unavailable("持久 macOS 执行的原目录或模式输入不符");
     }
     if (directory === input.tempDir || directory.startsWith(input.tempDir + path.sep) || input.tempDir.startsWith(directory + path.sep)) throw unavailable("执行证据目录须与工作进程临时目录分开");
     const identity = await hostIdentity();
@@ -149,9 +150,11 @@ export async function launchMacosExecution(directory: string, ref: MacosExecutio
   let dispatched = false;
   try {
     if (fs.existsSync(path.join(claimDir, "stop-requested"))) throw unavailable("原执行已请求停止；未启动新执行");
+    if (spec.mode !== "full_access") fs.accessSync("/usr/bin/sandbox-exec", fs.constants.X_OK);
     writeRecord(claimDir, "dispatched.json", { token: claim.token, fingerprint: claim.fingerprint });
-    const child = spawn(helper, ["--durable", claimDir, claim.token, claim.fingerprint, "--", input.nodePath, input.workerPath], {
-      cwd: input.workspace, env: workerEnv(spec), detached: true, stdio: ["pipe", "pipe", "pipe", "pipe", "pipe"],
+    const command = spec.mode === "full_access" ? [input.nodePath, input.workerPath] : ["/usr/bin/sandbox-exec", "-p", macosNativeProfile(input), input.nodePath, input.workerPath];
+    const child = spawn(helper, ["--durable", claimDir, claim.token, claim.fingerprint, "--", ...command], {
+      cwd: input.workspace, env: spec.mode === "full_access" ? workerEnv(spec) : input.env, detached: true, stdio: ["pipe", "pipe", "pipe", "pipe", "pipe"],
     });
     dispatched = child.pid !== undefined;
     const exit = new Promise<{ code: number | null; signal: string | null }>((resolve, reject) => {

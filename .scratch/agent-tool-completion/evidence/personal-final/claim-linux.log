@@ -1,0 +1,17 @@
+✔ durable 命令：auto-review 未知和取消跨重启保留占用，人工效果与原引用停止都核实后才复用 (1982.10996ms)
+✔ durable 命令：full_access 未知和取消跨重启保留占用，人工效果与原引用停止都核实后才复用 (1302.375554ms)
+✔ durable 命令：恢复拒绝坏 claim，provider 与 OS 都零新增调用 (1366.575706ms)
+[ruukoto:personal] 持久执行出现错误，请查询状态并检查档案；未自动重启。
+✔ durable 命令：prepare认领提交后崩溃可恢复原准备，claim保留且实际命令只启动一次 (1479.748075ms)
+[ruukoto:personal] 持久执行出现错误，请查询状态并检查档案；未自动重启。
+✔ durable 命令：开始意图提交失败关闭 Harness，零 OS 派发 (1055.913168ms)
+[ruukoto:personal] 持久执行出现错误，请查询状态并检查档案；未自动重启。
+✔ durable 命令：回执已落盘而结果提交失败，重启读取原回执且不重发 (1387.447289ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 6
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 11948.458943

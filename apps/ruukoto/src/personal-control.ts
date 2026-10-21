@@ -1,3 +1,4 @@
+import { personalQuestionList, personalQuestionDetail, personalQuestionReceipt, answerPersonalQuestion, cancelPersonalQuestion, type PersonalOwnerAnswer } from "./personal-questions.ts";
 import { listPersonalServiceGrants, revokePersonalServiceGrant } from "./personal-service-operations.ts";
 import { appDataList, appDataDetail, appDataDecide, appDataRecheck } from "./personal-app-data.ts";
 import { parsePersonalMemoryControl, personalMemoryControl } from "./personal-memory-controls.ts";
@@ -77,6 +78,12 @@ export function parsePersonalInput(value: unknown): PersonalInput {
     throw new PersonalError("input_invalid", "请输入非空消息，每条最多 16 KiB；请求标识由程序管理。");
   }
   return { requestId: value.requestId, input: value.input, ...("work" in value ? { work: value.work as TaskId } : {}) };
+}
+
+export type PersonalQuestionWrite = { question: string; version: number; requestId: string; answers?: PersonalOwnerAnswer[] };
+export function parsePersonalQuestionWrite(value: unknown, answer: boolean): PersonalQuestionWrite {
+  if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).some(key => !["question", "version", "requestId", ...(answer ? ["answers"] : [])].includes(key)) || !("question" in value) || typeof value.question !== "string" || !/^[1-9][0-9]*$/.test(value.question) || !("version" in value) || !Number.isSafeInteger(value.version) || Number(value.version) < 1 || !("requestId" in value) || typeof value.requestId !== "string" || !PERSONAL_REQUEST_ID.test(value.requestId) || answer && (!("answers" in value) || !Array.isArray(value.answers))) throw new PersonalError("question_input_invalid", "请从问题菜单逐题回答并核对；请求标识由程序管理。");
+  return { question: value.question, version: Number(value.version), requestId: value.requestId, ...(answer && "answers" in value ? { answers: value.answers as PersonalOwnerAnswer[] } : {}) };
 }
 
 function text(entry: EntryRecord): PersonalMessage | undefined {
@@ -168,6 +175,20 @@ export async function startPersonalServer(directory: string, options: { developm
         } else if (req.method === "GET" && url.pathname === "/messages") {
           const entries = await instance.main.entries({}, 64, undefined, context);
           result = entries.items.map(text).filter(item => item !== undefined).slice(0, 16).reverse();
+        } else if (req.method === "GET" && url.pathname === "/questions") {
+          result = await instance.harness.commit(tx => personalQuestionList(tx, queryNumber(url, "offset", 0)), context);
+        } else if (req.method === "GET" && url.pathname === "/question") {
+          const id = url.searchParams.get("question");
+          if (!id || !/^[1-9][0-9]*$/.test(id)) throw new PersonalError("question_input_invalid", "请从问题列表选择原问题。");
+          result = await instance.harness.commit(tx => personalQuestionDetail(tx, id), context);
+        } else if (req.method === "GET" && url.pathname === "/question/receipt") {
+          const requestId = url.searchParams.get("requestId");
+          if (!requestId || !PERSONAL_REQUEST_ID.test(requestId)) throw new PersonalError("question_input_invalid", "请从问题菜单核实原回答。");
+          result = await instance.harness.commit(async tx => await personalQuestionReceipt(tx, requestId) ?? null, context);
+        } else if (req.method === "POST" && ["/question/answer", "/question/cancel"].includes(url.pathname)) {
+          const input = parsePersonalQuestionWrite(await readControlJSON(req), url.pathname.endsWith("answer"));
+          result = await instance.harness.commit(tx => input.answers ? answerPersonalQuestion(tx, { ...input, answers: input.answers }, { kind: "local" }) : cancelPersonalQuestion(tx, input, { kind: "local" }), context);
+          instance.harness.resume();
         } else if (req.method === "GET" && url.pathname === "/memories") {
           result = await instance.harness.commit(tx => searchPersonalMemory(tx, directory, ROOT_CONVERSATION_ID, url.searchParams.get("query") ?? "", queryNumber(url, "offset", 0), true), context);
         } else if (req.method === "GET" && url.pathname === "/memory") {
@@ -321,6 +342,22 @@ export async function startPersonalServer(directory: string, options: { developm
             await instance.mcp.requestRecheck(operation);
             result = { requested: true };
           } else result = await instance.harness.commit(tx => mcpDetail(tx, operation, queryNumber(url, "offset", 0)), context);
+        } else if (req.method === "GET" && url.pathname === "/background") {
+          if (!instance.background) throw new PersonalError("background_unavailable", "会话后台需要 Linux 固定命令目录；请停止实例后配置。");
+          result = await instance.background.status(url.searchParams.get("process") ?? undefined, url.searchParams.has("offset") ? queryNumber(url, "offset") : undefined);
+        } else if (req.method === "GET" && url.pathname === "/background/output") {
+          if (!instance.background) throw new PersonalError("background_unavailable", "会话后台未装配，请核实原配置。");
+          const stream = url.searchParams.get("stream"), id = url.searchParams.get("process");
+          if (!id || stream !== "stdout" && stream !== "stderr") throw new PersonalError("background_invalid_params", "请选择原后台及 stdout 或 stderr。");
+          result = await instance.background.output(id, stream, queryNumber(url, "offset", 0));
+        } else if (req.method === "POST" && url.pathname === "/background/stop") {
+          if (!instance.background) throw new PersonalError("background_unavailable", "会话后台未装配，请核实原配置。");
+          const id = url.searchParams.get("process"); if (!id) throw new PersonalError("background_invalid_params", "请选择原后台。");
+          result = await instance.background.stop(id);
+        } else if (["GET", "POST"].includes(req.method ?? "") && url.pathname === "/background/end") {
+          if (!instance.background) throw new PersonalError("background_unavailable", "会话后台未装配，请核实原配置。");
+          const requestId = url.searchParams.get("request"); if (!requestId || !PERSONAL_REQUEST_ID.test(requestId)) throw new PersonalError("background_invalid_params", "结束请求无效，请由本机菜单重新核实原回执。");
+          result = req.method === "POST" ? await instance.background.end(requestId) : await instance.background.endStatus(requestId);
         } else if (req.method === "GET" && url.pathname === "/commands") {
           if (!instance.commands) throw new PersonalError("command_config_missing", "命令未装配，请停止后台后配置独立命令目录。");
           result = await instance.commands.list(queryNumber(url, "offset", 0));
@@ -435,7 +472,7 @@ export async function startPersonalServer(directory: string, options: { developm
   }
 }
 
-export async function personalControl<T>(directory: string, method: "GET" | "POST", route: string, value?: ReturnType<typeof parsePersonalMemoryControl> | PersonalInput | PersonalServiceResolution | { decision: "approved" | "rejected" } | PersonalToolsControlBody | PersonalScheduleCreateBody): Promise<T> {
+export async function personalControl<T>(directory: string, method: "GET" | "POST", route: string, value?: ReturnType<typeof parsePersonalMemoryControl> | PersonalInput | PersonalServiceResolution | { decision: "approved" | "rejected" } | PersonalToolsControlBody | PersonalScheduleCreateBody | PersonalQuestionWrite): Promise<T> {
   const token = readPersonalToken(directory);
   return new Promise<T>((resolve, reject) => {
     const req = http.request({ socketPath: path.join(directory, "control.sock"), method, path: route, headers: { authorization: `Bearer ${token}`, "content-type": "application/json", connection: "close" } });

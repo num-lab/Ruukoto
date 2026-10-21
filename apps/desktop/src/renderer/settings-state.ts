@@ -14,7 +14,9 @@ export type SettingsPhase = "loading" | "ready" | "saving" | "conflict" | "unkno
 export interface SettingsForm {
   readonly dirty: boolean;
   readonly phase: SettingsPhase;
+  readonly confirming?: boolean;
   save(): Promise<boolean>;
+  saveAndContinue?(): Promise<boolean>;
   discard(): void;
   invalidate(): void;
 }
@@ -74,7 +76,7 @@ export class SettingsState {
       this.instances[target] = instanceId;
       if (changed && target === "code") { this.selections.mcp.workspaceId = null; this.selections.mcp.sourceId = null; }
     }
-    if (!this.open || !["models", "skills", "mcp"].includes(this.category) || this.selections[this.category as ManagedSettingsCategory].target !== target) return;
+    if (target === "personal" || !this.open || !["models", "skills", "mcp"].includes(this.category) || this.selections[this.category as ManagedSettingsCategory].target !== target) return;
     if (update.type !== "snapshot" && !(update.type === "state" && update.state !== "online")) return;
     this.invalidate();
     this.changed();
@@ -105,6 +107,6 @@ export class SettingsState {
   async saveAndLeave(): Promise<void> {
     const action = this.leave, form = this.form;
     if (!action || !form || form.phase === "saving" || form.phase === "unknown") return;
-    if (await form.save() && this.form === form && this.leave === action) this.finish(action);
+    if (await (form.saveAndContinue?.() ?? form.save()) && this.form === form && this.leave === action) this.finish(action);
   }
 }

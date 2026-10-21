@@ -172,8 +172,8 @@ export class PersonalSettingsController {
   }
   private async inspect(): Promise<PersonalManagementView> {
     const maintenance = await this.maintenance("inspect");
-    const settings = this.snapshot(await this.machine("settings", { v: 1, op: "settings.read" }));
-    const current = settings.online ? this.snapshot(await this.online({ v: 1, op: "settings.read" })) : settings;
+    const settings = this.snapshot(await this.machine("settings", { v: 1, op: "settings.read", limit: 1 }));
+    const current = settings.online ? this.snapshot(await this.online({ v: 1, op: "settings.read", limit: 1 })) : settings;
     const saved = this.pending?.savedRevision ? true : !this.pending?.saveAttempted || !!this.pending.rejected ? false : null;
     this.observed = true;
     return { settings: current, maintenance, pending: this.pending, saved, message: !this.pending ? maintenance.reason : saved === true ? current.online ? "配置已保存；请核对当前配置与生效状态。" : "配置已保存，后台尚未启动；可显式恢复原服务。" : saved === false ? "本次未保存；请核实服务状态，必要时恢复原服务。" : "保存结果待核实；请比较原修订与当前配置，不会自动重发。" };
@@ -181,7 +181,7 @@ export class PersonalSettingsController {
   read(): Promise<PersonalManagementView> { return this.exclusive(() => this.inspect()); }
   hasPendingOperation(): boolean { return this.pending !== null; }
   probe(): Promise<PersonalMaintenanceStatus> {
-    return this.exclusive(async () => { const maintenance = await this.maintenance("inspect"); this.snapshot(await this.machine("settings", { v: 1, op: "settings.read" })); return maintenance; });
+    return this.exclusive(async () => { const maintenance = await this.maintenance("inspect"); this.snapshot(await this.machine("settings", { v: 1, op: "settings.read", limit: 1 })); return maintenance; });
   }
   request(value: unknown): Promise<Record<string, unknown>> {
     return this.exclusive(async () => {

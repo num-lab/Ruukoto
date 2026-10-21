@@ -104,6 +104,8 @@ Code 的模型地址沿已有后端校验；MCP 继续沿已有 HTTPS 远程传�
 
 ## 验收与交接
 
+08 已完成 Personal 模型、Skills、MCP 管理页与独立工程审查，状态 ready-for-human；[实现与验收证据](evidence/08-verification.md)记录真实 Host 接线、分页/回执修复、模拟浏览器与窄回归。09 可接工程成果，真实 Linux 固定服务、模型/MCP 凭据及原生双壳产品验收仍待拥有者/部署管理员准备环境，不以工程完成代替整体结单。
+
 07 已完成新 Personal 管理连接、共用 Host、受限维护入口、固定 systemd 精确授权及断线核实，独立实现审查无未解决阻断，状态 ready-for-human；[工程证据](evidence/07-verification.md)与[真实 Linux CLI 记录](evidence/07-linux.md)区分模拟与真实环境。08 可消费 Host 接口；真实固定服务停存启和双壳体验仍须合规隔离部署后验收，不据此宣称 Personal 三类页面或整体产品完成。
 
 04 已完成共享托管后端、Code 选择与控制面、模块文档和独立工程审查，状态 resolved；旧参考、原任务恢复及重启由离线真实文件/Runtime 回归证明，证据与未验证项见[04 验收](evidence/04-verification.md)。05 可接 Code 页面，06 可在 Personal 档案锁后消费共享检查与操作；04 完成不代表 Personal 接线、双外壳或真实服务验收完成。

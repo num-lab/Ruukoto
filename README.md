@@ -23,15 +23,15 @@
 
 [逐项验收证据](docs/release-acceptance.md)。
 
-个人 [`ruukoto`](docs/usage.md#25-个人-agent-引导与管理) 使用 Pi 1.3.0；无参打开配置与管理菜单，`serve` 前台托管后台，`npm run personal:durable` 是同入口兼容命令。IM 用 `/帮助` 查入口。Coding 使用 Pi 0.85.1，入口与档案保持。
+个人 [`ruukoto`](docs/usage.md#25-个人-agent-引导与管理) 使用 Pi 1.3.0；无参打开配置与管理菜单，`serve` 前台托管后台，`npm run personal:durable` 是同入口兼容命令。IM 用 `/帮助` 查入口，Linux固定命令目录支持会话后台，CLI与 `/后台` 可查日志、停止及显式结束。Coding 使用 Pi 0.85.1，入口与档案保持。
 
 ## 快速开始
 
-开发与离线检查需要 Node ≥ 22.19、Git、Bash 和支持 PTY 的 Python 3，使用 macOS 或 Linux 的普通用户账户。两个产品的受限执行均使用原生沙箱，无需 Docker；平台前置见[操作手册](docs/usage.md#1-前提与安装)。
+开发与离线检查需要 Node ≥ 22.19、Git、ripgrep（`rg`）、Bash 和支持 PTY 的 Python 3，使用 macOS 或 Linux 的普通用户账户。两个产品的受限执行均使用原生沙箱，无需 Docker；个人资料检索使用随 build:worker 构建的独立只读 worker；平台前置见[操作手册](docs/usage.md#1-前提与安装)。
 
 ```bash
 npm run setup       # 按两份锁文件安装依赖、检查前提并安装轻量提交钩子
-npm run check       # 构建两类 worker/WASM，静态及全部离线测试
+npm run check       # 构建原生监督器、全部 worker/WASM，静态及全部离线测试
 npm link            # 可选：把 ruukoto / ruukoto-code 装进 PATH（否则用 npm start -- …）
 ```
 
@@ -51,6 +51,8 @@ ruukoto-code stop                 # 停止后台
 | `/new` | 在当前工作区建立空会话 |
 | `/branch [名称]` | 从已落盘历史建立独立会话并切换，父子共享工作目录 |
 | `/resume` | 切回父会话或其他会话 |
+| `/questions` | 逐题作答或取消持久问题，回答后唯一续接 |
+| `/processes` | 查看本会话后台、日志与停止核实；可结束本会话后台 |
 
 分支不调用模型、不启动原任务；名称支持中文和空格。来源范围与失败核实见[操作手册](docs/usage.md#72-命令)。
 
@@ -82,6 +84,8 @@ npm run code -- ../my-project  # 以该目录创建/复用工作区，并进入�
 ```
 
 开发与测试见[开发说明](docs/development.md)；MyGo：`npm run desktop:mygo`，见[桌面开发](docs/desktop-development.md)；[浏览器用法](docs/usage.md#12-浏览器)含登录与截图导出。
+
+持久问题真实模型验收：`RUN_MODEL_CHECK=1 RUN_OWNER_QUESTION_MODELS_FILE=/path/models.json npx tsx --test test/owner-question-model-acceptance.test.ts`（DeepSeek；使用隔离档案）。
 
 ## 文档
 

@@ -1,0 +1,10 @@
+[ruukoto:background-acceptance] 隔离证据 /private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-background-model-KJEWuZ
+✔ 真实模型后台：启动、browser访问、跨拥有者轮查日志、停止并恢复写入 (18280.387708ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 19878.797709

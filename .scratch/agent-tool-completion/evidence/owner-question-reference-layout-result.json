@@ -1,0 +1,59 @@
+{
+  "checkedAt": "2026-10-21T05:04:56.921Z",
+  "scope": "隔离Runtime、真实隐藏Electron、mock模型；CDP设置760×600视口；长选项仅替换DOM文字的布局探针，恢复原文后截图",
+  "viewport": {
+    "width": 760,
+    "height": 600
+  },
+  "card": {
+    "x": 224,
+    "y": 119.75,
+    "width": 510,
+    "height": 318,
+    "scrollWidth": 510
+  },
+  "options": [
+    {
+      "text": "仅本地",
+      "checked": "false",
+      "x": 245,
+      "y": 206.75,
+      "width": 470,
+      "height": 44
+    },
+    {
+      "text": "共享",
+      "checked": "true",
+      "x": 245,
+      "y": 254.75,
+      "width": 470,
+      "height": 44
+    }
+  ],
+  "freeInput": {
+    "x": 245,
+    "y": 310.75,
+    "width": 470,
+    "height": 44
+  },
+  "footer": {
+    "x": 245,
+    "y": 378.75,
+    "width": 470,
+    "height": 38
+  },
+  "longOptionLayoutProbe": [
+    {
+      "width": 450,
+      "scrollWidth": 450,
+      "height": 180,
+      "textLength": 200
+    },
+    {
+      "width": 450,
+      "scrollWidth": 450,
+      "height": 100,
+      "textLength": 200
+    }
+  ]
+}

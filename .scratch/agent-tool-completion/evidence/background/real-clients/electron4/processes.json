@@ -1,0 +1,20 @@
+[
+  {
+    "label": "electron_single",
+    "taskId": "task_3a350156f83d5e715a1907ca",
+    "processId": "process_646b0aa77443a0fcd9b1721b",
+    "url": "http://127.0.0.1:65190",
+    "out": "STDOUT_c26667224446e235",
+    "err": "STDERR_57717188df126afe",
+    "pid": 1071
+  },
+  {
+    "label": "electron_preserved",
+    "taskId": "task_63160b26d6cef4208f99383b",
+    "processId": "process_f10cf42ef3d320762db1311c",
+    "url": "http://127.0.0.1:65209",
+    "out": "STDOUT_a5110055c768f4a5",
+    "err": "STDERR_8d3e93a50cf79505",
+    "pid": 1333
+  }
+]

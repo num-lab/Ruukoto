@@ -10,13 +10,15 @@
 
 CLI 按聊天、后台工作/定时、审批核实、权限/资料、停机配置及实例运维分组；在线仅访问本机认证接口。`/permissions` 查看本机/Telegram共用和QQ独立的默认模式，POST只影响新接纳；`/service/grants` 与 `/service/grants/revoke` 查看及按原版本撤销长期服务授权，创建仍限原IM审批。两平台 `/帮助`、`/状态` 由宿主给出管理路径、当前模式与装配事实，不调用模型。`personal-owner-controls` 扩展标记使旧程序拒绝忽略新命令菜单。
 
+`ask_user` 向主会话真实拥有者登记1–3题，立即返回；可单选、多选、自由输入或跳过，选项说明与推荐仅展示。每会话一批待答，登记后当前输入只可查询后台状态/输出并结束本轮，普通新聊天继续。本机「聊天与消息」→「问题与回答」及两平台 `/问题` 逐题选择、完整翻页并核对整批后提交，也可取消；长题、选项、答案与历史按原菜单完整分页，确认只在末页开放。IM 只接受已送达原平台/账号/owner/代次的菜单回复；本机可查与取消 IM 问题，回答须回原私聊。答案沿实际回答时权限继续，业务回答不批准工具。取消或换代使未答问题失效，自然结束、断线和重开保留待答。应答丢失按原回执找回唯一续接，未知 IM 发送不重发。认证路由为 `/questions`、`/question`、`/question/receipt`、`/question/answer`、`/question/cancel`。
+
 六个 `app_data_*` 工具在主/独立定时会话开放，子工作须由本次委派显式给 `appData: true`，身份复用不继承；最终汇总仅开放查询。业务库为档案内 `agent-data/main.db`，复用共享表结构、事务、关系和查询预算。CLI「管理应用数据审批与回执」与两平台 `/应用数据` 可选择原操作、分页读参数/结果、批准/拒绝或恢复原库后重新核实；本机来源在本机批准，IM来源须回原平台/账号/owner/代次的已送达菜单。本机认证路由为 `/app-data/operations`、`/app-data/operation`、`/app-data/decide`、`/app-data/recheck`。
 
 `memory` 提供稳定记忆的查找、分页读取、保存、按预期版本修订及撤销；主可管理全部新记忆，子/定时只读写自身，自动注入仅选本会话。`history_search` 每次扫描至多256条、返回8项；有续页时即使空页仍可继续，`history_read` 每页4096字符。主可查本实例已登记主/子/定时历史，子和定时仅自身；原生压缩后原文仍在。CLI 可直接管理记忆、查询历史和配置技能，无需填写内部编号。仅来源缺失的记忆仍可从可信本机列表定位并撤销，修订证据损坏继续拒绝；撤销不解除其他图片/工具证据的恢复要求。
 
 `skill` 加载拥有者配置库中的正文及相对引用文本。技能仅作参考，不增加工具或权限；目录/正文动态刷新，版本与实际加载保存为原生 entries/documents。主会话 `/skill:名称 参数` 按原用户 entry 固定展开，保留原入站正文；仅显式技能不能由模型自行加载。目录缺失、非法引用或原快照无法核实均停止依赖操作。
 
-配置资料与网络工具后，主/子开放 `read_file`、`write_file`、`http_request`、`web_search` 与 `read_artifact`，名称清单同时用于装配、恢复和调用检查。资料目录内读写、明确授权内读取直接执行；越界请求等待原入口决定，自动审查仅处理文件读和无凭据、无头/正文的 GET/HEAD。主可读本实例产物，子只读本子会话；命令/MCP 结果继续使用原读取接口。本机向导管理配置、资料授权、原审批、效果/结束和独占产物导出；Telegram `/工具` 绑定原宿主菜单。
+配置资料与网络工具后，主/子开放 `read_file`、`write_file`、`http_request`、`web_search`、`read_artifact`、`list_files` 与 `search_files`，名称清单同时用于装配、恢复和调用检查。资料目录内读写、明确授权内读取直接执行；越界请求等待原入口决定，自动审查仅处理文件读和无凭据、无头/正文的 GET/HEAD。主可读本实例产物，子只读本子会话；命令/MCP 结果继续使用原读取接口。本机向导管理配置、资料授权、原审批、效果/结束和独占产物导出；Telegram `/工具` 绑定原宿主菜单。
 
 浏览器经 `personal-browser` 原生工具装配，向已核实的完全访问主拥有者输入，以及创建时已保存该能力和完全访问模式的独立定时会话开放；子会话与汇总输入不开放。主会话和各定时会话使用独立浏览器绑定与操作记录。共享 BrowserManager 负责原生 CLI、Chrome、loopback 附接和进程身份，异步持久回调必须提交后才继续启动。CLI 配置程序与 Chromium 路径，在线管理原操作、效果核实和真实停止；Telegram `/浏览器` 仅管理原 bot/owner/代次操作。截图与长网页输出使用同一 `read_artifact` 和本机产物列表/导出，不要求先配置文件资料目录。
 
@@ -24,9 +26,11 @@ CLI 按聊天、后台工作/定时、审批核实、权限/资料、停机配�
 
 `personal-command-worker.ts` 构建为自包含的 `worker/personal-command-worker.mjs`。可信宿主按[执行边界](execution.md)准备对应原模式的输入，以预先保存的原引用调用 `runPersonalCommand`；`readPersonalCommandReceipt` 校验并读取原回执，`stopPersonalCommand` 无内存句柄也按原引用停止。Linux 停机向导固定独立目录及 dev/ino，`commands` 配置启用子会话的 `run_command`、`read_command_output`；请求确认/自动审查在原目录内执行且不联网；完全访问继承后台账户环境，可访问目录外与网络，免逐次审批。完全访问仍登记独立 scope，按原身份核实停止；不承诺收回主动迁出单元的进程或外部服务。同账户可读写后台资料与证据，私有目录不构成其隔离。子会话请求展示原工作模式，按原生 section 留证据，不沿用上项工作的权限说明。原 WorkTask 持有命令 Task，接纳和开始意图分别留不可改证据；恢复只查原回执并核实原执行停止，不重跑；停止须核对原请求及原 launch 指纹，缺证据或 stop 先手不能证明旧执行已停。`readPersonalCommandOutput` 每页返回最多 3072 原字节的 base64；无回执时明确为片段。模型结果的 `verifiedEffect` 与 `stopped=true` 表示双事实已齐，原 `effect_unknown` 保留中断历史，输出片段不使已核实事实失效。工作查询的 `commands` 直接给出原命令当前宿主事实及 `requiresVerification`，CLI/IM/定时汇总显示相同事实，优先于旧子回答的解释。CLI 与两平台 `/命令` 可查询原记录、分页双流、保存不可覆盖的已生效/未生效证据，并登记原停止重核；IM由已发送原菜单固定平台/账号/owner/代次，旧入口从本机查询。停止任务固定原控制收件，执行前核入口活性；恢复双向核对收件、效果证据及停止任务，失去应答先查询原记录。未知效果或停止未核实保留原工作占用及来源暂停，完整回执也须停止已证明才释放；共享命令目录在任一原执行未核实停止时拒绝新执行。
 
+主拥有者完全访问输入可用 `process_start/status/output/stop` 管理 Linux 会话后台，固定使用 `command.json` 目录。后台独立于创建轮，跨消息保留；当前轮及后续观测轮只开放后台状态/日志/停止、提问与同原入口仍有效的完全访问浏览器。CLI「管理会话后台与日志」和两平台 `/后台` 逐步选择原执行，支持查双流、请求停止和确认结束本会话后台；原入口私聊只能管理本平台/账号/owner/代次的记录，本机可管理旧入口。结束用稳定请求键固定接纳水位与原目标，窗口退出和存档保留执行；停止未核实保留认领，应用关闭及重开只停止原执行，不重放命令。原字节日志私有保存，合计16MiB，同步限流并合并有界批次后提交；写入或持久化失败停止执行，事实无法保存则关闭Harness，后续查询明确失败。
+
 `openPersonalHarness` 接受独立目录或已持有的 `PersonalProfileLock`、provider 与模型，接管锁的释放责任，返回主会话、Harness、提交、等待回答与关闭方法；可用 `beforeUnlock` 在放锁前收齐管理接口。可选 `service` 接受宿主固定的 helper 配置，安装 `service_inspect` 与 `read_service_inspection`，模型只能指定白名单内精确单元名或本会话的证据编号。返回的 `inspections.list/recheckStop` 供可信宿主查询未决检查与重核停止，不提供强制释放；未取消的活动检查拒绝宿主重核。`requestInspectionStop(ref)` 固定原 Task/接纳引用，仅登记后台重核并返回其 Task ID；它不等待停止。提交键由调用方保持稳定，用于 durable 会话内去重。`parsePersonalModel` 校验模型配置，`personalProvider` 按环境变量名读取凭据。个人 Pi 1.3.0 对象不传给 Coding 的 Pi 0.85.1。
 
-`startPersonalServer` 独占后台，HTTP 仅监听档案内 Unix socket，经本地令牌逐次认证；提供 `/status`、`/messages`、`/inputs`、`/input`、`/telegram`、`/qq`、`/works`、`/work`、`/work/cancel`、`/work/close`、`/work/notes`、`/delegations`、`/delegation`、`/delegation/cancel`、`/delegation/report`、`/inspections`、`/inspection/stop`、`/services`、`/service`、`/service/decide`、`/service/resolve`、`/service/stop` 、`/commands`、`/command`、`/command/resolve`、`/command/stop`、`/mcp/operations`、`/mcp/operation`、`/mcp/decide`、`/mcp/resolve`、`/mcp/recheck` 和 `/stop`；状态的服务开关只表示能力已装配，不代表 helper 可用或业务健康。`personalControl` 为 CLI 调用；CLI 不重开 Harness。引导与前台托管见[操作手册](../usage.md#25-个人-agent-引导与管理)。
+`startPersonalServer` 独占后台，HTTP 仅监听档案内 Unix socket，经本地令牌逐次认证；提供 `/status`、`/messages`、`/inputs`、`/input`、`/telegram`、`/qq`、`/works`、`/work`、`/work/cancel`、`/work/close`、`/work/notes`、`/delegations`、`/delegation`、`/delegation/cancel`、`/delegation/report`、`/inspections`、`/inspection/stop`、`/services`、`/service`、`/service/decide`、`/service/resolve`、`/service/stop` 、`/commands`、`/command`、`/command/resolve`、`/command/stop`、`/background`、`/background/output`、`/background/stop`、`/background/end`、`/mcp/operations`、`/mcp/operation`、`/mcp/decide`、`/mcp/resolve`、`/mcp/recheck` 和 `/stop`；状态的服务开关只表示能力已装配，不代表 helper 可用或业务健康。`personalControl` 为 CLI 调用；CLI 不重开 Harness。引导与前台托管见[操作手册](../usage.md#25-个人-agent-引导与管理)。
 
 `startPersonalServer` 另提供 `/schedules`、`/schedule`、`/schedule/cancel`、`/schedule/runs` 与 `/schedule/run/result`，创建和按原请求键核实共用在线认证后台。CLI「后台工作与定时计划」中的「管理定时计划与运行」与两平台 `/定时` 共用同一宿主控制函数，逐步选择规则、时区和计划；IM 草稿及确认菜单持久保存，回复已发送的原确认菜单才可创建。列表每页8项，完整报告按原运行分页，不要求拥有者填写内部键。
 
@@ -44,6 +48,10 @@ CLI 按聊天、后台工作/定时、审批核实、权限/资料、停机配�
 
 ## 数据与状态
 
+`ruukoto.questions`、`ruukoto.question` 与 `ruukoto.question-receipt` 保存问题、答案和原请求回执；创建、答复与终态 entries 不可改。答复 admission 和唯一 `ruukoto.question-continuation` Task 同 commit；Task 以固定键接回 main，`ruukoto.question-answer` 通过 `personal-source` 核实原题、答案、权限与实际原入口，双向恢复核对所有反链。模型规范输入和实际 payload 都重核这一来源与当前工具集合，工具调用门按相同输入资格拒绝；不借普通输入默认权限恢复。停机配置与扩展启用检查包含待答问题。
+
+个人业务格式的 `extensions.personal=2` 使旧程序拒绝忽略目录认领；旧格式保留供匹配程序查看，不自动迁移。后台接纳、一次启动认领、观察、停止及关闭屏障分别保存在durable document和不可改entry，双向核实原工具、Task、来源与目录认领。`ruukoto.directory-claims` 同时约束后台starting、普通命令prepare/start和文件写批准消费；父子路径与dev/ino别名冲突，未知效果或停止未核实保留原认领，停机配置也拒绝未解除的认领。
+
 `ruukoto.app-data` 固定库身份、初始化意图和原工具索引；每次写入以独立 pi.tool Task 派生操作键，保存接纳、完整参数指纹、来源/权限、批准/消费及结果entry。业务变更和含请求指纹/内容校验的审计同应用库事务，durable结果另行提交，不声称两库原子。首次初始化先登记身份，再在应用库事务写同一身份；中断仅可继续无业务操作的原初始化意图。
 
 记忆索引、每条当前版本、全部修订引用和幂等回执在 `ruukoto.memories`、`ruukoto.memory`、`ruukoto.memory-operation`，正文与来源随不可变修订 entry 同事务保存。来源只接受可见原消息、已核实产物或可信本机拥有者说明；模型不能伪造后者。技能配置文件为私有 `skills.json`，目录版本、全文、读取和显式展开存 durable；原加载不因文件变化改写。
@@ -56,7 +64,7 @@ CLI 按聊天、后台工作/定时、审批核实、权限/资料、停机配�
 
 本机输入在原生 admission 前保存正文指纹和权限接纳，主/子工具及委派沿该快照；默认模式变更只影响新输入，恢复复核原 entry。媒体/浏览器扩展标记和 document 版本在恢复前核实，旧程序不能忽略新归属；首次启用前须完成旧未决输入和工作。
 
-`tools.json` 固定资料目录及 dev/ino、具名 HTTP 凭据的 host/header/环境变量引用与 Tavily 原始 key 的环境变量名。`ruukoto.tools` 保存配置、逐条资料授权版本和操作索引，`ruukoto.tool-operation` 沿原生工具 Task 保存来源、参数、固定目标、审批/审查认领、开始、观察及双事实核实；不可改 entries 相互核对。私有 `artifacts/` 保存最多8MiB的原字节，durable 只保存引用、来源、哈希、长度、身份与 partial；搜索沿256KiB界限，命令/MCP不复制已有正文。
+`tools.json` 固定资料目录及 dev/ino、具名 HTTP 凭据的 host/header/环境变量引用与 Tavily 原始 key 的环境变量名。`ruukoto.tools` 保存配置、逐条资料授权版本和操作索引，`ruukoto.tool-operation` 沿原生工具 Task 保存来源、参数、固定目标、审批/审查认领、开始、观察及双事实核实；不可改 entries 相互核对。私有 `artifacts/` 保存最多8MiB的原字节，durable 只保存引用、来源、哈希、长度、身份与 partial；网页搜索沿256KiB界限，命令/MCP不复制已有正文。文件检索在独立原生 worker 内使用 tools.json 资料根及有效只读授权，不使用 command.json 目录；原流先 stdout 后 stderr，rawStreams 保存各段字节数。开始后恢复仅停止原身份，停止未知仍重核并保留原观察；扩展标记与资料/来源断链均拒绝恢复。
 
 目录中的 `profile.json` 标记产品、Pi、档案和业务扩展版本；`owner.sqlite` 仅持有进程锁。`personal.sqlite` 保存 durable 会话、原生任务、提交、历史、业务格式 document、逐键输入指纹和 `ruukoto.model-request` entries。请求证据保存会话来源、规范化输入、推理级别和实际请求体，两条记录以请求键关联。凭据不写入请求证据，文件与 socket 权限为 0600，目录为 0700。
 
@@ -158,6 +166,10 @@ MCP 在外调前原子保存原请求及批准消费；同工具恢复与传输�
 
 ## 设计依据
 
+- [个人文件检索](../../.agents/notes/implemented/feature/2026-10-21-personal-file-search.md)：资料范围、只读执行与持久停止。
+
+- [个人会话后台与共享目录认领](../../.agents/notes/implemented/feature/2026-10-21-personal-background-processes.md)。
+
 - [正式入口与旧装配退出](../../.agents/notes/implemented/simplification/2026-10-18-personal-product-entry.md)
 - [个人应用数据的双库回执与来源](../../.agents/notes/implemented/architecture/2026-10-18-personal-durable-app-data.md)
 
@@ -207,3 +219,5 @@ MCP 在外调前原子保存原请求及批准消费；同工具恢复与传输�
 
 - [拥有者分别核实服务效果与原写操作停止](../../.agents/notes/implemented/architecture/2026-10-17-personal-service-recovery-controls.md)
 - [子服务操作归原工作持有并沿原授权恢复](../../.agents/notes/implemented/architecture/2026-10-17-personal-subagent-service-operations.md)
+
+设计依据另见[个人持久提问](../../.agents/notes/implemented/feature/2026-10-21-personal-owner-questions.md)。

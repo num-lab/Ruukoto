@@ -138,10 +138,10 @@ export class CodeWrites {
     }
     if (update.type === "snapshot" || (update.type === "event" && update.kind === "live" && (update.event.body.type === "session.queue_paused" || update.event.body.type === "session.queue_resumed"))) ++this.queueRevision;
     if (update.type === "pending") {
-      this.entries = new Map(update.entries.map(entry => [entry.record.requestId, entry]));
+      this.entries = new Map(update.entries.filter(entry => entry.record.op === "submit" || entry.record.op === "continue").map(entry => [entry.record.requestId, entry]));
       this.corrupt = update.corrupt;
       this.pendingDir = update.dir;
-    } else if (update.type === "submission") {
+    } else if (update.type === "submission" && (update.record.op === "submit" || update.record.op === "continue")) {
       const { record, result } = update;
       if (result.kind === "linked" || result.kind === "resent" || result.kind === "rejected") {
         this.entries.delete(record.requestId);

@@ -1,0 +1,30 @@
+[
+  {
+    "id": "native_b49e1118eb6a4c4c477428a6",
+    "files": {
+      "claim.json": {
+        "version": 1,
+        "ref": {
+          "executionId": "native_b49e1118eb6a4c4c477428a6",
+          "machineId": "fd410411419d40079742fdbc36dec028"
+        },
+        "bootId": "ce49a58c-036d-4dfa-a7dc-99f3b9682ca6",
+        "scope": "ruukoto-native_b49e1118eb6a4c4c477428a6.scope",
+        "claimedBy": "launch",
+        "token": "2911dff51a7376eabe7ec9c7cbb0d082",
+        "fingerprint": "49c9a7bea69cd4edc667d2e4139fd069aca446c0d0a9287eefd3138cc5f79796"
+      },
+      "launcher.json": {
+        "pid": 443681,
+        "startTime": "1201789230",
+        "processGroup": 443681
+      },
+      "observation.json": {
+        "group": "/sys/fs/cgroup/user.slice/user-1003.slice/user@1003.service/app.slice/ruukoto-native_b49e1118eb6a4c4c477428a6.scope",
+        "invocationId": "04cec362573a496ebf9356f8aa7e9897",
+        "dev": 29,
+        "ino": 2245377
+      }
+    }
+  }
+]

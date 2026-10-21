@@ -19,6 +19,7 @@ import { activePersonalWorkInspection, PersonalAgentsDoc, PersonalWorkDoc, perso
 import { preparePersonalCommand, personalCommandFingerprint, readPersonalCommandOutput, readPersonalCommandReceipt, runPersonalCommand, stopPersonalCommand, type PersonalCommandReceipt } from "./personal-command-execution.ts";
 import { personalCommandEnvironment, verifyPersonalCommandConfig, type PersonalCommandConfig } from "./personal-command-config.ts";
 import { personalSourceSubmission } from "./personal-source.ts";
+import { acquirePersonalDirectory, releasePersonalDirectory } from "./personal-directory-claims.ts";
 
 export const PERSONAL_COMMAND_WORK = "personal-command-work";
 const context = BACKGROUND_CONTEXT;
@@ -28,11 +29,12 @@ type Work = PersonalWorkInspectionSource & { tool: TaskId; generation: TaskId; s
 type ExecutionRef = Pick<LinuxExecutionRef, keyof LinuxExecutionRef>;
 type CommandSpec = Omit<LaunchSpec, "grantedPaths"> & { grantedPaths: Array<Pick<LaunchSpec["grantedPaths"][number], keyof LaunchSpec["grantedPaths"][number]>> };
 type Prepared = { spec: CommandSpec; input: Pick<PreparedNativeLaunch, keyof PreparedNativeLaunch>; fingerprint: string };
-type Command = { ref: PersonalCommandRef; command: string; execution: ExecutionRef; work: Work; admission: EntryId; started: boolean; stopped: boolean; cancelRequested: boolean; prepared?: Prepared; startEntry?: EntryId; result?: Result; observation?: EntryId; resolution?: { effect: "applied" | "not_applied"; evidence: string; entry: EntryId; actor?: string }; stopTask?: TaskId };
+type Command = { ref: PersonalCommandRef; command: string; execution: ExecutionRef; work: Work; admission: EntryId; started: boolean; stopped: boolean; cancelRequested: boolean; directoryClaim?: EntryId; preparationStop?: EntryId; prepared?: Prepared; startEntry?: EntryId; result?: Result; observation?: EntryId; resolution?: { effect: "applied" | "not_applied"; evidence: string; entry: EntryId; actor?: string }; stopTask?: TaskId };
 export const PersonalCommandsDoc = defineDoc<{ fingerprint: string }>({ kind: "ruukoto.commands", scope: "session", version: 1, initial: () => ({ fingerprint: "" }) });
 export const PersonalCommandDoc = defineDocFamily<{ command?: Command }, null>({ kind: "ruukoto.command", scope: "session", version: 1, family: true, initial: () => ({}) });
 export const CommandAdmission = defineEntry<{ ref: PersonalCommandRef; command: string; execution: ExecutionRef; work: Work }>("ruukoto.command-admission");
 const CommandResolution = defineEntry<{ ref: PersonalCommandRef; effect: "applied" | "not_applied"; evidence: string; actor?: string }>("ruukoto.command-resolution");
+const CommandPreparationStop = defineEntry<{ ref: PersonalCommandRef; result: Result }>("ruukoto.command-preparation-stop");
 const CommandStart = defineEntry<{ ref: PersonalCommandRef; prepared: Prepared }>("ruukoto.command-start");
 const CommandObservation = defineEntry<{ ref: PersonalCommandRef; execution: ExecutionRef; fingerprint: string; result: Result; stopped: boolean }>("ruukoto.command-observation");
 export const personalCommandsFingerprint = (config: PersonalCommandConfig) => createHash("sha256").update(JSON.stringify(config)).digest("hex");
@@ -53,6 +55,13 @@ export async function personalCommand(tx: Tx, ref: PersonalCommandRef) {
 
 export function personalCommandUnresolved(value: Readonly<Command>) {
   return value.started && (!value.stopped || !value.result || value.result.code === "started" || (value.result.effect === "effect_unknown" && !value.resolution));
+}
+
+export function personalCommandClaimActive(value: Readonly<Command>) { return value.directoryClaim !== undefined && (!value.started ? value.preparationStop === undefined : personalCommandUnresolved(value)); }
+async function stopPreparation(tx: Tx, value: Command, code: string) {
+  if (value.started) throw new PersonalError("command_record_invalid", "原命令已有开始意图，须核实原执行，不能按尚未启动释放。");
+  if (!value.preparationStop) { value.result = { effect: "not_executed", code }; value.preparationStop = (await tx.appendEntry(CommandPreparationStop, ROOT_CONVERSATION_ID, { data: { ref: value.ref, result: value.result } })).id; }
+  if (value.directoryClaim) await releasePersonalDirectory(tx, { kind: "command", operation: value.ref.taskId });
 }
 
 export function personalCommandResult(value: Readonly<Command>) {
@@ -118,6 +127,7 @@ export async function resolvePersonalCommand(tx: Tx, ref: PersonalCommandRef, ef
   if (value.result?.effect !== "effect_unknown" || value.result.code === "started" || value.resolution) throw new PersonalError("command_resolution_invalid", "原命令尚未进入效果核实或已保存核实结果，请刷新原记录。");
   const entry = await tx.appendEntry(CommandResolution, ROOT_CONVERSATION_ID, { data: { ref, effect, evidence, ...(actor ? { actor } : {}) } });
   value.resolution = { effect, evidence, entry: entry.id, ...(actor ? { actor } : {}) };
+  if (value.directoryClaim && !personalCommandUnresolved(value)) await releasePersonalDirectory(tx, { kind: "command", operation: value.ref.taskId });
 }
 
 export function personalCommandWork(profile: string, config: PersonalCommandConfig) {
@@ -133,33 +143,40 @@ export function personalCommandWork(profile: string, config: PersonalCommandConf
         // 有执行意图的恢复只核实原引用，不重新 prepare 或获取执行权。
         if (saved.started) { await recover(ref, runtime, context); return; }
         let ready = false;
-        await runtime.commit(async tx => {
+        try { await runtime.commit(async tx => {
           const value = await personalCommand(tx, ref);
-          if (value.cancelRequested) { value.result = { effect: "not_executed", code: "canceled" }; return { status: "terminal", outcome: { status: "aborted", result: value.result } }; }
+          if (value.cancelRequested) { await stopPreparation(tx, value, "canceled"); return { status: "terminal", outcome: { status: "aborted", result: value.result } }; }
           await requirePersonalWorkRequest(tx, value.work.ref.agentId);
           await requireCommandDirectoryReady(tx, ref);
           verifyPersonalCommandConfig(config, profile);
+          value.directoryClaim = await acquirePersonalDirectory(tx, { kind: "command", operation: value.ref.taskId }, { path: config.workspace, ...config.identity });
           ready = true; return undefined;
-        }, context);
+        }, context); } catch (error) { if (error instanceof PersonalError) await runtime.commit(async tx => { await stopPreparation(tx, await personalCommand(tx, ref), error.code); return undefined; }, context); throw error; }
         if (!ready) return;
         const spec: LaunchSpec = { taskId: `personal-command:${current.id}`, mode: saved.work.permission.mode, workspace: config.workspace, workspaceIdentity: config.identity, grantedPaths: [] };
-        const input = await preparePersonalCommand(environment.native, spec);
+        let input: PreparedNativeLaunch;
+        try { input = await preparePersonalCommand(environment.native, spec); }
+        catch (error) {
+          await runtime.commit(async tx => { const value = await personalCommand(tx, ref); if (!value.started) await stopPreparation(tx, value, "command_prepare_failed"); return undefined; }, context);
+          throw error;
+        }
         let execute = false, committed = false;
         try {
           await runtime.commit(async tx => {
             const value = await personalCommand(tx, ref);
             if (value.started) throw new PersonalError("command_record_invalid", "原命令已保存执行意图，请查询原记录。");
-            if (value.cancelRequested) { value.result = { effect: "not_executed", code: "canceled" }; return { status: "terminal", outcome: { status: "aborted", result: value.result } }; }
+            if (value.cancelRequested) { await stopPreparation(tx, value, "canceled"); return { status: "terminal", outcome: { status: "aborted", result: value.result } }; }
             await requirePersonalWorkRequest(tx, value.work.ref.agentId);
             await requireCommandDirectoryReady(tx, ref);
             verifyPersonalCommandConfig(config, profile);
+            await acquirePersonalDirectory(tx, { kind: "command", operation: value.ref.taskId }, { path: config.workspace, ...config.identity });
             value.prepared = { spec, input, fingerprint: personalCommandFingerprint(value.command, spec, input) };
             value.startEntry = (await tx.appendEntry(CommandStart, ROOT_CONVERSATION_ID, { data: { ref, prepared: value.prepared } })).id;
             value.started = true; value.result = { effect: "effect_unknown", code: "started" }; execute = true;
             return { status: "running", checkpoint: { phase: "verify" } };
           }, context);
           committed = true;
-        } finally { if (!committed || !execute) fs.rmSync(input.tempDir, { recursive: true, force: true }); }
+        } catch (error) { if (error instanceof PersonalError) await runtime.commit(async tx => { await stopPreparation(tx, await personalCommand(tx, ref), error.code); return undefined; }, context); throw error; } finally { if (!committed || !execute) fs.rmSync(input.tempDir, { recursive: true, force: true }); }
         if (!execute) return;
         try { await runPersonalCommand({ directory, ref: saved.execution, command: saved.command, spec, input, timeoutMs: 120_000, signal: runtime.signal }); } catch (error) {
           if (!(error instanceof PersonalError)) throw error;
@@ -174,7 +191,7 @@ export function personalCommandWork(profile: string, config: PersonalCommandConf
       let started = false;
       await runtime.commit(async tx => {
         const value = await personalCommand(tx, ref); value.cancelRequested = true; started = value.started;
-        if (!started) { value.result = { effect: "not_executed", code: "canceled" }; return { status: "terminal", outcome: { status: "aborted", result: value.result } }; }
+        if (!started) { await stopPreparation(tx, value, "canceled"); return { status: "terminal", outcome: { status: "aborted", result: value.result } }; }
         return undefined;
       }, context);
       if (started) await recover(ref, runtime, context);
@@ -196,6 +213,7 @@ export function personalCommandWork(profile: string, config: PersonalCommandConf
       value.stopped ||= stopped;
       value.result = receipt ? { effect: "returned", code: "command_returned", exitCode: receipt.exit.code } : { effect: "effect_unknown", code };
       value.observation = (await tx.appendEntry(CommandObservation, ROOT_CONVERSATION_ID, { data: { ref, execution: { ...value.execution }, fingerprint: value.prepared!.fingerprint, result: { ...value.result }, stopped: value.stopped } })).id;
+      if (value.directoryClaim && !personalCommandUnresolved(value)) await releasePersonalDirectory(tx, { kind: "command", operation: value.ref.taskId });
       return undefined;
     }, context);
   }
@@ -314,6 +332,8 @@ export async function verifyPersonalCommands(tx: Tx, keys: string[], config: Per
     const call = assistant?.model?.flatMap(message => message.role === "assistant" ? message.content : []).find(part => part.type === "toolCall" && part.id === (input && typeof input === "object" && !Array.isArray(input) ? input.callId : undefined));
     if (task?.kind !== "ruukoto.command" || task.version !== 1 || task.owner !== op.work.ref.taskId || task.background || task.conversationId !== ROOT_CONVERSATION_ID || !isDeepStrictEqual(task.input, { requestId: op.ref.requestId }) || op.ref.requestId !== `personal-command-tool:${op.work.tool}` || !admission || admission.conversationId !== op.work.ref.agentId || !isDeepStrictEqual(admission.data, { ref: op.ref, command: op.command, execution: op.execution, work: op.work }) || !isDeepStrictEqual(work, { work: (({ tool: _tool, generation: _generation, sources: _sources, ...value }) => value)(op.work), sources: op.work.sources }) || !original.permission || tool?.kind !== "pi.tool" || tool.owner !== op.work.generation || tool.conversationId !== op.work.ref.agentId || !assistant || assistant.byTaskId !== op.work.generation || assistant.conversationId !== op.work.ref.agentId || assistant.id >= admission.id || call?.type !== "toolCall" || call.name !== "run_command" || !isDeepStrictEqual(call.arguments, { command: op.command }) || executions.has(op.execution.executionId) || op.execution.machineId !== config.machineId || !/^native_[0-9a-f]{24}$/.test(op.execution.executionId)) throw new PersonalError("command_record_invalid", "原命令的工作、权限或工具接纳不符，已停止恢复；请保留档案。");
     executions.add(op.execution.executionId);
+    if (op.preparationStop) { const entry = await tx.entry(CommandPreparationStop, op.preparationStop); if (op.started || !entry || entry.id <= op.admission || !isDeepStrictEqual(entry.data, { ref: op.ref, result: op.result }) || op.result?.effect !== "not_executed") throw new PersonalError("command_record_invalid", "原命令尚未启动的收尾证据不符，已停止恢复。"); }
+    if (op.directoryClaim && !op.started && op.result?.effect === "not_executed" && !op.preparationStop) throw new PersonalError("command_record_invalid", "原准备认领缺少未执行收尾证明，已停止恢复。");
     const start = op.startEntry && await tx.entry(CommandStart, op.startEntry);
     if (op.started !== !!op.prepared || op.started !== !!start || (op.prepared && (!start || start.conversationId !== ROOT_CONVERSATION_ID || start.id <= op.admission || !isDeepStrictEqual(start.data, { ref: op.ref, prepared: op.prepared }) || op.prepared.fingerprint !== personalCommandFingerprint(op.command, op.prepared.spec, op.prepared.input) || !isDeepStrictEqual(op.prepared.spec, { taskId: `personal-command:${op.ref.taskId}`, mode: op.work.permission.mode, workspace: config.workspace, workspaceIdentity: config.identity, grantedPaths: [] })))) throw new PersonalError("command_record_invalid", "原命令执行意图或目录身份不符，已停止恢复。");
     if (op.prepared) {
@@ -340,6 +360,7 @@ export async function verifyPersonalCommands(tx: Tx, keys: string[], config: Per
         const page = await tx.scanEntries({ conversationId: conversation.id, order: "ascending" }, 256, entryCursor);
         for (const entry of page.items) {
           if (CommandAdmission.is(entry) && !values.some(op => op.admission === entry.id)) throw new PersonalError("command_record_invalid", "命令接纳失去原任务或记录，已停止恢复。");
+          if (CommandPreparationStop.is(entry) && !values.some(op => op.preparationStop === entry.id)) throw new PersonalError("command_record_invalid", "命令准备收尾失去原任务或记录，已停止恢复。");
           if (CommandStart.is(entry) && !values.some(op => op.startEntry === entry.id)) throw new PersonalError("command_record_invalid", "命令执行意图失去原任务或记录，已停止恢复。");
         }
         entryCursor = page.next;

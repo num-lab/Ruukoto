@@ -1,0 +1,21 @@
+{
+  "at": "2026-10-21T09:23:25.587Z",
+  "errors": [],
+  "credentialEnvRestored": true,
+  "temporary": "/tmp/rk-personal-bg-model-S0cCa0",
+  "runtime": {
+    "pid": 443689,
+    "url": "http://127.0.0.1:34645"
+  },
+  "temporaryRemoved": true,
+  "serviceAlive": false,
+  "serving": false,
+  "scopes": [
+    {
+      "id": "native_b49e1118eb6a4c4c477428a6",
+      "group": "/sys/fs/cgroup/user.slice/user-1003.slice/user@1003.service/app.slice/ruukoto-native_b49e1118eb6a4c4c477428a6.scope",
+      "empty": true
+    }
+  ],
+  "credentialFilesChecked": 14
+}

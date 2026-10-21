@@ -21,6 +21,7 @@ import {
   type WorkerLauncher,
 } from "../execution/launchers.ts";
 import { assertNativeFileLinks } from "../execution/native.ts";
+import { resolveFileSearchExecutable } from "./file-search.ts";
 
 export interface WorkerCallOptions {
   opId: string;
@@ -150,6 +151,17 @@ export class ToolWorkerHost {
         type: "init",
         cwd: this.spec.workspace,
         label: this.spec.taskId,
+        fileSearch: {
+          executable: resolveFileSearchExecutable(),
+          roots: this.spec.mode === "full_access" && this.spec.readRoots === undefined ? null : [
+            { path: this.spec.workspace, ...this.spec.workspaceIdentity },
+            ...(this.spec.readRoots ?? []),
+            ...this.spec.grantedPaths.map(grant => {
+              const stat = fs.statSync(grant.path);
+              return { path: grant.path, dev: stat.dev, ino: stat.ino };
+            }),
+          ],
+        },
         ...(this.spec.readRoots ? { readRoots: this.spec.readRoots } : {}),
         ...(this.spec.workspaceIdentity ? { workspace: { path: this.spec.workspace, dev: this.spec.workspaceIdentity.dev, ino: this.spec.workspaceIdentity.ino } } : {}),
       });

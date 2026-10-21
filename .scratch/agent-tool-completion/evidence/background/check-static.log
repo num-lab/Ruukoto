@@ -1,0 +1,87 @@
+
+> ruukoto-workspace@0.1.0 check:static
+> npm run lint && npm run typecheck && npm run verify-notes && npm run check:docs
+
+
+> ruukoto-workspace@0.1.0 lint
+> eslint . --max-warnings=0
+
+
+> ruukoto-workspace@0.1.0 typecheck
+> tsc --noEmit && npm run typecheck --workspaces && npm --prefix verification/foundation run typecheck
+
+
+> @ruukoto/agent@0.1.0 typecheck
+> tsc --noEmit
+
+
+> @ruukoto/channels@0.1.0 typecheck
+> tsc --noEmit
+
+
+> @ruukoto/control@0.1.0 typecheck
+> tsc --noEmit
+
+
+> @ruukoto/core@0.1.0 typecheck
+> tsc --noEmit
+
+
+> @ruukoto/runtime@0.1.0 typecheck
+> tsc --noEmit
+
+
+> @ruukoto/tui@0.1.0 typecheck
+> tsc --noEmit
+
+
+> @ruukoto/view@0.1.0 typecheck
+> tsc --noEmit
+
+
+> @ruukoto/desktop@0.1.0 typecheck
+> tsc --noEmit
+
+
+> ruukoto@0.1.0 typecheck
+> tsc --noEmit
+
+
+> ruukoto-code@0.1.0 typecheck
+> tsc --noEmit
+
+
+> ruukoto-foundation-verification@0.1.0 typecheck
+> tsc --noEmit
+
+
+> ruukoto-workspace@0.1.0 verify-notes
+> tsx .agents/skills/maintain-notes/scripts/verify-agent-note-tree.ts && tsx .agents/skills/maintain-notes/scripts/verify-agent-note-format.ts && tsx .agents/skills/maintain-notes/scripts/verify-archived-agent-notes.ts
+
+ok: 165 note(s) tree and relative links verified
+ok: 165 note(s) verified
+ok: 1 archived note(s) verified, 1 seal(s) in manifest
+
+> ruukoto-workspace@0.1.0 check:docs
+> npm run verify-md-links && npm run verify-doc-refs && npm run verify-doc-budgets && npm run verify-md-wrap
+
+
+> ruukoto-workspace@0.1.0 verify-md-links
+> tsx scripts/verify-md-links.ts
+
+verify-md-links：224 个文件的相对链接与锚点均可解析。
+
+> ruukoto-workspace@0.1.0 verify-doc-refs
+> tsx scripts/verify-doc-refs.ts
+
+verify-doc-refs：440 个源码文件里的文档引用均可解析。
+
+> ruukoto-workspace@0.1.0 verify-doc-budgets
+> tsx scripts/verify-doc-budgets.ts
+
+verify-doc-budgets：8 份常驻文档均在上限内。
+
+> ruukoto-workspace@0.1.0 verify-md-wrap
+> tsx scripts/verify-md-wrap.ts
+
+verify-md-wrap：224 个文件无跨行段落。

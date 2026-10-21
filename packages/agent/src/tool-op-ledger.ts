@@ -49,6 +49,8 @@ type Rule = HostToolRule;
 
 const RULES: Record<StaticToolName, Rule | ((params: Record<string, unknown>) => Rule)> = {
   read: "no_effect",
+  list_files: "no_effect",
+  search_files: "no_effect",
   edit: "approval",
   write: "approval",
   bash: "approval",

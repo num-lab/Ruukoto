@@ -1,0 +1,102 @@
+{
+  "at": "2026-10-21T07:46:41.077Z",
+  "checks": [
+    {
+      "evidence": "/tmp/ruukoto-bg-real-clients-20261021",
+      "label": "tui_single",
+      "pid": 51022,
+      "alive": false,
+      "url": "http://127.0.0.1:64161",
+      "serving": false
+    },
+    {
+      "evidence": "/tmp/ruukoto-bg-real-clients-20261021",
+      "label": "tui_preserved",
+      "pid": 55886,
+      "alive": false,
+      "url": "http://127.0.0.1:64187",
+      "serving": false
+    },
+    {
+      "evidence": "/tmp/ruukoto-bg-real-clients-20261021/attempt2",
+      "label": "tui_single",
+      "pid": 65435,
+      "alive": false,
+      "url": "http://127.0.0.1:64563",
+      "serving": false
+    },
+    {
+      "evidence": "/tmp/ruukoto-bg-real-clients-20261021/attempt2",
+      "label": "tui_preserved",
+      "pid": 66354,
+      "alive": false,
+      "url": "http://127.0.0.1:64583",
+      "serving": false
+    },
+    {
+      "evidence": "/tmp/ruukoto-bg-real-clients-20261021/electron",
+      "label": "electron_single",
+      "pid": 72459,
+      "alive": false,
+      "url": "http://127.0.0.1:64648",
+      "serving": false
+    },
+    {
+      "evidence": "/tmp/ruukoto-bg-real-clients-20261021/electron2",
+      "label": "electron_single",
+      "pid": 83074,
+      "alive": false,
+      "url": "http://127.0.0.1:64732",
+      "serving": false
+    },
+    {
+      "evidence": "/tmp/ruukoto-bg-real-clients-20261021/electron3",
+      "label": "electron_single",
+      "pid": 93185,
+      "alive": false,
+      "url": "http://127.0.0.1:65013",
+      "serving": false
+    },
+    {
+      "evidence": "/tmp/ruukoto-bg-real-clients-20261021/electron3",
+      "label": "electron_preserved",
+      "pid": 93341,
+      "alive": false,
+      "url": "http://127.0.0.1:65032",
+      "serving": false
+    },
+    {
+      "evidence": "/tmp/ruukoto-bg-real-clients-20261021/electron4",
+      "label": "electron_single",
+      "pid": 1071,
+      "alive": false,
+      "url": "http://127.0.0.1:65190",
+      "serving": false
+    },
+    {
+      "evidence": "/tmp/ruukoto-bg-real-clients-20261021/electron4",
+      "label": "electron_preserved",
+      "pid": 1333,
+      "alive": false,
+      "url": "http://127.0.0.1:65209",
+      "serving": false
+    },
+    {
+      "evidence": "/tmp/ruukoto-bg-real-clients-20261021/final-tui",
+      "label": "tui_single",
+      "pid": 3861,
+      "alive": false,
+      "url": "http://127.0.0.1:65346",
+      "serving": false
+    },
+    {
+      "evidence": "/tmp/ruukoto-bg-real-clients-20261021/final-tui",
+      "label": "tui_preserved",
+      "pid": 4469,
+      "alive": false,
+      "url": "http://127.0.0.1:65366",
+      "serving": false
+    }
+  ],
+  "passed": true
+}

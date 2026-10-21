@@ -1,0 +1,65 @@
+{
+  "head": "88a0e2a9eb28886b4e9c9a506d3eb115b511234a",
+  "source": "/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/owner-question-head-baseline-r2bzj0x7/source",
+  "nodeVersion": "v24.15.0",
+  "platform": "Darwin",
+  "architecture": "arm64",
+  "externalNodeModules": "/Users/eitrous/mirasim-worktrees/ruukoto/lucky-sailing-sparrow/node_modules",
+  "workspaceLinks": [
+    {
+      "name": "@ruukoto/agent",
+      "target": "/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/owner-question-head-baseline-r2bzj0x7/source/packages/agent"
+    },
+    {
+      "name": "@ruukoto/channels",
+      "target": "/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/owner-question-head-baseline-r2bzj0x7/source/packages/channels"
+    },
+    {
+      "name": "@ruukoto/control",
+      "target": "/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/owner-question-head-baseline-r2bzj0x7/source/packages/control"
+    },
+    {
+      "name": "@ruukoto/core",
+      "target": "/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/owner-question-head-baseline-r2bzj0x7/source/packages/core"
+    },
+    {
+      "name": "@ruukoto/desktop",
+      "target": "/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/owner-question-head-baseline-r2bzj0x7/source/apps/desktop"
+    },
+    {
+      "name": "@ruukoto/runtime",
+      "target": "/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/owner-question-head-baseline-r2bzj0x7/source/packages/runtime"
+    },
+    {
+      "name": "@ruukoto/tui",
+      "target": "/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/owner-question-head-baseline-r2bzj0x7/source/packages/tui"
+    },
+    {
+      "name": "@ruukoto/view",
+      "target": "/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/owner-question-head-baseline-r2bzj0x7/source/packages/view"
+    }
+  ],
+  "sourceChecks": [
+    {
+      "file": "packages/agent/src/driver.ts",
+      "sha256": "a3d53ae953100037ec2040c7860945760396c20ccc1e6b2c070ff37175f177e3",
+      "matchesGitHead": true
+    },
+    {
+      "file": "packages/agent/src/session-factory.ts",
+      "sha256": "47c9f0fb913202a94c848f4e9512ddf2f15628434eec2ac96483c34711021ab7",
+      "matchesGitHead": true
+    },
+    {
+      "file": "packages/runtime/src/runtime.ts",
+      "sha256": "f2b044a054b09459b5284786dcc27f08238d219d9037a32ae2a0162dde08e1f7",
+      "matchesGitHead": true
+    },
+    {
+      "file": "apps/ruukoto-code/src/product.ts",
+      "sha256": "b91328059ac989cfc05f1b08a5a54185ea412922294189768ca2b14eb876e1fd",
+      "matchesGitHead": true
+    }
+  ],
+  "workerBuilt": false
+}

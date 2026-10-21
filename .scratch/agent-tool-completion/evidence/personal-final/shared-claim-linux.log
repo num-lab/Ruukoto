@@ -1,0 +1,10 @@
+✔ 个人后台：停止未核实保留claim，后续write和普通命令认领均拒绝，可信重核才释放 (936.378792ms)
+✔ 个人文件claim：同步写入效果未知保留认领，人工核实同commit释放并可恢复 (799.468509ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 5051.786137

@@ -1,0 +1,47 @@
+✔ 后台目录交接与观测阶段同事务，Task终态和恢复释放不能清除独立占用 (66.608219ms)
+✔ 启动只持久认领一次，退出观察不释放占用，停止失败保留到真实核实 (45.99182ms)
+✔ 关闭屏障截住已接纳但尚未登记的旧Task，同请求重取不停止后来新执行 (48.719685ms)
+▶ 启动来源、权限、取消与根占用在交接前重核
+  ✔ restricted (31.185924ms)
+  ✔ plan (28.180456ms)
+  ✔ canceled (34.829698ms)
+  ✔ permissions (27.771807ms)
+  ✔ missing-occupancy (30.757329ms)
+  ✔ snapshot (27.76696ms)
+✔ 启动来源、权限、取消与根占用在交接前重核 (182.757082ms)
+✔ 同操作返回原记录，一个会话只容一个未核实执行，输出计数单调且有界 (36.68975ms)
+✔ 历史状态固定20条分页，损坏JSON或索引反链拒绝读取 (144.217405ms)
+node:internal/modules/package_json_reader:331
+  throw new ERR_MODULE_NOT_FOUND(packageName, fileURLToPath(base), null);
+        ^
+
+Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'quickjs-emscripten-core' imported from /tmp/ruukoto-bg-integration.MvKmmxw0/packages/agent/src/script-worker/validate.ts
+    at Object.getPackageJSONURL (node:internal/modules/package_json_reader:331:9)
+    at packageResolve (node:internal/modules/esm/resolve:784:25)
+    at moduleResolve (node:internal/modules/esm/resolve:873:18)
+    at defaultResolve (node:internal/modules/esm/resolve:1006:11)
+    at #cachedDefaultResolve (node:internal/modules/esm/loader:705:20)
+    at #resolveAndMaybeBlockOnLoaderThread (node:internal/modules/esm/loader:725:38)
+    at nextStep (node:internal/modules/customization_hooks:189:26)
+    at resolveBaseSync (file:///home/eitrous/ruukoto/node_modules/tsx/dist/register-SoqaU4rg.mjs:2:10932)
+    at resolveDirectorySync (file:///home/eitrous/ruukoto/node_modules/tsx/dist/register-SoqaU4rg.mjs:2:12238)
+    at resolveTsPathsSync (file:///home/eitrous/ruukoto/node_modules/tsx/dist/register-SoqaU4rg.mjs:2:13445) {
+  code: 'ERR_MODULE_NOT_FOUND'
+}
+
+Node.js v24.21.0
+✖ test/background-processes.test.ts (4291.432366ms)
+ℹ tests 13
+ℹ suites 0
+ℹ pass 12
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 4307.965141
+
+✖ failing tests:
+
+test at test/background-processes.test.ts:1:1
+✖ test/background-processes.test.ts (4291.432366ms)
+  'test failed'

@@ -79,8 +79,11 @@
  * v30：创建会话与打开工作区可原子指定初始模式及模型选择。
  * v31：工作区 Git 历史以仓库修订绑定的游标分页，无累计提交数上限。
  * v32：思考按 UTF-8 偏移增量发送，工作区文件以修订绑定的 base64 分页完整读取。
- * v34：Code 工作区正文搜索与连续历史定位（around／after／source）。
  * v33：会话可存档/取消存档；存档只影响列表可见性，快照与会话记录携带 archivedAt。
+ * v34：持久问题快照与事件，可信回答原键回执及唯一续接；回答不消费操作审批。
+ * v35：问题选项说明与推荐标记、多选及空回答跳题；问题查询页预算增至256KiB。
+ * v36：会话后台快照、日志与可信停止，结束请求保留原键及固定成员。
+ * v37：合并 Code 工作区正文搜索与连续历史定位（around／after／source），拒绝未合流的客户端与后台。
  * Note: 见 .agents/notes/implemented/feature/2026-10-20-desktop-session-archive.md
  * v28：拥有者工作区文件树与只读预览；目录范围由登记身份决定，不接受客户端绝对路径。
  * v27：拥有者附件分块暂存、提交引用及工具结果按字段分页；旧后台不得静默丢弃附件。
@@ -99,6 +102,8 @@ import {
 } from "@ruukoto/core/types.ts";
 import type { ProductType } from "@ruukoto/core/product.ts";
 import type { ConfirmationRequestView, OutputPreview, TaskView } from "@ruukoto/core/views.ts";
+import type { BackgroundProcessView } from "@ruukoto/core/background-processes.ts";
+import type { OwnerQuestionView } from "@ruukoto/core/owner-questions.ts";
 
 export const MAX_FRAME_BYTES = 1024 * 1024;
 
@@ -130,6 +135,8 @@ export interface ConnectSnapshot {
   workDelegations?: WorkDelegation[];
   /** 动态 SubAgent 身份（含运行/空闲/待核实状态）。 */
   subAgents?: SubAgent[];
+  ownerQuestions?: OwnerQuestionView[];
+  backgroundProcesses?: BackgroundProcessView[];
 }
 
 /** 单任务持久事件分页；nextAfter 非空时继续读，最终消息正文以历史接口为准。 */

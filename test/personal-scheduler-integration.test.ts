@@ -40,6 +40,19 @@ async function runFor(p: PersonalHarness, planId: string) {
   return selected;
 }
 
+test("定时组合：文件检索沿创建工具快照和资料根执行", { timeout: 60_000 }, async t => {
+  const f = await fixture(t, request => request.messages.at(-1)?.role === "user" && request.messages.at(-1)?.content === "执行资料检索" ? { kind: "tool_calls", calls: [{ id: "scheduled-file-search", name: "search_files", arguments: { query: "scheduled-marker" } }] } : { kind: "text", text: "资料检索完成" });
+  fs.writeFileSync(path.join(f.workspace, "scheduled.txt"), "scheduled-marker\n");
+  const p = await f.open(), plan = await create(p, "执行资料检索"), id = await runFor(p, plan.id);
+  assert.ok(plan.scope.tools.includes("search_files")); assert.ok(plan.scope.extensions.includes("personal-file-search"));
+  await until(async () => !!(await p.harness.snapshot(PersonalScheduleRunDoc, id, context))?.run?.result);
+  const run = (await p.harness.snapshot(PersonalScheduleRunDoc, id, context))!.run!;
+  const operation = await p.harness.commit(async tx => JSON.parse(JSON.stringify((await toolOperations(tx)).find(value => value.kind === "search_files"))), context);
+  assert.equal(operation.origin.conversationId, run.conversationId); assert.equal(operation.origin.source.requestId, run.requestId); assert.equal(operation.effect, "returned"); assert.equal(operation.stopped, true);
+  assert.deepEqual(operation.view.entries.map((value: { path: string }) => value.path), ["scheduled.txt"]);
+  const agent = await p.harness.snapshot(AgentDoc, run.conversationId, context); assert.ok(Array.isArray(agent?.extensions) && agent.extensions.includes("personal-file-search"));
+});
+
 test("定时组合：主会话实际请求在说明参数列出定时动作和自动收尾", async t => {
   const f = await fixture(t), p = await f.open();
   await p.answer("查看计划工具", "schedule-instruction-contract");

@@ -212,7 +212,7 @@ test("GitHub webhook：登记去重快速返回，宿主评审走通用 SubAgent
     assert.ok(childCalls.every(call => !call.system?.includes("USER_ROLE_MUST_NOT_REPLACE_REVIEW")));
     const wakeCalls = h.server.calls.filter((call) => lastUserText(call).startsWith("[编排器] 子任务"));
     assert.deepEqual(toolNames(parentCall), [], "MCP 配在 main 项目，main 自身的确认接收任务也不出现工具");
-    assert.deepEqual(toolNames(childCalls[0]!), ["mcp_github_get_diff", "mcp_github_get_pr", "read", "read_artifact"].sort(),
+    assert.deepEqual(toolNames(childCalls[0]!), ["mcp_github_get_diff", "mcp_github_get_pr", "read", "list_files", "search_files", "read_artifact"].sort(),
       "评审 SubAgent 只有静态只读与只读 MCP，不能把评审改派给主 Agent");
     assert.deepEqual(toolNames(wakeCalls[0]!), ["coding_result", "subagent_result"].sort(), "coding_result 只读查阅退役前的旧评审");
     assert.deepEqual(h.mcp.hits.filter((hit) => hit.rpcMethod === "tools/call").map((hit) => hit.toolName), ["get_pr", "get_diff", "get_pr"],

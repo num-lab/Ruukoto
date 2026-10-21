@@ -17,7 +17,17 @@
 
 ## 对外接口
 
+`process_start` 接收最多16384字符的非空命令，独立后台跨拥有者消息保留；宿主固定目录、环境、平台身份和权限。`process_status` 按本会话记录查询，保留原启动来源与权限模式，列表每页最多20条且不超过256 KiB；`process_output` 用原字节 offset 读取 stdout/stderr 的32 KiB页，base64保留原字节；`process_stop` 立即返回停止意图接纳，须再查询 stopped 与 stopVerified。主命令退出码仅为观察，启动不承诺服务健康，停止不证明外部效果回滚。
+
+后台交接后当前轮立即收窄为状态、日志、停止、提问与有效完全访问浏览器；参考块说明先停后改，普通 worker、MCP、目录读取和委派均关闭。新受限拥有者轮可查询和可信停止；Plan 不能启动或浏览。停止完成后仍保留观测工具，status 取得目录才重开业务工具；后台占用不能由 agent_wait 让出。装配、发送前和调用门使用同一工具集合，浏览器逐调用重核原后台与当前输入来源。
+
+`ask_user({questions:[{question,options?,multiple?}]})` 登记1–3题并立即返回 pending；题目最多2000字符，选项2–5项，名字互异非空且最多200字符。选项可为字符串或 `{label,description?,recommended?}`，说明最多500字符，推荐只展示不预选；`multiple: true` 须有选项。每题均可自由输入或 Skip，跳题保存空答案，多选答案只包含选项名。仅真实普通开发输入和Plan开放，SubAgent、工作流、定时及内部汇总不装配。登记后当前任务只留宿主状态查询，模型输出说明并结束本轮；问题卡片回答作为下一轮拥有者输入，不批准操作。装配、发送前与调用门共同收窄；其他普通聊天不受待答状态限制。
+
+个人 durable 的会话后台另用原生工具Task、独立日志和共享目录认领，Linux固定命令目录只接受主拥有者完全访问启动；子工作与定时不装配 `process_*`，来源和收窄阶段在请求与调用时重核。
+
 个人 durable 另以原生工具装配文件、HTTP、搜索和产物，不使用旧 ApprovalGate/ArtifactStore。`web-search-transport.ts` 提供不持有旧项目或任务的 `requestTavily`，返回映射结果和字段截断前有界脱敏原响应；旧 `searchTavily` 包装继续核实原 CredentialStore 的 host/purpose/scope。个人接纳、审查、撤销与恢复见 [personal-durable](personal-durable.md)。
+
+个人 durable 的 `ask_user` 独立持久化问题与真实答复来源，支持单选、多选、选项说明/推荐、自由输入与跳过。工具立即返回，当前输入收窄查询后结束；普通新聊天不受待答限制。CLI 与原 QQ/Telegram 菜单核对整批后只接纳一次答案，按答复时权限唯一续接；业务答案不消费操作批准。来源、恢复及请求/调用三处资格核实见[个人持久会话](personal-durable.md)。
 
 个人 durable 的 `schedule_create`、`schedule_query` 与 `schedule_cancel` 由 app 原生工具装配，创建仅接受主会话真实拥有者来源。计划保存模式、权限版本、工具和资料快照；范围或配置内容变化停止旧计划后续新执行。独立定时会话使用快照内业务工具和本次 `background_work`，不取得新计划创建或长期授权；主/子工具、审批和未知占用都核实真实定时来源，未知时阻止整项外调、委派与汇总。宿主自动整项收尾，最终汇总只读，结果与独立固定目标发送见 [scheduler](scheduler.md)。
 
@@ -33,10 +43,14 @@
 | control | 审批参数与操作参数 | `get_confirmation_params` / `get_tool_op_params` 按 ID 分段读取大参数；`respond_confirmation` 可携带 `permission_version` 绑定审批时的权限版本 |
 | channels | IM 审批 | 拥有者私聊的审批命令在同步事务内直接到终态，绑定原请求与原权限版本并单次消费 |
 | 调度通知 | 目标解析 | 调度通知目标从本次调用的任务编号读取来源事件，由拥有者 IM 入口确定 |
-| ToolRouter | 编码工具、结构化审批、产物读取 | `read` / `edit` / `write` / `bash`、`request_file_access` / `http_request`、`read_artifact` 继续经 ToolRouter；MCP 按任务钉版计划装配 |
+| ToolRouter | 编码工具、结构化审批、产物读取 | `read` / `edit` / `write` / `bash`、`list_files` / `search_files`、`request_file_access` / `http_request`、`read_artifact` 继续经 ToolRouter；MCP 按任务钉版计划装配 |
 | MCP HTTP 传输 | `mcp/transport.ts` 的 `connectMcpEndpoint` | 接收服务标识、固定端点、超时、逐请求 token resolver 与原请求/进展持久钩子；`resumeMcpCall` 只 GET 原 SSE 流，不重发工具；宿主负责来源范围与凭据校验，调用方持有并关闭连接；`mcp/client.ts` 适配旧项目并重导出原符号 |
 
 `mcp/schema.ts` 持有两个产品复用的原工具 schema 预检，不加载旧工具或项目装配；个人持久调用、配置与审批见 [personal-durable](personal-durable.md)。共享 MCP 传输用 SDK 的分页限额最多请求 16 页，达到上限且仍需继续分页时报 `too_many_pages`，不将超限结果当成功清单返回；成功汇总后仍限制最多 64 个工具。
+
+`list_files(path?, glob?, limit?)` 递归发现普通文本文件，`search_files(query, path?, glob?, ignore_case?, limit?)` 作字面内容匹配。path 默认工作目录且必须是读取范围内现有目录；无 glob 沿根内 ignore 并跳隐藏，显式 glob 沿 rg 覆盖语义，不跟随链接、不扩授权。结果给相对路径、1起行号和有界片段，分别标 scanComplete、previewTruncated、partial 与已捕获条目数；未完成扫描不代表全部命中。limit 默认100、范围1–200，预览每行2048字符、整体64 KiB；预览裁剪仍捕获原流，可用 read_artifact 查证据。扫描10秒或捕获8 MiB即停止并保留部分结果；更大查询须收窄目录或 glob，后续 read 重新核实文件。
+
+个人检索沿 tools.json 资料根、有效资料授权和原工作来源，在独立只读 worker 中执行；越界目录先由拥有者从资料授权入口开放。受限原生 workspace 为私有临时目录，资料只读；完全访问沿原文件权限。工具接纳与产物使用独立 durable，开始后不重放，原单元停止未核实继续暂停来源，重开再次核实；定时沿原工具快照，不取得新增权限。
 
 `read` 可读取文本与 JPEG、PNG、WebP 图片，按实际文件内容识别，图片结果连同正文进入会话历史与 prompt 快照。所选模型不支持 image 时，发送前以 `image_input_unsupported` 明确失败；图片处理与传输上限见 [execution](execution.md)。
 
@@ -51,13 +65,13 @@
 | SubAgent 会话 | 空；工具按执行画像的 SubAgent 工具集单独装配 |
 | 已退役归档会话 | 不归任何类别；QQ 群会话与 chat/coding 旧角色会话是只读归档、不运行任务，算执行画像即拒绝 |
 
-普通与工作流子任务按持久来源与角色要求预检实际工具：省略清单继承可委派集合，显式工具缺少任一项或 MCP 发现失败即拒绝启动。基础 shell 不依赖写入目标；个人来源包含适用业务与 MCP，业务资格由宿主复核，账本与审批归真实子 Task。普通协作消息沿工作归属，工作流仍由运行管理；浏览器、下级委派与新工作流启动不开放。GitHub 宿主固定评审只允许 read/read_artifact 和只读 MCP，禁消息。
+普通与工作流子任务按持久来源与角色要求预检实际工具：省略清单继承可委派集合，显式工具缺少任一项或 MCP 发现失败即拒绝启动。基础 shell 不依赖写入目标；个人来源包含适用业务与 MCP，业务资格由宿主复核，账本与审批归真实子 Task。普通协作消息沿工作归属，工作流仍由运行管理；浏览器、下级委派与新工作流启动不开放。GitHub 宿主固定评审只允许 read/list_files/search_files/read_artifact 和只读 MCP，禁消息。
 
 宿主工具族按类别装配出的工具名（读者的检索入口）：
 
 | 类别 | 工具名 |
 |---|---|
-| 编码 | `read`、`edit`、`write`、`bash`、`todo_write` |
+| 编码 | `read`、`list_files`、`search_files`、`edit`、`write`、`bash`、`todo_write` |
 | 结构化审批 | `request_file_access`、`http_request` |
 | 产物 | `read_artifact` |
 | 资料与记忆 | `history_search`、`history_read`、`memory_list`、`memory_read`、`memory_save`、`memory_revoke` |
@@ -262,6 +276,14 @@ sequenceDiagram
 宿主绑定的[工作流步骤](workflows.md)另有来源画像，普通 SubAgent 不因此扩权。步骤工具是保存的来源类别、当前配置与步骤收窄的交集；main 的编码资格只映射已有受控委派的五个工具。发送、意图和实际调用前复核来源，个人业务身份属于来源，执行与审批归步骤 Task；工作流 `verify` 独立于角色，与 `target` 互斥，只开放五个编码工具并使用原生沙箱；任意角色均不能放宽。零工具、失败或未知效果不能由通过文本覆盖，汇入前重新核实账本与冻结归属。
 
 ## 设计依据
+
+- [个人文件检索](../../.agents/notes/implemented/feature/2026-10-21-personal-file-search.md)：资料范围、只读执行与持久停止。
+
+- [Coding 会话后台持有独立目录占用](../../.agents/notes/implemented/feature/2026-10-21-coding-background-processes.md)
+
+- [Coding 持久问题与可信续接](../../.agents/notes/implemented/feature/2026-10-21-coding-owner-questions.md)
+
+- [受控文件检索](../../.agents/notes/implemented/feature/2026-10-21-controlled-file-search.md)：参数、过滤与有界证据。
 
 - [个人持久调度的独立来源与整项收尾](../../.agents/notes/implemented/architecture/2026-10-18-personal-durable-scheduled-work.md)
 

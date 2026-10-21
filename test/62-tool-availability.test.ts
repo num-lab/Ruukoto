@@ -52,7 +52,7 @@ test("会话类别 × 工具类别：每个会话类别只开放清单内的类�
   }
 });
 
-const REGISTERED = ["read", "edit", "bash", "todo_write", "history_read", "memory_save", "web_search", "skill", "mcp_svc_get", "mcp_svc_put", "mock_new"];
+const REGISTERED = ["read", "list_files", "search_files", "edit", "bash", "todo_write", "history_read", "memory_save", "web_search", "skill", "mcp_svc_get", "mcp_svc_put", "mock_new"];
 const EFFECTS: Record<string, "read" | "write"> = { mcp_svc_get: "read", mcp_svc_put: "write" };
 const tools = (opts: { plan?: boolean; webSearchEnabled?: boolean; narrow?: (name: string, effect?: string) => boolean }) =>
   taskToolSet({ registered: REGISTERED, plan: opts.plan ?? false, webSearchEnabled: opts.webSearchEnabled ?? true, mcpEffect: (name) => EFFECTS[name], narrow: opts.narrow });
@@ -64,7 +64,7 @@ test("本任务允许的工具：无收窄时即装配结果；未装配的工�
 });
 
 test("内部对话阶段：等待与后台查询开放，工作目录、技能、MCP 和新工具默认拒绝，原任务收窄仍有效", () => {
-  const registered = ["agent_wait", "subagent_result", "workflow_query", "history_read", "read_artifact", "read", "write", "bash", "skill", "mcp_svc_get", "mock_new", "browser"];
+  const registered = ["agent_wait", "subagent_result", "workflow_query", "history_read", "read_artifact", "read", "list_files", "search_files", "write", "bash", "skill", "mcp_svc_get", "mock_new", "browser"];
   const input = { registered, resourcePhase: "conversation" as const, plan: false, browserEnabled: true, webSearchEnabled: true, mcpEffect: (name: string) => EFFECTS[name] };
   const set = taskToolSet(input);
   assert.deepEqual([...set.allowed], registered.slice(0, 5));
@@ -79,7 +79,7 @@ test("内部对话阶段：等待与后台查询开放，工作目录、技能�
 
 test("本任务允许的工具：计划模式只留白名单与只读 MCP，今后新增的工具默认不可用", () => {
   const set = tools({ plan: true });
-  assert.deepEqual([...set.allowed], ["read", "bash", "todo_write", "history_read", "web_search", "skill", "mcp_svc_get"]);
+  assert.deepEqual([...set.allowed], ["read", "list_files", "search_files", "bash", "todo_write", "history_read", "web_search", "skill", "mcp_svc_get"]);
   for (const name of ["edit", "memory_save", "mcp_svc_put", "mock_new"]) assert.equal(set.reasonFor(name), "计划模式不开放", name);
 });
 
@@ -98,7 +98,7 @@ test("本任务允许的工具：项目关闭 Web Search 时拒绝 web_search；
   assert.equal(off.allowed.size, REGISTERED.length - 1);
 
   const all = tools({ plan: true, webSearchEnabled: false, narrow: (name) => name !== "read" });
-  assert.deepEqual([...all.allowed], ["bash", "todo_write", "history_read", "skill", "mcp_svc_get"]);
+  assert.deepEqual([...all.allowed], ["list_files", "search_files", "bash", "todo_write", "history_read", "skill", "mcp_svc_get"]);
   assert.equal(all.reasonFor("edit"), "计划模式不开放");
   assert.equal(all.reasonFor("read"), "本任务由宿主收窄");
   assert.equal(all.reasonFor("web_search"), "项目已关闭 Web Search");
@@ -132,11 +132,11 @@ test("执行画像：SubAgent 只读 / 写入 / 评审工具集——装配与�
   const sub: SessionIdentity = { kind: "subagent", agent };
   const p = (writeTarget: boolean, review: boolean) => executionProfile({ identity: sub, writeTarget, review, planMode: false });
   const read = p(false, false), write = p(true, false), review = p(false, true);
-  const names = ["read", "edit", "write", "bash", "read_artifact", "subagent_message", "mcp_svc_get", "mcp_svc_put"];
+  const names = ["read", "list_files", "search_files", "edit", "write", "bash", "read_artifact", "subagent_message", "mcp_svc_get", "mcp_svc_put"];
   const allowed = (prof: ExecutionProfile) => names.filter((n) => subAgentAllows(prof.subAgentTools!, n, EFFECTS[n]));
-  assert.deepEqual(allowed(read), ["read", "read_artifact", "subagent_message"]);
-  assert.deepEqual(allowed(write), ["read", "edit", "write", "bash", "read_artifact", "subagent_message"]);
-  assert.deepEqual(allowed(review), ["read", "read_artifact", "mcp_svc_get"], "宿主评审另开只读 MCP、关 subagent_message");
+  assert.deepEqual(allowed(read), ["read", "list_files", "search_files", "read_artifact", "subagent_message"]);
+  assert.deepEqual(allowed(write), ["read", "list_files", "search_files", "edit", "write", "bash", "read_artifact", "subagent_message"]);
+  assert.deepEqual(allowed(review), ["read", "list_files", "search_files", "read_artifact", "mcp_svc_get"], "宿主评审另开只读 MCP、关 subagent_message");
   assert.equal(new Set([read, write, review, p(false, false)].map((x) => x.toolSignature)).size, 3);
   assert.notEqual(executionProfile({ identity: { kind: "dev" }, writeTarget: false, review: false, planMode: false }).toolSignature, read.toolSignature);
 });

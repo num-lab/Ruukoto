@@ -1,0 +1,10 @@
+{
+  "verification": "宿主fetch真实GET；不构成browser验收",
+  "at": "2026-10-21T09:23:19.737Z",
+  "method": "GET",
+  "url": "http://127.0.0.1:34645",
+  "status": 200,
+  "expectedPageMarker": "PAGE_324fd6436f2b4b86b8f4e104c0ee4fbc",
+  "body": "<!doctype html><html><head><title>PAGE_324fd6436f2b4b86b8f4e104c0ee4fbc</title></head><body><p>PAGE_324fd6436f2b4b86b8f4e104c0ee4fbc</p></body></html>",
+  "sha256": "1770c0b52c8cdecbe46aee5676e356d45c3a87a6d14d45e65aff907409ac6e83"
+}

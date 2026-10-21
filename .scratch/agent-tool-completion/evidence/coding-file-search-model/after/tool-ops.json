@@ -1,0 +1,48 @@
+[
+  {
+    "id": "op_7a4e3e585a39d743f4cd63a5",
+    "taskId": "task_191013836557f649ee053b5c",
+    "toolName": "list_files",
+    "sdkCallId": "call_00_fxwaZoZCrDYyY5gClvTM5491",
+    "params": {
+      "path": "."
+    },
+    "intentRecordedAt": "2026-10-21T00:21:42.554Z",
+    "authorization": null,
+    "resultSummary": "{\"root\":\"/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-search-model-iiz4ky_x/work\",\"entries\":[{\"path\":\"docs/target.txt\"},{\"path\":\"docs/noise.txt\"}],\"capturedCount\":2,\"scanComplete\":true,\"previewTruncated\":false,\"partial\":false,\"filtering\":\"无 glob：遵循根内 ignore、跳过隐藏；显式 glob：沿 rg 覆盖 i",
+    "isError": false,
+    "effectUnknown": false,
+    "recordedResultAt": "2026-10-21T00:21:43.093Z"
+  },
+  {
+    "id": "op_3ced0f896cbba89022fc6f40",
+    "taskId": "task_191013836557f649ee053b5c",
+    "toolName": "search_files",
+    "sdkCallId": "call_00_3Q8dwHfMbm1EwMyaq7WA6759",
+    "params": {
+      "path": ".",
+      "query": "lookup.[6dd3427d]"
+    },
+    "intentRecordedAt": "2026-10-21T00:21:45.093Z",
+    "authorization": null,
+    "resultSummary": "{\"root\":\"/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-search-model-iiz4ky_x/work\",\"entries\":[{\"path\":\"docs/target.txt\",\"line\":2,\"text\":\"lookup.[6dd3427d]\"}],\"capturedCount\":1,\"scanComplete\":true,\"previewTruncated\":false,\"partial\":false,\"filtering\":\"无 glob：遵循根内 ignore、跳过隐藏；显式 glob",
+    "isError": false,
+    "effectUnknown": false,
+    "recordedResultAt": "2026-10-21T00:21:45.103Z"
+  },
+  {
+    "id": "op_39020e7ad3c7aeca37984be7",
+    "taskId": "task_191013836557f649ee053b5c",
+    "toolName": "read",
+    "sdkCallId": "call_00_8scn11yjwMYUWcIZTpBE6352",
+    "params": {
+      "path": "docs/target.txt"
+    },
+    "intentRecordedAt": "2026-10-21T00:21:46.879Z",
+    "authorization": null,
+    "resultSummary": "这是文件检索验收材料。\nlookup.[6dd3427d]\n应通过 read 读取后续验证值。\n无关的分隔行。\nverification_token=READ_CONFIRMED_ea91988dc01baf452f4abb98\n[完整正文已捕获：artifact art_04363f931b5a7538fbbbdf07（173 字节，read 文件正文）——需要更多内容时用 read_artifact 工具按偏移查询]",
+    "isError": false,
+    "effectUnknown": false,
+    "recordedResultAt": "2026-10-21T00:21:46.881Z"
+  }
+]

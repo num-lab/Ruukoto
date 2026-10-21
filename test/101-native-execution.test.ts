@@ -10,6 +10,7 @@ import { ExecutionError, createLauncherFor, type LaunchSpec } from "@ruukoto/age
 import { assertNativeFileLinks, prepareNativeLaunch, NATIVE_WORKER_PATH, type PreparedNativeLaunch } from "@ruukoto/agent/execution/native.ts";
 import { nativeNetworkFilter, linuxNativeArgs } from "@ruukoto/agent/execution/native-linux.ts";
 import { macosNativeProfile } from "@ruukoto/agent/execution/native-macos.ts";
+import { resolveFileSearchExecutable } from "@ruukoto/agent/tool-worker/file-search.ts";
 
 test("macOS 身份有界重查只接受明确退出或完整身份，持续权限失败与损坏字段拒绝", { skip: process.platform !== "darwin" }, () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "native-identity-check-")), binary = path.join(directory, "check");
@@ -65,6 +66,11 @@ test("硬链接的所有名字须在同权限授权内；工作区内合法链�
   const unavailable = (error: unknown): boolean => error instanceof ExecutionError && error.code === "execution_unavailable";
   try {
     assert.doesNotThrow(() => assertNativeFileLinks(mounts));
+    if (process.platform === "linux") {
+      const rawPath = Buffer.concat([Buffer.from(workspace + "/"), Buffer.from([0xff])]);
+      fs.writeFileSync(rawPath, "原字节路径");
+      assert.doesNotThrow(() => assertNativeFileLinks(mounts), "文件别名核实不能先把非 UTF-8 文件名替换成其他路径");
+    }
     assert.doesNotThrow(() => assertNativeFileLinks([...mounts, { path: source, access: "read_write" }]));
     fs.linkSync(source, path.join(outside, "secret"));
     assert.throws(() => assertNativeFileLinks(mounts), unavailable);
@@ -100,6 +106,9 @@ test("原生授权规范化、保护根、嵌套只读、目录身份与环境�
   try {
     const first = await prepareNativeLaunch({ protectedRoots: [protectedRoot] }, spec);
     prepared.push(first);
+    const rg = resolveFileSearchExecutable()!;
+    assert.ok(rg, "环境前提须已有 rg");
+    assert.ok(first.runtimeReadRoots.some(root => rg === root || rg.startsWith(root + path.sep)), "原生依赖开放宿主已解析 rg 的实际安装位置");
     const second = await prepareNativeLaunch({ protectedRoots: [protectedRoot] }, spec);
     prepared.push(second);
     const codeRoot = fs.realpathSync(fileURLToPath(new URL("../", import.meta.url)));

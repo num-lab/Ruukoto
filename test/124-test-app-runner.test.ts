@@ -6,7 +6,7 @@ import * as path from "node:path";
 import { test } from "node:test";
 
 const { appTestBatches } = await import(new URL("../scripts/test-app.mjs", import.meta.url).href);
-const FILES = ["100-worker-stop.test.ts", "101-native-macos-helper.test.ts", "125-other.test.ts"];
+const FILES = ["100-worker-stop.test.ts", "101-native-macos-helper.test.ts", "background-processes-recovery.test.ts", "background-processes.test.ts", "native-macos-identity.test.ts", "125-other.test.ts"];
 
 test("macOS 独占与其余批次完整分配每个文件一次，Linux 保留全并行；固定独占文件缺失拒绝", () => {
   const files = [...FILES.map(file => `test/${file}`), "test/124-test-app-runner.test.ts"];
@@ -16,9 +16,9 @@ test("macOS 独占与其余批次完整分配每个文件一次，Linux 保留�
     assert.deepEqual(assigned.slice().sort(), files.slice().sort());
     assert.equal(new Set(assigned).size, files.length);
     assert.deepEqual(batches.map(batch => batch.serial), platform === "darwin" ? [true, false] : [false]);
-    if (platform === "darwin") assert.deepEqual(batches[0].files, files.slice(0, 2));
+    if (platform === "darwin") assert.deepEqual(batches[0].files, files.slice(0, 5));
   }
-  for (const file of files.slice(0, 2)) assert.throws(() => appTestBatches(files.filter(candidate => candidate !== file), "darwin"), /缺少 macOS 独占测试/);
+  for (const file of files.slice(0, 5)) assert.throws(() => appTestBatches(files.filter(candidate => candidate !== file), "darwin"), /缺少 macOS 独占测试/);
   assert.throws(() => appTestBatches([], "linux"), /没有发现应用测试/);
 });
 
@@ -34,7 +34,7 @@ function fixture(mode: Mode) {
   fs.writeFileSync(path.join(root, "node_modules", "tsx", "index.mjs"), 'import {register} from "node:module"; register(new URL("./loader.mjs",import.meta.url));\n');
   fs.writeFileSync(path.join(root, "node_modules", "tsx", "loader.mjs"), 'import {readFile} from "node:fs/promises"; export async function load(url,context,nextLoad){return url.endsWith(".test.ts") ? {format:"module",source:await readFile(new URL(url),"utf8"),shortCircuit:true} : nextLoad(url,context);}\n');
   for (const [index, file] of FILES.entries()) {
-    const failed = mode === "first-failure" ? index === 0 : mode === "remaining-failure" && index === 2;
+    const failed = mode === "first-failure" ? index === 0 : mode === "remaining-failure" && index === FILES.length - 1;
     fs.writeFileSync(path.join(root, "test", file), `import assert from "node:assert/strict"; import * as fs from "node:fs"; import {test} from "node:test";
 process.once("exit",()=>fs.appendFileSync(${JSON.stringify(trace)},${JSON.stringify("exit:" + file + "\n")}));
 test(${JSON.stringify(file)},()=>{assert.equal(process.env.RUN_MODEL_CHECK,"0"); const prior=fs.existsSync(${JSON.stringify(trace)}) ? fs.readFileSync(${JSON.stringify(trace)},"utf8") : ""; assert.equal(prior,${JSON.stringify(FILES.slice(0, index).map(name => "start:" + name + "\nexit:" + name + "\n").join(""))}); fs.appendFileSync(${JSON.stringify(trace)},${JSON.stringify("start:" + file + "\n")}); assert.equal(${String(failed)},false,"夹具故意失败");});
@@ -74,8 +74,8 @@ for (const mode of ["first-failure", "remaining-failure", "missing", "spawn-erro
     const result = f.run();
     if (mode === "signal") { assert.equal(result.signal, "SIGTERM"); assert.equal(result.status, null); }
     else { assert.equal(result.status, mode === "exit-code" ? 7 : 1, result.stdout + result.stderr); assert.equal(result.signal, null); }
-    if (mode === "first-failure") assert.ok(!f.trace().includes(FILES[2]), "独占批次失败后，其余批次不得执行");
-    if (mode === "remaining-failure") assert.ok(f.trace().includes("start:" + FILES[2]), "不能跳过失败的第二批");
+    if (mode === "first-failure") assert.ok(!f.trace().includes(FILES.at(-1)!), "独占批次失败后，其余批次不得执行");
+    if (mode === "remaining-failure") assert.ok(f.trace().includes("start:" + FILES.at(-1)!), "不能跳过失败的第二批");
     if (["missing", "spawn-error", "null-status", "signal", "exit-code"].includes(mode)) assert.equal(f.trace(), "");
     if (mode === "missing") assert.match(result.stderr, /101-native-macos-helper/);
     if (mode === "spawn-error") assert.match(result.stderr, /ENOENT/);

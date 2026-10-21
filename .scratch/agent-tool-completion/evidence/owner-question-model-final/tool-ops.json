@@ -1,0 +1,44 @@
+[
+  {
+    "label": "source",
+    "taskId": "task_1b88d4301c8cd561b0ba5851",
+    "ops": [
+      {
+        "id": "op_402613a45fec7048f2015058",
+        "taskId": "task_1b88d4301c8cd561b0ba5851",
+        "toolName": "ask_user",
+        "sdkCallId": "call_00_uUPvQjDfvrM8GG6ihCpk7559",
+        "params": {
+          "questions": [
+            {
+              "question": "交付目录采用哪一种布局？",
+              "options": [
+                "集中目录",
+                "按模块分目录"
+              ]
+            },
+            {
+              "question": "请给出验收口令。"
+            }
+          ]
+        },
+        "intentRecordedAt": "2026-10-21T01:56:14.901Z",
+        "authorization": null,
+        "resultSummary": "{\"status\":\"pending\",\"message\":\"结束本轮，回答将作为后续拥有者输入。\"}",
+        "isError": false,
+        "effectUnknown": false,
+        "recordedResultAt": "2026-10-21T01:56:14.904Z"
+      }
+    ]
+  },
+  {
+    "label": "chat",
+    "taskId": "task_b218c70654d28cb906eae6cb",
+    "ops": []
+  },
+  {
+    "label": "answer",
+    "taskId": "task_37d1f54c0f89812379732e99",
+    "ops": []
+  }
+]

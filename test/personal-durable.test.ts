@@ -132,7 +132,7 @@ test("durable：缺扩展时在任何恢复请求前拒绝", async t => {
 test("durable：业务扩展版本不符时拒绝恢复", async t => {
   const f = await fixture(t);
   const personal = await f.open();
-  await personal.harness.commit(async tx => { Object.assign(await tx.doc(PersonalFormatDoc), { extensions: { personal: 2 } }); }, context);
+  await personal.harness.commit(async tx => { Object.assign(await tx.doc(PersonalFormatDoc), { extensions: { personal: 3 } }); }, context);
   await personal.close();
   await assert.rejects(f.open(), code("extension_version"));
   assert.equal(f.server.calls.length, 0);
@@ -301,7 +301,7 @@ test("durable：保留 onPayload 改写且记录真正发出的内容", async t 
 test("durable：初始化拒绝且存储关闭失败，原错误可见并释放锁", async t => {
   const f = await fixture(t);
   const initial = await f.open();
-  await initial.harness.commit(async tx => { Object.assign(await tx.doc(PersonalFormatDoc), { extensions: { personal: 2 } }); }, context);
+  await initial.harness.commit(async tx => { Object.assign(await tx.doc(PersonalFormatDoc), { extensions: { personal: 3 } }); }, context);
   await initial.close();
   const openStorage = async (filename: string): Promise<Storage> => {
     const storage = await openNodeSqliteStorage(filename);

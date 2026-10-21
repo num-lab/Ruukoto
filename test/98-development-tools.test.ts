@@ -35,7 +35,7 @@ test("setup 环境检查列出所有缺项，安装前拒绝旧 Node、非 Unix 
       nodeVersion: "22.18.0", platform: "win32", uid: 0,
       probe: () => { throw new Error("工具不可用"); },
     }), (error: Error) => {
-      for (const expected of [/Node >=22\.19/, /macOS 或 Linux/, /非 root/, /Git 不可用/, /Bash 不可用/, /Python 3/, /完整 Git 检出/]) assert.match(error.message, expected);
+      for (const expected of [/Node >=22\.19/, /macOS 或 Linux/, /非 root/, /Git 不可用/, /ripgrep（rg）/, /Bash 不可用/, /Python 3/, /完整 Git 检出/]) assert.match(error.message, expected);
       return true;
     });
     const probe = (command: string, args: string[]) => command === "git" && args[0] === "rev-parse" ? f.root : "available";

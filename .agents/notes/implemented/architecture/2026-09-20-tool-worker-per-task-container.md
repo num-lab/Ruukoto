@@ -54,7 +54,7 @@ Coding Agent 正式入口默认且只允许 native，显式 container/local 参�
 
 ## 关联提案
 
-正常 bash 返回后的后台存活与跨轮执行方向见[后台生命周期提案](../../proposed/feature/2026-10-14-bash-background-lifecycle.md)。提案尚未落地，当前执行边界与任务收尾规则保持本篇及后续有效决定的约定。
+正常 bash 仍回收临时执行；[Coding会话后台](../feature/2026-10-21-coding-background-processes.md)以独立执行承载跨轮服务，不随原Task收尾释放。[后台生命周期提案](../../proposed/feature/2026-10-14-bash-background-lifecycle.md)的个人接入尚未落地，其他执行边界与任务收尾规则保持本篇及后续有效决定的约定。
 
 ## 备选方案
 
@@ -91,4 +91,4 @@ Coding Agent 正式入口默认且只允许 native，显式 container/local 参�
 
 完全访问的账户、环境、免审批及宿主任务授权传播采用[本决定](../feature/2026-10-12-full-access-current-account.md)；本篇其他独立规则继续适用。
 
-相关未实施方案：[受控文件检索](../../proposed/feature/2026-10-21-controlled-file-search.md)补worker工具清单；[跨轮后台执行](../../proposed/feature/2026-10-14-bash-background-lifecycle.md)另定独立执行归属。本篇原决定及当前受限执行的后续接管关系保留。
+相关方案：[受控文件检索](../../implemented/feature/2026-10-21-controlled-file-search.md)补worker工具清单；[Coding会话后台](../feature/2026-10-21-coding-background-processes.md)另定独立执行归属，个人接入仍为提案。本篇原决定及当前受限执行的后续接管关系保留。

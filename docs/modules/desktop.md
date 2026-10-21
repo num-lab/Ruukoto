@@ -4,11 +4,11 @@
 
 本模块的 Personal SSH 连接仅识别旧控制协议，不支持新个人 durable 入口；新个人使用 IM 与引导式 CLI。Code 桌面能力保持。
 
-`apps/desktop` 是 macOS 上的控制面客户端，与 TUI 共用后台。Code 目标提供工作区与会话树、添加工作区、新建会话、会话标签页、对话流、输入提交、模型／Effort 与会话默认模式选择、停止与继续、暂停队列恢复，以及右栏独立标签中的 SubAgent 历史与单次工具差异、隔离浏览器、工作区只读文件树／预览、Git graph与本机集成终端；Code 在会话内展示审批卡片，两个目标共用系统通知与 Dock 角标；Personal 提供旧控制协议下的 Ruukoto 单一主会话及审批，两个后台连接并存。后台事实只经控制面取得，不通过数据库、JSONL、工作区文件或 git 重建；主进程为终端核实已登记工作区根目录，并读取拥有者选择的附件快照，以及地址栏明确打开的本机文档与同目录静态资源。
+`apps/desktop` 是 macOS 上的控制面客户端，与 TUI 共用后台。Code 目标提供工作区与会话树、添加工作区、新建会话、会话标签页、对话流、输入提交、模型／Effort 与会话默认模式选择、停止与继续、暂停队列恢复，以及右栏独立标签中的 SubAgent 历史与单次工具差异、隔离浏览器、工作区只读文件树／预览、Git graph与本机集成终端；Code 在会话内展示审批与拥有者问题卡片，两个目标共用系统通知与 Dock 角标；Personal 提供旧控制协议下的 Ruukoto 单一主会话及审批，两个后台连接并存。后台事实只经控制面取得，不通过数据库、JSONL、工作区文件或 git 重建；主进程为终端核实已登记工作区根目录，并读取拥有者选择的附件快照，以及地址栏明确打开的本机文档与同目录静态资源。
 
 ## 对外接口
 
-Electron 或 MyGo 共用的 Node DesktopHost 持有令牌、`ControlConnection`、SSH 子进程和后台拉起。preload 只向渲染进程暴露 `subscribe(target, listener)`、`request(target, op, params)`、`pickFolder()`、`pickAttachments(sessionId, target?)` 与 `reveal(path)`及终端的open/input/resize/kill四方法。主进程校验 IPC 来源和操作名单：本地 `reconnect`、`desktop_browser_open`／`desktop_browser_release`及仅向Code开放的`desktop_terminal_open/input/resize/kill`，以及后台的 Code 专属 `search_history`、`list_session_summaries`、`open_workspace`、`create_session`、`read_history`、`read_history_entry`、`list_tasks`、`get_task`、`read_task_events`、`work_list`、`work_get`、`read_tool_result`、`read_artifact`、`get_tool_op_params`、`list_models`、`set_session_model`、`set_session_mode`、`get_session`、`interrupt`、`cancel`、`resume_queue`、`get_confirmation_params`、`respond_confirmation`、`list_prompt_requests`、`get_context_breakdown`、`list_workspace_files`、`read_workspace_file`、`read_workspace_git`。`submit` 与 `continue` 交主进程的 SubmissionGuard，`find_task` 仅供守护内部使用；本地 `desktop_pending_read` 与 `desktop_pending_clear` 处理输入恢复。Personal 开放历史、任务、工具、委派、模型、Context、审批、输入与恢复操作及本地 `desktop_personal_config_read`／`desktop_personal_config_save`，拒绝工作区创建、文件、Git 与 Plan。字段与权限继续由控制面校验。错误作为 `{ code, outcome, message, versions? }` 响应数据跨 IPC 传递，保留应答丢失分类。
+Electron 或 MyGo 共用的 Node DesktopHost 持有令牌、`ControlConnection`、SSH 子进程和后台拉起。preload 只向渲染进程暴露 `subscribe(target, listener)`、`request(target, op, params)`、`pickFolder()`、`pickAttachments(sessionId, target?)` 与 `reveal(path)`及终端的open/input/resize/kill四方法。主进程校验 IPC 来源和操作名单：本地 `reconnect`、`desktop_browser_open`／`desktop_browser_release`及仅向Code开放的`desktop_terminal_open/input/resize/kill`，以及后台的 `list_session_summaries`、`open_workspace`、`create_session`、`read_history`、`read_history_entry`、`list_tasks`、`get_task`、`read_task_events`、`work_list`、`work_get`、`read_tool_result`、`read_artifact`、`get_tool_op_params`、`list_models`、`set_session_model`、`set_session_mode`、`get_session`、`interrupt`、`cancel`、`resume_queue`、`get_confirmation_params`、`respond_confirmation`、`list_prompt_requests`、`get_context_breakdown`、`list_workspace_files`、`read_workspace_file`、`read_workspace_git`。`search_history`、`background_processes`、`background_process_output`、`background_process_stop`、`session_background_end` 及 `owner_questions`、`owner_question_answer`、`owner_question_cancel` 与 `owner_question_receipt` 仅向 Code 开放；`submit`、`continue` 与 `owner_question_answer` 交主进程的 SubmissionGuard，`find_task` 仅供守护内部使用；本地 `desktop_pending_read` 与 `desktop_pending_clear` 处理输入恢复。Personal 开放历史、任务、工具、委派、模型、Context、审批、输入与恢复操作及本地 `desktop_personal_config_read`／`desktop_personal_config_save`，拒绝工作区创建、文件、Git 与 Plan。字段与权限继续由控制面校验。错误作为 `{ code, outcome, message, versions? }` 响应数据跨 IPC 传递，保留应答丢失分类。
 
 渲染进程使用 React、Tailwind v4、shadcn 源码组件与 AI Elements、Lucide，主题和三栏布局以定稿 demo 为准，消费 `@ruukoto/view` 的快照和事件投影。开发与构建命令见[开发说明](../development.md#桌面客户端)，启动与故障恢复见[操作手册](../usage.md#桌面客户端)。
 
@@ -29,6 +29,8 @@ Personal 配置保存在应用数据目录的 `personal.json`，只含 `host` �
 ## 主要流程
 
 应用内 ⌘K 切换当前 Code 实例的 Spotlight 开关，顶栏侧栏开关左侧的搜索图标也可打开；弹窗从上向下进入，在 PA 页面也只搜 Code 工作区。完整普通会话摘要用于即时名称匹配，正文在输入稳定 180ms 且组合输入结束后查询；每个控制器最多一页在途，空命中进度页继续推进，满 20 条后滚动接近列表底部自动续查。候选与结果只在内存中保存，关闭、断线、新快照和换实例淘汰旧轮次；名称结果保留工作区与存档标记；正文结果上行显示会话名和存档标记，下行显示单行正文预览，短消息完整保留，超宽时按实际像素宽度让匹配词尽量居中，右侧显示相对时间；匹配词高亮，搜索弹窗使用主题灰色背景；长名称在末尾省略，正文预览保持单行，超出显示范围的部分裁切；加载使用搜索框内图标，检索状态仅向读屏播报，实际读取失败与离线可见，两种结果之间用分隔线区分，滚动条只在滚动中及停止后短暂显示，不再提供加载按钮。
+
+Code 的会话菜单提供后台清单、日志与“结束本会话后台”，存档也在同一菜单。清单每页最多20项，并受256 KiB响应预算约束，选择命令读取 stdout/stderr 的原字节页、完整性及可切换的base64；单个停止只显示请求已接纳，退出码与停止核实分别展示。结束动作经确认后由主进程保存原请求键与实例，应答未知时查询状态并保留原键，显式重核沿原键重试；关闭面板、标签、窗口、断线与存档均不触发停止。
 
 Node 宿主创建时开始准备环境，与窗口加载并行。日常应用执行一次登录 shell，取得 node 与环境；首次连接复用结果，采用后显式解析 Code 的数据、agent、控制目录。预热失败由连接报告，重新连接可重试；退出取消并回收直接读取进程，迟到结果不再采用。`ensureBackend` 先经认证 ping 轻量探测已有后台，正式连接再安装一次完整快照；需要启动时用登录环境中的 node 执行构建时记录的仓库 bin。Code 后台脱离运行，关闭应用不停止它。
 
@@ -65,6 +67,10 @@ Context 环形入口不显示百分比数字，悬浮层按 System prompt、Tool
 Git graph 每页读取200条真实提交，滚动接近底部自动追加直到末尾，没有累计条数上限；只渲染可视区附近的行与图线，窗口外行以占位撑高，横向内容宽度保存本次打开见过的最宽行，滚到短行窗口后仍可左右滚动并触发续页；Tab、读屏、文本选择与浏览器 Find 只覆盖窗口内已渲染行（窗口外焦点行旁路渲染时除外）。提交主题与分支名保持自然宽度，可左右滚动，续页无可见加载文字；隐藏、离线、加载中或发生错误时暂停，追加失败显示重试。父关系、branch／tag与remote共用六种彩色lane，28px摘要只给左侧图标着色，名称保持中性。点击展开作者、时间、短哈希与父提交，可刷新。翻页绑定工作区与仓库修订，refs、HEAD、shallow、grafts或目录身份变化时要求刷新；追加失败保留已有历史并可重试，刷新或换实例丢弃旧追加。每次后台读取预算5秒，限制输出和元数据数量，拒绝受保护目录、元数据链接、alternates和配置include；超限或不安全形式明确报错。
 
 附件加号打开系统文件选择器，每次最多 4 个、每个不超过 8 MiB；文件按原目标、连接对象与实例上传，renderer 只收到引用、名称与大小。选取与上传期间禁止发送，成功后附件与草稿一起提交；移除附件不删除后台快照，普通文件与图片的读取方式见 [runtime](runtime.md)。
+
+拥有者问题卡片由 view 的快照和事件恢复，顶部只显示当前问题，选项纵向整行展示，名字后显示可选说明和 Recommended 标记，全文允许换行；单选保留编号，多选以复选框替代编号，不显示多选标签；推荐不预选。12像素的自由输入图标与输入行位于选项下方，输入文字清除所有选择，选择不重复填入输入行。底部保留题号、翻页、Skip 和下一步；Skip 清空当前答案并前进，末题进入整批核对，核对与终态显示已跳过但保存空字符串。顶部没有进度、折叠或取消入口。选项不自动补齐；已回答、取消和失效显示简短状态，原回答和题目继续可读。快照省略的题目在选择会话与快照恢复时经控制面查询待答优先的最近一页，保留全文；查询代次隔离会话与实例，并保留较新的事件状态。取消整批问题不产生回答或后续任务；关闭标签、普通聊天和断线保留待答问题。回答与取消由主进程发送前落盘原键、完整参数与实例，丢答和重连按原回执恢复；未决问题记录不并入普通聊天草稿。
+
+已回答的问题卡片取代对应回答的用户消息，留在当时的消息位置，底部只保留待答、取消或失效的独立卡片。替换按同会话的续接任务关联，不按正文猜测；原历史和模型输入保留。问题资料尚未加载时先显示原用户消息，资料到达后原位更新。
 
 审批卡片以 view 的当前待审批集合为准，任务终态、权限版本变化、人工或自动审查解决后立即失效。卡片只展示本次实际命令或参数及用途，完整参数自动按 UTF-8 字节偏移续读，读完后直接批准或拒绝；权威成功应答后移除卡片。正文较窄时，标题与按钮组自动换行。操作绑定原目标、实例、审批和展示的权限版本。
 
@@ -107,6 +113,10 @@ Personal 预检总期限为 15 秒；超时或网络失败、远端 socket 暂�
 - [搜索结果直接打开普通会话](../../.agents/notes/implemented/simplification/2026-10-21-desktop-search-session-navigation.md)
 
 - [应用内 Spotlight 与历史定位](../../.agents/notes/implemented/feature/2026-10-21-desktop-spotlight-search.md)
+
+- [Coding 会话后台持有独立目录占用](../../.agents/notes/implemented/feature/2026-10-21-coding-background-processes.md)
+
+- [持久拥有者问题](../../.agents/notes/implemented/feature/2026-10-21-coding-owner-questions.md)：问题与审批分别登记，可信回答唯一续接。
 
 - [本机集成终端](../../.agents/notes/implemented/feature/2026-10-20-desktop-integrated-terminal.md)
 

@@ -94,9 +94,17 @@ export class CodeController {
   }
   close(): void { this.stopped = true; ++this.generation; this.submissions?.close(); this.connection?.close(); }
   async dispatch(op: DesktopOp, params: OpParams<DesktopOp>): Promise<unknown> {
-    if (op === "submit" || op === "continue") {
+    if (op === "session_background_end") {
+      if (!this.submissions) throw new DesktopError("connection_unavailable", "请等待连接恢复后再结束会话后台。");
+      return this.submissions.endBackground(params);
+    }
+    if (op === "submit" || op === "continue" || op === "owner_question_answer") {
       if (!this.submissions) throw new DesktopError("connection_unavailable", "请等待连接恢复后再发送。");
       return this.submissions.submit(op, params);
+    }
+    if (op === "owner_question_cancel") {
+      if (!this.submissions) throw new DesktopError("connection_unavailable", "请等待连接恢复后再取消问题。");
+      return this.submissions.cancelQuestion(params);
     }
     return this.request(op, params);
   }

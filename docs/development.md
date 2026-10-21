@@ -7,7 +7,7 @@ npm run setup
 npm run check
 ```
 
-`setup` 检查 macOS / Linux、普通用户账户、Node ≥ 22.19、Git、Bash、Python 3 与 PTY ，再在根目录和 `verification/foundation/` 执行 `npm ci` 并安装 Git 管理的 pre-commit 钩子。首次安装需网络；`check` 使用本地 mock 模型和临时数据，不需要模型凭据、Docker、真实 IM 或系统服务。Python 3 的 PTY 检查保证终端用例实际执行。依赖变化时更新对应 `package.json` 与 `package-lock.json`并重跑 `setup`。
+`setup` 检查 macOS / Linux、普通用户账户、Node ≥ 22.19、Git、ripgrep（`rg`）、Bash、Python 3 与 PTY ，再在根目录和 `verification/foundation/` 执行 `npm ci` 并安装 Git 管理的 pre-commit 钩子。首次安装需网络；`check` 使用本地 mock 模型和临时数据，不需要模型凭据、Docker、真实 IM 或系统服务。Python 3 的 PTY 检查保证终端用例实际执行。依赖变化时更新对应 `package.json` 与 `package-lock.json`并重跑 `setup`。
 
 macOS 构建原生监督器另需 Command Line Tools 的 Clang。平台前置、真实证据与复跑命令见[原生边界验证](../verification/foundation/scripts/native-isolation/README.md)；离线 local 测试不证明 OS 边界。
 
@@ -20,7 +20,7 @@ macOS 构建原生监督器另需 Command Line Tools 的 Clang。平台前置、
 | 命令 | 检查范围与产物 |
 | --- | --- |
 | `npm run build` | 构建原生监督器、工具与脚本 worker 及 WASM，再生成两产品的 `dist/*.tgz`；无需 Docker，应用通过 tsx 运行源码 |
-| `npm run build:worker` | 打包共享 `worker/worker.mjs` 和自包含的 `worker/personal-command-worker.mjs`；个人命令 worker 已接 Linux 受限子工作工具 |
+| `npm run build:worker` | 打包共享 `worker/worker.mjs`、独立 `worker/background-worker.mjs` 及自包含的 `worker/personal-command-worker.mjs`、`worker/personal-file-search-worker.mjs`；个人命令使用 Linux 原生执行，资料检索另用只读资料根 |
 | `npm run desktop:mygo` / `npm run desktop:mygo:build` | 重建并启动／只构建 MyGo 试验应用，要求 macOS arm64 和 Go ≥ 1.27.1；详见[桌面开发](desktop-development.md) |
 | `npm run desktop:build` | 构建桌面三个目标、检查产物并 ad-hoc 签名 `dist/mac-arm64/Ruukoto.app`；根 build 不打包 Electron |
 | `npm start`、`npm run personal:durable` | 同一个正式个人引导菜单；默认 `~/.ruukoto-durable/`，`RUUKOTO_PERSONAL_DIR` 可选择独立新目录；`serve` 前台后台，在线管理通过本机认证接口；见[个人操作](usage.md#25-个人-agent-引导与管理) |
@@ -31,7 +31,7 @@ macOS 构建原生监督器另需 Command Line Tools 的 Clang。平台前置、
 | `npm test` | 应用与基础验证的全部离线测试；真实模型用例按默认开关跳过 |
 | `npm run check:static` | 依次执行 lint、类型检查、笔记门禁与文档门禁（链接、源码引用、篇幅与段落形态） |
 | `npm run check` | 依次执行环境检查、build、`check:static` 与全部离线测试，任一步失败即停止 |
-| `npm run test:app` | 仅应用离线测试；macOS 先串行 100/101-native-macos-helper，再并行其余；其他平台全并行 |
+| `npm run test:app` | 仅应用离线测试；macOS 先串行执行脚本中列明的原生停止与后台恢复夹具，再并行其余；其他平台全并行 |
 | `npm run test:foundation` | 仅基础验证离线测试 |
 | `npm run change-scope -- --base <ref>` | 报告本次改动相对 merge base 的已提交、暂存、未暂存与未跟踪路径 |
 
@@ -47,15 +47,17 @@ npx tsx --test verification/foundation/test/03-tools.test.ts
 | 修改位置 | 常用测试起点 |
 | --- | --- |
 | `packages/tui/src/`（cli.ts、cli-entry.ts、dev.ts）、`packages/core/src/product.ts`、`apps/ruukoto-code/src/dev.ts` | `test/29-cli-entry.test.ts`、`test/32-dev.test.ts`、`test/71-product-entry.test.ts` |
-| `apps/ruukoto/src/personal-*.ts`（独立 Pi 1.3.0） | 从[个人入口检查集](../.agents/skills/pre-push-checks/SKILL.md#2-按面选证据)选择对应窄测；图片、浏览器、调度及其双平台替身的窄测见该检查集。配置闭环用 `test/personal-configuration-controls.test.ts`；分组菜单、模式与授权用 `test/personal-cli.test.ts`，IM命令与恢复用 `test/personal-command-work.test.ts`。其余窄测见个人入口检查集。真实模型用 `verification/smoke/smoke-personal-durable.mts`，显式配置见[操作手册](usage.md#25-个人-agent-引导与管理)；正式入口、旧档案拒绝、开发生命周期与打包产物另跑 `test/personal-entry.test.ts`、`test/71-product-entry.test.ts`、`test/99-workspace-boundaries.test.ts` |
+| `apps/ruukoto/src/personal-*.ts`（独立 Pi 1.3.0） | 按[个人入口检查集](../.agents/skills/pre-push-checks/SKILL.md#2-按面选证据)选模块窄测；会话后台用 `test/personal-background-processes.test.ts`，`ssh tx` 隔离目录另跑同文件“真实Linux”用例；真实模型用 `verification/smoke/smoke-personal-durable.mts`，前提见[操作手册](usage.md#25-个人-agent-引导与管理)。生产切换单独验收 |
 | `apps/ruukoto/src/service-helper.ts`、`deploy/systemd/ruukoto-service.mjs` | `test/service-helper-transport.test.ts`（传输退出/捕获）、`test/service-helper-stop.test.ts`（Linux 进程/系统命令桩）；helper 与旧存储规则分别为 `test/78-linux-service-management.test.ts`、`test/79-standing-permissions.test.ts`，新调用方为 `test/personal-services.test.ts`、`test/personal-service-operations.test.ts` |
 | `packages/runtime/src/` 与 `packages/control/src/` 的任务生命周期 | `test/01-concurrency.test.ts` 至 `test/05-overflow-db.test.ts`、`test/66-control-seam.test.ts`、`test/94-task-ending.test.ts` |
 | `packages/agent/src/` 的执行、审批与权限 | `test/07-real-tools.test.ts`、`test/08-approvals.test.ts`、`test/10-access-modes.test.ts`、`test/63-approval-gate.test.ts`、`test/64-tool-op-ledger.test.ts` |
 | 浏览器 | `test/browser-tools.test.ts`、`test/browser-lifecycle.test.ts`；[验收入口](../.scratch/agent-browser/evidence/implementation-checks.md) |
+| Coding 会话后台 | `test/background-processes.test.ts`、`test/background-processes-recovery.test.ts`；core、客户端、平台串行前提与真实browser/模型入口见[后台检查集](../.agents/skills/pre-push-checks/SKILL.md#2-按面选证据) |
 | `packages/agent/src/script-worker/` | `test/104-workflow-script.test.ts`、`test/100-worker-stop.test.ts` |
 | `scripts/test-app.mjs` 的分批与退出 | `test/124-test-app-runner.test.ts`；共享 UID 孤儿冲突的独占清单由脚本持有 |
 | 工作流存储、协调器、真实步骤与宿主操作 | `test/105-workflow-runtime.test.ts` 至 `test/113-workflow-source-capabilities.test.ts`；新增角色/版本回归见 `test/workflow-*.test.ts` |
 | 回答、送达、调度与等待 | `test/114-workflow-owner-input.test.ts` 至 `test/116-workflow-notification-recovery.test.ts`；`test/125-agent-wait*.test.ts` |
+| 持久问题与恢复 | `test/owner-questions.test.ts`、`test/owner-question-*.test.ts`；12/13/14/15、41和66按影响补回归 |
 | 工作流定义与入口 | `test/117-workflow-library.test.ts` 至 `test/120-workflow-cli.test.ts`；126 侧栏与恢复，模型/IM 替身 |
 | 共享底座六输入联合验收 | `test/121-workflow-personal-acceptance.test.ts`、`test/122-workflow-code-acceptance.test.ts`；真实工具、联网/IM 替身 |
 | `packages/agent/src/` 的上下文与模型 | `test/18-model-selection.test.ts`、`test/60-context-prefix.test.ts`、`test/61-context-compaction.test.ts`、`test/98-media-model-pinning.test.ts` |
@@ -79,9 +81,11 @@ CI 设置 `ELECTRON_SKIP_BINARY_DOWNLOAD=1`，只检查桌面类型、lint 与�
 
 GitHub Actions 在 macOS / Linux × Node 22.19 / 24.15 四组环境执行 `npm run setup -- --skip-hooks` 与 `npm run check`；CI 直接执行检查，不安装提交钩子。最低版本覆盖支持边界，Node 24.15 覆盖本次约定的开发版本；环境缺少 Python 或 PTY 能力时失败，不通过跳过终端用例取得绿色结果。提交钩子和 CI 使用相同的根目录命令。
 
-`worker/` 由构建生成，QuickJS core 与 release-sync WASM 由 agent 包锁版；`node_modules/` 由锁文件安装。个人命令的独立入口/依赖准备和宿主回执分别由 `test/personal-command-worker.test.ts`、`test/personal-command-execution.test.ts` 覆盖，测试前运行 `npm run build:worker`；真实 Linux 停止另行验收。数据库、令牌和凭据留在产品档案，不入工作树；测试用临时档案。开发实例的隔离与执行后端见 [README](../README.md#开发本项目)。
+`worker/` 由构建生成，QuickJS core 与 release-sync WASM 由 agent 包锁版；`node_modules/` 由锁文件安装。个人命令与检索的定向测试见上表链接的检查集；测试前运行 `npm run build:worker`，真实 Linux 停止另行验收。数据库、令牌和凭据留在产品档案，不入工作树；测试用临时档案。开发实例的隔离与执行后端见 [README](../README.md#开发本项目)。
 
 ## 外部验收
+
+持久提问真实验收：`RUN_MODEL_CHECK=1 RUN_OWNER_QUESTION_MODELS_FILE=/path/models.json npx tsx --test test/owner-question-model-acceptance.test.ts`（显式DeepSeek、隔离档案）；TUI/Desktop另验。
 
 | 根目录命令 | 所需环境与覆盖 |
 | --- | --- |

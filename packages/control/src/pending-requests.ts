@@ -1,3 +1,4 @@
+// Note: 见 .agents/notes/implemented/feature/2026-10-21-owner-question-choice-types.md
 /**
  * 待确认请求记录（拥有者私有目录）：提交与控制操作的去重锚点。
  *
@@ -18,7 +19,7 @@ import { parseWorkflowControl, workflowLaunchDigest, type WorkflowLaunch } from 
 
 export interface PendingRequest {
   requestId: string;
-  op: "submit" | "continue" | "branch_session" | "compact_session" | "workflow_start" | "workflow_answer" | "workflow_control";
+  op: "submit" | "continue" | "branch_session" | "compact_session" | "workflow_start" | "workflow_answer" | "workflow_control" | "owner_question_answer" | "owner_question_cancel" | "session_background_end";
   /** 完整原请求参数，包含请求键、业务输入及操作使用的原版本。 */
   params: Record<string, unknown>;
   /** 提交时握手返回的数据实例标识。 */
@@ -41,6 +42,28 @@ export function defaultPendingDir(): string {
 
 function validWorkflowParams(record: PendingRequest): boolean {
   const params = record.params;
+  if (record.op === "session_background_end") return params.request_id === record.requestId && typeof params.session_id === "string" && params.session_id.trim().length > 0 && Object.keys(params).every(key => key === "session_id" || key === "request_id");
+  if (record.op === "owner_question_answer" || record.op === "owner_question_cancel") {
+    if (params.request_id !== record.requestId || typeof params.session_id !== "string" || !params.session_id.trim() ||
+      typeof params.question_id !== "string" || !params.question_id.trim() || !Number.isSafeInteger(params.question_version) || (params.question_version as number) < 1) return false;
+    if (record.op === "owner_question_answer") {
+      if (!Array.isArray(params.answers) || params.answers.length < 1 || params.answers.length > 3 || !params.model_selection) return false;
+      return params.answers.every((answer: unknown) => {
+        if (typeof answer !== "object" || answer === null || Array.isArray(answer) || Object.keys(answer).some(key => !["text", "option", "options"].includes(key)) ||
+          !("text" in answer) || typeof answer.text !== "string" || answer.text.length > 4096 || (answer.text !== "" && !answer.text.trim())) return false;
+        if (answer.text === "") return !("option" in answer) && !("options" in answer);
+        if ("option" in answer) return !("options" in answer) && Number.isSafeInteger(answer.option) && (answer.option as number) >= 0 && (answer.option as number) < 5;
+        if ("options" in answer) {
+          if (!Array.isArray(answer.options) || answer.options.length < 1 || answer.options.length > 5 ||
+            answer.options.some(option => !Number.isSafeInteger(option) || option < 0 || option >= 5)) return false;
+          const selected = answer.options as number[];
+          return selected.every((option, index) => index === 0 || option > selected[index - 1]);
+        }
+        return true;
+      });
+    }
+    return true;
+  }
   if (!record.op.startsWith("workflow_")) return true;
   if (params.request_id !== record.requestId) return false;
   const nonempty = (value: unknown) => typeof value === "string" && value.trim().length > 0;
@@ -102,7 +125,7 @@ export class PendingRequestStore {
     catch { return { kind: "corrupt" }; }
     try {
       if (typeof raw?.requestId !== "string" || raw.requestId !== requestId ||
-        !["submit", "continue", "branch_session", "compact_session", "workflow_start", "workflow_answer", "workflow_control"].includes(raw.op) ||
+        !["submit", "continue", "branch_session", "compact_session", "workflow_start", "workflow_answer", "workflow_control", "owner_question_answer", "owner_question_cancel", "session_background_end"].includes(raw.op) ||
         typeof raw.params !== "object" || raw.params === null || Array.isArray(raw.params) ||
         typeof raw.instanceId !== "string" || !raw.instanceId ||
         typeof raw.createdAt !== "string" || !Number.isFinite(Date.parse(raw.createdAt)) || !validWorkflowParams(raw)) return { kind: "corrupt" };
@@ -121,13 +144,14 @@ export class PendingRequestStore {
   }
 
   /** 全部待确认记录；损坏文件保留并单独列出（不静默丢弃）。 */
-  list(): PendingRequestList {
+  list(strict = false): PendingRequestList {
     const records: PendingRequest[] = [];
     const corrupt: string[] = [];
     let files: string[] = [];
     try {
       files = fs.readdirSync(this.dir).filter((f) => f.endsWith(".json"));
-    } catch {
+    } catch (error) {
+      if (strict) throw error;
       return { records, corrupt };
     }
     for (const file of files) {

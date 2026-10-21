@@ -1,0 +1,31 @@
+[ruukoto:owner-question-model] 验收未通过或停止未核实，保留隔离档案 /var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-owner-question-model-Fe1rqo
+✖ Coding 真实模型：持久提问结束本轮，普通聊天保留问题，可信回答唯一续接并进入请求快照 (3291.578708ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 4118.567125
+
+✖ failing tests:
+
+test at test/owner-question-model-acceptance.test.ts:16:1
+✖ Coding 真实模型：持久提问结束本轮，普通聊天保留问题，可信回答唯一续接并进入请求快照 (3291.578708ms)
+  AssertionError [ERR_ASSERTION]: 真实提问任务未完成，请检查保留的隔离档案
+  + actual - expected
+  
+  + 'failed'
+  - 'completed'
+  
+      at TestContext.<anonymous> (/Users/eitrous/mirasim-worktrees/ruukoto/lucky-sailing-sparrow/test/owner-question-model-acceptance.test.ts:57:12)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'failed',
+    expected: 'completed',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

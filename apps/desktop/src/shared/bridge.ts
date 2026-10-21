@@ -4,12 +4,14 @@ import type { ConnectionState } from "@ruukoto/control/connection.ts";
 import type { ConnectResult } from "@ruukoto/control/protocol.ts";
 import type { PersistentEvent } from "@ruukoto/core/types.ts";
 import type { PendingRequest } from "@ruukoto/control/pending-requests.ts";
+import type { OwnerQuestionCancelOutcome, OwnerQuestionCancelReconcileOutcome } from "@ruukoto/control/owner-question-cancel.ts";
 import type { ReconcileOutcome, SubmitOutcome } from "@ruukoto/control/submission.ts";
 
 export type DesktopAttachment = AttachmentMetadata;
 
+export type DesktopCancelQuestionResult = OwnerQuestionCancelOutcome | { kind: "pending_existing"; record: PendingRequest };
 export type DesktopSubmitResult = SubmitOutcome | { kind: "pending_existing"; record: PendingRequest };
-export type PendingInput = { record: PendingRequest; result?: ReconcileOutcome };
+export type PendingInput = { record: PendingRequest; result?: ReconcileOutcome | OwnerQuestionCancelReconcileOutcome };
 export type PendingOp = "desktop_pending_read" | "desktop_pending_clear";
 
 export type BrowserDocumentId = string;
@@ -32,6 +34,7 @@ export type DesktopUpdate =
   | { type: "snapshot"; result: ConnectResult; instanceChanged: boolean }
   | { type: "event"; event: PersistentEvent; kind: "live" | "replay" }
   | { type: "pending"; entries: PendingInput[]; corrupt: string[]; dir: string }
+  | { type: "question_cancel"; record: PendingRequest; result: OwnerQuestionCancelReconcileOutcome }
   | { type: "submission"; record: PendingRequest; result: ReconcileOutcome };
 export interface DesktopBridge {
   subscribe(target: DesktopTarget, listener: (update: DesktopUpdate) => void): () => void;

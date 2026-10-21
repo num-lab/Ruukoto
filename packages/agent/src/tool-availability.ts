@@ -23,7 +23,7 @@ import { WEB_SEARCH_TOOL_NAMES } from "./web-search.ts";
 export type SessionToolClass = Exclude<SessionIdentity["kind"], "retired" | "scheduled">;
 
 const SESSION_TOOL_CATEGORIES: Record<SessionToolClass, readonly ToolCategory[]> = {
-  dev: ["coding", "host_data", "web_search", "browser", "mcp", "skills", "subagent", "workflow"],
+  dev: ["coding", "host_data", "web_search", "browser", "mcp", "skills", "subagent", "workflow", "owner_question", "background_process"],
   // main：日常对话/信息整理/编排，不持有编码工具；service 仅装配另要求
   // 产品 ruukoto + Linux + 显式部署配置（agent-direction issue 09）
   main: ["host_data", "web_search", "browser", "app_data", "scheduler", "delegation", "chat_results", "service", "skills", "subagent", "workflow"],
@@ -38,14 +38,14 @@ const SESSION_TOOL_CATEGORIES: Record<SessionToolClass, readonly ToolCategory[]>
  * 与未知工具默认拒绝）。宿主评审任务（issue 19）在此之外另开 effect=read
  * 的 MCP（收窄规则见 Driver 的任务工具集）。
  */
-export const SUBAGENT_READONLY_TOOL_NAMES: ReadonlySet<string> = new Set(["read", "read_artifact"]);
+export const SUBAGENT_READONLY_TOOL_NAMES: ReadonlySet<string> = new Set(["read", "list_files", "search_files", "read_artifact"]);
 
 /**
  * SubAgent 任务的写入工具白名单（agent-direction issue 16，工作有写入目标
- * 时的完整集合）：read/edit/write/bash/read_artifact。无 request_file_access、
+ * 时的完整集合）：编码、文件检索与产物读取。无 request_file_access、
  * http_request、MCP 或委派工件——受限模式的工作区写入由原生边界约束，不逐次审批。
  */
-export const SUBAGENT_WRITE_TOOL_NAMES: ReadonlySet<string> = new Set(["read", "edit", "write", "bash", "read_artifact"]);
+export const SUBAGENT_WRITE_TOOL_NAMES: ReadonlySet<string> = new Set(["read", "list_files", "search_files", "edit", "write", "bash", "read_artifact"]);
 
 /** SubAgent 本任务的工具集：写入目标决定只读或写入集合；宿主评审另开只读 MCP、关 subagent_message。 */
 export interface SubAgentToolSet {
@@ -98,14 +98,14 @@ export interface WorkflowExecutionProfile {
 }
 
 export function sourceAllows(profile: WorkflowExecutionProfile, name: string): boolean {
-  return !(profile.toolClass === "main" && name === "todo_write") && name !== "coding_delegate" && name !== "browser" &&
+  return !name.startsWith("process_") && name !== "ask_user" && !(profile.toolClass === "main" && name === "todo_write") && name !== "coding_delegate" && name !== "browser" &&
     (!profile.hostVerify || SUBAGENT_WRITE_TOOL_NAMES.has(name)) &&
     !name.startsWith("workflow_") && (!name.startsWith("subagent_") || (name === "subagent_message" && profile.collaboration === true)) &&
     (!profile.tools || profile.tools.includes(name));
 }
 
 export function workflowAllows(profile: WorkflowExecutionProfile, name: string): boolean {
-  return !(profile.toolClass === "main" && name === "todo_write") && !name.startsWith("subagent_") && !name.startsWith("workflow_") && name !== "coding_delegate" && name !== "browser" &&
+  return !name.startsWith("process_") && name !== "ask_user" && !(profile.toolClass === "main" && name === "todo_write") && !name.startsWith("subagent_") && !name.startsWith("workflow_") && name !== "coding_delegate" && name !== "browser" &&
     (profile.verifyTarget === true || !["edit", "write", "bash", "request_file_access"].includes(name)) &&
     (!profile.tools || profile.tools.includes(name));
 }
@@ -169,6 +169,9 @@ export const CONVERSATION_TOOL_NAMES: ReadonlySet<string> = new Set([
   "agent_wait", "subagent_result", "workflow_query", "workflow_instructions", "history_search", "history_read", "read_artifact",
 ]);
 
+export const OWNER_QUESTION_PENDING_TOOL_NAMES: ReadonlySet<string> = new Set(["subagent_result", "workflow_query", "workflow_instructions"]);
+const BACKGROUND_OBSERVATION_TOOL_NAMES: ReadonlySet<string> = new Set(["process_status", "process_output", "process_stop", "ask_user", "browser"]);
+
 /** 本任务允许的工具（任务开始时算一次）：已装配的工具减去任务收窄与关闭的 Web Search。 */
 export function taskToolSet(input: {
   /** 装配结果（含本任务 MCP 工具）。 */
@@ -181,14 +184,24 @@ export function taskToolSet(input: {
   /** 宿主按任务收窄（GitHub 评审等；已绑定任务）。 */
   narrow?: (name: string, mcpEffect?: McpToolEffect) => boolean;
   resourcePhase?: AgentResourcePhase;
+  ownerQuestionsEnabled?: boolean;
+  ownerQuestionPending?: boolean;
+  backgroundProcessesEnabled?: boolean;
+  backgroundStartEnabled?: boolean;
+  backgroundObservation?: boolean;
 }): TaskToolSet {
   const rejected = new Map<string, string>();
   const allowed = new Set<string>();
   for (const name of input.registered) {
     const effect = input.mcpEffect(name);
     const reason =
-      input.resourcePhase === "conversation" && !CONVERSATION_TOOL_NAMES.has(name) ? "执行资源未取得：当前仅处理对话与后台记录"
-      : input.plan && !PLAN_TOOL_NAMES.has(name) && effect !== "read" ? "计划模式不开放"
+      input.ownerQuestionPending && !OWNER_QUESTION_PENDING_TOOL_NAMES.has(name) && name !== "process_status" && name !== "process_output" ? "问题已登记：结束本轮，回答将作为后续拥有者输入"
+      : name.startsWith("process_") && !input.backgroundProcessesEnabled ? "本任务不是拥有者的普通开发输入"
+      : name === "process_start" && !input.backgroundStartEnabled ? "后台启动只开放完全访问的拥有者输入；先停止原后台并核实目录占用"
+      : name === "ask_user" && !input.ownerQuestionsEnabled ? "本任务不是拥有者的普通开发输入"
+      : input.resourcePhase === "conversation" && input.backgroundObservation && !BACKGROUND_OBSERVATION_TOOL_NAMES.has(name) ? "会话后台持有目录：先 process_stop，再用 process_status 核实 stopped；停止未核实时报告拥有者"
+      : input.resourcePhase === "conversation" && !input.backgroundObservation && !CONVERSATION_TOOL_NAMES.has(name) ? "执行资源未取得：当前仅处理对话与后台记录"
+      : input.plan && !PLAN_TOOL_NAMES.has(name) && !["process_status", "process_output", "process_stop"].includes(name) && effect !== "read" ? "计划模式不开放"
       : name === "browser" && !input.browserEnabled ? "浏览器仅开放完全访问的拥有者会话"
       : input.narrow && !input.narrow(name, effect) ? "本任务由宿主收窄"
       : !input.webSearchEnabled && (WEB_SEARCH_TOOL_NAMES as readonly string[]).includes(name) ? "项目已关闭 Web Search"

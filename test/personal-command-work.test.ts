@@ -226,15 +226,16 @@ for (const mode of ["auto-review", "full_access"] as const) test(`durable 命令
   assert.equal((await p.harness.commit(tx => personalWorkResult(tx, reused), context)).commands?.length ?? 0, 0);
 });
 
-for (const mutation of ["admission", "permission"] as const) test(`durable 命令：恢复拒绝坏 ${mutation}，provider 与 OS 都零新增调用`, async t => {
+for (const mutation of ["admission", "permission", "claim"] as const) test(`durable 命令：恢复拒绝坏 ${mutation}，provider 与 OS 都零新增调用`, async t => {
   const f = await fixture(t); let p = await f.open(); await source(p);
   const work = await p.work.delegate(draft("tamper")), ref = await original(p); await p.harness.waitForTask(work.taskId, context);
   await p.harness.commit(async tx => {
     if (mutation === "admission") (await tx.doc(PersonalCommandDoc, ref.requestId, null)).command!.admission = (await tx.doc(PersonalCommandDoc, ref.requestId, null)).command!.startEntry!;
-    else (await tx.doc(PersonalWorkDoc, work.requestId, null)).permission!.mode = "full_access";
+    else if (mutation === "permission") (await tx.doc(PersonalWorkDoc, work.requestId, null)).permission!.mode = "full_access";
+    else (await tx.doc(PersonalCommandDoc, ref.requestId, null)).command!.directoryClaim = (await tx.doc(PersonalCommandDoc, ref.requestId, null)).command!.admission;
   }, context);
   await p.close(); const requests = f.server.calls.length;
-  await assert.rejects(f.open(), code("command_record_invalid"));
+  await assert.rejects(f.open(), code(mutation === "claim" ? "directory_claim_invalid" : "command_record_invalid"));
   assert.equal(f.server.calls.length, requests); assert.equal(f.launches(), 1);
 });
 
@@ -303,6 +304,24 @@ test("durable 命令：原接纳不能因任务和 document 一起丢失而静�
   const requests = f.server.calls.length;
   await assert.rejects(f.open(), code("command_record_invalid"));
   assert.equal(f.server.calls.length, requests); assert.equal(f.launches(), 1);
+});
+
+test("durable 命令：prepare认领提交后崩溃可恢复原准备，claim保留且实际命令只启动一次", async t => {
+  const f = await fixture(t), cause = new Error("injected-after-prepare-claim-commit"); let injected = false;
+  let p = await f.open({ openStorage: async filename => {
+    const storage = await openNodeSqliteStorage(filename), commit = storage.commit.bind(storage);
+    storage.commit = async (writes, context) => {
+      const result = await commit(writes, context);
+      if (!injected && writes.some(write => write.type === "entry" && write.value.kind === "ruukoto.directory-claim" && (write.value.data as { action?: string; owner?: { kind?: string } }).action === "acquire" && (write.value.data as { owner?: { kind?: string } }).owner?.kind === "command")) { injected = true; throw cause; }
+      return result;
+    };
+    return storage;
+  } });
+  await source(p); const work = await p.work.delegate(draft("prepare-recovery"));
+  await assert.rejects(p.harness.waitForTask(work.taskId, context), error => error === cause || error instanceof SessionFailed);
+  assert.equal((await p.harness.closed).reason, "failed"); await p.close(); assert.equal(f.launches(), 0);
+  p = await f.open(); await p.harness.waitForTask(work.taskId, context);
+  assert.equal(f.launches(), 1); assert.equal(fs.readFileSync(path.join(f.workspace, "count"), "utf8"), "x\n");
 });
 
 test("durable 命令：开始意图提交失败关闭 Harness，零 OS 派发", async t => {

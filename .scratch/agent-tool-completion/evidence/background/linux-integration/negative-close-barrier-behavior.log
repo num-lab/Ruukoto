@@ -1,0 +1,27 @@
+✖ 独立反证：关闭之后旧已接纳Task不能登记后台 (7.655417ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 39.509833
+
+✖ failing tests:
+
+test at ../../../../../private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-bg-integration-evidence-fh73x1j5/negative-close-barrier-behavior.mjs:3742:1
+✖ 独立反证：关闭之后旧已接纳Task不能登记后台 (7.655417ms)
+  AssertionError [ERR_ASSERTION]: Missing expected exception.
+      at TestContext.<anonymous> (file:///private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-bg-integration-evidence-fh73x1j5/negative-close-barrier-behavior.mjs:3746:10)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1201:25)
+      at Test.start (node:internal/test_runner/test:1096:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:385:17) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: { code: 'background_closed' },
+    operator: 'throws',
+    diff: 'simple'
+  }

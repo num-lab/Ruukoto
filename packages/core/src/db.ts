@@ -12,9 +12,46 @@ import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 
-export const SCHEMA_VERSION = 46;
+export const SCHEMA_VERSION = 49;
 
 const SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS background_processes (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL REFERENCES sessions(id),
+  task_id TEXT NOT NULL REFERENCES tasks(id),
+  host_op_id TEXT NOT NULL UNIQUE REFERENCES tool_ops(id),
+  state TEXT NOT NULL CHECK (state IN ('starting','running','stop_requested','stopped','stop_unverified')),
+  payload TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_background_processes_active ON background_processes(session_id) WHERE state != 'stopped';
+CREATE INDEX IF NOT EXISTS idx_background_processes_session ON background_processes(session_id);
+CREATE TABLE IF NOT EXISTS background_process_closures (
+  session_id TEXT NOT NULL REFERENCES sessions(id),
+  request_key TEXT NOT NULL,
+  through_input_seq INTEGER NOT NULL CHECK (through_input_seq >= 0),
+  payload TEXT NOT NULL,
+  PRIMARY KEY(session_id, request_key)
+);
+CREATE TABLE IF NOT EXISTS owner_questions (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL REFERENCES sessions(id),
+  task_id TEXT NOT NULL REFERENCES tasks(id),
+  host_op_id TEXT NOT NULL UNIQUE REFERENCES tool_ops(id),
+  status TEXT NOT NULL CHECK (status IN ('pending','answered','canceled','stale')),
+  payload TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_owner_questions_pending ON owner_questions(session_id) WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_owner_questions_session ON owner_questions(session_id);
+CREATE INDEX IF NOT EXISTS idx_owner_questions_task ON owner_questions(task_id);
+CREATE TABLE IF NOT EXISTS owner_question_receipts (
+  session_id TEXT NOT NULL REFERENCES sessions(id),
+  request_key TEXT NOT NULL,
+  question_id TEXT NOT NULL REFERENCES owner_questions(id),
+  digest TEXT NOT NULL,
+  operation TEXT NOT NULL CHECK (operation IN ('owner_question_answer','owner_question_cancel')),
+  payload TEXT NOT NULL,
+  PRIMARY KEY(session_id, request_key)
+);
 CREATE TABLE IF NOT EXISTS agent_waits (
   id TEXT PRIMARY KEY,
   task_id TEXT NOT NULL REFERENCES tasks(id),
@@ -183,8 +220,10 @@ CREATE TABLE IF NOT EXISTS occupancy (
   cwd_dev INTEGER NOT NULL,
   cwd_ino INTEGER NOT NULL,
   session_id TEXT NOT NULL,
-  task_id TEXT NOT NULL,
-  acquired_at TEXT NOT NULL
+  task_id TEXT,
+  process_id TEXT REFERENCES background_processes(id),
+  acquired_at TEXT NOT NULL,
+  CHECK ((task_id IS NOT NULL AND process_id IS NULL) OR (task_id IS NULL AND process_id IS NOT NULL))
 );
 CREATE TABLE IF NOT EXISTS confirmations (
   standing_permission_version INTEGER,

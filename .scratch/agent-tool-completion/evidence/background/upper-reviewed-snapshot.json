@@ -1,0 +1,141 @@
+{
+  "repository": "/Users/eitrous/mirasim-worktrees/ruukoto/lucky-sailing-sparrow",
+  "files": {
+    "packages/core/src/background-processes.ts": {
+      "sha256": "c37e6b1f07178f79c617f0e3aad0ce53c70beb176fc6caf2412c999581da9b13",
+      "bytes": 22558
+    },
+    "packages/core/src/store.ts": {
+      "sha256": "1dc075c5ee5c3ccb141fa6d9c8d6c6a2c1d96112e6776db1d79c84eb8f4cdfd4",
+      "bytes": 144544
+    },
+    "packages/core/src/db.ts": {
+      "sha256": "aaa655fccbbff986a1f4577217923cc0a9b017f4916e939473eb15b16a1d78e4",
+      "bytes": 35964
+    },
+    "packages/core/src/types.ts": {
+      "sha256": "72e8d70a00468bdf443c5ef7414a03b450f24fd358b0570f3c09534c8969fddd",
+      "bytes": 70261
+    },
+    "packages/runtime/src/background-processes.ts": {
+      "sha256": "41d807a39c58950929f50b1b4bf20af887528347ea84f6611575b508cc83c4a2",
+      "bytes": 17910
+    },
+    "packages/runtime/src/runtime.ts": {
+      "sha256": "5510fe04291a30b437e2a67ea8f45451dfe8374c14dcc602bf3681b8c288424a",
+      "bytes": 336297
+    },
+    "packages/agent/src/driver.ts": {
+      "sha256": "5244420293bed4cdd43ea0f47ac71fdecaacf7cae95c8685daa39a4b09b9bac3",
+      "bytes": 101290
+    },
+    "packages/agent/src/context-assembly.ts": {
+      "sha256": "c0ce857de581d983a74c0125d38620c45e8dc0fce301bc92c6b824bdfee54630",
+      "bytes": 49173
+    },
+    "packages/agent/src/background-process-tools.ts": {
+      "sha256": "271363b266be84d44634d4a941623c7f4f529186ff53ca65fe380519eead5787",
+      "bytes": 6948
+    },
+    "packages/agent/src/tool-availability.ts": {
+      "sha256": "e7765f59fa0bc8bbcb380b6c880f8d7ab1cea016c4bf266fbca3703a193dd12f",
+      "bytes": 12358
+    },
+    "packages/agent/src/execution/background.ts": {
+      "sha256": "88eda1acb1b886b705d61d4fd4f26b24c1b3578b9bbfe2a1f3e1fc4852fb18ec",
+      "bytes": 9421
+    },
+    "packages/agent/src/execution/native-linux.ts": {
+      "sha256": "f71e77920a71d1bbdbcf77236fe02606206848bd522dcc0c67f88844f53aa74b",
+      "bytes": 11942
+    },
+    "packages/agent/src/execution/native-linux-identity.ts": {
+      "sha256": "b440337265a70e6fdbbce8086e9c838ec4354578357df48bce925372646c5fcf",
+      "bytes": 14849
+    },
+    "packages/control/src/background-end.ts": {
+      "sha256": "5f36e3e59f0d0d58ccf3113172dc8c20a90548849b768a2599ce1a0a666edca5",
+      "bytes": 3236
+    },
+    "packages/control/src/pending-requests.ts": {
+      "sha256": "664fb693e649c02a094a68d28acf0f6a941bb8a5cb02b92542125afdf577afe0",
+      "bytes": 8734
+    },
+    "packages/control/src/ops.ts": {
+      "sha256": "cefeaaa24806c7c44f1ee36cff41876b843d9d0725f281493a7ae4e6e675c76d",
+      "bytes": 10911
+    },
+    "packages/control/src/protocol.ts": {
+      "sha256": "e24c3eee80040826ac180c44cfc1711a1208cf2a9229d6510cca11d53b62e34e",
+      "bytes": 9579
+    },
+    "packages/control/src/server.ts": {
+      "sha256": "e095ec2de9de4ca507b0ff6c48fbf36936b851b81c81cfe064c03279b5765697",
+      "bytes": 61562
+    },
+    "packages/view/src/state.ts": {
+      "sha256": "41ea2967a068e833206f5c06cf245668b9dd9878cd03256b61fd571962552e0d",
+      "bytes": 37174
+    },
+    "packages/view/src/background-processes.ts": {
+      "sha256": "27e3c25aed3cb9938cc0f9d16ebb898a8a63332d092711fab260ca7a34a93ecf",
+      "bytes": 361
+    },
+    "packages/tui/src/tui/app.ts": {
+      "sha256": "dc355e90be354c3dbdd5176667df431ca84b2d55bf72d237dd39a1f6702a62e6",
+      "bytes": 166823
+    },
+    "packages/tui/src/tui/background-processes.ts": {
+      "sha256": "f078f8bb39fbde0b656397da76802e5c62b87e1755a1de3401bd309cb241e29a",
+      "bytes": 10734
+    },
+    "packages/tui/src/tui/commands.ts": {
+      "sha256": "abae938e93adbdb211ace25adf4b086b470737fc2c8c936b0269572544236dd4",
+      "bytes": 20540
+    },
+    "apps/desktop/src/main/controller.ts": {
+      "sha256": "a943f9d7bd9092cc209e36977b90d8b9dcda85130a3ac1d3b59b5c5267164cc1",
+      "bytes": 7331
+    },
+    "apps/desktop/src/main/submissions.ts": {
+      "sha256": "27f158c4f8212fcfb0539c03d4f2aa86a5c876a50b5299ba970684e712489b71",
+      "bytes": 9617
+    },
+    "apps/desktop/src/main/ipc.ts": {
+      "sha256": "9272ff8374f7673bb6a782453318db71e72cc59d9d1d37fbeeba6f2bd4274950",
+      "bytes": 5089
+    },
+    "apps/desktop/src/renderer/code-state.ts": {
+      "sha256": "f79b6569112503f2237572d014d96c6308f183b095281725e0c579f96eecffd8",
+      "bytes": 25528
+    },
+    "apps/desktop/src/renderer/background-processes.ts": {
+      "sha256": "4a2599bb8e64c1fbfb8321a4dec064ab234c6abf945909dc661525a4163691c0",
+      "bytes": 8521
+    },
+    "apps/desktop/src/renderer/background-process-panel.tsx": {
+      "sha256": "f0394c04add7b95d815279154c0fde010f5a0268652c3536729f5b35ba47ac34",
+      "bytes": 5015
+    },
+    "apps/desktop/src/renderer/app.tsx": {
+      "sha256": "9ff1b1d9174880f0cda9f94a4c9923484762edf4b4f226a43344de172a9d0b2a",
+      "bytes": 25097
+    },
+    "test/background-processes-core.test.ts": {
+      "sha256": "889562cf6a23eeb68066bc34920492e802870e0e5d07f92f189e720f7ad85e0b",
+      "bytes": 17641
+    },
+    "test/background-process-clients.test.ts": {
+      "sha256": "ad2fa2ddc762c3eb3dd77d086fb9776441a61962b5d13f8dcbc55c5097bcf441",
+      "bytes": 14661
+    },
+    "test/background-processes.test.ts": {
+      "sha256": "591f9473a16cc7d3fdbeea60b652270193b4db8724879c0ca22d3a314088e330",
+      "bytes": 8469
+    },
+    "test/background-processes-recovery.test.ts": {
+      "sha256": "1a6f3d18a93be2bfa0cab5f4520e65523213258c3d4966e16b229de1c5941ae2",
+      "bytes": 9201
+    }
+  }
+}

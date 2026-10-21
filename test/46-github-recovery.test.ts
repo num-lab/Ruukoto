@@ -80,7 +80,7 @@ test("review 恢复：父任务/子任务提交窗口、模型变化、产物与
       const child = rt.store.listTasksByWork(work.id)[0]!;
       const fixed = rt.store.getSubAgent(child.subAgentId!)!.definition!;
       assert.equal(fixed.kind, "host_review");
-      assert.deepEqual(fixed.tools, ["read", "read_artifact"]);
+      assert.deepEqual(fixed.tools, ["read", "list_files", "search_files", "read_artifact"]);
       assert.ok(server.calls.filter(call => lastUserText(call).startsWith(REVIEW_HEADER)).every(call => !call.system?.includes("USER_ROLE_MUST_NOT_REPLACE_REVIEW")));
       const wake = rt.store.findTaskByRequest(main.sessionId, `wake:${child.id}`)!;
       assert.equal(child.parentTaskId, parent.id);

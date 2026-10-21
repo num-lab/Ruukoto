@@ -2,7 +2,7 @@
 
 Status: proposed
 
-拥有者2026-10-21要求制定详细方案，并确认两端规划、先Coding；后台跨消息保留；首版先停后台再改同目录代码，保留现有占用规则。运行代码仍未实施，共享契约与交接见[规格](../../../../.scratch/agent-tool-completion/spec.md#3-后台进程)和[工单](../../../../.scratch/agent-tool-completion/issues/03-coding-background-processes.md)。
+拥有者2026-10-21确认两端规划、先Coding；后台跨消息保留；首版先停后台再改同目录代码，保留现有占用规则。Coding 已由[会话后台决定](../../implemented/feature/2026-10-21-coding-background-processes.md)部分落实；个人 durable 接入仍保留本提案。共享契约与交接见[规格](../../../../.scratch/agent-tool-completion/spec.md#3-后台进程)和[工单](../../../../.scratch/agent-tool-completion/issues/03-coding-background-processes.md)。
 
 ## 问题
 
@@ -27,6 +27,8 @@ Agent 启动开发服务器、文件监听或测试依赖服务后，需要继�
 个人端按统一语义另建durable记录，复用低层执行身份、输出及停止能力，不复用旧Task Store。后台starting、普通命令prepare/start和文件写批准消费共用事务目录claim，双向阻止在途与后续写入；停止或观察未核实保留认领。其主会话启动是新增显式能力，只沿真实完全访问拥有者来源；子工作、定时及汇总不取得自由Shell。两端都不建设通用服务管理平台，完全访问仍不承诺收回主动脱离管理的进程或外部服务。
 
 ## 既有笔记审计
+
+[个人会话后台决定](../../implemented/feature/2026-10-21-personal-background-processes.md)持有个人durable实现与共享目录认领，最终真实环境验收仍由工单记录；本篇保留最初跨产品取舍与验收目标。
 
 按 bash、Shell、后台进程、执行句柄与停止归属检索 proposed / implemented；rejected 目录不存在，未发现同主题提案或可完全吸收的旧篇。
 

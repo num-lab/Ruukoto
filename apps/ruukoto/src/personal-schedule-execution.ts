@@ -1,3 +1,5 @@
+import { personalSourceImReceipt } from "./personal-source.ts";
+import { PERSONAL_BACKGROUND_TOOL_NAMES } from "./personal-background-processes.ts";
 import { PersonalAppDataOperationDoc, appDataOperations } from "./personal-app-data.ts";
 import { isDeepStrictEqual } from "node:util";
 import { AgentDoc, configure, ROOT_CONVERSATION_ID, type ConversationId, type Harness, type Tx } from "@earendil-works/pi-durable";
@@ -20,9 +22,9 @@ import type { PersonalQqApi } from "./personal-qq-api.ts";
 export async function configurePersonalScheduledConversation(tx: Tx, conversationId: ConversationId, plan: PersonalSchedule, options: { summary: boolean }) {
   const main = await tx.doc(AgentDoc, ROOT_CONVERSATION_ID);
   if (!main.model) throw new PersonalError("model_unavailable", "当前定时模型无法核实，请查询配置。");
-  const business = ["personal-app-data", "personal-media", "personal-browser", "personal-tools", "personal-mcp", "personal-service-inspect", "personal-service-executions", "personal-memory", "personal-history", "personal-skills"];
+  const business = ["personal-app-data", "personal-media", "personal-browser", "personal-tools", "personal-file-search", "personal-mcp", "personal-service-inspect", "personal-service-executions", "personal-memory", "personal-history", "personal-skills"];
   const extensions = [PERSONAL_SCHEDULED_WORK, ...plan.scope.extensions.filter(name => business.includes(name))];
-  const tools = ["background_work", ...plan.scope.tools.filter(name => !["background_work", "schedule_create", "schedule_query", "schedule_cancel"].includes(name) && (!options.summary || ["app_data_query", "read_artifact", "read_mcp_result", "read_service_inspection", "memory", "history_search", "history_read", "skill"].includes(name)))];
+  const tools = ["background_work", ...plan.scope.tools.filter(name => !["ask_user", ...PERSONAL_BACKGROUND_TOOL_NAMES, "background_work", "schedule_create", "schedule_query", "schedule_cancel"].includes(name) && (!options.summary || ["app_data_query", "read_artifact", "read_mcp_result", "read_service_inspection", "memory", "history_search", "history_read", "skill"].includes(name)))];
   await configure(tx, conversationId, { model: main.model, thinkingLevel: "off", extensions: [], tools: [] });
   const agent = await tx.doc(AgentDoc, conversationId);
   agent.extensions = extensions; agent.tools = tools;
@@ -90,7 +92,7 @@ export async function sendPersonalScheduledReport(harness: Harness, plan: Person
     if (!source || !config?.enabled || config.botId !== source.botId || config.ownerId !== source.ownerId || config.generation !== source.generation) throw new PersonalImApiError("schedule_target_inactive", "定时原回报入口已失效，未发送；请查询原计划。", "not_sent");
     const creator = plan.createdBy;
     const requestId = creator.actor.kind === "im" ? creator.actor.input.requestId : creator.authority.source?.requestId;
-    const receipt = requestId && (await tx.doc(PersonalTelegramReceiptDoc, requestId, null)).receipt;
+    const receipt = requestId && await personalSourceImReceipt(tx, requestId);
     if (!receipt) throw new PersonalImApiError("schedule_target_missing", "定时原回报来源缺失，未发送；请保留档案。", "not_sent");
     return { messageId: receipt.messageId, telegram: state.config && { ...state.config } };
   }, BACKGROUND_CONTEXT);

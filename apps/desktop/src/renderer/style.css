@@ -666,3 +666,11 @@ body { font-size: 15.5px; }
 @container (max-width: 400px) { .model-settings [data-slot="field-group"].model-settings-grid, .model-settings [data-slot="field"].model-settings-default-row { grid-template-columns: minmax(0, 1fr); } .model-settings-default-controls { width: min(328px, 100%); grid-template-columns: minmax(0, 1fr) 80px; } .model-settings-row-value { max-width: 40%; } .model-settings-footer { align-items: flex-start; flex-direction: column; gap: 8px; } .model-settings-section-heading { align-items: flex-start; flex-wrap: wrap; } }
 .settings-notice { position: absolute; right: 32px; bottom: 8px; left: 180px; margin: 0; padding: 8px; background: var(--bg-canvas); font-size: 13px; }
 @media (max-width: 540px) { .settings-categories [data-slot="tabs-trigger"] { padding-inline: 6px; gap: 4px; font-size: 12px; } .settings-navigation > h2 { margin-inline: 6px; } .settings-notice { left: 140px; right: 16px; } }
+
+/* Note: 见 .agents/notes/implemented/feature/2026-10-21-code-mcp-settings.md */
+.mcp-service-list { display: flex; flex-direction: column; gap: 0; }
+.mcp-settings > form { min-width: 0; }
+.mcp-tool-row { display: flex; align-items: center; flex-wrap: wrap; }
+.mcp-tool-row [data-slot="field-label"] { flex: 1; overflow-wrap: anywhere; }
+.mcp-tool-row [data-slot="select-trigger"] { width: 150px; }
+.mcp-settings-context { position: sticky; top: 0; z-index: 1; margin: 0; padding: 10px 0; background: var(--bg-canvas); color: var(--text-secondary); font-size: 12px; overflow-wrap: anywhere; }

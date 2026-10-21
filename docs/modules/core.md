@@ -40,6 +40,8 @@
 | Runtime、control | `PRODUCT_META_KEY` 与 `packages/core/src/product.ts` 的产品解析 | 产品归属的 meta 键与 `RUUKOTO_PRODUCT` 解析 |
 | view、后台任务管理 | `ACTIVE_TASK_STATUSES` / `TERMINAL_TASK_STATUSES`（`packages/core/src/task-status.ts`） | 浏览器可用的活动与终态任务状态常量，`types.ts` 同时再导出 |
 
+`Store.listWorkspaceConfigSources` 分页查询工作区自身与显式组织归属会话的原项目，返回原项目名称并标识工作区自身；仅做候选查询，不改变会话身份、配置或资料归属。
+
 `TaskView.displayInput` 是任务详情可选的展示输入，由 runtime 从可核实的父级委派调用派生；不落入 Task 行，也不改写 JSONL 或模型输入。
 
 `readToolResult` 保留逐字段预览，另可按指定结构字段返回 UTF-8 分页；精确偏移、空内容与缺字段的区别见[控制面](control.md#不变量与失败处理)。Edit／Write 的 patch 只取调用结果中已保存的补丁，Write 原文只取对应调用参数；不从普通结果文本或当前文件推导差异，也不把原文存在当作工具执行成功。旧记录缺少 patch 时返回 null，已记录的无变化补丁返回空字符串。

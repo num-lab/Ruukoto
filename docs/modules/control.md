@@ -52,8 +52,8 @@
 | 历史与产物 | `read_history`、`read_history_entry`、`read_tool_result`、`search_history`、`read_artifact` | `read_history` 是唯一权威历史的投影，分页与分段读；`read_artifact` 按任务与产物 ID 读正文 |
 | 上下文与技能 | `list_selection_records`、`get_selection_record`、`get_context_breakdown`、`list_prompt_requests`、`read_prompt_snapshot`、`list_skills`、`list_subagent_roles` | 选择记录与 prompt 快照分段读；技能与子代理角色查询返回实例目录、有效条目及加载诊断 |
 | 项目配置、资料授权与记忆 | `set_project_instructions`、`set_project_web_search`、`get_project_jev`、`set_project_jev`、`create_data_grant`、`revoke_data_grant`、`list_data_grants`、`list_memories`、`get_memory`、`save_memory`、`revoke_memory`、`restore_memory` | 写操作按 `expected_version` 条件更新；资料授权只能由拥有者此处创建与撤销 |
-| 凭据 | `list_credentials`、`add_credential`、`remove_credential` | `list_credentials` 只有引用、不回显值；秘密值随请求传输，不进命令行、模型上下文、事件或日志 |
-| MCP | `mcp_configure`、`mcp_list`、`mcp_set_enabled`、`mcp_remove`、`mcp_check` | 配置按项目、按 `expected_version` 条件更新；`mcp_check` 试连并列出可用工具 |
+| 凭据 | `list_credentials`、`add_credential`、`remove_credential` | `list_credentials` 返回脱敏元数据和服务引用，可按原项目及端点主机过滤，不回显值；秘密值随请求传输，不进命令行、模型上下文、事件或日志 |
+| MCP | `mcp_sources`、`mcp_configure`、`mcp_list`、`mcp_set_enabled`、`mcp_remove`、`mcp_check`、`mcp_save_credential`、`mcp_remove_credential` | 来源按工作区分页，配置按原项目与 `expected_version` 更新，桌面同时提交原 `service_id` 防止同名重建覆盖；检查禁用服务也只发现工具；专用凭据首次写入即限定来源与 MCP 操作 |
 | QQ 与 Telegram | `qq_configure`、`qq_status`、`qq_set_enabled`、`qq_inbox_list`、`qq_outbox_list`、`telegram_configure`、`telegram_status`、`telegram_set_enabled` | 配置按 `expected_version` 条件更新；QQ 群收件与出站列表是只读归档 |
 | 调度与通知 | `schedule_list`、`schedule_get`、`schedule_cancel`、`notification_list`、`notification_get`、`notification_cancel` | 只有查询与取消，控制面不获得发送或改目标的能力；取消必须给原因 |
 | 长期操作授权 | `service_grant_list`、`service_grant_get`、`service_grant_revoke` | 只有查询与带 `expected_version` 的撤销；控制面不能创建或扩大授权，重复撤销幂等且不再发事件 |
@@ -83,6 +83,8 @@
 `unknown` 与 `disconnected` 都是「应答丢失」，只看连接当时还在不在；二者都不自动重发。不是 `ControlClientError` 的异常保守按 `unknown` 处理。
 
 **超时。** 客户端建连 5000 ms、认证 10000 ms、握手 15000 ms、普通请求 60000 ms。普通请求超时按 `unknown`，后台照常执行，迟到应答按 `id` 丢弃。
+
+`mcp_sources` 接受工作区、offset、limit 和可选当前原项目；默认 50、最多 100 个候选，当前来源仅在存在真实组织归属时前置。每项含原项目名称、是否工作区自身及服务数。`mcp_save_credential` 只创建新绑定，不覆盖同名项；`mcp_remove_credential` 只移除本来源专用凭据，任一服务仍引用则拒绝。
 
 ## 数据与状态
 
@@ -258,6 +260,8 @@ sequenceDiagram
 拥有者只读 `read_workspace_git` 仅接受已登记 workspace_id 与可选 cursor，返回非仓库 null 或带父关系、显式 refs 及 nextCursor 的提交页；每页200条，nextCursor为null时结束，不设累计总量。游标绑定仓库修订，变化返回 workspace_git_changed，客户端刷新后重新读取；不接自定义命令或根路径。协议 v29 的快照明确提供 mainSessionId，避免客户端猜角色身份。
 
 ## 设计依据
+
+- [Code MCP 来源与凭据管理](../../.agents/notes/implemented/feature/2026-10-21-code-mcp-settings.md)
 
 - [应用内 Spotlight 与历史定位](../../.agents/notes/implemented/feature/2026-10-21-desktop-spotlight-search.md)
 

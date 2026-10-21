@@ -5,6 +5,7 @@ import type { CodeState } from "./code-state.ts";
 import { SettingsState, type ManagedSettingsCategory, type SettingsCategory, type SettingsScope, type SettingsSources } from "./settings-state.ts";
 import { PersonalConnectionSettings } from "./personal-connection-settings.tsx";
 import { CodeModelsSettings } from "./code-models-settings.tsx";
+import { CodeMcpSettings } from "./code-mcp-settings.tsx";
 import { Button } from "./components/ui/button.tsx";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "./components/ui/dialog.tsx";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "./components/ui/field.tsx";
@@ -46,7 +47,7 @@ function SettingsScopeFields({ category, settings, code, personal, onAddWorkspac
   if (scope.target !== "code" || category !== "mcp") return null;
   return <FieldGroup className="settings-scope">
       <Field><FieldLabel htmlFor="settings-workspace">工作区</FieldLabel>{workspaces.length ? <Select value={scope.workspaceId ?? ""} disabled={blocked} onValueChange={value => settings.chooseWorkspace(value)}><SelectTrigger id="settings-workspace"><SelectValue placeholder="选择工作区" /></SelectTrigger><SelectContent><SelectGroup>{workspaces.map(project => <SelectItem key={project.id} value={project.id}>{project.name}</SelectItem>)}</SelectGroup></SelectContent></Select> : <><FieldDescription>先添加工作区，再管理该工作区的 MCP。</FieldDescription><Button type="button" variant="outline" size="sm" disabled={code.status.state !== "online" || blocked} onClick={onAddWorkspace}>添加工作区</Button></>}</Field>
-      {scope.workspaceId && <Field><FieldLabel htmlFor="settings-source">配置来源</FieldLabel>{sources && (sources.length > 1 || sources.length === 1 && !source) ? <Select value={scope.sourceId ?? ""} disabled={blocked} onValueChange={value => { if (sources.some(source => source.id === value)) settings.chooseSource(value); }}><SelectTrigger id="settings-source"><SelectValue placeholder="选择配置来源" /></SelectTrigger><SelectContent><SelectGroup>{sources.map(source => <SelectItem key={source.id} value={source.id}>{source.name}</SelectItem>)}</SelectGroup></SelectContent></Select> : <p id="settings-source">{source?.name ?? "尚未选择来源"}</p>}<FieldDescription>写入所选原配置来源；工作区组织归属不迁移配置。{!sources && "配置来源列表尚未接入。"}</FieldDescription></Field>}
+      {scope.workspaceId && mcpSources && <Field><FieldLabel htmlFor="settings-source">配置来源</FieldLabel>{sources && (sources.length > 1 || sources.length === 1 && !source) ? <Select value={scope.sourceId ?? ""} disabled={blocked} onValueChange={value => { if (sources.some(source => source.id === value)) settings.chooseSource(value); }}><SelectTrigger id="settings-source"><SelectValue placeholder="选择配置来源" /></SelectTrigger><SelectContent><SelectGroup>{sources.map(source => <SelectItem key={source.id} value={source.id}>{source.name}</SelectItem>)}</SelectGroup></SelectContent></Select> : <p id="settings-source">{source?.name ?? "尚未选择来源"}</p>}<FieldDescription>写入所选原配置来源；工作区组织归属不迁移配置。{!sources && "配置来源列表尚未接入。"}</FieldDescription></Field>}
   </FieldGroup>;
 }
 
@@ -58,7 +59,7 @@ function ManagedSettingsPage(props: SettingsContentsProps & { category: ManagedS
   const { category, settings, code, personal } = props;
   const scope = settings.scope(code, personal, props.mcpSources);
   if (category === "mcp" && scope.target === "code" && !props.mcpSources) scope.sourceId = null;
-  const Page = props.pages?.[category] ?? (category === "models" && scope.target === "code" ? CodeModelsSettings : UnavailableSettingsPage);
+  const Page = props.pages?.[category] ?? (category === "models" && scope.target === "code" ? CodeModelsSettings : category === "mcp" && scope.target === "code" ? CodeMcpSettings : UnavailableSettingsPage);
   const blocked = settings.form?.phase === "saving" || settings.form?.phase === "unknown";
   return <Tabs value={scope.target} onValueChange={value => settings.chooseTarget(category, value as DesktopTarget)} className="settings-target-tabs"><TabsList aria-label="配置目标"><TabsTrigger value="code" disabled={blocked}>Code</TabsTrigger><TabsTrigger value="personal" disabled={blocked}>PA</TabsTrigger></TabsList><TabsContent value={scope.target}><SettingsScopeFields {...props} /><Page key={`${category}:${settings.pageKey}`} category={category} scope={scope} settings={settings} code={code} personal={personal} /></TabsContent></Tabs>;
 }

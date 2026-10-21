@@ -34,6 +34,8 @@ import { createProjectSession, routeResponder, startTestRuntime, waitFor } from 
 const TUI_OPS: Record<TuiOp, true> = {
   get_model_config: true, save_model_catalog: true, set_model_api_key: true, remove_model_api_key: true,
   remove_model_provider: true, set_default_model: true, set_summary_model: true, test_model_connection: true,
+  mcp_sources: true, mcp_list: true, mcp_configure: true, mcp_set_enabled: true, mcp_remove: true, mcp_check: true,
+  mcp_save_credential: true, mcp_remove_credential: true, list_credentials: true, remove_credential: true,
   put_attachment: true,
   list_workspace_files: true, read_workspace_file: true, read_workspace_git: true,
   work_list: true, work_get: true,

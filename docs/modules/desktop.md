@@ -8,13 +8,15 @@
 
 ## 对外接口
 
-Electron 或 MyGo 共用的 Node DesktopHost 持有令牌、`ControlConnection`、SSH 子进程和后台拉起。preload 只向渲染进程暴露 `subscribe(target, listener)`、`request(target, op, params)`、`pickFolder()`、`pickAttachments(sessionId, target?)` 与 `reveal(path)`及终端的open/input/resize/kill四方法。主进程校验 IPC 来源和操作名单：本地 `reconnect`、`desktop_browser_open`／`desktop_browser_release`及仅向Code开放的`desktop_terminal_open/input/resize/kill`，以及后台的 Code 专属 `search_history`、`list_session_summaries`、`open_workspace`、`create_session`、`read_history`、`read_history_entry`、`list_tasks`、`get_task`、`read_task_events`、`work_list`、`work_get`、`read_tool_result`、`read_artifact`、`get_tool_op_params`、`list_models`、`set_session_model`、`set_session_mode`、`get_session`、`interrupt`、`cancel`、`resume_queue`、`get_confirmation_params`、`respond_confirmation`、`list_prompt_requests`、`get_context_breakdown`、`list_workspace_files`、`read_workspace_file`、`read_workspace_git`。`submit` 与 `continue` 交主进程的 SubmissionGuard，`find_task` 仅供守护内部使用；本地 `desktop_pending_read` 与 `desktop_pending_clear` 处理输入恢复。Personal 开放历史、任务、工具、委派、模型、Context、审批、输入与恢复操作及本地 `desktop_personal_config_read`／`desktop_personal_config_save`，拒绝工作区创建、文件、Git 与 Plan。Code 另开放 `get_model_config`、`save_model_catalog`、`set_model_api_key`、`remove_model_api_key`、`remove_model_provider`、`set_default_model`、`set_summary_model` 与 `test_model_connection`，Personal 不放行这些操作。字段与权限继续由控制面校验。错误作为 `{ code, outcome, message, versions? }` 响应数据跨 IPC 传递，保留应答丢失分类。
+Electron 或 MyGo 共用的 Node DesktopHost 持有令牌、`ControlConnection`、SSH 子进程和后台拉起。preload 只向渲染进程暴露 `subscribe(target, listener)`、`request(target, op, params)`、`pickFolder()`、`pickSkillFolder(target, instanceId)`、`pickAttachments(sessionId, target?)` 与 `reveal(path)`及终端的open/input/resize/kill四方法。主进程校验 IPC 来源和操作名单：本地 `reconnect`、`desktop_browser_open`／`desktop_browser_release`及仅向Code开放的`desktop_terminal_open/input/resize/kill`，以及后台的 Code 专属 `search_history`、`list_session_summaries`、`open_workspace`、`create_session`、`read_history`、`read_history_entry`、`list_tasks`、`get_task`、`read_task_events`、`work_list`、`work_get`、`read_tool_result`、`read_artifact`、`get_tool_op_params`、`list_models`、`set_session_model`、`set_session_mode`、`get_session`、`interrupt`、`cancel`、`resume_queue`、`get_confirmation_params`、`respond_confirmation`、`list_prompt_requests`、`get_context_breakdown`、`list_workspace_files`、`read_workspace_file`、`read_workspace_git`。`submit` 与 `continue` 交主进程的 SubmissionGuard，`find_task` 仅供守护内部使用；本地 `desktop_pending_read` 与 `desktop_pending_clear` 处理输入恢复。Personal 开放历史、任务、工具、委派、模型、Context、审批、输入与恢复操作及本地 `desktop_personal_config_read`／`desktop_personal_config_save`，拒绝工作区创建、文件、Git 与 Plan。Code 另开放 `get_model_config`、`save_model_catalog`、`set_model_api_key`、`remove_model_api_key`、`remove_model_provider`、`set_default_model`、`set_summary_model` 与 `test_model_connection`，Personal 不放行这些操作。字段与权限继续由控制面校验。错误作为 `{ code, outcome, message, versions? }` 响应数据跨 IPC 传递，保留应答丢失分类。
 
 渲染进程使用 React、Tailwind v4、shadcn 源码组件与 AI Elements、Lucide，主题和三栏布局以定稿 demo 为准，消费 `@ruukoto/view` 的快照和事件投影。开发与构建命令见[开发说明](../development.md#桌面客户端)，启动与故障恢复见[操作手册](../usage.md#桌面客户端)。
 
 MyGo 试验外壳使用 Go 与 WKWebView，预加载实现同一 DesktopBridge，Node 子进程复用 DesktopHost；双方通过私有 JSONL 管道交换原始 JSON，单帧上限 16 MiB。Go 负责选择器、Finder、系统通知和角标；附件选择前固定目标、控制器、连接对象与实例，路径只在宿主之间传递。构建记录 Node 绝对路径，使用独立应用数据目录；操作与构建见[桌面开发](../desktop-development.md#mygo-试验)。
 
 Code MCP 另开放 `mcp_sources`、`mcp_list/configure/set_enabled/remove/check`、`list_credentials` 与 `mcp_save_credential/remove_credential`；通用凭据写入不向桌面开放，Personal 不放行这些操作。
+
+Code Skills 开放 `skills_list`、`skill_get`、`skill_set_enabled` 与 `skill_remove`；本地导入经系统目录选择和后台预览后，仅用宿主选择引用调用 `desktop_skill_import`。宿主固定原 Code 连接、实例、路径与修订，拒绝 renderer 任意路径及旧选择；两壳共用同一检查，Personal 不放行。
 
 ## 数据与状态
 
@@ -48,7 +50,9 @@ Personal 只支持 SSH 登录账户与后台账户相同的部署。每次控制
 
 Code 模型设置在总览直接选择默认模型／Effort 与摘要模型并自动保存；提供方在完整弹窗内添加或编辑连接、存储 Key、模型能力与高级字段，API 类型使用选择框，保留脱敏占位符。弹窗叉号放弃草稿并退出，已提交操作仍可核实；删除按钮位于左下角，保存位于右下角。目录与存储 Key 同时修改时先保存目录并读回，再按新修订保存 Key，后一步失败明确报告部分成功。列表只读配置位置与已注册成员、真实 Effort，不解析动态凭据或验证认证；存储条目、目录 apiKey 和具体请求头分别操作，环境由后台启动环境维护。OAuth 条目的替换／移除不会撤销远端令牌。后台默认模型与会话模型分开，摘要模型可清除；显式启动参数覆盖会提示。所有写入携带读取修订，冲突保留草稿并读回当前值，应答丢失只核实原实例，不自动重发；秘密提交后清空。点击连接测试直接联网；模型名旁以黄／绿／红点表示未测试、成功／失败，失败详情放在圆点提示中，配置变化后旧结果失效。目录事件淘汰会话和新聊天菜单的旧分页并刷新运行时默认值，不改已有任务选择。
 
-设置无需打开会话。模型、Skills、MCP 各自通过 Code / PA 双页签选择本地 Code 或远程 Personal，打开时默认聊天目标，此后不切换聊天；Code MCP 另选工作区和原配置来源，普通会话提供工作区及原项目初值，无会话默认首个工作区自身来源，没有工作区时引导添加。配置来源候选须由后台按实例和工作区提供，界面按名称选择并显示写入归属；后台分页列出工作区自身及旧会话的原项目和服务数量，不推断唯一来源。设置容器内未保存的模型、MCP 与 PA 连接编辑在切类别、关闭及收起侧栏前提供保存、放弃或继续编辑；提供方弹窗叉号直接放弃草稿，保存中禁止重复动作；浮窗与两侧内容在窄窗内滚动。
+Code Skills 列表按名称检索已取得项，显示托管／外部维护、启停、仅显式调用及诊断；正文有界且跳过 HTML，图片只显示文字。外部来源只读；托管单包导入复制到 Code 私有区，源库不变。启停和逻辑移除只影响后续新任务选择，旧任务正文、原恢复引用与包字节保留；操作前展示影响。冲突保留列表、选择和预览供刷新比较；丢答按原技能身份读回，不再次复制，查询失败保持待核实。
+
+设置无需打开会话。模型、Skills、MCP 各自通过 Code / PA 双页签选择本地 Code 或远程 Personal，打开时默认聊天目标，此后不切换聊天；Code MCP 另选工作区和原配置来源，普通会话提供工作区及原项目初值，无会话默认首个工作区自身来源，没有工作区时引导添加。配置来源候选须由后台按实例和工作区提供，界面按名称选择并显示写入归属；后台分页列出工作区自身及旧会话的原项目和服务数量，不推断唯一来源。设置容器内未保存的模型、MCP、Skills 导入与 PA 连接编辑在切类别、关闭及收起侧栏前提供保存、放弃或继续编辑；提供方弹窗叉号直接放弃草稿，保存中禁止重复动作；浮窗与两侧内容在窄窗内滚动。
 
 对话恢复先取历史页与历史窗口内的任务状态，任务状态先装入再公开历史页，随后安装带 seq 的任务详情并从零起分页补读任务事件；恢复期间的重绘合并为一次，打开会话时已收起的 trace 从首次可见起保持收起。长正文按连续 UTF-8 字节偏移补全，历史页里已有条目的补全不阻止自动收起。每条工具结果落盘后即补发条目引用，同批后续工具仍运行时，已展开详情也能自动读取。每次新快照都更换异步代次并清空流游标，旧代次结果丢弃；向前翻页保留已加载条目。正文用 react-markdown 与 remark-gfm 渲染并关闭原始 HTML；正文中的图片仅显示说明，防止 file 页面通过相对路径加载本机图片。历史在滚动到顶部时补读并保留锚点，工具与 SubAgent 按时间顺序逐条显示，单条调用保留各自的详情展开。已记录 reasoning 使用 Thought 行，Thinking 下直接显示当前原文，两处均限6行视觉高度并可内部滚动（Driver 只记录8KiB尾部）；在线 running 的请求前、参数生成及工具轮间显示 Thinking，最新同任务非空正文流接替状态，工具执行时直接显示本批次已完成／进行中调用，不显示 Working 标题；任务完成且最终 assistant 正文已确认后，动画收起此前连续的执行记录及中间进度正文，摘要显示 Worked for 与实际任务耗时（缺时间显示 Worked），可重新展开，最终回复、用户输入和审批卡保持可见，不跨排队输入重排记录；等待审批、取消、暂停及终态不留旋转状态，TUI 操作说明与工作流提示不显示。标签关闭键仅 hover／焦点时覆盖显示并渐隐邻近文本；拖动结束及取消后暂停旧位置hover，隐藏关闭键并停止其鼠标命中，待本组指针移动后恢复，键盘焦点提示保留。选中标签两侧不显示分隔，左右标签区以短竖线隔开，右栏正文与顶部标签之间没有横向分割线；关闭标签不删除会话。两组标签独立等宽，按空间在96至180px调整；拖动邻项避让，放下提交顺序，取消恢复，Alt+Shift+左右方向键也可排序。整个窗口提供单层半透明模糊，左栏、顶部与消息区圆角露出同一底层，减少透明效果回退实色。筛选与工作区／工具折叠有开合动画，关闭内容不接收焦点，遵守减弱动画；手写行按钮的 hover、悬停显露的关闭与添加键、展开箭头旋转和提示条出现也有短过渡。
 
@@ -113,6 +117,8 @@ Personal 预检总期限为 15 秒；超时或网络失败、远端 socket 暂�
 审批决定从不自动重发。明确失效移除卡片；权限版本不符重读详情并等待重新决定；未发送保留卡片。在线应答丢失查询原审批，断线等待同实例快照，查询失败或过旧保留防重复状态并经现有提示报告；重新连接可再次核实。新快照淘汰旧详情与核实结果；换实例丢弃原操作结果。系统通知送达仍受 macOS 通知设置约束。
 
 ## 设计依据
+
+- [Code Skills 宿主目录选择与核实](../../.agents/notes/implemented/feature/2026-10-21-desktop-code-skills.md)
 
 - [Code MCP 来源与凭据管理](../../.agents/notes/implemented/feature/2026-10-21-code-mcp-settings.md)
 

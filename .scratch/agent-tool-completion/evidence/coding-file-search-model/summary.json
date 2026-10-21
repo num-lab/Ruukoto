@@ -1,0 +1,356 @@
+{
+  "startedAt": "2026-10-21T00:21:32.608Z",
+  "root": "/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-search-model-iiz4ky_x",
+  "provider": "magpie",
+  "modelId": "workbuddy-ai/deepseek-v4.1-flash",
+  "platform": "darwin",
+  "mode": "confirm",
+  "query": "lookup.[6dd3427d]",
+  "expectedToken": "READ_CONFIRMED_ea91988dc01baf452f4abb98",
+  "workerHash": "d9e5554d700a483bce12f4bf947c6af3c08356c495dc1b8aeb93ca97eda362f6",
+  "runs": [
+    {
+      "label": "baseline",
+      "baselineMeaning": "同源码、同模型配置、同输入；toolFactory 仅过滤新增的两个检索工具，实际发送模型请求",
+      "taskId": "task_80b5b9be6d4c97cef2e8262c",
+      "sessionId": "sess_6aa7dbf2f4dea5a98ce2ecaa",
+      "status": "completed",
+      "errorMessage": null,
+      "interruptReason": null,
+      "toolOps": [],
+      "records": [
+        {
+          "id": "sel_a1e55cb917d5d7f5a45ee17b",
+          "callIndex": 1,
+          "estimates": {
+            "systemPrompt": 1503,
+            "toolSchemas": 9383,
+            "subagentRoles": 186,
+            "memories": 0,
+            "compactionSummary": 0,
+            "mandatoryTurn": 287,
+            "currentTaskBatches": 0,
+            "historyTurns": 0
+          },
+          "usage": {
+            "input": 6521,
+            "output": 75,
+            "cacheRead": 512,
+            "cacheWrite": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          },
+          "promptArtifactId": "art_cf027d5459ebe6b06d06e674",
+          "configVersion": 4267128000,
+          "windowSnapshot": {
+            "contextWindow": 1000000,
+            "maxTokens": 16384,
+            "thinkingBudget": 0,
+            "toolResultReserve": 8000,
+            "safetyMargin": 2000
+          }
+        }
+      ],
+      "sessionFile": "/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-search-model-iiz4ky_x/baseline/data/sessions/2026-10-21T00-21-34-468Z_93d5093a-2dac-41d5-a07a-a317e44b6f7f.jsonl",
+      "reply": "我需要先检查一下我实际可用的工具。\n\n我这次可用的是 `read`、`edit`、`write`、`bash`、`http_request` 等工具；其中并没有 `list_files` 和 `search_files` 这两个工具。\n\n按照你的要求，缺少工具时不要调用其他工具，直接回复：\n\n**检索工具不可用**",
+      "snapshotFiles": [
+        "/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-search-model-iiz4ky_x/baseline/evidence/prompt-1.json"
+      ],
+      "firstRequest": {
+        "toolNames": [
+          "read",
+          "edit",
+          "write",
+          "bash",
+          "request_file_access",
+          "http_request",
+          "read_artifact",
+          "agent_wait",
+          "todo_write",
+          "history_search",
+          "history_read",
+          "memory_list",
+          "memory_read",
+          "memory_save",
+          "memory_revoke",
+          "web_search",
+          "subagent_delegate",
+          "subagent_result",
+          "subagent_close",
+          "subagent_cancel",
+          "subagent_message",
+          "subagent_integrate",
+          "workflow_instructions",
+          "workflow_save",
+          "workflow_start",
+          "workflow_query",
+          "workflow_cancel",
+          "skill"
+        ],
+        "systemPrompt": 1503,
+        "toolSchemas": 9383
+      },
+      "passed": true,
+      "stopped": true
+    },
+    {
+      "label": "after",
+      "baselineMeaning": "默认工具装配的实际请求与原生工具闭环",
+      "taskId": "task_191013836557f649ee053b5c",
+      "sessionId": "sess_0630c5f6bd0c7d78a55d5593",
+      "status": "completed",
+      "errorMessage": null,
+      "interruptReason": null,
+      "toolOps": [
+        {
+          "id": "op_7a4e3e585a39d743f4cd63a5",
+          "toolName": "list_files",
+          "params": {
+            "path": "."
+          },
+          "isError": false,
+          "effectUnknown": false,
+          "resultSummary": "{\"root\":\"/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-search-model-iiz4ky_x/work\",\"entries\":[{\"path\":\"docs/target.txt\"},{\"path\":\"docs/noise.txt\"}],\"capturedCount\":2,\"scanComplete\":true,\"previewTruncated\":false,\"partial\":false,\"filtering\":\"无 glob：遵循根内 ignore、跳过隐藏；显式 glob：沿 rg 覆盖 i"
+        },
+        {
+          "id": "op_3ced0f896cbba89022fc6f40",
+          "toolName": "search_files",
+          "params": {
+            "path": ".",
+            "query": "lookup.[6dd3427d]"
+          },
+          "isError": false,
+          "effectUnknown": false,
+          "resultSummary": "{\"root\":\"/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-search-model-iiz4ky_x/work\",\"entries\":[{\"path\":\"docs/target.txt\",\"line\":2,\"text\":\"lookup.[6dd3427d]\"}],\"capturedCount\":1,\"scanComplete\":true,\"previewTruncated\":false,\"partial\":false,\"filtering\":\"无 glob：遵循根内 ignore、跳过隐藏；显式 glob"
+        },
+        {
+          "id": "op_39020e7ad3c7aeca37984be7",
+          "toolName": "read",
+          "params": {
+            "path": "docs/target.txt"
+          },
+          "isError": false,
+          "effectUnknown": false,
+          "resultSummary": "这是文件检索验收材料。\nlookup.[6dd3427d]\n应通过 read 读取后续验证值。\n无关的分隔行。\nverification_token=READ_CONFIRMED_ea91988dc01baf452f4abb98\n[完整正文已捕获：artifact art_04363f931b5a7538fbbbdf07（173 字节，read 文件正文）——需要更多内容时用 read_artifact 工具按偏移查询]"
+        }
+      ],
+      "records": [
+        {
+          "id": "sel_b3ee696d41497affb849c4c3",
+          "callIndex": 1,
+          "estimates": {
+            "systemPrompt": 1503,
+            "toolSchemas": 10493,
+            "subagentRoles": 186,
+            "memories": 0,
+            "compactionSummary": 0,
+            "mandatoryTurn": 287,
+            "currentTaskBatches": 0,
+            "historyTurns": 0
+          },
+          "usage": {
+            "input": 6555,
+            "output": 42,
+            "cacheRead": 1152,
+            "cacheWrite": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          },
+          "promptArtifactId": "art_03a3b640e97331c20c061169",
+          "configVersion": 4267128000,
+          "windowSnapshot": {
+            "contextWindow": 1000000,
+            "maxTokens": 16384,
+            "thinkingBudget": 0,
+            "toolResultReserve": 8000,
+            "safetyMargin": 2000
+          }
+        },
+        {
+          "id": "sel_f2331402f83a6ee456af4a88",
+          "callIndex": 2,
+          "estimates": {
+            "systemPrompt": 1503,
+            "toolSchemas": 10493,
+            "subagentRoles": 186,
+            "memories": 0,
+            "compactionSummary": 0,
+            "mandatoryTurn": 560,
+            "currentTaskBatches": 0,
+            "historyTurns": 0
+          },
+          "usage": {
+            "input": 263,
+            "output": 60,
+            "cacheRead": 7680,
+            "cacheWrite": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          },
+          "promptArtifactId": "art_c0a90f74ee18a1b0e492a50f",
+          "configVersion": 4267128000,
+          "windowSnapshot": {
+            "contextWindow": 1000000,
+            "maxTokens": 16384,
+            "thinkingBudget": 0,
+            "toolResultReserve": 8000,
+            "safetyMargin": 2000
+          }
+        },
+        {
+          "id": "sel_d91eeaaf6f8ffaa1b6a1ac48",
+          "callIndex": 3,
+          "estimates": {
+            "systemPrompt": 1503,
+            "toolSchemas": 10493,
+            "subagentRoles": 186,
+            "memories": 0,
+            "compactionSummary": 0,
+            "mandatoryTurn": 559,
+            "currentTaskBatches": 273,
+            "historyTurns": 0
+          },
+          "usage": {
+            "input": 270,
+            "output": 39,
+            "cacheRead": 7936,
+            "cacheWrite": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          },
+          "promptArtifactId": "art_488d2459814c93cf379e2c1e",
+          "configVersion": 4267128000,
+          "windowSnapshot": {
+            "contextWindow": 1000000,
+            "maxTokens": 16384,
+            "thinkingBudget": 0,
+            "toolResultReserve": 8000,
+            "safetyMargin": 2000
+          }
+        },
+        {
+          "id": "sel_6079913eef9df4195fbf4a0e",
+          "callIndex": 4,
+          "estimates": {
+            "systemPrompt": 1503,
+            "toolSchemas": 10493,
+            "subagentRoles": 186,
+            "memories": 0,
+            "compactionSummary": 0,
+            "mandatoryTurn": 445,
+            "currentTaskBatches": 545,
+            "historyTurns": 0
+          },
+          "usage": {
+            "input": 163,
+            "output": 191,
+            "cacheRead": 8192,
+            "cacheWrite": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          },
+          "promptArtifactId": "art_5b3475726b6cd857fc6457d6",
+          "configVersion": 4267128000,
+          "windowSnapshot": {
+            "contextWindow": 1000000,
+            "maxTokens": 16384,
+            "thinkingBudget": 0,
+            "toolResultReserve": 8000,
+            "safetyMargin": 2000
+          }
+        }
+      ],
+      "sessionFile": "/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-search-model-iiz4ky_x/after/data/sessions/2026-10-21T00-21-41-012Z_dd5f1620-238a-43ca-b3f8-5db46a06b996.jsonl",
+      "reply": "验收完成，三个工具按顺序执行，没有修改任何文件。\n\n1. **list_files**（当前目录）：可见文件共 2 个\n   - `docs/target.txt`\n   - `docs/noise.txt`\n\n2. **search_files**（query `lookup.[6dd3427d]`，不传 glob）：1 处命中\n   - 路径 `docs/target.txt`，**行号 2**\n\n3. **read** `docs/target.txt`：找到验证值\n   - `verification_token=READ_CONFIRMED_ea91988dc01baf452f4abb98`\n\n**结论**：命中文件 `docs/target.txt`，命中行号第 2 行，verification_token 值为 `READ_CONFIRMED_ea91988dc01baf452f4abb98`（位于该文件第 5 行）。",
+      "snapshotFiles": [
+        "/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-search-model-iiz4ky_x/after/evidence/prompt-1.json",
+        "/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-search-model-iiz4ky_x/after/evidence/prompt-2.json",
+        "/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-search-model-iiz4ky_x/after/evidence/prompt-3.json",
+        "/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-search-model-iiz4ky_x/after/evidence/prompt-4.json"
+      ],
+      "firstRequest": {
+        "toolNames": [
+          "read",
+          "edit",
+          "write",
+          "bash",
+          "list_files",
+          "search_files",
+          "request_file_access",
+          "http_request",
+          "read_artifact",
+          "agent_wait",
+          "todo_write",
+          "history_search",
+          "history_read",
+          "memory_list",
+          "memory_read",
+          "memory_save",
+          "memory_revoke",
+          "web_search",
+          "subagent_delegate",
+          "subagent_result",
+          "subagent_close",
+          "subagent_cancel",
+          "subagent_message",
+          "subagent_integrate",
+          "workflow_instructions",
+          "workflow_save",
+          "workflow_start",
+          "workflow_query",
+          "workflow_cancel",
+          "skill"
+        ],
+        "systemPrompt": 1503,
+        "toolSchemas": 10493
+      },
+      "passed": true,
+      "stopped": true
+    }
+  ],
+  "comparison": {
+    "basis": "两次实际请求；唯一工具装配差异是新增 list_files 与 search_files。两次使用相同输入、工作目录和模型配置，独立空会话。",
+    "before": {
+      "toolSchemas": 9383,
+      "systemPrompt": 1503,
+      "toolCount": 28
+    },
+    "after": {
+      "toolSchemas": 10493,
+      "systemPrompt": 1503,
+      "toolCount": 30
+    },
+    "delta": {
+      "toolSchemas": 1110,
+      "systemPrompt": 0
+    }
+  },
+  "workerHashAfter": "d9e5554d700a483bce12f4bf947c6af3c08356c495dc1b8aeb93ca97eda362f6",
+  "passed": true,
+  "finishedAt": "2026-10-21T00:21:49.306Z"
+}

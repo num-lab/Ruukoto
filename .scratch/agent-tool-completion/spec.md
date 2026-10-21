@@ -2,7 +2,7 @@
 
 ## 确认范围
 
-2026-10-21 拥有者要求为文件检索、后台进程和提问制定方案，并确认：两端规划，先 Coding Agent；后台进程跨消息保留，直到显式停止或会话关闭；首版先停后台再修改同目录代码，保留现有占用规则。本轮只交付方案，不实施运行代码。方案与实施按[开发流程](../../.agents/skills/development-workflow/SKILL.md)推进。
+2026-10-21 拥有者要求为文件检索、后台进程和提问制定方案，并确认：两端规划，先 Coding Agent；后台进程跨消息保留，直到显式停止或会话关闭；首版先停后台再修改同目录代码，保留现有占用规则。原方案轮只交付方案；拥有者随后授权接手 Coding 文件检索，其余切片仍仅为规划。方案与实施按[开发流程](../../.agents/skills/development-workflow/SKILL.md)推进。
 
 先交付三个 Coding 完整切片，再接个人 durable；统一模型工具语义，不共用业务存储、Task 或审批记录。实现入口依次为[文件检索](issues/01-coding-file-search.md)、[提问](issues/02-coding-owner-questions.md)、[后台进程](issues/03-coding-background-processes.md)、[个人接入](issues/04-personal-adapters.md)。各切片可独立审查，不以只注册工具或只做客户端样例视为完成。
 
@@ -29,7 +29,7 @@ Coding 的普通开发会话、Plan、只读/写入 SubAgent 和符合原规则�
 
 rg退出0为完成且有结果，退出1为完成且无结果；其他退出、权限错误或目录变化返回具名失败和已捕获部分。取消属于无写入效果，但执行未停止时仍保留原执行占用。搜索结果只是观察，后续 `read`/`read_file` 必须重新核实当前对象。
 
-设计取舍见[受控文件检索笔记](../../.agents/notes/proposed/feature/2026-10-21-controlled-file-search.md)。
+设计取舍见[受控文件检索笔记](../../.agents/notes/implemented/feature/2026-10-21-controlled-file-search.md)。
 
 ## 2. 结构化提问
 

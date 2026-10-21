@@ -38,14 +38,14 @@ const SESSION_TOOL_CATEGORIES: Record<SessionToolClass, readonly ToolCategory[]>
  * 与未知工具默认拒绝）。宿主评审任务（issue 19）在此之外另开 effect=read
  * 的 MCP（收窄规则见 Driver 的任务工具集）。
  */
-export const SUBAGENT_READONLY_TOOL_NAMES: ReadonlySet<string> = new Set(["read", "read_artifact"]);
+export const SUBAGENT_READONLY_TOOL_NAMES: ReadonlySet<string> = new Set(["read", "list_files", "search_files", "read_artifact"]);
 
 /**
  * SubAgent 任务的写入工具白名单（agent-direction issue 16，工作有写入目标
- * 时的完整集合）：read/edit/write/bash/read_artifact。无 request_file_access、
+ * 时的完整集合）：编码、文件检索与产物读取。无 request_file_access、
  * http_request、MCP 或委派工件——受限模式的工作区写入由原生边界约束，不逐次审批。
  */
-export const SUBAGENT_WRITE_TOOL_NAMES: ReadonlySet<string> = new Set(["read", "edit", "write", "bash", "read_artifact"]);
+export const SUBAGENT_WRITE_TOOL_NAMES: ReadonlySet<string> = new Set(["read", "list_files", "search_files", "edit", "write", "bash", "read_artifact"]);
 
 /** SubAgent 本任务的工具集：写入目标决定只读或写入集合；宿主评审另开只读 MCP、关 subagent_message。 */
 export interface SubAgentToolSet {

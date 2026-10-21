@@ -91,4 +91,4 @@ Coding Agent 正式入口默认且只允许 native，显式 container/local 参�
 
 完全访问的账户、环境、免审批及宿主任务授权传播采用[本决定](../feature/2026-10-12-full-access-current-account.md)；本篇其他独立规则继续适用。
 
-相关未实施方案：[受控文件检索](../../proposed/feature/2026-10-21-controlled-file-search.md)补worker工具清单；[跨轮后台执行](../../proposed/feature/2026-10-14-bash-background-lifecycle.md)另定独立执行归属。本篇原决定及当前受限执行的后续接管关系保留。
+相关方案：[受控文件检索](../../implemented/feature/2026-10-21-controlled-file-search.md)补worker工具清单；[跨轮后台执行](../../proposed/feature/2026-10-14-bash-background-lifecycle.md)另定独立执行归属。本篇原决定及当前受限执行的后续接管关系保留。

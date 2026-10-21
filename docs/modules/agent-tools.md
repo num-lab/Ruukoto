@@ -33,10 +33,12 @@
 | control | 审批参数与操作参数 | `get_confirmation_params` / `get_tool_op_params` 按 ID 分段读取大参数；`respond_confirmation` 可携带 `permission_version` 绑定审批时的权限版本 |
 | channels | IM 审批 | 拥有者私聊的审批命令在同步事务内直接到终态，绑定原请求与原权限版本并单次消费 |
 | 调度通知 | 目标解析 | 调度通知目标从本次调用的任务编号读取来源事件，由拥有者 IM 入口确定 |
-| ToolRouter | 编码工具、结构化审批、产物读取 | `read` / `edit` / `write` / `bash`、`request_file_access` / `http_request`、`read_artifact` 继续经 ToolRouter；MCP 按任务钉版计划装配 |
+| ToolRouter | 编码工具、结构化审批、产物读取 | `read` / `edit` / `write` / `bash`、`list_files` / `search_files`、`request_file_access` / `http_request`、`read_artifact` 继续经 ToolRouter；MCP 按任务钉版计划装配 |
 | MCP HTTP 传输 | `mcp/transport.ts` 的 `connectMcpEndpoint` | 接收服务标识、固定端点、超时、逐请求 token resolver 与原请求/进展持久钩子；`resumeMcpCall` 只 GET 原 SSE 流，不重发工具；宿主负责来源范围与凭据校验，调用方持有并关闭连接；`mcp/client.ts` 适配旧项目并重导出原符号 |
 
 `mcp/schema.ts` 持有两个产品复用的原工具 schema 预检，不加载旧工具或项目装配；个人持久调用、配置与审批见 [personal-durable](personal-durable.md)。共享 MCP 传输用 SDK 的分页限额最多请求 16 页，达到上限且仍需继续分页时报 `too_many_pages`，不将超限结果当成功清单返回；成功汇总后仍限制最多 64 个工具。
+
+`list_files(path?, glob?, limit?)` 递归发现普通文本文件，`search_files(query, path?, glob?, ignore_case?, limit?)` 作字面内容匹配。path 默认工作目录且必须是读取范围内现有目录；无 glob 沿根内 ignore 并跳隐藏，显式 glob 沿 rg 覆盖语义，不跟随链接、不扩授权。结果给相对路径、1起行号和有界片段，分别标 scanComplete、previewTruncated、partial 与已捕获条目数；未完成扫描不代表全部命中。limit 默认100、范围1–200，预览每行2048字符、整体64 KiB；预览裁剪仍捕获原流，可用 read_artifact 查证据。扫描10秒或捕获8 MiB即停止并保留部分结果；更大查询须收窄目录或 glob，后续 read 重新核实文件。
 
 `read` 可读取文本与 JPEG、PNG、WebP 图片，按实际文件内容识别，图片结果连同正文进入会话历史与 prompt 快照。所选模型不支持 image 时，发送前以 `image_input_unsupported` 明确失败；图片处理与传输上限见 [execution](execution.md)。
 
@@ -51,13 +53,13 @@
 | SubAgent 会话 | 空；工具按执行画像的 SubAgent 工具集单独装配 |
 | 已退役归档会话 | 不归任何类别；QQ 群会话与 chat/coding 旧角色会话是只读归档、不运行任务，算执行画像即拒绝 |
 
-普通与工作流子任务按持久来源与角色要求预检实际工具：省略清单继承可委派集合，显式工具缺少任一项或 MCP 发现失败即拒绝启动。基础 shell 不依赖写入目标；个人来源包含适用业务与 MCP，业务资格由宿主复核，账本与审批归真实子 Task。普通协作消息沿工作归属，工作流仍由运行管理；浏览器、下级委派与新工作流启动不开放。GitHub 宿主固定评审只允许 read/read_artifact 和只读 MCP，禁消息。
+普通与工作流子任务按持久来源与角色要求预检实际工具：省略清单继承可委派集合，显式工具缺少任一项或 MCP 发现失败即拒绝启动。基础 shell 不依赖写入目标；个人来源包含适用业务与 MCP，业务资格由宿主复核，账本与审批归真实子 Task。普通协作消息沿工作归属，工作流仍由运行管理；浏览器、下级委派与新工作流启动不开放。GitHub 宿主固定评审只允许 read/list_files/search_files/read_artifact 和只读 MCP，禁消息。
 
 宿主工具族按类别装配出的工具名（读者的检索入口）：
 
 | 类别 | 工具名 |
 |---|---|
-| 编码 | `read`、`edit`、`write`、`bash`、`todo_write` |
+| 编码 | `read`、`list_files`、`search_files`、`edit`、`write`、`bash`、`todo_write` |
 | 结构化审批 | `request_file_access`、`http_request` |
 | 产物 | `read_artifact` |
 | 资料与记忆 | `history_search`、`history_read`、`memory_list`、`memory_read`、`memory_save`、`memory_revoke` |
@@ -262,6 +264,8 @@ sequenceDiagram
 宿主绑定的[工作流步骤](workflows.md)另有来源画像，普通 SubAgent 不因此扩权。步骤工具是保存的来源类别、当前配置与步骤收窄的交集；main 的编码资格只映射已有受控委派的五个工具。发送、意图和实际调用前复核来源，个人业务身份属于来源，执行与审批归步骤 Task；工作流 `verify` 独立于角色，与 `target` 互斥，只开放五个编码工具并使用原生沙箱；任意角色均不能放宽。零工具、失败或未知效果不能由通过文本覆盖，汇入前重新核实账本与冻结归属。
 
 ## 设计依据
+
+- [受控文件检索](../../.agents/notes/implemented/feature/2026-10-21-controlled-file-search.md)：参数、过滤与有界证据。
 
 - [个人持久调度的独立来源与整项收尾](../../.agents/notes/implemented/architecture/2026-10-18-personal-durable-scheduled-work.md)
 

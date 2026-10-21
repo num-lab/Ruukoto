@@ -126,7 +126,7 @@ test("general 与 full_access 角色的 verify 均固定受限编码能力，零
     const text = lastUserText(req), verify = text.includes('"verify":"change"');
     if (verify) {
       assert.ok(toolNamesOf(req).length > 0);
-      assert.ok(toolNamesOf(req).every(name => ["read", "edit", "write", "bash", "read_artifact"].includes(name)));
+      assert.ok(toolNamesOf(req).every(name => ["read", "list_files", "search_files", "edit", "write", "bash", "read_artifact"].includes(name)));
       if (text.includes("ZERO_EVIDENCE")) return { kind: "text", text: '{"passed":true}' };
     }
     return changeAndVerify(req, 0);
@@ -143,7 +143,7 @@ test("general 与 full_access 角色的 verify 均固定受限编码能力，零
       assert.equal(task.accessMode, "confirm");
       assert.equal(execution.accessMode, "confirm");
       assert.equal(execution.protectSource, true);
-      assert.ok(execution.tools.every(name => ["read", "edit", "write", "bash", "read_artifact"].includes(name)));
+      assert.ok(execution.tools.every(name => ["read", "list_files", "search_files", "edit", "write", "bash", "read_artifact"].includes(name)));
       assert.equal(getWorkflowStep(rt.store, run.id, key)!.verification!.passed, key !== "empty");
     }
     assert.equal(requireSubAgentDefinition(rt.store.getSubAgent(agentTask(rt, run.id, "validate").subAgentId!)!).name, "general");

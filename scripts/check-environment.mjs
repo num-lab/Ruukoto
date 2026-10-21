@@ -16,6 +16,7 @@ export function checkEnvironment(root, {
   if (uid === 0) issues.push("请使用非 root 用户：权限拒绝测试不能以 root 身份运行");
   for (const [command, args, description] of [
     ["git", ["--version"], "Git"],
+    ["rg", ["--version"], "ripgrep（rg）"],
     ["bash", ["--version"], "Bash"],
     ["python3", ["-c", "import pty, fcntl, termios, os; master, slave = pty.openpty(); os.close(master); os.close(slave)"], "Python 3 与可用 PTY（含 pty/fcntl/termios）"],
   ]) {

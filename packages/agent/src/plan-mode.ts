@@ -25,7 +25,7 @@ export const PLAN_NOTICE: ReferenceBlock = {
  * shortcut: bash 仍可能写入工作区，只靠计划说明约束；需要硬保证时改为原生只读策略或去掉 bash。
  */
 export const PLAN_TOOL_NAMES: ReadonlySet<string> = new Set([
-  "read", "bash", "request_file_access", "http_request", "read_artifact",
+  "read", "list_files", "search_files", "bash", "request_file_access", "http_request", "read_artifact",
   "history_search", "history_read", "memory_list", "memory_read", "web_search",
   "todo_write", "skill",
 ]);

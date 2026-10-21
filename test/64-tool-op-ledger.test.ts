@@ -242,6 +242,7 @@ test("结果写入失败：只对族能核实的操作即时补记", () => {
 });
 
 test("无写入效果按工具名或持久化参数判定", () => {
+  for (const toolName of ["list_files", "search_files"]) assert.equal(hasNoWriteEffect({ toolName, params: {} }), true);
   assert.equal(hasNoWriteEffect({ toolName: "web_search", params: {} }, [WEB_SEARCH_LEDGER]), true);
   assert.equal(hasNoWriteEffect({ toolName: "http_request", params: { method: "HEAD" } }), true);
   assert.equal(hasNoWriteEffect({ toolName: "http_request", params: { method: "DELETE" } }), false);

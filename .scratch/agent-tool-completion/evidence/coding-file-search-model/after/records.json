@@ -1,0 +1,234 @@
+[
+  {
+    "id": "sel_b3ee696d41497affb849c4c3",
+    "taskId": "task_191013836557f649ee053b5c",
+    "sessionId": "sess_0630c5f6bd0c7d78a55d5593",
+    "callIndex": 1,
+    "strategy": "deterministic-v1",
+    "configVersion": 4267128000,
+    "model": "magpie/workbuddy-ai/deepseek-v4.1-flash",
+    "totalMessages": 1,
+    "includedIndices": [
+      0
+    ],
+    "excluded": [],
+    "includedMemories": [],
+    "excludedMemories": [],
+    "instructionVersion": "",
+    "skillVersion": "",
+    "cappedToolResults": [],
+    "estimates": {
+      "systemPrompt": 1503,
+      "toolSchemas": 10493,
+      "subagentRoles": 186,
+      "memories": 0,
+      "compactionSummary": 0,
+      "mandatoryTurn": 287,
+      "currentTaskBatches": 0,
+      "historyTurns": 0
+    },
+    "budget": 973616,
+    "estimatedTotal": 12469,
+    "usage": {
+      "input": 6555,
+      "output": 42,
+      "cacheRead": 1152,
+      "cacheWrite": 0,
+      "cost": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "total": 0
+      }
+    },
+    "experiment": null,
+    "promptArtifactId": "art_03a3b640e97331c20c061169",
+    "windowSnapshot": {
+      "contextWindow": 1000000,
+      "maxTokens": 16384,
+      "thinkingBudget": 0,
+      "toolResultReserve": 8000,
+      "safetyMargin": 2000
+    },
+    "checkpointId": null,
+    "createdAt": "2026-10-21T00:21:41.014Z"
+  },
+  {
+    "id": "sel_f2331402f83a6ee456af4a88",
+    "taskId": "task_191013836557f649ee053b5c",
+    "sessionId": "sess_0630c5f6bd0c7d78a55d5593",
+    "callIndex": 2,
+    "strategy": "deterministic-v1",
+    "configVersion": 4267128000,
+    "model": "magpie/workbuddy-ai/deepseek-v4.1-flash",
+    "totalMessages": 3,
+    "includedIndices": [
+      0,
+      1,
+      2
+    ],
+    "excluded": [],
+    "includedMemories": [],
+    "excludedMemories": [],
+    "instructionVersion": "",
+    "skillVersion": "",
+    "cappedToolResults": [],
+    "estimates": {
+      "systemPrompt": 1503,
+      "toolSchemas": 10493,
+      "subagentRoles": 186,
+      "memories": 0,
+      "compactionSummary": 0,
+      "mandatoryTurn": 560,
+      "currentTaskBatches": 0,
+      "historyTurns": 0
+    },
+    "budget": 973616,
+    "estimatedTotal": 12742,
+    "usage": {
+      "input": 263,
+      "output": 60,
+      "cacheRead": 7680,
+      "cacheWrite": 0,
+      "cost": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "total": 0
+      }
+    },
+    "experiment": null,
+    "promptArtifactId": "art_c0a90f74ee18a1b0e492a50f",
+    "windowSnapshot": {
+      "contextWindow": 1000000,
+      "maxTokens": 16384,
+      "thinkingBudget": 0,
+      "toolResultReserve": 8000,
+      "safetyMargin": 2000
+    },
+    "checkpointId": null,
+    "createdAt": "2026-10-21T00:21:43.094Z"
+  },
+  {
+    "id": "sel_d91eeaaf6f8ffaa1b6a1ac48",
+    "taskId": "task_191013836557f649ee053b5c",
+    "sessionId": "sess_0630c5f6bd0c7d78a55d5593",
+    "callIndex": 3,
+    "strategy": "deterministic-v1",
+    "configVersion": 4267128000,
+    "model": "magpie/workbuddy-ai/deepseek-v4.1-flash",
+    "totalMessages": 5,
+    "includedIndices": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ],
+    "excluded": [],
+    "includedMemories": [],
+    "excludedMemories": [],
+    "instructionVersion": "",
+    "skillVersion": "",
+    "cappedToolResults": [],
+    "estimates": {
+      "systemPrompt": 1503,
+      "toolSchemas": 10493,
+      "subagentRoles": 186,
+      "memories": 0,
+      "compactionSummary": 0,
+      "mandatoryTurn": 559,
+      "currentTaskBatches": 273,
+      "historyTurns": 0
+    },
+    "budget": 973616,
+    "estimatedTotal": 13014,
+    "usage": {
+      "input": 270,
+      "output": 39,
+      "cacheRead": 7936,
+      "cacheWrite": 0,
+      "cost": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "total": 0
+      }
+    },
+    "experiment": null,
+    "promptArtifactId": "art_488d2459814c93cf379e2c1e",
+    "windowSnapshot": {
+      "contextWindow": 1000000,
+      "maxTokens": 16384,
+      "thinkingBudget": 0,
+      "toolResultReserve": 8000,
+      "safetyMargin": 2000
+    },
+    "checkpointId": null,
+    "createdAt": "2026-10-21T00:21:45.105Z"
+  },
+  {
+    "id": "sel_6079913eef9df4195fbf4a0e",
+    "taskId": "task_191013836557f649ee053b5c",
+    "sessionId": "sess_0630c5f6bd0c7d78a55d5593",
+    "callIndex": 4,
+    "strategy": "deterministic-v1",
+    "configVersion": 4267128000,
+    "model": "magpie/workbuddy-ai/deepseek-v4.1-flash",
+    "totalMessages": 7,
+    "includedIndices": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+    ],
+    "excluded": [],
+    "includedMemories": [],
+    "excludedMemories": [],
+    "instructionVersion": "",
+    "skillVersion": "",
+    "cappedToolResults": [],
+    "estimates": {
+      "systemPrompt": 1503,
+      "toolSchemas": 10493,
+      "subagentRoles": 186,
+      "memories": 0,
+      "compactionSummary": 0,
+      "mandatoryTurn": 445,
+      "currentTaskBatches": 545,
+      "historyTurns": 0
+    },
+    "budget": 973616,
+    "estimatedTotal": 13172,
+    "usage": {
+      "input": 163,
+      "output": 191,
+      "cacheRead": 8192,
+      "cacheWrite": 0,
+      "cost": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "total": 0
+      }
+    },
+    "experiment": null,
+    "promptArtifactId": "art_5b3475726b6cd857fc6457d6",
+    "windowSnapshot": {
+      "contextWindow": 1000000,
+      "maxTokens": 16384,
+      "thinkingBudget": 0,
+      "toolResultReserve": 8000,
+      "safetyMargin": 2000
+    },
+    "checkpointId": null,
+    "createdAt": "2026-10-21T00:21:46.882Z"
+  }
+]

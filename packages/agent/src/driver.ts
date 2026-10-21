@@ -592,7 +592,7 @@ export class Driver {
       ...(this.allows("coding") ? this.deps.toolFactory({ registry: this.registry, router: this.router })
         .filter(tool => !this.profile.workflow || this.profile.toolClass !== "main" || subAgentAllows({ write: true, review: false }, tool.name)) : []),
       ...(this.profile.workflow && !this.allows("coding")
-        ? this.deps.toolFactory({ registry: this.registry, router: this.router }).filter(tool => tool.name === "read" || tool.name === "read_artifact") : []),
+        ? this.deps.toolFactory({ registry: this.registry, router: this.router }).filter(tool => subAgentAllows({ write: false, review: false }, tool.name)) : []),
       ...(subAgentTools
         ? this.deps.toolFactory({ registry: this.registry, router: this.router })
             .filter((t) => subAgentAllows(subAgentTools, t.name))

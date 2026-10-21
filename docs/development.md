@@ -7,7 +7,7 @@ npm run setup
 npm run check
 ```
 
-`setup` 检查 macOS / Linux、普通用户账户、Node ≥ 22.19、Git、Bash、Python 3 与 PTY ，再在根目录和 `verification/foundation/` 执行 `npm ci` 并安装 Git 管理的 pre-commit 钩子。首次安装需网络；`check` 使用本地 mock 模型和临时数据，不需要模型凭据、Docker、真实 IM 或系统服务。Python 3 的 PTY 检查保证终端用例实际执行。依赖变化时更新对应 `package.json` 与 `package-lock.json`并重跑 `setup`。
+`setup` 检查 macOS / Linux、普通用户账户、Node ≥ 22.19、Git、ripgrep（`rg`）、Bash、Python 3 与 PTY ，再在根目录和 `verification/foundation/` 执行 `npm ci` 并安装 Git 管理的 pre-commit 钩子。首次安装需网络；`check` 使用本地 mock 模型和临时数据，不需要模型凭据、Docker、真实 IM 或系统服务。Python 3 的 PTY 检查保证终端用例实际执行。依赖变化时更新对应 `package.json` 与 `package-lock.json`并重跑 `setup`。
 
 macOS 构建原生监督器另需 Command Line Tools 的 Clang。平台前置、真实证据与复跑命令见[原生边界验证](../verification/foundation/scripts/native-isolation/README.md)；离线 local 测试不证明 OS 边界。
 

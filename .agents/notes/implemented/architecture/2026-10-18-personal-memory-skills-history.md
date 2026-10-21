@@ -2,6 +2,8 @@
 
 Status: implemented
 
+相关未实施方案：[桌面设置管理](../../proposed/feature/2026-10-21-desktop-settings-management.md)拟增加固定托管技能来源与状态清单，不取代本篇外部技能库、停机配置与实际请求证据。
+
 ## 问题
 
 [个人迁移](../../proposed/architecture/2026-10-17-personal-pi-durable.md)要求新历史、可撤销记忆与技能，并保留实际模型输入。旧 MemoryStore、项目 Db、JSONL 和角色装配不能成为新实例的运行依赖。长期子身份保留上下文，也不能借历史或记忆取得父聊天及旧工作授权；durable 的 section/hook 抛错会被报告后继续，不能承担来源失效时的停止保证。

@@ -2,6 +2,8 @@
 
 Status: implemented
 
+相关未实施方案：[桌面设置管理](../../proposed/feature/2026-10-21-desktop-settings-management.md)提供配置入口，保留本篇允许列表、批准消费与未知效果规则。
+
 原编号：ADR 0008
 
 ## 问题

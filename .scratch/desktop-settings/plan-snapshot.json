@@ -1,0 +1,84 @@
+{
+  "base": "614d97cecb693f934b80486d20723fcda533a993",
+  "reviewer": "/root/plan_review",
+  "reviewed_content_manifest_sha256": "9a4ce2ab188cc6a67a72deb5fa262406a341ad88bbcd663f2f6728b9068b5bc2",
+  "scope": "技术正文审查通过后，仅更新工单状态、审查交接文字与记录入口；下列为最终文件指纹。",
+  "files": [
+    {
+      "path": ".agents/notes/implemented/architecture/2026-09-23-mcp-client.md",
+      "sha256": "32e0c0881b5122713891a1b4d78142754d984aaaabd832ba10944d170b49ecf4"
+    },
+    {
+      "path": ".agents/notes/implemented/architecture/2026-10-14-agent-wait-and-report-ownership.md",
+      "sha256": "3b520a7edf1b23acf2113a262fb3ddcb0b25384137765db6d848755c318edf3d"
+    },
+    {
+      "path": ".agents/notes/implemented/architecture/2026-10-15-desktop-shadcn-demo.md",
+      "sha256": "d6fe01aeb75c61a049b638867a178f8586714e2191903fc1136ed90298d1f8f6"
+    },
+    {
+      "path": ".agents/notes/implemented/architecture/2026-10-17-personal-durable-mcp.md",
+      "sha256": "56c07507d9176a9970d928d0a096010eae5ec6cdff1fbc2e752ce9cd4f0e3120"
+    },
+    {
+      "path": ".agents/notes/implemented/architecture/2026-10-18-personal-memory-skills-history.md",
+      "sha256": "8c1646051a347d9862a988c51373c642dbde9d623d2a6e3a5c67037020767bb6"
+    },
+    {
+      "path": ".agents/notes/implemented/feature/2026-09-23-mcp-write-tools-approval.md",
+      "sha256": "592d66773bbc4c9642696af3672051ddca64a3211e861ae25acebf60e72b93b4"
+    },
+    {
+      "path": ".agents/notes/implemented/process/2026-10-14-progressive-human-interaction.md",
+      "sha256": "7fa2cad25dd92e5a2b2a033f85c21d59e84e8ae021c470e41332b7cf9e853ca8"
+    },
+    {
+      "path": ".agents/notes/proposed/architecture/2026-10-15-desktop-client.md",
+      "sha256": "7c7e7ca6c16894ebc8d9c7efc948d109a72b028329b85c20a7ee8e2b0ba0d29c"
+    },
+    {
+      "path": ".agents/notes/proposed/feature/2026-10-21-desktop-settings-management.md",
+      "sha256": "8da1074297995c7d558a32e743ed090504e561c4f0d26ce54892efc4c2c179cc"
+    },
+    {
+      "path": ".scratch/desktop-settings/issues/01-settings-shell.md",
+      "sha256": "5675c01b6ab1389c0ebee8a9b32c4829652685862bbe2a4ff6c78efcd82c3510"
+    },
+    {
+      "path": ".scratch/desktop-settings/issues/02-code-models.md",
+      "sha256": "001d00e67dbc521dd3d7b97b26e80d7bc3f08809dacbf60fa9079830b791ab4c"
+    },
+    {
+      "path": ".scratch/desktop-settings/issues/03-code-mcp.md",
+      "sha256": "3a6e00fd49607041730b642a8607c0312c7f26efee751114d945ba0aa2c6b6d7"
+    },
+    {
+      "path": ".scratch/desktop-settings/issues/04-managed-skills.md",
+      "sha256": "ff725befb695749e9302568978f7490addd30d07db0d49f7766fd203f12c8cd9"
+    },
+    {
+      "path": ".scratch/desktop-settings/issues/05-code-skills.md",
+      "sha256": "7b9de2f19c65230000326b37d49903876d55c97a9652e88f7cd8ef2b1e969c23"
+    },
+    {
+      "path": ".scratch/desktop-settings/issues/06-personal-settings-api.md",
+      "sha256": "c9d82a1583c636adb06f9f101fc4befdb118a122fca7b97b159f0b85bc07cce7"
+    },
+    {
+      "path": ".scratch/desktop-settings/issues/07-personal-connection.md",
+      "sha256": "9b2fa0f1677895909c7a3ecf0831cfac09cae03dc97ffd4e4dfdfdda453071f0"
+    },
+    {
+      "path": ".scratch/desktop-settings/issues/08-personal-pages.md",
+      "sha256": "290ce8b8c02ec5b05392026d2eb42eae7793b715532697a9b52f0473dd8da2d3"
+    },
+    {
+      "path": ".scratch/desktop-settings/issues/09-acceptance.md",
+      "sha256": "e0d7d44c48874c587b5560d66f603e317bb439d7e12e1754c91e380537339a51"
+    },
+    {
+      "path": ".scratch/desktop-settings/spec.md",
+      "sha256": "d1d7538716d2755a91207b5518adead064413fe3146257645eb213bfefbb2a1f"
+    }
+  ]
+}

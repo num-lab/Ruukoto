@@ -12,7 +12,7 @@ import type { PersonalMaintenanceRecord, PersonalMaintenanceStatus, PersonalMana
 const REQUEST_LIMIT = 128 * 1024, RESPONSE_LIMIT = 256 * 1024;
 const READ_OPS = ["settings.read", "lifecycle.status", "config.preflight", "model.test", "mcp.discover", "mcp.get", "skills.list", "skills.get", "skills.select-directory", "skills.preview-import"];
 const WRITE_OPS = ["config.save", "mcp.migrate", "mcp.set-enabled", "mcp.remove", "mcp.save-service", "skills.import", "skills.set-enabled", "skills.remove"];
-const WRITE_REJECTIONS = ["settings_pending", "settings_profile_changed", "settings_revision_changed", "settings_stop_required", "profile_busy"];
+const WRITE_REJECTIONS = ["settings_pending", "settings_profile_changed", "settings_revision_changed", "skills_revision_conflict", "settings_stop_required", "profile_busy"];
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
 const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const sameProfile = (a: PersonalProfileIdentity, b: PersonalProfileIdentity) => a.id === b.id && a.directory === b.directory;

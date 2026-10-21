@@ -1,0 +1,5 @@
+{"stage":"preflight","online":true,"writable":true,"code":"maintenance_ready","reason":"已核实原系统级服务；保存前仍需检查实际后台凭据与未决事项。","credential":"available"}
+{"stage":"new-profile-model-test","passed":true,"realSystemd":true,"packagedMyGoHost":true}
+{"stage":"new-profile-model-save","saved":true,"started":true}
+{"stage":"new-profile-skills","imported":true,"disabled":true,"started":true}
+{"stage":"host-close","childExited":true,"diagnosticChunks":0,"userData":"/tmp/rk09-mygo-host-w2JI8V"}

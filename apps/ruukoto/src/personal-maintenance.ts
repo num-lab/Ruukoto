@@ -68,7 +68,8 @@ async function unitProperties(): Promise<Record<string, string>> {
 
 export function validatePersonalMaintenanceUnit(properties: Record<string, string>, expected: { program: string; directory: string; node: string; user: string; uid: number }): void {
   if (properties.Id !== UNIT || properties.LoadState !== "loaded" || properties.NeedDaemonReload !== "no" || properties.Type !== "simple" || properties.RefuseManualStart !== "no" || properties.RefuseManualStop !== "no") throw unavailable("maintenance_unit_invalid", "系统级固定服务未正确加载或不支持手动启停，请管理员核实单元并 daemon-reload；设置保持只读。");
-  if (properties.SendSIGKILL !== "no" || properties.TimeoutStopFailureMode !== "terminate" || properties.KillMode !== "control-group" || !["15", "SIGTERM"].includes(properties.KillSignal) || properties.ExecStop !== "" || properties.ExecStopPost !== "") throw unavailable("maintenance_force_kill_enabled", "原服务未配置安全优雅停止，请管理员设置 SendSIGKILL=no、TimeoutStopFailureMode=terminate、KillMode=control-group 与 KillSignal=SIGTERM；设置保持只读。");
+  // systemctl show 对空的命令数组不输出属性，即使传了 --all。
+  if (properties.SendSIGKILL !== "no" || properties.TimeoutStopFailureMode !== "terminate" || properties.KillMode !== "control-group" || !["15", "SIGTERM"].includes(properties.KillSignal) || (properties.ExecStop ?? "") !== "" || (properties.ExecStopPost ?? "") !== "") throw unavailable("maintenance_force_kill_enabled", "原服务未配置安全优雅停止，请管理员设置 SendSIGKILL=no、TimeoutStopFailureMode=terminate、KillMode=control-group 与 KillSignal=SIGTERM；设置保持只读。");
   if (![expected.user, String(expected.uid)].includes(properties.User)) throw unavailable("maintenance_account_mismatch", "服务运行账户与 SSH 账户不同，请选择同账户的受支持部署；设置保持只读。");
   const execution = properties.ExecStart?.match(/^\{ path=([^;]+?) ; argv\[\]=([^;]+?) ; ignore_errors=no ; /);
   let matched = false;
@@ -126,7 +127,7 @@ async function inspect(directory: string, request: PersonalMaintenanceRequest): 
     if (current.online) {
       if (properties.ActiveState !== "active" || properties.SubState !== "running" || Number(properties.MainPID) !== current.lifecycle.pid) throw unavailable("maintenance_service_mismatch", "固定服务与控制后台不属于同一运行实例，请核对档案与服务；设置保持只读。");
       result.lifecycle.processIdentity = verifyProcess(current.lifecycle.pid!, request, canonicalDirectory);
-    } else if (properties.ActiveState !== "inactive" || properties.MainPID !== "0") throw unavailable("maintenance_stop_unverified", "服务尚未确认退出，档案保持不变；请核实原服务与档案锁后重新连接。");
+    } else if (!["inactive", "failed"].includes(properties.ActiveState) || properties.MainPID !== "0") throw unavailable("maintenance_stop_unverified", "服务尚未确认退出，档案保持不变；请核实原服务与档案锁后重新连接。");
     for (const action of ["start", "stop"]) if ((await command(SUDO, ["-n", "-l", SYSTEMCTL, action, UNIT])).code !== 0) throw unavailable("maintenance_authorization_missing", "缺少固定服务的非交互 start/stop 授权，请管理员安装精确 sudoers 规则后重新连接；设置保持只读。");
     result.writable = true; result.code = "maintenance_ready"; result.reason = current.online ? "已核实原系统级服务；保存前仍需检查实际后台凭据与未决事项。" : "已核实停止的系统级服务；可显式恢复启动，原服务凭据环境尚未验证。";
     return { result, unit: properties };
@@ -147,7 +148,7 @@ export async function executePersonalMaintenance(directory: string, value: unkno
   if (!before.writable) throw unavailable(before.code, before.reason);
   if (request.op === "stop") {
     if (!before.online) throw unavailable("maintenance_already_stopped", "原服务已经停止，请读取原操作结果后决定恢复启动；未重放停止。");
-    const settings = await personalControl<SettingsStatus>(directory, "POST", "/settings", { v: 1, op: "settings.read" }, 5000);
+    const settings = await personalControl<SettingsStatus>(directory, "POST", "/settings", { v: 1, op: "settings.read", limit: 1 }, 5000);
     sameProfile(before.profile, settings.profile);
     if (!Array.isArray(settings.blockers) || settings.blockers.length) throw unavailable("settings_pending", "仍有未决输入、工作或未知外部占用，未停止服务；请先用原配置处理。");
     const latest = await inspect(directory, request);

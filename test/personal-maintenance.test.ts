@@ -10,6 +10,7 @@ import { syncBuiltinESMExports } from "node:module";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { savePersonalConfig } from "../apps/ruukoto/src/personal-config.ts";
+import { savePersonalMcp } from "../apps/ruukoto/src/personal-mcp-config.ts";
 import { lockPersonalProfile } from "../apps/ruukoto/src/personal-profile.ts";
 import { personalControl, startPersonalServer } from "../apps/ruukoto/src/personal-control.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
@@ -49,7 +50,7 @@ function fakeSystemd(t: TestContext, properties: Record<string, string>, rejecte
     queueMicrotask(async () => {
       let result = args.includes(rejected) ? 1 : 0;
       if (file === "/usr/bin/sudo" && !args.includes("-l") && action) { const effect = await action(args); if (effect === "hold") return; result = effect; }
-      if (file === "/usr/bin/systemctl") stdout.write(Object.entries(properties).map(([key, value]) => `${key}=${value}`).join("\n") + "\n");
+      if (file === "/usr/bin/systemctl") stdout.write(Object.entries(properties).filter(([, value]) => value !== "").map(([key, value]) => `${key}=${value}`).join("\n") + "\n");
       stdout.end(); child.emit("close", result);
     });
     return child;
@@ -94,7 +95,7 @@ test("实际后台标记开发受管时拒绝 systemd 接管，退出后仍可�
 test("部署检查拒绝默认超时强杀、停止脚本、错账户、旧入口与错档案，接受同目标程序链接", async t => {
   const f = await fixture(t), properties = unit(f.directory), expected = { program, directory: f.directory, node: fs.realpathSync(process.execPath), user: os.userInfo().username, uid: process.getuid!() };
   validatePersonalMaintenanceUnit(properties, expected);
-  const invalid: Record<string, string>[] = [{ SendSIGKILL: "yes" }, { TimeoutStopFailureMode: "abort" }, { TimeoutStopFailureMode: "kill" }, { KillSignal: "9" }, { ExecStop: "/bin/kill -9" }, { User: "someone-else" }, { NeedDaemonReload: "yes" }, { ExecStart: properties.ExecStart.replace(" serve --directory " + f.directory, " serve") }, { ExecStart: properties.ExecStart.replace(f.directory, f.root) }, { Id: "alias.service" }];
+  const invalid: Record<string, string>[] = [{ SendSIGKILL: "yes" }, { TimeoutStopFailureMode: "abort" }, { TimeoutStopFailureMode: "kill" }, { KillSignal: "9" }, { ExecStop: "/bin/kill -9" }, { ExecStopPost: "/bin/kill -9" }, { User: "someone-else" }, { NeedDaemonReload: "yes" }, { ExecStart: properties.ExecStart.replace(" serve --directory " + f.directory, " serve") }, { ExecStart: properties.ExecStart.replace(f.directory, f.root) }, { Id: "alias.service" }];
   for (const changes of invalid) assert.throws(() => validatePersonalMaintenanceUnit({ ...properties, ...changes }, expected), PersonalError);
   const link = path.join(f.root, "ruukoto-link"); fs.symlinkSync(program, link);
   validatePersonalMaintenanceUnit(properties, { ...expected, program: link });
@@ -122,6 +123,23 @@ test("缺精确 stop 授权只读且不能启动，原档案保持", async t => 
   assert.ok(!calls.some(call => !call.args.includes("-l") && call.file === "/usr/bin/sudo"));
 });
 
+test("失败的固定服务在原后台退出且档案锁可取后允许显式恢复启动", async t => {
+  const f = await fixture(t), properties = { ...unit(f.directory), ActiveState: "failed" };
+  let server: Awaited<ReturnType<typeof startPersonalServer>> | undefined;
+  const { calls } = fakeSystemd(t, properties, "", async args => {
+    assert.equal(args[2], "start"); server = await startPersonalServer(f.directory);
+    Object.assign(properties, { ActiveState: "active", SubState: "running", MainPID: String(process.pid) }); return 0;
+  });
+  runningProcess(t, f.directory, () => true);
+  try {
+    const before = await executePersonalMaintenance(f.directory, { ...f.request, lifecycle: "systemd" });
+    assert.equal(before.online, false); assert.equal(before.writable, true);
+    const started = await executePersonalMaintenance(f.directory, { ...f.request, lifecycle: "systemd", op: "start", profile: before.profile });
+    assert.equal(started.online, true); assert.equal(started.code, "maintenance_started");
+    assert.equal(calls.filter(call => call.file === "/usr/bin/sudo" && !call.args.includes("-l")).length, 1);
+  } finally { await server?.stop(); }
+});
+
 function runningProcess(t: TestContext, directory: string, alive: () => boolean) {
   const read = nodeFs.readFileSync, realpath = nodeFs.realpathSync, exists = nodeFs.existsSync;
   t.mock.method(nodeFs, "readFileSync", (target: fs.PathOrFileDescriptor, options?: Parameters<typeof fs.readFileSync>[1]) => {
@@ -136,8 +154,10 @@ function runningProcess(t: TestContext, directory: string, alive: () => boolean)
   syncBuiltinESMExports(); t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports(); });
 }
 
-test("受控 systemd 停止原监督者，确认原进程退出与档案锁；随后按原服务显式启动", async t => {
-  const f = await fixture(t); let server = await startPersonalServer(f.directory), alive = true;
+test("受控 systemd 在大 MCP 列表下停止原监督者，确认原进程退出与档案锁；随后按原服务显式启动", async t => {
+  const f = await fixture(t);
+  await savePersonalMcp(f.directory, { version: 2, generation: "large-maintenance", services: Array.from({ length: 5 }, (_, i) => ({ id: `service-${i}`, label: `服务 ${i}`, endpoint: "https://mcp.example.test/api", enabled: false, tools: Array.from({ length: 64 }, (_, j) => ({ name: `tool-${j}`, description: "x".repeat(1024), inputSchema: { type: "object" } })) })) });
+  let server = await startPersonalServer(f.directory), alive = true;
   const properties = { ...unit(f.directory), ActiveState: "active", SubState: "running", MainPID: String(process.pid) };
   const { calls } = fakeSystemd(t, properties, "", async args => {
     assert.deepEqual(args, ["-n", "/usr/bin/systemctl", args[2], "ruukoto-backend.service"]);

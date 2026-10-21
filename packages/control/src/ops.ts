@@ -13,6 +13,7 @@ import type { ToolResultField } from "@ruukoto/core/history.ts";
 
 /** Runtime 方法的返回类型（去掉 Promise）。 */
 type R<M extends keyof Runtime> = Runtime[M] extends (...args: any[]) => infer T ? Awaited<T> : never;
+type SkillId = Parameters<Runtime["getSkill"]>[0];
 
 export type HistorySearchWireCursor = { session_id: string; byte_offset: number; phase?: "index" | "scan"; read_offset?: number; source?: { file_dev: number; file_ino: number; min_size: number }; query_key?: string };
 
@@ -132,6 +133,12 @@ export interface TuiOps {
     result: R<"searchHistory">;
   };
   list_skills: { params: None; result: R<"listSkills"> };
+  skills_list: { params: { offset?: number; limit?: number }; result: R<"listManagedSkills"> };
+  skill_get: { params: { skill_id: SkillId }; result: R<"getSkill"> };
+  skill_import_preview: { params: { source_dir: string }; result: R<"previewSkillImport"> };
+  skill_import: { params: { skill_id: SkillId; source_dir: string; content_revision: string; expected_revision: string }; result: R<"importSkill"> };
+  skill_set_enabled: { params: { skill_id: SkillId; enabled: boolean; expected_revision: string }; result: R<"setSkillEnabled"> };
+  skill_remove: { params: { skill_id: SkillId; expected_revision: string }; result: R<"removeSkill"> };
   list_subagent_roles: { params: None; result: R<"listSubAgentRoles"> };
   list_memories: { params: { project_id?: string; personal?: boolean }; result: { memories: R<"listMemories"> } };
   get_memory: { params: { memory_id: string }; result: R<"getMemoryDetail"> };

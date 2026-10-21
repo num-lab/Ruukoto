@@ -206,6 +206,9 @@ export class ControlServer {
     const workflowParams = (...allowed: string[]): void => {
       if (Object.keys(params).some(key => !allowed.includes(key))) throw new RuntimeApiError("invalid_params", "工作流参数含未开放字段；请按接口提交，身份和授权由宿主核实");
     };
+    const skillsParams = (...allowed: string[]): void => {
+      if (Object.keys(params).some(key => !allowed.includes(key))) throw new RuntimeApiError("invalid_params", "技能管理参数含未开放字段，请刷新技能列表后重试。");
+    };
     const workflowInt = (key: string, fallback: number, minimum = 0, maximum = Number.MAX_SAFE_INTEGER): number => {
       const value = params[key] ?? fallback;
       if (!Number.isSafeInteger(value) || (value as number) < minimum || (value as number) > maximum) throw new RuntimeApiError("invalid_params", `${key} 超出允许整数范围`);
@@ -837,6 +840,25 @@ export class ControlServer {
         return runtime.getSelectionRecord(requireString("record_id"));
       case "list_skills":
         return runtime.listSkills();
+      case "skills_list":
+        skillsParams("offset", "limit");
+        return runtime.listManagedSkills({ offset: workflowInt("offset", 0), limit: workflowInt("limit", 50, 1, 100) });
+      case "skill_get":
+        skillsParams("skill_id");
+        return runtime.getSkill(requireString("skill_id"));
+      case "skill_import_preview":
+        skillsParams("source_dir");
+        return runtime.previewSkillImport(requireString("source_dir"));
+      case "skill_import":
+        skillsParams("skill_id", "source_dir", "content_revision", "expected_revision");
+        return runtime.importSkill({ id: requireString("skill_id"), sourceDir: requireString("source_dir"), contentRevision: requireString("content_revision"), expectedRevision: requireString("expected_revision") });
+      case "skill_set_enabled":
+        skillsParams("skill_id", "enabled", "expected_revision");
+        if (typeof params["enabled"] !== "boolean") throw new RuntimeApiError("invalid_params", "enabled 必须为布尔值，请选择启用或停用。");
+        return runtime.setSkillEnabled({ id: requireString("skill_id"), enabled: params["enabled"], expectedRevision: requireString("expected_revision") });
+      case "skill_remove":
+        skillsParams("skill_id", "expected_revision");
+        return runtime.removeSkill({ id: requireString("skill_id"), expectedRevision: requireString("expected_revision") });
       case "list_subagent_roles":
         return runtime.listSubAgentRoles();
       case "get_context_breakdown":

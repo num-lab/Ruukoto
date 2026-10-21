@@ -63,7 +63,8 @@ import {
 import { createModelCatalog,ModelSelectionError,type ModelCatalog,type ModelOption } from "@ruukoto/agent/model-selection.ts";
 import { createApprovalReviewer,type ApprovalReviewer } from "@ruukoto/agent/review.ts";
 import { sessionsDirFor } from "@ruukoto/agent/session-factory.ts";
-import { createSkillFamily,loadSkillLibrary,skillsDirFor } from "@ruukoto/agent/skills.ts";
+import { createSkillFamily,skillsDirFor,type SkillId } from "@ruukoto/agent/skills.ts";
+import { loadHostSkillLibrary, ManagedSkillsStore } from "@ruukoto/agent/managed-skills.ts";
 import { subagentOpCheck, subAgentTaskRequestId } from "@ruukoto/agent/subagent-ledger.ts";
 import { createSubAgentFamily } from "@ruukoto/agent/subagent-tools.ts";
 import { subAgentAccessPolicy } from "@ruukoto/agent/subagent-capabilities.ts";
@@ -5363,7 +5364,7 @@ export class Runtime {
 
   /** 技能库（issue 22）：当前库内容与诊断，只读；任务使用的是各自开始时的钉版。 */
   listSkills(): { dir: string; skills: Array<{ name: string; explicitOnly: boolean; description: string }>; diagnostics: string[] } {
-    const lib = loadSkillLibrary(this.config.agentDir);
+    const lib = loadHostSkillLibrary(this.config.agentDir);
     return {
       dir: skillsDirFor(this.config.agentDir),
       skills: lib.skills.map((s) => ({
@@ -5373,6 +5374,30 @@ export class Runtime {
       })),
       diagnostics: lib.diagnostics,
     };
+  }
+
+  listManagedSkills(input: { offset?: number; limit?: number } = {}) {
+    return new ManagedSkillsStore(this.config.agentDir).list(input);
+  }
+
+  getSkill(id: SkillId) {
+    return new ManagedSkillsStore(this.config.agentDir).get(id);
+  }
+
+  previewSkillImport(sourceDir: string) {
+    return new ManagedSkillsStore(this.config.agentDir).preview(sourceDir);
+  }
+
+  importSkill(input: { id: SkillId; sourceDir: string; contentRevision: string; expectedRevision: string }) {
+    return new ManagedSkillsStore(this.config.agentDir).import(input);
+  }
+
+  setSkillEnabled(input: { id: SkillId; enabled: boolean; expectedRevision: string }) {
+    return new ManagedSkillsStore(this.config.agentDir).setEnabled(input);
+  }
+
+  removeSkill(input: { id: SkillId; expectedRevision: string }) {
+    return new ManagedSkillsStore(this.config.agentDir).remove(input);
   }
 
   listSubAgentRoles() {

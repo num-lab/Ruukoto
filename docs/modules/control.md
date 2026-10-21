@@ -51,6 +51,7 @@
 | 工作流运行 | `workflow_list`、`workflow_get`、`workflow_step`、`workflow_logs`、`workflow_control`、`workflow_question`、`workflow_answer` | 有界事实与正文读取，版本化拥有者控制和业务回答；不消费工具批准 |
 | 历史与产物 | `read_history`、`read_history_entry`、`read_tool_result`、`search_history`、`read_artifact` | `read_history` 是唯一权威历史的投影，分页与分段读；`read_artifact` 按任务与产物 ID 读正文 |
 | 上下文与技能 | `list_selection_records`、`get_selection_record`、`get_context_breakdown`、`list_prompt_requests`、`read_prompt_snapshot`、`list_skills`、`list_subagent_roles` | 选择记录与 prompt 快照分段读；技能与子代理角色查询返回实例目录、有效条目及加载诊断 |
+| 技能管理 | `skills_list`、`skill_get`、`skill_import_preview`、`skill_import`、`skill_set_enabled`、`skill_remove` | 列表与正文有界；按稳定身份与内容修订管理托管副本，外部来源只读 |
 | 项目配置、资料授权与记忆 | `set_project_instructions`、`set_project_web_search`、`get_project_jev`、`set_project_jev`、`create_data_grant`、`revoke_data_grant`、`list_data_grants`、`list_memories`、`get_memory`、`save_memory`、`revoke_memory`、`restore_memory` | 写操作按 `expected_version` 条件更新；资料授权只能由拥有者此处创建与撤销 |
 | 凭据 | `list_credentials`、`add_credential`、`remove_credential` | `list_credentials` 返回脱敏元数据和服务引用，可按原项目及端点主机过滤，不回显值；秘密值随请求传输，不进命令行、模型上下文、事件或日志 |
 | MCP | `mcp_sources`、`mcp_configure`、`mcp_list`、`mcp_set_enabled`、`mcp_remove`、`mcp_check`、`mcp_save_credential`、`mcp_remove_credential` | 来源按工作区分页，配置按原项目与 `expected_version` 更新，桌面同时提交原 `service_id` 防止同名重建覆盖；检查禁用服务也只发现工具；专用凭据首次写入即限定来源与 MCP 操作 |
@@ -64,6 +65,8 @@
 `credentials[provider].configured` 与 set/remove API key 的同名应答只表示 auth.json 存储条目是否存在。移除存储条目后目录、环境或其他来源仍可能生效；目录秘密按具体字段保存，脱敏占位符沿用原值。认证可用性与远程连通性由执行校验及显式 `test_model_connection` 分别核实。
 
 模型配置应用失败恢复原文件，保留已知类型的错误 code，并返回固定检查指引；SDK 或上游服务的原始错误可能含展开后的凭据，不转发给客户端。连接测试失败同样只显示固定指引，超时单独说明；成功只确认所选提供方与模型。
+
+`list_skills` 保留 TUI 的有效技能库与诊断查询；`skills_list` 另返回外部及托管来源、只读性、启停状态、内容修订与管理修订。`skill_get` 只按技能身份读取有界正文。导入预览接受所属后台的单个源包目录，提交回传原预览的 `skill_id`、`source_dir`、`content_revision` 和 `expected_revision`；启停与移除只接身份、期望修订及启用值。导入重新核对源内容，冲突拒绝覆盖；逻辑移除保留旧正文与引用，丢答后按原身份读回，不复制第二份。客户端的本机或远端选择约束由各自宿主持有，技能接口不提供任意文件读取、删除或脚本执行。
 
 **握手。** `connect` 的 `since` 可选，是非负整数游标；返回 `{seq, replay, snapshot}`。快照读取与订阅注册在同一个同步段内完成，保证快照序号 `seq` 与实时推送之间无缺口；`replay` 是 `(since, seq]` 的补发事件，fresh connect（不带 `since`）为空。补发不推给监听者，由调用方先安装快照再按序应用。
 

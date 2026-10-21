@@ -25,7 +25,7 @@ export interface AgentReferenceSnapshot {
   selectionRecordId: string | null;
   promptArtifactId: string | null;
   instructions: { text: string; version: string; problems: string[] } | null;
-  skills: { skills: { name: string; description: string; disableModelInvocation: boolean; dir: string; body: string; version: string }[]; diagnostics: string[]; version: string } | null;
+  skills: { skills: { name: string; description: string; disableModelInvocation: boolean; dir: string; body: string; version: string; id?: string; source?: "external" | "managed"; readOnly?: boolean; contentRevision?: string }[]; diagnostics: string[]; version: string } | null;
   roles?: SubAgentRoleCatalogSnapshot | null;
 }
 export type AgentWaitSnapshot = AgentReferenceSnapshot;

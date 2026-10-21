@@ -41,10 +41,10 @@ import { validateRemoteTool } from "@ruukoto/agent/mcp/tools.ts";
 import {
   configRevision,
   configSecrets,
-  loadAuthFile,
   loadDefaultModel,
   loadModelCatalogFile,
   loadSummaryModel,
+  readModelConfigMetadata,
   removeProviderCredential,
   resolveConfiguredModel,
   restoreCatalogSecrets,
@@ -58,6 +58,7 @@ import {
   validateApiKey,
   validateModelCatalog,
   type SummaryModel,
+  type ModelConfigMetadata,
 } from "@ruukoto/agent/model-config.ts";
 import { createModelCatalog,ModelSelectionError,type ModelCatalog,type ModelOption } from "@ruukoto/agent/model-selection.ts";
 import { createApprovalReviewer,type ApprovalReviewer } from "@ruukoto/agent/review.ts";
@@ -3049,20 +3050,16 @@ export class Runtime {
   }
 
   /** 模型配置视图（脱敏）：目录中 apiKey 以 true 代替，凭据只报是否配置与类型。 */
-  getModelConfig(): {
+  getModelConfig(): ModelConfigMetadata & {
     revision: string;
     providers: Record<string, any>;
-    credentials: Record<string, { configured: boolean; type?: string }>;
     defaultModel: ModelSelection | null;
     summaryModel: SummaryModel | null;
     runtimeDefault: ModelSelection;
+    runtimeOverrides: { model: boolean; thinking: boolean };
     busyProviders: string[];
   } {
     const agentDir = this.config.agentDir;
-    const credentials: Record<string, { configured: boolean; type?: string }> = {};
-    for (const [provider, entry] of Object.entries(loadAuthFile(agentDir))) {
-      credentials[provider] = { configured: true, type: typeof entry?.type === "string" ? entry.type : undefined };
-    }
     let defaultModel: ModelSelection | null = null;
     try {
       defaultModel = loadDefaultModel(agentDir);
@@ -3072,10 +3069,11 @@ export class Runtime {
     return {
       revision: configRevision(agentDir),
       providers: sanitizeCatalog(loadModelCatalogFile(agentDir).providers),
-      credentials,
+      ...readModelConfigMetadata(agentDir, this.modelRuntime, this.defaultSelection.provider),
       defaultModel,
       summaryModel: this.readSummaryModel(),
       runtimeDefault: this.defaultSelection,
+      runtimeOverrides: { model: this.config.modelProvider !== undefined, thinking: this.config.thinkingLevel !== undefined },
       busyProviders: this.modelConfigGate ? [...this.modelConfigGate] : [],
     };
   }

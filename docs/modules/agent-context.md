@@ -79,6 +79,8 @@ stateDiagram-v2
 
 **模型选择。** 会话默认模型与思考档位持久化在会话上，新会话继承启动默认值。后台启动可传 `--model provider/model --thinking off`，模型 ID 中后续斜杠会保留；未指定 `--model` 时取 `default-model.json` 持久默认（含思考档位），再回退到目录首个模型；未指定 `--thinking` 时沿用持久默认档位，没有则为 `off`。合法档位由该模型能力校验。
 
+设置列表通过 `model-config.ts` 的共享元数据读取配置位置与模型能力。在线复用当前 SDK 注册模型；离线只构造静态目录，禁用初始化刷新。模型成员取显式目录、存储条目及运行时注册提供方，思考档位由 SDK `getSupportedThinkingLevels` 给出；无法取得 SDK 模型的目录条目保留名称与 ID，档位明确未知。列表不解析认证，不把内联 API key、自定义 header 或旧可用性快照当作认证成功；命令、环境模板与 OAuth 只在保存验证、显式测试或执行路径按原规则求值。
+
 ## 主要流程
 
 手动压缩由 `packages/agent/src/manual-compaction.ts` 的 `inspectManualCompaction` 与 `generateManualCompaction` 校验旧点、规划完成历史并生成候选，落盘与会话占用由 Runtime 承担。规划保留最后完整 assistant 批次及其后尾部，不把最近已完成任务当作当前任务，不额外保留旧请求或清单；跳过自动水位、收益和冷却，只在摘要完整成功时生成新点。旧终态孤儿沿共享配对规则剔除模型视图，历史仍原样保留。

@@ -1,0 +1,19 @@
+{
+  "platform": "linux",
+  "architecture": "x64",
+  "identity": {
+    "kind": "systemd_unit",
+    "id": "ruukoto-native-3b1f570e-05a1-49d0-ad3b-b3c24ea7bfc2.scope",
+    "label": "tool-worker native scope=ruukoto-native-3b1f570e-05a1-49d0-ad3b-b3c24ea7bfc2.scope task=linux-file-search-native-probe"
+  },
+  "passed": [
+    "真实Linux原生边界列文件、ignore/隐藏过滤、链接不跟随",
+    "显式glob覆盖ignore/隐藏且不扩大读取范围",
+    "字面搜索、大小写、行号、原流捕获与命中后重新read",
+    "获授只读来源可检索、OS真实拒绝修改来源",
+    "越界根、保护目录与链接根具名拒绝",
+    "真实Linux非UTF8路径明确拒绝、无替换字符路径",
+    "目录身份替换在调用前拒绝并停止旧单元"
+  ],
+  "stopped": true
+}

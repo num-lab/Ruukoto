@@ -67,6 +67,67 @@ function initGitRepo(dir: string): void {
   execFileSync("git", ["init", "-q"], { cwd: dir });
 }
 
+test("真实工具：文件发现→内容检索→读取命中，预览裁剪保留可读完整产物", async () => {
+  const t = await startTestRuntime("real-file-search", req => {
+    const done = req.messages.filter(message => message.role === "tool").length;
+    const calls = [
+      { id: "discover", name: "list_files", arguments: { glob: "*.txt", limit: 1 } },
+      { id: "locate", name: "search_files", arguments: { query: "SEARCH-TARGET", limit: 1 } },
+      { id: "read-hit", name: "read", arguments: { path: "target.txt" } },
+    ];
+    return done < calls.length ? { kind: "tool_calls", calls: [calls[done]] } : { kind: "text", text: "已读取搜索命中" };
+  }, { workDirs: 1, config: realTools() });
+  try {
+    fs.writeFileSync(path.join(t.work[0], "target.txt"), "SEARCH-TARGET first\nSEARCH-TARGET second\n");
+    fs.writeFileSync(path.join(t.work[0], "another.txt"), "other\n");
+    const { sessionId } = await createProjectSession(t.client, t.work[0]);
+    const task = await t.runtime.submit({ sessionId, requestId: "search", input: "发现文件并读取命中", modelSelection: t.runtime.defaultSelection, accessMode: "full_access" });
+    await waitFor("文件检索闭环完成", () => t.runtime.store.getTask(task.id)?.status === "completed", 30_000);
+    const operations = t.runtime.store.listToolOpsByTask(task.id);
+    assert.deepEqual(operations.map(operation => [operation.toolName, operation.isError, operation.effectUnknown]), [["list_files", false, false], ["search_files", false, false], ["read", false, false]]);
+    const search = operations[1];
+    const artifacts = t.runtime.store.listArtifactsByTask(task.id);
+    const evidence = artifacts.find(artifact => artifact.name === "search_files 检索证据")!;
+    assert.ok(evidence); assert.equal(evidence.status, "complete");
+    const bytes = await t.client.request<{ data: string }>("read_artifact", { task_id: task.id, artifact_id: evidence.id });
+    assert.match(Buffer.from(bytes.data, "base64").toString("utf8"), /SEARCH-TARGET second/);
+    assert.match(search.resultSummary!, /previewTruncated/);
+    const history = t.runtime.readHistory({ sessionId }).entries;
+    const read = history.find(entry => entry.toolName === "read")!;
+    assert.match(t.runtime.readHistoryEntry({ sessionId, entryId: read.entryId }).text, /SEARCH-TARGET/);
+  } finally { await t.shutdown(); }
+});
+
+test("检索失败：路由保留 partial 产物与可读引用，不把结果帧当作扫描完整", async () => {
+  const t = await startTestRuntime("partial-file-search", req => req.messages.some(message => message.role === "tool")
+    ? { kind: "text", text: "已报告部分检索结果" }
+    : { kind: "tool_calls", calls: [{ id: "partial-search", name: "list_files", arguments: {} }] }, { workDirs: 1, config: realTools() });
+  const previous = process.env.PATH;
+  try {
+    const bin = path.join(t.work[0], "bin"); fs.mkdirSync(bin);
+    fs.writeFileSync(path.join(t.work[0], "sample.txt"), "captured\n");
+    fs.writeFileSync(path.join(bin, "rg"), `#!${process.execPath}\nprocess.stdout.write('sample.txt\\0');process.stderr.write('denied');process.exitCode=2;\n`, { mode: 0o755 });
+    const { sessionId } = await createProjectSession(t.client, t.work[0]);
+    process.env.PATH = bin;
+    const task = await t.runtime.submit({ sessionId, requestId: "partial", input: "列出文件", modelSelection: t.runtime.defaultSelection, accessMode: "full_access" });
+    await waitFor("部分结果可读", () => t.runtime.store.getTask(task.id)?.status === "completed", 30_000);
+    const operation = t.runtime.store.listToolOpsByTask(task.id)[0];
+    assert.equal(operation.isError, true); assert.equal(operation.effectUnknown, false);
+    const artifacts = t.runtime.store.listArtifactsByTask(task.id).filter(artifact => artifact.name.startsWith("list_files "));
+    assert.equal(artifacts.length, 2); assert.ok(artifacts.every(artifact => artifact.status === "partial"));
+    const entry = t.runtime.readHistory({ sessionId }).entries.find(entry => entry.toolName === "list_files")!;
+    const text = t.runtime.readHistoryEntry({ sessionId, entryId: entry.entryId }).text;
+    assert.match(text, /"scanComplete":false/); assert.match(text, /"partial":true/);
+    assert.match(text, /部分证据已保留：artifact/); assert.doesNotMatch(text, /完整正文已捕获/);
+    const evidence = artifacts.find(artifact => artifact.name === "list_files 检索证据")!;
+    const bytes = await t.client.request<{ data: string }>("read_artifact", { task_id: task.id, artifact_id: evidence.id });
+    assert.equal(Buffer.from(bytes.data, "base64").toString("utf8"), "sample.txt\0");
+  } finally {
+    if (previous === undefined) delete process.env.PATH; else process.env.PATH = previous;
+    await t.shutdown();
+  }
+});
+
 test("同批后续工具仍运行时，已落盘结果逐条可读；旧任务迟到扫描不消费新消息身份", async () => {
   let nextRequest = false;
   let releaseModel!: () => void;

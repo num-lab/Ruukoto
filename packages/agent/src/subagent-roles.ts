@@ -79,10 +79,10 @@ export function validateSubAgentRoleLibrary(value: SubAgentRoleLibrary): SubAgen
 
 export const BUILTIN_SUBAGENT_ROLES = [
   parseSubAgentRole("general", "---\ndescription: 完成委派任务，按来源许可使用工具并报告结果。\n---\n完成主 Agent 明确委派的工作；按实际工具与资料范围执行，报告结果、依据及未完成项。"),
-  parseSubAgentRole("reviewer", "---\ndescription: 审查给定代码并运行必要检查，报告发现与验证依据。\ntools: [read, bash, read_artifact]\npermissions:\n  mode: confirm\n  protect_source: true\n---\n在宿主提供的审查副本中检查代码并运行必要测试。报告发现、证据与未验证项；保留检查产物，由主 Agent 处理后续修改与交付。"),
+  parseSubAgentRole("reviewer", "---\ndescription: 审查给定代码并运行必要检查，报告发现与验证依据。\ntools: [read, list_files, search_files, bash, read_artifact]\npermissions:\n  mode: confirm\n  protect_source: true\n---\n在宿主提供的审查副本中检查代码并运行必要测试。报告发现、证据与未验证项；保留检查产物，由主 Agent 处理后续修改与交付。"),
 ];
 
-export const HOST_REVIEW_DEFINITION = parseSubAgentRole("github-review", "---\ndescription: 宿主固定的 GitHub PR 只读评审。\ntools: [read, read_artifact]\n---\n只使用 read、read_artifact 与宿主开放的只读 MCP 读取本目录和 PR 资料。读不到资料时说明能力范围；最终回答作为评审草稿交回主 Agent。不能修改文件、执行命令、写外部服务、委派下级或发送工作内消息。", "host_review");
+export const HOST_REVIEW_DEFINITION = parseSubAgentRole("github-review", "---\ndescription: 宿主固定的 GitHub PR 只读评审。\ntools: [read, list_files, search_files, read_artifact]\n---\n只使用 read、list_files、search_files、read_artifact 与宿主开放的只读 MCP 读取本目录和 PR 资料。读不到资料时说明能力范围；最终回答作为评审草稿交回主 Agent。不能修改文件、执行命令、写外部服务、委派下级或发送工作内消息。", "host_review");
 
 export function roleCatalogBlock(library: SubAgentRoleLibrary): ReferenceBlock {
   return { category: "subagentRoles", placement: "prefix", text: ["[子代理角色目录]", "首次委派用 role 选择职责，省略为 general；继续或复用沿已固定角色，需要其他角色时新建子代理。能力以宿主实际工具和授权为准。", ...library.roles.map(role => `- ${role.name}：${role.description}`), ...library.diagnostics.map(d => `- ${d.name} 不可用（${d.code}）：${d.message}`), "[/子代理角色目录]"].join("\n") };

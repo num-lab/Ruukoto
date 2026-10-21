@@ -25,6 +25,8 @@ export type WorkerRequest =
       readRoots?: Array<{ path: string; dev?: number; ino?: number }>;
       /** 宿主钉定的工作区目录身份（issue 16 写入目标的钉定复核）；缺省 = 维持旧语义（cwd 即工作区）。 */
       workspace?: { path: string; dev: number; ino: number };
+      /** 宿主解析的 rg 与资料读取根；null 根仅用于无范围限定的完全访问。 */
+      fileSearch?: { executable?: string; roots: Array<{ path: string; dev?: number; ino?: number }> | null };
     }
   | {
       type: "tool_call";
@@ -40,7 +42,7 @@ export type WorkerRequest =
   | { type: "abort"; opId: string }
   | { type: "shutdown" };
 
-export type DataStream = "stdout" | "stderr" | "file_read";
+export type DataStream = "stdout" | "stderr" | "file_read" | "file_search";
 
 /** 工作进程 → 后台。 */
 export type WorkerMessage =
@@ -60,4 +62,4 @@ export type WorkerMessage =
   | { type: "fatal"; message: string };
 
 /** 本工作进程支持的编码工具（其余名字一律拒绝）。 */
-export const WORKER_TOOL_NAMES = ["read", "edit", "write", "bash"] as const;
+export const WORKER_TOOL_NAMES = ["read", "edit", "write", "bash", "list_files", "search_files"] as const;

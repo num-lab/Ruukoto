@@ -38,4 +38,4 @@ HTTP 固定 URL、方法、头、正文、DNS 和凭据引用，不重试、不�
 
 个人durable的应用数据接线、原生来源与双库回执恢复由[独立决定](2026-10-18-personal-durable-app-data.md)持有，本篇其他消费者约束保持。
 
-相关未实施方案：[受控文件检索](../../proposed/feature/2026-10-21-controlled-file-search.md)复用本篇资料授权与原字节证据，不经独立命令目录绕行。
+相关方案：[受控文件检索](../../implemented/feature/2026-10-21-controlled-file-search.md)复用本篇资料授权与原字节证据，不经独立命令目录绕行。

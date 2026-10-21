@@ -2,7 +2,7 @@
  * 工具工作进程入口：在执行边界内（受限沙箱或启动账户）运行上游编码工具。
  *
  * 职责边界（issue 03 实施计划 §1）：
- * - 只执行 read/edit/write/bash 四种编码工具；没有模型、SDK 会话、持久化，
+ * - 只执行 read/edit/write/bash 与 list_files/search_files；没有模型、SDK 会话、持久化，
  *   不接收审批、模式切换或控制面协议；完全访问能访问同账户资料；
  * - 通过 BashOperations.onData 与文件 Operations 包装器，把未经截断的原始
  *   输出/正文流回后台（后台存产物后另生成限长模型视图）；
@@ -34,6 +34,7 @@ import { statsFromPatch } from "@ruukoto/core/history.ts";
 import { grantCoversPath } from "@ruukoto/core/worktree.ts";
 import type { EditStats } from "@ruukoto/core/types.ts";
 import { imageMime } from "../artifacts.ts";
+import { runFileSearch } from "./file-search.ts";
 import {
   DATA_CHUNK_BYTES,
   MAX_FRAME_BYTES,
@@ -322,6 +323,7 @@ interface InFlightCall {
 
 const inFlight = new Map<string, InFlightCall>();
 let loaded: LoadedTools | null = null;
+let fileSearch: Extract<WorkerRequest, { type: "init" }>["fileSearch"];
 /** init 与其他消息并发处理：工具调用先等 init 完成，abort 不受等待影响。 */
 let initPromise: Promise<void> | null = null;
 
@@ -343,6 +345,18 @@ async function handleToolCall(req: Extract<WorkerRequest, { type: "tool_call" }>
   if (!(WORKER_TOOL_NAMES as readonly string[]).includes(req.name)) {
     // 白名单之外的名字一律拒绝：不加载任何自动发现的扩展或可执行文件
     fail(`未知工具：${req.name}`, req.opId);
+    return;
+  }
+  if (req.name === "list_files" || req.name === "search_files") {
+    const controller = new AbortController();
+    inFlight.set(req.opId, { controller, timer: undefined });
+    try {
+      const result = await runFileSearch({ name: req.name, params: req.params, cwd: loaded.cwd,
+        executable: fileSearch?.executable, roots: fileSearch ? fileSearch.roots : [{ path: loaded.cwd }], signal: controller.signal,
+        onData: (stream, bytes) => streamData(req.opId, stream, bytes),
+        track: pid => { trackedChildren.set(pid, {}); }, stop: killTrackedChild });
+      sendMessage({ type: "result", opId: req.opId, ok: true, content: [{ type: "text", text: JSON.stringify(result) }], details: result, isError: result.code !== undefined });
+    } finally { inFlight.delete(req.opId); }
     return;
   }
   let writeDetails: { editStats: EditStats; patch?: string } | undefined;
@@ -398,6 +412,7 @@ async function handleMessage(raw: string): Promise<void> {
   switch (req.type) {
     case "init": {
       const cwd = path.resolve(req.cwd);
+      fileSearch = req.fileSearch;
       if (req.readRoots !== undefined) {
         try {
           pinReadRoots(cwd, req.readRoots);

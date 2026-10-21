@@ -1,0 +1,9 @@
+✔ 实际 worker：主动取消等待检索进程停止，返回部分计数而无写入效果 (1954.722928ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2402.846139

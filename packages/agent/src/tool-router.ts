@@ -3,7 +3,7 @@
  *
  * - 每次调用都读取当前任务的 accessMode / 权限版本 / 授予路径，不缓存
  *   首次创建 SDK 会话时的模式；
- * - 编码工具（read/edit/write/bash）经工具工作进程执行：工作进程只在
+ * - 编码工具与文件检索经工具工作进程执行：工作进程只在
  *   当前任务的执行边界内（受限任务 → 原生沙箱；完全访问 → 启动账户）；
  *   模式/环境变化时先停止并核实旧执行单元退出，再建立新环境；
  * - 结构化操作（request_file_access / http_request）形成固定操作范围；完全访问登记任务授权，
@@ -46,9 +46,10 @@ import type { DataStream } from "./tool-worker/protocol.ts";
 import { allowlistEffectFor, type McpStore } from "./mcp/store.ts";
 import { canonicalParamsDigest, formatMcpResult, type McpTaskPlan, type PlannedTool } from "./mcp/tools.ts";
 import { McpError } from "./mcp/client.ts";
+import { FILE_SEARCH_DEFINITIONS, FILE_SEARCH_TOOL_NAMES, type FileSearchResult } from "./file-search.ts";
 
 /** 编码工具（工作进程执行）。 */
-export const CODING_TOOL_NAMES = ["read", "edit", "write", "bash"] as const;
+export const CODING_TOOL_NAMES = ["read", "edit", "write", "bash", ...FILE_SEARCH_TOOL_NAMES] as const;
 /** 结构化审批操作。 */
 export const APPROVAL_TOOL_NAMES = ["request_file_access", "http_request"] as const;
 /** 产物查询工具。 */
@@ -348,6 +349,8 @@ export class ToolRouter {
       case "edit":
       case "write":
       case "bash":
+      case "list_files":
+      case "search_files":
         return this.executeCodingTool(input.task, input);
       case "request_file_access":
       case "http_request":
@@ -377,6 +380,7 @@ export class ToolRouter {
     const problem = this.deps.verifyTask?.(task);
     if (problem) return textResult(problem, true);
     const artifactsByStream = new Map<DataStream, { id: string; name: string }>();
+    const search = (FILE_SEARCH_TOOL_NAMES as readonly string[]).includes(input.name);
     const controller = new AbortController();
     const onExternalAbort = () => controller.abort(new Error("aborted by host"));
     input.signal?.addEventListener("abort", onExternalAbort, { once: true });
@@ -392,7 +396,7 @@ export class ToolRouter {
             ? `${input.name} stdout`
             : stream === "stderr"
               ? `${input.name} stderr`
-              : `${input.name} 文件正文`;
+              : stream === "file_search" ? `${input.name} 检索证据` : `${input.name} 文件正文`;
         const artifact = this.deps.artifacts.begin({ taskId: task.id, sessionId: task.sessionId, name });
         entry = { id: artifact.id, name };
         artifactsByStream.set(stream, entry);
@@ -418,24 +422,25 @@ export class ToolRouter {
       });
       const artifactIds = Array.from(artifactsByStream.values()).map((a) => a.id);
       this.artifactRefs.set(input.hostOpId, artifactIds);
-      if (captureFailed) {
+      if (captureFailed && !search) {
         const content = Array.isArray(result.content) ? [...(result.content as any[])] : [];
         content.push({ type: "text", text: `输出捕获失败，执行已停止：${captureFailed}` });
         return { content, details: result.details, isError: true };
       }
-      // 结果帧已回收（无论工具成功或失败）= 本次捕获完整，产物定稿
-      for (const entry of artifactsByStream.values()) {
-        this.deps.artifacts.complete(entry.id);
-      }
+      const searchResult = search ? result.details as FileSearchResult : undefined;
+      if (searchResult && captureFailed) Object.assign(searchResult, { partial: true, scanComplete: false, code: "file_search_capture_failed", message: "产物捕获失败，已请求停止；证据不完整，请向拥有者报告并核实存储后重试。" });
+      const partial = searchResult?.partial === true;
+      if (!partial) for (const entry of artifactsByStream.values()) this.deps.artifacts.complete(entry.id);
       const content = Array.isArray(result.content) ? [...(result.content as any[])] : [];
+      if (searchResult) content[0] = { type: "text", text: JSON.stringify(searchResult) };
       for (const entry of artifactsByStream.values()) {
         const bytes = this.deps.artifacts.byteLength(entry.id);
         content.push({
           type: "text",
-          text: `[完整正文已捕获：artifact ${entry.id}（${bytes} 字节，${entry.name}）——需要更多内容时用 read_artifact 工具按偏移查询]`,
+          text: `[${partial ? "部分证据已保留" : "完整正文已捕获"}：artifact ${entry.id}（${bytes} 字节，${entry.name}）——需要更多内容时用 read_artifact 工具按偏移查询]`,
         });
       }
-      return { content, details: result.details, isError: Boolean(result.isError) };
+      return { content, details: result.details, isError: Boolean(result.isError) || captureFailed !== null };
     } catch (err) {
       const artifactIds = Array.from(artifactsByStream.values()).map((a) => a.id);
       this.artifactRefs.set(input.hostOpId, artifactIds);
@@ -784,7 +789,7 @@ function textResult(text: string, isError: boolean): RoutedCallOutput {
 // ---------- 宿主侧工具定义 ----------
 
 /**
- * 注册到 SDK 会话的宿主工具定义：read/edit/write/bash 与审批操作、产物
+ * 注册到 SDK 会话的宿主工具定义：编码、文件检索与审批操作、产物
  * 查询。execute 全部转发给路由器（模式与权限在调用时读取，不缓存）；
  * 不加载项目自动发现的扩展。
  */
@@ -880,5 +885,5 @@ export function createCodingTools(router: ToolRouter): ToolDefinition[] {
       encoding: Type.Optional(Type.Union([Type.Literal("utf8"), Type.Literal("base64")])),
     }),
   });
-  return [readTool, editTool, writeTool, bashTool, requestFileAccess, httpRequest, readArtifact];
+  return [readTool, editTool, writeTool, bashTool, ...FILE_SEARCH_DEFINITIONS.map(routedTool), requestFileAccess, httpRequest, readArtifact];
 }

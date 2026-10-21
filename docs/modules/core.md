@@ -256,6 +256,8 @@ SubAgent 行优先于角色与类别，所以子会话不会被误判成 main �
 
 ## 主要流程
 
+`HistoryIndex.syncBatch` 每次扫描至多 256 KiB 的换行位置，完整条目与处理进度在同一短事务登记；巨大单行先分批找行尾，完整后才解析。`searchWorkspaceHistory` 在字节、条目与时间预算内检索原 JSONL，批次间让出事件循环，以两阶段游标续接索引准备与正文扫描。游标绑定查询、候选范围与来源身份；来源问题按会话报告，其他可读来源继续。`readIndexedHistoryPage` 消费已准备的位置索引，以互斥的 around／before／after 读取连续窗口；窗口与正文补读沿用不透明 source，替换或截短拒绝续读，正常追加可继续。
+
 历史快照打开源文件并固定长度，严格解析完整 UTF-8 JSONL 行及条目链；部分尾行排除。工具调用按宿主任务与 assistant 批次配对，活动未闭合批次回退，终态任务的旧孤儿保留。读取期间正常追加不改变快照；源文件身份、前缀或工具边界无法核实时拒绝。core 只读历史，独立文件准备由 agent 承担。
 
 ### 启动：目录、锁、产品归属与 schema
@@ -365,6 +367,8 @@ sequenceDiagram
 工作流来源固定实际能力、资料授权 ID、配置摘要和工作区身份；步骤保存冻结补丁产物与独立验证记录，详情见[工作流](workflows.md)。资料读取可携带宿主固定的授权 ID 集合，与当前未撤销授权求交；新增授权不扩大旧运行。
 
 ## 设计依据
+
+- [应用内 Spotlight 与历史定位](../../.agents/notes/implemented/feature/2026-10-21-desktop-spotlight-search.md)
 
 - [完整思考与文件预览](../../.agents/notes/implemented/feature/2026-10-18-complete-reasoning-and-preview.md)
 

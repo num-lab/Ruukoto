@@ -1,0 +1,116 @@
+{
+  "node": "v24.15.0",
+  "platform": "darwin",
+  "arch": "arm64",
+  "cpu": "Apple M5",
+  "results": [
+    {
+      "label": "common",
+      "sessions": 100,
+      "messages": 10000,
+      "bodyMiB": 9.765625,
+      "cold": {
+        "totalMs": 454.31795799999963,
+        "firstProgressMs": 22.43304199999966,
+        "firstHitMs": 454.30620799999997,
+        "pages": 23,
+        "hits": 1,
+        "scanned": 10000
+      },
+      "noMatch": {
+        "totalMs": 263.4366249999998,
+        "firstProgressMs": 22.32291699999996,
+        "firstHitMs": null,
+        "pages": 12,
+        "hits": 0,
+        "scanned": 10000
+      },
+      "firstPageP95Ms": 6.023291999999856,
+      "firstPageWithDebounceP95Ms": 186.02329199999986,
+      "titleP95Ms": 5.476749999999811,
+      "ping": {
+        "samples": 63,
+        "p95Ms": 6.193750000000364,
+        "maxMs": 12.709457999999813
+      },
+      "status": {
+        "samples": 62,
+        "p95Ms": 6.641540999999961,
+        "maxMs": 38.44220799999994
+      },
+      "peakRssMiB": 653.890625
+    },
+    {
+      "label": "growth",
+      "sessions": 1000,
+      "messages": 100000,
+      "bodyMiB": 48.828125,
+      "cold": {
+        "totalMs": 8431.799959,
+        "firstProgressMs": 61.82720900000004,
+        "firstHitMs": 8431.793,
+        "pages": 127,
+        "hits": 1,
+        "scanned": 100000
+      },
+      "noMatch": {
+        "totalMs": 5611.374666999998,
+        "firstProgressMs": 81.4070840000004,
+        "firstHitMs": null,
+        "pages": 74,
+        "hits": 0,
+        "scanned": 100000
+      },
+      "firstPageP95Ms": 75.12350000000151,
+      "firstPageWithDebounceP95Ms": 255.1235000000015,
+      "titleP95Ms": 80.68895899999916,
+      "ping": {
+        "samples": 404,
+        "p95Ms": 46.333042000000205,
+        "maxMs": 90.9723750000012
+      },
+      "status": {
+        "samples": 404,
+        "p95Ms": 46.09541700000045,
+        "maxMs": 69.50454100000024
+      },
+      "peakRssMiB": 836.1875
+    },
+    {
+      "label": "large-entry",
+      "sessions": 1,
+      "messages": 1,
+      "bodyMiB": 8,
+      "cold": {
+        "totalMs": 22.975084000001516,
+        "firstProgressMs": 0.957750000001397,
+        "firstHitMs": 22.969834000003175,
+        "pages": 9,
+        "hits": 1,
+        "scanned": 1
+      },
+      "noMatch": {
+        "totalMs": 19.267707999999402,
+        "firstProgressMs": 19.263208000000304,
+        "firstHitMs": null,
+        "pages": 1,
+        "hits": 0,
+        "scanned": 1
+      },
+      "firstPageP95Ms": 15.488915999998426,
+      "firstPageWithDebounceP95Ms": 195.48891599999843,
+      "titleP95Ms": 0.4031669999967562,
+      "ping": {
+        "samples": 16,
+        "p95Ms": 16.78049999999712,
+        "maxMs": 16.78049999999712
+      },
+      "status": {
+        "samples": 16,
+        "p95Ms": 13.98924999999872,
+        "maxMs": 13.98924999999872
+      },
+      "peakRssMiB": 1006.578125
+    }
+  ]
+}

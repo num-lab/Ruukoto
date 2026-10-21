@@ -1,0 +1,32 @@
+{
+  "passed": true,
+  "flows": [
+    "名称结果",
+    "PA 上正文结果",
+    "存档标识",
+    "普通输入与焦点",
+    "两会话草稿",
+    "实时回复",
+    "Esc 焦点恢复",
+    "Code 通知新标签"
+  ],
+  "historyRequests": [
+    {
+      "target": "code",
+      "op": "read_history",
+      "params": {
+        "session_id": "active",
+        "limit": 50
+      }
+    },
+    {
+      "target": "code",
+      "op": "read_history",
+      "params": {
+        "session_id": "archived",
+        "limit": 50
+      }
+    }
+  ],
+  "errors": []
+}

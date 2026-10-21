@@ -1,0 +1,562 @@
+{
+  "date": "2026-10-21",
+  "environment": "macOS arm64; headless Chromium; actual App source with synthetic DesktopBridge",
+  "before": {
+    "snippet": {
+      "width": 1280,
+      "panel": {
+        "x": 320,
+        "y": 172.796875,
+        "width": 640,
+        "height": 314.0625
+      },
+      "rows": [
+        {
+          "kind": "session",
+          "nameSingle": true,
+          "workspaceCorrect": true,
+          "fieldWidths": [
+            606,
+            606
+          ],
+          "nameClipped": true,
+          "badgeVisible": true,
+          "timeVisible": true,
+          "relativeTime": null,
+          "twoLines": true,
+          "markVisible": true,
+          "centered": true,
+          "overflow": false
+        },
+        {
+          "kind": "session",
+          "nameSingle": true,
+          "workspaceCorrect": true,
+          "fieldWidths": [
+            531,
+            606
+          ],
+          "nameClipped": true,
+          "badgeVisible": true,
+          "timeVisible": true,
+          "relativeTime": null,
+          "twoLines": true,
+          "markVisible": true,
+          "centered": true,
+          "overflow": false
+        },
+        {
+          "kind": "message",
+          "nameSingle": true,
+          "workspaceCorrect": true,
+          "fieldWidths": [
+            492
+          ],
+          "nameClipped": true,
+          "badgeVisible": true,
+          "timeVisible": true,
+          "relativeTime": "yesterday",
+          "twoLines": true,
+          "markVisible": true,
+          "centered": false,
+          "overflow": false
+        }
+      ]
+    },
+    "lazyLoading": [
+      {
+        "name": "没有加载更多按钮",
+        "passed": false
+      },
+      {
+        "name": "两种结果之间有分隔线",
+        "passed": false,
+        "details": {
+          "count": 2,
+          "border": "0px"
+        }
+      },
+      {
+        "name": "静止时滚动条透明",
+        "passed": false,
+        "details": "oklch(1 0 0 / 0.1)"
+      },
+      {
+        "name": "滚动时显示滚动条",
+        "passed": false
+      },
+      {
+        "name": "停止滚动后隐藏滚动条",
+        "passed": false
+      },
+      {
+        "name": "到达底部前不预先读完所有结果",
+        "passed": true
+      },
+      {
+        "name": "滚到底部自动从20增至40",
+        "passed": false
+      }
+    ]
+  },
+  "after": {
+    "snippet": {
+      "passed": true,
+      "results": [
+        {
+          "width": 1280,
+          "panel": {
+            "x": 320,
+            "y": 172.796875,
+            "width": 640,
+            "height": 327.0625
+          },
+          "rows": [
+            {
+              "kind": "session",
+              "nameSingle": true,
+              "workspaceCorrect": true,
+              "fieldWidths": [
+                606,
+                606
+              ],
+              "nameClipped": true,
+              "badgeVisible": true,
+              "timeVisible": true,
+              "relativeTime": null,
+              "twoLines": true,
+              "markVisible": true,
+              "centered": true,
+              "overflow": false
+            },
+            {
+              "kind": "session",
+              "nameSingle": true,
+              "workspaceCorrect": true,
+              "fieldWidths": [
+                531,
+                606
+              ],
+              "nameClipped": true,
+              "badgeVisible": true,
+              "timeVisible": true,
+              "relativeTime": null,
+              "twoLines": true,
+              "markVisible": true,
+              "centered": true,
+              "overflow": false
+            },
+            {
+              "kind": "message",
+              "nameSingle": true,
+              "workspaceCorrect": true,
+              "fieldWidths": [
+                492
+              ],
+              "nameClipped": true,
+              "badgeVisible": true,
+              "timeVisible": true,
+              "relativeTime": "yesterday",
+              "twoLines": true,
+              "markVisible": true,
+              "centered": true,
+              "overflow": false
+            }
+          ]
+        },
+        {
+          "width": 400,
+          "panel": {
+            "x": 16,
+            "y": 172.796875,
+            "width": 368,
+            "height": 327.0625
+          },
+          "rows": [
+            {
+              "kind": "session",
+              "nameSingle": true,
+              "workspaceCorrect": true,
+              "fieldWidths": [
+                334,
+                334
+              ],
+              "nameClipped": true,
+              "badgeVisible": true,
+              "timeVisible": true,
+              "relativeTime": null,
+              "twoLines": true,
+              "markVisible": true,
+              "centered": true,
+              "overflow": false
+            },
+            {
+              "kind": "session",
+              "nameSingle": true,
+              "workspaceCorrect": true,
+              "fieldWidths": [
+                259,
+                334
+              ],
+              "nameClipped": true,
+              "badgeVisible": true,
+              "timeVisible": true,
+              "relativeTime": null,
+              "twoLines": true,
+              "markVisible": true,
+              "centered": true,
+              "overflow": false
+            },
+            {
+              "kind": "message",
+              "nameSingle": true,
+              "workspaceCorrect": true,
+              "fieldWidths": [
+                220
+              ],
+              "nameClipped": true,
+              "badgeVisible": true,
+              "timeVisible": true,
+              "relativeTime": "yesterday",
+              "twoLines": true,
+              "markVisible": true,
+              "centered": true,
+              "overflow": false
+            }
+          ]
+        }
+      ],
+      "resized": [
+        {
+          "width": 1280,
+          "panel": {
+            "x": 320,
+            "y": 172.796875,
+            "width": 640,
+            "height": 327.0625
+          },
+          "scrollLeft": 730
+        },
+        {
+          "width": 400,
+          "panel": {
+            "x": 16,
+            "y": 172.796875,
+            "width": 368,
+            "height": 327.0625
+          },
+          "scrollLeft": 866
+        }
+      ],
+      "optional": {
+        "time": 0,
+        "badges": 0,
+        "overflow": false
+      },
+      "short": {
+        "text": "ping",
+        "left": 0,
+        "fits": true,
+        "mark": "in"
+      }
+    },
+    "lazyLoading80ms": {
+      "passed": true,
+      "checks": [
+        {
+          "name": "没有加载更多按钮",
+          "passed": true
+        },
+        {
+          "name": "两种结果之间有分隔线",
+          "passed": true,
+          "details": {
+            "count": 2,
+            "border": "1px"
+          }
+        },
+        {
+          "name": "静止时滚动条透明",
+          "passed": true,
+          "details": "rgba(0, 0, 0, 0)"
+        },
+        {
+          "name": "滚动时显示滚动条",
+          "passed": true
+        },
+        {
+          "name": "停止滚动后隐藏滚动条",
+          "passed": true
+        },
+        {
+          "name": "到达底部前不预先读完所有结果",
+          "passed": true
+        },
+        {
+          "name": "滚到底部自动从20增至40",
+          "passed": true
+        },
+        {
+          "name": "续载后搜索框保持焦点",
+          "passed": true
+        },
+        {
+          "name": "一次触底只请求一页且没有并发",
+          "passed": true
+        },
+        {
+          "name": "扫描完成后不再续载",
+          "passed": true
+        },
+        {
+          "name": "懒加载后方向键仍可选择",
+          "passed": true
+        },
+        {
+          "name": "懒加载后可直接继续输入",
+          "passed": true
+        },
+        {
+          "name": "关闭后不启动旧查询或未完成的新词",
+          "passed": true
+        },
+        {
+          "name": "分页错误保留结果并停止自动重试",
+          "passed": true
+        }
+      ]
+    },
+    "lazyLoadingMicrotask": {
+      "passed": true,
+      "checks": [
+        {
+          "name": "没有加载更多按钮",
+          "passed": true
+        },
+        {
+          "name": "两种结果之间有分隔线",
+          "passed": true,
+          "details": {
+            "count": 2,
+            "border": "1px"
+          }
+        },
+        {
+          "name": "静止时滚动条透明",
+          "passed": true,
+          "details": "rgba(0, 0, 0, 0)"
+        },
+        {
+          "name": "滚动时显示滚动条",
+          "passed": true
+        },
+        {
+          "name": "停止滚动后隐藏滚动条",
+          "passed": true
+        },
+        {
+          "name": "到达底部前不预先读完所有结果",
+          "passed": true
+        },
+        {
+          "name": "滚到底部自动从20增至40",
+          "passed": true
+        },
+        {
+          "name": "续载后搜索框保持焦点",
+          "passed": true
+        },
+        {
+          "name": "一次触底只请求一页且没有并发",
+          "passed": true
+        },
+        {
+          "name": "扫描完成后不再续载",
+          "passed": true
+        },
+        {
+          "name": "懒加载后方向键仍可选择",
+          "passed": true
+        },
+        {
+          "name": "懒加载后可直接继续输入",
+          "passed": true
+        },
+        {
+          "name": "关闭后不启动旧查询或未完成的新词",
+          "passed": true
+        },
+        {
+          "name": "分页错误保留结果并停止自动重试",
+          "passed": true
+        }
+      ]
+    },
+    "snippetProductionCssLight": {
+      "passed": true,
+      "results": [
+        {
+          "width": 1280,
+          "panel": {
+            "x": 320,
+            "y": 172.796875,
+            "width": 640,
+            "height": 327.0625
+          },
+          "rows": [
+            {
+              "kind": "session",
+              "nameSingle": true,
+              "workspaceCorrect": true,
+              "fieldWidths": [
+                606,
+                606
+              ],
+              "nameClipped": true,
+              "badgeVisible": true,
+              "timeVisible": true,
+              "relativeTime": null,
+              "twoLines": true,
+              "markVisible": true,
+              "centered": true,
+              "overflow": false
+            },
+            {
+              "kind": "session",
+              "nameSingle": true,
+              "workspaceCorrect": true,
+              "fieldWidths": [
+                531,
+                606
+              ],
+              "nameClipped": true,
+              "badgeVisible": true,
+              "timeVisible": true,
+              "relativeTime": null,
+              "twoLines": true,
+              "markVisible": true,
+              "centered": true,
+              "overflow": false
+            },
+            {
+              "kind": "message",
+              "nameSingle": true,
+              "workspaceCorrect": true,
+              "fieldWidths": [
+                492
+              ],
+              "nameClipped": true,
+              "badgeVisible": true,
+              "timeVisible": true,
+              "relativeTime": "yesterday",
+              "twoLines": true,
+              "markVisible": true,
+              "centered": true,
+              "overflow": false
+            }
+          ]
+        },
+        {
+          "width": 400,
+          "panel": {
+            "x": 16,
+            "y": 172.796875,
+            "width": 368,
+            "height": 327.0625
+          },
+          "rows": [
+            {
+              "kind": "session",
+              "nameSingle": true,
+              "workspaceCorrect": true,
+              "fieldWidths": [
+                334,
+                334
+              ],
+              "nameClipped": true,
+              "badgeVisible": true,
+              "timeVisible": true,
+              "relativeTime": null,
+              "twoLines": true,
+              "markVisible": true,
+              "centered": true,
+              "overflow": false
+            },
+            {
+              "kind": "session",
+              "nameSingle": true,
+              "workspaceCorrect": true,
+              "fieldWidths": [
+                259,
+                334
+              ],
+              "nameClipped": true,
+              "badgeVisible": true,
+              "timeVisible": true,
+              "relativeTime": null,
+              "twoLines": true,
+              "markVisible": true,
+              "centered": true,
+              "overflow": false
+            },
+            {
+              "kind": "message",
+              "nameSingle": true,
+              "workspaceCorrect": true,
+              "fieldWidths": [
+                220
+              ],
+              "nameClipped": true,
+              "badgeVisible": true,
+              "timeVisible": true,
+              "relativeTime": "yesterday",
+              "twoLines": true,
+              "markVisible": true,
+              "centered": true,
+              "overflow": false
+            }
+          ]
+        }
+      ],
+      "resized": [
+        {
+          "width": 1280,
+          "panel": {
+            "x": 320,
+            "y": 172.796875,
+            "width": 640,
+            "height": 327.0625
+          },
+          "scrollLeft": 730
+        },
+        {
+          "width": 400,
+          "panel": {
+            "x": 16,
+            "y": 172.796875,
+            "width": 368,
+            "height": 327.0625
+          },
+          "scrollLeft": 866
+        }
+      ],
+      "optional": {
+        "time": 0,
+        "badges": 0,
+        "overflow": false
+      },
+      "short": {
+        "text": "ping",
+        "left": 0,
+        "fits": true,
+        "mark": "in"
+      }
+    },
+    "shortMessageScreenshot": {
+      "text": "ping",
+      "scrollLeft": 0,
+      "theme": "",
+      "overflow": "clip"
+    }
+  }
+}

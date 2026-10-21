@@ -11,6 +11,7 @@ import { DesktopApprovals } from "./approvals.ts";
 import { CodeWrites } from "./code-writes.ts";
 import { DesktopContext } from "./context-state.ts";
 import { DesktopInspector } from "./inspector.ts";
+import { DesktopSearch } from "./search-state.ts";
 
 export class DesktopRequestError extends Error {
   readonly code: string;
@@ -47,6 +48,7 @@ export class CodeState {
   readonly approvals: DesktopApprovals;
   readonly inspector: DesktopInspector;
   readonly context: DesktopContext;
+  readonly search: DesktopSearch;
   navigation: Extract<DesktopUpdate, { type: "navigate" }> | null = null;
   notificationSelection: { sessionId: string; taskId: string } | null = null;
   refresh(): void { this.mark(); }
@@ -54,6 +56,7 @@ export class CodeState {
   constructor(private readonly bridge: Pick<DesktopBridge, "request">, private readonly changed: () => void, readonly target: DesktopTarget = "code") {
     this.context = new DesktopContext(bridge, this.view, changed, target);
     this.approvals = new DesktopApprovals(bridge, this.view, changed, target);
+    this.search = new DesktopSearch(bridge, changed);
     this.writes = new CodeWrites(bridge, this.view, () => this.status.state === "online", changed, target);
     this.inspector = new DesktopInspector(bridge, this.view, id => this.loadHistory(id), changed, target);
   }
@@ -110,6 +113,7 @@ export class CodeState {
       this.inspector.update(update);
     }
     if (update.type === "navigate") this.navigate(update);
+    if (this.target === "code") this.search.update(update);
     this.context.update(update);
     this.approvals.update(update);
     this.writes.update(update);

@@ -32,8 +32,8 @@ export function snapUtf8End(buf: Buffer, index: number): number {
 }
 
 export class HistoryReadError extends Error {
-  readonly code: "history_corrupt" | "entry_not_found" | "invalid_params";
-  constructor(code: "history_corrupt" | "entry_not_found" | "invalid_params", message: string) {
+  readonly code: "history_corrupt" | "entry_not_found" | "invalid_params" | "history_changed" | "cursor_invalid" | "history_missing" | "history_unreadable";
+  constructor(code: HistoryReadError["code"], message: string) {
     super(message);
     this.code = code;
   }
@@ -308,7 +308,7 @@ function historyTaskIds(entries: ParsedSessionEntry[]): Map<string, string | nul
   return tasks;
 }
 
-function extractMessageView(entry: ParsedSessionEntry, taskId: string | null = null): { text: string; view: Omit<HistoryEntryView, "text" | "offset" | "totalBytes" | "truncated"> } | null {
+export function extractMessageView(entry: ParsedSessionEntry, taskId: string | null = null): { text: string; view: Omit<HistoryEntryView, "text" | "offset" | "totalBytes" | "truncated"> } | null {
   if (entry.type !== "message") return null;
   const message = entry.message as Record<string, unknown> | undefined;
   if (!message || typeof message.role !== "string") return null;
@@ -391,6 +391,12 @@ export function tailTextByBytes(
 export interface ReadHistoryPageOptions {
   /** 只返回严格早于该条目的消息（翻页游标）；省略 = 最新一页。 */
   before?: string;
+  /** 只返回严格晚于该条目的消息；与 before、around 互斥。 */
+  after?: string;
+  /** 返回包含该条目的连续窗口；与 before、after 互斥。 */
+  around?: string;
+  /** 索引读取返回的来源身份；续页与正文补读原样带回。 */
+  source?: string;
   /** 条目数上限（默认 50，最大 200）。 */
   limit?: number;
   /** 单条正文内联上限（字节，默认 16 KiB）；超出部分经 readHistoryEntryText 分段读取。 */
@@ -408,6 +414,10 @@ export interface HistoryPage {
   entries: HistoryEntryView[];
   /** 向前（更老）翻页游标；null = 没有更老的条目。 */
   nextBefore: string | null;
+  /** 索引窗口向新翻页游标；null 表示已到索引末尾。 */
+  nextAfter?: string | null;
+  /** 索引窗口的来源身份；正常追加仍可沿用。 */
+  source?: string | null;
 }
 
 /**

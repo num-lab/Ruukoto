@@ -100,6 +100,21 @@ test("Desktop 输入区匹配 demo 控件结构，四模式有图标且只保留
   }
 });
 
+test("打开会话保留草稿和附件，正常输入不需要退出历史模式", () => {
+  const h = harness();
+  h.model.writes.edit(h.current.id, "尚未发送的草稿");
+  const draft = h.model.writes.draft(h.current.id);
+  draft.attachments = [{ id: "attachment", name: "原附件.txt", size: 10 }];
+  h.model.openSession(h.current.id);
+  const html = renderToStaticMarkup(createElement(Composer, { model: h.model, session: h.current }));
+  assert.match(html, /<textarea/);
+  assert.match(html, /尚未发送的草稿/);
+  assert.doesNotMatch(html, /查看历史|返回最新/);
+  assert.equal(h.model.writes.blocked(h.current.id), false);
+  assert.strictEqual(h.model.writes.draft(h.current.id), draft);
+  assert.equal(draft.attachments[0].id, "attachment");
+});
+
 test("Desktop 保留未在目录的真实模型和档位，离线与核实时禁止写控件", async () => {
   const h = harness({}, async (_target, _op, params) => { await blocked; return { ok: true, value: { kind: "not_sent", requestId: params.request_id, message: "未发送" } }; });
   let release!: () => void;

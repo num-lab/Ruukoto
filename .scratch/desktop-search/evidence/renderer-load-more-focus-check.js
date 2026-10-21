@@ -1,0 +1,73 @@
+async page => {
+  const checks = [];
+  const record = (name, passed, details) => checks.push({ name, passed, details });
+  const finish = () => { if (checks.some(check => !check.passed)) throw new Error(JSON.stringify(checks)); return { passed: true, checks }; };
+  await page.unroute('**/spotlight-fixture.js*');
+  await page.route('**/spotlight-fixture.js*', async route => {
+    const response = await route.fetch();
+    const replacement = `search_history: async params => {
+      const first = params.cursor?.byte_offset ?? 0;
+      window.__searchActive = (window.__searchActive ?? 0) + 1;
+      window.__searchMaxActive = Math.max(window.__searchMaxActive ?? 0, window.__searchActive);
+      try {
+        if (params.query === 'error' && first >= 20) throw new Error('合成分页失败');
+        await new Promise(resolve => setTimeout(resolve, 80));
+        return { hits: Array.from({ length: 20 }, (_, index) => ({ sessionId: 'archived', entryId: String(first + index), parentId: null, role: 'assistant', timestamp: at(3), snippet: '上下文 needle ' + (first + index), matchCount: 1 })), complete: first + 20 >= 60, cursor: first + 20 >= 60 ? null : { sessionId: 'archived', byteOffset: first + 20 }, scanned: 20, sourceIssues: [], unindexedSessionIds: [] };
+      } finally { window.__searchActive--; }
+    },`;
+    const source = await response.text();
+    const body = source.replace(/search_history:\s*(?:\(params\)|params)\s*=>\s*\(\{[\s\S]*?\}\),\s*(?=read_history:)/, replacement).replace(/(['"])当前开发\1/, "'needle 当前开发'").replace(/(['"])古早聊天\1/, "'needle 古早聊天'");
+    if (body === source) throw new Error('分页夹具未替换搜索处理器');
+    await route.fulfill({ response, body });
+  });
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto('http://127.0.0.1:4318/output/playwright/spotlight.html');
+  await page.getByRole('button', { name: '搜索 Code 工作区', exact: true }).click();
+  const input = page.getByRole('combobox', { name: '搜索 Code 会话与聊天内容' });
+  const list = page.getByRole('listbox', { name: '搜索结果' });
+  const count = async query => page.evaluate(query => window.__spotlightRequests.filter(request => request.op === 'search_history' && request.params.query === query).length, query);
+  await input.fill('needle');
+  await page.waitForFunction(() => document.querySelectorAll('.search-message-option').length === 20);
+  record('没有加载更多按钮', await page.getByRole('button', { name: '加载更多', exact: true }).count() === 0);
+  const divider = await list.evaluate(node => { const groups = node.querySelectorAll('[role=group]'); return { count: groups.length, border: getComputedStyle(groups[1]).borderTopWidth }; });
+  record('两种结果之间有分隔线', divider.count === 2 && divider.border === '1px', divider);
+  const thumb = async () => list.evaluate(node => getComputedStyle(node, '::-webkit-scrollbar-thumb').backgroundColor);
+  record('静止时滚动条透明', await thumb() === 'rgba(0, 0, 0, 0)', await thumb());
+  await list.hover();
+  await page.mouse.wheel(0, 120);
+  const scrolling = await page.waitForFunction(() => document.querySelector('.search-results')?.dataset.scrolling === 'true', null, { timeout: 1000 }).then(() => true, () => false);
+  record('滚动时显示滚动条', scrolling && await thumb() !== 'rgba(0, 0, 0, 0)');
+  const hidden = await page.waitForFunction(() => getComputedStyle(document.querySelector('.search-results'), '::-webkit-scrollbar-thumb').backgroundColor === 'rgba(0, 0, 0, 0)', null, { timeout: 1800 }).then(() => true, () => false);
+  record('停止滚动后隐藏滚动条', hidden);
+  record('到达底部前不预先读完所有结果', await count('needle') === 1);
+  await list.evaluate(node => { node.scrollTop = node.scrollHeight; });
+  const loaded = await page.waitForFunction(() => document.querySelectorAll('.search-message-option').length === 40, null, { timeout: 1800 }).then(() => true, () => false);
+  record('滚到底部自动从20增至40', loaded);
+  if (!loaded) return finish();
+  record('续载后搜索框保持焦点', await input.evaluate(element => element === document.activeElement));
+  record('一次触底只请求一页且没有并发', await count('needle') === 2 && await page.evaluate(() => window.__searchMaxActive) === 1);
+  await list.evaluate(node => { node.scrollTop = node.scrollHeight; });
+  await page.waitForFunction(() => document.querySelectorAll('.search-message-option').length === 60);
+  await list.evaluate(node => { node.scrollTop = node.scrollHeight; });
+  await page.waitForTimeout(150);
+  record('扫描完成后不再续载', await count('needle') === 3);
+  const before = await input.getAttribute('aria-activedescendant');
+  await page.keyboard.press('ArrowDown');
+  record('懒加载后方向键仍可选择', await input.getAttribute('aria-activedescendant') !== before);
+  await page.keyboard.type('x');
+  record('懒加载后可直接继续输入', await input.inputValue() === 'needlex');
+  await page.keyboard.press('Escape');
+  await page.locator('.search-dialog').waitFor({ state: 'hidden' });
+  await page.waitForTimeout(200);
+  record('关闭后不启动旧查询或未完成的新词', await count('needle') === 3 && await count('needlex') === 0);
+  await page.getByRole('button', { name: '搜索 Code 工作区', exact: true }).click();
+  await input.fill('error');
+  await page.waitForFunction(() => document.querySelectorAll('.search-message-option').length === 20);
+  await list.evaluate(node => { node.scrollTop = node.scrollHeight; });
+  await page.getByRole('alert').filter({ hasText: '聊天搜索失败' }).waitFor();
+  await list.evaluate(node => { node.scrollTop = 0; node.scrollTop = node.scrollHeight; });
+  await page.waitForTimeout(150);
+  record('分页错误保留结果并停止自动重试', await count('error') === 2 && await page.locator('.search-message-option').count() === 20);
+  await page.keyboard.press('Escape');
+  return finish();
+}

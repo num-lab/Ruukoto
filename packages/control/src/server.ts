@@ -1,3 +1,4 @@
+import type { WorkspaceHistoryCursor } from "@ruukoto/core/history-search.ts";
 import { parseModelSelection } from "@ruukoto/core/model-selection.ts";
 import { RuntimeApiError } from "@ruukoto/core/api-error.ts";
 /**
@@ -366,6 +367,12 @@ export class ControlServer {
       case "get_session":
         return runtime.getSession(requireString("session_id"));
       case "list_session_summaries": {
+        const scope = params["scope"];
+        if (scope !== undefined && scope !== "workspace_chats") throw new RuntimeApiError("invalid_params", "scope 必须为 workspace_chats");
+        if (scope === "workspace_chats") {
+          if (params["project_id"] !== undefined || params["workspace_id"] !== undefined) throw new RuntimeApiError("invalid_params", "workspace_chats 不接受项目限制");
+          return runtime.listSessionSummaries({ scope });
+        }
         // issue 07 步骤 4：project_id（原身份）与 workspace_id（组织归属）互斥
         const projectId = params["project_id"];
         const workspaceId = params["workspace_id"];
@@ -584,18 +591,26 @@ export class ControlServer {
           const v = params[key];
           if (v === undefined) return undefined;
           const n = Number(v);
-          if (!Number.isFinite(n) || n < 0) {
-            throw Object.assign(new Error(`${key} 必须是非负数字`), { code: "invalid_params" });
+          if (!Number.isSafeInteger(n) || n < 0) {
+            throw Object.assign(new Error(`${key} 必须是非负安全整数`), { code: "invalid_params" });
           }
           return n;
         };
-        return runtime.readHistory({
+        for (const key of ["before", "after", "around", "source"]) {
+          if (params[key] !== undefined && (typeof params[key] !== "string" || !(params[key] as string).length)) throw new RuntimeApiError("invalid_params", `${key} 必须为非空字符串`);
+        }
+        if (["before", "after", "around"].filter(key => params[key] !== undefined).length > 1) throw new RuntimeApiError("invalid_params", "before、after 与 around 互斥");
+        const input = {
           sessionId: requireString("session_id"),
-          before: typeof params["before"] === "string" ? params["before"] : undefined,
+          before: params["before"] as string | undefined,
+          after: params["after"] as string | undefined,
+          around: params["around"] as string | undefined,
+          source: params["source"] as string | undefined,
           limit: num("limit"),
           entryTextCap: num("entry_text_cap"),
           pageTextBudget: num("page_text_budget"),
-        });
+        };
+        return input.around || input.after || input.source ? runtime.readHistoryWindow(input) : runtime.readHistory(input);
       }
       case "read_tool_result": {
         const length = params["length"];
@@ -619,9 +634,14 @@ export class ControlServer {
         });
       }
       case "read_history_entry":
+        for (const key of ["offset", "length"]) {
+          if (params[key] !== undefined && (!Number.isSafeInteger(params[key]) || Number(params[key]) < (key === "length" ? 1 : 0))) throw new RuntimeApiError("invalid_params", `${key} 必须为有效字节整数`);
+        }
+        if (params["source"] !== undefined && (typeof params["source"] !== "string" || !params["source"])) throw new RuntimeApiError("invalid_params", "source 必须为非空字符串");
         return runtime.readHistoryEntry({
           sessionId: requireString("session_id"),
           entryId: requireString("entry_id"),
+          source: params["source"] as string | undefined,
           offset: params["offset"] === undefined ? undefined : Number(params["offset"]),
           length: params["length"] === undefined ? undefined : Number(params["length"]),
         });
@@ -666,30 +686,39 @@ export class ControlServer {
       case "list_data_grants":
         return { grants: runtime.listDataGrants({ includeRevoked: params["include_revoked"] === true }) };
       case "search_history": {
+        const scope = params["scope"];
+        if (scope !== undefined && scope !== "workspace_chats") throw new RuntimeApiError("invalid_params", "scope 必须为 workspace_chats");
         const num = (key: string): number | undefined => {
           const v = params[key];
           if (v === undefined) return undefined;
           const n = Number(v);
-          if (!Number.isFinite(n) || n < 0) {
-            throw Object.assign(new Error(`${key} 必须是非负数字`), { code: "invalid_params" });
+          if (!Number.isSafeInteger(n) || n < 0) {
+            throw new RuntimeApiError("invalid_params", `${key} 必须是非负安全整数`);
           }
           return n;
         };
         const rawCursor = params["cursor"];
-        let cursor: { sessionId: string; byteOffset: number } | null | undefined;
+        let cursor: { sessionId: string; byteOffset: number } | WorkspaceHistoryCursor | null | undefined;
         if (rawCursor === undefined) {
           cursor = undefined;
         } else if (rawCursor === null) {
           cursor = null;
         } else {
+          if (typeof rawCursor !== "object" || Array.isArray(rawCursor)) throw new RuntimeApiError("invalid_params", "cursor 必须为对象");
           const c = rawCursor as Record<string, unknown>;
-          if (typeof c?.["session_id"] !== "string" || typeof c?.["byte_offset"] !== "number") {
-            throw Object.assign(new Error("cursor 必须含 session_id 与 byte_offset"), { code: "invalid_params" });
+          if (typeof c["session_id"] !== "string" || !c["session_id"] || !Number.isSafeInteger(c["byte_offset"]) || Number(c["byte_offset"]) < -1) throw new RuntimeApiError("invalid_params", "cursor 必须含有效 session_id 与 byte_offset");
+          const base = { sessionId: c["session_id"], byteOffset: c["byte_offset"] as number };
+          if (c["phase"] === undefined) cursor = base;
+          else {
+            if (scope !== "workspace_chats" || (c["phase"] !== "index" && c["phase"] !== "scan") || !Number.isSafeInteger(c["read_offset"]) || Number(c["read_offset"]) < 0 || typeof c["query_key"] !== "string") throw new RuntimeApiError("invalid_params", "搜索进度游标无效，请重新搜索");
+            const source = c["source"] as Record<string, unknown> | undefined;
+            if (!source || ["file_dev", "file_ino", "min_size"].some(key => !Number.isSafeInteger(source[key]) || Number(source[key]) < 0)) throw new RuntimeApiError("invalid_params", "搜索来源游标无效，请重新搜索");
+            cursor = { ...base, phase: c["phase"], readOffset: c["read_offset"] as number, queryKey: c["query_key"], source: { fileDev: source["file_dev"] as number, fileIno: source["file_ino"] as number, minSize: source["min_size"] as number } };
           }
-          cursor = { sessionId: c["session_id"], byteOffset: c["byte_offset"] };
         }
         return runtime.searchHistory({
           query: requireString("query"),
+          scope,
           projectId: typeof params["project_id"] === "string" ? params["project_id"] : undefined,
           sessionId: typeof params["session_id"] === "string" ? params["session_id"] : undefined,
           taskId: typeof params["task_id"] === "string" ? params["task_id"] : undefined,

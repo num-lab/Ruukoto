@@ -49,6 +49,10 @@ UTF-8 字节计数使用 `TextEncoder`，中文、emoji 与孤立代理项的计
 
 ## 设计依据
 
+- [搜索结果直接打开普通会话](../../.agents/notes/implemented/simplification/2026-10-21-desktop-search-session-navigation.md)
+
+- [应用内 Spotlight 与历史定位](../../.agents/notes/implemented/feature/2026-10-21-desktop-spotlight-search.md)
+
 - [完整思考与文件预览](../../.agents/notes/implemented/feature/2026-10-18-complete-reasoning-and-preview.md)
 
 - [同仓 workspaces 分包](../../.agents/notes/implemented/architecture/2026-10-11-in-repo-workspace-packages.md)：包依赖、浏览器投影与 TUI 的职责划分。

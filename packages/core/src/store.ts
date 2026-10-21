@@ -457,6 +457,10 @@ export class Store {
     return this.sessionSummaries("s.project_id = ?", projectId);
   }
 
+  listAllSessionSummaries(): Array<{ sessionId: string; name: string | null; lastActiveAt: string }> {
+    return this.sessionSummaries("1 = 1");
+  }
+
   /**
    * 按组织归属查询会话摘要（agent-direction issue 07 步骤 4）：展示归属 =
    * workspace_project_id ?? project_id（显式映射优先，未映射会话留在来源项目）。
@@ -467,9 +471,9 @@ export class Store {
     return this.sessionSummaries("COALESCE(s.workspace_project_id, s.project_id) = ?", workspaceId);
   }
 
-  // ponytail: affiliation 是 SQL 片段插值而非参数——仅在本类内传入两个常量，
+  // ponytail: affiliation 是 SQL 片段插值而非参数——仅在本类内传入固定常量，
   // 同一 SQL 正文供 prepare 复用；若开放为公共接口须改回参数化条件。
-  private sessionSummaries(affiliation: string, id: string): Array<{ sessionId: string; name: string | null; lastActiveAt: string }> {
+  private sessionSummaries(affiliation: string, id?: string): Array<{ sessionId: string; name: string | null; lastActiveAt: string }> {
     return this.db.prepare(`
       WITH event_activity AS (
         SELECT t.session_id, MAX(e.created_at) AS last_at
@@ -486,7 +490,7 @@ export class Store {
             COALESCE(t.ended_at, t.created_at))) FROM tasks t WHERE t.session_id = s.id), s.created_at)) AS lastActiveAt
       FROM sessions s LEFT JOIN event_activity e ON e.session_id = s.id
       WHERE ${affiliation} ORDER BY s.created_at, s.rowid
-    `).all(id, id) as Array<{ sessionId: string; name: string | null; lastActiveAt: string }>;
+    `).all(...(id === undefined ? [] : [id, id])) as Array<{ sessionId: string; name: string | null; lastActiveAt: string }>;
   }
 
   setSessionFile(id: string, file: string): void {

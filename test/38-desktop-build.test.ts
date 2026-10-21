@@ -7,11 +7,27 @@ import { test } from "node:test";
 import { build } from "vite";
 import { checkBuild, DesktopBuildError } from "../apps/desktop/scripts/check-build.mjs";
 import { PRODUCTION_CSP, productionCspPlugin } from "../apps/desktop/build/security.mjs";
-import { vendorTerminal } from "../apps/desktop/build/terminal.mjs";
+import { TERMINAL_MODULE, vendorTerminal } from "../apps/desktop/build/terminal.mjs";
+import desktopConfig from "../apps/desktop/electron.vite.config.ts";
 
 const encodedCsp = PRODUCTION_CSP.replaceAll("'", "&#39;");
 const cspMeta = `<meta http-equiv="Content-Security-Policy" content="${encodedCsp}">`;
 const buildScript = path.resolve(import.meta.dirname, "../apps/desktop/scripts/check-build.mjs");
+
+test("Electron 终端构建在依赖解析前保留 vendor 引用，原生加载器不内联", async () => {
+  const config = desktopConfig({ command: "build", mode: "production" });
+  const result = await build({
+    configFile: false,
+    logLevel: "silent",
+    plugins: [{ name: "terminal-entry", resolveId: id => id === "terminal-entry" ? id : null, load: id => id === "terminal-entry" ? 'export { spawn } from "node-pty";' : null }, ...(config.main?.plugins ?? [])],
+    build: { write: false, minify: false, rollupOptions: { input: "terminal-entry", output: { format: "es" } } },
+  });
+  assert.ok(!Array.isArray(result) && "output" in result);
+  const entry = result.output.find(item => item.type === "chunk" && item.isEntry);
+  assert.ok(entry && entry.type === "chunk");
+  assert.deepEqual(entry.imports, [TERMINAL_MODULE]);
+  assert.ok(!entry.code.includes("loadNativeModule"));
+});
 
 test("桌面生产 CSP 仅给内置浏览器开放 HTTP(S)，预览图片允许 data；内联样式放行 xterm 运行时主题注入，脚本仍不开放", () => {
   assert.match(PRODUCTION_CSP, /(?:^|;)\s*default-src 'self'(?:;|$)/);

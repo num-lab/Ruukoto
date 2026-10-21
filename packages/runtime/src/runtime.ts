@@ -98,6 +98,9 @@ import { getBranchRequest, sourceArtifact } from "@ruukoto/core/branch.ts";
 import { finishCompactionRequest, getCompactionRequest, getLatestSessionCompaction, recoverCompactionRequests, reserveCompactionRequest, updateCompactionSource } from "@ruukoto/core/compaction.ts";
 import { DirIdentityError,legacyProjectClaimableFromDir,resolveDirIdentity,sameDirIdentity,verifyDirIdentity,type DirIdentity } from "@ruukoto/core/dir-identity.ts";
 import { HistoryIndex,searchHistory } from "@ruukoto/core/history-index.ts";
+import { searchWorkspaceHistory, type WorkspaceHistorySearchResult, type WorkspaceHistoryCursor } from "@ruukoto/core/history-search.ts";
+import { readIndexedHistoryPage, readIndexedHistoryEntryText } from "@ruukoto/core/history-window.ts";
+import { setImmediate as yieldHistory } from "node:timers/promises";
 import {
   HistoryReadError,
   historyTodoParams,
@@ -2873,14 +2876,25 @@ export class Runtime {
     return session;
   }
 
-  /**
-   * 会话摘要查询（issue 07 步骤 4）：project_id 按原身份查询（旧语义）；
-   * workspace_id 按组织归属查询（已映射旧会话归入目标工作区）。两个参数互斥。
-   */
-  listSessionSummaries(input: { projectId?: string; workspaceId?: string }) {
+  // Note: 见 .agents/notes/implemented/feature/2026-10-21-desktop-spotlight-search.md
+  private workspaceChats(): Session[] {
+    if (this.productType !== "ruukoto-code") throw new RuntimeApiError("unavailable", "工作区搜索只向 Code 开放");
+    return this.store.listSessions().filter(session => this.store.getSessionIdentity(session.id)?.kind === "dev");
+  }
+
+  /** 旧查询按原项目或组织归属；workspace_chats 由后台身份筛选并覆盖全部工作区。 */
+  listSessionSummaries(input: { projectId?: string; workspaceId?: string; scope?: "workspace_chats" }): Array<{ sessionId: string; name: string | null; lastActiveAt: string; workspaceId?: string; archivedAt?: string | null }> {
+    if (input.projectId && input.workspaceId) throw new RuntimeApiError("invalid_params", "project_id 与 workspace_id 互斥，只能传其一");
+    if (input.scope === "workspace_chats") {
+      const sessions = new Map(this.workspaceChats().map(session => [session.id, session]));
+      if (input.projectId || input.workspaceId) throw new RuntimeApiError("invalid_params", "workspace_chats 查询使用全部工作区，不接受项目限制");
+      return this.store.listAllSessionSummaries().flatMap(summary => {
+        const session = sessions.get(summary.sessionId);
+        return session ? [{ ...summary, workspaceId: session.workspaceProjectId ?? session.projectId, archivedAt: session.archivedAt }] : [];
+      });
+    }
     const id = input.workspaceId ?? input.projectId;
     if (!id) throw new RuntimeApiError("invalid_params", "project_id 或 workspace_id 必填其一");
-    if (input.projectId && input.workspaceId) throw new RuntimeApiError("invalid_params", "project_id 与 workspace_id 互斥，只能传其一");
     if (!this.store.getProject(id)) throw new RuntimeApiError("not_found", "项目不存在");
     return input.workspaceId ? this.store.listSessionSummariesForWorkspace(id) : this.store.listSessionSummaries(id);
   }
@@ -4794,10 +4808,33 @@ export class Runtime {
     });
   }
 
-  /** 指定历史条目的正文分段（字节偏移，UTF-8 边界对齐）。 */
-  readHistoryEntry(input: { sessionId: string; entryId: string; offset?: number; length?: number }): HistoryEntryView {
+  /** 定位读取先分批准备索引，再返回带来源身份的连续历史窗口。 */
+  private async prepareHistoryIndex(sessionId: string, file: string): Promise<void> {
+    let offset: number | undefined;
+    for (;;) {
+      const batch = this.historyIndex.syncBatch(sessionId, file, offset);
+      if (batch.complete) return;
+      offset = batch.readOffset;
+      await yieldHistory();
+    }
+  }
+
+  async readHistoryWindow(input: { sessionId: string; before?: string; after?: string; around?: string; source?: string; limit?: number; entryTextCap?: number; pageTextBudget?: number }): Promise<HistoryPage> {
+    const session = this.getSession(input.sessionId);
+    try {
+      if (session.sessionFile) await this.prepareHistoryIndex(session.id, session.sessionFile);
+      const page = readIndexedHistoryPage(this.db, session.id, session.sessionFile, input);
+      return { ...page, entries: this.historyViews(session, page.entries) };
+    } catch (error) {
+      if (error instanceof HistoryReadError) throw new RuntimeApiError(error.code, error.message);
+      throw error;
+    }
+  }
+
+  /** 指定历史条目的正文分段；连续窗口沿用来源身份，避免补入另一份文件。 */
+  readHistoryEntry(input: { sessionId: string; entryId: string; offset?: number; length?: number; source?: string }): HistoryEntryView {
     return this.withSessionHistory(input.sessionId, (file, session) =>
-      this.historyViews(session, [readHistoryEntryText(file, input.entryId, input.offset, input.length)])[0],
+      this.historyViews(session, [input.source ? readIndexedHistoryEntryText(this.db, session.id, file, input.entryId, input.offset, input.length, input.source) : readHistoryEntryText(file, input.entryId, input.offset, input.length)])[0],
     );
   }
 
@@ -4933,8 +4970,9 @@ export class Runtime {
    * 同步会话历史索引并做字面关键词搜索（拥有者范围 = 全部项目）。
    * 索引是派生数据：文件替换/截断时重建索引，绝不改写源 JSONL。
    */
-  searchHistory(input: {
+  async searchHistory(input: {
     query: string;
+    scope?: "workspace_chats";
     projectId?: string;
     sessionId?: string;
     taskId?: string;
@@ -4943,17 +4981,42 @@ export class Runtime {
     until?: string;
     limit?: number;
     scanLimit?: number;
-    cursor?: { sessionId: string; byteOffset: number } | null;
+    cursor?: { sessionId: string; byteOffset: number } | WorkspaceHistoryCursor | null;
     contextChars?: number;
-  }): {
+  }): Promise<{
     hits: import("@ruukoto/core/history-index.ts").HistorySearchHit[];
     complete: boolean;
-    cursor: { sessionId: string; byteOffset: number } | null;
+    cursor: { sessionId: string; byteOffset: number } | WorkspaceHistoryCursor | null;
     scanned: number;
     unindexedSessionIds: string[];
-  } {
+    sourceIssues?: WorkspaceHistorySearchResult["sourceIssues"];
+    progress?: WorkspaceHistorySearchResult["progress"];
+  }> {
     if (!input.query || input.query.length === 0) {
       throw new RuntimeApiError("invalid_params", "搜索关键词不能为空");
+    }
+    if (input.scope === "workspace_chats") {
+      if (input.projectId || input.sessionId || input.taskId || input.role) throw new RuntimeApiError("invalid_params", "工作区正文搜索不接受会话、任务或角色限制");
+      const candidates = this.workspaceChats().map(session => {
+        let facts: { expected: boolean; entries: Set<string>; tasks: Set<string> } | undefined;
+        const historyFacts = () => {
+          if (facts) return facts;
+          const tasks = [...this.store.listTasksBySession(session.id), ...(session.branchSource?.taskIds ?? []).map(id => this.store.getTask(id)).filter(task => task !== null)];
+          const internal = tasks.filter(task => this.taskView(task).inputPurpose === "internal_report");
+          facts = { expected: this.historyIndex.isIndexed(session.id) || tasks.some(task => task.historyEntryIds.length > 0), entries: new Set(internal.flatMap(task => task.historyEntryIds)), tasks: new Set(internal.map(task => task.id)) };
+          return facts;
+        };
+        return { sessionId: session.id, filePath: session.sessionFile,
+          get historyExpected() { return historyFacts().expected; },
+          get excludedEntryIds() { return historyFacts().entries; },
+          get excludedTaskIds() { return historyFacts().tasks; } };
+      });
+      try {
+        return await searchWorkspaceHistory(this.db, candidates, input);
+      } catch (error) {
+        if (error instanceof HistoryReadError) throw new RuntimeApiError(error.code, error.message);
+        throw error;
+      }
     }
     let sessions = this.store.listSessions();
     if (input.taskId) {

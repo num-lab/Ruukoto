@@ -2,7 +2,7 @@
 
 Status: implemented
 
-后续提案：[Desktop 应用内 Spotlight](../../proposed/feature/2026-10-21-desktop-spotlight-search.md)拟让已存档会话可被显式搜索并打开，保留存档标记；尚未改变本篇现行行为。
+搜索展示例外：[Desktop 应用内 Spotlight](../../implemented/feature/2026-10-21-desktop-spotlight-search.md)允许显式打开已存档结果，保留存档标记，不改变任务与会话存档事实。
 
 ## 问题
 

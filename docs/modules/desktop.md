@@ -8,7 +8,7 @@
 
 ## 对外接口
 
-Electron 或 MyGo 共用的 Node DesktopHost 持有令牌、`ControlConnection`、SSH 子进程和后台拉起。preload 只向渲染进程暴露 `subscribe(target, listener)`、`request(target, op, params)`、`pickFolder()`、`pickAttachments(sessionId, target?)` 与 `reveal(path)`及终端的open/input/resize/kill四方法。主进程校验 IPC 来源和操作名单：本地 `reconnect`、`desktop_browser_open`／`desktop_browser_release`及仅向Code开放的`desktop_terminal_open/input/resize/kill`，以及后台的 `list_session_summaries`、`open_workspace`、`create_session`、`read_history`、`read_history_entry`、`list_tasks`、`get_task`、`read_task_events`、`work_list`、`work_get`、`read_tool_result`、`read_artifact`、`get_tool_op_params`、`list_models`、`set_session_model`、`set_session_mode`、`get_session`、`interrupt`、`cancel`、`resume_queue`、`get_confirmation_params`、`respond_confirmation`、`list_prompt_requests`、`get_context_breakdown`、`list_workspace_files`、`read_workspace_file`、`read_workspace_git`。`submit` 与 `continue` 交主进程的 SubmissionGuard，`find_task` 仅供守护内部使用；本地 `desktop_pending_read` 与 `desktop_pending_clear` 处理输入恢复。Personal 开放历史、任务、工具、委派、模型、Context、审批、输入与恢复操作及本地 `desktop_personal_config_read`／`desktop_personal_config_save`，拒绝工作区创建、文件、Git 与 Plan。字段与权限继续由控制面校验。错误作为 `{ code, outcome, message, versions? }` 响应数据跨 IPC 传递，保留应答丢失分类。
+Electron 或 MyGo 共用的 Node DesktopHost 持有令牌、`ControlConnection`、SSH 子进程和后台拉起。preload 只向渲染进程暴露 `subscribe(target, listener)`、`request(target, op, params)`、`pickFolder()`、`pickAttachments(sessionId, target?)` 与 `reveal(path)`及终端的open/input/resize/kill四方法。主进程校验 IPC 来源和操作名单：本地 `reconnect`、`desktop_browser_open`／`desktop_browser_release`及仅向Code开放的`desktop_terminal_open/input/resize/kill`，以及后台的 Code 专属 `search_history`、`list_session_summaries`、`open_workspace`、`create_session`、`read_history`、`read_history_entry`、`list_tasks`、`get_task`、`read_task_events`、`work_list`、`work_get`、`read_tool_result`、`read_artifact`、`get_tool_op_params`、`list_models`、`set_session_model`、`set_session_mode`、`get_session`、`interrupt`、`cancel`、`resume_queue`、`get_confirmation_params`、`respond_confirmation`、`list_prompt_requests`、`get_context_breakdown`、`list_workspace_files`、`read_workspace_file`、`read_workspace_git`。`submit` 与 `continue` 交主进程的 SubmissionGuard，`find_task` 仅供守护内部使用；本地 `desktop_pending_read` 与 `desktop_pending_clear` 处理输入恢复。Personal 开放历史、任务、工具、委派、模型、Context、审批、输入与恢复操作及本地 `desktop_personal_config_read`／`desktop_personal_config_save`，拒绝工作区创建、文件、Git 与 Plan。字段与权限继续由控制面校验。错误作为 `{ code, outcome, message, versions? }` 响应数据跨 IPC 传递，保留应答丢失分类。
 
 渲染进程使用 React、Tailwind v4、shadcn 源码组件与 AI Elements、Lucide，主题和三栏布局以定稿 demo 为准，消费 `@ruukoto/view` 的快照和事件投影。开发与构建命令见[开发说明](../development.md#桌面客户端)，启动与故障恢复见[操作手册](../usage.md#桌面客户端)。
 
@@ -27,6 +27,8 @@ Personal 配置保存在应用数据目录的 `personal.json`，只含 `host` �
 本机终端及xterm滚动历史只在本次应用内存中保留，最多同时8个，滚动历史5000行；关闭终端标签或所属会话、换数据实例、页面重载／崩溃与应用退出均回收，普通断线、同实例快照和切换标签／会话／Personal保留。终端用与全局一致的等宽字体栈，明暗主题各带完整ANSI 16色；样式依赖生产CSP对内联样式的放行。
 
 ## 主要流程
+
+应用内 ⌘K 切换当前 Code 实例的 Spotlight 开关，顶栏侧栏开关左侧的搜索图标也可打开；弹窗从上向下进入，在 PA 页面也只搜 Code 工作区。完整普通会话摘要用于即时名称匹配，正文在输入稳定 180ms 且组合输入结束后查询；每个控制器最多一页在途，空命中进度页继续推进，满 20 条后滚动接近列表底部自动续查。候选与结果只在内存中保存，关闭、断线、新快照和换实例淘汰旧轮次；名称结果保留工作区与存档标记；正文结果上行显示会话名和存档标记，下行显示单行正文预览，短消息完整保留，超宽时按实际像素宽度让匹配词尽量居中，右侧显示相对时间；匹配词高亮，搜索弹窗使用主题灰色背景；长名称在末尾省略，正文预览保持单行，超出显示范围的部分裁切；加载使用搜索框内图标，检索状态仅向读屏播报，实际读取失败与离线可见，两种结果之间用分隔线区分，滚动条只在滚动中及停止后短暂显示，不再提供加载按钮。
 
 Node 宿主创建时开始准备环境，与窗口加载并行。日常应用执行一次登录 shell，取得 node 与环境；首次连接复用结果，采用后显式解析 Code 的数据、agent、控制目录。预热失败由连接报告，重新连接可重试；退出取消并回收直接读取进程，迟到结果不再采用。`ensureBackend` 先经认证 ping 轻量探测已有后台，正式连接再安装一次完整快照；需要启动时用登录环境中的 node 执行构建时记录的仓库 bin。Code 后台脱离运行，关闭应用不停止它。
 
@@ -74,6 +76,8 @@ Git graph 每页读取200条真实提交，滚动接近底部自动追加直到�
 
 ## 不变量与失败处理
 
+选择会话名称或正文结果均直接打开对应的普通会话，沿用已有标签、最新消息、历史分页、实时输出与输入区，保留原草稿和附件。正文片段用于辨认会话，不单独进入历史模式或滚动定位原消息。已存档结果可显式打开且不取消存档。
+
 终端参数不接受任意cwd；仅按当前Code实例已登记根的真实路径和inode启动，迟到打开或实例变化拒绝。输出16ms合并／发送节流、单帧最多64KiB，pending达64KiB暂停PTY，MyGo等待管道写完后继续。回收先核实shell及当前后代进程组，TERM后500ms升级KILL，不因shell先退出取消；回收失败保留记录和界面提示，提供重试回收入口；输入与尺寸更新逐终端串行，失败后停止后续发送。主动脱离、已经成为孤儿或回收快照后新派生的外部进程无法保证追回；工作区只限制启动cwd，终端可访问应用账户可访问的其他目录。
 
 MyGo 仅在精确 `mygo://localhost/` 顶层文档安装 bridge，每个 Go 方法另核对调用窗口及文档 URL，原生拒绝子 frame IPC。保留生产 CSP 与 iframe sandbox，拒绝网页权限、下载和全部新窗口，主文档外链交系统浏览器。子 frame 隔离不依赖主文档导航回调。未写入 Node 的请求为 not_sent，交付后丢答保留 unknown／disconnected，禁止自动重放；坏帧、EOF、写入故障或传输期限使全部在途调用失败并报告 failed，旧更新不再安装。退出先等待 Node 回收连接与 SSH，再有界升级终止；日常后台继续运行。
@@ -99,6 +103,10 @@ Personal 预检总期限为 15 秒；超时或网络失败、远端 socket 暂�
 审批决定从不自动重发。明确失效移除卡片；权限版本不符重读详情并等待重新决定；未发送保留卡片。在线应答丢失查询原审批，断线等待同实例快照，查询失败或过旧保留防重复状态并经现有提示报告；重新连接可再次核实。新快照淘汰旧详情与核实结果；换实例丢弃原操作结果。系统通知送达仍受 macOS 通知设置约束。
 
 ## 设计依据
+
+- [搜索结果直接打开普通会话](../../.agents/notes/implemented/simplification/2026-10-21-desktop-search-session-navigation.md)
+
+- [应用内 Spotlight 与历史定位](../../.agents/notes/implemented/feature/2026-10-21-desktop-spotlight-search.md)
 
 - [本机集成终端](../../.agents/notes/implemented/feature/2026-10-20-desktop-integrated-terminal.md)
 

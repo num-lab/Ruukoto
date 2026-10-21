@@ -2949,7 +2949,7 @@ export class Runtime {
     }
   }
 
-  /** 秘密脱敏：配置文件当前含有的任何秘密（API key、headers 值）不得出现在错误文本里。 */
+  /** 秘密脱敏：配置文件当前含有的 API key、OAuth token、headers 值不得出现在错误文本里。 */
   private scrubSecrets(text: string): string {
     let out = text;
     for (const secret of configSecrets(this.config.agentDir)) out = out.split(secret).join("***");

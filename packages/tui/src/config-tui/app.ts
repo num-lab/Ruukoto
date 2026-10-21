@@ -40,7 +40,7 @@ import { SESSION_DEFAULT_MODES } from "@ruukoto/core/types.ts";
 import type { McpServiceConfig } from "@ruukoto/agent/mcp/store.ts";
 import { reloadStatePathFromEnv, loadReloadState, saveReloadState } from "../tui/reload-state.ts";
 import { OverlayBox, MaskedInput, bold, dim, green, red, selectTheme, yellow } from "./components.ts";
-import { thinkingLevelsForCatalogModel, type SummaryModel } from "@ruukoto/agent/model-config.ts";
+import type { ConfiguredModelMetadata, ModelCredentialSourceMetadata, SummaryModel } from "@ruukoto/agent/model-config.ts";
 import { JEV_CREDENTIAL_PURPOSE, JEV_HOST, type JevConfig } from "@ruukoto/agent/jev-config.ts";
 
 /** 摘要模型的数据去向说明（issue 30 §8）。 */
@@ -50,7 +50,12 @@ const SUMMARY_MODEL_NOTE = "设置后，main、coding 与开发会话较早的�
 export interface ModelConfigView {
   revision: string;
   providers: Record<string, any>;
+  /** 仅表示 auth.json 的存储条目存在，不代表所有认证来源或可用性。 */
   credentials: Record<string, { configured: boolean; type?: string }>;
+  credentialSources: Record<string, ModelCredentialSourceMetadata>;
+  models: ConfiguredModelMetadata[];
+  runtimeOverrides: { model: boolean; thinking: boolean };
+  structureErrors?: string[];
   defaultModel: ModelSelection | null;
   /** 上下文压缩的摘要模型（issue 30；null = 用会话当前模型）。 */
   summaryModel: SummaryModel | null;
@@ -76,8 +81,6 @@ export interface ConfigTuiAppDeps {
   modelBackend: ModelBackend;
   /** 离线模式展示用配置目录。 */
   agentDir: string;
-  /** 离线启动时的 probeModelConfig 结论。 */
-  probeDetail?: string;
   client?: ControlClient;
   snapshot?: ConnectResult["snapshot"];
   terminal?: Terminal;
@@ -96,15 +99,6 @@ interface Screen {
   load(): Promise<SelectItem[]>;
   onSelect(item: SelectItem): void | Promise<void>;
   watch?: (eventType: string) => boolean;
-}
-
-/** 供选择器用的目录模型条目。 */
-interface CatalogModelOption {
-  provider: string;
-  modelId: string;
-  name: string;
-  thinkingLevels: string[];
-  available: boolean;
 }
 
 /** 正文区单组件容器：换屏即换 child。 */
@@ -613,28 +607,29 @@ export class ConfigTuiApp {
         const lines: string[] = [];
         if (this.deps.mode === "offline") {
           lines.push(`离线模式：直接写 ${this.deps.agentDir}（已持有配置锁）`);
-          if (this.deps.probeDetail) lines.push(`配置探测：${this.deps.probeDetail}`);
+          lines.push(this.modelView?.structureErrors?.length ? `配置结构待修复：${this.modelView.structureErrors.join("；")}` : "仅检查配置结构；认证来源或有效性未验证，保存时仍会校验");
         }
         const v = this.modelView;
         if (v) {
           const d = v.defaultModel;
           lines.push(`后台默认模型：${d ? `${d.provider}/${d.modelId} · ${d.thinkingLevel}` : "未设置（回退目录首个模型）"}`);
           lines.push(`摘要模型：${v.summaryModel ? `${v.summaryModel.provider}/${v.summaryModel.modelId}` : "未设置（用会话当前模型）"}`);
+          if (v.runtimeOverrides.model || v.runtimeOverrides.thinking) lines.push(`启动参数覆盖：${[v.runtimeOverrides.model ? "默认模型" : "", v.runtimeOverrides.thinking ? "思考档位" : ""].filter(Boolean).join("、")}；文件设置仍保留`);
           if (v.busyProviders.length > 0) lines.push(`有运行/排队任务，修改被暂缓：${v.busyProviders.join("、")}`);
         }
         return lines;
       },
       load: async () => {
         const view = await this.modelConfig();
-        const items: SelectItem[] = Object.entries(view.providers).map(([id, def]) => {
-          const d = def as any;
-          const cred = view.credentials[id]?.configured === true;
+        const providerIds = [...new Set([...Object.keys(view.providers), ...Object.keys(view.credentialSources)])];
+        const items: SelectItem[] = providerIds.map((id) => {
+          const d = view.providers[id];
           const busy = view.busyProviders.includes(id);
-          const modelCount = Array.isArray(d?.models) ? d.models.length : 0;
+          const modelCount = view.models.filter((model) => model.provider === id).length;
           return {
             value: `provider:${id}`,
             label: `${typeof d?.name === "string" ? `${d.name}（${id}）` : id}${view.defaultModel?.provider === id ? " · 默认" : ""}`,
-            description: `${cred ? "已配置凭据" : "未配置凭据"} · ${modelCount} 个模型${busy ? " · 有运行/排队任务" : ""}`,
+            description: `${this.credentialLocations(view, id).join("；")} · ${modelCount} 个模型${busy ? " · 有运行/排队任务" : ""}`,
           };
         });
         items.push({ value: "default-model", label: "设置后台默认模型", description: "选择提供方/模型/思考档位" });
@@ -655,11 +650,11 @@ export class ConfigTuiApp {
     return {
       id: `provider:${providerId}`,
       title: `提供方 ${providerId}`,
+      intro: () => this.modelView ? [...this.credentialLocations(this.modelView, providerId).slice(0, 2), "来源或有效性未验证；完整位置见「凭据配置位置」"] : [],
       watch: (t) => t === "model.config_changed",
       load: async () => {
         const view = await this.modelConfig();
-        const def = view.providers[providerId] as any;
-        if (!def) return [];
+        const def = view.providers[providerId] ?? {};
         const cred = view.credentials[providerId]?.configured === true;
         const items: SelectItem[] = [
           { value: "field:name", label: `名称：${def.name ?? "（未设置）"}` },
@@ -667,7 +662,8 @@ export class ConfigTuiApp {
           { value: "field:api", label: `协议 api：${def.api ?? "（未设置）"}` },
           { value: "field:headers", label: `自定义头：${def.headers ? Object.keys(def.headers as Record<string, string>).join("、") : "（无）"}` },
           { value: "models", label: `模型列表（${Array.isArray(def.models) ? def.models.length : 0}）`, description: "查看/新增/编辑/删除模型条目" },
-          { value: "apikey", label: `API key：${cred ? "已配置（不回显）" : "未配置"}`, description: "遮蔽输入，写入 auth.json（0600）" },
+          { value: "apikey", label: `存储凭据：${cred ? view.credentials[providerId]?.type === "oauth" ? "OAuth 条目" : "已存储条目" : "无存储条目"}`, description: "仅管理 auth.json；目录、环境和其他 SDK 来源保留" },
+          { value: "sources", label: "凭据配置位置", description: "查看完整位置；不证明认证有效" },
         ];
         if (this.deps.modelBackend.testConnection) {
           items.push({ value: "test", label: "测试连接", description: "显式联网探测（1-token 请求，30 秒超时）" });
@@ -677,17 +673,16 @@ export class ConfigTuiApp {
       },
       onSelect: async (item) => {
         const view = await this.modelConfig();
-        if (!view.providers[providerId]) {
+        if (!view.providers[providerId] && !view.credentialSources[providerId]) {
           this.notify("该提供方已不存在", "yellow");
           return this.popScreen();
         }
         const textField = async (field: "name" | "baseUrl" | "api", label: string): Promise<void> => {
-          const def = view.providers[providerId] as any;
+          const def = view.providers[providerId] ?? {};
           const value = await this.inputBox(`${providerId} 的 ${label}`, { initial: def[field] ?? "" });
           if (value === null) return;
           await this.saveCatalogEdited("已保存", (payload) => {
-            const target = payload[providerId];
-            if (!target) return;
+            const target = payload[providerId] ??= {};
             const trimmed = value.trim();
             if (trimmed) target[field] = trimmed;
             else delete target[field];
@@ -701,7 +696,7 @@ export class ConfigTuiApp {
           case "field:api":
             return textField("api", "协议 api（如 openai-completions / anthropic-messages）");
           case "field:headers": {
-            const def = view.providers[providerId] as any;
+            const def = view.providers[providerId] ?? {};
             // 头的值按秘密脱敏：*** 表示沿用原值
             const initial = def.headers ? Object.keys(def.headers as Record<string, unknown>).map((k) => `${k}=***`).join(", ") : "";
             const value = await this.inputBox(`${providerId} 的自定义头（*** 保留原值）`, { initial, placeholder: "k=v，逗号分隔；留空清除" });
@@ -712,8 +707,7 @@ export class ConfigTuiApp {
               return;
             }
             return this.saveCatalogEdited("已保存", (payload) => {
-              const target = payload[providerId];
-              if (!target) return;
+              const target = payload[providerId] ??= {};
               if (Object.keys(headers).length > 0) target["headers"] = Object.fromEntries(Object.entries(headers).map(([k, v]) => [k, v === "***" ? true : v]));
               else delete target["headers"];
             });
@@ -722,14 +716,16 @@ export class ConfigTuiApp {
             return this.pushScreen(this.modelsOfProviderScreen(providerId));
           case "apikey":
             return this.providerApiKey(providerId);
+          case "sources":
+            await this.pick("凭据配置位置（均未验证）", this.credentialLocations(view, providerId).map((line, index) => ({ value: String(index), label: line })));
+            return;
           case "test": {
-            const def = view.providers[providerId] as any;
-            const models = ((def.models as any[] | undefined) ?? []).filter((m) => typeof m?.id === "string");
+            const models = view.models.filter((model) => model.provider === providerId);
             if (models.length === 0) {
               this.notify("该提供方还没有模型条目", "yellow");
               return;
             }
-            const modelId = await this.pick("测试连接：选择模型（将发起真实联网请求）", models.map((m) => ({ value: m.id as string, label: String(m.name ?? m.id) })));
+            const modelId = await this.pick("测试连接：选择模型（将联网，可能产生费用）", models.map((model) => ({ value: model.modelId, label: model.name })));
             if (modelId === null) return;
             this.notify("正在联网探测（最长 30 秒）…", "yellow");
             const result = await this.deps.modelBackend.testConnection!(providerId, modelId);
@@ -737,7 +733,7 @@ export class ConfigTuiApp {
             return;
           }
           case "remove": {
-            if (!(await this.confirm(`删除提供方 ${providerId}？`, "目录条目与其凭据一并移除；仍被引用时后台会拒绝"))) return;
+            if (!(await this.confirm(`删除提供方 ${providerId}？`, "移除目录定义与 auth.json 条目；环境和其他 SDK 来源保留；仍被引用时拒绝"))) return;
             await this.deps.modelBackend.removeProvider(providerId);
             this.modelView = null;
             this.notify("提供方已删除");
@@ -774,8 +770,7 @@ export class ConfigTuiApp {
             return;
           }
           return this.saveCatalogEdited(`已新增模型 ${modelId}`, (payload) => {
-            const def = payload[providerId];
-            if (!def) return;
+            const def = payload[providerId] ??= {};
             def["models"] = [...((def["models"] as unknown[] | undefined) ?? []), { id: modelId }];
           });
         }
@@ -841,7 +836,7 @@ export class ConfigTuiApp {
           case "reasoning": {
             const value = await this.pick("模型是否支持思考档位", [
               { value: "false", label: "否" },
-              { value: "true", label: "是（支持 off/minimal/low/medium/high）" },
+              { value: "true", label: "是（真实档位由 SDK 元数据确定）" },
             ]);
             if (value === null) return;
             return editModel("已保存", (m) => {
@@ -861,24 +856,41 @@ export class ConfigTuiApp {
     };
   }
 
-  /** API key 设置/移除：遮蔽输入，值不回显、不入任何状态文件。 */
+  private credentialLocations(view: ModelConfigView, provider: string): string[] {
+    const locations = view.credentialSources[provider]?.locations ?? [];
+    const lines = locations.map((location) => {
+      if (location.source === "storage") return `存储条目：${location.type === "oauth" ? "OAuth" : location.type === "api_key" ? "API Key" : "未知类型"}`;
+      if (location.source === "runtime") return "运行时 API Key 覆盖：存在";
+      if (location.source === "sdk") return "SDK 来源：存在，具体来源未验证";
+      const scope = location.scope === "provider" ? "提供方" : `${location.scope === "modelOverrides" ? "modelOverrides" : "模型"} ${location.modelId}`;
+      return `目录 ${scope}：${location.field === "apiKey" ? "apiKey" : `header ${location.header}（可能含认证）`}`;
+    });
+    lines.push("来源或有效性未验证；环境来源请修改后台启动环境");
+    return lines;
+  }
+
+  /** 只替换或移除 auth.json 条目；目录与环境等其他来源保留。 */
   private async providerApiKey(providerId: string): Promise<void> {
-    const action = await this.pick(`提供方 ${providerId} 的 API key`, [
-      { value: "set", label: "设置/更新 API key", description: "遮蔽输入（•••），写入 auth.json" },
-      { value: "remove", label: "移除 API key" },
+    const view = await this.modelConfig();
+    const oauth = view.credentials[providerId]?.type === "oauth";
+    const action = await this.pick(`提供方 ${providerId} 的存储凭据`, [
+      { value: "set", label: "保存存储 API Key", description: oauth ? "替换现有 OAuth 存储条目；不撤销远端令牌" : "遮蔽输入，仅写入 auth.json" },
+      { value: "remove", label: "移除存储凭据", description: "仅移除 auth.json 条目，其他来源保留" },
     ]);
     if (action === "set") {
-      const key = await this.maskedBox(`设置 ${providerId} 的 API key`);
+      if (oauth && !(await this.confirm(`替换 ${providerId} 的 OAuth 存储条目？`, "仅替换本地条目，不撤销远端令牌；目录与环境等其他来源保留"))) return;
+      const key = await this.maskedBox(`保存 ${providerId} 的存储 API Key`);
       if (key === null) return;
       await this.deps.modelBackend.setApiKey(providerId, key);
       this.modelView = null;
-      this.notify("API key 已保存（凭据不回显）");
+      this.notify("存储 API Key 已保存（凭据不回显）；其他来源保留，认证有效性未验证");
       await this.refresh();
     } else if (action === "remove") {
-      if (!(await this.confirm(`移除 ${providerId} 的 API key？`, "移除后该提供方将因缺少凭据而不可用"))) return;
+      if (!(await this.confirm(`移除 ${providerId} 的存储凭据？`, `仅移除 auth.json 条目${oauth ? "（OAuth；不撤销远端令牌）" : ""}；目录与环境等其他来源保留，移除后读回配置位置`))) return;
       await this.deps.modelBackend.removeApiKey(providerId);
       this.modelView = null;
-      this.notify("API key 已移除");
+      await this.modelConfig();
+      this.notify("已移除所选存储条目；其他来源保留，来源或有效性未验证");
       await this.refresh();
     }
   }
@@ -901,49 +913,16 @@ export class ConfigTuiApp {
     });
   }
 
-  /** 目录模型（选择器数据源）：在线用 list_models（含真实思考档位），离线由目录推导。 */
-  private async catalogModels(): Promise<CatalogModelOption[]> {
-    if (this.deps.mode === "online" && this.deps.client) {
-      const out: CatalogModelOption[] = [];
-      let offset = 0;
-      for (;;) {
-        const page = await this.deps.client.request<any>("list_models", { offset, limit: 100 });
-        for (const m of (page.models as any[] | undefined) ?? []) {
-          out.push({
-            provider: String(m.provider),
-            modelId: String(m.modelId),
-            name: String(m.name ?? m.modelId),
-            thinkingLevels: Array.isArray(m.thinkingLevels) && m.thinkingLevels.length > 0 ? m.thinkingLevels.map(String) : ["off"],
-            available: m.available !== false,
-          });
-        }
-        if (page.nextOffset === null || page.nextOffset === undefined) break;
-        offset = Number(page.nextOffset);
-      }
-      return out;
-    }
-    const view = await this.modelConfig();
-    const out: CatalogModelOption[] = [];
-    for (const [provider, def] of Object.entries(view.providers)) {
-      for (const m of (((def as any)?.models as any[] | undefined) ?? [])) {
-        if (typeof m?.id !== "string") continue;
-        out.push({
-          provider,
-          modelId: m.id,
-          name: typeof m.name === "string" ? m.name : m.id,
-          thinkingLevels: thinkingLevelsForCatalogModel(m),
-          available: view.credentials[provider]?.configured === true,
-        });
-      }
-    }
-    return out;
+  /** 设置列表只读配置元数据，认证校验留在显式保存与测试。 */
+  private async catalogModels(): Promise<ConfiguredModelMetadata[]> {
+    return (await this.modelConfig()).models;
   }
 
   /** provider → 模型 → 思考档位的按序选择；任一步取消返回 null。 */
   private async pickModelAndLevel(title: string, current?: ModelSelection | null): Promise<ModelSelection | null> {
     const models = await this.catalogModels();
     if (models.length === 0) {
-      this.notify("目录中没有可用模型", "yellow");
+      this.notify("未能确认目录模型成员，请连接后台读取模型元数据", "yellow");
       return null;
     }
     const providerIds = [...new Set(models.map((m) => m.provider))];
@@ -956,10 +935,14 @@ export class ConfigTuiApp {
       `${title}：模型`,
       models
         .filter((m) => m.provider === provider)
-        .map((m) => ({ value: m.modelId, label: m.name === m.modelId ? m.modelId : `${m.name}（${m.modelId}）`, description: m.available ? "" : "凭据未配置" })),
+        .map((m) => ({ value: m.modelId, label: m.name === m.modelId ? m.modelId : `${m.name}（${m.modelId}）`, description: "来源或有效性未验证" })),
     );
     if (modelId === null) return null;
     const option = models.find((m) => m.provider === provider && m.modelId === modelId)!;
+    if (!option.thinkingLevels || option.thinkingLevels.length === 0) {
+      this.notify("该模型真实思考档位未知，请连接后台读取模型元数据后设置", "yellow");
+      return null;
+    }
     const level = await this.pick(
       `${title}：思考档位`,
       option.thinkingLevels.map((l) => ({ value: l, label: l })),
@@ -999,7 +982,7 @@ export class ConfigTuiApp {
         "摘要模型：模型",
         models
           .filter((m) => m.provider === provider)
-          .map((m) => ({ value: m.modelId, label: m.name === m.modelId ? m.modelId : `${m.name}（${m.modelId}）`, description: m.available ? "" : "凭据未配置" })),
+          .map((m) => ({ value: m.modelId, label: m.name === m.modelId ? m.modelId : `${m.name}（${m.modelId}）`, description: "来源或有效性未验证" })),
       );
       if (modelId === null) return;
       model = { provider, modelId };

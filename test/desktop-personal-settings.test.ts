@@ -16,7 +16,7 @@ const profile = { directory: "/remote/profile", id: "sha256:" + "a".repeat(64) }
 const oldRevision = "sha256:" + "b".repeat(64), newRevision = "sha256:" + "c".repeat(64);
 const config: PersonalManagementConfig = { host: "pa", profileDir: profile.directory, program: PERSONAL_PROGRAMS[0], lifecycle: "systemd" };
 const mutation = () => ({ v: 1, op: "config.save", profile, expectedRevision: oldRevision, target: "model", value: { apiKeyEnv: "NEW_KEY", model: "draft-private-value" } });
-type Scenario = { online: boolean; token: string; revision: string; fault?: string; writable?: boolean; blockers?: unknown[]; credential?: string; product?: string; v?: number; identity?: string; reject?: boolean };
+type Scenario = { online: boolean; token: string; revision: string; fault?: string; writable?: boolean; blockers?: unknown[]; credential?: string; product?: string; v?: number; identity?: string; reject?: string };
 async function harness(patch: Partial<Scenario> = {}, timeoutMs = 3000) {
   const dir = fs.mkdtempSync("/tmp/rk-settings-"), scenarioFile = path.join(dir, "scenario.json"), log = path.join(dir, "calls.jsonl"), childrenFile = path.join(dir, "children");
   const initial: Scenario = { online: true, token: "1".repeat(64), revision: oldRevision, ...patch };
@@ -67,8 +67,8 @@ if(args.includes('-N')) {
       if(req.op==='start'){s.online=true;s.token='2'.repeat(64);}
       write(s);
       result={profile:identity,online:s.online,writable:s.writable!==false,code:'test_status',reason:s.writable===false?'只读：管理员需配置精确授权与 SendSIGKILL=no。':'服务身份与部署已核实。',lifecycle:{kind:req.lifecycle,state:s.online?'running':'stopped',managedDevelopment:false,originalEnvironment:'unverified'}};
-    } else if(req.op==='config.save') {
-      if(s.reject){process.stdout.write(JSON.stringify({v:1,product:'ruukoto',ok:false,code:'settings_pending',message:'存在未决事项，请恢复原后台。'})+'\\n');return;}
+    } else if(req.op==='config.save'||req.op==='skills.set-enabled') {
+      if(s.reject){process.stdout.write(JSON.stringify({v:1,product:'ruukoto',ok:false,code:s.reject,message:'配置未保存，请恢复原后台并比较当前配置。'})+'\\n');return;}
       s.revision='${newRevision}';write(s);result={product:'ruukoto',profile:identity,saved:true,revision:s.revision};
       if(s.fault==='save-journal'){
         const dir=process.env.USER_DATA+'/pending/personal-settings';const file=fs.readdirSync(dir).find(name=>name.endsWith('.json'));fs.mkdirSync(dir+'/'+file+'.tmp');delete s.fault;write(s);
@@ -229,11 +229,13 @@ for (const stage of ["stop", "save", "start"]) {
   });
 }
 
-test("停止后保存明确拒绝保留原配置，并可显式恢复", async () => {
-  const h = await harness({ reject: true });
+for (const rejection of ["settings_pending", "skills_revision_conflict"]) test(`停止后保存明确拒绝 ${rejection} 保留原配置，并可显式恢复`, async () => {
+  const h = await harness({ reject: rejection });
   try {
-    await assert.rejects(h.controller.apply(mutation()), { code: "settings_pending" });
+    const request = rejection === "skills_revision_conflict" ? { v: 1, op: "skills.set-enabled", profile, expectedRevision: oldRevision, id: "00000000-0000-4000-8000-000000000001", enabled: false } : mutation();
+    await assert.rejects(h.controller.apply(request), { code: rejection, outcome: "rejected" });
     const view = await h.controller.read(); assert.equal(view.saved, false); assert.equal(view.settings.online, false); assert.equal(view.settings.revisions.model, oldRevision);
+    assert.equal(view.pending?.rejected, rejection);
     assert.equal((await h.controller.restore()).settings.online, true);
   } finally { await h.close(); }
 });

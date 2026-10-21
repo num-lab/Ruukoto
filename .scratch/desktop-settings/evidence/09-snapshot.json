@@ -1,0 +1,24 @@
+{
+  "base": "614d97cecb693f934b80486d20723fcda533a993",
+  "head": "0b6775721e5c4bf61a99721f3ac21bd1bb780719",
+  "uncommitted": true,
+  "sourceHashes": {
+    "apps/ruukoto/src/personal-maintenance.ts": "86c1ea0c97ec5284ca64bf2ed556c9e3e71000f349c98acd0171e98781f366c1",
+    "apps/desktop/src/main/personal-settings-controller.ts": "8519a5a499409cf2001158af3b4d6eb81f047696e49ba6cc31f7e9e013e3831c",
+    "test/personal-maintenance.test.ts": "6977f5004aab1ded12b4f4ff0015720c5ac12cbee160072a02e9efe97d386960",
+    "test/desktop-personal-settings.test.ts": "95579962880c55628fe02f0b79da5ea06f3ea02c4a927bd1c02fc559a582bbce",
+    "test/desktop-settings-mcp.test.ts": "7262696c4c5f6677db5667e51573a62fa7115fec4717b6042e68d08a7f62f92b"
+  },
+  "local": {
+    "platform": "darwin-arm64",
+    "node": "v24.15.0",
+    "go": "go1.27.2"
+  },
+  "remote": {
+    "host": "oracle-4c24g",
+    "source": "/tmp/ruukoto09-acceptance-hpmga99g/source",
+    "platform": "linux-aarch64",
+    "node": "v24.15.0",
+    "systemd": "255.4-1ubuntu8.18"
+  }
+}

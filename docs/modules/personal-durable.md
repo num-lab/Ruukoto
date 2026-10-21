@@ -10,7 +10,7 @@
 
 `ruukoto settings` 提供版本化、有界 stdin/stdout JSON 机器入口。在线查询与显式模型测试通过当前后台认证的 `/settings`，配置写入及托管技能变更仅在停机持锁后执行；档案身份与内容修订在同一锁内比较。查询返回模型元数据、凭据引用状态、技能来源/诊断、MCP 服务/工具及未决阻塞，不返回密钥、任意 SQL、文件或完整请求证据。保存不运行连接测试，离线测试不使用 SSH shell 凭据冒充实际服务环境。
 
-`ruukoto maintenance` 以同样有界 JSON 核实并显式启停原系统级固定服务，验证账户、档案、入口、实际进程及精确授权；CLI 原环境未知与开发受管实例保持只读。`serve --directory <绝对路径>` 优先于环境固定服务档案。停止必须原服务退出且档案锁可得，超时保留后台与锁，恢复启动不重发保存；部署前提见[部署模块](deploy.md)。
+`ruukoto maintenance` 以同样有界 JSON 核实并显式启停原系统级固定服务，验证账户、档案、入口、实际进程及精确授权；CLI 原环境未知与开发受管实例保持只读。`serve --directory <绝对路径>` 优先于环境固定服务档案。维护预检读取一项配置摘要并完整核对未决事实；停止必须原服务退出且档案锁可得，超时保留后台与锁。启动失败后，原进程已退出、MainPID 为零且档案锁可取的 failed 单元允许显式恢复，恢复启动不重发保存；部署前提见[部署模块](deploy.md)。
 
 配置字节修订流式计算，不将请求大小上限用于拒绝既有配置。MCP 按服务和原工具定义分页；按服务启停、移除和字段保存由后台保留未提交的原字段/工具，避免小修改必须回传整份大配置。完整 `config.save` 则要求提供整份配置。机器协议的具体参数见[操作手册](../usage.md#25-个人-agent-引导与管理)。
 
@@ -38,7 +38,7 @@ CLI 按聊天、后台工作/定时、审批核实、权限/资料、停机配�
 
 `openPersonalHarness` 接受独立目录或已持有的 `PersonalProfileLock`、provider 与模型，接管锁的释放责任，返回主会话、Harness、提交、等待回答与关闭方法；可用 `beforeUnlock` 在放锁前收齐管理接口。可选 `service` 接受宿主固定的 helper 配置，安装 `service_inspect` 与 `read_service_inspection`，模型只能指定白名单内精确单元名或本会话的证据编号。返回的 `inspections.list/recheckStop` 供可信宿主查询未决检查与重核停止，不提供强制释放；未取消的活动检查拒绝宿主重核。`requestInspectionStop(ref)` 固定原 Task/接纳引用，仅登记后台重核并返回其 Task ID；它不等待停止。提交键由调用方保持稳定，用于 durable 会话内去重。`parsePersonalModel` 校验模型配置，`personalProvider` 按环境变量名读取凭据。个人 Pi 1.3.0 对象不传给 Coding 的 Pi 0.85.1。
 
-`startPersonalServer` 独占后台，HTTP 仅监听档案内 Unix socket，经本地令牌逐次认证；提供 `/status`、`/messages`、`/inputs`、`/input`、`/telegram`、`/qq`、`/works`、`/work`、`/work/cancel`、`/work/close`、`/work/notes`、`/delegations`、`/delegation`、`/delegation/cancel`、`/delegation/report`、`/inspections`、`/inspection/stop`、`/services`、`/service`、`/service/decide`、`/service/resolve`、`/service/stop` 、`/commands`、`/command`、`/command/resolve`、`/command/stop`、`/mcp/operations`、`/mcp/operation`、`/mcp/decide`、`/mcp/resolve`、`/mcp/recheck` 和 `/stop`；状态的服务开关只表示能力已装配，不代表 helper 可用或业务健康。`personalControl` 为 CLI 调用；CLI 不重开 Harness。引导与前台托管见[操作手册](../usage.md#25-个人-agent-引导与管理)。
+`startPersonalServer` 独占后台，HTTP 仅监听档案内 Unix socket，经本地令牌逐次认证；提供 `/settings`、`/status`、`/messages`、`/inputs`、`/input`、`/telegram`、`/qq`、`/works`、`/work`、`/work/cancel`、`/work/close`、`/work/notes`、`/delegations`、`/delegation`、`/delegation/cancel`、`/delegation/report`、`/inspections`、`/inspection/stop`、`/services`、`/service`、`/service/decide`、`/service/resolve`、`/service/stop` 、`/commands`、`/command`、`/command/resolve`、`/command/stop`、`/mcp/operations`、`/mcp/operation`、`/mcp/decide`、`/mcp/resolve`、`/mcp/recheck` 和 `/stop`；状态的服务开关只表示能力已装配，不代表 helper 可用或业务健康。`personalControl` 为 CLI 调用；CLI 不重开 Harness。引导与前台托管见[操作手册](../usage.md#25-个人-agent-引导与管理)。
 
 `startPersonalServer` 另提供 `/schedules`、`/schedule`、`/schedule/cancel`、`/schedule/runs` 与 `/schedule/run/result`，创建和按原请求键核实共用在线认证后台。CLI「后台工作与定时计划」中的「管理定时计划与运行」与两平台 `/定时` 共用同一宿主控制函数，逐步选择规则、时区和计划；IM 草稿及确认菜单持久保存，回复已发送的原确认菜单才可创建。列表每页8项，完整报告按原运行分页，不要求拥有者填写内部键。
 
@@ -154,7 +154,7 @@ OneBot 正向 WebSocket 没有收件 ACK/offset；本地事务提交才算受理
 
 同一档案只允许一个拥有者，关闭清理完成或进程崩溃后释放锁，锁文件不删除。配置写入使用同一锁，不因连接失败而离线争写。不支持的版本、缺扩展或缺任务定义均阻止调度；已有数据库缺少格式记录也拒绝。输入证据写失败时不发请求；存储失败关闭 Harness 并报告，宿主不自动重开。正常关闭保留未完成输入供重开恢复，不能当作工作取消。坏令牌、链接及旧目录拒绝，不能清理后自动接管。
 
-请求体 128 KiB、消息正文 16 KiB、应答 256 KiB；客户端总时限 5 秒，后台收件 10 秒、闲置 15 秒。最近记录扫描 64 条 entry、显示最多 16 条消息，每条最多 8192 字符并标截断/中断；不返回输入证据或堆栈。终端输出过滤控制字符。
+请求体 128 KiB、消息正文 16 KiB、应答 256 KiB；`/settings` 客户端默认总时限 35 秒，其余请求 5 秒；后台收件 10 秒、闲置 35 秒。最近记录扫描 64 条 entry、显示最多 16 条消息，每条最多 8192 字符并标截断/中断；不返回输入证据或堆栈。终端输出过滤控制字符。
 
 服务检查 stdout/stderr 总计最多 1 MiB，超限停止检查并明确标记部分证据；畸形应答、多条前缀、目标或状态字段不符均报错，不把它们当状态。helper 超时、取消或输出超限先固定首次失败并发停止信号，调用进程与 stdio 关闭后才返回，捕获保留关闭前的有界输出；无法关闭时保持等待。调用关闭不证明 systemd 操作单元或所有后代停止；durable 检查另以原身份协议核实固定同组 show。未核实时拒绝同目标或来源的新检查/restart/委派，终态与取消也保留占用，独立来源和目标继续；停止观察不沿已取消信号，停止证据由 Harness 提交。旧 helper 不支持新协议时保留占用，不回退 inspect。证据写入失败关闭 Harness，不能报告成功。服务配置仅由持锁的宿主 API 或停机向导提供，不由模型、工具参数或本机消息正文决定；服务重启通过另行启用的宿主 API 或子工具，模型不能指定模式或执行身份。
 

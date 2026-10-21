@@ -104,7 +104,9 @@ Code 的模型地址沿已有后端校验；MCP 继续沿已有 HTTPS 远程传�
 
 ## 验收与交接
 
-08 已完成 Personal 模型、Skills、MCP 管理页与独立工程审查，状态 ready-for-human；[实现与验收证据](evidence/08-verification.md)记录真实 Host 接线、分页/回执修复、模拟浏览器与窄回归。09 可接工程成果，真实 Linux 固定服务、模型/MCP 凭据及原生双壳产品验收仍待拥有者/部署管理员准备环境，不以工程完成代替整体结单。
+09 已完成最终工程验收与独立 Spec / Standards 复核，四项组合/真实维护问题已修复；拥有者指定 Oracle 与 DeepSeek 的真实模型、固定 systemd 停存启、历史、技能和丢答恢复通过，见[最终验收](evidence/09-verification.md)。本轮临时部署/凭据已清理，档案历史保留；原生双壳体验与真实 HTTPS MCP 仍待拥有者，状态 ready-for-human，整体不结单。
+
+08 已完成 Personal 模型、Skills、MCP 管理页与独立工程审查，状态 ready-for-human；[实现与验收证据](evidence/08-verification.md)记录真实 Host 接线、分页/回执修复、模拟浏览器与窄回归。原记录中的真实环境缺口以 09 最终证据与剩余恢复条件为准，不以工程完成代替整体结单。
 
 07 已完成新 Personal 管理连接、共用 Host、受限维护入口、固定 systemd 精确授权及断线核实，独立实现审查无未解决阻断，状态 ready-for-human；[工程证据](evidence/07-verification.md)与[真实 Linux CLI 记录](evidence/07-linux.md)区分模拟与真实环境。08 可消费 Host 接口；真实固定服务停存启和双壳体验仍须合规隔离部署后验收，不据此宣称 Personal 三类页面或整体产品完成。
 

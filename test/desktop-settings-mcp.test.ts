@@ -84,7 +84,7 @@ test("Code MCP 无会话默认工作区自身来源，候选按名称展示并�
   const settings = new SettingsState(() => {});
   h.code.view.currentSessionId = null;
   settings.show("code", h.code, "mcp");
-  assert.equal(settings.selections.mcp.workspaceId, h.workspaces[0].session.projectId);
+  assert.equal(settings.selections.mcp.workspaceId, h.code.view.projects.find(project => project.rootDir !== null)!.id);
   assert.equal(settings.selections.mcp.sourceId, settings.selections.mcp.workspaceId);
   assert.equal(h.state.sources.find(source => source.isWorkspace)?.projectId, h.state.workspaceId);
   const firstLegacy = h.legacy("旧来源-00");

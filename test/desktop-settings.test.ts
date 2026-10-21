@@ -187,3 +187,17 @@ test("设置 SSR 保留六分类、可访问名称、真实内容插槽、无工
   h.settings.chooseTarget("mcp", "personal"); html = render(); assert.doesNotMatch(html, /for="settings-workspace"|for="settings-source"/); assert.match(html, /data-state="active"[^>]*value="personal"|aria-selected="true"[^>]*aria-controls="[^"]*content-personal"/);
   h.settings.chooseTarget("mcp", "code"); h.code.view.projects = []; html = render(); assert.match(html, /先添加工作区/); assert.match(html, /添加工作区/);
 });
+
+test("PA 新管理连接有独立用途页签、对应面板与字段标签", () => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, "window");
+  Object.defineProperty(globalThis, "window", { configurable: true, value: { ruukoto: { request: async () => ok(null) } } });
+  try {
+    const h = harness(); h.settings.chooseCategory("personal");
+    const html = renderToStaticMarkup(createElement(SettingsContents, { ...h, dark: false, onDark() {}, onAddWorkspace() {} }));
+    assert.match(html, /aria-label="PA 连接用途"/); assert.match(html, /role="tabpanel"/);
+    assert.match(html, /aria-label="PA 设置管理连接"/);
+    for (const field of ["host", "profileDir", "program", "lifecycle"]) assert.ok(html.includes(`for="management-${field}"`));
+    assert.match(html, /检测程序/); assert.match(html, /旧聊天连接/);
+    assert.doesNotMatch(html, /name="token"|name="command"/);
+  } finally { if (original) Object.defineProperty(globalThis, "window", original); else Reflect.deleteProperty(globalThis, "window"); }
+});

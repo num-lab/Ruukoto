@@ -23,7 +23,7 @@ macOS 构建原生监督器另需 Command Line Tools 的 Clang。平台前置、
 | `npm run build:worker` | 打包共享 `worker/worker.mjs` 和自包含的 `worker/personal-command-worker.mjs`；个人命令 worker 已接 Linux 受限子工作工具 |
 | `npm run desktop:mygo` / `npm run desktop:mygo:build` | 重建并启动／只构建 MyGo 试验应用，要求 macOS arm64 和 Go ≥ 1.27.1；详见[桌面开发](desktop-development.md) |
 | `npm run desktop:build` | 构建桌面三个目标、检查产物并 ad-hoc 签名 `dist/mac-arm64/Ruukoto.app`；根 build 不打包 Electron |
-| `npm start`、`npm run personal:durable` | 同一个正式个人引导菜单；默认 `~/.ruukoto-durable/`，`RUUKOTO_PERSONAL_DIR` 可选择独立新目录；`serve` 前台后台，`settings` 接受有界 stdin JSON，在线认证读、离线持锁改；见[个人操作](usage.md#25-个人-agent-引导与管理) |
+| `npm start`、`npm run personal:durable` | 同一正式个人菜单，默认 `~/.ruukoto-durable/`；`RUUKOTO_PERSONAL_DIR` 选择新目录；`serve --directory <绝对路径>` 固定服务档案，`settings` 用有界 JSON 在线读、离线持锁改，`maintenance` 核实原服务并显式启停；见[个人操作](usage.md#25-个人-agent-引导与管理) |
 | `npm run dev`、`npm run dev -- --config` | 默认由 Node watch 托管个人开发后台；`--config` 直接运行不监听源码的同档案菜单；固定检出散列档案，不继承正式目录，已启用 QQ/Telegram 时拒绝启动，退出停止本次后台 |
 | `npm run build:script` | 打包 `worker/workflow-script.mjs` 并复制同目录 WASM；脚本测试前运行 |
 | `npm run lint` | 检查正确性与关键约定，不统一全库排版 |

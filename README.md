@@ -23,7 +23,7 @@
 
 [逐项验收证据](docs/release-acceptance.md)。
 
-个人 [`ruukoto`](docs/usage.md#25-个人-agent-引导与管理) 使用 Pi 1.3.0；无参打开配置与管理菜单，`serve` 前台托管后台，`settings` 用有界 JSON 管理模型、Skills 与 MCP，`npm run personal:durable` 是同入口兼容命令。IM 用 `/帮助` 查入口。Coding 使用 Pi 0.85.1，入口与档案保持。
+个人 [`ruukoto`](docs/usage.md#25-个人-agent-引导与管理) 使用 Pi 1.3.0；无参打开菜单，`serve` 前台托管，`serve --directory <绝对档案路径>` 固定服务档案；`settings` 用有界 JSON 管理模型、Skills 与 MCP，`maintenance` 核实原系统服务并显式启停。`npm run personal:durable` 是同入口兼容命令。IM 用 `/帮助` 查入口。Coding 使用 Pi 0.85.1。
 
 ## 快速开始
 

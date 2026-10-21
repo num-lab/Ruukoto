@@ -4,6 +4,39 @@ import { createHash } from "node:crypto";
 import { DesktopError } from "./environment.ts";
 
 export interface PersonalTargetConfig { host: string; controlDir: string }
+export interface PersonalManagementConfig { host: string; profileDir: string; program: string; lifecycle: "cli" | "systemd" | "development" }
+export const PERSONAL_PROGRAMS = ["/opt/ruukoto/apps/ruukoto/bin/ruukoto.mjs", "/usr/local/bin/ruukoto"] as const;
+export const DEFAULT_PERSONAL_PROFILE = "/var/lib/ruukoto/personal-durable";
+export function personalManagementSocket(userData: string): string { return path.join(userData, "ssh", "settings.sock"); }
+export function validatePersonalManagementConfig(value: unknown, userData: string): PersonalManagementConfig {
+  if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).sort().join(",") !== "host,lifecycle,profileDir,program") throw new DesktopError("invalid_management_config", "请选择 SSH 主机、个人档案、程序位置与启动方式。");
+  const config = value as Record<string, unknown>;
+  if (typeof config.host !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(config.host)) throw new DesktopError("invalid_ssh_host", "请输入本机 SSH 配置中的主机别名。");
+  if (typeof config.profileDir !== "string" || !path.posix.isAbsolute(config.profileDir) || path.posix.resolve(config.profileDir) !== config.profileDir || /[:\x00-\x1f\x7f]/.test(config.profileDir)) throw new DesktopError("invalid_profile_dir", "请输入规范的远端绝对档案路径，去除尾斜杠、冒号与控制字符。");
+  if (typeof config.program !== "string" || !PERSONAL_PROGRAMS.some(program => program === config.program)) throw new DesktopError("invalid_personal_program", "请从受支持的程序位置中选择，检测失败时先安装新 Personal 程序。");
+  if (config.lifecycle !== "cli" && config.lifecycle !== "systemd" && config.lifecycle !== "development") throw new DesktopError("invalid_lifecycle", "请选择受支持的启动方式。");
+  const socket = personalManagementSocket(userData);
+  if (socket.includes(":") || !path.isAbsolute(socket) || Buffer.byteLength(socket) > (process.platform === "darwin" ? 103 : 107) || Buffer.byteLength(path.posix.join(config.profileDir, "control.sock")) > 107) throw new DesktopError("socket_path_too_long", "档案或应用数据的 socket 路径过长，请缩短目录后重新连接。");
+  return { host: config.host, profileDir: config.profileDir, program: config.program, lifecycle: config.lifecycle };
+}
+export function loadPersonalManagementConfig(userData: string): PersonalManagementConfig | null {
+  let contents: string;
+  try { contents = fs.readFileSync(path.join(userData, "personal-settings.json"), "utf8"); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return null; throw new DesktopError("personal_config_read", "设置管理连接无法读取，请检查应用数据目录权限。"); }
+  let value: unknown;
+  try { value = JSON.parse(contents); }
+  catch { throw new DesktopError("personal_config_invalid", "设置管理连接无法解析，请重新配置。"); }
+  return validatePersonalManagementConfig(value, userData);
+}
+export function savePersonalManagementConfig(userData: string, value: unknown): PersonalManagementConfig {
+  const config = validatePersonalManagementConfig(value, userData);
+  try {
+    fs.mkdirSync(userData, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(path.join(userData, "personal-settings.json.tmp"), `${JSON.stringify(config)}\n`, { mode: 0o600 });
+    fs.renameSync(path.join(userData, "personal-settings.json.tmp"), path.join(userData, "personal-settings.json"));
+  } catch { throw new DesktopError("personal_config_write", "设置管理连接未保存，请检查应用数据目录权限后重试。"); }
+  return config;
+}
 export const DEFAULT_PERSONAL_CONTROL_DIR = "/var/lib/ruukoto/control";
 export function personalSocketPath(userData: string): string { return path.join(userData, "ssh", "personal.sock"); }
 export function personalPendingDir(userData: string, config: PersonalTargetConfig): string { return path.join(userData, "pending", "personal", createHash("sha256").update(JSON.stringify([config.host, config.controlDir])).digest("hex")); }

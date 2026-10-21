@@ -6,7 +6,7 @@
 
 后台、CLI 与完全访问 worker 使用实际启动账户。Coding 控制面与个人本机接口分别验证各自令牌；同账户完全访问能够读取该账户有权限的后台数据、凭据与令牌。账户原有文件权限继续有效，不要求另建后台与执行账户或配置工作区 ACL。
 
-**systemd 单元与提权入口**。`ruukoto-backend.service` 模板在安装时将 `@RUN_USER@` / `@RUN_GROUP@` / `@RUN_UID@` / `@NODE_BIN@` 替换为实际账户、UID 与 Node 绝对路径，`KillMode=control-group`、`TimeoutStopSec=30`、`Restart=on-failure`、`RestartSec=3`。完全访问不需要特权执行入口；可选服务管理只放行 root 拥有的固定 helper，sudoers 对同一实际账户授权。
+**systemd 单元与提权入口**。`ruukoto-backend.service` 模板在安装时将 `@RUN_USER@` / `@RUN_GROUP@` / `@RUN_UID@` / `@NODE_BIN@` 替换为实际账户、UID 与 Node 绝对路径，`KillMode=control-group`、`TimeoutStopSec=30`、`SendSIGKILL=no`、`TimeoutStopFailureMode=terminate`、`Restart=on-failure`、`RestartSec=3`。后台超时保留进程和锁，不强杀。完全访问不需要特权执行入口；可选服务工具只放行 root 拥有的固定 helper。桌面设置另用 `sudoers.d.ruukoto-settings` 精确授权固定后台的 start/stop，不改变 helper 的后台禁令或其他服务停止策略。
 
 **宿主工具链与常驻账户**。受限任务使用宿主 Node、Bash、coreutils、Git 及任务所需工具；Coding 工作进程为 `worker/worker.mjs`，个人命令为自包含的 `worker/personal-command-worker.mjs`，SDK 版本分别由实际调用方解析；完整 workspace 与根构建产物一同安装。个人服务器为运行账户显式启用 linger；backend 系统单元依赖该账户 user manager，并固定 runtime dir 与 user bus 环境。原生 scope 使用 `Delegate=yes` 与可写 `cgroup.kill`；backend 的 `KillMode` 不替代 scope 停止核实。
 
@@ -30,7 +30,7 @@
 | `deploy/systemd/ruukoto-service.mjs` | 服务管理 helper（root 0700，无第三方依赖，不接受环境变量配置） |
 | `deploy/systemd/ruukoto-service-test.service`、`ruukoto-service-test.sh` | 可控测试服务：以实际启动账户运行、`Restart=no`、无网络、无业务凭据、最小攻击面；每次启动记 `InvocationID` 与计数，仅作辅助观察 |
 
-个人模板使用 `RUUKOTO_PERSONAL_DIR=/var/lib/ruukoto/personal-durable`、`XDG_RUNTIME_DIR` 与 `DBUS_SESSION_BUS_ADDRESS`，模型和 IM 凭据变量经受保护环境注入。helper、策略和 sudo 路径由停机菜单保存，不读取旧 `RUUKOTO_SERVICE_*` 或旧 data/agent 目录变量。
+个人模板以 `serve --directory /var/lib/ruukoto/personal-durable` 固定档案，并设置 `XDG_RUNTIME_DIR` 与 `DBUS_SESSION_BUS_ADDRESS`，模型和 IM 凭据变量经受保护环境注入。桌面维护核实有效单元、同账户 MainPID 与实际程序入口，只接受精确 `/usr/bin/systemctl start/stop ruukoto-backend.service` 的非交互授权；不读取 EnvironmentFile 证明凭据。helper、策略和 sudo 路径由停机菜单保存，不读取旧 `RUUKOTO_SERVICE_*` 或旧 data/agent 目录变量。
 
 **旧工具名称**仅用于解释保留账本；新个人工具与来源权限见[个人持久会话](personal-durable.md)：
 
@@ -201,9 +201,11 @@ sequenceDiagram
 | 非零命令退出 | 如实记录退出码，可能含部分效果，不描述为零执行 |
 | 操作后状态查询失败 | 保留已知命令结果，说明无法核实 |
 
-后台单元以 `KillMode=control-group` 终止子进程树，`TimeoutStopSec=30` 给受管停止有界时间；崩溃重启不重放效果未知的操作，异常中断保留中断任务的占用。
+后台单元以 `KillMode=control-group` 向子进程树发优雅停止信号；30 秒超时后因 `SendSIGKILL=no` 保留未退出进程与锁，维护拒绝保存。崩溃重启不重放效果未知操作，异常中断保留任务占用。
 
 ## 设计依据
+
+- [Personal SSH 维护](../../.agents/notes/implemented/feature/2026-10-21-personal-settings-ssh.md)：固定后台精确启停权限、优雅停止与原身份核实。
 
 - [正式个人入口与制品](../../.agents/notes/implemented/simplification/2026-10-18-personal-product-entry.md)：新档案、唯一装配与旧入口退出。
 

@@ -15,7 +15,7 @@ import type { PersonalTelegramConfig } from "../apps/ruukoto/src/personal-telegr
 import type { TelegramUpdate } from "../apps/ruukoto/src/personal-telegram-api.ts";
 import { mcpList, mcpOriginal, mcpOperations, mcpUnresolved, PersonalMcpDoc } from "../apps/ruukoto/src/personal-mcp.ts";
 import { verifyMcpControls } from "../apps/ruukoto/src/personal-mcp-controls.ts";
-import { discoverPersonalMcp, readPersonalMcp, type PersonalMcpConfig } from "../apps/ruukoto/src/personal-mcp-config.ts";
+import { discoverPersonalMcp, readPersonalMcp, savePersonalMcp, type PersonalMcpConfig } from "../apps/ruukoto/src/personal-mcp-config.ts";
 import { configurePersonalMcp, managePersonalMcp } from "../apps/ruukoto/src/personal-mcp-cli.ts";
 import { personalControl, readPersonalToken, startPersonalServer } from "../apps/ruukoto/src/personal-control.ts";
 import { savePersonalConfig } from "../apps/ruukoto/src/personal-config.ts";
@@ -136,11 +136,34 @@ test("MCP 配置向导：显式匿名、逐项允许工具，服务键和配置�
   const profile = lockPersonalProfile(dir);
   try {
     const config = readPersonalMcp(profile)!;
+    assert.equal(config.version, 2); assert.equal(config.services[0].enabled, true);
     assert.equal(config.services.length, 1); assert.equal(config.services[0].label, "自己的服务"); assert.equal(config.services[0].credential, undefined);
     assert.deepEqual(config.services[0].tools.map(tool => tool.name), ["allow"]); assert.match(config.generation, /^[0-9a-f-]{36}$/); assert.match(config.services[0].id, /^[0-9a-f-]{36}$/);
     assert.doesNotMatch(output, new RegExp(`${config.generation}|${config.services[0].id}`));
   } finally { profile.release(); }
   assert.equal(answers.length, 0); assert.equal(mcp.hits.filter(hit => hit.rpcMethod === "tools/call").length, 0);
+});
+
+test("MCP 配置向导：旧配置经明确选择迁入，启停保留端点与允许项并生成新代次", async t => {
+  const dir = directory(t);
+  const original: PersonalMcpConfig = { version: 1, generation: "legacy", services: [{ id: "service", label: "原服务", endpoint: "https://mcp.example.test/endpoint", tools: [{ name: "read", inputSchema: { type: "object" } }] }] };
+  await savePersonalMcp(dir, original);
+  const run = async (answers: string[]) => {
+    await configurePersonalMcp({ question: async () => { assert.ok(answers.length); return answers.shift()!; }, write: () => {} }, dir);
+    assert.equal(answers.length, 0);
+    const profile = lockPersonalProfile(dir);
+    try { return readPersonalMcp(profile)!; } finally { profile.release(); }
+  };
+  assert.deepEqual(await run(["3", "1"]), original);
+  const migrated = await run(["3", "2"]);
+  assert.equal(migrated.version, 2); assert.equal(migrated.services[0].enabled, true);
+  assert.notEqual(migrated.generation, original.generation);
+  const disabled = await run(["2", "4"]);
+  assert.notEqual(disabled.generation, migrated.generation);
+  assert.deepEqual(disabled.services, migrated.services.map(service => ({ ...service, enabled: false })));
+  const enabled = await run(["2", "4"]);
+  assert.notEqual(enabled.generation, disabled.generation);
+  assert.deepEqual(enabled.services, migrated.services);
 });
 
 test("MCP 操作向导：分页固定原操作，批准和效果核实分别提交且不伪造远端结束", async t => {
@@ -171,9 +194,11 @@ test("MCP 本机控制：先认证再校验原操作与正文，非法请求不�
   const config: PersonalModelConfig = { api: "openai-completions", baseUrl: await model.start(), modelId: "mock-model", apiKeyEnv: "RUUKOTO_MCP_HTTP_MODEL_KEY", contextWindow: 128000, maxTokens: 1024 };
   const previous = process.env[config.apiKeyEnv]; process.env[config.apiKeyEnv] = "test-only";
   await savePersonalConfig(dir, config);
+  await savePersonalMcp(dir, { version: 2, generation: "disabled", services: [{ id: "disabled", label: "已停用服务", endpoint: "https://mcp.example.test/endpoint", tools: [], enabled: false }] });
   let server: Awaited<ReturnType<typeof startPersonalServer>> | undefined;
   t.after(async () => { await server?.stop(); await model.close(); fs.rmSync(dir, { recursive: true, force: true }); if (previous === undefined) delete process.env[config.apiKeyEnv]; else process.env[config.apiKeyEnv] = previous; });
   server = await startPersonalServer(dir);
+  assert.equal((await personalControl<{ capabilities: { mcp: boolean } }>(dir, "GET", "/status")).capabilities.mcp, false);
   const raw = (method: string, route: string, body?: string, token?: string) => new Promise<{ code: string }>((resolve, reject) => {
     const req = http.request({ socketPath: path.join(dir, "control.sock"), method, path: route, headers: token ? { authorization: `Bearer ${token}` } : {} }, res => { let text = ""; res.on("data", chunk => { text += String(chunk); }); res.on("end", () => resolve(JSON.parse(text))); });
     req.on("error", reject); req.end(body);

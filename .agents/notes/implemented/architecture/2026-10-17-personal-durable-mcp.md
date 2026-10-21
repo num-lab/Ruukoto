@@ -2,7 +2,7 @@
 
 Status: implemented
 
-相关未实施方案：[桌面设置管理](../../proposed/feature/2026-10-21-desktop-settings-management.md)拟增加停机配置入口与单服务停用表达；本篇配置代次、原请求与未知占用继续约束该入口。
+相关决定：[Personal 设置入口](../feature/2026-10-21-personal-settings.md)的停机配置继续遵守本篇配置代次、原请求与未知占用约束，页面和 SSH 维护仍由[桌面设置管理](../../proposed/feature/2026-10-21-desktop-settings-management.md)持有。
 
 ## 问题
 
@@ -11,6 +11,10 @@ Status: implemented
 ## 决定
 
 个人 app 的 `personal-mcp-config.ts` 保存拥有者显式选择的端点、工具原定义允许列表及凭据文件引用；配置代次由向导生成，首次启用和换代均须没有未决工作或外部占用。durable 配置 document 与不可改配置 entries 保存历史，调用接纳再次固定原配置。凭据引用绑定私有普通文件的绝对真实路径和内容 SHA-256，逐请求核对权限、内容及引用；失效停止，不降级匿名。显式匿名是独立配置选择，不是凭据失败的回退。
+
+新配置使用 MCP version 2，逐服务持久保存 `enabled`；既有 version 1 原样读取，只有拥有者显式迁入才将原服务记为启用并生成新代次。停用保留端点、凭据引用和原工具允许列表，只撤下新调用的清单与接纳资格；原请求、配置 entries 和已完成调用仍按原版本核实，不补写字段。启停同其他配置变更一样要求停机持锁并核实未决工作与远端占用。version 2 保存后拒绝退回 version 1，后台也拒绝当前 durable 配置的降版；发现只取原工具定义，由拥有者选择允许项，不调用业务工具。
+
+`mcp.json.version` 和 durable 当前配置内的 `version` 分别保护保存后尚未启动与已经启动的档案：旧程序读取 version 2 文件或恢复 version 2 当前配置时均拒绝，不需要更改 `profile.json`、`PERSONAL_FORMAT` 或旧 document 版本。原生工具 Task、调用 documents 与历史 entries 保留原身份，配置版本不是第二套执行状态。
 
 主/子会话共用 `mcp_tools`、`mcp_call` 和 `read_mcp_result`。清单结果给出已钉版原定义，原请求证据保存实际参数。共享 schema 预检从旧工具装配抽出，个人运行图不经旧 Pi 工具定义、项目、CredentialStore 或 ToolRouter。远端只读标注不提供权限；本片允许列表只选择可用工具，不声明可信只读类别，因此请求确认和自动审查均逐次批准，完全访问免操作审批并复核原来源、配置和凭据。长期授权没有隐含继承。
 
@@ -32,6 +36,7 @@ CLI 使用本机认证接口选择原调用和翻页；Telegram 只接受原 bot
 - 为每次 MCP 调用建立另一层执行 Task，易照命令模板实现；不选，因为原生工具 Task 已有身份、取消和重放语义，业务 documents 只须补充外部证据。
 - 把 HTTP close 或人工业务效果说明当远端结束，能快速解除暂停；不选，因为原远端调用可能仍执行，复用身份或端点会产生并行副作用。
 - 统一增加服务端 receipt/status 工具协议，能查询没有 SSE 的服务；不选，因为 MCP 没有通用工具结束查询协议，新增假定会扩大本单与第三方服务范围。标准原流恢复只在真实证据齐备时使用。
+- 给 version 1 自动补 `enabled`，可免除显式迁入；不选，因为会改变旧接纳、配置 entry 与原请求的深比较结果，也让旧程序误读停用语义。独立 MCP version 2 只改变新的配置，保留旧历史的精确证据。
 
 ## 后果
 

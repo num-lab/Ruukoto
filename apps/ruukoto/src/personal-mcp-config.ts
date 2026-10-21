@@ -1,7 +1,7 @@
 import { hasPendingPersonalWork } from "./personal-config-idle.ts";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import type { JsonValue } from "@earendil-works/chord";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
@@ -14,8 +14,8 @@ import { PERSONAL_FORMAT, lockPersonalProfile, type PersonalProfileLock } from "
 type JsonObject = { [key: string]: JsonValue };
 export type PersonalMcpTool = McpRemoteTool & JsonObject;
 export type PersonalMcpCredential = { path: string; sha256: string };
-export type PersonalMcpService = { id: string; label: string; endpoint: string; credential?: PersonalMcpCredential; tools: PersonalMcpTool[] };
-export type PersonalMcpConfig = { version: 1; generation: string; services: PersonalMcpService[] };
+export type PersonalMcpService = { id: string; label: string; endpoint: string; credential?: PersonalMcpCredential; tools: PersonalMcpTool[]; enabled?: boolean };
+export type PersonalMcpConfig = { version: 1 | 2; generation: string; services: PersonalMcpService[] };
 type McpTarget = Pick<PersonalMcpService, "id" | "endpoint" | "credential">;
 const context = BACKGROUND_CONTEXT;
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
@@ -32,10 +32,10 @@ export function parsePersonalMcp(value: unknown): PersonalMcpConfig {
 }
 
 function parseConfig(value: unknown): PersonalMcpConfig {
-  if (!object(value) || Object.keys(value).some(key => !["version", "generation", "services"].includes(key)) || value.version !== 1 || !text(value.generation, 128) || !Array.isArray(value.services)) throw invalid();
+  if (!object(value) || Object.keys(value).some(key => !["version", "generation", "services"].includes(key)) || (value.version !== 1 && value.version !== 2) || !text(value.generation, 128) || !Array.isArray(value.services)) throw invalid();
   const ids = new Set<string>();
   const services = value.services.map((raw): PersonalMcpService => {
-    if (!object(raw) || Object.keys(raw).some(key => !["id", "label", "endpoint", "credential", "tools"].includes(key)) || typeof raw.id !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(raw.id) || ids.has(raw.id) || !text(raw.label, 128) || !text(raw.endpoint, 4096) || !Array.isArray(raw.tools) || raw.tools.length > MCP_LIMITS.maxToolsPerService) throw invalid();
+    if (!object(raw) || Object.keys(raw).some(key => !["id", "label", "endpoint", "credential", "tools", ...(value.version === 2 ? ["enabled"] : [])].includes(key)) || (value.version === 2 && typeof raw.enabled !== "boolean") || typeof raw.id !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(raw.id) || ids.has(raw.id) || !text(raw.label, 128) || !text(raw.endpoint, 4096) || !Array.isArray(raw.tools) || raw.tools.length > MCP_LIMITS.maxToolsPerService) throw invalid();
     ids.add(raw.id);
     try { if (parseMcpEndpoint(raw.endpoint).hash) throw invalid(); } catch { throw invalid(); }
     let credential: PersonalMcpCredential | undefined;
@@ -52,9 +52,9 @@ function parseConfig(value: unknown): PersonalMcpConfig {
       names.add(remote.name);
       return structuredClone(remote);
     });
-    return { id: raw.id, label: raw.label, endpoint: raw.endpoint, ...(credential ? { credential } : {}), tools };
+    return { id: raw.id, label: raw.label, endpoint: raw.endpoint, ...(credential ? { credential } : {}), tools, ...(value.version === 2 ? { enabled: raw.enabled as boolean } : {}) };
   });
-  return { version: 1, generation: value.generation, services };
+  return { version: value.version, generation: value.generation, services };
 }
 
 function privateFile(filename: string, maxBytes: number): Buffer {
@@ -114,7 +114,7 @@ export async function discoverPersonalMcp(service: McpTarget): Promise<PersonalM
   finally { await connection.close(); }
 }
 
-async function checkEnablement(profile: PersonalProfileLock) {
+export async function checkPersonalMcpEnablement(profile: PersonalProfileLock) {
   const filename = path.join(profile.directory, "personal.sqlite");
   if (!fs.existsSync(filename)) return;
   const storage = await openNodeSqliteStorage(filename);
@@ -145,9 +145,10 @@ export async function savePersonalMcp(target: string | PersonalProfileLock, valu
   try {
     const current = readPersonalMcp(profile);
     if (isDeepStrictEqual(current, config)) return;
+    if (current?.version === 2 && config.version === 1) throw new PersonalError("mcp_config_downgrade", "MCP 已迁入服务启停格式，未保存旧版配置；请保留档案并使用当前格式修改。");
     if (current?.generation === config.generation) throw new PersonalError("mcp_config_changed", "MCP 配置变化必须使用新代次，未覆盖原配置；请重新运行 MCP 配置向导。");
     for (const service of config.services) await resolvePersonalMcpToken(service);
-    try { await checkEnablement(profile); } catch (error) {
+    try { await checkPersonalMcpEnablement(profile); } catch (error) {
       if (error instanceof PersonalError) throw error;
       throw new PersonalError("mcp_config_check_failed", "无法核实档案是否可修改 MCP 配置，未保存；请保留档案并检查存储。", { cause: error });
     }
@@ -167,5 +168,18 @@ export async function savePersonalMcp(target: string | PersonalProfileLock, valu
     } catch (error) {
       throw new PersonalError("mcp_config_write_failed", "MCP 配置未能保存；请保留档案并检查磁盘，再查看当前配置。", { cause: error });
     }
+  } finally { if (typeof target === "string") profile.release(); }
+}
+
+/** 显式迁入服务启停格式；原历史不改写，已迁入时返回当前配置。 */
+export async function migratePersonalMcp(target: string | PersonalProfileLock): Promise<PersonalMcpConfig> {
+  const profile = typeof target === "string" ? lockPersonalProfile(target) : target;
+  try {
+    const current = readPersonalMcp(profile);
+    if (!current) throw new PersonalError("mcp_config_missing", "尚未配置 MCP 服务，请先保存服务配置。");
+    if (current.version === 2) return current;
+    const migrated = parsePersonalMcp({ version: 2, generation: randomUUID(), services: current.services.map(service => ({ ...service, enabled: true })) });
+    await savePersonalMcp(profile, migrated);
+    return migrated;
   } finally { if (typeof target === "string") profile.release(); }
 }

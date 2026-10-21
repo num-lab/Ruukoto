@@ -8,6 +8,14 @@
 
 `ruukoto` 与根 `npm start` 无参打开菜单，`serve` 前台托管后台，`npm run personal:durable` 是同入口兼容命令。正式默认 `~/.ruukoto-durable/`，`RUUKOTO_PERSONAL_DIR` 可选择新档案；dev 固定检出散列目录并忽略该覆盖，默认薄启动器托管 Node watch 前台后台，`--config` 直接使用同一菜单且不监听源码，拥有本次后台生命周期；配置菜单源码变化须退出重开。dev 拒绝已启用 QQ/Telegram 的配置，不改写原记录或连接平台。旧个人档案与旧开发、工作流、GitHub 自动评审及个人导入不接入本模块。
 
+`ruukoto settings` 提供版本化、有界 stdin/stdout JSON 机器入口。在线查询与显式模型测试通过当前后台认证的 `/settings`，配置写入及托管技能变更仅在停机持锁后执行；档案身份与内容修订在同一锁内比较。查询返回模型元数据、凭据引用状态、技能来源/诊断、MCP 服务/工具及未决阻塞，不返回密钥、任意 SQL、文件或完整请求证据。保存不运行连接测试，离线测试不使用 SSH shell 凭据冒充实际服务环境。生命周期只查询，SSH 与停存启由客户端另行管理。
+
+配置字节修订流式计算，不将请求大小上限用于拒绝既有配置。MCP 按服务和原工具定义分页；按服务启停、移除和字段保存由后台保留未提交的原字段/工具，避免小修改必须回传整份大配置。完整 `config.save` 则要求提供整份配置。机器协议的具体参数见[操作手册](../usage.md#25-个人-agent-引导与管理)。
+
+所有保存统一检查未决输入、工作、HTTP 等通用工具、MCP、浏览器、命令、服务、应用数据及检查/浏览器绑定的未核实事实，原工具任务已终结也不能解除外部占用。在线由已有 Harness 查询，离线持锁读 Storage，最多呈现 32 条；未知记录版本或损坏引用拒绝保存，达到输出上限仍继续核实。
+
+显式模型测试发固定 `ping`、最多 1 token、无工具的有界请求；发送前的选择/规范输入和实际 payload 通过 `ruukoto.settings-model-test` data entries 留存，认证头不记录。证据写失败不发送，测试只返回固定脱敏结果；这些 entry 不含 model 消息，不进入主聊天历史或创建工作。
+
 CLI 按聊天、后台工作/定时、审批核实、权限/资料、停机配置及实例运维分组；在线仅访问本机认证接口。`/permissions` 查看本机/Telegram共用和QQ独立的默认模式，POST只影响新接纳；`/service/grants` 与 `/service/grants/revoke` 查看及按原版本撤销长期服务授权，创建仍限原IM审批。两平台 `/帮助`、`/状态` 由宿主给出管理路径、当前模式与装配事实，不调用模型。`personal-owner-controls` 扩展标记使旧程序拒绝忽略新命令菜单。
 
 六个 `app_data_*` 工具在主/独立定时会话开放，子工作须由本次委派显式给 `appData: true`，身份复用不继承；最终汇总仅开放查询。业务库为档案内 `agent-data/main.db`，复用共享表结构、事务、关系和查询预算。CLI「管理应用数据审批与回执」与两平台 `/应用数据` 可选择原操作、分页读参数/结果、批准/拒绝或恢复原库后重新核实；本机来源在本机批准，IM来源须回原平台/账号/owner/代次的已送达菜单。本机认证路由为 `/app-data/operations`、`/app-data/operation`、`/app-data/decide`、`/app-data/recheck`。
@@ -15,6 +23,8 @@ CLI 按聊天、后台工作/定时、审批核实、权限/资料、停机配�
 `memory` 提供稳定记忆的查找、分页读取、保存、按预期版本修订及撤销；主可管理全部新记忆，子/定时只读写自身，自动注入仅选本会话。`history_search` 每次扫描至多256条、返回8项；有续页时即使空页仍可继续，`history_read` 每页4096字符。主可查本实例已登记主/子/定时历史，子和定时仅自身；原生压缩后原文仍在。CLI 可直接管理记忆、查询历史和配置技能，无需填写内部编号。仅来源缺失的记忆仍可从可信本机列表定位并撤销，修订证据损坏继续拒绝；撤销不解除其他图片/工具证据的恢复要求。
 
 `skill` 加载拥有者配置库中的正文及相对引用文本。技能仅作参考，不增加工具或权限；目录/正文动态刷新，版本与实际加载保存为原生 entries/documents。主会话 `/skill:名称 参数` 按原用户 entry 固定展开，保留原入站正文；仅显式技能不能由模型自行加载。目录缺失、非法引用或原快照无法核实均停止依赖操作。
+
+技能来源包含外部配置库的 skills 子目录与档案内 `managed-skills` 清单启用的包；没有外部库也可使用托管技能。外部库只读，托管包按稳定身份预览、导入、启停与逻辑移除，包字节与路径保留给旧引用，新选择仍保存实际请求证据。远端目录选择只返回拥有者所选配置来源或技能导入目录中的有界子目录候选，正文详情按技能身份读取；不提供通用文件读取或物理删除。
 
 配置资料与网络工具后，主/子开放 `read_file`、`write_file`、`http_request`、`web_search` 与 `read_artifact`，名称清单同时用于装配、恢复和调用检查。资料目录内读写、明确授权内读取直接执行；越界请求等待原入口决定，自动审查仅处理文件读和无凭据、无头/正文的 GET/HEAD。主可读本实例产物，子只读本子会话；命令/MCP 结果继续使用原读取接口。本机向导管理配置、资料授权、原审批、效果/结束和独占产物导出；Telegram `/工具` 绑定原宿主菜单。
 
@@ -60,6 +70,8 @@ CLI 按聊天、后台工作/定时、审批核实、权限/资料、停机配�
 
 目录中的 `profile.json` 标记产品、Pi、档案和业务扩展版本；`owner.sqlite` 仅持有进程锁。`personal.sqlite` 保存 durable 会话、原生任务、提交、历史、业务格式 document、逐键输入指纹和 `ruukoto.model-request` entries。请求证据保存会话来源、规范化输入、推理级别和实际请求体，两条记录以请求键关联。凭据不写入请求证据，文件与 socket 权限为 0600，目录为 0700。
 
+可选 `managed-skills/` 与其他顶层私有目录共用布局及 chmod 分类，缺省不改变档案格式。其内部只允许 `state.json`、`state.json.tmp`、`packages/<身份>/<原包名>/` 与 `.staging/<身份>/<原包名>/`；取得档案锁后、读配置和启动前核实普通类型、当前所有者、无链接、目录 0700、文件 0600 且 nlink=1。公开权限、错误所有者和链接直接拒绝，不自动修复。安全的未提交临时清单、暂存和孤立包可重开，但不解析为安装状态、不扫描为技能、不自动清理；未知顶层或管理节点仍拒绝。
+
 `ruukoto.service-config` v2 保存 helper/sudo/策略路径与 useSudo 的指纹，`personal-service-inspect` 和 `personal-service-executions` 写入主会话；不支持的版本或缺扩展时拒绝。`ruukoto.service-execution` 按原工具/服务 Task 保存机器、尝试 ID、会话、来源 Submission、接纳及结果/停止证据；`ruukoto.service-executions` 仅索引未核实退出的 Task，原 Task 终态不会退役这些记录。`ruukoto.inspection-stop` 是一次拥有者停止重核的 background Task，固定原 Task/接纳引用及可选 Telegram 控制收件；原生终态结果保存是否取得原退出证明，不镜像检查状态。`ruukoto.service-inspection` entry 保存检查目标、错误码、base64 编码的原始 stdout/stderr 与截断标记；它没有模型正文，只在读取工具结果中按需进入上下文。
 
 `ruukoto.subagents` 保存长期 ownerless Conversation 的身份、名称、关闭事实与单工作占用；`ruukoto.work` 按请求键保存内容指纹、拥有者来源、Task/Submission 引用、原权限快照、Telegram 绑定、模型工具引用、追加说明/来源/原生提交引用及取消事实。每项工作是主会话拥有的 background `ruukoto.background-work` Task，状态与结果以原生 Task/Submission 为准，结果留在子会话。子会话显式选择模型、`personal-subagent` 提示和工作扩展；启用服务检查时增加 inspect/read 及 `personal-subagent-service-inspect` 标记；服务操作另增加 `service_restart`、`read_service_operation` 与 `personal-subagent-service-operations`。检查接纳另存工作、原权限/入口与实际 child inputs，来源映射到原主会话或独立定时输入、委托说明与当时已接纳说明；所有新说明均有不可改接纳。
@@ -79,6 +91,8 @@ CLI 按聊天、后台工作/定时、审批核实、权限/资料、停机配�
 主会话登记 `personal-telegram-permissions` 扩展，旧程序缺该扩展时拒绝恢复；`ruukoto.permissions` 保存新 Telegram 输入的模式与版本；`ruukoto.service-grants` 保存精确服务授权、原决定/操作、行版本及失效原因。控制收件保存已接受的结构化决定与授权关联，恢复时双向核实；授权只由原 pending 审批明确创建，完全访问不会自动创建授权。
 
 `ruukoto.mcp-config` 保存配置与代次历史，`ruukoto.mcp` 按原生工具 Task 保存原来源、权限、批准消费、完整 JSON-RPC 请求/应答及 SSE 原流证据；不可改 entries 对应配置、接纳、开始、观察、批准与业务效果核实。`mcp.json` 保存当前端点和允许列表，凭据仅为私有文件路径与内容指纹；初始化及后续每次请求重读核实，失效不降为匿名。首次启用和变代均须没有未决工作、输入或外部占用，历史配置与调用不改写。
+
+新的 MCP 配置为 version 2，服务逐项保存 `enabled`；已有 version 1 原样读取，经拥有者显式迁入生成新代次并保持原服务启用。启停保留端点、凭据及工具定义，停用不再允许新调用；每次保存生成新代次，原调用与配置历史保持原版本。文件和 durable 当前配置均拒绝降回 version 1，旧程序遇到 version 2 拒绝打开；配置元数据不另建执行状态。
 
 ## 主要流程
 
@@ -157,6 +171,8 @@ Telegram 数值 offset 只在一批更新收到后 60 秒内用于紧接的一�
 MCP 在外调前原子保存原请求及批准消费；同工具恢复与传输内部第二次调用均不重发。完整终结应答才能证明远端请求结束，HTTP 超时、关闭、取消、任务句柄及需要后续输入的应答均不能代替。未知调用暂停原工作、整个委托及报告，保留子身份与端点占用；其他独立来源和不同端点仍可继续。人工效果说明不修改远端结束，只有原会话/协议/游标齐备且服务支持 SSE 恢复时才能 GET 查询原迟到应答，缺证据持续保留占用。完整原响应分页读取，isError、error.data、结构化与非文本内容均保留；返回不代表业务成功。
 
 ## 设计依据
+
+- [Personal 设置入口](../../.agents/notes/implemented/feature/2026-10-21-personal-settings.md)：认证查询、停机持锁写入、机器协议、凭据环境与托管接线。
 
 - [正式入口与旧装配退出](../../.agents/notes/implemented/simplification/2026-10-18-personal-product-entry.md)
 - [个人应用数据的双库回执与来源](../../.agents/notes/implemented/architecture/2026-10-18-personal-durable-app-data.md)

@@ -21,6 +21,7 @@ npm link            # 可选：把 ruukoto / ruukoto-code 装进 PATH（否则�
 ```bash
 ruukoto                         # 个人模型、凭据引用与实例管理菜单
 ruukoto serve                   # 个人前台后台，SIGTERM/SIGINT/SIGHUP 触发停止
+ruukoto settings                # stdin/stdout 有界 JSON，模型、Skills 与 MCP 管理
 ruukoto-code server             # Coding 前台后台，默认原生受限执行
 ruukoto-code stop               # 优雅停止 Coding 后台
 ```
@@ -68,6 +69,23 @@ Coding 的独立档案为 `~/.ruukoto-code/{data,agent,control,pending}`，路�
 ### 2.5 个人 Agent 引导与管理
 
 `ruukoto`、`npm start` 与兼容命令 `npm run personal:durable` 打开同一个个人 Pi 1.3.0 引导菜单，按聊天与消息、后台工作与定时计划、审批/效果/停止核实、权限/授权/个人资料、停机配置、实例状态与启停分组：配置模型、启动后台、状态、发送消息、最近消息、核实上次提交、QQ/Telegram 配对/收发、Linux 服务与命令目录配置、管理后台分析、管理检查停止重核、管理服务审批与核实、命令效果与停止核实、MCP 配置与原调用核实、管理定时计划与运行、技能配置、长期记忆、历史检索与应用数据审批/回执。默认档案为 `~/.ruukoto-durable/`；可用 `RUUKOTO_PERSONAL_DIR` 显式选择另一个新目录，开发入口另用固定检出散列档案。它提供主会话与可选 QQ/Telegram 文本/图片入口、浏览器、资料与网络工具、产物和独立调度；正式 bin、根 start、开发与 systemd 使用同一新装配，生产接管另行安排。
+
+程序可调用 `ruukoto settings`，stdin 发送一份最多 128 KiB 的 JSON，stdout 返回一行最多 256 KiB 的 `{v:1,product:"ruukoto",ok,result}` 或 `{v:1,product:"ruukoto",ok:false,code,message}`，失败退出 1。先用 `{"v":1,"op":"settings.read"}` 读取配置、来源诊断、凭据引用状态、阻塞事项、档案 `profile` 和各内容修订；分页可加 `offset` 与 `limit`（1–50）。在线只经当前认证后台，离线查询也取得档案锁，连接失败不表示已停机。
+
+| 操作 | 参数与行为 |
+| --- | --- |
+| `lifecycle.status` | 无额外参数；查询运行、开发托管与原环境未验证状态，不执行启停 |
+| `config.preflight` / `config.save` | 原 `profile`、`target:model/skills/mcp`、对应 `revisions` 的 `expectedRevision`、完整 `value`；保存仅停机持锁执行，一次只写一份配置 |
+| `model.test` | 原 `profile`、模型修订及所选配置 `value`；只在实际后台发无工具、最多 1 token、30 秒测试，可能计费；离线返回尚未验证 |
+| `mcp.get` / `mcp.discover` / `mcp.migrate` | 原 `profile` 与 MCP 修订；详情加服务 `id`，工具定义默认每页 1 项，可用 `offset/limit` 继续；发现加 `service`，迁入须停机；发现不调用业务工具 |
+| `mcp.save-service` / `mcp.set-enabled` / `mcp.remove` | 原 `profile` 与 MCP 修订；保存加含 `id` 的服务字段 `service`（省略 `tools` 保留原允许列表），启停加 `id/enabled`，删除加 `id`；均须停机，原定义由后台保留，适用于大配置 |
+| `skills.list` / `skills.get` | 原 `profile` 与 `skills.revision`；列表可分页，详情加稳定 `id`，返回 `sourceHost:personal` 的远端来源与正文 |
+| `skills.select-directory` / `skills.preview-import` | 原 `profile`、`skills.revision`、拥有者明确选择的远端 `directory`；目录选择另填 `purpose:library/import`，只枚举至多 1000 个子项并返回有界子目录候选 |
+| `skills.import` / `skills.set-enabled` / `skills.remove` | 原 `profile`、`skills.revision` 与预览/列表中的 `id`；导入另填 `directory`、预览的 `contentRevision`，启停另填 `enabled`；均须停机且无未决事项 |
+
+模型只填写凭据环境变量名；MCP 服务发现/新建时显式选择 `authentication:"anonymous"` 或提供远端私有 `credentialPath`，也可保留已读取的 `credential` 路径与摘要。读取不回显令牌，端点 query 值用占位符隐藏；编辑原服务保留该占位符，程序按原服务身份恢复隐藏值。新 MCP 配置为 version 2，逐服务填写 `enabled`；已有 version 1 先显式 `mcp.migrate`，新代次由程序管理，旧历史保持原版本。保存成功不表示连接测试通过；应答丢失先读回原档案/技能身份核实，不换身份重发。原服务环境无法核实便不自动恢复，systemd 精确授权与真实 SSH 停存启另行部署验收。
+
+托管技能导入只复制远端已有单包，不上传 Mac 目录、不修改外部源。停用与逻辑移除仅改变后续选择，原包字节和旧引用保留；没有物理回收操作。外部库不可用时查询保留配置与显式诊断，修复目录后再保存。普通交互仍通过下述菜单逐步选择，无需手填内部身份与修订。
 
 本机选择「权限、授权与个人资料」→「管理默认模式与长期授权」可查看和切换新输入模式、查看或撤销原长期服务授权；本机与 Telegram 共用默认值，QQ 独立。完全访问有明确选择步骤，已有输入与工作不随默认值扩权。长期服务授权仍只能在原 IM 的具体待审批菜单创建；本机撤销按程序保存的原版本执行，包括旧入口记录，应答丢失先刷新原授权。资料读取授权从「管理工具审批、资料授权与产物」管理。
 

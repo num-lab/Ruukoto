@@ -105,6 +105,7 @@ function classify(reply: HelperReply | undefined, op: Operation): Effect {
   return { effect: "effect_unknown", code: "result_unverified" };
 }
 
+export { unresolved as personalServiceUnresolved };
 function unresolved(op: Operation) { return op.consumed && (!op.result || (op.result.effect === "effect_unknown" && (!op.resolution || !op.launcherStopped))); }
 
 // Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-subagent-service-operations.md

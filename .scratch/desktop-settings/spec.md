@@ -106,6 +106,8 @@ Code 的模型地址沿已有后端校验；MCP 继续沿已有 HTTPS 远程传�
 
 04 已完成共享托管后端、Code 选择与控制面、模块文档和独立工程审查，状态 resolved；旧参考、原任务恢复及重启由离线真实文件/Runtime 回归证明，证据与未验证项见[04 验收](evidence/04-verification.md)。05 可接 Code 页面，06 可在 Personal 档案锁后消费共享检查与操作；04 完成不代表 Personal 接线、双外壳或真实服务验收完成。
 
+06 已完成新 Personal 认证查询、停机持锁机器配置、显式模型测试、托管档案接线、远端目录选择与 MCP 逐服务管理，后端独立工程审查无未解决阻断，状态 resolved；证据、额外并跑一次既有超时及真实环境缺口见[06 验收](evidence/06-verification.md)。07 可接版本化机器接口；GUI、SSH/systemd 与双外壳的真实维护组合继续由 07/08/09 持有，本单后端通过不代表这些外部验收已完成。
+
 每单按[开发流程](../../.agents/skills/development-workflow/SKILL.md)完成独立方案审查、实施、模块文档和实现审查。新增可观察行为同步对应 `docs/modules/desktop.md`、`control.md`、`agent-context.md`、`agent-tools.md` 或 `personal-durable.md`；实际入口变化同步 `docs/usage.md`，命令变化同改 README、开发说明和 pre-push-checks。只改本轮规划文件时不把拟议能力写成现行模块事实。
 
 工程验证为每单最窄回归与 `npm run check:static`，协议新增包括消费者类型与拒绝路径；最终构建 Electron、MyGo 并核实包内入口。产品验收由拥有者核对双外壳明暗、窄窗、键盘和六条主流程：Code/Personal 各自新增模型配置、导入并停用技能、配置并检查 MCP，随后退出重开核实归属与持久性。Personal 须包含真实 Linux SSH 和停存启；真实服务凭据缺失时保留明确恢复条件，不用模拟通过结单。

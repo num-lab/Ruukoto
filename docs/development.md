@@ -23,7 +23,7 @@ macOS 构建原生监督器另需 Command Line Tools 的 Clang。平台前置、
 | `npm run build:worker` | 打包共享 `worker/worker.mjs` 和自包含的 `worker/personal-command-worker.mjs`；个人命令 worker 已接 Linux 受限子工作工具 |
 | `npm run desktop:mygo` / `npm run desktop:mygo:build` | 重建并启动／只构建 MyGo 试验应用，要求 macOS arm64 和 Go ≥ 1.27.1；详见[桌面开发](desktop-development.md) |
 | `npm run desktop:build` | 构建桌面三个目标、检查产物并 ad-hoc 签名 `dist/mac-arm64/Ruukoto.app`；根 build 不打包 Electron |
-| `npm start`、`npm run personal:durable` | 同一个正式个人引导菜单；默认 `~/.ruukoto-durable/`，`RUUKOTO_PERSONAL_DIR` 可选择独立新目录；`serve` 前台后台，在线管理通过本机认证接口；见[个人操作](usage.md#25-个人-agent-引导与管理) |
+| `npm start`、`npm run personal:durable` | 同一个正式个人引导菜单；默认 `~/.ruukoto-durable/`，`RUUKOTO_PERSONAL_DIR` 可选择独立新目录；`serve` 前台后台，`settings` 接受有界 stdin JSON，在线认证读、离线持锁改；见[个人操作](usage.md#25-个人-agent-引导与管理) |
 | `npm run dev`、`npm run dev -- --config` | 默认由 Node watch 托管个人开发后台；`--config` 直接运行不监听源码的同档案菜单；固定检出散列档案，不继承正式目录，已启用 QQ/Telegram 时拒绝启动，退出停止本次后台 |
 | `npm run build:script` | 打包 `worker/workflow-script.mjs` 并复制同目录 WASM；脚本测试前运行 |
 | `npm run lint` | 检查正确性与关键约定，不统一全库排版 |
@@ -47,7 +47,7 @@ npx tsx --test verification/foundation/test/03-tools.test.ts
 | 修改位置 | 常用测试起点 |
 | --- | --- |
 | `packages/tui/src/`（cli.ts、cli-entry.ts、dev.ts）、`packages/core/src/product.ts`、`apps/ruukoto-code/src/dev.ts` | `test/29-cli-entry.test.ts`、`test/32-dev.test.ts`、`test/71-product-entry.test.ts` |
-| `apps/ruukoto/src/personal-*.ts`（独立 Pi 1.3.0） | 从[个人入口检查集](../.agents/skills/pre-push-checks/SKILL.md#2-按面选证据)选择对应窄测；图片、浏览器、调度及其双平台替身的窄测见该检查集。配置闭环用 `test/personal-configuration-controls.test.ts`；分组菜单、模式与授权用 `test/personal-cli.test.ts`，IM命令与恢复用 `test/personal-command-work.test.ts`。其余窄测见个人入口检查集。真实模型用 `verification/smoke/smoke-personal-durable.mts`，显式配置见[操作手册](usage.md#25-个人-agent-引导与管理)；正式入口、旧档案拒绝、开发生命周期与打包产物另跑 `test/personal-entry.test.ts`、`test/71-product-entry.test.ts`、`test/99-workspace-boundaries.test.ts` |
+| `apps/ruukoto/src/personal-*.ts`（独立 Pi 1.3.0） | 从[个人入口检查集](../.agents/skills/pre-push-checks/SKILL.md#2-按面选证据)选择对应窄测；配置闭环用 `test/personal-configuration-controls.test.ts`，机器设置、外部占用与托管技能用 `test/personal-settings.test.ts`、`test/personal-settings-blockers.test.ts`、`test/personal-managed-skills.test.ts`；分组菜单、模式与授权用 `test/personal-cli.test.ts`，IM命令与恢复用 `test/personal-command-work.test.ts`。图片、浏览器、调度及其双平台替身见个人入口检查集。真实模型用 `verification/smoke/smoke-personal-durable.mts`，显式配置见[操作手册](usage.md#25-个人-agent-引导与管理)；正式入口、旧档案拒绝、开发生命周期与打包产物另跑 `test/personal-entry.test.ts`、`test/71-product-entry.test.ts`、`test/99-workspace-boundaries.test.ts` |
 | `apps/ruukoto/src/service-helper.ts`、`deploy/systemd/ruukoto-service.mjs` | `test/service-helper-transport.test.ts`（传输退出/捕获）、`test/service-helper-stop.test.ts`（Linux 进程/系统命令桩）；helper 与旧存储规则分别为 `test/78-linux-service-management.test.ts`、`test/79-standing-permissions.test.ts`，新调用方为 `test/personal-services.test.ts`、`test/personal-service-operations.test.ts` |
 | `packages/runtime/src/` 与 `packages/control/src/` 的任务生命周期 | `test/01-concurrency.test.ts` 至 `test/05-overflow-db.test.ts`、`test/66-control-seam.test.ts`、`test/94-task-ending.test.ts` |
 | `packages/agent/src/` 的执行、审批与权限 | `test/07-real-tools.test.ts`、`test/08-approvals.test.ts`、`test/10-access-modes.test.ts`、`test/63-approval-gate.test.ts`、`test/64-tool-op-ledger.test.ts` |

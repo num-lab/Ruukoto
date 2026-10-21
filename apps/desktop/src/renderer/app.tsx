@@ -61,10 +61,10 @@ export function App() {
     return () => unsubscribes.forEach(unsubscribe => unsubscribe());
   }, [models]);
   useEffect(() => {
-    const messages = [model.readError, model.approvals.message, model.writes.message, model.message].filter((message): message is string => !!message);
+    const messages = [model.readError, model.approvals.message, model.writes.message, model.questions.message, model.message].filter((message): message is string => !!message);
     if (messages.length) {
       setToast([...new Set(messages)].join(" · "));
-      model.readError = null; model.approvals.message = null; model.writes.message = null; model.message = null;
+      model.readError = null; model.approvals.message = null; model.writes.message = null; model.questions.message = null; model.message = null;
     }
   });
   useEffect(() => {

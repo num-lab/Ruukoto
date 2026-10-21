@@ -1,15 +1,16 @@
 import { ControlClientError } from "@ruukoto/control/client.ts";
 import type { ControlConnection } from "@ruukoto/control/connection.ts";
 import { PendingRequestStore, type PendingRequest } from "@ruukoto/control/pending-requests.ts";
+import { OwnerQuestionCancelGuard, type OwnerQuestionCancelReconcileOutcome } from "@ruukoto/control/owner-question-cancel.ts";
 import { SubmissionGuard, type ReconcileOutcome } from "@ruukoto/control/submission.ts";
-import type { DesktopSubmitResult, DesktopUpdate, PendingOp } from "../shared/bridge.ts";
+import type { DesktopCancelQuestionResult, DesktopSubmitResult, DesktopUpdate, PendingOp } from "../shared/bridge.ts";
 import { DesktopError } from "./environment.ts";
 
 type Connection = Pick<ControlConnection, "request"> & { instanceId?: string | null };
 
 // Note: 见 .agents/notes/proposed/architecture/2026-10-15-desktop-client.md
 export class DesktopSubmissions {
-  private readonly results = new Map<string, ReconcileOutcome>();
+  private readonly results = new Map<string, ReconcileOutcome | OwnerQuestionCancelReconcileOutcome>();
   private readonly announced = new Set<string>();
   private readonly sending = new Set<string>();
   private running: Promise<void> | null = null;
@@ -17,23 +18,26 @@ export class DesktopSubmissions {
   private stopped = false;
   constructor(readonly store: PendingRequestStore, private readonly connection: () => Connection | null, private readonly publish: (update: DesktopUpdate) => void, private readonly request: ControlConnection["request"]) {}
 
-  private guard(): SubmissionGuard {
+  private guardConnection(): Pick<ControlConnection, "request" | "instanceId"> {
     const connection = this.connection();
     const instanceId = connection?.instanceId ?? null;
-    return new SubmissionGuard(this.store, { instanceId, request: (op, params) => {
+    return { instanceId, request: (op, params) => {
       // 核实跨过 await 后也必须留在原连接与实例，不能把旧输入重发到新数据库。
       if (!connection || this.stopped || this.connection() !== connection || connection.instanceId !== instanceId) throw new ControlClientError("connection_changed", "连接已变化；等待原数据实例核实。", "not_sent");
       return this.request(op, params);
-    } });
+    } };
   }
+  private guard(): SubmissionGuard { return new SubmissionGuard(this.store, this.guardConnection()); }
   refresh(): void {
     if (this.stopped) return;
     const { records, corrupt } = this.store.list();
     this.publish({ type: "pending", entries: records.map(record => ({ record, result: this.results.get(record.requestId) })), corrupt, dir: this.store.dir });
   }
-  async submit(op: "submit" | "continue", params: Record<string, unknown>): Promise<DesktopSubmitResult> {
-    if (typeof params.session_id !== "string" || typeof params.input !== "string" || (op === "continue" && typeof params.task_id !== "string")) throw new DesktopError("invalid_params", "请选择会话与继续来源后再发送。");
-    const existing = this.store.list().records.find(record => record.op === op && (op === "continue" ? record.params.task_id === params.task_id : record.params.session_id === params.session_id));
+  async submit(op: "submit" | "continue" | "owner_question_answer", params: Record<string, unknown>): Promise<DesktopSubmitResult> {
+    if (typeof params.session_id !== "string" || (op !== "owner_question_answer" && typeof params.input !== "string") || (op === "owner_question_answer" && typeof params.question_id !== "string") || (op === "continue" && typeof params.task_id !== "string")) throw new DesktopError("invalid_params", "请选择会话与继续来源后再发送。");
+    const existing = this.store.list().records.find(record => op === "owner_question_answer"
+      ? (record.op === "owner_question_answer" || record.op === "owner_question_cancel") && record.params.question_id === params.question_id
+      : record.op === op && (op === "continue" ? record.params.task_id === params.task_id : record.params.session_id === params.session_id));
     if (existing) return { kind: "pending_existing", record: existing };
     const requestId = params.request_id;
     if (requestId !== undefined && (typeof requestId !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(requestId))) throw new DesktopError("invalid_params", "输入请求标识无效，请重新发送。");
@@ -45,10 +49,23 @@ export class DesktopSubmissions {
     }
     const guard = this.guard();
     const pending = guard.submit(op, params, typeof requestId === "string" ? { requestId } : {});
-    const record = this.store.list().records.find(record => record.op === op && (op === "continue" ? record.params.task_id === params.task_id : record.params.session_id === params.session_id));
+    const record = this.store.list().records.find(record => record.op === op && (op === "continue" ? record.params.task_id === params.task_id : op === "owner_question_answer" ? record.params.question_id === params.question_id : record.params.session_id === params.session_id));
     if (record) this.sending.add(record.requestId);
     this.refresh();
     let result: DesktopSubmitResult;
+    try { result = await pending; }
+    finally { if (record) this.sending.delete(record.requestId); this.refresh(); }
+    if (result.kind === "pending_verification" && result.outcome === "unknown") void this.reconcile();
+    return result;
+  }
+  async cancelQuestion(params: Record<string, unknown>): Promise<DesktopCancelQuestionResult> {
+    const existing = this.store.list().records.find(record => record.params.session_id === params.session_id && (record.op === "owner_question_answer" || record.op === "owner_question_cancel"));
+    if (existing) return { kind: "pending_existing", record: existing };
+    const pending = new OwnerQuestionCancelGuard(this.store, this.guardConnection()).cancel(params);
+    const record = this.store.list().records.find(item => item.op === "owner_question_cancel" && item.params.question_id === params.question_id);
+    if (record) this.sending.add(record.requestId);
+    this.refresh();
+    let result: DesktopCancelQuestionResult;
     try { result = await pending; }
     finally { if (record) this.sending.delete(record.requestId); this.refresh(); }
     if (result.kind === "pending_verification" && result.outcome === "unknown") void this.reconcile();
@@ -70,10 +87,18 @@ export class DesktopSubmissions {
         if (this.stopped || this.connection() !== connection || connection?.instanceId !== instanceId) break;
         if (this.sending.has(record.requestId)) continue;
         this.results.delete(record.requestId);
-        const result = await guard.reconcile(record);
+        let result: ReconcileOutcome | OwnerQuestionCancelReconcileOutcome;
+        if (record.op === "owner_question_cancel") {
+          const canceled = await new OwnerQuestionCancelGuard(this.store, this.guardConnection()).reconcile(record);
+          result = canceled;
+          if (!this.announced.has(record.requestId) && !this.stopped && this.connection() === connection && connection?.instanceId === instanceId) this.publish({ type: "question_cancel", record, result: canceled });
+        } else {
+          const submitted = await guard.reconcile(record);
+          result = submitted;
+          if (!this.announced.has(record.requestId) && !this.stopped && this.connection() === connection && connection?.instanceId === instanceId) this.publish({ type: "submission", record, result: submitted });
+        }
         if (this.stopped || this.connection() !== connection || connection?.instanceId !== instanceId) break;
         this.results.set(record.requestId, result);
-        if (!this.announced.has(record.requestId)) this.publish({ type: "submission", record, result });
         if (result.kind === "linked" || result.kind === "resent" || result.kind === "rejected") this.announced.add(record.requestId);
       }
       this.refresh();

@@ -32,6 +32,7 @@ import { createProjectSession, routeResponder, startTestRuntime, waitFor } from 
 
 /** 与 TuiOps 的键一一对应（多写、少写都过不了类型检查）。 */
 const TUI_OPS: Record<TuiOp, true> = {
+  owner_questions: true, owner_question_answer: true, owner_question_cancel: true, owner_question_receipt: true,
   put_attachment: true,
   list_workspace_files: true, read_workspace_file: true, read_workspace_git: true,
   work_list: true, work_get: true,

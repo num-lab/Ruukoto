@@ -66,6 +66,7 @@ import type { SelectorBudgetConfig } from "./context-selector.ts";
 import { beginContextAssembly, ContextSendBlocked, type AgentReportContext, type ContextAssembly } from "./context-assembly.ts";
 import type { JevRequestConfig } from "./jev.ts";
 import type { HostToolContext } from "./host-tools.ts";
+import { ownerQuestionCreatedByTask, ownerQuestionTaskEligible, type OwnerQuestion, type OwnerQuestionItem } from "@ruukoto/core/owner-questions.ts";
 import type { ParentDelivery } from "@ruukoto/runtime/parent-delivery.ts";
 import { expandSkillCommand, loadSkillLibrary, type SkillLibrary } from "./skills.ts";
 import { validateSubAgentRole, validateSubAgentRoleLibrary, type SubAgentRoleLibrary } from "./subagent-roles.ts";
@@ -120,6 +121,7 @@ export interface DriverDeps {
   budgetOverrides?: Partial<SelectorBudgetConfig>;
   /** 静态宿主工具族；Runtime 负责捕获族专属依赖，Driver 负责当前调用接缝。 */
   hostToolFamilies: readonly HostToolFamily[];
+  ownerQuestions?: { create(ctx: HostToolContext, questions: OwnerQuestionItem[]): OwnerQuestion };
   /** Jev 的本地模拟服务与超时覆盖，仅宿主测试注入。 */
   jev?: JevRequestConfig;
   /** 上下文压缩的摘要超时覆盖（issue 30），仅测试注入；生产 180 s。 */
@@ -537,12 +539,20 @@ export class Driver {
         if (!this.stopRequested && !signal?.aborted && result.reason !== "interrupted") await this.restoreWorkspace(ctx.taskId);
         return result;
       } : undefined,
+      ownerQuestions: this.deps.ownerQuestions ? {
+        create: (ctx, questions) => {
+          const question = this.deps.ownerQuestions!.create(ctx, questions);
+          const task = this.deps.store.getTask(ctx.taskId);
+          if (task && this.currentTask?.id === task.id) this.refreshTaskTools(task);
+          return question;
+        },
+      } : undefined,
     };
   }
 
   private sourceTools(profile: WorkflowExecutionProfile, mcp: ToolDefinition[]): { tools: ToolDefinition[]; names: ReadonlySet<string> } {
-    const host = buildHostToolSet(this.deps.hostToolFamilies.filter(family => profile.categories.includes(family.category) ||
-      (family.category === "subagent" && profile.collaboration)), this.hostToolRuntime("subagent"));
+    const host = buildHostToolSet(this.deps.hostToolFamilies.filter(family => family.category !== "owner_question" && (profile.categories.includes(family.category) ||
+      (family.category === "subagent" && profile.collaboration))), this.hostToolRuntime("subagent"));
     const coding = profile.categories.includes("coding") ? this.deps.toolFactory({ registry: this.registry, router: this.router })
       .filter(tool => profile.toolClass !== "main" || subAgentAllows({ write: true, review: false }, tool.name)) : [];
     return { names: host.names, tools: [...coding, ...host.tools, ...mcp].filter(tool => sourceAllows(profile, tool.name)) };
@@ -584,7 +594,8 @@ export class Driver {
     if (this.sdk) return this.sdk;
     const hostToolSet = this.profile.source ? this.sourceTools(this.profile.source, this.pendingMcpToolDefs) : buildHostToolSet(
       this.deps.hostToolFamilies.filter((family) =>
-        this.allows(family.category) || (family.category === "subagent" && this.profile.toolClass === "subagent")),
+        (this.allows(family.category) || (family.category === "subagent" && this.profile.toolClass === "subagent")) &&
+        (family.category !== "owner_question" || Boolean(this.currentTask && this.deps.ownerQuestions && ownerQuestionTaskEligible(this.deps.store, this.currentTask)))),
       this.hostToolRuntime(),
     );
     const subAgentTools = this.profile.subAgentTools;
@@ -714,9 +725,7 @@ export class Driver {
   private checkBeforeSend(task: Task, model: any, context: any, options: any): void {
     this.verifyRoleDefinition(task);
     const fresh = this.deps.store.getTask(task.id) ?? task;
-    if (this.taskTools && this.taskTools.allowed.has("browser") !== (this.resourcePhase === "execution" && this.allToolNames.includes("browser") && Boolean(this.deps.browser?.allowed(fresh)))) {
-      this.refreshTaskTools(fresh);
-    }
+    this.refreshTaskTools(fresh);
     const workflowProblem = this.verifyWorkflowTask(task);
     if (workflowProblem) throw new ContextSendBlocked(`workflow_source_invalid:${workflowProblem}`);
     this.verifyReportContext(task);
@@ -810,6 +819,7 @@ export class Driver {
       workflow,
       source: this.pinnedExecution ? subAgentSourceProfile(this.pinnedExecution.source, { tools: this.pinnedExecution.tools, workflow: Boolean(workflow), verify: workflow?.hostVerify }) : null,
     });
+    if (this.deps.ownerQuestions && identity.kind === "dev") this.pinnedProfile.toolSignature += `|owner-question:${ownerQuestionTaskEligible(this.deps.store, task)}`;
     const resourcePhase = this.deps.agentWait?.initialPhase(task) ?? "execution";
     const referenceSnapshot = resourcePhase === "conversation" ? this.deps.agentWait?.snapshot(task) ?? null : null;
     if (this.pinnedExecution && resourcePhase === "conversation" && !referenceSnapshot) throw new SubAgentExecutionError("reference_snapshot_missing", "内部对话所需的参考快照缺失；停止本次执行并报告拥有者。");
@@ -1115,6 +1125,8 @@ export class Driver {
     const subAgentTools = this.profile.subAgentTools;
     this.taskTools = taskToolSet({
       registered: this.allToolNames,
+      ownerQuestionsEnabled: Boolean(this.deps.ownerQuestions && ownerQuestionTaskEligible(this.deps.store, task)),
+      ownerQuestionPending: ownerQuestionCreatedByTask(this.deps.store, task.id),
       resourcePhase: this.resourcePhase,
       plan: this.profile.plan,
       browserEnabled: this.deps.browser?.allowed(task) ?? false,
@@ -1395,6 +1407,7 @@ export class Driver {
   private async handleToolCall(event: ToolCallEvent): Promise<ToolCallEventResult | undefined> {
     const current = this.currentTask;
     if (!current) return undefined;
+    this.refreshTaskTools(this.deps.store.getTask(current.id) ?? current);
     const workflowProblem = this.verifyWorkflowTask(current);
     if (workflowProblem) return { block: true, reason: `工作流步骤授权失效：${workflowProblem}` };
     // 工具可用性（架构工单 03）：不在本任务允许集合内的调用一律阻止（激活侧已过滤，

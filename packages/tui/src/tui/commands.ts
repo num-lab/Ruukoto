@@ -46,6 +46,7 @@ export interface CommandHost {
   openPrompts(): Promise<void>;
   toggleTodo(): void;
   openWorkflow(): void;
+  openQuestions(): void;
   /** 以当前会话提交任务输入。 */
   submit(text: string): Promise<void>;
 }
@@ -340,6 +341,7 @@ export const COMMANDS: readonly SlashCommand[] = [
     run: (ctx) => skills(ctx),
   },
   { name: "skills", description: "查看技能库与诊断", run: (ctx) => skills(ctx) },
+  { name: "questions", description: "查看拥有者问题，逐题回答或取消", run: ctx => ctx.host.openQuestions() },
   { name: "workflow", description: "打开工作流侧栏，选择运行、启动与控制", run: (ctx) => ctx.host.openWorkflow() },
   { name: "prompt", description: "查看本会话模型请求列表与每次调用的 prompt 详情", run: (ctx) => ctx.host.openPrompts() },
   { name: "qq", description: "QQ 群聊入口：status | enable | disable | groups | inbox | outbox", argumentHint: "<子命令>", run: (ctx, { rest }) => qq(ctx, rest) },

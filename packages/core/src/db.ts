@@ -12,9 +12,29 @@ import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 
-export const SCHEMA_VERSION = 46;
+export const SCHEMA_VERSION = 48;
 
 const SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS owner_questions (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL REFERENCES sessions(id),
+  task_id TEXT NOT NULL REFERENCES tasks(id),
+  host_op_id TEXT NOT NULL UNIQUE REFERENCES tool_ops(id),
+  status TEXT NOT NULL CHECK (status IN ('pending','answered','canceled','stale')),
+  payload TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_owner_questions_pending ON owner_questions(session_id) WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_owner_questions_session ON owner_questions(session_id);
+CREATE INDEX IF NOT EXISTS idx_owner_questions_task ON owner_questions(task_id);
+CREATE TABLE IF NOT EXISTS owner_question_receipts (
+  session_id TEXT NOT NULL REFERENCES sessions(id),
+  request_key TEXT NOT NULL,
+  question_id TEXT NOT NULL REFERENCES owner_questions(id),
+  digest TEXT NOT NULL,
+  operation TEXT NOT NULL CHECK (operation IN ('owner_question_answer','owner_question_cancel')),
+  payload TEXT NOT NULL,
+  PRIMARY KEY(session_id, request_key)
+);
 CREATE TABLE IF NOT EXISTS agent_waits (
   id TEXT PRIMARY KEY,
   task_id TEXT NOT NULL REFERENCES tasks(id),

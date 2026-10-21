@@ -20,6 +20,7 @@ import type { ConnectResult } from "@ruukoto/control/protocol.ts";
 import type { ConfirmationRequestView, OutputPreview, ToolOpView } from "@ruukoto/core/views.ts";
 import type { HistoryEntryView, HistoryPage } from "@ruukoto/core/history.ts";
 import type { PendingRequest } from "@ruukoto/control/pending-requests.ts";
+import type { OwnerQuestionView } from "@ruukoto/core/owner-questions.ts";
 import { EventFlow } from "./event-flow.ts";
 import { utf8ByteLength } from "./utf8.ts";
 import { sessionDisplayAttribution } from "@ruukoto/control/session-attribution.ts";
@@ -55,6 +56,7 @@ export class ViewState {
   sessions: Session[] = [];
   tasks = new Map<string, Task>();
   confirmations: ConfirmationRequestView[] = [];
+  ownerQuestions: OwnerQuestionView[] = [];
   artifacts = new Map<string, Artifact>();
   instanceId: string | null = null;
   execution: { backend: string; note: string } = { backend: "", note: "" };
@@ -99,6 +101,7 @@ export class ViewState {
     }));
     this.taskSeq = new Map(result.snapshot.tasks.map((t) => [t.id, result.seq]));
     this.confirmations = result.snapshot.confirmations;
+    this.ownerQuestions = result.snapshot.ownerQuestions ?? [];
     this.artifacts = new Map(result.snapshot.artifacts.map((a) => [a.id, a]));
     this.instanceId = result.snapshot.instanceId;
     this.execution = result.snapshot.execution;
@@ -164,6 +167,12 @@ export class ViewState {
       case "task.resources_changed":
         this.patchTask(body.taskId, { resourcePhase: body.phase });
         return;
+      case "owner_question.changed": {
+        const index = this.ownerQuestions.findIndex(question => question.id === body.question.id);
+        if (index < 0) this.ownerQuestions.push(body.question);
+        else if (body.question.version >= this.ownerQuestions[index].version) this.ownerQuestions[index] = body.question;
+        return;
+      }
       case "agent_report.changed":
         if (body.fallbackTaskId) this.patchTask(body.fallbackTaskId, { reportParked: body.fallbackState === "parked" });
         for (const taskId of body.parkedFallbackTaskIds) this.patchTask(taskId, { reportParked: true });

@@ -51,6 +51,7 @@ ruukoto-code stop                 # 停止后台
 | `/new` | 在当前工作区建立空会话 |
 | `/branch [名称]` | 从已落盘历史建立独立会话并切换，父子共享工作目录 |
 | `/resume` | 切回父会话或其他会话 |
+| `/questions` | 逐题作答或取消持久问题，回答后唯一续接 |
 
 分支不调用模型、不启动原任务；名称支持中文和空格。来源范围与失败核实见[操作手册](docs/usage.md#72-命令)。
 
@@ -82,6 +83,8 @@ npm run code -- ../my-project  # 以该目录创建/复用工作区，并进入�
 ```
 
 开发与测试见[开发说明](docs/development.md)；MyGo：`npm run desktop:mygo`，见[桌面开发](docs/desktop-development.md)；[浏览器用法](docs/usage.md#12-浏览器)含登录与截图导出。
+
+持久问题真实模型验收：`RUN_MODEL_CHECK=1 RUN_OWNER_QUESTION_MODELS_FILE=/path/models.json npx tsx --test test/owner-question-model-acceptance.test.ts`（DeepSeek；使用隔离档案）。
 
 ## 文档
 

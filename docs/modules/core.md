@@ -57,6 +57,8 @@
 
 ## 数据与状态
 
+`owner_questions` 保存普通开发会话的题目、原宿主操作、真实输入、权限快照与终态，`owner_question_receipts` 保存回答或取消的原键、参数摘要及唯一续接引用。选项保存原字符串或名字、可选说明与推荐标记，并记录是否多选；答案保存手写文字、单选索引或升序多选索引，Skip 保存不带选择字段的空字符串。一个会话最多一个 pending 批次，终态 answered/canceled/stale 保留原文；消费、答案、Task和事件由调用方同事务写入，core不写会话JSONL。
+
 `sub_agents.definition` 保存完整定义快照：用途（用户角色或宿主固定评审）、名称、原文、规范字段、正文及内容摘要。Store 写入拒绝缺失或坏摘要；查询坏行保留身份并返回 `definition: null` 与 `definitionError`，执行必须经 `requireSubAgentDefinition` 拒绝继续。开发资料导入保留并校验快照，不从实例角色文件补回。工作流运行固定角色目录及诊断；等待参考快照保留父模型已使用的目录。
 
 `tasks.read_scope.execution` 保存可信来源、角色摘要、有效模式、来源保护、实际工具、MCP 签名与内容摘要；paths、sourceRefs 和 readMemories 必须完整，缺失或损坏只允许查询，不能执行。普通子代理的记忆预览与正文读取 ID 同事务写入 readMemories 和 task.memory_accessed，后续发送/调用复核历史来源及记忆撤销，字段丢失不能解释成从未读取。开发资料导入校验来源任务/会话及角色绑定，保留内联记录，不授予目标实例来源权限。
@@ -83,7 +85,7 @@ Coding 档案根为 `~/.ruukoto-code`，开发实例为 `~/.ruukoto-code-dev/<�
 
 ```
 <dataDir>/                     # 0700（RUUKOTO_CODE_DATA_DIR，默认 ~/.ruukoto-code/data）
-├── ruukoto.db                 # node:sqlite 元数据（WAL，schema v46）
+├── ruukoto.db                 # node:sqlite 元数据（WAL，schema v47）
 ├── agent-data/main.db         # main 应用数据空间（独立库；实例 ID 登记在核心库 meta）
 ├── sessions/                  # pi JSONL 会话文件（消息历史唯一权威副本）
 ├── browser/                  # 0700；按实例与会话隔离 profile、保留截图
@@ -131,14 +133,14 @@ Coding 档案根为 `~/.ruukoto-code`，开发实例为 `~/.ruukoto-code-dev/<�
 
 ### schema 版本与创建
 
-`SCHEMA_VERSION` 是 `46`，写在 `meta` 表的 `schema_version` 键。
+`SCHEMA_VERSION` 是 `47`，写在 `meta` 表的 `schema_version` 键。
 
 - 文件版本高于或低于程序版本：以 `schema_version_unsupported` 明确拒绝，不转换旧格式、不回填权限字段。保留原档案，由匹配代码查阅；当前代码使用独立新档案。
 - 文件版本等于程序版本：沿用当前表定义，不自动补列或重建表。
 - 全新库在 `BEGIN IMMEDIATE` 事务中创建当前表、字段与索引，并写入版本号；失败整体回滚。
 - 首次打开后补写 `instance_id`（`ON CONFLICT DO NOTHING`），跨重启保留；换库即换标识。
 
-当前 schema 里已登记的表：`meta`、`projects`、`sessions`、`branch_requests`、`compaction_requests`、`agent_waits`、`agent_reports`、`tasks`、`occupancy`、`confirmations`、`tool_ops`、`artifacts`、`events`、`data_grants`、`memories`、`memory_versions`、`history_index`、`history_index_state`、`selection_records`、`context_checkpoints`、`mcp_services`、`qq_config`、`qq_sessions`、`qq_inbox`、`qq_outbox`、`agent_roles`、`inbound_events`、`inbound_media_messages`、`inbound_media`、`chat_result_acceptances`、`schedules`、`schedule_runs`、`notification_ops`、`telegram_config`、`standing_permissions`、`sub_agents`、`work_delegations`、`instance_imports`、`instance_import_items`、`subagent_messages`、`workflow_definitions`、`workflow_definition_refs`、`workflow_runs`、`workflow_steps`、`workflow_executions`、`workflow_questions`、`workflow_controls`。
+当前 schema 里已登记的表：`meta`、`projects`、`sessions`、`branch_requests`、`compaction_requests`、`agent_waits`、`agent_reports`、`tasks`、`occupancy`、`confirmations`、`tool_ops`、`artifacts`、`events`、`data_grants`、`memories`、`memory_versions`、`history_index`、`history_index_state`、`selection_records`、`context_checkpoints`、`mcp_services`、`qq_config`、`qq_sessions`、`qq_inbox`、`qq_outbox`、`agent_roles`、`inbound_events`、`inbound_media_messages`、`inbound_media`、`chat_result_acceptances`、`schedules`、`schedule_runs`、`notification_ops`、`telegram_config`、`standing_permissions`、`sub_agents`、`work_delegations`、`instance_imports`、`instance_import_items`、`subagent_messages`、`workflow_definitions`、`workflow_definition_refs`、`workflow_runs`、`workflow_steps`、`workflow_executions`、`workflow_questions`、`workflow_controls`、`owner_questions`、`owner_question_receipts`。
 
 关键表的要点：
 
@@ -365,6 +367,8 @@ sequenceDiagram
 工作流来源固定实际能力、资料授权 ID、配置摘要和工作区身份；步骤保存冻结补丁产物与独立验证记录，详情见[工作流](workflows.md)。资料读取可携带宿主固定的授权 ID 集合，与当前未撤销授权求交；新增授权不扩大旧运行。
 
 ## 设计依据
+
+- [Coding 持久问题与可信续接](../../.agents/notes/implemented/feature/2026-10-21-coding-owner-questions.md)
 
 - [完整思考与文件预览](../../.agents/notes/implemented/feature/2026-10-18-complete-reasoning-and-preview.md)
 

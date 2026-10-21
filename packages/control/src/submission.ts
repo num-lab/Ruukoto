@@ -42,7 +42,7 @@ export class SubmissionGuard {
    * 以及 continue 的原 task_id；保存失败时不发送请求。
    */
   async submit(
-    op: "submit" | "continue",
+    op: "submit" | "continue" | "owner_question_answer",
     params: Record<string, unknown>,
     opts: { requestId?: string } = {},
   ): Promise<SubmitOutcome> {
@@ -79,7 +79,7 @@ export class SubmissionGuard {
    * 与原请求不同就当成另一任务。
    */
   async reconcile(record: PendingRequest): Promise<ReconcileOutcome> {
-    if (record.op !== "submit" && record.op !== "continue") return { kind: "kept", requestId: record.requestId, reason: "该请求由所属操作入口核实" };
+    if (record.op !== "submit" && record.op !== "continue" && record.op !== "owner_question_answer") return { kind: "kept", requestId: record.requestId, reason: "该请求由所属操作入口核实" };
     if (record.instanceId !== this.connection.instanceId) {
       return { kind: "foreign_instance", requestId: record.requestId };
     }
@@ -94,7 +94,17 @@ export class SubmissionGuard {
     }
     let found: Task | null;
     try {
-      const result = await this.connection.request("find_task", {
+      if (record.op === "owner_question_answer") {
+        const { receipt } = await this.connection.request("owner_question_receipt", { session_id: sessionId, request_id: record.requestId, operation: "owner_question_answer" });
+        if (receipt?.taskId) {
+          // 已提交回执只证明键存在；以原参数核实摘要，同键异参不能被误关联。
+          const task = await this.connection.request("owner_question_answer", record.params as OpParams<"owner_question_answer">);
+          if (task.id !== receipt.taskId) return { kind: "kept", requestId: record.requestId, reason: "回答回执与原任务不一致，请保留记录并检查后台。" };
+          this.store.clear(record.requestId);
+          return { kind: "linked", requestId: record.requestId, taskId: receipt.taskId };
+        }
+      }
+      const result = record.op === "owner_question_answer" ? { task: null } : await this.connection.request("find_task", {
         session_id: sessionId,
         request_id: record.requestId,
       });
@@ -116,7 +126,7 @@ export class SubmissionGuard {
       this.store.clear(record.requestId);
       return { kind: "resent", requestId: record.requestId, taskId: task.id };
     } catch (err) {
-      if (err instanceof ControlClientError && err.code === "request_conflict") {
+      if (record.op !== "owner_question_answer" && err instanceof ControlClientError && err.code === "request_conflict") {
         // 重试遇上同键记录：重新核实（竞态：原请求刚刚落盘）
         try {
           const again = await this.connection.request("find_task", {

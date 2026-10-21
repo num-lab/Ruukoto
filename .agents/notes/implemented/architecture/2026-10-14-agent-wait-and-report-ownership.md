@@ -2,7 +2,7 @@
 
 Status: implemented
 
-相关未实施方案：[桌面设置管理](../../proposed/feature/2026-10-21-desktop-settings-management.md)用固定技能包路径保留旧等待参考，新任务按托管状态重新选择技能并记录，不改写原快照。
+相关决定：[托管技能](../feature/2026-10-21-managed-skills.md)用固定包路径保留旧等待参考，新任务按当前托管状态过滤并记录，不改写原快照；其他设置范围由[桌面设置管理](../../proposed/feature/2026-10-21-desktop-settings-management.md)持有。
 
 ## 问题
 

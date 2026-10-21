@@ -2,7 +2,7 @@
 
 Status: implemented
 
-相关未实施方案：[桌面设置管理](../../proposed/feature/2026-10-21-desktop-settings-management.md)拟增加固定托管技能来源与状态清单，不取代本篇外部技能库、停机配置与实际请求证据。
+相关决定：[托管技能](../feature/2026-10-21-managed-skills.md)提供固定路径与状态清单，共享检查由 Personal 档案接线消费，不取代本篇外部库、停机配置与实际请求证据；页面与接线进度见[桌面设置管理](../../proposed/feature/2026-10-21-desktop-settings-management.md)。
 
 ## 问题
 

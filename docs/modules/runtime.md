@@ -29,6 +29,8 @@
 
 `listWorkspaceFiles`／`readWorkspaceFile` 仅按已登记项目根提供只读分页，不经过模型或 Agent 工具。根目录身份、保护根、规范相对路径和每段父链读取前后核实，拒绝符号链接、非普通文件、多硬链接与变化中的内容；目录单层扫描 201 项并最多返回 200，文件按 256 KiB 字节页返回 base64，version 绑定文件身份、大小及修改时间，跨页改变拒绝，无总文件长度上限；缺失与权限失败保留具名错误且不暴露宿主绝对路径。纯 Node 的前后身份核实不是原子 openat 沙箱。
 
+`listSkills` 保留有效技能库的 TUI 查询；`listManagedSkills`、`getSkill`、`previewSkillImport`、`importSkill`、`setSkillEnabled` 与 `removeSkill` 将当前 Code 实例的技能查询和管理交给共享技能库。托管根位于自身 agentDir，外部来源只读；导入提交按原预览身份、源内容修订和管理修订核实，启停与逻辑移除只改清单。管理不创建任务、改变工具权限或改写既有技能正文；当前有效技能选择及旧引用的保持规则见[上下文与技能](agent-context.md)。
+
 `branchSession` 由产品的 `branchSessions` 能力开放，核实普通开发身份、工作区映射及目录身份后固定来源历史和设置；`findBranchSession` 按持久请求键核实发布结果。创建不提交任务或调用模型。
 
 `Runtime.start(config)` 要求 app 注入 `config.product`（`RuntimeProduct`）：身份用于数据目录登记，IM 与调度能力决定启停，产品工具族由 app 的工厂提供。共享运行时不按产品名装配。具体产品归属见[产品装配](products.md)。

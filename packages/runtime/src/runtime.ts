@@ -2983,19 +2983,20 @@ export class Runtime {
       await fn();
       await this.rebuildModelStack();
     } catch (err) {
-      // 先按失败时的文件（含新写入的秘密）脱敏，再回滚
-      if (err instanceof Error) err.message = this.scrubSecrets(err.message);
       // 回滚：恢复旧字节并重建旧模型栈，重启后也不会静默选用部分新配置
       restoreConfigFiles(this.config.agentDir, snapshot);
-      await this.rebuildModelStack().catch(() => {});
-      throw err;
+      await this.rebuildModelStack().catch(() => {
+        // 文件已恢复；旧栈重建失败时保留原内存模型栈与本次配置失败。
+      });
+      const code = err instanceof RuntimeApiError || err instanceof ModelSelectionError ? err.code : "model_config_invalid";
+      throw new RuntimeApiError(code, "模型配置无法应用，原配置文件已恢复；请检查提供方地址、API 类型与认证配置后重试");
     } finally {
       this.modelConfigGate = null;
       settle();
       // 成功与回滚都解除门闩，既有待投递消息用原键和当前配置重新核实。
       if (!this.stopping) {
-        await this.subagents?.flushPendingMessages().catch((err) => {
-          process.stderr.write(`[ruukoto] 模型配置应用后冲刷消息失败：${(err as Error).message}\n`);
+        await this.subagents?.flushPendingMessages().catch(() => {
+          process.stderr.write("[ruukoto:model-config] 模型配置应用后冲刷消息失败，请检查后台消息投递状态\n");
         });
       }
     }
@@ -3266,12 +3267,11 @@ export class Runtime {
     let model: any;
     try {
       model = await this.modelCatalog.resolve({ provider, modelId, thinkingLevel: "off" });
-    } catch (err) {
-      return { ok: false, detail: this.scrubSecrets((err as Error).message) };
+    } catch {
+      return { ok: false, detail: "无法解析所选模型，请检查后台模型目录与认证配置后重试" };
     }
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 30_000);
-    let failure: string;
     try {
       const reply = await this.modelRuntime.completeSimple(
         model,
@@ -3280,13 +3280,12 @@ export class Runtime {
       );
       // completeSimple 不以 reject 报错：鉴权/HTTP/中止都以 stopReason 返回
       if (reply.stopReason !== "error" && reply.stopReason !== "aborted") return { ok: true, detail: `连接成功：${provider}/${modelId}` };
-      failure = reply.errorMessage ?? "连接失败";
-    } catch (err) {
-      failure = (err as Error).message;
+    } catch {
+      // SDK 错误可能反射环境、命令或运行时凭据；仅返回下方固定诊断。
     } finally {
       clearTimeout(timer);
     }
-    return { ok: false, detail: this.scrubSecrets(controller.signal.aborted ? "连接超时（30 秒）" : failure) };
+    return { ok: false, detail: controller.signal.aborted ? "连接超时（30 秒）" : "连接失败，请检查提供方地址、API 类型与认证配置后重试" };
   }
 
   // ---------- 提交与排队 ----------

@@ -23,11 +23,11 @@
 
 [逐项验收证据](docs/release-acceptance.md)。
 
-个人 [`ruukoto`](docs/usage.md#25-个人-agent-引导与管理) 使用 Pi 1.3.0；无参打开配置与管理菜单，`serve` 前台托管后台，`npm run personal:durable` 是同入口兼容命令。IM 用 `/帮助` 查入口。Coding 使用 Pi 0.85.1，入口与档案保持。
+个人 [`ruukoto`](docs/usage.md#25-个人-agent-引导与管理) 使用 Pi 1.3.0；无参打开配置与管理菜单，`serve` 前台托管后台，`npm run personal:durable` 是同入口兼容命令。IM 用 `/帮助` 查入口，Linux固定命令目录支持会话后台，CLI与 `/后台` 可查日志、停止及显式结束。Coding 使用 Pi 0.85.1，入口与档案保持。
 
 ## 快速开始
 
-开发与离线检查需要 Node ≥ 22.19、Git、ripgrep（`rg`）、Bash 和支持 PTY 的 Python 3，使用 macOS 或 Linux 的普通用户账户。两个产品的受限执行均使用原生沙箱，无需 Docker；平台前置见[操作手册](docs/usage.md#1-前提与安装)。
+开发与离线检查需要 Node ≥ 22.19、Git、ripgrep（`rg`）、Bash 和支持 PTY 的 Python 3，使用 macOS 或 Linux 的普通用户账户。两个产品的受限执行均使用原生沙箱，无需 Docker；个人资料检索使用随 build:worker 构建的独立只读 worker；平台前置见[操作手册](docs/usage.md#1-前提与安装)。
 
 ```bash
 npm run setup       # 按两份锁文件安装依赖、检查前提并安装轻量提交钩子

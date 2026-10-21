@@ -1,6 +1,7 @@
+import { personalQuestionSource } from "./personal-questions.ts";
 import { ROOT_CONVERSATION_ID, type Tx } from "@earendil-works/pi-durable";
 import { PersonalError } from "./personal-error.ts";
-import { personalLocalPermission } from "./personal-local-records.ts";
+import { LocalInputDoc, personalLocalPermission } from "./personal-local-records.ts";
 import { isPersonalImRequest, PersonalTelegramReceiptDoc } from "./personal-telegram-records.ts";
 import { permissionSnapshot, PersonalPermissionsDoc, telegramSourceActive } from "./personal-permissions.ts";
 import { personalScheduledSource, requireScheduledSourceReady } from "./personal-scheduler-records.ts";
@@ -12,6 +13,8 @@ export async function personalSourceSubmission(tx: Tx, requestId: string) {
 
 // Note: 见 .agents/notes/implemented/architecture/2026-10-18-personal-durable-scheduled-work.md
 export async function personalSource(tx: Tx, requestId: string, options?: { active?: boolean; invalidCode?: string }) {
+  const question = await personalQuestionSource(tx, requestId, options?.active);
+  if (question) return { ...question, scheduled: false as const, question: true as const };
   const scheduled = await personalScheduledSource(tx, requestId);
   if (scheduled) {
     if (options?.active) { await requireScheduledSourceReady(tx, requestId); await verifyPersonalScheduleScope(tx, scheduled.scope); }
@@ -24,5 +27,12 @@ export async function personalSource(tx: Tx, requestId: string, options?: { acti
   if (isPersonalImRequest(requestId) && (!telegram || receipt?.submissionId !== submission.id || options?.active && !await telegramSourceActive(tx, telegram))) throw new PersonalError(options?.invalidCode ?? "source_inactive", "原拥有者入口或权限无法核实，已停止操作；请从原入口查询。");
   if (options?.active && !["placed", "done"].includes(submission.status)) throw new PersonalError(options?.invalidCode ?? "source_inactive", "原工作输入已停止，未执行后续操作；请查询原工作。");
   const permission = telegram ?? await personalLocalPermission(tx, requestId) ?? await tx.doc(PersonalPermissionsDoc);
-  return { submission, entry, source: { requestId, submissionId: submission.id, entryId: entry.id }, permission: { mode: permission.mode, version: permission.version }, ...(telegram ? { telegram } : {}), scheduled: false as const };
+  const accepted = (telegram ? receipt?.accepted : (await tx.doc(LocalInputDoc, requestId, "")).accepted) ?? entry.id;
+  return { submission, entry, accepted, source: { requestId, submissionId: submission.id, entryId: entry.id }, permission: { mode: permission.mode, version: permission.version }, ...(telegram ? { telegram } : {}), scheduled: false as const };
+}
+
+export async function personalSourceImReceipt(tx: Tx, requestId: string) {
+  const question = await personalQuestionSource(tx, requestId);
+  const key = question ? question.receiptRequestId : requestId;
+  return key ? (await tx.doc(PersonalTelegramReceiptDoc, key, null)).receipt : undefined;
 }

@@ -11,7 +11,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { test, type TestContext } from "node:test";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { JsonValue } from "@earendil-works/chord";
-import type { TaskId } from "@earendil-works/pi-durable";
+import { AgentDoc, ROOT_CONVERSATION_ID, type TaskId } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { openPersonalHarness, type PersonalHarness } from "../apps/ruukoto/src/personal-harness.ts";
 import { personalProvider, type PersonalModelConfig, type RequestEvidence } from "../apps/ruukoto/src/personal-model.ts";
@@ -79,6 +79,34 @@ async function remote(t: TestContext, handler: http.RequestListener) {
   t.after(async () => { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); });
   return `http://127.0.0.1:${address.port}`;
 }
+
+test("durable 文件检索：资料根、撤权、子来源、原流产物与重开", { timeout: 60_000 }, async t => {
+  const f = await fixture(t), p = await f.open();
+  fs.writeFileSync(path.join(f.workspace, "source.txt"), "needle first\nneedle second\n");
+  fs.writeFileSync(path.join(f.outside, "private.txt"), "outside needle\n");
+  const listed = JSON.parse(await p.answer(invoke("list_files", {}), "list-source")) as { operation: TaskId; artifact: string; result: { root: string; scanComplete: boolean; entries: Array<{ path: string }> } };
+  assert.equal(listed.result.root, f.workspace); assert.equal(listed.result.scanComplete, true); assert.deepEqual(listed.result.entries, [{ path: "source.txt" }]);
+  const found = JSON.parse(await p.answer(invoke("search_files", { query: "needle", limit: 1 }), "search-source")) as { artifact: string; result: { capturedCount: number; previewTruncated: boolean; partial: boolean; entries: Array<{ path: string; line: number }> } };
+  assert.deepEqual(found.result.entries.map(value => [value.path, value.line]), [["source.txt", 1]]); assert.equal(found.result.capturedCount, 2); assert.equal(found.result.previewTruncated, true); assert.equal(found.result.partial, false);
+  assert.match(await p.answer(invoke("read_artifact", { artifact: found.artifact }), "read-search-proof"), /needle second/);
+  assert.match(await p.answer(invoke("list_files", { path: f.outside }), "deny-outside"), /file_search_path_denied/);
+  assert.equal((await operations(p)).length, 2);
+  await p.harness.commit(tx => toolGrant(tx, f.directory, f.outside), context);
+  const granted = JSON.parse(await p.answer(invoke("search_files", { path: f.outside, query: "outside" }), "granted-search")) as { result: { entries: Array<{ path: string }> } };
+  assert.deepEqual(granted.result.entries.map(value => value.path), ["private.txt"]);
+  await p.harness.commit(async tx => toolRevoke(tx, (await tx.doc(PersonalToolsDoc)).grants[0].id), context);
+  assert.match(await p.answer(invoke("list_files", { path: f.outside }), "revoked-search"), /file_search_path_denied/);
+  await p.answer("检索子工作资料", "child-search-owner");
+  const child = await p.work.delegate({ requestId: "child-search", sourceRequestId: "child-search-owner", content: invoke("search_files", { query: "needle" }) });
+  await p.harness.waitForTask(child.taskId, context);
+  const childOp = (await operations(p)).find(value => value.origin.conversationId === child.agentId)!;
+  assert.equal(childOp.kind, "search_files"); assert.equal(childOp.effect, "returned"); assert.equal(childOp.origin.work!.ref.taskId, child.taskId);
+  await p.close(); const restored = await f.open(); assert.equal((await operations(restored)).length, 4);
+  const requests = f.model.calls.filter(request => request.messages.at(-1)?.role === "user");
+  assert.ok(requests.some(request => JSON.stringify(request.tools).includes("list_files")));
+  await restored.harness.commit(async tx => { const doc = await tx.doc(AgentDoc, ROOT_CONVERSATION_ID); assert.ok(Array.isArray(doc.extensions)); doc.extensions = doc.extensions.filter(name => name !== "personal-file-search"); }, context);
+  await restored.close(); await assert.rejects(f.open(), code("file_search_record_invalid"));
+});
 
 test("durable 通用工具：主子会话沿目录权限读写，二进制产物分页与请求输入可重建", { timeout: 60_000 }, async t => {
   const f = await fixture(t), p = await f.open(), target = path.join(f.workspace, "data");

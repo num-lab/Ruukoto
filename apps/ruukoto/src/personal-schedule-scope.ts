@@ -1,3 +1,4 @@
+import { PersonalDirectoryClaimsDoc } from "./personal-directory-claims.ts";
 import { PersonalAppDataDoc } from "./personal-app-data.ts";
 import { PersonalSkillsDoc } from "./personal-skills.ts";
 import { isDeepStrictEqual } from "node:util";
@@ -24,7 +25,7 @@ export async function capturePersonalScheduleScope(tx: Tx, servicePolicyPath?: s
     try { bytes = readFileSync(servicePolicyPath); } catch { throw new PersonalError("schedule_scope_invalid", "服务策略无法读取，未创建或执行定时计划；请核实服务配置。"); }
     servicePolicy = { path: servicePolicyPath, digest: createHash("sha256").update(bytes).digest("hex") };
   }
-  const snapshot: JsonValue = JSON.parse(JSON.stringify({ tools: tools.config ?? null, grants: tools.grants, grantVersion: tools.grantVersion, mcp: (await tx.doc(PersonalMcpConfigDoc)).config ?? null, commands: agent.extensions.includes(PERSONAL_COMMAND_WORK) ? (await tx.doc(PersonalCommandsDoc)).fingerprint : null, services: agent.extensions.includes("personal-service-inspect") ? (await tx.doc(PersonalServiceDoc)).fingerprint : null, servicePolicy, browser: (await tx.doc(PersonalBrowserDoc)).config ?? null, skills: (await tx.doc(PersonalSkillsDoc)).config, appData: (await tx.doc(PersonalAppDataDoc)).instanceId ?? null }));
+  const snapshot: JsonValue = JSON.parse(JSON.stringify({ directoryClaims: PersonalDirectoryClaimsDoc.definition.version, tools: tools.config ?? null, grants: tools.grants, grantVersion: tools.grantVersion, mcp: (await tx.doc(PersonalMcpConfigDoc)).config ?? null, commands: agent.extensions.includes(PERSONAL_COMMAND_WORK) ? (await tx.doc(PersonalCommandsDoc)).fingerprint : null, services: agent.extensions.includes("personal-service-inspect") ? (await tx.doc(PersonalServiceDoc)).fingerprint : null, servicePolicy, browser: (await tx.doc(PersonalBrowserDoc)).config ?? null, skills: (await tx.doc(PersonalSkillsDoc)).config, appData: (await tx.doc(PersonalAppDataDoc)).instanceId ?? null }));
   return { tools: [...agent.tools], extensions: [...agent.extensions], snapshot };
 }
 

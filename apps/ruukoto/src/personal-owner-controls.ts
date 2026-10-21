@@ -22,7 +22,7 @@ const description = (op: Awaited<ReturnType<typeof personalCommand>>) => `${op.c
 export async function personalOwnerControl(tx: Tx, value: TelegramControlInput, commands?: Commands): Promise<boolean> {
   if (value.content === "/帮助" || value.content === "/状态") {
     if (!value.direct) { value.reply = "请由绑定拥有者直接发送 /帮助 或 /状态。"; return true; }
-    if (value.content === "/帮助") value.reply = "拥有者操作：\n/状态 查看当前模式与能力；/权限 切换以后新输入的默认模式。\n/工作 单项分析；/委托 整项进度、报告与取消；/定时 创建、查看与取消计划。\n/审批 服务审批；/授权 查看与撤销长期服务授权；/服务核实、/检查、/命令、/MCP、/工具、/浏览器、/应用数据 查看原操作与适用审批/核实。\n直接发送查询命令，再回复已送达宿主菜单选择；普通聊天、转发与引用摘录不能授权。批准不表示成功，效果与停止分别核实；应答丢失先查询原记录。\n模型、凭据、入口配对、技能与能力配置用本机引导式 CLI，配置前停止后台；资料授权、记忆与历史也有本机菜单。聊天可要求管理记忆、查询历史，显式技能用 /skill:名称 参数。";
+    if (value.content === "/帮助") value.reply = "拥有者操作：\n/状态 查看当前模式与能力；/权限 切换以后新输入的默认模式。\n/工作 单项分析；/委托 整项进度、报告与取消；/定时 创建、查看与取消计划；/问题 逐题回答或取消澄清。\n/审批 服务审批；/授权 查看与撤销长期服务授权；/服务核实、/检查、/命令、/后台、/MCP、/工具、/浏览器、/应用数据 查看原操作与适用审批/核实。\n直接发送查询命令，再回复已送达宿主菜单选择；普通聊天、转发与引用摘录不能授权。批准不表示成功，效果与停止分别核实；应答丢失先查询原记录。\n模型、凭据、入口配对、技能与能力配置用本机引导式 CLI，配置前停止后台；资料授权、记忆与历史也有本机菜单。聊天可要求管理记忆、查询历史，显式技能用 /skill:名称 参数。";
     else {
       const agent = await tx.doc(AgentDoc, ROOT_CONVERSATION_ID), permission = await personalPermissionFor(tx, value);
       const tools = Array.isArray(agent.tools) ? agent.tools : [];

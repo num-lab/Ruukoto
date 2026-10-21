@@ -24,6 +24,8 @@ schema49、控制协议36继续精确版本拒绝，旧档案保留供匹配版�
 
 ## 既有笔记审计
 
+[个人会话后台](2026-10-21-personal-background-processes.md)另建durable记录与主/子/定时来源门禁，共用本篇的低层执行、日志和停止原语；不复用Coding业务Store。
+
 部分落实[后台生命周期提案](../../proposed/feature/2026-10-14-bash-background-lifecycle.md)的 Coding 切片，个人 durable 接入仍为提案。保留[完全访问](2026-10-12-full-access-current-account.md)的账户信任和脱离回收限制、[停止未核实保留](../bug-fix/2026-10-11-preserve-unverified-worker-stop.md)的事实传播、[等待与报告](../architecture/2026-10-14-agent-wait-and-report-ownership.md)的参考快照和原 Task 让出，以及[Linux 持久身份](../architecture/2026-10-17-native-linux-execution-identity.md)原语；本篇扩展会话独立占用和浏览器观测，不取代它们的其他决定。检索未发现可完全吸收或需要归档的同类记录。
 
 ## 备选方案

@@ -2,7 +2,7 @@
 
 ## 职责与边界
 
-本篇负责把编码工具 `read` / `edit` / `write` / `bash` 与文件检索的完整执行放进独立工具工作进程，再按后端与访问模式提供执行边界。Coding 的受限任务经 `native` 使用 macOS Seatbelt 或 Linux bubblewrap；个人命令只复用独立原生执行原语，由 durable 保存工作与执行证据；普通完全访问使用启动后台的当前账户，不施加任务沙箱；工作流编码验证始终收窄到原生沙箱的独立副本。它同时负责进程间协议、沿发起任务模式执行的 worktree 创建与汇总、目录身份复核、防旁路与整个执行单元的停止核实。
+本篇负责把编码工具 `read` / `edit` / `write` / `bash` 与文件检索的完整执行放进独立工具工作进程，再按后端与访问模式提供执行边界。Coding 的受限任务经 `native` 使用 macOS Seatbelt 或 Linux bubblewrap；个人命令与资料检索只复用独立原生执行原语，由 durable 保存来源与执行证据；普通完全访问使用启动后台的当前账户，不施加任务沙箱；工作流编码验证始终收窄到原生沙箱的独立副本。它同时负责进程间协议、沿发起任务模式执行的 worktree 创建与汇总、目录身份复核、防旁路与整个执行单元的停止核实。
 
 不负责的部分点名归属：工具的类别清单、可用性判定与执行画像归 [agent-tools](agent-tools.md)；审批闸门、是否需要审批与 auto-review 策略同样归 [agent-tools](agent-tools.md)，本篇只写越界操作在**执行侧**怎样落地——越界的外部文件读写与单次 HTTP 请求由后台的受信执行器完成，不进工作进程，参数不可替换、批准单次消费，闸门与策略见 [agent-tools](agent-tools.md)。委派语义（`mode`、`target`、写入目标钉定、目录占用键与串行规则）归 [runtime](runtime.md)；任务的访问模式、权限版本与提交幂等也归 [runtime](runtime.md)，本篇只承担它们在执行侧的后果：同一任务内按任务 ID、访问模式与授予路径复用工作进程，模式或授予范围变化时先停旧执行单元、核实已退出，再建立新环境。
 
@@ -24,6 +24,7 @@
 | `WorkCopyManager` | `prepareWriteTarget(...)`、`assertCopy(...)` | 判定修改目标是 Git worktree 还是直接写入根，逐项复核目录身份与 `.git` 指向；失效抛 `worktree_gone` |
 | 已批准越界操作 | `packages/agent/src/execution/approved-ops.ts` | 后台受信执行器完成，不进工作进程；执行参数取自审批保存的不可变请求 |
 | 受管执行单元登记表 | `packages/agent/src/managed-processes.ts` 的 `register` / `list` / `clear` | 每会话一份，登记可回收的执行单元身份 |
+| 个人 durable 会话后台 | `BackgroundExecution.launch`、`stopBackgroundExecution` | 只复用Linux持久执行身份、原字节协议与停止核实；业务归属、日志预算和目录认领由个人app持有，恢复不重放命令 |
 | 需跨进程核实的 Linux 宿主 | `launchLinuxExecution(directory, ref, input, spec)`、`stopLinuxExecution(directory, ref, expectedFingerprint?)` | 宿主先保存执行引用；私有目录独占认领，同键不再启动；受限输入走 bwrap，完全访问仅在持久 tracking 下直接启动 worker、继承过滤后的用户环境且不将环境值落盘；个人 durable 恢复传原启动指纹，只接受已有 launch 认领 |
 | 需跨进程核实的 macOS 完全访问宿主 | `launchMacosExecution(directory, ref, input, spec)`、`stopMacosExecution(directory, ref, expectedFingerprint?)` | 私有目录认领一次启动；监督器持久保存机器/boot、目录与进程寿命身份，核实全部已归属后代与输出管道后保存停止回执；恢复只停止原身份，无回执且监督器已退出时保留未核实 |
 | 宿主编排调用方 | `WorkflowScriptHost`（`packages/agent/src/script-worker/host.ts`） | 先登记 `entry()` 启动占位，再 `run(script, input, invoke, options)`；`onIdentity` 在启动完成后交给宿主持久化实际身份；`identity()`、`output`、`stopFailure` 与重复 `stop()` 保留退出事实 |
@@ -35,6 +36,8 @@ Coding 正式入口仅接受 `RUUKOTO_EXECUTION_BACKEND=native` 或不设覆盖�
 `prepareNativeLaunch` 的 `dependencyRoots` 可显式列出运行依赖，`[]` 用于自包含产物；省略时继续发现共享 Coding worker 的 Pi 安装。显式依赖使用真实路径并核对保护根，不享有旧根 node_modules 的代码资产例外，也不自动开放父目录。
 
 个人 `worker/personal-command-worker.mjs` 使用单次 stdin EOF 协议：最多 4 MiB UTF-8 JSON `{ command, workspace: { path, dev, ino } }`，拒绝空白/NUL 命令和无效身份；核对真实目录及当前 cwd 的 dev/ino 后，以继承的 cwd 运行固定 Bash，stdin 关闭、stdout/stderr 保留原字节，退出码或信号映射为进程退出状态。宿主先等待 `launchLinuxExecution` 返回并接好输出/退出消费，再提交输入；它不使用共享 ready/init 协议。错误诊断带 code，但诊断与命令输出都不是可信效果回执；非零或 125 也不能证明未执行。命令/worker 退出后仍须按原持久引用核实整 scope，未核实保留占用与临时资料；个人 durable 的工具、权限与工作归属见[个人持久会话](personal-durable.md)。
+
+个人 `worker/personal-file-search-worker.mjs` 为自包含入口；单次输入最多64KiB，宿主固定 rg、逻辑资料目录与目录身份。受限启动以私有临时 workspace 加只读 readRoots 读取资料，macOS 持久监督器在 Seatbelt 外持有身份，Linux 使用原 scope。原结果和输出帧有界传回宿主；只读中止不产生写入效果，仍须核实整个执行单元停止。成功后只清理身份匹配的临时目录，持久认领和停止证据保留。
 
 | 方向 | 消息 | 载荷 |
 |---|---|---|
@@ -260,6 +263,8 @@ sequenceDiagram
 全局保护根未作为显式只读挂载时，外部特权预存的子文件 bind 别名仍有原生旁路；显式来源只读范围和宿主文件入口按上述 inode 检查拒绝。该既有情形保留真实反例，另作原生保护审计；原生边界不承诺抵抗宿主外部特权准备。
 
 ## 设计依据
+
+- [个人文件检索](../../.agents/notes/implemented/feature/2026-10-21-personal-file-search.md)：资料范围、只读执行与持久停止。
 
 - [Coding 会话后台持有独立目录占用](../../.agents/notes/implemented/feature/2026-10-21-coding-background-processes.md)
 

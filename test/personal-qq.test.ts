@@ -1,3 +1,4 @@
+import { personalQuestionDetail, personalQuestionList } from "../apps/ruukoto/src/personal-questions.ts";
 import { appDataOperations, appDataDecide } from "../apps/ruukoto/src/personal-app-data.ts";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
@@ -377,4 +378,23 @@ for (const platform of ["qq", "telegram"] as const) test(`拥有者导航：${pl
   const plain = await f.receive("批准本次", Number(help.value.platformMessageId), platform);
   assert.equal(plain.value.serviceDecision, undefined); assert.equal(f.model.calls.length, 0);
   await f.stop(); await f.open(); assert.equal(f.model.calls.length, 0);
+});
+
+
+test("QQ问题：同数字身份双平台不能互答，原菜单Skip后唯一续接并按原QQ回报", { timeout: 30000 }, async t => {
+  const f = await fixture(t, request => {
+    const last = request.messages.at(-1), text = String(last?.content);
+    if (last?.role === "user" && text.includes("发起问题")) return { kind: "tool_calls", calls: [{ id: "question", name: "ask_user", arguments: { questions: [{ question: "选择目标", options: ["甲", "乙"] }] } }] };
+    return { kind: "text", text: text.includes("拥有者对原问题的回答") ? "原QQ回答完成" : "问题已登记" };
+  });
+  const p = await f.open(); await f.receive("发起问题"); const q = (await p.harness.commit(tx => personalQuestionList(tx), context)).items[0];
+  const other = await f.receive("/问题", undefined, "telegram"); assert.match(other.value.reply!, /暂无问题/);
+  let menu = (await f.receive("/问题")).value;
+  menu = (await f.receive("问题1", Number(menu.platformMessageId))).value;
+  await f.receive("确认回答", Number(menu.platformMessageId), "telegram"); assert.equal((await p.harness.commit(tx => personalQuestionDetail(tx, q.id), context)).status, "pending");
+  menu = (await f.receive("跳过", Number(menu.platformMessageId))).value;
+  const confirm = (await f.receive("确认回答", Number(menu.platformMessageId))).value; assert.ok(confirm.questionAnswer);
+  await until(async () => (await p.harness.commit(tx => personalQuestionDetail(tx, q.id), context)).answer?.delivery === "sent");
+  const answered = await p.harness.commit(tx => personalQuestionDetail(tx, q.id), context); assert.deepEqual(answered.answer?.answers, [{ text: "" }]); assert.equal(answered.answer?.telegram?.platform, "qq");
+  const sends = f.sends().length; await f.stop(); const reopened = await f.open(); assert.equal((await reopened.harness.commit(tx => personalQuestionDetail(tx, q.id), context)).answer?.delivery, "sent"); assert.equal(f.sends().length, sends);
 });

@@ -57,20 +57,17 @@ async function sourceValid(tx: Tx, op: Operation, active = true) {
     if (work.cancelRequested || !isDeepStrictEqual(work.ref, op.work.ref)) return false;
     try { await requirePersonalWorkRequest(tx, op.work.ref.agentId); } catch (error) { if (!(error instanceof PersonalError)) throw error; return false; }
   }
-  if (await personalScheduledSource(tx, op.source.requestId)) {
-    let original: Awaited<ReturnType<typeof personalSource>>;
-    try { original = await personalSource(tx, op.source.requestId, { active }); } catch (error) { if (!(error instanceof PersonalError)) throw error; return false; }
-    return original.scheduled && !op.grant && op.mode === original.permission.mode && isDeepStrictEqual(op.telegram, original.telegram) && original.submission.id === op.source.submissionId && original.entry.id === op.source.entryId;
-  }
-  const source = await tx.submissionByRequest(ROOT_CONVERSATION_ID, op.source.requestId);
-  const entry = await tx.entry(op.source.entryId);
-  if (isPersonalImRequest(op.source.requestId)) {
+  if (isPersonalImRequest(op.source.requestId) && !op.telegram) {
     const receipt = (await tx.doc(PersonalTelegramReceiptDoc, op.source.requestId, null)).receipt;
-    if (!receipt || receipt.submissionId !== op.source.submissionId) return false;
-    if (op.telegram && (op.mode !== op.telegram.mode || !isDeepStrictEqual(permissionSnapshot(receipt), op.telegram))) return false;
-    if (active && (!op.telegram || !await telegramSourceActive(tx, op.telegram))) return false;
-  } else if (op.telegram) return false;
-  return source?.id === op.source.submissionId && source.entry === op.source.entryId && source.type === "input" && (!active || source.status === "placed" || source.status === "done") && entry?.kind === "pi.user";
+    if (receipt && receipt.permission === undefined) {
+      const submission = await tx.submissionByRequest(ROOT_CONVERSATION_ID, op.source.requestId), entry = await tx.entry(op.source.entryId);
+      return !active && receipt.submissionId === op.source.submissionId && submission?.id === op.source.submissionId && submission.entry === op.source.entryId && submission.type === "input" && entry?.kind === "pi.user" && entry.conversationId === ROOT_CONVERSATION_ID;
+    }
+  }
+  let original: Awaited<ReturnType<typeof personalSource>>;
+  try { original = await personalSource(tx, op.source.requestId, { active }); } catch (error) { if (!(error instanceof PersonalError)) throw error; return false; }
+  if (original.scheduled && op.grant) return false;
+  return (!(original.scheduled || "question" in original || original.telegram) || op.mode === original.permission.mode) && isDeepStrictEqual(op.telegram, original.telegram) && original.submission.id === op.source.submissionId && original.entry.id === op.source.entryId;
 }
 
 async function waitForChange(reader: DocumentObserver, key: string, ready: (op: Readonly<Operation>) => boolean, context: Context) {

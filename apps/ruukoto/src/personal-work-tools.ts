@@ -1,9 +1,8 @@
+import { personalSource } from "./personal-source.ts";
 import { AgentDoc, defineExtension, defineTool, LiveDoc, ROOT_CONVERSATION_ID, type ConversationId, type Harness, type TaskId, type ToolExecutionApi, type Tx } from "@earendil-works/pi-durable";
 import { Type } from "typebox";
 import { PersonalError } from "./personal-error.ts";
 import { appendPersonalWork, personalWorkNoteSource, PersonalAgentsDoc, PersonalWorkDoc, personalWorkRef, personalWorkResult, personalWorkStatus, requestPersonalWorkCancel, closePersonalAgent } from "./personal-work.ts";
-import { permissionSnapshot, telegramSourceActive } from "./personal-permissions.ts";
-import { isPersonalImRequest, PersonalTelegramReceiptDoc } from "./personal-telegram-records.ts";
 import { PersonalAnalysisAdmission, cancelPersonalDelegation, delegatePersonalAnalysis, listPersonalDelegations, personalDelegationProgress } from "./personal-delegation.ts";
 import type { EntryId } from "@earendil-works/pi-durable";
 import { requestPersonalReport, personalReportResult } from "./personal-report.ts";
@@ -16,15 +15,10 @@ export async function personalToolSource(tx: Tx, api: Pick<ToolExecutionApi, "ta
   if (api.conversationId !== ROOT_CONVERSATION_ID || tool?.conversationId !== ROOT_CONVERSATION_ID || tool.kind !== "pi.tool" || tool.state.status === "terminal" || tool.abortRequested || !tool.input || typeof tool.input !== "object" || Array.isArray(tool.input) || tool.input.kind !== "model" || generation?.id !== live.run?.taskId || generation?.kind !== "pi.generation" || generation.abortRequested || !live.tools?.some(slot => slot.taskId === api.taskId && slot.status === "running")) throw new PersonalError("work_tool_inactive", "当前工具不属于活动主会话，已停止工作操作；请结束本轮并报告拥有者。");
   if (!owner) return;
   if (live.run!.inputs.length !== 1) throw new PersonalError("work_source_ambiguous", "当前轮次包含多项输入，无法唯一确定工作归属；请结束本轮并请拥有者单独提交工作要求。");
-  const source = sourceRequestId ? await tx.submissionByRequest(ROOT_CONVERSATION_ID, sourceRequestId) : undefined;
-  const entry = source?.entry && await tx.entry(source.entry);
-  if (!source?.requestId || source.id !== live.run!.inputs[0] || source.type !== "input" || source.status !== "placed" || source.conversationId !== ROOT_CONVERSATION_ID || entry?.kind !== "pi.user") throw new PersonalError("work_source_invalid", "工作变更需要本轮拥有者输入；回报或其他参考不能提供授权。请结束本轮并向拥有者报告。");
-  if (isPersonalImRequest(source.requestId)) {
-    const receipt = (await tx.doc(PersonalTelegramReceiptDoc, source.requestId, null)).receipt;
-    const telegram = receipt && permissionSnapshot(receipt);
-    if (!telegram || receipt?.submissionId !== source.id || !await telegramSourceActive(tx, telegram)) throw new PersonalError("work_source_invalid", "原拥有者输入没有有效拥有者权限，请结束本轮并向拥有者报告。");
-  }
-  return source.requestId;
+  if (!sourceRequestId) throw new PersonalError("work_source_invalid", "本轮拥有者来源缺失，请结束本轮并报告拥有者。");
+  const source = await personalSource(tx, sourceRequestId, { active: true, invalidCode: "work_source_invalid" });
+  if (source.scheduled || source.submission.id !== live.run!.inputs[0] || source.submission.status !== "placed") throw new PersonalError("work_source_invalid", "工作变更需要本轮拥有者输入，请结束本轮并报告拥有者。");
+  return source.source.requestId;
 }
 
 // Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-delegation-reports.md

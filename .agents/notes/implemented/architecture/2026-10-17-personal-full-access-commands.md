@@ -20,6 +20,8 @@ Linux 完全访问命令直接在持久 tracking 的 user scope 内启动同一�
 
 ## 既有笔记审计
 
+[个人会话后台](../feature/2026-10-21-personal-background-processes.md)复用本篇完全访问原scope执行与停止能力，新增独立会话归属和共享目录认领；本篇仍持有原工作命令的执行事实。
+
 按完全访问、个人命令、持久停止与环境检索 active notes。当前账户完全访问、原生持久身份、[命令宿主](2026-10-17-personal-command-execution.md)、[固定命令目录](2026-10-17-personal-command-configuration.md)、durable 命令与迁移总提案部分重叠，保留各自归属并互链。本篇只取代这些前提中完全访问尚未接通的限制，不改变受限边界、旧 local 停止承诺或 MCP 待接入状态；没有完全吸收或失效提案。
 
 ## 备选方案

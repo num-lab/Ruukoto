@@ -1,0 +1,20 @@
+{
+  "id": 37,
+  "conversationId": 1,
+  "kind": "ruukoto.background-start",
+  "version": 1,
+  "input": {
+    "id": "process_dd614437cf9c806b54bd0161"
+  },
+  "background": true,
+  "abortRequested": false,
+  "state": {
+    "status": "terminal",
+    "outcome": {
+      "status": "completed",
+      "result": {}
+    }
+  },
+  "startedAt": 1792574591021,
+  "endedAt": 1792574591240
+}

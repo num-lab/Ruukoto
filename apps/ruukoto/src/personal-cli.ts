@@ -1,3 +1,5 @@
+import { managePersonalQuestions } from "./personal-questions-cli.ts";
+import { managePersonalBackground } from "./personal-background-cli.ts";
 import { managePersonalPermissions } from "./personal-permissions-cli.ts";
 import { managePersonalAppData } from "./personal-app-data-controls.ts";
 import { configurePersonalSkills } from "./personal-skills-cli.ts";
@@ -404,10 +406,10 @@ export async function managePersonalCommands(io: PersonalCliIO, directory: strin
 export async function personalMenu(directory: string, io: PersonalCliIO, launch?: () => Promise<void>): Promise<void> {
   io.write(`个人 Agent${launch ? " 开发实例" : ""}\n档案：${directory}\n通过聊天、后台工作、审批核实、权限和配置菜单管理此实例；IM 可直接发送 /帮助。\n`);
   while (true) {
-    const actions = ["配置模型（后台须停止）", "启动个人后台", "查看状态", "发送消息", "查看最近消息", "核实上次提交", "停止个人后台", "配置 Telegram（后台须停止）", "查看 Telegram 收发", "退出向导（后台继续运行）", "配置或查看服务（后台须停止）", "管理后台分析", "管理分析委托", "管理检查停止重核", "管理服务审批与核实", "配置或查看命令目录（后台须停止）", "管理命令效果与停止核实", "配置或查看 MCP（后台须停止）", "管理 MCP 审批、原响应与效果", "配置资料与网络工具（后台须停止）", "管理工具审批、资料授权与产物", "配置浏览器（后台须停止）", "管理浏览器、截图与网页效果", "配置 QQ（后台须停止）", "查看 QQ 收发", "管理定时计划与运行", "配置或查看技能（后台须停止）", "管理长期记忆", "检索历史原文", "管理应用数据审批与回执", "管理默认模式与长期授权"];
+    const actions = ["配置模型（后台须停止）", "启动个人后台", "查看状态", "发送消息", "查看最近消息", "核实上次提交", "停止个人后台", "配置 Telegram（后台须停止）", "查看 Telegram 收发", "退出向导（后台继续运行）", "配置或查看服务（后台须停止）", "管理后台分析", "管理分析委托", "管理检查停止重核", "管理服务审批与核实", "配置或查看命令目录（后台须停止）", "管理命令效果与停止核实", "配置或查看 MCP（后台须停止）", "管理 MCP 审批、原响应与效果", "配置资料与网络工具（后台须停止）", "管理工具审批、资料授权与产物", "配置浏览器（后台须停止）", "管理浏览器、截图与网页效果", "配置 QQ（后台须停止）", "查看 QQ 收发", "管理定时计划与运行", "配置或查看技能（后台须停止）", "管理长期记忆", "检索历史原文", "管理应用数据审批与回执", "管理默认模式与长期授权", "问题与回答", "管理会话后台与日志"];
     const groups = [
-      { title: "聊天与消息", actions: [3, 4, 5] },
-      { title: "后台工作与定时计划", actions: [11, 12, 25] },
+      { title: "聊天与消息", actions: [3, 4, 5, 31] },
+      { title: "后台工作与定时计划", actions: [11, 12, 25, 32] },
       { title: "审批、效果与停止核实", actions: [13, 14, 16, 18, 20, 22, 29] },
       { title: "权限、授权与个人资料", actions: [30, 20, 27, 28] },
       { title: "配置能力（后台须停止）", actions: [0, 7, 23, 10, 15, 17, 19, 21, 26] },
@@ -463,7 +465,9 @@ export async function personalMenu(directory: string, io: PersonalCliIO, launch?
       else if (selected === 26) await configurePersonalSkills(io, directory);
       else if (selected === 27) await managePersonalMemory(io, directory);
       else if (selected === 29) await managePersonalAppData(io, directory);
+      else if (selected === 31) await managePersonalQuestions(io, directory);
       else if (selected === 30) await managePersonalPermissions(io, directory);
+      else if (selected === 32) await managePersonalBackground(io, directory);
       else if (selected === 28) await managePersonalHistory(io, directory);
       else {
         const state = await personalControl<Awaited<ReturnType<PersonalHarness["telegram"]["status"]>>>(directory, "GET", selected === 24 ? "/qq" : "/telegram");

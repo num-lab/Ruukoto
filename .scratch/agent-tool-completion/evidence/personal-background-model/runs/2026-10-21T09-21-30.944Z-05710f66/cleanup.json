@@ -1,0 +1,20 @@
+{
+  "at": "2026-10-21T09:21:36.440Z",
+  "errors": [
+    "TypeError: Cannot use a settled overlay",
+    "TypeError: Cannot use a settled overlay"
+  ],
+  "credentialEnvRestored": true,
+  "temporary": "/tmp/rk-personal-bg-model-FVvDcb",
+  "temporaryRemoved": false,
+  "serviceAlive": false,
+  "serving": false,
+  "scopes": [
+    {
+      "id": "native_901dac415ecb2ff95c17eda4",
+      "group": "/sys/fs/cgroup/user.slice/user-1003.slice/user@1003.service/app.slice/ruukoto-native_901dac415ecb2ff95c17eda4.scope",
+      "empty": true
+    }
+  ],
+  "credentialFilesChecked": 13
+}

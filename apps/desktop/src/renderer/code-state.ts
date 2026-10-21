@@ -8,6 +8,8 @@ import { utf8ByteLength } from "@ruukoto/view/utf8.ts";
 import type { DesktopOp } from "../main/ipc.ts";
 import type { DesktopAttachment, DesktopBridge, DesktopFailure, DesktopTarget, DesktopUpdate } from "../shared/bridge.ts";
 import { DesktopApprovals } from "./approvals.ts";
+import { DesktopBackgroundProcesses } from "./background-processes.ts";
+import { DesktopQuestions } from "./owner-questions.ts";
 import { CodeWrites } from "./code-writes.ts";
 import { DesktopContext } from "./context-state.ts";
 import { DesktopInspector } from "./inspector.ts";
@@ -37,6 +39,7 @@ export class CodeState {
   readError: string | null = null;
   pendingCreation: PendingCreation | null = null;
   private generation = 0;
+  private questionRead = 0;
   /** 恢复窗口内累计的变更只画一次：中间投影会把已收起 trace 画成展开态。 */
   private quiet = 0;
   private dirty = false;
@@ -46,6 +49,8 @@ export class CodeState {
   private readonly pendingEntries = new Map<string, string | undefined>();
   readonly writes: CodeWrites;
   readonly approvals: DesktopApprovals;
+  readonly questions: DesktopQuestions;
+  readonly background: DesktopBackgroundProcesses;
   readonly inspector: DesktopInspector;
   readonly context: DesktopContext;
   readonly search: DesktopSearch;
@@ -57,6 +62,8 @@ export class CodeState {
     this.context = new DesktopContext(bridge, this.view, changed, target);
     this.approvals = new DesktopApprovals(bridge, this.view, changed, target);
     this.search = new DesktopSearch(bridge, changed);
+    this.background = new DesktopBackgroundProcesses(bridge, this.view, () => this.status.state === "online", changed);
+    this.questions = new DesktopQuestions(bridge, this.view, () => this.status.state === "online", changed);
     this.writes = new CodeWrites(bridge, this.view, () => this.status.state === "online", changed, target);
     this.inspector = new DesktopInspector(bridge, this.view, id => this.loadHistory(id), changed, target);
   }
@@ -86,7 +93,7 @@ export class CodeState {
     if (update.type === "state") {
       this.status = update;
       this.inspector.update(update);
-      if (update.state === "online") void this.reconcileCreation();
+      if (update.state === "online") { void this.reconcileCreation(); void this.loadOwnerQuestions(); }
     } else if (update.type === "snapshot") {
       ++this.generation;
       this.requests.clear();
@@ -103,10 +110,12 @@ export class CodeState {
       for (const id of this.tabs) void this.loadHistory(id);
       if (this.inspector.childSessionId) void this.loadHistory(this.inspector.childSessionId);
       if (this.navigation) this.navigate(this.navigation);
+      void this.loadOwnerQuestions();
       void this.reconcileCreation();
     } else if (update.type === "event") {
       this.view.applyEvent(update.event, update.kind);
       const body = update.event.body;
+      if (body.type === "owner_question.changed" && body.question.sessionId === this.view.currentSessionId) void this.loadOwnerQuestions();
       if (this.target === "code" && (body.type === "session.created" || body.type === "session.workspace_mapped" || body.type === "project.created" || body.type === "task.queued")) void this.loadSummaries();
       if (body.type === "session.created") void this.reconcileCreation();
       if (body.type === "task.output_entry" && (this.tabs.includes(body.sessionId) || this.inspector.childSessionId === body.sessionId)) void this.loadEntry(body.sessionId, body.entryId, body.taskId);
@@ -117,6 +126,8 @@ export class CodeState {
     this.context.update(update);
     this.approvals.update(update);
     this.writes.update(update);
+    this.questions.update(update);
+    this.background.update(update);
     this.mark();
   }
   private navigate(update: Extract<DesktopUpdate, { type: "navigate" }>): void {
@@ -150,10 +161,28 @@ export class CodeState {
     }
     return this.view.sessions.find(session => session.id === id)?.name ?? "新会话";
   }
+  private async loadOwnerQuestions(): Promise<void> {
+    const sessionId = this.view.currentSessionId, instanceId = this.view.instanceId, generation = this.generation, read = ++this.questionRead;
+    if (this.target !== "code" || !sessionId || !instanceId) return;
+    const current = () => read === this.questionRead && generation === this.generation && sessionId === this.view.currentSessionId && instanceId === this.view.instanceId;
+    let result: OpResult<"owner_questions">;
+    try { result = await this.request("owner_questions", { session_id: sessionId }); }
+    catch (error) { if (current()) { this.questions.message = `拥有者问题查询失败：${(error as Error).message}；请重新选择会话查询。`; this.mark(); } return; }
+    if (!current()) return;
+    const known = this.view.ownerQuestions.filter(question => question.sessionId === sessionId);
+    const questions = result.questions.map(question => {
+      const latest = known.find(item => item.id === question.id);
+      return latest && latest.version > question.version ? latest : question;
+    });
+    questions.unshift(...known.filter(question => question.status === "pending" && !questions.some(item => item.id === question.id)));
+    this.view.ownerQuestions = [...this.view.ownerQuestions.filter(question => question.sessionId !== sessionId), ...questions];
+    this.mark();
+  }
   openSession(id: string): void {
     void this.context.load(id);
     if (!this.tabs.includes(id)) this.tabs.push(id);
     this.view.currentSessionId = id;
+    void this.loadOwnerQuestions();
     this.rememberCreationSource();
     this.inspector.openParent(id);
     const view = this.view.openSession(id);
@@ -168,6 +197,7 @@ export class CodeState {
     if (this.view.currentSessionId === id) this.view.currentSessionId = this.tabs[Math.max(0, index - 1)] ?? null;
     this.rememberCreationSource();
     if (this.view.currentSessionId) this.inspector.openParent(this.view.currentSessionId);
+    void this.loadOwnerQuestions();
     this.mark();
   }
   private creationSource(): Session | undefined {

@@ -26,7 +26,7 @@
 
 **后台启动。** `ensureBackend` 接收目标的 `dataDir`、`agentDir`、`controlDir`；`spawnExecPath` 指定 Node 可执行文件，默认 `process.execPath`；`spawnArgv` 只含 bin 与服务参数。`env` 只传给子进程，路径与令牌解析仍读取调用方环境。探测到已运行后台返回 `{ ok: true, spawned: false }`；本次拉起就绪返回 `{ ok: true, spawned: true }`；失败返回 `{ ok: false, error }`。后台 detached 并 unref，客户端退出不停止后台。
 
-**监听点与帧。** 服务在 `<controlDir>/control.sock` 监听。请求是 `{v, id, op, params}`，应答是 `{v, id, ok, result|error}`，事件推送是 `{v, push:"event", event}`；每帧一行 JSON 加换行，空行忽略。当前协议版本是 `34`（`CONTROL_PROTOCOL_VERSION`，与 `PROTOCOL_VERSION` 同值）。
+**监听点与帧。** 服务在 `<controlDir>/control.sock` 监听。请求是 `{v, id, op, params}`，应答是 `{v, id, ok, result|error}`，事件推送是 `{v, push:"event", event}`；每帧一行 JSON 加换行，空行忽略。当前协议版本是 `37`（`CONTROL_PROTOCOL_VERSION`，与 `PROTOCOL_VERSION` 同值）。
 
 **拥有者认证。** 连接建立后第一个成功的操作必须是 `auth`（参数 `token`）。认证成功前，服务端对其他 op 一律回 `unauthorized`，不返回快照、不执行请求；连接保留，可以再次认证。令牌是 32 字节随机数的 hex，写入控制目录的 `owner.token`（0600）：缺失或内容去空白后不足 32 字符时后台启动时生成，已存在则复用。多用户部署由配置步骤把令牌以 0400、属主为拥有者放到拥有者可读的位置，再用 `RUUKOTO_OWNER_TOKEN_FILE` 指向它。
 
@@ -38,6 +38,7 @@
 
 | 类别 | op | 说明与能力边界 |
 | --- | --- | --- |
+| 会话后台 | `background_processes`、`background_process_output`、`background_process_stop`、`session_background_end` | 本会话记录每页最多20项、256KiB；日志按原字节位置读取 stdout/stderr，每页最多32KiB并返回原字节base64；停止只登记意图，结束携带持久原键并覆盖已接纳的启动，停止核实由后续状态确认 |
 | 连接与后台 | `ping`、`connect`、`stop` | `ping` 返回 `pong` 与 `stopping`；`connect` 是握手（见下）；`stop` 请求后台停止，立即回 `accepted` |
 | 项目、会话与工作区 | `create_project`、`create_session`、`open_workspace`、`get_session`、`list_session_summaries`、`get_session_usage` | `create_project` / `create_session` / `open_workspace` 带可选幂等键 `request_id`；后两者可提供初始 `mode` 与 `model_selection`（含 thinkingLevel），省略沿后台默认，已有成果重放不覆盖后续设置；`list_session_summaries` 的 `project_id`（原身份）与 `workspace_id`（组织归属）互斥且必须给一个；workspace_chats scope 省略两者并返回全部普通会话的组织归属与存档状态 |
 | 旧数据迁移 | `preview_workspace_migration`、`apply_workspace_migration` | 预览只读；应用必须带 `instance_id`，另用 `request_id` 回执与 `expected_revision`（回退除外）防重 |
@@ -81,6 +82,11 @@
 ## 数据与状态
 
 `search_history` 与 `list_session_summaries` 的可选 `scope: "workspace_chats"` 仅向 Code 开放，覆盖后台身份核实的全部普通开发会话，包含存档；省略时保留旧范围与提取语义。正文只搜用户文字和可展示的 Agent 正文，排除内部报告输入、工具及思考；中文连续匹配，ASCII 字母忽略大小写。请求游标使用 snake_case，响应使用 camelCase；GUI 游标含 index／scan 阶段、来源身份和查询摘要。`complete` 仅表示遍历结束，须同时核对逐页累计的 `sourceIssues` 和 `unindexedSessionIds`，才可判断全范围零命中。
+
+`backgroundProcesses` 快照与 `background_process.changed` 事件提供有界后台状态。`BackgroundEndGuard` 在客户端发送前保存结束请求键、会话与数据实例；应答未知保留原记录，刷新只查询状态，拥有者显式重核时才按原键重试，不扩大原结束屏障；成功只表示原请求成员已停止，后来新执行以最新清单为准。
+
+
+`owner_questions` 按待答优先分页，offset/limit由程序管理，每页至多20项及256KiB，nextOffset非空可续读；题目、答案均不截断。快照 ownerQuestions只有全局128KiB内且能放进完整帧的预览，所选会话由客户端主动补读最近页；owner_question.changed携完整题目、版本、状态和续接引用，长补发超过完整帧预算时退回无游标快照。`owner_question_answer` 接整批 `{text,option?,options?}`、原版本、请求键和当前模型/模式/授予范围；单选与多选字段互斥，多选索引升序且正文为名字以换行连接，Skip 为不带选择字段的空字符串。`owner_question_cancel` 只取消，`owner_question_receipt` 按原键和动作查回执。回答、取消都在发送前保存 pending 记录，应答丢失先查回执，已提交键仍以原参数核实摘要；同键普通 Task不能替代回答回执，版本或终态变化须刷新卡片。
 
 任务视图携带宿主派生的 `inputPurpose`（`user` / `internal_report`），覆盖工作流专属汇总、等待补报及保留的排队别名；历史首屏、分页和单条补读另带原 `taskId` 与可选 `taskAssociationError`，客户端在展示及补种输入历史前使用分类。分类不能由请求正文或请求键指定。
 
@@ -254,6 +260,10 @@ sequenceDiagram
 ## 设计依据
 
 - [应用内 Spotlight 与历史定位](../../.agents/notes/implemented/feature/2026-10-21-desktop-spotlight-search.md)
+
+- [Coding 会话后台持有独立目录占用](../../.agents/notes/implemented/feature/2026-10-21-coding-background-processes.md)
+
+- [Coding 持久问题与可信续接](../../.agents/notes/implemented/feature/2026-10-21-coding-owner-questions.md)
 
 - [完整思考与文件预览](../../.agents/notes/implemented/feature/2026-10-18-complete-reasoning-and-preview.md)
 

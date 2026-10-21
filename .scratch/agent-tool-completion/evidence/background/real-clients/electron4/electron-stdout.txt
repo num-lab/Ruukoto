@@ -1,0 +1,39 @@
+Ruukoto
+Scheduled
+New chat
+工作区
+work-0
+启动后台 electron_single
+你的工作区
+
+从左侧选择工作区。
+
+打开
+
+浏览器
+终端
+文件树
+本会话后台
+
+查看状态与日志，或显式停止后台。关闭此窗口保留后台运行。
+
+运行中
+
+'/Users/eitrous/.local/share/mise/installs/node/24.15.0/bin/node' '/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-it-background-real-clients-9xngLr/work-0/service.cjs' 'electron_single' '/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-it-background-real-clients-9xngLr/work-0/electron_single'
+
+stdout 47 B · stderr 24 B
+
+请求停止
+stdout
+stderr
+
+0–47/47 B
+
+STDOUT_c26667224446e235 http://127.0.0.1:65190
+
+上一页日志
+下一页日志
+查看原始字节（base64）
+刷新本页
+返回后台列表
+关闭

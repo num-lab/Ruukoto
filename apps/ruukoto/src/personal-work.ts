@@ -3,6 +3,7 @@ import { PERSONAL_MEMORY, PERSONAL_MEMORY_TOOLS } from "./personal-memory.ts";
 import { PERSONAL_HISTORY, PERSONAL_HISTORY_TOOLS } from "./personal-history.ts";
 import { PERSONAL_SKILLS, PERSONAL_SKILL_TOOLS } from "./personal-skills.ts";
 import { PERSONAL_MEDIA } from "./personal-media.ts";
+import { PERSONAL_FILE_SEARCH } from "./personal-file-search.ts";
 import { PERSONAL_TOOLS, PERSONAL_TOOL_NAMES, requireWorkToolsStopped, toolOperations, toolUnresolved, waitWorkTools } from "./personal-tools.ts";
 import { isDeepStrictEqual } from "node:util";
 import type { TranscriptContext } from "@earendil-works/pi-ai";
@@ -249,7 +250,7 @@ export async function delegatePersonalWork(tx: Tx, model: ModelRef, input: Deleg
     if (Array.isArray(main.extensions) && main.extensions.includes(PERSONAL_TOOLS)) {
       const config = await tx.doc(AgentDoc, child.id);
       if (!Array.isArray(config.extensions) || !Array.isArray(config.tools)) throw new PersonalError("work_config_changed", "子会话工具配置无法核实，请保留档案。");
-      config.extensions.push(PERSONAL_TOOLS); config.tools.push(...PERSONAL_TOOL_NAMES);
+      config.extensions.push(PERSONAL_TOOLS, PERSONAL_FILE_SEARCH); config.tools.push(...PERSONAL_TOOL_NAMES);
     }
     if (Array.isArray(main.extensions) && main.extensions.includes(PERSONAL_MEDIA)) {
       const config = await tx.doc(AgentDoc, child.id);
@@ -281,9 +282,9 @@ export const personalWorkNotes = defineExtension({ name: "personal-work-notes" }
 const noteSubmissionKey = (ref: PersonalWorkRef, note: WorkNote) => `personal-work:${ref.taskId}:note:${note.requestId}`;
 
 export async function personalWorkNoteSource(tx: Tx, requestId: string, modelCall?: TaskId): Promise<NoteSource> {
-  const source = await tx.submissionByRequest(ROOT_CONVERSATION_ID, requestId);
-  if (source?.type !== "input" || !["placed", "done"].includes(source.status) || !source.entry || (await tx.entry(source.entry))?.kind !== "pi.user") throw new PersonalError("work_source_invalid", "追加说明需要已进入主会话的拥有者输入，请查询原工作后重新提交。");
-  return { kind: "input", requestId, submissionId: source.id, entryId: source.entry, ...(modelCall === undefined ? {} : { modelCall }) };
+  const value = await personalSource(tx, requestId, { active: true, invalidCode: "work_source_invalid" });
+  if (value.scheduled) throw new PersonalError("work_source_invalid", "定时来源不能追加主聊天工作，请查询原运行。");
+  return { kind: "input", ...value.source, ...(modelCall === undefined ? {} : { modelCall }) };
 }
 
 export async function appendPersonalWork(tx: Tx, ref: PersonalWorkRef, input: { requestId: string; content: string; source: NoteSource }) {
@@ -302,11 +303,7 @@ export async function appendPersonalWork(tx: Tx, ref: PersonalWorkRef, input: { 
   if (work.delegation) await requirePersonalDelegationOpen(tx, work.delegation);
   if (work.delegation && input.source.kind === "input") await requirePersonalDelegationInput(tx, work.delegation, input.source.requestId);
   if (input.source.kind === "input") await requirePersonalServiceSourceReady(tx, input.source.requestId);
-  if (input.source.kind === "input" && isPersonalImRequest(input.source.requestId)) {
-    const receipt = (await tx.doc(PersonalTelegramReceiptDoc, input.source.requestId, null)).receipt;
-    const source = receipt && permissionSnapshot(receipt);
-    if (!source || !await telegramSourceActive(tx, source) || receipt?.submissionId !== input.source.submissionId || !samePersonalEntry(source, work.telegram)) throw new PersonalError("work_original_entry_required", "此说明不属于原拥有者入口，未改变工作；请从原入口查询。");
-  }
+  if (input.source.kind === "input") { const source = await personalSource(tx, input.source.requestId, { active: true }); if (source.submission.id !== input.source.submissionId || source.entry.id !== input.source.entryId || (source.telegram && !samePersonalEntry(source.telegram, work.telegram))) throw new PersonalError("work_original_entry_required", "此说明不属于原拥有者入口，请从原入口查询。"); }
   if (work.telegram && !await telegramSourceActive(tx, work.telegram)) throw new PersonalError("work_source_inactive", "原拥有者入口已停用或变更，未接纳说明；请查询原工作。");
   if (work.source) await requirePersonalServiceSourceReady(tx, work.source.requestId);
   work.notes ??= [];
@@ -336,7 +333,7 @@ export async function verifyPersonalWorkNotes(tx: Tx, ref: PersonalWorkRef, enab
       if (menu?.kind !== "work" || menu.ref.taskId !== ref.taskId || !receipt?.direct || !receipt.control || receipt.selection?.kind !== "work" || receipt.selection.ref.taskId !== ref.taskId || receipt.content !== `补充：${note.content}` || !samePersonalEntry(receipt, work.telegram) || (receipt.platform ?? "telegram") !== note.source.kind) throw new PersonalError("work_note_invalid", "追加说明的拥有者原菜单或入口不符，已停止恢复；请保留档案。");
     } else if (note.source.kind === "input") {
       const source = await tx.submissionByRequest(ROOT_CONVERSATION_ID, note.source.requestId);
-      if (source?.id !== note.source.submissionId || source.entry !== note.source.entryId || (await tx.entry(note.source.entryId))?.kind !== "pi.user") throw new PersonalError("work_note_invalid", "追加说明的拥有者原输入缺失，已停止恢复；请保留档案。");
+      if (source?.id !== note.source.submissionId || source.entry !== note.source.entryId || !isDeepStrictEqual((await personalSource(tx, note.source.requestId)).source, { requestId: note.source.requestId, submissionId: note.source.submissionId, entryId: note.source.entryId })) throw new PersonalError("work_note_invalid", "追加说明的拥有者原输入缺失，已停止恢复；请保留档案。");
       if (note.source.modelCall !== undefined) {
         const call = await tx.task(note.source.modelCall);
         const input = call?.input;

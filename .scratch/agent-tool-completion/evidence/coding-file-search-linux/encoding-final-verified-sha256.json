@@ -1,0 +1,11 @@
+{
+  "packages/agent/src/file-search.ts": "d8c4f63544246b8fb547004c94b81c50aa709e3a1ebf4c1dc2f2b6ef943f569e",
+  "packages/agent/src/tool-worker/file-search.ts": "8e494a6c5d2c284354c543ff8154bae5f4640f98571652dc5f125c14d54ad710",
+  "packages/agent/src/tool-worker/worker.ts": "60757a7fa795c7db4dc48582a93837d986c3181c151538f17d206fe4e6491b61",
+  "packages/agent/src/tool-worker/host.ts": "8ca271acc56c2faa945480bb0da4e59be1cf7b1d83b7fd8ba2ab71de57013638",
+  "packages/agent/src/tool-worker/protocol.ts": "ca01ced53053e6072823c083e2ab5776f89f3121711cf275e3f19aa11e7aceba",
+  "packages/agent/src/execution/native.ts": "92525cc74aa49009813548327dc4558324a0f9ee2841237334902246e2addd49",
+  "test/file-search.test.ts": "a9abb8eb5277ad4acd6474539650d9f4e535588cf36fb84809e36753dd000afd",
+  "test/101-native-execution.test.ts": "41da5226d89fd38bce87efccf0f23a100843800cb601ff079ce8e7cacf928677",
+  "worker/worker.mjs": "69be655f43af81953b448a36497b227cab890ed9b4596b51e736212c59b63ca1"
+}

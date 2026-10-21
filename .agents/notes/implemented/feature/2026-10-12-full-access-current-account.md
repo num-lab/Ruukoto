@@ -104,7 +104,7 @@ IM 任务已接受但事件或媒体关联未提交时，以原会话与 `evt:<�
 
 ## 关联提案
 
-普通命令完成与后台执行停止的时点拆分见[后台生命周期提案](../../proposed/feature/2026-10-14-bash-background-lifecycle.md)。提案尚未落地，不改变本篇的执行授权、模式传播和停止承诺。
+普通命令完成与后台执行停止的时点拆分由[Coding会话后台](2026-10-21-coding-background-processes.md)持有；[个人后台接入](../../proposed/feature/2026-10-14-bash-background-lifecycle.md)仍为提案。本篇的执行授权、模式传播和主动脱离回收限制保留。
 
 ## 备选方案
 

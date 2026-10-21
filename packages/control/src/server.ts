@@ -204,7 +204,7 @@ export class ControlServer {
       return value;
     };
     const workflowParams = (...allowed: string[]): void => {
-      if (Object.keys(params).some(key => !allowed.includes(key))) throw new RuntimeApiError("invalid_params", "工作流参数含未开放字段；请按接口提交，身份和授权由宿主核实");
+      if (Object.keys(params).some(key => !allowed.includes(key))) throw new RuntimeApiError("invalid_params", "参数含未开放字段；请按接口提交，身份和授权由宿主核实");
     };
     const workflowInt = (key: string, fallback: number, minimum = 0, maximum = Number.MAX_SAFE_INTEGER): number => {
       const value = params[key] ?? fallback;
@@ -270,8 +270,13 @@ export class ControlServer {
             subAgentSessionIds: snapshot.subAgentSessionIds,
             workDelegations: snapshot.workDelegations,
             subAgents: snapshot.subAgents,
+            ownerQuestions: snapshot.ownerQuestions,
+            backgroundProcesses: snapshot.backgroundProcesses,
           },
         };
+        if (since > 0 && Buffer.byteLength(encodeFrame({ v: CONTROL_PROTOCOL_VERSION, id: request.id, ok: true, result }), "utf8") > MAX_FRAME_BYTES) {
+          throw new RuntimeApiError("cursor_too_old", "补发正文超过帧上限，请重新取快照。");
+        }
         this.subscribers.add(socket);
         return result;
       }
@@ -438,6 +443,46 @@ export class ControlServer {
       }
       case "put_attachment":
         return runtime.putAttachment(params as unknown as import("@ruukoto/core/attachments.ts").AttachmentUpload);
+      case "background_processes": {
+        workflowParams("session_id", "offset");
+        return runtime.listBackgroundProcesses(requireString("session_id"), workflowInt("offset", 0));
+      }
+      case "background_process_output": {
+        workflowParams("session_id", "process_id", "stream", "offset");
+        const stream = params["stream"];
+        if (stream !== "stdout" && stream !== "stderr") throw new RuntimeApiError("invalid_params", "请选择 stdout 或 stderr 日志。");
+        return runtime.backgroundProcessOutput({ sessionId: requireString("session_id"), processId: requireString("process_id"), stream, offset: workflowInt("offset", 0) });
+      }
+      case "background_process_stop": {
+        workflowParams("session_id", "process_id");
+        return runtime.stopBackgroundProcess({ sessionId: requireString("session_id"), processId: requireString("process_id") });
+      }
+      case "session_background_end": {
+        workflowParams("session_id", "request_id");
+        const requestKey = optionalRequestId();
+        if (!requestKey) throw new RuntimeApiError("invalid_params", "结束后台须携带原请求；请重新打开会话后台列表。");
+        return runtime.endSessionBackground({ sessionId: requireString("session_id"), requestKey });
+      }
+      case "owner_questions": {
+        workflowParams("session_id", "offset", "limit");
+        return runtime.listOwnerQuestions(requireString("session_id"), workflowInt("offset", 0), workflowInt("limit", 20, 1, 20));
+      }
+      case "owner_question_answer":
+      case "owner_question_cancel": {
+        const answering = request.op === "owner_question_answer";
+        workflowParams("session_id", "question_id", "question_version", "request_id", ...(answering ? ["answers", "model_selection", "access_mode", "granted_paths"] : []));
+        const version = params["question_version"];
+        if (!Number.isSafeInteger(version) || (version as number) < 1) throw new RuntimeApiError("invalid_params", "问题已不可用，请刷新卡片后作答。");
+        const reference = { sessionId: requireString("session_id"), questionId: requireString("question_id"), version: version as number, requestId: requireString("request_id") };
+        return answering ? runtime.answerOwnerQuestion({ ...reference, answers: params["answers"], modelSelection: parseModelSelection(params["model_selection"]),
+          accessMode: this.parseAccessMode(params), grantedPaths: this.parseGrantedPaths(params) }) : runtime.cancelOwnerQuestion(reference);
+      }
+      case "owner_question_receipt": {
+        workflowParams("session_id", "request_id", "operation");
+        const operation = params["operation"];
+        if (operation !== "owner_question_answer" && operation !== "owner_question_cancel") throw new RuntimeApiError("invalid_params", "请选择需要核实的回答或取消请求。");
+        return runtime.findOwnerQuestionReceipt(requireString("session_id"), requireString("request_id"), operation);
+      }
       case "submit":
         return runtime.submit({
           sessionId: requireString("session_id"),

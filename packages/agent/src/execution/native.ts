@@ -43,17 +43,21 @@ export function assertNativeFileLinks(mounts: PreparedNativeLaunch["mounts"]): v
   const directories = new Map<string, "read" | "read_write">();
   const fileEntries = new Map<string, "read" | "read_write">();
   const files = new Map<string, "read" | "read_write">();
-  const links = new Map<string, Array<{ path: string; access: "read" | "read_write" }>>();
-  const pending: Array<{ path: string; entryKey?: string }> = mounts.map(mount => ({ path: mount.path }));
+  const links = new Map<string, Array<{ path: Buffer; access: "read" | "read_write" }>>();
+  // 路径身份保留原字节；非 UTF-8 名称由工具返回具名失败，不能先被替换字符改成另一条路径。
+  // Note: 见 .agents/notes/implemented/feature/2026-10-21-controlled-file-search.md
+  const mountBytes = mounts.map(mount => ({ ...mount, bytes: Buffer.from(mount.path), prefix: Buffer.from(mount.path + path.sep) }));
+  const pending: Array<{ path: Buffer; entryKey?: string }> = mounts.map(mount => ({ path: Buffer.from(mount.path) }));
   const reject = (): never => {
     throw new ExecutionError("execution_unavailable", "授权目录的文件别名超出范围或权限冲突；移除别名或使用独立文件副本后重试", undefined, "sandbox_rejected");
   };
   while (pending.length) {
     const { path: current, entryKey } = pending.pop()!;
-    if (visited.has(current)) continue;
-    visited.add(current);
+    const pathKey = current.toString("latin1");
+    if (visited.has(pathKey)) continue;
+    visited.add(pathKey);
     const stat = fs.lstatSync(current, { bigint: true });
-    const access = mounts.some(mount => mount.access === "read" && covers(mount.path, current)) ? "read" : "read_write";
+    const access = mountBytes.some(mount => mount.access === "read" && (current.equals(mount.bytes) || current.subarray(0, mount.prefix.length).equals(mount.prefix))) ? "read" : "read_write";
     if (stat.isDirectory()) {
       const directoryKey = `${stat.dev}:${stat.ino}`;
       const prior = directories.get(directoryKey);
@@ -62,15 +66,16 @@ export function assertNativeFileLinks(mounts: PreparedNativeLaunch["mounts"]): v
         continue;
       }
       directories.set(directoryKey, access);
-      pending.push(...fs.readdirSync(current).map(name => ({ path: path.join(current, name), entryKey: `${directoryKey}:${name}` })));
+      pending.push(...fs.readdirSync(current, { encoding: "buffer" }).map(name => ({ path: Buffer.concat([current, Buffer.from(path.sep), name]), entryKey: `${directoryKey}:${name.toString("hex")}` })));
     } else if (stat.isFile()) {
       let physicalEntry = entryKey;
       if (!physicalEntry) {
-        const parent = path.dirname(current), name = path.basename(current);
+        const trustedPath = current.toString("utf8");
+        const parent = path.dirname(trustedPath), name = path.basename(trustedPath);
         // APFS 的大小写及 Unicode 别名不是第二个目录条目。
         if (!fs.readdirSync(parent).includes(name)) reject();
         const parentStat = fs.statSync(parent, { bigint: true });
-        physicalEntry = `${parentStat.dev}:${parentStat.ino}:${name}`;
+        physicalEntry = `${parentStat.dev}:${parentStat.ino}:${Buffer.from(name).toString("hex")}`;
       }
       const prior = fileEntries.get(physicalEntry);
       if (prior !== undefined) {
@@ -145,7 +150,7 @@ async function runtimePaths(workerPath: string, nodePath: string, dependencyRoot
     }
   }
   const executables = new Set<string>([nodePath]);
-  for (const name of ["node", "npm", "npx", "git", "python3", "cc", "c++", "clang", "make"]) {
+  for (const name of ["node", "npm", "npx", "git", "rg", "python3", "cc", "c++", "clang", "make"]) {
     const requested = dirs.map(dir => path.join(dir, name)).find(candidate => {
       try { fs.accessSync(candidate, fs.constants.X_OK); return fs.statSync(candidate).isFile(); }
       catch { return false; } // PATH 中缺失或不可执行的工具不提供给任务。

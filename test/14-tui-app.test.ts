@@ -1915,3 +1915,27 @@ test("视口键：侧栏日志只在 PgDn 按下时滚动，释放帧保持当�
     h.terminal.send("\x1b[6;1:3~"); await renderFlush(); assert.equal(workflowScreen(h), after);
   } finally { h?.app.quit(0); await t.shutdown(); }
 });
+
+test("Coding 会话选择菜单与 /processes 都进入后台清单，返回不停止后台", async () => {
+  const saved = process.env.RUUKOTO_PRODUCT;
+  process.env.RUUKOTO_PRODUCT = "ruukoto-code";
+  const t = await startTestRuntime("tui-background-menu", async () => ({ kind: "text", text: "未调用模型" }));
+  const apps: AppHarness[] = [], requests: Array<{ op: string; params?: Record<string, unknown> }> = [];
+  try {
+    const { sessionId } = await createProjectSession(t.client, t.work[0]);
+    const h = await startApp(t, { sessionId, requests }); apps.push(h);
+    h.terminal.clearOutput(); h.terminal.send("/resume\r"); await renderFlush();
+    assert.match(stripTerminalSequences(h.terminal.output()), /本会话后台与日志/);
+    h.terminal.send("\x1b[B\r"); await renderFlush();
+    assert.match(stripTerminalSequences(h.terminal.output()), /本会话后台/);
+    h.terminal.send("\x1b"); await renderFlush();
+    h.terminal.send("/processes\r"); await renderFlush(); h.terminal.send("\x1b"); await renderFlush();
+    assert.ok(requests.filter(request => request.op === "background_processes").length >= 2);
+    assert.equal(requests.some(request => request.op === "background_process_stop" || request.op === "session_background_end"), false);
+    assert.equal(t.server.calls.length, 0);
+  } finally {
+    quitAll(apps); await t.shutdown();
+    if (saved === undefined) delete process.env.RUUKOTO_PRODUCT;
+    else process.env.RUUKOTO_PRODUCT = saved;
+  }
+});

@@ -22,6 +22,8 @@ HTTP 固定 URL、方法、头、正文、DNS 和凭据引用，不重试、不�
 
 ## 相关决定核对
 
+[个人会话后台](../feature/2026-10-21-personal-background-processes.md)与文件写批准消费共用目录认领；写入效果未知或停止未核实时保留认领，人工核实与释放同commit完成。本篇仍持有文件授权及原字节证据。
+
 [自动审查](../../implemented/feature/2026-09-22-auto-review-mode.md)、[原生受限执行](2026-10-10-native-execution-sandbox.md)和[旧产物导出](../../implemented/feature/2026-10-14-artifact-file-export.md)部分重叠，保留其 Coding 归属，本篇只说明个人原生接线；[个人命令](2026-10-17-personal-durable-commands.md)与[MCP](2026-10-17-personal-durable-mcp.md)继续持有原执行证据，本篇扩展共享暂停调用方；[迁移提案](../../proposed/architecture/2026-10-17-personal-pi-durable.md)仍持有整体目标，不由本片宣称正式切换完成。没有完全吸收或过时记录。
 
 个人 Pi 1.3.0 的独立装配见[浏览器与图片归属](2026-10-18-personal-browser-media.md)；本篇继续持有个人通用工具的资料授权、审批与原字节产物决定；浏览器和媒体的绑定、接纳和恢复由该篇持有。
@@ -38,4 +40,4 @@ HTTP 固定 URL、方法、头、正文、DNS 和凭据引用，不重试、不�
 
 个人durable的应用数据接线、原生来源与双库回执恢复由[独立决定](2026-10-18-personal-durable-app-data.md)持有，本篇其他消费者约束保持。
 
-相关未实施方案：[受控文件检索](../../proposed/feature/2026-10-21-controlled-file-search.md)复用本篇资料授权与原字节证据，不经独立命令目录绕行。
+相关决定：[受控文件检索](../../implemented/feature/2026-10-21-controlled-file-search.md)复用本篇资料授权与原字节证据，[个人接入](../../implemented/feature/2026-10-21-personal-file-search.md)在独立只读执行单元中读取，不经独立命令目录绕行。

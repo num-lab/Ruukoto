@@ -1,0 +1,105 @@
+{
+  "repository": "/Users/eitrous/mirasim-worktrees/ruukoto/lucky-sailing-sparrow",
+  "remoteCode": "/tmp/ruukoto-bg-proof-code.3FGqVMl5",
+  "bundling": "esbuild Node24 ESM; production modules unchanged; no new dependency; source/ is standalone snapshot",
+  "sources": {
+    "test/native-linux-identity.test.ts": {
+      "sha256": "6a88e96abfc7a37855a498d68b456d76e5c791a439492847687c74ce379ad1d1",
+      "bytes": 21217
+    },
+    "test/101-native-linux-scope.test.ts": {
+      "sha256": "e3caf5e4156040af25284551c7617e9057b1f6d010fb5d01f9b3f9e6b9f369b9",
+      "bytes": 5941
+    },
+    "packages/agent/src/managed-processes.ts": {
+      "sha256": "00668a2abd89e504352795bad0f103afb9870efa1773898008ade0829f490d0f",
+      "bytes": 4091
+    },
+    "packages/agent/src/execution/native-macos.ts": {
+      "sha256": "f8643d4dd875f736b8af417117b963b2501489f87309ac26b9bb115796da8bdf",
+      "bytes": 8302
+    },
+    "packages/agent/src/execution/launchers.ts": {
+      "sha256": "2f03fcce41bc68282cbd144202f0224f6f8fe17ed9e530cd00d746190e88529c",
+      "bytes": 6607
+    },
+    "packages/agent/src/execution/native-linux.ts": {
+      "sha256": "f71e77920a71d1bbdbcf77236fe02606206848bd522dcc0c67f88844f53aa74b",
+      "bytes": 11942
+    },
+    "packages/agent/src/execution/native.ts": {
+      "sha256": "92525cc74aa49009813548327dc4558324a0f9ee2841237334902246e2addd49",
+      "bytes": 16530
+    },
+    "packages/agent/src/execution/approved-ops.ts": {
+      "sha256": "2b9caa271ce416d6083159d243c0d84bee6bd6c0150fdf13ce1918834e6b1c51",
+      "bytes": 24371
+    },
+    "packages/agent/src/execution/native-linux-identity.ts": {
+      "sha256": "b440337265a70e6fdbbce8086e9c838ec4354578357df48bce925372646c5fcf",
+      "bytes": 14849
+    }
+  },
+  "artifacts": {
+    "probe.mjs": {
+      "sha256": "0b39bb9d1dc239bfc72bddad978a3810788fe7967eddf2c7cfeea7bac1207066",
+      "bytes": 36050
+    },
+    "entry.mjs": {
+      "sha256": "e9f58e52b2cbde2f384573b28c819085e9923d7a30a1e36b81622a2b658dcda5",
+      "bytes": 10876
+    },
+    "rebuild.mjs": {
+      "sha256": "bb9f5a0a955720aefa4d7ae4fad6c74d7eca698fd7a0cf4a0dc574a4a88fddd6",
+      "bytes": 1201
+    },
+    "run.log": {
+      "sha256": "f0336e06c7e2d2217fb7b69eb3f08a5953b3aa043df06f4015f07f22dee9b4ae",
+      "bytes": 7343
+    },
+    "checks.log": {
+      "sha256": "53682fd6ff00ad26c5d0b5e3c7b1b16617b55ce5c897cc2d7237e30f6789e147",
+      "bytes": 6808
+    },
+    "cleanup.json": {
+      "sha256": "84df2cf95b33933ce47dbfb955f94586c819af9c8600f52571e7ce79ffd12925",
+      "bytes": 4637
+    },
+    "entry-checks.mjs": {
+      "sha256": "feced044c148ac997352a035eec8ed62d56cd9e33918f92ce66b33b0f1c8ead5",
+      "bytes": 10822
+    },
+    "build.mjs": {
+      "sha256": "cea762f9435a5f19e2c47f1ac6fa87e8049f648dae62d3a515d710b16eb7ccd0",
+      "bytes": 488
+    },
+    "metafile.json": {
+      "sha256": "747ef90b16078d8a3d97312d96ccbd9eaa99e737de420c689dd735727f1eeb4f",
+      "bytes": 10421
+    },
+    "entry-real.mjs": {
+      "sha256": "87b3a6abb07942b6421d536854210da03de01c19d76b9d9a0d71324800763f32",
+      "bytes": 8369
+    },
+    "tests.log": {
+      "sha256": "0a201a49e8b7affeab0ddc70f5d69bcca933b40d726588b1540a25e9a49347cd",
+      "bytes": 2512
+    },
+    "probe-checks.mjs": {
+      "sha256": "6395ceb0cf8f296915a8317bf88d6a526c279e198467ce61d1fd26771b863945",
+      "bytes": 38998
+    },
+    "commands.txt": {
+      "sha256": "802d96258646814b848a91fad04ebfb2521d37b15f54b3551d383883143d5baa",
+      "bytes": 1155
+    },
+    "tests/native-linux-identity.test.js": {
+      "sha256": "492f1f815310b4656c8bd823b51321e1cd3c59a60e504eca73d263390d855c56",
+      "bytes": 46853
+    },
+    "tests/101-native-linux-scope.test.js": {
+      "sha256": "10deeb8b65c4ef36627fce34146f5cb1ffe6b4d0c9546a1fbff259097e1fad88",
+      "bytes": 18697
+    }
+  }
+}

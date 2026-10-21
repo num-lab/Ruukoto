@@ -79,6 +79,8 @@ import {
 import { EventFlowView } from "./event-flow-view.ts";
 import { activityAgo, TwoLineSelectList } from "./session-list.ts";
 import { WorkflowSidebar } from "./workflows.ts";
+import { BackgroundProcesses } from "./background-processes.ts";
+import { OwnerQuestions } from "./owner-questions.ts";
 import { formatPromptSnapshot } from "./prompt-format.ts";
 import { formatContextTokens } from "./context-format.ts";
 import type { FlowEntry } from "./event-flow.ts";
@@ -166,10 +168,10 @@ class WindowFrame implements Component {
   /** 内容区总行数（最近一次渲染记录），用于判断是否需要滚动提示。 */
   private contentRows = 0;
 
-  constructor(private readonly content: Component) {}
+  constructor(private readonly content: Component, private readonly textKeys = false) {}
 
   handleInput(data: string): void {
-    if (matchesKey(data, "q") || matchesKey(data, "escape")) data = "\x1b";
+    if (!this.textKeys && (matchesKey(data, "q") || matchesKey(data, "escape"))) data = "\x1b";
     if (this.onKey) this.onKey(data);
     else this.content.handleInput?.(data);
   }
@@ -820,6 +822,8 @@ export class TuiApp {
   private readonly expandedTools = new Map<string, object>();
   private readonly todoPanel = new TodoPanel();
   private readonly workflowSidebar: WorkflowSidebar;
+  private readonly ownerQuestions: OwnerQuestions;
+  private readonly backgroundProcesses: BackgroundProcesses;
   private todoOverlay: OverlayHandle | null = null;
   private readonly sessionTodos = new Map<string, Todo[] | null>();
   private pendingBranch: { sessionId: string; name?: string; requestId: string; instanceId: string; autoSwitch: boolean; result: CommandResult } | null = null;
@@ -931,6 +935,29 @@ export class TuiApp {
       close: () => { this.tui.setFocus(this.editor); this.tui.requestRender(); },
       approvals: () => this.openApprovals(),
       wait: () => this.state.currentSessionId ? this.state.activeTaskFor(this.state.currentSessionId)?.wait : undefined,
+    });
+
+    this.ownerQuestions = new OwnerQuestions({
+      request: (op, params) => this.connection.request(op, params),
+      pending: new PendingRequestStore(join(opts.pendingStore.dir, "owner-questions")),
+      known: () => this.state.ownerQuestions,
+      install: (sessionId, questions) => { this.state.ownerQuestions = [...this.state.ownerQuestions.filter(question => question.sessionId !== sessionId), ...questions]; this.refreshChrome(); },
+      beforeSend: () => this.sessionSettingsSync,
+      session: () => this.state.sessions.find(session => session.id === this.state.currentSessionId),
+      instanceId: () => this.state.instanceId,
+      online: () => this.connection.state === "online",
+      render: () => this.tui.requestRender(),
+      close: () => { this.windows.at(-1)?.hide(); this.tui.setFocus(this.editor); },
+    });
+
+    this.backgroundProcesses = new BackgroundProcesses({
+      request: (op, params) => this.connection.request(op, params),
+      pending: new PendingRequestStore(join(opts.pendingStore.dir, "background-processes")),
+      sessionId: () => this.state.currentSessionId,
+      instanceId: () => this.state.instanceId,
+      online: () => this.connection.state === "online",
+      render: () => this.tui.requestRender(),
+      close: () => { this.windows.at(-1)?.hide(); this.tui.setFocus(this.editor); },
     });
 
     const mainVisible = () => this.windows.length === 0;
@@ -1062,6 +1089,8 @@ export class TuiApp {
     this.state.connection = { state, detail: detail ?? null, lastSyncAt: this.connection.lastSyncAt };
     if (state === "online") {
       void this.workflowSidebar.reconnect();
+      void this.ownerQuestions.reconnect();
+      void this.backgroundProcesses.refresh();
       void this.reconcilePendingInputs();
       for (const pending of this.pendingCompactions.values()) void this.reconcileCompaction(pending.sessionId, true);
       if (this.state.currentSessionId) void this.reconcileCompaction(this.state.currentSessionId);
@@ -1079,6 +1108,8 @@ export class TuiApp {
     this.flowRequests.clear();
     this.state.applySnapshot(result, ctx.instanceChanged);
     this.workflowSidebar.refresh();
+    void this.ownerQuestions.refresh();
+    void this.backgroundProcesses.refresh();
     if (ctx.instanceChanged) this.sessionTodos.clear();
     if (!this.pendingBranch && this.generation === 1) {
       const saved = this.branchPendingStore.list();
@@ -1364,6 +1395,8 @@ export class TuiApp {
   onEvent(event: PersistentEvent, kind: "live" | "replay"): void {
     this.state.applyEvent(event, kind);
     const body = event.body;
+    if (body.type === "background_process.changed" && body.process.sessionId === this.state.currentSessionId) void this.backgroundProcesses.refresh();
+    if (body.type === "owner_question.changed") void this.ownerQuestions.refresh();
     if (body.type === "workflow.changed" || body.type === "workflow.step" || body.type === "workflow.execution" || body.type === "agent_wait.changed") this.workflowSidebar.refresh();
     if (body.type === "session.usage_updated" && body.sessionId === this.state.currentSessionId) {
       void this.refreshSessionUsage(body.sessionId);
@@ -1480,6 +1513,8 @@ export class TuiApp {
     }
     this.state.currentSessionId = sessionId;
     this.workflowSidebar.sessionChanged();
+    void this.ownerQuestions.refresh();
+    void this.backgroundProcesses.refresh();
     if (settings && source?.id !== sessionId) {
       this.carriedSettings = settings;
       const sync = this.sessionSettingsSync.catch(() => {}).then(async () => {
@@ -1846,6 +1881,27 @@ export class TuiApp {
     openContext: (result) => this.cmdContext(result),
     openPrompts: () => this.cmdPrompt(),
     toggleTodo: () => this.toggleTodo(),
+    openProcesses: () => {
+      if (productFromEnv() !== "ruukoto-code") { this.notify("本会话后台入口仅向 Coding 开放。"); return; }
+      void this.backgroundProcesses.refresh();
+      const frame = new WindowFrame(this.backgroundProcesses, true);
+      frame.onKey = data => {
+        if (matchesKey(data, "pageUp") || matchesKey(data, "pageDown")) frame.scrollBy(matchesKey(data, "pageUp") ? -5 : 5);
+        else this.backgroundProcesses.handleInput(data);
+        this.tui.requestRender();
+      };
+      this.showWindow(frame, { width: "85%", anchor: "center", maxHeight: "85%" });
+    },
+    openQuestions: () => {
+      void this.ownerQuestions.refresh();
+      const frame = new WindowFrame(this.ownerQuestions, true);
+      frame.onKey = data => {
+        if (matchesKey(data, "pageUp") || matchesKey(data, "pageDown")) frame.scrollBy(matchesKey(data, "pageUp") ? -5 : 5);
+        else { this.ownerQuestions.handleInput(data); if (matchesKey(data, "enter") || matchesKey(data, "escape")) frame.scrollBy(-10000); }
+        this.tui.requestRender();
+      };
+      this.showWindow(frame, { width: "85%", anchor: "center", maxHeight: "85%" });
+    },
     openWorkflow: () => { this.workflowSidebar.open(); this.tui.setFocus(this.workflowSidebar); this.tui.requestRender(); },
     submit: (text) => this.submitText(text),
   };
@@ -3317,6 +3373,7 @@ export class TuiApp {
       this.notify("当前项目尚无会话：/new-session <工作目录> 创建会话");
       return;
     }
+    if (this.devProductPicker() && this.state.currentSessionId && items.some(item => item.value === this.state.currentSessionId)) items.push({ value: "$background", label: "本会话后台与日志", description: () => "查看当前会话后台，或选择结束本会话后台" });
     const list = new TwoLineSelectList(items, Math.min(items.length, Math.max(1, Math.floor(((this.terminal.rows || 24) * 0.7 - 3) / 3))), selectTheme);
     const body = new VStack([
       { component: new Text(bold(`选择会话 · ${this.state.projectName(projectId)}`), 0, 0), grow: 0 },
@@ -3325,6 +3382,7 @@ export class TuiApp {
     const handle = this.openWindow({ widthRatio: 0.85, content: body, forwardTo: list, maxHeightRatio: 0.7 });
     list.onSelect = (item) => {
       handle.hide();
+      if (item.value === "$background") { this.commandHost.openProcesses(); return; }
       this.switchSession(item.value);
     };
     list.onCancel = () => handle.hide();
@@ -3426,7 +3484,8 @@ export class TuiApp {
     this.header.setText(
       `${titleTag}${bold(titleName)}${sourceNote} · 会话 ${view.sessionId.slice(0, 14)}… · ${sanitizeForDisplay(view.cwd)}\n` +
         `连接：${connText} · 模式：${modeDisplay} · 执行：${this.state.execution.backend}${this.state.execution.backend === "local" ? yellow("（无隔离，仅开发用）") : ""}` +
-        (worksText ? `\n${dim(worksText)}` : ""),
+        (worksText ? `\n${dim(worksText)}` : "") +
+        (this.state.ownerQuestions.some(question => question.sessionId === view.sessionId && question.status === "pending") ? "\n拥有者问题待回答：/questions 逐题回答或取消" : ""),
     );
     this.tui.requestRender();
   }

@@ -21,6 +21,10 @@
 
 `searchHistory` 的 workspace_chats scope 与会话摘要共用 `Store.getSessionIdentity` 的普通开发身份资格，包含存档并保留原资料身份；内部报告分类沿用任务的持久关联，只排除内部用户输入，可展示的 Agent 总结仍可搜索。来源的待落盘／丢失判定同时检查索引登记和已提交条目引用。`readHistoryWindow` 分批准备单会话索引，再读取目标附近或前后连续窗口；旧 `readHistory` 与无 source 的单条补读继续兼容。
 
+`listBackgroundProcesses`、`backgroundProcessOutput`、`stopBackgroundProcess` 与 `endSessionBackground` 管理本会话独立后台。启动由完全访问的真实普通开发工具来源接纳；状态与日志查询、可信停止按会话核实。原关闭请求保存接纳水位和固定目标集合，重复请求只核实原集合，不能据其 stopVerified 推断后来新执行也已停止。
+
+`listOwnerQuestions` 提供待答及最近终态，`answerOwnerQuestion` 只接受可信普通开发入口的逐题回答或跳过，校验单选或多选索引与选项名正文一致；规范化输入包含完整选项元数据、多选标记与空答案。`cancelOwnerQuestion` 和 `findOwnerQuestionReceipt` 管理独立取消与原键回执。回答经宿主私有绑定进入 `submit`，普通聊天不消费问题；原入队事务同时保存答案、当前回答权限、唯一 Task及事件。原任务自然结束、会话存档或重启保留问题，显式取消原任务使未答问题 stale。
+
 任务查询及应答从工作流专属送达或等待报告的持久补报及排队别名绑定派生输入用途；历史首屏、分页与单条读取先核实原任务属于当前会话或 `branchSource.taskIds`，再派生同一分类。缺任务、跨会话关联或已知内部任务条目缺标记时返回关联诊断并保留普通展示，不靠正文或请求键推断。
 
 `readToolResult` 按原会话历史归属读取指定工具结果，支持旧预览或 core 的结构字段分页；参数与 UTF-8 游标见[控制面](control.md#不变量与失败处理)。不读取工作区当前文件或重算差异。
@@ -70,7 +74,9 @@ Runtime 另持有跨任务的 `BrowserManager`，Coding 底座持有；Driver �
 委派的新建、继续、复用与协作加入均取本次发起任务，已有任务不会被后续会话默认或别的任务切换改写。消息在登记事务内保存发送任务、当时模式与权限版本，忙碌排队及重启后按该快照投递；结果唤醒以终态子任务为来源，沿其已保存模式与权限版本恢复。来源登记前的异步准备完成后再次核实活动状态和权限版本，变化则拒绝新增任务；已经登记的触发授权独立保留。
 
 
-**目录占用（`occupancy`）。** 键为 `cwd_real`，附带 `cwd_dev` / `cwd_ino`、`session_id`、`task_id`、`acquired_at`。占用键是任务的写入目标（`taskWorkspaceFor`：有写入目标用钉定的 path/dev/ino，否则用会话目录身份），释放统一按 `taskId`（`releaseOccupancy(taskId)`）。
+**目录占用（`occupancy`）。** 键为 `cwd_real`，附带 `cwd_dev` / `cwd_ino`、`session_id`、`acquired_at`，`task_id` 与 `process_id` 恰有一个持有者。普通占用键是任务的写入目标（`taskWorkspaceFor`），按 `taskId` 释放；后台占用仅在独立执行停止核实成功时释放，Task 终态和 resume_queue 不能清除。
+
+`RuntimeBackgroundProcesses` 先登记 starting，再由 Driver 在串行工具边界停止临时 worker；交接事务保存参考快照、当前轮 conversation 阶段并无空窗转占用，随后一次认领与实际启动。当前轮和后续拥有者轮只观测后台，停止后通过 status 重新取得目录才恢复业务工具；无 agent_wait 历史也能准入。子工作、其他会话和同会话业务写入均受独立占用约束；目录冲突明确要求先停止，不靠等待释放自己的后台。
 
 **工作委托（`work_delegations`）。** `id`、所属父用户会话、发起任务、`sub_agent_id`、首次委派键 `request_key` 与参数摘要 `params_digest`（唯一键 `(parent_session_id, request_key)`）、取消三列 `canceled_at` / `canceled_by`（`owner` 或 `agent:<任务ID>`）/ `cancel_reason`、写入目标 `write_target`。工作状态由取消列与任务状态派生，不新建状态机。
 
@@ -230,7 +236,7 @@ sequenceDiagram
 - **临时执行归属**：普通捕获与副本登记各用独立宿主 Task，绑定实际发起父任务、工作及来源身份，不调用模型，不占 SubAgent 名额。父任务须持有来源占用，宿主 Task 临时持有副本占用；父取消先停止宿主单元。停止未核实保留父目录与副本占用、成果和已收到的结果，阻止后续副本执行，不重放准备操作。工作流宿主操作沿原执行归属。受限原生 worker 核实 workspace/readRoots 的真实 dev/ino，并保护后台数据、凭据、控制面和服务代码。
 - **不提交规则**：任务输入持久保存工作目录、分支、当前内容基线、只计算子增量及「不要 git add/commit，由主 Agent 汇总」。受保护角色只写副本检查产物，来源、共享 Git 和私有基线只读；缺依赖须报告并在获准位置准备。副本、分支与失败现场保留，取消/退出不删除。
 - **非 Git 目标：普通执行直接写入父工作区内目录并串行**。需要保护来源的目标和工作流修改在准备副作用前以 `git_required` 拒绝。direct 子任务的执行目录与占用键都是写入根；队列复核目录身份，被替换或消失即失败，不自动重建。
-- **目录占用升级为祖先/子孙判定**：冲突 = dev/ino 相等（符号链接、挂载别名同命中）、realpath 相等，或按分隔符边界互为前缀；释放统一按 `taskId`，占用键是任务写入目标而非会话 cwd。非 Git 子任务与父会话的目录访问串行；父轮用 `agent_wait` 在停止核实后让出占用，收到结果后须重新取得目录才可访问。未让出的父轮仍会挡住排队子任务，`subagent_result` 如实提示目录等待。嵌套 cwd 会话同样互相阻塞（`/ws` 与 `/ws/sub` 之间串行）。已知上限：挂载别名的祖先关系识别不出。
+- **目录占用升级为祖先/子孙判定**：冲突 = dev/ino 相等（符号链接、挂载别名同命中）、realpath 相等，或按分隔符边界互为前缀；普通任务释放按 `taskId`，独立后台按 `processId` 且须停止核实；占用键是任务写入目标或后台固定目录。非 Git 子任务与父会话的目录访问串行；父轮用 `agent_wait` 在停止核实后让出占用，收到结果后须重新取得目录才可访问。未让出的父轮仍会挡住排队子任务，`subagent_result` 如实提示目录等待。嵌套 cwd 会话同样互相阻塞（`/ws` 与 `/ws/sub` 之间串行）。已知上限：挂载别名的祖先关系识别不出。
 - **副本防旁路**：覆盖宿主 worktree 根的读写授予被拒。继续、模型请求、冻结、汇入、结果送达与冷恢复核实目录/.git 指向、基线摘要和私有对象完整性；缺失/损坏以具体 code 拒绝受影响工作，保留历史、副本和已有结果，不回退 HEAD 或独立目录，不阻断其他工作。既有待送报告记为 undelivered，未知异常继续传播。
 - **展示**：`work list/show` 与快照自然带上 `writeTarget`；TUI 工作摘要标「worktree 分支 X」或「直接写入」。客户端须使用当前控制协议，旧版本在请求派发前拒绝。
 
@@ -298,7 +304,7 @@ sequenceDiagram
    - 排队的 SubAgent 执行任务（拥有者/主 Agent 委派，无 `source_event_id`）→ 同定 `interrupted`（原因 `backend_restart`，从未启动）：不自动继续也不当作新委派，由编排器巡检补记一次结果后 SubAgent 回到可用，继续与否由拥有者/父 Agent 决定；宿主固定评审任务（带 `source_event_id`）不在此列，其排队保持——因此有排队任务的 SubAgent 子会话只剩评审会话会按下一步暂停。
    - 结果缺失的工具操作按工具操作账本的分类器补记（见 [agent-tools](agent-tools.md)）：覆盖已终态任务残留的操作；审批未消费 → 记录「已知未执行」结果（批准不跨重启执行）；只读工具 → 未完成且无写入效果；其余 → `effect_unknown` 并发 `task.tool_effect_unknown` 事件（终态任务同时置任务级标记，不重放任何模型调用或工具操作）。
    - 有排队任务的会话暂停自动调度（`backend_restart`），拥有者用 `resume-queue` 显式恢复。
-3. **遗留目录占用。** 崩溃时旧后台的执行单元状态无法确认 → 保留占用并暂停会话（`occupancy_unverified`），发 `occupancy.stale` 与 `session.queue_paused` 事件。拥有者核实旧执行单元确已停止后 `resume-queue` 释放占用。Linux 原生 user scope 独立于 backend 系统服务，后者的 `KillMode` 或主 PID 退出不证明 scope 后代已退出；重启不会自动清除旧占用或重放效果未知操作。
+3. **遗留目录占用。** 崩溃时旧后台的执行单元状态无法确认 → 保留占用并暂停会话（`occupancy_unverified`），发 `occupancy.stale` 与 `session.queue_paused` 事件。拥有者核实旧临时执行单元确已停止后 `resume-queue` 释放其 Task 占用；独立会话后台仍须沿原平台身份核实停止。Linux 原生 user scope 独立于 backend 系统服务，后者的 `KillMode` 或主 PID 退出不证明 scope 后代已退出；重启不会自动清除旧占用或重放效果未知操作。
 4. **会话历史对应关系。** 会话登记的 JSONL 缺失而同 pi session id 的文件存在 → 自动改用最新一份（发 `session.history_unreadable` 事件说明）；损坏的 JSONL 不覆盖、不静默跳过，要求人工处理。
 5. **人工继续。** `continue` 创建带 `resumes_task_id` 的新任务，默认请求确认（旧批准不继承；拥有者可显式重新选择完全访问），不补造工具结果、不原样重放旧输入。
 6. **产物与审批记录跨重启保留。** 产物按 id 可读；批准的 `consumed_at` 决定恢复时按「已知未执行」还是「效果未知」处理。
@@ -315,6 +321,10 @@ Coding 的离线导入由 app 持有方向策略，core 提供快照、文件校
 正式个人 Agent 从新档案开始，旧历史、平台绑定、调度、凭据和在途执行仅归档，不提供旧个人导入方向或旧库恢复运行入口。
 
 ## 不变量与失败处理
+
+后台启动在交接和 launch 认领时重核活动 Task、权限、目录及会话停止屏障；交接后的原 Task 自然结束、取消或失败不级联后台。关闭应用或重启只停止和核实原身份，启动未知或停止证据不足保持 stop_unverified 和占用，不重放命令。来源撤销或目录身份失效登记停止；会话默认模式变化不改原授权，新受限任务没有完全访问浏览器。日志写失败、预算和坏证据均有具名失败，外部写入效果与停止事实分别报告。
+
+问题回答与取消同事务仲裁，终态不可覆盖，失败不留下已答而无续接的中间状态。回答采用本次模型、会话当前默认模式或显式模式及实际授予范围，旧工具批准不继承。含持久问题或回执的导入报 `owner_questions_import_unavailable`，原档案与绑定保留。
 
 工作流步骤的普通任务/工作控制及复用明确拒绝，暂停、恢复和取消由运行控制持有。跨实例导入显式登记工作流表，含执行记录的源报 `workflow_import_unavailable`，不丢掉绑定后继续；操作见[导入说明](../usage.md#6-导入旧实例)。
 
@@ -355,6 +365,10 @@ Coding 的离线导入由 app 持有方向策略，core 提供快照、文件校
 ## 设计依据
 
 - [应用内 Spotlight 与历史定位](../../.agents/notes/implemented/feature/2026-10-21-desktop-spotlight-search.md)
+
+- [Coding 会话后台持有独立目录占用](../../.agents/notes/implemented/feature/2026-10-21-coding-background-processes.md)
+
+- [Coding 持久问题与可信续接](../../.agents/notes/implemented/feature/2026-10-21-coding-owner-questions.md)
 
 - [完整思考与文件预览](../../.agents/notes/implemented/feature/2026-10-18-complete-reasoning-and-preview.md)
 

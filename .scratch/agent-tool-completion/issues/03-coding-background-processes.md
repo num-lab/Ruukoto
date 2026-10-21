@@ -1,10 +1,10 @@
 # Coding 会话后台进程、目录占用与停止核实
 
-Status: ready-for-agent
+Status: resolved
 
 ## 目标与边界
 
-交付[共享规格第3节](../spec.md#3-后台进程)。拥有者确认跨消息保留，并接受首版先停后台再改同目录代码；不改为同会话绕过写占用。已有[后台提案](../../../.agents/notes/proposed/feature/2026-10-14-bash-background-lifecycle.md)由本工单细化，未落地。首版只完全访问拥有者来源，不做PTY、自动重启或进程接管。
+交付[共享规格第3节](../spec.md#3-后台进程)。拥有者确认跨消息保留，并接受首版先停后台再改同目录代码；不改为同会话绕过写占用。Coding切片由[会话后台决定](../../../.agents/notes/implemented/feature/2026-10-21-coding-background-processes.md)持有，[原提案](../../../.agents/notes/proposed/feature/2026-10-14-bash-background-lifecycle.md)的个人接入仍未落地。首版仅完全访问拥有者来源可启动；受限普通拥有者可查停原执行。不做PTY、自动重启或进程接管。
 
 ## 方案
 
@@ -17,21 +17,25 @@ Status: ready-for-agent
 
 ## 进展与交接
 
-- 当前角色：方案者；revision2及专项复核通过，跨轮、先停后改边界已经拥有者确认。
-- 下一角色：拥有者审阅拟定的完全访问、观测阶段及关闭入口；实施先证明两平台身份/停止，再接工具与客户端。
-- 当前内容：当前基点与未提交范围见[源码调查](../evidence/investigation.md)，审查对象见[快照](../evidence/plan-review.md)。
-- 阻塞：实现前须完成真实平台启动身份与停止原型验证；原型不得调用模型或外部业务服务。方案本身不以平台支持已经成立为前提。
+- 当前角色：实施与独立验收完成；2026-10-21拥有者授权接手，并明确可使用 `/Users/eitrous/.ruukoto/agent/models.json` 的 DeepSeek 作隔离真实验收，未改动日常配置。
+- 当前内容：四工具、无空窗占用交接、跨轮观测、独立日志、平台停止/恢复、控制协议及双客户端均已实现；schema49/协议36严格拒绝旧格式，不迁移或清空。实现及要求对应见[实施验收](../evidence/background/verification.md)。
+- 工程验收：最终静态门禁、构建、相关回归与独立实现审查通过，无未解决阻断。真实macOS及Linux身份/强杀/后代探针已执行；真实browser和DeepSeek三轮链已通过，原型前提已解除。
+- 交付：无剩余实施或验收阻断；拥有者在验收后明确授权提交，推送、合并和发布另行安排。源码调查及原方案审查只保留原适用范围，见[调查](../evidence/investigation.md)和[方案审查](../evidence/plan-review.md)。
 
 ## 验收与证据
 
-新增`test/background-processes.test.ts`及`test/background-processes-recovery.test.ts`（拟新增）：一次启动、当前轮启动后立即edit被拒、占用无空窗交接与失败、全新且无agent_wait历史的会话跨两轮查停/浏览、状态历史有界分页、继承管道后代、日志限额、取消与启动/交接/关闭竞争、重复操作及崩溃窗口零重放、目录替换、原身份变化不误杀。进程退出码与业务效果分别断言。
+工程验收：`npm run build`、`npm run check:static`、core与客户端29项、后台跨轮/故障恢复7项、最终macOS身份/旧受限/worker停止60项通过。Linux隔离实例核心/Runtime19项与平台27项通过，无跳过；原始命令、内容SHA与清理结果分别保留，后续平台无关分页/来源补修有当前窄测。未把桩模型的HTTP成功当作真实模型或browser验收。
 
-真实HTTP服务完成启动→下一工具browser访问→下一拥有者轮查询→停止→写工具重新取得目录；另证明后台活着时同会话/其他会话/子工作均不能写，agent_wait不能放掉后台占用或无限互等。受限新消息不能继承原完全访问浏览器资格，默认模式变化不伪造撤权。
+真实browser完成服务启动→browser实际访问→下一拥有者轮查询→显式停止。真实DeepSeek使用指定配置中的 `deepseek/deepseek-flash` 完成启动→读取URL→browser访问随机页面短码→跨轮查询双流日志→停止/status核实→write重新取得目录，最终占用为空。实际请求快照、来源结果与工具定义保留，凭据副本在finally删除；toolSchemas改前11747、改后12944，systemPrompt均1505，后台观测时另为2027/1505。
 
-扩展`test/100-worker-stop.test.ts`、`test/101-native-execution.test.ts`、`test/101-native-macos-helper.test.ts`、`test/native-linux-identity.test.ts`、`test/125-agent-wait-resource.test.ts`及实际涉及的62/66/UI用例。macOS本机与Linux ssh tx分别执行真实身份、强杀/重启、后代和停止探针；合成服务离线，不冒充真实模型或业务效果验收。
-
-实施检查为`npm run build:worker`、`npm run check:static`及实际受影响的窄测；跨端协议/制品变动加对应产品入口测试。工程验收与产品验收均待验证，真实模型/浏览器/客户端分别列缺口；方案审查见[审查记录](../evidence/plan-review.md)。
+产品验收：指定DeepSeek、真实browser、真实Python PTY及隔离Electron到真实后台完整链均通过。双客户端实际查日志、单停、退出保留及重开后显式结束/停止核实/占用释放通过；纯逻辑、历史假control视觉检查仍分别标注原范围。所有结论、命令、独立审查、未验证项和下一责任人由[实施验收](../evidence/background/verification.md)持有；不以构建或平台退出码推断外部业务效果。
 
 ## Comments
 
 2026-10-21：拥有者明确接受首版后台运行时先停后改；窗口关闭/存档不作为停止证明，“结束本会话后台”提供显式关闭动作。
+
+2026-10-21：拥有者授权接手本工单；实施者开始核实当前基点和真实平台前提，独立上下文并行复核方案适用性及Linux身份/停止。
+
+2026-10-21：四工具、独立占用及恢复实现完成；真实browser组合暴露macOS全UID未知孤儿误判，经历史受管组/会话范围及启动期setsid竞态补修，独立反例与旧受限回归通过。拥有者指定DeepSeek真实三轮验收通过；静态、平台与模型原始证据归入工单，客户端完整链继续收尾。
+
+2026-10-21：真实TUI与Electron完整后台链及清理核实通过；真实PTY暴露的查询提示残留和实时事件吞停止应答已补修，经最窄回归、独立复审及真实PTY精确断言重跑通过。工程与适用产品验收完成，状态resolved；未提交、推送或部署，未迁移日常档案。

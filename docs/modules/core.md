@@ -30,6 +30,7 @@
 | 全部模块 | `Store`（`packages/core/src/store.ts`） | 表级 SQL 原语：任务、占用、确认请求、工具操作、产物、事件、授权、记忆与版本、历史索引、选择记录、压缩点、MCP、平台与调度表、SubAgent 与工作、导入回执与账本 |
 | Runtime、Driver | `Store.getSessionIdentity(sessionId)` | 读取会话、角色、SubAgent 与独立调度运行绑定后调用 `classifySession`；会话不存在返回 `null` |
 | Runtime、Driver | `Store.getSubAgentBySession(sessionId)` | 按独立子会话反查 `sub_agents` 绑定，是宿主识别动态身份的唯一依据 |
+| Runtime | `packages/core/src/background-processes.ts` | 会话后台的登记、目录交接、单次启动认领、观测、停止核实、关闭屏障及每页最多20条、256 KiB的历史分页；写入由调用者持有同一 Store 事务 |
 | Driver | `executionProfile({ identity, writeTarget, review, planMode })`（`packages/agent/src/tool-availability.ts`） | 由身份、任务所属工作是否有写入目标、是否宿主评审与任务钉定的 `planMode` 算出执行画像 |
 | Driver、context-assembly | `ArtifactStore`（`packages/agent/src/artifacts.ts`） | `begin` / `append` / `complete` / `importImage` / `read` / `readImage` / `byteLength` |
 | Runtime、channels | `InboundMediaStore`（`packages/channels/src/inbound-media.ts`） | `stage` / `promote` / 恢复与过期清理 |
@@ -57,6 +58,12 @@
 
 ## 数据与状态
 
+`background_processes` 保存后台命令、原 Task/工具操作、完全访问来源与权限快照、目录身份、平台执行引用、参考快照及启动认领，状态为 starting/running/stop_requested/stopped/stop_unverified；退出观察与停止核实分开记录。每会话最多一个未核实停止的执行，输出计数单调增加且合计最多16 MiB，日志保存固定文件身份与 sha256，客户端视图不暴露内部证据。`occupancy` 每行只由 Task 或后台执行中的一个持有；交接用原行更新，在同一事务保存参考快照与当前 Task 的内部对话阶段，原 Task 终态只清除自己的占用。只有核实整个后台执行停止才能删除后台占用，后台状态及 `background_process.changed` 同事务提交。
+
+`background_process_closures` 保存会话关闭请求的原键、输入事件水位及受影响的执行。关闭与全部停止意图同事务登记；水位以前已经接纳但尚未交接的请求不能启动，后续新拥有者请求可显式启动。同键重取原回执，不提高水位或停止后来新执行。启动认领在实际启动前提交，同一操作只认领一次，恢复只能核实原执行，不能重放命令。
+
+`owner_questions` 保存普通开发会话的题目、原宿主操作、真实输入、权限快照与终态，`owner_question_receipts` 保存回答或取消的原键、参数摘要及唯一续接引用。选项保存原字符串或名字、可选说明与推荐标记，并记录是否多选；答案保存手写文字、单选索引或升序多选索引，Skip 保存不带选择字段的空字符串。一个会话最多一个 pending 批次，终态 answered/canceled/stale 保留原文；消费、答案、Task和事件由调用方同事务写入，core不写会话JSONL。
+
 `sub_agents.definition` 保存完整定义快照：用途（用户角色或宿主固定评审）、名称、原文、规范字段、正文及内容摘要。Store 写入拒绝缺失或坏摘要；查询坏行保留身份并返回 `definition: null` 与 `definitionError`，执行必须经 `requireSubAgentDefinition` 拒绝继续。开发资料导入保留并校验快照，不从实例角色文件补回。工作流运行固定角色目录及诊断；等待参考快照保留父模型已使用的目录。
 
 `tasks.read_scope.execution` 保存可信来源、角色摘要、有效模式、来源保护、实际工具、MCP 签名与内容摘要；paths、sourceRefs 和 readMemories 必须完整，缺失或损坏只允许查询，不能执行。普通子代理的记忆预览与正文读取 ID 同事务写入 readMemories 和 task.memory_accessed，后续发送/调用复核历史来源及记忆撤销，字段丢失不能解释成从未读取。开发资料导入校验来源任务/会话及角色绑定，保留内联记录，不授予目标实例来源权限。
@@ -83,7 +90,7 @@ Coding 档案根为 `~/.ruukoto-code`，开发实例为 `~/.ruukoto-code-dev/<�
 
 ```
 <dataDir>/                     # 0700（RUUKOTO_CODE_DATA_DIR，默认 ~/.ruukoto-code/data）
-├── ruukoto.db                 # node:sqlite 元数据（WAL，schema v46）
+├── ruukoto.db                 # node:sqlite 元数据（WAL，schema v49）
 ├── agent-data/main.db         # main 应用数据空间（独立库；实例 ID 登记在核心库 meta）
 ├── sessions/                  # pi JSONL 会话文件（消息历史唯一权威副本）
 ├── browser/                  # 0700；按实例与会话隔离 profile、保留截图
@@ -131,14 +138,14 @@ Coding 档案根为 `~/.ruukoto-code`，开发实例为 `~/.ruukoto-code-dev/<�
 
 ### schema 版本与创建
 
-`SCHEMA_VERSION` 是 `46`，写在 `meta` 表的 `schema_version` 键。
+`SCHEMA_VERSION` 是 `47`，写在 `meta` 表的 `schema_version` 键。
 
 - 文件版本高于或低于程序版本：以 `schema_version_unsupported` 明确拒绝，不转换旧格式、不回填权限字段。保留原档案，由匹配代码查阅；当前代码使用独立新档案。
 - 文件版本等于程序版本：沿用当前表定义，不自动补列或重建表。
 - 全新库在 `BEGIN IMMEDIATE` 事务中创建当前表、字段与索引，并写入版本号；失败整体回滚。
 - 首次打开后补写 `instance_id`（`ON CONFLICT DO NOTHING`），跨重启保留；换库即换标识。
 
-当前 schema 里已登记的表：`meta`、`projects`、`sessions`、`branch_requests`、`compaction_requests`、`agent_waits`、`agent_reports`、`tasks`、`occupancy`、`confirmations`、`tool_ops`、`artifacts`、`events`、`data_grants`、`memories`、`memory_versions`、`history_index`、`history_index_state`、`selection_records`、`context_checkpoints`、`mcp_services`、`qq_config`、`qq_sessions`、`qq_inbox`、`qq_outbox`、`agent_roles`、`inbound_events`、`inbound_media_messages`、`inbound_media`、`chat_result_acceptances`、`schedules`、`schedule_runs`、`notification_ops`、`telegram_config`、`standing_permissions`、`sub_agents`、`work_delegations`、`instance_imports`、`instance_import_items`、`subagent_messages`、`workflow_definitions`、`workflow_definition_refs`、`workflow_runs`、`workflow_steps`、`workflow_executions`、`workflow_questions`、`workflow_controls`。
+当前 schema 里已登记的表：`meta`、`projects`、`sessions`、`branch_requests`、`compaction_requests`、`agent_waits`、`agent_reports`、`tasks`、`occupancy`、`confirmations`、`tool_ops`、`artifacts`、`events`、`data_grants`、`memories`、`memory_versions`、`history_index`、`history_index_state`、`selection_records`、`context_checkpoints`、`mcp_services`、`qq_config`、`qq_sessions`、`qq_inbox`、`qq_outbox`、`agent_roles`、`inbound_events`、`inbound_media_messages`、`inbound_media`、`chat_result_acceptances`、`schedules`、`schedule_runs`、`notification_ops`、`telegram_config`、`standing_permissions`、`sub_agents`、`work_delegations`、`instance_imports`、`instance_import_items`、`subagent_messages`、`workflow_definitions`、`workflow_definition_refs`、`workflow_runs`、`workflow_steps`、`workflow_executions`、`workflow_questions`、`workflow_controls`、`owner_questions`、`owner_question_receipts`。
 
 关键表的要点：
 
@@ -307,7 +314,7 @@ sequenceDiagram
 
 1. `ToolOpLedger.settleAll()` 覆盖全部任务（含终态）里结果缺失的操作：无写入效果与审批未消费记已知结论；工具族先按宿主操作 ID 核实；其余标 `effect_unknown`。
 2. 原 `running` / `awaiting_confirmation` 任务 → `interrupted`（原因 `backend_restart`），保留占用。
-3. 遗留占用逐条发 `occupancy.stale`，对应会话置 `paused`（原因 `occupancy_unverified`）。
+3. 遗留 Task 占用逐条发 `occupancy.stale`，对应会话置 `paused`（原因 `occupancy_unverified`）；会话后台按原平台身份另行停止和核实，核实失败保留独立占用。
 4. 有排队任务的会话置 `paused`（原因 `backend_restart`），由拥有者 `resume-queue` 显式恢复。
 5. 修复会话与 JSONL 的对应关系：登记的 `session_file` 缺失而同 `pi_session_id` 的文件存在时采用最新一份并发 `session.history_unreadable`；找不到时同样发事件说明。
 6. 最后发 `backend.recovered`，带上被中断的任务与会话清单。
@@ -345,6 +352,7 @@ sequenceDiagram
 
 - 终态只经 `endTask` 的条件更新写入，只有起点集合包含当前状态才继续；重复终态不产生第二份事实。
 - 占用通常在任务运行期持有；所有终态路径只有核实执行单元退出才按任务 ID 释放。停止未核实时终态仍保留占用，并显式记 `task.tool_process_unreaped`，由拥有者核实后恢复。
+- 后台执行交接后独立于原 Task；任务终态、等待让出与人工恢复队列不能释放后台占用。关闭回执、参考快照或索引反链损坏时报具名错误，保留记录与占用，不重新读取工作目录补造来源。
 - 中断原因、取消意图与效果确定性是三个独立事实，任何一个都不能替代另一个。
 - 效果未知的操作不自动重发；效果以停止瞬间为准，中止期间才落下的结果不改结论。审批未消费与只读操作中止都不算效果未知。
 - 审批的 `consumed_at` 即执行开始；获批后的复核失败或消费失败使该批准标 `stale`，不能再用，操作按已知未执行记录。
@@ -369,6 +377,10 @@ sequenceDiagram
 ## 设计依据
 
 - [应用内 Spotlight 与历史定位](../../.agents/notes/implemented/feature/2026-10-21-desktop-spotlight-search.md)
+
+- [Coding 会话后台持有独立目录占用](../../.agents/notes/implemented/feature/2026-10-21-coding-background-processes.md)
+
+- [Coding 持久问题与可信续接](../../.agents/notes/implemented/feature/2026-10-21-coding-owner-questions.md)
 
 - [完整思考与文件预览](../../.agents/notes/implemented/feature/2026-10-18-complete-reasoning-and-preview.md)
 

@@ -38,7 +38,7 @@ profile 按 dataDir 和会话隔离，socket 与 CLI session 使用宿主生成�
 
 ## 关联提案
 
-本地网页预览所依赖的 HTTP 服务存活问题见[后台生命周期提案](../../proposed/feature/2026-10-14-bash-background-lifecycle.md)。提案尚未落地；本篇继续持有 Chrome 的归属和生命周期，不负责 bash 启动的服务。
+Coding 本地预览服务的跨轮存活与后台观测浏览器见[会话后台](2026-10-21-coding-background-processes.md)；[后台生命周期提案](../../proposed/feature/2026-10-14-bash-background-lifecycle.md)的个人接入仍未落地。本篇继续持有 Chrome 的归属和生命周期，服务由独立后台执行持有。
 
 个人 Pi 1.3.0 的独立装配见[浏览器与图片归属](../architecture/2026-10-18-personal-browser-media.md)；本篇继续持有既有共享装配与权限/媒体规则，个人 durable 的绑定、接纳和恢复由该篇持有。
 
@@ -62,4 +62,4 @@ CLI + skill 最省代码，也能服务普通开发会话，但不能覆盖 main
 
 `test/browser-lifecycle.test.ts` 覆盖单发 batch、结构码、取消、loopback、附接冷恢复、PID/锁不符、启动窗口和指纹变化；`test/browser-tools.test.ts` 经真实 Runtime/SDK/账本验证双产品图片历史、权限切换、在途取消、引用失效及截图失败。macOS Node 22/24 和 Linux 的真实浏览器事实、原始环境缺口及可复现脚本见工单证据；导出单独由双产品正式 bin 和控制面分页验证。
 
-相关未实施方案：[跨轮后台执行](../../proposed/feature/2026-10-14-bash-background-lifecycle.md)为本地预览服务另定生命周期，并提议在后台占用目录时沿完全访问来源开放浏览器；本篇当前装配范围尚未改变。
+相关决定：[Coding会话后台](2026-10-21-coding-background-processes.md)为本地预览服务另定生命周期，在后台占用目录时沿仍有效的完全访问来源开放浏览器；个人接入继续由[提案](../../proposed/feature/2026-10-14-bash-background-lifecycle.md)持有。

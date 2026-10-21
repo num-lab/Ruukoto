@@ -1,0 +1,42 @@
+{
+  "at": "2026-10-21T07:50:21.888Z",
+  "model": "mock HTTP provider",
+  "realRuntime": true,
+  "actualProcessStart": true,
+  "tui": [
+    {
+      "name": "single",
+      "exitCode": 0,
+      "expectSeen": 4,
+      "expectTotal": 4,
+      "alternateScreenRestored": true
+    },
+    {
+      "name": "close",
+      "exitCode": 0,
+      "expectSeen": 2,
+      "expectTotal": 2,
+      "alternateScreenRestored": true
+    },
+    {
+      "name": "end",
+      "exitCode": 0,
+      "expectSeen": 4,
+      "expectTotal": 4,
+      "alternateScreenRestored": true
+    }
+  ],
+  "electron": {
+    "iterations": 3,
+    "allExitCodeZeroAssertedByProbe": true,
+    "stdoutTokenObserved": true,
+    "stderrTokenObserved": true,
+    "wholeAppExitPreservesBackground": true,
+    "reopenThenEnd": true
+  },
+  "tuiClosureCount": 1,
+  "electronClosureCount": 1,
+  "allStoppedAndOccupancyEmpty": true,
+  "cleanup": true,
+  "textOnlyChangeAfterAcceptance": "两端确认说明简化，按钮和行为未变，未重跑对应重建"
+}

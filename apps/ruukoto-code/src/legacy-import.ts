@@ -46,6 +46,10 @@ export interface LegacyImportPlan {
 }
 
 const TABLE_POLICY: TablePolicy = {
+  owner_questions: { policy: "exclude", reason: "问题与答案续接绑定原实例，非空源库明确拒绝" },
+  owner_question_receipts: { policy: "exclude", reason: "回答与取消回执只属于原实例" },
+  background_processes: { policy: "exclude", reason: "后台执行与目录占用只属于原实例，非空源库明确拒绝" },
+  background_process_closures: { policy: "exclude", reason: "会话后台关闭屏障只属于原实例" },
   agent_waits: { policy: "import" },
   agent_reports: { policy: "import" },
   workflow_definitions: { policy: "exclude", reason: "工作流定义保留在来源实例，不随普通资料导入" },
@@ -466,6 +470,8 @@ function analyze(
 ): ImportAnalysis {
   const tdb = target.db;
   checkTablePolicy(snap.db, tdb, TABLE_POLICY);
+  if (["owner_questions", "owner_question_receipts"].some(table => allRows(snap.db, `SELECT 1 FROM ${table} LIMIT 1`).length)) fail("owner_questions_import_unavailable", "源档案含拥有者问题或回执，暂不支持跨实例导入；请保留原档案查阅。");
+  if (["background_processes", "background_process_closures"].some(table => allRows(snap.db, `SELECT 1 FROM ${table} LIMIT 1`).length)) fail("background_processes_import_unavailable", "源档案含后台执行或关闭屏障，暂不支持跨实例导入；请保留原档案查阅。");
   rejectWorkflowImport(snap.db);
   const set = buildImportSet(snap, plan, deps);
   const planErrors: string[] = [];

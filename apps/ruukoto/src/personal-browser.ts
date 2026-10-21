@@ -18,7 +18,7 @@ import { personalToolOrigin, type PersonalToolOrigin } from "./personal-tool-sou
 import { telegramSourceActive } from "./personal-permissions.ts";
 import { samePersonalEntry, type PersonalEntryIdentity, PersonalTelegramReceiptDoc } from "./personal-telegram-records.ts";
 import { LocalInputDoc } from "./personal-local-records.ts";
-import { personalSource, personalSourceSubmission } from "./personal-source.ts";
+import { personalSource, personalSourceSubmission, personalSourceImReceipt } from "./personal-source.ts";
 
 export const PERSONAL_BROWSER = "personal-browser";
 export const PERSONAL_BROWSER_TOOL_NAMES = ["browser"];
@@ -160,8 +160,9 @@ export function personalBrowser(profile: string, configValue: PersonalBrowserCon
           const value = await browserOperation(tx, api.taskId), source = await origin(tx, api, value.origin.source.requestId, allowBlocked);
           if (!isDeepStrictEqual(source, value.origin) || !isDeepStrictEqual((await tx.doc(PersonalBrowserDoc)).config, value.config)) throw new PersonalError("browser_source_changed", "原浏览器来源或权限已变化，未执行；请结束本轮并报告拥有者。");
           if (params.action === "resume") {
-            const pause = (await browserSession(tx, conversationId)).pause, receipt = source.telegram && (await tx.doc(PersonalTelegramReceiptDoc, source.source.requestId, null)).receipt;
-            const accepted = receipt ? receipt.accepted : (await tx.doc(LocalInputDoc, source.source.requestId, "")).accepted;
+            const pause = (await browserSession(tx, conversationId)).pause, receipt = source.telegram && await personalSourceImReceipt(tx, source.source.requestId);
+            const original = await personalSource(tx, source.source.requestId);
+            const accepted = "accepted" in original ? original.accepted : receipt ? receipt.accepted : (await tx.doc(LocalInputDoc, source.source.requestId, "")).accepted;
             if (conversationId !== ROOT_CONVERSATION_ID) throw new PersonalError("browser_paused", "独立定时会话不能解除人工暂停，请结束本轮并报告拥有者从原入口查询或取消本项工作。");
             if (!pause || source.source.submissionId <= pause.submission || (accepted === undefined || accepted <= pause.entry)) throw new PersonalError("browser_paused", "先前已接纳或排队的输入不能解除人工暂停，请结束本轮，等待拥有者暂停后新收到的消息。");
           }

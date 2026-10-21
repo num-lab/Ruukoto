@@ -1,0 +1,45 @@
+[
+  {
+    "id": "sel_270d0bda26bafa459a30d6c2",
+    "taskId": "task_b3ca77deabbea5d3d03910ea",
+    "sessionId": "sess_766d3bd49d255bf6567109d8",
+    "callIndex": 1,
+    "strategy": "deterministic-v1",
+    "configVersion": 2489375441,
+    "model": "agentrouter/deepseek-v4-flash",
+    "totalMessages": 1,
+    "includedIndices": [
+      0
+    ],
+    "excluded": [],
+    "includedMemories": [],
+    "excludedMemories": [],
+    "instructionVersion": "",
+    "skillVersion": "",
+    "cappedToolResults": [],
+    "estimates": {
+      "systemPrompt": 1506,
+      "toolSchemas": 11022,
+      "subagentRoles": 186,
+      "memories": 0,
+      "compactionSummary": 0,
+      "mandatoryTurn": 18,
+      "currentTaskBatches": 0,
+      "historyTurns": 0
+    },
+    "budget": 606000,
+    "estimatedTotal": 12732,
+    "usage": null,
+    "experiment": null,
+    "promptArtifactId": "art_9d0ffc0a80e2870d7522719d",
+    "windowSnapshot": {
+      "contextWindow": 1000000,
+      "maxTokens": 384000,
+      "thinkingBudget": 0,
+      "toolResultReserve": 8000,
+      "safetyMargin": 2000
+    },
+    "checkpointId": null,
+    "createdAt": "2026-10-21T02:02:41.182Z"
+  }
+]

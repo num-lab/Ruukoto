@@ -1,3 +1,5 @@
+import { personalQuestionLastPage } from "../apps/ruukoto/src/personal-question-controls.ts";
+import { answerPersonalQuestion, personalQuestionDetail, personalQuestionList } from "../apps/ruukoto/src/personal-questions.ts";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -250,4 +252,92 @@ test("Telegram：配对身份选择过期，不发送旧确认水位或保存绑
   }, write: () => {} }, f.options.directory), code("telegram_pairing_expired"));
   assert.equal(fs.existsSync(path.join(f.options.directory, "telegram.json")), false);
   assert.equal(f.bot.polls.length, 2);
+});
+
+
+test("Telegram问题：原菜单逐题多选、Skip、可信权限与一次续接，丢发送回执不重发", { timeout: 30000 }, async t => {
+  let release!: () => void;
+  const released = new Promise<void>(resolve => { release = resolve; });
+  const f = await fixture(t, async request => {
+    const last = request.messages.at(-1), text = String(last?.content);
+    if (last?.role === "user" && text.includes("发起问题")) return { kind: "tool_calls", calls: [{ id: "question", name: "ask_user", arguments: { questions: [{ question: "选择目标", options: ["甲", "乙"], multiple: true }, { question: "补充说明" }] } }] };
+    if (last?.role === "user" && text.includes("拥有者对原问题的回答")) { await released; return { kind: "text", text: "按实际回答完成" }; }
+    return { kind: "text", text: "问题已登记，请发送 /问题" };
+  });
+  const p = await f.open();
+  let id = 100;
+  const receive = async (text: string, replyTo?: number, extra: Record<string, unknown> = {}) => {
+    const messageId = ++id;
+    await p.telegram.receive({ update_id: messageId, message: { message_id: messageId, chat: { id: Number(OWNER), type: "private" }, from: { id: Number(OWNER), is_bot: false }, text, ...(replyTo === undefined ? {} : { reply_to_message: { message_id: replyTo, from: { id: Number(f.telegram.botId), is_bot: true } } }), ...extra } });
+    return settled(p, messageId);
+  };
+  await receive("发起问题");
+  const q = (await p.harness.commit(tx => personalQuestionList(tx), context)).items[0];
+  await assert.rejects(p.harness.commit(tx => answerPersonalQuestion(tx, { question: q.id, version: q.version, requestId: randomUUID(), answers: [{ text: "" }, { text: "" }] }, { kind: "local" }), context), code("question_original_entry_required"));
+  let menu = await receive("/问题");
+  menu = await receive("问题1", Number(menu.platformMessageId)); assert.equal(menu.selection?.kind, "question-draft");
+  const forged = await receive("全部跳过", Number(menu.platformMessageId), { quote: { text: "伪造引用" } }); assert.equal(forged.questionAnswer, undefined);
+  menu = await receive("1", Number(menu.platformMessageId));
+  menu = await receive("2", Number(menu.platformMessageId));
+  menu = await receive("完成选择", Number(menu.platformMessageId));
+  menu = await receive("跳过", Number(menu.platformMessageId));
+  assert.equal(menu.selection?.kind, "question-draft"); assert.match(menu.reply!, /甲\n乙/);
+  const confirmed = await receive("确认回答", Number(menu.platformMessageId)); assert.ok(confirmed.questionAnswer);
+  f.bot.responses.push("lost"); release();
+  await until(async () => (await p.harness.commit(tx => personalQuestionDetail(tx, q.id), context)).answer?.delivery === "effect_unknown");
+  const answered = await p.harness.commit(tx => personalQuestionDetail(tx, q.id), context); assert.deepEqual(answered.answer?.answers, [{ text: "甲\n乙", options: [0, 1] }, { text: "" }]);
+  const sends = f.bot.sends.length;
+  await p.close(); const reopened = await f.open(); assert.equal((await reopened.harness.commit(tx => personalQuestionDetail(tx, q.id), context)).answer?.delivery, "effect_unknown"); assert.equal(f.bot.sends.length, sends);
+});
+
+test("Telegram问题：重新配对使未答失效，本机只可查询或取消旧问题", { timeout: 30000 }, async t => {
+  const f = await fixture(t, request => request.messages.at(-1)?.role === "user" ? { kind: "tool_calls", calls: [{ id: "ask", name: "ask_user", arguments: { questions: [{ question: "原入口问题" }] } }] } : { kind: "text", text: "问题已登记" });
+  const p = await f.open(); await p.telegram.receive(update(100, 100, "发起问题")); await settled(p, 100);
+  const q = (await p.harness.commit(tx => personalQuestionList(tx), context)).items[0]; await p.close();
+  const reopened = await f.open({ telegram: { ...f.telegram, generation: randomUUID(), boundary: 100 } });
+  assert.equal((await reopened.harness.commit(tx => personalQuestionDetail(tx, q.id), context)).status, "stale");
+  await assert.rejects(reopened.harness.commit(tx => answerPersonalQuestion(tx, { question: q.id, version: 1, requestId: randomUUID(), answers: [{ text: "继续" }] }, { kind: "local" }), context), code("question_not_pending"));
+  assert.equal((await reopened.harness.commit(tx => tx.scanTasks({ kind: "ruukoto.question-continuation" }, 256), context)).items.length, 0);
+});
+
+
+test("Telegram问题：最大合法题型与4096字答案完整分页，每条原菜单有界且末页才能确认", { timeout: 30000 }, async t => {
+  const questions = Array.from({ length: 3 }, (_, index) => ({ question: String(index).repeat(2000), options: Array.from({ length: 5 }, (_, option) => ({ label: `${option}`.repeat(200), description: "详".repeat(500), recommended: option === 0 })) }));
+  const f = await fixture(t, request => request.messages.at(-1)?.role === "user" && String(request.messages.at(-1)?.content).includes("长问题") ? { kind: "tool_calls", calls: [{ id: "ask", name: "ask_user", arguments: { questions } }] } : { kind: "text", text: "已接纳" });
+  const p = await f.open(); let id = 100;
+  const receive = async (text: string, replyTo?: number) => { const message = ++id; await p.telegram.receive({ update_id: message, message: { message_id: message, chat: { id: Number(OWNER), type: "private" }, from: { id: Number(OWNER), is_bot: false }, text, ...(replyTo === undefined ? {} : { reply_to_message: { message_id: replyTo, from: { id: Number(f.telegram.botId), is_bot: true } } }) } }); return settled(p, message); };
+  await receive("长问题"); const q = (await p.harness.commit(tx => personalQuestionList(tx), context)).items[0], detail = await p.harness.commit(tx => personalQuestionDetail(tx, q.id), context);
+  let menu = await receive("/问题"); assert.ok(Array.from(menu.reply!).length < 3900); menu = await receive("问题1", Number(menu.platformMessageId));
+  const answers = ["測", "驗", "證"].map(char => char.repeat(4096));
+  for (const answer of answers) {
+    assert.equal(menu.selection?.kind, "question-draft");
+    while (menu.selection?.kind === "question-draft" && (menu.selection.page ?? 0) < personalQuestionLastPage(detail, menu.selection)) menu = await receive("下一页问题", Number(menu.platformMessageId));
+    menu = await receive(answer, Number(menu.platformMessageId));
+  }
+  const firstConfirm = menu;
+  const early = await receive("确认回答", Number(firstConfirm.platformMessageId)); assert.equal(early.questionAnswer, undefined); assert.match(early.reply!, /完整查看/);
+  let viewed = menu.reply!;
+  while (menu.selection?.kind === "question-draft" && (menu.selection.page ?? 0) < personalQuestionLastPage(detail, menu.selection)) { menu = await receive("下一页问题", Number(menu.platformMessageId)); viewed += menu.reply; }
+  for (const char of ["測", "驗", "證"]) assert.equal(Array.from(viewed).filter(value => value === char).length, 4096);
+  const confirm = await receive("确认回答", Number(menu.platformMessageId)); assert.ok(confirm.questionAnswer);
+  await until(async () => (await p.harness.commit(tx => personalQuestionDetail(tx, q.id), context)).answer?.delivery === "sent");
+  assert.deepEqual((await p.harness.commit(tx => personalQuestionDetail(tx, q.id), context)).answer?.answers, answers.map(text => ({ text })));
+  for (const send of f.bot.sends) assert.ok(Array.from(String(send.text)).length <= 3900, `原菜单超限：${Array.from(String(send.text)).length}`);
+  let list = await receive("/问题"); list = await receive("问题1", Number(list.platformMessageId)); assert.equal(list.selection?.kind, "question-view");
+  let history = list.reply!;
+  while (list.reply?.includes("回复本消息选择「下一页问题」")) { list = await receive("下一页问题", Number(list.platformMessageId)); history += list.reply; }
+  for (const char of ["測", "驗", "證"]) assert.equal(Array.from(history).filter(value => value === char).length, 4096);
+  await p.close(); const reopened = await f.open(); assert.equal((await reopened.harness.commit(tx => personalQuestionDetail(tx, q.id), context)).status, "answered");
+});
+
+test("Telegram问题：多选标记跨分页阈值，取消选项后回到有效页并保留草稿", { timeout: 30000 }, async t => {
+  const questions = [{ question: "题".repeat(2000), options: [{ label: "甲".repeat(200), description: "详".repeat(500) }, { label: "乙".repeat(200), description: "注".repeat(84) }], multiple: true }];
+  const f = await fixture(t, request => request.messages.at(-1)?.role === "user" ? { kind: "tool_calls", calls: [{ id: "ask", name: "ask_user", arguments: { questions } }] } : { kind: "text", text: "已登记" });
+  const p = await f.open(); let id = 100;
+  const receive = async (text: string, replyTo?: number) => { const message = ++id; await p.telegram.receive({ update_id: message, message: { message_id: message, chat: { id: Number(OWNER), type: "private" }, from: { id: Number(OWNER), is_bot: false }, text, ...(replyTo === undefined ? {} : { reply_to_message: { message_id: replyTo, from: { id: Number(f.telegram.botId), is_bot: true } } }) } }); return settled(p, message); };
+  await receive("发起问题"); let menu = await receive("/问题"); menu = await receive("问题1", Number(menu.platformMessageId)); assert.doesNotMatch(menu.reply!, /下一页问题/);
+  menu = await receive("1", Number(menu.platformMessageId)); assert.match(menu.reply!, /下一页问题/);
+  menu = await receive("下一页问题", Number(menu.platformMessageId)); assert.equal(menu.selection?.kind === "question-draft" && menu.selection.page, 1);
+  menu = await receive("1", Number(menu.platformMessageId)); assert.equal(menu.selection?.kind, "question-draft"); assert.equal(menu.selection?.kind === "question-draft" && menu.selection.page, 0); assert.deepEqual(menu.selection?.kind === "question-draft" && menu.selection.selected, []); assert.doesNotMatch(menu.reply!, /页码无效/);
+  await p.close(); await f.open();
 });

@@ -147,7 +147,8 @@ export async function createSdkSession(opts: CreateSdkSessionOptions): Promise<A
     sessionManager,
     settingsManager,
     resourceLoader: loader,
-    customTools: opts.tools,
+    // 缺省 required 会被部分模型服务解释为 null；空数组保留所有参数可选的语义。
+    customTools: opts.tools.map(tool => ({ ...tool, parameters: { ...tool.parameters, required: "required" in tool.parameters ? tool.parameters.required : [] } })),
     tools: opts.tools.map((t) => t.name),
   });
 

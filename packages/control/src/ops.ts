@@ -29,6 +29,15 @@ type Submit = {
 };
 
 export interface TuiOps {
+  background_processes: { params: { session_id: string; offset?: number }; result: R<"listBackgroundProcesses"> };
+  background_process_output: { params: { session_id: string; process_id: string; stream: "stdout" | "stderr"; offset?: number }; result: R<"backgroundProcessOutput"> };
+  background_process_stop: { params: { session_id: string; process_id: string }; result: R<"stopBackgroundProcess"> };
+  session_background_end: { params: { session_id: string; request_id: string }; result: R<"endSessionBackground"> };
+  owner_questions: { params: { session_id: string; offset?: number; limit?: number }; result: R<"listOwnerQuestions"> };
+  owner_question_answer: { params: { session_id: string; question_id: string; question_version: number; request_id: string;
+    answers: import("@ruukoto/core/owner-questions.ts").OwnerAnswer[]; model_selection: ModelSelection; access_mode?: SessionDefaultMode; granted_paths?: GrantedPath[] }; result: R<"answerOwnerQuestion"> };
+  owner_question_cancel: { params: { session_id: string; question_id: string; question_version: number; request_id: string }; result: R<"cancelOwnerQuestion"> };
+  owner_question_receipt: { params: { session_id: string; request_id: string; operation: "owner_question_answer" | "owner_question_cancel" }; result: R<"findOwnerQuestionReceipt"> };
   work_list: { params: { session_id?: string }; result: R<"workList"> };
   work_get: { params: { work_id: string }; result: R<"workGet"> };
   workflow_definitions: { params: { offset?: number; limit?: number }; result: Awaited<ReturnType<Runtime["workflowLibrary"]["list"]>> };

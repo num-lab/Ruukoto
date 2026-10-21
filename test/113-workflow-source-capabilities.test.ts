@@ -81,7 +81,7 @@ test("真实个人步骤修改应用 schema 后仍可继续，main 来源具有�
     assert.equal((await finished(rt, run)).status, "succeeded");
     assert.equal(t.server.calls.length, 2);
     const names = toolNamesOf(t.server.calls[0]);
-    for (const name of ["app_data_define_table", "app_data_query", "read", "edit", "write", "bash", "read_artifact"]) assert.ok(names.includes(name), name);
+    for (const name of ["app_data_define_table", "app_data_query", "read", "list_files", "search_files", "edit", "write", "bash", "read_artifact"]) assert.ok(names.includes(name), name);
     for (const name of ["http_request", "request_file_access", "todo_write", "subagent_delegate", "workflow_start", "browser"]) assert.ok(!names.includes(name), name);
     const taskId = listWorkflowExecutions(rt.store, run.id).find(execution => execution.kind === "agent")!.taskId;
     const ops = rt.store.listToolOpsByTask(taskId);
@@ -91,11 +91,11 @@ test("真实个人步骤修改应用 schema 后仍可继续，main 来源具有�
   } finally { await t.shutdown(); }
 });
 
-test("个人来源的修改步骤只增加已有委派的五个编码工具", async () => {
+test("个人来源的修改步骤只增加已有委派的受控编码工具", async () => {
   const t = await startTestRuntime("workflow-personal-modify", req => {
     if (afterTool(req)) return { kind: "text", text: "修改完成" };
     const names = toolNamesOf(req);
-    for (const name of ["read", "edit", "write", "bash", "read_artifact", "app_data_query"]) assert.ok(names.includes(name), name);
+    for (const name of ["read", "list_files", "search_files", "edit", "write", "bash", "read_artifact", "app_data_query"]) assert.ok(names.includes(name), name);
     for (const name of ["http_request", "request_file_access", "todo_write"]) assert.ok(!names.includes(name), name);
     return { kind: "tool_calls", calls: [{ id: "write", name: "write", arguments: { path: "value.txt", content: "changed\n" } }] };
   }, { config: realTools() });

@@ -397,7 +397,8 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
             const occ = store.findBlockingOccupancy(wt.path, wt.dev, wt.ino);
             if (occ && occ.sessionId === ctx.sessionId) {
               lines.push(
-                `等待本会话释放目录；用 agent_wait 等待任务 ${t.id}，安全让出目录后子任务继续，结果返回后继续处理。`,
+                occ.taskId === null ? "会话后台持有目录；先用 process_stop 请求停止，再用 process_status 核实 stopped，子任务才能取得目录。停止未核实时报告拥有者。"
+                  : `等待本会话释放目录；用 agent_wait 等待任务 ${t.id}，安全让出目录后子任务继续，结果返回后继续处理。`,
               );
               break;
             }

@@ -1,6 +1,6 @@
 # Coding 会话后台进程、目录占用与停止核实
 
-Status: needs-info
+Status: ready-for-agent
 
 ## 目标与边界
 

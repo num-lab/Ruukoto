@@ -1,6 +1,6 @@
 # 个人 durable 接入检索、持久提问与后台进程
 
-Status: needs-info
+Status: ready-for-agent
 
 ## 目标与边界
 

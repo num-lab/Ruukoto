@@ -152,6 +152,8 @@ export class ConfigTuiApp {
   private readonly product: ProductType;
   private instanceId = "";
   private modelView: ModelConfigView | null = null;
+  private acting = 0;
+  private pendingModelRefresh = false;
 
   // 重载状态（dev）：RUUKOTO_RELOAD_STATE_FILE 非空且在线时启用
   private readonly reloadFile: string | null;
@@ -301,6 +303,7 @@ export class ConfigTuiApp {
   /** 统一动作入口：捕获异常进通知行；冲突类错误提示重新加载并刷新分区。 */
   private act(fn: () => void | Promise<void>): void {
     void (async () => {
+      this.acting++;
       try {
         await fn();
       } catch (err) {
@@ -313,6 +316,13 @@ export class ConfigTuiApp {
           await this.refresh();
         } else {
           this.notify(e.message, "red");
+        }
+      } finally {
+        this.acting--;
+        if (this.acting === 0 && this.pendingModelRefresh) {
+          this.pendingModelRefresh = false;
+          this.modelView = null;
+          if (!this.exiting && this.stack.at(-1)?.watch?.("model.config_changed")) await this.refresh();
         }
       }
     })();
@@ -387,9 +397,10 @@ export class ConfigTuiApp {
   }
 
   /** 秘密输入（遮蔽显示）；Esc 返回 null。返回值绝不渲染回界面。 */
-  private maskedBox(title: string): Promise<string | null> {
+  private maskedBox(title: string, opts: { initial?: string; placeholder?: string } = {}): Promise<string | null> {
     return new Promise((resolve) => {
-      const input = new MaskedInput({ prompt: "> ", placeholder: "输入不会回显明文" });
+      const input = new MaskedInput({ prompt: "> ", placeholder: opts.placeholder ?? "输入不会回显明文" });
+      if (opts.initial) input.handleInput(opts.initial);
       const box = new OverlayBox([
         { component: new Text(`${bold(title)}\n${dim("显示为 •••；Enter 提交，Esc 取消")}`, 1, 0), grow: 0 },
         { component: input, grow: 0 },
@@ -400,7 +411,7 @@ export class ConfigTuiApp {
         handle.hide();
         resolve(value);
       };
-      input.onSubmit = (value) => done(value.length > 0 ? value : null);
+      input.onSubmit = (value) => done(value);
       input.onEscape = () => done(null);
     });
   }
@@ -509,7 +520,11 @@ export class ConfigTuiApp {
       default:
         break;
     }
-    if (body.type === "model.config_changed") this.modelView = null; // 失效缓存，下次读取拉新
+    if (body.type === "model.config_changed") {
+      // 编辑沿用打开时的来源与修订，动作结束后再应用配置事件。
+      if (this.acting > 0) { this.pendingModelRefresh = true; return; }
+      this.modelView = null;
+    }
     const screen = this.stack[this.stack.length - 1];
     if (screen?.watch?.(body.type)) void this.refresh();
   }
@@ -699,7 +714,7 @@ export class ConfigTuiApp {
             const def = view.providers[providerId] ?? {};
             // 头的值按秘密脱敏：*** 表示沿用原值
             const initial = def.headers ? Object.keys(def.headers as Record<string, unknown>).map((k) => `${k}=***`).join(", ") : "";
-            const value = await this.inputBox(`${providerId} 的自定义头（*** 保留原值）`, { initial, placeholder: "k=v，逗号分隔；留空清除" });
+            const value = await this.maskedBox(`${providerId} 的自定义头（*** 保留原值）\n当前字段：${initial || "（无）"}`, { initial, placeholder: "k=v，逗号分隔；留空清除" });
             if (value === null) return;
             const headers = parseKeyValueList(value);
             if (headers === null) {
@@ -880,7 +895,7 @@ export class ConfigTuiApp {
     if (action === "set") {
       if (oauth && !(await this.confirm(`替换 ${providerId} 的 OAuth 存储条目？`, "仅替换本地条目，不撤销远端令牌；目录与环境等其他来源保留"))) return;
       const key = await this.maskedBox(`保存 ${providerId} 的存储 API Key`);
-      if (key === null) return;
+      if (!key) return;
       await this.deps.modelBackend.setApiKey(providerId, key);
       this.modelView = null;
       this.notify("存储 API Key 已保存（凭据不回显）；其他来源保留，认证有效性未验证");
@@ -1628,7 +1643,7 @@ export class ConfigTuiApp {
           const purpose = await this.inputBox("用途", { placeholder: "如 mcp / qq_onebot / jev_context" });
           if (purpose === null) return;
           const secret = await this.maskedBox(`凭据 ${name.trim()} 的秘密值`);
-          if (secret === null) return;
+          if (!secret) return;
           await client.request("add_credential", {
             name: name.trim(),
             host: host.trim(),
@@ -1666,15 +1681,15 @@ export class ConfigTuiApp {
  * 解析 "k=v" 逗号列表；空串 → {}；格式错误 → null。
  */
 function parseKeyValueList(text: string): Record<string, string> | null {
-  const out: Record<string, string> = {};
+  const out = new Map<string, string>();
   for (const entry of text.split(/[\n,，]+/)) {
     const trimmed = entry.trim();
     if (!trimmed) continue;
     const idx = trimmed.indexOf("=");
     if (idx <= 0) return null;
-    out[trimmed.slice(0, idx).trim()] = trimmed.slice(idx + 1).trim();
+    out.set(trimmed.slice(0, idx).trim(), trimmed.slice(idx + 1).trim());
   }
-  return out;
+  return Object.fromEntries(out);
 }
 
 /** 允许列表展示：read 类工具用裸名（与 CLI 输入约定一致）。 */

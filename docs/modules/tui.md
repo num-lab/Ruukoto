@@ -246,9 +246,9 @@ sequenceDiagram
 
 后台把系统错误码（ENOENT、ERR_SQLITE_* 等）收口为 `internal_error`，原码写进消息。已接收则关联原任务，明确未接收才以原键原参数重试；记录绑定数据实例标识，换新数据库后不会向空后台重发。
 
-- **上下文并发冲突**：模型配置以 `expected_revision` 做条件更新，项目、会话、MCP、QQ 沿用各自的 `expected_version`；冲突时要求重新加载，不静默覆盖。项目指令与 Web Search 保存经 `Store.updateProjectSettings` 在同一事务核对可选期望版本、更新同一行、递增同一版本并追加 `project.settings_changed` 事件（携带配置字段，不含指令正文或秘密）；不符返回 `version_conflict`，不改配置、无事件；省略版本时按兼容写入处理（同样递增并发事件），不能绕过冲突检测；同值保存幂等，不递增、无事件。`set_project_instructions` / `set_project_web_search` 接受可选 `expected_version`（正整数；0、负数、非整数返回 `invalid_params`）。任务界面与配置中心都投影 `project.settings_changed` 刷新项目展示；配置中心冲突后先实际重读后台数据（不刷旧缓存），再刷新当前分区。
+- **上下文并发冲突**：模型编辑动作沿用打开时的来源与修订，期间的配置事件在动作结束后刷新；模型配置以 `expected_revision` 做条件更新，项目、会话、MCP、QQ 沿用各自的 `expected_version`；冲突时要求重新加载，不静默覆盖。项目指令与 Web Search 保存经 `Store.updateProjectSettings` 在同一事务核对可选期望版本、更新同一行、递增同一版本并追加 `project.settings_changed` 事件（携带配置字段，不含指令正文或秘密）；不符返回 `version_conflict`，不改配置、无事件；省略版本时按兼容写入处理（同样递增并发事件），不能绕过冲突检测；同值保存幂等，不递增、无事件。`set_project_instructions` / `set_project_web_search` 接受可选 `expected_version`（正整数；0、负数、非整数返回 `invalid_params`）。任务界面与配置中心都投影 `project.settings_changed` 刷新项目展示；配置中心冲突后先实际重读后台数据（不刷旧缓存），再刷新当前分区。
 - **模型配置占用**：检查到应用完成之间，受影响 provider 的新提交与会话模型设置被拒绝（`model_config_busy`，核实期间目录被重建同样拒绝，可重试）；后台内部提交（编排器唤醒/委派、入站事件、QQ）在本次应用结束后自动重试。占用时返回 `model_config_blocked` 与任务数，不先改文件、不部分应用、不自动取消任务。应用在 `finally` 中 `await flushPendingMessages`（成功或回滚）；门闩忙碌等预检失败保留这些消息等待后续投递。需要新建执行任务的消息预检失败则不登记消息、任务或事件；纯 dev 父会话注入不新建执行任务，不经过这道预检。
-- **秘密**：API key 输入遮蔽；响应只展示是否配置与必要元数据；秘密不进入日志、事件、命令行参数或重载状态文件。模型 API key（auth.json）与服务凭据（credentials.json）分开管理。
+- **秘密**：API key 与模型自定义请求头编辑均遮蔽输入；请求头的 `***` 沿用原值，留空清除该提供方的请求头；响应只展示是否配置与必要元数据；秘密不进入日志、事件、命令行参数或重载状态文件。模型 API key（auth.json）与服务凭据（credentials.json）分开管理。
 - **离线互斥**：socket 不可达或认证失败不证明后台已停；无法取得配置锁的独占时明确失败，不放宽权限、不改属主。
 - **终端安全**：消息、工具日志与审批参数在渲染前剥离终端控制序列（CSI/OSC/APC，含 OSC 52 剪贴板写入与擦屏/光标控制），不可见控制字符显示为转义形式；只改变展示，不改动历史与执行参数。
 - **`--demo` 明确拒绝**：不连后台，只应答展示所需的读操作，其余操作明确拒绝（提交恢复草稿）。

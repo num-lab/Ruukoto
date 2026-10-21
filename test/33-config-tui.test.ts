@@ -22,6 +22,7 @@ import * as path from "node:path";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { readOwnerToken } from "@ruukoto/control/owner-token.ts";
+import { ControlClient } from "@ruukoto/control/client.ts";
 import { acquireConfigLock } from "@ruukoto/core/instance-lock.ts";
 import { runConfigTui } from "@ruukoto/tui/config-tui/index.ts";
 import { ConfigTuiApp } from "@ruukoto/tui/config-tui/app.ts";
@@ -288,6 +289,117 @@ test("在线：API key 遮蔽输入写入 auth.json，秘密不进终端输出",
     }
   } finally {
     await t.shutdown();
+  }
+});
+
+test("离线真实入口：自定义 header 输入遮蔽，取消不改文件，占位保留其他头且空输入可清除", async () => {
+  const { dirs } = await makeTestDirs("cfg-header-masked", 0);
+  const secret = "synthetic-header-must-be-masked";
+  try {
+    await writeModelsJson(dirs, "http://127.0.0.1:1");
+    const file = path.join(dirs.agentDir, "models.json");
+    const catalog = JSON.parse(fs.readFileSync(file, "utf8"));
+    catalog.providers.mock.headers = { Authorization: "old-header-secret", "X-Keep": "keep-header-secret", ["__proto__"]: "proto-header-secret" };
+    fs.writeFileSync(file, JSON.stringify(catalog));
+    const original = fs.readFileSync(file, "utf8");
+    const initial = "Authorization=***, X-Keep=***, __proto__=***";
+    const terminal = new FakeTerminal();
+    const done = runConfigTui({ offline: true, terminal, agentDir: dirs.agentDir });
+    const editHeaders = async (value: string): Promise<void> => {
+      await waitForText(terminal, "mock 的自定义头");
+      for (const _ of initial) terminal.send("\x7f");
+      terminal.paste(value);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      assert.ok(!terminal.output().includes(secret), "请求头的新值不能进入终端输出");
+      assert.ok(terminal.output().includes("显示为 •••"), "编辑器应显示掩码输入说明");
+    };
+    try {
+      await waitForText(terminal, "配置分区");
+      terminal.send(ENTER);
+      await waitForText(terminal, "设置后台默认模型");
+      terminal.send(ENTER);
+      await waitForText(terminal, "提供方 mock");
+      terminal.send(DOWN.repeat(3) + ENTER);
+      await editHeaders(`X-Keep=***, __proto__=***, Authorization=Bearer ${secret}`);
+      terminal.send(ESC);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      assert.equal(fs.readFileSync(file, "utf8"), original, "取消编辑不得写入配置");
+      terminal.clearOutput();
+      terminal.send(ENTER);
+      await editHeaders(`X-Keep=***, __proto__=***, Authorization=Bearer ${secret}`);
+      terminal.send(ENTER);
+      await waitForText(terminal, "已保存");
+      assert.deepEqual(JSON.parse(fs.readFileSync(file, "utf8")).providers.mock.headers, { Authorization: `Bearer ${secret}`, "X-Keep": "keep-header-secret", ["__proto__"]: "proto-header-secret" });
+      terminal.clearOutput();
+      terminal.send(ENTER);
+      await editHeaders("");
+      terminal.send(ENTER);
+      await waitFor("空输入清除提供方自定义请求头", () => JSON.parse(fs.readFileSync(file, "utf8")).providers.mock.headers === undefined);
+      for (const value of [secret, "old-header-secret", "keep-header-secret", "proto-header-secret"]) assert.ok(!terminal.output().includes(value));
+    } finally {
+      terminal.send(CTRL_C);
+      assert.equal(await done, 0);
+    }
+  } finally {
+    await cleanupDirs(dirs);
+  }
+});
+
+test("在线：编辑期间模型事件不偷换 API Key/OAuth 与目录保存的修订基点", async (context) => {
+  const requests = context.mock.method(ControlClient.prototype, "request");
+  for (const field of ["apikey", "headers"] as const) {
+    const t = await startTestRuntime(`cfg-edit-${field}`, textResponder);
+    try {
+      const opened = await t.client.request<any>("get_model_config", {});
+      const h = startConfig(t);
+      let modelEvents = 0;
+      const unsubscribe = t.client.onEvent((event) => { if (event.body.type === "model.config_changed") modelEvents++; });
+      try {
+        await waitForText(h.terminal, "配置分区");
+        h.terminal.send(ENTER);
+        await waitForText(h.terminal, "设置后台默认模型");
+        h.terminal.send(ENTER);
+        await waitForText(h.terminal, "提供方 mock");
+        h.terminal.send(DOWN.repeat(field === "apikey" ? 5 : 3) + ENTER);
+        if (field === "apikey") {
+          await waitForText(h.terminal, "保存存储 API Key");
+          h.terminal.send(ENTER);
+        }
+        await waitForText(h.terminal, "显示为 •••");
+        const oauth = { type: "oauth", access: "concurrent-oauth-access", refresh: "concurrent-oauth-refresh", expires: 0 };
+        if (field === "apikey") {
+          await t.client.request("set_model_api_key", { provider: "mock", api_key: "other-client-key", expected_revision: opened.revision });
+          fs.writeFileSync(path.join(t.dirs.agentDir, "auth.json"), JSON.stringify({ mock: oauth }));
+          t.runtime.store.withTx(() => t.runtime.store.appendEvent({ type: "model.config_changed", kind: "api_key", provider: "mock" }));
+        } else {
+          opened.providers.mock.name = "Concurrent catalog edit";
+          await t.client.request("save_model_catalog", { providers: opened.providers, expected_revision: opened.revision });
+        }
+        await waitFor("另一客户端的模型配置事件已送达", () => modelEvents > 0);
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        h.terminal.paste(field === "apikey" ? "owner-edited-key" : "X-New=owner-edited-header");
+        h.terminal.send(ENTER);
+        await waitForText(h.terminal, "配置已被其他客户端修改，已重新加载", undefined, 3000);
+        const attempt = requests.mock.calls.findLast((call) => {
+          const [op, input] = call.arguments;
+          const params = input as Record<string, unknown> | undefined;
+          return field === "apikey" ? op === "set_model_api_key" && params?.api_key === "owner-edited-key" : op === "save_model_catalog" && JSON.stringify(params?.providers).includes("owner-edited-header");
+        });
+        assert.equal((attempt?.arguments[1] as Record<string, unknown> | undefined)?.expected_revision, opened.revision, "编辑必须携带打开时的修订，不能套用事件刷新的修订");
+        if (field === "apikey") assert.deepEqual(JSON.parse(fs.readFileSync(path.join(t.dirs.agentDir, "auth.json"), "utf8")).mock, oauth, "没有确认替换的 OAuth 条目必须保留");
+        else {
+          const saved = JSON.parse(fs.readFileSync(path.join(t.dirs.agentDir, "models.json"), "utf8"));
+          assert.equal(saved.providers.mock.name, "Concurrent catalog edit");
+          assert.equal(saved.providers.mock.headers, undefined);
+        }
+        for (const secret of ["owner-edited-key", "owner-edited-header", oauth.access, oauth.refresh]) assert.ok(!h.terminal.output().includes(secret));
+      } finally {
+        unsubscribe();
+        await h.quit();
+      }
+    } finally {
+      await t.shutdown();
+    }
   }
 });
 

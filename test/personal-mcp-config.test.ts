@@ -8,7 +8,7 @@ import type { JsonValue } from "@earendil-works/chord";
 import { ROOT_CONVERSATION_ID, type SubmissionId, type TaskId, type TaskRecord } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { MCP_LIMITS, McpError, type McpRemoteTool } from "@ruukoto/agent/mcp/transport.ts";
-import { parsePersonalMcp, readPersonalMcp, savePersonalMcp, personalMcpCredential, resolvePersonalMcpToken, discoverPersonalMcp, type PersonalMcpConfig } from "../apps/ruukoto/src/personal-mcp-config.ts";
+import { migratePersonalMcp, parsePersonalMcp, readPersonalMcp, savePersonalMcp, personalMcpCredential, resolvePersonalMcpToken, discoverPersonalMcp, type PersonalMcpConfig } from "../apps/ruukoto/src/personal-mcp-config.ts";
 import { lockPersonalProfile } from "../apps/ruukoto/src/personal-profile.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
 import { openPersonalHarness } from "../apps/ruukoto/src/personal-harness.ts";
@@ -67,6 +67,39 @@ test("个人 MCP 配置：持锁私有原子保存，幂等不覆写，变更必
   await savePersonalMcp(f.profile, { ...changed, generation: "second-generation" });
   assert.equal(readPersonalMcp(f.profile)?.generation, "second-generation");
   assert.equal(fs.existsSync(path.join(f.directory, "mcp.json.tmp")), false);
+});
+
+test("个人 MCP 配置：显式迁入逐服务启停格式，保留旧定义且拒绝降版和不完整状态", async t => {
+  const f = fixture(t);
+  await assert.rejects(migratePersonalMcp(f.profile), code("mcp_config_missing"));
+  await savePersonalMcp(f.profile, config);
+  await assert.rejects(migratePersonalMcp(f.directory), code("profile_busy"));
+  const migrated = await migratePersonalMcp(f.profile);
+  assert.equal(migrated.version, 2);
+  assert.notEqual(migrated.generation, config.generation);
+  assert.deepEqual(migrated.services, config.services.map(service => ({ ...service, enabled: true })));
+  assert.deepEqual(await migratePersonalMcp(f.profile), migrated);
+  assert.deepEqual(readPersonalMcp(f.profile), migrated);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(f.directory, "mcp.json"), "utf8")).version, 2);
+  await assert.rejects(savePersonalMcp(f.profile, { ...config, generation: "downgrade" }), code("mcp_config_downgrade"));
+  for (const invalid of [
+    { ...migrated, services: config.services },
+    { ...migrated, services: [{ ...migrated.services[0], enabled: "false" }] },
+    { ...config, services: [{ ...config.services[0], enabled: true }] },
+    { ...migrated, version: 3 },
+  ]) assert.throws(() => parsePersonalMcp(invalid), code("mcp_config_invalid"));
+  const stopped = { ...migrated, generation: "stopped", services: migrated.services.map(service => ({ ...service, enabled: false })) };
+  await savePersonalMcp(f.profile, stopped);
+  assert.deepEqual(readPersonalMcp(f.profile), stopped);
+});
+
+test("个人 MCP 配置：停用仍核实原凭据，失效时保留当前配置", async t => {
+  const f = fixture(t), service = { ...config.services[0], credential: personalMcpCredential(f.filename) };
+  await savePersonalMcp(f.profile, { ...config, services: [service] });
+  const migrated = await migratePersonalMcp(f.profile);
+  fs.unlinkSync(f.filename);
+  await assert.rejects(savePersonalMcp(f.profile, { ...migrated, generation: "stopped", services: migrated.services.map(service => ({ ...service, enabled: false })) }), code("mcp_credentials_invalid"));
+  assert.deepEqual(readPersonalMcp(f.profile), migrated);
 });
 
 for (const kind of ["invalid-json", "version", "mode", "symlink", "hardlink"] as const) {
@@ -152,6 +185,7 @@ for (const initial of [true, false]) {
         }
       } finally { await storage.close(context); }
       await assert.rejects(savePersonalMcp(profile, { ...config, generation: "new-generation" }), code("mcp_config_pending"));
+      if (!initial) await assert.rejects(migratePersonalMcp(profile), code("mcp_config_pending"));
       assert.deepEqual(readPersonalMcp(profile), initial ? undefined : config);
       if (!initial) await savePersonalMcp(profile, config);
     });

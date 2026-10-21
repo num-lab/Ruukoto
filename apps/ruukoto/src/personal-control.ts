@@ -13,6 +13,7 @@ import { copyJson } from "@earendil-works/chord";
 import { readPersonalTools } from "./personal-tools-config.ts";
 import { PersonalToolsDoc, personalArtifactEntries, toolList, toolDetail, toolDecide, toolResolve, toolVerifyStop, toolGrant, toolRevoke } from "./personal-tools.ts";
 import * as fs from "node:fs";
+import { ManagedSkillsError } from "@ruukoto/agent/managed-skills.ts";
 import * as path from "node:path";
 import * as http from "node:http";
 import { once } from "node:events";
@@ -37,6 +38,7 @@ import { personalCommandRef, resolvePersonalCommand } from "./personal-command-w
 import { mcpDecide, mcpDetail, mcpList, mcpResolve } from "./personal-mcp.ts";
 import { readPersonalMcp } from "./personal-mcp-config.ts";
 import { parsePersonalScheduleCreate, type PersonalScheduleCreateBody } from "./personal-scheduler-controls.ts";
+import { dispatchPersonalSettings, PERSONAL_SETTINGS_LIMITS, type PersonalSettingsRequest } from "./personal-settings.ts";
 
 import { LocalInputDoc, personalInputDigest } from "./personal-local-records.ts";
 export { LocalInputDoc } from "./personal-local-records.ts";
@@ -108,7 +110,7 @@ export async function startPersonalServer(directory: string, options: { developm
   const server = http.createServer();
   server.requestTimeout = 10000;
   server.headersTimeout = 10000;
-  server.timeout = 15000;
+  server.timeout = PERSONAL_SETTINGS_LIMITS.modelTestMs + 5000;
   let listenerClosed: Promise<void> | undefined;
   let shutdown: Promise<void> | undefined;
   let personal: Awaited<ReturnType<typeof openPersonalHarness>> | undefined;
@@ -162,9 +164,13 @@ export async function startPersonalServer(directory: string, options: { developm
         if (listenerClosed) throw new PersonalError("control_stopping", "后台正在停止，请等待停止完成后再启动。");
         const url = new URL(req.url ?? "/", "http://localhost");
         let result: unknown;
-        if (req.method === "GET" && url.pathname === "/status") {
+        if (req.method === "GET" && url.pathname === "/settings") {
+          result = await dispatchPersonalSettings({ profile, instance, development: options.development }, { v: 1, op: "settings.read" });
+        } else if (req.method === "POST" && url.pathname === "/settings") {
+          result = await dispatchPersonalSettings({ profile, instance, development: options.development }, await readControlJSON(req));
+        } else if (req.method === "GET" && url.pathname === "/status") {
           const live = await instance.harness.inspect(context);
-          result = { model: config.modelId, tasks: live.tasks.length, inputs: live.submissions.length, services: !!services, capabilities: { commands: !!commands, mcp: !!mcp?.services.length, tools: !!tools, browser: !!browser, telegram: !!telegram?.enabled, qq: !!qq?.enabled } } satisfies PersonalStatus;
+          result = { model: config.modelId, tasks: live.tasks.length, inputs: live.submissions.length, services: !!services, capabilities: { commands: !!commands, mcp: !!mcp?.services.some(service => service.enabled !== false), tools: !!tools, browser: !!browser, telegram: !!telegram?.enabled, qq: !!qq?.enabled } } satisfies PersonalStatus;
         } else if (req.method === "GET" && url.pathname === "/messages") {
           const entries = await instance.main.entries({}, 64, undefined, context);
           result = entries.items.map(text).filter(item => item !== undefined).slice(0, 16).reverse();
@@ -413,7 +419,7 @@ export async function startPersonalServer(directory: string, options: { developm
         } else throw new PersonalError("control_route_missing", "此管理操作不可用，请更新向导与后台到相同版本。");
         respond(res, 200, { v: 1, ok: true, result });
       } catch (error) {
-        const known = error instanceof PersonalError;
+        const known = error instanceof PersonalError || error instanceof ManagedSkillsError;
         if (!known) process.stderr.write("[ruukoto:personal] 本机管理操作失败，请保留档案并查询原请求；未自动重试。\n");
         respond(res, known ? 400 : 500, { v: 1, ok: false, code: known ? error.code : "control_internal", message: known ? error.message : "后台未能确认操作结果，请保留原请求并重新查询。" });
       }
@@ -435,12 +441,12 @@ export async function startPersonalServer(directory: string, options: { developm
   }
 }
 
-export async function personalControl<T>(directory: string, method: "GET" | "POST", route: string, value?: ReturnType<typeof parsePersonalMemoryControl> | PersonalInput | PersonalServiceResolution | { decision: "approved" | "rejected" } | PersonalToolsControlBody | PersonalScheduleCreateBody): Promise<T> {
+export async function personalControl<T>(directory: string, method: "GET" | "POST", route: string, value?: ReturnType<typeof parsePersonalMemoryControl> | PersonalInput | PersonalServiceResolution | { decision: "approved" | "rejected" } | PersonalToolsControlBody | PersonalScheduleCreateBody | PersonalSettingsRequest): Promise<T> {
   const token = readPersonalToken(directory);
   return new Promise<T>((resolve, reject) => {
     const req = http.request({ socketPath: path.join(directory, "control.sock"), method, path: route, headers: { authorization: `Bearer ${token}`, "content-type": "application/json", connection: "close" } });
     const fail = (cause?: unknown) => reject(new PersonalError("control_response_lost", method === "POST" ? "未取得后台应答；请核实原消息或后台状态，不要重复提交新消息。" : "无法查询隔离后台；连接失败不表示后台已停止，请检查状态与日志。", { cause }));
-    const timeout = setTimeout(() => req.destroy(new Error("timeout")), 5000);
+    const timeout = setTimeout(() => req.destroy(new Error("timeout")), route === "/settings" ? PERSONAL_SETTINGS_LIMITS.modelTestMs + 5000 : 5000);
     req.once("close", () => clearTimeout(timeout));
     req.on("error", fail);
     req.on("response", res => {

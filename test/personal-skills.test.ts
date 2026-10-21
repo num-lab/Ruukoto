@@ -2,12 +2,14 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { tmpdir } from "node:os";
+import { createHash } from "node:crypto";
 import { test, type TestContext } from "node:test";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { Harness, createRegistry, defineDocFamily, defineExtension, defineTask, wrapTool, LiveDoc, ROOT_CONVERSATION_ID } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { personalSkills, PersonalSkillsDoc, PERSONAL_SKILL_TOOLS } from "../apps/ruukoto/src/personal-skills.ts";
-import { parsePersonalSkills, readPersonalSkills, savePersonalSkills } from "../apps/ruukoto/src/personal-skills-config.ts";
+import { parsePersonalSkills, personalSkillsDirectory, readPersonalSkills, savePersonalSkills } from "../apps/ruukoto/src/personal-skills-config.ts";
+import { loadSkillLibrary } from "@ruukoto/agent/skills.ts";
 import { configurePersonalSkills } from "../apps/ruukoto/src/personal-skills-cli.ts";
 import { lockPersonalProfile } from "../apps/ruukoto/src/personal-profile.ts";
 import { PersonalFormatDoc } from "../apps/ruukoto/src/personal-harness.ts";
@@ -84,6 +86,23 @@ test("个人技能：目录、全文与身份先留不可改快照，后续变�
   const next = await f.harness.commit(tx => f.skills.prepare(tx, ROOT_CONVERSATION_ID), context); assert.notEqual(next.version, first.version);
   const saved = (await f.harness.snapshot(PersonalSkillsDoc, context))!; assert.equal(saved.snapshots.length, 2); assert.match(saved.snapshots[0].library.skills[0].body, /任务正文/);
   await f.reopen(); await f.harness.commit(tx => f.skills.verify(tx, ROOT_CONVERSATION_ID, next.version), context);
+});
+
+test("个人技能：没有来源元数据的旧快照原样核实，新选择只追加快照", async t => {
+  const f = await fixture(t), config = readPersonalSkills(f.directory)!, identity = personalSkillsDirectory(config), library = loadSkillLibrary(f.agent);
+  for (const skill of library.skills) { delete skill.id; delete skill.source; delete skill.readOnly; delete skill.contentRevision; }
+  const value = { config, identity, library }, saved = { version: createHash("sha256").update(JSON.stringify(value)).digest("hex"), ...value };
+  const original = await f.harness.commit(async tx => {
+    const doc = await tx.doc(PersonalSkillsDoc), entry = await tx.appendEntry(ROOT_CONVERSATION_ID, { kind: "ruukoto.skills-snapshot", data: JSON.parse(JSON.stringify(saved)) });
+    doc.config = config; doc.snapshots.push({ ...saved, entry: entry.id, conversationId: ROOT_CONVERSATION_ID });
+    doc.current.push({ conversationId: ROOT_CONVERSATION_ID, version: saved.version, snapshotEntry: entry.id }); return entry;
+  }, context);
+  await f.reopen(); await f.harness.commit(tx => f.skills.verifyRecords(tx), context);
+  const next = await f.harness.commit(tx => f.skills.prepare(tx, ROOT_CONVERSATION_ID), context);
+  assert.notEqual(next.snapshotEntry, original.id); assert.notEqual(next.version, saved.version);
+  assert.deepEqual(await f.harness.commit(tx => tx.entry(original.id), context), original);
+  assert.equal((await f.harness.snapshot(PersonalSkillsDoc, context))!.snapshots.length, 2);
+  await f.harness.commit(tx => f.skills.verifyRecords(tx), context);
 });
 
 test("个人技能：原生工具加载正文和引用，缺文件、逃逸、显式技能不扩大权限", async t => {

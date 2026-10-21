@@ -1,10 +1,13 @@
 import { createHash } from "node:crypto";
+import * as path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { defineDoc, defineDocFamily, defineEntry, defineExtension, defineTool, ROOT_CONVERSATION_ID, type ConversationId, type EntryId, type TaskId, type Tx } from "@earendil-works/pi-durable";
 import type { TranscriptContext } from "@earendil-works/pi-ai";
 import { validateToolArguments } from "@earendil-works/pi-ai/utils/validation";
 import { Type } from "typebox";
-import { expandSkillCommand, loadSkillLibrary, readSkill, skillCatalogBlock, type PinnedSkill } from "@ruukoto/agent/skills.ts";
+import { expandSkillCommand, readSkill, skillCatalogBlock, type PinnedSkill } from "@ruukoto/agent/skills.ts";
+import { loadHostSkillLibrary, ManagedSkillsStore } from "@ruukoto/agent/managed-skills.ts";
+import type { PersonalProfileLock } from "./personal-profile.ts";
 import { readPersonalSkills, personalSkillsDirectory, type PersonalSkillsConfig } from "./personal-skills-config.ts";
 import { activePersonalReferenceTool } from "./personal-history.ts";
 import { PersonalError } from "./personal-error.ts";
@@ -38,9 +41,15 @@ function expandInput(library: Library, input: string): { expanded: string; error
 function load(directory: string): Snapshot {
   const config = readPersonalSkills(directory) ?? null, identity = config ? personalSkillsDirectory(config) : null;
   let library: Library;
-  try { library = config ? loadSkillLibrary(config.directory) : { skills: [], diagnostics: [], version: "" }; } catch (error) { throw new PersonalError("skills_directory_unavailable", "技能目录无法完整读取，请由拥有者恢复配置目录后继续。", { cause: error }); }
+  try { library = loadHostSkillLibrary(directory, config ? [path.join(config.directory, "skills")] : []); } catch (error) { throw new PersonalError("skills_directory_unavailable", "技能目录无法完整读取，请由拥有者恢复配置目录后继续。", { cause: error }); }
   const value = { config, identity, library };
   return { ...value, version: createHash("sha256").update(JSON.stringify(value)).digest("hex") };
+}
+
+export function personalSkillStore(profile: PersonalProfileLock): ManagedSkillsStore {
+  const config = readPersonalSkills(profile);
+  if (config) personalSkillsDirectory(config);
+  return new ManagedSkillsStore(profile.directory, config ? [path.join(config.directory, "skills")] : []);
 }
 
 async function snapshotByEntry(tx: Tx, conversationId: ConversationId, snapshotEntry: EntryId) {

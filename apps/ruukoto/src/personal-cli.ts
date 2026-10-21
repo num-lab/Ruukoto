@@ -1,3 +1,4 @@
+import { runPersonalSettingsMachine } from "./personal-settings.ts";
 import { managePersonalPermissions } from "./personal-permissions-cli.ts";
 import { managePersonalAppData } from "./personal-app-data-controls.ts";
 import { configurePersonalSkills } from "./personal-skills-cli.ts";
@@ -480,7 +481,8 @@ export async function personalMenu(directory: string, io: PersonalCliIO, launch?
 
 export async function runPersonalCli(args: string[], options: { directory?: string; development?: boolean } = {}): Promise<number> {
   const directory = options.directory ?? personalDirectory();
-  if (args.length > 1 || (args.length === 1 && args[0] !== "serve")) throw new PersonalError("cli_arguments", "用法：ruukoto 打开引导菜单；ruukoto serve 前台托管。旧个人命令已退出，请保留旧资料并使用新档案。");
+  if (args.length === 1 && args[0] === "settings") return runPersonalSettingsMachine(directory, process.stdin, value => process.stdout.write(value));
+  if (args.length > 1 || (args.length === 1 && args[0] !== "serve")) throw new PersonalError("cli_arguments", "用法：ruukoto 打开引导菜单；ruukoto serve 前台托管；ruukoto settings 通过标准输入输出管理有界 JSON。旧个人命令已退出，请保留旧资料并使用新档案。");
   if (!args.length && (!process.stdin.isTTY || !process.stdout.isTTY)) throw new PersonalError("cli_terminal_required", "个人配置向导需要交互终端；前台后台使用 serve 子命令。");
   const interrupted = new AbortController();
   const aborted = new Promise<undefined>(resolve => interrupted.signal.addEventListener("abort", () => resolve(undefined), { once: true }));

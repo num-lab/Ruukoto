@@ -45,10 +45,12 @@ export async function browserOperations(tx: Tx) { const values: PersonalBrowserO
 async function browserSession(tx: Tx, conversationId: ConversationId): Promise<BrowserSessionState> { return conversationId === ROOT_CONVERSATION_ID ? tx.doc(PersonalBrowserDoc) : tx.doc(PersonalBrowserSessionDoc, String(conversationId), null); }
 export async function browserSessionStopped(tx: Tx, conversationId: ConversationId) {
   if (conversationId !== ROOT_CONVERSATION_ID && !(await tx.doc(PersonalBrowserDoc)).sessions?.includes(conversationId)) return true;
-  const session = await browserSession(tx, conversationId);
+  return personalBrowserSessionStateStopped(await browserSession(tx, conversationId), String(conversationId));
+}
+export function personalBrowserSessionStateStopped(session: BrowserSessionState, sessionId: string) {
   if (session.stateJson === undefined && session.bindingEntry === undefined) return true;
   let state: unknown; try { state = session.stateJson && JSON.parse(session.stateJson); } catch { throw new PersonalError("browser_record_invalid", "浏览器停止来源无法核实，请保留档案并核实原浏览器。"); }
-  if (!session.bindingEntry || !state || typeof state !== "object" || !("version" in state) || state.version !== 1 || !("bindings" in state) || !Array.isArray(state.bindings) || state.bindings.length !== 1 || state.bindings[0]?.sessionId !== String(conversationId)) throw new PersonalError("browser_record_invalid", "浏览器停止绑定无法核实，请保留档案并核实原浏览器。");
+  if (!session.bindingEntry || !state || typeof state !== "object" || !("version" in state) || state.version !== 1 || !("bindings" in state) || !Array.isArray(state.bindings) || state.bindings.length !== 1 || state.bindings[0]?.sessionId !== sessionId) throw new PersonalError("browser_record_invalid", "浏览器停止绑定无法核实，请保留档案并核实原浏览器。");
   return state.bindings[0].state === "closed";
 }
 export async function browserSourceBlocker(tx: Tx, requestId: string): Promise<{ browser: string; admission: EntryId; session?: boolean; pause?: EntryId } | undefined> {

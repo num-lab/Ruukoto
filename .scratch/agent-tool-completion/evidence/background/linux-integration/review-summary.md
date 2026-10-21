@@ -1,0 +1,11 @@
+# 后台进程核心与Runtime独立审查
+
+核对当前共享规格第3节、core持久记录和占用、Runtime启动/停止/恢复、实际工具门和参考快照；作者总结仅作导航。未修改主工作区。
+
+结论：未发现未解决阻断。缺失日志的裸FS错误由作者并行收口为background_evidence_invalid，独立缺日志探针返回具名错误且不泄露路径。
+
+亲验：macOS核心和control seam共35项通过；后台跨轮HTTP2项通过；恢复5项通过。Linux Node24.21/kernel6.8：background-processes、recovery、core共19项通过，未跳过；源码和worker580文件SHA匹配，余留测试fixture和原生scope为空。SSE模型服务为离线确定性测试替身，HTTP服务及原生执行为真实OS；不冒充真实模型或browser工具访问证据。初次缺quickjs依赖的失败保留，随后从已安装副本复制纯JS/WASM包，无下载。
+
+反证：独立最小用例先接纳旧Task、登记会话关闭屏障、再尝试登记后台，当前源码通过。仅在esbuild内存中删除throughInputSeq核实后，用例预期失败（Missing expected exception）；证明该检查阻止关闭前已接纳Task迟到启动，生产源码SHA前后相同。见positive/negative-close-barrier-behavior日志与元数据。
+
+未覆盖：真实模型选工具、真实browser工具访问、真实Electron到控制面的端到端、断电耐久性和恶意完全访问进程逃离。Linux本次SDK测试包含宿主SIGKILL冷恢复，平台窄探针另含普通setsid后代/继承管道和同名scope错代拒绝。

@@ -31,7 +31,7 @@
 
 ```bash
 npm run setup       # 按两份锁文件安装依赖、检查前提并安装轻量提交钩子
-npm run check       # 构建两类 worker/WASM，静态及全部离线测试
+npm run check       # 构建原生监督器、全部 worker/WASM，静态及全部离线测试
 npm link            # 可选：把 ruukoto / ruukoto-code 装进 PATH（否则用 npm start -- …）
 ```
 
@@ -52,6 +52,7 @@ ruukoto-code stop                 # 停止后台
 | `/branch [名称]` | 从已落盘历史建立独立会话并切换，父子共享工作目录 |
 | `/resume` | 切回父会话或其他会话 |
 | `/questions` | 逐题作答或取消持久问题，回答后唯一续接 |
+| `/processes` | 查看本会话后台、日志与停止核实；可结束本会话后台 |
 
 分支不调用模型、不启动原任务；名称支持中文和空格。来源范围与失败核实见[操作手册](docs/usage.md#72-命令)。
 

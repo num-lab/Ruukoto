@@ -73,6 +73,7 @@ import { validateSubAgentRole, validateSubAgentRoleLibrary, type SubAgentRoleLib
 import { requireSubAgentDefinition, SubAgentDefinitionError, type SubAgentDefinitionSnapshot } from "@ruukoto/core/subagent-definition.ts";
 import { SubAgentRoleError } from "./subagent-roles.ts";
 import { buildHostToolSet, type HostCall, type HostToolFamily, type HostToolRuntime } from "./host-tool-families.ts";
+import type { BackgroundProcessCalls } from "./background-process-tools.ts";
 import { allowsCategory, executionProfile, subAgentAllows, taskToolSet, workflowAllows, type AgentResourcePhase, type ExecutionProfile, type TaskToolSet, type WorkflowExecutionProfile, sourceAllows } from "./tool-availability.ts";
 import type { AgentWaitCall } from "./agent-wait-tools.ts";
 import { WorkflowError, type WorkflowSource } from "@ruukoto/core/workflow.ts";
@@ -122,6 +123,7 @@ export interface DriverDeps {
   /** 静态宿主工具族；Runtime 负责捕获族专属依赖，Driver 负责当前调用接缝。 */
   hostToolFamilies: readonly HostToolFamily[];
   ownerQuestions?: { create(ctx: HostToolContext, questions: OwnerQuestionItem[]): OwnerQuestion };
+  backgroundProcesses?: BackgroundProcessCalls & { active(sessionId: string): boolean };
   /** Jev 的本地模拟服务与超时覆盖，仅宿主测试注入。 */
   jev?: JevRequestConfig;
   /** 上下文压缩的摘要超时覆盖（issue 30），仅测试注入；生产 180 s。 */
@@ -264,6 +266,7 @@ export class Driver {
   private pendingUserImages: ImageReference[] = [];
   private pendingUserAttachments: AttachmentReference[] = [];
   private resourcePhase: AgentResourcePhase = "execution";
+  private backgroundObservation = false;
   private activeToolCalls = new Set<string>();
   private injection: ReturnType<ParentDelivery["takeInjection"]> | null = null;
   private injectionAccepted = false;
@@ -547,6 +550,16 @@ export class Driver {
           return question;
         },
       } : undefined,
+      backgroundProcesses: this.deps.backgroundProcesses ? {
+        start: (ctx, command, signal) => this.deps.backgroundProcesses!.start(ctx, command, signal),
+        status: async (ctx, input) => {
+          const result = this.deps.backgroundProcesses!.status(ctx, input);
+          if (!this.deps.backgroundProcesses!.active(ctx.sessionId)) await this.restoreWorkspace(ctx.taskId);
+          return result;
+        },
+        output: (ctx, input) => this.deps.backgroundProcesses!.output(ctx, input),
+        stop: (ctx, processId) => this.deps.backgroundProcesses!.stop(ctx, processId),
+      } : undefined,
     };
   }
 
@@ -595,7 +608,8 @@ export class Driver {
     const hostToolSet = this.profile.source ? this.sourceTools(this.profile.source, this.pendingMcpToolDefs) : buildHostToolSet(
       this.deps.hostToolFamilies.filter((family) =>
         (this.allows(family.category) || (family.category === "subagent" && this.profile.toolClass === "subagent")) &&
-        (family.category !== "owner_question" || Boolean(this.currentTask && this.deps.ownerQuestions && ownerQuestionTaskEligible(this.deps.store, this.currentTask)))),
+        (family.category !== "owner_question" || Boolean(this.currentTask && this.deps.ownerQuestions && ownerQuestionTaskEligible(this.deps.store, this.currentTask))) &&
+        (family.category !== "background_process" || Boolean(this.currentTask && this.deps.backgroundProcesses && ownerQuestionTaskEligible(this.deps.store, this.currentTask)))),
       this.hostToolRuntime(),
     );
     const subAgentTools = this.profile.subAgentTools;
@@ -849,6 +863,7 @@ export class Driver {
     this.pendingUserAttachments = [];
     this.taskTools = null;
     this.resourcePhase = resourcePhase;
+    this.backgroundObservation = this.deps.backgroundProcesses?.active(task.sessionId) ?? false;
     this.recordResourcePhase(task);
     this.referencesFromSnapshot = this.resourcePhase === "conversation";
     this.activeToolCalls.clear();
@@ -878,6 +893,7 @@ export class Driver {
       skills: this.pinnedSkills,
       roles: this.pinnedRoles,
       resourcePhase: this.resourcePhase,
+      backgroundObservation: this.backgroundObservation,
       referenceSnapshot,
       referenceSource: this.pinnedExecution?.source,
       subagentResults,
@@ -1127,6 +1143,9 @@ export class Driver {
       registered: this.allToolNames,
       ownerQuestionsEnabled: Boolean(this.deps.ownerQuestions && ownerQuestionTaskEligible(this.deps.store, task)),
       ownerQuestionPending: ownerQuestionCreatedByTask(this.deps.store, task.id),
+      backgroundProcessesEnabled: Boolean(this.deps.backgroundProcesses && ownerQuestionTaskEligible(this.deps.store, task)),
+      backgroundStartEnabled: task.accessMode === "full_access" && !task.planMode && this.resourcePhase === "execution",
+      backgroundObservation: this.backgroundObservation,
       resourcePhase: this.resourcePhase,
       plan: this.profile.plan,
       browserEnabled: this.deps.browser?.allowed(task) ?? false,
@@ -1163,7 +1182,7 @@ export class Driver {
 
   /** Runtime 先登记等待；核实成功后才可在事务内释放全部目录占用。 */
   // Note: 见 .agents/notes/implemented/architecture/2026-10-14-agent-wait-and-report-ownership.md
-  async yieldWorkspace(taskId: string): Promise<boolean> {
+  async yieldWorkspace(taskId: string, transfer?: (snapshot: AgentWaitSnapshot) => void): Promise<boolean> {
     const task = this.currentTask;
     if (!task || task.id !== taskId || this.stopRequested) throw new ExecutionError("task_mismatch", "等待任务已停止或不属于当前 Driver");
     if (this.activeToolCalls.size > 1) throw new ExecutionError("tool_boundary_busy", "其他工具仍在执行，请等当前工具完成后再等待后台工作");
@@ -1177,9 +1196,11 @@ export class Driver {
     if (!this.stopRequested && ending.stopSnapshot === candidate) ending.stopSnapshot = previous;
     this.restoreMcpSignature = this.currentMcpPlan?.signature ?? "";
     await this.closeMcpConns();
+    transfer?.(this.referenceSnapshot());
     this.resourcePhase = "conversation";
-    this.recordResourcePhase(this.currentTask!);
-    this.assembly?.setResourcePhase(this.resourcePhase);
+    if (transfer) this.backgroundObservation = true;
+    if (!transfer) this.recordResourcePhase(this.currentTask!);
+    this.assembly?.setResourcePhase(this.resourcePhase, undefined, this.deps.backgroundProcesses?.active(task.sessionId));
     this.refreshTaskTools(this.deps.store.getTask(task.id)!);
     return true;
   }
@@ -1192,6 +1213,7 @@ export class Driver {
     if (!this.deps.agentWait || !await this.deps.agentWait.acquireResources(task)) return false;
     if (this.stopRequested || this.deps.store.getTask(task.id)?.cancelRequested) return false;
     this.resourcePhase = "execution";
+    this.backgroundObservation = false;
     this.recordResourcePhase(this.currentTask!);
     const plan = await this.planMcp(task);
     if (this.stopRequested) { await Promise.all([...plan.connections.values()].map(connection => connection.close())); return false; }

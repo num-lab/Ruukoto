@@ -60,7 +60,7 @@ sequenceDiagram
 - 任务携带 `accessMode`、`planMode`、权限版本与授予路径；模式与范围进入幂等比较，切换只在无执行中工具的边界生效。
 - 执行画像（会话类别、SubAgent 工具集、资料受限、计划资格）在任务开始算一次并钉到任务结束；工具集变化时重建 SDK 会话。
 - 终止状态只有 `completed`、`failed`、`canceled`、`interrupted`；所有在线终态路径都经同一个收尾事务，只有当前状态仍在起点集合时才继续。
-- 目录占用按任务释放；同一工作目录同时只允许一个写任务。
+- 普通目录占用按任务释放；会话后台持有独立占用，停止核实后才释放，同一目录保持单写入者。
 - 后台重启把 `running`／`awaiting_confirmation` 定为 `interrupted`（原因 `backend_restart`），未决审批标 `stale`，有排队任务的会话暂停自动调度，由拥有者用 `resume-queue` 显式恢复。
 
 ## 主流程二：入站消息到回复

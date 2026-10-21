@@ -32,7 +32,7 @@ TERM/KILL 返回失败也进入同一预算的退出核实。macOS 原组只有�
 
 ## 关联提案
 
-后台执行延长到正常 bash 返回之后的方向见[后台生命周期提案](../../proposed/feature/2026-10-14-bash-background-lifecycle.md)。提案沿用本篇的停止核实、记录和占用保留要求，尚未改变当前收尾行为。
+[Coding会话后台](../feature/2026-10-21-coding-background-processes.md)将本篇的停止核实、记录和占用保留要求用于独立会话执行；普通 bash 仍在调用收尾时回收。[后台生命周期提案](../../proposed/feature/2026-10-14-bash-background-lifecycle.md)的个人接入尚未落地。
 
 三个执行归属各自实现的收尾协议拟集中到一个函数，见[收尾协议提案](../../implemented/architecture/2026-10-16-task-ending-protocol.md)；本篇的停止与占用规则不变。
 
@@ -62,4 +62,4 @@ TERM/KILL 返回失败也进入同一预算的退出核实。macOS 原组只有�
 
 完全访问的账户、环境、免审批及宿主任务授权传播采用[本决定](../feature/2026-10-12-full-access-current-account.md)；本篇其他独立规则继续适用。
 
-相关未实施方案：[跨轮后台执行](../../proposed/feature/2026-10-14-bash-background-lifecycle.md)将本篇停止未核实保留规则延伸至独立会话执行，不把Task终态当作停止证明。
+相关决定：[Coding会话后台](../feature/2026-10-21-coding-background-processes.md)将本篇停止未核实保留规则延伸至独立会话执行，不把Task终态当作停止证明；[个人接入](../../proposed/feature/2026-10-14-bash-background-lifecycle.md)仍为提案。

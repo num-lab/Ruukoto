@@ -71,6 +71,9 @@ import { requireSubAgentDefinition, SubAgentDefinitionError } from "@ruukoto/cor
 import { createWorkflowFamily } from "@ruukoto/agent/workflow-tools.ts";
 import { createTodoFamily, parseTodos } from "@ruukoto/agent/todo.ts";
 import { createOwnerQuestionFamily } from "@ruukoto/agent/owner-question-tools.ts";
+import { createBackgroundProcessFamily, backgroundProcessForModel } from "@ruukoto/agent/background-process-tools.ts";
+import { RuntimeBackgroundProcesses } from "./background-processes.ts";
+import { BackgroundProcessError, latestBackgroundReferenceSnapshot, listActiveBackgroundProcesses, pageBackgroundProcesses, type BackgroundProcess, type BackgroundProcessView } from "@ruukoto/core/background-processes.ts";
 import { ToolOpLedger } from "@ruukoto/agent/tool-op-ledger.ts";
 import { sessionToolCategories } from "@ruukoto/agent/tool-availability.ts";
 import { HostExecutionManager } from "./host-execution.ts";
@@ -123,7 +126,7 @@ import {
   type MemoryWithContent,
 } from "@ruukoto/core/memory.ts";
 import { parseModelSelection } from "@ruukoto/core/model-selection.ts";
-import { cancelOwnerQuestion, consumeOwnerQuestion, createOwnerQuestion, getOwnerQuestion, getOwnerQuestionReceipt, invalidateOwnerQuestionsForTask, listOwnerQuestions, ownerQuestionToView, parseOwnerAnswers, type OwnerAnswer, type OwnerQuestionView } from "@ruukoto/core/owner-questions.ts";
+import { cancelOwnerQuestion, consumeOwnerQuestion, createOwnerQuestion, getOwnerQuestion, getOwnerQuestionReceipt, invalidateOwnerQuestionsForTask, listOwnerQuestions, ownerQuestionTaskEligible, ownerQuestionToView, parseOwnerAnswers, type OwnerAnswer, type OwnerQuestionView } from "@ruukoto/core/owner-questions.ts";
 import { sameTarget } from "@ruukoto/core/notify-target.ts";
 import { PRODUCT_META_KEY,type ProductType } from "@ruukoto/core/product.ts";
 import { CODING_ROLE_RETIRED,CORE_GROUP_CHAT_RETIRED } from "@ruukoto/core/session-identity.ts";
@@ -335,6 +338,7 @@ export class Runtime {
   readonly attachments: OwnerAttachments;
   readonly artifacts: ArtifactStore;
   private browserManager!: BrowserManager;
+  private backgroundProcesses!: RuntimeBackgroundProcesses;
   readonly inboundMedia: InboundMediaStore;
   readonly credentials: CredentialStore;
   /** 统一数据访问范围（issue 05 §1）：身份由宿主注入，跨项目仅经拥有者授权。 */
@@ -938,6 +942,7 @@ export class Runtime {
       ...(fullConfig.workflowAgent ? {} : { verifyExecution: (task: Task) => runtime.workflowSteps.assertExecution(task) }),
     });
     await runtime.browserManager.recover();
+    await runtime.backgroundProcesses.recover();
     runtime.recover();
     if (fullConfig.workflowAgent !== null) {
       runtime.workflows = new WorkflowCoordinator({ store: runtime.store,
@@ -1307,13 +1312,15 @@ export class Runtime {
 
   private conversationAdmitted(task: Task): boolean {
     if (task.subAgentId || getWorkflowExecution(this.store, task.id)) return false;
-    return Boolean(getWorkflowDeliveryRun(this.store, task.id) || isAgentReportFallback(this.store, task.id) || latestAgentReferenceSnapshot(this.store, task.sessionId));
+    return Boolean(getWorkflowDeliveryRun(this.store, task.id) || isAgentReportFallback(this.store, task.id) || latestBackgroundReferenceSnapshot(this.store, task.sessionId) || latestAgentReferenceSnapshot(this.store, task.sessionId));
   }
 
   private async acquireAgentResources(task: Task): Promise<boolean> {
     const current = this.store.getTask(task.id), session = this.store.getSession(task.sessionId);
     if (!current || !session || current.cancelRequested || !["running", "awaiting_confirmation"].includes(current.status) || this.verifyAgentReportSources(task.id)) throw new AgentWaitError("source_invalid");
     const workspace = taskWorkspaceFor({ session, work: current.workId ? this.store.getWorkDelegation(current.workId) : null });
+    const blocking = this.store.findBlockingOccupancy(workspace.path, workspace.dev, workspace.ino);
+    if (blocking?.taskId === null) throw new BackgroundProcessError("background_directory_occupied", "会话后台持有目录；先 process_stop，再用 process_status 核实 stopped，停止未核实时报告拥有者。");
     const verified = await verifyDirIdentity({ cwd: workspace.path, cwdReal: workspace.path, dev: workspace.dev, ino: workspace.ino });
     const acquired = this.store.withTx(() => {
       const fresh = this.store.getTask(task.id);
@@ -1837,7 +1844,7 @@ export class Runtime {
     }
     const tasks = this.store.listScheduledRunTasks(run.id).filter(task => !isAgentReportParked(this.store, task.id));
     const taskIds = new Set(tasks.map((task) => task.id));
-    if (this.store.listAllOccupancy().some((held) => taskIds.has(held.taskId))) return null;
+    if (this.store.listAllOccupancy().some((held) => held.taskId !== null && taskIds.has(held.taskId))) return null;
     if (tasks.some((task) => !isTerminalTaskStatus(task.status) || (!getWorkflowExecution(this.store, task.id) && !workCopyHostFor(task) && task.resultSummary === null) ||
         workCopyHostFor(task)?.stopVerified === false)) return null;
     if (schedule?.status === "canceled") return { status: "canceled", text: "计划已取消，运行记录、成果及未核实占用保留" };
@@ -2332,6 +2339,7 @@ export class Runtime {
       //    backend 的 KillMode 不能证明该 scope 与后代已退出。
       // Note: 见 .agents/notes/implemented/architecture/2026-10-12-personal-native-sandbox.md
       for (const occ of store.listAllOccupancy()) {
+        if (occ.taskId === null) continue;
         store.appendEvent(
           { type: "occupancy.stale", sessionId: occ.sessionId, taskId: occ.taskId, cwdReal: occ.cwdReal },
           { sessionId: occ.sessionId, taskId: occ.taskId },
@@ -3543,6 +3551,40 @@ export class Runtime {
     return this.taskView(task);
   }
 
+  private verifyBackgroundCaller(taskId: string, sessionId: string): void {
+    const task = this.store.getTask(taskId);
+    if (!task || task.sessionId !== sessionId || task.status !== "running" || task.cancelRequested || !ownerQuestionTaskEligible(this.store, task)) throw new BackgroundProcessError("background_source_invalid", "当前输入没有本会话后台资格；结束本轮并报告拥有者。");
+  }
+
+  private backgroundSourceProblem(record: BackgroundProcess): string | null {
+    const task = this.store.getTask(record.taskId), session = this.store.getSession(record.sessionId);
+    if (!task || !session || !ownerQuestionTaskEligible(this.store, task) || task.sessionId !== record.sessionId || session.projectId !== record.source.projectId || task.accessMode !== "full_access" || task.planMode || task.permissionVersion !== record.source.permissionVersion || !isDeepStrictEqual(task.grantedPaths, record.source.grantedPaths)) return "background_source_revoked";
+    try {
+      const directory = fs.statSync(record.workspace.path);
+      if (!directory.isDirectory() || fs.realpathSync(record.workspace.path) !== record.workspace.path || directory.dev !== record.workspace.dev || directory.ino !== record.workspace.ino) return "background_directory_changed";
+    } catch { return "background_directory_changed"; }
+    return null;
+  }
+
+  listBackgroundProcesses(sessionId: string, offset = 0): { processes: BackgroundProcessView[]; totalCount: number; nextOffset: number | null } {
+    if (!this.store.getSession(sessionId)) throw new RuntimeApiError("session_not_found", "会话不存在；请选择会话后查看后台。");
+    return pageBackgroundProcesses(this.store, { sessionId, offset });
+  }
+
+  backgroundProcessOutput(input: { sessionId: string; processId: string; stream: "stdout" | "stderr"; offset?: number }) {
+    return this.backgroundProcesses.read(input);
+  }
+
+  async stopBackgroundProcess(input: { sessionId: string; processId: string }): Promise<BackgroundProcessView> {
+    this.backgroundProcesses.get(input.sessionId, input.processId);
+    return this.backgroundProcesses.requestStop(input.processId);
+  }
+
+  async endSessionBackground(input: { sessionId: string; requestKey: string }): Promise<{ processes: BackgroundProcessView[]; stopVerified: boolean }> {
+    if (!this.store.getSession(input.sessionId)) throw new RuntimeApiError("session_not_found", "会话不存在；请选择会话后结束后台。");
+    return this.backgroundProcesses.closeSession(input.sessionId, input.requestKey);
+  }
+
   listOwnerQuestions(sessionId: string, offset = 0, limit = 20): { questions: OwnerQuestionView[]; nextOffset: number | null } {
     if (!this.store.getSession(sessionId)) throw new RuntimeApiError("not_found", "会话不存在，请重新选择会话。");
     if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 20) throw new RuntimeApiError("invalid_params", "问题页码须非负，每页1–20项。");
@@ -4193,6 +4235,12 @@ export class Runtime {
   /** 同一份清单用于会话装配与后台恢复；能力停用仍保留历史操作的核实规则。 */
   private browserAllowed(task: Task): boolean {
     if (!browserTaskAllowed(this.store, task) || getWorkflowDeliveryRun(this.store, task.id)) return false;
+    const background = listActiveBackgroundProcesses(this.store, task.sessionId).find(record => record.handedOff);
+    if (background) {
+      const problem = this.backgroundSourceProblem(background);
+      if (problem) { this.backgroundProcesses.requestStop(background.id, problem); return false; }
+      if (!ownerQuestionTaskEligible(this.store, task) || task.accessMode !== background.source.accessMode) return false;
+    }
     if (!task.sourceEventId) return true;
     const event = this.store.getInboundEvent(task.sourceEventId);
     return Boolean(event && this.imEntries.entry(event.source) && this.imEntries.gate(event) === "run");
@@ -4207,6 +4255,7 @@ export class Runtime {
       }),
     });
     this.hostToolFamilies = [
+      createBackgroundProcessFamily(this.store),
       createAgentWaitFamily(),
       createBrowserFamily({ store: this.store, artifacts: this.artifacts, manager: this.browserManager,
         screenshotDir: path.join(this.config.dataDir, "browser", "screenshots"), allowed: task => this.browserAllowed(task) }),
@@ -4299,6 +4348,17 @@ export class Runtime {
       ...this.hostToolFamilies.flatMap((family) => family.ledger ? [family.ledger] : []),
     ]);
     this.hostExecutions = new HostExecutionManager({ store: this.store, ledger: this.ledger, onReleased: () => this.kickAll() });
+    this.backgroundProcesses = new RuntimeBackgroundProcesses({ store: this.store, dataDir: this.config.dataDir,
+      handoff: async (taskId, transfer) => {
+        const task = this.store.getTask(taskId), session = task && this.store.getSession(task.sessionId);
+        if (!session) throw new BackgroundProcessError("background_source_invalid", "后台来源会话缺失；结束本轮并向拥有者说明。");
+        return (await this.getDriver(session)).yieldWorkspace(taskId, transfer);
+      },
+      restore: async taskId => {
+        const task = this.store.getTask(taskId), driver = task && this.drivers.get(task.sessionId);
+        return driver?.restoreWorkspace(taskId) ?? false;
+      },
+      sourceProblem: record => this.backgroundSourceProblem(record), released: () => this.kickAll() });
   }
 
   private async getDriver(session: Session): Promise<Driver> {
@@ -4331,6 +4391,24 @@ export class Runtime {
         budgetOverrides: this.config.budgetOverrides,
         hostToolFamilies: this.hostToolFamilies,
         ownerQuestions: { create: (ctx, questions) => this.store.withTx(() => createOwnerQuestion(this.store, { ...ctx, questions })) },
+        backgroundProcesses: {
+          active: sessionId => listActiveBackgroundProcesses(this.store, sessionId).some(record => record.handedOff),
+          start: (ctx, command, signal) => {
+            this.verifyBackgroundCaller(ctx.taskId, ctx.sessionId);
+            return this.backgroundProcesses.start(ctx, command, signal);
+          },
+          status: (ctx, input) => {
+            this.verifyBackgroundCaller(ctx.taskId, ctx.sessionId);
+            if (input.processId !== undefined) {
+              if (input.offset !== undefined) throw new BackgroundProcessError("invalid_params", "指定 process_id 时不要带 offset；列表分页才使用 offset。");
+              return backgroundProcessForModel(this.backgroundProcesses.get(ctx.sessionId, input.processId));
+            }
+            const result = this.listBackgroundProcesses(ctx.sessionId, input.offset);
+            return { ...result, processes: result.processes.map(backgroundProcessForModel) };
+          },
+          output: (ctx, input) => { this.verifyBackgroundCaller(ctx.taskId, ctx.sessionId); return this.backgroundProcessOutput({ sessionId: ctx.sessionId, ...input }); },
+          stop: (ctx, processId) => { this.verifyBackgroundCaller(ctx.taskId, ctx.sessionId); this.backgroundProcesses.get(ctx.sessionId, processId); return this.backgroundProcesses.requestStop(processId); },
+        },
         jev: this.config.jev,
         compaction: this.config.compaction,
         mcp: { store: this.mcp, ...this.config.mcp },
@@ -4344,11 +4422,13 @@ export class Runtime {
         },
         agentWait: {
           initialPhase: task => this.store.listAllOccupancy().some(held => held.taskId === task.id) ? "execution" : "conversation",
-          snapshot: task => latestAgentReferenceSnapshot(this.store, task.sessionId),
+          snapshot: task => latestBackgroundReferenceSnapshot(this.store, task.sessionId) ?? latestAgentReferenceSnapshot(this.store, task.sessionId),
           acquireResources: task => this.acquireAgentResources(task),
           wait: (ctx, sdkCallId, targets, timeoutMs, signal) => this.agentWait.wait(ctx, sdkCallId, targets, timeoutMs, signal),
         },
         beforeModelRequest: task => {
+          const background = listActiveBackgroundProcesses(this.store, task.sessionId).find(record => record.handedOff);
+          if (background && this.backgroundSourceProblem(background)) throw new BackgroundProcessError("background_source_invalid", "后台参考来源已失效；停止依赖该资料的模型请求并核实原后台。");
           if (this.verifyAgentReportSources(task.id)) throw new AgentWaitError("source_invalid");
           const claims = listAgentReports(this.store, { taskId: task.id }).filter(report => report.status === "pending" && report.claimTaskId === task.id);
           if (claims.some(report => report.consumption && report.consumption.taskId !== task.id) && !this.agentReportInput(task, claims)) throw new AgentWaitError("report_input_missing");
@@ -4483,6 +4563,7 @@ export class Runtime {
       // 仅释放遗留（所属任务已结束）的占用；活动任务持有的占用不得被此操作破坏
       for (const occ of this.store.listAllOccupancy()) {
         if (occ.sessionId !== sessionId) continue;
+        if (occ.taskId === null) continue;
         const occTask = this.store.getTask(occ.taskId);
         if (occTask && !isTerminalTaskStatus(occTask.status)) {
           throw new RuntimeApiError(
@@ -4595,6 +4676,7 @@ export class Runtime {
     workDelegations: WorkDelegation[];
     subAgents: SubAgent[];
     ownerQuestions: OwnerQuestionView[];
+    backgroundProcesses: BackgroundProcessView[];
     seq: number;
   } {
     // 有界快照：全部活动任务 + 每个会话最近结束的若干任务；更早的经 list_tasks 分页
@@ -4630,6 +4712,7 @@ export class Runtime {
       workDelegations: this.store.listWorkDelegations(),
       subAgents: this.store.listSubAgents(),
       ownerQuestions: sessions.flatMap(session => this.listOwnerQuestions(session.id).questions),
+      backgroundProcesses: sessions.flatMap(session => this.listBackgroundProcesses(session.id).processes),
       seq: this.store.getMaxSeq(),
     };
     let questionBytes = 0;
@@ -4638,6 +4721,9 @@ export class Runtime {
       return questionBytes <= 128 * 1024;
     });
     while (snapshot.ownerQuestions.length && frameBytes(snapshot) > SEGMENT_MAX_BYTES) snapshot.ownerQuestions.pop();
+    let backgroundBytes = 0;
+    snapshot.backgroundProcesses = snapshot.backgroundProcesses.filter(record => { backgroundBytes += frameBytes(record); return backgroundBytes <= 128 * 1024; });
+    while (snapshot.backgroundProcesses.length && frameBytes(snapshot) > SEGMENT_MAX_BYTES) snapshot.backgroundProcesses.pop();
     return snapshot;
   }
 
@@ -5522,6 +5608,7 @@ export class Runtime {
     await this.qqAdapter.stop().catch(() => {});
     await this.workflows?.stop("backend_stop");
     await this.hostExecutions.shutdown("backend_stop");
+    await this.backgroundProcesses.shutdown();
     await Promise.allSettled([...this.hostOperationPromises]);
 
     // 中断活动任务（queued 保留）；requestStop 内部完成终态、占用与事件

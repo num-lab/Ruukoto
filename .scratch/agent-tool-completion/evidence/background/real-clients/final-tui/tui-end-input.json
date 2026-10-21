@@ -1,0 +1,63 @@
+{
+  "cmd": [
+    "/Users/eitrous/.local/share/mise/installs/node/24.15.0/bin/node",
+    "/Users/eitrous/mirasim-worktrees/ruukoto/lucky-sailing-sparrow/node_modules/tsx/dist/cli.mjs",
+    "/Users/eitrous/mirasim-worktrees/ruukoto/lucky-sailing-sparrow/apps/ruukoto-code/src/main.ts",
+    "tui",
+    "--session",
+    "sess_10813c88d3cf15864e05f73b"
+  ],
+  "env": {
+    "RUUKOTO_CODE_DATA_DIR": "/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-it-background-real-clients-KW1xiE/data",
+    "RUUKOTO_CODE_AGENT_DIR": "/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-it-background-real-clients-KW1xiE/agent",
+    "RUUKOTO_CODE_CONTROL_DIR": "/tmp/rk-bg-client-MUTBCV",
+    "RUUKOTO_CODE_PENDING_DIR": "/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-it-background-real-clients-KW1xiE/pending",
+    "RUUKOTO_OWNER_TOKEN": "",
+    "RUUKOTO_OWNER_TOKEN_FILE": ""
+  },
+  "inputs": [
+    [
+      3,
+      "/processes\r"
+    ],
+    [
+      4,
+      "\u001b[B"
+    ],
+    [
+      4.2,
+      "\u001b[B"
+    ],
+    [
+      4.4,
+      "\u001b[B"
+    ],
+    [
+      5,
+      "\r"
+    ],
+    [
+      6,
+      "\r"
+    ],
+    [
+      10,
+      "\u001b"
+    ],
+    [
+      11,
+      "/quit\r"
+    ]
+  ],
+  "expect": [
+    "本会话后台",
+    "确认结束本会话后台",
+    "本次结束请求涉及的后台已核实停止。",
+    "已退出 TUI"
+  ],
+  "size": {
+    "columns": 110,
+    "rows": 32
+  },
+  "timeout": 26
+}

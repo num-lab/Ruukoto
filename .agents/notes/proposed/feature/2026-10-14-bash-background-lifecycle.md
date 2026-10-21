@@ -2,7 +2,7 @@
 
 Status: proposed
 
-拥有者2026-10-21要求制定详细方案，并确认两端规划、先Coding；后台跨消息保留；首版先停后台再改同目录代码，保留现有占用规则。运行代码仍未实施，共享契约与交接见[规格](../../../../.scratch/agent-tool-completion/spec.md#3-后台进程)和[工单](../../../../.scratch/agent-tool-completion/issues/03-coding-background-processes.md)。
+拥有者2026-10-21确认两端规划、先Coding；后台跨消息保留；首版先停后台再改同目录代码，保留现有占用规则。Coding 已由[会话后台决定](../../implemented/feature/2026-10-21-coding-background-processes.md)部分落实；个人 durable 接入仍保留本提案。共享契约与交接见[规格](../../../../.scratch/agent-tool-completion/spec.md#3-后台进程)和[工单](../../../../.scratch/agent-tool-completion/issues/03-coding-background-processes.md)。
 
 ## 问题
 

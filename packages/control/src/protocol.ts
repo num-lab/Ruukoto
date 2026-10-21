@@ -100,6 +100,7 @@ import {
 } from "@ruukoto/core/types.ts";
 import type { ProductType } from "@ruukoto/core/product.ts";
 import type { ConfirmationRequestView, OutputPreview, TaskView } from "@ruukoto/core/views.ts";
+import type { BackgroundProcessView } from "@ruukoto/core/background-processes.ts";
 import type { OwnerQuestionView } from "@ruukoto/core/owner-questions.ts";
 
 export const MAX_FRAME_BYTES = 1024 * 1024;
@@ -133,6 +134,7 @@ export interface ConnectSnapshot {
   /** 动态 SubAgent 身份（含运行/空闲/待核实状态）。 */
   subAgents?: SubAgent[];
   ownerQuestions?: OwnerQuestionView[];
+  backgroundProcesses?: BackgroundProcessView[];
 }
 
 /** 单任务持久事件分页；nextAfter 非空时继续读，最终消息正文以历史接口为准。 */

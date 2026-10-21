@@ -122,4 +122,4 @@ macOS 未知残留可能继续写工作区和消耗 CPU/内存，保留占用会
 
 [目录保护优化](../bug-fix/2026-10-17-directory-protection-cost.md)为文件树目录列表增加仅遍历目录的批量检查；通用文件保护与本篇原生执行规则继续沿用。
 
-相关工具方案：[文件检索](../../implemented/feature/2026-10-21-controlled-file-search.md)沿用本篇受限范围；[跨轮后台执行](../../proposed/feature/2026-10-14-bash-background-lifecycle.md)另定会话占用与恢复，不改变当前按任务执行的事实。
+相关工具决定：[文件检索](../../implemented/feature/2026-10-21-controlled-file-search.md)沿用本篇受限范围；[Coding会话后台](../feature/2026-10-21-coding-background-processes.md)复用平台原语，另定独立执行、会话占用与恢复，普通工具仍按任务执行；[个人后台接入](../../proposed/feature/2026-10-14-bash-background-lifecycle.md)尚属提案。

@@ -8,7 +8,7 @@
 
 ## 对外接口
 
-Electron 或 MyGo 共用的 Node DesktopHost 持有令牌、`ControlConnection`、SSH 子进程和后台拉起。preload 只向渲染进程暴露 `subscribe(target, listener)`、`request(target, op, params)`、`pickFolder()`、`pickAttachments(sessionId, target?)` 与 `reveal(path)`及终端的open/input/resize/kill四方法。主进程校验 IPC 来源和操作名单：本地 `reconnect`、`desktop_browser_open`／`desktop_browser_release`及仅向Code开放的`desktop_terminal_open/input/resize/kill`，以及后台的 `list_session_summaries`、`open_workspace`、`create_session`、`read_history`、`read_history_entry`、`list_tasks`、`get_task`、`read_task_events`、`work_list`、`work_get`、`read_tool_result`、`read_artifact`、`get_tool_op_params`、`list_models`、`set_session_model`、`set_session_mode`、`get_session`、`interrupt`、`cancel`、`resume_queue`、`get_confirmation_params`、`respond_confirmation`、`list_prompt_requests`、`get_context_breakdown`、`list_workspace_files`、`read_workspace_file`、`read_workspace_git`。`owner_questions`、`owner_question_answer`、`owner_question_cancel` 与 `owner_question_receipt` 仅向 Code 开放；`submit`、`continue` 与 `owner_question_answer` 交主进程的 SubmissionGuard，`find_task` 仅供守护内部使用；本地 `desktop_pending_read` 与 `desktop_pending_clear` 处理输入恢复。Personal 开放历史、任务、工具、委派、模型、Context、审批、输入与恢复操作及本地 `desktop_personal_config_read`／`desktop_personal_config_save`，拒绝工作区创建、文件、Git 与 Plan。字段与权限继续由控制面校验。错误作为 `{ code, outcome, message, versions? }` 响应数据跨 IPC 传递，保留应答丢失分类。
+Electron 或 MyGo 共用的 Node DesktopHost 持有令牌、`ControlConnection`、SSH 子进程和后台拉起。preload 只向渲染进程暴露 `subscribe(target, listener)`、`request(target, op, params)`、`pickFolder()`、`pickAttachments(sessionId, target?)` 与 `reveal(path)`及终端的open/input/resize/kill四方法。主进程校验 IPC 来源和操作名单：本地 `reconnect`、`desktop_browser_open`／`desktop_browser_release`及仅向Code开放的`desktop_terminal_open/input/resize/kill`，以及后台的 `list_session_summaries`、`open_workspace`、`create_session`、`read_history`、`read_history_entry`、`list_tasks`、`get_task`、`read_task_events`、`work_list`、`work_get`、`read_tool_result`、`read_artifact`、`get_tool_op_params`、`list_models`、`set_session_model`、`set_session_mode`、`get_session`、`interrupt`、`cancel`、`resume_queue`、`get_confirmation_params`、`respond_confirmation`、`list_prompt_requests`、`get_context_breakdown`、`list_workspace_files`、`read_workspace_file`、`read_workspace_git`。`background_processes`、`background_process_output`、`background_process_stop`、`session_background_end` 及 `owner_questions`、`owner_question_answer`、`owner_question_cancel` 与 `owner_question_receipt` 仅向 Code 开放；`submit`、`continue` 与 `owner_question_answer` 交主进程的 SubmissionGuard，`find_task` 仅供守护内部使用；本地 `desktop_pending_read` 与 `desktop_pending_clear` 处理输入恢复。Personal 开放历史、任务、工具、委派、模型、Context、审批、输入与恢复操作及本地 `desktop_personal_config_read`／`desktop_personal_config_save`，拒绝工作区创建、文件、Git 与 Plan。字段与权限继续由控制面校验。错误作为 `{ code, outcome, message, versions? }` 响应数据跨 IPC 传递，保留应答丢失分类。
 
 渲染进程使用 React、Tailwind v4、shadcn 源码组件与 AI Elements、Lucide，主题和三栏布局以定稿 demo 为准，消费 `@ruukoto/view` 的快照和事件投影。开发与构建命令见[开发说明](../development.md#桌面客户端)，启动与故障恢复见[操作手册](../usage.md#桌面客户端)。
 
@@ -27,6 +27,8 @@ Personal 配置保存在应用数据目录的 `personal.json`，只含 `host` �
 本机终端及xterm滚动历史只在本次应用内存中保留，最多同时8个，滚动历史5000行；关闭终端标签或所属会话、换数据实例、页面重载／崩溃与应用退出均回收，普通断线、同实例快照和切换标签／会话／Personal保留。终端用与全局一致的等宽字体栈，明暗主题各带完整ANSI 16色；样式依赖生产CSP对内联样式的放行。
 
 ## 主要流程
+
+Code 的会话菜单提供后台清单、日志与“结束本会话后台”，存档也在同一菜单。清单每页最多20项，并受256 KiB响应预算约束，选择命令读取 stdout/stderr 的原字节页、完整性及可切换的base64；单个停止只显示请求已接纳，退出码与停止核实分别展示。结束动作经确认后由主进程保存原请求键与实例，应答未知时查询状态并保留原键，显式重核沿原键重试；关闭面板、标签、窗口、断线与存档均不触发停止。
 
 Node 宿主创建时开始准备环境，与窗口加载并行。日常应用执行一次登录 shell，取得 node 与环境；首次连接复用结果，采用后显式解析 Code 的数据、agent、控制目录。预热失败由连接报告，重新连接可重试；退出取消并回收直接读取进程，迟到结果不再采用。`ensureBackend` 先经认证 ping 轻量探测已有后台，正式连接再安装一次完整快照；需要启动时用登录环境中的 node 执行构建时记录的仓库 bin。Code 后台脱离运行，关闭应用不停止它。
 
@@ -103,6 +105,8 @@ Personal 预检总期限为 15 秒；超时或网络失败、远端 socket 暂�
 审批决定从不自动重发。明确失效移除卡片；权限版本不符重读详情并等待重新决定；未发送保留卡片。在线应答丢失查询原审批，断线等待同实例快照，查询失败或过旧保留防重复状态并经现有提示报告；重新连接可再次核实。新快照淘汰旧详情与核实结果；换实例丢弃原操作结果。系统通知送达仍受 macOS 通知设置约束。
 
 ## 设计依据
+
+- [Coding 会话后台持有独立目录占用](../../.agents/notes/implemented/feature/2026-10-21-coding-background-processes.md)
 
 - [持久拥有者问题](../../.agents/notes/implemented/feature/2026-10-21-coding-owner-questions.md)：问题与审批分别登记，可信回答唯一续接。
 

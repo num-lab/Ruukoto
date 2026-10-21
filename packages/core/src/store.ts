@@ -86,6 +86,9 @@ function grantPrefixOf(parent: string, candidate: string): boolean {
   return candidate.startsWith(parent + path.sep);
 }
 
+export type OccupancyHolder = { taskId: string; processId?: never } | { taskId: null; processId: string };
+export type Occupancy = OccupancyHolder & { sessionId: string; cwdReal: string; cwdDev: number; cwdIno: number };
+
 export class Store {
   /** 内部数据库句柄（含测试故障注入点 faultNextWrite）。 */
   readonly db: Db;
@@ -1022,7 +1025,7 @@ export class Store {
     if (!run || run.closed_at || run.status === "canceled") return false;
     const tasks = this.listScheduledRunTasks(runId);
     const ids = new Set(tasks.map((task) => task.id));
-    return !tasks.some((task) => task.effectUnknown) && !this.listAllOccupancy().some((held) => ids.has(held.taskId));
+    return !tasks.some((task) => task.effectUnknown) && !this.listAllOccupancy().some((held) => held.taskId !== null && ids.has(held.taskId));
   }
 
   /** 只读授权核实：按来源任务亲缘查其调度运行，不取接收会话后来状态。 */
@@ -2715,39 +2718,43 @@ export class Store {
   }
 
   /** 单条占用（写入目标键/父写入根的持有者查询；subagent_result 提示由它判定）。 */
-  getOccupancyByDir(cwdReal: string): { taskId: string; sessionId: string } | null {
+  getOccupancyByDir(cwdReal: string): (OccupancyHolder & { sessionId: string }) | null {
     const row = this.db
-      .prepare("SELECT task_id, session_id FROM occupancy WHERE cwd_real = ?")
+      .prepare("SELECT task_id, process_id, session_id FROM occupancy WHERE cwd_real = ?")
       .get(cwdReal) as any;
-    return row ? { taskId: row.task_id, sessionId: row.session_id } : null;
+    return row ? { ...this.occupancyHolder(row), sessionId: row.session_id } : null;
   }
 
   /**
    * 谁挡了目标目录（agent-direction issue 16，subagent_result 提示用）：
    * 与目前任何一条占用取/放同一冲突判定（dev/ino、realpath、分隔符前缀）。
-   * 返回最早挡住它的持锁任务（cwd_real 是占用记录，不是请求匹配目录）。
+   * 返回最早挡住它的持有者（cwd_real 是占用记录，不是请求匹配目录）。
    */
-  findBlockingOccupancy(cwdReal: string, dev: number, ino: number): { taskId: string; sessionId: string; cwdReal: string } | null {
-    const rows = this.db.prepare("SELECT cwd_real, cwd_dev, cwd_ino, session_id, task_id FROM occupancy ORDER BY acquired_at, rowid LIMIT 1000").all() as Array<{ cwd_real: string; cwd_dev: number | bigint; cwd_ino: number | bigint; session_id: string; task_id: string }>;
+  findBlockingOccupancy(cwdReal: string, dev: number, ino: number): (OccupancyHolder & { sessionId: string; cwdReal: string }) | null {
+    const rows = this.db.prepare("SELECT cwd_real, cwd_dev, cwd_ino, session_id, task_id, process_id FROM occupancy ORDER BY acquired_at, rowid LIMIT 1000").all() as Array<{ cwd_real: string; cwd_dev: number | bigint; cwd_ino: number | bigint; session_id: string; task_id: string | null; process_id: string | null }>;
     for (const row of rows) {
       const other = { cwdReal: row.cwd_real, cwdDev: Number(row.cwd_dev), cwdIno: Number(row.cwd_ino) };
       if (occupancyConflict({ cwdReal, cwdDev: dev, cwdIno: ino }, other)) {
-        return { taskId: row.task_id, sessionId: row.session_id, cwdReal: row.cwd_real };
+        return { ...this.occupancyHolder(row), sessionId: row.session_id, cwdReal: row.cwd_real };
       }
     }
     return null;
   }
 
   /** 全部占用（崩溃恢复时核对：旧执行是否确认停止，未确认前保留）。 */
-  listAllOccupancy(): Array<{ cwdReal: string; cwdDev: number; cwdIno: number; taskId: string; sessionId: string }> {
+  listAllOccupancy(): Occupancy[] {
     const rows = this.db.prepare("SELECT * FROM occupancy").all() as any[];
     return rows.map((row) => ({
       cwdReal: row.cwd_real,
       cwdDev: Number(row.cwd_dev),
       cwdIno: Number(row.cwd_ino),
-      taskId: row.task_id,
+      ...this.occupancyHolder(row),
       sessionId: row.session_id,
     }));
+  }
+
+  private occupancyHolder(row: { task_id: string | null; process_id: string | null }): OccupancyHolder {
+    return row.task_id === null ? { taskId: null, processId: row.process_id! } : { taskId: row.task_id };
   }
 
   // ---------- 事件读取（快照与补发） ----------

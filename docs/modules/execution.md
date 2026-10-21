@@ -25,6 +25,7 @@
 | 已批准越界操作 | `packages/agent/src/execution/approved-ops.ts` | 后台受信执行器完成，不进工作进程；执行参数取自审批保存的不可变请求 |
 | 受管执行单元登记表 | `packages/agent/src/managed-processes.ts` 的 `register` / `list` / `clear` | 每会话一份，登记可回收的执行单元身份 |
 | 需跨进程核实的 Linux 宿主 | `launchLinuxExecution(directory, ref, input, spec)`、`stopLinuxExecution(directory, ref, expectedFingerprint?)` | 宿主先保存执行引用；私有目录独占认领，同键不再启动；受限输入走 bwrap，完全访问仅在持久 tracking 下直接启动 worker、继承过滤后的用户环境且不将环境值落盘；个人 durable 恢复传原启动指纹，只接受已有 launch 认领 |
+| 需跨进程核实的 macOS 完全访问宿主 | `launchMacosExecution(directory, ref, input, spec)`、`stopMacosExecution(directory, ref, expectedFingerprint?)` | 私有目录认领一次启动；监督器持久保存机器/boot、目录与进程寿命身份，核实全部已归属后代与输出管道后保存停止回执；恢复只停止原身份，无回执且监督器已退出时保留未核实 |
 | 宿主编排调用方 | `WorkflowScriptHost`（`packages/agent/src/script-worker/host.ts`） | 先登记 `entry()` 启动占位，再 `run(script, input, invoke, options)`；`onIdentity` 在启动完成后交给宿主持久化实际身份；`identity()`、`output`、`stopFailure` 与重复 `stop()` 保留退出事实 |
 
 Coding 正式入口仅接受 `RUUKOTO_EXECUTION_BACKEND=native` 或不设覆盖；旧 local/container 覆盖被拒。运行入口与部署步骤见 [usage](../usage.md)。
@@ -72,6 +73,8 @@ Coding 正式入口仅接受 `RUUKOTO_EXECUTION_BACKEND=native` 或不设覆盖�
 受管执行单元登记表记录三种身份：`process_group`（local 进程组或 macOS 原生监督器，原生停止由监督器核实全部已归属后代）、`systemd_unit`（Linux 原生 user scope 或服务 helper 命令单元）、`starting`（ready 前的占位，同样参与停止）。原生执行每单元持有独立 HOME 与 TMPDIR，临时资料仅在停止已核实时删除；未核实时与目录占用一起保留。
 
 Linux 持久认领另存于宿主私有目录，受限 worker 不可见，完全访问同账户仍可访问：固定执行引用、本机/boot、scope、参数指纹、独立 launcher 寿命及原单元/cgroup 观察。原子认领只授予一次启动权，停止先手也占用该身份。认领和临时资料不自动删除，停止结果不代表命令效果或允许重放；调用方负责保存效果回执、工作归属和占用。
+
+macOS 持久执行另存私有认领、监督器身份与停止回执，固定执行引用只含宿主分配的 `executionId`。认领独占创建并同步落盘，停止先手同样占用原引用；命令通过启动门后才派发。当前仅接受完全访问输入，继承过滤后的用户环境，参数指纹与记录不保存环境值。监督器自持 stdout/stderr 管道，以有界缓冲转发并持续核实后代；宿主断开时停止并排空原管道，预览完整性与进程停止分别记录。停止恢复核对原认领、可选预期指纹、机器/boot、目录 dev/ino 和监督器 PID/uniqueid/开始时间/pidversion，使用内核原子身份信号；缺证据、身份换代或监督器强杀后没有回执均不能释放占用。认领、日志与工作占用的业务生命周期由调用方持有，同账户完全访问不因私有文件权限成为隔离。
 
 启动及证据存储失败通过 `ExecutionError` 报告；已创建单元的失败继续携带停止句柄。前置拒绝后连未派发证明也写入失败时，`cause` 保留原失败与证据失败，停止仍保持未核实。
 
@@ -257,6 +260,8 @@ sequenceDiagram
 全局保护根未作为显式只读挂载时，外部特权预存的子文件 bind 别名仍有原生旁路；显式来源只读范围和宿主文件入口按上述 inode 检查拒绝。该既有情形保留真实反例，另作原生保护审计；原生边界不承诺抵抗宿主外部特权准备。
 
 ## 设计依据
+
+- [Coding 会话后台持有独立目录占用](../../.agents/notes/implemented/feature/2026-10-21-coding-background-processes.md)
 
 - [受控文件检索](../../.agents/notes/implemented/feature/2026-10-21-controlled-file-search.md)：宿主工具链、读取范围和扫描预算。
 

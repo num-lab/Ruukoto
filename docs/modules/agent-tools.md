@@ -17,6 +17,10 @@
 
 ## 对外接口
 
+`process_start` 接收最多16384字符的非空命令，独立后台跨拥有者消息保留；宿主固定目录、环境、平台身份和权限。`process_status` 按本会话记录查询，保留原启动来源与权限模式，列表每页最多20条且不超过256 KiB；`process_output` 用原字节 offset 读取 stdout/stderr 的32 KiB页，base64保留原字节；`process_stop` 立即返回停止意图接纳，须再查询 stopped 与 stopVerified。主命令退出码仅为观察，启动不承诺服务健康，停止不证明外部效果回滚。
+
+后台交接后当前轮立即收窄为状态、日志、停止、提问与有效完全访问浏览器；参考块说明先停后改，普通 worker、MCP、目录读取和委派均关闭。新受限拥有者轮可查询和可信停止；Plan 不能启动或浏览。停止完成后仍保留观测工具，status 取得目录才重开业务工具；后台占用不能由 agent_wait 让出。装配、发送前和调用门使用同一工具集合，浏览器逐调用重核原后台与当前输入来源。
+
 `ask_user({questions:[{question,options?,multiple?}]})` 登记1–3题并立即返回 pending；题目最多2000字符，选项2–5项，名字互异非空且最多200字符。选项可为字符串或 `{label,description?,recommended?}`，说明最多500字符，推荐只展示不预选；`multiple: true` 须有选项。每题均可自由输入或 Skip，跳题保存空答案，多选答案只包含选项名。仅真实普通开发输入和Plan开放，SubAgent、工作流、定时及内部汇总不装配。登记后当前任务只留宿主状态查询，模型输出说明并结束本轮；问题卡片回答作为下一轮拥有者输入，不批准操作。装配、发送前与调用门共同收窄；其他普通聊天不受待答状态限制。
 
 个人 durable 另以原生工具装配文件、HTTP、搜索和产物，不使用旧 ApprovalGate/ArtifactStore。`web-search-transport.ts` 提供不持有旧项目或任务的 `requestTavily`，返回映射结果和字段截断前有界脱敏原响应；旧 `searchTavily` 包装继续核实原 CredentialStore 的 host/purpose/scope。个人接纳、审查、撤销与恢复见 [personal-durable](personal-durable.md)。
@@ -266,6 +270,8 @@ sequenceDiagram
 宿主绑定的[工作流步骤](workflows.md)另有来源画像，普通 SubAgent 不因此扩权。步骤工具是保存的来源类别、当前配置与步骤收窄的交集；main 的编码资格只映射已有受控委派的五个工具。发送、意图和实际调用前复核来源，个人业务身份属于来源，执行与审批归步骤 Task；工作流 `verify` 独立于角色，与 `target` 互斥，只开放五个编码工具并使用原生沙箱；任意角色均不能放宽。零工具、失败或未知效果不能由通过文本覆盖，汇入前重新核实账本与冻结归属。
 
 ## 设计依据
+
+- [Coding 会话后台持有独立目录占用](../../.agents/notes/implemented/feature/2026-10-21-coding-background-processes.md)
 
 - [Coding 持久问题与可信续接](../../.agents/notes/implemented/feature/2026-10-21-coding-owner-questions.md)
 

@@ -2,7 +2,7 @@
 
 ## 确认范围
 
-2026-10-21 拥有者要求为文件检索、后台进程和提问制定方案，并确认：两端规划，先 Coding Agent；后台进程跨消息保留，直到显式停止或会话关闭；首版先停后台再修改同目录代码，保留现有占用规则。原方案轮只交付方案；拥有者随后授权接手 Coding 文件检索和持久提问，其余切片仍仅为规划。方案与实施按[开发流程](../../.agents/skills/development-workflow/SKILL.md)推进。
+2026-10-21 拥有者要求为文件检索、后台进程和提问制定方案，并确认：两端规划，先 Coding Agent；后台进程跨消息保留，直到显式停止或会话关闭；首版先停后台再修改同目录代码，保留现有占用规则。原方案轮只交付方案；拥有者随后分别授权接手 Coding 文件检索、持久提问和后台进程，个人接入仍仅为规划。方案与实施按[开发流程](../../.agents/skills/development-workflow/SKILL.md)推进。
 
 先交付三个 Coding 完整切片，再接个人 durable；统一模型工具语义，不共用业务存储、Task 或审批记录。实现入口依次为[文件检索](issues/01-coding-file-search.md)、[提问](issues/02-coding-owner-questions.md)、[后台进程](issues/03-coding-background-processes.md)、[个人接入](issues/04-personal-adapters.md)。各切片可独立审查，不以只注册工具或只做客户端样例视为完成。
 
@@ -64,7 +64,7 @@ Coding 在 `Runtime.submit` 的同一事务内核实并消费问题、保存答�
 | 工具 | 参数 | 结果 |
 | --- | --- | --- |
 | `process_start` | `command`，非空、最多16384字符 | 单次启动并返回唯一 `process_id` 与实际状态；不承诺服务已健康 |
-| `process_status` | `process_id?`、`offset?` | 无ID时按创建时间倒序分页列本会话记录，offset默认0、每页最多20项，返回totalCount/nextOffset；指定ID时不得带offset，给状态、启动来源、退出观察、停止核实及日志大小 |
+| `process_status` | `process_id?`、`offset?` | 无ID时按创建时间倒序分页列本会话记录，offset默认0、每页最多20项及256 KiB，返回totalCount/nextOffset；指定ID时不得带offset，给状态、启动来源、退出观察、停止核实及日志大小 |
 | `process_output` | `process_id`、`stream`（stdout/stderr）、`offset?` | 按原字节位置读取，默认0、每页最多32 KiB；返回实际片段、nextOffset与完整性，文本展示不得破坏原字节 |
 | `process_stop` | `process_id` | 持久登记停止意图并立即返回；通过status核实停止完成，不把接纳当已停止 |
 
@@ -100,7 +100,7 @@ Coding 在 `Runtime.submit` 的同一事务内核实并消费问题、保存答�
 
 个人端必须新增共享durable目录claim，而不是只在后台启动时查询一次：后台starting预留、普通run_command的prepare/start、文件write_file的批准消费都在各自commit中双向核实并取得同一认领，覆盖现有父子路径和dev/ino冲突规则。普通命令持有至停止核实，文件写持有至写入/关闭观察完成；效果或停止未核实按原操作保留。这样既阻止后台之前已在途的写入，也阻止后台之后的新写入；即使完全访问、子工作或定时命令也不能跳过本结构化入口的认领。恢复核对claim与原操作/来源反链，不能由Task意外终态清除。接入前升级扩展并拒绝旧未决状态，旧程序缺扩展须拒绝，不能忽略新后台或继续走旧无claim写入口。
 
-设计取舍见[后台生命周期提案](../../.agents/notes/proposed/feature/2026-10-14-bash-background-lifecycle.md)。
+Coding的独立占用、平台停止和恢复决定见[会话后台](../../.agents/notes/implemented/feature/2026-10-21-coding-background-processes.md)；个人接入与原始取舍见[后台生命周期提案](../../.agents/notes/proposed/feature/2026-10-14-bash-background-lifecycle.md)。
 
 ## 4. 持久化与交付约束
 

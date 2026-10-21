@@ -1,0 +1,214 @@
+{
+  "base": "/tmp/ruukoto-bg-linux-dxbyav",
+  "node": "v24.21.0",
+  "platform": "linux",
+  "source": "actual production modules bundled with esbuild",
+  "results": [
+    {
+      "scenario": "wrong-invocation",
+      "conservativeRefusal": {
+        "exited": false,
+        "descendantAlive": true,
+        "heartbeatContinues": true
+      },
+      "ref": {
+        "executionId": "native_876dc80ff99be36e2b26d3f6",
+        "machineId": "fd410411419d40079742fdbc36dec028"
+      },
+      "scope": "ruukoto-native_876dc80ff99be36e2b26d3f6.scope",
+      "bootId": "ce49a58c-036d-4dfa-a7dc-99f3b9682ca6",
+      "token": "dc8595312b0db9a15dbd3972354a2b79",
+      "observation": {
+        "group": "/sys/fs/cgroup/user.slice/user-1003.slice/user@1003.service/app.slice/ruukoto-native_876dc80ff99be36e2b26d3f6.scope",
+        "invocationId": "813910daf3d54a888cf9f8347ad3be61",
+        "dev": 29,
+        "ino": 2236672
+      },
+      "launcher": {
+        "pid": 392262,
+        "startTime": "1200672614",
+        "processGroup": 392262
+      },
+      "desc": {
+        "pid": 392270,
+        "pgid": 392270
+      },
+      "descendantCgroup": "0::/user.slice/user-1003.slice/user@1003.service/app.slice/ruukoto-native_876dc80ff99be36e2b26d3f6.scope",
+      "launcherExitedBeforeStop": false,
+      "stopExit": {
+        "code": 0,
+        "signal": null,
+        "stderr": ""
+      },
+      "stopResult": {
+        "ref": {
+          "executionId": "native_876dc80ff99be36e2b26d3f6",
+          "machineId": "fd410411419d40079742fdbc36dec028"
+        },
+        "exited": true
+      },
+      "repeat": true,
+      "duplicateRejected": true,
+      "heartbeatContinues": false,
+      "descendantAlive": false,
+      "stdoutEof": true
+    },
+    {
+      "scenario": "wrong-fingerprint",
+      "conservativeRefusal": {
+        "exited": false,
+        "descendantAlive": true,
+        "heartbeatContinues": true
+      },
+      "ref": {
+        "executionId": "native_0240851901b37f04492c14fb",
+        "machineId": "fd410411419d40079742fdbc36dec028"
+      },
+      "scope": "ruukoto-native_0240851901b37f04492c14fb.scope",
+      "bootId": "ce49a58c-036d-4dfa-a7dc-99f3b9682ca6",
+      "token": "85b15524a8eb410e3bd7723d502ea2c1",
+      "observation": {
+        "group": "/sys/fs/cgroup/user.slice/user-1003.slice/user@1003.service/app.slice/ruukoto-native_0240851901b37f04492c14fb.scope",
+        "invocationId": "33b5612a13b54dd99cf0fbb2acde9ee4",
+        "dev": 29,
+        "ino": 2236735
+      },
+      "launcher": {
+        "pid": 392295,
+        "startTime": "1200672690",
+        "processGroup": 392295
+      },
+      "desc": {
+        "pid": 392303,
+        "pgid": 392303
+      },
+      "descendantCgroup": "0::/user.slice/user-1003.slice/user@1003.service/app.slice/ruukoto-native_0240851901b37f04492c14fb.scope",
+      "launcherExitedBeforeStop": false,
+      "stopExit": {
+        "code": 0,
+        "signal": null,
+        "stderr": ""
+      },
+      "stopResult": {
+        "ref": {
+          "executionId": "native_0240851901b37f04492c14fb",
+          "machineId": "fd410411419d40079742fdbc36dec028"
+        },
+        "exited": true
+      },
+      "repeat": true,
+      "duplicateRejected": true,
+      "heartbeatContinues": false,
+      "descendantAlive": false,
+      "stdoutEof": true
+    },
+    {
+      "scenario": "wrong-inode",
+      "conservativeRefusal": {
+        "exited": false,
+        "descendantAlive": true,
+        "heartbeatContinues": true
+      },
+      "ref": {
+        "executionId": "native_560081f3692c1faa7312fa88",
+        "machineId": "fd410411419d40079742fdbc36dec028"
+      },
+      "scope": "ruukoto-native_560081f3692c1faa7312fa88.scope",
+      "bootId": "ce49a58c-036d-4dfa-a7dc-99f3b9682ca6",
+      "token": "499c737f9040656b49a92a3ee1d52dbd",
+      "observation": {
+        "group": "/sys/fs/cgroup/user.slice/user-1003.slice/user@1003.service/app.slice/ruukoto-native_560081f3692c1faa7312fa88.scope",
+        "invocationId": "76c28c5601b54f8b9ac41e4095a3d22a",
+        "dev": 29,
+        "ino": 2236798
+      },
+      "launcher": {
+        "pid": 392330,
+        "startTime": "1200672765",
+        "processGroup": 392330
+      },
+      "desc": {
+        "pid": 392338,
+        "pgid": 392338
+      },
+      "descendantCgroup": "0::/user.slice/user-1003.slice/user@1003.service/app.slice/ruukoto-native_560081f3692c1faa7312fa88.scope",
+      "launcherExitedBeforeStop": false,
+      "stopExit": {
+        "code": 0,
+        "signal": null,
+        "stderr": ""
+      },
+      "stopResult": {
+        "ref": {
+          "executionId": "native_560081f3692c1faa7312fa88",
+          "machineId": "fd410411419d40079742fdbc36dec028"
+        },
+        "exited": true
+      },
+      "repeat": true,
+      "duplicateRejected": true,
+      "heartbeatContinues": false,
+      "descendantAlive": false,
+      "stdoutEof": true
+    },
+    {
+      "scenario": "scope-replacement",
+      "replacement": {
+        "state": {
+          "ControlGroup": "/user.slice/user-1003.slice/user@1003.service/app.slice/ruukoto-native_d310a9e3c858225645267257.scope",
+          "Description": "ruukoto-proof-replacement",
+          "ActiveState": "active",
+          "InvocationID": "9db6e86f624346c8b2d620debd4656aa"
+        },
+        "oldStopExited": false,
+        "replacementAlive": true,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "ref": {
+        "executionId": "native_d310a9e3c858225645267257",
+        "machineId": "fd410411419d40079742fdbc36dec028"
+      },
+      "scope": "ruukoto-native_d310a9e3c858225645267257.scope",
+      "bootId": "ce49a58c-036d-4dfa-a7dc-99f3b9682ca6",
+      "token": "b4ad75244d6ea4e643446b05ea523627",
+      "observation": {
+        "group": "/sys/fs/cgroup/user.slice/user-1003.slice/user@1003.service/app.slice/ruukoto-native_d310a9e3c858225645267257.scope",
+        "invocationId": "dc87f2eac6d74d4ebcaad2fdcd04a033",
+        "dev": 29,
+        "ino": 2236861
+      },
+      "launcher": {
+        "pid": 392359,
+        "startTime": "1200672841",
+        "processGroup": 392359
+      },
+      "desc": {
+        "pid": 392367,
+        "pgid": 392367
+      },
+      "descendantCgroup": "0::/user.slice/user-1003.slice/user@1003.service/app.slice/ruukoto-native_d310a9e3c858225645267257.scope",
+      "launcherExitedBeforeStop": false,
+      "stopExit": {
+        "code": 0,
+        "signal": null,
+        "stderr": ""
+      },
+      "stopResult": {
+        "ref": {
+          "executionId": "native_d310a9e3c858225645267257",
+          "machineId": "fd410411419d40079742fdbc36dec028"
+        },
+        "exited": true
+      },
+      "repeat": true,
+      "duplicateRejected": true,
+      "heartbeatContinues": false,
+      "descendantAlive": false,
+      "stdoutEof": true
+    }
+  ],
+  "failed": null
+}

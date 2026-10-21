@@ -226,6 +226,45 @@ test("移除存储条目后内联与环境来源仍保留，元数据不宣称�
   }
 });
 
+test("离线模型元数据读取不创建缺失的 auth.json 或改变 revision", async () => {
+  const { dirs } = await makeTestDirs("model-metadata-readonly", 0);
+  try {
+    await writeModelsJson(dirs, "http://127.0.0.1:1");
+    const authFile = path.join(dirs.agentDir, "auth.json");
+    const revision = configRevision(dirs.agentDir);
+    const files = fs.readdirSync(dirs.agentDir);
+    const metadata = await loadModelConfigMetadata(dirs.agentDir);
+    assert.equal(metadata.models.length, 1);
+    assert.equal(fs.existsSync(authFile), false);
+    assert.equal(configRevision(dirs.agentDir), revision);
+    assert.deepEqual(fs.readdirSync(dirs.agentDir), files);
+  } finally {
+    await cleanupDirs(dirs);
+  }
+});
+
+test("模型配置解析失败不回显秘密文件中的原始 JSON 片段", async () => {
+  const live = await startManual("model-metadata-parse-error", textResponder);
+  try {
+    for (const [file, secret] of [["auth.json", "auth-secret"], ["models.json", "catalog-secret"]]) {
+      const target = path.join(live.dirs.agentDir, file);
+      const before = fs.readFileSync(target);
+      fs.writeFileSync(target, secret);
+      try {
+        await assert.rejects(live.client.request("get_model_config", {}), (error: Error) => {
+          assert.ok(error.message.includes(file));
+          assert.ok(!error.message.includes(secret));
+          return true;
+        });
+      } finally {
+        fs.writeFileSync(target, before);
+      }
+    }
+  } finally {
+    await cleanupManual(live);
+  }
+});
+
 test("probeModelConfig：有配置可用 / 空目录不可用", async () => {
   const { dirs } = await makeTestDirs("model-config-probe", 0);
   try {
@@ -312,6 +351,24 @@ test("save_model_catalog：空闲应用即时生效、修订变化、冲突与�
     const ghost = { baseUrl: t.baseUrl, api: "openai-completions", apiKey: true, models: [{ id: "g" }] };
     await assert.rejects(
       t.client.request("save_model_catalog", { providers: { ...after.providers, ghost }, expected_revision: saved.revision }),
+      (err: any) => err.code === "invalid_params",
+    );
+    const overrideGhost = structuredClone(after.providers);
+    overrideGhost.extra.modelOverrides = { "extra-model": { headers: { "X-No-Original": true } } };
+    await assert.rejects(
+      t.client.request("save_model_catalog", { providers: overrideGhost, expected_revision: saved.revision }),
+      (err: any) => err.code === "invalid_params",
+      "modelOverrides 中没有原值的秘密占位符必须在写盘前拒绝",
+    );
+    overrideGhost.extra.modelOverrides = { "extra-model": { apiKey: true } };
+    await assert.rejects(
+      t.client.request("save_model_catalog", { providers: overrideGhost, expected_revision: saved.revision }),
+      (err: any) => err.code === "invalid_params",
+    );
+    delete overrideGhost.extra.modelOverrides;
+    overrideGhost.extra.models[0].apiKey = true;
+    await assert.rejects(
+      t.client.request("save_model_catalog", { providers: overrideGhost, expected_revision: saved.revision }),
       (err: any) => err.code === "invalid_params",
     );
     assert.equal(fs.readFileSync(path.join(t.dirs.agentDir, "models.json"), "utf8"), bytesBefore, "校验失败不得改动文件");
@@ -672,11 +729,13 @@ test("配置锁：同 agentDir 互斥、在线时离线写入被拒、停止后�
 
 test("test_model_connection：显式联网探测，未知 provider 与服务端错误报失败且不泄露秘密", async () => {
   let failing = false;
+  const oauth = { type: "oauth", access: "oauth-error-access-secret", refresh: "oauth-error-refresh-secret", expires: 0 };
   const t = await startManual("model-config-conn", (req, i) => {
-    if (failing) throw new Error("upstream down");
+    if (failing) throw new Error(`upstream down ${oauth.access} ${oauth.refresh}`);
     return textResponder(req, i);
   });
   try {
+    fs.writeFileSync(path.join(t.dirs.agentDir, "auth.json"), JSON.stringify({ "metadata-oauth": oauth }));
     const ok = await t.client.request<any>("test_model_connection", { provider: "mock", model_id: "mock-model" });
     assert.equal(ok.ok, true, ok.detail);
     const unknownProvider = await t.client.request<any>("test_model_connection", { provider: "nope", model_id: "x" });
@@ -690,6 +749,9 @@ test("test_model_connection：显式联网探测，未知 provider 与服务端�
     const down = await t.client.request<any>("test_model_connection", { provider: "mock", model_id: "mock-model" });
     assert.equal(down.ok, false, down.detail);
     assert.ok(!down.detail.includes("mock-key"), "错误详情不得包含秘密");
+    assert.ok(down.detail.includes("***"), "真实 provider 错误中的 OAuth token 应脱敏");
+    assert.ok(!down.detail.includes(oauth.access));
+    assert.ok(!down.detail.includes(oauth.refresh));
   } finally {
     await cleanupManual(t);
   }

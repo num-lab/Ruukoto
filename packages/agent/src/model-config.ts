@@ -14,7 +14,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { createHash } from "node:crypto";
-import { getSupportedThinkingLevels, InMemoryModelsStore } from "@earendil-works/pi-ai";
+import { getSupportedThinkingLevels, InMemoryCredentialStore, InMemoryModelsStore } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { ModelSelection } from "@ruukoto/core/types.ts";
 import { createModelCatalog } from "./model-selection.ts";
@@ -36,7 +36,7 @@ export interface ConfiguredModelMetadata {
   provider: string;
   modelId: string;
   name: string;
-  thinkingLevels: string[] | null;
+  thinkingLevels: ModelSelection["thinkingLevel"][] | null;
 }
 
 export interface ModelCredentialSourceMetadata {
@@ -82,8 +82,8 @@ export function loadModelCatalogFile(agentDir: string): ModelCatalogFile {
   let parsed: unknown;
   try {
     parsed = JSON.parse(fs.readFileSync(file, "utf8"));
-  } catch (err) {
-    throw new Error(`models.json 不是合法 JSON，请修复或删除后重试：${(err as Error).message}`);
+  } catch {
+    throw new Error("models.json 不是合法 JSON，请修复后重试");
   }
   if (!isPlainObject(parsed) || !isPlainObject(parsed["providers"])) {
     throw new Error("models.json 结构无效：顶层必须是含 providers 对象的 JSON");
@@ -106,6 +106,9 @@ export function validateModelCatalog(data: unknown): string[] {
       // 残留的脱敏占位符（true）同样拒绝：它只能沿用同名头的原值
       errors.push(`${label}：headers 必须是字符串键值对（*** 为脱敏占位，只能保留同名头的原值）`);
     }
+  };
+  const checkApiKey = (apiKey: unknown, label: string): void => {
+    if (apiKey !== undefined && typeof apiKey !== "string") errors.push(`${label}：apiKey 必须是字符串（脱敏视图中的 true 为占位符，请重新输入或移除该字段）`);
   };
   for (const [providerId, def] of Object.entries(data["providers"])) {
     if (!providerId.trim()) {
@@ -135,11 +138,20 @@ export function validateModelCatalog(data: unknown): string[] {
     if (def["api"] !== undefined && (typeof def["api"] !== "string" || !(def["api"] as string).trim())) {
       errors.push(`provider ${providerId}：api 必须是非空字符串`);
     }
-    if (def["apiKey"] !== undefined && typeof def["apiKey"] !== "string") {
-      // 脱敏占位符（true）回写必须拒绝，防止把占位符当作 key 落盘
-      errors.push(`provider ${providerId}：apiKey 必须是字符串（脱敏视图中的 true 为占位符，请重新输入或移除该字段）`);
-    }
+    checkApiKey(def["apiKey"], `provider ${providerId}`);
     checkHeaders(def["headers"], `provider ${providerId}`);
+    if (def["modelOverrides"] !== undefined) {
+      if (!isPlainObject(def["modelOverrides"])) errors.push(`provider ${providerId}：modelOverrides 必须是对象`);
+      else {
+        for (const [modelId, override] of Object.entries(def["modelOverrides"])) {
+          if (!isPlainObject(override)) errors.push(`provider ${providerId} 的 modelOverrides ${modelId}：必须是对象`);
+          else {
+            checkApiKey(override["apiKey"], `provider ${providerId} 的 modelOverrides ${modelId}`);
+            checkHeaders(override["headers"], `provider ${providerId} 的 modelOverrides ${modelId}`);
+          }
+        }
+      }
+    }
     if (def["models"] !== undefined && !Array.isArray(def["models"])) {
       errors.push(`provider ${providerId}：models 必须是数组`);
       continue;
@@ -153,6 +165,7 @@ export function validateModelCatalog(data: unknown): string[] {
       if (typeof model["id"] !== "string" || !(model["id"] as string).trim()) {
         errors.push(`${label}：id 必须是非空字符串`);
       }
+      checkApiKey(model["apiKey"], label);
       checkHeaders(model["headers"], label);
       const contextWindow = model["contextWindow"];
       const maxTokens = model["maxTokens"];
@@ -180,8 +193,8 @@ export function loadAuthFile(agentDir: string): Record<string, any> {
   let parsed: unknown;
   try {
     parsed = JSON.parse(fs.readFileSync(file, "utf8"));
-  } catch (err) {
-    throw new Error(`auth.json 不是合法 JSON，请修复或删除后重试：${(err as Error).message}`);
+  } catch {
+    throw new Error("auth.json 不是合法 JSON，请修复后重试");
   }
   if (!isPlainObject(parsed)) throw new Error("auth.json 结构无效：顶层必须是 JSON 对象");
   return parsed as Record<string, any>;
@@ -242,7 +255,7 @@ export function readModelConfigMetadata(agentDir: string, runtime: ModelRuntime,
 
 /** 离线设置仅构造 SDK 静态目录，不刷新目录或认证状态。 */
 export async function loadModelConfigMetadata(agentDir: string): Promise<ModelConfigMetadata> {
-  const runtime = await ModelRuntime.create({ authPath: path.join(agentDir, AUTH_FILE), modelsPath: path.join(agentDir, MODELS_FILE), modelsStore: new InMemoryModelsStore(), refreshOnCreate: false });
+  const runtime = await ModelRuntime.create({ credentials: new InMemoryCredentialStore(), modelsPath: path.join(agentDir, MODELS_FILE), modelsStore: new InMemoryModelsStore(), refreshOnCreate: false });
   const configured = resolveConfiguredModel(runtime, { agentDir });
   return readModelConfigMetadata(agentDir, runtime, configured?.model.provider);
 }

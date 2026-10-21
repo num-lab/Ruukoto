@@ -1,6 +1,6 @@
 # Coding 文件发现与内容检索
 
-Status: needs-info
+Status: ready-for-agent
 
 ## 目标与边界
 

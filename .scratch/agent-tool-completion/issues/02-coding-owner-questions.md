@@ -1,6 +1,6 @@
 # Coding 持久提问与可信回答续接
 
-Status: needs-info
+Status: ready-for-agent
 
 ## 目标与边界
 

@@ -26,8 +26,9 @@ import { InMemoryModelsStore } from "@earendil-works/pi-ai";
 import { Runtime, type RuntimeConfig } from "@ruukoto/runtime/runtime.ts";
 import { ControlServer } from "@ruukoto/control/server.ts";
 import { acquireConfigLock, InstanceLockError } from "@ruukoto/core/instance-lock.ts";
-import { configRevision, configSecrets, loadModelConfigMetadata, probeModelConfig, readModelConfigMetadata, removeProviderCredential, restoreCatalogSecrets, sanitizeCatalog } from "@ruukoto/agent/model-config.ts";
+import { configRevision, configSecrets, loadModelConfigMetadata, probeModelConfig, readModelConfigMetadata, removeProviderCredential, restoreCatalogSecrets, sanitizeCatalog, setProviderApiKey } from "@ruukoto/agent/model-config.ts";
 import { createMockTools } from "@ruukoto/agent/mock-tools.ts";
+import { ModelSelectionError } from "@ruukoto/agent/model-selection.ts";
 import { MockModelServer, type Responder } from "./helpers/mock-provider.ts";
 import {
   makeTestDirs,
@@ -749,11 +750,136 @@ test("test_model_connection：显式联网探测，未知 provider 与服务端�
     const down = await t.client.request<any>("test_model_connection", { provider: "mock", model_id: "mock-model" });
     assert.equal(down.ok, false, down.detail);
     assert.ok(!down.detail.includes("mock-key"), "错误详情不得包含秘密");
-    assert.ok(down.detail.includes("***"), "真实 provider 错误中的 OAuth token 应脱敏");
+    assert.ok(down.detail.includes("请检查"), "上游失败应返回固定的下一步指引");
     assert.ok(!down.detail.includes(oauth.access));
     assert.ok(!down.detail.includes(oauth.refresh));
   } finally {
     await cleanupManual(t);
+  }
+});
+
+test("连接测试不回显上游反射的运行时 key、环境展开值、命令输出或动态请求头", async () => {
+  let reflected = "";
+  const live = await startManual("model-dynamic-secret-errors", () => { throw new Error(reflected); });
+  const envKeyBefore = process.env.RUUKOTO_CONNECTION_TEST_KEY;
+  const envHeaderBefore = process.env.RUUKOTO_CONNECTION_TEST_HEADER;
+  const secrets = ["runtime-reflected-secret", "environment-reflected-secret", "command-reflected-secret", "header-reflected-secret"];
+  const expectPrivateFailure = async (): Promise<void> => {
+    const result = await live.client.request<any>("test_model_connection", { provider: "mock", model_id: "mock-model" });
+    assert.equal(result.ok, false);
+    assert.ok(result.detail.includes("请检查"));
+    for (const secret of secrets) assert.ok(!JSON.stringify(result).includes(secret), "上游错误不能回传动态秘密");
+  };
+  try {
+    await live.runtime.modelRuntime.setRuntimeApiKey("mock", secrets[0]);
+    assert.equal((await live.runtime.modelRuntime.getAuth("mock"))?.auth.apiKey, secrets[0]);
+    reflected = `upstream failure ${secrets[0]}`;
+    await expectPrivateFailure();
+    await live.runtime.modelRuntime.removeRuntimeApiKey("mock");
+    process.env.RUUKOTO_CONNECTION_TEST_KEY = secrets[1];
+    process.env.RUUKOTO_CONNECTION_TEST_HEADER = secrets[3];
+    for (const [raw, expected] of [["$RUUKOTO_CONNECTION_TEST_KEY", secrets[1]], [`!printf '%s' '${secrets[2]}'`, secrets[2]]]) {
+      const providers = readModels(live.dirs).providers;
+      providers.mock.apiKey = raw;
+      providers.mock.headers = { "X-Reflection": "$RUUKOTO_CONNECTION_TEST_HEADER" };
+      await live.client.request("save_model_catalog", { providers, expected_revision: configRevision(live.dirs.agentDir) });
+      const model = live.runtime.modelRuntime.getModel("mock", "mock-model")!;
+      const resolved = await live.runtime.modelRuntime.getAuth(model);
+      assert.equal(resolved?.auth.apiKey, expected);
+      assert.equal(resolved?.auth.headers?.["X-Reflection"], secrets[3]);
+      reflected = `upstream failure ${expected} ${secrets[3]}`;
+      await expectPrivateFailure();
+    }
+    const providers = readModels(live.dirs).providers;
+    providers.mock.apiKey = `!false # ${secrets[2]}`;
+    await live.client.request("save_model_catalog", { providers, expected_revision: configRevision(live.dirs.agentDir) });
+    await expectPrivateFailure();
+  } finally {
+    if (envKeyBefore === undefined) delete process.env.RUUKOTO_CONNECTION_TEST_KEY;
+    else process.env.RUUKOTO_CONNECTION_TEST_KEY = envKeyBefore;
+    if (envHeaderBefore === undefined) delete process.env.RUUKOTO_CONNECTION_TEST_HEADER;
+    else process.env.RUUKOTO_CONNECTION_TEST_HEADER = envHeaderBefore;
+    await cleanupManual(live);
+  }
+});
+
+test("模型配置视图与保存保留 __proto__ header、额外字段与存储提供方", async () => {
+  const live = await startManual("model-proto-fields", textResponder);
+  const file = path.join(live.dirs.agentDir, "models.json");
+  try {
+    const providers = readModels(live.dirs).providers;
+    providers.mock.headers = JSON.parse('{"__proto__":"provider-proto-secret","X-Keep":"provider-keep-secret"}');
+    providers.mock.models[0].headers = JSON.parse('{"__proto__":"model-proto-secret","X-Keep":"model-keep-secret"}');
+    providers.mock.modelOverrides = { "mock-model": { headers: JSON.parse('{"__proto__":"override-proto-secret","X-Keep":"override-keep-secret"}') } };
+    providers.mock.opaque = JSON.parse('{"__proto__":{"advanced":true},"other":2}');
+    fs.writeFileSync(file, JSON.stringify({ providers }));
+    setProviderApiKey(live.dirs.agentDir, "__proto__", "storage-proto-secret");
+    let view = await live.client.request<any>("get_model_config", {});
+    assert.deepEqual(view.credentials["__proto__"], { configured: true, type: "api_key" });
+    assert.deepEqual(view.credentialSources["__proto__"], { locations: [{ source: "storage", type: "api_key" }], verification: "unverified" });
+    for (const headers of [view.providers.mock.headers, view.providers.mock.models[0].headers, view.providers.mock.modelOverrides["mock-model"].headers]) {
+      assert.equal(Object.hasOwn(headers, "__proto__"), true);
+      assert.equal(headers["__proto__"], true);
+    }
+    view.providers.mock.name = "Renamed";
+    await live.client.request("save_model_catalog", { providers: view.providers, expected_revision: view.revision });
+    const expected = structuredClone(providers);
+    expected.mock.name = "Renamed";
+    assert.deepEqual(readModels(live.dirs).providers, expected);
+    view = await live.client.request<any>("get_model_config", {});
+    delete view.providers.mock.modelOverrides["mock-model"].headers["__proto__"];
+    await live.client.request("save_model_catalog", { providers: view.providers, expected_revision: view.revision });
+    delete expected.mock.modelOverrides["mock-model"].headers["__proto__"];
+    assert.deepEqual(readModels(live.dirs).providers, expected, "清除选定 proto header 后其他秘密与额外字段不变");
+    removeProviderCredential(live.dirs.agentDir, "__proto__");
+    assert.equal(Object.hasOwn(JSON.parse(fs.readFileSync(path.join(live.dirs.agentDir, "auth.json"), "utf8")), "__proto__"), false);
+  } finally {
+    await cleanupManual(live);
+  }
+});
+
+test("模型保存与离线探针不回显 SDK 动态认证错误，失败保留 code 并恢复旧文件", async (t) => {
+  const live = await startManual("model-sdk-errors", textResponder);
+  const secret = "dynamic-sdk-error-secret";
+  const create = ModelRuntime.create.bind(ModelRuntime);
+  try {
+    const file = path.join(live.dirs.agentDir, "models.json");
+    const bytes = fs.readFileSync(file, "utf8");
+    const revision = configRevision(live.dirs.agentDir);
+    for (const failure of [new Error(secret), new ModelSelectionError("model_auth_error", secret)]) {
+      let injected = false;
+      t.mock.method(ModelRuntime, "create", async (options: Parameters<typeof ModelRuntime.create>[0]) => {
+        if (!injected) { injected = true; throw failure; }
+        return create(options);
+      });
+      const providers = readModels(live.dirs).providers;
+      providers.mock.name = "Rejected";
+      await assert.rejects(live.client.request("save_model_catalog", { providers, expected_revision: revision }), (error: any) => {
+        assert.equal(error.code, failure instanceof ModelSelectionError ? failure.code : "model_config_invalid");
+        assert.ok(error.message.includes("请检查"));
+        assert.ok(!error.message.includes(secret));
+        return true;
+      });
+      assert.equal(fs.readFileSync(file, "utf8"), bytes);
+      assert.equal(configRevision(live.dirs.agentDir), revision);
+      t.mock.restoreAll();
+    }
+    const runtime = await create({ authPath: path.join(live.dirs.agentDir, "auth.json"), modelsPath: file, modelsStore: new InMemoryModelsStore(), refreshOnCreate: false });
+    t.mock.method(ModelRuntime, "create", async () => runtime);
+    t.mock.method(runtime, "getModels", () => { throw new Error(secret); });
+    const inner = await probeModelConfig(live.dirs.agentDir);
+    assert.equal(inner.ok, false);
+    assert.ok(inner.detail.includes("请检查"));
+    assert.ok(!JSON.stringify(inner).includes(secret));
+    t.mock.restoreAll();
+    t.mock.method(ModelRuntime, "create", async () => { throw new Error(secret); });
+    const outer = await probeModelConfig(live.dirs.agentDir);
+    assert.equal(outer.ok, false);
+    assert.ok(outer.detail.includes("请检查"));
+    assert.ok(!JSON.stringify(outer).includes(secret));
+  } finally {
+    t.mock.restoreAll();
+    await cleanupManual(live);
   }
 });
 

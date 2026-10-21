@@ -63,6 +63,8 @@
 
 `credentials[provider].configured` 与 set/remove API key 的同名应答只表示 auth.json 存储条目是否存在。移除存储条目后目录、环境或其他来源仍可能生效；目录秘密按具体字段保存，脱敏占位符沿用原值。认证可用性与远程连通性由执行校验及显式 `test_model_connection` 分别核实。
 
+模型配置应用失败恢复原文件，保留已知类型的错误 code，并返回固定检查指引；SDK 或上游服务的原始错误可能含展开后的凭据，不转发给客户端。连接测试失败同样只显示固定指引，超时单独说明；成功只确认所选提供方与模型。
+
 **握手。** `connect` 的 `since` 可选，是非负整数游标；返回 `{seq, replay, snapshot}`。快照读取与订阅注册在同一个同步段内完成，保证快照序号 `seq` 与实时推送之间无缺口；`replay` 是 `(since, seq]` 的补发事件，fresh connect（不带 `since`）为空。补发不推给监听者，由调用方先安装快照再按序应用。
 
 `seq` 是快照截止的事件序号，`snapshot.instanceId` 是数据实例的稳定标识（新数据库分配新标识），`snapshot.execution` 是后台实际配置的执行后端与说明（两产品正式入口默认 native；库层 `local` 无隔离必须显式展示），`snapshot.defaultModel` 是后台启动默认模型。快照有界：全部活动任务加上每个会话最近结束的 20 条任务（更早的经 `list_tasks` 分页）、`pending` 状态的审批请求（参数为有界预览）、活动任务的产物、活动与中断任务的最新输出预览（缺失片段如实为空）。快照另带 `roleSessionIds`、`subAgentSessionIds`、`workDelegations` 与 `subAgents`。协议 v33 起会话记录带 `archivedAt`，`set_session_archived` 只改这一个字段，不发任务事件。

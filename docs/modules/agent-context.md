@@ -81,6 +81,8 @@ stateDiagram-v2
 
 设置列表通过 `model-config.ts` 的共享元数据读取配置位置与模型能力。在线复用当前 SDK 注册模型；离线只构造静态目录，禁用初始化刷新，SDK 凭据存储留在内存，文件来源由共享读取器单独读取，不补建缺失的 auth.json。模型成员取显式目录、存储条目及运行时注册提供方，思考档位由 SDK `getSupportedThinkingLevels` 给出；无法取得 SDK 模型的目录条目保留名称与 ID，档位明确未知。列表不解析认证，不把内联 API key、自定义 header 或旧可用性快照当作认证成功；命令、环境模板与 OAuth 只在保存验证、显式测试或执行路径按原规则求值。
 
+目录脱敏与占位符还原按 JSON 自有字段保留高级配置，只删除所选秘密位置。显式模型探针失败给出固定修复指引，不回显 SDK 解析错误中的凭据或命令正文。
+
 ## 主要流程
 
 手动压缩由 `packages/agent/src/manual-compaction.ts` 的 `inspectManualCompaction` 与 `generateManualCompaction` 校验旧点、规划完成历史并生成候选，落盘与会话占用由 Runtime 承担。规划保留最后完整 assistant 批次及其后尾部，不把最近已完成任务当作当前任务，不额外保留旧请求或清单；跳过自动水位、收益和冷却，只在摘要完整成功时生成新点。旧终态孤儿沿共享配对规则剔除模型视图，历史仍原样保留。

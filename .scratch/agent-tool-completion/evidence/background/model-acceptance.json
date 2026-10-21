@@ -1,0 +1,197 @@
+{
+  "status": "passed",
+  "model": {
+    "provider": "deepseek",
+    "id": "deepseek-flash"
+  },
+  "platform": "darwin",
+  "node": "v24.15.0",
+  "root": "/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-background-model-KJEWuZ",
+  "firstOps": [
+    {
+      "tool": "process_start",
+      "isError": false
+    },
+    {
+      "tool": "process_output",
+      "isError": false
+    },
+    {
+      "tool": "browser",
+      "isError": false
+    },
+    {
+      "tool": "browser",
+      "isError": false
+    },
+    {
+      "tool": "browser",
+      "isError": false
+    }
+  ],
+  "nextOps": [
+    {
+      "tool": "process_status",
+      "isError": false
+    },
+    {
+      "tool": "process_output",
+      "isError": false
+    },
+    {
+      "tool": "process_output",
+      "isError": false
+    }
+  ],
+  "stopOps": [
+    {
+      "tool": "process_stop",
+      "isError": false
+    },
+    {
+      "tool": "process_status",
+      "isError": false
+    },
+    {
+      "tool": "write",
+      "isError": false
+    }
+  ],
+  "estimates": [
+    [
+      {
+        "systemPrompt": 1505,
+        "toolSchemas": 12944,
+        "subagentRoles": 186,
+        "memories": 0,
+        "compactionSummary": 0,
+        "mandatoryTurn": 426,
+        "currentTaskBatches": 0,
+        "historyTurns": 0
+      },
+      {
+        "systemPrompt": 1505,
+        "toolSchemas": 2027,
+        "subagentRoles": 186,
+        "resourcePhase": 207,
+        "memories": 0,
+        "compactionSummary": 0,
+        "mandatoryTurn": 998,
+        "currentTaskBatches": 0,
+        "historyTurns": 0
+      },
+      {
+        "systemPrompt": 1505,
+        "toolSchemas": 2027,
+        "subagentRoles": 186,
+        "resourcePhase": 207,
+        "memories": 0,
+        "compactionSummary": 0,
+        "mandatoryTurn": 942,
+        "currentTaskBatches": 572,
+        "historyTurns": 0
+      },
+      {
+        "systemPrompt": 1505,
+        "toolSchemas": 2027,
+        "subagentRoles": 186,
+        "resourcePhase": 207,
+        "memories": 0,
+        "compactionSummary": 0,
+        "mandatoryTurn": 582,
+        "currentTaskBatches": 1088,
+        "historyTurns": 0
+      },
+      {
+        "systemPrompt": 1505,
+        "toolSchemas": 2027,
+        "subagentRoles": 186,
+        "resourcePhase": 207,
+        "memories": 0,
+        "compactionSummary": 0,
+        "mandatoryTurn": 608,
+        "currentTaskBatches": 1244,
+        "historyTurns": 0
+      }
+    ],
+    [
+      {
+        "systemPrompt": 1505,
+        "toolSchemas": 2027,
+        "subagentRoles": 186,
+        "resourcePhase": 207,
+        "memories": 0,
+        "compactionSummary": 0,
+        "mandatoryTurn": 95,
+        "currentTaskBatches": 0,
+        "historyTurns": 2113
+      },
+      {
+        "systemPrompt": 1505,
+        "toolSchemas": 2027,
+        "subagentRoles": 186,
+        "resourcePhase": 207,
+        "memories": 0,
+        "compactionSummary": 0,
+        "mandatoryTurn": 502,
+        "currentTaskBatches": 0,
+        "historyTurns": 2113
+      },
+      {
+        "systemPrompt": 1505,
+        "toolSchemas": 2027,
+        "subagentRoles": 186,
+        "resourcePhase": 207,
+        "memories": 0,
+        "compactionSummary": 0,
+        "mandatoryTurn": 183,
+        "currentTaskBatches": 407,
+        "historyTurns": 2113
+      }
+    ],
+    [
+      {
+        "systemPrompt": 1505,
+        "toolSchemas": 2027,
+        "subagentRoles": 186,
+        "resourcePhase": 207,
+        "memories": 0,
+        "compactionSummary": 0,
+        "mandatoryTurn": 141,
+        "currentTaskBatches": 0,
+        "historyTurns": 3017
+      },
+      {
+        "systemPrompt": 1505,
+        "toolSchemas": 2027,
+        "subagentRoles": 186,
+        "resourcePhase": 207,
+        "memories": 0,
+        "compactionSummary": 0,
+        "mandatoryTurn": 495,
+        "currentTaskBatches": 0,
+        "historyTurns": 3017
+      },
+      {
+        "systemPrompt": 1505,
+        "toolSchemas": 12944,
+        "subagentRoles": 186,
+        "memories": 0,
+        "compactionSummary": 0,
+        "mandatoryTurn": 503,
+        "currentTaskBatches": 354,
+        "historyTurns": 3017
+      },
+      {
+        "systemPrompt": 1505,
+        "toolSchemas": 12944,
+        "subagentRoles": 186,
+        "memories": 0,
+        "compactionSummary": 0,
+        "mandatoryTurn": 250,
+        "currentTaskBatches": 716,
+        "historyTurns": 3017
+      }
+    ]
+  ]
+}

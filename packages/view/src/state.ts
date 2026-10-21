@@ -20,6 +20,7 @@ import type { ConnectResult } from "@ruukoto/control/protocol.ts";
 import type { ConfirmationRequestView, OutputPreview, ToolOpView } from "@ruukoto/core/views.ts";
 import type { HistoryEntryView, HistoryPage } from "@ruukoto/core/history.ts";
 import type { PendingRequest } from "@ruukoto/control/pending-requests.ts";
+import type { BackgroundProcessView } from "@ruukoto/core/background-processes.ts";
 import type { OwnerQuestionView } from "@ruukoto/core/owner-questions.ts";
 import { EventFlow } from "./event-flow.ts";
 import { utf8ByteLength } from "./utf8.ts";
@@ -57,6 +58,7 @@ export class ViewState {
   tasks = new Map<string, Task>();
   confirmations: ConfirmationRequestView[] = [];
   ownerQuestions: OwnerQuestionView[] = [];
+  backgroundProcesses: BackgroundProcessView[] = [];
   artifacts = new Map<string, Artifact>();
   instanceId: string | null = null;
   execution: { backend: string; note: string } = { backend: "", note: "" };
@@ -102,6 +104,7 @@ export class ViewState {
     this.taskSeq = new Map(result.snapshot.tasks.map((t) => [t.id, result.seq]));
     this.confirmations = result.snapshot.confirmations;
     this.ownerQuestions = result.snapshot.ownerQuestions ?? [];
+    this.backgroundProcesses = result.snapshot.backgroundProcesses ?? [];
     this.artifacts = new Map(result.snapshot.artifacts.map((a) => [a.id, a]));
     this.instanceId = result.snapshot.instanceId;
     this.execution = result.snapshot.execution;
@@ -167,6 +170,12 @@ export class ViewState {
       case "task.resources_changed":
         this.patchTask(body.taskId, { resourcePhase: body.phase });
         return;
+      case "background_process.changed": {
+        const index = this.backgroundProcesses.findIndex(process => process.id === body.process.id);
+        if (index < 0) this.backgroundProcesses.push(body.process);
+        else if (body.process.version >= this.backgroundProcesses[index].version) this.backgroundProcesses[index] = body.process;
+        return;
+      }
       case "owner_question.changed": {
         const index = this.ownerQuestions.findIndex(question => question.id === body.question.id);
         if (index < 0) this.ownerQuestions.push(body.question);

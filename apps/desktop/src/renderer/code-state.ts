@@ -8,6 +8,7 @@ import { utf8ByteLength } from "@ruukoto/view/utf8.ts";
 import type { DesktopOp } from "../main/ipc.ts";
 import type { DesktopAttachment, DesktopBridge, DesktopFailure, DesktopTarget, DesktopUpdate } from "../shared/bridge.ts";
 import { DesktopApprovals } from "./approvals.ts";
+import { DesktopBackgroundProcesses } from "./background-processes.ts";
 import { DesktopQuestions } from "./owner-questions.ts";
 import { CodeWrites } from "./code-writes.ts";
 import { DesktopContext } from "./context-state.ts";
@@ -48,6 +49,7 @@ export class CodeState {
   readonly writes: CodeWrites;
   readonly approvals: DesktopApprovals;
   readonly questions: DesktopQuestions;
+  readonly background: DesktopBackgroundProcesses;
   readonly inspector: DesktopInspector;
   readonly context: DesktopContext;
   navigation: Extract<DesktopUpdate, { type: "navigate" }> | null = null;
@@ -57,6 +59,7 @@ export class CodeState {
   constructor(private readonly bridge: Pick<DesktopBridge, "request">, private readonly changed: () => void, readonly target: DesktopTarget = "code") {
     this.context = new DesktopContext(bridge, this.view, changed, target);
     this.approvals = new DesktopApprovals(bridge, this.view, changed, target);
+    this.background = new DesktopBackgroundProcesses(bridge, this.view, () => this.status.state === "online", changed);
     this.questions = new DesktopQuestions(bridge, this.view, () => this.status.state === "online", changed);
     this.writes = new CodeWrites(bridge, this.view, () => this.status.state === "online", changed, target);
     this.inspector = new DesktopInspector(bridge, this.view, id => this.loadHistory(id), changed, target);
@@ -120,6 +123,7 @@ export class CodeState {
     this.approvals.update(update);
     this.writes.update(update);
     this.questions.update(update);
+    this.background.update(update);
     this.mark();
   }
   private navigate(update: Extract<DesktopUpdate, { type: "navigate" }>): void {

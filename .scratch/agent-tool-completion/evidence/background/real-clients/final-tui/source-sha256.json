@@ -1,0 +1,9 @@
+{
+  "packages/tui/src/tui/background-processes.ts": "1cb5abe7bc43aa3a9a4849453436c067e2e6853eb84a8feaf540cc2ab7ef7f0c",
+  "packages/runtime/src/runtime.ts": "5510fe04291a30b437e2a67ea8f45451dfe8374c14dcc602bf3681b8c288424a",
+  "packages/runtime/src/background-processes.ts": "41d807a39c58950929f50b1b4bf20af887528347ea84f6611575b508cc83c4a2",
+  "packages/control/src/background-end.ts": "5f36e3e59f0d0d58ccf3113172dc8c20a90548849b768a2599ce1a0a666edca5",
+  "worker/worker.mjs": "69be655f43af81953b448a36497b227cab890ed9b4596b51e736212c59b63ca1",
+  "worker/background-worker.mjs": "8ed49daa96613624053a4d4746cf67d2634d84cf3a8f21c02c13d37a9b0fbc1d",
+  "worker/native-macos-supervisor": "5a75956c76faaec1855b215c5c48e0de519fc9d6cc897fb7b30319af0a3aef9b"
+}

@@ -12,9 +12,26 @@ import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 
-export const SCHEMA_VERSION = 48;
+export const SCHEMA_VERSION = 49;
 
 const SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS background_processes (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL REFERENCES sessions(id),
+  task_id TEXT NOT NULL REFERENCES tasks(id),
+  host_op_id TEXT NOT NULL UNIQUE REFERENCES tool_ops(id),
+  state TEXT NOT NULL CHECK (state IN ('starting','running','stop_requested','stopped','stop_unverified')),
+  payload TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_background_processes_active ON background_processes(session_id) WHERE state != 'stopped';
+CREATE INDEX IF NOT EXISTS idx_background_processes_session ON background_processes(session_id);
+CREATE TABLE IF NOT EXISTS background_process_closures (
+  session_id TEXT NOT NULL REFERENCES sessions(id),
+  request_key TEXT NOT NULL,
+  through_input_seq INTEGER NOT NULL CHECK (through_input_seq >= 0),
+  payload TEXT NOT NULL,
+  PRIMARY KEY(session_id, request_key)
+);
 CREATE TABLE IF NOT EXISTS owner_questions (
   id TEXT PRIMARY KEY,
   session_id TEXT NOT NULL REFERENCES sessions(id),
@@ -203,8 +220,10 @@ CREATE TABLE IF NOT EXISTS occupancy (
   cwd_dev INTEGER NOT NULL,
   cwd_ino INTEGER NOT NULL,
   session_id TEXT NOT NULL,
-  task_id TEXT NOT NULL,
-  acquired_at TEXT NOT NULL
+  task_id TEXT,
+  process_id TEXT REFERENCES background_processes(id),
+  acquired_at TEXT NOT NULL,
+  CHECK ((task_id IS NOT NULL AND process_id IS NULL) OR (task_id IS NULL AND process_id IS NOT NULL))
 );
 CREATE TABLE IF NOT EXISTS confirmations (
   standing_permission_version INTEGER,

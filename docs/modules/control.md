@@ -38,6 +38,7 @@
 
 | 类别 | op | 说明与能力边界 |
 | --- | --- | --- |
+| 会话后台 | `background_processes`、`background_process_output`、`background_process_stop`、`session_background_end` | 本会话记录每页最多20项、256KiB；日志按原字节位置读取 stdout/stderr，每页最多32KiB并返回原字节base64；停止只登记意图，结束携带持久原键并覆盖已接纳的启动，停止核实由后续状态确认 |
 | 连接与后台 | `ping`、`connect`、`stop` | `ping` 返回 `pong` 与 `stopping`；`connect` 是握手（见下）；`stop` 请求后台停止，立即回 `accepted` |
 | 项目、会话与工作区 | `create_project`、`create_session`、`open_workspace`、`get_session`、`list_session_summaries`、`get_session_usage` | `create_project` / `create_session` / `open_workspace` 带可选幂等键 `request_id`；后两者可提供初始 `mode` 与 `model_selection`（含 thinkingLevel），省略沿后台默认，已有成果重放不覆盖后续设置；`list_session_summaries` 的 `project_id`（原身份）与 `workspace_id`（组织归属）互斥且必须给一个 |
 | 旧数据迁移 | `preview_workspace_migration`、`apply_workspace_migration` | 预览只读；应用必须带 `instance_id`，另用 `request_id` 回执与 `expected_revision`（回退除外）防重 |
@@ -79,6 +80,9 @@
 **超时。** 客户端建连 5000 ms、认证 10000 ms、握手 15000 ms、普通请求 60000 ms。普通请求超时按 `unknown`，后台照常执行，迟到应答按 `id` 丢弃。
 
 ## 数据与状态
+
+`backgroundProcesses` 快照与 `background_process.changed` 事件提供有界后台状态。`BackgroundEndGuard` 在客户端发送前保存结束请求键、会话与数据实例；应答未知保留原记录，刷新只查询状态，拥有者显式重核时才按原键重试，不扩大原结束屏障；成功只表示原请求成员已停止，后来新执行以最新清单为准。
+
 
 `owner_questions` 按待答优先分页，offset/limit由程序管理，每页至多20项及256KiB，nextOffset非空可续读；题目、答案均不截断。快照 ownerQuestions只有全局128KiB内且能放进完整帧的预览，所选会话由客户端主动补读最近页；owner_question.changed携完整题目、版本、状态和续接引用，长补发超过完整帧预算时退回无游标快照。`owner_question_answer` 接整批 `{text,option?,options?}`、原版本、请求键和当前模型/模式/授予范围；单选与多选字段互斥，多选索引升序且正文为名字以换行连接，Skip 为不带选择字段的空字符串。`owner_question_cancel` 只取消，`owner_question_receipt` 按原键和动作查回执。回答、取消都在发送前保存 pending 记录，应答丢失先查回执，已提交键仍以原参数核实摘要；同键普通 Task不能替代回答回执，版本或终态变化须刷新卡片。
 
@@ -252,6 +256,8 @@ sequenceDiagram
 拥有者只读 `read_workspace_git` 仅接受已登记 workspace_id 与可选 cursor，返回非仓库 null 或带父关系、显式 refs 及 nextCursor 的提交页；每页200条，nextCursor为null时结束，不设累计总量。游标绑定仓库修订，变化返回 workspace_git_changed，客户端刷新后重新读取；不接自定义命令或根路径。协议 v29 的快照明确提供 mainSessionId，避免客户端猜角色身份。
 
 ## 设计依据
+
+- [Coding 会话后台持有独立目录占用](../../.agents/notes/implemented/feature/2026-10-21-coding-background-processes.md)
 
 - [Coding 持久问题与可信续接](../../.agents/notes/implemented/feature/2026-10-21-coding-owner-questions.md)
 

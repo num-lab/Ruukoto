@@ -1,3 +1,4 @@
+import { BackgroundEndGuard, type BackgroundEndOutcome } from "@ruukoto/control/background-end.ts";
 import { ControlClientError } from "@ruukoto/control/client.ts";
 import type { ControlConnection } from "@ruukoto/control/connection.ts";
 import { PendingRequestStore, type PendingRequest } from "@ruukoto/control/pending-requests.ts";
@@ -69,6 +70,12 @@ export class DesktopSubmissions {
     try { result = await pending; }
     finally { if (record) this.sending.delete(record.requestId); this.refresh(); }
     if (result.kind === "pending_verification" && result.outcome === "unknown") void this.reconcile();
+    return result;
+  }
+  async endBackground(params: Record<string, unknown>): Promise<BackgroundEndOutcome> {
+    if (typeof params.session_id !== "string" || !params.session_id.trim() || (params.request_id !== undefined && typeof params.request_id !== "string")) throw new DesktopError("invalid_params", "请选择需要结束后台的会话。");
+    const result = await new BackgroundEndGuard(this.store, this.guardConnection()).end(params.session_id, params.request_id as string | undefined);
+    this.refresh();
     return result;
   }
   reconcile(): Promise<void> {

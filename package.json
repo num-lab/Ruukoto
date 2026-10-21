@@ -42,7 +42,7 @@
     "test:release-model": "tsx verification/smoke/smoke-24-release-acceptance.mts",
     "linux:probes": "npm --prefix verification/foundation run linux:probes",
     "test:model": "RUN_MODEL_CHECK=1 tsx --test test/06-connectivity.test.ts",
-    "build:worker": "esbuild packages/agent/src/tool-worker/worker.ts apps/ruukoto/src/personal-command-worker.ts --bundle --format=esm --platform=node --target=node24 --external:@earendil-works/* --outdir=worker --entry-names=[name] --out-extension:.js=.mjs",
+    "build:worker": "esbuild packages/agent/src/tool-worker/worker.ts packages/agent/src/tool-worker/background-worker.ts apps/ruukoto/src/personal-command-worker.ts --bundle --format=esm --platform=node --target=node24 --external:@earendil-works/* --outdir=worker --entry-names=[name] --out-extension:.js=.mjs",
     "test:native": "tsx verification/smoke/smoke-04-desktop-execution.mts && tsx verification/smoke/smoke-13-subagent-messaging.mts && tsx verification/smoke/smoke-15-recover-subagents.mts",
     "desktop:build": "npm run desktop:build --workspace=@ruukoto/desktop",
     "desktop:mygo": "npm run desktop:mygo --workspace=@ruukoto/desktop",

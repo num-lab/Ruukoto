@@ -1,0 +1,55 @@
+{
+  "id": "sel_af10b4d1fb721002397b3eaa",
+  "taskId": "task_a9d4518f4778838c546f3ed7",
+  "sessionId": "sess_402d40c137d34259f552db41",
+  "callIndex": 1,
+  "strategy": "deterministic-v1",
+  "configVersion": 2520118506,
+  "model": "mock/mock-model",
+  "totalMessages": 1,
+  "includedIndices": [
+    0
+  ],
+  "excluded": [],
+  "includedMemories": [],
+  "excludedMemories": [],
+  "instructionVersion": "",
+  "skillVersion": "",
+  "cappedToolResults": [],
+  "estimates": {
+    "systemPrompt": 1505,
+    "toolSchemas": 11747,
+    "subagentRoles": 186,
+    "memories": 0,
+    "compactionSummary": 0,
+    "mandatoryTurn": 32,
+    "currentTaskBatches": 0,
+    "historyTurns": 0
+  },
+  "budget": 188976,
+  "estimatedTotal": 13470,
+  "usage": {
+    "input": 100,
+    "output": 10,
+    "cacheRead": 0,
+    "cacheWrite": 0,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "total": 0
+    }
+  },
+  "experiment": null,
+  "promptArtifactId": "art_1f4e51778d26cb83e4f2f1d1",
+  "windowSnapshot": {
+    "contextWindow": 200000,
+    "maxTokens": 1024,
+    "thinkingBudget": 0,
+    "toolResultReserve": 8000,
+    "safetyMargin": 2000
+  },
+  "checkpointId": null,
+  "createdAt": "2026-10-21T07:25:20.355Z"
+}

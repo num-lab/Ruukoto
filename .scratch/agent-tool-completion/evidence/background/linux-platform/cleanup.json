@@ -1,0 +1,215 @@
+{
+  "processes": [
+    {
+      "scenario": "normal",
+      "label": "launcher",
+      "pid": 391751,
+      "live": false
+    },
+    {
+      "scenario": "normal",
+      "label": "descendant",
+      "pid": 391759,
+      "live": false
+    },
+    {
+      "scenario": "normal",
+      "label": "owner",
+      "pid": 391743,
+      "live": false
+    },
+    {
+      "scenario": "leader-exit-inherited-pipe",
+      "label": "launcher",
+      "pid": 391783,
+      "live": false
+    },
+    {
+      "scenario": "leader-exit-inherited-pipe",
+      "label": "descendant",
+      "pid": 391791,
+      "live": false
+    },
+    {
+      "scenario": "leader-exit-inherited-pipe",
+      "label": "owner",
+      "pid": 391775,
+      "live": false
+    },
+    {
+      "scenario": "owner-SIGKILL",
+      "label": "launcher",
+      "pid": 391811,
+      "live": false
+    },
+    {
+      "scenario": "owner-SIGKILL",
+      "label": "descendant",
+      "pid": 391821,
+      "live": false
+    },
+    {
+      "scenario": "owner-SIGKILL",
+      "label": "owner",
+      "pid": 391803,
+      "live": false
+    },
+    {
+      "scenario": "leader-SIGKILL",
+      "label": "launcher",
+      "pid": 391842,
+      "live": false
+    },
+    {
+      "scenario": "leader-SIGKILL",
+      "label": "descendant",
+      "pid": 391850,
+      "live": false
+    },
+    {
+      "scenario": "leader-SIGKILL",
+      "label": "owner",
+      "pid": 391834,
+      "live": false
+    },
+    {
+      "scenario": "escaped-scope",
+      "label": "launcher",
+      "pid": 391877,
+      "live": false
+    },
+    {
+      "scenario": "escaped-scope",
+      "label": "descendant",
+      "pid": 391885,
+      "live": false
+    },
+    {
+      "scenario": "escaped-scope",
+      "label": "owner",
+      "pid": 391869,
+      "live": false
+    },
+    {
+      "scenario": "wrong-invocation",
+      "label": "launcher",
+      "pid": 392262,
+      "live": false
+    },
+    {
+      "scenario": "wrong-invocation",
+      "label": "descendant",
+      "pid": 392270,
+      "live": false
+    },
+    {
+      "scenario": "wrong-invocation",
+      "label": "owner",
+      "pid": 392254,
+      "live": false
+    },
+    {
+      "scenario": "wrong-fingerprint",
+      "label": "launcher",
+      "pid": 392295,
+      "live": false
+    },
+    {
+      "scenario": "wrong-fingerprint",
+      "label": "descendant",
+      "pid": 392303,
+      "live": false
+    },
+    {
+      "scenario": "wrong-fingerprint",
+      "label": "owner",
+      "pid": 392287,
+      "live": false
+    },
+    {
+      "scenario": "wrong-inode",
+      "label": "launcher",
+      "pid": 392330,
+      "live": false
+    },
+    {
+      "scenario": "wrong-inode",
+      "label": "descendant",
+      "pid": 392338,
+      "live": false
+    },
+    {
+      "scenario": "wrong-inode",
+      "label": "owner",
+      "pid": 392322,
+      "live": false
+    },
+    {
+      "scenario": "scope-replacement",
+      "label": "launcher",
+      "pid": 392359,
+      "live": false
+    },
+    {
+      "scenario": "scope-replacement",
+      "label": "descendant",
+      "pid": 392367,
+      "live": false
+    },
+    {
+      "scenario": "scope-replacement",
+      "label": "owner",
+      "pid": 392351,
+      "live": false
+    }
+  ],
+  "scopes": [
+    {
+      "scope": "ruukoto-native_a94c7c142cdb81301b44059b.scope",
+      "originalCgroupExists": false,
+      "descendantCgroupExists": false
+    },
+    {
+      "scope": "ruukoto-native_1f48cfa76ef813344ec2cffc.scope",
+      "originalCgroupExists": false,
+      "descendantCgroupExists": false
+    },
+    {
+      "scope": "ruukoto-native_c514be6d720aff458e5935a6.scope",
+      "originalCgroupExists": false,
+      "descendantCgroupExists": false
+    },
+    {
+      "scope": "ruukoto-native_c8310ebe54b4eb55f2e9d679.scope",
+      "originalCgroupExists": false,
+      "descendantCgroupExists": false
+    },
+    {
+      "scope": "ruukoto-native_459445748069ef358db08115.scope",
+      "originalCgroupExists": false,
+      "descendantCgroupExists": false
+    },
+    {
+      "scope": "ruukoto-native_876dc80ff99be36e2b26d3f6.scope",
+      "originalCgroupExists": false,
+      "descendantCgroupExists": false
+    },
+    {
+      "scope": "ruukoto-native_0240851901b37f04492c14fb.scope",
+      "originalCgroupExists": false,
+      "descendantCgroupExists": false
+    },
+    {
+      "scope": "ruukoto-native_560081f3692c1faa7312fa88.scope",
+      "originalCgroupExists": false,
+      "descendantCgroupExists": false
+    },
+    {
+      "scope": "ruukoto-native_d310a9e3c858225645267257.scope",
+      "originalCgroupExists": false,
+      "descendantCgroupExists": false
+    }
+  ],
+  "remainingLiveProcesses": 0,
+  "remainingCgroups": 0
+}

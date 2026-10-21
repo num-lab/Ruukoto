@@ -270,6 +270,7 @@ export class ControlServer {
             workDelegations: snapshot.workDelegations,
             subAgents: snapshot.subAgents,
             ownerQuestions: snapshot.ownerQuestions,
+            backgroundProcesses: snapshot.backgroundProcesses,
           },
         };
         if (since > 0 && Buffer.byteLength(encodeFrame({ v: CONTROL_PROTOCOL_VERSION, id: request.id, ok: true, result }), "utf8") > MAX_FRAME_BYTES) {
@@ -435,6 +436,26 @@ export class ControlServer {
       }
       case "put_attachment":
         return runtime.putAttachment(params as unknown as import("@ruukoto/core/attachments.ts").AttachmentUpload);
+      case "background_processes": {
+        workflowParams("session_id", "offset");
+        return runtime.listBackgroundProcesses(requireString("session_id"), workflowInt("offset", 0));
+      }
+      case "background_process_output": {
+        workflowParams("session_id", "process_id", "stream", "offset");
+        const stream = params["stream"];
+        if (stream !== "stdout" && stream !== "stderr") throw new RuntimeApiError("invalid_params", "请选择 stdout 或 stderr 日志。");
+        return runtime.backgroundProcessOutput({ sessionId: requireString("session_id"), processId: requireString("process_id"), stream, offset: workflowInt("offset", 0) });
+      }
+      case "background_process_stop": {
+        workflowParams("session_id", "process_id");
+        return runtime.stopBackgroundProcess({ sessionId: requireString("session_id"), processId: requireString("process_id") });
+      }
+      case "session_background_end": {
+        workflowParams("session_id", "request_id");
+        const requestKey = optionalRequestId();
+        if (!requestKey) throw new RuntimeApiError("invalid_params", "结束后台须携带原请求；请重新打开会话后台列表。");
+        return runtime.endSessionBackground({ sessionId: requireString("session_id"), requestKey });
+      }
       case "owner_questions": {
         workflowParams("session_id", "offset", "limit");
         return runtime.listOwnerQuestions(requireString("session_id"), workflowInt("offset", 0), workflowInt("limit", 20, 1, 20));

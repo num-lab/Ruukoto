@@ -22,6 +22,8 @@
 
 ## 数据与状态
 
+`backgroundProcesses` 安装快照中的后台状态，并仅接受不早于已有版本的 `background_process.changed` 实时事件。退出观察与停止核实分别保留，`stop_unverified` 显示占用仍在；实例变化时重新安装，补发不回滚快照。后台列表与日志的分页读取由客户端负责。
+
 `ownerQuestions` 从快照和问题状态事件恢复待答卡片、已答内容与唯一续接引用，保留选项说明、推荐标记、多选类型、选择索引与跳过的空答案。实时事件只接受不早于已有版本的状态；补发不回滚快照，数据实例变化重新安装问题数组，普通会话草稿独立保留。
 
 `ViewState` 保存快照给出的 mainSessionId、项目、会话、任务、审批、产物、工作委托与 SubAgent，以及按会话隔离的 `SessionView`。`EventFlow` 以任务、消息段、思考段和工具操作的身份维护条目、事件版本与未连续到达的正文及思考片段。内存中的命令条目只参与统一排序与重同步保留；生成命令、执行及读写 SQLite 由 TUI 持有。
@@ -50,6 +52,8 @@ UTF-8 字节计数使用 `TextEncoder`，中文、emoji 与孤立代理项的计
 历史关联缺失时保留普通正文并显示原因，不猜测任务或跨任务配对工具结果。数据实例变化时旧会话视图失效，同实例快照保留草稿与本地提示。思考增量按 UTF-8 offset 补洞去重，较旧缺失片段可补齐正文，阶段时间只取最新事件；旧无偏移快照仍替换。任务结束收尾尚未结束的思考段。待审批只包含状态为 pending、所属任务非终态且权限版本一致的请求。`task.mode_switch_failed` 只随后台中断产生，实时投影将非终态任务设为 interrupted、记录结束时间并保留失败原因；已有终态不回滚，不能将停止未核实解释为安全停止。
 
 ## 设计依据
+
+- [Coding 会话后台持有独立目录占用](../../.agents/notes/implemented/feature/2026-10-21-coding-background-processes.md)
 
 - [Coding 持久问题与可信续接](../../.agents/notes/implemented/feature/2026-10-21-coding-owner-questions.md)
 

@@ -47,6 +47,8 @@ export type DataStream = "stdout" | "stderr" | "file_read" | "file_search";
 /** 工作进程 → 后台。 */
 export type WorkerMessage =
   | { type: "ready"; pid: number }
+  | { type: "process_started"; opId: string }
+  | { type: "process_output_complete"; opId: string }
   | { type: "stopped"; reaped: boolean }
   | { type: "data"; opId: string; stream: DataStream; chunk: string }
   | {

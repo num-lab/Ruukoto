@@ -241,7 +241,8 @@ test("技能设置：远端有界目录选择、预览/导入/详情/启停/移�
   const request = { ...base, op: "skills.import", directory: source, id: preview.id, contentRevision: preview.contentRevision };
   const pending = path.join(f.directory, `pending-work-${randomUUID()}.json`); fs.writeFileSync(pending, "{}", { mode: 0o600 });
   await assert.rejects(executePersonalSettings(f.directory, request), code("settings_pending")); assert.equal(fs.existsSync(path.join(f.directory, "managed-skills")), false); fs.unlinkSync(pending);
-  const imported = await executePersonalSettings(f.directory, request) as { revision: string; source: string; readOnly: boolean };
+  const imported = await executePersonalSettings(f.directory, request) as { saved: boolean; target: string; revision: string; source: string; readOnly: boolean };
+  assert.equal(imported.saved, true); assert.equal(imported.target, "skills");
   assert.equal(imported.source, "managed"); assert.equal(imported.readOnly, false); assert.equal("body" in imported, false);
   assert.equal((await machine(f.directory, { ...base, op: "skills.get", id: preview.id })).body.code, "skills_revision_conflict");
   const current = { ...base, expectedRevision: imported.revision };
@@ -254,9 +255,11 @@ test("技能设置：远端有界目录选择、预览/导入/详情/启停/移�
   await assert.rejects(executePersonalSettings(f.directory, { ...current, op: "skills.set-enabled", id: preview.id, enabled: false }), code("settings_stop_required"));
   const invalid = await machine(f.directory, { ...current, op: "skills.get", id: preview.id, path: "/etc/passwd" }); assert.equal(invalid.body.code, "settings_request_invalid");
   await server.stop();
-  const disabled = await executePersonalSettings(f.directory, { ...current, op: "skills.set-enabled", id: preview.id, enabled: false }) as { revision: string; state: string };
+  const disabled = await executePersonalSettings(f.directory, { ...current, op: "skills.set-enabled", id: preview.id, enabled: false }) as { saved: boolean; target: string; revision: string; state: string };
+  assert.equal(disabled.saved, true); assert.equal(disabled.target, "skills");
   assert.equal(disabled.state, "disabled");
-  const removed = await executePersonalSettings(f.directory, { ...current, expectedRevision: disabled.revision, op: "skills.remove", id: preview.id }) as { revision: string; state: string };
+  const removed = await executePersonalSettings(f.directory, { ...current, expectedRevision: disabled.revision, op: "skills.remove", id: preview.id }) as { saved: boolean; target: string; revision: string; state: string };
+  assert.equal(removed.saved, true); assert.equal(removed.target, "skills");
   assert.equal(removed.state, "removed"); assert.deepEqual((await f.read()).skills.skills, []);
   assert.equal(fs.readFileSync(path.join(source, "refs", "guide.md"), "utf8"), "引用原字节");
   assert.equal(fs.readFileSync(path.join(f.directory, "managed-skills", "packages", preview.id, "alpha", "refs", "guide.md"), "utf8"), "引用原字节");

@@ -94,3 +94,7 @@ npx tsx --test --test-name-pattern='durable：拒绝旧资料目录和链接|dur
 ## 05 实现审查与交接（2026-10-21）
 
 独立上下文 `/root/skills_contract` 核对原工单、规格、实际实现、调用方、测试与文档，亲跑 Skills 定向 11/11、VM 核实 MyGo 透传与失败分类及 diff 检查；中途两项 P2 已修复并补窄回归，最终无未解决阻断。作者随后补两条失败核实用例，最终相关组合 94/94、静态门禁、两壳构建与签名、Go race 通过。产品代码未在审查后改变；模拟选择器和浏览器结果不作为真实双壳／重启验收，工单 ready-for-human。范围、结果、截图与待拥有者事项见[05 证据](evidence/05-verification.md)。
+
+## 08 实现审查与交接（2026-10-22）
+
+独立上下文 `/root/personal_contracts` 读取批准规格、实际 UI/容器、Host、后端与文档，亲跑页面/容器、关键修复与 Host 小页前检，发现问题均已修复；导航与工具分页撤回修复后回归按预期失败，末轮 MCP 续页删除配置同样覆盖冲突。审查无未解决阻断，检查对象、双方负责范围和未覆盖项见 [08 验收](evidence/08-verification.md)。真实 Linux 固定 systemd、真实模型/MCP 与原生双壳待产品验收，状态 ready-for-human。

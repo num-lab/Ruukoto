@@ -254,7 +254,7 @@ async function skillSettings(profile: PersonalProfileLock, request: PersonalSkil
   await assertPersonalSettingsIdle(profile);
   const result = request.op === "skills.import" ? store.import({ id: request.id, sourceDir: request.directory, contentRevision: request.contentRevision, expectedRevision: request.expectedRevision }) : request.op === "skills.set-enabled" ? store.setEnabled(request) : store.remove(request);
   const { body: _body, ...summary } = result;
-  return summary;
+  return { saved: true, target: "skills", ...summary };
 }
 
 type ModelTestEvidence = { version: 1; requestId: string; config: PersonalModelConfig; input: { messages: { role: "user"; content: string; timestamp: number }[] }; maxTokens: 1; payload?: JsonValue };

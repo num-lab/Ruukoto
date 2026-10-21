@@ -27,13 +27,14 @@ async function harness(patch: Partial<Scenario> = {}, timeoutMs = 3000) {
     const s = scenario();
     return { product: "ruukoto", profile: { ...profile, id: s.identity ?? profile.id }, online: s.online, revisions: { model: s.revision, skills: oldRevision, mcp: oldRevision }, blockers: s.blockers ?? [], model: { config: { apiKeyEnv: "KEY" }, credential: { state: s.credential ?? (s.online ? "available" : "unverified"), reference: "KEY" } }, lifecycle: { managedDevelopment: false } };
   };
-  const auth: string[] = [];
+  const auth: string[] = [], onlineRequests: Record<string, unknown>[] = [];
   const remote = path.join(dir, "remote.sock");
   const server = http.createServer((req, res) => {
     let body = ""; req.on("data", chunk => { body += chunk; });
     req.on("end", () => {
       auth.push(String(req.headers.authorization));
       const request = JSON.parse(body), s = scenario();
+      onlineRequests.push(request);
       if (req.headers.authorization !== `Bearer ${s.token}`) { res.end(JSON.stringify({ v: 1, ok: false, code: "unauthorized", message: "invalid " + s.token })); return; }
       if (s.fault === "http-secret") { res.end(JSON.stringify({ v: 1, ok: false, code: "test_secret", message: s.token })); return; }
       const result = request.op === "config.preflight" ? { product: "ruukoto", profile, blockers: s.blockers ?? [], credential: { state: s.credential ?? "available" } } : snapshot();
@@ -57,7 +58,7 @@ if(args.includes('-N')) {
 } else {
   let input=''; process.stdin.on('data',chunk=>input+=chunk); process.stdin.on('end',()=>{
     const req=JSON.parse(input), s=read(), maintenance=args.at(-1).endsWith(' maintenance');
-    fs.appendFileSync(process.env.LOG,JSON.stringify({entry:maintenance?'maintenance':'settings',op:req.op,command:args.at(-1),hasJsonInCommand:args.at(-1).includes('draft-private-value')})+'\\n');
+    fs.appendFileSync(process.env.LOG,JSON.stringify({entry:maintenance?'maintenance':'settings',op:req.op,limit:req.limit,command:args.at(-1),hasJsonInCommand:args.at(-1).includes('draft-private-value')})+'\\n');
     const identity={directory:'/remote/profile',id:s.identity||'${profile.id}'};
     let result;
     if(maintenance) {
@@ -86,13 +87,22 @@ if(args.includes('-N')) {
   const env = { ...process.env, SCENARIO: scenarioFile, LOG: log, REMOTE: remote, CHILDREN: childrenFile, USER_DATA: userData };
   const create = () => new PersonalSettingsController(config, userData, env, { ssh: executable, timeoutMs });
   let controller = create();
-  const calls = (): { entry: string; op: string; command: string; hasJsonInCommand: boolean }[] => fs.existsSync(log) ? fs.readFileSync(log, "utf8").trim().split("\n").map(line => JSON.parse(line)) : [];
-  return { dir, userData, controller, auth, calls, scenario, write, async reopen() { await controller.close(); controller = create(); this.controller = controller; return controller; }, async close() {
+  const calls = (): { entry: string; op: string; limit?: number; command: string; hasJsonInCommand: boolean }[] => fs.existsSync(log) ? fs.readFileSync(log, "utf8").trim().split("\n").map(line => JSON.parse(line)) : [];
+  return { dir, userData, controller, auth, onlineRequests, calls, scenario, write, async reopen() { await controller.close(); controller = create(); this.controller = controller; return controller; }, async close() {
     await controller.close(); server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve()));
     for (const pid of fs.existsSync(childrenFile) ? fs.readFileSync(childrenFile, "utf8").trim().split("\n").map(Number) : []) assert.throws(() => process.kill(pid, 0), "所有自有 SSH 子进程必须回收");
     fs.rmSync(dir, { recursive: true, force: true });
   } };
 }
+
+test("管理前检与探测只读取一项配置，合法大 MCP 列表可继续按页查询", async () => {
+  const h = await harness();
+  try {
+    await h.controller.probe(); await h.controller.read();
+    assert.ok(h.calls().filter(call => call.op === "settings.read").every(call => call.limit === 1));
+    assert.ok(h.onlineRequests.length > 0); assert.ok(h.onlineRequests.filter(call => call.op === "settings.read").every(call => call.limit === 1));
+  } finally { await h.close(); }
+});
 
 test("新管理配置独立存储；主机参数拒绝注入，档案路径经 shell 转义", () => {
   const dir = fs.mkdtempSync("/tmp/rk-config-");

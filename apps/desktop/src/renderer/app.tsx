@@ -7,7 +7,7 @@ import { ConnectionLoading } from "./connection-loading.tsx";
 import { reorderTab, useTabOrder } from "./tab-order.ts";
 import { CodeState } from "./code-state.ts";
 import { Conversation } from "./conversation.tsx";
-import { Composer, selectionForModel } from "./composer.tsx";
+import { Composer } from "./composer.tsx";
 import { NewChatDraft, type NewChatDraftState } from "./new-chat.tsx";
 import { InspectorHeader, InspectorPanel } from "./inspector-panel.tsx";
 import { SidebarResizer } from "./sidebar-resizer.tsx";
@@ -114,9 +114,7 @@ export function App() {
   }
   // 草稿没选模型时沿用当前 Code 会话，没有会话则用后台默认模型；都无法确定才要求选择。
   function draftSelection(draft: NewChatDraftState) {
-    if (draft.modelSelection) return draft.modelSelection;
-    const option = models.code.writes.models.find(item => item.available && item.provider === models.code.view.defaultModel.provider && item.modelId === models.code.view.defaultModel.id);
-    return option ? selectionForModel(option, null) : null;
+    return models.code.newChatSelection(draft.modelSelection);
   }
   async function startChat() {
     if (!newChat || startingChat) return;

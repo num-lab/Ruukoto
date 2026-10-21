@@ -4,6 +4,7 @@ import type { DesktopTarget } from "../shared/bridge.ts";
 import type { CodeState } from "./code-state.ts";
 import { SettingsState, type ManagedSettingsCategory, type SettingsCategory, type SettingsScope, type SettingsSources } from "./settings-state.ts";
 import { PersonalConnectionSettings } from "./personal-connection-settings.tsx";
+import { CodeModelsSettings } from "./code-models-settings.tsx";
 import { Button } from "./components/ui/button.tsx";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "./components/ui/dialog.tsx";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "./components/ui/field.tsx";
@@ -57,7 +58,7 @@ function ManagedSettingsPage(props: SettingsContentsProps & { category: ManagedS
   const { category, settings, code, personal } = props;
   const scope = settings.scope(code, personal, props.mcpSources);
   if (category === "mcp" && scope.target === "code" && !props.mcpSources) scope.sourceId = null;
-  const Page = props.pages?.[category] ?? UnavailableSettingsPage;
+  const Page = props.pages?.[category] ?? (category === "models" && scope.target === "code" ? CodeModelsSettings : UnavailableSettingsPage);
   const blocked = settings.form?.phase === "saving" || settings.form?.phase === "unknown";
   return <Tabs value={scope.target} onValueChange={value => settings.chooseTarget(category, value as DesktopTarget)} className="settings-target-tabs"><TabsList aria-label="配置目标"><TabsTrigger value="code" disabled={blocked}>Code</TabsTrigger><TabsTrigger value="personal" disabled={blocked}>PA</TabsTrigger></TabsList><TabsContent value={scope.target}><SettingsScopeFields {...props} /><Page key={`${category}:${settings.pageKey}`} category={category} scope={scope} settings={settings} code={code} personal={personal} /></TabsContent></Tabs>;
 }

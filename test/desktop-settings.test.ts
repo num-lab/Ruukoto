@@ -177,7 +177,7 @@ test("设置 SSR 保留六分类、可访问名称、真实内容插槽、无工
   const targetTabs = html.match(/<div[^>]*role="tablist"[^>]*aria-label="配置目标"[^>]*>(.*?)<\/div>/s)?.[1];
   assert.ok(targetTabs); assert.equal((targetTabs.match(/role="tab"/g) ?? []).length, 2);
   assert.match(targetTabs, />Code<\/button>/); assert.match(targetTabs, />PA<\/button>/);
-  assert.doesNotMatch(html, /for="settings-target"|仅选择设置的归属，不切换聊天目标。|作用范围：/); assert.match(html, /for="settings-workspace"/); assert.match(html, /for="settings-source"/); assert.match(html, /尚未接入/);
+  assert.doesNotMatch(html, /for="settings-target"|仅选择设置的归属，不切换聊天目标。/); assert.match(html, /for="settings-workspace"/); assert.match(html, /for="settings-source"/); assert.match(html, /Code MCP 配置/);
   let seen = "";
   props.pages = { mcp: ({ scope }) => { seen = `${scope.target}/${scope.workspaceId}/${scope.sourceId}`; return createElement("p", null, "实际页面内容"); } };
   html = render(); assert.match(html, /实际页面内容/); assert.equal(seen, "code/a/a");

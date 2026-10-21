@@ -19,7 +19,7 @@ Coding bin 固定产品身份，向共享 CLI 传入 `CliProduct`，并向 `Runt
 | 旧资料 | 原地归档，不导入 | 开发资料离线导入 |
 | 编码专用入口 | 不提供开发会话、worktree 汇总、旧工作流或 GitHub 自动评审 | 保留既有 Coding 能力 |
 
-安装与操作见[操作手册](../usage.md)，开发与构建见[开发说明](../development.md)。个人不兼容旧 TUI、桌面 Personal 或控制面协议。
+个人另提供 `maintenance` 受限 JSON 生命周期入口；`serve --directory <绝对路径>` 将服务档案固定在启动参数，优先于环境。安装与操作见[操作手册](../usage.md)，开发与构建见[开发说明](../development.md)。个人聊天不兼容旧 TUI、桌面 Personal 或控制面协议；桌面设置使用独立新协议连接。
 
 ## 数据与状态
 

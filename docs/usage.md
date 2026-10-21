@@ -68,6 +68,8 @@ Coding 的独立档案为 `~/.ruukoto-code/{data,agent,control,pending}`，路�
 
 ### 2.5 个人 Agent 引导与管理
 
+固定服务可用 `ruukoto serve --directory /绝对/档案路径` 前台托管，目录参数优先于 `RUUKOTO_PERSONAL_DIR`；只接受这组规范参数。`ruukoto maintenance` 使用与 settings 相同的有界 JSON 封装，核实原系统级服务并显式启停，参数与管理员前提见[桌面设置维护](../deploy/systemd/README.md#桌面设置维护)。
+
 `ruukoto`、`npm start` 与兼容命令 `npm run personal:durable` 打开同一个个人 Pi 1.3.0 引导菜单，按聊天与消息、后台工作与定时计划、审批/效果/停止核实、权限/授权/个人资料、停机配置、实例状态与启停分组：配置模型、启动后台、状态、发送消息、最近消息、核实上次提交、QQ/Telegram 配对/收发、Linux 服务与命令目录配置、管理后台分析、管理检查停止重核、管理服务审批与核实、命令效果与停止核实、MCP 配置与原调用核实、管理定时计划与运行、技能配置、长期记忆、历史检索与应用数据审批/回执。默认档案为 `~/.ruukoto-durable/`；可用 `RUUKOTO_PERSONAL_DIR` 显式选择另一个新目录，开发入口另用固定检出散列档案。它提供主会话与可选 QQ/Telegram 文本/图片入口、浏览器、资料与网络工具、产物和独立调度；正式 bin、根 start、开发与 systemd 使用同一新装配，生产接管另行安排。
 
 程序可调用 `ruukoto settings`，stdin 发送一份最多 128 KiB 的 JSON，stdout 返回一行最多 256 KiB 的 `{v:1,product:"ruukoto",ok,result}` 或 `{v:1,product:"ruukoto",ok:false,code,message}`，失败退出 1。先用 `{"v":1,"op":"settings.read"}` 读取配置、来源诊断、凭据引用状态、阻塞事项、档案 `profile` 和各内容修订；分页可加 `offset` 与 `limit`（1–50）。在线只经当前认证后台，离线查询也取得档案锁，连接失败不表示已停机。
@@ -83,7 +85,7 @@ Coding 的独立档案为 `~/.ruukoto-code/{data,agent,control,pending}`，路�
 | `skills.select-directory` / `skills.preview-import` | 原 `profile`、`skills.revision`、拥有者明确选择的远端 `directory`；目录选择另填 `purpose:library/import`，只枚举至多 1000 个子项并返回有界子目录候选 |
 | `skills.import` / `skills.set-enabled` / `skills.remove` | 原 `profile`、`skills.revision` 与预览/列表中的 `id`；导入另填 `directory`、预览的 `contentRevision`，启停另填 `enabled`；均须停机且无未决事项 |
 
-模型只填写凭据环境变量名；MCP 服务发现/新建时显式选择 `authentication:"anonymous"` 或提供远端私有 `credentialPath`，也可保留已读取的 `credential` 路径与摘要。读取不回显令牌，端点 query 值用占位符隐藏；编辑原服务保留该占位符，程序按原服务身份恢复隐藏值。新 MCP 配置为 version 2，逐服务填写 `enabled`；已有 version 1 先显式 `mcp.migrate`，新代次由程序管理，旧历史保持原版本。保存成功不表示连接测试通过；应答丢失先读回原档案/技能身份核实，不换身份重发。原服务环境无法核实便不自动恢复，systemd 精确授权与真实 SSH 停存启另行部署验收。
+模型只填写凭据环境变量名；MCP 服务发现/新建时显式选择 `authentication:"anonymous"` 或提供远端私有 `credentialPath`，也可保留已读取的 `credential` 路径与摘要。读取不回显令牌，端点 query 值用占位符隐藏；编辑原服务保留该占位符，程序按原服务身份恢复隐藏值。新 MCP 配置为 version 2，逐服务填写 `enabled`；已有 version 1 先显式 `mcp.migrate`，新代次由程序管理，旧历史保持原版本。保存成功不表示连接测试通过；应答丢失先读回原档案/技能身份核实，不换身份重发。原服务环境无法核实便不自动恢复，systemd 精确授权及固定入口见[桌面设置维护](../deploy/systemd/README.md#桌面设置维护)，真实 SSH/systemd 组合仍需部署验收。
 
 托管技能导入只复制远端已有单包，不上传 Mac 目录、不修改外部源。停用与逻辑移除仅改变后续选择，原包字节和旧引用保留；没有物理回收操作。外部库不可用时查询保留配置与显式诊断，修复目录后再保存。普通交互仍通过下述菜单逐步选择，无需手填内部身份与修订。
 
@@ -642,6 +644,8 @@ Linux 使用对应 linux 资产并准备系统库、可用 sandbox、持久磁�
 
 ## 桌面客户端
 
+从「设置 → PA 远程连接 → 设置管理」填写同账户 SSH 别名与新 durable 档案，检测后选择安装程序和启动方式，保存本机连接，再「核实档案与服务」。新连接与旧聊天分开，检测成功不代表可写；未核实 CLI 环境、开发实例和缺部署前提均只读，按[部署说明](../deploy/systemd/README.md#桌面设置维护)恢复。维护失败先读取原档案与服务，已保存但未启动可点「恢复原服务」，该动作不重发保存；比较原草稿与当前配置后再结束人工核实。Personal 三类管理页面另行交付。
+
 按 ⌘K 或顶栏侧栏开关左侧的搜索图标查找当前 Code 实例全部工作区的普通会话与聊天正文，包含已存档会话；在 PA 页面同样搜索 Code，不包含 Personal 聊天。输入完整关键词，中文连续匹配、英文 ASCII 不分大小写；↑／↓选择、Enter 打开、Esc 或再次 ⌘K 关闭，非终端区域也支持 Ctrl+K。选择名称或正文结果都直接打开对应会话，保留原草稿与正常输入；向上滚动可加载更早消息。搜索结果滚动接近底部时自动续载，短消息完整显示，长预览尽量把匹配词放在中间；搜索框内图标表示正在读取；读取失败或离线时显示原因，恢复连接后可关闭并重新打开搜索。会话读取失败时显示原因。
 
 MyGo 试验运行 `npm run desktop:mygo`，或打开已构建的 `dist/mygo/darwin-arm64/Ruukoto MyGo.app`；要求 macOS Apple Silicon，构建前提见[桌面开发](desktop-development.md#mygo-试验)。它沿用同一界面与后台，独立保存 Personal 配置和未决提交；切换外壳前先在原应用核实未知操作。MyGo 子进程失败时重新打开应用，Node 或仓库路径失效时重新构建。
@@ -662,4 +666,4 @@ MyGo 试验运行 `npm run desktop:mygo`，或打开已构建的 `dist/mygo/darw
 
 版本不一致时，界面显示连接错误并停止自动重试。客户端较旧需重建应用；受管开发后台较旧需重启开发启动器；日常后台较旧用 `lsof -nP -U` 查询当前控制 socket，核对唯一 PID、所属用户与完整命令，人工结束后点“重新连接”。多 PID 或无法核对时先检查控制目录配置与 spawn.log，不发送信号；未查到监听进程先确认查询命令执行成功。桌面应用不会替你停止后台进程。仓库移动或 node 不可用时按界面提示修复环境或重建。
 
-Personal SSH 连接层仅支持旧控制协议，不能连接新个人 durable 实例；原有连接要求是同账户部署：SSH 登录账户就是后台账户，且可访问控制目录、socket 与原 `owner.token`；只支持密钥或 ssh-agent 认证。建议在 `~/.ssh/config` 为桌面端单独配置不带 `LocalForward` 的主机别名，避免继承转发发生绑定冲突。令牌每次建连读取，本地不保存；账户或权限不符时按错误指引修正部署，不放宽令牌权限。左下设置的“PA 远程连接”保存主机别名与控制目录（默认 `/var/lib/ruukoto/control`）；工作区列表上方 Ruukoto 打开 PA 主会话，支持对话、附件和审批，右栏提供浏览器，也可从委派行打开SubAgent历史。远端与桌面端需使用相同控制协议，升级后重新连接。
+Personal 旧聊天 SSH 连接仅支持旧控制协议；从「PA 远程连接 → 旧聊天连接」配置，要求同账户部署：SSH 登录账户就是后台账户，且可访问控制目录、socket 与原 `owner.token`；只支持密钥或 ssh-agent 认证。建议在 `~/.ssh/config` 为桌面端单独配置不带 `LocalForward` 的主机别名，避免继承转发发生绑定冲突。令牌每次建连读取，本地不保存；账户或权限不符时按错误指引修正部署，不放宽令牌权限。左下设置的“PA 远程连接”保存主机别名与控制目录（默认 `/var/lib/ruukoto/control`）；工作区列表上方 Ruukoto 打开 PA 主会话，支持对话、附件和审批，右栏提供浏览器，也可从委派行打开SubAgent历史。远端与桌面端需使用相同控制协议，升级后重新连接。

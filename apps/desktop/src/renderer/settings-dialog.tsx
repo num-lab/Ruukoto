@@ -53,7 +53,7 @@ function SettingsScopeFields({ category, settings, code, personal, onAddWorkspac
 }
 
 function UnavailableSettingsPage({ scope, code, settings }: SettingsPageProps) {
-  return <div className="settings-availability"><p className="settings-hint" role="status">此类别的配置管理尚未接入，当前只读。{scope.target === "personal" ? "新 Personal 管理连接尚未接入，旧 PA 连接不能用于这些设置。" : code.status.state !== "online" ? "本地 Code 已离线，请恢复后台连接后使用。" : ""}</p>{scope.target === "personal" && <Button type="button" variant="outline" size="sm" onClick={() => settings.chooseCategory("personal")}>查看 PA 远程连接</Button>}</div>;
+  return <div className="settings-availability"><p className="settings-hint" role="status">此类别的配置管理尚未接入，当前只读。{scope.target === "personal" ? "Personal 管理页面尚未接入，请先配置独立设置管理连接。" : code.status.state !== "online" ? "本地 Code 已离线，请恢复后台连接后使用。" : ""}</p>{scope.target === "personal" && <Button type="button" variant="outline" size="sm" onClick={() => settings.chooseCategory("personal")}>查看 PA 远程连接</Button>}</div>;
 }
 
 function ManagedSettingsPage(props: SettingsContentsProps & { category: ManagedSettingsCategory }) {

@@ -441,12 +441,12 @@ export async function startPersonalServer(directory: string, options: { developm
   }
 }
 
-export async function personalControl<T>(directory: string, method: "GET" | "POST", route: string, value?: ReturnType<typeof parsePersonalMemoryControl> | PersonalInput | PersonalServiceResolution | { decision: "approved" | "rejected" } | PersonalToolsControlBody | PersonalScheduleCreateBody | PersonalSettingsRequest): Promise<T> {
+export async function personalControl<T>(directory: string, method: "GET" | "POST", route: string, value?: ReturnType<typeof parsePersonalMemoryControl> | PersonalInput | PersonalServiceResolution | { decision: "approved" | "rejected" } | PersonalToolsControlBody | PersonalScheduleCreateBody | PersonalSettingsRequest, timeoutMs?: number): Promise<T> {
   const token = readPersonalToken(directory);
   return new Promise<T>((resolve, reject) => {
     const req = http.request({ socketPath: path.join(directory, "control.sock"), method, path: route, headers: { authorization: `Bearer ${token}`, "content-type": "application/json", connection: "close" } });
     const fail = (cause?: unknown) => reject(new PersonalError("control_response_lost", method === "POST" ? "未取得后台应答；请核实原消息或后台状态，不要重复提交新消息。" : "无法查询隔离后台；连接失败不表示后台已停止，请检查状态与日志。", { cause }));
-    const timeout = setTimeout(() => req.destroy(new Error("timeout")), route === "/settings" ? PERSONAL_SETTINGS_LIMITS.modelTestMs + 5000 : 5000);
+    const timeout = setTimeout(() => req.destroy(new Error("timeout")), timeoutMs ?? (route === "/settings" ? PERSONAL_SETTINGS_LIMITS.modelTestMs + 5000 : 5000));
     req.once("close", () => clearTimeout(timeout));
     req.on("error", fail);
     req.on("response", res => {

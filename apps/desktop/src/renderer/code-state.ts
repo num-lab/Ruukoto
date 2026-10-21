@@ -36,7 +36,9 @@ export class CodeState {
   message: string | null = null;
   readError: string | null = null;
   pendingCreation: PendingCreation | null = null;
+  defaultModelKnown = false;
   private generation = 0;
+  private defaultModelRead = 0;
   /** 恢复窗口内累计的变更只画一次：中间投影会把已收起 trace 画成展开态。 */
   private quiet = 0;
   private dirty = false;
@@ -85,6 +87,7 @@ export class CodeState {
     if (update.type === "terminal") { this.inspector.update(update); return; }
     if (update.type === "state") {
       this.status = update;
+      if (update.state !== "online") { ++this.defaultModelRead; this.defaultModelKnown = false; }
       this.inspector.update(update);
       if (update.state === "online") void this.reconcileCreation();
     } else if (update.type === "snapshot") {
@@ -96,6 +99,7 @@ export class CodeState {
       this.readError = null;
       const instanceChanged = update.instanceChanged || (this.view.instanceId !== null && this.view.instanceId !== update.result.snapshot.instanceId);
       this.view.applySnapshot(update.result, instanceChanged);
+      this.defaultModelKnown = true;
       this.inspector.update({ ...update, instanceChanged });
       if (instanceChanged) { this.tabs = []; this.notificationSelection = null; this.creationSourceId = null; }
       this.tabs = this.tabs.filter(id => this.view.sessions.some(session => session.id === id));
@@ -107,6 +111,7 @@ export class CodeState {
     } else if (update.type === "event") {
       this.view.applyEvent(update.event, update.kind);
       const body = update.event.body;
+      if (this.target === "code" && body.type === "model.config_changed") void this.refreshDefaultModel();
       if (this.target === "code" && (body.type === "session.created" || body.type === "session.workspace_mapped" || body.type === "project.created" || body.type === "task.queued")) void this.loadSummaries();
       if (body.type === "session.created") void this.reconcileCreation();
       if (body.type === "task.output_entry" && (this.tabs.includes(body.sessionId) || this.inspector.childSessionId === body.sessionId)) void this.loadEntry(body.sessionId, body.entryId, body.taskId);
@@ -128,6 +133,27 @@ export class CodeState {
     this.openSession(child?.parentSessionId ?? update.navigation.sessionId);
     if (child) this.inspector.selectChild(child.sessionId);
     this.navigation = null;
+  }
+  private async refreshDefaultModel(): Promise<void> {
+    this.defaultModelKnown = false;
+    const generation = this.generation, read = ++this.defaultModelRead;
+    try {
+      const config = await this.request("get_model_config", {});
+      if (generation !== this.generation || read !== this.defaultModelRead || this.status.state !== "online") return;
+      const selection = config.runtimeDefault;
+      const model = config.models.find(model => model.provider === selection.provider && model.modelId === selection.modelId);
+      this.view.defaultModel = { provider: selection.provider, id: selection.modelId, name: model?.name ?? selection.modelId, thinkingLevel: selection.thinkingLevel };
+      this.defaultModelKnown = true;
+      this.mark();
+    } catch { if (generation === this.generation && read === this.defaultModelRead) this.report("后台默认模型刷新失败，请重新连接核实后再创建会话。"); }
+  }
+  newChatSelection(explicit: ModelSelection | null): ModelSelection | null {
+    if (explicit) return explicit;
+    if (!this.defaultModelKnown) return null;
+    const { provider, id: modelId, thinkingLevel } = this.view.defaultModel;
+    const option = this.writes.models.find(model => model.available && model.provider === provider && model.modelId === modelId);
+    const level = option?.thinkingLevels.find(level => level === thinkingLevel);
+    return level ? { provider, modelId, thinkingLevel: level } : null;
   }
   /** 工作区树只列未存档的普通会话；存档只影响这份列表，历史与任务仍按会话 id 读取。 */
   sessionsFor(workspaceId: string): Session[] {

@@ -316,6 +316,8 @@ Coding 的离线导入由 app 持有方向策略，core 提供快照、文件校
 
 ## 不变量与失败处理
 
+模型配置视图只读脱敏位置、已注册模型成员与真实思考档位，不求值动态认证；存储条目存在与实际认证可用分别表达。模型管理继续核对内容修订、受影响提供方占用与引用，重建失败恢复原文件；SDK／远端失败正文收口为固定指引并保留安全错误码，避免动态凭据被错误反射。主动连接测试独立于保存，完整来源语义见[上下文与模型配置](agent-context.md)。
+
 工作流步骤的普通任务/工作控制及复用明确拒绝，暂停、恢复和取消由运行控制持有。跨实例导入显式登记工作流表，含执行记录的源报 `workflow_import_unavailable`，不丢掉绑定后继续；操作见[导入说明](../usage.md#6-导入旧实例)。
 
 **幂等与竞争仲裁。**
@@ -353,6 +355,8 @@ Coding 的离线导入由 app 持有方向策略，core 提供快照、文件校
 `readWorkspaceGit` 按登记根身份只读分页查询真实提交与refs；每页200条，没有累计上限，每次总5秒、每命令512 KiB及结果768 KiB预算，非仓库和空仓库分开。游标绑定工作区、Git/common身份、HEAD、全部refs、shallow与info/grafts，读取前后核实修订，变化拒绝并要求刷新。原保护根、元数据链接、alternates和配置include限制继续适用，失败返回类型化错误。拥有者附件入口允许 dev 和 main，子会话仍拒绝；main 主身份随快照显式提供。
 
 ## 设计依据
+
+- [Code 模型设置与凭据来源](../../.agents/notes/implemented/feature/2026-10-21-code-model-settings.md)
 
 - [应用内 Spotlight 与历史定位](../../.agents/notes/implemented/feature/2026-10-21-desktop-spotlight-search.md)
 

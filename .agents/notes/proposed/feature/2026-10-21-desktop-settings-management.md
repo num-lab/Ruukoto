@@ -6,7 +6,7 @@ Status: proposed
 
 桌面设置只有外观、旧 Personal 连接与存档，会话模型菜单不能管理提供方、技能或外部工具。2026-10-21 拥有者要求制定补全方案，并确认覆盖 Code 与 Personal。Code 配置控制面已具备大部分能力，而新个人 durable 使用不同协议与停机配置；仅复刻表单会把错误的后端或作用范围展示为已配置。
 
-容器部分已由[设置容器](../../implemented/feature/2026-10-21-desktop-settings-shell.md)落地；本篇其余管理能力继续保持提案状态。
+容器部分已由[设置容器](../../implemented/feature/2026-10-21-desktop-settings-shell.md)落地，Code 模型设置由[按配置位置管理模型凭据](../../implemented/feature/2026-10-21-code-model-settings.md)持有；本篇其余管理能力继续保持提案状态。
 
 ## 方案
 

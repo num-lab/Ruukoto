@@ -56,6 +56,7 @@ npx tsx --test verification/foundation/test/03-tools.test.ts
 | `scripts/test-app.mjs` 的分批与退出 | `test/124-test-app-runner.test.ts`；共享 UID 孤儿冲突的独占清单由脚本持有 |
 | 工作流存储、协调器、真实步骤与宿主操作 | `test/105-workflow-runtime.test.ts` 至 `test/113-workflow-source-capabilities.test.ts`；新增角色/版本回归见 `test/workflow-*.test.ts` |
 | 回答、送达、调度与等待 | `test/114-workflow-owner-input.test.ts` 至 `test/116-workflow-notification-recovery.test.ts`；`test/125-agent-wait*.test.ts` |
+| 持久问题与恢复 | `test/owner-questions.test.ts`、`test/owner-question-*.test.ts`；12/13/14/15、41和66按影响补回归 |
 | 工作流定义与入口 | `test/117-workflow-library.test.ts` 至 `test/120-workflow-cli.test.ts`；126 侧栏与恢复，模型/IM 替身 |
 | 共享底座六输入联合验收 | `test/121-workflow-personal-acceptance.test.ts`、`test/122-workflow-code-acceptance.test.ts`；真实工具、联网/IM 替身 |
 | `packages/agent/src/` 的上下文与模型 | `test/18-model-selection.test.ts`、`test/60-context-prefix.test.ts`、`test/61-context-compaction.test.ts`、`test/98-media-model-pinning.test.ts` |
@@ -82,6 +83,8 @@ GitHub Actions 在 macOS / Linux × Node 22.19 / 24.15 四组环境执行 `npm r
 `worker/` 由构建生成，QuickJS core 与 release-sync WASM 由 agent 包锁版；`node_modules/` 由锁文件安装。个人命令的独立入口/依赖准备和宿主回执分别由 `test/personal-command-worker.test.ts`、`test/personal-command-execution.test.ts` 覆盖，测试前运行 `npm run build:worker`；真实 Linux 停止另行验收。数据库、令牌和凭据留在产品档案，不入工作树；测试用临时档案。开发实例的隔离与执行后端见 [README](../README.md#开发本项目)。
 
 ## 外部验收
+
+持久提问真实验收：`RUN_MODEL_CHECK=1 RUN_OWNER_QUESTION_MODELS_FILE=/path/models.json npx tsx --test test/owner-question-model-acceptance.test.ts`（显式DeepSeek、隔离档案）；TUI/Desktop另验。
 
 | 根目录命令 | 所需环境与覆盖 |
 | --- | --- |

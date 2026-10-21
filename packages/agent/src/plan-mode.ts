@@ -28,4 +28,5 @@ export const PLAN_TOOL_NAMES: ReadonlySet<string> = new Set([
   "read", "list_files", "search_files", "bash", "request_file_access", "http_request", "read_artifact",
   "history_search", "history_read", "memory_list", "memory_read", "web_search",
   "todo_write", "skill",
+  "ask_user",
 ]);

@@ -13,6 +13,17 @@ const encodedCsp = PRODUCTION_CSP.replaceAll("'", "&#39;");
 const cspMeta = `<meta http-equiv="Content-Security-Policy" content="${encodedCsp}">`;
 const buildScript = path.resolve(import.meta.dirname, "../apps/desktop/scripts/check-build.mjs");
 
+test("实际桌面构建保留终端 vendor 引用，原生模块不能被内联到 main 入口", () => {
+  const desktop = path.resolve(import.meta.dirname, "../apps/desktop");
+  const cli = path.resolve(import.meta.dirname, "../node_modules/electron-vite/bin/electron-vite.js");
+  const result = spawnSync(process.execPath, [cli, "build"], { cwd: desktop, encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  const source = fs.readFileSync(path.join(desktop, "out/main/index.js"), "utf8");
+  assert.match(source, /from ["']\.\/vendor\/node-pty\/lib\/index\.js["']/);
+  assert.doesNotMatch(source, /function loadNativeModule\(/);
+  assert.doesNotThrow(() => checkBuild(path.join(desktop, "out")));
+});
+
 test("桌面生产 CSP 仅给内置浏览器开放 HTTP(S)，预览图片允许 data；内联样式放行 xterm 运行时主题注入，脚本仍不开放", () => {
   assert.match(PRODUCTION_CSP, /(?:^|;)\s*default-src 'self'(?:;|$)/);
   assert.match(PRODUCTION_CSP, /(?:^|;)\s*style-src 'self' 'unsafe-inline'(?:;|$)/);

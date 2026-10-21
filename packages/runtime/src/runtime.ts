@@ -70,6 +70,7 @@ import { HOST_REVIEW_DEFINITION, SubAgentRoleError, validateSubAgentRole } from 
 import { requireSubAgentDefinition, SubAgentDefinitionError } from "@ruukoto/core/subagent-definition.ts";
 import { createWorkflowFamily } from "@ruukoto/agent/workflow-tools.ts";
 import { createTodoFamily, parseTodos } from "@ruukoto/agent/todo.ts";
+import { createOwnerQuestionFamily } from "@ruukoto/agent/owner-question-tools.ts";
 import { ToolOpLedger } from "@ruukoto/agent/tool-op-ledger.ts";
 import { sessionToolCategories } from "@ruukoto/agent/tool-availability.ts";
 import { HostExecutionManager } from "./host-execution.ts";
@@ -122,6 +123,7 @@ import {
   type MemoryWithContent,
 } from "@ruukoto/core/memory.ts";
 import { parseModelSelection } from "@ruukoto/core/model-selection.ts";
+import { cancelOwnerQuestion, consumeOwnerQuestion, createOwnerQuestion, getOwnerQuestion, getOwnerQuestionReceipt, invalidateOwnerQuestionsForTask, listOwnerQuestions, ownerQuestionToView, parseOwnerAnswers, type OwnerAnswer, type OwnerQuestionView } from "@ruukoto/core/owner-questions.ts";
 import { sameTarget } from "@ruukoto/core/notify-target.ts";
 import { PRODUCT_META_KEY,type ProductType } from "@ruukoto/core/product.ts";
 import { CODING_ROLE_RETIRED,CORE_GROUP_CHAT_RETIRED } from "@ruukoto/core/session-identity.ts";
@@ -3366,6 +3368,8 @@ export class Runtime {
     workflowRunId?: string;
     reportKey?: string;
     reportKeys?: string[];
+    /** 仅可信问题入口提交；客户端与模型不能指定回答来源。 */
+    ownerAnswer?: { questionId: string; version: number; answers: OwnerAnswer[] };
   }, internal = false): Promise<TaskView> {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝新任务");
     const session = this.store.getSession(input.sessionId);
@@ -3375,6 +3379,7 @@ export class Runtime {
     if (input.workflowRunId && !internal) throw new RuntimeApiError("invalid_params", "工作流汇总只能由宿主登记");
     if (input.reportKey && !internal) throw new RuntimeApiError("invalid_params", "结果补报只能由宿主登记");
     if (input.reportKeys && !internal) throw new RuntimeApiError("invalid_params", "结果补报只能由宿主登记");
+    if (input.ownerAnswer && (!internal || this.store.getSessionIdentity(session.id)?.kind !== "dev")) throw new RuntimeApiError("invalid_params", "请从问题卡片提交回答。");
     const identity = this.store.getSessionIdentity(session.id)!;
     // SubAgent 子会话（agent-direction issue 11）：不是普通用户对话入口；任务
     // 只能经集中委派登记（直接写库，不经本入口），控制面不能把它当作用户会话提交
@@ -3427,6 +3432,7 @@ export class Runtime {
       ...(input.workflowRunId ? { workflowRunId: input.workflowRunId } : {}),
       ...(input.reportKey ? { reportKey: input.reportKey } : {}),
       ...(input.reportKeys ? { reportKeys: input.reportKeys } : {}),
+      ...(input.ownerAnswer ? { ownerAnswer: input.ownerAnswer } : {}),
     };
     const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
     const submissionDigest = `request-v2:${digest(submission)}`;
@@ -3510,6 +3516,9 @@ export class Runtime {
           deadline,
         });
         if (!queued.duplicate) this.attachments.bind(queued.task.id, session.id, attachments);
+        if (input.ownerAnswer) consumeOwnerQuestion(this.store, { questionId: input.ownerAnswer.questionId, sessionId: session.id,
+          version: input.ownerAnswer.version, requestKey: input.requestId, requestDigest: submissionDigest,
+          answers: input.ownerAnswer.answers, source: { kind: "coding-owner", sessionId: session.id }, taskId: queued.task.id });
         if (ordinaryInbound) this.store.markInboundQueued(ordinaryInbound.id, queued.task.id);
         if (workflow) updateWorkflowRun(this.store, { ...workflow, delivery: { ...workflow.delivery!, taskId: queued.task.id, status: "queued" } });
         for (const key of reportKeys) bindAgentReportFallback(this.store, key, queued.task.id);
@@ -3522,7 +3531,7 @@ export class Runtime {
       throw err;
     }
     if (!duplicate) {
-      const trustedOwnerInput = !internal || Boolean(task.sourceEventId && task.requestId === `evt:${task.sourceEventId}` &&
+      const trustedOwnerInput = !internal || Boolean(input.ownerAnswer) || Boolean(task.sourceEventId && task.requestId === `evt:${task.sourceEventId}` &&
         sourceEvent && [QQ_PRIVATE_SOURCE, TELEGRAM_SOURCE].includes(sourceEvent.source) && this.inboundGate(sourceEvent) === "run");
       const driver = this.drivers.get(input.sessionId), activeTaskId = driver?.currentTaskId;
       if (trustedOwnerInput && driver && activeTaskId && this.agentWait.interrupt(activeTaskId, "owner_input")) {
@@ -3532,6 +3541,42 @@ export class Runtime {
       this.kick(input.sessionId);
     }
     return this.taskView(task);
+  }
+
+  listOwnerQuestions(sessionId: string, offset = 0, limit = 20): { questions: OwnerQuestionView[]; nextOffset: number | null } {
+    if (!this.store.getSession(sessionId)) throw new RuntimeApiError("not_found", "会话不存在，请重新选择会话。");
+    if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 20) throw new RuntimeApiError("invalid_params", "问题页码须非负，每页1–20项。");
+    const rows = listOwnerQuestions(this.store, sessionId, limit + 1, offset), questions: OwnerQuestionView[] = [];
+    let bytes = 128;
+    for (const row of rows.slice(0, limit)) {
+      const question = ownerQuestionToView(row), size = frameBytes(question);
+      if (bytes + size > 256 * 1024) break;
+      questions.push(question); bytes += size;
+    }
+    return { questions, nextOffset: questions.length < rows.length ? offset + questions.length : null };
+  }
+
+  // Note: 见 .agents/notes/implemented/feature/2026-10-21-owner-question-choice-types.md
+  async answerOwnerQuestion(input: { sessionId: string; questionId: string; version: number; requestId: string; answers: unknown;
+    modelSelection: ModelSelection; accessMode?: SessionDefaultMode; grantedPaths?: GrantedPath[] }): Promise<TaskView> {
+    const question = getOwnerQuestion(this.store, input.questionId);
+    if (!question || question.sessionId !== input.sessionId) throw new RuntimeApiError("question_missing", "问题已不可用，请刷新问题卡片。");
+    const answers = parseOwnerAnswers(input.answers, question.questions);
+    const text = "[拥有者问题回答]\n" + question.questions.map((item, index) => `${index + 1}. ${item.question}${item.multiple ? "（多选）" : ""}${item.options ? `\n选项：${JSON.stringify(item.options)}` : ""}\n回答：${answers[index].text}`).join("\n\n");
+    return this.submit({ sessionId: input.sessionId, requestId: input.requestId, input: text, modelSelection: input.modelSelection,
+      accessMode: input.accessMode, grantedPaths: input.grantedPaths,
+      ownerAnswer: { questionId: input.questionId, version: input.version, answers } }, true);
+  }
+
+  cancelOwnerQuestion(input: { sessionId: string; questionId: string; version: number; requestId: string }): OwnerQuestionView {
+    const requestDigest = createHash("sha256").update(JSON.stringify(input)).digest("hex");
+    return ownerQuestionToView(this.store.withTx(() => cancelOwnerQuestion(this.store, { questionId: input.questionId,
+      sessionId: input.sessionId, version: input.version, requestKey: input.requestId, requestDigest })));
+  }
+
+  findOwnerQuestionReceipt(sessionId: string, requestId: string, operation: "owner_question_answer" | "owner_question_cancel") {
+    const receipt = getOwnerQuestionReceipt(this.store, sessionId, requestId, operation);
+    return { receipt };
   }
 
   /**
@@ -4217,6 +4262,7 @@ export class Runtime {
         getWorkflowLogs: (...args) => this.getWorkflowLogs(...args), getWorkflowQuestion: (...args) => this.getWorkflowQuestion(...args),
         listWorkflows: (...args) => this.listWorkflows(...args), controlWorkflow: input => this.controlWorkflow(input) }),
       createChatResultFamily({ coreStore: this.store, qqStore: this.qqStore }),
+      createOwnerQuestionFamily(this.store),
       ...this.config.product.toolFamilies({
         config: this.config,
         store: this.store,
@@ -4284,6 +4330,7 @@ export class Runtime {
         memories: this.memories,
         budgetOverrides: this.config.budgetOverrides,
         hostToolFamilies: this.hostToolFamilies,
+        ownerQuestions: { create: (ctx, questions) => this.store.withTx(() => createOwnerQuestion(this.store, { ...ctx, questions })) },
         jev: this.config.jev,
         compaction: this.config.compaction,
         mcp: { store: this.mcp, ...this.config.mcp },
@@ -4368,6 +4415,7 @@ export class Runtime {
           // 编排器超时取消等场景持久化原因（undefined 时保持原状不写入）
           errorMessage: opts?.reason,
         });
+        invalidateOwnerQuestionsForTask(this.store, task.id);
       });
       return this.store.getTask(taskId)!;
     }
@@ -4377,6 +4425,7 @@ export class Runtime {
       // canceled，不调用模型。已在执行的任务 requestStop 会再写同一标记（同值）。
       this.store.withTx(() => {
         this.store.setCancelRequested(task.id, true);
+        invalidateOwnerQuestionsForTask(this.store, task.id);
       });
       if (this.hostExecutions.has(task.id)) {
         await this.hostExecutions.stop(task.id, "canceled", opts?.reason ?? "owner_cancel");
@@ -4545,6 +4594,7 @@ export class Runtime {
     subAgentSessionIds: string[];
     workDelegations: WorkDelegation[];
     subAgents: SubAgent[];
+    ownerQuestions: OwnerQuestionView[];
     seq: number;
   } {
     // 有界快照：全部活动任务 + 每个会话最近结束的若干任务；更早的经 list_tasks 分页
@@ -4564,7 +4614,7 @@ export class Runtime {
       const preview = this.outputPreviewFor(task);
       if (preview) previews[task.id] = preview;
     }
-    return {
+    const snapshot = {
       projects: this.store.listProjects(),
       sessions,
       tasks: tasks.map(task => this.taskView(task)),
@@ -4579,8 +4629,16 @@ export class Runtime {
       subAgentSessionIds: this.store.listSubAgents().map((a) => a.sessionId),
       workDelegations: this.store.listWorkDelegations(),
       subAgents: this.store.listSubAgents(),
+      ownerQuestions: sessions.flatMap(session => this.listOwnerQuestions(session.id).questions),
       seq: this.store.getMaxSeq(),
     };
+    let questionBytes = 0;
+    snapshot.ownerQuestions = snapshot.ownerQuestions.filter(question => {
+      questionBytes += frameBytes(question);
+      return questionBytes <= 128 * 1024;
+    });
+    while (snapshot.ownerQuestions.length && frameBytes(snapshot) > SEGMENT_MAX_BYTES) snapshot.ownerQuestions.pop();
+    return snapshot;
   }
 
   // ---------- 工作委托与 SubAgent（agent-direction issue 11；只读视图） ----------

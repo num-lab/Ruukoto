@@ -19,6 +19,8 @@
 
 ## 对外接口
 
+`listOwnerQuestions` 提供待答及最近终态，`answerOwnerQuestion` 只接受可信普通开发入口的逐题回答或跳过，校验单选或多选索引与选项名正文一致；规范化输入包含完整选项元数据、多选标记与空答案。`cancelOwnerQuestion` 和 `findOwnerQuestionReceipt` 管理独立取消与原键回执。回答经宿主私有绑定进入 `submit`，普通聊天不消费问题；原入队事务同时保存答案、当前回答权限、唯一 Task及事件。原任务自然结束、会话存档或重启保留问题，显式取消原任务使未答问题 stale。
+
 任务查询及应答从工作流专属送达或等待报告的持久补报及排队别名绑定派生输入用途；历史首屏、分页与单条读取先核实原任务属于当前会话或 `branchSource.taskIds`，再派生同一分类。缺任务、跨会话关联或已知内部任务条目缺标记时返回关联诊断并保留普通展示，不靠正文或请求键推断。
 
 `readToolResult` 按原会话历史归属读取指定工具结果，支持旧预览或 core 的结构字段分页；参数与 UTF-8 游标见[控制面](control.md#不变量与失败处理)。不读取工作区当前文件或重算差异。
@@ -314,6 +316,8 @@ Coding 的离线导入由 app 持有方向策略，core 提供快照、文件校
 
 ## 不变量与失败处理
 
+问题回答与取消同事务仲裁，终态不可覆盖，失败不留下已答而无续接的中间状态。回答采用本次模型、会话当前默认模式或显式模式及实际授予范围，旧工具批准不继承。含持久问题或回执的导入报 `owner_questions_import_unavailable`，原档案与绑定保留。
+
 工作流步骤的普通任务/工作控制及复用明确拒绝，暂停、恢复和取消由运行控制持有。跨实例导入显式登记工作流表，含执行记录的源报 `workflow_import_unavailable`，不丢掉绑定后继续；操作见[导入说明](../usage.md#6-导入旧实例)。
 
 **幂等与竞争仲裁。**
@@ -351,6 +355,8 @@ Coding 的离线导入由 app 持有方向策略，core 提供快照、文件校
 `readWorkspaceGit` 按登记根身份只读分页查询真实提交与refs；每页200条，没有累计上限，每次总5秒、每命令512 KiB及结果768 KiB预算，非仓库和空仓库分开。游标绑定工作区、Git/common身份、HEAD、全部refs、shallow与info/grafts，读取前后核实修订，变化拒绝并要求刷新。原保护根、元数据链接、alternates和配置include限制继续适用，失败返回类型化错误。拥有者附件入口允许 dev 和 main，子会话仍拒绝；main 主身份随快照显式提供。
 
 ## 设计依据
+
+- [Coding 持久问题与可信续接](../../.agents/notes/implemented/feature/2026-10-21-coding-owner-questions.md)
 
 - [完整思考与文件预览](../../.agents/notes/implemented/feature/2026-10-18-complete-reasoning-and-preview.md)
 

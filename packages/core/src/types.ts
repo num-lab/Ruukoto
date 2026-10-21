@@ -19,7 +19,7 @@ import type { SubAgentExecutionSnapshot } from "./subagent-execution.ts";
 import type { WorkCopyHostSnapshot } from "./work-copy-host.ts";
 import { requireWorkspaceSnapshot, WorkspaceSnapshotError, type WorkspaceSnapshot } from "./workspace-snapshot.ts";
 
-export const PROTOCOL_VERSION = 33;
+export const PROTOCOL_VERSION = 35;
 
 export interface ModelSelection {
   provider: string;
@@ -376,7 +376,7 @@ export interface SubAgentReadScope {
  * delegation、chat_results、service 只在 main 的清单中（service 另要求产品与
  * 部署配置具备，见 tool-availability 与 Driver 装配）。
  */
-export type ToolCategory = "coding" | "host_data" | "web_search" | "browser" | "mcp" | "app_data" | "scheduler" | "delegation" | "chat_results" | "service" | "skills" | "subagent" | "workflow";
+export type ToolCategory = "coding" | "host_data" | "web_search" | "browser" | "mcp" | "app_data" | "scheduler" | "delegation" | "chat_results" | "service" | "skills" | "subagent" | "workflow" | "owner_question";
 
 /**
  * 可信宿主配置的通知目标（issue 03）：渠道、账号、会话 ID 与配置版本。
@@ -888,6 +888,7 @@ export interface EditStats {
 
 /** 持久事件载荷（JSON 序列化后存 events.payload）。 */
 export type PersistentEventBody =
+  | { type: "owner_question.changed"; question: import("./owner-questions.ts").OwnerQuestionView }
   | { type: "task.memory_accessed"; taskId: string; sessionId: string; memoryId: string }
   | { type: "agent_wait.changed"; waitId: string; taskId: string; phase: import("./agent-wait.ts").AgentWaitPhase; reason: string | null; wait: import("./agent-wait.ts").AgentWaitView }
   | { type: "task.resources_changed"; taskId: string; sessionId: string; phase: "execution" | "conversation" }

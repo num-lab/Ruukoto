@@ -9,9 +9,9 @@ const repository = fileURLToPath(new URL("../../", import.meta.url));
 // Note: 见 .agents/notes/proposed/architecture/2026-10-15-desktop-client.md
 export default defineConfig(({ command }) => ({
   main: {
-    plugins: [{ name: "terminal-runtime", resolveId: id => id === "node-pty" ? { id: TERMINAL_MODULE, external: true } : null, writeBundle: () => vendorTerminal(fileURLToPath(new URL("./out/main", import.meta.url))) }],
+    plugins: [{ name: "terminal-runtime", writeBundle: () => vendorTerminal(fileURLToPath(new URL("./out/main", import.meta.url))) }],
     define: { __RUUKOTO_REPOSITORY__: JSON.stringify(repository) },
-    build: { externalizeDeps: false, rollupOptions: { output: { format: "es", entryFileNames: "index.js", inlineDynamicImports: true } } },
+    build: { externalizeDeps: false, rollupOptions: { external: ["node-pty"], output: { paths: { "node-pty": TERMINAL_MODULE }, format: "es", entryFileNames: "index.js", inlineDynamicImports: true } } },
   },
   preload: {
     build: { externalizeDeps: false, rollupOptions: { output: { format: "cjs", entryFileNames: "index.cjs", inlineDynamicImports: true } } },

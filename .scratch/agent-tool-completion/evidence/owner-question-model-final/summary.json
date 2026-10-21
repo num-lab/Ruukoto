@@ -1,0 +1,112 @@
+{
+  "provider": "agentrouter",
+  "modelId": "deepseek-v4-flash",
+  "sourceTaskId": "task_1b88d4301c8cd561b0ba5851",
+  "chatTaskId": "task_b218c70654d28cb906eae6cb",
+  "answerTaskId": "task_37d1f54c0f89812379732e99",
+  "question": {
+    "id": "question_e9b23e8c3407bc04912faea4",
+    "sessionId": "sess_1e2db4b13d303db55d9b4ac3",
+    "taskId": "task_1b88d4301c8cd561b0ba5851",
+    "version": 2,
+    "status": "answered",
+    "questions": [
+      {
+        "question": "交付目录采用哪一种布局？",
+        "options": [
+          "集中目录",
+          "按模块分目录"
+        ]
+      },
+      {
+        "question": "请给出验收口令。"
+      }
+    ],
+    "answers": [
+      {
+        "text": "按模块分目录",
+        "option": 1
+      },
+      {
+        "text": "OWNER_ANSWER_0dadbf4a6ffbd4a6"
+      }
+    ],
+    "continuationTaskId": "task_37d1f54c0f89812379732e99",
+    "createdAt": "2026-10-21T01:56:14.902Z"
+  },
+  "receipt": {
+    "operation": "owner_question_answer",
+    "questionId": "question_e9b23e8c3407bc04912faea4",
+    "sessionId": "sess_1e2db4b13d303db55d9b4ac3",
+    "requestKey": "answer",
+    "digest": "request-v2:a1140b1bfc80a764b285f48aa85770a3c4b6c2d7a6043a84046b23577153ce92",
+    "question": {
+      "id": "question_e9b23e8c3407bc04912faea4",
+      "sessionId": "sess_1e2db4b13d303db55d9b4ac3",
+      "taskId": "task_1b88d4301c8cd561b0ba5851",
+      "version": 2,
+      "status": "answered",
+      "questions": [
+        {
+          "question": "交付目录采用哪一种布局？",
+          "options": [
+            "集中目录",
+            "按模块分目录"
+          ]
+        },
+        {
+          "question": "请给出验收口令。"
+        }
+      ],
+      "answers": [
+        {
+          "text": "按模块分目录",
+          "option": 1
+        },
+        {
+          "text": "OWNER_ANSWER_0dadbf4a6ffbd4a6"
+        }
+      ],
+      "continuationTaskId": "task_37d1f54c0f89812379732e99",
+      "createdAt": "2026-10-21T01:56:14.902Z"
+    },
+    "taskId": "task_37d1f54c0f89812379732e99"
+  },
+  "reply": "按模块分目录\n\nOWNER_ANSWER_0dadbf4a6ffbd4a6",
+  "prompts": [
+    {
+      "label": "source",
+      "callIndex": 1,
+      "file": "source-prompt-1.json",
+      "sha256": "4e79548ccb65a113d79a54c73d0ff25e5a6cc86709ea34599bf4939534657758",
+      "artifactSha256": "fe8714a4f0f2d0d5dc0126df5c1bbeb9e03d073fec27f16c5f6bcab4b2d018f7"
+    },
+    {
+      "label": "source",
+      "callIndex": 2,
+      "file": "source-prompt-2.json",
+      "sha256": "12f3e2734cf0c3ed0890da4deeafbd7dcdf689a401af35063a8575233bcbcd33",
+      "artifactSha256": "83e8357a9f673a93d342f221e87a2582d724e1ee46437c315f5eebf0c3f0e13e"
+    },
+    {
+      "label": "chat",
+      "callIndex": 1,
+      "file": "chat-prompt-1.json",
+      "sha256": "21e273fcdd0d19f5f6d27f23faa2d6228c38418f709c6757e7308d21692bf6de",
+      "artifactSha256": "de87e2d3afc2534edc5cdc08914ef7518144eaf3923541a037946fb8cf19c2d5"
+    },
+    {
+      "label": "answer",
+      "callIndex": 1,
+      "file": "answer-prompt-1.json",
+      "sha256": "42e43d50a299b34744b852416272849023d6151be2f0a8c0cc7e40ba6e1497a9",
+      "artifactSha256": "1d4b979519480611a01324127b1896ce27d6b8f7f2c1b3e93a8dac8c313d8b5e"
+    }
+  ],
+  "tokenComparison": {
+    "kind": "same-implementation-normal-versus-pending",
+    "beforeImplementation": null,
+    "reason": "现存文件检索验收的系统提示估算为1503，本工单为1506，模型标识与工具集合也不同，不能视为可信实施前对照"
+  },
+  "passed": true
+}

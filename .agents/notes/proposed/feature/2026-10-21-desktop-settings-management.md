@@ -6,6 +6,8 @@ Status: proposed
 
 桌面设置只有外观、旧 Personal 连接与存档，会话模型菜单不能管理提供方、技能或外部工具。2026-10-21 拥有者要求制定补全方案，并确认覆盖 Code 与 Personal。Code 配置控制面已具备大部分能力，而新个人 durable 使用不同协议与停机配置；仅复刻表单会把错误的后端或作用范围展示为已配置。
 
+容器部分已由[设置容器](../../implemented/feature/2026-10-21-desktop-settings-shell.md)落地；本篇其余管理能力继续保持提案状态。
+
 ## 方案
 
 沿用现有分类浮窗，在模型、Skills、MCP 中显式选择产品与适用工作区、配置来源。Code 优先复用既有 Runtime、模型与 MCP 配置接口，补共享类型、桌面白名单、来源候选、首次写入即限范围的 MCP 凭据入口及技能写管理；Personal 设置独立适配新 durable，不套用旧控制协议或旧 Task Store。具体交互、契约及工单由[共享规格](../../../../.scratch/desktop-settings/spec.md)持有。

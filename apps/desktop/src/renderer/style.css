@@ -593,3 +593,14 @@ body { font-size: 15.5px; }
 }
 .terminal-stop-failures { position: fixed; inset: auto 16px 16px; z-index: 50; display: flex; flex-direction: column; gap: 8px; padding: 12px; background: var(--bg-elevated); border: 1px solid var(--ui-border); border-radius: 8px; font-size: 12px; }
 .terminal-stop-failures > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+/* Note: 见 .agents/notes/implemented/feature/2026-10-21-desktop-settings-shell.md */
+.settings-dialog { width: min(880px, calc(100vw - 32px)); height: min(640px, calc(100dvh - 48px)); }
+.settings-navigation > h2 { margin: 2px 12px 24px; font-size: 18px; font-weight: 500; }
+.settings-panel { overscroll-behavior: contain; overflow-wrap: anywhere; }
+.settings-target-tabs > [data-slot="tabs-list"] { flex-direction: row; height: 36px; }
+.settings-target-tabs > [data-slot="tabs-list"] > [data-slot="tabs-trigger"] { justify-content: center; }
+.settings-scope { margin-bottom: 28px; padding-bottom: 24px; border-bottom: 1px solid var(--ui-border); }
+.settings-scope [data-slot="select-trigger"] { width: 100%; min-width: 0; }
+.settings-scope p { margin: 0; }
+.settings-notice { position: absolute; right: 32px; bottom: 8px; left: 180px; margin: 0; padding: 8px; background: var(--bg-canvas); font-size: 13px; }
+@media (max-width: 540px) { .settings-categories [data-slot="tabs-trigger"] { padding-inline: 6px; gap: 4px; font-size: 12px; } .settings-navigation > h2 { margin-inline: 6px; } .settings-notice { left: 140px; right: 16px; } }

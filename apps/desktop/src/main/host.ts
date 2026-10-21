@@ -10,7 +10,7 @@ import { PersonalController } from "./personal-controller.ts";
 import { loadPersonalConfig, savePersonalConfig } from "./personal-config.ts";
 import { DesktopNotifications, type DesktopNotice } from "./notifications.ts";
 import { pickAttachments, stageAttachments } from "./attachments.ts";
-import type { DesktopTarget, DesktopUpdate } from "../shared/bridge.ts";
+import type { DesktopSkillPreview, DesktopTarget, DesktopUpdate } from "../shared/bridge.ts";
 import type { DirIdentity } from "@ruukoto/core/dir-identity.ts";
 import { spawn } from "node-pty";
 import { TerminalManager, type PtyFactory } from "./terminal.ts";
@@ -48,6 +48,7 @@ export class DesktopHost {
   private terminalReset: Promise<void> = Promise.resolve();
   private readonly terminalOpening = new Set<string>();
   private readonly terminalCanceled = new Set<string>();
+  private skillSelection: { ticket: string; source: CodeController; connection: object; instanceId: string; preview: DesktopSkillPreview | null; used: boolean } | null = null;
 
   constructor(private readonly repository: string, private readonly userData: string, private readonly platform: DesktopPlatform, private readonly prepareEnvironment = (signal: AbortSignal) => selectEnvironment(process.env, undefined, signal), terminalFactory: PtyFactory = spawn) {
     this.browserDocuments = new BrowserDocuments([userData]);
@@ -144,6 +145,16 @@ export class DesktopHost {
     else this.navigation.set(notice.target, update);
   }
   request(target: unknown, op: unknown, params: unknown) {
+    if (op === "desktop_skill_import") return ipcResult(() => {
+      if (target !== "code") throw new DesktopError("op_not_allowed", "本机技能导入只向 Code 开放。");
+      if (!params || typeof params !== "object" || Array.isArray(params) || Object.keys(params).length !== 1 || !("selection_id" in params)) throw new DesktopError("invalid_params", "请确认本次系统选择的技能目录。");
+      const selection = this.currentSkillSelection();
+      if (!selection.preview || selection.preview.id !== params.selection_id || selection.used) throw new DesktopError("skill_selection_expired", "本次选择已提交或失效，请先读回原技能核实，再重新选择。");
+      const preview = selection.preview;
+      // 一次选择只发送一次；丢答后由 renderer 按原 preview.id 读取，不再复制。
+      selection.used = true;
+      return selection.source.request("skill_import", { skill_id: preview.id, source_dir: preview.sourceDir, content_revision: preview.contentRevision, expected_revision: preview.revision });
+    });
     // 本机文档能力属于宿主，不依赖 Code/Personal 的连接或后台文件权限。
     if (op === "desktop_browser_open" || op === "desktop_browser_release") return ipcResult(async () => {
       if (target !== "code" && target !== "personal") throw new DesktopError("target_unavailable", "此连接目标尚未启用。");
@@ -177,6 +188,34 @@ export class DesktopHost {
     this.terminalReset = this.terminalReset.then(() => this.terminals.reset());
     // 保留失败给后续打开消费；诊断由 TerminalManager 报告。
     void this.terminalReset.catch(() => {});
+  }
+  // Note: 见 .agents/notes/implemented/feature/2026-10-21-desktop-code-skills.md
+  beginSkillSelection(target: unknown, instanceId: unknown): string {
+    if (target !== "code") throw new DesktopError("op_not_allowed", "本机技能目录只用于 Code；请选择 Code 后导入。");
+    const source = this.controller;
+    const connection = source?.connectionIdentity();
+    if (this.closing || !source || source.status.state !== "online" || !connection || !instanceId || source.instanceId() !== instanceId) throw new DesktopError("skill_target_changed", "Code 连接或实例已变化，请恢复原连接后重新选择。");
+    const ticket = randomUUID();
+    this.skillSelection = { ticket, source, connection, instanceId: source.instanceId()!, preview: null, used: false };
+    return ticket;
+  }
+  private currentSkillSelection(ticket?: unknown) {
+    const selection = this.skillSelection;
+    if (this.closing || !selection || ticket !== undefined && ticket !== selection.ticket || selection.source !== this.controller || selection.source.status.state !== "online" || selection.source.connectionIdentity() !== selection.connection || selection.source.instanceId() !== selection.instanceId) throw new DesktopError("skill_target_changed", "技能选择所属连接已变化，未继续导入；请核实原实例后重新选择。");
+    return selection;
+  }
+  async previewSkillSelection(ticket: unknown, directory: unknown): Promise<DesktopSkillPreview | null> {
+    const selection = this.currentSkillSelection(ticket);
+    if (directory === null) { this.skillSelection = null; return null; }
+    if (typeof directory !== "string") throw new DesktopError("invalid_params", "请选择单个含 SKILL.md 的技能目录。");
+    const preview = await selection.source.request("skill_import_preview", { source_dir: directory });
+    this.currentSkillSelection(ticket);
+    selection.preview = preview;
+    return preview;
+  }
+  async pickSkillFolder(target: unknown, instanceId: unknown, pick: () => Promise<string | null>): Promise<DesktopSkillPreview | null> {
+    const ticket = this.beginSkillSelection(target, instanceId);
+    return this.previewSkillSelection(ticket, await pick());
   }
   private async terminalRequest(op: string, params: Record<string, unknown>) {
     if (this.closing) throw new DesktopError("terminal_closed", "终端宿主已关闭，请重新打开应用。");

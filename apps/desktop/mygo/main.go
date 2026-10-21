@@ -66,6 +66,26 @@ func (d *Desktop) PickFolder(ctx context.Context) json.RawMessage {
 	return data
 }
 
+func (d *Desktop) PickSkillFolder(ctx context.Context, target, instanceID string) json.RawMessage {
+	prepared := d.call(ctx, "skill_pick_begin", target, instanceID)
+	var selection struct {
+		OK     bool   `json:"ok"`
+		Ticket string `json:"value"`
+	}
+	if json.Unmarshal(prepared, &selection) != nil || !selection.OK {
+		return prepared
+	}
+	files, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Parent: d.window, Directory: true, Title: "选择技能目录"})
+	if err != nil {
+		return failure("dialog_failed", "not_sent", "无法打开技能目录选择器；请重新选择。")
+	}
+	var folder any
+	if len(files) > 0 {
+		folder = files[0]
+	}
+	return d.call(ctx, "skill_pick_preview", selection.Ticket, folder)
+}
+
 func (d *Desktop) PickAttachments(ctx context.Context, sessionID, target string) json.RawMessage {
 	if !d.trusted(ctx) {
 		return failure("ipc_sender", "not_sent", "桌面请求来源不可用；请重新打开应用。")

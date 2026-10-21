@@ -14,6 +14,8 @@ import type { ToolResultField } from "@ruukoto/core/history.ts";
 /** Runtime 方法的返回类型（去掉 Promise）。 */
 type R<M extends keyof Runtime> = Runtime[M] extends (...args: any[]) => infer T ? Awaited<T> : never;
 
+export type HistorySearchWireCursor = { session_id: string; byte_offset: number; phase?: "index" | "scan"; read_offset?: number; source?: { file_dev: number; file_ino: number; min_size: number }; query_key?: string };
+
 type Slice = { offset?: number; length?: number };
 type None = Record<string, never>;
 type Submit = {
@@ -49,11 +51,11 @@ export interface TuiOps {
   list_tasks: { params: { session_id: string; before?: string; limit?: number }; result: R<"listTasks"> };
   read_task_events: { params: { task_id: string; after_seq?: number; limit?: number }; result: R<"readTaskEvents"> };
   read_history: {
-    params: { session_id: string; before?: string; limit?: number; entry_text_cap?: number; page_text_budget?: number };
+    params: { session_id: string; before?: string; after?: string; around?: string; source?: string; limit?: number; entry_text_cap?: number; page_text_budget?: number };
     result: R<"readHistory">;
   };
   read_tool_result: { params: { session_id: string; entry_id: string; length?: number; field?: ToolResultField; offset?: number }; result: R<"readToolResult"> };
-  read_history_entry: { params: { session_id: string; entry_id: string } & Slice; result: R<"readHistoryEntry"> };
+  read_history_entry: { params: { session_id: string; entry_id: string; source?: string } & Slice; result: R<"readHistoryEntry"> };
   get_tool_op_params: { params: { tool_op_id: string } & Slice; result: R<"getToolOpParams"> };
   get_confirmation_params: { params: { confirmation_id: string } & Slice; result: R<"getConfirmationParams"> };
   read_artifact: { params: { task_id: string; artifact_id: string; session_id?: string } & Slice; result: R<"queryArtifact"> };
@@ -66,7 +68,7 @@ export interface TuiOps {
   get_session_usage: { params: { session_id: string }; result: R<"getSessionUsage"> };
   get_session: { params: { session_id: string }; result: R<"getSession"> };
   /** project_id 按原身份查询；workspace_id 按组织归属查询（issue 07）；两参互斥。 */
-  list_session_summaries: { params: { project_id?: string; workspace_id?: string }; result: R<"listSessionSummaries"> };
+  list_session_summaries: { params: { project_id?: string; workspace_id?: string; scope?: "workspace_chats" }; result: R<"listSessionSummaries"> };
   list_models: { params: { provider?: string; offset?: number; limit?: number }; result: R<"listModels"> };
   set_session_model: {
     params: { session_id: string; expected_version: number; model_selection: ModelSelection };
@@ -108,7 +110,7 @@ export interface TuiOps {
   };
   read_prompt_snapshot: { params: { record_id: string; session_id: string } & Slice; result: R<"readPromptSnapshot"> };
   search_history: {
-    params: { query: string; project_id?: string; session_id?: string; task_id?: string; role?: string; limit?: number };
+    params: { query: string; project_id?: string; session_id?: string; task_id?: string; role?: string; limit?: number; scope?: "workspace_chats"; cursor?: HistorySearchWireCursor | null; scan_limit?: number; context_chars?: number; since?: string; until?: string };
     result: R<"searchHistory">;
   };
   list_skills: { params: None; result: R<"listSkills"> };

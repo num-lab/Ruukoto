@@ -624,6 +624,8 @@ Linux 使用对应 linux 资产并准备系统库、可用 sandbox、持久磁�
 
 ## 桌面客户端
 
+按 ⌘K 或顶栏侧栏开关左侧的搜索图标查找当前 Code 实例全部工作区的普通会话与聊天正文，包含已存档会话；在 PA 页面同样搜索 Code，不包含 Personal 聊天。输入完整关键词，中文连续匹配、英文 ASCII 不分大小写；↑／↓选择、Enter 打开、Esc 或再次 ⌘K 关闭，非终端区域也支持 Ctrl+K。选择名称或正文结果都直接打开对应会话，保留原草稿与正常输入；向上滚动可加载更早消息。搜索结果滚动接近底部时自动续载，短消息完整显示，长预览尽量把匹配词放在中间；搜索框内图标表示正在读取；读取失败或离线时显示原因，恢复连接后可关闭并重新打开搜索。会话读取失败时显示原因。
+
 MyGo 试验运行 `npm run desktop:mygo`，或打开已构建的 `dist/mygo/darwin-arm64/Ruukoto MyGo.app`；要求 macOS Apple Silicon，构建前提见[桌面开发](desktop-development.md#mygo-试验)。它沿用同一界面与后台，独立保存 Personal 配置和未决提交；切换外壳前先在原应用核实未知操作。MyGo 子进程失败时重新打开应用，Node 或仓库路径失效时重新构建。
 
 在 macOS 运行 `npm run desktop:build` 后打开 `dist/mac-arm64/Ruukoto.app`。Code 可打开会话、提交输入、选择模型与会话默认模式、停止与继续任务、恢复暂停队列；日常应用采用登录 shell 的环境和日常 Code 档案，按需启动后台，退出应用后后台继续运行。开发入口与档案隔离见[开发说明](development.md#桌面客户端)。

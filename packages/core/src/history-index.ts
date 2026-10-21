@@ -39,110 +39,126 @@ export interface IndexSyncResult {
   processedBytes: number;
 }
 
+export const HISTORY_INDEX_BATCH_BYTES = 256 * 1024;
+
+export interface IndexBatchResult extends IndexSyncResult {
+  readOffset: number;
+  bytesRead: number;
+  complete: boolean;
+}
+
+function parseIndexedLine(buf: Buffer, offset: number): ParsedSessionEntry | null {
+  let line: string;
+  try {
+    line = new TextDecoder("utf-8", { fatal: true }).decode(buf);
+  } catch {
+    throw new HistoryReadError("history_corrupt", `会话文件第 ${offset} 字节处记录不是合法 UTF-8`);
+  }
+  if (!line.trim()) return null;
+  let entry: ParsedSessionEntry;
+  try {
+    entry = JSON.parse(line) as ParsedSessionEntry;
+  } catch {
+    throw new HistoryReadError("history_corrupt", `会话文件第 ${offset} 字节处 JSON 记录解析失败`);
+  }
+  if (!entry || typeof entry.type !== "string" || typeof entry.id !== "string") throw new HistoryReadError("history_corrupt", `会话文件第 ${offset} 字节处记录缺少 type/id 字段`);
+  return entry;
+}
+
 export class HistoryIndex {
   constructor(private readonly db: Db) {}
 
-  /**
-   * 同步一个会话文件的索引（增量；必要时重建）。
-   * 完整行损坏抛 HistoryReadError(history_corrupt)，索引保持损坏前状态。
-   */
+  /** 同步所有完整记录；同步 Agent 调用保留原接口，GUI 按 syncBatch 让出执行时间。 */
   sync(sessionId: string, filePath: string): IndexSyncResult {
+    try { fs.statSync(filePath); }
+    catch {
+      // 旧同步入口保留 stat 失败的未索引语义；GUI 由 syncBatch 按来源报告失败。
+      return { sessionId, added: 0, rebuilt: false, hasPartialTail: false, processedBytes: 0 };
+    }
+    let result: IndexBatchResult;
+    let readOffset: number | undefined;
+    let added = 0;
+    let rebuilt = false;
+    do {
+      result = this.syncBatch(sessionId, filePath, readOffset);
+      added += result.added;
+      rebuilt ||= result.rebuilt;
+      readOffset = result.readOffset;
+    } while (!result.complete);
+    return { ...result, added, rebuilt };
+  }
+
+  /** 单批最多读取 256 KiB；长行先续查换行，完整后才解析，索引和进度在同一事务登记。 */
+  // Note: 见 .agents/notes/implemented/feature/2026-10-21-desktop-spotlight-search.md
+  syncBatch(sessionId: string, filePath: string, readOffset?: number): IndexBatchResult {
     let st: fs.Stats;
     try {
       st = fs.statSync(filePath);
-    } catch {
-      // 文件尚未落盘：不是错误，也不是"没有历史"
-      return { sessionId, added: 0, rebuilt: false, hasPartialTail: false, processedBytes: 0 };
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+      return { sessionId, added: 0, rebuilt: false, hasPartialTail: false, processedBytes: 0, readOffset: 0, bytesRead: 0, complete: true };
     }
     const state = this.getState(sessionId);
-    const sameFile =
-      state !== null && state.filePath === filePath && state.fileDev === st.dev && state.fileIno === st.ino;
-    const canResume = sameFile && st.size >= state.processedBytes;
-
-    if (!canResume) {
-      // 文件替换/截断/索引缺失：重建派生索引（只动索引，不碰源文件）
-      this.db.prepare("DELETE FROM history_index WHERE session_id = ?").run(sessionId);
-      return this.scan(sessionId, filePath, st, 0, true);
-    }
-    if (st.size === state.processedBytes) {
-      return { sessionId, added: 0, rebuilt: false, hasPartialTail: this.hasPartialTail(filePath, st.size), processedBytes: state.processedBytes };
-    }
-    return this.scan(sessionId, filePath, st, state.processedBytes, false);
-  }
-
-  /** 从 offset 起扫描完整行并写入索引；返回处理位置。 */
-  private scan(sessionId: string, filePath: string, st: fs.Stats, offset: number, rebuilt: boolean): IndexSyncResult {
+    const canResume = state !== null && state.filePath === filePath && state.fileDev === st.dev && state.fileIno === st.ino && st.size >= state.processedBytes;
+    const offset = canResume ? state.processedBytes : 0;
+    const start = canResume ? Math.max(offset, readOffset ?? offset) : 0;
+    if (start > st.size) throw new HistoryReadError("history_corrupt", "历史扫描进度超出来源长度，请重新搜索");
     const fd = fs.openSync(filePath, "r");
-    let added = 0;
     let processed = offset;
-    let hasPartialTail = false;
+    const rows: Array<{ entry: ParsedSessionEntry; offset: number; length: number }> = [];
+    let bytesRead = 0;
     try {
-      const buf = Buffer.alloc(st.size - offset);
-      fs.readSync(fd, buf, 0, buf.length, offset);
+      const opened = fs.fstatSync(fd);
+      if (opened.dev !== st.dev || opened.ino !== st.ino || opened.size < st.size) throw new HistoryReadError("history_corrupt", "历史来源在读取时改变，请重新搜索");
+      const buf = Buffer.alloc(Math.min(HISTORY_INDEX_BATCH_BYTES, st.size - start));
+      bytesRead = fs.readSync(fd, buf, 0, buf.length, start);
+      if (bytesRead !== buf.length) throw new HistoryReadError("history_corrupt", "历史来源读取不完整，请重新搜索");
       let pos = 0;
+      while (pos < bytesRead) {
+        const nl = buf.indexOf(0x0a, pos);
+        if (nl === -1) break;
+        const lineEnd = start + nl + 1;
+        const lineLength = lineEnd - processed;
+        let entry: ParsedSessionEntry | null;
+        if (processed >= start) {
+          entry = parseIndexedLine(buf.subarray(processed - start, nl), processed);
+        } else {
+          const line = Buffer.alloc(lineLength);
+          const read = fs.readSync(fd, line, 0, line.length, processed);
+          if (read !== lineLength) throw new HistoryReadError("history_corrupt", "历史长行读取不完整，请重新搜索");
+          entry = parseIndexedLine(line, processed);
+        }
+        if (entry) rows.push({ entry, offset: processed, length: lineLength });
+        processed = lineEnd;
+        pos = nl + 1;
+      }
+      const after = fs.fstatSync(fd);
+      if (after.size < st.size) throw new HistoryReadError("history_corrupt", "历史来源在读取时缩短，请重新搜索");
+    } finally {
+      fs.closeSync(fd);
+    }
+    this.db.tx(() => {
+      if (!canResume) this.db.prepare("DELETE FROM history_index WHERE session_id = ?").run(sessionId);
       const insert = this.db.prepare(
         `INSERT INTO history_index (session_id, entry_id, parent_id, role, entry_type, timestamp, byte_offset, byte_length)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(session_id, entry_id) DO NOTHING`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(session_id, entry_id) DO NOTHING`,
       );
-      while (pos < buf.length) {
-        const nl = buf.indexOf(0x0a, pos);
-        if (nl === -1) {
-          hasPartialTail = pos < buf.length;
-          break;
-        }
-        const line = buf.subarray(pos, nl).toString("utf8");
-        const lineStart = offset + pos;
-        const lineLen = nl - pos + 1;
-        pos = nl + 1;
-        processed = offset + pos;
-        if (line.trim().length === 0) continue;
-        let entry: ParsedSessionEntry;
-        try {
-          entry = JSON.parse(line) as ParsedSessionEntry;
-        } catch (err) {
-          throw new HistoryReadError("history_corrupt", `会话文件第 ${lineStart} 字节处记录解析失败：${(err as Error).message}`);
-        }
-        if (typeof entry.type !== "string" || typeof entry.id !== "string") {
-          throw new HistoryReadError("history_corrupt", `会话文件第 ${lineStart} 字节处记录缺少 type/id 字段`);
-        }
+      for (const row of rows) {
+        const entry = row.entry;
         const message = entry.message as Record<string, unknown> | undefined;
-        insert.run(
-          sessionId,
-          entry.id,
-          typeof entry.parentId === "string" ? entry.parentId : null,
-          message && typeof message.role === "string" ? message.role : null,
-          entry.type,
-          typeof entry.timestamp === "string" ? entry.timestamp : null,
-          lineStart,
-          lineLen,
-        );
-        added++;
+        insert.run(sessionId, entry.id, typeof entry.parentId === "string" ? entry.parentId : null,
+          message && typeof message.role === "string" ? message.role : null, entry.type,
+          typeof entry.timestamp === "string" ? entry.timestamp : null, row.offset, row.length);
       }
-    } finally {
-      fs.closeSync(fd);
-    }
-    this.db
-      .prepare(
+      this.db.prepare(
         `INSERT INTO history_index_state (session_id, file_path, file_dev, file_ino, processed_bytes, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?)
-         ON CONFLICT(session_id) DO UPDATE SET file_path = excluded.file_path, file_dev = excluded.file_dev,
-           file_ino = excluded.file_ino, processed_bytes = excluded.processed_bytes, updated_at = excluded.updated_at`,
-      )
-      .run(sessionId, filePath, st.dev, st.ino, processed, new Date().toISOString());
-    return { sessionId, added, rebuilt, hasPartialTail, processedBytes: processed };
-  }
-
-  private hasPartialTail(filePath: string, size: number): boolean {
-    if (size === 0) return false;
-    const fd = fs.openSync(filePath, "r");
-    try {
-      const buf = Buffer.alloc(1);
-      fs.readSync(fd, buf, 0, 1, size - 1);
-      return buf[0] !== 0x0a;
-    } finally {
-      fs.closeSync(fd);
-    }
+         VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(session_id) DO UPDATE SET file_path = excluded.file_path,
+         file_dev = excluded.file_dev, file_ino = excluded.file_ino, processed_bytes = excluded.processed_bytes, updated_at = excluded.updated_at`,
+      ).run(sessionId, filePath, st.dev, st.ino, processed, new Date().toISOString());
+    });
+    const nextRead = start + bytesRead;
+    return { sessionId, added: rows.length, rebuilt: !canResume, hasPartialTail: nextRead >= st.size && processed < st.size,
+      processedBytes: processed, readOffset: nextRead, bytesRead, complete: nextRead >= st.size };
   }
 
   getState(sessionId: string): { filePath: string; fileDev: number; fileIno: number; processedBytes: number } | null {
@@ -196,13 +212,11 @@ export function readRawEntryAt(filePath: string, offset: number, length: number)
   const fd = fs.openSync(filePath, "r");
   try {
     const buf = Buffer.alloc(length);
-    fs.readSync(fd, buf, 0, length, offset);
-    const line = buf.toString("utf8").replace(/\n$/, "");
-    try {
-      return JSON.parse(line) as ParsedSessionEntry;
-    } catch (err) {
-      throw new HistoryReadError("history_corrupt", `条目原文解析失败（偏移 ${offset}）：${(err as Error).message}`);
-    }
+    const bytes = fs.readSync(fd, buf, 0, length, offset);
+    if (bytes !== length) throw new HistoryReadError("history_corrupt", `条目原文读取不完整（偏移 ${offset}）`);
+    const entry = parseIndexedLine(buf, offset);
+    if (!entry) throw new HistoryReadError("history_corrupt", `条目原文为空（偏移 ${offset}）`);
+    return entry;
   } finally {
     fs.closeSync(fd);
   }
@@ -338,9 +352,12 @@ export function searchHistory(
   let scanned = 0;
   let complete = true;
   let cursor: { sessionId: string; byteOffset: number } | null = null;
-  let lastScannedOffset = -1;
+  let lastScanned: { sessionId: string; byteOffset: number } | null = null;
+  const ordered = [...sessions].sort((a, b) => a.sessionId < b.sessionId ? -1 : a.sessionId > b.sessionId ? 1 : 0);
+  const cursorIndex = opts.cursor ? ordered.findIndex(session => session.sessionId === opts.cursor!.sessionId) : 0;
+  if (cursorIndex < 0) throw new HistoryReadError("invalid_params", "历史搜索游标对应的会话已失效，请重新搜索");
 
-  outer: for (const session of sessions) {
+  outer: for (const session of ordered.slice(cursorIndex)) {
     // 游标定位：跳过已扫描部分（同会话内按 byteOffset 续扫）
     let afterOffset =
       opts.cursor && opts.cursor.sessionId === session.sessionId ? opts.cursor.byteOffset : -1;
@@ -367,11 +384,11 @@ export function searchHistory(
       if (scanned >= scanLimit) {
         complete = false;
         // 游标指向"最后完成扫描的条目"：下轮从它之后继续，不丢不重
-        cursor = { sessionId: session.sessionId, byteOffset: lastScannedOffset };
+        cursor = lastScanned;
         break outer;
       }
       scanned++;
-      lastScannedOffset = entry.byteOffset;
+      lastScanned = { sessionId: session.sessionId, byteOffset: entry.byteOffset };
       let raw: ParsedSessionEntry;
       try {
         raw = readRawEntryAt(session.filePath, entry.byteOffset, entry.byteLength);

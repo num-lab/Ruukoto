@@ -19,6 +19,8 @@
 
 ## 对外接口
 
+`searchHistory` 的 workspace_chats scope 与会话摘要共用 `Store.getSessionIdentity` 的普通开发身份资格，包含存档并保留原资料身份；内部报告分类沿用任务的持久关联，只排除内部用户输入，可展示的 Agent 总结仍可搜索。来源的待落盘／丢失判定同时检查索引登记和已提交条目引用。`readHistoryWindow` 分批准备单会话索引，再读取目标附近或前后连续窗口；旧 `readHistory` 与无 source 的单条补读继续兼容。
+
 任务查询及应答从工作流专属送达或等待报告的持久补报及排队别名绑定派生输入用途；历史首屏、分页与单条读取先核实原任务属于当前会话或 `branchSource.taskIds`，再派生同一分类。缺任务、跨会话关联或已知内部任务条目缺标记时返回关联诊断并保留普通展示，不靠正文或请求键推断。
 
 `readToolResult` 按原会话历史归属读取指定工具结果，支持旧预览或 core 的结构字段分页；参数与 UTF-8 游标见[控制面](control.md#不变量与失败处理)。不读取工作区当前文件或重算差异。
@@ -351,6 +353,8 @@ Coding 的离线导入由 app 持有方向策略，core 提供快照、文件校
 `readWorkspaceGit` 按登记根身份只读分页查询真实提交与refs；每页200条，没有累计上限，每次总5秒、每命令512 KiB及结果768 KiB预算，非仓库和空仓库分开。游标绑定工作区、Git/common身份、HEAD、全部refs、shallow与info/grafts，读取前后核实修订，变化拒绝并要求刷新。原保护根、元数据链接、alternates和配置include限制继续适用，失败返回类型化错误。拥有者附件入口允许 dev 和 main，子会话仍拒绝；main 主身份随快照显式提供。
 
 ## 设计依据
+
+- [应用内 Spotlight 与历史定位](../../.agents/notes/implemented/feature/2026-10-21-desktop-spotlight-search.md)
 
 - [完整思考与文件预览](../../.agents/notes/implemented/feature/2026-10-18-complete-reasoning-and-preview.md)
 

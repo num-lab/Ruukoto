@@ -26,7 +26,7 @@
 
 **后台启动。** `ensureBackend` 接收目标的 `dataDir`、`agentDir`、`controlDir`；`spawnExecPath` 指定 Node 可执行文件，默认 `process.execPath`；`spawnArgv` 只含 bin 与服务参数。`env` 只传给子进程，路径与令牌解析仍读取调用方环境。探测到已运行后台返回 `{ ok: true, spawned: false }`；本次拉起就绪返回 `{ ok: true, spawned: true }`；失败返回 `{ ok: false, error }`。后台 detached 并 unref，客户端退出不停止后台。
 
-**监听点与帧。** 服务在 `<controlDir>/control.sock` 监听。请求是 `{v, id, op, params}`，应答是 `{v, id, ok, result|error}`，事件推送是 `{v, push:"event", event}`；每帧一行 JSON 加换行，空行忽略。当前协议版本是 `32`（`CONTROL_PROTOCOL_VERSION`，与 `PROTOCOL_VERSION` 同值）。
+**监听点与帧。** 服务在 `<controlDir>/control.sock` 监听。请求是 `{v, id, op, params}`，应答是 `{v, id, ok, result|error}`，事件推送是 `{v, push:"event", event}`；每帧一行 JSON 加换行，空行忽略。当前协议版本是 `34`（`CONTROL_PROTOCOL_VERSION`，与 `PROTOCOL_VERSION` 同值）。
 
 **拥有者认证。** 连接建立后第一个成功的操作必须是 `auth`（参数 `token`）。认证成功前，服务端对其他 op 一律回 `unauthorized`，不返回快照、不执行请求；连接保留，可以再次认证。令牌是 32 字节随机数的 hex，写入控制目录的 `owner.token`（0600）：缺失或内容去空白后不足 32 字符时后台启动时生成，已存在则复用。多用户部署由配置步骤把令牌以 0400、属主为拥有者放到拥有者可读的位置，再用 `RUUKOTO_OWNER_TOKEN_FILE` 指向它。
 
@@ -39,7 +39,7 @@
 | 类别 | op | 说明与能力边界 |
 | --- | --- | --- |
 | 连接与后台 | `ping`、`connect`、`stop` | `ping` 返回 `pong` 与 `stopping`；`connect` 是握手（见下）；`stop` 请求后台停止，立即回 `accepted` |
-| 项目、会话与工作区 | `create_project`、`create_session`、`open_workspace`、`get_session`、`list_session_summaries`、`get_session_usage` | `create_project` / `create_session` / `open_workspace` 带可选幂等键 `request_id`；后两者可提供初始 `mode` 与 `model_selection`（含 thinkingLevel），省略沿后台默认，已有成果重放不覆盖后续设置；`list_session_summaries` 的 `project_id`（原身份）与 `workspace_id`（组织归属）互斥且必须给一个 |
+| 项目、会话与工作区 | `create_project`、`create_session`、`open_workspace`、`get_session`、`list_session_summaries`、`get_session_usage` | `create_project` / `create_session` / `open_workspace` 带可选幂等键 `request_id`；后两者可提供初始 `mode` 与 `model_selection`（含 thinkingLevel），省略沿后台默认，已有成果重放不覆盖后续设置；`list_session_summaries` 的 `project_id`（原身份）与 `workspace_id`（组织归属）互斥且必须给一个；workspace_chats scope 省略两者并返回全部普通会话的组织归属与存档状态 |
 | 旧数据迁移 | `preview_workspace_migration`、`apply_workspace_migration` | 预览只读；应用必须带 `instance_id`，另用 `request_id` 回执与 `expected_revision`（回退除外）防重 |
 | 会话分支 | `branch_session`、`find_branch_session`、`get_session_todos` | 创建只接收来源 `session_id`、可选名称与必填请求键；按原键查询准备、发布或失败状态；清单从完整历史恢复 |
 | 手动上下文压缩 | `compact_session`、`get_session_compaction`、`interrupt_session_compaction` | 接收只传会话、请求键及本次指引；查询原请求或会话最新结果；取消核实请求所属会话 |
@@ -79,6 +79,8 @@
 **超时。** 客户端建连 5000 ms、认证 10000 ms、握手 15000 ms、普通请求 60000 ms。普通请求超时按 `unknown`，后台照常执行，迟到应答按 `id` 丢弃。
 
 ## 数据与状态
+
+`search_history` 与 `list_session_summaries` 的可选 `scope: "workspace_chats"` 仅向 Code 开放，覆盖后台身份核实的全部普通开发会话，包含存档；省略时保留旧范围与提取语义。正文只搜用户文字和可展示的 Agent 正文，排除内部报告输入、工具及思考；中文连续匹配，ASCII 字母忽略大小写。请求游标使用 snake_case，响应使用 camelCase；GUI 游标含 index／scan 阶段、来源身份和查询摘要。`complete` 仅表示遍历结束，须同时核对逐页累计的 `sourceIssues` 和 `unindexedSessionIds`，才可判断全范围零命中。
 
 任务视图携带宿主派生的 `inputPurpose`（`user` / `internal_report`），覆盖工作流专属汇总、等待补报及保留的排队别名；历史首屏、分页和单条补读另带原 `taskId` 与可选 `taskAssociationError`，客户端在展示及补种输入历史前使用分类。分类不能由请求正文或请求键指定。
 
@@ -223,7 +225,7 @@ sequenceDiagram
 | `FRAGMENT_TEXT_CAP` | 8 KiB | 正文与思考单个增量的字节上限，完整思考不截断 |
 | `SEGMENT_DEFAULT_BYTES` / `SEGMENT_MAX_BYTES` | 64 KiB / 256 KiB | 分段读取的默认页大小与上限 |
 | `read_artifact` | 720 KiB 单次 | base64 开销后仍在 1 MiB 帧上限内 |
-| `read_history` | `limit` 默认 50、最多 200 | 条目按末端向前收集到条目数或字节预算耗尽，`entry_text_cap` 默认 16 KiB（范围 256 B–256 KiB），`page_text_budget` 默认 192 KiB（范围 `entry_text_cap`–1 MiB） |
+| `read_history` | `limit` 默认 50、最多 200 | `before`／`after`／`around` 互斥，around 保证目标入页，返回 `nextBefore`、`nextAfter` 与不透明 `source`；连续窗口的续页及 `read_history_entry` 补读回传 source。旧最新／before 调用保留原语义。条目收集到条目数或字节预算耗尽，`entry_text_cap` 默认 16 KiB（范围 256 B–256 KiB），`page_text_budget` 默认 192 KiB（范围 `entry_text_cap`–1 MiB） |
 | `put_attachment` | 每块 192 KiB，每文件 8 MiB | 按原附件引用与偏移幂等暂存，submit / continue 携安全元数据绑定 |
 | `read_tool_result` | 旧预览每字段默认 16 KiB、最多 64 KiB；指定字段分页为 4–65536 B，附带预览固定 16 KiB | 读工具结果正文、Edit／Write 已记录补丁与 Write 调用原文 |
 | `read_task_events` | `limit` 默认 100、最多 500 | 单页序列化字节上限 `SEGMENT_MAX_BYTES`；单个事件超过单页上限回 `event_too_large` |
@@ -250,6 +252,8 @@ sequenceDiagram
 拥有者只读 `read_workspace_git` 仅接受已登记 workspace_id 与可选 cursor，返回非仓库 null 或带父关系、显式 refs 及 nextCursor 的提交页；每页200条，nextCursor为null时结束，不设累计总量。游标绑定仓库修订，变化返回 workspace_git_changed，客户端刷新后重新读取；不接自定义命令或根路径。协议 v29 的快照明确提供 mainSessionId，避免客户端猜角色身份。
 
 ## 设计依据
+
+- [应用内 Spotlight 与历史定位](../../.agents/notes/implemented/feature/2026-10-21-desktop-spotlight-search.md)
 
 - [完整思考与文件预览](../../.agents/notes/implemented/feature/2026-10-18-complete-reasoning-and-preview.md)
 

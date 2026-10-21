@@ -8,7 +8,7 @@ Status: implemented
 
 ## 决定
 
-app-window直接持有一个永久按钮，放在侧栏inert区域外，沿用原ref、焦点和点击／键盘入口，aria-controls及aria-expanded表达状态。展开时left为侧栏宽度减42px，收起终点为Demo16px／Desktop84px；left与侧栏宽度均使用200ms ease，按钮层级高于顶栏并显式no-drag。收起后顶栏padding为按钮终点加30px，保持原标签终点，padding也过渡；鼠标和键盘调宽禁用left过渡，减少动画沿用全局偏好。
+app-window直接持有一个永久按钮，放在侧栏inert区域外，沿用原ref、焦点和点击／键盘入口，aria-controls及aria-expanded表达状态。展开时left为侧栏宽度减42px，收起终点为Demo16px／Desktop114px，Desktop左侧额外保留30px给搜索键（[搜索决定](../feature/2026-10-21-desktop-spotlight-search.md)）；left与侧栏宽度均使用200ms ease，按钮层级高于顶栏并显式no-drag。收起后顶栏padding为按钮终点加30px，保持原标签终点，padding也过渡；鼠标和键盘调宽禁用left过渡，减少动画沿用全局偏好。
 
 检索toggleSidebar、折叠、侧栏和过渡：既有[Desktop迁移](../architecture/2026-10-17-desktop-demo-v4.md)继续持有原生交通灯与玻璃层，[文件树反馈](../feature/2026-10-17-desktop-file-tree-loading.md)独立持有目录反馈决定，其余无对应按钮交接决定。
 

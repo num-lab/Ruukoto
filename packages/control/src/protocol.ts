@@ -79,6 +79,7 @@
  * v30：创建会话与打开工作区可原子指定初始模式及模型选择。
  * v31：工作区 Git 历史以仓库修订绑定的游标分页，无累计提交数上限。
  * v32：思考按 UTF-8 偏移增量发送，工作区文件以修订绑定的 base64 分页完整读取。
+ * v34：Code 工作区正文搜索与连续历史定位（around／after／source）。
  * v33：会话可存档/取消存档；存档只影响列表可见性，快照与会话记录携带 archivedAt。
  * Note: 见 .agents/notes/implemented/feature/2026-10-20-desktop-session-archive.md
  * v28：拥有者工作区文件树与只读预览；目录范围由登记身份决定，不接受客户端绝对路径。

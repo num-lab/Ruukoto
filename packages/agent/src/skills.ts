@@ -33,6 +33,14 @@ export function createSkillFamily(): HostToolFamily {
 }
 const MAX_SKILL_FILE_BYTES = 64 * 1024;
 
+export type SkillId = string;
+export interface SkillSource {
+  dir: string;
+  source: "external" | "managed";
+  id?: SkillId;
+  contentRevision?: string;
+}
+
 export interface PinnedSkill {
   name: string;
   description: string;
@@ -42,6 +50,11 @@ export interface PinnedSkill {
   /** SKILL.md 去掉 frontmatter 的正文。 */
   body: string;
   version: string;
+  /** 旧参考快照没有宿主元数据；版本与模型目录不包含这些字段。 */
+  id?: SkillId;
+  source?: "external" | "managed";
+  readOnly?: boolean;
+  contentRevision?: string;
 }
 
 export interface SkillLibrary {
@@ -58,46 +71,58 @@ export function skillsDirFor(agentDir: string): string {
 }
 
 /** 读取技能库（不抛错：单个技能的问题记为诊断）。 */
-export function loadSkillLibrary(agentDir: string): SkillLibrary {
-  const root = skillsDirFor(agentDir);
-  const rel = (p: string | undefined): string => (p ? path.relative(root, p) || "." : "?");
-  const loaded = loadSkillsFromDir({ dir: root, source: "user" });
-  const diagnostics = loaded.diagnostics.map((d) => `${rel(d.path)}：${d.message}`);
-  const skills: PinnedSkill[] = [];
+export function loadSkillLibrary(input: string | readonly SkillSource[]): SkillLibrary {
+  const sources: readonly SkillSource[] = typeof input === "string" ? [{ dir: skillsDirFor(input), source: "external" }] : input;
+  const skills: PinnedSkill[] = [], diagnostics: string[] = [];
   const winners = new Map<string, string>();
-  // 按路径排序后先到先得，冲突结果不随目录枚举顺序变化
-  for (const skill of [...loaded.skills].sort((a, b) => (a.filePath < b.filePath ? -1 : a.filePath > b.filePath ? 1 : 0))) {
-    const where = rel(skill.filePath);
-    if (path.basename(skill.filePath) !== "SKILL.md") {
-      diagnostics.push(`${where}：不是 SKILL.md，未进入技能库（技能须放在含 SKILL.md 的目录中）`);
-      continue;
-    }
-    try {
-      const raw = fs.readFileSync(skill.filePath);
-      if (raw.length > MAX_SKILL_FILE_BYTES) {
-        diagnostics.push(`${where}：SKILL.md 超过 64 KiB（${raw.length} 字节），未进入技能库`);
+  // 外部来源先取原排序赢家，新增托管来源不能覆盖它。
+  for (const source of sources) {
+    const root = source.dir;
+    const rel = (p: string | undefined): string => (p ? path.relative(root, p) || "." : "?");
+    const loaded = loadSkillsFromDir({ dir: root, source: "user" });
+    diagnostics.push(...loaded.diagnostics.map((d) => `${rel(d.path)}：${d.message}`));
+    // 按路径排序后先到先得，冲突结果不随目录枚举顺序变化
+    for (const skill of [...loaded.skills].sort((a, b) => (a.filePath < b.filePath ? -1 : a.filePath > b.filePath ? 1 : 0))) {
+      const where = rel(skill.filePath);
+      if (path.basename(skill.filePath) !== "SKILL.md") {
+        diagnostics.push(`${where}：不是 SKILL.md，未进入技能库（技能须放在含 SKILL.md 的目录中）`);
         continue;
       }
-      const winner = winners.get(skill.name);
-      if (winner) {
-        diagnostics.push(`${where}：名称 ${skill.name} 与 ${winner} 冲突，已忽略（先到先得）`);
-        continue;
+      try {
+        const raw = fs.readFileSync(skill.filePath);
+        if (raw.length > MAX_SKILL_FILE_BYTES) {
+          diagnostics.push(`${where}：SKILL.md 超过 64 KiB（${raw.length} 字节），未进入技能库`);
+          continue;
+        }
+        const winner = winners.get(skill.name);
+        if (winner) {
+          diagnostics.push(`${where}：名称 ${skill.name} 与 ${winner} 冲突，已忽略（先到先得）`);
+          continue;
+        }
+        winners.set(skill.name, where);
+        skills.push({
+          name: skill.name,
+          description: skill.description,
+          disableModelInvocation: skill.disableModelInvocation,
+          dir: fs.realpathSync(skill.baseDir),
+          body: stripFrontmatter(raw.toString("utf8")).trim(),
+          version: `sha256:${sha256(raw).slice(0, 16)}`,
+          id: source.id ?? `external:${sha256(path.resolve(skill.filePath))}`,
+          source: source.source,
+          readOnly: source.source === "external",
+          contentRevision: source.contentRevision ?? `sha256:${sha256(raw)}`,
+        });
+      } catch (err) {
+        diagnostics.push(`${where}：读取失败（${(err as Error).message}）`);
       }
-      winners.set(skill.name, where);
-      skills.push({
-        name: skill.name,
-        description: skill.description,
-        disableModelInvocation: skill.disableModelInvocation,
-        dir: fs.realpathSync(skill.baseDir),
-        body: stripFrontmatter(raw.toString("utf8")).trim(),
-        version: `sha256:${sha256(raw).slice(0, 16)}`,
-      });
-    } catch (err) {
-      diagnostics.push(`${where}：读取失败（${(err as Error).message}）`);
     }
   }
-  const content = skills.map(({ dir: _dir, ...rest }) => rest);
-  return { skills, diagnostics, version: skills.length > 0 ? `sha256:${sha256(JSON.stringify(content)).slice(0, 16)}` : "" };
+  return { skills, diagnostics, version: skillLibraryVersion(skills) };
+}
+
+export function skillLibraryVersion(skills: PinnedSkill[]): string {
+  const content = skills.map(({ name, description, disableModelInvocation, body, version }) => ({ name, description, disableModelInvocation, body, version }));
+  return skills.length > 0 ? `sha256:${sha256(JSON.stringify(content)).slice(0, 16)}` : "";
 }
 
 /** 技能目录参考块：只含可由模型加载的技能的名称与描述（无主机路径）；没有时不产出。 */

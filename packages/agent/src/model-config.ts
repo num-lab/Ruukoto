@@ -14,7 +14,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { createHash } from "node:crypto";
-import { getSupportedThinkingLevels, InMemoryModelsStore } from "@earendil-works/pi-ai";
+import { getSupportedThinkingLevels, InMemoryCredentialStore, InMemoryModelsStore } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { ModelSelection } from "@ruukoto/core/types.ts";
 import { createModelCatalog } from "./model-selection.ts";
@@ -24,6 +24,30 @@ export { acquireConfigLock } from "@ruukoto/core/instance-lock.ts";
 /** models.json 的顶层结构（provider 定义透传给 SDK，不做完整类型化）。 */
 export interface ModelCatalogFile {
   providers: Record<string, any>;
+}
+
+export type ModelCredentialLocation =
+  | { source: "storage"; type: "api_key" | "oauth" | "unknown" }
+  | { source: "catalog"; field: "apiKey" | "headers"; scope: "provider" | "model" | "modelOverrides"; modelId?: string; header?: string }
+  | { source: "runtime"; type: "api_key" }
+  | { source: "sdk" };
+
+export interface ConfiguredModelMetadata {
+  provider: string;
+  modelId: string;
+  name: string;
+  thinkingLevels: ModelSelection["thinkingLevel"][] | null;
+}
+
+export interface ModelCredentialSourceMetadata {
+  locations: ModelCredentialLocation[];
+  verification: "unverified";
+}
+
+export interface ModelConfigMetadata {
+  credentials: Record<string, { configured: boolean; type?: string }>;
+  credentialSources: Record<string, ModelCredentialSourceMetadata>;
+  models: ConfiguredModelMetadata[];
 }
 
 const MODELS_FILE = "models.json";
@@ -58,8 +82,8 @@ export function loadModelCatalogFile(agentDir: string): ModelCatalogFile {
   let parsed: unknown;
   try {
     parsed = JSON.parse(fs.readFileSync(file, "utf8"));
-  } catch (err) {
-    throw new Error(`models.json 不是合法 JSON，请修复或删除后重试：${(err as Error).message}`);
+  } catch {
+    throw new Error("models.json 不是合法 JSON，请修复后重试");
   }
   if (!isPlainObject(parsed) || !isPlainObject(parsed["providers"])) {
     throw new Error("models.json 结构无效：顶层必须是含 providers 对象的 JSON");
@@ -82,6 +106,9 @@ export function validateModelCatalog(data: unknown): string[] {
       // 残留的脱敏占位符（true）同样拒绝：它只能沿用同名头的原值
       errors.push(`${label}：headers 必须是字符串键值对（*** 为脱敏占位，只能保留同名头的原值）`);
     }
+  };
+  const checkApiKey = (apiKey: unknown, label: string): void => {
+    if (apiKey !== undefined && typeof apiKey !== "string") errors.push(`${label}：apiKey 必须是字符串（脱敏视图中的 true 为占位符，请重新输入或移除该字段）`);
   };
   for (const [providerId, def] of Object.entries(data["providers"])) {
     if (!providerId.trim()) {
@@ -111,11 +138,20 @@ export function validateModelCatalog(data: unknown): string[] {
     if (def["api"] !== undefined && (typeof def["api"] !== "string" || !(def["api"] as string).trim())) {
       errors.push(`provider ${providerId}：api 必须是非空字符串`);
     }
-    if (def["apiKey"] !== undefined && typeof def["apiKey"] !== "string") {
-      // 脱敏占位符（true）回写必须拒绝，防止把占位符当作 key 落盘
-      errors.push(`provider ${providerId}：apiKey 必须是字符串（脱敏视图中的 true 为占位符，请重新输入或移除该字段）`);
-    }
+    checkApiKey(def["apiKey"], `provider ${providerId}`);
     checkHeaders(def["headers"], `provider ${providerId}`);
+    if (def["modelOverrides"] !== undefined) {
+      if (!isPlainObject(def["modelOverrides"])) errors.push(`provider ${providerId}：modelOverrides 必须是对象`);
+      else {
+        for (const [modelId, override] of Object.entries(def["modelOverrides"])) {
+          if (!isPlainObject(override)) errors.push(`provider ${providerId} 的 modelOverrides ${modelId}：必须是对象`);
+          else {
+            checkApiKey(override["apiKey"], `provider ${providerId} 的 modelOverrides ${modelId}`);
+            checkHeaders(override["headers"], `provider ${providerId} 的 modelOverrides ${modelId}`);
+          }
+        }
+      }
+    }
     if (def["models"] !== undefined && !Array.isArray(def["models"])) {
       errors.push(`provider ${providerId}：models 必须是数组`);
       continue;
@@ -129,6 +165,7 @@ export function validateModelCatalog(data: unknown): string[] {
       if (typeof model["id"] !== "string" || !(model["id"] as string).trim()) {
         errors.push(`${label}：id 必须是非空字符串`);
       }
+      checkApiKey(model["apiKey"], label);
       checkHeaders(model["headers"], label);
       const contextWindow = model["contextWindow"];
       const maxTokens = model["maxTokens"];
@@ -156,11 +193,71 @@ export function loadAuthFile(agentDir: string): Record<string, any> {
   let parsed: unknown;
   try {
     parsed = JSON.parse(fs.readFileSync(file, "utf8"));
-  } catch (err) {
-    throw new Error(`auth.json 不是合法 JSON，请修复或删除后重试：${(err as Error).message}`);
+  } catch {
+    throw new Error("auth.json 不是合法 JSON，请修复后重试");
   }
   if (!isPlainObject(parsed)) throw new Error("auth.json 结构无效：顶层必须是 JSON 对象");
   return parsed as Record<string, any>;
+}
+
+/** 只列配置位置与模型能力；不解析凭据，也不把旧认证快照当作当前可用性。 */
+export function readModelConfigMetadata(agentDir: string, runtime: ModelRuntime, explicitProvider?: string): ModelConfigMetadata {
+  // Note: 见 .agents/notes/implemented/feature/2026-10-21-code-model-settings.md
+  const catalog = loadModelCatalogFile(agentDir);
+  const auth = loadAuthFile(agentDir);
+  const providerIds = new Set([...Object.keys(catalog.providers), ...Object.keys(auth), ...runtime.getRegisteredProviderIds()]);
+  if (explicitProvider) providerIds.add(explicitProvider);
+  const credentials = new Map<string, ModelConfigMetadata["credentials"][string]>();
+  const credentialSources = new Map<string, ModelCredentialSourceMetadata>();
+  const models: ConfiguredModelMetadata[] = [];
+  for (const provider of providerIds) {
+    const locations: ModelCredentialLocation[] = [];
+    if (Object.hasOwn(auth, provider)) {
+      const type = auth[provider]?.type;
+      const storedType = type === "api_key" || type === "oauth" ? type : "unknown";
+      credentials.set(provider, { configured: true, type: storedType });
+      locations.push({ source: "storage", type: storedType });
+    }
+    const definition: unknown = catalog.providers[provider];
+    const recordLocations = (value: unknown, scope: "provider" | "model" | "modelOverrides", modelId?: string): void => {
+      if (!isPlainObject(value)) return;
+      if (Object.hasOwn(value, "apiKey")) locations.push({ source: "catalog", scope, modelId, field: "apiKey" });
+      if (isPlainObject(value["headers"])) {
+        for (const header of Object.keys(value["headers"])) locations.push({ source: "catalog", scope, modelId, field: "headers", header });
+      }
+    };
+    recordLocations(definition, "provider");
+    if (isPlainObject(definition)) {
+      if (Array.isArray(definition["models"])) {
+        for (const model of definition["models"]) {
+          if (isPlainObject(model) && typeof model["id"] === "string") recordLocations(model, "model", model["id"]);
+        }
+      }
+      if (isPlainObject(definition["modelOverrides"])) {
+        for (const [modelId, override] of Object.entries(definition["modelOverrides"])) recordLocations(override, "modelOverrides", modelId);
+      }
+    }
+    if (runtime.getProviderAuthStatus(provider).source === "runtime") locations.push({ source: "runtime", type: "api_key" });
+    const registered = runtime.getRegisteredProviderConfig(provider);
+    if (registered?.apiKey !== undefined || registered?.oauth || registered?.headers || registered?.models?.some((model) => model.headers)) locations.push({ source: "sdk" });
+    credentialSources.set(provider, { locations, verification: "unverified" });
+    const registeredModels = runtime.getModels(provider);
+    for (const model of registeredModels) models.push({ provider, modelId: model.id, name: model.name, thinkingLevels: getSupportedThinkingLevels(model) });
+    if (isPlainObject(definition) && Array.isArray(definition["models"])) {
+      for (const model of definition["models"]) {
+        if (!isPlainObject(model) || typeof model["id"] !== "string" || registeredModels.some((entry) => entry.id === model["id"])) continue;
+        models.push({ provider, modelId: model["id"], name: typeof model["name"] === "string" ? model["name"] : model["id"], thinkingLevels: null });
+      }
+    }
+  }
+  return { credentials: Object.fromEntries(credentials), credentialSources: Object.fromEntries(credentialSources), models };
+}
+
+/** 离线设置仅构造 SDK 静态目录，不刷新目录或认证状态。 */
+export async function loadModelConfigMetadata(agentDir: string): Promise<ModelConfigMetadata> {
+  const runtime = await ModelRuntime.create({ credentials: new InMemoryCredentialStore(), modelsPath: path.join(agentDir, MODELS_FILE), modelsStore: new InMemoryModelsStore(), refreshOnCreate: false });
+  const configured = resolveConfiguredModel(runtime, { agentDir });
+  return readModelConfigMetadata(agentDir, runtime, configured?.model.provider);
 }
 
 /** API key 格式校验：返回中文错误，null = 通过。 */
@@ -177,14 +274,13 @@ export function setProviderApiKey(agentDir: string, provider: string, key: strin
   const invalid = validateApiKey(key);
   if (invalid) throw new Error(invalid);
   const auth = loadAuthFile(agentDir);
-  auth[provider] = { type: "api_key", key };
-  atomicWrite(path.join(agentDir, AUTH_FILE), JSON.stringify(auth, null, 2));
+  atomicWrite(path.join(agentDir, AUTH_FILE), JSON.stringify({ ...auth, [provider]: { type: "api_key", key } }, null, 2));
 }
 
 /** 删除 provider 的凭据条目（其他条目原样保留；不存在时不动文件）。 */
 export function removeProviderCredential(agentDir: string, provider: string): void {
   const auth = loadAuthFile(agentDir);
-  if (!(provider in auth)) return;
+  if (!Object.hasOwn(auth, provider)) return;
   delete auth[provider];
   atomicWrite(path.join(agentDir, AUTH_FILE), JSON.stringify(auth, null, 2));
 }
@@ -262,13 +358,6 @@ export function configRevision(agentDir: string): string {
   return hash.digest("hex");
 }
 
-/** 目录条目的思考档位候选（SDK 权威校验为 getSupportedThinkingLevels；此为基础档启发式，服务端保存时仍会再校验）。 */
-export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high"] as const;
-
-export function thinkingLevelsForCatalogModel(model: { reasoning?: unknown }): string[] {
-  return model.reasoning ? [...THINKING_LEVELS] : ["off"];
-}
-
 /** 秘密位置：apiKey 的值与 headers 的每个值（provider 级与模型级）。 */
 const isSecretKey = (key: string): boolean => key === "apiKey" || key === "headers";
 
@@ -276,9 +365,7 @@ const isSecretKey = (key: string): boolean => key === "apiKey" || key === "heade
 export function sanitizeCatalog<T>(data: T, secret = false): T {
   if (Array.isArray(data)) return data.map((item) => sanitizeCatalog(item, secret)) as T;
   if (isPlainObject(data)) {
-    const out: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(data)) out[key] = sanitizeCatalog(value, secret || isSecretKey(key));
-    return out as T;
+    return Object.fromEntries(Object.entries(data).map(([key, value]) => [key, sanitizeCatalog(value, secret || isSecretKey(key))])) as T;
   }
   return (secret ? true : data) as T;
 }
@@ -299,14 +386,12 @@ export function restoreCatalogSecrets<T>(next: T, before: unknown, secret = fals
   }
   if (isPlainObject(next)) {
     const prev = isPlainObject(before) ? before : {};
-    const out: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(next)) out[key] = restoreCatalogSecrets(value, prev[key], secret || isSecretKey(key));
-    return out as T;
+    return Object.fromEntries(Object.entries(next).map(([key, value]) => [key, restoreCatalogSecrets(value, prev[key], secret || isSecretKey(key))])) as T;
   }
   return next;
 }
 
-/** 配置文件中的全部秘密值（auth.json 的 key 与目录秘密位置的值），用于错误文本脱敏。 */
+/** 配置文件中的秘密值（存储 key、OAuth token 与目录秘密位置），用于错误文本脱敏。 */
 export function configSecrets(agentDir: string): string[] {
   const out: string[] = [];
   const collect = (data: unknown, secret: boolean): void => {
@@ -317,6 +402,9 @@ export function configSecrets(agentDir: string): string[] {
   try {
     for (const entry of Object.values(loadAuthFile(agentDir))) {
       if (entry?.type === "api_key" && typeof entry.key === "string" && entry.key) out.push(entry.key);
+      if (entry?.type === "oauth") {
+        for (const key of ["access", "refresh"]) if (typeof entry[key] === "string" && entry[key]) out.push(entry[key]);
+      }
     }
   } catch {
     // 读取失败按无可脱敏处理
@@ -417,11 +505,11 @@ export async function probeModelConfig(agentDir: string): Promise<{ ok: boolean;
     try {
       const catalog = await createModelCatalog(modelRuntime, agentDir, configured.model);
       await catalog.resolve(selection);
-    } catch (err) {
-      return { ok: false, detail: `默认模型 ${selection.provider}/${selection.modelId} 不可用：${(err as Error).message}`, selection };
+    } catch {
+      return { ok: false, detail: "默认模型不可用，请检查模型目录、认证配置与思考档位后重试", selection };
     }
     return { ok: true, detail: `默认模型 ${selection.provider}/${selection.modelId} 可用`, selection };
-  } catch (err) {
-    return { ok: false, detail: `模型配置不可用：${(err as Error).message}` };
+  } catch {
+    return { ok: false, detail: "模型配置无法加载，请检查 models.json 与 auth.json 后重试" };
   }
 }

@@ -3,7 +3,7 @@ import type { TaskId } from "@earendil-works/pi-durable";
 import { choose, type PersonalCliIO } from "./personal-cli.ts";
 import { personalControl } from "./personal-control.ts";
 import { lockPersonalProfile } from "./personal-profile.ts";
-import { discoverPersonalMcp, personalMcpCredential, readPersonalMcp, savePersonalMcp, type PersonalMcpService } from "./personal-mcp-config.ts";
+import { discoverPersonalMcp, migratePersonalMcp, personalMcpCredential, readPersonalMcp, savePersonalMcp, type PersonalMcpService } from "./personal-mcp-config.ts";
 import { personalMcpDescription } from "./personal-mcp-controls.ts";
 import type { mcpList, mcpDetail } from "./personal-mcp.ts";
 
@@ -12,17 +12,31 @@ export async function configurePersonalMcp(io: PersonalCliIO, directory: string)
   try {
     const current = readPersonalMcp(profile);
     const services = current?.services ?? [];
-    const selected = await choose(io, "个人 MCP 服务", ["新增服务", ...services.map(service => service.label), "返回"]);
-    if (selected === services.length + 1) return;
+    const choices = ["新增服务", ...services.map(service => service.label), ...(current?.version === 1 ? ["迁入服务启停配置"] : []), "返回"];
+    const selected = await choose(io, "个人 MCP 服务", choices);
+    if (selected === choices.length - 1) return;
+    if (current?.version === 1 && selected === services.length + 1) {
+      if (await choose(io, "迁入后保留原工具与历史，旧程序不能再打开此 MCP 配置", ["返回", "确认迁入服务启停配置"]) === 0) return;
+      await migratePersonalMcp(profile);
+      io.write("MCP 已迁入服务启停配置；原服务保持启用，旧历史与请求证据保留。\n");
+      return;
+    }
     const original = selected ? services[selected - 1] : undefined;
+    const version = current?.version ?? 2;
     if (original) {
       io.write(`\n${original.label}\n端点：${original.endpoint}\n认证：${original.credential ? "绑定私有令牌文件" : "显式匿名"}\n固定允许工具：${original.tools.map(tool => tool.name).join("、") || "无"}\n`);
-      const action = await choose(io, "原 MCP 服务", ["查看固定工具定义", "替换配置并重新选择工具", "移除服务", "返回"]);
-      if (action === 3) return;
+      const actions = ["查看固定工具定义", "替换配置并重新选择工具", "移除服务", ...(version === 2 ? [original.enabled ? "停用服务" : "启用服务"] : []), "返回"];
+      const action = await choose(io, "原 MCP 服务", actions);
+      if (action === actions.length - 1) return;
       if (action === 0) { io.write(`${JSON.stringify(original.tools, null, 2)}\n`); return; }
+      if (action === 3) {
+        await savePersonalMcp(profile, { version, generation: randomUUID(), services: services.map(service => service === original ? { ...service, enabled: !service.enabled } : service) });
+        io.write(`MCP 服务已${original.enabled ? "停用" : "启用"}；原端点、凭据引用和允许工具保留，请启动后台使配置生效。\n`);
+        return;
+      }
       if (action === 2) {
         if (await choose(io, "移除后旧工作仍保留原配置与未知效果，不能自动改用其他服务", ["返回", "确认移除服务"]) === 0) return;
-        await savePersonalMcp(profile, { version: 1, generation: randomUUID(), services: services.filter(service => service !== original) });
+        await savePersonalMcp(profile, { version, generation: randomUUID(), services: services.filter(service => service !== original) });
         io.write("MCP 服务已移除；旧工作不会换服务重发，请从操作管理核实未决请求。\n");
         return;
       }
@@ -51,7 +65,7 @@ export async function configurePersonalMcp(io: PersonalCliIO, directory: string)
     }
     if (!tools.length) { io.write("没有选择允许工具，未保存服务。\n"); return; }
     if (await choose(io, `${label}：固定允许 ${tools.map(tool => tool.name).join("、")}`, ["返回", "保存服务与固定工具"]) === 0) return;
-    await savePersonalMcp(profile, { version: 1, generation: randomUUID(), services: [...services.filter(service => service !== original), { ...target, tools }] });
+    await savePersonalMcp(profile, { version, generation: randomUUID(), services: [...services.filter(service => service !== original), { ...target, tools, ...(version === 2 ? { enabled: original?.enabled ?? true } : {}) }] });
     io.write("MCP 配置与原工具定义已保存；配置不授予操作权限。请启动后台；旧操作从管理菜单核实，不要换服务重发。\n");
   } finally { profile.release(); }
 }

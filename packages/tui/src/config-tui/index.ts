@@ -17,17 +17,17 @@ import type { Terminal } from "@earendil-works/pi-tui";
 import { ControlClient } from "@ruukoto/control/client.ts";
 import { defaultAgentDir, resolveClientConfig } from "@ruukoto/control/connect.ts";
 import type { ConnectResult } from "@ruukoto/control/protocol.ts";
+import type { OpResult } from "@ruukoto/control/ops.ts";
 import type { ProductType } from "@ruukoto/core/product.ts";
 import type { ModelSelection } from "@ruukoto/core/types.ts";
 import type { AcquiredLock } from "@ruukoto/core/instance-lock.ts";
 import {
   acquireConfigLock,
   configRevision,
-  loadAuthFile,
   loadDefaultModel,
   loadModelCatalogFile,
   loadSummaryModel,
-  probeModelConfig,
+  loadModelConfigMetadata,
   removeProviderCredential,
   restoreCatalogSecrets,
   sanitizeCatalog,
@@ -35,7 +35,6 @@ import {
   saveModelCatalogFile,
   saveSummaryModel,
   setProviderApiKey,
-  thinkingLevelsForCatalogModel,
   validateApiKey,
   validateModelCatalog,
   type SummaryModel,
@@ -60,12 +59,15 @@ class OnlineModelBackend implements ModelBackend {
   constructor(private readonly client: ControlClient) {}
 
   async load(): Promise<ModelConfigView> {
-    const view = await this.client.request<any>("get_model_config", {});
+    const view = await this.client.request<OpResult<"get_model_config">>("get_model_config", {});
     this.revision = String(view.revision ?? "");
     return {
       revision: this.revision,
       providers: view.providers ?? {},
       credentials: view.credentials ?? {},
+      credentialSources: view.credentialSources ?? {},
+      models: view.models ?? [],
+      runtimeOverrides: view.runtimeOverrides ?? { model: false, thinking: false },
       defaultModel: view.defaultModel ?? null,
       summaryModel: view.summaryModel ?? null,
       busyProviders: view.busyProviders ?? [],
@@ -111,10 +113,8 @@ export class OfflineModelBackend implements ModelBackend {
   constructor(private readonly agentDir: string) {}
 
   async load(): Promise<ModelConfigView> {
-    const credentials: Record<string, { configured: boolean; type?: string }> = {};
-    for (const [provider, entry] of Object.entries(loadAuthFile(this.agentDir))) {
-      credentials[provider] = { configured: true, type: typeof entry?.type === "string" ? entry.type : undefined };
-    }
+    const metadata = await loadModelConfigMetadata(this.agentDir);
+    const catalog = loadModelCatalogFile(this.agentDir);
     let defaultModel: ModelSelection | null = null;
     try {
       defaultModel = loadDefaultModel(this.agentDir);
@@ -123,8 +123,10 @@ export class OfflineModelBackend implements ModelBackend {
     }
     return {
       revision: configRevision(this.agentDir),
-      providers: sanitizeCatalog(loadModelCatalogFile(this.agentDir).providers),
-      credentials,
+      providers: sanitizeCatalog(catalog.providers),
+      structureErrors: validateModelCatalog(catalog),
+      ...metadata,
+      runtimeOverrides: { model: false, thinking: false },
       defaultModel,
       summaryModel: this.summaryModel(),
       busyProviders: [],
@@ -141,13 +143,17 @@ export class OfflineModelBackend implements ModelBackend {
   }
 
   async saveCatalog(input: Record<string, any>): Promise<void> {
-    const providers = restoreCatalogSecrets(input, loadModelCatalogFile(this.agentDir).providers);
+    const before = loadModelCatalogFile(this.agentDir).providers;
+    const providers = restoreCatalogSecrets(input, before);
     const errors = validateModelCatalog({ providers });
     if (errors.length > 0) {
       throw Object.assign(new Error(`模型目录结构无效：${errors.join("；")}`), { code: "invalid_params" });
     }
     const summary = this.summaryModel();
-    if (summary && !(((providers[summary.provider] as any)?.models as any[] | undefined) ?? []).some((m) => m?.id === summary.modelId)) {
+    const removesSummaryProvider = summary && before[summary.provider] && !providers[summary.provider];
+    const removesSummaryEntry = summary && ((before[summary.provider]?.models as Array<{ id?: string }> | undefined) ?? []).some((model) => model.id === summary.modelId)
+      && !((providers[summary.provider]?.models as Array<{ id?: string }> | undefined) ?? []).some((model) => model.id === summary.modelId);
+    if (summary && (removesSummaryProvider || removesSummaryEntry)) {
       throw Object.assign(new Error(`模型 ${summary.provider}/${summary.modelId} 仍被摘要模型引用，请先切换或清除摘要模型`), { code: "provider_in_use" });
     }
     saveModelCatalogFile(this.agentDir, { providers });
@@ -184,14 +190,15 @@ export class OfflineModelBackend implements ModelBackend {
   }
 
   async setDefaultModel(selection: ModelSelection): Promise<void> {
-    const catalog = loadModelCatalogFile(this.agentDir);
-    const def = catalog.providers[selection.provider] as any;
-    const model = ((def?.models as any[] | undefined) ?? []).find((m) => m?.id === selection.modelId);
+    const metadata = await loadModelConfigMetadata(this.agentDir);
+    const model = metadata.models.find((item) => item.provider === selection.provider && item.modelId === selection.modelId);
     if (!model) {
-      throw Object.assign(new Error(`模型不在目录中：${selection.provider}/${selection.modelId}`), { code: "invalid_params" });
+      throw Object.assign(new Error(`模型不在已配置目录中：${selection.provider}/${selection.modelId}`), { code: "invalid_params" });
     }
-    const levels = thinkingLevelsForCatalogModel(model);
-    if (!levels.includes(selection.thinkingLevel)) {
+    if (!model.thinkingLevels) {
+      throw Object.assign(new Error("该模型真实思考档位未知，请连接后台读取模型元数据后设置"), { code: "invalid_params" });
+    }
+    if (!model.thinkingLevels.includes(selection.thinkingLevel)) {
       throw Object.assign(new Error(`该模型不支持思考档位 ${selection.thinkingLevel}`), { code: "invalid_params" });
     }
     saveDefaultModel(this.agentDir, selection);
@@ -199,8 +206,8 @@ export class OfflineModelBackend implements ModelBackend {
 
   async setSummaryModel(model: SummaryModel | null): Promise<void> {
     if (model) {
-      const def = loadModelCatalogFile(this.agentDir).providers[model.provider] as any;
-      if (!((def?.models as any[] | undefined) ?? []).some((m) => m?.id === model.modelId)) {
+      const metadata = await loadModelConfigMetadata(this.agentDir);
+      if (!metadata.models.some((item) => item.provider === model.provider && item.modelId === model.modelId)) {
         throw Object.assign(new Error(`模型不在目录中：${model.provider}/${model.modelId}`), { code: "invalid_params" });
       }
     }
@@ -238,7 +245,6 @@ export async function runConfigTui(opts: ConfigTuiOptions = {}): Promise<number>
   const agentDir = opts.agentDir ?? defaultAgentDir();
   let lock: AcquiredLock | null = null;
   let modelBackend: ModelBackend;
-  let probeDetail: string | undefined;
   if (mode === "online") {
     modelBackend = new OnlineModelBackend(client!);
   } else {
@@ -251,8 +257,6 @@ export async function runConfigTui(opts: ConfigTuiOptions = {}): Promise<number>
       );
       return 1;
     }
-    const probe = await probeModelConfig(agentDir).catch(() => null);
-    probeDetail = probe ? `${probe.ok ? "✓" : "✗"} ${probe.detail}` : undefined;
     modelBackend = new OfflineModelBackend(agentDir);
   }
 
@@ -288,7 +292,6 @@ export async function runConfigTui(opts: ConfigTuiOptions = {}): Promise<number>
     mode,
     modelBackend,
     agentDir,
-    probeDetail,
     client: client ?? undefined,
     snapshot: snapshot ?? undefined,
     terminal: opts.terminal,

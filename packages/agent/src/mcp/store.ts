@@ -185,6 +185,10 @@ export class McpStore {
     return rows.map(rowToService);
   }
 
+  countServices(projectId: string): number {
+    return (this.db.prepare("SELECT COUNT(*) AS count FROM mcp_services WHERE project_id = ?").get(projectId) as { count: number }).count;
+  }
+
   setEnabled(id: string, enabled: boolean, expectedVersion?: number): McpServiceConfig | null {
     const existing = this.getService(id);
     if (!existing) return null;

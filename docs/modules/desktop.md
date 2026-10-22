@@ -2,23 +2,31 @@
 
 ## 职责与边界
 
-本模块的 Personal SSH 连接仅识别旧控制协议，不支持新个人 durable 入口；新个人使用 IM 与引导式 CLI。Code 桌面能力保持。
+Personal 聊天 SSH 连接识别旧控制协议；新 durable 设置使用独立管理连接，不转换聊天快照。新个人聊天使用 IM 与引导式 CLI，Code 桌面能力保持。
 
 `apps/desktop` 是 macOS 上的控制面客户端，与 TUI 共用后台。Code 目标提供工作区与会话树、添加工作区、新建会话、会话标签页、对话流、输入提交、模型／Effort 与会话默认模式选择、停止与继续、暂停队列恢复，以及右栏独立标签中的 SubAgent 历史与单次工具差异、隔离浏览器、工作区只读文件树／预览、Git graph与本机集成终端；Code 在会话内展示审批与拥有者问题卡片，两个目标共用系统通知与 Dock 角标；Personal 提供旧控制协议下的 Ruukoto 单一主会话及审批，两个后台连接并存。后台事实只经控制面取得，不通过数据库、JSONL、工作区文件或 git 重建；主进程为终端核实已登记工作区根目录，并读取拥有者选择的附件快照，以及地址栏明确打开的本机文档与同目录静态资源。
 
 ## 对外接口
 
-Electron 或 MyGo 共用的 Node DesktopHost 持有令牌、`ControlConnection`、SSH 子进程和后台拉起。preload 只向渲染进程暴露 `subscribe(target, listener)`、`request(target, op, params)`、`pickFolder()`、`pickAttachments(sessionId, target?)` 与 `reveal(path)`及终端的open/input/resize/kill四方法。主进程校验 IPC 来源和操作名单：本地 `reconnect`、`desktop_browser_open`／`desktop_browser_release`及仅向Code开放的`desktop_terminal_open/input/resize/kill`，以及后台的 `list_session_summaries`、`open_workspace`、`create_session`、`read_history`、`read_history_entry`、`list_tasks`、`get_task`、`read_task_events`、`work_list`、`work_get`、`read_tool_result`、`read_artifact`、`get_tool_op_params`、`list_models`、`set_session_model`、`set_session_mode`、`get_session`、`interrupt`、`cancel`、`resume_queue`、`get_confirmation_params`、`respond_confirmation`、`list_prompt_requests`、`get_context_breakdown`、`list_workspace_files`、`read_workspace_file`、`read_workspace_git`。`search_history`、`background_processes`、`background_process_output`、`background_process_stop`、`session_background_end` 及 `owner_questions`、`owner_question_answer`、`owner_question_cancel` 与 `owner_question_receipt` 仅向 Code 开放；`submit`、`continue` 与 `owner_question_answer` 交主进程的 SubmissionGuard，`find_task` 仅供守护内部使用；本地 `desktop_pending_read` 与 `desktop_pending_clear` 处理输入恢复。Personal 开放历史、任务、工具、委派、模型、Context、审批、输入与恢复操作及本地 `desktop_personal_config_read`／`desktop_personal_config_save`，拒绝工作区创建、文件、Git 与 Plan。字段与权限继续由控制面校验。错误作为 `{ code, outcome, message, versions? }` 响应数据跨 IPC 传递，保留应答丢失分类。
+Electron 或 MyGo 共用的 Node DesktopHost 持有令牌、`ControlConnection`、SSH 子进程和后台拉起。preload 只向渲染进程暴露 `subscribe(target, listener)`、`request(target, op, params)`、`pickFolder()`、`pickSkillFolder(target, instanceId)`、`pickAttachments(sessionId, target?)` 与 `reveal(path)`及终端的open/input/resize/kill四方法。主进程校验 IPC 来源和操作名单：本地 `reconnect`、`desktop_browser_open`／`desktop_browser_release`及仅向Code开放的`desktop_terminal_open/input/resize/kill`，以及后台的 `list_session_summaries`、`open_workspace`、`create_session`、`read_history`、`read_history_entry`、`list_tasks`、`get_task`、`read_task_events`、`work_list`、`work_get`、`read_tool_result`、`read_artifact`、`get_tool_op_params`、`list_models`、`set_session_model`、`set_session_mode`、`get_session`、`interrupt`、`cancel`、`resume_queue`、`get_confirmation_params`、`respond_confirmation`、`list_prompt_requests`、`get_context_breakdown`、`list_workspace_files`、`read_workspace_file`、`read_workspace_git`。`search_history`、`background_processes`、`background_process_output`、`background_process_stop`、`session_background_end` 及 `owner_questions`、`owner_question_answer`、`owner_question_cancel` 与 `owner_question_receipt` 仅向 Code 开放；`submit`、`continue` 与 `owner_question_answer` 交主进程的 SubmissionGuard，`find_task` 仅供守护内部使用；本地 `desktop_pending_read` 与 `desktop_pending_clear` 处理输入恢复。Personal 开放历史、任务、工具、委派、模型、Context、审批、输入与恢复操作及本地 `desktop_personal_config_read`／`desktop_personal_config_save`，拒绝工作区创建、文件、Git 与 Plan。Code 另开放 `get_model_config`、`save_model_catalog`、`set_model_api_key`、`remove_model_api_key`、`remove_model_provider`、`set_default_model`、`set_summary_model` 与 `test_model_connection`，Personal 不放行这些操作。字段与权限继续由控制面校验。错误作为 `{ code, outcome, message, versions? }` 响应数据跨 IPC 传递，保留应答丢失分类。
 
 渲染进程使用 React、Tailwind v4、shadcn 源码组件与 AI Elements、Lucide，主题和三栏布局以定稿 demo 为准，消费 `@ruukoto/view` 的快照和事件投影。开发与构建命令见[开发说明](../development.md#桌面客户端)，启动与故障恢复见[操作手册](../usage.md#桌面客户端)。
 
 MyGo 试验外壳使用 Go 与 WKWebView，预加载实现同一 DesktopBridge，Node 子进程复用 DesktopHost；双方通过私有 JSONL 管道交换原始 JSON，单帧上限 16 MiB。Go 负责选择器、Finder、系统通知和角标；附件选择前固定目标、控制器、连接对象与实例，路径只在宿主之间传递。构建记录 Node 绝对路径，使用独立应用数据目录；操作与构建见[桌面开发](../desktop-development.md#mygo-试验)。
+
+Code MCP 另开放 `mcp_sources`、`mcp_list/configure/set_enabled/remove/check`、`list_credentials` 与 `mcp_save_credential/remove_credential`；通用凭据写入不向桌面开放，Personal 不放行这些操作。
+
+Code Skills 开放 `skills_list`、`skill_get`、`skill_set_enabled` 与 `skill_remove`；本地导入经系统目录选择和后台预览后，仅用宿主选择引用调用 `desktop_skill_import`。宿主固定原 Code 连接、实例、路径与修订，拒绝 renderer 任意路径及旧选择；两壳共用同一检查，Personal 不放行。
+
+Personal 设置管理沿同一 `request` 桥开放 `desktop_personal_management_config_read/save/detect` 与 `desktop_personal_settings_read/request/apply/restore/finish`，分别读取本机连接、检测新协议、查询原档案、显式单项停存启、恢复原服务及结束人工核实。Host 校验目标和操作，不增加 preload 原语；Personal 模型、Skills、MCP 页面通过这些接口提交版本化请求。
 
 ## 数据与状态
 
 连接目标由产品身份、socket 和令牌来源组成，Code 固定为 `ruukoto-code`，Personal 固定为 `ruukoto`；安装快照前核对产品，不符以 `product_mismatch` 停在 failed。连接状态沿用 control 的 connecting、online、reconnecting、failed 与 closed；版本被明确拒绝后停在 failed，仅由拥有者重新连接。令牌只在 Node 宿主内存；本模块保存连接配置和待核实提交，不保存令牌或后台历史副本。日常后台仍使用自己的档案与日志。
 
 Personal 配置保存在应用数据目录的 `personal.json`，只含 `host` 与 `controlDir`（默认 `/var/lib/ruukoto/control`）。主机别名只允许字母、数字、点、下划线与连字符，首位须为字母或数字；远端绝对路径只允许字母、数字、点、下划线、连字符与斜杠。保存与加载均校验最终 socket 路径的字节长度，本地 macOS 上限 103，远端 Linux 上限 107。转发 socket 位于应用数据目录的 `ssh/personal.sock`，`ssh` 目录权限 0700。
+
+新管理连接单独存为 `personal-settings.json`，保存 SSH 别名、规范档案路径、受支持程序位置与生命周期，不保存令牌。`ssh/settings.sock` 转发原 `control.sock`，在线请求每次读取原 `control.token`；机器 JSON 经 stdin，128 KiB 请求、256 KiB 响应、有界超时。`pending/personal-settings/` 的版本化维护记录只含原身份、修订、请求摘要和阶段；未决时禁止改掉原连接，重开只核实原操作。
 
 会话标签页和待完成创建记录仅保存在渲染进程内存。创建记录持有原请求键、参数、连接目标和数据实例，结果核实前阻止另起创建；安装新快照不会丢弃它。同实例快照保留标签页，换实例清空旧标签与会话视图。普通草稿、附件引用、主题、侧栏宽度与折叠状态仅在渲染进程内存中保存；草稿按实例和会话隔离，退出或重载后丢失。提交中的原文、附件引用与继续来源留在输入区并锁定，权威接收后才清空；未确认原文继续保存在主进程记录里。
 
@@ -42,9 +50,15 @@ Personal 只支持 SSH 登录账户与后台账户相同的部署。每次控制
 
 两条 SSH 命令均设 `BatchMode=yes`、`ControlMaster=no`、`ControlPath=none`、`ControlPersist=no`、`ForkAfterAuthentication=no`、`RemoteCommand=none`、`ConnectTimeout=10`；读取另设 `ClearAllForwardings=yes`、`RequestTTY=no`，转发设 `ExitOnForwardFailure=yes`、`StreamLocalBindUnlink=yes`、`ServerAliveInterval=15`。主机前加 `--`，远端预检路径经 shell 单引号转义。SSH 主机、密钥与 ProxyJump 等仍沿用 ssh_config。仅控制面完成认证和快照安装才报告 online。
 
-左右侧栏支持收起、展开和拖动调宽，方向键可调节边界；左栏收起后保留两个图标宽的轨道，只留 Ruukoto 与设置两个图标，其余内容不渲染也不可聚焦，右栏关闭内容不可聚焦，减少动态效果时关闭过渡。左下设置打开分类浮窗，外观切换明暗主题，PA 远程连接编辑 SSH host 与 controlDir；工作区上方 Ruukoto 切换到唯一 Personal 主会话，不新开顶部标签，身份由快照 mainSessionId 提供；选中时图标周围显示圆角方块底色。名称筛选只过滤已加载的工作区与会话，不查询全文历史。
+左右侧栏支持收起、展开和拖动调宽，方向键可调节边界；左栏收起后保留两个图标宽的轨道，只留 Ruukoto 与设置两个图标，其余内容不渲染也不可聚焦，右栏关闭内容不可聚焦，减少动态效果时关闭过渡。左下设置打开左分类、右内容浮窗，包含外观、模型、Skills、MCP、PA 远程连接、已存档会话。外观切换明暗主题，PA 远程连接分为新设置管理与旧聊天连接，远端离线也可编辑本机连接；Code 模型页可管理实例级提供方、模型、凭据和默认值；Code MCP 页按工作区及原来源管理服务与凭据；Code Skills 与 Personal 模型、Skills、MCP 均已接入各自真实配置；工作区上方 Ruukoto 切换到唯一 Personal 主会话，不新开顶部标签，身份由快照 mainSessionId 提供；选中时图标周围显示圆角方块底色。名称筛选只过滤已加载的工作区与会话，不查询全文历史。
 
 左栏按工作区组织归属列出普通开发会话，摘要按 `workspace_id` 查询，排除角色与 SubAgent 会话与已存档会话；会话行悬停时行内右端浮现存档键（叠在会话按钮内，按钮固定预留键位，短名不渐隐、长名尾部渐隐收尾，状态点在键左侧），存档后从列表与顶部标签移除，历史与任务保持不变，可在设置的「已存档会话」中取消存档。Ruukoto 下方的 New chat 打开不含会话的新对话草稿页：输入区与既有会话页一致，带附件、模式与模型选择（未选时继承当前会话或后台默认值），工作区选择器位于输入框之外，菜单顶部按名称搜索、底部可直接新建工作区，未选中时不能开始对话；发出首条消息时才按所选工作区与草稿设置创建会话、补传附件并提交，创建在途或失败时草稿保留原文、不发送，切换会话即收起草稿页。添加工作区先打开系统文件夹选择框，再带新请求键调用 `open_workspace`；新建会话同样带键调用 `create_session`，成功后打开原会话；请求在途时只有发起该请求的工作区行把加号换成加载图标，其余新建入口保持禁用。成功之后再次添加同一目录会在已有工作区下新建会话。新会话在首次点击时继承当前或最近 Code 会话的模式、模型与 Effort，跨工作区同样适用；关闭最后标签仍保留本次连接来源，换实例清除。设置保存中或结果未知先核实，不建立旧设置的新会话。初始选择随原创建键固定，和 session.created 同事务保存；重放不覆盖后来设置。
+
+Code 模型设置在总览直接选择默认模型／Effort 与摘要模型并自动保存；提供方在完整弹窗内添加或编辑连接、存储 Key、模型能力与高级字段，API 类型使用选择框，保留脱敏占位符。弹窗叉号放弃草稿并退出，已提交操作仍可核实；删除按钮位于左下角，保存位于右下角。目录与存储 Key 同时修改时先保存目录并读回，再按新修订保存 Key，后一步失败明确报告部分成功。列表只读配置位置与已注册成员、真实 Effort，不解析动态凭据或验证认证；存储条目、目录 apiKey 和具体请求头分别操作，环境由后台启动环境维护。OAuth 条目的替换／移除不会撤销远端令牌。后台默认模型与会话模型分开，摘要模型可清除；显式启动参数覆盖会提示。所有写入携带读取修订，冲突保留草稿并读回当前值，应答丢失只核实原实例，不自动重发；秘密提交后清空。点击连接测试直接联网；模型名旁以黄／绿／红点表示未测试、成功／失败，失败详情放在圆点提示中，配置变化后旧结果失效。目录事件淘汰会话和新聊天菜单的旧分页并刷新运行时默认值，不改已有任务选择。
+
+Code Skills 列表按名称检索已取得项，显示托管／外部维护、启停、仅显式调用及诊断；正文有界且跳过 HTML，图片只显示文字。外部来源只读；托管单包导入复制到 Code 私有区，源库不变。启停和逻辑移除只影响后续新任务选择，旧任务正文、原恢复引用与包字节保留；操作前展示影响。冲突保留列表、选择和预览供刷新比较；丢答按原技能身份读回，不再次复制，查询失败保持待核实。
+
+设置无需打开会话。模型、Skills、MCP 各自通过 Code / PA 双页签选择本地 Code 或远程 Personal，打开时默认聊天目标，此后不切换聊天；Code MCP 另选工作区和原配置来源，普通会话提供工作区及原项目初值，无会话默认首个工作区自身来源，没有工作区时引导添加。配置来源候选须由后台按实例和工作区提供，界面按名称选择并显示写入归属；后台分页列出工作区自身及旧会话的原项目和服务数量，不推断唯一来源。设置容器内未保存的模型、MCP、Skills 导入与 PA 连接编辑在切类别、关闭及收起侧栏前提供保存、放弃或继续编辑；提供方弹窗叉号直接放弃草稿，保存中禁止重复动作；浮窗与两侧内容在窄窗内滚动。
 
 对话恢复先取历史页与历史窗口内的任务状态，任务状态先装入再公开历史页，随后安装带 seq 的任务详情并从零起分页补读任务事件；恢复期间的重绘合并为一次，打开会话时已收起的 trace 从首次可见起保持收起。长正文按连续 UTF-8 字节偏移补全，历史页里已有条目的补全不阻止自动收起。每条工具结果落盘后即补发条目引用，同批后续工具仍运行时，已展开详情也能自动读取。每次新快照都更换异步代次并清空流游标，旧代次结果丢弃；向前翻页保留已加载条目。正文用 react-markdown 与 remark-gfm 渲染并关闭原始 HTML；正文中的图片仅显示说明，防止 file 页面通过相对路径加载本机图片。历史在滚动到顶部时补读并保留锚点，工具与 SubAgent 按时间顺序逐条显示，单条调用保留各自的详情展开。已记录 reasoning 使用 Thought 行，Thinking 下直接显示当前原文，两处均限6行视觉高度并可内部滚动（Driver 只记录8KiB尾部）；在线 running 的请求前、参数生成及工具轮间显示 Thinking，最新同任务非空正文流接替状态，工具执行时直接显示本批次已完成／进行中调用，不显示 Working 标题；任务完成且最终 assistant 正文已确认后，动画收起此前连续的执行记录及中间进度正文，摘要显示 Worked for 与实际任务耗时（缺时间显示 Worked），可重新展开，最终回复、用户输入和审批卡保持可见，不跨排队输入重排记录；等待审批、取消、暂停及终态不留旋转状态，TUI 操作说明与工作流提示不显示。标签关闭键仅 hover／焦点时覆盖显示并渐隐邻近文本；拖动结束及取消后暂停旧位置hover，隐藏关闭键并停止其鼠标命中，待本组指针移动后恢复，键盘焦点提示保留。选中标签两侧不显示分隔，左右标签区以短竖线隔开，右栏正文与顶部标签之间没有横向分割线；关闭标签不删除会话。两组标签独立等宽，按空间在96至180px调整；拖动邻项避让，放下提交顺序，取消恢复，Alt+Shift+左右方向键也可排序。整个窗口提供单层半透明模糊，左栏、顶部与消息区圆角露出同一底层，减少透明效果回退实色。筛选与工作区／工具折叠有开合动画，关闭内容不接收焦点，遵守减弱动画；手写行按钮的 hover、悬停显露的关闭与添加键、展开箭头旋转和提示条出现也有短过渡。
 
@@ -80,7 +94,13 @@ Git graph 每页读取200条真实提交，滚动接近底部自动追加直到�
 
 消息流以外的文字在原尺寸上增加2px，包括输入框、菜单、设置及右栏文件／Git内容；主与SubAgent消息正文、工具和审批字号保持不变。深色左栏及Tab选中项使用更亮的半透明底色，沿用单一玻璃背景。源码与行号共同保持23.8px行高。
 
+Code MCP 新服务先保存禁用草稿，再主动联网发现工具，逐项选择允许工具与本地副作用类别后保存并显式启用；远端只读注解不自动授权。服务表单始终显示工作区和来源，保存携带读取版本，启停后读回。凭据仅保存到本地 Code 后台，首次落盘即限所选来源与 MCP；省略引用保留，匿名选择清除引用。列表显示配置状态与服务引用，仍被引用的凭据不能清理。冲突保留草稿并展示当前值，丢答仅读回原来源，不自动重发；停用不取消已经发出的远端调用。
+
+Personal 三页每次打开重读原档案，模型编辑单模型、API 类型、容量、图片能力与环境变量引用，显式测试当前草稿且与保存分开；技能库与包均通过远端目录选择和预览，外部来源只读，托管启停与逻辑移除保留旧引用所需字节。MCP 编辑档案级服务、私有凭据文件或显式匿名；原工具允许列表分页读取完整定义，未改工具时由后台保留，不用摘要覆盖 schema。写入先展示影响并确认停存启；忙时返回原入口处理事项，丢答、已保存未启动与待核实保留恢复及人工结束维护动作。
+
 ## 不变量与失败处理
+
+新管理连接核实机器版本、产品与档案身份后才读取配置，在线再经认证 HTTP 查询；SSH 成功不表示可写。显式停存启必须实际后台凭据与未决预检通过，固定系统服务身份及精确权限可证实；CLI 环境未知、开发实例与部署缺前提保持只读。连接与维护预检读取一项配置摘要并完整检查未决事项，合法大 MCP 列表不会因默认页过大阻断停止。停止超时保留原进程与锁，保存后启动失败保留已保存事实；托管技能修订冲突报告明确未保存，并保留草稿比较与恢复原服务入口。任一阶段断线均保留原操作关联，查询原修订与服务状态，不重放保存或强杀；原服务启动失败后，原进程已退出、MainPID 为零且档案锁可取才允许显式恢复；拥有者再比较配置并结束维护。改变连接与退出回收自有子进程，旧响应不继续维护。
 
 选择会话名称或正文结果均直接打开对应的普通会话，沿用已有标签、最新消息、历史分页、实时输出与输入区，保留原草稿和附件。正文片段用于辨认会话，不单独进入历史模式或滚动定位原消息。已存档结果可显式打开且不取消存档。
 
@@ -104,11 +124,25 @@ Personal 预检总期限为 15 秒；超时或网络失败、远端 socket 暂�
 
 缺模型且确认未接收的记录在所属会话自动交付为可编辑草稿，不自动发送。交付先只读原记录、按请求键合入原文和附件，再确认严格清除；同一渲染进程重复确认不重复拼接，继续来源保留。读取／删除的权限与 IO 失败可见且保持发送禁用；清理应答丢失可以重试。只有当前目标、当前实例、最近核实为缺模型的现存记录可恢复；清理已不存在记录幂等成功。
 
+设置容器的导航、关闭与 Code 断线和快照淘汰旧读取；Personal 管理页以独立档案身份和读取轮次隔离，不受旧个人聊天状态影响；换实例清除旧 MCP 范围，原提交中的表单保留待核实关联。PA 连接保存区分请求未送出、明确拒绝与应答丢失：前两者保留可编辑草稿，丢答锁定原提交并提供只读核实，不自动重新保存。读回不同值时展示当前配置并保留草稿，查询失败继续待核实；连接配置已保存不等于远端连接成功。
+
 设置冲突或在线丢答读回 `get_session`；任务控制在线丢答读回 `get_task`，队列恢复丢答读回实际队列。断线等待同实例新快照，查询失败保留结果未知；这些操作都不自动重放。设置尚在保存或等待核实时，恢复队列也等待核实，保留原设置未知标记。设置应答不覆盖较新的队列事件。
 
 审批决定从不自动重发。明确失效移除卡片；权限版本不符重读详情并等待重新决定；未发送保留卡片。在线应答丢失查询原审批，断线等待同实例快照，查询失败或过旧保留防重复状态并经现有提示报告；重新连接可再次核实。新快照淘汰旧详情与核实结果；换实例丢弃原操作结果。系统通知送达仍受 macOS 通知设置约束。
 
 ## 设计依据
+
+- [Personal 三类设置与维护关联](../../.agents/notes/implemented/feature/2026-10-21-desktop-personal-pages.md)
+
+- [Personal SSH 维护](../../.agents/notes/implemented/feature/2026-10-21-personal-settings-ssh.md)：新管理协议、原服务生命周期与断线核实。
+
+- [Code Skills 宿主目录选择与核实](../../.agents/notes/implemented/feature/2026-10-21-desktop-code-skills.md)
+
+- [Code MCP 来源与凭据管理](../../.agents/notes/implemented/feature/2026-10-21-code-mcp-settings.md)
+
+- [Code 模型设置与凭据来源](../../.agents/notes/implemented/feature/2026-10-21-code-model-settings.md)
+
+- [设置容器、范围选择与原表单保护](../../.agents/notes/implemented/feature/2026-10-21-desktop-settings-shell.md)
 
 - [搜索结果直接打开普通会话](../../.agents/notes/implemented/simplification/2026-10-21-desktop-search-session-navigation.md)
 

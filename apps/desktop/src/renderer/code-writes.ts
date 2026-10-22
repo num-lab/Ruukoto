@@ -132,10 +132,12 @@ export class CodeWrites {
     this.changed();
   }
   update(update: DesktopUpdate): void {
-    if (update.type === "snapshot" || (update.type === "state" && update.state !== "online")) {
+    const modelChanged = update.type === "event" && update.event.body.type === "model.config_changed";
+    if (update.type === "snapshot" || modelChanged || (update.type === "state" && update.state !== "online")) {
       ++this.modelGeneration;
       this.models = [];
     }
+    if (modelChanged) void this.loadModels();
     if (update.type === "snapshot" || (update.type === "event" && update.kind === "live" && (update.event.body.type === "session.queue_paused" || update.event.body.type === "session.queue_resumed"))) ++this.queueRevision;
     if (update.type === "pending") {
       this.entries = new Map(update.entries.filter(entry => entry.record.op === "submit" || entry.record.op === "continue").map(entry => [entry.record.requestId, entry]));

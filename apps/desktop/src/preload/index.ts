@@ -13,6 +13,7 @@ const bridge: DesktopBridge = {
   pickDraftAttachments: () => ipcRenderer.invoke("desktop:pick-draft-attachments"),
   uploadDraftAttachments: (sessionId, tokens, target = "code") => ipcRenderer.invoke("desktop:upload-draft-attachments", sessionId, tokens, target),
   pickFolder: () => ipcRenderer.invoke("desktop:pick-folder"),
+  pickSkillFolder: (target, instanceId) => ipcRenderer.invoke("desktop:pick-skill-folder", target, instanceId),
   reveal: path => ipcRenderer.invoke("desktop:reveal", path),
   openTerminal: (id, workspaceId, instanceId, cols, rows) => ipcRenderer.invoke("desktop:request", "code", "desktop_terminal_open", { id, workspace_id: workspaceId, instance_id: instanceId, cols, rows }),
   inputTerminal: (id, data) => ipcRenderer.invoke("desktop:request", "code", "desktop_terminal_input", { id, data }),

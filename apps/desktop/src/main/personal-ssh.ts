@@ -3,9 +3,13 @@ import { ControlClientError } from "@ruukoto/control/client.ts";
 import type { PersonalTargetConfig } from "./personal-config.ts";
 import { shellQuote } from "./recovery.ts";
 import * as path from "node:path";
+import { StringDecoder } from "node:string_decoder";
 
 const SSH_OPTIONS = ["BatchMode=yes", "ControlMaster=no", "ControlPath=none", "ControlPersist=no", "ForkAfterAuthentication=no", "RemoteCommand=none", "ConnectTimeout=10"];
 const options = (values: string[]) => values.flatMap(value => ["-o", value]);
+export function commandArgs(host: string, command: string): string[] {
+  return [...options([...SSH_OPTIONS, "ClearAllForwardings=yes", "RequestTTY=no"]), "--", host, command];
+}
 export function tokenCommand(config: PersonalTargetConfig): string {
   const dir = shellQuote(config.controlDir);
   const socket = shellQuote(path.posix.join(config.controlDir, "control.sock"));
@@ -37,18 +41,23 @@ export class SshProcess {
   readonly done: Promise<{ code: number | null; stdout: string; stderr: string }>;
   private exited = false;
   private stopping: Promise<void> | null = null;
-  constructor(executable: string, args: string[], env: NodeJS.ProcessEnv, read: boolean) {
-    this.child = spawn(executable, args, { env: { ...env, LC_ALL: "C" }, stdio: ["ignore", read ? "pipe" : "ignore", "pipe"] });
+  constructor(executable: string, args: string[], env: NodeJS.ProcessEnv, read: boolean, input?: string, outputLimit = 65536) {
+    this.child = spawn(executable, args, { env: { ...env, LC_ALL: "C" }, stdio: [input === undefined ? "ignore" : "pipe", read ? "pipe" : "ignore", "pipe"] });
+    this.child.stdin?.on("error", () => { /* SSH 先退出时的 EPIPE 由 close 结果统一报告。 */ });
+    this.child.stdin?.end(input);
     this.done = new Promise((resolve, reject) => {
-      let stdout = "", stderr = "", spawnError = false, overflow = false;
+      let stdout = "", stderr = "", spawnError = false, overflow = false, bytes = 0;
+      const decoder = new StringDecoder("utf8");
       this.child.stdout?.on("data", (chunk: Buffer) => {
-        if (stdout.length + chunk.length > 65536) { overflow = true; void this.stop(); }
-        else stdout += chunk.toString("utf8");
+        bytes += chunk.length;
+        if (bytes > outputLimit) { overflow = true; void this.stop(); }
+        else stdout += decoder.write(chunk);
       });
       this.child.stderr!.on("data", (chunk: Buffer) => { stderr = (stderr + chunk.toString("utf8")).slice(-8192); });
       this.child.on("error", () => { spawnError = true; });
       this.child.on("close", code => {
         this.exited = true;
+        stdout += decoder.end();
         if (spawnError) reject(new ControlClientError("ssh_unavailable", "无法启动 ssh；请确认登录环境中已安装可执行的 OpenSSH 后重新连接。", "rejected"));
         else if (overflow) reject(new ControlClientError("ssh_output_limit", "远端令牌输出过大；请核对 owner.token 与远端 shell 启动输出后重新连接。", "rejected"));
         else resolve({ code, stdout, stderr });

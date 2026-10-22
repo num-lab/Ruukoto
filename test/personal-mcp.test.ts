@@ -14,7 +14,7 @@ import { openPersonalHarness, type PersonalHarness } from "../apps/ruukoto/src/p
 import { personalProvider, type PersonalModelConfig } from "../apps/ruukoto/src/personal-model.ts";
 import { PersonalPermissionsDoc } from "../apps/ruukoto/src/personal-permissions.ts";
 import { PersonalMcpDoc } from "../apps/ruukoto/src/personal-mcp.ts";
-import { personalMcpCredential, parsePersonalMcp, savePersonalMcp } from "../apps/ruukoto/src/personal-mcp-config.ts";
+import { migratePersonalMcp, personalMcpCredential, parsePersonalMcp, savePersonalMcp } from "../apps/ruukoto/src/personal-mcp-config.ts";
 import { PersonalWorkDoc, requestPersonalWorkCancel, type PersonalWorkRef } from "../apps/ruukoto/src/personal-work.ts";
 import { PersonalDelegationDoc, listPersonalDelegations, personalDelegationProgress, type PersonalDelegationRef } from "../apps/ruukoto/src/personal-delegation.ts";
 import { personalReportResult } from "../apps/ruukoto/src/personal-report.ts";
@@ -97,6 +97,43 @@ test("durable MCP：主会话完全访问保留原定义、原参数与完整长
   assert.deepEqual(saved.config, f.mcp);
   await p.close(); const reopened = await f.open();
   assert.deepEqual(await details(reopened, answer.operation), detail); assert.equal(server.calls.length, 1);
+});
+
+test("durable MCP：已完成旧历史显式迁入后逐服务启停，原接纳和响应跨重启保留", { timeout: 20000 }, async t => {
+  const server = await remote(t), f = await fixture(t, server);
+  await savePersonalMcp(f.directory, f.mcp);
+  let p = await f.open(); await mode(p, "full_access");
+  const answer = JSON.parse(await p.answer(invocation(), "old-call")) as { operation: TaskId };
+  const original = await record(p, answer.operation), originalDetail = await details(p, answer.operation);
+  await p.close();
+  const migrated = await migratePersonalMcp(f.directory);
+  p = await f.open({ mcp: migrated });
+  assert.deepEqual(await record(p, answer.operation), original);
+  assert.deepEqual(await details(p, answer.operation), originalDetail);
+  await p.close();
+  const disabled = parsePersonalMcp({ ...migrated, generation: "disabled", services: [
+    { ...migrated.services[0], enabled: false }, { ...migrated.services[0], id: "other", enabled: true },
+  ] });
+  await savePersonalMcp(f.directory, disabled);
+  p = await f.open({ mcp: disabled });
+  const definitions = JSON.parse(await p.answer("definitions", "disabled-definitions")) as { tools: { service: string }[] };
+  assert.deepEqual(definitions.tools.map(tool => tool.service), ["other"]);
+  const requests = server.requests.length;
+  assert.match(await p.answer(invocation(), "disabled-call"), /mcp_tool_unavailable/);
+  assert.equal(server.requests.length, requests);
+  assert.equal((await p.mcp!.list()).items.length, 1);
+  assert.deepEqual(await record(p, answer.operation), original);
+  await p.close();
+  await assert.rejects(f.open({ mcp: f.mcp }), code("mcp_config_downgrade"));
+  const enabled = parsePersonalMcp({ ...disabled, generation: "enabled-again", services: disabled.services.map(service => ({ ...service, enabled: true })) });
+  await savePersonalMcp(f.directory, enabled);
+  p = await f.open({ mcp: enabled });
+  await p.answer(invocation(), "enabled-call");
+  assert.equal(server.calls.length, 2);
+  assert.deepEqual(await record(p, answer.operation), original);
+  await p.close(); p = await f.open({ mcp: enabled });
+  assert.deepEqual(await details(p, answer.operation), originalDetail);
+  assert.equal(server.calls.length, 2);
 });
 
 test("durable MCP：端点的查询别名不能绕过未知调用占用", { timeout: 20000 }, async t => {

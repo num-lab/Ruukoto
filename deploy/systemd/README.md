@@ -54,7 +54,25 @@ RUUKOTO_PERSONAL_DIR=/var/lib/ruukoto/personal-durable \
   "$node_bin" /opt/ruukoto/apps/ruukoto/bin/ruukoto.mjs
 ```
 
-`serve` 是模板的前台入口，SIGTERM/SIGINT/SIGHUP 收齐接口与 Harness 后退出。菜单可查询、停止后台；日常菜单退出不停止独立后台。档案使用独立 SQLite、0700 目录、0600 配置/日志/令牌和认证 socket，不使用旧 `RUUKOTO_DATA_DIR/AGENT_DIR/CONTROL_DIR` 或旧 owner token。worker 和依赖由完整 workspace 构建提供，单独 app tarball 不能替代安装。
+`serve --directory /var/lib/ruukoto/personal-durable` 是模板的前台入口，显式绝对路径优先于环境；SIGTERM/SIGINT/SIGHUP 收齐接口与 Harness 后退出。菜单可查询、停止后台；日常菜单退出不停止独立后台。档案使用独立 SQLite、0700 目录、0600 配置/日志/令牌和认证 socket，不使用旧 `RUUKOTO_DATA_DIR/AGENT_DIR/CONTROL_DIR` 或旧 owner token。worker 和依赖由完整 workspace 构建提供，单独 app tarball 不能替代安装。
+
+## 桌面设置维护
+
+桌面「PA 远程连接 → 设置管理」使用同一 SSH/服务账户，选择新档案及已安装程序。固定系统服务必须采用上面的 Node/bin 与 `serve --directory` 入口、`Type=simple`、`SendSIGKILL=no`、`TimeoutStopFailureMode=terminate`、`KillMode=control-group`、`KillSignal=SIGTERM`，不配置额外 ExecStop/ExecStopPost；修改后先由管理员 daemon-reload。超时保留后台与锁，不改保存、不强杀；`TimeoutStopFailureMode=abort` 即使禁用 SIGKILL 仍不受支持。
+
+管理员按实际同账户替换并检查独立的精确授权文件：
+
+```bash
+sed "s/@RUN_USER@/$run_user/g" deploy/systemd/sudoers.d.ruukoto-settings > /tmp/ruukoto-settings.sudoers
+sudo visudo -cf /tmp/ruukoto-settings.sudoers
+sudo install -o root -g root -m 0440 /tmp/ruukoto-settings.sudoers /etc/sudoers.d/ruukoto-settings
+sudo -n -l /usr/bin/systemctl start ruukoto-backend.service
+sudo -n -l /usr/bin/systemctl stop ruukoto-backend.service
+```
+
+只授权上述固定单元的精确 start/stop，不加通配符、其他参数或自由命令；现有 `ruukoto-service` helper 继续拒绝后台自身。GUI 不安装权限或修改单元，缺前提显示只读。先在隔离部署验证，不能为验收接管旧生产同名单元。模型/IM 变量仍由原服务环境管理，维护不读取或复制 EnvironmentFile。
+
+`ruukoto maintenance` 的 stdin 为 `{v:1,op:"inspect",lifecycle:"systemd",program:"/opt/ruukoto/apps/ruukoto/bin/ruukoto.mjs"}`；stdout 沿 settings 的产品/版本/错误封装。先读取原 `profile`，显式 stop/start 必须带回同一身份；不提供任意服务动作。CLI 原启动环境无法核实时只读，可按本节配置受支持系统服务；受管开发实例由开发入口管理。停存启丢答后先查询原配置/服务，原服务已停止时才显式恢复；不会自动重发保存或回滚。
 
 ## 升级与回退
 

@@ -1,0 +1,2 @@
+# 仅供桌面设置显式管理固定后台；安装时替换实际 SSH / 服务同账户。
+@RUN_USER@ ALL=(root) NOPASSWD: /usr/bin/systemctl start ruukoto-backend.service, /usr/bin/systemctl stop ruukoto-backend.service

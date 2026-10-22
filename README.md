@@ -23,7 +23,7 @@
 
 [逐项验收证据](docs/release-acceptance.md)。
 
-个人 [`ruukoto`](docs/usage.md#25-个人-agent-引导与管理) 使用 Pi 1.3.0；无参打开配置与管理菜单，`serve` 前台托管后台，`npm run personal:durable` 是同入口兼容命令。IM 用 `/帮助` 查入口，Linux固定命令目录支持会话后台，CLI与 `/后台` 可查日志、停止及显式结束。Coding 使用 Pi 0.85.1，入口与档案保持。
+个人 [`ruukoto`](docs/usage.md#25-个人-agent-引导与管理) 使用 Pi 1.3.0；无参打开菜单，`serve` 前台托管，`serve --directory <绝对档案路径>` 固定服务档案；`settings` 用有界 JSON 管理模型、Skills 与 MCP，`maintenance` 核实原系统服务并显式启停。`npm run personal:durable` 是同入口兼容命令。IM 用 `/帮助` 查入口，Linux 固定命令目录支持会话后台，CLI 与 `/后台` 可查日志、停止及显式结束。Coding 使用 Pi 0.85.1，入口与档案保持。
 
 ## 快速开始
 
@@ -85,7 +85,7 @@ npm run code -- ../my-project  # 以该目录创建/复用工作区，并进入�
 
 开发与测试见[开发说明](docs/development.md)；MyGo：`npm run desktop:mygo`，见[桌面开发](docs/desktop-development.md)；[浏览器用法](docs/usage.md#12-浏览器)含登录与截图导出。
 
-持久问题真实模型验收：`RUN_MODEL_CHECK=1 RUN_OWNER_QUESTION_MODELS_FILE=/path/models.json npx tsx --test test/owner-question-model-acceptance.test.ts`（DeepSeek；使用隔离档案）。
+[持久问题真实模型验收](docs/development.md#外部验收)使用 DeepSeek 与隔离档案。
 
 ## 文档
 

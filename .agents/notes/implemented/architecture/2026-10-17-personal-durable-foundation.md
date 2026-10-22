@@ -2,7 +2,7 @@
 
 Status: implemented
 
-相关未实施方案：[桌面设置管理](../../proposed/feature/2026-10-21-desktop-settings-management.md)拟将可选托管技能根纳入严格档案布局与权限分类，保留本篇持锁、未知目录拒绝和历史证据要求。
+相关决定：[Personal 设置入口](../feature/2026-10-21-personal-settings.md)将可选托管技能根纳入严格档案布局与权限分类，保留本篇持锁、未知目录拒绝和历史证据要求。
 
 ## 问题
 
@@ -13,6 +13,8 @@ Status: implemented
 基础实现集中在 `apps/ruukoto/src/personal-*.ts`，由正式个人入口、隔离测试及[本机引导管理](2026-10-17-personal-local-management.md)调用；入口与制品见[独立决定](../simplification/2026-10-18-personal-product-entry.md)。个人依赖固定 chord、pi-ai 与 pi-durable 1.3.0，Coding 的 Pi 0.85.1 保留，两个版本不交换 SDK 对象。迁移总方案仍是 proposed，本篇只持有已经实现的基础约束。
 
 档案使用独立普通目录与严格格式标记，只接受已知普通文件和本机管理的指定 socket；旧目录、链接文件和不支持的产品、Pi、业务扩展版本均拒绝。目录为 0700，文件为 0600。`owner.sqlite` 的 EXCLUSIVE 事务持有实例锁，锁文件不删除；正常关闭和进程崩溃均由 SQLite/OS 释放锁，管理接口清理顺序由[本机引导管理](2026-10-17-personal-local-management.md)持有。该库不存运行状态。
+
+`managed-skills` 与其他顶层私有目录共用名称分类，布局检查与锁后 chmod 不维护两份目录名单。托管根先用 lstat 拒绝链接、错误所有者与 group/other 权限；取得 EXCLUSIVE 锁后，读取配置及启动 Harness 前复用[托管内部检查](../feature/2026-10-21-managed-skills.md)，错误权限、链接和硬链接不靠 chmod 修复。缺少可选根不改 `PERSONAL_FORMAT`；私有暂存、部分临时清单和合法孤立包可重新持锁，但不成为已安装技能，也不自动删除。未知顶层与管理节点继续拒绝。
 
 持久会话、输入、回答和请求证据只写 `personal.sqlite`。恢复调度之前先核实业务格式、所有会话的扩展引用与版本，再核实 live Task 定义版本。主会话模型在空闲时显式更新；仍有未完成工作时换模型拒绝恢复，避免把旧请求悄悄交给另一模型。首次初始化留下不完整数据库时同样拒绝，保留现场并另选空目录，不猜测缺失状态。
 

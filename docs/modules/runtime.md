@@ -33,6 +33,8 @@
 
 `listWorkspaceFiles`／`readWorkspaceFile` 仅按已登记项目根提供只读分页，不经过模型或 Agent 工具。根目录身份、保护根、规范相对路径和每段父链读取前后核实，拒绝符号链接、非普通文件、多硬链接与变化中的内容；目录单层扫描 201 项并最多返回 200，文件按 256 KiB 字节页返回 base64，version 绑定文件身份、大小及修改时间，跨页改变拒绝，无总文件长度上限；缺失与权限失败保留具名错误且不暴露宿主绝对路径。纯 Node 的前后身份核实不是原子 openat 沙箱。
 
+`listSkills` 保留有效技能库的 TUI 查询；`listManagedSkills`、`getSkill`、`previewSkillImport`、`importSkill`、`setSkillEnabled` 与 `removeSkill` 将当前 Code 实例的技能查询和管理交给共享技能库。托管根位于自身 agentDir，外部来源只读；导入提交按原预览身份、源内容修订和管理修订核实，启停与逻辑移除只改清单。管理不创建任务、改变工具权限或改写既有技能正文；当前有效技能选择及旧引用的保持规则见[上下文与技能](agent-context.md)。
+
 `branchSession` 由产品的 `branchSessions` 能力开放，核实普通开发身份、工作区映射及目录身份后固定来源历史和设置；`findBranchSession` 按持久请求键核实发布结果。创建不提交任务或调用模型。
 
 `Runtime.start(config)` 要求 app 注入 `config.product`（`RuntimeProduct`）：身份用于数据目录登记，IM 与调度能力决定启停，产品工具族由 app 的工厂提供。共享运行时不按产品名装配。具体产品归属见[产品装配](products.md)。
@@ -326,6 +328,10 @@ Coding 的离线导入由 app 持有方向策略，core 提供快照、文件校
 
 问题回答与取消同事务仲裁，终态不可覆盖，失败不留下已答而无续接的中间状态。回答采用本次模型、会话当前默认模式或显式模式及实际授予范围，旧工具批准不继承。含持久问题或回执的导入报 `owner_questions_import_unavailable`，原档案与绑定保留。
 
+MCP 配置来源查询保留工作区组织归属与原项目身份的区别，服务配置及凭据仍按原项目写入；启停与事件同事务。专用凭据创建不依赖后续服务保存成功来收窄范围，仍被服务引用时拒绝清理。
+
+模型配置视图只读脱敏位置、已注册模型成员与真实思考档位，不求值动态认证；存储条目存在与实际认证可用分别表达。模型管理继续核对内容修订、受影响提供方占用与引用，重建失败恢复原文件；SDK／远端失败正文收口为固定指引并保留安全错误码，避免动态凭据被错误反射。主动连接测试独立于保存，完整来源语义见[上下文与模型配置](agent-context.md)。
+
 工作流步骤的普通任务/工作控制及复用明确拒绝，暂停、恢复和取消由运行控制持有。跨实例导入显式登记工作流表，含执行记录的源报 `workflow_import_unavailable`，不丢掉绑定后继续；操作见[导入说明](../usage.md#6-导入旧实例)。
 
 **幂等与竞争仲裁。**
@@ -363,6 +369,10 @@ Coding 的离线导入由 app 持有方向策略，core 提供快照、文件校
 `readWorkspaceGit` 按登记根身份只读分页查询真实提交与refs；每页200条，没有累计上限，每次总5秒、每命令512 KiB及结果768 KiB预算，非仓库和空仓库分开。游标绑定工作区、Git/common身份、HEAD、全部refs、shallow与info/grafts，读取前后核实修订，变化拒绝并要求刷新。原保护根、元数据链接、alternates和配置include限制继续适用，失败返回类型化错误。拥有者附件入口允许 dev 和 main，子会话仍拒绝；main 主身份随快照显式提供。
 
 ## 设计依据
+
+- [Code MCP 来源与凭据管理](../../.agents/notes/implemented/feature/2026-10-21-code-mcp-settings.md)
+
+- [Code 模型设置与凭据来源](../../.agents/notes/implemented/feature/2026-10-21-code-model-settings.md)
 
 - [应用内 Spotlight 与历史定位](../../.agents/notes/implemented/feature/2026-10-21-desktop-spotlight-search.md)
 

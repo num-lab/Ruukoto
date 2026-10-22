@@ -6,7 +6,7 @@
 
 ## 对外接口
 
-个人 bin 与根 `npm start` 默认进入同一个引导式 CLI，无参打开菜单，`serve` 前台运行后台；`personal:durable` 是该入口的兼容命令。正式默认目录为 `~/.ruukoto-durable/`，可用 `RUUKOTO_PERSONAL_DIR` 选择独立新目录。个人开发入口固定检出散列档案，忽略继承目录，默认由薄启动器托管 Node watch 前台后台；`--config` 直接打开同一菜单且不监听源码，菜单启动的后台由本进程持有，退出时停止。配置菜单源码变化须退出重开。开发拒绝已启用 QQ/Telegram 的档案，不改写配置或连接平台。
+个人 bin 与根 `npm start` 默认进入同一个引导式 CLI，无参打开菜单，`serve` 前台运行后台，`settings` 提供模型、Skills 与 MCP 的受限 JSON 管理；`personal:durable` 是该入口的兼容命令。正式默认目录为 `~/.ruukoto-durable/`，可用 `RUUKOTO_PERSONAL_DIR` 选择独立新目录。个人开发入口固定检出散列档案，忽略继承目录，默认由薄启动器托管 Node watch 前台后台；`--config` 直接打开同一菜单且不监听源码，菜单启动的后台由本进程持有，退出时停止。配置菜单源码变化须退出重开。开发拒绝已启用 QQ/Telegram 的档案，不改写配置或连接平台。
 
 Coding bin 固定产品身份，向共享 CLI 传入 `CliProduct`，并向 `Runtime.start` 显式传入 `product.runtime`。`npm start` 的 `RUUKOTO_PRODUCT=ruukoto-code` 选择及 app 的独立 start 保留；Coding 的工作区、会话、四种界面模式、SubAgent、工作流、按需后台与旧开发资料导入保持。
 
@@ -19,7 +19,7 @@ Coding bin 固定产品身份，向共享 CLI 传入 `CliProduct`，并向 `Runt
 | 旧资料 | 原地归档，不导入 | 开发资料离线导入 |
 | 编码专用入口 | 不提供开发会话、worktree 汇总、旧工作流或 GitHub 自动评审 | 保留既有 Coding 能力 |
 
-安装与操作见[操作手册](../usage.md)，开发与构建见[开发说明](../development.md)。个人不兼容旧 TUI、桌面 Personal 或控制面协议。
+个人另提供 `maintenance` 受限 JSON 生命周期入口；`serve --directory <绝对路径>` 将服务档案固定在启动参数，优先于环境。安装与操作见[操作手册](../usage.md)，开发与构建见[开发说明](../development.md)。个人聊天不兼容旧 TUI、桌面 Personal 或控制面协议；桌面设置使用独立新协议连接。
 
 ## 数据与状态
 

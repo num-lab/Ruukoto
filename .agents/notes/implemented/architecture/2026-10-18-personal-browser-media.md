@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Cua 接入提案](../../proposed/architecture/2026-10-22-cua-integration.md)拟复用本篇图片记录与 provider 核实，电脑执行归属独立于浏览器管理器。
+
 ## 问题
 
 个人端的通用产物与权限已接入 durable，但共享浏览器工具依赖旧任务/审批/产物，旧图片暂存依赖旧 SQLite 入站账本；整类复用会重新引入旧运行权威。浏览器启动前的事实、未知网页写入和图片实际模型输入仍必须能从新档案核实。

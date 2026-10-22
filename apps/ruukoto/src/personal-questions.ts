@@ -7,7 +7,7 @@ import { AssistantEntry, defineDoc, defineDocFamily, defineEntry, defineExtensio
 import { validateToolArguments } from "@earendil-works/pi-ai/utils/validation";
 import type { ToolRegistration } from "@earendil-works/pi-durable";
 import { Type } from "typebox";
-import { OwnerQuestionError, parseOwnerAnswers, parseOwnerQuestions, type OwnerAnswer, type OwnerQuestionItem } from "@ruukoto/core/owner-questions.ts";
+import { OwnerQuestionError, parseOwnerAnswers, parseOwnerQuestions, type OwnerAnswer, type OwnerQuestionItem } from "@ruukoto/core/owner-question-input.ts";
 import { PersonalError } from "./personal-error.ts";
 import { personalToolOrigin, type PersonalToolOrigin } from "./personal-tool-source.ts";
 import { personalPermissionFor, telegramSelection, telegramSourceActive, type PersonalTelegramSource } from "./personal-permissions.ts";

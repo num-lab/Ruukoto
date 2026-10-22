@@ -94,8 +94,8 @@ test("集成：Plan 连续消息保持计划说明、白名单与阻断，手动
     const planCall = callFor(t, "调研登录流程");
     assert.ok(hasPlanPrefix(planCall), "模型上下文含计划说明前缀");
     assert.deepEqual(toolNames(planCall).sort(), [
-      "bash", "history_read", "history_search", "http_request", "list_files", "mcp_svc_get", "memory_list", "memory_read",
-      "read", "read_artifact", "request_file_access", "search_files", "skill", "todo_write", "web_search",
+      "ask_user", "bash", "history_read", "history_search", "http_request", "list_files", "mcp_svc_get", "memory_list", "memory_read",
+      "process_output", "process_status", "process_stop", "read", "read_artifact", "request_file_access", "search_files", "skill", "todo_write", "web_search",
     ], "计划模式只含白名单工具");
     const planCat = await planModeTokens(t, sessionId, plan.id);
     assert.equal(planCat.label, "计划模式");

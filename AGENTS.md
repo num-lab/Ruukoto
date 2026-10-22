@@ -4,7 +4,7 @@ Ruukoto 同仓交付两个产品：`ruukoto` 个人 Agent 与 `ruukoto-code` Cod
 
 ## 开发与验证
 
-首次检出运行 `npm run setup`。各[独立入口](docs/development.md#日常反馈)见开发说明。修改时跑 `npm run check:static` 与相关测试，提交前按[改动面选最小检查集](.agents/skills/pre-push-checks/SKILL.md)；完整 `npm run check` 约 200 秒，只在拥有者明确要求、诊断 CI 失败或改动确实横跨全仓时跑。定向测试写文件名，如 `npx tsx --test test/71-product-entry.test.ts`；环境前提、测试导航、模块与用例映射、开发实例、耗时基线和外部验收入口见[开发说明](docs/development.md)。测试需要 Linux 环境时用 `ssh tx`。
+首次检出运行 `npm run setup`。各[独立入口](docs/development.md#日常反馈)见开发说明。修改时跑 `npm run check:static` 与相关测试，提交前按[改动面选最小检查集](.agents/skills/pre-push-checks/SKILL.md)；完整 `npm run check` 只在拥有者明确要求、诊断 CI 失败或改动确实横跨全仓时跑。定向测试写文件名，如 `npx tsx --test test/71-product-entry.test.ts`；环境前提、测试导航、模块与用例映射、开发实例、耗时基线和外部验收入口见[开发说明](docs/development.md)。测试需要 Linux 环境时用 `ssh tx`。
 
 **提交与 CI。** pre-commit 依次执行 `git diff --cached --check`、`scripts/check-staged-eol.mjs` 与 `npm run check:static`；CI 在 macOS / Linux × Node 22.19 / 24.15 上执行 `npm run setup -- --skip-hooks` 与 `npm run check`，不因缺 Python 或 PTY 跳过用例。真实模型与真实 IM 属外部验收，缺前提时报告不可验证，不记为通过。文件末尾留且只留一个换行。
 

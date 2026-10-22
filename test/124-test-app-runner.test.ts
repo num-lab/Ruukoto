@@ -8,7 +8,7 @@ import { test } from "node:test";
 const { appTestBatches } = await import(new URL("../scripts/test-app.mjs", import.meta.url).href);
 const FILES = ["100-worker-stop.test.ts", "101-native-macos-helper.test.ts", "background-processes-recovery.test.ts", "background-processes.test.ts", "native-macos-identity.test.ts", "125-other.test.ts"];
 
-test("macOS 独占与其余批次完整分配每个文件一次，Linux 保留全并行；固定独占文件缺失拒绝", () => {
+test("macOS 独占与其余批次完整分配每个文件一次，Linux 使用同一批次；固定独占文件缺失拒绝", () => {
   const files = [...FILES.map(file => `test/${file}`), "test/124-test-app-runner.test.ts"];
   for (const platform of ["darwin", "linux"]) {
     const batches: Array<{ files: string[]; serial: boolean }> = appTestBatches(files, platform);

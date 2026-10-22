@@ -1,5 +1,6 @@
 /** 固定 QuickJS 编排入口；步骤能力仅经注入回调提供，停止结果由调用方归档。 */
 // Note: 见 .agents/notes/implemented/architecture/2026-10-13-workflow-script-isolation.md
+// Note: 见 .agents/notes/implemented/bug-fix/2026-10-22-workflow-host-idle-dispatch.md
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
@@ -123,6 +124,7 @@ export class WorkflowScriptHost {
             else this.fail(new ScriptExecutionError("script_exited"));
           }, error => this.fail(error));
           let ready = false;
+          const queuedCalls: ScriptCall[] = [];
           readScriptFrames(this.unit.stdout, value => {
             if (this.stopped) return;
             if (!isRecord(value)) throw new ScriptExecutionError("script_protocol");
@@ -133,25 +135,10 @@ export class WorkflowScriptHost {
               this.send(start);
             } else if (value.type === "call" && ready && isScriptCall(value.call)) {
               const call = value.call;
-              if (call.id !== this.lastId + 1 || this.calls.size >= SCRIPT_LIMITS.pendingCalls) throw new ScriptExecutionError("script_protocol");
+              if (this.activeSince === undefined || call.id !== this.lastId + 1 || this.calls.size >= SCRIPT_LIMITS.pendingCalls) throw new ScriptExecutionError("script_protocol");
               this.lastId = call.id;
               this.calls.add(call.id);
-              void Promise.resolve().then(() => {
-                if (this.stopped) return;
-                return invoke(call, this.controller.signal);
-              }).then(reply => {
-                if (this.stopped) return;
-                this.calls.delete(call.id);
-                this.send({ type: "reply", seq: ++this.seq, id: call.id, value: reply });
-              }, error => {
-                if (this.stopped) return;
-                this.calls.delete(call.id);
-                if (!(error instanceof ScriptCallError)) {
-                  this.fail(error instanceof ScriptExecutionError ? error : new ScriptExecutionError("script_host_failed", {cause:error}));
-                  return;
-                }
-                this.send({ type: "reply", seq: ++this.seq, id: call.id, value: null, error: { code: error.code, message: error.message } });
-              });
+              queuedCalls.push(call);
             } else if (value.type === "idle" && ready && Number.isSafeInteger(value.seq) && Number(value.seq) <= this.seq && Number(value.seq) > 0) {
               if (value.seq === this.seq && this.activeSince !== undefined) {
                 if (this.calls.size === 0) throw new ScriptExecutionError("script_protocol");
@@ -159,6 +146,24 @@ export class WorkflowScriptHost {
                 this.activeSince = undefined;
                 clearTimeout(this.timer);
                 this.onActivity?.(false);
+                for (const call of queuedCalls.splice(0)) {
+                  void Promise.resolve().then(() => {
+                    if (this.stopped) return;
+                    return invoke(call, this.controller.signal);
+                  }).then(reply => {
+                    if (this.stopped) return;
+                    this.calls.delete(call.id);
+                    this.send({ type: "reply", seq: ++this.seq, id: call.id, value: reply });
+                  }, error => {
+                    if (this.stopped) return;
+                    this.calls.delete(call.id);
+                    if (!(error instanceof ScriptCallError)) {
+                      this.fail(error instanceof ScriptExecutionError ? error : new ScriptExecutionError("script_host_failed", {cause:error}));
+                      return;
+                    }
+                    this.send({ type: "reply", seq: ++this.seq, id: call.id, value: null, error: { code: error.code, message: error.message } });
+                  });
+                }
               }
             } else if (value.type === "done" && ready && "value" in value && this.calls.size === 0) {
               this.output = value.value;

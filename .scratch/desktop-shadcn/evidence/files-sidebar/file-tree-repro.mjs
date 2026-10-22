@@ -7,7 +7,8 @@ import react from '@vitejs/plugin-react';
 const root = resolve(process.argv[2] ?? process.cwd());
 const require = createRequire(root + '/package.json');
 const React = require('react'), {renderToStaticMarkup} = require('react-dom/server');
-const server = await createServer({configFile:false,root:root+'/apps/desktop/src/renderer',plugins:[react()],server:{middlewareMode:true,hmr:false,ws:false},appType:'custom'});
+// Note: 见 .agents/notes/implemented/testing/2026-10-22-ci-prerequisites.md
+const server = await createServer({configFile:false,root:root+'/apps/desktop/src/renderer',plugins:[react()],ssr:{noExternal:['@xterm/xterm','@xterm/addon-fit']},server:{middlewareMode:true,hmr:false,ws:false},appType:'custom'});
 try {
   const {WorkspaceFiles} = await server.ssrLoadModule('/inspector-panels.tsx');
   const directories = new Map(), folders = new Map(), requests = [];
@@ -59,7 +60,7 @@ try {
   const {InspectorPanel} = await server.ssrLoadModule('/inspector-panel.tsx');
   inspector.repositories = new Map([['w',{loading:true}]]);
   inspector.workspace=()=>({id:'w',name:'测试工作区'}); inspector.activeTab=()=>({kind:'new'});
-  inspector.tabs=()=>[]; inspector.selectedTool=()=>null; inspector.agents=()=>[]; model.target='code';
+  inspector.tabs=()=>[]; inspector.terminalTabs=()=>[]; inspector.selectedTool=()=>null; inspector.agents=()=>[]; model.target='code';
   const landing=()=>renderToStaticMarkup(React.createElement(InspectorPanel,{model,open:true,onWidthChange(){}}));
   assert.doesNotMatch(landing(),/正在检测 Git|正在读取 Git|工具差异|SubAgent/,'新标签页无检测提示和差异清单');
   assert.match(landing(),/文件树/);assert.match(landing(),/浏览器/);

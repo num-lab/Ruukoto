@@ -16,6 +16,7 @@ test("PA 按快照 main 身份读取历史和正文，跨目标相同 session id
   const requests: { target: string; op: string }[] = [];
   const bridge = { request: async (target: "code" | "personal", op: string) => {
     requests.push({ target, op });
+    if (op === "owner_questions") return { ok: true as const, value: { questions: [], nextOffset: null } };
     const value = op === "read_history" ? { fileAvailable: true, hasPartialTail: false, entries: [], nextBefore: null } : op === "list_tasks" ? { tasks: [], hasMore: false } : op === "work_list" ? { works: [] } : op === "list_prompt_requests" ? { records: [], hasMore: false } : op === "read_history_entry" ? { entryId: "answer", role: "assistant", text: target, timestamp: session.createdAt, taskId: null, inputPurpose: "user", parentId: null, offset: 0, totalBytes: target.length, truncated: false, toolCalls: [], toolCallId: null, toolName: null, isError: false, hasNonTextContent: false } : [];
     return { ok: true as const, value };
   } };

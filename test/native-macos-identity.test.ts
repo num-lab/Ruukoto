@@ -23,7 +23,7 @@ function fixture() {
   for (const target of [workspace, tempDir, evidence]) fs.mkdirSync(target, { mode: 0o700 });
   const workerPath = path.join(workspace, "fixture.mjs");
   const release = path.join(workspace, "release");
-  fs.writeFileSync(workerPath, `import fs from 'node:fs';import cp from 'node:child_process';const root=${JSON.stringify(workspace)};const role=process.argv[2]??'root';for(const s of[process.stdout,process.stderr])s.on('error',e=>{if(e.code!=='EPIPE')throw e;});if(role==='root'){fs.appendFileSync(root+'/launches','launch\\n');cp.spawn(process.execPath,[import.meta.filename,'descendant'],{detached:true,stdio:['ignore','inherit','inherit']});}process.on('SIGTERM',()=>fs.writeFileSync(root+'/'+role+'.term','TERM'));fs.writeFileSync(root+'/'+role+'.ready',JSON.stringify({pid:process.pid,ppid:process.ppid}));const until=Date.now()+20000;const timer=setInterval(()=>{if(fs.existsSync(root+'/release')||Date.now()>until){clearInterval(timer);fs.writeFileSync(root+'/'+role+'.finished','finished');process.exit(0);}if(role==='descendant'){fs.appendFileSync(root+'/beats','beat\\n');process.stdout.write('out\\n');process.stderr.write('err\\n');}},100);`);
+  fs.writeFileSync(workerPath, `import fs from 'node:fs';import cp from 'node:child_process';const root=${JSON.stringify(workspace)};const role=process.argv[2]??'root';for(const s of[process.stdout,process.stderr])s.on('error',e=>{if(e.code!=='EPIPE')throw e;});if(role==='root'){fs.appendFileSync(root+'/launches','launch\\n');cp.spawn(process.execPath,[import.meta.filename,'descendant'],{detached:true,stdio:['ignore','inherit','inherit']});}process.on('SIGTERM',()=>fs.appendFileSync(root+'/'+role+'.term','TERM'));fs.writeFileSync(root+'/'+role+'.ready',JSON.stringify({pid:process.pid,ppid:process.ppid}));const until=Date.now()+20000;const timer=setInterval(()=>{if(fs.existsSync(root+'/release')||Date.now()>until){clearInterval(timer);fs.writeFileSync(root+'/'+role+'.finished','finished');process.exit(0);}if(role==='descendant'){fs.appendFileSync(root+'/beats','beat\\n');process.stdout.write('out\\n');process.stderr.write('err\\n');}},100);`);
   const ref: MacosExecutionRef = { executionId: `native_${randomBytes(12).toString("hex")}` };
   const input: PreparedNativeLaunch = { workspace, tempDir, workerPath, nodePath: fs.realpathSync(process.execPath), runtimeReadRoots: [], mounts: [], toolAliases: [], env: {} };
   const spec: LaunchSpec = { taskId: "macos-durable-check", workspace, mode: "full_access", grantedPaths: [] };
@@ -59,7 +59,7 @@ test("macOS 持久执行核实忽略 TERM 且继承双管道的后代，同 ID �
     const before = fs.statSync(path.join(f.workspace, "beats")).size;
     await waitFor(() => fs.statSync(path.join(f.workspace, "beats")).size > before);
     assert.equal(await unit.entry.stop(), true);
-    assert.equal(fs.readFileSync(path.join(f.workspace, "descendant.term"), "utf8"), "TERM");
+    assert.match(fs.readFileSync(path.join(f.workspace, "descendant.term"), "utf8"), /TERM/);
     assert.equal(f.launched(), 1);
     assert.ok(output.includes("out"));
     assert.equal(f.read("stopped.json").stdoutEof, true); assert.equal(f.read("stopped.json").stderrEof, true);

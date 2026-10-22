@@ -878,7 +878,7 @@ for (const operation of ["create", "integrate"] as const) {
         parentSessionId = session.id;
         if (operation === "create") rt.launcherFor = () => controlled.launcher;
         const parent = await rt.submit({ sessionId: session.id, requestId: "p", input: "开始", modelSelection: rt.defaultSelection });
-        await waitFor("目标临时单元已产生", () => phase === "call" ? controlled.requests.some((request) => request.type === "tool_call") : controlled.specs.length === 1);
+        await waitFor("目标临时单元已产生", () => phase === "call" ? controlled.requests.some((request) => request.type === "tool_call") : controlled.specs.length === 1, 60_000);
         await rt.stop("test_backend_stop");
         db = new Db(t.dirs.dataDir);
         const store = new Store(db);

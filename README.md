@@ -27,11 +27,11 @@
 
 ## 快速开始
 
-开发与离线检查需要 Node ≥ 22.19、Git、ripgrep（`rg`）、Bash 和支持 PTY 的 Python 3，使用 macOS 或 Linux 的普通用户账户。两个产品的受限执行均使用原生沙箱，无需 Docker；个人资料检索使用随 build:worker 构建的独立只读 worker；平台前置见[操作手册](docs/usage.md#1-前提与安装)。
+开发与离线检查需要 Node ≥ 22.19、Git、ripgrep（`rg`）、Bash 和支持 PTY 的 Python 3，使用 macOS 或 Linux 的普通用户账户。Linux 原生测试另需[沙箱前提](deploy/native/README.md)，CI 自动准备。两个产品的受限执行均使用原生沙箱，无需 Docker；个人资料检索使用随 build:worker 构建的独立只读 worker；平台前置见[操作手册](docs/usage.md#1-前提与安装)。
 
 ```bash
 npm run setup       # 按两份锁文件安装依赖、检查前提并安装轻量提交钩子
-npm run check       # 构建原生监督器、全部 worker/WASM，静态及全部离线测试
+npm run check       # 构建原生监督器、全部 worker/WASM，静态及有限并行离线测试
 npm link            # 可选：把 ruukoto / ruukoto-code 装进 PATH（否则用 npm start -- …）
 ```
 
@@ -72,7 +72,7 @@ QQ/Telegram 共用主会话；后台分析完成后沿首次入口回报。退�
 
 后台工作流与可打断等待见[操作说明](docs/usage.md#511-工作流问题与回报)，六输入组合及真实模型验证见[测试导航](docs/development.md#日常反馈)。
 
-修改时先运行 `npm run check:static` 与相关测试，按改动面选最小检查集（[提交前检查](.agents/skills/pre-push-checks/SKILL.md)）；全量 `npm run check` 由 CI 与显式复跑执行。macOS 应用测试先串行隔离共享 UID 的进程夹具，其余并行。
+修改时先运行 `npm run check:static` 与相关测试，按改动面选最小检查集（[提交前检查](.agents/skills/pre-push-checks/SKILL.md)）；全量 `npm run check` 由 CI 与显式复跑执行。应用测试最多两文件并行，macOS 先串行执行共享 UID 夹具。
 
 ```bash
 npm run dev                # 隔离个人开发档案，前台后台随源码变更重启

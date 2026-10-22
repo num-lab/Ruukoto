@@ -1,7 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { PassThrough, Writable } from "node:stream";
-import { WorkflowScriptHost } from "@ruukoto/agent/script-worker/host.ts";
+import { PassThrough, Readable, Writable } from "node:stream";
+import { createInterface } from "node:readline";
+import { once } from "node:events";
+import { setImmediate as nextTurn } from "node:timers/promises";
+import { WorkflowScriptHost, launchScriptProcess } from "@ruukoto/agent/script-worker/host.ts";
 import { SCRIPT_LIMITS, ScriptWriter, ScriptExecutionError, ScriptCallError, readScriptFrames, isScriptCall } from "@ruukoto/agent/script-worker/protocol.ts";
 import { ExecutionError, type LaunchedUnit } from "@ruukoto/agent/execution/launchers.ts";
 
@@ -87,6 +90,40 @@ test("等待宿主不耗脚本预算，取消后迟到结果不能继续脚本",
   resolve(1);
   await new Promise(done => setTimeout(done, 20));
   assert.equal(calls, 1);
+  assert.equal(await host.stop(), true);
+});
+
+async function splitScriptFrames(): Promise<LaunchedUnit> {
+  const unit = await launchScriptProcess("split-frames");
+  const stdout = Readable.from((async function* () {
+    for await (const line of createInterface({ input: unit.stdout })) {
+      await nextTurn();
+      yield Buffer.from(`${line}\n`);
+    }
+  })());
+  return { ...unit, stdout, exit: Promise.all([unit.exit, once(stdout, "end")]).then(([status]) => status) };
+}
+
+test("call 与 idle 分帧时，并发宿主同步工作不消耗脚本预算", async () => {
+  const host = new WorkflowScriptHost("split-host-work", splitScriptFrames);
+  const blocking = new Int32Array(new SharedArrayBuffer(4));
+  const result = await host.run('return await Promise.all([agent("a",1), agent("b",2), agent("c",3)]);', null, async call => {
+    Atomics.wait(blocking, 0, 0, 600);
+    return call.params;
+  }, { cpuMs: 500 });
+  assert.deepEqual(result, { value: [1, 2, 3], reaped: true });
+  assert.equal(await host.stop(), true);
+});
+
+for (const cancel of [false, true]) test(`idle 前的宿主请求在${cancel ? "取消" : "脚本继续无限计算"}后不派发`, async () => {
+  const host = new WorkflowScriptHost("queued-host-work", splitScriptFrames);
+  const controller = new AbortController();
+  let calls = 0;
+  const result = host.run(cancel ? 'return await agent("queued", {});' : 'agent("queued", {}); for (;;) {}', null, async () => { calls++; return null; }, {
+    cpuMs: 100, signal: controller.signal, onActivity: active => { if (cancel && !active) controller.abort(); },
+  });
+  await assert.rejects(result, { code: cancel ? "script_canceled" : "script_cpu_limit" });
+  assert.equal(calls, 0);
   assert.equal(await host.stop(), true);
 });
 
@@ -224,6 +261,7 @@ test("零请求的 idle 与损坏协议停止进程，不执行同帧迟到请�
   for (const messages of [
     [{type:"idle",seq:1}],
     [{type:"unknown"},{type:"call",call:{id:1,method:"agent",key:"late",params:null}}],
+    [{type:"call",call:{id:1,method:"agent",key:"queued",params:null}},{type:"idle",seq:1},{type:"call",call:{id:2,method:"agent",key:"late",params:null}}],
     [{type:"done",value:1},{type:"fatal",code:"script_protocol"}],
   ]) {
     const fake=controlled(true,messages);

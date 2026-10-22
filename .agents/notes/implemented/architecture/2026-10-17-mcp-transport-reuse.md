@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Cua 接入提案](../../proposed/architecture/2026-10-22-cua-integration.md)复用本篇传输，目标绑定与连接寿命由消费者承担；提案不改变当前接口。
+
 ## 问题
 
 [个人 durable 迁移](../../proposed/architecture/2026-10-17-personal-pi-durable.md)只复用无任务状态的底层能力。[MCP 客户端](2026-09-23-mcp-client.md)的公开连接接口要求 McpServiceConfig 与 CredentialStore，个人端要复用 HTTP 就得伪造旧项目和配置；它们原本是 type import，问题是公开接口耦合，并非运行时加载旧 core。

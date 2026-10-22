@@ -70,6 +70,19 @@ test("合成会话覆盖全部事件类型且 seq 连续", async () => {
       Array.from({ length: events.length }, (_, i) => i + 1),
       "seq 不连续",
     );
+    const { snapshot } = await client.handshake();
+    const sessionId = snapshot.sessions[0].id;
+    const background = await client.request("background_processes", { session_id: sessionId });
+    const questions = await client.request("owner_questions", { session_id: sessionId });
+    assert.deepEqual(background, { processes: snapshot.backgroundProcesses, totalCount: 1, nextOffset: null });
+    assert.deepEqual(questions, { questions: snapshot.ownerQuestions, nextOffset: null });
+    for (const event of events) {
+      if (event.body.type === "background_process.changed") assert.deepEqual(event.body.process, background.processes[0]);
+      else if (event.body.type === "owner_question.changed") assert.deepEqual(event.body.question, questions.questions[0]);
+      else if (event.body.type === "background_process.closed") assert.deepEqual(event.body.closure.processIds, [background.processes[0].id]);
+      else continue;
+      assert.equal(event.sessionId, sessionId);
+    }
   } finally {
     client.close();
   }
@@ -85,7 +98,7 @@ test("合成会话不产生真实副作用：未列出的 op（写操作）明�
     const models = await client.request("list_models", {});
     assert.ok(models.models.length > 0, "模型列表应为非空");
     // 写操作必须明确失败，不得静默成功；明确拒绝让提交清掉待核实记录、恢复草稿
-    for (const op of ["submit", "create_project", "create_session", "respond_confirmation", "interrupt"] as const) {
+    for (const op of ["submit", "create_project", "create_session", "respond_confirmation", "interrupt", "background_process_stop", "session_background_end", "owner_question_answer", "owner_question_cancel"] as const) {
       await assert.rejects(
         () => client.request(op, {} as never),
         (err: unknown) => err instanceof ControlClientError && err.outcome === "rejected" && err.message === `合成会话不支持：${op}`,

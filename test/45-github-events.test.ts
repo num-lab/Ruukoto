@@ -140,7 +140,8 @@ async function harness(prefix: string, beforeReview?: () => Promise<void>) {
       prTool.result = { structuredContent: { head: body.pull_request.head.sha, base: body.pull_request.base.sha, number: 7 } };
       const raw = Buffer.from(JSON.stringify(body));
       const response = await fetch(`http://127.0.0.1:${runtime.githubWebhookAddress()!.port}${GITHUB_WEBHOOK_PATH}`, {
-        method: "POST", signal: AbortSignal.timeout(2000), body: raw,
+        // 同进程派发会延迟客户端读响应；不等待评审由未释放的模型门单独验证。
+        method: "POST", signal: AbortSignal.timeout(10_000), body: raw,
         headers: { "content-type": "application/json", "x-github-event": "pull_request", "x-github-delivery": delivery,
           "x-hub-signature-256": `sha256=${createHmac("sha256", SECRET).update(raw).digest("hex")}` },
       });

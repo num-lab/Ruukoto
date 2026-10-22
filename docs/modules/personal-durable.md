@@ -6,6 +6,8 @@
 
 ## 对外接口
 
+提问参数复用 core 的 `owner-question-input.ts` 纯校验模块；不通过 Coding 持久问题模块加载旧 Store，个人问题与回执仍由 durable 保存。
+
 `ruukoto` 与根 `npm start` 无参打开菜单，`serve` 前台托管后台，`npm run personal:durable` 是同入口兼容命令。正式默认 `~/.ruukoto-durable/`，`RUUKOTO_PERSONAL_DIR` 可选择新档案；dev 固定检出散列目录并忽略该覆盖，默认薄启动器托管 Node watch 前台后台，`--config` 直接使用同一菜单且不监听源码，拥有本次后台生命周期；配置菜单源码变化须退出重开。dev 拒绝已启用 QQ/Telegram 的配置，不改写原记录或连接平台。旧个人档案与旧开发、工作流、GitHub 自动评审及个人导入不接入本模块。
 
 `ruukoto settings` 提供版本化、有界 stdin/stdout JSON 机器入口。在线查询与显式模型测试通过当前后台认证的 `/settings`，配置写入及托管技能变更仅在停机持锁后执行；档案身份与内容修订在同一锁内比较。查询返回模型元数据、凭据引用状态、技能来源/诊断、MCP 服务/工具及未决阻塞，不返回密钥、任意 SQL、文件或完整请求证据。保存不运行连接测试，离线测试不使用 SSH shell 凭据冒充实际服务环境。 在线预检与离线保存均阻断待答问题、未释放目录认领及待核实的问题/后台结束回执，原任务终结不解除阻断。

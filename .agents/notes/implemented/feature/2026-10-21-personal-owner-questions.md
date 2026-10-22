@@ -10,7 +10,7 @@ Status: implemented
 
 `personal-questions` 独立保存问题 document、创建 entry、答复 admission 和唯一后台续接 Task。`ask_user` 非阻塞返回，每会话一批待答；同宿主工具重取原结果。模型的本轮资格按原生输入引用收窄，仅保留后台状态与输出查询。Pi 每轮工具后会换 generation Task，初次 generation 不能代表完整拥有者轮；当前 `LiveDoc.run.inputs` 与问题保存的输入交集才是依据。`personal-tool-policy` 在 provider 准备时筛选全部 `system.toolsAdded`，规范输入与 payload 两个记录边界复核，工具 hook 再拒绝未获准调用；普通后续输入不继承本轮收窄。
 
-个人沿 Coding 已落地的纯参数解析，支持单选、多选、选项说明与推荐、自由输入、Skip 和整批跳过。此决定取代[共享提案](../../proposed/feature/2026-10-21-persistent-owner-questions.md)关于个人首版仅单选或自由文本的限制；推荐不预选，空答案不附选择字段。业务回答不提供工具批准。
+个人沿 Coding 已落地的纯参数解析，支持单选、多选、选项说明与推荐、自由输入、Skip 和整批跳过。纯类型、错误类与解析函数位于 `packages/core/src/owner-question-input.ts`；Coding 的 `owner-questions.ts` 直接重导出同一对象，个人只引用纯模块，避免经工作流资格查询加载旧 Store。此决定取代[共享提案](../../proposed/feature/2026-10-21-persistent-owner-questions.md)关于个人首版仅单选或自由文本的限制；推荐不预选，空答案不附选择字段。业务回答不提供工具批准。
 
 回答与唯一 Task 在同一个 durable commit 保存，续接以 `personal-question:<task>` 固定键向 main admission，崩溃恢复只重接原 Submission。新 entry 使用 `ruukoto.question-answer`，原题、选项和实际答案原样可重建；`personal-source` 显式核实新来源、admission、Task、原 Submission/Inbox 和真实答复权限。工具、委派、追加、服务、报告、定时及浏览器按这一来源取原权限和入口，不伪造 IM 原文、不落默认权限兜底。实际模型请求仍由原记录器持久保存。
 

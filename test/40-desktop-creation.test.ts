@@ -131,13 +131,12 @@ test("桌面二次未知保留原操作，迟到创建事件能确认原会话",
   const t = await startTestRuntime("desktop-event", async () => ({ kind: "text", text: "ok" }), { config: { product: product.runtime } });
   try {
     const calls: Array<OpParams<DesktopOp>> = [];
-    const model = new CodeState({ request: async (_target, op, params) => {
+    const model = new CodeState({ request: async (target, op, params) => {
       if (op === "open_workspace") {
         calls.push(params as OpParams<DesktopOp>);
         return { ok: false, error: { code: "lost", outcome: "unknown", message: "应答丢失" } };
       }
-      if (op === "work_list") return { ok: true, value: { works: [] } };
-      return { ok: true, value: [] };
+      return handleRequest(target, op, params, async () => {}, (name, input) => t.client.request(name, input));
     } }, () => {});
     await install(model, t);
     await model.create("open_workspace", { cwd: t.work[0] });

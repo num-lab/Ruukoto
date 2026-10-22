@@ -33,7 +33,7 @@ import * as path from "node:path";
 import { test } from "node:test";
 import { MockModelServer, type Responder } from "./helpers/mock-provider.ts";
 import { inputText, cleanupDirs, lastUserText, makeTestDirs, realTools, waitFor, writeModelsJson } from "./helpers/testkit.ts";
-import { Runtime, type RuntimeConfig } from "@ruukoto/runtime/runtime.ts";
+import { Runtime, RuntimeApiError, type RuntimeConfig } from "@ruukoto/runtime/runtime.ts";
 import { Db } from "@ruukoto/core/db.ts";
 import { Store } from "@ruukoto/core/store.ts";
 import { randomId, type AccessMode, type NotifyTarget, type SubAgentMessage } from "@ruukoto/core/types.ts";
@@ -372,7 +372,9 @@ for (const rollback of [false, true]) {
       release();
       const error = await settled;
       if (rollback) {
-        assert.match(error!.message, /CONFIG-ROLLBACK-FAULT/);
+        assert.ok(error instanceof RuntimeApiError);
+        assert.equal(error.code, "model_config_invalid");
+        assert.doesNotMatch(error.message, /CONFIG-ROLLBACK-FAULT/);
         assert.equal(fs.readFileSync(configFile, "utf8"), original, "失败恢复原配置字节");
       } else {
         assert.equal(error, null);

@@ -18,6 +18,8 @@ Status: implemented
 
 纯计算使用 QuickJS interrupt；微任务每批 64 个让出事件循环，并检查解释器时间。独立父进程从发送 start/reply 到相应 idle 计累计墙钟时间，默认 10 秒；宿主等待不计，启动另限 10 秒。长内建和转换可能迟迟不执行 interrupt，所以父进程必须能停止整个单元。
 
+[宿主派发修复](../bug-fix/2026-10-22-workflow-host-idle-dispatch.md)规定 call 只登记，最新 idle 停计后才派发本批回调，避免管道分帧时把宿主同步工作计入脚本预算。
+
 实测无限 Promise 链在 interrupt 后清理 runtime 可能触发上游断言，且 executePendingJobs 可能仍返回 success。异常路径发送有界失败后退出进程，回收整个 WASM；不把 dispose 当成可靠的异常回收条件。正常路径释放 deferred、结果句柄、context 和 runtime，完成帧后还须通道排空、正常退出及进程组核实，异常退出保留已收到结果但不报成功。取消后不登记或推进迟到调用，宿主实际步骤仍由回调的持有者停止。
 
 ### 限额

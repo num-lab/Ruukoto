@@ -22,6 +22,8 @@ macOS/Linux 与 Node 22.19/24.15 的构建资产、脚本进程、步骤权限�
 
 发布模型入口在尚未启动后台的前提拒绝时清除临时档案；实际执行失败、未知停止或异常占用仍保留现场。连通性夹具把工作目录放在与控制资料分开的子目录，不以数据目录的父级启动工作。
 
+[CI 前提与回归修复](2026-10-22-ci-prerequisites.md)将非独占批次限制为最多两个文件并行，取代上文默认并行安排；独占成员、单用例内部并发与失败透传保持。
+
 ## 既有笔记审计
 
 [工作流总提案](../../implemented/feature/2026-10-12-agent-workflows.md)、[脚本隔离](../architecture/2026-10-13-workflow-script-isolation.md)、[真实步骤](../architecture/2026-10-13-workflow-step-capabilities.md)与[最终送达](../feature/2026-10-13-workflow-owner-input-and-delivery.md)部分重叠，继续持有产品契约、权限和效果分类，本篇仅持有组合样例和证据分层。不取代既有执行或验收要求。

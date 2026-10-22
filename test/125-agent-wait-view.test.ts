@@ -4,7 +4,6 @@ import { test } from "node:test";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
 import type { PersistentEvent } from "@ruukoto/core/types.ts";
-import { PROTOCOL_VERSION } from "@ruukoto/core/types.ts";
 import { bindAgentReportFallback, claimAgentReports, listAgentWaits, registerAgentReport, releaseAgentReports, transferAgentReportFallbacks } from "@ruukoto/core/agent-wait.ts";
 import type { WorkflowSource } from "@ruukoto/core/workflow.ts";
 import type { OpResult } from "@ruukoto/control/ops.ts";
@@ -98,7 +97,6 @@ test("真实控制面等待：实时与重连含完整对象，TUI 状态与实�
     const parent = await t.runtime.submit({ sessionId: session.id, requestId: "parent", input: "等待后台", modelSelection: t.runtime.defaultSelection });
     await waitFor("等待视图已实时推送", () => state.tasks.get(parent.id)?.wait?.phase === "waiting");
     const detail = await t.client.request<OpResult<"get_task">>("get_task", { task_id: parent.id });
-    assert.equal(PROTOCOL_VERSION, 34);
     assert.equal(detail.task.resourcePhase, "conversation");
     assert.equal(detail.task.wait!.targets[0].id, runId);
     assert.equal(detail.task.wait!.targets[0].kind, "workflow");

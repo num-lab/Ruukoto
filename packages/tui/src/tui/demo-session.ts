@@ -27,10 +27,16 @@ import type {
 import { confirmationToView, toolOpToView } from "@ruukoto/core/views.ts";
 import type { HistoryEntryView, HistoryPage } from "@ruukoto/core/history.ts";
 import { editStatsFromResult, sliceTextByBytes } from "@ruukoto/core/history.ts";
+import type { BackgroundProcessView } from "@ruukoto/core/background-processes.ts";
+import type { OwnerQuestionView } from "@ruukoto/core/owner-questions.ts";
 
 const PROJECT_ID = "proj_demo";
 const SESSION_ID = "sess_demo0000000000000000";
 const NOW = "2026-09-22T10:00:00.000Z";
+
+// Note: 见 .agents/notes/implemented/testing/2026-10-22-ci-prerequisites.md
+const BACKGROUND: BackgroundProcessView = { id: "bg_demo", sessionId: SESSION_ID, taskId: "task_completed000", command: "npm run check", source: { kind: "coding-owner", accessMode: "full_access" }, state: "stopped", exit: { code: 0, signal: null }, stopVerified: true, reason: null, stdoutBytes: 0, stderrBytes: 0, partial: false, version: 2, createdAt: NOW, updatedAt: NOW };
+const QUESTION: OwnerQuestionView = { id: "question_demo", sessionId: SESSION_ID, taskId: "task_completed000", version: 2, status: "answered", questions: [{ question: "是否保留当前配置？", options: ["保留", "调整"] }], answers: [{ text: "保留", option: 0 }], createdAt: NOW };
 
 const MODEL: ModelSelection = { provider: "demo", modelId: "demo-model", thinkingLevel: "medium" };
 const EDIT_STATS = editStatsFromResult("edit", false, { patch: "@@ -1 +1,3 @@\n-const old = true;\n+const first = true;\n+const second = true;\n+const third = true;" })!;
@@ -310,6 +316,9 @@ function demoEvents(): PersistentEvent[] {
     { type: "session.workspace_mapped", sessionId: SESSION_ID, projectId: PROJECT_ID, workspaceProjectId: PROJECT_ID },
     { type: "session.usage_updated", sessionId: SESSION_ID },
     { type: "browser.binding_changed", sessionId: SESSION_ID, generation: "browser_demo", state: "ready", kind: "owned", failureCode: null },
+    { type: "background_process.changed", process: BACKGROUND },
+    { type: "background_process.closed", closure: { sessionId: SESSION_ID, requestKey: "close_demo", throughInputSeq: 1, processIds: [BACKGROUND.id], createdAt: NOW } },
+    { type: "owner_question.changed", question: QUESTION },
     { type: "workflow.definition", name: "demo", definitionId: "wfdef_demo", digest: "a".repeat(64) },
     { type: "workflow.changed", runId: "wfrun_demo", version: 1, status: "waiting", reason: null },
     { type: "workflow.step", runId: "wfrun_demo", key: "pick", status: "waiting", delivery: null },
@@ -460,15 +469,18 @@ function demoEvents(): PersistentEvent[] {
     { type: "backend.stopping", reason: "signal_sigterm" },
     { type: "backend.stopped", reason: "signal_sigterm" },
   ];
-  return bodies.map((body, i) => ({
-    seq: i + 1,
-    taskId: "taskId" in body ? (body.taskId as string) : null,
-    // 任务域事件的身体不带 sessionId，但信封要带（真实后台如此）——否则 TUI
-    // 无法定位会话视图，tool_intent 等显示事件会被静默丢弃
-    sessionId: "sessionId" in body ? (body.sessionId as string) : "taskId" in body ? SESSION_ID : null,
-    body,
-    createdAt: ts(60 - i),
-  }));
+  return bodies.map((body, i) => {
+    const source = body.type === "background_process.changed" ? body.process : body.type === "background_process.closed" ? body.closure : body.type === "owner_question.changed" ? body.question : body;
+    return {
+      seq: i + 1,
+      taskId: "taskId" in source ? (source.taskId as string) : null,
+      // 任务域事件的身体不带 sessionId，但信封要带（真实后台如此）——否则 TUI
+      // 无法定位会话视图，tool_intent 等显示事件会被静默丢弃
+      sessionId: "sessionId" in source ? (source.sessionId as string) : "taskId" in source ? SESSION_ID : null,
+      body,
+      createdAt: ts(60 - i),
+    };
+  });
 }
 
 /**
@@ -522,11 +534,15 @@ export function createDemoClient(onNotice: (text: string) => void, intervalMs = 
     subAgentSessionIds: [],
     workDelegations: [],
     subAgents: [],
+    backgroundProcesses: [BACKGROUND],
+    ownerQuestions: [QUESTION],
   });
 
   // 按 op 表应答（名字与返回形状由类型检查对照服务端）；未列出的 op 明确拒绝，
   // 不产生真实副作用（set_session_model / set_session_mode 返回静态应答，供 /model、/mode 回显结果行）
   const handlers: { [K in TuiOp]?: (params: OpParams<K>) => OpResult<K> } = {
+    background_processes: params => ({ processes: params.session_id === SESSION_ID && !params.offset ? [BACKGROUND] : [], totalCount: params.session_id === SESSION_ID ? 1 : 0, nextOffset: null }),
+    owner_questions: params => ({ questions: params.session_id === SESSION_ID && !params.offset ? [QUESTION] : [], nextOffset: null }),
     read_history: (params) => {
       const end = params.before ? entries.findIndex((entry) => entry.entryId === params.before) : entries.length;
       const limit = Math.max(1, Number(params.limit ?? 50));

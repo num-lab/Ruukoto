@@ -28,6 +28,7 @@
 |---|---|---|
 | 全部模块 | `Db(dataDir)`（`packages/core/src/db.ts`） | 打开或创建 `ruukoto.db`；`SCHEMA_VERSION` 是当前 schema 版本；`getInstanceId()` 返回持久的数据实例标识 |
 | 全部模块 | `Store`（`packages/core/src/store.ts`） | 表级 SQL 原语：任务、占用、确认请求、工具操作、产物、事件、授权、记忆与版本、历史索引、选择记录、压缩点、MCP、平台与调度表、SubAgent 与工作、导入回执与账本 |
+| Coding、个人 Agent | `owner-question-input.ts` 的题目与答案解析 | 纯输入类型、校验与具名错误，不加载 Store；`owner-questions.ts` 保留原重导出及 Coding 持久操作 |
 | Runtime、Driver | `Store.getSessionIdentity(sessionId)` | 读取会话、角色、SubAgent 与独立调度运行绑定后调用 `classifySession`；会话不存在返回 `null` |
 | Runtime、Driver | `Store.getSubAgentBySession(sessionId)` | 按独立子会话反查 `sub_agents` 绑定，是宿主识别动态身份的唯一依据 |
 | Runtime | `packages/core/src/background-processes.ts` | 会话后台的登记、目录交接、单次启动认领、观测、停止核实、关闭屏障及每页最多20条、256 KiB的历史分页；写入由调用者持有同一 Store 事务 |

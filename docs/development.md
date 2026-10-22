@@ -7,7 +7,7 @@ npm run setup
 npm run check
 ```
 
-`setup` 检查 macOS / Linux、普通用户账户、Node ≥ 22.19、Git、ripgrep（`rg`）、Bash、Python 3 与 PTY ，再在根目录和 `verification/foundation/` 执行 `npm ci` 并安装 Git 管理的 pre-commit 钩子。首次安装需网络；`check` 使用本地 mock 模型和临时数据，不需要模型凭据、Docker、真实 IM 或系统服务。依赖变化时更新对应 `package.json` 与 `package-lock.json`并重跑 `setup`。
+`setup` 检查[环境前提](../README.md#快速开始)，在两套包目录执行 `npm ci` 并安装 Git 管理的 pre-commit 钩子。首次安装需网络；`check` 使用本地 mock 模型和临时数据，不需要模型凭据、Docker、真实 IM 或产品后台；Linux 原生测试需要[系统前提](../deploy/native/README.md)。依赖变化时更新对应 `package.json` 与 `package-lock.json`并重跑 `setup`。
 
 macOS 构建原生监督器另需 Command Line Tools 的 Clang。平台前置、真实证据与复跑命令见[原生边界验证](../verification/foundation/scripts/native-isolation/README.md)；离线 local 测试不证明 OS 边界。
 
@@ -31,7 +31,7 @@ macOS 构建原生监督器另需 Command Line Tools 的 Clang。平台前置、
 | `npm test` | 应用与基础验证的全部离线测试；真实模型用例按默认开关跳过 |
 | `npm run check:static` | 依次执行 lint、类型检查、笔记门禁与文档门禁（链接、源码引用、篇幅与段落形态） |
 | `npm run check` | 依次执行环境检查、build、`check:static` 与全部离线测试，任一步失败即停止 |
-| `npm run test:app` | 仅应用离线测试；macOS 先串行执行脚本中列明的原生停止与后台恢复夹具，再并行其余；其他平台全并行 |
+| `npm run test:app` | 仅应用离线测试；macOS 先串行执行脚本中列明的原生停止与后台恢复夹具；非独占批次最多两文件并行 |
 | `npm run test:foundation` | 仅基础验证离线测试 |
 | `npm run change-scope -- --base <ref>` | 报告本次改动相对 merge base 的已提交、暂存、未暂存与未跟踪路径 |
 
@@ -79,7 +79,7 @@ pre-commit 依次执行暂存内容的行尾检查与 `npm run check:static`：`
 
 CI 设置 `ELECTRON_SKIP_BINARY_DOWNLOAD=1`，只检查桌面类型、lint 与纯逻辑，不下载或运行 Electron。
 
-GitHub Actions 在 macOS / Linux × Node 22.19 / 24.15 四组环境执行 `npm run setup -- --skip-hooks` 与 `npm run check`；CI 直接执行检查，不安装提交钩子。最低版本覆盖支持边界，Node 24.15 覆盖本次约定的开发版本；环境缺少 Python 或 PTY 能力时失败，不通过跳过终端用例取得绿色结果。提交钩子和 CI 使用相同的根目录命令。
+CI 在 macOS / Linux × Node 22.19 / 24.15 四组环境执行 `npm run setup -- --skip-hooks` 与 `npm run check`，覆盖最低与开发版本。CI 先安装 rg；Linux 另准备[原生前提](../deploy/native/README.md)，核实 namespace 与可委派 user scope。CI 不装提交钩子；Python/PTY 缺失即失败，不跳过终端用例。钩子与 CI 共用根目录命令。
 
 `worker/` 由构建生成，QuickJS core 与 release-sync WASM 由 agent 包锁版；`node_modules/` 由锁文件安装。个人命令与检索的定向测试见上表链接的检查集；测试前运行 `npm run build:worker`，真实 Linux 停止另行验收。数据库、令牌和凭据留在产品档案，不入工作树；测试用临时档案。开发实例的隔离与执行后端见 [README](../README.md#开发本项目)。
 

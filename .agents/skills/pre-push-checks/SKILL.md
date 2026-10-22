@@ -7,7 +7,7 @@ description: 在 ruukoto 提交或推送前，按改动面选出能证明本次�
 
 本仓库没有默认的本地全量基线。**每处行为改动都要有最窄的、会因该回归而失败的检查**；只有改动真正触及的面才扩大范围。CI 拥有穷尽覆盖与平台矩阵。
 
-全量 `npm run check` 约 200 秒（应用测试 macOS 167 秒、Linux 495 秒），只在三种情况跑：拥有者明确要求、正在诊断 CI 失败、或改动确实横跨全仓以致没有更窄的可信集合。
+全量 `npm run check` 的实测见[开发耗时记录](../../../docs/development-baselines.md)，只在三种情况跑：拥有者明确要求、正在诊断 CI 失败、或改动确实横跨全仓以致没有更窄的可信集合。
 
 已通过的检查不因为「接下来要提交」而重跑。证据只对被检内容有效；相关内容改变后复核受影响部分。作者自检与[独立验收](../development-workflow/SKILL.md#4-独立审查与返工)各有责任，前者不能替代后者。
 
@@ -24,6 +24,7 @@ npm run change-scope -- --base <已核实的基点引用>
 
 | 改动面 | 跑到哪一级 |
 |---|---|
+| CI 系统前提、`scripts/setup.mjs`、`scripts/check-environment.mjs` | `npx tsx --test test/98-development-tools.test.ts`，核实缺前提负例；CI 平台命令在对应系统验证，Linux 原生执行另跑 `test/101-native-execution.test.ts`、`test/101-native-linux-scope.test.ts` 及受影响用例；本地证据不代替 GitHub 四格结果 |
 | `packages/` 或 `apps/` 某模块的行为 | 该区的定向用例，文件名从 [开发说明的映射表](../../../docs/development.md#日常反馈) 查；跨模块契约变化时加调用方的用例 |
 | Personal SSH 设置、`ruukoto maintenance` 与固定服务 `serve --directory` | `npx tsx --test test/desktop-personal-settings.test.ts test/personal-maintenance.test.ts test/38-desktop-personal.test.ts test/desktop-mygo.test.ts test/personal-settings.test.ts test/personal-cli.test.ts`；部署检查覆盖默认强杀及 abort 超时负例；构建与入口变动沿对应行，真实 Linux CLI/systemd 分别记证据，缺部署前提保持只读 |
 | Personal `settings` 机器入口、配置协议与托管档案接线 | `npx tsx --test test/personal-settings.test.ts test/personal-settings-blockers.test.ts test/personal-managed-skills.test.ts test/personal-durable.test.ts test/personal-configuration-controls.test.ts test/personal-cli.test.ts test/personal-skills.test.ts test/personal-mcp-config.test.ts test/personal-mcp.test.ts test/personal-mcp-recovery.test.ts`；`ruukoto settings` 的 stdin/stdout 版本、未知 op、档案锁冲突和错误 revision 由独立审查者执行负例；CLI/入口变动再按入口制品行检查，真实服务环境另记缺口 |
@@ -61,7 +62,7 @@ npm run change-scope -- --base <已核实的基点引用>
 | `docs/` 的文档 | `npm run check:docs`；内容与代码是否一致门禁查不出，按 [写作 skill](../../../.agents/skills/writing-docs-for-human/SKILL.md) 的触发条件逐篇核对 |
 | `AGENTS.md`、skills、`docs/agents/` | 落点检查：被链接的目标存在，被引用的命令与 `package.json` 一致 |
 | `scripts/` 的门禁或生成器 | 该脚本自身，加一个故意失败的负例证明它会红 |
-| `scripts/test-app.mjs` 的分批与退出 | `npx tsx --test test/124-test-app-runner.test.ts`；macOS 独占 100/101-helper 后才执行其余文件，保持完整分配与失败透传 |
+| `scripts/test-app.mjs` 的分批与退出 | `npx tsx --test test/124-test-app-runner.test.ts`；macOS 独占批次结束后才执行其余文件，非独占批次最多两文件并行，保持完整分配与失败透传 |
 | `verification/foundation/` | `npm run test:foundation` |
 | `verification/smoke/` | 该 smoke 入口；需要 Docker、凭据或真实平台时先确认前提，缺前提报告「不可用」，不记为通过 |
 | `deploy/` | 相关 README 的步骤能否仍被执行；服务 helper 加 `test/service-helper-stop.test.ts`（Linux 真实进程与系统命令桩）和 78 helper／79 旧存储规则回归；改 systemd 单元时加 `npm run build`、替换实际账户与 Node 路径后的模板核实，并按实际账户演练原生前置与 scope 停止 |

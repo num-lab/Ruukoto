@@ -377,12 +377,13 @@ test("项目禁用：任务开始不注册工具；任务内禁用立即阻止�
     // 重新启用：同一 SDK 会话的下一任务起注册工具
     await t.client.request("set_project_web_search", { project_id: projectId, enabled: true });
     const callsBefore = t.server.calls.length;
-    await submitAndWait(t, sessionId, "r-on", "搜索启用");
+    const on = await submitAndWait(t, sessionId, "r-on", "搜索启用");
     const onCall = t.server.calls.slice(callsBefore)[0];
     assert.ok(JSON.stringify(onCall!.tools ?? []).includes("web_search"), "启用后下一任务注册 web_search");
     assert.equal(tavily.hits.length, 1, "任务内禁用后第二次调用被阻止，只发送一次请求");
-    const texts = toolResultTexts(t).slice(-2).join("\n");
-    assert.ok(texts.includes("已被拥有者按项目禁用"), "任务内禁用立即生效并明确报错");
+    assert.equal(on.task.status, "interrupted");
+    assert.match(on.task.interruptReason ?? "", /^task_tools_forbidden:.*web_search.*项目已关闭 Web Search/);
+    assert.equal(t.server.calls.length - callsBefore, 1, "任务内禁用在下一次模型发送前阻断");
   } finally {
     await t.shutdown();
     await tavily.close();

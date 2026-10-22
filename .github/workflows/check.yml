@@ -10,7 +10,7 @@ permissions:
 jobs:
   check:
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -30,5 +30,25 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             verification/foundation/package-lock.json
+      # Note: 见 .agents/notes/implemented/testing/2026-10-22-ci-prerequisites.md
+      - name: 安装 Linux 检查前提
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ripgrep bubblewrap apparmor dbus-user-session
+          test ! -e /etc/apparmor.d/ruukoto-bwrap
+          sudo install -m 0644 deploy/native/ruukoto-bwrap /etc/apparmor.d/ruukoto-bwrap
+          sudo apparmor_parser -r /etc/apparmor.d/ruukoto-bwrap
+          run_uid=$(id -u)
+          sudo loginctl enable-linger "$(id -un)"
+          sudo systemctl start "user@$run_uid.service"
+          export XDG_RUNTIME_DIR="/run/user/$run_uid"
+          export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+          printf '%s\n' "XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR" "DBUS_SESSION_BUS_ADDRESS=$DBUS_SESSION_BUS_ADDRESS" >> "$GITHUB_ENV"
+          /usr/bin/bwrap --unshare-all --die-with-parent --ro-bind / / --proc /proc --dev /dev -- /usr/bin/true
+          systemd-run --user --scope --quiet --property=Delegate=yes true
+      - name: 安装 macOS 检查前提
+        if: runner.os == 'macOS'
+        run: brew install ripgrep
       - run: npm run setup -- --skip-hooks
       - run: npm run check

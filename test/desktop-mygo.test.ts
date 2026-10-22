@@ -50,6 +50,20 @@ test("MyGo 传输拒绝保留 disconnected，不能变成未发送或自动重�
   assert.equal(f.calls.filter(call => call.method === "Desktop.Request").length, 1);
 });
 
+test("MyGo 设置管理沿原 Request 桥保留操作、目标与 JSON 参数", async () => {
+  const f = fixture();
+  f.window.ruukoto!.subscribe("personal", () => {});
+  const params = { request: { v: 1, op: "settings.read" } };
+  await f.window.ruukoto!.request("personal", "desktop_personal_settings_request", params);
+  assert.deepEqual(f.calls.at(-1), { method: "Desktop.Request", args: ["personal", "desktop_personal_settings_request", params] });
+});
+
+test("MyGo 技能目录选择只传目标与实例，不接收 renderer 路径", async () => {
+  const f = fixture(); f.window.ruukoto!.subscribe("code", () => {});
+  await f.window.ruukoto!.pickSkillFolder("code", "original-instance");
+  assert.deepEqual(f.calls.at(-1), { method: "Desktop.PickSkillFolder", args: ["code", "original-instance"] });
+});
+
 test("MyGo终端四方法复用本机Request并按ID透传输出", async () => {
   const f = fixture(), updates: DesktopUpdate[] = [];
   f.window.ruukoto!.subscribe("code", update => updates.push(update));

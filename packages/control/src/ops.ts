@@ -13,6 +13,7 @@ import type { ToolResultField } from "@ruukoto/core/history.ts";
 
 /** Runtime 方法的返回类型（去掉 Promise）。 */
 type R<M extends keyof Runtime> = Runtime[M] extends (...args: any[]) => infer T ? Awaited<T> : never;
+type SkillId = Parameters<Runtime["getSkill"]>[0];
 
 export type HistorySearchWireCursor = { session_id: string; byte_offset: number; phase?: "index" | "scan"; read_offset?: number; source?: { file_dev: number; file_ino: number; min_size: number }; query_key?: string };
 
@@ -79,6 +80,24 @@ export interface TuiOps {
   /** project_id 按原身份查询；workspace_id 按组织归属查询（issue 07）；两参互斥。 */
   list_session_summaries: { params: { project_id?: string; workspace_id?: string; scope?: "workspace_chats" }; result: R<"listSessionSummaries"> };
   list_models: { params: { provider?: string; offset?: number; limit?: number }; result: R<"listModels"> };
+  get_model_config: { params: None; result: R<"getModelConfig"> };
+  save_model_catalog: { params: { providers: Record<string, unknown>; expected_revision: string }; result: R<"saveModelCatalog"> };
+  set_model_api_key: { params: { provider: string; api_key: string; expected_revision: string }; result: R<"setModelApiKey"> };
+  remove_model_api_key: { params: { provider: string; expected_revision: string }; result: R<"removeModelApiKey"> };
+  remove_model_provider: { params: { provider: string; expected_revision: string }; result: R<"removeModelProvider"> };
+  set_default_model: { params: { provider: string; model_id: string; thinking_level: string; expected_revision: string }; result: R<"setDefaultModel"> };
+  set_summary_model: { params: { provider: string | null; model_id: string | null; expected_revision: string }; result: R<"setSummaryModel"> };
+  test_model_connection: { params: { provider: string; model_id: string }; result: R<"testModelConnection"> };
+  mcp_sources: { params: { workspace_id: string; offset?: number; limit?: number; selected_project_id?: string }; result: R<"mcpSources"> };
+  mcp_list: { params: { project_id?: string }; result: { services: R<"mcpListServices"> } };
+  mcp_configure: { params: { service_id?: string; project_id: string; name: string; endpoint: string; credential?: string | null; tool_allowlist: Array<string | { name: string; effect: "read" | "write" | "unknown" }>; enabled?: boolean; expected_version?: number }; result: R<"mcpConfigure"> };
+  mcp_set_enabled: { params: { service_id: string; enabled: boolean; expected_version?: number }; result: R<"mcpSetEnabled"> };
+  mcp_remove: { params: { service_id: string; expected_version?: number }; result: { removed: R<"mcpRemoveService"> } };
+  mcp_check: { params: { service_id: string }; result: R<"mcpCheckService"> };
+  mcp_save_credential: { params: { project_id: string; name: string; endpoint: string; secret: string }; result: R<"mcpSaveCredential"> };
+  mcp_remove_credential: { params: { project_id: string; name: string }; result: R<"mcpRemoveCredential"> };
+  list_credentials: { params: { project_id?: string; endpoint?: string }; result: R<"listCredentialBindings"> };
+  remove_credential: { params: { name: string }; result: { removed: R<"removeCredentialBinding"> } };
   set_session_model: {
     params: { session_id: string; expected_version: number; model_selection: ModelSelection };
     result: R<"setSessionModel">;
@@ -123,6 +142,12 @@ export interface TuiOps {
     result: R<"searchHistory">;
   };
   list_skills: { params: None; result: R<"listSkills"> };
+  skills_list: { params: { offset?: number; limit?: number }; result: R<"listManagedSkills"> };
+  skill_get: { params: { skill_id: SkillId }; result: R<"getSkill"> };
+  skill_import_preview: { params: { source_dir: string }; result: R<"previewSkillImport"> };
+  skill_import: { params: { skill_id: SkillId; source_dir: string; content_revision: string; expected_revision: string }; result: R<"importSkill"> };
+  skill_set_enabled: { params: { skill_id: SkillId; enabled: boolean; expected_revision: string }; result: R<"setSkillEnabled"> };
+  skill_remove: { params: { skill_id: SkillId; expected_revision: string }; result: R<"removeSkill"> };
   list_subagent_roles: { params: None; result: R<"listSubAgentRoles"> };
   list_memories: { params: { project_id?: string; personal?: boolean }; result: { memories: R<"listMemories"> } };
   get_memory: { params: { memory_id: string }; result: R<"getMemoryDetail"> };

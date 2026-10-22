@@ -226,9 +226,11 @@ sequenceDiagram
 
 **模型配置应用**：provider、模型目录与 API key 的修改只在没有受影响的 `running`、`awaiting_confirmation`、`queued` 任务时应用。应用等于校验、写文件（原子、0600）、重建 ModelRuntime、模型目录、审查器并同步到各会话驱动；任一步失败回滚文件并保持原配置，应用结束后持久配置与内存一致，重启后仍有效。删除 provider 或模型前核对后台默认、摘要模型、会话与 `agent_roles` 引用（不符返回 `provider_in_use`）。
 
+**模型配置来源**：在线与离线列表及默认／摘要选择器只读取脱敏元数据，显示存储条目的 API Key／OAuth 类型和目录 provider、模型、modelOverrides 的 apiKey／header 位置；header 仅表示可能含认证。来源或有效性均未验证，列表不执行凭据命令、展开环境模板、刷新 OAuth 或联网，也不按 auth.json 条目筛掉模型。思考档位取 SDK 元数据，未知时提示连接后台，不补造档位。「保存存储 API Key」和「移除存储凭据」只替换或删除 auth.json 条目，OAuth 操作不撤销远端令牌；目录、环境及其他来源保留，删除后重新读取配置位置。环境来源按后台启动环境修改；启动参数覆盖在页头标明。
+
 **摘要模型设置**：「模型与提供方」页头显示「摘要模型：未设置（用会话当前模型）」或所选模型，列表项「设置摘要模型」首项为「不设置」；`set_summary_model` 的 `provider` 与 `model_id` 同为 null 即清除，保存时核对模型在目录中。设置后 main 与开发会话较早的对话（含工具结果）会发给该模型的提供方做摘要；每次摘要读取当前配置，不按任务钉版；已配置但无法解析时本次摘要按失败处理，不改用会话模型。`test_model_connection` 是显式网络探测，本地校验不代表模型服务可用。
 
-**离线模式**：后台不可达时（或 `--offline`）进入有限离线配置：只做模型目录、默认模型、摘要模型与 API key 的初始化/修复，直接写 `<agentDir>` 下文件。
+**离线模式**：后台不可达时（或 `--offline`）进入有限离线配置：只做模型目录、默认模型、摘要模型与存储凭据的初始化/修复，直接写 `<agentDir>` 下文件。进入界面仅检查配置结构，认证保持未验证；显式保存保留原有校验。
 
 ## 不变量与失败处理
 
@@ -249,9 +251,9 @@ sequenceDiagram
 
 后台把系统错误码（ENOENT、ERR_SQLITE_* 等）收口为 `internal_error`，原码写进消息。已接收则关联原任务，明确未接收才以原键原参数重试；记录绑定数据实例标识，换新数据库后不会向空后台重发。
 
-- **上下文并发冲突**：模型配置以 `expected_revision` 做条件更新，项目、会话、MCP、QQ 沿用各自的 `expected_version`；冲突时要求重新加载，不静默覆盖。项目指令与 Web Search 保存经 `Store.updateProjectSettings` 在同一事务核对可选期望版本、更新同一行、递增同一版本并追加 `project.settings_changed` 事件（携带配置字段，不含指令正文或秘密）；不符返回 `version_conflict`，不改配置、无事件；省略版本时按兼容写入处理（同样递增并发事件），不能绕过冲突检测；同值保存幂等，不递增、无事件。`set_project_instructions` / `set_project_web_search` 接受可选 `expected_version`（正整数；0、负数、非整数返回 `invalid_params`）。任务界面与配置中心都投影 `project.settings_changed` 刷新项目展示；配置中心冲突后先实际重读后台数据（不刷旧缓存），再刷新当前分区。
+- **上下文并发冲突**：模型编辑动作沿用打开时的来源与修订，期间的配置事件在动作结束后刷新；模型配置以 `expected_revision` 做条件更新，项目、会话、MCP、QQ 沿用各自的 `expected_version`；冲突时要求重新加载，不静默覆盖。项目指令与 Web Search 保存经 `Store.updateProjectSettings` 在同一事务核对可选期望版本、更新同一行、递增同一版本并追加 `project.settings_changed` 事件（携带配置字段，不含指令正文或秘密）；不符返回 `version_conflict`，不改配置、无事件；省略版本时按兼容写入处理（同样递增并发事件），不能绕过冲突检测；同值保存幂等，不递增、无事件。`set_project_instructions` / `set_project_web_search` 接受可选 `expected_version`（正整数；0、负数、非整数返回 `invalid_params`）。任务界面与配置中心都投影 `project.settings_changed` 刷新项目展示；配置中心冲突后先实际重读后台数据（不刷旧缓存），再刷新当前分区。
 - **模型配置占用**：检查到应用完成之间，受影响 provider 的新提交与会话模型设置被拒绝（`model_config_busy`，核实期间目录被重建同样拒绝，可重试）；后台内部提交（编排器唤醒/委派、入站事件、QQ）在本次应用结束后自动重试。占用时返回 `model_config_blocked` 与任务数，不先改文件、不部分应用、不自动取消任务。应用在 `finally` 中 `await flushPendingMessages`（成功或回滚）；门闩忙碌等预检失败保留这些消息等待后续投递。需要新建执行任务的消息预检失败则不登记消息、任务或事件；纯 dev 父会话注入不新建执行任务，不经过这道预检。
-- **秘密**：API key 输入遮蔽；响应只展示是否配置与必要元数据；秘密不进入日志、事件、命令行参数或重载状态文件。模型 API key（auth.json）与服务凭据（credentials.json）分开管理。
+- **秘密**：API key 与模型自定义请求头编辑均遮蔽输入；请求头的 `***` 沿用原值，留空清除该提供方的请求头；响应只展示是否配置与必要元数据；秘密不进入日志、事件、命令行参数或重载状态文件。模型 API key（auth.json）与服务凭据（credentials.json）分开管理。
 - **离线互斥**：socket 不可达或认证失败不证明后台已停；无法取得配置锁的独占时明确失败，不放宽权限、不改属主。
 - **终端安全**：消息、工具日志与审批参数在渲染前剥离终端控制序列（CSI/OSC/APC，含 OSC 52 剪贴板写入与擦屏/光标控制），不可见控制字符显示为转义形式；只改变展示，不改动历史与执行参数。
 - **`--demo` 明确拒绝**：不连后台，只应答展示所需的读操作，其余操作明确拒绝（提交恢复草稿）。

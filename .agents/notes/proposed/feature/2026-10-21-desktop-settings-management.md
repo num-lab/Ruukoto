@@ -2,9 +2,13 @@
 
 Status: proposed
 
+技能后端已按[固定托管路径与清单](../../implemented/feature/2026-10-21-managed-skills.md)落地，[Personal 设置入口](../../implemented/feature/2026-10-21-personal-settings.md)已完成认证查询、停机持锁机器协议与档案接线；[SSH 维护](../../implemented/feature/2026-10-21-personal-settings-ssh.md)与 [Personal 三类页面](../../implemented/feature/2026-10-21-desktop-personal-pages.md)已接线，真实环境与双壳组合验收仍由各工单持有；本提案继续记录总体验收范围。
+
 ## 问题
 
 桌面设置只有外观、旧 Personal 连接与存档，会话模型菜单不能管理提供方、技能或外部工具。2026-10-21 拥有者要求制定补全方案，并确认覆盖 Code 与 Personal。Code 配置控制面已具备大部分能力，而新个人 durable 使用不同协议与停机配置；仅复刻表单会把错误的后端或作用范围展示为已配置。
+
+容器部分已由[设置容器](../../implemented/feature/2026-10-21-desktop-settings-shell.md)落地，Code 模型设置由[按配置位置管理模型凭据](../../implemented/feature/2026-10-21-code-model-settings.md)持有；[Code MCP](../../implemented/feature/2026-10-21-code-mcp-settings.md)、[Code Skills](../../implemented/feature/2026-10-21-desktop-code-skills.md)与上述 Personal 接线分别持有已实施决定；本篇保留整体规划及待组合验收范围。
 
 ## 方案
 

@@ -161,6 +161,8 @@ stateDiagram-v2
 
 main 应用数据空间保存在独立的 `<dataDir>/agent-data/main.db`，与核心 `ruukoto.db` 分离；核心任务、审批、事件与凭据表不对应用数据工具开放。每表有宿主维护的 `_id`（单调不复用）与 `_version`；存储格式版本（宿主）独立于 main 管理的 `schema_version` 与每次变更递增的 `revision`；每笔写入在单事务内提交业务变更、版本递增与追加审计回执（`hostOpId` 唯一）。
 
+Code MCP 管理凭据的专用入口首次写入即限定原项目与 mcp 操作，校验实际端点 host、用途和 authorization 头；保留引用的配置更新也重新校验。列表仅返回元数据及服务引用，仍有引用时不允许清理。发送时再次核对主机、用途、请求头与范围，引用失效不降级匿名。禁用服务的连接检查只初始化与发现工具，失败不回显远端原始错误。
+
 MCP 任务内钉版的是工具清单与签名（服务配置版本 + 工具名/描述/schema 摘要）；签名变化时从同一历史文件重建 SDK 会话。工具暴露名带稳定命名空间 `mcp_<服务名>_<远端工具名>`（≤64 字符，截断带哈希后缀；转义后冲突的工具禁用并记录）。自动审查的审查列与文件、HTTP 审批的审查列同一套：`review_status` 取 `in_progress` / `done` / `asked_owner` / `superseded`，`review_decision` 取 `approve` / `reject` / `ask_owner`，`decision_source` 区分拥有者、自动审查与长期授权。
 
 ## 主要流程
@@ -284,6 +286,7 @@ sequenceDiagram
 - [Coding 持久问题与可信续接](../../.agents/notes/implemented/feature/2026-10-21-coding-owner-questions.md)
 
 - [受控文件检索](../../.agents/notes/implemented/feature/2026-10-21-controlled-file-search.md)：参数、过滤与有界证据。
+- [Code MCP 来源与凭据管理](../../.agents/notes/implemented/feature/2026-10-21-code-mcp-settings.md)
 
 - [个人持久调度的独立来源与整项收尾](../../.agents/notes/implemented/architecture/2026-10-18-personal-durable-scheduled-work.md)
 

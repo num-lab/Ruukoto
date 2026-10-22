@@ -31,6 +31,9 @@ export async function connectMcpService(service: McpServiceConfig, opts: McpConn
       if (binding.host !== endpoint.host) {
         throw new McpError("auth_failed", `凭据 ${credName} 的 host（${binding.host}）与服务端点（${endpoint.host}）不一致`);
       }
+      if (binding.purpose !== MCP_CREDENTIAL_PURPOSE || binding.header.toLowerCase() !== "authorization") {
+        throw new McpError("auth_failed", "MCP 凭据的用途或认证头已改变，未发送请求；停止本次调用并报告拥有者检查凭据配置。");
+      }
       return binding.secret;
     } : undefined,
   });

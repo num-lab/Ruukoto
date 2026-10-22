@@ -14,13 +14,15 @@ import { fixtureSubAgentDefinition } from "./helpers/subagent-definition.ts";
  *    mcp_remove 的可选期望版本在协议层验证（CLI --expected-version 为同形透传）。
  */
 
-import { test } from "node:test";
+import { test, type TestContext } from "node:test";
+import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { readOwnerToken } from "@ruukoto/control/owner-token.ts";
+import { ControlClient } from "@ruukoto/control/client.ts";
 import { acquireConfigLock } from "@ruukoto/core/instance-lock.ts";
 import { runConfigTui } from "@ruukoto/tui/config-tui/index.ts";
 import { ConfigTuiApp } from "@ruukoto/tui/config-tui/app.ts";
@@ -74,6 +76,78 @@ function startConfig(t: TestRuntime, opts: { offline?: boolean; product?: "ruuko
 }
 
 const textResponder = async () => ({ kind: "text", text: "ok" }) as any;
+
+function watchModelReads(context: TestContext, initialRuntime?: ModelRuntime) {
+  const checkAuth = context.mock.method(ModelRuntime.prototype, "checkAuth");
+  const getAuth = context.mock.method(ModelRuntime.prototype, "getAuth");
+  let network = 0;
+  let oauthRefresh = 0;
+  context.mock.method(globalThis, "fetch", async () => {
+    network++;
+    throw new Error("配置列表禁止联网");
+  });
+  const watchOAuth = (runtime: ModelRuntime): void => {
+    const oauth = runtime.getProvider("anthropic")?.auth.oauth;
+    if (oauth) {
+      const refresh = oauth.refresh;
+      context.mock.method(oauth, "refresh", async (...args: Parameters<typeof refresh>) => {
+        oauthRefresh++;
+        return refresh(...args);
+      });
+    }
+  };
+  if (initialRuntime) watchOAuth(initialRuntime);
+  const create = ModelRuntime.create;
+  context.mock.method(ModelRuntime, "create", async (options: Parameters<typeof ModelRuntime.create>[0]) => {
+    const runtime = await create(options);
+    watchOAuth(runtime);
+    return runtime;
+  });
+  return () => {
+    assert.equal(checkAuth.mock.callCount(), 0, "读取不应调用 checkAuth（包括旧 list_models/probe 入口）");
+    assert.equal(getAuth.mock.callCount(), 0, "读取不应解析认证");
+    assert.equal(oauthRefresh, 0, "读取不应刷新 OAuth");
+    assert.equal(network, 0, "读取不应联网");
+  };
+}
+
+function addUnverifiedSources(agentDir: string): { marker: string; command: string; providerCount: number } {
+  const file = path.join(agentDir, "models.json");
+  const catalog = JSON.parse(fs.readFileSync(file, "utf8"));
+  const marker = path.join(agentDir, "credential-command-ran");
+  const command = `!printf touched >> '${marker}'; printf synthetic-key`;
+  for (const [provider, apiKey] of [["command", command], ["missing-env", "${RUUKOTO_TUI_ABSENT_ENV}"], ["anthropic", "inline-oauth-fallback"]]) {
+    catalog.providers[provider] = { ...structuredClone(catalog.providers.mock), name: provider, apiKey };
+  }
+  catalog.providers.command.headers = { "X-Auth": command };
+  fs.writeFileSync(file, JSON.stringify(catalog));
+  fs.writeFileSync(path.join(agentDir, "auth.json"), JSON.stringify({ anthropic: { type: "oauth", access: "synthetic-access", refresh: "synthetic-refresh", expires: 0 } }));
+  return { marker, command, providerCount: Object.keys(catalog.providers).length };
+}
+
+async function readModelSelectors(terminal: FakeTerminal, providerCount: number): Promise<void> {
+  await waitForText(terminal, "配置分区");
+  terminal.send(ENTER);
+  await waitForText(terminal, "设置后台默认模型");
+  terminal.send(ENTER);
+  await waitForText(terminal, "目录 提供方：apiKey");
+  await waitForText(terminal, "来源或有效性未验证");
+  terminal.send(ESC);
+  await waitForText(terminal, "模型与提供方");
+  terminal.send(DOWN.repeat(providerCount) + ENTER);
+  await waitForText(terminal, "后台默认模型：提供方");
+  terminal.send(ENTER);
+  await waitForText(terminal, "后台默认模型：模型");
+  terminal.send(ENTER);
+  await waitForText(terminal, "后台默认模型：思考档位");
+  terminal.send(ESC);
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  terminal.send(DOWN + ENTER);
+  await waitForText(terminal, "摘要模型：提供方");
+  terminal.send(DOWN + ENTER);
+  await waitForText(terminal, "摘要模型：模型");
+  terminal.send(ESC);
+}
 
 // ---------- 测试 ----------
 
@@ -195,13 +269,13 @@ test("在线：API key 遮蔽输入写入 auth.json，秘密不进终端输出",
       await waitForText(h.terminal, "提供方 mock");
       h.terminal.send(DOWN + DOWN + DOWN + DOWN + DOWN); // → API key
       h.terminal.send(ENTER);
-      await waitForText(h.terminal, "设置/更新 API key");
+      await waitForText(h.terminal, "保存存储 API Key");
       h.terminal.send(ENTER); // 设置/更新
       await waitForText(h.terminal, "显示为");
       h.terminal.paste(secret.slice(0, 10)); // 粘贴 + 逐字输入两条路径
       h.terminal.send(secret.slice(10));
       h.terminal.send(ENTER);
-      await waitForText(h.terminal, "API key 已保存");
+      await waitForText(h.terminal, "存储 API Key 已保存");
 
       const authFile = path.join(t.dirs.agentDir, "auth.json");
       const auth = JSON.parse(fs.readFileSync(authFile, "utf8"));
@@ -215,6 +289,117 @@ test("在线：API key 遮蔽输入写入 auth.json，秘密不进终端输出",
     }
   } finally {
     await t.shutdown();
+  }
+});
+
+test("离线真实入口：自定义 header 输入遮蔽，取消不改文件，占位保留其他头且空输入可清除", async () => {
+  const { dirs } = await makeTestDirs("cfg-header-masked", 0);
+  const secret = "synthetic-header-must-be-masked";
+  try {
+    await writeModelsJson(dirs, "http://127.0.0.1:1");
+    const file = path.join(dirs.agentDir, "models.json");
+    const catalog = JSON.parse(fs.readFileSync(file, "utf8"));
+    catalog.providers.mock.headers = { Authorization: "old-header-secret", "X-Keep": "keep-header-secret", ["__proto__"]: "proto-header-secret" };
+    fs.writeFileSync(file, JSON.stringify(catalog));
+    const original = fs.readFileSync(file, "utf8");
+    const initial = "Authorization=***, X-Keep=***, __proto__=***";
+    const terminal = new FakeTerminal();
+    const done = runConfigTui({ offline: true, terminal, agentDir: dirs.agentDir });
+    const editHeaders = async (value: string): Promise<void> => {
+      await waitForText(terminal, "mock 的自定义头");
+      for (const _ of initial) terminal.send("\x7f");
+      terminal.paste(value);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      assert.ok(!terminal.output().includes(secret), "请求头的新值不能进入终端输出");
+      assert.ok(terminal.output().includes("显示为 •••"), "编辑器应显示掩码输入说明");
+    };
+    try {
+      await waitForText(terminal, "配置分区");
+      terminal.send(ENTER);
+      await waitForText(terminal, "设置后台默认模型");
+      terminal.send(ENTER);
+      await waitForText(terminal, "提供方 mock");
+      terminal.send(DOWN.repeat(3) + ENTER);
+      await editHeaders(`X-Keep=***, __proto__=***, Authorization=Bearer ${secret}`);
+      terminal.send(ESC);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      assert.equal(fs.readFileSync(file, "utf8"), original, "取消编辑不得写入配置");
+      terminal.clearOutput();
+      terminal.send(ENTER);
+      await editHeaders(`X-Keep=***, __proto__=***, Authorization=Bearer ${secret}`);
+      terminal.send(ENTER);
+      await waitForText(terminal, "已保存");
+      assert.deepEqual(JSON.parse(fs.readFileSync(file, "utf8")).providers.mock.headers, { Authorization: `Bearer ${secret}`, "X-Keep": "keep-header-secret", ["__proto__"]: "proto-header-secret" });
+      terminal.clearOutput();
+      terminal.send(ENTER);
+      await editHeaders("");
+      terminal.send(ENTER);
+      await waitFor("空输入清除提供方自定义请求头", () => JSON.parse(fs.readFileSync(file, "utf8")).providers.mock.headers === undefined);
+      for (const value of [secret, "old-header-secret", "keep-header-secret", "proto-header-secret"]) assert.ok(!terminal.output().includes(value));
+    } finally {
+      terminal.send(CTRL_C);
+      assert.equal(await done, 0);
+    }
+  } finally {
+    await cleanupDirs(dirs);
+  }
+});
+
+test("在线：编辑期间模型事件不偷换 API Key/OAuth 与目录保存的修订基点", async (context) => {
+  const requests = context.mock.method(ControlClient.prototype, "request");
+  for (const field of ["apikey", "headers"] as const) {
+    const t = await startTestRuntime(`cfg-edit-${field}`, textResponder);
+    try {
+      const opened = await t.client.request<any>("get_model_config", {});
+      const h = startConfig(t);
+      let modelEvents = 0;
+      const unsubscribe = t.client.onEvent((event) => { if (event.body.type === "model.config_changed") modelEvents++; });
+      try {
+        await waitForText(h.terminal, "配置分区");
+        h.terminal.send(ENTER);
+        await waitForText(h.terminal, "设置后台默认模型");
+        h.terminal.send(ENTER);
+        await waitForText(h.terminal, "提供方 mock");
+        h.terminal.send(DOWN.repeat(field === "apikey" ? 5 : 3) + ENTER);
+        if (field === "apikey") {
+          await waitForText(h.terminal, "保存存储 API Key");
+          h.terminal.send(ENTER);
+        }
+        await waitForText(h.terminal, "显示为 •••");
+        const oauth = { type: "oauth", access: "concurrent-oauth-access", refresh: "concurrent-oauth-refresh", expires: 0 };
+        if (field === "apikey") {
+          await t.client.request("set_model_api_key", { provider: "mock", api_key: "other-client-key", expected_revision: opened.revision });
+          fs.writeFileSync(path.join(t.dirs.agentDir, "auth.json"), JSON.stringify({ mock: oauth }));
+          t.runtime.store.withTx(() => t.runtime.store.appendEvent({ type: "model.config_changed", kind: "api_key", provider: "mock" }));
+        } else {
+          opened.providers.mock.name = "Concurrent catalog edit";
+          await t.client.request("save_model_catalog", { providers: opened.providers, expected_revision: opened.revision });
+        }
+        await waitFor("另一客户端的模型配置事件已送达", () => modelEvents > 0);
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        h.terminal.paste(field === "apikey" ? "owner-edited-key" : "X-New=owner-edited-header");
+        h.terminal.send(ENTER);
+        await waitForText(h.terminal, "配置已被其他客户端修改，已重新加载", undefined, 3000);
+        const attempt = requests.mock.calls.findLast((call) => {
+          const [op, input] = call.arguments;
+          const params = input as Record<string, unknown> | undefined;
+          return field === "apikey" ? op === "set_model_api_key" && params?.api_key === "owner-edited-key" : op === "save_model_catalog" && JSON.stringify(params?.providers).includes("owner-edited-header");
+        });
+        assert.equal((attempt?.arguments[1] as Record<string, unknown> | undefined)?.expected_revision, opened.revision, "编辑必须携带打开时的修订，不能套用事件刷新的修订");
+        if (field === "apikey") assert.deepEqual(JSON.parse(fs.readFileSync(path.join(t.dirs.agentDir, "auth.json"), "utf8")).mock, oauth, "没有确认替换的 OAuth 条目必须保留");
+        else {
+          const saved = JSON.parse(fs.readFileSync(path.join(t.dirs.agentDir, "models.json"), "utf8"));
+          assert.equal(saved.providers.mock.name, "Concurrent catalog edit");
+          assert.equal(saved.providers.mock.headers, undefined);
+        }
+        for (const secret of ["owner-edited-key", "owner-edited-header", oauth.access, oauth.refresh]) assert.ok(!h.terminal.output().includes(secret));
+      } finally {
+        unsubscribe();
+        await h.quit();
+      }
+    } finally {
+      await t.shutdown();
+    }
   }
 });
 
@@ -260,6 +445,151 @@ test("在线：修订冲突提示重新加载并刷新出新数据", async () =>
     }
   } finally {
     await t.shutdown();
+  }
+});
+
+test("在线真实入口：列表与默认/摘要选择器只读元数据，不求值命令、模板或 OAuth", async (context) => {
+  const t = await startTestRuntime("cfg-model-metadata-online", textResponder);
+  try {
+    const sources = addUnverifiedSources(t.dirs.agentDir);
+    const before = await t.client.request<any>("get_model_config", {});
+    await t.client.request("save_model_catalog", { providers: before.providers, expected_revision: before.revision });
+    const catalogBefore = fs.readFileSync(path.join(t.dirs.agentDir, "models.json"), "utf8");
+    const authBefore = fs.readFileSync(path.join(t.dirs.agentDir, "auth.json"), "utf8");
+    const assertNoEvaluation = watchModelReads(context, t.runtime.modelRuntime);
+    const h = startConfig(t);
+    try {
+      await readModelSelectors(h.terminal, sources.providerCount);
+      assertNoEvaluation();
+      assert.equal(fs.existsSync(sources.marker), false);
+      for (const secret of [sources.command, "synthetic-access", "synthetic-refresh", "${RUUKOTO_TUI_ABSENT_ENV}"]) assert.ok(!h.terminal.output().includes(secret));
+      assert.equal(fs.readFileSync(path.join(t.dirs.agentDir, "models.json"), "utf8"), catalogBefore);
+      assert.equal(fs.readFileSync(path.join(t.dirs.agentDir, "auth.json"), "utf8"), authBefore);
+    } finally {
+      await h.quit();
+    }
+  } finally {
+    await t.shutdown();
+  }
+});
+
+test("离线真实入口：进入界面和默认/摘要选择器不自动 probe，不按 auth 条目丢模型", async (context) => {
+  const { dirs } = await makeTestDirs("cfg-model-metadata-offline", 0);
+  try {
+    await writeModelsJson(dirs, "http://127.0.0.1:1");
+    const sources = addUnverifiedSources(dirs.agentDir);
+    const assertNoEvaluation = watchModelReads(context);
+    const terminal = new FakeTerminal();
+    const done = runConfigTui({ offline: true, terminal, agentDir: dirs.agentDir });
+    try {
+      await readModelSelectors(terminal, sources.providerCount);
+      const view = await new OfflineModelBackend(dirs.agentDir).load();
+      for (const provider of ["mock", "command", "missing-env", "anthropic"]) assert.ok(view.models.some((model) => model.provider === provider), provider);
+      assertNoEvaluation();
+      assert.equal(fs.existsSync(sources.marker), false);
+      assert.equal(view.credentials.mock?.configured, undefined, "目录 key 不伪装成 auth.json 存储条目");
+      assert.ok(!terminal.output().includes("未配置凭据"));
+      for (const secret of [sources.command, "synthetic-access", "synthetic-refresh", "${RUUKOTO_TUI_ABSENT_ENV}"]) assert.ok(!terminal.output().includes(secret));
+    } finally {
+      terminal.send(CTRL_C);
+      assert.equal(await done, 0);
+    }
+  } finally {
+    await cleanupDirs(dirs);
+  }
+});
+
+test("离线：无法证明的模型成员保留，真实思考档位未知时引导在线", async () => {
+  const { dirs } = await makeTestDirs("cfg-model-metadata-unknown", 0);
+  try {
+    fs.mkdirSync(dirs.agentDir, { recursive: true });
+    fs.writeFileSync(path.join(dirs.agentDir, "models.json"), JSON.stringify({ providers: { unknown: { models: [{ id: "unknown-model", reasoning: true }] } } }));
+    const backend = new OfflineModelBackend(dirs.agentDir);
+    const view = await backend.load();
+    assert.deepEqual(view.models, [{ provider: "unknown", modelId: "unknown-model", name: "unknown-model", thinkingLevels: null }]);
+    await assert.rejects(() => backend.setDefaultModel({ provider: "unknown", modelId: "unknown-model", thinkingLevel: "high" }), (error: any) => error.code === "invalid_params");
+    const terminal = new FakeTerminal();
+    const done = runConfigTui({ offline: true, terminal, agentDir: dirs.agentDir });
+    try {
+      await waitForText(terminal, "配置分区");
+      terminal.send(ENTER);
+      await waitForText(terminal, "设置后台默认模型");
+      terminal.send(DOWN + ENTER);
+      await waitForText(terminal, "后台默认模型：提供方");
+      terminal.send(ENTER);
+      await waitForText(terminal, "后台默认模型：模型");
+      terminal.send(ENTER);
+      await waitForText(terminal, "该模型真实思考档位未知，请连接后台");
+      assert.ok(!terminal.output().includes("后台默认模型：思考档位"));
+      assert.equal(fs.existsSync(path.join(dirs.agentDir, "default-model.json")), false);
+    } finally {
+      terminal.send(CTRL_C);
+      assert.equal(await done, 0);
+    }
+  } finally {
+    await cleanupDirs(dirs);
+  }
+});
+
+test("离线：仅存储来源的 SDK 模型可选摘要，编辑目录仍保留该选择与存储来源", async () => {
+  const { dirs } = await makeTestDirs("cfg-model-sdk-summary", 0);
+  try {
+    fs.mkdirSync(dirs.agentDir, { recursive: true });
+    const authFile = path.join(dirs.agentDir, "auth.json");
+    const auth = JSON.stringify({ anthropic: { type: "api_key", key: "synthetic-stored-key" } });
+    fs.writeFileSync(authFile, auth);
+    const backend = new OfflineModelBackend(dirs.agentDir);
+    const builtin = (await backend.load()).models.find((model) => model.provider === "anthropic")!;
+    assert.ok(builtin, "不能因 models.json 没有显式条目丢掉已配置的 SDK 模型");
+    await backend.setSummaryModel({ provider: builtin.provider, modelId: builtin.modelId });
+    await backend.saveCatalog({});
+    assert.deepEqual((await backend.load()).summaryModel, { provider: builtin.provider, modelId: builtin.modelId });
+    assert.equal(fs.readFileSync(authFile, "utf8"), auth);
+  } finally {
+    await cleanupDirs(dirs);
+  }
+});
+
+test("存储凭据：OAuth 替换/移除说明只作用于本地条目，目录与环境来源保留", async () => {
+  const { dirs } = await makeTestDirs("cfg-model-storage-scope", 0);
+  try {
+    await writeModelsJson(dirs, "http://127.0.0.1:1");
+    const catalogBefore = fs.readFileSync(path.join(dirs.agentDir, "models.json"), "utf8");
+    const envBefore = { ...process.env };
+    const authFile = path.join(dirs.agentDir, "auth.json");
+    fs.writeFileSync(authFile, JSON.stringify({ mock: { type: "oauth", access: "secret-access", refresh: "secret-refresh", expires: 0 } }));
+    const backend = new OfflineModelBackend(dirs.agentDir);
+    const app = new ConfigTuiApp({ mode: "offline", modelBackend: backend, agentDir: dirs.agentDir, terminal: new FakeTerminal(), onExit: () => {} }) as any;
+    const confirmations: string[] = [];
+    const notices: string[] = [];
+    let action = "set";
+    let confirmed = false;
+    app.pick = async (_title: string, items: Array<{ value: string; description: string }>) => {
+      if (action === "set" && !confirmed) assert.ok(items[0].description.includes("替换现有 OAuth 存储条目"));
+      return action;
+    };
+    app.confirm = async (_title: string, description: string) => { confirmations.push(description); return confirmed; };
+    app.maskedBox = async () => "replacement-stored-key";
+    app.notify = (message: string) => notices.push(message);
+    app.refresh = async () => {};
+    await app.providerApiKey("mock");
+    assert.equal(JSON.parse(fs.readFileSync(authFile, "utf8")).mock.type, "oauth", "取消确认保留 OAuth 条目");
+    confirmed = true;
+    await app.providerApiKey("mock");
+    assert.deepEqual(JSON.parse(fs.readFileSync(authFile, "utf8")).mock, { type: "api_key", key: "replacement-stored-key" });
+    action = "remove";
+    await app.providerApiKey("mock");
+    assert.equal(JSON.parse(fs.readFileSync(authFile, "utf8")).mock, undefined);
+    const reopened = await backend.load();
+    assert.equal(reopened.credentials.mock?.configured, undefined);
+    assert.ok(reopened.credentialSources.mock.locations.some((location) => location.source === "catalog" && location.field === "apiKey"));
+    assert.equal(fs.readFileSync(path.join(dirs.agentDir, "models.json"), "utf8"), catalogBefore);
+    assert.deepEqual([...new Set([...Object.keys(process.env), ...Object.keys(envBefore)])].filter((name) => process.env[name] !== envBefore[name]), [], "操作不得改变进程环境");
+    assert.ok(confirmations.some((message) => message.includes("不撤销远端令牌")));
+    assert.ok(notices.includes("已移除所选存储条目；其他来源保留，来源或有效性未验证"));
+    assert.ok(!notices.join(" ").includes("已无凭据"));
+  } finally {
+    await cleanupDirs(dirs);
   }
 });
 
@@ -316,12 +646,12 @@ test("离线：独立目录写 key 与默认模型，退出释放配置锁", asy
       await waitForText(terminal, "提供方 mock");
       terminal.send(DOWN + DOWN + DOWN + DOWN + DOWN); // → API key
       terminal.send(ENTER);
-      await waitForText(terminal, "设置/更新 API key");
+      await waitForText(terminal, "保存存储 API Key");
       terminal.send(ENTER);
       await waitForText(terminal, "显示为");
       terminal.send(secret);
       terminal.send(ENTER);
-      await waitForText(terminal, "API key 已保存");
+      await waitForText(terminal, "存储 API Key 已保存");
       // 默认模型：返回上一层后进入 picker
       terminal.send(ESC); // 回模型与提供方
       await waitForText(terminal, "新增提供方");

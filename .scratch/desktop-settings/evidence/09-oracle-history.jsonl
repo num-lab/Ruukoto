@@ -1,0 +1,5 @@
+{"stage":"completed-history","completed":true,"recordCount":8,"shellCredentialAbsent":true}
+{"stage":"busy-rejection","notStopped":true}
+{"stage":"history-stop-save-start","saved":true,"persisted":true,"tokenRotated":true,"oldRecordsUnchanged":true,"lockRejected":true,"revisionRejected":true}
+{"stage":"start-failure","savedPreserved":true,"writable":false,"code":"maintenance_stop_unverified"}
+{"stage":"failed","code":"maintenance_stop_unverified"}

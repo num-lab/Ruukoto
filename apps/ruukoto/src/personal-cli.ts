@@ -1,5 +1,7 @@
 import { managePersonalQuestions } from "./personal-questions-cli.ts";
 import { managePersonalBackground } from "./personal-background-cli.ts";
+import { runPersonalSettingsMachine } from "./personal-settings.ts";
+import { runPersonalMaintenanceMachine } from "./personal-maintenance.ts";
 import { managePersonalPermissions } from "./personal-permissions-cli.ts";
 import { managePersonalAppData } from "./personal-app-data-controls.ts";
 import { configurePersonalSkills } from "./personal-skills-cli.ts";
@@ -483,8 +485,15 @@ export async function personalMenu(directory: string, io: PersonalCliIO, launch?
 }
 
 export async function runPersonalCli(args: string[], options: { directory?: string; development?: boolean } = {}): Promise<number> {
-  const directory = options.directory ?? personalDirectory();
-  if (args.length > 1 || (args.length === 1 && args[0] !== "serve")) throw new PersonalError("cli_arguments", "用法：ruukoto 打开引导菜单；ruukoto serve 前台托管。旧个人命令已退出，请保留旧资料并使用新档案。");
+  let directory = options.directory ?? personalDirectory();
+  if (args.length === 3 && args[0] === "serve" && args[1] === "--directory") {
+    if (!path.isAbsolute(args[2]) || path.resolve(args[2]) !== args[2] || /[\x00-\x1f\x7f]/.test(args[2])) throw new PersonalError("cli_arguments", "服务档案参数必须是绝对目录，请管理员核实固定服务入口。");
+    if (options.directory && fs.realpathSync(options.directory) !== fs.realpathSync(args[2])) throw new PersonalError("cli_arguments", "服务档案参数与受管入口不一致，请使用原开发入口。");
+    directory = args[2]; args = ["serve"];
+  }
+  if (args.length === 1 && args[0] === "maintenance") return runPersonalMaintenanceMachine(directory, process.stdin, value => process.stdout.write(value));
+  if (args.length === 1 && args[0] === "settings") return runPersonalSettingsMachine(directory, process.stdin, value => process.stdout.write(value));
+  if (args.length > 1 || (args.length === 1 && args[0] !== "serve")) throw new PersonalError("cli_arguments", "用法：ruukoto 打开引导菜单；ruukoto serve [--directory 绝对目录] 前台托管；ruukoto settings 或 maintenance 通过标准输入输出管理有界 JSON。旧个人命令已退出，请保留旧资料并使用新档案。");
   if (!args.length && (!process.stdin.isTTY || !process.stdout.isTTY)) throw new PersonalError("cli_terminal_required", "个人配置向导需要交互终端；前台后台使用 serve 子命令。");
   const interrupted = new AbortController();
   const aborted = new Promise<undefined>(resolve => interrupted.signal.addEventListener("abort", () => resolve(undefined), { once: true }));

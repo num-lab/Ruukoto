@@ -73,13 +73,17 @@ stateDiagram-v2
 
 **长期记忆。** SQLite 当前版本加追加式修订；类别限于 preference / convention / decision / experience。每条必须关联来源（历史条目、产物或拥有者说明），来源必须存在且当前可访问。代理创建的内容标记 author=agent。按任务钉版：任务开始时钉住当时生效记忆的 id 与顺序（项目优先 → 更新时间倒序；资料受限会话为空），之后每次调用只对这些 id 重读当前内容并按钉住的顺序排列。注入有独立预算（默认 2000 估算 token）与单条 32 KiB 上限。
 
-**技能库。** 固定为 `<agentDir>/skills/`（Coding 默认 `~/.ruukoto-code/agent/skills/`），无配置项；开发实例用自身 profile 下的 `agent/skills/`，不继承日常实例。含 `SKILL.md` 的目录即一个技能，整包复制的嵌套目录照常扫描，跟随符号链接；只使用 `name`、`description`、`disable-model-invocation`，`allowed-tools` 等其他字段不生效。任务开始时（与项目指令同一时点）钉版目录与全部 `SKILL.md` 正文，版本为钉版内容的 sha256，写入选择记录 `skillVersion`。
+**技能库。** 外部来源为 `<agentDir>/skills/`（Coding 默认 `~/.ruukoto-code/agent/skills/`），另选入托管清单启用的固定包；开发实例用自身 profile，不继承日常实例。含 `SKILL.md` 的目录即一个技能，外部嵌套目录照常扫描并跟随符号链接；只使用 `name`、`description`、`disable-model-invocation`，`allowed-tools` 等其他字段不生效。任务开始时（与项目指令同一时点）钉版目录与全部 `SKILL.md` 正文，版本为钉版内容的 sha256，写入选择记录 `skillVersion`。
 
 **资料授权（`data_grants`）。** 来源项目、目标项目与类别（history / artifact / memory）。拥有者在控制面创建，可查看、可撤销；撤销自后续查询与上下文注入起生效。默认范围是：本项目历史、产物、记忆加个人共享记忆。
 
 **Jev 实验配置。** 按项目保存启用状态与凭据引用（凭据 `purpose` 为 `jev_context`），默认关闭，启用从下一任务生效。控制面以 `get_project_jev` / `set_project_jev` 读写，写入要提供 `project_id`、完整的 `enabled` / `credential` 与 `expected_version`，并发旧版本保存会失败。每个 Jev 凭据只绑定一个项目，普通 `http_request` 不可借用；`JEV_API_KEY` 由拥有者的可信环境提供，值为原始 key，宿主发送时添加 `Bearer`。
 
 **模型选择。** 会话默认模型与思考档位持久化在会话上，新会话继承启动默认值。后台启动可传 `--model provider/model --thinking off`，模型 ID 中后续斜杠会保留；未指定 `--model` 时取 `default-model.json` 持久默认（含思考档位），再回退到目录首个模型；未指定 `--thinking` 时沿用持久默认档位，没有则为 `off`。合法档位由该模型能力校验。
+
+设置列表通过 `model-config.ts` 的共享元数据读取配置位置与模型能力。在线复用当前 SDK 注册模型；离线只构造静态目录，禁用初始化刷新，SDK 凭据存储留在内存，文件来源由共享读取器单独读取，不补建缺失的 auth.json。模型成员取显式目录、存储条目及运行时注册提供方，思考档位由 SDK `getSupportedThinkingLevels` 给出；无法取得 SDK 模型的目录条目保留名称与 ID，档位明确未知。列表不解析认证，不把内联 API key、自定义 header 或旧可用性快照当作认证成功；命令、环境模板与 OAuth 只在保存验证、显式测试或执行路径按原规则求值。
+
+目录脱敏与占位符还原按 JSON 自有字段保留高级配置，只删除所选秘密位置。显式模型探针失败给出固定修复指引，不回显 SDK 解析错误中的凭据或命令正文。
 
 ## 主要流程
 
@@ -170,7 +174,9 @@ sequenceDiagram
 
 **Jev 的回退边界。** 无效回答、超时或服务失败回退 `deterministic-v1`，不自动重试；基础规则也无法满足预算时仍中断任务。拥有者取消任务会中止在途请求，不会在回退后继续发送主模型请求。本实验不会自动切换为所有项目的默认策略。
 
-**技能与规模上限。** 单个 `SKILL.md` 或引用文件上限 64 KiB，超限的技能不进入技能库；缺少描述、YAML 错误、同名冲突（按路径排序先到先得）等诊断经 `/skills` 查看。未知技能名使任务失败并列出可用技能。技能是拥有者提供的参考内容，不增加工具或权限；其中的脚本只作为文本返回，不原地执行。
+**技能与规模上限。** 单个 `SKILL.md` 或引用文件上限 64 KiB，超限的技能不进入技能库；缺少描述、YAML 错误、同名冲突（外部原路径排序先到先得，托管不覆盖外部赢家）等诊断经 `/skills` 查看。未知技能名使任务失败并列出可用技能。技能是拥有者提供的参考内容，不增加工具或权限；其中的脚本只作为文本返回，不原地执行。
+
+**托管技能。** `managed-skills.ts` 在所属宿主私有目录复制单个技能包，保留原包名和引用；清单原子提交后才可见。源链接、硬链接、特殊文件、越界及复制期间变化拒绝；每包限 512 文件、8 MiB、128 子目录和 32 层。固定包路径及清单的 enabled/disabled/removed 状态分开，启停和逻辑移除只改后续选择，不移动内容；旧正文、引用与快照保留。新任务复用 ended wait 参考时按当前托管状态过滤并记录本次选择，本任务恢复和重取资源仍沿钉版。私有布局检查允许安全暂存、临时清单及孤立包重开，不自动清理或当作已安装；Personal 在其档案锁接线后复用此检查。
 
 **记忆的并发与来源。** 并发旧版本保存明确报错，不静默覆盖；代理创建的内容不能冒充拥有者确认；来源必须存在且当前可访问。
 
@@ -185,6 +191,7 @@ sequenceDiagram
 ## 设计依据
 
 - [Coding 会话后台持有独立目录占用](../../.agents/notes/implemented/feature/2026-10-21-coding-background-processes.md)
+- [固定路径与托管状态](../../.agents/notes/implemented/feature/2026-10-21-managed-skills.md)：导入可见点、私有布局及旧参考兼容。
 
 - [完整思考与文件预览](../../.agents/notes/implemented/feature/2026-10-18-complete-reasoning-and-preview.md)
 

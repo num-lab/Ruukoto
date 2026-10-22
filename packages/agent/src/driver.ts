@@ -68,7 +68,8 @@ import type { JevRequestConfig } from "./jev.ts";
 import type { HostToolContext } from "./host-tools.ts";
 import { ownerQuestionCreatedByTask, ownerQuestionTaskEligible, type OwnerQuestion, type OwnerQuestionItem } from "@ruukoto/core/owner-questions.ts";
 import type { ParentDelivery } from "@ruukoto/runtime/parent-delivery.ts";
-import { expandSkillCommand, loadSkillLibrary, type SkillLibrary } from "./skills.ts";
+import { expandSkillCommand, type SkillLibrary } from "./skills.ts";
+import { loadHostSkillLibrary, ManagedSkillsError, reselectManagedSkills } from "./managed-skills.ts";
 import { validateSubAgentRole, validateSubAgentRoleLibrary, type SubAgentRoleLibrary } from "./subagent-roles.ts";
 import { requireSubAgentDefinition, SubAgentDefinitionError, type SubAgentDefinitionSnapshot } from "@ruukoto/core/subagent-definition.ts";
 import { SubAgentRoleError } from "./subagent-roles.ts";
@@ -272,7 +273,6 @@ export class Driver {
   private injectionAccepted = false;
   private rebuildSdkAfterTurn = false;
   private restoreMcpSignature = "";
-  private referencesFromSnapshot = false;
   private modelResponseAccepted = false;
   private reportContext: AgentReportContext | null = null;
   private pinnedDefinition: SubAgentDefinitionSnapshot | null = null;
@@ -865,12 +865,20 @@ export class Driver {
     this.resourcePhase = resourcePhase;
     this.backgroundObservation = this.deps.backgroundProcesses?.active(task.sessionId) ?? false;
     this.recordResourcePhase(task);
-    this.referencesFromSnapshot = this.resourcePhase === "conversation";
     this.activeToolCalls.clear();
     this.rebuildSdkAfterTurn = false;
     this.modelResponseAccepted = false;
-    this.pinnedSkills = this.resourcePhase === "conversation" ? referenceSnapshot?.skills ?? null
-      : this.profile.restricted && !this.profile.source && !this.profile.workflow ? null : this.allows("skills") ? loadSkillLibrary(this.deps.agentDir) : null;
+    // Note: 见 .agents/notes/implemented/feature/2026-10-21-managed-skills.md
+    this.pinnedSkills = null;
+    try {
+      this.pinnedSkills = this.resourcePhase === "conversation" ? referenceSnapshot?.taskId === task.id ? referenceSnapshot.skills : reselectManagedSkills(referenceSnapshot?.skills ?? null, this.deps.agentDir)
+        : this.profile.restricted && !this.profile.source && !this.profile.workflow ? null : this.allows("skills") ? loadHostSkillLibrary(this.deps.agentDir) : null;
+    } catch (error) {
+      if (!(error instanceof ManagedSkillsError)) throw error;
+      try { await this.finalize(task, "failed", { errorMessage: `${error.code}：${error.message}` }); }
+      finally { this.currentTask = null; this.taskEnding = null; }
+      return;
+    }
     this.pinnedRoles = this.resourcePhase === "conversation" ? referenceSnapshot?.roles ?? null
       : this.allows("subagent") && this.profile.toolClass !== "subagent" ? this.deps.subAgentRoles?.() ?? null : null;
     if (this.pinnedRoles) validateSubAgentRoleLibrary(this.pinnedRoles);
@@ -1221,10 +1229,6 @@ export class Driver {
     this.mcpToolNames = new Set(plan.toolDefs.map(tool => tool.name));
     if (plan.signature !== this.restoreMcpSignature || plan.toolDefs.some(tool => !this.allToolNames.includes(tool.name))) {
       this.rebuildSdkAfterTurn = true;
-    }
-    if (this.referencesFromSnapshot) {
-      this.pinnedSkills = this.allows("skills") ? loadSkillLibrary(this.deps.agentDir) : null;
-      this.referencesFromSnapshot = false;
     }
     this.assembly?.setResourcePhase(this.resourcePhase, this.pinnedSkills);
     this.refreshTaskTools(this.deps.store.getTask(task.id)!);

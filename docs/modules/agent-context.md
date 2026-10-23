@@ -134,6 +134,8 @@ sequenceDiagram
 
 **图片与附件引用。** 私聊与桌面图片的会话历史只保存 `ruukotoMediaRefs`（产物、任务、会话 ID、MIME、字节数及内容哈希）。选择时恢复带空 data 的标准图片占位块，按现有 SDK 图片估算计入预算；发送前按引用读取并验证不可变产物，生成真实 `image` 内容块。prompt 快照只保存 `image_ref`，不重复保存完整 base64。`resumesTaskId` 继续链的源图片绑定本轮用户消息，因此源交互被压缩或移出时仍能重放；摘要不保留视觉细节。桌面附件在用户消息保存 `ruukotoAttachmentRefs`，普通文件引用恢复为 `read_artifact` 读取指引；继续链与分支核对来源及读取范围，不把本机路径加入原文。
 
+MCP 工具图片在原 toolResult 的内容位置保存带 `ruukotoMediaRef` 的图片占位块，沿相同发送核实和快照引用路径恢复；引用缺失或损坏阻断请求，不重新调用工具。旧文本历史原样读取，图片的产物登记与错误规则见[MCP图片结果](../../.agents/notes/implemented/architecture/2026-10-23-mcp-image-results.md)。
+
 **预算。** 预算 = 模型 contextWindow − maxTokens（输出）− thinking 预算 − 下一批工具结果预留 − 估算安全边际。估算用 pi `estimateTokens`（chars/4）加 CJK 校准（每 CJK 字符按 1 token 计）再乘校准系数 1.5。选择记录的配置版本即生效预算配置的 FNV-1a 哈希，配置变化即变化。
 
 **上下文压缩的规划与执行。** 适用范围是普通开发、main 与独立定时会话；SubAgent 会话（含 GitHub 评审）的执行画像是资料受限，选择器收到 `compaction: null`：不压缩，超预算时照旧整轮移出，也不加移出标记。记 H' = min(高水位, 输入预算)，高水位是 200,000 估算 token（`SelectorBudgetConfig.compactionHighWater`，计入配置版本），低水位 0.5 H'、保护尾部 0.15 H'、最小收益 0.2 H'，都用选择器的估算口径。按生效压缩点选择后，不做预算移出时的视图估算超过 H' 才规划新压缩点。保护尾部由新到旧累计到 0.15 H' 的完整单元（至少含最新批次）；必留单元与保护尾部不进覆盖范围。先把 C 推到保护尾部开头（第一层），估算仍高于低水位时推进 S（第二层），取能压到低水位的最小单元边界。估算降幅（摘要块按约 4,000 字的上限计）不到 0.2 H' 时不建压缩点，也不调用摘要模型。

@@ -8,7 +8,7 @@ import { once } from "node:events";
 import { setTimeout as delay } from "node:timers/promises";
 import { test, type TestContext } from "node:test";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { type TaskId } from "@earendil-works/pi-durable";
+import { type TaskId, type EntryId, ROOT_CONVERSATION_ID } from "@earendil-works/pi-durable";
 import type { McpRemoteTool } from "@ruukoto/agent/mcp/transport.ts";
 import { openPersonalHarness, type PersonalHarness } from "../apps/ruukoto/src/personal-harness.ts";
 import { personalProvider, type PersonalModelConfig } from "../apps/ruukoto/src/personal-model.ts";
@@ -78,6 +78,48 @@ async function details(p: PersonalHarness, operation: TaskId) {
   let text = "", offset = 0;
   do { const page = await p.mcp!.detail(operation, offset); assert.ok(page.text.length <= 3072); text += page.text; offset = page.nextOffset ?? -1; } while (offset >= 0);
   return JSON.parse(text) as { definition: McpRemoteTool; arguments: Record<string, unknown>; request?: string; response?: string; code: string; remoteEnded: boolean };
+}
+
+const MCP_PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
+for (const variant of ["pure", "mixed", "error", "invalid", "disk"] as const) {
+  test(`durable MCP 图片：${variant} 保留原动作事实与原生工具图片，重开不重发`, { timeout: 20000 }, async t => {
+    const image = { type: "image", data: variant === "invalid" ? "aGVsbG8=" : MCP_PNG, mimeType: "image/png" };
+    const content = variant === "mixed" ? [{ type: "text", text: "图前" }, image, { type: "text", text: "图间" }, image, { type: "text", text: "图后" }] : [image];
+    const server = await remote(t, () => ({ result: { content, isError: variant === "error" } })), f = await fixture(t, server);
+    const provider = personalProvider({ ...f.modelConfig, imageInput: true });
+    let p = await f.open({ provider }); await mode(p, "full_access");
+    if (variant === "disk") fs.writeFileSync(path.join(f.directory, "artifacts"), "blocked", { mode: 0o600 });
+    const answer = await p.answer(invocation(), "image-call");
+    const operation = await first(p), saved = await record(p, operation), failed = variant === "invalid" || variant === "disk";
+    assert.equal(saved.effect, "returned"); assert.equal(saved.remoteEnded, true);
+    assert.equal(saved.code, variant === "error" ? "tool_error" : "returned");
+    assert.equal(saved.imageProjection?.issues.length, failed ? 1 : 0, JSON.stringify({ answer, saved }));
+    assert.equal(saved.imageProjection?.output.filter(part => part.type === "image").length, failed ? 0 : variant === "mixed" ? 2 : 1);
+    assert.deepEqual(saved.imageProjection?.output.map(part => part.type), failed ? ["text"] : content.map(part => part.type));
+    const detail = await details(p, operation);
+    assert.ok(!JSON.stringify(detail).includes(MCP_PNG), "模型分页证据不能含图片 base64 文本");
+    if (!failed) assert.ok(JSON.stringify(f.model.calls.at(-1)!.raw).includes(`data:image/png;base64,${MCP_PNG}`), answer);
+    else assert.ok(JSON.stringify(f.model.calls.at(-1)!.raw).includes("勿因缺图重试原动作"));
+    const requests = await p.harness.commit(async tx => (await tx.scanEntries({ conversationId: ROOT_CONVERSATION_ID, order: "ascending" }, 256)).items.filter(entry => entry.kind === "ruukoto.model-request"), context);
+    assert.ok(!JSON.stringify(requests).includes(MCP_PNG), "实际模型请求证据只保存可重建的引用");
+    if (!failed) assert.ok(JSON.stringify(requests).includes("ruukotoImage"));
+    const task = await p.harness.commit(tx => tx.task(operation), context);
+    assert.equal(task!.kind, "pi.tool");
+    assert.equal(task!.state.status, "terminal");
+    assert.ok(task!.state.status === "terminal");
+    const result = task!.state.outcome.result;
+    assert.ok(result && typeof result === "object" && !Array.isArray(result) && typeof result.entryId === "number");
+    const entry = await p.harness.commit(tx => tx.entry(result.entryId as EntryId), context);
+    assert.equal(entry!.model?.find(message => message.role === "toolResult")?.isError, failed || variant === "error");
+    if (variant === "disk") fs.unlinkSync(path.join(f.directory, "artifacts"));
+    await p.close(); p = await f.open({ provider });
+    await p.answer("描述原图", "after-reopen");
+    if (!failed) assert.ok(JSON.stringify(f.model.calls.at(-1)!.raw).includes(`data:image/png;base64,${MCP_PNG}`));
+    assert.equal(server.calls.length, 1);
+    await p.harness.commit(async tx => { const value = (await tx.doc(PersonalMcpDoc, String(operation), null)).operation!; value.imageProjection!.issues.push("tampered"); }, context);
+    await p.close();
+    await assert.rejects(f.open({ provider }), code("mcp_record_invalid"));
+  });
 }
 
 test("durable MCP：主会话完全访问保留原定义、原参数与完整长响应分页", { timeout: 20000 }, async t => {

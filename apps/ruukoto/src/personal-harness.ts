@@ -106,10 +106,10 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     const serviceWork = operations && personalServiceWork(operations.request);
     const commands = options.commands && personalCommandWork(lock.directory, options.commands);
     background = options.commands && personalBackground(lock.directory, options.commands, () => harness!);
-    const mcp = options.mcp && personalMcp(options.mcp, () => harness!, options.mcpTimeouts);
     appData = personalAppData(lock.directory, () => harness!);
     const memory = personalMemory(lock.directory, () => harness!), history = personalHistory(), skills = personalSkills(lock.directory);
     const media = personalMedia(lock.directory, () => harness!, () => options.provider.getModels().find(model => model.id === options.modelId)?.input.includes("image") === true, !options.tools && !options.browser ? personalArtifactReader(lock.directory) : undefined);
+    const mcp = options.mcp && personalMcp(options.mcp, () => harness!, options.mcpTimeouts, { ...media, profile: lock.directory });
     const general = options.tools && personalTools(lock.directory, options.tools, options.provider, options.modelId, () => harness!, media);
     browser = options.browser && personalBrowser(lock.directory, options.browser, () => harness!, { supportsImages: media.supportsImages, registerImage: media.registerImage, ...(!general ? { artifactReader: personalArtifactReader(lock.directory) } : {}) });
     const qqConfig = options.qq && parsePersonalQq(options.qq);

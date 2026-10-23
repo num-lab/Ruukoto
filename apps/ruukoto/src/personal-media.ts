@@ -102,6 +102,14 @@ export function personalMedia(profile: string, getHarness: () => Harness, suppor
     doc.image = { ref, entry: entry.id }; index.images.push(ref.artifact.id);
     return block(ref);
   }
+  async function registerImages(tx: Tx, artifacts: PersonalArtifact[], source: { conversationId: ConversationId; taskId: TaskId }): Promise<ImageContent[]> {
+    const task = await tx.task(source.taskId);
+    if (!task || task.kind !== "pi.tool" || task.conversationId !== source.conversationId) throw invalid();
+    for (const artifact of artifacts) if (artifact.partial || !validMime(artifact.mime) || imageMime(loadPersonalArtifact(profile, artifact)) !== artifact.mime) throw invalid();
+    const images: ImageContent[] = [];
+    for (const artifact of artifacts) images.push(await register(tx, { version: 1, artifact, conversationId: source.conversationId, source: { kind: "tool", taskId: source.taskId } }));
+    return images;
+  }
   async function verifyMessage(tx: Tx, message: MediaMessage) {
     const accepted = await tx.entry(message.accepted);
     if (!accepted || accepted.kind !== "ruukoto.media-received" || accepted.conversationId !== ROOT_CONVERSATION_ID || !isDeepStrictEqual(accepted.data, { key: message.key, source: message.source, body: message.body, identities: message.identities })) throw invalid();
@@ -252,10 +260,9 @@ export function personalMedia(profile: string, getHarness: () => Harness, suppor
       message.state = "bound"; message.submissionId = submissionId;
     },
     mediaArtifacts,
+    registerImages,
     async registerImage(tx: Tx, artifact: PersonalArtifact, source: { conversationId: ConversationId; taskId: TaskId }) {
-      const task = await tx.task(source.taskId);
-      if (!task || task.kind !== "pi.tool" || task.conversationId !== source.conversationId) throw invalid();
-      return register(tx, { version: 1, artifact, conversationId: source.conversationId, source: { kind: "tool", taskId: source.taskId } });
+      return (await registerImages(tx, [artifact], source))[0];
     },
     async recover() {
       const index = await harness().snapshot(PersonalMediaDoc, context);

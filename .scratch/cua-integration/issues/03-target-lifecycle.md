@@ -20,6 +20,7 @@ Status: ready-for-agent
 
 - 当前角色与阶段：方案者；独立方案审查通过，尚未实施。02提供图片转换接口，本单可先用离线结果夹具，交付前合验。
 - 下一角色与动作：实施者先交最小stdio调用和记录，再在同一工单完成冻结/恢复与消费者；不另立多轮实机原型阶段。
+- 02接口交接：共享`mcp/images.ts`提供mcpImages/MCP_IMAGE_LIMITS；Code沿formatMcpResult与原toolResult恢复，Personal沿原pi.tool的imageProjection与媒体registerImages。03在能识别Cua配置后，于真实发送前核实所选模型支持image，并用零发送回归证明；普通HTTPS不因未知结果类型整体禁用文本模型。该闸门与48MiB聚合预算是R5尚待本单完成的部分。
 - 当前内容：基点14ee3d00，未提交规划见[review.md](../review.md)。
 - 阻塞与恢复条件：官方固定制品如果不支持已选择入口，先给出具体差异再修方案；不能自动退回网关或扩展全局锁。
 

@@ -56,6 +56,13 @@ export function taskImageReferences(task: Task, store: Store): ImageReference[] 
 /** 创建带图片估算成本的视图；不读正文，压缩和 Jev 也不会接触 base64。 */
 export function imageReferenceView(messages: any[], sessionId: string, sourceAllowed?: (ref: ImageReference) => boolean): any[] {
   return messages.map((message) => {
+    if (message?.role === "toolResult" && message.toolName?.startsWith("mcp_") && Array.isArray(message.content)) {
+      for (const part of message.content) {
+        if (part?.type !== "image") continue;
+        const ref = part.ruukotoMediaRef;
+        if (!ref || (ref.sessionId !== sessionId && !sourceAllowed?.(ref))) throw new Error("image_reference_invalid:MCP 历史图片引用缺失或归属无效");
+      }
+    }
     const refs = message?.ruukotoMediaRefs;
     if (refs === undefined) return message;
     if (message.role !== "user" || !Array.isArray(refs)) throw new Error("image_reference_invalid:会话图片引用格式无效");

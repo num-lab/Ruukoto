@@ -47,6 +47,7 @@ import { allowlistEffectFor, type McpStore } from "./mcp/store.ts";
 import { canonicalParamsDigest, formatMcpResult, type McpTaskPlan, type PlannedTool } from "./mcp/tools.ts";
 import { McpError } from "./mcp/client.ts";
 import { FILE_SEARCH_DEFINITIONS, FILE_SEARCH_TOOL_NAMES, type FileSearchResult } from "./file-search.ts";
+import type { ImageReference } from "./inbound-images.ts";
 
 /** 编码工具（工作进程执行）。 */
 export const CODING_TOOL_NAMES = ["read", "edit", "write", "bash", ...FILE_SEARCH_TOOL_NAMES] as const;
@@ -101,7 +102,7 @@ export interface RoutedCallInput {
 }
 
 export interface RoutedCallOutput {
-  content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>;
+  content: Array<{ type: string; text?: string; data?: string; mimeType?: string; ruukotoMediaRef?: ImageReference }>;
   details?: unknown;
   isError: boolean;
 }
@@ -737,7 +738,8 @@ export class ToolRouter {
         meta.remoteName,
         result,
       );
-      return { content: formatted.content, isError: false };
+      this.artifactRefs.set(input.hostOpId, formatted.artifactIds ?? []);
+      return formatted;
     } catch (err) {
       // 写/副作用不明工具的传输类失败（超时/断线/取消）：请求可能已发出而结果
       // 无法确认 → effect_unknown（不重发）。远端已应答的错误（isError/HTTP 状态/

@@ -4,6 +4,8 @@ Status: implemented
 
 [Cua 接入提案](../../proposed/architecture/2026-10-23-cua-official-mcp.md)拟扩展电脑目标、跨调用绑定与图片投影，保留本篇原请求和远端结束证据规则。
 
+[MCP图片结果](2026-10-23-mcp-image-results.md)实现有序图片投影和分页引用，补充下文非文本证据的模型读取规则，原完整应答与未知占用不变。
+
 相关决定：[Personal 设置入口](../feature/2026-10-21-personal-settings.md)的停机配置继续遵守本篇配置代次、原请求与未知占用约束，页面和 SSH 维护仍由[桌面设置管理](../../proposed/feature/2026-10-21-desktop-settings-management.md)持有。
 
 ## 问题

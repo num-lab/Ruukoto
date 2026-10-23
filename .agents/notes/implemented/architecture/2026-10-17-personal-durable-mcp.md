@@ -2,7 +2,7 @@
 
 Status: implemented
 
-[Cua 接入提案](../../proposed/architecture/2026-10-22-cua-integration.md)拟扩展电脑目标、跨调用绑定与图片投影，保留本篇原请求和远端结束证据规则。
+[Cua 接入提案](../../proposed/architecture/2026-10-23-cua-official-mcp.md)拟扩展电脑目标、跨调用绑定与图片投影，保留本篇原请求和远端结束证据规则。
 
 相关决定：[Personal 设置入口](../feature/2026-10-21-personal-settings.md)的停机配置继续遵守本篇配置代次、原请求与未知占用约束，页面和 SSH 维护仍由[桌面设置管理](../../proposed/feature/2026-10-21-desktop-settings-management.md)持有。
 

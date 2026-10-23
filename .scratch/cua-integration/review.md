@@ -1,25 +1,18 @@
-# Cua 方案审查与规划检查
+# Cua 新方案审查
 
-## 对象与范围
+日期2026-10-23，代码基线 `14ee3d007bac3bb99cf104ad55c8aeccb7aa50a4`。拥有者明确撤销跨产品桌面独占并要求回滚；旧审查结论只对外部归档中的旧方案有效。
 
-原始要求和拥有者确认见[规格](spec.md#目标与已确认范围)。规划基点为 `develop` 的 `419c8384fb8916660b9d84965885fd39b618fe25`，工作区起点干净；当前交付是 `.scratch/cua-integration/` 与 Cua proposed 笔记，以及五篇既有笔记的提案互链。没有运行代码改动。
+## 对象与结论
 
-## 独立方案审查
+独立执行上下文 `/root/cua_replan_review` 只读核对现行规格、调查、01–05、决定及必要基线调用方，结论通过，无剩余阻断。[独立报告](/Users/eitrous/Developer/ruukoto-backups/cua-before-rollback-20261023-130957/replan-review/REPORT.md)与[文件指纹](/Users/eitrous/Developer/ruukoto-backups/cua-before-rollback-20261023-130957/replan-review/scope.sha256)保存在仓库外。指纹覆盖最终被审契约、工单和决定，排除此审查索引，避免自引用；状态/交接在通过后按审查建议更新。
 
-2026-10-22，独立执行上下文 `/root/cua_plan_review` 直接读取规格、调查、五张工单、提案、五篇相关决定与实际 MCP/媒体/装配源码，并核对上游一手资料。修订后复核结论：通过，无未解决方案阻断；01/02 可交接，03–05 等待前置。01 的外部能力未实测，03 的具体 wire 必须待 01 通过后补充复审，本次通过不代表路线已可运行。
+唯一发现的遗漏是Personal HTTP互锁对MCP endpoint的假设；03已补personal-tools.ts与personal-mcp.ts的传输分支及窄回归，审查者复核通过。现有64项工具上限足够，不新增全局独占或全量测试要求。
 
-唯一阻断及修订：原 Code 路由只把 timeout/connect_failed/canceled 标未知，但桥接可能在 Cua 执行后返回 HTTP 502/503、自造 JSON-RPC 错误或截断响应。已将发送/原下游终结证据写入 R6、01/02/03/05，并明确通用响应未完整读取与电脑桥接两种变更的适用面；提案与旧 MCP 写工具决定加互链。审查者复核后关闭该项。
+## 实际检查
 
-审查者另外核对了目标争用/别名、沙箱参数覆盖、跨调用引用、双端权限差异、错误附图、内容次序及出现次数、provider 实际输入和装配顺序，未发现新增阻断。审查者亲验 `npm run verify-notes`、`git diff --check` 与只读链接/测试路径检查通过，修订后复跑前两项仍通过；没有运行应用或外部验收。
+- 作者：完整备份逐项哈希/链接校验、Git bundle verify、回滚前内容未变检查、回滚后干净工作区确认；见[备份索引](archive.md)。
+- 作者：npm run check:static通过（lint、全部typecheck、verify-notes、check:docs）；本任务本地文档链接与单一末尾换行检查通过；git diff --check通过。
+- 独立审查：官方资料与基线调用方核对，四份相关归档文件SHA抽核；没有重新计算整个备份。
+- 产品代码、测试、依赖、deploy及docs与14ee3d00一致；当前只新增或修改规划材料和笔记互链。
 
-最终交接指纹保存在 [plan-review.sha256](evidence/plan-review.sha256)，覆盖未提交规划与审查所读源码。技术复核通过后仅更新规格交接段、五单状态/交接/Comments；同一独立审查者再次只读核对这六份文件并提供最终指纹，确认没有改变技术结论。01/02 为 ready-for-agent，03–05 为 planning，提案保持 proposed。
-
-## 作者检查
-
-2026-10-22，作者在本机工作区执行 `npm run check:static`，退出码 0：lint、根/各 workspace/foundation 类型检查、181 篇笔记及 1 篇归档封印、240 个文档链接/锚点与段落、475 个源码文档引用、8 份常驻文档预算均通过。
-
-`.scratch/` 不在全仓文档扫描范围，作者另用仓库 `markdown-scan.ts` 的解析、锚点和段落检查遍历本功能 8 份 Markdown，未发现断链、无效锚点或跨行段落；新增文件末尾换行检查通过。错误分类修订及第五篇互链后，作者重新执行 `npm run verify-notes`、`npm run check:docs`、上述局部 Markdown 检查和 `git diff --check`，均通过；未重复无关的 lint/typecheck。
-
-最终状态和交接文字更新后，作者复核本功能 8 份 Markdown 的链接、锚点、段落和末尾换行，并执行 `git diff --check`，均通过；独立审查者另行核实状态与指纹，未重复无关测试。
-
-没有运行应用测试、Cua、网关、桌面、真实模型或产品验收；纯规划没有运行行为变化。01 的真实前置与 03 的具体协议仍待实施阶段证明。
+01资料任务已resolved；02/03可按范围实施，04/05等待对应前置。没有运行新的Cua、GUI、真实模型或远端实验，当前通过不代表正式产品已实现。未提交或推送本轮规划；后续实施者从01入口读取本规格，不从归档继续旧探针。

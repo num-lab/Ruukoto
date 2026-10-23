@@ -2,7 +2,7 @@
 
 Status: implemented
 
-[Cua 接入提案](../../proposed/architecture/2026-10-22-cua-integration.md)拟复用本篇图片记录与 provider 核实，电脑执行归属独立于浏览器管理器。
+[Cua 接入提案](../../proposed/architecture/2026-10-23-cua-official-mcp.md)拟复用本篇图片记录与 provider 核实，电脑执行归属独立于浏览器管理器。
 
 ## 问题
 

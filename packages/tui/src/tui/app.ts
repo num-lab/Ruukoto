@@ -76,6 +76,7 @@ import {
   type SessionView,
 } from "./state.ts";
 
+import { HistoryRecovery } from "@ruukoto/view/history-recovery.ts";
 import { EventFlowView } from "./event-flow-view.ts";
 import { activityAgo, TwoLineSelectList } from "./session-list.ts";
 import { WorkflowSidebar } from "./workflows.ts";
@@ -828,8 +829,7 @@ export class TuiApp {
   private readonly sessionTodos = new Map<string, Todo[] | null>();
   private pendingBranch: { sessionId: string; name?: string; requestId: string; instanceId: string; autoSwitch: boolean; result: CommandResult } | null = null;
   private branchInFlight = false;
-  private readonly flowCursors = new Map<string, number>();
-  private readonly flowRequests = new Map<string, Promise<void>>();
+  private readonly history: HistoryRecovery;
   private header: Text;
   private transcriptContainer: GutterContainer;
   private scroll: ScrollView;
@@ -874,6 +874,11 @@ export class TuiApp {
     this.branchPendingStore = new PendingRequestStore(join(opts.pendingStore.dir, "branches"));
     this.compactionPendingStore = new PendingRequestStore(join(opts.pendingStore.dir, "compactions"));
     this.state = opts.state;
+    this.history = new HistoryRecovery({
+      state: this.state, request: (op, params) => this.connection.request(op, params), entryPageBytes: ENTRY_PAGE_BYTES,
+      completeEntry: entry => entry.role === "assistant", isMissingEntry: error => error instanceof ControlClientError && error.code === "entry_not_found",
+      changed: () => this.refreshTranscript(), entryFailed: error => this.notify(`历史条目读取失败：${error instanceof Error ? error.message : String(error)}`),
+    });
     this.initialSessionId = opts.initialSessionId;
     this.onExit = opts.onExit;
     this.reloadStateFile = opts.reloadStateFile ?? null;
@@ -1104,8 +1109,7 @@ export class TuiApp {
     this.generation++;
     this.clearToolExpansions();
     if (ctx.instanceChanged) this.sessionUsage.clear();
-    this.flowCursors.clear();
-    this.flowRequests.clear();
+    this.history.reset();
     this.state.applySnapshot(result, ctx.instanceChanged);
     this.workflowSidebar.refresh();
     void this.ownerQuestions.refresh();
@@ -1595,6 +1599,7 @@ export class TuiApp {
 
   private async loadHistory(sessionId: string, mode: "replace" | "prepend"): Promise<void> {
     const generation = this.generation;
+    const recoveryGeneration = this.history.generation;
     const view = this.state.openSession(sessionId);
     try {
       const page = await this.connection.request("read_history", {
@@ -1608,7 +1613,10 @@ export class TuiApp {
       void this.refreshSessionTodos(sessionId);
       this.seedInputHistory(sessionId);
       this.refreshTranscript();
-      await this.restoreEventFlow(sessionId, generation);
+      const tasks = await this.history.readTasks(sessionId, view.flow.historyEntries, recoveryGeneration);
+      if (!tasks || generation !== this.generation) return;
+      await Promise.all([...tasks].map(taskId => this.history.restoreTask(taskId, recoveryGeneration)));
+      if (generation === this.generation) this.refreshAll();
     } catch (err) {
       if (generation !== this.generation) return;
       this.notify(`历史读取失败：${(err as Error).message}`);
@@ -1619,12 +1627,13 @@ export class TuiApp {
 
   private async loadOlderHistory(): Promise<void> {
     const view = this.currentView();
-    if (!view?.historyCursor || this.olderRequests.has(view.sessionId)) return;
+    if (!view?.historyCursor || this.olderRequests.has(`${this.generation}:${view.sessionId}`)) return;
     const generation = this.generation;
     const width = () => Math.max(1, this.scroll.getContentWidth(this.terminal.columns || 80) - RIGHT_GUTTER);
     const originalTop = this.scroll.scrollTop;
     const anchor = this.eventFlowView.scrollAnchor(originalTop, width());
-    this.olderRequests.add(view.sessionId);
+    const key = `${generation}:${view.sessionId}`;
+    this.olderRequests.add(key);
     try {
       await this.loadHistory(view.sessionId, "prepend");
       if (generation !== this.generation || this.currentView() !== view || !anchor || this.scroll.isFollowingEnd) return;
@@ -1636,102 +1645,13 @@ export class TuiApp {
       this.scroll.scrollTo(top + anchor.offset + moved, { disableFollow: true });
       this.tui.requestRender();
     } finally {
-      this.olderRequests.delete(view.sessionId);
+      this.olderRequests.delete(key);
     }
   }
 
-  /** output_entry 事件驱动：按条目 ID 补齐正文（增量追加到转录）。 */
-  async loadEntry(sessionId: string, entryId: string): Promise<void> {
-    const generation = this.generation;
-    try {
-      let entry = await this.connection.request("read_history_entry", {
-        session_id: sessionId,
-        entry_id: entryId,
-        length: ENTRY_PAGE_BYTES,
-      });
-      if (generation !== this.generation) return;
-      if (entry.role === "assistant" && entry.truncated) {
-        let text = entry.text;
-        let offset = entry.offset + Buffer.byteLength(entry.text);
-        while (offset < entry.totalBytes) {
-          const page = await this.connection.request("read_history_entry", {
-            session_id: sessionId, entry_id: entryId, offset, length: ENTRY_PAGE_BYTES,
-          });
-          if (generation !== this.generation) return;
-          if (!page.text || page.offset !== offset) throw new Error("历史正文分页未连续返回");
-          text += page.text;
-          offset += Buffer.byteLength(page.text);
-        }
-        entry = { ...entry, text, truncated: false };
-      }
-      if (this.state.appendEntryView(sessionId, entry)) this.refreshTranscript();
-    } catch (err) {
-      // 条目尚未落盘时由下一次翻页/重载补齐；损坏必须可见。
-      if (err instanceof ControlClientError && err.code === "entry_not_found") return;
-      if (generation === this.generation) this.notify(`历史条目读取失败：${(err as Error).message}`);
-    }
-  }
-
-  /** 按已加载历史窗口补齐任务元数据，历史页之外的任务不提前展开。 */
-  private async restoreEventFlow(sessionId: string, generation: number): Promise<void> {
-    const view = this.state.openSession(sessionId);
-    const entries = view.flow.historyEntries;
-    const earliest = entries.reduce((at, entry) => !at || entry.timestamp < at ? entry.timestamp : at, "");
-    const ids = new Set(entries.map((entry) => entry.entryId));
-    let before: string | undefined;
-    const relevant = new Set<string>();
-    do {
-      const page = await this.connection.request("list_tasks", { session_id: sessionId, before, limit: 50 });
-      if (generation !== this.generation) return;
-      for (const task of page.tasks) {
-        if (!earliest || isActiveStatus(task.status) || (task.endedAt ?? task.createdAt) >= earliest || task.historyEntryIds.some((id) => ids.has(id))) {
-          if (!this.state.getTask(task.id)) this.state.upsertTask(task);
-          relevant.add(task.id);
-        }
-      }
-      const last = page.tasks.at(-1);
-      if (!page.hasMore || !last || !earliest || (last.endedAt ?? last.createdAt) < earliest) break;
-      before = last.id;
-    } while (true);
-    // 独立任务可同时读取，单任务各页仍按序加载。
-    await Promise.all([...relevant].map((taskId) => this.restoreTaskFlow(taskId, generation)));
-    if (generation === this.generation) this.refreshAll();
-  }
-
-  private restoreTaskFlow(taskId: string, generation = this.generation): Promise<void> {
-    const key = `${generation}:${taskId}`;
-    const pending = this.flowRequests.get(key);
-    if (pending) return pending;
-    const request = this.readTaskFlow(taskId, generation).finally(() => this.flowRequests.delete(key));
-    this.flowRequests.set(key, request);
-    return request;
-  }
-
-  private async readTaskFlow(taskId: string, generation: number): Promise<void> {
-    const detail = await this.connection.request("get_task", { task_id: taskId });
-    if (generation !== this.generation) return;
-    this.state.installTaskDetail(detail.task, detail.toolOps ?? [], detail.outputPreview, detail.seq);
-    const view = this.state.openSession(detail.task.sessionId);
-    let after = this.flowCursors.get(taskId) ?? 0;
-    const missing = new Set<string>();
-    const loaded = new Set(view.flow.historyEntries.filter((entry) => entry.role !== "assistant" || !entry.truncated).map((entry) => entry.entryId));
-    do {
-      const page = await this.connection.request("read_task_events", { task_id: taskId, after_seq: after, limit: 100 });
-      if (generation !== this.generation) return;
-      for (const event of page.events) {
-        view.flow.apply(event);
-        if (event.body.type === "task.output_entry" && !loaded.has(event.body.entryId)) missing.add(event.body.entryId);
-        after = Math.max(after, event.seq);
-      }
-      this.flowCursors.set(taskId, after);
-      this.refreshTranscript();
-      if (page.nextAfter === null) break;
-      after = page.nextAfter;
-    } while (true);
-    for (const entryId of missing) {
-      if (generation !== this.generation) return;
-      await this.loadEntry(detail.task.sessionId, entryId);
-    }
+  /** output_entry 的错误与就绪事实随恢复代次处理。 */
+  loadEntry(sessionId: string, entryId: string): Promise<void> {
+    return this.history.loadEntry(sessionId, entryId, this.history.generation);
   }
 
   /** 刷新当前活动任务详情；返回 false 表示当前会话没有活动任务。 */
@@ -1739,11 +1659,12 @@ export class TuiApp {
     const current = this.state.currentSessionId;
     const active = current ? this.state.activeTaskFor(current) : null;
     if (!active) return false;
+    const generation = this.generation;
     try {
-      await this.restoreTaskFlow(active.id);
-      this.refreshAll();
+      await this.history.restoreTask(active.id, this.history.generation);
+      if (generation === this.generation) this.refreshAll();
     } catch (err) {
-      this.notify(`任务事件读取失败：${(err as Error).message}`);
+      if (generation === this.generation) this.notify(`任务事件读取失败：${(err as Error).message}`);
     }
     return true;
   }

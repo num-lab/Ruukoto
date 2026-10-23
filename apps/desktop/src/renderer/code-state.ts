@@ -1,10 +1,9 @@
 // Note: 见 .agents/notes/implemented/feature/2026-10-17-session-creation-settings.md
 import type { OpParams, OpResult } from "@ruukoto/control/ops.ts";
 import { sessionDisplayAttribution } from "@ruukoto/control/session-attribution.ts";
-import type { HistoryEntryView } from "@ruukoto/core/history.ts";
 import type { ModelSelection, Session, SessionDefaultMode } from "@ruukoto/core/types.ts";
-import { ViewState, isActiveStatus } from "@ruukoto/view/state.ts";
-import { utf8ByteLength } from "@ruukoto/view/utf8.ts";
+import { ViewState } from "@ruukoto/view/state.ts";
+import { HistoryRecovery } from "@ruukoto/view/history-recovery.ts";
 import type { DesktopOp } from "../main/ipc.ts";
 import type { DesktopAttachment, DesktopBridge, DesktopFailure, DesktopTarget, DesktopUpdate } from "../shared/bridge.ts";
 import { DesktopApprovals } from "./approvals.ts";
@@ -46,9 +45,8 @@ export class CodeState {
   private quiet = 0;
   private dirty = false;
   private creationSourceId: string | null = null;
-  private readonly flowCursors = new Map<string, number>();
+  private readonly history: HistoryRecovery;
   private readonly requests = new Map<string, Promise<void>>();
-  private readonly pendingEntries = new Map<string, string | undefined>();
   readonly writes: CodeWrites;
   readonly approvals: DesktopApprovals;
   readonly questions: DesktopQuestions;
@@ -68,6 +66,11 @@ export class CodeState {
     this.questions = new DesktopQuestions(bridge, this.view, () => this.status.state === "online", changed);
     this.writes = new CodeWrites(bridge, this.view, () => this.status.state === "online", changed, target);
     this.inspector = new DesktopInspector(bridge, this.view, id => this.loadHistory(id), changed, target);
+    this.history = new HistoryRecovery({
+      state: this.view, request: (op, params) => this.request(op, params), entryPageBytes: 64 * 1024,
+      completeEntry: () => true, isMissingEntry: error => error instanceof DesktopRequestError && error.code === "entry_not_found",
+      changed: () => this.mark(), entryFailed: error => { this.readError = `读取会话失败：${error instanceof Error ? error.message : "请重新连接后再试。"}`; },
+    });
   }
 
   private async request<K extends DesktopOp>(op: K, params: OpParams<K>): Promise<OpResult<K>> {
@@ -78,9 +81,10 @@ export class CodeState {
   }
   /** 恢复期间合并重绘；最外层结束后才把最终投影交给界面。 */
   private settle<T>(action: () => Promise<T>): Promise<T> {
+    const generation = this.generation;
     ++this.quiet;
     return action().finally(() => {
-      if (--this.quiet > 0 || !this.dirty) return;
+      if (generation !== this.generation || --this.quiet > 0 || !this.dirty) return;
       this.dirty = false;
       this.changed();
     });
@@ -100,8 +104,9 @@ export class CodeState {
     } else if (update.type === "snapshot") {
       ++this.generation;
       this.requests.clear();
-      this.pendingEntries.clear();
-      this.flowCursors.clear();
+      this.history.reset();
+      this.quiet = 0;
+      this.dirty = false;
       this.summaries.clear();
       this.readError = null;
       const instanceChanged = update.instanceChanged || (this.view.instanceId !== null && this.view.instanceId !== update.result.snapshot.instanceId);
@@ -239,12 +244,18 @@ export class CodeState {
     key = `${this.generation}:${key}`;
     const pending = this.requests.get(key);
     if (pending) return pending;
-    const generation = this.generation;
-    const request = action(generation).catch(error => {
-      if (generation === this.generation) this.readError = `读取会话失败：${error instanceof Error ? error.message : "请重新连接后再试。"}`;
-    }).finally(() => { this.requests.delete(key); this.inspector.seedTabs(); void this.inspector.loadDiff(); this.mark(); });
+    const request = this.read(action).finally(() => { this.requests.delete(key); });
     this.requests.set(key, request);
     return request;
+  }
+  private read(action: (generation: number) => Promise<void>): Promise<void> {
+    const generation = this.generation;
+    return action(generation).catch(error => {
+      if (generation === this.generation) this.readError = `读取会话失败：${error instanceof Error ? error.message : "请重新连接后再试。"}`;
+    }).finally(() => {
+      if (generation !== this.generation) return;
+      this.inspector.seedTabs(); void this.inspector.loadDiff(); this.mark();
+    });
   }
   private loadSummaries(): Promise<void> {
     return this.run("summaries", async generation => {
@@ -256,6 +267,7 @@ export class CodeState {
     });
   }
   loadHistory(sessionId: string, mode: "replace" | "prepend" = "replace"): Promise<void> {
+    const recoveryGeneration = this.history.generation;
     return this.run(`history:${sessionId}`, async generation => {
       const view = this.view.openSession(sessionId);
       if (mode === "prepend" && !view.historyCursor) return;
@@ -266,103 +278,27 @@ export class CodeState {
       // Note: 见 .agents/notes/implemented/bug-fix/2026-10-19-trace-hydration-flash.md
       let relevant: Set<string> | null = null;
       await this.settle(async () => {
-        relevant = await this.restoreTaskStatuses(sessionId, page.entries, generation).catch(error => {
-          this.view.installHistoryPage(sessionId, page, mode);
+        relevant = await this.history.readTasks(sessionId, page.entries, recoveryGeneration).catch(error => {
+          if (generation === this.generation) this.view.installHistoryPage(sessionId, page, mode);
           throw error;
         });
-        if (!relevant) return;
+        if (!relevant || generation !== this.generation) return;
         this.view.installHistoryPage(sessionId, page, mode);
         this.mark();
-        await this.restoreEventFlow(sessionId, generation, relevant);
+        if (generation !== this.generation) return;
+        await Promise.all([...relevant].map(taskId => this.read(() => this.history.restoreTask(taskId, recoveryGeneration))));
+        if (generation !== this.generation) return;
+        for (const entry of this.view.openSession(sessionId).flow.historyEntries) {
+          if (generation !== this.generation) return;
+          if (entry.truncated) await this.history.loadEntry(sessionId, entry.entryId, recoveryGeneration, entry.taskId ?? undefined);
+        }
       });
     });
   }
-  /** 装入历史窗口内任务的状态，返回需要补读事件流与工具详情的任务；代次变化时返回 null。 */
-  private async restoreTaskStatuses(sessionId: string, entries: HistoryEntryView[], generation: number): Promise<Set<string> | null> {
-    const earliest = entries.reduce((at, entry) => !at || entry.timestamp < at ? entry.timestamp : at, "");
-    const ids = new Set(entries.map(entry => entry.entryId));
-    const relevant = new Set<string>();
-    let before: string | undefined;
-    do {
-      const page = await this.request("list_tasks", { session_id: sessionId, before, limit: 50 });
-      if (generation !== this.generation) return null;
-      for (const task of page.tasks) {
-        if (!earliest || isActiveStatus(task.status) || (task.endedAt ?? task.createdAt) >= earliest || task.historyEntryIds.some(id => ids.has(id))) {
-          if (!this.view.getTask(task.id)) this.view.upsertTask(task);
-          relevant.add(task.id);
-        }
-      }
-      const last = page.tasks.at(-1);
-      if (!page.hasMore || !last || !earliest || (last.endedAt ?? last.createdAt) < earliest) break;
-      before = last.id;
-    } while (true);
-    return relevant;
-  }
-  private async restoreEventFlow(sessionId: string, generation: number, relevant: Set<string>): Promise<void> {
-    await Promise.all([...relevant].map(taskId => this.readTaskFlow(taskId)));
-    if (generation !== this.generation) return;
-    for (const entry of this.view.openSession(sessionId).flow.historyEntries) {
-      if (generation !== this.generation) return;
-      if (entry.truncated) await this.loadEntry(sessionId, entry.entryId, entry.taskId ?? undefined);
-    }
-  }
-  private readTaskFlow(taskId: string): Promise<void> {
-    return this.run(`task:${taskId}`, async generation => {
-      const detail = await this.request("get_task", { task_id: taskId });
-      if (generation !== this.generation) return;
-      this.view.installTaskDetail(detail.task, detail.toolOps ?? [], detail.outputPreview, detail.seq);
-      const view = this.view.openSession(detail.task.sessionId);
-      let after = this.flowCursors.get(taskId) ?? 0;
-      const missing = new Set<string>();
-      const loaded = new Set(view.flow.historyEntries.filter(entry => !entry.truncated).map(entry => entry.entryId));
-      do {
-        const page = await this.request("read_task_events", { task_id: taskId, after_seq: after, limit: 100 });
-        if (generation !== this.generation) return;
-        for (const event of page.events) {
-          view.flow.apply(event);
-          if (event.body.type === "task.output_entry" && !loaded.has(event.body.entryId)) missing.add(event.body.entryId);
-          after = Math.max(after, event.seq);
-        }
-        this.flowCursors.set(taskId, after);
-        this.mark();
-        if (page.nextAfter === null) break;
-        after = page.nextAfter;
-      } while (true);
-      for (const entryId of missing) {
-        if (generation !== this.generation) return;
-        await this.loadEntry(detail.task.sessionId, entryId, detail.task.id);
-      }
-    });
-  }
-  // Note: 见 .agents/notes/implemented/feature/2026-10-18-completed-trace.md
-  // Note: 见 .agents/notes/implemented/bug-fix/2026-10-19-trace-hydration-flash.md
-  historyReady(sessionId: string, taskId: string): boolean { return ![...this.pendingEntries].some(([key, pendingTask]) => key.startsWith(`${sessionId}:`) && pendingTask === taskId); }
+  historyReady(sessionId: string, taskId: string): boolean { return this.history.historyReady(sessionId, taskId); }
   loadEntry(sessionId: string, entryId: string, taskId?: string): Promise<void> {
-    const key = `${sessionId}:${entryId}`;
-    // 已在历史页里的条目只会补全正文，身份已可见；再挡自动收起会让打开会话时已收起的 trace 先展开再收起。
-    const known = this.view.openSession(sessionId).flow.historyEntries.some(entry => entry.entryId === entryId);
-    if (!known) this.pendingEntries.set(key, taskId ?? this.pendingEntries.get(key));
-    return this.run(`entry:${sessionId}:${entryId}`, async generation => {
-      let entry: OpResult<"read_history_entry">;
-      try { entry = await this.request("read_history_entry", { session_id: sessionId, entry_id: entryId, length: 64 * 1024 }); }
-      catch (error) {
-        if (error instanceof DesktopRequestError && error.code === "entry_not_found") return;
-        throw error;
-      }
-      if (generation !== this.generation) return;
-      let text = entry.text;
-      let offset = entry.offset + utf8ByteLength(text);
-      if (entry.offset !== 0) throw new DesktopRequestError({ code: "history_discontinuous", outcome: "rejected", message: "历史正文分页未从开头返回；请重新加载会话。" });
-      while (offset < entry.totalBytes) {
-        const page = await this.request("read_history_entry", { session_id: sessionId, entry_id: entryId, offset, length: 64 * 1024 });
-        if (generation !== this.generation) return;
-        if (!page.text || page.offset !== offset || page.totalBytes !== entry.totalBytes) throw new DesktopRequestError({ code: "history_discontinuous", outcome: "rejected", message: "历史正文分页未连续返回；请重新加载会话。" });
-        text += page.text;
-        offset += utf8ByteLength(page.text);
-      }
-      this.view.appendEntryView(sessionId, { ...entry, text, truncated: false });
-      this.pendingEntries.delete(key);
-    });
+    const generation = this.history.generation;
+    return this.read(() => this.history.loadEntry(sessionId, entryId, generation, taskId));
   }
 
   // Note: 见 .agents/notes/implemented/feature/2026-10-20-desktop-new-chat.md

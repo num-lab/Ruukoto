@@ -1,0 +1,52 @@
+
+> ruukoto-workspace@0.1.0 change-scope
+> tsx scripts/change-scope.ts --base 3c4b9507
+
+{
+  "formatVersion": 1,
+  "repositoryRoot": "/Users/eitrous/Developer/ruukoto",
+  "input": {
+    "base": "3c4b9507",
+    "head": "HEAD"
+  },
+  "resolved": {
+    "baseSha": "3c4b9507dcb6a8292205932ed031fb21ac918e93",
+    "headSha": "3c4b9507dcb6a8292205932ed031fb21ac918e93",
+    "mergeBaseSha": "3c4b9507dcb6a8292205932ed031fb21ac918e93"
+  },
+  "paths": {
+    "committed": [],
+    "staged": [],
+    "unstaged": [
+      ".agents/notes/implemented/architecture/2026-10-11-in-repo-workspace-packages.md",
+      ".agents/notes/implemented/bug-fix/2026-10-19-trace-hydration-flash.md",
+      "apps/desktop/src/renderer/code-state.ts",
+      "docs/architecture.md",
+      "docs/modules/desktop.md",
+      "docs/modules/tui.md",
+      "docs/modules/view.md",
+      "packages/tui/src/tui/app.ts",
+      "test/37-view-browser.test.ts",
+      "test/41-desktop-stream.test.ts"
+    ],
+    "untracked": [
+      ".agents/notes/implemented/architecture/2026-10-23-shared-history-recovery.md",
+      ".scratch/history-recovery/evidence/01-plan-review.patch",
+      ".scratch/history-recovery/evidence/02-stale-failure-negative.txt",
+      ".scratch/history-recovery/evidence/03-regression.txt",
+      ".scratch/history-recovery/evidence/04-review-fixes.txt",
+      ".scratch/history-recovery/evidence/05-static.txt",
+      ".scratch/history-recovery/evidence/06-anchors.txt",
+      ".scratch/history-recovery/evidence/07-files.sha256",
+      ".scratch/history-recovery/evidence/07-implementation.patch",
+      ".scratch/history-recovery/evidence/07-implementation.sha256",
+      ".scratch/history-recovery/evidence/08-final-docs.txt",
+      ".scratch/history-recovery/evidence/09-scope.txt",
+      ".scratch/history-recovery/evidence/verification.md",
+      ".scratch/history-recovery/issues/01-share-recovery.md",
+      "packages/view/src/history-recovery.ts",
+      "test/fixtures/view-browser/history-recovery.ts",
+      "test/history-recovery.test.ts"
+    ]
+  }
+}

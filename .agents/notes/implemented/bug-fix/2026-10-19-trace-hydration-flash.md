@@ -20,13 +20,15 @@ Status: implemented
 
 恢复顺序改为先取历史窗口内任务的状态，再装历史页，最后补事件流：
 
-- `restoreTaskStatuses` 只做原先 `restoreEventFlow` 前半段的 `list_tasks` 分页与 `upsertTask`，返回相关任务集合；代次变化仍返回 `null` 让整个恢复放弃。
-- `installHistoryPage` 移到状态装入之后。状态读取失败时仍先装历史页再抛错，保留原先「历史可见、错误进 `readError`」的降级。
-- 事件流补读与工具详情拆到 `restoreEventFlow`，只接收上一步返回的任务集合。
+- `HistoryRecovery.readTasks` 负责 `list_tasks` 分页与 `upsertTask`，返回相关任务集合；代次变化返回 `null` 让整个恢复放弃。
+- `installHistoryPage` 在状态装入之后。当前代次的状态读取失败时仍先装历史页再抛错，保留「历史可见、错误进 `readError`」的降级。
+- 事件流补读与工具详情由 `HistoryRecovery.restoreTask` 恢复，客户端遍历上一步返回的任务集合。
 
 恢复窗口内的重绘合并为一次：`loadHistory` 用 `settle` 计数包住整个恢复过程，期间所有 `mark()` 只置脏标记，最外层结束后才调用一次 `changed()`。历史页因此只在最终投影（任务状态、事件分页、正文补读全部到位）时首次可见，中间态不会交给界面。`CodeState` 内部的重绘统一走 `mark()`，外部协作者（审批、写入、检查器）仍直接调用 `changed()`。
 
-`loadEntry` 对历史页里已存在的条目不再登记 `pendingEntries`：它只是补全正文，条目身份已经可见，最后一条正文是不是它并不受补读影响。真正不在历史页里的条目（直播 `task.output_entry`、截断页面未覆盖的输出）仍然登记，守住「最终正文未确认前保持展开」。
+`HistoryRecovery.loadEntry` 对历史页里已存在的条目不登记共享的 `pendingEntries`，Desktop 的 `historyReady` 读取该事实：它只是补全正文，条目身份已经可见，最后一条正文是不是它并不受补读影响。真正不在历史页里的条目（直播 `task.output_entry`、截断页面未覆盖的输出）仍然登记，守住「最终正文未确认前保持展开」。
+
+共同读取与缺失正文事实的归属见[双端共用会话历史恢复](../architecture/2026-10-23-shared-history-recovery.md)，本篇的状态先行、合并重绘与收起规则保持。
 
 ## 备选方案
 

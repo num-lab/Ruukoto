@@ -15,7 +15,7 @@
 | [agent-tools](modules/agent-tools.md) | 决定会话有哪些工具，并经统一审批与操作账本执行 | 依赖 core、execution；被 runtime 装配 |
 | [execution](modules/execution.md) | 执行工具与受限脚本，核实进程停止 | 依赖 core；工具由 agent-tools 调用，脚本经注入回调请求宿主 |
 | [control](modules/control.md) | 提供控制面 socket、拥有者认证与协议 | 调用 runtime 与 core；被 tui、desktop 与 view 消费 |
-| [view](modules/view.md) | 将快照、事件、历史与任务详情投影为客户端状态 | 依赖 core 与 control 的浏览器可用模块；被 tui 与 desktop 消费 |
+| [view](modules/view.md) | 共享界面投影与历史读取编排 | 依赖 core 与 control 的浏览器可用模块；被 tui 与 desktop 消费 |
 | [desktop](modules/desktop.md)（`apps/desktop`） | 桌面连接（Electron／MyGo） | Node 宿主依赖 control/core/view，renderer 依赖 view；后台独立运行 |
 | [tui](modules/tui.md) | 共享 CLI、交互终端与配置中心 | 界面只经 control 协议连接后台；CLI 的 `server` 入口在本进程装配 runtime |
 | [channels](modules/channels.md) | 拥有者 IM 入口、图片入站与 GitHub 事件来源 | 依赖 core 登记入站事件；驱动 runtime 建任务；经 scheduler 的 outbox 外发 |

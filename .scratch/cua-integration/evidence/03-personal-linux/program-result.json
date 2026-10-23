@@ -1,0 +1,1 @@
+{"status":"passed","args":["--embedded","mcp","--sandbox","local:fixture","--permissions","computer:screenshot,computer:click,computer:type,computer:key,computer:scroll,computer:hotkey,computer:drag,computer:window,computer:accessibility"],"envKeys":["HOME","LANG","LOGNAME","PATH","USER"],"artifact":"existing-node-fixture-only","cuaExecuted":false}

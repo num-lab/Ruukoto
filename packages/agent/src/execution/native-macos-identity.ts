@@ -223,6 +223,25 @@ export async function launchMacosExecution(directory: string, ref: MacosExecutio
   }
 }
 
+/** 为 SDK 的三管道 stdio 启动保存原生认领；运行与停止仍由同一个持久监督器核实。 */
+export async function prepareMacosStdioExecution(directory: string, ref: MacosExecutionRef, program: { command: string; args: string[]; env: Record<string, string>; cwd?: string }): Promise<{ command: string; args: string[]; env: Record<string, string>; cwd?: string; fingerprint: string }> {
+  try {
+    const claimDir = location(directory, ref);
+    const identity = await hostIdentity();
+    const fingerprint = createHash("sha256").update(JSON.stringify(program)).digest("hex");
+    fs.mkdirSync(claimDir, { mode: 0o700 });
+    syncDirectory(directory);
+    const stat = fs.lstatSync(claimDir);
+    const claim: Claim = { version: 1, ref, claimedBy: "launch", ...identity, directoryDev: String(stat.dev), directoryIno: String(stat.ino), token: randomBytes(16).toString("hex"), fingerprint };
+    writeRecord(claimDir, "claim.json", claim);
+    writeRecord(claimDir, "dispatched.json", { token: claim.token, fingerprint });
+    return { command: helper, args: ["--durable-stdio", claimDir, claim.token, fingerprint, "--", program.command, ...program.args], env: program.env, cwd: program.cwd, fingerprint };
+  } catch (error) {
+    if (error instanceof ExecutionError) throw error;
+    throw new ExecutionError("execution_claim_failed", "电脑执行身份无法保存；未创建新连接，保留现场并核实原档案。", undefined, undefined, { cause: error });
+  }
+}
+
 /** 可跨进程重复停止；仅匹配原认领与完整监督器身份。缺回执、身份换代或核实失败返回 false，不能重放命令或释放占用。 */
 export async function stopMacosExecution(directory: string, ref: MacosExecutionRef, expectedFingerprint?: string): Promise<MacosExecutionStop> {
   let outputComplete: boolean | undefined;

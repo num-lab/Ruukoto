@@ -17,11 +17,11 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { Type } from "typebox";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
-import type { AccessMode, ApprovalScope, GrantedPath, Session, Task, Artifact } from "@ruukoto/core/types.ts";
+import type { AccessMode, ApprovalScope, GrantedPath, Session, Task, Artifact, McpOperation } from "@ruukoto/core/types.ts";
 import { GIT_SAFE_DIRECTORY_ENV, taskWorkspaceFor } from "@ruukoto/core/worktree.ts";
 import { verifyDirIdentitySync } from "@ruukoto/core/dir-identity.ts";
 import type { Store } from "@ruukoto/core/store.ts";
-import type { ApprovalGate } from "./approval-gate.ts";
+import type { ApprovalGate, ApprovalRequest } from "./approval-gate.ts";
 import { hasNoWriteEffect, type ToolOpLedger } from "./tool-op-ledger.ts";
 import type { ArtifactStore } from "./artifacts.ts";
 import { sourceArtifact } from "@ruukoto/core/branch.ts";
@@ -46,6 +46,9 @@ import type { DataStream } from "./tool-worker/protocol.ts";
 import { allowlistEffectFor, type McpStore } from "./mcp/store.ts";
 import { canonicalParamsDigest, formatMcpResult, type McpTaskPlan, type PlannedTool } from "./mcp/tools.ts";
 import { McpError } from "./mcp/client.ts";
+import { mcpResponseEnded } from "./mcp/transport.ts";
+import { cuaToolEffect } from "./mcp/cua.ts";
+import type { CodeCuaManager } from "./mcp/code.ts";
 import { FILE_SEARCH_DEFINITIONS, FILE_SEARCH_TOOL_NAMES, type FileSearchResult } from "./file-search.ts";
 import type { ImageReference } from "./inbound-images.ts";
 
@@ -80,13 +83,15 @@ export interface ToolRouterDeps {
    */
   artifactAccess?: (task: Task, artifact: Artifact) => boolean;
   /** 审批闸门（架构工单 04）：审批全程与等待解除。 */
-  approvals: Pick<ApprovalGate, "request" | "supersedeAll">;
+  approvals: Pick<ApprovalGate, "request" | "supersedeAll" | "defer" | "consumeDeferred">;
   /**
    * MCP 动态工具（issue 16/18）：服务配置存储与当前任务钉版的工具计划。
    * 未配置时 MCP 工具名按未知工具拒绝（不落入其他路径）。
    */
   mcp?: {
     store: McpStore;
+    cua?: CodeCuaManager;
+    supportsImages?: (task: Task) => Promise<boolean>;
     /** 当前任务钉版的 MCP 计划（Driver 在任务边界设置；null = 本任务无 MCP 工具）。 */
     plan(): McpTaskPlan | null;
   };
@@ -652,6 +657,7 @@ export class ToolRouter {
     // 调用前重读当前配置与凭据绑定：禁用/撤销/版本变化/移出允许列表立即阻止
     const blocked = this.mcpConfigBlock(mcp.store, meta);
     if (blocked) return textResult(blocked, true);
+    if (meta.service.cua && !await mcp.supportsImages?.(task)) return textResult("当前模型不支持图片，电脑操作未发送；请拥有者选择支持图片的模型后发起新工作。", true);
 
     if (meta.effect === "read" && task.accessMode !== "full_access") {
       return this.mcpSend(mcp, task, meta, input.params, input);
@@ -662,6 +668,7 @@ export class ToolRouter {
       serviceId: meta.service.id,
       serviceName: meta.service.name,
       endpoint: meta.service.endpoint,
+      ...(meta.service.cua ? { cua: meta.service.cua } : {}),
       configVersion: meta.service.configVersion,
       remoteName: meta.remoteName,
       toolSignature: meta.toolSignature,
@@ -672,15 +679,16 @@ export class ToolRouter {
     // 获批后复核：批准等待期间的配置/凭据变化使旧批准失效（不消费、不发送，
     // 操作按已知未执行记录）。服务配置与批准消费在同一 SQLite 事务内核对；
     // 凭据绑定在消费前核对、发送时由 getForUse 再核对一次（撤销即时生效）。
-    const approval = await this.deps.approvals.request({
-      task,
-      hostOpId: input.hostOpId,
-      toolName: input.name,
-      params: input.params,
-      scope,
-      signal: input.signal,
-      recheck: () => this.mcpConfigBlock(mcp.store, meta),
-    });
+    const approvalInput: ApprovalRequest<void> = { task, hostOpId: input.hostOpId, toolName: input.name, params: input.params, scope, signal: input.signal, recheck: () => this.mcpConfigBlock(mcp.store, meta) };
+    if (meta.service.cua) {
+      const deferred = await this.deps.approvals.defer(approvalInput);
+      if (!deferred.approved) return textResult(deferred.text, true);
+      return this.mcpSend(mcp, task, meta, deferred.params, input, operation => {
+        const consumed = this.deps.approvals.consumeDeferred({ ...approvalInput, commit: () => this.deps.store.saveMcpOperation(input.hostOpId, operation) }, deferred.confirmationId);
+        if (!consumed.approved) throw new McpError("cua_authorization_invalid", consumed.text);
+      });
+    }
+    const approval = await this.deps.approvals.request(approvalInput);
     if (!approval.approved) return textResult(approval.text, true);
     const workflowProblem = this.deps.verifyTask?.(task);
     if (workflowProblem) return textResult(workflowProblem, true);
@@ -702,13 +710,13 @@ export class ToolRouter {
     if (fresh.configVersion !== service.configVersion) {
       return `MCP 服务 ${service.name} 配置已变化（v${service.configVersion} → v${fresh.configVersion}），本任务钉版工具清单已失效；未发送网络请求，新配置从下一任务生效`;
     }
-    if (allowlistEffectFor(fresh.toolAllowlist, remoteName) !== meta.effect) {
+    if (fresh.cua ? cuaToolEffect(fresh.cua, remoteName) !== meta.effect || allowlistEffectFor(fresh.toolAllowlist, remoteName) === null : allowlistEffectFor(fresh.toolAllowlist, remoteName) !== meta.effect) {
       return `工具 ${remoteName} 已不在服务 ${service.name} 的允许列表（或副作用类别已变化），本次调用未发送网络请求`;
     }
     if (service.credential) {
       const binding = this.deps.credentials.get(service.credential);
       if (!binding) return `凭据 ${service.credential} 已被撤销，本次调用未发送网络请求`;
-      if (binding.host !== new URL(fresh.endpoint).host) {
+      if (binding.host !== new URL(fresh.endpoint!).host) {
         return `凭据 ${service.credential} 的 host 与服务端点不一致，本次调用未发送网络请求`;
       }
     }
@@ -722,11 +730,15 @@ export class ToolRouter {
     meta: PlannedTool,
     params: Record<string, unknown>,
     input: RoutedCallInput,
+    consume?: (operation: McpOperation) => void,
   ): Promise<RoutedCallOutput> {
     const conn = mcp.plan()?.connections.get(meta.service.id);
     if (!conn) return textResult(`MCP 服务 ${meta.service.name} 连接不可用（初始化失败或已关闭）`, true);
     try {
-      const result = await conn.callTool({ name: meta.remoteName, inputSchema: meta.inputSchema }, params, input.signal);
+      if (meta.service.cua && !await mcp.supportsImages?.(task)) throw new McpError("cua_model_unsupported", "当前模型不支持图片，电脑操作未发送；请拥有者选择支持图片的模型后发起新工作。");
+      const result = meta.service.cua
+        ? await mcp.cua!.call(task, meta, params, input.hostOpId, input.signal, consume)
+        : await conn.callTool({ name: meta.remoteName, inputSchema: meta.inputSchema }, params, input.signal);
       if (meta.checkOutput && !result.isError && (result.structuredContent === undefined || !meta.checkOutput(result.structuredContent))) {
         // 远端成功应答即已执行：结果不符是已知错误，不标 effect_unknown
         return textResult(`远端已执行，但结构化结果与声明的 outputSchema 不符（${meta.service.name}/${meta.remoteName}）`, true);
@@ -738,17 +750,15 @@ export class ToolRouter {
         meta.remoteName,
         result,
       );
+      if (meta.service.cua && !formatted.isError && formatted.content.some(part => part.type === "image" && part.ruukotoMediaRef)) mcp.cua!.acceptObservation(input.hostOpId);
       this.artifactRefs.set(input.hostOpId, formatted.artifactIds ?? []);
       return formatted;
     } catch (err) {
       // 写/副作用不明工具的传输类失败（超时/断线/取消）：请求可能已发出而结果
       // 无法确认 → effect_unknown（不重发）。远端已应答的错误（isError/HTTP 状态/
       // JSON-RPC 错误应答 remote_error）与发送前失败（凭据/校验）是已知结果，不标。
-      if (
-        meta.effect !== "read" &&
-        err instanceof McpError &&
-        (err.code === "timeout" || err.code === "connect_failed" || err.code === "canceled")
-      ) {
+      const operation = meta.service.cua && this.deps.store.getToolOp(input.hostOpId)?.mcp;
+      if (meta.effect !== "read" && (operation ? operation.request && (!operation.response || !mcpResponseEnded(operation.response)) : !meta.service.cua && err instanceof McpError && ["timeout", "connect_failed", "canceled"].includes(err.code))) {
         this.deps.store.withTx(() => this.deps.ledger.markEffectUnknown(task, input.hostOpId));
       }
       return textResult((err as Error).message, true);

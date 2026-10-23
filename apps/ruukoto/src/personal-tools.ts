@@ -133,7 +133,7 @@ async function active(tx: Tx, value: PersonalToolOperation, profile: string) {
   }
   if (value.prepared.kind === "http") {
     const endpoint = new URL(value.prepared.request.url).origin;
-    for (const other of await mcpOperations(tx)) if (mcpUnresolved(other) && new URL(other.config.services.find(service => service.id === other.service)!.endpoint).origin === endpoint) throw new PersonalError("tool_target_busy", "原MCP端点仍有未核实请求，未发送HTTP；请查询原MCP操作。");
+    for (const other of await mcpOperations(tx)) if (mcpUnresolved(other) && !other.config.services.find(service => service.id === other.service)!.cua && new URL(other.config.services.find(service => service.id === other.service)!.endpoint!).origin === endpoint) throw new PersonalError("tool_target_busy", "原MCP端点仍有未核实请求，未发送HTTP；请查询原MCP操作。");
   }
   const target = value.prepared.kind === "file" ? value.prepared.request.path : value.prepared.kind === "http" ? new URL(value.prepared.request.url).origin : "search";
   for (const other of await toolOperations(tx)) {

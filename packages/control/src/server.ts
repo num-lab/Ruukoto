@@ -699,6 +699,7 @@ export class ControlServer {
           offset: params["offset"] === undefined ? undefined : Number(params["offset"]),
           length: params["length"] === undefined ? undefined : Number(params["length"]),
         });
+      case "get_tool_op_mcp": return runtime.getToolOpMcp({ toolOpId: requireString("tool_op_id"), offset: params["offset"] === undefined ? undefined : Number(params["offset"]), length: params["length"] === undefined ? undefined : Number(params["length"]) });
       case "get_tool_op_params":
         return runtime.getToolOpParams({
           toolOpId: requireString("tool_op_id"),
@@ -955,6 +956,11 @@ export class ControlServer {
         return runtime.mcpSaveCredential({ projectId: requireString("project_id"), name: requireString("name"), endpoint: requireString("endpoint"), secret: requireString("secret") });
       case "mcp_remove_credential":
         return runtime.mcpRemoveCredential(requireString("project_id"), requireString("name"));
+      case "mcp_cua_status": return runtime.mcpCuaStatus();
+      case "mcp_cua_stop": return runtime.mcpCuaStop();
+      case "mcp_cua_begin_recovery": return runtime.mcpCuaBeginRecovery();
+      case "mcp_cua_observe": return runtime.mcpCuaObserve();
+      case "mcp_cua_accept": return runtime.mcpCuaAccept(requireString("observation_id"));
       case "mcp_configure": {
         const allowlist = params["tool_allowlist"];
         // 条目形态：工具名字符串，或 { name, effect } 对象（effect 取值由运行层校验）
@@ -972,7 +978,8 @@ export class ControlServer {
           serviceId: params["service_id"] === undefined ? undefined : requireString("service_id"),
           projectId: requireString("project_id"),
           name: requireString("name"),
-          endpoint: requireString("endpoint"),
+          endpoint: params["endpoint"] === undefined ? undefined : requireString("endpoint"),
+          cua: params["cua"] as Parameters<typeof runtime.mcpConfigure>[0]["cua"],
           // 未提供 = 更新时保留现有凭据引用；显式 null = 清除
           credential: typeof params["credential"] === "string" ? params["credential"] : params["credential"] === null ? null : undefined,
           toolAllowlist: allowlist as unknown[],

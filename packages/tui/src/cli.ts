@@ -693,7 +693,7 @@ async function runLegacy(cmd: string, rest: string[], product: CliProduct): Prom
           await withClient(async (c) => {
             const list = (await c.request("mcp_list", {})) as any;
             const target = (list.services as any[]).find((s) => s.id === positional[1]);
-            if (target) console.error(`连接检查：${target.name}（${target.endpoint}）`);
+            if (target) console.error(`连接检查：${target.name}（${target.cua?.kind ?? target.endpoint}）`);
             return c.request("mcp_check", { service_id: positional[1] ?? "" });
           }),
         );

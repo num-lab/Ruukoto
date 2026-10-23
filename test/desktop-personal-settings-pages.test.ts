@@ -309,3 +309,17 @@ test("Personal 三页 SSR 展示真实字段、远端来源、维护恢复与安
   const html = renderToStaticMarkup(createElement(PersonalSettingsEditor, { state: h.state, onConnection() {} }));
   assert.match(html, /原后台模型凭据缺失或尚未核实/); assert.match(html, /配置已保存，后台尚未启动/); assert.match(html, /恢复原服务/); assert.match(html, /结束维护/);
 });
+
+test("Personal MCP：Cua固定配置不进入HTTP编辑器，启停保留原服务", async () => {
+  const h = harness("mcp"), cua = { kind: "cua-linux" as const, executable: "/usr/local/bin/cua", version: "0.7.0" as const, sha256: "a".repeat(64), sandbox: "local:desktop", sandboxId: "b".repeat(64) };
+  h.hooks.query = async request => request.op === "mcp.get" ? ok({ product: "ruukoto", profile, service: { id: service.id, label: "电脑", cua, enabled: true, tools: [remoteTool] }, toolsOffset: 0, toolsHasMore: false }) : ok({ product: "ruukoto", profile });
+  await h.state.read(); await h.state.selectService(service.id);
+  assert.deepEqual(h.state.service.cua, cua);
+  h.state.editService("endpoint", "https://replacement.example/mcp");
+  h.state.allowTool({ name: "unsafe", inputSchema: {} }, true);
+  assert.equal(h.state.service.endpoint, ""); assert.equal(h.state.service.tools.length, 1); assert.equal(h.state.dirty, false);
+  h.state.prepareService("disable");
+  assert.equal(h.state.confirmation?.request.op, "mcp.set-enabled");
+  assert.equal(h.state.confirmation?.request.id, service.id);
+  assert.equal(h.state.confirmation?.request.enabled, false);
+});

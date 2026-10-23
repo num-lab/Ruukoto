@@ -1,0 +1,19 @@
+{
+  "date": "2026-10-23",
+  "host": "ssh tx",
+  "node": "24.21.0",
+  "docker": "29.5.2",
+  "workDirectory": "/tmp/ruukoto-cua-scope-QA1jvV",
+  "sourceSha256": {
+    "apps/ruukoto/src/personal-cua-linux.ts": "62682dbbe70d6e406d53b74134d8739f9f92267284ea8497f4decb191cb09cc7",
+    "packages/agent/src/mcp/cua.ts": "31989510258d385a8000473e617b022426d001d0a6c9b7c1c27d1a983b5b9022",
+    "packages/agent/src/mcp/transport.ts": "955e2f64250a71dfa2c4c229b1983d3a89ddde48b54c6b3414494836b7aebae3"
+  },
+  "bundleSha256": "2fde2d6394ef085879a8b0c14cc99177890922ed95f37925aeae0482f5a16212",
+  "namespacePermissionProbe": "普通服务账户 readlink /proc/1/ns/pid 返回 EACCES；使用 Docker private PidMode 与原 PID 出生身份，不扩大权限。",
+  "retainedStoppedContainers": [
+    "525f354abb077d008b86c9be2bd9c60a6634d34a71de5256cd6c2a4a6af5c720",
+    "21a9a27a80332ffc1e8e696f69354276c33f98af245d10e588d1c9b5e54430ec",
+    "bcdf6bcda605302f934defc55b334d264bcc5f0a6e23a6138754917612182bae"
+  ]
+}

@@ -26,7 +26,7 @@
 
 **后台启动。** `ensureBackend` 接收目标的 `dataDir`、`agentDir`、`controlDir`；`spawnExecPath` 指定 Node 可执行文件，默认 `process.execPath`；`spawnArgv` 只含 bin 与服务参数。`env` 只传给子进程，路径与令牌解析仍读取调用方环境。探测到已运行后台返回 `{ ok: true, spawned: false }`；本次拉起就绪返回 `{ ok: true, spawned: true }`；失败返回 `{ ok: false, error }`。后台 detached 并 unref，客户端退出不停止后台。
 
-**监听点与帧。** 服务在 `<controlDir>/control.sock` 监听。请求是 `{v, id, op, params}`，应答是 `{v, id, ok, result|error}`，事件推送是 `{v, push:"event", event}`；每帧一行 JSON 加换行，空行忽略。当前协议版本是 `37`（`CONTROL_PROTOCOL_VERSION`，与 `PROTOCOL_VERSION` 同值）。
+**监听点与帧。** 服务在 `<controlDir>/control.sock` 监听。请求是 `{v, id, op, params}`，应答是 `{v, id, ok, result|error}`，事件推送是 `{v, push:"event", event}`；每帧一行 JSON 加换行，空行忽略。当前协议版本是 `38`（`CONTROL_PROTOCOL_VERSION`，与 `PROTOCOL_VERSION` 同值）。
 
 **拥有者认证。** 连接建立后第一个成功的操作必须是 `auth`（参数 `token`）。认证成功前，服务端对其他 op 一律回 `unauthorized`，不返回快照、不执行请求；连接保留，可以再次认证。令牌是 32 字节随机数的 hex，写入控制目录的 `owner.token`（0600）：缺失或内容去空白后不足 32 字符时后台启动时生成，已存在则复用。多用户部署由配置步骤把令牌以 0400、属主为拥有者放到拥有者可读的位置，再用 `RUUKOTO_OWNER_TOKEN_FILE` 指向它。
 
@@ -55,7 +55,8 @@
 | 技能管理 | `skills_list`、`skill_get`、`skill_import_preview`、`skill_import`、`skill_set_enabled`、`skill_remove` | 列表与正文有界；按稳定身份与内容修订管理托管副本，外部来源只读 |
 | 项目配置、资料授权与记忆 | `set_project_instructions`、`set_project_web_search`、`get_project_jev`、`set_project_jev`、`create_data_grant`、`revoke_data_grant`、`list_data_grants`、`list_memories`、`get_memory`、`save_memory`、`revoke_memory`、`restore_memory` | 写操作按 `expected_version` 条件更新；资料授权只能由拥有者此处创建与撤销 |
 | 凭据 | `list_credentials`、`add_credential`、`remove_credential` | `list_credentials` 返回脱敏元数据和服务引用，可按原项目及端点主机过滤，不回显值；秘密值随请求传输，不进命令行、模型上下文、事件或日志 |
-| MCP | `mcp_sources`、`mcp_configure`、`mcp_list`、`mcp_set_enabled`、`mcp_remove`、`mcp_check`、`mcp_save_credential`、`mcp_remove_credential` | 来源按工作区分页，配置按原项目与 `expected_version` 更新，桌面同时提交原 `service_id` 防止同名重建覆盖；检查禁用服务也只发现工具；专用凭据首次写入即限定来源与 MCP 操作 |
+| 电脑恢复 | `mcp_cua_status`、`mcp_cua_stop`、`mcp_cua_begin_recovery`、`mcp_cua_observe`、`mcp_cua_accept`、`get_tool_op_mcp` | 仅拥有者入口；操作顺序由持久事实核实，接受须回传当前观察身份，原证据分段读取；不把生命周期工具交给模型 |
+| MCP | `mcp_sources`、`mcp_configure`、`mcp_list`、`mcp_set_enabled`、`mcp_remove`、`mcp_check`、`mcp_save_credential`、`mcp_remove_credential` | 来源按工作区分页，配置按原项目与 `expected_version` 更新，桌面同时提交原 `service_id` 防止同名重建覆盖；普通 HTTPS 检查禁用服务也只发现工具，电脑检查不启动额外执行；配置支持互斥的 endpoint/cua 分支；专用凭据首次写入即限定来源与 MCP 操作 |
 | QQ 与 Telegram | `qq_configure`、`qq_status`、`qq_set_enabled`、`qq_inbox_list`、`qq_outbox_list`、`telegram_configure`、`telegram_status`、`telegram_set_enabled` | 配置按 `expected_version` 条件更新；QQ 群收件与出站列表是只读归档 |
 | 调度与通知 | `schedule_list`、`schedule_get`、`schedule_cancel`、`notification_list`、`notification_get`、`notification_cancel` | 只有查询与取消，控制面不获得发送或改目标的能力；取消必须给原因 |
 | 长期操作授权 | `service_grant_list`、`service_grant_get`、`service_grant_revoke` | 只有查询与带 `expected_version` 的撤销；控制面不能创建或扩大授权，重复撤销幂等且不再发事件 |
@@ -269,6 +270,8 @@ sequenceDiagram
 拥有者只读 `read_workspace_git` 仅接受已登记 workspace_id 与可选 cursor，返回非仓库 null 或带父关系、显式 refs 及 nextCursor 的提交页；每页200条，nextCursor为null时结束，不设累计总量。游标绑定仓库修订，变化返回 workspace_git_changed，客户端刷新后重新读取；不接自定义命令或根路径。协议 v29 的快照明确提供 mainSessionId，避免客户端猜角色身份。
 
 ## 设计依据
+
+- [Cua 配置、原证据与拥有者恢复](../../.agents/notes/implemented/architecture/2026-10-23-cua-official-mcp.md)
 
 - [Code MCP 来源与凭据管理](../../.agents/notes/implemented/feature/2026-10-21-code-mcp-settings.md)
 

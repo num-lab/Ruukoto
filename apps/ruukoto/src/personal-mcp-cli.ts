@@ -1,3 +1,4 @@
+import * as path from "node:path";
 import { randomUUID } from "node:crypto";
 import type { TaskId } from "@earendil-works/pi-durable";
 import { choose, type PersonalCliIO } from "./personal-cli.ts";
@@ -24,8 +25,8 @@ export async function configurePersonalMcp(io: PersonalCliIO, directory: string)
     const original = selected ? services[selected - 1] : undefined;
     const version = current?.version ?? 2;
     if (original) {
-      io.write(`\n${original.label}\n端点：${original.endpoint}\n认证：${original.credential ? "绑定私有令牌文件" : "显式匿名"}\n固定允许工具：${original.tools.map(tool => tool.name).join("、") || "无"}\n`);
-      const actions = ["查看固定工具定义", "替换配置并重新选择工具", "移除服务", ...(version === 2 ? [original.enabled ? "停用服务" : "启用服务"] : []), "返回"];
+      io.write(`\n${original.label}\n入口：${original.cua ? `本地 Linux 沙箱 ${original.cua.sandbox}` : original.endpoint}\n认证：${original.credential ? "绑定私有令牌文件" : "显式匿名"}\n固定允许工具：${original.tools.map(tool => tool.name).join("、") || "无"}\n`);
+      const actions = ["查看固定工具定义", "替换配置并重新选择工具", "移除服务", ...(version !== 1 ? [original.enabled ? "停用服务" : "启用服务"] : []), "返回"];
       const action = await choose(io, "原 MCP 服务", actions);
       if (action === actions.length - 1) return;
       if (action === 0) { io.write(`${JSON.stringify(original.tools, null, 2)}\n`); return; }
@@ -65,7 +66,7 @@ export async function configurePersonalMcp(io: PersonalCliIO, directory: string)
     }
     if (!tools.length) { io.write("没有选择允许工具，未保存服务。\n"); return; }
     if (await choose(io, `${label}：固定允许 ${tools.map(tool => tool.name).join("、")}`, ["返回", "保存服务与固定工具"]) === 0) return;
-    await savePersonalMcp(profile, { version, generation: randomUUID(), services: [...services.filter(service => service !== original), { ...target, tools, ...(version === 2 ? { enabled: original?.enabled ?? true } : {}) }] });
+    await savePersonalMcp(profile, { version, generation: randomUUID(), services: [...services.filter(service => service !== original), { ...target, tools, ...(version !== 1 ? { enabled: original?.enabled ?? true } : {}) }] });
     io.write("MCP 配置与原工具定义已保存；配置不授予操作权限。请启动后台；旧操作从管理菜单核实，不要换服务重发。\n");
   } finally { profile.release(); }
 }
@@ -83,12 +84,19 @@ export async function managePersonalMcp(io: PersonalCliIO, directory: string): P
     while (true) {
       const detail = await personalControl<Awaited<ReturnType<typeof mcpDetail>>>(directory, "GET", `/mcp/operation?operation=${operation}&offset=${detailOffset}`);
       io.write(`\n${personalMcpDescription(detail.summary)}\n原请求、响应与核实证据：\n${detail.text}\n`);
-      const actions = ["刷新原操作", ...(detail.nextOffset === undefined ? [] : ["下一页原记录"]), ...(detail.summary.canDecide ? ["批准本次 MCP 操作", "拒绝本次 MCP 操作"] : []), ...(detail.summary.canResolve ? ["确认业务已生效", "确认业务未生效"] : []), ...(detail.summary.canRecheck ? ["核实原请求结束"] : []), "返回操作列表"];
+      for (const image of detail.recoveryImages ?? []) io.write(`新截图：${path.join(directory, "artifacts", image.id + ".bin")}（${image.mime}，SHA-256 ${image.sha256}）。请打开并检查后再接受现场。\n`);
+      const actions = ["刷新原操作", ...(detail.nextOffset === undefined ? [] : ["下一页原记录"]), ...(detail.summary.canDecide ? ["批准本次 MCP 操作", "拒绝本次 MCP 操作"] : []), ...(detail.summary.canResolve ? ["确认业务已生效", "确认业务未生效"] : []), ...(detail.summary.canRecheck ? ["核实原请求结束"] : []), ...(detail.summary.cuaRecovery === "frozen" ? ["停止原电脑运行代并保留磁盘"] : detail.summary.cuaRecovery === "stopped" ? ["检查结果并开始恢复"] : detail.summary.cuaRecovery === "begun" ? ["读取恢复新截图"] : detail.summary.cuaRecovery === "observed" ? ["重新读取恢复截图", "接受新截图并开放新工作"] : []), "返回操作列表"];
       const action = actions[await choose(io, "原 MCP 操作", actions)];
       if (action === "返回操作列表") break;
       if (action === "下一页原记录") { detailOffset = detail.nextOffset!; continue; }
       detailOffset = 0;
-      if (action === "批准本次 MCP 操作" || action === "拒绝本次 MCP 操作") {
+      const recovery = { "停止原电脑运行代并保留磁盘": "stop", "检查结果并开始恢复": "begin", "读取恢复新截图": "observe", "重新读取恢复截图": "observe", "接受新截图并开放新工作": "accept" } as const;
+      if (action in recovery) {
+        if (action === "停止原电脑运行代并保留磁盘" && await choose(io, "停止整个原沙箱会丢失内存及未保存应用状态，磁盘保留", ["返回", "确认停止原运行代"]) === 0) continue;
+        if (action === "检查结果并开始恢复" && await choose(io, "先检查原业务结果；恢复只会开启新观察，原未知动作不会重发", ["返回", "已检查结果，开始恢复"]) === 0) continue;
+        await personalControl(directory, "POST", `/mcp/cua-recover?operation=${operation}`, { action: recovery[action as keyof typeof recovery], ...(action === "接受新截图并开放新工作" ? { observation: detail.summary.cuaObservation } : {}) });
+        io.write("电脑恢复事实已保存；请刷新原记录查看停止证据或新截图，原结果未知保持。\n");
+      } else if (action === "批准本次 MCP 操作" || action === "拒绝本次 MCP 操作") {
         await personalControl(directory, "POST", `/mcp/decide?operation=${operation}`, { decision: action === "批准本次 MCP 操作" ? "approved" : "rejected" });
         io.write("原 MCP 操作决定已登记；批准只消费一次，不表示操作成功。应答丢失请刷新原操作。\n");
       } else if (action === "核实原请求结束") {

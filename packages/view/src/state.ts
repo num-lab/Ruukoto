@@ -536,11 +536,11 @@ export class ViewState {
         return;
       case "mcp.service_changed": {
         const action = body.action === "removed" ? "已移除" : body.action === "disabled" ? "已禁用" : body.action === "enabled" ? "已启用" : "已更新";
-        this.note(null, `MCP 服务 ${body.name}（${body.endpoint}）${action}（配置版本 ${body.configVersion}）`);
+        this.note(null, `MCP 服务 ${body.name}（${body.cua?.kind ?? body.endpoint}）${action}（配置版本 ${body.configVersion}）`);
         return;
       }
       case "mcp.service_unavailable":
-        this.noteForTask(body.taskId, `MCP 服务 ${body.name}（${body.endpoint}）不可用：${body.reason}；本任务缺少其工具能力`, event.createdAt);
+        this.noteForTask(body.taskId, `MCP 服务 ${body.name}（${body.cua?.kind ?? body.endpoint}）不可用：${body.reason}；本任务缺少其工具能力`, event.createdAt);
         return;
       case "backend.stopping":
       case "backend.stopped":

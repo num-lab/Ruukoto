@@ -2,7 +2,7 @@
 
 Status: rejected — 拥有者撤销跨产品桌面独占，改用官方MCP直连
 
-本篇保留旧方案理由，不再指导实施；由[官方MCP新提案](../../proposed/architecture/2026-10-23-cua-official-mcp.md)取代。旧实验证据已在仓库外完整保存，见[归档索引](../../../../.scratch/cua-integration/archive.md)。
+本篇保留旧方案理由，不再指导实施；由[官方MCP接入](../../implemented/architecture/2026-10-23-cua-official-mcp.md)取代。旧实验证据已在仓库外完整保存，见[归档索引](../../../../.scratch/cua-integration/archive.md)。
 
 ## 问题
 

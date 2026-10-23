@@ -134,6 +134,8 @@ sequenceDiagram
   H-->>RT: 限长的模型视图与产物引用
 ```
 
+Code 的官方电脑 stdio 由同一 macOS 持久监督器以 `--durable-stdio` 启动：SDK 仍使用 stdin/stdout/stderr，启动和停止证据留在原私有认领目录，不混入 MCP stdout。宿主在 SDK 启动前保存执行引用与指纹，停止沿原内核身份及完整停止回执核实；关闭连接或 PID 消失都不能代替 direct runtime 停止。正常暂停先核实监督单元停止，再关闭 SDK 连接。
+
 ### 原生受限执行
 
 Coding 正式入口默认 `native`，`--execution` 与 `RUUKOTO_EXECUTION_BACKEND` 只接受 native；显式 container/local 被拒并提示迁移，库层仍可注入 local。原生 worker 使用实际宿主 UID/GID、补充组与 ACL，通过宿主 Node 和构建出的 `worker/worker.mjs` 运行；只读提供 SDK 依赖、选定工具安装版本与实际动态库，不开放整个 HOME、工具资料父目录、源码根、后台数据或控制面。原生工作区必须有钉定 dev/ino，授予与只读根使用真实路径，重叠只读祖先与读写子授权被拒。宿主保护与已批准操作同时核实目标/祖先 inode 和保护树内子对象，不因 `/System/Volumes/Data` 等别名放开同一保护目录。 原生运行依赖逐保护根批量核对，候选祖先身份共用一次保护树遍历；返回前复核固定路径和已观察目录，变化或读取失败在创建单元前拒绝，不保存跨调用放行结果。
@@ -263,6 +265,8 @@ sequenceDiagram
 全局保护根未作为显式只读挂载时，外部特权预存的子文件 bind 别名仍有原生旁路；显式来源只读范围和宿主文件入口按上述 inode 检查拒绝。该既有情形保留真实反例，另作原生保护审计；原生边界不承诺抵抗宿主外部特权准备。
 
 ## 设计依据
+
+- [Cua 受管执行与停止核实](../../.agents/notes/implemented/architecture/2026-10-23-cua-official-mcp.md)
 
 - [个人文件检索](../../.agents/notes/implemented/feature/2026-10-21-personal-file-search.md)：资料范围、只读执行与持久停止。
 

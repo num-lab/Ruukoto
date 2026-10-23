@@ -108,7 +108,7 @@ test("文件写入开始后 fsync 失败保留真实改动并报告效果未知�
 });
 
 test("schema 直接替换：旧版本与较新版本均拒绝启动，不建表、不回填授权或改写数据", () => {
-  for (const version of [1, 20, SCHEMA_VERSION - 1, SCHEMA_VERSION + 1]) {
+  for (const version of [1, 20, SCHEMA_VERSION - 2, SCHEMA_VERSION + 1]) {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-schema-reject-"));
     try {
       const raw = new DatabaseSync(path.join(root, "ruukoto.db"));

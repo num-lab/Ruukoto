@@ -12,7 +12,7 @@ import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 
-export const SCHEMA_VERSION = 49;
+export const SCHEMA_VERSION = 50;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS background_processes (
@@ -257,6 +257,7 @@ CREATE TABLE IF NOT EXISTS tool_ops (
   params TEXT NOT NULL,
   intent_recorded_at TEXT NOT NULL,
   authorization TEXT,
+  mcp TEXT,
   result_summary TEXT,
   is_error INTEGER,
   effect_unknown INTEGER NOT NULL DEFAULT 0,
@@ -405,6 +406,7 @@ CREATE TABLE IF NOT EXISTS mcp_services (
   project_id TEXT NOT NULL,
   name TEXT NOT NULL,
   endpoint TEXT NOT NULL,
+  cua_config TEXT,
   credential TEXT,
   tool_allowlist TEXT NOT NULL,
   enabled INTEGER NOT NULL DEFAULT 1,
@@ -828,13 +830,17 @@ export class Db {
     }
     const version = row ? Number(row.value) : SCHEMA_VERSION;
     // Note: 见 .agents/notes/implemented/feature/2026-10-12-full-access-current-account.md
-    if (row && version !== SCHEMA_VERSION) {
+    if (row && version !== SCHEMA_VERSION && version !== 49) {
       this.db.close();
       throw new SchemaVersionError(version > SCHEMA_VERSION
         ? `schema 版本过新：文件 ${row.value}，程序 ${SCHEMA_VERSION}（需升级程序）`
         : `不支持旧 schema：文件 ${row.value}，程序 ${SCHEMA_VERSION}；请保留原库并使用新的数据目录，不回填执行授权`);
     }
     this.tx(() => {
+      if (version === 49) {
+        this.db.exec("ALTER TABLE mcp_services ADD COLUMN cua_config TEXT; ALTER TABLE tool_ops ADD COLUMN mcp TEXT;");
+        this.db.prepare("UPDATE meta SET value = ? WHERE key = 'schema_version'").run(String(SCHEMA_VERSION));
+      }
       this.db.exec(SCHEMA_SQL);
       this.db.prepare("INSERT INTO meta (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO NOTHING")
         .run(String(SCHEMA_VERSION));

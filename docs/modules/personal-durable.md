@@ -104,9 +104,11 @@ CLI 按聊天、后台工作/定时、审批核实、权限/资料、停机配�
 
 `ruukoto.mcp-config` 保存配置与代次历史，`ruukoto.mcp` 按原生工具 Task 保存原来源、权限、批准消费、完整 JSON-RPC 请求/应答及 SSE 原流证据；不可改 entries 对应配置、接纳、开始、观察、批准与业务效果核实。`mcp.json` 保存当前端点和允许列表，凭据仅为私有文件路径与内容指纹；初始化及后续每次请求重读核实，失效不降为匿名。首次启用和变代均须没有未决工作、输入或外部占用，历史配置与调用不改写。
 
+Cua 电脑入口只允许拥有者主会话；普通 MCP 的来源资格不变。同实例只持有一条持续 stdio 连接与主会话绑定，调用按原批准串行消费，记录原 schema、模型受限定义与实际固定目标参数。CLI 在 user systemd scope 中受管，启动前先登记 scope 与随机描述，冷启动先核实旧输入源停止；核实失败只暂停电脑入口，普通聊天继续。
+
 MCP 内联 JPEG/PNG/WebP 每次最多4张、每张最多8MiB，校验规范base64与实际MIME后保存私有产物；imageProjection version 1与ruukoto.mcp-images entry保存原内容顺序、原pi.tool归属及图片引用，provider前沿媒体链恢复。纯图、混图与isError附图均保留；图片失败单独说明，原完整应答与remoteEnded不变。分页读取新图片记录时用引用代替base64，旧文本记录不改写；重开只读产物，不重新调用工具。
 
-新的 MCP 配置为 version 2，服务逐项保存 `enabled`；已有 version 1 原样读取，经拥有者显式迁入生成新代次并保持原服务启用。启停保留端点、凭据及工具定义，停用不再允许新调用；每次保存生成新代次，原调用与配置历史保持原版本。文件和 durable 当前配置均拒绝降回 version 1，旧程序遇到 version 2 拒绝打开；配置元数据不另建执行状态。
+HTTPS MCP 配置 version 2，服务逐项保存 `enabled`；已有 version 1 原样读取，经拥有者显式迁入生成新代次并保持原服务启用。启停保留端点、凭据及工具定义，停用不再允许新调用；每次保存生成新代次，原调用与配置历史保持原版本。文件和 durable 当前配置均拒绝降回 version 1，旧程序遇到 version 2 拒绝打开；配置元数据不另建执行状态。 Cua 使用 version 3 的具名分支，固定本地 Linux CLI 制品、沙箱名与完整容器身份，拒绝端点或凭据混用和格式降版；旧 HTTPS 配置原样读取。
 
 ## 主要流程
 
@@ -184,6 +186,8 @@ Telegram 数值 offset 只在一批更新收到后 60 秒内用于紧接的一�
 
 MCP 在外调前原子保存原请求及批准消费；同工具恢复与传输内部第二次调用均不重发。完整终结应答才能证明远端请求结束，HTTP 超时、关闭、取消、任务句柄及需要后续输入的应答均不能代替。未知调用暂停原工作、整个委托及报告，保留子身份与端点占用；其他独立来源和不同端点仍可继续。人工效果说明不修改远端结束，只有原会话/协议/游标齐备且服务支持 SSE 恢复时才能 GET 查询原迟到应答，缺证据持续保留占用。完整原响应分页读取，isError、error.data、结构化与非文本内容均保留；返回不代表业务成功。
 
+Cua 写调用已发送但缺完整应答时保留 effect_unknown，读取中断记录 no_write；连接失效后旧观察不可再用于输入。电脑恢复由本机 MCP 操作菜单依次核实旧 CLI 停止、明确选择停止原 Docker 运行代并保留磁盘、检查原效果并开始恢复、保存新连接的原截图应答与产物、接受该次观察。停止整沙箱会丢失内存与未保存应用状态，只有拥有者选择恢复后才可启动新运行代。接受绑定最新观察与执行身份，原 remoteEnded 与未知效果保持；mcpUnresolved、原来源、工作与报告等待、设置阻塞统一按这份 Cua 专属事实结算。新工作先重新截图，旧工具 Task 不重放，普通 HTTP 人工效果说明不能解除远端结束阻塞。
+
 ## 设计依据
 
 - [个人文件检索](../../.agents/notes/implemented/feature/2026-10-21-personal-file-search.md)：资料范围、只读执行与持久停止。
@@ -207,6 +211,7 @@ MCP 在外调前原子保存原请求及批准消费；同工具恢复与传输�
 - [个人通用工具、资料与产物](../../.agents/notes/implemented/architecture/2026-10-17-personal-tools-access-artifacts.md)：精确审批、原字节和共享暂停。
 
 - [个人 MCP 原生工具与外部证据](../../.agents/notes/implemented/architecture/2026-10-17-personal-durable-mcp.md)：配置、批准、原请求与 SSE 恢复、未知占用。
+- [Cua 官方 MCP 与人工恢复](../../.agents/notes/implemented/architecture/2026-10-23-cua-official-mcp.md)：持续连接、固定目标和原记录上的恢复结算。
 - [MCP 图片结果](../../.agents/notes/implemented/architecture/2026-10-23-mcp-image-results.md)：有序产物引用、图像问题与原动作事实。
 
 - [完全访问命令的持久 scope 与原工作恢复](../../.agents/notes/implemented/architecture/2026-10-17-personal-full-access-commands.md)

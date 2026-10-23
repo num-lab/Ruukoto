@@ -2,7 +2,7 @@
 
 Status: implemented
 
-[Cua 接入提案](../../proposed/architecture/2026-10-23-cua-official-mcp.md)拟扩展电脑目标、跨调用绑定与图片投影，保留本篇原请求和远端结束证据规则。
+[Cua 接入](2026-10-23-cua-official-mcp.md)增加version3具名电脑配置、跨调用绑定与恢复结算。Cua接受新观察后可结束旧等待，原remoteEnded仍只由完整原应答决定；普通HTTP保留本篇原请求、结束证据与阻塞规则。
 
 [MCP图片结果](2026-10-23-mcp-image-results.md)实现有序图片投影和分页引用，补充下文非文本证据的模型读取规则，原完整应答与未知占用不变。
 

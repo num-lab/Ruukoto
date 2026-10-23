@@ -19,7 +19,7 @@ import type { SubAgentExecutionSnapshot } from "./subagent-execution.ts";
 import type { WorkCopyHostSnapshot } from "./work-copy-host.ts";
 import { requireWorkspaceSnapshot, WorkspaceSnapshotError, type WorkspaceSnapshot } from "./workspace-snapshot.ts";
 
-export const PROTOCOL_VERSION = 37;
+export const PROTOCOL_VERSION = 38;
 
 export interface ModelSelection {
   provider: string;
@@ -643,7 +643,8 @@ export type ApprovalScope =
       serviceId: string;
       serviceName: string;
       /** 服务端点（审批展示核对目标；不含 userinfo，凭据值不出现）。 */
-      endpoint: string;
+      endpoint?: string;
+      cua?: { kind: string; executable: string; sha256: string };
       /** 请求时的服务配置版本；消费前重读核对，变化即失效。 */
       configVersion: number;
       /** 远端工具名（暴露名见 ConfirmationRequest.toolName）。 */
@@ -845,7 +846,28 @@ export type ToolAuthorization =
   | { source: "full_access"; taskId: string; permissionVersion: number; scope: ApprovalScope }
   | { source: "approval"; taskId: string; permissionVersion: number; confirmationId: string; scope: ApprovalScope };
 
+export interface McpOperation {
+  serviceId: string;
+  configVersion: number;
+  configuration?: { kind: "cua-mac"; executable: string; version: "0.38.0"; sha256: string };
+  effect: "read" | "write" | "unknown";
+  rawTool: { name: string; inputSchema: Record<string, unknown> };
+  modelTool: { name: string; inputSchema: Record<string, unknown> };
+  arguments: Record<string, unknown>;
+  execution: { executionId: string; fingerprint: string; directory: string };
+  state: "starting" | "prepared" | "not_sent" | "sent" | "finished" | "frozen" | "recovering" | "recovered" | "closed";
+  request?: string;
+  response?: string;
+  stoppedAt?: string;
+  ownerStartedAt?: string;
+  recoversOpId?: string;
+  observationOpId?: string;
+  observationArtifactIds?: string[];
+  acceptedAt?: string;
+}
+
 export interface ToolOp {
+  mcp?: McpOperation;
   /** 宿主分配的操作 id（与模型生成的 SDK 调用 id 分开存储）。 */
   id: string;
   taskId: string;
@@ -968,6 +990,7 @@ export type PersistentEventBody =
    */
   | { type: "task.tool_intent"; taskId: string; toolOpId: string; sdkCallId: string | null; toolName: string; params: Record<string, unknown>; paramsBytes?: number; paramsTruncated?: boolean }
   | { type: "task.tool_result"; taskId: string; toolOpId: string; summary: string; isError: boolean; artifactIds: string[]; editStats?: EditStats }
+  | { type: "task.mcp_operation_changed"; taskId: string; toolOpId: string; state: McpOperation["state"] }
   | { type: "task.tool_effect_unknown"; taskId: string; toolOpId: string; toolName: string }
   | { type: "task.tool_process_unreaped"; taskId: string; sessionId: string; reason: string }
   | { type: "task.completed"; taskId: string; sessionId: string }
@@ -992,9 +1015,9 @@ export type PersistentEventBody =
   | { type: "github.draft_stale"; draftId: string; version: number; reason: string }
   | { type: "github.publish_requested"; publishOpId: string; draftId: string; draftVersion: number; taskId: string; sessionId: string }
   | { type: "github.publish_settled"; publishOpId: string; draftId: string; status: "sent" | "failed" | "effect_unknown" | "canceled"; remoteUrl: string | null; errorMessage: string | null }
-  | { type: "mcp.service_changed"; serviceId: string; projectId: string; name: string; endpoint: string; configVersion: number; action: "upsert" | "enabled" | "disabled" | "removed" }
+  | { type: "mcp.service_changed"; serviceId: string; projectId: string; name: string; endpoint?: string; cua?: { kind: string }; configVersion: number; action: "upsert" | "enabled" | "disabled" | "removed" }
   /** 任务开始时显式启用的服务初始化失败（连接/认证/超时等）：本任务缺少其工具能力。 */
-  | { type: "mcp.service_unavailable"; serviceId: string; projectId: string; taskId: string; sessionId: string; name: string; endpoint: string; reason: string }
+  | { type: "mcp.service_unavailable"; serviceId: string; projectId: string; taskId: string; sessionId: string; name: string; endpoint?: string; cua?: { kind: string }; reason: string }
   /**
    * QQ 入口配置变化（issue 07）：连接参数/群允许列表/启停。不含 token
    * （凭据值只在 CredentialStore）；configVersion 随任何变化递增。

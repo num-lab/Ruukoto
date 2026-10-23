@@ -5,17 +5,17 @@ import type { ManagedSettingsCategory, SettingsForm, SettingsPhase } from "./set
 
 export type PersonalModel = { api: "openai-completions" | "openai-responses" | "anthropic-messages"; baseUrl: string; modelId: string; apiKeyEnv: string; contextWindow: number; maxTokens: number; imageInput?: boolean };
 export type PersonalTool = { name: string; description?: string; inputSchema: Record<string, unknown>; [key: string]: unknown };
-export type PersonalService = { id: string; label: string; endpoint: string; credential?: { path: string; sha256: string }; credentialStatus?: string; enabled?: boolean; tools: PersonalTool[] };
+export type PersonalService = { id: string; label: string; endpoint?: string; cua?: { kind: "cua-linux"; executable: string; version: "0.7.0"; sha256: string; sandbox: string; sandboxId: string }; credential?: { path: string; sha256: string }; credentialStatus?: string; enabled?: boolean; tools: PersonalTool[] };
 type Skill = OpResult<"skills_list">["skills"][number];
 type SkillDetail = OpResult<"skill_get">;
 type SkillPreview = OpResult<"skill_import_preview">;
 export type PersonalPageView = Omit<PersonalManagementView, "settings"> & { settings: PersonalManagementView["settings"] & {
   model: { config: PersonalModel; credential: { state: "available" | "missing" | "unverified"; reference: string } } | null;
   skills: { config: { version: 1; directory: string } | null; revision: string; skills: Skill[]; diagnostics: string[]; diagnosticsTruncated: boolean; hasMore: boolean; offset: number };
-  mcp: { version: 1 | 2; services: (Omit<PersonalService, "tools"> & { tools: Pick<PersonalTool, "name" | "description">[] })[]; hasMore: boolean; offset: number } | null;
+  mcp: { version: 1 | 2 | 3; services: (Omit<PersonalService, "tools"> & { tools: Pick<PersonalTool, "name" | "description">[] })[]; hasMore: boolean; offset: number } | null;
 } };
 type Directory = { purpose: "library" | "import"; directory: string; selectable: boolean; directories: { name: string; directory: string }[]; offset: number; hasMore: boolean; truncated: boolean };
-type ServiceDraft = { id: string; label: string; endpoint: string; authentication: "" | "anonymous" | "credential"; credentialPath: string; enabled: boolean; tools: PersonalTool[] };
+type ServiceDraft = { cua?: PersonalService["cua"]; id: string; label: string; endpoint: string; authentication: "" | "anonymous" | "credential"; credentialPath: string; enabled: boolean; tools: PersonalTool[] };
 const emptyModel = () => ({ api: "openai-responses" as PersonalModel["api"], baseUrl: "", modelId: "", apiKeyEnv: "", contextWindow: "", maxTokens: "", imageInput: false });
 const emptyService = (): ServiceDraft => ({ id: crypto.randomUUID(), label: "", endpoint: "", authentication: "", credentialPath: "", enabled: false, tools: [] });
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
@@ -151,12 +151,13 @@ export class PersonalSettingsPageState implements SettingsForm {
         hasMore = result.toolsHasMore; offset += result.service.tools.length;
       }
     }
-    this.service = service ? { id: service.id, label: service.label, endpoint: service.endpoint, authentication: service.credential ? "credential" : "anonymous", credentialPath: service.credential?.path ?? "", enabled: service.enabled ?? true, tools: service.tools } : emptyService();
+    this.service = service ? { id: service.id, label: service.label, endpoint: service.endpoint ?? "", ...(service.cua ? { cua: service.cua } : {}), authentication: service.credential ? "credential" : "anonymous", credentialPath: service.credential?.path ?? "", enabled: service.enabled ?? true, tools: service.tools } : emptyService();
     this.editingService = true; this.toolsChanged = false; this.discovered = null; this.baseline = id ? JSON.stringify(this.draft()) : "null"; this.changed();
   }
-  editService<K extends keyof ServiceDraft>(key: K, value: ServiceDraft[K]): void { if (this.disabled) return; this.service = { ...this.service, [key]: value }; this.discovered = null; this.confirmation = null; delete this.fieldErrors[key]; this.changed(); }
-  allowTool(tool: PersonalTool, allowed: boolean): void { if (this.disabled) return; this.service.tools = allowed ? [...this.service.tools.filter(item => item.name !== tool.name), tool] : this.service.tools.filter(item => item.name !== tool.name); this.toolsChanged = true; this.confirmation = null; this.changed(); }
+  editService<K extends keyof ServiceDraft>(key: K, value: ServiceDraft[K]): void { if (this.disabled || this.service.cua) return; this.service = { ...this.service, [key]: value }; this.discovered = null; this.confirmation = null; delete this.fieldErrors[key]; this.changed(); }
+  allowTool(tool: PersonalTool, allowed: boolean): void { if (this.disabled || this.service.cua) return; this.service.tools = allowed ? [...this.service.tools.filter(item => item.name !== tool.name), tool] : this.service.tools.filter(item => item.name !== tool.name); this.toolsChanged = true; this.confirmation = null; this.changed(); }
   private serviceValue(): Record<string, unknown> | null {
+    if (this.service.cua) { this.message = "电脑入口固定配置由个人管理入口维护；此处可启停或移除服务。"; this.changed(); return null; }
     this.fieldErrors = {};
     if (!this.service.label.trim() || this.service.label.length > 128) this.fieldErrors.label = "请输入不超过 128 字的服务名称。";
     let url: URL | null = null;

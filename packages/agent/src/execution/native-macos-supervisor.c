@@ -61,6 +61,7 @@ static struct process_scope *managed_scopes;
 static size_t managed_scopes_length;
 static size_t managed_scopes_capacity;
 static bool durable;
+static bool durable_stdio;
 static int evidence_dir = -1;
 static int journal = -1;
 static const char *execution_token;
@@ -421,7 +422,7 @@ static bool started_message(pid_t pid) {
   char line[128];
   snprintf(line, sizeof(line), "{\"type\":\"started\",\"pid\":%d}\n", pid);
   if (durable && !persist(line)) return false;
-  return dprintf(3, "%s", line) > 0;
+  return durable_stdio || dprintf(3, "%s", line) > 0;
 }
 
 static bool parse_unsigned(const char *source, uint64_t *value) {
@@ -455,12 +456,17 @@ static bool status_message(const char *type, const char *reason, int reaped) {
     if (!write_receipt(line)) { mark_uncertain("supervisor_receipt_failed"); return false; }
   } else if (reaped < 0) snprintf(line, sizeof(line), "{\"type\":\"%s\",\"reason\":\"%s\"}\n", type, reason);
   else snprintf(line, sizeof(line), "{\"type\":\"%s\",\"reaped\":%s,\"reason\":\"%s\"}\n", type, reaped ? "true" : "false", reason);
-  return dprintf(3, "%s", line) > 0;
+  return durable_stdio || dprintf(3, "%s", line) > 0;
 }
 
 static void pause_observation(int milliseconds) {
   capture_output();
   if (stop_marker()) stop_requested = 1;
+  if (durable_stdio) {
+    struct timespec delay = {.tv_sec = milliseconds / 1000, .tv_nsec = (milliseconds % 1000) * 1000000};
+    nanosleep(&delay, NULL);
+    return;
+  }
   struct pollfd controller = {.fd = 4, .events = POLLIN | POLLHUP};
   int result = poll(&controller, 1, milliseconds);
   if (result < 0 && errno != EINTR) { mark_uncertain("controller_unavailable"); stop_requested = 1; }
@@ -527,14 +533,17 @@ int main(int argc, char **argv) {
     return 2;
   }
   int command_index = 2;
-  durable = argc >= 7 && strcmp(argv[1], "--durable") == 0 && strcmp(argv[5], "--") == 0;
+  durable_stdio = argc >= 7 && strcmp(argv[1], "--durable-stdio") == 0 && strcmp(argv[5], "--") == 0;
+  durable = durable_stdio || (argc >= 7 && strcmp(argv[1], "--durable") == 0 && strcmp(argv[5], "--") == 0);
   if (durable) command_index = 6;
-  if (argc <= command_index || (!durable && strcmp(argv[1], "--") != 0) || fcntl(3, F_GETFD) < 0 || fcntl(4, F_GETFD) < 0) return 2;
+  if (argc <= command_index || (!durable && strcmp(argv[1], "--") != 0) || (!durable_stdio && (fcntl(3, F_GETFD) < 0 || fcntl(4, F_GETFD) < 0))) return 2;
   signal(SIGTERM, request_stop);
   signal(SIGINT, request_stop);
   signal(SIGHUP, request_stop);
-  fcntl(3, F_SETFD, FD_CLOEXEC);
-  fcntl(4, F_SETFD, FD_CLOEXEC);
+  if (!durable_stdio) {
+    fcntl(3, F_SETFD, FD_CLOEXEC);
+    fcntl(4, F_SETFD, FD_CLOEXEC);
+  }
   if (durable && !prepare_durable(argv[2], argv[3], argv[4])) return 2;
   if (!check_capability() || !owner_processes(&baseline)) {
     status_message("failed", "capability_or_baseline_unavailable", -1);
@@ -570,8 +579,7 @@ int main(int argc, char **argv) {
     ssize_t size;
     do { size = read(gate[0], &start, 1); } while (size < 0 && errno == EINTR);
     if (size != 1) _exit(126);
-    close(3);
-    close(4);
+    if (!durable_stdio) { close(3); close(4); }
     close(gate[0]);
     execv(argv[command_index], argv + command_index);
     _exit(127);

@@ -1,8 +1,8 @@
 /**
- * MCP Streamable HTTP 传输，不持有项目、凭据存储或任务状态。
+ * MCP HTTP 与受管 Cua stdio 传输，不持有项目、凭据存储或任务状态。
  * Note: 见 .agents/notes/implemented/architecture/2026-10-17-mcp-transport-reuse.md
  *
- * - 首版仅 Streamable HTTP 传输；stdio、OAuth 登录、resources/prompts、
+ * - 普通服务使用 Streamable HTTP，Cua 使用宿主生成的 stdio；OAuth 登录、resources/prompts、
  *   sampling/elicitation 等客户端代执行能力不启用（不声明对应 capability）；
  * - 端点校验：生产固定 https，http 仅限回环（模拟服务）；拒绝 userinfo；
  *   自定义 fetch 钉住源（拒绝跨源重定向，不向非配置目标转发认证）；
@@ -23,6 +23,7 @@ import {
   type CallToolResult,
   type Tool as McpRemoteTool,
 } from "@modelcontextprotocol/client";
+import { StdioClientTransport, DEFAULT_INHERITED_ENV_VARS } from "@modelcontextprotocol/client/stdio";
 
 export const MCP_LIMITS = {
   maxToolsPerService: 64,
@@ -32,6 +33,7 @@ export const MCP_LIMITS = {
   connectTimeoutMs: 15_000,
   listTimeoutMs: 15_000,
   callTimeoutMs: 60_000,
+  stdioMessageBytes: 48 * 1024 * 1024,
   /** 结果内联上限：超过则正文入 ArtifactStore，模型只收预览与引用。 */
   resultInlineCapChars: 32 * 1024,
   /** 产物正文硬上限：超过截断并明确标记。 */
@@ -108,12 +110,16 @@ export interface McpConnection {
   /** 初始化握手返回的服务信息（可能为空）。 */
   readonly serverInfo: { name?: string; version?: string } | null;
   readonly protocolVersion: string | null;
+  /** 受管 stdio 启动入口的 PID；停止证明由产品的原生执行身份提供。 */
+  readonly pid?: number | null;
+  /** stdio 连接已经失效；这只使观察失效，不证明执行单元停止。 */
+  readonly closed?: boolean;
   /** 本连接最近一次调用的完整 JSON-RPC 请求与应答；本地关闭不生成应答。 */
   readonly callEvidence?: McpCallEvidence;
   /** 分页发现工具（有界：页数与总数上限；游标来自远端，按外部数据处理）。 */
   listTools(signal?: AbortSignal): Promise<McpRemoteTool[]>;
   /** 调用远端工具（任务钉版的定义）；传输错误抛 McpError，工具执行错误（isError）由调用方区分。 */
-  callTool(tool: { name: string; inputSchema: Record<string, unknown> }, args: Record<string, unknown>, signal?: AbortSignal): Promise<CallToolResult>;
+  callTool(tool: { name: string; inputSchema: Record<string, unknown> }, args: Record<string, unknown>, signal?: AbortSignal, hooks?: McpCallHooks): Promise<CallToolResult>;
   close(): Promise<void>;
 }
 
@@ -122,11 +128,14 @@ export interface McpEndpoint {
   endpoint: string;
 }
 
-export interface McpEndpointConnectOptions extends McpTimeouts {
+export interface McpCallHooks {
   /** tools/call 真正发送前持久化原请求并核实授权；拒绝时不发该请求。不得在回调内重发。 */
   recordCallRequest?: (request: string) => Promise<void>;
   /** 同一事件的恢复游标与原应答一起保存；回调串行执行，调用返回前等待。失败停止本地等待，不证明远端结束。 */
   recordCallProgress?: (evidence: Readonly<McpCallEvidence>) => Promise<void>;
+}
+
+export interface McpEndpointConnectOptions extends McpTimeouts, McpCallHooks {
   /** 省略表示匿名；宿主每请求核实原凭据的目标、用途与来源范围，返回非空 token。
    * 普通异常和空 token 在发送前转为 auth_failed；自定义 McpError 必须不含秘密值。
    */
@@ -200,7 +209,13 @@ class SdkMcpConnection implements McpConnection {
     private readonly callTimeoutMs: number,
     readonly callEvidence: McpCallEvidence,
     private readonly progress: ReturnType<typeof callProgress>,
+    private readonly callLifecycle?: { begin(hooks?: McpCallHooks, signal?: AbortSignal): void; invalidate(): void; end(): void },
+    readonly pid?: number | null,
+    private readonly classifyError = classifyMcpError,
+    private readonly connectionClosed?: () => boolean,
   ) {}
+
+  get closed(): boolean | undefined { return this.connectionClosed?.(); }
 
   async listTools(signal?: AbortSignal): Promise<McpRemoteTool[]> {
     let res: { tools: McpRemoteTool[] };
@@ -210,7 +225,7 @@ class SdkMcpConnection implements McpConnection {
       if (err instanceof SdkError && err.code === SdkErrorCode.ListPaginationExceeded) {
         throw new McpError("too_many_pages", `MCP 工具分页超过 ${MCP_LIMITS.maxListPages} 页（疑似异常服务，拒绝接入）`);
       }
-      throw classifyMcpError(err, this.listTimeoutMs, signal);
+      throw this.classifyError(err, this.listTimeoutMs, signal);
     }
     if (res.tools.length > MCP_LIMITS.maxToolsPerService) {
       throw new McpError("too_many_tools", `MCP 服务工具数超过上限 ${MCP_LIMITS.maxToolsPerService}（拒绝接入，请收缩服务范围）`);
@@ -218,9 +233,10 @@ class SdkMcpConnection implements McpConnection {
     return res.tools;
   }
 
-  async callTool(tool: { name: string; inputSchema: Record<string, unknown> }, args: Record<string, unknown>, signal?: AbortSignal): Promise<CallToolResult> {
-    await this.progress.flush();
+  async callTool(tool: { name: string; inputSchema: Record<string, unknown> }, args: Record<string, unknown>, signal?: AbortSignal, hooks?: McpCallHooks): Promise<CallToolResult> {
+    this.callLifecycle?.begin(hooks, signal);
     try {
+      await this.progress.flush();
       // 传钉版定义（不带 outputSchema）：SDK 不做本地输出校验（校验失败与远端错误应答
       // 同为 ProtocolError、分不开，而前者远端已执行），也不在 header 不符时刷新清单后
       // 自动重发；结构化结果由路由器按钉版 outputSchema 校验
@@ -237,8 +253,11 @@ class SdkMcpConnection implements McpConnection {
       await this.progress.flush();
       return result;
     } catch (err) {
+      this.callLifecycle?.invalidate();
       await this.progress.flush();
-      throw classifyMcpError(err, this.callTimeoutMs, signal);
+      throw this.classifyError(err, this.callTimeoutMs, signal);
+    } finally {
+      this.callLifecycle?.end();
     }
   }
 
@@ -249,6 +268,92 @@ class SdkMcpConnection implements McpConnection {
     });
     await this.progress.drain();
   }
+}
+
+/** 可信宿主生成的启动程序；模型与普通 HTTPS 配置不能构造此入口。 */
+export interface McpStdioProgram {
+  command: string;
+  args: string[];
+  env: Record<string, string>;
+  cwd?: string;
+}
+
+function classifyStdioError(error: unknown, timeout: number, signal?: AbortSignal): McpError {
+  const classified = classifyMcpError(error, timeout, signal);
+  return !(error instanceof McpError) && classified.code === "connect_failed" ? new McpError("connect_failed", "电脑连接或调用中断；停止电脑操作并报告拥有者核实原执行，不能重发旧操作。") : classified;
+}
+
+/** Cua 专用受管 stdio，沿 SDK 编解码、消息限额与请求生命周期；产品持有停止身份。
+ * 每次调用独立绑定证据钩子，写管道前完成记录和授权消费；取消、关闭与重连均不重发工具。
+ * Note: 见 .agents/notes/implemented/architecture/2026-10-23-cua-official-mcp.md
+ */
+export async function connectMcpStdio(program: McpStdioProgram & { serviceId: string }, opts: McpTimeouts & McpCallHooks = {}): Promise<McpConnection> {
+  // SDK 将默认环境与 env 合并；显式覆盖其白名单，避免继承宿主的目标和命令搜索配置。
+  const env = Object.fromEntries(DEFAULT_INHERITED_ENV_VARS.map(key => [key, ""]));
+  const transport = new StdioClientTransport({ ...program, env: { ...env, ...program.env }, stderr: "pipe", maxBufferSize: MCP_LIMITS.stdioMessageBytes });
+  let closed = false;
+  // 子进程诊断可能含业务正文和凭据；持续排空而不缓存、不转发给模型或日志。
+  transport.stderr?.on("data", () => undefined);
+  let active = false, hooks: McpCallHooks | undefined, callId: unknown, generation = 0;
+  let callSignal: AbortSignal | undefined;
+  const evidence: McpCallEvidence = {};
+  const progress = callProgress(evidence, value => hooks?.recordCallProgress?.(value) ?? Promise.resolve(), () => transport.close());
+  const send = transport.send.bind(transport);
+  transport.send = async message => {
+    if ("method" in message && message.method === "tools/call") {
+      if (!active || !hooks) throw new McpError("call_unbound", "电脑调用尚未绑定原操作，未发送；停止本轮并报告拥有者。");
+      const originalGeneration = generation, originalSignal = callSignal, originalHooks = hooks;
+      const checkActive = () => {
+        if (!active || generation !== originalGeneration || originalSignal?.aborted) throw new McpError("canceled", "电脑调用在记录期间已结束，未发送；查询原操作，不能重发。");
+      };
+      const request = JSON.stringify(message);
+      try { await originalHooks.recordCallRequest?.(request); } catch (error) {
+        if (error instanceof McpError) throw error;
+        throw new McpError("evidence_failed", "电脑原请求无法保存或授权已失效，未发送；停止本轮并报告拥有者检查原操作。");
+      }
+      checkActive();
+      callId = "id" in message ? message.id : undefined;
+      evidence.request = request;
+      progress.save();
+      await progress.flush();
+      checkActive();
+    }
+    await send(message);
+  };
+  const client = new Client({ name: "ruukoto", version: "0.1.0" }, { capabilities: {}, listMaxPages: MCP_LIMITS.maxListPages });
+  const timeout = opts.connectTimeoutMs ?? MCP_LIMITS.connectTimeoutMs;
+  try { await client.connect(transport, { timeout }); } catch (error) {
+    await client.close().catch(() => {
+      // 初始化失败后的关闭不证明执行单元已停止，由产品保留身份并核实。
+    });
+    throw classifyStdioError(error, timeout);
+  }
+  const receive = transport.onmessage;
+  const onclose = transport.onclose;
+  transport.onclose = () => { closed = true; onclose?.(); };
+  transport.onmessage = message => {
+    if (active && callId !== undefined && "id" in message && message.id === callId && ("result" in message || "error" in message)) {
+      evidence.response = JSON.stringify(message);
+      progress.save();
+    }
+    receive?.(message);
+  };
+  const lifecycle = {
+    begin(next?: McpCallHooks, signal?: AbortSignal) {
+      if (closed) throw new McpError("connect_failed", "电脑连接已失效，未发送；停止电脑操作并报告拥有者核实原执行后重新观察。");
+      if (active) throw new McpError("call_in_progress", "电脑正在执行原操作；等待原操作结算后再开始新工作。");
+      active = true; hooks = next ?? opts; callId = undefined; callSignal = signal;
+      generation++;
+      for (const key of Object.keys(evidence) as Array<keyof McpCallEvidence>) delete evidence[key];
+    },
+    end() { active = false; hooks = undefined; callId = undefined; callSignal = undefined; },
+    invalidate() { generation++; },
+  };
+  const connection = new SdkMcpConnection(program.serviceId, "", client.getServerVersion() ?? null, client.getNegotiatedProtocolVersion() ?? null,
+    client, opts.listTimeoutMs ?? MCP_LIMITS.listTimeoutMs, opts.callTimeoutMs ?? MCP_LIMITS.callTimeoutMs, evidence, progress, lifecycle, transport.pid, classifyStdioError, () => closed);
+  const close = connection.close.bind(connection);
+  connection.close = async () => { closed = true; await close(); };
+  return connection;
 }
 
 function classifyMcpError(err: unknown, timeoutMs: number, signal?: AbortSignal): McpError {

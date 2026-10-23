@@ -15,12 +15,13 @@
  *
  * 静态宿主工具的规则由族清单提供；路由工具与旧操作的规则仍穷尽登记。
  * MCP 动态工具与未登记名字按审批判定。记忆族不登记核实：`memory_revoke` 只改状态、不写带 tool_op_id 的
- * 版本行，无法从磁盘证明撤销已发生。MCP 读工具的副作用类别不在 tool_ops 里，
+ * 版本行，无法从磁盘证明撤销已发生。普通 HTTPS MCP 读工具的副作用类别不在 tool_ops 里，
  * 重启时拿不到钉版计划，也按审批判定。
  *
  * 调用方负责事务（重启恢复在恢复事务内调用，`Db.tx` 不能嵌套）。
  */
 
+import { mcpResponseEnded } from "./mcp/transport.ts";
 import type { Store } from "@ruukoto/core/store.ts";
 import type { ConfirmationRequest, EditStats, ToolOp } from "@ruukoto/core/types.ts";
 import type { APPROVAL_TOOL_NAMES, ARTIFACT_TOOL_NAME, CODING_TOOL_NAMES } from "./tool-router.ts";
@@ -69,7 +70,8 @@ const RULES: Record<StaticToolName, Rule | ((params: Record<string, unknown>) =>
   mock_mark: "approval",
 };
 
-function ruleOf(op: Pick<ToolOp, "toolName" | "params">, hostLedgers: readonly HostToolLedger[] = []): Rule {
+function ruleOf(op: Pick<ToolOp, "toolName" | "params"> & { mcp?: ToolOp["mcp"] }, hostLedgers: readonly HostToolLedger[] = []): Rule {
+  if (op.mcp?.effect === "read") return "no_effect";
   // 动态名字（MCP）与未登记名字按审批判定；hasOwn 防原型链上的键
   if (Object.hasOwn(RULES, op.toolName)) {
     const rule = RULES[op.toolName as StaticToolName];
@@ -165,7 +167,7 @@ export class ToolOpLedger {
     const confirmations = this.store.listConfirmationsByTask(taskId);
     return this.store
       .listUnresolvedToolOps(taskId)
-      .filter((op) => ruleOf(op, this.hostLedgers) === "approval" && !approvalUnconsumed(op, confirmations))
+      .filter((op) => ruleOf(op, this.hostLedgers) === "approval" && (!op.mcp || !!op.mcp.request && !(op.mcp.response && mcpResponseEnded(op.mcp.response))) && !approvalUnconsumed(op, confirmations))
       .map((op) => op.id);
   }
 
@@ -211,6 +213,12 @@ export class ToolOpLedger {
   /** 按分类器补记已知结论；返回 false = 效果未知。 */
   private recordKnown(task: TaskRef, op: ToolOp, confirmations: ConfirmationRequest[], occasion: keyof typeof OCCASIONS): boolean {
     const { when, notExecuted } = OCCASIONS[occasion];
+    if (op.mcp && !op.mcp.request) { this.recordResult(task, op.id, "已知未执行：电脑原请求尚未发送。", true); return true; }
+    if (op.mcp?.response && mcpResponseEnded(op.mcp.response)) {
+      const response = JSON.parse(op.mcp.response) as { error?: unknown; result?: { isError?: boolean } };
+      this.recordResult(task, op.id, "电脑原应答已保存；请拥有者检查画面与原记录，不能重试旧操作。", response.error !== undefined || response.result?.isError === true);
+      return true;
+    }
     if (approvalUnconsumed(op, confirmations)) {
       this.recordResult(task, op.id, notExecuted, true);
       return true;

@@ -280,3 +280,11 @@ test("技能设置：外部来源只读，源目录失效仍可查询模型及�
   await executePersonalSettings(f.directory, save(broken, { version: 1, directory: `${agent}-moved` }, "skills"));
   assert.equal((await f.read()).skills.externalAvailable, true);
 });
+
+
+test("MCP 设置发现：具名Cua经过解析并报告制品不可用，不走HTTP认证", async t => {
+  const f = await fixture(t), initial = await f.read();
+  const request = { v: 1, op: "mcp.discover", profile: initial.profile, expectedRevision: initial.revisions.mcp, service: { label: "电脑", cua: { kind: "cua-linux", executable: "/missing/official-cua", version: "0.7.0", sha256: "a".repeat(64), sandbox: "local:desktop", sandboxId: "b".repeat(64) } } };
+  await assert.rejects(executePersonalSettings(f.directory, request), (error: unknown) => error instanceof Error && "code" in error && ["mcp_discovery_failed"].includes(String(error.code)));
+  assert.equal(fs.existsSync(path.join(f.directory, "mcp.json")), false);
+});

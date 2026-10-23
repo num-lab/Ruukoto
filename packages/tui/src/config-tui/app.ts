@@ -1365,7 +1365,7 @@ export class ConfigTuiApp {
         const items: SelectItem[] = services.map((s) => ({
           value: `svc:${s.id}`,
           label: `${s.name}${projectId === undefined ? `（${this.findProject(s.projectId)?.name ?? s.projectId}）` : ""}${s.enabled ? "" : " · 已禁用"}`,
-          description: `${s.endpoint} · v${s.configVersion}`,
+          description: `${s.cua?.kind ?? s.endpoint} · v${s.configVersion}`,
         }));
         items.push({
           value: "add",
@@ -1406,8 +1406,7 @@ export class ConfigTuiApp {
           return [];
         }
         return [
-          { value: "endpoint", label: `端点：${s.endpoint}` },
-          { value: "credential", label: `凭据引用：${s.credential ?? "（无）"}` },
+          ...(s.cua ? [{ value: "cua", label: `电脑：${s.cua.kind} · ${s.cua.executable}` }] : [{ value: "endpoint", label: `端点：${s.endpoint}` }, { value: "credential", label: `凭据引用：${s.credential ?? "（无）"}` }]),
           { value: "tools", label: `工具允许列表：${s.toolAllowlist.length} 项`, description: formatAllowlist(s.toolAllowlist) || "（空 = 不注册任何工具）" },
           { value: "toggle", label: s.enabled ? "停用该服务" : "启用该服务" },
           { value: "check", label: "连接检查", description: "显式连接端点并列出工具（联网操作）" },
@@ -1430,7 +1429,7 @@ export class ConfigTuiApp {
           await client.request("mcp_configure", {
             project_id: s.projectId,
             name: s.name,
-            endpoint: patch.endpoint ?? s.endpoint,
+            ...(s.cua ? { cua: s.cua } : { endpoint: patch.endpoint ?? s.endpoint }),
             credential: patch.credential,
             tool_allowlist: patch.toolAllowlist ?? s.toolAllowlist,
             expected_version: s.configVersion,
@@ -1486,7 +1485,7 @@ export class ConfigTuiApp {
             return;
           }
           case "remove": {
-            if (!(await this.confirm(`删除 MCP 服务 ${s.name}？`, s.endpoint))) return;
+            if (!(await this.confirm(`删除 MCP 服务 ${s.name}？`, s.cua?.kind ?? s.endpoint ?? ""))) return;
             await client.request("mcp_remove", { service_id: s.id, expected_version: s.configVersion });
             this.notify("服务已删除");
             return this.popScreen();

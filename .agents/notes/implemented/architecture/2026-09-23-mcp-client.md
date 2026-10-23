@@ -4,7 +4,7 @@ Status: implemented
 
 相关未实施方案：[桌面设置管理](../../proposed/feature/2026-10-21-desktop-settings-management.md)复用本篇服务配置与发现，不扩展传输和授权。
 
-[Cua 接入提案](../../proposed/architecture/2026-10-23-cua-official-mcp.md)拟增加内联图片结果与电脑目标约束；未实施前仍沿本篇现有行为。
+[Cua 接入](2026-10-23-cua-official-mcp.md)增加电脑专用stdio、目标限制与人工恢复，[内联图片](2026-10-23-mcp-image-results.md)复用原产物和模型输入链；本篇普通HTTP配置与权限语义保持。
 
 原编号：ADR 0006
 

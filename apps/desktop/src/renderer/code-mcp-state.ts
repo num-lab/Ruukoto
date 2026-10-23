@@ -8,7 +8,7 @@ type Tool = { name: string; effect: Effect };
 export type McpDraft = { name: string; endpoint: string; auth: "keep" | "anonymous" | "existing" | "new" | ""; credential: string; toolAllowlist: Tool[] };
 type Write = "mcp_configure" | "mcp_set_enabled" | "mcp_remove" | "mcp_save_credential" | "mcp_remove_credential";
 const fresh = (): McpDraft => ({ name: "", endpoint: "", auth: "", credential: "", toolAllowlist: [] });
-const draftFor = (service: Service): McpDraft => ({ name: service.name, endpoint: service.endpoint, auth: "keep", credential: service.credential ?? "", toolAllowlist: service.toolAllowlist.map(entry => typeof entry === "string" ? { name: entry, effect: "read" } : { ...entry }) });
+const draftFor = (service: Service): McpDraft => ({ name: service.name, endpoint: service.endpoint ?? "", auth: "keep", credential: service.credential ?? "", toolAllowlist: service.toolAllowlist.map(entry => typeof entry === "string" ? { name: entry, effect: "read" } : { ...entry }) });
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
 // Note: 见 .agents/notes/implemented/feature/2026-10-21-code-mcp-settings.md
@@ -58,7 +58,7 @@ export class CodeMcpState implements SettingsForm {
   }
   closeEditor(): void { if (this.phase === "saving" || this.phase === "unknown") return; this.discard(); this.editing = false; this.selectedId = null; this.check = null; this.changed(); }
   edit<K extends keyof McpDraft>(field: K, value: McpDraft[K]): void {
-    if (this.disabled) return;
+    if (this.disabled || this.service?.cua && ["endpoint", "auth", "credential"].includes(field)) return;
     this.draft = { ...this.draft, [field]: value }; delete this.fieldErrors[field];
     if (field === "auth") this.secret = "";
     if (field !== "toolAllowlist") this.check = null; this.changed();
@@ -112,7 +112,7 @@ export class CodeMcpState implements SettingsForm {
     if (this.disabled || !this.editing || !this.dirty) return false;
     this.fieldErrors = {};
     if (!/^[a-z0-9][a-z0-9_-]{0,29}$/.test(this.draft.name)) this.fieldErrors.name = "服务名称使用 1–30 位小写字母、数字、下划线或连字符，首位为字母或数字。";
-    try { const endpoint = new URL(this.draft.endpoint); if (endpoint.protocol !== "https:" && !(endpoint.protocol === "http:" && ["127.0.0.1", "localhost", "[::1]"].includes(endpoint.hostname)) || endpoint.username || endpoint.password) this.fieldErrors.endpoint = "请输入 HTTPS 端点；HTTP 仅限本机回环测试，地址不能携带用户名或密码。"; }
+    if (!this.service?.cua) try { const endpoint = new URL(this.draft.endpoint); if (endpoint.protocol !== "https:" && !(endpoint.protocol === "http:" && ["127.0.0.1", "localhost", "[::1]"].includes(endpoint.hostname)) || endpoint.username || endpoint.password) this.fieldErrors.endpoint = "请输入 HTTPS 端点；HTTP 仅限本机回环测试，地址不能携带用户名或密码。"; }
     catch { this.fieldErrors.endpoint = "请输入完整的 HTTPS 端点。"; }
     if (!this.draft.auth) this.fieldErrors.auth = "请选择凭据或显式选择匿名。";
     if (this.draft.auth === "existing" && !this.draft.credential) this.fieldErrors.auth = "请选择所需凭据。";
@@ -125,7 +125,7 @@ export class CodeMcpState implements SettingsForm {
       this.draft = { ...this.draft, auth: "existing", credential: name }; this.changed();
     }
     const service = this.service;
-    const saved = await this.write("mcp_configure", { ...(this.selectedId ? { service_id: this.selectedId } : {}), project_id: this.sourceId, name: this.draft.name, endpoint: this.draft.endpoint, tool_allowlist: this.draft.toolAllowlist, enabled: service?.enabled ?? false, expected_version: expectedVersion, ...(this.draft.auth === "keep" ? {} : { credential: this.draft.auth === "anonymous" ? null : this.draft.credential }) });
+    const saved = await this.write("mcp_configure", { ...(this.selectedId ? { service_id: this.selectedId } : {}), project_id: this.sourceId, name: this.draft.name, ...(service?.cua ? { cua: service.cua } : { endpoint: this.draft.endpoint }), tool_allowlist: this.draft.toolAllowlist, enabled: service?.enabled ?? false, expected_version: expectedVersion, ...(this.draft.auth === "keep" ? {} : { credential: this.draft.auth === "anonymous" ? null : this.draft.credential }) });
     if (!saved && this.draft.auth === "existing") { this.message += " 已创建的 MCP 凭据仍仅限本来源；可在解除引用后清理。"; this.changed(); }
     return saved;
   }

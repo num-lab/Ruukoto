@@ -16,6 +16,8 @@ Status: implemented
 
 ## 既有笔记审计
 
+[测试精简提案](../../proposed/testing/2026-10-24-test-suite-reduction.md)据本篇的正式入口退役判断旧运行验收的去留；尚未实施，共享库与旧资料保留边界不变。
+
 [迁移总方案](../../proposed/architecture/2026-10-17-personal-pi-durable.md)、[基础档案](../../implemented/architecture/2026-10-17-personal-durable-foundation.md)、[本机管理](../../implemented/architecture/2026-10-17-personal-local-management.md)、[双产品](../../implemented/architecture/2026-10-02-two-agent-products.md)、[同仓分包](../../implemented/architecture/2026-10-11-in-repo-workspace-packages.md)和[开发入口](../../implemented/process/2026-10-09-dev-launchers.md)部分重叠，各自同步适用范围。[旧个人导入](../../implemented/architecture/2026-10-05-personal-instance-import.md)与[保留开发会话](../../implemented/feature/2026-10-05-ruukoto-keeps-dev-sessions.md)的个人运行入口退出，历史理由和旧资料保持。按 product、durable、正式入口、导入与开发检索未发现完全吸收的笔记，rejected 目录不存在。
 
 ## 备选方案

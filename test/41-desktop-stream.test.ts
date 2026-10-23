@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { HistoryEntryView } from "@ruukoto/core/history.ts";
+import { HistoryReadError, type HistoryEntryView } from "@ruukoto/core/history.ts";
 import type { PersistentEvent, Session, SubAgent } from "@ruukoto/core/types.ts";
 import type { TaskView } from "@ruukoto/core/views.ts";
 import type { OpParams } from "@ruukoto/control/ops.ts";
@@ -18,9 +18,9 @@ function history(entryId: string, text: string, extra: Partial<HistoryEntryView>
 }
 const event = (seq: number, body: PersistentEvent["body"]): PersistentEvent => ({ seq, body, sessionId: "session", taskId: "task", createdAt: at(seq) });
 const session: Session = { id: "session", projectId: "workspace", kind: "dev", workspaceProjectId: null, name: null, branchSource: null, cwd: "/w", cwdReal: "/w", cwdDev: 1, cwdIno: 1, piSessionId: "pi", sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: null, modelSelectionVersion: 0, defaultAccessMode: "confirm", defaultAccessModeVersion: 0, queueState: "active", queuePauseReason: null, archivedAt: null, createdAt: at(0) };
-function harness(handlers: FakeHandlers) {
+function harness(handlers: FakeHandlers, changed: () => void = () => {}) {
   const transport = new FakeTransport({ handlers: { list_session_summaries: () => [], list_tasks: () => ({ tasks: [], hasMore: false }), read_history: () => ({ fileAvailable: true, hasPartialTail: false, entries: [], nextBefore: null }), ...handlers } });
-  const model = new CodeState({ request: (_target, op, params) => ipcResult(() => transport.request(op as DesktopOp, params as OpParams<DesktopOp>)) }, () => {});
+  const model = new CodeState({ request: (_target, op, params) => ipcResult(() => transport.request(op as DesktopOp, params as OpParams<DesktopOp>)) }, changed);
   const snapshot = (changed = false) => model.update({ type: "snapshot", result: { snapshot: fakeSnapshot({ instanceId: changed ? "other" : "inst-1", sessions: changed ? [] : [session] }), replay: [], seq: 100 }, instanceChanged: changed });
   snapshot();
   model.update({ type: "state", state: "online" });
@@ -178,4 +178,59 @@ test("右栏子会话复用历史恢复，通知定位、实时补读与重连�
   assert.equal(items().filter(item => item.kind === "thinking").length, 1);
   assert.equal(items().filter(item => item.kind === "tool").length, 1);
   assert.ok(transport.requests.filter(request => request.op === "read_history" && (request.params as OpParams<"read_history">).session_id === child.id).length >= 2);
+});
+
+for (const instanceChanged of [false, true]) test(`旧任务查询迟到失败不污染${instanceChanged ? "新实例" : "同实例重同步"}，旧 finally 无新副作用`, async context => {
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  let entered = false, fresh = false, paints = 0;
+  const { model, snapshot } = harness({
+    read_history: () => ({ fileAvailable: true, hasPartialTail: false, nextBefore: null, entries: [history(fresh ? "fresh" : "stale", fresh ? "新正文" : "OLD INSTANCE BODY")] }),
+    list_tasks: async () => { if (!fresh) { entered = true; await gate; throw new Error("旧查询失败"); } return { tasks: [], hasMore: false }; },
+  }, () => { ++paints; });
+  let inspectorUpdates = 0;
+  context.mock.method(model.inspector, "seedTabs", () => { ++inspectorUpdates; });
+  context.mock.method(model.inspector, "loadDiff", async () => { ++inspectorUpdates; });
+  const old = model.loadHistory("session");
+  await waitFor("旧任务列表在途", () => entered);
+  fresh = true;
+  snapshot(instanceChanged);
+  const currentSession = instanceChanged ? "fresh-session" : "session";
+  const beforeCurrent = paints;
+  await model.loadHistory(currentSession);
+  assert.ok(paints > beforeCurrent, "旧 settle 不得压住新代次的绘制");
+  const beforeOldFinish = { paints, inspectorUpdates };
+  release();
+  await old;
+  assert.deepEqual({ paints, inspectorUpdates }, beforeOldFinish);
+  assert.equal(model.readError, null);
+  assert.deepEqual([...model.view.sessionViews.keys()], [currentSession]);
+  assert.deepEqual(model.view.openSession(currentSession).flow.historyEntries.map(item => item.text), ["新正文"]);
+});
+
+test("当前代次任务查询失败仍显示已读历史，并报告错误", async () => {
+  const { model } = harness({
+    read_history: () => ({ fileAvailable: true, hasPartialTail: false, nextBefore: null, entries: [history("entry", "仍可读的历史")] }),
+    list_tasks: () => { throw new Error("列表读取失败"); },
+  });
+  await model.loadHistory("session");
+  assert.ok(model.readError);
+  assert.deepEqual(model.view.openSession("session").flow.historyEntries.map(item => item.text), ["仍可读的历史"]);
+});
+
+test("桌面恢复报告单条正文失败后继续后续条目，失败条目仍未就绪", async () => {
+  const { model, transport } = harness({
+    list_tasks: () => ({ tasks: [task()], hasMore: false }),
+    get_task: () => ({ task: task(), toolOps: [], confirmations: [], artifacts: [], outputPreview: null, seq: 100 }),
+    read_task_events: () => ({ events: ["broken", "good"].map((entryId, index) => event(index + 2, { type: "task.output_entry", sessionId: "session", taskId: "task", entryId, sessionFile: "/session.jsonl", role: "assistant", messageId: null })), nextAfter: null }),
+    read_history_entry: params => {
+      if (params.entry_id === "broken") throw new HistoryReadError("history_corrupt", "历史正文损坏");
+      return history("good", "后续完整正文");
+    },
+  });
+  await model.loadHistory("session");
+  assert.match(model.readError!, /历史正文损坏/);
+  assert.deepEqual(transport.requests.filter(request => request.op === "read_history_entry").map(request => (request.params as OpParams<"read_history_entry">).entry_id), ["broken", "good"]);
+  assert.deepEqual(model.view.openSession("session").flow.historyEntries.map(entry => entry.text), ["后续完整正文"]);
+  assert.equal(model.historyReady("session", "task"), false);
 });

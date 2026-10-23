@@ -21,7 +21,7 @@ Status: implemented
 | `@ruukoto/channels` | 保留的旧 QQ、Telegram、GitHub、调度；IM 审批、入口表、入站媒体、GitHub 退役；资料来源核实、旧群结果查询与个人工具的旧账本规则 |
 | `@ruukoto/runtime` | 任务生命周期、编排器、SubAgent、父级送达、工作副本与工作区组织迁移 |
 | `@ruukoto/control` | 控制面协议、认证、客户端与服务器 |
-| `@ruukoto/view` | 浏览器可用的快照、事件、历史与任务详情投影，客户端共用选择器与状态文字 |
+| `@ruukoto/view` | 浏览器可用的快照、事件、历史与任务详情投影，历史恢复编排、选择器与状态文字 |
 | `@ruukoto/tui` | 共享 CLI、任务界面、配置中心、开发启动器与程序化聚合入口 |
 | `@ruukoto/desktop` | macOS 桌面主进程、sandbox preload、React 渲染进程与应用打包 |
 | `ruukoto` app | 个人产品 bin、主入口、开发入口、durable 会话与业务工具、本机管理 |
@@ -35,7 +35,7 @@ Coding 与保留旧底座的产品能力在 `product.ts` 持有：RuntimeProduct
 
 运行时值依赖固定为 `agent → core`、`channels → agent/core`、`runtime → channels/agent/core`、`control → core`、`view → control/core`、`tui → view/control/runtime/agent/core`。各 app 可以依赖共享包，产品包之间没有依赖。个人 app 不直接依赖共享 tui、runtime 或旧 Pi SDK；其 Pi 1.3.0 与 Coding 调用方的 0.85.1 分别解析，不跨版本传 SDK 对象。desktop 的依赖全部放在 devDependencies，主进程与 preload 只外置 Electron 和 Node 内置模块，其余源码打进产物；生产安装不需要桌面依赖。ESLint 仅对此包允许 devDependencies 的值引用，未声明、跨包相对路径与动态 import 的检查仍成立。其他包的反向类型放进 devDependencies，core 不接受任何反向引用；跨层运行时协作使用回调或已注入的实例。ESLint 检查静态 import、re-export、类型引用与动态 import，拒绝未声明依赖、越层值引用与跨包相对路径；包内动态 import 使用静态模块字符串。
 
-view 沿用[桌面客户端提案](../../proposed/architecture/2026-10-15-desktop-client.md)的共用投影决定，先承载 `ViewState` 与 `EventFlow`。纯状态常量与展示归属从依赖 Node 的模块拆出，原入口再导出以保持调用方兼容；UTF-8 字节用 `TextEncoder` 计数。view 源码禁止 Node 引用，全部导出以浏览器目标打包后仅按浏览器全局检查，覆盖传递依赖中的未执行分支，再用无 Node 全局的 VM 核实实际投影。
+view 沿用[桌面客户端提案](../../proposed/architecture/2026-10-15-desktop-client.md)的共用投影决定，承载纯投影 `ViewState`、`EventFlow` 及独立的 [HistoryRecovery](2026-10-23-shared-history-recovery.md)；后者只编排注入请求，连接和客户端显示顺序不迁入。纯状态常量与展示归属从依赖 Node 的模块拆出，原入口再导出以保持调用方兼容；UTF-8 字节用 `TextEncoder` 计数。view 源码禁止 Node 引用，全部导出以浏览器目标打包后仅按浏览器全局检查，覆盖传递依赖中的未执行分支，再用无 Node 全局的 VM 核实实际投影与多页正文恢复。
 
 命令执行与 SQLite 持久化留在 TUI 的 `ViewState` 子类，加载/保存失败继续显示提示，保存失败的本地结果不会被旧存储覆盖。EventFlow 保留纯内存命令条目及其统一排序，使重同步保留本地提示与命令；不为这次抽取新增命令存储接口。每次安装快照都由调用方更换异步请求代次，过时代次结果不得安装；全局 seq 缺口检测仍归 `ControlConnection`。
 

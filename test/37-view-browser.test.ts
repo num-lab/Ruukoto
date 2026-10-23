@@ -9,6 +9,7 @@ import { ESLint, Linter } from "eslint";
 import globals from "globals";
 import { utf8ByteLength } from "@ruukoto/view/utf8.ts";
 import { runProjection } from "./fixtures/view-browser/projection.ts";
+import { runRecovery } from "./fixtures/view-browser/history-recovery.ts";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const viewSource = fileURLToPath(new URL("../packages/view/src/", import.meta.url));
@@ -38,7 +39,7 @@ test("全部 view 模块经浏览器打包和产物全局检查，无 Node 全�
   const modules = readdirSync(viewSource, { recursive: true, encoding: "utf8" }).filter((file) => file.endsWith(".ts")).map((file) => viewSource + file);
   assert.ok(modules.length > 0);
   await checkBrowser(modules);
-  const source = await checkBrowser([fixture("projection")]);
+  const source = await checkBrowser([fixture("projection"), fixture("history-recovery")]);
   // ESM 的 VM API 需独立开启实验标记，不改变日常应用测试入口。
   const script = `
     import vm from 'node:vm';
@@ -47,13 +48,15 @@ test("全部 view 模块经浏览器打包和产物全局检查，无 Node 全�
     await module.link(() => { throw new Error('浏览器产物必须自包含'); });
     await module.evaluate();
     process.stdout.write(JSON.stringify({ buffer: vm.runInContext('typeof Buffer', context),
-      process: vm.runInContext('typeof process', context), projection: module.namespace.entry0.runProjection() }));
+      process: vm.runInContext('typeof process', context), projection: module.namespace.entry0.runProjection(), recovery: await module.namespace.entry1.runRecovery() }));
   `;
   const { stdout } = await promisify(execFile)(process.execPath, ["--experimental-vm-modules", "--input-type=module", "--eval", script]);
   const actual = JSON.parse(stdout);
   assert.equal(actual.buffer, "undefined");
   assert.equal(actual.process, "undefined");
   assert.deepEqual(actual.projection, runProjection());
+  assert.deepEqual(actual.recovery, await runRecovery());
+  assert.deepEqual(actual.recovery, { offsets: [0, 6, 10], changed: 1, text: "中文🙂尾", truncated: false, ready: true });
   assert.deepEqual(actual.projection.streamed, { text: "中文🙂", totalBytes: 10, truncated: false });
   assert.deepEqual(actual.projection.messages, [
     { text: "中文🙂", totalBytes: 10, truncated: false, streaming: false },

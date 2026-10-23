@@ -1,0 +1,1157 @@
+{
+  "calls": [
+    {
+      "op": "work_list",
+      "params": {
+        "session_id": "sess_d53605b0f68e90991e9c6c54"
+      },
+      "elapsedMs": 0.22279100000014296
+    },
+    {
+      "op": "read_workspace_git",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416"
+      },
+      "elapsedMs": 0.7940830000006827
+    },
+    {
+      "op": "work_list",
+      "params": {
+        "session_id": "sess_d53605b0f68e90991e9c6c54"
+      },
+      "elapsedMs": 0.3482499999954598
+    },
+    {
+      "op": "read_workspace_git",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416"
+      },
+      "elapsedMs": 0.3507919999974547
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": ""
+      },
+      "elapsedMs": 2.3895839999895543
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": ""
+      },
+      "elapsedMs": 3.667874999984633
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": ""
+      },
+      "elapsedMs": 4.838749999995343
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": ""
+      },
+      "elapsedMs": 2.53887499999837
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": ""
+      },
+      "elapsedMs": 3.498250000004191
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": ""
+      },
+      "elapsedMs": 3.32445800001733
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": ""
+      },
+      "elapsedMs": 3.5167079999810085
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": ""
+      },
+      "elapsedMs": 2.6398340000014286
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": ""
+      },
+      "elapsedMs": 2.586916999978712
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": ""
+      },
+      "elapsedMs": 2.7363749999785796
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": ""
+      },
+      "elapsedMs": 2.295291999995243
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": ""
+      },
+      "elapsedMs": 3.2342920000082813
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": ""
+      },
+      "elapsedMs": 2.6549579999991693
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": ""
+      },
+      "elapsedMs": 1.7444589999795426
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": ""
+      },
+      "elapsedMs": 1.218250000005355
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": ""
+      },
+      "elapsedMs": 3.3414999999804422
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": ""
+      },
+      "elapsedMs": 3.410082999995211
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": ""
+      },
+      "elapsedMs": 1.6485830000019632
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": ""
+      },
+      "elapsedMs": 2.1566250000032596
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": ""
+      },
+      "elapsedMs": 2.4782910000067204
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": ""
+      },
+      "elapsedMs": 3.4701250000216532
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": ""
+      },
+      "elapsedMs": 3.6827919999777805
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": ""
+      },
+      "elapsedMs": 2.607749999995576
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": ""
+      },
+      "elapsedMs": 3.662000000011176
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": ""
+      },
+      "elapsedMs": 3.284249999996973
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": ""
+      },
+      "elapsedMs": 3.1334999999962747
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": ""
+      },
+      "elapsedMs": 2.716167000005953
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": ""
+      },
+      "elapsedMs": 2.317332999984501
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": ""
+      },
+      "elapsedMs": 2.1815000000060536
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": ""
+      },
+      "elapsedMs": 3.3772919999901205
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": ""
+      },
+      "elapsedMs": 3.8615409999911208
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": ""
+      },
+      "elapsedMs": 2.316958999988856
+    },
+    {
+      "op": "work_list",
+      "params": {
+        "session_id": "sess_d53605b0f68e90991e9c6c54"
+      },
+      "elapsedMs": 0.13991699999314733
+    },
+    {
+      "op": "work_list",
+      "params": {
+        "session_id": "sess_d53605b0f68e90991e9c6c54"
+      },
+      "elapsedMs": 0.1320840000116732
+    },
+    {
+      "op": "work_list",
+      "params": {
+        "session_id": "sess_d53605b0f68e90991e9c6c54"
+      },
+      "elapsedMs": 0.40483399998629466
+    },
+    {
+      "op": "read_workspace_git",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416"
+      },
+      "elapsedMs": 0.3730419999919832
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": ""
+      },
+      "elapsedMs": 1.848582999955397
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "",
+        "cursor": "eyJyZXZpc2lvbiI6ImUzNGQxNWJjZmZlNTQyMjhlMmU0ZjM2NjE1OWMyNGJiYmVmZmVjNTU1M2NlY2RmYWViY2I2MjMwNGQ3Zjc5NGQiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAxOTgudHh0In0"
+      },
+      "elapsedMs": 2.1879579999949783
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": ""
+      },
+      "elapsedMs": 3.0755409999983385
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "",
+        "cursor": "eyJyZXZpc2lvbiI6IjRiYjFlY2JhYmFmMjQ1NjRiMDUwODQ4M2VlZTg1MThhYTdhNTQwM2E3OTgwZGY1M2Y5Y2VjNzY1YzNhMjE4MGMiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAxOTcudHh0In0"
+      },
+      "elapsedMs": 1.3144580000080168
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "",
+        "cursor": "eyJyZXZpc2lvbiI6IjRiYjFlY2JhYmFmMjQ1NjRiMDUwODQ4M2VlZTg1MThhYTdhNTQwM2E3OTgwZGY1M2Y5Y2VjNzY1YzNhMjE4MGMiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAzOTcudHh0In0"
+      },
+      "elapsedMs": 0.6699999999837019
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "folder"
+      },
+      "elapsedMs": 1.345000000030268
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "folder",
+        "cursor": "eyJyZXZpc2lvbiI6ImJlMDZjN2FhYzU5ZmI3Mzk3NGI5NmU3NjVmMzAwODJkM2FlMDhkYmY4MWVlODlhZjA0YzgxMGNjZDRjZTk3N2IiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAxOTgudHh0In0"
+      },
+      "elapsedMs": 1.1469170000054874
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "folder",
+        "cursor": "eyJyZXZpc2lvbiI6ImJlMDZjN2FhYzU5ZmI3Mzk3NGI5NmU3NjVmMzAwODJkM2FlMDhkYmY4MWVlODlhZjA0YzgxMGNjZDRjZTk3N2IiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAzOTgudHh0In0"
+      },
+      "elapsedMs": 0.8935000000055879
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": ""
+      },
+      "elapsedMs": 2.132291999994777
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "",
+        "cursor": "eyJyZXZpc2lvbiI6IjRiYjFlY2JhYmFmMjQ1NjRiMDUwODQ4M2VlZTg1MThhYTdhNTQwM2E3OTgwZGY1M2Y5Y2VjNzY1YzNhMjE4MGMiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAxOTcudHh0In0"
+      },
+      "elapsedMs": 0.9735000000218861
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "",
+        "cursor": "eyJyZXZpc2lvbiI6IjRiYjFlY2JhYmFmMjQ1NjRiMDUwODQ4M2VlZTg1MThhYTdhNTQwM2E3OTgwZGY1M2Y5Y2VjNzY1YzNhMjE4MGMiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAzOTcudHh0In0"
+      },
+      "elapsedMs": 0.6314579999889247
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "folder"
+      },
+      "elapsedMs": 0.773083999985829
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "folder",
+        "cursor": "eyJyZXZpc2lvbiI6ImJlMDZjN2FhYzU5ZmI3Mzk3NGI5NmU3NjVmMzAwODJkM2FlMDhkYmY4MWVlODlhZjA0YzgxMGNjZDRjZTk3N2IiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAxOTgudHh0In0"
+      },
+      "elapsedMs": 1.100124999997206
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "folder",
+        "cursor": "eyJyZXZpc2lvbiI6ImJlMDZjN2FhYzU5ZmI3Mzk3NGI5NmU3NjVmMzAwODJkM2FlMDhkYmY4MWVlODlhZjA0YzgxMGNjZDRjZTk3N2IiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAzOTgudHh0In0"
+      },
+      "elapsedMs": 0.7116249999962747
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": ""
+      },
+      "elapsedMs": 3.414083000039682
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "",
+        "cursor": "eyJyZXZpc2lvbiI6IjRiYjFlY2JhYmFmMjQ1NjRiMDUwODQ4M2VlZTg1MThhYTdhNTQwM2E3OTgwZGY1M2Y5Y2VjNzY1YzNhMjE4MGMiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAxOTcudHh0In0"
+      },
+      "elapsedMs": 1.3935420000343584
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "",
+        "cursor": "eyJyZXZpc2lvbiI6IjRiYjFlY2JhYmFmMjQ1NjRiMDUwODQ4M2VlZTg1MThhYTdhNTQwM2E3OTgwZGY1M2Y5Y2VjNzY1YzNhMjE4MGMiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAzOTcudHh0In0"
+      },
+      "elapsedMs": 0.6009170000324957
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "folder"
+      },
+      "elapsedMs": 0.7893329999642447
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "folder",
+        "cursor": "eyJyZXZpc2lvbiI6ImJlMDZjN2FhYzU5ZmI3Mzk3NGI5NmU3NjVmMzAwODJkM2FlMDhkYmY4MWVlODlhZjA0YzgxMGNjZDRjZTk3N2IiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAxOTgudHh0In0"
+      },
+      "elapsedMs": 0.9841660000383854
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "folder",
+        "cursor": "eyJyZXZpc2lvbiI6ImJlMDZjN2FhYzU5ZmI3Mzk3NGI5NmU3NjVmMzAwODJkM2FlMDhkYmY4MWVlODlhZjA0YzgxMGNjZDRjZTk3N2IiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAzOTgudHh0In0"
+      },
+      "elapsedMs": 0.6855830000131391
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": ""
+      },
+      "elapsedMs": 3.5012909999932162
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "",
+        "cursor": "eyJyZXZpc2lvbiI6IjRiYjFlY2JhYmFmMjQ1NjRiMDUwODQ4M2VlZTg1MThhYTdhNTQwM2E3OTgwZGY1M2Y5Y2VjNzY1YzNhMjE4MGMiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAxOTcudHh0In0"
+      },
+      "elapsedMs": 2.383291999984067
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "",
+        "cursor": "eyJyZXZpc2lvbiI6IjRiYjFlY2JhYmFmMjQ1NjRiMDUwODQ4M2VlZTg1MThhYTdhNTQwM2E3OTgwZGY1M2Y5Y2VjNzY1YzNhMjE4MGMiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAzOTcudHh0In0"
+      },
+      "elapsedMs": 0.638042000005953
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "folder"
+      },
+      "elapsedMs": 0.8897920000017621
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "folder",
+        "cursor": "eyJyZXZpc2lvbiI6ImJlMDZjN2FhYzU5ZmI3Mzk3NGI5NmU3NjVmMzAwODJkM2FlMDhkYmY4MWVlODlhZjA0YzgxMGNjZDRjZTk3N2IiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAxOTgudHh0In0"
+      },
+      "elapsedMs": 0.9116249999497086
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "folder",
+        "cursor": "eyJyZXZpc2lvbiI6ImJlMDZjN2FhYzU5ZmI3Mzk3NGI5NmU3NjVmMzAwODJkM2FlMDhkYmY4MWVlODlhZjA0YzgxMGNjZDRjZTk3N2IiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAzOTgudHh0In0"
+      },
+      "elapsedMs": 0.5924579999991693
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": ""
+      },
+      "elapsedMs": 2.4712500000023283
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "",
+        "cursor": "eyJyZXZpc2lvbiI6IjRiYjFlY2JhYmFmMjQ1NjRiMDUwODQ4M2VlZTg1MThhYTdhNTQwM2E3OTgwZGY1M2Y5Y2VjNzY1YzNhMjE4MGMiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAxOTcudHh0In0"
+      },
+      "elapsedMs": 1.3520830000052229
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "",
+        "cursor": "eyJyZXZpc2lvbiI6IjRiYjFlY2JhYmFmMjQ1NjRiMDUwODQ4M2VlZTg1MThhYTdhNTQwM2E3OTgwZGY1M2Y5Y2VjNzY1YzNhMjE4MGMiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAzOTcudHh0In0"
+      },
+      "elapsedMs": 0.580958999984432
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "folder"
+      },
+      "elapsedMs": 0.8488329999963753
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "folder",
+        "cursor": "eyJyZXZpc2lvbiI6ImJlMDZjN2FhYzU5ZmI3Mzk3NGI5NmU3NjVmMzAwODJkM2FlMDhkYmY4MWVlODlhZjA0YzgxMGNjZDRjZTk3N2IiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAxOTgudHh0In0"
+      },
+      "elapsedMs": 0.9305000000167638
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "folder",
+        "cursor": "eyJyZXZpc2lvbiI6ImJlMDZjN2FhYzU5ZmI3Mzk3NGI5NmU3NjVmMzAwODJkM2FlMDhkYmY4MWVlODlhZjA0YzgxMGNjZDRjZTk3N2IiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAzOTgudHh0In0"
+      },
+      "elapsedMs": 0.5359160000225529
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": ""
+      },
+      "elapsedMs": 2.912666999967769
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "",
+        "cursor": "eyJyZXZpc2lvbiI6IjRiYjFlY2JhYmFmMjQ1NjRiMDUwODQ4M2VlZTg1MThhYTdhNTQwM2E3OTgwZGY1M2Y5Y2VjNzY1YzNhMjE4MGMiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAxOTcudHh0In0"
+      },
+      "elapsedMs": 0.9329589999979362
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "",
+        "cursor": "eyJyZXZpc2lvbiI6IjRiYjFlY2JhYmFmMjQ1NjRiMDUwODQ4M2VlZTg1MThhYTdhNTQwM2E3OTgwZGY1M2Y5Y2VjNzY1YzNhMjE4MGMiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAzOTcudHh0In0"
+      },
+      "elapsedMs": 0.4628329999977723
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "folder"
+      },
+      "elapsedMs": 0.7414579999749549
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "folder",
+        "cursor": "eyJyZXZpc2lvbiI6ImJlMDZjN2FhYzU5ZmI3Mzk3NGI5NmU3NjVmMzAwODJkM2FlMDhkYmY4MWVlODlhZjA0YzgxMGNjZDRjZTk3N2IiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAxOTgudHh0In0"
+      },
+      "elapsedMs": 0.9553329999907874
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "folder",
+        "cursor": "eyJyZXZpc2lvbiI6ImJlMDZjN2FhYzU5ZmI3Mzk3NGI5NmU3NjVmMzAwODJkM2FlMDhkYmY4MWVlODlhZjA0YzgxMGNjZDRjZTk3N2IiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAzOTgudHh0In0"
+      },
+      "elapsedMs": 0.4707090000156313
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": ""
+      },
+      "elapsedMs": 2.3595840000198223
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "",
+        "cursor": "eyJyZXZpc2lvbiI6IjRiYjFlY2JhYmFmMjQ1NjRiMDUwODQ4M2VlZTg1MThhYTdhNTQwM2E3OTgwZGY1M2Y5Y2VjNzY1YzNhMjE4MGMiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAxOTcudHh0In0"
+      },
+      "elapsedMs": 0.9848329999949783
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "",
+        "cursor": "eyJyZXZpc2lvbiI6IjRiYjFlY2JhYmFmMjQ1NjRiMDUwODQ4M2VlZTg1MThhYTdhNTQwM2E3OTgwZGY1M2Y5Y2VjNzY1YzNhMjE4MGMiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAzOTcudHh0In0"
+      },
+      "elapsedMs": 0.5545419999980368
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "folder"
+      },
+      "elapsedMs": 0.6853750000009313
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "folder",
+        "cursor": "eyJyZXZpc2lvbiI6ImJlMDZjN2FhYzU5ZmI3Mzk3NGI5NmU3NjVmMzAwODJkM2FlMDhkYmY4MWVlODlhZjA0YzgxMGNjZDRjZTk3N2IiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAxOTgudHh0In0"
+      },
+      "elapsedMs": 0.8171669999719597
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "folder",
+        "cursor": "eyJyZXZpc2lvbiI6ImJlMDZjN2FhYzU5ZmI3Mzk3NGI5NmU3NjVmMzAwODJkM2FlMDhkYmY4MWVlODlhZjA0YzgxMGNjZDRjZTk3N2IiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAzOTgudHh0In0"
+      },
+      "elapsedMs": 0.7179170000017621
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": ""
+      },
+      "elapsedMs": 2.9788749999715947
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "",
+        "cursor": "eyJyZXZpc2lvbiI6IjRiYjFlY2JhYmFmMjQ1NjRiMDUwODQ4M2VlZTg1MThhYTdhNTQwM2E3OTgwZGY1M2Y5Y2VjNzY1YzNhMjE4MGMiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAxOTcudHh0In0"
+      },
+      "elapsedMs": 3.8669579999987036
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "",
+        "cursor": "eyJyZXZpc2lvbiI6IjRiYjFlY2JhYmFmMjQ1NjRiMDUwODQ4M2VlZTg1MThhYTdhNTQwM2E3OTgwZGY1M2Y5Y2VjNzY1YzNhMjE4MGMiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAzOTcudHh0In0"
+      },
+      "elapsedMs": 0.8579170000157319
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "folder"
+      },
+      "elapsedMs": 0.8054170000250451
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "folder",
+        "cursor": "eyJyZXZpc2lvbiI6ImJlMDZjN2FhYzU5ZmI3Mzk3NGI5NmU3NjVmMzAwODJkM2FlMDhkYmY4MWVlODlhZjA0YzgxMGNjZDRjZTk3N2IiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAxOTgudHh0In0"
+      },
+      "elapsedMs": 0.8133750000270084
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "folder",
+        "cursor": "eyJyZXZpc2lvbiI6ImJlMDZjN2FhYzU5ZmI3Mzk3NGI5NmU3NjVmMzAwODJkM2FlMDhkYmY4MWVlODlhZjA0YzgxMGNjZDRjZTk3N2IiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAzOTgudHh0In0"
+      },
+      "elapsedMs": 0.5023750000400469
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": ""
+      },
+      "elapsedMs": 2.1750840000458993
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "",
+        "cursor": "eyJyZXZpc2lvbiI6IjRiYjFlY2JhYmFmMjQ1NjRiMDUwODQ4M2VlZTg1MThhYTdhNTQwM2E3OTgwZGY1M2Y5Y2VjNzY1YzNhMjE4MGMiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAxOTcudHh0In0"
+      },
+      "elapsedMs": 6.386292000010144
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "",
+        "cursor": "eyJyZXZpc2lvbiI6IjRiYjFlY2JhYmFmMjQ1NjRiMDUwODQ4M2VlZTg1MThhYTdhNTQwM2E3OTgwZGY1M2Y5Y2VjNzY1YzNhMjE4MGMiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAzOTcudHh0In0"
+      },
+      "elapsedMs": 0.8358749999897555
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "folder"
+      },
+      "elapsedMs": 0.8704169999691658
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "folder",
+        "cursor": "eyJyZXZpc2lvbiI6ImJlMDZjN2FhYzU5ZmI3Mzk3NGI5NmU3NjVmMzAwODJkM2FlMDhkYmY4MWVlODlhZjA0YzgxMGNjZDRjZTk3N2IiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAxOTgudHh0In0"
+      },
+      "elapsedMs": 0.8004170000203885
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "folder",
+        "cursor": "eyJyZXZpc2lvbiI6ImJlMDZjN2FhYzU5ZmI3Mzk3NGI5NmU3NjVmMzAwODJkM2FlMDhkYmY4MWVlODlhZjA0YzgxMGNjZDRjZTk3N2IiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAzOTgudHh0In0"
+      },
+      "elapsedMs": 0.4793749999953434
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": ""
+      },
+      "elapsedMs": 1.3337910000118427
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "",
+        "cursor": "eyJyZXZpc2lvbiI6IjRiYjFlY2JhYmFmMjQ1NjRiMDUwODQ4M2VlZTg1MThhYTdhNTQwM2E3OTgwZGY1M2Y5Y2VjNzY1YzNhMjE4MGMiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAxOTcudHh0In0"
+      },
+      "elapsedMs": 7.089457999973092
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "",
+        "cursor": "eyJyZXZpc2lvbiI6IjRiYjFlY2JhYmFmMjQ1NjRiMDUwODQ4M2VlZTg1MThhYTdhNTQwM2E3OTgwZGY1M2Y5Y2VjNzY1YzNhMjE4MGMiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAzOTcudHh0In0"
+      },
+      "elapsedMs": 0.6941249999799766
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "folder"
+      },
+      "elapsedMs": 0.7715420000022277
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "folder",
+        "cursor": "eyJyZXZpc2lvbiI6ImJlMDZjN2FhYzU5ZmI3Mzk3NGI5NmU3NjVmMzAwODJkM2FlMDhkYmY4MWVlODlhZjA0YzgxMGNjZDRjZTk3N2IiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAxOTgudHh0In0"
+      },
+      "elapsedMs": 0.9357920000329614
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "folder",
+        "cursor": "eyJyZXZpc2lvbiI6ImJlMDZjN2FhYzU5ZmI3Mzk3NGI5NmU3NjVmMzAwODJkM2FlMDhkYmY4MWVlODlhZjA0YzgxMGNjZDRjZTk3N2IiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAzOTgudHh0In0"
+      },
+      "elapsedMs": 0.5800840000156313
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": ""
+      },
+      "elapsedMs": 2.105249999964144
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "",
+        "cursor": "eyJyZXZpc2lvbiI6IjRiYjFlY2JhYmFmMjQ1NjRiMDUwODQ4M2VlZTg1MThhYTdhNTQwM2E3OTgwZGY1M2Y5Y2VjNzY1YzNhMjE4MGMiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAxOTcudHh0In0"
+      },
+      "elapsedMs": 1.2804999999934807
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "",
+        "cursor": "eyJyZXZpc2lvbiI6IjRiYjFlY2JhYmFmMjQ1NjRiMDUwODQ4M2VlZTg1MThhYTdhNTQwM2E3OTgwZGY1M2Y5Y2VjNzY1YzNhMjE4MGMiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAzOTcudHh0In0"
+      },
+      "elapsedMs": 0.48029100004350767
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "folder"
+      },
+      "elapsedMs": 0.7713330000406131
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "folder",
+        "cursor": "eyJyZXZpc2lvbiI6ImJlMDZjN2FhYzU5ZmI3Mzk3NGI5NmU3NjVmMzAwODJkM2FlMDhkYmY4MWVlODlhZjA0YzgxMGNjZDRjZTk3N2IiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAxOTgudHh0In0"
+      },
+      "elapsedMs": 2.813666000030935
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "folder",
+        "cursor": "eyJyZXZpc2lvbiI6ImJlMDZjN2FhYzU5ZmI3Mzk3NGI5NmU3NjVmMzAwODJkM2FlMDhkYmY4MWVlODlhZjA0YzgxMGNjZDRjZTk3N2IiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAzOTgudHh0In0"
+      },
+      "elapsedMs": 1.8222079999977723
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": ""
+      },
+      "elapsedMs": 3.5520419999957085
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "",
+        "cursor": "eyJyZXZpc2lvbiI6IjRiYjFlY2JhYmFmMjQ1NjRiMDUwODQ4M2VlZTg1MThhYTdhNTQwM2E3OTgwZGY1M2Y5Y2VjNzY1YzNhMjE4MGMiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAxOTcudHh0In0"
+      },
+      "elapsedMs": 0.9821249999804422
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "",
+        "cursor": "eyJyZXZpc2lvbiI6IjRiYjFlY2JhYmFmMjQ1NjRiMDUwODQ4M2VlZTg1MThhYTdhNTQwM2E3OTgwZGY1M2Y5Y2VjNzY1YzNhMjE4MGMiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAzOTcudHh0In0"
+      },
+      "elapsedMs": 0.47595799999544397
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "folder"
+      },
+      "elapsedMs": 1.2945830000098795
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "folder",
+        "cursor": "eyJyZXZpc2lvbiI6ImJlMDZjN2FhYzU5ZmI3Mzk3NGI5NmU3NjVmMzAwODJkM2FlMDhkYmY4MWVlODlhZjA0YzgxMGNjZDRjZTk3N2IiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAxOTgudHh0In0"
+      },
+      "elapsedMs": 1.3177920000161976
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "folder",
+        "cursor": "eyJyZXZpc2lvbiI6ImJlMDZjN2FhYzU5ZmI3Mzk3NGI5NmU3NjVmMzAwODJkM2FlMDhkYmY4MWVlODlhZjA0YzgxMGNjZDRjZTk3N2IiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAzOTgudHh0In0"
+      },
+      "elapsedMs": 0.5281669999822043
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": ""
+      },
+      "elapsedMs": 3.057083000021521
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "",
+        "cursor": "eyJyZXZpc2lvbiI6IjRiYjFlY2JhYmFmMjQ1NjRiMDUwODQ4M2VlZTg1MThhYTdhNTQwM2E3OTgwZGY1M2Y5Y2VjNzY1YzNhMjE4MGMiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAxOTcudHh0In0"
+      },
+      "elapsedMs": 5.426875000004657
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "",
+        "cursor": "eyJyZXZpc2lvbiI6IjRiYjFlY2JhYmFmMjQ1NjRiMDUwODQ4M2VlZTg1MThhYTdhNTQwM2E3OTgwZGY1M2Y5Y2VjNzY1YzNhMjE4MGMiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAzOTcudHh0In0"
+      },
+      "elapsedMs": 0.9302909999969415
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "folder"
+      },
+      "elapsedMs": 0.7817090000025928
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "folder",
+        "cursor": "eyJyZXZpc2lvbiI6ImJlMDZjN2FhYzU5ZmI3Mzk3NGI5NmU3NjVmMzAwODJkM2FlMDhkYmY4MWVlODlhZjA0YzgxMGNjZDRjZTk3N2IiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAxOTgudHh0In0"
+      },
+      "elapsedMs": 1.0178749999613501
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "folder",
+        "cursor": "eyJyZXZpc2lvbiI6ImJlMDZjN2FhYzU5ZmI3Mzk3NGI5NmU3NjVmMzAwODJkM2FlMDhkYmY4MWVlODlhZjA0YzgxMGNjZDRjZTk3N2IiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAzOTgudHh0In0"
+      },
+      "elapsedMs": 0.6358749999781139
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": ""
+      },
+      "elapsedMs": 2.665082999970764
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "",
+        "cursor": "eyJyZXZpc2lvbiI6IjRiYjFlY2JhYmFmMjQ1NjRiMDUwODQ4M2VlZTg1MThhYTdhNTQwM2E3OTgwZGY1M2Y5Y2VjNzY1YzNhMjE4MGMiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAxOTcudHh0In0"
+      },
+      "elapsedMs": 0.7432909999624826
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "",
+        "cursor": "eyJyZXZpc2lvbiI6IjRiYjFlY2JhYmFmMjQ1NjRiMDUwODQ4M2VlZTg1MThhYTdhNTQwM2E3OTgwZGY1M2Y5Y2VjNzY1YzNhMjE4MGMiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAzOTcudHh0In0"
+      },
+      "elapsedMs": 0.5111670000478625
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "folder"
+      },
+      "elapsedMs": 0.819666999974288
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "folder",
+        "cursor": "eyJyZXZpc2lvbiI6ImJlMDZjN2FhYzU5ZmI3Mzk3NGI5NmU3NjVmMzAwODJkM2FlMDhkYmY4MWVlODlhZjA0YzgxMGNjZDRjZTk3N2IiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAxOTgudHh0In0"
+      },
+      "elapsedMs": 2.7564999999594875
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "folder",
+        "cursor": "eyJyZXZpc2lvbiI6ImJlMDZjN2FhYzU5ZmI3Mzk3NGI5NmU3NjVmMzAwODJkM2FlMDhkYmY4MWVlODlhZjA0YzgxMGNjZDRjZTk3N2IiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAzOTgudHh0In0"
+      },
+      "elapsedMs": 0.5
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": ""
+      },
+      "elapsedMs": 3.661707999999635
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "",
+        "cursor": "eyJyZXZpc2lvbiI6IjRiYjFlY2JhYmFmMjQ1NjRiMDUwODQ4M2VlZTg1MThhYTdhNTQwM2E3OTgwZGY1M2Y5Y2VjNzY1YzNhMjE4MGMiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAxOTcudHh0In0"
+      },
+      "elapsedMs": 1.2762499999953434
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "",
+        "cursor": "eyJyZXZpc2lvbiI6IjRiYjFlY2JhYmFmMjQ1NjRiMDUwODQ4M2VlZTg1MThhYTdhNTQwM2E3OTgwZGY1M2Y5Y2VjNzY1YzNhMjE4MGMiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAzOTcudHh0In0"
+      },
+      "elapsedMs": 0.5961249999818392
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "folder"
+      },
+      "elapsedMs": 0.6432919999933802
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "folder",
+        "cursor": "eyJyZXZpc2lvbiI6ImJlMDZjN2FhYzU5ZmI3Mzk3NGI5NmU3NjVmMzAwODJkM2FlMDhkYmY4MWVlODlhZjA0YzgxMGNjZDRjZTk3N2IiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAxOTgudHh0In0"
+      },
+      "elapsedMs": 0.7745420000283048
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": "folder",
+        "cursor": "eyJyZXZpc2lvbiI6ImJlMDZjN2FhYzU5ZmI3Mzk3NGI5NmU3NjVmMzAwODJkM2FlMDhkYmY4MWVlODlhZjA0YzgxMGNjZDRjZTk3N2IiLCJraW5kIjoiZmlsZSIsIm5hbWUiOiJmaWxlLTAzOTgudHh0In0"
+      },
+      "elapsedMs": 0.46095799998147413
+    },
+    {
+      "op": "work_list",
+      "params": {
+        "session_id": "sess_3b51a0bde80b1112952eddcc"
+      },
+      "elapsedMs": 0.18433299998287112
+    },
+    {
+      "op": "read_workspace_git",
+      "params": {
+        "workspace_id": "proj_3158c68554c6d1c1a74de814"
+      },
+      "elapsedMs": 31.769583000044804
+    },
+    {
+      "op": "work_list",
+      "params": {
+        "session_id": "sess_93c379d87ffdc4cab7ef54a5"
+      },
+      "elapsedMs": 0.18833400000585243
+    },
+    {
+      "op": "read_workspace_git",
+      "params": {
+        "workspace_id": "proj_03cb72a74dbbc0c947cd0ce5"
+      },
+      "elapsedMs": 18.147667000012007
+    },
+    {
+      "op": "work_list",
+      "params": {
+        "session_id": "sess_d53605b0f68e90991e9c6c54"
+      },
+      "elapsedMs": 0.08624999999301508
+    },
+    {
+      "op": "list_workspace_files",
+      "params": {
+        "workspace_id": "proj_ba5c36e00ce639f4179ef416",
+        "path": ""
+      },
+      "elapsedMs": 1.5681660000118427
+    }
+  ],
+  "modelCalls": 0
+}

@@ -1,0 +1,49 @@
+{
+  "platform": "darwin",
+  "node": "v24.15.0",
+  "count": 12000,
+  "rounds": [
+    {
+      "round": 1,
+      "page": "first",
+      "elapsedMs": 11.368041999999946,
+      "timerTicks": 11,
+      "entries": 200
+    },
+    {
+      "round": 1,
+      "page": "next",
+      "elapsedMs": 8.022709000000077,
+      "timerTicks": 8,
+      "entries": 200
+    },
+    {
+      "round": 2,
+      "page": "first",
+      "elapsedMs": 6.877624999999966,
+      "timerTicks": 7,
+      "entries": 200
+    },
+    {
+      "round": 2,
+      "page": "next",
+      "elapsedMs": 6.6779169999999795,
+      "timerTicks": 7,
+      "entries": 200
+    },
+    {
+      "round": 3,
+      "page": "first",
+      "elapsedMs": 6.505250000000046,
+      "timerTicks": 7,
+      "entries": 200
+    },
+    {
+      "round": 3,
+      "page": "next",
+      "elapsedMs": 6.999625000000037,
+      "timerTicks": 7,
+      "entries": 200
+    }
+  ]
+}

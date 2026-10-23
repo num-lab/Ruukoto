@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[文件树续页](../feature/2026-10-24-directory-pages-lazy-git.md)取代目录每层 200 项总上限，保留分页容量、路径与读取一致性核实。
+
 [读取检查复用](../bug-fix/2026-10-24-read-check-overhead.md)取代文件预览的多硬链接拒绝，其余路径与读取一致性要求保持。
 
 工作区浏览的保护根约束由[拥有者浏览权限](../feature/2026-10-24-owner-workspace-browsing.md)取代；登记根、路径及读取一致性规则继续适用。

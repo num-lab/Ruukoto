@@ -21,7 +21,7 @@ function Fixture() {
     return state;
   });
   const finish = (path: string, entries: OpResult<"list_workspace_files">["entries"]) => {
-    pending.current.get(path)?.({ ok: true, value: { workspaceId: "w", path, entries, truncated: false } });
+    pending.current.get(path)?.({ ok: true, value: { workspaceId: "w", path, entries, nextCursor: null } });
     pending.current.delete(path);
   };
   return <main style={{ width: 440, maxWidth: "95vw", height: "90vh", margin: "20px auto", display: "flex", flexDirection: "column", background: "var(--bg-sidebar)" }}>

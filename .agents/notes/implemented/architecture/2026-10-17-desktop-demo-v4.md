@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[目录续页与按需 Git](../feature/2026-10-24-directory-pages-lazy-git.md)将正式 Git 查询改为点击后触发，新标签页固定显示入口，非仓库在进入后提示。
+
 Git 元数据全树预检与外部引用限制由[按操作核实范围](../bug-fix/2026-10-24-operation-specific-checks.md)取代；固定只读命令、输出预算及身份校验继续适用。
 
 Git 查询的保护根约束由[拥有者浏览权限](../feature/2026-10-24-owner-workspace-browsing.md)取代；元数据核实、只读命令及分页一致性规则继续适用。

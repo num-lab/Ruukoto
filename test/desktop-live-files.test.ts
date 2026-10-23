@@ -26,7 +26,7 @@ const session: Session = { id: "session", projectId: "workspace", kind: "dev", w
 function harness(root: string, handlers: FakeHandlers = {}) {
   const identity = resolveDirIdentitySync(root);
   const project: Project = { id: "workspace", name: "工作区", rootDir: identity, createRequestId: null, instructionFiles: [], webSearch: "enabled", settingsVersion: 1, createdAt: at };
-  const transport = new FakeTransport({ handlers: { work_list: () => ({ works: [] }), list_workspace_files: params => listWorkspaceFiles(params.workspace_id, identity, params.path ?? ""), read_workspace_file: params => readWorkspaceFile(params.workspace_id, identity, params.path, params), ...handlers } });
+  const transport = new FakeTransport({ handlers: { work_list: () => ({ works: [] }), list_workspace_files: params => listWorkspaceFiles(params.workspace_id, identity, params.path ?? "", params.cursor), read_workspace_file: params => readWorkspaceFile(params.workspace_id, identity, params.path, params), ...handlers } });
   const model = new CodeState({ request: (_target, op, params) => ipcResult(() => transport.request(op as TuiOp, params as OpParams<TuiOp>)) }, () => {});
   model.view.applySnapshot({ snapshot: fakeSnapshot({ projects: [project], sessions: [{ ...session, cwd: identity.cwdReal, cwdReal: identity.cwdReal }] }), replay: [], seq: 0 }, false);
   model.status = { type: "state", state: "online" };
@@ -39,6 +39,7 @@ function fixture() {
   return { parent, root, close: () => fs.rmSync(parent, { recursive: true, force: true }) };
 }
 const settle = () => new Promise(resolve => setTimeout(resolve, 0));
+const directoryReady = (h: ReturnType<typeof harness>, path = "") => waitFor("目录读取完成", () => h.inspector.directories.get(`workspace:${path}`)?.loading === false);
 
 for (const source of ["snapshot", "workspace"] as const) for (const format of ["image", "text"] as const) test(`${source}${format}转换内存失败可见且可重试`, async context => {
   const kit = fixture();
@@ -80,10 +81,10 @@ test("重新激活文件树会看到磁盘新增和删除，而不是永久复�
   try {
     const h = harness(kit.root);
     fs.writeFileSync(path.join(kit.root, "old.txt"), "old");
-    h.inspector.openFiles(); await settle();
+    h.inspector.openFiles(); await directoryReady(h);
     assert.deepEqual(h.inspector.directories.get("workspace:")?.value?.entries.map(entry => entry.name), ["old.txt"]);
     fs.unlinkSync(path.join(kit.root, "old.txt")); fs.writeFileSync(path.join(kit.root, "new.txt"), "new");
-    h.inspector.openBrowser(); h.inspector.openFiles(); await settle();
+    h.inspector.openBrowser(); h.inspector.openFiles(); await directoryReady(h);
     assert.deepEqual(h.inspector.directories.get("workspace:")?.value?.entries.map(entry => entry.name), ["new.txt"]);
   } finally { kit.close(); }
 });
@@ -112,12 +113,12 @@ test("活动文件树按周期和focus刷新，未展开层不读，卸载/关�
     fs.mkdirSync(path.join(kit.root, "expanded")); fs.mkdirSync(path.join(kit.root, "closed"));
     const h = harness(kit.root), host = new RefreshHost();
     h.inspector.folders.set("workspace:expanded", true);
-    h.inspector.openFiles(); await settle(); await h.inspector.refreshDirectories("workspace");
-    const stop = startFilesRefresh(h.inspector, "workspace", host); await settle();
+    h.inspector.openFiles(); await directoryReady(h); await h.inspector.refreshDirectories("workspace");
+    const stop = startFilesRefresh(h.inspector, "workspace", host); await waitFor("目录刷新完成", () => host.timers.size === 1);
     assert.equal(host.timers.size, 1);
-    fs.writeFileSync(path.join(kit.root, "expanded", "new.txt"), "new"); host.tick(); await settle();
+    fs.writeFileSync(path.join(kit.root, "expanded", "new.txt"), "new"); host.tick(); await waitFor("子目录新增可见", () => h.inspector.directories.get("workspace:expanded")?.value?.entries[0]?.name === "new.txt");
     assert.equal(h.inspector.directories.get("workspace:expanded")?.value?.entries[0].name, "new.txt");
-    fs.unlinkSync(path.join(kit.root, "expanded", "new.txt")); host.dispatchEvent(new Event("focus")); await settle();
+    fs.unlinkSync(path.join(kit.root, "expanded", "new.txt")); host.dispatchEvent(new Event("focus")); await waitFor("子目录删除可见", () => h.inspector.directories.get("workspace:expanded")?.value?.entries.length === 0);
     assert.equal(h.inspector.directories.get("workspace:expanded")?.value?.entries.length, 0);
     assert.ok(h.transport.requests.filter(request => request.op === "list_workspace_files").every(request => (request.params as OpParams<"list_workspace_files">).path !== "closed"));
     h.inspector.visible = false; const count = h.transport.requests.length;
@@ -132,8 +133,8 @@ test("刷新保留成功树，在途focus不重复；失败可重试，删除使
   const kit = fixture();
   try {
     fs.writeFileSync(path.join(kit.root, "old.txt"), "old"); const blocked = gate(); let wait = false, fail = false;
-    const h = harness(kit.root, { list_workspace_files: async params => { if (wait) await blocked.wait; if (fail) throw new Error("刷新失败"); return listWorkspaceFiles(params.workspace_id, resolveDirIdentitySync(kit.root), params.path ?? ""); } });
-    h.inspector.openFiles(); await settle(); await h.inspector.refreshDirectories("workspace");
+    const h = harness(kit.root, { list_workspace_files: async params => { if (wait) await blocked.wait; if (fail) throw new Error("刷新失败"); return listWorkspaceFiles(params.workspace_id, resolveDirIdentitySync(kit.root), params.path ?? "", params.cursor); } });
+    h.inspector.openFiles(); await directoryReady(h); await h.inspector.refreshDirectories("workspace");
     h.inspector.files.set("workspace:old.txt", { loading: false, value: { path: "old.txt", kind: "text", content: "old", size: 3 } });
     const host = new RefreshHost(); wait = true; const stop = startFilesRefresh(h.inspector, "workspace", host);
     const count = h.transport.requests.length;
@@ -141,11 +142,11 @@ test("刷新保留成功树，在途focus不重复；失败可重试，删除使
     assert.equal(h.transport.requests.length, count);
     assert.equal(h.inspector.directories.get("workspace:")?.loading, true);
     assert.equal(h.inspector.directories.get("workspace:")?.value?.entries[0].name, "old.txt");
-    fail = true; blocked.release(); await settle();
+    fail = true; blocked.release(); await waitFor("刷新失败可见", () => !!h.inspector.directories.get("workspace:")?.error);
     assert.match(h.inspector.directories.get("workspace:")?.error ?? "", /刷新失败/);
     assert.equal(h.inspector.directories.get("workspace:")?.value?.entries[0].name, "old.txt");
     fail = false; wait = false; fs.unlinkSync(path.join(kit.root, "old.txt"));
-    host.dispatchEvent(new Event("focus")); await settle();
+    host.dispatchEvent(new Event("focus")); await waitFor("根目录删除可见", () => h.inspector.directories.get("workspace:")?.value?.entries.length === 0);
     assert.equal(h.inspector.directories.get("workspace:")?.value?.entries.length, 0);
     assert.equal(h.inspector.files.has("workspace:old.txt"), false);
     stop();
@@ -156,8 +157,8 @@ test("切换面板后在途刷新不继续扫描展开目录，离线不再发�
   const kit = fixture();
   try {
     fs.mkdirSync(path.join(kit.root, "expanded")); const blocked = gate(); let wait = false;
-    const h = harness(kit.root, { list_workspace_files: async params => { if (wait) await blocked.wait; return listWorkspaceFiles(params.workspace_id, resolveDirIdentitySync(kit.root), params.path ?? ""); } });
-    h.inspector.folders.set("workspace:expanded", true); h.inspector.openFiles(); await settle(); await h.inspector.refreshDirectories("workspace");
+    const h = harness(kit.root, { list_workspace_files: async params => { if (wait) await blocked.wait; return listWorkspaceFiles(params.workspace_id, resolveDirIdentitySync(kit.root), params.path ?? "", params.cursor); } });
+    h.inspector.folders.set("workspace:expanded", true); h.inspector.openFiles(); await directoryReady(h); await h.inspector.refreshDirectories("workspace");
     wait = true; const refresh = h.inspector.refreshDirectories("workspace"); const count = h.transport.requests.length;
     h.inspector.openBrowser(); blocked.release(); await refresh;
     assert.equal(h.transport.requests.length, count);
@@ -170,8 +171,8 @@ test("组件卸载取消刷新后续层，即使保留的Code Inspector仍标为
   const kit = fixture();
   try {
     fs.mkdirSync(path.join(kit.root, "expanded")); const blocked = gate(); let wait = false;
-    const h = harness(kit.root, { list_workspace_files: async params => { if (wait) await blocked.wait; return listWorkspaceFiles(params.workspace_id, resolveDirIdentitySync(kit.root), params.path ?? ""); } });
-    h.inspector.folders.set("workspace:expanded", true); h.inspector.openFiles(); await settle(); await h.inspector.refreshDirectories("workspace");
+    const h = harness(kit.root, { list_workspace_files: async params => { if (wait) await blocked.wait; return listWorkspaceFiles(params.workspace_id, resolveDirIdentitySync(kit.root), params.path ?? "", params.cursor); } });
+    h.inspector.folders.set("workspace:expanded", true); h.inspector.openFiles(); await directoryReady(h); await h.inspector.refreshDirectories("workspace");
     wait = true; const host = new RefreshHost(), stop = startFilesRefresh(h.inspector, "workspace", host);
     const count = h.transport.requests.length; stop(); blocked.release(); await settle();
     assert.equal(h.inspector.visible, true); assert.equal(h.inspector.activeTab()?.kind, "files");
@@ -357,5 +358,37 @@ test("实际预览不显示捕获版本说明、partial紧凑提示与上限，�
     state.error = "刷新失败";
     const failed = renderToStaticMarkup(createElement(WorkspaceFiles, { model: h.model, workspaceId: "workspace" }));
     assert.match(failed, /saved.txt/); assert.match(failed, /刷新失败/);
+  } finally { kit.close(); }
+});
+
+test("真实目录逐层续页，前部新增后刷新仍保留已展示的第400项及其缓存", async () => {
+  const kit = fixture();
+  try {
+    for (let index = 0; index < 405; index++) fs.mkdirSync(path.join(kit.root, `entry-${String(index).padStart(4, "0")}`));
+    fs.mkdirSync(path.join(kit.root, "nested"));
+    for (let index = 0; index < 405; index++) fs.writeFileSync(path.join(kit.root, "nested", `${String(index).padStart(4, "0")}.txt`), "");
+    const h = harness(kit.root);
+    h.inspector.openFiles();
+    await waitFor("根目录首读", () => h.inspector.directories.get("workspace:")?.loading === false);
+    assert.equal(h.inspector.directories.get("workspace:")!.value!.entries.length, 200);
+    await h.inspector.loadMoreDirectory("workspace", "");
+    const last = h.inspector.directories.get("workspace:")!.value!.entries.at(-1)!;
+    assert.equal(h.inspector.directories.get("workspace:")!.value!.entries.length, 400);
+    h.inspector.directories.set(`workspace:${last.path}`, { loading: false, value: { workspaceId: "workspace", path: last.path, entries: [], nextCursor: null } });
+    fs.mkdirSync(path.join(kit.root, "000-before"));
+    await h.inspector.refreshDirectories("workspace");
+    const refreshed = h.inspector.directories.get("workspace:")!.value!;
+    assert.ok(refreshed.entries.some(entry => entry.path === last.path));
+    assert.equal(refreshed.entries.length, 407); assert.equal(refreshed.nextCursor, null);
+    assert.ok(h.inspector.directories.has(`workspace:${last.path}`));
+    h.inspector.folders.set("workspace:nested", true);
+    await h.inspector.loadDirectory("workspace", "nested");
+    await h.inspector.loadMoreDirectory("workspace", "nested"); await h.inspector.loadMoreDirectory("workspace", "nested");
+    const nested = h.inspector.directories.get("workspace:nested")!.value!;
+    assert.equal(nested.entries.length, 405); assert.equal(new Set(nested.entries.map(entry => entry.path)).size, 405); assert.equal(nested.nextCursor, null);
+    fs.rmdirSync(path.join(kit.root, last.path));
+    await h.inspector.refreshDirectories("workspace");
+    assert.equal(h.inspector.directories.has(`workspace:${last.path}`), false);
+    assert.equal(h.inspector.directories.get("workspace:nested")!.value!.entries.length, 405);
   } finally { kit.close(); }
 });

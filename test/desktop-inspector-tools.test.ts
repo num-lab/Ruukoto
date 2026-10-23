@@ -7,6 +7,7 @@ import { parseFragment, type DefaultTreeAdapterTypes } from "parse5";
 import { createServer, type ViteDevServer } from "vite";
 import react from "@vitejs/plugin-react";
 import type { OpParams, OpResult } from "@ruukoto/control/ops.ts";
+import { ControlClientError } from "@ruukoto/control/client.ts";
 import type { Project, Session } from "@ruukoto/core/types.ts";
 import { CodeState } from "../apps/desktop/src/renderer/code-state.ts";
 import { browserAddress, browserNavigation, moveBrowser, navigateBrowser, type BrowserNavigation } from "../apps/desktop/src/renderer/browser-navigation.ts";
@@ -19,7 +20,7 @@ import { FILE_PAGE_BYTES, type PreviewFile } from "../apps/desktop/src/renderer/
 const at = "2026-10-16T00:00:00.000Z";
 const workspace = (id: string): Project => ({ id, name: `真实工作区 ${id}`, createRequestId: null, rootDir: { cwd: `/work/${id}`, cwdReal: `/work/${id}`, dev: 1, ino: id === "w1" ? 1 : 2 }, instructionFiles: [], webSearch: "enabled", settingsVersion: 1, createdAt: at });
 const session = (id: string, projectId = "w1"): Session => ({ id, projectId, kind: "dev", workspaceProjectId: null, name: null, branchSource: null, cwd: `/work/${projectId}`, cwdReal: `/work/${projectId}`, cwdDev: 1, cwdIno: projectId === "w1" ? 1 : 2, piSessionId: id, sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: null, modelSelectionVersion: 0, defaultAccessMode: "confirm", defaultAccessModeVersion: 0, queueState: "active", queuePauseReason: null, archivedAt: null, createdAt: at });
-const directory = (workspaceId = "w1", path = "", name = "actual.txt"): OpResult<"list_workspace_files"> => ({ workspaceId, path, entries: [{ kind: "file", path: path ? `${path}/${name}` : name, name }], truncated: false });
+const directory = (workspaceId = "w1", path = "", name = "actual.txt"): OpResult<"list_workspace_files"> => ({ workspaceId, path, entries: [{ kind: "file", path: path ? `${path}/${name}` : name, name }], nextCursor: null });
 const file = (workspaceId = "w1", path = "actual.txt", content = `真实文件内容 ${workspaceId}`, offset = 0, version = "version"): OpResult<"read_workspace_file"> => { const bytes = Buffer.from(content); return { workspaceId, path, size: bytes.length, version, offset, encoding: "base64", data: bytes.subarray(offset, offset + FILE_PAGE_BYTES).toString("base64") }; };
 function gate() {
   let release!: () => void;
@@ -199,10 +200,40 @@ let FilePreview: ComponentType<{ file: PreviewFile | undefined; path: string; mo
 let WorkspaceFiles: ComponentType<{ model: CodeState; workspaceId: string }>;
 let BrowserPanel: ComponentType<{ navigation: BrowserNavigation; onChange: (navigation: BrowserNavigation) => void }>;
 let Conversation: ComponentType<{ model: CodeState; sessionId: string }>;
+let InspectorPanel: ComponentType<{ model: CodeState; open: boolean; onWidthChange: (width: number) => void }>;
 before(async () => {
-  server = await createServer({ configFile: false, root: fileURLToPath(new URL("../apps/desktop/src/renderer/", import.meta.url)), plugins: [react()], define: { "window.location.origin": JSON.stringify("http://127.0.0.1:9999"), "window.location.protocol": JSON.stringify("http:") }, server: { middlewareMode: true, hmr: false, ws: false }, appType: "custom" });
+  server = await createServer({ configFile: false, root: fileURLToPath(new URL("../apps/desktop/src/renderer/", import.meta.url)), plugins: [react()], ssr: { noExternal: ["@xterm/xterm", "@xterm/addon-fit"] }, define: { "window.location.origin": JSON.stringify("http://127.0.0.1:9999"), "window.location.protocol": JSON.stringify("http:") }, server: { middlewareMode: true, hmr: false, ws: false }, appType: "custom" });
   ({ FilePreview, WorkspaceFiles, BrowserPanel } = await server.ssrLoadModule("/inspector-panels.tsx"));
   ({ Conversation } = await server.ssrLoadModule("/conversation.tsx"));
+  ({ InspectorPanel } = await server.ssrLoadModule("/inspector-panel.tsx"));
+});
+
+test("断线打开 Git 不冒充非仓库，恢复后仍需读取结果", async () => {
+  const h = harness({ read_workspace_git: params => ({ workspaceId: params.workspace_id, repository: null }) });
+  h.inspector.openParent("a"); h.model.update({ type: "state", state: "reconnecting" }); h.inspector.openGit();
+  const render = () => renderToStaticMarkup(createElement(InspectorPanel, { model: h.model, open: true, onWidthChange() {} }));
+  assert.match(render(), /等待连接/); assert.doesNotMatch(render(), /没有 Git 仓库/);
+  assert.equal(h.transport.requests.filter(request => request.op === "read_workspace_git").length, 0);
+  h.model.update({ type: "state", state: "online" }); h.snapshot();
+  await waitFor("恢复后仓库读取完成", () => h.inspector.repositories.get("w1")?.loading === false);
+  assert.match(render(), /没有 Git 仓库/);
+});
+
+test("Git 入口始终可见，新标签和同步不预取，点击后区分非仓库与空仓库", async () => {
+  const h = harness({ read_workspace_git: params => ({ workspaceId: params.workspace_id, repository: null }) });
+  const render = () => renderToStaticMarkup(createElement(InspectorPanel, { model: h.model, open: true, onWidthChange() {} }));
+  assert.match(render(), /disabled=""[^>]*><svg[^]*?<span>Git graph<\/span>/);
+  h.inspector.openParent("a"); h.inspector.newTab(); h.snapshot();
+  h.inspector.update({ type: "state", state: "reconnecting" }); h.inspector.update({ type: "state", state: "online" });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(h.transport.requests.filter(request => request.op === "read_workspace_git").length, 0);
+  assert.match(render(), /<span>Git graph<\/span>/);
+  h.inspector.openGit();
+  await waitFor("点击后读取 Git", () => h.inspector.repositories.get("w1")?.value !== undefined);
+  assert.deepEqual(h.transport.requests.filter(request => request.op === "read_workspace_git").map(request => request.params), [{ workspace_id: "w1" }]);
+  assert.match(render(), /此工作区没有 Git 仓库。/);
+  h.inspector.repositories.set("w1", { loading: false, value: { workspaceId: "w1", repository: { head: null, commits: [], nextCursor: null } } });
+  assert.match(render(), /暂无提交/); assert.doesNotMatch(render(), /没有 Git 仓库/);
 });
 after(async () => { await server?.close(); });
 
@@ -225,13 +256,14 @@ test("浏览器实际组件保持空初始页、sandbox、无 referrer，非法�
 });
 
 test("真实目录组件只展示后台返回的目录，不迁入样例或写操作", async () => {
-  const h = harness({ list_workspace_files: () => ({ workspaceId: "w1", path: "", entries: [{ kind: "directory", name: "真实目录", path: "真实目录" }, { kind: "file", name: "真实文档.md", path: "真实文档.md" }], truncated: true }) });
+  const h = harness({ list_workspace_files: () => ({ workspaceId: "w1", path: "", entries: [{ kind: "directory", name: "真实目录", path: "真实目录" }, { kind: "file", name: "真实文档.md", path: "真实文档.md" }], nextCursor: "next" }) });
   await h.inspector.loadDirectory("w1", "");
   const html = renderToStaticMarkup(createElement(WorkspaceFiles, { model: h.model, workspaceId: "w1" }));
   assert.match(html, /真实工作区 w1/);
   assert.match(html, /aria-label="真实目录"/);
   assert.match(html, /aria-label="预览 真实文档.md"/);
-  assert.match(html, /此目录只显示前 200 项/);
+  assert.match(html, /加载更多/);
+  assert.doesNotMatch(html, /此目录只显示前/);
   assert.doesNotMatch(html, /只读样例|pass\.svg|indexeddb\.ts|编辑文件|下载/);
 });
 
@@ -314,20 +346,20 @@ test("PA Inspector 工具读取使用 Personal，文件／diff／Git 动作不�
   assert.ok(h.transport.requests.every(request => !["read_workspace_file", "list_workspace_files", "read_workspace_git"].includes(request.op)));
 });
 
-for (const boundary of ["snapshot", "offline", "retry"] as const) test(`Git 缓存跨 ${boundary} 不安装迟到响应，入口只认真实仓库`, async () => {
+for (const boundary of ["snapshot", "offline", "retry"] as const) test(`Git 缓存跨 ${boundary} 不安装迟到响应，非仓库仍能打开标签`, async () => {
   const blocked = gate(); let reads = 0;
   const h = harness({ read_workspace_git: async params => { const read = ++reads; if (read === 1) await blocked.wait; return { workspaceId: params.workspace_id, repository: read === 1 ? { head: null, commits: [], nextCursor: null } : null }; } });
   h.inspector.openParent("a");
   const pending = h.inspector.loadGit();
   await h.inspector.loadGit();
   assert.equal(reads, 1);
-  h.inspector.openGit(); assert.ok(!h.inspector.tabs().some(tab => tab.kind === "git"));
+  h.inspector.openGit(); assert.equal(h.inspector.activeTab()?.kind, "git");
   if (boundary === "snapshot") h.snapshot();
   if (boundary === "offline") { h.inspector.update({ type: "state", state: "reconnecting" }); h.inspector.update({ type: "state", state: "online" }); }
   await h.inspector.loadGit("w1", true);
   blocked.release(); await pending;
   assert.equal(h.inspector.repositories.get("w1")?.value?.repository, null);
-  h.inspector.openGit(); assert.ok(!h.inspector.tabs().some(tab => tab.kind === "git"));
+  h.inspector.openGit(); assert.equal(h.inspector.activeTab()?.kind, "git");
 });
 
 test("右栏排序保留标签对象、活动项和浏览器历史，父会话间隔离", () => {
@@ -407,4 +439,117 @@ for (const mismatch of ["workspace", "duplicate", "cursor", "head"] as const) te
   await h.inspector.loadGit("w1"); await h.inspector.loadMoreGit("w1");
   assert.deepEqual(h.inspector.repositories.get("w1")!.value!.repository!.commits.map(commit => commit.id), ["a"]);
   assert.match(h.inspector.repositories.get("w1")!.moreError!, /刷新/);
+});
+
+function directoryPage(names: string[], nextCursor: string | null, directoryPath = "", workspaceId = "w1"): OpResult<"list_workspace_files"> {
+  return { workspaceId, path: directoryPath, entries: names.map(name => ({ name, path: directoryPath ? `${directoryPath}/${name}` : name, kind: "file" })), nextCursor };
+}
+
+test("目录续页保留前缀，重复点击只读一次，临时失败按原游标重试", async () => {
+  const blocked = gate(); let pages = 0;
+  const h = harness({ list_workspace_files: async params => {
+    if (!params.cursor) return directoryPage(["a"], "next", "src");
+    if (++pages === 1) { await blocked.wait; throw new Error("临时读取失败"); }
+    return directoryPage(["b"], null, "src");
+  } });
+  await h.inspector.loadDirectory("w1", "src");
+  const prefix = h.inspector.directories.get("w1:src")!.value!.entries[0];
+  const more = h.inspector.loadMoreDirectory("w1", "src");
+  await h.inspector.loadMoreDirectory("w1", "src"); assert.equal(pages, 1);
+  blocked.release(); await more;
+  const state = h.inspector.directories.get("w1:src")!;
+  assert.match(state.moreError!, /临时读取失败/); assert.equal(state.value!.entries[0], prefix); assert.equal(state.loadingMore, false);
+  await h.inspector.loadMoreDirectory("w1", "src");
+  assert.deepEqual(state.value!.entries.map(entry => entry.name), ["a", "b"]); assert.equal(state.value!.entries[0], prefix);
+  assert.equal(state.moreError, undefined); assert.equal(state.value!.nextCursor, null);
+  await h.inspector.loadMoreDirectory("w1", "src"); assert.equal(pages, 2);
+  assert.deepEqual(h.transport.requests.filter(request => request.op === "list_workspace_files").map(request => (request.params as OpParams<"list_workspace_files">).cursor), [undefined, "next", "next"]);
+});
+
+for (const boundary of ["refresh", "snapshot", "offline"] as const) test(`目录续页跨${boundary}不安装迟到页`, async () => {
+  const blocked = gate(); let fresh = false;
+  const h = harness({ list_workspace_files: async params => {
+    if (params.cursor) { await blocked.wait; return directoryPage(["stale"], null); }
+    return directoryPage([fresh ? "fresh" : "first"], "next");
+  } });
+  await h.inspector.loadDirectory("w1", "");
+  const more = h.inspector.loadMoreDirectory("w1", ""); fresh = true;
+  if (boundary === "refresh") await h.inspector.loadDirectory("w1", "", true);
+  else {
+    if (boundary === "snapshot") h.snapshot();
+    else { h.inspector.update({ type: "state", state: "reconnecting" }); h.inspector.update({ type: "state", state: "online" }); }
+    await h.inspector.loadDirectory("w1", "");
+  }
+  blocked.release(); await more;
+  assert.deepEqual(h.inspector.directories.get("w1:")!.value!.entries.map(entry => entry.name), ["fresh"]);
+});
+
+for (const mismatch of ["workspace", "path", "duplicate", "cursor", "empty-page", "changed"] as const) test(`目录续页${mismatch}要求刷新并保留已读内容`, async () => {
+  const h = harness({ list_workspace_files: params => {
+    if (!params.cursor) return directoryPage(["a"], "next");
+    if (mismatch === "changed") throw new ControlClientError("workspace_file_changed", "目录已变化，请刷新文件树。", "rejected");
+    return directoryPage(mismatch === "empty-page" ? [] : [mismatch === "duplicate" ? "a" : "b"], mismatch === "cursor" ? "next" : mismatch === "empty-page" ? "third" : null, mismatch === "path" ? "other" : "", mismatch === "workspace" ? "w2" : "w1");
+  } });
+  await h.inspector.loadDirectory("w1", ""); await h.inspector.loadMoreDirectory("w1", "");
+  const state = h.inspector.directories.get("w1:")!;
+  assert.deepEqual(state.value!.entries.map(entry => entry.name), ["a"]); assert.match(state.error!, /刷新/);
+  const count = h.transport.requests.length; await h.inspector.loadMoreDirectory("w1", ""); assert.equal(h.transport.requests.length, count);
+});
+
+test("目录刷新后页失败保留完整旧树和子缓存，重试成功才整体替换", async () => {
+  let refresh = false, fail = false;
+  const h = harness({ list_workspace_files: params => {
+    if (params.cursor && fail) throw new Error("后页读取失败");
+    return directoryPage(params.cursor ? [refresh ? "c" : "b"] : [refresh ? "a-new" : "a"], params.cursor ? null : "next");
+  } });
+  h.inspector.openParent("a"); h.inspector.openFiles();
+  await waitFor("目录首读", () => !h.inspector.directories.get("w1:")?.loading);
+  await h.inspector.loadMoreDirectory("w1", "");
+  h.inspector.files.set("w1:b", { loading: false });
+  refresh = true; fail = true; await h.inspector.loadDirectory("w1", "", true);
+  assert.deepEqual(h.inspector.directories.get("w1:")!.value!.entries.map(entry => entry.name), ["a", "b"]);
+  assert.match(h.inspector.directories.get("w1:")!.error!, /后页读取失败/); assert.ok(h.inspector.files.has("w1:b"));
+  fail = false; await h.inspector.loadDirectory("w1", "", true);
+  assert.deepEqual(h.inspector.directories.get("w1:")!.value!.entries.map(entry => entry.name), ["a-new", "c"]);
+  assert.equal(h.inspector.files.has("w1:b"), false);
+});
+
+for (const cancel of ["collapse", "switch", "unmount"] as const) test(`目录多页刷新在${cancel}后不继续读取，保留旧树`, async () => {
+  const blocked = gate(); let hold = false, reads = 0;
+  const h = harness({ list_workspace_files: async params => {
+    if (!params.path) return { workspaceId: "w1", path: "", entries: [{ name: "src", path: "src", kind: "directory" }], nextCursor: null };
+    reads++;
+    if (hold && !params.cursor) await blocked.wait;
+    return directoryPage(params.cursor ? ["b"] : ["a"], params.cursor ? null : "next", "src");
+  } });
+  h.inspector.openParent("a"); h.inspector.openFiles(); h.inspector.folders.set("w1:src", true);
+  await h.inspector.loadDirectory("w1", "src"); await h.inspector.loadMoreDirectory("w1", "src");
+  hold = true; const controller = new AbortController();
+  const refresh = h.inspector.refreshDirectories("w1", controller.signal);
+  await waitFor("子目录刷新已开始", () => reads === 3);
+  if (cancel === "collapse") h.inspector.folders.set("w1:src", false);
+  if (cancel === "switch") h.inspector.openBrowser();
+  if (cancel === "unmount") controller.abort();
+  blocked.release(); await refresh;
+  assert.equal(reads, 3); assert.equal(h.inspector.directories.get("w1:src")!.loading, false);
+  assert.deepEqual(h.inspector.directories.get("w1:src")!.value!.entries.map(entry => entry.name), ["a", "b"]);
+});
+
+test("折叠祖先保留子目录展开记忆，同时停止子目录刷新后页", async () => {
+  const blocked = gate(); let hold = false, childReads = 0;
+  const h = harness({ list_workspace_files: async params => {
+    if (params.path !== "parent/child") return { workspaceId: "w1", path: params.path ?? "", entries: [{ name: params.path ? "child" : "parent", path: params.path ? "parent/child" : "parent", kind: "directory" }], nextCursor: null };
+    childReads++;
+    if (hold && !params.cursor) await blocked.wait;
+    return directoryPage(params.cursor ? ["b"] : ["a"], params.cursor ? null : "next", "parent/child");
+  } });
+  h.inspector.openParent("a"); h.inspector.openFiles();
+  h.inspector.folders.set("w1:parent", true); h.inspector.folders.set("w1:parent/child", true);
+  await h.inspector.loadDirectory("w1", "parent/child"); await h.inspector.loadMoreDirectory("w1", "parent/child");
+  hold = true; const refresh = h.inspector.refreshDirectories("w1");
+  await waitFor("孙目录刷新在途", () => childReads === 3);
+  h.inspector.folders.set("w1:parent", false); blocked.release(); await refresh;
+  assert.equal(childReads, 3); assert.equal(h.inspector.folders.get("w1:parent/child"), true);
+  assert.equal(h.inspector.directories.get("w1:parent/child")!.loading, false);
+  assert.deepEqual(h.inspector.directories.get("w1:parent/child")!.value!.entries.map(entry => entry.name), ["a", "b"]);
 });

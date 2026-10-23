@@ -1,0 +1,32 @@
+✖ 原生启动将工作区、授予与只读根批量核对，保护树不按挂载数量重复扫描 (90.416083ms)
+✔ 原生批量挂载仍在创建单元前拒绝受保护的 workspace (1.644625ms)
+✔ 原生批量挂载仍在创建单元前拒绝受保护的 grant (1.696959ms)
+✔ 原生批量挂载仍在创建单元前拒绝受保护的 readRoot (1.587958ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 3
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 160.677875
+
+✖ failing tests:
+
+test at test/native-mount-protection.test.ts:34:1
+✖ 原生启动将工作区、授予与只读根批量核对，保护树不按挂载数量重复扫描 (90.416083ms)
+  AssertionError [ERR_ASSERTION]: 显式挂载和运行依赖各独立扫描一次
+
+  4 !== 2
+
+      at TestContext.<anonymous> (/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-read-cost-t37yj803/native/test/native-mount-protection.test.ts:40:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 4,
+    expected: 2,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

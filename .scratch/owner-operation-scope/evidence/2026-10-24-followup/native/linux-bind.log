@@ -1,0 +1,3 @@
+{"platform":"linux","release":"6.8.0-117-generic","node":"v24.21.0","directoryBindRejectedAsWorkspace":true,"directoryBindRejectedAsLaterGrant":true,"fileBindRejectedAsLaterReadRoot":true,"fileNlink":1,"afterNamespaceAllowed":true}
+(node:1261470) ExperimentalWarning: Transform Types is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)

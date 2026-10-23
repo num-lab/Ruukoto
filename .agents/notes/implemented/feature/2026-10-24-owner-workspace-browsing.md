@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[读取检查复用](../bug-fix/2026-10-24-read-check-overhead.md)进一步允许拥有者预览普通硬链接，保留符号链接处理与读取一致性核实。
+
 [按操作核实范围](../bug-fix/2026-10-24-operation-specific-checks.md)进一步取代本篇保留的 Git 全树元数据限制与工作区登记保护规则；文件预览的链接及一致性处理仍保留。
 
 ## 问题

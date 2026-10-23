@@ -6,7 +6,7 @@ import { randomUUID } from "node:crypto";
 import { syncBuiltinESMExports } from "node:module";
 import { execFileSync } from "node:child_process";
 import { test, type TestContext } from "node:test";
-import { ManagedSkillsError, ManagedSkillsStore, MANAGED_SKILL_LIMITS, loadHostSkillLibrary, managedSkillsDirFor, reselectManagedSkills, validateManagedSkillsLayout } from "@ruukoto/agent/managed-skills.ts";
+import { assertManagedSkillsSelected, ManagedSkillsError, ManagedSkillsStore, MANAGED_SKILL_LIMITS, loadHostSkillLibrary, managedSkillsDirFor, reselectManagedSkills, validateManagedSkillsLayout } from "@ruukoto/agent/managed-skills.ts";
 import { expandSkillCommand, loadSkillLibrary, readSkill, skillCatalogBlock, skillsDirFor } from "@ruukoto/agent/skills.ts";
 
 const code = (expected: string) => (error: unknown) => error instanceof ManagedSkillsError && error.code === expected;
@@ -52,6 +52,52 @@ test("外部维护：原嵌套与 symlink 排序赢家保留，只读详情以�
   const preview = f.store.preview(f.source); assert.equal(preview.conflicts[0].id, alpha.id);
   assert.throws(() => f.store.import({ id: preview.id, sourceDir: f.source, contentRevision: preview.contentRevision, expectedRevision: preview.revision }), code("skills_name_conflict"));
   assert.equal(fs.lstatSync(path.join(external, "a-linked")).isSymbolicLink(), true);
+});
+
+test("技能查询只遍历包一次并复用来源加载，重名诊断保留外部赢家", t => {
+  const f = fixture(t), installed = install(f.store, f.source), external = path.join(skillsDirFor(f.host), "outside");
+  writeSkill(external, "alpha");
+  const body = path.join(external, "SKILL.md"), reference = path.join(f.managed, "packages", installed.id, "alpha", "refs", "guide.md");
+  const originalRead = fs.readFileSync, originalOpen = fs.openSync;
+  let bodyReads = 0, referenceReads = 0;
+  t.mock.method(fs, "readFileSync", (...args: Parameters<typeof originalRead>) => {
+    if (String(args[0]) === body) bodyReads++;
+    return Reflect.apply(originalRead, fs, args);
+  });
+  t.mock.method(fs, "openSync", (...args: Parameters<typeof originalOpen>) => {
+    if (String(args[0]) === reference) referenceReads++;
+    return Reflect.apply(originalOpen, fs, args);
+  }); syncBuiltinESMExports();
+  try {
+    const listing = f.store.list();
+    assert.deepEqual(listing.skills.map(skill => skill.source), ["external", "managed"]);
+    assert.match(listing.diagnostics.join("\n"), /SKILL.md.*alpha.*冲突/);
+    assert.equal(bodyReads, 2, "SDK 元数据与正文钉版各读取一次"); assert.equal(referenceReads, 1);
+    bodyReads = 0; referenceReads = 0;
+    assert.match(f.store.get(installed.id).body, /任务正文/);
+    assert.equal(bodyReads, 2); assert.equal(referenceReads, 1);
+  } finally { t.mock.restoreAll(); syncBuiltinESMExports(); }
+});
+
+test("托管选择复核只读清单，新增技能不改本次选择，停用及损坏清单拒绝", t => {
+  const f = fixture(t), installed = install(f.store, f.source), pinned = loadHostSkillLibrary(f.host);
+  const other = path.join(f.root, "other"); writeSkill(other); const second = install(f.store, other);
+  assert.doesNotThrow(() => assertManagedSkillsSelected(pinned, f.host));
+  const originalOpen = fs.openSync;
+  t.mock.method(fs, "openSync", (...args: Parameters<typeof originalOpen>) => {
+    assert.ok(!String(args[0]).startsWith(path.join(f.managed, "packages")), "发送前不重新读取已钉版包");
+    return Reflect.apply(originalOpen, fs, args);
+  }); syncBuiltinESMExports();
+  try { assertManagedSkillsSelected(pinned, f.host); }
+  finally { t.mock.restoreAll(); syncBuiltinESMExports(); }
+  const disabled = f.store.setEnabled({ id: installed.id, enabled: false, expectedRevision: second.revision });
+  assert.throws(() => assertManagedSkillsSelected(pinned, f.host), code("skills_selection_changed"));
+  f.store.remove({ id: installed.id, expectedRevision: disabled.revision });
+  assert.throws(() => assertManagedSkillsSelected(pinned, f.host), code("skills_selection_changed"));
+  const filename = path.join(f.managed, "state.json"), bytes = fs.readFileSync(filename);
+  fs.writeFileSync(filename, "{}"); assert.throws(() => assertManagedSkillsSelected(pinned, f.host), code("skills_layout_invalid"));
+  fs.writeFileSync(filename, bytes); fs.chmodSync(filename, 0o644); assert.throws(() => assertManagedSkillsSelected(pinned, f.host), code("skills_layout_invalid"));
+  fs.chmodSync(filename, 0o600); fs.unlinkSync(filename); assert.throws(() => assertManagedSkillsSelected(pinned, f.host), code("skills_selection_changed"));
 });
 
 test("复制安全：源目录链接、引用链接、硬链接与 FIFO 全部拒绝且源不变", t => {

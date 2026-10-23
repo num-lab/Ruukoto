@@ -81,13 +81,14 @@ export function listWorkspaceFiles(workspaceId: string, root: DirIdentity, relat
   } finally { io(() => directory.closeSync()); }
 }
 
+// Note: 见 .agents/notes/implemented/bug-fix/2026-10-24-read-check-overhead.md
 export function readWorkspaceFile(workspaceId: string, root: DirIdentity, relative: string, page: { offset?: number; length?: number; version?: string } = {}): WorkspaceFileChunk {
   const offset = page.offset === undefined ? 0 : page.offset, pageLength = page.length === undefined ? WORKSPACE_FILE_PAGE_BYTES : page.length;
   if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(pageLength) || pageLength < 1 || page.version !== undefined && typeof page.version !== "string" || offset > 0 && !page.version) throw new RuntimeApiError("invalid_params", "文件分页参数无效，请重新打开文件。");
   const parts = relativeParts(relative, false);
   const { target, chain } = locate(root, parts);
   const stat = chain.at(-1)!;
-  if (!stat.isFile() || stat.nlink !== 1) throw new RuntimeApiError("workspace_path_unsafe", "此路径不是独立的普通文件，不能预览。");
+  if (!stat.isFile()) throw new RuntimeApiError("workspace_path_unsafe", "此路径不是普通文件，不能预览。");
   const version = createHash("sha256").update(JSON.stringify([stat.dev, stat.ino, stat.mode, stat.size, stat.mtimeMs, stat.ctimeMs])).digest("hex");
   if (page.version !== undefined && page.version !== version) throw new RuntimeApiError("workspace_file_changed", "文件在读取期间发生变化，请重新打开。");
   if (offset > stat.size) throw new RuntimeApiError("invalid_params", "文件读取位置超出范围，请重新打开文件。");
@@ -95,7 +96,7 @@ export function readWorkspaceFile(workspaceId: string, root: DirIdentity, relati
   let bytes: Buffer;
   try {
     const opened = io(() => fs.fstatSync(fd));
-    if (!opened.isFile() || opened.nlink !== 1 || !unchanged(stat, opened) || opened.size !== stat.size || opened.mtimeMs !== stat.mtimeMs || opened.ctimeMs !== stat.ctimeMs) throw new RuntimeApiError("workspace_file_changed", "文件在打开时发生变化，请重新打开。");
+    if (!opened.isFile() || !unchanged(stat, opened) || opened.size !== stat.size || opened.mtimeMs !== stat.mtimeMs || opened.ctimeMs !== stat.ctimeMs) throw new RuntimeApiError("workspace_file_changed", "文件在打开时发生变化，请重新打开。");
     verifyPath(root, parts, chain);
     bytes = Buffer.alloc(Math.min(pageLength, WORKSPACE_FILE_PAGE_BYTES, stat.size - offset));
     let length = 0;
@@ -105,7 +106,7 @@ export function readWorkspaceFile(workspaceId: string, root: DirIdentity, relati
       length += count;
     }
     const after = io(() => fs.fstatSync(fd));
-    if (length !== bytes.length || !unchanged(opened, after) || after.nlink !== 1 || after.size !== stat.size || after.mtimeMs !== stat.mtimeMs || after.ctimeMs !== stat.ctimeMs) throw new RuntimeApiError("workspace_file_changed", "文件在读取期间发生变化，请重新打开。");
+    if (length !== bytes.length || !unchanged(opened, after) || after.size !== stat.size || after.mtimeMs !== stat.mtimeMs || after.ctimeMs !== stat.ctimeMs) throw new RuntimeApiError("workspace_file_changed", "文件在读取期间发生变化，请重新打开。");
     verifyPath(root, parts, chain);
     bytes = bytes.subarray(0, length);
   } finally { io(() => fs.closeSync(fd)); }

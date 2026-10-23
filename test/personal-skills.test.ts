@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
-import * as fs from "node:fs";
+import fs from "node:fs";
 import * as path from "node:path";
 import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
+import { syncBuiltinESMExports } from "node:module";
 import { test, type TestContext } from "node:test";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { Harness, createRegistry, defineDocFamily, defineExtension, defineTask, wrapTool, LiveDoc, ROOT_CONVERSATION_ID } from "@earendil-works/pi-durable";
@@ -82,10 +83,29 @@ test("个人技能：目录、全文与身份先留不可改快照，后续变�
   const entry = await f.harness.commit(tx => tx.entry(first.snapshotEntry), context); assert.equal(entry?.kind, "ruukoto.skills-snapshot");
   await f.harness.commit(tx => f.skills.verify(tx, ROOT_CONVERSATION_ID, first.version), context);
   writeSkill(f.agent, "alpha", "修改后正文");
-  await assert.rejects(f.harness.commit(tx => f.skills.verify(tx, ROOT_CONVERSATION_ID, first.version), context), code("skills_changed"));
+  const original = fs.readFileSync;
+  t.mock.method(fs, "readFileSync", (...args: Parameters<typeof original>) => {
+    assert.ok(!String(args[0]).startsWith(path.join(f.agent, "skills")), "两个发送边界使用已保存快照，不重读正文");
+    return Reflect.apply(original, fs, args);
+  }); syncBuiltinESMExports();
+  try {
+    await f.harness.commit(tx => f.skills.verify(tx, ROOT_CONVERSATION_ID, first.version), context);
+    await f.harness.commit(tx => f.skills.verify(tx, ROOT_CONVERSATION_ID, first.version), context);
+  } finally { t.mock.restoreAll(); syncBuiltinESMExports(); }
+  assert.match(first.library.skills[0].body, /任务正文/);
   const next = await f.harness.commit(tx => f.skills.prepare(tx, ROOT_CONVERSATION_ID), context); assert.notEqual(next.version, first.version);
   const saved = (await f.harness.snapshot(PersonalSkillsDoc, context))!; assert.equal(saved.snapshots.length, 2); assert.match(saved.snapshots[0].library.skills[0].body, /任务正文/);
   await f.reopen(); await f.harness.commit(tx => f.skills.verify(tx, ROOT_CONVERSATION_ID, next.version), context);
+});
+
+test("个人技能：发送前配置目录身份变化仍阻断本次快照", async t => {
+  const f = await fixture(t), first = await f.harness.commit(tx => f.skills.prepare(tx, ROOT_CONVERSATION_ID), context), previous = `${f.agent}-previous`;
+  fs.renameSync(f.agent, previous); fs.mkdirSync(path.join(f.agent, "skills"), { recursive: true });
+  await assert.rejects(f.harness.commit(tx => f.skills.verify(tx, ROOT_CONVERSATION_ID, first.version), context), code("skills_changed"));
+  fs.rmdirSync(path.join(f.agent, "skills")); fs.rmdirSync(f.agent); fs.renameSync(previous, f.agent);
+  fs.mkdirSync(path.join(f.alpha, "skills"));
+  fs.writeFileSync(path.join(f.directory, "skills.json"), JSON.stringify({ version: 1, directory: f.alpha }));
+  await assert.rejects(f.harness.commit(tx => f.skills.verify(tx, ROOT_CONVERSATION_ID, first.version), context), code("skills_changed"));
 });
 
 test("个人技能：没有来源元数据的旧快照原样核实，新选择只追加快照", async t => {

@@ -1,0 +1,3 @@
+(node:1261052) ExperimentalWarning: Transform Types is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+{"platform":"linux","release":"6.8.0-117-generic","node":"v24.21.0","rows":[{"mode":"confirm","authorizedReadWrite":true,"readonlyWriteDenied":true,"protectedReadDenied":true,"stopped":true},{"mode":"auto-review","authorizedReadWrite":true,"readonlyWriteDenied":true,"protectedReadDenied":true,"stopped":true}],"cleanupSafe":true}

@@ -1,0 +1,3 @@
+(node:16973) ExperimentalWarning: Transform Types is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+{"platform":"darwin","release":"27.0.0","node":"v24.15.0","rows":[{"mode":"confirm","authorizedReadWrite":true,"readonlyWriteDenied":true,"protectedReadDenied":true,"stopped":true},{"mode":"auto-review","authorizedReadWrite":true,"readonlyWriteDenied":true,"protectedReadDenied":true,"stopped":true}],"cleanupSafe":true}

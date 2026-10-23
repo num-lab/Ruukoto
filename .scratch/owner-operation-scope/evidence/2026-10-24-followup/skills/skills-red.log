@@ -1,0 +1,50 @@
+✖ 技能查询只遍历包一次并复用来源加载，重名诊断保留外部赢家 (20.138541ms)
+✖ 个人技能真实请求：准备后正文变化沿本次快照发送，下一请求刷新，发送边界不重读 (59.205959ms)
+✖ 个人技能：目录、全文与身份先留不可改快照，后续变化保留版本和原正文 (31.525833ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 0
+ℹ fail 3
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1484.44825
+
+✖ failing tests:
+
+test at test/managed-skills.test.ts:57:1
+✖ 技能查询只遍历包一次并复用来源加载，重名诊断保留外部赢家 (20.138541ms)
+  AssertionError [ERR_ASSERTION]: SDK 元数据与正文钉版各读取一次
+
+  4 !== 2
+
+      at TestContext.<anonymous> (/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-read-cost-t37yj803/skills/test/managed-skills.test.ts:75:12)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1201:25)
+      at Test.start (node:internal/test_runner/test:1096:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:385:17) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 4,
+    expected: 2,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at test/personal-managed-skills.test.ts:161:1
+✖ 个人技能真实请求：准备后正文变化沿本次快照发送，下一请求刷新，发送边界不重读 (59.205959ms)
+  Error [PersonalError]: 本次输入未获得完整回答，请查看工作状态后决定下一步。
+      at Object.answer (/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-read-cost-t37yj803/skills/apps/ruukoto/src/personal-harness.ts:772:74)
+      at async TestContext.<anonymous> (/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-read-cost-t37yj803/skills/test/personal-managed-skills.test.ts:187:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3) {
+    code: 'input_unanswered'
+  }
+
+test at test/personal-skills.test.ts:76:1
+✖ 个人技能：目录、全文与身份先留不可改快照，后续变化保留版本和原正文 (31.525833ms)
+  Error [PersonalError]: 技能目录已变化，本次请求未发送；请重新开始本轮并使用新技能目录。
+      at Object.verify (/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-read-cost-t37yj803/skills/apps/ruukoto/src/personal-skills.ts:178:154)
+      at async HarnessImpl.#runCommit (/Users/eitrous/Developer/ruukoto/node_modules/@earendil-works/pi-durable/src/session/session.ts:700:13) {
+    code: 'skills_changed'
+  }

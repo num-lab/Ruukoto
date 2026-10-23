@@ -154,6 +154,12 @@ test("进程：config 非 TTY 拒绝", async () => {
   assert.match(r.stderr, /TTY/);
 });
 
+test("进程：mcp cua 复用配置向导，非 TTY 给出正常入口要求", async () => {
+  const r = await runCli(["mcp", "cua"]);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /TTY/);
+});
+
 test("进程：Coding 完整导出超过 720 KiB 的 PNG；分页失败、元数据变化与坏图均保留原目标", async () => {
   const t = await startTestRuntime("art-cli", async () => ({ kind: "text", text: "done" }), { config: { socketPath: undefined } });
   const query = t.runtime.queryArtifact.bind(t.runtime);

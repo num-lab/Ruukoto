@@ -36,7 +36,10 @@ async function harness(patch: Partial<Scenario> = {}, timeoutMs = 3000) {
       const request = JSON.parse(body), s = scenario();
       onlineRequests.push(request);
       if (req.headers.authorization !== `Bearer ${s.token}`) { res.end(JSON.stringify({ v: 1, ok: false, code: "unauthorized", message: "invalid " + s.token })); return; }
+      if (s.fault === "http-control-disconnect" && request.op === "mcp.cua-control") { req.destroy(); return; }
+      if (s.fault === "http-control-large" && request.op === "mcp.cua-control") { res.end(JSON.stringify({ v: 1, ok: true, result: { product: "ruukoto", profile, paused: true, padding: "x".repeat(300000) } })); return; }
       if (s.fault === "http-secret") { res.end(JSON.stringify({ v: 1, ok: false, code: "test_secret", message: s.token })); return; }
+      if (request.op === "mcp.cua-control") { res.end(JSON.stringify({ v: 1, ok: true, result: { product: "ruukoto", profile, paused: request.action === "pause", busy: false, operations: [] } })); return; }
       const result = request.op === "config.preflight" ? { product: "ruukoto", profile, blockers: s.blockers ?? [], credential: { state: s.credential ?? "available" } } : snapshot();
       res.end(JSON.stringify({ v: 1, ok: true, result }));
     });
@@ -270,4 +273,43 @@ test("向导丢答后只核实本机配置，关闭与改连接使迟到结果�
   assert.equal(state.phase, "unknown"); assert.equal(state.draft.host, "changed");
   await state.read(); assert.equal(state.phase, "conflict"); assert.equal(state.draft.host, "changed");
   assert.equal(calls.filter(op => op.endsWith("config_save")).length, 1);
+});
+
+test("Personal Cua 在线控制沿受保护后台执行，不因未决事项进入停存启，丢答不伪装未发送", async () => {
+  const h = await harness({ blockers: [{ kind: "mcp" }], writable: false });
+  try {
+    await h.controller.read();
+    const before = h.calls().length;
+    const value = { v: 1, op: "mcp.cua-control", profile, expectedRevision: oldRevision, action: "pause" };
+    const result = await h.controller.request(value);
+    assert.equal(result.paused, true); assert.equal(h.calls().length, before); assert.equal(h.controller.hasPendingOperation(), false);
+    assert.equal(h.onlineRequests.filter(request => request.op === "mcp.cua-control").length, 1);
+    h.write({ fault: "http-control-disconnect" });
+    await assert.rejects(h.controller.request({ ...value, action: "resume" }), { code: "management_http", outcome: "unknown" });
+    assert.equal(h.onlineRequests.filter(request => request.op === "mcp.cua-control").length, 2);
+    assert.equal(h.calls().length, before);
+  } finally { await h.close(); }
+});
+
+test("Personal Cua 控制已执行后应答超限仍属结果未知", async () => {
+  const h = await harness();
+  try {
+    await h.controller.read(); h.write({ fault: "http-control-large" });
+    await assert.rejects(h.controller.request({ v: 1, op: "mcp.cua-control", profile, expectedRevision: oldRevision, action: "pause" }), { code: "settings_response_large", outcome: "unknown" });
+    assert.equal(h.onlineRequests.filter(request => request.op === "mcp.cua-control").length, 1);
+  } finally { await h.close(); }
+});
+
+test("Personal Cua 控制已执行后关闭管理连接不冒充未发送", async t => {
+  const h = await harness(); let closing: Promise<void> | undefined;
+  try {
+    await h.controller.read();
+    const emit = http.IncomingMessage.prototype.emit; let armed = true;
+    t.mock.method(http.IncomingMessage.prototype, "emit", function (this: http.IncomingMessage, event: string | symbol, ...args: unknown[]) {
+      if (armed && event === "end" && typeof this.statusCode === "number") { armed = false; closing = h.controller.close(); }
+      return emit.call(this, event, ...args);
+    });
+    await assert.rejects(h.controller.request({ v: 1, op: "mcp.cua-control", profile, expectedRevision: oldRevision, action: "pause" }), { code: "management_changed", outcome: "unknown" });
+    assert.equal(h.onlineRequests.filter(request => request.op === "mcp.cua-control").length, 1);
+  } finally { await closing; await h.close(); }
 });

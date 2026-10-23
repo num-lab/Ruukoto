@@ -957,7 +957,8 @@ export class ControlServer {
       case "mcp_remove_credential":
         return runtime.mcpRemoveCredential(requireString("project_id"), requireString("name"));
       case "mcp_cua_status": return runtime.mcpCuaStatus();
-      case "mcp_cua_stop": return runtime.mcpCuaStop();
+      case "mcp_cua_targets": return runtime.mcpCuaTargets();
+      case "mcp_cua_stop": return runtime.mcpCuaStop(params["service_id"] === undefined ? undefined : requireString("service_id"));
       case "mcp_cua_begin_recovery": return runtime.mcpCuaBeginRecovery();
       case "mcp_cua_observe": return runtime.mcpCuaObserve();
       case "mcp_cua_accept": return runtime.mcpCuaAccept(requireString("observation_id"));

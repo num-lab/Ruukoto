@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { test, type TestContext } from "node:test";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+import type { EntryId } from "@earendil-works/pi-durable";
 import { openPersonalHarness, type PersonalHarness } from "../apps/ruukoto/src/personal-harness.ts";
 import { parsePersonalTools } from "../apps/ruukoto/src/personal-tools-config.ts";
 import { personalProvider } from "../apps/ruukoto/src/personal-model.ts";
@@ -168,4 +169,67 @@ test("Personal Cua：空闲CLI退出后丢弃观察，新连接截图前零点�
   process.kill(originalPid, "SIGTERM"); await new Promise(resolve => setTimeout(resolve, 50));
   await p.answer(input("computer_click"), "stale-click"); assert.equal(f.calls().length, 1);
   await p.answer(input("computer_screenshot"), "fresh"); assert.equal(f.calls().length, 2); assert.notEqual(f.calls()[1].pid, originalPid);
+});
+
+test("Personal Cua：暂停立即拒绝新调用并跨重启保留，继续后重新截图才允许点击", async t => {
+  const f = await fixture(t); let p = await f.open(); await f.full(p);
+  await p.answer(input("computer_screenshot"), "before-pause");
+  await p.mcp!.pauseCua(true);
+  assert.equal((await p.mcp!.cuaStatus()).paused, true);
+  const paused = await p.answer(input("computer_click"), "paused");
+  assert.match(paused, /cua_paused/); assert.equal(f.calls().length, 1);
+  await p.close(); p = await f.open();
+  assert.equal((await p.mcp!.cuaStatus()).paused, true);
+  await p.mcp!.pauseCua(false);
+  const click = JSON.parse(await p.answer(input("computer_click"), "without-new-picture"));
+  assert.equal(click.code, "cua_observation_required"); assert.equal(f.calls().length, 1);
+  await p.answer(input("computer_screenshot"), "new-picture");
+  await p.answer(input("computer_click"), "new-click");
+  assert.equal(f.calls().length, 3);
+});
+
+test("Personal Cua：暂停停止暂未核实，重核成功后可继续并重新观察", async t => {
+  const f = await fixture(t), p = await f.open(); await f.full(p);
+  await p.answer(input("computer_screenshot"), "before-pause");
+  let stops = 0; f.host.stopCli = async () => ++stops > 1;
+  await assert.rejects(p.mcp!.pauseCua(true), { code: "cua_stop_unverified" });
+  assert.equal((await p.mcp!.cuaStatus()).paused, true);
+  await p.mcp!.pauseCua(false);
+  assert.equal((await p.mcp!.cuaStatus()).paused, false);
+  const click = JSON.parse(await p.answer(input("computer_click"), "without-new-picture"));
+  assert.equal(click.code, "cua_observation_required"); assert.equal(f.calls().length, 1);
+  await p.answer(input("computer_screenshot"), "new-picture");
+  assert.equal((await p.mcp!.list()).items[0].code, "returned");
+  await p.answer(input("computer_click"), "new-click"); assert.equal(f.calls().length, 3);
+});
+
+test("Personal Cua：恢复图片分页绑定最新观察，重观察启动失败使旧接受失效且保留暂停", async t => {
+  const f = await fixture(t), p = await f.open(); await f.full(p);
+  await p.answer(input("computer_screenshot"), "initial");
+  const unknown = JSON.parse(await p.answer(input("computer_click", { hang: true }), "lost"));
+  await p.mcp!.pauseCua(true);
+  await p.mcp!.recoverCua(unknown.operation, "stop"); await p.mcp!.recoverCua(unknown.operation, "begin"); await p.mcp!.recoverCua(unknown.operation, "observe");
+  const detail = await p.mcp!.detail(unknown.operation), observation = detail.summary.cuaObservation!, image = detail.recoveryImages![0];
+  const page = await p.mcp!.cuaImage(unknown.operation, observation, image.id);
+  assert.equal(page.mime, image.mime); assert.equal(Buffer.from(page.base64, "base64").length, image.bytes);
+  assert.ok(Buffer.byteLength(JSON.stringify(page)) < 256 * 1024);
+  await assert.rejects(p.mcp!.cuaImage(unknown.operation, (observation + 1) as EntryId, image.id));
+  f.failProgram(); await assert.rejects(p.mcp!.recoverCua(unknown.operation, "observe"));
+  await assert.rejects(p.mcp!.cuaImage(unknown.operation, observation, image.id));
+  await assert.rejects(p.mcp!.recoverCua(unknown.operation, "accept", observation));
+  assert.equal((await p.mcp!.cuaStatus()).paused, true);
+  assert.equal((await p.mcp!.detail(unknown.operation)).summary.cuaRecovery, "begun");
+});
+
+test("Personal Cua：在途调用期间暂停先拒绝新发送，丢答后继续仍要求完整恢复", async t => {
+  const f = await fixture(t), p = await f.open(); await f.full(p);
+  await p.answer(input("computer_screenshot"), "initial");
+  const pending = p.answer(input("computer_click", { hang: true }), "in-flight");
+  const deadline = Date.now() + 1000;
+  while (f.calls().length < 2) { assert.ok(Date.now() < deadline); await new Promise(resolve => setTimeout(resolve, 2)); }
+  const paused = await p.mcp!.pauseCua(true); assert.equal(paused.paused, true); assert.equal(paused.busy, true);
+  assert.equal(JSON.parse(await pending).effect, "effect_unknown");
+  assert.equal((await p.mcp!.cuaStatus()).busy, false);
+  await assert.rejects(p.mcp!.pauseCua(false), { code: "cua_frozen" });
+  assert.equal((await p.mcp!.cuaStatus()).paused, true); assert.equal(f.calls().length, 2);
 });

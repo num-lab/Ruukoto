@@ -36,7 +36,7 @@ export type PersonalCuaExecution = { cli: CuaCliExecution; sandbox: CuaLinuxGene
 type CuaRecovery = { stopped?: EntryId; begin?: EntryId; pendingObservation?: { entry: EntryId; execution: PersonalCuaExecution; request: string }; observation?: { entry: EntryId; execution: PersonalCuaExecution; images: PersonalArtifact[]; evidence: Evidence }; accepted?: EntryId };
 type ImageProjection = { version: 1; output: ({ type: "text"; text: string } | { type: "image"; data: string; mimeType: string })[]; issues: string[] };
 export type McpOperation = { operation: TaskId; admission: EntryId; origin: Origin; config: PersonalMcpConfig; service: string; tool: string; args: JsonObject; modelDefinition?: string; decision: "pending" | "approved" | "rejected"; decidedBy?: string; decisionEntry?: EntryId; started: boolean; remoteEnded: boolean; effect: "not_executed" | "effect_unknown" | "returned" | "no_write"; code: string; evidence: Evidence; observation?: EntryId; resolution?: Resolution; recheck?: TaskId; imageProjection?: ImageProjection & { entry: EntryId }; cuaLaunches?: { entry: EntryId; scope: string; description: string; stopped?: EntryId }[]; cua?: { execution: PersonalCuaExecution; recovery?: CuaRecovery } };
-export const PersonalMcpConfigDoc = defineDoc<{ config?: PersonalMcpConfig; generations: string[]; operations: TaskId[] }>({ kind: "ruukoto.mcp-config", scope: "session", version: 1, initial: () => ({ generations: [], operations: [] }) });
+export const PersonalMcpConfigDoc = defineDoc<{ config?: PersonalMcpConfig; generations: string[]; operations: TaskId[]; cuaPause?: { paused: boolean; entry: EntryId } }>({ kind: "ruukoto.mcp-config", scope: "session", version: 1, initial: () => ({ generations: [], operations: [] }) });
 export const PersonalMcpDoc = defineDocFamily<{ operation?: McpOperation }, null>({ kind: "ruukoto.mcp", scope: "session", version: 1, family: true, initial: () => ({}) });
 export const McpAdmission = defineEntry<Pick<McpOperation, "operation" | "origin" | "config" | "service" | "tool" | "args" | "modelDefinition">>("ruukoto.mcp-admission");
 const McpRequest = defineEntry<{ operation: TaskId; admission: EntryId; request: string; execution?: PersonalCuaExecution }>("ruukoto.mcp-request");
@@ -44,9 +44,10 @@ const McpObservation = defineEntry<{ operation: TaskId; admission: EntryId; evid
 const McpDecision = defineEntry<{ operation: TaskId; decision: McpOperation["decision"]; requestId?: string }>("ruukoto.mcp-decision");
 const McpResolution = defineEntry<{ operation: TaskId; effect: Resolution["effect"]; evidence: string; requestId?: string }>("ruukoto.mcp-resolution");
 const McpConfiguration = defineEntry<{ config: PersonalMcpConfig }>("ruukoto.mcp-configuration");
+const McpCuaPause = defineEntry<{ paused: boolean }>("ruukoto.mcp-cua-pause");
 const McpCuaLaunch = defineEntry<{ operation: TaskId; scope: string; description: string }>("ruukoto.mcp-cua-launch");
 const McpCuaLaunchStopped = defineEntry<{ operation: TaskId; launch: EntryId }>("ruukoto.mcp-cua-launch-stopped");
-const McpCuaRecovery = defineEntry<{ operation: TaskId; execution: PersonalCuaExecution; action: "stopped" | "begin" | "observe-request" | "observe" | "accept"; nextExecution?: PersonalCuaExecution; images?: PersonalArtifact[]; evidence?: Evidence }>("ruukoto.mcp-cua-recovery");
+const McpCuaRecovery = defineEntry<{ operation: TaskId; execution: PersonalCuaExecution; action: "stopped" | "begin" | "observe-reset" | "observe-request" | "observe" | "accept"; nextExecution?: PersonalCuaExecution; images?: PersonalArtifact[]; evidence?: Evidence }>("ruukoto.mcp-cua-recovery");
 const McpImages = defineEntry<{ operation: TaskId; admission: EntryId; projection: ImageProjection }>("ruukoto.mcp-images");
 async function saveImageProjection(tx: Tx, value: McpOperation, projection: ImageProjection) {
   const entry = await tx.appendEntry(McpImages, value.origin.conversationId, { data: { operation: value.operation, admission: value.admission, projection } });
@@ -96,6 +97,7 @@ async function active(tx: Tx, value: McpOperation) {
   if (!isDeepStrictEqual(current, value.origin)) throw new PersonalError("mcp_source_changed", "原 MCP 工作或权限已改变，未执行；请查询原调用。");
   const service = value.config.services.find(service => service.id === value.service)!;
   if (service.cua) {
+    if ((await tx.doc(PersonalMcpConfigDoc)).cuaPause?.paused) throw new PersonalError("cua_paused", "电脑入口已暂停，未发送操作；请结束本轮并报告拥有者，从 MCP 管理继续。");
     if (value.origin.conversationId !== ROOT_CONVERSATION_ID || value.origin.work) throw new PersonalError("cua_source_forbidden", "电脑入口只供拥有者主会话使用；请回到主会话发起新工作。");
     if ((await mcpOperations(tx)).some(other => other.operation !== value.operation && other.config.services.find(service => service.id === other.service)?.cua && mcpUnresolved(other))) throw new PersonalError("cua_frozen", "电脑绑定有待核实的原调用，未发送新操作；请结束本轮并报告拥有者，从 MCP 管理完成恢复。");
     return;
@@ -140,7 +142,7 @@ export async function mcpDetail(tx: Tx, operation: TaskId, offset = 0, actor?: M
     response = JSON.stringify(parsed);
   }
   const text = JSON.stringify({ service: value.service, tool: value.tool, definition: value.config.services.find(service => service.id === value.service)!.tools.find(tool => tool.name === value.tool), arguments: value.args, permission: value.origin.permission, request: value.evidence.request, response, code: value.code, remoteEnded: value.remoteEnded, resolution: value.resolution, ...(includeHost && value.cua ? { cua: value.cua } : {}) }, null, 2);
-  return { summary: summary(value, actor), ...(value.cua?.recovery?.observation ? { recoveryImages: value.cua.recovery.observation.images } : {}), text: text.slice(offset, offset + 3072), ...(offset + 3072 < text.length ? { nextOffset: offset + 3072 } : {}) };
+  return { summary: summary(value, actor), ...(value.cua?.recovery?.observation ? { recoveryImages: value.cua.recovery.observation.images.map(image => ({ ...image, identity: { ...image.identity } })) } : {}), text: text.slice(offset, offset + 3072), ...(offset + 3072 < text.length ? { nextOffset: offset + 3072 } : {}) };
 }
 async function observe(tx: Tx, operation: TaskId, evidence: Evidence, code: string) {
   const value = await mcpOperation(tx, operation);
@@ -205,7 +207,7 @@ export function personalMcp(configValue: PersonalMcpConfig, getHarness: () => Ha
           if (!service || !tool) throw new PersonalError("mcp_tool_unavailable", "MCP 服务或工具不在当前清单，请用 mcp_tools 查询允许的原定义。");
           const exposed = service.cua ? restrictCuaTool(service.cua, tool) : tool;
           if (!exposed) throw new PersonalError("cua_tool_forbidden", "电脑工具不在允许范围，请读取 mcp_tools 后选择观察或界面操作。");
-          if (service.cua) cuaArguments(service.cua, tool.name, input.arguments);
+          if (service.cua) { if ((await tx.doc(PersonalMcpConfigDoc)).cuaPause?.paused) throw new PersonalError("cua_paused", "电脑入口已暂停，未接纳新调用；请结束本轮并报告拥有者，从 MCP 管理继续。"); cuaArguments(service.cua, tool.name, input.arguments); }
           const compiled = compileMcpSchema("inputSchema", exposed.inputSchema);
           if ("disabledReason" in compiled || !compiled.check(input.arguments)) throw new PersonalError("mcp_arguments_invalid", "MCP 参数不符原 inputSchema，请读取 mcp_tools 定义后修正。");
           const source = await personalToolOrigin(tx, api, sourceRequestId);
@@ -256,7 +258,7 @@ export function personalMcp(configValue: PersonalMcpConfig, getHarness: () => Ha
         const saved = await harness.snapshot(PersonalMcpDoc, String(api.taskId), context);
         if (!saved?.operation) return { isError: true, output: [{ type: "text", text: error instanceof PersonalError ? `${error.code}：${error.message}` : "mcp_unavailable：调用不可用，请结束本轮并报告拥有者。" }] };
         await harness.commit(tx => observe(tx, api.taskId, connection?.callEvidence ?? saved.operation!.evidence, error instanceof PersonalError || error instanceof McpError ? error.code : "canceled"), context);
-      } finally { if (cuaCall) { busy = false; const value = (await harness.snapshot(PersonalMcpDoc, String(api.taskId), context))?.operation; if (cuaFailed || value?.started && !value.remoteEnded) await closeCua(); } else await connection?.close(); }
+      } finally { if (cuaCall) { busy = false; const value = (await harness.snapshot(PersonalMcpDoc, String(api.taskId), context))?.operation; if (cuaFailed || value?.started && !value.remoteEnded || (await harness.snapshot(PersonalMcpConfigDoc, context))?.cuaPause?.paused) await closeCua(); } else await connection?.close(); }
       // Note: 见 .agents/notes/implemented/architecture/2026-10-23-mcp-image-results.md
       try { await harness.commit(async tx => {
         const value = await mcpOperation(tx, api.taskId);
@@ -330,6 +332,33 @@ export function personalMcp(configValue: PersonalMcpConfig, getHarness: () => Ha
       catch (error) { if (!(error instanceof PersonalError)) throw error; unavailableLaunch = true; }
     }
   }
+  async function cuaStatus() {
+    return getHarness().commit(async tx => ({ paused: (await tx.doc(PersonalMcpConfigDoc)).cuaPause?.paused ?? false, busy, operations: (await mcpOperations(tx)).filter(value => value.cua && mcpUnresolved(value)).slice(0, 20).map(value => ({ ...summary(value), images: value.cua?.recovery?.observation?.images.map(({ id, mime, bytes, sha256 }) => ({ id, mime, bytes, sha256 })) ?? [] })) }), context);
+  }
+  async function pauseCua(paused: boolean) {
+    if (!config.services.some(service => service.cua)) throw new PersonalError("cua_unconfigured", "尚未配置 Linux 桌面沙箱，请先从 MCP 设置选择既有沙箱。");
+    if (!paused && busy) throw new PersonalError("cua_busy", "原电脑调用尚未结束，请刷新状态后继续。");
+    const closing = !busy;
+    if (closing) busy = true;
+    try {
+    if (!paused && closing) await closeCua();
+    await getHarness().commit(async tx => {
+      if (!paused && (await mcpOperations(tx)).some(value => value.cua && mcpUnresolved(value))) throw new PersonalError("cua_frozen", "电脑原动作仍待核实，请先完成停止、人工检查与新截图接受。");
+      const doc = await tx.doc(PersonalMcpConfigDoc);
+      if ((doc.cuaPause?.paused ?? false) !== paused) doc.cuaPause = { paused, entry: (await tx.appendEntry(McpCuaPause, ROOT_CONVERSATION_ID, { data: { paused } })).id };
+    }, context);
+    if (paused && closing) await closeCua();
+    } finally { if (closing) busy = false; }
+    return cuaStatus();
+  }
+  async function cuaImage(operation: TaskId, observation: EntryId, imageId: string, offset = 0) {
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new PersonalError("artifact_input_invalid", "截图偏移无效，请重新读取当前恢复观察。");
+    const value = (await getHarness().snapshot(PersonalMcpDoc, String(operation), context))?.operation;
+    const current = value?.cua?.recovery?.observation, image = current?.images.find(image => image.id === imageId);
+    if (!current || current.entry !== observation || !image || !media || image.partial || !["image/png", "image/jpeg", "image/webp"].includes(image.mime)) throw new PersonalError("cua_observation_stale", "恢复截图已失效，请刷新原操作并重新观察。");
+    const bytes = loadPersonalArtifact(media.profile, image), page = bytes.subarray(offset, offset + 128 * 1024), next = offset + page.length;
+    return { observation, id: image.id, mime: image.mime, sha256: image.sha256, bytes: image.bytes, offset, base64: page.toString("base64"), ...(next < bytes.length ? { nextOffset: next } : {}) };
+  }
   async function recoverCua(operation: TaskId, action: "stop" | "begin" | "observe" | "accept", expectedObservation?: EntryId) {
     if (busy) throw new PersonalError("cua_busy", "电脑仍有在途调用，恢复未开始；请等原调用结束后刷新。");
     busy = true;
@@ -362,6 +391,12 @@ export function personalMcp(configValue: PersonalMcpConfig, getHarness: () => Ha
         if (!recovery.begin) await record("begin");
       } else if (action === "observe") {
         if (!recovery.stopped || !recovery.begin || recovery.accepted) throw new PersonalError("cua_recovery_order", "先由拥有者检查原结果并选择开始恢复，再读取新截图。");
+        await getHarness().commit(async tx => {
+          const current = await mcpOperation(tx, operation);
+          await tx.appendEntry(McpCuaRecovery, ROOT_CONVERSATION_ID, { data: { operation, execution: original, action: "observe-reset" } });
+          delete current.cua!.recovery!.observation;
+          delete current.cua!.recovery!.pendingObservation;
+        }, context);
         await closeCua();
         if (await linux.stopped(original.sandbox)) await linux.restart(original.sandbox);
         const connection = await connect(service, undefined, operation), definitions = await connection.listTools();
@@ -393,7 +428,7 @@ export function personalMcp(configValue: PersonalMcpConfig, getHarness: () => Ha
       }
     } finally { busy = false; }
   }
-  return { config, recover, recoverCua, close: closeCua, extension: defineExtension({ name: PERSONAL_MCP, tools: [list, call, read], tasks: [recheckTask] }), recheck,
+  return { config, recover, recoverCua, cuaStatus, pauseCua, cuaImage, close: closeCua, extension: defineExtension({ name: PERSONAL_MCP, tools: [list, call, read], tasks: [recheckTask] }), recheck,
     async requestRecheck(tx: Tx, operation: TaskId, actor?: McpActor) {
       const value = await mcpOperation(tx, operation);
       if (actor) await mcpOriginal(tx, operation, actor);
@@ -477,9 +512,10 @@ export async function verifyMcp(tx: Tx, keys: string[]) {
       }
     }
   }
-  let cursor: Cursor | undefined;
+  let cursor: Cursor | undefined, latestPause: { paused: boolean; entry: EntryId } | undefined;
   const requests = new Set<TaskId>(), imageProjections = new Set<TaskId>(), configurations: PersonalMcpConfig[] = [], observations = new Map<TaskId, EntryId>(), decisions = new Map<TaskId, EntryId>(), resolutions = new Map<TaskId, EntryId>();
   do { const page = await tx.scanConversations({}, 256, cursor); for (const conversation of page.items) { let next: Cursor | undefined; do { const entries = await tx.scanEntries({ conversationId: conversation.id, order: "ascending" }, 256, next); for (const entry of entries.items) {
+    if (McpCuaPause.is(entry)) { if (conversation.id !== ROOT_CONVERSATION_ID || typeof entry.data.paused !== "boolean") throw invalid(); if (!latestPause || entry.id > latestPause.entry) latestPause = { paused: entry.data.paused, entry: entry.id }; }
     if (McpConfiguration.is(entry)) { if (conversation.id !== ROOT_CONVERSATION_ID) throw invalid(); configurations.push(parsePersonalMcp(entry.data.config)); }
     if (McpAdmission.is(entry) && !values.some(value => value.admission === entry.id)) throw new PersonalError("mcp_record_invalid", "MCP 接纳缺少原调用，已停止恢复。");
     if (McpRequest.is(entry)) { if (requests.has(entry.data.operation) || !values.some(value => value.operation === entry.data.operation && value.admission === entry.data.admission && value.evidence.request === entry.data.request && isDeepStrictEqual(entry.data.execution, value.cua?.execution) && entry.conversationId === value.origin.conversationId && entry.id > value.admission)) throw new PersonalError("mcp_record_invalid", "MCP 原请求缺少对应记录，已停止恢复。"); requests.add(entry.data.operation); }
@@ -491,5 +527,6 @@ export async function verifyMcp(tx: Tx, keys: string[]) {
     if (McpCuaRecovery.is(entry) && (entry.conversationId !== ROOT_CONVERSATION_ID || !values.some(value => value.operation === entry.data.operation && value.cua && isDeepStrictEqual(value.cua.execution, entry.data.execution)))) throw invalid();
     if (McpImages.is(entry)) { if (imageProjections.has(entry.data.operation) || !values.some(value => value.operation === entry.data.operation && value.imageProjection?.entry === entry.id)) throw invalid(); imageProjections.add(entry.data.operation); }
   } next = entries.next; } while (next); } cursor = page.next; } while (cursor);
+  if (!isDeepStrictEqual(latestPause, config.cuaPause)) throw invalid();
   if (!isDeepStrictEqual(configurations.map(config => config.generation), config.generations) || !isDeepStrictEqual(configurations.at(-1), config.config) || values.some(value => value.started !== requests.has(value.operation) || value.observation !== observations.get(value.operation) || value.decisionEntry !== decisions.get(value.operation) || value.resolution?.entry !== resolutions.get(value.operation) || !configurations.some(config => isDeepStrictEqual(config, value.config)))) throw invalid();
 }

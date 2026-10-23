@@ -735,6 +735,9 @@ export async function openPersonalHarness(options: ({ directory: string; profile
       service: operations?.api(instance),
       mcp: mcp && {
         recoverCua: mcp.recoverCua,
+        cuaStatus: mcp.cuaStatus,
+        pauseCua: mcp.pauseCua,
+        cuaImage: mcp.cuaImage,
         list: (offset = 0) => instance.commit(tx => mcpList(tx, offset), context),
         detail: (operation: import("@earendil-works/pi-durable").TaskId, offset = 0) => instance.commit(tx => mcpDetail(tx, operation, offset), context),
         decide: (operation: import("@earendil-works/pi-durable").TaskId, decision: "approved" | "rejected") => instance.commit(tx => mcpDecide(tx, operation, decision), context),

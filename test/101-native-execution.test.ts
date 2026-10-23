@@ -16,7 +16,7 @@ test("macOS 身份有界重查只接受明确退出或完整身份，持续权�
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "native-identity-check-")), binary = path.join(directory, "check");
   try {
     execFileSync("/usr/bin/clang", ["-std=c11", "-Wall", "-Wextra", "-Werror", "-O2", fileURLToPath(new URL("./fixtures/native-identity-check.c", import.meta.url)),
-      "-I", fileURLToPath(new URL("../", import.meta.url)), "-o", binary], { encoding: "utf8", timeout: 30_000 });
+      "-I", fileURLToPath(new URL("../", import.meta.url)), "-framework", "ApplicationServices", "-o", binary], { encoding: "utf8", timeout: 30_000 });
     assert.match(execFileSync(binary, [], { encoding: "utf8", timeout: 5_000 }), /七项身份重查与拒绝检查通过/);
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }
 });

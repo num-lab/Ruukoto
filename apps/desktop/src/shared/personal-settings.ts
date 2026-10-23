@@ -36,3 +36,10 @@ export interface PersonalManagementView {
   saved: boolean | null;
   message: string;
 }
+
+export interface PersonalCuaStatus {
+  available: boolean;
+  paused: boolean;
+  busy: boolean;
+  operations: { operation: number; service: string; tool: string; effect: string; code: string; cuaRecovery?: "frozen" | "stopped" | "begun" | "observed" | "accepted"; cuaObservation?: number; images: { id: string; mime: string; bytes: number; sha256: string }[] }[];
+}

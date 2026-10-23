@@ -38,7 +38,9 @@ import { getProjectJevConfig,JEV_CREDENTIAL_PURPOSE,jevConfigKey,jevCredentialHo
 import { connectMcpService,MCP_CREDENTIAL_PURPOSE,McpError,parseMcpEndpoint,type McpConnection,type McpTimeouts } from "@ruukoto/agent/mcp/client.ts";
 import { allowlistEffectFor,McpStore,McpVersionConflictError,normalizeToolAllowlist,type McpServiceConfig,type McpToolEffect } from "@ruukoto/agent/mcp/store.ts";
 import { CodeCuaManager } from "@ruukoto/agent/mcp/code.ts";
-import { parseCuaConfig, type CuaConfig } from "@ruukoto/agent/mcp/cua.ts";
+import { cuaToolEffect, parseCuaConfig, restrictCuaTool, type CuaConfig } from "@ruukoto/agent/mcp/cua.ts";
+import { describeCuaTools, discoverCuaTargets } from "@ruukoto/agent/mcp/cua-discovery.ts";
+import { readMacosCuaPermissions } from "@ruukoto/agent/execution/native-macos-identity.ts";
 import { validateRemoteTool } from "@ruukoto/agent/mcp/tools.ts";
 import {
   configRevision,
@@ -4035,7 +4037,8 @@ export class Runtime {
   }
 
   mcpCuaStatus() { return this.cuaManager.status(); }
-  mcpCuaStop() { return this.cuaManager.stop(); }
+  mcpCuaTargets() { return discoverCuaTargets("cua-mac"); }
+  mcpCuaStop(serviceId?: string) { return this.cuaManager.stop(serviceId); }
   mcpCuaBeginRecovery() { return this.cuaManager.beginRecovery(); }
   mcpCuaObserve() { return this.cuaManager.observe(); }
   mcpCuaAccept(observationId: string) { return this.cuaManager.accept(observationId); }
@@ -4096,12 +4099,24 @@ export class Runtime {
     tools: Array<{ name: string; allowed: boolean; effect?: McpToolEffect; reason?: string }>;
     error?: string;
     errorCode?: string;
+    permissions?: { accessibility: boolean; screenRecording: boolean };
   }> {
     const service = this.mcp.getService(serviceId);
     if (!service) throw new RuntimeApiError("not_found", `MCP 服务不存在：${serviceId}`);
     let conn: McpConnection | null = null;
     try {
-      if (service.cua) throw new McpError("cua_owner_connection_required", "电脑服务由主会话建立持续连接；请在主会话观察画面，并从电脑恢复入口核实状态。");
+      if (service.cua) {
+        const cua = service.cua;
+        const tools = (await describeCuaTools(cua)).flatMap(raw => {
+          const tool = restrictCuaTool(cua, raw);
+          if (!tool) return [];
+          const validated = validateRemoteTool(tool), effect = allowlistEffectFor(service.toolAllowlist, tool.name);
+          return [{ name: tool.name, allowed: effect !== null && !("disabledReason" in validated), effect: cuaToolEffect(cua, tool.name)!, reason: "disabledReason" in validated ? validated.disabledReason : effect === null ? "不在允许列表" : undefined }];
+        });
+        const permissions = await readMacosCuaPermissions(), ok = permissions.accessibility && permissions.screenRecording;
+        return { service, ok, serverInfo: { name: "cua-driver", version: cua.version }, protocolVersion: null, tools, permissions,
+          ...(!ok ? { errorCode: "cua_permissions_missing", error: "当前后台启动宿主缺少辅助功能或屏幕录制权限；请在系统设置授权该宿主并重新检查。" } : {}) };
+      }
       conn = await connectMcpService(service, {
         credentials: this.credentials,
         projectId: service.projectId,
@@ -4133,8 +4148,8 @@ export class Runtime {
         serverInfo: null,
         protocolVersion: null,
         tools: [],
-        error: err instanceof McpError && err.code === "auth_failed" ? "MCP 认证失败，请检查当前来源的凭据、端点与权限后重新检查。" : "MCP 连接或工具发现失败，请检查端点与网络后重新检查；未执行业务工具。",
-        errorCode: err instanceof McpError ? err.code : "check_failed",
+        error: service.cua ? "本机电脑程序或宿主权限检查失败；请核对官方固定版本、安装与执行权限，并重建原生 helper 后重新检查；未启动电脑连接。" : err instanceof McpError && err.code === "auth_failed" ? "MCP 认证失败，请检查当前来源的凭据、端点与权限后重新检查。" : "MCP 连接或工具发现失败，请检查端点与网络后重新检查；未执行业务工具。",
+        errorCode: err instanceof McpError || err instanceof ExecutionError ? err.code : "check_failed",
       };
     } finally {
       await conn?.close();

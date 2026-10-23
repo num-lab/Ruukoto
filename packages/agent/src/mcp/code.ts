@@ -23,6 +23,7 @@ export interface CodeCuaStatus {
   stopped: boolean;
   ownerStarted: boolean;
   observation?: { id: string; artifactIds: string[] };
+  original?: { opId: string; taskId: string; sessionId: string; toolName: string; effect: string; state: string };
 }
 
 export class CodeCuaManager {
@@ -73,6 +74,7 @@ export class CodeCuaManager {
     const task = op && this.store.getTask(op.taskId);
     return { state: this.connecting ? "connecting" : mcp ? mcp.state === "recovering" ? "recovering" : "frozen" : this.binding ? "active" : "idle", sessionId: task?.sessionId ?? this.binding?.sessionId,
       stopped: !!mcp?.stoppedAt, ownerStarted: !!mcp?.ownerStartedAt,
+      ...(op && task && mcp ? { original: { opId: op.id, taskId: task.id, sessionId: task.sessionId, toolName: mcp.rawTool.name, effect: mcp.effect, state: mcp.state } } : {}),
       ...(observation ? { observation: { id: observation.id, artifactIds: mcp?.observationArtifactIds ?? [] } } : {}) };
   }
 
@@ -191,11 +193,12 @@ export class CodeCuaManager {
     this.binding.observed = true;
   }
 
-  async stop(): Promise<CodeCuaStatus> {
+  async stop(expectedServiceId?: string): Promise<CodeCuaStatus> {
     if (this.busy || this.connecting) throw new McpError("cua_call_active", "电脑调用仍在执行；请先中断当前任务，再核实停止。");
+    const latest = this.latestExecutions();
+    if (expectedServiceId && (this.binding && this.binding.service.id !== expectedServiceId || latest.some(op => ["starting", "frozen", "recovering", "sent"].includes(op.mcp!.state) && !op.mcp!.stoppedAt && op.mcp!.serviceId !== expectedServiceId))) throw new McpError("cua_service_changed", "当前电脑连接属于另一服务，未停止其他服务；请选择实际使用的原服务后核实停止。");
     this.busy = true;
     try {
-      const latest = this.latestExecutions();
       const targets = new Map(latest.filter(op => ["starting", "frozen", "recovering", "sent"].includes(op.mcp!.state) && !op.mcp!.stoppedAt).map(op => [op.mcp!.execution.executionId, op.mcp!.execution]));
       if (this.binding) targets.set(this.binding.execution.executionId, this.binding.execution);
       for (const execution of targets.values()) {
@@ -219,13 +222,13 @@ export class CodeCuaManager {
   async observe(): Promise<CodeCuaStatus> {
     const original = this.original(), saved: McpOperation = { ...original.mcp!, observationOpId: undefined, observationArtifactIds: undefined };
     if (saved.state !== "recovering" || !saved.stoppedAt || !saved.ownerStartedAt || this.busy) throw new McpError("cua_recovery_precondition", "请拥有者先核实停止并选择开始恢复，再取得新画面。");
+    this.save(original.id, saved);
     const task = this.store.getTask(original.taskId)!, service = this.services.getService(saved.serviceId);
     if (!service?.enabled || !service.cua || !saved.configuration || JSON.stringify(service.cua) !== JSON.stringify(saved.configuration)) throw new McpError("cua_source_invalid", "原电脑配置已改变；保持冻结并检查原档案。");
     this.busy = true;
     let binding: Binding | null = null;
     let opId: string | undefined;
     try {
-      this.save(original.id, saved);
       const conn = await this.connect(service, task.sessionId, true, task.id);
       binding = this.binding!;
       const tools = await conn.listTools();
@@ -271,6 +274,8 @@ export class CodeCuaManager {
   accept(observationId: string): CodeCuaStatus {
     const original = this.original(), mcp = original.mcp!, observation = mcp.observationOpId && this.store.getToolOp(mcp.observationOpId);
     if (!observation || observation.id !== observationId) throw new McpError("cua_observation_changed", "恢复观察已变化；请重新读取并检查当前截图，再接受该观察。");
+    const service = this.services.getService(mcp.serviceId);
+    if (!service?.enabled || service.configVersion !== observation.mcp?.configVersion || JSON.stringify(service.cua) !== JSON.stringify(mcp.configuration)) throw new McpError("cua_observation_changed", "电脑配置已变化；请重新启用原配置并取得新截图，再接受当前观察。");
     if (mcp.state !== "recovering" || !mcp.stoppedAt || !mcp.ownerStartedAt || !observation || observation.isError !== false || !observation.mcp?.response || !mcpResponseEnded(observation.mcp.response) || observation.mcp.state !== "closed" || this.binding || this.busy) throw new McpError("cua_recovery_precondition", "恢复前提不完整；请取得并检查新的已保存截图，核实观察执行已停止后再接受。");
     this.save(original.id, { ...mcp, state: "recovered", acceptedAt: new Date().toISOString() });
     return this.status();

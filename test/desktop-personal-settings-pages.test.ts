@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { test } from "node:test";
 import type { DesktopBridge, DesktopFailure, DesktopResult, DesktopTarget } from "../apps/desktop/src/shared/bridge.ts";
 import type { PersonalMaintenanceRecord } from "../apps/desktop/src/shared/personal-settings.ts";
@@ -298,11 +299,11 @@ test("Personal 三页 SSR 展示真实字段、远端来源、维护恢复与安
     if (category === "skills") { await h.state.selectSkill(skillId); h.state.detail!.body = '<script>alert(1)</script>\n![远程](https://images.example/x.png)'; }
     if (category === "mcp") await h.state.selectService(service.id);
     const html = renderToStaticMarkup(createElement(PersonalSettingsEditor, { state: h.state, onConnection() {} }));
-    assert.match(html, /remote\/profile/); assert.match(html, /设置连接不代表个人聊天可用/);
+    assert.match(html, /remote\/profile/);
     assert.doesNotMatch(html, /摘要模型|默认模型|配置来源|选择工作区|Bearer 令牌|存储 API Key/);
     if (category === "models") { assert.match(html, /API 类型/); assert.match(html, /上下文上限/); assert.match(html, /凭据环境变量引用/); assert.match(html, /图片输入能力/); }
     if (category === "skills") { assert.match(html, /选择远端技能库/); assert.match(html, /包字节保留/); assert.doesNotMatch(html, /<script|<img|<iframe/); }
-    if (category === "mcp") { assert.match(html, /远端私有凭据文件/); assert.match(html, /逐次审批/); assert.doesNotMatch(html, /副作用类别/); }
+    if (category === "mcp") { assert.match(html, /远端私有凭据文件/); assert.match(html, /允许的工具/); assert.doesNotMatch(html, /副作用类别/); }
   }
   const h = harness("models"); h.view.pending = { v: 1, id: "pending", profile, op: "config.save", target: "model", expectedRevision: modelRevision, requestDigest: "1".repeat(64), saveAttempted: true, stage: "starting", savedRevision: contentRevision }; h.view.saved = true; h.view.settings.online = false; h.view.settings.model.credential.state = "unverified";
   await h.state.read();
@@ -322,4 +323,59 @@ test("Personal MCP：Cua固定配置不进入HTTP编辑器，启停保留原服�
   assert.equal(h.state.confirmation?.request.op, "mcp.set-enabled");
   assert.equal(h.state.confirmation?.request.id, service.id);
   assert.equal(h.state.confirmation?.request.enabled, false);
+});
+
+test("Personal Cua 设置从远端选择固定目标，保存不要求路径、哈希或认证输入", async () => {
+  const h = harness("mcp"); await h.state.read();
+  const cua = { kind: "cua-linux" as const, executable: "/usr/local/bin/cua", version: "0.7.0" as const, sha256: "a".repeat(64), sandbox: "local:desktop", sandboxId: "b".repeat(64) };
+  const screenshot = { ...remoteTool, name: "computer_screenshot" };
+  h.hooks.query = async request => request.op === "mcp.cua-targets" ? ok({ product: "ruukoto", profile, targets: [{ label: "专用桌面", config: cua }], issues: [] }) : ok({ product: "ruukoto", profile, tools: [screenshot] });
+  await h.state.addCua(); assert.equal(h.state.cuaTargets.length, 1); h.state.chooseCua(0);
+  assert.deepEqual(h.state.service.cua, cua); assert.equal(h.state.service.label, "专用桌面");
+  await h.state.discover(); h.state.allowTool(screenshot, true);
+  await h.state.save(); await h.state.confirmApply();
+  const saved = h.writes()[0].request.service as Record<string, unknown>;
+  assert.deepEqual(saved.cua, cua); assert.equal(saved.enabled, false); assert.deepEqual(saved.tools, [screenshot]);
+  assert.equal("endpoint" in saved, false); assert.equal("authentication" in saved, false);
+  assert.equal(h.calls.find(call => call.request.op === "mcp.cua-targets")?.request.expectedRevision, mcpRevision);
+});
+
+test("Personal Cua 恢复必须显示完整新截图，接受绑定原观察，失败或迟到onLoad不能沿用旧图", async () => {
+  const h = harness("mcp"); await h.state.read();
+  const bytes = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6LJ0AAAAASUVORK5CYII=", "base64"), id = "00000000-0000-4000-8000-000000000010", sha256 = createHash("sha256").update(bytes).digest("hex");
+  const image = { id, mime: "image/png", bytes: bytes.length, sha256 };
+  const operation = { operation: 12, service: "电脑", tool: "computer_click", effect: "effect_unknown", code: "timeout", cuaRecovery: "observed", cuaObservation: 34, images: [image] };
+  const status = { available: true, paused: true, busy: false, operations: [operation] };
+  let mode = "success";
+  h.hooks.query = async request => {
+    if (request.op === "mcp.cua-status") return ok({ product: "ruukoto", profile, ...status });
+    if (request.op === "mcp.cua-image") return ok({ product: "ruukoto", profile, ...image, observation: 34, offset: 0, base64: bytes.toString("base64") });
+    if (request.op === "mcp.cua-control") { if (mode === "failed") return fail("not_sent", "cua_observation_failed"); return ok({ product: "ruukoto", profile, ...status, operations: request.action === "accept" ? [] : [operation] }); }
+    assert.fail(String(request.op));
+  };
+  await h.state.readCua(); await h.state.loadCuaImages(12);
+  assert.equal(h.state.cuaImages.length, 1); assert.match(h.state.cuaImages[0].src, /^data:image\/png;base64,/);
+  assert.equal(h.state.canAcceptCua(12, 34), false); await h.state.controlCua("accept", 12);
+  assert.equal(h.calls.filter(call => call.request.action === "accept").length, 0);
+  h.state.cuaImageLoaded(12, 34, id, true); assert.equal(h.state.canAcceptCua(12, 34), true);
+  await h.state.controlCua("accept", 12);
+  assert.deepEqual(h.calls.find(call => call.request.action === "accept")?.request, { v: 1, op: "mcp.cua-control", profile, expectedRevision: mcpRevision, action: "accept", operation: 12, observation: 34 });
+  await h.state.readCua(); await h.state.loadCuaImages(12); h.state.cuaImageLoaded(12, 34, id, true);
+  mode = "failed"; await h.state.controlCua("observe", 12);
+  assert.equal(h.state.cuaImages.length, 0); h.state.cuaImageLoaded(12, 34, id, true); assert.equal(h.state.canAcceptCua(12, 34), false);
+  assert.equal(h.writes().length, 0, "电脑控制不触发停存启维护");
+});
+
+test("Personal Cua 截图缺页或哈希不符不显示，目标缺安装仍可编辑普通HTTP服务", async () => {
+  const h = harness("mcp"); await h.state.read();
+  h.hooks.query = async () => ok({ product: "ruukoto", profile, targets: [], issues: [{ code: "cua_artifact_missing", message: "请安装官方固定版本。" }] });
+  await h.state.addCua(); assert.equal(h.state.cuaTargets.length, 0); assert.equal(h.state.cuaIssues[0].code, "cua_artifact_missing");
+  h.state.discard(); await h.state.selectService(null); h.state.editService("label", "HTTP"); h.state.editService("endpoint", "https://mcp.example/new"); h.state.editService("authentication", "anonymous");
+  await h.state.save(); assert.ok(h.state.confirmation);
+  h.state.cancelConfirmation(); h.state.discard();
+  const id = "00000000-0000-4000-8000-000000000010";
+  h.state.cua = { available: true, paused: true, busy: false, operations: [{ operation: 12, service: "电脑", tool: "click", effect: "effect_unknown", code: "timeout", cuaRecovery: "observed", cuaObservation: 34, images: [{ id, mime: "image/png", bytes: 3, sha256: "a".repeat(64) }] }] };
+  h.hooks.query = async () => ok({ product: "ruukoto", profile, id, mime: "image/png", bytes: 3, sha256: "a".repeat(64), observation: 34, offset: 0, base64: Buffer.from("bad").toString("base64") });
+  await h.state.loadCuaImages(12); assert.equal(h.state.cuaImages.length, 0); assert.equal(h.state.canAcceptCua(12, 34), false);
+  assert.match(h.state.message, /完整性/);
 });

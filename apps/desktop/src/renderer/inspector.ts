@@ -11,6 +11,14 @@ interface DiffResult { entryId: string; field?: "text" | "patch" | "writeContent
 interface DiffSelection { sessionId: string; key: string; entryId: string | null }
 interface ToolParams { loading: boolean; value?: Record<string, unknown>; error?: string }
 interface GitState { value?: OpResult<"read_workspace_git">; error?: string; loading: boolean; loadingMore?: boolean; moreError?: string }
+interface DirectoryState { value?: OpResult<"list_workspace_files">; error?: string; loading: boolean; loadingMore?: boolean; moreError?: string; cursors?: Set<string> }
+function validDirectoryPage(page: OpResult<"list_workspace_files">, workspaceId: string, path: string, entries: OpResult<"list_workspace_files">["entries"], cursors: Set<string>): boolean {
+  const paths = new Set(entries.map(entry => entry.path));
+  return page.workspaceId === workspaceId && page.path === path && !(page.nextCursor && (cursors.has(page.nextCursor) || !page.entries.length)) && page.entries.every(entry => {
+    if (paths.has(entry.path)) return false;
+    paths.add(entry.path); return true;
+  });
+}
 export type TerminalTab = { id: DesktopTerminalId; kind: "terminal"; title: string; workspaceId: string; cwd: string; instanceId: string; error?: string; exitCode?: number };
 export type InspectorTab = TerminalTab | { id: string; kind: "read-snapshot"; title: string; path: string; sessionId: string; taskId: string; artifactId: string; mode: "preview" | "source" } | { id: string; kind: "git"; title: string; workspaceId: string } | { id: string; kind: "diff"; title: string; selection: DiffSelection } | { id: string; kind: "agent"; title: string; sessionId: string } | { id: string; kind: "new"; title: string } | { id: string; kind: "browser"; title: string; navigation: BrowserNavigation } | { id: string; kind: "files"; title: string; workspaceId: string } | { id: string; kind: "file"; title: string; workspaceId: string; path: string; mode: "preview" | "source" };
 
@@ -36,7 +44,7 @@ export class DesktopInspector {
   loadingWorks = false;
   diff: DiffSelection | null = null;
   result: DiffResult | null = null;
-  readonly directories = new Map<string, { value?: OpResult<"list_workspace_files">; error?: string; loading: boolean }>();
+  readonly directories = new Map<string, DirectoryState>();
   readonly files = new Map<string, { value?: PreviewFile; error?: string; loading: boolean }>();
   readonly repositories = new Map<string, GitState>();
   readonly folders = new Map<string, boolean>();
@@ -69,7 +77,8 @@ export class DesktopInspector {
         this.parentSessionId = null; this.childSessionId = null; this.workId = null; this.diff = null; this.tabsByParent.clear(); this.activeByParent.clear(); this.folders.clear();
       }
       if (this.parentSessionId) void this.loadWorks();
-      if (this.visible && (!this.activeTab() || ["new", "git"].includes(this.activeTab()!.kind))) void this.loadGit();
+      const active = this.activeTab();
+      if (this.visible && active?.kind === "git") void this.loadGit(active.workspaceId);
     } else if (update.type === "event") {
       const body = update.event.body;
       if (body.type.startsWith("work_delegation.") || body.type.startsWith("subagent") || body.type === "task.queued" || body.type === "task.completed" || body.type === "task.failed" || body.type === "task.interrupted" || body.type === "task.canceled") {
@@ -104,7 +113,6 @@ export class DesktopInspector {
     this.activeByParent.set(this.parentSessionId ?? "", id);
     this.childSessionId = null; this.diff = null; this.result = null;
     if (tab.kind === "diff") { this.tab = "diff"; this.diff = tab.selection; this.result = this.results.get(id) ?? null; void this.loadDiff(); }
-    if (tab.kind === "new") void this.loadGit();
     if (tab.kind === "git") void this.loadGit(tab.workspaceId);
     if (tab.kind === "files" && !this.directories.get(this.fileKey(tab.workspaceId, ""))?.loading) void this.loadDirectory(tab.workspaceId, "", true);
     if (tab.kind === "file") void this.loadFile(tab.workspaceId, tab.path);
@@ -184,7 +192,7 @@ export class DesktopInspector {
   }
   openGit(): void {
     const workspace = this.workspace();
-    if (workspace && this.repositories.get(workspace.id)?.value?.repository) this.addTab({ id: `git:${workspace.id}`, kind: "git", title: "Git graph", workspaceId: workspace.id });
+    if (workspace) this.addTab({ id: `git:${workspace.id}`, kind: "git", title: "Git graph", workspaceId: workspace.id });
   }
   async loadGit(workspaceId = this.workspace()?.id, retry = false): Promise<void> {
     if (this.target !== "code" || !this.online || !workspaceId) return;
@@ -223,6 +231,14 @@ export class DesktopInspector {
     return this.view.projects.find(project => project.id === id);
   }
   fileKey(workspaceId: string, path: string): string { return `${workspaceId}:${path}`; }
+  private directoryExpanded(workspaceId: string, path: string): boolean {
+    let current = path;
+    while (current) {
+      if (!this.folders.get(this.fileKey(workspaceId, current))) return false;
+      const separator = current.lastIndexOf("/"); current = separator < 0 ? "" : current.slice(0, separator);
+    }
+    return true;
+  }
   openFiles(): void {
     const workspace = this.workspace();
     if (this.target === "code" && workspace) this.addTab({ id: `files:${workspace.id}`, kind: "files", title: "文件树", workspaceId: workspace.id });
@@ -256,24 +272,57 @@ export class DesktopInspector {
     if (existing?.kind === "browser" && address) existing.navigation = navigateBrowser(existing.navigation, address);
     this.addTab(existing ?? { id: "browser", kind: "browser", title: "浏览器", navigation: browserNavigation(address ? browserAddress(address)! : "about:blank") });
   }
-  async loadDirectory(workspaceId: string, path: string, retry = false): Promise<void> {
+  // Note: 见 .agents/notes/implemented/feature/2026-10-24-directory-pages-lazy-git.md
+  async loadDirectory(workspaceId: string, path: string, retry = false, canContinue?: () => boolean): Promise<void> {
     if (this.target !== "code" || !this.online) return;
     const key = this.fileKey(workspaceId, path);
     if (this.directories.has(key) && !retry) return;
-    const generation = this.generation;
-    const previous = this.directories.get(key)?.value;
-    const state: { value?: OpResult<"list_workspace_files">; error?: string; loading: boolean } = { loading: true, value: previous };
+    const generation = this.generation, parent = this.parentSessionId;
+    const previousState = this.directories.get(key), previous = previousState?.value;
+    const state: DirectoryState = { loading: true, value: previous, cursors: previousState?.cursors };
     this.directories.set(key, state); this.changed();
-    const result = await this.request("list_workspace_files", { workspace_id: workspaceId, path });
-    if (generation !== this.generation || this.directories.get(key) !== state) return;
+    const active = () => { const tab = this.activeTab(); return parent === this.parentSessionId && this.visible && tab?.kind === "files" && tab.workspaceId === workspaceId && this.directoryExpanded(workspaceId, path) && (!canContinue || canContinue()); };
+    let value: OpResult<"list_workspace_files"> | undefined, cursor: string | undefined;
+    const cursors = new Set<string>(), last = previous?.entries.at(-1);
+    do {
+      if (cursor && !active()) { state.loading = false; this.changed(); return; }
+      const result = await this.request("list_workspace_files", { workspace_id: workspaceId, path, ...(cursor ? { cursor } : {}) });
+      if (generation !== this.generation || this.directories.get(key) !== state) return;
+      if (!result.ok) { state.error = result.error.message; break; }
+      if (!validDirectoryPage(result.value, workspaceId, path, value?.entries ?? [], cursors)) { state.error = "目录分页不一致，请刷新后继续浏览。"; break; }
+      value = { ...result.value, entries: [...(value?.entries ?? []), ...result.value.entries] };
+      cursor = value.nextCursor ?? undefined;
+      if (cursor) cursors.add(cursor);
+      const end = value.entries.at(-1);
+      if (value.entries.length >= (previous?.entries.length ?? 0) && (!last || end && (end.kind === last.kind ? end.name >= last.name : end.kind === "file"))) break;
+    } while (cursor);
     state.loading = false;
-    if (result.ok && result.value.workspaceId === workspaceId && result.value.path === path) {
-      state.value = result.value;
-      for (const removed of previous?.entries.filter(entry => !result.value.entries.some(next => next.path === entry.path && next.kind === entry.kind)) ?? []) {
+    if (value && !state.error) {
+      state.value = value; state.cursors = cursors;
+      const present = new Set(value.entries.map(entry => `${entry.kind}:${entry.path}`));
+      for (const removed of previous?.entries.filter(entry => !present.has(`${entry.kind}:${entry.path}`)) ?? []) {
         const prefix = this.fileKey(workspaceId, removed.path);
         for (const cache of [this.directories, this.files, this.folders]) for (const cacheKey of cache.keys()) if (cacheKey === prefix || cacheKey.startsWith(`${prefix}/`)) cache.delete(cacheKey);
       }
-    } else state.error = result.ok ? "目录响应不属于此路径，请重试。" : result.error.message;
+    }
+    this.changed();
+  }
+  async loadMoreDirectory(workspaceId: string, path: string): Promise<void> {
+    const key = this.fileKey(workspaceId, path), state = this.directories.get(key), directory = state?.value, cursor = directory?.nextCursor;
+    if (this.target !== "code" || !this.online || !state || !directory || !cursor || state.loading || state.loadingMore || state.error) return;
+    const generation = this.generation;
+    state.loadingMore = true; state.moreError = undefined; this.changed();
+    const result = await this.request("list_workspace_files", { workspace_id: workspaceId, path, cursor });
+    if (generation !== this.generation || this.directories.get(key) !== state || state.value?.nextCursor !== cursor) return;
+    state.loadingMore = false;
+    if (!result.ok) {
+      if (result.error.code === "workspace_file_changed") state.error = result.error.message;
+      else state.moreError = result.error.message;
+    } else if (!validDirectoryPage(result.value, workspaceId, path, directory.entries, state.cursors ?? new Set([cursor]))) state.error = "目录分页不一致，请刷新后继续浏览。";
+    else {
+      state.value = { ...result.value, entries: [...directory.entries, ...result.value.entries] };
+      if (result.value.nextCursor) (state.cursors ??= new Set([cursor])).add(result.value.nextCursor);
+    }
     this.changed();
   }
   refreshDirectories(workspaceId: string, signal?: AbortSignal): Promise<void> {
@@ -288,7 +337,9 @@ export class DesktopInspector {
       while (paths.length && active()) {
         const path = paths.shift()!;
         const directoryKey = this.fileKey(workspaceId, path);
-        if (!this.directories.get(directoryKey)?.loading) await this.loadDirectory(workspaceId, path, true);
+        if (!this.directoryExpanded(workspaceId, path)) continue;
+        const state = this.directories.get(directoryKey);
+        if (!state?.loading && !state?.loadingMore) await this.loadDirectory(workspaceId, path, true, active);
         if (!active()) return;
         for (const entry of this.directories.get(directoryKey)?.value?.entries ?? []) if (entry.kind === "directory" && this.folders.get(this.fileKey(workspaceId, entry.path))) paths.push(entry.path);
       }

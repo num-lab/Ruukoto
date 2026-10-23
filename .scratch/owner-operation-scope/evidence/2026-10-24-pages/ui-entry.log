@@ -1,0 +1,6 @@
+### Result
+{"newPageGitRequestsAdded":0,"clickGitRequestsAdded":1,"nonRepositoryHint":true,"modelCalls":0}
+### Ran Playwright code
+```js
+await (async (page) => { const metrics = await (await page.request.get("http://127.0.0.1:63346/_acceptance/metrics")).json(); const before = metrics.calls.filter(x => x.op === "read_workspace_git").length; if (before !== 2) throw new Error("New page prefetched Git"); await page.screenshot({path:"output/playwright/ruukoto-pages/entry-light.png"}); await page.getByRole("button",{name:"Git graph",exact:true}).click(); await page.getByText("此工作区没有 Git 仓库。",{exact:true}).waitFor(); const after = await (await page.request.get("http://127.0.0.1:63346/_acceptance/metrics")).json(); if (after.calls.filter(x => x.op === "read_workspace_git").length !== before + 1) throw new Error("Unexpected query count"); await page.screenshot({path:"output/playwright/ruukoto-pages/no-repository.png"}); return {newPageGitRequestsAdded:0,clickGitRequestsAdded:1,nonRepositoryHint:true,modelCalls:after.modelCalls}; })(page);
+```

@@ -2795,10 +2795,10 @@ export class Runtime {
     );
   }
 
-  listWorkspaceFiles(input: { workspaceId: string; path?: string }) {
+  listWorkspaceFiles(input: { workspaceId: string; path?: string; cursor?: string }) {
     const root = this.store.getProject(input.workspaceId)?.rootDir;
     if (!root) throw new RuntimeApiError("workspace_not_found", "工作区不存在或尚未登记目录，请重新选择工作区。");
-    return listWorkspaceFiles(input.workspaceId, root, input.path ?? "");
+    return listWorkspaceFiles(input.workspaceId, root, input.path ?? "", input.cursor);
   }
 
   readWorkspaceFile(input: { workspaceId: string; path: string; offset?: number; length?: number; version?: string }) {

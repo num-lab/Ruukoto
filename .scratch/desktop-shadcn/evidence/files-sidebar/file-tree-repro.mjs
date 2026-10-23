@@ -22,7 +22,7 @@ try {
   directories.set('w:',{loading:true});
   assert.match(html(),/role="status"[^>]*aria-label="正在加载文件树"/,'首读必须显示可访问加载图标');
   assert.doesNotMatch(html(),/正在读取/);
-  const page = entries => ({workspaceId:'w',path:'',entries,truncated:false});
+  const page = entries => ({workspaceId:'w',path:'',entries,nextCursor:null});
   directories.set('w:',{loading:false,value:page([{kind:'directory',name:'src',path:'src'}])});
   function folder() {
     const shared=React.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE,previous=shared.H;
@@ -63,8 +63,16 @@ try {
   inspector.tabs=()=>[]; inspector.terminalTabs=()=>[]; inspector.selectedTool=()=>null; inspector.agents=()=>[]; model.target='code';
   const landing=()=>renderToStaticMarkup(React.createElement(InspectorPanel,{model,open:true,onWidthChange(){}}));
   assert.doesNotMatch(landing(),/正在检测 Git|正在读取 Git|工具差异|SubAgent/,'新标签页无检测提示和差异清单');
-  assert.match(landing(),/文件树/);assert.match(landing(),/浏览器/);
+  assert.match(landing(),/文件树/);assert.match(landing(),/浏览器/);assert.match(landing(),/Git graph/);
+  const effects=[]; inspector.loadGit=()=>requests.push('git');
+  const shared=React.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE,previous=shared.H;
+  shared.H={useEffect:effect=>effects.push(effect)};
+  try { InspectorPanel({model,open:true,onWidthChange(){}}); } finally { shared.H=previous; }
+  for (const effect of effects) effect();
+  assert.ok(!requests.includes('git'),'打开新标签页不预取Git');
   inspector.repositories.set('w',{loading:false,error:'Git 检测失败'});
-  assert.match(landing(),/role="alert"/);assert.match(landing(),/Git 检测失败/);assert.match(landing(),/重试/);
+  assert.match(landing(),/Git graph/);assert.doesNotMatch(landing(),/Git 检测失败/);
+  inspector.activeTab=()=>({kind:'git',workspaceId:'w'});
+  assert.match(landing(),/Git 检测失败/);assert.match(landing(),/刷新/);
   process.stdout.write('PASS: root/folder spinners, delayed expansion, cancellation, cache, error and empty folders\n');
 } finally { await server.close(); }

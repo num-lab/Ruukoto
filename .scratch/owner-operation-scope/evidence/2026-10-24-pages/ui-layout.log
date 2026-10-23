@@ -1,0 +1,6 @@
+### Result
+{"lightMoreVisible":true,"darkMoreVisible":true,"width":320}
+### Ran Playwright code
+```js
+await (async (page) => { await page.getByRole("button",{name:"文件树",exact:true}).click(); await page.getByRole("button",{name:"加载更多 文件",exact:true}).waitFor(); await page.getByRole("button",{name:"加载更多 文件",exact:true}).scrollIntoViewIfNeeded(); await page.locator(".app-window").screenshot({path:"output/playwright/ruukoto-pages/directory-more-light.png"}); await page.getByRole("button",{name:"切换主题",exact:true}).click(); await page.getByRole("button",{name:"切换宽度",exact:true}).click(); await page.waitForFunction(() => Math.abs(document.querySelector("#right-sidebar").getBoundingClientRect().width-320)<1); await page.getByRole("button",{name:"加载更多 文件",exact:true}).scrollIntoViewIfNeeded(); await page.locator(".app-window").screenshot({path:"output/playwright/ruukoto-pages/directory-more-dark-narrow.png"}); return {lightMoreVisible:true,darkMoreVisible:await page.getByRole("button",{name:"加载更多 文件",exact:true}).isVisible(),width:await page.locator("#right-sidebar").evaluate(el=>el.getBoundingClientRect().width)}; })(page);
+```

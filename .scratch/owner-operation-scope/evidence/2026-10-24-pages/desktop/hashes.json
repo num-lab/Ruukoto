@@ -1,0 +1,9 @@
+{
+  "apps/desktop/src/renderer/inspector.ts": "a39e2101db46b4611c12b3c8135ca182d1da884c378daef1d1d47ff09c75f005",
+  "apps/desktop/src/renderer/inspector-panel.tsx": "ea2eb3e8ef29f6c998067246fb9a8b49f2bc1985a2d9006f3a668b4e57722c72",
+  "apps/desktop/src/renderer/inspector-panels.tsx": "5afd6a8b73e9f6cad0e2fa378a1af377c3c8fbe1df0d868456932965816f6e19",
+  "test/desktop-inspector-tools.test.ts": "49365c644c2069fe2104591e8a461da5fd2233d11da2e68da8e387c08ac051f4",
+  "test/desktop-live-files.test.ts": "1bf02dc953fb94d2c55161280b6da9dfdef3e6323153a26967a11865922c8fe7",
+  ".scratch/desktop-shadcn/evidence/files-sidebar/file-tree-repro.mjs": "9131cb3e30a0bdc45dce26b2275f17266168b841c050235694700f27fc3a3964",
+  ".scratch/desktop-shadcn/evidence/files-sidebar/files-fixture.tsx": "803274a87c2c7f555737b5588102c97a3f60b8899c7c202cfb62e7dee0ac5e07"
+}

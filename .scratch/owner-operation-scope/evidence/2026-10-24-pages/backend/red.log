@@ -1,0 +1,77 @@
+✖ 目录续页完整覆盖所有目录和文件，跨页保持严格排序且不计入链接 (62.566042ms)
+✖ 目录游标绑定来源和修订，页间变化或非法游标不会混入旧页 (19.536375ms)
+✖ 目录字节预算提前续页时仍前进，长路径及控制字符无遗漏 (21.558041ms)
+✖ 异步目录扫描期间新增条目会丢弃整页，事件循环可推进 (0.865375ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 0
+ℹ fail 4
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1432.869792
+
+✖ failing tests:
+
+test at test/desktop-workspace-files.test.ts:23:1
+✖ 目录续页完整覆盖所有目录和文件，跨页保持严格排序且不计入链接 (62.566042ms)
+  AssertionError [ERR_ASSERTION]: Expected "actual" to be strictly unequal to:
+
+  undefined
+      at TestContext.<anonymous> (/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-directory-pages-68kd6qpv/backend/test/desktop-workspace-files.test.ts:43:14)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: undefined,
+    operator: 'notStrictEqual',
+    diff: 'simple'
+  }
+
+test at test/desktop-workspace-files.test.ts:51:1
+✖ 目录游标绑定来源和修订，页间变化或非法游标不会混入旧页 (19.536375ms)
+  AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+
+    assert.ok(first.nextCursor)
+
+      at TestContext.<anonymous> (/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-directory-pages-68kd6qpv/backend/test/desktop-workspace-files.test.ts:57:12)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at test/desktop-workspace-files.test.ts:70:1
+✖ 目录字节预算提前续页时仍前进，长路径及控制字符无遗漏 (21.558041ms)
+  AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+
+    assert.ok(first.nextCursor)
+
+      at TestContext.<anonymous> (/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-directory-pages-68kd6qpv/backend/test/desktop-workspace-files.test.ts:79:12)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at test/desktop-workspace-files.test.ts:87:1
+✖ 异步目录扫描期间新增条目会丢弃整页，事件循环可推进 (0.865375ms)
+  AssertionError [ERR_ASSERTION]: Missing expected rejection.
+      at async TestContext.<anonymous> (/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-directory-pages-68kd6qpv/backend/test/desktop-workspace-files.test.ts:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    operator: 'rejects',
+    diff: 'simple'
+  }

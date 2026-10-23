@@ -5,6 +5,7 @@ import * as http from "node:http";
 import { once } from "node:events";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
+import { DatabaseSync } from "node:sqlite";
 import { test, type TestContext } from "node:test";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { EntryId } from "@earendil-works/pi-durable";
@@ -13,7 +14,8 @@ import { parsePersonalTools } from "../apps/ruukoto/src/personal-tools-config.ts
 import { personalProvider } from "../apps/ruukoto/src/personal-model.ts";
 import { PersonalPermissionsDoc } from "../apps/ruukoto/src/personal-permissions.ts";
 import { parsePersonalMcp, checkPersonalMcpEnablement } from "../apps/ruukoto/src/personal-mcp-config.ts";
-import { mcpUnresolved, mcpSourceBlocker, PersonalMcpDoc, waitWorkMcp } from "../apps/ruukoto/src/personal-mcp.ts";
+import { mcpUnresolved, mcpSourceBlocker, PersonalMcpDoc, verifyMcp, waitWorkMcp } from "../apps/ruukoto/src/personal-mcp.ts";
+import { mcpResponseEnded } from "@ruukoto/agent/mcp/transport.ts";
 import { personalCuaLinux, type CuaLinuxGeneration } from "../apps/ruukoto/src/personal-cua-linux.ts";
 import { personalSettingsExternalBlockers } from "../apps/ruukoto/src/personal-settings-blockers.ts";
 import { lockPersonalProfile } from "../apps/ruukoto/src/personal-profile.ts";
@@ -137,6 +139,67 @@ test("Personal Cua：成功观察后再次观察失败，冷启动可继续恢�
   assert.notEqual(current, old);
   await assert.rejects(p.mcp!.recoverCua(unknown.operation, "accept", old));
   await p.mcp!.recoverCua(unknown.operation, "accept", current);
+});
+for (const [mode, code] of [["error", "cua_observation_failed"], ["invalid", "cua_observation_invalid"], ["empty", "cua_observation_missing"]]) test(`Personal Cua：恢复 ${mode} 原应答跨冷启和再次观察保留，失败不开放接受`, async t => {
+  const f = await fixture(t); let p = await f.open(); await f.full(p);
+  let stops = 0, restarts = 0; const stop = f.host.stop, restart = f.host.restart;
+  f.host.stop = async execution => { stops++; return stop(execution); };
+  f.host.restart = async execution => { restarts++; return restart(execution); };
+  await p.answer(input("computer_screenshot"), "initial");
+  const unknown = JSON.parse(await p.answer(input("computer_click", { hang: true }), "lost"));
+  await p.mcp!.recoverCua(unknown.operation, "stop"); await p.mcp!.recoverCua(unknown.operation, "begin");
+  f.setImageMode(mode); await assert.rejects(p.mcp!.recoverCua(unknown.operation, "observe"), { code });
+  const failed = (await p.harness.snapshot(PersonalMcpDoc, String(unknown.operation), context))!.operation!, recovery = failed.cua!.recovery!;
+  assert.equal(failed.effect, "effect_unknown"); assert.equal(failed.remoteEnded, false); assert.equal(mcpUnresolved(failed), true);
+  assert.equal(recovery.observation, undefined); assert.equal(recovery.responses?.length, 1);
+  await assert.rejects(p.mcp!.recoverCua(unknown.operation, "accept"), { code: "cua_observation_stale" });
+  const response = (await p.harness.commit(tx => tx.entry(recovery.responses![0]), context))!;
+  const request = recovery.pendingObservation!, calls = f.calls();
+  const expected = { operation: unknown.operation, execution: failed.cua!.execution, action: "observe-response", requestEntry: request.entry, nextExecution: request.execution, evidence: { request: request.request, response: JSON.stringify({ jsonrpc: "2.0", id: calls[2].id, result: { content: mode === "empty" ? [{ type: "text", text: "无图" }] : [{ type: "image", data: mode === "invalid" ? "aGVsbG8=" : "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==", mimeType: "image/png" }], ...(mode === "error" ? { isError: true } : {}) } }) } };
+  assert.deepEqual(response.data, expected); assert.equal(mcpResponseEnded(expected.evidence.response), true);
+  assert.equal(JSON.parse(request.request).id, calls[2].id); assert.ok(response.id > request.entry);
+  async function detail() {
+    let text = "", offset: number | undefined = 0;
+    do { const page = await p.mcp!.detail(unknown.operation, offset); text += page.text; offset = page.nextOffset; } while (offset !== undefined);
+    return JSON.parse(text);
+  }
+  assert.deepEqual((await detail()).cuaResponses, [{ entry: response.id, ...expected }]);
+  if (mode === "error") {
+    const keys = (await p.mcp!.list()).items.map(item => String(item.operation));
+    await p.harness.commit(async tx => { delete (await tx.doc(PersonalMcpDoc, String(unknown.operation), null)).operation!.cua!.recovery!.responses; }, context);
+    await assert.rejects(p.harness.commit(tx => verifyMcp(tx, keys), context), { code: "mcp_record_invalid" });
+    await p.harness.commit(async tx => { (await tx.doc(PersonalMcpDoc, String(unknown.operation), null)).operation!.cua!.recovery!.responses = [response.id]; }, context);
+  }
+  await p.close(); p = await f.open();
+  assert.deepEqual((await detail()).cuaResponses, [{ entry: response.id, ...expected }]);
+  f.setImageMode(""); await p.mcp!.recoverCua(unknown.operation, "observe");
+  const current = (await p.mcp!.detail(unknown.operation)).summary.cuaObservation!;
+  await p.mcp!.recoverCua(unknown.operation, "accept", current);
+  const accepted = (await p.harness.snapshot(PersonalMcpDoc, String(unknown.operation), context))!.operation!;
+  assert.equal(accepted.effect, "effect_unknown"); assert.equal(accepted.remoteEnded, false); assert.equal(mcpUnresolved(accepted), false);
+  assert.equal(accepted.cua!.recovery!.responses?.length, 2); assert.deepEqual((await detail()).cuaResponses[0], { entry: response.id, ...expected });
+  assert.equal(stops, 1); assert.equal(restarts, 1); assert.equal(f.calls().length, 4);
+});
+for (const damage of ["missing-id", "null-response"]) test(`Personal Cua：恢复应答 ${damage} 损坏时按类型拒绝冷启动且不外调`, async t => {
+  const f = await fixture(t), p = await f.open(); await f.full(p);
+  await p.answer(input("computer_screenshot"), "initial");
+  const unknown = JSON.parse(await p.answer(input("computer_click", { hang: true }), "lost"));
+  await p.mcp!.recoverCua(unknown.operation, "stop"); await p.mcp!.recoverCua(unknown.operation, "begin");
+  f.setImageMode("error"); await assert.rejects(p.mcp!.recoverCua(unknown.operation, "observe"), { code: "cua_observation_failed" });
+  const recovery = (await p.harness.snapshot(PersonalMcpDoc, String(unknown.operation), context))!.operation!.cua!.recovery!, responseId = recovery.responses![0];
+  const data = JSON.parse(JSON.stringify((await p.harness.commit(tx => tx.entry(responseId), context))!.data)) as { evidence: { request: string; response: string } };
+  if (damage === "missing-id") {
+    const sent = JSON.parse(data.evidence.request) as Record<string, unknown>, received = JSON.parse(data.evidence.response) as Record<string, unknown>;
+    delete sent.id; delete received.id; data.evidence = { request: JSON.stringify(sent), response: JSON.stringify(received) };
+    await p.harness.commit(async tx => { (await tx.doc(PersonalMcpDoc, String(unknown.operation), null)).operation!.cua!.recovery!.pendingObservation!.request = data.evidence.request; }, context);
+  } else data.evidence.response = "null";
+  await p.close();
+  const db = new DatabaseSync(path.join(f.directory, "personal.sqlite"));
+  try {
+    db.prepare("UPDATE entries SET record = json_set(record, '$.data.evidence.request', ?, '$.data.evidence.response', ?) WHERE id = ?").run(data.evidence.request, data.evidence.response, responseId);
+    db.prepare("UPDATE entries SET record = json_set(record, '$.data.evidence.request', ?) WHERE id = ?").run(data.evidence.request, recovery.pendingObservation!.entry);
+  } finally { db.close(); }
+  await assert.rejects(f.open(), { code: "mcp_record_invalid" }); assert.equal(f.calls().length, 3);
 });
 test("Personal Cua Linux：错误容器和自动重启策略拒绝，未执行Docker变更", async () => {
   const calls: string[][] = [], id = "b".repeat(64);

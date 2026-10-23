@@ -2796,19 +2796,19 @@ export class Runtime {
   listWorkspaceFiles(input: { workspaceId: string; path?: string }) {
     const root = this.store.getProject(input.workspaceId)?.rootDir;
     if (!root) throw new RuntimeApiError("workspace_not_found", "工作区不存在或尚未登记目录，请重新选择工作区。");
-    return listWorkspaceFiles(input.workspaceId, root, input.path ?? "", this.protectedRoots());
+    return listWorkspaceFiles(input.workspaceId, root, input.path ?? "");
   }
 
   readWorkspaceFile(input: { workspaceId: string; path: string; offset?: number; length?: number; version?: string }) {
     const root = this.store.getProject(input.workspaceId)?.rootDir;
     if (!root) throw new RuntimeApiError("workspace_not_found", "工作区不存在或尚未登记目录，请重新选择工作区。");
-    return readWorkspaceFile(input.workspaceId, root, input.path, this.protectedRoots(), input);
+    return readWorkspaceFile(input.workspaceId, root, input.path, input);
   }
 
   readWorkspaceGit(input: { workspaceId: string; cursor?: string }) {
     const root = this.store.getProject(input.workspaceId)?.rootDir;
     if (!root) throw new RuntimeApiError("workspace_not_found", "工作区不存在或尚未登记目录，请重新选择工作区。");
-    return readWorkspaceGit(input.workspaceId, root, this.protectedRoots(), input.cursor);
+    return readWorkspaceGit(input.workspaceId, root, input.cursor);
   }
 
   /**

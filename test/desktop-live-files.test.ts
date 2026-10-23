@@ -26,7 +26,7 @@ const session: Session = { id: "session", projectId: "workspace", kind: "dev", w
 function harness(root: string, handlers: FakeHandlers = {}) {
   const identity = resolveDirIdentitySync(root);
   const project: Project = { id: "workspace", name: "工作区", rootDir: identity, createRequestId: null, instructionFiles: [], webSearch: "enabled", settingsVersion: 1, createdAt: at };
-  const transport = new FakeTransport({ handlers: { work_list: () => ({ works: [] }), list_workspace_files: params => listWorkspaceFiles(params.workspace_id, identity, params.path ?? "", []), read_workspace_file: params => readWorkspaceFile(params.workspace_id, identity, params.path, [], params), ...handlers } });
+  const transport = new FakeTransport({ handlers: { work_list: () => ({ works: [] }), list_workspace_files: params => listWorkspaceFiles(params.workspace_id, identity, params.path ?? ""), read_workspace_file: params => readWorkspaceFile(params.workspace_id, identity, params.path, params), ...handlers } });
   const model = new CodeState({ request: (_target, op, params) => ipcResult(() => transport.request(op as TuiOp, params as OpParams<TuiOp>)) }, () => {});
   model.view.applySnapshot({ snapshot: fakeSnapshot({ projects: [project], sessions: [{ ...session, cwd: identity.cwdReal, cwdReal: identity.cwdReal }] }), replay: [], seq: 0 }, false);
   model.status = { type: "state", state: "online" };
@@ -132,7 +132,7 @@ test("刷新保留成功树，在途focus不重复；失败可重试，删除使
   const kit = fixture();
   try {
     fs.writeFileSync(path.join(kit.root, "old.txt"), "old"); const blocked = gate(); let wait = false, fail = false;
-    const h = harness(kit.root, { list_workspace_files: async params => { if (wait) await blocked.wait; if (fail) throw new Error("刷新失败"); return listWorkspaceFiles(params.workspace_id, resolveDirIdentitySync(kit.root), params.path ?? "", []); } });
+    const h = harness(kit.root, { list_workspace_files: async params => { if (wait) await blocked.wait; if (fail) throw new Error("刷新失败"); return listWorkspaceFiles(params.workspace_id, resolveDirIdentitySync(kit.root), params.path ?? ""); } });
     h.inspector.openFiles(); await settle(); await h.inspector.refreshDirectories("workspace");
     h.inspector.files.set("workspace:old.txt", { loading: false, value: { path: "old.txt", kind: "text", content: "old", size: 3 } });
     const host = new RefreshHost(); wait = true; const stop = startFilesRefresh(h.inspector, "workspace", host);
@@ -156,7 +156,7 @@ test("切换面板后在途刷新不继续扫描展开目录，离线不再发�
   const kit = fixture();
   try {
     fs.mkdirSync(path.join(kit.root, "expanded")); const blocked = gate(); let wait = false;
-    const h = harness(kit.root, { list_workspace_files: async params => { if (wait) await blocked.wait; return listWorkspaceFiles(params.workspace_id, resolveDirIdentitySync(kit.root), params.path ?? "", []); } });
+    const h = harness(kit.root, { list_workspace_files: async params => { if (wait) await blocked.wait; return listWorkspaceFiles(params.workspace_id, resolveDirIdentitySync(kit.root), params.path ?? ""); } });
     h.inspector.folders.set("workspace:expanded", true); h.inspector.openFiles(); await settle(); await h.inspector.refreshDirectories("workspace");
     wait = true; const refresh = h.inspector.refreshDirectories("workspace"); const count = h.transport.requests.length;
     h.inspector.openBrowser(); blocked.release(); await refresh;
@@ -170,7 +170,7 @@ test("组件卸载取消刷新后续层，即使保留的Code Inspector仍标为
   const kit = fixture();
   try {
     fs.mkdirSync(path.join(kit.root, "expanded")); const blocked = gate(); let wait = false;
-    const h = harness(kit.root, { list_workspace_files: async params => { if (wait) await blocked.wait; return listWorkspaceFiles(params.workspace_id, resolveDirIdentitySync(kit.root), params.path ?? "", []); } });
+    const h = harness(kit.root, { list_workspace_files: async params => { if (wait) await blocked.wait; return listWorkspaceFiles(params.workspace_id, resolveDirIdentitySync(kit.root), params.path ?? ""); } });
     h.inspector.folders.set("workspace:expanded", true); h.inspector.openFiles(); await settle(); await h.inspector.refreshDirectories("workspace");
     wait = true; const host = new RefreshHost(), stop = startFilesRefresh(h.inspector, "workspace", host);
     const count = h.transport.requests.length; stop(); blocked.release(); await settle();
@@ -229,7 +229,7 @@ for (const kind of ["snapshot", "workspace"] as const) for (const action of ["cl
     fs.writeFileSync(path.join(kit.root, "late.txt"), bytes);
     const h = harness(kit.root, {
       read_artifact: async params => { if (++calls === 2) await blocked.wait; return captured(bytes, {}, params.offset); },
-      read_workspace_file: async params => { if (++calls === 2) await blocked.wait; return readWorkspaceFile(params.workspace_id, resolveDirIdentitySync(kit.root), params.path, [], params); },
+      read_workspace_file: async params => { if (++calls === 2) await blocked.wait; return readWorkspaceFile(params.workspace_id, resolveDirIdentitySync(kit.root), params.path, params); },
     });
     if (kind === "snapshot") await h.inspector.openToolFile(session.id, readTool("/tmp/late.txt")); else h.inspector.openFile("workspace", "late.txt");
     await waitFor("第二页已开始", () => calls === 2);
@@ -268,7 +268,7 @@ for (const mismatch of ["size", "version", "offset", "path", "workspace", "inval
     const bytes = Buffer.from("x".repeat(FILE_PAGE_BYTES + 3)); let calls = 0;
     fs.writeFileSync(path.join(kit.root, "bad-page.txt"), bytes);
     const h = harness(kit.root, { read_workspace_file: params => {
-      const page = readWorkspaceFile(params.workspace_id, resolveDirIdentitySync(kit.root), params.path, [], params); calls++;
+      const page = readWorkspaceFile(params.workspace_id, resolveDirIdentitySync(kit.root), params.path, params); calls++;
       if (params.offset) {
         if (mismatch === "size") page.size++;
         if (mismatch === "version") page.version = "other-version";

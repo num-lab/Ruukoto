@@ -2,6 +2,8 @@
 
 Status: implemented
 
+工作区浏览的保护根约束由[拥有者浏览权限](../feature/2026-10-24-owner-workspace-browsing.md)取代；登记根、路径及读取一致性规则继续适用。
+
 文件预览总量上限由[完整分块传输](../feature/2026-10-18-complete-reasoning-and-preview.md)部分取代；原访问范围继续成立。
 
 ## 问题

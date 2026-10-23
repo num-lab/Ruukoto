@@ -47,10 +47,10 @@ test("登记设备号过期时仍能枚举文件、读取正文和读取 Git", a
     fs.writeFileSync(path.join(kit.root, "file.txt"), "真实正文");
     execFileSync("git", ["init", "-q", "-b", "main", kit.root]);
     const registered = { ...kit.identity, dev: kit.identity.dev + 1 };
-    assert.ok(listWorkspaceFiles("workspace", registered, "", []).entries.some(entry => entry.name === "file.txt"));
-    const preview = readWorkspaceFile("workspace", registered, "file.txt", []);
+    assert.ok(listWorkspaceFiles("workspace", registered, "").entries.some(entry => entry.name === "file.txt"));
+    const preview = readWorkspaceFile("workspace", registered, "file.txt");
     assert.equal(Buffer.from(preview.data, "base64").toString(), "真实正文");
-    assert.deepEqual((await readWorkspaceGit("workspace", registered, [])).repository, { head: null, commits: [], nextCursor: null });
+    assert.deepEqual((await readWorkspaceGit("workspace", registered)).repository, { head: null, commits: [], nextCursor: null });
   } finally { kit.close(); }
 });
 

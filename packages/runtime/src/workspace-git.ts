@@ -4,7 +4,6 @@ import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { RuntimeApiError } from "@ruukoto/core/api-error.ts";
 import { DirIdentityError, resolveDirIdentitySync, verifyDirIdentitySync, type DirIdentity } from "@ruukoto/core/dir-identity.ts";
-import { ApprovedOpError, assertDirectoryReadNotProtected } from "@ruukoto/agent/execution/approved-ops.ts";
 
 export const WORKSPACE_GIT_COMMITS = 200;
 export const WORKSPACE_GIT_OUTPUT_BYTES = 512 * 1024;
@@ -29,12 +28,6 @@ function optionalStat(file: string): fs.Stats | null {
   }
 }
 function unsafe(): never { throw new RuntimeApiError("workspace_git_unsafe", "Git 元数据包含不安全的外部引用，请核实仓库后重试。"); }
-function protect(root: DirIdentity, directory: string, protectedRoots: string[]): void {
-  try { assertDirectoryReadNotProtected(root.cwdReal, directory, protectedRoots); }
-  catch (cause) {
-    throw new RuntimeApiError(cause instanceof ApprovedOpError ? "workspace_git_unsafe" : "workspace_git_unavailable", cause instanceof ApprovedOpError ? "仓库引用后台保护目录，不能读取提交历史。" : "无法核实仓库保护范围，请稍后重试。");
-  }
-}
 function verifyRoot(root: DirIdentity): void {
   try { verifyDirIdentitySync(root); }
   catch (cause) {
@@ -164,15 +157,14 @@ async function revisionState(workspaceId: string, root: DirIdentity, gitDir: Dir
 }
 
 // Note: 见 .agents/notes/implemented/feature/2026-10-17-desktop-git-history-pages.md
-export async function readWorkspaceGit(workspaceId: string, root: DirIdentity, protectedRoots: string[], cursor?: string): Promise<WorkspaceGit> {
+// Note: 见 .agents/notes/implemented/feature/2026-10-24-owner-workspace-browsing.md
+export async function readWorkspaceGit(workspaceId: string, root: DirIdentity, cursor?: string): Promise<WorkspaceGit> {
   const page = pageCursor(cursor);
   const deadline = Date.now() + WORKSPACE_GIT_TIMEOUT_MS;
   verifyRoot(root);
   const location = discover(root);
-  if (!location) { verifyRoot(root); protect(root, root.cwdReal, protectedRoots); if (cursor !== undefined) changed(); return { workspaceId, repository: null }; }
+  if (!location) { verifyRoot(root); if (cursor !== undefined) changed(); return { workspaceId, repository: null }; }
   const { gitDir, commonDir } = location;
-  protect(root, commonDir.cwdReal, protectedRoots);
-  if (!gitDir.cwdReal.startsWith(`${commonDir.cwdReal}/`) && gitDir.cwdReal !== commonDir.cwdReal) protect(root, gitDir.cwdReal, protectedRoots);
   scanMetadata([gitDir.cwdReal, commonDir.cwdReal], deadline);
   const before = await revisionState(workspaceId, root, gitDir, commonDir, deadline);
   if (page.revision !== null && page.revision !== before.revision) changed();
@@ -181,8 +173,6 @@ export async function readWorkspaceGit(workspaceId: string, root: DirIdentity, p
   verifyRoot(root); verifyRoot(gitDir); verifyRoot(commonDir);
   const current = discover(root);
   if (!current || current.gitDir.cwdReal !== gitDir.cwdReal || current.commonDir.cwdReal !== commonDir.cwdReal) changed();
-  protect(root, commonDir.cwdReal, protectedRoots);
-  if (!gitDir.cwdReal.startsWith(`${commonDir.cwdReal}/`) && gitDir.cwdReal !== commonDir.cwdReal) protect(root, gitDir.cwdReal, protectedRoots);
   scanMetadata([gitDir.cwdReal, commonDir.cwdReal], deadline);
   if (before.revision !== after.revision) changed();
   const { headOutput, refsOutput, remotesOutput } = before;

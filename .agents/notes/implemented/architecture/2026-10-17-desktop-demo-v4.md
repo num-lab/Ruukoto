@@ -2,6 +2,8 @@
 
 Status: implemented
 
+Git 查询的保护根约束由[拥有者浏览权限](../feature/2026-10-24-owner-workspace-browsing.md)取代；元数据核实、只读命令及分页一致性规则继续适用。
+
 ## 问题
 
 当前 Demo 的 PA 主标签、连接设置、拖动等宽标签、Git graph 和玻璃层尚未迁入 Desktop。正式端只有 PA 连接占位，Git 历史无读取接口；复制样例会把真实数据、发送核实和路径保护替换成模拟结果。

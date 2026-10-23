@@ -540,3 +540,33 @@ test("两个真实控制客户端与 TUI：中文名称、完整设置、应答�
     assert.equal(t.server.calls.length, 0);
   } finally { apps.forEach(app => app.quit()); await t.shutdown(); }
 });
+
+
+test("保护目录会话分支及 prepared 恢复保留完全访问的真实读取", async () => {
+  const t = await startTestRuntime("owner-branch-root", req => afterTool(req) ? { kind: "text", text: "读取完成" } : {
+    kind: "tool_calls", calls: [{ id: randomId("read"), name: "read", arguments: { path: "owner-sentinel.txt" } }],
+  }, { config: { product: product.runtime, ...realTools() } });
+  let restarted: Runtime | null = null;
+  try {
+    fs.writeFileSync(path.join(t.dirs.dataDir, "owner-sentinel.txt"), "branch-owner-sentinel");
+    const source = (await t.runtime.openWorkspace({ cwd: t.dirs.dataDir, mode: "full_access" })).session;
+    const first = await t.runtime.submit({ sessionId: source.id, requestId: "source-read", input: "读取测试文件", modelSelection: t.runtime.defaultSelection });
+    await waitFor("来源真实工具完成", () => t.runtime.store.getTask(first.id)!.status === "completed", 30_000);
+    assert.match(t.runtime.store.listToolOpsByTask(first.id)[0]!.resultSummary!, /branch-owner-sentinel/);
+    const create = t.runtime.store.createSession.bind(t.runtime.store);
+    t.runtime.store.createSession = input => { if (input.branchSession) throw new Error("注入分支提交失败"); return create(input); };
+    await assert.rejects(t.runtime.branchSession({ sessionId: source.id, requestId: "protected-branch" }), (error: unknown) => error instanceof Error && "code" in error && error.code === "branch_prepare_failed");
+    assert.equal(getBranchRequest(t.runtime.store, "protected-branch")!.status, "prepared");
+    t.runtime.store.createSession = create;
+    await t.runtime.stop("test_restart");
+    restarted = await Runtime.start(t.runtime.config);
+    const recovered = restarted.findBranchSession("protected-branch");
+    assert.equal(recovered.status, "published");
+    const branch = recovered.session!;
+    assert.equal(branch.defaultAccessMode, "full_access");
+    const next = await restarted.submit({ sessionId: branch.id, requestId: "branch-read", input: "再次读取测试文件", modelSelection: restarted.defaultSelection });
+    await waitFor("恢复分支真实工具完成", () => restarted!.store.getTask(next.id)!.status === "completed", 30_000);
+    assert.equal(restarted.store.listToolOpsByTask(next.id)[0]!.isError, false);
+    assert.match(restarted.store.listToolOpsByTask(next.id)[0]!.resultSummary!, /branch-owner-sentinel/);
+  } finally { await restarted?.stop("test_end"); await t.shutdown(); }
+});

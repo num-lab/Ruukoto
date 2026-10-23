@@ -27,7 +27,7 @@ function optionalStat(file: string): fs.Stats | null {
     throw new RuntimeApiError("workspace_git_unavailable", "无法读取 Git 仓库，请核实目录权限后重试。");
   }
 }
-function unsafe(): never { throw new RuntimeApiError("workspace_git_unsafe", "Git 元数据包含不安全的外部引用，请核实仓库后重试。"); }
+function unsafe(): never { throw new RuntimeApiError("workspace_git_unsafe", "Git 元数据格式无效或无法稳定读取，请核实仓库后重试。"); }
 function verifyRoot(root: DirIdentity): void {
   try { verifyDirIdentitySync(root); }
   catch (cause) {
@@ -36,15 +36,16 @@ function verifyRoot(root: DirIdentity): void {
   }
 }
 function pointer(file: string, limit = 4096): string {
-  const stat = optionalStat(file);
-  if (!stat || !stat.isFile() || stat.nlink !== 1 || stat.size > limit) unsafe();
-  const fd = io(() => fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK));
+  const stat = io(() => fs.statSync(file));
+  if (!stat.isFile() || stat.size > limit) unsafe();
+  const fd = io(() => fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NONBLOCK));
   try {
     const opened = io(() => fs.fstatSync(fd));
     if (opened.dev !== stat.dev || opened.ino !== stat.ino || opened.size !== stat.size) unsafe();
     const bytes = Buffer.alloc(limit + 1);
     const length = io(() => fs.readSync(fd, bytes, 0, bytes.length, 0));
-    if (length !== stat.size) unsafe();
+    const after = io(() => fs.fstatSync(fd));
+    if (length !== stat.size || after.size !== opened.size || after.mtimeMs !== opened.mtimeMs || after.ctimeMs !== opened.ctimeMs) changed();
     return bytes.subarray(0, length).toString("utf8").replace(/\r?\n$/, "");
   } finally { io(() => fs.closeSync(fd)); }
 }
@@ -52,9 +53,9 @@ function discover(root: DirIdentity): { gitDir: DirIdentity; commonDir: DirIdent
   let directory = root.cwdReal;
   for (let depth = 0; depth < 128; depth++) {
     const marker = path.join(directory, ".git");
-    const stat = optionalStat(marker);
+    let stat = optionalStat(marker);
     if (stat) {
-      if (stat.isSymbolicLink()) unsafe();
+      if (stat.isSymbolicLink()) stat = io(() => fs.statSync(marker));
       const gitPath = stat.isDirectory() ? marker : (() => {
         const value = pointer(marker);
         if (!value.startsWith("gitdir: ") || value.includes("\0") || value.includes("\n")) unsafe();
@@ -72,31 +73,6 @@ function discover(root: DirIdentity): { gitDir: DirIdentity; commonDir: DirIdent
     directory = parent;
   }
   throw new RuntimeApiError("workspace_git_limit", "仓库目录层级过深，请打开更接近仓库根目录的工作区。");
-}
-function scanMetadata(directories: string[], deadline: number): void {
-  const pending = [...new Set(directories)];
-  let count = 0;
-  while (pending.length) {
-    const directory = pending.pop()!;
-    const entries = io(() => fs.opendirSync(directory));
-    try {
-      for (;;) {
-        const entry = io(() => entries.readSync());
-        if (!entry) break;
-        if (++count > 100_000) throw new RuntimeApiError("workspace_git_limit", "Git 元数据超出本次读取上限，请整理仓库后重试。");
-        if (Date.now() >= deadline) throw new RuntimeApiError("workspace_git_timeout", "Git 元数据读取超时，请稍后重试。");
-        const file = path.join(directory, entry.name);
-        if (entry.isSymbolicLink() || !entry.isDirectory() && !entry.isFile()) unsafe();
-        if (entry.isDirectory()) pending.push(file);
-        if (entry.isFile()) {
-          const stat = io(() => fs.lstatSync(file));
-          if (!stat.isFile() || stat.nlink !== 1) unsafe();
-          if (directories.includes(directory) && ["config", "config.worktree"].includes(entry.name) && /^[\t \ufeff]*\[[\t ]*(?:include|includeif)(?:[\t .\]"]|$)/im.test(pointer(file, 64 * 1024))) unsafe();
-        }
-        if (entry.name === "alternates" || entry.name === "http-alternates") unsafe();
-      }
-    } finally { io(() => entries.closeSync()); }
-  }
 }
 function gitEnvironment(): NodeJS.ProcessEnv {
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_") && !["LD_PRELOAD", "LD_LIBRARY_PATH", "DYLD_INSERT_LIBRARIES", "DYLD_LIBRARY_PATH"].includes(key)));
@@ -152,12 +128,14 @@ async function revisionState(workspaceId: string, root: DirIdentity, gitDir: Dir
     return optionalStat(file) ? pointer(file, WORKSPACE_GIT_OUTPUT_BYTES) : null;
   });
   const identity = (directory: DirIdentity) => [directory.cwdReal, directory.dev, directory.ino];
-  const revision = createHash("sha256").update(JSON.stringify([workspaceId, identity(root), identity(gitDir), identity(commonDir), pointer(path.join(gitDir.cwdReal, "HEAD")), headOutput, refsOutput, remotesOutput, shallow, grafts])).digest("hex");
+  const head = path.join(gitDir.cwdReal, "HEAD"), headLink = optionalStat(head)?.isSymbolicLink() ? io(() => fs.readlinkSync(head)) : null;
+  const revision = createHash("sha256").update(JSON.stringify([workspaceId, identity(root), identity(gitDir), identity(commonDir), pointer(head), headLink, headOutput, refsOutput, remotesOutput, shallow, grafts])).digest("hex");
   return { revision, headOutput, refsOutput, remotesOutput };
 }
 
 // Note: 见 .agents/notes/implemented/feature/2026-10-17-desktop-git-history-pages.md
 // Note: 见 .agents/notes/implemented/feature/2026-10-24-owner-workspace-browsing.md
+// Note: 见 .agents/notes/implemented/bug-fix/2026-10-24-operation-specific-checks.md
 export async function readWorkspaceGit(workspaceId: string, root: DirIdentity, cursor?: string): Promise<WorkspaceGit> {
   const page = pageCursor(cursor);
   const deadline = Date.now() + WORKSPACE_GIT_TIMEOUT_MS;
@@ -165,15 +143,13 @@ export async function readWorkspaceGit(workspaceId: string, root: DirIdentity, c
   const location = discover(root);
   if (!location) { verifyRoot(root); if (cursor !== undefined) changed(); return { workspaceId, repository: null }; }
   const { gitDir, commonDir } = location;
-  scanMetadata([gitDir.cwdReal, commonDir.cwdReal], deadline);
   const before = await revisionState(workspaceId, root, gitDir, commonDir, deadline);
   if (page.revision !== null && page.revision !== before.revision) changed();
-  const logOutput = await git(gitDir.cwdReal, ["log", "--all", "--topo-order", `--skip=${page.offset}`, `--max-count=${WORKSPACE_GIT_COMMITS + 1}`, "--no-show-signature", "--no-use-mailmap", "--no-notes", "--no-decorate", "--format=%H%x00%P%x00%s%x00%an%x00%aI%x00"], deadline);
+  const logOutput = await git(gitDir.cwdReal, ["log", "--all", "--topo-order", `--skip=${page.offset}`, `--max-count=${WORKSPACE_GIT_COMMITS + 1}`, "--no-show-signature", "--no-use-mailmap", "--no-notes", "--no-decorate", "--encoding=UTF-8", "--format=%H%x00%P%x00%s%x00%an%x00%aI%x00"], deadline);
   const after = await revisionState(workspaceId, root, gitDir, commonDir, deadline);
   verifyRoot(root); verifyRoot(gitDir); verifyRoot(commonDir);
   const current = discover(root);
   if (!current || current.gitDir.cwdReal !== gitDir.cwdReal || current.commonDir.cwdReal !== commonDir.cwdReal) changed();
-  scanMetadata([gitDir.cwdReal, commonDir.cwdReal], deadline);
   if (before.revision !== after.revision) changed();
   const { headOutput, refsOutput, remotesOutput } = before;
   const remotes = remotesOutput.trim().split("\n").filter(Boolean).sort((a, b) => b.length - a.length);

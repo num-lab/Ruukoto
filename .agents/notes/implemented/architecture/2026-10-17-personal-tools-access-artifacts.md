@@ -2,6 +2,8 @@
 
 Status: implemented
 
+运行时无条件资料目录核实由[按操作核实范围](../bug-fix/2026-10-24-operation-specific-checks.md)取代；网络与完全访问操作只检查实际依赖，原来源、审批、权限修订与未知效果规则继续适用。
+
 ## 问题
 
 个人命令与 MCP 已有原工作恢复，文件、HTTP、搜索和产物仍由旧 ToolRouter、审批账本和 ArtifactStore 装配。直接复用这些入口会引入旧 Db；只开放 shell 又无法保留精确文件授权和自动审查。旧 HTTP 在响应上游转文本并截断，不能作为完整字节证据。

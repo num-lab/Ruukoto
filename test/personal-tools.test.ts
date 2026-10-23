@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
+import nodeFs from "node:fs";
 import * as path from "node:path";
+import { syncBuiltinESMExports } from "node:module";
 import * as http from "node:http";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
@@ -79,6 +81,55 @@ async function remote(t: TestContext, handler: http.RequestListener) {
   t.after(async () => { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); });
   return `http://127.0.0.1:${address.port}`;
 }
+
+test("durable 工具：网络与完全访问文件不检查无关资料目录或保护树", { timeout: 60_000 }, async t => {
+  const f = await fixture(t), secret = "isolated-search-key", previous = process.env.TOOLS_SCOPE_TEST_KEY;
+  process.env.TOOLS_SCOPE_TEST_KEY = secret;
+  t.after(() => { if (previous === undefined) delete process.env.TOOLS_SCOPE_TEST_KEY; else process.env.TOOLS_SCOPE_TEST_KEY = previous; t.mock.restoreAll(); syncBuiltinESMExports(); });
+  let searches = 0, requests = 0;
+  const originalFetch = globalThis.fetch;
+  t.mock.method(globalThis, "fetch", async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+    if ((input instanceof Request ? input.url : String(input)) !== "https://api.tavily.com/search") return originalFetch(input, init);
+    searches++; assert.equal(new Headers(init?.headers).get("authorization"), `Bearer ${secret}`);
+    return new Response(JSON.stringify({ results: [{ url: "https://example.com/result", title: "结果", content: "摘要" }] }), { headers: { "content-type": "application/json" } });
+  });
+  const url = await remote(t, (_request, response) => { requests++; response.end("local-response"); });
+  const p = await f.open({ tools: { ...f.tools, search: { apiKeyEnv: "TOOLS_SCOPE_TEST_KEY" } } });
+  const readdir = nodeFs.readdirSync;
+  let scans = 0;
+  t.mock.method(nodeFs, "readdirSync", (...args: Parameters<typeof nodeFs.readdirSync>) => {
+    if (String(args[0]) === f.directory) { scans++; throw new Error("不应枚举无关保护树"); }
+    return Reflect.apply(readdir, nodeFs, args);
+  }); syncBuiltinESMExports();
+  const target = path.join(f.outside, "data.txt"); fs.writeFileSync(target, "original");
+  for (const moved of [false, true]) {
+    if (moved) fs.renameSync(f.workspace, f.workspace + "-moved");
+    await mode(p, "full_access");
+    assert.equal(JSON.parse(await p.answer(invoke("read_file", { path: target }), `read-${moved}`)).code, "file_returned");
+    assert.equal(JSON.parse(await p.answer(invoke("write_file", { path: target, content: "updated" }), `write-${moved}`)).code, "file_returned");
+    for (const access of ["auto-review", "full_access"] as const) {
+      await mode(p, access);
+      assert.equal(JSON.parse(await p.answer(invoke("http_request", { url }), `http-${access}-${moved}`)).code, "http_returned");
+      assert.equal(JSON.parse(await p.answer(invoke("web_search", { query: "scope" }), `search-${access}-${moved}`)).code, "returned");
+    }
+  }
+  assert.equal(scans, 0); assert.equal(requests, 4); assert.equal(searches, 4); assert.equal(fs.readFileSync(target, "utf8"), "updated");
+});
+
+test("durable 完全访问检索：不扫描保护树，仍核实逻辑cwd身份", { timeout: 30_000 }, async t => {
+  const f = await fixture(t), p = await f.open(); await mode(p, "full_access");
+  fs.writeFileSync(path.join(f.outside, "visible.txt"), "visible");
+  const readdir = nodeFs.readdirSync; let scans = 0;
+  t.mock.method(nodeFs, "readdirSync", (...args: Parameters<typeof nodeFs.readdirSync>) => {
+    if (String(args[0]) === f.directory) { scans++; throw new Error("不应枚举无关保护树"); }
+    return Reflect.apply(readdir, nodeFs, args);
+  }); syncBuiltinESMExports(); t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports(); });
+  const listed = JSON.parse(await p.answer(invoke("list_files", { path: f.outside }), "full-search"));
+  assert.equal(listed.effect, "returned"); assert.deepEqual(listed.result.entries, [{ path: "visible.txt" }]); assert.equal(scans, 0);
+  fs.renameSync(f.workspace, f.workspace + "-original"); fs.mkdirSync(f.workspace);
+  const changed = JSON.parse(await p.answer(invoke("list_files", { path: f.outside }), "replaced-cwd"));
+  assert.equal(changed.code, "tools_directory_changed"); assert.equal(changed.effect, "not_executed"); assert.equal(scans, 0);
+});
 
 test("durable 文件检索：资料根、撤权、子来源、原流产物与重开", { timeout: 60_000 }, async t => {
   const f = await fixture(t), p = await f.open();

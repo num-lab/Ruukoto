@@ -79,6 +79,26 @@ test("个人后台：交接后取消创建轮不停止独立后台，后续显�
   await p.background!.stop(background.id); await until(async () => (await active(p)).stopped);
 });
 
+test("个人后台：完全访问启动和持续监督不扫描保护树，目录身份变化仍停止", async t => {
+  const f = await fixture(t), p = await f.open(); await allow(p);
+  const readdir = nodeFs.readdirSync, readFile = nodeFs.readFileSync;
+  let scans = 0, checks = 0;
+  t.mock.method(nodeFs, "readdirSync", (...args: Parameters<typeof nodeFs.readdirSync>) => {
+    if (String(args[0]) === f.directory) scans++;
+    return Reflect.apply(readdir, nodeFs, args);
+  });
+  t.mock.method(nodeFs, "readFileSync", (target: fs.PathOrFileDescriptor, options?: Parameters<typeof fs.readFileSync>[1]) => {
+    if (target === "/etc/machine-id") checks++;
+    return readFile(target, options);
+  }); syncBuiltinESMExports();
+  await p.answer("启动后台", "full-access-owner"); assert.equal((await active(p)).state, "running");
+  const startedChecks = checks; await until(async () => checks >= startedChecks + 2);
+  assert.equal(scans, 0); assert.equal(f.stops(), 0);
+  fs.renameSync(f.workspace, f.workspace + "-original"); fs.mkdirSync(f.workspace);
+  await until(async () => (await active(p)).stopped);
+  assert.equal((await active(p)).reason, "command_config_changed"); assert.ok(f.stops() > 0);
+});
+
 test("个人后台：SDK规范化原始数字参数后接纳，恢复仍按实际工具定义核实且不重放", async t => {
   const f = await fixture(t, (_request, index) => index === 0 ? { kind: "tool_calls", calls: [{ id: "start", name: "process_start", arguments: { command: 123 } }] } : { kind: "text", text: "已接纳" });
   const p = await f.open(); await allow(p); await p.answer("启动", "numeric-owner"); assert.equal((await active(p)).command, "123");

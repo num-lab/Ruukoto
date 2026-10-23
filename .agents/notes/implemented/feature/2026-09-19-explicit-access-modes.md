@@ -2,6 +2,8 @@
 
 Status: implemented
 
+拥有者工作区登记限制由[按操作核实范围](../bug-fix/2026-10-24-operation-specific-checks.md)取代；受限任务在实际执行入口继续核实保护范围。
+
 部分取代：[个人 Agent 原生执行与 Docker worker 退役](../../implemented/architecture/2026-10-12-personal-native-sandbox.md)统一正式受限入口的后端与部署前置；模式选择、确认范围、单次批准与控制面认证仍由本篇持有。
 
 原编号：ADR 0003

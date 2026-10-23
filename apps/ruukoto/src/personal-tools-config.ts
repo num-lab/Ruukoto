@@ -9,6 +9,7 @@ import { personalProtectedRoots } from "./personal-command-config.ts";
 import { PersonalError } from "./personal-error.ts";
 import { PERSONAL_FORMAT, lockPersonalProfile, type PersonalProfileLock } from "./personal-profile.ts";
 import type { PersonalToolCredential } from "./personal-tool-io.ts";
+import type { PersonalServiceMode } from "./personal-service-operations.ts";
 
 export type PersonalToolsConfig = { version: 1; generation: string; workspace: string; identity: { dev: number; ino: number }; credentials: PersonalToolCredential[]; search?: { apiKeyEnv: string } };
 const invalid = () => new PersonalError("tools_config_invalid", "资料与网络配置无法核实，请保留档案并运行配置向导。");
@@ -27,17 +28,19 @@ export function parsePersonalTools(value: unknown): PersonalToolsConfig {
   if (value.search !== undefined && (!object(value.search) || Object.keys(value.search).some(key => key !== "apiKeyEnv") || !envName(value.search.apiKeyEnv))) throw invalid();
   return { version: 1, generation: value.generation, workspace: value.workspace, identity: { dev: Number(value.identity.dev), ino: Number(value.identity.ino) }, credentials, ...(object(value.search) ? { search: { apiKeyEnv: String(value.search.apiKeyEnv) } } : {}) };
 }
-export function personalReadPath(profile: string, target: string) {
+export function personalReadPath(profile: string, target: string, mode: PersonalServiceMode = "confirm") {
   try {
     const resolved = restrictedResolve(target), stat = fs.lstatSync(resolved);
     if (!stat.isDirectory() && !stat.isFile()) throw invalid();
-    if (personalSystemPath(resolved)) throw invalid();
-    assertGrantNotProtected(resolved, personalProtectedRoots(profile));
+    if (mode !== "full_access") {
+      if (personalSystemPath(resolved)) throw invalid();
+      assertGrantNotProtected(resolved, personalProtectedRoots(profile));
+    }
     return { path: resolved, dev: stat.dev, ino: stat.ino };
   } catch (error) { if (error instanceof PersonalError) throw error; throw invalid(); }
 }
-export function verifyPersonalTools(config: PersonalToolsConfig, profile: string) {
-  const current = personalReadPath(profile, config.workspace);
+export function verifyPersonalTools(config: PersonalToolsConfig, profile: string, mode: PersonalServiceMode = "confirm") {
+  const current = personalReadPath(profile, config.workspace, mode);
   if (!fs.statSync(current.path).isDirectory() || current.dev !== config.identity.dev || current.ino !== config.identity.ino) throw new PersonalError("tools_directory_changed", "原资料目录身份已变化，已停止操作；请恢复原目录与配置。");
 }
 export function readPersonalTools(profile: PersonalProfileLock): PersonalToolsConfig | undefined {

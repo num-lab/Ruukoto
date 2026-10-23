@@ -148,7 +148,7 @@ export function personalCommandWork(profile: string, config: PersonalCommandConf
           if (value.cancelRequested) { await stopPreparation(tx, value, "canceled"); return { status: "terminal", outcome: { status: "aborted", result: value.result } }; }
           await requirePersonalWorkRequest(tx, value.work.ref.agentId);
           await requireCommandDirectoryReady(tx, ref);
-          verifyPersonalCommandConfig(config, profile);
+          verifyPersonalCommandConfig(config, profile, value.work.permission.mode);
           value.directoryClaim = await acquirePersonalDirectory(tx, { kind: "command", operation: value.ref.taskId }, { path: config.workspace, ...config.identity });
           ready = true; return undefined;
         }, context); } catch (error) { if (error instanceof PersonalError) await runtime.commit(async tx => { await stopPreparation(tx, await personalCommand(tx, ref), error.code); return undefined; }, context); throw error; }
@@ -168,7 +168,7 @@ export function personalCommandWork(profile: string, config: PersonalCommandConf
             if (value.cancelRequested) { await stopPreparation(tx, value, "canceled"); return { status: "terminal", outcome: { status: "aborted", result: value.result } }; }
             await requirePersonalWorkRequest(tx, value.work.ref.agentId);
             await requireCommandDirectoryReady(tx, ref);
-            verifyPersonalCommandConfig(config, profile);
+            verifyPersonalCommandConfig(config, profile, value.work.permission.mode);
             await acquirePersonalDirectory(tx, { kind: "command", operation: value.ref.taskId }, { path: config.workspace, ...config.identity });
             value.prepared = { spec, input, fingerprint: personalCommandFingerprint(value.command, spec, input) };
             value.startEntry = (await tx.appendEntry(CommandStart, ROOT_CONVERSATION_ID, { data: { ref, prepared: value.prepared } })).id;
@@ -266,7 +266,7 @@ export function personalCommandWork(profile: string, config: PersonalCommandConf
           if (api.conversationId === ROOT_CONVERSATION_ID || tool?.kind !== "pi.tool" || tool.conversationId !== api.conversationId || tool.abortRequested || tool.state.status === "terminal" || !input || typeof input !== "object" || Array.isArray(input) || input.kind !== "model" || generation?.kind !== "pi.generation" || generation.conversationId !== api.conversationId || generation.abortRequested || generation.state.status === "terminal" || live.run?.taskId !== generation.id || !live.tools?.some(slot => slot.taskId === api.taskId && slot.status === "running")) throw new PersonalError("command_work_inactive", "命令不属于活动子工作，未执行；请结束本轮并报告拥有者。");
           const source = await activePersonalWorkInspection(tx, api.conversationId, live.run.inputs);
           await requireCommandDirectoryReady(tx);
-          verifyPersonalCommandConfig(config, profile);
+          verifyPersonalCommandConfig(config, profile, source.work.permission.mode);
           const work: Work = { ...source.work, sources: source.sources, tool: api.taskId, generation: generation.id };
           const id = await tx.createTask(task, { requestId }, { conversationId: ROOT_CONVERSATION_ID, ownership: { kind: "task", taskId: work.ref.taskId } });
           const ref = { requestId, taskId: id }, execution = { machineId: config.machineId, executionId: `native_${randomBytes(12).toString("hex")}` };

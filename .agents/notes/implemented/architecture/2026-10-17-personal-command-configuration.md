@@ -2,6 +2,8 @@
 
 Status: implemented
 
+运行时完全访问的保护树扫描由[按操作核实范围](../bug-fix/2026-10-24-operation-specific-checks.md)移除；冷配置启用、目录／机器／TMPDIR身份和受限执行规则继续适用。
+
 ## 问题
 
 [单次命令宿主](2026-10-17-personal-command-execution.md)接收可信启动参数；个人 durable 档案尚无可供它使用的工作目录和持久配置。让模型提供目录或重启后重选目录会扩大授权，也无法核对原执行证据。

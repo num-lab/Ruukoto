@@ -17,7 +17,6 @@
  *   后产生的执行事实保留。
  */
 
-import { assertGrantNotProtected } from "@ruukoto/agent/execution/approved-ops.ts";
 import { distinctDirIdentities,resolveDirIdentitySync,sameDirIdentity,type DirIdentity } from "@ruukoto/core/dir-identity.ts";
 import { canonicalJson,historyStatusOf,sha256 } from "@ruukoto/core/import-files.ts";
 import type { Store } from "@ruukoto/core/store.ts";
@@ -127,7 +126,6 @@ export interface MigrationApplyResult {
 export interface MigrationDeps {
   store: Store;
   instanceId: string;
-  protectedRoots: string[];
 }
 
 /** 预览会话核查上限（默认与硬上限）；超出即截断，截断结果不得用于认领/应用。 */
@@ -372,12 +370,6 @@ function validatePlan(deps: MigrationDeps, scan: SourceScan, plan: MigrationPlan
       identity = resolveDirIdentitySync(choice.root);
     } catch (err) {
       errors.push(`会话 ${sessionId}：新工作区根目录不可用：${choice.root}（${(err as Error).message}）`);
-      return null;
-    }
-    try {
-      assertGrantNotProtected(identity.cwdReal, deps.protectedRoots);
-    } catch (err) {
-      errors.push(`会话 ${sessionId}：${(err as Error).message}`);
       return null;
     }
     const holder = scan.projects.find((p) => p.rootDir !== null && sameDirIdentity(p.rootDir, identity));
@@ -761,15 +753,10 @@ export function applyWorkspaceMigration(deps: MigrationDeps, input: MigrationApp
         targetProjects.set(target.key, project);
         continue;
       }
-      // new_workspace：事务内最后一次同步目录身份与保护根核查
+      // new_workspace：事务内最后一次同步目录身份核查
       const check = checkRegisteredDir(target.identity);
       if (check.status !== "valid") {
         fail("revision_conflict", `新工作区根目录在应用时已失效或被替换：${target.identity.cwdReal}（${check.reason}），请恢复后重新预览`);
-      }
-      try {
-        assertGrantNotProtected(target.identity.cwdReal, deps.protectedRoots);
-      } catch (err) {
-        fail("invalid_params", `工作区不可用：${(err as Error).message}`);
       }
       // 同一真实目录已有工作区时复用其 ID（相同映射的新请求返回已有归属，不重复创建）
       const existing = store.findProjectByRoot(target.identity);

@@ -6,7 +6,7 @@
 
 不负责的部分点名归属：工具的类别清单、可用性判定与执行画像归 [agent-tools](agent-tools.md)；审批闸门、是否需要审批与 auto-review 策略同样归 [agent-tools](agent-tools.md)，本篇只写越界操作在**执行侧**怎样落地——越界的外部文件读写与单次 HTTP 请求由后台的受信执行器完成，不进工作进程，参数不可替换、批准单次消费，闸门与策略见 [agent-tools](agent-tools.md)。委派语义（`mode`、`target`、写入目标钉定、目录占用键与串行规则）归 [runtime](runtime.md)；任务的访问模式、权限版本与提交幂等也归 [runtime](runtime.md)，本篇只承担它们在执行侧的后果：同一任务内按任务 ID、访问模式与授予路径复用工作进程，模式或授予范围变化时先停旧执行单元、核实已退出，再建立新环境。
 
-`local` 后端以当前账户 spawn 一个独立进程组，没有隔离，供完全访问与库层离线测试使用；正式受限入口拒绝 local，不得据此宣称受限边界已经生效。
+`local` 后端以当前账户 spawn 一个独立进程组，没有隔离，供完全访问与库层离线测试使用；Runtime 的受限 local 在实际启动前批量核实工作目录、授予路径与只读根不与保护范围重叠。正式受限入口拒绝 local，不得据此宣称 OS 隔离已经生效。
 
 受限 JavaScript 的固定编排入口使用独立 Node 进程内的 QuickJS/WASM，只提供四类宿主回调。该库层入口不导入 runtime，不持久化运行；`script-worker/validate.ts` 使用同一 async 函数包装和 QuickJS compileOnly 做有界语法校验，不执行步骤。产品启动归 Runtime 与共享宿主工具；脚本的隔离与来源步骤采用何种工具访问模式分别确定。
 
@@ -265,6 +265,8 @@ sequenceDiagram
 全局保护根未作为显式只读挂载时，外部特权预存的子文件 bind 别名仍有原生旁路；显式来源只读范围和宿主文件入口按上述 inode 检查拒绝。该既有情形保留真实反例，另作原生保护审计；原生边界不承诺抵抗宿主外部特权准备。
 
 ## 设计依据
+
+- [按操作和访问模式核实范围](../../.agents/notes/implemented/bug-fix/2026-10-24-operation-specific-checks.md)
 
 - [Cua 受管执行与停止核实](../../.agents/notes/implemented/architecture/2026-10-23-cua-official-mcp.md)
 

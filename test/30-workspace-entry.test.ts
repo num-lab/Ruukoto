@@ -7,7 +7,7 @@
  * 2. workspace.ts 单元：目录解析（相对路径/不存在/文件/符号链接）、候选项目匹配
  *    （cwdReal 与 dev+ino、忽略 qq_group 等非 dev 类别、多目录旧项目不作候选（issue 07）、去重保序）、自动项目名去重；
  * 3. TUI 工作区入口（FakeTerminal + 真实后台）：0 项目自动创建、1 项目复用新建会话、
- *    多项目选择与取消、符号链接按相同目录身份归属、保护根拒绝、不存在路径退出、
+ *    多项目选择与取消、符号链接按相同目录身份归属、保护根可登记、不存在路径退出、
  *    应答丢失后的重连核实（按启动请求标识找到会话，不重复创建）。
  */
 
@@ -500,22 +500,16 @@ test("工作区入口：符号链接路径按相同目录身份归属已有项�
   }
 });
 
-test("工作区入口：保护根目录被后台拒绝，提示错误且不创建会话、不留选中状态", async () => {
+test("工作区入口：拥有者可选择保护目录并创建会话", async () => {
   const t = await startTestRuntime("ws-tui-protected", async () => ({ kind: "text", text: "x" }));
   const apps: AppHarness[] = [];
   try {
     const projectsBefore = t.runtime.store.listProjects().length;
     const h = await startApp(t, { workspace: { path: t.dirs.dataDir } });
     apps.push(h);
-    await waitFor("错误提示", () =>
-      h.state.globalNotes.some((n) => n.text.includes("工作区会话创建失败")),
-    );
-    assert.equal(h.state.currentSessionId, null, "不留下半选中状态");
-    assert.ok(
-      !t.runtime.store.listSessions().some((s) => s.cwdReal === fs.realpathSync(t.dirs.dataDir)),
-      "保护根不创建会话",
-    );
-    assert.equal(t.runtime.store.listProjects().length, projectsBefore, "保护根不留下自动创建的空项目");
+    await waitFor("保护目录会话已选中", () => h.state.currentSessionId !== null);
+    assert.equal(t.runtime.store.getSession(h.state.currentSessionId!)!.cwdReal, fs.realpathSync(t.dirs.dataDir));
+    assert.equal(t.runtime.store.listProjects().length, projectsBefore + 1);
     h.app.quit(0);
     await waitFor("退出", () => h.exitCode() === 0);
   } finally {

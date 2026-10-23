@@ -81,22 +81,64 @@ test("Git 读取排除注入环境与全局配置，不执行 hook/pager/signatu
   } finally { process.env = original; kit.close(); }
 });
 
-test("元数据符号链接、外部对象库与目录身份替换不会返回历史", async () => {
+test("Git 支持本地硬链接克隆、共享对象库与配置 include，仍不执行仓库程序", async () => {
+  const kit = fixture();
+  try {
+    kit.init(); runGit(kit.root, "commit", "--allow-empty", "-qm", "真实中文提交");
+    const head = runGit(kit.root, "rev-parse", "HEAD"), clone = path.join(kit.parent, "clone"), shared = path.join(kit.parent, "shared");
+    runGit(kit.parent, "clone", "-q", kit.root, clone); runGit(kit.parent, "clone", "--shared", "-q", kit.root, shared);
+    const object = path.join(kit.root, ".git", "objects", head.slice(0, 2), head.slice(2));
+    assert.ok(fs.statSync(object).nlink > 1);
+    const marker = path.join(kit.parent, "executed"), script = path.join(kit.parent, "command.sh"), included = path.join(kit.parent, "included");
+    fs.writeFileSync(script, `#!/bin/sh\ntouch '${marker}'\n`, { mode: 0o755 });
+    const hooks = path.join(kit.parent, "hooks"); fs.mkdirSync(hooks); fs.symlinkSync(script, path.join(hooks, "post-checkout"));
+    for (const key of ["core.pager", "core.fsmonitor", "gpg.program", "core.alternateRefsCommand"]) runGit(kit.root, "config", "--file", included, key, script);
+    runGit(kit.root, "config", "--file", included, "core.hooksPath", hooks);
+    runGit(kit.root, "config", "--file", included, "log.showSignature", "true");
+    runGit(kit.root, "config", "--file", included, "i18n.logOutputEncoding", "UTF-16");
+    for (const root of [kit.root, clone, shared]) {
+      runGit(root, "config", "include.path", included);
+      fs.symlinkSync(script, path.join(root, ".git", "hooks", "post-checkout"));
+      const result = await readWorkspaceGit("w", resolveDirIdentitySync(root));
+      assert.equal(result.repository?.head, head);
+      assert.equal(result.repository?.commits[0].subject, "真实中文提交");
+    }
+    assert.equal(fs.existsSync(marker), false);
+    fs.renameSync(kit.root, `${kit.root}-old`); fs.mkdirSync(kit.root);
+    await assert.rejects(readWorkspaceGit("w", kit.identity), fails("workspace_directory_changed"));
+  } finally { kit.close(); }
+});
+
+test("Git 查询不枚举与提交无关的元数据目录", async context => {
   const kit = fixture();
   try {
     kit.init(); runGit(kit.root, "commit", "--allow-empty", "-qm", "base");
-    const link = path.join(kit.root, ".git", "external-link"); fs.symlinkSync(kit.parent, link);
-    await assert.rejects(readWorkspaceGit("w", kit.identity), fails("workspace_git_unsafe")); fs.unlinkSync(link);
-    const alternates = path.join(kit.root, ".git", "objects", "info", "alternates"); fs.writeFileSync(alternates, path.join(kit.parent, "secret") + "\n");
-    await assert.rejects(readWorkspaceGit("w", kit.identity), fails("workspace_git_unsafe")); fs.unlinkSync(alternates);
-    const head = runGit(kit.root, "rev-parse", "HEAD"), object = path.join(kit.root, ".git", "objects", head.slice(0, 2), head.slice(2));
-    const linkedObject = path.join(kit.parent, "linked-object"); fs.linkSync(object, linkedObject);
-    await assert.rejects(readWorkspaceGit("w", kit.identity), fails("workspace_git_unsafe")); fs.unlinkSync(linkedObject);
-    const config = path.join(kit.root, ".git", "config"), originalConfig = fs.readFileSync(config, "utf8");
-    fs.appendFileSync(config, '\n[include]\npath = /protected/config\n');
-    await assert.rejects(readWorkspaceGit("w", kit.identity), fails("workspace_git_unsafe")); fs.writeFileSync(config, originalConfig);
-    fs.renameSync(kit.root, `${kit.root}-old`); fs.mkdirSync(kit.root);
-    await assert.rejects(readWorkspaceGit("w", kit.identity), fails("workspace_directory_changed"));
+    fs.mkdirSync(path.join(kit.root, ".git", "gui-cache"));
+    fs.writeFileSync(path.join(kit.root, ".git", "gui-cache", "unrelated"), "");
+    context.mock.method(fs, "opendirSync", () => { throw new Error("历史查询不应枚举整个 Git 目录"); });
+    syncBuiltinESMExports();
+    assert.equal((await readWorkspaceGit("w", kit.identity)).repository?.commits.length, 1);
+  } finally { context.mock.restoreAll(); syncBuiltinESMExports(); kit.close(); }
+});
+
+test("Git 目录、gitdir 与 commondir 支持链接形式，坏指针仍明确拒绝", async () => {
+  const kit = fixture();
+  try {
+    kit.init(); runGit(kit.root, "commit", "--allow-empty", "-qm", "base");
+    const head = runGit(kit.root, "rev-parse", "HEAD"), marker = path.join(kit.root, ".git"), metadata = path.join(kit.parent, "metadata");
+    fs.renameSync(marker, metadata); fs.symlinkSync(metadata, marker);
+    assert.equal((await readWorkspaceGit("w", kit.identity)).repository?.head, head);
+    fs.unlinkSync(marker); fs.writeFileSync(marker, `gitdir: ${metadata}\n`);
+    const pointer = path.join(kit.parent, "gitdir"); fs.linkSync(marker, pointer);
+    assert.equal((await readWorkspaceGit("w", kit.identity)).repository?.head, head);
+    fs.unlinkSync(marker); fs.symlinkSync(pointer, marker);
+    assert.equal((await readWorkspaceGit("w", kit.identity)).repository?.head, head);
+    const worktree = path.join(kit.parent, "copy"); runGit(kit.root, "worktree", "add", "--detach", "-q", worktree, "HEAD");
+    const gitDir = runGit(worktree, "rev-parse", "--git-dir"), common = path.join(gitDir, "commondir");
+    fs.renameSync(common, `${common}.saved`); fs.symlinkSync("commondir.saved", common);
+    assert.equal((await readWorkspaceGit("copy", resolveDirIdentitySync(worktree))).repository?.head, head);
+    fs.writeFileSync(pointer, "not a gitdir pointer\n");
+    await assert.rejects(readWorkspaceGit("w", kit.identity), fails("workspace_git_unsafe"));
   } finally { kit.close(); }
 });
 
@@ -106,6 +148,41 @@ function history(root: string, count: number): string[] {
   runGit(root, "update-ref", "refs/heads/main", ids.at(-1)!);
   return ids;
 }
+
+test("Git 游标绑定 HEAD 链接的分支身份，即使两个分支指向同一提交", async () => {
+  const kit = fixture();
+  try {
+    kit.init(); history(kit.root, WORKSPACE_GIT_COMMITS + 1);
+    runGit(kit.root, "branch", "other");
+    const head = path.join(kit.root, ".git", "HEAD");
+    fs.unlinkSync(head); fs.symlinkSync("refs/heads/main", head);
+    const first = (await readWorkspaceGit("w", kit.identity)).repository!;
+    assert.ok(first.nextCursor);
+    fs.unlinkSync(head); fs.symlinkSync("refs/heads/other", head);
+    await assert.rejects(readWorkspaceGit("w", kit.identity, first.nextCursor), fails("workspace_git_changed"));
+  } finally { kit.close(); }
+});
+
+test("Git include 的 remote 变化淘汰游标，等价 alternates 对象库可继续分页", async () => {
+  const kit = fixture();
+  try {
+    kit.init(); history(kit.root, WORKSPACE_GIT_COMMITS + 1);
+    const shared = path.join(kit.parent, "shared"), include = path.join(kit.parent, "include");
+    runGit(kit.parent, "clone", "--shared", "-q", kit.root, shared);
+    runGit(shared, "config", "--file", include, "remote.first.url", "https://example.invalid/first");
+    runGit(shared, "config", "include.path", include);
+    const identity = resolveDirIdentitySync(shared), first = (await readWorkspaceGit("w", identity)).repository!;
+    assert.ok(first.nextCursor);
+    runGit(shared, "config", "--file", include, "--rename-section", "remote.first", "remote.second");
+    await assert.rejects(readWorkspaceGit("w", identity, first.nextCursor), fails("workspace_git_changed"));
+    const current = (await readWorkspaceGit("w", identity)).repository!;
+    const objects = path.join(kit.parent, "objects"); fs.cpSync(path.join(kit.root, ".git", "objects"), objects, { recursive: true });
+    fs.writeFileSync(path.join(shared, ".git", "objects", "info", "alternates"), `${objects}\n`);
+    const last = (await readWorkspaceGit("w", identity, current.nextCursor!)).repository!;
+    assert.equal(current.commits.length + last.commits.length, WORKSPACE_GIT_COMMITS + 1);
+    assert.equal(last.nextCursor, null);
+  } finally { kit.close(); }
+});
 
 test("超过400条真实历史可连续分页到根提交，跨页分支合并无重复遗漏", async () => {
   const kit = fixture();

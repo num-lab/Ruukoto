@@ -59,7 +59,7 @@ async function currentOrigin(tx: Tx, api: Pick<ToolExecutionApi, "taskId" | "con
   return origin;
 }
 async function verifyOrigin(tx: Tx, process: PersonalBackgroundProcess, profile: string, launching = false) {
-  verifyPersonalCommandConfig(process.config, profile);
+  verifyPersonalCommandConfig(process.config, profile, process.origin.permission.mode);
   if ((await tx.doc(PersonalCommandsDoc)).fingerprint !== personalCommandsFingerprint(process.config)) throw new PersonalError("background_source_invalid", "原命令配置失效；已请求停止后台，请查询原记录。");
   const original = await personalSource(tx, process.origin.source.requestId, { active: launching });
   if (original.scheduled || original.telegram && !await telegramSourceActive(tx, original.telegram) || !isDeepStrictEqual(original.source, process.origin.source) || !isDeepStrictEqual(original.permission, process.origin.permission) || !isDeepStrictEqual(original.telegram, process.origin.telegram) || process.origin.permission.mode !== "full_access") throw new PersonalError("background_source_invalid", "后台原入口或授权失效；已请求停止，请查询原记录。");
@@ -79,7 +79,7 @@ export async function personalBackgroundToolNames(tx: Tx, conversationId: Conver
 }
 
 export function personalBackground(profile: string, config: PersonalCommandConfig, getHarness: () => Harness) {
-  verifyPersonalCommandConfig(config, profile);
+  verifyPersonalCommandConfig(config, profile, "full_access");
   const directory = path.join(profile, "background"), logsDirectory = path.join(directory, "logs"), executionsDirectory = path.join(directory, "executions");
   const starts = new Map<string, Promise<void>>();
   const units = new Map<string, BackgroundExecution>(), captures = new Map<string, PersonalBackgroundCapture>();
@@ -243,7 +243,7 @@ export function personalBackground(profile: string, config: PersonalCommandConfi
       if (closing || origin.permission.mode !== "full_access" || closedBefore(state.closures, origin, accepted)) throw new PersonalError("background_source_invalid", "原拥有者输入不具启动资格或已结束后台；请结束本轮并报告拥有者。");
       if (!command.trim() || command.includes("\0")) throw new PersonalError("background_invalid_params", "命令须非空且不包含NUL，请修正命令。");
       if ((await personalBackgroundProcesses(tx)).some(value => !value.stopped)) throw new PersonalError("background_pending", "本会话已有未核实停止的后台；先查停原执行，勿重放命令。");
-      verifyPersonalCommandConfig(config, profile);
+      verifyPersonalCommandConfig(config, profile, origin.permission.mode);
       const id = `process_${randomBytes(12).toString("hex")}`, directory = { path: config.workspace, ...config.identity }, execution = backgroundExecutionRef();
       const claim = await acquirePersonalDirectory(tx, { kind: "background", operation: api.taskId }, directory);
       const taskId = await tx.createTask(startTask, { id }, { conversationId: ROOT_CONVERSATION_ID, ownership: { kind: "conversation" }, background: true });

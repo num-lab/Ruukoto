@@ -1214,7 +1214,7 @@ test("回执跨进程重启核实：meta 持久，重开后同键重放返回原
     const s1 = store1.withTx(() =>
       store1.createSession({ projectId: legacy.id, cwd: idR.cwd, cwdReal: idR.cwdReal, cwdDev: idR.dev, cwdIno: idR.ino, piSessionId: "pi-rs", confirmTools: [] }),
     );
-    const deps1 = { store: store1, instanceId: db1.getInstanceId(), protectedRoots: [] as string[] };
+    const deps1 = { store: store1, instanceId: db1.getInstanceId() };
     const plan = { action: "map_sessions" as const, assignments: { [s1.id]: { kind: "new_workspace" as const, root: dirR } } };
     const planned = previewWorkspaceMigration(deps1, { projectId: legacy.id, plan });
     const input = { projectId: legacy.id, instanceId: deps1.instanceId, requestId: "req-restart-1", plan, expectedRevision: planned.revision! };
@@ -1225,7 +1225,7 @@ test("回执跨进程重启核实：meta 持久，重开后同键重放返回原
     // 模拟进程重启：全新 Db/Store，同一数据文件
     const db2 = new Db(dataDir);
     const store2 = new Store(db2);
-    const deps2 = { store: store2, instanceId: db2.getInstanceId(), protectedRoots: [] as string[] };
+    const deps2 = { store: store2, instanceId: db2.getInstanceId() };
     assert.equal(deps2.instanceId, deps1.instanceId, "实例标识跨重启保持");
     const seqBefore = store2.getMaxSeq();
     const replay = applyWorkspaceMigration(deps2, input);
@@ -1299,4 +1299,27 @@ test("角色绑定变化使预览修订过期（角色绑定是修订输入）",
   } finally {
     await t.shutdown();
   }
+});
+
+
+test("拥有者组织迁移可登记保护根祖先且同键重放不改执行模式", async () => {
+  const t = await startTestRuntime("owner-map-root", () => ({ kind: "text", text: "不会调用模型" }));
+  try {
+    const source = await t.runtime.createSession({ projectName: "待归类", cwd: t.work[0]!, mode: "full_access" });
+    const protectedRoots = t.runtime.protectedRoots;
+    t.runtime.protectedRoots = () => { throw new Error("组织迁移不应计算保护范围"); };
+    try {
+      const plan = { action: "map_sessions", assignments: { [source.id]: { kind: "new_workspace", root: fs.realpathSync(t.dirs.root) } } };
+      const preview = t.runtime.previewWorkspaceMigration({ projectId: source.projectId, plan });
+      assert.deepEqual(preview.plan_errors, []);
+      assert.ok(preview.revision);
+      const input = { projectId: source.projectId, instanceId: preview.instance_id, requestId: "owner-map", plan, expectedRevision: preview.revision };
+      const applied = t.runtime.applyWorkspaceMigration(input);
+      assert.equal(applied.created_workspaces.length, 1);
+      assert.equal(t.runtime.store.getSession(source.id)!.defaultAccessMode, "full_access");
+      assert.equal(t.runtime.store.getSession(source.id)!.projectId, source.projectId);
+      assert.equal(t.runtime.applyWorkspaceMigration(input).replayed, true);
+      assert.equal(t.server.calls.length, 0);
+    } finally { t.runtime.protectedRoots = protectedRoots; }
+  } finally { await t.shutdown(); }
 });

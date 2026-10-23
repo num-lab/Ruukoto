@@ -144,9 +144,16 @@ for (const mode of ["confirm", "auto-review", "full_access"] as const) test(`dur
   let p = await f.open();
   await p.harness.commit(async tx => { (await tx.doc(PersonalPermissionsDoc)).mode = mode; }, context);
   await source(p);
+  const readdir = nodeFs.readdirSync; let scans = 0;
+  const scan = mode === "full_access" ? t.mock.method(nodeFs, "readdirSync", (...args: Parameters<typeof nodeFs.readdirSync>) => {
+    if (String(args[0]) === f.directory) scans++;
+    return Reflect.apply(readdir, nodeFs, args);
+  }) : undefined;
+  syncBuiltinESMExports();
   const work = await p.work.delegate(draft("run"));
   const command = await original(p);
   assert.equal((await p.harness.waitForTask(work.taskId, context)).state.outcome.status, "completed");
+  if (scan) { scan.mock.restore(); syncBuiltinESMExports(); assert.equal(scans, 0); }
   const saved = (await p.harness.snapshot(PersonalCommandDoc, command.requestId, context))!.command!;
   const result = await p.harness.commit(tx => personalWorkResult(tx, work), context);
   assert.equal(result.commands?.[0]?.requiresVerification, false); assert.equal(result.commands?.[0]?.verifiedEffect, undefined);

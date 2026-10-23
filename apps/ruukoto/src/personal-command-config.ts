@@ -9,6 +9,7 @@ import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite
 import { assertGrantNotProtected } from "@ruukoto/agent/execution/approved-ops.ts";
 import { PersonalError } from "./personal-error.ts";
 import { PERSONAL_FORMAT, lockPersonalProfile, type PersonalProfileLock } from "./personal-profile.ts";
+import type { PersonalServiceMode } from "./personal-service-operations.ts";
 
 export type PersonalCommandConfig = { version: 1; workspace: string; identity: { dev: number; ino: number }; machineId: string; tmpdir: string };
 const context = BACKGROUND_CONTEXT;
@@ -23,13 +24,14 @@ export function personalProtectedRoots(profileDirectory: string) {
   return [fs.realpathSync(profileDirectory), fs.realpathSync(fileURLToPath(new URL("../../../", import.meta.url))), ...[".ruukoto", ".ruukoto-code", ".ruukoto-dev", ".ruukoto-code-dev", ".ruukoto-durable", ".ruukoto-durable-dev", ".ssh", ".aws", ".config", ".pi"].map(name => path.join(homedir(), name))];
 }
 
-export function verifyPersonalCommandConfig(config: PersonalCommandConfig, profileDirectory: string): void {
+// Note: 见 .agents/notes/implemented/bug-fix/2026-10-24-operation-specific-checks.md
+export function verifyPersonalCommandConfig(config: PersonalCommandConfig, profileDirectory: string, mode: PersonalServiceMode = "confirm"): void {
   if (process.platform !== "linux") throw new PersonalError("command_platform_unsupported", "个人命令需要 Linux；请在原 Linux 实例配置和恢复。");
   try {
     const saved = parsePersonalCommands(config);
     const workspace = fs.lstatSync(saved.workspace);
     if (!workspace.isDirectory() || workspace.isSymbolicLink() || fs.realpathSync(saved.workspace) !== saved.workspace || workspace.dev !== saved.identity.dev || workspace.ino !== saved.identity.ino || fs.readFileSync("/etc/machine-id", "utf8").trim() !== saved.machineId || fs.realpathSync(tmpdir()) !== saved.tmpdir) throw new PersonalError("command_config_changed", "命令的原目录、机器或临时目录无法核实，已停止；请恢复原环境并保留档案。");
-    assertGrantNotProtected(saved.workspace, personalProtectedRoots(profileDirectory));
+    if (mode !== "full_access") assertGrantNotProtected(saved.workspace, personalProtectedRoots(profileDirectory));
   } catch (error) {
     if (error instanceof PersonalError) throw error;
     throw new PersonalError("command_config_invalid", "命令目录不可用或包含受保护资料，已停止；请保留档案并检查原目录与配置。", { cause: error });

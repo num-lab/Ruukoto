@@ -1,0 +1,23 @@
+{
+  ".agents/notes/implemented/architecture/2026-10-16-desktop-current-demo.md": "af2ea7fa7e1034831779bcd34741968197334aa1c72f1c8a63876d2b515231ff",
+  ".agents/notes/implemented/architecture/2026-10-18-personal-memory-skills-history.md": "3d5d806eeb057dcc9c27c38a24ee1c1ec848ce4a01fc75a924f4456cf2bc9354",
+  ".agents/notes/implemented/bug-fix/2026-10-18-batch-native-protection-checks.md": "f377db41ae817d81a749ecff982a48777387d8ca475f9344993ff2c43ca9ec9a",
+  ".agents/notes/implemented/bug-fix/2026-10-24-read-check-overhead.md": "1041189926c99552d5b34e3434a1110f3e2cbae746106f3f3575bba201b8ad21",
+  ".agents/notes/implemented/feature/2026-10-21-managed-skills.md": "5fdb334626fcf58ec7ccf0dea75280bfa34cbd865d0ac327583fe77d410874d4",
+  ".agents/notes/implemented/feature/2026-10-24-owner-workspace-browsing.md": "fd29a8e2df081724d3053e4950eae7867a05782d2105319b7a9bb84b76f1de46",
+  "apps/ruukoto/src/personal-skills.ts": "ea5e1acd482fec1828c4378a5dd2825d0de84864890b7a1515a5030d8010c9c8",
+  "docs/modules/agent-context.md": "efe1ccd8173491230c334106f53fbf875e8c36475e3736ed8770752ed920b28a",
+  "docs/modules/desktop.md": "7ea12d2ef3944663a5ce905b3ce2e990b199207bb3166fd9c5d221eb5a09120d",
+  "docs/modules/execution.md": "02a66013ebc85d55c4bd41d60eb241828f5734837f54b845bce3628922c6bb89",
+  "docs/modules/personal-durable.md": "8ca6c76ec06229c1eda762c9ba6c3e5034cc88b78446f92549135690650ecedf",
+  "docs/modules/runtime.md": "471edb9ecd04a00d9ddb76143bba7c5d313cb841684f311dc68cd3426780ca7b",
+  "docs/usage.md": "657cb33e49c2ea0bb75e3a1d52db42ecd1ab61d674120746cc288199ac68432c",
+  "packages/agent/src/execution/native.ts": "eff12a1cf99d9973503de4cbb9db5f990e9d3120738d3b82b70e383018c477c3",
+  "packages/agent/src/managed-skills.ts": "2696156fd58716ede6faf0c3f99d69bcd7b0e0a3b9b4e33663b2c49f109d0fb0",
+  "packages/runtime/src/workspace-files.ts": "059213eef756a24e89f4fecf30bd3d123f5ac0ded3669a92d5f491b612ccaa2a",
+  "test/desktop-workspace-files.test.ts": "0aab950ae88501b281ca1aaba95351651881e98ba5d18f3d1ed1db28cc048483",
+  "test/native-mount-protection.test.ts": "5610f986d0715fbc5087131ec45a5260ad7febb5e323f5a6e239bdba0255033b",
+  "test/managed-skills.test.ts": "bad719529d1208de248973645d248e47f1c284a066e882576cb1eb6382bbf735",
+  "test/personal-managed-skills.test.ts": "0290120348d702e9c4d220b6804f22b78ac8fae93a070f9458d6816432de06b5",
+  "test/personal-skills.test.ts": "184b64b1b650339ed7dcf2ef16ae2900430193a56b4721d790e4177b5553e1dc"
+}

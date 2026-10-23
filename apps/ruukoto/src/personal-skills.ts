@@ -6,7 +6,7 @@ import type { TranscriptContext } from "@earendil-works/pi-ai";
 import { validateToolArguments } from "@earendil-works/pi-ai/utils/validation";
 import { Type } from "typebox";
 import { expandSkillCommand, readSkill, skillCatalogBlock, type PinnedSkill } from "@ruukoto/agent/skills.ts";
-import { loadHostSkillLibrary, ManagedSkillsStore } from "@ruukoto/agent/managed-skills.ts";
+import { assertManagedSkillsSelected, loadHostSkillLibrary, ManagedSkillsError, ManagedSkillsStore } from "@ruukoto/agent/managed-skills.ts";
 import type { PersonalProfileLock } from "./personal-profile.ts";
 import { readPersonalSkills, personalSkillsDirectory, type PersonalSkillsConfig } from "./personal-skills-config.ts";
 import { activePersonalReferenceTool } from "./personal-history.ts";
@@ -173,9 +173,15 @@ export function personalSkills(directory: string) {
   return {
     extension: defineExtension({ name: PERSONAL_SKILLS, tools: [skill] }), prepare,
     configuration: () => readPersonalSkills(directory),
+    // Note: 见 .agents/notes/implemented/bug-fix/2026-10-24-read-check-overhead.md
     async verify(tx: Tx, conversationId: ConversationId, version: string) {
       const saved = await snapshot(tx, conversationId, version);
-      if (!isDeepStrictEqual(load(directory), { version: saved.version, config: saved.config, identity: saved.identity, library: saved.library })) throw new PersonalError("skills_changed", "技能目录已变化，本次请求未发送；请重新开始本轮并使用新技能目录。");
+      const config = readPersonalSkills(directory) ?? null, identity = config ? personalSkillsDirectory(config) : null;
+      if (!isDeepStrictEqual({ config, identity }, { config: saved.config, identity: saved.identity })) throw new PersonalError("skills_changed", "技能目录已变化，本次请求未发送；请重新开始本轮并使用新技能目录。");
+      try { assertManagedSkillsSelected(saved.library, directory); } catch (error) {
+        if (error instanceof ManagedSkillsError && error.code === "skills_selection_changed") throw new PersonalError("skills_changed", "技能目录已变化，本次请求未发送；请重新开始本轮并使用新技能目录。", { cause: error });
+        throw new PersonalError("skills_directory_unavailable", "技能目录无法完整读取，请由拥有者恢复配置目录后继续。", { cause: error });
+      }
     },
     verifyRecords: verifySkillRecords,
     async prepareTranscript(tx: Tx, conversationId: ConversationId, input: TranscriptContext, currentEntry?: EntryId): Promise<TranscriptContext & { skillFailure?: SkillFailure }> {

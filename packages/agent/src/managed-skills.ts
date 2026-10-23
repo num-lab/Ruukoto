@@ -97,6 +97,7 @@ function readManagedState(hostDir: string): ManagedState {
   try {
     if (!fs.lstatSync(root, { throwIfNoEntry: false })) return stateFor([]);
     privateStat(root, true);
+    const revisions = new Map<string, string>();
     const names = fs.readdirSync(root);
     if (names.some(name => !["state.json", "state.json.tmp", "packages", ".staging"].includes(name))) throw invalidLayout();
     for (const collection of ["packages", ".staging"]) {
@@ -110,7 +111,10 @@ function readManagedState(hostDir: string): ManagedState {
         const holder = path.join(container, id); privateStat(holder, true);
         const children = fs.readdirSync(holder);
         if (children.length > 1 || children.some(name => !packageName(name))) throw invalidLayout();
-        if (children.length) packageContent(path.join(holder, children[0]), true);
+        if (children.length) {
+          const directory = path.join(holder, children[0]);
+          revisions.set(directory, packageContent(directory, true).contentRevision);
+        }
       }
     }
     if (names.includes("state.json.tmp")) {
@@ -120,8 +124,7 @@ function readManagedState(hostDir: string): ManagedState {
     if (!names.includes("state.json")) return stateFor([]);
     const filename = path.join(root, "state.json"), state = parseState(readFile(filename, privateStat(filename, false), true, 1024 * 1024));
     for (const item of state.packages) {
-      const content = packageContent(path.join(root, "packages", item.id, item.directory), true);
-      if (content.contentRevision !== item.contentRevision) throw invalidLayout();
+      if (revisions.get(path.join(root, "packages", item.id, item.directory)) !== item.contentRevision) throw invalidLayout();
     }
     return state;
   } catch (error) {
@@ -135,6 +138,26 @@ function sourceFor(hostDir: string, item: ManagedPackage): SkillSource {
 export function loadHostSkillLibrary(hostDir: string, externalDirs: string[] = [skillsDirFor(hostDir)]): SkillLibrary {
   const state = readManagedState(hostDir);
   return loadSkillLibrary([...externalDirs.map(dir => ({ dir, source: "external" as const })), ...state.packages.filter(item => item.state === "enabled").map(item => sourceFor(hostDir, item))]);
+}
+/** 发送前只核实本次托管选择仍启用；正文和完整包由请求准备时钉版。 */
+export function assertManagedSkillsSelected(library: SkillLibrary, hostDir: string): void {
+  const root = managedSkillsDirFor(hostDir);
+  let state = stateFor([]), realRoot = path.resolve(root);
+  try {
+    if (fs.lstatSync(root, { throwIfNoEntry: false })) {
+      privateStat(root, true); realRoot = fs.realpathSync(root);
+      const filename = path.join(root, "state.json");
+      if (fs.lstatSync(filename, { throwIfNoEntry: false })) state = parseState(readFile(filename, privateStat(filename, false), true, 1024 * 1024));
+    }
+  } catch (error) {
+    if (error instanceof ManagedSkillsError) throw error;
+    throw new ManagedSkillsError("skills_layout_invalid", "托管技能清单无法核实；请保留托管区并恢复原文件。", { cause: error });
+  }
+  for (const skill of library.skills) {
+    if (skill.source !== "managed") continue;
+    const selected = state.packages.find(item => item.id === skill.id);
+    if (!selected || selected.state !== "enabled" || selected.contentRevision !== skill.contentRevision || skill.dir !== path.join(realRoot, "packages", selected.id, selected.directory)) throw new ManagedSkillsError("skills_selection_changed", "本次托管技能选择已变化；请重新开始本轮以使用当前技能目录。");
+  }
 }
 /** 新任务仅过滤原参考的托管选择；原任务恢复、正文及引用读取保留钉版。 */
 export function reselectManagedSkills(library: SkillLibrary | null, hostDir: string): SkillLibrary | null {
@@ -165,8 +188,13 @@ export class ManagedSkillsStore {
       diagnostics.push(...library.diagnostics);
       skills.push({ skill: library.skills[0], item });
     }
-    const enabled = loadHostSkillLibrary(this.hostDir, this.externalDirs);
-    diagnostics.push(...enabled.diagnostics.filter(value => !diagnostics.includes(value)));
+    const winners = new Map<string, string>();
+    for (const { skill, item } of skills) {
+      if (item && item.state !== "enabled") continue;
+      const winner = winners.get(skill.name);
+      if (winner) diagnostics.push(`SKILL.md：名称 ${skill.name} 与${winner}冲突，已忽略（先到先得）`);
+      else winners.set(skill.name, `${skill.source === "external" ? "外部" : "托管"}技能 ${skill.name}`);
+    }
     return { skills, diagnostics };
   }
   list(input: { offset?: number; limit?: number } = {}) {

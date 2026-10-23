@@ -1,0 +1,7 @@
+{
+  "packages/agent/src/managed-skills.ts": "2696156fd58716ede6faf0c3f99d69bcd7b0e0a3b9b4e33663b2c49f109d0fb0",
+  "apps/ruukoto/src/personal-skills.ts": "ea5e1acd482fec1828c4378a5dd2825d0de84864890b7a1515a5030d8010c9c8",
+  "test/managed-skills.test.ts": "bad719529d1208de248973645d248e47f1c284a066e882576cb1eb6382bbf735",
+  "test/personal-skills.test.ts": "184b64b1b650339ed7dcf2ef16ae2900430193a56b4721d790e4177b5553e1dc",
+  "test/personal-managed-skills.test.ts": "0290120348d702e9c4d220b6804f22b78ac8fae93a070f9458d6816432de06b5"
+}

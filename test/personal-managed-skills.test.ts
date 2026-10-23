@@ -6,11 +6,13 @@ import { randomUUID } from "node:crypto";
 import { syncBuiltinESMExports } from "node:module";
 import { test, type TestContext } from "node:test";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { readSkill } from "@ruukoto/agent/skills.ts";
-import { loadHostSkillLibrary } from "@ruukoto/agent/managed-skills.ts";
+import { loadHostSkillLibrary, ManagedSkillsStore } from "@ruukoto/agent/managed-skills.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
 import { lockPersonalProfile, PERSONAL_FORMAT } from "../apps/ruukoto/src/personal-profile.ts";
 import { personalSkillStore } from "../apps/ruukoto/src/personal-skills.ts";
+import { savePersonalSkills } from "../apps/ruukoto/src/personal-skills-config.ts";
 import { savePersonalConfig } from "../apps/ruukoto/src/personal-config.ts";
 import { openPersonalHarness } from "../apps/ruukoto/src/personal-harness.ts";
 import { personalProvider, type PersonalModelConfig } from "../apps/ruukoto/src/personal-model.ts";
@@ -154,4 +156,81 @@ test("个人托管技能：真实后台重开与有历史档案启停，实际�
     server = await startPersonalServer(f.directory); await server.stop();
   }
   assert.equal(fs.readFileSync(path.join(f.pkg, "refs", "guide.md"), "utf8"), "原始引用资料");
+});
+
+test("个人技能真实请求：准备后正文变化沿本次快照发送，下一请求刷新，发送边界不重读", async t => {
+  const f = fixture(t), external = path.join(f.root, "external"), skill = path.join(external, "skills", "mutable"), body = path.join(skill, "SKILL.md");
+  fs.mkdirSync(skill, { recursive: true });
+  const write = (text: string) => fs.writeFileSync(body, `---\nname: mutable\ndescription: 外部任务指引\n---\n${text}\n`);
+  write("INITIAL_BODY"); await savePersonalSkills(f.directory, { version: 1, directory: external });
+  const key = "RUUKOTO_PERSONAL_MANAGED_TEST_KEY", previous = process.env[key]; process.env[key] = "test-only";
+  const model = new PersonalMockModelServer(() => ({ kind: "text", text: "已收到" }));
+  const config: PersonalModelConfig = { api: "openai-completions", baseUrl: await model.start(), modelId: "mock-model", apiKeyEnv: key, contextWindow: 128000, maxTokens: 1024 };
+  let current: Awaited<ReturnType<typeof openPersonalHarness>> | undefined, armed = false, changed = false, reads = 0;
+  t.after(async () => { await current?.close(); await model.close(); if (previous === undefined) delete process.env[key]; else process.env[key] = previous; });
+  current = await openPersonalHarness({ directory: f.directory, provider: personalProvider(config), modelId: config.modelId, openStorage: async filename => {
+    const storage = await openNodeSqliteStorage(filename), commit = storage.commit.bind(storage);
+    storage.commit = async (writes, context) => {
+      const result = await commit(writes, context);
+      if (armed && !changed && writes.some(write => write.type === "entry" && write.value.kind === "ruukoto.skills-snapshot")) { changed = true; write("NEXT_BODY"); }
+      return result;
+    };
+    return storage;
+  } });
+  write("PINNED_BODY"); armed = true;
+  const original = fs.readFileSync;
+  t.mock.method(fs, "readFileSync", (...args: Parameters<typeof original>) => {
+    if (String(args[0]) === body) reads++;
+    return Reflect.apply(original, fs, args);
+  }); syncBuiltinESMExports();
+  try {
+    await current.answer("/skill:mutable 本次", "pinned");
+    assert.equal(changed, true); assert.equal(reads, 2);
+    assert.match(JSON.stringify(model.calls[0].raw), /PINNED_BODY/); assert.doesNotMatch(JSON.stringify(model.calls[0].raw), /NEXT_BODY/);
+    reads = 0;
+    await current.answer("/skill:mutable 下次", "next");
+    assert.equal(reads, 2); assert.match(JSON.stringify(model.calls[1].raw), /NEXT_BODY/);
+  } finally { t.mock.restoreAll(); syncBuiltinESMExports(); }
+  const entries = (await current.main.entries({ order: "ascending" }, 256, undefined, context)).items;
+  const requests = entries.filter(entry => entry.kind === "ruukoto.model-request");
+  assert.equal(requests.length, 4); assert.match(JSON.stringify(requests.slice(0, 2)), /PINNED_BODY/); assert.doesNotMatch(JSON.stringify(requests.slice(0, 2)), /NEXT_BODY/);
+  assert.match(JSON.stringify(entries.filter(entry => entry.kind === "ruukoto.skills-snapshot")), /PINNED_BODY.*NEXT_BODY/s);
+});
+
+test("个人托管技能真实请求：规范输入和实际 payload 前停用或移除均零外发", async t => {
+  for (const boundary of ["input", "payload"] as const) for (const state of ["disabled", "removed"] as const) await t.test(`${boundary}/${state}`, async t => {
+    const f = fixture(t), external = path.join(f.root, "external"), skill = path.join(external, "skills", "mutable"), body = path.join(skill, "SKILL.md");
+    fs.mkdirSync(skill, { recursive: true }); fs.writeFileSync(body, "---\ndescription: 触发新快照\n---\ninitial\n");
+    await savePersonalSkills(f.directory, { version: 1, directory: external });
+    const key = "RUUKOTO_PERSONAL_MANAGED_TEST_KEY", previous = process.env[key]; process.env[key] = "test-only";
+    const model = new PersonalMockModelServer(() => ({ kind: "text", text: "不应发送" }));
+    const config: PersonalModelConfig = { api: "openai-completions", baseUrl: await model.start(), modelId: "mock-model", apiKeyEnv: key, contextWindow: 128000, maxTokens: 1024 };
+    const provider = personalProvider(config);
+    let current: Awaited<ReturnType<typeof openPersonalHarness>> | undefined, armed = false, changed = false;
+    const revoke = () => {
+      if (!armed || changed) return;
+      changed = true;
+      const store = new ManagedSkillsStore(f.directory, [path.join(external, "skills")]), expectedRevision = store.list().revision;
+      if (state === "disabled") store.setEnabled({ id: f.imported.id, enabled: false, expectedRevision });
+      else store.remove({ id: f.imported.id, expectedRevision });
+    };
+    t.after(async () => { await current?.close(); await model.close(); if (previous === undefined) delete process.env[key]; else process.env[key] = previous; });
+    current = await openPersonalHarness({ directory: f.directory, provider: { ...provider, streamSimple: (model, input, options) => provider.streamSimple(model, input, { ...options, onPayload: async payload => {
+      if (boundary === "payload") revoke();
+      return await options?.onPayload?.(payload, model) ?? payload;
+    } }) }, modelId: config.modelId, openStorage: async filename => {
+      const storage = await openNodeSqliteStorage(filename), commit = storage.commit.bind(storage);
+      storage.commit = async (writes, context) => {
+        const result = await commit(writes, context);
+        if (boundary === "input" && writes.some(write => write.type === "entry" && write.value.kind === "ruukoto.skills-snapshot")) revoke();
+        return result;
+      };
+      return storage;
+    } });
+    armed = true; fs.appendFileSync(body, "changed\n");
+    assert.equal((await (await current.submit("使用当前技能", `${boundary}-${state}`)).wait(context)).status, "unanswered");
+    assert.equal(changed, true); assert.equal(model.calls.length, 0);
+    const entries = (await current.main.entries({ order: "ascending" }, 256, undefined, context)).items;
+    assert.equal(entries.filter(entry => entry.kind === "ruukoto.model-request").length, boundary === "input" ? 0 : 1);
+  });
 });

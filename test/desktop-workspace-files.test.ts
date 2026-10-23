@@ -45,7 +45,7 @@ test("工作区文件按层排序读取，文本、Markdown、空文件与图片
   } finally { kit.close(); }
 });
 
-test("路径、目录身份、符号链接与硬链接不能绕过只读范围", () => {
+test("路径、目录身份与符号链接不能绕过只读范围", () => {
   const kit = fixture();
   try {
     const outside = path.join(kit.parent, "outside");
@@ -54,10 +54,8 @@ test("路径、目录身份、符号链接与硬链接不能绕过只读范围",
     for (const file of ["../outside/secret.txt", "/etc/passwd", "C:/secret", "src/../file", "a//b", "./a", "a/./b", "a\\b", "a\0b", ""]) assert.throws(() => readWorkspaceFile("workspace", kit.identity, file), fails("invalid_params"), file);
     fs.symlinkSync(outside, path.join(kit.root, "linked"));
     fs.symlinkSync(path.join(outside, "secret.txt"), path.join(kit.root, "secret-link"));
-    fs.linkSync(path.join(outside, "secret.txt"), path.join(kit.root, "hard-link"));
     assert.throws(() => readWorkspaceFile("workspace", kit.identity, "linked/secret.txt"), fails("workspace_path_unsafe"));
     assert.throws(() => readWorkspaceFile("workspace", kit.identity, "secret-link"), fails("workspace_path_unsafe"));
-    assert.throws(() => readWorkspaceFile("workspace", kit.identity, "hard-link"), fails("workspace_path_unsafe"));
     assert.ok(!listWorkspaceFiles("workspace", kit.identity, "").entries.some(entry => entry.name === "linked" || entry.name === "secret-link"));
     assert.throws(() => readWorkspaceFile("workspace", kit.identity, "missing"), fails("workspace_file_not_found"));
     assert.throws(() => readWorkspaceFile("workspace", kit.identity, ""), fails("invalid_params"));
@@ -66,6 +64,38 @@ test("路径、目录身份、符号链接与硬链接不能绕过只读范围",
     fs.renameSync(kit.root, path.join(kit.parent, "old")); fs.mkdirSync(kit.root);
     assert.throws(() => listWorkspaceFiles("workspace", kit.identity, ""), fails("workspace_directory_changed"));
   } finally { kit.close(); }
+});
+
+test("拥有者预览普通硬链接可完整分页，另一名字修改后拒绝旧修订", () => {
+  const kit = fixture();
+  try {
+    const source = path.join(kit.parent, "source.html"), link = path.join(kit.root, "linked.html");
+    const content = Buffer.from("<p>硬链接正文</p>\n".repeat(20_000));
+    fs.writeFileSync(source, content); fs.linkSync(source, link);
+    assert.ok(listWorkspaceFiles("workspace", kit.identity, "").entries.some(entry => entry.name === "linked.html" && entry.kind === "file"));
+    const first = readWorkspaceFile("workspace", kit.identity, "linked.html");
+    const second = readWorkspaceFile("workspace", kit.identity, "linked.html", { offset: WORKSPACE_FILE_PAGE_BYTES, version: first.version });
+    assert.deepEqual(Buffer.concat([Buffer.from(first.data, "base64"), Buffer.from(second.data, "base64")]), content);
+    fs.writeFileSync(source, "另一名字修改正文");
+    assert.throws(() => readWorkspaceFile("workspace", kit.identity, "linked.html", { offset: WORKSPACE_FILE_PAGE_BYTES, version: first.version }), fails("workspace_file_changed"));
+    assert.equal(Buffer.from(readWorkspaceFile("workspace", kit.identity, "linked.html").data, "base64").toString(), "另一名字修改正文");
+  } finally { kit.close(); }
+});
+
+test("硬链接读取期间从另一名字修改内容仍丢弃结果", context => {
+  const kit = fixture();
+  try {
+    const source = path.join(kit.parent, "source.txt"), link = path.join(kit.root, "linked.txt");
+    fs.writeFileSync(source, "原文"); fs.linkSync(source, link);
+    const read = fs.readSync;
+    context.mock.method(fs, "readSync", (...args: Parameters<typeof read>) => {
+      const count = read(...args);
+      fs.writeFileSync(source, "修改后原文");
+      return count;
+    });
+    syncBuiltinESMExports();
+    assert.throws(() => readWorkspaceFile("workspace", kit.identity, "linked.txt"), fails("workspace_file_changed"));
+  } finally { context.mock.restoreAll(); syncBuiltinESMExports(); kit.close(); }
 });
 
 test("目录项有界，超过1MiB的多字节文件及控制字符按修订分页完整读取", () => {
@@ -156,6 +186,7 @@ test("拥有者控制面浏览不受 Agent 保护目录限制，仍核实登记�
     const opened = await kit.client.request<OpResult<"open_workspace">>("open_workspace", { cwd: kit.work[0], request_id: "workspace-files" });
     const workspaceId = opened.session.projectId;
     fs.writeFileSync(path.join(kit.work[0], "owner.txt"), "拥有者工作区正文");
+    fs.linkSync(path.join(kit.work[0], "owner.txt"), path.join(kit.work[1], "owner-alias.txt"));
     const protectedRoots = kit.runtime.protectedRoots(), readdir = fs.readdirSync;
     context.mock.method(fs, "readdirSync", (...args: Parameters<typeof readdir>) => {
       assert.ok(!protectedRoots.some(root => String(args[0]) === root || String(args[0]).startsWith(`${root}${path.sep}`)), "拥有者文件查询不应枚举无关保护树");

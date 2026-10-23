@@ -7,7 +7,7 @@ import * as os from "node:os";
 import { execFile } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { ExecutionError, type LaunchSpec, type WorkerLauncher } from "./launchers.ts";
-import { assertGrantNotProtected, assertGrantsNotProtected } from "./approved-ops.ts";
+import { assertGrantsNotProtected } from "./approved-ops.ts";
 import { launchMacosNative } from "./native-macos.ts";
 import { launchLinuxNative } from "./native-linux.ts";
 
@@ -240,7 +240,8 @@ export async function prepareNativeLaunch(config: NativeLauncherConfig, spec: La
         throw new ExecutionError("execution_unavailable", "原生执行的工作区身份已变化", undefined, "sandbox_rejected");
       }
     }
-    for (const mount of mounts) assertGrantNotProtected(mount.path, config.protectedRoots ?? []);
+    // Note: 见 .agents/notes/implemented/bug-fix/2026-10-24-read-check-overhead.md
+    assertGrantsNotProtected(mounts.map(mount => mount.path), config.protectedRoots ?? []);
     for (const read of mounts.filter(m => m.access === "read")) {
       if (mounts.some(m => m.access === "read_write" && covers(read.path, m.path))) {
         throw new ExecutionError("execution_unavailable", "只读根中存在读写授权；请消除重叠授权后重试", undefined, "sandbox_rejected");

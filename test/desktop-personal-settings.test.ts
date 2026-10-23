@@ -8,14 +8,37 @@ import { spawnSync } from "node:child_process";
 import { PersonalSettingsController, personalMachineCommand } from "../apps/desktop/src/main/personal-settings-controller.ts";
 import { PERSONAL_PROGRAMS, loadPersonalConfig, savePersonalConfig, loadPersonalManagementConfig, savePersonalManagementConfig, validatePersonalManagementConfig, type PersonalManagementConfig } from "../apps/desktop/src/main/personal-config.ts";
 import { PersonalManagementState } from "../apps/desktop/src/renderer/personal-management-state.ts";
+import { PersonalSettingsPageState } from "../apps/desktop/src/renderer/personal-settings-state.ts";
+import { ipcResult } from "../apps/desktop/src/main/ipc.ts";
 import { SshProcess } from "../apps/desktop/src/main/personal-ssh.ts";
 import { DesktopHost } from "../apps/desktop/src/main/host.ts";
 import type { DesktopResult } from "../apps/desktop/src/shared/bridge.ts";
+import type { PersonalMaintenanceStatus } from "../apps/desktop/src/shared/personal-settings.ts";
+import { ControlClientError } from "@ruukoto/control/client.ts";
 
 const profile = { directory: "/remote/profile", id: "sha256:" + "a".repeat(64) };
 const oldRevision = "sha256:" + "b".repeat(64), newRevision = "sha256:" + "c".repeat(64);
 const config: PersonalManagementConfig = { host: "pa", profileDir: profile.directory, program: PERSONAL_PROGRAMS[0], lifecycle: "systemd" };
 const mutation = () => ({ v: 1, op: "config.save", profile, expectedRevision: oldRevision, target: "model", value: { apiKeyEnv: "NEW_KEY", model: "draft-private-value" } });
+
+for (const [scenario, availableProgram] of [["全部失败保留首个原因而不冒充未安装", undefined], ["首项失败仍列出后项成功", PERSONAL_PROGRAMS[1]], ["后项失败不丢弃首项成功", PERSONAL_PROGRAMS[0]]] as const) test(`Personal 程序检测：${scenario}`, async t => {
+  const userData = fs.mkdtempSync("/tmp/rk-detect-");
+  const message = "SSH 连接失败，请核对主机与密钥后重新检测。";
+  t.mock.method(PersonalSettingsController.prototype, "probe", async function (this: PersonalSettingsController): Promise<PersonalMaintenanceStatus> {
+    if (this.config.program !== availableProgram) throw new ControlClientError("management_ssh", this.config.program === PERSONAL_PROGRAMS[0] ? message : "其他安装位置不可用，请核实程序路径。", "not_sent");
+    return { profile, online: true, writable: true, code: "maintenance_ready", reason: "服务身份已核实。", lifecycle: { kind: "systemd", state: "running", managedDevelopment: false, originalEnvironment: "unverified" } };
+  });
+  const host = new DesktopHost(process.cwd(), userData, { publish() {}, focused: () => false, notice() {}, badge() {} }, async () => ({ node: process.execPath, env: process.env }));
+  const state = new PersonalManagementState({ request: (target, op, params) => host.request(target, op, params) }, () => {});
+  try {
+    await state.read(); state.edit("host", config.host); state.edit("profileDir", config.profileDir);
+    await state.detect();
+    assert.deepEqual(state.programs, availableProgram ? [availableProgram] : []);
+    if (availableProgram) assert.match(state.message, /请选择检测到的程序位置/);
+    else assert.equal(state.message, message);
+  } finally { await host.close(); fs.rmSync(userData, { recursive: true, force: true }); }
+});
+
 type Scenario = { online: boolean; token: string; revision: string; fault?: string; writable?: boolean; blockers?: unknown[]; credential?: string; product?: string; v?: number; identity?: string; reject?: string };
 async function harness(patch: Partial<Scenario> = {}, timeoutMs = 3000) {
   const dir = fs.mkdtempSync("/tmp/rk-settings-"), scenarioFile = path.join(dir, "scenario.json"), log = path.join(dir, "calls.jsonl"), childrenFile = path.join(dir, "children");
@@ -25,7 +48,7 @@ async function harness(patch: Partial<Scenario> = {}, timeoutMs = 3000) {
   const write = (patch: Partial<Scenario>) => fs.writeFileSync(scenarioFile, JSON.stringify({ ...scenario(), ...patch }));
   const snapshot = () => {
     const s = scenario();
-    return { product: "ruukoto", profile: { ...profile, id: s.identity ?? profile.id }, online: s.online, revisions: { model: s.revision, skills: oldRevision, mcp: oldRevision }, blockers: s.blockers ?? [], model: { config: { apiKeyEnv: "KEY" }, credential: { state: s.credential ?? (s.online ? "available" : "unverified"), reference: "KEY" } }, lifecycle: { managedDevelopment: false } };
+    return { product: "ruukoto", profile: { ...profile, id: s.identity ?? profile.id }, online: s.online, revisions: { model: s.revision, skills: oldRevision, mcp: oldRevision }, blockers: s.blockers ?? [], model: { config: { apiKeyEnv: "KEY" }, credential: { state: s.credential ?? (s.online ? "available" : "unverified"), reference: "KEY" } }, skills: { config: null, revision: oldRevision, skills: [], diagnostics: [], diagnosticsTruncated: false, offset: 0, hasMore: false }, mcp: null, lifecycle: { managedDevelopment: false } };
   };
   const auth: string[] = [], onlineRequests: Record<string, unknown>[] = [];
   const remote = path.join(dir, "remote.sock");
@@ -79,6 +102,9 @@ if(args.includes('-N')) {
       if(s.fault==='save-internal'){delete s.fault;write(s);process.stdout.write(JSON.stringify({v:1,product:'ruukoto',ok:false,code:'settings_internal',message:'结果无法核实。'})+'\\n');return;}
     } else result={product:'ruukoto',profile:identity,online:s.online,revisions:{model:s.revision,skills:'${oldRevision}',mcp:'${oldRevision}'},blockers:s.blockers||[],model:{config:{apiKeyEnv:'KEY'},credential:{state:s.online?'available':'unverified',reference:'KEY'}},lifecycle:{managedDevelopment:false}};
     const stage=maintenance?req.op:req.op==='config.save'?'save':'read';
+    if(s.fault==='inspect-wait'&&stage==='inspect'){
+      const timer=setInterval(()=>{if(read().fault!=='inspect-wait'){clearInterval(timer);process.stdout.write(JSON.stringify({v:s.v||1,product:s.product||'ruukoto',ok:true,result})+'\\n');}},10);return;
+    }
     if(s.fault===stage+'-disconnect'){delete s.fault;write(s);process.exit(255);}
     if(s.fault===stage+'-hang'){setInterval(()=>{},1000);return;}
     if(s.fault==='large'){process.stdout.write('x'.repeat(300000));return;}
@@ -97,6 +123,55 @@ if(args.includes('-N')) {
     fs.rmSync(dir, { recursive: true, force: true });
   } };
 }
+
+test("Personal 页面读取：切页与连接核实共享原查询，旧页丢弃迟到应答且写入仍互斥", async () => {
+  const h = await harness({ fault: "inspect-wait" });
+  const bridge = { request: async (_target: string, op: string) => op === "desktop_personal_management_config_read" ? { ok: true as const, value: config } : ipcResult(() => h.controller.read()) };
+  const original = new PersonalSettingsPageState(bridge, () => {}, "models");
+  const next = new PersonalSettingsPageState(bridge, () => {}, "skills");
+  const management = new PersonalManagementState(bridge, () => {});
+  try {
+    const reading = original.read();
+    const deadline = Date.now() + 3000;
+    while (!h.calls().some(call => call.op === "inspect") && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10));
+    assert.ok(h.calls().some(call => call.op === "inspect"));
+    original.invalidate();
+    const nextReading = next.read();
+    await management.read();
+    const inspecting = management.inspect();
+    await assert.rejects(h.controller.apply(mutation()), { code: "management_busy" });
+    h.write({ fault: undefined });
+    await Promise.all([reading, nextReading, inspecting]);
+    assert.equal(original.view, null);
+    assert.equal(next.phase, "ready", next.message);
+    assert.equal(management.phase, "ready", management.message);
+    assert.deepEqual(next.view?.settings.profile, profile);
+    assert.deepEqual(management.view?.settings.profile, profile);
+    assert.equal(h.calls().filter(call => call.op === "inspect").length, 1);
+    assert.equal(h.calls().filter(call => call.op === "settings.read").length, 1);
+    assert.equal(h.onlineRequests.filter(call => call.op === "settings.read").length, 1);
+    assert.equal(h.calls().filter(call => ["stop", "start", "config.save"].includes(call.op)).length, 0);
+    assert.equal(h.controller.hasPendingOperation(), false);
+  } finally { h.write({ fault: undefined }); await h.close(); }
+});
+
+test("Personal 页面读取：共同失败后可重新查询，关闭仍拒绝且不外调", async () => {
+  const h = await harness({ fault: "inspect-disconnect" });
+  try {
+    const failures = await Promise.allSettled([h.controller.read(), h.controller.read()]);
+    for (const result of failures) {
+      assert.equal(result.status, "rejected");
+      if (result.status === "rejected") assert.equal(result.reason.code, "management_ssh");
+    }
+    assert.equal(h.calls().filter(call => call.op === "inspect").length, 1);
+    assert.equal((await h.controller.read()).settings.online, true);
+    assert.equal(h.calls().filter(call => call.op === "inspect").length, 2);
+    await h.controller.close();
+    const count = h.calls().length;
+    await assert.rejects(h.controller.read(), { code: "management_changed" });
+    assert.equal(h.calls().length, count);
+  } finally { await h.close(); }
+});
 
 test("管理前检与探测只读取一项配置，合法大 MCP 列表可继续按页查询", async () => {
   const h = await harness();

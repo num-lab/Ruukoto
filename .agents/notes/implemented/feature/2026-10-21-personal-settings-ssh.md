@@ -10,6 +10,10 @@ Status: implemented
 
 Electron 与 MyGo 沿既有 request 桥共用 DesktopHost。新管理配置单独保存在 `personal-settings.json`，旧 `personal.json` 继续只用于旧聊天；管理失败不影响 Code。向导选择 SSH 别名、规范远端档案、两个受支持安装位置与生命周期方式。检测先用拒绝缺失档案的 maintenance 核实已有目录身份，再调用 settings 读取，避免 settings 的通用持锁初始化误建错目录；同时核实版本、产品与规范路径。缺失、旧协议与身份变化明确拒绝，不转换为旧聊天快照。
 
+程序检测保留首个候选的结构化错误，仅在所有候选都失败时交给现有界面报告；任一候选成功仍返回成功清单。SSH 中断、档案拒绝与协议错误不能由空清单冒充未安装，不回显原始 stderr 或增加自动重试。
+
+同一管理控制器合并进行中的 `read()`，让设置页切换与连接核实共享一份实际查询；旧页仍按自身轮次丢弃迟到应答。查询成功或失败都释放共享引用，关闭检查仍先执行。合并只适用于同一档案的完整读取，不排队、重发或放开写入，也不合并模型测试、工具发现等不同操作；它们继续沿原互斥与失败策略处理。
+
 机器配置与维护 JSON 分别经固定 `settings`、`maintenance` 子命令的 stdin/stdout 传递，参数不进入远端 shell 命令。沿 OpenSSH 固定参数和 shell 单引号转义，stdin 128 KiB、stdout 256 KiB、有界超时；UTF-8 跨输出块保留。在线设置查询经 Unix socket 转发访问认证 `/settings`，每次重新读取 `control.token`，令牌只在 Node 宿主内存；结构化错误保留请求结果分类并隐藏令牌。配置变化和退出取消本次请求、回收自有 SSH，旧轮次不再继续维护。
 
 `maintenance` 只接受 inspect/stop/start 和 cli/systemd/development，不接受自由命令或单元。CLI 无法证明原启动环境时只读，开发受管实例只读；两者指引先使用受支持系统服务。systemd 只管理系统级 `ruukoto-backend.service`，读取有效属性并核对同账户、固定 Node/bin、`serve --directory` 档案、实际 MainPID 与 `/proc` 身份。显式目录参数优先于环境，避免 EnvironmentFile 改写档案而无法离线核实；从不读取该文件证明凭据。只对固定 `/usr/bin/systemctl start/stop ruukoto-backend.service` 检查并使用 `sudo -n` 精确授权，不放宽禁止后台自身的原服务 helper。
@@ -30,6 +34,7 @@ Host 只在实际后台在线、生命周期支持、未决检查为空且实际
 - HTTP stop 后直接保存：无需额外服务权限，但 systemd 可能自动重启并抢锁，因此必须停止原监督服务。
 - 复制 SSH shell 环境或读取 EnvironmentFile：容易启动一个程序，却不能证明原服务的环境且扩大秘密读取，因此 CLI 未核实保持只读，systemd 只按原服务恢复。
 - 保存完整草稿到本机再自动重试：恢复方便，但远端端点可能含秘密，后端也没有保存幂等键，因此只保存摘要与关联，丢答人工比较、不重发。
+- 读取期间禁止切页：可以避免重复读取，但会让纯查询阻塞导航；同一档案共享进行中的读取即可，写入继续沿原互斥。
 
 ## 后果
 

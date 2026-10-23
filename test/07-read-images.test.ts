@@ -105,8 +105,8 @@ for (const supportsImages of [true, false]) {
       }
       return { kind: "text", text: "图片读取完成" };
     }, { workDirs: 1, config: realTools() });
-    const resolve = t.runtime.modelCatalog.resolve.bind(t.runtime.modelCatalog);
-    t.runtime.modelCatalog.resolve = async selection => ({ ...await resolve(selection), input: supportsImages ? ["text", "image"] : ["text"] });
+    const resolve = t.runtime.models.current.modelCatalog.resolve.bind(t.runtime.models.current.modelCatalog);
+    t.runtime.models.current.modelCatalog.resolve = async selection => ({ ...await resolve(selection), input: supportsImages ? ["text", "image"] : ["text"] });
     try {
       fs.writeFileSync(path.join(t.work[0]!, "image.bin"), PNG);
       const { sessionId } = await createProjectSession(t.client, t.work[0]!);

@@ -45,7 +45,7 @@ test("Coding 真实模型：持久提问结束本轮，普通聊天保留问题�
       modelProvider: selected.provider, modelId: selected.model.id, thinkingLevel: "off", qqDisabled: true });
     let option: ModelOption | undefined;
     for (let offset = 0; ;) {
-      const page = await rt.modelCatalog.list({ provider: selected.provider, offset });
+      const page = await rt.models.current.modelCatalog.list({ provider: selected.provider, offset });
       option = page.models.find(model => model.modelId === selected.model.id);
       if (option || page.nextOffset === null) break;
       offset = page.nextOffset;

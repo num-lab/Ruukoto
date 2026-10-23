@@ -81,8 +81,8 @@ test("Code Cua：真实产品链保存原schema和请求，持续连接、批准
   const calls = () => fs.existsSync(record) ? fs.readFileSync(record, "utf8").trim().split("\n").map(line => JSON.parse(line)) : [];
   const sent = () => calls().filter(call => call.method === "tools/call");
   let vision = false;
-  const resolve = runtime.runtime.modelCatalog.resolve.bind(runtime.runtime.modelCatalog);
-  runtime.runtime.modelCatalog.resolve = async selection => ({ ...await resolve(selection), input: vision ? ["text", "image"] : ["text"] });
+  const resolve = runtime.runtime.models.current.modelCatalog.resolve.bind(runtime.runtime.models.current.modelCatalog);
+  runtime.runtime.models.current.modelCatalog.resolve = async selection => ({ ...await resolve(selection), input: vision ? ["text", "image"] : ["text"] });
   async function submit(sessionId: string, key: string, tool?: string, args: Record<string, unknown> = {}, mode = "full_access") {
     next = tool ? { name: `mcp_mac_${tool}`, arguments: args } : null;
     const task = await client.request<{ id: string }>("submit", { session_id: sessionId, request_id: key, input: key, model_selection: MODEL, access_mode: mode });

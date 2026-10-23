@@ -31,6 +31,7 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { test } from "node:test";
+import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { MockModelServer, type Responder } from "./helpers/mock-provider.ts";
 import { inputText, cleanupDirs, lastUserText, makeTestDirs, realTools, waitFor, writeModelsJson } from "./helpers/testkit.ts";
 import { Runtime, RuntimeApiError, type RuntimeConfig } from "@ruukoto/runtime/runtime.ts";
@@ -340,7 +341,7 @@ test("宿主固定评审排队任务：不中断，启动恢复自动解除子�
 });
 
 for (const rollback of [false, true]) {
-  test(`模型配置${rollback ? "回滚" : "成功应用"}后：实际 Runtime 解除门闩并补投 pending 消息一次`, async () => {
+  test(`模型配置${rollback ? "回滚" : "成功应用"}后：实际 Runtime 解除门闩并补投 pending 消息一次`, async context => {
     const kit = await startKit(`recover-config-${rollback ? "rollback" : "apply"}`);
     const rt = kit.rt;
     let release!: () => void;
@@ -352,12 +353,15 @@ for (const rollback of [false, true]) {
       const changed = JSON.parse(original);
       changed.providers.mock.models[0].name = "配置应用后的模型";
       let entered = false;
-      const applying = (rt as any).applyModelConfigChange(["mock"], async () => {
-        fs.writeFileSync(configFile, JSON.stringify(changed));
+      const create = ModelRuntime.create.bind(ModelRuntime);
+      context.mock.method(ModelRuntime, "create", async (...args: Parameters<typeof ModelRuntime.create>) => {
+        context.mock.restoreAll();
         entered = true;
-        await new Promise<void>((resolve) => { release = resolve; });
+        await new Promise<void>(resolve => { release = resolve; });
         if (rollback) throw new Error("CONFIG-ROLLBACK-FAULT");
-      }) as Promise<void>;
+        return create(...args);
+      });
+      const applying = rt.models.saveCatalog({ providers: changed.providers, expectedRevision: rt.models.getConfig().revision });
       const settled = applying.then(() => null, (err: Error) => err);
       await waitFor("配置门闩窗口", () => entered && release !== undefined);
       await assert.rejects(() => messageFromActiveTask(rt, {
@@ -389,6 +393,7 @@ for (const rollback of [false, true]) {
       assert.equal(kit.server.calls.filter((c) => lastUserText(c).includes("CONFIG-PENDING-MARK")).length, 1, "自动补投实际调用模型一次");
     } finally {
       release?.();
+      context.mock.restoreAll();
       await kit.shutdown(rt);
     }
   });

@@ -1,11 +1,12 @@
 /**
  * TUI 用到的控制面 op：名字、参数与返回形状只在这里定义（架构工单 07）。
  *
- * 返回形状取服务端对应 Runtime 方法的返回类型（server.ts 直接返回它们）；
+ * 返回类型取服务端调用的 Runtime 或 RuntimeModels 方法（server.ts 直接返回它们）；
  * 服务端另包一层的照写。服务端派发、CLI 与配置中心仍按字符串，不经本表。
  */
 
 import type { AttachmentMetadata, AttachmentUpload } from "@ruukoto/core/attachments.ts";
+import type { RuntimeModels } from "@ruukoto/runtime/models.ts";
 import type { Runtime } from "@ruukoto/runtime/runtime.ts";
 import type { SessionDefaultMode, GrantedPath, ModelSelection } from "@ruukoto/core/types.ts";
 import type { WorkflowControl } from "@ruukoto/core/workflow.ts";
@@ -13,6 +14,7 @@ import type { ToolResultField } from "@ruukoto/core/history.ts";
 
 /** Runtime 方法的返回类型（去掉 Promise）。 */
 type R<M extends keyof Runtime> = Runtime[M] extends (...args: any[]) => infer T ? Awaited<T> : never;
+type MR<M extends keyof RuntimeModels> = RuntimeModels[M] extends (...args: never[]) => infer T ? Awaited<T> : never;
 type SkillId = Parameters<Runtime["getSkill"]>[0];
 
 export type HistorySearchWireCursor = { session_id: string; byte_offset: number; phase?: "index" | "scan"; read_offset?: number; source?: { file_dev: number; file_ino: number; min_size: number }; query_key?: string };
@@ -80,15 +82,15 @@ export interface TuiOps {
   get_session: { params: { session_id: string }; result: R<"getSession"> };
   /** project_id 按原身份查询；workspace_id 按组织归属查询（issue 07）；两参互斥。 */
   list_session_summaries: { params: { project_id?: string; workspace_id?: string; scope?: "workspace_chats" }; result: R<"listSessionSummaries"> };
-  list_models: { params: { provider?: string; offset?: number; limit?: number }; result: R<"listModels"> };
-  get_model_config: { params: None; result: R<"getModelConfig"> };
-  save_model_catalog: { params: { providers: Record<string, unknown>; expected_revision: string }; result: R<"saveModelCatalog"> };
-  set_model_api_key: { params: { provider: string; api_key: string; expected_revision: string }; result: R<"setModelApiKey"> };
-  remove_model_api_key: { params: { provider: string; expected_revision: string }; result: R<"removeModelApiKey"> };
-  remove_model_provider: { params: { provider: string; expected_revision: string }; result: R<"removeModelProvider"> };
-  set_default_model: { params: { provider: string; model_id: string; thinking_level: string; expected_revision: string }; result: R<"setDefaultModel"> };
-  set_summary_model: { params: { provider: string | null; model_id: string | null; expected_revision: string }; result: R<"setSummaryModel"> };
-  test_model_connection: { params: { provider: string; model_id: string }; result: R<"testModelConnection"> };
+  list_models: { params: { provider?: string; offset?: number; limit?: number }; result: MR<"list"> };
+  get_model_config: { params: None; result: MR<"getConfig"> };
+  save_model_catalog: { params: { providers: Record<string, unknown>; expected_revision: string }; result: MR<"saveCatalog"> };
+  set_model_api_key: { params: { provider: string; api_key: string; expected_revision: string }; result: MR<"setApiKey"> };
+  remove_model_api_key: { params: { provider: string; expected_revision: string }; result: MR<"removeApiKey"> };
+  remove_model_provider: { params: { provider: string; expected_revision: string }; result: MR<"removeProvider"> };
+  set_default_model: { params: { provider: string; model_id: string; thinking_level: string; expected_revision: string }; result: MR<"setDefault"> };
+  set_summary_model: { params: { provider: string | null; model_id: string | null; expected_revision: string }; result: MR<"setSummary"> };
+  test_model_connection: { params: { provider: string; model_id: string }; result: MR<"testConnection"> };
   mcp_sources: { params: { workspace_id: string; offset?: number; limit?: number; selected_project_id?: string }; result: R<"mcpSources"> };
   mcp_list: { params: { project_id?: string }; result: { services: R<"mcpListServices"> } };
   mcp_configure: { params: { service_id?: string; project_id: string; name: string; endpoint?: string; cua?: Parameters<Runtime["mcpConfigure"]>[0]["cua"]; credential?: string | null; tool_allowlist: Array<string | { name: string; effect: "read" | "write" | "unknown" }>; enabled?: boolean; expected_version?: number }; result: R<"mcpConfigure"> };

@@ -46,8 +46,8 @@ for (const row of [{ product: personalProduct.runtime, main: true }, { product: 
         ? { kind: "text", text: "图片已读取" } : { kind: "tool_calls", calls: [{ id: "browser-shot", name: "browser", arguments: { action: "screenshot" } }] },
       { workDirs: 1, config: { product: row.product } });
       try {
-        const resolve = t.runtime.modelCatalog.resolve.bind(t.runtime.modelCatalog);
-        t.runtime.modelCatalog.resolve = async selection => ({ ...await resolve(selection), input: supportsImages ? ["text", "image"] : ["text"] });
+        const resolve = t.runtime.models.current.modelCatalog.resolve.bind(t.runtime.models.current.modelCatalog);
+        t.runtime.models.current.modelCatalog.resolve = async selection => ({ ...await resolve(selection), input: supportsImages ? ["text", "image"] : ["text"] });
         const sessionId = row.main ? t.runtime.store.getAgentRole("main")!.sessionId : (await createProjectSession(t.client, t.work[0])).sessionId;
         const task = await t.client.request<Task>("submit", { session_id: sessionId, request_id: "picture", input: "截图并看图", model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" }, access_mode: "full_access" });
         await waitFor("截图任务结束", () => ["completed", "failed"].includes(t.runtime.store.getTask(task.id)!.status), 30_000);

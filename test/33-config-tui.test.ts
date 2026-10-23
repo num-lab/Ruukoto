@@ -457,7 +457,7 @@ test("在线真实入口：列表与默认/摘要选择器只读元数据，不�
     await t.client.request("save_model_catalog", { providers: before.providers, expected_revision: before.revision });
     const catalogBefore = fs.readFileSync(path.join(t.dirs.agentDir, "models.json"), "utf8");
     const authBefore = fs.readFileSync(path.join(t.dirs.agentDir, "auth.json"), "utf8");
-    const assertNoEvaluation = watchModelReads(context, t.runtime.modelRuntime);
+    const assertNoEvaluation = watchModelReads(context, t.runtime.models.current.modelRuntime);
     const h = startConfig(t);
     try {
       await readModelSelectors(h.terminal, sources.providerCount);

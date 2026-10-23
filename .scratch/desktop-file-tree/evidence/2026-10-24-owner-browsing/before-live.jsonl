@@ -1,0 +1,14 @@
+{"label":"lightweight-0","ms":0.35,"entries":0}
+{"label":"directory-0","ms":452.29,"entries":31}
+{"label":"file-0","ms":2137.15,"bytes":25901}
+{"label":"git-detect-0","ms":222.44}
+{"label":"lightweight-1","ms":0.26,"entries":0}
+{"label":"directory-1","ms":450.69,"entries":31}
+{"label":"file-1","ms":1579.98,"bytes":25901}
+{"label":"git-detect-1","ms":196.48}
+{"label":"lightweight-2","ms":0.29,"entries":0}
+{"label":"directory-2","ms":419.26,"entries":31}
+{"label":"file-2","ms":2066.31,"bytes":25901}
+{"label":"git-detect-2","ms":226.84}
+{"label":"concurrent-file","ms":1611.87,"bytes":25901}
+{"label":"concurrent-lightweight","ms":1611.92,"entries":0}

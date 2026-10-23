@@ -312,4 +312,4 @@ sequenceDiagram
 - [退役专用 GitHub 模块，GitHub 作为普通 MCP 工具](../../.agents/notes/implemented/simplification/2026-09-23-retire-github-module.md)：解释为什么没有 GitHub 专用的执行路径——它与其他 MCP 服务共用本篇的边界、审批与结果保存流程。
 
 - [普通与工作流的可信来源能力](../../.agents/notes/implemented/architecture/2026-10-15-subagent-source-capabilities.md)。
-- [目录保护优化](../../.agents/notes/implemented/bug-fix/2026-10-17-directory-protection-cost.md)：只读文件树使用目录批量核实；通用文件保护仍检查全部对象。
+- [拥有者工作区浏览权限](../../.agents/notes/implemented/feature/2026-10-24-owner-workspace-browsing.md)：拥有者浏览不采用 Agent 保护目录；受限执行与受信文件操作保留物理对象保护。

@@ -34,7 +34,7 @@
 
 工作流定义库、模型发起与 CLI/TUI/IM 可信控制见[工作流](workflows.md)。启动同时固定定义名或临时标题、显式简短说明及宿主创建时间，不从参数推导摘要；查询投影直接取持久字段。当前列表先保留所有活动运行和最近十项终态再分页，历史列表包含全部运行。显式启动固定会话当前模型和模式，在单一事务创建/结束短期发起任务并登记运行和适用 IM 回执；模型启动沿活动任务。编译/模型预检后的事务重新核实来源、配置门闩与目录身份，已接受原键先返回固定运行。父级送达按固定代次将结果交给有效等待父轮，或登记唯一无工具汇总任务；dev 也进入实时结果登记和冷启动补记，main 沿原 IM 事件回复，定时来源只由调度整项回报。暂停及混有普通输入的队列遵循既有恢复规则。
 
-`listWorkspaceFiles`／`readWorkspaceFile` 仅按已登记项目根提供只读分页，不经过模型或 Agent 工具。根目录身份、保护根、规范相对路径和每段父链读取前后核实，拒绝符号链接、非普通文件、多硬链接与变化中的内容；目录单层扫描 201 项并最多返回 200，文件按 256 KiB 字节页返回 base64，version 绑定文件身份、大小及修改时间，跨页改变拒绝，无总文件长度上限；缺失与权限失败保留具名错误且不暴露宿主绝对路径。纯 Node 的前后身份核实不是原子 openat 沙箱。
+`listWorkspaceFiles`／`readWorkspaceFile` 仅按已登记项目根提供只读分页，不经过模型或 Agent 工具。拥有者查询不采用 Agent 的保护根限制，也不遍历后台保护树；根目录身份、规范相对路径和每段父链读取前后核实，拒绝符号链接、非普通文件、多硬链接与变化中的内容；目录单层扫描 201 项并最多返回 200，文件按 256 KiB 字节页返回 base64，version 绑定文件身份、大小及修改时间，跨页改变拒绝，无总文件长度上限；缺失与权限失败保留具名错误且不暴露宿主绝对路径。纯 Node 的前后身份核实不是原子 openat 沙箱。
 
 `listSkills` 保留有效技能库的 TUI 查询；`listManagedSkills`、`getSkill`、`previewSkillImport`、`importSkill`、`setSkillEnabled` 与 `removeSkill` 将当前 Code 实例的技能查询和管理交给共享技能库。托管根位于自身 agentDir，外部来源只读；导入提交按原预览身份、源内容修订和管理修订核实，启停与逻辑移除只改清单。管理不创建任务、改变工具权限或改写既有技能正文；当前有效技能选择及旧引用的保持规则见[上下文与技能](agent-context.md)。
 
@@ -373,9 +373,11 @@ MCP 配置来源查询保留工作区组织归属与原项目身份的区别，�
 
 普通开发会话与 main 主会话的桌面附件经 `put_attachment` 分块暂存，`submit`／`continue` 核对稳定引用后与任务同事务登记产物和 `task.attachments` 事件。普通文件通过 `read_artifact` 读取，图片复用视觉输入；纯附件允许空文本，未核实的提交仍沿原请求键恢复。暂存快照不自动清理，磁盘使用会累积。
 
-`readWorkspaceGit` 按登记根身份只读分页查询真实提交与refs；每页200条，没有累计上限，每次总5秒、每命令512 KiB及结果768 KiB预算，非仓库和空仓库分开。游标绑定工作区、Git/common身份、HEAD、全部refs、shallow与info/grafts，读取前后核实修订，变化拒绝并要求刷新。原保护根、元数据链接、alternates和配置include限制继续适用，失败返回类型化错误。拥有者附件入口允许 dev 和 main，子会话仍拒绝；main 主身份随快照显式提供。
+`readWorkspaceGit` 按登记根身份只读分页查询真实提交与refs；每页200条，没有累计上限，每次总5秒、每命令512 KiB及结果768 KiB预算，非仓库和空仓库分开。游标绑定工作区、Git/common身份、HEAD、全部refs、shallow与info/grafts，读取前后核实修订，变化拒绝并要求刷新。不计算或扫描 Agent 保护根，保留元数据链接、alternates和配置include限制，失败返回类型化错误。拥有者附件入口允许 dev 和 main，子会话仍拒绝；main 主身份随快照显式提供。
 
 ## 设计依据
+
+- [拥有者工作区浏览权限](../../.agents/notes/implemented/feature/2026-10-24-owner-workspace-browsing.md)
 
 - [模型配置与模型栈归属](../../.agents/notes/implemented/architecture/2026-10-23-runtime-models.md)
 

@@ -89,6 +89,21 @@ test("个人命令配置：损坏和链接配置拒绝读取，不作为未配�
   } finally { profile.release(); }
 });
 
+test("个人命令配置：完全访问不扫描保护树，仍核实目录机器和临时目录", t => {
+  const f = fixture(t), readdir = nodeFs.readdirSync;
+  let scans = 0;
+  t.mock.method(nodeFs, "readdirSync", (...args: Parameters<typeof nodeFs.readdirSync>) => {
+    if (String(args[0]) === f.directory) { scans++; throw new Error("保护树不可读"); }
+    return Reflect.apply(readdir, nodeFs, args);
+  }); syncBuiltinESMExports();
+  verifyPersonalCommandConfig(f.config, f.directory, "full_access"); assert.equal(scans, 0);
+  for (const mode of ["confirm", "auto-review"] as const) assert.throws(() => verifyPersonalCommandConfig(f.config, f.directory, mode), code("command_config_invalid"));
+  assert.equal(scans, 2);
+  for (const changed of [{ ...f.config, machineId: "b".repeat(32) }, { ...f.config, tmpdir: f.root }]) assert.throws(() => verifyPersonalCommandConfig(changed, f.directory, "full_access"), code("command_config_changed"));
+  fs.renameSync(f.workspace, f.workspace + "-original"); fs.mkdirSync(f.workspace);
+  assert.throws(() => verifyPersonalCommandConfig(f.config, f.directory, "full_access"), code("command_config_changed"));
+});
+
 test("个人档案：命令证据目录保留私有目录权限，拒绝链接与开放权限", t => {
   const f = fixture(t); const directory = path.join(f.directory, "commands");
   fs.mkdirSync(directory, { mode: 0o700 });

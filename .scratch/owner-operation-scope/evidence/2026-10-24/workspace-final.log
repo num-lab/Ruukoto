@@ -1,0 +1,14 @@
+✔ 拥有者登记保护目录、祖先与新会话不查询 Agent 保护范围 (246.715117ms)
+✔ 受限 local 启动前核实工作区、授予路径和只读根 (77.824895ms)
+✔ 保护目录的完全访问真实读取成功，运行中切为受限后不能复用旧 worker (2932.030881ms)
+[ruukoto:branch] 请求 protected-branch 准备失败：注入分支提交失败
+✔ 保护目录会话分支及 prepared 恢复保留完全访问的真实读取 (4684.80373ms)
+✔ 拥有者组织迁移可登记保护根祖先且同键重放不改执行模式 (284.279756ms)
+ℹ tests 5
+ℹ suites 0
+ℹ pass 5
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 11273.80097

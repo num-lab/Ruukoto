@@ -1,0 +1,10 @@
+✔ durable 完全访问检索：不扫描保护树，仍核实逻辑cwd身份 (658.003201ms)
+✔ durable 文件检索：资料根、撤权、子来源、原流产物与重开 (12923.809419ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 16953.825543

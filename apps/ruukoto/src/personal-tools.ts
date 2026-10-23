@@ -111,11 +111,12 @@ async function within(tx: Tx, config: PersonalToolsConfig, target: string, acces
   }
   return false;
 }
+// Note: 见 .agents/notes/implemented/bug-fix/2026-10-24-operation-specific-checks.md
 async function active(tx: Tx, value: PersonalToolOperation, profile: string) {
   const doc = await tx.doc(PersonalToolsDoc);
   if (!isDeepStrictEqual(doc.config, value.config) || doc.grantVersion !== value.grantVersion) throw new PersonalError("tool_permission_changed", "配置或资料授权已变化，本次批准失效，未执行；请查询原操作。");
   if (!isDeepStrictEqual(await personalToolOrigin(tx, { taskId: value.operation, conversationId: value.origin.conversationId }, value.origin.source.requestId), value.origin)) throw new PersonalError("tool_source_changed", "原工作来源或权限已变化，未执行；请查询原操作。");
-  verifyPersonalTools(value.config, profile);
+  if (value.prepared.kind === "file_search" || value.prepared.kind === "file" && value.origin.permission.mode !== "full_access") verifyPersonalTools(value.config, profile, value.origin.permission.mode);
   if (value.prepared.kind === "file_search") {
     const execution = value.prepared.execution, request = execution.request;
     verifyPersonalFileSearch(execution, true);

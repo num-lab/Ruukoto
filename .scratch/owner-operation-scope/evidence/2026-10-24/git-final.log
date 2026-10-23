@@ -1,0 +1,29 @@
+✔ Git 历史保留真实分叉合并、父提交、作者与显式本地/远程/标签引用 (190.094769ms)
+✔ 非仓库与空仓库不同，子目录和真实 worktree 使用所在仓库 (119.464325ms)
+✔ Git 读取排除注入环境与全局配置，不执行 hook/pager/signature 命令 (66.256963ms)
+✔ Git 支持本地硬链接克隆、共享对象库与配置 include，仍不执行仓库程序 (172.854254ms)
+✔ Git 查询不枚举与提交无关的元数据目录 (43.850334ms)
+✔ Git 目录、gitdir 与 commondir 支持链接形式，坏指针仍明确拒绝 (145.880588ms)
+✔ Git 游标绑定 HEAD 链接的分支身份，即使两个分支指向同一提交 (942.431629ms)
+✔ Git include 的 remote 变化淘汰游标，等价 alternates 对象库可继续分页 (1061.130005ms)
+✔ 超过400条真实历史可连续分页到根提交，跨页分支合并无重复遗漏 (1910.260558ms)
+✔ Git游标绑定全部refs、HEAD、shallow、Git身份和工作区，非仓库也拒绝旧游标 (1077.802089ms)
+✔ worktree分页游标同时绑定外部common Git目录身份 (972.009893ms)
+✔ grafts跨页变化淘汰旧游标，保留稳定grafts支持：普通仓库 (1038.069833ms)
+✔ grafts跨页变化淘汰旧游标，保留稳定grafts支持：common Git目录 (1129.441172ms)
+✔ 同一页log返回后grafts变化也返回changed (212.520933ms)
+✔ 同一页读取期间refs变化返回changed，不把不同修订拼入历史 (221.904971ms)
+✔ Git missing 失败有可判别 code 且不泄漏 stderr (19.033323ms)
+✔ Git failed 失败有可判别 code 且不泄漏 stderr (56.137352ms)
+✔ Git invalid 失败有可判别 code 且不泄漏 stderr (180.038385ms)
+✔ Git limit 失败有可判别 code 且不泄漏 stderr (68.861457ms)
+✔ Git timeout 失败有可判别 code 且不泄漏 stderr (5015.221494ms)
+✔ 拥有者 Git 查询不受 Agent 保护目录限制，仍拒绝额外路径与命令参数 (1169.633361ms)
+ℹ tests 21
+ℹ suites 0
+ℹ pass 21
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 18718.551393

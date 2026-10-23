@@ -25,7 +25,7 @@ import { Driver } from "@ruukoto/agent/driver.ts";
 import { endTaskExecution, type TaskEndingContext } from "@ruukoto/agent/task-ending.ts";
 import { BrowserManager, BROWSER_META_KEY, type BrowserManagerOptions } from "@ruukoto/agent/browser-manager.ts";
 import { browserTaskAllowed, createBrowserFamily } from "@ruukoto/agent/browser-tools.ts";
-import { assertGrantNotProtected } from "@ruukoto/agent/execution/approved-ops.ts";
+import { assertGrantNotProtected, assertGrantsNotProtected } from "@ruukoto/agent/execution/approved-ops.ts";
 import { CredentialStore } from "@ruukoto/agent/execution/credentials.ts";
 import {
   createLauncherFor,
@@ -589,12 +589,21 @@ export class Runtime {
     ];
   }
 
+  // Note: 见 .agents/notes/implemented/bug-fix/2026-10-24-operation-specific-checks.md
   launcherFor(mode: AccessMode) {
     const config = this.config.execution ?? { backend: "local" as const };
-    return createLauncherFor(config.backend === "native" ? {
+    const launcher = createLauncherFor(config.backend === "native" ? {
       ...config,
       native: { ...config.native, protectedRoots: [...this.protectedRoots(), ...(config.native?.protectedRoots ?? [])] },
     } : config, mode);
+    if (mode === "full_access" || launcher.kind === "native") return launcher;
+    return { ...launcher, launch: async (spec: Parameters<typeof launcher.launch>[0]) => {
+      try { assertGrantsNotProtected([spec.workspace, ...spec.grantedPaths.map(grant => grant.path), ...(spec.readRoots ?? []).map(root => root.path)], this.protectedRoots()); }
+      catch (error) {
+        throw new ExecutionError("execution_unavailable", "受限执行范围不可用：请停止本轮并向拥有者报告工作目录与授权范围。", undefined, "sandbox_rejected", { cause: error });
+      }
+      return launcher.launch(spec);
+    } };
   }
 
   /**
@@ -2453,7 +2462,7 @@ export class Runtime {
         throw new RuntimeApiError("invalid_params", "角色或群聊项目不能创建普通会话");
       }
     }
-    const identity = await this.resolveUsableDir(input.cwd);
+    const identity = await this.resolveWorkspaceDir(input.cwd);
     const settings = await this.sessionCreationSettings(input);
     try {
       return this.store.withTx(() => {
@@ -2505,7 +2514,7 @@ export class Runtime {
           if (error instanceof DirIdentityError) throw new RuntimeApiError("cwd_changed", "来源会话或工作区目录已失效或被替换，请核实目录后再分支");
           throw error;
         }
-        const current = await this.resolveUsableDir(session.cwd);
+        const current = await this.resolveWorkspaceDir(session.cwd);
         if (!sameDirIdentity({ cwd: session.cwd, cwdReal: session.cwdReal, dev: session.cwdDev, ino: session.cwdIno }, current)) {
           throw new RuntimeApiError("cwd_changed", "来源目录入口已指向其他目录，请核实后再分支");
         }
@@ -2702,7 +2711,7 @@ export class Runtime {
   }): Promise<{ session: Session; projectName: string; createdProject: boolean }> {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝新操作");
     if (input.createRequestId && getBranchRequest(this.store, input.createRequestId)) throw new RuntimeApiError("request_conflict", "请求键已用于会话分支");
-    const identity = await this.resolveUsableDir(input.cwd);
+    const identity = await this.resolveWorkspaceDir(input.cwd);
     const settings = await this.sessionCreationSettings(input);
     try {
       return this.store.withTx(() => {
@@ -2780,17 +2789,10 @@ export class Runtime {
     }
   }
 
-  /** 解析目录身份并校验不是保护根本身、其子级或其祖先。 */
-  private async resolveUsableDir(cwd: string): Promise<DirIdentity> {
-    const identity = await resolveDirIdentity(cwd).catch((err: DirIdentityError) =>
+  private resolveWorkspaceDir(cwd: string): Promise<DirIdentity> {
+    return resolveDirIdentity(cwd).catch((err: DirIdentityError) =>
       Promise.reject(new RuntimeApiError("invalid_params", err.message)),
     );
-    try {
-      assertGrantNotProtected(identity.cwdReal, this.protectedRoots());
-    } catch (err) {
-      throw new RuntimeApiError("invalid_params", `工作区不可用：${(err as Error).message}`);
-    }
-    return identity;
   }
 
   listWorkspaceFiles(input: { workspaceId: string; path?: string }) {
@@ -2819,7 +2821,7 @@ export class Runtime {
   previewWorkspaceMigration(input: MigrationPreviewInput): MigrationPreview {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝新操作");
     return previewWorkspaceMigration(
-      { store: this.store, instanceId: this.db.getInstanceId(), protectedRoots: this.protectedRoots() },
+      { store: this.store, instanceId: this.db.getInstanceId() },
       input,
     );
   }
@@ -2827,7 +2829,7 @@ export class Runtime {
   applyWorkspaceMigration(input: MigrationApplyInput): MigrationApplyResult {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝新操作");
     return applyWorkspaceMigration(
-      { store: this.store, instanceId: this.db.getInstanceId(), protectedRoots: this.protectedRoots() },
+      { store: this.store, instanceId: this.db.getInstanceId() },
       input,
     );
   }

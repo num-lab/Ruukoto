@@ -2,6 +2,8 @@
 
 Status: implemented
 
+完全访问运行时的无关保护检查由[按操作核实范围](../bug-fix/2026-10-24-operation-specific-checks.md)移除；命令目录身份、来源和原执行停止证据继续核实。
+
 ## 问题
 
 [durable 命令](2026-10-17-personal-durable-commands.md)仅接通受限模式，完全访问仍被拒绝。共享 local launcher 的进程组只在内存中，不足以在后台强杀后核实原执行停止；复用受限 prepare 又会改变已确认的账户环境、目录外访问与网络语义。

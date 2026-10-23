@@ -1,0 +1,64 @@
+{
+  "base": "26865864",
+  "worktree": "/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-owner-scope-fypf29lq/workspace",
+  "patch": "/tmp/ruukoto-owner-registration.patch",
+  "checks": [
+    {
+      "command": "npx tsx --test --test-name-pattern='拥有者登记保护|受限 local 启动|保护目录的完全访问|拥有者组织迁移可|保护目录会话分支' test/10-access-modes.test.ts test/76-legacy-workspace-data.test.ts test/102-branch-session.test.ts",
+      "before": {
+        "tests": 5,
+        "pass": 0,
+        "fail": 5
+      },
+      "after": {
+        "tests": 5,
+        "pass": 5,
+        "fail": 0
+      }
+    },
+    {
+      "command": "npx tsx --test test/10-access-modes.test.ts test/30-workspace-entry.test.ts test/74-workspace-sessions.test.ts test/76-legacy-workspace-data.test.ts test/102-branch-session.test.ts",
+      "tests": 91,
+      "pass": 91,
+      "fail": 0
+    },
+    {
+      "command": "npx tsx --test --test-name-pattern='原生授权规范化、保护根' test/101-native-execution.test.ts",
+      "tests": 1,
+      "pass": 1,
+      "fail": 0
+    },
+    {
+      "command": "npm run typecheck",
+      "exit": 0
+    },
+    {
+      "command": "npx eslint packages/runtime/src/runtime.ts packages/runtime/src/workspace-migration.ts test/10-access-modes.test.ts test/30-workspace-entry.test.ts test/74-workspace-sessions.test.ts test/76-legacy-workspace-data.test.ts test/102-branch-session.test.ts",
+      "exit": 0
+    },
+    {
+      "command": "git diff --check",
+      "exit": 0
+    },
+    {
+      "command": "npx tsx --test --test-name-pattern='保护目录的完全访问' test/10-access-modes.test.ts",
+      "reason": "增加实际模型请求中的拒绝指引断言后定向复跑",
+      "tests": 1,
+      "pass": 1,
+      "fail": 0
+    }
+  ],
+  "hashes": {
+    "packages/runtime/src/runtime.ts": "05f524bb522b7d5cffca835ca76df9cc5fc9e57fee2662392fa877debd2bf700",
+    "packages/runtime/src/workspace-migration.ts": "c03f95d2a0b569c7c6e9873cad7c56af94fe5e241e6d53534127a5757934be64",
+    "test/10-access-modes.test.ts": "2f2c3972f5a03c00ff076409b2bc44539a0ef5599b9b0ec903d9ad2f3642ba2b",
+    "test/30-workspace-entry.test.ts": "43e743eebbd3338fbf6753494ddb565074fcc63e0999d5543b7db91890dc2fbc",
+    "test/74-workspace-sessions.test.ts": "fee64dba08253a938fc6bfb0fc5fa15d159fefc72e08181923d8efafec0bf54c",
+    "test/76-legacy-workspace-data.test.ts": "99c8f5d99c3351b03f2f5f079eef3df85c752a9938b8e70a74dac44657676453",
+    "test/102-branch-session.test.ts": "aba9724d8c478f256c18f9d2a2aca36acdac1aca06f3839ce73b738a6194be72"
+  },
+  "unverified": [
+    "Linux运行",
+    "真实模型与原生Desktop"
+  ]
+}

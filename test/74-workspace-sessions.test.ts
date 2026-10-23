@@ -6,7 +6,7 @@
  * 1. open_workspace op：新建工作区并记录根目录身份；别名（符号链接/路径变体）复用
  *    同一工作区且每次新建会话；同名不同目录各自成工作区不合并；同一请求标识重发
  *    幂等；旧项目经 project_id 认领根目录后自动归属，已归属他目录的项目拒绝改归属；
- *    保护根拒绝且不留空项目；认领冲突返回 duplicate（事务回滚，不留会话与归属），
+ *    保护根可登记，不存在目录不留空项目；认领冲突返回 duplicate（事务回滚，不留会话与归属），
  *    混合旧项目不可认领、目录打开直接新建工作区（评审 R1/R2/R5）；
  * 2. 兼容：create_project/create_session 旧行为不变（不写根目录归属），v18 库升级
  *    到 v19 后旧项目/会话仍可读；
@@ -335,20 +335,18 @@ test("open_workspace：角色与群聊项目不能作为工作区认领", async 
   }
 });
 
-test("open_workspace：保护根与不存在目录明确拒绝，不留空项目", async () => {
+test("open_workspace：保护根可登记，不存在目录明确拒绝且不留空项目", async () => {
   const t = await startTestRuntime("ws74-protected", async () => ({ kind: "text", text: "x" }));
   try {
     const projectCount = t.runtime.store.listProjects().length;
-    await assert.rejects(
-      () => t.client.request("open_workspace", { cwd: t.dirs.dataDir, request_id: "boot-p" }),
-      (err: any) => err.code === "invalid_params",
-    );
+    const opened = await t.runtime.openWorkspace({ cwd: t.dirs.dataDir, createRequestId: "boot-p" });
+    assert.equal(opened.session.cwdReal, fs.realpathSync(t.dirs.dataDir));
     await assert.rejects(
       () => t.client.request("open_workspace", { cwd: path.join(t.dirs.root, "nope"), request_id: "boot-n" }),
       (err: any) => err.code === "invalid_params",
     );
-    assert.equal(t.runtime.store.listProjects().length, projectCount, "拒绝不留空项目");
-    assert.ok(!t.runtime.store.listSessions().some((s) => s.createRequestId === "boot-p"));
+    assert.equal(t.runtime.store.listProjects().length, projectCount + 1, "不存在目录不留空项目");
+    assert.ok(t.runtime.store.listSessions().some((s) => s.createRequestId === "boot-p"));
   } finally {
     await t.shutdown();
   }

@@ -35,7 +35,7 @@ import { ControlServer } from "@ruukoto/control/server.ts";
 import { Runtime } from "@ruukoto/runtime/runtime.ts";
 import { readOwnerToken, TOKEN_FILE_NAME } from "@ruukoto/control/owner-token.ts";
 import { createMockTools } from "@ruukoto/agent/mock-tools.ts";
-import { createLauncherFor } from "@ruukoto/agent/execution/launchers.ts";
+import { createLauncherFor, ExecutionError, type LaunchSpec } from "@ruukoto/agent/execution/launchers.ts";
 import { assertGrantNotProtected } from "@ruukoto/agent/execution/approved-ops.ts";
 import type { Responder } from "./helpers/mock-provider.ts";
 
@@ -558,7 +558,7 @@ test("模型不能提升任务模式：不存在这种工具", async () => {  co
   }
 });
 
-test("保护根双向排除：授予保护根的祖先或服务代码目录被拒绝；工作区同样受限", async () => {
+test("保护根双向排除：受限任务授予保护根的祖先或服务代码目录被拒绝", async () => {
   const t = await startTestRuntime("protected-roots", modeRoutes(), { workDirs: 1 });
   try {
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
@@ -586,32 +586,7 @@ test("保护根双向排除：授予保护根的祖先或服务代码目录被�
       (err: any) => err.code === "invalid_params",
       "服务代码目录不得作为授予路径",
     );
-    // 工作区本身不得是保护根（数据目录）
-    const project2 = await t.client.request<any>("create_project", { name: "prot-ws" });
-    await assert.rejects(
-      () =>
-        t.client.request("create_session", {
-          project_id: project2.id,
-          cwd: t.dirs.dataDir,
-        }),
-      (err: any) => err.code === "invalid_params",
-      "数据目录不得作为会话工作区",
-    );
-    await assert.rejects(
-      () =>
-        t.client.request("create_session", {
-          project_id: project2.id,
-          cwd: t.dirs.root,
-        }),
-      (err: any) => err.code === "invalid_params",
-      "保护根的祖先目录不得作为会话工作区",
-    );
-    // 根目录是所有保护根的祖先
-    await assert.rejects(
-      () => t.client.request("create_session", { project_id: project2.id, cwd: "/" }),
-      (err: any) => err.code === "invalid_params",
-      "根目录不得作为会话工作区",
-    );
+
   } finally {
     await t.shutdown();
   }
@@ -672,4 +647,70 @@ test("Git worktree：授予共享 Git 元数据时用途标注其影响；不授
   } finally {
     await t.shutdown();
   }
+});
+
+
+test("拥有者登记保护目录、祖先与新会话不查询 Agent 保护范围", async () => {
+  const t = await startTestRuntime("owner-register", () => ({ kind: "text", text: "不会调用模型" }));
+  const protectedRoots = t.runtime.protectedRoots;
+  try {
+    t.runtime.protectedRoots = () => { throw new Error("拥有者登记不应计算保护范围"); };
+    for (const cwd of [t.dirs.dataDir, t.dirs.root, process.cwd()]) {
+      const opened = await t.runtime.openWorkspace({ cwd, mode: "full_access" });
+      assert.equal(opened.session.cwdReal, fs.realpathSync(cwd));
+      const session = await t.runtime.createSession({ projectId: opened.session.projectId, cwd, mode: "confirm" });
+      assert.equal(session.defaultAccessMode, "confirm", "登记不取决于会话的后续任务模式");
+    }
+    assert.equal(t.server.calls.length, 0);
+  } finally { t.runtime.protectedRoots = protectedRoots; await t.shutdown(); }
+});
+
+test("受限 local 启动前核实工作区、授予路径和只读根", async () => {
+  const t = await startTestRuntime("owner-local-guard", () => ({ kind: "text", text: "不会调用模型" }));
+  try {
+    const spec: LaunchSpec = { taskId: "local-guard", mode: "confirm", workspace: fs.realpathSync(t.work[0]!), grantedPaths: [] };
+    const protectedRoot = fs.realpathSync(t.dirs.dataDir);
+    const cases: LaunchSpec[] = [
+      { ...spec, workspace: protectedRoot },
+      { ...spec, workspace: fs.realpathSync(t.dirs.root) },
+      { ...spec, grantedPaths: [{ path: protectedRoot, access: "read", purpose: "受限资料" }] },
+      { ...spec, readRoots: [{ path: protectedRoot }] },
+    ];
+    for (const input of cases) await assert.rejects(async () => {
+      const unit = await t.runtime.launcherFor("confirm").launch(input);
+      await unit.entry.stop();
+    }, (error: unknown) => error instanceof ExecutionError && error.code === "execution_unavailable" && error.reason === "sandbox_rejected");
+    assert.equal(t.server.calls.length, 0);
+  } finally { await t.shutdown(); }
+});
+
+test("保护目录的完全访问真实读取成功，运行中切为受限后不能复用旧 worker", async () => {
+  let release!: () => void;
+  const continueModel = new Promise<void>(resolve => { release = resolve; });
+  let firstRead = false;
+  const t = await startTestRuntime("owner-mode-switch", async req => {
+    const results = req.messages.filter(message => message.role === "tool");
+    if (results.length === 1) { firstRead = true; await continueModel; }
+    return results.length < 2 ? { kind: "tool_calls", calls: [{ id: `read-${results.length}`, name: "read", arguments: { path: "owner-sentinel.txt" } }] } : { kind: "text", text: "已报告读取结果" };
+  }, { config: realTools() });
+  try {
+    fs.writeFileSync(path.join(t.dirs.dataDir, "owner-sentinel.txt"), "owner-sentinel-visible");
+    const session = (await t.runtime.openWorkspace({ cwd: t.dirs.dataDir, mode: "full_access" })).session;
+    const task = await t.runtime.submit({ sessionId: session.id, requestId: "read-then-restrict", input: "读取测试文件", modelSelection: t.runtime.defaultSelection });
+    await waitFor("完全访问已实际读取文件", () => firstRead, 30_000);
+    const before = t.runtime.store.listToolOpsByTask(task.id);
+    assert.equal(before[0]!.isError, false);
+    assert.match(before[0]!.resultSummary!, /owner-sentinel-visible/);
+    await t.runtime.switchTaskMode({ taskId: task.id, mode: "confirm" });
+    release();
+    await waitFor("受限读取结果已落盘", () => t.runtime.store.getTask(task.id)!.status === "completed", 30_000);
+    const after = t.runtime.store.listToolOpsByTask(task.id);
+    assert.equal(after.length, 2);
+    assert.equal(after[1]!.isError, true);
+    assert.doesNotMatch(after[1]!.resultSummary!, /owner-sentinel-visible/);
+    assert.match(JSON.stringify(t.server.calls.at(-1)!.messages.at(-1)), /停止本轮并向拥有者报告工作目录与授权范围/);
+    assert.equal(t.runtime.store.getTask(task.id)!.accessMode, "confirm");
+    assert.equal(t.runtime.store.listConfirmationsByTask(task.id).length, 0);
+    assert.deepEqual(t.runtime.store.listAllOccupancy(), []);
+  } finally { release(); await t.shutdown(); }
 });

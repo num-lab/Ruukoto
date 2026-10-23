@@ -1,0 +1,14 @@
+✔ 个人后台：完全访问启动和持续监督不扫描保护树，目录身份变化仍停止 (1783.531209ms)
+✔ 个人命令配置：完全访问不扫描保护树，仍核实目录机器和临时目录 (3.1975ms)
+✔ durable 命令：full_access 保留原权限、原生 owned Task 和双流分页，非零结果也释放身份 (425.739666ms)
+ℹ {"mode":"full_access","systemPrompt":73,"toolSchemas":1006}
+✔ durable 工具：网络与完全访问文件不检查无关资料目录或保护树 (919.203292ms)
+✔ durable 完全访问检索：不扫描保护树，仍核实逻辑cwd身份 (266.767208ms)
+ℹ tests 5
+ℹ suites 0
+ℹ pass 5
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 7532.032209

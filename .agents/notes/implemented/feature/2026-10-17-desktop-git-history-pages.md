@@ -2,6 +2,8 @@
 
 Status: implemented
 
+Git 整树元数据扫描由[按操作核实范围](../bug-fix/2026-10-24-operation-specific-checks.md)移除；支持正常链接与共享对象库，分页修订额外包含 HEAD 链接文本，输出固定 UTF-8。
+
 Git 查询的保护根约束由[拥有者浏览权限](2026-10-24-owner-workspace-browsing.md)取代，分页、修订和元数据核实继续适用。
 
 ## 问题

@@ -2,6 +2,8 @@
 
 Status: implemented
 
+Git 元数据全树预检与外部引用限制由[按操作核实范围](../bug-fix/2026-10-24-operation-specific-checks.md)取代；固定只读命令、输出预算及身份校验继续适用。
+
 Git 查询的保护根约束由[拥有者浏览权限](../feature/2026-10-24-owner-workspace-browsing.md)取代；元数据核实、只读命令及分页一致性规则继续适用。
 
 ## 问题

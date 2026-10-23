@@ -1,0 +1,113 @@
+✖ 个人后台：完全访问启动和持续监督不扫描保护树，目录身份变化仍停止 (2109.497375ms)
+✖ 个人命令配置：完全访问不扫描保护树，仍核实目录机器和临时目录 (5.185083ms)
+✖ durable 命令：full_access 保留原权限、原生 owned Task 和双流分页，非零结果也释放身份 (695.574875ms)
+✖ durable 工具：网络与完全访问文件不检查无关资料目录或保护树 (108.861833ms)
+✖ durable 完全访问检索：不扫描保护树，仍核实逻辑cwd身份 (34.470709ms)
+ℹ tests 5
+ℹ suites 0
+ℹ pass 0
+ℹ fail 5
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 7578.556708
+
+✖ failing tests:
+
+test at test/personal-background-processes.test.ts:82:1
+✖ 个人后台：完全访问启动和持续监督不扫描保护树，目录身份变化仍停止 (2109.497375ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  4 !== 0
+  
+      at TestContext.<anonymous> (/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-owner-scope-fypf29lq/personal/test/personal-background-processes.test.ts:96:10)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 4,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at test/personal-command-config.test.ts:92:1
+✖ 个人命令配置：完全访问不扫描保护树，仍核实目录机器和临时目录 (5.185083ms)
+  Error [PersonalError]: 命令目录不可用或包含受保护资料，已停止；请保留档案并检查原目录与配置。
+      at verifyPersonalCommandConfig (/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-owner-scope-fypf29lq/personal/apps/ruukoto/src/personal-command-config.ts:35:11)
+      at TestContext.<anonymous> (/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-owner-scope-fypf29lq/personal/test/personal-command-config.test.ts:99:3)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1201:25)
+      at Test.start (node:internal/test_runner/test:1096:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:385:17) {
+    code: 'command_config_invalid',
+    [cause]: Error: 保护树不可读
+        at Module.<anonymous> (/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-owner-scope-fypf29lq/personal/test/personal-command-config.test.ts:96:59)
+        at Object.apply (node:internal/test_runner/mock/mock:756:20)
+        at identityOverlap (/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-owner-scope-fypf29lq/personal/packages/agent/src/execution/approved-ops.ts:114:24)
+        at identityCovers (/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-owner-scope-fypf29lq/personal/packages/agent/src/execution/approved-ops.ts:120:10)
+        at isProtectedPath (/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-owner-scope-fypf29lq/personal/packages/agent/src/execution/approved-ops.ts:126:78)
+        at assertGrantNotProtected (/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-owner-scope-fypf29lq/personal/packages/agent/src/execution/approved-ops.ts:141:7)
+        at verifyPersonalCommandConfig (/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-owner-scope-fypf29lq/personal/apps/ruukoto/src/personal-command-config.ts:32:5)
+        at TestContext.<anonymous> (/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-owner-scope-fypf29lq/personal/test/personal-command-config.test.ts:99:3)
+        at Test.runInAsyncScope (node:async_hooks:227:14)
+        at Test.run (node:internal/test_runner/test:1201:25)
+  }
+
+test at test/personal-command-work.test.ts:141:72
+✖ durable 命令：full_access 保留原权限、原生 owned Task 和双流分页，非零结果也释放身份 (695.574875ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  3 !== 0
+  
+      at TestContext.<anonymous> (/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-owner-scope-fypf29lq/personal/test/personal-command-work.test.ts:156:68)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 3,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at test/personal-tools.test.ts:85:1
+✖ durable 工具：网络与完全访问文件不检查无关资料目录或保护树 (108.861833ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + 'tools_config_invalid'
+  - 'file_returned'
+  
+      at TestContext.<anonymous> (/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-owner-scope-fypf29lq/personal/test/personal-tools.test.ts:108:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'tools_config_invalid',
+    expected: 'file_returned',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at test/personal-tools.test.ts:119:1
+✖ durable 完全访问检索：不扫描保护树，仍核实逻辑cwd身份 (34.470709ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + 'not_executed'
+  - 'returned'
+  
+      at TestContext.<anonymous> (/private/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-owner-scope-fypf29lq/personal/test/personal-tools.test.ts:128:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'not_executed',
+    expected: 'returned',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

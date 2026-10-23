@@ -66,6 +66,8 @@
 
 Runtime 另持有跨任务的 `BrowserManager`，Coding 底座持有；Driver 的每任务 registry 不承担浏览器归属。正常任务结束保留浏览器，活动任务的取消、有效模式切换和后台停止先核实自有 Chrome、CLI daemon 与 dashboard 的停止；附接只停自己的连接进程。改变同会话另一排队任务的模式不关闭当前任务的浏览器。启动先恢复浏览器绑定、核实旧执行停止，再恢复任务，不重放旧动作；未核实状态仅影响浏览器能力。
 
+拥有者打开工作区、新建会话、分支与组织迁移只核实目录身份及既有归属，不查询 Agent 保护根。登记不授予任务文件权限；受限任务在实际执行入口核对范围，完全访问使用后台账户已有权限。
+
 ## 数据与状态
 
 浏览器绑定保存在核心库 `meta.browser_bindings_v1`，包含会话、代次、自有/附接、目标、进程启动身份、人工暂停、未知效果及失败码。更新与 `browser.binding_changed` 事件同事务；Chromium profile、图片文件与 SQLite 没有跨文件原子保证。关闭保留 profile 与图片，空闲退出以进程存活监督为依据，不发保活命令。安装、登录和恢复步骤见[操作手册](../usage.md#12-浏览器)。
@@ -373,9 +375,11 @@ MCP 配置来源查询保留工作区组织归属与原项目身份的区别，�
 
 普通开发会话与 main 主会话的桌面附件经 `put_attachment` 分块暂存，`submit`／`continue` 核对稳定引用后与任务同事务登记产物和 `task.attachments` 事件。普通文件通过 `read_artifact` 读取，图片复用视觉输入；纯附件允许空文本，未核实的提交仍沿原请求键恢复。暂存快照不自动清理，磁盘使用会累积。
 
-`readWorkspaceGit` 按登记根身份只读分页查询真实提交与refs；每页200条，没有累计上限，每次总5秒、每命令512 KiB及结果768 KiB预算，非仓库和空仓库分开。游标绑定工作区、Git/common身份、HEAD、全部refs、shallow与info/grafts，读取前后核实修订，变化拒绝并要求刷新。不计算或扫描 Agent 保护根，保留元数据链接、alternates和配置include限制，失败返回类型化错误。拥有者附件入口允许 dev 和 main，子会话仍拒绝；main 主身份随快照显式提供。
+`readWorkspaceGit` 按登记根身份只读分页查询真实提交与refs；每页200条，没有累计上限，每次总5秒、每命令512 KiB及结果768 KiB预算，非仓库和空仓库分开。游标绑定工作区、Git/common身份、HEAD、全部refs、shallow与info/grafts，读取前后核实修订，变化拒绝并要求刷新。不计算或扫描 Agent 保护根，也不遍历整个 Git 目录；支持元数据链接、本地硬链接克隆、alternates及配置include，日志固定UTF-8。HEAD链接文本纳入修订，指针按最终普通文件句柄有界读取，失败返回类型化错误。拥有者附件入口允许 dev 和 main，子会话仍拒绝；main 主身份随快照显式提供。
 
 ## 设计依据
+
+- [按操作和访问模式核实范围](../../.agents/notes/implemented/bug-fix/2026-10-24-operation-specific-checks.md)
 
 - [拥有者工作区浏览权限](../../.agents/notes/implemented/feature/2026-10-24-owner-workspace-browsing.md)
 

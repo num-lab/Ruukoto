@@ -320,7 +320,7 @@ function routerKit(launcher: WorkerLauncher) {
   const session = store.createSession({ projectId: project.id, cwd: root, cwdReal: root, cwdDev: stat.dev, cwdIno: stat.ino, piSessionId: "test", confirmTools: [] });
   const { task } = store.insertQueuedTask({ sessionId: session.id, requestId: "start", input: "停止回归", modelSelection: { provider: "mock", modelId: "mock", thinkingLevel: "off" }, submissionDigest: "start" });
   const registry = createManagedProcessRegistry();
-  const router = new ToolRouter({ store, registry, ledger: new ToolOpLedger(store), artifacts: new ArtifactStore(root, store), credentials: new CredentialStore(root), launcherFor: () => launcher, protectedRoots: [], approvals: { request: async () => { throw new ExecutionError("approval_unused", "本用例不请求审批"); }, supersedeAll() {} } });
+  const router = new ToolRouter({ store, registry, ledger: new ToolOpLedger(store), artifacts: new ArtifactStore(root, store), credentials: new CredentialStore(root), launcherFor: () => launcher, protectedRoots: [], approvals: { request: async () => { throw new ExecutionError("approval_unused", "本用例不请求审批"); }, defer: async () => { throw new ExecutionError("approval_unused", "本用例不请求审批"); }, consumeDeferred() { throw new ExecutionError("approval_unused", "本用例不请求审批"); }, supersedeAll() {} } });
   const run = () => router.executeTool({ task, hostOpId: "op", sdkCallId: "call", name: "read", params: { path: "file" } });
   return { store, task, router, registry, run, close() { db.close(); fs.rmSync(root, { recursive: true, force: true }); } };
 }

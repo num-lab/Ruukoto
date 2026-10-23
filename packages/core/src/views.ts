@@ -50,7 +50,8 @@ export type ConfirmationRequestView = Omit<ConfirmationRequest, "params"> & {
   paramsTruncated: boolean;
 };
 
-export type ToolOpView = Omit<ToolOp, "params"> & {
+export type ToolOpView = Omit<ToolOp, "params" | "mcp"> & {
+  mcp?: Pick<NonNullable<ToolOp["mcp"]>, "serviceId" | "configVersion" | "effect" | "state">;
   params: Record<string, unknown>;
   paramsBytes: number;
   paramsTruncated: boolean;
@@ -96,7 +97,8 @@ export function confirmationToView(c: ConfirmationRequest): ConfirmationRequestV
 }
 
 export function toolOpToView(op: ToolOp): ToolOpView {
-  return { ...op, ...paramsToView(op.params) };
+  const { mcp, ...rest } = op;
+  return { ...rest, ...paramsToView(op.params), ...(mcp ? { mcp: { serviceId: mcp.serviceId, configVersion: mcp.configVersion, effect: mcp.effect, state: mcp.state } } : {}) };
 }
 
 /**

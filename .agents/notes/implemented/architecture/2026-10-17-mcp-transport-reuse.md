@@ -2,7 +2,7 @@
 
 Status: implemented
 
-[Cua 接入提案](../../proposed/architecture/2026-10-23-cua-official-mcp.md)复用本篇传输，目标绑定与连接寿命由消费者承担；提案不改变当前接口。
+[Cua 接入](2026-10-23-cua-official-mcp.md)增加受控stdio和逐调用证据钩子；目标绑定、持续连接与恢复由产品承担，普通HTTP接口和语义保持。
 
 ## 问题
 

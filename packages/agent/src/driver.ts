@@ -80,6 +80,7 @@ import type { AgentWaitCall } from "./agent-wait-tools.ts";
 import { WorkflowError, type WorkflowSource } from "@ruukoto/core/workflow.ts";
 import { requireSubAgentExecution, snapshotSubAgentExecution, SubAgentExecutionError, type SubAgentExecutionSnapshot } from "@ruukoto/core/subagent-execution.ts";
 import { subAgentAccessPolicy, subAgentSourceProfile } from "./subagent-capabilities.ts";
+import type { CodeCuaManager } from "./mcp/code.ts";
 import { planMcpTaskTools, EMPTY_MCP_PLAN, type McpTaskPlan } from "./mcp/tools.ts";
 import type { McpTimeouts } from "./mcp/client.ts";
 import type { McpStore, McpToolEffect } from "./mcp/store.ts";
@@ -130,7 +131,7 @@ export interface DriverDeps {
   /** 上下文压缩的摘要超时覆盖（issue 30），仅测试注入；生产 180 s。 */
   compaction?: { summaryTimeoutMs?: number };
   /** MCP（issue 16）：服务配置存储与超时覆盖；未配置时 MCP 工具不注册。 */
-  mcp?: { store: McpStore } & McpTimeouts;
+  mcp?: { store: McpStore; cua?: CodeCuaManager } & McpTimeouts;
   /** 宿主按任务收紧工具白名单；MCP 类别取自本地钉版配置，不接受模型声明。 */
   allowTaskTool?: (task: Task, name: string, mcpEffect?: McpToolEffect) => boolean;
   browser?: { allowed(task: Task): boolean; close(sessionId: string): Promise<boolean> };
@@ -323,7 +324,7 @@ export class Driver {
       },
       approvals: this.approvals,
       // MCP 动态工具经路由器统一处理（issue 18）：计划按任务钉版，执行时读取
-      mcp: deps.mcp ? { store: deps.mcp.store, plan: () => this.currentMcpPlan } : undefined,
+      mcp: deps.mcp ? { store: deps.mcp.store, cua: deps.mcp.cua, supportsImages: async task => (await this.deps.modelCatalog.resolve(task.modelSelection!)).input?.includes("image") ?? false, plan: () => this.currentMcpPlan } : undefined,
     });
   }
 
@@ -938,6 +939,7 @@ export class Driver {
       mcpStore: this.deps.mcp.store,
       credentials: this.deps.credentials,
       projectId: this.session.projectId,
+      connectCua: this.deps.mcp.cua && ownerQuestionTaskEligible(this.deps.store, task) ? service => this.deps.mcp!.cua!.connect(service, task.sessionId, false, task.id) : undefined,
       dispatch: (sdkCallId, params, signal) => this.router.executeRouted(sdkCallId, params, signal),
       connectTimeoutMs: this.deps.mcp.connectTimeoutMs,
       listTimeoutMs: this.deps.mcp.listTimeoutMs,
@@ -963,7 +965,7 @@ export class Driver {
     this.markerApi = null;
   }
 
-  /** 回收当前任务持有的 MCP 连接（幂等；迟到结果由 SDK 丢弃）。 */
+  /** 归还当前任务的 MCP 连接；HTTPS 关闭，Cua 借用归还后仍由产品保留。 */
   private async closeMcpConns(): Promise<void> {
     const plan = this.currentMcpPlan;
     this.currentMcpPlan = null;

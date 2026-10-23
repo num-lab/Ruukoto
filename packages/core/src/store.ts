@@ -2570,6 +2570,7 @@ export class Store {
     return {
       id: row.id,
       taskId: row.task_id,
+      ...(row.mcp ? { mcp: JSON.parse(row.mcp) as import("./types.ts").McpOperation } : {}),
       toolName: row.tool_name,
       sdkCallId: row.sdk_call_id ?? row.id,
       params: JSON.parse(row.params) as Record<string, unknown>,
@@ -2580,6 +2581,21 @@ export class Store {
       effectUnknown: Number(row.effect_unknown) === 1,
       recordedResultAt: row.recorded_result_at,
     };
+  }
+
+  saveMcpOperation(opId: string, value: import("./types.ts").McpOperation): void {
+    const op = this.getToolOp(opId), task = op && this.getTask(op.taskId);
+    if (!op || !task) throw new Error("MCP 原操作不存在");
+    this.db.prepare("UPDATE tool_ops SET mcp = ? WHERE id = ?").run(JSON.stringify(value), opId);
+    this.appendEvent({ type: "task.mcp_operation_changed", taskId: task.id, toolOpId: opId, state: value.state }, { taskId: task.id, sessionId: task.sessionId });
+  }
+
+  listOpenMcpOperations(includeExecutionId?: string): ToolOp[] {
+    return (this.db.prepare(`SELECT op.id, op.task_id, op.tool_name, op.sdk_call_id, op.params, op.intent_recorded_at, op.authorization,
+      op.result_summary, op.is_error, op.effect_unknown, op.recorded_result_at, json_remove(op.mcp, '$.request', '$.response') AS mcp
+      FROM tool_ops op WHERE op.rowid IN (SELECT MAX(rowid) FROM tool_ops WHERE mcp IS NOT NULL GROUP BY json_extract(mcp, '$.execution.executionId'))
+      AND (json_extract(op.mcp, '$.state') NOT IN ('closed', 'recovered') OR json_extract(op.mcp, '$.execution.executionId') = ?) ORDER BY op.rowid`)
+      .all(includeExecutionId ?? null) as any[]).map(Store.rowToToolOp);
   }
 
   listToolOpsByTask(taskId: string): ToolOp[] {

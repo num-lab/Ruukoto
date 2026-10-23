@@ -17,9 +17,10 @@ export interface McpConnectOptions extends McpTimeouts {
 
 /** 连接旧项目的服务；每请求重读凭据并核实项目、操作范围和目标主机。 */
 export async function connectMcpService(service: McpServiceConfig, opts: McpConnectOptions): Promise<McpConnection> {
-  const endpoint = parseMcpEndpoint(service.endpoint);
+  if (service.cua) throw new McpError("cua_manager_required", "电脑服务须由产品的持续连接管理器打开；普通 MCP 连接入口不能启动电脑程序。");
+  const endpoint = parseMcpEndpoint(service.endpoint!);
   const credName = service.credential;
-  return connectMcpEndpoint({ serviceId: service.id, endpoint: service.endpoint }, {
+  return connectMcpEndpoint({ serviceId: service.id, endpoint: service.endpoint! }, {
     connectTimeoutMs: opts.connectTimeoutMs,
     listTimeoutMs: opts.listTimeoutMs,
     callTimeoutMs: opts.callTimeoutMs,

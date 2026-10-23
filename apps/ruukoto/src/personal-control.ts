@@ -330,7 +330,7 @@ export async function startPersonalServer(directory: string, options: { developm
           result = { saved: true };
         } else if (req.method === "GET" && url.pathname === "/mcp/operations") {
           result = await instance.harness.commit(tx => mcpList(tx, queryNumber(url, "offset", 0)), context);
-        } else if ((req.method === "GET" && url.pathname === "/mcp/operation") || (req.method === "POST" && ["/mcp/decide", "/mcp/resolve", "/mcp/recheck"].includes(url.pathname))) {
+        } else if ((req.method === "GET" && url.pathname === "/mcp/operation") || (req.method === "POST" && ["/mcp/decide", "/mcp/resolve", "/mcp/recheck", "/mcp/cua-recover"].includes(url.pathname))) {
           const operation = queryNumber(url, "operation") as TaskId;
           if (operation < 1) throw new PersonalError("mcp_input_invalid", "请选择列表中的原 MCP 操作。");
           if (url.pathname === "/mcp/decide") {
@@ -342,6 +342,11 @@ export async function startPersonalServer(directory: string, options: { developm
             const value = await readControlJSON(req);
             if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).length !== 2 || !("effect" in value) || (value.effect !== "applied" && value.effect !== "not_applied") || !("evidence" in value) || typeof value.evidence !== "string") throw new PersonalError("mcp_resolution_invalid", "请选择业务已生效或未生效，并填写原 MCP 操作的核实证据。");
             await instance.harness.commit(tx => mcpResolve(tx, operation, value.effect as "applied" | "not_applied", value.evidence as string), context);
+            result = { saved: true };
+          } else if (url.pathname === "/mcp/cua-recover") {
+            const value = await readControlJSON(req);
+            if (!instance.mcp || !value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).some(key => !["action", "observation"].includes(key)) || !("action" in value) || !["stop", "begin", "observe", "accept"].includes(String(value.action))) throw new PersonalError("cua_recovery_invalid", "请从原电脑操作依次选择停止、开始恢复、新截图与接受现场。");
+            await instance.mcp.recoverCua(operation, value.action as "stop" | "begin" | "observe" | "accept", "observation" in value && Number.isSafeInteger(value.observation) ? value.observation as EntryId : undefined);
             result = { saved: true };
           } else if (url.pathname === "/mcp/recheck") {
             if (!instance.mcp) throw new PersonalError("mcp_config_missing", "MCP 未装配，请停止后台后通过向导配置服务。");
@@ -478,7 +483,7 @@ export async function startPersonalServer(directory: string, options: { developm
   }
 }
 
-export async function personalControl<T>(directory: string, method: "GET" | "POST", route: string, value?: ReturnType<typeof parsePersonalMemoryControl> | PersonalInput | PersonalServiceResolution | { decision: "approved" | "rejected" } | PersonalToolsControlBody | PersonalScheduleCreateBody | PersonalQuestionWrite | PersonalSettingsRequest, timeoutMs?: number): Promise<T> {
+export async function personalControl<T>(directory: string, method: "GET" | "POST", route: string, value?: ReturnType<typeof parsePersonalMemoryControl> | PersonalInput | PersonalServiceResolution | { decision: "approved" | "rejected" } | PersonalToolsControlBody | { action: "stop" | "begin" | "observe" | "accept"; observation?: EntryId } | PersonalScheduleCreateBody | PersonalQuestionWrite | PersonalSettingsRequest, timeoutMs?: number): Promise<T> {
   const token = readPersonalToken(directory);
   return new Promise<T>((resolve, reject) => {
     const req = http.request({ socketPath: path.join(directory, "control.sock"), method, path: route, headers: { authorization: `Bearer ${token}`, "content-type": "application/json", connection: "close" } });

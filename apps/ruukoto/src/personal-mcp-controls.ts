@@ -10,8 +10,8 @@ type Recheck = (tx: Tx, operation: TaskId, actor: TelegramControlInput) => Promi
 
 export function personalMcpDescription(item: Awaited<ReturnType<typeof mcpList>>["items"][number]): string {
   const decision = { pending: item.canDecide ? "等待本次批准" : "未登记人工批准", approved: "本次已批准", rejected: "本次已拒绝" }[item.decision];
-  const effect = { not_executed: "已知未执行", effect_unknown: "业务效果未知", returned: "已返回，请核对原响应" }[item.effect];
-  return `${item.service} / ${item.tool}；${decision}；${item.started ? "执行已开始" : "执行未开始"}；${effect}；${item.remoteEnded ? "原远端请求结束已核实" : "原远端请求结束未核实"}`;
+  const effect = { not_executed: "已知未执行", effect_unknown: "业务效果未知", returned: "已返回，请核对原响应", no_write: "只读观察中断，无写入效果" }[item.effect];
+  return `${item.service} / ${item.tool}；${decision}；${item.started ? "执行已开始" : "执行未开始"}；${effect}；${item.remoteEnded ? "原远端请求结束已核实" : "原远端请求结束未核实"}${item.cuaRecovery ? `；电脑恢复：${({ frozen: "绑定暂停，请从本机管理核实停止并恢复", stopped: "停止已核实，等待本人检查结果", begun: "本人已选择恢复，等待新截图", observed: "新截图已保存，等待本人接受", accepted: "本人已接受新观察，可开始新工作" })[item.cuaRecovery]}` : ""}`;
 }
 
 export async function personalMcpControl(tx: Tx, value: TelegramControlInput, requestRecheck?: Recheck): Promise<boolean> {

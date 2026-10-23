@@ -2871,7 +2871,7 @@ export class TuiApp {
         lines.push(`凭据：${c.scope.credentials.map((cred) => `${cred.name}（${cred.purpose}）`).join(", ") || "无"}（值不展示）`);
       }
       if (c.scope.kind === "mcp_tool") {
-        lines.push(`目标服务：${sanitizeForDisplay(c.scope.endpoint)} · 工具定义 ${c.scope.toolSignature}`);
+        lines.push(`目标服务：${sanitizeForDisplay(c.scope.cua?.kind ?? c.scope.endpoint ?? "")} · 工具定义 ${c.scope.toolSignature}`);
         lines.push(`凭据：${c.scope.credential ?? "无"}（值不展示）`);
         lines.push(`参数摘要：sha256 ${c.scope.paramsSha256.slice(0, 16)}…（完整参数见下方，执行以批准的参数为准）`);
       }

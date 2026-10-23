@@ -168,7 +168,8 @@ function safeEndpoint(endpoint: string) {
   return url.toString();
 }
 async function safeService(service: PersonalMcpService) {
-  const endpoint = safeEndpoint(service.endpoint);
+  if (service.cua) return { ...service, credentialStatus: "not-applicable" };
+  const endpoint = safeEndpoint(service.endpoint!);
   let credentialStatus: "anonymous" | "valid" | "missing" | "invalid" = "anonymous";
   if (service.credential) {
     try {
@@ -181,7 +182,7 @@ async function safeService(service: PersonalMcpService) {
 function restoreEndpoint(service: Record<string, unknown>, previous: PersonalMcpConfig | undefined) {
   if (typeof service.endpoint !== "string" || !service.endpoint.includes(redacted)) return service.endpoint;
   const original = previous?.services.find(item => item.id === service.id);
-  if (!original || safeEndpoint(original.endpoint) !== service.endpoint) throw new PersonalError("mcp_endpoint_redacted", "原端点的隐藏字段无法核实，未保存；请刷新原服务或明确输入新的完整端点。");
+  if (!original || original.cua || safeEndpoint(original.endpoint!) !== service.endpoint) throw new PersonalError("mcp_endpoint_redacted", "原端点的隐藏字段无法核实，未保存；请刷新原服务或明确输入新的完整端点。");
   return original.endpoint;
 }
 function mcpDraft(profile: PersonalProfileLock, value: unknown) {
@@ -191,6 +192,7 @@ function mcpDraft(profile: PersonalProfileLock, value: unknown) {
   return parsePersonalMcp({ ...value, generation: randomUUID(), services: value.services.map(service => {
     if (!object(service)) throw invalid();
     const { endpointRedacted: _redacted, credentialStatus: _status, authentication, credentialPath, ...raw } = service;
+    if (raw.cua !== undefined) { if (authentication !== undefined || credentialPath !== undefined) throw invalid(); return raw; }
     if (authentication !== undefined && authentication !== "anonymous" && authentication !== "credential" || credentialPath !== undefined && typeof credentialPath !== "string") throw invalid();
     const original = previous?.services.find(item => item.id === raw.id);
     const credential = typeof credentialPath === "string" ? personalMcpCredential(credentialPath) : raw.credential;
@@ -207,7 +209,7 @@ function mcpServiceDraft(profile: PersonalProfileLock, value: unknown) {
   const service: Record<string, unknown> = { ...(original ?? { tools: [], ...(previous?.version === 1 ? {} : { enabled: true }) }), ...value };
   if (value.authentication === "anonymous" && !("credential" in value) && !("credentialPath" in value)) delete service.credential;
   const services = original ? previous!.services.map(item => item.id === value.id ? service : item) : [...(previous?.services ?? []), service];
-  return mcpDraft(profile, { version: previous?.version ?? 2, services });
+  return mcpDraft(profile, { version: value.cua !== undefined ? 3 : previous?.version ?? 2, services });
 }
 async function credentialState(config: PersonalModelConfig, online: boolean) {
   return { reference: config.apiKeyEnv, state: online ? process.env[config.apiKeyEnv] ? "available" : "missing" : "unverified" };
@@ -335,7 +337,7 @@ export async function dispatchPersonalSettings(current: PersonalSettingsContext,
     else {
       const previous = readPersonalMcp(profile);
       if (!previous?.services.some(service => service.id === request.id)) throw new PersonalError("mcp_service_missing", "原 MCP 服务不存在，请刷新服务列表。");
-      if (request.op === "mcp.set-enabled" && previous.version !== 2) throw new PersonalError("mcp_migration_required", "原 MCP 配置需先显式迁入新格式，再编辑单服务启停；未覆盖原配置。");
+      if (request.op === "mcp.set-enabled" && previous.version === 1) throw new PersonalError("mcp_migration_required", "原 MCP 配置需先显式迁入新格式，再编辑单服务启停；未覆盖原配置。");
       const services = request.op === "mcp.remove" ? previous.services.filter(service => service.id !== request.id) : previous.services.map(service => service.id === request.id ? { ...service, enabled: request.enabled } : service);
       config = { ...previous, generation: randomUUID(), services };
     }
@@ -344,8 +346,14 @@ export async function dispatchPersonalSettings(current: PersonalSettingsContext,
   }
   if (request.op === "mcp.discover") {
     if (!object(request.service)) throw invalid();
-    if (Object.keys(request.service).some(key => !["id", "label", "endpoint", "endpointRedacted", "authentication", "credential", "credentialPath"].includes(key))) throw invalid();
+    if (Object.keys(request.service).some(key => !["id", "label", "endpoint", "endpointRedacted", "authentication", "credential", "credentialPath", "cua"].includes(key))) throw invalid();
     const raw = request.service, previous = readPersonalMcp(profile), endpoint = restoreEndpoint(raw, previous);
+    if (raw.cua !== undefined) {
+      if (Object.keys(raw).some(key => !["id", "label", "cua"].includes(key))) throw invalid();
+      const config = parsePersonalMcp({ version: 3, generation: randomUUID(), services: [{ id: raw.id ?? randomUUID(), label: raw.label ?? "电脑", cua: raw.cua, enabled: true, tools: [] }] });
+      try { return { ...base, tools: await discoverPersonalMcp(config.services[0]) }; }
+      catch (error) { if (error instanceof PersonalError) throw error; throw new PersonalError("mcp_discovery_failed", "电脑工具发现失败，请检查固定程序与目标；未调用业务工具。"); }
+    }
     if (raw.authentication !== undefined && raw.authentication !== "anonymous" && raw.authentication !== "credential" || raw.credentialPath !== undefined && typeof raw.credentialPath !== "string") throw invalid();
     const credential = typeof raw.credentialPath === "string" ? personalMcpCredential(raw.credentialPath) : raw.credential;
     if (raw.authentication === "anonymous" && credential || raw.authentication !== "anonymous" && !credential) throw new PersonalError("mcp_credentials_required", "请选择私有凭据文件或明确匿名连接，未发送发现请求。");

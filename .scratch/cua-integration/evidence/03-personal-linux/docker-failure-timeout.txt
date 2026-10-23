@@ -1,0 +1,6 @@
+PersonalError: 本地电脑执行核实失败，绑定保持暂停；请检查 Docker 与 user systemd。
+    at /tmp/ruukoto-cua-scope-QA1jvV/host.cjs:19785:171
+    at ChildProcess.exithandler (node:child_process:424:5)
+    at ChildProcess.emit (node:events:514:28)
+    at maybeClose (node:internal/child_process:1141:16)
+    at ChildProcess._handle.onexit (node:internal/child_process:306:5)

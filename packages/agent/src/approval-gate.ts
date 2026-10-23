@@ -107,6 +107,17 @@ export class ApprovalGate {
     return this.consume(input, waited.confirmationId);
   }
 
+  /** 等待决定但保留未消费状态；stdio 在实际写管道前调用 consumeDeferred，并同事务保存原请求。 */
+  async defer<T>(input: ApprovalRequest<T>): Promise<{ approved: true; confirmationId: string | null; params: Record<string, unknown> } | { approved: false; text: string }> {
+    if (input.task.accessMode === "full_access") return { approved: true, confirmationId: null, params: structuredClone(input.params) };
+    const waited = await this.wait(input);
+    return waited.approved ? { ...waited, params: this.deps.store.getConfirmation(waited.confirmationId)!.params } : waited;
+  }
+
+  consumeDeferred<T>(input: ApprovalRequest<T>, confirmationId: string | null): ApprovalResult<T> {
+    return confirmationId === null ? this.authorizeFullAccess(input) : this.consume(input, confirmationId);
+  }
+
   // Note: 见 .agents/notes/implemented/feature/2026-10-12-full-access-current-account.md
   private authorizeFullAccess<T>(input: ApprovalRequest<T>): ApprovalResult<T> {
     const store = this.deps.store;

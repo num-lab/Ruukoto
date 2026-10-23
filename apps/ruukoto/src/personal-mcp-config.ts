@@ -6,7 +6,9 @@ import { isDeepStrictEqual } from "node:util";
 import type { JsonValue } from "@earendil-works/chord";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
-import { connectMcpEndpoint, parseMcpEndpoint, MCP_LIMITS, type McpRemoteTool } from "@ruukoto/agent/mcp/transport.ts";
+import { connectMcpEndpoint, connectMcpStdio, parseMcpEndpoint, MCP_LIMITS, type McpRemoteTool } from "@ruukoto/agent/mcp/transport.ts";
+import { cuaProgram, parseCuaConfig, type CuaConfig } from "@ruukoto/agent/mcp/cua.ts";
+import { mcpUnresolved, type McpOperation } from "./personal-mcp.ts";
 import { validateRemoteTool } from "@ruukoto/agent/mcp/schema.ts";
 import { PersonalError } from "./personal-error.ts";
 import { PERSONAL_FORMAT, lockPersonalProfile, type PersonalProfileLock } from "./personal-profile.ts";
@@ -14,9 +16,10 @@ import { PERSONAL_FORMAT, lockPersonalProfile, type PersonalProfileLock } from "
 type JsonObject = { [key: string]: JsonValue };
 export type PersonalMcpTool = McpRemoteTool & JsonObject;
 export type PersonalMcpCredential = { path: string; sha256: string };
-export type PersonalMcpService = { id: string; label: string; endpoint: string; credential?: PersonalMcpCredential; tools: PersonalMcpTool[]; enabled?: boolean };
-export type PersonalMcpConfig = { version: 1 | 2; generation: string; services: PersonalMcpService[] };
-type McpTarget = Pick<PersonalMcpService, "id" | "endpoint" | "credential">;
+type PersonalCuaConfig = { [K in keyof Extract<CuaConfig, { kind: "cua-linux" }>]: Extract<CuaConfig, { kind: "cua-linux" }>[K] };
+export type PersonalMcpService = { id: string; label: string; tools: PersonalMcpTool[]; enabled?: boolean; cua?: PersonalCuaConfig; endpoint?: string; credential?: PersonalMcpCredential };
+export type PersonalMcpConfig = { version: 1 | 2 | 3; generation: string; services: PersonalMcpService[] };
+type McpTarget = Pick<PersonalMcpService, "id" | "endpoint" | "credential" | "cua">;
 const context = BACKGROUND_CONTEXT;
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
 const text = (value: unknown, max: number): value is string => typeof value === "string" && value.length > 0 && value.length <= max && !/[\x00-\x1f\x7f]/.test(value);
@@ -32,12 +35,14 @@ export function parsePersonalMcp(value: unknown): PersonalMcpConfig {
 }
 
 function parseConfig(value: unknown): PersonalMcpConfig {
-  if (!object(value) || Object.keys(value).some(key => !["version", "generation", "services"].includes(key)) || (value.version !== 1 && value.version !== 2) || !text(value.generation, 128) || !Array.isArray(value.services)) throw invalid();
+  if (!object(value) || Object.keys(value).some(key => !["version", "generation", "services"].includes(key)) || ![1, 2, 3].includes(Number(value.version)) || !text(value.generation, 128) || !Array.isArray(value.services)) throw invalid();
   const ids = new Set<string>();
   const services = value.services.map((raw): PersonalMcpService => {
-    if (!object(raw) || Object.keys(raw).some(key => !["id", "label", "endpoint", "credential", "tools", ...(value.version === 2 ? ["enabled"] : [])].includes(key)) || (value.version === 2 && typeof raw.enabled !== "boolean") || typeof raw.id !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(raw.id) || ids.has(raw.id) || !text(raw.label, 128) || !text(raw.endpoint, 4096) || !Array.isArray(raw.tools) || raw.tools.length > MCP_LIMITS.maxToolsPerService) throw invalid();
+    if (!object(raw) || Object.keys(raw).some(key => !["id", "label", "endpoint", "credential", "tools", ...(value.version !== 1 ? ["enabled"] : []), ...(value.version === 3 ? ["cua"] : [])].includes(key)) || (value.version !== 1 && typeof raw.enabled !== "boolean") || typeof raw.id !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(raw.id) || ids.has(raw.id) || !text(raw.label, 128) || (raw.cua === undefined && !text(raw.endpoint, 4096)) || !Array.isArray(raw.tools) || raw.tools.length > MCP_LIMITS.maxToolsPerService) throw invalid();
     ids.add(raw.id);
-    try { if (parseMcpEndpoint(raw.endpoint).hash) throw invalid(); } catch { throw invalid(); }
+    let cua: Extract<CuaConfig, { kind: "cua-linux" }> | undefined;
+    if (raw.cua !== undefined) { const parsed = parseCuaConfig(raw.cua); if (value.version !== 3 || parsed.kind !== "cua-linux" || raw.endpoint !== undefined || raw.credential !== undefined) throw invalid(); cua = parsed; }
+    else { try { if (parseMcpEndpoint(raw.endpoint as string).hash) throw invalid(); } catch { throw invalid(); } }
     let credential: PersonalMcpCredential | undefined;
     if (raw.credential !== undefined) {
       if (!object(raw.credential) || Object.keys(raw.credential).some(key => !["path", "sha256"].includes(key)) || !validPath(raw.credential.path) || typeof raw.credential.sha256 !== "string" || !/^[0-9a-f]{64}$/.test(raw.credential.sha256)) throw invalid();
@@ -52,9 +57,9 @@ function parseConfig(value: unknown): PersonalMcpConfig {
       names.add(remote.name);
       return structuredClone(remote);
     });
-    return { id: raw.id, label: raw.label, endpoint: raw.endpoint, ...(credential ? { credential } : {}), tools, ...(value.version === 2 ? { enabled: raw.enabled as boolean } : {}) };
+    return { id: raw.id, label: raw.label, ...(cua ? { cua } : { endpoint: raw.endpoint as string, ...(credential ? { credential } : {}) }), tools, ...(value.version !== 1 ? { enabled: raw.enabled as boolean } : {}) };
   });
-  return { version: value.version, generation: value.generation, services };
+  return { version: value.version as PersonalMcpConfig["version"], generation: value.generation, services };
 }
 
 function privateFile(filename: string, maxBytes: number): Buffer {
@@ -101,6 +106,7 @@ export function personalMcpCredential(filename: string): PersonalMcpCredential {
 
 /** 匿名服务返回空字符串；配置了凭据时逐请求重读，失效会拒绝，调用方不得降级匿名。 */
 export async function resolvePersonalMcpToken(service: McpTarget): Promise<string> {
+  if (service.cua) { await cuaProgram(service.cua); return ""; }
   if (!service.credential) return "";
   const saved = tokenFile(service.credential.path);
   if (saved.sha256 !== service.credential.sha256) throw credentialError();
@@ -109,7 +115,7 @@ export async function resolvePersonalMcpToken(service: McpTarget): Promise<strin
 
 /** 返回完整发现结果；允许列表由拥有者选择，连接在返回或失败时关闭。 */
 export async function discoverPersonalMcp(service: McpTarget): Promise<PersonalMcpTool[]> {
-  const connection = await connectMcpEndpoint({ serviceId: service.id, endpoint: service.endpoint }, service.credential ? { resolveToken: () => resolvePersonalMcpToken(service) } : {});
+  const connection = service.cua ? await connectMcpStdio({ serviceId: service.id, ...await cuaProgram(service.cua) }) : await connectMcpEndpoint({ serviceId: service.id, endpoint: service.endpoint! }, service.credential ? { resolveToken: () => resolvePersonalMcpToken(service) } : {});
   try { return JSON.parse(JSON.stringify(await connection.listTools())) as PersonalMcpTool[]; }
   finally { await connection.close(); }
 }
@@ -131,7 +137,7 @@ export async function checkPersonalMcpEnablement(profile: PersonalProfileLock) {
         const op = saved?.value.operation;
         if (!saved || saved.version !== 1 || (op !== undefined && !object(op))) throw new PersonalError("mcp_record_invalid", "MCP 原调用无法核实，未保存配置；请保留档案。");
         if (!op) continue;
-        if (op.started && (!op.remoteEnded || (op.effect === "effect_unknown" && !op.resolution))) throw new PersonalError("mcp_config_pending", "MCP 原调用效果或远端结束未核实，未保存配置；请先核实原调用，不要换配置重试。");
+        if (mcpUnresolved(op as unknown as McpOperation)) throw new PersonalError("mcp_config_pending", "MCP 原调用效果或远端结束未核实，未保存配置；请先核实原调用，不要换配置重试。");
       }
       cursor = page.next;
     } while (cursor);
@@ -145,7 +151,7 @@ export async function savePersonalMcp(target: string | PersonalProfileLock, valu
   try {
     const current = readPersonalMcp(profile);
     if (isDeepStrictEqual(current, config)) return;
-    if (current?.version === 2 && config.version === 1) throw new PersonalError("mcp_config_downgrade", "MCP 已迁入服务启停格式，未保存旧版配置；请保留档案并使用当前格式修改。");
+    if (current && current.version > config.version) throw new PersonalError("mcp_config_downgrade", "MCP 已迁入服务启停格式，未保存旧版配置；请保留档案并使用当前格式修改。");
     if (current?.generation === config.generation) throw new PersonalError("mcp_config_changed", "MCP 配置变化必须使用新代次，未覆盖原配置；请重新运行 MCP 配置向导。");
     for (const service of config.services) await resolvePersonalMcpToken(service);
     try { await checkPersonalMcpEnablement(profile); } catch (error) {
@@ -177,7 +183,7 @@ export async function migratePersonalMcp(target: string | PersonalProfileLock): 
   try {
     const current = readPersonalMcp(profile);
     if (!current) throw new PersonalError("mcp_config_missing", "尚未配置 MCP 服务，请先保存服务配置。");
-    if (current.version === 2) return current;
+    if (current.version !== 1) return current;
     const migrated = parsePersonalMcp({ version: 2, generation: randomUUID(), services: current.services.map(service => ({ ...service, enabled: true })) });
     await savePersonalMcp(profile, migrated);
     return migrated;

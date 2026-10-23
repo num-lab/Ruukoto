@@ -2,7 +2,7 @@
 
 Status: implemented
 
-[Cua 接入提案](../../proposed/architecture/2026-10-23-cua-official-mcp.md)拟复用本篇图片记录与 provider 核实，电脑执行归属独立于浏览器管理器。
+[Cua 接入](2026-10-23-cua-official-mcp.md)复用本篇图片记录与provider核实，电脑执行归属独立于浏览器管理器。
 
 [MCP图片结果](2026-10-23-mcp-image-results.md)复用本篇媒体链，同一原工具的多图先核实Task再批量登记，图片提供方不另建运行状态。
 

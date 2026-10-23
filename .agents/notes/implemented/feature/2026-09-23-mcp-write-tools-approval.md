@@ -4,7 +4,7 @@ Status: implemented
 
 相关未实施方案：[桌面设置管理](../../proposed/feature/2026-10-21-desktop-settings-management.md)提供配置入口，保留本篇允许列表、批准消费与未知效果规则。
 
-[Cua 接入提案](../../proposed/architecture/2026-10-23-cua-official-mcp.md)拟新增响应未完整读取的失败分类，并在电脑桥接下按原下游终结证据解释网关错误；权限与批准规则复用，实施前仍沿本篇现行结果定性。
+[Cua 接入](../architecture/2026-10-23-cua-official-mcp.md)在stdio写入前同事务保存原请求与批准消费；写操作已发送却无完整终结应答时保留未知并冻结电脑。原HTTP权限、批准与结果定性保持。
 
 原编号：ADR 0008
 

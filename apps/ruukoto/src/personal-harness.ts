@@ -87,6 +87,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
   tools?: PersonalToolsConfig;
   browser?: PersonalBrowserConfig;
   mcpTimeouts?: McpTimeouts;
+  mcpCuaHost?: Parameters<typeof personalMcp>[4];
   now?: () => number;
 }) {
   const lock = options.profile ?? lockPersonalProfile(options.directory);
@@ -109,7 +110,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     appData = personalAppData(lock.directory, () => harness!);
     const memory = personalMemory(lock.directory, () => harness!), history = personalHistory(), skills = personalSkills(lock.directory);
     const media = personalMedia(lock.directory, () => harness!, () => options.provider.getModels().find(model => model.id === options.modelId)?.input.includes("image") === true, !options.tools && !options.browser ? personalArtifactReader(lock.directory) : undefined);
-    const mcp = options.mcp && personalMcp(options.mcp, () => harness!, options.mcpTimeouts, { ...media, profile: lock.directory });
+    const mcp = options.mcp && personalMcp(options.mcp, () => harness!, options.mcpTimeouts, { ...media, profile: lock.directory, supportsImages: () => options.provider.getModels().find(model => model.id === options.modelId)?.input.includes("image") === true }, options.mcpCuaHost);
     const general = options.tools && personalTools(lock.directory, options.tools, options.provider, options.modelId, () => harness!, media);
     browser = options.browser && personalBrowser(lock.directory, options.browser, () => harness!, { supportsImages: media.supportsImages, registerImage: media.registerImage, ...(!general ? { artifactReader: personalArtifactReader(lock.directory) } : {}) });
     const qqConfig = options.qq && parsePersonalQq(options.qq);
@@ -710,6 +711,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
       await instance.commit(tx => verifyPersonalCommands(tx, commandKeys, commands.config, commands.workerPath), context);
     }
     if (service) for (const taskId of (await instance.snapshot(PersonalPendingInspectionsDoc, context))?.tasks ?? []) await recheckServiceInspection(instance, service.config, taskId);
+    await mcp?.recover();
     await appData.recover();
     await media.recover();
     if (browser) await browser.recover();
@@ -732,6 +734,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
       work: personalWork(instance, { provider: options.provider.id, modelId: options.modelId }),
       service: operations?.api(instance),
       mcp: mcp && {
+        recoverCua: mcp.recoverCua,
         list: (offset = 0) => instance.commit(tx => mcpList(tx, offset), context),
         detail: (operation: import("@earendil-works/pi-durable").TaskId, offset = 0) => instance.commit(tx => mcpDetail(tx, operation, offset), context),
         decide: (operation: import("@earendil-works/pi-durable").TaskId, decision: "approved" | "rejected") => instance.commit(tx => mcpDecide(tx, operation, decision), context),
@@ -769,7 +772,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
         if (message?.role !== "assistant") throw new PersonalError("answer_missing", "已结束输入的回答记录缺失，请保留档案并检查存储。");
         return message.content.filter(part => part.type === "text").map(part => part.text).join("");
       },
-      async close() { await background?.close(); await appData?.close(); await browser?.close(); await instance.close(context); await unlocked; },
+      async close() { await mcp?.close(); await background?.close(); await appData?.close(); await browser?.close(); await instance.close(context); await unlocked; },
     };
   } catch (error) {
     try {

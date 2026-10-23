@@ -1,6 +1,6 @@
 # Cua 双产品接入规格
 
-本方案以 `14ee3d007bac3bb99cf104ad55c8aeccb7aa50a4` 为代码基线，取代旧桥接、全局目标认领及自建执行服务方案。2026-10-23 拥有者要求去掉跨产品独占同一桌面的保证，先在仓库外保存实验材料，再回滚到 `e8479aa1` 之前。归档与回滚见[备份索引](archive.md)，选型依据见[官方资料与源码核对](research.md)，理由见[新决策](../../.agents/notes/proposed/architecture/2026-10-23-cua-official-mcp.md)。本轮交付方案与工单，不实施产品或运行桌面实验。
+本方案以 `14ee3d007bac3bb99cf104ad55c8aeccb7aa50a4` 为代码基线，取代旧桥接、全局目标认领及自建执行服务方案。2026-10-23 拥有者要求去掉跨产品独占同一桌面的保证，先在仓库外保存实验材料，再回滚到 `e8479aa1` 之前。归档与回滚见[备份索引](archive.md)，选型依据见[官方资料与源码核对](research.md)，理由见[新决策](../../.agents/notes/implemented/architecture/2026-10-23-cua-official-mcp.md)。规划轮只交付规格与工单；实际实现、剩余管理入口和正式验收分别由各工单记录。
 
 ## 目标与已确认范围
 
@@ -18,7 +18,7 @@
 采用官方 MCP stdio，复用已安装 `@modelcontextprotocol/client@2.0.0` 的 `StdioClientTransport`，不手写 JSON-RPC，不新建 HTTPS 服务、Supergateway 或执行端 SQLite 回执库。
 
 - Code：后台启动已配置的官方 `cua-driver mcp --direct`。direct 的实际执行 runtime 属于该进程，macOS 权限按实际启动账户与宿主归属配置；不借用另一个用户的图形会话。
-- Personal：后台启动已配置的官方 `cua mcp --sandbox <固定沙箱> --permissions <固定最小集合>`。CLI 连接已存在的专用 Linux 桌面；不用共享 `cua daemon mcp`，不逐调用启动 CLI。
+- Personal：后台启动已配置的官方 `cua --embedded mcp --sandbox <固定沙箱> --permissions <固定最小集合>`。固定 CLI 0.7.0 的普通入口会优先连接已运行的 daemon，宿主显式选择 embedded，确保当前 CLI 持有输入源。CLI 连接已存在的专用 Linux 桌面；不用共享 `cua daemon mcp`，不逐调用启动 CLI。
 - 两端仍用自己的模型循环、审批、操作记录与图片存储。共享 MCP 层只承担协议、schema 校验、消息限额及请求/应答记录钩子。持久绑定、停止核实和恢复由产品持有。
 
 这是仅针对两种 Cua 配置的本地进程入口，不是任意 stdio 插件平台。原 HTTPS MCP 配置、认证和连接语义保持不变。SDK 原生接口可用于理解生命周期；首版不并行维护另一套 SDK 业务工具。
@@ -99,4 +99,4 @@ Personal 必须显式增加仅对 Cua 生效的恢复结算事实：核实停止
 
 所有原始实验材料留在[外部备份](archive.md)，仓库只保留规格、工单、来源与证据索引。旧06的共享 HTTP 修复也已备份并回滚，可作为独立维护事项；新 stdio 路线不依赖其整套矩阵。此次不将旧修复或探针代码重新带回。
 
-当前分支 `Eitrous/cua-integration-plan`，HEAD 为上述基线；新方案尚未提交。独立方案审查和文件指纹见[review.md](review.md)。本轮不授权自动部署、生产账号操作或清理现有远端实验现场。实施时同步实际受影响的模块文档和 usage，规划本身不把能力写成已实现。
+规划基线与独立方案审查指纹见[review.md](review.md)，后续02/03实现与验证以各工单的当前交接为准。本规格不授权自动部署、生产账号操作或清理现有远端实验现场。实施时同步实际受影响的模块文档和usage，不将离线结果记为正式桌面或模型验收。

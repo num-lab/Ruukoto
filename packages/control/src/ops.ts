@@ -66,6 +66,7 @@ export interface TuiOps {
   };
   read_tool_result: { params: { session_id: string; entry_id: string; length?: number; field?: ToolResultField; offset?: number }; result: R<"readToolResult"> };
   read_history_entry: { params: { session_id: string; entry_id: string; source?: string } & Slice; result: R<"readHistoryEntry"> };
+  get_tool_op_mcp: { params: { tool_op_id: string } & Slice; result: R<"getToolOpMcp"> };
   get_tool_op_params: { params: { tool_op_id: string } & Slice; result: R<"getToolOpParams"> };
   get_confirmation_params: { params: { confirmation_id: string } & Slice; result: R<"getConfirmationParams"> };
   read_artifact: { params: { task_id: string; artifact_id: string; session_id?: string } & Slice; result: R<"queryArtifact"> };
@@ -90,7 +91,12 @@ export interface TuiOps {
   test_model_connection: { params: { provider: string; model_id: string }; result: R<"testModelConnection"> };
   mcp_sources: { params: { workspace_id: string; offset?: number; limit?: number; selected_project_id?: string }; result: R<"mcpSources"> };
   mcp_list: { params: { project_id?: string }; result: { services: R<"mcpListServices"> } };
-  mcp_configure: { params: { service_id?: string; project_id: string; name: string; endpoint: string; credential?: string | null; tool_allowlist: Array<string | { name: string; effect: "read" | "write" | "unknown" }>; enabled?: boolean; expected_version?: number }; result: R<"mcpConfigure"> };
+  mcp_configure: { params: { service_id?: string; project_id: string; name: string; endpoint?: string; cua?: Parameters<Runtime["mcpConfigure"]>[0]["cua"]; credential?: string | null; tool_allowlist: Array<string | { name: string; effect: "read" | "write" | "unknown" }>; enabled?: boolean; expected_version?: number }; result: R<"mcpConfigure"> };
+  mcp_cua_status: { params: Record<string, never>; result: R<"mcpCuaStatus"> };
+  mcp_cua_stop: { params: Record<string, never>; result: R<"mcpCuaStop"> };
+  mcp_cua_begin_recovery: { params: Record<string, never>; result: R<"mcpCuaBeginRecovery"> };
+  mcp_cua_observe: { params: Record<string, never>; result: R<"mcpCuaObserve"> };
+  mcp_cua_accept: { params: { observation_id: string }; result: R<"mcpCuaAccept"> };
   mcp_set_enabled: { params: { service_id: string; enabled: boolean; expected_version?: number }; result: R<"mcpSetEnabled"> };
   mcp_remove: { params: { service_id: string; expected_version?: number }; result: { removed: R<"mcpRemoveService"> } };
   mcp_check: { params: { service_id: string }; result: R<"mcpCheckService"> };

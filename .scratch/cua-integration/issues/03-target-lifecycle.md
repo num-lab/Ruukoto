@@ -1,6 +1,6 @@
 # 03 接入官方 MCP、持续连接与人工恢复
 
-Status: ready-for-agent
+Status: ready-for-human
 
 ## 目标与边界
 
@@ -18,18 +18,23 @@ Status: ready-for-agent
 
 ## 进展与交接
 
-- 当前角色与阶段：方案者；独立方案审查通过，尚未实施。02提供图片转换接口，本单可先用离线结果夹具，交付前合验。
-- 下一角色与动作：实施者先交最小stdio调用和记录，再在同一工单完成冻结/恢复与消费者；不另立多轮实机原型阶段。
-- 02接口交接：共享`mcp/images.ts`提供mcpImages/MCP_IMAGE_LIMITS；Code沿formatMcpResult与原toolResult恢复，Personal沿原pi.tool的imageProjection与媒体registerImages。03在能识别Cua配置后，于真实发送前核实所选模型支持image，并用零发送回归证明；普通HTTPS不因未知结果类型整体禁用文本模型。该闸门与48MiB聚合预算是R5尚待本单完成的部分。
-- 当前内容：基点14ee3d00，未提交规划见[review.md](../review.md)。
-- 阻塞与恢复条件：官方固定制品如果不支持已选择入口，先给出具体差异再修方案；不能自动退回网关或扩展全局锁。
+- 当前角色与阶段：双端工程实现、主工作区验证与独审完成，无未解决工程阻断；Code恢复观察发送前的启用/修订复核及撤销零发送回归通过。正式管理与体验验收仍待04/05。
+- 下一角色与动作：04沿现有配置/控制接口完成正常选择、权限检查和恢复图片查看；05从正式产品入口验收桌面、模型与人工恢复，不重跑旧探针矩阵。
+- 02接口交接：已复用mcpImages、formatMcpResult、imageProjection和registerImages；Cua动作前视觉闸门与48MiB聚合预算均已完成，文本模型零发送有回归，普通HTTPS不因此禁用文本模型。
+- 当前内容：以057e3366为基线实施。Code schema50从49定向增加空列并保留HTTP/历史，控制协议38；Personal MCP version3承载具名Cua，旧version1/2与原remoteEnded语义保持。决定见[官方MCP与恢复](../../../.agents/notes/implemented/architecture/2026-10-23-cua-official-mcp.md)。
+- 实作核对：固定CLI0.7.0的裸入口会优先连接已有daemon，Linux启动显式加全局--embedded，已独立核对固定源码并验证参数生成；不引入网关。启动失败仍保存原执行身份，停止未核实只冻结电脑，普通聊天继续。
+- 管理接口交接：Code提供mcp_cua_status/stop/begin_recovery/observe/accept及get_tool_op_mcp；accept由程序回传status.observation.id。Personal提供/mcp/cua-recover的stop/begin/observe/accept，接受绑定detail.summary.cuaObservation，detail.recoveryImages返回图片引用。内部身份由界面管理，不要求用户填写。
 
 ## 验收与证据
 
-工程待实施。离线反例覆盖：异sandbox及来源拒绝、旧批准失效、持久请求失败时零发送、实际写后丢答仅一次、后台重启冻结、换本档案配置不能绕过、消息上限、恢复前置缺一拒绝、新截图后只开新工作。Personal已恢复的Cua可结束旧等待且remoteEnded仍false；普通HTTP人工说明依旧不能解锁。另用 personal-tools 的窄回归证明Cua未决记录不会使独立HTTP工具因URL解析而失败，HTTP/MCP原目标互锁仍成立。
+工程离线验收通过，独立上下文/root/shared_review对共享传输、双端实现、相关调用方与证据复核后无未解决阻断。异目标、来源、旧批准、落盘失败零发送、慢记录跨取消/超时、写后丢答不重发、未知冷恢复、配置防绕过、消息预算、恢复缺步骤、旧观察接受与重观察失败均有窄反例。Code恢复观察准备后撤销仍零发送，新观察记录当前修订，原未知动作保留原修订。Personal恢复后remoteEnded仍false、原unknown保持，而来源/工作/报告/设置与配置等待可结算；普通HTTP人工说明仍不解锁，双向目标互锁保留。
 
-新增 test/cua-mcp.test.ts（建议名）集中守住新连接与生命周期；按实际影响跑24/25-mcp、personal-mcp/recovery/config/controls及工作/报告消费者的窄用例。同一Cua进程应跨连续调用保持，关闭只回收自身；不新增跨产品/跨URL别名争用矩阵。03离线检查不冒充05正式桌面/模型验收。
+主工作区check:static、两个桌面壳构建及签名校验通过；共享39项、Node22.19下stdio10项、Personal120项、核心/MCP/Code设置128项、唯一串行Code/native73项、工作/报告/定时76项及文件检索窄用例通过。最后的恢复发送复核增量另通过Code3项、ESLint和类型检查。精确命令、环境、独审范围与原失败见[工程证据](../evidence/03-offline.md)，Linux真实scope、独立无网容器停代/重启保盘见[原语证据](../evidence/03-personal-linux/README.md)。
+
+本单无独立主观产品取舍；04的正常安装选择与截图查看、05的正式桌面/模型和拥有者恢复体验仍是必要外部验收。当前CLI只返回受保护图片引用与路径，不能把JSON打印当作已经查看/接受真实画面。未运行真实Cua桌面或模型，未部署或推送。
 
 ## Comments
 
 2026-10-23：移除原执行端协议、全局claim与持久原回执服务；保留现有操作历史及拥有者已接受的人工恢复。共享HTTP缺陷另行维护，不阻塞stdio路线。
+
+2026-10-23：03工程实现、主树验证与独审完成。保持无全局锁与不重放原动作；04承接选择式管理和实际截图呈现，05承接正式双端验收。

@@ -86,7 +86,7 @@ test("个人 MCP 配置：显式迁入逐服务启停格式，保留旧定义且
     { ...migrated, services: config.services },
     { ...migrated, services: [{ ...migrated.services[0], enabled: "false" }] },
     { ...config, services: [{ ...config.services[0], enabled: true }] },
-    { ...migrated, version: 3 },
+    { ...migrated, version: 4 },
   ]) assert.throws(() => parsePersonalMcp(invalid), code("mcp_config_invalid"));
   const stopped = { ...migrated, generation: "stopped", services: migrated.services.map(service => ({ ...service, enabled: false })) };
   await savePersonalMcp(f.profile, stopped);

@@ -37,6 +37,8 @@ import { createHostDataFamily } from "@ruukoto/agent/host-tools.ts";
 import { getProjectJevConfig,JEV_CREDENTIAL_PURPOSE,jevConfigKey,jevCredentialHost,type JevConfig } from "@ruukoto/agent/jev-config.ts";
 import { connectMcpService,MCP_CREDENTIAL_PURPOSE,McpError,parseMcpEndpoint,type McpConnection,type McpTimeouts } from "@ruukoto/agent/mcp/client.ts";
 import { allowlistEffectFor,McpStore,McpVersionConflictError,normalizeToolAllowlist,type McpServiceConfig,type McpToolEffect } from "@ruukoto/agent/mcp/store.ts";
+import { CodeCuaManager } from "@ruukoto/agent/mcp/code.ts";
+import { parseCuaConfig, type CuaConfig } from "@ruukoto/agent/mcp/cua.ts";
 import { validateRemoteTool } from "@ruukoto/agent/mcp/tools.ts";
 import {
   configRevision,
@@ -343,6 +345,7 @@ export class Runtime {
   readonly attachments: OwnerAttachments;
   readonly artifacts: ArtifactStore;
   private browserManager!: BrowserManager;
+  private cuaManager!: CodeCuaManager;
   private backgroundProcesses!: RuntimeBackgroundProcesses;
   readonly inboundMedia: InboundMediaStore;
   readonly credentials: CredentialStore;
@@ -946,6 +949,7 @@ export class Runtime {
       verifySources: (projectId, refs, taskId) => runtime.sources.verify(projectId, refs as import("@ruukoto/channels/scheduler/store.ts").SourceRef[], taskId),
       ...(fullConfig.workflowAgent ? {} : { verifyExecution: (task: Task) => runtime.workflowSteps.assertExecution(task) }),
     });
+    runtime.cuaManager.recover();
     await runtime.browserManager.recover();
     await runtime.backgroundProcesses.recover();
     runtime.recover();
@@ -3655,6 +3659,7 @@ export class Runtime {
   async continueTask(input: { taskId: string; sessionId?: string; requestId: string; input: string; attachments?: AttachmentMetadata[]; accessMode?: SessionDefaultMode; grantedPaths?: GrantedPath[]; modelSelection: ModelSelection }): Promise<TaskView> {
     const old = this.store.getTask(input.taskId);
     if (!old) throw new RuntimeApiError("not_found", `任务不存在：${input.taskId}`);
+    if (this.store.listToolOpsByTask(old.id).some(op => op.mcp && op.effectUnknown)) throw new RuntimeApiError("cua_task_not_replayable", "电脑操作结果未知的旧任务不能继续；请完成电脑恢复后发起新工作。");
     if (getWorkflowExecution(this.store, old.id)) throw new RuntimeApiError("invalid_state", "工作流执行由运行恢复，不接受普通任务继续");
     if (workCopyHostFor(old)) throw new RuntimeApiError("invalid_state", "宿主工作副本操作不能作为模型任务继续；请核实保留现场后重新发起工作");
     if (input.sessionId !== undefined && input.sessionId !== old.sessionId) throw new RuntimeApiError("invalid_params", "源任务不属于指定会话");
@@ -3931,7 +3936,8 @@ export class Runtime {
     serviceId?: string;
     projectId: string;
     name: string;
-    endpoint: string;
+    endpoint?: string;
+    cua?: CuaConfig;
     /** 凭据绑定名；undefined = 更新时保留现有引用，null = 清除。 */
     credential?: string | null;
     /** 允许列表条目：工具名字符串（= 只读）或 { name, effect: read|write|unknown }。 */
@@ -3944,12 +3950,17 @@ export class Runtime {
     if (!/^[a-z0-9][a-z0-9_-]{0,29}$/.test(input.name)) {
       throw new RuntimeApiError("invalid_params", `服务名必须是小写 slug（^[a-z0-9][a-z0-9_-]{0,29}$）：${input.name}`);
     }
-    let endpoint: URL;
-    try {
-      endpoint = parseMcpEndpoint(input.endpoint);
-    } catch (err) {
-      throw new RuntimeApiError("invalid_params", (err as Error).message);
+    let endpoint: URL | undefined;
+    const existing = this.mcp.getServiceByName(input.projectId, input.name);
+    let cua: CuaConfig | undefined;
+    if (input.cua) {
+      cua = parseCuaConfig(input.cua);
+      if (this.productType !== "ruukoto-code" || cua.kind !== "cua-mac" || input.endpoint !== undefined || input.credential) throw new RuntimeApiError("invalid_params", "Code 电脑配置须选择本机 Driver，不接受 HTTPS 端点或凭据。");
+    } else {
+      try { endpoint = parseMcpEndpoint(input.endpoint!); }
+      catch (err) { throw new RuntimeApiError("invalid_params", (err as Error).message); }
     }
+    if (cua || existing?.cua) this.cuaManager.assertConfigurationChange();
     if (!Array.isArray(input.toolAllowlist)) {
       throw new RuntimeApiError("invalid_params", "tool_allowlist 必须是数组（工具名字符串或 { name, effect } 对象）");
     }
@@ -3959,12 +3970,12 @@ export class Runtime {
     if (input.expectedVersion !== undefined && (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 0)) {
       throw new RuntimeApiError("invalid_params", "expected_version 必须是非负整数");
     }
-    const credential = input.credential !== undefined ? input.credential : this.mcp.getServiceByName(input.projectId, input.name)?.credential;
+    const credential = cua ? null : input.credential !== undefined ? input.credential : existing?.credential;
     if (credential) {
       const cred = this.credentials.get(credential);
       if (!cred) throw new RuntimeApiError("invalid_params", `凭据绑定不存在：${credential}`);
-      if (cred.host !== endpoint.host) {
-        throw new RuntimeApiError("invalid_params", `凭据 ${credential} 的 host（${cred.host}）与端点 host（${endpoint.host}）不一致`);
+      if (cred.host !== endpoint!.host) {
+        throw new RuntimeApiError("invalid_params", `凭据 ${credential} 的 host（${cred.host}）与端点 host（${endpoint!.host}）不一致`);
       }
       if (cred.purpose !== MCP_CREDENTIAL_PURPOSE) {
         throw new RuntimeApiError("invalid_params", `凭据 ${credential} 用途是 ${cred.purpose}，MCP 服务需要 purpose=${MCP_CREDENTIAL_PURPOSE} 的凭据`);
@@ -3993,14 +4004,15 @@ export class Runtime {
         const s = this.mcp.upsertService({
           projectId: input.projectId,
           name: input.name,
-          endpoint: endpoint.toString(),
-          credential: input.credential,
+          endpoint: endpoint?.toString(),
+          cua,
+          credential: cua ? null : input.credential,
           toolAllowlist,
           enabled: input.enabled,
           expectedVersion: input.expectedVersion,
         });
         this.store.appendEvent(
-          { type: "mcp.service_changed", serviceId: s.id, projectId: s.projectId, name: s.name, endpoint: s.endpoint, configVersion: s.configVersion, action: "upsert" },
+          { type: "mcp.service_changed", serviceId: s.id, projectId: s.projectId, name: s.name, endpoint: s.endpoint, ...(s.cua ? { cua: { kind: s.cua.kind } } : {}), configVersion: s.configVersion, action: "upsert" },
           {},
         );
         return s;
@@ -4022,6 +4034,12 @@ export class Runtime {
     return service;
   }
 
+  mcpCuaStatus() { return this.cuaManager.status(); }
+  mcpCuaStop() { return this.cuaManager.stop(); }
+  mcpCuaBeginRecovery() { return this.cuaManager.beginRecovery(); }
+  mcpCuaObserve() { return this.cuaManager.observe(); }
+  mcpCuaAccept(observationId: string) { return this.cuaManager.accept(observationId); }
+
   mcpListServices(projectId?: string): McpServiceConfig[] {
     return this.mcp.listServices(projectId);
   }
@@ -4036,7 +4054,7 @@ export class Runtime {
       }
       if (!service) throw new RuntimeApiError("not_found", `MCP 服务不存在：${serviceId}`);
       this.store.appendEvent(
-        { type: "mcp.service_changed", serviceId: service.id, projectId: service.projectId, name: service.name, endpoint: service.endpoint, configVersion: service.configVersion, action: enabled ? "enabled" : "disabled" },
+        { type: "mcp.service_changed", serviceId: service.id, projectId: service.projectId, name: service.name, endpoint: service.endpoint, ...(service.cua ? { cua: { kind: service.cua.kind } } : {}), configVersion: service.configVersion, action: enabled ? "enabled" : "disabled" },
         {},
       );
       return service;
@@ -4046,6 +4064,7 @@ export class Runtime {
   mcpRemoveService(serviceId: string, expectedVersion?: number): boolean {
     const service = this.mcp.getService(serviceId);
     if (!service) return false;
+    if (service.cua) this.cuaManager.assertConfigurationChange();
     return this.store.withTx(() => {
       let removed: boolean;
       try {
@@ -4056,7 +4075,7 @@ export class Runtime {
       }
       if (removed) {
         this.store.appendEvent(
-          { type: "mcp.service_changed", serviceId, projectId: service.projectId, name: service.name, endpoint: service.endpoint, configVersion: service.configVersion + 1, action: "removed" },
+          { type: "mcp.service_changed", serviceId, projectId: service.projectId, name: service.name, endpoint: service.endpoint, ...(service.cua ? { cua: { kind: service.cua.kind } } : {}), configVersion: service.configVersion + 1, action: "removed" },
           {},
         );
       }
@@ -4082,6 +4101,7 @@ export class Runtime {
     if (!service) throw new RuntimeApiError("not_found", `MCP 服务不存在：${serviceId}`);
     let conn: McpConnection | null = null;
     try {
+      if (service.cua) throw new McpError("cua_owner_connection_required", "电脑服务由主会话建立持续连接；请在主会话观察画面，并从电脑恢复入口核实状态。");
       conn = await connectMcpService(service, {
         credentials: this.credentials,
         projectId: service.projectId,
@@ -4306,6 +4326,7 @@ export class Runtime {
   }
 
   private initHostToolFamilies(): void {
+    this.cuaManager = new CodeCuaManager(this.store, this.mcp, this.artifacts, this.config.dataDir, this.config.mcp);
     this.browserManager = new BrowserManager({ dataDir: this.config.dataDir, store: this.store, ...this.config.browser,
       persist: (stateJson, binding) => this.store.withTx(() => {
         this.store.setMetaValue(BROWSER_META_KEY, stateJson);
@@ -4470,7 +4491,7 @@ export class Runtime {
         },
         jev: this.config.jev,
         compaction: this.config.compaction,
-        mcp: { store: this.mcp, ...this.config.mcp },
+        mcp: { store: this.mcp, cua: this.cuaManager, ...this.config.mcp },
         allowTaskTool: (task, name) => !getWorkflowDeliveryRun(this.store, task.id) && !isAgentReportFallback(this.store, task.id) && this.githubEvents.allowTool(task, name),
         browser: { allowed: task => this.browserAllowed(task), close: sessionId => this.browserManager.close(sessionId) },
         verifyTask: task => {
@@ -5075,13 +5096,19 @@ export class Runtime {
 
   /** 工具操作完整参数的分段读取（同上）。 */
   getToolOpParams(input: { toolOpId: string; offset?: number; length?: number }): {
-    toolOp: Omit<ToolOp, "params">;
+    toolOp: Omit<ToolOpView, "params" | "paramsBytes" | "paramsTruncated">;
     params: BoundedText;
   } {
     const op = this.store.getToolOp(input.toolOpId);
     if (!op) throw new RuntimeApiError("not_found", `工具操作不存在：${input.toolOpId}`);
-    const { params: _params, ...rest } = op;
+    const { params: _params, ...rest } = toolOpToView(op);
     return { toolOp: rest, params: this.pagedParams(op.params, input.offset, input.length) };
+  }
+
+  getToolOpMcp(input: { toolOpId: string; offset?: number; length?: number }): BoundedText {
+    const op = this.store.getToolOp(input.toolOpId);
+    if (!op?.mcp) throw new RuntimeApiError("not_found", "该工具操作没有电脑原始证据。");
+    return this.pagedParams({ ...op.mcp }, input.offset, input.length);
   }
 
   /** 事件只是实时投影与恢复来源；最终消息仍经 JSONL 历史读取。 */
@@ -5766,6 +5793,7 @@ export class Runtime {
       await driver.dispose();
     }
     this.drivers.clear();
+    await this.cuaManager.shutdown();
     await this.browserManager.shutdown();
 
     // 等待调度循环收尾（停止意图已在上面使 runQueueLoop 退出），

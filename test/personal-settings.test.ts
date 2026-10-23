@@ -288,3 +288,13 @@ test("MCP 设置发现：具名Cua经过解析并报告制品不可用，不走H
   await assert.rejects(executePersonalSettings(f.directory, request), (error: unknown) => error instanceof Error && "code" in error && ["mcp_discovery_failed"].includes(String(error.code)));
   assert.equal(fs.existsSync(path.join(f.directory, "mcp.json")), false);
 });
+
+test("Cua 设置：发现绑定档案与修订，缺安装不影响查询；离线控制拒绝且请求不接受任意参数", async t => {
+  const f = await fixture(t), initial = await f.read(), request = { v: 1, op: "mcp.cua-targets", profile: initial.profile, expectedRevision: initial.revisions.mcp };
+  await assert.rejects(executePersonalSettings(f.directory, { ...request, expectedRevision: "sha256:" + "f".repeat(64) }), code("settings_revision_changed"));
+  const result = await executePersonalSettings(f.directory, request) as { targets: unknown[]; issues: { code: string }[] };
+  assert.ok(Array.isArray(result.targets)); assert.ok(Array.isArray(result.issues));
+  await assert.rejects(executePersonalSettings(f.directory, { ...request, op: "mcp.cua-control", action: "pause" }), code("cua_offline"));
+  for (const value of [{ ...request, executable: "/tmp/arbitrary" }, { ...request, op: "mcp.cua-control", action: "accept", operation: 1 }, { ...request, op: "mcp.cua-control", action: "pause", operation: 1 }, { ...request, op: "mcp.cua-image", operation: 1, observation: 2, image: "../../outside" }]) assert.throws(() => parsePersonalSettingsRequest(value), code("settings_request_invalid"));
+  assert.equal((await f.read()).online, false); assert.equal(f.model.calls.length, 0);
+});

@@ -10,7 +10,7 @@ import { personalManagementSocket, validatePersonalManagementConfig, type Person
 import type { PersonalMaintenanceRecord, PersonalMaintenanceStatus, PersonalManagementView, PersonalProfileIdentity, PersonalSettingsSnapshot } from "../shared/personal-settings.ts";
 
 const REQUEST_LIMIT = 128 * 1024, RESPONSE_LIMIT = 256 * 1024;
-const READ_OPS = ["settings.read", "lifecycle.status", "config.preflight", "model.test", "mcp.discover", "mcp.get", "skills.list", "skills.get", "skills.select-directory", "skills.preview-import"];
+const READ_OPS = ["settings.read", "lifecycle.status", "config.preflight", "model.test", "mcp.discover", "mcp.cua-targets", "mcp.cua-status", "mcp.cua-control", "mcp.cua-image", "mcp.get", "skills.list", "skills.get", "skills.select-directory", "skills.preview-import"];
 const WRITE_OPS = ["config.save", "mcp.migrate", "mcp.set-enabled", "mcp.remove", "mcp.save-service", "skills.import", "skills.set-enabled", "skills.remove"];
 const WRITE_REJECTIONS = ["settings_pending", "settings_profile_changed", "settings_revision_changed", "skills_revision_conflict", "settings_stop_required", "profile_busy"];
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
@@ -55,8 +55,8 @@ export class PersonalSettingsController {
     this.pending = value as unknown as PersonalMaintenanceRecord;
     this.profile = this.pending.profile;
   }
-  private current(generation = this.generation): void {
-    if (this.closed || generation !== this.generation) throw failure("management_changed", "设置管理连接已变化，请核实原档案；未继续维护。", !!this.pending);
+  private current(generation = this.generation, mutation = !!this.pending): void {
+    if (this.closed || generation !== this.generation) throw failure("management_changed", "设置管理连接已变化，请核实原档案；未继续维护。", mutation);
   }
   private redact(value: string): string {
     for (const token of this.tokens) value = value.replaceAll(token, "[令牌已隐藏]");
@@ -121,6 +121,7 @@ export class PersonalSettingsController {
     if (!fs.existsSync(this.socketPath) || this.forward !== forward) throw failure("management_forward", "SSH 转发未建立，请重新连接设置管理；原服务状态仍需核实。");
   }
   private async online(request: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const mutation = request.op === "mcp.cua-control";
     const input = JSON.stringify(request);
     if (Buffer.byteLength(input) > REQUEST_LIMIT) throw failure("settings_request_large", "本次配置超过请求上限，请缩小表单。");
     await this.ensureForward();
@@ -135,18 +136,18 @@ export class PersonalSettingsController {
       this.requests.add(req);
       const timer = setTimeout(() => req.destroy(), this.deps.timeoutMs ?? 35_000);
       req.once("close", () => { clearTimeout(timer); this.requests.delete(req); });
-      req.on("error", () => reject(failure("management_http", "后台应答中断，请重新读取原配置；未重放请求。")));
+      req.on("error", () => reject(failure("management_http", "后台应答中断，请重新读取原配置；未重放请求。", mutation)));
       req.on("response", response => {
         const chunks: Buffer[] = []; let bytes = 0;
-        response.on("data", (chunk: Buffer) => { bytes += chunk.length; if (bytes > RESPONSE_LIMIT) { response.destroy(); reject(failure("settings_response_large", "后台结果超过上限，请缩小分页后读取。")); } else chunks.push(chunk); });
-        response.on("error", () => reject(failure("management_http", "后台应答中断，请重新读取原配置。")));
+        response.on("data", (chunk: Buffer) => { bytes += chunk.length; if (bytes > RESPONSE_LIMIT) { response.destroy(); reject(failure("settings_response_large", "后台结果超过上限，请缩小分页后读取。", mutation)); } else chunks.push(chunk); });
+        response.on("error", () => reject(failure("management_http", "后台应答中断，请重新读取原配置。", mutation)));
         response.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
       });
       req.end(input);
     });
-    this.current(generation);
-    const result = this.envelope(raw, false, false);
-    this.checkProfile(result);
+    this.current(generation, mutation);
+    const result = this.envelope(raw, false, mutation);
+    this.checkProfile(result, mutation);
     return result;
   }
   private snapshot(result: Record<string, unknown>): PersonalSettingsSnapshot {
@@ -187,6 +188,7 @@ export class PersonalSettingsController {
     return this.exclusive(async () => {
       if (!object(value) || value.v !== 1 || typeof value.op !== "string" || !READ_OPS.includes(value.op)) throw failure("op_not_allowed", "此设置查询不受支持，请更新客户端。");
       if ("profile" in value && (!identity(value.profile) || !this.profile || !sameProfile(this.profile, value.profile))) throw failure("settings_profile_changed", "请求不属于当前档案，请重新读取原配置。");
+      if (value.op === "mcp.cua-image" || value.op === "mcp.cua-control") return this.online(value);
       const view = await this.inspect();
       return view.settings.online ? this.online(value) : this.machine("settings", value);
     });

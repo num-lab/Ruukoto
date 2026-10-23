@@ -118,6 +118,20 @@ function helperCall(args: string[]): Promise<string | null> {
   return new Promise(resolve => execFile(helper, args, { encoding: "utf8", timeout: 5000, maxBuffer: 8192, env: { PATH: "/usr/bin:/bin" } }, (error, stdout) => resolve(error ? null : stdout)));
 }
 
+/** 继承与 direct Driver 相同的宿主责任链，只读授权位；不提示授权，也不证明实际截图可用。
+ * Note: 见 .agents/notes/implemented/architecture/2026-10-23-cua-official-mcp.md
+ */
+export async function readMacosCuaPermissions(): Promise<{ accessibility: boolean; screenRecording: boolean }> {
+  if (process.platform !== "darwin") throw new ExecutionError("execution_unavailable", "本机电脑权限检查仅支持 macOS；请在 Code 所在 Mac 上核实授权。");
+  const output = await helperCall(["--cua-permissions"]);
+  if (output === null) throw new ExecutionError("execution_unavailable", "无法读取本机电脑权限；请重建原生 helper 后重新检查。", undefined, "binary_missing");
+  let raw: unknown;
+  try { raw = JSON.parse(output); }
+  catch (error) { throw new ExecutionError("execution_identity_invalid", "本机电脑权限结果无效；请重建原生 helper 后重新检查。", undefined, undefined, { cause: error }); }
+  if (typeof raw !== "object" || raw === null || !("accessibility" in raw) || typeof raw.accessibility !== "boolean" || !("screenRecording" in raw) || typeof raw.screenRecording !== "boolean") throw unavailable("本机电脑权限结果不完整；请重建原生 helper 后重新检查。");
+  return { accessibility: raw.accessibility, screenRecording: raw.screenRecording };
+}
+
 async function hostIdentity(): Promise<HostIdentity> {
   const output = await helperCall(["--host-identity"]);
   if (output === null) throw new ExecutionError("execution_unavailable", "macOS 持久监督器不可用；重建原生 helper 并核实平台能力", undefined, "binary_missing");

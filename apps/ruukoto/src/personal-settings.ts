@@ -7,7 +7,9 @@ import type { JsonValue } from "@earendil-works/chord";
 import { ManagedSkillsError, ManagedSkillsStore } from "@ruukoto/agent/managed-skills.ts";
 import type { SkillId } from "@ruukoto/agent/skills.ts";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { ROOT_CONVERSATION_ID } from "@earendil-works/pi-durable";
+import { discoverCuaTargets } from "@ruukoto/agent/mcp/cua-discovery.ts";
+import { restrictCuaTool } from "@ruukoto/agent/mcp/cua.ts";
+import { ROOT_CONVERSATION_ID, type TaskId, type EntryId } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { hasPendingPersonalWork } from "./personal-config-idle.ts";
 import { readPersonalConfig, savePersonalConfig } from "./personal-config.ts";
@@ -38,6 +40,9 @@ type PersonalSkillSettingsRequest = { v: 1; profile: PersonalSettingsIdentity; e
 export type PersonalSettingsRequest = { v: 1; op: "settings.read" | "lifecycle.status"; offset?: number; limit?: number }
   | { v: 1; op: "config.save" | "config.preflight"; profile: PersonalSettingsIdentity; target: PersonalSettingsTarget; expectedRevision: string; value: unknown }
   | { v: 1; op: "model.test"; profile: PersonalSettingsIdentity; expectedRevision: string; value: unknown }
+  | { v: 1; op: "mcp.cua-targets" | "mcp.cua-status"; profile: PersonalSettingsIdentity; expectedRevision: string }
+  | { v: 1; op: "mcp.cua-control"; profile: PersonalSettingsIdentity; expectedRevision: string; action: "pause" | "resume" | "stop" | "begin" | "observe" | "accept"; operation?: number; observation?: number }
+  | { v: 1; op: "mcp.cua-image"; profile: PersonalSettingsIdentity; expectedRevision: string; operation: number; observation: number; image: string; offset?: number }
   | { v: 1; op: "mcp.discover"; profile: PersonalSettingsIdentity; expectedRevision: string; service: unknown }
   | { v: 1; op: "mcp.migrate"; profile: PersonalSettingsIdentity; expectedRevision: string }
   | { v: 1; op: "mcp.get"; profile: PersonalSettingsIdentity; expectedRevision: string; id: string; offset?: number; limit?: number }
@@ -59,7 +64,7 @@ function checkPage(value: Record<string, unknown>) {
 
 export function parsePersonalSettingsRequest(value: unknown): PersonalSettingsRequest {
   if (!object(value) || value.v !== 1 || typeof value.op !== "string") throw invalid();
-  if (!["settings.read", "lifecycle.status", "config.save", "config.preflight", "model.test", "mcp.discover", "mcp.get", "mcp.migrate", "mcp.set-enabled", "mcp.remove", "mcp.save-service", ...skillOperations].includes(value.op)) throw new PersonalError("settings_operation_unsupported", "此设置操作不受支持，请更新管理客户端；未执行其他命令。");
+  if (!["settings.read", "lifecycle.status", "config.save", "config.preflight", "model.test", "mcp.discover", "mcp.cua-targets", "mcp.cua-status", "mcp.cua-control", "mcp.cua-image", "mcp.get", "mcp.migrate", "mcp.set-enabled", "mcp.remove", "mcp.save-service", ...skillOperations].includes(value.op)) throw new PersonalError("settings_operation_unsupported", "此设置操作不受支持，请更新管理客户端；未执行其他命令。");
   let allowed: string[];
   if (value.op === "settings.read" || value.op === "lifecycle.status") {
     allowed = ["v", "op", "offset", "limit"];
@@ -71,6 +76,13 @@ export function parsePersonalSettingsRequest(value: unknown): PersonalSettingsRe
       allowed.push("target", "value");
       if ((value.target !== "model" && value.target !== "skills" && value.target !== "mcp") || !("value" in value)) throw invalid();
     } else if (value.op === "model.test") { allowed.push("value"); if (!("value" in value)) throw invalid(); }
+    else if (value.op === "mcp.cua-control" || value.op === "mcp.cua-image") {
+      allowed.push("operation", "observation");
+      if (value.op === "mcp.cua-control") { allowed.push("action"); if (!["pause", "resume", "stop", "begin", "observe", "accept"].includes(String(value.action))) throw invalid(); }
+      else { allowed.push("image", "offset"); if (typeof value.image !== "string" || !/^[0-9a-f-]{36}$/.test(value.image) || value.offset !== undefined && (!Number.isSafeInteger(value.offset) || Number(value.offset) < 0)) throw invalid(); }
+      const recovery = value.op === "mcp.cua-image" || !["pause", "resume"].includes(String(value.action));
+      if (recovery && (!Number.isSafeInteger(value.operation) || Number(value.operation) < 1) || value.observation !== undefined && (!Number.isSafeInteger(value.observation) || Number(value.observation) < 1) || (value.op === "mcp.cua-image" || value.action === "accept") && value.observation === undefined || !recovery && (value.operation !== undefined || value.observation !== undefined)) throw invalid();
+    }
     else if (value.op === "mcp.discover" || value.op === "mcp.save-service") { allowed.push("service"); if (!object(value.service)) throw invalid(); }
     else if (value.op === "mcp.get" || value.op === "mcp.set-enabled" || value.op === "mcp.remove") {
       allowed.push("id"); if (typeof value.id !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(value.id)) throw invalid();
@@ -90,7 +102,7 @@ export function parsePersonalSettingsRequest(value: unknown): PersonalSettingsRe
       if (value.op === "skills.select-directory") { allowed.push("purpose"); if (value.purpose !== "library" && value.purpose !== "import") throw invalid(); }
       if (value.op === "skills.import") { allowed.push("contentRevision"); if (!revision(value.contentRevision) || value.contentRevision === "missing") throw invalid(); }
       if (value.op === "skills.set-enabled") { allowed.push("enabled"); if (typeof value.enabled !== "boolean") throw invalid(); }
-    } else if (value.op !== "mcp.migrate") throw invalid();
+    } else if (!["mcp.migrate", "mcp.cua-targets", "mcp.cua-status"].includes(value.op)) throw invalid();
   }
   if (Object.keys(value).some(key => !allowed.includes(key))) throw invalid();
   return value as PersonalSettingsRequest;
@@ -313,6 +325,16 @@ export async function dispatchPersonalSettings(current: PersonalSettingsContext,
   }
   const target = request.op === "model.test" ? "model" : request.op === "config.save" || request.op === "config.preflight" ? request.target : "mcp";
   checkTarget(profile, request, target);
+  if (request.op === "mcp.cua-targets") return { ...base, revision: request.expectedRevision, ...await discoverCuaTargets("cua-linux") };
+  if (request.op === "mcp.cua-status") return { ...base, revision: request.expectedRevision, available: !!current.instance?.mcp && !!readPersonalMcp(profile)?.services.some(service => service.cua), ...(current.instance?.mcp ? await current.instance.mcp.cuaStatus() : { paused: true, busy: false, operations: [] }) };
+  if (request.op === "mcp.cua-control" || request.op === "mcp.cua-image") {
+    const mcp = current.instance?.mcp;
+    if (!mcp) throw new PersonalError("cua_offline", "电脑管理需要原个人后台在线，请先启动原服务后刷新。");
+    if (request.op === "mcp.cua-image") return { ...base, ...await mcp.cuaImage(request.operation as TaskId, request.observation as EntryId, request.image, request.offset) };
+    if (request.action === "pause" || request.action === "resume") await mcp.pauseCua(request.action === "pause");
+    else await mcp.recoverCua(request.operation as TaskId, request.action, request.observation as EntryId | undefined);
+    return { ...base, saved: true, ...await mcp.cuaStatus() };
+  }
   if (request.op === "model.test") {
     const config = parsePersonalModel(request.value);
     return { ...base, revision: request.expectedRevision, test: online ? await testPersonalModel(config, { record: async evidence => { await current.instance!.harness.commit(tx => tx.appendEntry(ROOT_CONVERSATION_ID, { kind: "ruukoto.settings-model-test", data: evidence }), context); } }) : { status: "unverified", code: "model_environment_unverified", message: "后台已停机，无法核实原服务凭据环境；请启动原后台后显式测试。" } };
@@ -351,7 +373,7 @@ export async function dispatchPersonalSettings(current: PersonalSettingsContext,
     if (raw.cua !== undefined) {
       if (Object.keys(raw).some(key => !["id", "label", "cua"].includes(key))) throw invalid();
       const config = parsePersonalMcp({ version: 3, generation: randomUUID(), services: [{ id: raw.id ?? randomUUID(), label: raw.label ?? "电脑", cua: raw.cua, enabled: true, tools: [] }] });
-      try { return { ...base, tools: await discoverPersonalMcp(config.services[0]) }; }
+      try { const service = config.services[0]; return { ...base, revision: request.expectedRevision, tools: (await discoverPersonalMcp(service)).filter(tool => restrictCuaTool(service.cua!, tool)) }; }
       catch (error) { if (error instanceof PersonalError) throw error; throw new PersonalError("mcp_discovery_failed", "电脑工具发现失败，请检查固定程序与目标；未调用业务工具。"); }
     }
     if (raw.authentication !== undefined && raw.authentication !== "anonymous" && raw.authentication !== "credential" || raw.credentialPath !== undefined && typeof raw.credentialPath !== "string") throw invalid();

@@ -55,8 +55,8 @@
 | 技能管理 | `skills_list`、`skill_get`、`skill_import_preview`、`skill_import`、`skill_set_enabled`、`skill_remove` | 列表与正文有界；按稳定身份与内容修订管理托管副本，外部来源只读 |
 | 项目配置、资料授权与记忆 | `set_project_instructions`、`set_project_web_search`、`get_project_jev`、`set_project_jev`、`create_data_grant`、`revoke_data_grant`、`list_data_grants`、`list_memories`、`get_memory`、`save_memory`、`revoke_memory`、`restore_memory` | 写操作按 `expected_version` 条件更新；资料授权只能由拥有者此处创建与撤销 |
 | 凭据 | `list_credentials`、`add_credential`、`remove_credential` | `list_credentials` 返回脱敏元数据和服务引用，可按原项目及端点主机过滤，不回显值；秘密值随请求传输，不进命令行、模型上下文、事件或日志 |
-| 电脑恢复 | `mcp_cua_status`、`mcp_cua_stop`、`mcp_cua_begin_recovery`、`mcp_cua_observe`、`mcp_cua_accept`、`get_tool_op_mcp` | 仅拥有者入口；操作顺序由持久事实核实，接受须回传当前观察身份，原证据分段读取；不把生命周期工具交给模型 |
-| MCP | `mcp_sources`、`mcp_configure`、`mcp_list`、`mcp_set_enabled`、`mcp_remove`、`mcp_check`、`mcp_save_credential`、`mcp_remove_credential` | 来源按工作区分页，配置按原项目与 `expected_version` 更新，桌面同时提交原 `service_id` 防止同名重建覆盖；普通 HTTPS 检查禁用服务也只发现工具，电脑检查不启动额外执行；配置支持互斥的 endpoint/cua 分支；专用凭据首次写入即限定来源与 MCP 操作 |
+| 电脑配置与恢复 | `mcp_cua_targets`、`mcp_cua_status`、`mcp_cua_stop`、`mcp_cua_begin_recovery`、`mcp_cua_observe`、`mcp_cua_accept`、`get_tool_op_mcp` | 仅拥有者入口；发现固定安装，状态携带原动作与截图归属；逐服务暂停的stop携带service_id并拒绝停止另一绑定，全局恢复停止不带；接受须回传当前观察身份，原证据及图片沿既有接口分段读取；不把生命周期工具交给模型 |
+| MCP | `mcp_sources`、`mcp_configure`、`mcp_list`、`mcp_set_enabled`、`mcp_remove`、`mcp_check`、`mcp_save_credential`、`mcp_remove_credential` | 来源按工作区分页，配置按原项目与 `expected_version` 更新，桌面同时提交原 `service_id` 防止同名重建覆盖；普通 HTTPS 检查禁用服务也只发现工具，电脑检查读取静态清单并预检当前宿主授权位，不启动电脑 runtime，不代表实际捕获通过；配置支持互斥的 endpoint/cua 分支；专用凭据首次写入即限定来源与 MCP 操作 |
 | QQ 与 Telegram | `qq_configure`、`qq_status`、`qq_set_enabled`、`qq_inbox_list`、`qq_outbox_list`、`telegram_configure`、`telegram_status`、`telegram_set_enabled` | 配置按 `expected_version` 条件更新；QQ 群收件与出站列表是只读归档 |
 | 调度与通知 | `schedule_list`、`schedule_get`、`schedule_cancel`、`notification_list`、`notification_get`、`notification_cancel` | 只有查询与取消，控制面不获得发送或改目标的能力；取消必须给原因 |
 | 长期操作授权 | `service_grant_list`、`service_grant_get`、`service_grant_revoke` | 只有查询与带 `expected_version` 的撤销；控制面不能创建或扩大授权，重复撤销幂等且不再发事件 |

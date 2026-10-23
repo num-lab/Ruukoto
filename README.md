@@ -38,7 +38,7 @@ npm link            # 可选：把 ruukoto / ruukoto-code 装进 PATH（否则�
 ### ruukoto-code（开发机）
 
 ```bash
-ruukoto-code config               # 配置模型与 API key（后台未运行时进入离线模式）
+ruukoto-code config               # 模型/API key 可离线；mcp cua 打开配置向导
 ruukoto-code ~/code/my-repo       # 以该目录为工作区新建会话；首次自动拉起后台
 ruukoto-code                      # 回到既有会话（不隐式新建）
 ruukoto-code stop                 # 停止后台

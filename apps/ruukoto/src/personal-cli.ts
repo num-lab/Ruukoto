@@ -36,7 +36,7 @@ import { personalWorkDescription } from "./personal-work-controls.ts";
 import type { listPersonalWorks, personalWorkResult, PersonalWorkSummary } from "./personal-work.ts";
 import { readPersonalCommands, savePersonalCommands } from "./personal-command-config.ts";
 import { tmpdir } from "node:os";
-import { configurePersonalMcp, managePersonalMcp } from "./personal-mcp-cli.ts";
+import { configurePersonalMcp, managePersonalMcp, managePersonalCua } from "./personal-mcp-cli.ts";
 import { managePersonalSchedules } from "./personal-scheduler-cli.ts";
 
 export type PersonalCliIO = { question(prompt: string): Promise<string>; write(text: string): void };
@@ -408,14 +408,14 @@ export async function managePersonalCommands(io: PersonalCliIO, directory: strin
 export async function personalMenu(directory: string, io: PersonalCliIO, launch?: () => Promise<void>): Promise<void> {
   io.write(`个人 Agent${launch ? " 开发实例" : ""}\n档案：${directory}\n通过聊天、后台工作、审批核实、权限和配置菜单管理此实例；IM 可直接发送 /帮助。\n`);
   while (true) {
-    const actions = ["配置模型（后台须停止）", "启动个人后台", "查看状态", "发送消息", "查看最近消息", "核实上次提交", "停止个人后台", "配置 Telegram（后台须停止）", "查看 Telegram 收发", "退出向导（后台继续运行）", "配置或查看服务（后台须停止）", "管理后台分析", "管理分析委托", "管理检查停止重核", "管理服务审批与核实", "配置或查看命令目录（后台须停止）", "管理命令效果与停止核实", "配置或查看 MCP（后台须停止）", "管理 MCP 审批、原响应与效果", "配置资料与网络工具（后台须停止）", "管理工具审批、资料授权与产物", "配置浏览器（后台须停止）", "管理浏览器、截图与网页效果", "配置 QQ（后台须停止）", "查看 QQ 收发", "管理定时计划与运行", "配置或查看技能（后台须停止）", "管理长期记忆", "检索历史原文", "管理应用数据审批与回执", "管理默认模式与长期授权", "问题与回答", "管理会话后台与日志"];
+    const actions = ["配置模型（后台须停止）", "启动个人后台", "查看状态", "发送消息", "查看最近消息", "核实上次提交", "停止个人后台", "配置 Telegram（后台须停止）", "查看 Telegram 收发", "退出向导（后台继续运行）", "配置或查看服务（后台须停止）", "管理后台分析", "管理分析委托", "管理检查停止重核", "管理服务审批与核实", "配置或查看命令目录（后台须停止）", "管理命令效果与停止核实", "配置或查看 MCP（后台须停止）", "管理 MCP 审批、原响应与效果", "配置资料与网络工具（后台须停止）", "管理工具审批、资料授权与产物", "配置浏览器（后台须停止）", "管理浏览器、截图与网页效果", "配置 QQ（后台须停止）", "查看 QQ 收发", "管理定时计划与运行", "配置或查看技能（后台须停止）", "管理长期记忆", "检索历史原文", "管理应用数据审批与回执", "管理默认模式与长期授权", "问题与回答", "管理会话后台与日志", "管理电脑暂停与继续"];
     const groups = [
       { title: "聊天与消息", actions: [3, 4, 5, 31] },
       { title: "后台工作与定时计划", actions: [11, 12, 25, 32] },
       { title: "审批、效果与停止核实", actions: [13, 14, 16, 18, 20, 22, 29] },
       { title: "权限、授权与个人资料", actions: [30, 20, 27, 28] },
       { title: "配置能力（后台须停止）", actions: [0, 7, 23, 10, 15, 17, 19, 21, 26] },
-      { title: "实例状态与启停", actions: [2, 1, 6, 8, 24] },
+      { title: "实例状态与启停", actions: [2, 1, 6, 8, 24, 33] },
     ];
     const group = await choose(io, "个人实例", [...groups.map(group => group.title), launch ? "退出向导（停止本次开发后台）" : actions[9]]);
     if (group === groups.length) return;
@@ -458,6 +458,7 @@ export async function personalMenu(directory: string, io: PersonalCliIO, launch?
       else if (selected === 16) await managePersonalCommands(io, directory);
       else if (selected === 17) await configurePersonalMcp(io, directory);
       else if (selected === 18) await managePersonalMcp(io, directory);
+      else if (selected === 33) await managePersonalCua(io, directory);
       else if (selected === 19) await configurePersonalTools(io, directory);
       else if (selected === 20) await managePersonalTools(io, directory);
       else if (selected === 21) await configurePersonalBrowser(io, directory);

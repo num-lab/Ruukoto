@@ -4,6 +4,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as http from "node:http";
 import type { AddressInfo } from "node:net";
+import { createHash } from "node:crypto";
 import { resolveDirIdentity } from "@ruukoto/core/dir-identity.ts";
 import { ControlClientError } from "@ruukoto/control/client.ts";
 import type { OpParams, OpResult, TuiOp } from "@ruukoto/control/ops.ts";
@@ -17,6 +18,28 @@ const quiet = () => ({ kind: "text" as const, text: "ok" });
 const endpoint = "https://mcp.example.com/mcp";
 function request<K extends TuiOp>(t: TestRuntime, op: K, params: OpParams<K>): Promise<OpResult<K>> { return t.client.request<OpResult<K>>(op, params); }
 function rejected(code: string) { return (error: unknown) => error instanceof ControlClientError && error.code === code; }
+
+test("Code Cua 检查禁用草稿：静态工具与当前宿主权限分别返回，坏制品可行动且不启动 runtime", { skip: process.platform !== "darwin" }, async () => {
+  const t = await startTestRuntime("d-cua-check", quiet, { config: { product: product.runtime } });
+  const executable = path.join(t.dirs.root, "driver"), args = path.join(t.dirs.root, "args.json");
+  const tools = [{ name: "get_desktop_state", description: "观察", input_schema: { type: "object", properties: {} } }, { name: "run_script", description: "脚本", input_schema: { type: "object", properties: {} } }];
+  fs.writeFileSync(executable, `#!${process.execPath}\nimport fs from 'node:fs';fs.writeFileSync(${JSON.stringify(args)},JSON.stringify(process.argv.slice(2)));process.stdout.write(${JSON.stringify(JSON.stringify({ version: "0.38.0", tools }))});`, { mode: 0o700 });
+  try {
+    const { projectId } = await createProjectSession(t.client, t.work[0]);
+    const cua = { kind: "cua-mac" as const, version: "0.38.0" as const, executable, sha256: createHash("sha256").update(fs.readFileSync(executable)).digest("hex") };
+    const service = await request(t, "mcp_configure", { project_id: projectId, name: "mac", cua, tool_allowlist: [], enabled: false });
+    const checked = await request(t, "mcp_check", { service_id: service.id });
+    assert.deepEqual(checked.tools.map(tool => [tool.name, tool.allowed, tool.effect]), [["get_desktop_state", false, "read"]]);
+    assert.equal(typeof checked.permissions?.accessibility, "boolean"); assert.equal(typeof checked.permissions?.screenRecording, "boolean");
+    assert.equal(checked.ok, checked.permissions!.accessibility && checked.permissions!.screenRecording);
+    assert.deepEqual(JSON.parse(fs.readFileSync(args, "utf8")), ["dump-docs", "--type", "mcp"]);
+    assert.equal((await request(t, "mcp_cua_status", {})).state, "idle");
+    fs.appendFileSync(executable, "\n");
+    const changed = await request(t, "mcp_check", { service_id: service.id });
+    assert.equal(changed.ok, false); assert.equal(changed.errorCode, "cua_config_invalid");
+    assert.match(changed.error!, /本机电脑程序.*固定版本/); assert.doesNotMatch(changed.error!, /端点与网络/);
+  } finally { await t.shutdown(); }
+});
 
 test("Code MCP 操作只向 Code 放行，通用凭据写入与移除保持关闭", async () => {
   for (const op of CODE_MCP_OPS) {

@@ -87,6 +87,7 @@ Coding 的独立档案为 `~/.ruukoto-code/{data,agent,control,pending}`，路�
 | `model.test` | 原 `profile`、模型修订及所选配置 `value`；只在实际后台发无工具、最多 1 token、30 秒测试，可能计费；离线返回尚未验证 |
 | `mcp.get` / `mcp.discover` / `mcp.migrate` | 原 `profile` 与 MCP 修订；详情加服务 `id`，工具定义默认每页 1 项，可用 `offset/limit` 继续；发现加 `service`，迁入须停机；发现不调用业务工具 |
 | `mcp.save-service` / `mcp.set-enabled` / `mcp.remove` | 原 `profile` 与 MCP 修订；保存加含 `id` 的服务字段 `service`（省略 `tools` 保留原允许列表），启停加 `id/enabled`，删除加 `id`；均须停机，原定义由后台保留，适用于大配置 |
+| `mcp.cua-targets` / `mcp.cua-status` / `mcp.cua-control` / `mcp.cua-image` | 原 `profile` 与 MCP 修订；发现固定程序与既有沙箱、读取暂停及原未知动作。在线控制支持暂停／继续与逐步恢复；观察身份由界面保管，图片每页最多 128 KiB。控制丢答先读取状态，不重发旧动作 |
 | `skills.list` / `skills.get` | 原 `profile` 与 `skills.revision`；列表可分页，详情加稳定 `id`，返回 `sourceHost:personal` 的远端来源与正文 |
 | `skills.select-directory` / `skills.preview-import` | 原 `profile`、`skills.revision`、拥有者明确选择的远端 `directory`；目录选择另填 `purpose:library/import`，只枚举至多 1000 个子项并返回有界子目录候选 |
 | `skills.import` / `skills.set-enabled` / `skills.remove` | 原 `profile`、`skills.revision` 与预览/列表中的 `id`；导入另填 `directory`、预览的 `contentRevision`，启停另填 `enabled`；均须停机且无未决事项 |
@@ -149,7 +150,7 @@ Linux 上停止后台后，选择“配置或查看命令目录”，填写已�
 
 在线向导选择「管理 MCP 调用」，从服务名称及原工具选择记录，翻页查看完整原请求、原响应及核实事实。本机来源可批准本次或拒绝；Telegram 来源在原私聊发送 `/MCP`，回复已送达的宿主菜单选择 MCP1 等，再回复详情菜单批准或拒绝。业务效果未知时独立核实后选择已生效/未生效并填写证据，Telegram 回复确认菜单「MCP核实说明 你的证据」；人工效果说明不证明原远端请求结束。只有完整终结应答或原 SSE 流查询取得原应答才核实请求结束；具备原游标的记录可选择「核实原请求结束」，登记后刷新查询，系统只 GET 原流，不重发工具。缺游标、不支持恢复或原凭据无法核实时保留未知、原工作/报告暂停与端点占用；本地关闭或超时不能解除，不要换键、工具、配置或子 Agent 重试。其他独立工作和主聊天可继续。完整应答不表示业务成功，按原响应检查实际结果。
 
-个人 Cua 电脑调用限 Linux 主会话，使用固定程序和既有本地沙箱，连接跨对话轮保留。出现未知结果后，在「管理 MCP 调用」选择原记录，依次核实原电脑运行代停止、检查结果并开始恢复、读取新截图、接受新截图后开放新工作。停止整个沙箱会丢失内存和未保存的应用状态，须明确确认，磁盘保留。人工效果说明不能跳过这些步骤，原结果未知与原远端未结束事实保持；恢复只开放新工作，旧动作不会重发。普通 HTTP MCP 仍须取得原终结应答，不能通过电脑恢复解除占用。
+个人 Cua 从「配置 MCP 服务 → 新增 Linux 桌面沙箱」或桌面 PA 的 MCP 设置选择既有本地沙箱，检查连接并选择允许工具后保存；程序、哈希和容器身份由管理入口核实。主会话连接跨对话轮保留；在线暂停／继续从实例管理的电脑控制或桌面 MCP 页操作。暂停先持久拒绝新调用，原在途结束后停止 CLI；继续前核实原 CLI 停止，下一次操作重新截图。出现未知结果后，在「管理 MCP 调用」或桌面电脑控制选择原记录，依次核实原电脑运行代停止、检查结果并开始恢复、实际查看新截图、接受该观察后开放新工作；若原来已暂停，仍须显式继续。停止整个沙箱会丢失内存和未保存的应用状态，须明确确认，磁盘保留。人工效果说明不能跳过这些步骤，原结果未知与原远端未结束事实保持；恢复只开放新工作，旧动作不会重发。普通 HTTP MCP 仍须取得原终结应答，不能通过电脑恢复解除占用。
 
 真实模型验收使用显式选择的 `models.json` 和 `provider/model`，在临时新档案由模型保存记忆、后台重启后查找/读取并引用原版本，再加载临时技能完成任务，并经应用数据工具以单次事务保存两行、再次重启查询；核实真实SQLite、实际工具结果和两阶段请求证据。凭据仅进入测试进程环境，不复制到个人档案；不执行配置中的凭据命令或自定义认证头。来源配置也可用 `RUN_PERSONAL_MODELS_FILE=-` 经 stdin 提供，内容只在进程内读取。缺开关或配置退出 2，不记通过：
 
@@ -376,7 +377,22 @@ ruukoto-code mcp disable <service-id> | enable | remove <service-id> [--expected
 
 MCP 凭据用途固定为 `mcp`，host 须与服务端点一致，经 authorization 头以 Bearer 注入；配置服务时 scope 自动收紧到该项目 + mcp 操作，已有冲突 scope 拒绝配置。首个接入对象为官方远程 GitHub MCP。
 
-Cua 是独立的本机电脑配置，Code 仅接受固定 Mac Driver direct 入口，不使用 HTTP 端点或 Bearer 凭据。电脑连接限一个拥有者主会话并跨任务保留；需要支持图片的模型，界面操作前先取得新画面。电脑结果未知时整个档案的电脑入口冻结，须从拥有者管理入口依次核实原执行停止、检查结果并开始恢复、读取和接受新截图，才能开放新工作；换配置或会话不会绕过原记录。当前 HTTP 配置表单保留电脑配置的类型，不能将其改写成普通服务。其他实例和人类仍可操作同一桌面，使用时避免同时控制。
+Cua 是独立的电脑配置。Code 从「设置 → MCP → Code」添加「本机 Cua Driver」，或运行 `ruukoto-code mcp cua` 打开配置界面，在 MCP 服务中选择已安装程序。程序自动核实版本与哈希，保存禁用草稿；检查程序、权限并发现工具后，逐项选择允许范围，再保存并启用。Mac 检查只读当前后台启动宿主的辅助功能／屏幕录制授权位；静态工具发现不启动电脑 runtime，授权位通过不代表实际截图捕获通过。电脑连接限一个拥有者主会话，操作前须使用支持图片的模型取得新画面。暂停先停用以拒绝新调用，再核实原执行停止；在途操作须先中断并从原记录核实，继续时重新启用并取得新画面。
+
+安装按[官方 Driver 指引](https://cua.ai/docs/cua-driver/quickstart)与[官方 CLI 指引](https://cua.ai/docs/cua-cli/quickstart)，使用固定版本；安装由拥有者执行，Ruukoto 不自动安装或升级：
+
+```sh
+# 当前 Mac 开发机：Cua Driver 0.38.0
+curl -fsSL https://cua.ai/driver/install.sh | CUA_DRIVER_RS_VERSION=0.38.0 /bin/bash
+# 个人 Agent 所在 Linux 主机：Cua CLI 0.7.0
+curl -fsSL https://cua.ai/install.sh | sh -s -- --cli-only --version 0.7.0
+```
+
+Code 固定 `mcp --direct`，macOS 授权归实际启动后台的终端、IDE 或应用宿主；在「系统设置 → 隐私与安全性」给该宿主辅助功能和屏幕录制权限，按系统提示重启宿主后重新检查。官方 app 的 `permissions status` 查询的是 app daemon，不能替代 direct 宿主检查；更换启动宿主须重新核实。无需另一台 Mac 或 TLS／Bearer 网关。[官方 direct 归属说明](https://cua.ai/docs/cua-driver/reference/cli/serve-and-configure#cua-driver-mcp)。
+
+Personal 需要同账户可用的 Linux user systemd、cgroup v2 与本机 `/usr/bin/docker`、`/var/run/docker.sock`，并先由拥有者准备专用的既有 Linux 桌面沙箱。固定 guest Spacesd 0.6.0／Driver 0.38.0，镜像为 `ghcr.io/trycua/linux@sha256:d0f845852b717aca5f3692fbe244e724500847f22400f2f672c505623ed542bf`。沙箱须已运行，禁用自动重启，不用特权、宿主 PID／网络、设备映射或宿主桌面／Docker socket 挂载；管理入口只选择和核实，不创建、删除或修改策略。CLI 使用 `--embedded`，不接共享 daemon。缺安装或权限时保留普通聊天与 HTTP MCP。
+
+电脑结果未知时，原档案的电脑入口冻结；从 MCP 管理依次查看原未知动作、核实原执行停止、检查结果并开始只读恢复、查看新截图、接受这次观察后开放新工作。桌面直接显示原图，命令行交给系统图片查看器；Linux无图形会话时从桌面PA查看。图片读取或显示失败不能接受，重新观察会废弃旧选择。停止整个 Linux 沙箱会丢失内存和未保存应用状态，须本人明确选择，磁盘保留。关闭设置窗不停止后台动作，正常关闭先暂停并核实停止；故障后保留原记录，不重发旧动作。其他实例和人类仍可操作同一桌面，使用时避免同时控制。
 
 GitHub MCP 首次配置：端点 `https://api.githubcopilot.com/mcp/readonly`（URL 路径 `/readonly` 为服务端只读开关）；凭据为独立只读 PAT（`purpose=mcp`、`host=api.githubcopilot.com`）。允许列表按 `mcp check` 实际发现的工具名精确填写（服务端工具集随版本变化，以发现结果为准）；建议只开放身份查询、仓库文件、PR、Issue、Actions 与 Checks 的读取类别。仓库可访问范围由 PAT 权限约束：通用客户端未实现参数级仓库限制，项目级启用不等于令牌内的单仓库隔离。
 

@@ -5,12 +5,34 @@ import * as path from "node:path";
 import { createHash, randomBytes } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { launchMacosExecution, stopMacosExecution, type MacosExecutionRef } from "@ruukoto/agent/execution/native-macos-identity.ts";
+import { launchMacosExecution, stopMacosExecution, readMacosCuaPermissions, type MacosExecutionRef } from "@ruukoto/agent/execution/native-macos-identity.ts";
 import { ExecutionError, type LaunchedUnit, type LaunchSpec } from "@ruukoto/agent/execution/launchers.ts";
 import type { PreparedNativeLaunch } from "@ruukoto/agent/execution/native.ts";
 
 const helper = fileURLToPath(new URL("../worker/native-macos-supervisor", import.meta.url));
 const available = process.platform === "darwin" && fs.existsSync(helper);
+
+test("macOS 电脑权限预检只返回当前宿主的两项授权位", { skip: !available }, async () => {
+  const permissions = await readMacosCuaPermissions();
+  assert.deepEqual(Object.keys(permissions).sort(), ["accessibility", "screenRecording"]);
+  assert.equal(typeof permissions.accessibility, "boolean");
+  assert.equal(typeof permissions.screenRecording, "boolean");
+});
+
+test("macOS 电脑权限预检区分两项系统授权，不进入持久执行或请求授权", { skip: process.platform !== "darwin" }, () => {
+  const directory = fs.mkdtempSync("/tmp/rk-macos-permissions-"), source = path.join(directory, "permissions.c"), binary = path.join(directory, "permissions");
+  const supervisor = fileURLToPath(new URL("../packages/agent/src/execution/native-macos-supervisor.c", import.meta.url));
+  fs.writeFileSync(source, `#include <ApplicationServices/ApplicationServices.h>\nstatic Boolean fake_accessibility(void) { return true; }\nstatic bool fake_screen_recording(void) { return false; }\n#define AXIsProcessTrusted fake_accessibility\n#define CGPreflightScreenCaptureAccess fake_screen_recording\n#define main supervisor_main\n#include ${JSON.stringify(supervisor)}\n#undef main\nint main(void) { char *args[] = {"permissions", "--cua-permissions"}; return supervisor_main(2, args); }\n`);
+  try {
+    const compiled = spawnSync("/usr/bin/clang", ["-std=c11", "-Wall", "-Wextra", "-Werror", source, "-framework", "ApplicationServices", "-o", binary], { encoding: "utf8" });
+    assert.equal(compiled.status, 0, compiled.stderr);
+    const result = spawnSync(binary, [], { encoding: "utf8", timeout: 5000 });
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(result.stdout), { accessibility: true, screenRecording: false });
+    assert.deepEqual(fs.readdirSync(directory).sort(), ["permissions", "permissions.c"]);
+  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+});
+
 const delay = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
 async function waitFor(check: () => boolean, timeout = 8000): Promise<void> {
   const deadline = Date.now() + timeout;
@@ -140,7 +162,7 @@ test("macOS helper SIGKILL 后无停止回执，只保守未核实且不向旧 w
   const source = fileURLToPath(new URL("../packages/agent/src/execution/native-macos-supervisor.c", import.meta.url));
   const injector = path.join(f.directory, "kill-exact.c"), binary = path.join(f.directory, "kill-exact");
   fs.writeFileSync(injector, `#define main helper_main\n#include ${JSON.stringify(source)}\n#undef main\nint main(int argc, char **argv) { if(argc != 6) return 2; uint64_t v[5]; for(int i=0;i<5;i++) if(!parse_unsigned(argv[i+1],&v[i]))return 2; struct process_info p; if(identity((pid_t)v[0],&p)!=1 || p.unique.uniqueid!=v[1] || p.bsd.pbi_start_tvsec!=v[2] || p.bsd.pbi_start_tvusec!=v[3] || (uint32_t)p.unique.pidversion!=v[4])return 3; audit_token_t t={{0}};t.val[5]=p.bsd.pbi_pid;t.val[7]=p.unique.pidversion;return proc_signal_with_audittoken(&t,SIGKILL)==0?0:4; }\n`);
-  assert.equal(spawnSync("/usr/bin/clang", ["-std=c11", "-Wall", "-Wextra", "-Werror", injector, "-o", binary]).status, 0);
+  assert.equal(spawnSync("/usr/bin/clang", ["-std=c11", "-Wall", "-Wextra", "-Werror", injector, "-framework", "ApplicationServices", "-o", binary]).status, 0);
   let unit: LaunchedUnit | undefined;
   try {
     unit = await launchMacosExecution(f.evidence, f.ref, f.input, f.spec); unit.stdout.resume?.(); unit.stderr.resume?.();
@@ -201,7 +223,7 @@ test("macOS 停止标记抢先到达 fork 后启动门，命令零派发且回�
   const wrapper = path.join(f.directory, "gate.c"), binary = path.join(f.directory, "gate");
   fs.writeFileSync(wrapper, `#define main helper_main\n#include ${JSON.stringify(source)}\n#undef main\nint main(void) { signal(SIGPIPE,SIG_IGN); durable=true; signal(SIGTERM,request_stop);signal(SIGINT,request_stop);signal(SIGHUP,request_stop);if(!prepare_durable(${JSON.stringify(f.directory)},"${"1".repeat(32)}","${"2".repeat(64)}")||!owner_processes(&baseline))return 2;launchd_verified=launchd_identity(&launchd);int gate[2];if(pipe(gate))return 3;worker_pid=fork();if(!worker_pid){close(gate[1]);dup2(output_write[0],1);dup2(output_write[1],2);close(output[0].fd);close(output[1].fd);close(output_write[0]);close(output_write[1]);char start;if(read(gate[0],&start,1)!=1)_exit(126);execl("/bin/sh","sh","-c","touch ${f.workspace}/launched",(char *)0);_exit(127);}close(gate[0]);for(int i=0;i<2;i++){close(output_write[i]);output_write[i]=-1;}if(identity(worker_pid,&root)!=1||!append(&members,&root))return 4;if(mkdirat(evidence_dir,"stop-requested",0700)||fsync(evidence_dir))return 5;pause_observation(0);if(!stop_requested && write(gate[1],"s",1)!=1)return 6;close(gate[1]);last_sample=monotonic();bool stopped=stop_worker();status_message("stopped",stopped?"verified":uncertain_reason,stopped);waitpid(worker_pid,NULL,0);return stopped?0:7;}\n`);
   try {
-    const compiled = spawnSync("/usr/bin/clang", ["-std=c11", "-Wall", "-Wextra", "-Werror", wrapper, "-o", binary], { encoding: "utf8" });
+    const compiled = spawnSync("/usr/bin/clang", ["-std=c11", "-Wall", "-Wextra", "-Werror", wrapper, "-framework", "ApplicationServices", "-o", binary], { encoding: "utf8" });
     assert.equal(compiled.status, 0, compiled.stderr);
     const run = spawn(binary, [], { stdio: ["ignore", "pipe", "pipe", "pipe", "pipe"] });
     run.stdout!.resume(); run.stderr!.resume(); run.stdio[3]!.on("data", () => undefined);
@@ -251,7 +273,7 @@ test("macOS 完全访问只核实原执行组和已累计后代，未知主动�
       waitpid(worker_pid,NULL,0);return 0;
     }\n`);
     try {
-      const compiled = spawnSync("/usr/bin/clang", ["-std=c11", "-Wall", "-Wextra", "-Werror", wrapper, "-o", binary], { encoding: "utf8" });
+      const compiled = spawnSync("/usr/bin/clang", ["-std=c11", "-Wall", "-Wextra", "-Werror", wrapper, "-framework", "ApplicationServices", "-o", binary], { encoding: "utf8" });
       assert.equal(compiled.status, 0, compiled.stderr);
       const run = spawn(binary, [], { stdio: ["ignore", "pipe", "pipe", "pipe", "pipe"] });
       run.stdout!.resume(); run.stderr!.resume(); let status = "";
@@ -314,7 +336,7 @@ test("macOS 启动门前的根进程快照不把宿主组和会话纳入后台�
       assert(new_orphan(&orphan,false));free(members.items);free(managed_scopes);return 0;
     }\n`);
   try {
-    const compiled = spawnSync("/usr/bin/clang", ["-std=c11", "-Wall", "-Wextra", "-Werror", wrapper, "-o", binary], { encoding: "utf8" });
+    const compiled = spawnSync("/usr/bin/clang", ["-std=c11", "-Wall", "-Wextra", "-Werror", wrapper, "-framework", "ApplicationServices", "-o", binary], { encoding: "utf8" });
     assert.equal(compiled.status, 0, compiled.stderr);
     const run = spawnSync(binary, [], { encoding: "utf8" });
     assert.equal(run.status, 0, run.stderr);

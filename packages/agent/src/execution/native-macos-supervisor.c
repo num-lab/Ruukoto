@@ -2,8 +2,10 @@
  * 宿主累计执行后代，用内核身份发送信号；未知新孤儿只报告，不认领或误杀。
  * Note: 见 .agents/notes/implemented/architecture/2026-10-10-native-execution-sandbox.md
  * Note: 见 .agents/notes/implemented/feature/2026-10-21-coding-background-processes.md
+ * Note: 见 .agents/notes/implemented/architecture/2026-10-23-cua-official-mcp.md
  */
 #include <errno.h>
+#include <ApplicationServices/ApplicationServices.h>
 #include <fcntl.h>
 #include <libproc.h>
 #include <mach/message.h>
@@ -517,6 +519,10 @@ static bool stop_worker(void) {
 
 int main(int argc, char **argv) {
   signal(SIGPIPE, SIG_IGN);
+  if (argc == 2 && strcmp(argv[1], "--cua-permissions") == 0) {
+    printf("{\"accessibility\":%s,\"screenRecording\":%s}\n", AXIsProcessTrusted() ? "true" : "false", CGPreflightScreenCaptureAccess() ? "true" : "false");
+    return 0;
+  }
   if (argc >= 2 && strcmp(argv[1], "--signal-supervisor") == 0) return signal_supervisor(argc, argv);
   if (argc == 2 && strcmp(argv[1], "--host-identity") == 0) {
     char machine[37], boot[128];

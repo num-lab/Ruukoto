@@ -27,6 +27,7 @@ import { acquireConfigLock } from "@ruukoto/core/instance-lock.ts";
 import { runConfigTui } from "@ruukoto/tui/config-tui/index.ts";
 import { ConfigTuiApp } from "@ruukoto/tui/config-tui/app.ts";
 import { OfflineModelBackend } from "@ruukoto/tui/config-tui/index.ts";
+import { product as codeProduct } from "../apps/ruukoto-code/src/product.ts";
 import type { Session } from "@ruukoto/core/types.ts";
 import {
   startTestRuntime,
@@ -1157,4 +1158,32 @@ test("ruukoto-code：工作区详情列出关联旧资料与原配置入口；�
   } finally {
     await t.shutdown();
   }
+});
+
+test("Code Cua 配置TUI从固定程序创建停用服务，恢复图片未能打开时不提供接受动作", async context => {
+  const t = await startTestRuntime("cfg-cua", textResponder, { config: { product: codeProduct.runtime } });
+  const config = { kind: "cua-mac" as const, executable: "/Applications/Cua.app/Contents/MacOS/cua-driver", version: "0.38.0" as const, sha256: "a".repeat(64) };
+  const targets = { targets: [{ label: "本机 Cua Driver 0.38.0", config }], issues: [] };
+  context.mock.method(t.runtime, "mcpCuaTargets", async () => targets);
+  context.mock.method(t.runtime, "mcpCuaStatus", () => ({ state: "recovering", stopped: true, ownerStarted: true, original: { opId: "unknown", taskId: "missing-task", sessionId: "original-session", toolName: "click", effect: "write", state: "frozen" }, observation: { id: "new-observation", artifactIds: ["missing-image"] } }));
+  const accepts = context.mock.method(t.runtime, "mcpCuaAccept");
+  try {
+    const created = await createProjectSession(t.client, t.work[0]);
+    const h = startConfig(t, { product: "ruukoto-code" });
+    try {
+      await waitForText(h.terminal, "配置分区"); h.terminal.send(DOWN.repeat(3) + ENTER);
+      await waitForText(h.terminal, "添加本机 Cua Driver"); h.terminal.send(DOWN + ENTER);
+      await waitForText(h.terminal, "所属项目"); h.terminal.send(ENTER);
+      await waitForText(h.terminal, "服务名"); h.terminal.send("computer" + ENTER);
+      await waitForText(h.terminal, "选择已安装的本机 Cua Driver"); h.terminal.send(ENTER);
+      await waitForText(h.terminal, "电脑服务已保存为停用状态");
+      const { services } = await t.client.request<{ services: { projectId: string; enabled: boolean; cua: typeof config; toolAllowlist: unknown[]; credential: null }[] }>("mcp_list", { project_id: created.projectId });
+      assert.equal(services.length, 1); assert.deepEqual(services[0].cua, config); assert.equal(services[0].enabled, false); assert.deepEqual(services[0].toolAllowlist, []); assert.equal(services[0].credential, null);
+      h.terminal.send(DOWN + ENTER); await waitForText(h.terminal, "打开当前新截图");
+      assert.equal(h.terminal.output().includes("接受已查看的新截图"), false);
+      h.terminal.send(DOWN.repeat(3) + ENTER); await waitForText(h.terminal, "任务不存在");
+      assert.equal(h.terminal.output().includes("接受已查看的新截图"), false);
+      assert.equal(accepts.mock.callCount(), 0);
+    } finally { assert.equal(await h.quit(), 0); }
+  } finally { await t.shutdown(); }
 });

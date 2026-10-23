@@ -16,8 +16,9 @@ import type { TelegramUpdate } from "../apps/ruukoto/src/personal-telegram-api.t
 import { mcpList, mcpOriginal, mcpOperations, mcpUnresolved, PersonalMcpDoc } from "../apps/ruukoto/src/personal-mcp.ts";
 import { verifyMcpControls } from "../apps/ruukoto/src/personal-mcp-controls.ts";
 import { discoverPersonalMcp, readPersonalMcp, savePersonalMcp, type PersonalMcpConfig } from "../apps/ruukoto/src/personal-mcp-config.ts";
-import { configurePersonalMcp, managePersonalMcp } from "../apps/ruukoto/src/personal-mcp-cli.ts";
+import { configurePersonalMcp, managePersonalMcp, viewPersonalCuaImages } from "../apps/ruukoto/src/personal-mcp-cli.ts";
 import { personalControl, readPersonalToken, startPersonalServer } from "../apps/ruukoto/src/personal-control.ts";
+import { savePersonalArtifact } from "../apps/ruukoto/src/personal-artifacts.ts";
 import { savePersonalConfig } from "../apps/ruukoto/src/personal-config.ts";
 import { lockPersonalProfile } from "../apps/ruukoto/src/personal-profile.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
@@ -154,8 +155,8 @@ test("MCP 配置向导：旧配置经明确选择迁入，启停保留端点与�
     const profile = lockPersonalProfile(dir);
     try { return readPersonalMcp(profile)!; } finally { profile.release(); }
   };
-  assert.deepEqual(await run(["3", "1"]), original);
-  const migrated = await run(["3", "2"]);
+  assert.deepEqual(await run(["4", "1"]), original);
+  const migrated = await run(["4", "2"]);
   assert.equal(migrated.version, 2); assert.equal(migrated.services[0].enabled, true);
   assert.notEqual(migrated.generation, original.generation);
   const disabled = await run(["2", "4"]);
@@ -210,4 +211,14 @@ test("MCP 本机控制：先认证再校验原操作与正文，非法请求不�
   await assert.rejects(personalControl(dir, "GET", "/mcp/operation?operation=0"), code("mcp_input_invalid"));
   await assert.rejects(personalControl(dir, "GET", "/mcp/operations?offset=-1"), code("work_input_invalid"));
   assert.deepEqual(await personalControl(dir, "GET", "/mcp/operations"), { items: [] }); assert.equal(model.calls.length, 0);
+});
+
+test("Cua CLI 恢复新截图导出真实图片并逐张打开，查看失败不取得人工接受资格", async t => {
+  const dir = fs.realpathSync(directory(t)), profile = lockPersonalProfile(dir); profile.release();
+  const image = await savePersonalArtifact(dir, Buffer.from("picture"), { mime: "image/png" });
+  const opened: string[] = [], io = { question: async () => "2", write() {} };
+  assert.equal(await viewPersonalCuaImages(io, dir, [image], async filename => { opened.push(filename); assert.equal(path.extname(filename), ".png"); assert.equal(fs.readFileSync(filename, "utf8"), "picture"); }), true);
+  assert.equal(opened.length, 1);
+  await assert.rejects(viewPersonalCuaImages(io, dir, [image], async () => { throw new PersonalError("cua_image_viewer_unavailable", "图片查看器无法打开"); }), code("cua_image_viewer_unavailable"));
+  assert.equal(await viewPersonalCuaImages(io, dir, [], async () => assert.fail()), false);
 });

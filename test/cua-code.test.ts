@@ -76,7 +76,7 @@ test("Code Cua：真实产品链保存原schema和请求，持续连接、批准
     { name: "click", description: "点击画面", inputSchema: { type: "object", properties: { x: { type: "number" }, y: { type: "number" }, mode: { type: "string" }, debug_image_out: { type: "string" }, session: { type: "string" } }, required: ["x", "y"] } },
     { name: "run_script", inputSchema: { type: "object", properties: {} } },
   ];
-  fs.writeFileSync(executable, `#!${process.execPath}\nimport fs from 'node:fs';import readline from 'node:readline';const record=${JSON.stringify(record)},tools=${JSON.stringify(tools)};fs.appendFileSync(record,JSON.stringify({start:process.pid})+'\\n');for await(const line of readline.createInterface({input:process.stdin})){const m=JSON.parse(line);if(m.id===undefined)continue;let result;if(m.method==='initialize')result={protocolVersion:m.params.protocolVersion,capabilities:{tools:{}},serverInfo:{name:'offline-cua',version:'0.38.0'}};else if(m.method==='tools/list')result={tools};else if(m.method==='tools/call'){fs.appendFileSync(record,JSON.stringify({...m,pid:process.pid})+'\\n');if(m.params.arguments.mode==='lost')continue;if(m.params.arguments.mode==='incomplete'){process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{resultType:'input_required',content:[]}})+'\\n');continue;}if(m.params.arguments.mode==='error'){process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,error:{code:-32000,message:'known failure'}})+'\\n');continue;}result={content:m.params.name==='get_desktop_state'?[{type:'image',data:${JSON.stringify(PNG)},mimeType:'image/png'}]:[{type:'text',text:'clicked'}]};}else result={};process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');}\n`, { mode: 0o700 });
+  fs.writeFileSync(executable, `#!${process.execPath}\nimport fs from 'node:fs';import readline from 'node:readline';const record=${JSON.stringify(record)},tools=${JSON.stringify(tools)};if(process.argv[2]==='dump-docs'){process.stdout.write(JSON.stringify({version:'0.38.0',tools:tools.map(t=>({name:t.name,description:t.description??'',input_schema:t.inputSchema}))}));process.exit(0);}fs.appendFileSync(record,JSON.stringify({start:process.pid})+'\\n');for await(const line of readline.createInterface({input:process.stdin})){const m=JSON.parse(line);if(m.id===undefined)continue;let result;if(m.method==='initialize')result={protocolVersion:m.params.protocolVersion,capabilities:{tools:{}},serverInfo:{name:'offline-cua',version:'0.38.0'}};else if(m.method==='tools/list')result={tools};else if(m.method==='tools/call'){fs.appendFileSync(record,JSON.stringify({...m,pid:process.pid})+'\\n');if(m.params.arguments.mode==='lost')continue;if(m.params.arguments.mode==='incomplete'){process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{resultType:'input_required',content:[]}})+'\\n');continue;}if(m.params.arguments.mode==='error'){process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,error:{code:-32000,message:'known failure'}})+'\\n');continue;}result={content:m.params.name==='get_desktop_state'?[{type:'image',data:${JSON.stringify(PNG)},mimeType:'image/png'}]:[{type:'text',text:'clicked'}]};}else result={};process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');}\n`, { mode: 0o700 });
   const cua = { kind: "cua-mac", executable, version: "0.38.0", sha256: createHash("sha256").update(fs.readFileSync(executable)).digest("hex") } as const;
   const calls = () => fs.existsSync(record) ? fs.readFileSync(record, "utf8").trim().split("\n").map(line => JSON.parse(line)) : [];
   const sent = () => calls().filter(call => call.method === "tools/call");
@@ -98,7 +98,9 @@ test("Code Cua：真实产品链保存原schema和请求，持续连接、批准
     let sessionId = initial.sessionId;
     const plain = await submit(sessionId, "baseline"); await done(plain);
     let service = await client.request<{ id: string; configVersion: number }>("mcp_configure", { project_id: projectId, name: "mac", cua, tool_allowlist: ["get_desktop_state", "click", "run_script"] });
-    assert.equal((await client.request<{ ok: boolean }>("mcp_check", { service_id: service.id })).ok, false);
+    const checked = await client.request<{ ok: boolean; tools: { name: string }[]; permissions: { accessibility: boolean; screenRecording: boolean } }>("mcp_check", { service_id: service.id });
+    assert.equal(checked.ok, checked.permissions.accessibility && checked.permissions.screenRecording);
+    assert.deepEqual(checked.tools.map(tool => tool.name), ["get_desktop_state", "click"]);
     assert.equal(calls().length, 0, "连接检查不创建额外电脑执行");
     const parallel = new CodeCuaManager(runtime.runtime.store, runtime.runtime.mcp, runtime.runtime.artifacts, dirs.dataDir);
     const configured = runtime.runtime.mcp.getService(service.id)!;
@@ -125,6 +127,10 @@ test("Code Cua：真实产品链保存原schema和请求，持续连接、批准
     const observe = await submit(sessionId, "observe", "get_desktop_state"); await done(observe);
     const first = runtime.runtime.store.listToolOpsByTask(observe).find(op => op.mcp && op.toolName !== "cua_connection")!;
     assert.ok(first, JSON.stringify(runtime.runtime.store.getEventsAfter(0).filter(event => event.taskId === observe).map(event => event.body)));
+    const beforeOtherPause = calls().length;
+    await assert.rejects(client.request("mcp_cua_stop", { service_id: "another-service" }), /当前电脑连接属于另一服务/);
+    assert.equal((await client.request<{ state: string }>("mcp_cua_status", {})).state, "active");
+    assert.equal(calls().length, beforeOtherPause, "其他配置的暂停不能停止当前电脑绑定");
     assert.ok(first.mcp!.rawTool.inputSchema.properties && "screenshot_out_file" in (first.mcp!.rawTool.inputSchema.properties as object));
     assert.ok(!("screenshot_out_file" in (first.mcp!.modelTool.inputSchema.properties as object)));
     assert.equal(JSON.parse(first.mcp!.request!).params.name, "get_desktop_state");
@@ -183,10 +189,19 @@ test("Code Cua：真实产品链保存原schema和请求，持续连接、批准
     await client.request("mcp_cua_observe", {});
     await assert.rejects(client.request("mcp_cua_accept", { observation_id: recovery.observation.id }), /观察已变化/);
     const currentObservation = await client.request<{ observation: { id: string } }>("mcp_cua_status", {});
+    service = runtime.runtime.mcpSetEnabled(service.id, false);
+    await assert.rejects(client.request("mcp_cua_accept", { observation_id: currentObservation.observation.id }), /电脑配置已变化/);
+    const beforeDisabledObserve = sent().length;
+    await assert.rejects(client.request("mcp_cua_observe", {}), /原电脑配置已改变/);
+    assert.equal(sent().length, beforeDisabledObserve, "停用时重观察零发送并废弃旧图");
+    await assert.rejects(client.request("mcp_cua_accept", { observation_id: currentObservation.observation.id }), /观察已变化/);
+    service = runtime.runtime.mcpSetEnabled(service.id, true);
+    await client.request("mcp_cua_observe", {});
+    const beforeStorageFailure = await client.request<{ observation: { id: string } }>("mcp_cua_status", {});
     runtime.runtime.artifacts.importImage = () => { throw new Error("fixture recovery image storage failed"); };
     await assert.rejects(client.request("mcp_cua_observe", {}));
     runtime.runtime.artifacts.importImage = importImage;
-    await assert.rejects(client.request("mcp_cua_accept", { observation_id: currentObservation.observation.id }), /观察已变化/);
+    await assert.rejects(client.request("mcp_cua_accept", { observation_id: beforeStorageFailure.observation.id }), /观察已变化/);
     const beforeRevocation = sent().filter(call => call.params.name === "get_desktop_state").length;
     let observationPrepared = false;
     runtime.runtime.store.saveMcpOperation = (id, operation) => {

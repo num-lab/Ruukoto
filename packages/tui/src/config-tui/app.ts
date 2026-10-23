@@ -32,6 +32,7 @@ import {
   type Terminal,
 } from "@earendil-works/pi-tui";
 import type { ControlClient } from "@ruukoto/control/client.ts";
+import type { OpResult } from "@ruukoto/control/ops.ts";
 import type { ConnectResult } from "@ruukoto/control/protocol.ts";
 import { workspaceMappedSources, workspacePickerProjects } from "@ruukoto/control/workspace.ts";
 import { productFromEnv, type ProductType } from "@ruukoto/core/product.ts";
@@ -39,6 +40,7 @@ import type { ModelSelection, PersistentEvent, Project, Session, DataGrant } fro
 import { SESSION_DEFAULT_MODES } from "@ruukoto/core/types.ts";
 import type { McpServiceConfig } from "@ruukoto/agent/mcp/store.ts";
 import { reloadStatePathFromEnv, loadReloadState, saveReloadState } from "../tui/reload-state.ts";
+import { showCuaImages } from "../cua-images.ts";
 import { OverlayBox, MaskedInput, bold, dim, green, red, selectTheme, yellow } from "./components.ts";
 import type { ConfiguredModelMetadata, ModelCredentialSourceMetadata, SummaryModel } from "@ruukoto/agent/model-config.ts";
 import { JEV_CREDENTIAL_PURPOSE, JEV_HOST, type JevConfig } from "@ruukoto/agent/jev-config.ts";
@@ -550,7 +552,7 @@ export class ConfigTuiApp {
       { id: "models", title: "模型与提供方", desc: "模型目录、API key、后台默认模型", offline: true },
       { id: "projects", title: "项目", desc: "指令文件、Web Search、Jev 实验、资料授权", offline: false },
       { id: "sessions", title: "会话", desc: "默认模型、思考档位、默认模式", offline: false },
-      { id: "mcp", title: "MCP 服务", desc: "端点、凭据引用、工具允许列表", offline: false },
+      { id: "mcp", title: "MCP 服务", desc: "HTTP 服务、电脑与工具允许列表", offline: false },
       { id: "qq", title: "QQ 入口", desc: "连接配置、启停与拥有者私聊", offline: false },
       { id: "credentials", title: "服务凭据", desc: "HTTP 凭据绑定（仅展示元数据）", offline: false },
     ];
@@ -1360,8 +1362,8 @@ export class ConfigTuiApp {
       title: scopedName ? `MCP 服务（${scopedName}）` : "MCP 服务",
       watch: (t) => t === "mcp.service_changed",
       load: async () => {
-        const result = await this.deps.client!.request<any>("mcp_list", projectId === undefined ? {} : { project_id: projectId });
-        const services = (result.services as McpServiceConfig[] | undefined) ?? [];
+        const result = await this.deps.client!.request<OpResult<"mcp_list">>("mcp_list", projectId === undefined ? {} : { project_id: projectId });
+        const services = result.services;
         const items: SelectItem[] = services.map((s) => ({
           value: `svc:${s.id}`,
           label: `${s.name}${projectId === undefined ? `（${this.findProject(s.projectId)?.name ?? s.projectId}）` : ""}${s.enabled ? "" : " · 已禁用"}`,
@@ -1377,18 +1379,21 @@ export class ConfigTuiApp {
                 : "需要先有项目"
               : `固定归属项目「${scopedName}」`,
         });
+        if (this.product === "ruukoto-code") items.push({ value: "add-cua", label: "添加本机 Cua Driver", description: "选择已安装的固定版本程序" }, { value: "cua-recovery", label: "电脑状态与恢复", description: "核实原动作、停止执行并查看新截图" });
         return items;
       },
       onSelect: async (item) => {
         if (item.value === "add") return this.addMcpService(projectId);
+        if (item.value === "add-cua") return this.addMcpService(projectId, true);
+        if (item.value === "cua-recovery") return this.pushScreen(this.cuaRecoveryScreen());
         if (item.value.startsWith("svc:")) return this.pushScreen(this.mcpServiceScreen(item.value.slice(4), projectId));
       },
     };
   }
 
   private async readMcpService(serviceId: string): Promise<McpServiceConfig | null> {
-    const result = await this.deps.client!.request<any>("mcp_list", {});
-    return (((result.services as McpServiceConfig[] | undefined) ?? []).find((s) => s.id === serviceId)) ?? null;
+    const result = await this.deps.client!.request<OpResult<"mcp_list">>("mcp_list", {});
+    return result.services.find(service => service.id === serviceId) ?? null;
   }
 
   /** 服务详情；expectedProjectId 非空时核对实际归属（项目详情内入口不能把其他项目的服务串改）。 */
@@ -1408,8 +1413,9 @@ export class ConfigTuiApp {
         return [
           ...(s.cua ? [{ value: "cua", label: `电脑：${s.cua.kind} · ${s.cua.executable}` }] : [{ value: "endpoint", label: `端点：${s.endpoint}` }, { value: "credential", label: `凭据引用：${s.credential ?? "（无）"}` }]),
           { value: "tools", label: `工具允许列表：${s.toolAllowlist.length} 项`, description: formatAllowlist(s.toolAllowlist) || "（空 = 不注册任何工具）" },
-          { value: "toggle", label: s.enabled ? "停用该服务" : "启用该服务" },
-          { value: "check", label: "连接检查", description: "显式连接端点并列出工具（联网操作）" },
+          { value: "toggle", label: s.cua ? s.enabled ? "暂停电脑" : "继续使用电脑" : s.enabled ? "停用该服务" : "启用该服务" },
+          ...(s.cua && !s.enabled ? [{ value: "cua-stop", label: "核实原电脑执行停止" }] : []),
+          { value: "check", label: s.cua ? "检查程序、权限并发现工具" : "连接检查", description: s.cua ? "检查实际 direct 宿主权限，尚未核实桌面捕获" : "显式连接端点并列出工具（联网操作）" },
           { value: "remove", label: "删除该服务" },
         ];
       },
@@ -1458,6 +1464,18 @@ export class ConfigTuiApp {
             return configure({ credential: value === "" ? null : value }, "凭据引用已保存");
           }
           case "tools": {
+            if (s.cua) {
+              const checked = await client.request<OpResult<"mcp_check">>("mcp_check", { service_id: s.id });
+              if (!checked.ok) { this.notify(checked.error ?? "电脑程序或权限未通过检查，请恢复后再选择工具", "red"); return; }
+              let allowed = s.toolAllowlist.map(tool => typeof tool === "string" ? { name: tool, effect: "read" } : tool);
+              for (;;) {
+                const selected = await this.pick("选择电脑允许工具", [...checked.tools.map(tool => ({ value: tool.name, label: `${allowed.some(item => item.name === tool.name) ? "✓" : "○"} ${tool.name}` })), { value: "save", label: "保存允许列表" }]);
+                if (selected === null) return;
+                if (selected === "save") return configure({ toolAllowlist: allowed }, "电脑工具允许列表已保存");
+                const tool = checked.tools.find(tool => tool.name === selected)!;
+                allowed = allowed.some(item => item.name === selected) ? allowed.filter(item => item.name !== selected) : [...allowed, { name: selected, effect: tool.effect ?? "unknown" }];
+              }
+            }
             const value = await this.inputBox("工具允许列表（name 或 name:write / name:unknown，逗号分隔）", { initial: formatAllowlist(s.toolAllowlist) });
             if (value === null) return;
             const parsed = parseAllowlist(value);
@@ -1469,19 +1487,26 @@ export class ConfigTuiApp {
           }
           case "toggle": {
             await client.request("mcp_set_enabled", { service_id: s.id, enabled: !s.enabled, expected_version: s.configVersion });
+            if (s.cua && s.enabled) await client.request("mcp_cua_stop", { service_id: s.id });
             this.notify(s.enabled ? "服务已停用" : "服务已启用");
             return this.refresh();
           }
+          case "cua-stop": {
+            await client.request("mcp_cua_stop", { service_id: s.id });
+            this.notify("原电脑执行停止已核实；待核实动作仍须完成原恢复引导");
+            return this.refresh();
+          }
           case "check": {
-            this.notify(`正在连接 ${s.endpoint} …`, "yellow");
-            const result = await client.request<any>("mcp_check", { service_id: s.id });
+            this.notify(s.cua ? "正在检查电脑程序与宿主权限…" : `正在连接 ${s.endpoint} …`, "yellow");
+            const result = await client.request<OpResult<"mcp_check">>("mcp_check", { service_id: s.id });
             const lines: string[] = [];
-            lines.push(`结果：${result.ok ? "✓ 连接成功" : `✗ ${result.error ?? "连接失败"}`}`);
+            lines.push(`结果：${result.ok ? s.cua ? "✓ 程序与权限检查通过；尚未核实桌面捕获" : "✓ 连接成功" : `✗ ${result.error ?? "检查失败"}`}`);
+            if (result.permissions) lines.push(`辅助功能：${result.permissions.accessibility ? "已授权" : "未授权"}；屏幕录制：${result.permissions.screenRecording ? "已授权" : "未授权"}`);
             if (result.serverInfo) lines.push(`服务：${result.serverInfo.name ?? "?"} ${result.serverInfo.version ?? ""} · 协议 ${result.protocolVersion ?? "?"}`);
-            for (const t of (result.tools as any[] | undefined) ?? []) {
+            for (const t of result.tools) {
               lines.push(`${t.allowed ? "✓" : "✗"} ${t.name}${t.effect ? `（${t.effect}）` : ""}${t.allowed ? "" : `：${t.reason ?? "未允许"}`}`);
             }
-            this.showText(`连接检查：${s.name}`, lines);
+            this.showText(`${s.cua ? "程序与权限检查" : "连接检查"}：${s.name}`, lines);
             return;
           }
           case "remove": {
@@ -1496,7 +1521,7 @@ export class ConfigTuiApp {
   }
 
   /** 新增服务：fixedProjectId（项目详情入口）跳过项目选择、固定归属；全局入口仍按工作区/旧项目分类选择。 */
-  private async addMcpService(fixedProjectId?: string): Promise<void> {
+  private async addMcpService(fixedProjectId?: string, computer = false): Promise<void> {
     const client = this.deps.client!;
     let projectId = fixedProjectId ?? null;
     if (projectId !== null && !this.findProject(projectId)) {
@@ -1513,6 +1538,15 @@ export class ConfigTuiApp {
     }
     const name = await this.inputBox("服务名（项目内唯一 slug）", { placeholder: "如 docs" });
     if (name === null) return;
+    if (computer) {
+      const result = await client.request<OpResult<"mcp_cua_targets">>("mcp_cua_targets", {});
+      if (!result.targets.length) { this.showText("未找到本机 Cua Driver", [...result.issues.map(issue => issue.message), "请按操作手册安装固定版本后重新选择。"]); return; }
+      const selected = await this.pick("选择已安装的本机 Cua Driver", result.targets.map((target, index) => ({ value: String(index), label: target.label })));
+      if (selected === null) return;
+      await client.request("mcp_configure", { project_id: projectId, name: name.trim(), cua: result.targets[Number(selected)].config, tool_allowlist: [], enabled: false, expected_version: 0 });
+      this.notify("电脑服务已保存为停用状态；请检查程序与权限、选择允许工具后启用");
+      await this.refresh(); return;
+    }
     const endpoint = await this.inputBox("端点 URL", { placeholder: "https://…/mcp/（http 仅限回环模拟）" });
     if (endpoint === null) return;
     const credential = await this.inputBox("凭据引用名（可留空 = 无认证）", {});
@@ -1534,6 +1568,42 @@ export class ConfigTuiApp {
     });
     this.notify("MCP 服务已创建");
     await this.refresh();
+  }
+
+  private cuaRecoveryScreen(): Screen {
+    type Status = OpResult<"mcp_cua_status">;
+    let status: Status | null = null, viewed: string | null = null;
+    return {
+      id: "cua-recovery", title: "电脑状态与恢复", intro: () => ["关闭配置中心会保留后台动作；恢复只开放新工作，原未知动作不会重发。"],
+      load: async () => {
+        status = await this.deps.client!.request<Status>("mcp_cua_status", {});
+        if (viewed !== status.observation?.id) viewed = null;
+        return [
+          { value: "refresh", label: `刷新电脑状态：${({ idle: "尚未连接", connecting: "正在连接", active: "使用中", frozen: "原动作待核实", recovering: "只读恢复中" })[status.state]}` },
+          ...(status.original ? [{ value: "original", label: `查看原动作：${status.original.toolName}`, description: "原效果保留；检查实际桌面结果，旧动作不会重发" }] : []),
+          ...(status.state === "frozen" && !status.stopped ? [{ value: "stop", label: "核实原执行停止" }] : []),
+          ...(status.stopped && !status.ownerStarted ? [{ value: "begin", label: "已检查结果，开始只读恢复" }] : []),
+          ...(status.ownerStarted ? [{ value: "observe", label: status.observation ? "重新读取恢复截图" : "取得新的恢复截图", description: "须先启用原电脑服务；启用不解除待核实" }] : []),
+          ...(status.observation ? [{ value: "images", label: "打开当前新截图" }] : []),
+          ...(status.observation && viewed === status.observation.id ? [{ value: "accept", label: "接受已查看的新截图，开放新工作" }] : []),
+        ];
+      },
+      onSelect: async item => {
+        const client = this.deps.client!;
+        if (item.value === "refresh") return this.refresh();
+        if (item.value === "original" && status?.original) { const evidence = await client.request<OpResult<"get_tool_op_mcp">>("get_tool_op_mcp", { tool_op_id: status.original.opId }); this.showText("原电脑动作", [evidence.text]); return; }
+        if (item.value === "images" && status?.observation) { viewed = null; await showCuaImages(client, status); viewed = status.observation.id; return this.refresh(); }
+        if (item.value === "accept") {
+          if (!status?.observation || viewed !== status.observation.id || !await this.confirm("已检查新截图并接受现场？", "仅开放新工作，原未知动作保持原记录，不会重发。")) return;
+          await client.request("mcp_cua_accept", { observation_id: viewed }); viewed = null; return this.refresh();
+        }
+        if (["stop", "begin", "observe"].includes(item.value)) {
+          viewed = null;
+          await client.request(({ stop: "mcp_cua_stop", begin: "mcp_cua_begin_recovery", observe: "mcp_cua_observe" } as const)[item.value as "stop" | "begin" | "observe"], {});
+          return this.refresh();
+        }
+      },
+    };
   }
 
   // ---------- QQ ----------

@@ -14,6 +14,8 @@ Status: implemented
 
 沿两端已有操作账本保存启动身份、请求、结果与恢复事实，不要求Cua跨进程找回丢失原回执。未知冻结本档案的电脑入口；核实原执行停止后，拥有者检查并开始只读恢复，接受具体的新观察后开放新工作。原unknown和remoteEnded不伪造；Personal另记Cua专属恢复结算，工作、来源、报告、设置与配置保存使用同一未决判定。Linux CLI关闭不等于guest停止，必要整沙箱停止须本人选择并保留磁盘。
 
+[Personal 恢复应答](../bug-fix/2026-10-23-personal-cua-recovery-response.md)分别保存取得的原应答与可接受的截图观察；失败应答也保留，重新观察不覆盖历史。
+
 图片复用既有ArtifactStore与Personal媒体链。SDK在聚合和JSON解析前执行48MiB消息限额；动作前核实视觉模型，图片保存成功后才将观察交给后续操作。原schema与模型受限schema分别保存，宿主拒绝目标覆盖、文件输出、脚本与生命周期工具。MCP管理入口选择固定程序与既有沙箱，并实际呈现恢复图片；真实桌面和模型验收独立于离线工程验证，接口与边界见[规格](../../../../.scratch/cua-integration/spec.md)。
 
 ## 管理与权限预检

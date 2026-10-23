@@ -33,7 +33,7 @@ type Evidence = Pick<NonNullable<McpConnection["callEvidence"]>, keyof NonNullab
 type Origin = PersonalToolOrigin;
 type Resolution = { effect: "applied" | "not_applied"; evidence: string; entry: EntryId; requestId?: string };
 export type PersonalCuaExecution = { cli: CuaCliExecution; sandbox: CuaLinuxGeneration };
-type CuaRecovery = { stopped?: EntryId; begin?: EntryId; pendingObservation?: { entry: EntryId; execution: PersonalCuaExecution; request: string }; observation?: { entry: EntryId; execution: PersonalCuaExecution; images: PersonalArtifact[]; evidence: Evidence }; accepted?: EntryId };
+type CuaRecovery = { stopped?: EntryId; begin?: EntryId; pendingObservation?: { entry: EntryId; execution: PersonalCuaExecution; request: string }; responses?: EntryId[]; observation?: { entry: EntryId; execution: PersonalCuaExecution; images: PersonalArtifact[]; evidence: Evidence }; accepted?: EntryId };
 type ImageProjection = { version: 1; output: ({ type: "text"; text: string } | { type: "image"; data: string; mimeType: string })[]; issues: string[] };
 export type McpOperation = { operation: TaskId; admission: EntryId; origin: Origin; config: PersonalMcpConfig; service: string; tool: string; args: JsonObject; modelDefinition?: string; decision: "pending" | "approved" | "rejected"; decidedBy?: string; decisionEntry?: EntryId; started: boolean; remoteEnded: boolean; effect: "not_executed" | "effect_unknown" | "returned" | "no_write"; code: string; evidence: Evidence; observation?: EntryId; resolution?: Resolution; recheck?: TaskId; imageProjection?: ImageProjection & { entry: EntryId }; cuaLaunches?: { entry: EntryId; scope: string; description: string; stopped?: EntryId }[]; cua?: { execution: PersonalCuaExecution; recovery?: CuaRecovery } };
 export const PersonalMcpConfigDoc = defineDoc<{ config?: PersonalMcpConfig; generations: string[]; operations: TaskId[]; cuaPause?: { paused: boolean; entry: EntryId } }>({ kind: "ruukoto.mcp-config", scope: "session", version: 1, initial: () => ({ generations: [], operations: [] }) });
@@ -47,7 +47,7 @@ const McpConfiguration = defineEntry<{ config: PersonalMcpConfig }>("ruukoto.mcp
 const McpCuaPause = defineEntry<{ paused: boolean }>("ruukoto.mcp-cua-pause");
 const McpCuaLaunch = defineEntry<{ operation: TaskId; scope: string; description: string }>("ruukoto.mcp-cua-launch");
 const McpCuaLaunchStopped = defineEntry<{ operation: TaskId; launch: EntryId }>("ruukoto.mcp-cua-launch-stopped");
-const McpCuaRecovery = defineEntry<{ operation: TaskId; execution: PersonalCuaExecution; action: "stopped" | "begin" | "observe-reset" | "observe-request" | "observe" | "accept"; nextExecution?: PersonalCuaExecution; images?: PersonalArtifact[]; evidence?: Evidence }>("ruukoto.mcp-cua-recovery");
+const McpCuaRecovery = defineEntry<{ operation: TaskId; execution: PersonalCuaExecution; action: "stopped" | "begin" | "observe-reset" | "observe-request" | "observe-response" | "observe" | "accept"; requestEntry?: EntryId; nextExecution?: PersonalCuaExecution; images?: PersonalArtifact[]; evidence?: Evidence }>("ruukoto.mcp-cua-recovery");
 const McpImages = defineEntry<{ operation: TaskId; admission: EntryId; projection: ImageProjection }>("ruukoto.mcp-images");
 async function saveImageProjection(tx: Tx, value: McpOperation, projection: ImageProjection) {
   const entry = await tx.appendEntry(McpImages, value.origin.conversationId, { data: { operation: value.operation, admission: value.admission, projection } });
@@ -135,13 +135,14 @@ export async function mcpList(tx: Tx, offset = 0, actor?: PersonalEntryIdentity)
 }
 export async function mcpDetail(tx: Tx, operation: TaskId, offset = 0, actor?: McpActor, includeHost = true) {
   const value = await mcpOperation(tx, operation);
+  const cuaResponses = await Promise.all((includeHost ? value.cua?.recovery?.responses ?? [] : []).map(async id => { const entry = await tx.entry(McpCuaRecovery, id); if (!entry) throw new PersonalError("mcp_record_invalid", "原电脑恢复应答缺失，请保留档案并检查记录。"); return { entry: entry.id, ...entry.data }; }));
   let response = value.evidence.response;
   if (response && value.imageProjection) {
     const parsed = JSON.parse(response) as { result: CallToolResult };
     parsed.result.content = parsed.result.content?.map((part, index) => part.type === "image" ? { type: "text", text: JSON.stringify(value.imageProjection!.output[index]) } : part);
     response = JSON.stringify(parsed);
   }
-  const text = JSON.stringify({ service: value.service, tool: value.tool, definition: value.config.services.find(service => service.id === value.service)!.tools.find(tool => tool.name === value.tool), arguments: value.args, permission: value.origin.permission, request: value.evidence.request, response, code: value.code, remoteEnded: value.remoteEnded, resolution: value.resolution, ...(includeHost && value.cua ? { cua: value.cua } : {}) }, null, 2);
+  const text = JSON.stringify({ service: value.service, tool: value.tool, definition: value.config.services.find(service => service.id === value.service)!.tools.find(tool => tool.name === value.tool), arguments: value.args, permission: value.origin.permission, request: value.evidence.request, response, code: value.code, remoteEnded: value.remoteEnded, resolution: value.resolution, ...(includeHost && value.cua ? { cua: value.cua, ...(cuaResponses.length ? { cuaResponses } : {}) } : {}) }, null, 2);
   return { summary: summary(value, actor), ...(value.cua?.recovery?.observation ? { recoveryImages: value.cua.recovery.observation.images.map(image => ({ ...image, identity: { ...image.identity } })) } : {}), text: text.slice(offset, offset + 3072), ...(offset + 3072 < text.length ? { nextOffset: offset + 3072 } : {}) };
 }
 async function observe(tx: Tx, operation: TaskId, evidence: Evidence, code: string) {
@@ -410,7 +411,18 @@ export function personalMcp(configValue: PersonalMcpConfig, getHarness: () => Ha
           const entry = await tx.appendEntry(McpCuaRecovery, ROOT_CONVERSATION_ID, { data: { operation, execution: original, action: "observe-request", nextExecution: cuaExecution!, evidence: { request } } });
           delete current.cua!.recovery!.observation;
           current.cua!.recovery!.pendingObservation = { entry: entry.id, execution: cuaExecution!, request };
-        }, context); } });
+        }, context); }, recordCallProgress: async evidence => {
+          if (!evidence.response) return;
+          // 应答先于截图校验保存；重观察只使旧图片失效，不删除已取得的应答。
+          // Note: 见 .agents/notes/implemented/bug-fix/2026-10-23-personal-cua-recovery-response.md
+          await getHarness().commit(async tx => {
+            const current = await mcpOperation(tx, operation), pending = current.cua?.recovery?.pendingObservation;
+            if (!current.cua || !isDeepStrictEqual(current.cua.execution, original) || !pending || pending.request !== evidence.request) throw new PersonalError("mcp_evidence_invalid", "电脑恢复应答与原请求不符，绑定保持暂停；请保留档案并检查记录。");
+            const entry = await tx.appendEntry(McpCuaRecovery, ROOT_CONVERSATION_ID, { data: { operation, execution: original, action: "observe-response", requestEntry: pending.entry, nextExecution: pending.execution, evidence: { ...evidence } } });
+            current.cua.recovery!.responses ??= [];
+            current.cua.recovery!.responses.push(entry.id);
+          }, context);
+        } });
         if (result.isError || !media || !cuaExecution) throw new PersonalError("cua_observation_failed", "新截图未完整取得，电脑仍保持暂停；请检查原记录。");
         const images: PersonalArtifact[] = [];
         for (const image of mcpImages(result).values()) { if (image instanceof McpImageError) throw new PersonalError("cua_observation_invalid", "新截图无法核实，电脑仍保持暂停。"); images.push(await savePersonalArtifact(media.profile, image.bytes, { mime: image.mimeType })); }
@@ -496,6 +508,19 @@ export async function verifyMcp(tx: Tx, keys: string[]) {
           const entry = await tx.entry(McpCuaRecovery, recovery.pendingObservation.entry);
           if (!entry || entry.conversationId !== ROOT_CONVERSATION_ID || entry.id <= recovery.begin! || !isDeepStrictEqual(entry.data, { operation: value.operation, execution: value.cua.execution, action: "observe-request", nextExecution: recovery.pendingObservation.execution, evidence: { request: recovery.pendingObservation.request } })) throw invalid();
         }
+        let previousResponse = recovery?.begin ?? value.admission;
+        for (const entryId of recovery?.responses ?? []) {
+          const entry = await tx.entry(McpCuaRecovery, entryId), data = entry?.data;
+          if (!entry || entry.conversationId !== ROOT_CONVERSATION_ID || entry.id <= previousResponse || data?.operation !== value.operation || data.action !== "observe-response" || !isDeepStrictEqual(data.execution, value.cua.execution) || !data.requestEntry || !data.nextExecution || !data.evidence?.request || !data.evidence.response) throw invalid();
+          const request = await tx.entry(McpCuaRecovery, data.requestEntry);
+          if (!recovery?.begin || !request || request.conversationId !== ROOT_CONVERSATION_ID || request.id <= recovery.begin || request.id >= entry.id || !isDeepStrictEqual(request.data, { operation: value.operation, execution: value.cua.execution, action: "observe-request", nextExecution: data.nextExecution, evidence: { request: data.evidence.request } })) throw invalid();
+          let sent: unknown, received: unknown;
+          try { sent = JSON.parse(data.evidence.request); } catch { throw invalid(); }
+          try { received = JSON.parse(data.evidence.response); } catch { throw invalid(); }
+          if (!sent || typeof sent !== "object" || Array.isArray(sent) || !("jsonrpc" in sent) || sent.jsonrpc !== "2.0" || !("id" in sent) || !["number", "string"].includes(typeof sent.id)) throw invalid();
+          if (!received || typeof received !== "object" || Array.isArray(received) || !("jsonrpc" in received) || received.jsonrpc !== "2.0" || !("id" in received) || !["number", "string"].includes(typeof received.id) || received.id !== sent.id || !("result" in received || "error" in received)) throw invalid();
+          previousResponse = entry.id;
+        }
         if (recovery?.observation && (!recovery.pendingObservation || recovery.observation.evidence.request !== recovery.pendingObservation.request || recovery.observation.entry <= recovery.pendingObservation.entry || !recovery.observation.evidence.response || !mcpResponseEnded(recovery.observation.evidence.response))) throw invalid();
         if (recovery && ((recovery.begin && !recovery.stopped) || (recovery.observation && (!recovery.begin || !recovery.observation.images.length)) || (recovery.accepted && !recovery.observation))) throw invalid();
       }
@@ -525,6 +550,7 @@ export async function verifyMcp(tx: Tx, keys: string[]) {
     if (McpCuaLaunch.is(entry) && !values.some(value => value.operation === entry.data.operation && value.cuaLaunches?.some(launch => launch.entry === entry.id))) throw invalid();
     if (McpCuaLaunchStopped.is(entry) && !values.some(value => value.operation === entry.data.operation && value.cuaLaunches?.some(launch => launch.entry === entry.data.launch && launch.stopped === entry.id))) throw invalid();
     if (McpCuaRecovery.is(entry) && (entry.conversationId !== ROOT_CONVERSATION_ID || !values.some(value => value.operation === entry.data.operation && value.cua && isDeepStrictEqual(value.cua.execution, entry.data.execution)))) throw invalid();
+    if (McpCuaRecovery.is(entry) && entry.data.action === "observe-response" && !values.some(value => value.operation === entry.data.operation && value.cua?.recovery?.responses?.includes(entry.id))) throw invalid();
     if (McpImages.is(entry)) { if (imageProjections.has(entry.data.operation) || !values.some(value => value.operation === entry.data.operation && value.imageProjection?.entry === entry.id)) throw invalid(); imageProjections.add(entry.data.operation); }
   } next = entries.next; } while (next); } cursor = page.next; } while (cursor);
   if (!isDeepStrictEqual(latestPause, config.cuaPause)) throw invalid();

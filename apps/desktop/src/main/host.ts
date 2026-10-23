@@ -166,20 +166,23 @@ export class DesktopHost {
         this.personalSettings = null; this.settingsInitialization = null;
         return savePersonalManagementConfig(this.userData, config);
       }
+      // Note: 见 .agents/notes/implemented/feature/2026-10-21-personal-settings-ssh.md
       if (op === "desktop_personal_management_detect") {
         const generation = this.settingsGeneration;
         const source = await this.getEnvironment();
         if (this.closing || generation !== this.settingsGeneration) throw new DesktopError("management_changed", "检测所属连接已变化，请重新检测。");
         const found: string[] = [];
+        let firstFailure: unknown;
         for (const program of PERSONAL_PROGRAMS) {
           const config = validatePersonalManagementConfig({ ...input, program }, this.userData);
           const probe = new PersonalSettingsController(config, this.userData, source.env);
           this.settingsProbes.add(probe);
           try { await probe.probe(); found.push(program); }
-          catch { /* 各候选仅作只读检测；未找到时由向导提示安装新程序。 */ }
+          catch (error) { firstFailure ??= error; }
           finally { await probe.close(); this.settingsProbes.delete(probe); }
           if (this.closing || generation !== this.settingsGeneration) throw new DesktopError("management_changed", "检测所属连接已变化，请重新检测。");
         }
+        if (!found.length && firstFailure !== undefined) throw firstFailure;
         return found;
       }
       if (Object.keys(input).length !== (op === "desktop_personal_settings_request" || op === "desktop_personal_settings_apply" ? 1 : 0) || (op === "desktop_personal_settings_request" || op === "desktop_personal_settings_apply") && !("request" in input)) throw new DesktopError("invalid_params", "设置操作参数无效，请重新读取原配置。");

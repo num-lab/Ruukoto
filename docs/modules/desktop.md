@@ -18,7 +18,7 @@ Code MCP 另开放 `mcp_sources`、`mcp_list/configure/set_enabled/remove/check`
 
 Code Skills 开放 `skills_list`、`skill_get`、`skill_set_enabled` 与 `skill_remove`；本地导入经系统目录选择和后台预览后，仅用宿主选择引用调用 `desktop_skill_import`。宿主固定原 Code 连接、实例、路径与修订，拒绝 renderer 任意路径及旧选择；两壳共用同一检查，Personal 不放行。
 
-Personal 设置管理沿同一 `request` 桥开放 `desktop_personal_management_config_read/save/detect` 与 `desktop_personal_settings_read/request/apply/restore/finish`，分别读取本机连接、检测新协议、查询原档案、显式单项停存启、恢复原服务及结束人工核实。Host 校验目标和操作，不增加 preload 原语；Personal 模型、Skills、MCP 页面通过这些接口提交版本化请求。
+Personal 设置管理沿同一 `request` 桥开放 `desktop_personal_management_config_read/save/detect` 与 `desktop_personal_settings_read/request/apply/restore/finish`，分别读取本机连接、检测新协议、查询原档案、显式单项停存启、恢复原服务及结束人工核实。检测全部候选失败时报告首个结构化错误，任一成功仍返回成功清单。同一控制器的进行中档案读取由切页和连接核实共享，完成或失败后清除，写入和不同查询仍互斥。Host 校验目标和操作，不增加 preload 原语；Personal 模型、Skills、MCP 页面通过这些接口提交版本化请求。
 
 ## 数据与状态
 

@@ -22,6 +22,7 @@ import {
   type AgentSessionEvent,
   type ToolCallEvent,
   type ToolCallEventResult,
+  type ToolResultEvent,
   type ToolDefinition,
   ModelRuntime,
   SessionManager,
@@ -125,6 +126,10 @@ export async function createSdkSession(opts: CreateSdkSessionOptions): Promise<A
     handlers: new Map(), tools: new Map(), messageRenderers: new Map(), commands: new Map(), flags: new Map(), shortcuts: new Map(),
   };
   extension.handlers.set("tool_call", [async event => hooks.onToolCall(event as ToolCallEvent)]);
+  extension.handlers.set("tool_result", [async event => {
+    const result = event as ToolResultEvent;
+    if (result.toolName.startsWith("mcp_") && result.details && typeof result.details === "object" && "ruukotoMcpIsError" in result.details && typeof result.details.ruukotoMcpIsError === "boolean") return { isError: result.details.ruukotoMcpIsError };
+  }]);
   extension.handlers.set("session_before_compact", [async () => ({ cancel: true })]);
   if (hooks.onContext) extension.handlers.set("context", [async event => hooks.onContext!((event as { messages: any[] }).messages)]);
   const loader: ResourceLoader = {

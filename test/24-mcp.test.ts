@@ -26,6 +26,10 @@ import { MockModelServer, type Responder } from "./helpers/mock-provider.ts";
 import { startMockMcp, MOCK_MCP_SECRET, type MockMcp } from "./helpers/mock-mcp.ts";
 import { killProcessTree, spawnBackend } from "./helpers/backend.ts";
 import { validateRemoteTool } from "@ruukoto/agent/mcp/tools.ts";
+import * as fs from "node:fs";
+import { parseSessionFile } from "@ruukoto/core/history.ts";
+import { ArtifactWriteError } from "@ruukoto/agent/artifacts.ts";
+import { imageReferenceView, restoreImageInput } from "@ruukoto/agent/inbound-images.ts";
 
 const SECRET = MOCK_MCP_SECRET;
 const quiet: Responder = async () => ({ kind: "text", text: "done" });
@@ -430,7 +434,7 @@ test("mcp：超大结果入产物、不支持内容类型明确说明", async ()
         result: {
           content: [
             { type: "text", text: "见图" },
-            { type: "image", data: "aGVsbG8=", mimeType: "image/png" },
+            { type: "resource_link", uri: "https://example.com/image.png", name: "image" },
           ],
         },
       },
@@ -459,7 +463,7 @@ test("mcp：超大结果入产物、不支持内容类型明确说明", async ()
     assert.ok(body.toString("utf8").includes("x".repeat(1000)), "产物含结果正文");
     assert.ok(body.toString("utf8").includes("capture-meta"), "产物含采集元信息");
 
-    // 图片内容：不下载、不展示，明确说明
+    // 资源链接不下载，明确说明。
     assert.ok(seen.includes("未展示的内容类型"), "不支持的内容类型应明确说明");
     assert.ok(seen.includes("image"));
   } finally {
@@ -467,6 +471,76 @@ test("mcp：超大结果入产物、不支持内容类型明确说明", async ()
     await mcp.close();
   }
 });
+
+const MCP_PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
+test("mcp 图片：结构化文字预览超限有提示和产物，图片不被截断", async () => {
+  const structuredContent = { rows: Array.from({ length: 7000 }, () => 1) };
+  const mcp = await startMockMcp({ tools: [{ name: "capture", result: { content: [{ type: "image", data: MCP_PNG, mimeType: "image/png" }], structuredContent } }] });
+  const t = await startTestRuntime("mcp-image-text-cap", (_request, index) => index === 0 ? { kind: "tool_calls", calls: [{ id: "capture", name: "mcp_mock_capture", arguments: {} }] } : { kind: "text", text: "完成" });
+  const resolve = t.runtime.modelCatalog.resolve.bind(t.runtime.modelCatalog);
+  t.runtime.modelCatalog.resolve = async selection => ({ ...await resolve(selection), input: ["text", "image"] });
+  try {
+    const { projectId, sessionId } = await createProjectSession(t.client, t.work[0]!);
+    await configureMockService(t, projectId, mcp, { allowlist: ["capture"], credential: false });
+    const done = await submitAndWait(t, sessionId, "capped", "看图与结构化结果");
+    assert.equal(done.task.status, "completed");
+    assert.match(toolResultTexts(t).join("\n"), /超过内联上限/);
+    const artifact = t.runtime.store.listArtifactsByTask(done.task.id).find(artifact => artifact.name === "mcp-tool-result")!;
+    assert.ok(t.runtime.artifacts.read(artifact.id).toString().includes(JSON.stringify(structuredContent, null, 2)));
+    assert.ok(JSON.stringify(t.server.calls[1].messages).includes(`data:image/png;base64,${MCP_PNG}`));
+  } finally { await t.shutdown(); await mcp.close(); }
+});
+for (const variant of ["pure", "mixed", "error", "invalid", "disk"] as const) {
+  test(`mcp 图片：${variant} 实际 provider 收图、原操作与有序历史引用可重建`, async () => {
+    const image = { type: "image", data: variant === "invalid" ? "aGVsbG8=" : MCP_PNG, mimeType: "image/png" };
+    const content = variant === "mixed" ? [{ type: "text", text: "图前" }, image, { type: "text", text: "图间" }, image, { type: "text", text: "图后" }] : [image];
+    const mcp = await startMockMcp({ tools: [{ name: "capture", result: { content, isError: variant === "error" } }] });
+    const t = await startTestRuntime("mcp-images", (_request, index) => index === 0 ? { kind: "tool_calls", calls: [{ id: "capture", name: "mcp_mock_capture", arguments: {} }] } : { kind: "text", text: "已看原图" });
+    const resolve = t.runtime.modelCatalog.resolve.bind(t.runtime.modelCatalog);
+    t.runtime.modelCatalog.resolve = async selection => ({ ...await resolve(selection), input: ["text", "image"] });
+    if (variant === "disk") t.runtime.artifacts.importImage = () => { throw new ArtifactWriteError("fixture"); };
+    try {
+      const { projectId, sessionId } = await createProjectSession(t.client, t.work[0]!);
+      await configureMockService(t, projectId, mcp, { allowlist: ["capture"], credential: false });
+      const done = await submitAndWait(t, sessionId, "image", "看图");
+      assert.equal(done.task.status, "completed");
+      const history = parseSessionFile(t.runtime.store.getSession(sessionId)!.sessionFile!);
+      const message = history.find(entry => entry.type === "message" && (entry.message as any)?.role === "toolResult")!.message as any;
+      const failed = variant === "invalid" || variant === "disk";
+      assert.equal(message.isError, variant === "error" || failed);
+      assert.deepEqual(message.content.slice(1).map((part: any) => part.type), failed ? ["text"] : content.map(part => part.type));
+      assert.ok(!JSON.stringify(message).includes(MCP_PNG), "JSONL 只保留图片引用");
+      const images = message.content.filter((part: any) => part.type === "image");
+      assert.equal(images.length, failed ? 0 : variant === "mixed" ? 2 : 1);
+      assert.equal(done.toolOps[0].effectUnknown, false, "完整应答后的图片失败不得改成效果未知");
+      const event = eventsOf(t, "task.tool_result").find(event => event.taskId === done.task.id)!;
+      assert.deepEqual(event.artifactIds, images.map((part: any) => part.ruukotoMediaRef.artifactId));
+      if (failed) {
+        assert.match(toolResultTexts(t).join("\n"), /原工具应答已收到.*勿因缺图重试原动作/);
+        assert.equal(mcp.hits.filter(hit => hit.rpcMethod === "tools/call").length, 1);
+        return;
+      }
+      const restored = restoreImageInput(imageReferenceView([message], sessionId), t.runtime.artifacts, t.runtime.store);
+      assert.deepEqual(restored[0].content.filter((part: any) => part.type === "image").map((part: any) => part.data), images.map(() => MCP_PNG), "解析JSONL后沿产物恢复原图片");
+      const missing = { ...message, content: message.content.map((part: any) => part.type === "image" ? { ...part, ruukotoMediaRef: undefined } : part) };
+      assert.throws(() => imageReferenceView([missing], sessionId), /image_reference_invalid/);
+      const payload = JSON.stringify(t.server.calls[1].messages);
+      assert.equal(payload.split(`data:image/png;base64,${MCP_PNG}`).length - 1, images.length);
+      const selection = t.runtime.store.listSelectionRecordsByTask(done.task.id)[1]!;
+      const snapshot = JSON.parse(t.runtime.artifacts.read(selection.promptArtifactId!, 0, 1024 * 1024).toString());
+      assert.ok(JSON.stringify(snapshot).includes("image_ref"));
+      assert.ok(!JSON.stringify(snapshot).includes(MCP_PNG));
+      await submitAndWait(t, sessionId, "reread", "描述刚才的图");
+      assert.ok(JSON.stringify(t.server.calls.at(-1)).includes(`data:image/png;base64,${MCP_PNG}`));
+      assert.equal(mcp.hits.filter(hit => hit.rpcMethod === "tools/call").length, 1);
+      fs.writeFileSync(path.join(t.dirs.dataDir, "artifacts", `${images[0].ruukotoMediaRef.artifactId}.bin`), "damaged");
+      const corrupted = await submitAndWait(t, sessionId, "corrupt", "再看原图");
+      assert.equal(corrupted.task.status, "interrupted");
+      assert.match(corrupted.task.interruptReason, /image_reference_invalid/);
+      assert.equal(mcp.hits.filter(hit => hit.rpcMethod === "tools/call").length, 1);
+    } finally { await t.shutdown(); await mcp.close(); }
+  });
+}
 
 // ---------- 生命周期与授权边界 ----------
 

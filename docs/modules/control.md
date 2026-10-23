@@ -62,6 +62,8 @@
 | 长期操作授权 | `service_grant_list`、`service_grant_get`、`service_grant_revoke` | 只有查询与带 `expected_version` 的撤销；控制面不能创建或扩大授权，重复撤销幂等且不再发事件 |
 | 工作委托与 SubAgent | `work_list`、`work_get`、`subagent_close`、`work_cancel` | 只读查询加两项显式关闭与取消；委派只能经模型的委派工具产生，控制面不能建委派 |
 
+模型管理操作直接调用 RuntimeModels，任务与会话操作仍调用 Runtime。
+
 `get_model_config` 返回脱敏目录、存储凭据条目的 `credentials`、按提供方分组的 `credentialSources`、设置选择器使用的纯模型成员与真实 `thinkingLevels`，以及显式启动参数的 `runtimeOverrides`。来源只列存储类型和目录 apiKey、provider/model/modelOverrides 的 header 位置；SDK 能直接确认的运行时覆盖单列。来源和有效性统一标记为未验证，读取不执行凭据命令、不展开环境模板、不刷新 OAuth、不联网；无法从 SDK 取得能力的目录条目保留，档位为 null。浏览器只通过类型导入使用共享 op 请求与响应定义。
 
 `credentials[provider].configured` 与 set/remove API key 的同名应答只表示 auth.json 存储条目是否存在。移除存储条目后目录、环境或其他来源仍可能生效；目录秘密按具体字段保存，脱敏占位符沿用原值。认证可用性与远程连通性由执行校验及显式 `test_model_connection` 分别核实。

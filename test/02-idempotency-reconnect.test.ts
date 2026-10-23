@@ -165,14 +165,14 @@ test("已接收请求以不可变提交参数核实，不重新验证认证或�
       model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" } };
     const first = await t.client.request<any>("submit", params);
     await t.client.request("switch_mode", { task_id: first.id, mode: "full_access" });
-    const original = t.runtime.modelRuntime.checkAuth;
-    t.runtime.modelRuntime.checkAuth = async () => { throw new Error("SECRET must not escape"); };
+    const original = t.runtime.models.current.modelRuntime.checkAuth;
+    t.runtime.models.current.modelRuntime.checkAuth = async () => { throw new Error("SECRET must not escape"); };
     try {
       assert.equal((await t.client.request<any>("submit", params)).id, first.id);
       await assert.rejects(t.client.request("submit", { ...params, access_mode: "full_access" }), { code: "request_conflict" });
       await assert.rejects(t.client.request("submit", { ...params, model_selection: { ...params.model_selection, modelId: "other" } }), { code: "request_conflict" });
       await assert.rejects(t.client.request("submit", { ...params, request_id: "new" }), (err: any) => err.code === "model_auth_error" && !err.message.includes("SECRET"));
-    } finally { t.runtime.modelRuntime.checkAuth = original; }
+    } finally { t.runtime.models.current.modelRuntime.checkAuth = original; }
     await assert.rejects(t.client.request("submit", { session_id: sessionId, request_id: "missing", input: "不能推断配置" }), { code: "invalid_params" });
   } finally { await t.shutdown(); }
 });

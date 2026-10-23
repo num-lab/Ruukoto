@@ -1,6 +1,6 @@
 # 架构总览
 
-`ruukoto` 个人 Agent 与 `ruukoto-code` Coding Agent 同仓交付；个人端由 durable 持有运行状态，Coding 继续使用共享底座；模块与主流程如下，细节见[模块文档](modules/)。
+`ruukoto` 个人 Agent 与 `ruukoto-code` Coding Agent 同仓交付；个人端由 durable 持有运行状态，Coding 继续使用共享底座；细节见[模块文档](modules/)。
 
 ## 模块地图
 
@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | [products](modules/products.md)（`apps/ruukoto`、`apps/ruukoto-code`） | 持有各产品入口与专属业务装配 | 个人装配 durable，Coding 注入共享 runtime/CLI；产品包互不依赖 |
 | [personal-durable](modules/personal-durable.md)（个人 app 内） | 个人会话、工作、档案与请求证据、权限、IM/本机管理和工具 | 依赖 Pi 1.3.0 与独立底层能力；正式 bin/start/dev 同装配 |
-| [runtime](modules/runtime.md) | 拥有任务生命周期、会话身份、队列与 SubAgent 委派的编排 | 依赖 core 的存储、agent-context 的模型装配、agent-tools 的工具、execution 的执行边界；被 control 与 channels 驱动 |
+| [runtime](modules/runtime.md) | 拥有任务生命周期、会话身份、队列与 SubAgent 委派的编排；模型配置与栈归 RuntimeModels | 依赖 core 的存储、agent-context 的模型装配、agent-tools 的工具、execution 的执行边界；被 control 与 channels 驱动 |
 | [core](modules/core.md) | 定义数据布局、schema、任务状态机与会话身份判定 | 不依赖其他模块，被全部模块依赖 |
 | [workflows](modules/workflows.md)（runtime 内） | 为模型与拥有者入口提供定义库、固定后台运行、持久步骤及控制 | 依赖 core 的事务、agent 的脚本与执行边界；默认接真实 Driver、来源权限与冻结汇总 |
 | [agent-context](modules/agent-context.md) | 组装每次模型调用的上下文：资料范围、历史、参考块、压缩与记忆 | 依赖 core 的存储与会话文件；被 runtime 的驱动循环调用 |

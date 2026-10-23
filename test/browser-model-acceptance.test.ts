@@ -74,14 +74,14 @@ for (const product of [personalProduct.runtime, codeProduct.runtime]) test(`${pr
       browser: { binaryPath: binary, chromePath: chrome, headed: false, noSandbox: process.env.RUN_BROWSER_NO_SANDBOX === "1" } });
     let option: ModelOption | undefined;
     for (let offset = 0; ;) {
-      const page = await rt.modelCatalog.list({ provider: selected.provider, offset });
+      const page = await rt.models.current.modelCatalog.list({ provider: selected.provider, offset });
       option = page.models.find(model => model.modelId === selected.model.id);
       if (option || page.nextOffset === null) break;
       offset = page.nextOffset;
     }
     assert.ok(option?.available && option.thinkingLevels.length, "显式模型配置缺少可用认证或思考模式，不能记作验收通过");
     const selection = { ...rt.defaultSelection, thinkingLevel: option.thinkingLevels.includes("off") ? "off" as const : option.thinkingLevels[0] };
-    const actualModel = await rt.modelCatalog.resolve(selection);
+    const actualModel = await rt.models.current.modelCatalog.resolve(selection);
     assert.ok(actualModel.input.includes("image"), "SDK 实际模型必须支持图片，不能只依赖配置声明");
     const session = product.type === "ruukoto-code" ? await rt.createSession({ projectName: "browser-model", cwd: workspace }) : rt.store.getSession(rt.store.getAgentRole("main")!.sessionId)!;
     await rt.setSessionDefaultMode({ sessionId: session.id, expectedVersion: session.defaultAccessModeVersion, mode: "full_access" });

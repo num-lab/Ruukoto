@@ -109,8 +109,8 @@ test("附件图片使用既有视觉输入且历史无base64，空文件与继�
   const t = await startTestRuntime("owner-image", () => ({ kind: "text", text: "图片已读" }), { config: { product: codeProduct.runtime } });
   try {
     const sessionId = (await t.runtime.openWorkspace({ cwd: t.work[0], createRequestId: "image-workspace" })).session.id;
-    const originalResolve = t.runtime.modelCatalog.resolve.bind(t.runtime.modelCatalog);
-    t.runtime.modelCatalog.resolve = async selection => ({ ...await originalResolve(selection), input: ["text", "image"] });
+    const originalResolve = t.runtime.models.current.modelCatalog.resolve.bind(t.runtime.models.current.modelCatalog);
+    t.runtime.models.current.modelCatalog.resolve = async selection => ({ ...await originalResolve(selection), input: ["text", "image"] });
     const image = upload(sessionId, PNG, "photo.png");
     const empty = upload(sessionId, Buffer.alloc(0), "empty.txt");
     await t.client.request("put_attachment", image); await t.client.request("put_attachment", empty);

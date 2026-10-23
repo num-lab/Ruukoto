@@ -11,8 +11,8 @@
 
 import { OwnerAttachments } from "./owner-attachments.ts";
 import type { AttachmentMetadata, AttachmentUpload } from "@ruukoto/core/attachments.ts";
-import { InMemoryModelsStore } from "@earendil-works/pi-ai";
-import { ModelRuntime,type ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { RuntimeModels } from "./models.ts";
+import type { ModelRuntime, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { AppDataQueryRunner } from "@ruukoto/agent/app-data/query.ts";
 import { AppDataError,AppDataStore } from "@ruukoto/agent/app-data/store.ts";
 import { createAppDataFamily } from "@ruukoto/agent/app-data/tools.ts";
@@ -42,30 +42,8 @@ import { cuaToolEffect, parseCuaConfig, restrictCuaTool, type CuaConfig } from "
 import { describeCuaTools, discoverCuaTargets } from "@ruukoto/agent/mcp/cua-discovery.ts";
 import { readMacosCuaPermissions } from "@ruukoto/agent/execution/native-macos-identity.ts";
 import { validateRemoteTool } from "@ruukoto/agent/mcp/tools.ts";
-import {
-  configRevision,
-  configSecrets,
-  loadDefaultModel,
-  loadModelCatalogFile,
-  loadSummaryModel,
-  readModelConfigMetadata,
-  removeProviderCredential,
-  resolveConfiguredModel,
-  restoreCatalogSecrets,
-  restoreConfigFiles,
-  sanitizeCatalog,
-  saveDefaultModel,
-  saveModelCatalogFile,
-  saveSummaryModel,
-  setProviderApiKey,
-  snapshotConfigFiles,
-  validateApiKey,
-  validateModelCatalog,
-  type SummaryModel,
-  type ModelConfigMetadata,
-} from "@ruukoto/agent/model-config.ts";
-import { createModelCatalog,ModelSelectionError,type ModelCatalog,type ModelOption } from "@ruukoto/agent/model-selection.ts";
-import { createApprovalReviewer,type ApprovalReviewer } from "@ruukoto/agent/review.ts";
+import { configSecrets, loadSummaryModel, type SummaryModel } from "@ruukoto/agent/model-config.ts";
+import { ModelSelectionError, type ModelCatalog } from "@ruukoto/agent/model-selection.ts";
 import { sessionsDirFor } from "@ruukoto/agent/session-factory.ts";
 import { createSkillFamily,skillsDirFor,type SkillId } from "@ruukoto/agent/skills.ts";
 import { loadHostSkillLibrary, ManagedSkillsStore } from "@ruukoto/agent/managed-skills.ts";
@@ -412,19 +390,8 @@ export class Runtime {
   private readonly lock: AcquiredLock;
   /** 模型配置锁（issue 21 §3）：同一 agentDir 的在线/离线写入互斥。 */
   private readonly configLock: AcquiredLock;
-  modelRuntime!: ModelRuntime;
-  private model: any;
-  modelCatalog!: ModelCatalog;
-  defaultSelection!: ModelSelection;
-  /** 自动审查调用（issue 15）：start 建好模型目录后创建；auto-review 任务的审批闸门使用。 */
-  private reviewer!: ApprovalReviewer;
-  /**
-   * 模型配置应用门闩（issue 21 §4）：非 null 表示正在应用，元素为受影响
-   * provider；门闩期间这些 provider 的新任务拒绝进入执行或队列。
-   */
-  private modelConfigGate: Set<string> | null = null;
-  /** 当前（或最近一次）配置应用结束时兑现；内部提交遇门闩等它后重试。 */
-  private modelConfigSettled: Promise<void> = Promise.resolve();
+  readonly models: RuntimeModels;
+  get defaultSelection(): ModelSelection { return this.models.current.defaultSelection; }
   private drivers = new Map<string, Driver>();
   private loopActive = new Set<string>();
   private loopPromises = new Map<string, Promise<void>>();
@@ -446,6 +413,12 @@ export class Runtime {
     this.workflowLibrary = new WorkflowLibrary(store, config.agentDir);
     this.lock = lock;
     this.configLock = configLock;
+    this.models = new RuntimeModels({
+      store, config,
+      countActiveCompactions: providers => [...this.compactions.values()].filter(({ request }) => providers.includes(request.summaryModel.provider)).length,
+      publishStack: stack => { for (const driver of this.drivers.values()) driver.updateModelDeps(stack); },
+      flushPendingMessages: () => this.subagents?.flushPendingMessages() ?? Promise.resolve(),
+    });
     this.artifacts = new ArtifactStore(config.dataDir, store);
     this.attachments = new OwnerAttachments(config.dataDir, store, this.artifacts);
     this.inboundMedia = new InboundMediaStore(config.dataDir, store, this.artifacts);
@@ -868,33 +841,8 @@ export class Runtime {
       runtime.db.close(); configLock.release(); lock.release(); throw err;
     }
 
-    runtime.modelRuntime = await ModelRuntime.create({
-      authPath: path.join(fullConfig.agentDir, "auth.json"),
-      modelsPath: path.join(fullConfig.agentDir, "models.json"),
-      modelsStore: new InMemoryModelsStore(),
-      refreshOnCreate: false,
-    });
-    const configured = resolveConfiguredModel(runtime.modelRuntime, fullConfig);
-    if (!configured) {
-      runtime.db.close();
-      configLock.release();
-      lock.release();
-      throw new RuntimeApiError(
-        "no_model",
-        "未找到可用模型：models.json 中没有 provider，或指定的 provider/model 不存在",
-      );
-    }
-    runtime.model = configured.model;
-    runtime.defaultSelection = { provider: configured.model.provider, modelId: configured.model.id, thinkingLevel: configured.thinkingLevel };
     try {
-      runtime.modelCatalog = await createModelCatalog(runtime.modelRuntime, config.agentDir, configured.model);
-      await runtime.modelCatalog.resolve(runtime.defaultSelection);
-      runtime.reviewer = createApprovalReviewer({
-        modelRuntime: runtime.modelRuntime,
-        modelCatalog: runtime.modelCatalog,
-        timeoutMs: fullConfig.autoReview?.timeoutMs,
-        maxTokens: fullConfig.autoReview?.maxTokens,
-      });
+      await runtime.models.initialize();
       runtime.store.withTx(() => runtime.store.initializeSessionModelSelections(runtime.defaultSelection));
     } catch (err) {
       runtime.db.close();
@@ -931,7 +879,7 @@ export class Runtime {
       workRoot: path.join(path.dirname(path.resolve(fullConfig.dataDir)), "agent-work", "sub-agents"),
       workCopies,
       sources: runtime.sources,
-      resolveSelection: (selection) => runtime.resolveSelection(selection),
+      resolveSelection: (selection) => runtime.models.resolveSelection(selection),
       launcherFor: (mode) => runtime.launcherFor(mode),
       defaultModelSelection: () => runtime.defaultSelection,
       kickSession: (sessionId) => runtime.kick(sessionId),
@@ -1641,8 +1589,8 @@ export class Runtime {
     if (!session || !identity || !["dev", "main"].includes(identity.kind) || session.defaultAccessMode === "plan") throw new WorkflowError("source_forbidden");
     const selection = identity.kind === "main" ? identity.role.modelSelection ?? session.modelSelection ?? this.defaultSelection : session.modelSelection ?? this.defaultSelection;
     const script = await this.workflowScript(input);
-    let check: Awaited<ReturnType<Runtime["resolveSelection"]>>;
-    try { check = await this.resolveSelection(selection); }
+    let check: Awaited<ReturnType<RuntimeModels["resolveSelection"]>>;
+    try { check = await this.models.resolveSelection(selection); }
     catch (cause) { if (!(cause instanceof ModelSelectionError)) throw cause; throw new WorkflowError(cause.code, { cause }); }
     const mode = session.defaultAccessMode;
     try { this.launcherFor(mode); }
@@ -1798,7 +1746,7 @@ export class Runtime {
     if (run.rootTaskId) return this.store.getTask(run.rootTaskId)!;
     try {
       if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
-      const check = await this.resolveSelection(selection);
+      const check = await this.models.resolveSelection(selection);
       this.launcherFor(schedule.accessMode);
       const sourceProblem = this.sources.verify(schedule.projectId, schedule.sourceRefs);
       if (sourceProblem) throw new RuntimeApiError("task_sources_revoked", "调度资料授权已失效，未开始执行");
@@ -2105,7 +2053,7 @@ export class Runtime {
     // 已创建任务的重启窗口沿用原模型与请求键；能力在 Driver 发出请求前再次核实。
     const role = this.store.getAgentRole(event.targetRole);
     if (role && this.store.findTaskByRequest(role.sessionId, `evt:${event.id}`)) return true;
-    const model = await this.modelCatalog.resolve(selection);
+    const model = await this.models.current.modelCatalog.resolve(selection);
     if (model.input.includes("image")) return true;
     this.inboundMedia.rejectMessage(event.source, event.externalId, "image_input_unsupported");
     this.store.withTx(() => {
@@ -2539,7 +2487,7 @@ export class Runtime {
     if (input.createRequestId && this.store.findSessionByCreateRequestId(input.createRequestId)) return { modelSelection: this.defaultSelection, mode: "confirm" as const, check: null };
     if (input.mode !== undefined && !isSessionDefaultMode(input.mode)) throw new RuntimeApiError("invalid_params", "会话默认模式无效");
     const modelSelection = input.modelSelection === undefined ? this.defaultSelection : parseModelSelection(input.modelSelection);
-    const check = input.modelSelection === undefined ? null : await this.resolveSelection(modelSelection);
+    const check = input.modelSelection === undefined ? null : await this.models.resolveSelection(modelSelection);
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝新操作");
     return { modelSelection, mode: input.mode ?? "confirm", check };
   }
@@ -2608,7 +2556,7 @@ export class Runtime {
     let summaryModel: SummaryModel;
     try { summaryModel = loadSummaryModel(this.config.agentDir) ?? { provider: modelSelection.provider, modelId: modelSelection.modelId }; }
     catch { throw new RuntimeApiError("summary_model_invalid", "摘要模型配置损坏，请修复摘要模型配置后重试"); }
-    this.assertModelConfigIdle(summaryModel.provider);
+    this.models.assertAvailable(summaryModel.provider);
     const request: SessionCompactionRequest = { requestId: input.requestId, sessionId: session.id, prompt, paramsDigest, modelSelection, summaryModel,
       source: null, expectedCheckpointId: null, status: "running", checkpointId: null, summarizedCount: 0, estimateBefore: null, estimateAfter: null,
       errorCode: null, errorMessage: null, createdAt: new Date().toISOString(), endedAt: null };
@@ -2629,8 +2577,8 @@ export class Runtime {
       this.compactions.delete(session.id);
       return accepted;
     }
-    const catalog = this.modelCatalog;
-    const modelRuntime = this.modelRuntime;
+    const catalog = this.models.current.modelCatalog;
+    const modelRuntime = this.models.current.modelRuntime;
     operation.promise = Promise.resolve().then(() => this.runSessionCompaction(session, operation, catalog, modelRuntime)).finally(() => {
       this.compactions.delete(session.id);
     });
@@ -2884,10 +2832,6 @@ export class Runtime {
     );
   }
 
-  async listModels(input: { provider?: string; offset?: number; limit?: number } = {}) {
-    return this.modelCatalog.list(input);
-  }
-
   getSession(sessionId: string): Session {
     const session = this.store.getSession(sessionId);
     if (!session) throw new RuntimeApiError("not_found", "会话不存在");
@@ -2923,47 +2867,12 @@ export class Runtime {
     if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 0) throw new RuntimeApiError("invalid_params", "expected_version 必须为非负整数");
     const selection = parseModelSelection(input.modelSelection);
     // 配置应用期间不得为受影响 provider 钉入新引用（与 §4 删除核实同一同步段语义）
-    const check = await this.resolveSelection(selection);
+    const check = await this.models.resolveSelection(selection);
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
     return this.store.withTx(() => {
       check();
       return this.store.setSessionModel(input.sessionId, selection, input.expectedVersion);
     });
-  }
-
-  // ---------- 模型配置管理（issue 21 §3/§4） ----------
-
-  /** 应用门闩检查：受影响 provider 的新任务在配置应用期间拒绝进入。 */
-  private assertModelConfigIdle(provider: string): void {
-    if (this.modelConfigGate?.has(provider)) {
-      throw new RuntimeApiError("model_config_busy", "模型配置正在应用，请稍后重试");
-    }
-  }
-
-  /**
-   * 按当前目录核实模型选择。返回的 check 须在写入的同一同步段调用：resolve
-   * 的 await 期间门闩生效，或一次应用已整体完成（目录被重建，如 provider 已
-   * 删除且引用核实已通过）时拒绝，不让新引用钻过 §4 的删除/应用边界。
-   */
-  private async resolveSelection(selection: ModelSelection, requireImages = false): Promise<() => void> {
-    this.assertModelConfigIdle(selection.provider);
-    const catalog = this.modelCatalog;
-    const model = await catalog.resolve(selection);
-    if (requireImages && !model.input.includes("image")) throw new RuntimeApiError("image_input_unsupported", "所选模型不支持图片输入");
-    return () => {
-      this.assertModelConfigIdle(selection.provider);
-      if (this.modelCatalog !== catalog) throw new RuntimeApiError("model_config_busy", "模型配置刚刚更新，请重试");
-    };
-  }
-
-  /** 修订核对（乐观并发）：全部写操作按调用方读取时的修订应用。 */
-  private assertConfigRevision(expected: unknown): void {
-    if (typeof expected !== "string" || expected.length === 0) {
-      throw new RuntimeApiError("invalid_params", "expected_revision 必须是非空字符串");
-    }
-    if (expected !== configRevision(this.config.agentDir)) {
-      throw new RuntimeApiError("config_conflict", "模型配置已被其他修改更新，请重新加载后重试");
-    }
   }
 
   /** 秘密脱敏：配置文件当前含有的 API key、OAuth token、headers 值不得出现在错误文本里。 */
@@ -2973,337 +2882,6 @@ export class Runtime {
     return out;
   }
 
-  /**
-   * 模型配置应用（issue 21 §4）：单-flight 门闩 → 受影响活动任务核查 →
-   * 快照旧字节 → 写文件 → 重建模型栈。门闩设置与任务核查之间无 await
-   * （单线程原子性），核查期间新的受影响任务无法进入执行或队列；
-   * 任何失败恢复旧字节并重建旧模型栈——不先改文件、不部分应用、
-   * 不自动取消任务。
-   */
-  private async applyModelConfigChange(affected: string[], fn: () => Promise<void>): Promise<void> {
-    if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
-    if (this.modelConfigGate) throw new RuntimeApiError("model_config_busy", "模型配置正在应用，请稍后重试");
-    this.modelConfigGate = new Set(affected);
-    const blocked = this.store.countActiveTasksByProviders(affected) + [...this.compactions.values()].filter(({ request }) =>
-      affected.includes(request.summaryModel.provider)).length;
-    if (blocked > 0) {
-      this.modelConfigGate = null;
-      throw new RuntimeApiError(
-        "model_config_blocked",
-        `有 ${blocked} 个任务或压缩操作正在使用受影响的提供方，请先完成或取消这些操作`,
-      );
-    }
-    let settle!: () => void;
-    this.modelConfigSettled = new Promise<void>((resolve) => (settle = resolve));
-    const snapshot = snapshotConfigFiles(this.config.agentDir);
-    try {
-      await fn();
-      await this.rebuildModelStack();
-    } catch (err) {
-      // 回滚：恢复旧字节并重建旧模型栈，重启后也不会静默选用部分新配置
-      restoreConfigFiles(this.config.agentDir, snapshot);
-      await this.rebuildModelStack().catch(() => {
-        // 文件已恢复；旧栈重建失败时保留原内存模型栈与本次配置失败。
-      });
-      const code = err instanceof RuntimeApiError || err instanceof ModelSelectionError ? err.code : "model_config_invalid";
-      throw new RuntimeApiError(code, "模型配置无法应用，原配置文件已恢复；请检查提供方地址、API 类型与认证配置后重试");
-    } finally {
-      this.modelConfigGate = null;
-      settle();
-      // 成功与回滚都解除门闩，既有待投递消息用原键和当前配置重新核实。
-      if (!this.stopping) {
-        await this.subagents?.flushPendingMessages().catch(() => {
-          process.stderr.write("[ruukoto:model-config] 模型配置应用后冲刷消息失败，请检查后台消息投递状态\n");
-        });
-      }
-    }
-  }
-
-  /**
-   * 重建模型栈并传播到所有存活 Driver：新 ModelRuntime → 目录 → 审查器。
-   * SDK 组合失败的 provider 会被静默丢弃，这里按 models.json 声明逐模型
-   * 核实可解析，失败即抛错（由调用方回滚）。默认模型按当前配置重新解析，
-   * 只影响新建会话；既有会话钉住的模型选择不被改写。存活 SDK 会话闭包
-   * 持有旧 ModelRuntime，由 Driver 标记后在下一任务开始前丢弃重建。
-   */
-  private async rebuildModelStack(): Promise<void> {
-    const agentDir = this.config.agentDir;
-    const modelRuntime = await ModelRuntime.create({
-      authPath: path.join(agentDir, "auth.json"),
-      modelsPath: path.join(agentDir, "models.json"),
-      modelsStore: new InMemoryModelsStore(),
-      refreshOnCreate: false,
-    });
-    const catalogFile = loadModelCatalogFile(agentDir);
-    for (const [providerId, def] of Object.entries(catalogFile.providers)) {
-      for (const definition of ((def?.models as Array<{ id?: unknown }> | undefined) ?? [])) {
-        if (typeof definition?.id === "string" && !modelRuntime.getModel(providerId, definition.id)) {
-          throw new RuntimeApiError(
-            "model_config_invalid",
-            `provider ${providerId} 的模型 ${definition.id} 未通过 SDK 校验（检查 api/baseUrl 等协议字段）`,
-          );
-        }
-      }
-    }
-    const configured = resolveConfiguredModel(modelRuntime, this.config);
-    if (!configured) {
-      throw new RuntimeApiError("no_model", "应用该配置后将没有可用模型，已回滚");
-    }
-    const modelCatalog = await createModelCatalog(modelRuntime, agentDir, configured.model);
-    await modelCatalog.resolve({ provider: configured.model.provider, modelId: configured.model.id, thinkingLevel: configured.thinkingLevel });
-    const reviewer = createApprovalReviewer({
-      modelRuntime,
-      modelCatalog,
-      timeoutMs: this.config.autoReview?.timeoutMs,
-      maxTokens: this.config.autoReview?.maxTokens,
-    });
-    this.modelRuntime = modelRuntime;
-    this.modelCatalog = modelCatalog;
-    this.reviewer = reviewer;
-    this.model = configured.model;
-    this.defaultSelection = { provider: configured.model.provider, modelId: configured.model.id, thinkingLevel: configured.thinkingLevel };
-    for (const driver of this.drivers.values()) {
-      driver.updateModelDeps({ modelRuntime, modelCatalog, model: configured.model, reviewer });
-    }
-  }
-
-  /** 模型配置视图（脱敏）：目录中 apiKey 以 true 代替，凭据只报是否配置与类型。 */
-  getModelConfig(): ModelConfigMetadata & {
-    revision: string;
-    providers: Record<string, any>;
-    defaultModel: ModelSelection | null;
-    summaryModel: SummaryModel | null;
-    runtimeDefault: ModelSelection;
-    runtimeOverrides: { model: boolean; thinking: boolean };
-    busyProviders: string[];
-  } {
-    const agentDir = this.config.agentDir;
-    let defaultModel: ModelSelection | null = null;
-    try {
-      defaultModel = loadDefaultModel(agentDir);
-    } catch {
-      // 损坏的默认配置文件不阻塞配置视图（修订指纹仍覆盖它，保存可修复）
-    }
-    return {
-      revision: configRevision(agentDir),
-      providers: sanitizeCatalog(loadModelCatalogFile(agentDir).providers),
-      ...readModelConfigMetadata(agentDir, this.modelRuntime, this.defaultSelection.provider),
-      defaultModel,
-      summaryModel: this.readSummaryModel(),
-      runtimeDefault: this.defaultSelection,
-      runtimeOverrides: { model: this.config.modelProvider !== undefined, thinking: this.config.thinkingLevel !== undefined },
-      busyProviders: this.modelConfigGate ? [...this.modelConfigGate] : [],
-    };
-  }
-
-  /** 摘要模型配置（损坏按未设置展示；修订指纹仍覆盖它，保存可修复）。 */
-  private readSummaryModel(): SummaryModel | null {
-    try {
-      return loadSummaryModel(this.config.agentDir);
-    } catch {
-      return null;
-    }
-  }
-
-  /** 删除 provider/模型前核实引用（§4）：被持久默认、摘要模型、会话或逻辑角色引用时拒绝，先提供替代项。 */
-  private assertSelectionNotReferenced(provider: string, modelId?: string): void {
-    let defaultModel: ModelSelection | null = null;
-    try {
-      defaultModel = loadDefaultModel(this.config.agentDir);
-    } catch {
-      // 损坏的默认配置文件不可能构成有效引用，按未配置处理
-    }
-    const summaryModel = this.readSummaryModel();
-    const refs = this.store.countProviderReferences(provider, modelId);
-    const usedByDefault = defaultModel?.provider === provider && (modelId === undefined || defaultModel.modelId === modelId);
-    const usedBySummary = summaryModel?.provider === provider && (modelId === undefined || summaryModel.modelId === modelId);
-    if (usedByDefault || usedBySummary || refs.sessions > 0 || refs.roles > 0) {
-      const target = modelId === undefined ? `提供方 ${provider}` : `模型 ${provider}/${modelId}`;
-      const parts: string[] = [];
-      if (usedByDefault) parts.push("后台默认模型");
-      if (usedBySummary) parts.push("摘要模型");
-      if (refs.sessions > 0) parts.push(`${refs.sessions} 个会话`);
-      if (refs.roles > 0) parts.push(`${refs.roles} 个逻辑角色`);
-      throw new RuntimeApiError("provider_in_use", `${target} 仍被引用（${parts.join("、")}），请先切换这些引用到其他可用项`);
-    }
-  }
-
-  /** 保存模型目录：修订核对 → 结构校验 → 删除项引用核实 → 受影响 provider（修改/删除）受门闩应用。 */
-  async saveModelCatalog(input: { providers: unknown; expectedRevision: unknown }): Promise<{ revision: string }> {
-    if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
-    this.assertConfigRevision(input.expectedRevision);
-    const before = loadModelCatalogFile(this.config.agentDir).providers;
-    // 脱敏视图原样回写：占位符还原为原值，未改动的秘密不必重新输入
-    const providers = restoreCatalogSecrets(input.providers, before);
-    const errors = validateModelCatalog({ providers });
-    if (errors.length > 0) {
-      throw new RuntimeApiError("invalid_params", `模型目录结构无效：${errors.join("；")}`);
-    }
-    const next = { providers: providers as Record<string, any> };
-    // 受影响 = 被修改或删除的 provider；新增的 provider 不影响任何运行中任务
-    const affected = Object.keys(before).filter(
-      (id) => !(id in next.providers) || !isDeepStrictEqual(before[id], next.providers[id]),
-    );
-    // 经目录保存删除 provider/模型与 remove_model_provider 同一约束（§4），不留悬空引用
-    for (const id of Object.keys(before)) {
-      if (!(id in next.providers)) {
-        this.assertSelectionNotReferenced(id);
-        continue;
-      }
-      const oldModels = new Set((((before[id]?.models as Array<{ id?: unknown }> | undefined) ?? [])).map((m) => m?.id).filter((v): v is string => typeof v === "string"));
-      const newModels = new Set((((next.providers[id]?.models as Array<{ id?: unknown }> | undefined) ?? [])).map((m) => m?.id).filter((v): v is string => typeof v === "string"));
-      for (const modelId of oldModels) {
-        if (!newModels.has(modelId)) this.assertSelectionNotReferenced(id, modelId);
-      }
-    }
-    await this.applyModelConfigChange(affected, async () => {
-      saveModelCatalogFile(this.config.agentDir, next);
-    });
-    this.store.withTx(() => this.store.appendEvent({ type: "model.config_changed", kind: "catalog" }));
-    return { revision: configRevision(this.config.agentDir) };
-  }
-
-  async setModelApiKey(input: { provider: unknown; apiKey: unknown; expectedRevision: unknown }): Promise<{ revision: string; configured: boolean }> {
-    if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
-    const provider = typeof input.provider === "string" ? input.provider.trim() : "";
-    if (!provider) throw new RuntimeApiError("invalid_params", "provider 必须是非空字符串");
-    const invalid = validateApiKey(input.apiKey);
-    if (invalid) throw new RuntimeApiError("invalid_params", invalid);
-    this.assertConfigRevision(input.expectedRevision);
-    await this.applyModelConfigChange([provider], async () => {
-      setProviderApiKey(this.config.agentDir, provider, input.apiKey as string);
-    });
-    this.store.withTx(() => this.store.appendEvent({ type: "model.config_changed", kind: "api_key", provider }));
-    return { revision: configRevision(this.config.agentDir), configured: true };
-  }
-
-  async removeModelApiKey(input: { provider: unknown; expectedRevision: unknown }): Promise<{ revision: string; configured: boolean }> {
-    if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
-    const provider = typeof input.provider === "string" ? input.provider.trim() : "";
-    if (!provider) throw new RuntimeApiError("invalid_params", "provider 必须是非空字符串");
-    this.assertConfigRevision(input.expectedRevision);
-    await this.applyModelConfigChange([provider], async () => {
-      removeProviderCredential(this.config.agentDir, provider);
-    });
-    this.store.withTx(() => this.store.appendEvent({ type: "model.config_changed", kind: "api_key", provider }));
-    return { revision: configRevision(this.config.agentDir), configured: false };
-  }
-
-  /**
-   * 删除 provider：被持久默认模型、任何会话或逻辑角色引用时拒绝
-   * （provider_in_use）；否则从 models.json 与 auth.json 一并移除。
-   */
-  async removeModelProvider(input: { provider: unknown; expectedRevision: unknown }): Promise<{ revision: string }> {
-    if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
-    const provider = typeof input.provider === "string" ? input.provider.trim() : "";
-    if (!provider) throw new RuntimeApiError("invalid_params", "provider 必须是非空字符串");
-    this.assertConfigRevision(input.expectedRevision);
-    this.assertSelectionNotReferenced(provider);
-    await this.applyModelConfigChange([provider], async () => {
-      const catalog = loadModelCatalogFile(this.config.agentDir);
-      if (provider in catalog.providers) {
-        delete catalog.providers[provider];
-        saveModelCatalogFile(this.config.agentDir, catalog);
-      }
-      removeProviderCredential(this.config.agentDir, provider);
-    });
-    this.store.withTx(() => this.store.appendEvent({ type: "model.config_changed", kind: "catalog", provider }));
-    return { revision: configRevision(this.config.agentDir) };
-  }
-
-  /**
-   * 设置后台默认模型（持久化到 default-model.json）：只影响之后新建的
-   * 会话；既有会话钉住的选择不改写，任务不需要应用门闩。显式启动参数
-   * （--model）优先于持久默认。
-   */
-  async setDefaultModel(input: { provider: unknown; modelId: unknown; thinkingLevel: unknown; expectedRevision: unknown }): Promise<{ revision: string; defaultModel: ModelSelection }> {
-    if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
-    const selection = parseModelSelection({ provider: input.provider, modelId: input.modelId, thinkingLevel: input.thinkingLevel });
-    // 必须能在当前目录中解析（成员 + 思考档位），否则新会话将拿到不可用默认
-    const option = await this.catalogOption(selection.provider, selection.modelId);
-    if (!option.thinkingLevels.includes(selection.thinkingLevel)) {
-      throw new RuntimeApiError("invalid_params", `该模型不支持思考档位 ${selection.thinkingLevel}`);
-    }
-    // 门闩检查、修订核对与文件写入在同一同步段：并发保存只会有一方通过修订核对
-    if (this.modelConfigGate) throw new RuntimeApiError("model_config_busy", "模型配置正在应用，请稍后重试");
-    this.assertConfigRevision(input.expectedRevision);
-    saveDefaultModel(this.config.agentDir, selection);
-    // 与启动/重建同一解析口径：显式 --model/--thinking 运行期间持久默认只落盘，不改运行时默认
-    const configured = resolveConfiguredModel(this.modelRuntime, this.config);
-    if (configured) {
-      this.model = configured.model;
-      this.defaultSelection = { provider: configured.model.provider, modelId: configured.model.id, thinkingLevel: configured.thinkingLevel };
-    }
-    this.store.withTx(() => this.store.appendEvent({ type: "model.config_changed", kind: "default_model", provider: selection.provider }));
-    return { revision: configRevision(this.config.agentDir), defaultModel: selection };
-  }
-
-  /** 模型必须在当前目录中（setDefaultModel 与 setSummaryModel 共用的核对）。 */
-  private async catalogOption(provider: string, modelId: string): Promise<ModelOption> {
-    let offset = 0;
-    for (;;) {
-      const page = await this.modelCatalog.list({ provider, offset, limit: 100 });
-      const option = page.models.find((m) => m.provider === provider && m.modelId === modelId);
-      if (option) return option;
-      if (page.nextOffset === null) break;
-      offset = page.nextOffset;
-    }
-    throw new RuntimeApiError("invalid_params", `模型不在后台已配置的目录中：${provider}/${modelId}`);
-  }
-
-  /**
-   * 设置或清除上下文压缩的摘要模型（issue 30 §8，持久化到 summary-model.json）。
-   * 每次摘要读取当前配置，不按任务钉版，不需要应用门闩；provider 与 modelId 都为 null 即清除。
-   */
-  async setSummaryModel(input: { provider: unknown; modelId: unknown; expectedRevision: unknown }): Promise<{ revision: string; summaryModel: SummaryModel | null }> {
-    if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
-    let model: SummaryModel | null = null;
-    if (input.provider !== null || input.modelId !== null) {
-      if (typeof input.provider !== "string" || !input.provider.trim() || typeof input.modelId !== "string" || !input.modelId.trim()) {
-        throw new RuntimeApiError("invalid_params", "provider 与 model_id 必须同为非空字符串，或同为 null（清除）");
-      }
-      await this.catalogOption(input.provider, input.modelId);
-      model = { provider: input.provider, modelId: input.modelId };
-    }
-    if (this.modelConfigGate) throw new RuntimeApiError("model_config_busy", "模型配置正在应用，请稍后重试");
-    this.assertConfigRevision(input.expectedRevision);
-    saveSummaryModel(this.config.agentDir, model);
-    this.store.withTx(() => this.store.appendEvent({ type: "model.config_changed", kind: "summary_model", provider: model?.provider }));
-    return { revision: configRevision(this.config.agentDir), summaryModel: model };
-  }
-
-  /**
-   * 显式连通性探测（30s 超时）：经当前目录解析模型后发一个 1-token 请求。
-   * 这是唯一的联网核实入口；本地校验不暗示模型服务可用。
-   */
-  async testModelConnection(input: { provider: unknown; modelId: unknown }): Promise<{ ok: boolean; detail: string }> {
-    if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
-    const provider = typeof input.provider === "string" ? input.provider.trim() : "";
-    const modelId = typeof input.modelId === "string" ? input.modelId.trim() : "";
-    if (!provider || !modelId) throw new RuntimeApiError("invalid_params", "provider 与 model_id 必须是非空字符串");
-    let model: any;
-    try {
-      model = await this.modelCatalog.resolve({ provider, modelId, thinkingLevel: "off" });
-    } catch {
-      return { ok: false, detail: "无法解析所选模型，请检查后台模型目录与认证配置后重试" };
-    }
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 30_000);
-    try {
-      const reply = await this.modelRuntime.completeSimple(
-        model,
-        { messages: [{ role: "user", content: "ping", timestamp: Date.now() }] },
-        { maxTokens: 1, signal: controller.signal },
-      );
-      // completeSimple 不以 reject 报错：鉴权/HTTP/中止都以 stopReason 返回
-      if (reply.stopReason !== "error" && reply.stopReason !== "aborted") return { ok: true, detail: `连接成功：${provider}/${modelId}` };
-    } catch {
-      // SDK 错误可能反射环境、命令或运行时凭据；仅返回下方固定诊断。
-    } finally {
-      clearTimeout(timer);
-    }
-    return { ok: false, detail: controller.signal.aborted ? "连接超时（30 秒）" : "连接失败，请检查提供方地址、API 类型与认证配置后重试" };
-  }
 
   // ---------- 提交与排队 ----------
 
@@ -3470,7 +3048,7 @@ export class Runtime {
     // 受影响 provider 的新提交在应用期间拒绝进入队列；continueTask 经
     // this.submit 走同一检查
     const sourceEvent = input.sourceEventId ? this.store.getInboundEvent(input.sourceEventId) : null;
-    const check = await this.resolveSelection(selection, (sourceEvent !== null && this.inboundMedia.hasMedia(sourceEvent)) || attachments.some(item => item.metadata.mimeType !== null));
+    const check = await this.models.resolveSelection(selection, (sourceEvent !== null && this.inboundMedia.hasMedia(sourceEvent)) || attachments.some(item => item.metadata.mimeType !== null));
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝新任务");
     // 所选模式的执行入口必须可用（缺少后端/身份配置时明确失败，不回退）
     try {
@@ -3649,7 +3227,7 @@ export class Runtime {
         return await this.submit(input, true);
       } catch (err) {
         if (!(err instanceof RuntimeApiError) || err.code !== "model_config_busy") throw err;
-        await this.modelConfigSettled;
+        await this.models.whenConfigIdle();
       }
     }
   }
@@ -4465,9 +4043,9 @@ export class Runtime {
         sessionsDir: sessionsDirFor(this.config.dataDir),
         agentDir: this.config.agentDir,
         subAgentRoles: () => loadSubAgentRoleLibrary(this.config.agentDir),
-        modelRuntime: this.modelRuntime,
-        modelCatalog: this.modelCatalog,
-        model: this.model,
+        modelRuntime: this.models.current.modelRuntime,
+        modelCatalog: this.models.current.modelCatalog,
+        model: this.models.current.model,
         thinkingLevel: this.config.thinkingLevel ?? "off",
         toolFactory:
           this.config.toolFactory ??
@@ -4539,7 +4117,7 @@ export class Runtime {
         // 宿主评审任务（agent-direction issue 19）按任务另开只读 MCP：GitHub MCP
         // 配在 main 项目（评审 SubAgent 的会话在 main 项目下；凭据范围按项目核对）
         taskMcp: (task) => this.githubEvents.isReviewTask(task),
-        reviewer: this.reviewer,
+        reviewer: this.models.current.reviewer,
         // IM 审批（agent-direction issue 08）：创建通知与消费前固定身份复核；
         // 长期授权候选（issue 10）：共享 main 不继承其他入口；无 IM 来源的任务恒无候选
         approvalIm: {
@@ -4646,7 +4224,7 @@ export class Runtime {
       throw new RuntimeApiError("model_selection_required", "旧排队任务未记录模型配置；请显式确认 model_selection 后恢复队列");
     }
     // 模型配置应用门闩（issue 21 §4）：显式确认的 provider 受影响时拒绝
-    const check = selection ? await this.resolveSelection(parseModelSelection(selection)) : null;
+    const check = selection ? await this.models.resolveSelection(parseModelSelection(selection)) : null;
     let parentSessionId: string | null = null;
     let releasedOccupancy = false;
     this.store.withTx(() => {
@@ -4703,9 +4281,9 @@ export class Runtime {
    */
   modelInfo(): { provider: string; id: string; name: string; thinkingLevel: string } {
     return {
-      provider: String(this.model?.provider ?? ""),
-      id: String(this.model?.id ?? ""),
-      name: String(this.model?.name ?? ""),
+      provider: String(this.models.current.model?.provider ?? ""),
+      id: String(this.models.current.model?.id ?? ""),
+      name: String(this.models.current.model?.name ?? ""),
       thinkingLevel: this.defaultSelection.thinkingLevel,
     };
   }
@@ -5754,6 +5332,7 @@ export class Runtime {
   }
 
   private async doStop(reason: string): Promise<void> {
+    const modelsClosed = this.models.close();
     this.store.withTx(() => {
       this.store.appendEvent({ type: "backend.stopping", reason });
       for (const { request, controller } of this.compactions.values()) {
@@ -5804,6 +5383,7 @@ export class Runtime {
       }
     }
 
+    await modelsClosed;
     for (const driver of this.drivers.values()) {
       await driver.dispose();
     }

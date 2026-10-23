@@ -1408,8 +1408,7 @@ test("切换会话沿用当前模式、模型与思考强度，提交等待目�
     const file = path.join(t.dirs.agentDir, "models.json");
     const config = JSON.parse(fs.readFileSync(file, "utf8"));
     config.providers.second = { ...config.providers.mock, models: [{ ...config.providers.mock.models[0], id: "reasoner", reasoning: true, maxTokens: 4096 }] };
-    fs.writeFileSync(file, JSON.stringify(config));
-    await (t.runtime as any).rebuildModelStack();
+    await t.runtime.models.saveCatalog({ providers: config.providers, expectedRevision: t.runtime.models.getConfig().revision });
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
     const { sessionId: sessionB } = await createProjectSession(t.client, t.work[1]!);
     const requests: Array<{ op: string; params?: Record<string, unknown> }> = [];

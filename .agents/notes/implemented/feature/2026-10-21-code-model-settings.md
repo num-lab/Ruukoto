@@ -8,7 +8,7 @@ Status: implemented
 
 ## 决定
 
-Code 设置复用现有模型文件、修订核对、应用门闩与重建回滚。Desktop 与 TUI 在线／离线列表共用 model-config 的纯元数据读取，列出存储条目类型、目录 apiKey 与具体 headers 位置；只在 SDK 能直接证明时列运行时覆盖，不把配置位置存在解释为认证有效。旧 configured 字段只表示存储条目存在。成员与真实 thinkingLevels 来自 SDK 注册信息；未知档位明确展示，不通过认证过滤或猜测档位。
+Code 设置复用现有模型文件；在线修订核对、应用门闩、模型栈和重建回滚由 [RuntimeModels](../architecture/2026-10-23-runtime-models.md) 持有。Desktop 与 TUI 在线／离线列表共用 model-config 的纯元数据读取，列出存储条目类型、目录 apiKey 与具体 headers 位置；只在 SDK 能直接证明时列运行时覆盖，不把配置位置存在解释为认证有效。旧 configured 字段只表示存储条目存在。成员与真实 thinkingLevels 来自 SDK 注册信息；未知档位明确展示，不通过认证过滤或猜测档位。
 
 存储 API Key 的保存／移除只作用于 auth.json 中所选提供方；OAuth 替换／移除明确说明不撤销远端令牌。目录秘密按 provider、model、modelOverrides 选定单字段修改，回写完整脱敏目录以保留其他高级配置与占位符。环境由后台启动环境维护，设置不修改进程环境。秘密提交后清空，待核实记录只保留操作、原实例与修订，不保存秘密正文。
 

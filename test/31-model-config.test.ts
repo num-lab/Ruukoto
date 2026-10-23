@@ -28,6 +28,7 @@ import { ControlServer } from "@ruukoto/control/server.ts";
 import { acquireConfigLock, InstanceLockError } from "@ruukoto/core/instance-lock.ts";
 import { configRevision, configSecrets, loadModelConfigMetadata, probeModelConfig, readModelConfigMetadata, removeProviderCredential, restoreCatalogSecrets, sanitizeCatalog, setProviderApiKey } from "@ruukoto/agent/model-config.ts";
 import { createMockTools } from "@ruukoto/agent/mock-tools.ts";
+import { Driver } from "@ruukoto/agent/driver.ts";
 import { ModelSelectionError } from "@ruukoto/agent/model-selection.ts";
 import { MockModelServer, type Responder } from "./helpers/mock-provider.ts";
 import {
@@ -771,11 +772,11 @@ test("连接测试不回显上游反射的运行时 key、环境展开值、命�
     for (const secret of secrets) assert.ok(!JSON.stringify(result).includes(secret), "上游错误不能回传动态秘密");
   };
   try {
-    await live.runtime.modelRuntime.setRuntimeApiKey("mock", secrets[0]);
-    assert.equal((await live.runtime.modelRuntime.getAuth("mock"))?.auth.apiKey, secrets[0]);
+    await live.runtime.models.current.modelRuntime.setRuntimeApiKey("mock", secrets[0]);
+    assert.equal((await live.runtime.models.current.modelRuntime.getAuth("mock"))?.auth.apiKey, secrets[0]);
     reflected = `upstream failure ${secrets[0]}`;
     await expectPrivateFailure();
-    await live.runtime.modelRuntime.removeRuntimeApiKey("mock");
+    await live.runtime.models.current.modelRuntime.removeRuntimeApiKey("mock");
     process.env.RUUKOTO_CONNECTION_TEST_KEY = secrets[1];
     process.env.RUUKOTO_CONNECTION_TEST_HEADER = secrets[3];
     for (const [raw, expected] of [["$RUUKOTO_CONNECTION_TEST_KEY", secrets[1]], [`!printf '%s' '${secrets[2]}'`, secrets[2]]]) {
@@ -783,8 +784,8 @@ test("连接测试不回显上游反射的运行时 key、环境展开值、命�
       providers.mock.apiKey = raw;
       providers.mock.headers = { "X-Reflection": "$RUUKOTO_CONNECTION_TEST_HEADER" };
       await live.client.request("save_model_catalog", { providers, expected_revision: configRevision(live.dirs.agentDir) });
-      const model = live.runtime.modelRuntime.getModel("mock", "mock-model")!;
-      const resolved = await live.runtime.modelRuntime.getAuth(model);
+      const model = live.runtime.models.current.modelRuntime.getModel("mock", "mock-model")!;
+      const resolved = await live.runtime.models.current.modelRuntime.getAuth(model);
       assert.equal(resolved?.auth.apiKey, expected);
       assert.equal(resolved?.auth.headers?.["X-Reflection"], secrets[3]);
       reflected = `upstream failure ${expected} ${secrets[3]}`;
@@ -923,7 +924,7 @@ test("set_session_model 与删除 provider 竞态：resolve 期间应用已完�
     let entered!: () => void;
     const held = new Promise<void>((resolve) => (release = resolve));
     const resolving = new Promise<void>((resolve) => (entered = resolve));
-    const catalog = (t.runtime as any).modelCatalog;
+    const catalog = t.runtime.models.current.modelCatalog;
     const origResolve = catalog.resolve.bind(catalog);
     catalog.resolve = async (sel: any) => {
       const model = await origResolve(sel);
@@ -948,15 +949,16 @@ test("set_session_model 与删除 provider 竞态：resolve 期间应用已完�
   }
 });
 
-test("门闩窗口：应用期间受影响 provider 的提交与并发应用被拒绝", async () => {
+test("门闩窗口：应用期间受影响 provider 的提交与并发应用被拒绝", async context => {
   const t = await startManual("model-config-busy", textResponder);
+  let release!: () => void;
   try {
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
-    // 经测试钩子压住应用窗口（fn 延迟 400ms，重建在窗口内完成）
-    const applyPromise = (t.runtime as any).applyModelConfigChange(["mock"], async () => {
-      await new Promise((resolve) => setTimeout(resolve, 400));
-    }) as Promise<void>;
-    await waitFor("门闩生效", () => (t.runtime as any).modelConfigGate !== null);
+    const held = new Promise<void>(resolve => { release = resolve; });
+    const create = ModelRuntime.create.bind(ModelRuntime);
+    context.mock.method(ModelRuntime, "create", async (...args: Parameters<typeof ModelRuntime.create>) => { await held; return create(...args); });
+    const applyPromise = t.runtime.models.setApiKey({ provider: "mock", apiKey: "new-key", expectedRevision: t.runtime.models.getConfig().revision });
+    assert.deepEqual(t.runtime.models.getConfig().busyProviders, ["mock"]);
     await assert.rejects(
       submitMock(t.client, sessionId, "busy-submit"),
       (err: any) => err.code === "model_config_busy",
@@ -973,6 +975,7 @@ test("门闩窗口：应用期间受影响 provider 的提交与并发应用被�
       "并发应用必须单-flight",
     );
     assert.equal(internalDone, false, "应用窗口内内部提交应等待");
+    release();
     await applyPromise;
     const internalTask = await internal;
     await waitFor("内部提交任务完成", async () => (await taskStatus(t.client, internalTask.id)).task.status === "completed");
@@ -980,6 +983,157 @@ test("门闩窗口：应用期间受影响 provider 的提交与并发应用被�
     const task = await submitMock(t.client, sessionId, "after-busy");
     await waitFor("门闩释放后任务完成", async () => (await taskStatus(t.client, task.id)).task.status === "completed");
   } finally {
+    release?.();
+    context.mock.restoreAll();
     await cleanupManual(t);
+  }
+});
+
+for (const phase of ["rebuild", "rollback", "flush"] as const) {
+  test(`配置停止等待完整操作：${phase} 收尾前保留 Driver、数据库与配置锁`, async context => {
+    const t = await startManual(`model-stop-${phase}`, textResponder);
+    let release!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    let entered = false, closed = false, disposed = false;
+    const recorded: string[] = [];
+    const originalClose = t.runtime.store.db.close.bind(t.runtime.store.db);
+    try {
+      const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+      const task = await submitMock(t.client, sessionId, "before-stop");
+      await waitFor("先前任务完成", async () => (await taskStatus(t.client, task.id)).task.status === "completed");
+      const revision = t.runtime.models.getConfig().revision;
+      const original = fs.readFileSync(path.join(t.dirs.agentDir, "models.json"));
+      const providers = readModels(t.dirs).providers;
+      providers.mock.models[0].name = "停止期间完成配置";
+      const create = ModelRuntime.create.bind(ModelRuntime);
+      const dispose = Driver.prototype.dispose;
+      context.mock.method(Driver.prototype, "dispose", async function (this: Driver) { disposed = true; return dispose.call(this); });
+      context.mock.method(t.runtime.store.db, "close", () => {
+        const rows = t.runtime.store.db.prepare("SELECT json_extract(body, '$.type') AS type FROM events ORDER BY seq").all() as { type: string }[];
+        recorded.push(...rows.map(row => row.type));
+        closed = true;
+        originalClose();
+      });
+      if (phase === "flush") {
+        const flush = t.runtime.subagents!.flushPendingMessages.bind(t.runtime.subagents!);
+        context.mock.method(t.runtime.subagents!, "flushPendingMessages", async () => { entered = true; await held; await flush(); });
+      } else {
+        let first = true;
+        context.mock.method(ModelRuntime, "create", async (...args: Parameters<typeof ModelRuntime.create>) => {
+          if (first) {
+            first = false;
+            entered = true;
+            await held;
+            if (phase === "rollback") throw new Error("REBUILD-FAILED");
+          }
+          return create(...args);
+        });
+      }
+      const saving = t.runtime.models.saveCatalog({ providers, expectedRevision: revision }).then(() => null, error => error);
+      await waitFor("配置操作到达暂停点", () => entered);
+      assert.deepEqual(t.runtime.models.getConfig().busyProviders, phase === "flush" ? [] : ["mock"]);
+      if (phase === "flush") await t.runtime.models.whenConfigIdle();
+      const stopping = t.runtime.stop("test_model_config_stop");
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(closed, false, "完整操作结束前不能关库");
+      assert.equal(disposed, false, "配置可能仍向存活 Driver 发布模型栈");
+      assert.throws(() => acquireConfigLock(t.dirs.agentDir), InstanceLockError);
+      assert.ok(t.runtime.store.getSession(sessionId));
+      await assert.rejects(() => t.runtime.models.setApiKey({ provider: "mock", apiKey: "late", expectedRevision: revision }), { code: "stopping" });
+      release();
+      const error = await saving;
+      await stopping;
+      assert.equal(closed, true);
+      assert.equal(disposed, true);
+      const configEvent = recorded.indexOf("model.config_changed"), stoppedEvent = recorded.indexOf("backend.stopped");
+      assert.ok(stoppedEvent >= 0);
+      if (phase === "rollback") {
+        assert.equal(error?.code, "model_config_invalid");
+        assert.deepEqual(fs.readFileSync(path.join(t.dirs.agentDir, "models.json")), original);
+        assert.equal(configEvent, -1);
+      } else {
+        assert.equal(error, null);
+        assert.ok(configEvent >= 0 && configEvent < stoppedEvent, "配置事件必须先于后台停止事实");
+        assert.equal(readModels(t.dirs).providers.mock.models[0].name, providers.mock.models[0].name);
+      }
+      acquireConfigLock(t.dirs.agentDir).release();
+    } finally {
+      release();
+      await cleanupManual(t);
+      context.mock.restoreAll();
+    }
+  });
+}
+
+for (const kind of ["default", "summary"] as const) {
+  test(`模型配置解析完成时已停止：${kind} 不再写文件或事件`, async context => {
+    const t = await startManual(`model-stop-${kind}`, textResponder);
+    let release!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    let entered = false;
+    try {
+      const catalog = t.runtime.models.current.modelCatalog;
+      const list = catalog.list.bind(catalog);
+      context.mock.method(catalog, "list", async (...args: Parameters<typeof list>) => { entered = true; await held; return list(...args); });
+      const revision = t.runtime.models.getConfig().revision;
+      const input = { ...MOCK_SELECTION, expectedRevision: revision };
+      const saving = (kind === "default" ? t.runtime.models.setDefault(input) : t.runtime.models.setSummary(input)).then(() => null, error => error);
+      await waitFor("目录解析在途", () => entered);
+      const events: string[] = [];
+      t.runtime.addEventListener(batch => { events.push(...batch.map(event => event.body.type)); });
+      const stopping = t.runtime.stop("test_late_model_setting");
+      await new Promise(resolve => setImmediate(resolve));
+      assert.throws(() => acquireConfigLock(t.dirs.agentDir), InstanceLockError);
+      release();
+      assert.equal((await saving)?.code, "stopping");
+      await stopping;
+      assert.equal(configRevision(t.dirs.agentDir), revision, "停止后的迟到解析不修改任何配置字节");
+      assert.ok(!events.includes("model.config_changed"));
+      acquireConfigLock(t.dirs.agentDir).release();
+    } finally {
+      release();
+      await cleanupManual(t);
+      context.mock.restoreAll();
+    }
+  });
+}
+
+test("连接测试认证仍在途时先中断活动任务，再等待配置收尾", async context => {
+  let releaseReply!: () => void;
+  const replyHeld = new Promise<void>(resolve => { releaseReply = resolve; });
+  const t = await startManual("model-probe-stop", async (_request, index) => {
+    if (index === 0) await replyHeld;
+    return { kind: "text", text: "ok" };
+  });
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  let entered = false, stopped = false, disposed = false;
+  try {
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    const task = await submitMock(t.client, sessionId, "active-before-stop");
+    await waitFor("任务模型请求在途", () => t.server.calls.length === 1);
+    const dispose = Driver.prototype.dispose;
+    context.mock.method(Driver.prototype, "dispose", async function (this: Driver) { disposed = true; return dispose.call(this); });
+    const catalog = t.runtime.models.current.modelCatalog;
+    const resolve = catalog.resolve.bind(catalog);
+    context.mock.method(catalog, "resolve", async (...args: Parameters<typeof resolve>) => { entered = true; await held; return resolve(...args); });
+    const probe = t.runtime.models.testConnection({ provider: "mock", modelId: "mock-model" });
+    await waitFor("认证解析在途", () => entered);
+    const stopping = t.runtime.stop("test_probe_stop").then(() => { stopped = true; });
+    await waitFor("认证未结束也先中断活动任务", () => t.runtime.store.getTask(task.id)?.status === "interrupted");
+    assert.equal(stopped, false);
+    assert.equal(disposed, false);
+    assert.throws(() => acquireConfigLock(t.dirs.agentDir), InstanceLockError);
+    release();
+    releaseReply();
+    assert.equal((await probe).ok, true);
+    await stopping;
+    assert.equal(stopped, true);
+    assert.equal(disposed, true);
+  } finally {
+    release();
+    releaseReply();
+    await cleanupManual(t);
+    context.mock.restoreAll();
   }
 });

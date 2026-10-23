@@ -45,13 +45,13 @@ test("图片检查、提交和重启间模型配置变化：沿用钉定选择�
     const envelope = (id: number) => ({ source: "telegram", externalId: `123456:42:${id}`, actor: "telegram:42", body: `图片 ${id}`, replyTarget: target });
     const stage = (id: number) => rt.inboundMedia.stage({ ...envelope(id), media: [{ download: async () =>
       new Response(PNG, { headers: { "content-type": "image/png" } }) }] });
-    const setDefault = (selection: ModelSelection) => rt.setDefaultModel({ ...selection, expectedRevision: rt.getModelConfig().revision });
+    const setDefault = (selection: ModelSelection) => rt.models.setDefault({ ...selection, expectedRevision: rt.models.getConfig().revision });
 
-    const originalResolve = rt.modelCatalog.resolve.bind(rt.modelCatalog);
+    const originalResolve = rt.models.current.modelCatalog.resolve.bind(rt.models.current.modelCatalog);
     let firstCheck = true;
     let checkEntered = false;
     const blocked = new Promise<void>((resolve) => { releaseCheck = resolve; });
-    rt.modelCatalog.resolve = async (selection) => {
+    rt.models.current.modelCatalog.resolve = async (selection) => {
       const selected = await originalResolve(selection);
       if (firstCheck) {
         firstCheck = false;
@@ -111,9 +111,9 @@ test("图片检查、提交和重启间模型配置变化：沿用钉定选择�
 
     // 同一模型在 prepare 后失去视觉能力：submit 必须按当前目录复核，不能先建任务。
     await setDefault(VISION);
-    const currentResolve = rt.modelCatalog.resolve.bind(rt.modelCatalog);
+    const currentResolve = rt.models.current.modelCatalog.resolve.bind(rt.models.current.modelCatalog);
     let resolves = 0;
-    rt.modelCatalog.resolve = async (selection) => {
+    rt.models.current.modelCatalog.resolve = async (selection) => {
       assert.deepEqual(selection, VISION);
       const selected = await currentResolve(selection);
       return { ...selected, input: ++resolves === 1 ? ["text", "image"] : ["text"] };

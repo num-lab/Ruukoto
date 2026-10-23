@@ -229,8 +229,8 @@ test("连续分支恢复原图片的实际模型 payload，伪造、缺失和损
   const { t, session, h } = await fixture("branch-images");
   try {
     const rt = t.runtime;
-    const resolve = rt.modelCatalog.resolve.bind(rt.modelCatalog);
-    rt.modelCatalog.resolve = async selection => ({ ...await resolve(selection), input: ["text", "image"] });
+    const resolve = rt.models.current.modelCatalog.resolve.bind(rt.models.current.modelCatalog);
+    rt.models.current.modelCatalog.resolve = async selection => ({ ...await resolve(selection), input: ["text", "image"] });
     const event = rt.store.withTx(() => rt.store.registerInboundEvent({ source: "telegram", externalId: randomId("in"), actor: "telegram:owner", targetRole: "main", body: "图片" }).event);
     const task = h.task("completed", event.id);
     const image = rt.artifacts.importImage({ id: randomId("art"), taskId: task.id, sessionId: session.id, name: "inbound-image:0",

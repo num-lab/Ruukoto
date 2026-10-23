@@ -477,8 +477,8 @@ test("mcp 图片：结构化文字预览超限有提示和产物，图片不被�
   const structuredContent = { rows: Array.from({ length: 7000 }, () => 1) };
   const mcp = await startMockMcp({ tools: [{ name: "capture", result: { content: [{ type: "image", data: MCP_PNG, mimeType: "image/png" }], structuredContent } }] });
   const t = await startTestRuntime("mcp-image-text-cap", (_request, index) => index === 0 ? { kind: "tool_calls", calls: [{ id: "capture", name: "mcp_mock_capture", arguments: {} }] } : { kind: "text", text: "完成" });
-  const resolve = t.runtime.modelCatalog.resolve.bind(t.runtime.modelCatalog);
-  t.runtime.modelCatalog.resolve = async selection => ({ ...await resolve(selection), input: ["text", "image"] });
+  const resolve = t.runtime.models.current.modelCatalog.resolve.bind(t.runtime.models.current.modelCatalog);
+  t.runtime.models.current.modelCatalog.resolve = async selection => ({ ...await resolve(selection), input: ["text", "image"] });
   try {
     const { projectId, sessionId } = await createProjectSession(t.client, t.work[0]!);
     await configureMockService(t, projectId, mcp, { allowlist: ["capture"], credential: false });
@@ -496,8 +496,8 @@ for (const variant of ["pure", "mixed", "error", "invalid", "disk"] as const) {
     const content = variant === "mixed" ? [{ type: "text", text: "图前" }, image, { type: "text", text: "图间" }, image, { type: "text", text: "图后" }] : [image];
     const mcp = await startMockMcp({ tools: [{ name: "capture", result: { content, isError: variant === "error" } }] });
     const t = await startTestRuntime("mcp-images", (_request, index) => index === 0 ? { kind: "tool_calls", calls: [{ id: "capture", name: "mcp_mock_capture", arguments: {} }] } : { kind: "text", text: "已看原图" });
-    const resolve = t.runtime.modelCatalog.resolve.bind(t.runtime.modelCatalog);
-    t.runtime.modelCatalog.resolve = async selection => ({ ...await resolve(selection), input: ["text", "image"] });
+    const resolve = t.runtime.models.current.modelCatalog.resolve.bind(t.runtime.models.current.modelCatalog);
+    t.runtime.models.current.modelCatalog.resolve = async selection => ({ ...await resolve(selection), input: ["text", "image"] });
     if (variant === "disk") t.runtime.artifacts.importImage = () => { throw new ArtifactWriteError("fixture"); };
     try {
       const { projectId, sessionId } = await createProjectSession(t.client, t.work[0]!);

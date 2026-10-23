@@ -114,7 +114,7 @@ test("摘要占用与取消：新提交、继续、配置与另一压缩被拒�
     await assert.rejects(() => t.runtime.submit({ sessionId: session.id, requestId: "new", input: "待保留草稿", modelSelection: t.runtime.defaultSelection }), (e: { code?: string }) => e.code === "session_compaction_busy");
     await assert.rejects(() => t.runtime.continueTask({ taskId: interrupted.id, requestId: "continue", input: "继续原工作", modelSelection: t.runtime.defaultSelection }), (e: { code?: string }) => e.code === "session_compaction_busy");
     await assert.rejects(() => t.runtime.compactSession({ sessionId: session.id, requestId: "another" }), (e: { code?: string }) => e.code === "session_compaction_busy");
-    await assert.rejects(() => t.runtime.setModelApiKey({ provider: "mock", apiKey: "new-key", expectedRevision: configRevision(t.dirs.agentDir) }), (e: { code?: string }) => e.code === "model_config_blocked");
+    await assert.rejects(() => t.runtime.models.setApiKey({ provider: "mock", apiKey: "new-key", expectedRevision: configRevision(t.dirs.agentDir) }), (e: { code?: string }) => e.code === "model_config_blocked");
     const branch = await t.runtime.branchSession({ sessionId: session.id, requestId: "branch-during" });
     assert.equal(t.runtime.store.getActiveCheckpoint(branch.id), null);
     const other = (await t.runtime.openWorkspace({ cwd: t.work[1]! })).session;
@@ -133,16 +133,16 @@ test("摘要占用与取消：新提交、继续、配置与另一压缩被拒�
 test("接收先占会话，覆盖提交解析窗口与任务启动窗口；无历史无需模型，身份由后台拒绝", async () => {
   const { t, session } = await fixture("manual-race");
   try {
-    const resolve = t.runtime.modelCatalog.resolve.bind(t.runtime.modelCatalog);
+    const resolve = t.runtime.models.current.modelCatalog.resolve.bind(t.runtime.models.current.modelCatalog);
     let release!: () => void;
     const gate = new Promise<void>(done => { release = done; });
-    t.runtime.modelCatalog.resolve = async selection => { await gate; return resolve(selection); };
+    t.runtime.models.current.modelCatalog.resolve = async selection => { await gate; return resolve(selection); };
     const submitting = t.runtime.submit({ sessionId: session.id, requestId: "race-task", input: "提交先进入解析", modelSelection: t.runtime.defaultSelection });
     const compact = await t.runtime.compactSession({ sessionId: session.id, requestId: "race-compact" });
     release();
     await assert.rejects(() => submitting, (e: { code?: string }) => e.code === "session_compaction_busy");
     assert.equal((await finished(t, session.id, compact.requestId)).status, "succeeded");
-    t.runtime.modelCatalog.resolve = resolve;
+    t.runtime.models.current.modelCatalog.resolve = resolve;
     const fresh = (await t.runtime.openWorkspace({ cwd: t.work[1]! })).session;
     const before = t.server.calls.length;
     await t.runtime.compactSession({ sessionId: fresh.id, requestId: "empty" });
@@ -219,8 +219,8 @@ test("超时/模型不可用终态保留原历史；源文件变化不提交", a
     assert.equal((await finished(t, session.id, "missing")).errorCode, "model_not_found");
     saveSummaryModel(t.dirs.agentDir, null);
     slow = false;
-    const original = t.runtime.modelCatalog.resolve.bind(t.runtime.modelCatalog);
-    t.runtime.modelCatalog.resolve = async selection => {
+    const original = t.runtime.models.current.modelCatalog.resolve.bind(t.runtime.models.current.modelCatalog);
+    t.runtime.models.current.modelCatalog.resolve = async selection => {
       fs.appendFileSync(file, "\n");
       return original(selection);
     };
@@ -308,12 +308,12 @@ test("摘要底层结果尚未收尾时保持会话与 provider 占用，后台�
   const { t, session, file } = await fixture("manual-stop-settle");
   let release!: () => void;
   const gate = new Promise<void>(resolve => { release = resolve; });
-  const streamSimple = t.runtime.modelRuntime.streamSimple.bind(t.runtime.modelRuntime);
+  const streamSimple = t.runtime.models.current.modelRuntime.streamSimple.bind(t.runtime.models.current.modelRuntime);
   const close = t.runtime.store.db.close.bind(t.runtime.store.db);
   let awaitingResult = false;
   let closed = false;
   let summarySignal: AbortSignal | undefined;
-  t.runtime.modelRuntime.streamSimple = (model, context, options) => {
+  t.runtime.models.current.modelRuntime.streamSimple = (model, context, options) => {
     summarySignal = options?.signal;
     const stream = streamSimple(model, context, options);
     const result = stream.result.bind(stream);
@@ -339,7 +339,7 @@ test("摘要底层结果尚未收尾时保持会话与 provider 占用，后台�
     finally { t.runtime.store.onCommitted = committed; }
     assert.equal(summarySignal?.aborted, true, "取消应答丢失仍须中止底层摘要请求");
     await assert.rejects(() => t.runtime.submit({ sessionId: session.id, requestId: "before-settle", input: "等待收尾", modelSelection: t.runtime.defaultSelection }), (e: { code?: string }) => e.code === "session_compaction_busy");
-    await assert.rejects(() => t.runtime.setModelApiKey({ provider: "mock", apiKey: "replacement", expectedRevision: configRevision(t.dirs.agentDir) }), (e: { code?: string }) => e.code === "model_config_blocked");
+    await assert.rejects(() => t.runtime.models.setApiKey({ provider: "mock", apiKey: "replacement", expectedRevision: configRevision(t.dirs.agentDir) }), (e: { code?: string }) => e.code === "model_config_blocked");
     let stopped = false;
     const stopping = t.runtime.stop("test_compaction_settle").then(() => { stopped = true; });
     await new Promise(resolve => setImmediate(resolve));
@@ -496,12 +496,12 @@ test("配置摘要模型单次钉版；接收后清配置与改会话模型不�
       { providers: Record<string, { models: Array<Record<string, unknown>> }> };
     const provider = catalog.providers.mock;
     provider.models.push({ ...provider.models[0], id: "mock-summary", name: "摘要模型" }, { ...provider.models[0], id: "mock-next", name: "后续会话模型" });
-    await t.runtime.saveModelCatalog({ providers: catalog.providers, expectedRevision: configRevision(t.dirs.agentDir) });
-    await t.runtime.setSummaryModel({ provider: "mock", modelId: "mock-summary", expectedRevision: configRevision(t.dirs.agentDir) });
+    await t.runtime.models.saveCatalog({ providers: catalog.providers, expectedRevision: configRevision(t.dirs.agentDir) });
+    await t.runtime.models.setSummary({ provider: "mock", modelId: "mock-summary", expectedRevision: configRevision(t.dirs.agentDir) });
     const accepted = await t.runtime.compactSession({ sessionId: session.id, requestId: "fixed-summary" });
     await waitFor("配置摘要模型已调用", () => t.server.calls.length === 1);
     assert.equal(t.server.calls[0].raw.model, "mock-summary");
-    await t.runtime.setSummaryModel({ provider: null, modelId: null, expectedRevision: configRevision(t.dirs.agentDir) });
+    await t.runtime.models.setSummary({ provider: null, modelId: null, expectedRevision: configRevision(t.dirs.agentDir) });
     await t.runtime.setSessionModel({ sessionId: session.id, modelSelection: { provider: "mock", modelId: "mock-next", thinkingLevel: "off" }, expectedVersion: t.runtime.getSession(session.id).modelSelectionVersion });
     await t.runtime.setSessionDefaultMode({ sessionId: session.id, mode: "plan", expectedVersion: t.runtime.getSession(session.id).defaultAccessModeVersion });
     const pinned = t.runtime.getSessionCompaction({ sessionId: session.id, requestId: accepted.requestId })!;

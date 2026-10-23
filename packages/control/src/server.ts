@@ -398,27 +398,27 @@ export class ControlServer {
             throw Object.assign(new Error(`${key} 必须是有效整数`), { code: "invalid_params" });
           }
         }
-        return runtime.listModels({ provider: params["provider"] === undefined ? undefined : requireString("provider"), offset: params["offset"] as number | undefined, limit: params["limit"] as number | undefined });
+        return runtime.models.list({ provider: params["provider"] === undefined ? undefined : requireString("provider"), offset: params["offset"] as number | undefined, limit: params["limit"] as number | undefined });
       }
       case "set_session_model":
         return runtime.setSessionModel({ sessionId: requireString("session_id"), modelSelection: parseModelSelection(params["model_selection"]), expectedVersion: params["expected_version"] as number });
       // ---------- issue 21 §3/§4：模型配置管理（修订核对在 Runtime 内） ----------
       case "get_model_config":
-        return runtime.getModelConfig();
+        return runtime.models.getConfig();
       case "save_model_catalog": {
         if (typeof params["providers"] !== "object" || params["providers"] === null || Array.isArray(params["providers"])) {
           throw Object.assign(new Error("providers 必须是对象"), { code: "invalid_params" });
         }
-        return runtime.saveModelCatalog({ providers: params["providers"], expectedRevision: params["expected_revision"] });
+        return runtime.models.saveCatalog({ providers: params["providers"], expectedRevision: params["expected_revision"] });
       }
       case "set_model_api_key":
-        return runtime.setModelApiKey({ provider: params["provider"], apiKey: params["api_key"], expectedRevision: params["expected_revision"] });
+        return runtime.models.setApiKey({ provider: params["provider"], apiKey: params["api_key"], expectedRevision: params["expected_revision"] });
       case "remove_model_api_key":
-        return runtime.removeModelApiKey({ provider: params["provider"], expectedRevision: params["expected_revision"] });
+        return runtime.models.removeApiKey({ provider: params["provider"], expectedRevision: params["expected_revision"] });
       case "remove_model_provider":
-        return runtime.removeModelProvider({ provider: params["provider"], expectedRevision: params["expected_revision"] });
+        return runtime.models.removeProvider({ provider: params["provider"], expectedRevision: params["expected_revision"] });
       case "set_default_model":
-        return runtime.setDefaultModel({
+        return runtime.models.setDefault({
           provider: params["provider"],
           modelId: params["model_id"],
           thinkingLevel: params["thinking_level"],
@@ -426,13 +426,13 @@ export class ControlServer {
         });
       // issue 30 §8：摘要模型（provider 与 model_id 同为 null 即清除）
       case "set_summary_model":
-        return runtime.setSummaryModel({
+        return runtime.models.setSummary({
           provider: params["provider"] ?? null,
           modelId: params["model_id"] ?? null,
           expectedRevision: params["expected_revision"],
         });
       case "test_model_connection":
-        return runtime.testModelConnection({ provider: params["provider"], modelId: params["model_id"] });
+        return runtime.models.testConnection({ provider: params["provider"], modelId: params["model_id"] });
       case "set_session_mode": {
         const mode = params["mode"];
         if (!isSessionDefaultMode(mode)) {

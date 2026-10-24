@@ -12,7 +12,7 @@ Status: proposed
 
 ## 方案
 
-沿用现有分类浮窗，在模型、Skills、MCP 中显式选择产品。2026-10-24 拥有者要求取消 Code MCP 工作区配置与向后兼容，当前规划改为[实例统一配置](../simplification/2026-10-24-code-instance-mcp.md)：删除工作区和旧项目来源选择、项目筛选及兼容分支，无工作区也可管理，凭据仍首次写入即限 mcp 用途/操作与端点。Code 复用现有 Runtime、模型与 MCP 的版本、发现和审批路径，同步修改存储、协议、CLI/TUI 与桌面；Personal 设置继续独立适配 durable。具体交互、契约及工单由[共享规格](../../../../.scratch/desktop-settings/spec.md)持有。
+沿用现有分类浮窗，在模型、Skills、MCP 中显式选择产品。2026-10-24 拥有者要求取消 Code MCP 工作区配置与向后兼容，当前规划改为[实例统一配置](../../implemented/simplification/2026-10-24-code-instance-mcp.md)：删除工作区和旧项目来源选择、项目筛选及兼容分支，无工作区也可管理，凭据仍首次写入即限 mcp 用途/操作与端点。Code 复用现有 Runtime、模型与 MCP 的版本、发现和审批路径，同步修改存储、协议、CLI/TUI 与桌面；Personal 设置继续独立适配 durable。具体交互、契约及工单由[共享规格](../../../../.scratch/desktop-settings/spec.md)持有。
 
 模型凭据元数据按配置位置展示，来源替换/移除只作用于拥有者选定的存储条目或目录字段；现有 configured 不升级为「认证已失效」的结论。目录和环境等来源可能在存储条目删除后继续生效，读取时执行完整认证解析又可能执行命令或刷新 OAuth，因此配置列表只读脱敏位置，不求值动态秘密；无法安全证明的来源或有效性保持未验证，由显式连接测试另验。Desktop 与 TUI 在线/离线采用相同语义，不新增全局凭据解析器。
 
@@ -36,7 +36,7 @@ Personal 在线只读及显式模型测试使用既有本机认证 HTTP 接口�
 | --- | --- |
 | [桌面客户端](../../proposed/architecture/2026-10-15-desktop-client.md) | 延续宿主、SSH、安全与丢答规则；本提案新增设置及新 durable 管理，不以旧连接当新接口 |
 | [桌面定稿](../../implemented/architecture/2026-10-15-desktop-shadcn-demo.md) | 保留视觉与分类浮窗；本轮拟扩展其暂缓的配置能力，未实施前原运行事实不改 |
-| [MCP 客户端](../../implemented/architecture/2026-09-23-mcp-client.md)、[写工具审批](../../implemented/feature/2026-09-23-mcp-write-tools-approval.md) | 复用发现、版本与批准；项目配置和凭据范围由[实例 MCP 提案](../simplification/2026-10-24-code-instance-mcp.md)拟取代，不改变逐操作审批 |
+| [MCP 客户端](../../implemented/architecture/2026-09-23-mcp-client.md)、[写工具审批](../../implemented/feature/2026-09-23-mcp-write-tools-approval.md) | 复用发现、版本与批准；项目配置和凭据范围由[实例 MCP 提案](../../implemented/simplification/2026-10-24-code-instance-mcp.md)取代，不改变逐操作审批 |
 | [个人 MCP](../../implemented/architecture/2026-10-17-personal-durable-mcp.md) | 保留代次、凭据身份、原请求及未知占用；单服务停用的配置版本须单独验证 |
 | [个人技能与历史](../../implemented/architecture/2026-10-18-personal-memory-skills-history.md) | 沿用外部库与参考证据，新增托管来源不能破坏旧快照与调用记录 |
 | [个人档案基础](../../implemented/architecture/2026-10-17-personal-durable-foundation.md) | 06 需在严格顶层布局、目录权限与持锁读取中接入可选托管根，保留原实例锁、版本与旧档案拒绝规则 |

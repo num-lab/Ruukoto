@@ -91,9 +91,8 @@ export interface TuiOps {
   set_default_model: { params: { provider: string; model_id: string; thinking_level: string; expected_revision: string }; result: MR<"setDefault"> };
   set_summary_model: { params: { provider: string | null; model_id: string | null; expected_revision: string }; result: MR<"setSummary"> };
   test_model_connection: { params: { provider: string; model_id: string }; result: MR<"testConnection"> };
-  mcp_sources: { params: { workspace_id: string; offset?: number; limit?: number; selected_project_id?: string }; result: R<"mcpSources"> };
-  mcp_list: { params: { project_id?: string }; result: { services: R<"mcpListServices"> } };
-  mcp_configure: { params: { service_id?: string; project_id: string; name: string; endpoint?: string; cua?: Parameters<Runtime["mcpConfigure"]>[0]["cua"]; credential?: string | null; tool_allowlist: Array<string | { name: string; effect: "read" | "write" | "unknown" }>; enabled?: boolean; expected_version?: number }; result: R<"mcpConfigure"> };
+  mcp_list: { params: Record<string, never>; result: { services: R<"mcpListServices"> } };
+  mcp_configure: { params: { service_id?: string; name: string; endpoint?: string; cua?: Parameters<Runtime["mcpConfigure"]>[0]["cua"]; credential?: string | null; tool_allowlist: Array<string | { name: string; effect: "read" | "write" | "unknown" }>; enabled?: boolean; expected_version?: number }; result: R<"mcpConfigure"> };
   mcp_cua_status: { params: Record<string, never>; result: R<"mcpCuaStatus"> };
   mcp_cua_targets: { params: Record<string, never>; result: R<"mcpCuaTargets"> };
   mcp_cua_stop: { params: { service_id?: string }; result: R<"mcpCuaStop"> };
@@ -103,9 +102,9 @@ export interface TuiOps {
   mcp_set_enabled: { params: { service_id: string; enabled: boolean; expected_version?: number }; result: R<"mcpSetEnabled"> };
   mcp_remove: { params: { service_id: string; expected_version?: number }; result: { removed: R<"mcpRemoveService"> } };
   mcp_check: { params: { service_id: string }; result: R<"mcpCheckService"> };
-  mcp_save_credential: { params: { project_id: string; name: string; endpoint: string; secret: string }; result: R<"mcpSaveCredential"> };
-  mcp_remove_credential: { params: { project_id: string; name: string }; result: R<"mcpRemoveCredential"> };
-  list_credentials: { params: { project_id?: string; endpoint?: string }; result: R<"listCredentialBindings"> };
+  mcp_save_credential: { params: { name: string; endpoint: string; secret: string }; result: R<"mcpSaveCredential"> };
+  mcp_remove_credential: { params: { name: string }; result: R<"mcpRemoveCredential"> };
+  list_credentials: { params: { purpose?: string; endpoint?: string }; result: R<"listCredentialBindings"> };
   remove_credential: { params: { name: string }; result: { removed: R<"removeCredentialBinding"> } };
   set_session_model: {
     params: { session_id: string; expected_version: number; model_selection: ModelSelection };

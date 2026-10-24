@@ -15,7 +15,7 @@ import { fixtureSubAgentDefinition } from "./helpers/subagent-definition.ts";
  *    结果未登记的工具操作与任务 effect_unknown、未消费审批 stale、目标启动模型
  *    请求为零、没有入站/调度/通知记录；
  * 5. 跨实例来源：引用 main 的记忆不导入并列待处理、未选中的 personal 不导入、
- *    选中后可导入、跨实例授权只进回执、MCP/Jev 缺凭据以停用导入、目标凭据为空；
+ *    选中后可导入、跨实例授权只进回执、MCP 配置与秘密不导入、Jev 缺凭据以停用导入、目标凭据为空；
  * 6. 冲突、中断续跑与回退：重名未改名拒绝、改名可通过；同 ID 冲突拒绝；
  *    文件复制后故障→同计划重跑无重复；事务内故障整体回滚；同键重放返回回执；
  *    同键异参 request_conflict；源/目标变化 revision_conflict；两批导入识别；
@@ -260,9 +260,9 @@ async function buildSourceInner(t: TestRuntime): Promise<SourceFixture> {
   const g1 = await t.client.request<any>("create_data_grant", { from_project_id: b.projectId, to_project_id: a.projectId, category: "history", purpose: "共享历史" });
   const g2 = await t.client.request<any>("create_data_grant", { from_project_id: b.projectId, to_project_id: mainProj.id, category: "memory", purpose: "跨到 main" });
 
-  // MCP（带凭据）与 Jev（meta）；目标凭据缺失 → 停用导入
+  // MCP（带凭据）不导入；Jev 缺目标凭据时停用导入
   await t.client.request<any>("add_credential", { name: "cred-x", host: "x.example", header: "Authorization", purpose: "mcp", secret: "s3cret-source" });
-  const mcp = await t.client.request<any>("mcp_configure", { project_id: a.projectId, name: "svc-x", endpoint: "https://x.example/mcp", credential: "cred-x", tool_allowlist: ["read"], enabled: true });
+  const mcp = await t.client.request<any>("mcp_configure", { name: "svc-x", endpoint: "https://x.example/mcp", credential: "cred-x", tool_allowlist: ["read"], enabled: true });
   store.setMetaValue(`jev.project.${a.projectId}`, JSON.stringify({ enabled: true, credential: "jev-cred", configVersion: 1 }));
 
   // 平台配置与入站（一律排除）
@@ -296,6 +296,9 @@ async function buildSourceInner(t: TestRuntime): Promise<SourceFixture> {
   pstore.withTx(() => {
     pstore.recordToolIntent({ id: opUnresolved, taskId: tr.id, sessionId: sa2.id, toolName: "bash", params: { command: "ls" } });
     pstore.recordToolIntent({ id: opConfirm, taskId: ta.id, sessionId: sa2.id, toolName: "bash", params: {} });
+    const historyOp = randomId("op");
+    pstore.recordToolIntent({ id: historyOp, taskId: tDone.id, sessionId: a.sessionId, toolName: "mcp__svc-x__read", params: { service_id: mcp.id, project_id: a.projectId, query: "历史" } });
+    pstore.recordToolResult(historyOp, "历史 MCP 结果", false);
   });
   const confPending = pstore.withTx(() =>
     pstore.createConfirmation({ taskId: ta.id, sessionId: sa2.id, toolOpId: opConfirm, toolName: "bash", params: { command: "ls" }, scope: { kind: "tool", workspaceOnly: true }, permissionVersion: 1 }),
@@ -424,8 +427,7 @@ test("预览：源 sha 不变、目标零写入、内容完整覆盖验收项", 
     assert.ok(preview.memories.pending.some((m) => m.id === src.ids.memPersonalUnselected), "未选中的 personal 待处理");
     assert.deepEqual(preview.grants.import, [src.ids.grantBoth]);
     assert.deepEqual(preview.grants.cross_instance.map((g) => g.id), [src.ids.grantCross]);
-    assert.deepEqual(preview.mcp, [{ project_id: src.ids.projA, name: "svc-x", disabled: true, reason: preview.mcp[0]!.reason }]);
-    assert.equal(preview.mcp[0]!.disabled, true);
+    assert.equal("mcp" in preview, false, "MCP 不再是导入预览或计划的一部分");
     assert.deepEqual(preview.jev, [{ key: `jev.project.${src.ids.projA}`, disabled: true, credential: "jev-cred" }]);
     assert.ok(preview.files.copy >= 2, "JSONL 与产物正文计入复制");
     assert.ok(preview.files.missing.some((f) => f.item.includes(src.ids.artMissing)), "正文缺失如实列出");
@@ -544,6 +546,9 @@ test("应用后目标启动：历史与产物字节一致、组织映射保留�
       // 任务/工具操作/审批/选择记录逐项一致（含收尾改写）
       const done = await target.client.request<any>("get_task", { task_id: src.ids.taskDone });
       assert.equal(done.task.status, "completed");
+      const historicalMcp = done.toolOps.find((op: { toolName: string }) => op.toolName === "mcp__svc-x__read");
+      assert.deepEqual(historicalMcp.params, { service_id: src.ids.mcpId, project_id: src.ids.projA, query: "历史" }, "历史 MCP 工具操作不重写");
+      assert.equal(historicalMcp.resultSummary, "历史 MCP 结果");
       const queued = await target.client.request<any>("get_task", { task_id: src.ids.taskQueued });
       assert.equal(queued.task.status, "canceled");
       assert.match(queued.task.errorMessage, /migration/, "排队任务以 migration 标注取消");
@@ -660,8 +665,12 @@ test("跨实例来源：记忆/授权按范围处理，凭据不迁移，选择�
       // 授权：跨实例只在回执，data_grants 只有双端都在导入范围的
       assert.deepEqual(allRows(tdb, "SELECT id FROM data_grants").map((r) => r.id), [src.ids.grantBoth]);
       assert.deepEqual((applied.report.grants_cross_instance as any[]).map((g) => g.id), [src.ids.grantCross]);
-      // MCP 与 Jev 缺凭据 → 停用导入
-      assert.equal(allRows(tdb, "SELECT enabled FROM mcp_services WHERE id = ?", [src.ids.mcpId])[0]!.enabled, 0);
+      assert.deepEqual(allRows(tdb, "SELECT * FROM mcp_services"), [], "MCP 服务不导入");
+      assert.deepEqual(allRows(tdb, "SELECT * FROM instance_import_items WHERE kind = 'mcp'"), [], "不生成 MCP 导入账本");
+      assert.equal("mcp_services" in applied.counts, false, "无 MCP 导入计数");
+      assert.equal("mcp_disabled" in applied.report, false, "无旧 MCP 停用兼容分支");
+      assert.equal(fs.existsSync(path.join(dirs.agentDir, "credentials.json")), false, "MCP 秘密不复制");
+      // Jev 缺凭据时仍按既有规则停用导入。
       const jev = JSON.parse(tstore.getMetaValue(`jev.project.${src.ids.projA}`)!);
       assert.equal(jev.enabled, false);
       assert.equal(jev.credential, "jev-cred", "绑定名保留供重新绑定");

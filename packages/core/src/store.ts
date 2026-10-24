@@ -455,17 +455,6 @@ export class Store {
     return rows.map((r) => this.rowToSession(r));
   }
 
-  listWorkspaceConfigSources(workspaceId: string, offset: number, limit: number, selectedProjectId?: string): Array<{ projectId: string; name: string; isWorkspace: boolean }> {
-    const rows = this.db.prepare(`
-      SELECT p.id AS projectId, p.name, p.id = ? AS isWorkspace
-      FROM projects p WHERE p.id = ? OR EXISTS (
-        SELECT 1 FROM sessions s WHERE s.workspace_project_id = ? AND s.project_id = p.id
-      )
-      ORDER BY p.id = ? DESC, p.id = ? DESC, p.id LIMIT ? OFFSET ?
-    `).all(workspaceId, workspaceId, workspaceId, workspaceId, selectedProjectId ?? workspaceId, limit, offset) as Array<{ projectId: string; name: string; isWorkspace: number }>;
-    return rows.map(row => ({ ...row, isWorkspace: row.isWorkspace === 1 }));
-  }
-
   /** 会话选择列表只查元数据，不扫描消息历史；设置变化不算任务活跃。 */
   listSessionSummaries(projectId: string): Array<{ sessionId: string; name: string | null; lastActiveAt: string }> {
     return this.sessionSummaries("s.project_id = ?", projectId);

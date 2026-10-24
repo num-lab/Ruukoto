@@ -24,9 +24,6 @@ export class CodeMcpState implements SettingsForm {
   checking = false;
   message = "";
   fieldErrors: Record<string, string> = {};
-  sources: OpResult<"mcp_sources">["sources"] = [];
-  hasMoreSources = false;
-  private sourceOffset = 0;
   services: Service[] = [];
   credentials: OpResult<"list_credentials"> = [];
   selectedId: string | null = null;
@@ -43,9 +40,9 @@ export class CodeMcpState implements SettingsForm {
   cuaError = "";
   private cuaUnknown = false;
   private invalidatedObservation: string | null = null;
-  pending: { op: Write; instanceId: string; projectId: string; serviceId?: string; name?: string; version?: number } | null = null;
+  pending: { op: Write; instanceId: string; serviceId?: string; name?: string; version?: number } | null = null;
   private generation = 0;
-  constructor(private readonly bridge: Pick<DesktopBridge, "request">, readonly changed: () => void, readonly instanceId: string, readonly workspaceId: string, readonly sourceId: string, private readonly context: () => { instanceId: string | null; online: boolean }) {}
+  constructor(private readonly bridge: Pick<DesktopBridge, "request">, readonly changed: () => void, readonly instanceId: string, private readonly context: () => { instanceId: string | null; online: boolean }) {}
   get service(): Service | null { return this.services.find(service => service.id === this.selectedId) ?? null; }
   get canAcceptCua(): boolean { return !!this.cuaStatus?.observation && this.cuaImages.length === this.cuaStatus.observation.artifactIds.length && this.cuaImages.length > 0 && this.cuaImages.every(image => image.loaded) && !this.cuaUnknown && !this.cuaError; }
   get conflictingService(): Service | null { return this.phase === "conflict" ? this.services.find(service => service.name === this.draft.name) ?? null : null; }
@@ -56,14 +53,14 @@ export class CodeMcpState implements SettingsForm {
   }
   get dirty(): boolean { return this.editing && (!same(this.draft, this.baseline) || !!this.secret); }
   get connected(): boolean { const current = this.context(); return current.online && current.instanceId === this.instanceId; }
-  get disabled(): boolean { const current = this.context(); return this.reading || this.checking || this.phase === "loading" || this.phase === "saving" || this.phase === "unknown" || !current.online || current.instanceId !== this.instanceId || !this.sources.some(source => source.projectId === this.sourceId); }
+  get disabled(): boolean { const current = this.context(); return this.reading || this.checking || this.phase === "loading" || this.phase === "saving" || this.phase === "unknown" || !current.online || current.instanceId !== this.instanceId; }
   private async request<T>(op: string, params: Record<string, unknown>): Promise<DesktopResult<T>> {
     try { return await this.bridge.request("code", op, params) as DesktopResult<T>; }
     catch { return { ok: false, error: { code: "bridge_unavailable", outcome: "unknown", message: "未取得宿主应答，请恢复原连接后读回配置。" } }; }
   }
   invalidate(): void {
     ++this.generation; this.secret = ""; this.reading = false; this.checking = false; this.check = null; this.cuaImages = [];
-    if (this.pending) { this.phase = "unknown"; this.message = "原来源的操作结果待核实，请恢复原 Code 实例后重新读取。"; }
+    if (this.pending) { this.phase = "unknown"; this.message = "原实例的操作结果待核实，请恢复原 Code 实例后重新读取。"; }
   }
   discard(): void { this.secret = ""; this.draft = this.service ? draftFor(this.service) : fresh(); this.baseline = structuredClone(this.draft); this.fieldErrors = {}; if (this.phase === "conflict") this.phase = "ready"; this.changed(); }
   select(id: string | null): void {
@@ -93,14 +90,9 @@ export class CodeMcpState implements SettingsForm {
     if (!current.online || current.instanceId !== this.instanceId) { this.message = "请恢复原 Code 实例连接后读取配置。"; this.changed(); return false; }
     const generation = ++this.generation;
     this.reading = true; this.checking = false; this.check = null; this.cuaImages = []; this.changed();
-    const sources = await this.request<OpResult<"mcp_sources">>("mcp_sources", { workspace_id: this.workspaceId, selected_project_id: this.sourceId, limit: 50 });
-    if (!this.accepts(generation)) return false;
-    if (!sources.ok) { this.reading = false; this.phase = this.pending ? "unknown" : "error"; this.message = sources.error.message + " 请重新读取配置来源。"; this.changed(); return false; }
-    this.sources = sources.value.sources; this.hasMoreSources = sources.value.hasMore; this.sourceOffset = this.sources.length;
-    if (!this.sources.some(source => source.projectId === this.sourceId)) { this.reading = false; this.phase = this.pending ? "unknown" : "error"; this.message = "原配置来源已不属于此工作区，请选择当前有效来源。"; this.changed(); return false; }
     const [services, credentials, targets] = await Promise.all([
-      this.request<OpResult<"mcp_list">>("mcp_list", { project_id: this.sourceId }),
-      this.request<OpResult<"list_credentials">>("list_credentials", { project_id: this.sourceId }),
+      this.request<OpResult<"mcp_list">>("mcp_list", {}),
+      this.request<OpResult<"list_credentials">>("list_credentials", { purpose: "mcp" }),
       this.request<CuaTargets>("mcp_cua_targets", {}),
     ]);
     if (!this.accepts(generation)) return false;
@@ -118,18 +110,8 @@ export class CodeMcpState implements SettingsForm {
     this.secret = ""; this.pending = null;
     this.phase = preserveDraft && !committed && this.dirty ? "conflict" : "ready";
     if (this.selectedId && !this.service && !committed && pending?.op !== "mcp_remove") { this.phase = "conflict"; this.message = "原服务已删除或替换，草稿仍保留。请放弃草稿后重新选择服务，原编辑不会自动新增服务。"; }
-    else if (pending) this.message = "已读回原来源的当前配置，请比较原操作是否生效；秘密内容未验证，不会自动重发。";
+    else if (pending) this.message = "已读回原实例的当前配置，请比较原操作是否生效；秘密内容未验证，不会自动重发。";
     this.changed(); return true;
-  }
-  async moreSources(): Promise<void> {
-    if (this.disabled || !this.hasMoreSources) return;
-    const generation = this.generation; this.reading = true; this.changed();
-    const result = await this.request<OpResult<"mcp_sources">>("mcp_sources", { workspace_id: this.workspaceId, selected_project_id: this.sourceId, offset: this.sourceOffset, limit: 50 });
-    if (!this.accepts(generation)) return;
-    this.reading = false;
-    if (result.ok) { this.sources = [...this.sources, ...result.value.sources.filter(source => !this.sources.some(existing => existing.projectId === source.projectId))]; this.sourceOffset += result.value.sources.length; this.hasMoreSources = result.value.hasMore; }
-    else this.message = result.error.message + " 请重新加载更多来源。";
-    this.changed();
   }
   async save(): Promise<boolean> {
     if (this.disabled || !this.editing || !this.dirty) return false;
@@ -145,18 +127,18 @@ export class CodeMcpState implements SettingsForm {
     const expectedVersion = this.service?.configVersion ?? 0;
     if (this.draft.auth === "new") {
       const name = "mcp-" + crypto.randomUUID();
-      if (!await this.write("mcp_save_credential", { project_id: this.sourceId, name, endpoint: this.draft.endpoint, secret: this.secret }, name, false)) return false;
+      if (!await this.write("mcp_save_credential", { name, endpoint: this.draft.endpoint, secret: this.secret }, name, false)) return false;
       this.draft = { ...this.draft, auth: "existing", credential: name }; this.changed();
     }
     const service = this.service;
-    const saved = await this.write("mcp_configure", { ...(this.selectedId ? { service_id: this.selectedId } : {}), project_id: this.sourceId, name: this.draft.name, ...(this.draft.kind === "cua-mac" ? { cua: this.draft.cua } : { endpoint: this.draft.endpoint }), tool_allowlist: this.draft.toolAllowlist, enabled: service?.enabled ?? false, expected_version: expectedVersion, ...(this.draft.kind === "cua-mac" || this.draft.auth === "keep" ? {} : { credential: this.draft.auth === "anonymous" ? null : this.draft.credential }) });
-    if (!saved && this.draft.auth === "existing") { this.message += " 已创建的 MCP 凭据仍仅限本来源；可在解除引用后清理。"; this.changed(); }
+    const saved = await this.write("mcp_configure", { ...(this.selectedId ? { service_id: this.selectedId } : {}), name: this.draft.name, ...(this.draft.kind === "cua-mac" ? { cua: this.draft.cua } : { endpoint: this.draft.endpoint }), tool_allowlist: this.draft.toolAllowlist, enabled: service?.enabled ?? false, expected_version: expectedVersion, ...(this.draft.kind === "cua-mac" || this.draft.auth === "keep" ? {} : { credential: this.draft.auth === "anonymous" ? null : this.draft.credential }) });
+    if (!saved && this.draft.auth === "existing") { this.message += " 已创建的 MCP 凭据仍仅限本实例的 MCP 用途；可在解除引用后清理。"; this.changed(); }
     return saved;
   }
   private async write(op: Write, params: Record<string, unknown>, name?: string, committed = true): Promise<boolean> {
     if (this.disabled) return false;
     const generation = ++this.generation;
-    this.pending = { op, instanceId: this.instanceId, projectId: this.sourceId, serviceId: this.service?.id, version: this.service?.configVersion, name };
+    this.pending = { op, instanceId: this.instanceId, serviceId: this.service?.id, version: this.service?.configVersion, name };
     this.phase = "saving"; this.check = null;
     const request = this.request(op, params); this.secret = ""; this.changed();
     const result = await request;
@@ -165,7 +147,7 @@ export class CodeMcpState implements SettingsForm {
       const unknown = result.error.outcome === "unknown" || result.error.outcome === "disconnected";
       this.phase = unknown ? "unknown" : result.error.code === "version_conflict" ? "conflict" : "error";
       if (!unknown) this.pending = null;
-      this.message = unknown ? "操作结果待核实。请重新读取原来源，不会自动重发。" : `${result.error.outcome === "not_sent" ? "请求未送出。" : "操作被拒绝。"}${result.error.message}`;
+      this.message = unknown ? "操作结果待核实。请重新读取原实例，不会自动重发。" : `${result.error.outcome === "not_sent" ? "请求未送出。" : "操作被拒绝。"}${result.error.message}`;
       if (this.phase === "conflict") { const read = await this.read(true); this.phase = "conflict"; this.message = read ? this.selectedId && !this.service ? "原服务已删除或替换，草稿保留。请放弃草稿后重新选择，原编辑不会自动新增服务。" : "配置已被其他客户端修改。草稿已保留，请比较当前值后保存或放弃。" : "配置冲突且读回失败，请重新读取后比较草稿。"; }
       this.changed(); return false;
     }
@@ -177,7 +159,7 @@ export class CodeMcpState implements SettingsForm {
   }
   async setEnabled(enabled: boolean): Promise<boolean> { return this.disabled || this.dirty || !this.service ? false : this.write("mcp_set_enabled", { service_id: this.service.id, enabled, expected_version: this.service.configVersion }); }
   async remove(): Promise<boolean> { if (this.disabled || this.dirty || !this.service) return false; const saved = await this.write("mcp_remove", { service_id: this.service.id, expected_version: this.service.configVersion }); if (saved) { this.editing = false; this.selectedId = null; this.changed(); } return saved; }
-  async removeCredential(name: string): Promise<boolean> { return this.disabled || this.dirty ? false : this.write("mcp_remove_credential", { project_id: this.sourceId, name }, name); }
+  async removeCredential(name: string): Promise<boolean> { return this.disabled || this.dirty ? false : this.write("mcp_remove_credential", { name }, name); }
   async discover(): Promise<void> {
     if (this.disabled || this.dirty || !this.service) return;
     const generation = this.generation; this.checking = true; this.check = null; this.changed();

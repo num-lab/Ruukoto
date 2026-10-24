@@ -2,7 +2,7 @@
 
 Status: implemented
 
-Code 项目配置与凭据范围拟由[实例 MCP 方案](../../proposed/simplification/2026-10-24-code-instance-mcp.md)取代；该方案尚未实施，本篇正文仍描述当前实现。
+Code 项目配置与凭据范围由[实例 MCP 方案](../../implemented/simplification/2026-10-24-code-instance-mcp.md)取代；本篇保留被取代的原决定，传输、允许列表、钉版与未知效果规则继续成立。
 
 相关未实施方案：[桌面设置管理](../../proposed/feature/2026-10-21-desktop-settings-management.md)复用本篇服务配置与发现，不扩展传输和授权。
 

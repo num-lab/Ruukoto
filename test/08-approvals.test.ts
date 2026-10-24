@@ -883,9 +883,9 @@ test("带 scope 的凭据不得被通用 http_request 借用；同名轮换保�
   const t = await startTestRuntime("approve-scoped-cred", async () => ({ kind: "text" as const, text: "done" }), { workDirs: 1 });
   try {
     const { projectId } = await createProjectSession(t.client, t.work[0]!);
-    await t.client.request("add_credential", { name: "svc-scoped", host: "api.example.com", header: "authorization", purpose: "mcp", secret: "scoped-secret" });
-    // 带使用范围的凭据（如 MCP 配置收紧后）：通用 http_request 一律不得借用
-    t.runtime.credentials.upsert({ ...t.runtime.credentials.get("svc-scoped")!, scope: { projectId, operations: ["mcp"] } });
+    await t.client.request("add_credential", { name: "svc-scoped", host: "api.example.com", header: "authorization", purpose: "private_api", secret: "scoped-secret" });
+    // 带使用范围的凭据（其他用途仍可按项目限制）：通用 http_request 一律不得借用
+    t.runtime.credentials.upsert({ ...t.runtime.credentials.get("svc-scoped")!, scope: { projectId, operations: ["private_api"] } });
     const outcome = await executeApprovedHttpRequest(
       { method: "POST", url: "https://api.example.com/x", headers: {}, credentialName: "svc-scoped", body: "" } as any,
       t.runtime.credentials,
@@ -893,10 +893,10 @@ test("带 scope 的凭据不得被通用 http_request 借用；同名轮换保�
     assert.equal(outcome.ok, false);
     assert.match(outcome.message, /范围/);
     // 同名轮换（更新秘密值）保留既有 scope，不得清空限制字段
-    await t.client.request("add_credential", { name: "svc-scoped", host: "api.example.com", header: "authorization", purpose: "mcp", secret: "rotated" });
+    await t.client.request("add_credential", { name: "svc-scoped", host: "api.example.com", header: "authorization", purpose: "private_api", secret: "rotated" });
     const rotated = t.runtime.credentials.get("svc-scoped")!;
     assert.equal(rotated.secret, "rotated");
-    assert.deepEqual(rotated.scope, { projectId, operations: ["mcp"] }, "轮换不得清空 scope");
+    assert.deepEqual(rotated.scope, { projectId, operations: ["private_api"] }, "轮换不得清空 scope");
   } finally {
     await t.shutdown();
   }

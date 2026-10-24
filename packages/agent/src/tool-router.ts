@@ -45,7 +45,7 @@ import { ToolWorkerHost } from "./tool-worker/host.ts";
 import type { DataStream } from "./tool-worker/protocol.ts";
 import { allowlistEffectFor, type McpStore } from "./mcp/store.ts";
 import { canonicalParamsDigest, formatMcpResult, type McpTaskPlan, type PlannedTool } from "./mcp/tools.ts";
-import { McpError } from "./mcp/client.ts";
+import { isMcpCredential, McpError } from "./mcp/client.ts";
 import { mcpResponseEnded } from "./mcp/transport.ts";
 import { cuaToolEffect } from "./mcp/cua.ts";
 import type { CodeCuaManager } from "./mcp/code.ts";
@@ -701,7 +701,7 @@ export class ToolRouter {
   private mcpConfigBlock(mcpStore: McpStore, meta: PlannedTool): string | null {
     const { service, remoteName } = meta;
     const fresh = mcpStore.getService(service.id);
-    if (!fresh || fresh.projectId !== service.projectId) {
+    if (!fresh) {
       return `MCP 服务 ${service.name} 已被移除，本次调用未发送网络请求`;
     }
     if (!fresh.enabled) {
@@ -715,9 +715,8 @@ export class ToolRouter {
     }
     if (service.credential) {
       const binding = this.deps.credentials.get(service.credential);
-      if (!binding) return `凭据 ${service.credential} 已被撤销，本次调用未发送网络请求`;
-      if (binding.host !== new URL(fresh.endpoint!).host) {
-        return `凭据 ${service.credential} 的 host 与服务端点不一致，本次调用未发送网络请求`;
+      if (!isMcpCredential(binding, new URL(fresh.endpoint!).host)) {
+        return `MCP 凭据已撤销或使用范围不匹配，本次调用未发送网络请求；请报告拥有者检查凭据配置`;
       }
     }
     return null;

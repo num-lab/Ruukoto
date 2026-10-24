@@ -35,7 +35,7 @@ import {
 import type { HostToolFamily } from "@ruukoto/agent/host-tool-families.ts";
 import { createHostDataFamily } from "@ruukoto/agent/host-tools.ts";
 import { getProjectJevConfig,JEV_CREDENTIAL_PURPOSE,jevConfigKey,jevCredentialHost,type JevConfig } from "@ruukoto/agent/jev-config.ts";
-import { connectMcpService,MCP_CREDENTIAL_PURPOSE,McpError,parseMcpEndpoint,type McpConnection,type McpTimeouts } from "@ruukoto/agent/mcp/client.ts";
+import { connectMcpService,isMcpCredential,MCP_CREDENTIAL_PURPOSE,McpError,parseMcpEndpoint,type McpConnection,type McpTimeouts } from "@ruukoto/agent/mcp/client.ts";
 import { allowlistEffectFor,McpStore,McpVersionConflictError,normalizeToolAllowlist,type McpServiceConfig,type McpToolEffect } from "@ruukoto/agent/mcp/store.ts";
 import { CodeCuaManager } from "@ruukoto/agent/mcp/code.ts";
 import { cuaToolEffect, parseCuaConfig, restrictCuaTool, type CuaConfig } from "@ruukoto/agent/mcp/cua.ts";
@@ -335,7 +335,7 @@ export class Runtime {
   readonly historyIndex: HistoryIndex;
   /** 长期记忆存储（issue 05 §5）。 */
   readonly memories: MemoryStore;
-  /** MCP 服务配置（issue 16）：拥有者按项目管理的 MCP 服务。 */
+  /** MCP 服务配置：由本实例管理。 */
   readonly mcp: McpStore;
   /** QQ 连接配置与群聊收发记录（私聊使用编排器与公共 outbox）。 */
   readonly qqStore: QqStore;
@@ -1068,9 +1068,9 @@ export class Runtime {
   }
 
   private workflowConfiguration(projectId: string): string {
-    const services = this.mcp.listServices(projectId);
-    const credentials = this.credentials.list().filter(binding => !this.credentials.get(binding.name)?.scope?.projectId ||
-      this.credentials.get(binding.name)?.scope?.projectId === projectId).map(binding => this.credentials.get(binding.name));
+    const services = this.mcp.listServices();
+    const credentials = this.credentials.list().filter(binding => binding.purpose === MCP_CREDENTIAL_PURPOSE ||
+      !this.credentials.get(binding.name)?.scope?.projectId || this.credentials.get(binding.name)?.scope?.projectId === projectId).map(binding => this.credentials.get(binding.name));
     let servicePolicy: string | null = null;
     if (this.config.service) {
       try { servicePolicy = createHash("sha256").update(fs.readFileSync(this.config.service.policyPath)).digest("hex"); }
@@ -3416,8 +3416,7 @@ export class Runtime {
     return { artifact, encoding: "base64", data: buf.toString("base64") };
   }
 
-  listCredentialBindings(input: { projectId?: string; endpoint?: string } = {}) {
-    if (input.projectId && !this.store.getProject(input.projectId)) throw new RuntimeApiError("not_found", "配置来源不存在，请重新选择。");
+  listCredentialBindings(input: { purpose?: string; endpoint?: string } = {}) {
     let host: string | undefined;
     if (input.endpoint !== undefined) {
       try { host = parseMcpEndpoint(input.endpoint).host; }
@@ -3425,44 +3424,38 @@ export class Runtime {
     }
     const services = this.mcp.listServices();
     return this.credentials.list().flatMap(view => {
-      const scope = this.credentials.get(view.name)?.scope;
-      if (input.projectId && (view.purpose !== MCP_CREDENTIAL_PURPOSE || view.header.toLowerCase() !== "authorization" ||
-          !this.credentials.getForUse(view.name, { projectId: input.projectId, operation: MCP_CREDENTIAL_PURPOSE }))) return [];
+      const binding = this.credentials.get(view.name)!;
+      if (input.purpose && view.purpose !== input.purpose) return [];
+      if (input.purpose === MCP_CREDENTIAL_PURPOSE && !isMcpCredential(binding)) return [];
       if (host !== undefined && view.host !== host) return [];
-      const references = services.filter(service => service.credential === view.name).map(service => ({
-        serviceId: service.id, projectId: service.projectId, projectName: this.store.getProject(service.projectId)?.name ?? service.projectId, serviceName: service.name,
-      }));
-      return [{ ...view, scope, references }];
+      const references = services.filter(service => service.credential === view.name).map(service => ({ serviceId: service.id, serviceName: service.name }));
+      return [{ ...view, scope: binding.scope, references }];
     });
   }
 
-  mcpSources(input: { workspaceId: string; offset?: number; limit?: number; selectedProjectId?: string }) {
-    if (!this.store.getProject(input.workspaceId)?.rootDir) throw new RuntimeApiError("workspace_not_found", "工作区不存在，请重新选择。");
-    const offset = input.offset ?? 0, limit = input.limit ?? 50;
-    if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new RuntimeApiError("invalid_params", "配置来源分页须为非负 offset 与 1–100 的 limit。");
-    const sources = this.store.listWorkspaceConfigSources(input.workspaceId, offset, limit + 1, input.selectedProjectId);
-    return { sources: sources.slice(0, limit).map(source => ({ ...source, serviceCount: this.mcp.countServices(source.projectId) })), offset, hasMore: sources.length > limit };
-  }
-
-  // Note: 见 .agents/notes/implemented/feature/2026-10-21-code-mcp-settings.md
-  mcpSaveCredential(input: { projectId: string; name: string; endpoint: string; secret: string }) {
-    if (!this.store.getProject(input.projectId)) throw new RuntimeApiError("not_found", "配置来源不存在，请重新选择。");
+  // Note: 见 .agents/notes/implemented/simplification/2026-10-24-code-instance-mcp.md
+  mcpSaveCredential(input: { name: string; endpoint: string; secret: string }) {
     if (!input.name.trim() || input.name.length > 128 || /[\r\n]/.test(input.name) || !input.secret || input.secret !== input.secret.trim() || /[\r\n]/.test(input.secret)) throw new RuntimeApiError("invalid_params", "凭据名称与令牌不能为空、不能含换行，令牌首尾不能有空白。");
     let endpoint: URL;
     try { endpoint = parseMcpEndpoint(input.endpoint); }
     catch { throw new RuntimeApiError("invalid_params", "MCP 端点无效，请检查地址。"); }
     if (this.credentials.get(input.name)) throw new RuntimeApiError("credential_exists", "凭据名称已存在，请为本次保存使用新的名称。");
-    this.credentials.upsert({ name: input.name, host: endpoint.host, header: "authorization", purpose: MCP_CREDENTIAL_PURPOSE, secret: input.secret, scope: { projectId: input.projectId, operations: [MCP_CREDENTIAL_PURPOSE] } });
-    return this.listCredentialBindings({ projectId: input.projectId, endpoint: input.endpoint }).find(binding => binding.name === input.name)!;
+    const binding = { name: input.name, host: endpoint.host, header: "authorization", purpose: MCP_CREDENTIAL_PURPOSE, secret: input.secret, scope: { operations: [MCP_CREDENTIAL_PURPOSE] } };
+    if (!isMcpCredential(binding, endpoint.host)) throw new RuntimeApiError("invalid_params", "MCP 凭据须限定 authorization 与 mcp 操作范围。");
+    this.credentials.upsert(binding);
+    return this.listCredentialBindings({ purpose: MCP_CREDENTIAL_PURPOSE, endpoint: input.endpoint }).find(binding => binding.name === input.name)!;
   }
 
-  mcpRemoveCredential(projectId: string, name: string): { removed: boolean } {
-    if (!this.store.getProject(projectId)) throw new RuntimeApiError("not_found", "配置来源不存在，请重新选择。");
+  mcpRemoveCredential(name: string): { removed: boolean } {
     const binding = this.credentials.get(name);
     if (!binding) return { removed: false };
-    if (binding.purpose !== MCP_CREDENTIAL_PURPOSE || binding.header.toLowerCase() !== "authorization" || binding.scope?.projectId !== projectId || binding.scope.operations?.length !== 1 || binding.scope.operations[0] !== MCP_CREDENTIAL_PURPOSE || binding.scope.repoId !== undefined) throw new RuntimeApiError("credential_scope_mismatch", "此凭据不专属于当前 MCP 配置来源，请保留原凭据并另建绑定。");
-    if (this.mcp.listServices().some(service => service.credential === name)) throw new RuntimeApiError("credential_in_use", "仍有服务引用此凭据，请先解除所有服务引用后再移除。");
+    if (!isMcpCredential(binding)) throw new RuntimeApiError("credential_scope_mismatch", "此凭据不专属于实例 MCP，请保留原凭据并另建绑定。");
+    this.assertCredentialUnreferenced(name);
     return { removed: this.credentials.remove(name) };
+  }
+
+  private assertCredentialUnreferenced(name: string): void {
+    if (this.mcp.listServices().some(service => service.credential === name)) throw new RuntimeApiError("credential_in_use", "仍有服务引用此凭据，请先解除所有服务引用后再移除。");
   }
 
   async addCredentialBinding(input: { name: string; host: string; header: string; purpose: string; secret: string }) {
@@ -3472,6 +3465,11 @@ export class Runtime {
     // 同名更新保留既有使用范围（mcp 配置或历史 github bind 收紧的 scope 不因轮换令牌而丢失）
     const existing = this.credentials.get(input.name);
     let scope = existing?.scope;
+    if (input.purpose === MCP_CREDENTIAL_PURPOSE || existing?.purpose === MCP_CREDENTIAL_PURPOSE) {
+      if (existing && !isMcpCredential(existing)) throw new RuntimeApiError("credential_scope_mismatch", "已有绑定不符合实例 MCP 范围，请保留原凭据并另建绑定。");
+      scope = { operations: [MCP_CREDENTIAL_PURPOSE] };
+      if (!isMcpCredential({ ...input, scope })) throw new RuntimeApiError("invalid_params", "MCP 凭据须使用 authorization 头及 mcp 用途，请另建正确的绑定。");
+    }
     if (input.purpose === JEV_CREDENTIAL_PURPOSE) {
       const host = jevCredentialHost(this.config.jev?.baseUrl);
       if (input.host.toLowerCase() !== host || input.header.toLowerCase() !== "authorization") {
@@ -3499,6 +3497,7 @@ export class Runtime {
 
   async removeCredentialBinding(name: string): Promise<boolean> {
     if (!this.credentials.get(name)) return false;
+    this.assertCredentialUnreferenced(name);
     // 先使引用它的 IM 配置代次失效，再删除凭据；删除失败不恢复旧版本
     this.imEntries.bumpForCredential(name);
     const removed = this.credentials.remove(name);
@@ -3509,14 +3508,13 @@ export class Runtime {
   // ---------- MCP 服务配置（issue 16 §2/§6） ----------
 
   /**
-   * 配置/更新项目的 MCP 服务（拥有者操作）。端点生产固定 https（http 仅限
+   * 配置/更新实例的 MCP 服务（拥有者操作）。端点生产固定 https（http 仅限
    * 回环模拟服务）；凭据按名称引用 CredentialStore 绑定（host 须与端点一致、
-   * 用途须为 mcp），配置后 scope 收紧到本项目 + mcp 操作；变更采用期望版本
+   * 用途须为 mcp，且仅限 mcp 操作、无项目或仓库限制）；变更采用期望版本
    * 校验，任何变化递增 configVersion（任务内调用前重读核对）。
    */
   mcpConfigure(input: {
     serviceId?: string;
-    projectId: string;
     name: string;
     endpoint?: string;
     cua?: CuaConfig;
@@ -3527,13 +3525,11 @@ export class Runtime {
     enabled?: boolean;
     expectedVersion?: number;
   }): McpServiceConfig {
-    const project = this.store.getProject(input.projectId);
-    if (!project) throw new RuntimeApiError("not_found", `项目不存在：${input.projectId}`);
     if (!/^[a-z0-9][a-z0-9_-]{0,29}$/.test(input.name)) {
       throw new RuntimeApiError("invalid_params", `服务名必须是小写 slug（^[a-z0-9][a-z0-9_-]{0,29}$）：${input.name}`);
     }
     let endpoint: URL | undefined;
-    const existing = this.mcp.getServiceByName(input.projectId, input.name);
+    const existing = this.mcp.getServiceByName(input.name);
     let cua: CuaConfig | undefined;
     if (input.cua) {
       cua = parseCuaConfig(input.cua);
@@ -3556,35 +3552,14 @@ export class Runtime {
     if (credential) {
       const cred = this.credentials.get(credential);
       if (!cred) throw new RuntimeApiError("invalid_params", `凭据绑定不存在：${credential}`);
-      if (cred.host !== endpoint!.host) {
-        throw new RuntimeApiError("invalid_params", `凭据 ${credential} 的 host（${cred.host}）与端点 host（${endpoint!.host}）不一致`);
-      }
-      if (cred.purpose !== MCP_CREDENTIAL_PURPOSE) {
-        throw new RuntimeApiError("invalid_params", `凭据 ${credential} 用途是 ${cred.purpose}，MCP 服务需要 purpose=${MCP_CREDENTIAL_PURPOSE} 的凭据`);
-      }
-      if (cred.header.toLowerCase() !== "authorization") {
-        throw new RuntimeApiError("invalid_params", `MCP 凭据须使用 authorization 头（Bearer）：${credential}`);
-      }
-      // scope 兼容性先校验（写操作前）：已有 scope 冲突时拒绝，避免静默改变
-      // 既有授权的边界，也避免配置已落库但凭据收紧失败的半截状态
-      if (cred.scope) {
-        const sameProject = (cred.scope.projectId === undefined || cred.scope.projectId === input.projectId) && cred.scope.repoId === undefined;
-        const coversOp = cred.scope.operations === undefined || cred.scope.operations.includes(MCP_CREDENTIAL_PURPOSE);
-        if (!sameProject || !coversOp) {
-          throw new RuntimeApiError(
-            "invalid_params",
-            `凭据 ${credential} 已有使用范围（项目 ${cred.scope.projectId ?? "不限"}/操作 ${cred.scope.operations?.join(",") ?? "不限"}），与 mcp 冲突；请先调整凭据范围或另建凭据`,
-          );
-        }
-      }
+      if (!isMcpCredential(cred, endpoint!.host)) throw new RuntimeApiError("invalid_params", "MCP 凭据须匹配端点主机、mcp 用途、authorization 头与专用操作范围，且无项目或仓库限制；请另建绑定。");
     }
     let service: McpServiceConfig;
     try {
       // 配置变更与事件同事务：状态变化不留无事件的洞（审计与 TUI 依赖事件流）
       service = this.store.withTx(() => {
-        if (input.serviceId !== undefined && this.mcp.getServiceByName(input.projectId, input.name)?.id !== input.serviceId) throw new RuntimeApiError("version_conflict", "原 MCP 服务已删除或替换，请重新读取后选择当前服务；不会把原编辑自动转成新增。");
+        if (input.serviceId !== undefined && this.mcp.getServiceByName(input.name)?.id !== input.serviceId) throw new RuntimeApiError("version_conflict", "原 MCP 服务已删除或替换，请重新读取后选择当前服务；不会把原编辑自动转成新增。");
         const s = this.mcp.upsertService({
-          projectId: input.projectId,
           name: input.name,
           endpoint: endpoint?.toString(),
           cua,
@@ -3594,7 +3569,7 @@ export class Runtime {
           expectedVersion: input.expectedVersion,
         });
         this.store.appendEvent(
-          { type: "mcp.service_changed", serviceId: s.id, projectId: s.projectId, name: s.name, endpoint: s.endpoint, ...(s.cua ? { cua: { kind: s.cua.kind } } : {}), configVersion: s.configVersion, action: "upsert" },
+          { type: "mcp.service_changed", serviceId: s.id, name: s.name, endpoint: s.endpoint, ...(s.cua ? { cua: { kind: s.cua.kind } } : {}), configVersion: s.configVersion, action: "upsert" },
           {},
         );
         return s;
@@ -3602,16 +3577,6 @@ export class Runtime {
     } catch (err) {
       if (err instanceof McpVersionConflictError) throw new RuntimeApiError(err.code, err.message);
       throw err;
-    }
-    // 凭据 scope 收紧到本项目 + mcp 操作（兼容性已在写操作前校验）：
-    // 通用 http_request 与越权项目不得借用同名凭据
-    if (service.credential) {
-      const cred = this.credentials.get(service.credential)!;
-      const ops = cred.scope?.operations;
-      this.credentials.upsert({
-        ...cred,
-        scope: { ...cred.scope, projectId: service.projectId, operations: ops ? [...ops] : [MCP_CREDENTIAL_PURPOSE] },
-      });
     }
     return service;
   }
@@ -3623,8 +3588,8 @@ export class Runtime {
   mcpCuaObserve() { return this.cuaManager.observe(); }
   mcpCuaAccept(observationId: string) { return this.cuaManager.accept(observationId); }
 
-  mcpListServices(projectId?: string): McpServiceConfig[] {
-    return this.mcp.listServices(projectId);
+  mcpListServices(): McpServiceConfig[] {
+    return this.mcp.listServices();
   }
 
   mcpSetEnabled(serviceId: string, enabled: boolean, expectedVersion?: number): McpServiceConfig {
@@ -3637,7 +3602,7 @@ export class Runtime {
       }
       if (!service) throw new RuntimeApiError("not_found", `MCP 服务不存在：${serviceId}`);
       this.store.appendEvent(
-        { type: "mcp.service_changed", serviceId: service.id, projectId: service.projectId, name: service.name, endpoint: service.endpoint, ...(service.cua ? { cua: { kind: service.cua.kind } } : {}), configVersion: service.configVersion, action: enabled ? "enabled" : "disabled" },
+        { type: "mcp.service_changed", serviceId: service.id, name: service.name, endpoint: service.endpoint, ...(service.cua ? { cua: { kind: service.cua.kind } } : {}), configVersion: service.configVersion, action: enabled ? "enabled" : "disabled" },
         {},
       );
       return service;
@@ -3658,7 +3623,7 @@ export class Runtime {
       }
       if (removed) {
         this.store.appendEvent(
-          { type: "mcp.service_changed", serviceId, projectId: service.projectId, name: service.name, endpoint: service.endpoint, ...(service.cua ? { cua: { kind: service.cua.kind } } : {}), configVersion: service.configVersion + 1, action: "removed" },
+          { type: "mcp.service_changed", serviceId, name: service.name, endpoint: service.endpoint, ...(service.cua ? { cua: { kind: service.cua.kind } } : {}), configVersion: service.configVersion + 1, action: "removed" },
           {},
         );
       }
@@ -3699,7 +3664,6 @@ export class Runtime {
       }
       conn = await connectMcpService(service, {
         credentials: this.credentials,
-        projectId: service.projectId,
         connectTimeoutMs: this.config.mcp?.connectTimeoutMs,
         listTimeoutMs: this.config.mcp?.listTimeoutMs,
         callTimeoutMs: this.config.mcp?.callTimeoutMs,
@@ -3728,7 +3692,7 @@ export class Runtime {
         serverInfo: null,
         protocolVersion: null,
         tools: [],
-        error: service.cua ? "本机电脑程序或宿主权限检查失败；请核对官方固定版本、安装与执行权限，并重建原生 helper 后重新检查；未启动电脑连接。" : err instanceof McpError && err.code === "auth_failed" ? "MCP 认证失败，请检查当前来源的凭据、端点与权限后重新检查。" : "MCP 连接或工具发现失败，请检查端点与网络后重新检查；未执行业务工具。",
+        error: service.cua ? "本机电脑程序或宿主权限检查失败；请核对官方固定版本、安装与执行权限，并重建原生 helper 后重新检查；未启动电脑连接。" : err instanceof McpError && err.code === "auth_failed" ? "MCP 认证失败，请检查当前实例的凭据、端点与权限后重新检查。" : "MCP 连接或工具发现失败，请检查端点与网络后重新检查；未执行业务工具。",
         errorCode: err instanceof McpError || err instanceof ExecutionError ? err.code : "check_failed",
       };
     } finally {

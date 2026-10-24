@@ -36,7 +36,6 @@ test("宿主任务白名单：只读 MCP、调用门与发送校验，下一普�
     const session = t.runtime.store.getSession(sessionId)!;
     marker = path.join(session.cwdReal, "owner-marker");
     await t.client.request("mcp_configure", {
-      project_id: projectId,
       name: "policy",
       endpoint: mcp.url,
       tool_allowlist: ["get", { name: "write", effect: "write" }, { name: "unknown", effect: "unknown" }],

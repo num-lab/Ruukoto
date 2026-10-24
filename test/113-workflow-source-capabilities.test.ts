@@ -206,7 +206,7 @@ for (const mode of ["full_access", "confirm", "configuration", "revoke"] as cons
     { kind: "tool_calls", calls: [{ id: "same-sdk-id", name: "mcp_probe_write", arguments: {} }] }, { config: realTools() });
   try {
     const rt = t.runtime, session = await rt.createSession({ projectName: "workflow", cwd: t.work[0] });
-    const service = await t.client.request<{ configVersion: number }>("mcp_configure", { project_id: session.projectId,
+    const service = await t.client.request<{ configVersion: number }>("mcp_configure", {
       name: "probe", endpoint: mcp.url, tool_allowlist: [{ name: "write", effect: "write" }] });
     const access = new AccessScope(rt.store.db), foreign = rt.store.createProject("foreign");
     const grant = access.createGrant({ fromProjectId: foreign.id, toProjectId: session.projectId, category: "history" });
@@ -220,7 +220,7 @@ for (const mode of ["full_access", "confirm", "configuration", "revoke"] as cons
       if (mode === "confirm") await t.client.request("respond_confirmation", { confirmation_id: confirmation.id, decision: "approve" });
       else {
         if (mode === "revoke") access.revokeGrant(grant.id);
-        else await t.client.request("mcp_configure", { project_id: session.projectId, name: "probe", endpoint: mcp.url,
+        else await t.client.request("mcp_configure", { name: "probe", endpoint: mcp.url,
           tool_allowlist: [{ name: "write", effect: "write" }], expected_version: service.configVersion });
         await waitFor("来源失效与旧审批停止", () => requireWorkflowRun(rt.store, run.id).status === "paused" && rt.store.getConfirmation(confirmation.id)!.status === "stale");
         assert.equal(rt.store.getConfirmation(confirmation.id)!.consumedAt, null);

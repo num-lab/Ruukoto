@@ -2,7 +2,7 @@
 
 Status: implemented
 
-MCP 专属工作区、来源与候选接口拟按[实例 MCP 方案](../../proposed/simplification/2026-10-24-code-instance-mcp.md)删除；容器的产品选择、表单保护与原实例核实继续沿用，本篇仍描述当前实现。
+MCP 专属工作区、来源与候选接口按[实例 MCP 方案](../../implemented/simplification/2026-10-24-code-instance-mcp.md)删除；容器的产品选择、表单保护与原实例核实继续沿用，本篇保留被取代的原决定。
 
 ## 问题
 

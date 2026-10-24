@@ -80,7 +80,7 @@ test("冷启对话：不读工作区或技能、不启动 MCP，已记录指令�
   try {
     const rt = t.runtime, session = await rt.createSession({ projectName: "conversation", cwd: t.work[0] });
     rt.store.withTx(() => rt.store.updateProjectSettings({ projectId: session.projectId, instructionFiles: ["TEAM.md"] }));
-    rt["mcp"].upsertService({ projectId: session.projectId, name: "blocked", endpoint: mcp.url, toolAllowlist: ["read"], enabled: true });
+    rt["mcp"].upsertService({ name: "blocked", endpoint: mcp.url, toolAllowlist: ["read"], enabled: true });
     const driver = await rt["getDriver"](session);
     const snapshot: AgentWaitSnapshot = { taskId: "source", permissionVersion: 0, selectionRecordId: null, promptArtifactId: null,
       instructions: { text: "PINNED_INSTRUCTION", version: "snapshot", problems: [] }, skills: null };
@@ -156,7 +156,7 @@ test("冷启对话恢复：取得目录后才规划 MCP，旧 prompt 退出后�
   try {
     const rt = t.runtime;
     const session = await rt.createSession({ projectName: "restore", cwd: t.work[0] });
-    rt["mcp"].upsertService({ projectId: session.projectId, name: "restored", endpoint: mcp.url, toolAllowlist: ["read"], enabled: true });
+    rt["mcp"].upsertService({ name: "restored", endpoint: mcp.url, toolAllowlist: ["read"], enabled: true });
     const driver = await rt["getDriver"](session);
     driver["deps"].agentWait = { initialPhase: () => "conversation", snapshot: () => null,
       acquireResources: async task => rt.store.withTx(() => rt.store.tryAcquireOccupancy({ taskId: task.id, sessionId: session.id,

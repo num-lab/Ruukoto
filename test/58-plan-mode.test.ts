@@ -72,7 +72,7 @@ test("集成：Plan 连续消息保持计划说明、白名单与阻断，手动
     const { projectId, sessionId } = await createProjectSession(t.client, t.work[0]!);
     fs.writeFileSync(path.join(t.work[0]!, "notes.txt"), "PLAN-NOTES\n");
     await t.client.request("mcp_configure", {
-      project_id: projectId, name: "svc", endpoint: mcp.url,
+      name: "svc", endpoint: mcp.url,
       tool_allowlist: ["get", { name: "put", effect: "write" }, { name: "odd", effect: "unknown" }],
     });
     driver = await (t.runtime as any).getDriver(t.runtime.store.getSession(sessionId));

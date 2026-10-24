@@ -19,7 +19,7 @@ import type { SubAgentExecutionSnapshot } from "./subagent-execution.ts";
 import type { WorkCopyHostSnapshot } from "./work-copy-host.ts";
 import { requireWorkspaceSnapshot, WorkspaceSnapshotError, type WorkspaceSnapshot } from "./workspace-snapshot.ts";
 
-export const PROTOCOL_VERSION = 39;
+export const PROTOCOL_VERSION = 40;
 
 export interface ModelSelection {
   provider: string;
@@ -1015,9 +1015,9 @@ export type PersistentEventBody =
   | { type: "github.draft_stale"; draftId: string; version: number; reason: string }
   | { type: "github.publish_requested"; publishOpId: string; draftId: string; draftVersion: number; taskId: string; sessionId: string }
   | { type: "github.publish_settled"; publishOpId: string; draftId: string; status: "sent" | "failed" | "effect_unknown" | "canceled"; remoteUrl: string | null; errorMessage: string | null }
-  | { type: "mcp.service_changed"; serviceId: string; projectId: string; name: string; endpoint?: string; cua?: { kind: string }; configVersion: number; action: "upsert" | "enabled" | "disabled" | "removed" }
+  | { type: "mcp.service_changed"; serviceId: string; name: string; endpoint?: string; cua?: { kind: string }; configVersion: number; action: "upsert" | "enabled" | "disabled" | "removed" }
   /** 任务开始时显式启用的服务初始化失败（连接/认证/超时等）：本任务缺少其工具能力。 */
-  | { type: "mcp.service_unavailable"; serviceId: string; projectId: string; taskId: string; sessionId: string; name: string; endpoint?: string; cua?: { kind: string }; reason: string }
+  | { type: "mcp.service_unavailable"; serviceId: string; taskId: string; sessionId: string; name: string; endpoint?: string; cua?: { kind: string }; reason: string }
   /**
    * QQ 入口配置变化（issue 07）：连接参数/群允许列表/启停。不含 token
    * （凭据值只在 CredentialStore）；configVersion 随任何变化递增。

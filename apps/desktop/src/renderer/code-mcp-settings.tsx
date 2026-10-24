@@ -36,10 +36,8 @@ function CuaRecovery({ state }: { state: CodeMcpState }) {
   </fieldset>;
 }
 
-export function CodeMcpEditor({ state, settings, workspaceName }: { state: CodeMcpState; settings: SettingsPageProps["settings"]; workspaceName: string }) {
+export function CodeMcpEditor({ state }: { state: CodeMcpState }) {
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
-  const sourceName = state.sources.find(source => source.projectId === state.sourceId)?.name ?? "读取中";
-  const scopeLabel = `${workspaceName} / ${sourceName}`;
   const comparison = state.service ?? state.conflictingService;
   const selectedProgram = state.cuaTargets.findIndex(target => JSON.stringify(target.config) === JSON.stringify(state.draft.cua));
   const credential = state.credentials.find(credential => credential.name === state.service?.credential);
@@ -52,7 +50,6 @@ export function CodeMcpEditor({ state, settings, workspaceName }: { state: CodeM
     else if (action?.kind === "credential") await state.removeCredential(action.name);
   };
   return <div className="model-settings mcp-settings" aria-label="Code MCP 配置" aria-busy={state.reading || state.phase === "saving"}>
-    <FieldGroup><Field><FieldLabel htmlFor="mcp-source">配置来源</FieldLabel><Select value={state.sources.some(source => source.projectId === state.sourceId) ? state.sourceId : ""} disabled={state.disabled && state.phase !== "error"} onValueChange={value => settings.chooseSource(value)}><SelectTrigger id="mcp-source"><SelectValue placeholder="选择配置来源" /></SelectTrigger><SelectContent><SelectGroup>{state.sources.map(source => <SelectItem key={source.projectId} value={source.projectId}>{source.name} · {source.serviceCount} 个服务{source.isWorkspace ? "（工作区自身）" : ""}</SelectItem>)}</SelectGroup></SelectContent></Select></Field>{state.hasMoreSources && <Button type="button" variant="ghost" size="sm" disabled={state.disabled} onClick={() => void state.moreSources()}>加载更多来源</Button>}</FieldGroup>
     <div className="model-settings-section-heading"><h3>服务</h3><div className="model-settings-actions"><Button type="button" variant="ghost" size="icon-sm" aria-label="重新读取 MCP 配置" disabled={state.reading || state.phase === "saving"} onClick={() => void state.read()}><RefreshCw /></Button><Button type="button" variant="ghost" size="sm" disabled={state.disabled || state.dirty} onClick={() => state.select(null)}><Plus data-icon="inline-start" />添加服务</Button></div></div>
     {!state.connected && <p className="model-settings-notice" role="status">Code 已离线，请恢复连接。</p>}
     {state.reading && <p role="status">正在读取配置…</p>}
@@ -74,23 +71,20 @@ export function CodeMcpEditor({ state, settings, workspaceName }: { state: CodeM
       <footer className="model-settings-footer"><div className="model-settings-actions">{state.service && <><Button type="button" variant="ghost" size="sm" disabled={state.disabled || state.dirty} onClick={() => setConfirmation({ kind: "remove" })}>删除服务</Button><Button type="button" variant="outline" size="sm" disabled={state.disabled || state.dirty} onClick={() => { if (state.service?.cua && state.service.enabled) void state.pauseCua(); else setConfirmation({ kind: state.service!.enabled ? "disable" : "enable" }); }}>{state.service.cua ? state.service.enabled ? "暂停电脑" : "继续使用电脑" : state.service.enabled ? "停用" : "启用"}</Button></>}<Button type="button" variant="ghost" size="sm" disabled={state.disabled || !state.dirty} onClick={() => state.discard()}>放弃更改</Button></div><Button type="submit" size="sm" disabled={state.disabled || !state.dirty}>{state.service ? "保存" : "保存草稿"}</Button></footer>
     </FieldGroup></form>}
     <CuaRecovery state={state} />
-    {!!state.credentials.length && <fieldset className="model-settings-section"><legend>此来源的 MCP 凭据</legend>{state.credentials.map((credential, index) => <Field key={credential.name}><FieldLabel>{credential.host} · 凭据 {index + 1}</FieldLabel><FieldDescription>{credential.references.length ? credential.references.map(ref => `${ref.projectName} / ${ref.serviceName}`).join("、") : "无服务引用，可清理。"}</FieldDescription><Button type="button" variant="ghost" size="sm" disabled={state.disabled || state.dirty} onClick={() => setConfirmation({ kind: "credential", name: credential.name })}>查看并清理凭据</Button></Field>)}</fieldset>}
+    {!!state.credentials.length && <fieldset className="model-settings-section"><legend>MCP 凭据</legend>{state.credentials.map((credential, index) => <Field key={credential.name}><FieldLabel>{credential.host} · 凭据 {index + 1}</FieldLabel><FieldDescription>{credential.references.length ? credential.references.map(ref => ref.serviceName).join("、") : "无服务引用，可清理。"}</FieldDescription><Button type="button" variant="ghost" size="sm" disabled={state.disabled || state.dirty} onClick={() => setConfirmation({ kind: "credential", name: credential.name })}>查看并清理凭据</Button></Field>)}</fieldset>}
     {state.message && <p className="model-settings-notice" role="status">{state.message}</p>}
-    <Dialog open={!!confirmation} onOpenChange={open => { if (!open) setConfirmation(null); }}><DialogContent className="demo-dialog"><DialogHeader><DialogTitle>{confirmation?.kind === "credential" ? "删除凭据？" : confirmation?.kind === "enable" ? "启用服务？" : confirmation?.kind === "disable" ? "停用服务？" : "删除服务？"}</DialogTitle><DialogDescription>{scopeLabel}</DialogDescription></DialogHeader>{confirmation?.kind === "credential" ? <p>{affected.length ? `受影响引用：${affected.map(ref => `${ref.projectName} / ${ref.serviceName}`).join("、")}。请先更换或清除引用。` : "没有服务引用。"}</p> : <p>{state.service?.name} · {state.service?.endpoint}</p>}<DialogFooter><Button type="button" variant="ghost" onClick={() => setConfirmation(null)}>取消</Button><Button type="button" disabled={state.disabled || confirmation?.kind === "credential" && !!affected.length} onClick={() => void confirm()}>确认</Button></DialogFooter></DialogContent></Dialog>
+    <Dialog open={!!confirmation} onOpenChange={open => { if (!open) setConfirmation(null); }}><DialogContent className="demo-dialog"><DialogHeader><DialogTitle>{confirmation?.kind === "credential" ? "删除凭据？" : confirmation?.kind === "enable" ? "启用服务？" : confirmation?.kind === "disable" ? "停用服务？" : "删除服务？"}</DialogTitle><DialogDescription>本实例的全部工作区共用此配置。</DialogDescription></DialogHeader>{confirmation?.kind === "credential" ? <p>{affected.length ? `受影响引用：${affected.map(ref => ref.serviceName).join("、")}。请先更换或清除引用。` : "没有服务引用。"}</p> : <p>{state.service?.name} · {state.service?.endpoint}</p>}<DialogFooter><Button type="button" variant="ghost" onClick={() => setConfirmation(null)}>取消</Button><Button type="button" disabled={state.disabled || confirmation?.kind === "credential" && !!affected.length} onClick={() => void confirm()}>确认</Button></DialogFooter></DialogContent></Dialog>
   </div>;
 }
 
 function CodeMcpForm({ settings, scope, code }: SettingsPageProps) {
-  const sourceId = settings.selections.mcp.sourceId ?? scope.workspaceId!;
-  const [workspaceName] = useState(() => code.view.projects.find(project => project.id === scope.workspaceId)?.name ?? "工作区");
-  const [state] = useState(() => new CodeMcpState({ request: (...args) => window.ruukoto.request(...args) }, settings.changed, scope.instanceId!, scope.workspaceId!, sourceId, () => ({ instanceId: code.view.instanceId, online: code.status.state === "online" })));
+  const [state] = useState(() => new CodeMcpState({ request: (...args) => window.ruukoto.request(...args) }, settings.changed, scope.instanceId!, () => ({ instanceId: code.view.instanceId, online: code.status.state === "online" })));
   useEffect(() => { settings.form = state; void state.read().then(read => { if (read) void state.refreshCua(); }); return () => { state.invalidate(); if (settings.form === state) settings.form = null; }; }, [settings, state]);
-  return <CodeMcpEditor state={state} settings={settings} workspaceName={workspaceName} />;
+  return <CodeMcpEditor state={state} />;
 }
 
 export function CodeMcpSettings(props: SettingsPageProps) {
   if (props.settings.form instanceof CodeMcpState && props.settings.form.pending) return <CodeMcpForm {...props} />;
   if (!props.scope.instanceId) return <FieldDescription role="status">Code 已离线，请恢复连接后管理 MCP。</FieldDescription>;
-  if (!props.scope.workspaceId) return <FieldDescription role="status">请先选择或添加工作区。</FieldDescription>;
   return <CodeMcpForm {...props} />;
 }

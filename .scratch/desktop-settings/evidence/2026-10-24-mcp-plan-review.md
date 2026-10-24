@@ -4,7 +4,7 @@
 
 2026-10-24，拥有者要求取消按工作区配置 MCP、删除向后兼容，并明确本轮只更新方案文档。基点为 `develop` / `bf3cb0d6bc690ed89e8279091fdedddf604e9ebc`，受审对象为未提交的规划修改，HEAD 不代表文档内容。
 
-对象包含[共享规格](../spec.md)、[03 工单](../issues/03-code-mcp.md)、01/09 后续交接、总提案、[实例 MCP 决定](../../../.agents/notes/proposed/simplification/2026-10-24-code-instance-mcp.md)及四篇当前实现笔记的互链。开始时工作区已有桌面 UI、测试和笔记修改，本轮不改那些内容，不修改代码或配置，不执行数据库切换。
+对象包含[共享规格](../spec.md)、[03 工单](../issues/03-code-mcp.md)、01/09 后续交接、总提案、[实例 MCP 决定](../../../.agents/notes/implemented/simplification/2026-10-24-code-instance-mcp.md)及四篇当前实现笔记的互链。开始时工作区已有桌面 UI、测试和笔记修改，本轮不改那些内容，不修改代码或配置，不执行数据库切换。
 
 ## 来源核查
 

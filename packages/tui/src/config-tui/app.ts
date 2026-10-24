@@ -1072,7 +1072,6 @@ export class ConfigTuiApp {
           { value: "instructions", label: `指令文件：${p.instructionFiles.join("，") || "（无）"}`, description: `工作区相对路径，逗号分隔 · 设置版本 v${p.settingsVersion}` },
           { value: "websearch", label: `Web Search：${p.webSearch === "enabled" ? "启用" : "禁用"}` },
           { value: "jev", label: "Jev 上下文筛选实验", description: "默认关闭，按项目选择服务凭据与启停" },
-          { value: "mcp", label: "MCP 服务", description: "本项目的端点、凭据引用与工具允许列表" },
           { value: "grants", label: "资料授权", description: "跨项目历史/产物/记忆读取授权" },
         ];
         // issue 07 步骤 4：工作区列出关联旧资料来源及原配置入口（并列显示，不推断优先级）
@@ -1083,7 +1082,6 @@ export class ConfigTuiApp {
             const grants = (grantResult.grants as DataGrant[] | undefined) ?? [];
             for (const [sourceId, sessions] of sources) {
               const source = this.findProject(sourceId);
-              const mcp = await this.deps.client!.request<{ services: unknown[] }>("mcp_list", { project_id: sourceId });
               const jev = await this.deps.client!.request<JevConfig>("get_project_jev", { project_id: sourceId });
               const outgoing = grants.filter((g) => g.fromProjectId === sourceId && g.revokedAt === null).length;
               const incoming = grants.filter((g) => g.toProjectId === sourceId && g.revokedAt === null).length;
@@ -1092,7 +1090,7 @@ export class ConfigTuiApp {
                 value: `project:${sourceId}`,
                 label: `关联旧资料：${source?.name ?? sourceId}`,
                 description:
-                  `${sessions.length} 个映射会话 · MCP ${mcp.services.length} 项 · Jev ${jev.enabled ? "启用" : "关闭"}` +
+                  `${sessions.length} 个映射会话 · Jev ${jev.enabled ? "启用" : "关闭"}` +
                   ` · 授权 出 ${outgoing} / 入 ${incoming} · v${source?.settingsVersion ?? "?"}` +
                   ` · 指令基准 ${source?.rootDir?.cwdReal ?? [...new Set(sessions.map((s) => s.cwdReal))].join("，")}`,
               });
@@ -1108,7 +1106,7 @@ export class ConfigTuiApp {
           this.notify("项目已不存在", "yellow");
           return this.popScreen();
         }
-        // issue 07 步骤 4：原配置入口——关联来源的设置、MCP/Jev 与授权都按来源项目 ID 与本设置的各自版本访问
+        // issue 07 步骤 4：原配置入口——关联来源的设置、Jev 与授权都按来源项目 ID 与本设置的各自版本访问
         // （关联来源行的值为 project:<来源id>，与本项目自身的功能值不冲突）
         if (item.value.startsWith("project:")) return this.pushScreen(this.projectScreen(item.value.slice("project:".length)));
         switch (item.value) {
@@ -1137,8 +1135,6 @@ export class ConfigTuiApp {
             return this.pushScreen(this.grantsScreen(projectId));
           case "jev":
             return this.pushScreen(this.jevScreen(projectId));
-          case "mcp":
-            return this.pushScreen(this.mcpScreen(projectId));
         }
       },
     };
@@ -1354,39 +1350,32 @@ export class ConfigTuiApp {
 
   // ---------- MCP 服务 ----------
 
-  /** MCP 服务列表：传入 projectId 时只列该项目服务（项目详情内入口），新增固定归属；缺省为全局分区。 */
-  private mcpScreen(projectId?: string): Screen {
-    const scopedName = projectId === undefined ? null : (this.findProject(projectId)?.name ?? projectId);
+  private mcpScreen(): Screen {
     return {
       id: "mcp",
-      title: scopedName ? `MCP 服务（${scopedName}）` : "MCP 服务",
+      title: "MCP 服务",
       watch: (t) => t === "mcp.service_changed",
       load: async () => {
-        const result = await this.deps.client!.request<OpResult<"mcp_list">>("mcp_list", projectId === undefined ? {} : { project_id: projectId });
+        const result = await this.deps.client!.request<OpResult<"mcp_list">>("mcp_list", {});
         const services = result.services;
         const items: SelectItem[] = services.map((s) => ({
           value: `svc:${s.id}`,
-          label: `${s.name}${projectId === undefined ? `（${this.findProject(s.projectId)?.name ?? s.projectId}）` : ""}${s.enabled ? "" : " · 已禁用"}`,
+          label: `${s.name}${s.enabled ? "" : " · 已禁用"}`,
           description: `${s.cua?.kind ?? s.endpoint} · v${s.configVersion}`,
         }));
         items.push({
           value: "add",
           label: "新增服务",
-          description:
-            projectId === undefined
-              ? this.projects.length > 0
-                ? "注册 Streamable HTTP MCP 端点"
-                : "需要先有项目"
-              : `固定归属项目「${scopedName}」`,
+          description: "注册 Streamable HTTP MCP 端点",
         });
         if (this.product === "ruukoto-code") items.push({ value: "add-cua", label: "添加本机 Cua Driver", description: "选择已安装的固定版本程序" }, { value: "cua-recovery", label: "电脑状态与恢复", description: "核实原动作、停止执行并查看新截图" });
         return items;
       },
       onSelect: async (item) => {
-        if (item.value === "add") return this.addMcpService(projectId);
-        if (item.value === "add-cua") return this.addMcpService(projectId, true);
+        if (item.value === "add") return this.addMcpService();
+        if (item.value === "add-cua") return this.addMcpService(true);
         if (item.value === "cua-recovery") return this.pushScreen(this.cuaRecoveryScreen());
-        if (item.value.startsWith("svc:")) return this.pushScreen(this.mcpServiceScreen(item.value.slice(4), projectId));
+        if (item.value.startsWith("svc:")) return this.pushScreen(this.mcpServiceScreen(item.value.slice(4)));
       },
     };
   }
@@ -1396,8 +1385,7 @@ export class ConfigTuiApp {
     return result.services.find(service => service.id === serviceId) ?? null;
   }
 
-  /** 服务详情；expectedProjectId 非空时核对实际归属（项目详情内入口不能把其他项目的服务串改）。 */
-  private mcpServiceScreen(serviceId: string, expectedProjectId?: string): Screen {
+  private mcpServiceScreen(serviceId: string): Screen {
     return {
       id: `svc:${serviceId}`,
       title: `MCP 服务 ${serviceId.slice(0, 12)}…`,
@@ -1405,11 +1393,6 @@ export class ConfigTuiApp {
       load: async () => {
         const s = await this.readMcpService(serviceId);
         if (!s) return [];
-        if (expectedProjectId !== undefined && s.projectId !== expectedProjectId) {
-          this.notify("该服务归属其他项目，已从当前项目返回", "yellow");
-          void this.popScreen();
-          return [];
-        }
         return [
           ...(s.cua ? [{ value: "cua", label: `电脑：${s.cua.kind} · ${s.cua.executable}` }] : [{ value: "endpoint", label: `端点：${s.endpoint}` }, { value: "credential", label: `凭据引用：${s.credential ?? "（无）"}` }]),
           { value: "tools", label: `工具允许列表：${s.toolAllowlist.length} 项`, description: formatAllowlist(s.toolAllowlist) || "（空 = 不注册任何工具）" },
@@ -1426,14 +1409,10 @@ export class ConfigTuiApp {
           this.notify("服务已不存在", "yellow");
           return this.popScreen();
         }
-        if (expectedProjectId !== undefined && s.projectId !== expectedProjectId) {
-          this.notify("该服务归属其他项目，已从当前项目返回", "yellow");
-          return this.popScreen();
-        }
         /** 单字段更新：携带当前允许列表与期望版本；凭据缺省 = 保留。 */
         const configure = async (patch: { endpoint?: string; credential?: string | null; toolAllowlist?: unknown[] }, okMsg: string): Promise<void> => {
           await client.request("mcp_configure", {
-            project_id: s.projectId,
+            service_id: s.id,
             name: s.name,
             ...(s.cua ? { cua: s.cua } : { endpoint: patch.endpoint ?? s.endpoint }),
             credential: patch.credential,
@@ -1520,30 +1499,16 @@ export class ConfigTuiApp {
     };
   }
 
-  /** 新增服务：fixedProjectId（项目详情入口）跳过项目选择、固定归属；全局入口仍按工作区/旧项目分类选择。 */
-  private async addMcpService(fixedProjectId?: string, computer = false): Promise<void> {
+  private async addMcpService(computer = false): Promise<void> {
     const client = this.deps.client!;
-    let projectId = fixedProjectId ?? null;
-    if (projectId !== null && !this.findProject(projectId)) {
-      this.notify("目标项目已不存在", "yellow");
-      return;
-    }
-    if (projectId === null) {
-      if (this.projects.length === 0) {
-        this.notify("需要先有项目", "yellow");
-        return;
-      }
-      projectId = await this.pick("所属项目", this.orderedProjects().map(({ project: p, tag }) => ({ value: p.id, label: tag ? `${tag} · ${p.name}` : p.name })));
-      if (projectId === null) return;
-    }
-    const name = await this.inputBox("服务名（项目内唯一 slug）", { placeholder: "如 docs" });
+    const name = await this.inputBox("服务名（实例内唯一 slug）", { placeholder: "如 docs" });
     if (name === null) return;
     if (computer) {
       const result = await client.request<OpResult<"mcp_cua_targets">>("mcp_cua_targets", {});
       if (!result.targets.length) { this.showText("未找到本机 Cua Driver", [...result.issues.map(issue => issue.message), "请按操作手册安装固定版本后重新选择。"]); return; }
       const selected = await this.pick("选择已安装的本机 Cua Driver", result.targets.map((target, index) => ({ value: String(index), label: target.label })));
       if (selected === null) return;
-      await client.request("mcp_configure", { project_id: projectId, name: name.trim(), cua: result.targets[Number(selected)].config, tool_allowlist: [], enabled: false, expected_version: 0 });
+      await client.request("mcp_configure", { name: name.trim(), cua: result.targets[Number(selected)].config, tool_allowlist: [], enabled: false, expected_version: 0 });
       this.notify("电脑服务已保存为停用状态；请检查程序与权限、选择允许工具后启用");
       await this.refresh(); return;
     }
@@ -1559,12 +1524,12 @@ export class ConfigTuiApp {
       return;
     }
     await client.request("mcp_configure", {
-      project_id: projectId,
       name: name.trim(),
       endpoint: endpoint.trim(),
       credential: credential.trim() ? credential.trim() : null,
       tool_allowlist: parsed,
       enabled: true,
+      expected_version: 0,
     });
     this.notify("MCP 服务已创建");
     await this.refresh();
@@ -1725,7 +1690,7 @@ export class ConfigTuiApp {
         }
         if (item.value.startsWith("cred:")) {
           const name = item.value.slice(5);
-          if (!(await this.confirm(`删除凭据 ${name}？`, "引用它的 MCP/QQ/Jev 配置将失去认证"))) return;
+          if (!(await this.confirm(`删除凭据 ${name}？`, "仍被 MCP 引用的凭据须先解除引用；QQ/Jev 配置将失去认证"))) return;
           await client.request("remove_credential", { name });
           this.notify("凭据已删除");
           return this.refresh();

@@ -587,6 +587,10 @@ async function runLegacy(cmd: string, rest: string[], product: CliProduct): Prom
       return 1;
     }
     case "mcp": {
+      if (rest.some(arg => arg === "--project" || arg.startsWith("--project="))) {
+        process.stderr.write("[ruukoto:cli] MCP 已改为按实例配置，不接受 --project；请移除该参数。\n");
+        return 1;
+      }
       const sub = positional[0];
       if (sub === "cua") {
         const { runConfigTui } = await import("./config-tui/index.ts");
@@ -606,7 +610,6 @@ async function runLegacy(cmd: string, rest: string[], product: CliProduct): Prom
         print(
           await withClient((c) =>
             c.request("mcp_configure", {
-              project_id: flags["project"] ?? "",
               name: flags["name"] ?? "",
               endpoint: flags["endpoint"] ?? "",
               credential: flags["credential"],
@@ -619,7 +622,7 @@ async function runLegacy(cmd: string, rest: string[], product: CliProduct): Prom
         return 0;
       }
       if (sub === "list") {
-        print(await withClient((c) => c.request("mcp_list", { project_id: flags["project"] })));
+        print(await withClient((c) => c.request("mcp_list", {})));
         return 0;
       }
       if (sub === "enable" || sub === "disable") {
@@ -659,9 +662,9 @@ async function runLegacy(cmd: string, rest: string[], product: CliProduct): Prom
       }
       console.error(
         "用法：\n" +
-          "  ruukoto mcp configure --project <id> --name <slug> --endpoint <url> [--credential <name>] [--tools a,b:write,c:unknown] [--disabled] [--expected-version N]\n" +
+          "  ruukoto mcp configure --name <slug> --endpoint <url> [--credential <name>] [--tools a,b:write,c:unknown] [--disabled] [--expected-version N]\n" +
           "    （--tools 条目：name = 只读工具；name:write / name:unknown = 有副作用/副作用不明，confirm 模式逐次审批）\n" +
-          "  ruukoto mcp list [--project <id>] | enable <service-id> | disable <service-id> | remove <service-id> [--expected-version N]\n" +
+          "  ruukoto mcp list | enable <service-id> | disable <service-id> | remove <service-id> [--expected-version N]\n" +
           "  ruukoto mcp check <service-id>（连接检查 + 工具列表，标注允许/未允许与副作用类别）\n" +
           "  ruukoto-code mcp cua（打开配置界面，从 MCP 服务选择本机电脑与人工恢复）",
       );

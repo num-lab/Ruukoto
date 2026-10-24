@@ -5,7 +5,7 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
-import { Db, SCHEMA_VERSION } from "@ruukoto/core/db.ts";
+import { Db, SchemaVersionError } from "@ruukoto/core/db.ts";
 import { Store } from "@ruukoto/core/store.ts";
 import { ArtifactStore } from "@ruukoto/agent/artifacts.ts";
 import { McpStore } from "@ruukoto/agent/mcp/store.ts";
@@ -18,21 +18,34 @@ const MODEL = { provider: "mock", modelId: "mock-model", thinkingLevel: "off" } 
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
 const available = process.platform === "darwin" && fs.existsSync(new URL("../worker/native-macos-supervisor", import.meta.url));
 
-test("Code Cua：49→50只新增空证据与具名配置，HTTP和历史原样保留", () => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "cua-migration-"));
-  try {
-    const db = new Db(directory), store = new McpStore(db);
-    const service = store.upsertService({ projectId: "project", name: "http", endpoint: "https://example.com/mcp", toolAllowlist: ["read"] });
-    db.close();
-    const old = new DatabaseSync(path.join(directory, "ruukoto.db"));
-    old.exec("ALTER TABLE mcp_services DROP COLUMN cua_config; ALTER TABLE tool_ops DROP COLUMN mcp; UPDATE meta SET value = '49' WHERE key = 'schema_version';");
-    old.close();
-    const reopened = new Db(directory);
-    assert.deepEqual(new McpStore(reopened).getService(service.id), JSON.parse(JSON.stringify(service)));
-    assert.equal(reopened.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get()!.value, String(SCHEMA_VERSION));
-    assert.equal(reopened.prepare("SELECT cua_config FROM mcp_services").get()!.cua_config, null);
-    reopened.close();
-  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+test("Code Cua：拒绝49/50旧库且保留配置、证据、JSONL与凭据", () => {
+  for (const version of [49, 50]) {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "cua-old-schema-"));
+    try {
+      const db = new Db(directory), store = new McpStore(db);
+      store.upsertService({ name: "http", endpoint: "https://example.com/mcp", toolAllowlist: ["read"] });
+      assert.equal(db.prepare("PRAGMA table_info(mcp_services)").all().some(row => row.name === "project_id"), false);
+      db.close();
+      const file = path.join(directory, "ruukoto.db"), old = new DatabaseSync(file);
+      old.exec("ALTER TABLE mcp_services ADD COLUMN project_id TEXT; UPDATE mcp_services SET project_id = 'old-project';");
+      if (version === 49) old.exec("ALTER TABLE mcp_services DROP COLUMN cua_config; ALTER TABLE tool_ops DROP COLUMN mcp;");
+      old.prepare("UPDATE meta SET value = ? WHERE key = 'schema_version'").run(String(version));
+      const schema = old.prepare("SELECT sql FROM sqlite_schema ORDER BY name").all();
+      const rows = old.prepare("SELECT * FROM mcp_services").all();
+      old.close();
+      const history = path.join(directory, "session.jsonl"), credentials = path.join(directory, "credentials.json");
+      fs.writeFileSync(history, '{"type":"message","content":"原会话"}\n');
+      fs.writeFileSync(credentials, '{"bindings":[{"secret":"原秘密"}]}\n');
+      const original = [file, history, credentials].map(file => fs.readFileSync(file));
+      assert.throws(() => new Db(directory), error => error instanceof SchemaVersionError && error.code === "schema_version_unsupported");
+      assert.deepEqual([file, history, credentials].map(file => fs.readFileSync(file)), original);
+      const preserved = new DatabaseSync(file, { readOnly: true });
+      assert.deepEqual(preserved.prepare("SELECT sql FROM sqlite_schema ORDER BY name").all(), schema);
+      assert.deepEqual(preserved.prepare("SELECT * FROM mcp_services").all(), rows);
+      assert.equal(preserved.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get()!.value, String(version));
+      preserved.close();
+    } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+  }
 });
 
 test("Code Cua：原操作冷恢复冻结跨配置，缺停止/观察/接受均拒绝", () => {
@@ -97,7 +110,7 @@ test("Code Cua：真实产品链保存原schema和请求，持续连接、批准
     const projectId = initial.projectId;
     let sessionId = initial.sessionId;
     const plain = await submit(sessionId, "baseline"); await done(plain);
-    let service = await client.request<{ id: string; configVersion: number }>("mcp_configure", { project_id: projectId, name: "mac", cua, tool_allowlist: ["get_desktop_state", "click", "run_script"] });
+    let service = await client.request<{ id: string; configVersion: number }>("mcp_configure", { name: "mac", cua, tool_allowlist: ["get_desktop_state", "click", "run_script"] });
     const checked = await client.request<{ ok: boolean; tools: { name: string }[]; permissions: { accessibility: boolean; screenRecording: boolean } }>("mcp_check", { service_id: service.id });
     assert.equal(checked.ok, checked.permissions.accessibility && checked.permissions.screenRecording);
     assert.deepEqual(checked.tools.map(tool => tool.name), ["get_desktop_state", "click"]);
@@ -178,7 +191,7 @@ test("Code Cua：真实产品链保存原schema和请求，持续连接、批准
     assert.equal(oldOp.effectUnknown, true);
     assert.equal(oldOp.mcp!.state, "frozen");
     assert.equal((await client.request<{ state: string }>("mcp_cua_status", {})).state, "frozen");
-    await assert.rejects(client.request("mcp_configure", { project_id: projectId, name: "mac", cua: { ...cua, sha256: "f".repeat(64) }, tool_allowlist: ["click"] }));
+    await assert.rejects(client.request("mcp_configure", { name: "mac", cua: { ...cua, sha256: "f".repeat(64) }, tool_allowlist: ["click"] }));
     await assert.rejects(client.request("mcp_cua_begin_recovery", {}));
     await client.request("mcp_cua_stop", {});
     await assert.rejects(client.request("mcp_cua_accept", {}));

@@ -30,7 +30,7 @@
  * 测试接缝（验证与验收场景补齐）：
  * 12. 接入边界：两旧项目归入同一工作区后原授权方向/项目内访问保留、跨来源仍拒；
  *    新会话不因映射获得源资料；显式授权→撤销最后一条→拒绝；
- * 13. 配置来源：映射旧会话后续任务用原指令/Web Search；MCP 服务 ID/版本、凭据
+ * 13. 配置来源：映射旧会话后续任务用原指令/Web Search；实例 MCP 服务 ID/版本、凭据
  *    绑定、记忆版本不被动；新会话用目标配置；认领后新会话延续原 ID 配置；
  * 14. 标识与字节核对：pi ID/历史路径/JSONL 与产物字节/任务/选择记录迁移前后不变；
  * 15. 回退只恢复显式组织字段，新任务/配置修改/授权撤销保留；目标根被替换拒绝且
@@ -916,10 +916,10 @@ test("接入边界：两旧项目归入同一工作区后跨来源仍拒；新�
   }
 });
 
-test("映射后任务配置与资料来源不变：指令/Web Search/MCP/Jev/记忆按源项目；新会话用目标配置；认领后新会话延续原 ID", async () => {
+test("映射后任务配置与资料来源不变：指令/Web Search/记忆按源项目，MCP 归实例；新会话用目标配置；认领后新会话延续原 ID", async () => {
   const t = await startTestRuntime("ws76-config-src", async () => ({ kind: "text", text: "好" }));
   try {
-    // 旧项目：指令 + 禁用 Web Search + MCP 服务 + 凭据绑定 + 记忆
+    // 来源项目保留指令、Web Search 与记忆；MCP 使用实例服务。
     const dirS = t.work[0]!;
     fs.writeFileSync(path.join(dirS, "AGENTS.md"), "旧项目约定：SRC-INSTRUCTION-MARK");
     const { projectId: l1, sessionId: s1 } = await createProjectSession(t.client, dirS, { projectName: "来源项目" });
@@ -927,7 +927,7 @@ test("映射后任务配置与资料来源不变：指令/Web Search/MCP/Jev/记
     await t.client.request("set_project_web_search", { project_id: l1, enabled: false });
     await t.client.request("add_credential", { name: "legacy-key", host: "docs.example.com", header: "Authorization", purpose: "mcp", secret: "smoke-dummy-secret" });
     const mcpBefore = (await t.client.request<any>("mcp_configure", {
-      project_id: l1, name: "docs", endpoint: "https://docs.example.com/mcp", credential: "legacy-key", tool_allowlist: ["search"],
+      name: "docs", endpoint: "https://docs.example.com/mcp", credential: "legacy-key", tool_allowlist: ["search"],
     })) as any;
     const mem = (await t.client.request<any>("save_memory", {
       project_id: l1, category: "convention", content: "源项目记忆：墨色门环", source_refs: [{ kind: "owner_note", note: "n" }],
@@ -941,11 +941,11 @@ test("映射后任务配置与资料来源不变：指令/Web Search/MCP/Jev/记
 
     // 映射
     t.runtime.store.withTx(() => t.runtime.store.mapSessionToWorkspace(s1, wsId));
-    // 配置、授权、凭据与记忆来源保持
-    let services = ((await t.client.request<any>("mcp_list", { project_id: l1 })) as any).services as any[];
+    // 映射不改变实例 MCP 配置，也不改变其他资料的来源。
+    const services = ((await t.client.request<any>("mcp_list", {})) as any).services as any[];
     assert.equal(services[0]!.id, mcpBefore.id, "MCP 服务 ID 保持");
     assert.equal(services[0]!.configVersion, mcpBefore.configVersion, "MCP 配置版本保持");
-    assert.equal(services[0]!.credential, "legacy-key", "凭据引用保持（不复制不扩大）");
+    assert.equal(services[0]!.credential, "legacy-key", "实例凭据引用保持");
     const creds = (await t.client.request<any>("list_credentials", {})) as any;
     assert.deepEqual(
       creds.map((x: any) => [x.name, x.host, x.purpose]),

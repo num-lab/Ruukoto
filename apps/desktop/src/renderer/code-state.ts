@@ -65,7 +65,7 @@ export class CodeState {
     this.background = new DesktopBackgroundProcesses(bridge, this.view, () => this.status.state === "online", changed);
     this.questions = new DesktopQuestions(bridge, this.view, () => this.status.state === "online", changed);
     this.writes = new CodeWrites(bridge, this.view, () => this.status.state === "online", changed, target);
-    this.inspector = new DesktopInspector(bridge, this.view, id => this.loadHistory(id), changed, target);
+    this.inspector = new DesktopInspector(bridge, this.view, id => this.loadHistory(id), changed, target, this.background);
     this.history = new HistoryRecovery({
       state: this.view, request: (op, params) => this.request(op, params), entryPageBytes: 64 * 1024,
       completeEntry: () => true, isMissingEntry: error => error instanceof DesktopRequestError && error.code === "entry_not_found",

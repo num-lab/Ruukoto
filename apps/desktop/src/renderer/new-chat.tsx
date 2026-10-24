@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowUp, ChevronDown, FileCode2, Folder, Loader2, Plus, Search, X } from "lucide-react";
 import { MAX_ATTACHMENTS } from "@ruukoto/core/attachments.ts";
 import type { ModelSelection, Project, SessionDefaultMode } from "@ruukoto/core/types.ts";
-import type { DesktopAttachment } from "../shared/bridge.ts";
+import type { DesktopAttachment, DesktopTarget } from "../shared/bridge.ts";
 import type { CodeState } from "./code-state.ts";
 import { ModeSelector, ModelSelector, composerModes, submitOnEnter } from "./composer.tsx";
 import { Button } from "./components/ui/button.tsx";
@@ -24,6 +24,10 @@ export interface NewChatDraftState {
 export function filterWorkspaces(workspaces: Project[], query: string): Project[] {
   const needle = query.trim().toLocaleLowerCase();
   return needle ? workspaces.filter(project => project.name.toLocaleLowerCase().includes(needle)) : workspaces;
+}
+/** 主画布何时落在新对话草稿页：Code 目标有草稿，或在线但没有已选会话（启动后未打开、关掉全部标签）；空态页只留给离线与 PA 主会话未就绪。 */
+export function showsNewChat(target: DesktopTarget, online: boolean, hasCurrent: boolean, hasDraft: boolean): boolean {
+  return target === "code" && (hasDraft || (online && !hasCurrent));
 }
 export function NewChatDraft({ model, workspaces, value, fallbackSelection, onChange, onSend, onAddWorkspace, starting, blocked }: { model: CodeState; workspaces: Project[]; value: NewChatDraftState; fallbackSelection: ModelSelection | null; onChange: (value: NewChatDraftState) => void; onSend: () => void; onAddWorkspace: () => void; starting: boolean; blocked: boolean }) {
   const writes = model.writes;
@@ -75,7 +79,7 @@ export function NewChatDraft({ model, workspaces, value, fallbackSelection, onCh
     </DropdownMenuContent></DropdownMenu>
       <form className="surface-composer composer" onSubmit={event => { event.preventDefault(); send(); }}>
         {attachments.length > 0 && <div className="attached-files" aria-label="已附加文件">{attachments.map(attachment => <span className="attachment-chip" key={attachment.id}><FileCode2 /><span>{attachment.name}</span><button type="button" disabled={busy} aria-label={`移除附件 ${attachment.name}`} onClick={() => onChange({ ...value, attachments: attachments.filter(item => item.id !== attachment.id) })}><X /></button></span>)}</div>}
-        <Textarea ref={input} aria-label="输入消息" rows={2} value={value.text} placeholder={selected ? "描述你想做的事…" : "选择工作区后开始对话"} onChange={event => onChange({ ...value, text: event.target.value })} onKeyDown={event => submitOnEnter(event, canSend, send)} />
+        <Textarea ref={input} aria-label="输入消息" rows={2} value={value.text} placeholder="Task or question" onChange={event => onChange({ ...value, text: event.target.value })} onKeyDown={event => submitOnEnter(event, canSend, send)} />
         <div className="composer-actions"><div className="composer-left"><IconButton className="attachment-button" label="附加文件" disabled={busy || attachments.length >= MAX_ATTACHMENTS} onClick={() => void attach()}><Plus /></IconButton><ModeSelector value={value.mode} modes={composerModes} disabled={busy} onChange={mode => onChange({ ...value, mode })} /></div>
           <div className="composer-right"><ModelSelector models={writes.models} selected={selection} loading={() => void writes.loadModels()} disabled={busy} onChange={modelSelection => onChange({ ...value, modelSelection })} /><Button size="icon" className="send-button" type="submit" disabled={!canSend} aria-label="发送消息" aria-busy={starting}>{starting ? <Loader2 className="animate-spin" /> : <ArrowUp />}</Button></div>
         </div>

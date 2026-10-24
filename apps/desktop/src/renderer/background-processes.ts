@@ -50,8 +50,8 @@ export class DesktopBackgroundProcesses {
       if (this.selected?.id === process.id && this.selected.version <= process.version) this.selected = process;
     }
   }
-  open(sessionId: string, end = false): void {
-    ++this.outputRead; this.sessionId = sessionId; this.selected = null; this.output = null; this.processes = []; this.totalCount = 0; this.nextOffset = null; this.reading = false; this.endConfirm = end; this.message = null; this.offset = 0; this.previousOffsets = []; this.previousPages = []; this.changed(); void this.load(0);
+  open(sessionId: string): void {
+    ++this.outputRead; this.sessionId = sessionId; this.selected = null; this.output = null; this.processes = []; this.totalCount = 0; this.nextOffset = null; this.reading = false; this.endConfirm = false; this.message = null; this.offset = 0; this.previousOffsets = []; this.previousPages = []; this.changed(); void this.load(0);
   }
   close(): void { ++this.generation; ++this.outputRead; this.sessionId = null; this.selected = null; this.output = null; this.endConfirm = false; this.changed(); }
   async load(offset = this.offset): Promise<void> {

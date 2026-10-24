@@ -127,7 +127,7 @@ test("Desktop 日志按原字节位置分页，停止只接纳，关闭窗口/�
 test("Desktop 关闭未知保留持久原键，重新打开只查询，显式重核不扩大关闭", async () => {
   const h = harness({ loseEnd: true });
   try {
-    h.desktop.open("session", true); await settle(); await h.desktop.end();
+    h.desktop.open("session"); h.desktop.endConfirm = true; await settle(); await h.desktop.end();
     const key = h.pending.list().records[0].requestId; assert.equal(h.desktop.pendingEnd?.requestId, key);
     h.desktop.close(); h.desktop.open("session"); await settle(); await h.submissions.reconcile();
     assert.equal(h.endCalls, 1); await h.desktop.end(); assert.deepEqual(h.endKeys, [key, key]); assert.equal(h.pending.list().records.length, 0);

@@ -304,7 +304,6 @@ export class Driver {
       registry: this.registry,
       verifyTask: task => this.verifyWorkflowTask(task),
       resourceAvailable: () => this.resourcePhase === "execution",
-      presentUrlAllowed: task => this.deps.browser?.allowed(task) ?? false,
       onManagedIdentity: () => this.reportManagedUnits(),
       launcherFor: deps.launcherFor,
       verificationLauncher: deps.verificationLauncher,

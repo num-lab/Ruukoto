@@ -21,7 +21,7 @@ test("present 只装配拥有者会话，子代理和工作流显式清单也不
   for (const plan of [true, false]) assert.equal(taskToolSet({ registered: ["present"], plan, webSearchEnabled: true, mcpEffect: () => undefined }).allowed.has("present"), true);
 });
 
-test("present 文件沿 worker 钉定读取范围，域外文件不会成为预览产物", async () => {
+test("present 保留文件读取范围，未运行、取消或中止的网页预览拒绝", async () => {
   const { dirs, work } = await makeTestDirs("present-scope", 1), db = new Db(dirs.dataDir), store = new Store(db);
   const project = store.createProject("present"), workspace = fs.realpathSync(work[0]), stat = fs.statSync(workspace);
   const session = store.createSession({ projectId: project.id, cwd: workspace, cwdReal: workspace, cwdDev: stat.dev, cwdIno: stat.ino, piSessionId: "present", confirmTools: [] });
@@ -36,10 +36,19 @@ test("present 文件沿 worker 钉定读取范围，域外文件不会成为预�
     const denied = await router.executeTool({ task, hostOpId: "denied", sdkCallId: "denied", name: "present", params: { path: outside } });
     assert.equal(denied.isError, true); assert.deepEqual(router.artifactIdsFor("denied"), []);
     assert.match(JSON.stringify(denied), /超出宿主钉定的只读范围/); assert.doesNotMatch(JSON.stringify(denied), /不可捕获的正文/);
+    const preview = (signal?: AbortSignal, source = task) => router.executeTool({ task: source, hostOpId: "url", sdkCallId: "url", name: "present", params: { url: "https://example.com" }, signal });
+    assert.equal((await preview()).isError, true, "排队任务不登记预览");
+    store.withTx(() => store.transitionTask(task.id, ["queued"], "running"));
+    assert.equal((await preview()).isError, false, "活动任务不调用审批");
+    assert.equal((await preview(undefined, { ...task, sessionId: "other" })).isError, true);
+    assert.equal((await preview(undefined, { ...task, id: "missing" })).isError, true);
+    assert.equal((await preview(AbortSignal.abort())).isError, true);
+    store.withTx(() => store.transitionTask(task.id, ["running"], "running", { cancelRequested: true }));
+    assert.equal((await preview()).isError, true, "使用新鲜取消状态，不能复用旧任务快照");
   } finally { await router.stopWorker(); db.close(); await cleanupDirs(dirs); }
 });
 
-test("present 沿真实读取捕获当时文件和空文件，失败无预览结果，URL 限完全访问", async () => {
+test("present 沿真实读取捕获文件，网页在所有模式免审批，非法目标不打开", async t => {
   let params: Record<string, unknown> = {}, output = "";
   const h = await startTestRuntime("present", request => {
     if (request.messages.at(-1)?.role === "tool") { output = lastToolText(request); return { kind: "text", text: "已处理" }; }
@@ -49,16 +58,21 @@ test("present 沿真实读取捕获当时文件和空文件，失败无预览结
     fs.writeFileSync(path.join(h.work[0], "file.md"), "# 当时版本\n");
     fs.writeFileSync(path.join(h.work[0], "empty.txt"), "");
     let count = 0;
-    const run = async (input: Record<string, unknown>, accessMode: "confirm" | "full_access" = "full_access") => {
+    const run = async (input: Record<string, unknown>, accessMode: "confirm" | "auto-review" | "full_access" | "plan" = "full_access") => {
       params = input; output = "";
       const { sessionId } = await createProjectSession(h.client, h.work[0], { projectName: `present-${++count}` });
       const task = await h.runtime.submit({ sessionId, requestId: "present", input: "打开预览", accessMode, modelSelection: h.runtime.defaultSelection });
-      await waitFor("present 结束", () => h.runtime.store.getTask(task.id)?.status === "completed", 30_000);
+      await waitFor("present 结束", () => {
+        if (typeof input.url === "string") assert.equal(h.runtime.store.listConfirmationsByTask(task.id).length, 0, "网页预览不进入审批");
+        return h.runtime.store.getTask(task.id)?.status === "completed";
+      }, 30_000);
       const operation = h.runtime.store.listToolOpsByTask(task.id)[0];
       return { task, operation, error: operation?.isError ?? h.runtime.readHistory({ sessionId }).entries.find(entry => entry.toolName === "present")?.isError,
         artifacts: h.runtime.store.listArtifactsByTask(task.id).filter(artifact => artifact.name === "present 文件正文") };
     };
     const file = await run({ path: "file.md" });
+    const { toolSchemas, systemPrompt } = h.runtime.store.listSelectionRecordsByTask(file.task.id)[0].estimates;
+    t.diagnostic(JSON.stringify({ toolSchemas, systemPrompt }));
     assert.equal(file.operation.isError, false); assert.equal(file.artifacts.length, 1);
     fs.writeFileSync(path.join(h.work[0], "file.md"), "之后版本");
     const captured = await h.client.request<{ data: string }>("read_artifact", { task_id: file.task.id, artifact_id: file.artifacts[0].id });
@@ -73,8 +87,15 @@ test("present 沿真实读取捕获当时文件和空文件，失败无预览结
     for (const input of [{ url: "javascript:alert(1)" }, { url: "https://user:secret@example.com" }, { url: "file:///tmp/file.md" }, { path: "file.md", url: "https://example.com" }, {}]) {
       assert.equal((await run(input)).error, true, JSON.stringify(input));
     }
-    assert.equal((await run({ url: "https://example.com/page" }, "confirm")).operation.isError, true);
-    assert.equal((await run({ url: "https://example.com/page" })).operation.isError, false);
+    for (const mode of ["confirm", "auto-review", "full_access", "plan"] as const) {
+      const preview = await run({ url: "https://example.com/page" }, mode);
+      assert.equal(preview.operation.isError, false, mode);
+      assert.equal(h.runtime.store.listConfirmationsByTask(preview.task.id).length, 0);
+      assert.ok(h.runtime.store.getEventsAfter(0).some(event => event.body.type === "task.tool_result" && event.body.toolOpId === preview.operation.id && !event.body.isError));
+      const record = h.runtime.store.listSelectionRecordsByTask(preview.task.id)[0];
+      const snapshot = JSON.parse(h.runtime.artifacts.read(record.promptArtifactId!, 0, 1024 * 1024).toString());
+      assert.match(JSON.stringify(snapshot.tools), /网页预览无需切换访问模式或逐次审批/);
+    }
     assert.match(output, /不代表页面已加载/);
     assert.ok(h.server.calls.some(request => request.tools?.some(tool => (tool.function as { name?: string } | undefined)?.name === "present")));
   } finally { await h.shutdown(); }

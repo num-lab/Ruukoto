@@ -72,7 +72,6 @@ export interface ToolRouterDeps {
   registry: ManagedProcessRegistry;
   verifyTask?: (task: Task) => string | null;
   resourceAvailable?: () => boolean;
-  presentUrlAllowed?: (task: Task) => boolean;
   onManagedIdentity?: () => void;
   /** 返回当前模式对应的工作进程启动器；未配置时抛 ExecutionError（不回退）。 */
   launcherFor: (mode: AccessMode) => WorkerLauncher;
@@ -375,6 +374,7 @@ export class ToolRouter {
   }
 
   // Note: 见 .agents/notes/implemented/feature/2026-10-25-code-present.md
+  // Note: 见 .agents/notes/implemented/feature/2026-10-25-present-preview-access.md
   private async present(input: RoutedCallInput): Promise<RoutedCallOutput> {
     const { path: filePath, url } = input.params;
     const validPath = typeof filePath === "string" && filePath.trim() !== "" && !filePath.includes("\0");
@@ -387,10 +387,8 @@ export class ToolRouter {
       try { address = new URL(url); }
       catch { return textResult("网页地址无效；请提供完整、无凭据的 HTTP(S) URL。", true); }
       if (!/^https?:\/\//i.test(url.trim()) || !["http:", "https:"].includes(address.protocol) || address.username || address.password) return textResult("网页预览只接受无凭据的 HTTP(S) URL。", true);
-      if (!this.deps.presentUrlAllowed?.(input.task)) return textResult("网页预览需要完全访问的拥有者会话；请向拥有者提供链接。", true);
-      const grant = await this.deps.approvals.request({ task: input.task, hostOpId: input.hostOpId, toolName: input.name, params: input.params,
-        scope: { kind: "tool", workspaceOnly: false }, signal: input.signal });
-      if (!grant.approved) return textResult(grant.text, true);
+      const task = this.deps.store.getTask(input.task.id);
+      if (!task || task.sessionId !== input.task.sessionId || task.status !== "running" || task.cancelRequested || input.signal?.aborted) return textResult("当前任务不可执行或不属于此会话，未登记预览；请结束本轮。", true);
     } else {
       const result = await this.executeCodingTool(input.task, input);
       if (result.isError) return result;
@@ -901,7 +899,7 @@ export function createCodingTools(router: ToolRouter): ToolDefinition[] {
   });
   const present = routedTool({
     name: "present", label: "present",
-    description: "在桌面来源会话侧栏预览文件或网页，只提供 path 或 url 之一。文件沿当前任务读取权限保存当时版本，支持 Markdown、UTF-8 文本和 PNG/JPEG/GIF/WebP；HTML 显示源码，PDF/SVG 不支持。网页只在完全访问的拥有者会话可用，站点禁止嵌入时无法显示。返回只证明请求已记录；无桌面连接仍可从工具记录重开。",
+    description: "在桌面来源会话侧栏预览文件或网页，只提供 path 或 url 之一。文件沿当前任务读取权限保存当时版本，支持 Markdown、UTF-8 文本和 PNG/JPEG/GIF/WebP；HTML 显示源码，PDF/SVG 不支持。网页预览无需切换访问模式或逐次审批，站点禁止嵌入时无法显示。返回只证明请求已记录；无桌面连接仍可从工具记录重开。",
     parameters: Type.Object({
       path: Type.Optional(Type.String({ minLength: 1, description: "文件相对当前工作目录或绝对路径，与 url 互斥；权限不足时向拥有者报告。" })),
       url: Type.Optional(Type.String({ minLength: 1, description: "完整、无凭据的 HTTP(S) URL，与 path 互斥。" })),

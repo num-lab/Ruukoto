@@ -14,7 +14,7 @@
 
 不负责的部分点名归属：安装与升级操作归[部署说明](../../deploy/systemd/README.md)，个人宿主业务归[个人持久会话](personal-durable.md)，Coding 的工具进程与原生策略归[执行边界](execution.md)。本篇持有 helper 协议及真实系统执行核实。旧服务工具、ApprovalGate 和共享 IM 账本不装配到新个人实例。
 
-**两个产品的原生前置**。Coding 默认且只接受 `native`，显式 container/local 覆盖被拒；个人 Linux 命令由停机菜单配置原生边界，原生执行使用宿主 Node、Git、Python 与编译器，`npm run build` 构建 worker，并在 macOS 用系统 clang 构建 `worker/native-macos-supervisor`。只读提供 SDK 和必要运行依赖，每单元独立 HOME/TMPDIR，不需要工具镜像。macOS 需要可用的 `sandbox-exec` 与 libproc 身份/原子信号能力；Linux 需要正式 `/usr/bin/bwrap`、允许 userns 的系统策略、cgroup v2 和可委派的 user scope。安装与检查步骤见 [deploy/native/README.md](../../deploy/native/README.md)，启动器不安装依赖、不调整系统策略。
+**两个产品的原生前置**。Coding 默认且只接受 `native`，显式 container/local 覆盖被拒；个人 Linux 命令由停机菜单配置原生边界，原生执行使用宿主 Node ≥24.15、Git、Python 与编译器，`npm run build` 构建 worker，并在 macOS 用系统 clang 构建 `worker/native-macos-supervisor`。只读提供 SDK 和必要运行依赖，每单元独立 HOME/TMPDIR，不需要工具镜像。macOS 需要可用的 `sandbox-exec` 与 libproc 身份/原子信号能力；Linux 需要正式 `/usr/bin/bwrap`、允许 userns 的系统策略、cgroup v2 和可委派的 user scope。安装与检查步骤见 [deploy/native/README.md](../../deploy/native/README.md)，启动器不安装依赖、不调整系统策略。
 
 ## 对外接口
 

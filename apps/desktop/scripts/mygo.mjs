@@ -22,7 +22,7 @@ try {
   execFileSync("go", ["version"], { stdio: "pipe" });
   fs.mkdirSync(output, { recursive: true });
   vendorTerminal(output);
-  await bundle({ entryPoints: [path.join(desktop, "src/mygo/sidecar.ts")], outfile: path.join(output, "sidecar.mjs"), bundle: true, platform: "node", format: "esm", target: "node22.19", plugins: [{ name: "terminal-runtime", setup: build => build.onResolve({ filter: /^node-pty$/ }, () => ({ path: TERMINAL_MODULE, external: true })) }], define: { __RUUKOTO_REPOSITORY__: JSON.stringify(repository) } });
+  await bundle({ entryPoints: [path.join(desktop, "src/mygo/sidecar.ts")], outfile: path.join(output, "sidecar.mjs"), bundle: true, platform: "node", format: "esm", target: "node24.15", plugins: [{ name: "terminal-runtime", setup: build => build.onResolve({ filter: /^node-pty$/ }, () => ({ path: TERMINAL_MODULE, external: true })) }], define: { __RUUKOTO_REPOSITORY__: JSON.stringify(repository) } });
   await buildRenderer({
     configFile: false,
     root: path.join(desktop, "src/renderer"),
@@ -39,6 +39,6 @@ try {
     child.on("exit", code => { process.exitCode = code ?? 1; });
   }
 } catch (error) {
-  process.stderr.write(`[ruukoto:desktop] MyGo 构建或启动失败：${error instanceof Error ? error.message : String(error)} 请确认 Go ≥ 1.27.1 与 Node ≥ 22.19 可用。\n`);
+  process.stderr.write(`[ruukoto:desktop] MyGo 构建或启动失败：${error instanceof Error ? error.message : String(error)} 请确认 Go ≥ 1.27.1 与 Node ≥ 24.15 可用。\n`);
   process.exitCode = 1;
 }

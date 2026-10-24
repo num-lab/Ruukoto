@@ -20,6 +20,6 @@
     "@ruukoto/runtime": "*"
   },
   "engines": {
-    "node": ">=22.19"
+    "node": ">=24.15"
   }
 }

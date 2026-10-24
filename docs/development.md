@@ -79,7 +79,7 @@ pre-commit 依次执行暂存内容的行尾检查与 `npm run check:static`：`
 
 CI 设置 `ELECTRON_SKIP_BINARY_DOWNLOAD=1`，只检查桌面类型、lint 与纯逻辑，不下载或运行 Electron。
 
-CI 在 macOS / Linux × Node 22.19 / 24.15 四组环境执行 `npm run setup -- --skip-hooks` 与 `npm run check`，覆盖最低与开发版本。CI 先安装 rg；Linux 另准备[原生前提](../deploy/native/README.md)，核实 namespace 与可委派 user scope。CI 不装提交钩子；Python/PTY 缺失即失败，不跳过终端用例。钩子与 CI 共用根目录命令。
+CI 在 macOS / Linux 两组环境固定 Node 24.15.0，每个 job 最多 90 分钟，执行 `npm run setup -- --skip-hooks` 与 `npm run check`，覆盖当前最低运行版本。CI 先安装 rg；Linux 另准备[原生前提](../deploy/native/README.md)，核实 namespace 与可委派 user scope。CI 不装提交钩子；Python/PTY 缺失即失败，不跳过终端用例。钩子与 CI 共用根目录命令。
 
 `worker/` 由构建生成，QuickJS core 与 release-sync WASM 由 agent 包锁版；`node_modules/` 由锁文件安装。个人命令与检索的定向测试见上表链接的检查集；测试前运行 `npm run build:worker`，真实 Linux 停止另行验收。数据库、令牌和凭据留在产品档案，不入工作树；测试用临时档案。开发实例的隔离与执行后端见 [README](../README.md#开发本项目)。
 

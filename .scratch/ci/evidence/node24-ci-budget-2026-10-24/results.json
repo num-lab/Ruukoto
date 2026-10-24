@@ -1,0 +1,50 @@
+{
+  "base": "947bba81",
+  "node": "24.15.0",
+  "results": {
+    "versions": {
+      "sha256": "fc91bc40379b9538ccef97a3a6eefb55aa1f3c341da4c9fe430e26e9ce9e13ac",
+      "tests": "62",
+      "pass": "62",
+      "fail": "0",
+      "skipped": "0",
+      "duration_ms": "3226.937958"
+    },
+    "runtime": {
+      "sha256": "df0adc4b3408829906f30b3c9998d4637ef3d4bbace80b7dac0688f565579906",
+      "tests": "62",
+      "pass": "62",
+      "fail": "0",
+      "skipped": "0",
+      "duration_ms": "5748.110542"
+    },
+    "desktop": {
+      "sha256": "cc914214397fc22530b8e643521c8ecbe27286a7dbede7a34414c157c3491ed6",
+      "tests": "20",
+      "pass": "20",
+      "fail": "0",
+      "skipped": "0",
+      "duration_ms": "4439.383417"
+    },
+    "foundation": {
+      "sha256": "7f8d0aae25b6b19b976bf148f1550f57074e068031b6d27e4294dfcf0cd650bb",
+      "tests": "8",
+      "pass": "7",
+      "fail": "0",
+      "skipped": "1",
+      "duration_ms": "2051.278833"
+    },
+    "build": {
+      "sha256": "b9fd5092fc3b53ae968136201096c0129c7844a5da440b069a82055e324abc6e"
+    },
+    "mygo-build": {
+      "sha256": "e34918a3b0a44bd53410a2ac102d79af7654a9a70248d30bf792a46bfd7524c7"
+    },
+    "static": {
+      "sha256": "127245ec0bec1df1ae0131f46752a30847fc31fd91933c5861a94ef4432ebaa2"
+    },
+    "docs": {
+      "sha256": "48b04d99f2ad50d2853dbc25027244398154ebff7301fb049f4c7d60460f5cef"
+    }
+  }
+}

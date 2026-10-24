@@ -10,12 +10,12 @@ permissions:
 jobs:
   check:
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    # Note: 见 .agents/notes/implemented/testing/2026-10-24-node24-ci-budget.md
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-24.04, macos-15]
-        node: [22.19.0, 24.15.0]
     env:
       ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
     steps:
@@ -25,7 +25,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: ${{ matrix.node }}
+          node-version: 24.15.0
           cache: npm
           cache-dependency-path: |
             package-lock.json

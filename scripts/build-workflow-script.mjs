@@ -12,7 +12,7 @@ await build({
   bundle: true,
   format: "esm",
   platform: "node",
-  target: "node22.19",
+  target: "node24.15",
   outfile: "worker/workflow-script.mjs",
 });
 fs.copyFileSync(requireAgent.resolve("@jitl/quickjs-wasmfile-release-sync/wasm"), new URL("../worker/workflow-script.wasm", import.meta.url));

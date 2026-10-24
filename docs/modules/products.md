@@ -29,7 +29,7 @@ Coding bin 固定产品身份，向共享 CLI 传入 `CliProduct`，并向 `Runt
 
 **启动。** 个人入口使用已配置模型打开唯一 Harness；运行中菜单仅经本机认证接口管理，离线配置持实例锁。认证令牌逐启动生成，完整写入私有临时文件后替换，坏旧令牌仍拒绝启动。Coding 入口按能力声明选择 native 与导入方向，装配 Runtime、控制面与客户端。日常个人后台独立于菜单，开发进程拥有其后台生命周期。
 
-**构建。** 根构建生成共享 `worker/worker.mjs`、自包含的 `worker/personal-command-worker.mjs`、工作流脚本及平台产物，再生成两个 app 的 npm tarball。个人命令 worker 不依赖 Pi SDK，运行依赖从构建制品解析；Coding worker 保留原 SDK 与依赖。tarball 交付源码、bin 和依赖声明，安装仍需要完整 workspace、根 worker 与宿主工具链，不是独立发行版。
+**构建。** 两个产品的宿主最低为 Node 24.15，包声明与开发环境检查使用同一版本门槛。根构建生成共享 `worker/worker.mjs`、自包含的 `worker/personal-command-worker.mjs`、工作流脚本及平台产物，再生成两个 app 的 npm tarball。个人命令 worker 不依赖 Pi SDK，运行依赖从构建制品解析；Coding worker 保留原 SDK 与依赖。tarball 交付源码、bin 和依赖声明，安装仍需要完整 workspace、根 worker 与宿主工具链，不是独立发行版。
 
 ## 不变量与失败处理
 

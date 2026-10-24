@@ -6,7 +6,7 @@
 
 两个产品的文件检索需要宿主预先安装 ripgrep（`rg`）并加入 PATH；`npm run setup` 会检查，工具调用不下载。缺失时返回 `file_search_unavailable`，安装后重新提交任务。
 
-开发与离线检查需要 Node ≥ 22.19、Git、ripgrep（`rg`）、Bash 和支持 PTY 的 Python 3，使用 macOS 或 Linux 的普通用户账户。两个产品的受限执行均使用原生沙箱与宿主工具链，无需 Docker：macOS 构建需 Command Line Tools 的 Clang，Linux 前置见[原生沙箱部署](../deploy/native/README.md)。个人 Agent 面向 Linux 常驻服务，另需运行账户的 user manager 与 linger 配置。
+开发与离线检查需要 Node ≥ 24.15、Git、ripgrep（`rg`）、Bash 和支持 PTY 的 Python 3，使用 macOS 或 Linux 的普通用户账户。两个产品的受限执行均使用原生沙箱与宿主工具链，无需 Docker：macOS 构建需 Command Line Tools 的 Clang，Linux 前置见[原生沙箱部署](../deploy/native/README.md)。个人 Agent 面向 Linux 常驻服务，另需运行账户的 user manager 与 linger 配置。
 
 ```bash
 npm run setup       # 按两份锁文件安装依赖、检查前提并安装轻量提交钩子
@@ -660,7 +660,7 @@ Coding 只读 `RUUKOTO_CODE_{DATA,AGENT,CONTROL,PENDING}_DIR`，令牌可由 `RU
 
 ## 12. 浏览器
 
-Coding 完全访问的普通开发会话可直接调用 `browser` 打开网页、操作表单和看截图。其他模式、Plan、SubAgent、定时、工作流和 GitHub 评审不开放。先在运行后台的机器准备 [agent-browser v0.39.1 官方原生资产](https://github.com/vercel-labs/agent-browser/releases/tag/v0.39.1)及可运行的 Chromium；无需安装要求 Node ≥24 的 npm wrapper，宿主继续支持 Node 22.19/24。程序按官方 SHA-256 和版本核实；准备缺失只使浏览器不可用，模型任务不自动安装或提权。
+Coding 完全访问的普通开发会话可直接调用 `browser` 打开网页、操作表单和看截图。其他模式、Plan、SubAgent、定时、工作流和 GitHub 评审不开放。先在运行后台的机器准备 [agent-browser v0.39.1 官方原生资产](https://github.com/vercel-labs/agent-browser/releases/tag/v0.39.1)及可运行的 Chromium；宿主直接使用该原生资产，无需安装 npm wrapper。程序按官方 SHA-256 和版本核实；准备缺失只使浏览器不可用，模型任务不自动安装或提权。
 
 个人入口使用[浏览器配置向导](#25-个人-agent-引导与管理)保存路径和窗口选择；完全访问主输入及创建时已开放该能力的完全访问定时计划使用各自独立浏览器，子 Agent 和汇总不开放。它不读取下面的 Coding 变量，产物从向导导出。
 

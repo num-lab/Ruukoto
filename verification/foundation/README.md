@@ -1,5 +1,7 @@
 # 阶段 0 基础验证（issue 01）
 
+运行要求 Node ≥24.15，与根工作区的支持范围一致。
+
 验证 pi（`@earendil-works/pi-coding-agent` 0.85.1）的公开 API：并发会话、完整磁盘历史、可控模型上下文、工具与扩展，以及 Linux 受限执行边界。本目录是验证脚手架；关键结论与复跑入口保存在下文，阶段 0 的完整本地调查记录位于`.scratch/personal-agent/foundation-findings.md`。
 
 模型服务复用仓库内的 `test/helpers/mock-provider.ts`。使用完整仓库，以下命令均在仓库根目录运行；环境、提交钩子与全部检查入口见 [开发说明](../../docs/development.md)。

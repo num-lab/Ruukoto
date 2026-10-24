@@ -157,10 +157,16 @@ test("仓库缺失与 node 不可用显示可操作错误，关闭期间不再�
   const f = fixture();
   try {
     const oldNode = path.join(f.dir, "node");
-    fs.writeFileSync(oldNode, `#!/bin/sh
-printf '\\000RUUKOTO_DESKTOP\\000%s\\000END\\000' '{"env":{},"node":"/old/node","version":"20.0.0"}'
+    for (const version of ["22.19.0", "22.99.0", "24.14.9", "invalid", "24.15.0", "25.0.0"]) {
+      fs.writeFileSync(oldNode, `#!/bin/sh
+printf '\\000RUUKOTO_DESKTOP\\000%s\\000END\\000' '${JSON.stringify({ env: {}, node: oldNode, version })}'
 `, { mode: 0o755 });
-    await assert.rejects(selectEnvironment({ PATH: f.dir, RUUKOTO_DESKTOP_MANAGED: "1" }), (error: unknown) => error instanceof DesktopError && error.code === "node_unavailable" && error.message.includes("版本过旧"));
+      for (const env of [{ PATH: f.dir, RUUKOTO_DESKTOP_MANAGED: "1" }, { PATH: f.dir, SHELL: oldNode }]) {
+        const select = () => selectEnvironment(env);
+        if (["24.15.0", "25.0.0"].includes(version)) assert.equal((await select()).node, oldNode);
+        else await assert.rejects(select, (error: unknown) => error instanceof DesktopError && error.code === "node_unavailable" && error.message.includes("24.15"));
+      }
+    }
     adoptEnvironment(f.env);
     let release!: (result: { ok: true; spawned: boolean }) => void;
     let starts = 0;

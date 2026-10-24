@@ -5,6 +5,9 @@
   "type": "module",
   "description": "Ruukoto 桌面客户端",
   "main": "out/main/index.js",
+  "engines": {
+    "node": ">=24.15"
+  },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "desktop:build": "electron-vite build && node scripts/check-build.mjs && electron-builder --mac --arm64 --dir",

@@ -27,9 +27,13 @@
     "@ruukoto/channels": "*",
     "@ruukoto/core": "*",
     "tsx": "4.23.13",
-    "typebox": "1.0.12"
+    "typebox": "1.0.12",
+    "ws": "8.21.3"
   },
   "engines": {
     "node": ">=24.15"
+  },
+  "devDependencies": {
+    "@ruukoto/view": "*"
   }
 }

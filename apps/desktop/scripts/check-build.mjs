@@ -35,10 +35,11 @@ function checkHtml(file) {
   visit(document);
 }
 
-function checkJavaScript(file, preload) {
+function checkJavaScript(file, preload, mainDir) {
   const source = ts.createSourceFile(file, fs.readFileSync(file, "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
   const checkModule = (node) => {
-    if (!node || !ts.isStringLiteralLike(node) || (node.text !== "electron" && !isBuiltin(node.text) && !(!preload && node.text === TERMINAL_MODULE))) {
+    const internal = node && ts.isStringLiteralLike(node) && !preload && node.text.startsWith("./") && path.dirname(path.resolve(path.dirname(file), node.text)) === mainDir && /\.js$/.test(node.text) && fs.existsSync(path.resolve(path.dirname(file), node.text)) && fs.lstatSync(path.resolve(path.dirname(file), node.text)).isFile();
+    if (!node || !ts.isStringLiteralLike(node) || (!internal && node.text !== "electron" && !isBuiltin(node.text) && !(!preload && node.text === TERMINAL_MODULE))) {
       fail(`${file} 含有未打包的依赖；外部引用只允许 electron、Node 内置模块与指定终端运行依赖。`);
     }
   };
@@ -84,7 +85,7 @@ export function checkBuild(outDir = fileURLToPath(new URL("../out", import.meta.
       if (file === path.join(outDir, "main/vendor")) continue;
       if (entry.isDirectory()) checked += checkMain(file);
       else if (/\.(?:c|m)?js$/.test(entry.name)) {
-        checkJavaScript(file, false);
+        checkJavaScript(file, false, path.join(outDir, "main"));
         checked++;
       } else if (/\.(?:c|m)?tsx?$/.test(entry.name)) fail("main 产物含未打包的 TypeScript 源码。");
     }

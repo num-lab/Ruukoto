@@ -3,6 +3,8 @@ package main
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -18,17 +20,22 @@ const maxFrameBytes = 16 * 1024 * 1024
 // Note: 见 .agents/notes/implemented/architecture/2026-10-17-desktop-mygo-experiment.md
 // 已写入管道的请求无法推断是否执行；传输失败不能降为 not_sent 或自动重放。
 type sidecar struct {
-	mu       sync.Mutex
-	writeMu  sync.Mutex
-	eventMu  sync.Mutex
-	stdin    io.WriteCloser
-	cmd      *exec.Cmd
-	next     uint64
-	pending  map[uint64]*pendingCall
-	closed   bool
-	stopping bool
-	done     chan struct{}
-	onEvent  func(json.RawMessage)
+	mu                sync.Mutex
+	writeMu           sync.Mutex
+	eventMu           sync.Mutex
+	stdin             io.WriteCloser
+	cmd               *exec.Cmd
+	next              uint64
+	pending           map[uint64]*pendingCall
+	closed            bool
+	stopping          bool
+	done              chan struct{}
+	onEvent           func(json.RawMessage)
+	credentials       credentialStore
+	generation        string
+	credentialLast    uint64
+	credentialPending int
+	credentialWG      sync.WaitGroup
 }
 
 type pendingCall struct {
@@ -52,7 +59,17 @@ func disconnected() json.RawMessage {
 	return failure("bridge_disconnected", "disconnected", "MyGo 连接已关闭；请重新打开应用，原操作结果仍需核实。")
 }
 
-func startSidecar(cmd *exec.Cmd, onEvent func(json.RawMessage)) (*sidecar, error) {
+func startSidecar(cmd *exec.Cmd, onEvent func(json.RawMessage), stores ...credentialStore) (*sidecar, error) {
+	var credentials credentialStore
+	var generation string
+	if len(stores) != 0 {
+		credentials = stores[0]
+		bytes := make([]byte, 16)
+		if _, err := rand.Read(bytes); err != nil {
+			return nil, err
+		}
+		generation = hex.EncodeToString(bytes)
+	}
 	input, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -68,7 +85,7 @@ func startSidecar(cmd *exec.Cmd, onEvent func(json.RawMessage)) (*sidecar, error
 		output.Close()
 		return nil, err
 	}
-	s := &sidecar{stdin: input, cmd: cmd, pending: make(map[uint64]*pendingCall), done: make(chan struct{}), onEvent: onEvent}
+	s := &sidecar{stdin: input, cmd: cmd, pending: make(map[uint64]*pendingCall), done: make(chan struct{}), onEvent: onEvent, credentials: credentials, generation: generation}
 	go func() {
 		s.read(output)
 		output.Close()
@@ -77,6 +94,9 @@ func startSidecar(cmd *exec.Cmd, onEvent func(json.RawMessage)) (*sidecar, error
 		}
 		close(s.done)
 	}()
+	if credentials != nil {
+		s.writePrivate(map[string]any{"kind": "credential_ready", "v": 1, "generation": generation})
+	}
 	return s, nil
 }
 
@@ -88,6 +108,12 @@ func (s *sidecar) read(output io.Reader) {
 		var message wireMessage
 		if json.Unmarshal(data, &message) != nil {
 			break
+		}
+		if message.Kind == "credential_request" {
+			if !s.receiveCredential(data) {
+				break
+			}
+			continue
 		}
 		if message.Kind == "result" && message.ID != 0 && len(message.Result) != 0 {
 			s.mu.Lock()
@@ -218,6 +244,7 @@ func (s *sidecar) call(ctx context.Context, method string, args ...any) json.Raw
 }
 
 func (s *sidecar) close() {
+	defer s.credentialWG.Wait()
 	s.mu.Lock()
 	s.stopping = true
 	s.mu.Unlock()
@@ -244,6 +271,7 @@ func (s *sidecar) close() {
 	select {
 	case <-s.done:
 	case <-time.After(time.Second):
-		os.Stderr.WriteString("[ruukoto:desktop] MyGo 子进程仍未退出；请检查仍运行的进程。\n")
+		os.Stderr.WriteString("[ruukoto:desktop] MyGo 子进程仍未核实退出，实例锁继续保留；请检查仍运行的进程。\n")
+		<-s.done
 	}
 }

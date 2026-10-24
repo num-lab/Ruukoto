@@ -46,7 +46,7 @@ export class SettingsState {
     if (category) this.navigate(() => { this.category = category; });
     this.changed();
   }
-  scope(code: CodeState, personal: CodeState): SettingsScope {
+  scope(code: CodeState, personal: { view: { instanceId: string | null } }): SettingsScope {
     const selection = this.selections[this.category as ManagedSettingsCategory] ?? this.selections.models;
     const instanceId = (selection.target === "code" ? code : personal).view.instanceId;
     return { target: selection.target, instanceId };
@@ -55,8 +55,8 @@ export class SettingsState {
   accepts(ticket: number): boolean { return this.open && ticket === this.generation; }
   private invalidate(): void { ++this.generation; this.form?.invalidate(); }
   observe(target: DesktopTarget, update: DesktopUpdate): void {
-    if (target === "personal" || !this.open || !["models", "skills", "mcp"].includes(this.category) || this.selections[this.category as ManagedSettingsCategory].target !== target) return;
-    if (update.type !== "snapshot" && !(update.type === "state" && update.state !== "online")) return;
+    if (!this.open || !["models", "skills", "mcp"].includes(this.category) || this.selections[this.category as ManagedSettingsCategory].target !== target) return;
+    if (update.type !== "snapshot" && update.type !== "personal_identity" && !(update.type === "personal_frame" && update.frame.type === "snapshot") && !(update.type === "state" && update.state !== "online")) return;
     this.invalidate();
     this.changed();
   }

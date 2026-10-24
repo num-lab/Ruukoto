@@ -17,8 +17,26 @@ interface Observation {
 // Note: 见 .agents/notes/proposed/architecture/2026-10-15-desktop-client.md
 export class DesktopNotifications {
   private readonly targets = new Map<DesktopTarget, Observation>();
+  private personalInstance: string | null = null;
+  private personalRemoteId: string | null = null;
+  private readonly personalSeen = new Map<string, Set<string>>();
+  private readonly personalCounts = new Map<string, number>();
+  private personalEntries = new Set<number>();
   constructor(private readonly focused: () => boolean, private readonly show: (notice: DesktopNotice) => void, private readonly badge: (count: number) => void, private readonly query: (target: DesktopTarget, taskId: string) => Promise<OpResult<"get_task">>) {}
   update(target: DesktopTarget, update: DesktopUpdate): void {
+    if (target === "personal") {
+      if (update.type === "personal_identity" && this.personalInstance !== update.identity.remoteId + update.identity.profile.id) {
+        this.personalInstance = update.identity.remoteId + update.identity.profile.id; this.personalRemoteId = update.identity.remoteId; this.personalSeen.clear(); this.personalCounts.clear(); this.personalEntries.clear(); this.updateBadge();
+      }
+      if (update.type === "personal_frame") {
+        if (update.frame.type === "snapshot") this.personalEntries = new Set(update.frame.timeline.items.map(entry => entry.entry));
+        else for (const event of update.frame.events) if ((event.type === "message_end" || event.type === "entry_appended") && event.entry.role === "assistant" && !this.personalEntries.has(event.entry.entry)) {
+          this.personalEntries.add(event.entry.entry);
+          this.personalNotice(this.personalRemoteId ?? update.frame.runId, String(event.entry.entry), "回答已更新", "点击查看个人 Agent 的主会话。");
+        }
+      }
+      return;
+    }
     if (update.type !== "snapshot" && update.type !== "event") return;
     let observation = this.targets.get(target);
     if (update.type === "snapshot") {
@@ -44,7 +62,24 @@ export class DesktopNotifications {
       }
       this.scan(target, observation, silent);
     }
-    this.badge([...this.targets.values()].reduce((count, item) => count + item.view.pendingApprovals().length, 0));
+    this.updateBadge();
+  }
+  private updateBadge(): void { this.badge([...this.targets.values()].reduce((count, item) => count + item.view.pendingApprovals().length, 0) + [...this.personalCounts.values()].reduce((a, b) => a + b, 0)); }
+  private personalNotice(instanceId: string, taskId: string, title: string, body: string): void {
+    if (this.focused()) return;
+    try { this.show({ target: "personal", instanceId, sessionId: "main", taskId, title: `Personal · ${title}`, body }); }
+    catch { process.stderr.write("[ruukoto:desktop] 系统通知未送达；请检查系统通知设置。\n"); }
+  }
+  personalPending(instanceId: string, route: string, value: unknown): void {
+    const pathname = route.split("?")[0];
+    if (!["/questions", "/tools/operations", "/mcp/operations", "/app-data/operations", "/services"].includes(pathname) || !value || typeof value !== "object" || !("items" in value) || !Array.isArray(value.items)) return;
+    const previous = this.personalSeen.get(pathname), current = new Set<string>();
+    for (const item of value.items) if (item && typeof item === "object" && (item.status === "pending" || item.approval === "pending" || item.decision === "pending")) {
+      const id = String(item.id ?? item.operation ?? item.service);
+      current.add(id);
+      if (previous && !previous.has(id)) this.personalNotice(instanceId, `${pathname}:${id}`, pathname === "/questions" ? "待回答问题" : "待处理审批", "点击查看原请求与可用操作。");
+    }
+    this.personalSeen.set(pathname, new Set([...(previous ?? []), ...current])); this.personalCounts.set(pathname, current.size); this.updateBadge();
   }
   private notice(target: DesktopTarget, observation: Observation, sessionId: string, taskId: string, title: string, body: string, silent: boolean): void {
     if (silent || this.focused()) return;

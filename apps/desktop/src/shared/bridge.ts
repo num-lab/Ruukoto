@@ -7,6 +7,7 @@ import type { PendingRequest } from "@ruukoto/control/pending-requests.ts";
 import type { OwnerQuestionCancelOutcome, OwnerQuestionCancelReconcileOutcome } from "@ruukoto/control/owner-question-cancel.ts";
 import type { ReconcileOutcome, SubmitOutcome } from "@ruukoto/control/submission.ts";
 import type { OpResult } from "@ruukoto/control/ops.ts";
+import type { PersonalDesktopFrame, PersonalRemoteIdentity, PersonalPendingInput, PersonalInputReceipt } from "./personal-desktop.ts";
 
 export type DesktopAttachment = AttachmentMetadata;
 
@@ -31,6 +32,9 @@ export type DesktopResult<T> = { ok: true; value: T } | { ok: false; error: Desk
 export interface DesktopNavigation { sessionId: string; taskId: string }
 export type DesktopUpdate =
   | DesktopTerminalUpdate
+  | { type: "personal_frame"; frame: PersonalDesktopFrame }
+  | { type: "personal_identity"; identity: PersonalRemoteIdentity }
+  | { type: "personal_pending"; record: PersonalPendingInput | null; result?: PersonalInputReceipt }
   | { type: "navigate"; instanceId: string; navigation: DesktopNavigation }
   | { type: "state"; state: ConnectionState; detail?: string; error?: DesktopFailure; recovery?: string[] }
   | { type: "snapshot"; result: ConnectResult; instanceChanged: boolean }

@@ -1,0 +1,8 @@
+{
+  "acceptDns": false,
+  "testAppsRunning": false,
+  "isolatedUserDataExists": false,
+  "electronKeychainItemAbsent": true,
+  "mygoKeychainItemAbsent": true,
+  "appArtifactsRetainedForReview": true
+}

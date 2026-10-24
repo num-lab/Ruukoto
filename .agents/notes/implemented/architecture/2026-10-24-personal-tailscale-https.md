@@ -1,14 +1,14 @@
 # Agent Note: Personal 通过 Tailscale Serve 统一桌面聊天与设置连接
 
-Status: proposed
+Status: implemented
 
 ## 问题
 
-拥有者于 2026-10-24 要求「将 pa 旧连接删除，改用 Tailscale + HTTPS／WebSocket」，本轮交付方案。现有桌面旧聊天经 SSH 使用共享控制协议，正式个人后台已改为 durable；模型、Skills、MCP 则使用另一条有效的 SSH 管理连接。只替换旧聊天的 socket 不能接上新后台，直接删除所有 SSH 又会丢掉设置停存启。实施入口、确认范围与验收证据由[工单](../../../../.scratch/personal-tailscale/issues/01-migration-plan.md)持有。
+拥有者要求将 PA 聊天和设置的两条 SSH 连接统一为 Tailscale HTTPS／WebSocket。个人后台由 durable 持有会话，旧聊天使用共享控制协议，设置又依赖独立 SSH 停存启；只替换 socket 不能接上新后台，删除传输也不能丢失设置维护。实施入口、确认范围与验收证据由[工单](../../../../.scratch/personal-tailscale/issues/01-migration-plan.md)持有。
 
-## 方案
+## 决定
 
-将 PA 聊天和设置接到同一个 tailnet 内的 HTTPS 地址，HTTPS 承载查询与写入，WSS 只推送状态和消息事件。Code 继续使用原控制面；PA 直接消费 durable 的事实，不构造旧 Runtime 的任务和事件。拥有者于 2026-10-24 确认统一 PA 聊天与设置、删除两条 SSH 连接，并仅在自己的 tailnet 内单拥有者使用；本轮交付方案。
+PA 聊天和设置使用同一个 tailnet 内的 HTTPS 地址，HTTPS 承载查询与写入，WSS 只推送状态和消息事件。Code 继续使用原控制面；PA 直接消费 durable 的事实，不构造旧 Runtime 的任务和事件。拥有者于 2026-10-24 确认统一 PA 聊天与设置、删除两条 SSH 连接，并仅在自己的 tailnet 内单拥有者使用。
 
 ### 连接与部署
 
@@ -31,7 +31,7 @@ Tailscale Serve 负责 tailnet 内 HTTPS、证书与反向代理，禁止 Funnel
 
 拥有者于2026-10-24确认「Tailscale 加独立应用凭据，保留应用级隔离」。网络规则、Serve拥有者身份与应用凭据三者同时成立才允许业务请求及WS Upgrade；不提供仅凭Tailscale身份的降级入口。凭据按每个桌面安装独立生成，Electron与MyGo不共享一把秘密。它隔离同一获准设备上未持凭据的网络程序，包括能自定义HTTP头的Coding宿主调用；不承诺抵御宿主注入、内存读取、用户主动放行其他应用读取钥匙串或完整账户控制。
 
-Tailscale grants/ACL 只允许拥有者设备访问 PA 节点的 TCP 443；合并策略时核对既有广泛 allow，不能把新增窄规则当成覆盖规则。远程入口对每个 HTTP 请求及 WS Upgrade 验证 Serve 注入的固定 `Tailscale-User-Login`，不使用显示名称或头像。身份缺失、与部署配置不符、带 tag 而没有用户身份的客户端均拒绝；共享节点的其他用户不自动取得拥有者权限。服务器本身可带 tag，桌面来源使用拥有者的用户身份。
+Tailscale grants/ACL 限制访问来源为拥有者用户设备，PA 的 Serve 仅发布 TCP 443。拥有者将原全网 grant 的 src 改为固定用户，保留其他用途所需的 dst/ip；合并策略须核对其他广泛 allow，窄规则不会覆盖既有放行。远程入口对每个 HTTP 请求及 WS Upgrade 验证 Serve 注入的固定 `Tailscale-User-Login`，不使用显示名称或头像。身份缺失、与部署配置不符、带 tag 而没有用户身份的客户端均拒绝；共享节点的其他用户不自动取得拥有者权限。服务器本身可带 tag，桌面来源使用拥有者的用户身份。
 
 身份头只可信于root管理的Serve到私有socket这条路径。其安全前提是服务器root与PA运行账户已经属于可信域；服务器上的同账户完全访问任务本就能读取本机控制令牌，不额外承诺抵御该权限。若未来要求隔离能够以PA账户任意执行的服务器代码，需另行调整OS身份与权限，不能只再加一个该账户可读取的token。[官方身份头说明](https://tailscale.com/docs/features/tailscale-serve#identity-headers)明确Serve会替换客户端伪造头，tagged来源不带用户头，而共享用户也可能带有效用户头。
 
@@ -45,7 +45,7 @@ Tailscale grants/ACL 只允许拥有者设备访问 PA 节点的 TCP 443；合�
 
 remote实例身份在拥有者显式初始化认证状态时随机生成并持久保存，与规范origin、owner、档案身份及格式版本同属认证状态；remote进程或个人后台重启不改变它。没有状态、状态损坏或版本不支持时，业务入口关闭，不自动建空状态或丢弃旧凭据；本机管理入口只提供诊断与显式初始化/恢复，不能绕过坏状态重新开放。重建已丢失的状态属于显式重新安装，产生新remote身份，旧绑定及凭据不会继承。
 
-默认没有配对窗口。拥有者在服务器向导选择开启后，remote生成12位随机base32配对码，5分钟有效，同一时刻只有一个窗口，全部来源累计最多5次错误兑换；到期、取消或次数耗尽即关闭，重启也使未完成窗口失效。窗口固定原origin、remote实例身份、档案及owner，配对码只展示给本机向导，不写日志或URL。窗口摘要、错误次数和凭据记录在同一个私有认证状态文件中原子提交，写入失败停止接纳认证相关操作，不能报告成功。短码是一次授予能力，应保密；知道短码的获准进程仍可能抢先兑换，本方案不宣称能抵御配对码泄露。
+默认没有配对窗口。拥有者在服务器向导选择开启后，remote生成12位随机base32配对码，5分钟有效，同一时刻只有一个窗口，全部来源累计最多5次错误兑换；到期、取消或次数耗尽即关闭，重启也使未完成窗口失效。窗口固定原origin、remote实例身份、档案及owner，配对码只展示给本机向导，不写日志或URL。窗口摘要、错误次数和凭据记录在同一个私有认证状态文件中原子提交，写入失败停止接纳认证相关操作，不能报告成功。短码是一次授予能力，应保密；知道短码的获准进程仍可能抢先兑换，该设计不宣称能抵御配对码泄露。
 
 桌面选择“配对”后，Node宿主生成凭据ID与256位随机秘密，先将候选凭据成功保存并读回核实，再发出唯一允许未登记候选凭据的 `POST /pair`。请求携带用户输入的短码、候选Authorization及固定配对参数；仍验证Serve拥有者身份、origin和无Origin，且不得访问任何业务处理。秘密由程序管理，不显示给用户或renderer。候选记录不覆盖原active凭据；安全存储失败时不发兑换请求。
 
@@ -57,7 +57,7 @@ remote在同一串行提交中验证并消费配对窗口、登记active凭据�
 
 `DesktopHost` 注入内部的读取/保存/删除窄接口，业务连接仍由共用Node宿主持有；renderer只调用配对、连接、断开等业务动作并获取非秘密状态，不能指定任意钥匙串service/account、请求返回秘密或创建通用凭据读写桥。短码作为一次性表单输入在提交后清空；长期凭据不经过 `DesktopBridge`、preload、通知或界面事件。
 
-Electron复用当前44.7.2已经具备的 `safeStorage` 异步接口，等app ready后调用。加密密钥存于macOS Keychain，凭据及绑定信息的密文存于应用私有0600文件，经原子保存和读回解密确认；不是把凭据条目直接存入Keychain，也不自写加密。`decryptStringAsync` 的临时不可用、重加密提示与损坏分别处理，重加密成功前不覆盖原密文。平台语义及现有接口见[固定版本官方说明](https://github.com/electron/electron/blob/v44.7.2/docs/api/safe-storage.md)。
+Electron复用当前44.7.2已经具备的 `safeStorage` 异步接口，等app ready后调用。加密密钥存于macOS Keychain，凭据及绑定信息的密文存于应用私有0600文件，经原子保存和读回解密确认；不是把凭据条目直接存入Keychain，也不自写加密。该版本的SDK解密失败只给普通Error，不能按结构化属性区分临时不可用与密文损坏；两者统一保留原密文并停止认证，不解析message或当作缺失重配。`shouldReEncrypt` 与可独立校验的本机载荷损坏分别处理，重加密成功前不覆盖原密文。平台语义及接口见[固定版本官方说明](https://github.com/electron/electron/blob/v44.7.2/docs/api/safe-storage.md)与[实现](https://github.com/electron/electron/blob/v44.7.2/shell/browser/api/electron_api_safe_storage.cc)。
 
 MyGo在Go主进程内增加薄的Security.framework适配，使用登录用户Keychain的generic-password及应用访问控制；不增加通用凭据依赖、命令行security调用或可被任意程序执行的读密钥helper，不把通用Node程序列为钥匙串可信应用。凭据服务名固定为本应用，查找键由宿主绑定推导，不启用跨应用共享或iCloud同步；当前ad-hoc构建不假定拥有data-protection Keychain所需的entitlement，见[Apple Keychain说明](https://developer.apple.com/documentation/technotes/tn3137-on-mac-keychains)。
 
@@ -67,7 +67,7 @@ Go与Node仅在既有私有管道新增专用凭据请求/应答帧，分别关�
 
 受信外壳不能充当任意程序取密钥的跳板。Electron生产构建使用现有electron-builder的 `electronFuses` 关闭RunAsNode、NODE_OPTIONS和Node调试入口，开启ASAR完整性校验与仅从ASAR加载；生产入口在读取凭据前拒绝远程调试参数及外部renderer地址，不让 `ELECTRON_RENDERER_URL` 等开发覆盖载入任意页面。开发/测试构建使用独立命名空间与测试凭据，不读取生产配对；这些选项的作用见[固定版本fuses说明](https://github.com/electron/electron/blob/v44.7.2/docs/tutorial/fuses.md)。
 
-MyGo启动sidecar前验证本应用签名及资源完整性，`launch.json`随签名资源记录固定Node规范路径与构建时摘要；Node变更须重建，不能按可编辑路径改跑任意程序。只启动已核实的sidecar及随应用签名的依赖，清除Node预加载、调试、模块搜索、动态加载、TLS降级和外部测试入口等注入环境，固定参数并禁用SIGUSR1开启调试；基线Node22.19已提供[对应参数](https://nodejs.org/download/release/v22.19.0/docs/api/cli.html#--disable-sigusr1)。两壳的 `host.getEnvironment`/`environment.adoptEnvironment` 同样不能把登录环境中的注入或TLS降级变量重新带回凭据宿主；Code后台及终端需要的原环境沿各自显式参数传递，不能用破坏其启动配置换取宿主清洗。启动校验失败不读钥匙串；生产构建不从环境改userData或加载未核实代码。两壳真实验收必须证明通用Node/security/另一应用未经用户授权不能取密钥，RunAsNode/调试/替换资源不能借已授权外壳取得凭据；单测与codesign命令通过不能代替这一项。
+MyGo启动sidecar前验证本应用签名及资源完整性，`launch.json`随签名资源记录固定Node规范路径与构建时摘要；Node变更须重建，不能按可编辑路径改跑任意程序。只启动已核实的sidecar及随应用签名的依赖，清除Node预加载、调试、模块搜索、动态加载、TLS降级和外部测试入口等注入环境，固定参数并禁用SIGUSR1开启调试；基线Node22.19已提供[对应参数](https://nodejs.org/download/release/v22.19.0/docs/api/cli.html#--disable-sigusr1)。两壳的 `host.getEnvironment`/`environment.adoptEnvironment` 同样不能把登录环境中的注入或TLS降级变量重新带回凭据宿主；Code后台及终端需要的原环境沿各自显式参数传递，不能用破坏其启动配置换取宿主清洗。启动校验失败不读钥匙串；生产构建不从环境改userData或加载未核实代码。MyGo的ESM sidecar打包后仅为Node内置模块提供require；ws等已打包依赖不能借可选原生扩展向应用外加载代码，真实bundle管道回归同时核实可启动与外部模块拒绝。两壳真实验收必须证明通用Node/security/另一应用未经用户授权不能取密钥，RunAsNode/调试/替换资源不能借已授权外壳取得凭据；单测与codesign命令通过不能代替这一项。
 
 ### 撤销、重配与在途操作
 
@@ -91,11 +91,11 @@ remote检测到owner、origin或档案身份与持久绑定不同，先关闭业
 
 对外只放行桌面实际使用的路由、HTTP 方法和 settings op，不透明暴露全部本机管理接口，尤其不把本机导出路径或通用 `/stop` 直接作为远程能力。后台仍验证业务输入、来源、修订与权限；远程入口认证不替代业务授权。写请求绑定握手核实的原档案，后台运行代次变化淘汰在途 UI 结果，档案变化停止采用旧草稿、选项及请求。
 
-WSS 复用本地已安装 `pi-durable@1.3.0` 的 `watchEvents`：快照与后续提交订阅原子捕获，积压时上游替换为新快照。该接口标记 experimental，适配集中在个人 app；只投影桌面所需的消息、工具、队列和运行状态，不直接把原生全量 entries 作为网络首帧。网络投影带运行代次和单次订阅内顺序，发现缺口或溢出重新同步；顺序不持久化，也不是跨重启恢复游标。已完成正文通过 entry 引用和分页读取，超长实时工具输出有界并明确可补读的位置。宿主业务状态（如未决审批与问题）若不在 AgentEvent 中，以已有查询重新读取，不能声称 watchEvents 覆盖一切。
+WSS 复用本地已安装 `pi-durable@1.3.0` 的 `watchEvents`：快照与后续提交订阅原子捕获，积压时上游替换为新快照。该接口标记 experimental，适配集中在个人 app；只投影桌面所需的消息、工具、队列和运行状态，不直接把原生全量 entries 作为网络首帧。纯浏览器可用的PA协议类型唯一放在 `packages/view/src/personal-protocol.ts`，个人app仅以开发类型依赖消费，桌面沿已有view依赖消费，不让桌面直接依赖产品包。网络投影带运行代次和单次订阅内顺序，发现缺口或溢出重新同步；顺序不持久化，也不是跨重启恢复游标。已完成正文通过 entry 引用和分页读取，超长实时工具输出有界并明确可补读的位置。宿主业务状态（如未决审批与问题）若不在 AgentEvent 中，以已有查询重新读取，不能声称 watchEvents 覆盖一切。
 
 未决业务状态在首次连接、重连、相关事件和页面重新可见时查询；在线且存在运行或未决工作时，以有界间隔补查，最多一个同类在途查询，退出或断线停止定时器。由此覆盖工具停在审批、没有后续模型事件的情况，通知沿现有偏好消费实际查询结果。动作按后台来源与状态分别核实：IM 问题可由 local 查询或取消，但回答仍回原平台；不能把“不能代答/代批”扩大为隐藏所有可用操作。
 
-HTTP 沿用 128 KiB 请求、256 KiB 响应预算，较大内容分页；输入仍按既有 16 KiB 限制。WS 建议单帧至多 256 KiB、单连接待发送至多 1 MiB，超限关闭观察流并要求快照恢复，不删除消息或阻塞模型执行；分页快照须固定同一订阅切点。30 秒心跳、10 秒无响应关闭，普通断线从 0.5 秒退避至最多 8 秒并带抖动，配置变化、关闭与明确认证/协议拒绝终止重试。复用已安装 `ws`，消费包声明自己的依赖；不写 WebSocket 实现。
+HTTP 沿用 128 KiB 请求、256 KiB 响应预算，较大内容分页；输入仍按既有 16 KiB 限制。WS 单帧至多 256 KiB、单连接待发送至多 1 MiB，超限关闭观察流并要求快照恢复，不删除消息或阻塞模型执行；分页快照须固定同一订阅切点。30 秒心跳、10 秒无响应关闭，普通断线从 0.5 秒退避至最多 8 秒并带抖动，配置变化、关闭与明确认证/协议拒绝终止重试。复用已安装 `ws`，消费包声明自己的依赖；不写 WebSocket 实现。
 
 连接断开先停止所属原生订阅并释放缓冲，只结束观察。后台停止先拒绝新 Upgrade、停止全部订阅并关闭已升级 socket，再等待在途 HTTP handler、关闭 Harness 和释放档案锁；不能只调用 HTTP `server.close()` 就认为 WS 已关闭。远程入口退出同样回收代理两端的流，但不把观察端关闭转换成取消后台工作；有已接纳维护时，进程停止后按持久阶段核实，不静默声称流程完成。
 
@@ -121,9 +121,9 @@ HTTP 沿用 128 KiB 请求、256 KiB 响应预算，较大内容分页；输入�
 
 ### 桌面呈现与删除范围
 
-Electron 与 MyGo 共用 Node 宿主的一个 PA 连接管理器，renderer 仍经既有桥调用。`DesktopUpdate` 增加可辨别的 PA 数据类型，PA 状态投影从 `CodeState` 分离；复用消息、工具和设置的展示组件，不将 durable 数字身份包装成旧数据库对象。设置页只保留一个 PA 地址与连接状态；离线仍可编辑地址，连接成功后核实身份再保存绑定，普通用户无需填写远端目录、Node、程序、服务名或令牌。
+Electron 与 MyGo 共用 Node 宿主的一个 PA 连接管理器，renderer 仍经既有桥调用。`DesktopUpdate` 增加可辨别的 PA 数据类型，PA 状态投影从 `CodeState` 分离；复用消息、工具和设置的展示组件，不将 durable 数字身份包装成旧数据库对象。同档案完整设置读取按在途promise合并，完成或失败即释放；切页时旧动画panel重挂载的读取不能使新页误报管理忙，其他查询和维护写入继续互斥。设置页只保留一个 PA 地址与连接状态；离线仍可编辑地址，连接成功后核实身份再保存绑定，普通用户无需填写远端目录、Node、程序、服务名或令牌。
 
-拥有者于2026-10-24确认首版交付文本聊天、完整历史、实时工具状态、提问/审批、工作管理与全部现有设置；旧附件上传、Continue、Context和会话级模型菜单另排。首版据此覆盖当前新PA的文本主会话、分页历史、实时文字/工具活动、输入接纳与结果核实，以及模型/Skills/MCP完整设置维护。审批与提问按既有来源资格展示：桌面只操作原本允许local拥有者处理的事项；原IM平台绑定的批准不能因共享主会话被桌面代批。后台工作取消按durable工作语义接线，不能拿后台 `/stop` 充当停止回答。现有个人接口没有主Submission停止入口，本方案首版暂不新增；它与后台工作取消不同，用户回答未单独指定新增该能力。旧专属功能在PA页面不显示无对应入口，Code保留；PA原本就不支持Plan，不把它记录为此次删除的能力。需要权限选择时仅按现有 `/permissions` 的入口默认权限呈现，不伪造Code会话模式。
+拥有者于2026-10-24确认首版交付文本聊天、完整历史、实时工具状态、提问/审批、工作管理与全部现有设置；旧附件上传、Continue、Context和会话级模型菜单另排。首版据此覆盖当前新PA的文本主会话、分页历史、实时文字/工具活动、输入接纳与结果核实，以及模型/Skills/MCP完整设置维护。审批与提问按既有来源资格展示：桌面只操作原本允许local拥有者处理的事项；原IM平台绑定的批准不能因共享主会话被桌面代批。后台工作取消按durable工作语义接线，不能拿后台 `/stop` 充当停止回答。现有个人接口没有主Submission停止入口，首版不新增；它与后台工作取消不同，用户回答未单独指定新增该能力。旧专属功能在PA页面不显示无对应入口，Code保留；PA原本就不支持Plan，不把它记录为此次删除的能力。需要权限选择时仅按现有 `/permissions` 的入口默认权限呈现，不伪造Code会话模式。
 
 迁移删除旧 `PersonalController` 的共享控制协议接线、PA 专用 SSH 进程/转发/读取令牌代码，以及设置控制器的 SSH 执行和程序检测。Code/TUI 仍使用的 control、pending、恢复和投影保留。新地址配置不从 SSH host 猜出 ts.net 域名；已有 `personal.json`、`personal-settings.json` 与旧待核实文件留在原处，停止加载为新连接，不覆盖、移动、删除或自动导入。旧聊天未决不转为 durable 输入。各桌面 Host 负责读取自己应用目录中的旧维护记录，部署切换前关闭全部旧客户端并核对未决清单；服务器不能证明所有桌面都没有本地 journal。旧设置未决必须先沿原身份核实或在服务器人工核实，未解决时阻止该桌面切换维护关联；用户可用服务器管理入口核实，不保留隐蔽 SSH 回退。
 
@@ -131,14 +131,14 @@ Electron 与 MyGo 共用 Node 宿主的一个 PA 连接管理器，renderer 仍�
 
 | 既有决定 | 分类与处理 |
 | --- | --- |
-| [桌面客户端](2026-10-15-desktop-client.md) | 部分重叠；本提案拟取代 PA SSH 和不做 WS 的范围，Code、宿主隔离与输入恢复保留；互链 |
+| [桌面客户端](../../proposed/architecture/2026-10-15-desktop-client.md) | 部分重叠；取代 PA SSH 和不做 WS 的范围，Code、宿主隔离与输入恢复保留；互链 |
 | [个人本机管理](../../implemented/architecture/2026-10-17-personal-local-management.md) | 部分重叠；本机仍为私有 Unix HTTP，增加独立远程入口；单 Harness、锁与本机令牌保持；互链 |
-| [Personal SSH 设置](../../implemented/feature/2026-10-21-personal-settings-ssh.md) | 部分重叠；拟取代桌面 SSH 与本机维护阶段归属，原服务、修订和未知效果规则保留；互链 |
-| [Personal 页面](../../implemented/feature/2026-10-21-desktop-personal-pages.md)与[设置规划](../feature/2026-10-21-desktop-settings-management.md) | 部分重叠；保留真实字段、版本与来源，拟统一连接并增加 durable 聊天；互链 |
+| [Personal SSH 设置](../../implemented/feature/2026-10-21-personal-settings-ssh.md) | 部分重叠；取代桌面 SSH 与本机维护阶段归属，原服务、修订和未知效果规则保留；互链 |
+| [Personal 页面](../../implemented/feature/2026-10-21-desktop-personal-pages.md)与[设置规划](../../proposed/feature/2026-10-21-desktop-settings-management.md) | 部分重叠；保留真实字段、版本与来源，统一连接并增加 durable 聊天；互链 |
 | [MyGo外壳](../../implemented/architecture/2026-10-17-desktop-mygo-experiment.md) | 部分重叠；共用Host与私有管道保留，新增仅宿主之间的凭据帧及Go钥匙串适配；互链 |
-| 个人设置机器入口、正式个人入口、后台与终端、双产品、渐进交互、执行/IM/工具笔记 | 仅复用各自持有的协议、生命周期和权限，本提案不改其业务决定；不复制正文 |
+| 个人设置机器入口、正式个人入口、后台与终端、双产品、渐进交互、执行/IM/工具笔记 | 仅复用各自持有的协议、生命周期和权限，该决定不改其业务决定；不复制正文 |
 
-没有完全吸收或需归档的笔记。当前代码尚未迁移，旧篇决定正文保留，增加的是待实施关系，不能把本提案写成已生效事实。旧桌面规格 R15/R20 与非目标中的 SSH/不做 WS 要在实施交接时标明 PA 范围被新工单取代。
+没有完全吸收或需归档的笔记。旧篇的独立决定保留，在入口标明被取代的 PA 连接范围；旧桌面与设置规格保留历史验收，明确 HTTPS/WSS 决定取代其 SSH 和不做 WS 的限制。
 
 ## 备选方案
 
@@ -151,14 +151,16 @@ Electron 与 MyGo 共用 Node 宿主的一个 PA 连接管理器，renderer 仍�
 - 给旧 ControlConnection 加 WebSocket transport：可保留 renderer；正式 PA 没有旧协议的 Task/快照语义，会形成兼容层并重新引入旧运行模型，因此选择原生 PA 投影。
 - 新建持久事件序号与重放库：支持按游标精确补增量；现有原子快照与事件订阅足以恢复桌面，额外账本形成第二份权威，暂不选。快照大小成为实际瓶颈时先收窄投影与分页。
 
-## 验收标准
+## 验证
 
-工单中的每项验收要有最窄回归与必要真实环境证据：拥有者加有效应用凭据可连，仅有正确Tailscale身份、非拥有者、伪造头或恶意网页不可连；配对先安全保存、消费与登记原子，丢答不换凭据；撤销关闭旧流且不取消已接纳工作；真实双壳隔离秘密并拒绝启动注入；双壳显示同一新PA主会话；断线不断任务、不重发输入与批准；大历史和慢消费者可恢复；后台重启与本机token轮换可重新连接；原systemd停存启可核实；所有PA SSH运行入口删除，Code/TUI正常；原档案和旧未决记录保留。
+离线回归覆盖认证原子提交、撤销墓碑、候选配对恢复、HTTP/WS准入、历史分页、快照切点、慢消费者、维护原键回执和双壳私有帧。真实 tailnet 已证明默认系统TLS、Serve覆盖伪造身份头、私有socket及WSS；隔离Linux systemd完成13项停存启、断线、崩溃和启动失败核实。真实Host与renderer状态闭环完成文本流、最终正文、统一设置连接和Code隔离；两个隔离签名桌面应用均已通过真实安全存储配对、聊天与退出重开，服务器确认每条标记输入仅执行一次。各项证据与未覆盖范围由工单持有，mock模型不代替真实模型或IM验收。
 
-阶段 0 必须实际证明选定 Tailscale 版本的 Serve→私有 socket→HTTP/1.1 WebSocket Upgrade、身份头与权限、策略撤销、重启恢复和证书链。源码与模拟通过不能代替这一项。部署切换前再验真实 Linux systemd、Electron 与 MyGo；缺少前提保持待验收。
+## 后果
 
-## 风险
+桌面只需一个地址，服务器持有维护全过程，观察断线不取消已接纳工作。配对候选和原请求保留关联，恢复不换键；认证状态和维护账本增加私有落盘、独占锁与故障恢复责任。两条PA SSH运行入口删除，旧配置与未决记录原地保留，生产切换仍须核对全部旧客户端。
 
-新依赖是 Tailscale 的节点身份、策略、DNS、证书与 Serve 运行状态，另增加一个单档案远程入口进程及维护记录。HTTPS 证书的主机名会进入公开证书透明度日志，部署选择不含敏感信息的名称；这不代表服务公开到互联网，见[官方 HTTPS 说明](https://tailscale.com/docs/how-to/set-up-https-certificates)。
+新增依赖是Tailscale的节点身份、策略、DNS、证书与Serve状态，以及单档案remote进程。HTTPS证书主机名进入公开证书透明度日志，应采用不含敏感信息的节点名；这不代表公开服务，见[官方HTTPS说明](https://tailscale.com/docs/how-to/set-up-https-certificates)。测试机器关闭Tailscale DNS时曾得到198.18.x.x地址，启用后恢复正常，运行前须核实实际解析。
 
-原生事件接口仍为experimental，且自带快照不等于有界桌面历史；若没有投影、分页与慢消费者负例，长会话会成为交付缺口。需要多用户、浏览器/手机，或抵御宿主代码执行、内存读取与完整账户控制时，必须重审身份和来源契约，不能扩写几条allow即宣称支持。应用凭据已覆盖同用户未持凭据的网络程序；真实双壳的钥匙串隔离、受信启动和ad-hoc更新授权仍须实施验收，不能把本方案当作现有制品已具备这些保证。
+原生事件接口仍为experimental，投影、分页和有界队列负责限制网络与桌面内存。支持多用户、浏览器/手机，或抵御宿主代码执行、内存读取与完整账户控制时，须重审身份和来源规则。
+
+Keychain锁定/拒绝/损坏与完整更新授权矩阵、非拥有者或tagged来源、实际策略/设备撤销及整机重启仍有未验范围，不能由单测、签名校验或局部存储探针代替。实现已落地不等于工单验收或生产部署通过。

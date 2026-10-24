@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "description": "Ruukoto 桌面客户端",
-  "main": "out/main/index.js",
+  "main": "out/main/bootstrap.js",
   "engines": {
     "node": ">=24.15"
   },
@@ -58,10 +58,23 @@
       "!out/mygo/**/*"
     ],
     "npmRebuild": false,
-    "asarUnpack": ["**/*.node", "**/spawn-helper"],
+    "asarUnpack": [
+      "**/*.node",
+      "**/spawn-helper"
+    ],
     "mac": {
       "identity": "-",
       "category": "public.app-category.developer-tools"
+    },
+    "electronFuses": {
+      "runAsNode": false,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "enableEmbeddedAsarIntegrityValidation": true,
+      "onlyLoadAppFromAsar": true
     }
+  },
+  "dependencies": {
+    "ws": "8.21.3"
   }
 }

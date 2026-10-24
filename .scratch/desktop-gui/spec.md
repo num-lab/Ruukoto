@@ -1,5 +1,7 @@
 # 桌面客户端规格
 
+2026-10-24 PA范围取代关系：[Tailscale HTTPS/WSS迁移](../personal-tailscale/issues/01-migration-plan.md)持有当前聊天、设置、配对与双壳验收；本规格R3/R15/R19/R20及相关R2/R4/R16/R17中的PA旧控制面、SSH、凭据不持久化、旧投影和依赖声明要求，以及“范围外”的PA WebSocket限制均以新工单为准。Code与未冲突的宿主隔离要求保留；以下原文及原验收证据作为历史基线，不用于验收新PA。
+
 本规格的依据：2026-10-14 至 2026-10-15，拥有者在 grilling 会话中逐轮确认了四轮共 22 题（第一轮 6 题、第二轮 5 题、第三轮 7 题、第四轮 4 题，全部按推荐答案），最后对完整结论清单答复“确认”。理由与被否方案见[决策笔记](../../.agents/notes/proposed/architecture/2026-10-15-desktop-client.md)，实施入口是 [issues](issues/)。界面参考 [ui-demo.html](ui-demo.html)；demo 里的数据和功能本身不构成要求，以本规格为准。
 
 ## 目标与术语

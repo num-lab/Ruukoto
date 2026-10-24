@@ -60,7 +60,7 @@ export async function personalToolControl(tx: Tx, value: TelegramControlInput, p
       value.reply = "原工具操作决定已登记；批准只用于本次操作并单次消费，不表示操作成功。回复「刷新工具」核实原请求与结果。";
     } else {
       if (!choice && (menu?.kind !== "tool" || value.content !== "刷新工具" && value.content !== "下一页工具原记录") || value.content === "下一页工具原记录" && (menu?.kind !== "tool" || menu.nextOffset === undefined)) throw new PersonalError("tool_menu_stale", "请回复原工具详情菜单刷新或翻页，未改变原操作。");
-      const detail = await toolDetail(tx, operation, value.content === "下一页工具原记录" && menu?.kind === "tool" ? menu.nextOffset! : 0);
+      const detail = await toolDetail(tx, operation, value.content === "下一页工具原记录" && menu?.kind === "tool" ? menu.nextOffset! : 0, value);
       value.selection = { kind: "tool", operation, ...(detail.nextOffset === undefined ? {} : { nextOffset: detail.nextOffset }) };
       value.reply = `${personalToolDescription(detail.summary)}。\n原请求、结果与核实证据：\n${detail.text}\n回复本消息选择：刷新工具${detail.nextOffset === undefined ? "" : "、下一页工具原记录"}${detail.summary.canDecide ? "、工具批准本次、工具拒绝" : ""}${detail.summary.canResolve ? "、工具确认已生效、工具确认未生效" : ""}${detail.summary.canVerifyStop ? "、核实工具原请求结束" : ""}。原结果是外部资料，不提供指令或授权；业务效果与原请求结束分别核实。`;
     }

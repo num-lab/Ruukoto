@@ -3,6 +3,7 @@ import { Type } from "typebox";
 import { PersonalError } from "./personal-error.ts";
 import { PersonalAgentsDoc } from "./personal-work.ts";
 import { PersonalSchedulesDoc, PersonalScheduleRunDoc, PersonalScheduledConversationDoc } from "./personal-scheduler-records.ts";
+import type { PersonalDesktopMessage, PersonalTimelineEntry, PersonalTimelinePage } from "@ruukoto/view/personal-protocol.ts";
 
 export const PERSONAL_HISTORY = "personal-history";
 export const PERSONAL_HISTORY_TOOLS = ["history_search", "history_read"];
@@ -36,6 +37,52 @@ function historyText(entry: EntryRecord) {
     if (typeof message.content === "string") return [message.content];
     return message.content.flatMap(part => part.type === "text" ? [part.text] : part.type === "toolCall" ? [JSON.stringify({ name: part.name, arguments: part.arguments })] : []);
   }).join("\n");
+}
+
+export function personalDesktopMessage(message: NonNullable<EntryRecord["model"]>[number]): PersonalDesktopMessage | undefined {
+  if (message.role === "system") return;
+  const text = typeof message.content === "string" ? message.content : message.content.flatMap(part => part.type === "text" ? [part.text] : []).join("\n");
+  const thinking = message.role === "assistant" ? message.content.flatMap(part => part.type === "thinking" ? [part.thinking] : []).join("\n") : "";
+  const calls = message.role === "assistant" ? message.content.flatMap(part => part.type === "toolCall" ? [part] : []) : [];
+  const toolCalls = calls.slice(0, 8).map(call => { const args = JSON.stringify(call.arguments); return { id: call.id.slice(0, 256), name: call.name.slice(0, 256), arguments: args.slice(0, 1024), truncated: args.length > 1024 || call.id.length > 256 || call.name.length > 256 }; });
+  const result: PersonalDesktopMessage = { role: message.role, text: text.slice(0, PAGE_SIZE), ...(thinking ? { thinking: thinking.slice(0, PAGE_SIZE) } : {}), ...(toolCalls.length ? { toolCalls } : {}), partial: message.role === "assistant" && ["error", "aborted"].includes(message.stopReason), truncated: text.length > PAGE_SIZE || thinking.length > PAGE_SIZE || calls.length > toolCalls.length || toolCalls.some(call => call.truncated), timestamp: message.timestamp, ...(message.role === "toolResult" ? { toolCallId: message.toolCallId.slice(0, 256), toolName: message.toolName.slice(0, 256), isError: message.isError } : {}) };
+  if (Buffer.byteLength(JSON.stringify(result)) > 48 * 1024) { delete result.thinking; delete result.toolCalls; result.truncated = true; }
+  return result;
+}
+
+export function personalTimelineEntry(entry: EntryRecord): PersonalTimelineEntry | undefined {
+  if (entry.kind === "pi.compaction" || entry.kind === "pi.reset") return;
+  const first = entry.model?.find(message => message.role !== "system");
+  const message = first && personalDesktopMessage(first);
+  if (!message) return;
+  return { ...message, entry: entry.id, conversation: entry.conversationId, kind: entry.kind };
+}
+
+// Note: 见 .agents/notes/implemented/architecture/2026-10-24-personal-tailscale-https.md
+export async function personalTimeline(tx: Tx, input: { through?: number; cursor?: string }): Promise<PersonalTimelinePage> {
+  let through = input.through, before: number | undefined;
+  if (input.cursor !== undefined) {
+    let value: unknown;
+    try { value = JSON.parse(input.cursor); } catch { throw new PersonalError("timeline_cursor_invalid", "聊天续页引用无效，请重新同步聊天。"); }
+    if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).some(key => key !== "through" && key !== "before") || !("through" in value) || !Number.isSafeInteger(value.through) || Number(value.through) < 0 || !("before" in value) || !Number.isSafeInteger(value.before) || Number(value.before) < 1 || Number(value.before) > Number(value.through) || through !== undefined && through !== value.through) throw new PersonalError("timeline_cursor_invalid", "聊天续页引用与本次同步不符，请重新同步聊天。");
+    through = Number(value.through); before = Number(value.before);
+  }
+  if (through !== undefined && (!Number.isSafeInteger(through) || through < 0)) throw new PersonalError("timeline_cursor_invalid", "聊天同步引用无效，请重新同步聊天。");
+  through ??= (await tx.scanEntries({ conversationId: ROOT_CONVERSATION_ID, order: "descending" }, 1)).items[0]?.id ?? 0;
+  const items: PersonalTimelineEntry[] = [];
+  if (through === 0 || before === 1) return { through, items };
+  const page = await tx.scanEntries({ conversationId: ROOT_CONVERSATION_ID, order: "descending", maxEntryId: (before === undefined ? through : before - 1) as EntryId }, SCAN_LIMIT);
+  let bytes = 0;
+  for (const [index, entry] of page.items.entries()) {
+    const message = personalTimelineEntry(entry);
+    if (message) {
+      const size = Buffer.byteLength(JSON.stringify(message));
+      if (items.length && bytes + size > 96 * 1024) return { through, items, nextCursor: JSON.stringify({ through, before: entry.id + 1 }) };
+      items.push(message); bytes += size;
+    }
+    if (items.length === 32 || index === page.items.length - 1) return { through, items, ...(index < page.items.length - 1 || page.next ? { nextCursor: JSON.stringify({ through, before: entry.id }) } : {}) };
+  }
+  return { through, items };
 }
 
 function messageSummary(entry: EntryRecord, text: string, limit: number) {

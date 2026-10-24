@@ -7,7 +7,8 @@ import { adoptEnvironment, codeTargetConfig, DesktopError, selectEnvironment } f
 import { handleRequest, ipcResult } from "./ipc.ts";
 import { BrowserDocuments } from "./browser-documents.ts";
 import { PersonalController } from "./personal-controller.ts";
-import { loadPersonalConfig, savePersonalConfig, loadPersonalManagementConfig, savePersonalManagementConfig, validatePersonalManagementConfig, PERSONAL_PROGRAMS } from "./personal-config.ts";
+import { loadPersonalConfig, savePersonalConfig, personalOrigin, legacyPersonalMaintenance, acknowledgeLegacyPersonalMaintenance } from "./personal-config.ts";
+import type { PersonalCredentialStorage } from "./personal-credentials.ts";
 import { PersonalSettingsController } from "./personal-settings-controller.ts";
 import { DesktopNotifications, type DesktopNotice } from "./notifications.ts";
 import { pickAttachments, stageAttachments } from "./attachments.ts";
@@ -21,6 +22,7 @@ export interface DesktopPlatform {
   focused(): boolean;
   notice(notice: DesktopNotice): void;
   badge(count: number): void;
+  credentials?: PersonalCredentialStorage;
 }
 
 // Note: 见 .agents/notes/implemented/architecture/2026-10-17-desktop-mygo-experiment.md
@@ -34,9 +36,6 @@ export class DesktopHost {
   private personalInitialization: Promise<void> | null = null;
   private personalGeneration = 0;
   private personalSettings: PersonalSettingsController | null = null;
-  private settingsGeneration = 0;
-  private settingsInitialization: Promise<PersonalSettingsController> | null = null;
-  private readonly settingsProbes = new Set<PersonalSettingsController>();
   private closing: Promise<void> | null = null;
   private readonly subscribed = new Set<DesktopTarget>();
   private readonly lastState: Record<DesktopTarget, DesktopUpdate> = { code: { type: "state", state: "connecting" }, personal: { type: "state", state: "closed", detail: "尚未配置 Personal 连接" } };
@@ -59,7 +58,7 @@ export class DesktopHost {
     this.browserDocuments = new BrowserDocuments([userData]);
     this.terminals = new TerminalManager(terminalFactory, update => this.platform.publish("code", update));
     this.notificationState = new DesktopNotifications(platform.focused, platform.notice, platform.badge, (target, taskId) => {
-      const source = target === "code" ? this.controller : this.personal;
+      const source = target === "code" ? this.controller : null;
       if (!source) throw new ControlClientError("connection_unavailable", "连接不可用", "not_sent");
       return source.request("get_task", { task_id: taskId });
     });
@@ -106,7 +105,8 @@ export class DesktopHost {
     if (this.personalInitialization && !replace) return this.personalInitialization;
     const generation = ++this.personalGeneration;
     const previous = this.personalInitialization;
-    const closing = this.personal?.close();
+    const closing = Promise.all([this.personal?.close(), this.personalSettings?.close()]);
+    this.personalSettings = null;
     this.personalInitialization = (async () => {
       try {
         await closing;
@@ -114,9 +114,8 @@ export class DesktopHost {
         if (this.closing || generation !== this.personalGeneration) return;
         const config = loadPersonalConfig(this.userData);
         if (!config) return;
-        const source = await this.getEnvironment();
         if (this.closing || generation !== this.personalGeneration) return;
-        this.personal = new PersonalController(config, this.userData, update => { if (generation === this.personalGeneration) this.publish("personal", update); }, source.env);
+        this.personal = new PersonalController(config, this.userData, update => { if (generation === this.personalGeneration) this.publish("personal", update); }, this.platform.credentials);
         await this.personal.reconnect();
       } catch (error) { if (generation === this.personalGeneration && !this.closing) this.publish("personal", { type: "state", state: "failed", error: serializeFailure(error) }); }
     })().finally(() => { if (generation === this.personalGeneration) this.personalInitialization = null; });
@@ -150,51 +149,7 @@ export class DesktopHost {
     else this.navigation.set(notice.target, update);
   }
   request(target: unknown, op: unknown, params: unknown) {
-    if (typeof op === "string" && op.startsWith("desktop_personal_management_") || typeof op === "string" && op.startsWith("desktop_personal_settings_")) return ipcResult(async () => {
-      if (target !== "personal") throw new DesktopError("op_not_allowed", "个人设置管理仅向 PA 开放。");
-      if (!params || typeof params !== "object" || Array.isArray(params)) throw new DesktopError("invalid_params", "请选择有效的设置操作。");
-      if (this.closing) throw new DesktopError("management_closed", "设置宿主已关闭，请重新打开应用核实原服务。");
-      const input = params as Record<string, unknown>;
-      if (op === "desktop_personal_management_config_save") {
-        const config = validatePersonalManagementConfig(input, this.userData);
-        const previous = loadPersonalManagementConfig(this.userData);
-        const original = this.personalSettings ?? (previous ? new PersonalSettingsController(previous, this.userData) : null);
-        if (previous && JSON.stringify(config) !== JSON.stringify(previous) && original?.hasPendingOperation()) throw new DesktopError("maintenance_pending", "原管理连接仍有待核实维护，未更改连接；请先核实原配置与服务并结束维护。");
-        const generation = ++this.settingsGeneration;
-        await Promise.all([this.personalSettings?.close(), ...[...this.settingsProbes].map(probe => probe.close())]);
-        if (this.closing || generation !== this.settingsGeneration) throw new DesktopError("management_changed", "设置连接已变化，本次未保存，请读取当前连接配置。");
-        this.personalSettings = null; this.settingsInitialization = null;
-        return savePersonalManagementConfig(this.userData, config);
-      }
-      // Note: 见 .agents/notes/implemented/feature/2026-10-21-personal-settings-ssh.md
-      if (op === "desktop_personal_management_detect") {
-        const generation = this.settingsGeneration;
-        const source = await this.getEnvironment();
-        if (this.closing || generation !== this.settingsGeneration) throw new DesktopError("management_changed", "检测所属连接已变化，请重新检测。");
-        const found: string[] = [];
-        let firstFailure: unknown;
-        for (const program of PERSONAL_PROGRAMS) {
-          const config = validatePersonalManagementConfig({ ...input, program }, this.userData);
-          const probe = new PersonalSettingsController(config, this.userData, source.env);
-          this.settingsProbes.add(probe);
-          try { await probe.probe(); found.push(program); }
-          catch (error) { firstFailure ??= error; }
-          finally { await probe.close(); this.settingsProbes.delete(probe); }
-          if (this.closing || generation !== this.settingsGeneration) throw new DesktopError("management_changed", "检测所属连接已变化，请重新检测。");
-        }
-        if (!found.length && firstFailure !== undefined) throw firstFailure;
-        return found;
-      }
-      if (Object.keys(input).length !== (op === "desktop_personal_settings_request" || op === "desktop_personal_settings_apply" ? 1 : 0) || (op === "desktop_personal_settings_request" || op === "desktop_personal_settings_apply") && !("request" in input)) throw new DesktopError("invalid_params", "设置操作参数无效，请重新读取原配置。");
-      if (op === "desktop_personal_management_config_read") return loadPersonalManagementConfig(this.userData);
-      const allowed = ["desktop_personal_settings_read", "desktop_personal_settings_request", "desktop_personal_settings_apply", "desktop_personal_settings_restore", "desktop_personal_settings_finish"];
-      if (!allowed.includes(op)) throw new DesktopError("op_not_allowed", "此设置管理操作尚未开放。");
-      const generation = this.settingsGeneration;
-      const controller = await this.getPersonalSettings();
-      const result = op === "desktop_personal_settings_read" ? await controller.read() : op === "desktop_personal_settings_request" ? await controller.request(input.request) : op === "desktop_personal_settings_apply" ? await controller.apply(input.request) : op === "desktop_personal_settings_restore" ? await controller.restore() : await controller.finish();
-      if (generation !== this.settingsGeneration || this.closing) throw new ControlClientError("management_changed", "设置连接已变化，请重新核实原档案与维护记录。", "unknown");
-      return result;
-    });
+    if (target === "personal" && op !== "desktop_browser_open" && op !== "desktop_browser_release") return this.personalRequest(op, params);
     if (op === "desktop_skill_import") return ipcResult(() => {
       if (target !== "code") throw new DesktopError("op_not_allowed", "本机技能导入只向 Code 开放。");
       if (!params || typeof params !== "object" || Array.isArray(params) || Object.keys(params).length !== 1 || !("selection_id" in params)) throw new DesktopError("invalid_params", "请确认本次系统选择的技能目录。");
@@ -215,37 +170,76 @@ export class DesktopHost {
       throw new DesktopError("invalid_params", "本地预览参数无效，请重新打开文档。");
     });
     return handleRequest(target, op, params, () => target === "personal" ? this.reconnectPersonal() : this.reconnect(), (op, params) => {
-      if (target === "personal") {
-        if (!this.personal) throw new ControlClientError("connection_unavailable", "连接不可用：请求未发送", "not_sent");
-        return this.personal.dispatch(op, params);
-      }
       if (!this.controller) throw new ControlClientError("connection_unavailable", "连接不可用：请求未发送", "not_sent");
       return this.controller.dispatch(op, params);
     }, (op, params) => {
       if (op !== "desktop_pending_read" && op !== "desktop_pending_clear") return this.terminalRequest(op, params);
-      const source = target === "personal" ? this.personal : this.controller;
+      const source = this.controller;
       if (!source?.submissions) throw new DesktopError("connection_unavailable", "请等待连接恢复后再处理原输入。");
       return source.submissions.local(op, params);
-    }, async (op, params) => {
-      if (op === "desktop_personal_config_read") return loadPersonalConfig(this.userData);
-      const config = savePersonalConfig(this.userData, params);
-      await this.reconnectPersonal(true);
-      return config;
     });
   }
-  private getPersonalSettings(): Promise<PersonalSettingsController> {
-    if (this.personalSettings) return Promise.resolve(this.personalSettings);
-    if (this.settingsInitialization) return this.settingsInitialization;
-    const generation = this.settingsGeneration;
-    this.settingsInitialization = (async () => {
-      const config = loadPersonalManagementConfig(this.userData);
-      if (!config) throw new DesktopError("management_unconfigured", "请先在 PA 远程连接中配置设置管理连接。");
-      const source = await this.getEnvironment();
-      if (this.closing || generation !== this.settingsGeneration) throw new DesktopError("management_changed", "设置连接已变化，请重新读取。");
-      this.personalSettings = new PersonalSettingsController(config, this.userData, source.env);
-      return this.personalSettings;
-    })().finally(() => { if (generation === this.settingsGeneration) this.settingsInitialization = null; });
-    return this.settingsInitialization;
+  private async getPersonal(): Promise<PersonalController> {
+    if (!this.personal) await this.reconnectPersonal();
+    if (this.closing || !this.personal) throw new DesktopError("personal_unconfigured", "请先保存个人 Agent 的 HTTPS 地址并配对。");
+    return this.personal;
+  }
+  private personalRequest(op: unknown, params: unknown) {
+    return ipcResult(async () => {
+      if (this.closing) throw new DesktopError("personal_closed", "个人连接宿主已关闭，请重新打开应用。");
+      if (typeof op !== "string" || !params || typeof params !== "object" || Array.isArray(params)) throw new DesktopError("invalid_params", "个人操作参数无效，请重新打开原页面。");
+      const input = params as Record<string, unknown>;
+      const expect = (keys: string[]) => { if (Object.keys(input).length !== keys.length || keys.some(key => !(key in input))) throw new DesktopError("invalid_params", "个人操作参数无效，请重新读取原页面。"); };
+      if (op === "desktop_personal_config_read") { expect([]); return loadPersonalConfig(this.userData); }
+      if (op === "desktop_personal_config_save") {
+        expect(["origin"]);
+        const origin = personalOrigin(input.origin), previous = loadPersonalConfig(this.userData);
+        let release: (() => void) | undefined;
+        if (previous && previous.origin !== origin) {
+          const original = await this.getPersonal();
+          release = await original.assertSwitchable();
+        }
+        try {
+          const config = savePersonalConfig(this.userData, { v: 1, origin, ...(previous?.origin === origin && previous.binding ? { binding: previous.binding } : {}) });
+          await this.reconnectPersonal(true); return config;
+        } finally {
+          release?.();
+        }
+      }
+      if (op === "desktop_personal_legacy_read") { expect([]); return { paths: legacyPersonalMaintenance(this.userData, loadPersonalConfig(this.userData)?.origin ?? "") }; }
+      if (op === "desktop_personal_legacy_acknowledge") {
+        expect(["verified"]);
+        const config = loadPersonalConfig(this.userData);
+        if (!config || input.verified !== true) throw new DesktopError("legacy_maintenance_unverified", "请先在服务器核实旧维护的原服务与配置，再确认核实结果。");
+        acknowledgeLegacyPersonalMaintenance(this.userData, config.origin); return { paths: [] };
+      }
+      if (op === "reconnect") { expect([]); return this.reconnectPersonal(); }
+      const controller = await this.getPersonal(), generation = this.personalGeneration;
+      let result: unknown;
+      if (op === "desktop_personal_pair") {
+        expect(["code", "label"]);
+        if (typeof input.code !== "string" || typeof input.label !== "string") throw new DesktopError("invalid_params", "请输入服务器配对码与桌面名称。");
+        result = await controller.pair(input.code, input.label);
+      } else if (op === "desktop_personal_pair_reconcile") { expect([]); result = await controller.reconcilePairing(); }
+      else if (op === "desktop_personal_pair_restore") { expect([]); result = await controller.restorePairing(); }
+      else if (op === "desktop_personal_input_submit") {
+        expect(["text"]); if (typeof input.text !== "string") throw new DesktopError("invalid_params", "请输入文本消息。");
+        result = await controller.submitInput(input.text);
+      } else if (op === "desktop_personal_input_reconcile") { expect([]); result = await controller.reconcileInput(); }
+      else if (op === "desktop_personal_input_restore") { expect([]); result = await controller.restoreInput(); }
+      else if (op === "desktop_personal_request") {
+        if (Object.keys(input).some(key => !["method", "path", "body"].includes(key)) || !("method" in input) || !("path" in input)) throw new DesktopError("invalid_params", "个人请求参数无效。");
+        result = await controller.business(input.method, input.path, input.body);
+        if (input.method === "GET" && typeof input.path === "string") this.notificationState.personalPending(controller.instanceId()!, input.path, result);
+      } else if (["desktop_personal_settings_read", "desktop_personal_settings_request", "desktop_personal_settings_apply", "desktop_personal_settings_restore", "desktop_personal_settings_finish"].includes(op)) {
+        expect(op === "desktop_personal_settings_request" || op === "desktop_personal_settings_apply" ? ["request"] : []);
+        this.personalSettings ??= new PersonalSettingsController(controller, this.userData);
+        const settings = this.personalSettings;
+        result = op === "desktop_personal_settings_read" ? await settings.read() : op === "desktop_personal_settings_request" ? await settings.request(input.request) : op === "desktop_personal_settings_apply" ? await settings.apply(input.request) : op === "desktop_personal_settings_restore" ? await settings.restore() : await settings.finish();
+      } else throw new DesktopError("op_not_allowed", "此操作未向个人 Agent 开放。");
+      if (controller !== this.personal || generation !== this.personalGeneration || this.closing) throw new ControlClientError("personal_identity_changed", "个人连接已变化，请核实原请求；未采用迟到结果。", "unknown");
+      return result;
+    });
   }
   resetTerminals(): void {
     ++this.terminalGeneration;
@@ -303,8 +297,8 @@ export class DesktopHost {
     } finally { this.terminalOpening.delete(id); this.terminalCanceled.delete(id); }
   }
   private attachmentSource(target: unknown) {
-    if (target !== "code" && target !== "personal") throw new DesktopError("target_unavailable", "此连接目标尚未启用。");
-    const source = target === "personal" ? this.personal : this.controller;
+    if (target !== "code") throw new DesktopError("op_not_allowed", "个人 Agent 的附件功能尚未开放，请在 Code 会话中附加文件。");
+    const source = this.controller;
     if (!source || source.status.state !== "online" || !source.instanceId() || !source.connectionIdentity()) throw new DesktopError("connection_unavailable", "请等待连接恢复后附加文件。");
     return source;
   }
@@ -320,7 +314,7 @@ export class DesktopHost {
     if (typeof sessionId !== "string") throw new DesktopError("invalid_params", "请选择会话后附加文件。");
     if (expectedSelection !== undefined && this.attachmentInstance(target) !== expectedSelection) throw new DesktopError("attachment_instance_changed", "连接目标已变化，未附加文件；请重新选择。");
     const connection = source.connectionIdentity();
-    const current = () => (target === "personal" ? this.personal : this.controller) === source && source.status.state === "online" && source.connectionIdentity() === connection;
+    const current = () => this.controller === source && source.status.state === "online" && source.connectionIdentity() === connection;
     return pickAttachments(sessionId, {
       instanceId: () => current() ? source.instanceId() : null,
       pick,
@@ -352,8 +346,7 @@ export class DesktopHost {
     ++this.personalGeneration;
     this.controller?.close();
     this.environmentAbort.abort();
-    ++this.settingsGeneration;
-    this.closing = Promise.all([this.terminals.close(), this.terminalReset, this.browserDocuments.close(), this.personal?.close(), this.personalSettings?.close(), ...[...this.settingsProbes].map(probe => probe.close()), this.settingsInitialization?.catch(() => { /* 关闭期间取消的设置初始化由原请求报告。 */ }), this.personalInitialization, this.initialization, this.environment?.catch(() => { /* 退出取消的读取不再用于连接，连接期间的失败由消费方报告。 */ })]).then(() => {});
+    this.closing = Promise.all([this.terminals.close(), this.terminalReset, this.browserDocuments.close(), this.personal?.close(), this.personalSettings?.close(), this.personalInitialization, this.initialization, this.environment?.catch(() => { /* 退出取消的读取不再用于连接，连接期间的失败由消费方报告。 */ })]).then(() => {});
     return this.closing;
   }
 }

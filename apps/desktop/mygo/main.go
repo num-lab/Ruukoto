@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -22,9 +21,11 @@ var updates = mygo.NewEvent[json.RawMessage]("desktop:update")
 const documentURL = "mygo://localhost/"
 
 type Desktop struct {
-	window *mygo.Window
-	child  *sidecar
-	error  json.RawMessage
+	window       *mygo.Window
+	child        *sidecar
+	error        json.RawMessage
+	instanceLock *os.File
+	failed       bool
 }
 
 func (d *Desktop) trusted(ctx context.Context) bool {
@@ -203,16 +204,29 @@ func (d *Desktop) ready() {
 	d.error = failure("node_unavailable", "not_sent", "MyGo 子进程启动失败；请确认构建时的 Node 与仓库仍存在，再运行 npm run desktop:mygo:build。")
 	resources, err := mygo.App.Path(mygo.PathResources)
 	if err == nil {
-		var launch struct{ Node string }
-		data, readErr := os.ReadFile(filepath.Join(resources, "launch.json"))
-		if readErr == nil && json.Unmarshal(data, &launch) == nil && filepath.IsAbs(launch.Node) {
-			userData, pathErr := mygo.App.Path(mygo.PathUserData)
-			if pathErr == nil {
-				d.child, err = startSidecar(exec.Command(launch.Node, filepath.Join(resources, "sidecar.mjs"), userData), d.event)
+		executable, executableErr := os.Executable()
+		userData, pathErr := mygo.App.Path(mygo.PathUserData)
+		if executableErr == nil && pathErr == nil {
+			command, namespace, verifyErr := trustedSidecar(executable, resources, userData, os.Environ())
+			if verifyErr == nil {
+				d.instanceLock, err = acquireInstanceLock(command.Args[len(command.Args)-1])
+				if err != nil {
+					os.Stderr.WriteString("[ruukoto:desktop] 同一安装已运行或私有实例锁不可用；请关闭原应用后重试。\n")
+					d.failed = true
+					mygo.App.Quit()
+					return
+				}
+				credentials, credentialErr := newNativeCredentials(namespace)
+				if credentialErr == nil {
+					d.child, err = startSidecar(command, d.event, credentials)
+				}
+			} else {
+				d.error = failure("desktop_integrity", "not_sent", "应用签名、资源或固定 Node 校验失败；请重新构建应用。")
 			}
 		}
 	}
 	if d.child == nil {
+		d.failed = true
 		os.Stderr.WriteString("[ruukoto:desktop] MyGo 子进程启动失败；请确认构建时的 Node 与仓库仍存在后重新构建。\n")
 	}
 	focus := func(value bool) {
@@ -229,11 +243,20 @@ func (d *Desktop) ready() {
 	}
 }
 
-func main() {
-	if userData := os.Getenv("RUUKOTO_DESKTOP_MYGO_USER_DATA"); userData != "" {
-		mygo.App.SetPath(mygo.PathUserData, userData)
+func runDesktop() int {
+	if len(os.Args) != 1 || os.Getenv("RUUKOTO_DESKTOP_MYGO_USER_DATA") != "" || os.Getenv("RUUKOTO_DESKTOP_MANAGED") != "" {
+		os.Stderr.WriteString("[ruukoto:desktop] 正式应用不接受开发路径或启动参数；请从应用目录重新打开。\n")
+		return 1
 	}
 	desktop := &Desktop{}
+	defer func() {
+		if desktop.child != nil {
+			desktop.child.close()
+		}
+		if desktop.instanceLock != nil {
+			desktop.instanceLock.Close()
+		}
+	}()
 	mygo.Bind(desktop)
 	var quitting, quitReady atomic.Bool
 	mygo.App.OnBeforeQuit(func(event *mygo.QuitEvent) {
@@ -255,6 +278,12 @@ func main() {
 	mygo.App.WhenReady(desktop.ready)
 	if err := mygo.App.Run(); err != nil {
 		os.Stderr.WriteString("[ruukoto:desktop] MyGo 启动失败；请检查 macOS 环境并重新构建。\n")
-		os.Exit(1)
+		return 1
 	}
+	if desktop.failed {
+		return 1
+	}
+	return 0
 }
+
+func main() { os.Exit(runDesktop()) }

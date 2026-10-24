@@ -135,7 +135,7 @@ test("桌面产物：preload 必须是单个有效 CommonJS 文件", () => {
   }
 });
 
-test("桌面产物：两个 Node 目标拒绝 workspace、相对路径和未知动态外部引用", () => {
+test("桌面产物：两个 Node 目标拒绝 workspace、缺失相对路径和未知动态外部引用", () => {
   for (const target of ["main/index.js", "preload/index.cjs"]) {
     const root = fixture();
     try {
@@ -173,5 +173,20 @@ test("终端运行依赖仅精确引用放行，native或helper缺失及不可�
       fs.chmodSync(helper, 0o644); assert.throws(() => checkBuild(root), DesktopBuildError); fs.chmodSync(helper, 0o755);
       fs.unlinkSync(helper); assert.throws(() => checkBuild(root), DesktopBuildError);
     }
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test("宿主bootstrap只允许同目录已打包文件，符号链接不能绕过依赖检查", () => {
+  const root = fixture();
+  try {
+    const chunk = path.join(root, "main/host.js");
+    fs.writeFileSync(chunk, "export const value = 1;");
+    fs.writeFileSync(path.join(root, "main/index.js"), 'import("./host.js");');
+    assert.doesNotThrow(() => checkBuild(root));
+    fs.unlinkSync(chunk);
+    const outside = path.join(root, "outside.js");
+    fs.writeFileSync(outside, "export const value = 2;");
+    fs.symlinkSync(outside, chunk);
+    assert.throws(() => checkBuild(root), DesktopBuildError);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

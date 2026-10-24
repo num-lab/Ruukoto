@@ -2,7 +2,7 @@
 
 Status: implemented
 
-独立远程入口的待实施方案见 [Tailscale HTTPS／WebSocket](../../proposed/architecture/2026-10-24-personal-tailscale-https.md)；本机 Unix socket、唯一 Harness 与锁规则保持。
+独立远程入口见 [Tailscale HTTPS／WebSocket](2026-10-24-personal-tailscale-https.md)；本机 Unix socket、唯一 Harness 与锁规则保持。
 
 逐启动令牌的完整发布方式见[原子发布修复](../bug-fix/2026-10-24-personal-token-atomic-publish.md)，认证与坏令牌拒绝的决定保持。
 

@@ -1,0 +1,81 @@
+{
+  "scope": "只读最终增量审查：生产双壳startup/storage/私有桥，root新增Host嵌套frame校验，候选恢复独立证据及隔离Acceptance改动；未改root、未launch GUI、未读取正式或开发Keychain。",
+  "independence": "本上下文写过remote-auth与Host网络/恢复主体；这些主体的独立结论采用independent-client-review.json，不把本轮自检冒充独立实现通过。双壳startup与root新frame校验属于本轮独立审查。",
+  "conclusion": "本轮未发现新增实现阻断。此前submission合法分支遗漏已关闭；新增嵌套字段校验同时通过合法与非法输入。A1–A13整体验收仍保留必要真实环境证据缺口。",
+  "checks": [
+    {
+      "command": "node --import tsx --test /tmp/review-personal-union-events.test.mts",
+      "result": {
+        "status": "fulfilled",
+        "value": {
+          "chunk_id": "a42247",
+          "wall_time_seconds": 0.81120675,
+          "exit_code": 0,
+          "original_token_count": 633,
+          "output": "{\"type\":\"run_start\",\"state\":\"online\",\"frames\":2}\n✔ 合法DTO事件应继续观察：run_start (48.583959ms)\n{\"type\":\"run_end\",\"state\":\"online\",\"frames\":2}\n✔ 合法DTO事件应继续观察：run_end (39.609333ms)\n{\"type\":\"turn_start\",\"state\":\"online\",\"frames\":2}\n✔ 合法DTO事件应继续观察：turn_start (42.82475ms)\n{\"type\":\"turn_end\",\"state\":\"online\",\"frames\":2}\n✔ 合法DTO事件应继续观察：turn_end (40.19725ms)\n{\"type\":\"message_start\",\"state\":\"online\",\"frames\":2}\n✔ 合法DTO事件应继续观察：message_start (39.825334ms)\n{\"type\":\"message_update\",\"state\":\"online\",\"frames\":2}\n✔ 合法DTO事件应继续观察：message_update (38.757959ms)\n{\"type\":\"message_end\",\"state\":\"online\",\"frames\":2}\n✔ 合法DTO事件应继续观察：message_end (42.631958ms)\n{\"type\":\"entry_appended\",\"state\":\"online\",\"frames\":2}\n✔ 合法DTO事件应继续观察：entry_appended (41.807875ms)\n{\"type\":\"tool_execution_start\",\"state\":\"online\",\"frames\":2}\n✔ 合法DTO事件应继续观察：tool_execution_start (42.178958ms)\n{\"type\":\"tool_execution_update\",\"state\":\"online\",\"frames\":2}\n✔ 合法DTO事件应继续观察：tool_execution_update (39.987ms)\n{\"type\":\"tool_execution_end\",\"state\":\"online\",\"frames\":2}\n✔ 合法DTO事件应继续观察：tool_execution_end (42.465875ms)\n{\"type\":\"inbox_update\",\"state\":\"online\",\"frames\":2}\n✔ 合法DTO事件应继续观察：inbox_update (42.613541ms)\n{\"type\":\"submission\",\"state\":\"online\",\"frames\":2}\n✔ 合法DTO事件应继续观察：submission (38.86225ms)\n{\"type\":\"auto_retry_start\",\"state\":\"online\",\"frames\":2}\n✔ 合法DTO事件应继续观察：auto_retry_start (39.825541ms)\n{\"type\":\"auto_retry_end\",\"state\":\"online\",\"frames\":2}\n✔ 合法DTO事件应继续观察：auto_retry_end (43.313667ms)\n{\"type\":\"deferred_poll\",\"state\":\"online\",\"frames\":2}\n✔ 合法DTO事件应继续观察：deferred_poll (41.932208ms)\n{\"type\":\"agent_changed\",\"state\":\"online\",\"frames\":2}\n✔ 合法DTO事件应继续观察：agent_changed (38.988541ms)\n{\"type\":\"task_failed\",\"state\":\"online\",\"frames\":2}\n✔ 合法DTO事件应继续观察：task_failed (39.210375ms)\n{\"type\":\"compaction_start\",\"state\":\"online\",\"frames\":2}\n✔ 合法DTO事件应继续观察：compaction_start (34.023958ms)\n{\"type\":\"compaction_end\",\"state\":\"online\",\"frames\":2}\n✔ 合法DTO事件应继续观察：compaction_end (33.081791ms)\n✔ 合法DTO富快照应继续观察 (32.846375ms)\nℹ tests 21\nℹ suites 0\nℹ pass 21\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 929.171458\n"
+        }
+      }
+    },
+    {
+      "command": "node --import tsx --test /tmp/review-personal-nested-frame-validation.test.mts",
+      "result": {
+        "status": "fulfilled",
+        "value": {
+          "chunk_id": "fff292",
+          "wall_time_seconds": 0.72141075,
+          "exit_code": 0,
+          "original_token_count": 311,
+          "output": "✔ 非法嵌套字段在Host关闭：negative timestamp (50.437583ms)\n✔ 非法嵌套字段在Host关闭：message tool metadata (37.60125ms)\n✔ 非法嵌套字段在Host关闭：model (43.905958ms)\n✔ 非法嵌套字段在Host关闭：submission (39.9825ms)\n✔ 非法嵌套字段在Host关闭：tool parent metadata (39.76275ms)\n✔ 非法嵌套字段在Host关闭：tool delta (37.169083ms)\n✔ 非法嵌套字段在Host关闭：tool result (42.006542ms)\n✔ 非法嵌套字段在Host关闭：retry start (42.133459ms)\n✔ 非法嵌套字段在Host关闭：retry end (44.869709ms)\n✔ 非法嵌套字段在Host关闭：deferred poll (39.051208ms)\n✔ 非法嵌套字段在Host关闭：compaction start (41.867625ms)\n✔ 非法嵌套字段在Host关闭：compaction end (43.636375ms)\n✔ 非法嵌套字段在Host关闭：live tool truncated (38.240375ms)\n✔ 非法嵌套字段在Host关闭：live tool metadata (40.066334ms)\n✔ 非法嵌套字段在Host关闭：live model (41.878792ms)\n✔ 非法嵌套字段在Host关闭：live retry (43.733916ms)\n✔ 非法嵌套字段在Host关闭：live deferred (38.167708ms)\nℹ tests 17\nℹ suites 0\nℹ pass 17\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 839.142958\n"
+        }
+      }
+    }
+  ],
+  "coverage": "合法：20类PersonalDesktopEvent、全部8类change、三类block、富snapshot。非法：17项涵盖timestamp/message元数据/model/submission/tool父元数据/trimStart/result/retry/deferred/compaction/live tool与generation；必须personal_protocol停止且不向renderer多发一帧。",
+  "priorEvidence": [
+    "25项startup/storage/PTY定向检查与go test ./...已通过；shell作者确认生产相关代码此后未改，因此不重跑。",
+    "independent-client-review.json记录7个独立反例及29项持久客户端组通过，六个客户端阻断均关闭；本轮未改变这些恢复方法。"
+  ],
+  "tlsCache": {
+    "archive": "/tmp/ruukoto-tls-startup-evidence-t9s79eg2.tar.gz",
+    "bytes": 7586,
+    "result": "生产nodeOptions fuse关闭时JS入口前已清除EXTRA_CA，动态https拒绝自签；相同main只打开fuse后，删env仍authorized=true。说明缓存真实存在且生产fuse已在初始化前阻止；不新增策略。",
+    "contains": "源码、实际bundled main、两构建配置、报告、源码快照与哈希；不含私钥、凭据、密文、Keychain或大app。"
+  },
+  "acceptanceIsolation": {
+    "path": "/tmp/ruukoto-ts-gui.xh6h6fsy/acceptance/isolation-only.patch",
+    "review": "八文件仅独立应用名/标识、userdata、MyGo Keychain service、固定Node/PATH及隔离Code目录；未放宽启动校验、fuses、签名、Node摘要、renderer隔离或私有credential协议。未运行制品。"
+  },
+  "remainingRequiredEvidence": [
+    "A1/A9：原始完整策略的合并检查与实际非拥有者/tagged来源、策略/设备撤销、整机重启；单个owner grant片段不证明没有其它广泛allow。",
+    "A2/A12/A13及产品验收：隔离Acceptance双壳完整交互与真实存储锁定/拒绝/损坏/更新重授权；已通过原语探针与制品静态校验不替代这些。",
+    "真实模型与IM仅在显式前提下执行；mock Harness证据保留边界。"
+  ],
+  "nextOwner": "根汇总工程证据、同步工单与文档；获得所需GUI交互前提后用已备隔离制品完成双壳验收，并补tailnet来源/撤销/重启矩阵。",
+  "sha256": {
+    "apps/desktop/src/main/startup.ts": "4b3ff8ce3009151fcac3bbb7e8d368851ab9a73fcd2b262befb430fb0d3ba35a",
+    "apps/desktop/src/main/environment.ts": "df70963e3a8f35b5b6cc6d930c423ac1c5045cc9c5ef20bc3926065c5471bd3c",
+    "apps/desktop/src/main/bootstrap.ts": "c4b34c1ae5b33a08c26312ff89fb774548f614930a7a042c7bc0405fb13b0816",
+    "apps/desktop/src/main/personal-controller.ts": "359f18b15097916276b11b6fea7e8a64c68ba5a6cfe18354f36b2700abe52fe8",
+    "apps/desktop/src/main/host.ts": "0f8756db423274ff637df185bc7c48f2865b9059d2ff9de66d4752a1915eb7d0",
+    "apps/desktop/mygo/startup.go": "d9580321ab1a6a8a065748859006b77acdd8c1f4ff9dc47d24feb8cbc6c08101",
+    "apps/desktop/mygo/credentials_darwin.c": "5559b9dc22007d93d6d1a17e42f43311657f76a3d44d6bea77ede4fdff3263cd",
+    "packages/view/src/personal-protocol.ts": "1cafc44df3e7a63f17be46f334de2db4c2f288f25478e41eab61b36072dc920f"
+  },
+  "documentReview": {
+    "scope": "最终工单、implemented迁移笔记、六篇旧笔记互链、受影响人类文档及final-checks；只读复核，不重跑已过代码或链接门禁。",
+    "conclusion": "事实性文档残留已修复，本轮无未解决文档阻断；ready-for-human保留必要GUI与外部矩阵缺口，未记整体通过或resolved。",
+    "verified": [
+      "mock Harness明确realModel=false/realIm=false；局部存储探针、生产构建静态校验和节点下发规则均未冒充完整真实验收。",
+      "验收表A1/A9保留完整策略与非owner/tagged/撤销/整机重启缺口；A2/A12/A13保留双壳GUI、锁定/拒绝/损坏/更新授权和人工组合验收。",
+      "final-check-logs内server30、desktop39、native7与记录一致；六篇旧笔记只更新入口取代说明，原决定正文与历史证据保留；此前369个本地链接检查无缺失。",
+      "docs/modules/desktop.md旧PA右栏句已删除，右栏/SubAgent规则限定Code，Personal改为主聊天查看工作结果、补读与取消；与app.tsx/personal-chat.tsx一致。",
+      "工单状态ready-for-human，工单与final-checks一致记Mac accept-dns已恢复并读回false，仅保留待定GUI的隔离容器、临时443 Serve代理和未启动Acceptance制品；恢复DNS的系统操作采用根本轮实际读回证据，本上下文未再改系统状态。"
+    ],
+    "sha256": {
+      "docs/modules/desktop.md": "20c6d517d9856c3f838cf88b0ef8ece9d0a0c1c9f13c17223a74b56e270df0d2",
+      ".scratch/personal-tailscale/issues/01-migration-plan.md": "413b2810887b93d193d323ebfe3a1551452af92ac3a1b610d393cf3008f8ac01",
+      ".scratch/personal-tailscale/evidence/final-checks.md": "a08929f2fa16f4f762f694f53161091c674413a69468a653f4a5e4609da5eec9",
+      ".agents/notes/implemented/architecture/2026-10-24-personal-tailscale-https.md": "53f1b5bbd4cfe99dcb71fd42a6959a876d0d73e46176bb589336c5748e701a39"
+    }
+  }
+}

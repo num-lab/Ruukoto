@@ -11,7 +11,7 @@ import { createRegistry, defineExtension, defineTask, Harness, ROOT_CONVERSATION
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { personalToolControl, verifyToolControls } from "../apps/ruukoto/src/personal-tools-controls.ts";
 import { configurePersonalTools, managePersonalTools } from "../apps/ruukoto/src/personal-tools-cli.ts";
-import { PersonalToolDoc, PersonalToolsDoc, toolUnresolved, type PersonalToolOperation } from "../apps/ruukoto/src/personal-tools.ts";
+import { PersonalToolDoc, PersonalToolsDoc, toolUnresolved, toolList, toolDetail, type PersonalToolOperation } from "../apps/ruukoto/src/personal-tools.ts";
 import { PersonalTelegramDoc, PersonalTelegramReceiptDoc, type TelegramControlInput, type TelegramResult } from "../apps/ruukoto/src/personal-telegram-records.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
 import { personalProvider, recordedModels } from "../apps/ruukoto/src/personal-model.ts";
@@ -55,6 +55,18 @@ test("工具宿主控制：未装配与非直接入口只给指引，不登记�
   assert.match(value.reply!, /尚未装配/); assert.equal(value.selection, undefined);
   const forwarded = await f.receive("/工具", undefined, { direct: false });
   assert.match(forwarded.value.reply!, /转发和引用摘录不能管理/); assert.equal(forwarded.value.selection, undefined);
+});
+
+test("工具审批能力：本机不代批IM，原IM菜单保留本次批准", async t => {
+  const f = await fixture(t);
+  await f.harness.commit(async tx => { const value = (await tx.doc(PersonalToolDoc, String(f.operation), null)).operation!; value.approval = "pending"; value.started = false; value.effect = "not_executed"; value.code = "admitted"; }, context);
+  const menu = await f.receive("/工具"), detail = await f.receive("工具1", menu.sent);
+  await f.harness.commit(async tx => {
+    assert.equal((await toolList(tx)).items[0].canDecide, false);
+    assert.equal((await toolDetail(tx, f.operation)).summary.canDecide, false);
+    assert.equal((await toolList(tx, 0, menu.value)).items[0].canDecide, true);
+  }, context);
+  assert.match(detail.value.reply!, /工具批准本次、工具拒绝/);
 });
 
 test("工具宿主控制：原菜单分别核实效果与结束，错回复不保存且回链缺失拒绝恢复", async t => {

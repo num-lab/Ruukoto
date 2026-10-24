@@ -2,6 +2,8 @@
 
 Status: ready-for-human
 
+当前验收入口已由[Tailscale HTTPS/WSS迁移](../../personal-tailscale/issues/01-migration-plan.md)取代：PA两条SSH和本机维护阶段删除，聊天/设置统一地址并使用独立应用凭据，维护阶段及完成回执迁到服务器remote。本单保留原工程交付与验收证据；不再安排旧SSH链路的产品验收。原服务、修订、阻断及未知效果约束仍由新入口继承。
+
 ## 目标与边界
 
 让 DesktopHost 经 SSH 管理新 durable Personal 配置，落实[Personal 生效规则](../spec.md#personal-接入与生效)及 R1–R4、R6、R9。前置：[01](01-settings-shell.md)、[06](06-personal-settings-api.md)。不把新协议转换成旧聊天快照，不影响既有 Code 连接。

@@ -1,0 +1,170 @@
+{
+  "rootKeys": [
+    "AllCaps",
+    "Cached",
+    "CollectServices",
+    "DERPMap",
+    "DNS",
+    "DisplayMessages",
+    "Domain",
+    "DomainAuditLogID",
+    "MachineKey",
+    "NodeKey",
+    "PacketFilter",
+    "PacketFilterRules",
+    "Peers",
+    "SSHPolicy",
+    "SelfNode",
+    "TKAEnabled",
+    "TKAHead",
+    "UserProfiles"
+  ],
+  "self": {
+    "ID": 7159690940730760,
+    "StableID": "ndjuDYwdux11CNTRL",
+    "User": 2078858627099781,
+    "Addresses": [
+      "100.117.227.22/32",
+      "fd7a:115c:a1e0::5a39:e319/128"
+    ],
+    "AllowedIPs": [
+      "100.117.227.22/32",
+      "fd7a:115c:a1e0::5a39:e319/128"
+    ],
+    "Name": "vnic-osaka-4c24g.tailf20ebf.ts.net."
+  },
+  "peers": [
+    {
+      "ID": 1117485193596915,
+      "StableID": "nYsmuaS7j911CNTRL",
+      "User": 2078858627099781,
+      "Addresses": [
+        "100.64.64.76/32",
+        "fd7a:115c:a1e0::fe01:40a0/128"
+      ],
+      "AllowedIPs": [
+        "100.64.64.76/32",
+        "fd7a:115c:a1e0::fe01:40a0/128"
+      ],
+      "Name": "rogstrixg16.tailf20ebf.ts.net."
+    },
+    {
+      "ID": 3686698911352351,
+      "StableID": "nEpkH5LinV11CNTRL",
+      "User": 2078858627099781,
+      "Addresses": [
+        "100.69.56.108/32",
+        "fd7a:115c:a1e0::8801:38a1/128"
+      ],
+      "AllowedIPs": [
+        "100.69.56.108/32",
+        "fd7a:115c:a1e0::8801:38a1/128"
+      ],
+      "Name": "ipad153.tailf20ebf.ts.net."
+    },
+    {
+      "ID": 3930743503447713,
+      "StableID": "nkreC4yEhX11CNTRL",
+      "User": 2078858627099781,
+      "Addresses": [
+        "100.75.81.56/32",
+        "fd7a:115c:a1e0::f039:5138/128"
+      ],
+      "AllowedIPs": [
+        "100.75.81.56/32",
+        "fd7a:115c:a1e0::f039:5138/128"
+      ],
+      "Name": "eitrousmacbook-air.tailf20ebf.ts.net."
+    },
+    {
+      "ID": 8476590740725045,
+      "StableID": "nLz73af4C921CNTRL",
+      "User": 2078858627099781,
+      "Addresses": [
+        "100.105.54.80/32",
+        "fd7a:115c:a1e0::3b01:369b/128"
+      ],
+      "AllowedIPs": [
+        "100.105.54.80/32",
+        "fd7a:115c:a1e0::3b01:369b/128"
+      ],
+      "Name": "nx733j.tailf20ebf.ts.net."
+    },
+    {
+      "ID": 8688709716763187,
+      "StableID": "ntyjauf8rA21CNTRL",
+      "User": 2078858627099781,
+      "Addresses": [
+        "100.68.188.110/32",
+        "fd7a:115c:a1e0::3b39:bc6e/128"
+      ],
+      "AllowedIPs": [
+        "100.68.188.110/32",
+        "fd7a:115c:a1e0::3b39:bc6e/128"
+      ],
+      "Name": "debian.tailf20ebf.ts.net."
+    }
+  ],
+  "users": [
+    {
+      "ID": 2078858627099781,
+      "LoginName": "eitrous9961@gmail.com",
+      "DisplayName": "Eitrous"
+    }
+  ],
+  "packetFilterRuleKeys": [
+    [
+      "Caps",
+      "Dsts",
+      "IPProto",
+      "SrcCaps",
+      "Srcs"
+    ]
+  ],
+  "packetFilter": [
+    {
+      "IPProto": [
+        6,
+        17,
+        1,
+        58
+      ],
+      "Srcs": [
+        "100.105.54.80/32",
+        "100.117.227.22/32",
+        "100.64.64.76/32",
+        "100.68.188.110/32",
+        "100.69.56.108/32",
+        "100.75.81.56/32",
+        "fd7a:115c:a1e0::3b01:369b/128",
+        "fd7a:115c:a1e0::3b39:bc6e/128",
+        "fd7a:115c:a1e0::5a39:e319/128",
+        "fd7a:115c:a1e0::8801:38a1/128",
+        "fd7a:115c:a1e0::f039:5138/128",
+        "fd7a:115c:a1e0::fe01:40a0/128"
+      ],
+      "Dsts": [
+        {
+          "Net": "0.0.0.0/0",
+          "Ports": {
+            "First": 0,
+            "Last": 65535
+          }
+        },
+        {
+          "Net": "::/0",
+          "Ports": {
+            "First": 0,
+            "Last": 65535
+          }
+        }
+      ]
+    }
+  ],
+  "capabilityCounts": [
+    {
+      "caps": 0,
+      "srcCaps": 0
+    }
+  ]
+}

@@ -487,6 +487,11 @@ export async function personalMenu(directory: string, io: PersonalCliIO, launch?
 
 export async function runPersonalCli(args: string[], options: { directory?: string; development?: boolean } = {}): Promise<number> {
   let directory = options.directory ?? personalDirectory();
+  if (args[0] === "remote") {
+    if (options.development) throw new PersonalError("remote_development_unavailable", "开发受管实例不开放固定远程入口，请在独立部署中配置与测试。");
+    const { runPersonalRemoteCli } = await import("./personal-remote-cli.ts");
+    return runPersonalRemoteCli(args.slice(1), directory);
+  }
   if (args.length === 3 && args[0] === "serve" && args[1] === "--directory") {
     if (!path.isAbsolute(args[2]) || path.resolve(args[2]) !== args[2] || /[\x00-\x1f\x7f]/.test(args[2])) throw new PersonalError("cli_arguments", "服务档案参数必须是绝对目录，请管理员核实固定服务入口。");
     if (options.directory && fs.realpathSync(options.directory) !== fs.realpathSync(args[2])) throw new PersonalError("cli_arguments", "服务档案参数与受管入口不一致，请使用原开发入口。");

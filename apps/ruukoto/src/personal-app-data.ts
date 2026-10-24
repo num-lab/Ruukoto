@@ -124,7 +124,7 @@ export async function appDataDecide(tx: Tx, directory: string, id: TaskId, decis
 }
 export async function appDataList(tx: Tx, offset = 0, actor?: PersonalEntryIdentity) {
   const values = (await appDataOperations(tx)).reverse().filter(value => !actor || samePersonalEntry(value.origin.telegram, actor));
-  const items = await Promise.all(values.slice(offset, offset + 8).map(async value => ({ operation: value.operation, name: value.name, table: value.params.table, decision: value.decision, effect: value.result?.effect ?? (value.started ? "effect_unknown" : "not_committed"), code: value.result?.code ?? "awaiting_approval", canDecide: value.decision === "pending" && !value.started && !value.result, canRecheck: appDataUnresolved(value) && (await tx.task(value.operation))?.state.status === "terminal" })));
+  const items = await Promise.all(values.slice(offset, offset + 8).map(async value => ({ operation: value.operation, name: value.name, table: value.params.table, decision: value.decision, effect: value.result?.effect ?? (value.started ? "effect_unknown" : "not_committed"), code: value.result?.code ?? "awaiting_approval", canDecide: value.decision === "pending" && !value.started && !value.result && (!value.origin.telegram || !!actor && samePersonalEntry(value.origin.telegram, actor)), canRecheck: appDataUnresolved(value) && (await tx.task(value.operation))?.state.status === "terminal" })));
   return { items, ...(offset + 8 < values.length ? { nextOffset: offset + 8 } : {}) };
 }
 export async function appDataDetail(tx: Tx, id: TaskId, offset = 0) {

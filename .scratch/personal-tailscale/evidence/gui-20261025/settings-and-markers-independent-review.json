@@ -1,0 +1,103 @@
+{
+  "scope": "独立只读复核已集成的PA设置read单飞修复及清理前GUI marker证据报告器；无GUI/Keychain/oracle操作，无根编辑。",
+  "settings": {
+    "conclusion": "无未解决实现阻断。仅共享相同控制器的read在途promise，成功/失败按promise身份清理；close先标closed并清空共享槽。原在途读仍由连接generation/profile与Host关闭/换controller检查及renderer读取代次防止采用迟到结果。",
+    "patch": "/tmp/ruukoto-settings-page-read-single-flight.patch",
+    "rootTests": {
+      "status": "fulfilled",
+      "value": {
+        "chunk_id": "e7c810",
+        "wall_time_seconds": 0.339169708,
+        "exit_code": 0,
+        "original_token_count": 250,
+        "output": "✔ PA设置：三类设置沿已核实的同一HTTPS连接读取与测试，档案变化拒绝 (42.714375ms)\n✔ PA维护：接纳202后只读原回执，完整阶段归服务器；完成后允许下一项 (56.498333ms)\n✔ PA维护丢答：原关联落盘，重开查原键且不重存，已保存启动失败可显式恢复 (44.419792ms)\n✔ PA维护：明确拒绝不留假接纳，未知结果不自动换键；人工结束需先读取 (63.88675ms)\n✔ 旧桌面维护：原损坏记录阻止新写维护，查询和原文件均保留 (24.131708ms)\n✔ 409不能证明未执行：应答超限或服务器未知失败保留原维护键，不再次保存 (70.135125ms)\n✔ PA切页读取：旧页尚未卸载时共享原档案读取，完成与失败后均可重新读取 (26.079292ms)\n✔ PA读取关闭：在途读取不使关闭后的新读取绕过生命周期检查 (23.365ms)\nℹ tests 8\nℹ suites 0\nℹ pass 8\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 442.77325\n"
+      }
+    },
+    "independentLifecycleTests": {
+      "status": "fulfilled",
+      "value": {
+        "chunk_id": "cc10e7",
+        "wall_time_seconds": 0.093610833,
+        "exit_code": 0,
+        "original_token_count": 78,
+        "output": "✔ 共享读在HTTP晚到前重连，两调用都拒绝旧代次且后续读可重新发送 (49.067708ms)\n✔ 普通request进行中时read仍busy拒绝且完成后不缓存拒绝 (27.396417ms)\nℹ tests 2\nℹ suites 0\nℹ pass 2\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 194.709625\n"
+      }
+    },
+    "checks": [
+      "根设置控制器8/8通过：read同飞、成功/失败清理、read时request/apply仍busy、close后新read拒绝。",
+      "额外2/2：read在途重连后两个共享调用均personal_identity_changed且下一次read可重新发送；普通request在途read仍busy，完成后该拒绝不缓存。",
+      "Host在await后核对原controller/generation/closing；connection.request核对网络代次和identity；renderer SettingsState/PersonalSettingsState保存读取轮次，切页invalidate继续淘汰旧读。",
+      "真实React/Radix日志保留models旧panel在切页后先重挂read导致新Skills busy的红记录，修后首次模型→Skills→MCP均ready；夹具不是签名GUI复验。"
+    ],
+    "limits": "本上下文未操作真实GUI；根最终签名MyGo已直接切页复验，截图和原结果已只读核对，见finalClosure。"
+  },
+  "markerReporter": {
+    "conclusion": "原报告器有两种错误通过，已修正并独立复验；修后报告器审查GO，可用于最后一次服务器只读证据采集。",
+    "source": "/tmp/ruukoto-ts-hvfz3t-evidence/read-gui-markers.mjs",
+    "redResults": "/tmp/review-gui-markers-fjg22j8j/results.json",
+    "red": "同一pi.user entry混两个marker，以及两个独立submission共用一个final，旧报告器都错误verified=true/exit0。",
+    "fix": "在每marker单链完整外，顶层distinctChains同时要求两条userEntry/submission.id/final.entry分别不同；verified=complete&&distinctChains，否定exit2。",
+    "greenResults": "/tmp/review-gui-markers-9rlzuwa4/results.json",
+    "green": {
+      "status": "fulfilled",
+      "value": {
+        "chunk_id": "2df576",
+        "wall_time_seconds": 0.069243667,
+        "exit_code": 0,
+        "original_token_count": 607,
+        "output": "{\n  \"root\": \"/tmp/review-gui-markers-9rlzuwa4\",\n  \"results\": [\n    {\n      \"case\": \"separate\",\n      \"expected\": true,\n      \"actual\": true,\n      \"exit\": 0,\n      \"chains\": [\n        {\n          \"user\": [\n            1\n          ],\n          \"submission\": [\n            5\n          ],\n          \"final\": [\n            2\n          ]\n        },\n        {\n          \"user\": [\n            3\n          ],\n          \"submission\": [\n            6\n          ],\n          \"final\": [\n            4\n          ]\n        }\n      ]\n    },\n    {\n      \"case\": \"same-entry-two-markers\",\n      \"expected\": false,\n      \"actual\": false,\n      \"exit\": 2,\n      \"chains\": [\n        {\n          \"user\": [\n            1\n          ],\n          \"submission\": [\n            3\n          ],\n          \"final\": [\n            2\n          ]\n        },\n        {\n          \"user\": [\n            1\n          ],\n          \"submission\": [\n            3\n          ],\n          \"final\": [\n            2\n          ]\n        }\n      ]\n    },\n    {\n      \"case\": \"shared-final\",\n      \"expected\": false,\n      \"actual\": false,\n      \"exit\": 2,\n      \"chains\": [\n        {\n          \"user\": [\n            1\n          ],\n          \"submission\": [\n            4\n          ],\n          \"final\": [\n            3\n          ]\n        },\n        {\n          \"user\": [\n            2\n          ],\n          \"submission\": [\n            5\n          ],\n          \"final\": [\n            3\n          ]\n        }\n      ]\n    },\n    {\n      \"case\": \"duplicate-user\",\n      \"expected\": false,\n      \"actual\": false,\n      \"exit\": 2,\n      \"chains\": [\n        {\n          \"user\": [\n            1,\n            2\n          ],\n          \"submission\": [\n            6,\n            7\n          ],\n          \"final\": [\n            3\n          ]\n        },\n        {\n          \"user\": [\n            4\n          ],\n          \"submission\": [\n            8\n          ],\n          \"final\": [\n            5\n          ]\n        }\n      ]\n    },\n    {\n      \"case\": \"missing-final\",\n      \"expected\": false,\n      \"actual\": false,\n      \"exit\": 2,\n      \"chains\": [\n        {\n          \"user\": [\n            1\n          ],\n          \"submission\": [\n            4\n          ],\n          \"final\": []\n        },\n        {\n          \"user\": [\n            2\n          ],\n          \"submission\": [\n            5\n          ],\n          \"final\": [\n            3\n          ]\n        }\n      ]\n    }\n  ]\n}\n"
+      }
+    },
+    "wrapper": {
+      "status": "fulfilled",
+      "value": {
+        "chunk_id": "32436f",
+        "wall_time_seconds": 0.557746292,
+        "exit_code": 0,
+        "original_token_count": 83,
+        "output": "{\n  \"root\": \"/tmp/review-marker-shell-8qyca636\",\n  \"quotedRoundTrip\": true,\n  \"sourceExact\": true,\n  \"networkCalled\": false,\n  \"sshOptions\": [\n    \"-o\",\n    \"ConnectTimeout=10\",\n    \"-o\",\n    \"ServerAliveInterval=15\",\n    \"-o\",\n    \"HostName=100.117.227.22\",\n    \"-o\",\n    \"HostKeyAlias=129.225.130.251\",\n    \"oracle-4c24g\"\n  ]\n}\n"
+      }
+    },
+    "readOnlyReview": "DatabaseSync readOnly:true、PRAGMA query_only=ON及BEGIN后再读entries/submissions/tasks，三次SELECT属于同一只读事务；finally close回滚读事务。wrapper subprocess argv不启用shell，远程命令shlex.join；假ssh实测含引号/元字符/换行的参数完整往返，stdin脚本SHA一致且没有网络调用。"
+  },
+  "tailEvidence": {
+    "sources": [
+      "processes-before-quit.log",
+      "processes-after-quit.json",
+      "credential-reopen-results.json",
+      "electron-revocation.json"
+    ],
+    "conclusion": "已只读核对归档：退出前pid/ppid/comm与跟踪PID清单相符，结果明确最后测试app/sidecar均消失；重开汇总保留MyGo AppleEvent -128但另按进程事实核实。Electron撤销回执明确原ID revoked/revokedAt，UI汇总记明确撤销原因、保留历史和禁发。此前公网SSH未回应未记成功。",
+    "limits": "这些文件记录根实际操作及采集结果，本上下文未另操作进程或UI；应用凭据撤销不等于tailnet设备/策略撤销。没有系统授权提示仍不能算拒绝/锁定/损坏/更新授权通过。"
+  },
+  "sha256": {
+    "apps/desktop/src/main/personal-settings-controller.ts": "7578d593e8041a9e737bef8dfa6b28a059f41ea0644fcd728e9c09810daf5e1e",
+    "test/desktop-personal-settings.test.ts": "54380ec3b723dd5ed7ff181692a7e67c881b1925555e511b6153b2bb49085a23",
+    "apps/desktop/src/main/host.ts": "0f8756db423274ff637df185bc7c48f2865b9059d2ff9de66d4752a1915eb7d0",
+    "apps/desktop/src/main/personal-controller.ts": "359f18b15097916276b11b6fea7e8a64c68ba5a6cfe18354f36b2700abe52fe8"
+  },
+  "markerSourceSha256": "0bdfa06684a5c45d8a32a10b40315988fcddc13ae78f6ab0567800dbf626b72b",
+  "finalClosure": {
+    "scope": "最后只读闭合：查看最终MyGo切页两图、签名制品元数据、settings-direct-results、distinctChains实证、本机清理JSON与Linux冻结包原结果；没有重跑代码或操作系统。",
+    "conclusion": "无未解决事实性阻断。最终证据相互一致；当前交接是ready-for-human，保留完整安全存储/外部环境/主观体验未验范围，不构成A1–A13整体或生产验收通过。",
+    "finalSettings": "Skills/MCP两图均显示同一/var/lib/rktest/profile在线且无busy提示；settings-direct-results记录模型→Skills→MCP无需重读、原凭据在更新后仍可读、未发新输入。制品元数据记录只重建隔离MyGo，保留原启动/凭据协议；没有把本轮无系统提示扩成完整更新重授权通过。",
+    "markers": "最后server-markers和冻结包markers-before均distinctChains=true/verified=true；仍是52→53→57与60→61→65，各一份且相互独立；无新聊天。",
+    "localCleanup": "processes-after-final-cleanup为空；local-cleanup记acceptDns=false、无测试app、隔离userdata不存在、精确两Keychain项缺失，制品保留。Electron实际account为Ruukoto Tailscale Acceptance Electron Key；清理JSON保留旧少Key账户未命中的事实，随后元数据核准、删除与absenceVerified，未导出secret。MyGo精确production service/personal-remote.v1亦deleted/absenceVerified。",
+    "linuxCleanup": "冻结包unresolved-before为tasks0/inputs0/pendingnull，mockcalls5；两精确GUI ID均revoked。原Serve代理完整匹配测试socket后仅关闭443，after Serve/Funnel均{}；三测试单元inactive/MainPID0，容器和专属目录消失。生产before/after均active/MainPID3041190，与linux-cleanup-result一致。",
+    "evidenceBoundary": "截图只证明呈现；不用截图代替进程/安全存储/服务端事实，后者由根原采集及归档结果支持。Linux清理不证明tailnet策略或设备撤销；锁定/拒绝/损坏/完整更新授权、正式Code终端组合、非owner/tagged、整机重启、真实模型/IM和主观体验仍未通过。",
+    "reviewMethod": "本人亲跑既有设置8+独立2项、builtin/松绑对照及marker5例；真实React/Radix红绿只核对作者源码与原始日志，没有亲跑该浏览器夹具。",
+    "sha256": {
+      ".scratch/personal-tailscale/evidence/gui-20261025/mygo-settings-direct-skills.png": "0d1fec4557ec513700a7c531cc3fe6c352d3fdb591a1ad1e7a42f6294618d1fc",
+      ".scratch/personal-tailscale/evidence/gui-20261025/mygo-settings-direct-mcp.png": "85b969c459ac6caf0d60df8b095c05270e6cf9488d315cb72c887b376d453f27",
+      ".scratch/personal-tailscale/evidence/gui-20261025/settings-direct-results.json": "69a6655945e01d659465ae32f03aee348fd8aeb575ba6a63c0dcba8f6f3d0f88",
+      ".scratch/personal-tailscale/evidence/gui-20261025/processes-after-final-cleanup.json": "ec23c5a77dcf7e30604301a4f607e69a89d3043b481b6ad33bfd3fc89db273cf",
+      ".scratch/personal-tailscale/evidence/gui-20261025/local-cleanup.json": "bfbbc63aff73025edd75e8e22048a418fd92138efecaf46753f2fe5513cfa9ea",
+      ".scratch/personal-tailscale/evidence/gui-20261025/electron-keychain-cleanup.json": "f3b50afd4d99eec6c617bc4f933e47c995050cae477cc916615e1617ac53119e",
+      ".scratch/personal-tailscale/evidence/gui-20261025/mygo-keychain-cleanup.json": "764a2e9da272f6eaa5858d23488bf76bb9a09aef0fb966860c8b5672358aa63a",
+      ".scratch/personal-tailscale/evidence/gui-20261025/linux-cleanup-result.json": "e707765a3356eace367fe7c2e8902c5b36b69cc95d9ec8d2fb9e36075302e03f",
+      ".scratch/personal-tailscale/evidence/gui-20261025/linux-final-cleanup-results.tar.gz": "d9fa6aded46b773c20705045c4de04b691e9c61b7b724b753ae9701d6528654a",
+      ".scratch/personal-tailscale/evidence/gui-20261025/server-markers.json": "2d856bde187847f8d3b2ecc1a27654a09830d76a8f52a6a5d882621083d8b503",
+      ".scratch/personal-tailscale/evidence/gui-20261025/artifacts-mygo-settings-final.json": "07a0cfa619a1675aa743bf5d20ce8d8dda769fc6dd8e0c4739f204399505cd6f"
+    }
+  }
+}

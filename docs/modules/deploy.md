@@ -14,6 +14,8 @@
 
 不负责的部分点名归属：安装与升级操作归[部署说明](../../deploy/systemd/README.md)，个人宿主业务归[个人持久会话](personal-durable.md)，Coding 的工具进程与原生策略归[执行边界](execution.md)。本篇持有 helper 协议及真实系统执行核实。旧服务工具、ApprovalGate 和共享 IM 账本不装配到新个人实例。
 
+**PA远程连接**。`ruukoto-remote.service`、`ruukoto-backend.service`与tailscaled分别监督；Serve只代理remote的私有业务socket，admin socket留在本机。固定tailnet拥有者、应用配对、凭据撤销和原维护账本归[个人持久会话](personal-durable.md)。远程状态位于运行账户的`~/.config/ruukoto-remote/`，与原业务档案分开；部署、授权、切换与恢复步骤唯一归[部署说明](../../deploy/systemd/README.md)。
+
 **两个产品的原生前置**。Coding 默认且只接受 `native`，显式 container/local 覆盖被拒；个人 Linux 命令由停机菜单配置原生边界，原生执行使用宿主 Node ≥24.15、Git、Python 与编译器，`npm run build` 构建 worker，并在 macOS 用系统 clang 构建 `worker/native-macos-supervisor`。只读提供 SDK 和必要运行依赖，每单元独立 HOME/TMPDIR，不需要工具镜像。macOS 需要可用的 `sandbox-exec` 与 libproc 身份/原子信号能力；Linux 需要正式 `/usr/bin/bwrap`、允许 userns 的系统策略、cgroup v2 和可委派的 user scope。安装与检查步骤见 [deploy/native/README.md](../../deploy/native/README.md)，启动器不安装依赖、不调整系统策略。
 
 ## 对外接口
@@ -30,7 +32,7 @@
 | `deploy/systemd/ruukoto-service.mjs` | 服务管理 helper（root 0700，无第三方依赖，不接受环境变量配置） |
 | `deploy/systemd/ruukoto-service-test.service`、`ruukoto-service-test.sh` | 可控测试服务：以实际启动账户运行、`Restart=no`、无网络、无业务凭据、最小攻击面；每次启动记 `InvocationID` 与计数，仅作辅助观察 |
 
-个人模板以 `serve --directory /var/lib/ruukoto/personal-durable` 固定档案，并设置 `XDG_RUNTIME_DIR` 与 `DBUS_SESSION_BUS_ADDRESS`，模型和 IM 凭据变量经受保护环境注入。桌面维护核实有效单元、同账户 MainPID 与实际程序入口，只接受精确 `/usr/bin/systemctl start/stop ruukoto-backend.service` 的非交互授权；不读取 EnvironmentFile 证明凭据。helper、策略和 sudo 路径由停机菜单保存，不读取旧 `RUUKOTO_SERVICE_*` 或旧 data/agent 目录变量。
+个人模板以 `serve --directory /var/lib/ruukoto/personal-durable` 固定档案，并设置 `XDG_RUNTIME_DIR` 与 `DBUS_SESSION_BUS_ADDRESS`，模型和 IM 凭据变量经受保护环境注入。remote维护核实有效单元、同账户 MainPID 与实际程序入口，只接受精确 `/usr/bin/systemctl start/stop ruukoto-backend.service` 的非交互授权；不读取 EnvironmentFile 证明凭据。helper、策略和 sudo 路径由停机菜单保存，不读取旧 `RUUKOTO_SERVICE_*` 或旧 data/agent 目录变量。
 
 **旧工具名称**仅用于解释保留账本；新个人工具与来源权限见[个人持久会话](personal-durable.md)：
 
@@ -204,6 +206,8 @@ sequenceDiagram
 后台单元以 `KillMode=control-group` 向子进程树发优雅停止信号；30 秒超时后因 `SendSIGKILL=no` 保留未退出进程与锁，维护拒绝保存。崩溃重启不重放效果未知操作，异常中断保留任务占用。
 
 ## 设计依据
+
+- [个人 Tailscale HTTPS 与 WebSocket](../../.agents/notes/implemented/architecture/2026-10-24-personal-tailscale-https.md)
 
 - [Personal SSH 维护](../../.agents/notes/implemented/feature/2026-10-21-personal-settings-ssh.md)：固定后台精确启停权限、优雅停止与原身份核实。
 

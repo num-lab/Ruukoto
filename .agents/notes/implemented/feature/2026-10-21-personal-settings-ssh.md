@@ -2,7 +2,7 @@
 
 Status: implemented
 
-SSH 传输与桌面维护阶段归属的待实施替代方案见 [Tailscale HTTPS／WebSocket](../../proposed/architecture/2026-10-24-personal-tailscale-https.md)；原服务核实、修订与未知效果规则保持。
+SSH 传输与桌面维护阶段归属已由下述决定取代，见 [Tailscale HTTPS／WebSocket](../architecture/2026-10-24-personal-tailscale-https.md)；原服务核实、修订与未知效果规则保持。
 
 ## 问题
 

@@ -1,0 +1,19 @@
+[Unit]
+Description=ruukoto personal remote gateway
+After=network-online.target tailscaled.service
+
+[Service]
+Type=simple
+User=@RUN_USER@
+Group=@RUN_GROUP@
+ExecStart="@NODE_BIN@" /opt/ruukoto/apps/ruukoto/bin/ruukoto.mjs remote serve
+Restart=on-failure
+RestartSec=3
+KillMode=control-group
+KillSignal=SIGTERM
+TimeoutStopSec=150
+SendSIGKILL=no
+TimeoutStopFailureMode=terminate
+
+[Install]
+WantedBy=multi-user.target

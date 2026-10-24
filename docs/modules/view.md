@@ -2,7 +2,7 @@
 
 ## 职责与边界
 
-本篇的运行状态、历史或客户端协议适用于 Coding 与保留的旧格式实现；正式个人 Agent 使用[个人持久会话](personal-durable.md)，不接入旧 Runtime、Task Store 或控制协议。
+`ViewState`、`EventFlow` 与 `HistoryRecovery` 适用于 Coding 与保留的旧格式实现；正式个人 Agent 的状态由[个人持久会话](personal-durable.md)持有，不接入旧 Runtime、Task Store 或控制协议。PA 的纯 wire 类型由本包 `personal-protocol.ts` 唯一定义，后台和桌面仅作类型引用。
 
 `@ruukoto/view`（`packages/view/src/`）提供客户端共用的内存投影与历史恢复：`ViewState`、`EventFlow` 只安装输入，独立的 `HistoryRecovery` 编排注入的读取。它可以在浏览器运行，不打开连接或文件，不持久化状态，也不渲染界面。连接与全局事件序号恢复归 [control](control.md)；命令执行、命令持久化、输入历史、工作流侧栏与终端样式归 [tui](tui.md)。
 
@@ -22,6 +22,8 @@
 | `utf8ByteLength` / 标签函数 | 计算 UTF-8 字节数，提供模式、任务、工作流与 SubAgent 状态文字 |
 
 输入类型来自 core 与 control，仅浏览器可用的模块参与值引用。`ACTIVE_TASK_STATUSES` 与 `TERMINAL_TASK_STATUSES` 由 core 的 `task-status.ts` 提供，展示归属由 control 的 `session-attribution.ts` 提供；原模块仍再导出它们。
+
+`personal-protocol.ts` 定义 PA 的时间线 entry/分页、消息块、实时工具、snapshot/events 帧及 runId/subscription/seq；不含 Node、Electron、连接或状态实现。PA renderer 的原生投影归[桌面客户端](desktop.md)，不复用 Code 的 `ViewState`。
 
 ## 数据与状态
 
@@ -57,6 +59,8 @@ UTF-8 字节计数使用 `TextEncoder`，中文、emoji 与孤立代理项的计
 历史关联缺失时保留普通正文并显示原因，不猜测任务或跨任务配对工具结果。数据实例变化时旧会话视图失效，同实例快照保留草稿与本地提示。思考增量按 UTF-8 offset 补洞去重，较旧缺失片段可补齐正文，阶段时间只取最新事件；旧无偏移快照仍替换。任务结束收尾尚未结束的思考段。待审批只包含状态为 pending、所属任务非终态且权限版本一致的请求。`task.mode_switch_failed` 只随后台中断产生，实时投影将非终态任务设为 interrupted、记录结束时间并保留失败原因；已有终态不回滚，不能将停止未核实解释为安全停止。
 
 ## 设计依据
+
+- [个人 Tailscale HTTPS 与 WebSocket](../../.agents/notes/implemented/architecture/2026-10-24-personal-tailscale-https.md)
 
 - [双端共用会话历史恢复](../../.agents/notes/implemented/architecture/2026-10-23-shared-history-recovery.md)
 

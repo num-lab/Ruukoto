@@ -7,7 +7,7 @@
 | 模块 | 一句职责 | 主要依赖方向 |
 | --- | --- | --- |
 | [products](modules/products.md)（`apps/ruukoto`、`apps/ruukoto-code`） | 持有各产品入口与专属业务装配 | 个人装配 durable，Coding 注入共享 runtime/CLI；产品包互不依赖 |
-| [personal-durable](modules/personal-durable.md)（个人 app 内） | 个人会话、工作、档案与请求证据、权限、IM/本机管理和工具 | 依赖 Pi 1.3.0 与独立底层能力；正式 bin/start/dev 同装配 |
+| [personal-durable](modules/personal-durable.md)（个人 app 内） | 个人会话、工作、档案与请求证据、权限、IM/本机/远程管理和工具 | 依赖 Pi 1.3.0 与独立底层能力；正式 bin/start/dev 同装配 |
 | [runtime](modules/runtime.md) | 拥有任务生命周期、会话身份、队列与 SubAgent 委派的编排；模型配置与栈归 RuntimeModels | 依赖 core 的存储、agent-context 的模型装配、agent-tools 的工具、execution 的执行边界；被 control 与 channels 驱动 |
 | [core](modules/core.md) | 定义数据布局、schema、任务状态机与会话身份判定 | 不依赖其他模块，被全部模块依赖 |
 | [workflows](modules/workflows.md)（runtime 内） | 为模型与拥有者入口提供定义库、固定后台运行、持久步骤及控制 | 依赖 core 的事务、agent 的脚本与执行边界；默认接真实 Driver、来源权限与冻结汇总 |
@@ -15,8 +15,8 @@
 | [agent-tools](modules/agent-tools.md) | 决定会话有哪些工具，并经统一审批与操作账本执行 | 依赖 core、execution；被 runtime 装配 |
 | [execution](modules/execution.md) | 执行工具与受限脚本，核实进程停止 | 依赖 core；工具由 agent-tools 调用，脚本经注入回调请求宿主 |
 | [control](modules/control.md) | 提供控制面 socket、拥有者认证与协议 | 调用 runtime 与 core；被 tui、desktop 与 view 消费 |
-| [view](modules/view.md) | 共享界面投影与历史读取编排 | 依赖 core 与 control 的浏览器可用模块；被 tui 与 desktop 消费 |
-| [desktop](modules/desktop.md)（`apps/desktop`） | 桌面连接（Electron／MyGo） | Node 宿主依赖 control/core/view，renderer 依赖 view；后台独立运行 |
+| [view](modules/view.md) | Coding界面投影、历史读取编排及PA纯wire类型 | 依赖 core 与 control 的浏览器可用模块；被 tui 与 desktop 消费 |
+| [desktop](modules/desktop.md)（`apps/desktop`） | 桌面连接（Electron／MyGo） | Node宿主连接Code控制面与PA HTTPS/WSS，renderer使用独立投影；后台独立运行 |
 | [tui](modules/tui.md) | 共享 CLI、交互终端与配置中心 | 界面只经 control 协议连接后台；CLI 的 `server` 入口在本进程装配 runtime |
 | [channels](modules/channels.md) | 拥有者 IM 入口、图片入站与 GitHub 事件来源 | 依赖 core 登记入站事件；驱动 runtime 建任务；经 scheduler 的 outbox 外发 |
 | [scheduler](modules/scheduler.md) | 持久调度计划与通知 outbox 的发送账本 | 依赖 core；驱动 runtime 建唤醒任务；经 channels 发送 |
@@ -65,11 +65,11 @@ sequenceDiagram
 
 ## 主流程二：入站消息到回复
 
-个人 QQ/Telegram 与本机菜单共用 durable 主会话；平台消息先提交持久接纳事实，再推进接管水位。
+个人 QQ/Telegram、本机菜单与 PA 桌面共用 durable 主会话；平台消息先提交持久接纳事实，再推进接管水位。
 
 ```mermaid
 sequenceDiagram
-  participant P as QQ / Telegram / 本机菜单
+  participant P as QQ / Telegram / 本机菜单 / PA桌面
   participant A as 个人入口
   participant H as durable Harness
   participant M as main Conversation
@@ -151,9 +151,9 @@ sequenceDiagram
 - 任务终态、TUI 退出与空闲都不关闭 SubAgent；关闭是独立列，关闭后拒绝新委派但保留历史与产物。
 - 后台重启时排队的委派任务定 `interrupted` 不自动继续；宿主固定评审的排队任务由编排器启动恢复自动继续；占用未核实的旧执行保留占用并由拥有者用 `resume-queue` 释放。
 
-## 一条消息穿过全部模块
+## PA桌面连接
 
-Coding 请求由 `control` 交给 `runtime` 建任务并取出，`agent-context` 组装上下文，`agent-tools` 判定可用性并取审批，`execution` 在边界内执行，`core` 存下每一步的事实，`control` 把事件流推给 `tui`，个人请求由 app 的 durable 会话与发送 Task 衔接 IM，运行事实不写旧 Task Store。
+PA桌面经Serve的HTTPS/WSS→私有remote（拥有者+应用凭据）→唯一durable Harness；设置维护用独立账本，admin仅供本机配对/撤销。wire类型归view；安全见[桌面](modules/desktop.md)，部署见[部署说明](../deploy/systemd/README.md)。
 
 ## 设计依据
 

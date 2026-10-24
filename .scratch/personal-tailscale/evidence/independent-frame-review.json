@@ -1,0 +1,26 @@
+{
+  "scope": "只读独立核对Host frame validator与共享PersonalDesktopEvent/Change/Message/Block/Live DTO，全部网络在隔离TLS/WSS fixture；未向真实tailnet发输入。",
+  "finding": "submission合法分支遗漏，整帧events.every返回false并停止观察",
+  "before": {
+    "tests": 21,
+    "pass": 20,
+    "fail": 1,
+    "submission": {
+      "state": "failed",
+      "error": "personal_protocol",
+      "frames": 1
+    }
+  },
+  "after": {
+    "chunk_id": "09e130",
+    "wall_time_seconds": 0.763222125,
+    "exit_code": 0,
+    "original_token_count": 634,
+    "output": "{\"type\":\"run_start\",\"state\":\"online\",\"frames\":2}\n✔ 合法DTO事件应继续观察：run_start (48.573541ms)\n{\"type\":\"run_end\",\"state\":\"online\",\"frames\":2}\n✔ 合法DTO事件应继续观察：run_end (35.059417ms)\n{\"type\":\"turn_start\",\"state\":\"online\",\"frames\":2}\n✔ 合法DTO事件应继续观察：turn_start (33.293208ms)\n{\"type\":\"turn_end\",\"state\":\"online\",\"frames\":2}\n✔ 合法DTO事件应继续观察：turn_end (34.368542ms)\n{\"type\":\"message_start\",\"state\":\"online\",\"frames\":2}\n✔ 合法DTO事件应继续观察：message_start (35.175542ms)\n{\"type\":\"message_update\",\"state\":\"online\",\"frames\":2}\n✔ 合法DTO事件应继续观察：message_update (33.908625ms)\n{\"type\":\"message_end\",\"state\":\"online\",\"frames\":2}\n✔ 合法DTO事件应继续观察：message_end (34.034333ms)\n{\"type\":\"entry_appended\",\"state\":\"online\",\"frames\":2}\n✔ 合法DTO事件应继续观察：entry_appended (32.852625ms)\n{\"type\":\"tool_execution_start\",\"state\":\"online\",\"frames\":2}\n✔ 合法DTO事件应继续观察：tool_execution_start (33.0425ms)\n{\"type\":\"tool_execution_update\",\"state\":\"online\",\"frames\":2}\n✔ 合法DTO事件应继续观察：tool_execution_update (35.051375ms)\n{\"type\":\"tool_execution_end\",\"state\":\"online\",\"frames\":2}\n✔ 合法DTO事件应继续观察：tool_execution_end (35.315666ms)\n{\"type\":\"inbox_update\",\"state\":\"online\",\"frames\":2}\n✔ 合法DTO事件应继续观察：inbox_update (35.888083ms)\n{\"type\":\"submission\",\"state\":\"online\",\"frames\":2}\n✔ 合法DTO事件应继续观察：submission (33.571834ms)\n{\"type\":\"auto_retry_start\",\"state\":\"online\",\"frames\":2}\n✔ 合法DTO事件应继续观察：auto_retry_start (35.994083ms)\n{\"type\":\"auto_retry_end\",\"state\":\"online\",\"frames\":2}\n✔ 合法DTO事件应继续观察：auto_retry_end (35.176208ms)\n{\"type\":\"deferred_poll\",\"state\":\"online\",\"frames\":2}\n✔ 合法DTO事件应继续观察：deferred_poll (34.888125ms)\n{\"type\":\"agent_changed\",\"state\":\"online\",\"frames\":2}\n✔ 合法DTO事件应继续观察：agent_changed (35.895959ms)\n{\"type\":\"task_failed\",\"state\":\"online\",\"frames\":2}\n✔ 合法DTO事件应继续观察：task_failed (33.958708ms)\n{\"type\":\"compaction_start\",\"state\":\"online\",\"frames\":2}\n✔ 合法DTO事件应继续观察：compaction_start (34.890625ms)\n{\"type\":\"compaction_end\",\"state\":\"online\",\"frames\":2}\n✔ 合法DTO事件应继续观察：compaction_end (35.643166ms)\n✔ 合法DTO富快照应继续观察 (35.737042ms)\nℹ tests 21\nℹ suites 0\nℹ pass 21\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 839.441584\n"
+  },
+  "command": "node --import tsx --test /tmp/review-personal-union-events.test.mts",
+  "reproduction": "/tmp/review-personal-union-events.test.mts",
+  "hashes": "8a10ed828a23606e18e4d40cc4bf25d5c80cf25a80dd253c92ed71fb44a81524  apps/desktop/src/main/personal-controller.ts\n1cafc44df3e7a63f17be46f334de2db4c2f288f25478e41eab61b36072dc920f  packages/view/src/personal-protocol.ts\ncead8d48a1a6350ee14604514c0a902f3388d43282bcee1adb7ae471a0c53559  apps/ruukoto/src/personal-desktop-events.ts\n",
+  "coverage": "20种top-level事件，message_update全部8种change，三种block，富snapshot中的model/run/generation retry/deferred/tool/inbox/timeline。",
+  "notes": "其它合法分支未见误拒绝。部分字段欠校验（retry/deferred/compaction字段、tool元数据等）另报给根，不能用本合法输入扫描声称全部非法载荷被拒绝。"
+}

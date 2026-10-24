@@ -10,6 +10,12 @@ const execute = promisify(execFile);
 export class DesktopError extends Error {
   constructor(readonly code: string, message: string) { super(message); this.name = "DesktopError"; }
 }
+const HOST_INJECTION = /^(?:NODE_|DYLD_|LD_)|^(?:ELECTRON_RUN_AS_NODE|ELECTRON_RENDERER_URL|RUUKOTO_DESKTOP_DEV_NONCE|RUUKOTO_DESKTOP_MYGO_USER_DATA|OPENSSL_CONF|OPENSSL_MODULES|SSL_CERT_FILE|SSL_CERT_DIR|SSLKEYLOGFILE|CODESIGN_ALLOCATE)$/;
+
+export function hostEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return Object.fromEntries(Object.entries(env).filter(([key]) => !HOST_INJECTION.test(key)));
+}
+
 export interface DesktopEnvironment { env: NodeJS.ProcessEnv; node: string }
 const probe = 'process.stdout.write("\\0RUUKOTO_DESKTOP\\0"+JSON.stringify({env:process.env,node:process.execPath,version:process.versions.node})+"\\0END\\0")';
 
@@ -55,8 +61,9 @@ export async function selectEnvironment(inherited: NodeJS.ProcessEnv, login = re
 }
 
 export function adoptEnvironment(env: NodeJS.ProcessEnv): void {
-  for (const key of Object.keys(process.env)) if (!(key in env)) delete process.env[key];
-  Object.assign(process.env, env);
+  const source = hostEnvironment(env);
+  for (const key of Object.keys(process.env)) if (!(key in source)) delete process.env[key];
+  Object.assign(process.env, source);
 }
 
 export interface CodeTargetConfig extends EnsureBackendOptions {

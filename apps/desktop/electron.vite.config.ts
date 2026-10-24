@@ -11,7 +11,7 @@ export default defineConfig(({ command }) => ({
   main: {
     plugins: [{ name: "terminal-runtime", writeBundle: () => vendorTerminal(fileURLToPath(new URL("./out/main", import.meta.url))) }],
     define: { __RUUKOTO_REPOSITORY__: JSON.stringify(repository) },
-    build: { externalizeDeps: false, rollupOptions: { external: ["node-pty"], output: { paths: { "node-pty": TERMINAL_MODULE }, format: "es", entryFileNames: "index.js", inlineDynamicImports: true } } },
+    build: { externalizeDeps: false, rollupOptions: { input: { bootstrap: fileURLToPath(new URL("./src/main/bootstrap.ts", import.meta.url)), index: fileURLToPath(new URL("./src/main/index.ts", import.meta.url)) }, external: ["node-pty"], output: { paths: { "node-pty": TERMINAL_MODULE }, format: "es", entryFileNames: "[name].js", chunkFileNames: "[name]-[hash].js" } } },
   },
   preload: {
     build: { externalizeDeps: false, rollupOptions: { output: { format: "cjs", entryFileNames: "index.cjs", inlineDynamicImports: true } } },

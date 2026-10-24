@@ -10,7 +10,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { openPersonalHarness, type PersonalHarness } from "../apps/ruukoto/src/personal-harness.ts";
 import { personalProvider, type PersonalModelConfig } from "../apps/ruukoto/src/personal-model.ts";
-import { PersonalQuestionsDoc, PersonalQuestionDoc, answerPersonalQuestion, cancelPersonalQuestion, personalQuestionDetail, personalQuestionList, personalQuestionReceipt, personalQuestionSource, type PersonalQuestion } from "../apps/ruukoto/src/personal-questions.ts";
+import { PersonalQuestionsDoc, PersonalQuestionDoc, answerPersonalQuestion, cancelPersonalQuestion, personalQuestionActions, personalQuestionDetail, personalQuestionList, personalQuestionReceipt, personalQuestionSource, type PersonalQuestion } from "../apps/ruukoto/src/personal-questions.ts";
 import { PersonalPermissionsDoc } from "../apps/ruukoto/src/personal-permissions.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
 import { parsePersonalTools } from "../apps/ruukoto/src/personal-tools-config.ts";
@@ -34,6 +34,17 @@ async function fixture(t: TestContext, responder?: Responder) {
 }
 async function first(p: PersonalHarness) { const page = await p.harness.commit(tx => personalQuestionList(tx), context); assert.equal(page.items.length, 1); return p.harness.commit(tx => personalQuestionDetail(tx, page.items[0].id), context); }
 async function until(check: () => Promise<boolean>) { const end = Date.now() + 10000; while (!await check()) { assert.ok(Date.now() < end, "等待问题状态超时"); await delay(5); } }
+
+test("个人问题能力：IM问题在本机可取消但不代答，终态不再提供动作", async t => {
+  const f = await fixture(t), p = await f.open(); await p.answer("发起提问", "actions");
+  const question = await first(p);
+  assert.deepEqual(personalQuestionActions(question), { canAnswer: true, canCancel: true });
+  const im = { ...question, origin: { ...question.origin, telegram: { generation: randomUUID(), botId: "123", ownerId: "456", mode: "confirm" as const, version: 1 } } };
+  assert.deepEqual(personalQuestionActions(im), { canAnswer: false, canCancel: true });
+  assert.deepEqual(personalQuestionActions({ ...im, status: "answered" }), { canAnswer: false, canCancel: false });
+  const listed = await p.harness.commit(tx => personalQuestionList(tx), context);
+  assert.equal(listed.items[0].canAnswer, true); assert.equal(listed.items[0].canCancel, true);
+});
 
 test("个人问题：主聊天继续、实际答案权限、同键回执与重开唯一续接", { timeout: 30000 }, async t => {
   const f = await fixture(t), p = await f.open();

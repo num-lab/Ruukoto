@@ -1,0 +1,11 @@
+{
+  "modelsToSkillsWithoutManualRefresh": true,
+  "skillsToMcpWithoutManualRefresh": true,
+  "profile": "/var/lib/rktest/profile",
+  "online": true,
+  "existingCredentialAfterRebuild": true,
+  "keychainUiAppeared": false,
+  "newInputsSentDuringSettingsRetest": 0,
+  "appExited": true,
+  "acceptDnsAfterRestore": false
+}

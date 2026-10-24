@@ -3,7 +3,8 @@ import { listPersonalServiceGrants, revokePersonalServiceGrant } from "./persona
 import { appDataList, appDataDetail, appDataDecide, appDataRecheck } from "./personal-app-data.ts";
 import { parsePersonalMemoryControl, personalMemoryControl } from "./personal-memory-controls.ts";
 import { readPersonalMemory, searchPersonalMemory } from "./personal-memory.ts";
-import { readPersonalHistory, searchPersonalHistory } from "./personal-history.ts";
+import { readPersonalHistory, searchPersonalHistory, personalTimeline } from "./personal-history.ts";
+import { personalDesktopEvents } from "./personal-desktop-events.ts";
 import { ROOT_CONVERSATION_ID } from "@earendil-works/pi-durable";
 import { readPersonalQq } from "./personal-qq-config.ts";
 import { exportPersonalArtifact, type PersonalArtifact } from "./personal-artifacts.ts";
@@ -39,7 +40,7 @@ import { personalCommandRef, resolvePersonalCommand } from "./personal-command-w
 import { mcpDecide, mcpDetail, mcpList, mcpResolve } from "./personal-mcp.ts";
 import { readPersonalMcp } from "./personal-mcp-config.ts";
 import { parsePersonalScheduleCreate, type PersonalScheduleCreateBody } from "./personal-scheduler-controls.ts";
-import { dispatchPersonalSettings, PERSONAL_SETTINGS_LIMITS, type PersonalSettingsRequest } from "./personal-settings.ts";
+import { dispatchPersonalSettings, personalSettingsIdentity, PERSONAL_SETTINGS_LIMITS, type PersonalSettingsRequest } from "./personal-settings.ts";
 
 import { LocalInputDoc, personalInputDigest } from "./personal-local-records.ts";
 export { LocalInputDoc } from "./personal-local-records.ts";
@@ -122,11 +123,14 @@ export async function startPersonalServer(directory: string, options: { developm
   let listenerClosed: Promise<void> | undefined;
   let shutdown: Promise<void> | undefined;
   let personal: Awaited<ReturnType<typeof openPersonalHarness>> | undefined;
+  let desktopEvents: ReturnType<typeof personalDesktopEvents> | undefined;
+  const runId = randomUUID();
   const telegramStop = new AbortController();
   let qqLoop: Promise<void> | undefined;
   let telegramLoop: Promise<void> | undefined;
   const closeListener = () => listenerClosed ??= (async () => {
     telegramStop.abort();
+    await desktopEvents?.close();
     await Promise.all([telegramLoop, qqLoop]);
     if (server.listening) await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
     await Promise.allSettled([...active]);
@@ -155,6 +159,7 @@ export async function startPersonalServer(directory: string, options: { developm
     fs.chmodSync(socketPath, 0o600);
     personal = await openPersonalHarness({ profile, provider: personalProvider(config), modelId: config.modelId, telegram, qq, ...(services ? { service: { ...services, useSudo: true }, serviceOperations: true } : {}), ...(commands ? { commands } : {}), ...(mcp ? { mcp } : {}), ...(tools ? { tools } : {}), ...(browser ? { browser } : {}), beforeUnlock: closeListener });
     const instance = personal;
+    desktopEvents = personalDesktopEvents(server, instance.harness, token, runId);
     qqLoop = instance.qq.poll(telegramStop.signal).catch(() => { process.stderr.write("[ruukoto:personal] QQ 收件已停止，请查询状态并检查档案；未自动重启。\n"); });
     telegramLoop = instance.telegram.poll(telegramStop.signal).catch(() => { process.stderr.write("[ruukoto:personal] Telegram 收件已停止，请查询状态并检查档案；未自动重启。\n"); });
     const respond = (res: http.ServerResponse, status: number, result: unknown) => {
@@ -173,7 +178,11 @@ export async function startPersonalServer(directory: string, options: { developm
         if (listenerClosed) throw new PersonalError("control_stopping", "后台正在停止，请等待停止完成后再启动。");
         const url = new URL(req.url ?? "/", "http://localhost");
         let result: unknown;
-        if (req.method === "GET" && url.pathname === "/settings") {
+        if (req.method === "GET" && url.pathname === "/desktop/identity") {
+          result = { v: 1, product: "ruukoto", profile: personalSettingsIdentity(profile), runId };
+        } else if (req.method === "GET" && url.pathname === "/timeline") {
+          result = await instance.harness.commit(tx => personalTimeline(tx, { ...(url.searchParams.has("through") ? { through: queryNumber(url, "through") } : {}), ...(url.searchParams.has("cursor") ? { cursor: url.searchParams.get("cursor")! } : {}) }), context);
+        } else if (req.method === "GET" && url.pathname === "/settings") {
           result = await dispatchPersonalSettings({ profile, instance, development: options.development }, { v: 1, op: "settings.read" });
         } else if (req.method === "POST" && url.pathname === "/settings") {
           result = await dispatchPersonalSettings({ profile, instance, development: options.development }, await readControlJSON(req));

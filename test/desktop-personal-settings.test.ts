@@ -1,393 +1,132 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 import { test } from "node:test";
-import * as fs from "node:fs";
-import * as path from "node:path";
-import * as http from "node:http";
-import { once } from "node:events";
-import { spawnSync } from "node:child_process";
-import { PersonalSettingsController, personalMachineCommand } from "../apps/desktop/src/main/personal-settings-controller.ts";
-import { PERSONAL_PROGRAMS, loadPersonalConfig, savePersonalConfig, loadPersonalManagementConfig, savePersonalManagementConfig, validatePersonalManagementConfig, type PersonalManagementConfig } from "../apps/desktop/src/main/personal-config.ts";
-import { PersonalManagementState } from "../apps/desktop/src/renderer/personal-management-state.ts";
-import { PersonalSettingsPageState } from "../apps/desktop/src/renderer/personal-settings-state.ts";
-import { ipcResult } from "../apps/desktop/src/main/ipc.ts";
-import { SshProcess } from "../apps/desktop/src/main/personal-ssh.ts";
-import { DesktopHost } from "../apps/desktop/src/main/host.ts";
-import type { DesktopResult } from "../apps/desktop/src/shared/bridge.ts";
-import type { PersonalMaintenanceStatus } from "../apps/desktop/src/shared/personal-settings.ts";
 import { ControlClientError } from "@ruukoto/control/client.ts";
+import { PersonalSettingsController } from "../apps/desktop/src/main/personal-settings-controller.ts";
+import { personalPendingFile } from "../apps/desktop/src/main/personal-config.ts";
+import { desktopRemoteFixture } from "./helpers/personal-remote-desktop.ts";
 
-const profile = { directory: "/remote/profile", id: "sha256:" + "a".repeat(64) };
-const oldRevision = "sha256:" + "b".repeat(64), newRevision = "sha256:" + "c".repeat(64);
-const config: PersonalManagementConfig = { host: "pa", profileDir: profile.directory, program: PERSONAL_PROGRAMS[0], lifecycle: "systemd" };
-const mutation = () => ({ v: 1, op: "config.save", profile, expectedRevision: oldRevision, target: "model", value: { apiKeyEnv: "NEW_KEY", model: "draft-private-value" } });
+const code = (expected: string) => (error: unknown) => error instanceof ControlClientError && error.code === expected;
 
-for (const [scenario, availableProgram] of [["全部失败保留首个原因而不冒充未安装", undefined], ["首项失败仍列出后项成功", PERSONAL_PROGRAMS[1]], ["后项失败不丢弃首项成功", PERSONAL_PROGRAMS[0]]] as const) test(`Personal 程序检测：${scenario}`, async t => {
-  const userData = fs.mkdtempSync("/tmp/rk-detect-");
-  const message = "SSH 连接失败，请核对主机与密钥后重新检测。";
-  t.mock.method(PersonalSettingsController.prototype, "probe", async function (this: PersonalSettingsController): Promise<PersonalMaintenanceStatus> {
-    if (this.config.program !== availableProgram) throw new ControlClientError("management_ssh", this.config.program === PERSONAL_PROGRAMS[0] ? message : "其他安装位置不可用，请核实程序路径。", "not_sent");
-    return { profile, online: true, writable: true, code: "maintenance_ready", reason: "服务身份已核实。", lifecycle: { kind: "systemd", state: "running", managedDevelopment: false, originalEnvironment: "unverified" } };
+async function fixture(t: Parameters<typeof desktopRemoteFixture>[0]) {
+  const f = await desktopRemoteFixture(t), controller = f.create(); await controller.pair("ABCDEFGHIJKL", "Electron");
+  const state = { calls: 0, restores: 0, finishes: 0, dropAfterAdmission: false, rejectBeforeAdmission: false, uncertainCode: "", pending: null as string | null, online: true, receipts: new Map<string, Record<string, unknown>>(), requests: [] as unknown[] };
+  const revisions = { model: `sha256:${"1".repeat(64)}`, skills: "missing", mcp: "missing" };
+  const request = { v: 1, op: "config.save", target: "model", profile: f.profile, expectedRevision: revisions.model, value: { modelId: "new-model" } };
+  const view = () => ({ settings: { product: "ruukoto", profile: f.profile, online: state.online, revisions, blockers: [], model: { config: {}, credential: { state: "available", reference: "TEST_API_KEY" } }, skills: null, mcp: null, lifecycle: { managedDevelopment: false } }, maintenance: { profile: f.profile, online: state.online, writable: true, code: "maintenance_ready", reason: "已核实原服务", lifecycle: { kind: "systemd", state: state.online ? "running" : "stopped", managedDevelopment: false, originalEnvironment: "unverified" } }, pending: state.pending ? state.receipts.get(state.pending) : null });
+  f.overrides.set("/management", (_req, res) => { f.respond(res, view()); });
+  f.overrides.set("/settings", (_req, res, value) => { state.requests.push(value); f.respond(res, (value as { op: string }).op === "settings.read" ? view().settings : { profile: f.profile, tested: true }); });
+  f.overrides.set("/maintenance", (req, res, value) => {
+    if (req.method === "GET") { f.respond(res, state.receipts.get(new URL(req.url!, f.origin).searchParams.get("id")!) ?? null); return; }
+    state.calls++;
+    const input = value as { id: string; request: typeof request };
+    const local = JSON.parse(fs.readFileSync(personalPendingFile(f.directory, controller.config), "utf8")); assert.equal(local.maintenance.id, input.id);
+    if (state.rejectBeforeAdmission) { f.reject(res, "settings_revision_changed", 400); return; }
+    state.receipts.set(input.id, { v: 1, id: input.id, profile: f.profile, op: input.request.op, target: "model", expectedRevision: revisions.model, requestDigest: local.maintenance.requestDigest, stage: "stopping", saveAttempted: false, saved: false, started: false }); state.pending = input.id;
+    if (state.dropAfterAdmission) { req.socket.destroy(); return; }
+    if (state.uncertainCode) { f.reject(res, state.uncertainCode, 409); return; }
+    f.respond(res, state.receipts.get(input.id), 202);
   });
-  const host = new DesktopHost(process.cwd(), userData, { publish() {}, focused: () => false, notice() {}, badge() {} }, async () => ({ node: process.execPath, env: process.env }));
-  const state = new PersonalManagementState({ request: (target, op, params) => host.request(target, op, params) }, () => {});
-  try {
-    await state.read(); state.edit("host", config.host); state.edit("profileDir", config.profileDir);
-    await state.detect();
-    assert.deepEqual(state.programs, availableProgram ? [availableProgram] : []);
-    if (availableProgram) assert.match(state.message, /请选择检测到的程序位置/);
-    else assert.equal(state.message, message);
-  } finally { await host.close(); fs.rmSync(userData, { recursive: true, force: true }); }
-});
-
-type Scenario = { online: boolean; token: string; revision: string; fault?: string; writable?: boolean; blockers?: unknown[]; credential?: string; product?: string; v?: number; identity?: string; reject?: string };
-async function harness(patch: Partial<Scenario> = {}, timeoutMs = 3000) {
-  const dir = fs.mkdtempSync("/tmp/rk-settings-"), scenarioFile = path.join(dir, "scenario.json"), log = path.join(dir, "calls.jsonl"), childrenFile = path.join(dir, "children");
-  const initial: Scenario = { online: true, token: "1".repeat(64), revision: oldRevision, ...patch };
-  fs.writeFileSync(scenarioFile, JSON.stringify(initial));
-  const scenario = (): Scenario => JSON.parse(fs.readFileSync(scenarioFile, "utf8"));
-  const write = (patch: Partial<Scenario>) => {
-    const temporary = `${scenarioFile}.${process.pid}.tmp`;
-    fs.writeFileSync(temporary, JSON.stringify({ ...scenario(), ...patch })); fs.renameSync(temporary, scenarioFile);
-  };
-  const snapshot = () => {
-    const s = scenario();
-    return { product: "ruukoto", profile: { ...profile, id: s.identity ?? profile.id }, online: s.online, revisions: { model: s.revision, skills: oldRevision, mcp: oldRevision }, blockers: s.blockers ?? [], model: { config: { apiKeyEnv: "KEY" }, credential: { state: s.credential ?? (s.online ? "available" : "unverified"), reference: "KEY" } }, skills: { config: null, revision: oldRevision, skills: [], diagnostics: [], diagnosticsTruncated: false, offset: 0, hasMore: false }, mcp: null, lifecycle: { managedDevelopment: false } };
-  };
-  const auth: string[] = [], onlineRequests: Record<string, unknown>[] = [];
-  const remote = path.join(dir, "remote.sock");
-  const server = http.createServer((req, res) => {
-    let body = ""; req.on("data", chunk => { body += chunk; });
-    req.on("end", () => {
-      auth.push(String(req.headers.authorization));
-      const request = JSON.parse(body), s = scenario();
-      onlineRequests.push(request);
-      if (req.headers.authorization !== `Bearer ${s.token}`) { res.end(JSON.stringify({ v: 1, ok: false, code: "unauthorized", message: "invalid " + s.token })); return; }
-      if (s.fault === "http-control-disconnect" && request.op === "mcp.cua-control") { req.destroy(); return; }
-      if (s.fault === "http-control-large" && request.op === "mcp.cua-control") { res.end(JSON.stringify({ v: 1, ok: true, result: { product: "ruukoto", profile, paused: true, padding: "x".repeat(300000) } })); return; }
-      if (s.fault === "http-secret") { res.end(JSON.stringify({ v: 1, ok: false, code: "test_secret", message: s.token })); return; }
-      if (request.op === "mcp.cua-control") { res.end(JSON.stringify({ v: 1, ok: true, result: { product: "ruukoto", profile, paused: request.action === "pause", busy: false, operations: [] } })); return; }
-      const result = request.op === "config.preflight" ? { product: "ruukoto", profile, blockers: s.blockers ?? [], credential: { state: s.credential ?? "available" } } : snapshot();
-      res.end(JSON.stringify({ v: 1, ok: true, result }));
-    });
+  for (const action of ["restore", "finish"] as const) f.overrides.set(`/maintenance/${action}`, (_req, res, value) => {
+    const { id } = value as { id: string }; if (action === "restore") state.restores++; else state.finishes++;
+    const receipt = state.receipts.get(id)!; Object.assign(receipt, { stage: "complete", saved: action === "restore" ? true : receipt.saved, started: true }); state.pending = null; state.online = true; f.respond(res, receipt);
   });
-  server.listen(remote); await once(server, "listening");
-  const executable = path.join(dir, "ssh");
-  fs.writeFileSync(executable, `#!${process.execPath}
-const fs = require('node:fs'), net = require('node:net');
-const args = process.argv.slice(2), file = process.env.SCENARIO;
-fs.appendFileSync(process.env.CHILDREN, process.pid+'\\n');
-const read = () => JSON.parse(fs.readFileSync(file,'utf8'));
-const write = value => { const temporary=file+'.'+process.pid+'.tmp';fs.writeFileSync(temporary,JSON.stringify(value));fs.renameSync(temporary,file); };
-if(args.includes('-N')) {
-  const local = args[args.indexOf('-L')+1].split(':')[0];
-  fs.rmSync(local,{force:true});
-  net.createServer(client=>{const remote=net.connect(process.env.REMOTE);client.pipe(remote);remote.pipe(client);client.on('error',()=>remote.destroy());remote.on('error',()=>client.destroy());client.on('close',()=>remote.destroy());remote.on('close',()=>client.destroy());}).listen(local);
-} else if(args.at(-1).includes('cat --')) {
-  process.stdout.write(read().token+'\\n');
-} else {
-  let input=''; process.stdin.on('data',chunk=>input+=chunk); process.stdin.on('end',()=>{
-    const req=JSON.parse(input), s=read(), maintenance=args.at(-1).endsWith(' maintenance');
-    fs.appendFileSync(process.env.LOG,JSON.stringify({entry:maintenance?'maintenance':'settings',op:req.op,limit:req.limit,command:args.at(-1),hasJsonInCommand:args.at(-1).includes('draft-private-value')})+'\\n');
-    const identity={directory:'/remote/profile',id:s.identity||'${profile.id}'};
-    let result;
-    if(maintenance) {
-      if(req.op==='start'&&s.fault==='start-reject'){delete s.fault;write(s);process.stdout.write(JSON.stringify({v:1,product:'ruukoto',ok:false,code:'maintenance_start_unverified',message:'原服务启动失败，请核实已保存配置。'})+'\\n');return;}
-      if(req.op==='stop')s.online=false;
-      if(req.op==='start'){s.online=true;s.token='2'.repeat(64);}
-      if(req.op==='stop'||req.op==='start')write(s);
-      result={profile:identity,online:s.online,writable:s.writable!==false,code:'test_status',reason:s.writable===false?'只读：管理员需配置精确授权与 SendSIGKILL=no。':'服务身份与部署已核实。',lifecycle:{kind:req.lifecycle,state:s.online?'running':'stopped',managedDevelopment:false,originalEnvironment:'unverified'}};
-    } else if(req.op==='config.save'||req.op==='skills.set-enabled') {
-      if(s.reject){process.stdout.write(JSON.stringify({v:1,product:'ruukoto',ok:false,code:s.reject,message:'配置未保存，请恢复原后台并比较当前配置。'})+'\\n');return;}
-      s.revision='${newRevision}';write(s);result={product:'ruukoto',profile:identity,saved:true,revision:s.revision};
-      if(s.fault==='save-journal'){
-        const dir=process.env.USER_DATA+'/pending/personal-settings';const file=fs.readdirSync(dir).find(name=>name.endsWith('.json'));fs.mkdirSync(dir+'/'+file+'.tmp');delete s.fault;write(s);
-      }
-      if(s.fault==='save-internal'){delete s.fault;write(s);process.stdout.write(JSON.stringify({v:1,product:'ruukoto',ok:false,code:'settings_internal',message:'结果无法核实。'})+'\\n');return;}
-    } else result={product:'ruukoto',profile:identity,online:s.online,revisions:{model:s.revision,skills:'${oldRevision}',mcp:'${oldRevision}'},blockers:s.blockers||[],model:{config:{apiKeyEnv:'KEY'},credential:{state:s.online?'available':'unverified',reference:'KEY'}},lifecycle:{managedDevelopment:false}};
-    const stage=maintenance?req.op:req.op==='config.save'?'save':'read';
-    if(s.fault==='inspect-wait'&&stage==='inspect'){
-      const timer=setInterval(()=>{if(read().fault!=='inspect-wait'){clearInterval(timer);process.stdout.write(JSON.stringify({v:s.v||1,product:s.product||'ruukoto',ok:true,result})+'\\n');}},10);return;
-    }
-    if(s.fault===stage+'-disconnect'){delete s.fault;write(s);process.exit(255);}
-    if(s.fault===stage+'-hang'){setInterval(()=>{},1000);return;}
-    if(s.fault==='large'){process.stdout.write('x'.repeat(300000));return;}
-    process.stdout.write(JSON.stringify({v:s.v||1,product:s.product||'ruukoto',ok:true,result})+'\\n');
-  });
-}
-`, { mode: 0o755 });
-  const userData = path.join(dir, "app");
-  const env = { ...process.env, SCENARIO: scenarioFile, LOG: log, REMOTE: remote, CHILDREN: childrenFile, USER_DATA: userData };
-  const create = () => new PersonalSettingsController(config, userData, env, { ssh: executable, timeoutMs });
-  let controller = create();
-  const calls = (): { entry: string; op: string; limit?: number; command: string; hasJsonInCommand: boolean }[] => fs.existsSync(log) ? fs.readFileSync(log, "utf8").trim().split("\n").map(line => JSON.parse(line)) : [];
-  return { dir, userData, controller, auth, onlineRequests, calls, scenario, write, async reopen() { await controller.close(); controller = create(); this.controller = controller; return controller; }, async close() {
-    await controller.close(); server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve()));
-    for (const pid of fs.existsSync(childrenFile) ? fs.readFileSync(childrenFile, "utf8").trim().split("\n").map(Number) : []) assert.throws(() => process.kill(pid, 0), "所有自有 SSH 子进程必须回收");
-    fs.rmSync(dir, { recursive: true, force: true });
-  } };
+  return { ...f, controller, settings: new PersonalSettingsController(controller, f.directory), state, request, view, complete: () => { const receipt = state.receipts.get(state.pending!)!; Object.assign(receipt, { stage: "complete", saveAttempted: true, saved: true, savedRevision: revisions.model, started: true }); state.pending = null; } };
 }
 
-test("Personal 页面读取：切页与连接核实共享原查询，旧页丢弃迟到应答且写入仍互斥", async () => {
-  const h = await harness({ fault: "inspect-wait" });
-  const bridge = { request: async (_target: string, op: string) => op === "desktop_personal_management_config_read" ? { ok: true as const, value: config } : ipcResult(() => h.controller.read()) };
-  const original = new PersonalSettingsPageState(bridge, () => {}, "models");
-  const next = new PersonalSettingsPageState(bridge, () => {}, "skills");
-  const management = new PersonalManagementState(bridge, () => {});
-  try {
-    const reading = original.read();
-    const deadline = Date.now() + 3000;
-    while (!h.calls().some(call => call.op === "inspect") && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10));
-    assert.ok(h.calls().some(call => call.op === "inspect"));
-    original.invalidate();
-    const nextReading = next.read();
-    await management.read();
-    const inspecting = management.inspect();
-    await assert.rejects(h.controller.apply(mutation()), { code: "management_busy" });
-    h.write({ fault: undefined });
-    await Promise.all([reading, nextReading, inspecting]);
-    assert.equal(original.view, null);
-    assert.equal(next.phase, "ready", next.message);
-    assert.equal(management.phase, "ready", management.message);
-    assert.deepEqual(next.view?.settings.profile, profile);
-    assert.deepEqual(management.view?.settings.profile, profile);
-    assert.equal(h.calls().filter(call => call.op === "inspect").length, 1);
-    assert.equal(h.calls().filter(call => call.op === "settings.read").length, 1);
-    assert.equal(h.onlineRequests.filter(call => call.op === "settings.read").length, 1);
-    assert.equal(h.calls().filter(call => ["stop", "start", "config.save"].includes(call.op)).length, 0);
-    assert.equal(h.controller.hasPendingOperation(), false);
-  } finally { try { h.write({ fault: undefined }); } finally { await h.close(); } }
+test("PA设置：三类设置沿已核实的同一HTTPS连接读取与测试，档案变化拒绝", async t => {
+  const f = await fixture(t), view = await f.settings.read();
+  assert.equal(view.settings.profile.id, f.profile.id); assert.equal(view.maintenance.writable, true);
+  const tested = await f.settings.request({ v: 1, op: "model.test", profile: f.profile, expectedRevision: f.request.expectedRevision, value: {} }); assert.equal(tested.tested, true);
+  await assert.rejects(f.settings.request({ v: 1, op: "model.test", profile: { ...f.profile, id: `sha256:${"b".repeat(64)}` } }), code("settings_profile_changed"));
+  await assert.rejects(f.settings.request({ v: 1, op: "config.save" }), code("op_not_allowed"));
+  assert.equal(f.state.calls, 0);
 });
 
-test("Personal 页面读取：共同失败后可重新查询，关闭仍拒绝且不外调", async () => {
-  const h = await harness({ fault: "inspect-disconnect" });
-  try {
-    const failures = await Promise.allSettled([h.controller.read(), h.controller.read()]);
-    for (const result of failures) {
-      assert.equal(result.status, "rejected");
-      if (result.status === "rejected") assert.equal(result.reason.code, "management_ssh");
-    }
-    assert.equal(h.calls().filter(call => call.op === "inspect").length, 1);
-    assert.equal((await h.controller.read()).settings.online, true);
-    assert.equal(h.calls().filter(call => call.op === "inspect").length, 2);
-    await h.controller.close();
-    const count = h.calls().length;
-    await assert.rejects(h.controller.read(), { code: "management_changed" });
-    assert.equal(h.calls().length, count);
-  } finally { await h.close(); }
+test("PA维护：接纳202后只读原回执，完整阶段归服务器；完成后允许下一项", async t => {
+  const f = await fixture(t), view = await f.settings.apply(f.request);
+  assert.equal(view.pending?.stage, "stopping"); assert.equal(f.state.calls, 1); assert.equal(!!f.controller.maintenance(), true);
+  await assert.rejects(f.settings.apply(f.request), code("maintenance_pending")); assert.equal(f.state.calls, 1);
+  f.complete(); const complete = await f.settings.read(); assert.equal(complete.pending, null); assert.equal(complete.saved, true); assert.equal(!!f.controller.maintenance(), false);
+  await f.settings.apply(f.request); assert.equal(f.state.calls, 2);
+  const ids = [...f.state.receipts.keys()]; assert.notEqual(ids[0], ids[1]);
 });
 
-test("管理前检与探测只读取一项配置，合法大 MCP 列表可继续按页查询", async () => {
-  const h = await harness();
-  try {
-    await h.controller.probe(); await h.controller.read();
-    assert.ok(h.calls().filter(call => call.op === "settings.read").every(call => call.limit === 1));
-    assert.ok(h.onlineRequests.length > 0); assert.ok(h.onlineRequests.filter(call => call.op === "settings.read").every(call => call.limit === 1));
-  } finally { await h.close(); }
+test("PA维护丢答：原关联落盘，重开查原键且不重存，已保存启动失败可显式恢复", async t => {
+  const f = await fixture(t); f.state.dropAfterAdmission = true;
+  await assert.rejects(f.settings.apply(f.request), code("personal_connection_lost"));
+  const pending = f.controller.maintenance()!; assert.ok(pending.id); assert.equal(f.state.calls, 1);
+  const old = f.state.receipts.get(pending.id)!; Object.assign(old, { stage: "saved", saved: true, saveAttempted: true, savedRevision: f.request.expectedRevision, started: false }); f.state.online = false;
+  const reopened = new PersonalSettingsController(f.controller, f.directory), view = await reopened.read(); assert.equal(view.saved, true); assert.equal(view.pending?.id, pending.id);
+  const restored = await reopened.restore(); assert.equal(restored.pending, null); assert.equal(f.state.restores, 1); assert.equal(f.state.calls, 1);
 });
 
-test("新管理配置独立存储；主机参数拒绝注入，档案路径经 shell 转义", () => {
-  const dir = fs.mkdtempSync("/tmp/rk-config-");
-  try {
-    assert.equal(loadPersonalManagementConfig(dir), null);
-    savePersonalConfig(dir, { host: "legacy", controlDir: "/old" });
-    assert.deepEqual(savePersonalManagementConfig(dir, config), config);
-    assert.deepEqual(loadPersonalConfig(dir), { host: "legacy", controlDir: "/old" });
-    for (const host of ["-x", "a b", "a;whoami", "a\nb"]) assert.throws(() => validatePersonalManagementConfig({ ...config, host }, dir));
-    for (const profileDir of ["a", "/a:123", "/a\nb", "/a/../b", "/a/"]) assert.throws(() => validatePersonalManagementConfig({ ...config, profileDir }, dir));
-    assert.throws(() => validatePersonalManagementConfig({ ...config, program: "/bin/sh -c evil" }, dir));
-    assert.throws(() => validatePersonalManagementConfig({ ...config, token: "secret" }, dir));
-    const marker = path.join(dir, "injected"), program = path.join(dir, "capture");
-    fs.writeFileSync(program, '#!/bin/sh\nprintf "%s" "$RUUKOTO_PERSONAL_DIR"', { mode: 0o755 });
-    const profileDir = `a'; touch ${marker}; #`;
-    const result = spawnSync("/bin/sh", ["-c", personalMachineCommand({ ...config, profileDir, program }, "settings")], { encoding: "utf8" });
-    assert.equal(result.stdout, profileDir); assert.equal(fs.existsSync(marker), false);
-    assert.equal(fs.statSync(path.join(dir, "personal-settings.json")).mode & 0o777, 0o600);
-  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+test("PA维护：明确拒绝不留假接纳，未知结果不自动换键；人工结束需先读取", async t => {
+  const f = await fixture(t); f.state.rejectBeforeAdmission = true;
+  await assert.rejects(f.settings.apply(f.request), code("settings_revision_changed")); assert.equal(f.controller.maintenance(), undefined);
+  f.state.rejectBeforeAdmission = false; await f.settings.apply(f.request);
+  const unopened = new PersonalSettingsController(f.controller, f.directory); await assert.rejects(unopened.finish(), code("maintenance_unverified"));
+  await unopened.read(); await unopened.finish(); assert.equal(f.state.finishes, 1); assert.equal(f.controller.maintenance(), undefined);
 });
 
-test("SSH 有界 JSON 保留跨 stdout chunk 的多字节字符", async () => {
-  const reader = new SshProcess(process.execPath, ["-e", "const b=Buffer.from('中文');process.stdout.write(b.subarray(0,1));setTimeout(()=>process.stdout.write(b.subarray(1)),30)"], process.env, true);
-  assert.equal((await reader.done).stdout, "中文");
+test("旧桌面维护：原损坏记录阻止新写维护，查询和原文件均保留", async t => {
+  const f = await fixture(t), directory = path.join(f.directory, "pending", "personal-settings"); fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+  const old = path.join(directory, "original.json"); fs.writeFileSync(old, "broken old journal", { mode: 0o600 });
+  await f.settings.read(); await assert.rejects(f.settings.apply(f.request), code("legacy_maintenance_pending"));
+  assert.equal(f.state.calls, 0); assert.equal(fs.readFileSync(old, "utf8"), "broken old journal");
 });
 
-test("连接先核已有档案的维护身份，失败时不调用可能初始化目录的 settings 入口", async () => {
-  for (const entry of ["read", "probe"] as const) {
-    const h = await harness({ fault: "inspect-disconnect" });
-    try {
-      await assert.rejects(h.controller[entry]());
-      assert.deepEqual(h.calls().map(call => [call.entry, call.op]), [["maintenance", "inspect"]]);
-    } finally { await h.close(); }
+
+test("409不能证明未执行：应答超限或服务器未知失败保留原维护键，不再次保存", async t => {
+  for (const failure of ["remote_response_large", "remote_unavailable"]) {
+    const f = await fixture(t); f.state.uncertainCode = failure;
+    await assert.rejects(f.settings.apply(f.request), (error: unknown) => error instanceof ControlClientError && error.code === failure && error.outcome === "unknown");
+    const original = f.controller.maintenance()!; assert.ok(original.id); assert.equal(f.state.calls, 1);
+    f.state.uncertainCode = ""; const view = await f.settings.read(); assert.equal(view.pending?.id, original.id);
+    await assert.rejects(f.settings.apply(f.request), code("maintenance_pending")); assert.equal(f.state.calls, 1);
   }
 });
 
-test("保存后内部错误不冒充明确未保存", async () => {
-  const h = await harness({ fault: "save-internal" });
-  try { await assert.rejects(h.controller.apply(mutation()), { code: "settings_internal", outcome: "unknown" }); const view = await h.controller.read(); assert.equal(view.saved, null); assert.equal(view.settings.revisions.model, newRevision); assert.equal(view.pending?.saveAttempted, true); }
-  finally { await h.close(); }
-});
 
-test("已取得保存回执后本机记录失败仍报告已保存，且停止后续启动", async () => {
-  const h = await harness({ fault: "save-journal" });
-  try {
-    await assert.rejects(h.controller.apply(mutation()), { code: "maintenance_saved_start_unverified", outcome: "unknown" });
-    const view = await h.controller.read(); assert.equal(view.saved, true); assert.equal(view.pending?.savedRevision, newRevision);
-    assert.equal(h.calls().some(call => call.op === "start"), false);
-  } finally { await h.close(); }
-});
-
-test("Host 在原维护待核实时保留连接，退出中止维护而不保存或启动", async () => {
-  const h = await harness({ fault: "stop-hang" });
-  let host: DesktopHost | undefined;
-  try {
-    savePersonalManagementConfig(h.userData, config);
-    const applying = h.controller.apply(mutation());
-    const rejected = assert.rejects(applying, { code: "management_changed", outcome: "unknown" });
-    while (!h.calls().some(call => call.op === "stop")) await new Promise(resolve => setTimeout(resolve, 10));
-    await h.controller.close(); await rejected;
-    host = new DesktopHost(process.cwd(), h.userData, { publish() {}, focused: () => false, notice() {}, badge() {} }, async () => { throw new Error("本用例不创建后台"); });
-    const result = await host.request("personal", "desktop_personal_management_config_save", { ...config, host: "other" });
-    assert.equal(result.ok, false); if (!result.ok) assert.equal(result.error.code, "maintenance_pending");
-    assert.deepEqual(loadPersonalManagementConfig(h.userData), config);
-    assert.equal(h.calls().some(call => call.op === "start" || call.op === "config.save"), false);
-  } finally { await host?.close(); await h.close(); }
-});
-
-for (const patch of [{ v: 2 }, { product: "ruukoto-code" }, { identity: "sha256:" + "e".repeat(64) }]) {
-  test(`拒绝旧协议、产品或档案变化 ${JSON.stringify(patch)}`, async () => {
-    const h = await harness();
-    try { await h.controller.read(); h.write(patch); await assert.rejects(h.controller.read(), { code: patch.identity ? "settings_profile_changed" : "personal_protocol" }); assert.equal(h.calls().filter(call => ["stop", "start", "config.save"].includes(call.op)).length, 0); }
-    finally { await h.close(); }
+test("PA切页读取：旧页尚未卸载时共享原档案读取，完成与失败后均可重新读取", async t => {
+  const f = await fixture(t);
+  let reads = 0, fail = false;
+  let release!: () => void, entered!: () => void;
+  let gate = Promise.resolve();
+  f.overrides.set("/management", async (_req, res) => {
+    reads++; entered?.(); await gate;
+    if (fail) f.reject(res, "remote_unavailable", 409);
+    else f.respond(res, f.view());
   });
-}
-
-test("HTTP 每次读取轮换 token，错误脱敏，模型请求 JSON 不进入命令参数", async () => {
-  const h = await harness();
-  try {
-    await h.controller.read(); h.write({ token: "3".repeat(64) }); await h.controller.read();
-    assert.ok(h.auth.includes("Bearer " + "1".repeat(64))); assert.ok(h.auth.includes("Bearer " + "3".repeat(64)));
-    h.write({ fault: "http-secret" }); await assert.rejects(h.controller.read(), error => error instanceof Error && !error.message.includes("3".repeat(64)) && error.message.includes("隐藏"));
-    h.write({ fault: undefined });
-    const result = await h.controller.apply(mutation());
-    assert.equal(result.saved, true); assert.equal(result.pending, null); assert.equal(result.settings.online, true);
-    assert.ok(h.calls().every(call => !call.hasJsonInCommand));
-    assert.ok(!JSON.stringify(fs.readdirSync(h.userData)).includes("token"));
-  } finally { await h.close(); }
-});
-
-test("未决、只读或实际凭据不可用在停止前拒绝；请求与响应限额有效", async () => {
-  for (const patch of [{ blockers: [{ kind: "pending-work" }] }, { writable: false }, { credential: "missing" }]) {
-    const h = await harness(patch);
-    try { await assert.rejects(h.controller.apply(mutation())); assert.equal(h.calls().filter(call => call.op === "stop").length, 0); }
-    finally { await h.close(); }
+  for (const rejected of [false, true]) {
+    fail = rejected;
+    gate = new Promise<void>(resolve => { release = resolve; });
+    const started = new Promise<void>(resolve => { entered = resolve; });
+    const first = f.settings.read(); await started;
+    const second = f.settings.read();
+    const results = Promise.allSettled([first, second]);
+    await assert.rejects(f.settings.request({ v: 1, op: "settings.read" }), code("management_busy"));
+    await assert.rejects(f.settings.apply(f.request), code("management_busy"));
+    release();
+    const settled = await results;
+    assert.equal(settled[0].status, rejected ? "rejected" : "fulfilled");
+    assert.equal(settled[1].status, settled[0].status, "切页不能把相同读取误判为另一项在途操作");
+    if (rejected) for (const result of settled) assert.ok(result.status === "rejected" && code("remote_unavailable")(result.reason));
+    assert.equal(reads, rejected ? 2 : 1, "同一轮只发送一次档案读取");
   }
-  const h = await harness();
-  try {
-    await assert.rejects(h.controller.apply({ ...mutation(), value: "x".repeat(128 * 1024) }), { code: "settings_request_large" });
-    await assert.rejects(h.controller.request({ v: 1, op: "config.save" }));
-    h.write({ fault: "large" }); await assert.rejects(h.controller.read(), { code: "management_transport" });
-    assert.equal(h.calls().filter(call => call.op === "stop").length, 0);
-  } finally { await h.close(); }
+  fail = false; await f.settings.read(); assert.equal(reads, 3);
+  await f.settings.close();
+  await assert.rejects(f.settings.read(), code("management_closed"));
+  assert.equal(reads, 3);
 });
 
-for (const stage of ["stop", "save", "start"]) {
-  test(`${stage} 阶段断线保留原操作，重开只查询，恢复不重发保存`, async () => {
-    const h = await harness({ fault: stage + "-disconnect" });
-    try {
-      if (stage === "start") { const result = await h.controller.apply(mutation()); assert.equal(result.saved, true); assert.ok(result.pending); }
-      else await assert.rejects(h.controller.apply(mutation()));
-      const recordFile = path.join(h.userData, "pending", "personal-settings", fs.readdirSync(path.join(h.userData, "pending", "personal-settings"))[0]);
-      const record = fs.readFileSync(recordFile, "utf8"); assert.ok(!record.includes("draft-private-value")); assert.ok(!record.includes("1".repeat(64)));
-      const before = h.calls().filter(call => ["stop", "start", "config.save"].includes(call.op));
-      const controller = await h.reopen();
-      const view = await controller.read();
-      assert.equal(view.saved, stage === "start" ? true : stage === "save" ? null : false);
-      assert.deepEqual(h.calls().filter(call => ["stop", "start", "config.save"].includes(call.op)), before);
-      await assert.rejects(controller.apply(mutation()), { code: "maintenance_pending" });
-      if (!view.settings.online) assert.equal((await controller.restore()).settings.online, true);
-      assert.equal(h.calls().filter(call => call.op === "config.save").length, stage === "stop" ? 0 : 1);
-      assert.equal((await controller.finish()).pending, null);
-    } finally { await h.close(); }
-  });
-}
-
-for (const rejection of ["settings_pending", "skills_revision_conflict"]) test(`停止后保存明确拒绝 ${rejection} 保留原配置，并可显式恢复`, async () => {
-  const h = await harness({ reject: rejection });
-  try {
-    const request = rejection === "skills_revision_conflict" ? { v: 1, op: "skills.set-enabled", profile, expectedRevision: oldRevision, id: "00000000-0000-4000-8000-000000000001", enabled: false } : mutation();
-    await assert.rejects(h.controller.apply(request), { code: rejection, outcome: "rejected" });
-    const view = await h.controller.read(); assert.equal(view.saved, false); assert.equal(view.settings.online, false); assert.equal(view.settings.revisions.model, oldRevision);
-    assert.equal(view.pending?.rejected, rejection);
-    assert.equal((await h.controller.restore()).settings.online, true);
-  } finally { await h.close(); }
-});
-
-test("保存成功但原服务启动失败保留已保存事实，显式恢复只启动一次不重存", async () => {
-  const h = await harness({ fault: "start-reject" });
-  try {
-    const result = await h.controller.apply(mutation());
-    assert.equal(result.saved, true); assert.equal(result.settings.online, false); assert.equal(result.pending?.savedRevision, newRevision);
-    assert.match(result.message, /已保存/);
-    assert.equal((await h.controller.restore()).settings.online, true);
-    assert.equal(h.calls().filter(call => call.op === "config.save").length, 1);
-    assert.equal(h.calls().filter(call => call.op === "start").length, 2);
-  } finally { await h.close(); }
-});
-
-test("停止超时或退出只回收自有 SSH，不继续保存、不自动启动", async () => {
-  const h = await harness({ fault: "stop-hang" }, 1500);
-  try {
-    await assert.rejects(h.controller.apply(mutation()), { code: "management_timeout" });
-    assert.equal(h.calls().some(call => call.op === "config.save" || call.op === "start"), false);
-    h.write({ fault: undefined }); assert.equal((await h.controller.read()).saved, false);
-  } finally { await h.close(); }
-});
-
-test("向导丢答后只核实本机配置，关闭与改连接使迟到结果失效", async () => {
-  let resolve!: (value: DesktopResult<unknown>) => void;
-  const calls: string[] = [];
-  const state = new PersonalManagementState({ request: async (_target, op) => { calls.push(op); if (op.endsWith("config_read")) return { ok: true, value: config }; return new Promise(done => { resolve = done; }); } }, () => {});
-  await state.read(); state.edit("host", "changed");
-  const saving = state.save(); state.invalidate(); resolve({ ok: true, value: { ...config, host: "changed" } }); await saving;
-  assert.equal(state.phase, "unknown"); assert.equal(state.draft.host, "changed");
-  await state.read(); assert.equal(state.phase, "conflict"); assert.equal(state.draft.host, "changed");
-  assert.equal(calls.filter(op => op.endsWith("config_save")).length, 1);
-});
-
-test("Personal Cua 在线控制沿受保护后台执行，不因未决事项进入停存启，丢答不伪装未发送", async () => {
-  const h = await harness({ blockers: [{ kind: "mcp" }], writable: false });
-  try {
-    await h.controller.read();
-    const before = h.calls().length;
-    const value = { v: 1, op: "mcp.cua-control", profile, expectedRevision: oldRevision, action: "pause" };
-    const result = await h.controller.request(value);
-    assert.equal(result.paused, true); assert.equal(h.calls().length, before); assert.equal(h.controller.hasPendingOperation(), false);
-    assert.equal(h.onlineRequests.filter(request => request.op === "mcp.cua-control").length, 1);
-    h.write({ fault: "http-control-disconnect" });
-    await assert.rejects(h.controller.request({ ...value, action: "resume" }), { code: "management_http", outcome: "unknown" });
-    assert.equal(h.onlineRequests.filter(request => request.op === "mcp.cua-control").length, 2);
-    assert.equal(h.calls().length, before);
-  } finally { await h.close(); }
-});
-
-test("Personal Cua 控制已执行后应答超限仍属结果未知", async () => {
-  const h = await harness();
-  try {
-    await h.controller.read(); h.write({ fault: "http-control-large" });
-    await assert.rejects(h.controller.request({ v: 1, op: "mcp.cua-control", profile, expectedRevision: oldRevision, action: "pause" }), { code: "settings_response_large", outcome: "unknown" });
-    assert.equal(h.onlineRequests.filter(request => request.op === "mcp.cua-control").length, 1);
-  } finally { await h.close(); }
-});
-
-test("Personal Cua 控制已执行后关闭管理连接不冒充未发送", async t => {
-  const h = await harness(); let closing: Promise<void> | undefined;
-  try {
-    await h.controller.read();
-    const emit = http.IncomingMessage.prototype.emit; let armed = true;
-    t.mock.method(http.IncomingMessage.prototype, "emit", function (this: http.IncomingMessage, event: string | symbol, ...args: unknown[]) {
-      if (armed && event === "end" && typeof this.statusCode === "number") { armed = false; closing = h.controller.close(); }
-      return emit.call(this, event, ...args);
-    });
-    await assert.rejects(h.controller.request({ v: 1, op: "mcp.cua-control", profile, expectedRevision: oldRevision, action: "pause" }), { code: "management_changed", outcome: "unknown" });
-    assert.equal(h.onlineRequests.filter(request => request.op === "mcp.cua-control").length, 1);
-  } finally { await closing; await h.close(); }
+test("PA读取关闭：在途读取不使关闭后的新读取绕过生命周期检查", async t => {
+  const f = await fixture(t);
+  let release!: () => void, entered!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; }), started = new Promise<void>(resolve => { entered = resolve; });
+  f.overrides.set("/management", async (_req, res) => { entered(); await gate; f.respond(res, f.view()); });
+  const original = f.settings.read(); await started;
+  await f.settings.close(); await assert.rejects(f.settings.read(), code("management_closed"));
+  release(); await original;
 });

@@ -7,7 +7,7 @@
 | | `ruukoto-code`（Coding Agent） | `ruukoto`（个人 Agent） |
 | --- | --- | --- |
 | 运行位置 | 开发机（macOS / Linux） | 专用 Linux 服务器 |
-| 主要入口 | TUI | QQ 私聊、Telegram（共用一个 main 会话） |
+| 主要入口 | TUI | QQ私聊、Telegram与PA桌面（共用main会话） |
 | 组织方式 | 工作区 → 会话 | 一个持续的 main 会话 |
 | 后台 | 打开 TUI 时按需拉起，`ruukoto-code stop` 才停止 | systemd 常驻 |
 | 档案根 | `~/.ruukoto-code/` | `~/.ruukoto-durable/`（生产须显式选择新目录） |
@@ -23,7 +23,7 @@
 
 [逐项验收证据](docs/release-acceptance.md)。
 
-个人 [`ruukoto`](docs/usage.md#25-个人-agent-引导与管理) 使用 Pi 1.3.0；无参打开菜单，`serve` 前台托管，`serve --directory <绝对档案路径>` 固定服务档案；`settings` 用有界 JSON 管理模型、Skills 与 MCP，`maintenance` 核实原系统服务并显式启停。`npm run personal:durable` 是同入口兼容命令。IM 用 `/帮助` 查入口，Linux 固定命令目录支持会话后台，CLI 与 `/后台` 可查日志、停止及显式结束。Coding 使用 Pi 0.85.1，入口与档案保持。
+个人 [`ruukoto`](docs/usage.md#25-个人-agent-引导与管理) 使用 Pi 1.3.0；无参打开菜单，`serve`前台运行，`--directory`固定档案；`settings` 用有界 JSON 管理模型、Skills 与 MCP，`maintenance`核实并显式启停原服务。`remote`管理桌面配对，`remote serve`托管HTTPS/WSS入口。IM用`/帮助`查入口；固定Linux命令目录的会话后台由CLI或`/后台`查日志、停止及结束。
 
 ## 快速开始
 
@@ -66,7 +66,7 @@ ruukoto serve                 # 前台托管后台，信号触发停止
 # 显式隔离目录：RUUKOTO_PERSONAL_DIR=/absolute/new-profile ruukoto
 ```
 
-QQ/Telegram 共用主会话；后台分析完成后沿首次入口回报。退出日常菜单不停止已启动的后台，停止从菜单操作。
+PA桌面连接和QQ/Telegram共用主会话；配对与切换见[操作手册](docs/usage.md#桌面客户端)。后台分析沿首次入口回报。退出日常菜单不停止已启动的后台，停止从菜单操作。
 
 ### 开发本项目
 
@@ -79,7 +79,7 @@ npm run dev                # 隔离个人开发档案，前台后台随源码变
 npm run dev -- --config     # 同一开发档案的配置菜单，退出停止本次后台
 npm run code               # 启动 ruukoto-code 开发后台并打开 TUI
 npm run code -- --desktop   # 以桌面前端连接开发后台（macOS）
-npm run desktop:build      # 构建含本机终端的 Electron 应用
+npm run desktop:build      # 构建Electron应用（含终端）
 npm run code -- ../my-project  # 以该目录创建/复用工作区，并进入新会话
 ```
 

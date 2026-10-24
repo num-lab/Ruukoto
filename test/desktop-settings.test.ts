@@ -8,11 +8,12 @@ import react from "@vitejs/plugin-react";
 import type { Project, Session } from "@ruukoto/core/types.ts";
 import type { DesktopBridge, DesktopFailure, DesktopResult } from "../apps/desktop/src/shared/bridge.ts";
 import { CodeState } from "../apps/desktop/src/renderer/code-state.ts";
+import { PersonalState } from "../apps/desktop/src/renderer/personal-state.ts";
 import { PersonalConnectionState } from "../apps/desktop/src/renderer/personal-connection-state.ts";
 import { SettingsState, type SettingsForm, type SettingsPhase, type SettingsScope } from "../apps/desktop/src/renderer/settings-state.ts";
 import { fakeSnapshot } from "./helpers/fake-control.ts";
 
-type SettingsContentsProps = { settings: SettingsState; code: CodeState; personal: CodeState; dark: boolean; onDark: (dark: boolean) => void; pages?: { mcp?: ComponentType<{ scope: SettingsScope }> } };
+type SettingsContentsProps = { settings: SettingsState; code: CodeState; personal: PersonalState; dark: boolean; onDark: (dark: boolean) => void; pages?: { mcp?: ComponentType<{ scope: SettingsScope }> } };
 let server: ViteDevServer;
 let SettingsContents: ComponentType<SettingsContentsProps>;
 before(async () => {
@@ -22,7 +23,7 @@ before(async () => {
 after(async () => { await server?.close(); });
 const ok = (value: unknown): DesktopResult<unknown> => ({ ok: true, value });
 const fail = (outcome: DesktopFailure["outcome"], code = "test_failure"): DesktopResult<unknown> => ({ ok: false, error: { code, outcome, message: "测试失败" } });
-const initial = { host: "pa", controlDir: "/control" };
+const initial = { v: 1, origin: "https://pa.example" };
 function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>(done => { resolve = done; });
@@ -36,7 +37,7 @@ function session(): Session {
 }
 function harness(withSession = false) {
   const bridge: Pick<DesktopBridge, "request"> = { request: async () => ok(null) };
-  const code = new CodeState(bridge, () => {}), personal = new CodeState(bridge, () => {}, "personal");
+  const code = new CodeState(bridge, () => {}), personal = new PersonalState(bridge, () => {});
   const snapshot = fakeSnapshot({ projects: [project("a"), project("b"), project("legacy", false)], sessions: withSession ? [session()] : [] });
   code.view.applySnapshot({ snapshot, replay: [], seq: 0 }, false); code.view.currentSessionId = withSession ? "session" : null;
   code.status = { type: "state", state: "online" };
@@ -125,15 +126,15 @@ for (const outcome of ["not_sent", "rejected", "unknown", "disconnected"] as con
   const calls: string[] = [];
   let readResult = ok(initial);
   const state = new PersonalConnectionState({ request: async (_target, op) => { calls.push(op); return op.endsWith("read") ? readResult : fail(outcome); } }, () => {});
-  await state.read(); state.edit("host", "next");
-  assert.equal(await state.save(), false); assert.equal(state.draft.host, "next");
+  await state.read(); state.edit("origin", "https://next.example");
+  assert.equal(await state.save(), false); assert.equal(state.draft.origin, "https://next.example");
   const uncertain = outcome === "unknown" || outcome === "disconnected";
   assert.equal(state.phase, uncertain ? "unknown" : "error"); assert.equal(!!state.pending, uncertain);
   if (uncertain) {
-    assert.deepEqual(state.pending, { target: "personal", op: "desktop_personal_config_save", config: { host: "next", controlDir: "/control" } });
+    assert.deepEqual(state.pending, { v: 1, origin: "https://next.example" });
     assert.equal(await state.save(), false); readResult = fail("not_sent"); await state.read();
-    assert.equal(state.phase, "unknown"); assert.equal(state.draft.host, "next");
-    readResult = ok({ ...initial, host: "next" }); await state.read();
+    assert.equal(state.phase, "unknown"); assert.equal(state.draft.origin, "https://next.example");
+    readResult = ok({ ...initial, origin: "https://next.example" }); await state.read();
     assert.equal(state.phase, "ready"); assert.equal(state.dirty, false); assert.equal(state.pending, null);
   }
   assert.equal(calls.filter(op => op.endsWith("save")).length, 1);
@@ -142,25 +143,35 @@ for (const outcome of ["not_sent", "rejected", "unknown", "disconnected"] as con
 test("PA 保存和读取绑定原轮次，重复提交不发送，冲突读回不覆盖草稿", async () => {
   const response = deferred<DesktopResult<unknown>>(); let writes = 0;
   const state = new PersonalConnectionState({ request: async (_target, op) => {
-    if (op.endsWith("read")) return ok(initial);
+    if (op === "desktop_personal_legacy_read") return ok({ paths: [] }); if (op.endsWith("read")) return ok(initial);
     ++writes; return response.promise;
   } }, () => {});
-  await state.read(); state.edit("host", "next"); const saving = state.save();
+  await state.read(); state.edit("origin", "https://next.example"); const saving = state.save();
   assert.equal(state.phase, "saving"); assert.equal(await state.save(), false); assert.equal(writes, 1);
-  state.invalidate(); response.resolve(ok({ ...initial, host: "next" })); await saving;
-  assert.equal(state.phase, "unknown"); assert.equal(state.draft.host, "next");
-  await state.read(); assert.equal(state.phase, "conflict"); assert.equal(state.current?.host, "pa"); assert.equal(state.draft.host, "next");
+  state.invalidate(); response.resolve(ok({ ...initial, origin: "https://next.example" })); await saving;
+  assert.equal(state.phase, "unknown"); assert.equal(state.draft.origin, "https://next.example");
+  await state.read(); assert.equal(state.phase, "conflict"); assert.equal(state.current?.origin, "https://pa.example"); assert.equal(state.draft.origin, "https://next.example");
   assert.equal(state.dirty, true);
   const readResponse = deferred<DesktopResult<unknown>>();
   const reading = new PersonalConnectionState({ request: async () => readResponse.promise }, () => {});
   const pending = reading.read(); reading.invalidate(); readResponse.resolve(ok(initial)); await pending;
-  assert.equal(reading.loaded, false); assert.equal(reading.draft.host, "");
+  assert.equal(reading.loaded, false); assert.equal(reading.draft.origin, "");
 });
 
 test("PA 字段校验定位错误，未知 IPC 异常保留待核实", async () => {
-  const state = new PersonalConnectionState({ request: async (_target, op) => { if (op.endsWith("read")) return ok(initial); throw new Error("bridge lost"); } }, () => {});
-  await state.read(); state.edit("host", "bad host"); assert.equal(await state.save(), false); assert.ok(state.fieldErrors.host);
-  state.edit("host", "next"); assert.equal(await state.save(), false); assert.equal(state.phase, "unknown");
+  const state = new PersonalConnectionState({ request: async (_target, op) => { if (op === "desktop_personal_legacy_read") return ok({ paths: [] }); if (op.endsWith("read")) return ok(initial); throw new Error("bridge lost"); } }, () => {});
+  await state.read(); state.edit("origin", "http://unsafe.example"); assert.equal(await state.save(), false); assert.ok(state.fieldErrors.origin);
+  state.edit("origin", "https://next.example"); assert.equal(await state.save(), false); assert.equal(state.phase, "unknown");
+});
+
+test("PA原配对恢复：显式动作只使用宿主已有候选，不要求重新输入短码", async () => {
+  const calls: { op: string; params: Record<string, unknown> }[] = [];
+  const state = new PersonalConnectionState({ request: async (_target, op, params) => { calls.push({ op, params }); if (op === "desktop_personal_legacy_read") return ok({ paths: [] }); if (op.endsWith("read")) return ok(initial); return ok({ restored: true }); } }, () => {});
+  await state.read();
+  await state.pair("restore");
+  assert.deepEqual(calls.find(value => value.op === "desktop_personal_pair_restore"), { op: "desktop_personal_pair_restore", params: {} });
+  assert.equal(state.phase, "ready");
+  assert.equal(state.code, "");
 });
 
 test("设置 SSR 保留六分类与真实内容插槽，MCP 无工作区与来源选择", () => {
@@ -184,16 +195,14 @@ test("设置 SSR 保留六分类与真实内容插槽，MCP 无工作区与来�
   assert.match(html, /实际页面内容/); assert.equal(seen, "code/inst-1"); assert.doesNotMatch(html, /先添加工作区|添加工作区/);
 });
 
-test("PA 新管理连接有独立用途页签、对应面板与字段标签", () => {
+test("PA 聊天与设置共用一处地址，不再显示SSH字段", () => {
   const original = Object.getOwnPropertyDescriptor(globalThis, "window");
   Object.defineProperty(globalThis, "window", { configurable: true, value: { ruukoto: { request: async () => ok(null) } } });
   try {
     const h = harness(); h.settings.chooseCategory("personal");
     const html = renderToStaticMarkup(createElement(SettingsContents, { ...h, dark: false, onDark() {} }));
-    assert.match(html, /aria-label="PA 连接用途"/); assert.match(html, /role="tabpanel"/);
-    assert.match(html, /aria-label="PA 设置管理连接"/);
-    for (const field of ["host", "profileDir", "program", "lifecycle"]) assert.ok(html.includes(`for="management-${field}"`));
-    assert.match(html, /检测程序/); assert.match(html, /旧聊天连接/);
+    assert.match(html, /aria-label="PA 远程连接"/); assert.match(html, /for="personal-origin"/);
+    assert.doesNotMatch(html, /SSH|旧聊天连接|PA 连接用途|检测程序|management-/);
     assert.doesNotMatch(html, /name="token"|name="command"/);
   } finally { if (original) Object.defineProperty(globalThis, "window", original); else Reflect.deleteProperty(globalThis, "window"); }
 });

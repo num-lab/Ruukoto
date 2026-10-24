@@ -640,37 +640,32 @@ function noticeHarness(query: (target: "code" | "personal", taskId: string) => P
 }
 const taskDetail = (task = desktopTask(), confirmations: ConfirmationRequestView[] = [], seq = 100) => ({ task, confirmations, seq, toolOps: [], outputPreview: null, artifacts: [] });
 
-test("桌面通知首照与整个历史补发静默，握手缓冲 live 通知一次，双目标按实例隔离", () => {
+test("Code通知首照与历史补发静默，live通知一次，PA不消费旧事件", () => {
   const h = noticeHarness();
   const history = Array.from({ length: 21 }, (_, index) => desktopTask({ id: `old-${index}`, status: "completed" }));
-  for (const target of ["code", "personal"] as const) {
-    h.snapshot(target, history.slice(0, 20));
-    for (let i = 0; i < 21; i++) h.event(target, noticeEvent(i + 1, { type: "task.completed", taskId: `old-${i}`, sessionId: "session" }, `old-${i}`), "replay");
-    assert.equal(h.notices.length, target === "code" ? 0 : 1);
-    const end = noticeEvent(101, { type: "task.interrupted", taskId: "new", sessionId: "session", reason: "owner_interrupt", cancelRequested: false, effectUnknown: false }, "new");
-    h.event(target, end); h.event(target, end);
-  }
-  assert.deepEqual(h.notices.map(notice => [notice.target, notice.sessionId, notice.taskId]), [["code", "session", "new"], ["personal", "session", "new"]]);
+  h.snapshot("code", history.slice(0, 20));
+  for (let i = 0; i < 21; i++) h.event("code", noticeEvent(i + 1, { type: "task.completed", taskId: `old-${i}`, sessionId: "session" }, `old-${i}`), "replay");
+  assert.equal(h.notices.length, 0);
+  const end = noticeEvent(101, { type: "task.interrupted", taskId: "new", sessionId: "session", reason: "owner_interrupt", cancelRequested: false, effectUnknown: false }, "new");
+  h.event("code", end); h.event("code", end);
+  assert.deepEqual(h.notices.map(notice => [notice.target, notice.sessionId, notice.taskId]), [["code", "session", "new"]]);
+  h.snapshot("personal", []); h.event("personal", end); assert.equal(h.notices.length, 1);
   h.snapshot("code", history, [], "new-instance");
   h.event("code", noticeEvent(90, { type: "task.completed", taskId: "hidden-old", sessionId: "session" }, "hidden-old"), "replay");
-  assert.equal(h.notices.length, 2);
+  assert.equal(h.notices.length, 1);
 });
 
-test("桌面审批按当前集合补通知，快照与补发去重，已处理不通知，角标按两目标汇总", () => {
+test("Code审批按当前集合补通知，快照与补发去重，已处理不通知", () => {
   const h = noticeHarness();
-  for (const target of ["code", "personal"] as const) h.snapshot(target, [desktopTask({ status: "awaiting_confirmation" })], [approval()]);
-  assert.equal(h.count, 2); assert.equal(h.notices.length, 0);
-  for (const target of ["code", "personal"] as const) {
-    const next = approval({ id: "new" });
-    h.snapshot(target, [desktopTask({ status: "awaiting_confirmation" })], [next]);
-    h.event(target, noticeEvent(90, { type: "task.awaiting_confirmation", taskId: "task", confirmationId: "new", toolOpId: "op", toolName: "http_request", params: {}, scope: next.scope, permissionVersion: 1 }), "replay");
-  }
-  assert.equal(h.notices.length, 2); assert.equal(h.count, 2);
+  h.snapshot("code", [desktopTask({ status: "awaiting_confirmation" })], [approval()]);
+  assert.equal(h.count, 1); assert.equal(h.notices.length, 0);
+  const next = approval({ id: "new" });
+  h.snapshot("code", [desktopTask({ status: "awaiting_confirmation" })], [next]);
+  h.event("code", noticeEvent(90, { type: "task.awaiting_confirmation", taskId: "task", confirmationId: "new", toolOpId: "op", toolName: "http_request", params: {}, scope: next.scope, permissionVersion: 1 }), "replay");
+  assert.equal(h.notices.length, 1); assert.equal(h.count, 1);
   h.snapshot("code", [desktopTask({ status: "running" })]);
   h.event("code", noticeEvent(95, { type: "task.awaiting_confirmation", taskId: "task", confirmationId: "already-handled", toolOpId: "op", toolName: "http_request", params: {}, scope: approval().scope }), "replay");
-  assert.equal(h.notices.length, 2); assert.equal(h.count, 1);
-  h.event("personal", noticeEvent(101, { type: "task.mode_switched", taskId: "task", sessionId: "session", from: "confirm", to: "full_access", permissionVersion: 2 }));
-  assert.equal(h.count, 0);
+  assert.equal(h.notices.length, 1); assert.equal(h.count, 0);
 });
 
 test("桌面离线结束补通知，前台更新基线不补发，取消不通知且不再查询", async () => {
@@ -681,10 +676,10 @@ test("桌面离线结束补通知，前台更新基线不补发，取消不通�
   h.event("code", noticeEvent(90, { type: "task.completed", taskId: "task", sessionId: "session" }), "replay");
   assert.equal(h.notices.length, 1);
   h.focus(true);
-  h.snapshot("personal", [desktopTask()]);
-  h.event("personal", noticeEvent(101, { type: "task.mode_switch_failed", taskId: "task", sessionId: "session", to: "full_access", reason: "worker_stop_unverified" }));
+  h.snapshot("code", [desktopTask({ id: "foreground" })]);
+  h.event("code", noticeEvent(101, { type: "task.mode_switch_failed", taskId: "foreground", sessionId: "session", to: "full_access", reason: "worker_stop_unverified" }, "foreground"));
   h.focus(false);
-  h.snapshot("personal", [desktopTask({ status: "interrupted" })]);
+  h.snapshot("code", [desktopTask({ id: "foreground", status: "interrupted" })]);
   assert.equal(h.notices.length, 1);
   h.snapshot("code", [desktopTask({ id: "cancel" })]);
   h.event("code", noticeEvent(102, { type: "task.canceled", taskId: "cancel", sessionId: "session" }, "cancel"));
@@ -703,9 +698,9 @@ test("桌面缺补发时查询观察中的任务，失败下次重查，旧代�
   h.snapshot("code", []); await tick();
   release(taskDetail(desktopTask({ status: "failed" }))); await tick();
   assert.equal(reads, 2); assert.equal(h.notices.length, 1);
-  h.snapshot("personal", [desktopTask()]); h.snapshot("personal", []); await tick();
+  h.snapshot("code", [desktopTask({ id: "late" })]); h.snapshot("code", []); await tick();
   const oldRelease = release;
-  h.snapshot("personal", [], [], "replacement");
+  h.snapshot("code", [], [], "replacement");
   oldRelease(taskDetail(desktopTask({ status: "completed" }))); await tick();
   assert.equal(h.notices.length, 1);
 });
@@ -765,7 +760,7 @@ for (const operation of ["get_task", "get_confirmation_params"] as const) test(`
   let release!: () => void;
   const gate = new Promise<void>(resolve => { release = resolve; });
   let started = false;
-  const h = approvalHarness({ respond_confirmation: () => { throw new ControlClientError("timeout", "未知", "unknown"); }, get_task: async () => { started = true; await gate; return taskDetail(desktopTask({ status: "awaiting_confirmation" }), [approval()]); }, get_confirmation_params: async () => { if (operation === "get_confirmation_params") { started = true; await gate; } return { confirmation: approval(), params: { text: "{}", offset: 0, totalBytes: 2, truncated: false } }; } }, "personal");
+  const h = approvalHarness({ respond_confirmation: () => { throw new ControlClientError("timeout", "未知", "unknown"); }, get_task: async () => { started = true; await gate; return taskDetail(desktopTask({ status: "awaiting_confirmation" }), [approval()]); }, get_confirmation_params: async () => { if (operation === "get_confirmation_params") { started = true; await gate; } return { confirmation: approval(), params: { text: "{}", offset: 0, totalBytes: 2, truncated: false } }; } }, "code");
   const pending = operation === "get_task" ? h.model.load("approval").then(() => h.model.respond(h.c, "approve")) : h.model.load("approval");
   await waitFor("旧查询已发出", () => started);
   h.snapshot([], "other"); release(); await pending;
@@ -836,12 +831,8 @@ for (const ending of ["interrupt", "mode_failure"] as const) test(`桌面真实�
 });
 
 
-test("Personal IPC 允许主会话与审批操作，仍拒绝工作区和文件操作", async () => {
-  for (const op of ["get_task", "get_confirmation_params", "respond_confirmation", "submit", "set_session_mode"] as const) {
-    const result = await handleRequest("personal", op, { confirmation_id: "approval" }, async () => {}, async name => name);
-    assert.deepEqual(result, { ok: true, value: op });
-  }
-  for (const op of ["open_workspace", "create_session", "list_workspace_files", "read_workspace_file", "read_workspace_git"]) {
+test("Personal旧控制面IPC统一拒绝，业务只经宿主持有的新接口", async () => {
+  for (const op of ["get_task", "get_confirmation_params", "respond_confirmation", "submit", "set_session_mode", "continue", "open_workspace", "create_session", "list_workspace_files", "read_workspace_file", "read_workspace_git"]) {
     const result = await handleRequest("personal", op, {}, async () => {}, unavailable);
     assert.equal(!result.ok && result.error.code, "op_not_allowed");
   }

@@ -18,7 +18,7 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { AgentDoc, type ConversationId, type TaskId } from "@earendil-works/pi-durable";
 import { openPersonalHarness, type PersonalHarness } from "../apps/ruukoto/src/personal-harness.ts";
 import { personalProvider } from "../apps/ruukoto/src/personal-model.ts";
-import { appDataDecide, appDataOperations, appDataRecheck, PersonalAppDataDoc, PERSONAL_APP_DATA_TOOLS } from "../apps/ruukoto/src/personal-app-data.ts";
+import { appDataDecide, appDataList, appDataOperations, appDataRecheck, PersonalAppDataDoc, PERSONAL_APP_DATA_TOOLS } from "../apps/ruukoto/src/personal-app-data.ts";
 import { PersonalPermissionsDoc } from "../apps/ruukoto/src/personal-permissions.ts";
 import { AppDataStore } from "../packages/agent/src/app-data/store.ts";
 import { AppDataQueryRunner } from "../packages/agent/src/app-data/query.ts";
@@ -200,6 +200,10 @@ test("应用数据：真实Telegram宿主菜单失效批准仍可恢复，错回
     return (await f.p.harness.snapshot(PersonalTelegramReceiptDoc, key, context))!.receipt!;
   };
   await receive("批量完成", undefined, false); const op = await until(async () => (await f.operations()).find(value => value.name === "app_data_delete"));
+  await f.p.harness.commit(async tx => {
+    assert.equal((await appDataList(tx)).items.find(item => item.operation === op.operation)?.canDecide, false);
+    assert.equal((await appDataList(tx, 0, telegram)).items.find(item => item.operation === op.operation)?.canDecide, true);
+  }, context);
   const menu = await receive("/应用数据"), detail = await receive("数据1", Number(menu.platformMessageId));
   const wrong = await receive("数据批准本次", 9999); assert.equal(wrong.appDataDecision, undefined); assert.equal((await f.operations())[2].started, undefined);
   const store = new AppDataStore(f.file); try { store.insert({ table: "todos", records: [{ title: "并发" }], reason: "变化", opId: "concurrent", ctx: { taskId: "test", sessionId: "test", agentId: "test" } }); } finally { store.close(); }

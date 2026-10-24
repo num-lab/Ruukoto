@@ -19,12 +19,12 @@ export interface SettingsPageProps {
   scope: SettingsScope;
   settings: SettingsState;
   code: CodeState;
-  personal: CodeState;
+  personal: { view: { instanceId: string | null } };
 }
 export interface SettingsContentsProps {
   settings: SettingsState;
   code: CodeState;
-  personal: CodeState;
+  personal: { view: { instanceId: string | null } };
   dark: boolean;
   onDark: (dark: boolean) => void;
   pages?: Partial<Record<ManagedSettingsCategory, ComponentType<SettingsPageProps>>>;

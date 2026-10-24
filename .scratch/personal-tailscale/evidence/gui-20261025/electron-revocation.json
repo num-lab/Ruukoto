@@ -1,0 +1,18 @@
+{
+  "server": {
+    "id": "92c6765d-6ca9-4ba8-ac92-8d793007206b",
+    "label": "Acceptance Electron 20261025",
+    "createdAt": 1792855152589,
+    "status": "revoked",
+    "revokedAt": 1792855932142,
+    "remoteId": "ac25193c-fec3-4837-bcd0-8f32c525b8a5",
+    "origin": "https://vnic-osaka-4c24g.tailf20ebf.ts.net",
+    "profile": {
+      "id": "sha256:c29ca412f66a76664b84aab71bf20aa19e929880b3f814b4fc0bc2a9e0d01819",
+      "directory": "/var/lib/rktest/profile"
+    }
+  },
+  "uiMessage": "此应用凭据已撤销，请在服务器重新配对；原已接纳操作仍可核实。",
+  "historyRetained": true,
+  "sendDisabled": true
+}

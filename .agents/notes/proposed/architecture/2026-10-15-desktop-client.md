@@ -2,7 +2,7 @@
 
 Status: proposed
 
-PA 连接的后续替代方案见 [Tailscale HTTPS／WebSocket](2026-10-24-personal-tailscale-https.md)；该提案尚未实施，本篇 Code 决定与旧实现事实保留。
+PA 连接已由下述决定取代，见 [Tailscale HTTPS／WebSocket](../../implemented/architecture/2026-10-24-personal-tailscale-https.md)；本篇 Code 决定保留。
 
 相关未实施方案：[设置管理](../../proposed/feature/2026-10-21-desktop-settings-management.md)扩展配置能力，并独立接入新 Personal durable 的设置管理；本篇旧控制连接不代表新个人协议已支持。
 

@@ -1,0 +1,46 @@
+{
+  "builtAt": "2026-10-24T15:44:49.226Z",
+  "settingsSourceMatchesRoot": true,
+  "settingsPatchSha256": "fd702533a87281f7134aa78f7217229834a7cfc18e56998289e47520fa8f6df5",
+  "guiLaunchedByThisVerification": false,
+  "keychainAccessed": false,
+  "mygoBuildGenerationOnly": true,
+  "mygoApp": "/private/tmp/ruukoto-ts-gui.xh6h6fsy/dist/mygo/darwin-arm64/Ruukoto Tailscale Acceptance MyGo.app",
+  "mygoExec": "/private/tmp/ruukoto-ts-gui.xh6h6fsy/dist/mygo/darwin-arm64/Ruukoto Tailscale Acceptance MyGo.app/Contents/MacOS/Ruukoto Tailscale Acceptance MyGo",
+  "signedIdentifier": "dev.ruukoto.acceptance.tailscale.20261024.mygo",
+  "deepStrictSignatureVerified": true,
+  "hardenedRuntime": true,
+  "nodeDigestVerified": true,
+  "node": "/Users/eitrous/.local/share/mise/installs/node/24.15.0/bin/node",
+  "nodeSha256": "3200fbd9f7fd4410426dd541e10d1ab829d3472f270d743c7fabd1696c03fe32",
+  "mygoService": "dev.ruukoto.acceptance.tailscale.20261024.mygo.credentials.production",
+  "mygoUserData": "/tmp/ruukoto-ts-acceptance-data.hiu5ou23/mygo",
+  "electronPackageUnchanged": true,
+  "electronASAR": "675c37af4268f4da431b96e5ffa6a1a31f7d3c2d6e1a936cc4fc967286c613df",
+  "fixFiles": {
+    "apps/desktop/scripts/mygo.mjs": "d7b27c6fd5e7950f2f1836c079ba71e8fc4587b502fa467cf62428d226500301",
+    "apps/desktop/scripts/mygo.d.mts": "3e81bc8f9317432a30661d3e02f699c1f5f18cf50008b4a858793d0aeae72314",
+    "test/desktop-mygo.test.ts": "31298c68927b6824ac30ed0ae2a00141613186c4014641995ceafb512790ad0b",
+    "apps/desktop/src/main/personal-settings-controller.ts": "7578d593e8041a9e737bef8dfa6b28a059f41ea0644fcd728e9c09810daf5e1e"
+  },
+  "fixPatchSha256": "e31749e96ddff447bc2455203ad30122bd05a4c194e3efca19f76049d204d3e9",
+  "artifactHashes": {
+    "mygoExecutable": "fcc9a63a1b116a01e02d4441104e328b77002c49daa1090e13235ce7d5a5603b",
+    "mygoSidecar": "5b344330c3b69f0ad134177dcdad1c1b28d9636fbb2fc271d1e5482296e41193"
+  },
+  "originalFocusProbePassed": true,
+  "focusResult": {
+    "sidecarAliveUntilClose": true,
+    "exit": 0,
+    "reply": {
+      "kind": "result",
+      "id": 1,
+      "result": {
+        "ok": true
+      }
+    },
+    "stderr": "",
+    "credentialStoreInvoked": false
+  },
+  "notes": "Only MyGo was rebuilt. Original artifacts.json remains the pre-GUI/pre-fix build baseline; this file records final MyGo after the settings read single-flight source update. Only personal-settings-controller.ts was synchronized for this build; previous builtin-only require and isolation constants remain. No renderer, preload, native credential, startup guard or private-frame source changed. Existing test Keychain was not read or modified during build/verification."
+}

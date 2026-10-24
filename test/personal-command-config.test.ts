@@ -3,10 +3,14 @@ import * as fs from "node:fs";
 import nodeFs from "node:fs";
 import * as path from "node:path";
 import { tmpdir } from "node:os";
+import nodeOs from "node:os";
 import { syncBuiltinESMExports } from "node:module";
 import { test, type TestContext } from "node:test";
 import { fileURLToPath } from "node:url";
-import { parsePersonalCommands, readPersonalCommands, savePersonalCommands, verifyPersonalCommandConfig, personalCommandEnvironment } from "../apps/ruukoto/src/personal-command-config.ts";
+import { parsePersonalCommands, readPersonalCommands, savePersonalCommands, verifyPersonalCommandConfig, personalCommandEnvironment, personalProtectedRoots } from "../apps/ruukoto/src/personal-command-config.ts";
+import { personalReadPath } from "../apps/ruukoto/src/personal-tools-config.ts";
+import { preparePersonalFile, executePersonalFile } from "../apps/ruukoto/src/personal-tool-io.ts";
+import { assertGrantNotProtected } from "@ruukoto/agent/execution/approved-ops.ts";
 import { lockPersonalProfile } from "../apps/ruukoto/src/personal-profile.ts";
 import { configurePersonalCommands, launchPersonalServer, personalMenu } from "../apps/ruukoto/src/personal-cli.ts";
 import { startPersonalServer } from "../apps/ruukoto/src/personal-control.ts";
@@ -74,6 +78,24 @@ test("个人命令配置：保护原档案、源码及其祖先，拒绝旧机�
   const profile = lockPersonalProfile(f.directory);
   try { assert.throws(() => readPersonalCommands(profile), code("command_config_changed")); }
   finally { profile.release(); }
+});
+
+test("个人权限：remote 根受现有 .config 保护，完全访问保留同账户例外", t => {
+  const f = fixture(t), home = path.join(f.root, "home"), remote = path.join(home, ".config", "ruukoto-remote");
+  fs.mkdirSync(remote, { recursive: true, mode: 0o700 });
+  const filename = path.join(remote, "fixture.json"); fs.writeFileSync(filename, "fixture-only", { mode: 0o600 });
+  t.mock.method(nodeOs, "homedir", () => home); syncBuiltinESMExports();
+  const protectedRoots = personalProtectedRoots(f.directory), { dev, ino } = fs.statSync(remote);
+  assert.ok(personalCommandEnvironment(f.directory, f.config).native.protectedRoots.includes(path.join(home, ".config")));
+  for (const mode of ["confirm", "auto-review"] as const) {
+    assert.throws(() => verifyPersonalCommandConfig({ ...f.config, workspace: remote, identity: { dev, ino } }, f.directory, mode), code("command_config_invalid"));
+    assert.throws(() => personalReadPath(f.directory, remote, mode), code("tools_config_invalid"));
+  }
+  assert.throws(() => assertGrantNotProtected(remote, protectedRoots));
+  assert.throws(() => preparePersonalFile({ path: filename, access: "read", protectedRoots }), PersonalError);
+  verifyPersonalCommandConfig({ ...f.config, workspace: remote, identity: { dev, ino } }, f.directory, "full_access");
+  assert.equal(personalReadPath(f.directory, remote, "full_access").path, remote);
+  assert.equal(executePersonalFile(preparePersonalFile({ path: filename, access: "read", protectedRoots: [] })).bytes.toString(), "fixture-only");
 });
 
 test("个人命令配置：损坏和链接配置拒绝读取，不作为未配置继续", async t => {

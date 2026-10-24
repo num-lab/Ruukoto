@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as vm from "node:vm";
+import * as os from "node:os";
+import * as path from "node:path";
+import { spawnSync } from "node:child_process";
+import { build } from "esbuild";
+import { sidecarBuildOptions } from "../apps/desktop/scripts/mygo.mjs";
+import { vendorTerminal } from "../apps/desktop/build/terminal.mjs";
 import { test } from "node:test";
 import type { DesktopBridge, DesktopUpdate } from "../apps/desktop/src/shared/bridge.ts";
 
@@ -114,5 +120,33 @@ test("共用 DesktopHost 经真实控制面订阅和限制操作，选择器期�
     adoptEnvironment(previous);
     await t.shutdown();
     fs.rmSync(control, { recursive: true, force: true });
+  }
+});
+
+test("实际 MyGo ESM sidecar 能装载 ws 并应答首个私有管道请求，不加载外部可选模块", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "mygo-sidecar-bundle-"));
+  const output = path.join(root, "out"), marker = path.join(root, "external-loaded");
+  fs.mkdirSync(output);
+  for (const name of ["bufferutil", "utf-8-validate"]) {
+    const external = path.join(root, "node_modules", name);
+    fs.mkdirSync(external, { recursive: true });
+    fs.writeFileSync(path.join(external, "package.json"), JSON.stringify({ name, main: "index.cjs" }));
+    fs.writeFileSync(path.join(external, "index.cjs"), `require("node:fs").writeFileSync(${JSON.stringify(marker)}, "loaded");`);
+  }
+  try {
+    const repository = path.resolve(import.meta.dirname, "..");
+    vendorTerminal(output);
+    await build(sidecarBuildOptions(path.join(repository, "apps/desktop"), repository, output));
+    const frames = [{ kind: "credential_ready", v: 1, generation: "a".repeat(32) }, { id: 1, method: "focus", args: [false] }];
+    const result = spawnSync(process.execPath, ["--disable-sigusr1", "--no-global-search-paths", path.join(output, "sidecar.mjs"), path.join(root, "user-data")], {
+      input: frames.map(frame => JSON.stringify(frame) + "\n").join(""), encoding: "utf8", timeout: 10_000,
+      env: { ...process.env, WS_NO_BUFFER_UTIL: "", RUUKOTO_DESKTOP_MANAGED: "1", RUUKOTO_CODE_DATA_DIR: path.join(root, "data"), RUUKOTO_CODE_AGENT_DIR: path.join(root, "agent"), RUUKOTO_CODE_CONTROL_DIR: path.join(root, "control"), PATH: `${path.dirname(process.execPath)}:/usr/bin:/bin` },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    const replies: unknown[] = result.stdout.trim().split("\n").filter(Boolean).map(line => JSON.parse(line));
+    assert.deepEqual(replies, [{ kind: "result", id: 1, result: { ok: true } }]);
+    assert.equal(fs.existsSync(marker), false, "签名 sidecar 不能向外寻找可选依赖代码");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
   }
 });

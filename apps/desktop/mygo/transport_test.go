@@ -18,7 +18,25 @@ func TestSidecarProcess(t *testing.T) {
 		return
 	}
 	input := bufio.NewScanner(os.Stdin)
+	var generation string
+	var credentialCall uint64
 	for input.Scan() {
+		var private struct {
+			Kind       string          `json:"kind"`
+			Generation string          `json:"generation"`
+			Result     json.RawMessage `json:"result"`
+		}
+		if json.Unmarshal(input.Bytes(), &private) != nil {
+			os.Exit(4)
+		}
+		if private.Kind == "credential_ready" {
+			generation = private.Generation
+			continue
+		}
+		if private.Kind == "credential_result" {
+			fmt.Printf("{\"kind\":\"result\",\"id\":%d,\"result\":%s}\n", credentialCall, private.Result)
+			continue
+		}
 		var request struct {
 			ID     uint64            `json:"id"`
 			Method string            `json:"method"`
@@ -28,6 +46,13 @@ func TestSidecarProcess(t *testing.T) {
 			os.Exit(4)
 		}
 		switch request.Method {
+		case "credentials", "bad-credentials":
+			credentialCall = request.ID
+			if request.Method == "bad-credentials" {
+				generation = "wrong-generation"
+			}
+			fmt.Printf("{\"kind\":\"credential_request\",\"v\":1,\"generation\":%q,\"id\":%d,\"op\":\"read\"}\n", generation, request.ID)
+			continue
 		case "late":
 			os.Stdin.Close()
 			fmt.Printf("{\"kind\":\"result\",\"id\":%d,\"result\":{\"ok\":true}}\n", request.ID)

@@ -50,12 +50,15 @@ export async function refreshPersonalQuestions(tx: Tx) {
     value.terminal = (await tx.appendEntry(QuestionTerminal, ROOT_CONVERSATION_ID, { data: { question: id, status: "stale", version: value.version } })).id;
   }
 }
+export function personalQuestionActions(value: Pick<PersonalQuestion, "status" | "origin">, actor?: TelegramControlInput) {
+  return { canAnswer: value.status === "pending" && (!value.origin.telegram || !!actor && samePersonalEntry(value.origin.telegram, actor)), canCancel: value.status === "pending" };
+}
 export async function personalQuestionList(tx: Tx, offset = 0, actor?: TelegramControlInput) {
   if (!Number.isSafeInteger(offset) || offset < 0) throw new PersonalError("question_input_invalid", "请从原问题菜单翻页。");
   await refreshPersonalQuestions(tx);
   const values = await Promise.all((await tx.doc(PersonalQuestionsDoc)).ids.slice().reverse().map(id => personalQuestion(tx, id)));
   const items = values.filter(value => !actor || samePersonalEntry(value.origin.telegram, actor)).sort((a, b) => Number(b.status === "pending") - Number(a.status === "pending"));
-  return { items: items.slice(offset, offset + 8).map(value => ({ id: value.id, version: value.version, status: value.status, question: Array.from(value.questions[0].question).slice(0, 140).join("") + (Array.from(value.questions[0].question).length > 140 ? "…（选择后完整查看）" : "") })), ...(offset + 8 < items.length ? { nextOffset: offset + 8 } : {}) };
+  return { items: items.slice(offset, offset + 8).map(value => ({ id: value.id, version: value.version, status: value.status, ...personalQuestionActions(value, actor), question: Array.from(value.questions[0].question).slice(0, 140).join("") + (Array.from(value.questions[0].question).length > 140 ? "…（选择后完整查看）" : "") })), ...(offset + 8 < items.length ? { nextOffset: offset + 8 } : {}) };
 }
 export async function personalQuestionDetail(tx: Tx, id: string) { await refreshPersonalQuestions(tx); return copyJson(await personalQuestion(tx, id)) as PersonalQuestion; }
 export async function personalQuestionReceipt(tx: Tx, requestId: string) { const value = (await tx.doc(PersonalQuestionReceiptDoc, requestId, null)).receipt; return value && copyJson(value) as PersonalQuestionReceipt; }
@@ -63,7 +66,7 @@ export function personalQuestionInput(questions: PersonalQuestionItem[], answers
 
 async function allowedActor(tx: Tx, value: PersonalQuestion, actor: PersonalQuestionActor, operation: "answer" | "cancel") {
   if (actor.kind === "local") {
-    if (operation === "answer" && value.origin.telegram) throw new PersonalError("question_original_entry_required", "请从原平台的当前私聊问题菜单回答；本机可查询或取消旧问题。");
+    if (operation === "answer" && !personalQuestionActions(value).canAnswer) throw new PersonalError("question_original_entry_required", "请从原平台的当前私聊问题菜单回答；本机可查询或取消旧问题。");
     return;
   }
   const menu = await telegramSelection(tx, actor.input);

@@ -2,7 +2,7 @@
 
 Status: implemented
 
-PA连接与双壳秘密存储的待实施方案见 [Tailscale HTTPS／WebSocket](../../proposed/architecture/2026-10-24-personal-tailscale-https.md)；共用Host与私有管道的归属保持，凭据帧不进入界面事件。
+PA连接与双壳秘密存储见 [Tailscale HTTPS／WebSocket](2026-10-24-personal-tailscale-https.md)；共用Host与私有管道的归属保持，凭据帧不进入界面事件。
 
 ## 问题
 

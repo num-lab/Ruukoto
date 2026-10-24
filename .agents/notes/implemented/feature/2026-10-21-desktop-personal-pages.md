@@ -2,7 +2,7 @@
 
 Status: implemented
 
-统一 PA 聊天与设置连接的待实施方案见 [Tailscale HTTPS／WebSocket](../../proposed/architecture/2026-10-24-personal-tailscale-https.md)；本篇表单字段、原档案与维护核实规则保持。
+统一 PA 聊天与设置连接见 [Tailscale HTTPS／WebSocket](../architecture/2026-10-24-personal-tailscale-https.md)；本篇表单字段、原档案与维护核实规则保持。
 
 ## 问题
 

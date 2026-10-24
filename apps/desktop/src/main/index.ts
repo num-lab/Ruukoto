@@ -1,10 +1,12 @@
-import { app, BrowserWindow, Notification, dialog, ipcMain, session, shell } from "electron";
+import { app, BrowserWindow, Notification, dialog, ipcMain, safeStorage, session, shell } from "electron";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { DesktopError } from "./environment.ts";
 import { ipcResult } from "./ipc.ts";
 import { browserFrameAllowed, cspFor, denyBrowserPermissions, externalUrl, isRendererReload } from "./security.ts";
 import { DesktopHost } from "./host.ts";
+import { electronPersonalCredentialStorage } from "./personal-credential-storage.ts";
+import type { DesktopTarget, DesktopUpdate } from "../shared/bridge.ts";
 import type { DesktopNotice } from "./notifications.ts";
 
 declare const __RUUKOTO_REPOSITORY__: string;
@@ -12,6 +14,8 @@ let window: BrowserWindow | null = null;
 let quitting = false;
 let quitReady = false;
 const notifications = new Set<Notification>();
+const devUrl = process.env.ELECTRON_RENDERER_URL;
+const devNonce = process.env.RUUKOTO_DESKTOP_DEV_NONCE ?? "";
 function showNotice(notice: DesktopNotice): void {
   if (!Notification.isSupported()) return;
   const notification = new Notification({ title: notice.title, body: notice.body });
@@ -26,15 +30,17 @@ function showNotice(notice: DesktopNotice): void {
   });
   notification.show();
 }
-const host = new DesktopHost(__RUUKOTO_REPOSITORY__, app.getPath("userData"), {
-  publish: (target, update) => { if (window && !window.isDestroyed()) window.webContents.send("desktop:update", target, update); },
+const platform = {
+  credentials: electronPersonalCredentialStorage(app.getPath("userData"), app.isPackaged, safeStorage, () => app.whenReady()),
+  publish: (target: DesktopTarget, update: DesktopUpdate) => { if (window && !window.isDestroyed()) window.webContents.send("desktop:update", target, update); },
   focused: () => !!window?.isFocused(),
   notice: showNotice,
-  badge: count => {
+  badge: (count: number) => {
     try { app.dock?.setBadge(count ? String(count) : ""); }
     catch { process.stderr.write("[ruukoto:desktop] Dock 角标更新失败；请在应用中查看待审批。\n"); }
   },
-});
+};
+const host = new DesktopHost(__RUUKOTO_REPOSITORY__, app.getPath("userData"), platform);
 function trusted(event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent): boolean {
   return !!window && event.sender === window.webContents && event.senderFrame === window.webContents.mainFrame;
 }
@@ -47,14 +53,13 @@ function openExternal(value: string): void {
 }
 
 async function createWindow(): Promise<void> {
-  const devUrl = process.env.ELECTRON_RENDERER_URL;
   denyBrowserPermissions(session.defaultSession);
   session.defaultSession.on("will-download", event => event.preventDefault());
   session.defaultSession.webRequest.onBeforeRequest({ urls: ["<all_urls>"] }, (details, callback) => {
     callback({ cancel: details.resourceType === "subFrame" && !browserFrameAllowed(details.url, devUrl) });
   });
   if (devUrl) {
-    const policy = cspFor(devUrl, process.env.RUUKOTO_DESKTOP_DEV_NONCE ?? "");
+    const policy = cspFor(devUrl, devNonce);
     session.defaultSession.webRequest.onHeadersReceived({ urls: [`${new URL(devUrl).origin}/*`] }, (details, callback) => {
       callback({ responseHeaders: { ...details.responseHeaders, "Content-Security-Policy": [policy] } });
     });

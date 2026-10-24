@@ -109,7 +109,11 @@ export function parsePersonalSettingsRequest(value: unknown): PersonalSettingsRe
 }
 
 export function personalSettingsIdentity(profile: PersonalProfileLock): PersonalSettingsIdentity {
-  const directory = fs.realpathSync(profile.directory), stat = fs.statSync(directory, { bigint: true });
+  return personalSettingsDirectoryIdentity(profile.directory);
+}
+
+export function personalSettingsDirectoryIdentity(source: string): PersonalSettingsIdentity {
+  const directory = fs.realpathSync(source), stat = fs.statSync(directory, { bigint: true });
   return { directory, id: digest(JSON.stringify([directory, stat.dev.toString(), stat.ino.toString()])) };
 }
 

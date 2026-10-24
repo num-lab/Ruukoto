@@ -58,7 +58,9 @@ RUUKOTO_PERSONAL_DIR=/var/lib/ruukoto/personal-durable \
 
 ## 桌面设置维护
 
-桌面「PA 远程连接 → 设置管理」使用同一 SSH/服务账户，选择新档案及已安装程序。固定系统服务必须采用上面的 Node/bin 与 `serve --directory` 入口、`Type=simple`、`SendSIGKILL=no`、`TimeoutStopFailureMode=terminate`、`KillMode=control-group`、`KillSignal=SIGTERM`，不配置额外 ExecStop/ExecStopPost；修改后先由管理员 daemon-reload。超时保留后台与锁，不改保存、不强杀；`TimeoutStopFailureMode=abort` 即使禁用 SIGKILL 仍不受支持。
+桌面聊天和模型、Skills、MCP共用一个Tailscale HTTPS地址。Tailscale Serve终止TLS，root配置私有Unix代理；同账户的 `ruukoto-remote.service` 独立监督认证与维护，后台停止时remote仍可查询和恢复。桌面不再执行SSH；服务器SSH仍可作为管理员通道。只在自己的tailnet内使用，不启用Funnel。
+
+固定后台服务必须采用上面的 Node/bin 与 `serve --directory` 入口、`Type=simple`、`SendSIGKILL=no`、`TimeoutStopFailureMode=terminate`、`KillMode=control-group`、`KillSignal=SIGTERM`，不配置额外ExecStop/ExecStopPost；修改后先由管理员daemon-reload。超时保留后台与锁，不继续保存、不强杀；`TimeoutStopFailureMode=abort` 即使禁用SIGKILL仍不受支持。
 
 管理员按实际同账户替换并检查独立的精确授权文件：
 
@@ -70,7 +72,31 @@ sudo -n -l /usr/bin/systemctl start ruukoto-backend.service
 sudo -n -l /usr/bin/systemctl stop ruukoto-backend.service
 ```
 
-只授权上述固定单元的精确 start/stop，不加通配符、其他参数或自由命令；现有 `ruukoto-service` helper 继续拒绝后台自身。GUI 不安装权限或修改单元，缺前提显示只读。先在隔离部署验证，不能为验收接管旧生产同名单元。模型/IM 变量仍由原服务环境管理，维护不读取或复制 EnvironmentFile。
+只授权上述固定单元的精确start/stop，不加通配符、其他参数或自由命令；现有 `ruukoto-service` helper继续拒绝后台自身。remote沿用后台同账户与这份授权，GUI不安装权限或修改单元，缺前提显示只读。先在隔离部署验证，不能为验收接管生产同名单元。模型/IM变量仍由原服务环境管理，维护不读取或复制EnvironmentFile。
+
+先核实Tailscale版本、tailnet与HTTPS前提。本次隔离探针验证1.104.2；Serve的私有socket代理须由root管理，不将服务账户设为Tailscale operator。管理员在访问策略中允许固定拥有者到PA节点TCP443，并检查没有其他广泛allow覆盖；单拥有者tailnet可将原全放行grant的src替换为实际拥有者登录名。HTTPS证书域名进入公开证书透明度日志，不表示开放公网。
+
+以运行账户打开本机向导，选择“初始化连接绑定”，输入完整HTTPS origin、固定Tailscale登录名及已配置的原durable档案；不填写数据库ID、令牌或任意服务名。该步骤持久创建remote身份和空维护账本；已有认证状态损坏时不会覆盖，缺失状态的显式重新安装产生新身份。初次初始化及变更绑定时remote须停止，PA后台可继续运行。
+
+```bash
+sudo -H -u "$run_user" "$node_bin" /opt/ruukoto/apps/ruukoto/bin/ruukoto.mjs remote
+sed -e "s|@RUN_USER@|$run_user|g" -e "s|@RUN_GROUP@|$run_group|g" -e "s|@NODE_BIN@|$node_bin|g" deploy/systemd/ruukoto-remote.service > /tmp/ruukoto-remote.service
+sudo install -o root -g root -m 0644 /tmp/ruukoto-remote.service /etc/systemd/system/ruukoto-remote.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now ruukoto-remote.service
+remote_home=$(getent passwd "$run_user" | cut -d: -f6)
+remote_socket="$remote_home/.config/ruukoto-remote/remote.sock"
+sudo tailscale serve --bg "unix:$remote_socket"
+sudo tailscale serve status --json
+```
+
+Serve只发布 `remote.sock`，不发布 `admin.sock`；目录0700、文件和socket0600。`remote serve`不创建Harness，不能接收任意档案、程序、单元或命令。手动前台诊断可用 `ruukoto remote serve`，但不能与固定remote服务并发占同一根。
+
+再次打开 `ruukoto remote`，选择“开启桌面配对”，将五分钟内有效的一次短码输入桌面“PA远程连接”。桌面只填写一个地址与配对码，长期凭据由程序先安全保存并读回后登记，不显示或复制后台令牌。Electron和MyGo使用独立存储及凭据；向导按可读标签列出、撤销桌面，不要求人输入内部ID。撤销阻止新准入并关闭旧流，原已接纳工作继续；全部桌面丢失时仍可在服务器撤销和重配。锁定、拒绝、损坏或临时存储不可用时先恢复系统授权，不能降级明文或只凭网络身份。
+
+各项设置写入在桌面核对影响后显式停存启。remote在私有账本内先记意图、阶段和回执再执行；接纳后关闭桌面不取消维护。丢答或remote重启先查询原键，不重放保存；已保存但启动失败保留保存事实，显式“恢复原服务”只核实并启动。新维护不能覆盖未决记录，A完成后执行B再迟到A仍返回A原回执。`~/.config/ruukoto-remote/`中的 `auth.json`、`remote.json`、`maintenance.json` 与锁是受保护状态，缺失或损坏保持入口关闭，保留原文件并恢复一致记录；不要删除账本来解除未决。
+
+更改owner、origin或档案身份会先持久撤销全部旧凭据，再要求本机向导确认新绑定；改回原值不会复活。切换前关闭旧桌面，逐个应用核实旧维护记录；旧 `personal.json`、`personal-settings.json` 与pending原地保留，新连接成功不能证明旧维护完成。新版本写入后，回退软件也保留当前档案，不用旧备份直接覆盖新数据。
 
 `ruukoto maintenance` 的 stdin 为 `{v:1,op:"inspect",lifecycle:"systemd",program:"/opt/ruukoto/apps/ruukoto/bin/ruukoto.mjs"}`；stdout 沿 settings 的产品/版本/错误封装。先读取原 `profile`，显式 stop/start 必须带回同一身份；不提供任意服务动作。CLI 原启动环境无法核实时只读，可按本节配置受支持系统服务；受管开发实例由开发入口管理。停存启丢答后先查询原配置/服务，原服务已停止时才显式恢复；不会自动重发保存或回滚。
 

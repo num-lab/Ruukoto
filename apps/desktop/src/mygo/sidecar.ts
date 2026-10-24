@@ -1,4 +1,6 @@
 import * as readline from "node:readline";
+import { PersonalCredentialPipe } from "./personal-credential-pipe.ts";
+import type { DesktopTarget, DesktopUpdate } from "../shared/bridge.ts";
 import { DesktopHost } from "../main/host.ts";
 import { ipcResult } from "../main/ipc.ts";
 import { DesktopError } from "../main/environment.ts";
@@ -9,15 +11,19 @@ const userData = process.argv[2];
 if (!userData) throw new DesktopError("user_data_missing", "MyGo 应用数据目录不可用；请重新构建应用。");
 let focused = false;
 const send = (message: object): Promise<void> => new Promise((resolve, reject) => { process.stdout.write(`${JSON.stringify(message)}\n`, error => error ? reject(error) : resolve()); });
-const host = new DesktopHost(__RUUKOTO_REPOSITORY__, userData, {
-  publish: (target, update) => send({ kind: "update", target, update }),
+const credentials = new PersonalCredentialPipe(send);
+const platform = {
+  credentials,
+  publish: (target: DesktopTarget, update: DesktopUpdate) => send({ kind: "update", target, update }),
   focused: () => focused,
-  notice: notice => { void send({ kind: "notice", notice }).catch(() => { process.stderr.write("[ruukoto:desktop] MyGo 通知未送达，请重新打开应用。\n"); }); },
-  badge: count => { void send({ kind: "badge", count }).catch(() => { process.stderr.write("[ruukoto:desktop] MyGo 角标未送达，请重新打开应用。\n"); }); },
-});
+  notice: (notice: DesktopNotice) => { void send({ kind: "notice", notice }).catch(() => { process.stderr.write("[ruukoto:desktop] MyGo 通知未送达，请重新打开应用。\n"); }); },
+  badge: (count: number) => { void send({ kind: "badge", count }).catch(() => { process.stderr.write("[ruukoto:desktop] MyGo 角标未送达，请重新打开应用。\n"); }); },
+};
+const host = new DesktopHost(__RUUKOTO_REPOSITORY__, userData, platform);
 const input = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
 let closing: Promise<void> | null = null;
 function close(): Promise<void> {
+  credentials.close();
   closing ??= host.close().catch(() => { process.stderr.write("[ruukoto:desktop] MyGo 子进程清理失败；请检查 Personal 连接和应用数据目录权限。\n"); process.exitCode = 1; });
   return closing;
 }
@@ -25,6 +31,7 @@ async function receive(line: string): Promise<void> {
   let message: unknown;
   try { message = JSON.parse(line); }
   catch { throw new DesktopError("bridge_invalid", "MyGo 子进程消息损坏；请重新打开应用并核实原操作。"); }
+  if (credentials.receive(message)) return;
   if (!message || typeof message !== "object" || !("id" in message) || !Number.isSafeInteger(message.id) || !("method" in message) || typeof message.method !== "string" || !("args" in message) || !Array.isArray(message.args)) throw new DesktopError("bridge_invalid", "MyGo 子进程消息无效；请重新打开应用并核实原操作。");
   const { id, method, args } = message;
   const result = await ipcResult(async () => {

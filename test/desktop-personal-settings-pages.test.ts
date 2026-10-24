@@ -257,14 +257,14 @@ test("关闭后新建页面重新读取原档案，不复用本机草稿缓存",
   assert.equal(reopened.state.model.modelId, "current-remote-model"); assert.equal(reopened.state.dirty, false); assert.equal(reopened.calls[0].op, "desktop_personal_settings_read");
 });
 
-test("旧 Personal 聊天离线不会使独立设置管理的在途保存失效", async () => {
+test("Personal 统一连接断开使在途保存待核实，迟到结果不改变原草稿", async () => {
   const h = harness("models"); await h.state.read(); h.state.editModel("modelId", "new-model");
   const settings = new SettingsState(() => {}); settings.open = true; settings.category = "models"; settings.selections.models.target = "personal"; settings.form = h.state;
   const response = deferred<DesktopResult<unknown>>(); h.hooks.apply = () => response.promise;
   await h.state.save(); const saving = h.state.confirmApply();
   settings.observe("personal", { type: "state", state: "closed" });
   response.resolve(ok({ ...h.view, saved: true }));
-  assert.equal(await saving, true); assert.equal(h.state.phase, "ready");
+  assert.equal(await saving, false); assert.equal(h.state.phase, "unknown"); assert.equal(h.state.model.modelId, "new-model");
 });
 
 test("Personal 保存并继续保留原导航，维护确认取消不导航，成功后完成导航", async () => {

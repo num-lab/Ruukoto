@@ -1,7 +1,7 @@
 // Note: 见 .agents/notes/implemented/bug-fix/2026-10-17-desktop-transcript-rendering.md
 // Note: 见 .agents/notes/implemented/feature/2026-10-21-coding-owner-questions.md
 import { Fragment, useMemo, useRef, useState } from "react";
-import Markdown, { type Components } from "react-markdown";
+import Markdown, { defaultUrlTransform, type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { FlowEntry } from "@ruukoto/view/event-flow.ts";
 import type { OwnerQuestionView } from "@ruukoto/core/owner-questions.ts";
@@ -19,7 +19,6 @@ function MessageEntry({ model, sessionId, entry, child, tools, toolCount, refere
   const text = child && entry.role === "user" && entry.taskId ? model.view.tasks.get(entry.taskId)?.displayInput ?? entry.text : entry.text;
   const markdown = useMemo(() => {
     const components: Components = {
-      img: ({ alt }) => <span className="text-muted-foreground">[图片{alt ? `：${alt}` : ""}]</span>,
       code: ({ className, children }) => {
         const path = String(children);
         let diff: DiffTool | undefined;
@@ -28,7 +27,7 @@ function MessageEntry({ model, sessionId, entry, child, tools, toolCount, refere
         return diff ? <a className="file-reference" href="#right-sidebar" onClick={event => { event.preventDefault(); const current = model.view.openSession(sessionId).flow.items.find(item => item.key === diff.key); if (current?.kind === "tool") model.inspector.openDiff(sessionId, current); }}>{code}</a> : code;
       },
     };
-    return <div className="markdown"><Markdown skipHtml remarkPlugins={[remarkGfm]} components={components}>{text}</Markdown></div>;
+    return <div className="markdown"><Markdown skipHtml remarkPlugins={[remarkGfm]} urlTransform={(url, key, node) => node.tagName === "img" && key === "src" ? url : defaultUrlTransform(url)} components={components}>{text}</Markdown></div>;
   }, [text, model, sessionId, referencesKey]);
   const content = <>{markdown}{entry.attachments?.map(attachment => <div key={attachment.id}>［附件：{attachment.name}］</div>)}</>;
   return <Message align={entry.role === "user" ? "end" : "start"}><MessageContent>{question ? <OwnerQuestionCard model={model} question={question} /> : entry.role === "user" ? <Bubble variant="muted" align="end"><BubbleContent>{content}</BubbleContent></Bubble> : content}</MessageContent></Message>;

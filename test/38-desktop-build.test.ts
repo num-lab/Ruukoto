@@ -24,14 +24,13 @@ test("实际桌面构建保留终端 vendor 引用，原生模块不能被内联
   assert.doesNotThrow(() => checkBuild(path.join(desktop, "out")));
 });
 
-test("桌面生产 CSP 仅给内置浏览器开放 HTTP(S)，预览图片允许 data；内联样式放行 xterm 运行时主题注入，脚本仍不开放", () => {
+test("桌面生产 CSP 放行网络、本机和内嵌图片；内联样式供 xterm 注入，脚本仍限定来源", () => {
   assert.match(PRODUCTION_CSP, /(?:^|;)\s*default-src 'self'(?:;|$)/);
   assert.match(PRODUCTION_CSP, /(?:^|;)\s*style-src 'self' 'unsafe-inline'(?:;|$)/);
   assert.match(PRODUCTION_CSP, /(?:^|;)\s*frame-src http: https:(?:;|$)/);
-  assert.match(PRODUCTION_CSP, /(?:^|;)\s*img-src 'self' data:(?:;|$)/);
+  assert.match(PRODUCTION_CSP, /(?:^|;)\s*img-src \* data: blob: file:(?:;|$)/);
   assert.ok(!PRODUCTION_CSP.includes("unsafe-eval"));
   assert.ok(!PRODUCTION_CSP.includes("script-src"));
-  assert.ok(!PRODUCTION_CSP.includes("file:"));
 });
 
 test("加载页的独立位移重置在生产 CSS 压缩后保留，避免被 Dialog 默认位移拉到左上角", async () => {

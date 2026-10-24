@@ -2,6 +2,8 @@
 
 Status: implemented
 
+技能正文的图片占位由[Markdown 直接显示图片](../simplification/2026-10-25-desktop-markdown-images.md)取代，原始 HTML 与链接规则继续适用。
+
 ## 问题
 
 托管后端允许所属控制面按绝对路径预览与导入，但桌面 renderer 不能把任意字符串当作已由拥有者选择的目录。Electron 与 MyGo 又分别持有系统选择器，预览、确认之间可能换连接、换实例或丢失应答。

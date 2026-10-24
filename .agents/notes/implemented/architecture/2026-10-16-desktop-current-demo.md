@@ -2,6 +2,8 @@
 
 Status: implemented
 
+Markdown 文件内容中的图片加载由[直接显示图片](../simplification/2026-10-25-desktop-markdown-images.md)持有，文件预览本身的后台读取规则继续适用。
+
 [文件树续页](../feature/2026-10-24-directory-pages-lazy-git.md)取代目录每层 200 项总上限，保留分页容量、路径与读取一致性核实。
 
 [读取检查复用](../bug-fix/2026-10-24-read-check-overhead.md)取代文件预览的多硬链接拒绝，其余路径与读取一致性要求保持。

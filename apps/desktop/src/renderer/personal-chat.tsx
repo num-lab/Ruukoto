@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import Markdown from "react-markdown";
+import Markdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ToggleGroup } from "radix-ui";
 import { ArrowUp, Loader2, Sparkles, Wrench } from "lucide-react";
@@ -15,7 +15,7 @@ import { Trace, TraceCollapsible, TraceCollapsibleContent, TraceCollapsibleTrigg
 import { MessageScroller, MessageScrollerContent, MessageScrollerItem, MessageScrollerProvider, MessageScrollerViewport } from "./components/ui/message-scroller.tsx";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./components/ui/dialog.tsx";
 
-function Text({ children }: { children: string }) { return <div className="markdown"><Markdown skipHtml remarkPlugins={[remarkGfm]} components={{ img: ({ alt }) => <span>[图片{alt ? `：${alt}` : ""}]</span> }}>{children}</Markdown></div>; }
+function Text({ children }: { children: string }) { return <div className="markdown"><Markdown skipHtml remarkPlugins={[remarkGfm]} urlTransform={(url, key, node) => node.tagName === "img" && key === "src" ? url : defaultUrlTransform(url)}>{children}</Markdown></div>; }
 function Activity({ label, text, running = false }: { label: string; text?: string; running?: boolean }) {
   return <TraceCollapsible><TraceCollapsibleTrigger><TraceLine status={running ? "running" : undefined}><TraceIcon>{running ? <Loader2 className="animate-spin" /> : <Wrench />}</TraceIcon><TraceTitle>{label}</TraceTitle></TraceLine></TraceCollapsibleTrigger><TraceCollapsibleContent><pre className="whitespace-pre-wrap selectable-text">{text}</pre></TraceCollapsibleContent></TraceCollapsible>;
 }

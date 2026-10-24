@@ -2,6 +2,8 @@
 
 Status: proposed
 
+正文图片占位与图片来源限制由[Markdown 直接显示图片](../../implemented/simplification/2026-10-25-desktop-markdown-images.md)取代；原始 HTML、脚本与进程隔离继续适用。
+
 PA 连接已由下述决定取代，见 [Tailscale HTTPS／WebSocket](../../implemented/architecture/2026-10-24-personal-tailscale-https.md)；本篇 Code 决定保留。
 
 相关未实施方案：[设置管理](../../proposed/feature/2026-10-21-desktop-settings-management.md)扩展配置能力，并独立接入新 Personal durable 的设置管理；本篇旧控制连接不代表新个人协议已支持。

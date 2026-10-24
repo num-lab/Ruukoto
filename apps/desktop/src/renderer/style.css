@@ -429,6 +429,7 @@ body { background: transparent; }
 .traffic-space { width: 70px; }
 .session-header.with-traffic-space { padding-left: 84px; }
 .markdown { white-space: normal; }
+.markdown img, .file-markdown img { max-width: 100%; height: auto; }
 .markdown > :first-child { margin-top: 0; }
 .markdown > :last-child { margin-bottom: 0; }
 .markdown p { margin: 0 0 12px; text-wrap: pretty; overflow-wrap: anywhere; }

@@ -309,7 +309,8 @@ test("文件预览使用真实正文，Markdown 和源码安全渲染，空文�
   assert.match(preview, /<h1>实际标题<\/h1>/);
   assert.match(preview, /<strong>实际正文<\/strong>/);
   assert.equal((preview.match(/class="file-preview-link"/g) ?? []).length, 1);
-  assert.doesNotMatch(preview, /<script|<img|<a /);
+  assert.match(preview, /<img src="https:\/\/example.com\/remote.png" alt="远端图片"/);
+  assert.doesNotMatch(preview, /<script|<a /);
   const source = render(markdown, "source");
   assert.match(source, /aria-label="文件源码"/);
   assert.match(source, /hljs-tag/);

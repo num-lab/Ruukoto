@@ -25,6 +25,7 @@ test("开发 CSP 保留 nonce 与精确连接来源，样式放行内联以容�
   assert.match(policy, /style-src 'self' http:\/\/localhost:5173 'nonce-nonce_1234567890abcd' 'unsafe-inline'/);
   assert.match(policy, /connect-src 'self' http:\/\/localhost:5173 ws:\/\/localhost:5173;/);
   assert.match(policy, /frame-src http: https:;/);
+  assert.match(policy, /img-src \* data: blob: file:;/);
   assert.match(policy, /frame-ancestors 'none'/);
   assert.ok(!policy.includes("unsafe-eval"));
 });

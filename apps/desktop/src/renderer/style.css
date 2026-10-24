@@ -572,7 +572,7 @@ body { font-size: 15.5px; }
 .workspace-menu-search [data-slot="input"] { height: 30px; padding: 0 8px 0 28px; border: 0; border-radius: 6px; background: transparent; box-shadow: none; font-size: 14px; }
 .workspace-menu-search [data-slot="input"]:focus-visible { border: 0; box-shadow: none; outline: none; }
 .workspace-menu-list { max-height: 260px; overflow-y: auto; }
-.workspace-menu [data-slot="dropdown-menu-item"] { height: 30px; padding: 0 8px; border-radius: 6px; font-size: 14px; }
+.workspace-menu [data-slot="dropdown-menu-item"] { height: 30px; padding: 0 8px; border-radius: 6px; }
 .workspace-menu [data-slot="dropdown-menu-item"] > svg { width: 15px; height: 15px; color: var(--text-secondary); }
 .workspace-menu [data-slot="dropdown-menu-item"] > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-menu-empty { margin: 0; padding: 8px; color: var(--text-muted); font-size: 13px; }
@@ -629,6 +629,8 @@ body { font-size: 15.5px; }
 .settings-panel form [data-slot="select-trigger"] { width: 100%; min-width: 0; }
 .settings-panel form [data-slot="field-group"] { min-width: 0; }
 .settings-panel form [data-slot="field"][data-orientation="horizontal"] { flex-wrap: wrap; }
+/* 设置字段沿用次级档 14px；model-settings 页在下方自定更紧的 12px，须保持在其后。 */
+.settings-dialog [data-slot="field-label"], .settings-dialog [data-slot="field-description"] { font-size: 14px; }
 /* Note: 见 .agents/notes/implemented/feature/2026-10-21-code-model-settings.md */
 .settings-panel:has(.model-settings) { padding-bottom: 0; }
 .model-settings { display: flex; flex-direction: column; gap: 24px; container-type: inline-size; min-width: 0; margin-top: 20px; padding-bottom: 16px; }
@@ -702,3 +704,33 @@ body { font-size: 15.5px; }
 .skills-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
 .skills-list-button { width: 100%; height: auto; display: flex; flex-direction: column; align-items: flex-start; white-space: normal; text-align: left; overflow-wrap: anywhere; }
 .skills-body { max-width: 100%; overflow-wrap: anywhere; overflow-x: auto; }
+
+/* Note: 见 .agents/notes/implemented/feature/2026-10-17-desktop-chrome-typography.md */
+/* 非消息区的 tailwind text token 带 +2 膨胀，原语类（菜单、按钮、输入、Select、Item）裸用 text-sm 时以 16px 漏出，高于同批显式 px 面的次级档 14px；此处统一钉回 14px。消息流在 .conversation 作用域恢复原 token，不受影响。 */
+[data-slot="dropdown-menu-content"], [data-slot="dropdown-menu-item"], [data-slot="dropdown-menu-checkbox-item"], [data-slot="dropdown-menu-radio-item"], [data-slot="dropdown-menu-label"], [data-slot="dropdown-menu-shortcut"], [data-slot="dropdown-menu-sub-content"], [data-slot="dropdown-menu-sub-trigger"] { font-size: 14px; }
+.demo-dialog, .settings-dialog { font-size: 14px; }
+.demo-dialog [data-slot="select-trigger"], .settings-dialog input, .settings-dialog [data-slot="select-trigger"] { font-size: 14px; }
+.demo-dialog [data-slot="button"]:not(.model-settings-disclosure-trigger), .settings-dialog [data-slot="button"] { font-size: 14px; }
+.demo-dialog [data-slot="item-title"], .demo-dialog [data-slot="item-description"], .demo-dialog [data-slot="tabs-trigger"] { font-size: 14px; }
+.empty-state button { font-size: 14px; }
+
+/* Note: 见 .agents/notes/implemented/feature/2026-10-24-desktop-background-tab.md */
+.background-panel { display: flex; flex-direction: column; gap: 12px; min-height: 0; padding: 12px; overflow-y: auto; overflow-wrap: anywhere; }
+.background-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.background-section { display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid var(--ui-border); border-radius: 8px; }
+.background-process-line { display: flex; align-items: baseline; gap: 8px; margin: 0; min-width: 0; font-size: 12px; }
+.background-process-line b { flex-shrink: 0; font-weight: 500; }
+.background-process-line code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); color: var(--text-secondary); }
+.background-meta { margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.6; }
+.background-note { margin: 0; color: var(--text-secondary); font-size: 12px; }
+.background-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.background-log { margin: 0; max-height: 240px; overflow: auto; padding: 8px; border: 1px solid var(--ui-border); border-radius: 8px; background: var(--bg-surface); font-family: var(--font-mono); font-size: 11.5px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.background-panel [data-slot="button"], .background-panel [data-slot="tabs-trigger"] { font-size: 14px; }
+
+/* Note: 见 .agents/notes/implemented/feature/2026-10-24-desktop-effort-slider.md */
+.effort-slider { padding: 0 4px 6px; }
+.effort-track { display: flex; gap: 3px; padding: 3px; border-radius: 999px; background: var(--bg-surface-active); }
+.effort-track [data-slot="dropdown-menu-item"] { flex: 1 1 0; justify-content: center; min-height: 28px; padding: 0 10px; border-radius: 999px; font-size: 12px; color: var(--text-secondary); }
+.effort-track [data-slot="dropdown-menu-item"].is-filled { background: var(--bg-surface-hover); color: var(--text-primary); }
+.effort-track [data-slot="dropdown-menu-item"][aria-checked="true"] { background: var(--selection-surface); color: var(--text-primary); font-weight: 500; }
+.effort-track [data-slot="dropdown-menu-item"][data-highlighted] { outline: 1.5px solid var(--selection-surface); outline-offset: -1.5px; }

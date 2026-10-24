@@ -2,14 +2,14 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowUp, Brain, ChevronDown, FileCode2, ListTodo, Loader2, MessageCircleQuestion, Pause, Plus, ShieldCheck, ShieldOff, Square, X } from "lucide-react";
 import { MAX_ATTACHMENTS } from "@ruukoto/core/attachments.ts";
 import type { OpResult } from "@ruukoto/control/ops.ts";
-import type { ModelSelection, Session, SessionDefaultMode } from "@ruukoto/core/types.ts";
+import type { ModelSelection, Session, SessionDefaultMode, ThinkingLevel } from "@ruukoto/core/types.ts";
 import type { CodeState } from "./code-state.ts";
 import { queueDecision } from "./code-writes.ts";
 import { Button } from "./components/ui/button.tsx";
 import { Textarea } from "./components/ui/textarea.tsx";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./components/ui/select.tsx";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./components/ui/dialog.tsx";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger } from "./components/ui/dropdown-menu.tsx";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger } from "./components/ui/dropdown-menu.tsx";
 import { ContextIndicator } from "./context-indicator.tsx";
 import { IconButton } from "./ui.tsx";
 
@@ -36,11 +36,22 @@ export function ModeSelector({ value, modes: availableModes, disabled, onChange 
   const current = availableModes.find(mode => mode.value === value) ?? availableModes[0];
   return <Select value={value} onValueChange={next => { const mode = availableModes.find(mode => mode.value === next); if (mode) onChange(mode.value); }} disabled={disabled}><SelectTrigger className="mode-selector" aria-label="会话默认模式" aria-description={current.label}><SelectValue><current.icon className="mode-icon" aria-hidden="true" /><span className="mode-selector-label">{current.label}</span></SelectValue></SelectTrigger><SelectContent className="composer-menu" position="popper" side="top" align="start" sideOffset={6}>{availableModes.map(mode => <SelectItem key={mode.value} value={mode.value} textValue={mode.label}><mode.icon className="mode-icon" aria-hidden="true" /><span>{mode.label}</span></SelectItem>)}</SelectContent></Select>;
 }
+/** Effort 档位渲染成一条分段粗滑杆：选中档及其左侧填充为滑块位置；档位仍是菜单项，保留菜单键盘导航与选中后收起。 */
+export function EffortSlider({ levels, current, disabled, onChange }: { levels: ThinkingLevel[]; current: ThinkingLevel | null; disabled: boolean; onChange: (level: ThinkingLevel) => void }) {
+  const stops = levels.length ? levels : current ? [current] : [];
+  const position = current !== null ? stops.indexOf(current) : -1;
+  if (!stops.length) return null;
+  return <div className="effort-slider" role="group" aria-label="Effort">
+    <div className="effort-track">
+      {stops.map((level, index) => <DropdownMenuItem key={level} role="menuitemradio" aria-checked={level === current} className={position >= 0 && index <= position ? "effort-stop is-filled" : "effort-stop"} disabled={disabled || !levels.length} onSelect={() => { if (!disabled) onChange(level); }}>{effortLabel(level)}</DropdownMenuItem>)}
+    </div>
+  </div>;
+}
 export function ModelSelector({ models, selected, loading, disabled, onChange }: { models: ModelOption[]; selected: ModelSelection | null; loading: () => void; disabled: boolean; onChange: (selection: ModelSelection) => void }) {
   const value = selected ? modelKey(selected) : "";
   const option = models.find(item => modelKey(item) === value);
   const levels = option?.thinkingLevels ?? [];
-  return <DropdownMenu onOpenChange={open => { if (open) loading(); }}><DropdownMenuTrigger asChild><Button type="button" variant="ghost" className="model-selector" aria-label="会话模型" aria-description={`${option?.name ?? selected?.modelId ?? "选择模型"} · Effort: ${selected ? effortLabel(selected.thinkingLevel) : "—"}`} disabled={disabled}><Brain className="model-selector-icon" /><span className="model-selector-name">{option?.name ?? selected?.modelId ?? "选择模型"}</span>{selected && <span className="model-selector-effort">{effortLabel(selected.thinkingLevel)}</span>}<ChevronDown className="model-selector-chevron" /></Button></DropdownMenuTrigger><DropdownMenuContent className="composer-menu model-menu" side="top" align="end" sideOffset={6} aria-label="模型与 Effort"><DropdownMenuRadioGroup aria-label="会话模型" value={value} onValueChange={next => { const item = models.find(item => modelKey(item) === next); const selection = item && selectionForModel(item, selected); if (!disabled && selection) onChange(selection); }}>{selected && !option && <DropdownMenuRadioItem value={value} disabled aria-description="当前模型未在目录中，可用性未知">{selected.modelId}</DropdownMenuRadioItem>}{models.map(item => <DropdownMenuRadioItem key={modelKey(item)} value={modelKey(item)} disabled={disabled || !item.available || !item.thinkingLevels.length}>{item.name}{!item.available && " · 认证不可用"}</DropdownMenuRadioItem>)}</DropdownMenuRadioGroup><DropdownMenuSeparator /><DropdownMenuLabel>Effort</DropdownMenuLabel><DropdownMenuRadioGroup aria-label="Effort" value={selected?.thinkingLevel ?? ""} onValueChange={level => { const thinkingLevel = levels.find(item => item === level); if (!disabled && option?.available && selected && thinkingLevel) onChange({ ...selected, thinkingLevel }); }}>{selected && !levels.includes(selected.thinkingLevel) && <DropdownMenuRadioItem value={selected.thinkingLevel} disabled>{effortLabel(selected.thinkingLevel)}</DropdownMenuRadioItem>}{levels.map(level => <DropdownMenuRadioItem key={level} value={level} disabled={disabled || !option?.available}>{effortLabel(level)}</DropdownMenuRadioItem>)}</DropdownMenuRadioGroup></DropdownMenuContent></DropdownMenu>;
+  return <DropdownMenu onOpenChange={open => { if (open) loading(); }}><DropdownMenuTrigger asChild><Button type="button" variant="ghost" className="model-selector" aria-label="会话模型" aria-description={`${option?.name ?? selected?.modelId ?? "选择模型"} · Effort: ${selected ? effortLabel(selected.thinkingLevel) : "—"}`} disabled={disabled}><Brain className="model-selector-icon" /><span className="model-selector-name">{option?.name ?? selected?.modelId ?? "选择模型"}</span>{selected && <span className="model-selector-effort">{effortLabel(selected.thinkingLevel)}</span>}<ChevronDown className="model-selector-chevron" /></Button></DropdownMenuTrigger><DropdownMenuContent className="composer-menu model-menu" side="top" align="end" sideOffset={6} aria-label="模型与 Effort"><DropdownMenuRadioGroup aria-label="会话模型" value={value} onValueChange={next => { const item = models.find(item => modelKey(item) === next); const selection = item && selectionForModel(item, selected); if (!disabled && selection) onChange(selection); }}>{selected && !option && <DropdownMenuRadioItem value={value} disabled aria-description="当前模型未在目录中，可用性未知">{selected.modelId}</DropdownMenuRadioItem>}{models.map(item => <DropdownMenuRadioItem key={modelKey(item)} value={modelKey(item)} disabled={disabled || !item.available || !item.thinkingLevels.length}>{item.name}{!item.available && " · 认证不可用"}</DropdownMenuRadioItem>)}</DropdownMenuRadioGroup><DropdownMenuSeparator /><DropdownMenuLabel>Effort</DropdownMenuLabel><EffortSlider levels={levels} current={selected?.thinkingLevel ?? null} disabled={disabled || !option?.available} onChange={level => { if (selected) onChange({ ...selected, thinkingLevel: level }); }} /></DropdownMenuContent></DropdownMenu>;
 }
 // Note: 见 .agents/notes/implemented/architecture/2026-10-16-desktop-current-demo.md
 export function Composer({ model, session }: { model: CodeState; session: Session }) {

@@ -20,7 +20,7 @@ function validDirectoryPage(page: OpResult<"list_workspace_files">, workspaceId:
   });
 }
 export type TerminalTab = { id: DesktopTerminalId; kind: "terminal"; title: string; workspaceId: string; cwd: string; instanceId: string; error?: string; exitCode?: number };
-export type InspectorTab = TerminalTab | { id: string; kind: "read-snapshot"; title: string; path: string; sessionId: string; taskId: string; artifactId: string; mode: "preview" | "source" } | { id: string; kind: "git"; title: string; workspaceId: string } | { id: string; kind: "diff"; title: string; selection: DiffSelection } | { id: string; kind: "agent"; title: string; sessionId: string } | { id: string; kind: "new"; title: string } | { id: string; kind: "browser"; title: string; navigation: BrowserNavigation } | { id: string; kind: "files"; title: string; workspaceId: string } | { id: string; kind: "file"; title: string; workspaceId: string; path: string; mode: "preview" | "source" };
+export type InspectorTab = TerminalTab | { id: string; kind: "read-snapshot"; title: string; path: string; sessionId: string; taskId: string; artifactId: string; mode: "preview" | "source" } | { id: string; kind: "git"; title: string; workspaceId: string } | { id: string; kind: "diff"; title: string; selection: DiffSelection } | { id: string; kind: "agent"; title: string; sessionId: string } | { id: string; kind: "new"; title: string } | { id: string; kind: "browser"; title: string; navigation: BrowserNavigation } | { id: string; kind: "files"; title: string; workspaceId: string } | { id: string; kind: "file"; title: string; workspaceId: string; path: string; mode: "preview" | "source" } | { id: string; kind: "background"; title: string };
 
 // Note: 见 .agents/notes/proposed/architecture/2026-10-15-desktop-client.md
 export class DesktopInspector {
@@ -53,7 +53,7 @@ export class DesktopInspector {
   private generation = 0;
   private workRead = 0;
   private detailRead = 0;
-  constructor(private readonly bridge: Pick<DesktopBridge, "request">, private readonly view: ViewState, private readonly history: (id: string) => Promise<void>, private readonly changed: () => void, readonly target: DesktopTarget = "code") {}
+  constructor(private readonly bridge: Pick<DesktopBridge, "request">, private readonly view: ViewState, private readonly history: (id: string) => Promise<void>, private readonly changed: () => void, readonly target: DesktopTarget = "code", private readonly background?: { sessionId: string | null; open(sessionId: string): void; close(): void }) {}
 
   private async request<K extends "work_list" | "work_get" | "read_tool_result" | "read_artifact" | "get_tool_op_params" | "list_workspace_files" | "read_workspace_file" | "read_workspace_git">(op: K, params: OpParams<K>): Promise<DesktopResult<OpResult<K>>> {
     let result;
@@ -89,6 +89,8 @@ export class DesktopInspector {
   }
   openParent(sessionId: string): void {
     if (this.parentSessionId === sessionId) return;
+    // 后台状态只属于一个会话；换父会话时先清，活动标签若是后台页会立即重开新会话的状态。
+    if (this.background?.sessionId) this.background.close();
     this.parentSessionId = sessionId; this.childSessionId = null; this.workId = null;
     this.works = []; this.detail = null; this.diff = null; this.result = null; this.workError = null;
     const active = this.activeTab();
@@ -117,6 +119,7 @@ export class DesktopInspector {
     if (tab.kind === "files" && !this.directories.get(this.fileKey(tab.workspaceId, ""))?.loading) void this.loadDirectory(tab.workspaceId, "", true);
     if (tab.kind === "file") void this.loadFile(tab.workspaceId, tab.path);
     if (tab.kind === "read-snapshot") void this.loadReadSnapshot(tab);
+    if (tab.kind === "background" && this.parentSessionId) this.background?.open(this.parentSessionId);
     if (tab.kind === "agent") { this.tab = "agents"; this.childSessionId = tab.sessionId; void this.history(tab.sessionId); }
     this.changed();
   }
@@ -130,6 +133,7 @@ export class DesktopInspector {
     if (closing?.kind === "terminal") this.releaseTerminal(closing.id);
     if (closing?.kind === "file") this.files.delete(this.fileKey(closing.workspaceId, closing.path));
     if (closing?.kind === "read-snapshot") this.snapshots.delete(id);
+    if (closing?.kind === "background") this.background?.close();
     if (!rest.length) rest.push({ id: crypto.randomUUID(), kind: "new", title: "新标签" });
     const active = this.activeTab();
     this.tabsByParent.set(this.parentSessionId ?? "", rest);
@@ -188,6 +192,7 @@ export class DesktopInspector {
   closeParent(sessionId: string): void {
     const tabs = this.tabsByParent.get(sessionId) ?? [];
     for (const tab of tabs) if (tab.kind === "terminal") this.releaseTerminal(tab.id);
+    if (this.background?.sessionId === sessionId) this.background.close();
     this.tabsByParent.delete(sessionId); this.activeByParent.delete(sessionId);
   }
   openGit(): void {
@@ -242,6 +247,10 @@ export class DesktopInspector {
   openFiles(): void {
     const workspace = this.workspace();
     if (this.target === "code" && workspace) this.addTab({ id: `files:${workspace.id}`, kind: "files", title: "文件树", workspaceId: workspace.id });
+  }
+  openBackground(): void {
+    if (this.target !== "code" || !this.parentSessionId) return;
+    this.addTab({ id: "background", kind: "background", title: "后台进程" });
   }
   openFile(workspaceId: string, path: string): void { if (this.target !== "code") return; this.addTab({ id: `file:${workspaceId}:${path}`, kind: "file", title: path.split("/").at(-1) ?? path, workspaceId, path, mode: "preview" }); }
   async openToolFile(sessionId: string, tool: DiffTool): Promise<boolean | null> {

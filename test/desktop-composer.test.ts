@@ -5,9 +5,10 @@ import { createElement, type ComponentType, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { parseFragment, type DefaultTreeAdapterTypes } from "parse5";
 import { createServer, type ViteDevServer } from "vite";
+import { DropdownMenu } from "radix-ui";
 import react from "@vitejs/plugin-react";
 import type { OpParams, OpResult } from "@ruukoto/control/ops.ts";
-import type { ModelSelection, Project, SelectionRecord, Session, SessionDefaultMode } from "@ruukoto/core/types.ts";
+import type { ModelSelection, Project, SelectionRecord, Session, SessionDefaultMode, ThinkingLevel } from "@ruukoto/core/types.ts";
 import type { OwnerQuestionView } from "@ruukoto/core/owner-questions.ts";
 import type { HistoryEntryView } from "@ruukoto/core/history.ts";
 import type { DesktopAttachment } from "../apps/desktop/src/shared/bridge.ts";
@@ -27,16 +28,18 @@ let Composer: ComponentType<{ model: CodeState; session: Session }>;
 type DraftValue = { workspaceId: string; text: string; mode: SessionDefaultMode; modelSelection: ModelSelection | null; attachments: DesktopAttachment[]; attaching?: boolean };
 let NewChatDraft: ComponentType<{ model: CodeState; workspaces: Project[]; value: DraftValue; fallbackSelection: ModelSelection | null; onChange: (value: DraftValue) => void; onSend: () => void; onAddWorkspace: () => void; starting: boolean; blocked: boolean }>;
 let filterWorkspaces: (workspaces: Project[], query: string) => Project[];
+let showsNewChat: (target: "code" | "personal", online: boolean, hasCurrent: boolean, hasDraft: boolean) => boolean;
 let ContextDetails: ComponentType<{ context: DesktopContextState }>;
 let ContextIndicator: ComponentType<{ context: DesktopContextState; onOpen: () => void }>;
 let selectionForModel: (option: ModelOption, current: ModelSelection | null) => ModelSelection | null;
+let EffortSlider: ComponentType<{ levels: ThinkingLevel[]; current: ThinkingLevel | null; disabled: boolean; onChange: (level: ThinkingLevel) => void }>;
 let OwnerQuestionCard: ComponentType<{ model: CodeState; question: OwnerQuestionView }>;
 let Conversation: ComponentType<{ model: CodeState; sessionId: string; child?: boolean }>;
 let MessageScrollerProvider: ComponentType<{ children?: ReactNode }>;
 before(async () => {
   server = await createServer({ configFile: false, root: fileURLToPath(new URL("../apps/desktop/src/renderer/", import.meta.url)), plugins: [react()], server: { middlewareMode: true, hmr: false }, appType: "custom" });
-  ({ Composer, selectionForModel } = await server.ssrLoadModule("/composer.tsx"));
-  ({ NewChatDraft, filterWorkspaces } = await server.ssrLoadModule("/new-chat.tsx"));
+  ({ Composer, selectionForModel, EffortSlider } = await server.ssrLoadModule("/composer.tsx"));
+  ({ NewChatDraft, filterWorkspaces, showsNewChat } = await server.ssrLoadModule("/new-chat.tsx"));
   ({ ContextDetails, ContextIndicator } = await server.ssrLoadModule("/context-indicator.tsx"));
   ({ OwnerQuestionCard } = await server.ssrLoadModule("/owner-question-cards.tsx"));
   ({ Conversation } = await server.ssrLoadModule("/conversation.tsx"));
@@ -263,6 +266,20 @@ test("Desktop 输入区匹配 demo 控件结构，四模式有图标且只保留
   }
 });
 
+test("Effort 档位渲染为分段粗滑杆：选中档填充、目录外只读、无选择不渲染", () => {
+  const render = (props: { levels: ThinkingLevel[]; current: ThinkingLevel | null; disabled: boolean }) => renderToStaticMarkup(createElement(DropdownMenu.Root, { open: true }, createElement(DropdownMenu.Content, null, createElement(EffortSlider, { ...props, onChange() {} }))));
+  const stops = (html: string) => elements(html).filter(element => attr(element, "role") === "menuitemradio");
+  const filled = render({ levels: ["off", "medium", "high"], current: "medium", disabled: false });
+  assert.deepEqual(stops(filled).map(element => attr(element, "aria-checked")), ["false", "true", "false"]);
+  assert.deepEqual(stops(filled).map(element => attr(element, "class")!.includes("is-filled")), [true, true, false], "选中档及其左侧填充为滑块位置");
+  assert.ok(stops(filled).every(element => !hasAttr(element, "data-disabled")));
+  const locked = stops(render({ levels: ["off", "high"], current: "off", disabled: true }));
+  assert.ok(locked.every(element => hasAttr(element, "data-disabled")), "模型不可用时整体禁选");
+  const fallback = stops(render({ levels: [], current: "xhigh", disabled: false }));
+  assert.deepEqual(fallback.map(element => [attr(element, "aria-checked"), hasAttr(element, "data-disabled")]), [["true", true]], "目录外模型只读展示当前档");
+  assert.equal(render({ levels: [], current: null, disabled: false }).includes("effort-slider"), false);
+});
+
 test("打开会话保留草稿和附件，正常输入不需要退出历史模式", () => {
   const h = harness();
   h.model.writes.edit(h.current.id, "尚未发送的草稿");
@@ -366,7 +383,7 @@ test("Desktop 新对话草稿：工作区选择在输入框外，未选工作区
   const empty = draft("");
   assert.match(attr(button(empty, "选择工作区"), "class")!, /workspace-picker/);
   assert.equal(attr(button(empty, "选择工作区"), "aria-description"), undefined);
-  assert.match(empty, /选择工作区后开始对话/);
+  assert.match(empty, /Task or question/);
   assert.ok(hasAttr(button(empty, "发送消息"), "disabled"), "未选工作区不能开始对话");
   const chosen = draft("p1");
   assert.equal(attr(button(chosen, "选择工作区"), "aria-description"), "ruukoto");
@@ -384,6 +401,16 @@ test("Desktop 新对话草稿：工作区选择在输入框外，未选工作区
   assert.ok(!hasAttr(button(inherited, "发送消息"), "disabled"));
   const noModel = renderToStaticMarkup(createElement(NewChatDraft, { model: h.model, workspaces: projects, value: { workspaceId: "p1", text: "写一个测试", mode: "confirm", modelSelection: null, attachments: [] }, fallbackSelection: null, onChange() {}, onSend() {}, onAddWorkspace() {}, starting: false, blocked: false }));
   assert.ok(hasAttr(button(noModel, "发送消息"), "disabled"), "没有可用模型时不能开始");
+});
+
+test("在线且未选会话时主画布默认是新对话草稿页，空态页只留给离线与 PA", () => {
+  assert.equal(showsNewChat("code", true, false, false), true, "启动后未打开或关掉全部标签都直接落在草稿页");
+  assert.equal(showsNewChat("code", true, false, true), true);
+  assert.equal(showsNewChat("code", true, true, false), false, "已选会话仍显示会话页");
+  assert.equal(showsNewChat("code", false, false, false), false, "离线保留连接空态页");
+  assert.equal(showsNewChat("code", false, true, true), true, "离线时已打开的草稿不收起");
+  assert.equal(showsNewChat("personal", true, false, false), false, "PA 主会话未就绪保留原空态页");
+  assert.equal(showsNewChat("personal", false, false, true), false);
 });
 
 test("工作区菜单按名称筛选，空结果与未登记工作区都有明确文案", () => {

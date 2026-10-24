@@ -215,3 +215,30 @@ test("失败正文的截断仍可 more，不能按缺失 patch 冒充完整", as
   await inspector.loadMore();
   assert.deepEqual(diffDisplay(flow.tools[0], inspector.result!.value), { kind: "error", text: "失败尾部", truncated: false });
 });
+
+test("后台进程标签开关驱动状态归属，仅 Code 目标可打开", () => {
+  const view = new ViewState();
+  const opened: string[] = [];
+  let closed = 0;
+  const background = { sessionId: null as string | null, open(sessionId: string) { this.sessionId = sessionId; opened.push(sessionId); }, close() { this.sessionId = null; closed++; } };
+  const inspector = new DesktopInspector({ request: async () => { throw new Error("离线"); } }, view, async () => {}, () => {}, "code", background);
+  inspector.openParent("session");
+  inspector.openBackground();
+  assert.deepEqual(inspector.tabs().map(tab => tab.kind), ["background"]);
+  assert.deepEqual(opened, ["session"]);
+  assert.equal(inspector.visible, true, "打开后台标签同时展开右栏");
+  inspector.closeTab("background");
+  assert.equal(closed, 1, "关闭标签即清后台状态");
+  inspector.openBackground();
+  inspector.openParent("other");
+  assert.equal(closed, 2, "换父会话清掉仍持有的后台状态");
+  inspector.openParent("session");
+  assert.deepEqual(opened, ["session", "session", "session"], "回到原会话时活动后台标签重新打开状态");
+  inspector.closeParent("session");
+  assert.equal(closed, 3, "关闭会话清掉属于它的后台状态");
+  assert.deepEqual(inspector.tabs(), []);
+  const personal = new DesktopInspector({ request: async () => { throw new Error("离线"); } }, view, async () => {}, () => {}, "personal", background);
+  personal.openParent("session");
+  personal.openBackground();
+  assert.deepEqual(personal.tabs(), [], "Personal 没有后台进程入口");
+});

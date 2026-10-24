@@ -30,13 +30,13 @@ import { OfflineModelBackend } from "@ruukoto/tui/config-tui/index.ts";
 import { product as codeProduct } from "../apps/ruukoto-code/src/product.ts";
 import type { Session } from "@ruukoto/core/types.ts";
 import {
-  startTestRuntime,
-  createProjectSession,
-  makeTestDirs,
-  cleanupDirs,
-  writeModelsJson,
-  waitFor,
-  type TestRuntime,
+startTestRuntime,
+createProjectSession,
+makeTestDirs,
+cleanupDirs,
+writeModelsJson,
+waitFor,
+type TestRuntime,
 } from "./helpers/testkit.ts";
 
 import { FakeTerminal } from "./helpers/fake-terminal.ts";
@@ -801,19 +801,7 @@ test("ruukoto-code：项目分区先列工作区（显示根目录）再列旧�
       assert.equal(await hDev.quit(), 0);
     }
 
-    // ruukoto：既有项目列表行为，不标工作区/旧项目
-    const hStd = startConfig(t, { product: "ruukoto" });
-    try {
-      await waitForText(hStd.terminal, "配置分区");
-      hStd.terminal.send(DOWN + ENTER);
-      await waitForText(hStd.terminal, "legacy-plain");
-      const out = hStd.terminal.output();
-      assert.ok(!out.includes("工作区 ·"), "ruukoto 不标工作区");
-      assert.ok(!out.includes("旧项目 ·"), "ruukoto 不标旧项目");
-      assert.ok(!out.includes(`根目录 ${rootReal.slice(0, 40)}`), "ruukoto 分区不展示根目录前缀");
-    } finally {
-      assert.equal(await hStd.quit(), 0);
-    }
+
   } finally {
     await t.shutdown();
   }

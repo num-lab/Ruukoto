@@ -1,0 +1,86 @@
+{
+  "base": "28c033f7",
+  "code_diff_sha256": "9e2b21912ceec8021b60f62bafc969ce495df3f2ecf02cc16f8fdcc165b6d17e",
+  "node": "v24.15.0",
+  "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "command": "npm run check",
+  "setup": "reused existing installation",
+  "file_concurrency": 2,
+  "app_files": 290,
+  "stages": [
+    {
+      "marker": "> ruukoto-workspace@0.1.0 check",
+      "seconds": 0.098
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 build",
+      "seconds": 0.234
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 build:native",
+      "seconds": 0.308
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 build:worker",
+      "seconds": 1.009
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 build:script",
+      "seconds": 1.131
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 check:static",
+      "seconds": 1.794
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 lint",
+      "seconds": 1.869
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 typecheck",
+      "seconds": 7.37
+    },
+    {
+      "marker": "> ruukoto-foundation-verification@0.1.0 typecheck",
+      "seconds": 43.01
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 verify-notes",
+      "seconds": 44.85
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 check:docs",
+      "seconds": 45.216
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 verify-md-links",
+      "seconds": 45.289
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 verify-doc-refs",
+      "seconds": 46.238
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 verify-doc-budgets",
+      "seconds": 46.484
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 verify-md-wrap",
+      "seconds": 46.631
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 test",
+      "seconds": 47.189
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 test:app",
+      "seconds": 47.358
+    }
+  ],
+  "repository_frozen_during_run": true,
+  "pid": 4532,
+  "exit_code": 1,
+  "seconds": 1220.6506417079945,
+  "log_sha256": "e2a8d0ffe35a5059aca288fe6e508096dc97906c95f497a820430ee04834621a",
+  "code_diff_sha256_after": "9e2b21912ceec8021b60f62bafc969ce495df3f2ecf02cc16f8fdcc165b6d17e"
+}

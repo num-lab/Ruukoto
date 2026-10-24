@@ -156,7 +156,7 @@ test("停止未核实摘要覆盖百项之外的执行和冷崩溃空结论，�
   } finally { await t.shutdown(); }
 });
 
-for (const product of [undefined, codingProduct.runtime]) test((product?.type ?? "ruukoto") + " 空闲会话显式启动、带参复用与多个运行不占聊天，原键拒绝授权字段", async () => {
+for (const product of [codingProduct.runtime]) test((product?.type ?? "ruukoto") + " 空闲会话显式启动、带参复用与多个运行不占聊天，原键拒绝授权字段", async () => {
   const t = await startTestRuntime("workflow-entries", async () => ({ kind: "text", text: "CHAT-OK" }), { config: product ? { product } : {} });
   try {
     const rt = t.runtime, session = await rt.createSession({ projectName: "entries", cwd: t.work[0] });
@@ -188,10 +188,11 @@ for (const product of [undefined, codingProduct.runtime]) test((product?.type ??
     await t.client.request("workflow_answer", { run_id: first.run.id, step_key: "pick", run_version: q.runVersion, question_version: q.version, request_id: "answer", answer: "yes" });
     await waitFor("仅第一项结束", () => requireWorkflowRun(rt.store, first.run.id).status === "succeeded");
     assert.equal(requireWorkflowRun(rt.store, second.run.id).status, "waiting");
+    const expectedReceipt = { operation: "workflow_answer", runId: first.run.id, stepKey: "pick", status: "answered", version: q.version + 1, runVersion: q.runVersion };
     const eventCount = rt.store.getMaxSeq();
-    assert.deepEqual(await t.client.request("workflow_receipt", { run_id: first.run.id, request_id: "answer", operation: "workflow_answer" }),
-      { operation: "workflow_answer", runId: first.run.id, stepKey: "pick", status: "answered", version: q.version + 1, runVersion: q.runVersion });
-    assert.equal(rt.store.getMaxSeq(), eventCount, "核实原回答不重复推进或发事件");
+    assert.deepEqual(rt.findWorkflowReceipt(first.run.id, "answer", "workflow_answer"), expectedReceipt);
+    assert.equal(rt.store.getMaxSeq(), eventCount, "同步核实不发事件；网络等待期间的最终回报可独立推进");
+    assert.deepEqual(await t.client.request("workflow_receipt", { run_id: first.run.id, request_id: "answer", operation: "workflow_answer" }), expectedReceipt);
     assert.equal(await t.client.request("workflow_receipt", { run_id: second.run.id, request_id: "answer", operation: "workflow_answer" }), null);
     await assert.rejects(t.client.request("workflow_receipt", { run_id: first.run.id, request_id: "answer", operation: "resume" }), { code: "invalid_params" });
     await assert.rejects(t.client.request("workflow_start", { name: "batch", session_id: session.id, request_id: "forge", input: {}, authority: { accessMode: "full_access" } }), { code: "invalid_params" });
@@ -260,7 +261,7 @@ test("当前定义更新和删除不改变原键或重启恢复固定版本；�
   } finally { await current.stop("test_end"); await t.shutdown(); }
 });
 
-for (const product of [undefined, codingProduct.runtime]) test((product?.type ?? "ruukoto") + " 真实 Driver 自主发起工具与说明进入历史；步骤没有嵌套工具", async () => {
+for (const product of [codingProduct.runtime]) test((product?.type ?? "ruukoto") + " 真实 Driver 自主发起工具与说明进入历史；步骤没有嵌套工具", async () => {
   const t = await startTestRuntime("workflow-tool-entry", req => {
     if (lastUserText(req).startsWith("[工作流最终回报]")) return { kind: "text", text: "FINAL" };
     if (lastUserText(req).includes("WORKFLOW-STEP")) {
@@ -299,28 +300,6 @@ function active(rt: Runtime, session: Session, key: string) {
   });
 }
 
-test("个人 main 控制面拥有者任务可自主发起，无来源的内部 main 任务不能借身份启动", async () => {
-  const t = await startTestRuntime("workflow-main-source", req => {
-    if (afterTool(req) || lastUserText(req).startsWith("[工作流最终回报]")) return { kind: "text", text: "已处理" };
-    const key = lastUserText(req) === "拥有者请求" ? "owner" : "internal";
-    return { kind: "tool_calls", calls: [{ id: key, name: "workflow_start", arguments: { key, title: "选择流程", input: null, script: 'return await ask("q",{prompt:"选择"});' } }] };
-  }, { config: realTools() });
-  try {
-    const rt = t.runtime, main = rt.store.getAgentRole("main")!;
-    const task = await rt.submit({ sessionId: main.sessionId, requestId: "owner", input: "拥有者请求", modelSelection: rt.defaultSelection });
-    await waitFor("拥有者 main 请求结束并留下后台运行", () => rt.store.getTask(task.id)!.status === "completed" && listWorkflowRuns(rt.store)[0]?.status === "waiting");
-    const run = listWorkflowRuns(rt.store)[0];
-    assert.equal(run.source.replyTarget, null); assert.equal(run.source.taskId, task.id);
-    const internal = rt.store.withTx(() => {
-      const task = rt.store.insertQueuedTask({ sessionId: main.sessionId, agentId: "main", requestId: "internal", input: "内部来源", submissionDigest: "internal", modelSelection: rt.defaultSelection }).task;
-      rt.store.transitionTask(task.id, ["queued"], "running");
-      return task;
-    });
-    await assert.rejects(rt.startWorkflowTask({ taskId: internal.id, requestKey: "internal", title: "内部流程", input: null, script: 'return await ask("q",{prompt:"选择"});' }), { code: "source_forbidden" });
-    assert.equal(listWorkflowRuns(rt.store).length, 1);
-    rt.store.withTx(() => { rt.store.setTaskResult(internal.id, "内部来源已拒绝", "{}"); rt.store.endTask(internal.id, ["running"], "completed"); });
-  } finally { await t.shutdown(); }
-});
 test("模型保存异步期间取消不落文件；查询/取消只限来源，账本核对完整请求", async () => {
   const t = await startTestRuntime("workflow-tool-guards", async () => ({ kind: "text", text: "unused" }));
   try {

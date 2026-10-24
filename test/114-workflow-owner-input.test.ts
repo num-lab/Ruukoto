@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Session } from "@ruukoto/core/types.ts";
 import { getWorkflowQuestion, getWorkflowStep, requireWorkflowRun } from "@ruukoto/core/workflow.ts";
-import { parseImWorkflowCommand } from "@ruukoto/channels/im-workflows.ts";
 import type { Runtime } from "@ruukoto/runtime/runtime.ts";
 import { afterTool, lastUserText, realTools, startTestRuntime, waitFor } from "./helpers/testkit.ts";
 import { startMockMcp } from "./helpers/mock-mcp.ts";
@@ -16,14 +15,6 @@ function source(rt: Runtime, session: Session) {
     return rt.store.getTask(task.id)!;
   });
 }
-
-test("IM 业务回答只认完整原始命令与 JSON，引用和格式错误不变成批准", () => {
-  assert.equal(parseImWorkflowCommand('正文 /workflow-answer r q 1 1 "yes"'), null);
-  assert.equal(parseImWorkflowCommand('> /workflow-answer r q 1 1 "yes"'), null);
-  assert.deepEqual(parseImWorkflowCommand('/workflow-answer r q 1 1 yes'), { kind: "usage" });
-  assert.deepEqual(parseImWorkflowCommand('/workflow-answer r q 0 1 "yes"'), { kind: "usage" });
-  assert.deepEqual(parseImWorkflowCommand('/workflow-answer r q 1 1 "yes"'), { kind: "answer", runId: "r", stepKey: "q", runVersion: 1, version: 1, answer: "yes" });
-});
 
 test("真实 MCP 步骤审批与业务回答独立；回答有约束、事务回滚与原键回执，整项审批等待停计", async () => {
   const mcp = await startMockMcp({ tools: [{ name: "write", result: { content: [{ type: "text", text: "once" }] } }] });

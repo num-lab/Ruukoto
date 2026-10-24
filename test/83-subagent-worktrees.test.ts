@@ -31,22 +31,22 @@ import * as path from "node:path";
 import { test } from "node:test";
 import { type Responder } from "./helpers/mock-provider.ts";
 import {
-  afterTool,
-  lastToolText,
-  inputText,
-  toolNamesOf,
-  cleanupDirs,
-  lastUserText,
-  makeTestDirs,
-  realTools,
-  startTestRuntime,
-  waitFor,
+afterTool,
+lastToolText,
+inputText,
+toolNamesOf,
+cleanupDirs,
+lastUserText,
+makeTestDirs,
+realTools,
+startTestRuntime,
+waitFor,
 } from "./helpers/testkit.ts";
 import { ExecutionError } from "@ruukoto/agent/execution/launchers.ts";
 import { controlledWorkCopy } from "./helpers/controlled-work-copy.ts";
 import { holdParentResponse } from "./helpers/active-parent.ts";
 import { initGitRepo } from "./helpers/git-fixture.ts";
-import { Db, SCHEMA_VERSION } from "@ruukoto/core/db.ts";
+import { Db } from "@ruukoto/core/db.ts";
 import { Store } from "@ruukoto/core/store.ts";
 import { Runtime } from "@ruukoto/runtime/runtime.ts";
 import { createSubAgentTools } from "@ruukoto/agent/subagent-tools.ts";
@@ -130,13 +130,12 @@ test("并行 worktree：两项修改工作同时 running，各自改动隔离，
     await waitFor("A 完工", () => rt.store.getTask(a.task.id)!.resultSummary !== null);
     await waitFor("B 完工", () => rt.store.getTask(b.task.id)!.resultSummary !== null);
 
-    // 改动落在各自副本，主工作区字节不变（含未提交的 dirty 与后续新增）
+    // 改动落在各自副本，主工作区字节不变（含未提交的 dirty）
     assert.equal(fs.readFileSync(path.join(wtA.path, "src/a.ts"), "utf8"), "export const v = 101 // dirty\n");
     assert.equal(fs.readFileSync(path.join(wtB.path, "src/b.ts"), "utf8"), "export const v = 202\n");
     assert.equal(fs.readFileSync(path.join(wtB.path, "src/a.ts"), "utf8"), "export const v = 1 // dirty\n", "未改该文件的子任务看到当前脏内容");
     assert.equal(fs.readFileSync(path.join(t.work[0]!, "src/a.ts"), "utf8"), "export const v = 1 // dirty\n", "主工作区副本不能被「已存在的污染」改变");
-    fs.writeFileSync(path.join(t.work[0]!, "untracked.md"), "uncommitted-ocius\n", "utf8");
-    assert.equal(fs.readFileSync(path.join(t.work[0]!, "untracked.md"), "utf8"), "uncommitted-ocius\n", "后续新增不改变已捕获副本");
+
 
     // 查看：快照中的写入目标与 TUI 汇总
     const shown = (await t.client.request<any>("work_get", { work_id: a.work.id })) as any;
@@ -268,11 +267,7 @@ test("授予路径与边界守门：覆盖副本根的读写被拒绝、只读�
       /工作区内/,
     );
 
-    // 此离线用例仅设置仓库钩子与 fsmonitor；宿主不执行仓库 Git、
-    // 原生边界与植入拒绝另由真实 smoke 验证。
-    fs.writeFileSync(path.join(t.work[0]!, ".git/hooks/post-checkout"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
-    fs.appendFileSync(path.join(t.work[0]!, ".git/config"), "\n[core]\nfsmonitor = /bin/false\n", "utf8");
-    assert.ok(true, "宿主永不执行 git（副本创建的唯一 git 入口在 worker）");
+
   } finally {
     parentGate.release();
     await t.shutdown();
@@ -878,7 +873,20 @@ for (const operation of ["create", "integrate"] as const) {
         parentSessionId = session.id;
         if (operation === "create") rt.launcherFor = () => controlled.launcher;
         const parent = await rt.submit({ sessionId: session.id, requestId: "p", input: "开始", modelSelection: rt.defaultSelection });
-        await waitFor("目标临时单元已产生", () => phase === "call" ? controlled.requests.some((request) => request.type === "tool_call") : controlled.specs.length === 1, 60_000);
+        try {
+          await waitFor("目标临时单元已产生", () => phase === "call" ? controlled.requests.some((request) => request.type === "tool_call") : controlled.specs.length === 1, 60_000);
+        } catch (error) {
+          const works = rt.store.listWorkDelegationsBySession(session.id);
+          const tasks = [...rt.store.listTasksBySession(session.id), ...works.flatMap(work => rt.store.listTasksByWork(work.id))];
+          process.stderr.write(`[ruukoto:test] 工作副本目标阶段未到达 ${JSON.stringify({ operation, phase,
+            tasks: tasks.map(task => ({ id: task.id, status: task.status, error: task.errorMessage, interrupt: task.interruptReason, result: task.resultSummary, resultRef: task.resultRef, host: task.readScope?.workCopyHost })),
+            works, occupancy: rt.store.listAllOccupancy(),
+            ops: tasks.flatMap(task => rt.store.listToolOpsByTask(task.id)).map(op => ({ taskId: op.taskId, tool: op.toolName, result: op.resultSummary, isError: op.isError, effectUnknown: op.effectUnknown })),
+            requests: controlled.requests.map(request => request.type), launches: controlled.specs.length,
+            modelTools: t.server.calls.slice(-4).map(call => call.messages.filter(message => message.role === "tool").slice(-2)),
+          })}\n`);
+          throw error;
+        }
         await rt.stop("test_backend_stop");
         db = new Db(t.dirs.dataDir);
         const store = new Store(db);

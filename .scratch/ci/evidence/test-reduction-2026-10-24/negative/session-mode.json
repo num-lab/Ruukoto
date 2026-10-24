@@ -1,0 +1,23 @@
+{
+  "case": "session-mode",
+  "source": "apps/desktop/src/renderer/code-state.ts",
+  "test": "test/desktop-session-settings.test.ts",
+  "testSha256": "bd9e67e5a3b4041512d726e68a3d3efc270f8a704a53a9b6f08e937b76139bac",
+  "sourceSha256": "85fcd66c77bd1fe39b1aba02a0502748b4ae03fb2f47744f5dfae749f1525205",
+  "before": "mode: source.defaultAccessMode",
+  "after": "mode: \"confirm\"",
+  "attempts": [
+    {
+      "phase": "mutated",
+      "exitCode": 1,
+      "wallSeconds": 1.498,
+      "log": "/tmp/ruukoto-reduction-negative-session-mode-mutated.log"
+    },
+    {
+      "phase": "restored",
+      "exitCode": 0,
+      "wallSeconds": 0.917,
+      "log": "/tmp/ruukoto-reduction-negative-session-mode-restored.log"
+    }
+  ]
+}

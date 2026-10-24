@@ -242,35 +242,36 @@ test("macOS 完全访问只核实原执行组和已累计后代，未知主动�
     const wrapper = path.join(f.directory, "scope.c"), binary = path.join(f.directory, "scope");
     const ready = path.join(f.workspace, "orphan"), release = path.join(f.workspace, "release"), finished = path.join(f.workspace, "finished");
     fs.writeFileSync(wrapper, `#define main helper_main\n#include ${JSON.stringify(source)}\n#undef main\nint main(void) {
-      signal(SIGPIPE,SIG_IGN);durable=true;
+      signal(SIGPIPE,SIG_IGN);durable=true;int result=0;bool alive=false;int release;
       if(!prepare_durable(${JSON.stringify(f.directory)},"${"1".repeat(32)}","${"2".repeat(64)}")||!owner_processes(&baseline))return 2;
       launchd_verified=launchd_identity(&launchd);worker_pid=fork();
       if(!worker_pid){
         if(setsid()<0)_exit(126);dup2(output_write[0],1);dup2(output_write[1],2);close(output[0].fd);close(output[1].fd);close(output_write[0]);close(output_write[1]);
         pid_t parent=fork();if(!parent){
-          ${mode === "known-detached-short-ancestry" || mode === "known-joined-unseen-group" ? `int known=open("${f.workspace}/known",O_WRONLY|O_CREAT,0600);close(known);while(access("${f.workspace}/go",F_OK))usleep(1000);${mode === "known-joined-unseen-group" ? `pid_t group=fork();if(!group){if(setpgid(0,0))_exit(124);int grouped=open("${f.workspace}/group",O_WRONLY|O_CREAT,0600);close(grouped);while(access("${f.workspace}/joined",F_OK))usleep(1000);_exit(0);}while(access("${f.workspace}/group",F_OK))usleep(1000);if(setpgid(0,group))_exit(123);int joined=open("${f.workspace}/joined",O_WRONLY|O_CREAT,0600);close(joined);` : "if(setsid()<0)_exit(125);"}pid_t transient=fork();if(transient)_exit(0);` : ""}
+          ${mode === "known-detached-short-ancestry" || mode === "known-joined-unseen-group" ? `int known=open("${f.workspace}/known",O_WRONLY|O_CREAT,0600);close(known);while(access("${f.workspace}/go",F_OK)){if(!access(${JSON.stringify(release)},F_OK))_exit(0);usleep(1000);}${mode === "known-joined-unseen-group" ? `pid_t group=fork();if(!group){if(setpgid(0,0))_exit(124);int grouped=open("${f.workspace}/group",O_WRONLY|O_CREAT,0600);close(grouped);while(access("${f.workspace}/joined",F_OK)){if(!access(${JSON.stringify(release)},F_OK))_exit(0);usleep(1000);}_exit(0);}while(access("${f.workspace}/group",F_OK)){if(!access(${JSON.stringify(release)},F_OK))_exit(0);usleep(1000);}if(setpgid(0,group))_exit(123);int joined=open("${f.workspace}/joined",O_WRONLY|O_CREAT,0600);close(joined);` : "if(setsid()<0)_exit(125);"}pid_t transient=fork();if(transient)_exit(0);` : ""}
           pid_t orphan=fork();if(orphan)_exit(0);
           ${mode === "ordinary-double-fork" || mode === "known-detached-short-ancestry" || mode === "known-joined-unseen-group" ? "" : "if(setsid()<0)_exit(125);"}
           ${mode === "detached-closed-pipes" || mode === "known-detached-short-ancestry" || mode === "known-joined-unseen-group" ? "close(1);close(2);" : ""}
           signal(SIGTERM,SIG_IGN);while(getppid()!=1)usleep(1000);
-          int ready=open(${JSON.stringify(ready)},O_WRONLY|O_CREAT|O_EXCL,0600);dprintf(ready,"%d",getpid());close(ready);
+          int ready=open(${JSON.stringify(ready + ".tmp")},O_WRONLY|O_CREAT|O_EXCL,0600);if(ready<0||dprintf(ready,"%d",getpid())<0||close(ready)||rename(${JSON.stringify(ready + ".tmp")},${JSON.stringify(ready)}))_exit(122);
           while(access(${JSON.stringify(release)},F_OK)!=0)usleep(1000);
           int finished=open(${JSON.stringify(finished)},O_WRONLY|O_CREAT|O_EXCL,0600);close(finished);_exit(0);
         }
-        for(;;)pause();
+        while(access(${JSON.stringify(release)},F_OK))usleep(1000);_exit(0);
       }
       for(int i=0;i<2;i++){close(output_write[i]);output_write[i]=-1;}
-      if(identity(worker_pid,&root)!=1||!append(&members,&root))return 3;
-      ${mode === "known-detached-short-ancestry" || mode === "known-joined-unseen-group" ? `for(int i=0;i<5000&&access("${f.workspace}/known",F_OK);i++)usleep(1000);struct process_list initial={0};last_sample=monotonic();if(!sample(&initial))return 8;free(initial.items);int go=open("${f.workspace}/go",O_WRONLY|O_CREAT,0600);close(go);` : ""}
+      if(identity(worker_pid,&root)!=1||!append(&members,&root)){result=3;goto cleanup;}
+      ${mode === "known-detached-short-ancestry" || mode === "known-joined-unseen-group" ? `for(int i=0;i<5000&&access("${f.workspace}/known",F_OK);i++)usleep(1000);struct process_list initial={0};last_sample=monotonic();if(!sample(&initial)){result=8;goto cleanup;}free(initial.items);int go=open("${f.workspace}/go",O_WRONLY|O_CREAT,0600);close(go);` : ""}
       for(int i=0;i<5000&&access(${JSON.stringify(ready)},F_OK);i++)usleep(1000);
-      int ready=open(${JSON.stringify(ready)},O_RDONLY);char pid_text[32]={0};if(ready<0||read(ready,pid_text,sizeof(pid_text)-1)<=0)return 4;close(ready);pid_t orphan=atoi(pid_text);
-      struct process_list current={0};last_sample=monotonic();if(!sample(&current))return 5;free(current.items);
+      int ready=open(${JSON.stringify(ready)},O_RDONLY);char pid_text[32]={0};if(ready<0||read(ready,pid_text,sizeof(pid_text)-1)<=0){result=4;goto cleanup;}close(ready);pid_t orphan=atoi(pid_text);
+      struct process_list current={0};last_sample=monotonic();if(!sample(&current)){result=5;goto cleanup;}free(current.items);
       bool stopped=stop_worker();if(!finish_output())stopped=false;status_message("stopped",stopped?"verified":uncertain_reason,stopped);
-      struct process_info actual;bool alive=identity(orphan,&actual)==1&&!zombie(&actual);
+      struct process_info actual;alive=identity(orphan,&actual)==1&&!zombie(&actual);
       dprintf(3,"{\\"type\\":\\"orphan\\",\\"alive\\":%s}\\n",alive?"true":"false");
-      int release=open(${JSON.stringify(release)},O_WRONLY|O_CREAT|O_EXCL,0600);close(release);
+      cleanup:
+      release=open(${JSON.stringify(release)},O_WRONLY|O_CREAT|O_EXCL,0600);close(release);
       if(alive)for(int i=0;i<5000&&access(${JSON.stringify(finished)},F_OK);i++)usleep(1000);
-      waitpid(worker_pid,NULL,0);return 0;
+      if(worker_pid>0)waitpid(worker_pid,NULL,0);return result;
     }\n`);
     try {
       const compiled = spawnSync("/usr/bin/clang", ["-std=c11", "-Wall", "-Wextra", "-Werror", wrapper, "-framework", "ApplicationServices", "-o", binary], { encoding: "utf8" });

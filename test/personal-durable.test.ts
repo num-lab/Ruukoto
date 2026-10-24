@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { tmpdir } from "node:os";
-import { execFileSync, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
 import { test, type TestContext } from "node:test";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
@@ -50,15 +50,6 @@ async function waitFor(check: () => boolean) {
     await delay(5);
   }
 }
-
-test("durable：个人与 Coding 分别解析 Pi 1.3.0 / 0.85.1", () => {
-  for (const [app, expected] of [["ruukoto", "1.3.0"], ["ruukoto-code", "0.85.1"]] as const) {
-    const version = execFileSync(process.execPath, ["--input-type=module", "--eval", 'import {readFileSync} from "node:fs"; const entry = import.meta.resolve("@earendil-works/pi-ai"); process.stdout.write(JSON.parse(readFileSync(new URL("../package.json", entry), "utf8")).version);'], { cwd: new URL(`../apps/${app}`, import.meta.url), encoding: "utf8" });
-    assert.equal(version, expected);
-  }
-  assert.equal(JSON.parse(fs.readFileSync(new URL("../node_modules/@earendil-works/pi-durable/package.json", import.meta.url), "utf8")).version, "1.3.0");
-  assert.equal(JSON.parse(fs.readFileSync(new URL("../node_modules/@earendil-works/pi-coding-agent/package.json", import.meta.url), "utf8")).version, "0.85.1");
-});
 
 test("durable：拒绝旧资料目录和链接，不修改原文件", t => {
   const dir = directory(t);

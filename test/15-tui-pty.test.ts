@@ -6,6 +6,7 @@
  * 退出后终端恢复（进程退出、alt screen 离开）、退出后后台任务继续执行。
  *
  * 需要 python3；无 python3 时跳过（在诚实清单中标注）。
+ * Note: 见 .agents/notes/implemented/testing/2026-10-24-test-suite-reduction.md
  */
 
 import { test } from "node:test";
@@ -55,7 +56,7 @@ import os, pty, select, struct, fcntl, termios, subprocess, sys, time, json, sig
 argv = json.loads(sys.argv[1])
 cmd = argv["cmd"]              # TUI 命令与参数
 env = dict(os.environ, **argv["env"])
-inputs = argv["inputs"]        # [(delaySec, data 或尺寸), ...]
+inputs = argv["inputs"]        # [(绝对秒数或上一动作后的画面标记, data 或尺寸), ...]
 expect = argv["expect"]        # 需要依次看到的子串
 timeout = argv.get("timeout", 60)
 
@@ -76,9 +77,15 @@ exit_code = None
 def elapsed():
     return time.time() - start
 
+def input_ready(condition):
+    if isinstance(condition, (int, float)):
+        return elapsed() >= condition
+    text = segments[-1].decode("utf-8", errors="replace")
+    return all(marker in text for marker in condition)
+
 while time.time() < deadline:
-    # 发送到时输入
-    while input_idx < len(inputs) and elapsed() >= inputs[input_idx][0]:
+    # 画面标记只读取上一动作后的输出，不复用更早层级的文字。
+    while input_idx < len(inputs) and input_ready(inputs[input_idx][0]):
         action = inputs[input_idx][1]
         segments.append(b"")
         if isinstance(action, str):
@@ -174,7 +181,7 @@ interface PtyResult {
 async function runTuiInPty(opts: {
   env: Record<string, string>;
   sessionId?: string;
-  inputs: Array<[number, string | { columns: number; rows: number }]>;
+  inputs: Array<[number | string[], string | { columns: number; rows: number }]>;
   size?: { columns: number; rows: number };
   expect: string[];
   timeout?: number;
@@ -248,10 +255,16 @@ test("PTY：工作流逐层启动与日志、宽窄缩放和 Tab 聊天均保留
     await t.runtime.saveWorkflowDefinition({ name: "batch", script: 'await progress("state",{text:' + JSON.stringify(text) + '}); return await ask("q",{prompt:"继续?"});', expectedDigest: null, requestKey: "owner:save" });
     const result = await runTuiInPty({ sessionId: session.id, size: { columns: 140, rows: 30 },
       env: { RUUKOTO_CODE_DATA_DIR: t.dirs.dataDir, RUUKOTO_CODE_AGENT_DIR: t.dirs.agentDir, RUUKOTO_CODE_CONTROL_DIR: t.runtime.controlDir(), RUUKOTO_CODE_PENDING_DIR: path.join(t.dirs.root, "pending") },
-      inputs: [[4, "/workflow\r"], [6, "\x1b[B\r"], [7, "\r"], [8, "\r"], [9, "终端逐层操作\r"], [10, "\r"],
-        [12, "\r"], [13, "\x1b[B\r"], [14, "\x1b[6~"], [15, { columns: 70, rows: 22 }],
-        [16, "\t"], [17, "窄屏聊天\r"], [20, "\t"], [21, { columns: 140, rows: 30 }],
-        [22, "\t"], [23, "宽屏聊天\r"], [26, "\t"], [27, "\x1b"], [28, "\x1b"], [29, "\x1b"], [30, "/quit\r"]],
+      inputs: [[["连接：在线", "（暂无历史消息）"], "/workflow\r"], [["工作流 · 当前会话", "启动工作流"], "\x1b[B\r"],
+        [["工作流 · 选择已保存定义", "batch"], "\r"], [["工作流 · 业务参数"], "\r"],
+        [["工作流 · 简短任务说明"], "终端逐层操作\r"], [["工作流 · 确认启动", "终端逐层操作"], "\r"],
+        [["工作流 · 当前会话", "待回答/审批", "batch"], "\r"], [["工作流 · 运行详情", "阶段日志"], "\x1b[B\r"],
+        [["工作流 · 阶段日志", "STAGE-LOG 0"], "\x1b[6~"], [["STAGE-LOG 15"], { columns: 70, rows: 22 }],
+        [["工作流 · 阶段日志"], "\t"], [["连接：在线", "Ask for approval"], "窄屏聊天\r"],
+        [["CHAT-OK:窄屏聊天"], "\t"], [["● 工作流 · 阶段日志"], { columns: 140, rows: 30 }],
+        [["● 工作流 · 阶段日志", "CHAT-OK:窄屏聊天"], "\t"], [["○ 工作流 · 阶段日志"], "宽屏聊天\r"],
+        [["CHAT-OK:宽屏聊天"], "\t"], [["● 工作流 · 阶段日志"], "\x1b"], [["工作流 · 运行详情"], "\x1b"],
+        [["工作流 · 当前会话"], "\x1b"], [["CHAT-OK:宽屏聊天", "mock/mock-model"], "/quit\r"]],
       expect: ["业务参数", "确认启动", "STAGE-LOG", "CHAT-OK:窄屏聊天", "CHAT-OK:宽屏聊天", "已退出 TUI"], timeout: 40 });
     assert.equal(result.exitCode, 0, result.tail); assert.equal(result.expectSeen, result.expectTotal, result.tail);
     assert.ok(result.all.includes("\x1b[?1049l"));

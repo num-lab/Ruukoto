@@ -1,0 +1,35 @@
+[
+  {
+    "atomic": false,
+    "directory": "/private/tmp/rk-scope-ready-probe-Zqvz5H",
+    "supervisorPid": 32533,
+    "exit": 4,
+    "exitMs": 379.231625,
+    "heldAfterExit": true,
+    "status": "",
+    "ready": "32538",
+    "cleanup": {
+      "exit": 0,
+      "observed": {
+        "pid": 32536,
+        "ppid": 1,
+        "pgid": 32536,
+        "uniqueid": "6175959",
+        "seconds": "1792820442",
+        "microseconds": "993313",
+        "pidversion": 6963726,
+        "executable": "/private/tmp/rk-scope-ready-probe-Zqvz5H/scope"
+      }
+    }
+  },
+  {
+    "atomic": true,
+    "directory": "/private/tmp/rk-scope-ready-probe-qWef0d",
+    "supervisorPid": 32549,
+    "exit": 0,
+    "exitMs": 1740.24675,
+    "heldAfterExit": false,
+    "status": "{\"type\":\"stopped\",\"token\":\"11111111111111111111111111111111\",\"fingerprint\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"reaped\":true,\"reason\":\"verified\",\"stdoutEof\":true,\"stderrEof\":true,\"outputComplete\":true}\n{\"type\":\"orphan\",\"alive\":false}\n",
+    "ready": "32568"
+  }
+]

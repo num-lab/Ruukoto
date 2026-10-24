@@ -7,10 +7,11 @@ import { ControlServer } from "@ruukoto/control/server.ts";
 import { ControlClientError, type ControlClient } from "@ruukoto/control/client.ts";
 import { createMockTools } from "@ruukoto/agent/mock-tools.ts";
 import type { OpResult } from "@ruukoto/control/ops.ts";
-import { SESSION_DEFAULT_MODES, type SessionDefaultMode } from "@ruukoto/core/types.ts";
+import { SESSION_DEFAULT_MODES, type SessionDefaultMode, type Session, type Project } from "@ruukoto/core/types.ts";
 import { product } from "../apps/ruukoto-code/src/product.ts";
 import { CodeState } from "../apps/desktop/src/renderer/code-state.ts";
 import { handleRequest } from "../apps/desktop/src/main/ipc.ts";
+import { fakeSnapshot } from "./helpers/fake-control.ts";
 import { MockModelServer } from "./helpers/mock-provider.ts";
 import { cleanupDirs, connectAuthedClient, makeTestDirs, writeModelsJson } from "./helpers/testkit.ts";
 
@@ -48,16 +49,36 @@ async function fixture(t: TestContext, mode: SessionDefaultMode = "plan") {
   return { runtime, client, model, source, work, creations, hook };
 }
 
+function rendererFixture(mode: SessionDefaultMode) {
+  const work = ["/work/first", "/work/second"];
+  const source: Session = { id: "source", projectId: "project", workspaceProjectId: null, kind: "dev", name: null, branchSource: null, cwd: work[0], cwdReal: work[0], cwdDev: 1, cwdIno: 1, piSessionId: "pi", sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: { ...selected }, modelSelectionVersion: 1, defaultAccessMode: mode, defaultAccessModeVersion: 1, queueState: "active", queuePauseReason: null, archivedAt: null, createdAt: "now" };
+  const project: Project = { id: source.projectId, name: "工作区", createRequestId: null, rootDir: { cwd: work[0], cwdReal: work[0], dev: 1, ino: 1 }, instructionFiles: [], webSearch: "enabled", settingsVersion: 1, createdAt: "now" };
+  const creations: { op: string; params: Record<string, unknown> }[] = [];
+  const model = new CodeState({ request: async (_target, op, params) => {
+    if (op === "create_session" || op === "open_workspace") {
+      creations.push({ op, params: structuredClone(params) });
+      const session = { ...source, id: "created" };
+      return { ok: true, value: op === "open_workspace" ? { session, project, reused: false } : session };
+    }
+    return { ok: false, error: { code: "fixture_unavailable", message: "本用例只提供创建应答", outcome: "rejected" } };
+  } }, () => {});
+  model.update({ type: "snapshot", result: { snapshot: fakeSnapshot({ projects: [project], sessions: [source] }), replay: [], seq: 0 }, instanceChanged: false });
+  model.update({ type: "state", state: "online" }); model.openSession(source.id);
+  return { model, source, work, creations };
+}
+
 for (const mode of SESSION_DEFAULT_MODES) for (const operation of ["new-session", "existing-workspace", "new-workspace", "last-tab-closed"] as const) {
-  test(`Desktop 新会话保留 mode/model/effort：${mode}/${operation}`, async t => {
-    const { runtime, model, source, work } = await fixture(t, mode);
+  test(`Desktop 新会话保留 mode/model/effort：${mode}/${operation}`, async () => {
+    const { model, source, work, creations } = rendererFixture(mode);
     if (operation === "last-tab-closed") model.closeSession(source.id);
     if (operation === "new-session" || operation === "last-tab-closed") await model.create("create_session", { project_id: source.projectId, cwd: work[0] });
     else await model.create("open_workspace", { cwd: work[operation === "new-workspace" ? 1 : 0] });
     assert.notEqual(model.view.currentSessionId, source.id, model.message ?? "应创建新的空会话");
-    const created = runtime.store.getSession(model.view.currentSessionId!)!;
-    assert.deepEqual({ mode: created.defaultAccessMode, model: created.modelSelection }, { mode, model: selected });
-    assert.equal(runtime.store.listTasksBySession(created.id).length, 0);
+    assert.equal(creations.length, 1);
+    assert.equal(creations[0].params.mode, mode);
+    assert.deepEqual(creations[0].params.model_selection, selected);
+    assert.equal(creations[0].params.cwd, work[operation === "new-workspace" ? 1 : 0]);
+    assert.equal(creations[0].op, operation === "new-session" || operation === "last-tab-closed" ? "create_session" : "open_workspace");
   });
 }
 
@@ -179,16 +200,21 @@ test("Desktop 换数据实例清除 Code 来源，未选择来源时使用后台
 for (const op of ["open_workspace", "create_session"] as const) {
   test(`初始设置 ${op}：首次成果优先，不被重放或失效模型覆盖`, async t => {
     const { runtime, client, source, work } = await fixture(t);
-    const params = { cwd: work[1], ...(op === "create_session" ? { project_id: source.projectId } : {}), request_id: `replay-${op}`, mode: "plan" as const, model_selection: selected };
-    const first = await client.request<OpResult<typeof op>>(op, params);
-    const created = "session" in first ? first.session : first;
-    await runtime.setSessionDefaultMode({ sessionId: created.id, expectedVersion: created.defaultAccessModeVersion, mode: "full_access" });
-    await runtime.setSessionModel({ sessionId: created.id, expectedVersion: created.modelSelectionVersion, modelSelection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" } });
-    const seq = runtime.store.getMaxSeq();
-    const second = await client.request<OpResult<typeof op>>(op, { ...params, model_selection: { ...selected, modelId: "removed" } });
-    assert.deepEqual("session" in second ? second.session : second, runtime.getSession(created.id));
-    assert.equal(runtime.getSession(created.id).defaultAccessMode, "full_access");
-    assert.equal(runtime.store.getMaxSeq(), seq);
+    for (const mode of SESSION_DEFAULT_MODES) {
+      const cwd = path.join(work[1], mode); fs.mkdirSync(cwd);
+      const params = { cwd, ...(op === "create_session" ? { project_id: source.projectId } : {}), request_id: `replay-${op}-${mode}`, mode, model_selection: selected };
+      const first = await client.request<OpResult<typeof op>>(op, params);
+      const created = "session" in first ? first.session : first;
+      assert.deepEqual({ mode: created.defaultAccessMode, model: created.modelSelection }, { mode, model: selected });
+      assert.equal(runtime.store.listTasksBySession(created.id).length, 0);
+      await runtime.setSessionDefaultMode({ sessionId: created.id, expectedVersion: created.defaultAccessModeVersion, mode: "full_access" });
+      await runtime.setSessionModel({ sessionId: created.id, expectedVersion: created.modelSelectionVersion, modelSelection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" } });
+      const seq = runtime.store.getMaxSeq();
+      const second = await client.request<OpResult<typeof op>>(op, { ...params, model_selection: { ...selected, modelId: "removed" } });
+      assert.deepEqual("session" in second ? second.session : second, runtime.getSession(created.id));
+      assert.equal(runtime.getSession(created.id).defaultAccessMode, "full_access");
+      assert.equal(runtime.store.getMaxSeq(), seq);
+    }
   });
 
   test(`初始设置 ${op}：无效显式模型/模式不创建会话或工作区`, async t => {
@@ -203,16 +229,18 @@ for (const op of ["open_workspace", "create_session"] as const) {
   });
 }
 
-for (const archived of [true, false]) test(`Desktop ${archived ? "存档隐藏" : "取消存档恢复"}工作区会话列表`, async t => {
+test("Desktop 存档后隐藏、取消存档后恢复工作区会话列表", async t => {
   const { runtime, client, model, source } = await fixture(t);
   const kept = (await runtime.createSession({ projectId: source.projectId, cwd: source.cwdReal })).id;
   model.update({ type: "snapshot", result: await client.handshake(), instanceChanged: false });
-  await model.setArchived(source.id, archived);
-  const listed = model.sessionsFor(source.projectId).map(session => session.id);
-  const archivedIds = model.archivedSessions().map(session => session.id);
-  assert.deepEqual(listed.includes(source.id), !archived, "工作区树按存档状态过滤");
-  assert.deepEqual(archivedIds.includes(source.id), archived, "设置页只列已存档会话");
-  assert.ok(listed.includes(kept), "其余会话不受影响");
-  assert.equal(runtime.store.getSession(source.id)!.archivedAt === null, !archived);
-  assert.equal(runtime.store.listTasksBySession(source.id).length, 0, "存档不建任务");
+  for (const archived of [true, false]) {
+    await model.setArchived(source.id, archived);
+    const listed = model.sessionsFor(source.projectId).map(session => session.id);
+    const archivedIds = model.archivedSessions().map(session => session.id);
+    assert.deepEqual(listed.includes(source.id), !archived, "工作区树按存档状态过滤");
+    assert.deepEqual(archivedIds.includes(source.id), archived, "设置页只列已存档会话");
+    assert.ok(listed.includes(kept), "其余会话不受影响");
+    assert.equal(runtime.store.getSession(source.id)!.archivedAt === null, !archived);
+    assert.equal(runtime.store.listTasksBySession(source.id).length, 0, "存档不建任务");
+  }
 });

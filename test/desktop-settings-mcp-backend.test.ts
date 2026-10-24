@@ -46,9 +46,10 @@ test("Code MCP 操作只向 Code 放行，通用凭据写入与移除保持关�
     let called = false;
     const result = await handleRequest("personal", op, {}, async () => {}, async () => { called = true; });
     assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.error.code, "op_not_allowed");
     assert.equal(called, false);
   }
-  for (const op of ["add_credential", "remove_credential"]) {
+  for (const op of ["add_credential", "upsert_credential", "save_credential", "remove_credential"]) {
     const result = await handleRequest("code", op, {}, async () => {}, async () => { assert.fail("通用凭据操作不应转发"); });
     assert.equal(result.ok, false);
   }
@@ -135,10 +136,13 @@ test("MCP 编辑核实实际保留的凭据，匿名须显式清除引用", asyn
     const anonymous = await request(t, "mcp_configure", { ...base, credential: null, expected_version: updated.configVersion });
     assert.equal(anonymous.credential, null);
     assert.equal(t.runtime.credentials.get("bound"), null);
-    for (const patch of [{ header: "x-token" }, { purpose: "other" }, { scope: { projectId, repoId: 7, operations: ["mcp"] } }]) {
+    for (const patch of [{ host: "other.example.com" }, { header: "x-token" }, { purpose: "other" }, { scope: { projectId: "other-source", operations: ["mcp"] } }, { scope: { projectId, repoId: 7, operations: ["mcp"] } }]) {
       t.runtime.credentials.upsert({ name: "wrong", host: "mcp.example.com", header: "authorization", purpose: "mcp", secret: MOCK_MCP_SECRET, ...patch });
       await assert.rejects(request(t, "mcp_configure", { ...base, credential: "wrong", expected_version: anonymous.configVersion }), rejected("invalid_params"));
+      await assert.rejects(request(t, "mcp_configure", { ...base, name: "invalid-new", credential: "wrong", expected_version: 0 }), rejected("invalid_params"));
     }
+    await assert.rejects(request(t, "mcp_configure", { ...base, name: "invalid-new", credential: "missing", expected_version: 0 }), rejected("invalid_params"));
+    assert.equal(t.runtime.mcp.listServices(projectId).length, 1);
     await assert.rejects(t.client.request("mcp_configure", { ...base, credential: false }), rejected("invalid_params"));
   } finally { await t.shutdown(); }
 });

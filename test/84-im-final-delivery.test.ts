@@ -1,29 +1,18 @@
 import { delegateFromActiveTask } from "./helpers/active-subagent-source.ts";
 import { product as personalProduct } from "./helpers/legacy-product.ts";
-/**
- * 异步工作最终结果送回原 IM 入口（agent-direction issue 18）。
- *
- * seam：真实 Runtime + mock 模型 + MockOneBot / FakeBotApi（不接触真实 QQ/Telegram）。
- * - 先受理、可续聊、后汇报：工作收尾的唯一汇报经 owner_reply 槽发回发起入口，
- *   引用原入站消息；渠道内受理在前、汇报在后；taskId 为收尾唤醒任务；
- * - 汇报目标与正文按工作发起链钉版：不从会话最新回答或其他入口推断；
- * - 并发/重启/重复终态只产生一份汇报（同键幂等）；补充原工作再收尾产生新的一份；
- * - 离线等待、目标变化不改发、结果不明不重发、限流按 not_before 再发同一记录；
- * - 授权不扩大：未收尾唤醒不外发，其他外部/dev 来源零记录、工具清单无新增。
- */
+/** 旧档案恢复补记唯一回报；非 IM 来源不外发。 */
 
 import assert from "node:assert/strict";
 import * as path from "node:path";
 import { test } from "node:test";
 import { Db } from "@ruukoto/core/db.ts";
 import { Runtime, type RuntimeConfig } from "@ruukoto/runtime/runtime.ts";
-import { toolNamesOf, afterTool, inputText, cleanupDirs, lastUserText, makeTestDirs, realTools, waitFor, writeModelsJson, type TestDirs } from "./helpers/testkit.ts";
+import { afterTool, cleanupDirs, lastUserText, makeTestDirs, realTools, waitFor, writeModelsJson, type TestDirs } from "./helpers/testkit.ts";
 import { MockModelServer, type RecordedRequest, type Responder } from "./helpers/mock-provider.ts";
 import { MOCK_QQ_ACCOUNT, MOCK_QQ_SECRET, startMockOneBot, type MockOneBot } from "./helpers/mock-onebot.ts";
 import { FakeBotApi } from "./helpers/fake-bot-api.ts";
 
 const OWNER = "880001";
-const OTHER = "880002";
 const TG_TOKEN = "123456:FINAL-DELIVERY-TOKEN";
 const TG_OWNER = 42;
 const QQ_TIMEOUTS = { actionTimeoutMs: 400, probeIntervalMs: 100, reconnectMinMs: 50, reconnectMaxMs: 150, sweepIntervalMs: 80 };
@@ -81,19 +70,11 @@ async function prepareQq(rt: Runtime, onebot: MockOneBot): Promise<void> {
   });
 }
 
-async function prepareTelegram(rt: Runtime, apiBase: string): Promise<void> {
-  await rt.addCredentialBinding({ name: "tg", host: new URL(apiBase).host, header: "none", purpose: "telegram_bot", secret: TG_TOKEN });
-  await rt.telegramConfigure({ apiBase, credential: "tg", ownerUserId: String(TG_OWNER) });
-  await rt.telegramSetEnabled(true);
-  await waitFor("Telegram 轮询在线", () => rt.telegramStatus().online === true);
-}
-
 const mainSession = (rt: Runtime) => rt.store.getAgentRole("main")!.sessionId;
 const allOps = (rt: Runtime) => rt.sched.listOps({ limit: 100 }).items;
 const reportOps = (rt: Runtime) => allOps(rt).filter((op) => op.sourceKind === "owner_reply" && op.sourceKey.includes("#work:"));
 const sends = (onebot: MockOneBot) => onebot.actions.filter((a) => a.action === "send_private_msg");
 const sendTexts = (onebot: MockOneBot) => sends(onebot).map((a) => ((a.params.message as any[]).find((s) => s?.type === "text")?.data?.text ?? "") as string);
-const sendReplyIds = (onebot: MockOneBot) => sends(onebot).map((a) => (a.params.message as any[]).find((s) => s?.type === "reply")?.data?.id ?? null);
 const push = (onebot: MockOneBot, messageId: number, text: string, userId = OWNER) =>
   onebot.pushPrivateMessage({ userId, messageId, segments: [{ type: "text", data: { text } }] });
 const soleWork = (rt: Runtime) => {
@@ -130,161 +111,6 @@ function delegateResponder(opts: { holdSub?: Promise<void>; extra?: (text: strin
     return { kind: "text", text: "OK" };
   };
 }
-
-test("QQ：先受理、可续聊、收尾后唯一最终汇报引用原消息；重复终态与工具清单回归", async () => {
-  const subGate = deferred();
-  const h = await harness("fin-qq", delegateResponder({
-    holdSub: subGate.promise,
-    extra: (text) => (text.includes("MARK-SECOND") ? { kind: "text", text: "SECOND-ANSWER 第二条答复" } : null),
-  }));
-  const rt = await Runtime.start(h.config);
-  try {
-    await prepareQq(rt, h.onebot);
-    push(h.onebot, 1, "MARK-DELEG 请调研");
-    await waitFor("受理回复已送达", () => sendTexts(h.onebot).some((t) => t.includes("ACCEPTED")), 20_000);
-    push(h.onebot, 2, "MARK-SECOND 子任务还在跑，先回我这条");
-    await waitFor("第二条消息已回复（委派不阻塞会话）", () => sendTexts(h.onebot).some((t) => t.includes("SECOND-ANSWER")), 20_000);
-    subGate.resolve();
-    await waitFor("最终汇报已送达", () => reportOps(rt).some((op) => op.status === "sent"), 30_000);
-
-    const work = soleWork(rt);
-    const child = rt.store.listTasksByWork(work.id)[0]!;
-    const main = mainSession(rt);
-    const wake = rt.store.findTaskByRequest(main, `wake:${child.id}`)!;
-    assert.equal(wake.status, "completed");
-    assert.match(wake.input, /\[最终汇报\]/, "唤醒输入告知 main 收尾汇报规则");
-    assert.ok(wake.input.includes(work.id));
-
-    // 渠道内顺序：受理 → 第二条答复 → 最终汇报（按 created_at 领取）
-    assert.deepEqual(sendTexts(h.onebot), ["ACCEPTED 已受理", "SECOND-ANSWER 第二条答复", `[工作 ${work.id} 最终汇报]\nFINAL-BODY 各子任务汇总`]);
-    // 汇报与原消息引用（受理引用 msg 1、其他引用各自原消息）
-    assert.deepEqual(sendReplyIds(h.onebot), ["1", "2", "1"], "汇报引用工作发起时的原入站消息");
-
-    const ops = reportOps(rt);
-    assert.equal(ops.length, 1, "一次收尾只有一份汇报");
-    const op = ops[0]!;
-    const origin = rt.store.getTask(work.originTaskId)!;
-    const event = rt.store.getInboundEvent(origin.sourceEventId!)!;
-    assert.equal(op.sourceKey, `${event.id}#work:${work.id}:${child.id}`, "发送键 = 发起事件 + 工作 + 收尾执行任务");
-    assert.equal(op.taskId, wake.id, "发送记录的 taskId 为收尾唤醒任务");
-    assert.deepEqual(op.target, event.replyTarget, "目标 = 发起事件钉版目标");
-    assert.equal(op.status, "sent");
-    assert.equal(op.text, `[工作 ${work.id} 最终汇报]\nFINAL-BODY 各子任务汇总`);
-    const events = (rt.store.db.prepare("SELECT body FROM events").all() as Array<{ body: string }>).map((r) => JSON.parse(r.body));
-    assert.equal(events.filter((e) => e.type === "qq_private.reply_skipped").length, 0);
-
-    // 重复的终态回传不产生第二份（handleTerminal 一次写入 + insertOp 同键幂等）
-    rt.orchestrator!.onRuntimeEvents([{ seq: 0, taskId: wake.id, sessionId: main, body: { type: "task.completed", taskId: wake.id, sessionId: main }, createdAt: new Date().toISOString() }]);
-    await rt.scheduler!.tick();
-    assert.equal(reportOps(rt).length, 1);
-    assert.equal(sendTexts(h.onebot).filter((t) => t.includes("最终汇报")).length, 1);
-
-    // 工具清单无新增（本轮无 report/work_report 一类工具）
-    const wakeReq = h.model.calls.find((c) => inputText(c).includes("[编排器]"))!;
-    assert.ok(!toolNamesOf(wakeReq).some((n) => /report/i.test(n)), "没有为汇报新增任何工具");
-  } finally {
-    await rt.stop("test_end");
-    await h.close();
-  }
-});
-
-test("Telegram：受理在前汇报在后，汇报引用原入站消息", async () => {
-  const subGate = deferred();
-  const h = await harness("fin-tg", delegateResponder({
-    holdSub: subGate.promise,
-    extra: (text) => (text.includes("MARK-SECOND") ? { kind: "text", text: "SECOND-ANSWER 第二条答复" } : null),
-  }), { telegram: true });
-  const rt = await Runtime.start(h.config);
-  const api = h.api!;
-  try {
-    await prepareTelegram(rt, h.apiBase!);
-    const m1 = api.push({ text: "MARK-DELEG 请调研", from: TG_OWNER });
-    await waitFor("受理回复已送达", () => api.sends.some((s) => s.text.includes("ACCEPTED")), 20_000);
-    const m2 = api.push({ text: "MARK-SECOND 继续", from: TG_OWNER });
-    await waitFor("第二条已回复", () => api.sends.length === 2, 20_000);
-    subGate.resolve();
-    await waitFor("最终汇报已送达", () => api.sends.some((s) => s.text.includes("最终汇报")), 30_000);
-
-    const work = soleWork(rt);
-    const child = rt.store.listTasksByWork(work.id)[0]!;
-    const wake = rt.store.findTaskByRequest(mainSession(rt), `wake:${child.id}`)!;
-    assert.deepEqual(api.sends.map((s) => [s.text, s.reply_parameters?.message_id ?? null]), [
-      ["ACCEPTED 已受理", m1.message_id],
-      ["SECOND-ANSWER 第二条答复", m2.message_id],
-      [`[工作 ${work.id} 最终汇报]\nFINAL-BODY 各子任务汇总`, m1.message_id],
-    ], "渠道内受理在前、汇报在后，汇报引用工作发起消息");
-    const ops = reportOps(rt);
-    assert.equal(ops.length, 1);
-    assert.equal(ops[0]!.taskId, wake.id);
-    assert.equal(ops[0]!.target.channel, "telegram");
-  } finally {
-    await rt.stop("test_end");
-    await h.close();
-  }
-});
-
-test("目标固定发起入口：QQ 工作在 Telegram 轮次续派，两份汇报都发回 QQ，Telegram 零汇报", async () => {
-  let workId = "";
-  let wakeCalls = 0;
-  const h = await harness("fin-cross", async (req) => {
-    const text = lastUserText(req);
-    if (text.includes("[SubAgent 委派")) return { kind: "text", text: text.includes("材料 B") ? "SUB-RESULT-2" : "SUB-RESULT-1" };
-    if (text.includes("[编排器]")) {
-      wakeCalls += 1;
-      return { kind: "text", text: `FINAL-BODY-${wakeCalls}` };
-    }
-    if (text.includes("TG-MORE")) {
-      // 拥有者在另一入口的消息任务续派原工作（唤醒轮次本身不能委派）
-      if (afterTool(req)) return { kind: "text", text: "TG-ACCEPTED 二轮已受理" };
-      return { kind: "tool_calls", calls: [{ id: "d2", name: "subagent_delegate", arguments: { request: "二轮核对", key: "r2", work_id: workId, materials: [{ kind: "text", text: "材料 B" }] } }] };
-    }
-    if (text.includes("QQ-LATER")) return { kind: "text", text: "LATER-ANSWER 之后的会话回答" };
-    if (afterTool(req)) return { kind: "text", text: "ACCEPTED 已受理" };
-    if (text.includes("QQ-DELEG")) {
-      return { kind: "tool_calls", calls: [{ id: "d1", name: "subagent_delegate", arguments: { request: "一轮调研", key: "r1", materials: [{ kind: "text", text: "材料 A" }] } }] };
-    }
-    return { kind: "text", text: "OK" };
-  }, { telegram: true });
-  const rt = await Runtime.start(h.config);
-  const api = h.api!;
-  try {
-    await prepareQq(rt, h.onebot);
-    await prepareTelegram(rt, h.apiBase!);
-    push(h.onebot, 1, "QQ-DELEG 请调研");
-    await waitFor("第一份最终汇报已送达（一轮收尾）", () => sendTexts(h.onebot).filter((t) => t.includes("最终汇报")).length === 1, 30_000);
-    const work = soleWork(rt);
-    workId = work.id;
-
-    // Telegram 轮次续派：该消息自己的受理回复发 Telegram，工作收尾汇报仍发 QQ
-    api.push({ text: "TG-MORE 按原工作再核一遍", from: TG_OWNER });
-    await waitFor("第二份最终汇报已送达（二轮收尾）", () => sendTexts(h.onebot).filter((t) => t.includes("最终汇报")).length === 2, 30_000);
-
-    const execs = rt.store.listTasksByWork(work.id);
-    assert.equal(execs.length, 2, "Telegram 轮次续派产生了同工作的第二次执行");
-    const wake1 = rt.store.findTaskByRequest(mainSession(rt), `wake:${execs[0]!.id}`)!;
-    const wake2 = rt.store.findTaskByRequest(mainSession(rt), `wake:${execs[1]!.id}`)!;
-    const ops = reportOps(rt).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-    assert.equal(ops.length, 2, "两次收尾各一份，键不同");
-    assert.notEqual(ops[0]!.sourceKey, ops[1]!.sourceKey);
-    const originEvent = rt.store.getInboundEvent(rt.store.getTask(work.originTaskId)!.sourceEventId!)!;
-    assert.equal(originEvent.source, "qq_private");
-    for (const [op, wake] of [[ops[0]!, wake1], [ops[1]!, wake2]] as const) {
-      assert.equal(op.taskId, wake.id, "发送记录的 taskId 为各自收尾唤醒任务");
-      assert.equal(op.target.channel, "qq_private", "另一入口续派后仍发回发起入口");
-      assert.equal(op.sourceKey.split("#")[0], originEvent.id, "来源按发起链钉版，不取当前入口");
-    }
-    assert.deepEqual(sendTexts(h.onebot), ["ACCEPTED 已受理", `[工作 ${work.id} 最终汇报]\nFINAL-BODY-1`, `[工作 ${work.id} 最终汇报]\nFINAL-BODY-2`]);
-    assert.deepEqual(api.sends.map((s) => s.text), ["TG-ACCEPTED 二轮已受理"], "Telegram 只收到自己消息的答复，没有汇报");
-
-    // 正文按收尾唤醒任务钉版，不随后续会话最新回答变化
-    push(h.onebot, 3, "QQ-LATER 汇报之后再来一条");
-    await waitFor("后续消息已回复", () => sendTexts(h.onebot).some((t) => t.includes("LATER-ANSWER")), 20_000);
-    assert.ok(!reportOps(rt).some((op) => op.text.includes("LATER-ANSWER")), "汇报正文不取会话最新回答");
-  } finally {
-    await rt.stop("test_end");
-    await h.close();
-  }
-});
 
 test("非 IM 来源零记录：TUI 与 dev 可委派，未授权外部来源拒绝", async () => {
   const h = await harness("fin-nonim", async (req) => {
@@ -339,77 +165,6 @@ test("非 IM 来源零记录：TUI 与 dev 可委派，未授权外部来源拒�
   }
 });
 
-test("并发与补充收尾：唤醒 1 时仍有未收尾唤醒则不汇报，后终态唤醒只汇报一份；补充再收尾键不同", async () => {
-  const subGate = deferred();
-  const wakeGate = deferred();
-  let subCalls = 0;
-  let wakeCalls = 0;
-  const h = await harness("fin-conc", async (req) => {
-    const text = lastUserText(req);
-    if (text.includes("[SubAgent 委派")) {
-      subCalls += 1;
-      if (subCalls === 1) await subGate.promise;
-      return { kind: "text", text: `SUB-RESULT-${subCalls}` };
-    }
-    if (text.includes("[编排器]")) {
-      wakeCalls += 1;
-      if (wakeCalls === 2) await wakeGate.promise;
-      return { kind: "text", text: `WAKE-ANSWER-${wakeCalls}` };
-    }
-    if (afterTool(req)) return { kind: "text", text: "ACCEPTED 已受理" };
-    return { kind: "tool_calls", calls: [{ id: "d1", name: "subagent_delegate", arguments: { request: "调研", key: "r1", materials: [{ kind: "text", text: "材料 A" }] } }] };
-  });
-  const rt = await Runtime.start(h.config);
-  try {
-    await prepareQq(rt, h.onebot);
-    push(h.onebot, 1, "QQ-DELEG 请调研");
-    await waitFor("受理回复已送达", () => sendTexts(h.onebot).some((t) => t.includes("ACCEPTED")), 20_000);
-    const main = mainSession(rt);
-    const work = soleWork(rt);
-    const taskA = rt.store.getTask(work.originTaskId)!;
-    const agent = rt.store.getSubAgent(work.subAgentId)!;
-
-    // 冻结 main 队列：两条执行都终态、两个唤醒都排队但尚未运行
-    rt.store.setSessionQueueState(main, "paused", "test_fixture");
-    const child1 = rt.store.listTasksByWork(work.id)[0]!;
-    subGate.resolve();
-    await waitFor("执行 1 终态且唤醒 1 已排队", () => rt.store.getTask(child1.id)!.status === "completed" && rt.store.findTaskByRequest(main, `wake:${child1.id}`) !== null, 30_000);
-    await waitFor("SubAgent 空闲可续派", () => rt.store.getSubAgent(agent.id)!.state === "idle", 30_000);
-    const again = await delegateFromActiveTask(rt, { parentTaskId: taskA.id, key: "r2", request: "第二轮", workId: work.id, readPaths: null, materials: [{ kind: "text", text: "材料 B" }], paramsDigest: "d2" });
-    const child2 = again.task;
-    await waitFor("执行 2 终态且唤醒 2 已排队", () => rt.store.getTask(child2.id)!.status === "completed" && rt.store.findTaskByRequest(main, `wake:${child2.id}`) !== null, 30_000);
-
-    // 放行：唤醒 1 先跑——此时唤醒 2 尚未记录结果（这里被模型闸门挂住），唤醒 1 不汇报
-    await rt.resumeQueue(main);
-    const wake1 = rt.store.findTaskByRequest(main, `wake:${child1.id}`)!;
-    await waitFor("唤醒 1 完成", () => rt.store.getTask(wake1.id)!.status === "completed", 30_000);
-    await waitFor("唤醒 2 模型调用已挂住", () => wakeCalls === 2, 30_000);
-    assert.equal(reportOps(rt).length, 0, "仍有未收尾唤醒时不汇报");
-
-    wakeGate.resolve();
-    const wake2 = rt.store.findTaskByRequest(main, `wake:${child2.id}`)!;
-    await waitFor("最终汇报已送达", () => sendTexts(h.onebot).some((t) => t.includes("最终汇报")), 30_000);
-    const ops = reportOps(rt);
-    assert.equal(ops.length, 1, "两个并发唤醒只产生一份汇报");
-    assert.equal(ops[0]!.taskId, wake2.id, "由后终态的唤醒汇报");
-    assert.equal(ops[0]!.text, `[工作 ${work.id} 最终汇报]\nWAKE-ANSWER-2`);
-    assert.ok(ops[0]!.sourceKey.endsWith(`:${child2.id}`));
-
-    // 补充原工作（第三次执行）再次收尾：产生新的一份，键各不相同
-    await waitFor("SubAgent 再次空闲", () => rt.store.getSubAgent(agent.id)!.state === "idle", 30_000);
-    const third = await delegateFromActiveTask(rt, { parentTaskId: taskA.id, key: "r3", request: "第三轮", workId: work.id, readPaths: null, materials: [{ kind: "text", text: "材料 C" }], paramsDigest: "d3" });
-    await waitFor("第三次收尾汇报已送达", () => reportOps(rt).length === 2 && reportOps(rt).every((op) => op.status === "sent"), 30_000);
-    const keys = reportOps(rt).map((op) => op.sourceKey).sort();
-    assert.equal(new Set(keys).size, 2, "每次收尾的汇报键各不相同");
-    assert.ok(keys[0]!.startsWith(`${rt.store.getInboundEvent(taskA.sourceEventId!)!.id}#work:${work.id}:`));
-    assert.ok(keys.some((k) => k.endsWith(`:${third.task.id}`)));
-    assert.equal(sendTexts(h.onebot).filter((t) => t.includes("最终汇报")).length, 2);
-  } finally {
-    await rt.stop("test_end");
-    await h.close();
-  }
-});
-
 test("离线等待与恢复：pending 写等待原因，恢复后受理与汇报各发一次；重启补记幂等，再巡检仍一份", async () => {
   const subGate = deferred();
   const h = await harness("fin-offline", delegateResponder({ holdSub: subGate.promise }));
@@ -458,127 +213,5 @@ test("离线等待与恢复：pending 写等待原因，恢复后受理与汇报
   } finally {
     await rt.stop("test_end");
     await h.close();
-  }
-});
-
-test("目标变化不改发：唤醒前来源失效则取消；发送前重新配置则取消且新目标零发送", async () => {
-  // 唤醒前来源失效：QQ 停用后不向模型发送子结果。
-  const gateA = deferred();
-  const hA = await harness("fin-skip", delegateResponder({ holdSub: gateA.promise }));
-  const rtA = await Runtime.start(hA.config);
-  try {
-    await prepareQq(rtA, hA.onebot);
-    push(hA.onebot, 1, "MARK-DELEG 请调研");
-    await waitFor("受理回复已送达", () => sendTexts(hA.onebot).some((t) => t.includes("ACCEPTED")), 20_000);
-    const main = mainSession(rtA);
-    rtA.store.setSessionQueueState(main, "paused", "test_fixture");
-    gateA.resolve();
-    const work = soleWork(rtA);
-    const child = rtA.store.listTasksByWork(work.id)[0]!;
-    await waitFor("唤醒任务已排队", () => rtA.store.getTask(child.id)!.status === "completed" && rtA.store.findTaskByRequest(main, `wake:${child.id}`) !== null, 30_000);
-    const childResult = rtA.store.getTask(child.id)!.resultSummary;
-    const callsBeforeDisabled = hA.model.calls.length;
-    await rtA.qqSetEnabled(false);
-    await rtA.resumeQueue(main);
-    const wake = rtA.store.findTaskByRequest(main, `wake:${child.id}`)!;
-    await waitFor("来源失效的唤醒已取消", () => rtA.store.getTask(wake.id)!.status === "canceled", 30_000);
-    await rtA.scheduler!.tick();
-    assert.equal(rtA.store.getTask(wake.id)!.errorMessage, "subagent_source_invalid");
-    assert.equal(rtA.store.getWorkDelegation(work.id)!.canceledAt, null, "来源失效不伪造工作取消");
-    assert.equal(rtA.store.getTask(child.id)!.status, "completed");
-    assert.equal(rtA.store.getTask(child.id)!.resultSummary, childResult, "原子任务结果保留");
-    assert.equal(rtA.store.findTaskByRequest(main, `wake:${child.id}`)!.id, wake.id, "保留原唤醒键");
-    assert.equal(hA.model.calls.length, callsBeforeDisabled, "停用来源后不发新模型请求");
-    assert.equal(hA.model.calls.filter(request => lastUserText(request).includes("[编排器]")).length, 0, "坏来源不进入汇总模型请求");
-    assert.equal(rtA.store.listSelectionRecordsByTask(wake.id).length, 0);
-    assert.equal(reportOps(rtA).length, 0, "目标失效不登记发送");
-    const skips = (rtA.store.db.prepare("SELECT body FROM events").all() as Array<{ body: string }>).map((r) => JSON.parse(r.body)).filter((b) => b.type === "qq_private.reply_skipped");
-    assert.equal(skips.length, 0, "来源失效在汇报登记前拒绝，不走目标 skip");
-    assert.deepEqual(sendTexts(hA.onebot), ["ACCEPTED 已受理"], "没有向失效目标发送");
-  } finally {
-    await rtA.stop("test_end");
-    await hA.close();
-  }
-
-  // 发送前重新配置（configVersion 推进）：pending 汇报被取消，新目标零发送
-  const gateB = deferred();
-  const hB = await harness("fin-retarget", delegateResponder({ holdSub: gateB.promise }));
-  const rtB = await Runtime.start(hB.config);
-  try {
-    await prepareQq(rtB, hB.onebot);
-    push(hB.onebot, 1, "MARK-DELEG 请调研");
-    await waitFor("受理回复已送达", () => sendTexts(hB.onebot).some((t) => t.includes("ACCEPTED")), 20_000);
-    hB.onebot.setOnline(false);
-    hB.onebot.pushHeartbeat({ online: false });
-    await waitFor("QQ 离线", () => rtB.qqStatus().online === false, 20_000);
-    gateB.resolve();
-    await waitFor("汇报已登记为 pending", () => reportOps(rtB).length === 1 && reportOps(rtB)[0]!.status === "pending", 30_000);
-    const op = reportOps(rtB)[0]!;
-    await configureQq(rtB, hB.onebot, OTHER);
-    hB.onebot.setOnline(true);
-    hB.onebot.pushHeartbeat();
-    await waitFor("QQ 恢复在线", () => {
-      const status = rtB.qqStatus();
-      return "actualSelfId" in status && status.online === true;
-    }, 20_000);
-    await rtB.scheduler!.tick();
-    await waitFor("旧汇报按目标变化取消", () => rtB.sched.getOp(op.id)!.status === "canceled", 20_000);
-    assert.match(rtB.sched.getOp(op.id)!.errorMessage ?? "", /target_changed/, "目标 version 变化不改发");
-    assert.deepEqual(sendTexts(hB.onebot), ["ACCEPTED 已受理"], "汇报未发出");
-    assert.equal(sends(hB.onebot).filter((a) => String(a.params.user_id) === OTHER).length, 0, "新目标零发送");
-  } finally {
-    await rtB.stop("test_end");
-    await hB.close();
-  }
-});
-
-test("发送结果不明记 effect_unknown 不自动重发（含重启）；Telegram 429 同一记录按 not_before 再发", async () => {
-  const gateA = deferred();
-  const hA = await harness("fin-ambiguous", delegateResponder({ holdSub: gateA.promise }));
-  let rtA = await Runtime.start(hA.config);
-  try {
-    await prepareQq(rtA, hA.onebot);
-    push(hA.onebot, 1, "MARK-DELEG 请调研");
-    await waitFor("受理回复已送达", () => sendTexts(hA.onebot).some((t) => t.includes("ACCEPTED")), 20_000);
-    hA.onebot.setSendBehavior("silent");
-    gateA.resolve();
-    await waitFor("汇报按结果不明收尾", () => reportOps(rtA).length === 1 && reportOps(rtA)[0]!.status === "effect_unknown", 30_000);
-    await rtA.scheduler!.tick();
-    assert.equal(sendTexts(hA.onebot).filter((t) => t.includes("最终汇报")).length, 1, "结果不明不重发");
-    await rtA.stop("test_restart");
-    rtA = await Runtime.start(hA.config);
-    await rtA.scheduler!.tick();
-    await new Promise((r) => setTimeout(r, 300));
-    assert.equal(reportOps(rtA)[0]!.status, "effect_unknown", "重启不重置结论");
-    assert.equal(sends(hA.onebot).filter((a) => JSON.stringify(a.params).includes("最终汇报")).length, 1, "重启后不自动重发");
-  } finally {
-    await rtA.stop("test_end");
-    await hA.close();
-  }
-
-  const gateB = deferred();
-  const hB = await harness("fin-rl", delegateResponder({ holdSub: gateB.promise }), { telegram: true });
-  const rtB = await Runtime.start(hB.config);
-  const api = hB.api!;
-  try {
-    await prepareTelegram(rtB, hB.apiBase!);
-    api.push({ text: "MARK-DELEG 请调研", from: TG_OWNER });
-    await waitFor("受理回复已送达", () => api.sends.some((s) => s.text.includes("ACCEPTED")), 20_000);
-    let limited = false;
-    api.behavior = (body, n) => {
-      if (body.text.includes("最终汇报") && !limited) {
-        limited = true;
-        return { status: 429, body: { ok: false, description: "Too Many Requests", parameters: { retry_after: 1 } } };
-      }
-      return { status: 200, body: { ok: true, result: { message_id: 3000 + n } } };
-    };
-    gateB.resolve();
-    await waitFor("限流后同一记录再发成功", () => reportOps(rtB).length === 1 && reportOps(rtB)[0]!.status === "sent", 30_000);
-    const attempts = api.sends.filter((s) => s.text.includes("最终汇报"));
-    assert.equal(attempts.length, 2, "限流只按 not_before 再发一次同一记录");
-    assert.deepEqual(attempts[0], attempts[1], "再发的是原目标与原正文");
-  } finally {
-    await rtB.stop("test_end");
-    await hB.close();
   }
 });

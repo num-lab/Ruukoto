@@ -37,19 +37,19 @@
  *    零副作用；回执跨进程重启核实（meta 持久 + 同键重放）。
  */
 
-import { test } from "node:test";
+import { test, type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { Db, SCHEMA_VERSION } from "@ruukoto/core/db.ts";
+import { Db } from "@ruukoto/core/db.ts";
 import { Store, StoreConflictError } from "@ruukoto/core/store.ts";
 import { findWorkspaceProjects, sessionDisplayAttribution } from "@ruukoto/control/workspace.ts";
 import type { DirIdentity } from "@ruukoto/core/dir-identity.ts";
 import type { MigrationPreview } from "@ruukoto/runtime/workspace-migration.ts";
 import { ViewState } from "@ruukoto/tui/tui/state.ts";
 import type { PersistentEvent, Project, Session } from "@ruukoto/core/types.ts";
-import { startTestRuntime, createProjectSession, waitFor, realTools, lastUserText, type TestRuntime } from "./helpers/testkit.ts";
+import { startTestRuntime, createProjectSession, waitFor, lastUserText, type TestRuntime } from "./helpers/testkit.ts";
 import { seedCodingRole } from "./helpers/legacy-coding.ts";
 import { previewWorkspaceMigration, applyWorkspaceMigration } from "@ruukoto/runtime/workspace-migration.ts";
 
@@ -638,117 +638,67 @@ test("map_sessions：两个目录映射到两个工作区 + 父目录多仓库 +
   }
 });
 
-test("事务中途故障（部分 SQL 已执行）整体回滚；失败后以同键恢复", async () => {
-  const t = await startTestRuntime("ws76-rollback", async () => ({ kind: "text", text: "x" }));
-  try {
-    const { projectId, repoA, repoB, s1, s2 } = await seedMultiDirLegacy(t);
-    const plan: MigrationPreview["plan"] = {
-      action: "map_sessions",
-      assignments: {
-        [s1]: { kind: "new_workspace", root: repoA },
-        [s2]: { kind: "new_workspace", root: repoB },
-      },
-    };
-    const planned = await preview(t, projectId, { plan });
-    assert.ok(planned.revision);
-    // 注入故障：第二个映射写入时抛错（此时项目与第一个映射的 SQL 已执行）
-    const store = t.runtime.store as any;
-    const original = t.runtime.store.mapSessionToWorkspace.bind(t.runtime.store);
-    let calls = 0;
-    store.mapSessionToWorkspace = (sessionId: string, ws: string | null) => {
-      calls++;
-      if (calls === 2) throw Object.assign(new Error("注入故障"), { code: "injected" });
-      return original(sessionId, ws);
-    };
-    const seqBefore = t.runtime.store.getMaxSeq();
-    const projectsBefore = t.runtime.store.listProjects().length;
-    try {
-      await assert.rejects(
-        () => applyPlan(t, planned.instance_id, projectId, "req-rb-1", plan, planned.revision),
-        (err: any) => err.code === "injected",
-      );
-    } finally {
-      store.mapSessionToWorkspace = original;
-    }
-    assert.equal(t.runtime.store.listProjects().length, projectsBefore, "不留空项目");
-    assert.equal(t.runtime.store.getSession(s1)!.workspaceProjectId, null, "不留部分映射");
-    assert.equal(t.runtime.store.getEventsAfter(seqBefore).length, 0, "回滚的事务不产生事件");
-    assert.equal(t.runtime.store.getMetaValue("migration_receipt:req-rb-1"), null, "不留成功回执");
-    // 失败后以同键恢复：重新应用成功
-    const applied = await applyPlan(t, planned.instance_id, projectId, "req-rb-1", plan, planned.revision);
-    assert.equal(applied.ok, true);
-    assert.equal(t.runtime.store.listProjects().length, projectsBefore + 2);
-  } finally {
-    await t.shutdown();
-  }
+function migrationFixture(t: TestContext) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "rk-migration-")), db = new Db(root), store = new Store(db);
+  t.after(() => { db.close(); fs.rmSync(root, { recursive: true, force: true }); });
+  const dirs = ["repo-a", "repo-b", "other"].map(name => { const dir = path.join(root, name); fs.mkdirSync(dir); return dir; });
+  const projectId = store.withTx(() => store.createProject("多目录旧项目")).id;
+  const create = (cwd: string, projectId: string) => {
+    const identity = dirIdentityOf(cwd);
+    return store.withTx(() => store.createSession({ projectId, cwd: identity.cwd, cwdReal: identity.cwdReal, cwdDev: identity.dev, cwdIno: identity.ino, piSessionId: crypto.randomUUID(), confirmTools: [] }));
+  };
+  const sessions = dirs.map(dir => create(dir, projectId));
+  return { root, store, deps: { store, instanceId: db.getInstanceId() }, projectId, repoA: dirs[0], repoB: dirs[1], s1: sessions[0].id, s2: sessions[1].id, create };
+}
+
+test("事务中途故障（部分 SQL 已执行）整体回滚；失败后以同键恢复", t => {
+  const { store, deps, projectId, repoA, repoB, s1, s2 } = migrationFixture(t);
+  const plan: MigrationPreview["plan"] = { action: "map_sessions", assignments: { [s1]: { kind: "new_workspace", root: repoA }, [s2]: { kind: "new_workspace", root: repoB } } };
+  const planned = previewWorkspaceMigration(deps, { projectId, plan }); assert.ok(planned.revision);
+  const input = { projectId, instanceId: planned.instance_id, requestId: "req-rb-1", plan, expectedRevision: planned.revision };
+  const original = store.mapSessionToWorkspace.bind(store); let calls = 0;
+  const replacement = t.mock.method(store, "mapSessionToWorkspace", (sessionId: string, ws: string | null) => {
+    if (++calls === 2) throw Object.assign(new Error("注入故障"), { code: "injected" });
+    return original(sessionId, ws);
+  });
+  const seqBefore = store.getMaxSeq(), projectsBefore = store.listProjects().length;
+  assert.throws(() => applyWorkspaceMigration(deps, input), { code: "injected" });
+  replacement.mock.restore();
+  assert.equal(store.listProjects().length, projectsBefore, "不留空项目");
+  assert.equal(store.getSession(s1)!.workspaceProjectId, null, "不留部分映射");
+  assert.equal(store.getEventsAfter(seqBefore).length, 0, "回滚的事务不产生事件");
+  assert.equal(store.getMetaValue("migration_receipt:req-rb-1"), null, "不留成功回执");
+  const applied = applyWorkspaceMigration(deps, input);
+  assert.equal(applied.ok, true); assert.equal(store.listProjects().length, projectsBefore + 2);
 });
 
-// ---------- revert ----------
-
-test("revert：只恢复显式组织映射并校验当前值；claim 不可回退；新建工作区保留", async () => {
-  const t = await startTestRuntime("ws76-revert", async () => ({ kind: "text", text: "x" }));
-  try {
-    const { projectId, repoA, s1 } = await seedMultiDirLegacy(t);
-    const plan: MigrationPreview["plan"] = { action: "map_sessions", assignments: { [s1]: { kind: "new_workspace", root: repoA } } };
-    const planned = await preview(t, projectId, { plan });
-    const applied = await applyPlan(t, planned.instance_id, projectId, "req-m-1", plan, planned.revision);
-    const wsId = applied.created_workspaces[0].project_id as string;
-
-    // 回执被其他操作修改当前值后：拒绝回退，由拥有者重新决定
-    const otherWs = (await t.client.request<any>("open_workspace", { cwd: t.work[1]!, request_id: "boot-other" })) as any;
-    t.runtime.store.withTx(() => t.runtime.store.mapSessionToWorkspace(s1, otherWs.session.projectId));
-    const revertPlan = { action: "revert", revert_request_id: "req-m-1" };
-    await assert.rejects(
-      () => t.client.request("apply_workspace_migration", {
-        project_id: projectId, instance_id: planned.instance_id, request_id: "req-rv-1", plan: revertPlan,
-      }),
-      (err: any) => err.code === "revision_conflict",
-      "当前值已被修改时拒绝回退",
-    );
-    // 恢复当前值后回退成功：只恢复显式组织映射
-    t.runtime.store.withTx(() => t.runtime.store.mapSessionToWorkspace(s1, wsId));
-    const reverted = await t.client.request<any>("apply_workspace_migration", {
-      project_id: projectId, instance_id: planned.instance_id, request_id: "req-rv-1", plan: revertPlan,
-    });
-    assert.equal(reverted.action, "revert");
-    assert.equal(reverted.reverted_request_id, "req-m-1");
-    assert.deepEqual(reverted.mappings, [{ session_id: s1, from: wsId, to: null }]);
-    assert.equal(t.runtime.store.getSession(s1)!.workspaceProjectId, null, "恢复原映射（未映射）");
-    assert.ok(t.runtime.store.getProject(wsId)!.rootDir, "新建工作区保留，不随回退删除");
-    const retry = await t.client.request<any>("apply_workspace_migration", {
-      project_id: projectId, instance_id: planned.instance_id, request_id: "req-rv-1", plan: revertPlan,
-    });
-    assert.equal(retry.replayed, true, "回退同样按回执幂等重放");
-
-    // claim_source 不可回退：已认领的根目录身份保留
-    const claimDir = path.join(t.dirs.root, "claim-src");
-    fs.mkdirSync(claimDir);
-    const { projectId: claimId } = await createProjectSession(t.client, claimDir, { projectName: "认领源" });
-    const claimPreview = await preview(t, claimId);
-    assert.equal(claimPreview.safe_claim.eligible, true, `认领源应满足安全认领：${claimPreview.safe_claim.reasons.join(";")}`);
-    const claimPlan: MigrationPreview["plan"] = { action: "claim_source", root: claimPreview.safe_claim.root!.cwdReal };
-    const plannedC = await preview(t, claimId, { plan: claimPlan });
-    const appliedC = await applyPlan(t, plannedC.instance_id, claimId, "req-c-1", claimPlan, plannedC.revision);
-    assert.equal(appliedC.action, "claim_source");
-    await assert.rejects(
-      () => t.client.request("apply_workspace_migration", {
-        project_id: claimId, instance_id: plannedC.instance_id, request_id: "req-rv-2",
-        plan: { action: "revert", revert_request_id: "req-c-1" },
-      }),
-      (err: any) => err.code === "invalid_params",
-      "认领的根目录身份保留，不可回退",
-    );
-    // 原回执不存在：not_found
-    await assert.rejects(
-      () => t.client.request("apply_workspace_migration", {
-        project_id: projectId, instance_id: planned.instance_id, request_id: "req-rv-3",
-        plan: { action: "revert", revert_request_id: "req-no-such" },
-      }),
-      (err: any) => err.code === "not_found",
-    );
-  } finally {
-    await t.shutdown();
-  }
+test("revert：只恢复显式组织映射并校验当前值；claim 不可回退；新建工作区保留", t => {
+  const { store, deps, root, projectId, repoA, repoB, s1, create } = migrationFixture(t);
+  const plan: MigrationPreview["plan"] = { action: "map_sessions", assignments: { [s1]: { kind: "new_workspace", root: repoA } } };
+  const planned = previewWorkspaceMigration(deps, { projectId, plan });
+  const applied = applyWorkspaceMigration(deps, { projectId, instanceId: planned.instance_id, requestId: "req-m-1", plan, expectedRevision: planned.revision! });
+  const wsId = applied.created_workspaces[0].project_id;
+  const other = store.withTx(() => store.createProject("另一工作区", null, dirIdentityOf(repoB)));
+  store.withTx(() => store.mapSessionToWorkspace(s1, other.id));
+  const revert = { projectId, instanceId: planned.instance_id, requestId: "req-rv-1", plan: { action: "revert", revert_request_id: "req-m-1" } };
+  assert.throws(() => applyWorkspaceMigration(deps, revert), { code: "revision_conflict" }, "当前值已被修改时拒绝回退");
+  store.withTx(() => store.mapSessionToWorkspace(s1, wsId));
+  const reverted = applyWorkspaceMigration(deps, revert);
+  assert.equal(reverted.action, "revert"); assert.equal(reverted.reverted_request_id, "req-m-1");
+  assert.deepEqual(reverted.mappings, [{ session_id: s1, from: wsId, to: null }]);
+  assert.equal(store.getSession(s1)!.workspaceProjectId, null, "恢复原映射");
+  assert.ok(store.getProject(wsId)!.rootDir, "新建工作区保留");
+  assert.equal(applyWorkspaceMigration(deps, revert).replayed, true, "回退按回执幂等重放");
+  const claimDir = path.join(root, "claim-src"); fs.mkdirSync(claimDir);
+  const claimId = store.withTx(() => store.createProject("认领源")).id; create(claimDir, claimId);
+  const claimPreview = previewWorkspaceMigration(deps, { projectId: claimId });
+  assert.equal(claimPreview.safe_claim.eligible, true, claimPreview.safe_claim.reasons.join(";"));
+  const claimPlan: MigrationPreview["plan"] = { action: "claim_source", root: claimPreview.safe_claim.root!.cwdReal };
+  const plannedC = previewWorkspaceMigration(deps, { projectId: claimId, plan: claimPlan });
+  const appliedC = applyWorkspaceMigration(deps, { projectId: claimId, instanceId: plannedC.instance_id, requestId: "req-c-1", plan: claimPlan, expectedRevision: plannedC.revision! });
+  assert.equal(appliedC.action, "claim_source");
+  assert.throws(() => applyWorkspaceMigration(deps, { projectId: claimId, instanceId: plannedC.instance_id, requestId: "req-rv-2", plan: { action: "revert", revert_request_id: "req-c-1" } }), { code: "invalid_params" }, "认领的根目录身份不可回退");
+  assert.throws(() => applyWorkspaceMigration(deps, { ...revert, requestId: "req-rv-3", plan: { action: "revert", revert_request_id: "req-no-such" } }), { code: "not_found" });
 });
 
 // ---------- 目录入口收紧（步骤 2） ----------
@@ -859,23 +809,6 @@ test("list_session_summaries：project_id 与 workspace_id 互斥；归属查询
     const mapped = byWorkspace.find((s) => s.sessionId === s1)!;
     assert.equal(mapped.lastActiveAt, activeBefore, "映射事件不能让旧会话显示为刚刚执行任务");
     assert.equal(mapped.name, "映射前的任务", "摘要算法与旧查询相同");
-  } finally {
-    await t.shutdown();
-  }
-});
-
-test("ruukoto 产品界面与旧 API 语义保留：归属字段不影响原项目查询", async () => {
-  const t = await startTestRuntime("ws76-ruukoto-stay", async () => ({ kind: "text", text: "x" }));
-  try {
-    const { projectId, sessionId: s1 } = await createProjectSession(t.client, t.work[0]!, { projectName: "旧会话项目" });
-    const ws = (await t.client.request<any>("open_workspace", { cwd: t.work[1]!, request_id: "boot-stay" })) as any;
-    t.runtime.store.withTx(() => t.runtime.store.mapSessionToWorkspace(s1, ws.session.projectId));
-    const bySource = (await t.client.request<any>("list_session_summaries", { project_id: projectId })) as any[];
-    assert.deepEqual(
-      bySource.map((s) => s.sessionId),
-      [s1],
-      "project_id 查询恒按原身份（ruukoto 原项目界面与旧 API 语义保留）",
-    );
   } finally {
     await t.shutdown();
   }
@@ -1300,7 +1233,6 @@ test("角色绑定变化使预览修订过期（角色绑定是修订输入）",
     await t.shutdown();
   }
 });
-
 
 test("拥有者组织迁移可登记保护根祖先且同键重放不改执行模式", async () => {
   const t = await startTestRuntime("owner-map-root", () => ({ kind: "text", text: "不会调用模型" }));

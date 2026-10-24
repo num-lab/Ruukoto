@@ -32,23 +32,23 @@ import { ControlConnection } from "@ruukoto/control/connection.ts";
 import { PendingRequestStore } from "@ruukoto/control/pending-requests.ts";
 import { SubmissionGuard } from "@ruukoto/control/submission.ts";
 import { readOwnerToken } from "@ruukoto/control/owner-token.ts";
-import { Db, SCHEMA_VERSION } from "@ruukoto/core/db.ts";
+import { Db } from "@ruukoto/core/db.ts";
 import { Store, StoreConflictError } from "@ruukoto/core/store.ts";
 import {
-  findWorkspaceByRoot,
-  findWorkspaceProjects,
-  workspacePickerProjects,
+findWorkspaceByRoot,
+findWorkspaceProjects,
+workspacePickerProjects,
 } from "@ruukoto/control/workspace.ts";
 import type { DirIdentity } from "@ruukoto/core/dir-identity.ts";
 import type { Project, Session } from "@ruukoto/core/types.ts";
 import { ViewState, sessionTitleAttribution } from "@ruukoto/tui/tui/state.ts";
 import { TuiApp } from "@ruukoto/tui/tui/app.ts";
 import {
-  startTestRuntime,
-  waitFor,
-  createProjectSession,
-  taskStatus,
-  type TestRuntime,
+startTestRuntime,
+waitFor,
+createProjectSession,
+taskStatus,
+type TestRuntime,
 } from "./helpers/testkit.ts";
 import { FakeTerminal } from "./helpers/fake-terminal.ts";
 import { LEGACY_PROJECT_WRITE_HINT } from "@ruukoto/tui/tui/commands.ts";
@@ -369,11 +369,6 @@ test("旧 op 不变：create_project/create_session 不写根目录归属，快�
   }
 });
 
-/** 迁移测试内直接经存储层建带归属的项目（runtime 路径在别处覆盖）。 */
-function store2Workspace(store: Store, root: string): Project {
-  return store.withTx(() => store.createProject("带归属", null, { cwd: root, cwdReal: root, dev: 1, ino: 1 }));
-}
-
 // ---------- 完整路径：创建 → 执行 → 历史 ----------
 
 test("open_workspace 完整路径：新会话可执行任务并在历史中查到", async () => {
@@ -556,25 +551,6 @@ test("ruukoto-code：选择面板列出工作区与旧项目，不出现角色�
     }
   } finally {
     delete process.env.RUUKOTO_PRODUCT;
-    await t.shutdown();
-  }
-});
-
-test("ruukoto：选择面板行为不变，角色项目仍列出", async () => {
-  const t = await startTestRuntime("ws74-tui-ruukoto", async () => ({ kind: "text", text: "x" }));
-  try {
-    await createProjectSession(t.client, t.work[0]!, { projectName: "legacy-proj-b" });
-    const h = await startPickerApp(t);
-    try {
-      await waitFor("选择面板出现", () => h.terminal.output().includes("选择项目"));
-      await waitFor("条目渲染", () => h.terminal.output().includes("legacy-proj-b"));
-      assert.ok(h.terminal.output().includes("agent-main"), "ruukoto 产品角色项目行为不变");
-      h.app.quit(0);
-      await waitFor("退出", () => h.exitCode() === 0);
-    } finally {
-      h.app.quit(0);
-    }
-  } finally {
     await t.shutdown();
   }
 });

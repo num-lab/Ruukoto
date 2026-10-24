@@ -1,0 +1,23 @@
+--- a/apps/ruukoto/src/personal-control.ts
++++ b/apps/ruukoto/src/personal-control.ts
+@@ -145,7 +145,8 @@
+     if (fs.existsSync(path.join(directory, "control.token"))) readPersonalToken(directory);
+     if (Buffer.byteLength(socketPath) > 100) throw new PersonalError("control_path_long", "隔离档案路径过长，请用较短的新目录启动。");
+     const token = randomBytes(32).toString("hex");
+-    fs.writeFileSync(path.join(directory, "control.token"), token + "\n", { mode: 0o600 });
++    fs.writeFileSync(path.join(directory, "control.token.tmp"), token + "\n", { mode: 0o600 });
++    fs.renameSync(path.join(directory, "control.token.tmp"), path.join(directory, "control.token"));
+     fs.rmSync(socketPath, { force: true });
+     server.on("request", (_req, res) => res.writeHead(503, { connection: "close", "content-type": "application/json" }).end(JSON.stringify({ v: 1, ok: false, code: "control_starting", message: "隔离后台正在恢复，请稍后查询。" })));
+     server.listen(socketPath);
+--- a/apps/ruukoto/src/personal-profile.ts
++++ b/apps/ruukoto/src/personal-profile.ts
+@@ -23,7 +23,7 @@
+   fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+   if (!fs.lstatSync(directory).isDirectory() || fs.lstatSync(directory).isSymbolicLink()) throw new PersonalError("profile_unrecognized", "个人档案必须是普通目录，请另选空目录。");
+   const names = fs.readdirSync(directory);
+-  const allowed = new Set(["profile.json", "owner.sqlite", "owner.sqlite-journal", "personal.sqlite", "personal.sqlite-wal", "personal.sqlite-shm", "model.json", "model.json.tmp", "skills.json", "skills.json.tmp", "telegram.json", "telegram.json.tmp", "qq.json", "qq.json.tmp", "service.json", "service.json.tmp", "command.json", "command.json.tmp", "mcp.json", "mcp.json.tmp", "tools.json", "tools.json.tmp", "browser.json", "browser.json.tmp", "control.token", "backend.log", "pending-background-end.json"]);
++  const allowed = new Set(["profile.json", "owner.sqlite", "owner.sqlite-journal", "personal.sqlite", "personal.sqlite-wal", "personal.sqlite-shm", "model.json", "model.json.tmp", "skills.json", "skills.json.tmp", "telegram.json", "telegram.json.tmp", "qq.json", "qq.json.tmp", "service.json", "service.json.tmp", "command.json", "command.json.tmp", "mcp.json", "mcp.json.tmp", "tools.json", "tools.json.tmp", "browser.json", "browser.json.tmp", "control.token", "control.token.tmp", "backend.log", "pending-background-end.json"]);
+   if (names.some(name => {
+     const stat = fs.lstatSync(path.join(directory, name), { throwIfNoEntry: false });
+     return stat && (name === "control.sock" ? !stat.isSocket() : privateDirectories.has(name) ? !stat.isDirectory() || stat.isSymbolicLink() || stat.uid !== process.getuid?.() || (stat.mode & 0o077) !== 0 : ((!allowed.has(name) && !PERSONAL_PENDING_FILE.test(name) && !PERSONAL_SCHEDULE_PENDING_FILE.test(name) && !PERSONAL_QUESTION_PENDING_FILE.test(name)) || !stat.isFile()));

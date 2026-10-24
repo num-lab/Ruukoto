@@ -8,8 +8,8 @@
 
 | 对象 | 证据与结果 |
 | --- | --- |
-| 编码六输入 | [122](../../../test/122-workflow-code-acceptance.test.ts)，`code-batch.log` 1/1。真实 Runtime/Driver/Git，三个实际修改者并发，第六项输出失败、依赖验证跳过；五份冻结补丁与独立验证任务/副本对应，目标实际字节与组合检查一致，终态 partial、唯一汇总 |
-| 个人六输入 | [121](../../../test/121-workflow-personal-acceptance.test.ts)，`personal-batch.log` 1/1。实际联网工具与应用数据，Tavily/Telegram 为本地替身；十一项搜索、六次查询、五项独立检查，等待期间聊天、重复回答，实际五行与唯一回报。`personal-batch-first/second.log` 是夹具路由/ask 返回值诊断，不计通过 |
+| 编码六输入 | `git show 28c033f7:test/122-workflow-code-acceptance.test.ts`，`code-batch.log` 1/1。真实 Runtime/Driver/Git，三个实际修改者并发，第六项输出失败、依赖验证跳过；五份冻结补丁与独立验证任务/副本对应，目标实际字节与组合检查一致，终态 partial、唯一汇总 |
+| 个人六输入 | `git show 28c033f7:test/121-workflow-personal-acceptance.test.ts`，`personal-batch.log` 1/1。实际联网工具与应用数据，Tavily/Telegram 为本地替身；十一项搜索、六次查询、五项独立检查，等待期间聊天、重复回答，实际五行与唯一回报。`personal-batch-first/second.log` 是夹具路由/ask 返回值诊断，不计通过 |
 | 指定真实模型 | [123](../../../test/123-workflow-model-acceptance.test.ts)，[最终日志](model-workflows-final-report.log) 2/2，零跳过，[实际最终回报](model-reports.md)。用户指定 `/Users/eitrous/.ruukoto-code-dev/ruukoto-2159f2e3/agent/models.json` 的 `magpie/mirasim/deepseek-flash`，low 思考；模型通过工具启动命名定义、等待期间真实聊天、业务回答后实际应用数据/编码与独立验证、唯一汇总。实际查询行和目标字节、所有停止与零占用硬断言通过。没有真实 IM，也不证明模型自行选择编排策略 |
 | 模型验证操作 | [编码增量](model-workflows-verify-op-final.log) 1/1，零跳过；实际独立验证者的 bash/grep 操作、宿主 worktree_verify/integrate 与已核实停止/目标字节记录均留证。只增加显式模型用例断言与脱敏操作事实，不重跑已通过且不受影响的离线全量 |
 | 模型诊断 | `model-workflows-initial.log` 0/2：medium 不受该模型配置支持；`model-workflows-low.log` 1/2：编码验证以 write_result_missing 暂停。首轮失败档案当时被测试清理，缺少原始输出，原因未证实；最终样例显式收窄 bash 与 JSON schema 后成功，不能反向声称首轮成功或已恢复。123 已改为失败保留档案 |

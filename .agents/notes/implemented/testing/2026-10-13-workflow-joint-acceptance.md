@@ -26,7 +26,7 @@ macOS/Linux 与 Node 22.19/24.15 的构建资产、脚本进程、步骤权限�
 
 ## 既有笔记审计
 
-[测试精简提案](../../proposed/testing/2026-10-24-test-suite-reduction.md)拟收窄六输入规模并退出旧个人组合样例；尚未实施，本篇现行决定与历史验证结果保持。
+[测试精简](../testing/2026-10-24-test-suite-reduction.md)部分取代本篇的六输入规模、旧个人组合样例与双产品真实模型运行；保留 Coding 的四输入组合及真实模型验收，平台边界与历史验证结果保持。
 
 [工作流总提案](../../implemented/feature/2026-10-12-agent-workflows.md)、[脚本隔离](../architecture/2026-10-13-workflow-script-isolation.md)、[真实步骤](../architecture/2026-10-13-workflow-step-capabilities.md)与[最终送达](../feature/2026-10-13-workflow-owner-input-and-delivery.md)部分重叠，继续持有产品契约、权限和效果分类，本篇仅持有组合样例和证据分层。不取代既有执行或验收要求。
 

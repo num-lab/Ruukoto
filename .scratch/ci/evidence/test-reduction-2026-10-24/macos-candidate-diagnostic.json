@@ -1,0 +1,85 @@
+{
+  "base": "28c033f7",
+  "code_diff_sha256": "97d1794bb36645610296ca29cdf1235e30a698ee5a5ac63195f62f10078230ba",
+  "node": "v24.15.0",
+  "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "command": "npm run check",
+  "setup": "reused existing installation",
+  "file_concurrency": 2,
+  "app_files": 290,
+  "stages": [
+    {
+      "marker": "> ruukoto-workspace@0.1.0 check",
+      "seconds": 0.115
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 build",
+      "seconds": 0.251
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 build:native",
+      "seconds": 0.325
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 build:worker",
+      "seconds": 0.776
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 build:script",
+      "seconds": 0.926
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 check:static",
+      "seconds": 1.617
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 lint",
+      "seconds": 1.692
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 typecheck",
+      "seconds": 10.387
+    },
+    {
+      "marker": "> ruukoto-foundation-verification@0.1.0 typecheck",
+      "seconds": 48.238
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 verify-notes",
+      "seconds": 50.134
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 check:docs",
+      "seconds": 50.541
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 verify-md-links",
+      "seconds": 50.618
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 verify-doc-refs",
+      "seconds": 51.366
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 verify-doc-budgets",
+      "seconds": 51.628
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 verify-md-wrap",
+      "seconds": 51.792
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 test",
+      "seconds": 52.368
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 test:app",
+      "seconds": 52.517
+    }
+  ],
+  "pid": 39481,
+  "exit_code": 1,
+  "seconds": 1634.1792021669971,
+  "log_sha256": "ab48859af00ad68ad871f522fef705dba7e6899b0ecd07477efb7fd99a80166b",
+  "purpose": "diagnostic; unexpected 83 timeout and token publication failure; entry processes manually reaped"
+}

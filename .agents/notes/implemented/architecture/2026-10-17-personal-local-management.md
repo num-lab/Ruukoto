@@ -2,6 +2,8 @@
 
 Status: implemented
 
+逐启动令牌的完整发布方式见[原子发布修复](../bug-fix/2026-10-24-personal-token-atomic-publish.md)，认证与坏令牌拒绝的决定保持。
+
 ## 问题
 
 [durable 迁移](../../proposed/architecture/2026-10-17-personal-pi-durable.md)保留引导式 CLI，要求客户端断开不取消工作、运行中只由后台持有 Harness。旧 CLI、开发器和配置中心绑定旧 Runtime/控制协议；直接复用会把已退出的兼容层带回个人端。上游 admission 只按 requestId/type 去重，不比较正文，也不能原子地与宿主自定义 document 一起提交。

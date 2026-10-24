@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import * as path from "node:path";
 import type { OpParams, OpResult } from "@ruukoto/control/ops.ts";
 import { ControlClientError } from "@ruukoto/control/client.ts";
 import type { ConnectResult } from "@ruukoto/control/protocol.ts";
@@ -26,7 +27,7 @@ for (const op of ["open_workspace", "create_session"] as const) {
       const t = await startTestRuntime(`d-${op[0]}-${outcome[0]}`, async () => ({ kind: "text", text: "ok" }), { config: { product: product.runtime } });
       try {
         const workspace = await t.client.request<OpResult<"open_workspace">>("open_workspace", { cwd: t.work[0], request_id: "fixture" });
-        const params = { cwd: outcome === "rejected" ? t.dirs.dataDir : t.work[0], ...(op === "create_session" ? { project_id: workspace.session.projectId } : {}) };
+        const params = { cwd: outcome === "rejected" ? path.join(t.dirs.root, "missing") : t.work[0], ...(op === "create_session" ? { project_id: workspace.session.projectId } : {}) };
         const calls: string[] = [];
         const accepted = deferred<void>();
         const release = deferred<void>();

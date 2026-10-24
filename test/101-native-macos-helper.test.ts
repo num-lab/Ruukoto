@@ -2,11 +2,14 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import * as fs from "node:fs";
+import nodeFs from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
+import { finished } from "node:stream/promises";
 import * as path from "node:path";
 import type { Readable, Writable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { launchMacosNative } from "@ruukoto/agent/execution/native-macos.ts";
-import { ExecutionError } from "@ruukoto/agent/execution/launchers.ts";
+import { ExecutionError, type LaunchedUnit } from "@ruukoto/agent/execution/launchers.ts";
 import type { PreparedNativeLaunch } from "@ruukoto/agent/execution/native.ts";
 
 const helper = fileURLToPath(new URL("../worker/native-macos-supervisor", import.meta.url));
@@ -66,7 +69,8 @@ test("macOS 监督器不把宿主状态和控制 FD 传给执行进程", { skip:
   } finally { await finish(run.child, run.closed); }
 });
 
-test("macOS 真实 Seatbelt 中 Node 完成启动标记后才加载 worker，启动前失败保留机器原因", { skip: !available }, async () => {
+// Note: 见 .agents/notes/implemented/bug-fix/2026-10-24-native-marker-atomic-publish.md
+test("macOS 真实 Seatbelt 中 Node 完成启动标记后才加载 worker，启动前失败保留机器原因", { skip: !available }, async context => {
   const dir = fs.realpathSync(fs.mkdtempSync("/tmp/rk-native-bootstrap-"));
   const workspace = path.join(dir, "work"), tempDir = path.join(dir, "tmp");
   fs.mkdirSync(workspace); fs.mkdirSync(tempDir);
@@ -82,10 +86,34 @@ test("macOS 真实 Seatbelt 中 Node 完成启动标记后才加载 worker，启
     env: { PATH: "/usr/bin:/bin", HOME: tempDir, TMPDIR: tempDir },
   };
   const spec = { taskId: "bootstrap-check", mode: "confirm" as const, workspace, grantedPaths: [] };
-  let unit: Awaited<ReturnType<typeof launchMacosNative>> | null = null;
+  const marker = path.join(tempDir, "native-started"), opened = path.join(tempDir, "marker-opened"), release = path.join(tempDir, "marker-release");
+  const preload = path.join(workspace, "marker-write-gate.cjs");
+  fs.writeFileSync(preload, `const fs=require('node:fs'),write=fs.writeFileSync;
+    fs.writeFileSync=(file,value,options)=>{
+      if(file!==${JSON.stringify(marker)}&&file!==${JSON.stringify(marker + ".tmp")})return write(file,value,options);
+      const fd=fs.openSync(file,'w');
+      try{
+        write(${JSON.stringify(opened + ".tmp")},JSON.stringify({pid:process.pid}));fs.renameSync(${JSON.stringify(opened + ".tmp")},${JSON.stringify(opened)});
+        const deadline=Date.now()+5000;
+        while(!fs.existsSync(${JSON.stringify(release)})){if(Date.now()>deadline)throw new Error('启动标记夹具未释放');Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,5);}
+        return write(fd,value,options);
+      }finally{fs.closeSync(fd);}
+    };`);
+  let visibleDuringWrite: number | null | undefined;
+  const read = nodeFs.readFileSync;
+  context.mock.method(nodeFs, "readFileSync", (...args: Parameters<typeof read>) => {
+    if (args[0] !== marker || visibleDuringWrite !== undefined || !fs.existsSync(opened)) return read(...args);
+    visibleDuringWrite = fs.existsSync(marker) ? fs.statSync(marker).size : null;
+    try { return read(...args); } finally { fs.writeFileSync(release, "release"); }
+  });
+  syncBuiltinESMExports();
+
+  let unit: LaunchedUnit | null = null;
   let reaped = true;
   try {
-    unit = await launchMacosNative(prepared, spec, helper);
+    try { unit = await launchMacosNative({ ...prepared, env: { ...prepared.env, NODE_OPTIONS: `--require=${JSON.stringify(preload)}` } }, spec, helper); }
+    catch (error) { if (error instanceof ExecutionError && error.unit) unit = error.unit; throw error; }
+    assert.equal(visibleDuringWrite, null, "完整标记发布前，真实宿主读取只应看到尚不存在");
     let output = "";
     unit.stdout.on("data", data => { output += data.toString(); });
     await waitFor(() => output.includes("\n"));
@@ -93,18 +121,38 @@ test("macOS 真实 Seatbelt 中 Node 完成启动标记后才加载 worker，启
     assert.equal(fs.readFileSync(path.join(tempDir, "native-started"), "utf8"), "started");
     reaped = await unit.entry.stop();
     assert.equal(reaped, true);
+    unit.stdout.resume(); unit.stderr.resume();
+    await Promise.all([unit.exit, finished(unit.stdout), finished(unit.stderr)]);
     unit = null;
-    fs.unlinkSync(path.join(tempDir, "native-started"));
+    fs.unlinkSync(marker);
     await assert.rejects(launchMacosNative({ ...prepared, nodePath: "/usr/bin/false" }, spec, helper), error => {
       assert.ok(error instanceof ExecutionError);
+      unit = error.unit ?? null;
       assert.equal(error.reason, "sandbox_rejected");
       assert.ok(error.unit, "失败仍提供停止身份");
       return true;
     });
   } finally {
-    if (unit) reaped = await unit.entry.stop();
-    fs.closeSync(secret);
-    if (reaped) fs.rmSync(dir, { recursive: true, force: true });
+    try {
+      try { fs.writeFileSync(release, "release"); }
+      finally {
+        if (unit) {
+          let stopped = false;
+          try { stopped = await unit.entry.stop(); }
+          finally {
+            reaped = stopped && reaped;
+            unit.stdout.resume(); unit.stderr.resume();
+            await Promise.all([unit.exit, finished(unit.stdout), finished(unit.stderr)]);
+          }
+        }
+      }
+    } finally {
+      try { context.mock.restoreAll(); syncBuiltinESMExports(); }
+      finally {
+        fs.closeSync(secret);
+        if (reaped) fs.rmSync(dir, { recursive: true, force: true });
+      }
+    }
   }
 });
 

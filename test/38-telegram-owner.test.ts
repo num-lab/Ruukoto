@@ -1,15 +1,5 @@
 import { product as personalProduct } from "./helpers/legacy-product.ts";
-/**
- * Telegram owner 入口集成测试（daily-agent issue 04）：本地模拟 Bot API + mock 模型。
- *
- * 覆盖工单验证项：
- * - 认证 owner 私聊进入同一个 main 会话，回复经 outbox 发回并关联原消息；
- * - 重复 update 不重复创建任务或发送消息；
- * - 非 owner / 群聊 / 非文本消息不触发 main（零模型调用）；
- * - 断线重连与重启不丢已登记消息；重启补登回复按任务读取；
- * - 发送失败和结果未知不自动重发；429 限流退回 pending 按 retry_after 再发；
- * - bot token 不进入模型请求、事件表与 stderr；会话默认 full_access 时 Telegram 任务采用 full_access。
- */
+/** 旧 Telegram 档案去重、回复恢复与目标失效。 */
 
 import assert from "node:assert/strict";
 import * as path from "node:path";
@@ -75,97 +65,6 @@ async function configure(rt: Runtime, h: Harness): Promise<void> {
 
 const mainTasks = (rt: Runtime) => rt.store.listTasksBySession(rt.store.getAgentRole("main")!.sessionId);
 const replyOps = (rt: Runtime) => rt.sched.listOps({ limit: 50 }).items.filter((o) => o.sourceKind === "owner_reply");
-const modelSaw = (h: Harness, marker: string) => h.reqs.filter((r) => lastUserText(r).includes(marker)).length;
-
-test("owner 私聊进入同一 main 会话并回复原消息；重复 update 与非 owner 消息不建任务；跟随主会话默认模式；token 不外泄", async () => {
-  const h = await harness("tg-owner");
-  const stderr: string[] = [];
-  const origWrite = process.stderr.write.bind(process.stderr);
-  (process.stderr as any).write = (chunk: any, ...rest: any[]) => (stderr.push(String(chunk)), origWrite(chunk, ...rest));
-  const rt = await Runtime.start(h.config);
-  try {
-    const main = rt.store.getSession(rt.store.getAgentRole("main")!.sessionId)!;
-    await rt.setSessionDefaultMode({ sessionId: main.id, mode: "full_access", expectedVersion: main.defaultAccessModeVersion });
-    await configure(rt, h);
-
-    const m1 = h.api.push({ text: "MARK-ONE 帮我记一下" });
-    h.api.push({ message: m1 }); // 平台重投同一条消息（新 update_id）
-    h.api.push({ text: "MARK-STRANGER 陌生人", from: 99 });
-    h.api.push({ text: "MARK-GROUP 群聊", chatType: "group", chatId: -100 });
-    h.api.push({}); // owner 发贴纸（非文本）
-    await waitFor("第一条回复已发送", () => replyOps(rt).some((o) => o.status === "sent"));
-    const m2 = h.api.push({ text: "MARK-TWO 再问一句", replyTo: { message_id: 1000, from: { id: 1, is_bot: true }, text: "REPLY MARK-ONE" } });
-    await waitFor("第二条回复已发送", () => replyOps(rt).filter((o) => o.status === "sent").length === 2);
-
-    const tasks = mainTasks(rt);
-    assert.equal(tasks.length, 2, "重复 update 与被拒消息不建任务");
-    assert.ok(tasks.every((t) => t.accessMode === "full_access"), "拥有者私聊采用主会话默认 full_access");
-    assert.ok(tasks[1]!.input.includes("回复关联：message 1000（本 bot 发送）") && tasks[1]!.input.includes("[Telegram 私聊] chat 42 user 42"));
-    assert.equal(modelSaw(h, "MARK-ONE 帮我记一下"), 1);
-    assert.equal(modelSaw(h, "MARK-STRANGER") + modelSaw(h, "MARK-GROUP"), 0, "非 owner / 群聊零模型调用");
-
-    assert.equal(h.api.sends.length, 2, "每条入站只发送一次");
-    assert.deepEqual(h.api.sends.map((s) => [s.chat_id, s.text, s.reply_parameters?.message_id]), [
-      ["42", "REPLY MARK-ONE", m1.message_id],
-      ["42", "REPLY MARK-TWO", m2.message_id],
-    ]);
-    const rejected = (rt.store.db.prepare("SELECT body FROM events").all() as any[])
-      .map((r) => JSON.parse(r.body)).filter((b) => b.type === "telegram.rejected").map((b) => b.reason).sort();
-    assert.deepEqual(rejected, ["non_text", "not_owner", "not_private"]);
-    assert.equal(rt.telegramStatus().online, true);
-
-    // token 不进入模型请求、事件表、账本与 stderr；状态视图也不含
-    const secret = "SECRET-TOKEN-XYZ";
-    assert.ok(!JSON.stringify(h.reqs).includes(secret));
-    assert.ok(!(rt.store.db.prepare("SELECT body FROM events").all() as any[]).some((r) => r.body.includes(secret)));
-    assert.ok(!JSON.stringify(rt.sched.listOps({ limit: 50 })).includes(secret));
-    assert.ok(!JSON.stringify(rt.telegramStatus()).includes(secret));
-    assert.ok(!stderr.join("").includes(secret));
-  } finally {
-    await rt.stop("test_end");
-    (process.stderr as any).write = origWrite;
-    await h.close();
-  }
-});
-
-test("发送明确失败与结果未知不重发；429 退回 pending 按 retry_after 再发一次", async () => {
-  const h = await harness("tg-send");
-  let limited = false;
-  h.api.behavior = (body, n) => {
-    if (body.text.includes("MARK-FAIL")) return { status: 400, body: { ok: false, description: "Bad Request: chat not found" } };
-    if (body.text.includes("MARK-UNK")) return { status: 502, body: { ok: false } };
-    if (body.text.includes("MARK-RL") && !limited) {
-      limited = true;
-      return { status: 429, body: { ok: false, description: "Too Many Requests", parameters: { retry_after: 1 } } };
-    }
-    return { status: 200, body: { ok: true, result: { message_id: 2000 + n } } };
-  };
-  const rt = await Runtime.start(h.config);
-  try {
-    await configure(rt, h);
-    h.api.push({ text: "MARK-FAIL" });
-    h.api.push({ text: "MARK-UNK" });
-    h.api.push({ text: "MARK-RL" });
-    await waitFor("三条回复都有结果", () => {
-      const ops = replyOps(rt);
-      return ops.length === 3 && ops.every((o) => ["sent", "failed", "effect_unknown"].includes(o.status));
-    });
-    const byText = Object.fromEntries(replyOps(rt).map((o) => [o.text, o]));
-    assert.equal(byText["REPLY MARK-FAIL"]!.status, "failed");
-    assert.equal(byText["REPLY MARK-FAIL"]!.errorKind, "telegram_400");
-    assert.equal(byText["REPLY MARK-UNK"]!.status, "effect_unknown");
-    assert.equal(byText["REPLY MARK-RL"]!.status, "sent");
-    assert.equal(byText["REPLY MARK-RL"]!.platformMessageId !== null, true);
-    await new Promise((r) => setTimeout(r, 1_200));
-    const count = (m: string) => h.api.sends.filter((s) => s.text.includes(m)).length;
-    assert.deepEqual([count("MARK-FAIL"), count("MARK-UNK"), count("MARK-RL")], [1, 1, 2], "失败/未知不重发；限流只再发一次");
-    const rl = h.api.sends.filter((s) => s.text.includes("MARK-RL"));
-    assert.deepEqual(rl[0], rl[1], "限流重发的是同一操作的原目标与原正文");
-  } finally {
-    await rt.stop("test_end");
-    await h.close();
-  }
-});
 
 test("断线重连不丢消息；重启后重投不重复；重启补登回复按任务读取原回答", async () => {
   const h = await harness("tg-recover");

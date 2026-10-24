@@ -7,7 +7,6 @@ import { requireSubAgentExecution } from "@ruukoto/core/subagent-execution.ts";
 import type { Session, Task } from "@ruukoto/core/types.ts";
 import { getWorkflowStep, listWorkflowExecutions, listWorkflowSteps, requireWorkflowRun, WORKFLOW_INTERFACE_VERSION, workflowTerminal } from "@ruukoto/core/workflow.ts";
 import { Runtime } from "@ruukoto/runtime/runtime.ts";
-import { product as personalProduct } from "./helpers/legacy-product.ts";
 import { product as codeProduct } from "../apps/ruukoto-code/src/product.ts";
 import { delegateFromActiveTask } from "./helpers/active-subagent-source.ts";
 import { holdParentResponse } from "./helpers/active-parent.ts";
@@ -55,7 +54,7 @@ const VERIFY = 'await agent("validate",{request:"验证",verify:"change",depends
 const HOLD = 'await ask("hold",{prompt:"继续汇入？"});';
 const MERGE = 'return await integrate("merge",{steps:["validate"],dependsOn:["validate","hold"],check:"true"});';
 
-for (const product of [personalProduct, codeProduct]) test(`${product.runtime.type} 的普通与工作流 reviewer 使用同来源、当前内容及固定角色，真实 bash 不能改来源`, async () => {
+for (const product of [codeProduct]) test(`${product.runtime.type} 的普通与工作流 reviewer 使用同来源、当前内容及固定角色，真实 bash 不能改来源`, async () => {
   let origin = "";
   const parentGate = holdParentResponse(req => {
     if (lastUserText(req).startsWith("开始")) return { kind: "text", text: "父任务完成" };
@@ -89,7 +88,21 @@ for (const product of [personalProduct, codeProduct]) test(`${product.runtime.ty
     const parent = await rt.submit({ sessionId: session.id, requestId: "owner", input: "开始审查", accessMode: "full_access", modelSelection: rt.defaultSelection });
     await waitFor("真实父任务持有来源目录", () => rt.store.getTask(parent.id)!.status === "running" && t.server.calls.length > 0);
     const ordinary = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "ordinary", request: "核实当前代码", role: "reviewer", target: ".", paramsDigest: "ordinary" });
-    await waitFor("普通审查完成", () => rt.store.getTask(ordinary.task.id)!.status === "completed", 60_000);
+    try {
+      await waitFor("普通审查完成", () => {
+        const task = rt.store.getTask(ordinary.task.id)!;
+        assert.ok(!["failed", "interrupted", "canceled"].includes(task.status), `普通审查提前结束：${task.status} ${task.errorMessage ?? task.interruptReason ?? ""}`);
+        return task.status === "completed";
+      }, 60_000);
+    } catch (error) {
+      const task = rt.store.getTask(ordinary.task.id)!;
+      const modelReply = t.server.calls.findLast(afterTool);
+      process.stderr.write(`[ruukoto:test] 普通审查未完成 ${JSON.stringify({ task: { id: task.id, status: task.status, error: task.errorMessage, interrupt: task.interruptReason },
+        ops: rt.store.listToolOpsByTask(task.id).map(op => ({ tool: op.toolName, result: op.resultSummary, isError: op.isError, effectUnknown: op.effectUnknown })),
+        modelTool: modelReply ? lastToolText(modelReply) : null,
+      })}\n`);
+      throw error;
+    }
     const run = rt.workflows!.start({ sourceTaskId: parent.id, requestKey: "review", script: 'await ask("hold",{prompt:"开始审查？"});return await agent("review",{request:"核实当前代码",role:"reviewer",target:".",dependsOn:["hold"]});', input: null });
     parentGate.release();
     await waitFor("父任务完成", () => rt.store.getTask(parent.id)!.status === "completed");

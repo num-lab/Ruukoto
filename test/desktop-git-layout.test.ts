@@ -19,24 +19,6 @@ function synthetic(count: number, chance: number, span: number): GitCommit[] {
   return commits;
 }
 
-test("Demo 70000条布局不展开函数参数，逐行边索引与原选择一致", () => {
-  const commits: GitCommit[] = Array.from({ length: 70_000 }, (_value, index) => commit(String(index), index < 69_999 ? [String(index + 1)] : []));
-  const result = demoLayout(commits);
-  assert.equal(result.rows.length, commits.length); assert.equal(result.laneCount, 1);
-  assert.equal(result.edgesByRow.length, commits.length);
-  assert.equal(result.edgesByRow[0]!.length, 1); assert.equal(result.edgesByRow[30_000]!.length, 2); assert.equal(result.edgesByRow[69_999]!.length, 1);
-  for (const row of [0, 1, 30_000, 69_999]) assert.deepEqual(result.edgesByRow[row], result.edges.filter(edge => edge.from <= row && edge.to >= row));
-});
-
-test("Demo 追加页面保留前缀lane、合并与更早父边", () => {
-  const commits: GitCommit[] = [commit("merge", ["a", "b"]), commit("a", ["base"]), commit("b", ["base"]), commit("base", [])];
-  const first = demoLayout(commits.slice(0, 2)), full = demoLayout(commits);
-  assert.deepEqual(full.rows.slice(0, 2).map(node => node.lane), first.rows.map(node => node.lane));
-  assert.equal(first.edges.filter(edge => edge.continuation).length, 2);
-  assert.equal(full.edges.filter(edge => edge.continuation).length, 0);
-  for (const row of full.rows) assert.deepEqual(full.edgesByRow[row.row], full.edges.filter(edge => edge.from <= row.row && edge.to >= row.row));
-});
-
 test("模型按 128 行巡检点前滚，70000 条线性历史窗口与全量一致", () => {
   const commits: GitCommit[] = Array.from({ length: 70_000 }, (_value, index) => commit(String(index), index < 69_999 ? [String(index + 1)] : []));
   const model = buildGitGraph(commits);

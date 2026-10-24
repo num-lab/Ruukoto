@@ -1,0 +1,189 @@
+[
+  {
+    "mode": "ordinary-double-fork",
+    "fault": 3,
+    "directory": "/private/tmp/rk-scope-early-exit-9C4Ehq",
+    "supervisorPid": 37005,
+    "exit": 3,
+    "exitMs": 578.7397080000001,
+    "closeMs": 579.1635,
+    "status": "",
+    "released": true
+  },
+  {
+    "mode": "ordinary-double-fork",
+    "fault": 4,
+    "directory": "/private/tmp/rk-scope-early-exit-13RdKG",
+    "supervisorPid": 37028,
+    "exit": 4,
+    "exitMs": 369.1538750000002,
+    "closeMs": 369.17870800000014,
+    "status": "",
+    "released": true
+  },
+  {
+    "mode": "ordinary-double-fork",
+    "fault": 5,
+    "directory": "/private/tmp/rk-scope-early-exit-cL1Kzi",
+    "supervisorPid": 37048,
+    "exit": 5,
+    "exitMs": 354.88758400000006,
+    "closeMs": 354.916334,
+    "status": "",
+    "released": true
+  },
+  {
+    "mode": "detached-closed-pipes",
+    "fault": 3,
+    "directory": "/private/tmp/rk-scope-early-exit-3IxmPs",
+    "supervisorPid": 37055,
+    "exit": 3,
+    "exitMs": 352.2605000000003,
+    "closeMs": 352.8160420000004,
+    "status": "",
+    "released": true
+  },
+  {
+    "mode": "detached-closed-pipes",
+    "fault": 4,
+    "directory": "/private/tmp/rk-scope-early-exit-fYqyg6",
+    "supervisorPid": 37078,
+    "exit": 4,
+    "exitMs": 363.7273329999998,
+    "closeMs": 363.910042,
+    "status": "",
+    "released": true
+  },
+  {
+    "mode": "detached-closed-pipes",
+    "fault": 5,
+    "directory": "/private/tmp/rk-scope-early-exit-UZt53Y",
+    "supervisorPid": 37106,
+    "exit": 5,
+    "exitMs": 354.94541700000036,
+    "closeMs": 354.9659580000002,
+    "status": "",
+    "released": true
+  },
+  {
+    "mode": "detached-inherited-pipes",
+    "fault": 3,
+    "directory": "/private/tmp/rk-scope-early-exit-LM9RUp",
+    "supervisorPid": 37167,
+    "exit": 3,
+    "exitMs": 361.50020799999993,
+    "closeMs": 361.7592920000002,
+    "status": "",
+    "released": true
+  },
+  {
+    "mode": "detached-inherited-pipes",
+    "fault": 4,
+    "directory": "/private/tmp/rk-scope-early-exit-ATLv1i",
+    "supervisorPid": 37174,
+    "exit": 4,
+    "exitMs": 394.77808300000015,
+    "closeMs": 394.9401250000001,
+    "status": "",
+    "released": true
+  },
+  {
+    "mode": "detached-inherited-pipes",
+    "fault": 5,
+    "directory": "/private/tmp/rk-scope-early-exit-WhVhQv",
+    "supervisorPid": 37199,
+    "exit": 5,
+    "exitMs": 397.1654580000004,
+    "closeMs": 397.2405829999998,
+    "status": "",
+    "released": true
+  },
+  {
+    "mode": "known-detached-short-ancestry",
+    "fault": 3,
+    "directory": "/private/tmp/rk-scope-early-exit-YQNxet",
+    "supervisorPid": 37206,
+    "exit": 3,
+    "exitMs": 370.53429099999994,
+    "closeMs": 370.58395799999926,
+    "status": "",
+    "released": true
+  },
+  {
+    "mode": "known-detached-short-ancestry",
+    "fault": 4,
+    "directory": "/private/tmp/rk-scope-early-exit-SGFprL",
+    "supervisorPid": 37212,
+    "exit": 4,
+    "exitMs": 384.1220830000002,
+    "closeMs": 384.4487080000008,
+    "status": "",
+    "released": true
+  },
+  {
+    "mode": "known-detached-short-ancestry",
+    "fault": 5,
+    "directory": "/private/tmp/rk-scope-early-exit-RDO2r3",
+    "supervisorPid": 37255,
+    "exit": 5,
+    "exitMs": 373.8050829999993,
+    "closeMs": 373.85120800000004,
+    "status": "",
+    "released": true
+  },
+  {
+    "mode": "known-detached-short-ancestry",
+    "fault": 8,
+    "directory": "/private/tmp/rk-scope-early-exit-Aj21ot",
+    "supervisorPid": 37277,
+    "exit": 8,
+    "exitMs": 367.5997500000003,
+    "closeMs": 367.68120799999997,
+    "status": "",
+    "released": true
+  },
+  {
+    "mode": "known-joined-unseen-group",
+    "fault": 3,
+    "directory": "/private/tmp/rk-scope-early-exit-fUEtGg",
+    "supervisorPid": 37293,
+    "exit": 3,
+    "exitMs": 362.20358399999986,
+    "closeMs": 362.22100000000046,
+    "status": "",
+    "released": true
+  },
+  {
+    "mode": "known-joined-unseen-group",
+    "fault": 4,
+    "directory": "/private/tmp/rk-scope-early-exit-4ORkA1",
+    "supervisorPid": 37299,
+    "exit": 4,
+    "exitMs": 371.46149999999943,
+    "closeMs": 371.4923340000005,
+    "status": "",
+    "released": true
+  },
+  {
+    "mode": "known-joined-unseen-group",
+    "fault": 5,
+    "directory": "/private/tmp/rk-scope-early-exit-r252E2",
+    "supervisorPid": 37326,
+    "exit": 5,
+    "exitMs": 374.0378329999985,
+    "closeMs": 374.11112499999945,
+    "status": "",
+    "released": true
+  },
+  {
+    "mode": "known-joined-unseen-group",
+    "fault": 8,
+    "directory": "/private/tmp/rk-scope-early-exit-p8kuIQ",
+    "supervisorPid": 37355,
+    "exit": 8,
+    "exitMs": 358.0346249999984,
+    "closeMs": 358.116082999999,
+    "status": "",
+    "released": true
+  }
+]

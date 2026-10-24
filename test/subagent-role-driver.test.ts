@@ -2,14 +2,13 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { test } from "node:test";
-import { product as personalProduct } from "./helpers/legacy-product.ts";
 import { product as codeProduct } from "../apps/ruukoto-code/src/product.ts";
 import { parseSessionFile } from "@ruukoto/core/history.ts";
 import { Runtime } from "@ruukoto/runtime/runtime.ts";
 import { delegateFromActiveTask, messageFromActiveTask } from "./helpers/active-subagent-source.ts";
 import { inputText, lastUserText, startTestRuntime, waitFor } from "./helpers/testkit.ts";
 
-for (const product of [personalProduct, codeProduct]) test(`${product.runtime.type} 的实际模型目录、角色正文、消息及冷恢复可重建`, async () => {
+for (const product of [codeProduct]) test(`${product.runtime.type} 的实际模型目录、角色正文、消息及冷恢复可重建`, async () => {
   const calls: { system: string | null; input: string; signature?: string | null }[] = [];
   let active: Runtime | null = null;
   const kit = await startTestRuntime("role-driver", req => {

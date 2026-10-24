@@ -1,0 +1,85 @@
+{
+  "base": "28c033f7",
+  "code_diff_sha256": "d89f9ba032f840865428371ad4b15a4ad6be1c043cd148e3d36e547b8b79b910",
+  "node": "v24.15.0",
+  "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "command": "npm run check",
+  "setup": "reused existing installation",
+  "file_concurrency": 2,
+  "app_files": 290,
+  "stages": [
+    {
+      "marker": "> ruukoto-workspace@0.1.0 check",
+      "seconds": 0.102
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 build",
+      "seconds": 0.251
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 build:native",
+      "seconds": 0.328
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 build:worker",
+      "seconds": 1.038
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 build:script",
+      "seconds": 1.155
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 check:static",
+      "seconds": 1.858
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 lint",
+      "seconds": 1.939
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 typecheck",
+      "seconds": 7.996
+    },
+    {
+      "marker": "> ruukoto-foundation-verification@0.1.0 typecheck",
+      "seconds": 51.468
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 verify-notes",
+      "seconds": 54.425
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 check:docs",
+      "seconds": 55.207
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 verify-md-links",
+      "seconds": 55.324
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 verify-doc-refs",
+      "seconds": 56.475
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 verify-doc-budgets",
+      "seconds": 56.822
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 verify-md-wrap",
+      "seconds": 57.017
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 test",
+      "seconds": 57.828
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 test:app",
+      "seconds": 58.025
+    }
+  ],
+  "pid": 78768,
+  "exit_code": 1,
+  "seconds": 211.708207083022,
+  "log_sha256": "09830158c03e36619b67642e01f0f3190dd1788bbbaa910a1ffc72093eb90380",
+  "purpose": "diagnostic; not a complete passing performance baseline"
+}

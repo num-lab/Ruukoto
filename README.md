@@ -70,7 +70,7 @@ QQ/Telegram 共用主会话；后台分析完成后沿首次入口回报。退�
 
 ### 开发本项目
 
-后台工作流与可打断等待见[操作说明](docs/usage.md#511-工作流问题与回报)，六输入组合及真实模型验证见[测试导航](docs/development.md#日常反馈)。
+工作流与可打断等待见[操作说明](docs/usage.md#511-工作流问题与回报)，四输入编码组合与真实模型见[测试导航](docs/development.md#日常反馈)。
 
 修改时先运行 `npm run check:static` 与相关测试，按改动面选最小检查集（[提交前检查](.agents/skills/pre-push-checks/SKILL.md)）；全量 `npm run check` 由 CI 与显式复跑执行。应用测试最多两文件并行，macOS 先串行执行共享 UID 夹具。
 

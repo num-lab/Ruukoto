@@ -5,6 +5,7 @@
  * 服务端记录每次请求收到的完整 messages（即"模型本轮实际输入"），并按
  * responder 脚本返回文本或工具调用。SSE 分块格式对齐 pi-ai openai-completions
  * 的解析器（需要 finish_reason 分块与 usage 分块，最后 [DONE]）。
+ * Note: 见 .agents/notes/implemented/testing/2026-10-24-test-suite-reduction.md
  */
 
 import * as http from "node:http";
@@ -132,7 +133,7 @@ export class MockModelServer {
           res.writeHead(200, {
             "Content-Type": "text/event-stream",
             "Cache-Control": "no-cache",
-            Connection: "keep-alive",
+            Connection: "close",
           });
           if (scripted.kind === "text" && (scripted.chunkDelayMs ?? 0) > 0) {
             for (const frame of out) {

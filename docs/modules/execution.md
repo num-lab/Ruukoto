@@ -55,7 +55,7 @@ Coding 正式入口仅接受 `RUUKOTO_EXECUTION_BACKEND=native` 或不设覆盖�
 
 `read` 按文件签名识别 JPEG、PNG、WebP，类型探测与上游读取复用同一次打开得到的原始字节；只读范围核实和符号链接限制同样适用于图片。原始字节只捕获一次，模型图像沿用 pi 的自动缩放，最大尺寸为 2000 × 2000。处理后的整个 JSON 结果帧超过 4 MiB 时，当前操作返回明确工具错误，已捕获原文仍可定稿与查询，后续工具可继续；不是对原始图片大小施加 4 MiB 上限。覆盖见 `test/07-read-images.test.ts`。
 
-错误码：`execution_unavailable`（缺少受限后端、策略或宿主运行依赖）、`execution_claim_failed`（持久身份已认领或写入失败，未启动新执行）、`execution_identity_invalid`（证据或归属无法核实，保留占用）、`invalid_state`（启动器与模式不匹配）、`worker_timeout`（工作进程未就绪）、`tool_timeout`（调用超时）、`worktree_failed`（副本创建失败）、`worktree_gone`（副本目录被替换、删除或 `.git` 指向变化）。原生不可用另带 `binary_missing`、`policy_missing`、`sandbox_rejected` 或 `worker_failed` 原因；按进入受限 Node 的启动标记区分策略拒绝与 worker 失败，不解析 stderr 文案。
+错误码：`execution_unavailable`（缺少受限后端、策略或宿主运行依赖）、`execution_claim_failed`（持久身份已认领或写入失败，未启动新执行）、`execution_identity_invalid`（证据或归属无法核实，保留占用）、`invalid_state`（启动器与模式不匹配）、`worker_timeout`（工作进程未就绪）、`tool_timeout`（调用超时）、`worktree_failed`（副本创建失败）、`worktree_gone`（副本目录被替换、删除或 `.git` 指向变化）。原生不可用另带 `binary_missing`、`policy_missing`、`sandbox_rejected` 或 `worker_failed` 原因；按进入受限 Node 的启动标记区分策略拒绝与 worker 失败，不解析 stderr 文案。macOS 的可信 bootstrap 完整写入私有临时文件后原子发布标记，发布成功才加载 worker；标记缺失或损坏仍沿原规则拒绝启动。
 
 ## 数据与状态
 
@@ -317,3 +317,5 @@ sequenceDiagram
 
 - [普通与工作流的可信来源能力](../../.agents/notes/implemented/architecture/2026-10-15-subagent-source-capabilities.md)。
 - [拥有者工作区浏览权限](../../.agents/notes/implemented/feature/2026-10-24-owner-workspace-browsing.md)：拥有者浏览不采用 Agent 保护目录；受限执行与受信文件操作保留物理对象保护。
+
+- [macOS 启动标记完整发布](../../.agents/notes/implemented/bug-fix/2026-10-24-native-marker-atomic-publish.md)：可信加载次序、严格读取和失败停止身份。

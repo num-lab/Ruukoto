@@ -6,14 +6,13 @@ import { test } from "node:test";
 import { getWorkflowQuestion, getWorkflowStep, listWorkflowExecutions, listWorkflowRuns, requireWorkflowRun } from "@ruukoto/core/workflow.ts";
 import { Runtime } from "@ruukoto/runtime/runtime.ts";
 import { AppDataStore } from "@ruukoto/agent/app-data/store.ts";
-import { product as personalProduct } from "./helpers/legacy-product.ts";
 import { product as codeProduct } from "../apps/ruukoto-code/src/product.ts";
 import { initGitRepo } from "./helpers/git-fixture.ts";
 import { waitFor } from "./helpers/testkit.ts";
 
 // Note: 见 .agents/notes/implemented/testing/2026-10-13-workflow-joint-acceptance.md
 
-for (const product of [personalProduct.runtime, codeProduct.runtime]) test(`${product.type} 真实模型：通过工具启动命名工作流、人工等待期间聊天、实际工具与唯一最终汇总`, { skip: process.env.RUN_MODEL_CHECK !== "1" }, async () => {
+for (const product of [codeProduct.runtime]) test(`${product.type} 真实模型：通过工具启动命名工作流、人工等待期间聊天、实际工具与唯一最终汇总`, { skip: process.env.RUN_MODEL_CHECK !== "1" }, async () => {
   const file = process.env.RUN_WORKFLOW_MODELS_FILE;
   assert.ok(file, "真实工作流验收必须显式指定 RUN_WORKFLOW_MODELS_FILE");
   const raw = JSON.parse(fs.readFileSync(file, "utf8")) as { providers: Record<string, { models: Array<{ id: string }> }> };

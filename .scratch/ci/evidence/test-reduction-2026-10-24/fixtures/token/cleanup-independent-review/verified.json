@@ -1,0 +1,40 @@
+[
+  {
+    "variant": "baseline",
+    "expectedExitCode": 1,
+    "bodyErrorVisible": true,
+    "cleanupErrorsVisible": [],
+    "phaseOrder": [
+      "resources-ready",
+      "first-child-cleanup-failed",
+      "child-closed",
+      "model-close-start",
+      "model-closed",
+      "directory-remove-start"
+    ],
+    "childExited": true,
+    "modelPortClosed": true,
+    "injectedRmFailureDirectoryRemovedAfterEvidence": true
+  },
+  {
+    "variant": "candidate",
+    "expectedExitCode": 1,
+    "bodyErrorVisible": true,
+    "cleanupErrorsVisible": [
+      "controlled_child_cleanup_failure",
+      "controlled_model_cleanup_failure",
+      "controlled_directory_cleanup_failure"
+    ],
+    "phaseOrder": [
+      "resources-ready",
+      "first-child-cleanup-failed",
+      "child-closed",
+      "model-close-start",
+      "model-closed",
+      "directory-remove-start"
+    ],
+    "childExited": true,
+    "modelPortClosed": true,
+    "injectedRmFailureDirectoryRemovedAfterEvidence": true
+  }
+]

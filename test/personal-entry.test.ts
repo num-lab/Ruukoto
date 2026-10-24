@@ -12,7 +12,7 @@ import { build } from "esbuild";
 import { ControlClient } from "@ruukoto/control/client.ts";
 import { personalDevDirectory, personalDevelopmentEnv, savePersonalConfig } from "../apps/ruukoto/src/personal-config.ts";
 import { lockPersonalProfile } from "../apps/ruukoto/src/personal-profile.ts";
-import { personalControl, startPersonalServer, type PersonalStatus } from "../apps/ruukoto/src/personal-control.ts";
+import { personalControl, readPersonalToken, startPersonalServer, type PersonalStatus } from "../apps/ruukoto/src/personal-control.ts";
 import { savePersonalTelegram } from "../apps/ruukoto/src/personal-telegram-config.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
 import { PersonalMockModelServer as MockModelServer } from "./helpers/mock-provider.ts";
@@ -22,9 +22,26 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 const bin = path.join(root, "apps/ruukoto/bin/ruukoto.mjs");
 const execute = promisify(execFile);
 const code = (value: string) => (error: unknown) => error instanceof PersonalError && error.code === value;
+type EntryCleanup = { children: (() => Promise<void>)[]; models: (() => Promise<void>)[]; directories: (() => void | Promise<void>)[] };
+const cleanupByTest = new WeakMap<TestContext, EntryCleanup>();
+function cleanupFor(t: TestContext): EntryCleanup {
+  const existing = cleanupByTest.get(t);
+  if (existing) return existing;
+  const resources: EntryCleanup = { children: [], models: [], directories: [] };
+  cleanupByTest.set(t, resources);
+  t.after(async () => {
+    const failures: unknown[] = [];
+    for (const phase of [resources.children, resources.models, resources.directories]) for (const release of phase.toReversed()) {
+      try { await release(); } catch (error) { failures.push(error); }
+    }
+    if (failures.length) process.stderr.write(`[ruukoto:test] 入口夹具清理失败：${failures.map(String).join("；")}\n`);
+    if (failures.length) throw new AggregateError(failures, "入口夹具清理失败");
+  });
+  return resources;
+}
 const temp = (t: TestContext) => {
   const dir = fs.mkdtempSync("/tmp/r38-");
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  cleanupFor(t).directories.push(() => fs.rmSync(dir, { recursive: true, force: true }));
   return dir;
 };
 async function until(check: () => boolean | Promise<boolean>) {
@@ -37,7 +54,7 @@ function child(t: TestContext, argv: string[], env: NodeJS.ProcessEnv) {
   processChild.stdout!.on("data", value => { output += String(value); });
   processChild.stderr!.on("data", value => { output += String(value); });
   const closed = new Promise<number | null>((resolve, reject) => { processChild.once("error", reject); processChild.once("close", resolve); });
-  t.after(async () => {
+  cleanupFor(t).children.push(async () => {
     if (processChild.exitCode === null && processChild.signalCode === null) {
       processChild.kill("SIGTERM");
       const timer = setTimeout(() => processChild.kill("SIGKILL"), 5000);
@@ -58,7 +75,7 @@ async function ready(directory: string, processChild: ChildProcess, output: () =
 async function fixture(t: TestContext, directory = temp(t)) {
   const model = new MockModelServer(() => ({ kind: "text", text: "ENTRY_OK" }));
   const baseUrl = await model.start();
-  t.after(() => model.close());
+  cleanupFor(t).models.push(() => model.close());
   await savePersonalConfig(directory, { api: "openai-completions", baseUrl, modelId: "mock-model", apiKeyEnv: "R38_MODEL_KEY", contextWindow: 128000, maxTokens: 1024 });
   return { directory, model, baseUrl, env: { RUUKOTO_PERSONAL_DIR: directory, R38_MODEL_KEY: "test-only" } };
 }
@@ -79,6 +96,10 @@ test("个人正式与开发实际 import 图不加载旧运行装配，双 Pi �
   assert.equal(personal.version, "1.3.0");
   assert.equal(coding.version, "0.85.1");
   assert.notEqual(personal.module, coding.module);
+  assert.equal((await resolve("apps/ruukoto-code")).version, "0.85.1");
+  for (const [name, version] of [["pi-durable", "1.3.0"], ["pi-coding-agent", "0.85.1"]]) {
+    assert.equal(JSON.parse(fs.readFileSync(path.join(root, "node_modules/@earendil-works", name, "package.json"), "utf8")).version, version);
+  }
   const manifest = JSON.parse(fs.readFileSync(path.join(root, "apps/ruukoto/package.json"), "utf8"));
   assert.equal(manifest.dependencies["@earendil-works/pi-durable"], "1.3.0");
   for (const name of ["@earendil-works/pi-coding-agent", "@ruukoto/tui", "@ruukoto/runtime"]) assert.equal(manifest.dependencies[name], undefined);
@@ -126,7 +147,7 @@ test("正式 bin、根 start、兼容入口同档案重启，双进程拒绝且�
 
 test("个人与 Coding 实际 bin 同时运行，停止个人不影响 Coding 的协议和 schema", async t => {
   const f = await fixture(t), { dirs } = await makeTestDirs("entry-code", 0);
-  t.after(() => cleanupDirs(dirs));
+  cleanupFor(t).directories.push(() => cleanupDirs(dirs));
   await writeModelsJson(dirs, f.baseUrl);
   const coding = child(t, [path.join(root, "apps/ruukoto-code/bin/ruukoto-code.mjs"), "server", "--data-dir", dirs.dataDir, "--agent-dir", dirs.agentDir, "--tools", "mock"], { RUUKOTO_PRODUCT: "ruukoto", RUUKOTO_CODE_CONTROL_DIR: path.join(dirs.root, "control") });
   let client: ControlClient | undefined;
@@ -157,8 +178,25 @@ test("个人与 Coding 实际 bin 同时运行，停止个人不影响 Coding �
 
 test("serve 启动中的关闭意图及真实 SIGTERM/SIGHUP 均等待停止后释放原锁", async t => {
   const f = await fixture(t);
-  const source = `import {runPersonalCli} from ${JSON.stringify(path.join(root, "apps/ruukoto/src/personal-cli.ts"))}; queueMicrotask(()=>process.emit("SIGTERM")); process.exitCode=await runPersonalCli(["serve"]);`;
+  const barrier = temp(t), opened = path.join(barrier, "opened"), release = path.join(barrier, "release");
+  const source = `import fs from "node:fs";import path from "node:path";import {syncBuiltinESMExports} from "node:module";
+    import {runPersonalCli} from ${JSON.stringify(path.join(root, "apps/ruukoto/src/personal-cli.ts"))};
+    const write=fs.writeFileSync;
+    fs.writeFileSync=(file,value,options)=>{
+      if(typeof file!=="string"||!["control.token","control.token.tmp"].includes(path.basename(file)))return write(file,value,options);
+      const fd=fs.openSync(file,"w",0o600);
+      try{
+        write(${JSON.stringify(opened)},"opened");const deadline=Date.now()+20000;
+        while(!fs.existsSync(${JSON.stringify(release)})){if(Date.now()>deadline)throw new Error("令牌发布夹具未释放");Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,10);}
+        return write(fd,value,options);
+      }finally{fs.closeSync(fd);}
+    };
+    syncBuiltinESMExports();queueMicrotask(()=>process.emit("SIGTERM"));process.exitCode=await runPersonalCli(["serve"]);`;
   const starting = child(t, ["--import", "tsx", "--input-type=module", "--eval", source], f.env);
+  try {
+    await until(() => { assert.equal(starting.process.exitCode, null, starting.output()); return fs.existsSync(opened); });
+    assert.throws(() => readPersonalToken(f.directory), code("control_unavailable"));
+  } finally { fs.writeFileSync(release, "release"); }
   assert.equal(await starting.closed, 0, starting.output());
   lockPersonalProfile(f.directory).release();
   for (const signal of ["SIGTERM", "SIGHUP"] as const) {

@@ -1,0 +1,23 @@
+{
+  "command": [
+    "node",
+    "--import",
+    "tsx",
+    "--test",
+    "--test-concurrency=2",
+    "test/15-tui-pty.test.ts",
+    "test/83-subagent-worktrees.test.ts",
+    "test/workflow-role-integration.test.ts",
+    "test/workspace-snapshot-runtime-boundaries.test.ts"
+  ],
+  "exit_code": 0,
+  "seconds": 116.681,
+  "source_sha256": {
+    "test/15-tui-pty.test.ts": "1650c6bf1cb384d95b7a419ccdb804136b3649ccc7234d219c8642a1690d9fe1",
+    "test/83-subagent-worktrees.test.ts": "68f54743a7a643cc39682c095c2fc1d8c228896f5f785a8e2543020e39d9e862",
+    "test/workflow-role-integration.test.ts": "2d69b98a230ed504a24c96a54c0d1527cd340aa7ae795d06b719850654e2efee",
+    "test/workspace-snapshot-runtime-boundaries.test.ts": "40383a742b97182d7b228f14cc71ef427e44484ab731ebd81ca86eddea61e6a5",
+    "test/helpers/mock-provider.ts": "8c3c5b85a196096ee436ed4f733147e9609f37ac46ecc6c50444e1f4013abed1"
+  },
+  "log_sha256": "f48a9d4188fbb6480519d4f6347fc36bf5332bd0a58edbd7f34719e8d18fa58f"
+}

@@ -1,0 +1,35 @@
+{
+  "root": "/tmp/ruukoto-neg-y53r145s",
+  "source": "packages/tui/src/tui/app.ts",
+  "test": "test/32-dev.test.ts",
+  "node": "v24.15.0",
+  "os": "Darwin arm64",
+  "command": [
+    "/tmp/ruukoto-neg-y53r145s/node_modules/.bin/tsx",
+    "--test",
+    "--test-name-pattern=重载状态：恢复继续意图，退出后的迟到应答不重启动画且后台继续",
+    "test/32-dev.test.ts"
+  ],
+  "sourceSha256": "f5440a675b05dc0f3de9bdadbd2607e77e4fc8d91313c739c87da3a74c617af2",
+  "testSha256": "a3978e5741eddda4e2a05221f9619ac0bab04ccb6e7f264732b1555c668e9548",
+  "isolation": "Only the test TuiApp import was rewritten to ../packages/tui/src/tui/app.ts; no assertion or runtime dependency changed. Original bytes restored afterward.",
+  "mutation": "Remove only the exiting guard in tickTiming; keep all other guards and cleanup.",
+  "mainStillMatchesSource": true,
+  "mainStillMatchesTest": true,
+  "results": [
+    {
+      "phase": "mutated",
+      "exitCode": 1,
+      "timeout": false,
+      "wallSeconds": 6.928,
+      "log": "/tmp/ruukoto-tui-exit-negative-mutated.log"
+    },
+    {
+      "phase": "restored",
+      "exitCode": 0,
+      "timeout": false,
+      "wallSeconds": 6.215,
+      "log": "/tmp/ruukoto-tui-exit-negative-restored.log"
+    }
+  ]
+}

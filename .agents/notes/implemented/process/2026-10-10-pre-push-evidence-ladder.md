@@ -46,7 +46,7 @@ Status: implemented
 
 ## 后果
 
-[测试精简提案](../../proposed/testing/2026-10-24-test-suite-reduction.md)补充保留测试集合的必要性判断；尚未实施，本篇定向验证与每处行为回归的责任保持。
+[测试精简](../testing/2026-10-24-test-suite-reduction.md)补充保留测试集合的必要性判断；本篇定向验证与每处行为回归的责任保持。
 
 作者自检与独立验收的责任、证据在相关内容改变后的失效规则见[开发流程](2026-10-12-agentic-development-workflow.md)；本篇继续持有按改动面选择检查的方法。
 

@@ -1,6 +1,7 @@
 /**
  * Seatbelt 约束工具进程；宿主监督器核实后代身份与停止结果。
  * Note: 见 .agents/notes/implemented/architecture/2026-10-10-native-execution-sandbox.md
+ * Note: 见 .agents/notes/implemented/bug-fix/2026-10-24-native-marker-atomic-publish.md
  */
 import { execFile, spawn } from "node:child_process";
 import * as fs from "node:fs";
@@ -51,7 +52,7 @@ export async function launchMacosNative(input: PreparedNativeLaunch, spec: Launc
   catch { throw new ExecutionError("execution_unavailable", "macOS 缺少 sandbox-exec，原生执行不可用", undefined, "binary_missing"); }
   // 标记来自尚未加载工具代码的可信 Node；每单元独立目录不向其他任务开放。
   const markerPath = path.join(input.tempDir, "native-started");
-  const bootstrap = "require('node:fs').writeFileSync(process.argv[2],'started');import(require('node:url').pathToFileURL(process.argv[1]).href);";
+  const bootstrap = "const fs=require('node:fs');fs.writeFileSync(process.argv[2]+'.tmp','started');fs.renameSync(process.argv[2]+'.tmp',process.argv[2]);import(require('node:url').pathToFileURL(process.argv[1]).href);";
   const child = spawn(helperPath, ["--", "/usr/bin/sandbox-exec", "-p", macosNativeProfile(input), input.nodePath, "-e", bootstrap, input.workerPath, markerPath], {
     cwd: input.workspace,
     env: input.env,

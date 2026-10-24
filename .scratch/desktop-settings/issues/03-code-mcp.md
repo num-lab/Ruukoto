@@ -1,34 +1,46 @@
-# 03 Code 按工作区管理 MCP 与所需凭据
+# 03 Code 按实例管理 MCP 并删除项目兼容
 
-Status: ready-for-human
+Status: ready-for-agent
 
 ## 目标与边界
 
-完成[范围矩阵](../spec.md#功能与范围矩阵)的 Code MCP 能力及 R1–R4、R6。前置：[01](01-settings-shell.md)。仅复用当前远程 MCP 传输与授权，不加入 stdio、OAuth 或业务工具试调用。
+2026-10-24 拥有者要求「去掉按工作区配置 mcp，同时删除向后兼容」，随后确认「先更新方案文档」。本单重开，取代原按工作区配置的后续实施与验收要求；现有产品仍是旧实现，本轮只修改方案。共同要求见[规格](../spec.md#code-mcp-配置与旧格式退出)，理由、备选与旧档案切换见[实例 MCP 提案](../../../.agents/notes/proposed/simplification/2026-10-24-code-instance-mcp.md)。
+
+目标是同一 Code 实例只配置一次，全部工作区共用启用服务及允许列表，无工作区和会话也可管理。不保留工作区启用、覆盖、旧项目来源或运行兼容。保留角色/模式/工作流与 Cua 资格、批准消费及失败恢复；Personal 档案与格式不改，通用凭据的其他用途仍可按项目受限。前置：[01](01-settings-shell.md)已交付，本单同时删除其 MCP 专属范围状态。
 
 ## 方案
 
-1. 在 `control/src/ops.ts` 补已有 `mcp_list/configure/set_enabled/remove/check`、`list_credentials/remove_credential` 的准确类型；新增最窄 MCP 凭据保存入口或给既有入口增加受校验来源参数，首次落盘即限定 `scope={projectId:选定原来源,operations:['mcp']}`，并核对实际 host/authorization；不能先以通用绑定创建再等服务配置收窄。Desktop 只开放本页需要的 Code 操作，不开放不带范围的通用凭据写入。
-2. 补后台有界配置来源候选查询，列出工作区自身与组织映射旧会话的原项目名称及服务归属。`renderer` 显式选工作区和适用配置来源，默认规则见共享规格；同一工作区不能只选一个猜测的 `project_id`。展示服务名称、端点、启用、凭据状态、工具允许列表和本地副作用声明。服务 ID 和 expectedVersion 来自读取结果。
-3. 新增、编辑、启停和删除都先展示范围；凭据未提供表示保留，null 才清除。匿名须显式选择；清理凭据前展示受影响引用，不删除其他服务所需凭据。
-4. 允许列表用逐项选择与类别选择，不要求用户输入 JSON；`mcp_check` 可校验已配置服务并发现工具。首次配置没有既有服务可检查时，先保存禁用草稿服务再检查，之后选择工具并显式启用；发现不执行业务工具，不自动信任远端只读注解。
-5. 对版本冲突、凭据 host/purpose 不符、认证/发现失败和丢答给可行动结果；启停读回版本，不自动重发。运行任务旧配置被撤销后的行为仍由后台检查，不宣称禁用已取消远端调用。
-6. 同步 `docs/modules/desktop.md`、`control.md`、`agent-tools.md` 和 `docs/usage.md` 的实际入口。
+1. 存储与退出：修改 `packages/core/src/db.ts` 和 `packages/agent/src/mcp/store.ts`，删除 MCP 的 `project_id/projectId`、外键、项目查询与计数，服务名在实例内唯一；更新 `core/types.ts` 新 MCP 事件的配置归属字段。递增 schema，只支持新版本，删除 49→50 迁移。旧数据库明确拒绝、保持原数据，不自动清空或转换；新数据目录从空配置开始，不能原地继续旧会话。原档案由旧版保留核实，新旧实例不共用凭据目录。
+2. 装配与凭据：修改 `agent/mcp/client.ts`、`tools.ts`、`driver.ts`、`tool-router.ts` 及 `runtime.ts`，移除 MCP 的项目筛选，覆盖主任务、SubAgent 预检和 `workflowConfiguration(projectId)` 中的 MCP 能力摘要。后者的 Web Search 项目范围保留；ToolRouter 发送前删除项目归属比较，继续核实 serviceId、版本、启用状态与允许列表。专用凭据仅限本实例、mcp 用途/操作、端点 host 与 authorization；创建、配置、发现和发送复用同一校验，拒绝项目/仓库受限旧绑定，不剥 scope，也不复用无操作限制的通用凭据。沿用引用保护与脱敏，勿全局删除 `execution/credentials.ts` 的项目能力。
+3. 控制面与导入：删除 `core/store.ts:listWorkspaceConfigSources`、Runtime `mcpSources`、`control/ops.ts` 与 `server.ts` 的来源操作、项目参数和引用视图字段；同步协议版本、Desktop IPC 类型/白名单及所有消费者，更新 `packages/tui/src/tui/demo-session.ts` 的 MCP 事件夹具。旧 `mcp_sources` 拒绝，旧 `project_id/workspace_id/selected_project_id` 参数明确拒绝，不能静默变成实例写入。`apps/ruukoto-code/src/legacy-import.ts` 将 MCP 服务排除出导入，删除按项目提取、映射、缺凭据停用及对应账本/回退分支；历史工具操作不重写，不复制旧 MCP 秘密或为新 MCP 增加导入器。
+4. 客户端：修改 `renderer/settings-state.ts`、`settings-dialog.tsx`、`code-mcp-state.ts`、`code-mcp-settings.tsx` 及接线，删除 MCP 工作区与配置来源选择、默认推断、候选分页和无工作区阻断。表单只保留产品/实例与服务身份、版本的关联，断线与丢答继续核实原实例；切聊天工作区不重建表单。CLI 删除 MCP `--project` 并显式拒绝旧旗标；配置 TUI 删除项目入口、选择、分组和 expectedProjectId 校验，统一从 MCP 管理入口进入。
+5. Cua 与行为保全：普通 HTTP 和 Cua 共用实例服务配置；保留 `mcp/code.ts` 的主会话绑定、版本及未决变更拒绝、暂停和人工恢复。切换前在旧版停止原实例受管执行并核实未知结果；不复用 serviceId、批准或旧观察。CRUD、禁用草稿发现、工具允许列表、逐次审批、钉版及撤销继续使用现有路径；不新增传输、全局连接池或业务工具试调用。
+6. 测试与文档：用实例共享/实例隔离用例替换旧工作区隔离、同名分项目及来源分页用例；保留版本、秘密、网络和恢复回归。实施时更新 `CONTEXT.md`、`docs/modules/{core,agent-tools,runtime,workflows,control,tui,desktop,products}.md` 中受影响内容及 `docs/usage.md`；CLI 命令同步 README、开发说明与 pre-push-checks。新笔记按落地转 implemented 并留入口锚点，旧决定只标注被取代范围。本轮不把这些拟议行为写入现行模块文档。
+
+第 2/4 步同时覆盖终端既有通用入口：`credentials add --purpose mcp` 与配置 TUI 都调用 `add_credential`，在 `Runtime.addCredentialBinding` 的 MCP 分支首次保存即校验 authorization、写入 `operations=['mcp']`，与专用入口复用约束；host 在绑定服务时再与实际端点核对。同名现有绑定若含项目/仓库限制、无操作限制或用途不符则拒绝，不能自动转换；有效绑定的轮换保留限制。`Runtime.removeCredentialBinding` 与专用移除共用 MCP 服务引用检查，防止 `remove_credential` 绕过保护。不要只改 Desktop 专用接口，其他用途的通用凭据行为仍按原规则。
 
 ## 进展与交接
 
-- 2026-10-21 拥有者明确表示「方案已通过」，本单范围与产品取舍已确认；ready-for-agent 表示方案可交实施，实际开工仍须满足本单前置。
-
-- 2026-10-21 实施者接手，当前基点 `86709fa6`；01、02 已交付，前置成立。已完成 Code MCP 管理页、受来源限制的凭据入口及来源查询；后台独立副本与主工作区汇总后通过相关回归。
-- Code 页面、来源分页、共享 op 类型、首次受限凭据创建和引用保护清理已实施。复用既有禁用服务发现；未增加传输或业务试调用。编辑同时校验原服务 ID 与读取版本，拒绝同名重建覆盖或把旧编辑降为新增。
-- 独立实现审查与受影响返工复核通过，无未解决工程阻断；过程、检查与模拟页面证据见[实现验收记录](../evidence/03-verification.md)。下一责任人：拥有者在隔离档案完成双外壳体验验收；真实 HTTPS MCP 需提供限定端点与凭据范围。
+- 当前角色：方案者；阶段：文档修订完成，独立方案审查通过，无未解决阻断。核对基点为 `develop` / `bf3cb0d6bc690ed89e8279091fdedddf604e9ebc`。工作区原有桌面 UI、测试与笔记改动不属于本单，本轮未修改产品代码或用户配置。
+- 原实现与审查记录见[2026-10-21 工程证据](../evidence/03-verification.md)，它们只证明按项目方案，不覆盖实例化或兼容删除；原截图、快照和历史 Comments 保留。
+- 本轮范围为共享规格、03 工单、01/09 后续交接、总提案、新决定及旧笔记互链；精确文件快照、独立审查与检查见[2026-10-24 修订记录](../evidence/2026-10-24-mcp-plan-review.md)。
+- 下一角色：后续实施者按本单接手前重核检出与前置。独立审查发现的终端凭据首写及通用删除绕过问题已在方案补齐并复核；ready-for-agent 表示规划可交接，本轮授权仅限方案，不自动实施、提交或切换档案。
 
 ## 验收与证据
 
-- 新增 `test/desktop-settings-mcp.test.ts`：两个工作区互不串写、两个原项目映射同一工作区且同名服务不串写、无会话的来源默认与候选分页、CRUD/启停/版本冲突、匿名与凭据拒绝、凭据创建后配置冲突/取消仍拒绝通用 HTTP 和跨来源使用、发现无业务调用、丢答核实和脱敏。
-- 回归：`npx tsx --test test/24-mcp.test.ts test/25-mcp-write.test.ts test/38-desktop-main.test.ts test/desktop-settings-mcp.test.ts`；`npm run check:static`。
-- 产品验收：双壳对隔离回环服务完成配置→发现→允许→启用→停用→移除；真实 HTTPS MCP 单独记录凭据和测试范围，缺前提保留待验收。
-- 工程验收通过，独立实现审查无未解决阻断；产品验收仍待真实双外壳操作、退出重开及指定 HTTPS MCP，模拟页面、构建和签名不替代这些证据。
+| 验收项 | 最窄证明 |
+| --- | --- |
+| 实例配置 | `24-mcp` 与 desktop MCP 用例：无工作区可配置；两个工作区使用同一 serviceId/版本，实例内同名冲突；其他实例和 Personal 不共享 |
+| 凭据与发送 | `24/25-mcp`、desktop MCP backend、`29-cli-entry`、`33-config-tui`：终端从空档案创建 MCP 凭据→绑定→检查可用，首写后 HTTP 不可借用；跨工作区 MCP 可用，错误 host、用途、header、操作或 project/repo scope 拒绝且零发送；同名旧绑定不转换，通用/专用删除均拒绝仍有引用的凭据 |
+| 装配一致 | `113-workflow-source-capabilities`、`subagent-source-capabilities`：主任务与能力摘要一致，角色、Plan、评审限制保持；服务变化使旧版本调用失效 |
+| 旧格式退出 | schema 49/50 与实施前版本、旧 wire/操作/参数、CLI `--project` 明确拒绝；原数据库逻辑内容、JSONL 与凭据保持，无迁移/业务网络；导入不复制 MCP |
+| 状态与恢复 | `25-mcp-write`、`cua-code`、`cua-configuration`：批准后停用、未知效果不重发、Cua 绑定与恢复不被换实例/改配置绕开；同名重建和丢答继续可核实 |
+| 客户端 | desktop settings/MCP、配置 TUI、CLI：没有工作区选择、来源分页或前置；换实例/断线/迟到结果不串写，切聊天工作区不丢草稿 |
+| 产品验收 | Electron/MyGo 无工作区创建并管理服务，两个工作区共用与停用、退出重开；指定 HTTPS MCP 与 Cua 分别真实验证，缺前提保留缺口 |
+
+实施时按实际改动选最窄检查集：`test/24-mcp.test.ts`、`test/25-mcp-write.test.ts`、`test/desktop-settings.test.ts`、`test/desktop-settings-mcp.test.ts`、`test/desktop-settings-mcp-backend.test.ts`、`test/29-cli-entry.test.ts`、`test/33-config-tui.test.ts`、`test/66-control-seam.test.ts`、`test/75-workspace-settings.test.ts`、`test/76-legacy-workspace-data.test.ts`、`test/85-legacy-instance-import.test.ts`、`test/113-workflow-source-capabilities.test.ts`、`test/subagent-source-capabilities.test.ts`、`test/cua-code.test.ts`、`test/cua-configuration.test.ts`；schema 再按 core 检查行加回归，运行 `npm run check:static`。删除已退出行为的用例，保留明确拒绝的窄测，不为已删兼容机制留模拟实现。
+
+本轮工程实现与产品验收均未执行；方案审查和文档检查单独记录，不能标为功能通过。
 
 ## Comments
 
@@ -39,3 +51,5 @@ Status: ready-for-human
 2026-10-21 实施交付：01、02 前置核实通过；新增 Code MCP 管理、配置来源分页与受限凭据入口，独立审查修复并发发现、同名创建冲突、凭据 repoId 约束、服务身份 ABA 与冲突放弃草稿。工程结果和产品缺口由实现验收记录持有，状态为 ready-for-human；未提交、未推送、未修改日常真实档案。
 
 2026-10-21 提交授权：拥有者明确要求「提交」，按现有工程检查与独立审查结果提交当前分支，不推送；真实双外壳与 HTTPS MCP 仍待验收，状态保持 ready-for-human。
+
+2026-10-24：拥有者要求取消工作区 MCP 配置并删除向后兼容，确认只更新方案文档。本单重开；旧工程与产品状态不适用于新目标，旧实现保留到后续实施。新方案按实例统一配置，采用旧档案保留、新格式重新配置的切换；本轮不执行切换。

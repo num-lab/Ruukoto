@@ -12,7 +12,7 @@ Status: proposed
 
 ## 方案
 
-沿用现有分类浮窗，在模型、Skills、MCP 中显式选择产品与适用工作区、配置来源。Code 优先复用既有 Runtime、模型与 MCP 配置接口，补共享类型、桌面白名单、来源候选、首次写入即限范围的 MCP 凭据入口及技能写管理；Personal 设置独立适配新 durable，不套用旧控制协议或旧 Task Store。具体交互、契约及工单由[共享规格](../../../../.scratch/desktop-settings/spec.md)持有。
+沿用现有分类浮窗，在模型、Skills、MCP 中显式选择产品。2026-10-24 拥有者要求取消 Code MCP 工作区配置与向后兼容，当前规划改为[实例统一配置](../simplification/2026-10-24-code-instance-mcp.md)：删除工作区和旧项目来源选择、项目筛选及兼容分支，无工作区也可管理，凭据仍首次写入即限 mcp 用途/操作与端点。Code 复用现有 Runtime、模型与 MCP 的版本、发现和审批路径，同步修改存储、协议、CLI/TUI 与桌面；Personal 设置继续独立适配 durable。具体交互、契约及工单由[共享规格](../../../../.scratch/desktop-settings/spec.md)持有。
 
 模型凭据元数据按配置位置展示，来源替换/移除只作用于拥有者选定的存储条目或目录字段；现有 configured 不升级为「认证已失效」的结论。目录和环境等来源可能在存储条目删除后继续生效，读取时执行完整认证解析又可能执行命令或刷新 OAuth，因此配置列表只读脱敏位置，不求值动态秘密；无法安全证明的来源或有效性保持未验证，由显式连接测试另验。Desktop 与 TUI 在线/离线采用相同语义，不新增全局凭据解析器。
 
@@ -26,6 +26,8 @@ Personal 在线只读及显式模型测试使用既有本机认证 HTTP 接口�
 
 2026-10-21 拥有者明确「方案已通过」，确认本提案与共享规格的范围和取舍；独立方案复审已无技术阻断，按工单依赖交实施。本篇保持 proposed，代码落地后再按实际结果转 implemented。
 
+2026-10-24 的 MCP 修订只更新方案，03 重开；旧批准和工程证据不覆盖本次实例化。新方案拒绝旧 Code 数据库、保留原档案并使用新数据目录重新配置，不合并或扩权旧服务；代价是旧会话不能在新版本原地继续。完整退出与 Cua 未决处理由实例 MCP 提案持有，本篇其他已确认范围继续有效。
+
 ## 既有笔记审计
 
 按 desktop、设置、模型、MCP、Skills、durable 与配置检索 proposed / implemented；rejected 目录不存在。以下均部分重叠，保留原决定与历史证据，无完全吸收或过时提案。
@@ -34,7 +36,7 @@ Personal 在线只读及显式模型测试使用既有本机认证 HTTP 接口�
 | --- | --- |
 | [桌面客户端](../../proposed/architecture/2026-10-15-desktop-client.md) | 延续宿主、SSH、安全与丢答规则；本提案新增设置及新 durable 管理，不以旧连接当新接口 |
 | [桌面定稿](../../implemented/architecture/2026-10-15-desktop-shadcn-demo.md) | 保留视觉与分类浮窗；本轮拟扩展其暂缓的配置能力，未实施前原运行事实不改 |
-| [MCP 客户端](../../implemented/architecture/2026-09-23-mcp-client.md)、[写工具审批](../../implemented/feature/2026-09-23-mcp-write-tools-approval.md) | 复用 Code 端配置、发现和授权，不增加传输类型或凭据授权 |
+| [MCP 客户端](../../implemented/architecture/2026-09-23-mcp-client.md)、[写工具审批](../../implemented/feature/2026-09-23-mcp-write-tools-approval.md) | 复用发现、版本与批准；项目配置和凭据范围由[实例 MCP 提案](../simplification/2026-10-24-code-instance-mcp.md)拟取代，不改变逐操作审批 |
 | [个人 MCP](../../implemented/architecture/2026-10-17-personal-durable-mcp.md) | 保留代次、凭据身份、原请求及未知占用；单服务停用的配置版本须单独验证 |
 | [个人技能与历史](../../implemented/architecture/2026-10-18-personal-memory-skills-history.md) | 沿用外部库与参考证据，新增托管来源不能破坏旧快照与调用记录 |
 | [个人档案基础](../../implemented/architecture/2026-10-17-personal-durable-foundation.md) | 06 需在严格顶层布局、目录权限与持锁读取中接入可选托管根，保留原实例锁、版本与旧档案拒绝规则 |

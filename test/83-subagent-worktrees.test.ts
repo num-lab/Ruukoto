@@ -334,7 +334,7 @@ test("非 Git 目录写入：父持锁时子任务 queued，父本轮结束经�
     const exec = (tool: any, params: any) => tool.execute("sdkx", params, undefined as any, undefined as any, {} as any);
     const shown = (await exec(resultTool, { work_id: a.work.id })).content[0].text as string;
     assert.ok(shown.includes("等待本会话释放目录"), "排队如实说明父持锁");
-    assert.ok(shown.includes(`agent_wait 等待任务 ${a.task.id}`), "提示按本次任务安全让出目录");
+    assert.ok(shown.includes(`wait 等待任务 ${a.task.id}`), "提示按本次任务安全让出目录");
     assert.ok(!shown.includes("请结束本轮"), "等待继续处理不以父轮终态为前提");
 
     // 父任务结束（本轮完成）→ 占用释放唤醒 → 子任务启动并完成

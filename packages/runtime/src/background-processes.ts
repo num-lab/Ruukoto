@@ -12,6 +12,9 @@ import { BackgroundProcessError, backgroundProcessToView, claimBackgroundLaunch,
   getBackgroundProcess, handoffBackgroundProcess, listActiveBackgroundProcesses, registerBackgroundProcess, requestBackgroundStop, updateBackgroundObserved,
   type BackgroundProcess, type BackgroundProcessView } from "@ruukoto/core/background-processes.ts";
 import type { AgentReferenceSnapshot } from "@ruukoto/core/agent-wait.ts";
+import type { PersistentEvent } from "@ruukoto/core/types.ts";
+import { ownerQuestionTaskEligible } from "@ruukoto/core/owner-questions.ts";
+import type { ProcessWaitResult } from "@ruukoto/agent/background-process-tools.ts";
 
 const OUTPUT_LIMIT = 16 * 1024 * 1024;
 const PAGE_BYTES = 32 * 1024;
@@ -22,6 +25,8 @@ interface BackgroundDeps {
   restore(taskId: string): Promise<boolean>;
   sourceProblem(process: BackgroundProcess): string | null;
   released(): void;
+  subscribe(listener: (events: PersistentEvent[]) => void): void;
+  unsubscribe(listener: (events: PersistentEvent[]) => void): void;
 }
 interface Capture { stdout: number; stderr: number; hashes: { stdout: Hash; stderr: Hash } }
 
@@ -32,6 +37,7 @@ export class RuntimeBackgroundProcesses {
   private readonly starts = new Map<string, Promise<BackgroundProcessView>>();
   private readonly stops = new Map<string, Promise<void>>();
   private readonly captures = new Map<string, Capture>();
+  private readonly waits = new Map<string, () => void>();
   private timer: ReturnType<typeof setInterval> | null = null;
   private stopping = false;
   constructor(private readonly deps: BackgroundDeps) {
@@ -226,6 +232,46 @@ export class RuntimeBackgroundProcesses {
 
   get(sessionId: string, processId: string): BackgroundProcessView {
     return backgroundProcessToView(this.require(processId, sessionId));
+  }
+
+  interruptWait(taskId: string): boolean {
+    const interrupt = this.waits.get(taskId);
+    interrupt?.();
+    return Boolean(interrupt);
+  }
+
+  async wait(ctx: HostToolContext, processId: string, timeoutMs: number, signal?: AbortSignal): Promise<ProcessWaitResult> {
+    const store = this.deps.store, task = store.getTask(ctx.taskId);
+    if (!task || task.sessionId !== ctx.sessionId || store.getSession(ctx.sessionId)?.projectId !== ctx.projectId || task.status !== "running" || task.cancelRequested || !ownerQuestionTaskEligible(store, task)) throw new BackgroundProcessError("background_source_invalid");
+    if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 300_000) throw new BackgroundProcessError("invalid_params", "等待时限须为 1–300000 毫秒。");
+    this.require(processId, ctx.sessionId);
+    if (this.waits.has(task.id)) throw new BackgroundProcessError("background_wait_active", "本轮已经在等待后台；等待当前工具返回后继续。");
+    let notify!: () => void, interrupted = false, timedOut = false;
+    let changed = new Promise<void>(resolve => { notify = resolve; });
+    const listener = () => notify();
+    const interrupt = () => { interrupted = true; notify(); };
+    this.deps.subscribe(listener);
+    this.waits.set(task.id, interrupt);
+    const timer = setTimeout(() => { timedOut = true; notify(); }, timeoutMs);
+    signal?.addEventListener("abort", interrupt, { once: true });
+    try {
+      for (;;) {
+        const current = store.getTask(task.id), process = this.require(processId, ctx.sessionId);
+        const target: ProcessWaitResult["targets"][0] = { kind: "process", process_id: processId, state: process.state, exit: process.exit, stopVerified: process.stopVerified };
+        if (interrupted || signal?.aborted || !current || current.cancelRequested || current.status !== "running" || current.permissionVersion !== task.permissionVersion) return { reason: "interrupted", targets: [target] };
+        if (process.state === "stopped" && process.stopVerified) return { reason: "result", targets: [target] };
+        if (process.state === "stop_unverified") return { reason: "attention", targets: [{ ...target, attention: "stop_unverified", next: "整组停止未核实，占用保留；结束本轮并报告拥有者。" }] };
+        if (process.exit && process.state !== "stop_requested") return { reason: "attention", targets: [{ ...target, attention: "command_exited", next: "主命令已退出，整组停止尚未核实；先 process_stop，再 wait 等待 stopped 且 stopVerified。" }] };
+        if (timedOut) return { reason: "timeout", targets: [target] };
+        await changed;
+        changed = new Promise<void>(resolve => { notify = resolve; });
+      }
+    } finally {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", interrupt);
+      this.deps.unsubscribe(listener);
+      this.waits.delete(task.id);
+    }
   }
 
   read(input: { sessionId: string; processId: string; stream: "stdout" | "stderr"; offset?: number }): { text: string; base64: string; offset: number; nextOffset: number; totalBytes: number; partial: boolean } {

@@ -57,7 +57,7 @@ for (const state of ["disabled", "removed"] as const) test(`托管技能 ${state
         } }] };
         case 1:
           runId = (JSON.parse(lastToolText(request)) as { run: { id: string } }).run.id;
-          return { kind: "tool_calls", calls: [{ id: "wait", name: "agent_wait", arguments: { targets: [{ kind: "workflow", run_id: runId }], timeout_ms: 1 } }] };
+          return { kind: "tool_calls", calls: [{ id: "wait", name: "wait", arguments: { targets: [{ kind: "workflow", run_id: runId }], timeout_ms: 1 } }] };
         case 2:
           assert.equal(new ManagedSkillsStore(t.dirs.agentDir).get(preview.id).state, state);
           return { kind: "tool_calls", calls: [{ id: "body", name: "skill", arguments: { name: "managed-reference" } }] };

@@ -179,6 +179,7 @@ import {
 import { GIT_SAFE_DIRECTORY_ENV,grantCoversPath,resolveWorktreeCommonGitDir,taskWorkspaceFor } from "@ruukoto/core/worktree.ts";
 import { ParentDelivery, workflowWakeInput, workflowReport } from "@ruukoto/runtime/parent-delivery.ts";
 import { RuntimeAgentWait, agentWaitGroupTargets, agentWaitTargetsReady } from "./agent-wait.ts";
+import { createSearchToolsFamily } from "@ruukoto/agent/search-tools.ts";
 import { AgentWaitError, agentWaitView, agentReportKey, bindAgentReportFallback, consumeAgentReport, getAgentReport, registerAgentReport, isAgentReportFallback, isAgentReportParked,
   completeAgentReports, finishAgentReportFallback, invalidateAgentReports, parkAgentReportFallback, transferAgentReportFallbacks, latestAgentReferenceSnapshot, listAgentReports, listAgentWaits, recoverAgentWaits, releaseAgentReports, sameAgentReportSource, startAgentReportFallback,
   type AgentReport, type AgentReportCompletion, type AgentReportTarget, type AgentWaitTarget } from "@ruukoto/core/agent-wait.ts";
@@ -1326,7 +1327,7 @@ export class Runtime {
     const inputKeys = new Set<string>(), consumedInputs = new Map<string, Set<string>>();
     for (const entry of this.agentTaskEntries(task)) {
       const message = entry.message as { role?: string; toolName?: string; toolCallId?: string; isError?: boolean; content?: { type: string; text?: string }[] } | undefined;
-      if (entry.type !== "message" || message?.role !== "toolResult" || message.toolName !== "agent_wait" || !waits.some(wait => wait.sdkCallId === message.toolCallId) || message.isError) continue;
+      if (entry.type !== "message" || message?.role !== "toolResult" || !["wait", "agent_wait"].includes(message.toolName ?? "") || !waits.some(wait => wait.sdkCallId === message.toolCallId) || message.isError) continue;
       let result: import("@ruukoto/agent/agent-wait-tools.ts").AgentWaitResult;
       try { result = JSON.parse(message.content!.filter(part => part.type === "text").map(part => part.text ?? "").join("\n")) as import("@ruukoto/agent/agent-wait-tools.ts").AgentWaitResult; }
       catch { throw new AgentWaitError("report_input_invalid"); }
@@ -1360,7 +1361,7 @@ export class Runtime {
     const calls = listAgentWaits(this.store, { taskId: task.id }).filter(wait => wait.reason === "result").map(wait => wait.sdkCallId);
     for (const entry of this.agentTaskEntries(task)) {
       const message = entry.message as { role?: string; toolName?: string; toolCallId?: string; isError?: boolean; content?: { type: string; text?: string }[] } | undefined;
-      if (entry.type !== "message" || message?.role !== "toolResult" || message.toolName !== "agent_wait" || !calls.includes(message.toolCallId ?? "") || message.isError) continue;
+      if (entry.type !== "message" || message?.role !== "toolResult" || !["wait", "agent_wait"].includes(message.toolName ?? "") || !calls.includes(message.toolCallId ?? "") || message.isError) continue;
       const result = JSON.parse(message.content!.filter(part => part.type === "text").map(part => part.text ?? "").join("\n")) as import("@ruukoto/agent/agent-wait-tools.ts").AgentWaitResult;
       const group = result.reportTargets;
       if (result.reason === "result" && group && group.length <= 20 && group.length === reports.length && reports.every(report => group.some(target =>
@@ -1387,7 +1388,7 @@ export class Runtime {
       if (wait.reason !== "result") continue;
       const results = taskEntries.filter(item => {
         const message = item.message as { role?: string; toolName?: string; toolCallId?: string; isError?: boolean } | undefined;
-        return item.type === "message" && message?.role === "toolResult" && message.toolName === "agent_wait" && message.toolCallId === wait.sdkCallId && !message.isError;
+        return item.type === "message" && message?.role === "toolResult" && ["wait", "agent_wait"].includes(message.toolName ?? "") && message.toolCallId === wait.sdkCallId && !message.isError;
       });
       for (const entry of results) {
         const message = entry.message as { content: { type: string; text?: string }[] };
@@ -3140,7 +3141,7 @@ export class Runtime {
       const trustedOwnerInput = !internal || Boolean(input.ownerAnswer) || Boolean(task.sourceEventId && task.requestId === `evt:${task.sourceEventId}` &&
         sourceEvent && [QQ_PRIVATE_SOURCE, TELEGRAM_SOURCE].includes(sourceEvent.source) && this.inboundGate(sourceEvent) === "run");
       const driver = this.drivers.get(input.sessionId), activeTaskId = driver?.currentTaskId;
-      if (trustedOwnerInput && driver && activeTaskId && this.agentWait.interrupt(activeTaskId, "owner_input")) {
+      if (trustedOwnerInput && driver && activeTaskId && (this.agentWait.interrupt(activeTaskId, "owner_input") || this.backgroundProcesses.interruptWait(activeTaskId))) {
         const active = this.store.getTask(activeTaskId)!;
         await driver.requestStop(active, { terminal: "interrupted", reason: "owner_input", cancelIntent: false });
       }
@@ -3894,6 +3895,7 @@ export class Runtime {
       }),
     });
     this.hostToolFamilies = [
+      createSearchToolsFamily(),
       createBackgroundProcessFamily(this.store),
       createAgentWaitFamily(),
       createBrowserFamily({ store: this.store, artifacts: this.artifacts, manager: this.browserManager,
@@ -3997,7 +3999,8 @@ export class Runtime {
         const task = this.store.getTask(taskId), driver = task && this.drivers.get(task.sessionId);
         return driver?.restoreWorkspace(taskId) ?? false;
       },
-      sourceProblem: record => this.backgroundSourceProblem(record), released: () => this.kickAll() });
+      sourceProblem: record => this.backgroundSourceProblem(record), released: () => this.kickAll(),
+      subscribe: listener => this.addEventListener(listener), unsubscribe: listener => this.removeEventListener(listener) });
   }
 
   private async getDriver(session: Session): Promise<Driver> {
@@ -4047,6 +4050,7 @@ export class Runtime {
           },
           output: (ctx, input) => { this.verifyBackgroundCaller(ctx.taskId, ctx.sessionId); return this.backgroundProcessOutput({ sessionId: ctx.sessionId, ...input }); },
           stop: (ctx, processId) => { this.verifyBackgroundCaller(ctx.taskId, ctx.sessionId); this.backgroundProcesses.get(ctx.sessionId, processId); return this.backgroundProcesses.requestStop(processId); },
+          wait: (ctx, processId, timeoutMs, signal) => { this.verifyBackgroundCaller(ctx.taskId, ctx.sessionId); return this.backgroundProcesses.wait(ctx, processId, timeoutMs, signal); },
         },
         jev: this.config.jev,
         compaction: this.config.compaction,

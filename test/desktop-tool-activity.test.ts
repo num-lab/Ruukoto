@@ -196,6 +196,9 @@ test("Trace 详情显示真实 patch／完整失败命令，Read 不折叠，按
   const read = renderToStaticMarkup(createElement(ToolActivity, { ...props, tools: [tool({ name: "read", params: { path: "actual.ts" }, target: "actual.ts" })] }));
   assert.match(read, /aria-label="打开文件 actual.ts"/);
   assert.equal((read.match(/data-slot="trace-collapsible-trigger"/g) ?? []).length, 0);
+  const preview = renderToStaticMarkup(createElement(ToolActivity, { ...props, tools: [tool({ name: "present", status: "done", params: { path: "actual.ts" }, target: "actual.ts" })] }));
+  assert.match(preview, /aria-label="打开预览 actual.ts"/);
+  assert.equal((preview.match(/data-slot="trace-collapsible-trigger"/g) ?? []).length, 0);
   const edit = tool({ name: "write", status: "done", entryId: "write" });
   const patch = "@@ -1 +1 @@\n-old\n+new\n";
   let verified = true;

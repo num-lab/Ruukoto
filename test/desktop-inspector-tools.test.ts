@@ -8,7 +8,7 @@ import { createServer, type ViteDevServer } from "vite";
 import react from "@vitejs/plugin-react";
 import type { OpParams, OpResult } from "@ruukoto/control/ops.ts";
 import { ControlClientError } from "@ruukoto/control/client.ts";
-import type { Project, Session } from "@ruukoto/core/types.ts";
+import type { PersistentEvent, Project, Session } from "@ruukoto/core/types.ts";
 import { CodeState } from "../apps/desktop/src/renderer/code-state.ts";
 import { browserAddress, browserNavigation, moveBrowser, navigateBrowser, type BrowserNavigation } from "../apps/desktop/src/renderer/browser-navigation.ts";
 import { ipcResult, type DesktopOp } from "../apps/desktop/src/main/ipc.ts";
@@ -16,6 +16,7 @@ import type { DesktopBridge, DesktopUpdate } from "../apps/desktop/src/shared/br
 import { FakeTransport, fakeSnapshot, type FakeHandlers } from "./helpers/fake-control.ts";
 import { waitFor } from "./helpers/testkit.ts";
 import { FILE_PAGE_BYTES, type PreviewFile } from "../apps/desktop/src/renderer/read-snapshot.ts";
+import type { DiffTool } from "../apps/desktop/src/renderer/diff.ts";
 
 const at = "2026-10-16T00:00:00.000Z";
 const workspace = (id: string): Project => ({ id, name: `真实工作区 ${id}`, createRequestId: null, rootDir: { cwd: `/work/${id}`, cwdReal: `/work/${id}`, dev: 1, ino: id === "w1" ? 1 : 2 }, instructionFiles: [], webSearch: "enabled", settingsVersion: 1, createdAt: at });
@@ -40,6 +41,39 @@ function harness(handlers: FakeHandlers = {}, target: "code" | "personal" = "cod
   };
   return { model, inspector: model.inspector, view: model.view, transport, snapshot };
 }
+
+test("present 实时成功打开来源会话，失败/重放不打开，历史可重开且不调用文件树", async () => {
+  const h = harness({ read_artifact: () => ({ artifact: { id: "art", taskId: "task", sessionId: "b", name: "present 文件正文", byteCount: 0, status: "complete", createdAt: at }, data: "", encoding: "base64" }) });
+  h.inspector.openParent("a"); h.inspector.visible = false;
+  let seq = 0;
+  const emit = (sessionId: string, body: PersistentEvent["body"], kind: "live" | "replay" = "live") => h.model.update({ type: "event", kind, event: { seq: ++seq, sessionId, taskId: "task", createdAt: at, body } });
+  const intent = (id: string, params: Record<string, unknown>) => ({ type: "task.tool_intent" as const, taskId: "task", toolOpId: id, sdkCallId: id, toolName: "present", params });
+  const result = (id: string, isError = false, artifactIds: string[] = []) => ({ type: "task.tool_result" as const, taskId: "task", toolOpId: id, summary: "预览请求已记录", isError, artifactIds });
+  emit("a", intent("failed", { url: "https://example.com" })); emit("a", result("failed", true));
+  emit("a", intent("replayed", { url: "https://example.com" }), "replay"); emit("a", result("replayed"), "replay");
+  assert.equal(h.inspector.visible, false); assert.equal(h.inspector.tabs().length, 0);
+  emit("b", intent("file", { path: "empty.txt" })); emit("b", result("file", false, ["art"]));
+  assert.equal(h.inspector.parentSessionId, "a"); assert.equal(h.inspector.visible, false); assert.equal(h.inspector.tabs().length, 0);
+  h.inspector.openParent("b");
+  assert.equal(h.inspector.visible, true);
+  const tab = h.inspector.activeTab(); assert.equal(tab?.kind, "read-snapshot");
+  await waitFor("空文件产物预览完成", () => tab && h.inspector.snapshots.get(tab.id)?.loading === false);
+  assert.deepEqual(h.inspector.snapshots.get(tab!.id)?.file, { path: "empty.txt", size: 0, kind: "text", content: "" });
+  assert.ok(!h.transport.requests.some(request => request.op === "read_workspace_file"));
+  h.inspector.closeTab(tab!.id); h.inspector.visible = false;
+  emit("b", result("file", false, ["art"]));
+  assert.equal(h.inspector.visible, false, "重复 live 不重开已关闭预览");
+  const fileTool = h.view.openSession("b").flow.items.find((item): item is DiffTool => item.kind === "tool" && item.toolOpId === "file")!;
+  assert.equal(await h.inspector.openPresentation("b", fileTool), true);
+  assert.equal(h.inspector.visible, true);
+  h.inspector.openParent("a"); emit("a", intent("url", { url: "https://example.com/page" })); emit("a", result("url"));
+  const browser = h.inspector.activeTab(); assert.equal(browser?.kind, "browser");
+  if (browser?.kind === "browser") assert.equal(browser.navigation.history[browser.navigation.index], "https://example.com/page");
+  for (const url of ["file:///tmp/secret", "javascript:evil", "https://user:password@example.com"]) {
+    const tool = { ...fileTool, params: { url }, artifactIds: [] };
+    assert.equal(await h.inspector.openPresentation("a", tool), false);
+  }
+});
 
 test("内置浏览器接受无凭据网页和本机文件地址，域名和本机简写归一化", () => {
   for (const address of ["", " ", "javascript:alert(1)", "data:text/html,<script>x</script>", "file://remote/tmp/file", "blob:https://example.com/id", "mailto:a@example.com", "http://user:password@example.com", "https://user@example.com", "http://", "http://[bad]"]) assert.equal(browserAddress(address), null, address);

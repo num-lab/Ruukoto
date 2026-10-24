@@ -45,7 +45,7 @@ for (const layout of ["batch", "sequential"] as const) test(`main 父轮 ${layou
       const result = JSON.parse(lastToolText(req)) as AgentWaitResult;
       if (layout === "sequential" && result.reason === "result") {
         assert.equal(result.targets.length, 1); assert.equal(result.targets[0].resultSummary, "FIRST-COMPLETED");
-        return { kind: "tool_calls", calls: [{ id: "wait-attention", name: "agent_wait", arguments: { targets: [{ kind: "task", task_id: secondId }] } }] };
+        return { kind: "tool_calls", calls: [{ id: "wait-attention", name: "wait", arguments: { targets: [{ kind: "task", task_id: secondId }] } }] };
       }
       if (layout === "batch") {
         assert.equal(result.reason, "result");
@@ -58,7 +58,7 @@ for (const layout of ["batch", "sequential"] as const) test(`main 父轮 ${layou
     parentTaskId = parent.id;
     const ids = attentionChildren(rt, parent);
     [firstId, secondId] = ids;
-    return { kind: "tool_calls", calls: [{ id: "wait-partial", name: "agent_wait", arguments: { targets: (layout === "batch" ? ids : [firstId]).map(task_id => ({ kind: "task", task_id })) } }] };
+    return { kind: "tool_calls", calls: [{ id: "wait-partial", name: "wait", arguments: { targets: (layout === "batch" ? ids : [firstId]).map(task_id => ({ kind: "task", task_id })) } }] };
   }, { config: { qqDisabled: true, scheduler: { tickMs: 20 }, telegram: { pollTimeoutSec: 1, backoffMs: 30 } } });
   rt = t.runtime;
   try {
@@ -115,11 +115,11 @@ test("续接 main 冷恢复：first 来源撤销清除整组认领后，普通 o
         return { kind: "text", text: "Q-COLD-ONLY-FINAL PRIVATE-FIRST-ONLY 和第二份结果" };
       }
       followupTaskId = current.id;
-      return { kind: "tool_calls", calls: [{ id: "cold-followup-wait", name: "agent_wait", arguments: { targets: [{ kind: "task", task_id: secondId }] } }] };
+      return { kind: "tool_calls", calls: [{ id: "cold-followup-wait", name: "wait", arguments: { targets: [{ kind: "task", task_id: secondId }] } }] };
     }
     if (afterTool(req)) {
       const result = JSON.parse(lastToolText(req)) as AgentWaitResult;
-      if (result.reason === "result") return { kind: "tool_calls", calls: [{ id: "cold-original-attention", name: "agent_wait", arguments: { targets: [{ kind: "task", task_id: secondId }] } }] };
+      if (result.reason === "result") return { kind: "tool_calls", calls: [{ id: "cold-original-attention", name: "wait", arguments: { targets: [{ kind: "task", task_id: secondId }] } }] };
       assert.equal(result.reason, "attention");
       return { kind: "text", text: "PARTIAL-QUESTION 第二项需要介入，请回复 yes" };
     }
@@ -133,7 +133,7 @@ test("续接 main 冷恢复：first 来源撤销清除整组认领后，普通 o
       rt.store.recordToolResult("cold-first-memory", "PRIVATE-FIRST-ONLY", false);
       rt.store.db.prepare("UPDATE tasks SET result_summary = ? WHERE id = ?").run("PRIVATE-FIRST-ONLY", first.id);
     });
-    return { kind: "tool_calls", calls: [{ id: "cold-original-result", name: "agent_wait", arguments: { targets: [{ kind: "task", task_id: firstId }] } }] };
+    return { kind: "tool_calls", calls: [{ id: "cold-original-result", name: "wait", arguments: { targets: [{ kind: "task", task_id: firstId }] } }] };
   }, { config: { qqDisabled: true, scheduler: { tickMs: 0 }, telegram: { pollTimeoutSec: 1, backoffMs: 30 } } });
   rt = t.runtime;
   try {
@@ -212,11 +212,11 @@ for (const providerError of [false, true]) test(`后续可信 main 仅等待第�
         return { kind: "text", text: "Q-ONLY-FINAL 两份结果共同完成" };
       }
       followupTaskId = rt.store.listTasksBySession(main.sessionId).find(task => task.status === "running")!.id;
-      return { kind: "tool_calls", calls: [{ id: "followup-wait", name: "agent_wait", arguments: { targets: [{ kind: "task", task_id: secondId }] } }] };
+      return { kind: "tool_calls", calls: [{ id: "followup-wait", name: "wait", arguments: { targets: [{ kind: "task", task_id: secondId }] } }] };
     }
     if (afterTool(req)) {
       const result = JSON.parse(lastToolText(req)) as AgentWaitResult;
-      if (result.reason === "result") return { kind: "tool_calls", calls: [{ id: "original-attention", name: "agent_wait", arguments: { targets: [{ kind: "task", task_id: secondId }] } }] };
+      if (result.reason === "result") return { kind: "tool_calls", calls: [{ id: "original-attention", name: "wait", arguments: { targets: [{ kind: "task", task_id: secondId }] } }] };
       assert.equal(result.reason, "attention");
       return { kind: "text", text: "PARTIAL-QUESTION 第二项需要介入，请回复 yes" };
     }
@@ -226,7 +226,7 @@ for (const providerError of [false, true]) test(`后续可信 main 仅等待第�
       input: "原排队第一项回报输入", submissionDigest: "original-canonical", agentId: main.id,
       accessMode: parent.accessMode, grantedPaths: parent.grantedPaths, sourcePermissionVersion: parent.permissionVersion,
       modelSelection: parent.modelSelection ?? rt.defaultSelection }).task.id);
-    return { kind: "tool_calls", calls: [{ id: "original-result", name: "agent_wait", arguments: { targets: [{ kind: "task", task_id: firstId }] } }] };
+    return { kind: "tool_calls", calls: [{ id: "original-result", name: "wait", arguments: { targets: [{ kind: "task", task_id: firstId }] } }] };
   }, { config: { qqDisabled: true, scheduler: { tickMs: 20 }, telegram: { pollTimeoutSec: 1, backoffMs: 30 } } });
   rt = t.runtime;
   try {

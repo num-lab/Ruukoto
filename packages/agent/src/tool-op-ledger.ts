@@ -41,15 +41,19 @@ type StaticToolName =
   | (typeof CODING_TOOL_NAMES)[number]
   | (typeof APPROVAL_TOOL_NAMES)[number]
   | typeof ARTIFACT_TOOL_NAME
+  | "present"
   | (typeof MOCK_TOOL_NAMES)[number]
   | "worktree_start"
   // 已删除的旧工具（agent-direction issue 23）：升级前在途操作的恢复核实仍按原规则
-  | "coding_delegate";
+  | "coding_delegate"
+  | "agent_wait";
 
 type Rule = HostToolRule;
 
 const RULES: Record<StaticToolName, Rule | ((params: Record<string, unknown>) => Rule)> = {
+  agent_wait: "no_effect",
   read: "no_effect",
+  present: "no_effect",
   list_files: "no_effect",
   search_files: "no_effect",
   edit: "approval",
@@ -57,6 +61,7 @@ const RULES: Record<StaticToolName, Rule | ((params: Record<string, unknown>) =>
   bash: "approval",
   request_file_access: (p) => (p.operation === "write" ? "approval" : "no_effect"),
   http_request: (p) => (["GET", "HEAD"].includes(String(p.method ?? "").toUpperCase()) ? "no_effect" : "approval"),
+  web_fetch: "no_effect",
   read_artifact: "no_effect",
   // 临时 worker 的启动定位先落盘；Git 写入另记执行意图，不把 ready 前取消标成未知写入。
   // Note: 见 .agents/notes/implemented/bug-fix/2026-10-11-preserve-unverified-worker-stop.md

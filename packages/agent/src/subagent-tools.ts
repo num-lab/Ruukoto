@@ -216,7 +216,7 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
       "读范围与资料按本次重新确定，要求该 SubAgent 空闲且未关闭）；work_id 与 sub_agent_id 同现 = 把该空闲 SubAgent 拉入既有工作协作" +
       "（无目标工作；协作者之间与主 Agent 可用 subagent_message 通信）。" +
       "返回 workId、subAgentId、taskId 与截止时间；同 key 同参返回原记录，异参冲突。子任务入队后立即返回，" +
-      "用 agent_wait 按返回的 taskId 等待本次任务；收到结果后用 subagent_result 读取并继续处理，最后汇报。",
+      "用 wait 按返回的 taskId 等待本次任务；收到结果后用 subagent_result 读取并继续处理，最后汇报。",
     parameters: Type.Object({
       request: Type.String({ description: "委派正文：要 SubAgent 做什么（目标、范围、验收要求）" }),
       key: Type.String({ description: "幂等键（字母/数字/_/-，≤64；重试用同一个）" }),
@@ -398,7 +398,7 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
             if (occ && occ.sessionId === ctx.sessionId) {
               lines.push(
                 occ.taskId === null ? "会话后台持有目录；先用 process_stop 请求停止，再用 process_status 核实 stopped，子任务才能取得目录。停止未核实时报告拥有者。"
-                  : `等待本会话释放目录；用 agent_wait 等待任务 ${t.id}，安全让出目录后子任务继续，结果返回后继续处理。`,
+                  : `等待本会话释放目录；用 wait 等待任务 ${t.id}，安全让出目录后子任务继续，结果返回后继续处理。`,
               );
               break;
             }

@@ -82,6 +82,7 @@ import { requireSubAgentExecution, snapshotSubAgentExecution, SubAgentExecutionE
 import { subAgentAccessPolicy, subAgentSourceProfile } from "./subagent-capabilities.ts";
 import type { CodeCuaManager } from "./mcp/code.ts";
 import { planMcpTaskTools, EMPTY_MCP_PLAN, type McpTaskPlan } from "./mcp/tools.ts";
+import { searchToolDefinitions, ToolSearchError } from "./search-tools.ts";
 import type { McpTimeouts } from "./mcp/client.ts";
 import type { McpStore, McpToolEffect } from "./mcp/store.ts";
 import type { Accessor } from "@ruukoto/core/access.ts";
@@ -257,6 +258,8 @@ export class Driver {
   private pinnedProfile: ExecutionProfile | null = null;
   /** 本任务允许的工具（任务开始时算一次；激活、发送前与调用门共用；null = 尚未算出，一律拒绝）。 */
   private taskTools: TaskToolSet | null = null;
+  private eligibleTools: TaskToolSet | null = null;
+  private readonly discoveredTools = new Set<string>();
   /** 本任务的模型上下文组装（任务开始时建、结束即丢；context 钩子与发送前复核共用）。 */
   private assembly: ContextAssembly | null = null;
   /** 原始 streamFunction（包装前保存；发送前检查在委托前执行）。 */
@@ -301,6 +304,7 @@ export class Driver {
       registry: this.registry,
       verifyTask: task => this.verifyWorkflowTask(task),
       resourceAvailable: () => this.resourcePhase === "execution",
+      presentUrlAllowed: task => this.deps.browser?.allowed(task) ?? false,
       onManagedIdentity: () => this.reportManagedUnits(),
       launcherFor: deps.launcherFor,
       verificationLauncher: deps.verificationLauncher,
@@ -538,6 +542,19 @@ export class Driver {
         },
       },
       skills: () => this.pinnedSkills,
+      searchTools: (ctx, query, limit) => {
+        const task = this.deps.store.getTask(ctx.taskId);
+        if (!task || this.currentTask?.id !== task.id || task.sessionId !== ctx.sessionId || ctx.projectId !== this.session.projectId || task.status !== "running" || task.cancelRequested || this.stopRequested || this.verifyWorkflowTask(task)) throw new ToolSearchError("search_unavailable", "当前任务已停止或来源已失效；结束本轮并报告拥有者。");
+        this.refreshTaskTools(task);
+        if (!this.taskTools?.allowed.has("search_tools")) throw new ToolSearchError("search_unavailable", "当前任务不开放工具搜索；按当前工具清单继续。");
+        const result = searchToolDefinitions((this.currentMcpPlan?.toolDefs ?? []).filter(tool => {
+          const pinned = this.currentMcpPlan!.tools.get(tool.name)!.service, current = this.deps.mcp!.store.getService(pinned.id);
+          return this.eligibleTools?.allowed.has(tool.name) && current?.enabled && current.configVersion === pinned.configVersion;
+        }), query, limit);
+        for (const tool of result.tools) this.discoveredTools.add(tool.name);
+        this.refreshTaskTools(task);
+        return result;
+      },
       agentWait: this.deps.agentWait ? async (ctx, sdkCallId, targets, timeoutMs, signal) => {
         const result = await this.deps.agentWait!.wait(ctx, sdkCallId, targets, timeoutMs, signal);
         if (!this.stopRequested && !signal?.aborted && result.reason !== "interrupted") await this.restoreWorkspace(ctx.taskId);
@@ -560,6 +577,11 @@ export class Driver {
         },
         output: (ctx, input) => this.deps.backgroundProcesses!.output(ctx, input),
         stop: (ctx, processId) => this.deps.backgroundProcesses!.stop(ctx, processId),
+        wait: async (ctx, processId, timeoutMs, signal) => {
+          const result = await this.deps.backgroundProcesses!.wait(ctx, processId, timeoutMs, signal);
+          if (!this.stopRequested && !signal?.aborted && result.reason !== "interrupted" && !this.deps.backgroundProcesses!.active(ctx.sessionId)) await this.restoreWorkspace(ctx.taskId);
+          return result;
+        },
       } : undefined,
     };
   }
@@ -863,6 +885,8 @@ export class Driver {
     this.pendingUserImages = [];
     this.pendingUserAttachments = [];
     this.taskTools = null;
+    this.eligibleTools = null;
+    this.discoveredTools.clear();
     this.resourcePhase = resourcePhase;
     this.backgroundObservation = this.deps.backgroundProcesses?.active(task.sessionId) ?? false;
     this.recordResourcePhase(task);
@@ -1147,7 +1171,7 @@ export class Driver {
   private refreshTaskTools(task: Task): void {
     const allowTaskTool = this.deps.allowTaskTool;
     const subAgentTools = this.profile.subAgentTools;
-    this.taskTools = taskToolSet({
+    const eligible = taskToolSet({
       registered: this.allToolNames,
       ownerQuestionsEnabled: Boolean(this.deps.ownerQuestions && ownerQuestionTaskEligible(this.deps.store, task)),
       ownerQuestionPending: ownerQuestionCreatedByTask(this.deps.store, task.id),
@@ -1174,10 +1198,15 @@ export class Driver {
             : undefined,
     });
     if (this.pinnedExecution && this.resourcePhase === "execution") {
-      const missing = this.pinnedExecution.tools.filter(name => !this.taskTools!.allowed.has(name));
+      const missing = this.pinnedExecution.tools.filter(name => !eligible.allowed.has(name));
       if (missing.length) throw new SubAgentExecutionError("tools_unavailable", `已固定工具不可用：${missing.join("、")}；停止本次执行并报告拥有者。`);
     }
-    this.sdk?.setActiveToolsByName([...this.taskTools.allowed]);
+    this.eligibleTools = eligible;
+    // 固定能力清单没有发现入口时保持直接可用，避免已授权工具无处激活。
+    const deferred = eligible.allowed.has("search_tools");
+    const allowed = new Set([...eligible.allowed].filter(name => !deferred || !this.mcpToolNames.has(name) || this.discoveredTools.has(name)));
+    this.taskTools = { allowed, reasonFor: name => eligible.allowed.has(name) && !allowed.has(name) ? "先用 search_tools 搜索并激活此工具" : eligible.reasonFor(name) };
+    this.sdk?.setActiveToolsByName([...allowed]);
   }
 
   referenceSnapshot(): AgentWaitSnapshot {

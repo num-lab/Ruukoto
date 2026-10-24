@@ -22,12 +22,12 @@ test("已排队单目标补报仍受父轮等待闭包约束：拥有者先处�
           canonicalId = run.delivery?.taskId ?? "";
           return run.status === "succeeded" && !!canonicalId && t.runtime.store.getTask(canonicalId)?.status === "queued";
         });
-        return { kind: "tool_calls", calls: [{ id: "wait-first", name: "agent_wait", arguments: { targets: [{ kind: "workflow", run_id: firstId }] } }] };
+        return { kind: "tool_calls", calls: [{ id: "wait-first", name: "wait", arguments: { targets: [{ kind: "workflow", run_id: firstId }] } }] };
       }
       if (phase === 3) return { kind: "tool_calls", calls: [{ id: "second", name: "workflow_start", arguments: { title: "后台处理", key: "second", input: null,
         script: 'return await agent("result",{request:"SECOND_CHILD",tools:[]});' } }] };
       secondId = (JSON.parse(lastToolText(request)) as { run: { id: string } }).run.id;
-      return { kind: "tool_calls", calls: [{ id: "wait-second", name: "agent_wait", arguments: { targets: [{ kind: "workflow", run_id: secondId }] } }] };
+      return { kind: "tool_calls", calls: [{ id: "wait-second", name: "wait", arguments: { targets: [{ kind: "workflow", run_id: secondId }] } }] };
     }
     if (input.includes("FIRST_CHILD")) return { kind: "text", text: "FIRST_RESULT" };
     if (input.includes("SECOND_CHILD")) { await childReady; return { kind: "text", text: "SECOND_RESULT" }; }

@@ -73,6 +73,7 @@ function fail(message: string, opId?: string): void {
 // ---------- 原始数据流（未经上游截断的正文） ----------
 
 function streamData(opId: string, stream: DataStream, data: Buffer): void {
+  if (!data.length) sendMessage({ type: "data", opId, stream, chunk: "" });
   for (let offset = 0; offset < data.length; offset += DATA_CHUNK_BYTES) {
     const chunk = data.subarray(offset, Math.min(offset + DATA_CHUNK_BYTES, data.length));
     sendMessage({ type: "data", opId, stream, chunk: chunk.toString("base64") });

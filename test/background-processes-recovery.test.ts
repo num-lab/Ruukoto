@@ -7,7 +7,8 @@ import { spawn } from "node:child_process";
 import { test, type TestContext } from "node:test";
 import { Db } from "@ruukoto/core/db.ts";
 import { Store } from "@ruukoto/core/store.ts";
-import { getBackgroundProcess, handoffBackgroundProcess, listActiveBackgroundProcesses, registerBackgroundProcess } from "@ruukoto/core/background-processes.ts";
+import { finishBackgroundStop, getBackgroundProcess, handoffBackgroundProcess, listActiveBackgroundProcesses, registerBackgroundProcess, updateBackgroundObserved } from "@ruukoto/core/background-processes.ts";
+import type { PersistentEvent } from "@ruukoto/core/types.ts";
 import { RuntimeBackgroundProcesses } from "@ruukoto/runtime/background-processes.ts";
 import { Runtime } from "@ruukoto/runtime/runtime.ts";
 import { createBackgroundProcessFamily } from "@ruukoto/agent/background-process-tools.ts";
@@ -31,10 +32,58 @@ function fixture(t: TestContext) {
   const ctx = { taskId: task.id, sessionId: session.id, projectId: project.id, hostOpId: "op-start" };
   const workspace = { path: work, dev: stat.dev, ino: stat.ino };
   const register = () => store.withTx(() => registerBackgroundProcess(store, { ...ctx, workspace, ref: { platform: process.platform === "linux" ? "linux" : "darwin", executionId: "native_" + "1".repeat(24), ...(process.platform === "linux" ? { machineId: fs.readFileSync("/etc/machine-id", "utf8").trim() } : {}) } }));
-  const manager = new RuntimeBackgroundProcesses({ store, dataDir, handoff: async () => true, restore: async () => false, released: () => {}, sourceProblem: () => null });
+  const listeners = new Set<(events: PersistentEvent[]) => void>();
+  store.onCommitted = events => { for (const listener of listeners) listener(events); };
+  const manager = new RuntimeBackgroundProcesses({ store, dataDir, handoff: async () => true, restore: async () => false, released: () => {}, sourceProblem: () => null,
+    subscribe: listener => { listeners.add(listener); }, unsubscribe: listener => { listeners.delete(listener); } });
   t.after(async () => { await manager.shutdown(); db.close(); fs.rmSync(root, { recursive: true, force: true }); });
-  return { root, dataDir, work, db, store, session, task, ctx, workspace, register, manager };
+  return { root, dataDir, work, db, store, session, task, ctx, workspace, register, manager, listeners };
 }
+
+test("进程等待读取已提交状态，退出与停止未核实返回介入，不代替停止", async t => {
+  const f = fixture(t), record = f.register();
+  f.store.withTx(() => handoffBackgroundProcess(f.store, { processId: record.id, workspace: f.workspace,
+    snapshot: { taskId: f.task.id, permissionVersion: f.task.permissionVersion, selectionRecordId: null, promptArtifactId: null, instructions: null, skills: null } }));
+  assert.equal((await f.manager.wait(f.ctx, record.id, 1)).reason, "timeout");
+  assert.equal(f.store.getOccupancyByDir(f.work)?.processId, record.id);
+  f.store.withTx(() => updateBackgroundObserved(f.store, { processId: record.id, exit: { code: 0, signal: null } }));
+  const exited = await f.manager.wait(f.ctx, record.id, 1000);
+  assert.equal(exited.reason, "attention");
+  assert.equal(exited.targets[0].attention, "command_exited");
+  assert.equal(exited.targets[0].stopVerified, false);
+  assert.equal(getBackgroundProcess(f.store, record.id)!.state, "starting");
+  f.store.withTx(() => finishBackgroundStop(f.store, { processId: record.id, verified: false, reason: "unverified" }));
+  assert.equal((await f.manager.wait(f.ctx, record.id, 1000)).targets[0].attention, "stop_unverified");
+  assert.equal(f.store.getOccupancyByDir(f.work)?.processId, record.id);
+  f.manager.requestStop(record.id);
+  const stopped = await f.manager.wait(f.ctx, record.id, 1000);
+  assert.equal(stopped.reason, "result");
+  assert.equal(stopped.targets[0].stopVerified, true);
+  assert.equal(f.listeners.size, 0);
+  assert.equal(f.manager.interruptWait(f.task.id), false);
+});
+
+test("进程等待取消、权限变更和新输入只结束等待，跨会话和重复等待被拒绝", async t => {
+  const f = fixture(t), record = f.register();
+  for (const interruption of ["signal", "owner", "permission"] as const) {
+    const controller = new AbortController(), waiting = f.manager.wait(f.ctx, record.id, 10_000, controller.signal);
+    assert.equal(f.listeners.size, 1);
+    await assert.rejects(f.manager.wait(f.ctx, record.id, 10), { code: "background_wait_active" });
+    if (interruption === "signal") controller.abort();
+    else if (interruption === "owner") assert.equal(f.manager.interruptWait(f.task.id), true);
+    else f.store.withTx(() => {
+      f.store.updateGrantedPaths(f.task.id, []);
+      updateBackgroundObserved(f.store, { processId: record.id, reason: "permission_changed" });
+    });
+    assert.equal((await waiting).reason, "interrupted");
+    assert.equal(getBackgroundProcess(f.store, record.id)!.state, "starting");
+    assert.equal(f.listeners.size, 0);
+  }
+  const other = f.store.withTx(() => f.store.createSession({ projectId: f.ctx.projectId, cwd: f.work, cwdReal: f.work, cwdDev: f.workspace.dev, cwdIno: f.workspace.ino, piSessionId: "other", confirmTools: [] }));
+  const otherTask = f.store.withTx(() => { const task = f.store.insertQueuedTask({ sessionId: other.id, requestId: "other", input: "查看", submissionDigest: "other", accessMode: "full_access", modelSelection: null }).task; f.store.transitionTask(task.id, ["queued"], "running"); return task; });
+  await assert.rejects(f.manager.wait({ ...f.ctx, taskId: otherTask.id, sessionId: other.id }, record.id, 10), { code: "background_not_found" });
+  assert.equal(f.listeners.size, 0);
+});
 
 test("日志合计预算保留16MiB原始字节与partial，证据篡改拒绝读取", async t => {
   const f = fixture(t), record = f.register();

@@ -13,6 +13,7 @@ import { CodeCuaManager } from "@ruukoto/agent/mcp/code.ts";
 import { product } from "../apps/ruukoto-code/src/product.ts";
 import { startTestRuntime, createProjectSession, waitFor, pendingConfirmation } from "./helpers/testkit.ts";
 import type { Responder } from "./helpers/mock-provider.ts";
+import { withMcpDiscovery } from "./helpers/mock-mcp.ts";
 
 const MODEL = { provider: "mock", modelId: "mock-model", thinkingLevel: "off" } as const;
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
@@ -81,7 +82,7 @@ test("Code Cua：真实产品链保存原schema和请求，持续连接、批准
     const call = next; next = null;
     return call ? { kind: "tool_calls", calls: [{ id: `call-${Date.now()}`, ...call }] } : { kind: "text", text: "done" };
   };
-  const runtime = await startTestRuntime("cua-code", responder, { config: { product: product.runtime, mcp: { callTimeoutMs: 300 } } });
+  const runtime = await startTestRuntime("cua-code", withMcpDiscovery(responder), { config: { product: product.runtime, mcp: { callTimeoutMs: 300 } } });
   const { client, dirs } = runtime;
   const executable = path.join(dirs.root, "cua-fixture"), record = path.join(dirs.root, "calls.jsonl");
   const tools = [

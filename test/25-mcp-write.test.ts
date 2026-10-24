@@ -15,7 +15,7 @@ import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import {
-  startTestRuntime,
+  startTestRuntime as startRuntime,
   createProjectSession,
   waitFor,
   taskStatus,
@@ -23,10 +23,12 @@ import {
   pendingConfirmation,
   type TestRuntime,
 } from "./helpers/testkit.ts";
-import { startMockMcp, MOCK_MCP_SECRET, type MockMcp, type MockMcpToolSpec } from "./helpers/mock-mcp.ts";
+import { withMcpDiscovery, startMockMcp, MOCK_MCP_SECRET, type MockMcp, type MockMcpToolSpec } from "./helpers/mock-mcp.ts";
 import { MockModelServer, type Responder } from "./helpers/mock-provider.ts";
 import { killProcessTree, spawnBackend } from "./helpers/backend.ts";
 import { canonicalParamsDigest } from "@ruukoto/agent/mcp/tools.ts";
+
+const startTestRuntime: typeof startRuntime = (prefix, responder, options) => startRuntime(prefix, withMcpDiscovery(responder), options);
 
 const SECRET = MOCK_MCP_SECRET;
 const quiet: Responder = async () => ({ kind: "text", text: "done" });
@@ -376,7 +378,7 @@ test("mcp 写：full_access 跳过逐次审批，但不越过允许列表", asyn
     assert.equal(done.task.status, "completed");
     assert.equal(done.confirmations.length, 0, "full_access 不产生逐次审批");
     assert.equal(toolCalls(mcp, "create_issue").length, 1);
-    const offered = offeredToolNames(t);
+    const offered = offeredToolNames(t, 1);
     assert.ok(offered.includes("mcp_mock_create_issue"));
     assert.ok(!offered.some((n) => n.includes("delete_all")), "未允许的工具不注册（full_access 不越过服务范围）");
   } finally {
@@ -540,10 +542,10 @@ test("mcp 写：在途写调用取消（批准已消费）—— effect_unknown�
 const CRASH_MODEL = { provider: "mock", modelId: "mock-model", thinkingLevel: "off" } as const;
 
 async function crashSetup(prefix: string, mcp: MockMcp) {
-  const modelServer = new MockModelServer(async () => ({
+  const modelServer = new MockModelServer(withMcpDiscovery(async () => ({
     kind: "tool_calls",
     calls: [{ id: "c0", name: "mcp_mock_create_issue", arguments: { title: "崩溃验证" } }],
-  }));
+  })));
   const baseUrl = await modelServer.start();
   try {
     // macOS Unix socket 路径上限 104 字符：临时目录前缀必须短

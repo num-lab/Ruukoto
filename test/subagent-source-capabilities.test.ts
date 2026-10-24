@@ -15,7 +15,7 @@ import { planMcpTaskTools } from "@ruukoto/agent/mcp/tools.ts";
 import { createSourceResolver } from "@ruukoto/channels/source-resolver.ts";
 import { Runtime } from "@ruukoto/runtime/runtime.ts";
 import { afterTool, inputText, lastUserText, realTools, startTestRuntime, toolNamesOf, waitFor } from "./helpers/testkit.ts";
-import { startMockMcp } from "./helpers/mock-mcp.ts";
+import { startMockMcp, withMcpDiscovery } from "./helpers/mock-mcp.ts";
 
 function sourceTask(rt: Runtime, session: Session, accessMode: Task["accessMode"] = "full_access"): Task {
   return rt.store.withTx(() => {
@@ -366,8 +366,8 @@ for (const tool of ["memory_list", "memory_read"]) test(`普通 ${tool} 的读�
 
 test("普通 MCP 旧配置的结果不能通过身份复用洗成新来源上下文", async () => {
   const mcp = await startMockMcp({ tools: [{ name: "read", result: { content: [{ type: "text", text: "MCP-OLD-SECRET" }] } }] });
-  const t = await startTestRuntime("mcp-history", req => afterTool(req) ? { kind: "text", text: "已读取" } :
-    { kind: "tool_calls", calls: [{ id: "read", name: "mcp_probe_read", arguments: {} }] }, { config: realTools() });
+  const t = await startTestRuntime("mcp-history", withMcpDiscovery(req => afterTool(req) ? { kind: "text", text: "已读取" } :
+    { kind: "tool_calls", calls: [{ id: "read", name: "mcp_probe_read", arguments: {} }] }), { config: realTools() });
   try {
     const rt = t.runtime, session = await rt.createSession({ projectName: "mcp-history", cwd: t.work[0] });
     const service = await t.client.request<{ id: string }>("mcp_configure", { name: "probe", endpoint: mcp.url, tool_allowlist: ["read"] });

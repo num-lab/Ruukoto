@@ -30,7 +30,7 @@ for (const damage of ["execution", "definition", "binding", "source"] as const) 
     if (lastUserText(req) === "WAIT_CHILD") {
       parentInputs.push(inputText(req));
       if (afterTool(req)) return { kind: "text", text: "父轮结束" };
-      return { kind: "tool_calls", calls: [{ id: "wait", name: "agent_wait", arguments: { targets: [{ kind: "task", task_id: childId }] } }] };
+      return { kind: "tool_calls", calls: [{ id: "wait", name: "wait", arguments: { targets: [{ kind: "task", task_id: childId }] } }] };
     }
     childCalls++;
     return { kind: "text", text: "RESULT_SOURCE_SENTINEL" };
@@ -51,7 +51,7 @@ for (const damage of ["execution", "definition", "binding", "source"] as const) 
     release(rt, source);
     const parent = await rt.submit({ sessionId: session.id, requestId: "wait", input: "WAIT_CHILD", accessMode: "full_access", modelSelection: rt.defaultSelection });
     await waitFor("父任务完成错误说明", () => ["completed", "failed"].includes(rt.store.getTask(parent.id)!.status));
-    const op = rt.store.listToolOpsByTask(parent.id).find(op => op.toolName === "agent_wait")!;
+    const op = rt.store.listToolOpsByTask(parent.id).find(op => op.toolName === "wait")!;
     assert.ok(op); assert.equal(op.isError, true, op.resultSummary!);
     assert.ok(parentInputs.every(input => !input.includes("RESULT_SOURCE_SENTINEL") && !input.includes("MESSAGE_SOURCE_SENTINEL")), "坏记录的正文不能先由自动注入泄漏");
     assert.equal(rt.store.getSubAgentMessage(messageId)?.deliveredAt, null);
@@ -93,7 +93,7 @@ test("报告沿冻结的截止任务依赖复核，后续身份复用的坏执�
   const kit = await startTestRuntime("result-frozen-source", req => {
     if (lastUserText(req) === "WAIT_OLD_CHILD") {
       if (afterTool(req)) return { kind: "text", text: "已消费旧结果" };
-      return { kind: "tool_calls", calls: [{ id: "wait", name: "agent_wait", arguments: { targets: [{ kind: "task", task_id: firstId }] } }] };
+      return { kind: "tool_calls", calls: [{ id: "wait", name: "wait", arguments: { targets: [{ kind: "task", task_id: firstId }] } }] };
     }
     return { kind: "text", text: "FROZEN_RESULT_SENTINEL" };
   });
@@ -111,7 +111,7 @@ test("报告沿冻结的截止任务依赖复核，后续身份复用的坏执�
     release(rt, nextSource);
     const parent = await rt.submit({ sessionId: session.id, requestId: "wait", input: "WAIT_OLD_CHILD", accessMode: "full_access", modelSelection: rt.defaultSelection });
     await waitFor("父轮消费旧结果", () => ["completed", "failed"].includes(rt.store.getTask(parent.id)!.status));
-    const op = rt.store.listToolOpsByTask(parent.id).find(op => op.toolName === "agent_wait")!;
+    const op = rt.store.listToolOpsByTask(parent.id).find(op => op.toolName === "wait")!;
     assert.ok(op); assert.equal(op.isError, false, op.resultSummary!); assert.match(op.resultSummary!, /"reason":"result"/);
     const final = getAgentReport(rt.store, report.key)!;
     assert.deepEqual(final.dependencyTaskIds, [firstId]); assert.equal(final.consumption?.taskId, parent.id);

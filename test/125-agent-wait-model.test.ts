@@ -29,7 +29,7 @@ async function gateRealChildResponse(target: string) {
       const chunks: Buffer[] = [];
       for await (const chunk of request) chunks.push(Buffer.from(chunk));
       const body = Buffer.concat(chunks), parsed = (body.length ? JSON.parse(body.toString("utf8")) : {}) as { messages?: unknown[]; input?: unknown[]; tools?: { name?: string; function?: { name?: string } }[] };
-      const child = !gated && JSON.stringify(parsed.messages ?? parsed.input ?? []).includes("WAIT_CHILD_SECOND") && !parsed.tools?.some(tool => (tool.function?.name ?? tool.name) === "agent_wait");
+      const child = !gated && JSON.stringify(parsed.messages ?? parsed.input ?? []).includes("WAIT_CHILD_SECOND") && !parsed.tools?.some(tool => (tool.function?.name ?? tool.name) === "wait");
       if (child) gated = true;
       const headers = new Headers();
       for (const [key, value] of Object.entries(request.headers)) if (value && !["host", "connection", "content-length", "transfer-encoding"].includes(key)) headers.set(key, Array.isArray(value) ? value.join(",") : value);
@@ -68,7 +68,7 @@ test("真实模型门控代理支持 Responses 输入与扁平工具名，仅暂
   try {
     const discovery = await fetch(proxy.baseUrl + "/models");
     assert.equal(discovery.status, 200); assert.equal(await discovery.text(), "远端完整响应");
-    const body = JSON.stringify({ input: [{ role: "user", content: "WAIT_CHILD_SECOND" }], tools: [{ type: "function", name: "agent_wait" }] });
+    const body = JSON.stringify({ input: [{ role: "user", content: "WAIT_CHILD_SECOND" }], tools: [{ type: "function", name: "wait" }] });
     const parent = await fetch(proxy.baseUrl + "/responses", { method: "POST", body });
     assert.equal(parent.status, 200); assert.equal(await parent.text(), "远端完整响应"); assert.equal(proxy.received(), false);
     const childBody = JSON.stringify({ input: [{ role: "user", content: "WAIT_CHILD_SECOND" }], tools: [] });
@@ -99,7 +99,7 @@ for (const product of [codeProduct.runtime]) test(`${product.type} 真实模型�
     await rt.setSessionDefaultMode({ sessionId: session.id, expectedVersion: session.defaultAccessModeVersion, mode: "full_access" });
     const firstDefinition = await rt.saveWorkflowDefinition({ name: "wait-first", script: 'return await agent("result",{request:"只回复 WAIT_RESULT_FIRST，不调用工具。",tools:[]});', expectedDigest: null, requestKey: "save-first" });
     const secondDefinition = await rt.saveWorkflowDefinition({ name: "wait-second", script: 'await ask("hold",{prompt:"继续第二项真实等待验收？",options:["yes"]}); return await agent("result",{request:"只回复 WAIT_CHILD_SECOND，不调用工具。",tools:[]});', expectedDigest: null, requestKey: "save-second" });
-    const parent = await rt.submit({ sessionId: session.id, requestId: "parent", modelSelection: rt.defaultSelection, input: "这是工具执行验收，请严格按以下顺序完成，不提前回复：先 workflow_instructions；workflow_start 启动 name=wait-first,input=null,key=first；对返回的 run_id 调用 agent_wait，timeout_ms=300000。收到 result 后必须 workflow_query(part=run,run_id=第一项ID) 核实第一项成功。然后 workflow_start 启动 name=wait-second,input=null,key=second；对第二项 run_id 调用 agent_wait，timeout_ms=300000。如果返回 attention，宿主会回答人工问题，你必须立即再次 agent_wait 同一项，timeout_ms=300000。直到第二项结果返回才总结；不要用查询轮询代替等待，不执行其他业务工具。" });
+    const parent = await rt.submit({ sessionId: session.id, requestId: "parent", modelSelection: rt.defaultSelection, input: "这是工具执行验收，请严格按以下顺序完成，不提前回复：先 workflow_instructions；workflow_start 启动 name=wait-first,input=null,key=first；对返回的 run_id 调用 wait，timeout_ms=300000。收到 result 后必须 workflow_query(part=run,run_id=第一项ID) 核实第一项成功。然后 workflow_start 启动 name=wait-second,input=null,key=second；对第二项 run_id 调用 wait，timeout_ms=300000。如果返回 attention，宿主会回答人工问题，你必须立即再次 wait 同一项，timeout_ms=300000。直到第二项结果返回才总结；不要用查询轮询代替等待，不执行其他业务工具。" });
     const healthy = () => {
       const task = runtime.store.getTask(parent.id)!;
       assert.ok(!["failed", "canceled", "interrupted", "completed"].includes(task.status), JSON.stringify({ status: task.status, error: task.errorMessage }));

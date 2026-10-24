@@ -5,6 +5,35 @@
 
 import * as http from "node:http";
 import type { AddressInfo } from "node:net";
+import type { MockResponse, Responder } from "./mock-provider.ts";
+
+/** 旧 MCP 场景在实际调用前走发现工具；原 responder 只计业务轮次，真实请求仍完整留证。 */
+export function withMcpDiscovery(responder: Responder): Responder {
+  let businessIndex = 0;
+  const pending = new Map<string, { response: MockResponse; attempted: Set<string> }>();
+  const searches = new Set<string>();
+  return async request => {
+    const previous = String(request.messages.at(-1)?.tool_call_id);
+    let next = pending.get(previous);
+    pending.delete(previous);
+    if (!next) {
+      const messages = request.messages.filter(message => !searches.has(String(message.tool_call_id)) &&
+        !(Array.isArray(message.tool_calls) && message.tool_calls.every(call => searches.has(call.id))));
+      next = { response: await responder({ ...request, messages }, businessIndex++), attempted: new Set() };
+    }
+    const { response, attempted } = next;
+    const names = (request.tools ?? []).map(tool => (tool.function as { name: string } | undefined)?.name ?? tool.name);
+    const missing = response.kind === "tool_calls" && names.includes("search_tools")
+      ? response.calls.find(call => call.name.startsWith("mcp_") && !names.includes(call.name) && !attempted.has(call.name)) : undefined;
+    if (missing) {
+      const id = `discover-mcp-${searches.size}`;
+      searches.add(id); attempted.add(missing.name);
+      pending.set(id, next);
+      return { kind: "tool_calls", calls: [{ id, name: "search_tools", arguments: { query: missing.name, limit: 1 } }] };
+    }
+    return response;
+  };
+}
 
 /** 模拟服务默认认证期望值（与调用方配置的凭据秘密一致；脱敏断言共用）。 */
 export const MOCK_MCP_SECRET = "mcp-test-secret-7f3a9b";

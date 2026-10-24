@@ -64,14 +64,14 @@ test("本任务允许的工具：无收窄时即装配结果；未装配的工�
 });
 
 test("内部对话阶段：等待与后台查询开放，工作目录、技能、MCP 和新工具默认拒绝，原任务收窄仍有效", () => {
-  const registered = ["agent_wait", "subagent_result", "workflow_query", "history_read", "read_artifact", "read", "list_files", "search_files", "write", "bash", "skill", "mcp_svc_get", "mock_new", "browser"];
+  const registered = ["wait", "subagent_result", "workflow_query", "history_read", "read_artifact", "read", "list_files", "search_files", "write", "bash", "skill", "mcp_svc_get", "mock_new", "browser"];
   const input = { registered, resourcePhase: "conversation" as const, plan: false, browserEnabled: true, webSearchEnabled: true, mcpEffect: (name: string) => EFFECTS[name] };
   const set = taskToolSet(input);
   assert.deepEqual([...set.allowed], registered.slice(0, 5));
   for (const name of registered.slice(5)) assert.match(set.reasonFor(name), /执行资源未取得/, name);
   assert.deepEqual([...taskToolSet({ ...input, narrow: () => false }).allowed], [], "无工具汇总身份不会因对话阶段取得等待工具");
-  assert.equal(subAgentAllows({ write: false, review: false }, "agent_wait"), false);
-  assert.equal(subAgentAllows({ write: true, review: false }, "agent_wait"), false);
+  assert.equal(subAgentAllows({ write: false, review: false }, "wait"), false);
+  assert.equal(subAgentAllows({ write: true, review: false }, "wait"), false);
   const workflow = executionProfile({ identity: { kind: "subagent", agent, workflow: { runId: "r", stepKey: "s", sourceSessionId: "parent" } },
     writeTarget: false, review: false, planMode: false, workflow: { toolClass: "dev", sourceProjectId: "p", categories: ["workflow", "coding"] } });
   assert.ok(!workflow.workflow!.categories.includes("workflow"), "工作流步骤不会注册等待工具族");

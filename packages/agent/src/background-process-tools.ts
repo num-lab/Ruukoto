@@ -6,11 +6,16 @@ import type { Store } from "@ruukoto/core/store.ts";
 import { hostCallFor, type HostToolContext, type HostToolFamily } from "./host-tool-families.ts";
 
 export const BACKGROUND_PROCESS_TOOL_NAMES = ["process_start", "process_status", "process_output", "process_stop"] as const;
+export interface ProcessWaitResult {
+  reason: "result" | "attention" | "timeout" | "interrupted";
+  targets: [{ kind: "process"; process_id: string; state: BackgroundProcessView["state"]; exit: BackgroundProcessView["exit"]; stopVerified: boolean; attention?: string; next?: string }];
+}
 export interface BackgroundProcessCalls {
   start(ctx: HostToolContext, command: string, signal?: AbortSignal): Promise<BackgroundProcessView>;
   status(ctx: HostToolContext, input: { processId?: string; offset?: number }): unknown;
   output(ctx: HostToolContext, input: { processId: string; stream: "stdout" | "stderr"; offset?: number }): unknown;
   stop(ctx: HostToolContext, processId: string): BackgroundProcessView;
+  wait(ctx: HostToolContext, processId: string, timeoutMs: number, signal?: AbortSignal): Promise<ProcessWaitResult>;
 }
 
 function modelProcess(process: BackgroundProcessView) {
@@ -43,7 +48,7 @@ export function createBackgroundProcessFamily(store: Store): HostToolFamily {
       };
       return [
         defineTool({ name: "process_start", label: "process_start", executionMode: "sequential",
-          description: "在当前工作目录启动一次独立后台命令，返回本会话 process_id 和实际状态，不保证服务已健康。后台跨消息保留；启动交接后本轮只可查状态/日志、停止、提问或浏览。后台持有目录，修改文件、普通命令和同目录委派须先 process_stop，再用 process_status 核实 stopped；无法核实停止时保留占用并报告拥有者。每会话最多一个未核实停止的执行；无 stdin/PTY，日志合计最多16 MiB，达到限额自动请求停止。失败或未知启动先查询原记录，勿重放原命令。",
+          description: "在当前工作目录启动一次独立后台命令，返回本会话 process_id 和实际状态，不保证服务已健康。后台跨消息保留；启动交接后本轮只可等待、查状态/日志、停止、提问或浏览。后台持有目录，修改文件、普通命令和同目录委派须先 process_stop，再用 process_status 核实 stopped；无法核实停止时保留占用并报告拥有者。每会话最多一个未核实停止的执行；无 stdin/PTY，日志合计最多16 MiB，达到限额自动请求停止。失败或未知启动先查询原记录，勿重放原命令。",
           parameters: Type.Object({ command: Type.String({ minLength: 1, maxLength: 16384, description: "非空 Shell 命令，最多16384字符；开发服务明确绑定本机地址。" }) }, { additionalProperties: false }),
           execute: (sdkCallId, params, signal) => invoke(sdkCallId, async (ctx, calls) => modelProcess(await calls.start(ctx, params.command, signal))),
         }),
@@ -58,7 +63,7 @@ export function createBackgroundProcessFamily(store: Store): HostToolFamily {
           execute: (sdkCallId, params) => invoke(sdkCallId, (ctx, calls) => calls.output(ctx, { processId: params.process_id, stream: params.stream, offset: params.offset })),
         }),
         defineTool({ name: "process_stop", label: "process_stop", executionMode: "sequential",
-          description: "登记本会话后台的停止意图并立即返回。接纳不代表已停止；随后用process_status核实 stopped 和stopVerified，核实后才可重新取得目录执行写入。重复停止只核实原执行，不重放命令；stop_unverified保留占用并报告拥有者，不能据进程停止断言外部写入回滚。停止核实覆盖受管执行单元及已确认归属后代；主动脱离的进程或外部服务须另行核实。",
+          description: "登记本会话后台的停止意图并立即返回。接纳不代表已停止；随后用wait或process_status核实 stopped 和stopVerified，核实后才可重新取得目录执行写入。重复停止只核实原执行，不重放命令；stop_unverified保留占用并报告拥有者，不能据进程停止断言外部写入回滚。停止核实覆盖受管执行单元及已确认归属后代；主动脱离的进程或外部服务须另行核实。",
           parameters: Type.Object({ process_id: Type.String({ minLength: 1 }) }, { additionalProperties: false }),
           execute: (sdkCallId, params) => invoke(sdkCallId, (ctx, calls) => modelProcess(calls.stop(ctx, params.process_id))),
         }),

@@ -21,7 +21,7 @@ test("真实 worker：父轮安全让出同目录，另一任务执行，重取�
     if (!tools.length) return { kind: "tool_calls", calls: [{ id: "before", name: "write", arguments: { path: "parent.txt", content: "before\n" } }] };
     if (tools.length === 1) {
       await waitFor("子任务已入队", () => Boolean(childId));
-      return { kind: "tool_calls", calls: [{ id: "wait", name: "agent_wait", arguments: { targets: [{ kind: "task", task_id: childId }] } }] };
+      return { kind: "tool_calls", calls: [{ id: "wait", name: "wait", arguments: { targets: [{ kind: "task", task_id: childId }] } }] };
     }
     return tools.length === 2 ? { kind: "tool_calls", calls: [{ id: "after", name: "write", arguments: { path: "parent.txt", content: "after\n" } }] }
       : { kind: "text", text: "parent-done" };
@@ -116,7 +116,7 @@ test("冷启对话：不读工作区或技能、不启动 MCP，已记录指令�
 });
 
 test("停止未核实：等待拒绝释放目录，下一模型请求不继续", async () => {
-  const t = await startTestRuntime("wait-resource-unverified", () => ({ kind: "tool_calls", calls: [{ id: "wait", name: "agent_wait", arguments: { targets: [{ kind: "task", task_id: "child" }] } }] }),
+  const t = await startTestRuntime("wait-resource-unverified", () => ({ kind: "tool_calls", calls: [{ id: "wait", name: "wait", arguments: { targets: [{ kind: "task", task_id: "child" }] } }] }),
     { config: { ...realTools(), product: codeProduct.runtime }, workDirs: 1 });
   try {
     const rt = t.runtime;
@@ -143,11 +143,16 @@ test("冷启对话恢复：取得目录后才规划 MCP，旧 prompt 退出后�
   const t = await startTestRuntime("wait-resource-mcp-restore", (request, index) => {
     if (index === 0) {
       assert.ok(!toolNamesOf(request).some(name => name.startsWith("mcp_")));
-      return { kind: "tool_calls", calls: [{ id: "wait", name: "agent_wait", arguments: { targets: [{ kind: "task", task_id: "child" }] } }] };
+      return { kind: "tool_calls", calls: [{ id: "wait", name: "wait", arguments: { targets: [{ kind: "task", task_id: "child" }] } }] };
     }
     if (index === 1) {
-      assert.ok(toolNamesOf(request).includes("mcp_restored_read"));
+      assert.ok(toolNamesOf(request).includes("search_tools"));
+      assert.ok(!toolNamesOf(request).includes("mcp_restored_read"));
       assert.ok(toolNamesOf(request).includes("write"));
+      return { kind: "tool_calls", calls: [{ id: "discover", name: "search_tools", arguments: { query: "mcp_restored_read" } }] };
+    }
+    if (index === 2) {
+      assert.ok(toolNamesOf(request).includes("mcp_restored_read"));
       return { kind: "tool_calls", calls: [{ id: "mcp", name: "mcp_restored_read", arguments: {} }] };
     }
     assert.match(JSON.stringify(request.messages), /MCP_RESULT/);
@@ -173,7 +178,7 @@ test("冷启对话恢复：取得目录后才规划 MCP，旧 prompt 退出后�
     await driver.run(task);
     assert.equal(rt.store.getTask(task.id)?.status, "completed");
     assert.equal(mcp.hits.filter(hit => hit.rpcMethod === "tools/call").length, 1);
-    assert.equal(rt.store.listSelectionRecordsByTask(task.id).length, 3);
+    assert.equal(rt.store.listSelectionRecordsByTask(task.id).length, 4);
     assert.equal(rt.store.listAllOccupancy().length, 0);
   } finally { await t.shutdown(); await mcp.close(); }
 });

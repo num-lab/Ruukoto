@@ -13,17 +13,17 @@ import { afterTool, lastToolText, lastUserText, realTools, startTestRuntime, too
 
 const SCRIPT = 'await agent("change",{request:"修改",target:"."}); await agent("validate",{request:"独立验证",verify:"change",dependsOn:["change"]}); return await integrate("merge",{steps:["validate"],dependsOn:["validate"],check:"test \\"$(cat value.txt)\\" = changed"});';
 
-for (const product of [codeProduct.runtime]) test(`agent_wait ${product?.type ?? "ruukoto"}：父轮让出真实 worker 与目录，修改、冻结、验证、汇总后继续检查且唯一报告`, async () => {
+for (const product of [codeProduct.runtime]) test(`wait ${product?.type ?? "ruukoto"}：父轮让出真实 worker 与目录，修改、冻结、验证、汇总后继续检查且唯一报告`, async () => {
   let parentPhase = 0, runId = "";
   const t = await startTestRuntime("agent-wait-workflow", req => {
     if (lastUserText(req) === "等待修改工作流") {
-      assert.ok(toolNamesOf(req).includes("agent_wait"));
+      assert.ok(toolNamesOf(req).includes("wait"));
       switch (parentPhase++) {
         case 0: return { kind: "tool_calls", calls: [{ id: "before", name: "read", arguments: { path: "value.txt" } }] };
         case 1: return { kind: "tool_calls", calls: [{ id: "start", name: "workflow_start", arguments: { title: "后台处理", script: SCRIPT, input: null, key: "modify" } }] };
         case 2:
           runId = (JSON.parse(lastToolText(req)) as { run: { id: string } }).run.id;
-          return { kind: "tool_calls", calls: [{ id: "wait", name: "agent_wait", arguments: { targets: [{ kind: "workflow", run_id: runId }] } }] };
+          return { kind: "tool_calls", calls: [{ id: "wait", name: "wait", arguments: { targets: [{ kind: "workflow", run_id: runId }] } }] };
         case 3:
           assert.equal((JSON.parse(lastToolText(req)) as { reason: string }).reason, "result", JSON.stringify({ result: lastToolText(req), run: t.runtime.getWorkflowDetail(runId) }));
           assert.equal(requireWorkflowRun(t.runtime.store, runId).status, "succeeded", lastToolText(req));
@@ -64,20 +64,20 @@ for (const product of [codeProduct.runtime]) test(`agent_wait ${product?.type ??
     const entries = parseSessionFile(rt.store.getSession(session.id)!.sessionFile!);
     assert.ok(entries.some(entry => {
       const message = entry.message as { role?: string; toolName?: string } | undefined;
-      return entry.type === "message" && message?.role === "toolResult" && message.toolName === "agent_wait";
+      return entry.type === "message" && message?.role === "toolResult" && message.toolName === "wait";
     }));
     assert.equal(rt.store.listTasksBySession(session.id).filter(task => task.requestId.startsWith("workflow-final:")).length, 0);
   } finally { await t.shutdown(); }
 });
 
-test("agent_wait：超时或人工问题只结束一次等待，后台工作仍继续", async () => {
+test("wait：超时或人工问题只结束一次等待，后台工作仍继续", async () => {
   let phase = 0, runId = "";
   const t = await startTestRuntime("agent-wait-timeout", req => {
     if (lastUserText(req).startsWith("[工作流最终回报]")) return { kind: "text", text: "后备汇总" };
     if (phase++ === 0) return { kind: "tool_calls", calls: [{ id: "start", name: "workflow_start", arguments: { title: "后台处理", script: 'await ask("hold",{prompt:"继续吗"}); return "完成";', input: null, key: "hold" } }] };
     if (phase === 2) {
       runId = (JSON.parse(lastToolText(req)) as { run: { id: string } }).run.id;
-      return { kind: "tool_calls", calls: [{ id: "wait", name: "agent_wait", arguments: { targets: [{ kind: "workflow", run_id: runId }], timeout_ms: 1 } }] };
+      return { kind: "tool_calls", calls: [{ id: "wait", name: "wait", arguments: { targets: [{ kind: "workflow", run_id: runId }], timeout_ms: 1 } }] };
     }
     const result = JSON.parse(lastToolText(req)) as { reason: string };
     assert.ok(["timeout", "attention"].includes(result.reason));
@@ -100,7 +100,7 @@ test("非 Git 子任务持真实目录：新拥有者输入打断父等待，内
       if (phase++ === 0) return { kind: "tool_calls", calls: [{ id: "delegate", name: "subagent_delegate", arguments: { key: "direct", request: "真实非 Git 修改", target: "." } }] };
       if (phase === 2) {
         childId = rt.store.listTasksByStatus(["queued", "running"]).find(task => task.subAgentId !== null)!.id;
-        return { kind: "tool_calls", calls: [{ id: "wait", name: "agent_wait", arguments: { targets: [{ kind: "task", task_id: childId }] } }] };
+        return { kind: "tool_calls", calls: [{ id: "wait", name: "wait", arguments: { targets: [{ kind: "task", task_id: childId }] } }] };
       }
       assert.fail("新输入打断后不能恢复旧父模型执行");
     }
@@ -159,7 +159,7 @@ test("非 Git 持目录等待真实审批：attention 与新输入可对话，�
       if (parentPhase++ === 0) return { kind: "tool_calls", calls: [{ id: "delegate", name: "subagent_delegate", arguments: { key: "approval", request: "修改后等待审批", target: "." } }] };
       if (parentPhase === 2) {
         childId = rt.store.listTasksByStatus(["queued", "running"]).find(task => task.subAgentId)!.id;
-        return { kind: "tool_calls", calls: [{ id: "wait", name: "agent_wait", arguments: { targets: [{ kind: "task", task_id: childId }] } }] };
+        return { kind: "tool_calls", calls: [{ id: "wait", name: "wait", arguments: { targets: [{ kind: "task", task_id: childId }] } }] };
       }
       assert.equal((JSON.parse(lastToolText(req)) as { reason: string }).reason, "attention");
       assert.ok(!toolNamesOf(req).some(name => ["read", "write", "bash", "skill"].includes(name)));

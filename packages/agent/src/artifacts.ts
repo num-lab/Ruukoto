@@ -61,7 +61,6 @@ export class ArtifactStore {
   append(artifactId: string, chunk: Buffer): void {
     try {
       if (this.store.getArtifact(artifactId)?.contentHash) throw new Error("不可变产物不可修改");
-      if (chunk.length === 0) return;
       fs.appendFileSync(this.fileFor(artifactId), chunk);
       this.store.addArtifactBytes(artifactId, chunk.length);
     } catch (err) {

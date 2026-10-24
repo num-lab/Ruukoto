@@ -50,7 +50,7 @@ npx tsx --test verification/foundation/test/03-tools.test.ts
 | `apps/ruukoto/src/personal-*.ts`（独立 Pi 1.3.0） | 配置、机器设置、外部占用、托管技能、菜单、IM及正式制品按[个人检查集](../.agents/skills/pre-push-checks/SKILL.md#2-按面选证据)选择；会话后台用 `test/personal-background-processes.test.ts`，`ssh tx` 隔离目录另跑同文件“真实Linux”用例；真实模型用 `verification/smoke/smoke-personal-durable.mts`，前提见[操作手册](usage.md#25-个人-agent-引导与管理)。生产切换单独验收 |
 | `apps/ruukoto/src/service-helper.ts`、`deploy/systemd/ruukoto-service.mjs` | `test/service-helper-transport.test.ts`（传输退出/捕获）、`test/service-helper-stop.test.ts`（Linux 进程/系统命令桩）；helper 与旧存储规则分别为 `test/78-linux-service-management.test.ts`、`test/79-standing-permissions.test.ts`，新调用方为 `test/personal-services.test.ts`、`test/personal-service-operations.test.ts` |
 | `packages/runtime/src/` 与 `packages/control/src/` 的任务生命周期 | `test/01-concurrency.test.ts` 至 `test/05-overflow-db.test.ts`、`test/66-control-seam.test.ts`、`test/94-task-ending.test.ts` |
-| `packages/agent/src/` 的执行、审批与权限 | `test/07-real-tools.test.ts`、`test/08-approvals.test.ts`、`test/10-access-modes.test.ts`、`test/63-approval-gate.test.ts`、`test/64-tool-op-ledger.test.ts` |
+| `packages/agent/src/` 的执行、审批、权限与新增工具 | 按[工具检查集](../.agents/skills/pre-push-checks/SKILL.md#2-按面选证据)选实际工具、审批、权限、发现、正文与预览用例 |
 | 浏览器 | `test/browser-tools.test.ts`、`test/browser-lifecycle.test.ts`；[验收入口](../.scratch/agent-browser/evidence/implementation-checks.md) |
 | Coding 会话后台 | `test/background-processes.test.ts`、`test/background-processes-recovery.test.ts`；core、客户端、平台串行前提与真实browser/模型入口见[后台检查集](../.agents/skills/pre-push-checks/SKILL.md#2-按面选证据) |
 | `packages/agent/src/script-worker/` | `test/104-workflow-script.test.ts`、`test/100-worker-stop.test.ts` |

@@ -2,6 +2,8 @@
 
 Status: implemented
 
+模型工具接口的后续决定见[按需工具发现](../feature/2026-10-25-code-tool-discovery.md)；本篇持久化与权限机制仍有效。
+
 Code 项目配置与凭据范围由[实例 MCP 方案](../../implemented/simplification/2026-10-24-code-instance-mcp.md)取代；本篇保留被取代的原决定，传输、允许列表、钉版与未知效果规则继续成立。
 
 相关未实施方案：[桌面设置管理](../../proposed/feature/2026-10-21-desktop-settings-management.md)复用本篇服务配置与发现，不扩展传输和授权。

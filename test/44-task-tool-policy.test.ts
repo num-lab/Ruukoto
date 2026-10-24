@@ -67,9 +67,10 @@ test("宿主任务白名单：只读 MCP、调用门与发送校验，下一普�
     assert.equal(owner.status, "completed", owner.errorMessage ?? owner.interruptReason ?? "");
     assert.equal(driver.sdk, sdk, "任务限制变化不重建 SDK 会话");
     assert.equal(readFileSync(marker, "utf8"), "owner\n", "普通任务恢复工具执行能力");
-    for (const name of ["mock_mark", "history_search", "web_search", "mcp_policy_write", "mcp_policy_unknown"]) {
+    for (const name of ["mock_mark", "history_search", "web_search", "search_tools"]) {
       assert.ok(namesOf(ownerCallIndex).includes(name), `下一任务恢复 ${name}`);
     }
+    assert.ok(!namesOf(ownerCallIndex).some(name => name.startsWith("mcp_")), "普通任务恢复搜索入口，MCP仍须发现");
 
     // 模拟 SDK 向发送载荷泄漏已注册的写工具，最终发送门须阻止整个请求。
     const setActiveTools = sdk.setActiveToolsByName.bind(sdk);

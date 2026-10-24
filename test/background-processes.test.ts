@@ -11,10 +11,10 @@ import { parseSessionFile } from "@ruukoto/core/history.ts";
 import { afterTool, realTools, startTestRuntime, toolNamesOf, waitFor } from "./helpers/testkit.ts";
 
 test("后台观测允许Plan查停但无启动和浏览资格，pending提问只保留状态与日志", () => {
-  const names = ["process_start", "process_status", "process_output", "process_stop", "browser", "ask_user", "write", "agent_wait"];
+  const names = ["process_start", "process_status", "process_output", "process_stop", "browser", "ask_user", "write", "wait"];
   const tools = taskToolSet({ registered: names, plan: true, resourcePhase: "conversation", backgroundObservation: true,
     backgroundProcessesEnabled: true, backgroundStartEnabled: false, ownerQuestionsEnabled: true, browserEnabled: false, webSearchEnabled: true, mcpEffect: () => undefined });
-  assert.deepEqual([...tools.allowed], ["process_status", "process_output", "process_stop", "ask_user"]);
+  assert.deepEqual([...tools.allowed], ["process_status", "process_output", "process_stop", "ask_user", "wait"]);
   const pending = taskToolSet({ registered: names, plan: false, resourcePhase: "conversation", backgroundObservation: true,
     backgroundProcessesEnabled: true, backgroundStartEnabled: false, ownerQuestionPending: true, browserEnabled: true, webSearchEnabled: true, mcpEffect: () => undefined });
   assert.deepEqual([...pending.allowed], ["process_status", "process_output"]);
@@ -77,7 +77,7 @@ test("全新会话后台跨轮保留、交接即拒绝写入，停止核实后�
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(t.runtime.store.getTask(blocked.id)!.status, "queued");
     assert.ok(!toolNamesOf(t.server.calls[1]).includes("subagent_delegate"));
-    assert.ok(!toolNamesOf(t.server.calls[1]).includes("agent_wait"));
+    assert.ok(toolNamesOf(t.server.calls[1]).includes("wait"));
     await t.runtime.cancelTask(blocked.id);
     assert.throws(() => t.runtime.backgroundProcessOutput({ sessionId: other.id, processId, stream: "stdout" }), { code: "background_not_found" });
     await assert.rejects(t.runtime.stopBackgroundProcess({ sessionId: other.id, processId }), { code: "background_not_found" });

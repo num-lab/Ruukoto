@@ -98,14 +98,14 @@ export interface WorkflowExecutionProfile {
 }
 
 export function sourceAllows(profile: WorkflowExecutionProfile, name: string): boolean {
-  return !name.startsWith("process_") && name !== "ask_user" && !(profile.toolClass === "main" && name === "todo_write") && name !== "coding_delegate" && name !== "browser" &&
+  return !name.startsWith("process_") && name !== "ask_user" && name !== "present" && !(profile.toolClass === "main" && name === "todo_write") && name !== "coding_delegate" && name !== "browser" &&
     (!profile.hostVerify || SUBAGENT_WRITE_TOOL_NAMES.has(name)) &&
     !name.startsWith("workflow_") && (!name.startsWith("subagent_") || (name === "subagent_message" && profile.collaboration === true)) &&
     (!profile.tools || profile.tools.includes(name));
 }
 
 export function workflowAllows(profile: WorkflowExecutionProfile, name: string): boolean {
-  return !name.startsWith("process_") && name !== "ask_user" && !(profile.toolClass === "main" && name === "todo_write") && !name.startsWith("subagent_") && !name.startsWith("workflow_") && name !== "coding_delegate" && name !== "browser" &&
+  return !name.startsWith("process_") && name !== "ask_user" && name !== "present" && !(profile.toolClass === "main" && name === "todo_write") && !name.startsWith("subagent_") && !name.startsWith("workflow_") && name !== "coding_delegate" && name !== "browser" &&
     (profile.verifyTarget === true || !["edit", "write", "bash", "request_file_access"].includes(name)) &&
     (!profile.tools || profile.tools.includes(name));
 }
@@ -166,11 +166,11 @@ export type AgentResourcePhase = "execution" | "conversation";
 
 /** 对话阶段只访问后台记录；未分类工具不能借只读名称取得工作目录。 */
 export const CONVERSATION_TOOL_NAMES: ReadonlySet<string> = new Set([
-  "agent_wait", "subagent_result", "workflow_query", "workflow_instructions", "history_search", "history_read", "read_artifact",
+  "wait", "present", "subagent_result", "workflow_query", "workflow_instructions", "history_search", "history_read", "read_artifact",
 ]);
 
 export const OWNER_QUESTION_PENDING_TOOL_NAMES: ReadonlySet<string> = new Set(["subagent_result", "workflow_query", "workflow_instructions"]);
-const BACKGROUND_OBSERVATION_TOOL_NAMES: ReadonlySet<string> = new Set(["process_status", "process_output", "process_stop", "ask_user", "browser"]);
+const BACKGROUND_OBSERVATION_TOOL_NAMES: ReadonlySet<string> = new Set(["process_status", "process_output", "process_stop", "wait", "ask_user", "browser", "present"]);
 
 /** 本任务允许的工具（任务开始时算一次）：已装配的工具减去任务收窄与关闭的 Web Search。 */
 export function taskToolSet(input: {

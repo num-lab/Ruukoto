@@ -82,7 +82,7 @@ test("真实控制面等待：实时与重连含完整对象，TUI 状态与实�
         key: "view", input: null, script: 'return await agent("child",{request:"WAIT_CHILD"});',
       } }] };
       runId = (JSON.parse(lastToolText(request)) as { run: { id: string } }).run.id;
-      return { kind: "tool_calls", calls: [{ id: "wait", name: "agent_wait", arguments: { targets: [{ kind: "workflow", run_id: runId }] } }] };
+      return { kind: "tool_calls", calls: [{ id: "wait", name: "wait", arguments: { targets: [{ kind: "workflow", run_id: runId }] } }] };
     }
     if (input.includes("WAIT_CHILD")) { await childReady; return { kind: "text", text: "后台完成" }; }
     return { kind: "text", text: "新输入已处理" };
@@ -125,13 +125,13 @@ test("真实控制面等待：实时与重连含完整对象，TUI 状态与实�
     await waitFor("新输入完成", () => t.runtime.store.getTask(next.id)?.status === "completed");
     const interrupted = await again.request<OpResult<"get_task">>("get_task", { task_id: parent.id });
     assert.equal(interrupted.task.wait?.reason, "owner_input");
-    const waitOp = interrupted.toolOps.find(op => op.toolName === "agent_wait")!;
+    const waitOp = interrupted.toolOps.find(op => op.toolName === "wait")!;
     assert.equal(waitOp.effectUnknown, false);
     assert.equal(interrupted.task.effectUnknown, false);
   } finally { releaseChild(); for (const client of clients) client.close(); await t.shutdown(); }
 });
 
-test("真实工具资格：SubAgent、工作流步骤与无工具后备汇总均不能调用 agent_wait", async () => {
+test("真实工具资格：SubAgent、工作流步骤与无工具后备汇总均不能调用 wait", async () => {
   let parentPhase = 0;
   const checked = new Set<string>();
   const t = await startTestRuntime("wait-tool-class", request => {
@@ -145,10 +145,10 @@ test("真实工具资格：SubAgent、工作流步骤与无工具后备汇总均
     }
     const kind = input.startsWith("[工作流最终回报]") ? "fallback" : input.includes("WORKFLOW_MARK") ? "workflow" : "subagent";
     checked.add(kind);
-    assert.ok(!toolNamesOf(request).includes("agent_wait"));
+    assert.ok(!toolNamesOf(request).includes("wait"));
     if (kind === "fallback") assert.deepEqual(toolNamesOf(request), []);
-    if (!afterTool(request)) return { kind: "tool_calls", calls: [{ id: `hidden-${kind}`, name: "agent_wait", arguments: { targets: [{ kind: "task", task_id: "foreign" }] } }] };
-    assert.match(lastToolText(request), /Tool agent_wait not found|白名单/);
+    if (!afterTool(request)) return { kind: "tool_calls", calls: [{ id: `hidden-${kind}`, name: "wait", arguments: { targets: [{ kind: "task", task_id: "foreign" }] } }] };
+    assert.match(lastToolText(request), /Tool wait not found|白名单/);
     return { kind: "text", text: `${kind}完成` };
   }, { config: { product: codeProduct.runtime }, workDirs: 1 });
   try {
@@ -157,6 +157,6 @@ test("真实工具资格：SubAgent、工作流步骤与无工具后备汇总均
     await waitFor("三类真实调用均被拒绝", () => checked.size === 3 && t.runtime.store.listTasksByStatus(["running", "queued"]).length === 0);
     assert.deepEqual(checked, new Set(["subagent", "workflow", "fallback"]));
     assert.equal(listAgentWaits(t.runtime.store).length, 0);
-    assert.ok(t.runtime.store.listAllUnresolvedToolOps().every(op => op.toolName !== "agent_wait"));
+    assert.ok(t.runtime.store.listAllUnresolvedToolOps().every(op => op.toolName !== "wait"));
   } finally { await t.shutdown(); }
 });

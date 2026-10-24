@@ -51,6 +51,9 @@ export class DesktopInspector {
   readonly snapshots = new Map<string, ReadSnapshotState>();
   private readonly directoryRefreshes = new Map<string, Promise<void>>();
   private generation = 0;
+  private readonly presented = new Set<string>();
+  private readonly presentationVersions = new Map<string, number>();
+  private readonly pendingPresentations = new Set<string>();
   private workRead = 0;
   private detailRead = 0;
   constructor(private readonly bridge: Pick<DesktopBridge, "request">, private readonly view: ViewState, private readonly history: (id: string) => Promise<void>, private readonly changed: () => void, readonly target: DesktopTarget = "code", private readonly background?: { sessionId: string | null; open(sessionId: string): void; close(): void }) {}
@@ -73,6 +76,7 @@ export class DesktopInspector {
       this.directories.clear(); this.files.clear(); this.repositories.clear(); this.snapshots.clear();
       this.works = []; this.detail = null; this.result = null; this.results.clear(); this.workError = null;
       if (update.instanceChanged || (this.parentSessionId && !this.view.sessions.some(session => session.id === this.parentSessionId))) {
+        this.presented.clear(); this.presentationVersions.clear(); this.pendingPresentations.clear();
         for (const tab of this.terminalTabs()) this.releaseTerminal(tab.id);
         this.parentSessionId = null; this.childSessionId = null; this.workId = null; this.diff = null; this.tabsByParent.clear(); this.activeByParent.clear(); this.folders.clear();
       }
@@ -81,6 +85,14 @@ export class DesktopInspector {
       if (this.visible && active?.kind === "git") void this.loadGit(active.workspaceId);
     } else if (update.type === "event") {
       const body = update.event.body;
+      if (this.target === "code" && update.kind === "live" && body.type === "task.tool_result" && !body.isError && !this.presented.has(body.toolOpId)) {
+        const sessionId = update.event.sessionId ?? this.view.tasks.get(body.taskId)?.sessionId;
+        const tool = sessionId && this.view.openSession(sessionId).flow.items.find(item => item.kind === "tool" && item.toolOpId === body.toolOpId);
+        if (sessionId && tool && tool.kind === "tool" && tool.name === "present") {
+          this.presented.add(body.toolOpId);
+          void this.openPresentation(sessionId, tool);
+        }
+      }
       if (body.type.startsWith("work_delegation.") || body.type.startsWith("subagent") || body.type === "task.queued" || body.type === "task.completed" || body.type === "task.failed" || body.type === "task.interrupted" || body.type === "task.canceled") {
         if (this.parentSessionId) void this.loadWorks();
       }
@@ -92,6 +104,7 @@ export class DesktopInspector {
     // 后台状态只属于一个会话；换父会话时先清，活动标签若是后台页会立即重开新会话的状态。
     if (this.background?.sessionId) this.background.close();
     this.parentSessionId = sessionId; this.childSessionId = null; this.workId = null;
+    if (this.pendingPresentations.delete(sessionId)) this.visible = true;
     this.works = []; this.detail = null; this.diff = null; this.result = null; this.workError = null;
     const active = this.activeTab();
     if (active) this.selectTab(active.id);
@@ -99,13 +112,13 @@ export class DesktopInspector {
   }
   tabs(): InspectorTab[] { return this.tabsByParent.get(this.parentSessionId ?? "") ?? []; }
   activeTab(): InspectorTab | undefined { return this.tabs().find(tab => tab.id === this.activeByParent.get(this.parentSessionId ?? "")) ?? this.tabs().at(-1); }
-  private addTab(tab: InspectorTab): void {
-    const parent = this.parentSessionId ?? "";
-    const tabs = this.tabs();
+  private addTab(tab: InspectorTab, parent = this.parentSessionId ?? ""): void {
+    const tabs = this.tabsByParent.get(parent) ?? [];
     if (!tabs.some(item => item.id === tab.id)) {
-      const active = this.activeTab();
+      const active = tabs.find(item => item.id === this.activeByParent.get(parent)) ?? tabs.at(-1);
       this.tabsByParent.set(parent, active?.kind === "new" ? tabs.map(item => item.id === active.id ? tab : item) : [...tabs, tab]);
     }
+    if (parent !== (this.parentSessionId ?? "")) { this.activeByParent.set(parent, tab.id); this.pendingPresentations.add(parent); this.changed(); return; }
     this.visible = true;
     this.selectTab(tab.id);
   }
@@ -190,6 +203,8 @@ export class DesktopInspector {
   }
   retryTerminalStop(id: DesktopTerminalId): void { this.releaseTerminal(id); this.changed(); }
   closeParent(sessionId: string): void {
+    this.presentationVersions.set(sessionId, (this.presentationVersions.get(sessionId) ?? 0) + 1);
+    this.pendingPresentations.delete(sessionId);
     const tabs = this.tabsByParent.get(sessionId) ?? [];
     for (const tab of tabs) if (tab.kind === "terminal") this.releaseTerminal(tab.id);
     if (this.background?.sessionId === sessionId) this.background.close();
@@ -253,6 +268,28 @@ export class DesktopInspector {
     this.addTab({ id: "background", kind: "background", title: "后台进程" });
   }
   openFile(workspaceId: string, path: string): void { if (this.target !== "code") return; this.addTab({ id: `file:${workspaceId}:${path}`, kind: "file", title: path.split("/").at(-1) ?? path, workspaceId, path, mode: "preview" }); }
+  // Note: 见 .agents/notes/implemented/feature/2026-10-25-code-present.md
+  async openPresentation(sessionId: string, tool: DiffTool): Promise<boolean | null> {
+    if (this.target !== "code" || tool.name !== "present" || tool.status !== "done" || !tool.taskId) return false;
+    const generation = this.generation, version = (this.presentationVersions.get(sessionId) ?? 0) + 1;
+    this.presentationVersions.set(sessionId, version);
+    if (tool.paramsTruncated) await this.loadToolParams(sessionId, tool);
+    if (generation !== this.generation || this.presentationVersions.get(sessionId) !== version || !this.online) return null;
+    const params = tool.paramsTruncated ? this.toolParams(sessionId, tool)?.value : tool.params;
+    if (!params || Object.keys(params).length !== 1) return false;
+    if (typeof params.url === "string") {
+      const url = /^https?:\/\//i.test(params.url.trim()) ? browserAddress(params.url) : null;
+      if (!url) return false;
+      const existing = this.tabsByParent.get(sessionId)?.find(tab => tab.kind === "browser");
+      if (existing?.kind === "browser") existing.navigation = navigateBrowser(existing.navigation, url);
+      this.addTab(existing ?? { id: "browser", kind: "browser", title: "浏览器", navigation: browserNavigation(url) }, sessionId);
+      return true;
+    }
+    if (typeof params.path !== "string" || !params.path.trim() || tool.artifactIds.length !== 1) return false;
+    this.addTab({ id: `present:${sessionId}:${tool.toolOpId ?? tool.entryId ?? tool.key}`, kind: "read-snapshot", title: params.path.split("/").at(-1) || "文件预览",
+      path: params.path, sessionId, taskId: tool.taskId, artifactId: tool.artifactIds[0], mode: "preview" }, sessionId);
+    return true;
+  }
   async openToolFile(sessionId: string, tool: DiffTool): Promise<boolean | null> {
     if (this.target !== "code") return false;
     const generation = this.generation, parent = this.parentSessionId;

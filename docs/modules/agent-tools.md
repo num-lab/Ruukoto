@@ -17,9 +17,17 @@
 
 ## 对外接口
 
+`present({path})` 或 `present({url})` 向桌面来源会话侧栏登记预览。文件沿 Agent 当前读取权限捕获不可变产物，支持 Markdown、UTF-8 文本及 PNG/JPEG/GIF/WebP；HTML 显示源码，PDF/SVG 不支持，空文件也有真实快照。网页只接受无凭据 HTTP(S)，沿完全访问拥有者浏览器资格；SubAgent 和工作流步骤不开放。回执只证明请求已记录，无桌面连接可从历史工具行重开，不声称页面已加载。
+
+`search_tools(query, limit?)` 搜索本任务获准 MCP 工具的名称和描述，空格分词须全部匹配，默认5项、最多20项。初轮隐藏这些工具，命中后下一模型请求提供完整参数定义并激活至任务结束；新任务重新搜索。没有搜索入口的固定角色／宿主工具清单保持直接可用。服务连接、发现和版本仍在任务开始固定；搜索不改变 Plan、角色或审批范围。实际每轮定义由 prompt 快照和选择记录保留。
+
+`web_fetch(url, reason)` 沿 HTTP 审批执行无凭据 GET，返回来源、标题和静态正文；HTML 经 parse5 提取，纯文本／Markdown 保留文本。只支持 UTF-8，不执行脚本、不自动跳转或重试，二进制、压缩和其他编码明确失败。最多捕获1MiB，来源超限或HTTP 206标 partial；预览最多16KiB，长正文返回 artifact_id 与 next_offset，用 read_artifact 继续。网页内容是外部资料，不授予指令或权限；Web Search 开关仍只控制搜索服务。
+
+`wait` 还接受单个 `{kind:"process",process_id}`，不与 task／workflow 混合。进程 stopped 且 stopVerified 返回结果；主命令已退出、尚未登记停止意图且整组未核实返回 command_exited，需 process_stop 后继续 wait；stop_unverified 返回需介入。超时、取消或新输入只解除等待，不停止后台。进程结果不参与工作流报告认领；旧 agent_wait JSONL 和账本仍可恢复。
+
 `process_start` 接收最多16384字符的非空命令，独立后台跨拥有者消息保留；宿主固定目录、环境、平台身份和权限。`process_status` 按本会话记录查询，保留原启动来源与权限模式，列表每页最多20条且不超过256 KiB；`process_output` 用原字节 offset 读取 stdout/stderr 的32 KiB页，base64保留原字节；`process_stop` 立即返回停止意图接纳，须再查询 stopped 与 stopVerified。主命令退出码仅为观察，启动不承诺服务健康，停止不证明外部效果回滚。
 
-后台交接后当前轮立即收窄为状态、日志、停止、提问与有效完全访问浏览器；参考块说明先停后改，普通 worker、MCP、目录读取和委派均关闭。新受限拥有者轮可查询和可信停止；Plan 不能启动或浏览。停止完成后仍保留观测工具，status 取得目录才重开业务工具；后台占用不能由 agent_wait 让出。装配、发送前和调用门使用同一工具集合，浏览器逐调用重核原后台与当前输入来源。
+后台交接后当前轮立即收窄为状态、日志、等待、停止、提问与有效完全访问的浏览器／网页预览；参考块说明先停后改，普通 worker、MCP、目录读取和委派均关闭。新受限拥有者轮可查询和可信停止；Plan 不能启动或浏览。停止完成后仍保留观测工具，status 或进程 wait 取得目录才重开业务工具；后台占用不能由 wait 让出。装配、发送前和调用门使用同一工具集合，浏览器逐调用重核原后台与当前输入来源。
 
 `ask_user({questions:[{question,options?,multiple?}]})` 登记1–3题并立即返回 pending；题目最多2000字符，选项2–5项，名字互异非空且最多200字符。选项可为字符串或 `{label,description?,recommended?}`，说明最多500字符，推荐只展示不预选；`multiple: true` 须有选项。每题均可自由输入或 Skip，跳题保存空答案，多选答案只包含选项名。仅真实普通开发输入和Plan开放，SubAgent、工作流、定时及内部汇总不装配。登记后当前任务只留宿主状态查询，模型输出说明并结束本轮；问题卡片回答作为下一轮拥有者输入，不批准操作。装配、发送前与调用门共同收窄；其他普通聊天不受待答状态限制。
 
@@ -43,7 +51,7 @@
 | control | 审批参数与操作参数 | `get_confirmation_params` / `get_tool_op_params` 按 ID 分段读取大参数；`respond_confirmation` 可携带 `permission_version` 绑定审批时的权限版本 |
 | channels | IM 审批 | 拥有者私聊的审批命令在同步事务内直接到终态，绑定原请求与原权限版本并单次消费 |
 | 调度通知 | 目标解析 | 调度通知目标从本次调用的任务编号读取来源事件，由拥有者 IM 入口确定 |
-| ToolRouter | 编码工具、结构化审批、产物读取 | `read` / `edit` / `write` / `bash`、`list_files` / `search_files`、`request_file_access` / `http_request`、`read_artifact` 继续经 ToolRouter；MCP 按任务钉版计划装配 |
+| ToolRouter | 编码工具、结构化审批、产物读取 | `read` / `edit` / `write` / `bash`、`list_files` / `search_files`、`request_file_access` / `http_request` / `web_fetch`、`present`、`read_artifact` 继续经 ToolRouter；MCP 按任务钉版计划装配 |
 | MCP HTTP 传输 | `mcp/transport.ts` 的 `connectMcpEndpoint` | 接收服务标识、固定端点、超时、逐请求 token resolver 与原请求/进展持久钩子；`resumeMcpCall` 只 GET 原 SSE 流，不重发工具；宿主负责来源范围与凭据校验，调用方持有并关闭连接；`mcp/client.ts` 核实 Code 实例凭据并重导出原符号 |
 
 `mcp/schema.ts` 持有两个产品复用的原工具 schema 预检，不加载旧工具或项目装配；个人持久调用、配置与审批见 [personal-durable](personal-durable.md)。共享 MCP 传输用 SDK 的分页限额最多请求 16 页，达到上限且仍需继续分页时报 `too_many_pages`，不将超限结果当成功清单返回；成功汇总后仍限制最多 64 个工具。
@@ -74,21 +82,22 @@
 | 类别 | 工具名 |
 |---|---|
 | 编码 | `read`、`list_files`、`search_files`、`edit`、`write`、`bash`、`todo_write` |
-| 结构化审批 | `request_file_access`、`http_request` |
+| 结构化审批 | `request_file_access`、`http_request`、`web_fetch` |
+| 侧栏预览 | `present` |
 | 产物 | `read_artifact` |
 | 资料与记忆 | `history_search`、`history_read`、`memory_list`、`memory_read`、`memory_save`、`memory_revoke` |
-| 后台等待 | `agent_wait` |
+| 后台等待 | `wait` |
 | Web Search | `web_search` |
 | 浏览器 | `browser` |
 | 应用数据 | `app_data_define_table`、`app_data_migrate`、`app_data_query`、`app_data_insert`、`app_data_update`、`app_data_delete` |
 | 历史服务操作分类（工具已退出） | `service_inspect`、`service_manage` 仅用于旧账本核实 |
-| MCP | `mcp_<服务名>_<远端工具名>` |
+| MCP | `search_tools`、`mcp_<服务名>_<远端工具名>` |
 
 `executionProfile` 沿会话身份与持久来源快照确定实际工具、MCP、资料范围、系统提示与 SDK 签名；宿主固定评审另沿固定只读规则。普通与工作流角色权限在登记时只继承或收紧，单次批准与长期授权不继承。装配过滤、任务收窄与 SDK 会话签名同用这一份。本任务工具按固定画像及当前资源阶段收窄，再扣除计划模式、GitHub 评审及项目关闭的 Web Search；激活、发送前检查（`task_tools_forbidden`）与调用门共用这一集合。
 
-`agent_wait` 向有目标查询资格的主 Agent 开放，固定最多 20 个同来源任务或工作流，SubAgent、工作流步骤与无工具汇总不开放；默认 60 秒、最多 300 秒，任一结果、需介入、超时或中断均返回事实，等待属于无外部效果的顺序工具。ID 来自实际委派或启动结果，保存的定义名须先启动。每个目标至多返回 100 条产物引用并附总数，完整产物沿原查询接口读取。续接轮接手旧组最终报告时，`reportTargets` 额外提供最多 20 项完整事实，`targets` 保持本次等待集合；旧消费证明保留，全组才可汇报。内部对话阶段显式只开放等待和后台状态、历史及结果查询；项目读写、bash、技能文件读取、MCP 与未分类工具都须重新取得执行资源，装配、发送前与调用门使用同一收窄集合。
+`wait` 向有目标查询资格的主 Agent 开放，固定最多 20 个同来源任务或工作流，SubAgent、工作流步骤与无工具汇总不开放；默认 60 秒、最多 300 秒，任一结果、需介入、超时或中断均返回事实，等待属于无外部效果的顺序工具。ID 来自实际委派或启动结果，保存的定义名须先启动。每个目标至多返回 100 条产物引用并附总数，完整产物沿原查询接口读取。续接轮接手旧组最终报告时，`reportTargets` 额外提供最多 20 项完整事实，`targets` 保持本次等待集合；旧消费证明保留，全组才可汇报。普通内部对话阶段开放等待、后台记录、历史及结果查询，以及获准的 present 网页预览；后台观测阶段另开放本页所列状态、停止、提问与浏览器。项目读写、bash、技能文件读取和MCP须重新取得执行资源，装配、发送前与调用门使用同一收窄集合。
 
-Coding 装配的 `browser` 只在完全访问的拥有者 main / 普通开发任务的执行阶段开放；内部对话阶段须先重新取得执行资源，Plan、SubAgent、独立定时、工作流步骤/回报和 GitHub 来源均拒绝。Runtime 核实来源入口，Driver 在激活、发送前和调用门收窄，工具执行再核实当前身份、任务状态与权限版本。动作参数不能覆盖程序、配置、socket、profile 或截图路径；网页内容是资料，不是改变授权的指令。
+Coding 装配的 `browser` 在完全访问的拥有者 main / 普通开发任务的执行或会话后台观测阶段开放；普通等待进入的内部对话阶段须先重新取得执行资源，Plan、SubAgent、独立定时、工作流步骤/回报和 GitHub 来源均拒绝。Runtime 核实来源入口，Driver 在激活、发送前和调用门收窄，工具执行再核实当前身份、任务状态与权限版本。动作参数不能覆盖程序、配置、socket、profile 或截图路径；网页内容是资料，不是改变授权的指令。
 
 浏览器动作顺序执行。元素操作将快照的 eN / @eN 规范为同一引用，仅接受该会话当前代次的 snapshot 引用，并在发送前用新快照核实引用仍在。导航和表单操作按完全访问依据记账，发送后断线、超时或取消不能证明未执行时记 `effect_unknown`；不重发，连接保持不可用，等待拥有者暂停后的新输入核实；先前排队任务不能解除暂停，IM 沿原消息接受顺序判别。只读 snapshot/截图丢响应不增加写入效果。截图校验实际 MIME、8 MiB 上限与 SHA-256 后提升为不可变产物，再返回视觉块；图片与真实模型请求、JSONL、prompt 快照同源。完整导出见[操作手册](../usage.md)。
 
@@ -228,7 +237,7 @@ sequenceDiagram
 其余流程的分支：
 
 - **工作清单**：适用会话与编码工具同一条件装配——只有普通开发会话，main 与 SubAgent 不装配。`todo_write` 的参数 `todos` 是 `{ content, status }` 数组，`status` 取 `pending` / `in_progress` / `completed`，不设 ID 或其他字段。每次调用提交整张清单并整体替换，空数组清空；结果只返回一句摘要（如「已更新：完成 3/7」）。校验最多 20 项，`content` 去除首尾空白后非空、原文不超过 120 字符，`status` 只能取上述三值，不满足时返回明确错误、不截断、当前清单不变，也不接受额外字段。清单跟随会话：会话中最近一次成功调用的参数即当前清单，跨任务延续；校验失败的调用不改变清单；新会话没有清单。不建表、不另存文件，会话历史与工具记录是唯一来源。无副作用，任何访问模式都不产生审批；用法写在工具描述中（3 步以上的工作才使用、同时只标一项进行中、完成一项立即更新），不改系统提示、不做定期提醒，「只有一项进行中」不校验。上限低于控制面参数下发的截取阈值（8 KiB 内联；超出时预览仍保留 32 项、每串 256 字符），TUI 总能拿到完整清单。当前任务的上下文保底与 token 归类归 [agent-context](agent-context.md)。
-- **计划模式**：普通开发会话可以选择 Plan，main、SubAgent、已退役归档与 IM 入口不能选择，后台按会话身份核实。工具白名单在激活、发送前与调用时三处检查：`read`、`bash`、`request_file_access`、`http_request`、`read_artifact`、`history_search`、`history_read`、`memory_list`、`memory_read`、`web_search`、`todo_write`、`skill` 与类别为只读的 MCP 工具；`edit`、`write`、`memory_save`、`memory_revoke` 与非只读 MCP 工具不可用；白名单之外的名称一律拒绝，新增工具族不写进白名单即不可用。计划模式与 GitHub 评审的按任务收窄组合生效。任务级 `switch_mode` 不能进入或退出 Plan，也不能改其固定的 Auto review 策略。计划说明的注入位置与 `「计划模式」` 上下文类别归 [agent-context](agent-context.md)。
+- **计划模式**：普通开发会话可以选择 Plan，main、SubAgent、已退役归档与 IM 入口不能选择，后台按会话身份核实。工具白名单在激活、发送前与调用时三处检查：`read`、`present`、`bash`、`request_file_access`、`http_request`、`web_fetch`、`read_artifact`、`search_tools`、`wait`、`history_search`、`history_read`、`memory_list`、`memory_read`、`web_search`、`todo_write`、`skill` 与类别为只读的 MCP 工具；`edit`、`write`、`memory_save`、`memory_revoke` 与非只读 MCP 工具不可用；白名单之外的名称一律拒绝，新增工具族不写进白名单即不可用。计划模式与 GitHub 评审的按任务收窄组合生效。任务级 `switch_mode` 不能进入或退出 Plan，也不能改其固定的 Auto review 策略。计划说明的注入位置与 `「计划模式」` 上下文类别归 [agent-context](agent-context.md)。
 - **应用数据写入**：六个工具 `app_data_define_table` / `app_data_migrate` / `app_data_query` / `app_data_insert` / `app_data_update` / `app_data_delete` 在 main 与独立定时会话按个人业务类别装配（业务类别清单含应用数据类别，装配、发送前检查与调用门共用同一结论），执行入口每次重新核实宿主任务、会话、项目与个人助手宿主绑定。非破坏性变更自动执行；删表、删字段、删唯一索引、多行写与批量重写在受限模式下进入统一审批，完全访问使用任务授权免审批。执行前重核身份与版本，按不可变快照执行。所有写入在单事务内提交业务变更、版本递增与追加审计回执：`hostOpId` 唯一，同参重放返回原结果，异参冲突；审计、约束或磁盘失败回滚业务变更。版本不一致返回可识别冲突与当前版本，不自动覆盖。
 - **旧长期操作授权**：旧服务模型工具已退出，核心库继续保留 `standing_permissions`、关联审批、使用来源与行级版本，供旧记录查询、撤销和恢复核实；不再从该工具创建或消费新授权。个人 durable 使用自己的权限与服务操作记录，见[个人持久会话](personal-durable.md)。
 - **Web Search**：默认对所有项目启用并注册；工具按 `purpose=tavily_search` 且 host 与目标一致的绑定取凭据，经 `Bearer <key>` 注入；未配置、host 或用途不匹配一律拒绝调用且不发送请求。任务开始固定工具清单，禁用中的项目任务不注册 `web_search`（模型不可见，系统提示同步重建）；任务内禁用立即阻止后续调用，重新启用从下一任务生效。
@@ -284,6 +293,11 @@ sequenceDiagram
 宿主绑定的[工作流步骤](workflows.md)另有来源画像，普通 SubAgent 不因此扩权。步骤工具是保存的来源类别、当前配置与步骤收窄的交集；main 的编码资格只映射已有受控委派的五个工具。发送、意图和实际调用前复核来源，个人业务身份属于来源，执行与审批归步骤 Task；工作流 `verify` 独立于角色，与 `target` 互斥，只开放五个编码工具并使用原生沙箱；任意角色均不能放宽。零工具、失败或未知效果不能由通过文本覆盖，汇入前重新核实账本与冻结归属。
 
 ## 设计依据
+
+- [侧栏预览](../../.agents/notes/implemented/feature/2026-10-25-code-present.md)
+- [MCP按需发现](../../.agents/notes/implemented/feature/2026-10-25-code-tool-discovery.md)
+- [通用等待](../../.agents/notes/implemented/feature/2026-10-25-code-wait.md)
+- [网页正文读取](../../.agents/notes/implemented/feature/2026-10-25-code-web-fetch.md)
 
 - [Code MCP 按实例配置与旧格式退出](../../.agents/notes/implemented/simplification/2026-10-24-code-instance-mcp.md)
 

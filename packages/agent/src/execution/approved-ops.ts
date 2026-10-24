@@ -341,6 +341,8 @@ export interface HttpOpOutcome {
   status: number | null;
   message: string;
   body: string;
+  bodyBytes?: Buffer;
+  truncated?: boolean;
   responseHeaders: Record<string, string>;
   /** 请求头与正文已交给操作系统发送（`finish`）；之后的失败远端可能已收到。 */
   sent: boolean;
@@ -451,12 +453,13 @@ export async function executeApprovedHttpRequest(
         let total = 0;
         let truncated = false;
         res.on("data", (c: Buffer) => {
+          const remaining = Math.max(0, MAX_HTTP_RESPONSE_BYTES - total);
           total += c.length;
-          if (total <= MAX_HTTP_RESPONSE_BYTES) chunks.push(c);
-          else truncated = true;
+          if (remaining) chunks.push(c.subarray(0, remaining));
+          if (total > MAX_HTTP_RESPONSE_BYTES) truncated = true;
         });
         res.on("end", () => {
-          const body = Buffer.concat(chunks).toString("utf8");
+          const bodyBytes = Buffer.concat(chunks), body = bodyBytes.toString("utf8");
           const responseHeaders: Record<string, string> = {};
           for (const [k, v] of Object.entries(res.headers)) {
             responseHeaders[k] = Array.isArray(v) ? v.join(", ") : String(v ?? "");
@@ -468,6 +471,8 @@ export async function executeApprovedHttpRequest(
               ? `响应已按上限截断（>${MAX_HTTP_RESPONSE_BYTES} 字节）`
               : `HTTP ${res.statusCode}`,
             body,
+            bodyBytes,
+            truncated,
             responseHeaders,
           });
         });

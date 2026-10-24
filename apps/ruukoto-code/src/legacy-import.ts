@@ -234,7 +234,7 @@ function buildImportSet(
       let hasUnknown = false;
       for (const op of toolOps) {
         if (String(op.task_id) !== String(t.id)) continue;
-        if (op.result_summary !== null || unconsumedApprovalOpIds.has(String(op.id)) || op.tool_name === "agent_wait") continue;
+        if (op.result_summary !== null || unconsumedApprovalOpIds.has(String(op.id)) || ["wait", "agent_wait"].includes(String(op.tool_name))) continue;
         effectUnknownOpIds.add(String(op.id));
         hasUnknown = true;
       }

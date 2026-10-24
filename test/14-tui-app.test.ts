@@ -327,7 +327,7 @@ test("曾被等待覆盖的普通子任务补报：实时与重连均隐藏内�
     if (input === "后台委派") {
       if (parentPhase++ === 0) return { kind: "tool_calls", calls: [{ id: "delegate", name: "subagent_delegate", arguments: { key: "hidden-report", request: "VISIBILITY_CHILD", read_paths: ["."] } }] };
       const child = t.runtime.store.listTasksByStatus(["queued", "running"]).find(task => task.subAgentId !== null)!;
-      return { kind: "tool_calls", calls: [{ id: "wait", name: "agent_wait", arguments: { targets: [{ kind: "task", task_id: child.id }] } }] };
+      return { kind: "tool_calls", calls: [{ id: "wait", name: "wait", arguments: { targets: [{ kind: "task", task_id: child.id }] } }] };
     }
     if (input.startsWith("[后台工作最终回报]")) return { kind: "text", text: summary };
     if (input.includes("VISIBILITY_CHILD")) { await childReady; return { kind: "text", text: "后台子任务完成" }; }

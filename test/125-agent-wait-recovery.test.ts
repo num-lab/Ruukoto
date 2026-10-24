@@ -30,8 +30,8 @@ function running(store: Store, sessionId: string, selection: ModelSelection, req
   return store.getTask(task.id)!;
 }
 
-for (const window of ["parent", "parent-repeated", "fallback", "fallback-no-end"] as const) test(`冷恢复 ${window}：最终 JSONL 已落盘而 SQLite 未终态，保留原报告且不再生成`, async () => {
-  const owner = window === "parent" || window === "parent-repeated" ? "parent" : "fallback", completed = window !== "fallback-no-end";
+for (const window of ["parent", "parent-repeated", "parent-process", "fallback", "fallback-no-end"] as const) test(`冷恢复 ${window}：最终 JSONL 已落盘而 SQLite 未终态，保留原报告且不再生成`, async () => {
+  const owner = window.startsWith("parent") ? "parent" : "fallback", completed = window !== "fallback-no-end";
   const t = await startTestRuntime(`wait-recover-${owner}`, () => ({ kind: "text", text: "不应再次生成报告" }), { config: { product: codeProduct.runtime } });
   let restarted: Runtime | null = null;
   try {
@@ -100,11 +100,13 @@ for (const window of ["parent", "parent-repeated", "fallback", "fallback-no-end"
       const inputId = history.appendMessage({ role: "user", content: "当前报告轮次", timestamp: Date.now() });
       if (window === "parent-repeated") history.appendMessage({ role: "toolResult", toolName: "agent_wait", toolCallId: "reused-wait-call", isError: false,
         content: [{ type: "text", text: JSON.stringify({ reason: "timeout", targets: [{ ...target, status: "running", resultSummary: null, reportOwnerTaskId: null }] }) }], timestamp: Date.now() });
-      if (owner === "parent") resultEntryId = history.appendMessage({ role: "toolResult", toolName: "agent_wait", toolCallId: "reused-wait-call", isError: false,
+      if (owner === "parent") resultEntryId = history.appendMessage({ role: "toolResult", toolName: window === "parent-process" ? "wait" : "agent_wait", toolCallId: "reused-wait-call", isError: false,
         content: [{ type: "text", text: JSON.stringify(result(reportTask.id)) }], timestamp: Date.now() });
       else {
         resultEntryId = inputId;
       }
+      if (window === "parent-process") history.appendMessage({ role: "toolResult", toolName: "wait", toolCallId: "reused-wait-call", isError: false,
+        content: [{ type: "text", text: JSON.stringify({ reason: "result", targets: [{ kind: "process", process_id: "background", state: "stopped", exit: { code: 0, signal: null }, stopVerified: true }] }) }], timestamp: Date.now() });
       history.appendMessage(assistant("原记录中的唯一最终总结"));
       if (completed) history.appendCustomEntry(TASK_END_MARKER, { taskId: reportTask.id, status: "completed" });
       const file = history.getSessionFile();
@@ -161,7 +163,7 @@ for (const mode of ["success", "send-revoked", "request-revoked"] as const) test
       rt.store.endTask(child.id, ["queued"], "completed"); rt.store.setTaskResult(child.id, "PRIVATE-MAIN-CHILD-MEMORY", "{}");
       return child.id;
     }));
-    return { kind: "tool_calls", calls: [{ id: "main-wait", name: "agent_wait", arguments: { targets: ids.map(task_id => ({ kind: "task", task_id })) } }] };
+    return { kind: "tool_calls", calls: [{ id: "main-wait", name: "wait", arguments: { targets: ids.map(task_id => ({ kind: "task", task_id })) } }] };
   }, { config: { qqDisabled: true, scheduler: { tickMs: 20 }, telegram: { pollTimeoutSec: 1, backoffMs: 30 } } });
   rt = t.runtime;
   if (mode === "request-revoked") rt.addEventListener(events => {

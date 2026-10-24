@@ -500,8 +500,8 @@ export class ContextAssembly {
       ...(this.plan ? [PLAN_NOTICE] : []),
       ...(this.resourcePhase === "conversation" ? [{ category: "resourcePhase" as const, placement: "task" as const,
         text: this.backgroundObservation
-          ? "[执行资源] 会话后台持有工作目录；项目指令与技能只使用已记录快照。当前可查后台状态和日志、停止、提问及在有效完全访问来源下浏览。修改文件、普通命令和同目录委派前，先 process_stop，再用 process_status 核实 stopped；宿主重新取得目录后才开放业务工具。stop_unverified 时报告拥有者，agent_wait 不能让出会话后台占用。[/执行资源]"
-          : "[执行资源] 当前处于内部对话阶段：工作目录仍由后台任务持有，项目指令与技能目录只使用已记录快照；可以解释结果、查询后台记录或用 agent_wait 继续等待。工作目录读写、命令、技能读取、MCP 与其他业务工具须重新取得执行资源后才开放。后台工作继续；未完成时继续等待或明确说明需要拥有者介入。[/执行资源]" }] : []),
+          ? "[执行资源] 会话后台持有工作目录；项目指令与技能只使用已记录快照。当前可用 wait 等待或查后台状态和日志、停止、提问及在有效完全访问来源下浏览。修改文件、普通命令和同目录委派前，先 process_stop，再用 wait 或 process_status 核实 stopped 且 stopVerified；宿主重新取得目录后才开放业务工具。stop_unverified 时报告拥有者，wait 不能让出会话后台占用。[/执行资源]"
+          : "[执行资源] 当前处于内部对话阶段：工作目录仍由后台任务持有，项目指令与技能目录只使用已记录快照；可以解释结果、查询后台记录或用 wait 继续等待。工作目录读写、命令、技能读取、MCP 与其他业务工具须重新取得执行资源后才开放。后台工作继续；未完成时继续等待或明确说明需要拥有者介入。[/执行资源]" }] : []),
     ];
   }
 

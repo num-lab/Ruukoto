@@ -14,7 +14,7 @@ import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { Db, SCHEMA_VERSION } from "@ruukoto/core/db.ts";
 import {
-  startTestRuntime,
+  startTestRuntime as startRuntime,
   createProjectSession,
   waitFor,
   taskStatus,
@@ -23,13 +23,15 @@ import {
   type TestRuntime,
 } from "./helpers/testkit.ts";
 import { MockModelServer, type Responder } from "./helpers/mock-provider.ts";
-import { startMockMcp, MOCK_MCP_SECRET, type MockMcp } from "./helpers/mock-mcp.ts";
+import { withMcpDiscovery, startMockMcp, MOCK_MCP_SECRET, type MockMcp } from "./helpers/mock-mcp.ts";
 import { killProcessTree, spawnBackend } from "./helpers/backend.ts";
 import { validateRemoteTool } from "@ruukoto/agent/mcp/tools.ts";
 import * as fs from "node:fs";
 import { parseSessionFile } from "@ruukoto/core/history.ts";
 import { ArtifactWriteError } from "@ruukoto/agent/artifacts.ts";
 import { imageReferenceView, restoreImageInput } from "@ruukoto/agent/inbound-images.ts";
+
+const startTestRuntime: typeof startRuntime = (prefix, responder, options) => startRuntime(prefix, withMcpDiscovery(responder), options);
 
 const SECRET = MOCK_MCP_SECRET;
 const quiet: Responder = async () => ({ kind: "text", text: "done" });
@@ -249,7 +251,7 @@ test("mcp：任务内发现与只读调用（经真实宿主路径，凭据注�
     assert.equal(done.task.status, "completed");
 
     // 模型可见工具：mcp_mock_get_me 注册；未允许的 create_issue 不注册（伪造只读标注无效）
-    const offered = offeredToolNames(t);
+    const offered = offeredToolNames(t, 1);
     assert.ok(offered.includes("mcp_mock_get_me"), `应注册 mcp_mock_get_me：${offered.join(",")}`);
     assert.ok(!offered.some((n) => n.includes("create_issue")), "未允许的工具不得注册");
 
@@ -304,10 +306,9 @@ test("mcp：分页发现、重名与不支持 schema 的处理", async () => {
     // 分页：pageSize=2，5 个工具 → 3 页
     assert.equal(mcp.hits.filter((h) => h.rpcMethod === "tools/list").length, 3);
 
-    const offered = offeredToolNames(t);
-    assert.ok(offered.includes("mcp_mock_get_me"));
-    assert.ok(offered.includes("mcp_mock_list_repos"));
-    assert.equal(offered.filter((n) => n === "mcp_mock_get_me").length, 1, "重名工具只注册一个");
+    const offered = offeredToolNames(t, 1);
+    assert.ok(!offered.includes("mcp_mock_get_me"), "未命中的工具保持延迟");
+    assert.equal(offered.filter((n) => n === "mcp_mock_list_repos").length, 1);
     assert.ok(!offered.includes("mcp_mock_bad_schema"), "不支持的 schema 不得注册");
     assert.ok(!offered.some((n) => n.includes("extra")), "未允许的工具不得注册");
 
@@ -460,7 +461,7 @@ test("mcp 图片：结构化文字预览超限有提示和产物，图片不被�
     assert.match(toolResultTexts(t).join("\n"), /超过内联上限/);
     const artifact = t.runtime.store.listArtifactsByTask(done.task.id).find(artifact => artifact.name === "mcp-tool-result")!;
     assert.ok(t.runtime.artifacts.read(artifact.id).toString().includes(JSON.stringify(structuredContent, null, 2)));
-    assert.ok(JSON.stringify(t.server.calls[1].messages).includes(`data:image/png;base64,${MCP_PNG}`));
+    assert.ok(JSON.stringify(t.server.calls[2].messages).includes(`data:image/png;base64,${MCP_PNG}`));
   } finally { await t.shutdown(); await mcp.close(); }
 });
 for (const variant of ["pure", "mixed", "error", "invalid", "disk"] as const) {
@@ -478,15 +479,16 @@ for (const variant of ["pure", "mixed", "error", "invalid", "disk"] as const) {
       const done = await submitAndWait(t, sessionId, "image", "看图");
       assert.equal(done.task.status, "completed");
       const history = parseSessionFile(t.runtime.store.getSession(sessionId)!.sessionFile!);
-      const message = history.find(entry => entry.type === "message" && (entry.message as any)?.role === "toolResult")!.message as any;
+      const message = history.find(entry => entry.type === "message" && (entry.message as any)?.role === "toolResult" && (entry.message as any)?.toolName === "mcp_mock_capture")!.message as any;
       const failed = variant === "invalid" || variant === "disk";
       assert.equal(message.isError, variant === "error" || failed);
       assert.deepEqual(message.content.slice(1).map((part: any) => part.type), failed ? ["text"] : content.map(part => part.type));
       assert.ok(!JSON.stringify(message).includes(MCP_PNG), "JSONL 只保留图片引用");
       const images = message.content.filter((part: any) => part.type === "image");
       assert.equal(images.length, failed ? 0 : variant === "mixed" ? 2 : 1);
-      assert.equal(done.toolOps[0].effectUnknown, false, "完整应答后的图片失败不得改成效果未知");
-      const event = eventsOf(t, "task.tool_result").find(event => event.taskId === done.task.id)!;
+      assert.equal(done.toolOps.find((op: any) => op.toolName === "mcp_mock_capture")!.effectUnknown, false, "完整应答后的图片失败不得改成效果未知");
+      const capture = done.toolOps.find((op: any) => op.toolName === "mcp_mock_capture")!;
+      const event = eventsOf(t, "task.tool_result").find(event => event.taskId === done.task.id && event.toolOpId === capture.id)!;
       assert.deepEqual(event.artifactIds, images.map((part: any) => part.ruukotoMediaRef.artifactId));
       if (failed) {
         assert.match(toolResultTexts(t).join("\n"), /原工具应答已收到.*勿因缺图重试原动作/);
@@ -497,9 +499,9 @@ for (const variant of ["pure", "mixed", "error", "invalid", "disk"] as const) {
       assert.deepEqual(restored[0].content.filter((part: any) => part.type === "image").map((part: any) => part.data), images.map(() => MCP_PNG), "解析JSONL后沿产物恢复原图片");
       const missing = { ...message, content: message.content.map((part: any) => part.type === "image" ? { ...part, ruukotoMediaRef: undefined } : part) };
       assert.throws(() => imageReferenceView([missing], sessionId), /image_reference_invalid/);
-      const payload = JSON.stringify(t.server.calls[1].messages);
+      const payload = JSON.stringify(t.server.calls[2].messages);
       assert.equal(payload.split(`data:image/png;base64,${MCP_PNG}`).length - 1, images.length);
-      const selection = t.runtime.store.listSelectionRecordsByTask(done.task.id)[1]!;
+      const selection = t.runtime.store.listSelectionRecordsByTask(done.task.id)[2]!;
       const snapshot = JSON.parse(t.runtime.artifacts.read(selection.promptArtifactId!, 0, 1024 * 1024).toString());
       assert.ok(JSON.stringify(snapshot).includes("image_ref"));
       assert.ok(!JSON.stringify(snapshot).includes(MCP_PNG));
@@ -612,7 +614,7 @@ test("mcp：任务间工具刷新（允许列表变化 → 下一任务生效）
       { name: "tool_b", result: { content: [{ type: "text", text: "B" }] } },
     ],
   });
-  const responder: Responder = async () => ({ kind: "text", text: "完成" });
+  const responder: Responder = async req => req.messages.at(-1)?.role === "user" ? { kind: "tool_calls", calls: [{ id: "find", name: "search_tools", arguments: { query: "mcp_mock", limit: 20 } }] } : { kind: "text", text: "完成" };
   const t = await startTestRuntime("mcp-refresh", responder);
   try {
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
@@ -620,7 +622,7 @@ test("mcp：任务间工具刷新（允许列表变化 → 下一任务生效）
 
     const first = await submitAndWait(t, sessionId, "r1", "第一个任务");
     assert.equal(first.task.status, "completed");
-    const offeredFirst = offeredToolNames(t, 0);
+    const offeredFirst = offeredToolNames(t, 1);
     assert.ok(offeredFirst.includes("mcp_mock_tool_a"));
     assert.ok(!offeredFirst.includes("mcp_mock_tool_b"), "新增工具不得进入既有任务");
 
@@ -765,10 +767,10 @@ test("mcp：跨工作区共享认证服务与第二服务同一路径", async ()
     assert.equal(mcpB.hits.filter((h) => h.rpcMethod === "tools/call").length, 1, "第二服务走同一发现/调用路径");
     assert.equal(doneB.task.status, "completed");
     // 并发下按请求内容定位项目 B 的模型调用（其输入为"用A 查询"）
-    const bCall = t.server.calls.slice(callsBefore).find((c: any) => JSON.stringify(c.messages).includes("用A 查询"));
+    const bCall = t.server.calls.slice(callsBefore).find((c: any) => JSON.stringify(c.messages).includes("用A 查询") && (c.tools ?? []).some((tool: any) => tool.function?.name === "mcp_mock_get_me"));
     const offeredB = ((bCall?.tools ?? []) as any[]).map((x) => String(x?.function?.name ?? x?.name ?? ""));
     assert.ok(bCall, "应有项目 B 的模型调用");
-    assert.ok(offeredB.includes("mcp_mock_get_me") && offeredB.includes("mcp_alt_get_time"), "两个工作区共用服务工具");
+    assert.ok(offeredB.includes("mcp_mock_get_me"), "另一工作区也能发现并使用实例服务工具");
     assert.equal(mcpA.hits.filter((h) => h.rpcMethod === "tools/call").length, 2, "第二工作区可使用同一认证服务");
     await t.client.request("mcp_set_enabled", { service_id: shared.id, enabled: false, expected_version: shared.configVersion });
     for (const [index, session] of [a, b].entries()) {
@@ -824,7 +826,7 @@ test("mcp：mcp_check 连接检查与工具列表（含失败路径）", async (
   }
 });
 
-test("mcp：工具定义计入上下文预算", async () => {
+test("mcp：未搜索的延迟工具不计入上下文预算", async () => {
   const mcp = await startMockMcp({
     tools: [{ name: "get_me", description: "查询当前用户", inputSchema: { type: "object", properties: { verbose: { type: "boolean" } } } }],
   });
@@ -840,10 +842,7 @@ test("mcp：工具定义计入上下文预算", async () => {
     const recWith = t.runtime.store.listSelectionRecordsByTask(doneWith.task.id)[0];
     const recPlain = t.runtime.store.listSelectionRecordsByTask(donePlain.task.id)[0];
     assert.ok(recWith && recPlain, "两个任务都应有选择记录");
-    assert.ok(
-      recWith.estimates.toolSchemas > recPlain.estimates.toolSchemas,
-      `MCP 工具定义应计入预算（${recWith.estimates.toolSchemas} > ${recPlain.estimates.toolSchemas}）`,
-    );
+    assert.equal(recWith.estimates.toolSchemas, recPlain.estimates.toolSchemas);
   } finally {
     await t.shutdown();
     await mcp.close();
@@ -854,10 +853,10 @@ test("mcp：工具定义计入上下文预算", async () => {
 
 test("mcp：后台崩溃重启 —— 在途调用标 effect_unknown，不重放", async () => {
   const mcp = await startMockMcp({ tools: [{ name: "slow", delayMs: 30_000 }] });
-  const modelServer = new MockModelServer(async () => ({
+  const modelServer = new MockModelServer(withMcpDiscovery(async () => ({
     kind: "tool_calls",
     calls: [{ id: "c0", name: "mcp_mock_slow", arguments: {} }],
-  }));
+  })));
   const baseUrl = await modelServer.start();
   const root = await mkdtemp(path.join(tmpdir(), "ruukoto-it-mcp-crash-"));
   const dataDir = path.join(root, "data");

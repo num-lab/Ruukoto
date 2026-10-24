@@ -102,13 +102,13 @@ test("worktree 启动与 Git 写入分开：ready 前停止或重启不标未知
   }
 });
 
-test("agent_wait 停止与重启：等待不产生写效果，未返回的工具结果补记已知结论", () => {
+test("wait 及旧 agent_wait 停止与重启：等待不产生写效果，未返回的工具结果补记已知结论", () => {
   const family = createAgentWaitFamily();
-  for (const occasion of ["stop", "restart"] as const) {
+  for (const toolName of ["wait", "agent_wait"]) for (const occasion of ["stop", "restart"] as const) {
     const k = kit();
     try {
       const ledger = new ToolOpLedger(k.store, {}, [family.ledger!]);
-      const id = k.op("agent_wait", { targets: [{ kind: "task", task_id: "child" }], timeout_ms: 60_000 });
+      const id = k.op(toolName, { targets: [{ kind: "task", task_id: "child" }], timeout_ms: 60_000 });
       assert.equal(ledger.hasNoWriteEffect(k.get(id)), true);
       assert.deepEqual(ledger.beginStop(k.task.id), []);
       if (occasion === "restart") ledger.settleAll();

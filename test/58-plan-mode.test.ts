@@ -51,6 +51,7 @@ test("集成：Plan 连续消息保持计划说明、白名单与阻断，手动
   const steps = [
     { id: "r", name: "read", arguments: { path: "notes.txt" } },
     { id: "b", name: "bash", arguments: { command: "echo PLAN-BASH" } },
+    { id: "s", name: "search_tools", arguments: { query: "mcp_svc_get" } },
     { id: "m", name: "mcp_svc_get", arguments: {} },
   ];
   const responder: Responder = async (req) => {
@@ -86,7 +87,7 @@ test("集成：Plan 连续消息保持计划说明、白名单与阻断，手动
     assert.equal(done.task.input, "调研登录流程", "任务输入照原样保存");
     assert.equal(done.task.accessMode, "auto-review");
     assert.equal(done.task.planMode, true);
-    assert.deepEqual(done.toolOps.map((o: any) => [o.toolName, o.isError]), [["read", false], ["bash", false], ["mcp_svc_get", false]]);
+    assert.deepEqual(done.toolOps.map((o: any) => [o.toolName, o.isError]), [["read", false], ["bash", false], ["search_tools", false], ["mcp_svc_get", false]]);
     assert.match(done.toolOps[0].resultSummary, /PLAN-NOTES/);
     assert.match(done.toolOps[1].resultSummary, /PLAN-BASH/);
     assert.equal(t.runtime.store.listTasksBySession(sessionId).length, 1, "只有一个任务");
@@ -94,8 +95,8 @@ test("集成：Plan 连续消息保持计划说明、白名单与阻断，手动
     const planCall = callFor(t, "调研登录流程");
     assert.ok(hasPlanPrefix(planCall), "模型上下文含计划说明前缀");
     assert.deepEqual(toolNames(planCall).sort(), [
-      "ask_user", "bash", "history_read", "history_search", "http_request", "list_files", "mcp_svc_get", "memory_list", "memory_read",
-      "process_output", "process_status", "process_stop", "read", "read_artifact", "request_file_access", "search_files", "skill", "todo_write", "web_search",
+      "ask_user", "bash", "history_read", "history_search", "http_request", "list_files", "memory_list", "memory_read",
+      "present", "process_output", "process_status", "process_stop", "read", "read_artifact", "request_file_access", "search_files", "search_tools", "skill", "todo_write", "wait", "web_fetch", "web_search",
     ], "计划模式只含白名单工具");
     const planCat = await planModeTokens(t, sessionId, plan.id);
     assert.equal(planCat.label, "计划模式");
@@ -115,7 +116,8 @@ test("集成：Plan 连续消息保持计划说明、白名单与阻断，手动
     assert.equal(next.task.status, "completed");
     const nextCall = callFor(t, "按计划执行");
     assert.ok(!hasPlanPrefix(nextCall), "手动切换后没有计划说明");
-    for (const name of WRITE_TOOLS) assert.ok(toolNames(nextCall).includes(name), `工具集恢复 ${name}`);
+    for (const name of WRITE_TOOLS.filter(name => !name.startsWith("mcp_"))) assert.ok(toolNames(nextCall).includes(name), `工具集恢复 ${name}`);
+    assert.ok(toolNames(nextCall).includes("search_tools"));
     assert.equal((await planModeTokens(t, sessionId, next.task.id)).tokens, 0);
 
     // SDK 向发送载荷泄漏写工具：发送前最终检查阻断整个请求

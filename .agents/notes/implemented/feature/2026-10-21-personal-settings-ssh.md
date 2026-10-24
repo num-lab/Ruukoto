@@ -2,6 +2,8 @@
 
 Status: implemented
 
+SSH 传输与桌面维护阶段归属的待实施替代方案见 [Tailscale HTTPS／WebSocket](../../proposed/architecture/2026-10-24-personal-tailscale-https.md)；原服务核实、修订与未知效果规则保持。
+
 ## 问题
 
 [设置管理提案](../../proposed/feature/2026-10-21-desktop-settings-management.md)要求 Desktop 管理新 durable 档案；[Personal 设置入口](2026-10-21-personal-settings.md)已有认证查询和停机持锁保存，但旧聊天控制器使用不同令牌和协议，也无法证明原服务能安全停止与恢复。SSH shell 的环境不能替代服务环境，HTTP stop 不能停止 systemd 监督者。

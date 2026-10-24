@@ -2,6 +2,8 @@
 
 Status: implemented
 
+统一 PA 聊天与设置连接的待实施方案见 [Tailscale HTTPS／WebSocket](../../proposed/architecture/2026-10-24-personal-tailscale-https.md)；本篇表单字段、原档案与维护核实规则保持。
+
 ## 问题
 
 [设置管理规划](../../proposed/feature/2026-10-21-desktop-settings-management.md)覆盖两端，但 Code 的提供方目录、工作区、凭据存储和本机选择器不能套用到 Personal。新 [SSH 管理连接](2026-10-21-personal-settings-ssh.md)与旧个人聊天的快照、在线状态和实例身份也无对应关系。

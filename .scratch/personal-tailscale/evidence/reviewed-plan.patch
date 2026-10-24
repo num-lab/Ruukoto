@@ -1,0 +1,298 @@
+diff --git a/.agents/notes/implemented/architecture/2026-10-17-personal-local-management.md b/.agents/notes/implemented/architecture/2026-10-17-personal-local-management.md
+index 1fbee1ac..b4d96373 100644
+--- a/.agents/notes/implemented/architecture/2026-10-17-personal-local-management.md
++++ b/.agents/notes/implemented/architecture/2026-10-17-personal-local-management.md
+@@ -2,6 +2,8 @@
+ 
+ Status: implemented
+ 
++独立远程入口的待实施方案见 [Tailscale HTTPS／WebSocket](../../proposed/architecture/2026-10-24-personal-tailscale-https.md)；本机 Unix socket、唯一 Harness 与锁规则保持。
++
+ 逐启动令牌的完整发布方式见[原子发布修复](../bug-fix/2026-10-24-personal-token-atomic-publish.md)，认证与坏令牌拒绝的决定保持。
+ 
+ ## 问题
+diff --git a/.agents/notes/implemented/feature/2026-10-21-desktop-personal-pages.md b/.agents/notes/implemented/feature/2026-10-21-desktop-personal-pages.md
+index 3aec8915..38b90ecd 100644
+--- a/.agents/notes/implemented/feature/2026-10-21-desktop-personal-pages.md
++++ b/.agents/notes/implemented/feature/2026-10-21-desktop-personal-pages.md
+@@ -2,6 +2,8 @@
+ 
+ Status: implemented
+ 
++统一 PA 聊天与设置连接的待实施方案见 [Tailscale HTTPS／WebSocket](../../proposed/architecture/2026-10-24-personal-tailscale-https.md)；本篇表单字段、原档案与维护核实规则保持。
++
+ ## 问题
+ 
+ [设置管理规划](../../proposed/feature/2026-10-21-desktop-settings-management.md)覆盖两端，但 Code 的提供方目录、工作区、凭据存储和本机选择器不能套用到 Personal。新 [SSH 管理连接](2026-10-21-personal-settings-ssh.md)与旧个人聊天的快照、在线状态和实例身份也无对应关系。
+diff --git a/.agents/notes/implemented/feature/2026-10-21-personal-settings-ssh.md b/.agents/notes/implemented/feature/2026-10-21-personal-settings-ssh.md
+index 96459ffb..a121fda5 100644
+--- a/.agents/notes/implemented/feature/2026-10-21-personal-settings-ssh.md
++++ b/.agents/notes/implemented/feature/2026-10-21-personal-settings-ssh.md
+@@ -2,6 +2,8 @@
+ 
+ Status: implemented
+ 
++SSH 传输与桌面维护阶段归属的待实施替代方案见 [Tailscale HTTPS／WebSocket](../../proposed/architecture/2026-10-24-personal-tailscale-https.md)；原服务核实、修订与未知效果规则保持。
++
+ ## 问题
+ 
+ [设置管理提案](../../proposed/feature/2026-10-21-desktop-settings-management.md)要求 Desktop 管理新 durable 档案；[Personal 设置入口](2026-10-21-personal-settings.md)已有认证查询和停机持锁保存，但旧聊天控制器使用不同令牌和协议，也无法证明原服务能安全停止与恢复。SSH shell 的环境不能替代服务环境，HTTP stop 不能停止 systemd 监督者。
+diff --git a/.agents/notes/proposed/architecture/2026-10-15-desktop-client.md b/.agents/notes/proposed/architecture/2026-10-15-desktop-client.md
+index 69f3ea89..f8ebf212 100644
+--- a/.agents/notes/proposed/architecture/2026-10-15-desktop-client.md
++++ b/.agents/notes/proposed/architecture/2026-10-15-desktop-client.md
+@@ -2,6 +2,8 @@
+ 
+ Status: proposed
+ 
++PA 连接的后续替代方案见 [Tailscale HTTPS／WebSocket](2026-10-24-personal-tailscale-https.md)；该提案尚未实施，本篇 Code 决定与旧实现事实保留。
++
+ 相关未实施方案：[设置管理](../../proposed/feature/2026-10-21-desktop-settings-management.md)扩展配置能力，并独立接入新 Personal durable 的设置管理；本篇旧控制连接不代表新个人协议已支持。
+ 
+ 个人目标范围由[正式个人入口](../../implemented/simplification/2026-10-18-personal-product-entry.md)收窄：新个人不支持本提案旧控制协议、SSH 客户端或 Personal 会话界面；Code 桌面与已有旧连接实现保留，不能将它们当作 durable 客户端。
+diff --git a/.agents/notes/proposed/feature/2026-10-21-desktop-settings-management.md b/.agents/notes/proposed/feature/2026-10-21-desktop-settings-management.md
+index 55b3289c..a74387eb 100644
+--- a/.agents/notes/proposed/feature/2026-10-21-desktop-settings-management.md
++++ b/.agents/notes/proposed/feature/2026-10-21-desktop-settings-management.md
+@@ -2,6 +2,8 @@
+ 
+ Status: proposed
+ 
++PA 连接的后续替代方案见 [Tailscale HTTPS／WebSocket](../architecture/2026-10-24-personal-tailscale-https.md)，拟统一新聊天与设置；本篇配置能力与生效规则继续适用。
++
+ 技能后端已按[固定托管路径与清单](../../implemented/feature/2026-10-21-managed-skills.md)落地，[Personal 设置入口](../../implemented/feature/2026-10-21-personal-settings.md)已完成认证查询、停机持锁机器协议与档案接线；[SSH 维护](../../implemented/feature/2026-10-21-personal-settings-ssh.md)与 [Personal 三类页面](../../implemented/feature/2026-10-21-desktop-personal-pages.md)已接线，真实环境与双壳组合验收仍由各工单持有；本提案继续记录总体验收范围。
+ 
+ ## 问题
+diff --git a/.agents/notes/proposed/architecture/2026-10-24-personal-tailscale-https.md b/.agents/notes/proposed/architecture/2026-10-24-personal-tailscale-https.md
+new file mode 100644
+index 00000000..19bbea4e
+--- /dev/null
++++ b/.agents/notes/proposed/architecture/2026-10-24-personal-tailscale-https.md
+@@ -0,0 +1,116 @@
++# Agent Note: Personal 通过 Tailscale Serve 统一桌面聊天与设置连接
++
++Status: proposed
++
++## 问题
++
++拥有者于 2026-10-24 要求「将 pa 旧连接删除，改用 Tailscale + HTTPS／WebSocket」，本轮交付方案。现有桌面旧聊天经 SSH 使用共享控制协议，正式个人后台已改为 durable；模型、Skills、MCP 则使用另一条有效的 SSH 管理连接。只替换旧聊天的 socket 不能接上新后台，直接删除所有 SSH 又会丢掉设置停存启。实施入口、待确认范围与验收证据由[工单](../../../../.scratch/personal-tailscale/issues/01-migration-plan.md)持有。
++
++## 方案
++
++将 PA 聊天和设置接到同一个 tailnet 内的 HTTPS 地址，HTTPS 承载查询与写入，WSS 只推送状态和消息事件。Code 继续使用原控制面；PA 直接消费 durable 的事实，不构造旧 Runtime 的任务和事件。拥有者于 2026-10-24 确认统一 PA 聊天与设置、删除两条 SSH 连接，并仅在自己的 tailnet 内单拥有者使用；本轮交付方案。
++
++### 连接与部署
++
++```mermaid
++flowchart LR
++  D[桌面 Node 宿主] -->|HTTPS / WSS，tailnet 内| T[Tailscale Serve]
++  T -->|私有 Unix HTTP socket| G[PA 远程入口]
++  G -->|原 control.sock，逐请求读取本机令牌| P[PA durable 后台]
++  G -->|固定档案与原服务| M[现有 settings / maintenance]
++  P --> H[唯一 Harness 与原档案]
++```
++
++远程入口放在 `apps/ruukoto`，由独立 systemd 单元监督，与后台同账户运行，只管理部署时固定的一个档案、程序与 `ruukoto-backend.service`。它不创建 Harness，不读取活跃 SQLite 或重建会话，不接收远端提供的 shell、单元名或程序路径。它独立于后台存活，是完整保留停存启的必要条件；启动失败和后台离线仍可读取维护结果与恢复原服务。
++
++Tailscale Serve 负责 tailnet 内 HTTPS、证书与反向代理，禁止 Funnel。应用不自行监听公网或 loopback TCP，也不实现证书续期。远程入口的配置、socket 与维护记录固定放在运行账户的 `~/.config/ruukoto-remote/`，目录 0700、socket 与文件 0600，不向严格校验的个人档案顶层随意加文件。该路径属于现有 `personalProtectedRoots` 的 `.config` 保护根；启动核实规范路径、账户、权限和 socket 字节长度，拒绝符号链接与任意外部状态目录。受限模式的文件、搜索、命令及 native grants 均须拒绝开放该根，完全访问沿用既有同账户例外。Serve 的 Unix socket 目标由管理员配置，后台账户不获得 Tailscale operator 权限。部署使用经探针验证且包含相关安全修复的稳定版，不能仅凭版本下限认定全部验收通过。
++
++此拓扑的 Unix socket 能力已从[官方固定版本源码](https://github.com/tailscale/tailscale/blob/v1.104.2/ipn/ipnlocal/serve.go)与[TS-2026-005 公告](https://tailscale.com/security-bulletins#ts-2026-005)核实；后者要求修复非 root operator 可配置特权 socket 的漏洞。源码事实不等于生产版本与实际 WSS 链路已验证。
++
++### 拥有者认证
++
++Tailscale grants/ACL 只允许拥有者设备访问 PA 节点的 TCP 443；合并策略时核对既有广泛 allow，不能把新增窄规则当成覆盖规则。远程入口对每个 HTTP 请求及 WS Upgrade 验证 Serve 注入的固定 `Tailscale-User-Login`，不使用显示名称或头像。身份缺失、与部署配置不符、带 tag 而没有用户身份的客户端均拒绝；共享节点的其他用户不自动取得拥有者权限。服务器本身可带 tag，桌面来源使用拥有者的用户身份。
++
++身份头只可信于 root 管理的 Serve 到私有 socket 这条路径。其安全前提是 root 与 PA 运行账户已经属于可信域；同账户完全访问任务本就能读取本机控制令牌，不额外承诺抵御该账户。若未来要求隔离同账户代码，需另行调整 OS 身份与权限，不能只再加一个同账户可读取的 token。[官方身份头说明](https://tailscale.com/docs/features/tailscale-serve#identity-headers)明确 Serve 会替换客户端伪造头，tagged 来源不带用户头，而共享用户也可能带有效用户头。
++
++为隔离浏览器跨站访问，桌面 Node 宿主在 HTTPS 与 WS 握手中发送固定非简单请求头，远程入口要求该头并拒绝带 `Origin` 的请求与 CORS 预检；固定头不是身份凭据。浏览器页面不因拥有者已登录 Tailscale 就能发写操作或订阅聊天。客户端只接受完整 HTTPS origin，禁止 URL 中的凭据、query、fragment 和任意路径，WSS 从同一 origin 派生；不跟随重定向，不关闭 TLS 校验。浏览器与手机直连属于另一套会话与跨站设计，不在本推荐范围。
++
++桌面只保存地址及已核实的档案身份，不保存远端令牌；原 `control.token` 留在服务器，每次连接后台读取新值，逐启动轮换仍有效。远程入口不把它放进任何响应或诊断。拥有者身份配置变化要求重启远程入口并关闭全部旧流；WS 最长连接寿命推荐五分钟，期满重新认证。Tailscale 策略或设备撤销是否立即终止既有 WSS 需真实验证，不能用 SSH 的撤销保证替代；无论实测如何，新的请求必须重新通过网络与应用认证。
++
++### HTTPS 与 WSS 契约
++
++| 接口 | 责任 |
++| --- | --- |
++| 握手 | 返回协议版本、产品 `ruukoto`、档案身份、后台运行代次、在线/维护状态与实际能力；档案身份沿用现有实现，不误称数据库 UUID |
++| 输入提交与查询 | 复用 `/inputs`、`/input` 的原键、正文指纹和 durable admission；HTTP 应答只表述接纳或实际查询状态 |
++| 聊天历史 | 增加有界的主会话时间线分页及正文补读；现有 `/messages` 仅是截断诊断列表，`/history` 要求检索词，二者都不能冒充完整时间线 |
++| 设置 | 复用 `/settings`、修订比较、未决阻断、实际后台环境检测；不把配置已保存等同于模型/MCP 测试成功 |
++| 维护 | 固定档案的检查、显式单项停存启、原操作查询与显式恢复；不开放通用命令执行 |
++| WSS 事件 | 后台持有原生订阅，远程入口认证并转发；先快照，后有序事件，断线后重新取快照；不承载写操作 |
++
++对外只放行桌面实际使用的路由、HTTP 方法和 settings op，不透明暴露全部本机管理接口，尤其不把本机导出路径或通用 `/stop` 直接作为远程能力。后台仍验证业务输入、来源、修订与权限；远程入口认证不替代业务授权。写请求绑定握手核实的原档案，后台运行代次变化淘汰在途 UI 结果，档案变化停止采用旧草稿、选项及请求。
++
++WSS 复用本地已安装 `pi-durable@1.3.0` 的 `watchEvents`：快照与后续提交订阅原子捕获，积压时上游替换为新快照。该接口标记 experimental，适配集中在个人 app；只投影桌面所需的消息、工具、队列和运行状态，不直接把原生全量 entries 作为网络首帧。网络投影带运行代次和单次订阅内顺序，发现缺口或溢出重新同步；顺序不持久化，也不是跨重启恢复游标。已完成正文通过 entry 引用和分页读取，超长实时工具输出有界并明确可补读的位置。宿主业务状态（如未决审批与问题）若不在 AgentEvent 中，以已有查询重新读取，不能声称 watchEvents 覆盖一切。
++
++未决业务状态在首次连接、重连、相关事件和页面重新可见时查询；在线且存在运行或未决工作时，以有界间隔补查，最多一个同类在途查询，退出或断线停止定时器。由此覆盖工具停在审批、没有后续模型事件的情况，通知沿现有偏好消费实际查询结果。动作按后台来源与状态分别核实：IM 问题可由 local 查询或取消，但回答仍回原平台；不能把“不能代答/代批”扩大为隐藏所有可用操作。
++
++HTTP 沿用 128 KiB 请求、256 KiB 响应预算，较大内容分页；输入仍按既有 16 KiB 限制。WS 建议单帧至多 256 KiB、单连接待发送至多 1 MiB，超限关闭观察流并要求快照恢复，不删除消息或阻塞模型执行；分页快照须固定同一订阅切点。30 秒心跳、10 秒无响应关闭，普通断线从 0.5 秒退避至最多 8 秒并带抖动，配置变化、关闭与明确认证/协议拒绝终止重试。复用已安装 `ws`，消费包声明自己的依赖；不写 WebSocket 实现。
++
++连接断开先停止所属原生订阅并释放缓冲，只结束观察。后台停止先拒绝新 Upgrade、停止全部订阅并关闭已升级 socket，再等待在途 HTTP handler、关闭 Harness 和释放档案锁；不能只调用 HTTP `server.close()` 就认为 WS 已关闭。远程入口退出同样回收代理两端的流，但不把观察端关闭转换成取消后台工作；有已接纳维护时，进程停止后按持久阶段核实，不静默声称流程完成。
++
++### 设置停存启与应答丢失
++
++远程入口复用 `personal-maintenance.ts` 和 `dispatchPersonalSettings` 的真实单元、进程、账户、档案锁、修订与 blockers 核实。只有原 systemd 环境可证明时提供写管理，未知 CLI 环境与受管开发实例继续只读。单次操作按检查→记录意图→优雅停止原服务→确认退出与取锁→再次比较修订→保存→按原服务启动→读回执行；停止、保存和启动各自的事实分别报告。
++
++完整停存启由远程入口持有，避免桌面退出后流程丢失，也保证多个桌面窗口不能交错维护。独立私有状态目录按操作键保存原档案、目标、原修订、请求摘要、阶段和结果，不落完整草稿、凭据或服务环境；同一时刻最多一条未决记录，已完成键及其终态回执保留，不被下一操作覆盖。各阶段在副作用前持久标记；同键同参只查询已有结果，异参拒绝，未决时拒绝另一项写入。A完成后执行B再收到迟到的A，仍只返回A原回执，不能重新执行。入口崩溃后只核实原阶段，不自动重做保存或强杀。原操作接纳后，单纯客户端断开不取消服务器已接纳的维护；恢复原服务与人工结束核实仍需明确动作。服务端是维护进展的权威，本机只保留原请求关联和待核实输入，不再另存一套维护阶段。
++
++输入在发送前保存原请求键、正文和档案关联；丢答后按原键查询，只有确认没有接纳且正文相同才显式用原键恢复，不换新键、不自动重发。已有 LocalInputDoc 与 admission 不原子，保留中间崩溃的核实路径。批准、取消、问题回答和设置保存均沿各自原回执或实际状态核实，不能因为 HTTPS 可以重试就统一重放。
++
++| 失败 | 必须保持的事实与下一步 |
++| --- | --- |
++| Tailscale 离线、DNS 或短暂断线 | 展示未连接；只自动恢复观察与只读查询，任务继续 |
++| 身份不符、TLS、产品或协议不符 | 停止连接并给出对应修复入口，不回退 SSH 或跳过校验 |
++| 请求发出后超时、代理 502/503 或响应损坏 | 写结果待核实；代理错误不能证明后台未执行 |
++| 已保存但启动失败 | 报告已保存，保留原操作，显式恢复原服务；不再保存一次 |
++| 停止未核实、锁占用或未知外部效果 | 保留占用与原记录，不强杀、不继续写配置 |
++| 档案变化或旧代次响应晚到 | 丢弃旧显示结果，保留原待核实记录，不向新档案发送 |
++
++### 桌面呈现与删除范围
++
++Electron 与 MyGo 共用 Node 宿主的一个 PA 连接管理器，renderer 仍经既有桥调用。`DesktopUpdate` 增加可辨别的 PA 数据类型，PA 状态投影从 `CodeState` 分离；复用消息、工具和设置的展示组件，不将 durable 数字身份包装成旧数据库对象。设置页只保留一个 PA 地址与连接状态；离线仍可编辑地址，连接成功后核实身份再保存绑定，普通用户无需填写远端目录、Node、程序、服务名或令牌。
++
++推荐首版覆盖当前新 PA 的文本主会话、分页历史、实时文字/工具活动、输入接纳与结果核实，以及模型/Skills/MCP 完整设置维护。审批与提问按既有来源资格展示：桌面只操作原本允许 local 拥有者处理的事项；原 IM 平台绑定的批准不能因共享主会话被桌面代批。后台工作取消按 durable 工作语义接线，不能拿后台 `/stop` 充当停止回答。现有个人接口没有主 Submission 停止入口，首版建议暂不展示主聊天停止/继续；这是与后台工作取消分开的待确认产品取舍。旧附件上传、旧 Task continue、Context/模型菜单等无直接对应项，需在工单功能表明确另案；PA 原本就不支持 Plan，不把它记录为此次删除的能力。需要权限选择时仅按现有 `/permissions` 的入口默认权限呈现，不伪造 Code 会话模式；不留下看似可用却调用旧 op 的按钮。
++
++迁移删除旧 `PersonalController` 的共享控制协议接线、PA 专用 SSH 进程/转发/读取令牌代码，以及设置控制器的 SSH 执行和程序检测。Code/TUI 仍使用的 control、pending、恢复和投影保留。新地址配置不从 SSH host 猜出 ts.net 域名；已有 `personal.json`、`personal-settings.json` 与旧待核实文件留在原处，停止加载为新连接，不覆盖、移动、删除或自动导入。旧聊天未决不转为 durable 输入。各桌面 Host 负责读取自己应用目录中的旧维护记录，部署切换前关闭全部旧客户端并核对未决清单；服务器不能证明所有桌面都没有本地 journal。旧设置未决必须先沿原身份核实或在服务器人工核实，未解决时阻止该桌面切换维护关联；用户可用服务器管理入口核实，不保留隐蔽 SSH 回退。
++
++### 既有笔记审计
++
++| 既有决定 | 分类与处理 |
++| --- | --- |
++| [桌面客户端](2026-10-15-desktop-client.md) | 部分重叠；本提案拟取代 PA SSH 和不做 WS 的范围，Code、宿主隔离与输入恢复保留；互链 |
++| [个人本机管理](../../implemented/architecture/2026-10-17-personal-local-management.md) | 部分重叠；本机仍为私有 Unix HTTP，增加独立远程入口；单 Harness、锁与本机令牌保持；互链 |
++| [Personal SSH 设置](../../implemented/feature/2026-10-21-personal-settings-ssh.md) | 部分重叠；拟取代桌面 SSH 与本机维护阶段归属，原服务、修订和未知效果规则保留；互链 |
++| [Personal 页面](../../implemented/feature/2026-10-21-desktop-personal-pages.md)与[设置规划](../feature/2026-10-21-desktop-settings-management.md) | 部分重叠；保留真实字段、版本与来源，拟统一连接并增加 durable 聊天；互链 |
++| 个人设置机器入口、正式个人入口、后台与终端、双产品、渐进交互、执行/IM/工具笔记 | 仅复用各自持有的协议、生命周期和权限，本提案不改其业务决定；不复制正文 |
++
++没有完全吸收或需归档的笔记。当前代码尚未迁移，旧篇决定正文保留，增加的是待实施关系，不能把本提案写成已生效事实。旧桌面规格 R15/R20 与非目标中的 SSH/不做 WS 要在实施交接时标明 PA 范围被新工单取代。
++
++## 备选方案
++
++- 继续 SSH，或仅把 SSH 放到 Tailscale 地址上：复用现有认证与停存启，改动最少；无法实现拥有者指定的 HTTPS/WebSocket 和删除旧连接，因此不选。
++- PA 后台直接监听 HTTPS：少一个进程；停止后台后无法保存配置并恢复服务，也将证书维护混入后台生命周期，因此只适合远端设置退为只读的另一种产品范围。
++- Serve 到 loopback HTTP，加独立长期 token 与系统钥匙串：能兼容更普通的代理和 tagged 客户端；本次单拥有者 Linux 服务器可用私有 socket 及 Serve 身份，前者增加配对、撤销与双壳秘密存储，暂不选。需要非 Tailscale 客户端时重访。
++- 给旧 ControlConnection 加 WebSocket transport：可保留 renderer；正式 PA 没有旧协议的 Task/快照语义，会形成兼容层并重新引入旧运行模型，因此选择原生 PA 投影。
++- 新建持久事件序号与重放库：支持按游标精确补增量；现有原子快照与事件订阅足以恢复桌面，额外账本形成第二份权威，暂不选。快照大小成为实际瓶颈时先收窄投影与分页。
++
++## 验收标准
++
++工单中的每项验收要有最窄回归与必要真实环境证据：拥有者可连、非拥有者/伪造头/恶意网页不可连；双壳显示同一新 PA 主会话；断线不断任务、不重发输入与批准；大历史和慢消费者可恢复；后台重启与 token 轮换可重新连接；原 systemd 停存启可核实；所有 PA SSH 运行入口删除，Code/TUI 正常；原档案和旧未决记录保留。
++
++阶段 0 必须实际证明选定 Tailscale 版本的 Serve→私有 socket→HTTP/1.1 WebSocket Upgrade、身份头与权限、策略撤销、重启恢复和证书链。源码与模拟通过不能代替这一项。部署切换前再验真实 Linux systemd、Electron 与 MyGo；缺少前提保持待验收。
++
++## 风险
++
++新依赖是 Tailscale 的节点身份、策略、DNS、证书与 Serve 运行状态，另增加一个单档案远程入口进程及维护记录。HTTPS 证书的主机名会进入公开证书透明度日志，部署选择不含敏感信息的名称；这不代表服务公开到互联网，见[官方 HTTPS 说明](https://tailscale.com/docs/how-to/set-up-https-certificates)。
++
++原生事件接口仍为 experimental，且自带快照不等于有界桌面历史；若没有投影、分页与慢消费者负例，长会话会成为交付缺口。需要多用户、浏览器/手机或同账户不可信程序时必须重审身份和来源契约，不能扩写几条 allow 即宣称支持。
+diff --git a/.scratch/personal-tailscale/issues/01-migration-plan.md b/.scratch/personal-tailscale/issues/01-migration-plan.md
+new file mode 100644
+index 00000000..3084310b
+--- /dev/null
++++ b/.scratch/personal-tailscale/issues/01-migration-plan.md
+@@ -0,0 +1,105 @@
++# 01 删除 PA 旧连接并迁移到 Tailscale HTTPS／WebSocket
++
++Status: plan-review
++
++## 目标与边界
++
++需求来源：拥有者于 2026-10-24 提出「我计划将pa旧连接删除，改用 Tailscale + HTTPS／WebSocket 连接，需要你来制定方案」。已确认的是删除旧连接、目标技术与本轮制定方案；未授权实施、提交、部署或修改实际 tailnet 策略。本轮按架构与权限相关的重流程，由方案者保存可交接方案并独立审查。
++
++技术契约、理由与备选唯一归属为[决策提案](../../../.agents/notes/proposed/architecture/2026-10-24-personal-tailscale-https.md)。推荐目标是一个 PA HTTPS 地址同时连接新 durable 聊天与设置，Tailscale Serve 终止 TLS，独立私有 socket 入口承载认证、代理与原服务维护，WSS 推送原生状态；Code 不迁移。
++
++### 已确认范围与来源
++
++1. 拥有者于 2026-10-24 回答范围问题：「统一 PA 聊天与设置，删除两条 SSH 连接（推荐）」。同时迁移新 durable 聊天及设置，不再保留旧聊天 SSH 或新设置 SSH。
++2. 同次回答连接范围：「仅自己的 tailnet，保持单拥有者使用（推荐）」。本方案沿用现有 Electron/MyGo 桌面，不增加浏览器/手机 UI 或多用户。
++
++### 推荐首版功能边界
++
++| 功能 | 方案与完成条件 |
++| --- | --- |
++| 主会话 | 连接现有 durable main，与 IM/CLI 共享历史；发送文本、查看接纳/排队/回答、重连后继续观察 |
++| 历史和实时状态 | 主会话分页历史、长正文、文字流与工具活动；已完成消息以原 entry 为准，不能只显示 `/messages` 的最近16条 |
++| 模型、Skills、MCP | 保留现有三页全部有效配置能力与显式测试/发现；停存启迁到服务器独立入口 |
++| 提问、审批与工作 | 显示当前未决；仅处理原业务允许 local 入口处理的动作，IM问题仍可查询/取消、回答须回原平台，原IM批准也不代批；取消后台工作须有原工作身份与回执，不停止整个PA |
++| 主聊天停止/继续 | 现有个人 HTTP 没有主 Submission 停止入口；本方案建议首版暂不展示，与可取消的后台工作分开，不能用 `/stop` 停掉后台冒充聊天停止。此项与旧专属能力一并待确认 |
++| 原旧连接专属能力 | 旧附件上传、旧 Task continue、Context 和会话模型菜单不自动映射到 durable；本方案建议从 PA 页面移除这些无对应入口，Code 保留。PA 原本不支持 Plan；权限控件若保留，使用 `/permissions` 的真实入口默认语义。需要 PA 附件或模型会话级设置时单列后续需求；这是方案中的产品建议，尚不能仅凭连接范围回答视作已批准裁剪 |
++| 运维 | 桌面不再运行 ssh；服务器 SSH 登录/应急 CLI 是管理员通道，是否关闭 sshd 不属于本任务 |
++
++不迁移/删除历史，不换个人数据库，不重写 IM 或模型执行，不建立旧协议兼容层，不做公网 Funnel、浏览器 UI、多用户或自动远端安装。
++
++## 方案
++
++### 0. 在隔离环境证明传输与身份前提
++
++使用拥有者指定的测试 tailnet 节点和空档案，记录客户端/服务器 OS、Tailscale 版本和配置范围。先用无业务数据的 HTTP/WS 探针验证 Serve 私有 Unix socket、root 配置、0600/0700 权限、固定用户身份头、非拥有者拒绝、浏览器跨站拒绝、证书链、HTTP/1.1 Upgrade、心跳、断网、策略撤销、节点重启和 Serve 持久配置。输出到本功能 evidence；不把官方源码检查记为实际成功。若环境不支持私有 socket 或无法保证身份来源，退回方案者修订认证设计，不临时开放 TCP 或跳过认证。
++
++### 1. 个人后台与独立远程入口
++
++在 `apps/ruukoto/src/` 增加有界的远程入口与协议定义，入口仍属于个人产品。复用 `personal-control.ts` 的业务处理、`personal-settings.ts`、`personal-maintenance.ts`、`personal-history.ts`、`personal-local-records.ts`；抽取实际重复的路由/协议校验即可，不搭通用多传输框架。`personal-entry.ts`/bin 增加固定启动与配置入口，部署单元将后台、remote 和 tailscaled 分开监督，停止后台不停止 remote。remote 配置、socket 和维护状态固定在现有受保护根内的 `~/.config/ruukoto-remote/`，拒绝符号链接、错误权限及超长 socket；不扩大个人档案顶层格式，锁覆盖 socket 清理，禁止第二 remote 抢同一状态或路径。
++
++握手明确协议、产品、原档案与后台运行代次；所有写入固定原档案。网络入口采用明确路由及 op 名单，在线业务仍交唯一 Harness；维护时复用原 systemd 核实和离线锁，不持有第二个 Harness。remote 不从外部接受任意程序/单元/档案，不把后台令牌发送出去。
++
++新增主会话时间线分页与原文补读，WSS 由 `watchEvents` 驱动有界 PA 投影。一次订阅的快照、历史切点和后续事件须可去重衔接；重连与慢消费者重新同步，不增加持久事件库。库依赖用已安装的 `ws`，在消费 workspace 声明；不跨包相对 import 或依赖 `node_modules` 私有路径。
++
++远程入口承接完整单项维护，私有目录按操作键保存摘要、修订、阶段与最终结果，同时最多一条未决，完成回执保留以拒绝迟到重复执行。接受后不受桌面断开影响；重启只核实，不重发保存。设置后台环境检测继续在实际后台执行，原环境不明保持只读。各桌面 Host 负责自己的旧维护记录检查，不能让远程入口声称已证明所有客户端没有本地未决。
++
++### 2. 桌面宿主与 PA 页面
++
++重写 `main/personal-controller.ts` 为 HTTPS/WSS 连接，`personal-settings-controller.ts` 保留需要的表单/错误映射并去掉 SSH 与本机阶段执行，必要时直接合并其重复连接职责。`personal-config.ts` 只保存一个地址及绑定身份，沿 host/ipc 提供原始业务请求；`shared/bridge.ts` 用可辨别的 PA 更新，与 Code 的快照/事件分开。双外壳复用同一个 Host 网络实现，凭据不进入 renderer。
++
++renderer 为 PA 建立原生投影，不再实例化旧 PA `CodeState`；复用已有消息、工具、设置组件。统一 `personal-connection-settings/state`、`personal-management-state`、`personal-settings-state/pages` 的连接来源，保存中的表单、档案切换和迟到结果保持原保护。更新 app、composer、conversation、notifications、attachments 的目标判断，让旧按钮不再向新 PA 发旧 op。地址配置按“输入地址→连接核实→完成”引导，程序管理内部身份；问题/审批按来源能力显示实际可用动作。
++
++### 3. 先切通，再删除旧入口
++
++在同一交付中替换所有正式 PA 入口，删除 `personal-ssh.ts` 及仅被它使用的读取令牌/转发/远端程序检测代码；删除旧 PA 的 `ControlConnection`、旧快照和 SSH 设置表单。共享 `packages/control`、Code/TUI 使用的恢复与投影保留。生产构建中不得继续调用 PA 的 ssh，也不得静默 fallback。
++
++新连接使用新的有版本配置记录，不覆盖旧两个配置文件；旧 pending 与损坏记录原地保留。发现旧设置维护未决，先列出需核实的原连接与操作，由服务器原档案/服务事实处理，不能把新连接成功当作旧操作完成。旧聊天未决不导入新 durable 请求。切换前关闭全部旧客户端，分别核查 Electron/MyGo 及实际使用设备的本地记录，并记录原版本、服务配置、可恢复备份与未决清单；新版本有写入后不使用旧备份直接覆盖数据。回退只切兼容的软件/连接配置并保持原档案；若不兼容先停止交付而非硬回滚。
++
++### 4. 文档与交接
++
++实现时同步 `docs/modules/desktop.md`、`personal-durable.md`、`products.md`、`deploy.md`，以及 `docs/architecture.md` 的连接图与依赖说明、`docs/usage.md` 的连接和恢复、`docs/desktop-development.md` 的双壳说明。新增命令/依赖同批更新 README、`docs/development.md`、`.agents/skills/pre-push-checks/SKILL.md`。旧桌面规格 R3/R15/R19/R20 与非目标、新设置规格及工单07加明确的取代关系；已完成历史与原验收证据保留。提案在实现后按事实移入 implemented，旧笔记只改仍成立的事实，不覆写原决定。
++
++### 影响与验证索引
++
++| 改动面 | 调用方/检查 |
++| --- | --- |
++| PA 本机/远程协议、历史、事件 | `test/personal-cli.test.ts`、`personal-history.test.ts`，新增网络身份、WS投影、分页与断线窄测；本机 CLI/IM 仍走原语义 |
++| 维护、配置与锁 | `personal-maintenance.test.ts`、`personal-settings.test.ts`、`personal-settings-blockers.test.ts`、`desktop-personal-settings.test.ts`；新增 remote 崩溃阶段和并发维护负例 |
++| 受保护根 | 核对 `personal-command-config.ts` 的 `personalProtectedRoots` 与 tools-config/tools/file-search/command/native grants 调用方；复用既有 `.config` 保护，不新增可任意配置的外部状态路径；新增受限模式不能授权/接触remote根、完全访问沿原例外的回归 |
++| Host/renderer/两个外壳 | `38-desktop-main.test.ts`、`38-desktop-personal.test.ts`、`desktop-personal-interface.test.ts`、`desktop-personal-settings-pages.test.ts`、`desktop-mygo.test.ts`；另按实际改动加 composer、attachments、notifications 的行为用例 |
++| 删除旧链路 | 删除只验证旧 SSH 参数的用例，目标隔离、丢答、令牌不泄漏、Code 不受影响等断言迁入新链路，不能连安全行为一起删 |
++| 构建与入口 | 依赖/命令改动后执行 `npm run build`、`npm run check:static`、相关产品入口测试；双壳构建与 MyGo Go 测试按提交前 skill 选取 |
++| 真实验收 | Linux 固定 systemd 与 Tailscale、macOS Electron/MyGo、真实模型/IM 另列证据；没有前提写未验证 |
++
++具体文件名在实施时以当前检出重新核实，不因本文索引跑无关全量检查。每处新行为配会因回归失败的最窄用例，命令写完整文件名。
++
++## 进展与交接
++
++- 当前角色与阶段：方案者已核查现有双 SSH 链路、durable HTTP、维护契约和本地原生事件接口，并查阅 Tailscale 一手资料；运行代码未修改。
++- 当前内容：分支 `develop`，基点/HEAD `e6c97bc0198aadf9fb91c18c76ac546ae8c5b004`。本次未提交内容为本工单、新 proposed 笔记与五篇既有笔记的待实施互链；HEAD 不包含这些文件。
++- 下一角色与动作：独立方案审查者对照源码、需求和提案审查；方案者处理阻断项并记录结果。拥有者已确认迁移范围；实施前需接受最终方案中的功能处置，随后才可将实施工单置为 ready-for-agent。
++- 阻塞与恢复条件：方案阶段无事实调研阻塞；实际实施和生产切换需满足测试节点、管理员配置与真实外壳验收前提。本轮不访问生产或读取令牌。
++
++## 验收与证据
++
++| 编号 | 工程验收要求 | 最窄证据 |
++| --- | --- | --- |
++| A1 | 仅允许固定拥有者，伪造头、非拥有者、缺头/tagged 来源、恶意网页均拒绝且无副作用 | 真实 Serve 探针 + HTTP/WS 认证负例；除root/remote运行账户外不能连私有socket；受限任务不能授权或接触remote根 |
++| A2 | 单地址可显示新 durable 主会话，与 Code 状态隔离 | 临时真实 Harness+宿主+投影测试；双外壳实际打开 |
++| A3 | 同键同参仅一份提交，异参拒绝；丢答、断网、退出重开不新键重发 | HTTP 接纳后断流、指纹提交后 admission 前崩溃、已执行无响应负例 |
++| A4 | 先快照后事件；长历史、长正文、慢消费者、后台重启无重复/遗漏已落盘消息 | 超过16条与超帧历史，订阅边界并发提交，队列溢出恢复，旧代次晚到；停机关闭WS/订阅后才释放锁 |
++| A5 | 停存启全过程可核实，客户端断开不取消已接纳维护；不强杀、不重存 | 真 systemd；stop/save/start 每阶段断线及 remote 崩溃；并发操作拒绝，saved+启动失败保留；A完成→B完成→迟到A只返原回执 |
++| A6 | 逐启动 token 轮换无需桌面重新取密钥，产品/档案/协议错误停止 | 后台重启、身份变更、错误版本与重定向/TLS 负例 |
++| A7 | 所有 PA SSH 运行入口删除；旧配置/历史/pending 保留 | 生产引用搜索与宿主禁用 ssh 测试，字节/路径保留断言，Code/CLI 定向回归 |
++| A8 | 审批与问题不越过原来源，失联不等于拒绝或批准 | local可用项、IM问题可取消但不能代答/代批，丢答查原回执；工具等待审批而无后续事件仍能刷新提示 |
++| A9 | 节点/策略撤销和重启不会留下无限旧流，入口不暴露公网 | 真 tailnet 权限变更与 WSS 寿命/关闭记录，Serve/Funnel 配置、证书与重启探针 |
++
++工程实现验收：待验证，本轮没有实现代码。产品验收：待验收，重点是一处连接即可使用聊天和三类设置、离线/维护/未决提示可理解、旧能力裁剪已确认、双壳行为一致。真实模型与 IM 只在显式前提具备时验证，不用 mock 代替。
++
++方案审查：待独立上下文核查。文档静态检查：待执行。源码与官方资料核查仅支持方案事实，不是 A1–A9 通过证据。
++
++## Comments
++
++2026-10-24：按拥有者请求建立方案。只读调研确认旧聊天与新设置为两条不同 SSH 链路；主要设计选择是独立维护入口、Serve 私有 socket 身份链和 durable 原生快照。提出两项异步范围问题，尚未获得回答；未改生产配置或执行部署。
++
++2026-10-24：拥有者回答上述两项问题，确认统一聊天与设置并删除两条 SSH，只在自己的 tailnet 内单拥有者使用。正文已更新；原问题不重复请示。

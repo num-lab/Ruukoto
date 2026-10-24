@@ -2,6 +2,8 @@
 
 Status: implemented
 
+PA连接与双壳秘密存储的待实施方案见 [Tailscale HTTPS／WebSocket](../../proposed/architecture/2026-10-24-personal-tailscale-https.md)；共用Host与私有管道的归属保持，凭据帧不进入界面事件。
+
 ## 问题
 
 拥有者希望实际体验比 Electron 更轻的桌面外壳，再决定最终是否保留。已有 React 界面与 Node 控制客户端可分离，直接重写 Go 控制面会扩大试验范围，单纯渲染静态 demo 又无法检验真实工作流。

@@ -5,7 +5,7 @@ import { test, type TestContext } from "node:test";
 import { ControlClientError } from "@ruukoto/control/client.ts";
 import type { OpResult } from "@ruukoto/control/ops.ts";
 import { product } from "../apps/ruukoto-code/src/product.ts";
-import { CODE_MCP_OPS, handleRequest } from "../apps/desktop/src/main/ipc.ts";
+import { handleRequest } from "../apps/desktop/src/main/ipc.ts";
 import type { DesktopBridge } from "../apps/desktop/src/shared/bridge.ts";
 import { CodeMcpState } from "../apps/desktop/src/renderer/code-mcp-state.ts";
 import { CodeState } from "../apps/desktop/src/renderer/code-state.ts";
@@ -13,6 +13,7 @@ import { SettingsState } from "../apps/desktop/src/renderer/settings-state.ts";
 import { startMockMcp, MOCK_MCP_SECRET } from "./helpers/mock-mcp.ts";
 import { startTestRuntime } from "./helpers/testkit.ts";
 
+// Note: 见 .agents/notes/implemented/testing/2026-10-24-test-suite-reduction.md
 const SECRET = MOCK_MCP_SECRET;
 type Service = OpResult<"mcp_list">["services"][number];
 
@@ -57,6 +58,26 @@ async function fixture(t: TestContext) {
   return { ...kit, mcp, requests, hook, bridge, code, context, state, createState, workspaces, list, create, legacy };
 }
 
+async function rendererFixture() {
+  const service: Service = { id: "service", projectId: "source", name: "docs", endpoint: "https://mcp.example.com/mcp", credential: null, toolAllowlist: [], enabled: false, configVersion: 1, createdAt: "now", updatedAt: "now" };
+  const services: Service[] = [], credentials: OpResult<"list_credentials"> = [], requests: { op: string; params: Record<string, unknown> }[] = [];
+  const context = { instanceId: "instance", online: true };
+  const hook: { before?: (op: string) => Promise<void>; after?: (op: string) => Promise<void>; reply?: (op: string, params: Record<string, unknown>) => unknown } = {};
+  const bridge: Pick<DesktopBridge, "request"> = { request: (target, op, params) => handleRequest(target, op, params, async () => {}, async (name, input) => {
+    requests.push({ op: name, params: structuredClone(input) }); await hook.before?.(name);
+    const result = name === "mcp_sources" ? { sources: [{ projectId: "source", name: "工作区", isWorkspace: true, serviceCount: services.length }], hasMore: false }
+      : name === "mcp_list" ? { services: structuredClone(services) }
+      : name === "list_credentials" ? structuredClone(credentials)
+      : name === "mcp_cua_targets" ? { targets: [], issues: [] }
+      : name === "mcp_check" ? { ok: true, service: structuredClone(service), tools: [] }
+      : hook.reply ? hook.reply(name, input) : assert.fail(`未预期的写操作：${name}`);
+    await hook.after?.(name); return result;
+  }) };
+  const state = new CodeMcpState(bridge, () => {}, "instance", "source", "source", () => context);
+  await state.read();
+  return { state, service, services, credentials, requests, context, hook, url: service.endpoint! };
+}
+
 function fillNew(state: CodeMcpState, endpoint: string, name = "docs") {
   state.select(null); state.edit("name", name); state.edit("endpoint", endpoint);
 }
@@ -66,55 +87,29 @@ function assertRedacted(value: unknown, extra: string[] = []) {
   for (const secret of [SECRET, ...extra]) assert.equal(encoded.includes(secret), false, "读取和显示不得包含秘密");
 }
 
-test("Desktop MCP 操作只向 Code 放行且不开放通用凭据写入", async () => {
-  for (const op of CODE_MCP_OPS) {
-    let forwarded = false;
-    const result = await handleRequest("personal", op, {}, async () => {}, async () => { forwarded = true; });
-    assert.equal(result.ok, false);
-    if (!result.ok) assert.equal(result.error.code, "op_not_allowed");
-    assert.equal(forwarded, false);
-  }
-  for (const op of ["upsert_credential", "save_credential", "remove_credential"]) {
-    const result = await handleRequest("code", op, {}, async () => {}, async () => assert.fail("不得转发通用凭据写入"));
-    assert.equal(result.ok, false);
-  }
-});
 
-test("Code MCP 无会话默认工作区自身来源，候选按名称展示并有界分页", async t => {
-  const h = await fixture(t);
-  const settings = new SettingsState(() => {});
-  h.code.view.currentSessionId = null;
-  settings.show("code", h.code, "mcp");
-  assert.equal(settings.selections.mcp.workspaceId, h.code.view.projects.find(project => project.rootDir !== null)!.id);
-  assert.equal(settings.selections.mcp.sourceId, settings.selections.mcp.workspaceId);
-  assert.equal(h.state.sources.find(source => source.isWorkspace)?.projectId, h.state.workspaceId);
-  const firstLegacy = h.legacy("旧来源-00");
-  await h.create(firstLegacy.id);
-  for (let i = 1; i < 53; ++i) h.legacy(`旧来源-${String(i).padStart(2, "0")}`);
-  await h.state.read();
-  assert.equal(h.state.sources.length, 50);
-  assert.equal(h.state.hasMoreSources, true);
-  await h.state.moreSources();
-  assert.equal(h.state.sources.length, 54);
-  assert.equal(h.state.hasMoreSources, false);
-  assert.equal(new Set(h.state.sources.map(source => source.projectId)).size, 54);
-  assert.equal(h.state.sources.find(source => source.projectId === firstLegacy.id)?.serviceCount, 1);
-  assert.equal(h.state.sources.find(source => source.projectId === firstLegacy.id)?.name, "旧来源-00");
-  const paged = h.requests.filter(request => request.op === "mcp_sources").at(-1)!;
-  assert.equal(paged.params.offset, 50);
-  assert.equal(paged.params.limit, 50);
-  const emptyDir = `${h.dirs.root}/empty-workspace`;
-  fs.mkdirSync(emptyDir);
-  const stat = fs.statSync(emptyDir);
-  const empty = h.runtime.store.withTx(() => h.runtime.store.createProject("无会话工作区", null, { cwd: emptyDir, cwdReal: fs.realpathSync(emptyDir), dev: Number(stat.dev), ino: Number(stat.ino) }));
-  const emptyState = h.createState(empty.id); await emptyState.read();
-  assert.equal(emptyState.phase, "ready");
-  assert.deepEqual(emptyState.sources.map(source => ({ projectId: source.projectId, isWorkspace: source.isWorkspace, serviceCount: source.serviceCount })), [{ projectId: empty.id, isWorkspace: true, serviceCount: 0 }]);
-  h.code.update({ type: "snapshot", result: await h.client.handshake(), instanceChanged: false });
-  h.code.view.currentSessionId = h.runtime.store.listSessions().find(session => session.projectId === firstLegacy.id)!.id;
-  const mapped = new SettingsState(() => {}); mapped.show("code", h.code, "mcp");
-  assert.equal(mapped.selections.mcp.workspaceId, h.state.workspaceId);
-  assert.equal(mapped.selections.mcp.sourceId, firstLegacy.id);
+
+test("Code MCP 来源分页按实际取得数量推进，追加保留名称与服务数", async () => {
+  const pages = [
+    { sources: [{ projectId: "workspace", name: "工作区", isWorkspace: true, serviceCount: 0 }], hasMore: true },
+    { sources: [{ projectId: "legacy", name: "旧来源", isWorkspace: false, serviceCount: 1 }], hasMore: false },
+  ];
+  const requests: Record<string, unknown>[] = [];
+  const bridge: Pick<DesktopBridge, "request"> = { request: async (target, op, params) => {
+    assert.equal(target, "code");
+    if (op === "mcp_sources") { requests.push(structuredClone(params)); return { ok: true, value: pages[requests.length - 1] }; }
+    if (op === "mcp_list") return { ok: true, value: { services: [] } };
+    if (op === "list_credentials") return { ok: true, value: [] };
+    if (op === "mcp_cua_targets") return { ok: true, value: { targets: [], issues: [] } };
+    assert.fail(`未预期的操作：${op}`);
+  } };
+  const state = new CodeMcpState(bridge, () => {}, "instance", "workspace", "workspace", () => ({ instanceId: "instance", online: true }));
+  assert.equal(await state.read(), true); assert.equal(state.hasMoreSources, true);
+  assert.deepEqual(state.sources, pages[0].sources);
+  await state.moreSources();
+  assert.deepEqual(state.sources, pages.flatMap(page => page.sources)); assert.equal(state.hasMoreSources, false);
+  assert.deepEqual(requests.map(params => ({ offset: params.offset, limit: params.limit })), [{ offset: undefined, limit: 50 }, { offset: 1, limit: 50 }]);
+  assert.ok(requests.every(params => params.workspace_id === "workspace"));
 });
 
 test("Code MCP 两个工作区与同工作区两个原来源的同名服务互不串写", async t => {
@@ -197,16 +192,15 @@ test("Code MCP 新凭据首次落盘已限来源，编辑省略保留而显式�
   assertRedacted([h.state.services, h.state.credentials, h.state.draft, h.state.message, h.runtime.store.getEventsAfter(0)]);
 });
 
-test("Code MCP 不匹配 host、用途和来源的凭据明确拒绝且不退回匿名", async t => {
-  const h = await fixture(t);
-  h.runtime.credentials.upsert({ name: "wrong-host", host: "other.example.com", header: "authorization", purpose: "mcp", secret: SECRET });
-  h.runtime.credentials.upsert({ name: "wrong-purpose", host: h.mcp.host, header: "authorization", purpose: "tavily_search", secret: SECRET });
-  h.runtime.credentials.upsert({ name: "wrong-source", host: h.mcp.host, header: "authorization", purpose: "mcp", secret: SECRET, scope: { projectId: h.workspaces[1].session.projectId, operations: ["mcp"] } });
-  fillNew(h.state, h.mcp.url); h.state.edit("auth", "existing");
+test("Code MCP 后台拒绝凭据时保留草稿且不退回匿名", async () => {
+  const h = await rendererFixture();
+  h.hook.before = async op => { if (op === "mcp_configure") throw new ControlClientError("invalid_params", "凭据不匹配", "rejected"); };
+  fillNew(h.state, h.url); h.state.edit("auth", "existing");
   for (const credential of ["wrong-host", "wrong-purpose", "wrong-source", "missing"]) {
     h.state.edit("credential", credential);
     assert.equal(await h.state.save(), false);
-    assert.equal((await h.list()).length, 0);
+    assert.equal(h.state.services.length, 0);
+    assert.equal(h.requests.filter(request => request.op === "mcp_configure").at(-1)?.params.credential, credential);
     assert.notEqual(h.state.phase, "unknown");
     assertRedacted([h.state.message, h.state.services, h.state.credentials]);
   }
@@ -237,15 +231,16 @@ test("Code MCP 版本冲突读回当前值并保留草稿，凭据已保存后�
   assertRedacted([h.state.draft, h.state.pending, h.state.message]);
 });
 
-test("Code MCP 配置丢答后只读核实原来源，不重发且读回失败仍保留待核实", async t => {
-  const h = await fixture(t);
-  fillNew(h.state, h.mcp.url); h.state.edit("auth", "anonymous");
+test("Code MCP 配置丢答后只读核实原来源，不重发且读回失败仍保留待核实", async () => {
+  const h = await rendererFixture();
+  h.hook.reply = op => { assert.equal(op, "mcp_configure"); h.services.push(h.service); return h.service; };
+  fillNew(h.state, h.url); h.state.edit("auth", "anonymous");
   h.hook.after = async op => { if (op === "mcp_configure") throw new ControlClientError("request_timeout", "合成丢答", "unknown"); };
   assert.equal(await h.state.save(), false);
   assert.equal(h.state.phase, "unknown");
   const pending = h.state.pending;
   assert.equal(pending?.projectId, h.state.sourceId);
-  assert.equal((await h.list()).length, 1);
+  assert.equal(h.requests.filter(request => request.op === "mcp_configure").length, 1);
   const writes = h.requests.filter(request => request.op === "mcp_configure").length;
   assert.equal(await h.state.save(), false);
   assert.equal(h.requests.filter(request => request.op === "mcp_configure").length, writes);
@@ -259,9 +254,15 @@ test("Code MCP 配置丢答后只读核实原来源，不重发且读回失败�
   assert.match(h.state.message, /读回|比较/);
 });
 
-test("Code MCP 启停和凭据丢答分别核实，不连带重发服务配置或秘密", async t => {
-  const h = await fixture(t);
-  const original = await h.create(); await h.state.read(); h.state.select(original.id);
+test("Code MCP 启停和凭据丢答分别核实，不连带重发服务配置或秘密", async () => {
+  const h = await rendererFixture();
+  h.services.push(h.service); await h.state.read(); h.state.select(h.service.id);
+  h.hook.reply = (op, input) => {
+    if (op === "mcp_set_enabled") { assert.equal(input.enabled, true); h.service.enabled = true; h.service.configVersion = 2; return h.service; }
+    assert.equal(op, "mcp_save_credential");
+    const credential = { name: String(input.name), host: "mcp.example.com", header: "authorization", purpose: "mcp", scope: { projectId: "source", operations: ["mcp"] }, references: [] };
+    h.credentials.push(credential); return credential;
+  };
   h.hook.after = async op => { if (op === "mcp_set_enabled") throw new ControlClientError("request_timeout", "合成丢答", "unknown"); };
   assert.equal(await h.state.setEnabled(true), false); assert.equal(h.state.phase, "unknown");
   assert.equal(await h.state.setEnabled(true), false);
@@ -282,9 +283,9 @@ test("Code MCP 启停和凭据丢答分别核实，不连带重发服务配置�
   assertRedacted([h.state.draft, h.state.credentials, h.state.pending, h.state.message]);
 });
 
-test("Code MCP 断线换实例或关闭后的迟到读取与发现失效，秘密在取消和失效时清空", async t => {
-  const h = await fixture(t);
-  const original = await h.create(); await h.state.read(); h.state.select(original.id);
+test("Code MCP 断线换实例或关闭后的迟到读取与发现失效，秘密在取消和失效时清空", async () => {
+  const h = await rendererFixture();
+  h.services.push(h.service); await h.state.read(); h.state.select(h.service.id);
   h.state.edit("auth", "new"); h.state.editSecret(SECRET); h.state.discard();
   assert.equal(h.state.secret, "");
   const began = deferred(), release = deferred();
@@ -303,9 +304,10 @@ test("Code MCP 断线换实例或关闭后的迟到读取与发现失效，秘�
   assertRedacted([h.state.services, h.state.credentials, h.state.draft, h.state.pending, h.state.message]);
 });
 
-test("Code MCP 写入应答迟到后保留原实例待核实，只在恢复原连接后读回", async t => {
-  const h = await fixture(t);
-  fillNew(h.state, h.mcp.url); h.state.edit("auth", "anonymous");
+test("Code MCP 写入应答迟到后保留原实例待核实，只在恢复原连接后读回", async () => {
+  const h = await rendererFixture();
+  h.hook.reply = op => { assert.equal(op, "mcp_configure"); h.services.push(h.service); return h.service; };
+  fillNew(h.state, h.url); h.state.edit("auth", "anonymous");
   const began = deferred(), release = deferred();
   h.hook.after = async op => { if (op === "mcp_configure") { began.resolve(); await release.promise; } };
   const saving = h.state.save(); await began.promise;
@@ -313,18 +315,18 @@ test("Code MCP 写入应答迟到后保留原实例待核实，只在恢复原�
   h.context.instanceId = "another-instance"; release.resolve();
   assert.equal(await saving, false);
   assert.equal(h.state.phase, "unknown"); assert.equal(h.state.services.length, 0);
-  assert.equal(h.state.pending?.instanceId, h.code.view.instanceId);
+  assert.equal(h.state.pending?.instanceId, "instance");
   assert.equal(await h.state.read(), false);
   assert.equal(h.requests.filter(request => request.op === "mcp_configure").length, 1);
-  h.hook.after = undefined; h.context.instanceId = h.code.view.instanceId; h.context.online = true;
+  h.hook.after = undefined; h.context.instanceId = "instance"; h.context.online = true;
   assert.equal(await h.state.read(), true);
   assert.equal(h.state.services[0].name, "docs"); assert.equal(h.state.pending, null);
   assert.equal(h.requests.filter(request => request.op === "mcp_configure").length, 1);
 });
 
-test("Code MCP 发现中重新读取会使旧发现失效并清理 checking，不会永久禁用表单", async t => {
-  const h = await fixture(t);
-  const original = await h.create(); await h.state.read(); h.state.select(original.id);
+test("Code MCP 发现中重新读取会使旧发现失效并清理 checking，不会永久禁用表单", async () => {
+  const h = await rendererFixture();
+  h.services.push(h.service); await h.state.read(); h.state.select(h.service.id);
   const began = deferred(), release = deferred();
   h.hook.after = async op => { if (op === "mcp_check") { began.resolve(); await release.promise; } };
   const discovering = h.state.discover(); await began.promise;

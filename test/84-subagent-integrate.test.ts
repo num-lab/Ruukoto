@@ -26,11 +26,11 @@ import * as childProcess from "node:child_process";
 import { test } from "node:test";
 import { type Responder } from "./helpers/mock-provider.ts";
 import {
-  afterTool,
-  lastUserText,
-  realTools,
-  startTestRuntime,
-  waitFor,
+afterTool,
+lastUserText,
+realTools,
+startTestRuntime,
+waitFor,
 } from "./helpers/testkit.ts";
 import { ExecutionError } from "@ruukoto/agent/execution/launchers.ts";
 import { controlledWorkCopy } from "./helpers/controlled-work-copy.ts";
@@ -118,6 +118,31 @@ test("多副本汇总：两项修改工作的副本改动经 integrate 汇入父
     assert.deepEqual(evB[0]!.files.sort(), ["src/b.ts", "src/new.md"]);
     assert.equal(rt.store.hasIntegratedEvent(a.work.id), true);
     assert.equal(rt.store.hasIntegratedEvent(b.work.id), true);
+    const twice = await rt.subagents!.integrate({ workId: a.work.id, parentTaskId: parent.id, parentSessionId: session.id });
+    assert.equal(twice.state, "already", "重复汇总幂等（差异已在工作区）");
+    assert.equal(integratedEvents(rt, a.work.id).length, 1, "幂等返回不重复登记");
+
+    // 只读工作与无差异工作
+    const ro = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "iro", request: "只读片段", readPaths: ["."], materials: null, paramsDigest: "d3-iro" });
+    await assert.rejects(
+      () => rt.subagents!.integrate({ workId: ro.work.id, parentTaskId: parent.id, parentSessionId: session.id }),
+      (e: any) => e.code === "invalid_state" || /只读/.test(String(e.message)),
+    );
+    const empty = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "ie", request: "NOOP 不改", target: ".", materials: null, readPaths: null, paramsDigest: "d3-ie" });
+    await waitFor("空工作完工", () => rt.store.getTask(empty.task.id)!.resultSummary !== null);
+    const re = await rt.subagents!.integrate({ workId: empty.work.id, parentTaskId: parent.id, parentSessionId: session.id });
+    assert.equal(re.state, "empty");
+    assert.equal(rt.store.hasIntegratedEvent(empty.work.id), false, "空差异不登记");
+    // 旧 coding 角色会话（issue 23 退役，只读归档）的任务不能作为 modify 的父任务
+    const coding = seedCodingRole(rt.store, t.dirs.root);
+    const cparent = seedCodingChild(rt.store, coding.sessionId, { key: "pc", mark: "旧任务" });
+    completeCodingChild(rt.store, cparent.id, "旧结论", "{}");
+    await assert.rejects(
+      () => delegateFromActiveTask(rt, { parentTaskId: cparent.id, key: "icd", request: "x", target: ".", materials: null, readPaths: null, paramsDigest: "d7-icd" }),
+      (error: unknown) => error instanceof SubAgentDelegationError && error.code === "forbidden",
+    );
+    assert.equal(rt.store.listWorkDelegationsBySession(coding.sessionId).length, 0);
+    assert.equal(rt.store.listSubAgentsBySession(coding.sessionId).length, 0);
   } finally {
     parentGate.release();
     await t.shutdown();
@@ -168,50 +193,6 @@ test("冲突：父工作区同文件已有本地改动 → 拒绝强制覆盖、
   }
 });
 
-test("幂等与空差异：套用后重复汇总为 already 不重复登记；无差异为 empty", async () => {
-  const responder: Responder = async (req) => {
-    const text = lastUserText(req);
-    if (text.includes("[SubAgent 委派 · 工作区目标]") && text.includes("PATCH-IDEM")) {
-      if (afterTool(req)) return { kind: "text", text: "child done" };
-      return { kind: "tool_calls", calls: [{ id: "ei", name: "edit", arguments: { path: "src/a.ts", edits: [{ oldText: "export const v = 1", newText: "export const v = 121" }] } }] };
-    }
-    return { kind: "text", text: "父回复" };
-  };
-  const parentGate = holdParentResponse(responder);
-  const t = await startTestRuntime("ig-idem", parentGate.responder, { config: realTools(), workDirs: 1 });
-  try {
-    const rt = t.runtime;
-    fs.mkdirSync(path.join(t.work[0]!, "src"), { recursive: true });
-    fs.writeFileSync(path.join(t.work[0]!, "src/a.ts"), "export const v = 1\n", "utf8");
-    initGitRepo(t.work[0]!);
-    const session = await rt.createSession({ projectName: "igi", cwd: t.work[0]! });
-    const parent = await rt.submit({ sessionId: session.id, requestId: "p1", input: "开始", modelSelection: rt.defaultSelection });
-    await waitFor("父在运行", () => rt.store.getTask(parent.id)!.status === "running");
-    const a = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "ii", request: "PATCH-IDEM 改 a", target: ".", materials: null, readPaths: null, paramsDigest: "d3-ii" });
-    await waitFor("子完工", () => rt.store.getTask(a.task.id)!.resultSummary !== null);
-
-    const once = await rt.subagents!.integrate({ workId: a.work.id, parentTaskId: parent.id, parentSessionId: session.id });
-    assert.equal(once.state, "applied");
-    const twice = await rt.subagents!.integrate({ workId: a.work.id, parentTaskId: parent.id, parentSessionId: session.id });
-    assert.equal(twice.state, "already", "重复汇总幂等（差异已在工作区）");
-    assert.equal(integratedEvents(rt, a.work.id).length, 1, "幂等返回不重复登记");
-
-    // 只读工作与无差异工作
-    const ro = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "iro", request: "只读片段", readPaths: ["."], materials: null, paramsDigest: "d3-iro" });
-    assert.rejects(
-      () => rt.subagents!.integrate({ workId: ro.work.id, parentTaskId: parent.id, parentSessionId: session.id }),
-      (e: any) => e.code === "invalid_state" || /只读/.test(String(e.message)),
-    );
-    const empty = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "ie", request: "NOOP 不改", target: ".", materials: null, readPaths: null, paramsDigest: "d3-ie" });
-    await waitFor("空工作完工", () => rt.store.getTask(empty.task.id)!.resultSummary !== null);
-    const re = await rt.subagents!.integrate({ workId: empty.work.id, parentTaskId: parent.id, parentSessionId: session.id });
-    assert.equal(re.state, "empty");
-    assert.equal(rt.store.hasIntegratedEvent(empty.work.id), false, "空差异不登记");
-  } finally {
-    parentGate.release();
-    await t.shutdown();
-  }
-});
 
 test("直接写入目标：integrate 如实告知无副本需要汇总，无事件零写入", async () => {
   const responder: Responder = async (req) => {
@@ -356,49 +337,6 @@ test("复用隔离与状态核实：按工作 id 汇总的只是该工作产出�
   }
 });
 
-test("main 经通用修改委派跑通（target + integrate）；旧 coding 角色会话的任务不能发起目标委派", async () => {
-  const responder: Responder = async (req) => {
-    const text = lastUserText(req);
-    if (text.includes("[SubAgent 委派 · 工作区目标]") && text.includes("PATCH-MAIN")) {
-      if (afterTool(req)) return { kind: "text", text: "child done" };
-      return { kind: "tool_calls", calls: [{ id: "em", name: "edit", arguments: { path: "src/a.ts", edits: [{ oldText: "export const v = 1", newText: "export const v = 151" }] } }] };
-    }
-    return { kind: "text", text: "回复" };
-  };
-  const parentGate = holdParentResponse(responder);
-  const t = await startTestRuntime("ig-main", parentGate.responder, { config: realTools(), workDirs: 1 });
-  try {
-    const rt = t.runtime;
-    const main = rt.store.getAgentRole("main")!;
-    const mainCwd = rt.store.getSession(main.sessionId)!.cwdReal;
-    // main 工作区放一份仓库
-    fs.mkdirSync(path.join(mainCwd, "src"), { recursive: true });
-    fs.writeFileSync(path.join(mainCwd, "src/a.ts"), "export const v = 1\n", "utf8");
-    initGitRepo(mainCwd);
-    const mparent = await rt.submit({ sessionId: main.sessionId, requestId: "pm", input: "开始（main）", modelSelection: rt.defaultSelection });
-    await waitFor("main 父在运行", () => rt.store.getTask(mparent.id)!.status === "running");
-    const m = await delegateFromActiveTask(rt, { parentTaskId: mparent.id, key: "im", request: "PATCH-MAIN 改 a", target: ".", materials: null, readPaths: null, paramsDigest: "d7-im" });
-    assert.equal(m.work.writeTarget?.kind, "worktree", "main 的 Git 目标也走 worktree 副本");
-    await waitFor("main 子完工", () => rt.store.getTask(m.task.id)!.resultSummary !== null);
-    const rm = await rt.subagents!.integrate({ workId: m.work.id, parentTaskId: mparent.id, parentSessionId: main.sessionId });
-    assert.equal(rm.state, "applied");
-    assert.equal(fs.readFileSync(path.join(mainCwd, "src/a.ts"), "utf8"), "export const v = 151\n", "main 工作区经副本汇总完成修改");
-
-    // 旧 coding 角色会话（issue 23 退役，只读归档）的任务不能作为 modify 的父任务
-    const coding = seedCodingRole(rt.store, t.dirs.root);
-    const cparent = seedCodingChild(rt.store, coding.sessionId, { key: "pc", mark: "旧任务" });
-    completeCodingChild(rt.store, cparent.id, "旧结论", "{}");
-    await assert.rejects(
-      () => delegateFromActiveTask(rt, { parentTaskId: cparent.id, key: "icd", request: "x", target: ".", materials: null, readPaths: null, paramsDigest: "d7-icd" }),
-      (error: unknown) => error instanceof SubAgentDelegationError && error.code === "forbidden",
-    );
-    assert.equal(rt.store.listWorkDelegationsBySession(coding.sessionId).length, 0);
-    assert.equal(rt.store.listSubAgentsBySession(coding.sessionId).length, 0);
-  } finally {
-    parentGate.release();
-    await t.shutdown();
-  }
-});
 
 for (const phase of ["result_false", "result_throws", "ready", "call", "mode", "mode_call"] as const) {
   test(`汇总临时 worker ${phase} 停止未核实时保留双方成果和父目录占用`, async () => {

@@ -1,0 +1,73 @@
+[tools-diagnostic] {"ms":37,"phase":"root-scan","stage":"setup","scanCount":9,"statCount":67,"visit":1,"stack":["    at identityOverlap (/Users/eitrous/Developer/ruukoto/packages/agent/src/execution/approved-ops.ts:114:24)","    at identityCovers (/Users/eitrous/Developer/ruukoto/packages/agent/src/execution/approved-ops.ts:120:10)","    at isProtectedPath (/Users/eitrous/Developer/ruukoto/packages/agent/src/execution/approved-ops.ts:126:78)","    at assertGrantNotProtected (/Users/eitrous/Developer/ruukoto/packages/agent/src/execution/approved-ops.ts:141:7)","    at personalReadPath (/Users/eitrous/Developer/ruukoto/apps/ruukoto/src/personal-tools-config.ts:37:7)","    at verifyPersonalTools (/Users/eitrous/Developer/ruukoto/apps/ruukoto/src/personal-tools-config.ts:43:19)"]}
+[tools-diagnostic] {"ms":1004,"phase":"client-start","stage":"POST /inputs","scanCount":0,"statCount":0}
+[tools-diagnostic] {"ms":1007,"phase":"server-request","stage":"POST /inputs","scanCount":0,"statCount":1,"request":"POST /inputs"}
+[tools-diagnostic] {"ms":1010,"phase":"server-end","stage":"POST /inputs","scanCount":0,"statCount":1,"request":"POST /inputs","status":200}
+[tools-diagnostic] {"ms":1105,"phase":"server-finish","stage":"POST /inputs","scanCount":0,"statCount":7,"request":"POST /inputs","status":200}
+[tools-diagnostic] {"ms":1105,"phase":"server-close","stage":"POST /inputs","scanCount":0,"statCount":7,"request":"POST /inputs","status":200}
+[tools-diagnostic] {"ms":1107,"phase":"client-result","stage":"POST /inputs","scanCount":0,"statCount":7,"elapsed":103}
+[tools-diagnostic] {"ms":1107,"phase":"client-start","stage":"GET /tools/operations?offset=0","scanCount":0,"statCount":0}
+[tools-diagnostic] {"ms":1111,"phase":"server-request","stage":"GET /tools/operations?offset=0","scanCount":0,"statCount":1,"request":"POST /v1/chat/completions"}
+[tools-diagnostic] {"ms":1111,"phase":"server-end","stage":"GET /tools/operations?offset=0","scanCount":0,"statCount":1,"request":"POST /v1/chat/completions","status":200}
+[tools-diagnostic] {"ms":1111,"phase":"server-finish","stage":"GET /tools/operations?offset=0","scanCount":0,"statCount":1,"request":"POST /v1/chat/completions","status":200}
+[tools-diagnostic] {"ms":1111,"phase":"server-close","stage":"GET /tools/operations?offset=0","scanCount":0,"statCount":1,"request":"POST /v1/chat/completions","status":200}
+[tools-diagnostic] {"ms":1112,"phase":"server-request","stage":"GET /tools/operations?offset=0","scanCount":0,"statCount":1,"request":"GET /tools/operations?offset=0"}
+[tools-diagnostic] {"ms":1112,"phase":"server-end","stage":"GET /tools/operations?offset=0","scanCount":0,"statCount":1,"request":"GET /tools/operations?offset=0","status":200}
+[tools-diagnostic] {"ms":1112,"phase":"server-finish","stage":"GET /tools/operations?offset=0","scanCount":0,"statCount":1,"request":"GET /tools/operations?offset=0","status":200}
+[tools-diagnostic] {"ms":1112,"phase":"server-close","stage":"GET /tools/operations?offset=0","scanCount":0,"statCount":1,"request":"GET /tools/operations?offset=0","status":200}
+[tools-diagnostic] {"ms":1123,"phase":"root-scan","stage":"GET /tools/operations?offset=0","scanCount":3,"statCount":54,"visit":2,"stack":["    at identityOverlap (/Users/eitrous/Developer/ruukoto/packages/agent/src/execution/approved-ops.ts:114:24)","    at identityCovers (/Users/eitrous/Developer/ruukoto/packages/agent/src/execution/approved-ops.ts:120:10)","    at isProtectedPath (/Users/eitrous/Developer/ruukoto/packages/agent/src/execution/approved-ops.ts:126:78)","    at preparePersonalFile (/Users/eitrous/Developer/ruukoto/apps/ruukoto/src/personal-tool-io.ts:42:9)","    at execute (/Users/eitrous/Developer/ruukoto/apps/ruukoto/src/personal-tools.ts:260:101)","    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"]}
+[tools-diagnostic] {"ms":1678,"phase":"root-scan","stage":"GET /tools/operations?offset=0","scanCount":11832,"statCount":133763,"visit":3,"stack":["    at identityOverlap (/Users/eitrous/Developer/ruukoto/packages/agent/src/execution/approved-ops.ts:114:24)","    at identityCovers (/Users/eitrous/Developer/ruukoto/packages/agent/src/execution/approved-ops.ts:120:10)","    at isProtectedPath (/Users/eitrous/Developer/ruukoto/packages/agent/src/execution/approved-ops.ts:126:78)","    at assertGrantNotProtected (/Users/eitrous/Developer/ruukoto/packages/agent/src/execution/approved-ops.ts:141:7)","    at personalReadPath (/Users/eitrous/Developer/ruukoto/apps/ruukoto/src/personal-tools-config.ts:37:7)","    at verifyPersonalTools (/Users/eitrous/Developer/ruukoto/apps/ruukoto/src/personal-tools-config.ts:43:19)"]}
+[tools-diagnostic] {"ms":2155,"phase":"client-result","stage":"GET /tools/operations?offset=0","scanCount":23658,"statCount":267477,"elapsed":1048}
+[tools-diagnostic] {"ms":2160,"phase":"client-start","stage":"GET /tools/operations?offset=0","scanCount":0,"statCount":0}
+[tools-diagnostic] {"ms":2160,"phase":"server-request","stage":"GET /tools/operations?offset=0","scanCount":0,"statCount":1,"request":"GET /tools/operations?offset=0"}
+[tools-diagnostic] {"ms":2161,"phase":"server-end","stage":"GET /tools/operations?offset=0","scanCount":0,"statCount":1,"request":"GET /tools/operations?offset=0","status":200}
+[tools-diagnostic] {"ms":2161,"phase":"server-finish","stage":"GET /tools/operations?offset=0","scanCount":0,"statCount":1,"request":"GET /tools/operations?offset=0","status":200}
+[tools-diagnostic] {"ms":2161,"phase":"server-close","stage":"GET /tools/operations?offset=0","scanCount":0,"statCount":1,"request":"GET /tools/operations?offset=0","status":200}
+[tools-diagnostic] {"ms":2161,"phase":"client-result","stage":"GET /tools/operations?offset=0","scanCount":0,"statCount":1,"elapsed":1}
+[tools-diagnostic] {"ms":2161,"phase":"client-start","stage":"GET /tools/operation?operation=35&offset=0","scanCount":0,"statCount":0}
+[tools-diagnostic] {"ms":2161,"phase":"server-request","stage":"GET /tools/operation?operation=35&offset=0","scanCount":0,"statCount":1,"request":"GET /tools/operation?operation=35&offset=0"}
+[tools-diagnostic] {"ms":2161,"phase":"server-end","stage":"GET /tools/operation?operation=35&offset=0","scanCount":0,"statCount":1,"request":"GET /tools/operation?operation=35&offset=0","status":200}
+[tools-diagnostic] {"ms":2161,"phase":"server-finish","stage":"GET /tools/operation?operation=35&offset=0","scanCount":0,"statCount":1,"request":"GET /tools/operation?operation=35&offset=0","status":200}
+[tools-diagnostic] {"ms":2161,"phase":"server-close","stage":"GET /tools/operation?operation=35&offset=0","scanCount":0,"statCount":1,"request":"GET /tools/operation?operation=35&offset=0","status":200}
+[tools-diagnostic] {"ms":2161,"phase":"client-result","stage":"GET /tools/operation?operation=35&offset=0","scanCount":0,"statCount":1,"elapsed":1}
+[tools-diagnostic] {"ms":2161,"phase":"client-start","stage":"POST /tools/decide","scanCount":0,"statCount":0}
+[tools-diagnostic] {"ms":2162,"phase":"server-request","stage":"POST /tools/decide","scanCount":0,"statCount":1,"request":"POST /tools/decide"}
+[tools-diagnostic] {"ms":2163,"phase":"root-scan","stage":"POST /tools/decide","scanCount":3,"statCount":52,"visit":4,"stack":["    at identityOverlap (/Users/eitrous/Developer/ruukoto/packages/agent/src/execution/approved-ops.ts:114:24)","    at identityCovers (/Users/eitrous/Developer/ruukoto/packages/agent/src/execution/approved-ops.ts:120:10)","    at isProtectedPath (/Users/eitrous/Developer/ruukoto/packages/agent/src/execution/approved-ops.ts:126:78)","    at assertGrantNotProtected (/Users/eitrous/Developer/ruukoto/packages/agent/src/execution/approved-ops.ts:141:7)","    at personalReadPath (/Users/eitrous/Developer/ruukoto/apps/ruukoto/src/personal-tools-config.ts:37:7)","    at verifyPersonalTools (/Users/eitrous/Developer/ruukoto/apps/ruukoto/src/personal-tools-config.ts:43:19)"]}
+[tools-diagnostic] {"ms":2626,"phase":"root-scan","stage":"POST /tools/decide","scanCount":11832,"statCount":133813,"visit":5,"stack":["    at identityOverlap (/Users/eitrous/Developer/ruukoto/packages/agent/src/execution/approved-ops.ts:114:24)","    at identityCovers (/Users/eitrous/Developer/ruukoto/packages/agent/src/execution/approved-ops.ts:120:10)","    at isProtectedPath (/Users/eitrous/Developer/ruukoto/packages/agent/src/execution/approved-ops.ts:126:78)","    at preparePersonalFile (/Users/eitrous/Developer/ruukoto/apps/ruukoto/src/personal-tool-io.ts:42:9)","    at active (/Users/eitrous/Developer/ruukoto/apps/ruukoto/src/personal-tools.ts:131:54)","    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"]}
+[tools-diagnostic] {"ms":3129,"phase":"server-end","stage":"POST /tools/decide","scanCount":23658,"statCount":267471,"request":"POST /tools/decide","status":200}
+[tools-diagnostic] {"ms":3130,"phase":"root-scan","stage":"POST /tools/decide","scanCount":23661,"statCount":267522,"visit":6,"stack":["    at identityOverlap (/Users/eitrous/Developer/ruukoto/packages/agent/src/execution/approved-ops.ts:114:24)","    at identityCovers (/Users/eitrous/Developer/ruukoto/packages/agent/src/execution/approved-ops.ts:120:10)","    at isProtectedPath (/Users/eitrous/Developer/ruukoto/packages/agent/src/execution/approved-ops.ts:126:78)","    at assertGrantNotProtected (/Users/eitrous/Developer/ruukoto/packages/agent/src/execution/approved-ops.ts:141:7)","    at personalReadPath (/Users/eitrous/Developer/ruukoto/apps/ruukoto/src/personal-tools-config.ts:37:7)","    at verifyPersonalTools (/Users/eitrous/Developer/ruukoto/apps/ruukoto/src/personal-tools-config.ts:43:19)"]}
+[tools-diagnostic] {"ms":3130,"phase":"controlled-delay-start","stage":"POST /tools/decide","scanCount":23661,"statCount":267522}
+[tools-diagnostic] {"ms":8335,"phase":"controlled-delay-end","stage":"POST /tools/decide","scanCount":23661,"statCount":267522}
+[tools-diagnostic] {"ms":8885,"phase":"root-scan","stage":"POST /tools/decide","scanCount":35490,"statCount":401283,"visit":7,"stack":["    at identityOverlap (/Users/eitrous/Developer/ruukoto/packages/agent/src/execution/approved-ops.ts:114:24)","    at identityCovers (/Users/eitrous/Developer/ruukoto/packages/agent/src/execution/approved-ops.ts:120:10)","    at isProtectedPath (/Users/eitrous/Developer/ruukoto/packages/agent/src/execution/approved-ops.ts:126:78)","    at preparePersonalFile (/Users/eitrous/Developer/ruukoto/apps/ruukoto/src/personal-tool-io.ts:42:9)","    at active (/Users/eitrous/Developer/ruukoto/apps/ruukoto/src/personal-tools.ts:131:54)","    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"]}
+[tools-diagnostic] {"ms":9354,"phase":"root-scan","stage":"POST /tools/decide","scanCount":47319,"statCount":534988,"visit":8,"stack":["    at identityOverlap (/Users/eitrous/Developer/ruukoto/packages/agent/src/execution/approved-ops.ts:114:24)","    at identityCovers (/Users/eitrous/Developer/ruukoto/packages/agent/src/execution/approved-ops.ts:120:10)","    at isProtectedPath (/Users/eitrous/Developer/ruukoto/packages/agent/src/execution/approved-ops.ts:126:78)","    at executePersonalFile (/Users/eitrous/Developer/ruukoto/apps/ruukoto/src/personal-tool-io.ts:98:9)","    at execute (/Users/eitrous/Developer/ruukoto/apps/ruukoto/src/personal-tools.ts:293:66)","    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"]}
+[tools-diagnostic] {"ms":9827,"phase":"server-finish","stage":"POST /tools/decide","scanCount":59145,"statCount":668663,"request":"POST /tools/decide","status":200}
+[tools-diagnostic] {"ms":9827,"phase":"server-close","stage":"POST /tools/decide","scanCount":59145,"statCount":668663,"request":"POST /tools/decide","status":200}
+[tools-diagnostic] {"ms":9828,"phase":"client-error","stage":"POST /tools/decide","scanCount":59145,"statCount":668663,"elapsed":7666,"code":"control_response_lost","cause":"timeout"}
+✖ durable 本机入口：真实认证接口完成工具审批、授权撤销与原产物导出 (9829.075209ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 11496.328083
+
+✖ failing tests:
+
+test at ../../../../private/tmp/ruukoto-personal-tools-diagnosis-28c033f7/post-response-delay.test.mts:36:1743
+✖ durable 本机入口：真实认证接口完成工具审批、授权撤销与原产物导出 (9829.075209ms)
+  Error [PersonalError]: 未取得后台应答；请核实原消息或后台状态，不要重复提交新消息。
+      at ClientRequest.fail (/Users/eitrous/Developer/ruukoto/apps/ruukoto/src/personal-control.ts:490:46)
+      at ClientRequest.emit (node:events:509:28)
+      at emitErrorEvent (node:_http_client:109:11)
+      at Socket.socketErrorListener (node:_http_client:593:5)
+      at Socket.emit (node:events:509:28)
+      at emitErrorNT (node:internal/streams/destroy:170:8)
+      at emitErrorCloseNT (node:internal/streams/destroy:129:3)
+      at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {
+    code: 'control_response_lost',
+    [cause]: Error: timeout
+        at Timeout._onTimeout (/Users/eitrous/Developer/ruukoto/apps/ruukoto/src/personal-control.ts:491:50)
+        at listOnTimeout (node:internal/timers:605:17)
+        at process.processTimers (node:internal/timers:541:7)
+  }

@@ -3,7 +3,6 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
-import { product as personalProduct } from "./helpers/legacy-product.ts";
 import { product as codingProduct } from "../apps/ruukoto-code/src/product.ts";
 import { randomId, type Session, type Task } from "@ruukoto/core/types.ts";
 import { AccessScope } from "@ruukoto/core/access.ts";
@@ -40,7 +39,7 @@ async function childDone(rt: Runtime, taskId: string): Promise<Task> {
   return rt.store.getTask(taskId)!;
 }
 
-for (const product of [personalProduct, codingProduct]) test(`${product.runtime.type} 普通与工作流默认角色具有同源工具并在独立目录实际执行 bash`, async () => {
+for (const product of [codingProduct]) test(`${product.runtime.type} 普通与工作流默认角色具有同源工具并在独立目录实际执行 bash`, async () => {
   const t = await startTestRuntime(`source-bash-${product.runtime.type}`, req => {
     if (lastUserText(req) === "RUN-DEFAULT-DELEGATE") {
       if (afterTool(req)) return { kind: "text", text: "默认委派已登记" };

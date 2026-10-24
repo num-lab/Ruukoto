@@ -110,6 +110,7 @@ export function readPersonalToken(directory: string): string {
 }
 
 // Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-local-management.md
+// Note: 见 .agents/notes/implemented/bug-fix/2026-10-24-personal-token-atomic-publish.md
 export async function startPersonalServer(directory: string, options: { development?: boolean } = {}) {
   const profile = lockPersonalProfile(directory);
   const socketPath = path.join(directory, "control.sock");
@@ -145,7 +146,8 @@ export async function startPersonalServer(directory: string, options: { developm
     if (fs.existsSync(path.join(directory, "control.token"))) readPersonalToken(directory);
     if (Buffer.byteLength(socketPath) > 100) throw new PersonalError("control_path_long", "隔离档案路径过长，请用较短的新目录启动。");
     const token = randomBytes(32).toString("hex");
-    fs.writeFileSync(path.join(directory, "control.token"), token + "\n", { mode: 0o600 });
+    fs.writeFileSync(path.join(directory, "control.token.tmp"), token + "\n", { mode: 0o600 });
+    fs.renameSync(path.join(directory, "control.token.tmp"), path.join(directory, "control.token"));
     fs.rmSync(socketPath, { force: true });
     server.on("request", (_req, res) => res.writeHead(503, { connection: "close", "content-type": "application/json" }).end(JSON.stringify({ v: 1, ok: false, code: "control_starting", message: "隔离后台正在恢复，请稍后查询。" })));
     server.listen(socketPath);

@@ -1,0 +1,58 @@
+✖ 重载状态：恢复继续意图，退出后的迟到应答不重启动画且后台继续 (1166.759375ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 6833.858958
+
+✖ failing tests:
+
+test at test/32-dev.test.ts:621:1
+✖ 重载状态：恢复继续意图，退出后的迟到应答不重启动画且后台继续 (1166.759375ms)
+  AssertionError [ERR_ASSERTION]: 迟到应答不能重新持有运行中动画计时器
+  + actual - expected
+  
+  + <ref *1> Timeout {
+  +   Symbol(asyncId): 41961,
+  +   Symbol(kAsyncContextFrame): undefined,
+  +   Symbol(kHasPrimitive): false,
+  +   Symbol(refed): true,
+  +   Symbol(triggerId): 41525,
+  +   _destroyed: false,
+  +   _idleNext: TimersList {
+  +     _idleNext: [Circular *1],
+  +     _idlePrev: [Circular *1],
+  +     expiry: 2631,
+  +     id: -9007199254740907,
+  +     msecs: 80,
+  +     priorityQueuePosition: 3
+  +   },
+  +   _idlePrev: TimersList {
+  +     _idleNext: [Circular *1],
+  +     _idlePrev: [Circular *1],
+  +     expiry: 2631,
+  +     id: -9007199254740907,
+  +     msecs: 80,
+  +     priorityQueuePosition: 3
+  +   },
+  +   _idleStart: 2551,
+  +   _idleTimeout: 80,
+  +   _onTimeout: [Function (anonymous)],
+  +   _repeat: 80,
+  +   _timerArgs: undefined
+  + }
+  - null
+  
+      at TestContext.<anonymous> (/private/tmp/ruukoto-neg-y53r145s/test/32-dev.test.ts:683:12)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: { _idleTimeout: -1, _idlePrev: null, _idleNext: null, _idleStart: 2551, _onTimeout: null, _timerArgs: undefined, _repeat: 80, _destroyed: true },
+    expected: null,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

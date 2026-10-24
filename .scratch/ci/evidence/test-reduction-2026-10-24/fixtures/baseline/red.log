@@ -1,0 +1,76 @@
+$ node --import tsx --test --test-name-pattern='合成会话覆盖全部事件类型|桌面 (open_workspace|create_session)：rejected' test/19-tui-demo.test.ts test/40-desktop-creation.test.ts
+✖ 合成会话覆盖全部事件类型且 seq 连续 (484.776875ms)
+✖ 桌面 open_workspace：rejected 保留原键核实，重复点击不新建 (145.956958ms)
+✖ 桌面 create_session：rejected 保留原键核实，重复点击不新建 (70.843583ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 0
+ℹ fail 3
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2895.827584
+
+✖ failing tests:
+
+test at test/19-tui-demo.test.ts:1:1685
+✖ 合成会话覆盖全部事件类型且 seq 连续 (484.776875ms)
+  AssertionError [ERR_ASSERTION]: demo 未覆盖的事件类型：task.mcp_operation_changed
+  + actual - expected
+
+  + [
+  +   'task.mcp_operation_changed'
+  + ]
+  - []
+
+      at TestContext.<anonymous> (/Users/eitrous/Developer/ruukoto/test/19-tui-demo.test.ts:65:12)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: [ 'task.mcp_operation_changed' ],
+    expected: [],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at test/40-desktop-creation.test.ts:1:1131
+✖ 桌面 open_workspace：rejected 保留原键核实，重复点击不新建 (145.956958ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+
+  + 'sess_f2f1e47e3e6962f04d4ffa0b'
+  - null
+
+      at TestContext.<anonymous> (/Users/eitrous/Developer/ruukoto/test/40-desktop-creation.test.ts:63:18)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'sess_f2f1e47e3e6962f04d4ffa0b',
+    expected: null,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at test/40-desktop-creation.test.ts:1:1131
+✖ 桌面 create_session：rejected 保留原键核实，重复点击不新建 (70.843583ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+
+  + 'sess_22f2d76b85866ae772c50142'
+  - null
+
+      at TestContext.<anonymous> (/Users/eitrous/Developer/ruukoto/test/40-desktop-creation.test.ts:63:18)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'sess_22f2d76b85866ae772c50142',
+    expected: null,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+Exit code: 1

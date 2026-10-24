@@ -1,0 +1,23 @@
+{
+  "case": "command-node",
+  "source": "apps/ruukoto/src/personal-command-work.ts",
+  "test": "test/personal-command-work.test.ts",
+  "testSha256": "10e903bcc488c07de7c9a2d070253f00b80f26f0bc178ec957c21f26a6d961b1",
+  "sourceSha256": "30368f406a8b1f4380b966f8c53f66431ab724d52c477d78ad486ad7cb090ac4",
+  "before": " && input.nodePath === fs.realpathSync(process.execPath)",
+  "after": "",
+  "attempts": [
+    {
+      "phase": "mutated",
+      "exitCode": 0,
+      "wallSeconds": 2.782,
+      "log": "/tmp/ruukoto-reduction-negative-command-node-mutated.log"
+    },
+    {
+      "phase": "restored",
+      "exitCode": 0,
+      "wallSeconds": 1.967,
+      "log": "/tmp/ruukoto-reduction-negative-command-node-restored.log"
+    }
+  ]
+}

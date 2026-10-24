@@ -1,0 +1,30 @@
+[fixture-diagnostic] {"closesBeforeSafetyCleanup":1,"serverStillListening":false}
+✖ Personal 页面读取：切页与连接核实共享原查询，旧页丢弃迟到应答且写入仍互斥 (3009.78625ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3137.48425
+
+✖ failing tests:
+
+test at ../../../../private/tmp/ruukoto-linux-fixture-diagnosis-28c033f7/atomic-only.test.mts:44:1082
+✖ Personal 页面读取：切页与连接核实共享原查询，旧页丢弃迟到应答且写入仍互斥 (3009.78625ms)
+  AssertionError [ERR_ASSERTION]: SSH 或新 Personal 程序不可用，请核实连接、升级程序并查询原配置与服务；未自动重试。
+  
+  'error' !== 'ready'
+  
+      at TestContext.<anonymous> (/private/tmp/ruukoto-linux-fixture-diagnosis-28c033f7/atomic-only.test.mts:155:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'error',
+    expected: 'ready',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

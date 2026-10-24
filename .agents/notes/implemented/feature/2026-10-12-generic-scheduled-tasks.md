@@ -95,7 +95,7 @@ full-access 不请求操作审批。confirm 或 auto-review 遇到需要拥有�
 
 根任务未开始且资料已失效时，只发送不包含原资料的通用失败诊断，不让撤销资料阻挡该诊断；已开始或产生内容的回报仍携带原资料引用，在发送前复核。
 
-验证入口为 `test/37-scheduler-outbox.test.ts`、`test/51-generic-scheduler.test.ts`、`test/93-im-approval-lifecycle.test.ts` 与关联任务、委派、IM、导入回归；具体运行命令与结果由[工单](../../../../.scratch/generic-scheduler/issues/01-generic-scheduled-tasks.md)记录。IM 和模型为替身，真实平台推送与真实模型未验收。
+共享时间/DST 与旧资料回归保留 `test/37-scheduler-outbox.test.ts`、`test/93-im-approval-lifecycle.test.ts` 及相关导入用例；旧运行验收见 `git show 28c033f7:test/51-generic-scheduler.test.ts`，按[测试精简](../testing/2026-10-24-test-suite-reduction.md)退出当前集合；具体运行命令与结果由[工单](../../../../.scratch/generic-scheduler/issues/01-generic-scheduled-tasks.md)记录。IM 和模型为替身，真实平台推送与真实模型未验收。
 
 取消自身计划时先保存整项取消意图，当前发起任务的停止请求由宿主异步收尾，其余任务等待停止；当前工具可以返回，不会与自身 SDK 中止互等。停止未核实的目录占用阻止关闭运行及下一次触发，查询显示相关任务与占用事实。尚未开始的排队执行在可信未取消运行中按原任务键恢复；已开始的执行按中断和未知效果规则保留，不自动重做。
 

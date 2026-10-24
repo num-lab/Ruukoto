@@ -1,0 +1,89 @@
+[
+  {
+    "pid": 33599,
+    "signal": "SIGTERM",
+    "at": 1792822334.348238,
+    "returncode": 0,
+    "identity": {
+      "pid": 33599,
+      "ppid": 32861,
+      "pgid": 39475,
+      "uniqueid": "6473637",
+      "seconds": "1792821757",
+      "microseconds": "130406",
+      "pidversion": 7284221,
+      "executable": "/Users/eitrous/.local/share/mise/installs/node/24.15.0/bin/node"
+    }
+  },
+  {
+    "pid": 33599,
+    "after": {
+      "pid": 33599,
+      "identity": 0
+    },
+    "at": 1792822334.4127018
+  },
+  {
+    "pid": 32861,
+    "signal": "SIGTERM",
+    "at": 1792822348.237181,
+    "returncode": 0,
+    "identity": {
+      "pid": 32861,
+      "ppid": 45940,
+      "pgid": 39475,
+      "uniqueid": "6472903",
+      "seconds": "1792821737",
+      "microseconds": "934329",
+      "pidversion": 7283374,
+      "executable": "/Users/eitrous/.local/share/mise/installs/node/24.15.0/bin/node"
+    }
+  },
+  {
+    "pid": 32862,
+    "signal": "SIGTERM",
+    "at": 1792822348.245284,
+    "returncode": 0,
+    "identity": {
+      "pid": 32862,
+      "ppid": 32861,
+      "pgid": 39475,
+      "uniqueid": "6472904",
+      "seconds": "1792821738",
+      "microseconds": "10300",
+      "pidversion": 7283376,
+      "executable": "/Users/eitrous/Developer/ruukoto/node_modules/@esbuild/darwin-arm64/bin/esbuild"
+    }
+  },
+  {
+    "pid": 32943,
+    "signal": "SIGTERM",
+    "at": 1792822348.253484,
+    "returncode": 0,
+    "identity": {
+      "pid": 32943,
+      "identity": 0
+    }
+  },
+  {
+    "after": {
+      "33599": {
+        "pid": 33599,
+        "identity": 0
+      },
+      "32861": {
+        "pid": 32861,
+        "identity": 0
+      },
+      "32862": {
+        "pid": 32862,
+        "identity": 0
+      },
+      "32943": {
+        "pid": 32943,
+        "identity": 0
+      }
+    },
+    "at": 1792822348.2690408
+  }
+]

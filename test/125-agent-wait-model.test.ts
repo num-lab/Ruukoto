@@ -7,7 +7,6 @@ import { test } from "node:test";
 import { listAgentReports, listAgentWaits } from "@ruukoto/core/agent-wait.ts";
 import { getWorkflowQuestion, listWorkflowExecutions, listWorkflowRuns, requireWorkflowRun } from "@ruukoto/core/workflow.ts";
 import { Runtime } from "@ruukoto/runtime/runtime.ts";
-import { product as personalProduct } from "./helpers/legacy-product.ts";
 import { product as codeProduct } from "../apps/ruukoto-code/src/product.ts";
 import { waitFor } from "./helpers/testkit.ts";
 
@@ -80,7 +79,7 @@ test("真实模型门控代理支持 Responses 输入与扁平工具名，仅暂
   } finally { await proxy.close(); upstream.closeAllConnections(); await new Promise<void>(resolve => upstream.close(() => resolve())); }
 });
 
-for (const product of [personalProduct.runtime, codeProduct.runtime]) test(`${product.type} 真实模型：主动等待后查询结果，第二次等待被拥有者输入打断且后台唯一补报`, { skip: process.env.RUN_MODEL_CHECK !== "1", timeout: 480_000 }, async () => {
+for (const product of [codeProduct.runtime]) test(`${product.type} 真实模型：主动等待后查询结果，第二次等待被拥有者输入打断且后台唯一补报`, { skip: process.env.RUN_MODEL_CHECK !== "1", timeout: 480_000 }, async () => {
   const file = process.env.RUN_WORKFLOW_MODELS_FILE;
   assert.ok(file, "真实等待验收必须显式指定 RUN_WORKFLOW_MODELS_FILE");
   const raw = JSON.parse(fs.readFileSync(file, "utf8")) as { providers: Record<string, ProviderConfig> };

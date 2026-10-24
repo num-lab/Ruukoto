@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test, type TestContext } from "node:test";
 import * as fs from "node:fs";
 import * as net from "node:net";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import { once } from "node:events";
+import { setTimeout as ioDelay } from "node:timers/promises";
 import { CodeController } from "../apps/desktop/src/main/controller.ts";
 import { CONTROL_PROTOCOL_VERSION } from "@ruukoto/control/protocol.ts";
 import type { ConnectionConfig } from "@ruukoto/control/connection.ts";
@@ -21,6 +22,7 @@ import { waitFor, startTestRuntime } from "./helpers/testkit.ts";
 import { product as personalProduct } from "./helpers/legacy-product.ts";
 import { product as codeProduct } from "../apps/ruukoto-code/src/product.ts";
 
+// Note: 见 .agents/notes/implemented/testing/2026-10-24-test-suite-reduction.md
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 const config = { host: "test-host", controlDir: "/var/lib/ruukoto/control" };
 function temp() { return fs.mkdtempSync("/tmp/rk-ssh-"); }
@@ -81,6 +83,11 @@ test("两条 SSH 命令显式覆盖复用、后台化与远端命令配置", () 
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
+async function waitForIo(description: string, check: () => boolean) {
+  const deadline = Date.now() + 5000;
+  while (!check()) { assert.ok(Date.now() < deadline, description); await ioDelay(5); }
+}
+
 interface Scenario { token: string; readCode?: number; stderr?: string; hang?: boolean; ignoreTerm?: boolean; forwardCode?: number; product?: "ruukoto" | "ruukoto-code"; unauthorized?: boolean; version?: number }
 async function harness(initial: Partial<Scenario> = {}, observe?: (controller: PersonalController, update: DesktopUpdate) => void, clientFactory?: ConnectionConfig["clientFactory"]) {
   const dir = temp(), userData = path.join(dir, "app"), scenarioFile = path.join(dir, "scenario.json"), log = path.join(dir, "children.jsonl");
@@ -105,7 +112,7 @@ if (read) {
     client.pipe(remote); remote.pipe(client);
     remote.on('error',()=>client.destroy()); client.on('error',()=>remote.destroy());
     client.on('close',()=>remote.destroy()); remote.on('close',()=>client.destroy());
-  }).listen(local);
+  }).listen(local, () => fs.writeFileSync(process.env.READY, String(process.pid)));
   setInterval(()=>{ const next=scenario(); if(next.forwardCode !== undefined) { process.stderr.write(next.stderr || ''); process.exit(next.forwardCode); } },20);
 }
 `, { mode: 0o755 });
@@ -126,7 +133,7 @@ if (read) {
   });
   const remote = path.join(dir, "remote.sock"); server.listen(remote); await once(server, "listening");
   const updates: DesktopUpdate[] = [];
-  const env = { ...process.env, SCENARIO: scenarioFile, LOG: log, REMOTE: remote };
+  const env = { ...process.env, SCENARIO: scenarioFile, LOG: log, REMOTE: remote, READY: path.join(dir, "forward-ready") };
   const controller = new PersonalController(config, userData, update => { updates.push(update); observe?.(controller, update); }, env, { ssh: executable, clientFactory });
   const children = (): { pid: number; read: boolean; locale: string; started: number }[] => fs.existsSync(log) ? fs.readFileSync(log, "utf8").trim().split("\n").map(line => JSON.parse(line)) : [];
   return { dir, userData, executable, env, controller, updates, authTokens, write, children, drop: () => { for (const socket of sockets) socket.destroy(); }, async close() {
@@ -135,29 +142,41 @@ if (read) {
   } };
 }
 
-test("替身 SSH 的所有预检退出与网络文本只在外部边界分类", async () => {
-  const h = await harness();
+async function forwardOnline(h: Awaited<ReturnType<typeof harness>>, t: TestContext) {
+  await waitForIo("转发已监听", () => {
+    const pid = h.children().filter(child => !child.read).at(-1)?.pid;
+    return pid !== undefined && fs.existsSync(h.env.READY) && fs.readFileSync(h.env.READY, "utf8") === String(pid);
+  });
+  await waitForIo("控制连接在线或已登记重连", () => h.controller.status.state === "online" || h.controller["connection"]?.["reconnectTimer"] != null);
+  if (h.controller.status.state !== "online") t.mock.timers.tick(1000);
+  await waitForIo("恢复在线", () => h.controller.status.state === "online");
+}
+
+test("SSH 预检退出与全部网络文本分类", () => {
+  const networks = ["Connection timed out", "Connection refused", "Network is unreachable", "No route to host", "Could not resolve hostname", "Connection closed by 127.0.0.1", "Connection to host closed by remote host.", "Connection reset", "client_loop: send disconnect: Broken pipe", "Timeout, server host not responding."];
+  for (const stderr of [...networks, "Permission denied (publickey)", "Host key verification failed.", "Bad configuration option", "unknown error"]) {
+    const error = tokenFailure(255, stderr);
+    assert.equal(error.outcome, networks.includes(stderr) ? "not_sent" : "rejected", stderr);
+    assert.equal(error.code, networks.includes(stderr) ? "ssh_network" : "ssh_rejected");
+  }
+  for (const code of [1, 10, 11, 12, 13, 14]) {
+    const error = tokenFailure(code, "");
+    assert.equal(error.outcome, code === 12 ? "not_sent" : "rejected");
+    assert.equal(error.code, code === 12 ? "remote_socket_missing" : "remote_control_unavailable");
+  }
+});
+
+test("真实 SSH 进程保留退出码和错误字节并固定 locale", async () => {
+  const stderr = "Connection refused", h = await harness({ readCode: 255, stderr });
   try {
-    const networks = ["Connection timed out", "Connection refused", "Network is unreachable", "No route to host", "Could not resolve hostname", "Connection closed by 127.0.0.1", "Connection to host closed by remote host.", "Connection reset", "client_loop: send disconnect: Broken pipe", "Timeout, server host not responding."];
-    for (const stderr of [...networks, "Permission denied (publickey)", "Host key verification failed.", "Bad configuration option", "unknown error"]) {
-      h.write({ readCode: 255, stderr });
-      const process = new SshProcess(h.executable, tokenArgs(config), h.env, true);
-      const result = await process.done, error = tokenFailure(result.code, result.stderr);
-      assert.equal(error.outcome, networks.includes(stderr) ? "not_sent" : "rejected", stderr);
-      assert.equal(error.code, networks.includes(stderr) ? "ssh_network" : "ssh_rejected");
-    }
-    for (const code of [1, 10, 11, 12, 13, 14]) {
-      h.write({ readCode: code, stderr: "" });
-      const result = await new SshProcess(h.executable, tokenArgs(config), h.env, true).done;
-      const error = tokenFailure(result.code, result.stderr);
-      assert.equal(error.outcome, code === 12 ? "not_sent" : "rejected");
-      assert.equal(error.code, code === 12 ? "remote_socket_missing" : "remote_control_unavailable");
-    }
-    assert.ok(h.children().every(child => child.locale === "C"));
+    const result = await new SshProcess(h.executable, tokenArgs(config), h.env, true).done;
+    assert.equal(result.code, 255); assert.equal(result.stderr, stderr); assert.equal(result.stdout, "");
+    assert.equal(tokenFailure(result.code, result.stderr).code, "ssh_network");
+    assert.deepEqual(h.children().map(child => child.locale), ["C"]);
   } finally { await h.close(); }
 });
 
-for (const fault of ["Timeout, server host not responding.", "Connection to host closed by remote host.", "client_loop: send disconnect: Broken pipe", "zero", "signal"]) {
+for (const fault of ["Timeout, server host not responding.", "zero", "signal"]) {
   test(`转发在线后 ${fault}，退避重启并重新认证同步`, async () => {
     const h = await harness();
     try {
@@ -225,23 +244,27 @@ for (const [scenario, code] of [
   });
 }
 
-test("读取达到 15 秒期限后 TERM/KILL 回收，关闭与改配置取消读取且不留迟到结果", async () => {
-  const h = await harness({ hang: true, ignoreTerm: true });
+test("读取达到 15 秒期限才回收，关闭取消读取且不留迟到结果", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const h = await harness({ hang: true });
   try {
-    const started = Date.now();
-    await h.controller.reconnect();
-    assert.ok(Date.now() - started >= 15000);
+    const connecting = h.controller.reconnect();
+    await waitForIo("读取已启动", () => h.children().some(child => child.read));
+    const reader = h.children().find(child => child.read)!;
+    t.mock.timers.tick(14999); await ioDelay(10); assert.equal(alive(reader.pid), true);
+    t.mock.timers.tick(1); await connecting;
     assert.equal(h.controller.status.state, "reconnecting");
     assert.match(h.controller.status.detail!, /超时/);
-    assert.ok(h.children().filter(child => child.read).every(child => !alive(child.pid)));
+    assert.equal(alive(reader.pid), false);
     h.write({ hang: false });
-    await waitFor("超时后恢复", () => h.controller.status.state === "online");
+    await forwardOnline(h, t);
     h.write({ hang: true }); h.drop();
-    await waitFor("新读取阻塞", () => h.children().some(child => child.read && alive(child.pid)));
+    await waitForIo("控制连接断开", () => h.controller.status.state === "reconnecting");
+    t.mock.timers.tick(1000);
+    await waitForIo("新读取阻塞", () => h.children().some(child => child.read && alive(child.pid)));
     await h.controller.close();
-    assert.equal(h.controller.status.state, "closed");
-    assert.ok(h.children().every(child => !alive(child.pid)));
-    const count = h.children().length; await sleep(600); assert.equal(h.children().length, count);
+    assert.equal(h.controller.status.state, "closed"); assert.ok(h.children().every(child => !alive(child.pid)));
+    const count = h.children().length; t.mock.timers.tick(30000); await ioDelay(10); assert.equal(h.children().length, count);
   } finally { await h.close(); }
 });
 
@@ -309,26 +332,33 @@ test("Code 与 Personal 同时在线，Personal 失败及关闭不影响 Code", 
 });
 
 
-test("转发连续失败按指数退避；每次恢复在线后下一轮退避归零", async () => {
+test("转发连续失败按指数退避；每次恢复在线后下一轮退避归零", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
   const h = await harness({ hang: true, forwardCode: 0 });
   try {
     const start = h.controller.reconnect();
-    await waitFor("连续转发四次", () => h.children().filter(child => !child.read).length >= 4);
+    for (let i = 1; i <= 3; i++) {
+      await waitForIo("转发关闭并登记重试", () => h.children().filter(child => !child.read).length === i && h.controller["retry"] !== null);
+      t.mock.timers.tick(500 * 2 ** (i - 1) - 1); await ioDelay(10);
+      assert.equal(h.children().filter(child => !child.read).length, i);
+      t.mock.timers.tick(1);
+      await waitForIo("下一次转发", () => h.children().filter(child => !child.read).length === i + 1);
+    }
     await h.controller.close(); await start;
-    const times = h.children().filter(child => !child.read).map(child => child.started);
-    for (let i = 1; i < 4; i++) assert.ok(times[i] - times[i - 1] >= 500 * 2 ** (i - 1) - 20);
   } finally { await h.close(); }
   const restored = await harness();
   try {
     await restored.controller.reconnect();
-    await waitFor("首次在线", () => restored.controller.status.state === "online");
+    await forwardOnline(restored, t);
     for (let i = 0; i < 3; i++) {
-      const forwards = restored.children().filter(child => !child.read), started = Date.now();
-      process.kill(forwards.at(-1)!.pid, "SIGTERM");
-      await waitFor("新转发启动", () => restored.children().filter(child => !child.read).length > forwards.length);
-      const elapsed = restored.children().filter(child => !child.read).at(-1)!.started - started;
-      assert.ok(elapsed >= 480 && elapsed < 1500, `恢复在线后重新从 500ms 起步，实际 ${elapsed}ms`);
-      await waitFor("恢复在线", () => restored.controller.status.state === "online");
+      const forwards = restored.children().filter(child => !child.read), pid = forwards.at(-1)!.pid;
+      process.kill(pid, "SIGTERM");
+      await waitForIo("原转发关闭并登记重试", () => !alive(pid) && restored.controller["retry"] !== null);
+      t.mock.timers.tick(499); await ioDelay(10);
+      assert.equal(restored.children().filter(child => !child.read).length, forwards.length);
+      t.mock.timers.tick(1);
+      await waitForIo("新转发启动", () => restored.children().filter(child => !child.read).length === forwards.length + 1);
+      await forwardOnline(restored, t);
     }
   } finally { await restored.close(); }
 });

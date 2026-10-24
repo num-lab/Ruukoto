@@ -7,7 +7,6 @@ import type { SubAgentDelegation } from "@ruukoto/runtime/subagents.ts";
 import { agentReportKey, claimAgentReports, endAgentWait, getAgentReport, registerAgentReport, registerAgentWait } from "@ruukoto/core/agent-wait.ts";
 import { Db } from "@ruukoto/core/db.ts";
 import { Store } from "@ruukoto/core/store.ts";
-import { firstDue, parseRule } from "@ruukoto/channels/scheduler/time.ts";
 import { randomId, type SubAgentMessage, type Task } from "@ruukoto/core/types.ts";
 import { holdParentResponse } from "./helpers/active-parent.ts";
 import { delegateFromActiveTask } from "./helpers/active-subagent-source.ts";
@@ -226,111 +225,6 @@ test("汇报同组另一工作区已坏，既有回报记来源失效且不补�
     assert.ok(fs.existsSync(first.work.writeTarget!.path));
     await healthyTask(rt, t.work[1]);
   } finally { release(); gate.release(); await t.shutdown(); }
-});
-
-test("取消定时运行遇到坏快照，仍停止已登记父子任务而不伪造工作记录", async () => {
-  let now = Date.parse("2026-10-15T00:00:00Z"), rootStarted = false, childStarted = false;
-  let release!: () => void;
-  const gate = new Promise<void>(resolve => { release = resolve; });
-  const target = { channel: "telegram", account: "1", chatId: "42", configVersion: 1 }, reports: string[] = [];
-  const t = await startTestRuntime("snapshot-scheduler-cancel", async req => {
-    const input = lastUserText(req);
-    if (input.includes("SCHEDULE-CANCEL")) { rootStarted = true; await gate; }
-    if (input.startsWith("[SubAgent 委派")) { childStarted = true; await gate; }
-    return { kind: "text", text: "LATE-RESULT" };
-  }, { config: { ...realTools(), scheduler: { now: () => now, tickMs: 0,
-    channel: { target: () => target, send: async input => { reports.push(input.text); return { platformMessageId: "sent" }; } } } } });
-  try {
-    const rt = t.runtime, main = rt.store.getAgentRole("main")!;
-    const rule = parseRule({ kind: "once", at: "2026-10-15T00:00:01Z", time_zone: "UTC" });
-    const schedule = rt.store.withTx(() => rt.sched.insertSchedule({ createKey: "cancel-snapshot", paramsDigest: "cancel-snapshot", createTaskId: null,
-      createOpId: null, projectId: main.projectId, createPermissionVersion: 1, accessMode: "full_access", rule, instruction: "SCHEDULE-CANCEL",
-      sourceRefs: [], target, nextDueAt: firstDue(rule, now), tzData: "test", reason: "test" }, "test"));
-    now += 1000;
-    await rt.scheduler!.tick();
-    await waitFor("定时父执行", () => rootStarted);
-    const run = rt.sched.listRuns(schedule.id, 1)[0]!, parent = rt.store.getTask(run.rootTaskId!)!, session = rt.store.getSession(parent.sessionId)!;
-    fs.writeFileSync(path.join(session.cwdReal, "value.txt"), "cancel-baseline\n");
-    initGitRepo(session.cwdReal);
-    const child = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "cancel-child", request: "取消目标", target: ".", paramsDigest: "cancel-child" });
-    await waitFor("定时子执行", () => childStarted);
-    const corrupted = corruptSnapshot(rt, child.work.id);
-    await rt.scheduleCancel({ scheduleId: schedule.id, expectedVersion: schedule.version, reason: "停止原运行" });
-    release();
-    await waitFor("已登记任务停止并记录结果", () => rt.store.listScheduledRunTasks(run.id).every(task => ["completed", "failed", "interrupted", "canceled"].includes(task.status) && (task.readScope?.workCopyHost || task.resultSummary !== null)));
-    assert.equal(rt.store.getTask(parent.id)!.cancelRequested, true);
-    assert.equal(rt.store.getTask(child.task.id)!.cancelRequested, true);
-    assert.equal(rt.store.getOccupancyByDir(child.work.writeTarget!.path), null);
-    assert.equal(rt.store.getOccupancyByDir(session.cwdReal), null);
-    rt.scheduler!.closeFinished();
-    await rt.scheduler!.tick();
-    await rt.scheduler!.idle();
-    assert.equal(rt.sched.getRun(run.id)!.resultStatus, "canceled");
-    assert.equal(reports.length, 0);
-    assert.equal(rt.store.db.prepare("SELECT write_target FROM work_delegations WHERE id = ?").get(child.work.id)!.write_target, corrupted);
-    assert.equal(fs.readFileSync(path.join(session.cwdReal, "value.txt"), "utf8"), "cancel-baseline\n");
-    assert.ok(fs.existsSync(child.work.writeTarget!.path));
-    await healthyTask(rt, t.work[1]);
-  } finally { release(); await t.shutdown(); }
-});
-
-for (const damage of ["record", "baseline"] as const) test(`定时子工作区 ${damage} 失效，未核实占用仍阻止收尾，核实后记失败并保留父回复`, async () => {
-  let now = Date.parse("2026-10-15T00:00:00Z"), rootStarted = false;
-  let release!: () => void;
-  const rootGate = new Promise<void>(resolve => { release = resolve; });
-  const target = { channel: "telegram", account: "1", chatId: "42", configVersion: 1 }, reports: string[] = [];
-  const t = await startTestRuntime(`snapshot-scheduler-${damage}`, async req => {
-    if (lastUserText(req).includes("SCHEDULE-SNAPSHOT")) { rootStarted = true; await rootGate; }
-    return { kind: "text", text: "PARENT-FINAL" };
-  }, { config: { ...realTools(), scheduler: { now: () => now, tickMs: 0,
-    channel: { target: () => target, send: async input => { reports.push(input.text); return { platformMessageId: "sent" }; } } } } });
-  try {
-    const rt = t.runtime, main = rt.store.getAgentRole("main")!;
-    const rule = parseRule({ kind: "once", at: "2026-10-15T00:00:01Z", time_zone: "UTC" });
-    const schedule = rt.store.withTx(() => rt.sched.insertSchedule({ createKey: "bad-snapshot", paramsDigest: "bad-snapshot", createTaskId: null,
-      createOpId: null, projectId: main.projectId, createPermissionVersion: 1, accessMode: "full_access", rule, instruction: "SCHEDULE-SNAPSHOT",
-      sourceRefs: [], target, nextDueAt: firstDue(rule, now), tzData: "test", reason: "test" }, "test"));
-    now += 1000;
-    await rt.scheduler!.tick();
-    await waitFor("定时父模型请求", () => rootStarted);
-    const run = rt.sched.listRuns(schedule.id, 1)[0]!, parent = rt.store.getTask(run.rootTaskId!)!, session = rt.store.getSession(parent.sessionId)!;
-    fs.writeFileSync(path.join(session.cwdReal, "value.txt"), "scheduled-baseline\n");
-    initGitRepo(session.cwdReal);
-    const insert = rt.store.insertQueuedTask.bind(rt.store);
-    rt.store.insertQueuedTask = input => {
-      const result = insert(input);
-      if (input.subAgentId) rt.store.setSessionQueueState(result.task.sessionId, "paused", "fixture");
-      return result;
-    };
-    const child = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "scheduled", request: "定时子工作", target: ".", paramsDigest: "scheduled" });
-    rt.store.insertQueuedTask = insert;
-    const copy = child.work.writeTarget!;
-    if (copy.kind !== "worktree") assert.fail("需要 Git 副本");
-    const row = rt.store.db.prepare("SELECT write_target FROM work_delegations WHERE id = ?").get(child.work.id)!;
-    const persistedTarget = damage === "record" ? corruptSnapshot(rt, child.work.id) : String(row.write_target);
-    if (damage === "baseline") fs.writeFileSync(path.join(copy.snapshot.repository.path, "ruukoto-baseline"), "{}");
-    await rt.resumeQueue(child.agent.sessionId);
-    await waitFor("失效子任务与结果登记", () => rt.store.getTask(child.task.id)!.status === "failed" && rt.store.getTask(child.task.id)!.resultSummary !== null);
-    rt.store.withTx(() => assert.equal(rt.store.tryAcquireOccupancy({ cwdReal: copy.path, cwdDev: copy.dev, cwdIno: copy.ino, taskId: child.task.id, sessionId: child.agent.sessionId }), true));
-    release();
-    await waitFor("定时父结果登记", () => rt.store.getTask(parent.id)!.resultSummary !== null);
-    rt.scheduler!.closeFinished();
-    assert.equal(rt.sched.getRun(run.id)!.closedAt, null);
-    assert.equal(reports.length, 0);
-    rt.store.withTx(() => rt.store.releaseOccupancy(child.task.id));
-    rt.scheduler!.closeFinished();
-    await rt.scheduler!.tick();
-    await rt.scheduler!.idle();
-    const finished = rt.sched.getRun(run.id)!;
-    assert.equal(finished.resultStatus, "failed");
-    assert.match(finished.resultText!, damage === "record" ? /snapshot_missing/ : /snapshot_corrupt/);
-    assert.ok(finished.resultText!.includes("PARENT-FINAL"));
-    assert.equal(reports.length, 1);
-    assert.equal(rt.store.db.prepare("SELECT write_target FROM work_delegations WHERE id = ?").get(child.work.id)!.write_target, persistedTarget);
-    assert.equal(fs.readFileSync(path.join(session.cwdReal, "value.txt"), "utf8"), "scheduled-baseline\n");
-    assert.ok(fs.existsSync(copy.path));
-    await healthyTask(rt, t.work[1]);
-  } finally { release(); await t.shutdown(); }
 });
 
 test("无等待报告的普通父注入拒绝失去私有基线的结果和消息，原完成记录保留", async () => {

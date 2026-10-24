@@ -1,0 +1,22 @@
+[fixture-diagnostic] {"closesBeforeSafetyCleanup":0,"serverStillListening":true}
+✖ Personal 页面读取：切页与连接核实共享原查询，旧页丢弃迟到应答且写入仍互斥 (632.402583ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 823.672041
+
+✖ failing tests:
+
+test at ../../../../private/tmp/ruukoto-linux-fixture-diagnosis-28c033f7/original.test.mts:44:1082
+✖ Personal 页面读取：切页与连接核实共享原查询，旧页丢弃迟到应答且写入仍互斥 (632.402583ms)
+  SyntaxError: Unexpected end of JSON input
+      at JSON.parse (<anonymous>)
+      at scenario (/private/tmp/ruukoto-linux-fixture-diagnosis-28c033f7/original.test.mts:47:41)
+      at Object.patch (/private/tmp/ruukoto-linux-fixture-diagnosis-28c033f7/original.test.mts:48:98)
+      at TestContext.<anonymous> (/private/tmp/ruukoto-linux-fixture-diagnosis-28c033f7/original.test.mts:161:17)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3)

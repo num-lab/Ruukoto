@@ -1,0 +1,28 @@
+▶ durable 命令：unproved-stop 的独立损坏档案恢复拒绝，provider 与 OS 零新增调用
+  ✖ unproved-stop (172.846083ms)
+✖ durable 命令：unproved-stop 的独立损坏档案恢复拒绝，provider 与 OS 零新增调用 (942.431459ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 0
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2228.924584
+
+✖ failing tests:
+
+test at test/personal-command-work.test.ts:267:45
+✖ unproved-stop (172.846083ms)
+  AssertionError [ERR_ASSERTION]: Missing expected rejection.
+      at async TestContext.<anonymous> (/private/tmp/ruukoto-neg-y53r145s/test/personal-command-work.test.ts:299:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async TestContext.<anonymous> (/private/tmp/ruukoto-neg-y53r145s/test/personal-command-work.test.ts:267:37)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    operator: 'rejects',
+    diff: 'simple'
+  }

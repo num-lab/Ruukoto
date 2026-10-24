@@ -75,6 +75,30 @@ async function fixture(t: TestContext, responder: Responder = () => ({ kind: "te
   return { dirs, work, server, baseUrl, runtime: backend, client: transport, bridge, code, context, state, createState, file, read, config, requests, hook };
 }
 
+async function rendererFixture() {
+  const view: OpResult<"get_model_config"> = {
+    revision: "revision-1", providers: {
+      mock: { api: "openai-completions", baseUrl: "http://127.0.0.1:1/v1", apiKey: true, headers: { "x-provider-key": true }, models: [{ id: "mock-model", name: "Mock", headers: { "x-model-key": true } }], modelOverrides: { "mock-model": { headers: { "x-override-key": true } } } },
+      second: { api: "openai-completions", baseUrl: "http://127.0.0.1:1/v1", models: [{ id: "reasoner", name: "Reasoner" }] },
+    },
+    credentials: {}, credentialSources: {}, models: [{ ...primary, name: "Mock", thinkingLevels: ["off"] }, { ...secondary, name: "Reasoner", thinkingLevels: ["off", "high"] }],
+    defaultModel: primary, summaryModel: null, runtimeDefault: primary, runtimeOverrides: { model: false, thinking: false }, busyProviders: [],
+  };
+  const context = { instanceId: "instance", online: true }, requests: { op: string; params: Record<string, unknown> }[] = [];
+  const hook: { before?: (op: string) => Promise<void>; after?: (op: string) => Promise<void> } = {};
+  const bridge: Pick<DesktopBridge, "request"> = { request: (target, op, params) => handleRequest(target, op, params, async () => {}, async (name, input) => {
+    requests.push({ op: name, params: structuredClone(input) });
+    await hook.before?.(name);
+    assert.ok(["get_model_config", "save_model_catalog", "set_model_api_key", "set_default_model", "set_summary_model"].includes(name), name);
+    const result = name === "get_model_config" ? structuredClone(view) : null;
+    await hook.after?.(name);
+    return result;
+  }) };
+  const state = new CodeModelsState(bridge, () => {}, "instance", () => context);
+  await state.read();
+  return { state, view, context, requests, hook, baseUrl: "http://127.0.0.1:1/v1" };
+}
+
 function assertRedacted(value: unknown, additional: string[] = []) {
   const text = JSON.stringify(value);
   for (const secret of [...secrets, ...additional]) assert.ok(!text.includes(secret), `不能回显 ${secret}`);
@@ -115,10 +139,12 @@ test("Desktop 提供方和模型增改删走既有目录操作", async t => {
   const { state } = h;
   state.addProvider("third");
   state.editProvider("baseUrl", h.baseUrl); state.editProvider("api", "openai-completions");
-  state.editSecret({ scope: "provider", field: "apiKey" }, "third-key");
-  state.addModel("third-model"); state.editModel("name", "Third");
+  state.addModel(); state.editModel("id", "third-model");
   assert.equal(await state.save(), true, state.message);
   assert.equal(h.read().providers.third.models[0].id, "third-model");
+  assert.equal(h.read().providers.third.models[0].name, undefined);
+  assert.equal(h.read().providers.third.apiKey, undefined);
+  assert.equal((await h.config()).credentials.third, undefined);
   state.addModel("spare"); assert.equal(await state.save(), true, state.message);
   state.selectModel(1); await state.removeModel();
   assert.deepEqual(h.read().providers.third.models.map((model: { id: string }) => model.id), ["third-model"]);
@@ -163,27 +189,29 @@ test("Desktop 提供方弹窗一次保存目录与存储 Key，按读回后的�
   assert.equal(h.server.calls.length, 0);
 });
 
-test("Desktop 提供方只替换存储 Key 时不重写目录", async t => {
-  const h = await fixture(t);
+test("Desktop 提供方只替换存储 Key 时不重写目录", async () => {
+  const h = await rendererFixture();
   h.state.selectProvider("mock"); h.state.editStoredSecret("dialog-key-only");
-  const original = h.read(), start = h.requests.length;
+  const start = h.requests.length;
   assert.equal(await h.state.save(), true, h.state.message);
   assert.deepEqual(h.requests.slice(start).map(request => request.op), ["set_model_api_key", "get_model_config"]);
-  assert.deepEqual(h.read(), original);
+  assert.equal(h.requests[start].params.api_key, "dialog-key-only");
 });
 
-test("Desktop 新提供方允许先填写模型 ID 并省略模型名称与存储凭据", async t => {
-  const h = await fixture(t);
+test("Desktop 新提供方允许先填写模型 ID 并省略模型名称与存储凭据", async () => {
+  const h = await rendererFixture();
   h.state.addProvider("without-key"); h.state.editProvider("baseUrl", h.baseUrl);
   h.state.addModel(); h.state.editModel("id", "unnamed-model");
   assert.equal(await h.state.save(), true, h.state.message);
-  assert.equal(h.read().providers["without-key"].models[0].id, "unnamed-model");
+  const providers = h.requests.find(request => request.op === "save_model_catalog")!.params.providers as Record<string, Record<string, unknown>>;
+  assert.equal(catalogModels(providers, "without-key")[0].id, "unnamed-model");
   assert.equal(h.requests.filter(request => request.op === "set_model_api_key").length, 0);
 });
 
-test("Desktop 提供方目录丢答时不提交后续 Key，核实只读且要求重新输入", async t => {
-  const h = await fixture(t);
+test("Desktop 提供方目录丢答时不提交后续 Key，核实只读且要求重新输入", async () => {
+  const h = await rendererFixture();
   h.state.selectProvider("mock"); h.state.editProvider("name", "Committed catalog"); h.state.editStoredSecret("not-submitted-key");
+  h.view.providers.mock.name = "Committed catalog";
   h.hook.after = async op => { if (op === "save_model_catalog") throw new ControlClientError("request_timeout", "合成丢答", "unknown"); };
   assert.equal(await h.state.save(), false);
   assert.equal(h.state.phase, "unknown"); assert.equal(h.state.secret, "");
@@ -198,9 +226,10 @@ test("Desktop 提供方目录丢答时不提交后续 Key，核实只读且要�
   assert.equal(h.state.dirty, false);
 });
 
-test("Desktop 提供方目录成功而存储 Key 丢答时保留部分成功，核实不重发", async t => {
-  const h = await fixture(t);
+test("Desktop 提供方目录成功而存储 Key 丢答时保留部分成功，核实不重发", async () => {
+  const h = await rendererFixture();
   h.state.selectProvider("mock"); h.state.editProvider("name", "Saved first"); h.state.editStoredSecret("committed-key");
+  h.view.providers.mock.name = "Saved first";
   h.hook.after = async op => { if (op === "set_model_api_key") throw new ControlClientError("request_timeout", "合成丢答", "unknown"); };
   assert.equal(await h.state.save(), false);
   assert.equal(h.state.phase, "unknown"); assert.equal(h.state.provider.name, "Saved first");
@@ -211,8 +240,8 @@ test("Desktop 提供方目录成功而存储 Key 丢答时保留部分成功，�
   assertRedacted([h.state.view, h.state.draft, h.state.message], ["committed-key"]);
 });
 
-test("Desktop 提供方提交中点叉号退出并丢弃草稿，不继续后续 Key 写入", async t => {
-  const h = await fixture(t), gate = deferred();
+test("Desktop 提供方提交中点叉号退出并丢弃草稿，不继续后续 Key 写入", async () => {
+  const h = await rendererFixture(), gate = deferred();
   h.state.selectProvider("mock"); h.state.editProvider("name", "Committed after close"); h.state.editStoredSecret("cancelled-key");
   h.hook.before = async op => { if (op === "save_model_catalog") await gate.promise; };
   const saving = h.state.save();
@@ -221,7 +250,8 @@ test("Desktop 提供方提交中点叉号退出并丢弃草稿，不继续后续
   gate.resolve(); assert.equal(await saving, false);
   assert.equal(h.state.providerId, null); assert.equal(h.state.phase, "ready"); assert.equal(h.state.dirty, false);
   assert.equal(h.requests.filter(request => request.op === "set_model_api_key").length, 0);
-  assert.equal(h.read().providers.mock.name, "Committed after close");
+  const providers = h.requests.find(request => request.op === "save_model_catalog")!.params.providers as Record<string, Record<string, unknown>>;
+  assert.equal(providers.mock.name, "Committed after close");
   assert.match(h.state.message, /存储 API Key 尚未提交/);
 });
 
@@ -288,7 +318,9 @@ test("Desktop 移除存储凭据保留目录来源，重开仍显示未验证且
   const h = await fixture(t);
   const storedSecret = "desktop-stored-secret";
   h.state.selectProvider("mock"); h.state.chooseScreen("credential"); h.state.secret = storedSecret;
+  const originalCatalog = fs.readFileSync(h.file, "utf8");
   assert.equal(await h.state.save(), true, h.state.message);
+  assert.equal(fs.readFileSync(h.file, "utf8"), originalCatalog, "仅保存存储 Key 不重写目录");
   assert.equal(h.state.secret, "");
   assert.equal((await h.config()).credentials.mock.configured, true);
   const bytes = fs.readFileSync(h.file, "utf8");
@@ -353,14 +385,14 @@ test("移除最后可用来源导致重建失败时恢复存储条目与原修�
   assert.doesNotMatch(h.state.message, /已移除所选/);
 });
 
-test("Desktop 离线及实例变化后不写入，旧读取迟到也不能覆盖当前草稿", async t => {
-  const h = await fixture(t);
+test("Desktop 离线及实例变化后不写入，旧读取迟到也不能覆盖当前草稿", async () => {
+  const h = await rendererFixture();
   h.state.selectProvider("mock"); h.state.selectModel(0); h.state.editModel("name", "Keep draft");
   h.context.online = false; assert.equal(await h.state.save(), false);
   h.context.online = true; h.context.instanceId = "replacement-instance";
   assert.equal(await h.state.save(), false);
   assert.equal(h.requests.filter(request => request.op === "save_model_catalog").length, 0);
-  h.context.instanceId = h.code.view.instanceId;
+  h.context.instanceId = "instance";
   const release = deferred(), began = deferred();
   h.hook.after = async op => { if (op === "get_model_config") { began.resolve(); await release.promise; } };
   const reading = h.state.read(true); await began.promise;
@@ -386,8 +418,8 @@ test("Desktop 目录事件刷新会话与新聊天列表，旧分页不能覆盖
   assert.equal(h.server.calls.length, 0);
 });
 
-test("目录秘密输入清空保留旧占位，显式清除才删除；新增请求头草稿也受导航保护", async t => {
-  const { state } = await fixture(t);
+test("目录秘密输入清空保留旧占位，显式清除才删除；新增请求头草稿也受导航保护", async () => {
+  const h = await rendererFixture(), { state } = h;
   state.selectProvider("mock");
   for (const location of [
     { scope: "provider" as const, field: "apiKey" as const },
@@ -403,6 +435,7 @@ test("目录秘密输入清空保留旧占位，显式清除才删除；新增�
   assert.equal(state.dirty, true); state.selectProvider("second"); assert.equal(state.providerId, "mock");
   state.discard(); assert.equal(state.headerDraft, null); assert.equal(state.dirty, false);
   state.editNewHeader({ scope: "provider", field: "headers" }, "x-new", "new-header-secret");
+  h.view.providers.mock.headers = { "x-provider-key": true, "x-new": true };
   assert.equal(await state.save(), true, state.message); assert.equal(state.headerDraft, null);
   assertRedacted([state.draft, state.view, state.pending], ["replacement-secret", "new-header-secret"]);
   state.selectModel(0); state.editModel("id", "");
@@ -418,36 +451,36 @@ test("目录秘密输入清空保留旧占位，显式清除才删除；新增�
   assert.doesNotThrow(() => structuredClone(state.draft));
 });
 
-test("默认与摘要读回同步选择，丢答分别比较真实当前值并清理已保存草稿", async t => {
-  const h = await fixture(t);
+test("默认与摘要读回同步选择，丢答分别比较真实当前值并清理已保存草稿", async () => {
+  const h = await rendererFixture();
   h.state.chooseScreen("default");
-  let current = await h.config();
-  await h.client.request("set_default_model", { provider: secondary.provider, model_id: secondary.modelId, thinking_level: secondary.thinkingLevel, expected_revision: current.revision });
+  h.view.defaultModel = secondary;
   await h.state.read(); assert.deepEqual(h.state.selection, secondary); assert.equal(h.state.dirty, false);
   h.state.selection = { ...primary };
   h.hook.before = async op => { if (op === "set_default_model") throw new ControlClientError("request_timeout", "合成未确定写入", "unknown"); };
   await h.state.save(); h.hook.before = undefined;
   await h.state.read(); assert.equal(h.state.phase, "conflict"); assert.deepEqual(h.state.selection, primary); assert.deepEqual(h.state.view?.defaultModel, secondary);
-  h.state.discard(); h.state.selection = { ...primary };
+  h.state.discard(); h.state.selection = { ...primary }; h.view.defaultModel = primary;
   h.hook.after = async op => { if (op === "set_default_model") throw new ControlClientError("request_timeout", "合成已写入丢答", "unknown"); };
   await h.state.save(); h.hook.after = undefined;
   await h.state.read(); assert.equal(h.state.phase, "ready"); assert.equal(h.state.dirty, false); assert.deepEqual(h.state.selection, primary);
-  h.state.chooseScreen("summary"); current = await h.config();
-  await h.client.request("set_summary_model", { provider: secondary.provider, model_id: secondary.modelId, expected_revision: current.revision });
+  h.state.chooseScreen("summary"); h.view.summaryModel = { provider: secondary.provider, modelId: secondary.modelId };
   await h.state.read(); assert.deepEqual(h.state.selection, { provider: secondary.provider, modelId: secondary.modelId, thinkingLevel: "off" });
   assert.equal(h.state.dirty, false);
 });
 
-test("冲突读回失败如实报告，保存成功但读回失败保留待核实并禁止重发", async t => {
-  const h = await fixture(t);
+test("冲突读回失败如实报告，保存成功但读回失败保留待核实并禁止重发", async () => {
+  const h = await rendererFixture();
   h.state.selectProvider("mock"); h.state.editProvider("name", "Draft");
-  const current = await h.config(); current.providers.second.name = "External";
-  await h.client.request("save_model_catalog", { providers: current.providers, expected_revision: current.revision });
-  h.hook.before = async op => { if (op === "get_model_config") throw new ControlClientError("request_timeout", "合成读取失败", "unknown"); };
+  h.view.providers.second.name = "External";
+  h.hook.before = async op => {
+    if (op === "save_model_catalog") throw new ControlClientError("config_conflict", "合成修订冲突", "rejected");
+    if (op === "get_model_config") throw new ControlClientError("request_timeout", "合成读取失败", "unknown");
+  };
   assert.equal(await h.state.save(), false); assert.equal(h.state.phase, "conflict");
   assert.match(h.state.message, /读取失败/); assert.doesNotMatch(h.state.message, /已读回当前值/);
   h.hook.before = undefined; await h.state.read(); h.state.discard();
-  h.state.editProvider("name", "Committed");
+  h.state.editProvider("name", "Committed"); h.view.providers.mock.name = "Committed";
   h.hook.before = async op => { if (op === "get_model_config") throw new ControlClientError("request_timeout", "合成读取失败", "unknown"); };
   assert.equal(await h.state.save(), false); assert.equal(h.state.phase, "unknown"); assert.ok(h.state.pending);
   const writes = h.requests.filter(request => request.op === "save_model_catalog").length;

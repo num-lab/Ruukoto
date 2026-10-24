@@ -1,0 +1,29 @@
+▶ durable 审查证据：独立损坏档案启动拒绝且不增加模型请求
+  ✔ missing (29.54075ms)
+  ✖ payload (17.601083ms)
+✖ durable 审查证据：独立损坏档案启动拒绝且不增加模型请求 (980.256292ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 1
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2011.148833
+
+✖ failing tests:
+
+test at test/personal-tools.test.ts:392:65
+✖ payload (17.601083ms)
+  AssertionError [ERR_ASSERTION]: Missing expected rejection.
+      at async TestContext.<anonymous> (/private/tmp/ruukoto-neg-y53r145s/test/personal-tools.test.ts:404:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async TestContext.<anonymous> (/private/tmp/ruukoto-neg-y53r145s/test/personal-tools.test.ts:392:57)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    operator: 'rejects',
+    diff: 'simple'
+  }

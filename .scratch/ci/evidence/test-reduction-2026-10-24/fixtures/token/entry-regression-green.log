@@ -1,0 +1,9 @@
+✔ serve 启动中的关闭意图及真实 SIGTERM/SIGHUP 均等待停止后释放原锁 (5091.022333ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 7862.805

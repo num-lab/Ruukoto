@@ -1,0 +1,9 @@
+✔ 重载状态：恢复继续意图，退出后的迟到应答不重启动画且后台继续 (1149.205667ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 6135.14575

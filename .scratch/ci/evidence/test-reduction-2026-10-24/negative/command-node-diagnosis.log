@@ -1,0 +1,25 @@
+[review-rejection] 原命令 worker 或目录准备不符，已停止恢复。
+PersonalError: 原命令 worker 或目录准备不符，已停止恢复。
+    at verifyPersonalCommands (/private/tmp/ruukoto-neg-y53r145s/apps/ruukoto/src/personal-command-work.ts:344:121)
+    at async HarnessImpl.#runCommit (/Users/eitrous/Developer/ruukoto/node_modules/@earendil-works/pi-durable/src/session/session.ts:700:13)
+▶ durable 命令：full_access 的独立损坏档案恢复拒绝，provider 与 OS 零新增调用
+  ✔ full-env (214.168542ms)
+[review-rejection] 原命令 worker 或目录准备不符，已停止恢复。
+PersonalError: 原命令 worker 或目录准备不符，已停止恢复。
+    at verifyPersonalCommands (/private/tmp/ruukoto-neg-y53r145s/apps/ruukoto/src/personal-command-work.ts:344:121)
+    at async HarnessImpl.#runCommit (/Users/eitrous/Developer/ruukoto/node_modules/@earendil-works/pi-durable/src/session/session.ts:700:13)
+  ✔ full-mounts (311.180125ms)
+[review-rejection] 原未知命令失去工作占用，已停止恢复。
+PersonalError: 原未知命令失去工作占用，已停止恢复。
+    at verifyPersonalCommands (/private/tmp/ruukoto-neg-y53r145s/apps/ruukoto/src/personal-command-work.ts:351:165)
+    at async HarnessImpl.#runCommit (/Users/eitrous/Developer/ruukoto/node_modules/@earendil-works/pi-durable/src/session/session.ts:700:13)
+  ✔ full-node (203.654208ms)
+✔ durable 命令：full_access 的独立损坏档案恢复拒绝，provider 与 OS 零新增调用 (1068.500667ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2786.484

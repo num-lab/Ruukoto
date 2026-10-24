@@ -1,6 +1,6 @@
 # 阶段 0 基础验证（issue 01）
 
-验证 pi（`@earendil-works/pi-coding-agent` 0.85.1）的公开 API：并发会话、完整磁盘历史、可控模型上下文、工具与扩展、RPC，以及 Linux 受限执行边界。本目录是验证脚手架；关键结论与复跑入口保存在下文，阶段 0 的完整本地调查记录位于`.scratch/personal-agent/foundation-findings.md`。
+验证 pi（`@earendil-works/pi-coding-agent` 0.85.1）的公开 API：并发会话、完整磁盘历史、可控模型上下文、工具与扩展，以及 Linux 受限执行边界。本目录是验证脚手架；关键结论与复跑入口保存在下文，阶段 0 的完整本地调查记录位于`.scratch/personal-agent/foundation-findings.md`。
 
 模型服务复用仓库内的 `test/helpers/mock-provider.ts`。使用完整仓库，以下命令均在仓库根目录运行；环境、提交钩子与全部检查入口见 [开发说明](../../docs/development.md)。
 
@@ -22,10 +22,10 @@ npm run linux:probes     # Linux bubblewrap 原生边界探针（需要已安装
 | --- | --- | --- |
 | `test/01-compaction.test.ts` | 自动压缩可关闭；扩展可拦截压缩；磁盘历史完整 | ✅ |
 | `test/02-context.test.ts` | `context` 事件逐轮选取模型输入，磁盘原文不动 | ✅ |
-| `test/03-tools.test.ts` | `customTools` 注册工具与结果回传；内置 `bash` 直接复用 | ✅ |
+| `test/03-tools.test.ts` | 内置 `bash` 直接复用及结果回传 | ✅ |
 | `test/04-sessions.test.ts` | 同进程并行多会话、事件独立、状态互不串用 | ✅ |
-| `test/05-plugin.test.ts` | 可信插件四类扩展点（工具/权限/生命周期/存储） | ✅ |
-| `test/06-rpc.test.ts` | 子进程 RPC（JSONL over stdio）驱动与事件流 | ✅ |
+| `test/05-plugin.test.ts` | `customTools` 参数和调用配对、结果回传，以及可信插件的权限/生命周期/存储 | ✅ |
+| 历史 RPC 探索（`git show 28c033f7:verification/foundation/test/06-rpc.test.ts`） | 子进程 JSONL 驱动与事件流；产品未采用该入口，退出当前集合 | 历史通过 |
 | `test/07-connectivity.test.ts` | 真实模型连通（默认跳过，RUN_MODEL_CHECK=1 开启） | ✅ deepseek-v4-flash |
 | `scripts/linux-isolation/` | 容器受限执行边界探针（文件/子进程/网络/凭据/控制面/系统身份） | ✅ 31/31（Docker Desktop Linux VM） |
 

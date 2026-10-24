@@ -1,0 +1,9 @@
+✔ personal CLI：坏配置、坏令牌、链接文件及旧目录拒绝，失败后可重新持锁 (309.834333ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 11012.03775

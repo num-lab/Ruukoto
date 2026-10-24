@@ -1026,6 +1026,8 @@ export class TuiApp {
 
   /** 运行中刷新动画与计时：没有活动任务时不保留定时器。 */
   private tickTiming(): void {
+    // Note: 见 .agents/notes/implemented/bug-fix/2026-10-24-tui-exit-late-response.md
+    if (this.exiting) return;
     const sessionId = this.state.currentSessionId;
     const needsTick = sessionId ? this.state.activeTaskFor(sessionId) !== null : false;
     if (needsTick && !this.timingTimer) {

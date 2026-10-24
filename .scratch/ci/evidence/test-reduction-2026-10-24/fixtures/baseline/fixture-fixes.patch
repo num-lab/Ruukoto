@@ -1,0 +1,30 @@
+--- a/packages/tui/src/tui/demo-session.ts
++++ b/packages/tui/src/tui/demo-session.ts
+@@ -349,6 +349,9 @@
+     { type: "task.tool_result", taskId: "task_completed000", toolOpId: "toolop_demo000004", summary: "ENOENT: missing.ts", isError: true, artifactIds: [] },
+     { type: "task.tool_intent", taskId: "task_completed000", toolOpId: "toolop_demo000005", sdkCallId: "call_edit", toolName: "edit", params: { path: "packages/tui/src/tui/state.ts" } },
+     { type: "task.tool_result", taskId: "task_completed000", toolOpId: "toolop_demo000005", summary: "Updated packages/tui/src/tui/state.ts", isError: false, artifactIds: [], editStats: EDIT_STATS },
++    { type: "task.tool_intent", taskId: "task_completed000", toolOpId: "toolop_demo_mcp", sdkCallId: "call_mcp", toolName: "mcp_docs_lookup", params: { query: "目录说明" } },
++    { type: "task.mcp_operation_changed", taskId: "task_completed000", toolOpId: "toolop_demo_mcp", state: "finished" },
++    { type: "task.tool_result", taskId: "task_completed000", toolOpId: "toolop_demo_mcp", summary: "已读取目录说明", isError: false, artifactIds: [] },
+     { type: "task.tool_intent", taskId: "task_interrupt00", toolOpId: "toolop_demo000003", sdkCallId: "call_live_3", toolName: "bash", params: { command: "rm -rf /srv/work/tmp" } },
+     { type: "task.tool_effect_unknown", taskId: "task_interrupt00", toolOpId: "toolop_demo000003", toolName: "bash" },
+     { type: "task.output_entry", taskId: "task_completed000", sessionId: SESSION_ID, entryId: "entry_0002", sessionFile: SESSION.sessionFile!, role: "assistant", messageId: "msg_1" },
+--- a/test/40-desktop-creation.test.ts
++++ b/test/40-desktop-creation.test.ts
+@@ -1,5 +1,6 @@
+ import assert from "node:assert/strict";
+ import { test } from "node:test";
++import * as path from "node:path";
+ import type { OpParams, OpResult } from "@ruukoto/control/ops.ts";
+ import { ControlClientError } from "@ruukoto/control/client.ts";
+ import type { ConnectResult } from "@ruukoto/control/protocol.ts";
+@@ -26,7 +27,7 @@
+       const t = await startTestRuntime(`d-${op[0]}-${outcome[0]}`, async () => ({ kind: "text", text: "ok" }), { config: { product: product.runtime } });
+       try {
+         const workspace = await t.client.request<OpResult<"open_workspace">>("open_workspace", { cwd: t.work[0], request_id: "fixture" });
+-        const params = { cwd: outcome === "rejected" ? t.dirs.dataDir : t.work[0], ...(op === "create_session" ? { project_id: workspace.session.projectId } : {}) };
++        const params = { cwd: outcome === "rejected" ? path.join(t.dirs.root, "missing") : t.work[0], ...(op === "create_session" ? { project_id: workspace.session.projectId } : {}) };
+         const calls: string[] = [];
+         const accepted = deferred<void>();
+         const release = deferred<void>();

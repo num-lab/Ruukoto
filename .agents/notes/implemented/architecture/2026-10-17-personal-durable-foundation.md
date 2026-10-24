@@ -2,6 +2,8 @@
 
 Status: implemented
 
+认证临时文件的允许范围见[令牌发布修复](../bug-fix/2026-10-24-personal-token-atomic-publish.md)；临时文件不成为认证来源，旧资料拒绝规则保持。
+
 相关决定：[Personal 设置入口](../feature/2026-10-21-personal-settings.md)将可选托管技能根纳入严格档案布局与权限分类，保留本篇持锁、未知目录拒绝和历史证据要求。
 
 ## 问题

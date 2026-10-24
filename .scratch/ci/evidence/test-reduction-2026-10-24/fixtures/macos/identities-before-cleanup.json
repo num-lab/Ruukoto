@@ -1,0 +1,22 @@
+{
+  "22169": {
+    "pid": 22169,
+    "ppid": 1,
+    "pgid": 22169,
+    "uniqueid": "6165655",
+    "seconds": "1792819908",
+    "microseconds": "787288",
+    "pidversion": 6950694,
+    "executable": "/private/tmp/rk-macos-identity-ocNFrB/scope"
+  },
+  "22171": {
+    "pid": 22171,
+    "ppid": 1,
+    "pgid": 22169,
+    "uniqueid": "6165657",
+    "seconds": "1792819908",
+    "microseconds": "788567",
+    "pidversion": 6950696,
+    "executable": "/private/tmp/rk-macos-identity-ocNFrB/scope"
+  }
+}

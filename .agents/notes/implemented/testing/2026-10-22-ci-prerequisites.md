@@ -24,7 +24,7 @@ macOS 持久执行夹具追加 TERM 标记并核实至少一次信号。监督�
 
 ## 既有决定
 
-[测试精简提案](../../proposed/testing/2026-10-24-test-suite-reduction.md)拟逐项裁剪退役和重复成员；尚未实施，系统前提、失败透传、并发与独占规则继续适用。
+[测试精简](../testing/2026-10-24-test-suite-reduction.md)逐项裁剪退役和重复成员，部分取代本篇保留全部成员的范围；系统前提、失败透传、并发与独占规则继续适用。
 
 [受控检索](../feature/2026-10-21-controlled-file-search.md)持有 rg 前提和禁止调用时下载；[原生执行](../architecture/2026-10-10-native-execution-sandbox.md)持有 AppArmor、user scope 与停止核实；[文件树反馈](../feature/2026-10-17-desktop-file-tree-loading.md)持有回归行为。本篇补充 CI 装配、测试加载、现行契约的夹具同步与文件并行限制，保留这些产品决定。按 CI、setup、rg、bubblewrap、SSR 与文件树检索，其他命中为无关产品行为，无过时提案。
 

@@ -1,0 +1,29 @@
+# macOS启动标记原子发布：独立方案审查
+
+结论：方案无阻断；同目录临时写入后rename是最小可行修复，不需要新增锁、随机标记名、重试、预算或Seatbelt授权。仅在受控反例成立后应用；当前ordinary历史失败仍缺子任务快照，不能直接宣称已证明由该竞态引起。
+
+## 调用方与目录身份
+
+生产调用链是 createLauncherFor → createNativeLauncher.launch → prepareNativeLaunch → launchMacosNative。每次launch都重新prepare；prepareNativeLaunch在完成输入检查后调用mkdtemp创建ruukoto-native-*，realpath固定真实目录，再创建该单元home/tmp。没有缓存或跨launch复用PreparedNativeLaunch。mkdtemp目录0700，现有101-native-execution用例已经明确断言两次prepare的tempDir不同且权限0700。
+
+launchMacosNative的生产直接调用方仅createNativeLauncher；另一个直接调用方是101-native-macos-helper的真实Seatbelt测试，测试在自己的mkdtemp根下建立tempDir，并在第二次故意失败启动前删除原final标记。个人命令/文件检索虽复用prepareNativeLaunch的路径准备，但使用独立身份launcher，不直接消费该bootstrap，不因这次改动改变其协议。
+
+固定native-started.tmp位于该单元新建私有目录，且发布发生在可信Node加载worker之前。此时尚未把工具代码交给子进程，别的任务沙箱没有该临时目录授权；因此没有合法旧tmp值或先前工具写入的符号链接需要复用。无需为内部已成立的目录归属再新增通用验证层。若未来调用方开始复用PreparedNativeLaunch，这一假设必须同时重审；本次不为假设中的新调用方式加框架。
+
+## 发布与失败顺序
+
+建议bootstrap保持同步顺序：写native-started.tmp并关闭 → rename至native-started → 原动态import。writeFileSync在返回前写完并关闭文件；同目录rename让读者只能看到final缺失或完整started。标记内容、final路径和传入argv均保持，不增加可由请求控制的脚本文本。
+
+同步写入或rename抛错会直接终止-e启动代码，import不会执行；不捕获错误伪造started。launch端仍由已有exit/close和严格读取路径将其归为execution_unavailable，携带原unit；是否已见可信final标记继续区分sandbox_rejected/worker_failed。缺失只在原5秒内等待；任何坏值或不可读仍立即failed；需要supervisor started与可信final标记两份事实才完成启动。10ms轮询、5秒启动、12秒停止及finishStop(false)缓存均不改。
+
+当前允许对input.tempDir写入，所以同目录rename不需要扩大profile。临时文件残留属于既有单元临时目录：停止已核实时由createNativeLauncher的原wrap清理整个目录；停止未核实仍保留。不能因最终子进程被探针清理就把原stop=false覆写成true，也不能以标记存在证明执行单元已经停止。
+
+## 受控验证需要证明的内容
+
+原样与候选使用相同的open后write前停点：原样final已出现但为空，宿主严格拒绝；候选只有tmp、final尚不存在，宿主保持等待；释放后发布完整final，启动并真实停止。停点须在5秒预算内，不修改读端或启动期限来取得绿灯。
+
+必须保留原FD不继承、没有标记时的sandbox_rejected及错误携带unit。坏final内容仍拒绝；写入和rename失败都不加载worker；完整final发布之后的worker失败仍保持原分类。各负例保存原错误、停止结论与实际清理结果，并区分这些事实。固定tmp里即使已经写完started，只要尚未rename就不能算成功。
+
+这是对确定发布竞态的局部修复。若受控证据成立，可按05关联工单独立记录决定/模块文档；真实reviewer/快照组合和最终完整检查仍需在新候选上执行，原四格由02持有，历史ordinary失败归因边界保持。
+
+被审方案SHA-256：`76ac3e135387e523e95c2105893ff1b331de25d67b059f1188be01b49ff6a037`。本轮只读源码，没有运行native或修改主工作区。

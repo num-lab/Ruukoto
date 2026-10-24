@@ -2,6 +2,8 @@
 
 Status: implemented
 
+客户端退出后的动画释放补充见[迟到应答修复](../bug-fix/2026-10-24-tui-exit-late-response.md)；退出不停止后台的决定保持。
+
 原编号：ADR 0002
 
 ## 问题
@@ -54,7 +56,7 @@ Status: implemented
 
 ## 验证
 
-- `verification/foundation/test/04-sessions.test.ts` 在同一宿主进程里并行驱动两个会话，断言事件可分别订阅、历史与状态互不串用；`verification/foundation/test/06-rpc.test.ts` 验证跨进程驱动 pi 并从事件流还原回复。
+- `verification/foundation/test/04-sessions.test.ts` 在同一宿主进程里并行驱动两个会话，断言事件可分别订阅、历史与状态互不串用；`git show 28c033f7:verification/foundation/test/06-rpc.test.ts` 保留跨进程驱动 pi 的历史探索；正式产品未采用 RPC，该运行验证按[测试精简](../testing/2026-10-24-test-suite-reduction.md)退出当前集合。
 - `test/04-crash-recovery.test.ts` 用真实后台子进程加 SIGKILL 制造崩溃，以外部标记计数为断言：重启后中断事实保留、排队任务不自动启动、标记计数不增加。不重放是关于副作用次数的保证，只看状态字段证明不了。
 - `test/02-idempotency-reconnect.test.ts` 与 `test/12-reconnect-pending.test.ts` 覆盖应答丢失后同一输入只对应一个任务、重连补发无缺口、认证失败与协议不兼容时停止重连。
 - `test/72-on-demand-backend.test.ts` 拉起真实 bin 后台进程（真实文件、socket 与 SQLite，只有模型打桩），覆盖门控、并发拉起收敛为单实例、已运行不重复拉起、启动失败附日志尾部、令牌不符与协议不兼容不拉起，以及关闭客户端不停止后台、重开看到同一任务且不重复提交。

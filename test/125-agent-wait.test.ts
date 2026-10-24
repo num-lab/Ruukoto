@@ -13,7 +13,7 @@ import { afterTool, lastToolText, lastUserText, realTools, startTestRuntime, too
 
 const SCRIPT = 'await agent("change",{request:"修改",target:"."}); await agent("validate",{request:"独立验证",verify:"change",dependsOn:["change"]}); return await integrate("merge",{steps:["validate"],dependsOn:["validate"],check:"test \\"$(cat value.txt)\\" = changed"});';
 
-for (const product of [undefined, codeProduct.runtime]) test(`agent_wait ${product?.type ?? "ruukoto"}：父轮让出真实 worker 与目录，修改、冻结、验证、汇总后继续检查且唯一报告`, async () => {
+for (const product of [codeProduct.runtime]) test(`agent_wait ${product?.type ?? "ruukoto"}：父轮让出真实 worker 与目录，修改、冻结、验证、汇总后继续检查且唯一报告`, async () => {
   let parentPhase = 0, runId = "";
   const t = await startTestRuntime("agent-wait-workflow", req => {
     if (lastUserText(req) === "等待修改工作流") {

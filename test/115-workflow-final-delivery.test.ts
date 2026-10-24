@@ -9,14 +9,11 @@ import { Store } from "@ruukoto/core/store.ts";
 import { TASK_END_MARKER, TASK_START_MARKER, type Session } from "@ruukoto/core/types.ts";
 import { parseSessionFile } from "@ruukoto/core/history.ts";
 import { ViewState } from "@ruukoto/tui/tui/state.ts";
-import { WORKFLOW_INTERFACE_VERSION, bindWorkflowExecution, createWorkflowRun, getWorkflowDeliveryRun, getWorkflowQuestion, listWorkflowExecutions, listWorkflowRuns, registerWorkflowStep, requireWorkflowRun, saveWorkflowDefinition, updateWorkflowRun, workflowDeliveryKey } from "@ruukoto/core/workflow.ts";
+import { WORKFLOW_INTERFACE_VERSION, bindWorkflowExecution, createWorkflowRun, getWorkflowDeliveryRun, registerWorkflowStep, requireWorkflowRun, saveWorkflowDefinition, updateWorkflowRun, workflowDeliveryKey } from "@ruukoto/core/workflow.ts";
 import { Runtime } from "@ruukoto/runtime/runtime.ts";
 import { ParentDelivery } from "@ruukoto/runtime/parent-delivery.ts";
 import { product as codeProduct } from "../apps/ruukoto-code/src/product.ts";
-import { parseRule, firstDue } from "@ruukoto/channels/scheduler/time.ts";
-import { FakeBotApi } from "./helpers/fake-bot-api.ts";
-import { MOCK_QQ_ACCOUNT, MOCK_QQ_SECRET, startMockOneBot } from "./helpers/mock-onebot.ts";
-import { inputText, lastUserText, startTestRuntime, toolNamesOf, waitFor } from "./helpers/testkit.ts";
+import { lastUserText, startTestRuntime, toolNamesOf, waitFor } from "./helpers/testkit.ts";
 
 function source(rt: Runtime, session: Session) {
   return rt.store.withTx(() => {
@@ -196,100 +193,4 @@ for (const window of ["queued", "result-missing"] as const) test(`dev 冷恢复 
     assert.equal(t.server.calls.length, 1);
     assert.equal(after.store.getTask(taskId)!.resultSummary, "唯一汇总");
   } finally { await restarted?.stop("test_end"); await t.shutdown(); }
-});
-
-for (const platform of ["telegram", "qq_private"] as const) test(`${platform} 真实适配器替身：等待不占聊天，业务回答去重，最终仅沿原入口一次回报`, async () => {
-  const api = new FakeBotApi({ token: "123:workflow-secret", ownerId: 42 }), apiBase = await api.start();
-  const qq = await startMockOneBot({});
-  let rt!: Runtime;
-  const t = await startTestRuntime("workflow-final-im", req => {
-    const text = lastUserText(req);
-    if (text.includes("START-WORKFLOW") && !text.startsWith("[工作流最终回报]")) {
-      const main = rt.store.getAgentRole("main")!;
-      const task = rt.store.listTasksBySession(main.sessionId).find(item => item.status === "running")!;
-      rt.workflows!.start({ sourceTaskId: task.id, requestKey: "im", input: null, script: 'await ask("question",{prompt:"业务选择",options:["yes","no"]}); return await Promise.all([agent("good",{request:"成功项"}),agent("bad",{request:"失败项",output:{format:"json",schema:{type:"number"}}})]);' });
-      return { kind: "text", text: "已受理" };
-    }
-    if (text.startsWith("[工作流最终回报]")) { assert.deepEqual(toolNamesOf(req), []); return { kind: "text", text: `IM-FINAL${"全部成功".repeat(1500)}` }; }
-    return { kind: "text", text: "CHAT-OK" };
-  }, { config: { workflowAgent: async () => ({ output: "步骤正文" }), scheduler: { tickMs: 20 }, qq: { actionTimeoutMs: 400, probeIntervalMs: 100, reconnectMinMs: 30, reconnectMaxMs: 100 }, telegram: { pollTimeoutSec: 1, backoffMs: 30 } } });
-  rt = t.runtime;
-  let seq = 900;
-  const push = (text: string) => platform === "telegram" ? api.push({ text }) : qq.pushPrivateMessage({ userId: "880001", messageId: seq++, segments: [{ type: "text", data: { text } }] });
-  try {
-    await rt.addCredentialBinding({ name: "tg", host: new URL(apiBase).host, header: "none", purpose: "telegram_bot", secret: "123:workflow-secret" });
-    await rt.telegramConfigure({ apiBase, credential: "tg", ownerUserId: "42" }); await rt.telegramSetEnabled(true);
-    await rt.addCredentialBinding({ name: "qq", host: qq.host, header: "authorization", purpose: "qq_onebot", secret: MOCK_QQ_SECRET });
-    await rt.qqConfigure({ endpoint: qq.url, selfId: MOCK_QQ_ACCOUNT, credential: "qq", ownerUserId: "880001" }); await rt.qqSetEnabled(true);
-    await waitFor("双平台在线", () => rt.telegramStatus().online === true && rt.qqStatus().online === true);
-    push("START-WORKFLOW");
-    await waitFor("持久问题与通知", () => listWorkflowRuns(rt.store).length === 1 && rt.sched.listOps({ limit: 50 }).items.some(op => op.sourceKind === "workflow_question" && op.status === "sent"));
-    const run = listWorkflowRuns(rt.store)[0], q = getWorkflowQuestion(rt.store, run.id, "question")!;
-    push("日常聊天"); await waitFor("等待中仍完成聊天", () => t.server.calls.length === 2);
-    assert.equal(getWorkflowQuestion(rt.store, run.id, "question")!.status, "pending");
-    const wrong = `/workflow-answer ${run.id} question ${q.runVersion} ${q.version} "yes"`;
-    if (platform === "telegram") qq.pushPrivateMessage({ userId: "880001", messageId: seq++, segments: [{ type: "text", data: { text: wrong } }] });
-    else api.push({ text: wrong });
-    await waitFor("跨平台拒绝控制回执", () => rt.store.db.prepare("SELECT 1 FROM inbound_events WHERE event_kind = 'im_workflow'").get() !== undefined);
-    assert.equal(getWorkflowQuestion(rt.store, run.id, "question")!.status, "pending");
-    const reply = push(wrong);
-    await waitFor("原入口最终回报", () => rt.sched.listOps({ limit: 100 }).items.some(op => op.sourceKind === "owner_reply" && op.sourceKey.includes("#workflow-final:") && op.status === "sent"));
-    assert.equal(requireWorkflowRun(rt.store, run.id).status, "partial");
-    assert.equal(getWorkflowQuestion(rt.store, run.id, "question")!.answer, "yes");
-    assert.equal(t.server.calls.length, 3, "两条普通消息和一轮整项最终汇总；控制命令不调用模型");
-    if (platform === "telegram") api.push({ message: reply });
-    else qq.pushPrivateMessage({ userId: "880001", messageId: seq - 1, segments: [{ type: "text", data: { text: wrong } }] });
-    await rt.scheduler!.tick(); await rt.scheduler!.idle();
-    const reports = rt.sched.listOps({ limit: 100 }).items.filter(op => op.sourceKind === "owner_reply" && op.sourceKey.includes("#workflow-final:"));
-    assert.equal(reports.length, 1); assert.equal(reports[0].target.channel, platform); assert.match(reports[0].text, /IM-FINAL/);
-    assert.match(reports[0].text, /终态 partial/); assert.match(reports[0].text, /步骤 bad：failed/);
-    assert.equal(rt.store.listTasksBySession(run.source.sessionId).some(task => task.requestId.startsWith("wake:")), false);
-  } finally { await t.shutdown(); await api.close(); await qq.close(); }
-});
-
-for (const mode of ["success", "retry", "cancel"] as const) test(`定时工作流 ${mode}：根任务结束不提前关闭，最终仅调度路径`, async () => {
-  const cancel = mode === "cancel";
-  const target = { channel: "telegram", account: "1", chatId: "42", configVersion: 1 }, clock = { now: Date.parse("2026-10-12T00:00:00Z") };
-  const reports: string[] = [], branch = latch(); let rt!: Runtime;
-  const finalReports = () => reports.filter(text => !text.startsWith("【工作流需要回答】"));
-  const t = await startTestRuntime("workflow-final-scheduler", req => {
-    if (lastUserText(req).startsWith("[工作流最终回报]")) { assert.deepEqual(toolNamesOf(req), []); return { kind: "text", text: "SCHEDULE-FINAL" }; }
-    assert.doesNotMatch(inputText(req), /notification_enqueue|service_manage/);
-    assert.doesNotMatch(req.system ?? "", /notification_enqueue|service_manage/);
-    const task = rt.store.listTasksByStatus(["running"]).find(item => rt.store.getSessionIdentity(item.sessionId)?.kind === "scheduled")!;
-    rt.workflows!.start({ sourceTaskId: task.id, requestKey: "question", input: null, script: 'return await ask("question",{prompt:"继续?"});' });
-    rt.workflows!.start({ sourceTaskId: task.id, requestKey: "branch", input: null, script: 'return await agent("branch",{request:"独立工作"});' });
-    return { kind: "text", text: "ROOT-ACK" };
-  }, { config: { qqDisabled: true, workflowAgent: async context => { await branch.promise; return { output: "分支完成", isError: mode === "retry" && context.step.attempts === 1 }; },
-    scheduler: { now: () => clock.now, tickMs: 0, channel: { target: () => target, send: async input => { reports.push(input.text); return { platformMessageId: "sent" }; } } } } });
-  rt = t.runtime;
-  try {
-    const main = rt.store.getAgentRole("main")!, rule = parseRule({ kind: "once", at: "2026-10-12T00:00:01Z", time_zone: "UTC" });
-    const schedule = rt.store.withTx(() => rt.sched.insertSchedule({ createKey: "workflow", paramsDigest: "workflow", createTaskId: null, createOpId: null,
-      projectId: main.projectId, createPermissionVersion: 1, accessMode: "full_access", rule, instruction: "启动工作流", sourceRefs: [], target,
-      nextDueAt: firstDue(rule, clock.now), tzData: "test", reason: "test" }, "test"));
-    clock.now += 1000; await rt.scheduler!.tick();
-    await waitFor("根任务结果已记录，问题仍等待", () => listWorkflowRuns(rt.store).length === 2 && listWorkflowRuns(rt.store).some(run => run.status === "waiting") &&
-      rt.store.getTask(rt.sched.listRuns(schedule.id, 1)[0].rootTaskId!)!.resultSummary !== null);
-    const scheduled = rt.sched.listRuns(schedule.id, 1)[0];
-    rt.scheduler!.closeFinished(); assert.equal(rt.sched.getRun(scheduled.id)!.closedAt, null); assert.equal(finalReports().length, 0);
-    const run = listWorkflowRuns(rt.store).find(item => item.requestKey === "question")!, q = getWorkflowQuestion(rt.store, run.id, "question")!;
-    if (cancel) {
-      await rt.scheduleCancel({ scheduleId: schedule.id, expectedVersion: schedule.version, reason: "取消计划" });
-      assert.ok(listWorkflowRuns(rt.store).every(item => item.status === "canceled"));
-      assert.throws(() => rt.answerWorkflowQuestion({ runId: run.id, stepKey: "question", version: q.version, runVersion: q.runVersion, requestKey: "late", answer: "yes" }), { code: "stale_answer" });
-    } else {
-      rt.answerWorkflowQuestion({ runId: run.id, stepKey: "question", version: q.version, runVersion: q.runVersion, requestKey: "answer", answer: "yes" });
-      await waitFor("问题运行汇总完成", () => requireWorkflowRun(rt.store, run.id).delivery?.status === "reported");
-      rt.scheduler!.closeFinished(); assert.equal(rt.sched.getRun(scheduled.id)!.closedAt, null);
-    }
-    branch.release();
-    await waitFor("全部运行终态收尾", () => listWorkflowRuns(rt.store).every(item => item.delivery?.status === (cancel ? "undelivered" : "reported")));
-    rt.scheduler!.closeFinished(); await rt.scheduler!.tick(); await rt.scheduler!.idle();
-    assert.equal(rt.sched.getRun(scheduled.id)!.resultStatus, cancel ? "canceled" : "completed");
-    if (mode === "retry") assert.equal(listWorkflowRuns(rt.store).find(workflow => workflow.requestKey === "branch")!.attempts, 2);
-    assert.equal(finalReports().length, cancel ? 0 : 1);
-    assert.equal(rt.sched.listOps({ limit: 100 }).items.filter(op => op.sourceKind === "owner_reply").length, 0);
-    if (!cancel) assert.match(finalReports()[0], /SCHEDULE-FINAL/);
-  } finally { branch.release(); await t.shutdown(); }
 });

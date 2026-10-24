@@ -1,0 +1,30 @@
+✖ Desktop 新会话保留 mode/model/effort：full_access/new-session (2.247416ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1418.753959
+
+✖ failing tests:
+
+test at test/desktop-session-settings.test.ts:71:3
+✖ Desktop 新会话保留 mode/model/effort：full_access/new-session (2.247416ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + 'confirm'
+  - 'full_access'
+  
+      at TestContext.<anonymous> (/private/tmp/ruukoto-neg-y53r145s/test/desktop-session-settings.test.ts:78:12)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'confirm',
+    expected: 'full_access',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

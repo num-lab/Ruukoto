@@ -1,0 +1,56 @@
+--- a/test/personal-entry.test.ts
++++ b/test/personal-entry.test.ts
+@@ -22,9 +22,25 @@
+ const bin = path.join(root, "apps/ruukoto/bin/ruukoto.mjs");
+ const execute = promisify(execFile);
+ const code = (value: string) => (error: unknown) => error instanceof PersonalError && error.code === value;
++type EntryCleanup = { children: (() => Promise<void>)[]; models: (() => Promise<void>)[]; directories: (() => void | Promise<void>)[] };
++const cleanupByTest = new WeakMap<TestContext, EntryCleanup>();
++function cleanupFor(t: TestContext): EntryCleanup {
++  const existing = cleanupByTest.get(t);
++  if (existing) return existing;
++  const resources: EntryCleanup = { children: [], models: [], directories: [] };
++  cleanupByTest.set(t, resources);
++  t.after(async () => {
++    const failures: unknown[] = [];
++    for (const phase of [resources.children, resources.models, resources.directories]) for (const release of phase.toReversed()) {
++      try { await release(); } catch (error) { failures.push(error); }
++    }
++    if (failures.length) throw new AggregateError(failures, "入口夹具清理失败");
++  });
++  return resources;
++}
+ const temp = (t: TestContext) => {
+   const dir = fs.mkdtempSync("/tmp/r38-");
+-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
++  cleanupFor(t).directories.push(() => fs.rmSync(dir, { recursive: true, force: true }));
+   return dir;
+ };
+ async function until(check: () => boolean | Promise<boolean>) {
+@@ -37,7 +53,7 @@
+   processChild.stdout!.on("data", value => { output += String(value); });
+   processChild.stderr!.on("data", value => { output += String(value); });
+   const closed = new Promise<number | null>((resolve, reject) => { processChild.once("error", reject); processChild.once("close", resolve); });
+-  t.after(async () => {
++  cleanupFor(t).children.push(async () => {
+     if (processChild.exitCode === null && processChild.signalCode === null) {
+       processChild.kill("SIGTERM");
+       const timer = setTimeout(() => processChild.kill("SIGKILL"), 5000);
+@@ -58,7 +74,7 @@
+ async function fixture(t: TestContext, directory = temp(t)) {
+   const model = new MockModelServer(() => ({ kind: "text", text: "ENTRY_OK" }));
+   const baseUrl = await model.start();
+-  t.after(() => model.close());
++  cleanupFor(t).models.push(() => model.close());
+   await savePersonalConfig(directory, { api: "openai-completions", baseUrl, modelId: "mock-model", apiKeyEnv: "R38_MODEL_KEY", contextWindow: 128000, maxTokens: 1024 });
+   return { directory, model, baseUrl, env: { RUUKOTO_PERSONAL_DIR: directory, R38_MODEL_KEY: "test-only" } };
+ }
+@@ -130,7 +146,7 @@
+ 
+ test("个人与 Coding 实际 bin 同时运行，停止个人不影响 Coding 的协议和 schema", async t => {
+   const f = await fixture(t), { dirs } = await makeTestDirs("entry-code", 0);
+-  t.after(() => cleanupDirs(dirs));
++  cleanupFor(t).directories.push(() => cleanupDirs(dirs));
+   await writeModelsJson(dirs, f.baseUrl);
+   const coding = child(t, [path.join(root, "apps/ruukoto-code/bin/ruukoto-code.mjs"), "server", "--data-dir", dirs.dataDir, "--agent-dir", dirs.agentDir, "--tools", "mock"], { RUUKOTO_PRODUCT: "ruukoto", RUUKOTO_CODE_CONTROL_DIR: path.join(dirs.root, "control") });
+   let client: ControlClient | undefined;

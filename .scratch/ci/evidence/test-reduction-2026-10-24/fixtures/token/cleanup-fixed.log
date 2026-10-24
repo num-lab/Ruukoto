@@ -1,0 +1,18 @@
+✖ 受控入口失败仍须按子进程、mock、目录清理 (48.438125ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 49.990042
+
+✖ failing tests:
+
+test at ../../../../private/tmp/ruukoto-personal-entry-token-fix/cleanup-fixed.mts:1:3837
+✖ 受控入口失败仍须按子进程、mock、目录清理 (48.438125ms)
+  Error: controlled_test_body_failure
+      at TestContext.<anonymous> (/private/tmp/ruukoto-personal-entry-token-fix/cleanup-fixed.mts:102:9)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3)

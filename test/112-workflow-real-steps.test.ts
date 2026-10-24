@@ -21,7 +21,7 @@ function source(rt: Runtime, session: Session, requestId = "owner") {
 }
 const SCRIPT = 'await agent("change",{request:"修改",target:"."}); await agent("validate",{request:"独立验证",verify:"change",dependsOn:["change"]}); return await integrate("merge",{steps:["validate"],dependsOn:["validate"],check:"test \\"$(cat value.txt)\\" = changed"});';
 
-for (const product of [undefined, codeProduct.runtime]) test(`真实 ${product?.type ?? "ruukoto"} Driver：原任务结束后修改、冻结、独立验证及汇总，验证写入留在独立副本`, async () => {
+for (const product of [codeProduct.runtime]) test(`真实 ${product?.type ?? "ruukoto"} Driver：原任务结束后修改、冻结、独立验证及汇总，验证写入留在独立副本`, async () => {
   const t = await startTestRuntime("workflow-real", req => {
     const verify = lastUserText(req).includes('"verify":"change"');
     if (afterTool(req)) return { kind: "text", text: verify ? '{"passed":true,"reason":"真实文件正确"}' : "修改完成" };

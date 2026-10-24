@@ -1,0 +1,11 @@
+▶ macOS 完全访问只核实原执行组和已累计后代，未知主动脱离者仍须释放继承管道
+  ✔ ordinary-double-fork (2132.719ms)
+  ✔ detached-closed-pipes (644.285459ms)
+  ✔ detached-inherited-pipes (4616.483208ms)
+  ✔ known-detached-short-ancestry (1190.624042ms)
+  ✔ known-joined-unseen-group (597.562959ms)
+✔ macOS 完全访问只核实原执行组和已累计后代，未知主动脱离者仍须释放继承管道 (9183.479459ms)
+ℹ tests 6
+ℹ pass 6
+ℹ fail 0
+ℹ duration_ms 9312.826708

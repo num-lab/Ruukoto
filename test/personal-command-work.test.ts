@@ -31,6 +31,7 @@ import { personalProvider, type PersonalModelConfig } from "../apps/ruukoto/src/
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
 import { PersonalMockModelServer as MockModelServer, type Responder } from "./helpers/mock-provider.ts";
 
+// Note: 见 .agents/notes/implemented/testing/2026-10-24-test-suite-reduction.md
 const context = BACKGROUND_CONTEXT;
 const machineId = "a".repeat(32), bootId = "12345678-1234-1234-1234-123456789abc";
 const code = (expected: string) => (error: unknown) => error instanceof PersonalError && error.code === expected;
@@ -190,7 +191,7 @@ for (const mode of ["confirm", "auto-review", "full_access"] as const) test(`dur
   assert.equal(fs.readFileSync(path.join(f.workspace, "count"), "utf8"), "x\n");
 });
 
-for (const mode of ["auto-review", "full_access"] as const) test(`durable 命令：${mode} 未知和取消跨重启保留占用，人工效果与原引用停止都核实后才复用`, async t => {
+for (const mode of ["full_access"] as const) test(`durable 命令：${mode} 未知和取消跨重启保留占用，人工效果与原引用停止都核实后才复用`, async t => {
   const f = await fixture(t); f.failReceipt(); f.failStop();
   let p = await f.open();
   await p.harness.commit(async tx => { (await tx.doc(PersonalPermissionsDoc)).mode = mode; }, context);
@@ -233,18 +234,6 @@ for (const mode of ["auto-review", "full_access"] as const) test(`durable 命令
   assert.equal((await p.harness.commit(tx => personalWorkResult(tx, reused), context)).commands?.length ?? 0, 0);
 });
 
-for (const mutation of ["admission", "permission", "claim"] as const) test(`durable 命令：恢复拒绝坏 ${mutation}，provider 与 OS 都零新增调用`, async t => {
-  const f = await fixture(t); let p = await f.open(); await source(p);
-  const work = await p.work.delegate(draft("tamper")), ref = await original(p); await p.harness.waitForTask(work.taskId, context);
-  await p.harness.commit(async tx => {
-    if (mutation === "admission") (await tx.doc(PersonalCommandDoc, ref.requestId, null)).command!.admission = (await tx.doc(PersonalCommandDoc, ref.requestId, null)).command!.startEntry!;
-    else if (mutation === "permission") (await tx.doc(PersonalWorkDoc, work.requestId, null)).permission!.mode = "full_access";
-    else (await tx.doc(PersonalCommandDoc, ref.requestId, null)).command!.directoryClaim = (await tx.doc(PersonalCommandDoc, ref.requestId, null)).command!.admission;
-  }, context);
-  await p.close(); const requests = f.server.calls.length;
-  await assert.rejects(f.open(), code(mutation === "claim" ? "directory_claim_invalid" : "command_record_invalid"));
-  assert.equal(f.server.calls.length, requests); assert.equal(f.launches(), 1);
-});
 
 test("durable 命令：首次启用拒绝未决旧工作，不恢复 provider 或补授旧工具", async t => {
   let release!: () => void;
@@ -261,40 +250,55 @@ test("durable 命令：首次启用拒绝未决旧工作，不恢复 provider �
   assert.equal(f.server.calls.length, requests); assert.equal(f.launches(), 0);
 });
 
-for (const mutation of ["worker", "mounts", "stop-task", "unproved-stop", "full-env", "full-mounts", "full-node"] as const) test(`durable 命令：恢复拒绝 ${mutation} 损坏，零新增模型和执行`, async t => {
+for (const scenario of ["restricted", "full_access", "unproved-stop"] as const) test(`durable 命令：${scenario} 的独立损坏档案恢复拒绝，provider 与 OS 零新增调用`, async t => {
   const f = await fixture(t);
-  if (mutation === "unproved-stop") { f.failReceipt(); f.failStop(); }
-  const p = await f.open();
-  if (mutation.startsWith("full-")) await p.harness.commit(async tx => { (await tx.doc(PersonalPermissionsDoc)).mode = "full_access"; }, context);
-  await source(p);
-  const work = await p.work.delegate(draft("invalid-proof")), ref = await original(p);
-  if (mutation === "unproved-stop") await unknown(p, ref);
-  else await p.harness.waitForTask(work.taskId, context);
-  if (mutation === "stop-task") await p.harness.waitForTask(await p.commands!.stop(ref), context);
-  const saved = structuredClone((await p.harness.snapshot(PersonalCommandDoc, ref.requestId, context))!.command!);
-  if (mutation === "worker") {
-    saved.prepared!.input.workerPath = path.join(f.root, "other-worker.mjs");
-    saved.prepared!.input.runtimeReadRoots.push(saved.prepared!.input.workerPath);
-  } else if (mutation === "mounts") saved.prepared!.input.mounts.push({ path: f.root, access: "read_write" });
-  else if (mutation === "full-env") saved.prepared!.input.env = { TEST_VALUE: "must-not-persist" };
-  else if (mutation === "full-mounts") saved.prepared!.input.mounts.push({ path: f.workspace, access: "read_write" });
-  else if (mutation === "full-node") saved.prepared!.input.nodePath = "/bin/false";
-  else if (mutation === "stop-task") saved.stopTask = work.taskId;
-  else { saved.stopped = true; delete saved.observation; }
-  if (mutation === "worker" || mutation === "mounts" || mutation.startsWith("full-")) saved.prepared!.fingerprint = personalCommandFingerprint(saved.command, saved.prepared!.spec, saved.prepared!.input);
-  await p.harness.commit(async tx => { (await tx.doc(PersonalCommandDoc, ref.requestId, null)).command = saved; }, context);
-  await p.close();
-  if (mutation === "worker" || mutation === "mounts" || mutation.startsWith("full-")) {
-    // 同步伪造的自算指纹与开始/观察记录，证明恢复仍核对宿主钉定的 worker 和可见目录。
-    const db = new DatabaseSync(path.join(f.directory, "personal.sqlite"));
-    try {
-      db.prepare("UPDATE entries SET record = json_set(record, '$.data.prepared', json(?)) WHERE id = ?").run(JSON.stringify(saved.prepared), saved.startEntry!);
-      db.prepare("UPDATE entries SET record = json_set(record, '$.data.fingerprint', ?) WHERE id = ?").run(saved.prepared!.fingerprint, saved.observation!);
-    } finally { db.close(); }
-  }
-  const requests = f.server.calls.length;
-  await assert.rejects(f.open(), code("command_record_invalid"));
-  assert.equal(f.server.calls.length, requests); assert.equal(f.launches(), 1);
+  if (scenario === "unproved-stop") { f.failReceipt(); f.failStop(); }
+  const baseline = await f.open();
+  if (scenario === "full_access") await baseline.harness.commit(async tx => { (await tx.doc(PersonalPermissionsDoc)).mode = "full_access"; }, context);
+  await source(baseline);
+  const work = await baseline.work.delegate(draft("invalid-proof")), ref = await original(baseline);
+  if (scenario === "unproved-stop") await unknown(baseline, ref);
+  else await baseline.harness.waitForTask(work.taskId, context);
+  if (scenario === "restricted") await baseline.harness.waitForTask(await baseline.commands!.stop(ref), context);
+  await baseline.close();
+  const database = path.join(f.directory, "personal.sqlite"), snapshot = path.join(f.root, "baseline.sqlite");
+  fs.copyFileSync(database, snapshot);
+  const mutations = scenario === "restricted" ? ["admission", "permission", "claim", "worker", "mounts", "stop-task"] : scenario === "full_access" ? ["full-env", "full-mounts", "full-node"] : ["unproved-stop"];
+  for (const mutation of mutations) await t.test(mutation, async () => {
+    // 关闭后的基线每次独立复制回原路径，保留档案、workspace 与原命令的真实身份。
+    fs.copyFileSync(snapshot, database);
+    const p = await f.open();
+    const saved = structuredClone((await p.harness.snapshot(PersonalCommandDoc, ref.requestId, context))!.command!);
+    if (mutation === "admission") saved.admission = saved.startEntry!;
+    else if (mutation === "claim") saved.directoryClaim = saved.admission;
+    else if (mutation === "worker") {
+      saved.prepared!.input.workerPath = path.join(f.root, "other-worker.mjs");
+      saved.prepared!.input.runtimeReadRoots.push(saved.prepared!.input.workerPath);
+    } else if (mutation === "mounts") saved.prepared!.input.mounts.push({ path: f.root, access: "read_write" });
+    else if (mutation === "full-env") saved.prepared!.input.env = { TEST_VALUE: "must-not-persist" };
+    else if (mutation === "full-mounts") saved.prepared!.input.mounts.push({ path: f.workspace, access: "read_write" });
+    else if (mutation === "full-node") saved.prepared!.input.nodePath = "/bin/false";
+    else if (mutation === "stop-task") saved.stopTask = work.taskId;
+    else if (mutation === "unproved-stop") { saved.stopped = true; delete saved.observation; }
+    const forgedPreparation = mutation === "worker" || mutation === "mounts" || mutation.startsWith("full-");
+    if (forgedPreparation) saved.prepared!.fingerprint = personalCommandFingerprint(saved.command, saved.prepared!.spec, saved.prepared!.input);
+    await p.harness.commit(async tx => {
+      (await tx.doc(PersonalCommandDoc, ref.requestId, null)).command = saved;
+      if (mutation === "permission") (await tx.doc(PersonalWorkDoc, work.requestId, null)).permission!.mode = "full_access";
+    }, context);
+    await p.close();
+    if (forgedPreparation) {
+      // 自算指纹与记录一致仍不能替代宿主钉定的 worker 和可见目录。
+      const db = new DatabaseSync(database);
+      try {
+        db.prepare("UPDATE entries SET record = json_set(record, '$.data.prepared', json(?)) WHERE id = ?").run(JSON.stringify(saved.prepared), saved.startEntry!);
+        db.prepare("UPDATE entries SET record = json_set(record, '$.data.fingerprint', ?) WHERE id = ?").run(saved.prepared!.fingerprint, saved.observation!);
+      } finally { db.close(); }
+    }
+    const requests = f.server.calls.length;
+    await assert.rejects(f.open(), code(mutation === "claim" ? "directory_claim_invalid" : "command_record_invalid"));
+    assert.equal(f.server.calls.length, requests); assert.equal(f.launches(), 1);
+  });
 });
 
 test("durable 命令：原接纳不能因任务和 document 一起丢失而静默消失", async t => {
@@ -383,7 +387,7 @@ test("durable 命令：回执已落盘而结果提交失败，重启读取原回
   assert.equal(f.launches(), 1); assert.equal(fs.readFileSync(path.join(f.workspace, "count"), "utf8"), "x\n");
 });
 
-for (const mode of ["auto-review", "full_access"] as const) test(`durable 命令：${mode} 未知暂停原源服务、主会话固定检查及委托全部成员，零 helper 外调`, async t => {
+for (const mode of ["full_access"] as const) test(`durable 命令：${mode} 未知暂停原源服务、主会话固定检查及委托全部成员，零 helper 外调`, async t => {
   let p!: PersonalHarness;
   let inspected = false;
   let release!: () => void;
@@ -482,7 +486,7 @@ for (const stage of ["running", "unknown", "restored"] as const) test(`durable �
   } finally { release(); }
 });
 
-for (const mode of ["auto-review", "full_access"] as const) test(`durable 命令：${mode} 报告记录 command 暂停并跨重启观察原记录，效果和停止均核实才汇总`, async t => {
+for (const mode of ["full_access"] as const) test(`durable 命令：${mode} 报告记录 command 暂停并跨重启观察原记录，效果和停止均核实才汇总`, async t => {
   let group!: PersonalDelegationRef;
   const f = await fixture(t, "echo x >> count", request => {
     const last = request.messages.at(-1);

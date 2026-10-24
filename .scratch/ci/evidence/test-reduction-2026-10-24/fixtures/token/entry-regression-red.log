@@ -1,0 +1,35 @@
+✖ serve 启动中的关闭意图及真实 SIGTERM/SIGHUP 均等待停止后释放原锁 (1349.87ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3538.406917
+
+✖ failing tests:
+
+test at ../../../../private/tmp/ruukoto-personal-entry-token-fix/original/test/personal-entry.test.ts:1:9994
+✖ serve 启动中的关闭意图及真实 SIGTERM/SIGHUP 均等待停止后释放原锁 (1349.87ms)
+  AssertionError [ERR_ASSERTION]: The validation function is expected to return "true". Received false
+  
+  Caught error:
+  
+  PersonalError: 本机认证文件无效，请保留档案并检查；未自动覆盖。
+      at TestContext.<anonymous> (/private/tmp/ruukoto-personal-entry-token-fix/original/test/personal-entry.test.ts:197:12)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: PersonalError: 本机认证文件无效，请保留档案并检查；未自动覆盖。
+        at readPersonalToken (/private/tmp/ruukoto-personal-entry-token-fix/original/apps/ruukoto/src/personal-control.ts:108:44)
+        at <anonymous> (/private/tmp/ruukoto-personal-entry-token-fix/original/test/personal-entry.test.ts:197:25)
+        at getActual (node:assert:611:5)
+        at strict.throws (node:assert:759:24)
+        at TestContext.<anonymous> (/private/tmp/ruukoto-personal-entry-token-fix/original/test/personal-entry.test.ts:197:12)
+        at async Test.run (node:internal/test_runner/test:1208:7)
+        at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3),
+    operator: 'throws',
+    diff: 'simple'
+  }

@@ -1,0 +1,19 @@
+[ruukoto:test] 入口夹具清理失败：Error: controlled_child_cleanup_failure；Error: controlled_model_cleanup_failure；Error: controlled_directory_cleanup_failure
+✖ 受控入口失败仍须按子进程、mock、目录清理 (123.234084ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 166.588541
+
+✖ failing tests:
+
+test at ../../../../private/tmp/ruukoto-personal-entry-token-fix/cleanup-independent-review/candidate.mts:2:2342
+✖ 受控入口失败仍须按子进程、mock、目录清理 (123.234084ms)
+  Error: controlled_test_body_failure
+      at TestContext.<anonymous> (/private/tmp/ruukoto-personal-entry-token-fix/cleanup-independent-review/candidate.mts:104:9)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3)

@@ -2,6 +2,8 @@
 
 Status: implemented
 
+可信启动标记的完整发布方式由[原子发布修复](../bug-fix/2026-10-24-native-marker-atomic-publish.md)补足，严格内容核实与停止未核实规则保持。
+
 部分取代：[个人正式入口与旧装配退出](../simplification/2026-10-18-personal-product-entry.md)使个人命令沿独立 durable 接线复用原生原语，Coding 的 ToolRouter/Runtime/worker 与平台核实约束保持；本篇共同正式 CLI 声明不再描述个人入口。
 
 需跨进程核实的 Linux 执行另用[持久认领](2026-10-17-native-linux-execution-identity.md)固定原单元和 cgroup；本篇 Coding 默认 launcher 及其生命周期保持。

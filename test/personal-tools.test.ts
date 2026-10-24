@@ -6,9 +6,10 @@ import { syncBuiltinESMExports } from "node:module";
 import * as http from "node:http";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
-import { spawn } from "node:child_process";
+import { DatabaseSync } from "node:sqlite";
+import { execFile, spawn } from "node:child_process";
 import { once } from "node:events";
-import { isDeepStrictEqual } from "node:util";
+import { isDeepStrictEqual, promisify } from "node:util";
 import { setTimeout as delay } from "node:timers/promises";
 import { test, type TestContext } from "node:test";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
@@ -380,22 +381,29 @@ test("durable 搜索：SDK失败意图计入5次额度，普通视图有界且�
   await p.close(); await f.open({ tools }); assert.equal(fetches, 2);
 });
 
-for (const damage of ["missing", "payload"] as const) test(`durable 审查证据：${damage} 损坏启动拒绝且不增加模型请求`, { timeout: 60_000 }, async t => {
-  const f = await fixture(t), p = await f.open(damage === "payload" ? { openStorage: async filename => {
-    const storage = await openNodeSqliteStorage(filename), commit = storage.commit.bind(storage);
-    storage.commit = (writes, callContext) => commit(writes.map(write => {
-      if (write.type !== "entry" || write.value.kind !== "ruukoto.tool-review" || !write.value.data || typeof write.value.data !== "object" || Array.isArray(write.value.data) || !("payload" in write.value.data)) return write;
-      const { payload: _payload, ...data } = write.value.data;
-      return { ...write, value: { ...write.value, data } };
-    }), callContext);
-    return storage;
-  } } : {});
-  const target = path.join(f.outside, "data"); fs.writeFileSync(target, "reviewed");
+test("durable 审查证据：独立损坏档案启动拒绝且不增加模型请求", { timeout: 60_000 }, async t => {
+  const f = await fixture(t), p = await f.open(), target = path.join(f.outside, "data"); fs.writeFileSync(target, "reviewed");
   const result = JSON.parse(await p.answer(invoke("read_file", { path: target }), "review-source")) as { operation: TaskId; effect: string };
-  assert.equal(result.effect, "returned"); assert.ok((await record(p, result.operation)).review?.payloadEntry);
-  if (damage === "missing") await p.harness.commit(async tx => { delete (await tx.doc(PersonalToolDoc, String(result.operation), null)).operation!.review!.payloadEntry; }, context);
-  const requests = f.model.calls.length;
-  await p.close(); await assert.rejects(f.open(), code("tool_record_invalid")); assert.equal(f.model.calls.length, requests);
+  assert.equal(result.effect, "returned");
+  const payloadEntry = (await record(p, result.operation)).review?.payloadEntry; assert.ok(payloadEntry);
+  await p.close();
+  const database = path.join(f.directory, "personal.sqlite"), snapshot = path.join(f.root, "baseline.sqlite"), requests = f.model.calls.length;
+  fs.copyFileSync(database, snapshot);
+  for (const damage of ["missing", "payload"] as const) await t.test(damage, async () => {
+    fs.copyFileSync(snapshot, database);
+    if (damage === "missing") {
+      const restored = await f.open();
+      await restored.harness.commit(async tx => { delete (await tx.doc(PersonalToolDoc, String(result.operation), null)).operation!.review!.payloadEntry; }, context);
+      await restored.close();
+    } else {
+      const db = new DatabaseSync(database);
+      try {
+        assert.equal(db.prepare("UPDATE entries SET record = json_remove(record, '$.data.payload') WHERE id = ? AND json_type(record, '$.data.payload') IS NOT NULL").run(payloadEntry).changes, 1);
+      } finally { db.close(); }
+    }
+    await assert.rejects(f.open(), code("tool_record_invalid"));
+    assert.equal(f.model.calls.length, requests);
+  });
 });
 
 test("durable 文件写入：写后强杀保留未知，原同步调用已结束且不再次改写", { timeout: 60_000 }, async t => {
@@ -447,7 +455,11 @@ test("durable 本机入口：真实认证接口完成工具审批、授权撤销
     await until(async () => { const page = await personalControl<{ items: Array<{ operation: TaskId; canDecide: boolean }> }>(f.directory, "GET", "/tools/operations?offset=0"); id = page.items[0]?.operation; return !!page.items[0]?.canDecide; });
     const detail = await personalControl<{ summary: { operation: TaskId }; text: string }>(f.directory, "GET", `/tools/operation?operation=${id}&offset=0`);
     assert.equal(detail.summary.operation, id); assert.ok(detail.text);
-    await personalControl(f.directory, "POST", "/tools/decide", { operation: id!, decision: "approved" });
+    // 审批后工具会同步核实文件，真实客户端进程独立消费已提交应答。
+    await promisify(execFile)(process.execPath, ["--import", "tsx", "--input-type=module", "--eval",
+      `import { personalControl } from ${JSON.stringify(new URL("../apps/ruukoto/src/personal-control.ts", import.meta.url).href)}; await personalControl(process.argv[1], "POST", "/tools/decide", { operation: Number(process.argv[2]), decision: "approved" });`,
+      f.directory, String(id),
+    ], { signal: t.signal, timeout: 15_000, killSignal: "SIGKILL" });
     await until(async () => (await personalControl<PersonalInputStatus>(f.directory, "GET", `/input?requestId=${requestId}`)).status === "done");
     const artifacts = await personalControl<{ items: Array<{ artifact: string; partial: boolean }> }>(f.directory, "GET", "/tools/artifacts?offset=0");
     assert.equal(artifacts.items.length, 1); assert.equal(artifacts.items[0].partial, false);

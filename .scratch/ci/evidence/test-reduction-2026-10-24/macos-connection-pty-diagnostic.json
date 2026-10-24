@@ -1,0 +1,92 @@
+{
+  "base": "28c033f7",
+  "code_diff_sha256": "12ae6e2622b55b281682df4bbc2b4215562baf0c88795b7e6745f2c04cc7888a",
+  "node": "v24.15.0",
+  "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "command": "npm run check",
+  "setup": "reused existing installation",
+  "file_concurrency": 2,
+  "app_files": 290,
+  "stages": [
+    {
+      "marker": "> ruukoto-workspace@0.1.0 check",
+      "seconds": 0.111
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 build",
+      "seconds": 0.265
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 build:native",
+      "seconds": 0.343
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 build:worker",
+      "seconds": 1.069
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 build:script",
+      "seconds": 1.249
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 check:static",
+      "seconds": 2.0
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 lint",
+      "seconds": 2.081
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 typecheck",
+      "seconds": 8.539
+    },
+    {
+      "marker": "> ruukoto-foundation-verification@0.1.0 typecheck",
+      "seconds": 47.531
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 verify-notes",
+      "seconds": 49.184
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 check:docs",
+      "seconds": 49.558
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 verify-md-links",
+      "seconds": 49.632
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 verify-doc-refs",
+      "seconds": 50.38
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 verify-doc-budgets",
+      "seconds": 50.728
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 verify-md-wrap",
+      "seconds": 50.915
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 test",
+      "seconds": 51.529
+    },
+    {
+      "marker": "> ruukoto-workspace@0.1.0 test:app",
+      "seconds": 51.677
+    }
+  ],
+  "pid": 69297,
+  "exit_code": 1,
+  "seconds": 1627.057305166003,
+  "log_sha256": "86d66824a56709d11af02a5cec4efa10452f8b5e75900608f6cb3c476542c929",
+  "app_result": {
+    "tests": 3409,
+    "pass": 3381,
+    "fail": 6,
+    "skipped": 22,
+    "cancelled": 0
+  },
+  "contamination": "运行末尾复制清理证据时误跟随 node_modules 符号链接，再删除误复制内容；四个后续失败与该区间重叠，一例明确 lstat 误复制文件 ENOENT。15/83 失败早于此操作。整轮只作诊断，不计性能或验收。"
+}

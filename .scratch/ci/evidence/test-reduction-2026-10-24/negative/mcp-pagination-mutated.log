@@ -1,0 +1,39 @@
+✖ Code MCP 来源分页按实际取得数量推进，追加保留名称与服务数 (1.641709ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 927.5595
+
+✖ failing tests:
+
+test at test/desktop-settings-mcp.test.ts:92:1
+✖ Code MCP 来源分页按实际取得数量推进，追加保留名称与服务数 (1.641709ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    [
+      {
+        limit: 50,
+        offset: undefined
+      },
+      {
+        limit: 50,
+  +     offset: 50
+  -     offset: 1
+      }
+    ]
+  
+      at TestContext.<anonymous> (/private/tmp/ruukoto-neg-y53r145s/test/desktop-settings-mcp.test.ts:111:10)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ { offset: undefined, limit: 50 }, { offset: 50, limit: 50 } ],
+    expected: [ { offset: undefined, limit: 50 }, { offset: 1, limit: 50 } ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }

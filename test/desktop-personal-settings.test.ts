@@ -45,7 +45,10 @@ async function harness(patch: Partial<Scenario> = {}, timeoutMs = 3000) {
   const initial: Scenario = { online: true, token: "1".repeat(64), revision: oldRevision, ...patch };
   fs.writeFileSync(scenarioFile, JSON.stringify(initial));
   const scenario = (): Scenario => JSON.parse(fs.readFileSync(scenarioFile, "utf8"));
-  const write = (patch: Partial<Scenario>) => fs.writeFileSync(scenarioFile, JSON.stringify({ ...scenario(), ...patch }));
+  const write = (patch: Partial<Scenario>) => {
+    const temporary = `${scenarioFile}.${process.pid}.tmp`;
+    fs.writeFileSync(temporary, JSON.stringify({ ...scenario(), ...patch })); fs.renameSync(temporary, scenarioFile);
+  };
   const snapshot = () => {
     const s = scenario();
     return { product: "ruukoto", profile: { ...profile, id: s.identity ?? profile.id }, online: s.online, revisions: { model: s.revision, skills: oldRevision, mcp: oldRevision }, blockers: s.blockers ?? [], model: { config: { apiKeyEnv: "KEY" }, credential: { state: s.credential ?? (s.online ? "available" : "unverified"), reference: "KEY" } }, skills: { config: null, revision: oldRevision, skills: [], diagnostics: [], diagnosticsTruncated: false, offset: 0, hasMore: false }, mcp: null, lifecycle: { managedDevelopment: false } };
@@ -74,7 +77,7 @@ const fs = require('node:fs'), net = require('node:net');
 const args = process.argv.slice(2), file = process.env.SCENARIO;
 fs.appendFileSync(process.env.CHILDREN, process.pid+'\\n');
 const read = () => JSON.parse(fs.readFileSync(file,'utf8'));
-const write = value => fs.writeFileSync(file,JSON.stringify(value));
+const write = value => { const temporary=file+'.'+process.pid+'.tmp';fs.writeFileSync(temporary,JSON.stringify(value));fs.renameSync(temporary,file); };
 if(args.includes('-N')) {
   const local = args[args.indexOf('-L')+1].split(':')[0];
   fs.rmSync(local,{force:true});
@@ -91,7 +94,7 @@ if(args.includes('-N')) {
       if(req.op==='start'&&s.fault==='start-reject'){delete s.fault;write(s);process.stdout.write(JSON.stringify({v:1,product:'ruukoto',ok:false,code:'maintenance_start_unverified',message:'原服务启动失败，请核实已保存配置。'})+'\\n');return;}
       if(req.op==='stop')s.online=false;
       if(req.op==='start'){s.online=true;s.token='2'.repeat(64);}
-      write(s);
+      if(req.op==='stop'||req.op==='start')write(s);
       result={profile:identity,online:s.online,writable:s.writable!==false,code:'test_status',reason:s.writable===false?'只读：管理员需配置精确授权与 SendSIGKILL=no。':'服务身份与部署已核实。',lifecycle:{kind:req.lifecycle,state:s.online?'running':'stopped',managedDevelopment:false,originalEnvironment:'unverified'}};
     } else if(req.op==='config.save'||req.op==='skills.set-enabled') {
       if(s.reject){process.stdout.write(JSON.stringify({v:1,product:'ruukoto',ok:false,code:s.reject,message:'配置未保存，请恢复原后台并比较当前配置。'})+'\\n');return;}
@@ -152,7 +155,7 @@ test("Personal 页面读取：切页与连接核实共享原查询，旧页丢�
     assert.equal(h.onlineRequests.filter(call => call.op === "settings.read").length, 1);
     assert.equal(h.calls().filter(call => ["stop", "start", "config.save"].includes(call.op)).length, 0);
     assert.equal(h.controller.hasPendingOperation(), false);
-  } finally { h.write({ fault: undefined }); await h.close(); }
+  } finally { try { h.write({ fault: undefined }); } finally { await h.close(); } }
 });
 
 test("Personal 页面读取：共同失败后可重新查询，关闭仍拒绝且不外调", async () => {

@@ -618,13 +618,24 @@ test("工作区入口重载：无参恢复原会话与草稿，不再次创建�
   }
 });
 
-test("重载状态：草稿/会话/继续意图持久化，重开后恢复并生成带 resumes 的继续任务", { timeout: 120_000 }, async () => {
+test("重载状态：恢复继续意图，退出后的迟到应答不重启动画且后台继续", { timeout: 120_000 }, async context => {
+  let releaseModel!: () => void, releaseReply!: () => void;
+  const modelGate = new Promise<void>(resolve => { releaseModel = resolve; });
+  const replyGate = new Promise<void>(resolve => { releaseReply = resolve; });
+  let replyReady = false;
+  const submit = SubmissionGuard.prototype.submit;
+  context.mock.method(SubmissionGuard.prototype, "submit", async function (this: SubmissionGuard, ...args: Parameters<SubmissionGuard["submit"]>) {
+    const result = await submit.apply(this, args);
+    if (args[0] === "continue") { replyReady = true; await replyGate; }
+    return result;
+  });
   const t = await startTestRuntime("dev-reload", async (req) => {
     const text = lastUserText(req);
     if (text.includes("长跑")) {
       await new Promise((r) => setTimeout(r, 5000));
       return { kind: "text", text: "长跑结束" };
     }
+    await modelGate;
     return { kind: "text", text: `继续完成：${text}` };
   });
   const apps: ReloadHarness[] = [];
@@ -662,13 +673,24 @@ test("重载状态：草稿/会话/继续意图持久化，重开后恢复并生
     assert.equal((h2.app as any).editor.getText(), "重载前的草稿");
 
     h2.terminal.send("\r"); // 提交恢复的草稿：走继续路径
-    await waitFor("继续任务创建", () => [...h2.state.tasks.values()].length === 2);
+    await waitFor("继续任务运行且应答尚未交回", () => replyReady && [...h2.state.tasks.values()][1]?.status === "running");
     const continued = [...h2.state.tasks.values()][1]!;
     assert.equal(continued.resumesTaskId, interruptedId, "恢复后继续提交生成带 resumes 的任务");
     h2.app.quit(0);
     await waitFor("h2 退出", () => h2.exitCode() === 0);
+    releaseReply();
+    await waitFor("退出后提交处理完毕", () => !h2.app["submitting"]);
+    assert.equal(h2.app["timingTimer"], null, "迟到应答不能重新持有运行中动画计时器");
+    assert.equal(t.runtime.store.getTask(continued.id)!.status, "running", "退出客户端不停止后台任务");
+    releaseModel();
+    await waitFor("后台独立完成继续任务", () => t.runtime.store.getTask(continued.id)?.status === "completed");
   } finally {
-    for (const h of apps) h.app.quit(0);
+    releaseReply(); releaseModel();
+    for (const h of apps) {
+      h.app.quit(0);
+      // 回归失败时也回收重新出现的句柄，让断言失败能正常退出。
+      if (h.app["timingTimer"]) clearInterval(h.app["timingTimer"]);
+    }
     await new Promise((r) => setTimeout(r, 100));
     await t.shutdown();
   }

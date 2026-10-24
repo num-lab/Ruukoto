@@ -74,12 +74,10 @@ import * as childProcess from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { Runtime, type RuntimeConfig } from "@ruukoto/runtime/runtime.ts";
 import { createMockTools } from "@ruukoto/agent/mock-tools.ts";
-import { Db } from "@ruukoto/core/db.ts";
 import { NotSentError, type NotifyChannel } from "@ruukoto/channels/scheduler/runtime.ts";
 import type { NotifyTarget } from "@ruukoto/core/types.ts";
 import { cleanupDirs, lastUserText, makeTestDirs, waitFor, writeModelsJson } from "./helpers/testkit.ts";
 import { MockModelServer, type Responder } from "./helpers/mock-provider.ts";
-import { DatabaseSync } from "node:sqlite";
 
 const TARGET: NotifyTarget = { channel: "mock", account: "bot1", chatId: "owner-chat", configVersion: 1 };
 
@@ -147,17 +145,6 @@ async function harness(prefix: string, startIso: string, responder?: Responder, 
   };
 }
 
-/** 宿主播种只验证共享调度与旧账本恢复，不装配退出的个人模型工具。 */
-function addPlan(rt: Runtime, h: Harness, input: { key: string; rule: Record<string, unknown>; text: string; accessMode?: "confirm" | "full_access"; target?: NotifyTarget | null }) {
-  const rule = parseRule(input.rule);
-  return rt.store.withTx(() => rt.sched.insertSchedule({
-    createKey: input.key, paramsDigest: "test", createTaskId: null, createOpId: null,
-    projectId: rt.store.getAgentRole("main")!.projectId, createPermissionVersion: 1, accessMode: input.accessMode ?? "confirm",
-    rule, instruction: input.text, sourceRefs: [], target: input.target === undefined ? { ...TARGET } : input.target,
-    nextDueAt: firstDue(rule, h.clock.t), tzData: "test", reason: "test",
-  }, "test"));
-}
-
 /** 已授权宿主通知替身，不使用退役的定时固定通知动作。 */
 function enqueue(rt: Runtime, key: string, text: string) {
   return rt.store.withTx(() => rt.sched.insertOp({ sourceKind: "confirmation", sourceKey: key, taskId: null, hostOpId: null, target: { ...TARGET }, text, sourceRefs: [] }).op);
@@ -172,40 +159,6 @@ async function tickAt(rt: Runtime, h: Harness, iso: string): Promise<void> {
 }
 
 const opsOf = (rt: Runtime) => rt.sched.listOps({ limit: 50 }).items;
-const schedulerEvents = (rt: Runtime) =>
-  rt.store.db.prepare("SELECT * FROM inbound_events WHERE source = 'scheduler'").all() as any[];
-
-test("通用计划：独立会话使用创建模式，重复扫描只运行一次并固定最终回报", async () => {
-  const h = await harness("sched-run", "2026-09-24T00:00:00Z");
-  const rt = await Runtime.start(h.config);
-  try {
-    const main = rt.store.getAgentRole("main")!;
-    const schedule = addPlan(rt, h, { key: "run", accessMode: "full_access", rule: { kind: "daily", time: "09:00", time_zone: "Asia/Shanghai" }, text: "RUN-MARK 看看待办" });
-    await tickAt(rt, h, "2026-09-24T00:59:59Z");
-    assert.equal(schedulerEvents(rt).length, 0);
-    h.clock.t = ms("2026-09-24T01:00:05Z");
-    await Promise.all([rt.scheduler!.tick(), rt.scheduler!.tick(), rt.scheduler!.tick()]);
-    await waitFor("独立运行完成", () => {
-      rt.scheduler!.closeFinished();
-      return Boolean(rt.sched.listRuns(schedule.id, 10)[0]?.closedAt);
-    });
-    rt.scheduler!.kickSender();
-    await rt.scheduler!.idle();
-    const [run] = rt.sched.listRuns(schedule.id, 10);
-    assert.ok(run.sessionId && run.rootTaskId);
-    assert.notEqual(run.sessionId, main.sessionId);
-    assert.equal(rt.store.getTask(run.rootTaskId)!.accessMode, "full_access");
-    assert.equal(rt.store.listTasksBySession(main.sessionId).length, 0, "计划不进入日常主聊天");
-    assert.equal(run.resultStatus, "completed");
-    assert.equal(rt.sched.getOp(run.notificationOpId!)!.status, "sent");
-    assert.equal(h.channel.sends.length, 1);
-    assert.equal(schedulerEvents(rt).length, 1);
-    assert.equal(rt.sched.getSchedule(schedule.id)!.nextDueAt, "2026-09-25T01:00:00.000Z");
-  } finally {
-    await rt.stop("test_end");
-    await h.close();
-  }
-});
 
 test("outbox：同来源键同参返回原操作、异参冲突；同一操作只发送一次", async () => {
   const h = await harness("outbox-idempotent", "2026-09-24T00:00:00Z");
@@ -366,145 +319,6 @@ test("重启：pending 继续发送一次；遗留 sending 转 effect_unknown �
   }
 });
 
-/** main 工具脚本：按任务输入标记依次发出工具调用。 */
-function toolScript(scripts: Record<string, Array<{ name: string; arguments: Record<string, unknown> }>>): Responder {
-  const step = new Map<string, number>();
-  return async (req) => {
-    // 按当前任务输入匹配（同一 main 会话的历史里有更早任务的标记）
-    const text = lastUserText(req);
-    for (const [mark, calls] of Object.entries(scripts)) {
-      if (!text.includes(mark)) continue;
-      const i = step.get(mark) ?? 0;
-      step.set(mark, i + 1);
-      const call = calls[i];
-      if (call) return { kind: "tool_calls", calls: [{ id: `${mark}-${i}`, name: call.name, arguments: call.arguments }] };
-      return { kind: "text", text: `done:${mark}` };
-    }
-    return { kind: "text", text: `done:${text.slice(0, 20)}` };
-  };
-}
-
-test("通用计划：无IM目标仍独立运行并保留结果，终态与回报失败同事务回滚", async () => {
-  const h = await harness("schedule-no-target", "2026-09-24T00:00:00Z");
-  const rt = await Runtime.start(h.config);
-  try {
-    const schedule = addPlan(rt, h, { key: "record", target: null, rule: { kind: "once", at: "2026-09-24T01:00:00Z", time_zone: "UTC" }, text: "只保存结果" });
-    await tickAt(rt, h, "2026-09-24T01:00:00Z");
-    await waitFor("无目标运行任务完成", () => {
-      const run = rt.sched.listRuns(schedule.id, 10)[0];
-      return run?.rootTaskId !== null && rt.store.getTask(run.rootTaskId!)?.status === "completed";
-    });
-    await tickAt(rt, h, "2026-09-24T01:00:01Z");
-    const [run] = rt.sched.listRuns(schedule.id, 10);
-    assert.equal(run.resultStatus, "completed");
-    assert.ok(run.resultText);
-    assert.equal(run.notificationOpId, null);
-    assert.equal(rt.sched.getSchedule(schedule.id)!.status, "completed");
-    assert.equal(h.channel.sends.length, 0);
-
-    const reportPlan = addPlan(rt, h, { key: "rollback", rule: { kind: "once", at: "2026-09-24T02:00:00Z", time_zone: "UTC" }, text: "最终结果" });
-    await tickAt(rt, h, "2026-09-24T02:00:00Z");
-    await waitFor("回报运行任务完成", () => {
-      const current = rt.sched.listRuns(reportPlan.id, 10)[0];
-      return current?.rootTaskId !== null && rt.store.getTask(current.rootTaskId!)?.resultSummary !== null;
-    });
-    const [before] = rt.sched.listRuns(reportPlan.id, 10);
-    rt.store.db.exec("CREATE TRIGGER fail_run_report BEFORE INSERT ON notification_ops BEGIN SELECT RAISE(ABORT, 'report failed'); END");
-    assert.throws(() => rt.scheduler!.closeFinished(), /report failed/);
-    assert.equal(rt.sched.getRun(before.id)!.closedAt, null);
-    assert.equal(rt.sched.getRun(before.id)!.resultStatus, null);
-    assert.equal(rt.sched.findOpBySource("schedule_run", before.id), null);
-    rt.store.db.exec("DROP TRIGGER fail_run_report");
-    await tickAt(rt, h, "2026-09-24T02:00:01Z");
-    assert.equal(rt.sched.getRun(before.id)!.resultStatus, "completed");
-    assert.equal(h.channel.sends.length, 1);
-  } finally {
-    await rt.stop("test_end");
-    await h.close();
-  }
-});
-
-test("独立定时执行：应用数据免审批并审计真实scheduled身份", async () => {
-  const h = await harness("scheduled-app-data-audit", "2026-09-24T00:00:00Z", toolScript({
-    "SCHEDULED-APPDATA": [
-      { name: "app_data_define_table", arguments: { table: "items", fields: [{ name: "title", type: "text" }], expected_schema_version: 0, reason: "任务建表" } },
-      { name: "app_data_insert", arguments: { table: "items", records: [{ title: "一" }, { title: "二" }], reason: "任务写入" } },
-      { name: "app_data_delete", arguments: { table: "items", rows: [{ id: 1, expected_version: 1 }, { id: 2, expected_version: 1 }], reason: "任务清理" } },
-    ],
-  }));
-  const rt = await Runtime.start(h.config);
-  try {
-    const schedule = addPlan(rt, h, { key: "data", target: null, accessMode: "full_access", rule: { kind: "once", at: "2026-09-24T01:00:00Z", time_zone: "UTC" }, text: "SCHEDULED-APPDATA" });
-    await tickAt(rt, h, "2026-09-24T01:00:00Z");
-    await waitFor("定时业务工具完成", () => {
-      const run = rt.sched.listRuns(schedule.id, 1)[0];
-      return Boolean(run?.rootTaskId && rt.store.getTask(run.rootTaskId)?.status === "completed");
-    });
-    const [run] = rt.sched.listRuns(schedule.id, 1);
-    assert.equal(rt.store.listConfirmationsByTask(run.rootTaskId!).length, 0);
-    const calls = rt.store.listToolOpsByTask(run.rootTaskId!);
-    assert.equal(calls.length, 3);
-    assert.equal(calls.every((call) => call.isError === false), true);
-    assert.equal(calls[2].authorization?.source, "full_access");
-    const app = new DatabaseSync(path.join(h.dirs.dataDir, "agent-data", "main.db"), { readOnly: true });
-    try {
-      const receipts = app.prepare("SELECT task_id, session_id, agent_id FROM app_audit ORDER BY seq").all();
-      assert.equal(receipts.length, 3);
-      assert.equal(receipts.every((receipt) => receipt.task_id === run.rootTaskId && receipt.session_id === run.sessionId && receipt.agent_id === "scheduled"), true);
-    } finally {
-      app.close();
-    }
-  } finally {
-    await rt.stop("test_end");
-    await h.close();
-  }
-});
-
-test("发送函数挂起时控制面与普通任务继续推进；stop 中止在途发送并在关库前收尾", async () => {
-  const h = await harness("sched-hang", "2026-09-24T00:00:00Z", undefined, { sendTimeoutMs: 60_000 });
-  let release!: () => void;
-  h.channel.behavior = () => new Promise((r) => { release = () => r({ platformMessageId: "late" }); });
-  const rt = await Runtime.start(h.config);
-  let opId = "";
-  try {
-    await rt.scheduler!.idle();
-    enqueue(rt, "h1", "HANG");
-    rt.scheduler!.kickSender();
-    h.clock.t = ms("2026-09-24T01:00:00Z");
-    await rt.scheduler!.tick();
-    await waitFor("发送进行中", () => opsOf(rt)[0]?.status === "sending");
-    opId = opsOf(rt)[0]!.id;
-    const project = rt.createProject("side");
-    const dev = await rt.createSession({ projectId: project.id, cwd: h.dirs.root + "/work-0" });
-    const task = await rt.submit({ sessionId: dev.id, requestId: "d1", input: "SIDE-TASK", modelSelection: rt.defaultSelection });
-    await waitFor("独立任务完成", () => rt.store.getTask(task.id)!.status === "completed", 10_000);
-    assert.equal(rt.notificationList({}).operations[0]!.status, "sending", "查询不被发送阻塞");
-  } finally {
-    const started = Date.now();
-    await rt.stop("test_end");
-    assert.ok(Date.now() - started < 10_000, "停止不等满发送时限");
-  }
-  release();
-  await new Promise((r) => setTimeout(r, 50)); // 关库后迟到回调不得写库/抛错
-  const db = new Db(h.dirs.dataDir);
-  const row = db.prepare("SELECT status, error_kind FROM notification_ops WHERE id = ?").get(opId) as any;
-  db.close();
-  assert.equal(row.status, "effect_unknown");
-  await h.close();
-});
-
-test("旧调度 schema 拒绝启动，不转换或回填执行授权", async () => {
-  const { dirs } = await makeTestDirs("sched-old-schema", 0);
-  try {
-    const db = new Db(dirs.dataDir);
-    db.exec("UPDATE meta SET value = '12' WHERE key = 'schema_version'");
-    db.close();
-    assert.throws(() => new Db(dirs.dataDir), { code: "schema_version_unsupported" });
-  } finally {
-    await cleanupDirs(dirs);
-  }
-});
-
 // ---------- 真实后台子进程终止：平台已接收、本地未落结果 ----------
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -558,7 +372,6 @@ test("子进程 SIGKILL：平台已接收但本地未落结果 → 重启标 eff
     await h.close();
   }
 });
-
 
 test("inbound_event 发送核实分流：宿主 IM 控制事件回执放行，来源不明的入站通知不发送（issue 08）", async () => {
   const h = await harness("sched-im-receipt", "2026-09-24T00:00:00Z");

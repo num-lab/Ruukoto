@@ -1,0 +1,10 @@
+[fixture-diagnostic] {"closesBeforeSafetyCleanup":1,"serverStillListening":false}
+✔ Personal 页面读取：切页与连接核实共享原查询，旧页丢弃迟到应答且写入仍互斥 (749.72025ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 858.82725

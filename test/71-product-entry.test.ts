@@ -263,15 +263,6 @@ test("ruukoto-code：停用 QQ/Telegram 连接与轮询、个人调度不可用�
   }
 });
 
-test("旧格式测试装配：调度器照常启动", async () => {
-  const t = await startTestRuntime("product-default", async () => ({ kind: "text", text: "ok" }));
-  try {
-    assert.notEqual(t.runtime.scheduler, null);
-  } finally {
-    await t.shutdown();
-  }
-});
-
 test("数据目录归属：跨产品复用被拒绝，同产品重启正常（meta 兼容扩展）", async () => {
   const { dirs } = await makeTestDirs("product-owner");
   const server = new MockModelServer(async () => ({ kind: "text", text: "ok" }));
@@ -316,12 +307,6 @@ function runNode(argv: string[], env: NodeJS.ProcessEnv = {}): { status: number 
   if (r.error) throw r.error;
   return { status: r.status, stderr: r.stderr };
 }
-
-test("进程：apps/ruukoto-code/bin/ruukoto-code.mjs 入口引导 TS，未知名字按工作区处理（非 TTY 退出 1）", () => {
-  const r = runNode([nodePath.join(repoRoot, "apps", "ruukoto-code", "bin", "ruukoto-code.mjs"), "bogus"]);
-  assert.equal(r.status, 1);
-  assert.match(r.stderr, /TTY/);
-});
 
 test("进程：非法 RUUKOTO_PRODUCT 快速失败并说明取值", () => {
   const r = runNode(

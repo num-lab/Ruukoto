@@ -3,7 +3,6 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { test } from "node:test";
 import { workCopyHostFor } from "@ruukoto/core/work-copy-host.ts";
-import { firstDue, parseRule } from "@ruukoto/channels/scheduler/time.ts";
 import { holdParentResponse } from "./helpers/active-parent.ts";
 import { controlledWorkCopy } from "./helpers/controlled-work-copy.ts";
 import { realTools, startTestRuntime, waitFor } from "./helpers/testkit.ts";
@@ -112,44 +111,6 @@ test("宿主启动期间登记参数改变，在 Git 调用前拒绝并保留损
     assert.equal(rt.store.listToolOpsByTask(host.id).some(op => op.toolName === "worktree_capture"), false);
     assert.equal(rt.store.getOccupancyByDir(copyDir), null);
   } finally { gate.release(); controlled.finish(); await t.shutdown(); }
-});
-
-test("定时运行收尾读取 Agent 的回复，较晚结束的宿主账本不能取代最终汇报", async () => {
-  let now = Date.parse("2026-10-15T00:00:00Z");
-  const target = { channel: "telegram", account: "1", chatId: "42", configVersion: 1 };
-  const reports: string[] = [];
-  const t = await startTestRuntime("ordinary-host-scheduler", async () => ({ kind: "text", text: "AGENT-FINAL" }), { config: {
-    ...realTools(), scheduler: { now: () => now, tickMs: 0, channel: { target: () => target,
-      send: async input => { reports.push(input.text); return { platformMessageId: "sent" }; } } },
-  } });
-  try {
-    const rt = t.runtime, main = rt.store.getAgentRole("main")!;
-    const rule = parseRule({ kind: "once", at: "2026-10-15T00:00:01Z", time_zone: "UTC" });
-    const schedule = rt.store.withTx(() => rt.sched.insertSchedule({ createKey: "host-final", paramsDigest: "host-final", createTaskId: null,
-      createOpId: null, projectId: main.projectId, createPermissionVersion: 1, accessMode: "full_access", rule, instruction: "定时工作",
-      sourceRefs: [], target, nextDueAt: firstDue(rule, now), tzData: "test", reason: "test" }, "test"));
-    now += 1000;
-    await rt.scheduler!.tick();
-    const run = rt.sched.listRuns(schedule.id, 1)[0]!;
-    await waitFor("Agent 结果登记", () => rt.store.getTask(run.rootTaskId!)?.resultSummary != null);
-    const parent = rt.store.getTask(run.rootTaskId!)!, session = rt.store.getSession(parent.sessionId)!;
-    rt.store.withTx(() => {
-      const host = rt.store.insertQueuedTask({ sessionId: session.id, requestId: "work-copy-host:late:integrate:op", input: "宿主记录",
-        modelSelection: null, submissionDigest: "late", parentTaskId: parent.id, sourcePermissionVersion: parent.permissionVersion, accessMode: parent.accessMode,
-        readScope: { paths: [], sourceRefs: [], workCopyHost: { version: 1, parentTaskId: parent.id, workId: "late", operation: "integrate",
-          source: { path: session.cwdReal, dev: session.cwdDev, ino: session.cwdIno }, units: [], stopVerified: true } } }).task;
-      rt.store.setTaskResult(host.id, "HOST-NONMODEL-RESULT", "host");
-      rt.store.endTask(host.id, ["queued"], "completed", { endedAt: new Date(Date.parse(parent.endedAt!) + 1000).toISOString() });
-    });
-    rt.scheduler!.closeFinished();
-    await rt.scheduler!.tick();
-    await rt.scheduler!.idle();
-    assert.equal(rt.sched.getRun(run.id)!.resultStatus, "completed");
-    assert.ok(rt.sched.getRun(run.id)!.resultText!.includes("AGENT-FINAL"));
-    assert.equal(reports.length, 1);
-    assert.ok(reports[0].includes("AGENT-FINAL"));
-    assert.ok(!reports[0].includes("HOST-NONMODEL-RESULT"));
-  } finally { await t.shutdown(); }
 });
 
 for (const rollback of [false, true]) test(`宿主 attach 同步失败：零单元启动，结果、终态与停止结论${rollback ? "一起回滚" : "同事务提交"}`, async () => {

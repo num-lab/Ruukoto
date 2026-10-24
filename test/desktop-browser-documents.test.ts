@@ -35,9 +35,8 @@ function raw(url: string, target: string, headers: http.OutgoingHttpHeaders = {}
   });
 }
 
-test("本机 URL 在 Desktop 与 Demo 规范化，拒绝网络文件主机和编码分隔符", async () => {
-  const demo = await import("../.scratch/desktop-shadcn/demo/src/inspector-data.ts");
-  for (const parse of [browserAddress, demo.browserAddress]) {
+test("本机 URL 在 Desktop 规范化，拒绝网络文件主机和编码分隔符", () => {
+  for (const parse of [browserAddress]) {
     assert.equal(parse(" file:///tmp/本机 文档.html#section "), "file:///tmp/%E6%9C%AC%E6%9C%BA%20%E6%96%87%E6%A1%A3.html#section");
     assert.equal(parse("file://localhost/tmp/page.html"), "file:///tmp/page.html");
     for (const value of ["file://remote/tmp/page.html", "file:relative.html", "file:///tmp/a%2fb.html", "file:///tmp/a%5cb.html", "file:///tmp/a%00.html", "file:///tmp/%zz.html", "file:///tmp/page.html?query", "file:///", "file:////server/share", "javascript:evil", "data:text/html,evil"]) assert.equal(parse(value), null, value);

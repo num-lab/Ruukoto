@@ -1,0 +1,13 @@
+$ node --import tsx --test --test-name-pattern='合成会话覆盖全部事件类型|桌面 (open_workspace|create_session)：rejected' /tmp/ruukoto-baseline-diagnostic-28c033f7/demo-fixed.test.mts /tmp/ruukoto-baseline-diagnostic-28c033f7/creation-fixed.test.mts
+✔ 桌面 open_workspace：rejected 保留原键核实，重复点击不新建 (162.815ms)
+✔ 桌面 create_session：rejected 保留原键核实，重复点击不新建 (68.022875ms)
+✔ 合成会话覆盖全部事件类型且 seq 连续 (479.719709ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 3
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3417.379916
+Exit code: 0

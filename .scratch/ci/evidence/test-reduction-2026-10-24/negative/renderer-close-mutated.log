@@ -1,0 +1,28 @@
+✖ Desktop 提供方提交中点叉号退出并丢弃草稿，不继续后续 Key 写入 (1.431458ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1378.083583
+
+✖ failing tests:
+
+test at test/desktop-settings-models.test.ts:243:1
+✖ Desktop 提供方提交中点叉号退出并丢弃草稿，不继续后续 Key 写入 (1.431458ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  true !== false
+  
+      at TestContext.<anonymous> (/private/tmp/ruukoto-neg-y53r145s/test/desktop-settings-models.test.ts:250:26)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: true,
+    expected: false,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

@@ -1,0 +1,20 @@
+{
+  "head": "28c033f7",
+  "seconds": 1510.395297457988,
+  "exit_code": 1,
+  "command": "npm run check",
+  "os": "macOS 27.0.1 arm64",
+  "node": "24.15.0",
+  "setup": "existing installation reused; not measured",
+  "file_concurrency": 2,
+  "macos_exclusive": "unchanged, serial",
+  "app_files": 294,
+  "app_tests": 3488,
+  "app_pass": 3460,
+  "app_fail": 4,
+  "app_skip": 24,
+  "exclusive_seconds": 40.715643875,
+  "ordinary_seconds": 1421.522077167,
+  "foundation": "not entered after app failure",
+  "log_sha256": "25c50e3876e57884c6f487266f11e8566bc36a16575640c6c501d820fd18f601"
+}

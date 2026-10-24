@@ -27,7 +27,7 @@ Coding bin 固定产品身份，向共享 CLI 传入 `CliProduct`，并向 `Runt
 
 ## 主要流程
 
-**启动。** 个人入口使用已配置模型打开唯一 Harness；运行中菜单仅经本机认证接口管理，离线配置持实例锁。Coding 入口按能力声明选择 native 与导入方向，装配 Runtime、控制面与客户端。日常个人后台独立于菜单，开发进程拥有其后台生命周期。
+**启动。** 个人入口使用已配置模型打开唯一 Harness；运行中菜单仅经本机认证接口管理，离线配置持实例锁。认证令牌逐启动生成，完整写入私有临时文件后替换，坏旧令牌仍拒绝启动。Coding 入口按能力声明选择 native 与导入方向，装配 Runtime、控制面与客户端。日常个人后台独立于菜单，开发进程拥有其后台生命周期。
 
 **构建。** 根构建生成共享 `worker/worker.mjs`、自包含的 `worker/personal-command-worker.mjs`、工作流脚本及平台产物，再生成两个 app 的 npm tarball。个人命令 worker 不依赖 Pi SDK，运行依赖从构建制品解析；Coding worker 保留原 SDK 与依赖。tarball 交付源码、bin 和依赖声明，安装仍需要完整 workspace、根 worker 与宿主工具链，不是独立发行版。
 
@@ -40,6 +40,8 @@ Coding bin 固定产品身份，向共享 CLI 传入 `CliProduct`，并向 `Runt
 - 跨包引用使用 exports 与已声明依赖；反向运行时协作采用注入，core 不依赖其他 workspace 包。个人 app 直接声明 Pi 1.3.0，Coding 调用方保留 0.85.1。
 
 ## 设计依据
+
+- [个人认证令牌完整写入后发布](../../.agents/notes/implemented/bug-fix/2026-10-24-personal-token-atomic-publish.md)
 
 - [个人正式入口使用唯一 durable 装配](../../.agents/notes/implemented/simplification/2026-10-18-personal-product-entry.md)
 - [两个 Agent 产品](../../.agents/notes/implemented/architecture/2026-10-02-two-agent-products.md)

@@ -142,7 +142,7 @@ test("Cua stdio：进展记录慢于SDK超时，仍在排空证据时禁止首�
 });
 
 test("Cua stdio：48MiB聚合预算容纳四张上限图片，超限保留原发送事实", async () => {
-  const f = await fixture({ callTimeoutMs: 10_000 });
+  const f = await fixture();
   try {
     const result = await f.connection.callTool(tool, { images: true });
     const images = mcpImages(result); assert.equal(images.size, 4); assert.ok([...images.values()].every(image => !(image instanceof McpImageError)));

@@ -560,12 +560,12 @@ test("旧入口兼容与认领：认领后原配置/授权/凭据引用保持可
       from_project_id: wsX.session.projectId as string, to_project_id: legacy.id, category: "history",
     })) as any;
 
-    // 绑定到旧项目的 MCP 凭据引用
-    t.runtime.credentials.upsert({ name: "mcp-cred", host: "mcp.example.com", header: "authorization", purpose: "mcp", secret: "test-secret" });
+    // MCP 使用实例专用凭据，工作区认领不改其范围
+    t.runtime.credentials.upsert({ name: "mcp-cred", host: "mcp.example.com", header: "authorization", purpose: "mcp", secret: "test-secret", scope: { operations: ["mcp"] } });
     await t.client.request("mcp_configure", {
-      project_id: legacy.id, name: "docs", endpoint: "https://mcp.example.com/mcp/", credential: "mcp-cred", tool_allowlist: ["a"],
+      name: "docs", endpoint: "https://mcp.example.com/mcp/", credential: "mcp-cred", tool_allowlist: ["a"],
     });
-    assert.deepEqual(t.runtime.credentials.get("mcp-cred")!.scope, { projectId: legacy.id, operations: ["mcp"] });
+    assert.deepEqual(t.runtime.credentials.get("mcp-cred")!.scope, { operations: ["mcp"] });
 
     // open_workspace 以 project_id 认领根目录
     const projectCount = t.runtime.store.listProjects().length;
@@ -635,36 +635,30 @@ test("旧入口兼容与认领：认领后原配置/授权/凭据引用保持可
   }
 });
 
-test("凭据 scope 不变式：认领旧项目后，绑定到该项目的 MCP 凭据 scope 不被复制或扩大", async () => {
+test("凭据 scope 不变式：认领旧项目后，其他用途凭据的项目 scope 不被复制或扩大", async () => {
   const t = await startTestRuntime("ws75-cred-scope", RESPONDER);
   try {
     const legacy = (await t.client.request<any>("create_project", { name: "绑定工程" })) as any;
-    t.runtime.credentials.upsert({ name: "mcp-cred", host: "mcp.example.com", header: "authorization", purpose: "mcp", secret: "test-secret" });
-    await t.client.request("mcp_configure", {
-      project_id: legacy.id, name: "docs", endpoint: "https://mcp.example.com/mcp/", credential: "mcp-cred", tool_allowlist: ["a"],
-    });
-    const scopeBefore = t.runtime.credentials.get("mcp-cred")!.scope;
-    assert.deepEqual(scopeBefore, { projectId: legacy.id, operations: ["mcp"] }, "配置后凭据 scope 收紧到旧项目");
+    t.runtime.credentials.upsert({ name: "scoped-cred", host: "mcp.example.com", header: "authorization", purpose: "other", secret: "test-secret", scope: { projectId: legacy.id, operations: ["other"] } });
+    const scopeBefore = t.runtime.credentials.get("scoped-cred")!.scope;
+    assert.deepEqual(scopeBefore, { projectId: legacy.id, operations: ["other"] }, "配置后凭据 scope 收紧到旧项目");
 
     await t.client.request("open_workspace", { cwd: t.work[0]!, project_id: legacy.id, request_id: "cred-adopt" });
 
     const list = (await t.client.request<any>("list_credentials", {})) as any[];
     assert.equal(list.length, 1, "凭据绑定不被复制");
-    assert.equal(list[0]!.name, "mcp-cred");
+    assert.equal(list[0]!.name, "scoped-cred");
     assert.ok(!JSON.stringify(list).includes("test-secret"), "凭据列表不含秘密值");
-    assert.deepEqual(t.runtime.credentials.get("mcp-cred")!.scope, scopeBefore, "认领不改写凭据 scope");
+    assert.deepEqual(t.runtime.credentials.get("scoped-cred")!.scope, scopeBefore, "认领不改写凭据 scope");
     assert.ok(
-      t.runtime.credentials.getForUse("mcp-cred", { projectId: legacy.id, operation: "mcp" }),
+      t.runtime.credentials.getForUse("scoped-cred", { projectId: legacy.id, operation: "other" }),
       "原项目仍可使用凭据",
     );
     assert.equal(
-      t.runtime.credentials.getForUse("mcp-cred", { projectId: "proj_other", operation: "mcp" }),
+      t.runtime.credentials.getForUse("scoped-cred", { projectId: "proj_other", operation: "other" }),
       null,
       "凭据 scope 未扩大到其他项目",
     );
-    const services = ((await t.client.request<any>("mcp_list", {})) as any).services as any[];
-    assert.equal(services.length, 1, "MCP 服务仍一条");
-    assert.equal(services[0]!.projectId, legacy.id, "MCP 服务归属不变");
   } finally {
     await t.shutdown();
   }

@@ -74,7 +74,6 @@ export type LedgerKind =
   | "work_delegation"
   | "memory"
   | "grant"
-  | "mcp"
   | "meta"
   | "file"
   | "agent_role"

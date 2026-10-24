@@ -126,9 +126,8 @@ async function harness(prefix: string, beforeReview?: () => Promise<void>) {
     scheduler: { channel, tickMs: 0, sendTimeoutMs: 1000 },
   };
   let runtime = await Runtime.start(config);
-  // GitHub MCP 配在 main 角色的项目（issue 19）：评审 SubAgent 的会话在 main 项目下
-  const main = runtime.store.getAgentRole("main")!;
-  runtime.mcpConfigure({ projectId: main.projectId, name: "github", endpoint: mcp.url,
+  // 评审 SubAgent 从实例服务中装配角色允许的 MCP 工具。
+  runtime.mcpConfigure({ name: "github", endpoint: mcp.url,
     toolAllowlist: ["get_pr", "get_diff", { name: "publish_review", effect: "write" }, { name: "sync_unknown", effect: "unknown" }] });
   for (const role of runtime.store.listAgentRoles().filter((role) => role.id !== "chat")) {
     const session = runtime.store.getSession(role.sessionId)!;
@@ -428,7 +427,7 @@ test("GitHub 通知结果未知：重复 delivery、重复扫描和 Runtime 重�
   } finally { await h.close(); }
 });
 
-test("MCP 配在 main 项目：普通子代理沿可信来源取得 MCP，main 自身工具保持原类别", async () => {
+test("实例 MCP：普通子代理沿可信来源取得 MCP，main 自身工具保持原类别", async () => {
   const h = await harness("github-mcp-scope");
   try {
     const rt = h.runtime;

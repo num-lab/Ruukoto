@@ -18,6 +18,8 @@ import { crc32 } from "node:zlib";
 import { resolveEntry } from "@ruukoto/tui/cli-entry.ts";
 import type { Task } from "@ruukoto/core/types.ts";
 import { startTestRuntime, waitFor } from "./helpers/testkit.ts";
+import { startMockMcp, MOCK_MCP_SECRET } from "./helpers/mock-mcp.ts";
+import { product as codeProduct } from "../apps/ruukoto-code/src/product.ts";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const tsxBin = path.join(repoRoot, "node_modules", ".bin", "tsx");
@@ -158,6 +160,52 @@ test("进程：mcp cua 复用配置向导，非 TTY 给出正常入口要求", a
   const r = await runCli(["mcp", "cua"]);
   assert.equal(r.status, 1);
   assert.match(r.stderr, /TTY/);
+});
+
+test("进程：所有 MCP 子命令在连接后台前拒绝旧 --project", async () => {
+  for (const sub of ["configure", "list", "enable", "disable", "remove", "check", "cua"]) {
+    const result = await runCli(["mcp", sub, "--project", "old-project"]);
+    assert.equal(result.status, 1, sub);
+    assert.match(result.stderr, /不接受 --project/, sub);
+    assert.equal(result.stdout.length, 0, sub);
+  }
+});
+
+test("进程：空 Code 实例通过 CLI 创建受限 MCP 凭据、绑定并发现工具，通用删除保留引用", async () => {
+  const t = await startTestRuntime("mcp-cli-instance", async () => ({ kind: "text", text: "done" }), { config: { product: codeProduct.runtime, socketPath: undefined } });
+  const mcp = await startMockMcp({ tools: [{ name: "fetch" }], requireAuth: true });
+  const env = { ...process.env, RUUKOTO_OWNER_TOKEN: undefined, RUUKOTO_OWNER_TOKEN_FILE: undefined,
+    RUUKOTO_DATA_DIR: t.dirs.dataDir, RUUKOTO_AGENT_DIR: t.dirs.agentDir, RUUKOTO_CONTROL_DIR: t.runtime.controlDir(),
+    RUUKOTO_CODE_DATA_DIR: t.dirs.dataDir, RUUKOTO_CODE_AGENT_DIR: t.dirs.agentDir, RUUKOTO_CODE_CONTROL_DIR: t.runtime.controlDir(),
+    RUUKOTO_CLI_MCP_SECRET: MOCK_MCP_SECRET };
+  try {
+    for (const projectArg of [["--project", "old-project"], ["--project=old-project"]]) {
+      const refused = await runCli(["mcp", "configure", "--name", "old", "--endpoint", mcp.url, "--disabled", ...projectArg], { bin: true, env });
+      assert.equal(refused.status, 1, refused.stderr);
+      assert.match(refused.stderr, /不接受 --project/);
+    }
+    assert.deepEqual((await t.client.request<{ services: unknown[] }>("mcp_list", {})).services, [], "旧旗标不能被其他旗标吞掉后写入实例配置");
+    assert.equal(mcp.hits.length, 0);
+    const added = await runCli(["credentials", "add", "--name", "mcp-cli", "--host", mcp.host, "--header", "authorization", "--purpose", "mcp", "--secret-env", "RUUKOTO_CLI_MCP_SECRET"], { bin: true, env });
+    assert.equal(added.status, 0, added.stderr);
+    assert.deepEqual(t.runtime.credentials.get("mcp-cli")?.scope, { operations: ["mcp"] });
+    assert.equal(t.runtime.credentials.getForUse("mcp-cli"), null, "通用 HTTP 不得借用首次写入的 MCP 凭据");
+    const saved = await runCli(["mcp", "configure", "--name", "docs", "--endpoint", mcp.url, "--credential", "mcp-cli", "--tools", "fetch"], { bin: true, env });
+    assert.equal(saved.status, 0, saved.stderr);
+    const service = JSON.parse(saved.stdout.toString("utf8")) as { id: string };
+    const checked = await runCli(["mcp", "check", service.id], { bin: true, env });
+    assert.equal(checked.status, 0, checked.stderr);
+    assert.equal(JSON.parse(checked.stdout.toString("utf8")).ok, true);
+    assert.ok(mcp.hits.some(hit => hit.rpcMethod === "tools/list" && hit.hasAuth));
+    assert.equal(mcp.hits.some(hit => hit.rpcMethod === "tools/call"), false);
+    assert.equal(Buffer.concat([added.stdout, saved.stdout, checked.stdout]).includes(Buffer.from(MOCK_MCP_SECRET)), false);
+    const removed = await runCli(["credentials", "remove", "mcp-cli"], { bin: true, env });
+    assert.equal(removed.status, 1, removed.stderr);
+    assert.ok(t.runtime.credentials.get("mcp-cli"), "引用中的凭据仍保留");
+    const list = await runCli(["mcp", "list"], { bin: true, env });
+    assert.equal(list.status, 0, list.stderr);
+    assert.equal(JSON.parse(list.stdout.toString("utf8")).services[0].id, service.id);
+  } finally { await mcp.close(); await t.shutdown(); }
 });
 
 test("进程：Coding 完整导出超过 720 KiB 的 PNG；分页失败、元数据变化与坏图均保留原目标", async () => {

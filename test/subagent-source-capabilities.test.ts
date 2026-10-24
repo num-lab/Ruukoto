@@ -150,7 +150,7 @@ test("显式角色缺工具或 MCP 远端缺失在登记前失败，工具意图
   const t = await startTestRuntime("ordinary-required-tools", () => ({ kind: "text", text: "不应调用模型" }), { config: realTools() });
   try {
     const rt = t.runtime, session = await rt.createSession({ projectName: "required", cwd: t.work[0] });
-    await t.client.request("mcp_configure", { project_id: session.projectId, name: "probe", endpoint: mcp.url, tool_allowlist: ["missing"] });
+    await t.client.request("mcp_configure", { name: "probe", endpoint: mcp.url, tool_allowlist: ["missing"] });
     const source = sourceTask(rt, session);
     for (const name of ["unknown_tool", "schedule_query", "mcp_probe_missing"]) {
       roleFile(t.dirs.agentDir, "required", `tools: [read, ${name}]\n`);
@@ -176,8 +176,8 @@ test("MCP 未装配原因覆盖远端缺失与非法 schema，停用服务无需
   const t = await startTestRuntime("mcp-rejected-reasons", () => ({ kind: "text", text: "未执行" }));
   try {
     const session = await t.runtime.createSession({ projectName: "reasons", cwd: t.work[0] });
-    const service = await t.client.request<{ id: string }>("mcp_configure", { project_id: session.projectId, name: "probe", endpoint: mcp.url, tool_allowlist: ["missing", "bad", "good"] });
-    const deps = { mcpStore: new McpStore(t.runtime.store.db), credentials: new CredentialStore(t.dirs.agentDir), projectId: session.projectId,
+    const service = await t.client.request<{ id: string }>("mcp_configure", { name: "probe", endpoint: mcp.url, tool_allowlist: ["missing", "bad", "good"] });
+    const deps = { mcpStore: new McpStore(t.runtime.store.db), credentials: new CredentialStore(t.dirs.agentDir),
       dispatch: async () => ({ content: [], isError: false }) };
     const plan = await planMcpTaskTools(deps);
     try {
@@ -201,7 +201,7 @@ test("普通子任务模型应答后 MCP 配置变化在工具意图前阻断，
   }, { config: realTools() });
   try {
     const rt = t.runtime, session = await rt.createSession({ projectName: "mcp", cwd: t.work[0] });
-    const service = await t.client.request<{ id: string }>("mcp_configure", { project_id: session.projectId, name: "probe", endpoint: mcp.url, tool_allowlist: [{ name: "write", effect: "write" }] });
+    const service = await t.client.request<{ id: string }>("mcp_configure", { name: "probe", endpoint: mcp.url, tool_allowlist: [{ name: "write", effect: "write" }] });
     changeConfiguration = async () => { await t.client.request("mcp_set_enabled", { service_id: service.id, enabled: false }); };
     roleFile(t.dirs.agentDir, "remote", "tools: [mcp_probe_write]\n");
     const source = sourceTask(rt, session);
@@ -370,7 +370,7 @@ test("普通 MCP 旧配置的结果不能通过身份复用洗成新来源上下
     { kind: "tool_calls", calls: [{ id: "read", name: "mcp_probe_read", arguments: {} }] }, { config: realTools() });
   try {
     const rt = t.runtime, session = await rt.createSession({ projectName: "mcp-history", cwd: t.work[0] });
-    const service = await t.client.request<{ id: string }>("mcp_configure", { project_id: session.projectId, name: "probe", endpoint: mcp.url, tool_allowlist: ["read"] });
+    const service = await t.client.request<{ id: string }>("mcp_configure", { name: "probe", endpoint: mcp.url, tool_allowlist: ["read"] });
     const source = sourceTask(rt, session);
     const first = await rt.subagents!.delegate({ parentTaskId: source.id, key: "first", request: "读取 MCP", paramsDigest: "first" });
     assert.equal((await childDone(rt, first.task.id)).status, "completed");

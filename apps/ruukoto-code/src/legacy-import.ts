@@ -73,7 +73,7 @@ const TABLE_POLICY: TablePolicy = {
   memories: { policy: "import" },
   memory_versions: { policy: "import" },
   data_grants: { policy: "import" },
-  mcp_services: { policy: "import" },
+  mcp_services: { policy: "exclude", reason: "MCP 服务与凭据只属于本实例，不随资料导入" },
   sub_agents: { policy: "import" },
   work_delegations: { policy: "import" },
   // 工作内消息（agent-direction issue 13）：随所属工作的账本条目折叠（不设新
@@ -135,7 +135,6 @@ interface ImportSet {
   memoriesImport: Row[];
   memoryVersions: Row[];
   grantsImport: Row[];
-  mcps: Row[];
   metas: Row[]; // jev.project.<id>
   files: FilePlanItem[];
   memoryPending: Array<{ id: string; scope: string; reason: string }>;
@@ -306,7 +305,6 @@ function buildImportSet(
     (g) => !(projectIds.has(String(g.from_project_id)) && projectIds.has(String(g.to_project_id))),
   );
 
-  const mcps = rowsIn(db, "mcp_services", "project_id", [...projectIds]);
   const metas = allRows(db, "SELECT * FROM meta WHERE key LIKE 'jev.project.%'").filter((m) =>
     projectIds.has(String(m.key).slice("jev.project.".length)),
   );
@@ -389,7 +387,6 @@ function buildImportSet(
     memoriesImport,
     memoryVersions,
     grantsImport,
-    mcps,
     metas,
     files,
     memoryPending,
@@ -442,7 +439,6 @@ interface ImportAnalysis {
     workDelegations: string[];
     memories: string[];
     grants: string[];
-    mcps: string[];
     metas: string[];
     files: string[];
   };
@@ -450,7 +446,6 @@ interface ImportAnalysis {
   idConflicts: Array<{ kind: LedgerKind | "agent_wait" | "agent_report"; id: string }>;
   agentWaitInsert: { waits: Row[]; reports: Row[] };
   fileConflicts: Array<{ itemId: string; dest: string; reason: string }>;
-  mcpDisabled: Array<{ project_id: string; name: string; credential: string }>;
   jevDisabled: Array<{ key: string; credential: string }>;
   /** 已在目标且属于本源此前导入、本次跳过的条目说明。 */
   skippedAlreadyImported: string[];
@@ -593,7 +588,6 @@ function analyze(
     { kind: "work_delegation", table: "work_delegations", ids: set.workDelegations.map((r) => String(r.id)) },
     { kind: "memory", table: "memories", ids: set.memoriesImport.map((r) => String(r.id)) },
     { kind: "grant", table: "data_grants", ids: set.grantsImport.map((r) => String(r.id)) },
-    { kind: "mcp", table: "mcp_services", ids: set.mcps.map((r) => String(r.id)) },
   ];
   for (const { kind, table, ids } of simpleChecks) {
     const existing = targetExisting(table, ids);
@@ -624,7 +618,7 @@ function analyze(
     }
   }
 
-  // MCP / Jev：目标 agentDir 缺少对应凭据绑定时以停用状态导入（只读绑定名，不读值）
+  // Jev：目标 agentDir 缺少对应凭据绑定时以停用状态导入（只读绑定名，不读值）
   const targetCredentialNames = new Set<string>();
   try {
     const raw = JSON.parse(fs.readFileSync(path.join(deps.targetAgentDir, "credentials.json"), "utf8")) as {
@@ -633,14 +627,6 @@ function analyze(
     for (const b of raw.bindings ?? []) targetCredentialNames.add(String(b.name));
   } catch {
     // 无凭据文件或无绑定：全部按缺失处理
-  }
-  const mcpDisabled: ImportAnalysis["mcpDisabled"] = [];
-  for (const m of set.mcps) {
-    if (skipped.has(`mcp:${String(m.id)}`)) continue;
-    const credential = m.credential === null ? null : String(m.credential);
-    if (credential !== null && !targetCredentialNames.has(credential)) {
-      mcpDisabled.push({ project_id: String(m.project_id), name: String(m.name), credential });
-    }
   }
   const jevDisabled: ImportAnalysis["jevDisabled"] = [];
   const jevMissingKeys = new Set<string>();
@@ -726,7 +712,6 @@ function analyze(
         .map((v) => ({ id: `${String(v.memory_id)}:${Number(v.version)}`, sha: sha256(canonicalJson(v)) }))
         .sort((a, b) => a.id.localeCompare(b.id)),
       grants: rowDigests(set.grantsImport),
-      mcps: rowDigests(set.mcps),
       metas: rowDigests(set.metas, "key"),
       events: { count: set.events.length, sha: sha256(set.events.map((e) => `${String(e.seq)}:${sha256(canonicalJson(e))}`).join(",")) },
       files: set.files
@@ -752,14 +737,12 @@ function analyze(
       workDelegations: set.workDelegations.filter((r) => !skipped.has(`work_delegation:${String(r.id)}`)).map((r) => String(r.id)),
       memories: set.memoriesImport.filter((r) => !skipped.has(`memory:${String(r.id)}`)).map((r) => String(r.id)),
       grants: set.grantsImport.filter((r) => !skipped.has(`grant:${String(r.id)}`)).map((r) => String(r.id)),
-      mcps: set.mcps.filter((r) => !skipped.has(`mcp:${String(r.id)}`)).map((r) => String(r.id)),
       metas: set.metas.filter((r) => !skipped.has(`meta:${String(r.key)}`)).map((r) => String(r.key)),
       files: set.files.filter((f) => f.action === "copied").map((f) => f.itemId),
     },
     idConflicts,
     agentWaitInsert,
     fileConflicts,
-    mcpDisabled,
     jevDisabled,
     skippedAlreadyImported,
     planErrors,
@@ -811,7 +794,6 @@ export interface LegacyImportPreview {
   excluded_sessions: Array<{ id: string; project_id: string; reason: string }>;
   memories: { import: string[]; pending: Array<{ id: string; scope: string; reason: string }> };
   grants: { import: string[]; cross_instance: Array<{ id: string; from: string; to: string; category: string; note: string }> };
-  mcp: Array<{ project_id: string; name: string; disabled: boolean; reason: string | null }>;
   jev: Array<{ key: string; disabled: boolean; credential: string | null }>;
   events: number;
   files: { copy: number; bytes: number; missing: Array<{ item: string; path: string }>; skipped_same_sha: number };
@@ -878,7 +860,6 @@ export function previewLegacyImport(deps: LegacyImportDeps, input: { from: strin
       analysis.ids.sessions.length +
       analysis.ids.memories.length +
       analysis.ids.grants.length +
-      analysis.ids.mcps.length +
       analysis.ids.metas.length + analysis.agentWaitInsert.waits.length + analysis.agentWaitInsert.reports.length;
 
     const closingsBySession = new Map<string, TaskClosing[]>();
@@ -950,15 +931,6 @@ export function previewLegacyImport(deps: LegacyImportDeps, input: { from: strin
           note: "跨实例，不生效（授权仍以来源实例为准）",
         })),
       },
-      mcp: analysis.set.mcps.map((m) => {
-        const disabled = analysis.mcpDisabled.some((x) => x.name === String(m.name) && x.project_id === String(m.project_id));
-        return {
-          project_id: String(m.project_id),
-          name: String(m.name),
-          disabled,
-          reason: disabled ? "目标缺少同名凭据绑定，以停用状态导入；重新绑定后启用" : null,
-        };
-      }),
       jev: analysis.set.metas.map((m) => {
         const dis = analysis.jevDisabled.find((x) => x.key === String(m.key));
         return { key: String(m.key), disabled: dis !== undefined, credential: dis?.credential ?? null };
@@ -1211,14 +1183,6 @@ export function applyLegacyImport(
     const memoryIdSet = new Set(memoriesToInsert.map((m) => String(m.id)));
     const versionsToInsert = set.memoryVersions.filter((v) => memoryIdSet.has(String(v.memory_id)));
     const grantsToInsert = set.grantsImport.filter((g) => analysis.ids.grants.includes(String(g.id)));
-    const disabledMcpIds = new Set(
-      set.mcps
-        .filter((m) => analysis.mcpDisabled.some((d) => d.project_id === String(m.project_id) && d.name === String(m.name)))
-        .map((m) => String(m.id)),
-    );
-    const mcpsToInsert = set.mcps
-      .filter((m) => analysis.ids.mcps.includes(String(m.id)))
-      .map((m) => (disabledMcpIds.has(String(m.id)) ? { ...m, enabled: 0 } : m));
     const metasToInsert = set.metas
       .filter((m) => analysis.ids.metas.includes(String(m.key)))
       .map((m) => {
@@ -1239,7 +1203,6 @@ export function applyLegacyImport(
       ...analysis.ids.workDelegations.map((id) => ({ kind: "work_delegation" as const, item_id: id })),
       ...analysis.ids.memories.map((id) => ({ kind: "memory" as const, item_id: id })),
       ...analysis.ids.grants.map((id) => ({ kind: "grant" as const, item_id: id })),
-      ...analysis.ids.mcps.map((id) => ({ kind: "mcp" as const, item_id: id })),
       ...analysis.ids.metas.map((id) => ({ kind: "meta" as const, item_id: id })),
       // 文件归属按账本判定（含失败续跑：前一次故障已复制的文件本轮回执按 sha 相同
       // 跳过，但账本须归属本次导入，回退才能经核对后移除）；已被此前导入登记的
@@ -1266,7 +1229,6 @@ export function applyLegacyImport(
       memories: memoriesToInsert.length,
       memory_versions: versionsToInsert.length,
       data_grants: grantsToInsert.length,
-      mcp_services: mcpsToInsert.length,
       meta: metasToInsert.length,
       events: analysis.newEvents.length,
       files_copied: set.files.filter((f) => f.action === "copied").length,
@@ -1314,7 +1276,6 @@ export function applyLegacyImport(
         revoked: g.revoked_at !== null,
         note: "跨实例，不生效",
       })),
-      mcp_disabled: analysis.mcpDisabled,
       jev_disabled: analysis.jevDisabled,
       excluded_projects: set.excludedProjects,
       excluded_sessions: set.excludedSessions,
@@ -1344,7 +1305,6 @@ export function applyLegacyImport(
       insertRows(tdb, "memories", memoriesToInsert);
       insertRows(tdb, "memory_versions", versionsToInsert);
       insertRows(tdb, "data_grants", grantsToInsert);
-      insertRows(tdb, "mcp_services", mcpsToInsert);
       insertRows(tdb, "meta", metasToInsert);
       insertRows(tdb, "events", analysis.newEvents, ["seq"]);
       const maxAfter = tdb.prepare("SELECT COALESCE(MAX(seq), 0) m FROM events").get() as { m: number };
@@ -1424,7 +1384,6 @@ export function revertLegacyImport(deps: LegacyImportDeps, importId: string): Le
     const workIds = byKind("work_delegation");
     const memoryIds = byKind("memory");
     const grantIds = byKind("grant");
-    const mcpIds = byKind("mcp");
     const metaKeys = byKind("meta");
     const createdAt = String(receipt.created_at);
     const sessionTaskIds = new Set(rowsIn(tdb, "tasks", "session_id", sessionIds).map((t) => String(t.id)));
@@ -1542,7 +1501,6 @@ export function revertLegacyImport(deps: LegacyImportDeps, importId: string): Le
       del(`DELETE FROM memory_versions WHERE memory_id IN (${memoryIds.map(() => "?").join(",") || "''"})`, memoryIds, "memory_versions");
       del(`DELETE FROM memories WHERE id IN (${memoryIds.map(() => "?").join(",") || "''"})`, memoryIds, "memories");
       del(`DELETE FROM data_grants WHERE id IN (${grantIds.map(() => "?").join(",") || "''"})`, grantIds, "data_grants");
-      del(`DELETE FROM mcp_services WHERE id IN (${mcpIds.map(() => "?").join(",") || "''"})`, mcpIds, "mcp_services");
       del(`DELETE FROM meta WHERE key IN (${metaKeys.map(() => "?").join(",") || "''"})`, metaKeys, "meta");
       del(`DELETE FROM sessions WHERE id IN (${sessionIds.map(() => "?").join(",") || "''"})`, sessionIds, "sessions");
       del(`DELETE FROM projects WHERE id IN (${projectIds.map(() => "?").join(",") || "''"})`, projectIds, "projects");

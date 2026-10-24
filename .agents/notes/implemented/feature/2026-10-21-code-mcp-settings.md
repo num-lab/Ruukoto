@@ -2,7 +2,7 @@
 
 Status: implemented
 
-工作区和旧项目来源管理拟由[实例 MCP 方案](../../proposed/simplification/2026-10-24-code-instance-mcp.md)取代；本篇保留当前实现的决定，新的删除范围与不兼容切换尚未实施。
+工作区和旧项目来源管理由[实例 MCP 方案](../../implemented/simplification/2026-10-24-code-instance-mcp.md)取代；本篇保留被取代的原决定，首次限用途、服务身份、条件版本与原实例核实继续成立。
 
 ## 问题
 

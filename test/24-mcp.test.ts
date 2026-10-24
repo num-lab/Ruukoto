@@ -2,7 +2,7 @@
  * MCP 集成测试（issue 16）：通用 MCP 服务配置、工具发现/调用与任务生命周期。
  *
  * - 配置面：mcp_configure / mcp_list / mcp_set_enabled / mcp_remove / mcp_check，
- *   凭据 host/用途/scope 校验、期望版本冲突、事件与脱敏、schema v7→v8 迁移；
+ *   凭据 host/用途/scope 校验、期望版本冲突、事件与脱敏、旧 schema 拒绝；
  * - 运行面：进程内模拟 Streamable HTTP MCP 服务（回环 http 仅此用途），经真实
  *   Runtime/Driver/宿主工具路径驱动任务，断言远端实际收到的调用次数与授权边界。
  */
@@ -34,9 +34,9 @@ import { imageReferenceView, restoreImageInput } from "@ruukoto/agent/inbound-im
 const SECRET = MOCK_MCP_SECRET;
 const quiet: Responder = async () => ({ kind: "text", text: "done" });
 
-/** 直接写凭据库（同 23-web-search 测试方式）；scope 由配置入口收紧。 */
+/** 直接写凭据库（同 23-web-search 测试方式）；使用专用 MCP 操作范围。 */
 function addMcpCredential(t: TestRuntime, host: string, name = "mcp-cred", purpose = "mcp"): void {
-  t.runtime.credentials.upsert({ name, host, header: "authorization", purpose, secret: SECRET });
+  t.runtime.credentials.upsert({ name, host, header: "authorization", purpose, secret: SECRET, scope: { operations: ["mcp"] } });
 }
 
 function eventsOf(t: TestRuntime, type: string): any[] {
@@ -48,10 +48,8 @@ function eventsOf(t: TestRuntime, type: string): any[] {
 test("mcp：配置并列出服务（脱敏视图 + 变更事件）", async () => {
   const t = await startTestRuntime("mcp-cfg", quiet);
   try {
-    const { projectId } = await createProjectSession(t.client, t.work[0]!);
     addMcpCredential(t, "mcp.example.com");
     const service = (await t.client.request<any>("mcp_configure", {
-      project_id: projectId,
       name: "docs",
       endpoint: "https://mcp.example.com/mcp/",
       credential: "mcp-cred",
@@ -64,7 +62,7 @@ test("mcp：配置并列出服务（脱敏视图 + 变更事件）", async () =>
     assert.deepEqual(service.toolAllowlist, ["get_me", "get_file_contents"]);
     assert.ok(!JSON.stringify(service).includes(SECRET), "配置视图不得包含秘密值");
 
-    const list = (await t.client.request<any>("mcp_list", { project_id: projectId })) as any;
+    const list = (await t.client.request<any>("mcp_list", {})) as any;
     assert.equal(list.services.length, 1);
     assert.equal(list.services[0].id, service.id);
     assert.ok(!JSON.stringify(list).includes(SECRET));
@@ -72,7 +70,7 @@ test("mcp：配置并列出服务（脱敏视图 + 变更事件）", async () =>
     const events = eventsOf(t, "mcp.service_changed");
     assert.equal(events.length, 1);
     assert.equal(events[0].action, "upsert");
-    assert.equal(events[0].projectId, projectId);
+    assert.equal(Object.hasOwn(events[0], "projectId"), false);
     assert.ok(!JSON.stringify(events).includes(SECRET), "事件不得包含秘密值");
   } finally {
     await t.shutdown();
@@ -82,12 +80,11 @@ test("mcp：配置并列出服务（脱敏视图 + 变更事件）", async () =>
 test("mcp：端点、名称与凭据校验", async () => {
   const t = await startTestRuntime("mcp-cfg-validate", quiet);
   try {
-    const { projectId } = await createProjectSession(t.client, t.work[0]!);
     addMcpCredential(t, "mcp.example.com");
     addMcpCredential(t, "other.example.com", "other-cred");
     t.runtime.credentials.upsert({ name: "wrong-purpose", host: "mcp.example.com", header: "authorization", purpose: "tavily_search", secret: SECRET });
 
-    const base = { project_id: projectId, name: "docs", endpoint: "https://mcp.example.com/mcp/", tool_allowlist: ["a"] };
+    const base = { name: "docs", endpoint: "https://mcp.example.com/mcp/", tool_allowlist: ["a"] };
     const rejected: Array<[string, Record<string, unknown>]> = [
       ["名称含非法字符", { ...base, name: "Bad Name!" }],
       ["非 https 且非回环", { ...base, endpoint: "http://mcp.example.com/mcp/" }],
@@ -117,9 +114,7 @@ test("mcp：端点、名称与凭据校验", async () => {
 test("mcp：期望版本冲突与配置版本递增", async () => {
   const t = await startTestRuntime("mcp-cfg-version", quiet);
   try {
-    const { projectId } = await createProjectSession(t.client, t.work[0]!);
     const created = (await t.client.request<any>("mcp_configure", {
-      project_id: projectId,
       name: "docs",
       endpoint: "https://mcp.example.com/mcp/",
       tool_allowlist: ["a"],
@@ -128,7 +123,6 @@ test("mcp：期望版本冲突与配置版本递增", async () => {
 
     await assert.rejects(
       t.client.request("mcp_configure", {
-        project_id: projectId,
         name: "docs",
         endpoint: "https://mcp.example.com/mcp/",
         tool_allowlist: ["a", "b"],
@@ -138,7 +132,6 @@ test("mcp：期望版本冲突与配置版本递增", async () => {
     );
 
     const updated = (await t.client.request<any>("mcp_configure", {
-      project_id: projectId,
       name: "docs",
       endpoint: "https://mcp.example.com/mcp/",
       tool_allowlist: ["a", "b"],
@@ -156,34 +149,16 @@ test("mcp：期望版本冲突与配置版本递增", async () => {
   }
 });
 
-test("mcp：禁用/启用与删除（事件 + 凭据 scope 收紧）", async () => {
+test("mcp：禁用/启用与删除（事件 + 实例专用凭据）", async () => {
   const t = await startTestRuntime("mcp-cfg-enable", quiet);
   try {
-    const { projectId } = await createProjectSession(t.client, t.work[0]!);
-    const { projectId: otherProject } = await createProjectSession(t.client, t.work[1]!);
     addMcpCredential(t, "mcp.example.com");
-    const service = (await t.client.request<any>("mcp_configure", {
-      project_id: projectId,
-      name: "docs",
-      endpoint: "https://mcp.example.com/mcp/",
-      credential: "mcp-cred",
-      tool_allowlist: ["a"],
-    })) as any;
-
-    // 配置后凭据 scope 收紧到本项目 + mcp 操作
-    const cred = t.runtime.credentials.get("mcp-cred");
-    assert.deepEqual(cred?.scope, { projectId, operations: ["mcp"] });
-    // 其他项目不得借用同一凭据
-    await assert.rejects(
-      t.client.request("mcp_configure", {
-        project_id: otherProject,
-        name: "docs",
-        endpoint: "https://mcp.example.com/mcp/",
-        credential: "mcp-cred",
-        tool_allowlist: ["a"],
-      }),
-      /范围|scope/i,
-    );
+    const service = await t.client.request<any>("mcp_configure", {
+      name: "docs", endpoint: "https://mcp.example.com/mcp/", credential: "mcp-cred", tool_allowlist: ["a"],
+    });
+    assert.deepEqual(t.runtime.credentials.get("mcp-cred")?.scope, { operations: ["mcp"] });
+    assert.ok(t.runtime.credentials.getForUse("mcp-cred", { projectId: "another-workspace", operation: "mcp" }));
+    assert.equal(t.runtime.credentials.getForUse("mcp-cred"), null);
 
     const disabled = (await t.client.request<any>("mcp_set_enabled", { service_id: service.id, enabled: false })) as any;
     assert.equal(disabled.enabled, false);
@@ -237,16 +212,14 @@ function offeredToolNames(t: TestRuntime, callIndex = 0): string[] {
   return ((t.server.calls[callIndex]?.tools ?? []) as any[]).map((x) => String(x?.function?.name ?? x?.name ?? ""));
 }
 
-/** 配置一个指向模拟服务的项目内 MCP 服务（含凭据）。 */
+/** 配置一个指向模拟服务的实例 MCP 服务（含凭据）。 */
 async function configureMockService(
   t: TestRuntime,
-  projectId: string,
   mcp: MockMcp,
   opts: { name?: string; allowlist: string[]; credential?: boolean },
 ): Promise<any> {
   if (opts.credential !== false) addMcpCredential(t, mcp.host, `mcp-cred-${opts.name ?? "mock"}`);
   return t.client.request<any>("mcp_configure", {
-    project_id: projectId,
     name: opts.name ?? "mock",
     endpoint: mcp.url,
     credential: opts.credential === false ? null : `mcp-cred-${opts.name ?? "mock"}`,
@@ -269,8 +242,8 @@ test("mcp：任务内发现与只读调用（经真实宿主路径，凭据注�
   };
   const t = await startTestRuntime("mcp-run", responder);
   try {
-    const { projectId, sessionId } = await createProjectSession(t.client, t.work[0]!);
-    await configureMockService(t, projectId, mcp, { allowlist: ["get_me"] });
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    await configureMockService(t, mcp, { allowlist: ["get_me"] });
 
     const done = await submitAndWait(t, sessionId, "r1", "查一下我是谁");
     assert.equal(done.task.status, "completed");
@@ -322,8 +295,8 @@ test("mcp：分页发现、重名与不支持 schema 的处理", async () => {
   };
   const t = await startTestRuntime("mcp-pages", responder);
   try {
-    const { projectId, sessionId } = await createProjectSession(t.client, t.work[0]!);
-    await configureMockService(t, projectId, mcp, { allowlist: ["get_me", "list_repos", "get me", "bad_schema"], credential: false });
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    await configureMockService(t, mcp, { allowlist: ["get_me", "list_repos", "get me", "bad_schema"], credential: false });
 
     const done = await submitAndWait(t, sessionId, "r1", "列出仓库");
     assert.equal(done.task.status, "completed");
@@ -362,8 +335,8 @@ test("mcp：参数校验失败不发送网络请求", async () => {
   };
   const t = await startTestRuntime("mcp-badparams", responder);
   try {
-    const { projectId, sessionId } = await createProjectSession(t.client, t.work[0]!);
-    await configureMockService(t, projectId, mcp, { allowlist: ["get_file"], credential: false });
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    await configureMockService(t, mcp, { allowlist: ["get_file"], credential: false });
     const done = await submitAndWait(t, sessionId, "r1", "读文件");
     // SDK 在 tool_call 门前校验参数：畸形调用不记录操作、不发送请求
     assert.equal(mcp.hits.filter((h) => h.rpcMethod === "tools/call").length, 0, "参数校验失败不得发送 tools/call");
@@ -398,8 +371,8 @@ test("mcp：结构化结果、isError 与传输错误的区分", async () => {
   };
   const t = await startTestRuntime("mcp-results", responder);
   try {
-    const { projectId, sessionId } = await createProjectSession(t.client, t.work[0]!);
-    await configureMockService(t, projectId, mcp, { allowlist: ["get_pr", "failing", "broken"], credential: false });
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    await configureMockService(t, mcp, { allowlist: ["get_pr", "failing", "broken"], credential: false });
     const done = await submitAndWait(t, sessionId, "r1", "依次调用三个工具");
     assert.equal(done.task.status, "completed");
 
@@ -448,8 +421,8 @@ test("mcp：超大结果入产物、不支持内容类型明确说明", async ()
   };
   const t = await startTestRuntime("mcp-big", responder);
   try {
-    const { projectId, sessionId } = await createProjectSession(t.client, t.work[0]!);
-    await configureMockService(t, projectId, mcp, { allowlist: ["big", "with_image"], credential: false });
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    await configureMockService(t, mcp, { allowlist: ["big", "with_image"], credential: false });
     const done = await submitAndWait(t, sessionId, "r1", "调用两个工具");
     assert.equal(done.task.status, "completed");
 
@@ -480,8 +453,8 @@ test("mcp 图片：结构化文字预览超限有提示和产物，图片不被�
   const resolve = t.runtime.models.current.modelCatalog.resolve.bind(t.runtime.models.current.modelCatalog);
   t.runtime.models.current.modelCatalog.resolve = async selection => ({ ...await resolve(selection), input: ["text", "image"] });
   try {
-    const { projectId, sessionId } = await createProjectSession(t.client, t.work[0]!);
-    await configureMockService(t, projectId, mcp, { allowlist: ["capture"], credential: false });
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    await configureMockService(t, mcp, { allowlist: ["capture"], credential: false });
     const done = await submitAndWait(t, sessionId, "capped", "看图与结构化结果");
     assert.equal(done.task.status, "completed");
     assert.match(toolResultTexts(t).join("\n"), /超过内联上限/);
@@ -500,8 +473,8 @@ for (const variant of ["pure", "mixed", "error", "invalid", "disk"] as const) {
     t.runtime.models.current.modelCatalog.resolve = async selection => ({ ...await resolve(selection), input: ["text", "image"] });
     if (variant === "disk") t.runtime.artifacts.importImage = () => { throw new ArtifactWriteError("fixture"); };
     try {
-      const { projectId, sessionId } = await createProjectSession(t.client, t.work[0]!);
-      await configureMockService(t, projectId, mcp, { allowlist: ["capture"], credential: false });
+      const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+      await configureMockService(t, mcp, { allowlist: ["capture"], credential: false });
       const done = await submitAndWait(t, sessionId, "image", "看图");
       assert.equal(done.task.status, "completed");
       const history = parseSessionFile(t.runtime.store.getSession(sessionId)!.sessionFile!);
@@ -548,9 +521,9 @@ test("mcp：认证失败 → 服务列为不可用，任务不带其工具继续
   const mcp = await startMockMcp({ requireAuth: true, tools: [{ name: "get_me" }] });
   const t = await startTestRuntime("mcp-auth-fail", quiet);
   try {
-    const { projectId, sessionId } = await createProjectSession(t.client, t.work[0]!);
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
     // 配置无凭据服务（服务端要求认证）→ 初始化即 401
-    await configureMockService(t, projectId, mcp, { allowlist: ["get_me"], credential: false });
+    await configureMockService(t, mcp, { allowlist: ["get_me"], credential: false });
 
     const done = await submitAndWait(t, sessionId, "r1", "查一下");
     assert.equal(done.task.status, "completed", "服务不可用不阻断任务");
@@ -576,8 +549,8 @@ test("mcp：调用超时与断线（不自动重试）", async () => {
     return { kind: "text", text: "完成" };
   }, { config: { mcp: { callTimeoutMs: 300 } } });
   try {
-    const { projectId, sessionId } = await createProjectSession(t.client, t.work[0]!);
-    await configureMockService(t, projectId, slow, { allowlist: ["slow"], credential: false });
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    await configureMockService(t, slow, { allowlist: ["slow"], credential: false });
     const done = await submitAndWait(t, sessionId, "r1", "调用慢工具");
     assert.equal(done.task.status, "completed");
     const op = done.toolOps.find((o: any) => o.toolName === "mcp_mock_slow");
@@ -596,8 +569,8 @@ test("mcp：调用超时与断线（不自动重试）", async () => {
     return { kind: "text", text: "完成" };
   });
   try {
-    const { projectId, sessionId } = await createProjectSession(t2.client, t2.work[0]!);
-    await configureMockService(t2, projectId, dropping, { allowlist: ["fragile"], credential: false });
+    const { sessionId } = await createProjectSession(t2.client, t2.work[0]!);
+    await configureMockService(t2, dropping, { allowlist: ["fragile"], credential: false });
     const done = await submitAndWait(t2, sessionId, "r1", "调用会断线的工具");
     assert.equal(done.task.status, "completed");
     const op = done.toolOps.find((o: any) => o.toolName === "mcp_mock_fragile");
@@ -613,8 +586,8 @@ test("mcp：任务取消中断在途调用并回收连接", async () => {
   const mcp = await startMockMcp({ tools: [{ name: "slow", delayMs: 30_000 }] });
   const t = await startTestRuntime("mcp-cancel", async () => ({ kind: "tool_calls", calls: [{ id: "c0", name: "mcp_mock_slow", arguments: {} }] }));
   try {
-    const { projectId, sessionId } = await createProjectSession(t.client, t.work[0]!);
-    await configureMockService(t, projectId, mcp, { allowlist: ["slow"], credential: false });
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    await configureMockService(t, mcp, { allowlist: ["slow"], credential: false });
     const task = (await t.client.request<any>("submit", { model_selection: MODEL, session_id: sessionId, request_id: "r1", input: "调用慢工具" })) as any;
     await waitFor("tools/call 已发出", () => mcp.hits.some((h) => h.rpcMethod === "tools/call"));
     await t.client.request("interrupt", { task_id: task.id });
@@ -642,8 +615,8 @@ test("mcp：任务间工具刷新（允许列表变化 → 下一任务生效）
   const responder: Responder = async () => ({ kind: "text", text: "完成" });
   const t = await startTestRuntime("mcp-refresh", responder);
   try {
-    const { projectId, sessionId } = await createProjectSession(t.client, t.work[0]!);
-    const service = await configureMockService(t, projectId, mcp, { allowlist: ["tool_a"], credential: false });
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    const service = await configureMockService(t, mcp, { allowlist: ["tool_a"], credential: false });
 
     const first = await submitAndWait(t, sessionId, "r1", "第一个任务");
     assert.equal(first.task.status, "completed");
@@ -653,7 +626,6 @@ test("mcp：任务间工具刷新（允许列表变化 → 下一任务生效）
 
     // 拥有者扩大允许列表 → 下一任务生效（SDK 会话重建）
     await t.client.request("mcp_configure", {
-      project_id: projectId,
       name: "mock",
       endpoint: mcp.url,
       tool_allowlist: ["tool_a", "tool_b"],
@@ -684,8 +656,8 @@ test("mcp：运行中禁用服务 → 后续调用立即阻止且不发请求", 
   };
   const t = await startTestRuntime("mcp-mid-disable", responder);
   try {
-    const { projectId, sessionId } = await createProjectSession(t.client, t.work[0]!);
-    const service = await configureMockService(t, projectId, mcp, { allowlist: ["get_me"], credential: false });
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    const service = await configureMockService(t, mcp, { allowlist: ["get_me"], credential: false });
     serviceId = service.id;
 
     const submit = await t.client.request<any>("submit", { model_selection: MODEL, session_id: sessionId, request_id: "r1", input: "调用两次" });
@@ -727,8 +699,8 @@ test("mcp：运行中撤销凭据 → 后续调用失败且不再发出认证请
   };
   const t = await startTestRuntime("mcp-mid-revoke", responder);
   try {
-    const { projectId, sessionId } = await createProjectSession(t.client, t.work[0]!);
-    await configureMockService(t, projectId, mcp, { allowlist: ["get_me"] });
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    await configureMockService(t, mcp, { allowlist: ["get_me"] });
 
     const submit = await t.client.request<any>("submit", { model_selection: MODEL, session_id: sessionId, request_id: "r1", input: "调用两次" });
     await waitFor("第一次调用完成", async () => {
@@ -755,8 +727,8 @@ test("mcp：运行中撤销凭据 → 后续调用失败且不再发出认证请
   }
 });
 
-test("mcp：跨项目隔离与第二服务同一路径", async () => {
-  const mcpA = await startMockMcp({ tools: [{ name: "get_me", result: { content: [{ type: "text", text: "from-A" }] } }] });
+test("mcp：跨工作区共享认证服务与第二服务同一路径", async () => {
+  const mcpA = await startMockMcp({ requireAuth: true, tools: [{ name: "get_me", result: { content: [{ type: "text", text: "from-A" }] } }] });
   const mcpB = await startMockMcp({ tools: [{ name: "get_time", result: { content: [{ type: "text", text: "from-B" }] } }] });
   const responder: Responder = async (req) => {
     const text = JSON.stringify(req.messages.at(-1)?.content ?? "");
@@ -768,9 +740,9 @@ test("mcp：跨项目隔离与第二服务同一路径", async () => {
   try {
     const a = await createProjectSession(t.client, t.work[0]!);
     const b = await createProjectSession(t.client, t.work[1]!);
-    // 项目 A 配置两个服务（同名工具路径一致）；项目 B 不配置
-    await configureMockService(t, a.projectId, mcpA, { name: "mock", allowlist: ["get_me"], credential: false });
-    await configureMockService(t, a.projectId, mcpB, { name: "alt", allowlist: ["get_time"], credential: false });
+    // 实例配置两个服务，两个工作区共用
+    const shared = await configureMockService(t, mcpA, { name: "mock", allowlist: ["get_me"] });
+    await configureMockService(t, mcpB, { name: "alt", allowlist: ["get_time"], credential: false });
 
     const doneA = await submitAndWait(t, a.sessionId, "ra", "用A 查询");
     assert.equal(doneA.task.status, "completed");
@@ -778,7 +750,7 @@ test("mcp：跨项目隔离与第二服务同一路径", async () => {
     assert.equal(mcpA.hits.filter((h) => h.rpcMethod === "tools/call").length, 1);
     assert.equal(mcpB.hits.filter((h) => h.rpcMethod === "tools/call").length, 0, "未调用的服务不收请求");
 
-    // 跨项目并发：两个项目的任务同时推进，各自只见自己的服务
+    // 跨工作区并发使用同一实例服务
     const callsBefore = t.server.calls.length;
     const taskA2 = (await t.client.request<any>("submit", { model_selection: MODEL, session_id: a.sessionId, request_id: "ra2", input: "用B 查询" })) as any;
     const taskB = (await t.client.request<any>("submit", { model_selection: MODEL, session_id: b.sessionId, request_id: "rb", input: "用A 查询" })) as any;
@@ -796,8 +768,17 @@ test("mcp：跨项目隔离与第二服务同一路径", async () => {
     const bCall = t.server.calls.slice(callsBefore).find((c: any) => JSON.stringify(c.messages).includes("用A 查询"));
     const offeredB = ((bCall?.tools ?? []) as any[]).map((x) => String(x?.function?.name ?? x?.name ?? ""));
     assert.ok(bCall, "应有项目 B 的模型调用");
-    assert.ok(!offeredB.some((n) => n.startsWith("mcp_")), "无配置项目不注册 MCP 工具");
-    assert.equal(mcpA.hits.filter((h) => h.rpcMethod === "tools/call").length, 1, "项目 B 不得触达项目 A 的服务");
+    assert.ok(offeredB.includes("mcp_mock_get_me") && offeredB.includes("mcp_alt_get_time"), "两个工作区共用服务工具");
+    assert.equal(mcpA.hits.filter((h) => h.rpcMethod === "tools/call").length, 2, "第二工作区可使用同一认证服务");
+    await t.client.request("mcp_set_enabled", { service_id: shared.id, enabled: false, expected_version: shared.configVersion });
+    for (const [index, session] of [a, b].entries()) {
+      const before = t.server.calls.length;
+      const stopped = await submitAndWait(t, session.sessionId, `disabled-${index}`, "用A 查询");
+      assert.equal(stopped.task.status, "completed");
+      assert.ok(stopped.toolOps.every((op: any) => op.toolName !== "mcp_mock_get_me" || op.isError));
+      assert.ok(t.server.calls.slice(before).every(call => !(call.tools ?? []).some((tool: any) => (tool.function?.name ?? tool.name) === "mcp_mock_get_me")));
+    }
+    assert.equal(mcpA.hits.filter((h) => h.rpcMethod === "tools/call").length, 2, "实例停用阻止两个工作区后续调用");
   } finally {
     await t.shutdown();
     await mcpA.close();
@@ -815,8 +796,7 @@ test("mcp：mcp_check 连接检查与工具列表（含失败路径）", async (
   });
   const t = await startTestRuntime("mcp-check", quiet);
   try {
-    const { projectId } = await createProjectSession(t.client, t.work[0]!);
-    const service = await configureMockService(t, projectId, mcp, { allowlist: ["get_me"] });
+    const service = await configureMockService(t, mcp, { allowlist: ["get_me"] });
     const ok = (await t.client.request<any>("mcp_check", { service_id: service.id })) as any;
     assert.equal(ok.ok, true);
     assert.equal(ok.serverInfo.name, "mock-mcp");
@@ -831,7 +811,6 @@ test("mcp：mcp_check 连接检查与工具列表（含失败路径）", async (
 
     // 失败路径：服务不可达 → ok:false + 错误说明（不抛错）
     const dead = await t.client.request<any>("mcp_configure", {
-      project_id: projectId,
       name: "dead",
       endpoint: "http://127.0.0.1:1/mcp",
       tool_allowlist: ["x"],
@@ -853,10 +832,9 @@ test("mcp：工具定义计入上下文预算", async () => {
   try {
     const withMcp = await createProjectSession(t.client, t.work[0]!);
     const plain = await createProjectSession(t.client, t.work[1]!);
-    await configureMockService(t, withMcp.projectId, mcp, { allowlist: ["get_me"], credential: false });
-
-    const doneWith = await submitAndWait(t, withMcp.sessionId, "r1", "你好");
     const donePlain = await submitAndWait(t, plain.sessionId, "r2", "你好");
+    await configureMockService(t, mcp, { allowlist: ["get_me"], credential: false });
+    const doneWith = await submitAndWait(t, withMcp.sessionId, "r1", "你好");
     assert.equal(doneWith.task.status, "completed");
     assert.equal(donePlain.task.status, "completed");
     const recWith = t.runtime.store.listSelectionRecordsByTask(doneWith.task.id)[0];
@@ -892,7 +870,7 @@ test("mcp：后台崩溃重启 —— 在途调用标 effect_unknown，不重放
 
   let backend = await spawnBackend(dataDir, agentDir);
   try {
-    const { projectId, sessionId } = await createProjectSession(backend.client, workDir);
+    const { sessionId } = await createProjectSession(backend.client, workDir);
     await backend.client.request("add_credential", {
       name: "mcp-cred",
       host: mcp.host,
@@ -901,7 +879,6 @@ test("mcp：后台崩溃重启 —— 在途调用标 effect_unknown，不重放
       secret: SECRET,
     });
     await backend.client.request("mcp_configure", {
-      project_id: projectId,
       name: "mock",
       endpoint: mcp.url,
       credential: "mcp-cred",
@@ -948,9 +925,9 @@ test("mcp：断连重放保留服务变更与工具活动事件（脱敏）", as
   };
   const t = await startTestRuntime("mcp-reconnect", responder);
   try {
-    const { projectId, sessionId } = await createProjectSession(t.client, t.work[0]!);
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
     const cursor = t.client.getSeq();
-    await configureMockService(t, projectId, mcp, { allowlist: ["get_me"] });
+    await configureMockService(t, mcp, { allowlist: ["get_me"] });
     const done = await submitAndWait(t, sessionId, "r1", "查一下");
     assert.equal(done.task.status, "completed");
 
@@ -998,8 +975,8 @@ test("mcp：声明的结构化输出被校验（不匹配即失败）", async ()
   };
   const t = await startTestRuntime("mcp-outschema", responder);
   try {
-    const { projectId, sessionId } = await createProjectSession(t.client, t.work[0]!);
-    await configureMockService(t, projectId, mcp, { allowlist: ["typed", "lying"], credential: false });
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    await configureMockService(t, mcp, { allowlist: ["typed", "lying"], credential: false });
     const done = await submitAndWait(t, sessionId, "r1", "调用两个工具");
     assert.equal(done.task.status, "completed");
     const opOk = done.toolOps.find((o: any) => o.toolName === "mcp_mock_typed");

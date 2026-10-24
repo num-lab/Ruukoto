@@ -2,7 +2,7 @@
 
 Status: implemented
 
-Code 的项目配置及 49→50 迁移拟按[实例 MCP 方案](../../proposed/simplification/2026-10-24-code-instance-mcp.md)退出；持续连接、未决恢复及 Personal 格式不在该调整内。方案尚未实施，本篇保留当前决定。
+Code 的项目配置及 49→50 迁移按[实例 MCP 方案](../../implemented/simplification/2026-10-24-code-instance-mcp.md)退出；持续连接、未决恢复及 Personal 格式不在该调整内。本篇保留被取代的原决定与仍成立的持续连接约束。
 
 ## 问题
 

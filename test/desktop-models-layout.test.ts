@@ -9,7 +9,7 @@ import type { OpResult } from "@ruukoto/control/ops.ts";
 import { CodeModelsState } from "../apps/desktop/src/renderer/code-models-state.ts";
 import type { SettingsScope } from "../apps/desktop/src/renderer/settings-state.ts";
 
-const scope: SettingsScope = { target: "code", instanceId: "layout", workspaceId: null, sourceId: null };
+const scope: SettingsScope = { target: "code", instanceId: "layout" };
 let server: ViteDevServer;
 let Editor: ComponentType<{ state: CodeModelsState; scope: SettingsScope; online: boolean }>;
 let Provider: ComponentType<{ state: CodeModelsState; scope: SettingsScope; online: boolean; save: () => void; confirm: () => void }>;

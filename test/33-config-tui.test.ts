@@ -9,7 +9,7 @@ import { fixtureSubAgentDefinition } from "./helpers/subagent-definition.ts";
  * 4. 离线：后台持有配置锁时拒绝进入；独立目录可写 key/默认模型且退出后释放锁；
  * 5. 重载状态：导航分区持久化、重启恢复、损坏文件提示后回主菜单；
  * 6. 工作区设置入口（agent-direction issue 06 步骤 3）：ruukoto-code 的项目分区按
- *    工作区/旧项目分类（ruukoto 不标注）、工作区详情内 MCP 固定归属、设置冲突
+ *    工作区/旧项目分类（ruukoto 不标注）、实例 MCP 管理、设置冲突
  *    重读后台、资料授权方向/同范围/已撤销、重载恢复沿用既有菜单 id；
  *    mcp_remove 的可选期望版本在协议层验证（CLI --expected-version 为同形透传）。
  */
@@ -40,6 +40,7 @@ type TestRuntime,
 } from "./helpers/testkit.ts";
 
 import { FakeTerminal } from "./helpers/fake-terminal.ts";
+import { startMockMcp, MOCK_MCP_SECRET } from "./helpers/mock-mcp.ts";
 
 const DOWN = "\x1b[B";
 const ENTER = "\r";
@@ -807,81 +808,48 @@ test("ruukoto-code：项目分区先列工作区（显示根目录）再列旧�
   }
 });
 
-test("ruukoto-code：工作区详情的 MCP 只列本项目服务，新增固定归属且跳过项目选择；全局入口仍按分类选择", async () => {
-  const t = await startTestRuntime("cfg-tui-ws-mcp", textResponder);
+test("ruukoto-code：无工作区可创建 MCP 凭据并绑定服务、发现工具与停用，项目详情不再提供 MCP", async () => {
+  const t = await startTestRuntime("cfg-tui-instance-mcp", textResponder, { config: { product: codeProduct.runtime } });
+  const mcp = await startMockMcp({ tools: [{ name: "fetch" }], requireAuth: true });
   try {
-    const a = (await t.client.request<any>("open_workspace", { cwd: t.work[0]!, request_id: "ws-mcp-a" })) as any;
-    const b = (await t.client.request<any>("open_workspace", { cwd: t.work[1]!, request_id: "ws-mcp-b" })) as any;
-    const projectA = a.session.projectId as string;
-    const projectB = b.session.projectId as string;
-    await t.client.request("mcp_configure", {
-      project_id: projectA, name: "docs", endpoint: "https://docs.example.com/mcp", tool_allowlist: ["search"],
-    });
-    await t.client.request("mcp_configure", {
-      project_id: projectB, name: "otherb", endpoint: "https://b.example.com/mcp", tool_allowlist: [],
-    });
-
     const h = startConfig(t, { product: "ruukoto-code" });
     try {
-      await waitForText(h.terminal, "配置分区");
-      h.terminal.send(DOWN + ENTER); // 项目
-      await waitForText(h.terminal, `工作区 · ${a.projectName}`);
-      h.terminal.send(ENTER); // 工作区 A（首个工作区）
-      await waitForText(h.terminal, "指令文件：");
-      h.terminal.send(DOWN + DOWN + DOWN + ENTER); // instructions/websearch/jev → MCP 服务
-      await waitForText(h.terminal, "固定归属项目");
-      assert.ok(h.terminal.output().includes("docs"), "本项目服务在列表中");
-      assert.ok(!h.terminal.output().includes("otherb"), "其他工作区的服务不出现在本项目列表");
-
-      // 详情内新增：跳过「所属项目」选择，固定归属本项目
-      h.terminal.send(DOWN + ENTER); // docs → 新增服务
-      await waitForText(h.terminal, "服务名");
-      h.terminal.send("svcnew" + ENTER);
-      await waitForText(h.terminal, "端点 URL");
-      h.terminal.send("https://c.example.com/mcp" + ENTER);
-      await waitForText(h.terminal, "凭据引用名");
-      h.terminal.send(ENTER); // 无凭据
-      await waitForText(h.terminal, "工具允许列表");
-      h.terminal.send("fetch" + ENTER);
+      await waitForText(h.terminal, "配置分区"); h.terminal.send(DOWN.repeat(5) + ENTER);
+      await waitForText(h.terminal, "新增凭据"); h.terminal.send(ENTER);
+      await waitForText(h.terminal, "凭据名称"); h.terminal.send("instance-mcp" + ENTER);
+      await waitForText(h.terminal, "主机（"); h.terminal.send(mcp.host + ENTER);
+      await waitForText(h.terminal, "请求头名"); h.terminal.send(ENTER);
+      await waitForText(h.terminal, "用途"); h.terminal.send("mcp" + ENTER);
+      await waitForText(h.terminal, "的秘密值"); h.terminal.send(MOCK_MCP_SECRET + ENTER);
+      await waitForText(h.terminal, "凭据已保存");
+      assert.deepEqual(t.runtime.credentials.get("instance-mcp")?.scope, { operations: ["mcp"] });
+      assert.equal(t.runtime.credentials.getForUse("instance-mcp"), null, "首次保存后通用 HTTP 不能借用 MCP 凭据");
+      assert.equal(h.terminal.output().includes(MOCK_MCP_SECRET), false);
+      const rootOffset = h.terminal.output().length; h.terminal.send(ESC);
+      await waitFor("返回配置分区", () => h.terminal.output().slice(rootOffset).includes("配置分区"));
+      h.terminal.send(DOWN.repeat(3) + ENTER);
+      await waitForText(h.terminal, "新增服务"); h.terminal.send(ENTER);
+      await waitForText(h.terminal, "服务名（实例内唯一"); h.terminal.send("docs" + ENTER);
+      await waitForText(h.terminal, "端点 URL"); h.terminal.send(mcp.url + ENTER);
+      await waitForText(h.terminal, "凭据引用名"); h.terminal.send("instance-mcp" + ENTER);
+      await waitForText(h.terminal, "工具允许列表（"); h.terminal.send("fetch" + ENTER);
       await waitForText(h.terminal, "MCP 服务已创建");
-      assert.ok(!h.terminal.output().includes("所属项目"), "详情内新增不再选择项目");
-      const listA = (await t.client.request<any>("mcp_list", { project_id: projectA })) as any;
-      const svcNew = (listA.services as any[]).find((s) => s.name === "svcnew");
-      assert.ok(svcNew, "新增服务固定归属本项目");
-      assert.equal(svcNew.endpoint, "https://c.example.com/mcp");
-      const listB = (await t.client.request<any>("mcp_list", { project_id: projectB })) as any;
-      assert.deepEqual((listB.services as any[]).map((s) => s.name), ["otherb"], "B 项目未被串改");
-
-      // 启停携带期望版本：当前版本停用成功
-      h.terminal.send(UP + UP + ENTER); // add → svc:svcnew → svc:docs
-      await waitForText(h.terminal, "停用该服务");
-      h.terminal.send(DOWN + DOWN + DOWN + ENTER);
-      await waitForText(h.terminal, "服务已停用");
-      const docsAfter = ((await t.client.request<any>("mcp_list", { project_id: projectA })) as any).services.find((s: any) => s.name === "docs");
-      assert.equal(docsAfter.enabled, false, "启停经控制面生效");
-
-      // 回到根菜单进入全局 MCP：列出全部服务，新增仍按工作区/旧项目分类选择项目
-      h.terminal.send(ESC); // → 项目 MCP 列表
-      await waitForText(h.terminal, "固定归属项目");
-      h.terminal.send(ESC); // → 项目详情
-      await waitForText(h.terminal, "资料授权");
-      h.terminal.send(ESC); // → 项目分区
-      await waitForText(h.terminal, `工作区 · ${a.projectName}`);
-      h.terminal.send(ESC); // → 根菜单
-      await waitForText(h.terminal, "服务凭据");
-      h.terminal.send(DOWN + DOWN + DOWN + ENTER); // → 全局 MCP 服务
-      await waitForText(h.terminal, `docs（${a.projectName}）`);
-      assert.ok(h.terminal.output().includes(`otherb（${b.projectName}）`), "全局入口列出全部项目的服务");
-      h.terminal.send(DOWN + DOWN + DOWN + ENTER); // 3 个服务 → 新增服务
-      await waitForText(h.terminal, "所属项目");
-      assert.ok(h.terminal.output().includes(`工作区 · ${a.projectName}`), "全局新增的项目选择沿用工作区/旧项目标注");
-      h.terminal.send(ESC); // 取消项目选择
-    } finally {
-      assert.equal(await h.quit(), 0);
-    }
-  } finally {
-    await t.shutdown();
-  }
+      assert.equal(h.terminal.output().includes("所属项目"), false);
+      const { services } = await t.client.request<{ services: { id: string; endpoint: string; enabled: boolean }[] }>("mcp_list", {});
+      assert.equal(services.length, 1); assert.equal(services[0].endpoint, mcp.url);
+      h.terminal.send(UP + ENTER); await waitForText(h.terminal, "停用该服务");
+      h.terminal.send(DOWN.repeat(4) + ENTER); await waitForText(h.terminal, "✓ 连接成功");
+      assert.ok(mcp.hits.some(hit => hit.rpcMethod === "tools/list" && hit.hasAuth));
+      assert.equal(mcp.hits.some(hit => hit.rpcMethod === "tools/call"), false);
+      h.terminal.send(ESC); h.terminal.send(UP + ENTER); await waitForText(h.terminal, "服务已停用");
+      assert.equal((await t.client.request<{ services: { enabled: boolean }[] }>("mcp_list", {})).services[0].enabled, false);
+    } finally { assert.equal(await h.quit(), 0); }
+    const workspace = await t.client.request<{ session: { projectId: string } }>("open_workspace", { cwd: t.work[0], request_id: "mcp-project-menu" });
+    const snapshot = (await t.client.handshake()).snapshot;
+    const app = new ConfigTuiApp({ mode: "online", modelBackend: new OfflineModelBackend(t.dirs.agentDir), agentDir: t.dirs.agentDir, client: t.client, snapshot, terminal: new FakeTerminal(), product: "ruukoto-code", onExit: () => {} }) as any;
+    const projectItems = await app.projectScreen(workspace.session.projectId).load();
+    assert.equal(projectItems.some((item: { value: string }) => item.value === "mcp"), false);
+  } finally { await mcp.close(); await t.shutdown(); }
 });
 
 test("ruukoto-code：设置编辑期另一客户端保存后，本界面旧表单保存冲突并重读后台展示新值", async () => {
@@ -939,7 +907,7 @@ test("ruukoto-code：资料授权标注出向/入向；同范围多条撤销提�
       await waitForText(h.terminal, "旧项目 · alpha-g");
       h.terminal.send(ENTER); // alpha（旧项目第一个）
       await waitForText(h.terminal, "指令文件：");
-      h.terminal.send(DOWN + DOWN + DOWN + DOWN + ENTER); // → 资料授权
+      h.terminal.send(DOWN.repeat(3) + ENTER); // → 资料授权
       await waitForText(h.terminal, "出向");
       const listing = h.terminal.output();
       assert.ok(listing.includes("入向"), "B→A 的记忆授权标注入向");
@@ -988,7 +956,7 @@ test("ruukoto-code：资料授权标注出向/入向；同范围多条撤销提�
   }
 });
 
-test("重载恢复：项目 → 某项目 → MCP 沿用既有 id 序列持久化并恢复", async () => {
+test("重载恢复：实例 MCP 分区持久化并恢复", async () => {
   const t = await startTestRuntime("cfg-tui-ws-reload", textResponder);
   const stateDir = await mkdtemp(path.join(tmpdir(), "ruukoto-cfg-ws-reload-"));
   const stateFile = path.join(stateDir, "reload.json");
@@ -996,21 +964,15 @@ test("重载恢复：项目 → 某项目 → MCP 沿用既有 id 序列持久�
   const origEnv = process.env[envKey];
   process.env[envKey] = stateFile;
   try {
-    const a = (await t.client.request<any>("open_workspace", { cwd: t.work[0]!, request_id: "ws-reload-1" })) as any;
-    const projectId = a.session.projectId as string;
     const h1 = startConfig(t, { product: "ruukoto-code" });
     try {
       await waitForText(h1.terminal, "配置分区");
-      h1.terminal.send(DOWN + ENTER);
-      await waitForText(h1.terminal, `工作区 · ${a.projectName}`);
-      h1.terminal.send(ENTER);
-      await waitForText(h1.terminal, "指令文件：");
-      h1.terminal.send(DOWN + DOWN + DOWN + ENTER); // → 本项目 MCP
+      h1.terminal.send(DOWN.repeat(3) + ENTER);
       await waitForText(h1.terminal, "新增服务");
       await waitFor("重载状态落盘", () => {
         try {
           const s = JSON.parse(fs.readFileSync(stateFile, "utf8"));
-          return s.kind === "config-tui" && JSON.stringify(s.section) === JSON.stringify(["projects", `project:${projectId}`, "mcp"]);
+          return s.kind === "config-tui" && JSON.stringify(s.section) === JSON.stringify(["mcp"]);
         } catch {
           return false;
         }
@@ -1021,7 +983,7 @@ test("重载恢复：项目 → 某项目 → MCP 沿用既有 id 序列持久�
 
     const h2 = startConfig(t, { product: "ruukoto-code" });
     try {
-      await waitForText(h2.terminal, `MCP 服务（${a.projectName}）`, "重载后直接恢复到该项目的 MCP 分区");
+      await waitForText(h2.terminal, "新增服务", "重载后直接恢复到实例 MCP 分区");
     } finally {
       assert.equal(await h2.quit(), 0);
     }
@@ -1033,7 +995,7 @@ test("重载恢复：项目 → 某项目 → MCP 沿用既有 id 序列持久�
   }
 });
 
-test("重载状态指向其他项目的服务：不打开归属不符的服务，停留在本项目 MCP 列表", async () => {
+test("旧重载状态的项目 MCP 入口已删除，不能打开实例服务", async () => {
   const t = await startTestRuntime("cfg-tui-ws-xsvc", textResponder);
   const stateDir = await mkdtemp(path.join(tmpdir(), "ruukoto-cfg-ws-xsvc-"));
   const stateFile = path.join(stateDir, "reload.json");
@@ -1042,11 +1004,8 @@ test("重载状态指向其他项目的服务：不打开归属不符的服务�
   process.env[envKey] = stateFile;
   try {
     const a = (await t.client.request<any>("open_workspace", { cwd: t.work[0]!, request_id: "ws-xsvc-a" })) as any;
-    const b = (await t.client.request<any>("open_workspace", { cwd: t.work[1]!, request_id: "ws-xsvc-b" })) as any;
     const projectA = a.session.projectId as string;
-    const projectB = b.session.projectId as string;
-    await t.client.request("mcp_configure", { project_id: projectA, name: "docsa", endpoint: "https://a.example.com/mcp", tool_allowlist: [] });
-    const svcB = (await t.client.request<any>("mcp_configure", { project_id: projectB, name: "otherb", endpoint: "https://b.example.com/mcp", tool_allowlist: [] })) as any;
+    const svcB = (await t.client.request<any>("mcp_configure", { name: "otherb", endpoint: "https://b.example.com/mcp", tool_allowlist: [] })) as any;
     const { snapshot } = await t.client.handshake();
     fs.writeFileSync(stateFile, JSON.stringify({
       kind: "config-tui",
@@ -1056,9 +1015,9 @@ test("重载状态指向其他项目的服务：不打开归属不符的服务�
     }));
     const h = startConfig(t, { product: "ruukoto-code" });
     try {
-      await waitForText(h.terminal, "已不存在", "归属其他项目的服务不随重载打开");
-      assert.ok(h.terminal.output().includes("docsa"), "停留在本项目 MCP 列表");
-      assert.ok(!h.terminal.output().includes("otherb"), "归属其他项目的服务不出现在本项目列表");
+      await waitForText(h.terminal, "已不存在", "旧项目 MCP 菜单不随重载恢复");
+      assert.ok(h.terminal.output().includes("指令文件："), "停留在项目详情");
+      assert.ok(!h.terminal.output().includes("otherb"), "不打开实例服务");
     } finally {
       assert.equal(await h.quit(), 0);
     }
@@ -1070,15 +1029,14 @@ test("重载状态指向其他项目的服务：不打开归属不符的服务�
   }
 });
 
-test("mcp_remove 期望版本：匹配删除成功；陈旧版本冲突且服务仍在；不带版本兼容删除", async () => {
+test("mcp_remove 期望版本：匹配删除成功；陈旧版本冲突且服务仍在；不带版本删除", async () => {
   const t = await startTestRuntime("cfg-tui-mcp-remove", textResponder);
   try {
-    const p = (await t.client.request<any>("create_project", { name: "proj-mcp-rm" })) as any;
     const svc = (await t.client.request<any>("mcp_configure", {
-      project_id: p.id, name: "docs", endpoint: "https://docs.example.com/mcp", tool_allowlist: ["search"],
+      name: "docs", endpoint: "https://docs.example.com/mcp", tool_allowlist: ["search"],
     })) as any;
     const svc2 = (await t.client.request<any>("mcp_configure", {
-      project_id: p.id, name: "docs", endpoint: "https://docs.example.com/mcp", tool_allowlist: ["search", "fetch"], expected_version: svc.configVersion,
+      name: "docs", endpoint: "https://docs.example.com/mcp", tool_allowlist: ["search", "fetch"], expected_version: svc.configVersion,
     })) as any;
 
     const conflict = await t.client.request("mcp_remove", { service_id: svc.id, expected_version: svc.configVersion }).then(
@@ -1093,10 +1051,10 @@ test("mcp_remove 期望版本：匹配删除成功；陈旧版本冲突且服务
     assert.equal(removed.removed, true, "版本匹配删除成功");
 
     const svc3 = (await t.client.request<any>("mcp_configure", {
-      project_id: p.id, name: "docs", endpoint: "https://docs.example.com/mcp", tool_allowlist: [],
+      name: "docs", endpoint: "https://docs.example.com/mcp", tool_allowlist: [],
     })) as any;
     const removedNoVersion = (await t.client.request<any>("mcp_remove", { service_id: svc3.id })) as any;
-    assert.equal(removedNoVersion.removed, true, "不带版本仍删成功（兼容）");
+    assert.equal(removedNoVersion.removed, true, "不带版本仍删成功");
   } finally {
     await t.shutdown();
   }
@@ -1110,9 +1068,6 @@ test("ruukoto-code：工作区详情列出关联旧资料与原配置入口；�
     const legacy = (await t.client.request<any>("create_project", { name: "legacy-src" })) as any;
     const mapped = (await t.client.request<any>("create_session", { project_id: legacy.id, cwd: t.work[1]! })) as any;
     t.runtime.store.withTx(() => t.runtime.store.mapSessionToWorkspace(mapped.id, wsId));
-    await t.client.request("mcp_configure", {
-      project_id: legacy.id, name: "docs", endpoint: "https://docs.example.com/mcp", tool_allowlist: ["search"],
-    });
     await t.client.request("create_data_grant", {
       from_project_id: legacy.id, to_project_id: wsId, category: "history", purpose: "旧历史供工作区查阅",
     });
@@ -1127,12 +1082,12 @@ test("ruukoto-code：工作区详情列出关联旧资料与原配置入口；�
       await waitForText(h.terminal, "关联旧资料：legacy-src");
       const out = h.terminal.output();
       assert.ok(out.includes("1 个映射会话"), "列出对应会话");
-      assert.ok(out.includes("MCP 1 项"), "列出 MCP 引用");
+      assert.ok(!out.includes("MCP 1 项"), "来源摘要不再统计实例 MCP");
       assert.ok(out.includes("授权 出 1 / 入 0"), "列出原授权方向（不隐式合并）");
       assert.ok(out.includes("v1"), "来源设置版本并列显示");
       // 打开原配置入口：来源项目的指令/版本页面（沿用 06 的版本校验）
       const beforeEnter = h.terminal.output().length;
-      h.terminal.send(DOWN + DOWN + DOWN + DOWN + DOWN + ENTER); // instructions..grants → 关联旧资料
+      h.terminal.send(DOWN.repeat(4) + ENTER); // instructions..grants → 关联旧资料
       await waitForText(h.terminal, "项目 legacy-src");
       const tail = h.terminal.output().slice(beforeEnter);
       assert.ok(tail.includes("指令文件："), "来源详情打开");
@@ -1156,16 +1111,14 @@ test("Code Cua 配置TUI从固定程序创建停用服务，恢复图片未能�
   context.mock.method(t.runtime, "mcpCuaStatus", () => ({ state: "recovering", stopped: true, ownerStarted: true, original: { opId: "unknown", taskId: "missing-task", sessionId: "original-session", toolName: "click", effect: "write", state: "frozen" }, observation: { id: "new-observation", artifactIds: ["missing-image"] } }));
   const accepts = context.mock.method(t.runtime, "mcpCuaAccept");
   try {
-    const created = await createProjectSession(t.client, t.work[0]);
     const h = startConfig(t, { product: "ruukoto-code" });
     try {
       await waitForText(h.terminal, "配置分区"); h.terminal.send(DOWN.repeat(3) + ENTER);
       await waitForText(h.terminal, "添加本机 Cua Driver"); h.terminal.send(DOWN + ENTER);
-      await waitForText(h.terminal, "所属项目"); h.terminal.send(ENTER);
       await waitForText(h.terminal, "服务名"); h.terminal.send("computer" + ENTER);
       await waitForText(h.terminal, "选择已安装的本机 Cua Driver"); h.terminal.send(ENTER);
       await waitForText(h.terminal, "电脑服务已保存为停用状态");
-      const { services } = await t.client.request<{ services: { projectId: string; enabled: boolean; cua: typeof config; toolAllowlist: unknown[]; credential: null }[] }>("mcp_list", { project_id: created.projectId });
+      const { services } = await t.client.request<{ services: { enabled: boolean; cua: typeof config; toolAllowlist: unknown[]; credential: null }[] }>("mcp_list", {});
       assert.equal(services.length, 1); assert.deepEqual(services[0].cua, config); assert.equal(services[0].enabled, false); assert.deepEqual(services[0].toolAllowlist, []); assert.equal(services[0].credential, null);
       h.terminal.send(DOWN + ENTER); await waitForText(h.terminal, "打开当前新截图");
       assert.equal(h.terminal.output().includes("接受已查看的新截图"), false);

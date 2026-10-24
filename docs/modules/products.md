@@ -23,7 +23,7 @@ Coding bin 固定产品身份，向共享 CLI 传入 `CliProduct`，并向 `Runt
 
 ## 数据与状态
 
-个人档案、锁、本机认证 socket、配置、凭据引用及请求证据独立保存，版本和旧目录在恢复前核实。Coding 的产品身份继续登记在核心库 `meta.product.type`，档案、锁、控制面和既有格式保持。两个版本的 Pi 对象不跨产品传递，个人不双写旧 Task Store 或 JSONL。
+个人档案、锁、本机认证 socket、配置、凭据引用及请求证据独立保存，版本和旧目录在恢复前核实。Coding 的产品身份继续登记在核心库 `meta.product.type`，档案、锁与控制面各自隔离。Coding MCP 按实例保存服务与专用凭据，全部工作区共用；Personal 保留自身档案格式，不共享服务或秘密。两个版本的 Pi 对象不跨产品传递，个人不双写旧 Task Store 或 JSONL。
 
 ## 主要流程
 
@@ -35,11 +35,13 @@ Coding bin 固定产品身份，向共享 CLI 传入 `CliProduct`，并向 `Runt
 
 - 正式个人与兼容入口只有一套装配，不加载旧 Runtime、Driver、Task Store、控制协议或个人导入器；仅复用实际共享的业务库、传输、校验、浏览器及原生执行原语。
 - 新个人档案不覆盖、迁移或自动复制旧资料和凭据；旧目录、不支持版本、锁冲突或配置未齐时明确拒绝，拒绝前不连接 IM、不恢复任务。
-- Coding 仍拒绝跨产品目录与旧 local/container 覆盖，原 schema、历史、入口和执行边界保持；个人命令模式由宿主配置，不接受旧 CLI 执行覆盖。
+- Coding 拒绝跨产品目录、旧 local/container 覆盖及非当前 schema；保留旧 SQLite、JSONL 与凭据，使用独立新数据及凭据目录重新配置，不能原地继续旧会话；个人命令模式由宿主配置，不接受旧 CLI 执行覆盖。
 - 同账户完全访问使用后台账户已有权限，外部效果未知或停止未核实仍保留原占用；退出界面不能代替停止证明。
 - 跨包引用使用 exports 与已声明依赖；反向运行时协作采用注入，core 不依赖其他 workspace 包。个人 app 直接声明 Pi 1.3.0，Coding 调用方保留 0.85.1。
 
 ## 设计依据
+
+- [Code MCP 按实例配置与旧格式退出](../../.agents/notes/implemented/simplification/2026-10-24-code-instance-mcp.md)
 
 - [个人认证令牌完整写入后发布](../../.agents/notes/implemented/bug-fix/2026-10-24-personal-token-atomic-publish.md)
 

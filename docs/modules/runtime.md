@@ -97,7 +97,7 @@ Runtime 另持有跨任务的 `BrowserManager`，Coding 底座持有；Driver �
 
 **会话队列。** 每会话一个队列状态：`active`，或 `paused` 携带暂停原因 `backend_restart` 与 `occupancy_unverified`。
 
-**实例导入（`instance_imports` / `instance_import_items`）。** 回执记 `request_key`、源实例与产品、源 schema 版本、源目录、计划摘要、目标备份路径与 sha256、事件区间、报告、状态 `applied` / `reverted` 与回退时间。条目账本主键 `(kind, item_id)`，类别覆盖 `project`、`session`、`sub_agent`、`work_delegation`、`memory`、`grant`、`mcp`、`meta`、`file`、`agent_role`、`schedule`、`platform_config`、`standing_permission`、`credential`。
+**实例导入（`instance_imports` / `instance_import_items`）。** 回执记 `request_key`、源实例与产品、源 schema 版本、源目录、计划摘要、目标备份路径与 sha256、事件区间、报告、状态 `applied` / `reverted` 与回退时间。条目账本主键 `(kind, item_id)`，类别覆盖 `project`、`session`、`sub_agent`、`work_delegation`、`memory`、`grant`、`meta`、`file`、`agent_role`、`schedule`、`platform_config`、`standing_permission`、`credential`。
 
 **任务状态机。**
 
@@ -278,7 +278,7 @@ sequenceDiagram
 - **固定定义**：可信入口保存 `kind: host_review` 的完整宿主定义，不选择用户 general/reviewer；用户覆盖和新增角色不能改变该用途、只读工具与禁消息限制。
 - **入口**：PR 入站事件派发时，编排器先建（或复用）固定的 main 父任务（无工具，只确认接收），再**直接调用** `SubAgentManager.delegate`（`hostReview: {sourceEventId}` 入参只由编排器传入，工具层不会产生该字段）。每个修订登记一项新工作、创建一个新 SubAgent，不跨修订复用（新修订用全新上下文，避免旧 diff/旧报告混入新 head 的核对）；幂等键 `ghreview-<事件 id>`，参数摘要只含 `{kind, eventId}`。管理器准备失败（缺执行入口、模型门闩未就绪）时事件保持 `registered`，下次派发重试，不降级回旧 coding 路径。
 - **名额与输入**：宿主评审任务带来源事件（`source_event_id`），不计入 main 的 3 个活动委派名额（计数 SQL 排除来源事件任务）；任务输入首行固定为 `[SubAgent 委派 · GitHub PR 评审]`，正文沿用 `GitHubEvents.request`。带来源事件的任务出队时走既有入站门（修订已过期即取消）、终态在同一结果事务内回写入站终态并登记通知。重提命中首次登记（管理器不 kick）或崩溃窗口把排队子会话按 `backend_restart` 暂停时，派发按角色会话同口径补 kick / 恢复子会话队列（占用未核实的 `occupancy_unverified` 暂停不在此解除）。
-- **只读 MCP 按任务开放，只给评审任务**：subagent 类会话仅在任务被 `taskMcp` 依赖识别为评审（`subAgentId` 非空且来源事件为 GitHub）时才规划 MCP；收窄为「静态只读白名单（`read`/`read_artifact`）∪ `effect=read` 的 MCP」，装配、发送前检查与调用门同一结论——写与副作用不明的 MCP、bash、下级委派在发送前与调用门两处被拒。普通与工作流子代理另沿持久来源取得 MCP；main 自身工具不因此改变。会话项目为 main 角色项目，MCP 凭据按项目核对。
+- **只读 MCP 按任务开放，只给评审任务**：subagent 类会话仅在任务被 `taskMcp` 依赖识别为评审（`subAgentId` 非空且来源事件为 GitHub）时才规划 MCP；收窄为「静态只读白名单（`read`/`read_artifact`）∪ `effect=read` 的 MCP」，装配、发送前检查与调用门同一结论——写与副作用不明的 MCP、bash、下级委派在发送前与调用门两处被拒。普通与工作流子代理另沿持久来源取得 MCP；main 自身工具不因此改变。会话项目为 main 角色项目，MCP 使用实例服务及专用凭据，评审权限不因此扩大。
 - **子身份边界**：评审 SubAgent 空闲后保留（不自动关闭），但宿主不会复用它，主 Agent 也不能用 `sub_agent_id` 把它挪去做其他工作或沿其工作续派——继续/复用的可用性检查对「有来源事件的任务」的 SubAgent 一律拒绝（上下文含不可信 PR 资料）；主 Agent 或拥有者可以显式关闭。
 - **结果与唤醒**：终态沿用 `setTaskResult`；`resultData` 识别 SubAgent 评审任务，评审正文完整保存为 `review-draft:<事件 id>` 产物并写入 `result_ref.review`（分页损坏保留 `partial` 与 `captureError`）。main 结果唤醒开放 `subagent_result` 与只读的 `coding_result`；唤醒输入沿用 `GitHubEvents.notice` 修订说明，`subagent_result` 前置同样的修订说明。评审并行运行、不设并发名额；被新修订取代仍在运行的评审会跑完，结果标为过期、不发通知。评审工作不适用最终汇报（IM 入口汇报只认 telegram/qq_private 来源），继续走固定通知。
 - 控制面只读查询 `work_list` / `work_get`（agent 对象含 `closedAt`/`closedBy`，work 对象含取消三列）；写操作为 `subagent_close` 与整项取消 `work_cancel`。快照携带工作委托、SubAgent 与其内部会话 ID（普通工作区列表排除）。普通控制面 submit/continue/switch-mode/会话默认模式不能作用于子会话。
@@ -335,7 +335,7 @@ Coding 的离线导入由 app 持有方向策略，core 提供快照、文件校
 
 Code 的电脑管理器在工具开放前从原 `tool_ops.mcp` 加载冻结事实；正常任务边界只释放连接借用，后台仍持同一进程。拥有者控制按停止、开始恢复、仅观察、接受顺序推进，完成恢复只开放新工作，不重派旧任务或清除未知结果；暂停和后台退出核实原生执行停止。
 
-MCP 配置来源查询保留工作区组织归属与原项目身份的区别，服务配置及凭据仍按原项目写入；启停与事件同事务。专用凭据创建不依赖后续服务保存成功来收窄范围，仍被服务引用时拒绝清理。
+MCP 服务与凭据按实例管理，无工作区或会话也能配置；主任务、SubAgent 预检及工作流配置摘要读取同一服务集，Web Search 与其他用途凭据仍沿自身项目范围。启停与事件同事务，服务变更阻止本实例各工作区的旧版本调用。凭据创建时即限定用途，专用与通用删除均核对服务引用。开发资料导入排除 MCP 服务与秘密，历史工具操作原样保留。
 
 模型配置视图只读脱敏位置、已注册模型成员与真实思考档位，不求值动态认证；存储条目存在与实际认证可用分别表达。模型管理继续核对内容修订、受影响提供方占用与引用，重建失败恢复原文件；SDK／远端失败正文收口为固定指引并保留安全错误码，避免动态凭据被错误反射。主动连接测试独立于保存，完整来源语义见[上下文与模型配置](agent-context.md)。
 
@@ -378,6 +378,8 @@ MCP 配置来源查询保留工作区组织归属与原项目身份的区别，�
 `readWorkspaceGit` 按登记根身份只读分页查询真实提交与refs；每页200条，没有累计上限，每次总5秒、每命令512 KiB及结果768 KiB预算，非仓库和空仓库分开。游标绑定工作区、Git/common身份、HEAD、全部refs、shallow与info/grafts，读取前后核实修订，变化拒绝并要求刷新。不计算或扫描 Agent 保护根，也不遍历整个 Git 目录；支持元数据链接、本地硬链接克隆、alternates及配置include，日志固定UTF-8。HEAD链接文本纳入修订，指针按最终普通文件句柄有界读取，失败返回类型化错误。拥有者附件入口允许 dev 和 main，子会话仍拒绝；main 主身份随快照显式提供。
 
 ## 设计依据
+
+- [Code MCP 按实例配置与旧格式退出](../../.agents/notes/implemented/simplification/2026-10-24-code-instance-mcp.md)
 
 - [文件树续页与按需 Git](../../.agents/notes/implemented/feature/2026-10-24-directory-pages-lazy-git.md)
 

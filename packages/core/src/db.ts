@@ -12,7 +12,7 @@ import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 
-export const SCHEMA_VERSION = 50;
+export const SCHEMA_VERSION = 51;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS background_processes (
@@ -398,13 +398,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_context_checkpoints_active ON context_chec
 -- 旧库的表保留为只读归档（不 DROP），退役迁移由 Runtime 启动时按表存在性执行
 -- （packages/channels/src/github-retirement.ts），不依赖建表 SQL。
 
--- v8：MCP 服务配置（issue 16）——拥有者按项目管理的 MCP 服务；秘密值仍在
+-- v8：MCP 服务配置（issue 16）——拥有者按实例管理的 MCP 服务；秘密值仍在
 -- CredentialStore，本表只存凭据绑定名。config_version 随任何变化递增，
 -- 任务开始钉版工具清单，调用前重读核对。
 CREATE TABLE IF NOT EXISTS mcp_services (
   id TEXT PRIMARY KEY,
-  project_id TEXT NOT NULL,
-  name TEXT NOT NULL,
+  name TEXT NOT NULL UNIQUE,
   endpoint TEXT NOT NULL,
   cua_config TEXT,
   credential TEXT,
@@ -412,8 +411,7 @@ CREATE TABLE IF NOT EXISTS mcp_services (
   enabled INTEGER NOT NULL DEFAULT 1,
   config_version INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL,
-  UNIQUE (project_id, name)
+  updated_at TEXT NOT NULL
 );
 
 -- v10：QQ 群聊入口（issue 07，NapCat OneBot v11 正向 WebSocket）。
@@ -816,9 +814,6 @@ export class Db {
   constructor(dataDir: string, file = "ruukoto.db") {
     this.file = path.join(dataDir, file);
     this.db = new DatabaseSync(this.file);
-    this.db.exec("PRAGMA journal_mode = WAL;");
-    this.db.exec("PRAGMA synchronous = FULL;");
-    this.db.exec("PRAGMA foreign_keys = ON;");
     // 全新数据库尚无 meta 表：查询失败按"无版本记录"处理，进入建表事务
     let row: { value: string } | undefined;
     try {
@@ -829,18 +824,18 @@ export class Db {
       row = undefined;
     }
     const version = row ? Number(row.value) : SCHEMA_VERSION;
+    // Note: 见 .agents/notes/implemented/simplification/2026-10-24-code-instance-mcp.md
     // Note: 见 .agents/notes/implemented/feature/2026-10-12-full-access-current-account.md
-    if (row && version !== SCHEMA_VERSION && version !== 49) {
+    if (row && version !== SCHEMA_VERSION) {
       this.db.close();
       throw new SchemaVersionError(version > SCHEMA_VERSION
         ? `schema 版本过新：文件 ${row.value}，程序 ${SCHEMA_VERSION}（需升级程序）`
         : `不支持旧 schema：文件 ${row.value}，程序 ${SCHEMA_VERSION}；请保留原库并使用新的数据目录，不回填执行授权`);
     }
+    this.db.exec("PRAGMA journal_mode = WAL;");
+    this.db.exec("PRAGMA synchronous = FULL;");
+    this.db.exec("PRAGMA foreign_keys = ON;");
     this.tx(() => {
-      if (version === 49) {
-        this.db.exec("ALTER TABLE mcp_services ADD COLUMN cua_config TEXT; ALTER TABLE tool_ops ADD COLUMN mcp TEXT;");
-        this.db.prepare("UPDATE meta SET value = ? WHERE key = 'schema_version'").run(String(SCHEMA_VERSION));
-      }
       this.db.exec(SCHEMA_SQL);
       this.db.prepare("INSERT INTO meta (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO NOTHING")
         .run(String(SCHEMA_VERSION));

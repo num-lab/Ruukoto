@@ -22,7 +22,7 @@ test("真实 MCP 步骤审批与业务回答独立；回答有约束、事务回
     ? { kind: "text", text: "完成" } : { kind: "tool_calls", calls: [{ id: "write", name: "mcp_probe_write", arguments: {} }] }, { config: realTools() });
   try {
     const rt = t.runtime, session = await rt.createSession({ projectName: "workflow", cwd: t.work[0] });
-    await t.client.request("mcp_configure", { project_id: session.projectId, name: "probe", endpoint: mcp.url, tool_allowlist: [{ name: "write", effect: "write" }] });
+    await t.client.request("mcp_configure", { name: "probe", endpoint: mcp.url, tool_allowlist: [{ name: "write", effect: "write" }] });
     const parent = source(rt, session);
     const run = rt.workflows!.start({ sourceTaskId: parent.id, requestKey: "ask-approval", input: null,
       script: 'return await Promise.all([ask("question",{prompt:"选择",options:["yes","no"],schema:{type:"string"}}),agent("write",{request:"写",tools:["mcp_probe_write"]})]);' });

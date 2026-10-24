@@ -9,10 +9,10 @@ import type { Project, Session } from "@ruukoto/core/types.ts";
 import type { DesktopBridge, DesktopFailure, DesktopResult } from "../apps/desktop/src/shared/bridge.ts";
 import { CodeState } from "../apps/desktop/src/renderer/code-state.ts";
 import { PersonalConnectionState } from "../apps/desktop/src/renderer/personal-connection-state.ts";
-import { SettingsState, type SettingsForm, type SettingsPhase, type SettingsScope, type SettingsSources } from "../apps/desktop/src/renderer/settings-state.ts";
+import { SettingsState, type SettingsForm, type SettingsPhase, type SettingsScope } from "../apps/desktop/src/renderer/settings-state.ts";
 import { fakeSnapshot } from "./helpers/fake-control.ts";
 
-type SettingsContentsProps = { settings: SettingsState; code: CodeState; personal: CodeState; dark: boolean; onDark: (dark: boolean) => void; onAddWorkspace: () => void; mcpSources?: SettingsSources; pages?: { mcp?: ComponentType<{ scope: SettingsScope }> } };
+type SettingsContentsProps = { settings: SettingsState; code: CodeState; personal: CodeState; dark: boolean; onDark: (dark: boolean) => void; pages?: { mcp?: ComponentType<{ scope: SettingsScope }> } };
 let server: ViteDevServer;
 let SettingsContents: ComponentType<SettingsContentsProps>;
 before(async () => {
@@ -41,40 +41,39 @@ function harness(withSession = false) {
   code.view.applySnapshot({ snapshot, replay: [], seq: 0 }, false); code.view.currentSessionId = withSession ? "session" : null;
   code.status = { type: "state", state: "online" };
   const settings = new SettingsState(() => {});
-  settings.show("code", code);
+  settings.show("code");
   return { settings, code, personal };
 }
 function draftForm(phase: SettingsPhase = "ready"): SettingsForm & { dirty: boolean; phase: SettingsPhase; revision: number; draft: string; current: string } {
   return { dirty: true, phase, revision: 7, draft: "草稿", current: "当前", async save() { this.dirty = false; return true; }, discard() { this.dirty = false; }, invalidate() {} };
 }
 
-test("设置无会话可用，各类别独立选目标，MCP 区分展示工作区与原来源", () => {
+test("设置无工作区与会话可用，各类别独立选目标，MCP 只关联实例", () => {
   const { settings, code, personal } = harness();
   settings.chooseCategory("mcp");
-  assert.deepEqual(settings.scope(code, personal), { target: "code", instanceId: "inst-1", workspaceId: "a", sourceId: "a" });
+  assert.deepEqual(settings.scope(code, personal), { target: "code", instanceId: "inst-1" });
   settings.chooseTarget("mcp", "personal");
   assert.equal(code.view.currentSessionId, null);
-  assert.deepEqual(settings.scope(code, personal), { target: "personal", instanceId: null, workspaceId: null, sourceId: null });
+  assert.deepEqual(settings.scope(code, personal), { target: "personal", instanceId: null });
   settings.chooseCategory("models"); assert.equal(settings.scope(code, personal).target, "code");
   settings.chooseCategory("skills"); settings.chooseTarget("skills", "personal");
   settings.chooseCategory("models"); assert.equal(settings.scope(code, personal).target, "code");
   const mapped = harness(true);
-  mapped.settings.close(); mapped.settings.show("code", mapped.code, "mcp");
-  assert.equal(mapped.settings.scope(mapped.code, mapped.personal).workspaceId, "b");
-  assert.equal(mapped.settings.scope(mapped.code, mapped.personal).sourceId, "legacy");
-  mapped.settings.chooseWorkspace("a"); assert.equal(mapped.settings.scope(mapped.code, mapped.personal).sourceId, "a");
-  assert.equal(mapped.code.view.currentSessionId, "session");
+  mapped.settings.close(); mapped.settings.show("code", "mcp");
+  const scope = mapped.settings.scope(mapped.code, mapped.personal), pageKey = mapped.settings.pageKey;
+  const form = draftForm(); mapped.settings.form = form;
+  mapped.code.view.currentSessionId = null; mapped.code.view.projects = [];
+  assert.deepEqual(mapped.settings.scope(mapped.code, mapped.personal), scope);
+  assert.equal(mapped.settings.pageKey, pageKey); assert.equal(mapped.settings.form, form); assert.equal(form.dirty, true);
 });
 
-test("关闭、分类、目标、工作区与来源切换统一保护草稿，三种决定确实执行", async () => {
-  for (const action of ["close", "category", "target", "workspace", "source"] as const) {
+test("关闭、分类与目标切换统一保护草稿，三种决定确实执行", async () => {
+  for (const action of ["close", "category", "target"] as const) {
     const { settings } = harness(); settings.chooseCategory("mcp"); const form = draftForm(); settings.form = form;
     const change = () => {
       if (action === "close") settings.close();
       else if (action === "category") settings.chooseCategory("skills");
-      else if (action === "target") settings.chooseTarget("mcp", "personal");
-      else if (action === "workspace") settings.chooseWorkspace("b");
-      else settings.chooseSource("legacy");
+      else settings.chooseTarget("mcp", "personal");
     };
     change(); assert.ok(settings.leave); assert.equal(form.dirty, true);
     settings.continueEditing(); assert.equal(settings.leave, null); assert.equal(settings.category, "mcp");
@@ -99,27 +98,26 @@ test("冲突保留读取修订、草稿与当前值，保存中和待核实不�
   }
 });
 
-test("关闭、切来源、断线后重连和换实例都淘汰原读取票据", () => {
-  const { settings, code } = harness(); settings.chooseCategory("mcp");
-  const beforeSource = settings.ticket(); settings.chooseSource("legacy"); assert.equal(settings.accepts(beforeSource), false);
+test("关闭、切目标、断线后重连和换实例都淘汰原读取票据", () => {
+  const { settings } = harness(); settings.chooseCategory("mcp");
+  const beforeSource = settings.ticket(); settings.chooseTarget("mcp", "personal"); assert.equal(settings.accepts(beforeSource), false);
+  settings.chooseTarget("mcp", "code");
   const beforeDisconnect = settings.ticket(); settings.observe("code", { type: "state", state: "reconnecting" });
   settings.observe("code", { type: "state", state: "online" }); assert.equal(settings.accepts(beforeDisconnect), false);
   const beforeSnapshot = settings.ticket(); settings.observe("code", { type: "snapshot", result: { snapshot: fakeSnapshot({ instanceId: "other" }), replay: [], seq: 0 }, instanceChanged: true });
-  assert.equal(settings.accepts(beforeSnapshot), false); assert.equal(settings.selections.mcp.sourceId, null);
-  const beforeClose = settings.ticket(); settings.close(); settings.show("code", code); assert.equal(settings.accepts(beforeClose), false);
+  assert.equal(settings.accepts(beforeSnapshot), false);
+  const beforeClose = settings.ticket(); settings.close(); settings.show("code"); assert.equal(settings.accepts(beforeClose), false);
 });
 
-test("非管理页期间换实例也清除旧来源；后台候选不匹配时不交付可写来源", () => {
+test("换实例保留原表单供待核实，配置范围只反映当前实例", () => {
   const { settings, code, personal } = harness(true);
-  settings.chooseCategory("appearance");
-  settings.observe("code", { type: "snapshot", result: { snapshot: fakeSnapshot({ instanceId: "replacement" }), replay: [], seq: 0 }, instanceChanged: false });
-  assert.equal(settings.selections.mcp.workspaceId, null); assert.equal(settings.selections.mcp.sourceId, null);
-  settings.chooseCategory("mcp"); settings.chooseWorkspace("a"); settings.chooseSource("legacy");
-  assert.equal(settings.scope(code, personal, { instanceId: "inst-1", workspaceId: "a", items: [{ id: "a", name: "主来源" }] }).sourceId, null);
-  assert.equal(settings.scope(code, personal, { instanceId: "other", workspaceId: "a", items: [{ id: "legacy", name: "原来源" }] }).sourceId, null);
+  settings.chooseCategory("mcp");
   const form = draftForm("saving"); form.invalidate = () => { form.phase = "unknown"; }; settings.form = form;
   const pageKey = settings.pageKey;
-  settings.observe("code", { type: "snapshot", result: { snapshot: fakeSnapshot({ instanceId: "third" }), replay: [], seq: 0 }, instanceChanged: true });
+  const result = { snapshot: fakeSnapshot({ instanceId: "third" }), replay: [], seq: 0 };
+  code.view.applySnapshot(result, true);
+  settings.observe("code", { type: "snapshot", result, instanceChanged: true });
+  assert.deepEqual(settings.scope(code, personal), { target: "code", instanceId: "third" });
   assert.equal(settings.form, form); assert.equal(settings.pageKey, pageKey); assert.equal(form.phase, "unknown");
 });
 
@@ -165,27 +163,25 @@ test("PA 字段校验定位错误，未知 IPC 异常保留待核实", async () 
   state.edit("host", "next"); assert.equal(await state.save(), false); assert.equal(state.phase, "unknown");
 });
 
-test("设置 SSR 保留六分类、可访问名称、真实内容插槽、无工作区引导和只读说明", () => {
+test("设置 SSR 保留六分类与真实内容插槽，MCP 无工作区与来源选择", () => {
   const h = harness();
-  const props: SettingsContentsProps = { ...h, dark: true, onDark() {}, onAddWorkspace() {} };
+  const props: SettingsContentsProps = { ...h, dark: true, onDark() {} };
   const render = () => renderToStaticMarkup(createElement(SettingsContents, props));
   let html = render();
   for (const label of ["外观", "模型", "Skills", "MCP", "PA 远程连接", "已存档会话"]) assert.ok(html.includes(label));
   assert.match(html, /aria-label="设置类别"/); assert.match(html, /for="settings-theme"/);
-  h.settings.chooseCategory("mcp"); props.mcpSources = { instanceId: "inst-1", workspaceId: "a", items: [{ id: "a", name: "主来源" }, { id: "legacy", name: "原项目" }] };
+  h.settings.chooseCategory("mcp");
   html = render();
   const targetTabs = html.match(/<div[^>]*role="tablist"[^>]*aria-label="配置目标"[^>]*>(.*?)<\/div>/s)?.[1];
   assert.ok(targetTabs); assert.equal((targetTabs.match(/role="tab"/g) ?? []).length, 2);
   assert.match(targetTabs, />Code<\/button>/); assert.match(targetTabs, />PA<\/button>/);
-  assert.doesNotMatch(html, /for="settings-target"|仅选择设置的归属，不切换聊天目标。/); assert.match(html, /for="settings-workspace"/); assert.match(html, /for="settings-source"/); assert.match(html, /Code MCP 配置/);
+  assert.doesNotMatch(html, /for="settings-target"|仅选择设置的归属，不切换聊天目标。/); assert.doesNotMatch(html, /for="settings-workspace"|for="settings-source"/); assert.match(html, /Code MCP 配置/);
   let seen = "";
-  props.pages = { mcp: ({ scope }) => { seen = `${scope.target}/${scope.workspaceId}/${scope.sourceId}`; return createElement("p", null, "实际页面内容"); } };
-  html = render(); assert.match(html, /实际页面内容/); assert.equal(seen, "code/a/a");
-  props.mcpSources = { instanceId: "inst-1", workspaceId: "a", items: [{ id: "external-only", name: "候选独有名称" }] };
-  h.settings.chooseSource("external-only"); html = render(); assert.match(html, /候选独有名称/); assert.equal(seen, "code/a/external-only");
-  props.mcpSources.items = []; render(); assert.equal(seen, "code/a/null");
+  props.pages = { mcp: ({ scope }) => { seen = `${scope.target}/${scope.instanceId}`; return createElement("p", null, "实际页面内容"); } };
+  html = render(); assert.match(html, /实际页面内容/); assert.equal(seen, "code/inst-1");
   h.settings.chooseTarget("mcp", "personal"); html = render(); assert.doesNotMatch(html, /for="settings-workspace"|for="settings-source"/); assert.match(html, /data-state="active"[^>]*value="personal"|aria-selected="true"[^>]*aria-controls="[^"]*content-personal"/);
-  h.settings.chooseTarget("mcp", "code"); h.code.view.projects = []; html = render(); assert.match(html, /先添加工作区/); assert.match(html, /添加工作区/);
+  h.settings.chooseTarget("mcp", "code"); h.code.view.projects = []; h.code.view.sessions = []; html = render();
+  assert.match(html, /实际页面内容/); assert.equal(seen, "code/inst-1"); assert.doesNotMatch(html, /先添加工作区|添加工作区/);
 });
 
 test("PA 新管理连接有独立用途页签、对应面板与字段标签", () => {
@@ -193,7 +189,7 @@ test("PA 新管理连接有独立用途页签、对应面板与字段标签", ()
   Object.defineProperty(globalThis, "window", { configurable: true, value: { ruukoto: { request: async () => ok(null) } } });
   try {
     const h = harness(); h.settings.chooseCategory("personal");
-    const html = renderToStaticMarkup(createElement(SettingsContents, { ...h, dark: false, onDark() {}, onAddWorkspace() {} }));
+    const html = renderToStaticMarkup(createElement(SettingsContents, { ...h, dark: false, onDark() {} }));
     assert.match(html, /aria-label="PA 连接用途"/); assert.match(html, /role="tabpanel"/);
     assert.match(html, /aria-label="PA 设置管理连接"/);
     for (const field of ["host", "profileDir", "program", "lifecycle"]) assert.ok(html.includes(`for="management-${field}"`));

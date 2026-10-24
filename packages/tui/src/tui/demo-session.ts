@@ -420,11 +420,11 @@ function demoEvents(): PersistentEvent[] {
     { type: "github.draft_stale", draftId: "draft_demo000000", version: 1, reason: "PR head SHA 已变化" },
     { type: "github.publish_requested", publishOpId: "pub_demo00000000", draftId: "draft_demo000000", draftVersion: 1, taskId: "task_completed000", sessionId: SESSION_ID },
     { type: "github.publish_settled", publishOpId: "pub_demo00000000", draftId: "draft_demo000000", status: "effect_unknown", remoteUrl: null, errorMessage: "发送后超时" },
-    { type: "mcp.service_changed", serviceId: "mcps_demo000000", projectId: PROJECT_ID, name: "docs", endpoint: "https://mcp.example.com/mcp/", configVersion: 1, action: "upsert" },
+    { type: "mcp.service_changed", serviceId: "mcps_demo000000", name: "docs", endpoint: "https://mcp.example.com/mcp/", configVersion: 1, action: "upsert" },
     { type: "project.jev_changed", projectId: PROJECT_ID, configVersion: 2, enabled: true },
     // agent-direction issue 06：项目指令与 Web Search 的设置版本并发保护
     { type: "project.settings_changed", projectId: PROJECT_ID, settingsVersion: 2, instructionFiles: ["AGENTS.md"], webSearch: "enabled" },
-    { type: "mcp.service_unavailable", serviceId: "mcps_demo000000", projectId: PROJECT_ID, taskId: "task_completed000", sessionId: SESSION_ID, name: "docs", endpoint: "https://mcp.example.com/mcp/", reason: "连接超时（timeout）" },
+    { type: "mcp.service_unavailable", serviceId: "mcps_demo000000", taskId: "task_completed000", sessionId: SESSION_ID, name: "docs", endpoint: "https://mcp.example.com/mcp/", reason: "连接超时（timeout）" },
     // issue 07：QQ 群聊入口配置变化（群允许列表增删/启停/连接参数）
     { type: "qq.config_changed", configVersion: 3, action: "group_added", groupId: "100001" },
     { type: "qq.receive_gap", from: ts(70), to: ts(62) },

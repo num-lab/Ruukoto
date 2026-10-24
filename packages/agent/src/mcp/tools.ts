@@ -77,7 +77,6 @@ export const EMPTY_MCP_PLAN: McpTaskPlan = { toolDefs: [], tools: new Map(), con
 export interface McpPlanDeps extends McpTimeouts {
   mcpStore: McpStore;
   credentials: CredentialStore;
-  projectId: string;
   connectCua?: (service: McpServiceConfig) => Promise<McpConnection>;
   /** 工具执行转发（路由器统一处理：配置核对、模式判定、审批与单次消费、发送）。 */
   dispatch(sdkCallId: string, params: Record<string, unknown>, signal?: AbortSignal): Promise<RoutedCallOutput>;
@@ -96,11 +95,11 @@ function exposedNameFor(serviceName: string, remoteName: string): string {
 }
 
 /**
- * 任务开始的 MCP 工具计划：重读当前项目配置，逐个连接启用的服务并发现工具。
+ * 任务开始的 MCP 工具计划：重读当前实例配置，逐个连接启用的服务并发现工具。
  * 单个服务失败不阻断任务：列为不可用（事件由调用方发），其余服务照常。
  */
 export async function planMcpTaskTools(deps: McpPlanDeps): Promise<McpTaskPlan> {
-  const configured = deps.mcpStore.listServices(deps.projectId);
+  const configured = deps.mcpStore.listServices();
   const rejected = new Map<string, string>();
   for (const service of configured.filter(service => !service.enabled)) {
     for (const entry of service.toolAllowlist) rejected.set(exposedNameFor(service.name, normalizeAllowlistEntry(entry).name), `MCP 服务 ${service.name} 已停用`);
@@ -119,7 +118,6 @@ export async function planMcpTaskTools(deps: McpPlanDeps): Promise<McpTaskPlan> 
       try {
         const conn = service.cua ? await deps.connectCua!(service) : await connectMcpService(service, {
           credentials: deps.credentials,
-          projectId: deps.projectId,
           connectTimeoutMs: deps.connectTimeoutMs,
           listTimeoutMs: deps.listTimeoutMs,
           callTimeoutMs: deps.callTimeoutMs,

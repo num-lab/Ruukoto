@@ -1,7 +1,7 @@
 /**
- * MCP 服务配置的持久化（issue 16 §2）：拥有者按项目管理的 MCP 服务。
+ * MCP 服务配置的持久化（issue 16 §2）：拥有者按实例管理的 MCP 服务。
  *
- * - 每项目一表多服务：服务 ID、名称、HTTPS 端点或固定 Cua 配置、凭据绑定名（秘密值仍在
+ * - 每实例一表多服务：服务 ID、名称、HTTPS 端点或固定 Cua 配置、凭据绑定名（秘密值仍在
  *   CredentialStore）、工具允许列表、启用状态与可比较配置版本；
  * - 任何配置变化递增 config_version：任务开始钉版工具清单，调用前重读核对，
  *   禁用/撤销/版本变化立即阻止后续请求；新增工具与扩大范围只在下一任务生效；
@@ -79,8 +79,7 @@ export function normalizeToolAllowlist(input: unknown[]): { entries: McpAllowlis
 
 export interface McpServiceConfig {
   id: string;
-  projectId: string;
-  /** 拥有者命名的服务标识（项目内唯一，小写 slug；用于工具名命名空间）。 */
+  /** 拥有者命名的服务标识（实例内唯一，小写 slug；用于工具名命名空间）。 */
   name: string;
   /** Streamable HTTP 端点（生产 https；http 仅限回环模拟服务）。 */
   endpoint?: string;
@@ -107,7 +106,6 @@ export class McpStore {
   constructor(private readonly db: Db) {}
 
   upsertService(input: {
-    projectId: string;
     name: string;
     endpoint?: string;
     cua?: CuaConfig;
@@ -116,7 +114,7 @@ export class McpStore {
     enabled?: boolean;
     expectedVersion?: number;
   }): McpServiceConfig {
-    const existing = this.getServiceByName(input.projectId, input.name);
+    const existing = this.getServiceByName(input.name);
     if (input.expectedVersion !== undefined) {
       const current = existing?.configVersion ?? 0;
       if (input.expectedVersion !== current) throw new McpVersionConflictError(input.expectedVersion, current);
@@ -140,7 +138,6 @@ export class McpStore {
     }
     const service: McpServiceConfig = {
       id: randomId("mcps"),
-      projectId: input.projectId,
       name: input.name,
       endpoint: input.endpoint,
       cua: input.cua,
@@ -153,12 +150,11 @@ export class McpStore {
     };
     this.db
       .prepare(
-        `INSERT INTO mcp_services (id, project_id, name, endpoint, cua_config, credential, tool_allowlist, enabled, config_version, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO mcp_services (id, name, endpoint, cua_config, credential, tool_allowlist, enabled, config_version, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         service.id,
-        service.projectId,
         service.name,
         service.endpoint ?? "",
         service.cua ? JSON.stringify(service.cua) : null,
@@ -177,22 +173,14 @@ export class McpStore {
     return row ? rowToService(row) : null;
   }
 
-  getServiceByName(projectId: string, name: string): McpServiceConfig | null {
-    const row = this.db.prepare("SELECT * FROM mcp_services WHERE project_id = ? AND name = ?").get(projectId, name) as any;
+  getServiceByName(name: string): McpServiceConfig | null {
+    const row = this.db.prepare("SELECT * FROM mcp_services WHERE name = ?").get(name) as any;
     return row ? rowToService(row) : null;
   }
 
-  listServices(projectId?: string): McpServiceConfig[] {
-    const rows = (
-      projectId
-        ? this.db.prepare("SELECT * FROM mcp_services WHERE project_id = ? ORDER BY created_at, id").all(projectId)
-        : this.db.prepare("SELECT * FROM mcp_services ORDER BY created_at, id").all()
-    ) as any[];
+  listServices(): McpServiceConfig[] {
+    const rows = this.db.prepare("SELECT * FROM mcp_services ORDER BY created_at, id").all() as any[];
     return rows.map(rowToService);
-  }
-
-  countServices(projectId: string): number {
-    return (this.db.prepare("SELECT COUNT(*) AS count FROM mcp_services WHERE project_id = ?").get(projectId) as { count: number }).count;
   }
 
   setEnabled(id: string, enabled: boolean, expectedVersion?: number): McpServiceConfig | null {
@@ -224,7 +212,6 @@ export class McpStore {
 function rowToService(row: any): McpServiceConfig {
   return {
     id: row.id,
-    projectId: row.project_id,
     name: row.name,
     ...(row.cua_config ? { cua: parseCuaConfig(JSON.parse(row.cua_config)) } : { endpoint: row.endpoint }),
     credential: row.credential,

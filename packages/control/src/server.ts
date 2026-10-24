@@ -196,6 +196,9 @@ export class ControlServer {
   private async dispatch(socket: net.Socket, request: ControlRequest): Promise<unknown> {
     const params = (request.params ?? {}) as Record<string, unknown>;
     const runtime = this.runtime;
+    if ((request.op.startsWith("mcp_") || ["list_credentials", "add_credential", "remove_credential"].includes(request.op)) && ["project_id", "workspace_id", "selected_project_id"].some(key => Object.hasOwn(params, key))) {
+      throw new RuntimeApiError("invalid_params", "MCP 由当前实例管理，不接受旧项目或工作区参数；请升级客户端后重新读取配置。");
+    }
     const requireString = (key: string): string => {
       const value = params[key];
       if (typeof value !== "string" || value.trim().length === 0) {
@@ -721,7 +724,7 @@ export class ControlServer {
         });
       }
       case "list_credentials":
-        return runtime.listCredentialBindings({ projectId: params["project_id"] === undefined ? undefined : requireString("project_id"), endpoint: params["endpoint"] === undefined ? undefined : requireString("endpoint") });
+        return runtime.listCredentialBindings({ purpose: params["purpose"] === undefined ? undefined : requireString("purpose"), endpoint: params["endpoint"] === undefined ? undefined : requireString("endpoint") });
       // ---------- issue 05：资料授权 / 历史检索 / 记忆 / 选择记录 ----------
       case "create_data_grant":
         return runtime.createDataGrant({
@@ -950,12 +953,10 @@ export class ControlServer {
       case "remove_credential":
         return { removed: await runtime.removeCredentialBinding(requireString("name")) };
       // ---------- issue 16：MCP 服务配置 ----------
-      case "mcp_sources":
-        return runtime.mcpSources({ workspaceId: requireString("workspace_id"), offset: workflowInt("offset", 0), limit: workflowInt("limit", 50, 1, 100), selectedProjectId: params["selected_project_id"] === undefined ? undefined : requireString("selected_project_id") });
       case "mcp_save_credential":
-        return runtime.mcpSaveCredential({ projectId: requireString("project_id"), name: requireString("name"), endpoint: requireString("endpoint"), secret: requireString("secret") });
+        return runtime.mcpSaveCredential({ name: requireString("name"), endpoint: requireString("endpoint"), secret: requireString("secret") });
       case "mcp_remove_credential":
-        return runtime.mcpRemoveCredential(requireString("project_id"), requireString("name"));
+        return runtime.mcpRemoveCredential(requireString("name"));
       case "mcp_cua_status": return runtime.mcpCuaStatus();
       case "mcp_cua_targets": return runtime.mcpCuaTargets();
       case "mcp_cua_stop": return runtime.mcpCuaStop(params["service_id"] === undefined ? undefined : requireString("service_id"));
@@ -977,7 +978,6 @@ export class ControlServer {
         if (params["enabled"] !== undefined && typeof params["enabled"] !== "boolean") throw new RuntimeApiError("invalid_params", "enabled 必须是布尔值。");
         return runtime.mcpConfigure({
           serviceId: params["service_id"] === undefined ? undefined : requireString("service_id"),
-          projectId: requireString("project_id"),
           name: requireString("name"),
           endpoint: params["endpoint"] === undefined ? undefined : requireString("endpoint"),
           cua: params["cua"] as Parameters<typeof runtime.mcpConfigure>[0]["cua"],
@@ -989,7 +989,7 @@ export class ControlServer {
         });
       }
       case "mcp_list":
-        return { services: runtime.mcpListServices(params["project_id"] === undefined ? undefined : requireString("project_id")) };
+        return { services: runtime.mcpListServices() };
       case "mcp_set_enabled": {
         if (typeof params["enabled"] !== "boolean") {
           throw Object.assign(new Error("enabled 必须是布尔值"), { code: "invalid_params" });

@@ -32,25 +32,23 @@ const SECRET = MOCK_MCP_SECRET;
 const quiet: Responder = async () => ({ kind: "text", text: "done" });
 const MODEL = { provider: "mock", modelId: "mock-model", thinkingLevel: "off" } as const;
 
-/** 直接写凭据库（同 24 方式）；scope 由配置入口收紧。 */
+/** 直接写凭据库（同 24 方式）；使用专用 MCP 操作范围。 */
 function addMcpCredential(t: TestRuntime, host: string, name = "mcp-cred"): void {
-  t.runtime.credentials.upsert({ name, host, header: "authorization", purpose: "mcp", secret: SECRET });
+  t.runtime.credentials.upsert({ name, host, header: "authorization", purpose: "mcp", secret: SECRET, scope: { operations: ["mcp"] } });
 }
 
 function eventsOf(t: TestRuntime, type: string): any[] {
   return t.runtime.store.getEventsAfter(0).filter((e) => (e.body as any).type === type).map((e) => e.body);
 }
 
-/** 配置一个指向模拟服务的项目内 MCP 服务（含凭据）；允许列表支持副作用类别条目。 */
+/** 配置一个指向模拟服务的实例 MCP 服务（含凭据）；允许列表支持副作用类别条目。 */
 async function configureMockService(
   t: TestRuntime,
-  projectId: string,
   mcp: MockMcp,
   opts: { name?: string; allowlist: unknown[]; credential?: boolean },
 ): Promise<any> {
   if (opts.credential !== false) addMcpCredential(t, mcp.host, `mcp-cred-${opts.name ?? "mock"}`);
   return t.client.request<any>("mcp_configure", {
-    project_id: projectId,
     name: opts.name ?? "mock",
     endpoint: mcp.url,
     credential: opts.credential === false ? null : `mcp-cred-${opts.name ?? "mock"}`,
@@ -87,9 +85,7 @@ function toolCalls(mcp: MockMcp, toolName?: string) {
 test("mcp 写：允许列表携带本地副作用类别（字符串 = 只读；对象显式声明）", async () => {
   const t = await startTestRuntime("mcp-write-cfg", quiet);
   try {
-    const { projectId } = await createProjectSession(t.client, t.work[0]!);
     const service = (await t.client.request<any>("mcp_configure", {
-      project_id: projectId,
       name: "docs",
       endpoint: "https://mcp.example.com/mcp/",
       tool_allowlist: ["get_me", { name: "create_issue", effect: "write" }, { name: "sync", effect: "unknown" }],
@@ -98,7 +94,7 @@ test("mcp 写：允许列表携带本地副作用类别（字符串 = 只读；�
     assert.ok(!JSON.stringify(service).includes(SECRET));
 
     // 非法条目：坏 effect、空名、同名类别冲突、超长
-    const base = { project_id: projectId, name: "docs", endpoint: "https://mcp.example.com/mcp/" };
+    const base = { name: "docs", endpoint: "https://mcp.example.com/mcp/" };
     const rejected: Array<[string, unknown[]]> = [
       ["effect 非法", [{ name: "a", effect: "maybe" }]],
       ["对象缺 name", [{ effect: "write" }]],
@@ -132,10 +128,8 @@ test("mcp 写：mcp check 标注每个工具的副作用类别", async () => {
   });
   const t = await startTestRuntime("mcp-write-check", quiet);
   try {
-    const { projectId } = await createProjectSession(t.client, t.work[0]!);
     addMcpCredential(t, mcp.host);
     const service = (await t.client.request<any>("mcp_configure", {
-      project_id: projectId,
       name: "mock",
       endpoint: mcp.url,
       credential: "mcp-cred",
@@ -180,8 +174,8 @@ test("mcp 写：confirm 模式写工具批准前零调用，批准后按批准�
   };
   const t = await startTestRuntime("mcp-write-approve", responder);
   try {
-    const { projectId, sessionId } = await createProjectSession(t.client, t.work[0]!);
-    const service = await configureMockService(t, projectId, mcp, { allowlist: [{ name: "create_issue", effect: "write" }] });
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    const service = await configureMockService(t, mcp, { allowlist: [{ name: "create_issue", effect: "write" }] });
 
     const task = (await t.client.request<any>("submit", { model_selection: MODEL, session_id: sessionId, request_id: "r1", input: "创建一个 issue" })) as any;
     const conf = await pendingConfirmation(t.client, task.id);
@@ -236,8 +230,8 @@ test("mcp 写：拒绝执行零次，操作已知未执行", async () => {
   };
   const t = await startTestRuntime("mcp-write-reject", responder);
   try {
-    const { projectId, sessionId } = await createProjectSession(t.client, t.work[0]!);
-    await configureMockService(t, projectId, mcp, { allowlist: [{ name: "create_issue", effect: "write" }], credential: false });
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    await configureMockService(t, mcp, { allowlist: [{ name: "create_issue", effect: "write" }], credential: false });
 
     const task = (await t.client.request<any>("submit", { model_selection: MODEL, session_id: sessionId, request_id: "r1", input: "创建 issue" })) as any;
     const conf = await pendingConfirmation(t.client, task.id);
@@ -265,8 +259,8 @@ test("mcp 写：重复响应只有一次成功，操作只执行一次", async (
   };
   const t = await startTestRuntime("mcp-write-dupe", responder);
   try {
-    const { projectId, sessionId } = await createProjectSession(t.client, t.work[0]!);
-    await configureMockService(t, projectId, mcp, { allowlist: [{ name: "create_issue", effect: "write" }], credential: false });
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    await configureMockService(t, mcp, { allowlist: [{ name: "create_issue", effect: "write" }], credential: false });
 
     const task = (await t.client.request<any>("submit", { model_selection: MODEL, session_id: sessionId, request_id: "r1", input: "创建 issue" })) as any;
     const conf = await pendingConfirmation(t.client, task.id);
@@ -296,15 +290,14 @@ test("mcp 写：批准等待期间配置变化，旧批准失效且不发送", a
   };
   const t = await startTestRuntime("mcp-write-stale", responder);
   try {
-    const { projectId, sessionId } = await createProjectSession(t.client, t.work[0]!);
-    const service = await configureMockService(t, projectId, mcp, { allowlist: [{ name: "create_issue", effect: "write" }], credential: false });
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    const service = await configureMockService(t, mcp, { allowlist: [{ name: "create_issue", effect: "write" }], credential: false });
 
     const task = (await t.client.request<any>("submit", { model_selection: MODEL, session_id: sessionId, request_id: "r1", input: "创建 issue" })) as any;
     const conf = await pendingConfirmation(t.client, task.id);
 
     // 批准等待期间拥有者变更配置（版本递增）→ 旧批准不得消费
     await t.client.request("mcp_configure", {
-      project_id: projectId,
       name: "mock",
       endpoint: mcp.url,
       tool_allowlist: [{ name: "create_issue", effect: "write" }],
@@ -338,8 +331,8 @@ test("mcp 写：不同参数的再次调用需要新的审批（批准不复用�
   };
   const t = await startTestRuntime("mcp-write-no-reuse", responder);
   try {
-    const { projectId, sessionId } = await createProjectSession(t.client, t.work[0]!);
-    await configureMockService(t, projectId, mcp, { allowlist: [{ name: "create_issue", effect: "write" }], credential: false });
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    await configureMockService(t, mcp, { allowlist: [{ name: "create_issue", effect: "write" }], credential: false });
 
     const task = (await t.client.request<any>("submit", { model_selection: MODEL, session_id: sessionId, request_id: "r1", input: "创建两个 issue" })) as any;
     const first = await pendingConfirmation(t.client, task.id);
@@ -376,8 +369,8 @@ test("mcp 写：full_access 跳过逐次审批，但不越过允许列表", asyn
   };
   const t = await startTestRuntime("mcp-write-full", responder);
   try {
-    const { projectId, sessionId } = await createProjectSession(t.client, t.work[0]!);
-    await configureMockService(t, projectId, mcp, { allowlist: [{ name: "create_issue", effect: "write" }], credential: false });
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    await configureMockService(t, mcp, { allowlist: [{ name: "create_issue", effect: "write" }], credential: false });
 
     const done = await submitAndWait(t, sessionId, "r1", "创建 issue", "full_access");
     assert.equal(done.task.status, "completed");
@@ -400,8 +393,8 @@ test("mcp 写：auto-review 一律转拥有者（不扩大自动批准范围）"
   };
   const t = await startTestRuntime("mcp-write-autoreview", responder);
   try {
-    const { projectId, sessionId } = await createProjectSession(t.client, t.work[0]!);
-    await configureMockService(t, projectId, mcp, { allowlist: [{ name: "create_issue", effect: "write" }], credential: false });
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    await configureMockService(t, mcp, { allowlist: [{ name: "create_issue", effect: "write" }], credential: false });
 
     const task = (await t.client.request<any>("submit", { model_selection: MODEL, session_id: sessionId, request_id: "r1", input: "创建 issue", access_mode: "auto-review" })) as any;
     // 自动审查对 mcp_tool 范围直接转人工：审批保持 pending，等待拥有者
@@ -437,10 +430,10 @@ test("mcp 写：副作用不明工具默认逐次审批；两个服务同名工�
   };
   const t = await startTestRuntime("mcp-write-twosvc", responder);
   try {
-    const { projectId, sessionId } = await createProjectSession(t.client, t.work[0]!);
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
     // 同名工具：mock 服务声明 write，alt 服务声明 unknown（副作用不明默认审批）
-    await configureMockService(t, projectId, mcpA, { name: "mock", allowlist: [{ name: "post_comment", effect: "write" }], credential: false });
-    await configureMockService(t, projectId, mcpB, { name: "alt", allowlist: [{ name: "post_comment", effect: "unknown" }], credential: false });
+    await configureMockService(t, mcpA, { name: "mock", allowlist: [{ name: "post_comment", effect: "write" }], credential: false });
+    await configureMockService(t, mcpB, { name: "alt", allowlist: [{ name: "post_comment", effect: "unknown" }], credential: false });
 
     const task = (await t.client.request<any>("submit", { model_selection: MODEL, session_id: sessionId, request_id: "r1", input: "两个服务各发一次评论" })) as any;
 
@@ -483,8 +476,8 @@ test("mcp 写：审批等待中取消任务 —— 零调用、已知未执行�
   const responder: Responder = async () => ({ kind: "tool_calls", calls: [{ id: "c1", name: "mcp_mock_create_issue", arguments: { title: "x" } }] });
   const t = await startTestRuntime("mcp-write-cancel-pending", responder);
   try {
-    const { projectId, sessionId } = await createProjectSession(t.client, t.work[0]!);
-    await configureMockService(t, projectId, mcp, { allowlist: [{ name: "create_issue", effect: "write" }], credential: false });
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    await configureMockService(t, mcp, { allowlist: [{ name: "create_issue", effect: "write" }], credential: false });
 
     const task = (await t.client.request<any>("submit", { model_selection: MODEL, session_id: sessionId, request_id: "r1", input: "创建 issue" })) as any;
     const conf = await pendingConfirmation(t.client, task.id);
@@ -519,8 +512,8 @@ test("mcp 写：在途写调用取消（批准已消费）—— effect_unknown�
   const responder: Responder = async () => ({ kind: "tool_calls", calls: [{ id: "c1", name: "mcp_mock_create_issue", arguments: { title: "x" } }] });
   const t = await startTestRuntime("mcp-write-cancel-flight", responder);
   try {
-    const { projectId, sessionId } = await createProjectSession(t.client, t.work[0]!);
-    await configureMockService(t, projectId, mcp, { allowlist: [{ name: "create_issue", effect: "write" }], credential: false });
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    await configureMockService(t, mcp, { allowlist: [{ name: "create_issue", effect: "write" }], credential: false });
 
     const task = (await t.client.request<any>("submit", { model_selection: MODEL, session_id: sessionId, request_id: "r1", input: "创建 issue" })) as any;
     const conf = await pendingConfirmation(t.client, task.id);
@@ -563,9 +556,8 @@ async function crashSetup(prefix: string, mcp: MockMcp) {
     await mkdir(workDir, { recursive: true });
     await writeModelsJson({ root, dataDir, agentDir }, baseUrl);
     const backend = await spawnBackend(dataDir, agentDir);
-    const { projectId, sessionId } = await createProjectSession(backend.client, workDir);
+    const { sessionId } = await createProjectSession(backend.client, workDir);
     await backend.client.request("mcp_configure", {
-      project_id: projectId,
       name: "mock",
       endpoint: mcp.url,
       tool_allowlist: [{ name: "create_issue", effect: "write" }],
@@ -682,8 +674,8 @@ test("mcp 写：已发送写调用断线 —— 结果无法确认标 effect_unk
   };
   const t = await startTestRuntime("mcp-write-drop", responder);
   try {
-    const { projectId, sessionId } = await createProjectSession(t.client, t.work[0]!);
-    await configureMockService(t, projectId, mcp, { allowlist: [{ name: "create_issue", effect: "write" }], credential: false });
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    await configureMockService(t, mcp, { allowlist: [{ name: "create_issue", effect: "write" }], credential: false });
 
     const task = (await t.client.request<any>("submit", { model_selection: MODEL, session_id: sessionId, request_id: "r1", input: "创建 issue" })) as any;
     const conf = await pendingConfirmation(t.client, task.id);
@@ -718,8 +710,8 @@ test("mcp 写：已发送写调用超时 —— effect_unknown；只读超时只
   };
   const t = await startTestRuntime("mcp-write-timeout", responder, { config: { mcp: { callTimeoutMs: 300 } } });
   try {
-    const { projectId, sessionId } = await createProjectSession(t.client, t.work[0]!);
-    await configureMockService(t, projectId, mcp, { allowlist: [{ name: "create_issue", effect: "write" }, "get_me"], credential: false });
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    await configureMockService(t, mcp, { allowlist: [{ name: "create_issue", effect: "write" }, "get_me"], credential: false });
 
     const task = (await t.client.request<any>("submit", { model_selection: MODEL, session_id: sessionId, request_id: "r1", input: "先写后读" })) as any;
     const conf = await pendingConfirmation(t.client, task.id);
@@ -752,8 +744,8 @@ test("mcp 写：审批等待中切换模式 —— 旧审批失效不执行，�
   };
   const t = await startTestRuntime("mcp-write-modeswitch", responder);
   try {
-    const { projectId, sessionId } = await createProjectSession(t.client, t.work[0]!);
-    await configureMockService(t, projectId, mcp, { allowlist: [{ name: "create_issue", effect: "write" }], credential: false });
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    await configureMockService(t, mcp, { allowlist: [{ name: "create_issue", effect: "write" }], credential: false });
 
     const task = (await t.client.request<any>("submit", { model_selection: MODEL, session_id: sessionId, request_id: "r1", input: "创建 issue" })) as any;
     const conf = await pendingConfirmation(t.client, task.id);
@@ -793,8 +785,8 @@ test("mcp 写：工具定义变化 → 下一任务钉版新签名（旧批准�
   };
   const t = await startTestRuntime("mcp-write-defchange", responder);
   try {
-    const { projectId, sessionId } = await createProjectSession(t.client, t.work[0]!);
-    await configureMockService(t, projectId, mcp, { allowlist: [{ name: "create_issue", effect: "write" }], credential: false });
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    await configureMockService(t, mcp, { allowlist: [{ name: "create_issue", effect: "write" }], credential: false });
 
     // 任务 1：拒绝（保留未消费批准）；记录工具定义版本
     const task1 = (await t.client.request<any>("submit", { model_selection: MODEL, session_id: sessionId, request_id: "r1", input: "创建 issue" })) as any;
@@ -840,8 +832,8 @@ test("mcp 写：远端 JSON-RPC 错误应答记已知错误；结构化结果不
   };
   const t = await startTestRuntime("mcp-write-remote-error", responder);
   try {
-    const { projectId, sessionId } = await createProjectSession(t.client, t.work[0]!);
-    await configureMockService(t, projectId, mcp, {
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    await configureMockService(t, mcp, {
       allowlist: [{ name: "bad_args", effect: "write" }, { name: "typed_write", effect: "write" }],
       credential: false,
     });
@@ -868,4 +860,34 @@ test("mcp 写：远端 JSON-RPC 错误应答记已知错误；结构化结果不
     await t.shutdown();
     await mcp.close();
   }
+});
+
+test("mcp 写：等待批准时凭据范围改变不消费批准、不发送请求", async () => {
+  const mcp = await startMockMcp({ requireAuth: true, tools: [{ name: "create_issue" }] });
+  const t = await startTestRuntime("mcp-write-credential-scope", req => req.messages.at(-1)?.role === "tool"
+    ? { kind: "text", text: "停止并报告凭据变化" }
+    : { kind: "tool_calls", calls: [{ id: "write", name: "mcp_mock_create_issue", arguments: {} }] });
+  try {
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    await configureMockService(t, mcp, { allowlist: [{ name: "create_issue", effect: "write" }] });
+    const binding = t.runtime.credentials.get("mcp-cred-mock")!;
+    const patches = [{ host: "other.example.com" }, { purpose: "http" }, { header: "x-token" },
+      { scope: { projectId: "old", operations: ["mcp"] } }, { scope: { repoId: 7, operations: ["mcp"] } },
+      { scope: undefined }, { scope: { operations: ["http"] } }, { scope: { operations: ["mcp", "http"] } }];
+    for (const [index, patch] of patches.entries()) {
+      t.runtime.credentials.upsert(binding);
+      const task = await t.client.request<any>("submit", { model_selection: MODEL, session_id: sessionId, request_id: `scope-${index}`, input: "写入" });
+      const confirmation = await pendingConfirmation(t.client, task.id);
+      t.runtime.credentials.upsert({ ...binding, ...patch });
+      const sends = mcp.hits.length;
+      await t.client.request("respond_confirmation", { confirmation_id: confirmation.id, decision: "approve" });
+      await waitFor("凭据变化后任务结束", async () => (await taskStatus(t.client, task.id)).task.status === "completed");
+      const final = await taskStatus(t.client, task.id);
+      assert.equal(final.confirmations[0].consumedAt, null);
+      assert.equal(final.confirmations[0].status, "stale");
+      assert.ok(final.toolOps.some((op: any) => op.toolName === "mcp_mock_create_issue" && op.isError && !op.effectUnknown));
+      assert.equal(mcp.hits.length, sends, "批准后凭据复核失败，连业务请求前的网络发送也不发生");
+    }
+    assert.equal(toolCalls(mcp).length, 0);
+  } finally { await t.shutdown(); await mcp.close(); }
 });

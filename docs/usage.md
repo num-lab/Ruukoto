@@ -32,11 +32,11 @@ ruukoto-code stop               # 优雅停止 Coding 后台
 
 Coding 默认且只接受 native；`--execution` 或 `RUUKOTO_EXECUTION_BACKEND` 中的 local/container 明确拒绝。native 在 macOS 使用 Seatbelt 与原生监督器，在 Linux 使用 bubblewrap、namespace/seccomp 与 user scope/cgroup；缺失或失效报 `execution_unavailable`，不回退。完全访问直接使用后台账户已有权限并继承其环境，清除内部 Ruukoto 控制变量。
 
-新个人目录须为空白或已知 durable 档案，旧目录和未知版本在恢复前拒绝，不导入或改写旧资料。Coding 新档案创建当前 schema；既有库版本须与代码一致，拒绝旧库与较新库，不自动升级或回填。两种格式不互转；保留原档案与匹配代码，旧个人归档不能为查阅而启动恢复执行。
+新个人目录须为空白或已知 durable 档案，旧目录和未知版本在恢复前拒绝，不导入或改写旧资料。Coding 新档案创建 schema51；既有库版本须与代码一致，49、50及其他旧库与较新库均明确拒绝，不自动升级或回填。使用独立的新数据目录与凭据目录重新配置，旧 SQLite、JSONL、产物与凭据原地保留，不能在新版原地继续旧会话。切换前在匹配旧版停止原任务与受管进程，核实未决 Cua 操作和未知效果；新 serviceId、批准或观察不继承原执行的恢复资格。两种格式不互转；保留原档案与匹配代码，旧个人归档不能为查阅而启动恢复执行。
 
 ### 2.2 交互入口
 
-Coding 的完全访问普通会话可由模型显式启动后台服务，跨消息保留；修改同目录代码前先停止并核实。TUI `/processes` 或会话菜单、Desktop 会话菜单可查日志、请求停止及“结束本会话后台”。窗口关闭、存档和客户端断开保留后台；关闭请求的原键重核只涉及原请求成员，后来新启动以最新清单为准。macOS 需要已构建原生监督器，Linux 需要 cgroup v2 与可用 user systemd；停止未核实会保留目录占用，不用恢复队列强行解除。stdout/stderr 合计最多16 MiB，限额或磁盘失败自动请求停止并保留不完整标记。存储 schema49、控制协议36须配套使用，新版本拒绝旧库；保留旧档案供匹配版本查阅，不自动迁移或清空。
+Coding 的完全访问普通会话可由模型显式启动后台服务，跨消息保留；修改同目录代码前先停止并核实。TUI `/processes` 或会话菜单、Desktop 会话菜单可查日志、请求停止及“结束本会话后台”。窗口关闭、存档和客户端断开保留后台；关闭请求的原键重核只涉及原请求成员，后来新启动以最新清单为准。macOS 需要已构建原生监督器，Linux 需要 cgroup v2 与可用 user systemd；停止未核实会保留目录占用，不用恢复队列强行解除。stdout/stderr 合计最多16 MiB，限额或磁盘失败自动请求停止并保留不完整标记。存储 schema51、控制协议40须配套使用，新版本拒绝旧库；保留旧档案供匹配版本查阅，不自动迁移或清空。
 
 个人菜单需要 TTY；本机与 QQ/Telegram 的聊天、配置、工作、授权与核实操作见[引导与管理](#25-个人-agent-引导与管理)。非交互运行使用 `ruukoto serve` 托管后台。
 
@@ -288,7 +288,7 @@ ruukoto-code work cancel <工作ID> [--reason R]        # 停止中拒绝
 - **模型配置应用时机**：provider、模型目录与 API key 的修改只在没有受影响的 `running`／`awaiting_confirmation`／`queued` 任务或手动压缩操作时应用；检查到应用完成之间，受影响 provider 的新提交、手动压缩与会话模型设置被拒绝（`model_config_busy`，可重试）。占用时返回 `model_config_blocked` 与任务及操作数，不先改文件、不部分应用、不自动取消任务。应用 = 校验 → 写文件（原子、0600）→ 重建 ModelRuntime／模型目录／审查器并同步到各会话驱动；任一步失败回滚文件并保持原配置。删除 provider 或模型前核对后台默认、摘要模型、会话与 `agent_roles` 引用（`provider_in_use`）。
 - **摘要模型**：上下文压缩的滚动摘要所用模型，保存为 `<agentDir>/summary-model.json`（`{provider, modelId}`，不存思考档位）。设置后，main 与开发会话较早的对话（含工具结果）会发给该模型的提供方做摘要。
 - **秘密**：API key 输入遮蔽；模型列表只读脱敏配置位置，存储条目存在不代表认证有效；移除存储凭据仅删除 auth.json 的所选条目，目录、环境等来源仍可能生效。目录 apiKey 或具体 header 须另选字段清除，环境由后台启动环境修改；OAuth 移除不撤销远端令牌。响应只展示配置位置与必要元数据；秘密不进入日志、事件、命令行参数或重载状态文件。模型 API key（`auth.json`）与服务凭据（`credentials.json`）分开管理。
-- **项目分区**：ruukoto-code 的「项目」分区把工作区列在前（标注「工作区」并展示根目录），旧项目列在后（标注「旧项目」）。指令与 Web Search 保存携带读取时的设置版本；「MCP 服务」入口只列本项目服务。
+- **项目分区**：ruukoto-code 的「项目」分区把工作区列在前（标注「工作区」并展示根目录），旧项目列在后（标注「旧项目」）。指令与 Web Search 保存携带读取时的设置版本；MCP 从独立管理分区进入，全实例共用服务与允许列表。
 - **离线模式**：后台不可达时（或 `--offline`）进入有限离线配置：只做模型目录、默认模型、摘要模型与 API key 的初始化／修复，直接写 `<agentDir>` 下文件。互斥按规范化 agentDir 的配置锁（`<agentDir>/config.lock/`）判定：后台运行时持有该锁（不同 dataDir 共用 agentDir 也被覆盖），socket 不可达或认证失败不证明后台已停；无法取得独占时明确失败，不放宽权限、不改属主。
 
 ### 4.2 权限模式
@@ -367,15 +367,15 @@ ruukoto-code project web-search <项目id> off     # on 恢复；默认对所有
 ```bash
 ruukoto-code credentials add --name github-mcp --host api.githubcopilot.com \
   --header authorization --purpose mcp --secret-env GITHUB_MCP_PAT
-ruukoto-code mcp configure --project <id> --name github \
+ruukoto-code mcp configure --name github \
   --endpoint https://api.githubcopilot.com/mcp/readonly --credential github-mcp \
   --tools get_me,get_file_contents [--expected-version N]
-ruukoto-code mcp list [--project <id>]        # 脱敏视图
+ruukoto-code mcp list                        # 本实例脱敏视图
 ruukoto-code mcp check <service-id>           # 连接检查 + 工具发现，标注每个远端工具是否在允许列表
 ruukoto-code mcp disable <service-id> | enable | remove <service-id> [--expected-version N]
 ```
 
-MCP 凭据用途固定为 `mcp`，host 须与服务端点一致，经 authorization 头以 Bearer 注入；配置服务时 scope 自动收紧到该项目 + mcp 操作，已有冲突 scope 拒绝配置。首个接入对象为官方远程 GitHub MCP。
+MCP 在当前 Code 实例配置一次，全部工作区共用启用服务与允许列表，无工作区和会话也可管理；MCP 命令拒绝旧 `--project`。凭据首次保存即限 `mcp` 用途与操作及 authorization 头，绑定服务时核实 host 与实际端点一致，按 Bearer 注入。项目/仓库受限、无操作限制或用途不符的旧绑定拒绝复用或转换；有效绑定可轮换令牌，仍被服务引用时不能删除。其他用途凭据的项目限制保留。
 
 Cua 是独立的电脑配置。Code 从「设置 → MCP → Code」添加「本机 Cua Driver」，或运行 `ruukoto-code mcp cua` 打开配置界面，在 MCP 服务中选择已安装程序。程序自动核实版本与哈希，保存禁用草稿；检查程序、权限并发现工具后，逐项选择允许范围，再保存并启用。Mac 检查只读当前后台启动宿主的辅助功能／屏幕录制授权位；静态工具发现不启动电脑 runtime，授权位通过不代表实际截图捕获通过。电脑连接限一个拥有者主会话，操作前须使用支持图片的模型取得新画面。暂停先停用以拒绝新调用，再核实原执行停止；在途操作须先中断并从原记录核实，继续时重新启用并取得新画面。
 
@@ -394,7 +394,7 @@ Personal 需要同账户可用的 Linux user systemd、cgroup v2 与本机 `/usr
 
 电脑结果未知时，原档案的电脑入口冻结；从 MCP 管理依次查看原未知动作、核实原执行停止、检查结果并开始只读恢复、查看新截图、接受这次观察后开放新工作。桌面直接显示原图，命令行交给系统图片查看器；Linux无图形会话时从桌面PA查看。图片读取或显示失败不能接受，重新观察会废弃旧选择。停止整个 Linux 沙箱会丢失内存和未保存应用状态，须本人明确选择，磁盘保留。关闭设置窗不停止后台动作，正常关闭先暂停并核实停止；故障后保留原记录，不重发旧动作。其他实例和人类仍可操作同一桌面，使用时避免同时控制。
 
-GitHub MCP 首次配置：端点 `https://api.githubcopilot.com/mcp/readonly`（URL 路径 `/readonly` 为服务端只读开关）；凭据为独立只读 PAT（`purpose=mcp`、`host=api.githubcopilot.com`）。允许列表按 `mcp check` 实际发现的工具名精确填写（服务端工具集随版本变化，以发现结果为准）；建议只开放身份查询、仓库文件、PR、Issue、Actions 与 Checks 的读取类别。仓库可访问范围由 PAT 权限约束：通用客户端未实现参数级仓库限制，项目级启用不等于令牌内的单仓库隔离。
+GitHub MCP 首次配置：端点 `https://api.githubcopilot.com/mcp/readonly`（URL 路径 `/readonly` 为服务端只读开关）；凭据为独立只读 PAT（`purpose=mcp`、`host=api.githubcopilot.com`）。允许列表按 `mcp check` 实际发现的工具名精确填写（服务端工具集随版本变化，以发现结果为准）；建议只开放身份查询、仓库文件、PR、Issue、Actions 与 Checks 的读取类别。仓库可访问范围由 PAT 权限约束：通用客户端未实现参数级仓库限制，实例启用不限制令牌内的仓库范围。
 
 ### 5.8 GitHub PR webhook
 
@@ -451,13 +451,13 @@ ruukoto-code workflow question wfrun_x question-key
 | `workflow find` | 原启动的 `--session`、`--request-id` |
 | `workflow saved` | 原保存的 `--request-id` |
 
-所有写操作用稳定请求键。应答丢失先 find/saved 或 show 核实；同键重放返回原记录，异参冲突，不能换新键把未知写入重做。停止未核实须先核实执行/占用，时钟未核实也须单独确认；效果未知、写入缺结果、来源失效或重放分歧不会因 resume 确认自动解除。取消保留历史及成果，故障处理见[工作流模块](modules/workflows.md#不变量与失败处理)。当前 schema49/协议36严格拒绝旧档案和客户端，原资料保留并用匹配代码查阅。
+所有写操作用稳定请求键。应答丢失先 find/saved 或 show 核实；同键重放返回原记录，异参冲突，不能换新键把未知写入重做。停止未核实须先核实执行/占用，时钟未核实也须单独确认；效果未知、写入缺结果、来源失效或重放分歧不会因 resume 确认自动解除。取消保留历史及成果，故障处理见[工作流模块](modules/workflows.md#不变量与失败处理)。当前 schema51/协议40严格拒绝旧档案和客户端，原资料保留并用匹配代码查阅。
 
 TUI 用 `/workflow` 打开侧栏：默认列出当前会话全部活动运行和最近十项结果，历史和长列表可续读。选运行后进入详情，查看步骤、日志、业务问题及独立的停止核实、效果未知和最终回报状态，再选择回答、暂停、恢复、取消或预算；名称、含毫秒时间、展示序号和显式说明帮助辨认同名运行。选“启动工作流”后选择已保存定义、填写 JSON 业务参数与可选简短说明，再确认启动；编辑脚本通过文件或 Agent。Enter 确认、↑↓ 选择、PageUp/PageDown 阅读正文，Esc 逐层返回并在根层关闭，浏览层也可用 q 返回。宽度至少 120 列时侧栏与聊天共存，Tab 切换焦点；窄屏以独立窗口显示同一所在层，Tab 可回聊天，缩放保留选择。关闭侧栏或客户端不取消运行。稳定键、原版本和参数由程序在发送前落盘，应答丢失、重连和客户端重启先只读核实原提交；明确未接收后可选择原键原参数重试，实例变化或记录损坏时保留待核实，不向新库重发。过期操作退回最新详情，重新选择并确认。
 
 ## 6. 导入旧实例
 
-含持久提问或答案回执的源报 `owner_questions_import_unavailable`；保留原档案与匹配代码查阅，不能丢掉问题绑定后迁入。当前 Coding schema49、控制协议36沿精确版本拒绝，使用独立新档案，不手改版本号或回填授权。
+含持久提问或答案回执的源报 `owner_questions_import_unavailable`；保留原档案与匹配代码查阅，不能丢掉问题绑定后迁入。当前 Coding schema51、控制协议40沿精确版本拒绝，使用独立新档案，不手改版本号或回填授权。
 
 含工作流运行、步骤、执行绑定、问题或控制记录的源实例明确报 `workflow_import_unavailable`；保留原档案用匹配代码查阅，当前导入不迁移工作流授权与执行。只有定义版本的资料不随普通资料导入。
 
@@ -476,7 +476,7 @@ ruukoto-code legacy-import list
 
 拥有者在计划文件中修改 `renames`（重名项目改名）与 `personal_memories`（显式选中发布的个人记忆）后 apply：先查回执／核修订（源或目标变化即 `revision_conflict`），再备份目标库 `<dataDir>/migration/<导入ID>/target-before.db`（`VACUUM INTO`，回执记录 sha256），复制文件后单事务入库并写回执与条目账本；中断后用同一计划重跑即可，同键重放返回原回执。
 
-导入范围是 allow-list，行 ID 原样保留：源项目内的普通 dev 会话及其任务、工具操作、审批、产物、选择记录、压缩点、事件与 SubAgent 一层；项目配置、范围内记忆、双端都在导入范围的资料授权、MCP 与 Jev 配置（缺凭据绑定时以停用导入）。不导入角色绑定会话、QQ 群会话与 main 资料、历史索引、目录占用、agentDir 全部配置与凭据。导入不调用模型、不重放外发。
+导入范围是 allow-list，行 ID 原样保留：源项目内的普通 dev 会话及其任务、工具操作、审批、产物、选择记录、压缩点、事件与 SubAgent 一层；项目配置、范围内记忆、双端都在导入范围的资料授权与 Jev 配置（缺凭据绑定时以停用导入）。不导入角色绑定会话、QQ 群会话与 main 资料、历史索引、目录占用、MCP 服务及其秘密、agentDir 全部配置与凭据；历史 MCP 工具操作不重写。导入不调用模型、不重放外发。
 
 整库恢复为手工路径：
 
@@ -694,7 +694,7 @@ MyGo 试验运行 `npm run desktop:mygo`，或打开已构建的 `dist/mygo/darw
 
 从「设置 → Skills → Code」查看技能、诊断与正文，名称检索只作用于已取得列表，可继续加载更多。点击「导入技能目录」选择单个根含 SKILL.md 的本机目录，核对预览后确认；原目录保持不变，重名不覆盖。外部维护来源只读；托管副本可启停或移除。仅显式调用与停用分开，停用阻止新任务及新的显式调用，旧任务与原恢复引用继续可读。移除是逻辑移除，保留旧引用需要的包字节。清单冲突保留选择，重新读取比较后再选择目录；应答丢失点击「核实原操作结果」，不要重新导入。PA Skills 页通过远端目录逐层选择外部库（根下含 skills）或根含 SKILL.md 的单个技能包，预览后再停存启导入；不打开 Mac 选择器，不跨机上传。外部来源只读，托管启停与逻辑移除同样保留旧包字节。
 
-从「设置 → MCP → Code」选择工作区与配置来源，无会话时默认工作区自身；多个旧项目来源按名称选择。添加服务时填写端点，显式选择匿名、已有凭据或新 Bearer 令牌；先保存禁用草稿，再点击「检查连接并发现工具」，逐项选择允许工具与本地副作用类别、保存并启用。发现会联网但不执行业务工具，远端只读注解不自动授权。省略凭据保留原引用，选择匿名才清除引用；清理凭据前查看服务引用，有引用时先更换或清除。停用或删除不取消已经发出的远端调用。版本冲突先比较草稿和当前值；丢答点击「重新读取 MCP 配置」核实原来源，不重新保存。PA MCP 页管理档案级服务，认证须显式匿名或引用远端私有凭据文件，文件无效不能降级匿名。发现后选择允许工具，调用仍经原审批；旧配置先显式迁入服务启停格式，新服务先保存为停用再启用。
+从「设置 → MCP → Code」管理当前实例服务，无需工作区或会话；切换聊天工作区保留表单草稿。添加服务时填写端点，显式选择匿名、已有凭据或新 Bearer 令牌；先保存禁用草稿，再点击「检查连接并发现工具」，逐项选择允许工具与本地副作用类别、保存并启用。发现会联网但不执行业务工具，远端只读注解不自动授权。省略凭据保留原引用，选择匿名才清除引用；清理凭据前查看服务引用，有引用时先更换或清除。停用或删除不取消已经发出的远端调用。版本冲突先比较草稿和当前值；丢答点击「重新读取 MCP 配置」核实原实例，不重新保存。PA MCP 页管理档案级服务，认证须显式匿名或引用远端私有凭据文件，文件无效不能降级匿名。发现后选择允许工具，调用仍经原审批；旧配置先显式迁入服务启停格式，新服务先保存为停用再启用。
 
 在 macOS 运行 `npm run desktop:build` 后打开 `dist/mac-arm64/Ruukoto.app`。Code 可打开会话、提交输入、选择模型与会话默认模式、停止与继续任务、恢复暂停队列；日常应用采用登录 shell 的环境和日常 Code 档案，按需启动后台，退出应用后后台继续运行。开发入口与档案隔离见[开发说明](development.md#桌面客户端)。
 

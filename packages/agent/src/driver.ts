@@ -580,7 +580,7 @@ export class Driver {
     const launcher = policy.protectSource ? this.deps.verificationLauncher?.() : this.deps.launcherFor(policy.accessMode);
     if (!launcher || (policy.protectSource && launcher.kind !== "native")) throw new SubAgentExecutionError("source_protection_unavailable", "来源保护的原生执行环境不可用；停止派发并报告拥有者。");
     const plan = this.deps.mcp && profile.categories.includes("mcp") ? await planMcpTaskTools({
-      mcpStore: this.deps.mcp.store, credentials: this.deps.credentials, projectId: source.projectId,
+      mcpStore: this.deps.mcp.store, credentials: this.deps.credentials,
       dispatch: (sdkCallId, params, signal) => this.router.executeRouted(sdkCallId, params, signal),
       connectTimeoutMs: this.deps.mcp.connectTimeoutMs, listTimeoutMs: this.deps.mcp.listTimeoutMs, callTimeoutMs: this.deps.mcp.callTimeoutMs,
     }) : EMPTY_MCP_PLAN;
@@ -938,7 +938,6 @@ export class Driver {
     const plan = await planMcpTaskTools({
       mcpStore: this.deps.mcp.store,
       credentials: this.deps.credentials,
-      projectId: this.session.projectId,
       connectCua: this.deps.mcp.cua && ownerQuestionTaskEligible(this.deps.store, task) ? service => this.deps.mcp!.cua!.connect(service, task.sessionId, false, task.id) : undefined,
       dispatch: (sdkCallId, params, signal) => this.router.executeRouted(sdkCallId, params, signal),
       connectTimeoutMs: this.deps.mcp.connectTimeoutMs,
@@ -1024,7 +1023,6 @@ export class Driver {
             {
               type: "mcp.service_unavailable",
               serviceId: u.service.id,
-              projectId: u.service.projectId,
               taskId: task.id,
               sessionId: task.sessionId,
               name: u.service.name,

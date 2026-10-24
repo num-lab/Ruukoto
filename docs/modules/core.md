@@ -9,7 +9,7 @@
 它负责：
 
 - 决定数据目录里有什么：`dataDir`、`agentDir`、`control` 三个目录的默认位置、权限位与内容，以及 Coding 与保留旧格式 profile 的档案根。
-- 建库与核实 schema：全新库在同一事务内建全部表与版本号；除49版只增加电脑配置和原操作证据空列外，格式不等于当前版本的数据库在写入前拒绝，不回填任务或计划授权。
+- 建库与核实 schema：全新库在同一事务内建全部表与版本号；格式不等于当前版本的数据库在写入前拒绝，不回填任务或计划授权。
 - 写任务状态：状态集合、`interrupt_reason`／`cancel_requested`／`effect_unknown` 三列，以及终态的条件更新原语。
 - 判定会话身份：`Store.getSessionIdentity` 读取会话、角色、SubAgent 与调度运行绑定，纯函数 `classifySession` 给出对应身份；`executionProfile` 的输入由这里的身份、工作与任务行提供。
 - 划清三种存储的职责：pi JSONL 是消息历史的唯一权威副本、SQLite 只存元数据与事件、产物正文在产物文件而 SQLite 只存其元数据。
@@ -85,7 +85,7 @@
 
 `branch_requests` 保存请求键、参数摘要、来源编号、固定目标会话、源文件身份/前缀摘要、目标准备文件摘要和压缩点内容；不保存消息正文。状态为 `prepared`、`published` 或 `failed`，未发布回执不进入会话列表。编号在事务内按直接来源分配，同键异参拒绝；自动编号也计入已导入分支的来源编号。
 
-`mcp_services.cua_config` 保存具名的固定电脑制品配置；HTTPS 记录仍沿原端点与凭据字段。`tool_ops.mcp` 保存原工具与受限定义、实际参数、原请求/应答、原生执行身份及停止、拥有者选择、截图接受事实；协议初始化也先登记宿主操作与执行身份，启动未核止不会成为孤立进程；状态与 `task.mcp_operation_changed` 同事务提交。任务详情只投影有界摘要，完整证据经控制面分段读取，图片原应答不进入普通快照。
+`mcp_services` 不含项目列或项目外键，名称在实例内唯一，全部工作区共用启用状态、允许列表与配置版本；`cua_config` 保存具名的固定电脑制品配置，HTTPS 服务保存端点与凭据引用。`tool_ops.mcp` 保存原工具与受限定义、实际参数、原请求/应答、原生执行身份及停止、拥有者选择、截图接受事实；协议初始化也先登记宿主操作与执行身份，启动未核止不会成为孤立进程；状态与 `task.mcp_operation_changed` 同事务提交。任务详情只投影有界摘要，完整证据经控制面分段读取，图片原应答不进入普通快照。
 
 浏览器扩展不增加表或 schema 版本：`meta.browser_bindings_v1` 保存版本化绑定 JSON，状态与 `browser.binding_changed` 同事务提交；进程系统启动身份由共享 `process-identity.ts` 采集，实例锁与浏览器分别核实自身归属。`getTaskInputSeq` 从 `task.queued` 或 IM 的原始 `inbound.registered` 取接受顺序，人工暂停的后续消息判别不依赖时钟或延迟排队；绑定不保存 Cookie 或密码正文，profile 由 Chromium 管理。
 
@@ -95,7 +95,7 @@ Coding 档案根为 `~/.ruukoto-code`，开发实例为 `~/.ruukoto-code-dev/<�
 
 ```
 <dataDir>/                     # 0700（RUUKOTO_CODE_DATA_DIR，默认 ~/.ruukoto-code/data）
-├── ruukoto.db                 # node:sqlite 元数据（WAL，schema v50）
+├── ruukoto.db                 # node:sqlite 元数据（WAL，schema v51）
 ├── agent-data/main.db         # main 应用数据空间（独立库；实例 ID 登记在核心库 meta）
 ├── sessions/                  # pi JSONL 会话文件（消息历史唯一权威副本）
 ├── browser/                  # 0700；按实例与会话隔离 profile、保留截图
@@ -143,9 +143,9 @@ Coding 档案根为 `~/.ruukoto-code`，开发实例为 `~/.ruukoto-code-dev/<�
 
 ### schema 版本与创建
 
-`SCHEMA_VERSION` 是 `50`，写在 `meta` 表的 `schema_version` 键。
+`SCHEMA_VERSION` 是 `51`，写在 `meta` 表的 `schema_version` 键。
 
-- 49版在同一事务新增 `mcp_services.cua_config` 与 `tool_ops.mcp` 空列并推进版本，HTTPS 配置和历史原样保留。其他文件版本高于或低于程序版本：以 `schema_version_unsupported` 明确拒绝，不转换旧格式、不回填权限字段。保留原档案，由匹配代码查阅；当前代码使用独立新档案。
+- 文件版本高于或低于程序版本：以 `schema_version_unsupported` 明确拒绝，不转换旧格式、不回填权限字段。保留原档案，由匹配代码查阅；当前代码使用独立新档案。
 - 文件版本等于程序版本：沿用当前表定义，不自动补列或重建表。
 - 全新库在 `BEGIN IMMEDIATE` 事务中创建当前表、字段与索引，并写入版本号；失败整体回滚。
 - 首次打开后补写 `instance_id`（`ON CONFLICT DO NOTHING`），跨重启保留；换库即换标识。
@@ -171,7 +171,7 @@ Coding 档案根为 `~/.ruukoto-code`，开发实例为 `~/.ruukoto-code-dev/<�
 | `inbound_media_messages` | `source` + `external_id` 唯一、`media_count`、`status`（`staging` / `ready` / `bound` / `rejected` / `expired`）、`reason`、`event_id`、`task_id` |
 | `inbound_media` | `message_id`、`media_index`、`declared_mime`、`mime_type`、`byte_count`、`content_hash`、`file_name`、`status`（`pending` / `downloading` / `ready` / `promoted` / `rejected` / `expired`）、`reason`、`event_id`、`task_id`、`artifact_id`；唯一键 `(source, external_id, media_index)` |
 | `instance_imports` | `request_key` 唯一、来源实例与产品、来源 schema 版本、来源目录、计划摘要、目标备份路径与 sha256、事件区间、报告、`status`（`applied` / `reverted`）、回退时间 |
-| `instance_import_items` | 主键 `(kind, item_id)`、`import_id`；`kind` 取值 `project` / `session` / `sub_agent` / `work_delegation` / `memory` / `grant` / `mcp` / `meta` / `file` / `agent_role` / `schedule` / `platform_config` / `standing_permission` / `credential` |
+| `instance_import_items` | 主键 `(kind, item_id)`、`import_id`；`kind` 取值 `project` / `session` / `sub_agent` / `work_delegation` / `memory` / `grant` / `meta` / `file` / `agent_role` / `schedule` / `platform_config` / `standing_permission` / `credential` |
 | `agent_roles` | `id`（`main` / `coding` / `chat`）、`project_id`、`session_id` 唯一、`work_dir`、`model_selection`、`tools` |
 | `sub_agents` | `parent_session_id`、`session_id` 唯一、`work_dir`、`definition`、`active_work_id`、`current_task_id`、`state`（`running` / `idle` / `unverified`）、`closed_at` / `closed_by` |
 | `work_delegations` | `parent_session_id`、`origin_task_id`、`sub_agent_id`、`request_key` + `params_digest`（唯一键 `(parent_session_id, request_key)`）、取消三列、`write_target`；Git 目标包含版本化工作区基线、来源/共享 Git/私有对象库身份、HEAD、索引摘要、原始树和内容摘要 |
@@ -293,7 +293,7 @@ sequenceDiagram
   end
 ```
 
-全新库在同一事务里建表并写版本号；49版只增加上述空列，其余旧版本和较新版本均以 `schema_version_unsupported` 拒绝启动，不做字段转换或授权回填。产品归属核对在库打开之后、模型配置装配之前，不匹配即关库并释放两把锁，不做任何数据改动。`instance_id` 在库打开时补写，客户端待确认请求绑定该标识，换库后不会向空后台重发。
+全新库在同一事务里建表并写版本号；旧版本和较新版本均以 `schema_version_unsupported` 拒绝启动，不做字段转换或授权回填。产品归属核对在库打开之后、模型配置装配之前，不匹配即关库并释放两把锁，不做任何数据改动。`instance_id` 在库打开时补写，客户端待确认请求绑定该标识，换库后不会向空后台重发。
 
 ### 任务终态与停止路径
 
@@ -350,7 +350,7 @@ sequenceDiagram
 
 **schema 与版本。**
 
-- `SCHEMA_VERSION` 单调递增；除49版新增两个可空列外，版本不等于当前版本即明确拒绝，不降级、不转换旧任务或计划、不截断数据。
+- `SCHEMA_VERSION` 单调递增；版本不等于当前版本即明确拒绝，不降级、不转换旧任务或计划、不截断数据。
 - 新库建表与版本号在一个事务内完成，任一步失败整体回滚。独立实例导入继续开放，但源与目标均须使用当前存储格式。
 
 **状态与终态。**
@@ -381,7 +381,9 @@ sequenceDiagram
 
 ## 设计依据
 
-- [Cua 原操作证据与旧配置兼容](../../.agents/notes/implemented/architecture/2026-10-23-cua-official-mcp.md)
+- [Code MCP 按实例配置与旧格式退出](../../.agents/notes/implemented/simplification/2026-10-24-code-instance-mcp.md)
+
+- [Cua 原操作证据与人工恢复](../../.agents/notes/implemented/architecture/2026-10-23-cua-official-mcp.md)
 
 - [应用内 Spotlight 与历史定位](../../.agents/notes/implemented/feature/2026-10-21-desktop-spotlight-search.md)
 

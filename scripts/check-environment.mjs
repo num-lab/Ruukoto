@@ -11,7 +11,7 @@ export function checkEnvironment(root, {
 } = {}) {
   const issues = [];
   const [major, minor] = nodeVersion.split(".").map(Number);
-  if (!(major > 22 || (major === 22 && minor >= 19))) issues.push(`需要 Node >=22.19，当前为 ${nodeVersion}`);
+  if (!(major > 24 || (major === 24 && minor >= 15))) issues.push(`需要 Node >=24.15，当前为 ${nodeVersion}`);
   if (!["darwin", "linux"].includes(platform)) issues.push(`需要 macOS 或 Linux，当前为 ${platform}`);
   if (uid === 0) issues.push("请使用非 root 用户：权限拒绝测试不能以 root 身份运行");
   for (const [command, args, description] of [

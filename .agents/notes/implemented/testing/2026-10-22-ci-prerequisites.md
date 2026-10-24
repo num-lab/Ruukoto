@@ -2,6 +2,8 @@
 
 Status: implemented
 
+当前 Node 支持范围与 CI job 时限由[Node24 与 CI 预算决定](2026-10-24-node24-ci-budget.md)部分取代；既有平台保护、真实覆盖与历史结果保持。
+
 ## 问题
 
 [最新 CI](https://github.com/num-lab/Ruukoto/actions/runs/39720984008) 四格在 setup 因缺 rg 退出。[前一轮](https://github.com/num-lab/Ruukoto/actions/runs/39457723330) 的 Linux 真实工作流另报缺 bubblewrap 或 user systemd，文件树回归在 Vite SSR 导入 xterm 的 CommonJS 命名导出时退出，尚未执行全部 UI 断言。

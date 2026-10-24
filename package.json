@@ -13,7 +13,7 @@
   },
   "description": "个人 Agent 与 Coding Agent 的同仓 workspace。",
   "engines": {
-    "node": ">=22.19"
+    "node": ">=24.15"
   },
   "scripts": {
     "start": "tsx scripts/start.ts",

@@ -1,6 +1,6 @@
 /**
  * 应用数据查询子进程固定入口（issue 02）：只读执行有界查询，用于真实的查询
- * 截止——Node 22.19 的 DatabaseSync 同步执行，timeout 只是数据库锁等待上限，
+ * 截止——DatabaseSync 同步执行，timeout 只是数据库锁等待上限，
  * 同进程 Promise.race 不能终止执行中的查询。超时由宿主 SIGKILL 回收。
  *
  * 协议：stdin 一行 JSON 请求 → stdout 一行 JSON 响应 → 退出。

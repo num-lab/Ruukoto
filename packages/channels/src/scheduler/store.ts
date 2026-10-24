@@ -450,13 +450,12 @@ export class SchedulerStore {
 
   /** 宿主操作 ID 是否已登记（工具调用崩溃窗口核实：同库，恒可核实）。 */
   hostOpCommitted(hostOpId: string): boolean {
-    // Node 22 将 ?1 视为命名参数，须按名称绑定。
     const hit = this.db
       .prepare(
         `SELECT 1 FROM schedules WHERE create_op_id = ?1 OR cancel_op_id = ?1
          UNION ALL SELECT 1 FROM notification_ops WHERE host_op_id = ?1 OR cancel_op_id = ?1 LIMIT 1`,
       )
-      .get({ "?1": hostOpId });
+      .get(hostOpId);
     return hit !== undefined;
   }
 }

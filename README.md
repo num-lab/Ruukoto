@@ -27,7 +27,7 @@
 
 ## 快速开始
 
-开发与离线检查需要 Node ≥ 22.19、Git、ripgrep（`rg`）、Bash 和支持 PTY 的 Python 3，使用 macOS 或 Linux 的普通用户账户。Linux 原生测试另需[沙箱前提](deploy/native/README.md)，CI 自动准备。两个产品的受限执行均使用原生沙箱，无需 Docker；个人资料检索使用随 build:worker 构建的独立只读 worker；平台前置见[操作手册](docs/usage.md#1-前提与安装)。
+开发与离线检查需要 Node ≥ 24.15、Git、ripgrep（`rg`）、Bash 和支持 PTY 的 Python 3，使用 macOS 或 Linux 的普通用户账户。Linux 原生测试另需[沙箱前提](deploy/native/README.md)，CI 自动准备。两个产品的受限执行均使用原生沙箱，无需 Docker；个人资料检索使用随 build:worker 构建的独立只读 worker；平台前置见[操作手册](docs/usage.md#1-前提与安装)。
 
 ```bash
 npm run setup       # 按两份锁文件安装依赖、检查前提并安装轻量提交钩子

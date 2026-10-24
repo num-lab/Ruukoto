@@ -17,14 +17,14 @@ function parseProbe(stdout: string): DesktopEnvironment {
   const marker = "\0RUUKOTO_DESKTOP\0";
   const start = stdout.lastIndexOf(marker);
   const end = stdout.indexOf("\0END\0", start + marker.length);
-  if (start < 0 || end < 0) throw new DesktopError("node_unavailable", "找不到可用的 node；请在登录 shell 中安装 Node ≥ 22.19 后重新连接。");
+  if (start < 0 || end < 0) throw new DesktopError("node_unavailable", "找不到可用的 node；请在登录 shell 中安装 Node ≥ 24.15 后重新连接。");
   let result: unknown;
   try { result = JSON.parse(stdout.slice(start + marker.length, end)); }
   catch { throw new DesktopError("shell_environment", "登录 shell 返回的环境不可解析；请检查 shell 配置后重新连接。"); }
   if (!result || typeof result !== "object" || !("node" in result) || typeof result.node !== "string" || !path.isAbsolute(result.node) || !("env" in result) || !result.env || typeof result.env !== "object" || Object.values(result.env).some(value => typeof value !== "string")) throw new DesktopError("shell_environment", "无法读取登录环境；请检查 shell 配置后重新连接。");
-  if (!("version" in result) || typeof result.version !== "string") throw new DesktopError("node_unavailable", "无法核实 node 版本；请安装 Node ≥ 22.19 后重新连接。");
+  if (!("version" in result) || typeof result.version !== "string") throw new DesktopError("node_unavailable", "无法核实 node 版本；请安装 Node ≥ 24.15 后重新连接。");
   const [major, minor] = result.version.split(".").map(Number);
-  if (major < 22 || (major === 22 && minor < 19)) throw new DesktopError("node_unavailable", "node 版本过旧；请安装 Node ≥ 22.19 后重新连接。");
+  if (!(major > 24 || (major === 24 && minor >= 15))) throw new DesktopError("node_unavailable", "node 版本过旧；请安装 Node ≥ 24.15 后重新连接。");
   return { node: result.node, env: result.env as NodeJS.ProcessEnv };
 }
 
@@ -42,7 +42,7 @@ async function executeProbe(command: string, args: string[], options: ExecFileOp
 export async function readLoginEnvironment(inherited: NodeJS.ProcessEnv, signal?: AbortSignal): Promise<DesktopEnvironment> {
   let stdout: string;
   try { stdout = await executeProbe(inherited.SHELL || "/bin/zsh", ["-ilc", `node -e '${probe}'`], { env: inherited, signal, timeout: 15000, maxBuffer: 4 * 1024 * 1024 }); }
-  catch { throw new DesktopError("shell_environment", "无法从登录 shell 读取 node 与环境；请确认登录 shell 能运行 node（≥ 22.19）后重新连接。"); }
+  catch { throw new DesktopError("shell_environment", "无法从登录 shell 读取 node 与环境；请确认登录 shell 能运行 node（≥ 24.15）后重新连接。"); }
   return parseProbe(stdout);
 }
 

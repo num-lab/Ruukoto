@@ -2,6 +2,8 @@
 
 Status: implemented
 
+当前 Node 支持范围与 CI job 时限由[Node24 与 CI 预算决定](2026-10-24-node24-ci-budget.md)部分取代；既有平台保护、真实覆盖与历史结果保持。
+
 ## 问题
 
 应用测试已占最近本地完整检查的约 98%，远端四格超过 45 分钟；Linux 还出现约 25 分钟无新结果。大量低成本断言不构成主要耗时，旧个人 Runtime 的运行验收和反复启动后台、worker、Git 副本、PTY 的用例同时增加维护成本。拥有者要求尽可能精简，现已接手[实施工单](../../../../.scratch/ci/issues/02-reduce-test-suite.md)。

@@ -6,7 +6,7 @@
 
 ## 安装步骤
 
-以下示例把完整 workspace 装在 `/opt/ruukoto`，新个人档案放在 `/var/lib/ruukoto/personal-durable`，以既有普通账户运行。先准备 Node ≥22.19、Git、Bash、coreutils、Python 3、dbus-user-session；Linux 命令能力另需[原生前置](../native/README.md)。模板账户、UID 和 Node 路径按实际值替换。已有同名单元、代码目录或目标档案时先核对归属，不覆盖运行中的部署。逐步执行，任一步失败先处理，不继续启动后台。
+以下示例把完整 workspace 装在 `/opt/ruukoto`，新个人档案放在 `/var/lib/ruukoto/personal-durable`，以既有普通账户运行。先准备 Node ≥24.15、Git、Bash、coreutils、Python 3、dbus-user-session；Linux 命令能力另需[原生前置](../native/README.md)。模板账户、UID 和 Node 路径按实际值替换。已有同名单元、代码目录或目标档案时先核对归属，不覆盖运行中的部署。逐步执行，任一步失败先处理，不继续启动后台。
 
 ```bash
 # 1. 新档案与完整workspace；确认目标未被旧资料占用
@@ -14,7 +14,7 @@ run_user=$(id -un)
 run_group=$(id -gn)
 run_uid=$(id -u)
 node_bin=$(node -p 'process.execPath')
-"$node_bin" -e 'const [major,minor]=process.versions.node.split(".").map(Number); if(major<22||(major===22&&minor<19))process.exit(1)'
+"$node_bin" -e 'const [major,minor]=process.versions.node.split(".").map(Number); if(!(major>24||(major===24&&minor>=15)))process.exit(1)'
 test ! -e /var/lib/ruukoto/personal-durable
 sudo install -d -o "$run_user" -g "$run_group" -m 0700 /var/lib/ruukoto/personal-durable
 sudo rsync -a --delete --exclude node_modules --exclude .git --exclude .scratch --exclude .DS_Store ./ /opt/ruukoto/

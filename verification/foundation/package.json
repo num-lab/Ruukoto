@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "description": "阶段 0 基础验证：pi 0.85.1 SDK 复用边界与 Linux 受限执行探针。验证用代码，不是应用框架。",
+  "engines": {
+    "node": ">=24.15"
+  },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "tsx --test test/*.test.ts",

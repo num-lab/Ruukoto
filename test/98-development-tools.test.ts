@@ -32,14 +32,15 @@ test("setup 环境检查列出所有缺项，安装前拒绝旧 Node、非 Unix 
   const f = fixture();
   try {
     assert.throws(() => checkEnvironment(f.root, {
-      nodeVersion: "22.18.0", platform: "win32", uid: 0,
+      nodeVersion: "22.19.0", platform: "win32", uid: 0,
       probe: () => { throw new Error("工具不可用"); },
     }), (error: Error) => {
-      for (const expected of [/Node >=22\.19/, /macOS 或 Linux/, /非 root/, /Git 不可用/, /ripgrep（rg）/, /Bash 不可用/, /Python 3/, /完整 Git 检出/]) assert.match(error.message, expected);
+      for (const expected of [/Node >=24\.15/, /macOS 或 Linux/, /非 root/, /Git 不可用/, /ripgrep（rg）/, /Bash 不可用/, /Python 3/, /完整 Git 检出/]) assert.match(error.message, expected);
       return true;
     });
     const probe = (command: string, args: string[]) => command === "git" && args[0] === "rev-parse" ? f.root : "available";
-    assert.doesNotThrow(() => checkEnvironment(f.root, { nodeVersion: "22.19.0", platform: "linux", uid: 1000, probe }));
+    for (const nodeVersion of ["22.19.0", "22.99.0", "24.14.9"]) assert.throws(() => checkEnvironment(f.root, { nodeVersion, platform: "linux", uid: 1000, probe }), /Node >=24\.15/);
+    for (const nodeVersion of ["24.15.0", "24.16.0", "25.0.0"]) assert.doesNotThrow(() => checkEnvironment(f.root, { nodeVersion, platform: "linux", uid: 1000, probe }));
     fs.rmSync(path.join(f.root, "verification/foundation/package-lock.json"));
     assert.throws(() => checkEnvironment(f.root, { platform: "darwin", uid: 1000, probe }), /verification\/foundation\/package-lock\.json/);
   } finally {

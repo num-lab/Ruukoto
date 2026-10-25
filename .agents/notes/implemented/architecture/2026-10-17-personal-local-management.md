@@ -2,6 +2,8 @@
 
 Status: implemented
 
+配置更新与迁移的拟调整范围见[按受影响对象更新配置](../../proposed/architecture/2026-10-25-operation-scoped-configuration.md)；该提案尚未落地，本文现行约束继续有效。
+
 独立远程入口见 [Tailscale HTTPS／WebSocket](2026-10-24-personal-tailscale-https.md)；本机 Unix socket、唯一 Harness 与锁规则保持。
 
 逐启动令牌的完整发布方式见[原子发布修复](../bug-fix/2026-10-24-personal-token-atomic-publish.md)，认证与坏令牌拒绝的决定保持。

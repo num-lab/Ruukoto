@@ -2,6 +2,8 @@
 
 Status: implemented
 
+配置更新与迁移的拟调整范围见[按受影响对象更新配置](../../proposed/architecture/2026-10-25-operation-scoped-configuration.md)；该提案尚未落地，本文现行约束继续有效。
+
 ## 问题
 
 [服务检查](2026-10-17-personal-service-inspect.md)、[服务操作](2026-10-17-personal-service-operations.md)及[Telegram 权限](2026-10-17-personal-telegram-permissions.md)已有宿主 API，但隔离向导后台只注入模型和 Telegram，拥有者无法配置服务入口。已有 durable 档案钉定配置指纹，直接提供任意更换或停用会破坏恢复前提。

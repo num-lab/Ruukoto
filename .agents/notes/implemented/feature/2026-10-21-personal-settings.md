@@ -2,6 +2,8 @@
 
 Status: implemented
 
+配置更新与迁移的拟调整范围见[按受影响对象更新配置](../../proposed/architecture/2026-10-25-operation-scoped-configuration.md)；该提案尚未落地，本文现行约束继续有效。
+
 ## 问题
 
 [桌面设置规划](../../proposed/feature/2026-10-21-desktop-settings-management.md)需要管理新 durable Personal 的模型、技能与 MCP；[本机管理](../architecture/2026-10-17-personal-local-management.md)只有交互向导与业务操作查询，没有配置修订、档案身份和受限机器协议。桌面若自行读取活跃 SQLite、解析向导文字或用 SSH shell 环境测试模型，会绕过后台独占、错误身份与实际服务凭据检查。

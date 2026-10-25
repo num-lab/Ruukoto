@@ -2,6 +2,8 @@
 
 Status: implemented
 
+配置更新与迁移的拟调整范围见[按受影响对象更新配置](../../proposed/architecture/2026-10-25-operation-scoped-configuration.md)；该提案尚未落地，本文现行约束继续有效。
+
 ## 问题
 
 [个人迁移](../../proposed/architecture/2026-10-17-personal-pi-durable.md)已有本机会话与服务宿主 API，但无法证明拥有者来自哪个真实平台。旧 Telegram adapter 依赖 core Store、Runtime 与 SchedulerStore，直接接入会恢复旧运行权威；只增加来源 API 又不能形成拥有者实际可用的聊天入口。

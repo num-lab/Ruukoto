@@ -2,6 +2,8 @@
 
 Status: implemented
 
+配置更新与迁移的拟调整范围见[按受影响对象更新配置](../../proposed/architecture/2026-10-25-operation-scoped-configuration.md)；该提案尚未落地，本文现行约束继续有效。
+
 ## 问题
 
 [个人迁移](../../proposed/architecture/2026-10-17-personal-pi-durable.md)保留[通用定时任务](../../implemented/feature/2026-10-12-generic-scheduled-tasks.md)的独立上下文、固定授权与整项回报。原个人 durable 将非主会话工具统一核实为长期子工作，委派和多个恢复消费者只接受 ROOT 的拥有者输入；复制主工具配置或复用旧调度存储都无法证明来源，也会漏掉未知暂停及创建时权限上限。

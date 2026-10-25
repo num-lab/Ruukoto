@@ -2,6 +2,8 @@
 
 Status: implemented
 
+配置更新与迁移的拟调整范围见[按受影响对象更新配置](../../proposed/architecture/2026-10-25-operation-scoped-configuration.md)；该提案尚未落地，本文现行约束继续有效。
+
 SSH 传输与桌面维护阶段归属已由下述决定取代，见 [Tailscale HTTPS／WebSocket](../architecture/2026-10-24-personal-tailscale-https.md)；原服务核实、修订与未知效果规则保持。
 
 ## 问题

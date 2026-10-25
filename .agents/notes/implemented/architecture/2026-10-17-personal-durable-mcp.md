@@ -2,6 +2,8 @@
 
 Status: implemented
 
+配置更新与迁移的拟调整范围见[按受影响对象更新配置](../../proposed/architecture/2026-10-25-operation-scoped-configuration.md)；该提案尚未落地，本文现行约束继续有效。
+
 [Cua 接入](2026-10-23-cua-official-mcp.md)增加version3具名电脑配置、跨调用绑定与恢复结算。Cua接受新观察后可结束旧等待，原remoteEnded仍只由完整原应答决定；普通HTTP保留本篇原请求、结束证据与阻塞规则。
 
 [MCP图片结果](2026-10-23-mcp-image-results.md)实现有序图片投影和分页引用，补充下文非文本证据的模型读取规则，原完整应答与未知占用不变。

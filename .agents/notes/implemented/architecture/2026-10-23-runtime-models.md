@@ -2,6 +2,8 @@
 
 Status: implemented
 
+配置更新与迁移的拟调整范围见[按受影响对象更新配置](../../proposed/architecture/2026-10-25-operation-scoped-configuration.md)；该提案尚未落地，本文现行约束继续有效。
+
 ## 问题
 
 原 Runtime 同时持有任务编排与模型配置，管理方法与门闩、模型栈状态分散在类内；启动与热重建重复装配 SDK、目录和审查器。门闩用例直接访问 Runtime 私有实现，修改模型配置需要理解无关的任务、IM 和工作流职责。

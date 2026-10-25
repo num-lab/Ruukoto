@@ -2,6 +2,8 @@
 
 Status: implemented
 
+配置更新与迁移的拟调整范围见[按受影响对象更新配置](../../proposed/architecture/2026-10-25-operation-scoped-configuration.md)；该提案尚未落地，本文现行约束继续有效。
+
 [读取检查复用](../bug-fix/2026-10-24-read-check-overhead.md)将外部技能正文刷新固定在本次请求准备；发送前核实已保存快照、配置与托管选择，不再全库重读。
 
 相关决定：[托管技能](../feature/2026-10-21-managed-skills.md)提供固定路径与状态清单，[Personal 设置入口](../feature/2026-10-21-personal-settings.md)在档案锁后消费共享检查和管理操作，不取代本篇外部库、停机配置与实际请求证据；页面进度见[桌面设置管理](../../proposed/feature/2026-10-21-desktop-settings-management.md)。

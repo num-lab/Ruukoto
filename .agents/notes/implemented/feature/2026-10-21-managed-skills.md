@@ -2,6 +2,8 @@
 
 Status: implemented
 
+配置更新与迁移的拟调整范围见[按受影响对象更新配置](../../proposed/architecture/2026-10-25-operation-scoped-configuration.md)；该提案尚未落地，本文现行约束继续有效。
+
 [读取检查复用](../bug-fix/2026-10-24-read-check-overhead.md)补充同次管理读取复用与个人发送前的清单级选择核实；完整包仍在加载、管理和重开检查。
 
 ## 问题

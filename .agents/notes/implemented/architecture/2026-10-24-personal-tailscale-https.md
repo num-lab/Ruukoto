@@ -2,6 +2,8 @@
 
 Status: implemented
 
+配置更新与迁移的拟调整范围见[按受影响对象更新配置](../../proposed/architecture/2026-10-25-operation-scoped-configuration.md)；该提案尚未落地，本文现行约束继续有效。
+
 ## 问题
 
 拥有者要求将 PA 聊天和设置的两条 SSH 连接统一为 Tailscale HTTPS／WebSocket。个人后台由 durable 持有会话，旧聊天使用共享控制协议，设置又依赖独立 SSH 停存启；只替换 socket 不能接上新后台，删除传输也不能丢失设置维护。实施入口、确认范围与验收证据由[工单](../../../../.scratch/personal-tailscale/issues/01-migration-plan.md)持有。

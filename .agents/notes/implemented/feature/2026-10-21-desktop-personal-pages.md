@@ -2,6 +2,8 @@
 
 Status: implemented
 
+配置更新与迁移的拟调整范围见[按受影响对象更新配置](../../proposed/architecture/2026-10-25-operation-scoped-configuration.md)；该提案尚未落地，本文现行约束继续有效。
+
 统一 PA 聊天与设置连接见 [Tailscale HTTPS／WebSocket](../architecture/2026-10-24-personal-tailscale-https.md)；本篇表单字段、原档案与维护核实规则保持。
 
 ## 问题

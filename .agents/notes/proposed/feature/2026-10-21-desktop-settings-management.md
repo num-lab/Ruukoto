@@ -2,6 +2,8 @@
 
 Status: proposed
 
+配置更新与迁移的拟调整范围见[按受影响对象更新配置](../architecture/2026-10-25-operation-scoped-configuration.md)；该提案尚未落地，本文现行约束继续有效。
+
 PA 连接已由下述决定取代，见 [Tailscale HTTPS／WebSocket](../../implemented/architecture/2026-10-24-personal-tailscale-https.md)，统一新聊天与设置；本篇配置能力与生效规则继续适用。
 
 技能后端已按[固定托管路径与清单](../../implemented/feature/2026-10-21-managed-skills.md)落地，[Personal 设置入口](../../implemented/feature/2026-10-21-personal-settings.md)已完成认证查询、停机持锁机器协议与档案接线；[SSH 维护](../../implemented/feature/2026-10-21-personal-settings-ssh.md)与 [Personal 三类页面](../../implemented/feature/2026-10-21-desktop-personal-pages.md)已接线，真实环境与双壳组合验收仍由各工单持有；本提案继续记录总体验收范围。

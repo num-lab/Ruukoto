@@ -47,7 +47,7 @@ npx tsx --test verification/foundation/test/03-tools.test.ts
 | 修改位置 | 常用测试起点 |
 | --- | --- |
 | `packages/tui/src/`（cli.ts、cli-entry.ts、dev.ts）、`packages/core/src/product.ts`、`apps/ruukoto-code/src/dev.ts` | `test/29-cli-entry.test.ts`、`test/32-dev.test.ts`、`test/71-product-entry.test.ts`；MCP 用 `mcp list`、`mcp cua`，拒绝旧 `--project` |
-| `apps/ruukoto/src/personal-*.ts`（独立 Pi 1.3.0） | 配置、机器设置、外部占用、托管技能、菜单、IM及正式制品按[个人检查集](../.agents/skills/pre-push-checks/SKILL.md#2-按面选证据)选择；会话后台用 `test/personal-background-processes.test.ts`，`ssh tx` 隔离目录另跑同文件“真实Linux”用例；真实模型用 `verification/smoke/smoke-personal-durable.mts`，前提见[操作手册](usage.md#25-个人-agent-引导与管理)。生产切换单独验收 |
+| `apps/ruukoto/src/personal-*.ts`（独立 Pi 1.3.0） | 按[个人检查集](../.agents/skills/pre-push-checks/SKILL.md#2-按面选证据)选配置、入口、真实 Linux 停止与模型验证；前提见[外部验收](#外部验收)，生产切换另验 |
 | `apps/ruukoto/src/service-helper.ts`、`deploy/systemd/ruukoto-service.mjs` | `test/service-helper-transport.test.ts`（传输退出/捕获）、`test/service-helper-stop.test.ts`（Linux 进程/系统命令桩）；helper 与旧存储规则分别为 `test/78-linux-service-management.test.ts`、`test/79-standing-permissions.test.ts`，新调用方为 `test/personal-services.test.ts`、`test/personal-service-operations.test.ts` |
 | `packages/runtime/src/` 与 `packages/control/src/` 的任务生命周期 | `test/01-concurrency.test.ts` 至 `test/05-overflow-db.test.ts`、`test/66-control-seam.test.ts`、`test/94-task-ending.test.ts` |
 | `packages/agent/src/` 的执行、审批、权限与新增工具 | 按[工具检查集](../.agents/skills/pre-push-checks/SKILL.md#2-按面选证据)选实际工具、审批、权限、发现、正文与预览用例 |
@@ -97,6 +97,12 @@ CI 在 macOS / Linux 两组环境固定 Node 24.15.0，每个 job 最多 90 分�
 | [真实工作流模型命令](../verification/smoke/README.md) | DeepSeek 与原生 worker；保留旧底座/Coding 工具启动、等待聊天、实际工具与唯一汇总，不代表新个人入口验收 |
 
 原生边界按[平台脚本](../verification/foundation/scripts/native-isolation/README.md)单独验收；缺能力或对照时返回不可验证；离线用例不替代真实 OS 证据。
+
+Scheduled 验收使用新档案与显式 models.json，结束清除副本并核实源摘要；覆盖提问、回答、单文件审批与收尾，最多六次请求、三分钟，默认离线：
+
+```bash
+RUN_MODEL_CHECK=1 RUN_CODE_SCHEDULER_MODELS_FILE=/absolute/models.json npx tsx --test test/code-scheduler-model-acceptance.test.ts
+```
 
 脚本参数、模型认证、退出码与清理见 [smoke 说明](../verification/smoke/README.md)，模型凭据放在工作树外的受保护文件。升级基点与旧名称边界见[复跑说明](release-acceptance.md#当前复跑入口)。`test:model` 缺配置跳过，不计通过；模型编码与安装升级分别验收。历史 Docker 不替代 Linux 原生权限证据，模拟 IM 不代表真实平台通过。旧 systemd/sudo 脚本见[特权归档](../verification/archive/README.md)，恢复执行前隔离系统写入。当前证据与人工项目见[发布验收](release-acceptance.md)。
 

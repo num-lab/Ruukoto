@@ -94,6 +94,10 @@ export class CodeController {
   }
   close(): void { this.stopped = true; ++this.generation; this.submissions?.close(); this.connection?.close(); }
   async dispatch(op: DesktopOp, params: OpParams<DesktopOp>): Promise<unknown> {
+    if (op === "code_schedule_save" || op === "code_schedule_control") {
+      if (!this.submissions) throw new DesktopError("connection_unavailable", "请等待连接恢复后再保存计划。");
+      return this.submissions.schedule(op, params as OpParams<"code_schedule_save" | "code_schedule_control">);
+    }
     if (op === "session_background_end") {
       if (!this.submissions) throw new DesktopError("connection_unavailable", "请等待连接恢复后再结束会话后台。");
       return this.submissions.endBackground(params);

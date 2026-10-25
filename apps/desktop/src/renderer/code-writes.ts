@@ -184,6 +184,7 @@ export class CodeWrites {
   async send(sessionId: string): Promise<void> {
     const session = this.view.sessions.find(item => item.id === sessionId);
     const draft = this.draft(sessionId);
+    if (session?.codeScheduleActive && !draft.taskId) { this.report("定时运行期间请从 Scheduled 查看与处理本轮，结束后可发送普通消息。"); return; }
     if (!session || (!draft.text.trim() && !draft.attachments?.length) || this.blocked(sessionId)) return;
     if (!session.modelSelection) { this.report("请先选择模型。"); return; }
     const input = { ...draft, attachments: draft.attachments ? [...draft.attachments] : undefined };
@@ -291,6 +292,7 @@ export class CodeWrites {
     } finally { this.busy.delete(control.sessionId); this.savingSettings.delete(settingsKey); this.changed(); }
   }
   async setModel(session: Session, selection: ModelSelection): Promise<void> {
+    if (session.codeScheduleActive) { this.report("本轮模型由定时计划固定；请编辑计划以修改未来运行。"); return; }
     const saved = await this.write("set_session_model", { session_id: session.id, expected_version: session.modelSelectionVersion, model_selection: selection }, { op: "settings", sessionId: session.id, instanceId: this.view.instanceId });
     if (saved) { this.applySession(saved); this.changed(); }
   }
@@ -302,6 +304,7 @@ export class CodeWrites {
     this.changed();
   }
   async setMode(session: Session, mode: SessionDefaultMode): Promise<void> {
+    if (session.codeScheduleActive) { this.report("本轮权限由定时计划固定；请编辑计划以修改未来运行。"); return; }
     const saved = await this.write("set_session_mode", { session_id: session.id, expected_version: session.defaultAccessModeVersion, mode }, { op: "settings", sessionId: session.id, instanceId: this.view.instanceId });
     if (saved) { this.applySession(saved); this.changed(); }
   }

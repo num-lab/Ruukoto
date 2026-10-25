@@ -350,6 +350,7 @@ export class Store {
    */
   createSession(input: {
     projectId: string;
+    name?: string | null;
     kind?: SessionKind;
     cwd: string;
     cwdReal: string;
@@ -386,7 +387,7 @@ export class Store {
     const archivedAt = input.branchSession ? input.branchSession.archivedAt ?? null : null;
     const session: Session = input.branchSession ?? {
       id: randomId("sess"),
-      name: null,
+      name: input.name ?? null,
       branchSource: null,
       projectId: input.projectId,
       // 新会话无组织归属（workspace_project_id 列默认 NULL，插入不写该列）

@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | [products](modules/products.md)（`apps/ruukoto`、`apps/ruukoto-code`） | 持有各产品入口与专属业务装配 | 个人装配 durable，Coding 注入共享 runtime/CLI；产品包互不依赖 |
 | [personal-durable](modules/personal-durable.md)（个人 app 内） | 个人会话、工作、档案与请求证据、权限、IM/本机/远程管理和工具 | 依赖 Pi 1.3.0 与独立底层能力；正式 bin/start/dev 同装配 |
-| [runtime](modules/runtime.md) | 拥有任务生命周期、会话身份、队列与 SubAgent 委派的编排；模型配置与栈归 RuntimeModels | 依赖 core 的存储、agent-context 的模型装配、agent-tools 的工具、execution 的执行边界；被 control 与 channels 驱动 |
+| [runtime](modules/runtime.md) | 拥有任务生命周期、队列、Code 调度与 SubAgent 编排；模型配置与栈归 RuntimeModels | 依赖 core 的存储、agent-context 的模型装配、agent-tools 的工具、execution 的执行边界；被 control 与 channels 驱动 |
 | [core](modules/core.md) | 定义数据布局、schema、任务状态机与会话身份判定 | 不依赖其他模块，被全部模块依赖 |
 | [workflows](modules/workflows.md)（runtime 内） | 为模型与拥有者入口提供定义库、固定后台运行、持久步骤及控制 | 依赖 core 的事务、agent 的脚本与执行边界；默认接真实 Driver、来源权限与冻结汇总 |
 | [agent-context](modules/agent-context.md) | 组装每次模型调用的上下文：资料范围、历史、参考块、压缩与记忆 | 依赖 core 的存储与会话文件；被 runtime 的驱动循环调用 |
@@ -19,7 +19,7 @@
 | [desktop](modules/desktop.md)（`apps/desktop`） | 桌面连接（Electron／MyGo） | Node宿主连接Code控制面与PA HTTPS/WSS，renderer使用独立投影；后台独立运行 |
 | [tui](modules/tui.md) | 共享 CLI、交互终端与配置中心 | 界面只经 control 协议连接后台；CLI 的 `server` 入口在本进程装配 runtime |
 | [channels](modules/channels.md) | 拥有者 IM 入口、图片入站与 GitHub 事件来源 | 依赖 core 登记入站事件；驱动 runtime 建任务；经 scheduler 的 outbox 外发 |
-| [scheduler](modules/scheduler.md) | 持久调度计划与通知 outbox 的发送账本 | 依赖 core；驱动 runtime 建唤醒任务；经 channels 发送 |
+| [scheduler](modules/scheduler.md) | 共享时间规则、旧个人调度与通知 outbox 账本 | 依赖 core；驱动 runtime 建唤醒任务；经 channels 发送 |
 | [deploy](modules/deploy.md) | 部署的系统身份、单元、提权入口与服务管理 | 不参与运行时调用；定义当前账户的后台与可选服务 OS 授权 |
 
 `packages/` 含七个共享包；agent-context、agent-tools 与 execution 属于 agent，scheduler 属于 channels；Coding 的 `product.ts` 声明旧底座能力，个人 app 直接持有 durable 业务接线。
@@ -30,7 +30,7 @@
 
 以下任务、工具与 SubAgent 图描述 Coding 底座；保留的旧个人身份分支不构成新个人入口。个人会话、执行、队列与恢复由 durable 原生记录持有，宿主只记录业务归属与外部证据，见[个人持久会话](modules/personal-durable.md)。
 
-任务由会话提交产生，持久化后由队列串行执行，终态在一个事务内收尾。
+会话输入或 Code 调度产生任务，持久化后排队执行，终态在同一事务收尾。
 
 ```mermaid
 sequenceDiagram
@@ -143,7 +143,7 @@ sequenceDiagram
 
 要点：
 
-- 只有拥有者直接提交或经拥有者 IM 入口核实身份的任务可以委派；定时唤醒、子任务回报与其他来源拒绝。
+- 拥有者输入、已核实 IM 与 Code 定时来源可委派；子任务回报等来源不能借开发身份取得委派权。
 - 一层委派：SubAgent 不能再派生下一层，也不能与拥有者直接交互。
 - 普通委派与工作流共用角色与来源能力：省略 role 为 general，工具继承或显式要求，权限只能收紧；target 独立指定代码目标，verify 由工作流宿主持有冻结验证资格。单次批准与长期授权不继承。
 - 目标委派在 Git 上先捕获当前稳定内容，再登记独立 worktree；保护来源的角色只写副本检查产物，原目录和共享 Git 只读。主 Agent 用 `subagent_integrate` 只汇入捕获后的子增量，冲突保留双方；非 Git 普通目标直接写入并按目录占用串行。

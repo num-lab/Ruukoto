@@ -2,6 +2,7 @@ import { Type } from "typebox";
 import { BROWSER_ACTION_FIELDS, browserParams, browserCommandArgs } from "./browser-params.ts";
 export { browserParams, browserCommandArgs, type BrowserParams } from "./browser-params.ts";
 import type { Store } from "@ruukoto/core/store.ts";
+import { CodeScheduleError, getCodeScheduledTaskSource } from "@ruukoto/core/code-scheduler.ts";
 import { randomId, type Task } from "@ruukoto/core/types.ts";
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
@@ -18,10 +19,16 @@ export const BROWSER_LEDGER: HostToolLedger = {
 };
 
 /** 来源入口另由 Runtime 核实；会话身份不因 main 类别被定时或工作流复用而扩大。 */
-export function browserTaskAllowed(store: Pick<Store, "getSessionIdentity">, task: Task): boolean {
+export function browserTaskAllowed(store: Store, task: Task): boolean {
   const identity = store.getSessionIdentity(task.sessionId);
-  return task.accessMode === "full_access" && !task.planMode && !task.parentTaskId && !task.subAgentId &&
-    (identity?.kind === "main" || identity?.kind === "dev");
+  try {
+    const scheduled = getCodeScheduledTaskSource(store, task.id);
+    return task.accessMode === "full_access" && !task.planMode && (!task.parentTaskId || scheduled !== null) && !task.subAgentId &&
+      (identity?.kind === "main" || identity?.kind === "dev");
+  } catch (error) {
+    if (!(error instanceof CodeScheduleError)) throw error;
+    return false;
+  }
 }
 
 // Note: 见 .agents/notes/implemented/feature/2026-10-14-agent-browser.md

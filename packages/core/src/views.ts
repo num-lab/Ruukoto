@@ -14,7 +14,7 @@ import type { ConfirmationRequest, PersistentEvent, Task, ToolOp } from "./types
 export type InputPurpose = "user" | "internal_report";
 
 /** 用途由宿主持久绑定派生，不采信客户端字段；displayInput 仅任务详情携带，不改任务或历史原文。 */
-export type TaskView = Task & { inputPurpose: InputPurpose; displayInput?: string; wait?: import("./agent-wait.ts").AgentWaitView; resourcePhase?: "execution" | "conversation"; reportParked?: boolean };
+export type TaskView = Task & { inputPurpose: InputPurpose; displayInput?: string; wait?: import("./agent-wait.ts").AgentWaitView; resourcePhase?: "execution" | "conversation"; reportParked?: boolean; codeScheduleRunId?: string };
 
 /** 事件与查询应答中内联参数的上限（序列化字节）。 */
 export const PARAMS_INLINE_CAP = 8 * 1024;

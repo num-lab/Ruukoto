@@ -25,6 +25,7 @@ export interface WorkflowSource {
   references: SubAgentReadScope["sourceRefs"];
   replyTarget: NotifyTarget | null;
   scheduledRunId: string | null;
+  codeScheduledRunId?: string;
   /** 真实装配在启动时固定；旧库层替身可省略，真实 Driver 拒绝缺少快照的绑定。 */
   authority?: { toolClass?: "dev" | "main"; categories: ToolCategory[]; grantIds: string[]; configuration: string; workspace: { path: string; dev: number; ino: number } };
 }

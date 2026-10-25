@@ -19,7 +19,7 @@ import type { SubAgentExecutionSnapshot } from "./subagent-execution.ts";
 import type { WorkCopyHostSnapshot } from "./work-copy-host.ts";
 import { requireWorkspaceSnapshot, WorkspaceSnapshotError, type WorkspaceSnapshot } from "./workspace-snapshot.ts";
 
-export const PROTOCOL_VERSION = 40;
+export const PROTOCOL_VERSION = 41;
 
 export interface ModelSelection {
   provider: string;
@@ -499,6 +499,8 @@ export interface SessionBranchSource {
 }
 
 export interface Session {
+  codeScheduleRunId?: string;
+  codeScheduleActive?: boolean;
   id: string;
   name: string | null;
   branchSource: SessionBranchSource | null;
@@ -905,6 +907,9 @@ export interface EditStats {
 
 /** 持久事件载荷（JSON 序列化后存 events.payload）。 */
 export type PersistentEventBody =
+  | { type: "code_schedule.changed"; plan: import("./code-scheduler.ts").CodeSchedulePlan }
+  | { type: "code_schedule.run_changed"; run: import("./code-scheduler.ts").CodeScheduleRun }
+  | { type: "code_schedule.task_bound"; taskId: string; runId: string; sessionId: string }
   | { type: "background_process.changed"; process: import("./background-processes.ts").BackgroundProcessView }
   | { type: "background_process.closed"; closure: import("./background-processes.ts").BackgroundClosure }
   | { type: "owner_question.changed"; question: import("./owner-questions.ts").OwnerQuestionView }

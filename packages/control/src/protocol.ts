@@ -85,6 +85,7 @@
  * v36：会话后台快照、日志与可信停止，结束请求保留原键及固定成员。
  * v37：合并 Code 工作区正文搜索与连续历史定位（around／after／source），拒绝未合流的客户端与后台。
  * v40：Code MCP 配置与凭据按实例管理，删除来源操作并拒绝旧项目或工作区参数。
+ * v41：Code 独立调度计划、运行归属与整项事件；活动运行会话由宿主管理。
  * v38：MCP 配置、审批与事件增加具名 Cua 分支；原操作电脑证据有界读取，拥有者恢复控制不向模型开放。
  * Note: 见 .agents/notes/implemented/feature/2026-10-20-desktop-session-archive.md
  * v28：拥有者工作区文件树与只读预览；目录范围由登记身份决定，不接受客户端绝对路径。
@@ -140,6 +141,7 @@ export interface ConnectSnapshot {
   /** 动态 SubAgent 身份（含运行/空闲/待核实状态）。 */
   subAgents?: SubAgent[];
   ownerQuestions?: OwnerQuestionView[];
+  codeScheduleRuns?: import("@ruukoto/core/code-scheduler.ts").CodeScheduleRun[];
   backgroundProcesses?: BackgroundProcessView[];
 }
 

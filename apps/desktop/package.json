@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Ruukoto 桌面客户端",
+  "description": "Ruukoto \u684c\u9762\u5ba2\u6237\u7aef",
   "main": "out/main/bootstrap.js",
   "engines": {
     "node": ">=24.15"
@@ -15,6 +15,7 @@
     "desktop:mygo:build": "node scripts/mygo.mjs build"
   },
   "devDependencies": {
+    "@js-temporal/polyfill": "0.5.1",
     "@ruukoto/control": "*",
     "@ruukoto/core": "*",
     "@ruukoto/view": "*",

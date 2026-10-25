@@ -21,6 +21,7 @@ import { selectSubAgentRole } from "./subagent-role-library.ts";
 import { WorkCopyError } from "./work-copy.ts";
 import { createManagedProcessRegistry, type ManagedEntry, type ManagedProcessRegistry } from "@ruukoto/agent/managed-processes.ts";
 import type { Store } from "@ruukoto/core/store.ts";
+import { bindCodeScheduleTask } from "@ruukoto/core/code-scheduler.ts";
 import { randomId, isTerminalTaskStatus, type ConfirmationRequest, type ModelSelection, type PersistentEvent, type Task, type ToolOp } from "@ruukoto/core/types.ts";
 import {
   WORKFLOW_LIMITS, WORKFLOW_INTERFACE_VERSION, WorkflowError, bindWorkflowExecution, chargeWorkflow, controlWorkflow, createWorkflowRun,
@@ -324,6 +325,7 @@ export class WorkflowCoordinator {
         accessMode: policy.accessMode, grantedPaths: [], modelSelection: run.modelSelection, submissionDigest: step.digest,
         parentTaskId: run.source.taskId, sourcePermissionVersion: run.source.permissionVersion, workId, subAgentId: id,
         readScope: { paths: [], sourceRefs: run.source.references, readMemories: [], ...(snapshot ? { execution: snapshot } : {}) } }).task;
+      if (run.source.codeScheduledRunId) bindCodeScheduleTask(this.store, { runId: run.source.codeScheduledRunId, taskId: task.id, sourceTaskId: run.source.taskId });
       this.store.setSubAgentState(id, "running", { activeWorkId: workId, currentTaskId: task.id });
       const execution: WorkflowExecution = { id: randomId("wfexec"), runId: run.id, stepKey: step.key, kind: "agent", taskId: task.id,
         number: step.attempts + 1, status: "queued", units: [], stopVerified: null };

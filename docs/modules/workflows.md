@@ -30,6 +30,8 @@ Agent 参数 `role` 从运行固定的共享目录选择，省略为 general，�
 
 ## 数据与状态
 
+Code 定时来源在 `WorkflowSource.codeScheduledRunId` 固定原运行，步骤 Task、宿主操作、问题回答和最终报告沿同一归属登记与核实。取消计划后来源失效，迟到回答或报告不派生任务；整项 Code 调度等待工作流、报告及停止核实，不按首次 Task 结束提前关闭。
+
 运行 `roleCatalog` 固定启动时的完整角色目录及加载诊断；每步按 `role` 选择，文件编辑或删除不改变已启动运行。恢复和缓存消费复核已完成步骤的角色、来源执行快照及目标基线；缺失、摘要失配或身份不一致即拒绝，保留 Task、结果和成果，不读取当前配置补回。
 
 当前定义位于 `<agentDir>/workflows/<名称>.js`，名称为 1–64 位字母数字及 `_`/`-`，首位为字母数字。文件由保存入口自动写入首行 `// ruukoto-workflow-interface: 2`，其余为脚本正文；无标记文件按旧接口保留查询，须显式保存新版才能新启动。`workflow_definitions` 保存完整脚本、`interfaceVersion` 和包含接口版本的内容摘要，`workflow_definition_refs` 保存名称历史及稳定保存键的请求摘要和版本引用；`workflow_runs` 固定接口与脚本版本、来源、参数/摘要、展示名称、显式简短说明、宿主创建时间、模型、预算、累计墙钟、计时与脚本停止核实、结果与版本。状态为 `queued`、`running`、`waiting`、`paused`，终态为 `succeeded`、`partial`、`failed`、`canceled`。
@@ -73,6 +75,8 @@ Agent 参数 `role` 从运行固定的共享目录选择，省略为 general，�
 跨实例导入拒绝含工作流执行记录的源，不能通过丢掉绑定把步骤当普通 SubAgent 继续；原实例保留可查。操作见[导入说明](../usage.md#6-导入旧实例)。
 
 ## 设计依据
+
+- [Coding 调度的固定配置与独立会话](../../.agents/notes/implemented/feature/2026-10-25-code-scheduled.md)
 
 - [Code MCP 按实例配置与旧格式退出](../../.agents/notes/implemented/simplification/2026-10-24-code-instance-mcp.md)
 

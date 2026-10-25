@@ -17,6 +17,7 @@ import { ViewState } from "@ruukoto/view/state.ts";
 import { CodeState } from "../apps/desktop/src/renderer/code-state.ts";
 import { CodeWrites } from "../apps/desktop/src/renderer/code-writes.ts";
 import type { DesktopContextState } from "../apps/desktop/src/renderer/context-state.ts";
+import { draftForSchedule } from "../apps/desktop/src/renderer/scheduled-state.ts";
 import type { DesktopBridge, DesktopUpdate } from "../apps/desktop/src/shared/bridge.ts";
 import { ipcResult, type DesktopOp } from "../apps/desktop/src/main/ipc.ts";
 import { FakeTransport, fakeSnapshot, type FakeHandlers } from "./helpers/fake-control.ts";
@@ -25,6 +26,7 @@ import { waitFor } from "./helpers/testkit.ts";
 type ModelOption = OpResult<"list_models">["models"][number];
 let server: ViteDevServer;
 let Composer: ComponentType<{ model: CodeState; session: Session }>;
+let Scheduled: ComponentType<{ model: CodeState; onOpenSession: (id: string) => void }>;
 type DraftValue = { workspaceId: string; text: string; mode: SessionDefaultMode; modelSelection: ModelSelection | null; attachments: DesktopAttachment[]; attaching?: boolean };
 let NewChatDraft: ComponentType<{ model: CodeState; workspaces: Project[]; value: DraftValue; fallbackSelection: ModelSelection | null; onChange: (value: DraftValue) => void; onSend: () => void; onAddWorkspace: () => void; starting: boolean; blocked: boolean }>;
 let filterWorkspaces: (workspaces: Project[], query: string) => Project[];
@@ -39,6 +41,7 @@ let MessageScrollerProvider: ComponentType<{ children?: ReactNode }>;
 before(async () => {
   server = await createServer({ configFile: false, root: fileURLToPath(new URL("../apps/desktop/src/renderer/", import.meta.url)), plugins: [react()], server: { middlewareMode: true, hmr: false }, appType: "custom" });
   ({ Composer, selectionForModel, EffortSlider } = await server.ssrLoadModule("/composer.tsx"));
+  ({ Scheduled } = await server.ssrLoadModule("/scheduled.tsx"));
   ({ NewChatDraft, filterWorkspaces, showsNewChat } = await server.ssrLoadModule("/new-chat.tsx"));
   ({ ContextDetails, ContextIndicator } = await server.ssrLoadModule("/context-indicator.tsx"));
   ({ OwnerQuestionCard } = await server.ssrLoadModule("/owner-question-cards.tsx"));
@@ -422,4 +425,34 @@ test("工作区菜单按名称筛选，空结果与未登记工作区都有明�
   const h = harness();
   const html = renderToStaticMarkup(createElement(NewChatDraft, { model: h.model, workspaces: projects, value: { workspaceId: "", text: "", mode: "confirm", modelSelection: selection, attachments: [] }, fallbackSelection: null, onChange() {}, onSend() {}, onAddWorkspace() {}, starting: false, blocked: false }));
   assert.equal(attr(button(html, "选择工作区"), "aria-expanded"), "false");
+});
+
+test("Scheduled 表单顺序、周期与现有模型权限控件一致，选择工作区不创建会话", () => {
+  const { model, transport } = harness();
+  model.scheduled.draft = draftForSchedule({ title: "定时检查", instructions: "检查目录", workspaceId: "workspace", permission: "confirm", modelSelection: selection,
+    rule: { kind: "weekly", time: "09:30", weekdays: [1, 5], timeZone: "Asia/Tokyo", disambiguation: "compatible" } });
+  const render = () => renderToStaticMarkup(createElement(Scheduled, { model, onOpenSession() {} }));
+  const html = render(), headings = ["Title", "Schedule", "Instructions", "Workspace", "Permission", "Model / Effort"];
+  assert.deepEqual(headings.map(text => html.indexOf(`>${text}<`)).toSorted((a, b) => a - b), headings.map(text => html.indexOf(`>${text}<`)));
+  assert.equal(elements(html).filter(element => element.tagName === "input" && attr(element, "type") === "checkbox").length, 7);
+  assert.match(html, /Asia\/Tokyo/); assert.match(html, /High/);
+  assert.equal(attr(button(html, "计划权限"), "aria-description"), "Ask for approval");
+  assert.equal(transport.requests.length, 0);
+  model.scheduled.draft.repeat = "once";
+  assert.equal(elements(render()).filter(element => element.tagName === "input" && attr(element, "type") === "date").length, 1);
+});
+
+test("活动定时会话禁止普通输入、模型与权限修改，安全继续仍可填写指示", async () => {
+  const { model, current, transport } = harness();
+  current.codeScheduleActive = true; current.codeScheduleRunId = "run";
+  model.writes.edit(current.id, "普通输入");
+  await model.writes.send(current.id); await model.writes.setModel(current, selection); await model.writes.setMode(current, "full_access");
+  assert.equal(transport.requests.length, 0);
+  const render = () => renderToStaticMarkup(createElement(Composer, { model, session: current }));
+  let html = render();
+  assert.ok(hasAttr(elements(html).find(element => element.tagName === "textarea")!, "readonly"));
+  assert.ok(hasAttr(button(html, "会话默认模式"), "disabled")); assert.ok(hasAttr(button(html, "会话模型"), "disabled"));
+  model.writes.draft(current.id).taskId = "interrupted-source"; html = render();
+  assert.ok(!hasAttr(elements(html).find(element => element.tagName === "textarea")!, "readonly"));
+  assert.ok(hasAttr(button(html, "会话模型"), "disabled"));
 });

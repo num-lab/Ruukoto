@@ -12,6 +12,8 @@
 import { OwnerAttachments } from "./owner-attachments.ts";
 import type { AttachmentMetadata, AttachmentUpload } from "@ruukoto/core/attachments.ts";
 import { RuntimeModels } from "./models.ts";
+import { CodeScheduler } from "./code-scheduler.ts";
+import { bindCodeScheduleTask, CodeScheduleError, getCodeScheduleRunForSession, getCodeScheduleRunForTask, getCodeScheduledTaskSource, getCodingTaskOrigin, getOpenCodeScheduleRunForSession, listCodeScheduleRunTasks, listCodeSchedules, listCodeScheduleRuns, listOpenCodeScheduleRuns, pauseCodeSchedule, type CodeScheduleConfig, type CodeScheduleRun } from "@ruukoto/core/code-scheduler.ts";
 import type { ModelRuntime, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { AppDataQueryRunner } from "@ruukoto/agent/app-data/query.ts";
 import { AppDataError,AppDataStore } from "@ruukoto/agent/app-data/store.ts";
@@ -221,6 +223,7 @@ export interface RuntimeProduct {
   manualCompaction?: boolean;
   im: boolean;
   scheduler: boolean;
+  codeScheduler?: boolean;
   serviceEnabled(config: RuntimeConfig): boolean;
   toolFamilies(context: ProductToolContext): readonly HostToolFamily[];
 }
@@ -384,6 +387,7 @@ export class Runtime {
   private hostToolFamilies!: readonly HostToolFamily[];
   /** 调度器（issue 03）：扫描循环 + 发送循环；仅个人 Agent 产品在 start 时创建。 */
   scheduler: Scheduler | null = null;
+  codeScheduler: CodeScheduler | null = null;
   /** 产品身份（issue 01）：缺省 ruukoto。 */
   readonly productType: ProductType;
   private sources!: SourceResolver;
@@ -756,6 +760,8 @@ export class Runtime {
         input: JSON.stringify({ workId: input.workId, operation: input.operation }), submissionDigest: workflowDigest({ ...input, execution: undefined }),
         modelSelection: null, parentTaskId: parent.id, sourcePermissionVersion: parent.permissionVersion, accessMode: parent.accessMode, grantedPaths: parent.grantedPaths,
         readScope: { paths: [], sourceRefs: [], workCopyHost: { version: 1, parentTaskId: parent.id, workId: input.workId, operation: input.operation, source, units: [], stopVerified: null } } }).task;
+      const codeSource = getCodeScheduledTaskSource(this.store, parent.id);
+      if (codeSource) bindCodeScheduleTask(this.store, { runId: codeSource.runId, taskId: task.id, sourceTaskId: parent.id });
       if (!this.store.tryAcquireOccupancy({ cwdReal: copyReal, cwdDev: copyStat.dev, cwdIno: copyStat.ino, sessionId: parent.sessionId, taskId: task.id })) {
         throw new WorkCopyError("busy", "工作副本仍被占用或待核实，保留现场，请等待执行结束或核实后恢复队列");
       }
@@ -1013,6 +1019,17 @@ export class Runtime {
     runtime.telegram.start();
     // 恢复与角色引导完成后才开放调度事件派发与发送（ruukoto-code 无调度器）
     runtime.scheduler?.start();
+    if (fullConfig.product.codeScheduler) {
+      runtime.codeScheduler = new CodeScheduler({ store: runtime.store,
+        prepare: async config => {
+          const check = await runtime.models.resolveSelection(config.modelSelection);
+          runtime.launcherFor(config.permission);
+          return check;
+        }, outcome: run => runtime.codeScheduledRunOutcome(run), cancel: run => runtime.cancelCodeScheduledRun(run),
+        kick: sessionId => runtime.kick(sessionId), now: fullConfig.scheduler?.now, tickMs: fullConfig.scheduler?.tickMs });
+      runtime.addEventListener(() => runtime.codeScheduler?.kick());
+      runtime.codeScheduler.start();
+    }
     runtime.imWorkflows.sweep();
     if (fullConfig.githubWebhook) {
       try {
@@ -1041,12 +1058,13 @@ export class Runtime {
 
   private workflowSource(taskId: string, ownerControl = false, delegation = false): WorkflowSource {
     const task = this.store.getTask(taskId);
+    const codeSource = task ? getCodeScheduledTaskSource(this.store, task.id) : null;
     const session = task ? this.store.getSession(task.sessionId) : null;
     const identity = session ? this.store.getSessionIdentity(session.id) : null;
     const event = task?.sourceEventId ? this.store.getInboundEvent(task.sourceEventId) : null;
     if (this.stopping || !task || !session || !identity || !["dev", "main", "scheduled"].includes(identity.kind) || task.planMode ||
         task.subAgentId || getWorkflowExecution(this.store, task.id) || getWorkflowDeliveryRun(this.store, task.id) || task.cancelRequested || !(delegation ? ["queued", "running", "awaiting_confirmation"] : ["running", "awaiting_confirmation"]).includes(task.status) || !task.modelSelection ||
-        (identity.kind === "dev" && (task.parentTaskId || task.sourceEventId)) ||
+        (identity.kind === "dev" && ((!codeSource && task.parentTaskId) || task.sourceEventId)) ||
         (identity.kind === "main" && (event ? ![QQ_PRIVATE_SOURCE, TELEGRAM_SOURCE].includes(event.source) || this.inboundGate(event) !== "run" :
           !ownerControl && !delegation && (task.agentId !== null || task.parentTaskId !== null || task.sourcePermissionVersion !== null)))) throw new WorkflowError("source_forbidden");
     const scheduled = this.store.getScheduledRunForTask(task.id);
@@ -1059,6 +1077,7 @@ export class Runtime {
     return { product: this.productType, projectId: session.projectId, sessionId: session.id, taskId: task.id, permissionVersion: task.permissionVersion,
       accessMode: task.accessMode, grantedPaths: task.grantedPaths, capabilities: sessionToolCategories(identity.kind === "scheduled" ? "main" : identity.kind === "main" ? "main" : "dev"),
       references: task.readScope?.sourceRefs ?? [], replyTarget: scheduled ? this.sched.getSchedule(this.sched.getRun(scheduled.id)!.scheduleId)?.target ?? null : event?.replyTarget ?? null, scheduledRunId: scheduled?.id ?? null,
+      ...(codeSource ? { codeScheduledRunId: codeSource.runId } : {}),
       authority: { toolClass: identity.kind === "dev" ? "dev" : "main", categories: this.delegationCategories(identity.kind === "dev" ? "dev" : "main"),
         grantIds: this.access.listGrants().filter(grant => grant.toProjectId === session.projectId).map(grant => grant.id),
         configuration: this.workflowConfiguration(session.projectId), workspace: { path: session.cwdReal, dev: session.cwdDev, ino: session.cwdIno } } };
@@ -1088,6 +1107,13 @@ export class Runtime {
     const identity = this.store.getSessionIdentity(source.sessionId);
     if (this.stopping || source.product !== this.productType || !task || task.sessionId !== source.sessionId || task.permissionVersion !== source.permissionVersion || task.accessMode !== source.accessMode || !isDeepStrictEqual(task.grantedPaths, source.grantedPaths) || !session || session.projectId !== source.projectId ||
         !identity || !["dev", "main", "scheduled"].includes(identity.kind)) return false;
+    try {
+      const codeSource = getCodeScheduledTaskSource(this.store, task.id);
+      if ((source.codeScheduledRunId ?? null) !== (codeSource?.runId ?? null)) return false;
+    } catch (error) {
+      if (!(error instanceof CodeScheduleError)) throw error;
+      return false;
+    }
     const event = task.sourceEventId ? this.store.getInboundEvent(task.sourceEventId) : null;
     const scheduled = this.store.getScheduledRunForTask(task.id);
     if (source.replyTarget) {
@@ -1209,8 +1235,9 @@ export class Runtime {
     }
     if (source.sessionId !== parent.sessionId || !this.verifyAgentWaitTarget(source, target)) throw new AgentWaitError("source_invalid");
     const scheduled = this.store.getScheduledRunForTask(parent.id);
+    const codeScheduled = getCodeScheduledTaskSource(this.store, parent.id);
     const event = parent.sourceEventId ? this.store.getInboundEvent(parent.sourceEventId) : null;
-    if (source.scheduledRunId !== (scheduled?.id ?? null) || (!source.scheduledRunId && !isDeepStrictEqual(source.replyTarget, event?.replyTarget ?? null))) throw new AgentWaitError("reply_target_mismatch");
+    if (source.scheduledRunId !== (scheduled?.id ?? null) || (source.codeScheduledRunId ?? null) !== (codeScheduled?.runId ?? null) || (!source.scheduledRunId && !isDeepStrictEqual(source.replyTarget, event?.replyTarget ?? null))) throw new AgentWaitError("reply_target_mismatch");
     return source;
   }
 
@@ -1238,7 +1265,7 @@ export class Runtime {
 
   private verifyAgentReportSources(taskId: string, finalReport = false): string | null {
     const current = this.store.getTask(taskId);
-    if (current && ["main", "scheduled"].includes(this.store.getSessionIdentity(current.sessionId)?.kind ?? "")) {
+    if (current && (["main", "scheduled"].includes(this.store.getSessionIdentity(current.sessionId)?.kind ?? "") || getCodeScheduleRunForTask(this.store, current.id))) {
       let child: Task | null = null;
       if (current.requestId.startsWith("wake:")) {
         child = this.store.getTask(current.requestId.slice("wake:".length));
@@ -1688,6 +1715,7 @@ export class Runtime {
       const task = this.store.insertQueuedTask({ sessionId: run.source.sessionId, requestId, input: workflowJson(input.params), submissionDigest: digest,
         modelSelection: null, parentTaskId: run.source.taskId, accessMode: run.source.accessMode, grantedPaths: run.source.grantedPaths,
         sourcePermissionVersion: run.source.permissionVersion }).task;
+      if (run.source.codeScheduledRunId) bindCodeScheduleTask(this.store, { runId: run.source.codeScheduledRunId, taskId: task.id, sourceTaskId: run.source.taskId });
       bindWorkflowExecution(this.store, { id: randomId("wfexec"), runId: run.id, stepKey: input.stepKey, kind: "host", taskId: task.id,
         number: listWorkflowExecutions(this.store, run.id).filter(execution => execution.kind === "host" && execution.stepKey === input.stepKey).length + 1,
         status: "queued", units: [], stopVerified: null });
@@ -1736,6 +1764,81 @@ export class Runtime {
   }
 
   githubWebhookAddress() { return this.githubWebhook?.address ?? null; }
+
+  private requireCodeScheduler(): CodeScheduler {
+    if (!this.codeScheduler) throw new RuntimeApiError("unavailable", "当前产品不提供 Code 定时计划。");
+    if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，请稍后核实原计划操作。");
+    return this.codeScheduler;
+  }
+  listCodeSchedules(input: { offset?: number; limit?: number; scope?: "current" | "history" } = {}) { return this.requireCodeScheduler().list(input); }
+  getCodeSchedule(input: { planId: string; runOffset?: number }) { return this.requireCodeScheduler().get(input); }
+  saveCodeSchedule(input: { requestId: string; planId?: string; expectedVersion?: number; config: CodeScheduleConfig }) { return this.requireCodeScheduler().save(input); }
+  controlCodeSchedule(input: { requestId: string; planId: string; expectedVersion: number; control: "pause" | "resume" | "cancel"; acknowledgeRunId?: string; expectedRunVersion?: number }) { return this.requireCodeScheduler().control(input); }
+  findCodeScheduleReceipt(input: { requestId: string }) { return this.requireCodeScheduler().find(input); }
+
+  private codeScheduledRunOutcome(run: CodeScheduleRun): import("./code-scheduler.ts").CodeScheduleOutcome {
+    const tasks = listCodeScheduleRunTasks(this.store, run.id), ids = new Set(tasks.map(task => task.id));
+    const active = tasks.filter(task => !isTerminalTaskStatus(task.status) && !isAgentReportParked(this.store, task.id));
+    const background = listActiveBackgroundProcesses(this.store).filter(process => ids.has(process.taskId));
+    const workflows = listWorkflowRuns(this.store).filter(workflow => workflow.source.codeScheduledRunId === run.id);
+    const occupied = this.store.listAllOccupancy().some(held => held.taskId ? ids.has(held.taskId) : background.some(process => process.id === held.processId));
+    const stopUnverified = (occupied && active.length === 0 && background.every(process => process.state !== "running")) || background.some(process => process.state === "stop_unverified") ||
+      tasks.some(task => { const host = workCopyHostFor(task); return host && host.units.length > 0 && host.stopVerified !== true; }) ||
+      workflows.some(workflow => workflowTerminal(workflow.status) && ((workflow.scriptUnits.length > 0 && workflow.scriptStopVerified !== true) || listWorkflowExecutions(this.store, workflow.id).some(execution => execution.status !== "queued" && execution.stopVerified !== true)));
+    const unknown = tasks.some(task => task.effectUnknown || this.store.listToolOpsByTask(task.id).some(op => op.effectUnknown));
+    if (stopUnverified) return { reason: "stop_unverified", recovery: "stop_unverified", canAcknowledge: false };
+    if (unknown) return { reason: "effect_unknown", recovery: "effect_unknown", canAcknowledge: active.length === 0 && !occupied && background.length === 0 && workflows.every(workflow => workflowTerminal(workflow.status)) };
+    if (active.length) return { reason: active.some(task => task.status === "awaiting_confirmation") ? "awaiting_confirmation" : active.some(task => task.status === "queued" && this.store.getSession(task.sessionId)?.queueState === "paused") ? "queue_paused" : active.some(task => task.status === "queued") ? "waiting_workspace" : "running" };
+    if (background.length || occupied) return { reason: "background_running" };
+    if (workflows.some(workflow => !workflowTerminal(workflow.status))) return { reason: "awaiting_workflow" };
+    if (tasks.some(task => !getWorkflowExecution(this.store, task.id) && !workCopyHostFor(task) && task.resultSummary === null)) return { reason: "awaiting_result" };
+    let deliveryFailure: string | null = null;
+    if (!run.cancelRequested) {
+      if (tasks.some(task => listOwnerQuestions(this.store, task.sessionId, 100).some(question => question.taskId === task.id && question.status === "pending"))) return { reason: "awaiting_answer" };
+      for (const child of tasks.filter(task => task.subAgentId && !getWorkflowExecution(this.store, task.id))) {
+        const problem = this.verifySubAgentSource(child, true);
+        if (problem) { deliveryFailure ??= problem; continue; }
+        if (child.workId && this.store.getWorkDelegation(child.workId)?.canceledAt) continue;
+        if (!child.resultDeliveredAt && !this.store.findTaskByRequest(run.sessionId, `wake:${child.id}`) && !["reported", "undelivered"].includes(getAgentReport(this.store, agentReportKey({ kind: "task", taskId: child.id }))?.status ?? "")) return { reason: "awaiting_report" };
+      }
+      for (const report of listAgentReports(this.store).filter(report => report.source.codeScheduledRunId === run.id && report.status === "pending")) {
+        if (!this.verifyAgentWaitTarget(report.source, report.target, true) || this.agentReportWorkCanceled(report)) deliveryFailure ??= "report_source_invalid";
+        else return { reason: "awaiting_report" };
+      }
+      for (const message of this.store.listPendingSubAgentMessages(run.sessionId)) {
+        const sender = this.store.getTask(message.fromTaskId), problem = sender ? this.verifySubAgentSource(sender, true) : "subagent_source_invalid";
+        if (problem) deliveryFailure ??= problem;
+        else return { reason: "awaiting_report" };
+      }
+      for (const workflow of workflows.filter(workflow => !workflow.delivery || !["reported", "undelivered"].includes(workflow.delivery.status))) {
+        if (!this.verifyWorkflowReport(workflow, true)) deliveryFailure ??= "workflow_source_invalid";
+        else return { reason: "awaiting_report" };
+      }
+    }
+    if (run.cancelRequested) return { status: "canceled", reason: "schedule_canceled" };
+    const failed = tasks.find(task => task.status !== "completed" && !isAgentReportParked(this.store, task.id));
+    const workflowFailed = workflows.some(workflow => workflow.status !== "succeeded" || workflow.delivery?.status === "undelivered");
+    return { status: failed?.status === "interrupted" ? "interrupted" : failed || workflowFailed || deliveryFailure ? "failed" : "completed", reason: failed?.errorMessage ?? deliveryFailure ?? (workflowFailed ? "workflow_failed" : null) };
+  }
+
+  private async cancelCodeScheduledRun(run: CodeScheduleRun): Promise<void> {
+    for (const workflow of listWorkflowRuns(this.store).filter(item => item.source.codeScheduledRunId === run.id && !workflowTerminal(item.status))) {
+      if (this.workflows) await this.workflows.control(workflow.id, `code-schedule-cancel:${run.id}`, workflow.version, { action: "cancel" });
+      else this.store.withTx(() => controlWorkflow(this.store, workflow.id, `code-schedule-cancel:${run.id}`, workflow.version, { action: "cancel" }));
+    }
+    const tasks = listCodeScheduleRunTasks(this.store, run.id);
+    this.store.withTx(() => {
+      for (const task of tasks) {
+        for (const question of listOwnerQuestions(this.store, task.sessionId, 100).filter(question => question.taskId === task.id && question.status === "pending")) cancelOwnerQuestion(this.store, { questionId: question.id, sessionId: question.sessionId, version: question.version, status: "stale" });
+        if (task.status === "queued") this.store.endTask(task.id, ["queued"], "canceled", { errorMessage: "schedule_canceled" });
+        else if (!isTerminalTaskStatus(task.status)) this.store.setCancelRequested(task.id, true);
+      }
+      invalidateAgentReports(this.store, listAgentReports(this.store).filter(report => report.source.codeScheduledRunId === run.id && report.status === "pending").map(report => report.key), "schedule_canceled");
+    });
+    for (const process of listActiveBackgroundProcesses(this.store).filter(process => tasks.some(task => task.id === process.taskId))) this.backgroundProcesses.requestStop(process.id, "schedule_canceled");
+    for (const task of tasks) if (!isTerminalTaskStatus(this.store.getTask(task.id)!.status) && !getWorkflowExecution(this.store, task.id)) await this.cancelTask(task.id, { reason: "schedule_canceled" });
+    await this.subagents!.flushPendingMessages(run.sessionId);
+  }
 
   // ---------- 调度器与通知（issue 03） ----------
 
@@ -2526,6 +2629,7 @@ export class Runtime {
   }
 
   async branchSession(input: { sessionId: string; name?: string; requestId: string }): Promise<Session> {
+    this.assertCodeScheduleSessionMutable(input.sessionId);
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝会话分支");
     return branchSession(this.branchDeps(), input);
   }
@@ -2558,6 +2662,7 @@ export class Runtime {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝上下文压缩");
     if (!this.config.product.manualCompaction) throw new RuntimeApiError("unavailable", "当前产品不提供手动上下文压缩");
     const session = this.getSession(input.sessionId);
+    this.assertCodeScheduleSessionMutable(session.id);
     if (this.store.getSessionIdentity(session.id)?.kind !== "dev") throw new RuntimeApiError("invalid_state", "只有普通开发会话可以手动压缩上下文");
     this.assertNoSessionCompaction(session.id);
     if (this.loopActive.has(session.id) || this.store.listTasksBySession(session.id).some(task => ACTIVE_TASK_STATUSES.includes(task.status))) {
@@ -2839,7 +2944,20 @@ export class Runtime {
   getSession(sessionId: string): Session {
     const session = this.store.getSession(sessionId);
     if (!session) throw new RuntimeApiError("not_found", "会话不存在");
-    return session;
+    return this.codeSessionView(session);
+  }
+
+  private codeSessionView(session: Session): Session {
+    const run = getCodeScheduleRunForSession(this.store, session.id);
+    return run ? { ...session, codeScheduleRunId: run.id, codeScheduleActive: run.closedAt === null } : session;
+  }
+
+  private assertCodeScheduleSessionMutable(sessionId: string): void {
+    if (getOpenCodeScheduleRunForSession(this.store, sessionId)) throw new RuntimeApiError("schedule_session_managed", "本轮由 Scheduled 管理；请在计划页修改未来配置，当前会话可处理审批、问题与停止。");
+  }
+
+  private assertCodeScheduleSelection(run: CodeScheduleRun, input: { modelSelection?: ModelSelection; accessMode?: SessionDefaultMode; grantedPaths?: GrantedPath[] }): void {
+    if ((input.modelSelection && !isDeepStrictEqual(input.modelSelection, run.snapshot.modelSelection)) || (input.accessMode !== undefined && input.accessMode !== run.snapshot.permission) || input.grantedPaths?.length) throw new RuntimeApiError("schedule_configuration_fixed", "本轮使用计划接纳时的模型和权限；刷新运行会话后继续。");
   }
 
   // Note: 见 .agents/notes/implemented/feature/2026-10-21-desktop-spotlight-search.md
@@ -2868,12 +2986,14 @@ export class Runtime {
   async setSessionModel(input: { sessionId: string; modelSelection: ModelSelection; expectedVersion: number }): Promise<Session> {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
     this.getSession(input.sessionId);
+    this.assertCodeScheduleSessionMutable(input.sessionId);
     if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 0) throw new RuntimeApiError("invalid_params", "expected_version 必须为非负整数");
     const selection = parseModelSelection(input.modelSelection);
     // 配置应用期间不得为受影响 provider 钉入新引用（与 §4 删除核实同一同步段语义）
     const check = await this.models.resolveSelection(selection);
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
     return this.store.withTx(() => {
+      this.assertCodeScheduleSessionMutable(input.sessionId);
       check();
       return this.store.setSessionModel(input.sessionId, selection, input.expectedVersion);
     });
@@ -2948,6 +3068,7 @@ export class Runtime {
   putAttachment(input: AttachmentUpload) {
     if (!input || typeof input.session_id !== "string" || !input.session_id) throw new RuntimeApiError("invalid_params", "请选择会话后附加文件。");
     const session = this.store.getSession(input.session_id);
+    this.assertCodeScheduleSessionMutable(input.session_id);
     if (!session || !["dev", "main"].includes(this.store.getSessionIdentity(session.id)?.kind ?? "")) throw new RuntimeApiError("attachment_scope", "请选择用户会话后附加文件。");
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，请稍后重新选择文件。");
     try { return this.attachments.put(input); }
@@ -3046,6 +3167,13 @@ export class Runtime {
     const submissionDigest = `request-v2:${digest(submission)}`;
     const existing = this.store.findMatchingSubmission({ sessionId: input.sessionId, requestId: input.requestId, submissionDigest });
     if (existing) return this.taskView(existing);
+    const codeRun = getOpenCodeScheduleRunForSession(this.store, session.id);
+    const codeSource = input.parentTaskId ? getCodeScheduledTaskSource(this.store, input.parentTaskId) : null;
+    if (codeRun) {
+      if (!internal || !codeSource || codeSource.runId !== codeRun.id) throw new RuntimeApiError("schedule_session_managed", "本轮由 Scheduled 管理；请从问题卡片回答，或使用已有任务的安全继续入口。");
+      this.assertCodeScheduleSelection(codeRun, input);
+      if (["effect_unknown", "stop_unverified"].includes(codeRun.reason ?? "") || listCodeScheduleRunTasks(this.store, codeRun.id).some(task => task.effectUnknown)) throw new RuntimeApiError("schedule_recovery_required", "本轮结果或停止尚未核实；请在 Scheduled 查看记录并完成恢复。");
+    } else if (codeSource) throw new RuntimeApiError("schedule_source_invalid", "定时任务的运行会话不匹配，未提交任务。");
     const attachments = this.attachments.prepare(session.id, input.attachments ?? []);
     this.assertNoSessionCompaction(input.sessionId);
     // 模型配置应用门闩（issue 21 §4）：幂等重试放行（不新建任务），
@@ -3075,6 +3203,8 @@ export class Runtime {
         // 之间"没有受影响任务钻过边界；重复提交先仲裁返回，不受门闩影响
         const raced = this.store.findMatchingSubmission({ sessionId: input.sessionId, requestId: input.requestId, submissionDigest });
         if (raced) return { task: raced, duplicate: true };
+        if (codeSource) getCodeScheduledTaskSource(this.store, codeSource.taskId);
+        else this.assertCodeScheduleSessionMutable(session.id);
         this.assertNoSessionCompaction(input.sessionId);
         check();
         const reportKeys = input.reportKeys ?? (input.reportKey ? [input.reportKey] : []);
@@ -3124,9 +3254,10 @@ export class Runtime {
           deadline,
         });
         if (!queued.duplicate) this.attachments.bind(queued.task.id, session.id, attachments);
+        if (codeSource) bindCodeScheduleTask(this.store, { runId: codeSource.runId, taskId: queued.task.id, sourceTaskId: codeSource.taskId });
         if (input.ownerAnswer) consumeOwnerQuestion(this.store, { questionId: input.ownerAnswer.questionId, sessionId: session.id,
           version: input.ownerAnswer.version, requestKey: input.requestId, requestDigest: submissionDigest,
-          answers: input.ownerAnswer.answers, source: { kind: "coding-owner", sessionId: session.id }, taskId: queued.task.id });
+          answers: input.ownerAnswer.answers, source: { ...getCodingTaskOrigin(this.store, queued.task.id)!, sessionId: session.id }, taskId: queued.task.id });
         if (ordinaryInbound) this.store.markInboundQueued(ordinaryInbound.id, queued.task.id);
         if (workflow) updateWorkflowRun(this.store, { ...workflow, delivery: { ...workflow.delivery!, taskId: queued.task.id, status: "queued" } });
         for (const key of reportKeys) bindAgentReportFallback(this.store, key, queued.task.id);
@@ -3204,9 +3335,12 @@ export class Runtime {
     const question = getOwnerQuestion(this.store, input.questionId);
     if (!question || question.sessionId !== input.sessionId) throw new RuntimeApiError("question_missing", "问题已不可用，请刷新问题卡片。");
     const answers = parseOwnerAnswers(input.answers, question.questions);
+    const run = getCodeScheduleRunForTask(this.store, question.taskId);
+    if (run) this.assertCodeScheduleSelection(run, input);
     const text = "[拥有者问题回答]\n" + question.questions.map((item, index) => `${index + 1}. ${item.question}${item.multiple ? "（多选）" : ""}${item.options ? `\n选项：${JSON.stringify(item.options)}` : ""}\n回答：${answers[index].text}`).join("\n\n");
     return this.submit({ sessionId: input.sessionId, requestId: input.requestId, input: text, modelSelection: input.modelSelection,
-      accessMode: input.accessMode, grantedPaths: input.grantedPaths,
+      accessMode: run ? run.snapshot.permission : input.accessMode, grantedPaths: input.grantedPaths,
+      ...(run ? { parentTaskId: question.taskId, sourcePermissionVersion: this.store.getTask(question.taskId)!.permissionVersion } : {}),
       ownerAnswer: { questionId: input.questionId, version: input.version, answers } }, true);
   }
 
@@ -3243,6 +3377,11 @@ export class Runtime {
   async continueTask(input: { taskId: string; sessionId?: string; requestId: string; input: string; attachments?: AttachmentMetadata[]; accessMode?: SessionDefaultMode; grantedPaths?: GrantedPath[]; modelSelection: ModelSelection }): Promise<TaskView> {
     const old = this.store.getTask(input.taskId);
     if (!old) throw new RuntimeApiError("not_found", `任务不存在：${input.taskId}`);
+    const run = getOpenCodeScheduleRunForSession(this.store, old.sessionId);
+    if (run) {
+      this.assertCodeScheduleSelection(run, input);
+      if (old.effectUnknown || this.store.listToolOpsByTask(old.id).some(op => op.effectUnknown)) throw new RuntimeApiError("schedule_recovery_required", "本轮有未知操作效果；请在 Scheduled 核对记录后仅恢复未来周期。");
+    }
     if (this.store.listToolOpsByTask(old.id).some(op => op.mcp && op.effectUnknown)) throw new RuntimeApiError("cua_task_not_replayable", "电脑操作结果未知的旧任务不能继续；请完成电脑恢复后发起新工作。");
     if (getWorkflowExecution(this.store, old.id)) throw new RuntimeApiError("invalid_state", "工作流执行由运行恢复，不接受普通任务继续");
     if (workCopyHostFor(old)) throw new RuntimeApiError("invalid_state", "宿主工作副本操作不能作为模型任务继续；请核实保留现场后重新发起工作");
@@ -3255,11 +3394,12 @@ export class Runtime {
       requestId: input.requestId,
       input: input.input,
       attachments: input.attachments,
-      accessMode: input.accessMode,
+      accessMode: run ? run.snapshot.permission : input.accessMode,
       grantedPaths: input.grantedPaths,
       resumesTaskId: old.id,
       modelSelection: input.modelSelection,
-    });
+      ...(run ? { parentTaskId: old.id, sourcePermissionVersion: old.permissionVersion } : {}),
+    }, Boolean(run));
   }
 
   /**
@@ -3274,6 +3414,7 @@ export class Runtime {
   async setSessionArchived(input: { sessionId: string; archived: boolean }): Promise<Session> {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
     this.getSession(input.sessionId);
+    this.assertCodeScheduleSessionMutable(input.sessionId);
     if (typeof input.archived !== "boolean") throw new RuntimeApiError("invalid_params", "archived 必须是布尔值");
     const kind = this.store.getSessionIdentity(input.sessionId)?.kind;
     if (kind !== "dev" && kind !== "main") throw new RuntimeApiError("invalid_state", "宿主独立执行会话不能存档");
@@ -3288,6 +3429,7 @@ export class Runtime {
   async setSessionDefaultMode(input: { sessionId: string; mode: SessionDefaultMode; expectedVersion: number }): Promise<Session> {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止");
     this.getSession(input.sessionId);
+    this.assertCodeScheduleSessionMutable(input.sessionId);
     if (["subagent", "scheduled"].includes(this.store.getSessionIdentity(input.sessionId)?.kind ?? "")) {
       throw new RuntimeApiError("invalid_state", "宿主独立执行会话不允许修改默认模式");
     }
@@ -3317,6 +3459,7 @@ export class Runtime {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝模式切换");
     const task = this.store.getTask(input.taskId);
     if (!task) throw new RuntimeApiError("not_found", `任务不存在：${input.taskId}`);
+    this.assertCodeScheduleSessionMutable(task.sessionId);
     if (getWorkflowExecution(this.store, task.id) || task.subAgentId || ["subagent", "scheduled"].includes(this.store.getSessionIdentity(task.sessionId)?.kind ?? "")) {
       throw new RuntimeApiError("invalid_state", "独立执行任务的权限模式由宿主保存的来源授权决定，不允许切换");
     }
@@ -3752,6 +3895,22 @@ export class Runtime {
       if (!session || session.queueState !== "active") return;
       const task = this.store.listQueuedTasksFifo(sessionId).find(candidate => !isAgentReportParked(this.store, candidate.id));
       if (!task) return;
+      const codeRun = getCodeScheduleRunForTask(this.store, task.id);
+      if (codeRun) {
+        try { getCodeScheduledTaskSource(this.store, task.id); }
+        catch (error) {
+          if (!(error instanceof CodeScheduleError)) throw error;
+          if (this.store.getTask(task.id)?.status === "queued") await this.cancelTask(task.id, { reason: error.code });
+          continue;
+        }
+        if (["effect_unknown", "stop_unverified"].includes(codeRun.reason ?? "") || listCodeScheduleRunTasks(this.store, codeRun.id).some(item => item.effectUnknown)) {
+          this.store.withTx(() => {
+            this.store.setSessionQueueState(sessionId, "paused", "schedule_recovery_required");
+            this.store.appendEvent({ type: "session.queue_paused", sessionId, reason: "schedule_recovery_required" }, { sessionId });
+          });
+          return;
+        }
+      }
       const fallback = listAgentReports(this.store, { taskId: task.id }).find(report => report.fallbackTaskId === task.id && report.status === "pending");
       if (fallback) {
         await this.routeAgentReportGroup(fallback);
@@ -3813,6 +3972,7 @@ export class Runtime {
       } catch (err) {
         if (!(err instanceof DirIdentityError) && (!(err instanceof WorkspaceSnapshotError) || !["target_corrupt", "snapshot_missing", "snapshot_corrupt"].includes(err.code))) throw err;
         this.store.withTx(() => {
+          if (codeRun) pauseCodeSchedule(this.store, { planId: codeRun.scheduleId, reason: "schedule_workspace_invalid" });
           this.store.endTask(task.id, ["queued"], "failed", {
             errorMessage: err instanceof WorkspaceSnapshotError ? `${err.code}：${err.message}` : err.message,
             endedAt: new Date().toISOString(),
@@ -3830,6 +3990,7 @@ export class Runtime {
             if (work && workflowSlotsUsed(this.store, work.parentSessionId) >= 3) throw new DirOccupiedError();
           }
           const scheduled = this.store.getScheduledRunForTask(task.id);
+          if (codeRun) getCodeScheduledTaskSource(this.store, task.id);
           if (scheduled && (scheduled.closedAt || scheduled.scheduleStatus === "canceled")) {
             this.store.endTask(task.id, ["queued"], "canceled", { errorMessage: "schedule_canceled" });
             return;
@@ -3855,6 +4016,10 @@ export class Runtime {
       } catch (err) {
         if (err instanceof DirOccupiedError) return; // 等待占用释放后的唤醒
         if (err instanceof TaskGoneError) continue; // 已被取消或后台停止，取下一个
+        if (err instanceof CodeScheduleError) {
+          if (this.store.getTask(task.id)?.status === "queued") await this.cancelTask(task.id, { reason: err.code });
+          continue;
+        }
         if (err instanceof WorkspaceSnapshotError && ["target_corrupt", "snapshot_missing", "snapshot_corrupt"].includes(err.code)) {
           this.store.withTx(() => this.store.endTask(task.id, ["queued"], "failed", { errorMessage: `${err.code}：${err.message}` }));
           continue;
@@ -4209,6 +4374,11 @@ export class Runtime {
   async resumeQueue(sessionId: string, selection?: ModelSelection): Promise<Session> {
     const session = this.store.getSession(sessionId);
     if (!session) throw new RuntimeApiError("not_found", `会话不存在：${sessionId}`);
+    const codeRun = getOpenCodeScheduleRunForSession(this.store, sessionId);
+    if (codeRun) {
+      getCodeScheduledTaskSource(this.store, codeRun.rootTaskId);
+      this.assertCodeScheduleSelection(codeRun, { modelSelection: selection });
+    }
     if (this.store.countLegacyQueuedTasks(sessionId) > 0 && !selection) {
       throw new RuntimeApiError("model_selection_required", "旧排队任务未记录模型配置；请显式确认 model_selection 后恢复队列");
     }
@@ -4217,6 +4387,7 @@ export class Runtime {
     let parentSessionId: string | null = null;
     let releasedOccupancy = false;
     this.store.withTx(() => {
+      if (codeRun) getCodeScheduledTaskSource(this.store, codeRun.rootTaskId);
       check?.();
       if (this.store.countLegacyQueuedTasks(sessionId) > 0) {
         if (!selection) throw new RuntimeApiError("model_selection_required", "请显式确认旧任务的模型配置");
@@ -4243,8 +4414,10 @@ export class Runtime {
         if (err instanceof SubAgentDelegationError) throw new RuntimeApiError(err.code, err.message);
         throw err;
       }
-      this.store.setSessionQueueState(sessionId, "active", null);
-      this.store.appendEvent({ type: "session.queue_resumed", sessionId }, { sessionId });
+      const recovery = codeRun && ["effect_unknown", "stop_unverified"].includes(codeRun.reason ?? "");
+      if (recovery) for (const task of listCodeScheduleRunTasks(this.store, codeRun.id).filter(task => task.status === "queued")) this.store.endTask(task.id, ["queued"], "canceled", { errorMessage: "schedule_recovery_required" });
+      this.store.setSessionQueueState(sessionId, recovery ? "paused" : "active", recovery ? "schedule_recovery_required" : null);
+      this.store.appendEvent(recovery ? { type: "session.queue_paused", sessionId, reason: "schedule_recovery_required" } : { type: "session.queue_resumed", sessionId }, { sessionId });
     });
     if (releasedOccupancy) {
       const driver = this.drivers.get(sessionId);
@@ -4341,10 +4514,11 @@ export class Runtime {
     subAgents: SubAgent[];
     ownerQuestions: OwnerQuestionView[];
     backgroundProcesses: BackgroundProcessView[];
+    codeScheduleRuns: CodeScheduleRun[];
     seq: number;
   } {
     // 有界快照：全部活动任务 + 每个会话最近结束的若干任务；更早的经 list_tasks 分页
-    const sessions = this.store.listSessions();
+    const sessions = this.store.listSessions().map(session => this.codeSessionView(session));
     const tasks: Task[] = [];
     for (const session of sessions) {
       const all = this.store.listTasksBySession(session.id);
@@ -4378,6 +4552,7 @@ export class Runtime {
       subAgents: this.store.listSubAgents(),
       ownerQuestions: sessions.flatMap(session => this.listOwnerQuestions(session.id).questions),
       backgroundProcesses: sessions.flatMap(session => this.listBackgroundProcesses(session.id).processes),
+      codeScheduleRuns: this.codeScheduleRunSnapshot(),
       seq: this.store.getMaxSeq(),
     };
     let questionBytes = 0;
@@ -4389,7 +4564,24 @@ export class Runtime {
     let backgroundBytes = 0;
     snapshot.backgroundProcesses = snapshot.backgroundProcesses.filter(record => { backgroundBytes += frameBytes(record); return backgroundBytes <= 128 * 1024; });
     while (snapshot.backgroundProcesses.length && frameBytes(snapshot) > SEGMENT_MAX_BYTES) snapshot.backgroundProcesses.pop();
+    while (snapshot.codeScheduleRuns.length && frameBytes(snapshot) > SEGMENT_MAX_BYTES) snapshot.codeScheduleRuns.pop();
     return snapshot;
+  }
+
+  private codeScheduleRunSnapshot(): CodeScheduleRun[] {
+    const runs = new Map(listOpenCodeScheduleRuns(this.store).map(run => [run.id, run]));
+    for (const plan of listCodeSchedules(this.store, { limit: 100 }).plans) {
+      const latest = listCodeScheduleRuns(this.store, { planId: plan.id, limit: 1 }).runs[0];
+      if (latest) runs.set(latest.id, latest);
+    }
+    const result: CodeScheduleRun[] = [];
+    let bytes = 0;
+    for (const run of runs.values()) {
+      const size = frameBytes(run);
+      if (bytes + size > 128 * 1024) break;
+      result.push(run); bytes += size;
+    }
+    return result;
   }
 
   // ---------- 工作委托与 SubAgent（agent-direction issue 11；只读视图） ----------
@@ -4545,7 +4737,9 @@ export class Runtime {
   // Note: 见 .agents/notes/implemented/feature/2026-10-14-internal-report-visibility.md
   private taskView(task: Task): TaskView {
     const wait = listAgentWaits(this.store, { taskId: task.id }).at(-1);
+    const codeRun = getCodeScheduleRunForTask(this.store, task.id);
     return { ...task, inputPurpose: getWorkflowDeliveryRun(this.store, task.id) || isAgentReportFallback(this.store, task.id) ? "internal_report" : "user",
+      ...(codeRun ? { codeScheduleRunId: codeRun.id } : {}),
       ...(isAgentReportFallback(this.store, task.id) ? { reportParked: isAgentReportParked(this.store, task.id) } : {}),
       ...(wait ? { wait: agentWaitView(this.store, wait) } : {}),
       ...(["running", "awaiting_confirmation"].includes(task.status) ? { resourcePhase: this.store.listAllOccupancy().some(held => held.taskId === task.id) ? "execution" as const : "conversation" as const } : {}) };
@@ -5337,6 +5531,7 @@ export class Runtime {
 
     // 调度器先行停止（issue 03）：停止扫描与领取，中止并等待在途发送收尾；
     // 之后编排器等待派发链，关闭数据库前不再有发送回调写库
+    await this.codeScheduler?.stop();
     await this.scheduler?.stop().catch(() => {});
     // Telegram 轮询停止（issue 04）：之后不再登记入站事件、不再写轮询偏移
     await this.telegram.stop().catch(() => {});

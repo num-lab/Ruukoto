@@ -44,6 +44,7 @@ import type { SourceResolver } from "@ruukoto/channels/source-resolver.ts";
 import type { HistoryEntryView } from "@ruukoto/core/history.ts";
 import { QQ_PRIVATE_SOURCE,TELEGRAM_SOURCE } from "@ruukoto/core/notify-target.ts";
 import type { Store } from "@ruukoto/core/store.ts";
+import { getCodeScheduledTaskSource } from "@ruukoto/core/code-scheduler.ts";
 import { AccessScope } from "@ruukoto/core/access.ts";
 import { RuntimeApiError } from "@ruukoto/core/api-error.ts";
 import { sourceArtifact, sourceResultTasks } from "@ruukoto/core/branch.ts";
@@ -194,6 +195,7 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
    */
   const ownerOriginated = (task: Task): boolean => {
     if (task.subAgentId) return false;
+    if (getCodeScheduledTaskSource(store, task.id)) return true;
     if (store.getSessionIdentity(task.sessionId)?.kind === "scheduled") return true;
     if (task.sourceEventId) {
       const source = store.getInboundEvent(task.sourceEventId)?.source;

@@ -63,6 +63,8 @@ export function Composer({ model, session }: { model: CodeState; session: Sessio
   const online = model.status.state === "online";
   const checking = writes.checking(session.id);
   const blocked = writes.blocked(session.id);
+  const scheduled = !!session.codeScheduleActive;
+  const inputLocked = scheduled && !draft.taskId;
   const attachments = draft.attachments ?? [];
   const hasInput = !!draft.text.trim() || attachments.length > 0;
   const active = model.view.activeTaskFor(session.id);
@@ -74,7 +76,7 @@ export function Composer({ model, session }: { model: CodeState; session: Sessio
   useEffect(() => { if (model.view.openSession(session.id).historyLoaded && model.view.openSession(session.id).flow.items.length === 0) input.current?.focus(); }, [model, session.id, model.view.openSession(session.id).historyLoaded]);
   useEffect(() => { void writes.preparePending(session.id); }, [writes, session.id, writes.entries, model.view.instanceId, online]);
   function send() {
-    if (blocked || picking) return;
+    if (blocked || picking || inputLocked && !stopping) return;
     if (stopping) { void writes.control("interrupt", session.id, active!.id); return; }
     void writes.send(session.id);
   }
@@ -93,6 +95,7 @@ export function Composer({ model, session }: { model: CodeState; session: Sessio
     finally { draft.attaching = false; model.refresh(); }
   }
   return <div className="composer-wrap"><div className="composer-width">
+    {scheduled && <div className="task-notice"><span>定时运行由 Scheduled 管理；本轮结束后可发送普通消息。</span></div>}
     {session.queueState === "paused" && <div className="task-notice"><Pause /><span>队列暂停 · {model.view.queuedTasksFor(session.id).length} 个任务等待继续</span><Button variant="ghost" size="sm" disabled={!online || blocked} onClick={() => {
       if (decision.kind === "select_model") { writes.message = "旧排队任务缺少模型，请先选择模型。"; model.refresh(); }
       else if (decision.kind === "confirm") setQueueConfirm(true);
@@ -101,9 +104,9 @@ export function Composer({ model, session }: { model: CodeState; session: Sessio
     {draft.taskId && <div className="task-notice"><span>正在继续中断的任务</span><Button variant="ghost" size="sm" disabled={checking} onClick={() => { delete draft.taskId; writes.edit(session.id, draft.text); }}>改为新任务</Button></div>}
     <form className="surface-composer composer" onSubmit={event => { event.preventDefault(); send(); }}>
       {attachments.length > 0 && <div className="attached-files" aria-label="已附加文件">{attachments.map(attachment => <span className="attachment-chip" key={attachment.id}><FileCode2 /><span>{attachment.name}</span><button type="button" disabled={checking} aria-label={`移除附件 ${attachment.name}`} onClick={() => { draft.attachments = attachments.filter(item => item.id !== attachment.id); model.refresh(); }}><X /></button></span>)}</div>}
-      <Textarea ref={input} aria-label="输入消息" rows={2} readOnly={checking} value={draft.text} placeholder={draft.taskId ? "输入继续任务的指示…" : "描述你想做的事…"} onChange={event => writes.edit(session.id, event.target.value)} onKeyDown={event => submitOnEnter(event, hasInput && !blocked && !picking && !!session.modelSelection, send)} />
-      <div className="composer-actions"><div className="composer-left"><IconButton className="attachment-button" label="附加文件" disabled={blocked || picking || attachments.length >= MAX_ATTACHMENTS} onClick={() => void attach()}><Plus /></IconButton><ModeSelector value={session.defaultAccessMode} modes={availableModes} disabled={blocked} onChange={mode => void writes.setMode(session, mode)} /></div>
-        <div className="composer-right"><ContextIndicator context={model.context.get(session.id)} onOpen={() => void model.context.load(session.id)} /><ModelSelector models={writes.models} selected={selected} loading={() => void writes.loadModels()} disabled={blocked} onChange={selection => void writes.setModel(session, selection)} /><Button size="icon" className="send-button" type="submit" disabled={blocked || picking || (!stopping && (!hasInput || !session.modelSelection))} aria-label={checking ? "正在核实输入" : stopping ? "停止任务" : draft.taskId ? "发送并继续" : "发送消息"} aria-busy={checking}>{checking ? <Loader2 className="animate-spin" /> : stopping ? <Square fill="currentColor" /> : <ArrowUp />}</Button></div>
+      <Textarea ref={input} aria-label="输入消息" rows={2} readOnly={checking || inputLocked} value={draft.text} placeholder={draft.taskId ? "输入继续任务的指示…" : "描述你想做的事…"} onChange={event => writes.edit(session.id, event.target.value)} onKeyDown={event => submitOnEnter(event, hasInput && !blocked && !picking && !inputLocked && !!session.modelSelection, send)} />
+      <div className="composer-actions"><div className="composer-left"><IconButton className="attachment-button" label="附加文件" disabled={blocked || picking || inputLocked || attachments.length >= MAX_ATTACHMENTS} onClick={() => void attach()}><Plus /></IconButton><ModeSelector value={session.defaultAccessMode} modes={availableModes} disabled={blocked || scheduled} onChange={mode => void writes.setMode(session, mode)} /></div>
+        <div className="composer-right"><ContextIndicator context={model.context.get(session.id)} onOpen={() => void model.context.load(session.id)} /><ModelSelector models={writes.models} selected={selected} loading={() => void writes.loadModels()} disabled={blocked || scheduled} onChange={selection => void writes.setModel(session, selection)} /><Button size="icon" className="send-button" type="submit" disabled={blocked || picking || (!stopping && (inputLocked || !hasInput || !session.modelSelection))} aria-label={checking ? "正在核实输入" : stopping ? "停止任务" : draft.taskId ? "发送并继续" : "发送消息"} aria-busy={checking}>{checking ? <Loader2 className="animate-spin" /> : stopping ? <Square fill="currentColor" /> : <ArrowUp />}</Button></div>
       </div>
     </form>
   </div><Dialog open={queueConfirm && decision.kind === "confirm"} onOpenChange={setQueueConfirm}><DialogContent className="demo-dialog"><DialogHeader><DialogTitle>恢复队列</DialogTitle><DialogDescription>{decision.kind === "confirm" ? `为 ${decision.count} 个旧任务补齐 ${decision.selection.modelId} · ${decision.selection.thinkingLevel}，然后恢复队列。` : ""}</DialogDescription></DialogHeader><DialogFooter><Button variant="ghost" onClick={() => setQueueConfirm(false)}>取消</Button><Button disabled={blocked} onClick={() => { setQueueConfirm(false); void writes.resume(session, true); }}>补齐模型并恢复</Button></DialogFooter></DialogContent></Dialog></div>;

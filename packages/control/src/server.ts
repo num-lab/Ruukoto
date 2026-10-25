@@ -21,6 +21,7 @@ import type { Runtime } from "@ruukoto/runtime/runtime.ts";
 import * as fs from "node:fs";
 import * as net from "node:net";
 import { parseWorkflowControl } from "@ruukoto/core/workflow.ts";
+import { parseCodeScheduleConfig } from "@ruukoto/core/code-scheduler.ts";
 import { ensureOwnerToken,tokenMatches } from "./owner-token.ts";
 import {
   CONTROL_PROTOCOL_VERSION,
@@ -279,6 +280,7 @@ export class ControlServer {
             subAgents: snapshot.subAgents,
             ownerQuestions: snapshot.ownerQuestions,
             backgroundProcesses: snapshot.backgroundProcesses,
+            codeScheduleRuns: snapshot.codeScheduleRuns,
           },
         };
         if (since > 0 && Buffer.byteLength(encodeFrame({ v: CONTROL_PROTOCOL_VERSION, id: request.id, ok: true, result }), "utf8") > MAX_FRAME_BYTES) {
@@ -450,6 +452,32 @@ export class ControlServer {
       }
       case "put_attachment":
         return runtime.putAttachment(params as unknown as import("@ruukoto/core/attachments.ts").AttachmentUpload);
+      case "code_schedules": {
+        workflowParams("offset", "limit", "scope");
+        if (params.scope !== undefined && params.scope !== "current" && params.scope !== "history") throw new RuntimeApiError("invalid_params", "请选择当前计划或历史计划。");
+        return runtime.listCodeSchedules({ offset: workflowInt("offset", 0), limit: workflowInt("limit", 30, 1, 100), scope: params.scope });
+      }
+      case "code_schedule":
+        workflowParams("plan_id", "run_offset");
+        return runtime.getCodeSchedule({ planId: requireString("plan_id"), runOffset: workflowInt("run_offset", 0) });
+      case "code_schedule_save": {
+        workflowParams("request_id", "plan_id", "expected_version", "config");
+        const planId = params.plan_id === undefined ? undefined : requireString("plan_id");
+        const expectedVersion = params.expected_version === undefined ? undefined : workflowInt("expected_version", 0, 1);
+        if (!!planId !== (expectedVersion !== undefined)) throw new RuntimeApiError("invalid_params", "编辑计划须带当前版本；新建计划不接受版本。");
+        return runtime.saveCodeSchedule({ requestId: requireString("request_id"), planId, expectedVersion, config: parseCodeScheduleConfig(params.config) });
+      }
+      case "code_schedule_control": {
+        workflowParams("request_id", "plan_id", "expected_version", "control", "acknowledge_run_id", "expected_run_version");
+        if (params.control !== "pause" && params.control !== "resume" && params.control !== "cancel") throw new RuntimeApiError("invalid_params", "请选择暂停、恢复或取消计划。");
+        if (params.acknowledge_run_id !== undefined && params.control !== "resume") throw new RuntimeApiError("invalid_params", "未知结果确认只用于恢复计划。");
+        if ((params.acknowledge_run_id !== undefined) !== (params.expected_run_version !== undefined)) throw new RuntimeApiError("invalid_params", "确认未知结果须核对当前运行版本。");
+        return runtime.controlCodeSchedule({ requestId: requireString("request_id"), planId: requireString("plan_id"), expectedVersion: workflowInt("expected_version", 0, 1), control: params.control,
+          acknowledgeRunId: params.acknowledge_run_id === undefined ? undefined : requireString("acknowledge_run_id"), expectedRunVersion: params.expected_run_version === undefined ? undefined : workflowInt("expected_run_version", 0, 1) });
+      }
+      case "code_schedule_receipt":
+        workflowParams("request_id");
+        return runtime.findCodeScheduleReceipt({ requestId: requireString("request_id") });
       case "background_processes": {
         workflowParams("session_id", "offset");
         return runtime.listBackgroundProcesses(requireString("session_id"), workflowInt("offset", 0));

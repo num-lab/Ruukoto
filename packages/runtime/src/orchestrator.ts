@@ -17,6 +17,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { RuntimeApiError } from "@ruukoto/core/api-error.ts";
 import type { Store } from "@ruukoto/core/store.ts";
+import { getOpenCodeScheduleRunForSession } from "@ruukoto/core/code-scheduler.ts";
 import type { HistoryEntryView } from "@ruukoto/core/history.ts";
 import { QQ_GROUP_SOURCE, type QqStore } from "@ruukoto/channels/qq/store.ts";
 import {
@@ -206,7 +207,7 @@ export class Orchestrator {
       if (identity?.kind === "scheduled" && this.store.scheduledRunCanResume(identity.runId)) {
         await this.resumeRestartPausedQueue(session.id, `调度运行 ${identity.runId}`);
       }
-      if (identity?.kind === "dev" && this.store.listQueuedTasksFifo(session.id).length > 0 &&
+      if (identity?.kind === "dev" && !getOpenCodeScheduleRunForSession(this.store, session.id) && this.store.listQueuedTasksFifo(session.id).length > 0 &&
           this.store.listQueuedTasksFifo(session.id).every(task => getWorkflowDeliveryRun(this.store, task.id) || this.deps.parentDelivery.needsResult?.(task))) {
         await this.resumeRestartPausedQueue(session.id, "内部最终汇总");
       }

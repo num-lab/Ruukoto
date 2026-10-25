@@ -26,7 +26,7 @@
 
 **后台启动。** `ensureBackend` 接收目标的 `dataDir`、`agentDir`、`controlDir`；`spawnExecPath` 指定 Node 可执行文件，默认 `process.execPath`；`spawnArgv` 只含 bin 与服务参数。`env` 只传给子进程，路径与令牌解析仍读取调用方环境。探测到已运行后台返回 `{ ok: true, spawned: false }`；本次拉起就绪返回 `{ ok: true, spawned: true }`；失败返回 `{ ok: false, error }`。后台 detached 并 unref，客户端退出不停止后台。
 
-**监听点与帧。** 服务在 `<controlDir>/control.sock` 监听。请求是 `{v, id, op, params}`，应答是 `{v, id, ok, result|error}`，事件推送是 `{v, push:"event", event}`；每帧一行 JSON 加换行，空行忽略。当前协议版本是 `40`（`CONTROL_PROTOCOL_VERSION`，与 `PROTOCOL_VERSION` 同值）。
+**监听点与帧。** 服务在 `<controlDir>/control.sock` 监听。请求是 `{v, id, op, params}`，应答是 `{v, id, ok, result|error}`，事件推送是 `{v, push:"event", event}`；每帧一行 JSON 加换行，空行忽略。当前协议版本是 `41`（`CONTROL_PROTOCOL_VERSION`，与 `PROTOCOL_VERSION` 同值）。
 
 **拥有者认证。** 连接建立后第一个成功的操作必须是 `auth`（参数 `token`）。认证成功前，服务端对其他 op 一律回 `unauthorized`，不返回快照、不执行请求；连接保留，可以再次认证。令牌是 32 字节随机数的 hex，写入控制目录的 `owner.token`（0600）：缺失或内容去空白后不足 32 字符时后台启动时生成，已存在则复用。多用户部署由配置步骤把令牌以 0400、属主为拥有者放到拥有者可读的位置，再用 `RUUKOTO_OWNER_TOKEN_FILE` 指向它。
 
@@ -94,6 +94,8 @@
 `mcp_list` 返回当前实例服务，配置、事件与凭据引用视图不含项目归属。旧 `mcp_sources` 操作不支持，旧 `project_id`、`workspace_id`、`selected_project_id` 参数明确拒绝，不转成实例写入。`mcp_save_credential` 只创建新绑定，不覆盖同名项；`mcp_remove_credential` 只移除实例 MCP 专用凭据，任一服务仍引用则拒绝，通用凭据删除也核对引用。
 
 ## 数据与状态
+
+Code 专属 `code_schedules`、`code_schedule`、`code_schedule_save/control/receipt` 均经拥有者认证，字段严格校验，来源和运行归属不接受客户端指定；旧 `schedule_*` 仍查询旧账本。保存与控制按稳定请求键、摘要和预期版本仲裁，恢复未知还绑定运行版本；丢答查原回执。`code_schedule.changed/run_changed/task_bound`、会话的 `codeScheduleRunId/codeScheduleActive` 和任务的 `codeScheduleRunId` 支持 live、重放及快照恢复，活动会话的输入与配置守卫由 Runtime 执行。
 
 `search_history` 与 `list_session_summaries` 的可选 `scope: "workspace_chats"` 仅向 Code 开放，覆盖后台身份核实的全部普通开发会话，包含存档；省略时保留旧范围与提取语义。正文只搜用户文字和可展示的 Agent 正文，排除内部报告输入、工具及思考；中文连续匹配，ASCII 字母忽略大小写。请求游标使用 snake_case，响应使用 camelCase；GUI 游标含 index／scan 阶段、来源身份和查询摘要。`complete` 仅表示遍历结束，须同时核对逐页累计的 `sourceIssues` 和 `unindexedSessionIds`，才可判断全范围零命中。
 
@@ -272,6 +274,8 @@ sequenceDiagram
 拥有者只读 `read_workspace_git` 仅接受已登记 workspace_id 与可选 cursor，返回非仓库 null 或带父关系、显式 refs 及 nextCursor 的提交页；每页200条，nextCursor为null时结束，不设累计总量。游标绑定仓库修订，变化返回 workspace_git_changed，客户端刷新后重新读取；不接自定义命令或根路径。协议 v29 的快照明确提供 mainSessionId，避免客户端猜角色身份。
 
 ## 设计依据
+
+- [Coding 调度的固定配置与独立会话](../../.agents/notes/implemented/feature/2026-10-25-code-scheduled.md)
 
 - [Code MCP 按实例配置与旧格式退出](../../.agents/notes/implemented/simplification/2026-10-24-code-instance-mcp.md)
 

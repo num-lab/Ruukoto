@@ -13,6 +13,7 @@ import { CodeWrites } from "./code-writes.ts";
 import { DesktopContext } from "./context-state.ts";
 import { DesktopInspector } from "./inspector.ts";
 import { DesktopSearch } from "./search-state.ts";
+import { DesktopScheduled } from "./scheduled-state.ts";
 
 export class DesktopRequestError extends Error {
   readonly code: string;
@@ -54,6 +55,7 @@ export class CodeState {
   readonly inspector: DesktopInspector;
   readonly context: DesktopContext;
   readonly search: DesktopSearch;
+  readonly scheduled: DesktopScheduled;
   navigation: Extract<DesktopUpdate, { type: "navigate" }> | null = null;
   notificationSelection: { sessionId: string; taskId: string } | null = null;
   refresh(): void { this.mark(); }
@@ -62,6 +64,7 @@ export class CodeState {
     this.context = new DesktopContext(bridge, this.view, changed, target);
     this.approvals = new DesktopApprovals(bridge, this.view, changed, target);
     this.search = new DesktopSearch(bridge, changed);
+    this.scheduled = new DesktopScheduled(bridge, this, changed);
     this.background = new DesktopBackgroundProcesses(bridge, this.view, () => this.status.state === "online", changed);
     this.questions = new DesktopQuestions(bridge, this.view, () => this.status.state === "online", changed);
     this.writes = new CodeWrites(bridge, this.view, () => this.status.state === "online", changed, target);
@@ -138,6 +141,7 @@ export class CodeState {
     this.writes.update(update);
     this.questions.update(update);
     this.background.update(update);
+    if (this.target === "code") this.scheduled.update(update);
     this.mark();
   }
   private navigate(update: Extract<DesktopUpdate, { type: "navigate" }>): void {

@@ -2,6 +2,8 @@
 
 Status: implemented
 
+本篇关于定时来源不开放提问、回答沿当时模型和模式的范围由[Coding Scheduled](../../implemented/feature/2026-10-25-code-scheduled.md)部分取代：可信 Code 定时根轮及续接保存 coding-schedule 来源，回答与任务归属同事务，沿该轮固定模型和权限；取消、关闭及缺失反链拒绝续接。普通拥有者输入保留 coding-owner 与原回答规则。
+
 本篇关于仅单选、答案非空、桌面顶部操作、查询预算与格式版本的决定由[题型扩展](2026-10-21-owner-question-choice-types.md)取代；其余来源、事务、恢复和消息位置的决定继续适用。
 
 ## 问题

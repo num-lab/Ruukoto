@@ -59,6 +59,7 @@ import { subAgentAccessPolicy } from "@ruukoto/agent/subagent-capabilities.ts";
 import type { SourceRef } from "@ruukoto/channels/scheduler/store.ts";
 import type { SourceResolver } from "@ruukoto/channels/source-resolver.ts";
 import type { Store } from "@ruukoto/core/store.ts";
+import { CodeScheduleError, bindCodeScheduleTask, getCodeScheduleRunForTask, getCodeScheduledTaskSource } from "@ruukoto/core/code-scheduler.ts";
 import type {
   AccessMode,
   ModelSelection,
@@ -266,7 +267,8 @@ export class SubAgentManager {
     const ids: string[] = [];
     for (const task of this.store.listQueuedSubAgentTasks()) {
       const scheduled = this.store.getScheduledRunForTask(task.id);
-      if (scheduled && !scheduled.closedAt && scheduled.scheduleStatus !== "canceled") continue;
+      const codeScheduled = getCodeScheduleRunForTask(this.store, task.id);
+      if (scheduled && !scheduled.closedAt && scheduled.scheduleStatus !== "canceled" || codeScheduled && !codeScheduled.closedAt && !codeScheduled.cancelRequested) continue;
       if (!this.store.endTask(task.id, ["queued"], "interrupted", {
         interruptReason: "backend_restart", endedAt: new Date().toISOString(),
         keepOccupancy: true,
@@ -299,6 +301,7 @@ export class SubAgentManager {
       if (session?.queueState !== "paused" || session.queuePauseReason !== "backend_restart") continue;
       if (this.store.listAllOccupancy().some((o) => o.sessionId === agent.sessionId)) continue;
       const task = this.store.findActiveSubAgentTask(agent.id);
+      if (task && getCodeScheduleRunForTask(this.store, task.id)) continue;
       const scheduled = task ? this.store.getScheduledRunForTask(task.id) : null;
       if (scheduled && !this.store.scheduledRunCanResume(scheduled.id)) continue;
       try { await this.deps.resumeQueue(agent.sessionId); }
@@ -312,6 +315,7 @@ export class SubAgentManager {
 
   /** 授权登记前后核实发起任务；宿主评审允许已完成的接收轮次，来源仍固定 GitHub。 */
   private assertSource(task: Task, snapshot: Task = task, hostReview?: SubAgentDelegateInput["hostReview"]): void {
+    getCodeScheduledTaskSource(this.store, task.id);
     const scheduled = this.store.getScheduledRunForTask(task.id);
     if (scheduled && (scheduled.closedAt || scheduled.scheduleStatus === "canceled")) {
       throw new SubAgentDelegationError("task_ending", "调度运行已结束或计划已取消，拒绝登记新的委派或消息");
@@ -653,6 +657,8 @@ export class SubAgentManager {
         if (duplicate) {
           return { work, agent, task, created: false, newWork };
         }
+        const scheduled = getCodeScheduledTaskSource(this.store, parent.id);
+        if (scheduled) bindCodeScheduleTask(this.store, { runId: scheduled.runId, taskId: task.id, sourceTaskId: parent.id });
         this.store.setSubAgentState(agent.id, "running", { activeWorkId: workId, currentTaskId: task.id });
         if (newWork) {
           this.store.appendEvent(
@@ -883,6 +889,8 @@ export class SubAgentManager {
       return selection;
     }
     const identity = this.store.getSessionIdentity(work.parentSessionId);
+    const scheduled = getCodeScheduledTaskSource(this.store, sourceTaskId);
+    if (scheduled) return scheduled.snapshot.modelSelection;
     return identity?.kind === "main" ? identity.role.modelSelection ?? this.deps.defaultModelSelection()
       : identity?.kind === "scheduled" ? identity.modelSelection ?? this.deps.defaultModelSelection() : null;
   }
@@ -944,6 +952,12 @@ export class SubAgentManager {
   private pendingMessageContext(msg: SubAgentMessage): { work: WorkDelegation; target: SubAgent | null } | null {
     const current = this.store.getSubAgentMessage(msg.id);
     if (!current || current.deliveredAt || current.undeliveredReason) return null;
+    try { getCodeScheduledTaskSource(this.store, msg.fromTaskId); }
+    catch (error) {
+      if (!(error instanceof CodeScheduleError)) throw error;
+      this.dropMessage(msg, error.code);
+      return null;
+    }
     let work: WorkDelegation | null;
     try { work = this.store.getWorkDelegation(msg.workId); }
     catch (error) {
@@ -963,7 +977,7 @@ export class SubAgentManager {
     }
     if (!msg.toSubAgentId) {
       const kind = this.store.getSessionIdentity(work.parentSessionId)?.kind;
-      return kind === "main" || kind === "scheduled" ? { work, target: null } : null;
+      return kind === "main" || kind === "scheduled" || getCodeScheduleRunForTask(this.store, msg.fromTaskId) ? { work, target: null } : null;
     }
     const target = this.store.getSubAgent(msg.toSubAgentId);
     if (!target) { this.dropMessage(msg, "agent_missing"); return null; }
@@ -1039,6 +1053,8 @@ export class SubAgentManager {
       subAgentId: agent.id,
       readScope,
     });
+    const scheduled = getCodeScheduledTaskSource(this.store, msg.fromTaskId);
+    if (scheduled) bindCodeScheduleTask(this.store, { runId: scheduled.runId, taskId: task.id, sourceTaskId: msg.fromTaskId });
     const now = new Date().toISOString();
     if (this.store.markSubAgentMessageDelivered(msg.id, task.id, now)) {
       this.store.setSubAgentState(agent.id, "running", { activeWorkId: work.id, currentTaskId: task.id });

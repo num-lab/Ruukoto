@@ -8,6 +8,8 @@ Personal 以一个 Tailscale HTTPS 地址连接 durable 主会话与全部设置
 
 ## 对外接口
 
+Scheduled 经 Code bridge 的 `code_schedules`、`code_schedule`、`code_schedule_save/control/receipt` 管理计划，Electron 与 MyGo 使用同一操作名单、拥有者认证和原请求核实；不新增 preload 特权。计划页保留聊天标签，运行历史打开既有会话、审批与问题卡片。
+
 Electron 或 MyGo 共用的 Node DesktopHost 持有 Code 令牌、`ControlConnection` 和后台拉起，以及 PA 的 HTTPS/WSS、配对与原请求核实。preload 只向渲染进程暴露 `subscribe(target, listener)`、`request(target, op, params)`、`pickFolder()`、`pickSkillFolder(target, instanceId)`、`pickAttachments(sessionId, target?)` 与 `reveal(path)`及终端的open/input/resize/kill四方法。主进程校验 IPC 来源和操作名单：本地 `reconnect`、`desktop_browser_open`／`desktop_browser_release`及仅向Code开放的`desktop_terminal_open/input/resize/kill`，以及后台的 `list_session_summaries`、`open_workspace`、`create_session`、`read_history`、`read_history_entry`、`list_tasks`、`get_task`、`read_task_events`、`work_list`、`work_get`、`read_tool_result`、`read_artifact`、`get_tool_op_params`、`list_models`、`set_session_model`、`set_session_mode`、`get_session`、`interrupt`、`cancel`、`resume_queue`、`get_confirmation_params`、`respond_confirmation`、`list_prompt_requests`、`get_context_breakdown`、`list_workspace_files`、`read_workspace_file`、`read_workspace_git`。`search_history`、`background_processes`、`background_process_output`、`background_process_stop`、`session_background_end` 及 `owner_questions`、`owner_question_answer`、`owner_question_cancel` 与 `owner_question_receipt` 仅向 Code 开放；`submit`、`continue` 与 `owner_question_answer` 交主进程的 SubmissionGuard，`find_task` 仅供守护内部使用；本地 `desktop_pending_read` 与 `desktop_pending_clear` 处理输入恢复。上述后台控制协议仅向 Code 开放；Personal 经专用操作访问 durable 原生接口。PA 不提供附件、Continue、Context、会话级模型、Plan 或主聊天停止入口。Code 另开放 `get_model_config`、`save_model_catalog`、`set_model_api_key`、`remove_model_api_key`、`remove_model_provider`、`set_default_model`、`set_summary_model` 与 `test_model_connection`，Personal 不放行这些操作。字段与权限继续由控制面校验。错误作为 `{ code, outcome, message, versions? }` 响应数据跨 IPC 传递，保留应答丢失分类。
 
 渲染进程使用 React、Tailwind v4、shadcn 源码组件与 AI Elements、Lucide，主题和三栏布局以定稿 demo 为准，Code 消费 `@ruukoto/view` 的快照和事件投影，PA 的 wire 类型也归该包，但状态由独立 `PersonalState` 安装。开发与构建命令见[开发说明](../development.md#桌面客户端)，启动与故障恢复见[操作手册](../usage.md#桌面客户端)。
@@ -22,6 +24,8 @@ Personal 沿同一 `request` 桥开放 `desktop_personal_config_read/save`、配
 
 ## 数据与状态
 
+Scheduled 草稿与所选计划归当前 Code 数据实例；保存及控制在发送前保留稳定请求键、完整参数和实例绑定，应答丢失先查原回执，换实例不重放。计划、运行、等待原因和通知归后台快照与持久事件，页面不计时触发任务。
+
 Code 连接目标由产品身份、socket 和令牌来源组成，固定为 `ruukoto-code`；安装快照前核对产品，不符停在 failed。Personal 握手核对协议、产品、origin、持久 remote 身份、档案与后台 runId，随后安装独立订阅。连接状态包含 connecting、online、reconnecting、failed 与 closed；明确身份、版本、认证或 TLS 错误停止自动重试。Code令牌仅在Node宿主内存，主进程保存连接配置和待核实提交；历史权威仍在各自后台。
 
 Personal 的 `personal-remote.json` 保存版本、唯一 HTTPS origin 与程序核实的 remote/档案绑定；请求记录位于 `pending/personal-remote/<origin及绑定摘要>.json`，保存原输入键、完整正文、旧维护及按对象区分的配置接纳关联。配对候选先安全持久化并读回才兑换，服务器仅存摘要；丢答使用原候选核实与显式恢复，不生成第二份凭据。
@@ -35,6 +39,8 @@ Code 提交与继续的完整参数、原请求键和数据实例先保存在 `p
 本机终端及xterm滚动历史只在本次应用内存中保留，最多同时8个，滚动历史5000行；关闭终端标签或所属会话、换数据实例、页面重载／崩溃与应用退出均回收，普通断线、同实例快照和切换标签／会话／Personal保留。终端用与全局一致的等宽字体栈，明暗主题各带完整ANSI 16色；样式依赖生产CSP对内联样式的放行。
 
 ## 主要流程
+
+Scheduled 是 Code 独立主画布页，表单依次设置 Title、Schedule、Instructions、Workspace、Permission、Model/Effort；一次性增加日期，每周多选星期，Schedule 显示固定创建时区。仅选择已登记工作区，默认请求确认，正文最多 UTF-8 64 KiB，保存前校验未来日期和可用模型档位。列表区分当前与历史，详情支持编辑、暂停、恢复、取消及原会话导航；活动运行禁普通输入、会话模式与模型修改，审批与问题回答按原快照处理。
 
 应用内 ⌘K 切换当前 Code 实例的 Spotlight 开关，顶栏侧栏开关左侧的搜索图标也可打开；弹窗从上向下进入，在 PA 页面也只搜 Code 工作区。完整普通会话摘要用于即时名称匹配，正文在输入稳定 180ms 且组合输入结束后查询；每个控制器最多一页在途，空命中进度页继续推进，满 20 条后滚动接近列表底部自动续查。候选与结果只在内存中保存，关闭、断线、新快照和换实例淘汰旧轮次；名称结果保留工作区与存档标记；正文结果上行显示会话名和存档标记，下行显示单行正文预览，短消息完整保留，超宽时按实际像素宽度让匹配词尽量居中，右侧显示相对时间；匹配词高亮，搜索弹窗使用主题灰色背景；长名称在末尾省略，正文预览保持单行，超出显示范围的部分裁切；加载使用搜索框内图标，检索状态仅向读屏播报，实际读取失败与离线可见，两种结果之间用分隔线区分，滚动条只在滚动中及停止后短暂显示，不再提供加载按钮。
 
@@ -90,7 +96,7 @@ Code 拥有者问题卡片由 view 的快照和事件恢复，顶部只显示当
 
 审批卡片以 view 的当前待审批集合为准，任务终态、权限版本变化、人工或自动审查解决后立即失效。卡片只展示本次实际命令或参数及用途，完整参数自动按 UTF-8 字节偏移续读，读完后直接批准或拒绝；权威成功应答后移除卡片。正文较窄时，标题与按钮组自动换行。操作绑定原目标、实例、审批和展示的权限版本。
 
-主进程为Code维护view；新待审批及完成、失败、中断任务发系统通知，取消不通知。PA以原生快照建助手entry基线，实时新助手条目及补查新增的问题/审批另行通知。前台只更新已见记录；Dock角标合计Code待审批和PA当前待答/待审批。点击PA通知打开主会话，Code通知定位原会话，SubAgent定位父会话并保留子会话/任务选择及右栏历史。
+主进程为Code维护view；新待审批及完成、失败、中断任务发系统通知，取消不通知。Scheduled 名下 Task 不单独发终态通知，整项运行关闭才通知完成、失败或中断，待审批仍沿原入口。PA以原生快照建助手entry基线，实时新助手条目及补查新增的问题/审批另行通知。前台只更新已见记录；Dock角标合计Code待审批和PA当前待答/待审批。点击PA通知打开主会话，Code通知定位原会话，SubAgent定位父会话并保留子会话/任务选择及右栏历史。
 
 Code首次观察实例的快照及其截止seq 以内的补发只建基线，握手缓冲的更新实时事件照常通知。同实例重连按审批和终态任务 ID 去重补通知；没有补发时，用 `get_task` 查询此前观察中、现已离开快照的任务。失败保留待查，下次快照再查。应用不持久化通知基线，也不扫描全部历史：离线期间新建又结束、既无补发又超出快照范围的任务不补通知。
 
@@ -107,6 +113,8 @@ Personal 各页每次打开重读原档案，模型编辑单模型、API 类型�
 Personal 不显示右栏，在主聊天中查看后台工作结果、补读长结果及取消可取消的工作。
 
 ## 不变量与失败处理
+
+Scheduled 暂停只影响未来；取消确认明确包含当前整项运行且保留成果。未知效果先核实原会话停止，再在恢复中确认保留未知、只允许未来周期；确认绑定运行版本，不重发旧操作。后台拒绝或版本冲突保留草稿供核对，后台与桌面退出不等同，宿主退出后不保证系统通知。
 
 服务器 remote 通过既有维护接纳/查询通道转发 v2 设置请求，仅持久保存自身的接纳关联；档案内设置回执持有保存与生效权威。断线不取消已接纳操作，不换键重存，不自动停启后台；相同对象待核实时阻止该对象新写，其他对象继续管理。v1 未决停存启回执仍保留原阶段、显式恢复服务及人工结束入口，先处理旧维护再接纳新配置。
 
@@ -141,6 +149,8 @@ PA 来源动作以后台能力为准：本机问题可逐题回答、跳过并�
 PA 输入先持久化原请求再提交；重连与重开只核实，明确恢复仍用原键原文。换档案清空旧活动投影并保留草稿，未核实期间禁发；保存中的设置保留 unknown，迟到应答不覆盖草稿。输入、配对或维护未决时不能切换 origin。
 
 ## 设计依据
+
+- [Coding 调度的固定配置与独立会话](../../.agents/notes/implemented/feature/2026-10-25-code-scheduled.md)
 
 - [设置保存、版本与生效恢复](../../.agents/notes/implemented/architecture/2026-10-25-personal-settings-versions.md)
 

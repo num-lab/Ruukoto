@@ -167,6 +167,16 @@ export class ViewState {
   private applyStateEvent(event: PersistentEvent): void {
     const body = event.body;
     switch (body.type) {
+      case "code_schedule.task_bound":
+        this.patchTask(body.taskId, { codeScheduleRunId: body.runId });
+        return;
+      case "code_schedule.run_changed": {
+        const run = body.run;
+        const session = this.sessions.find(item => item.id === run.sessionId);
+        if (session) { session.codeScheduleRunId = run.id; session.codeScheduleActive = run.closedAt === null; }
+        this.patchTask(run.rootTaskId, { codeScheduleRunId: run.id });
+        return;
+      }
       case "agent_wait.changed":
         this.patchTask(body.taskId, { wait: body.wait, resourcePhase: body.phase === "waiting" || body.phase === "conversation" ? "conversation" : this.tasks.get(body.taskId)?.resourcePhase });
         return;

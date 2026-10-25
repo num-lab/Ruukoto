@@ -61,6 +61,9 @@ export class DesktopHost {
       const source = target === "code" ? this.controller : null;
       if (!source) throw new ControlClientError("connection_unavailable", "连接不可用", "not_sent");
       return source.request("get_task", { task_id: taskId });
+    }, (planId, offset) => {
+      if (!this.controller) throw new ControlClientError("connection_unavailable", "连接不可用：运行结果待核实", "not_sent");
+      return this.controller.request("code_schedule", { plan_id: planId, run_offset: offset });
     });
     this.warmEnvironment();
   }

@@ -15,13 +15,15 @@ Coding bin 固定产品身份，向共享 CLI 传入 `CliProduct`，并向 `Runt
 | 会话与运行权威 | Pi durable 1.3.0 | 原共享 Runtime/Driver，Pi 0.85.1 |
 | 主要界面 | QQ/Telegram、引导式 CLI 与 PA 桌面 | TUI、配置中心与 Code 桌面 |
 | 持久历史 | durable SQLite | 核心元数据与原 JSONL |
-| 后台工作 | 长期子 Agent、分析委托与独立定时运行 | 通用 SubAgent、worktree 与工作流 |
+| 后台工作 | 长期子 Agent、分析委托与独立定时运行 | 通用 SubAgent、worktree、工作流与 Scheduled |
 | 旧资料 | 原地归档，不导入 | 开发资料离线导入 |
 | 编码专用入口 | 不提供开发会话、worktree 汇总、旧工作流或 GitHub 自动评审 | 保留既有 Coding 能力 |
 
 个人另提供 `maintenance` 受限 JSON 生命周期入口；`serve --directory <绝对路径>` 将服务档案固定在启动参数，优先于环境。安装与操作见[操作手册](../usage.md)，开发与构建见[开发说明](../development.md)。PA 桌面聊天与设置共用独立 HTTPS/WSS 原生协议，旧 PA SSH 与旧控制面入口不再装配；Coding TUI/桌面继续使用自己的控制协议。
 
 ## 数据与状态
+
+Code Scheduled 在核心库独立保存计划、运行和回执，后台装配专属协调器，只共享原时间 helper；个人 durable 与旧个人 scheduler 不接管这些计划。启用新 schema 使用独立新档案，不复制旧会话、设置或授权；含 Code 调度及其来源记录的实例导入明确拒绝。
 
 个人档案、锁、本机认证 socket、配置、凭据引用及请求证据独立保存，版本和旧目录在恢复前核实。Coding 的产品身份继续登记在核心库 `meta.product.type`，档案、锁与控制面各自隔离。Coding MCP 按实例保存服务与专用凭据，全部工作区共用；Personal 保留自身档案格式，不共享服务或秘密。两个版本的 Pi 对象不跨产品传递，个人不双写旧 Task Store 或 JSONL。
 
@@ -44,6 +46,8 @@ Coding 请求由 `control` 交给 `runtime` 建任务并取出，`agent-context`
 - 跨包引用使用 exports 与已声明依赖；反向运行时协作采用注入，core 不依赖其他 workspace 包。个人 app 直接声明 Pi 1.3.0，Coding 调用方保留 0.85.1。
 
 ## 设计依据
+
+- [Coding 调度的固定配置与独立会话](../../.agents/notes/implemented/feature/2026-10-25-code-scheduled.md)
 
 - [个人 Tailscale HTTPS 与 WebSocket](../../.agents/notes/implemented/architecture/2026-10-24-personal-tailscale-https.md)
 

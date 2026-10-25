@@ -13,13 +13,14 @@
  */
 
 import * as fs from "node:fs";
+import { parseCodeScheduleConfig } from "@ruukoto/core/code-scheduler.ts";
 import * as path from "node:path";
 import { dirEnvFor, productFromEnv, productRootDir } from "@ruukoto/core/product.ts";
 import { parseWorkflowControl, workflowLaunchDigest, type WorkflowLaunch } from "@ruukoto/core/workflow.ts";
 
 export interface PendingRequest {
   requestId: string;
-  op: "submit" | "continue" | "branch_session" | "compact_session" | "workflow_start" | "workflow_answer" | "workflow_control" | "owner_question_answer" | "owner_question_cancel" | "session_background_end";
+  op: "submit" | "continue" | "branch_session" | "compact_session" | "workflow_start" | "workflow_answer" | "workflow_control" | "owner_question_answer" | "owner_question_cancel" | "session_background_end" | "code_schedule_save" | "code_schedule_control";
   /** 完整原请求参数，包含请求键、业务输入及操作使用的原版本。 */
   params: Record<string, unknown>;
   /** 提交时握手返回的数据实例标识。 */
@@ -40,8 +41,19 @@ export function defaultPendingDir(): string {
   return dirEnvFor(product, "PENDING") ?? path.join(productRootDir(product), "pending");
 }
 
+export function validCodeScheduleParams(op: "code_schedule_save" | "code_schedule_control", params: Record<string, unknown>, requestId: string): boolean {
+    if (params.request_id !== requestId) return false;
+    const fields = op === "code_schedule_save" ? ["request_id", "plan_id", "expected_version", "config"] : ["request_id", "plan_id", "expected_version", "control", "acknowledge_run_id", "expected_run_version"];
+    if (Object.keys(params).some(key => !fields.includes(key))) return false;
+    if (op === "code_schedule_save") { parseCodeScheduleConfig(params.config); if (params.plan_id === undefined) return params.expected_version === undefined; }
+    if (typeof params.plan_id !== "string" || !params.plan_id || !Number.isSafeInteger(params.expected_version) || Number(params.expected_version) < 1) return false;
+    if (op === "code_schedule_control" && ((params.acknowledge_run_id !== undefined) !== (params.expected_run_version !== undefined) || params.expected_run_version !== undefined && (!Number.isSafeInteger(params.expected_run_version) || Number(params.expected_run_version) < 1))) return false;
+    return op === "code_schedule_save" || ["pause", "resume", "cancel"].includes(String(params.control)) && (params.acknowledge_run_id === undefined || params.control === "resume" && typeof params.acknowledge_run_id === "string" && !!params.acknowledge_run_id);
+}
+
 function validWorkflowParams(record: PendingRequest): boolean {
   const params = record.params;
+  if (record.op === "code_schedule_save" || record.op === "code_schedule_control") return validCodeScheduleParams(record.op, params, record.requestId);
   if (record.op === "session_background_end") return params.request_id === record.requestId && typeof params.session_id === "string" && params.session_id.trim().length > 0 && Object.keys(params).every(key => key === "session_id" || key === "request_id");
   if (record.op === "owner_question_answer" || record.op === "owner_question_cancel") {
     if (params.request_id !== record.requestId || typeof params.session_id !== "string" || !params.session_id.trim() ||
@@ -125,7 +137,7 @@ export class PendingRequestStore {
     catch { return { kind: "corrupt" }; }
     try {
       if (typeof raw?.requestId !== "string" || raw.requestId !== requestId ||
-        !["submit", "continue", "branch_session", "compact_session", "workflow_start", "workflow_answer", "workflow_control", "owner_question_answer", "owner_question_cancel", "session_background_end"].includes(raw.op) ||
+        !["submit", "continue", "branch_session", "compact_session", "workflow_start", "workflow_answer", "workflow_control", "owner_question_answer", "owner_question_cancel", "session_background_end", "code_schedule_save", "code_schedule_control"].includes(raw.op) ||
         typeof raw.params !== "object" || raw.params === null || Array.isArray(raw.params) ||
         typeof raw.instanceId !== "string" || !raw.instanceId ||
         typeof raw.createdAt !== "string" || !Number.isFinite(Date.parse(raw.createdAt)) || !validWorkflowParams(raw)) return { kind: "corrupt" };

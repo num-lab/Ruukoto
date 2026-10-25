@@ -6,6 +6,7 @@ import type { AgentReferenceSnapshot } from "./agent-wait.ts";
 import { ownerQuestionTaskEligible } from "./owner-questions.ts";
 import type { Store } from "./store.ts";
 import { randomId, type GrantedPath, type Task } from "./types.ts";
+import { getCodingTaskOrigin, isCodingTaskOrigin, type CodingTaskOrigin } from "./code-scheduler.ts";
 
 export type BackgroundProcessState = "starting" | "running" | "stop_requested" | "stopped" | "stop_unverified";
 export interface BackgroundExecutionRef { platform: "linux" | "darwin"; executionId: string; machineId?: string }
@@ -17,7 +18,7 @@ export interface BackgroundProcessView {
   sessionId: string;
   taskId: string;
   command: string;
-  source: { kind: "coding-owner"; accessMode: "full_access" };
+  source: CodingTaskOrigin & { accessMode: "full_access" };
   state: BackgroundProcessState;
   exit: { code: number | null; signal: string | null } | null;
   stopVerified: boolean;
@@ -32,7 +33,7 @@ export interface BackgroundProcessView {
 export interface BackgroundProcess extends BackgroundProcessView {
   hostOpId: string;
   workspace: BackgroundWorkspace;
-  source: { kind: "coding-owner"; projectId: string; input: string; accessMode: "full_access"; permissionVersion: number; grantedPaths: GrantedPath[]; inputSeq: number };
+  source: CodingTaskOrigin & { projectId: string; input: string; accessMode: "full_access"; permissionVersion: number; grantedPaths: GrantedPath[]; inputSeq: number };
   permissionVersion: number;
   handedOff: boolean;
   launchClaimed: boolean;
@@ -74,7 +75,7 @@ function fromRow(row: ProcessRow | undefined): BackgroundProcess | null {
       (value.launchFingerprint !== null && (typeof value.launchFingerprint !== "string" || !/^[0-9a-f]{64}$/.test(value.launchFingerprint))) || (value.reason !== null && typeof value.reason !== "string") ||
       (value.logEvidence !== null && !validLogEvidence(value.logEvidence)) ||
       !count(value.stdoutBytes) || !count(value.stderrBytes) || value.stdoutBytes + value.stderrBytes > 16 * 1024 * 1024 ||
-      value.source?.kind !== "coding-owner" || typeof value.source.projectId !== "string" || typeof value.source.input !== "string" || value.source.accessMode !== "full_access" ||
+      !isCodingTaskOrigin(value.source) || typeof value.source.projectId !== "string" || typeof value.source.input !== "string" || value.source.accessMode !== "full_access" ||
       !Number.isSafeInteger(value.permissionVersion) || value.permissionVersion < 1 || value.source.permissionVersion !== value.permissionVersion || !Array.isArray(value.source.grantedPaths) ||
       value.source.grantedPaths.some(grant => !grant || typeof grant.path !== "string" || !["read", "read_write"].includes(grant.access) || typeof grant.purpose !== "string") || !count(value.source.inputSeq) || value.source.inputSeq === 0 ||
       (value.exit !== null && (!value.exit || (value.exit.code !== null && !Number.isInteger(value.exit.code)) || (value.exit.signal !== null && typeof value.exit.signal !== "string"))) ||
@@ -84,7 +85,8 @@ function fromRow(row: ProcessRow | undefined): BackgroundProcess | null {
 }
 export function backgroundProcessToView(process: BackgroundProcess): BackgroundProcessView {
   const { id, sessionId, taskId, command, state, exit, stopVerified, reason, stdoutBytes, stderrBytes, partial, version, createdAt, updatedAt } = process;
-  return { id, sessionId, taskId, command, source: { kind: process.source.kind, accessMode: process.source.accessMode }, state, exit: structuredClone(exit), stopVerified, reason, stdoutBytes, stderrBytes, partial, version, createdAt, updatedAt };
+  const origin: CodingTaskOrigin = process.source.kind === "coding-owner" ? { kind: "coding-owner" } : { kind: "coding-schedule", runId: process.source.runId, scheduleId: process.source.scheduleId, planVersion: process.source.planVersion };
+  return { id, sessionId, taskId, command, source: { ...origin, accessMode: process.source.accessMode }, state, exit: structuredClone(exit), stopVerified, reason, stdoutBytes, stderrBytes, partial, version, createdAt, updatedAt };
 }
 export function getBackgroundProcess(store: Store, id: string): BackgroundProcess | null {
   return fromRow(store.db.prepare("SELECT * FROM background_processes WHERE id = ?").get(id) as ProcessRow | undefined);
@@ -140,6 +142,8 @@ function activeSource(store: Store, process: BackgroundProcess): Task {
   if (!task || !session || task.sessionId !== session.id || session.projectId !== process.source.projectId || !ownerQuestionTaskEligible(store, task) || task.accessMode !== "full_access" || task.planMode || task.status !== "running" || task.cancelRequested ||
       task.permissionVersion !== process.permissionVersion || !isDeepStrictEqual(task.grantedPaths, process.source.grantedPaths)) throw new BackgroundProcessError("background_source_invalid");
   if (!op || op.taskId !== task.id || op.toolName !== "process_start" || !isDeepStrictEqual(op.params, { command: process.command })) throw new BackgroundProcessError("background_source_invalid");
+  const origin = getCodingTaskOrigin(store, task.id);
+  if (origin.kind !== process.source.kind || (origin.kind === "coding-schedule" && (process.source.kind !== "coding-schedule" || origin.runId !== process.source.runId || origin.scheduleId !== process.source.scheduleId || origin.planVersion !== process.source.planVersion))) throw new BackgroundProcessError("background_source_invalid");
   const inputSeq = store.getTaskInputSeq(task);
   if (inputSeq === null || inputSeq !== process.source.inputSeq) throw new BackgroundProcessError("background_source_invalid");
   if (inputSeq <= sessionBackgroundStopSeq(store, session.id)) throw new BackgroundProcessError("background_closed", "本次请求已被会话后台关闭动作截住；新的拥有者请求可重新启动。");
@@ -160,7 +164,7 @@ export function registerBackgroundProcess(store: Store, input: { taskId: string;
   if (inputSeq === null) throw new BackgroundProcessError("background_source_invalid");
   const now = new Date().toISOString();
   const process: BackgroundProcess = { id: randomId("process"), sessionId: session.id, taskId: task.id, hostOpId: op.id, command: op.params.command, state: "starting", workspace: structuredClone(input.workspace), ref: structuredClone(input.ref),
-    permissionVersion: task.permissionVersion, source: { kind: "coding-owner", projectId: session.projectId, input: task.input, accessMode: "full_access", permissionVersion: task.permissionVersion, grantedPaths: structuredClone(task.grantedPaths), inputSeq },
+    permissionVersion: task.permissionVersion, source: { ...getCodingTaskOrigin(store, task.id), projectId: session.projectId, input: task.input, accessMode: "full_access", permissionVersion: task.permissionVersion, grantedPaths: structuredClone(task.grantedPaths), inputSeq },
     handedOff: false, launchClaimed: false, launchFingerprint: null, referenceSnapshot: null, logEvidence: null, exit: null, stopVerified: false, reason: null, stdoutBytes: 0, stderrBytes: 0, partial: false, version: 1, createdAt: now, updatedAt: now };
   activeSource(store, process);
   if (listActiveBackgroundProcesses(store, session.id).length) throw new BackgroundProcessError("background_occupied", "本会话已有未核实停止的后台执行；先停止并核实原执行。");

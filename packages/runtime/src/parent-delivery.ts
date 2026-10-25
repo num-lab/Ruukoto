@@ -4,7 +4,7 @@
  * 送达 = 进入主 Agent 的一次模型调用（CONTEXT.md「送达」）：main 在承载它的唤醒
  * 任务开始运行时，普通开发会话在下一次任务开始时的注入。此前只是待送达——所属
  * 工作被取消即截住，内容仍作为事实保存可查（issue 14）。送达方向
- * 按会话身份（工单 08）判定：main 与独立调度会话建唤醒任务，普通开发会话待注入。
+ * 按会话身份与运行归属判定：main、个人与 Coding 调度运行建唤醒任务，普通开发会话待注入。
  * Note: 见 .agents/notes/implemented/feature/2026-10-04-cancel-work.md
  * Note: 见 .agents/notes/implemented/feature/2026-10-13-workflow-owner-input-and-delivery.md
  * Note: 见 .agents/notes/implemented/architecture/2026-10-14-agent-wait-and-report-ownership.md
@@ -24,6 +24,7 @@
 import { QQ_PRIVATE_SOURCE } from "@ruukoto/channels/qq/adapter.ts";
 import { TELEGRAM_SOURCE } from "@ruukoto/channels/telegram/adapter.ts";
 import type { Store } from "@ruukoto/core/store.ts";
+import { CodeScheduleError, bindCodeScheduleTask, getCodeScheduleRunForTask, getCodeScheduledTaskSource } from "@ruukoto/core/code-scheduler.ts";
 import { WorkspaceSnapshotError } from "@ruukoto/core/workspace-snapshot.ts";
 import type { InboundEvent,ModelSelection,SubAgentMessage,Task,WorkDelegation } from "@ruukoto/core/types.ts";
 import { createHash } from "node:crypto";
@@ -222,7 +223,7 @@ export class ParentDelivery {
 
   /**
    * 编排器在结果事务提交后调用一次（重复调用由 wake:<子任务> 请求键幂等）。
-   * main／独立调度会话建结果唤醒；普通开发会话仅曾被等待覆盖的结果自动补报，其余待注入；已取消不建。
+   * main／个人与 Coding 调度运行建结果唤醒；普通开发会话仅曾被等待覆盖的结果自动补报，其余待注入；已取消不建。
    * 唤醒输入为固定模板 + 截断摘要与结果引用，不复制子任务完整历史。
    */
   async resultRecorded(child: Task, outcome: ChildOutcome, summary: string): Promise<void> {
@@ -237,7 +238,9 @@ export class ParentDelivery {
     const identity = this.store.getSessionIdentity(parentSessionId);
     const report = this.store.withTx(() => this.reserveResult(child));
     if (report && (report.status !== "pending" || report.claimTaskId || report.fallbackTaskId)) return;
-    if ((identity?.kind !== "main" && identity?.kind !== "scheduled" && !report) || this.workUnavailable(child.workId)) return;
+    const codeRun = getCodeScheduleRunForTask(this.store, child.id);
+    if (codeRun && child.sessionId === parentSessionId) return;
+    if ((identity?.kind !== "main" && identity?.kind !== "scheduled" && !report && !codeRun) || this.workUnavailable(child.workId)) return;
     if (!identity || !["dev", "main", "scheduled"].includes(identity.kind) || this.taskUnavailable(child)) return;
     const run = this.store.getScheduledRunForTask(child.id);
     if (run && (run.closedAt || run.scheduleStatus === "canceled")) return;
@@ -245,6 +248,7 @@ export class ParentDelivery {
     const source = child.sourceEventId ? this.store.getInboundEvent(child.sourceEventId) : null;
     const reviewSource = source && this.deps.isReviewEvent(source) ? source : null;
     if (this.taskUnavailable(child)) return;
+    const codeSource = getCodeScheduledTaskSource(this.store, child.id);
     const notices = [this.deps.resultNotice(child), this.workReportNotice(work)].filter((n): n is string => n !== null);
     const input = child.subAgentId
       ? `[编排器] 子任务${OUTCOME_TEXT[outcome]}\n` +
@@ -261,13 +265,13 @@ export class ParentDelivery {
         sessionId: parentSessionId,
         requestId: `wake:${child.id}`,
         input: [input, ...notices].join("\n"),
-        modelSelection: (identity.kind === "main" ? identity.role.modelSelection : identity.kind === "scheduled" ? identity.modelSelection : parent.modelSelection) ?? this.deps.defaultModelSelection(),
+        modelSelection: codeSource?.snapshot.modelSelection ?? (identity.kind === "main" ? identity.role.modelSelection : identity.kind === "scheduled" ? identity.modelSelection : parent.modelSelection) ?? this.deps.defaultModelSelection(),
         agentId: identity.kind === "main" ? identity.role.id : null,
         // 入站 review 的摘要保留宿主来源；普通 owner 委派仍无自动外发授权。
         sourceEventId: reviewSource?.id ?? null,
         deadline: reviewSource ? new Date(Date.parse(child.endedAt!) + REVIEW_DEADLINE_MS).toISOString() : null,
         // 结果来自终态子任务：其模式不再变化，重启补建仍沿原任务授权。
-        accessMode: child.accessMode,
+        accessMode: codeSource?.snapshot.permission ?? child.accessMode,
         parentTaskId: child.id,
         sourcePermissionVersion: child.permissionVersion,
         ...(report ? { reportKey: report.key } : {}),
@@ -281,7 +285,7 @@ export class ParentDelivery {
   // ---------- 入口 2：发给主 Agent 的消息已登记 ----------
 
   /**
-   * SubAgent 管理器预检并重核后在消息事务内调用（发送与冲刷共用）。main／独立调度会话 → 同事务插入
+   * SubAgent 管理器预检并重核后在消息事务内调用（发送与冲刷共用）。main／个人与 Coding 调度运行 → 同事务插入
    * 消息唤醒并写投递登记（键 smsg:<消息> 幂等），返回 "wake"，调用方提交后 kick；
    * 普通开发会话 → 待注入，返回 "inject"。
    */
@@ -292,7 +296,8 @@ export class ParentDelivery {
       return "inject";
     }
     const identity = this.store.getSessionIdentity(work.parentSessionId);
-    if (identity?.kind !== "main" && identity?.kind !== "scheduled") return "inject";
+    const codeSource = getCodeScheduledTaskSource(this.store, msg.fromTaskId);
+    if (identity?.kind !== "main" && identity?.kind !== "scheduled" && !codeSource) return "inject";
     if (!selection) throw new Error("消息唤醒缺少已核实的模型选择");
     const input = [
       `[工作内消息 · 工作 ${work.id}]`,
@@ -304,14 +309,15 @@ export class ParentDelivery {
       sessionId: work.parentSessionId,
       requestId: `smsg:${msg.id}`,
       input,
-      accessMode: msg.accessMode,
+      accessMode: codeSource?.snapshot.permission ?? msg.accessMode,
       sourcePermissionVersion: msg.sourcePermissionVersion,
       modelSelection: selection,
       submissionDigest: createHash("sha256").update(JSON.stringify({ kind: "smsg-wake", messageId: msg.id })).digest("hex"),
-      agentId: identity.kind === "main" ? identity.role.id : null,
+      agentId: identity?.kind === "main" ? identity.role.id : null,
       parentTaskId: msg.fromTaskId,
       deadline: null,
     });
+    if (codeSource) bindCodeScheduleTask(this.store, { runId: codeSource.runId, taskId: task.id, sourceTaskId: msg.fromTaskId });
     this.store.markSubAgentMessageDelivered(msg.id, task.id, new Date().toISOString());
     return "wake";
   }
@@ -353,9 +359,9 @@ export class ParentDelivery {
     });
   }
 
-  /** 等待父轮与内部补报也须经过编排器的一次性结果登记和启动恢复。 */
+  /** 调度运行、等待父轮与内部补报均经编排器的一次性结果登记和启动恢复。 */
   needsResult(task: Task): boolean {
-    return isAgentReportFallback(this.store, task.id) || listAgentReports(this.store).some(report => report.claimTaskId === task.id);
+    return getCodeScheduleRunForTask(this.store, task.id) !== null || isAgentReportFallback(this.store, task.id) || listAgentReports(this.store).some(report => report.claimTaskId === task.id);
   }
 
   /** 介入回复可以结束当前对话；固定组未齐或新主轮未接受整组输入时不能完成结果报告。 */
@@ -388,6 +394,11 @@ export class ParentDelivery {
 
   /** 返回拒绝原因，队列按原原因保留取消事实。 */
   wakeUnavailable(task: Task): string | null {
+    try { getCodeScheduledTaskSource(this.store, task.id); }
+    catch (error) {
+      if (!(error instanceof CodeScheduleError)) throw error;
+      return error.code;
+    }
     const reports = listAgentReports(this.store, { taskId: task.id }).filter(report => report.fallbackTaskId === task.id);
     for (const report of reports) {
       if (report.target.kind === "task") {

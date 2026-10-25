@@ -273,8 +273,8 @@ code, pre { font-family: var(--font-mono); }
 }
 @container (max-width: 320px) {
   .composer .mode-selector { flex: none; width: 27px; padding: 0; justify-content: center; }
-  .mode-selector > svg { display: none; }
-  .mode-selector-label { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip-path: inset(50%); }
+  .composer .mode-selector > svg { display: none; }
+  .composer .mode-selector-label { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip-path: inset(50%); }
 }
 @container (max-width: 220px) {
   .composer-actions, .composer-actions > div { gap: 2px; }
@@ -548,12 +548,12 @@ body { font-size: 15.5px; }
 /* New chat 草稿页：会话等到首条消息发出时才创建；输入区与既有会话页一致，工作区选择在输入框外。 */
 .new-chat-row { margin-top: -4px; }
 .new-chat-page { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: flex-end; }
-.new-chat-page .workspace-picker { display: flex; align-items: center; justify-content: flex-start; gap: 7px; width: fit-content; max-width: 100%; height: 28px; margin: 0 0 8px 2px; padding: 0 10px; border: 0; border-radius: 7px; background: transparent; color: var(--text-secondary); font-size: 14px; text-align: left; }
-.new-chat-page .workspace-picker:hover { background: var(--selection-surface); color: var(--text-primary); }
-.new-chat-page .workspace-picker > svg { width: 15px; height: 15px; flex-shrink: 0; }
-.new-chat-page .workspace-picker > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.new-chat-page .workspace-picker > span.is-empty { color: var(--text-muted); }
-.new-chat-page .workspace-picker .workspace-picker-chevron { width: 13px; height: 13px; flex-shrink: 0; color: var(--text-muted); }
+.workspace-picker { display: flex; align-items: center; justify-content: flex-start; gap: 7px; width: fit-content; max-width: 100%; height: 28px; margin: 0 0 8px 2px; padding: 0 10px; border: 0; border-radius: 7px; background: transparent; color: var(--text-secondary); font-size: 14px; text-align: left; }
+.workspace-picker:hover { background: var(--selection-surface); color: var(--text-primary); }
+.workspace-picker > svg { width: 15px; height: 15px; flex-shrink: 0; }
+.workspace-picker > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-picker > span.is-empty { color: var(--text-muted); }
+.workspace-picker .workspace-picker-chevron { width: 13px; height: 13px; flex-shrink: 0; color: var(--text-muted); }
 /* 工作区菜单：顶部搜索、项目列表、底部新建，与既有菜单同一浮层样式。 */
 .workspace-menu { width: 264px; padding: 6px; }
 .workspace-menu [data-slot="dropdown-menu-separator"] { margin: 4px -6px; }
@@ -742,3 +742,36 @@ body { font-size: 15.5px; }
 .effort-track [data-slot="dropdown-menu-item"].is-filled { background: var(--bg-surface-hover); color: var(--text-primary); }
 .effort-track [data-slot="dropdown-menu-item"][aria-checked="true"] { background: var(--selection-surface); color: var(--text-primary); font-weight: 500; }
 .effort-track [data-slot="dropdown-menu-item"][data-highlighted] { outline: 1.5px solid var(--selection-surface); outline-offset: -1.5px; }
+
+.scheduled-page { width: min(100%, 960px); margin: 0 auto; padding: 36px 40px 72px; overflow-y: auto; height: 100%; }
+.scheduled-header, .scheduled-header > div, .scheduled-time-controls, .scheduled-plan-actions, .scheduled-list-controls, .scheduled-form-actions { display: flex; align-items: center; gap: 12px; }
+.scheduled-header { justify-content: space-between; margin-bottom: 28px; }
+.scheduled-header h1 { display: flex; align-items: center; gap: 12px; font-size: 20px; font-weight: 600; min-width: 0; }
+.scheduled-header h1 svg { width: 22px; height: 22px; flex-shrink: 0; }
+.scheduled-form { max-width: 600px; }
+.scheduled-form .workspace-picker { width: fit-content; height: 36px; margin: 0; border: 1px solid var(--input); color: var(--foreground); }
+.scheduled-form .model-selector { justify-content: flex-start; }
+.scheduled-form-actions { justify-content: flex-end; margin-top: 28px; }
+.scheduled-time-controls input { width: auto; }
+.scheduled-weekdays { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; border: 0; }
+.scheduled-weekdays label { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; cursor: pointer; }
+.scheduled-weekdays input { accent-color: var(--primary); }
+.scheduled-message { margin-bottom: 20px; color: var(--text-secondary); overflow-wrap: anywhere; }
+.scheduled-plan-meta { display: flex; flex-wrap: wrap; gap: 8px 20px; color: var(--text-secondary); margin-bottom: 20px; }
+.scheduled-detail section { margin-top: 32px; }
+.scheduled-detail h2 { font-size: 14px; font-weight: 600; margin-bottom: 14px; }
+.scheduled-instructions p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.scheduled-runs { display: flex; flex-direction: column; gap: 4px; }
+.scheduled-run { display: flex; width: 100%; justify-content: space-between; height: auto; padding: 12px 8px; gap: 12px; white-space: normal; text-align: left; }
+.scheduled-run span:last-child { color: var(--text-secondary); font-size: 12px; }
+.scheduled-list-controls { margin-bottom: 20px; }
+.scheduled-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); gap: 12px; }
+.scheduled-card { display: grid; grid-template-columns: 1fr auto; gap: 10px 16px; height: auto; padding: 20px; border: 1px solid var(--border); text-align: left; white-space: normal; }
+.scheduled-card-title { font-weight: 600; overflow-wrap: anywhere; }
+.scheduled-card > span:nth-child(n+2) { color: var(--text-secondary); font-size: 12px; font-weight: 400; }
+.scheduled-card-next { grid-column: 1 / -1; }
+.scheduled-empty { display: flex; flex-direction: column; align-items: center; gap: 16px; color: var(--text-secondary); padding: 80px 0; }
+.scheduled-empty svg { width: 32px; height: 32px; }
+@media (max-width: 760px) { .scheduled-page { padding: 24px 20px 48px; } .scheduled-header { gap: 12px; } .scheduled-time-controls { flex-wrap: wrap; } .scheduled-run { flex-wrap: wrap; } }
+.scheduled-conflict { margin-bottom: 24px; padding: 16px; border: 1px solid var(--border); border-radius: 8px; }
+.scheduled-conflict p, .scheduled-conflict pre { margin: 8px 0; white-space: pre-wrap; overflow-wrap: anywhere; }

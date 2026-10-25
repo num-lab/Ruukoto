@@ -1,0 +1,38 @@
+{
+  "recordedAfterRunAt": "2026-10-25T16:00:26Z",
+  "head": "493b91c4",
+  "files": [
+    {
+      "path": "packages/runtime/src/runtime.ts",
+      "sha256": "a554b78e67f3801a6b789311ef1df17b9ff56650b5333e3074e12302798f42ed"
+    },
+    {
+      "path": "packages/runtime/src/code-scheduler.ts",
+      "sha256": "60db95562fc5d777e91e39f48fa7728060bfd78e2b732f7ca0522b6a1379505f"
+    },
+    {
+      "path": "packages/runtime/src/parent-delivery.ts",
+      "sha256": "3ef893d0e35e7df854ea24a4b02a5cfbcd5b7ba61a4dac6395a9ce446e78af5a"
+    },
+    {
+      "path": "packages/core/src/code-scheduler.ts",
+      "sha256": "3832fde7e3b69dc45dac5affd84f3a879401f3ce57813497587f0077aa7cf255"
+    },
+    {
+      "path": "packages/core/src/owner-questions.ts",
+      "sha256": "13c72ec8ef26e5717b92a498de41eca0a8e20f28fee7c265ed3b7d841f3f8619"
+    },
+    {
+      "path": "packages/agent/src/driver.ts",
+      "sha256": "b3f728220f61ede8f019cef43760972e025dea782f071dd2b0a8ed508b27ab43"
+    },
+    {
+      "path": "packages/agent/src/tool-router.ts",
+      "sha256": "198670cb89d0b567b2d8b069ad154d5cb9cd9da00702003bee9d92a69d9bc7d7"
+    },
+    {
+      "path": "apps/ruukoto-code/src/product.ts",
+      "sha256": "c5b8bd618285b492fc428c1b27f046e435dd2463cb396a3cce8f2718e8477487"
+    }
+  ]
+}

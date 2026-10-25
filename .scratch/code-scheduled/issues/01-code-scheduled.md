@@ -1,16 +1,16 @@
 # ruukoto-code Scheduled
 
-Status: needs-info
+Status: ready-for-human
 
 ## 目标与边界
 
-用户于 2026-10-25 要求先制定方案：完成 ruukoto-code 的 Scheduled，设置 title、schedule（repeat、time）、Instructions、workspace、permission、model 和 effort。后续回答已确认：一次性、每天、每周指定日期；直接在选定工作区执行，复用目录占用保护；schema 升级后使用新档案。当前角色为方案者，走重流程，因为涉及新增行为、权限来源、持久化与跨模块接口；本次不实施功能、不提交或部署。
+用户于 2026-10-25 要求先制定方案：完成 ruukoto-code 的 Scheduled，设置 title、schedule（repeat、time）、Instructions、workspace、permission、model 和 effort。后续回答已确认：一次性、每天、每周指定日期；直接在选定工作区执行，复用目录占用保护；schema 升级后使用新档案。2026-10-26 拥有者确认按工单方案实施，走重流程，因为涉及新增行为、权限来源、持久化与跨模块接口；后续明确授权本地提交，不含推送、部署或发布。
 
-当前事实：`apps/desktop/src/renderer/app.tsx` 的 Scheduled 只显示未开放提示；`apps/ruukoto-code/src/product.ts` 关闭旧个人 scheduler。旧实现使用个人 main 身份、独立临时目录与 main 模型，不满足指定工作区和模型的要求。
+当前实现：Scheduled 已替换占位，支持配置、编辑、暂停、恢复、取消与历史；Code 产品显式装配独立协调器，旧个人 scheduler 仍关闭。Code 使用固定工作区、模型、权限和档位，每轮建立独立开发会话；schema 为 53，控制协议为 41。
 
-关键契约、理由和备选见[提案笔记](../../../.agents/notes/proposed/feature/2026-10-25-code-scheduled.md)。首版提供桌面创建、编辑、暂停、恢复、取消和历史；复用现有权限、模型及 Coding 执行能力。运行使用独立会话，时间计算复用现有 helper，Code 计划独立于个人调度。
+关键契约、理由和备选见[决策笔记](../../../.agents/notes/implemented/feature/2026-10-25-code-scheduled.md)。首版提供桌面创建、编辑、暂停、恢复、取消和历史；复用现有权限、模型及 Coding 执行能力。运行使用独立会话，时间计算复用现有 helper，Code 计划独立于个人调度。
 
-已确认的是字段、周期范围、直接工作区执行与使用新档案；其余产品规则为本次建议，不能当作已批准实施。每次独立会话、固定创建时区、停机最多补最近一次、暂停与取消的区别仍属于待整体审阅的方案。档案策略已定：开发、验收与正式启用均使用独立新档案，不实现增量迁移或自动复制旧会话、设置和授权；现有档案不移动、不清空、不覆盖。
+拥有者已确认按本工单整体方案实施，包括每次独立会话、固定创建时区、停机最多补最近一次、暂停只影响未来与取消包含当前整项运行。档案策略已定：开发、验收与正式启用均使用独立新档案，不实现增量迁移或自动复制旧会话、设置和授权；现有档案不移动、不清空、不覆盖。
 
 非目标：小时／每月／cron、系统唤醒、云端调度、自动 worktree、立即运行、IM 推送、模型创建计划工具、TUI 专用计划管理页与通用迁移框架。正常 Coding 工具能力不因定时来源被无意移除。
 
@@ -20,7 +20,7 @@ Status: needs-info
 
 在 `packages/core/src/db.ts`、`types.ts`、`store.ts` 及专属 Code 调度存储模块定义计划、运行、写入回执与任务运行归属；按布局提高 schema，保持 Task 状态为执行权威。新档案沿当前初始化入口建立；旧版本和较新版本档案继续在写入前拒绝，不增加迁移或旧字段回填。新建／修改回执按稳定请求键与摘要去重；更新带预期版本，事件与状态同事务。运行固定配置快照，保存原定时间、合并区间和 session/task 反链。
 
-补集中、具名的 Code 调度来源核实入口，证明计划授权、运行快照与任务归属。`owner-questions.ts`、`background-processes.ts` 的持久 source.kind 当前只接受 coding-owner，必须新增可区分的真实来源并同步解析，不能只放宽 eligibility。原来源格式保留可读，不伪造 owner 输入。
+集中、具名的 Code 调度来源核实入口证明计划授权、运行快照与任务归属。`owner-questions.ts`、`background-processes.ts` 的持久 source.kind 区分 coding-owner 与带计划、运行及版本的 coding-schedule；创建、解析和回答续接同步核实。原来源格式保留可读，不伪造 owner 输入。
 
 ### 2. 调度与普通 Coding 任务接线
 
@@ -52,20 +52,20 @@ Status: needs-info
 
 实施时同步 `docs/modules/core.md`、`runtime.md`、`scheduler.md`、`control.md`、`desktop.md`、`products.md` 与 `docs/usage.md`；来源范围有变则同步 `agent-tools.md`、`workflows.md`，术语在 `CONTEXT.md` 区分 Code 运行来源与既有个人独立定时会话。架构模块不新增，更新现有模块职责与 Coding 调度流程即可。
 
-本次不新增命令、依赖或启动服务；若实施确需改变，再同步 README、开发说明与 pre-push-checks 中受影响的入口。提案落地后转 implemented，并核对产品分工、提问和后台笔记中的适用范围。
+没有新增产品运行命令或启动服务；desktop 显式声明根已有的 Temporal 0.5.1，不新增包。新增真实模型验收文件与环境门闩，README、开发说明和 pre-push-checks 已同步。决定已转 implemented，产品分工、提问和后台笔记的来源适用范围同步更新。
 
 ## 进展与交接
 
-- 当前角色与阶段：方案者；完成仓库事实、两个只读调研与独立方案复审，功能尚未实现。
-- 下一角色与动作：档案接入策略已确认使用新档案；后续实施指令到来后，实施者从本工单接手。若改变方案中的关键契约，只复审受影响部分。
-- 当前内容：分支 `develop`，调查基点 `fe25207fad651f8b653efd9de3f2db27618726af`；初始工作区干净。本次改动限本工单、提案笔记及两篇既有笔记的提案链接，未提交文件才是本次被审对象，HEAD 不代表本方案。
-- 阻塞与恢复条件：档案策略不再待决定，独立方案审查已无契约阻断；本轮请求仍是先制定方案，未进入实施，也没有实现验收结论。旧档案保持原样。
+- 当前角色与阶段：实施、文档与独立实现审查已完成；离线、Linux、双壳构建及真实模型证据分别归档。并行实现使用独立工作副本，主工作区由汇总者独占写入。
+- 下一角色与动作：拥有者／真实外壳验收者在新档案中验 Electron 和 WKWebView 的完整操作、系统通知、关闭窗口后后台继续及重连历史，并完成主观体验验收；通过后才转 resolved。
+- 当前内容：分支 `develop`，接手基点 `493b91c4`，初始工作区干净；本轮已获本地提交授权，未推送、部署或发布。原方案调查基点为 `fe25207fad651f8b653efd9de3f2db27618726af`，后续配置在线更新、实例级 Web Search 与桌面设置整理未取代本方案；schema 从接手时 52 升到 53，协议从 40 升到 41。最终被审代码摘要见[审查证据](../evidence/implementation-review.md)。
+- 阻塞与恢复条件：没有剩余实现或方案阻断；真实外壳及产品验收证据仍缺，不能以浏览器夹具替代。旧档案保持原样，启用新 schema 使用新档案。
 
 ## 验收与证据
 
 ### 方案验证
 
-当前证据为方案者、两个只读调研者和独立方案审查者读取真实源码及既有决定；没有运行模型、桌面或行为测试。方案者在本机执行 `npm run check:static` 通过，覆盖 lint、全部 workspace/foundation 类型检查、笔记及文档门禁；最后补充的契约文本另复跑笔记与文档检查。
+方案阶段的证据为方案者、两个只读调研者和独立方案审查者读取真实源码及既有决定；当时没有运行模型、桌面或行为测试。方案者在本机执行 `npm run check:static` 通过，覆盖 lint、全部 workspace/foundation 类型检查、笔记及文档门禁；最后补充的契约文本另复跑笔记与文档检查。实现阶段的行为证据见下节。
 
 独立方案审查：2026-10-25，审查角色 `plan_review`。首审要求补齐活动运行会话的人工操作守卫与未知效果恢复入口，并建议整项通知不沿首次 Task 提前发送；修订后复审通过，无剩余实施契约阻断。审查者直接核对来源、提交、问答、继续、模式修改、目录占用、schema 和通知源码；只做方案审查，未执行行为测试。被审未提交提案 SHA-256 为 `660023e79695330c6f5b0d76c57567502030da34d10d049185bcd737efd041dc`，工单为 `f8f018589644ec61151f84c9260374896c1269211b899f6ba2e144c6eecf8ea2`；本条记录及交接状态随后更新，方案和验收内容未变。两篇 implemented 的提案链接一并纳入审查。
 
@@ -85,15 +85,34 @@ Status: needs-info
 | 桌面完整链路 | 字段校验、effort 切换、重复点击、草稿保留、冲突、换实例不重放、状态刷新、运行历史及审批卡可到达；首次任务结束不提前通知整项成功 |
 | 产品和数据边界 | Code 不启用个人调度；普通聊天和个人入口回归；全新档案建库成功，旧版本及较新版本档案在写入前拒绝，原数据库、JSONL 与历史不改写；无自动复制旧设置或授权 |
 
-新增窄用例建议落 `test/code-scheduler.test.ts`、`test/code-scheduler-controls.test.ts`、`test/desktop-scheduled.test.ts`，复杂来源回归优先放已有相关文件，不写只镜像实现的测试。计划中的文件名不是已存在或已执行的证据。
+新增离线用例为 `test/code-scheduler-core.test.ts`、`test/code-scheduler.test.ts`、`test/code-scheduled-sources.test.ts`、`test/desktop-scheduled.test.ts`；真实模型入口为 `test/code-scheduler-model-acceptance.test.ts`，默认离线跳过。以下保留按改动面选择的验证要求，实际执行与通过范围以本轮验收记录为准。
 
 实施完成跑 `npm run check:static` 及新增定向用例；按实际触及选择 `test/37-scheduler-outbox.test.ts`、`test/71-product-entry.test.ts`、`test/66-control-seam.test.ts`、`test/subagent-source-capabilities.test.ts`、`test/113-workflow-source-capabilities.test.ts`、owner-questions、background-processes 与 agent-wait 对应文件。桌面加 `test/desktop-composer.test.ts`、`test/40-desktop-creation.test.ts`、`test/desktop-session-settings.test.ts`、`test/38-desktop-main.test.ts` 和双壳构建；测试命令列实际文件，不用通配编号。不机械运行全量 `npm run check`。
 
 真实 macOS 桌面以隔离档案验创建、到期、审批／回答、结果导航、关闭窗口后后台继续、重连历史，覆盖明暗、窄窗和键盘。Linux 调度及停止恢复在 `ssh tx` 用隔离目录验；真实模型使用 `RUN_MODEL_CHECK=1` 和明确测试工作区，所有写入限验收资料。缺模型或真实平台证据则保留待验，不以离线替身冒充。
 
-工程验收：待验证。产品验收：待验收，关注表单字段与周期选择是否清楚、运行和等待状态是否可发现、取消含义与历史导航是否符合预期。独立实现审查尚未开始。
+### 实现与验收记录
+
+| 内容 | 实际结果与证据 |
+| --- | --- |
+| 最终调度回归 | macOS 24.15.0 下 `npx tsx --test --test-concurrency=1 test/code-scheduler-core.test.ts test/code-scheduler.test.ts test/code-scheduled-sources.test.ts`，31 条通过、零跳过；覆盖实际工作区写入、Git 宿主任务、原子回滚、漏期、人工守卫、问答、重启、来源失效及未知恢复 |
+| 跨链路回归批次 | 124 条通过：新增四文件及 `test/66-control-seam.test.ts`、`test/37-scheduler-outbox.test.ts`、`test/71-product-entry.test.ts`、`test/subagent-source-capabilities.test.ts`、`test/113-workflow-source-capabilities.test.ts`、`test/owner-questions.test.ts`、`test/background-processes.test.ts`、`test/background-processes-recovery.test.ts`；其中调度收尾部分随后由最终 31 条复核 |
+| 桌面和宿主回归批次 | 152 条通过：调度四文件及 `test/desktop-composer.test.ts`、`test/desktop-session-settings.test.ts`、`test/38-desktop-main.test.ts`、`test/106-workflow-host.test.ts`；之后新增的来源失效、子工作取消和真实 Git 宿主归属由最终 31 条覆盖，不冒充这批原有用例 |
+| 独立实现审查 | 新上下文 `implementation_review` 直接读取需求和实现，复现宿主反链、队列投影、目录失败类型、未知报告恢复及不可送达结果死等；返工后复审通过、无剩余阻断，亲跑新增四文件 38 条及冻结 runtime/source 16 条；[完整审查](../evidence/implementation-review.md) |
+| Linux | `ssh tx` 的全新临时源码与档案，冻结调度三文件 31 条通过，平台／后台／产品六文件 63 条通过；真实 Scheduled HTTP 后台在根 Task 完成后仍活动，取消后 stopVerified、占用为零、服务不可达且成果保留；[环境、源码摘要和日志](../evidence/linux-2026-10-26/README.md)。Node 24.21.0 不替代 CI 的 24.15.0 矩阵 |
+| 双壳与视觉 | 两种正式构建与各自严格签名校验通过；真实 Chromium 的正式 renderer 在离线 bridge 夹具下完成明暗、640px、键盘、字段、草稿及取消确认；[截图和断言](../evidence/desktop-2026-10-26/README.md)。不算真实 Electron/WKWebView 业务验收 |
+| 真实模型 | 使用拥有者明确提供的 models.json，复制这一份到新临时 agentDir；DeepSeek Flash、off、confirm，两轮各 4 请求通过提问→回答→唯一精确文件审批→写入→整项 completed，原配置哈希不变且凭据副本清除；[脱敏证据](../evidence/model-2026-10-26/README.md)。默认离线模式的验收用例明确跳过，不记通过 |
+| 构建与静态 | `npm run build` 和 `npm run check:static` 通过；没有运行全量 `npm run check`。文档、决定与新模型验收入口同步，最终记录另跑相关文档／行尾门禁 |
+
+工程验收：上述实现、独立审查和适用定向检查通过；真实桌面外壳、系统通知及完整关闭重连链仍待验，保留 ready-for-human。产品验收：待拥有者验收字段和周期选择、运行等待状态的发现、取消含义及历史导航；截图与浏览器操作不能代替拥有者结论。没有部署、发布、迁移旧档案或自动复制旧设置／授权。
 
 ## Comments
+
+2026-10-26：拥有者明确要求“提交”，授权提交本工单实现、文档和验收证据；状态仍为 ready-for-human，不据此声称真实外壳或主观产品验收通过。无关未跟踪文件不纳入提交。
+
+2026-10-26：实施、独立审查及返工完成。拥有者明确提供 `/Users/eitrous/.ruukoto-code/agent/models.json` 用于真实模型验收；仅按这次授权复制此文件到临时新档案，两轮实际调用通过，源文件不变且临时凭据清除。真实外壳和主观体验保留待验，不标 resolved。
+
+2026-10-26：拥有者接手确认时明确回复“按工单方案实施”；本轮开始实施，整体产品规则及原已确认字段、档案策略一并有效。接手只读复核未发现后续决定推翻方案，schema 和协议调查数值刷新到当前检出。
 
 2026-10-25：拥有者在本次会话确认 repeat 为一次性、每天、每周指定日期，执行直接使用所选工作区。其余语义由本方案提出，未记为拥有者批准。
 

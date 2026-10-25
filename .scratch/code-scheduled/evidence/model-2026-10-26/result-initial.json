@@ -1,0 +1,79 @@
+{
+  "status": "passed",
+  "platform": "darwin",
+  "node": "v24.15.0",
+  "model": {
+    "provider": "magpie",
+    "modelId": "auto/deepseek-v4.1-flash"
+  },
+  "sourceModelsSha256": "bf2bfef9ea4a0a3d8cfbaa0db5f574b1092fe99a5e7ad55ebff3c5e4be0e742f",
+  "effort": "off",
+  "permission": "confirm",
+  "independentSession": true,
+  "workspaceMatches": true,
+  "activeSubmitRejected": true,
+  "approvalCount": 1,
+  "tools": [
+    {
+      "tool": "ask_user",
+      "isError": false,
+      "effectUnknown": false
+    },
+    {
+      "tool": "request_file_access",
+      "isError": false,
+      "effectUnknown": false
+    }
+  ],
+  "modelRequests": 4,
+  "promptSha256": [
+    "355b74c3bb8b00d2c5ccc854b790cf121277e65224e94efe02498f449e2f9eaa",
+    "b8013eb069ef47798ebfabcc66e733e52703401fa7c40e22bec1d6de4d39212f",
+    "3d4b35cc6495ee01589c29a055fe728c300aecb5c906273ff4430e3f144022c7",
+    "4af6e767add8dc5600159638bab5d38c9aab464b320087fa719191f27e2fc36e"
+  ],
+  "estimates": [
+    {
+      "systemPrompt": 1503,
+      "toolSchemas": 10359,
+      "subagentRoles": 186,
+      "memories": 0,
+      "compactionSummary": 0,
+      "mandatoryTurn": 350,
+      "currentTaskBatches": 0,
+      "historyTurns": 0
+    },
+    {
+      "systemPrompt": 1503,
+      "toolSchemas": 1377,
+      "memories": 0,
+      "compactionSummary": 0,
+      "mandatoryTurn": 635,
+      "currentTaskBatches": 0,
+      "historyTurns": 0
+    },
+    {
+      "systemPrompt": 1503,
+      "toolSchemas": 10359,
+      "subagentRoles": 186,
+      "memories": 0,
+      "compactionSummary": 0,
+      "mandatoryTurn": 65,
+      "currentTaskBatches": 0,
+      "historyTurns": 686
+    },
+    {
+      "systemPrompt": 1503,
+      "toolSchemas": 10359,
+      "subagentRoles": 186,
+      "memories": 0,
+      "compactionSummary": 0,
+      "mandatoryTurn": 247,
+      "currentTaskBatches": 0,
+      "historyTurns": 686
+    }
+  ],
+  "markerSha256": "df3feaf4e1ef0097b2c0dcab4f7dd0d0e9c86e12cd203c875f2e38c7b17fc3d0",
+  "credentialCopyRemoved": true,
+  "sourceModelsUnchanged": true
+}

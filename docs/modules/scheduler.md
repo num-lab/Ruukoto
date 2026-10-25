@@ -2,7 +2,7 @@
 
 ## 职责与边界
 
-[个人 durable](personal-durable.md) 在 app 内持有独立的计划、运行、权限来源与发送 Task，只复用本模块 `time.ts` 的时间计算。正式个人 bin、根启动脚本、开发启动器和部署入口均使用该 durable 装配；下述 SchedulerStore 留在旧底座，Coding Agent 不开放个人调度，但仍可核实共享旧操作。两种装配不共用计划或发送账本。
+[个人 durable](personal-durable.md) 在 app 内持有独立的计划、运行、权限来源与发送 Task；Coding 的 Scheduled 由 core 专属表和 runtime 协调器持有。两者只复用本模块 `time.ts` 的时间计算，不共用计划或发送账本。下述 SchedulerStore 留在旧底座，Coding 不启用个人调度，但仍可核实共享旧操作。
 
 旧底座实现使用本模块的时间规则、调度计划、独立运行与通知发送账本，代码在 `packages/channels/src/scheduler/` 的 `time.ts`、`store.ts`、`runtime.ts`。计划只表达时间与自足任务说明，每次到期由运行时建立独立的个人助手会话，使用已有工具完成工作。新闻、提醒、巡检等业务由说明与工具表达，不设专用动作。
 
@@ -11,6 +11,10 @@
 内存计时器只唤醒扫描，时间与执行事实以数据库为准。计划执行与日常主聊天分别排队，等待审批或长任务不占用主聊天。
 
 ## 对外接口
+
+### Coding Scheduled
+
+桌面经 Code 专属控制操作创建、编辑、暂停、恢复、取消和查看历史，接口与归属见[控制面](control.md)和[运行时](runtime.md)。计划固定 title、rule、Instructions、已登记工作区、三种 AccessMode、provider/model/effort；不提供模型管理计划工具或 IM 推送。运行记录打开原开发会话处理审批与问题。
 
 ### 个人 durable
 
@@ -29,6 +33,10 @@
 通知渠道一次只发送一条固定正文：成功返回平台消息 ID，可证明未发送抛 `NotSentError`，明确限流且可证明未发送抛 `RetryLaterError`。渠道不能隐藏重试或拆分多条。未加载或暂时离线时操作保留 `pending`，显示等待原因。
 
 ## 数据与状态
+
+### Coding Scheduled
+
+计划、运行、写入回执和 Task 反链由[core](core.md)的 `code_schedules`、`code_schedule_runs`、`code_schedule_receipts`、`code_schedule_tasks` 保存。当前运行的配置不随计划编辑或全局默认模型变化；每次使用独立开发会话，正常 Coding 能力沿真实调度来源开放，旧个人 `scheduled` 身份不复用。
 
 ### 个人 durable
 
@@ -67,6 +75,10 @@ stateDiagram-v2
 
 ## 主要流程
 
+### Coding Scheduled
+
+一次性、每天及每周指定星期使用固定创建时 IANA 时区；DST 空隙向后移、重复钟点取较早一次，机器后来换时区不改计划。后台最多补最近一次，在途运行只合并周期。暂停跳过人为暂停期间的执行，过期一次性计划须调整日期；编辑只改未来，取消覆盖当前整项运行。调度权威与恢复由[运行时](runtime.md#coding-定时执行)持有，桌面不使用 timer 创建任务。
+
 ### 个人 durable
 
 定时会话及其子身份沿[个人资料归属](personal-durable.md)使用自身历史和记忆；技能只提供参考。封组汇总可查询记忆、查原文与读技能，不能再变更记忆。
@@ -93,6 +105,10 @@ stateDiagram-v2
 
 ## 不变量与失败处理
 
+### Coding Scheduled
+
+定时任务直接执行于固定工作区，共用原目录占用与权限；逐次批准和路径授权不随计划继承。模型或档位不可用、目录消失或身份改变时保留失败原因并暂停，不换模型或目录。未关闭运行拒绝人工输入和配置覆盖；未知效果与停止未核实阻止新周期，显式恢复只开放未来、不重做原操作。取消不能撤销已经发生的修改。Code 使用独立新档案，导入发现计划、运行、回执或来源记录时明确拒绝。
+
 ### 个人 durable
 
 定时会话及其子身份沿[个人资料归属](personal-durable.md)使用自身历史和记忆；技能只提供参考。封组汇总可查询记忆、查原文与读技能，不能再变更记忆。
@@ -116,6 +132,8 @@ stateDiagram-v2
 保留的旧操作按原来源、资料范围与业务库身份核实；旧个人模型工具和普通通知创建入口已退出，不能从当前工作流恢复这些调用。
 
 ## 设计依据
+
+- [Coding 调度的固定配置与独立会话](../../.agents/notes/implemented/feature/2026-10-25-code-scheduled.md)
 
 - [个人持久调度的独立来源与整项收尾](../../.agents/notes/implemented/architecture/2026-10-18-personal-durable-scheduled-work.md)
 

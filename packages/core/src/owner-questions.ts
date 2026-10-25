@@ -6,6 +6,7 @@ import type { Store } from "./store.ts";
 import { getWorkflowExecution, getWorkflowDeliveryRun } from "./workflow.ts";
 import { isAgentReportFallback } from "./agent-wait.ts";
 import { randomId, type AccessMode, type GrantedPath, type ModelSelection, type Task } from "./types.ts";
+import { CodeScheduleError, getCodingTaskOrigin, getCodeScheduleRunForTask, getCodeScheduledTaskSource, getOpenCodeScheduleRunForSession, isCodingTaskOrigin, type CodingTaskOrigin } from "./code-scheduler.ts";
 
 export interface OwnerQuestionView {
   id: string;
@@ -20,8 +21,8 @@ export interface OwnerQuestionView {
 }
 export interface OwnerQuestion extends OwnerQuestionView {
   hostOpId: string;
-  source: { kind: "coding-owner"; projectId: string; input: string; accessMode: AccessMode; permissionVersion: number; grantedPaths: GrantedPath[]; planMode: boolean };
-  answerSource?: { kind: "coding-owner"; sessionId: string; accessMode: AccessMode; planMode: boolean; permissionVersion: number; grantedPaths: GrantedPath[]; modelSelection: ModelSelection | null };
+  source: CodingTaskOrigin & { projectId: string; input: string; accessMode: AccessMode; permissionVersion: number; grantedPaths: GrantedPath[]; planMode: boolean };
+  answerSource?: CodingTaskOrigin & { sessionId: string; accessMode: AccessMode; planMode: boolean; permissionVersion: number; grantedPaths: GrantedPath[]; modelSelection: ModelSelection | null };
   updatedAt: string;
 }
 export interface OwnerQuestionReceipt {
@@ -39,6 +40,17 @@ export function ownerQuestionToView(question: OwnerQuestion): OwnerQuestionView 
 }
 
 export function ownerQuestionTaskEligible(store: Store, task: Task): boolean {
+  const scheduled = getCodeScheduleRunForTask(store, task.id);
+  if (scheduled) {
+    try {
+      const source = getCodeScheduledTaskSource(store, task.id);
+      return source !== null && task.sessionId === source.sessionId && task.agentId === null && task.workId === null && task.subAgentId === null && !getWorkflowExecution(store, task.id) && !getWorkflowDeliveryRun(store, task.id) && !isAgentReportFallback(store, task.id);
+    } catch (error) {
+      if (error instanceof CodeScheduleError) return false;
+      throw error;
+    }
+  }
+  if (getOpenCodeScheduleRunForSession(store, task.sessionId)) return false;
   return store.getSessionIdentity(task.sessionId)?.kind === "dev" && task.agentId === null && task.parentTaskId === null && task.sourceEventId === null && task.sourcePermissionVersion === null && task.workId === null && task.subAgentId === null && !getWorkflowExecution(store, task.id) && !getWorkflowDeliveryRun(store, task.id) && !isAgentReportFallback(store, task.id);
 }
 
@@ -47,13 +59,13 @@ function questionFromRow(row: { payload: string } | undefined): OwnerQuestion | 
   let question: OwnerQuestion;
   try { question = JSON.parse(row.payload) as OwnerQuestion; }
   catch { throw new OwnerQuestionError("question_corrupt", "问题记录无法读取；保留档案并检查存储。"); }
-  if (!question || typeof question.id !== "string" || typeof question.sessionId !== "string" || typeof question.taskId !== "string" || typeof question.hostOpId !== "string" || !Number.isInteger(question.version) || question.version < 1 || !["pending", "answered", "canceled", "stale"].includes(question.status) || question.source?.kind !== "coding-owner" || typeof question.createdAt !== "string" || typeof question.updatedAt !== "string" || typeof question.source.input !== "string" || !Number.isInteger(question.source.permissionVersion)) throw new OwnerQuestionError("question_corrupt");
+  if (!question || typeof question.id !== "string" || typeof question.sessionId !== "string" || typeof question.taskId !== "string" || typeof question.hostOpId !== "string" || !Number.isInteger(question.version) || question.version < 1 || !["pending", "answered", "canceled", "stale"].includes(question.status) || !isCodingTaskOrigin(question.source) || typeof question.createdAt !== "string" || typeof question.updatedAt !== "string" || typeof question.source.input !== "string" || !Number.isInteger(question.source.permissionVersion)) throw new OwnerQuestionError("question_corrupt");
   try { parseOwnerQuestions(question.questions); }
   catch { throw new OwnerQuestionError("question_corrupt"); }
   if (question.status === "answered") {
     try { parseOwnerAnswers(question.answers, question.questions); }
     catch { throw new OwnerQuestionError("question_corrupt"); }
-    if (typeof question.continuationTaskId !== "string" || question.answerSource?.kind !== "coding-owner" || question.answerSource.sessionId !== question.sessionId) throw new OwnerQuestionError("question_corrupt");
+    if (typeof question.continuationTaskId !== "string" || !isCodingTaskOrigin(question.answerSource) || question.answerSource.sessionId !== question.sessionId || question.source.kind !== question.answerSource.kind || (question.source.kind === "coding-schedule" && (question.answerSource.kind !== "coding-schedule" || question.source.runId !== question.answerSource.runId || question.source.scheduleId !== question.answerSource.scheduleId || question.source.planVersion !== question.answerSource.planVersion))) throw new OwnerQuestionError("question_corrupt");
   } else if (question.answers !== undefined || question.continuationTaskId !== undefined || question.answerSource !== undefined) throw new OwnerQuestionError("question_corrupt");
   return question;
 }
@@ -89,7 +101,7 @@ export function createOwnerQuestion(store: Store, input: { taskId: string; sessi
   if (store.db.prepare("SELECT 1 FROM owner_questions WHERE session_id = ? AND status = 'pending'").get(session.id)) throw new OwnerQuestionError("question_pending", "已有待答问题。结束本轮，拥有者可在问题卡片作答或取消。");
   const now = new Date().toISOString();
   const question: OwnerQuestion = { id: randomId("question"), sessionId: session.id, taskId: task.id, hostOpId: op.id, version: 1, status: "pending", questions,
-    source: { kind: "coding-owner", projectId: session.projectId, input: task.input, accessMode: task.accessMode, permissionVersion: task.permissionVersion, grantedPaths: structuredClone(task.grantedPaths), planMode: task.planMode }, createdAt: now, updatedAt: now };
+    source: { ...getCodingTaskOrigin(store, task.id), projectId: session.projectId, input: task.input, accessMode: task.accessMode, permissionVersion: task.permissionVersion, grantedPaths: structuredClone(task.grantedPaths), planMode: task.planMode }, createdAt: now, updatedAt: now };
   store.db.prepare("INSERT INTO owner_questions (id, session_id, task_id, host_op_id, status, payload) VALUES (?, ?, ?, ?, ?, ?)").run(question.id, question.sessionId, question.taskId, question.hostOpId, question.status, JSON.stringify(question));
   store.appendEvent({ type: "owner_question.changed", question: ownerQuestionToView(question) }, { sessionId: question.sessionId, taskId: question.taskId });
   return question;
@@ -123,11 +135,13 @@ function saveReceipt(store: Store, receipt: OwnerQuestionReceipt): OwnerQuestion
 }
 
 /** 与唯一续接 Task 的插入同事务；重复请求只返回原回执，不再消费。 */
-export function consumeOwnerQuestion(store: Store, input: { questionId: string; sessionId: string; version: number; requestKey: string; requestDigest: string; answers: OwnerAnswer[]; source: { kind: "coding-owner"; sessionId: string }; taskId: string }): OwnerQuestionReceipt {
+export function consumeOwnerQuestion(store: Store, input: { questionId: string; sessionId: string; version: number; requestKey: string; requestDigest: string; answers: OwnerAnswer[]; source: CodingTaskOrigin & { sessionId: string }; taskId: string }): OwnerQuestionReceipt {
   const original = originalReceipt(store, input, "owner_question_answer");
   if (original) return original;
   const question = requirePending(store, input), answers = parseOwnerAnswers(input.answers, question.questions), task = store.getTask(input.taskId);
-  if (input.source.kind !== "coding-owner" || input.source.sessionId !== question.sessionId || !task || task.sessionId !== question.sessionId || task.requestId !== input.requestKey || !ownerQuestionTaskEligible(store, task) || task.status !== "queued") throw new OwnerQuestionError("question_source_invalid");
+  if (input.source.sessionId !== question.sessionId || !task || task.sessionId !== question.sessionId || task.requestId !== input.requestKey || !ownerQuestionTaskEligible(store, task) || task.status !== "queued") throw new OwnerQuestionError("question_source_invalid");
+  const origin = getCodingTaskOrigin(store, task.id), questionOrigin = getCodingTaskOrigin(store, question.taskId);
+  if (!isDeepStrictEqual(input.source, { ...origin, sessionId: question.sessionId }) || !isDeepStrictEqual(origin, questionOrigin) || question.source.kind !== origin.kind || (question.source.kind === "coding-schedule" && (origin.kind !== "coding-schedule" || question.source.runId !== origin.runId || question.source.scheduleId !== origin.scheduleId || question.source.planVersion !== origin.planVersion))) throw new OwnerQuestionError("question_source_invalid");
   const updated: OwnerQuestion = { ...question, status: "answered", version: question.version + 1, answers, answerSource: { ...input.source, accessMode: task.accessMode, planMode: task.planMode, permissionVersion: task.permissionVersion, grantedPaths: structuredClone(task.grantedPaths), modelSelection: structuredClone(task.modelSelection) }, continuationTaskId: task.id, updatedAt: new Date().toISOString() };
   saveQuestion(store, updated);
   return saveReceipt(store, { operation: "owner_question_answer", questionId: question.id, sessionId: question.sessionId, requestKey: input.requestKey, digest: input.requestDigest, question: ownerQuestionToView(updated), taskId: task.id });

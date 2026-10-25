@@ -1,3 +1,4 @@
+import type { CodeScheduleReconcileOutcome } from "@ruukoto/control/code-schedule-requests.ts";
 import type { AttachmentMetadata } from "@ruukoto/core/attachments.ts";
 import type { RequestOutcome } from "@ruukoto/control/client.ts";
 import type { ConnectionState } from "@ruukoto/control/connection.ts";
@@ -13,7 +14,7 @@ export type DesktopAttachment = AttachmentMetadata;
 
 export type DesktopCancelQuestionResult = OwnerQuestionCancelOutcome | { kind: "pending_existing"; record: PendingRequest };
 export type DesktopSubmitResult = SubmitOutcome | { kind: "pending_existing"; record: PendingRequest };
-export type PendingInput = { record: PendingRequest; result?: ReconcileOutcome | OwnerQuestionCancelReconcileOutcome };
+export type PendingInput = { record: PendingRequest; result?: ReconcileOutcome | OwnerQuestionCancelReconcileOutcome | CodeScheduleReconcileOutcome };
 export type PendingOp = "desktop_pending_read" | "desktop_pending_clear";
 
 export type BrowserDocumentId = string;
@@ -40,6 +41,7 @@ export type DesktopUpdate =
   | { type: "snapshot"; result: ConnectResult; instanceChanged: boolean }
   | { type: "event"; event: PersistentEvent; kind: "live" | "replay" }
   | { type: "pending"; entries: PendingInput[]; corrupt: string[]; dir: string }
+  | { type: "schedule_submission"; record: PendingRequest; result: CodeScheduleReconcileOutcome }
   | { type: "question_cancel"; record: PendingRequest; result: OwnerQuestionCancelReconcileOutcome }
   | { type: "submission"; record: PendingRequest; result: ReconcileOutcome };
 export interface DesktopBridge {

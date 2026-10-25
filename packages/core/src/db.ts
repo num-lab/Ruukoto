@@ -12,9 +12,40 @@ import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 
-export const SCHEMA_VERSION = 52;
+export const SCHEMA_VERSION = 53;
 
 const SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS code_schedules (
+  id TEXT PRIMARY KEY,
+  status TEXT NOT NULL CHECK (status IN ('active','paused','canceled','completed')),
+  version INTEGER NOT NULL CHECK (version > 0),
+  next_due_at TEXT,
+  payload TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS code_schedules_due ON code_schedules(status, next_due_at);
+CREATE TABLE IF NOT EXISTS code_schedule_runs (
+  id TEXT PRIMARY KEY,
+  schedule_id TEXT NOT NULL REFERENCES code_schedules(id),
+  plan_version INTEGER NOT NULL,
+  scheduled_at TEXT NOT NULL,
+  session_id TEXT NOT NULL UNIQUE REFERENCES sessions(id),
+  status TEXT NOT NULL CHECK (status IN ('active','completed','failed','canceled','interrupted')),
+  closed_at TEXT,
+  payload TEXT NOT NULL,
+  UNIQUE(schedule_id, plan_version, scheduled_at)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS code_schedule_runs_open ON code_schedule_runs(schedule_id) WHERE closed_at IS NULL;
+CREATE TABLE IF NOT EXISTS code_schedule_tasks (
+  task_id TEXT PRIMARY KEY REFERENCES tasks(id),
+  run_id TEXT NOT NULL REFERENCES code_schedule_runs(id),
+  source_task_id TEXT REFERENCES tasks(id)
+);
+CREATE INDEX IF NOT EXISTS code_schedule_tasks_run ON code_schedule_tasks(run_id);
+CREATE TABLE IF NOT EXISTS code_schedule_receipts (
+  request_id TEXT PRIMARY KEY,
+  digest TEXT NOT NULL,
+  payload TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS background_processes (
   id TEXT PRIMARY KEY,
   session_id TEXT NOT NULL REFERENCES sessions(id),

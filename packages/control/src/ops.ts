@@ -11,6 +11,7 @@ import type { Runtime } from "@ruukoto/runtime/runtime.ts";
 import type { SessionDefaultMode, GrantedPath, ModelSelection } from "@ruukoto/core/types.ts";
 import type { WorkflowControl } from "@ruukoto/core/workflow.ts";
 import type { ToolResultField } from "@ruukoto/core/history.ts";
+import type { CodeScheduleConfig } from "@ruukoto/core/code-scheduler.ts";
 
 /** Runtime 方法的返回类型（去掉 Promise）。 */
 type R<M extends keyof Runtime> = Runtime[M] extends (...args: any[]) => infer T ? Awaited<T> : never;
@@ -32,6 +33,11 @@ type Submit = {
 };
 
 export interface TuiOps {
+  code_schedules: { params: { offset?: number; limit?: number; scope?: "current" | "history" }; result: R<"listCodeSchedules"> };
+  code_schedule: { params: { plan_id: string; run_offset?: number }; result: R<"getCodeSchedule"> };
+  code_schedule_save: { params: { request_id: string; plan_id?: string; expected_version?: number; config: CodeScheduleConfig }; result: R<"saveCodeSchedule"> };
+  code_schedule_control: { params: { request_id: string; plan_id: string; expected_version: number; control: "pause" | "resume" | "cancel"; acknowledge_run_id?: string; expected_run_version?: number }; result: R<"controlCodeSchedule"> };
+  code_schedule_receipt: { params: { request_id: string }; result: R<"findCodeScheduleReceipt"> };
   background_processes: { params: { session_id: string; offset?: number }; result: R<"listBackgroundProcesses"> };
   background_process_output: { params: { session_id: string; process_id: string; stream: "stdout" | "stderr"; offset?: number }; result: R<"backgroundProcessOutput"> };
   background_process_stop: { params: { session_id: string; process_id: string }; result: R<"stopBackgroundProcess"> };

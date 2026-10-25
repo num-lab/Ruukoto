@@ -2,6 +2,8 @@
 
 Status: implemented
 
+来源范围由[Coding Scheduled](../../implemented/feature/2026-10-25-code-scheduled.md)扩展至可信 Code 定时根轮及续接，持久记录区分 coding-schedule 与 coding-owner；原权限、单次启动、目录交接及停止核实决定保持。后台仍活动或停止未核实时，整项 Code 调度不关闭；取消计划停止本轮后台，不释放未核实占用。
+
 ## 问题
 
 普通 bash 在调用或 Task 结束时回收临时执行，开发服务无法供后续工具与下一拥有者轮访问。仅保留进程组会丢失启动、输出与恢复身份；沿原 Task 占用则会被终态或恢复队列误释放。

@@ -16,7 +16,7 @@
 
 ## 当前状态
 
-个人正式入口使用 Pi durable，Coding 保留原有工作区、会话、SubAgent、工作流与开发资料导入。个人保留能力及入口制品在隔离档案验收，生产切换另行安排。尚未完成：
+个人采用 Pi durable；Coding 提供工作区、会话、SubAgent、工作流、资料导入与桌面 [Scheduled](docs/usage.md#54-通用定时任务)，固定时间、工作区、权限与模型。个人制品经隔离验收，生产接管另验。尚未完成：
 
 - 最终候选组合验收与生产接管，旧首期平台替身不能替代当前真实验收；
 - 跨端共享记忆、邮件与 GitHub comment 渠道、独立的 QQ 群聊外挂（核心群聊已退役，旧群资料保留为只读归档）。
@@ -44,7 +44,7 @@ ruukoto-code                      # 回到既有会话（不隐式新建）
 ruukoto-code stop                 # 停止后台
 ```
 
-工作区按真实目录身份归属：符号链接与路径变体复用同一工作区，同名不同目录不合并；一个工作区可以包含多个仓库。默认 native，正式入口拒绝旧 local/container 覆盖；迁移见[操作手册](docs/usage.md#21-启动后台)。完全访问在 macOS 与 Linux 直接使用启动账户，不施加任务沙箱；环境继承、工作区外访问及停止已有两平台真实 worker 验证。
+工作区按真实目录身份归属：符号链接与路径变体复用同一工作区，同名不同目录不合并；一个工作区可以包含多个仓库。默认 native，正式入口拒绝旧 local/container 覆盖；迁移见[操作手册](docs/usage.md#21-启动后台)。完全访问在 macOS 与 Linux 直接使用启动账户，不施加任务沙箱。
 
 | TUI 命令 | 用途 |
 | --- | --- |
@@ -85,7 +85,7 @@ npm run code -- ../my-project  # 以该目录创建/复用工作区，并进入�
 
 开发与测试见[开发说明](docs/development.md)；MyGo：`npm run desktop:mygo`，见[桌面开发](docs/desktop-development.md)；[浏览器用法](docs/usage.md#12-浏览器)含登录与截图导出。
 
-[持久问题真实模型验收](docs/development.md#外部验收)使用 DeepSeek 与隔离档案。
+[模型验收](docs/development.md#外部验收)使用显式模型文件与隔离档案。
 
 ## 文档
 

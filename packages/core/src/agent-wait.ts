@@ -6,6 +6,7 @@ import type { Store } from "./store.ts";
 import type { SubAgentRoleCatalogSnapshot } from "./subagent-definition.ts";
 import { isTerminalTaskStatus } from "./types.ts";
 import { getWorkflowRunNumber, listWorkflowExecutions, requireWorkflowRun, workflowTerminal, type WorkflowSource } from "./workflow.ts";
+import { getCodeScheduledTaskSource } from "./code-scheduler.ts";
 
 export type AgentWaitTarget = { kind: "task"; taskId: string } | { kind: "workflow"; runId: string };
 export type AgentReportTarget = { kind: "task"; taskId: string } | { kind: "workflow"; runId: string; terminalVersion: number };
@@ -67,7 +68,7 @@ export class AgentWaitError extends Error {
 
 export function sameAgentReportSource(a: WorkflowSource, b: WorkflowSource): boolean {
   return a.taskId === b.taskId && a.sessionId === b.sessionId && a.projectId === b.projectId &&
-    a.scheduledRunId === b.scheduledRunId && isDeepStrictEqual(a.replyTarget, b.replyTarget);
+    a.scheduledRunId === b.scheduledRunId && a.codeScheduledRunId === b.codeScheduledRunId && isDeepStrictEqual(a.replyTarget, b.replyTarget);
 }
 export function agentReportKey(target: AgentReportTarget): string {
   return target.kind === "task" ? `task:${target.taskId}` : `workflow:${target.runId}:${target.terminalVersion}`;
@@ -75,6 +76,8 @@ export function agentReportKey(target: AgentReportTarget): string {
 function sourceEventId(store: Store, source: WorkflowSource): string | null {
   const task = store.getTask(source.taskId);
   if (!task || task.sessionId !== source.sessionId || store.getSession(source.sessionId)?.projectId !== source.projectId) throw new AgentWaitError("source_invalid");
+  const scheduled = getCodeScheduledTaskSource(store, task.id);
+  if (source.codeScheduledRunId !== scheduled?.runId) throw new AgentWaitError("source_invalid");
   const event = task.sourceEventId ? store.getInboundEvent(task.sourceEventId) : null;
   if (task.sourceEventId && !event) throw new AgentWaitError("source_invalid");
   if (!source.scheduledRunId && !isDeepStrictEqual(event?.replyTarget ?? null, source.replyTarget)) throw new AgentWaitError("source_invalid");

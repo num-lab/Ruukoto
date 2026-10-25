@@ -32,6 +32,7 @@
 | Runtime、Driver | `Store.getSessionIdentity(sessionId)` | 读取会话、角色、SubAgent 与独立调度运行绑定后调用 `classifySession`；会话不存在返回 `null` |
 | Runtime、Driver | `Store.getSubAgentBySession(sessionId)` | 按独立子会话反查 `sub_agents` 绑定，是宿主识别动态身份的唯一依据 |
 | Runtime | `packages/core/src/background-processes.ts` | 会话后台的登记、目录交接、单次启动认领、观测、停止核实、关闭屏障及每页最多20条、256 KiB的历史分页；写入由调用者持有同一 Store 事务 |
+| Runtime | `packages/core/src/code-scheduler.ts` | Code 计划、运行、请求回执、任务归属与可信来源核实；写入和事件由调用方持有同一事务，时间计算不在 core |
 | Driver | `executionProfile({ identity, writeTarget, review, planMode })`（`packages/agent/src/tool-availability.ts`） | 由身份、任务所属工作是否有写入目标、是否宿主评审与任务钉定的 `planMode` 算出执行画像 |
 | Driver、context-assembly | `ArtifactStore`（`packages/agent/src/artifacts.ts`） | `begin` / `append` / `complete` / `importImage` / `read` / `readImage` / `byteLength` |
 | Runtime、channels | `InboundMediaStore`（`packages/channels/src/inbound-media.ts`） | `stage` / `promote` / 恢复与过期清理 |
@@ -61,6 +62,10 @@
 控制接口按 id、偏移与长度读取产物正文：`queryArtifact({ taskId, artifactId, offset?, length? })` 校验产物属于该任务，`offset` 下限 0，`length` 默认 256 KiB、上限 720 KiB（按线上帧约束：base64 膨胀 4/3 加 JSON 开销必须留在 `MAX_FRAME_BYTES` 即 1 MiB 内），返回 `base64` 编码的片段。模型侧读产物的工具是 `read_artifact`，参数 `artifact_id` / `offset` / `length`，单次上限 64 KiB，默认按 `utf8`、可显式选 `base64`。
 
 ## 数据与状态
+
+`code_schedules` 保存 Code 计划配置、目录身份、版本、active/paused/canceled/completed 状态及下一时间；`code_schedule_runs` 固定配置快照、原定时刻、漏期合并区间、独立开发会话和首次 Task，每计划至多一个未关闭运行。`code_schedule_tasks` 保存根与后代任务的真实反链；`code_schedule_receipts` 按请求键和摘要保存写入结果。计划与运行查询按数量和字节分页；Task 仍是执行状态权威，JSONL 不参与 SQLite 事务。
+
+`getCodeScheduledTaskSource` 从计划、运行快照、根 Task 和逐级反链证明 `coding-schedule` 来源，无归属返回空值，损坏、取消或已关闭来源明确拒绝。提问、回答和后台来源区分 `coding-owner` 与包含运行、计划、版本的 `coding-schedule`，不把定时说明伪装成人工输入。`code_schedule.changed`、`code_schedule.run_changed` 与 `code_schedule.task_bound` 和对应状态同事务保存；会话与 TaskView 的调度字段由查询投影，不新增 Task 执行状态。
 
 `background_processes` 保存后台命令、原 Task/工具操作、完全访问来源与权限快照、目录身份、平台执行引用、参考快照及启动认领，状态为 starting/running/stop_requested/stopped/stop_unverified；退出观察与停止核实分开记录。每会话最多一个未核实停止的执行，输出计数单调增加且合计最多16 MiB，日志保存固定文件身份与 sha256，客户端视图不暴露内部证据。`occupancy` 每行只由 Task 或后台执行中的一个持有；交接用原行更新，在同一事务保存参考快照与当前 Task 的内部对话阶段，原 Task 终态只清除自己的占用。只有核实整个后台执行停止才能删除后台占用，后台状态及 `background_process.changed` 同事务提交。
 
@@ -96,7 +101,7 @@ Coding 档案根为 `~/.ruukoto-code`，开发实例为 `~/.ruukoto-code-dev/<�
 
 ```
 <dataDir>/                     # 0700（RUUKOTO_CODE_DATA_DIR，默认 ~/.ruukoto-code/data）
-├── ruukoto.db                 # node:sqlite 元数据（WAL，schema v51）
+├── ruukoto.db                 # node:sqlite 元数据（WAL，schema v53）
 ├── agent-data/main.db         # main 应用数据空间（独立库；实例 ID 登记在核心库 meta）
 ├── sessions/                  # pi JSONL 会话文件（消息历史唯一权威副本）
 ├── browser/                  # 0700；按实例与会话隔离 profile、保留截图
@@ -381,6 +386,8 @@ sequenceDiagram
 工作流来源固定实际能力、资料授权 ID、配置摘要和工作区身份；步骤保存冻结补丁产物与独立验证记录，详情见[工作流](workflows.md)。资料读取可携带宿主固定的授权 ID 集合，与当前未撤销授权求交；新增授权不扩大旧运行。
 
 ## 设计依据
+
+- [Coding 调度的固定配置与独立会话](../../.agents/notes/implemented/feature/2026-10-25-code-scheduled.md)
 
 - [Code MCP 按实例配置与旧格式退出](../../.agents/notes/implemented/simplification/2026-10-24-code-instance-mcp.md)
 

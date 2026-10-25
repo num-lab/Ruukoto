@@ -1,3 +1,5 @@
+import { CodeScheduleRequestGuard, type CodeScheduleReconcileOutcome, type CodeScheduleWriteOp, type CodeScheduleWriteOutcome } from "@ruukoto/control/code-schedule-requests.ts";
+import type { OpParams } from "@ruukoto/control/ops.ts";
 import { BackgroundEndGuard, type BackgroundEndOutcome } from "@ruukoto/control/background-end.ts";
 import { ControlClientError } from "@ruukoto/control/client.ts";
 import type { ControlConnection } from "@ruukoto/control/connection.ts";
@@ -11,7 +13,7 @@ type Connection = Pick<ControlConnection, "request"> & { instanceId?: string | n
 
 // Note: 见 .agents/notes/proposed/architecture/2026-10-15-desktop-client.md
 export class DesktopSubmissions {
-  private readonly results = new Map<string, ReconcileOutcome | OwnerQuestionCancelReconcileOutcome>();
+  private readonly results = new Map<string, ReconcileOutcome | OwnerQuestionCancelReconcileOutcome | CodeScheduleReconcileOutcome>();
   private readonly announced = new Set<string>();
   private readonly sending = new Set<string>();
   private running: Promise<void> | null = null;
@@ -72,6 +74,15 @@ export class DesktopSubmissions {
     if (result.kind === "pending_verification" && result.outcome === "unknown") void this.reconcile();
     return result;
   }
+  async schedule(op: CodeScheduleWriteOp, params: OpParams<CodeScheduleWriteOp>): Promise<CodeScheduleWriteOutcome> {
+    const pending = new CodeScheduleRequestGuard(this.store, this.guardConnection()).write(op, params);
+    this.sending.add(params.request_id); this.refresh();
+    let result: CodeScheduleWriteOutcome;
+    try { result = await pending; }
+    finally { this.sending.delete(params.request_id); this.refresh(); }
+    if (result.kind === "pending_verification") void this.reconcile();
+    return result;
+  }
   async endBackground(params: Record<string, unknown>): Promise<BackgroundEndOutcome> {
     if (typeof params.session_id !== "string" || !params.session_id.trim() || (params.request_id !== undefined && typeof params.request_id !== "string")) throw new DesktopError("invalid_params", "请选择需要结束后台的会话。");
     const result = await new BackgroundEndGuard(this.store, this.guardConnection()).end(params.session_id, params.request_id as string | undefined);
@@ -94,8 +105,12 @@ export class DesktopSubmissions {
         if (this.stopped || this.connection() !== connection || connection?.instanceId !== instanceId) break;
         if (this.sending.has(record.requestId)) continue;
         this.results.delete(record.requestId);
-        let result: ReconcileOutcome | OwnerQuestionCancelReconcileOutcome;
-        if (record.op === "owner_question_cancel") {
+        let result: ReconcileOutcome | OwnerQuestionCancelReconcileOutcome | CodeScheduleReconcileOutcome;
+        if (record.op === "code_schedule_save" || record.op === "code_schedule_control") {
+          const scheduled = await new CodeScheduleRequestGuard(this.store, this.guardConnection()).reconcile(record);
+          result = scheduled;
+          if (!this.announced.has(record.requestId) && !this.stopped && this.connection() === connection && connection?.instanceId === instanceId) this.publish({ type: "schedule_submission", record, result: scheduled });
+        } else if (record.op === "owner_question_cancel") {
           const canceled = await new OwnerQuestionCancelGuard(this.store, this.guardConnection()).reconcile(record);
           result = canceled;
           if (!this.announced.has(record.requestId) && !this.stopped && this.connection() === connection && connection?.instanceId === instanceId) this.publish({ type: "question_cancel", record, result: canceled });

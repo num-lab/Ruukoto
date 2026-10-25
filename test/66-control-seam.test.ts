@@ -32,6 +32,7 @@ import { createProjectSession, routeResponder, startTestRuntime, waitFor } from 
 
 /** 与 TuiOps 的键一一对应（多写、少写都过不了类型检查）。 */
 const TUI_OPS: Record<TuiOp, true> = {
+  code_schedules: true, code_schedule: true, code_schedule_save: true, code_schedule_control: true, code_schedule_receipt: true,
   background_processes: true, background_process_output: true, background_process_stop: true, session_background_end: true,
   owner_questions: true, owner_question_answer: true, owner_question_cancel: true, owner_question_receipt: true,
   get_model_config: true, save_model_catalog: true, set_model_api_key: true, remove_model_api_key: true,

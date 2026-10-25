@@ -20,7 +20,6 @@ function failure(code: string, message: string): never { throw new DesktopError(
 function same(before: fs.Stats, after: fs.Stats): boolean { return before.dev === after.dev && before.ino === after.ino && before.mode === after.mode; }
 function unchanged(before: fs.Stats, after: fs.Stats): boolean { return same(before, after) && before.size === after.size && before.mtimeMs === after.mtimeMs && before.ctimeMs === after.ctimeMs && before.nlink === after.nlink; }
 function inside(root: string, file: string): boolean { const relative = path.relative(root, file); return relative === "" || !relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative); }
-function sensitive(file: string): boolean { return file.split(path.sep).some(part => /^(?:\.git|\.git-credentials|\.hg|\.svn|\.ssh|\.aws|\.gnupg|\.netrc|\.npmrc|\.pypirc|\.DS_Store)$/i.test(part) || /^\.env/i.test(part)); }
 async function io<T>(operation: () => Promise<T>): Promise<T> {
   try { return await operation(); }
   catch (error) {
@@ -48,6 +47,7 @@ function fileAddress(value: unknown): URL {
 }
 
 // Note: 见 .agents/notes/implemented/feature/2026-10-17-desktop-local-browser.md
+// Note: 见 .agents/notes/implemented/simplification/2026-10-25-browser-path-names.md
 export class BrowserDocuments {
   private readonly documents = new Map<BrowserDocumentId, Document>();
   private readonly opening = new Set<Promise<BrowserDocumentHandle>>();
@@ -57,7 +57,7 @@ export class BrowserDocuments {
   private reads = 0;
   constructor(protectedPaths: string[]) { this.protectedRoots = protectedPaths.map(protectedRoot); }
   private protect(target: string): void {
-    if (sensitive(target) || this.protectedRoots.some(root => inside(root, target))) failure("browser_file_unsafe", "此文件属于敏感或受保护范围，不能预览。");
+    if (this.protectedRoots.some(root => inside(root, target))) failure("browser_file_unsafe", "此文件属于受保护范围，不能预览。");
   }
   private async locate(root: DocumentRoot, parts: string[]): Promise<{ target: string; chain: fs.Stats[] }> {
     let target = root.path;

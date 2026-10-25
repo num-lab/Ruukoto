@@ -2,6 +2,8 @@
 
 Status: implemented
 
+路径名称黑名单由[本机预览职责调整](../simplification/2026-10-25-browser-path-names.md)取代，其余决定继续适用。
+
 ## 问题
 
 拥有者要求内置浏览器打开本机 file:// 文档。直接放宽 URL 无法让 HTTP／mygo 顶层的 iframe 读取本机文件，放开原生 file 或 webSecurity 又会扩张远端网页的权限。

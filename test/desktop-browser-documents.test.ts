@@ -99,22 +99,37 @@ test("真实 loopback 文档资源使用独立 origin、能力路径和无凭据
   } finally { await documents.close(); await f.close(); }
 });
 
-test("资源不能越界、走链接或读取敏感元数据，失败不暴露绝对路径", async () => {
+test("本地预览不按路径名称拒绝普通文件", async () => {
+  const { BrowserDocuments } = await import("../apps/desktop/src/main/browser-documents.ts");
+  const f = await fixture(), documents = new BrowserDocuments([]);
+  try {
+    const document = await documents.open(f.url);
+    for (const name of [".env.local", ".envrc", ".git-credentials", ".git/config", ".ssh/config", ".environment/index.html"]) {
+      const file = path.join(f.directory, name);
+      await fs.mkdir(path.dirname(file), { recursive: true }); await fs.writeFile(file, "本地文件");
+      const resource = await fetch(new URL(name, document.url), { headers: { Origin: "null" } });
+      assert.equal(resource.status, 200, name); assert.equal(await resource.text(), "本地文件", name);
+      const opened = await documents.open(pathToFileURL(file).href), response = await fetch(opened.url);
+      assert.equal(response.status, 200, name); assert.equal(await response.text(), "本地文件", name);
+      await documents.release(opened.id);
+    }
+  } finally { await documents.close(); await f.close(); }
+});
+
+test("资源不能越界、走链接或读取受保护目录，失败不暴露绝对路径", async () => {
   const { BrowserDocuments } = await import("../apps/desktop/src/main/browser-documents.ts");
   const f = await fixture(), documents = new BrowserDocuments([path.join(f.directory, "protected")]);
   await fs.symlink(path.join(f.root, "outside.txt"), path.join(f.directory, "linked.txt"));
-  await fs.mkdir(path.join(f.directory, ".git")); await fs.writeFile(path.join(f.directory, ".git/config"), "secret");
-  for (const file of [".env.local", ".envrc", ".git-credentials"]) await fs.writeFile(path.join(f.directory, file), "secret");
   await fs.mkdir(path.join(f.directory, "protected")); await fs.writeFile(path.join(f.directory, "protected/secret.txt"), "secret");
   try {
     const document = await documents.open(f.url), prefix = new URL(document.url).pathname.split("/").slice(0, 2).join("/");
-    for (const target of ["/missing/index.html", `${prefix}/../outside.txt`, `${prefix}/%2e%2e/outside.txt`, `${prefix}/assets%2f..%2foutside.txt`, `${prefix}/linked.txt`, `${prefix}/.git/config`, `${prefix}/.env.local`, `${prefix}/.envrc`, `${prefix}/.git-credentials`, `${prefix}/protected/secret.txt`, `${prefix}/assets/`, `${prefix}/%zz`]) {
+    for (const target of ["/missing/index.html", `${prefix}/../outside.txt`, `${prefix}/%2e%2e/outside.txt`, `${prefix}/assets%2f..%2foutside.txt`, `${prefix}/linked.txt`, `${prefix}/protected/secret.txt`, `${prefix}/assets/`, `${prefix}/%zz`]) {
       const response = await raw(document.url, target);
       assert.ok(response.status >= 400, target);
       assert.ok(!response.body.includes(f.root), target);
       assert.ok(!response.body.includes("secret"), target);
     }
-    for (const file of ["linked.txt", ".env.local", ".envrc", ".git-credentials", ".git/config", "protected/secret.txt"]) await assert.rejects(documents.open(pathToFileURL(path.join(f.directory, file)).href), { code: "browser_file_unsafe" });
+    for (const file of ["linked.txt", "protected/secret.txt"]) await assert.rejects(documents.open(pathToFileURL(path.join(f.directory, file)).href), { code: "browser_file_unsafe" });
     await assert.rejects(documents.open(pathToFileURL(f.directory).href), { code: "browser_file_unsafe" });
   } finally { await documents.close(); await f.close(); }
 });

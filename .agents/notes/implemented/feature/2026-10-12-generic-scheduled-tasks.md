@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Coding Scheduled 提案](../../proposed/feature/2026-10-25-code-scheduled.md)拟新增 Code 专属调度；尚未落地，本篇个人调度决定保持。
+
 落地与验证记录见[通用定时任务工单](../../../../.scratch/generic-scheduler/issues/01-generic-scheduled-tasks.md)；本篇持有行为、理由和取舍。
 
 ## 问题

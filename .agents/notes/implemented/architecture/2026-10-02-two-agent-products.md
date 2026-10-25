@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Coding Scheduled 提案](../../proposed/feature/2026-10-25-code-scheduled.md)拟调整 Coding 不开放调度的范围；尚未落地，两产品独立档案与个人调度归属保持。
+
 部分取代：[个人正式入口](../simplification/2026-10-18-personal-product-entry.md)使个人由 durable 独立持有运行时与本机协议；本篇原共同运行时、旧个人档案/客户端、开发会话、旧导入、工作流和 GitHub 评审仅描述保留旧实现与原决定。两产品身份、独立运行与 Coding 行为保持。
 
 原编号：ADR 0017

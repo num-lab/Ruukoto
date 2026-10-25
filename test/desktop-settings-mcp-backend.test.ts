@@ -9,7 +9,7 @@ import { ControlClientError } from "@ruukoto/control/client.ts";
 import type { OpParams, OpResult, TuiOp } from "@ruukoto/control/ops.ts";
 import { RuntimeApiError } from "@ruukoto/runtime/runtime.ts";
 import { product } from "../apps/ruukoto-code/src/product.ts";
-import { CODE_MCP_OPS, handleRequest } from "../apps/desktop/src/main/ipc.ts";
+import { CODE_MCP_OPS, CODE_WEB_SEARCH_OPS, handleRequest } from "../apps/desktop/src/main/ipc.ts";
 import { startTestRuntime, createProjectSession, type TestRuntime } from "./helpers/testkit.ts";
 import { startMockMcp, MOCK_MCP_SECRET } from "./helpers/mock-mcp.ts";
 
@@ -40,7 +40,7 @@ test("Code Cua 检查禁用草稿：静态工具与当前宿主权限分别返�
 });
 
 test("Code MCP 操作只向 Code 放行，通用凭据写入与移除保持关闭", async () => {
-  for (const op of CODE_MCP_OPS) {
+  for (const op of [...CODE_MCP_OPS, ...CODE_WEB_SEARCH_OPS]) {
     let called = false;
     const result = await handleRequest("personal", op, {}, async () => {}, async () => { called = true; });
     assert.equal(result.ok, false);
@@ -51,6 +51,33 @@ test("Code MCP 操作只向 Code 放行，通用凭据写入与移除保持关�
     const result = await handleRequest("code", op, {}, async () => {}, async () => { assert.fail("通用凭据操作不应转发"); });
     assert.equal(result.ok, false);
   }
+});
+
+test("Web 搜索凭据专用 op 只写固定 Tavily 绑定，项目开关按版本生效", async () => {
+  const t = await startTestRuntime("d-web-search-credential", quiet);
+  try {
+    assert.deepEqual(await request(t, "list_credentials", { purpose: "tavily_search" }), []);
+    const saved = await request(t, "web_search_save_credential", { secret: "tvly-secret-1" });
+    assert.deepEqual({ name: saved.name, host: saved.host, header: saved.header, purpose: saved.purpose }, { name: "web-search", host: "api.tavily.com", header: "authorization", purpose: "tavily_search" });
+    assert.equal(t.runtime.credentials.get("web-search")?.scope, undefined);
+    await request(t, "web_search_save_credential", { secret: "tvly-secret-2" });
+    assert.deepEqual((await request(t, "list_credentials", { purpose: "tavily_search" })).map(item => item.name), ["web-search"]);
+    for (const secret of ["", " spaced", "line\nbreak"]) await assert.rejects(request(t, "web_search_save_credential", { secret }), rejected("invalid_params"));
+    assert.equal((await request(t, "list_credentials", { purpose: "tavily_search" })).length, 1, "无效秘密不新增绑定");
+    assert.equal((await request(t, "web_search_remove_credential", {})).removed, true);
+    assert.equal((await request(t, "web_search_remove_credential", {})).removed, false);
+    await request(t, "mcp_save_credential", { name: "web-search", endpoint, secret: MOCK_MCP_SECRET });
+    await assert.rejects(request(t, "web_search_save_credential", { secret: "tvly-secret-1" }), rejected("credential_scope_mismatch"));
+    await assert.rejects(request(t, "web_search_remove_credential", {}), rejected("credential_scope_mismatch"));
+    assert.equal(t.runtime.credentials.get("web-search")?.purpose, "mcp", "同名 MCP 凭据不被专用 op 改写或删除");
+    assert.ok(!JSON.stringify(t.runtime.credentials.list()).includes("tvly-secret"));
+    const a = await createProjectSession(t.client, t.work[0]);
+    const disabled = await request(t, "set_project_web_search", { project_id: a.projectId, enabled: false, expected_version: 1 });
+    assert.equal(disabled.webSearch, "disabled"); assert.equal(disabled.settingsVersion, 2);
+    await assert.rejects(request(t, "set_project_web_search", { project_id: a.projectId, enabled: true, expected_version: 1 }), rejected("version_conflict"));
+    const enabled = await request(t, "set_project_web_search", { project_id: a.projectId, enabled: true, expected_version: 2 });
+    assert.equal(enabled.webSearch, "enabled");
+  } finally { await t.shutdown(); }
 });
 
 test("MCP 无工作区可管理，实例内名称唯一且其他实例不共享", async () => {

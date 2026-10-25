@@ -1,8 +1,8 @@
 import type { DesktopTarget, DesktopUpdate } from "../shared/bridge.ts";
 import type { CodeState } from "./code-state.ts";
 
-export type ManagedSettingsCategory = "models" | "skills" | "mcp";
-export type SettingsCategory = "appearance" | ManagedSettingsCategory | "personal" | "archived";
+export type ManagedSettingsCategory = "models" | "skills" | "mcp" | "computer";
+export type SettingsCategory = "appearance" | ManagedSettingsCategory | "web-search" | "personal" | "archived";
 export interface SettingsScope {
   target: DesktopTarget;
   instanceId: string | null;
@@ -19,6 +19,7 @@ export interface SettingsForm {
   invalidate(): void;
 }
 // Note: 见 .agents/notes/implemented/feature/2026-10-21-desktop-settings-shell.md
+// Note: 见 .agents/notes/implemented/feature/2026-10-25-desktop-computer-websearch-settings.md
 export class SettingsState {
   open = false;
   category: SettingsCategory = "appearance";
@@ -26,6 +27,7 @@ export class SettingsState {
     models: { target: "code" },
     skills: { target: "code" },
     mcp: { target: "code" },
+    computer: { target: "code" },
   };
   form: SettingsForm | null = null;
   leave: (() => void) | null = null;
@@ -55,7 +57,7 @@ export class SettingsState {
   accepts(ticket: number): boolean { return this.open && ticket === this.generation; }
   private invalidate(): void { ++this.generation; this.form?.invalidate(); }
   observe(target: DesktopTarget, update: DesktopUpdate): void {
-    if (!this.open || !["models", "skills", "mcp"].includes(this.category) || this.selections[this.category as ManagedSettingsCategory].target !== target) return;
+    if (!this.open || !["models", "skills", "mcp", "computer"].includes(this.category) || this.selections[this.category as ManagedSettingsCategory].target !== target) return;
     if (update.type !== "snapshot" && update.type !== "personal_identity" && !(update.type === "personal_frame" && update.frame.type === "snapshot") && !(update.type === "state" && update.state !== "online")) return;
     this.invalidate();
     this.changed();

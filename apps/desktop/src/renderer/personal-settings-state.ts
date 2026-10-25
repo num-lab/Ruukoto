@@ -54,6 +54,8 @@ export class PersonalSettingsPageState implements SettingsForm {
   private uncertain = false;
   private continueAfterSave: ((saved: boolean) => void) | null = null;
   constructor(private readonly bridge: Pick<DesktopBridge, "request">, readonly changed: () => void, readonly category: ManagedSettingsCategory) {}
+  /** 电脑页与 MCP 页共用 mcp 配置与修订，只是各自过滤服务。 */
+  private get mcpLike(): boolean { return this.category === "mcp" || this.category === "computer"; }
   private draft(): unknown { return this.category === "models" ? this.model : this.category === "skills" ? { library: this.library, preview: this.preview } : this.editingService ? this.service : null; }
   get dirty(): boolean { return !!this.view && JSON.stringify(this.draft()) !== this.baseline; }
   get disabled(): boolean { return !this.view || this.reading || this.phase === "saving" || this.phase === "unknown"; }
@@ -70,7 +72,7 @@ export class PersonalSettingsPageState implements SettingsForm {
     this.model = config ? { ...config, contextWindow: String(config.contextWindow), maxTokens: String(config.maxTokens), imageInput: config.imageInput ?? false } : emptyModel();
     this.library = this.view.settings.skills.config?.directory ?? "";
     this.cuaChoosing = false; this.cuaTargets = []; this.cuaIssues = []; this.cuaImages = []; this.cuaConfirmation = null; this.preview = null; this.detail = null; this.directory = null; this.service = emptyService(); this.editingService = false; this.toolsChanged = false;
-    this.revision = this.view.settings.revisions[this.category === "models" ? "model" : this.category];
+    this.revision = this.view.settings.revisions[this.category === "models" ? "model" : this.category === "computer" ? "mcp" : this.category];
     this.baseline = JSON.stringify(this.draft()); this.fieldErrors = {}; this.test = null; this.discovered = null;
   }
   discard(): void { if (this.phase === "saving" || this.phase === "unknown") return; this.confirmation = null; this.adopt(); this.phase = "ready"; this.changed(); }
@@ -99,7 +101,7 @@ export class PersonalSettingsPageState implements SettingsForm {
     this.uncertain = !!this.view.pending;
     if (!preserve) this.adopt();
     this.phase = this.uncertain ? "unknown" : preserve ? "conflict" : "ready";
-    this.message = (this.category === "mcp" && this.phase === "ready" ? "" : this.view.message) + (preserve ? " 原草稿保留，请比较当前配置；放弃更改后可基于当前值编辑。" : "");
+    this.message = (this.mcpLike && this.phase === "ready" ? "" : this.view.message) + (preserve ? " 原草稿保留，请比较当前配置；放弃更改后可基于当前值编辑。" : "");
     this.changed(); return true;
   }
   private envelope(op: string, params: Record<string, unknown> = {}, managed = false): Record<string, unknown> {
@@ -287,7 +289,7 @@ export class PersonalSettingsPageState implements SettingsForm {
     if (!this.belongs(result.value)) { this.uncertain = true; this.phase = "unknown"; this.message = "保存应答档案不匹配，请核实原服务；不会重新提交。"; this.savedForNavigation(false); this.changed(); return false; }
     this.view = result.value; this.uncertain = !!result.value.pending;
     if (result.value.saved) this.adopt();
-    this.phase = this.uncertain ? "unknown" : result.value.saved ? "ready" : "error"; this.message = this.category === "mcp" && this.phase === "ready" ? "" : result.value.message; this.changed();
+    this.phase = this.uncertain ? "unknown" : result.value.saved ? "ready" : "error"; this.message = this.mcpLike && this.phase === "ready" ? "" : result.value.message; this.changed();
     const saved = result.value.saved === true && !this.uncertain;
     this.savedForNavigation(saved); return saved;
   }
@@ -298,7 +300,7 @@ export class PersonalSettingsPageState implements SettingsForm {
     if (!this.accepts(generation)) return;
     this.reading = false;
     if (!result.ok) { this.uncertain = true; this.fail(result.error); }
-    else if (this.belongs(result.value)) { this.view = result.value; this.uncertain = !!this.view.pending; this.phase = this.uncertain ? "unknown" : this.dirty ? "conflict" : "ready"; this.message = this.category === "mcp" && this.phase === "ready" ? "" : this.view.message; if (!this.dirty) this.adopt(); }
+    else if (this.belongs(result.value)) { this.view = result.value; this.uncertain = !!this.view.pending; this.phase = this.uncertain ? "unknown" : this.dirty ? "conflict" : "ready"; this.message = this.mcpLike && this.phase === "ready" ? "" : this.view.message; if (!this.dirty) this.adopt(); }
     this.changed();
   }
   restore(): Promise<void> { return this.recover("restore"); }
@@ -313,7 +315,7 @@ export class PersonalSettingsPageState implements SettingsForm {
         else this.view.settings.skills = { ...result, skills: [...previous.skills, ...result.skills] };
         this.changed();
       }
-    } else if (this.category === "mcp" && this.view.settings.mcp?.hasMore) {
+    } else if (this.mcpLike && this.view.settings.mcp?.hasMore) {
       const previous = this.view.settings.mcp;
       const result = await this.queryRemote<PersonalPageView["settings"]>("settings.read", { offset: previous.services.length, limit: 1 });
       if (result) {

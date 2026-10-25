@@ -1,11 +1,13 @@
 import type { ComponentType } from "react";
-import { Archive, Blocks, Brain, Moon, Puzzle, Server, Settings, Sun } from "lucide-react";
+import { Archive, Blocks, Brain, Globe, Monitor, Moon, Puzzle, Server, Settings, Sun } from "lucide-react";
 import type { DesktopTarget } from "../shared/bridge.ts";
 import type { CodeState } from "./code-state.ts";
 import { SettingsState, type ManagedSettingsCategory, type SettingsCategory, type SettingsScope } from "./settings-state.ts";
 import { PersonalConnectionSettings } from "./personal-connection-settings.tsx";
 import { CodeModelsSettings } from "./code-models-settings.tsx";
 import { CodeMcpSettings } from "./code-mcp-settings.tsx";
+import { CodeComputerSettings } from "./code-computer-settings.tsx";
+import { CodeWebSearchSettings } from "./code-web-search-settings.tsx";
 import { CodeSkillsSettings } from "./code-skills-settings.tsx";
 import { PersonalSettingsPage } from "./personal-settings-pages.tsx";
 import { Button } from "./components/ui/button.tsx";
@@ -34,6 +36,8 @@ const categories = [
   { value: "models", label: "模型", icon: Brain },
   { value: "skills", label: "Skills", icon: Puzzle },
   { value: "mcp", label: "MCP", icon: Blocks },
+  { value: "computer", label: "电脑", icon: Monitor },
+  { value: "web-search", label: "Web 搜索", icon: Globe },
   { value: "personal", label: "PA 远程连接", icon: Server },
   { value: "archived", label: "已存档会话", icon: Archive },
 ] as const;
@@ -41,7 +45,7 @@ const categories = [
 function ManagedSettingsPage(props: SettingsContentsProps & { category: ManagedSettingsCategory }) {
   const { category, settings, code, personal } = props;
   const scope = settings.scope(code, personal);
-  const Page = props.pages?.[category] ?? (scope.target === "personal" ? PersonalSettingsPage : category === "models" ? CodeModelsSettings : category === "mcp" ? CodeMcpSettings : CodeSkillsSettings);
+  const Page = props.pages?.[category] ?? (scope.target === "personal" ? PersonalSettingsPage : category === "models" ? CodeModelsSettings : category === "mcp" ? CodeMcpSettings : category === "computer" ? CodeComputerSettings : CodeSkillsSettings);
   const blocked = settings.form?.phase === "saving" || settings.form?.phase === "unknown";
   return <Tabs value={scope.target} onValueChange={value => settings.chooseTarget(category, value as DesktopTarget)} className="settings-target-tabs"><TabsList aria-label="配置目标"><TabsTrigger value="code" disabled={blocked}>Code</TabsTrigger><TabsTrigger value="personal" disabled={blocked}>PA</TabsTrigger></TabsList><TabsContent value={scope.target}><Page key={`${category}:${settings.pageKey}`} category={category} scope={scope} settings={settings} code={code} personal={personal} /></TabsContent></Tabs>;
 }
@@ -52,7 +56,8 @@ export function SettingsContents(props: SettingsContentsProps) {
   return <Tabs value={settings.category} onValueChange={value => settings.chooseCategory(value as SettingsCategory)} orientation="vertical" className="settings-tabs"><div className="settings-navigation"><h2 id="settings-navigation-title">设置</h2><TabsList className="settings-categories" aria-label="设置类别">{categories.map(item => { const Icon = item.value === "appearance" && dark ? Moon : item.icon; return <TabsTrigger key={item.value} value={item.value}><Icon />{item.label}</TabsTrigger>; })}</TabsList></div>
     {categories.map(item => <TabsContent key={item.value} value={item.value} className="settings-panel"><h2>{item.label}</h2>
       {item.value === "appearance" ? <FieldGroup><Field orientation="horizontal" className="settings-row"><FieldLabel htmlFor="settings-theme">主题</FieldLabel><Select value={dark ? "dark" : "light"} onValueChange={value => onDark(value === "dark")}><SelectTrigger id="settings-theme"><SelectValue /></SelectTrigger><SelectContent position="popper" align="end" sideOffset={6}><SelectGroup><SelectItem value="light">浅色</SelectItem><SelectItem value="dark">深色</SelectItem></SelectGroup></SelectContent></Select></Field></FieldGroup>
-        : item.value === "personal" ? <PersonalConnectionSettings settings={settings} />
+        : item.value === "web-search" ? <CodeWebSearchSettings code={code} />
+          : item.value === "personal" ? <PersonalConnectionSettings settings={settings} />
           : item.value === "archived" ? <><p className="settings-hint">存档只把这些会话从左栏隐藏，历史与任务仍保留。</p>{code.archivedSessions().length ? <ul className="archived-sessions">{code.archivedSessions().map(session => <li key={session.id}><div><span>{code.sessionName(session.id)}</span><small>{code.view.projects.find(project => project.id === (session.workspaceProjectId ?? session.projectId))?.name ?? "未知工作区"} · {session.archivedAt?.slice(0, 10)}</small></div><Button type="button" variant="ghost" size="sm" className="unarchive-button" aria-label={`取消存档 ${code.sessionName(session.id)}`} disabled={code.status.state !== "online"} onClick={() => void code.setArchived(session.id, false)}><Archive /><span>取消存档</span></Button></li>)}</ul> : <p className="settings-hint">没有已存档的会话。</p>}</>
             : <ManagedSettingsPage {...props} category={item.value} />}
     </TabsContent>)}

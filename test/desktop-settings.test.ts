@@ -174,12 +174,12 @@ test("PA原配对恢复：显式动作只使用宿主已有候选，不要求重
   assert.equal(state.code, "");
 });
 
-test("设置 SSR 保留六分类与真实内容插槽，MCP 无工作区与来源选择", () => {
+test("设置 SSR 保留八分类与真实内容插槽，MCP 无工作区与来源选择", () => {
   const h = harness();
   const props: SettingsContentsProps = { ...h, dark: true, onDark() {} };
   const render = () => renderToStaticMarkup(createElement(SettingsContents, props));
   let html = render();
-  for (const label of ["外观", "模型", "Skills", "MCP", "PA 远程连接", "已存档会话"]) assert.ok(html.includes(label));
+  for (const label of ["外观", "模型", "Skills", "MCP", "电脑", "Web 搜索", "PA 远程连接", "已存档会话"]) assert.ok(html.includes(label));
   assert.match(html, /aria-label="设置类别"/); assert.match(html, /for="settings-theme"/);
   h.settings.chooseCategory("mcp");
   html = render();

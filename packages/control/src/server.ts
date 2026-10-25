@@ -952,6 +952,10 @@ export class ControlServer {
         });
       case "remove_credential":
         return { removed: await runtime.removeCredentialBinding(requireString("name")) };
+      case "web_search_save_credential":
+        return runtime.webSearchSaveCredential({ secret: requireString("secret") });
+      case "web_search_remove_credential":
+        return runtime.webSearchRemoveCredential();
       // ---------- issue 16：MCP 服务配置 ----------
       case "mcp_save_credential":
         return runtime.mcpSaveCredential({ name: requireString("name"), endpoint: requireString("endpoint"), secret: requireString("secret") });

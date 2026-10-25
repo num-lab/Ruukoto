@@ -39,7 +39,9 @@ export function createWebSearchFamily(config: Omit<WebSearchToolsDeps, "taskCont
 }
 
 const TASK_SEARCH_CAP = 5;
-const TAVILY_CREDENTIAL_PURPOSE = "tavily_search";
+export const TAVILY_CREDENTIAL_PURPOSE = "tavily_search";
+/** 桌面 Web 搜索设置页创建的固定绑定名；resolveCredential 按名称排序取第一个生效。 */
+export const WEB_SEARCH_CREDENTIAL_NAME = "web-search";
 
 export interface WebSearchToolsDeps {
   store: Store;

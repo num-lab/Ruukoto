@@ -62,7 +62,8 @@ import { ToolOpLedger } from "@ruukoto/agent/tool-op-ledger.ts";
 import { sessionToolCategories } from "@ruukoto/agent/tool-availability.ts";
 import { HostExecutionManager } from "./host-execution.ts";
 import { createCodingTools } from "@ruukoto/agent/tool-router.ts";
-import { createWebSearchFamily,searchTavily,WebSearchError } from "@ruukoto/agent/web-search.ts";
+import { createWebSearchFamily,searchTavily,TAVILY_CREDENTIAL_PURPOSE,WebSearchError,WEB_SEARCH_CREDENTIAL_NAME } from "@ruukoto/agent/web-search.ts";
+import { resolveTavilyTarget } from "@ruukoto/agent/web-search-transport.ts";
 import { createChatResultFamily } from "@ruukoto/channels/chat-result-tools.ts";
 import { resolveAcceptedChatResult } from "@ruukoto/channels/chat-results.ts";
 import { retireGitHubModule } from "@ruukoto/channels/github-retirement.ts";
@@ -3453,6 +3454,24 @@ export class Runtime {
     if (!isMcpCredential(binding)) throw new RuntimeApiError("credential_scope_mismatch", "此凭据不专属于实例 MCP，请保留原凭据并另建绑定。");
     this.assertCredentialUnreferenced(name);
     return { removed: this.credentials.remove(name) };
+  }
+
+  /** 桌面 Web 搜索设置页专用：只写固定名 Tavily 绑定，不接受名称、主机或用途参数；秘密值不进任何输出。 */
+  webSearchSaveCredential(input: { secret: string }) {
+    if (!input.secret || input.secret !== input.secret.trim() || /[\r\n]/.test(input.secret)) throw new RuntimeApiError("invalid_params", "令牌不能为空、首尾不能有空白且不能含换行。");
+    const existing = this.credentials.get(WEB_SEARCH_CREDENTIAL_NAME);
+    if (existing && existing.purpose !== TAVILY_CREDENTIAL_PURPOSE) throw new RuntimeApiError("credential_scope_mismatch", "同名绑定不是 Web Search 凭据，请更换名称后另建。");
+    const host = resolveTavilyTarget(this.config.webSearch?.baseUrl).host;
+    this.credentials.upsert({ name: WEB_SEARCH_CREDENTIAL_NAME, host, header: "authorization", purpose: TAVILY_CREDENTIAL_PURPOSE, secret: input.secret });
+    return this.listCredentialBindings({ purpose: TAVILY_CREDENTIAL_PURPOSE }).find(binding => binding.name === WEB_SEARCH_CREDENTIAL_NAME)!;
+  }
+
+  webSearchRemoveCredential(): { removed: boolean } {
+    const binding = this.credentials.get(WEB_SEARCH_CREDENTIAL_NAME);
+    if (!binding) return { removed: false };
+    if (binding.purpose !== TAVILY_CREDENTIAL_PURPOSE) throw new RuntimeApiError("credential_scope_mismatch", "此凭据不专属于 Web Search，请保留原凭据并另建绑定。");
+    this.assertCredentialUnreferenced(WEB_SEARCH_CREDENTIAL_NAME);
+    return { removed: this.credentials.remove(WEB_SEARCH_CREDENTIAL_NAME) };
   }
 
   private assertCredentialUnreferenced(name: string): void {

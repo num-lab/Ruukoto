@@ -4,6 +4,7 @@ import { test } from "node:test";
 import type { DesktopBridge, DesktopFailure, DesktopResult, DesktopTarget } from "../apps/desktop/src/shared/bridge.ts";
 import type { PersonalMaintenanceRecord } from "../apps/desktop/src/shared/personal-settings.ts";
 import { PersonalSettingsPageState } from "../apps/desktop/src/renderer/personal-settings-state.ts";
+import type { PersonalService } from "../apps/desktop/src/renderer/personal-settings-state.ts";
 import { SettingsState } from "../apps/desktop/src/renderer/settings-state.ts";
 
 const profile = { directory: "/remote/profile", id: "sha256:" + "a".repeat(64) };
@@ -24,14 +25,14 @@ function makeView() {
       revisions: { model: modelRevision, skills: libraryRevision, mcp: mcpRevision }, blockers: [] as unknown[],
       model: { config: { ...modelConfig }, credential: { state: "available", reference: modelConfig.apiKeyEnv } },
       skills: { sourceHost: "personal", config: { version: 1, directory: "/remote/library" }, externalAvailable: true, revision: managedRevision, skills: [{ ...skill }], offset: 0, hasMore: false, diagnostics: [] as string[], diagnosticsTruncated: false },
-      mcp: { version: 2, generation: "program-managed-generation", services: [{ ...service }], offset: 0, hasMore: false }, lifecycle: { managedDevelopment: false },
+      mcp: { version: 2, generation: "program-managed-generation", services: [{ ...service }] as PersonalService[], offset: 0, hasMore: false }, lifecycle: { managedDevelopment: false },
     },
     maintenance: { profile: { ...profile }, online: true, writable: true, code: "maintenance_supported", reason: "原系统服务已核实。", lifecycle: { kind: "systemd", state: "running", managedDevelopment: false, originalEnvironment: "verified" } },
     pending: null as PersonalMaintenanceRecord | null, saved: null as boolean | null, message: "已读取原档案。",
   };
 }
 interface Call { target: DesktopTarget; op: string; params: Record<string, unknown>; request: Record<string, unknown> }
-function harness(category: "models" | "skills" | "mcp") {
+function harness(category: "models" | "skills" | "mcp" | "computer") {
   const view = makeView(), calls: Call[] = [];
   const hooks: { read?: () => Promise<DesktopResult<unknown>>; query?: (request: Record<string, unknown>) => Promise<DesktopResult<unknown>>; apply?: (request: Record<string, unknown>) => Promise<DesktopResult<unknown>> } = {};
   const base = () => ({ product: "ruukoto", profile: view.settings.profile, online: view.settings.online });
@@ -57,8 +58,8 @@ function harness(category: "models" | "skills" | "mcp") {
   return { state: new PersonalSettingsPageState(bridge, () => {}, category), view, calls, hooks, writes: () => calls.filter(call => call.op === "desktop_personal_settings_apply") };
 }
 
-test("Personal 三页从独立管理连接读取真实档案，不依赖旧聊天实例", async () => {
-  for (const category of ["models", "skills", "mcp"] as const) {
+test("Personal 各页从独立管理连接读取真实档案，不依赖旧聊天实例", async () => {
+  for (const category of ["models", "skills", "mcp", "computer"] as const) {
     const h = harness(category); await h.state.read();
     assert.equal(h.state.phase, "ready"); assert.equal(h.state.writable, true); assert.equal(h.state.dirty, false);
     assert.deepEqual(h.state.view?.settings.profile, profile);
@@ -383,4 +384,42 @@ test("Personal Cua 截图缺页或哈希不符不显示，目标缺安装仍可�
   h.hooks.query = async () => ok({ product: "ruukoto", profile, id, mime: "image/png", bytes: 3, sha256: "a".repeat(64), observation: 34, offset: 0, base64: Buffer.from("bad").toString("base64") });
   await h.state.loadCuaImages(12); assert.equal(h.state.cuaImages.length, 0); assert.equal(h.state.canAcceptCua(12, 34), false);
   assert.match(h.state.message, /完整性/);
+});
+
+const personalCua = () => ({ kind: "cua-linux" as const, executable: "/usr/local/bin/cua", version: "0.7.0" as const, sha256: "a".repeat(64), sandbox: "local:desktop", sandboxId: "b".repeat(64) });
+const cuaService = { id: "cua-service", label: "远端电脑", cua: personalCua(), enabled: true, tools: [structuredClone(remoteTool)] };
+
+test("Personal 电脑页共用 MCP 修订与保存入口，只编辑 CUA 服务", async () => {
+  const h = harness("computer");
+  h.view.settings.mcp.services.push(structuredClone(cuaService));
+  h.hooks.query = async request => {
+    assert.equal(request.op, "mcp.get");
+    return ok({ product: "ruukoto", profile, service: structuredClone(cuaService), toolsOffset: 0, toolsHasMore: false });
+  };
+  await h.state.read();
+  assert.deepEqual(h.state.services.map(item => item.id), ["existing-service", "cua-service"], "状态层保留全量服务，过滤在页面渲染");
+  await h.state.selectService(cuaService.id);
+  assert.deepEqual(h.state.service.cua, cuaService.cua);
+  h.state.prepareService("disable");
+  assert.equal(h.state.confirmation?.request.op, "mcp.set-enabled");
+  assert.equal(h.state.confirmation?.request.expectedRevision, mcpRevision);
+  assert.equal(h.state.confirmation?.request.id, cuaService.id);
+});
+
+test("Personal 电脑页 SSR 只呈现 Linux 沙箱与恢复控制，MCP 页不再显示 Cua", async t => {
+  const { createElement } = await import("react");
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const { createServer } = await import("vite"); const { default: react } = await import("@vitejs/plugin-react");
+  const { fileURLToPath } = await import("node:url");
+  const server = await createServer({ configFile: false, root: fileURLToPath(new URL("../apps/desktop/src/renderer/", import.meta.url)), plugins: [react()], server: { middlewareMode: true, hmr: false }, appType: "custom" });
+  t.after(() => server.close());
+  const { PersonalSettingsEditor } = await server.ssrLoadModule("/personal-settings-pages.tsx");
+  const computer = harness("computer"); computer.view.settings.mcp.services.push(structuredClone(cuaService)); await computer.state.read();
+  const computerHtml = renderToStaticMarkup(createElement(PersonalSettingsEditor, { state: computer.state, onConnection() {} }));
+  assert.match(computerHtml, /Linux 桌面沙箱/); assert.match(computerHtml, /Linux 电脑/); assert.match(computerHtml, /local:desktop/);
+  assert.doesNotMatch(computerHtml, /添加 HTTP 服务|远端私有凭据文件|HTTPS 端点|远端服务/);
+  const mcp = harness("mcp"); mcp.view.settings.mcp.services.push(structuredClone(cuaService)); await mcp.state.read();
+  const mcpHtml = renderToStaticMarkup(createElement(PersonalSettingsEditor, { state: mcp.state, onConnection() {} }));
+  assert.match(mcpHtml, /添加 HTTP 服务/); assert.match(mcpHtml, /远端服务/);
+  assert.doesNotMatch(mcpHtml, /Linux 桌面沙箱|Linux 电脑|远端电脑/);
 });

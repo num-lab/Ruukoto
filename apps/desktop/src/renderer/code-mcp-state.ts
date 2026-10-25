@@ -42,10 +42,10 @@ export class CodeMcpState implements SettingsForm {
   private invalidatedObservation: string | null = null;
   pending: { op: Write; instanceId: string; serviceId?: string; name?: string; version?: number } | null = null;
   private generation = 0;
-  constructor(private readonly bridge: Pick<DesktopBridge, "request">, readonly changed: () => void, readonly instanceId: string, private readonly context: () => { instanceId: string | null; online: boolean }) {}
+  constructor(private readonly bridge: Pick<DesktopBridge, "request">, readonly changed: () => void, readonly instanceId: string, private readonly context: () => { instanceId: string | null; online: boolean }, readonly mode: "mcp" | "computer" = "mcp") {}
   get service(): Service | null { return this.services.find(service => service.id === this.selectedId) ?? null; }
   get canAcceptCua(): boolean { return !!this.cuaStatus?.observation && this.cuaImages.length === this.cuaStatus.observation.artifactIds.length && this.cuaImages.length > 0 && this.cuaImages.every(image => image.loaded) && !this.cuaUnknown && !this.cuaError; }
-  get conflictingService(): Service | null { return this.phase === "conflict" ? this.services.find(service => service.name === this.draft.name) ?? null : null; }
+  get conflictingService(): Service | null { return this.phase === "conflict" ? this.services.find(service => service.name === this.draft.name && (this.mode === "computer" ? !!service.cua : !service.cua)) ?? null : null; }
   useCurrentService(): void {
     const current = this.conflictingService;
     if (this.disabled || !current || this.selectedId) return;
@@ -66,7 +66,7 @@ export class CodeMcpState implements SettingsForm {
   select(id: string | null): void {
     if (this.disabled || this.dirty) return;
     this.selectedId = id; this.editing = true; this.check = null; this.secret = ""; this.message = "";
-    this.draft = id && this.service ? draftFor(this.service) : fresh(); this.baseline = structuredClone(this.draft); this.fieldErrors = {}; this.changed();
+    this.draft = id && this.service ? draftFor(this.service) : this.mode === "computer" ? { ...fresh(), name: "computer", kind: "cua-mac", auth: "anonymous" } : fresh(); this.baseline = structuredClone(this.draft); this.fieldErrors = {}; this.changed();
   }
   closeEditor(): void { if (this.phase === "saving" || this.phase === "unknown") return; this.discard(); this.editing = false; this.selectedId = null; this.check = null; this.changed(); }
   edit<K extends keyof McpDraft>(field: K, value: McpDraft[K]): void {

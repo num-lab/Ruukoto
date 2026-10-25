@@ -2,7 +2,12 @@
 @import "tw-animate-css";
 @import "./reference.css";
 @import "./theme.css";
+@import "katex/dist/katex.min.css";
 @source "./**/*.{ts,tsx}";
+@source "../../../../node_modules/streamdown/dist/*.js";
+@source "../../../../node_modules/@streamdown/code/dist/*.js";
+@source "../../../../node_modules/@streamdown/math/dist/*.js";
+@source "../../../../node_modules/@streamdown/mermaid/dist/*.js";
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
@@ -370,13 +375,6 @@ code, pre { font-family: var(--font-mono); }
 .file-image { display: flex; flex: 1; min-height: 0; align-items: flex-start; justify-content: center; overflow: auto; padding: 20px 14px; color: var(--text-muted); font-size: 12px; }
 .file-image img { max-width: 100%; height: auto; border-radius: 8px; }
 .file-markdown { flex: 1; min-height: 0; overflow: auto; padding: 18px; font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; }
-.file-markdown h1, .file-markdown h2, .file-markdown h3 { margin: 0 0 14px; font-weight: 500; line-height: 1.4; }
-.file-markdown h1 { font-size: 21px; } .file-markdown h2 { margin-top: 24px; font-size: 16px; } .file-markdown h3 { margin-top: 20px; font-size: 14px; }
-.file-markdown p, .file-markdown ul, .file-markdown ol, .file-markdown pre { margin: 0 0 14px; }
-.file-markdown ul, .file-markdown ol { padding-left: 20px; } .file-markdown ul { list-style: disc; } .file-markdown ol { list-style: decimal; }
-.file-markdown code { border-radius: 4px; background: var(--muted); padding: 1px 4px; font-size: 12px; }
-.file-markdown pre { overflow-x: auto; border-radius: 7px; background: var(--muted); padding: 10px; }
-.file-markdown pre code { padding: 0; white-space: pre; }
 .file-preview-link { padding: 0; color: var(--text-primary); text-decoration: underline; text-underline-offset: 3px; text-align: left; }
 .embedded-demo-notice { display: grid; flex: 1; min-height: 0; place-content: center; gap: 8px; padding: 24px; color: var(--text-secondary); font-size: 13px; }
 
@@ -402,15 +400,13 @@ html.dark { --git-lane-0: #60a5fa; --git-lane-1: #4ade80; --git-lane-2: #c084fc;
 body { font-size: 15.5px; }
 .projects-heading, .right-tabs .right-tab, .diff-line { font-size: 13.5px; }
 .workspace-row > button:first-child, .workspace-session, .personal-row, .settings-row { font-size: 14.5px; }
-.workspace-filter input, .center-tabs .center-tab, .context-details, .context-summary, .composer-actions [data-slot="select-trigger"], .composer .model-selector, .model-menu [role="menuitemradio"], .model-menu [data-slot="dropdown-menu-label"], .git-commit-subject, .git-commit-detail-body > p, .new-tab-page > span, .new-tab-page > button, .diff-error, .empty-state p, .demo-dialog [data-slot="dialog-description"], .demo-dialog [data-slot="dialog-footer"] button, .demo-dialog input, .toast-pill, [data-slot="select-item"], .settings-categories [data-slot="tabs-trigger"], .settings-row [data-slot="select-trigger"], .file-panel-heading, .file-tree .file-tree-row, .file-panel-empty, .file-source, .file-image, .file-markdown code { font-size: 14px; }
+.workspace-filter input, .center-tabs .center-tab, .context-details, .context-summary, .composer-actions [data-slot="select-trigger"], .composer .model-selector, .model-menu [role="menuitemradio"], .model-menu [data-slot="dropdown-menu-label"], .git-commit-subject, .git-commit-detail-body > p, .new-tab-page > span, .new-tab-page > button, .diff-error, .empty-state p, .demo-dialog [data-slot="dialog-description"], .demo-dialog [data-slot="dialog-footer"] button, .demo-dialog input, .toast-pill, [data-slot="select-item"], .settings-categories [data-slot="tabs-trigger"], .settings-row [data-slot="select-trigger"], .file-panel-heading, .file-tree .file-tree-row, .file-panel-empty, .file-source, .file-image { font-size: 14px; }
 .attachment-chip, .git-commit-detail-body, .diff-heading, .diff-heading code, .new-tab-page > p, .new-tab-page > button code, .new-tab-page > button small, .task-notice, .task-notice button, .empty-state > span, .diff-more, .browser-toolbar [data-slot="input"], .browser-note, .browser-error, .file-panel-heading > code, .file-preview-modes button { font-size: 13px; }
 .composer [data-slot="textarea"] { font-size: 15.5px; }
 .git-ref[data-slot="badge"], .diff-line > span:first-child, .file-panel-heading small, .file-source-gutter { font-size: 12px; }
 .empty-state h1 { font-size: 24px; }
-.demo-dialog [data-slot="dialog-title"], .settings-navigation [data-slot="dialog-title"], .settings-panel > h2, .file-markdown h2 { font-size: 18px; }
+.demo-dialog [data-slot="dialog-title"], .settings-navigation [data-slot="dialog-title"], .settings-panel > h2 { font-size: 18px; }
 .file-markdown, .embedded-demo-notice { font-size: 15px; }
-.file-markdown h1 { font-size: 23px; }
-.file-markdown h3 { font-size: 16px; }
 @media (max-width: 500px) { .composer-actions [data-slot="select-trigger"] { font-size: 13px; } }
 .file-source { --file-line-height: 23.8px; line-height: var(--file-line-height); }
 .file-source-gutter { line-height: var(--file-line-height); }

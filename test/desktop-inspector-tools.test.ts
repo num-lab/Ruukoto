@@ -306,10 +306,10 @@ test("文件预览使用真实正文，Markdown 和源码安全渲染，空文�
   const content = '# 实际标题\n\n**实际正文** [网页](https://example.com/) [凭据](https://user:pass@example.com) [相对](./other.md) ![远端图片](https://example.com/remote.png)\n\n<script>alert("unsafe")</script>';
   const markdown: PreviewFile = { path: "actual.md", kind: "markdown", size: Buffer.byteLength(content), content };
   const preview = render(markdown);
-  assert.match(preview, /<h1>实际标题<\/h1>/);
-  assert.match(preview, /<strong>实际正文<\/strong>/);
+  assert.match(preview, /<h1[^>]*>实际标题<\/h1>/);
+  assert.match(preview, /<span[^>]*data-streamdown="strong">实际正文<\/span>/);
   assert.equal((preview.match(/class="file-preview-link"/g) ?? []).length, 1);
-  assert.match(preview, /<img src="https:\/\/example.com\/remote.png" alt="远端图片"/);
+  assert.match(preview, /<img[^>]*alt="远端图片"[^>]*src="https:\/\/example\.com\/remote\.png"/);
   assert.doesNotMatch(preview, /<script|<a /);
   const source = render(markdown, "source");
   assert.match(source, /aria-label="文件源码"/);

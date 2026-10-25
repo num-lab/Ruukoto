@@ -23,10 +23,10 @@ const load = (path, extra = '', overrides = {}) => {
 const activity = load('apps/desktop/src/renderer/activity.ts');
 const diff = load('apps/desktop/src/renderer/diff.ts');
 const dummy = names => Object.fromEntries(names.map(name => [name, function Placeholder() {}]));
-const Markdown = function Markdown() {};
+const MarkdownText = function MarkdownText() {};
 const { Conversation, MessageEntry } = load('apps/desktop/src/renderer/conversation.tsx', '\nexport { MessageEntry };\n', {
-  'react-markdown': { default: Markdown }, 'remark-gfm': { default() {} },
   './diff.ts': diff, './activity.ts': activity,
+  './markdown.tsx': { MarkdownText },
   './tool-activity.tsx': dummy(['AgentActivity', 'ExecutionTrace', 'ToolActivity']),
   './approval-cards.tsx': dummy(['ApprovalCards']),
   './owner-question-cards.tsx': dummy(['OwnerQuestionCard', 'OwnerQuestionCards']),
@@ -55,7 +55,7 @@ function messageTrees(child = false) {
   return new Map(nodes(tree).filter(node => node.type === MessageEntry).map(node => [node.props.entry.key, render(`message:${node.props.entry.key}`, MessageEntry, node.props)]));
 }
 const markdown = tree => nodes(tree).find(node => node.type === 'div' && node.props.className === 'markdown');
-const code = (tree, path) => markdown(tree).props.children.props.components.code({ children: path });
+const code = (tree, path) => markdown(tree).props.children.props.components.inlineCode({ children: path });
 const click = link => link.props.onClick({ preventDefault() {} });
 let trees = messageTrees();
 assert.equal(code(trees.get('before'), 'p.ts').type, 'code', '未来 edit 不应把之前正文变成链接');

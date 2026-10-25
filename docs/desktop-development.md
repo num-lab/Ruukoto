@@ -6,7 +6,7 @@
 
 两外壳构建把node-pty运行代码、native及macOS的spawn-helper放入vendor；Electron解包native/helper，MyGo保留目录与执行位。缺文件或helper不可执行会阻断构建。终端真实PTY回归不可跳过，定向运行`npx tsx --test test/desktop-terminal.test.ts test/38-desktop-build.test.ts test/desktop-mygo.test.ts`；实际两壳输入法、隐藏恢复、明暗与退出另验。
 
-桌面依赖全部在 apps/desktop 的 devDependencies，根锁文件统一管理，包含正文渲染的 react-markdown 与 remark-gfm；生产安装 `npm ci --omit=dev` 不装 Electron。创建与应答丢失回归见 `test/40-desktop-creation.test.ts`，流恢复与快照代次见 `test/41-desktop-stream.test.ts`。安全选项、CSP 实际拒绝脚本、明暗外观与真实 HMR 需另做 Electron 验收，纯逻辑测试不能代替。
+桌面依赖全部在 apps/desktop 的 devDependencies，根锁文件统一管理，包含正文渲染的 streamdown、@streamdown/code／math／mermaid 与 rehype-sanitize；生产安装 `npm ci --omit=dev` 不装 Electron。创建与应答丢失回归见 `test/40-desktop-creation.test.ts`，流恢复与快照代次见 `test/41-desktop-stream.test.ts`。安全选项、CSP 实际拒绝脚本、明暗外观与真实 HMR 需另做 Electron 验收，纯逻辑测试不能代替。
 
 开发入口：`npm run code -- --desktop`。构建入口：`npm run desktop:build`。返回[开发说明](development.md#桌面客户端)。
 

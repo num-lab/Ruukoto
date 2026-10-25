@@ -8,7 +8,7 @@ Desktop 把 Markdown 图片统一替换成文字，正常回复中的截图与�
 
 ## 决定
 
-Code 主／子会话、Personal 聊天、文件预览及双端技能正文直接输出原生 img。图片 src 原样交给浏览器，其他 URL 继续使用 react-markdown 默认转换；原始 HTML 仍跳过。开发与生产的 img-src 允许网络、file、data 和 blob 来源，图片按容器宽度缩放。沿用库与浏览器，不新增图片代理、路径映射、授权或开关。
+Code 主／子会话、Personal 聊天、文件预览及双端技能正文直接输出原生 img。图片 src 原样交给浏览器，其他 URL 继续使用渲染库默认转换（现由 [Streamdown 迁移](../feature/2026-10-25-desktop-streamdown.md)的管线提供）；原始 HTML 仍跳过。开发与生产的 img-src 允许网络、file、data 和 blob 来源，图片按容器宽度缩放。沿用库与浏览器，不新增图片代理、路径映射、授权或开关。
 
 ## 既有笔记审计
 

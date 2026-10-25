@@ -1,10 +1,9 @@
 import { useEffect, useState } from "react";
-import Markdown, { defaultUrlTransform } from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { ToggleGroup } from "radix-ui";
 import { ArrowUp, Loader2, Sparkles, Wrench } from "lucide-react";
 import type { PersonalDesktopMessage, PersonalTimelineEntry } from "@ruukoto/view/personal-protocol.ts";
 import type { PersonalState } from "./personal-state.ts";
+import { MarkdownText } from "./markdown.tsx";
 import { composerModes, ModeSelector, submitOnEnter } from "./composer.tsx";
 import { Button } from "./components/ui/button.tsx";
 import { Textarea } from "./components/ui/textarea.tsx";
@@ -15,7 +14,7 @@ import { Trace, TraceCollapsible, TraceCollapsibleContent, TraceCollapsibleTrigg
 import { MessageScroller, MessageScrollerContent, MessageScrollerItem, MessageScrollerProvider, MessageScrollerViewport } from "./components/ui/message-scroller.tsx";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./components/ui/dialog.tsx";
 
-function Text({ children }: { children: string }) { return <div className="markdown"><Markdown skipHtml remarkPlugins={[remarkGfm]} urlTransform={(url, key, node) => node.tagName === "img" && key === "src" ? url : defaultUrlTransform(url)}>{children}</Markdown></div>; }
+function Text({ children }: { children: string }) { return <div className="markdown"><MarkdownText>{children}</MarkdownText></div>; }
 function Activity({ label, text, running = false }: { label: string; text?: string; running?: boolean }) {
   return <TraceCollapsible><TraceCollapsibleTrigger><TraceLine status={running ? "running" : undefined}><TraceIcon>{running ? <Loader2 className="animate-spin" /> : <Wrench />}</TraceIcon><TraceTitle>{label}</TraceTitle></TraceLine></TraceCollapsibleTrigger><TraceCollapsibleContent><pre className="whitespace-pre-wrap selectable-text">{text}</pre></TraceCollapsibleContent></TraceCollapsible>;
 }

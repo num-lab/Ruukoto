@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import Markdown, { defaultUrlTransform } from "react-markdown";
-import remarkGfm from "remark-gfm";
+import type { Components } from "streamdown";
 import { Plus, RefreshCw } from "lucide-react";
 import type { SettingsPageProps } from "./settings-dialog.tsx";
 import { CodeSkillsState } from "./code-skills-state.ts";
+import { MarkdownText } from "./markdown.tsx";
 import { Button } from "./components/ui/button.tsx";
 import { Badge } from "./components/ui/badge.tsx";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./components/ui/dialog.tsx";
@@ -12,8 +12,10 @@ import { Input } from "./components/ui/input.tsx";
 
 const impact = "停用或移除从后续新任务选择起生效，也阻止新的显式调用；已钉版任务及原恢复引用继续可读，历史正文保留。移除只隐藏可用项，包字节保留供旧引用读取。";
 
+const skillComponents: Components = { a: ({ href, children }) => href && /^https?:\/\//i.test(href) ? <a href={href} target="_blank" rel="noreferrer">{children}</a> : <span>{children}</span> };
+
 export function SkillBody({ body }: { body: string }) {
-  return <div className="file-markdown selectable-text skills-body"><Markdown skipHtml remarkPlugins={[remarkGfm]} urlTransform={(url, key, node) => node.tagName === "img" && key === "src" ? url : defaultUrlTransform(url)} components={{ a: ({ href, children }) => href && /^https?:\/\//i.test(href) ? <a href={href} target="_blank" rel="noreferrer">{children}</a> : <span>{children}</span> }}>{body}</Markdown></div>;
+  return <div className="file-markdown selectable-text skills-body"><MarkdownText mode="static" components={skillComponents}>{body}</MarkdownText></div>;
 }
 
 export function CodeSkillsEditor({ state }: { state: CodeSkillsState }) {

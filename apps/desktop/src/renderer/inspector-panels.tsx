@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import Markdown, { defaultUrlTransform } from "react-markdown";
-import remarkGfm from "remark-gfm";
-import type { CodeState } from "./code-state.ts";
 import { ArrowLeft, ArrowRight, ChevronRight, FileCode2, FileText, Folder, Image, Loader2, RotateCw } from "lucide-react";
+import type { CodeState } from "./code-state.ts";
+import { MarkdownText } from "./markdown.tsx";
 import { Button } from "./components/ui/button.tsx";
 import { Input } from "./components/ui/input.tsx";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./components/ui/collapsible.tsx";
@@ -99,8 +98,8 @@ export function FilePreview({ file, path, mode, onMode, onFiles, onUrl }: { file
     {!file ? <div className="file-panel-empty"><p>文件不可用</p><Button type="button" variant="ghost" size="sm" onClick={onFiles}>打开文件树</Button></div>
       : file.kind === "unsupported" ? <div className="file-panel-empty"><FileText /><p>暂不支持预览此文件</p></div>
       : file.kind === "image" ? <ImagePreview key={file.path} file={file} />
-      : file.kind === "markdown" && mode === "preview" ? <div className="file-markdown selectable-text"><Markdown skipHtml remarkPlugins={[remarkGfm]} urlTransform={(url, key, node) => node.tagName === "img" && key === "src" ? url : defaultUrlTransform(url)} components={{
+      : file.kind === "markdown" && mode === "preview" ? <div className="file-markdown selectable-text"><MarkdownText mode="static" components={{
         a: ({ href, children }) => { const url = href && /^https?:\/\//i.test(href) ? browserAddress(href) : null; return url ? <button type="button" className="file-preview-link" onClick={() => onUrl(url)}>{children}</button> : <span>{children}</span>; },
-      }}>{file.content}</Markdown></div> : <SourcePreview path={file.path} content={file.content} />}
+      }}>{file.content}</MarkdownText></div> : <SourcePreview path={file.path} content={file.content} />}
   </section>;
 }

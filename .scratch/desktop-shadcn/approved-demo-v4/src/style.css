@@ -2,7 +2,12 @@
 @import "tw-animate-css";
 @import "./reference.css";
 @import "./theme.css";
+@import "katex/dist/katex.min.css";
 @source "./**/*.{ts,tsx}";
+@source "../../../../node_modules/streamdown/dist/*.js";
+@source "../../../../node_modules/@streamdown/code/dist/*.js";
+@source "../../../../node_modules/@streamdown/math/dist/*.js";
+@source "../../../../node_modules/@streamdown/mermaid/dist/*.js";
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
@@ -370,12 +375,5 @@ code, pre { font-family: var(--font-mono); }
 .file-image { display: flex; flex: 1; min-height: 0; align-items: flex-start; justify-content: center; overflow: auto; padding: 20px 14px; color: var(--text-muted); font-size: 12px; }
 .file-image img { max-width: 100%; height: auto; border-radius: 8px; }
 .file-markdown { flex: 1; min-height: 0; overflow: auto; padding: 18px; font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; }
-.file-markdown h1, .file-markdown h2, .file-markdown h3 { margin: 0 0 14px; font-weight: 500; line-height: 1.4; }
-.file-markdown h1 { font-size: 21px; } .file-markdown h2 { margin-top: 24px; font-size: 16px; } .file-markdown h3 { margin-top: 20px; font-size: 14px; }
-.file-markdown p, .file-markdown ul, .file-markdown ol, .file-markdown pre { margin: 0 0 14px; }
-.file-markdown ul, .file-markdown ol { padding-left: 20px; } .file-markdown ul { list-style: disc; } .file-markdown ol { list-style: decimal; }
-.file-markdown code { border-radius: 4px; background: var(--muted); padding: 1px 4px; font-size: 12px; }
-.file-markdown pre { overflow-x: auto; border-radius: 7px; background: var(--muted); padding: 10px; }
-.file-markdown pre code { padding: 0; white-space: pre; }
 .file-preview-link { padding: 0; color: var(--text-primary); text-decoration: underline; text-underline-offset: 3px; text-align: left; }
 .embedded-demo-notice { display: grid; flex: 1; min-height: 0; place-content: center; gap: 8px; padding: 24px; color: var(--text-secondary); font-size: 13px; }

@@ -84,7 +84,8 @@ export async function checkInspector(server) {
   assert.ok(empty.includes('aria-label="文件源码"') && !empty.includes('class="file-line"') && !empty.includes("文件不可用"), "空文件保持空源码区");
   const markdownFile = { path: "sample.md", kind: "markdown", content: '# Heading\n\n<script>alert(1)</script>\n\n[web](https://example.com) [credentials](https://user:pass@example.com) [local](./README.md) [fragment](#heading) [mail](mailto:a@example.com) [bad](javascript:alert)\n\n![remote](https://example.com/image.png)' };
   const markdown = preview(markdownFile);
-  assert.ok(markdown.includes("<h1>Heading</h1>") && !markdown.includes("<script") && !markdown.includes("<img"));
+  assert.ok(/<h1[^>]*>Heading<\/h1>/.test(markdown) && !markdown.includes("<script"), "标题渲染且跳过原始 HTML");
+  assert.ok(/<img[^>]*alt="remote"[^>]*src="https:\/\/example.com\/image.png"/.test(markdown), "图片原样直出");
   assert.equal((markdown.match(/class="file-preview-link"/g) ?? []).length, 1, "只有无凭据 HTTP(S) 链接可打开内置浏览器");
   assert.ok(!markdown.includes("<a "), "Markdown 不得导航父页面");
   assert.ok(preview(markdownFile, "source").includes('aria-label="文件源码"'));

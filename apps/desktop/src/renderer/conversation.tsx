@@ -1,12 +1,12 @@
 // Note: 见 .agents/notes/implemented/bug-fix/2026-10-17-desktop-transcript-rendering.md
 // Note: 见 .agents/notes/implemented/feature/2026-10-21-coding-owner-questions.md
 import { Fragment, useMemo, useRef, useState } from "react";
-import Markdown, { defaultUrlTransform, type Components } from "react-markdown";
-import remarkGfm from "remark-gfm";
+import type { Components } from "streamdown";
 import type { FlowEntry } from "@ruukoto/view/event-flow.ts";
 import type { OwnerQuestionView } from "@ruukoto/core/owner-questions.ts";
 import type { CodeState } from "./code-state.ts";
 import { isDiffTool, type DiffTool } from "./diff.ts";
+import { MarkdownText } from "./markdown.tsx";
 import { conversationActivity, conversationSections, executionDuration, isAgentTool } from "./activity.ts";
 import { AgentActivity, ExecutionTrace, ToolActivity } from "./tool-activity.tsx";
 import { OwnerQuestionCard, OwnerQuestionCards } from "./owner-question-cards.tsx";
@@ -19,15 +19,15 @@ function MessageEntry({ model, sessionId, entry, child, tools, toolCount, refere
   const text = child && entry.role === "user" && entry.taskId ? model.view.tasks.get(entry.taskId)?.displayInput ?? entry.text : entry.text;
   const markdown = useMemo(() => {
     const components: Components = {
-      code: ({ className, children }) => {
+      inlineCode: ({ children }) => {
         const path = String(children);
         let diff: DiffTool | undefined;
-        if (model.target === "code" && !className) for (let index = toolCount - 1; index >= 0; index--) if (tools[index].target === path) { diff = tools[index]; break; }
-        const code = <code className={className ?? "relative rounded bg-muted px-[0.3rem] py-[0.1rem] font-mono text-[13px] font-normal wrap-anywhere"}>{diff ? path.split("/").map((segment, index) => <Fragment key={index}>{index > 0 && "/"}{index > 0 && <wbr />}{segment}</Fragment>) : children}</code>;
+        if (model.target === "code") for (let index = toolCount - 1; index >= 0; index--) if (tools[index].target === path) { diff = tools[index]; break; }
+        const code = <code className="relative rounded bg-muted px-[0.3rem] py-[0.1rem] font-mono text-[13px] font-normal wrap-anywhere">{diff ? path.split("/").map((segment, index) => <Fragment key={index}>{index > 0 && "/"}{index > 0 && <wbr />}{segment}</Fragment>) : children}</code>;
         return diff ? <a className="file-reference" href="#right-sidebar" onClick={event => { event.preventDefault(); const current = model.view.openSession(sessionId).flow.items.find(item => item.key === diff.key); if (current?.kind === "tool") model.inspector.openDiff(sessionId, current); }}>{code}</a> : code;
       },
     };
-    return <div className="markdown"><Markdown skipHtml remarkPlugins={[remarkGfm]} urlTransform={(url, key, node) => node.tagName === "img" && key === "src" ? url : defaultUrlTransform(url)} components={components}>{text}</Markdown></div>;
+    return <div className="markdown"><MarkdownText components={components}>{text}</MarkdownText></div>;
   }, [text, model, sessionId, referencesKey]);
   const content = <>{markdown}{entry.attachments?.map(attachment => <div key={attachment.id}>［附件：{attachment.name}］</div>)}</>;
   return <Message align={entry.role === "user" ? "end" : "start"}><MessageContent>{question ? <OwnerQuestionCard model={model} question={question} /> : entry.role === "user" ? <Bubble variant="muted" align="end"><BubbleContent>{content}</BubbleContent></Bubble> : content}</MessageContent></Message>;

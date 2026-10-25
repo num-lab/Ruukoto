@@ -25,8 +25,8 @@ export type WorkerRequest =
       readRoots?: Array<{ path: string; dev?: number; ino?: number }>;
       /** 宿主钉定的工作区目录身份（issue 16 写入目标的钉定复核）；缺省 = 维持旧语义（cwd 即工作区）。 */
       workspace?: { path: string; dev: number; ino: number };
-      /** 宿主解析的 rg 与资料读取根；null 根仅用于无范围限定的完全访问。 */
-      fileSearch?: { executable?: string; roots: Array<{ path: string; dev?: number; ino?: number }> | null };
+      /** 宿主钉定的资料读取根；null 根仅用于无范围限定的完全访问。 */
+      fileSearch?: { roots: Array<{ path: string; dev?: number; ino?: number }> | null };
     }
   | {
       type: "tool_call";

@@ -41,6 +41,27 @@ test("托管导入：保留包名、引用、源字节与权限；宿主元数�
   assert.notEqual(fs.statSync(path.join(f.source, "SKILL.md")).ino, fs.statSync(path.join(skill.dir, "SKILL.md")).ino);
 });
 
+test("候选清单：准备导入、启停与移除不改变当前选择，外部提交后原入口保持幂等", t => {
+  const f = fixture(t), preview = f.store.preview(f.source), stateFile = path.join(f.managed, "state.json");
+  const imported = f.store.prepareImport({ id: preview.id, sourceDir: f.source, contentRevision: preview.contentRevision, expectedRevision: preview.revision });
+  assert.equal(fs.existsSync(stateFile), false);
+  assert.equal(f.store.list().revision, preview.revision);
+  assert.deepEqual(f.store.list().skills, []);
+  assert.equal(fs.existsSync(path.join(f.managed, "packages", preview.id, "alpha", "SKILL.md")), true);
+  fs.writeFileSync(stateFile, imported.content, { mode: 0o600 });
+  assert.equal(f.store.get(preview.id).state, "enabled");
+  const disabled = f.store.prepareSetEnabled({ id: preview.id, enabled: false, expectedRevision: imported.revision });
+  const removed = f.store.prepareRemove({ id: preview.id, expectedRevision: imported.revision });
+  assert.equal(f.store.get(preview.id).state, "enabled");
+  assert.equal(fs.readFileSync(stateFile, "utf8"), imported.content);
+  assert.equal(disabled.result.state, "disabled"); assert.equal(removed.result.state, "removed");
+  fs.writeFileSync(stateFile, disabled.content);
+  const before = fs.statSync(stateFile);
+  assert.deepEqual(f.store.setEnabled({ id: preview.id, enabled: false, expectedRevision: disabled.revision }), disabled.result);
+  assert.equal(fs.statSync(stateFile).ino, before.ino);
+  assert.equal(f.store.remove({ id: preview.id, expectedRevision: disabled.revision }).state, "removed");
+});
+
 test("外部维护：原嵌套与 symlink 排序赢家保留，只读详情以身份定位", t => {
   const f = fixture(t), external = skillsDirFor(f.host);
   writeSkill(f.source, "alpha");

@@ -5,15 +5,17 @@ import { copyJson } from "@earendil-works/chord";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { defineDoc, defineDocFamily, defineEntry, defineExtension, LiveDoc, ROOT_CONVERSATION_ID, type ConversationId, type EntryId, type Harness, type SubmissionId, type TaskId, type Tx } from "@earendil-works/pi-durable";
 import { callHelper, expectRevisions, requireOk, ServiceHelperError, type HelperReply, type ServiceInspectionId, type ServiceManagerConfig } from "./service-helper.ts";
+import { personalConfigurationVersions } from "./personal-settings-records.ts";
 import { PersonalError } from "./personal-error.ts";
 import { activePersonalWorkInspection, personalWorkInspectionSource, requirePersonalWorkRequest, type PersonalWorkInspectionSource } from "./personal-work.ts";
-import { personalCommandsIn, personalCommandUnresolved } from "./personal-command-work.ts";
+import { personalCommandsIn, personalCommandUnresolved, requirePersonalExecutionSelection } from "./personal-command-work.ts";
 import { personalServiceOperation } from "./personal-service-operations.ts";
+import { PersonalServiceDoc, personalServiceConfiguration, personalServiceLegacyVersion } from "./personal-services.ts";
 import { scheduledConversation } from "./personal-scheduler-records.ts";
 import { personalSource } from "./personal-source.ts";
 
 type Reply = Extract<HelperReply, { ok: true; verb: "inspect-op" }>;
-type Identity = { taskId: TaskId; conversationId: ConversationId; taskKind: string; unit: string; machineId: string; inspectionId: ServiceInspectionId; sources: SubmissionId[]; generation?: TaskId; work?: PersonalWorkInspectionSource };
+type Identity = { taskId: TaskId; conversationId: ConversationId; taskKind: string; unit: string; machineId: string; inspectionId: ServiceInspectionId; sources: SubmissionId[]; configRevision?: string; configVersion?: string; generation?: TaskId; work?: PersonalWorkInspectionSource };
 type Inspection = Identity & { admission: EntryId; stopped: boolean; stopEvidence?: EntryId; result?: { evidence: EntryId; reply?: Reply; code: string } };
 export const PersonalInspectionDoc = defineDocFamily<{ inspection?: Inspection }, null>({ kind: "ruukoto.service-execution", scope: "session", version: 1, family: true, initial: () => ({}) });
 export const PersonalPendingInspectionsDoc = defineDoc<{ tasks: TaskId[] }>({ kind: "ruukoto.service-executions", scope: "session", version: 1, initial: () => ({ tasks: [] }) });
@@ -82,7 +84,8 @@ export async function recheckServiceInspection(harness: Harness, config: Service
   const value = original ?? (await harness.snapshot(PersonalInspectionDoc, String(taskId), context))?.inspection;
   if (!value || value.stopped) return;
   // 原 invocation 可能已经取消；停止观察独立限时，证据仍由 Harness 持有。
-  const response = await invoke(config, ["stop-inspect", value.inspectionId, value.machineId], config.timeouts?.stopMs ?? 15_000);
+  const selected = await harness.commit(tx => personalServiceConfiguration(tx, value.configRevision, config, value.configVersion), context);
+  const response = await invoke(selected, ["stop-inspect", value.inspectionId, value.machineId], selected.timeouts?.stopMs ?? 15_000);
   await harness.commit(async tx => {
     const evidence = await tx.appendEntry(ServiceInspectionStopEntry, value.conversationId, { data: { inspectionId: value.inspectionId, machineId: value.machineId, ...response.capture, ...(response.reply ? { reply: response.reply } : {}) } });
     const current = (await tx.doc(PersonalInspectionDoc, String(taskId), null)).inspection;
@@ -94,7 +97,7 @@ export async function recheckServiceInspection(harness: Harness, config: Service
   }, context);
 }
 
-export async function runServiceInspection(harness: Harness, config: ServiceManagerConfig, owner: { taskId: TaskId; conversationId: ConversationId; sources?: SubmissionId[]; signal?: AbortSignal }, unit: string): Promise<{ code: string; evidence?: EntryId; reply?: Reply }> {
+export async function runServiceInspection(harness: Harness, config: ServiceManagerConfig, owner: { taskId: TaskId; conversationId: ConversationId; sources?: SubmissionId[]; signal?: AbortSignal }, unit: string, isSuspended: () => boolean = () => false): Promise<{ code: string; evidence?: EntryId; reply?: Reply }> {
   let previous = (await harness.snapshot(PersonalInspectionDoc, String(owner.taskId), context))?.inspection;
   if (previous) {
     if (previous.unit !== unit || previous.conversationId !== owner.conversationId) throw new PersonalError("service_inspection_invalid", "原检查与本次调用不符，已停止；请保留档案。");
@@ -103,12 +106,18 @@ export async function runServiceInspection(harness: Harness, config: ServiceMana
     if (!previous.stopped) return { code: "inspection_stop_unverified" };
     if (previous.result) return { ...previous.result };
   }
-  const machineId = machineFor(config);
+  let selected = { ...config };
   const value = await harness.commit(async tx => {
+    if (isSuspended()) throw new PersonalError("settings_target_suspended", "当前服务配置不接受新检查，未执行；请结束本轮并报告拥有者，核实配置状态。");
     const task = await tx.task(owner.taskId);
     if (owner.signal?.aborted || !task || task.state.status === "terminal" || task.abortRequested || task.conversationId !== owner.conversationId) throw new PersonalError("service_inspection_inactive", "原检查任务已停止，未启动新检查。");
     const live = task.kind === "pi.tool" ? await tx.doc(LiveDoc, task.conversationId) : undefined;
     if (task.kind !== "ruukoto.service-operation" && (task.kind !== "pi.tool" || !task.owner || live?.run?.taskId !== task.owner)) throw new PersonalError("service_inspection_invalid", "检查不属于原活动执行，未启动；请保留档案。");
+    const configuration = task.kind === "ruukoto.service-operation" && task.input && typeof task.input === "object" && !Array.isArray(task.input) && typeof task.input.requestId === "string" ? await personalServiceOperation(tx, { requestId: task.input.requestId, taskId: task.id }) : await tx.doc(PersonalServiceDoc);
+    const configRevision = configuration.configRevision, configVersion = configuration.configVersion;
+    if (task.kind === "pi.tool") await requirePersonalExecutionSelection(tx, task.id, "services", configVersion ?? configRevision);
+    selected = await personalServiceConfiguration(tx, configRevision, config, configVersion);
+    const machineId = machineFor(selected);
     if (owner.conversationId !== ROOT_CONVERSATION_ID && (task.kind !== "pi.tool" || owner.sources)) throw new PersonalError("service_inspection_invalid", "子检查的执行消费者不符，未启动；请查询原工作。");
     if (task.kind === "ruukoto.service-operation" && task.owner) {
       const input = task.input;
@@ -135,7 +144,7 @@ export async function runServiceInspection(harness: Harness, config: ServiceMana
     if (await pendingServiceInspection(tx, unit, sources)) return undefined;
     const record = await tx.doc(PersonalInspectionDoc, String(owner.taskId), null);
     if (record.inspection && !sameAttempt(record.inspection, previous!)) throw new PersonalError("service_inspection_invalid", "原检查尝试已变化，未启动新检查。");
-    const identity: Identity = { taskId: owner.taskId, conversationId: owner.conversationId, taskKind: task.kind, unit, machineId, inspectionId: `inspect_${randomBytes(12).toString("hex")}`, sources, ...(task.owner ? { generation: task.owner } : {}), ...(child ? { work: child.work } : {}) };
+    const identity: Identity = { taskId: owner.taskId, conversationId: owner.conversationId, taskKind: task.kind, unit, machineId, inspectionId: `inspect_${randomBytes(12).toString("hex")}`, sources, ...(configRevision ? { configRevision } : {}), ...(configVersion ? { configVersion } : {}), ...(task.owner ? { generation: task.owner } : {}), ...(child ? { work: child.work } : {}) };
     const admission = await tx.appendEntry(ServiceInspectionAdmission, owner.conversationId, { data: identity });
     const inspection: Inspection = { ...identity, admission: admission.id, stopped: false };
     record.inspection = inspection;
@@ -143,7 +152,7 @@ export async function runServiceInspection(harness: Harness, config: ServiceMana
     return inspection;
   }, context);
   if (!value) return { code: "inspection_stop_unverified" };
-  const response = await invoke(config, ["inspect-op", value.inspectionId, value.machineId, unit], config.timeouts?.inspectMs ?? 20_000, owner.signal);
+  const response = await invoke(selected, ["inspect-op", value.inspectionId, value.machineId, unit], selected.timeouts?.inspectMs ?? 20_000, owner.signal);
   let reply: Reply | undefined;
   let code = response.capture.code;
   try { reply = inspectServiceReply(response.reply, unit, value); } catch (error) {
@@ -162,11 +171,14 @@ export async function runServiceInspection(harness: Harness, config: ServiceMana
 }
 
 export async function verifyServiceInspections(tx: Tx, keys: string[]) {
+  const legacy = personalServiceLegacyVersion(await personalConfigurationVersions(tx, "services"));
   const pending = await tx.doc(PersonalPendingInspectionsDoc);
   const expected: TaskId[] = [];
   for (const key of keys) {
     const value = (await tx.doc(PersonalInspectionDoc, key, null)).inspection;
     if (!value || String(value.taskId) !== key) throw new PersonalError("service_inspection_invalid", "服务检查身份记录缺失，已停止恢复；请保留档案。");
+    if (!value.configVersion && legacy?.origin === "host" && (legacy.legacyThrough === null || legacy.legacyThrough === undefined || value.admission > legacy.legacyThrough)) throw new PersonalError("service_inspection_invalid", "新服务检查缺少原配置版本，已停止恢复；请保留档案并核实原接纳。");
+    if (value.configRevision) await personalServiceConfiguration(tx, value.configRevision, undefined, value.configVersion);
     const task = await tx.task(value.taskId);
     const entry = await tx.entry(ServiceInspectionAdmission, value.admission);
     const { admission: _admission, stopped: _stopped, stopEvidence: _stopEvidence, result: _result, ...identity } = value;

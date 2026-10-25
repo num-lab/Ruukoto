@@ -10,7 +10,7 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { createRegistry, defineExtension, defineTask, Harness, ROOT_CONVERSATION_ID } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { personalToolControl, verifyToolControls } from "../apps/ruukoto/src/personal-tools-controls.ts";
-import { configurePersonalTools, managePersonalTools } from "../apps/ruukoto/src/personal-tools-cli.ts";
+import { configurePersonalTools, configurePersonalWebSearch, managePersonalTools } from "../apps/ruukoto/src/personal-tools-cli.ts";
 import { PersonalToolDoc, PersonalToolsDoc, toolUnresolved, toolList, toolDetail, type PersonalToolOperation } from "../apps/ruukoto/src/personal-tools.ts";
 import { PersonalTelegramDoc, PersonalTelegramReceiptDoc, type TelegramControlInput, type TelegramResult } from "../apps/ruukoto/src/personal-telegram-records.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
@@ -104,13 +104,21 @@ test("工具宿主控制：长目标摘要有界，完整原记录沿原菜单�
   await f.harness.commit(tx => verifyToolControls(tx, f.keys, true), context);
 });
 
-test("工具配置向导：路径、HTTP具名凭据和Tavily环境变量可配置，键由程序生成", async t => {
-  const root = directory(t), workspace = directory(t), answers = [workspace, "1", "documents", "api.example.com", "1", "DOCUMENT_API_AUTH", "3", "1", "TAVILY_API_KEY", "2"]; let output = "";
+test("工具配置向导：资料与HTTP凭据保存不捆绑搜索，键由程序生成", async t => {
+  const root = directory(t), workspace = directory(t), answers = [workspace, "1", "documents", "api.example.com", "1", "DOCUMENT_API_AUTH", "3", "2"]; let output = "";
   await configurePersonalTools({ question: async () => { assert.ok(answers.length); return answers.shift()!; }, write: text => { output += text; } }, root);
   const value = JSON.parse(fs.readFileSync(path.join(root, "tools.json"), "utf8"));
   assert.equal(answers.length, 0); assert.equal(value.workspace, workspace); assert.match(value.generation, /^[0-9a-f-]{36}$/);
-  assert.deepEqual(value.credentials, [{ name: "documents", host: "api.example.com", header: "authorization", env: "DOCUMENT_API_AUTH" }]); assert.deepEqual(value.search, { apiKeyEnv: "TAVILY_API_KEY" });
+  assert.deepEqual(value.credentials, [{ name: "documents", host: "api.example.com", header: "authorization", env: "DOCUMENT_API_AUTH" }]); assert.equal(value.search, undefined);
   assert.doesNotMatch(output, new RegExp(value.generation)); assert.match(output, /完整头值/);
+});
+
+test("搜索配置向导：无需资料目录保存凭据引用，程序管理代次", async t => {
+  const root = directory(t), answers = ["1", "TAVILY_API_KEY", "2"]; let output = "";
+  await configurePersonalWebSearch({ question: async () => { assert.ok(answers.length); return answers.shift()!; }, write: text => { output += text; } }, root);
+  const value = JSON.parse(fs.readFileSync(path.join(root, "web-search.json"), "utf8"));
+  assert.equal(answers.length, 0); assert.equal(value.enabled, true); assert.equal(value.apiKeyEnv, "TAVILY_API_KEY");
+  assert.equal(fs.existsSync(path.join(root, "tools.json")), false); assert.doesNotMatch(output, new RegExp(value.generation));
 });
 
 test("工具管理向导：选择原操作翻页，分别提交批准、效果与结束，不要求填写身份", async t => {

@@ -8,15 +8,17 @@ import { PERSONAL_REQUEST_ID } from "./personal-control.ts";
 import { executePersonalMaintenance, type PersonalMaintenanceResult } from "./personal-maintenance.ts";
 import { executePersonalSettings, parsePersonalSettingsRequest, type PersonalSettingsIdentity, type PersonalSettingsRequest, type PersonalSettingsTarget } from "./personal-settings.ts";
 import { readPersonalRemoteFile, writePersonalRemoteFile } from "./personal-remote-storage.ts";
+import { parsePersonalSettingsWriteRequest, type PersonalSettingsWriteRequest } from "./personal-settings-operations.ts";
+import type { PersonalSettingsReceipt } from "./personal-settings-records.ts";
 
-export const PERSONAL_REMOTE_SETTINGS_READ = ["settings.read", "lifecycle.status", "config.preflight", "model.test", "mcp.discover", "mcp.cua-targets", "mcp.cua-status", "mcp.cua-control", "mcp.cua-image", "mcp.get", "skills.list", "skills.get", "skills.select-directory", "skills.preview-import"];
+export const PERSONAL_REMOTE_SETTINGS_READ = ["settings.read", "lifecycle.status", "config.preflight", "model.test", "mcp.discover", "mcp.cua-targets", "mcp.cua-status", "mcp.cua-control", "mcp.cua-image", "mcp.get", "skills.list", "skills.get", "skills.select-directory", "skills.preview-import", "im.pair-start", "im.pair-read", "im.pair-confirm", "im.pair-cancel"];
 export const PERSONAL_REMOTE_SETTINGS_WRITE = ["config.save", "mcp.migrate", "mcp.set-enabled", "mcp.remove", "mcp.save-service", "skills.import", "skills.set-enabled", "skills.remove"];
 type Stage = "stopping" | "stopped" | "saving" | "saved" | "starting" | "complete";
 export type PersonalRemoteMaintenanceReceipt = {
   v: 1; id: string; profile: PersonalSettingsIdentity; op: string; target: PersonalSettingsTarget; expectedRevision: string; requestDigest: string;
   stage: Stage; saveAttempted: boolean; savedRevision?: string; saved: boolean | null; started: boolean; code?: string;
 };
-type Ledger = { v: 1; pending: string | null; receipts: Record<string, PersonalRemoteMaintenanceReceipt> };
+type Ledger = { v: 1 | 2; pending: string | null; receipts: Record<string, PersonalRemoteMaintenanceReceipt>; settings?: Record<string, { profile: PersonalSettingsIdentity; requestDigest: string }> };
 type Settings = {
   product: "ruukoto"; profile: PersonalSettingsIdentity; online: boolean; revisions: Record<PersonalSettingsTarget, string>;
   blockers: unknown[]; lifecycle: { managedDevelopment: boolean }; model: { credential: { state: string } } | null;
@@ -24,6 +26,7 @@ type Settings = {
 };
 type Dependencies = {
   settings(value: PersonalSettingsRequest): Promise<unknown>;
+  configuration?(value: PersonalSettingsWriteRequest): Promise<unknown>;
   maintenance(op: "inspect" | "stop" | "start"): Promise<PersonalMaintenanceResult>;
 };
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
@@ -42,7 +45,7 @@ export class PersonalRemoteMaintenance {
   private busy = false;
   private closing = false;
   private unhealthy = false;
-  private running: Promise<void> | undefined;
+  private readonly configurationRunning = new Set<Promise<unknown>>();
   private readonly deps: Dependencies;
   constructor(private readonly directory: string, private readonly profile: PersonalSettingsIdentity, options: { initialize?: boolean; dependencies?: Dependencies; failed?: () => void } = {}) {
     this.failed = options.failed ?? (() => {});
@@ -54,7 +57,8 @@ export class PersonalRemoteMaintenance {
     let value: unknown;
     try { value = JSON.parse(readPersonalRemoteFile(directory, "maintenance.json")); }
     catch (failure) { throw error("remote_maintenance_invalid", "维护记录无法读取，请保留原远程状态并恢复记录；未创建空账本。"); }
-    if (!object(value) || value.v !== 1 || !object(value.receipts) || value.pending !== null && typeof value.pending !== "string") throw error("remote_maintenance_invalid", "维护记录版本或内容无效，请保留记录并检查原服务。");
+    if (!object(value) || ![1, 2].includes(Number(value.v)) || !object(value.receipts) || value.pending !== null && typeof value.pending !== "string" || value.v === 2 && !object(value.settings) || value.v === 1 && value.settings !== undefined) throw error("remote_maintenance_invalid", "维护记录版本或内容无效，请保留记录并检查原服务。");
+    if (object(value.settings)) for (const [id, association] of Object.entries(value.settings)) if (!PERSONAL_REQUEST_ID.test(id) || !object(association) || Object.keys(association).sort().join(",") !== "profile,requestDigest" || !identity(association.profile) || typeof association.requestDigest !== "string" || !/^[0-9a-f]{64}$/.test(association.requestDigest)) throw error("remote_maintenance_invalid", "配置接纳关联无法核实，请保留记录并查询原档案。");
     for (const [id, receipt] of Object.entries(value.receipts)) {
       if (!PERSONAL_REQUEST_ID.test(id) || !object(receipt) || receipt.v !== 1 || receipt.id !== id || !identity(receipt.profile) || typeof receipt.op !== "string" || !PERSONAL_REMOTE_SETTINGS_WRITE.includes(receipt.op) || !["model", "skills", "mcp"].includes(String(receipt.target)) || !revision(receipt.expectedRevision) || typeof receipt.requestDigest !== "string" || !/^[0-9a-f]{64}$/.test(receipt.requestDigest) || !["stopping", "stopped", "saving", "saved", "starting", "complete"].includes(String(receipt.stage)) || typeof receipt.saveAttempted !== "boolean" || ![true, false, null].includes(receipt.saved as boolean | null) || typeof receipt.started !== "boolean" || receipt.savedRevision !== undefined && !revision(receipt.savedRevision) || receipt.code !== undefined && typeof receipt.code !== "string") throw error("remote_maintenance_invalid", "原维护回执无法核实，请保留记录；未重复执行保存。");
       if (receipt.saved === true ? !receipt.saveAttempted || !receipt.savedRevision : receipt.savedRevision !== undefined) throw error("remote_maintenance_invalid", "原保存事实与修订不一致，请保留记录并核实原配置。");
@@ -72,7 +76,7 @@ export class PersonalRemoteMaintenance {
     this.ledger = next;
   }
   private update(receipt: PersonalRemoteMaintenanceReceipt): void {
-    this.persist({ v: 1, pending: receipt.stage === "complete" ? null : receipt.id, receipts: { ...this.ledger.receipts, [receipt.id]: receipt } });
+    this.persist({ ...this.ledger, pending: receipt.stage === "complete" ? null : receipt.id, receipts: { ...this.ledger.receipts, [receipt.id]: receipt } });
   }
   pending(): PersonalRemoteMaintenanceReceipt | null { return this.ledger.pending ? this.query(this.ledger.pending) : null; }
   query(id: string): PersonalRemoteMaintenanceReceipt | null {
@@ -82,13 +86,41 @@ export class PersonalRemoteMaintenance {
   }
   private async settings(): Promise<Settings> {
     const value = await this.deps.settings({ v: 1, op: "settings.read", limit: 1 });
-    if (!object(value) || value.product !== "ruukoto" || !isDeepStrictEqual(value.profile, this.profile) || typeof value.online !== "boolean" || !object(value.revisions) || !Object.values(value.revisions).every(revision) || !Array.isArray(value.blockers) || !object(value.lifecycle) || typeof value.lifecycle.managedDevelopment !== "boolean" || value.model !== null && (!object(value.model) || !object(value.model.credential) || typeof value.model.credential.state !== "string")) throw error("remote_maintenance_protocol", "原后台配置身份无法核实，请检查原档案；未继续维护。");
+    if (!object(value) || value.product !== "ruukoto" || !isDeepStrictEqual(value.profile, this.profile) || typeof value.online !== "boolean" || !object(value.revisions) || !Object.entries(value.revisions).every(([target, current]) => revision(current) || current === "unverified" && Array.isArray(value.revisionsUnknown) && value.revisionsUnknown.includes(target)) || !Array.isArray(value.blockers) || !object(value.lifecycle) || typeof value.lifecycle.managedDevelopment !== "boolean" || value.model !== null && (!object(value.model) || !object(value.model.credential) || typeof value.model.credential.state !== "string")) throw error("remote_maintenance_protocol", "原后台配置身份无法核实，请检查原档案；未继续维护。");
     return value as Settings;
   }
   async view() {
-    const maintenance = await this.deps.maintenance("inspect");
+    const settings = await this.settings();
+    const maintenance = this.pending() ? await this.deps.maintenance("inspect") : { profile: this.profile, online: settings.online, writable: true, code: "settings_ready", reason: settings.online ? "配置可在线保存。" : "后台离线，配置保存后不会自动启动。", lifecycle: { kind: "cli", state: settings.online ? "running" : "stopped", managedDevelopment: settings.lifecycle.managedDevelopment, originalEnvironment: "unverified" } };
     if (!isDeepStrictEqual(maintenance.profile, this.profile)) throw error("remote_profile_changed", "原服务档案已变化，请在服务器核实绑定；未操作新档案。");
-    return { settings: await this.settings(), maintenance, pending: this.pending() };
+    return { settings, maintenance, pending: this.pending() };
+  }
+  private configuration(request: PersonalSettingsWriteRequest): Promise<unknown> {
+    return this.deps.configuration ? this.deps.configuration(request) : executePersonalSettings(this.profile.directory, request);
+  }
+  async querySettings(id: string): Promise<unknown> {
+    if (!PERSONAL_REQUEST_ID.test(id)) throw error("remote_maintenance_request_invalid", "请选择原配置操作，请求标识由程序管理。");
+    const association = this.ledger.settings?.[id];
+    const legacy = this.query(id);
+    if (!association && legacy) return legacy;
+    if (association && !isDeepStrictEqual(association.profile, this.profile)) throw error("remote_profile_changed", "原配置操作属于另一档案，请恢复原绑定后查询。");
+    await this.settings();
+    return this.configuration({ v: 2, id });
+  }
+  async admitSettings(id: string, value: unknown, authorize: () => void): Promise<PersonalSettingsReceipt> {
+    const request = parsePersonalSettingsWriteRequest(value);
+    if (!("op" in request) || request.id !== id || !isDeepStrictEqual(request.profile, this.profile)) throw error("remote_maintenance_request_invalid", "请选择当前档案的一项配置操作。");
+    if (this.closing || this.ledger.pending) throw error("remote_maintenance_pending", "请先处理原停存启维护，再保存新配置。");
+    const requestDigest = createHash("sha256").update(canonical(request)).digest("hex"), previous = this.ledger.settings?.[id];
+    if (previous && (previous.requestDigest !== requestDigest || !isDeepStrictEqual(previous.profile, request.profile))) throw error("remote_request_conflict", "原操作参数不同，请查询原配置回执；未重复保存。");
+    authorize();
+    if (!previous) this.persist({ ...this.ledger, v: 2, settings: { ...this.ledger.settings, [id]: { profile: request.profile, requestDigest } } });
+    const running = this.configuration(request);
+    this.configurationRunning.add(running);
+    let result: unknown;
+    try { result = await running; } finally { this.configurationRunning.delete(running); }
+    if (!object(result) || result.v !== 2 || result.id !== id || !isDeepStrictEqual(result.profile, this.profile)) throw error("remote_settings_unverified", "原配置回执无法核实，请查询原操作；不会换键保存。");
+    return result as PersonalSettingsReceipt;
   }
   async admit(id: string, value: unknown, authorize: () => void): Promise<PersonalRemoteMaintenanceReceipt> {
     const previous = this.query(id), request = parsePersonalSettingsRequest(value);
@@ -99,50 +131,7 @@ export class PersonalRemoteMaintenance {
       authorize();
       return previous;
     }
-    if (this.closing || this.busy || this.ledger.pending) throw error("remote_maintenance_pending", "仍有原维护待核实，请先读取原操作；未接纳另一项保存。");
-    this.busy = true;
-    try {
-      const view = await this.view();
-      if (!view.settings.online || !view.maintenance.writable || view.settings.lifecycle.managedDevelopment) throw error("maintenance_read_only", "原服务环境尚未核实，请先配置并启动固定服务；设置保持只读。");
-      if (view.settings.blockers.length) throw error("settings_pending", "仍有未决输入、工作或外部占用，请先用原配置处理。");
-      if (view.settings.model?.credential.state !== "available") throw error("model_environment_unverified", "实际后台模型凭据不可用，未停止服务；请先恢复原环境。");
-      if (request.op === "config.save") {
-        const preflight = await this.deps.settings({ ...request, op: "config.preflight" });
-        if (!object(preflight) || !Array.isArray(preflight.blockers) || preflight.blockers.length) throw error("settings_pending", "配置预检仍有未决事项，未停止原服务。");
-        if (request.target === "model" && (!object(preflight.credential) || preflight.credential.state !== "available")) throw error("model_environment_unverified", "所选模型凭据在实际后台不可用，未停止原服务。");
-      }
-      const target = request.op === "config.save" ? request.target : request.op.startsWith("skills.") ? "skills" : "mcp";
-      const receipt: PersonalRemoteMaintenanceReceipt = { v: 1, id, profile: this.profile, op: request.op, target, expectedRevision: request.expectedRevision, requestDigest, stage: "stopping", saveAttempted: false, saved: false, started: false };
-      authorize();
-      this.update(receipt);
-      this.running = this.run(receipt, request).finally(() => { this.busy = false; });
-      void this.running.catch(() => { process.stderr.write("[ruukoto:remote] 维护记录写入失败，远程入口已关闭；请保留状态并核实原服务。\n"); });
-      return structuredClone(receipt);
-    } catch (failure) { this.busy = false; throw failure; }
-  }
-  private async run(receipt: PersonalRemoteMaintenanceReceipt, request: PersonalSettingsRequest): Promise<void> {
-    const stage = (change: Partial<PersonalRemoteMaintenanceReceipt>) => { receipt = { ...receipt, ...change }; this.update(receipt); };
-    try {
-      const stopped = await this.deps.maintenance("stop");
-      if (stopped.online || stopped.lifecycle.state !== "stopped") throw error("maintenance_stop_unverified", "原服务停止未核实，尚未保存。");
-      stage({ stage: "stopped" });
-      stage({ stage: "saving", saveAttempted: true, saved: null });
-      const saved = await this.deps.settings(request);
-      if (!object(saved) || saved.saved !== true || !revision(saved.revision)) throw error("maintenance_save_unverified", "保存回执无效，请比较原修订与当前配置；不会重发保存。");
-      stage({ stage: "saved", saved: true, savedRevision: saved.revision });
-      stage({ stage: "starting" });
-      const started = await this.deps.maintenance("start");
-      if (!started.online) throw error("maintenance_start_unverified", "配置已保存，原服务启动尚未核实。");
-      const current = await this.settings();
-      const observed = receipt.target === "skills" && request.op !== "config.save" ? current.skills?.revision : current.revisions[receipt.target];
-      if (!current.online || observed !== receipt.savedRevision) throw error("maintenance_start_unverified", "配置已保存，实际启动或修订仍待核实。");
-      stage({ stage: "complete", started: true });
-    } catch (failure) {
-      if (this.unhealthy) throw failure;
-      const code = failure instanceof PersonalError ? failure.code : "remote_maintenance_unverified";
-      if (receipt.stage === "saving" && ["settings_pending", "settings_profile_changed", "settings_revision_changed", "skills_revision_conflict", "settings_stop_required", "profile_busy"].includes(code)) stage({ stage: "stopped", saved: false, code });
-      else stage({ code });
-    }
+    throw error("settings_upgrade_required", "新配置操作需要 v2 客户端，请升级后重新读取；旧维护记录仍可查询和恢复。");
   }
   async restore(id: string, authorize: () => void): Promise<PersonalRemoteMaintenanceReceipt> {
     if (this.closing || this.busy || this.ledger.pending !== id) throw error("remote_maintenance_pending", "请选择未运行且仍待核实的原维护操作。");
@@ -175,5 +164,5 @@ export class PersonalRemoteMaintenance {
       return structuredClone(complete);
     } finally { this.busy = false; }
   }
-  async close(): Promise<void> { this.closing = true; await this.running; }
+  async close(): Promise<void> { this.closing = true; await Promise.allSettled([...this.configurationRunning]); }
 }

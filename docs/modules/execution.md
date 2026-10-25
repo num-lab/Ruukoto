@@ -41,7 +41,7 @@ Coding 正式入口仅接受 `RUUKOTO_EXECUTION_BACKEND=native` 或不设覆盖�
 
 | 方向 | 消息 | 载荷 |
 |---|---|---|
-| 后台 → 工作进程 | `init` | `cwd`、`label`、可选 `readRoots`（宿主 realpath，可选 dev/ino）、可选 `workspace`（path/dev/ino）、宿主固定 `fileSearch`（rg 绝对路径与读取根） |
+| 后台 → 工作进程 | `init` | `cwd`、`label`、可选 `readRoots`（宿主 realpath，可选 dev/ino）、可选 `workspace`（path/dev/ino）、宿主固定 `fileSearch` 读取根 |
 | | `tool_call` | `opId`、`sdkCallId`、`name`、`params`、可选 `timeoutMs` |
 | | `abort` | `opId` |
 | | `shutdown` | — |
@@ -51,7 +51,7 @@ Coding 正式入口仅接受 `RUUKOTO_EXECUTION_BACKEND=native` 或不设覆盖�
 | | `result` | `opId`、`ok`、`content`、可选 `details`、`isError`、`errorMessage` |
 | | `fatal` | `message` |
 
-文件检索使用宿主从 PATH 解析的已安装 rg，以参数数组在 worker 边界内启动并登记进程组；不下载、不回退到宿主扫描。固定 --no-config、--no-ignore-parent、--no-ignore-global，列文件用 --files --null，内容用 --json --fixed-strings 和 -e。检索根在 worker 内逐段拒绝链接、复核目录身份和宿主读取根；受限任务范围含工作区、readRoots 及已授予路径，完全访问保留既有范围含义。列文件候选在相同预算内分块检测 NUL，内容匹配等文件结束确认非二进制才接纳。非法 UTF-8 路径明确失败，不构造替换字符路径。rg 退出0/1为完成，其他退出、不可读或目录变化返回具名失败与部分证据；超时/超限/取消请求整组停止，未核实仍保留执行占用。原生依赖包含 rg 的真实安装位置、别名与动态库。
+文件检索逐调用从执行进程的 PATH 解析已安装 rg，以参数数组在 worker 边界内启动并登记进程组；不下载、不回退到宿主扫描。现有可见 PATH 中安装后下次调用重新发现，改变后台 PATH 才需重启后台；原生单元仍使用启动时核实的工具链与挂载。固定 --no-config、--no-ignore-parent、--no-ignore-global，列文件用 --files --null，内容用 --json --fixed-strings 和 -e。检索根在 worker 内逐段拒绝链接、复核目录身份和宿主读取根；受限任务范围含工作区、readRoots 及已授予路径，完全访问保留既有范围含义。列文件候选在相同预算内分块检测 NUL，内容匹配等文件结束确认非二进制才接纳。非法 UTF-8 路径明确失败，不构造替换字符路径。rg 退出0/1为完成，其他退出、不可读或目录变化返回具名失败与部分证据；超时/超限/取消请求整组停止，未核实仍保留执行占用。原生依赖包含 rg 的真实安装位置、别名与动态库。
 
 `read` 按文件签名识别 JPEG、PNG、WebP，类型探测与上游读取复用同一次打开得到的原始字节；只读范围核实和符号链接限制同样适用于图片。原始字节只捕获一次，模型图像沿用 pi 的自动缩放，最大尺寸为 2000 × 2000。处理后的整个 JSON 结果帧超过 4 MiB 时，当前操作返回明确工具错误，已捕获原文仍可定稿与查询，后续工具可继续；不是对原始图片大小施加 4 MiB 上限。覆盖见 `test/07-read-images.test.ts`。
 

@@ -1,18 +1,15 @@
-import { hasPendingPersonalWork } from "./personal-config-idle.ts";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { isDeepStrictEqual } from "node:util";
-import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { assertGrantNotProtected } from "@ruukoto/agent/execution/approved-ops.ts";
 import { PersonalError } from "./personal-error.ts";
-import { PERSONAL_FORMAT, lockPersonalProfile, type PersonalProfileLock } from "./personal-profile.ts";
+import type { PersonalProfileLock } from "./personal-profile.ts";
+import { randomUUID } from "node:crypto";
+import type { PersonalSettingsReceipt } from "./personal-settings-records.ts";
 import type { PersonalServiceMode } from "./personal-service-operations.ts";
 
 export type PersonalCommandConfig = { version: 1; workspace: string; identity: { dev: number; ino: number }; machineId: string; tmpdir: string };
-const context = BACKGROUND_CONTEXT;
 const validPath = (value: unknown): value is string => typeof value === "string" && value.length <= 4096 && path.isAbsolute(value) && !/[\x00-\x1f\x7f]/.test(value);
 
 export function parsePersonalCommands(value: unknown): PersonalCommandConfig {
@@ -55,45 +52,17 @@ export function readPersonalCommands(profile: PersonalProfileLock): PersonalComm
   try { value = JSON.parse(fs.readFileSync(filename, "utf8")); } catch (error) {
     throw new PersonalError("command_config_invalid", "命令配置无法读取，请保留档案并恢复原配置文件。", { cause: error });
   }
+  if (value === null) return;
   const config = parsePersonalCommands(value);
   verifyPersonalCommandConfig(config, profile.directory);
   return config;
 }
 
-async function checkEnablement(profile: PersonalProfileLock) {
-  const filename = path.join(profile.directory, "personal.sqlite");
-  if (!fs.existsSync(filename)) return;
-  const storage = await openNodeSqliteStorage(filename);
-  try {
-    const format = await storage.findDocument({ kind: "ruukoto.format", scope: { kind: "session" } }, "current", context);
-    const saved = format && await storage.document(format.id, "current", context);
-    if (!saved || saved.version !== 1 || !isDeepStrictEqual(saved.value, PERSONAL_FORMAT)) throw new PersonalError("extension_version", "个人业务格式无法核实，未保存命令配置；请保留档案并使用对应程序。");
-    if (await hasPendingPersonalWork(storage)) throw new PersonalError("command_config_pending", "档案仍有未完成输入或工作，未保存命令配置；请先用原配置完成处理，再启用命令。");
-  } finally { await storage.close(context); }
-}
-
-// Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-command-configuration.md
+// Note: 见 .agents/notes/implemented/architecture/2026-10-25-personal-execution-configuration-versions.md
 export async function savePersonalCommands(target: string | PersonalProfileLock, value: unknown): Promise<void> {
   const config = parsePersonalCommands(value);
-  const profile = typeof target === "string" ? lockPersonalProfile(target) : target;
-  try {
-    verifyPersonalCommandConfig(config, profile.directory);
-    const current = readPersonalCommands(profile);
-    if (current) {
-      if (!isDeepStrictEqual(current, config)) throw new PersonalError("command_config_changed", "命令配置已固定，未覆盖；请保留原目录和配置，其他目录使用新的隔离档案。");
-      return;
-    }
-    try { await checkEnablement(profile); } catch (error) {
-      if (error instanceof PersonalError) throw error;
-      throw new PersonalError("command_config_check_failed", "无法核实档案是否可启用命令，未保存；请保留档案并检查存储。", { cause: error });
-    }
-    try { replaceConfig(profile.directory, config); } catch (error) {
-      throw new PersonalError("command_config_write_failed", "命令配置未能保存，请保留档案并检查磁盘后重新查看配置。", { cause: error });
-    }
-  } finally { if (typeof target === "string") profile.release(); }
-}
-
-function replaceConfig(directory: string, config: PersonalCommandConfig) {
-  fs.writeFileSync(path.join(directory, "command.json.tmp"), JSON.stringify(config) + "\n", { mode: 0o600 });
-  fs.renameSync(path.join(directory, "command.json.tmp"), path.join(directory, "command.json"));
+  const { executePersonalSettings } = await import("./personal-settings.ts");
+  const snapshot = await executePersonalSettings(target, { v: 1, op: "settings.read" }) as { profile: { directory: string; id: string }; revisions: { commands: string } };
+  const result = await executePersonalSettings(target, { v: 2, id: randomUUID(), profile: snapshot.profile, expectedRevision: snapshot.revisions.commands, op: { kind: "config.save", target: "commands", value: config } }) as PersonalSettingsReceipt;
+  if (!["active", "saved", "waiting"].includes(result.status)) throw new PersonalError(result.code, "命令设置未完成，请保留档案并查询原设置操作；不要自动重试。");
 }

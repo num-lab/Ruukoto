@@ -55,7 +55,7 @@ export async function runFileSearch(input: {
     noLinks(result.root);
     rootStat = fs.statSync(result.root);
     if (!rootStat.isDirectory()) throw new FileSearchError("file_search_not_directory", "path 必须是现有目录；请改用目录路径，已知文件可用 read 读取。");
-    if (!input.executable) throw new FileSearchError("file_search_unavailable", "宿主未安装可用 rg，未开始检索；请拥有者安装 ripgrep 并重启任务。");
+    if (!input.executable) throw new FileSearchError("file_search_unavailable", "后台 PATH 中未找到可用 rg，未开始检索；请拥有者在现有 PATH 的目录安装 ripgrep 后再次调用；若需改变后台 PATH，再重启后台。");
   } catch (error) {
     return failure(error instanceof FileSearchError ? error : new FileSearchError("file_search_path_unavailable", "检索目录不可访问或已变化；请核实当前读取范围与目录后重新提交。"));
   }

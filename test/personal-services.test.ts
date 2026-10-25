@@ -1,3 +1,5 @@
+import { executePersonalSettings, personalSettingsDirectoryIdentity } from "../apps/ruukoto/src/personal-settings.ts";
+import type { PersonalSettingsReceipt } from "../apps/ruukoto/src/personal-settings-records.ts";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -12,10 +14,12 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { AgentDoc, LiveDoc, ROOT_CONVERSATION_ID, SessionFailed, type EntryRecord } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { openPersonalHarness, type PersonalHarness } from "../apps/ruukoto/src/personal-harness.ts";
-import { PersonalServiceDoc, ServiceInspectionEntry } from "../apps/ruukoto/src/personal-services.ts";
+import { PersonalServiceDoc, ServiceInspectionEntry, personalServiceVersionConfig } from "../apps/ruukoto/src/personal-services.ts";
 import { PersonalInspectionDoc, PersonalPendingInspectionsDoc, ServiceInspectionAdmission, ServiceInspectionStopEntry, recheckServiceInspection } from "../apps/ruukoto/src/personal-service-inspection.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
 import { personalProvider, type PersonalModelConfig, type RequestEvidence } from "../apps/ruukoto/src/personal-model.ts";
+import { capturePersonalScheduleScope, verifyPersonalScheduleScope } from "../apps/ruukoto/src/personal-schedule-scope.ts";
+import { appendPersonalConfiguration, personalConfigurationVersions, personalConfigurationDigest, selectPersonalConfiguration } from "../apps/ruukoto/src/personal-settings-records.ts";
 import { lockPersonalProfile } from "../apps/ruukoto/src/personal-profile.ts";
 import type { ServiceManagerConfig } from "../apps/ruukoto/src/service-helper.ts";
 import { PersonalMockModelServer as MockModelServer, type Responder } from "./helpers/mock-provider.ts";
@@ -106,7 +110,7 @@ test("durable 服务：模型真实调用 inspect，原始字节和两工具定�
   assert.ok((await personal.main.agent(context)).extensions.some(extension => extension.name === "personal-service-inspect"));
 });
 
-test("durable 服务：空闲无服务工具会话可显式启用，重开缺配置/变更/文档版本拒绝且零请求", async t => {
+test("durable 服务：空闲无服务工具会话可显式启用，宿主基线可重开且文档版本拒绝", async t => {
   const f = await fixture(t);
   const empty = await f.open({ service: undefined });
   assert.deepEqual((await empty.main.agent(context)).tools.map(tool => tool.name), ["ask_user", "app_data_define_table", "app_data_migrate", "app_data_query", "app_data_insert", "app_data_update", "app_data_delete", "memory", "history_search", "history_read", "skill", "read_artifact", "background_work", "schedule_create", "schedule_query", "schedule_cancel"]);
@@ -114,8 +118,8 @@ test("durable 服务：空闲无服务工具会话可显式启用，重开缺配
   const enabled = await f.open();
   assert.deepEqual((await enabled.main.agent(context)).tools.map(tool => tool.name), ["ask_user", "app_data_define_table", "app_data_migrate", "app_data_query", "app_data_insert", "app_data_update", "app_data_delete", "memory", "history_search", "history_read", "skill", "read_artifact", "service_inspect", "read_service_inspection", "background_work", "schedule_create", "schedule_query", "schedule_cancel"]);
   await enabled.close();
-  await assert.rejects(f.open({ service: undefined }), code("service_config_changed"));
-  await assert.rejects(f.open({ service: { ...f.service, policyPath: f.service.policyPath + ".other" } }), code("service_config_changed"));
+  const restored = await f.open({ service: undefined }); assert.equal(restored.service, undefined); await restored.close();
+  const overridden = await f.open({ service: { ...f.service, policyPath: f.service.policyPath + ".other" } }); assert.equal(overridden.service, undefined); await overridden.close();
   assert.equal(f.server.calls.length, 0);
   assert.deepEqual(f.calls(), []);
   const storage = await openNodeSqliteStorage(path.join(f.options.directory, "personal.sqlite"));
@@ -273,7 +277,7 @@ test("durable 检查：接纳落盘失败零启动，停止证明提交失败恢
       return storage;
     } });
     await assert.rejects(personal.answer("检查", stage));
-    await personal.harness.closed;
+    await personal.harness.closed; await personal.close();
     assert.equal(f.calls().filter(call => call[0] === "inspect-op").length, stage === "admission" ? 0 : 1);
     if (stage === "stop") {
       const restored = await f.open(); await restored.answer("检查", stage);
@@ -470,7 +474,7 @@ test("子检查：接纳提交失败零启动，恢复同工作仍只执行一�
     return storage;
   } });
   const ref = await p.work.delegate({ requestId: "failed-admission", sourceRequestId: "owner", content: "检查服务" });
-  await p.harness.closed; assert.deepEqual(f.calls(), []);
+  await p.harness.closed; await p.close(); assert.deepEqual(f.calls(), []);
   p = await f.open(); await p.harness.waitForTask(ref.taskId, context);
   assert.equal(f.calls().filter(call => call[0] === "inspect-op").length, 1);
 });
@@ -871,4 +875,154 @@ test("检查重核控制：收件提交后 SIGKILL，恢复原重核与回执且
   fs.rmSync(path.join(f.helper, "inspection-stop-fails")); assert.deepEqual(await stopResult(p, receipt.inspectionStop.ref), { stopped: true, code: "stopped" });
   assert.equal(f.calls().filter(call => call[0] === "inspect-op").length, 1);
   assert.equal(f.server.calls.length, 2);
+});
+
+
+test("服务配置切换：新helper接新检查，旧部署删除后终态证据仍可重开", async t => {
+  const f = await fixture(t, request => request.messages.at(-1)?.role === "user" ? { kind: "tool_calls", calls: [{ id: "inspect", name: "service_inspect", arguments: { unit: UNIT } }] } : { kind: "text", text: "检查结束" });
+  const saved = { version: 1 as const, helperPath: f.service.helperPath, policyPath: f.service.policyPath, sudoPath: f.service.sudoPath };
+  const lock = lockPersonalProfile(f.options.directory); fs.writeFileSync(path.join(f.options.directory, "service.json"), JSON.stringify(saved) + "\n", { mode: 0o600 }); lock.release();
+  let p = await f.open(); await p.answer("旧检查", "old-inspection");
+  const original = (await f.entries()).find(ServiceInspectionEntry.is)!;
+  const helper = path.join(f.root, "next-helper"); fs.cpSync(f.helper, helper, { recursive: true }); fs.rmSync(path.join(helper, "calls.log"));
+  const next = { ...saved, helperPath: path.join(helper, "helper.mjs"), policyPath: path.join(helper, "services.json") };
+  const content = JSON.stringify(next) + "\n", revision = personalConfigurationDigest(content), version = "next-service-deployment";
+  await p.harness.commit(async tx => {
+    const previous = (await personalConfigurationVersions(tx, "services")).at(-1)!;
+    await appendPersonalConfiguration(tx, { target: "services", version, revision, previousRevision: previous.revision, previousVersion: previous.version, config: next, content });
+  }, context);
+  fs.writeFileSync(path.join(f.options.directory, "service.json"), content, { mode: 0o600 });
+  assert.deepEqual(await p.updateServices(next, version, revision), { effectiveRevision: revision, code: "active", relatedOperations: [] });
+  await p.harness.commit(tx => selectPersonalConfiguration(tx, "services", "*", version), context);
+  fs.writeFileSync(path.join(f.options.directory, "service.json"), content, { mode: 0o600 });
+  await p.answer("新检查", "new-inspection");
+  assert.equal(fs.readFileSync(path.join(helper, "calls.log"), "utf8").trim().split("\n").map(line => JSON.parse(line)).filter(call => call[0] === "inspect-op").length, 1);
+  await p.close(); fs.rmSync(f.helper, { recursive: true }); p = await f.open();
+  assert.deepEqual(await p.harness.commit(tx => tx.entry(ServiceInspectionEntry, original.id), context), original);
+});
+
+
+test("服务配置切换：旧模型响应拒绝新helper，目标暂停只封闭新检查", async t => {
+  let release!: () => void, entered = false, first = true;
+  const waiting = new Promise<void>(resolve => { release = resolve; }); t.after(() => release());
+  const f = await fixture(t, async request => {
+    if (request.messages.at(-1)?.role === "user") {
+      if (first) { first = false; entered = true; await waiting; }
+      return { kind: "tool_calls", calls: [{ id: "inspect", name: "service_inspect", arguments: { unit: UNIT } }] };
+    }
+    return { kind: "text", text: "完成" };
+  });
+  const saved = { version: 1 as const, helperPath: f.service.helperPath, policyPath: f.service.policyPath, sudoPath: f.service.sudoPath };
+  const lock = lockPersonalProfile(f.options.directory); fs.writeFileSync(path.join(f.options.directory, "service.json"), JSON.stringify(saved) + "\n", { mode: 0o600 }); lock.release();
+  const p = await f.open(), answering = p.answer("旧请求", "old-helper-request"); await until(() => entered);
+  const helper = path.join(f.root, "next-helper"); fs.cpSync(f.helper, helper, { recursive: true });
+  const next = { ...saved, helperPath: path.join(helper, "helper.mjs"), policyPath: path.join(helper, "services.json") }, content = JSON.stringify(next) + "\n", revision = personalConfigurationDigest(content), version = "changed-service-request";
+  await p.harness.commit(async tx => {
+    const previous = (await personalConfigurationVersions(tx, "services")).at(-1)!;
+    await appendPersonalConfiguration(tx, { target: "services", version, revision, previousRevision: previous.revision, previousVersion: previous.version, config: next, content });
+  }, context);
+  fs.writeFileSync(path.join(f.options.directory, "service.json"), content, { mode: 0o600 });
+  assert.equal((await p.updateServices(next, version, revision)).code, "active");
+  await p.harness.commit(tx => selectPersonalConfiguration(tx, "services", "*", version), context);
+  release(); await answering;
+  assert.equal(f.calls().length, 0); assert.equal(fs.existsSync(path.join(helper, "calls.log")), false);
+  assert.match(JSON.stringify(f.server.calls.at(-1)!.messages), /execution_configuration_changed/);
+  p.suspendSettings("services", "*"); await p.answer("待核实期间", "suspended-service-request");
+  assert.equal(fs.existsSync(path.join(helper, "calls.log")), false); assert.match(JSON.stringify(f.server.calls.at(-1)!.messages), /settings_target_suspended/);
+  p.resumeSettings("services", "*"); await p.answer("新请求", "new-helper-request");
+  assert.ok(fs.existsSync(path.join(helper, "calls.log")));
+});
+
+
+test("服务配置切换：发布后回执前崩溃，冷启按原有效配置恢复并允许原候选再发布", async t => {
+  const f = await fixture(t);
+  const saved = { version: 1 as const, helperPath: f.service.helperPath, policyPath: f.service.policyPath, sudoPath: f.service.sudoPath };
+  const lock = lockPersonalProfile(f.options.directory); fs.writeFileSync(path.join(f.options.directory, "service.json"), JSON.stringify(saved) + "\n", { mode: 0o600 }); lock.release();
+  let p = await f.open();
+  const helper = path.join(f.root, "next-helper"); fs.cpSync(f.helper, helper, { recursive: true });
+  const next = { ...saved, helperPath: path.join(helper, "helper.mjs"), policyPath: path.join(helper, "services.json") }, content = JSON.stringify(next) + "\n", revision = personalConfigurationDigest(content), version = "service-publication-unacknowledged";
+  const previous = (await p.harness.commit(tx => personalConfigurationVersions(tx, "services"), context)).at(-1)!;
+  await p.harness.commit(tx => appendPersonalConfiguration(tx, { target: "services", version, revision, previousRevision: previous.revision, previousVersion: previous.version, config: next, content }), context);
+  fs.writeFileSync(path.join(f.options.directory, "service.json"), content, { mode: 0o600 });
+  assert.equal((await p.updateServices(next, version, revision)).code, "active");
+  await p.close(); p = await f.open();
+  assert.equal((await p.harness.snapshot(PersonalServiceDoc, context))?.configVersion, previous.version);
+  assert.equal((await p.updateServices(next, version, revision)).code, "active"); assert.equal(f.calls().length, 0);
+});
+
+
+test("服务配置切换：路径改回仍不恢复旧计划范围", async t => {
+  const f = await fixture(t), saved = { version: 1 as const, helperPath: f.service.helperPath, policyPath: f.service.policyPath, sudoPath: f.service.sudoPath };
+  const lock = lockPersonalProfile(f.options.directory); fs.writeFileSync(path.join(f.options.directory, "service.json"), JSON.stringify(saved) + "\n", { mode: 0o600 }); lock.release();
+  const p = await f.open({ serviceOperations: true }), scope = await p.harness.commit(tx => capturePersonalScheduleScope(tx, f.service.policyPath), context);
+  const helper = path.join(f.root, "next-helper"); fs.cpSync(f.helper, helper, { recursive: true });
+  for (const [version, config] of [["changed-helper", { ...saved, helperPath: path.join(helper, "helper.mjs"), policyPath: path.join(helper, "services.json") }], ["returned-helper", saved]] as const) {
+    const content = JSON.stringify(config) + "\n", revision = personalConfigurationDigest(content);
+    await p.harness.commit(async tx => {
+      const previous = (await personalConfigurationVersions(tx, "services")).at(-1)!;
+      await appendPersonalConfiguration(tx, { target: "services", version, revision, previousRevision: previous.revision, previousVersion: previous.version, config, content });
+    }, context);
+    fs.writeFileSync(path.join(f.options.directory, "service.json"), content, { mode: 0o600 });
+    assert.equal((await p.updateServices(config, version, revision)).code, "active");
+  }
+  await assert.rejects(p.harness.commit(tx => verifyPersonalScheduleScope(tx, scope), context), code("schedule_scope_changed"));
+});
+
+
+test("服务配置切换：首次候选撤回到未启用，冷启动不重建helper或服务工具", async t => {
+  const f = await fixture(t); let p = await f.open();
+  assert.ok(p.inspections);
+  const content = "null\n", revision = personalConfigurationDigest(content), version = "withdraw-first-service";
+  await p.harness.commit(async tx => {
+    const previous = (await personalConfigurationVersions(tx, "services")).at(-1)!;
+    await appendPersonalConfiguration(tx, { target: "services", version, revision, previousRevision: previous.revision, previousVersion: previous.version, config: null, content });
+  }, context);
+  fs.writeFileSync(path.join(f.options.directory, "service.json"), content, { mode: 0o600 });
+  assert.equal((await p.updateServices(null, version, revision)).code, "active");
+  await p.harness.commit(tx => selectPersonalConfiguration(tx, "services", "*", version), context);
+  fs.writeFileSync(path.join(f.options.directory, "service.json"), content, { mode: 0o600 });
+  assert.equal(p.service, undefined); assert.equal(p.inspections, undefined);
+  await p.close(); p = await f.open();
+  assert.equal(p.service, undefined); assert.equal(p.inspections, undefined); assert.equal(f.calls().length, 0);
+  assert.equal((await p.main.agent(context)).tools.some(tool => tool.name === "service_inspect"), false);
+  const restored = { version: 1 as const, helperPath: f.service.helperPath, policyPath: f.service.policyPath, sudoPath: f.service.sudoPath }, restoredContent = JSON.stringify(restored) + "\n", restoredRevision = personalConfigurationDigest(restoredContent), restoredVersion = "enable-after-service-withdrawal";
+  await p.harness.commit(tx => appendPersonalConfiguration(tx, { target: "services", version: restoredVersion, revision: restoredRevision, previousRevision: revision, previousVersion: version, config: restored, content: restoredContent }), context);
+  fs.writeFileSync(path.join(f.options.directory, "service.json"), restoredContent, { mode: 0o600 });
+  assert.equal((await p.updateServices(restored, restoredVersion, restoredRevision)).code, "active");
+  await p.harness.commit(tx => selectPersonalConfiguration(tx, "services", "*", restoredVersion), context);
+  fs.writeFileSync(path.join(f.options.directory, "service.json"), restoredContent, { mode: 0o600 });
+  await p.close(); p = await f.open(); assert.ok(p.service); assert.ok(p.inspections); assert.equal(f.calls().length, 0);
+});
+
+
+test("独立审查：只读服务宿主已有文件基线冷启仍不装配写操作", async t => {
+  const f = await fixture(t), saved = { version: 1, helperPath: f.service.helperPath, policyPath: f.service.policyPath, sudoPath: f.service.sudoPath };
+  const lock = lockPersonalProfile(f.options.directory); fs.writeFileSync(path.join(f.options.directory, "service.json"), JSON.stringify(saved) + "\n", { mode: 0o600 }); lock.release();
+  let p = await f.open({ serviceOperations: false }); assert.equal(p.service, undefined); await p.close();
+  p = await f.open({ serviceOperations: false }); assert.equal(p.service, undefined);
+});
+
+
+test("独立审查：服务host撤回转文件后无注入参数的再次冷启保留useSudo与timeout", async t => {
+  const f = await fixture(t); let p = await f.open({ serviceOperations: false }); await p.close();
+  const helper = path.join(f.root, "candidate-helper"); fs.cpSync(f.helper, helper, { recursive: true });
+  const profile = personalSettingsDirectoryIdentity(f.options.directory), next = { version: 1, helperPath: path.join(helper, "helper.mjs"), policyPath: path.join(helper, "services.json"), sudoPath: f.service.sudoPath };
+  const candidate = { v: 2, id: randomUUID(), profile, expectedRevision: "missing", op: { kind: "config.save", target: "services", value: next } };
+  const saved = await executePersonalSettings(f.options.directory, candidate) as PersonalSettingsReceipt; assert.equal(saved.status, "saved");
+  const withdrawn = await executePersonalSettings(f.options.directory, { v: 2, id: randomUUID(), profile, expectedRevision: saved.savedRevision, op: { kind: "settings.withdraw", id: candidate.id } }) as PersonalSettingsReceipt; assert.equal(withdrawn.status, "saved");
+  p = await f.open({ service: undefined, serviceOperations: false }); await p.close();
+  p = await f.open({ service: undefined, serviceOperations: false }); assert.ok(p.inspections);
+  const current = await p.harness.snapshot(PersonalServiceDoc, context), effective = (await p.harness.commit(tx => personalConfigurationVersions(tx, "services"), context)).find(value => value.version === current?.configVersion)!;
+  const decoded = personalServiceVersionConfig(effective); assert.equal(decoded.useSudo, f.service.useSudo); assert.deepEqual(decoded.timeouts, f.service.timeouts);
+});
+
+
+test("服务配置切换：missing基线首次文件启用后仍可再次离线保存", async t => {
+  const f = await fixture(t); let p = await f.open({ service: undefined }); await p.close();
+  const saved = { version: 1, helperPath: f.service.helperPath, policyPath: f.service.policyPath, sudoPath: f.service.sudoPath }, profile = personalSettingsDirectoryIdentity(f.options.directory);
+  const first = await executePersonalSettings(f.options.directory, { v: 2, id: randomUUID(), profile, expectedRevision: "missing", op: { kind: "config.save", target: "services", value: saved } }) as PersonalSettingsReceipt;
+  assert.equal(first.status, "saved"); p = await f.open(); assert.ok(p.inspections); await p.close();
+  const next = { ...saved, policyPath: f.service.policyPath + ".next" };
+  const second = await executePersonalSettings(f.options.directory, { v: 2, id: randomUUID(), profile, expectedRevision: first.savedRevision, op: { kind: "config.save", target: "services", value: next } }) as PersonalSettingsReceipt;
+  assert.equal(second.status, "saved"); assert.deepEqual(JSON.parse(fs.readFileSync(path.join(f.options.directory, "service.json"), "utf8")), next);
 });

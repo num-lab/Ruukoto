@@ -26,6 +26,7 @@ import { personalDevDirectory, readPersonalConfig, savePersonalConfig } from "..
 import { LocalInputDoc, parsePersonalInput, personalControl, readPersonalToken, startPersonalServer, type PersonalInputStatus, type PersonalMessage, type PersonalStatus } from "../apps/ruukoto/src/personal-control.ts";
 import { checkPersonalInput, configurePersonalServices, managePersonalInspections, managePersonalServices, managePersonalCommands, launchPersonalServer, pendingPersonalInputs, personalChildEnv, personalMenu, preparePersonalInput } from "../apps/ruukoto/src/personal-cli.ts";
 import { parsePersonalServices, readPersonalServices, savePersonalServices } from "../apps/ruukoto/src/personal-service-config.ts";
+import type { PersonalSettingsReceipt } from "../apps/ruukoto/src/personal-settings-records.ts";
 import { PersonalServiceDoc } from "../apps/ruukoto/src/personal-services.ts";
 import { PersonalServiceGrantsDoc, PersonalServiceOperationsDoc } from "../apps/ruukoto/src/personal-service-operations.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
@@ -88,7 +89,7 @@ test("personal CLI：独立开发档案按真实检出隔离，子进程不继�
   assert.deepEqual(env, { RUUKOTO_DURABLE_CLI_KEY: "model-key", RUUKOTO_PERSONAL_DIR: dir, PATH: "path" });
 });
 
-test("personal CLI：配置持锁、拒绝在线修改，非法配置不覆盖原文件", async t => {
+test("personal CLI：配置持锁、在线同值保存不换文件，非法配置不覆盖原文件", async t => {
   const f = await fixture(t);
   const original = fs.readFileSync(path.join(f.dir, "model.json"));
   await assert.rejects(savePersonalConfig(f.dir, { ...f.config, baseUrl: "http://unsafe.invalid" }), code("model_config_invalid"));
@@ -97,7 +98,7 @@ test("personal CLI：配置持锁、拒绝在线修改，非法配置不覆盖�
   assert.deepEqual(readPersonalConfig(profile), f.config);
   profile.release();
   await f.start();
-  await assert.rejects(savePersonalConfig(f.dir, f.config), code("profile_busy"));
+  await savePersonalConfig(f.dir, f.config);
   assert.deepEqual(fs.readFileSync(path.join(f.dir, "model.json")), original);
   assert.equal(fs.statSync(path.join(f.dir, "model.json")).mode & 0o777, 0o600);
   assert.equal(fs.statSync(path.join(f.dir, "control.sock")).mode & 0o777, 0o600);
@@ -106,13 +107,14 @@ test("personal CLI：配置持锁、拒绝在线修改，非法配置不覆盖�
 
 test("personal CLI：前台与 detached 均拒绝用内部环境变量充当模型凭据", async t => {
   const f = await fixture(t);
+  const rawDirectory = directory(t); lockPersonalProfile(rawDirectory).release();
   for (const apiKeyEnv of ["RUUKOTO_OWNER_TOKEN", "RUUKOTO_OWNER_TOKEN_FILE", "RUUKOTO_SERVICE_HELPER", "RUUKOTO_PERSONAL_DIR", "RUUKOTO_CODE_DATA_DIR", "RUUKOTO_DESKTOP_TARGET", "RUUKOTO_PRODUCT"]) {
     const invalid = { ...f.config, apiKeyEnv };
     await assert.rejects(savePersonalConfig(f.dir, invalid), code("model_credentials_invalid"));
-    fs.writeFileSync(path.join(f.dir, "model.json"), JSON.stringify(invalid));
-    await assert.rejects(startPersonalServer(f.dir), code("model_credentials_invalid"));
-    await assert.rejects(launchPersonalServer(f.dir), code("model_credentials_invalid"));
-    lockPersonalProfile(f.dir).release();
+    fs.writeFileSync(path.join(rawDirectory, "model.json"), JSON.stringify(invalid), { mode: 0o600 });
+    await assert.rejects(startPersonalServer(rawDirectory), code("model_credentials_invalid"));
+    await assert.rejects(launchPersonalServer(rawDirectory), code("model_credentials_invalid"));
+    lockPersonalProfile(rawDirectory).release();
   }
   assert.equal(f.model.calls.length, 0);
 });
@@ -259,13 +261,13 @@ test("personal CLI：坏配置、坏令牌、链接文件及旧目录拒绝，�
   assert.equal(fs.statSync(tokenFile).mode & 0o777, 0o600);
   assert.equal(fs.existsSync(temporary), false);
   await recovered.stop();
-  fs.rmSync(path.join(f.dir, "control.token"));
-  fs.writeFileSync(path.join(f.dir, "model.json"), "broken");
-  await assert.rejects(f.start(), code("model_config_unavailable"));
-  lockPersonalProfile(f.dir).release();
-  fs.rmSync(path.join(f.dir, "model.json"));
-  fs.symlinkSync(path.join(f.dir, "profile.json"), path.join(f.dir, "model.json"));
-  await assert.rejects(savePersonalConfig(f.dir, f.config), code("profile_unrecognized"));
+  const rawDirectory = directory(t); lockPersonalProfile(rawDirectory).release();
+  fs.writeFileSync(path.join(rawDirectory, "model.json"), "broken", { mode: 0o600 });
+  await assert.rejects(startPersonalServer(rawDirectory), code("model_config_unavailable"));
+  lockPersonalProfile(rawDirectory).release();
+  fs.rmSync(path.join(rawDirectory, "model.json"));
+  fs.symlinkSync(path.join(rawDirectory, "profile.json"), path.join(rawDirectory, "model.json"));
+  await assert.rejects(savePersonalConfig(rawDirectory, f.config), code("profile_unrecognized"));
   const old = directory(t);
   fs.writeFileSync(path.join(old, "ruukoto.sqlite"), "old");
   await assert.rejects(startPersonalServer(old), code("profile_unrecognized"));
@@ -315,7 +317,7 @@ test("personal CLI：向导逐步配置、返回与退出，不要求用户提�
   let output = "";
   await personalMenu(dir, { question: async () => { assert.ok(answers.length); return answers.shift()!; }, write: value => { output += value; } });
   assert.match(output, /请输入列出的选项/);
-  assert.match(output, /模型配置已保存/);
+  assert.match(output, /配置已保存/);
   const lock = lockPersonalProfile(dir);
   const config = readPersonalConfig(lock);
   lock.release();
@@ -342,7 +344,7 @@ test("personal CLI：关闭清理完成才释放锁，初始化失败接管并�
 
 const serviceConfig = { version: 1, helperPath: "/usr/local/libexec/ruukoto/ruukoto-service", policyPath: "/etc/ruukoto/services.json", sudoPath: "/usr/bin/sudo" } as const;
 
-test("personal 服务配置：严格解析、固定内容与文件权限，非法输入不覆盖原配置", async t => {
+test("personal 服务配置：严格解析、同机路径更新与文件权限，非法输入不覆盖原配置", async t => {
   const dir = directory(t);
   assert.deepEqual(parsePersonalServices(serviceConfig), serviceConfig);
   for (const invalid of [null, [], { ...serviceConfig, version: 2 }, { ...serviceConfig, useSudo: false }, { ...serviceConfig, timeouts: {} }, { ...serviceConfig, helperPath: "relative" }, { ...serviceConfig, sudoPath: "/usr/bin/sudo\n" }, { ...serviceConfig, policyPath: 4 }, { ...serviceConfig, helperPath: "/" + "x".repeat(4096) }]) {
@@ -354,25 +356,31 @@ test("personal 服务配置：严格解析、固定内容与文件权限，非�
   const inode = fs.statSync(filename).ino;
   await savePersonalServices(dir, serviceConfig);
   assert.equal(fs.statSync(filename).ino, inode);
-  await assert.rejects(savePersonalServices(dir, { ...serviceConfig, helperPath: "/other-helper" }), code("service_config_changed"));
-  await assert.rejects(savePersonalServices(dir, { ...serviceConfig, useSudo: false }), code("service_config_invalid"));
-  assert.deepEqual(fs.readFileSync(filename), original);
+  const next = { ...serviceConfig, helperPath: "/other-helper" };
+  await savePersonalServices(dir, next);
+  const changed = fs.readFileSync(filename); assert.notDeepEqual(changed, original);
+  await assert.rejects(savePersonalServices(dir, { ...next, useSudo: false }), code("service_config_invalid"));
+  assert.deepEqual(fs.readFileSync(filename), changed);
   assert.equal(fs.statSync(filename).mode & 0o777, 0o600);
   assert.equal(fs.existsSync(filename + ".tmp"), false);
   const profile = lockPersonalProfile(dir);
-  assert.deepEqual(readPersonalServices(profile), serviceConfig);
+  assert.deepEqual(readPersonalServices(profile), next);
   await assert.rejects(savePersonalServices(dir, serviceConfig), code("profile_busy"));
   profile.release();
 });
 
 test("personal 服务配置：坏文件、未知版本和链接拒绝，启动前不请求模型", async t => {
   const f = await fixture(t);
+  const rawDirectory = directory(t); lockPersonalProfile(rawDirectory).release();
+  fs.writeFileSync(path.join(rawDirectory, "model.json"), JSON.stringify(f.config) + "\n", { mode: 0o600 });
+  const rawFilename = path.join(rawDirectory, "service.json");
   const filename = path.join(f.dir, "service.json");
   for (const content of ["broken", JSON.stringify({ ...serviceConfig, version: 2 }), JSON.stringify({ ...serviceConfig, useSudo: false })]) {
     fs.writeFileSync(filename, content);
-    await assert.rejects(f.start(), code("service_config_invalid"));
-    await assert.rejects(launchPersonalServer(f.dir), code("service_config_invalid"));
-    await assert.rejects(savePersonalServices(f.dir, serviceConfig), code("service_config_invalid"));
+    fs.writeFileSync(rawFilename, content, { mode: 0o600 });
+    await assert.rejects(startPersonalServer(rawDirectory), code("service_config_invalid"));
+    await assert.rejects(launchPersonalServer(rawDirectory), code("service_config_invalid"));
+    await assert.rejects(savePersonalServices(f.dir, serviceConfig), code("settings_file_unverified"));
     assert.equal(fs.readFileSync(filename, "utf8"), content);
     lockPersonalProfile(f.dir).release();
   }
@@ -383,27 +391,28 @@ test("personal 服务配置：坏文件、未知版本和链接拒绝，启动�
   fs.rmSync(filename);
   await savePersonalServices(f.dir, serviceConfig);
   let shown = "";
-  await configurePersonalServices({ question: async () => assert.fail("查看原配置不询问新路径"), write: value => { shown += value; } }, f.dir);
-  assert.match(shown, /服务配置已固定/);
+  await configurePersonalServices({ question: async () => "1", write: value => { shown += value; } }, f.dir);
+  assert.match(shown, /当前服务配置/);
   if (process.platform !== "linux") {
-    await assert.rejects(f.start(), code("service_config_invalid"));
-    await assert.rejects(launchPersonalServer(f.dir), code("service_config_invalid"));
+    const running = await f.start();
+    assert.equal((await personalControl<PersonalStatus>(f.dir, "GET", "/status")).services, false);
+    assert.equal(f.model.calls.length, 0); await running.stop();
   }
 });
 
 test("personal 服务配置：分组向导返回不写，非 Linux 保存前拒绝", async t => {
   const dir = directory(t);
-  const answers = process.platform === "linux" ? ["5", "4", "/back", "7"] : ["5", "4", "7"];
+  const answers = process.platform === "linux" ? ["5", "4", "2", "/back", "7"] : ["5", "4", "2", "7"];
   let output = "";
   await personalMenu(dir, { question: async () => { assert.ok(answers.length); return answers.shift()!; }, write: value => { output += value; } });
   assert.equal(fs.existsSync(path.join(dir, "service.json")), false);
   assert.doesNotMatch(output, /requestId|submission|UUID/);
   if (process.platform !== "linux") assert.match(output, /service_platform_unsupported/);
   else {
-    const cancel = ["", "", "", "1"];
+    const cancel = ["2", "", "", "", "1"];
     await configurePersonalServices({ question: async () => cancel.shift()!, write: () => {} }, dir);
     assert.equal(fs.existsSync(path.join(dir, "service.json")), false);
-    const defaults = ["", "", "", "2"];
+    const defaults = ["2", "", "", "", "2"];
     await configurePersonalServices({ question: async () => defaults.shift()!, write: () => {} }, dir);
     const profile = lockPersonalProfile(dir);
     assert.deepEqual(readPersonalServices(profile), serviceConfig);
@@ -411,28 +420,26 @@ test("personal 服务配置：分组向导返回不写，非 Linux 保存前拒�
   }
 });
 
-test("personal 服务配置：未决输入阻止固化文件和授权，原空工具仍能重启完成后启用", async t => {
+test("personal 服务配置：保存不等无关输入，生效失败隔离且不半启用授权", async t => {
   let blocked = true;
   const f = await fixture(t, () => blocked ? new Promise(() => {}) : { kind: "text", text: "恢复完成" });
-  const first = await f.start();
-  const input = preparePersonalInput(f.dir, "未完成输入");
-  await personalControl(f.dir, "POST", "/inputs", input);
-  await until(() => f.model.calls.length === 1);
-  await assert.rejects(savePersonalServices(f.dir, serviceConfig), code("profile_busy"));
-  await first.stop();
-  await assert.rejects(savePersonalServices(f.dir, serviceConfig), code("service_config_pending"));
-  assert.equal(fs.existsSync(path.join(f.dir, "service.json")), false);
-  await assert.rejects(openPersonalHarness({ directory: f.dir, provider: personalProvider(f.config), modelId: f.config.modelId, service: { ...serviceConfig, useSudo: false }, serviceOperations: true }), code("service_config_pending"));
+  const missingService = { ...serviceConfig, helperPath: path.join(f.dir, "missing-service-helper"), policyPath: path.join(f.dir, "missing-service-policy") };
+  const first = await f.start(), input = preparePersonalInput(f.dir, "未完成输入");
+  await personalControl(f.dir, "POST", "/inputs", input); await until(() => f.model.calls.length === 1);
+  await assert.rejects(savePersonalServices(f.dir, missingService), code("service_config_invalid"));
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(f.dir, "service.json"), "utf8")), missingService);
+  const settings = await personalControl<{ operations: PersonalSettingsReceipt[] }>(f.dir, "GET", "/settings");
+  assert.ok(settings.operations.some(value => value.target === "services" && value.status === "failed"));
+  assert.equal((await personalControl<PersonalStatus>(f.dir, "GET", "/status")).services, false);
+  assert.equal(f.model.calls.length, 1); await first.stop();
+  await savePersonalServices(f.dir, missingService);
   const storage = await openNodeSqliteStorage(path.join(f.dir, "personal.sqlite"));
   for (const token of [PersonalServiceDoc, PersonalServiceGrantsDoc, PersonalServiceOperationsDoc]) assert.equal(await storage.findDocument({ kind: token.definition.kind, scope: { kind: "session" } }, "current", context), undefined);
   await storage.close(context);
-  blocked = false;
-  const restored = await f.start();
+  blocked = false; const restored = await f.start();
   await until(async () => (await checkPersonalInput(f.dir, input)).status === "done");
   assert.equal((await checkPersonalInput(f.dir, input)).answer, "恢复完成");
-  await restored.stop();
-  await savePersonalServices(f.dir, serviceConfig);
-  assert.equal(fs.existsSync(path.join(f.dir, "service.json")), true);
+  assert.equal((await personalControl<PersonalStatus>(f.dir, "GET", "/status")).services, false); await restored.stop();
 });
 
 test("personal 服务配置：无法核实业务格式不保存，原文件和锁保留", async t => {
@@ -440,7 +447,7 @@ test("personal 服务配置：无法核实业务格式不保存，原文件和�
   lockPersonalProfile(dir).release();
   fs.writeFileSync(path.join(dir, "personal.sqlite"), "broken sqlite");
   const before = fs.readFileSync(path.join(dir, "personal.sqlite"));
-  await assert.rejects(savePersonalServices(dir, serviceConfig), code("service_config_check_failed"));
+  await assert.rejects(savePersonalServices(dir, serviceConfig), code("settings_storage_unavailable"));
   assert.equal(fs.existsSync(path.join(dir, "service.json")), false);
   assert.deepEqual(fs.readFileSync(path.join(dir, "personal.sqlite")), before);
   lockPersonalProfile(dir).release();
@@ -460,13 +467,14 @@ test("personal 服务配置：只读档案有未决输入时不能半启用操�
   await original.close();
 });
 
-test("personal 服务配置：生产 sudo 后台接线和恢复（Linux），其他平台安全拒绝", async t => {
+test("personal 服务配置：生产 sudo 参数接线与恢复（Linux），部署失败只封闭服务", async t => {
   const unit = "ruukoto-service-test.service";
   const f = await fixture(t, (_request, index) => index % 2 === 0 ? { kind: "tool_calls", calls: [{ id: `inspect-${index}`, name: "service_inspect", arguments: { unit } }] } : { kind: "text", text: "服务检查完成" });
   if (process.platform !== "linux") {
     await savePersonalServices(f.dir, serviceConfig);
-    await assert.rejects(f.start(), code("service_config_invalid"));
-    assert.equal(f.model.calls.length, 0);
+    const running = await f.start();
+    assert.equal((await personalControl<PersonalStatus>(f.dir, "GET", "/status")).services, false);
+    assert.equal(f.model.calls.length, 0); await running.stop();
     return;
   }
   const helper = directory(t);
@@ -474,18 +482,26 @@ test("personal 服务配置：生产 sudo 后台接线和恢复（Linux），其
   fs.copyFileSync(new URL("./helpers/fake-service-helper.mjs", import.meta.url), configured.helperPath);
   // 固定 sudo 命令桩，仍走生产 useSudo:true 的 argv/清空环境与真实子进程。
   fs.writeFileSync(configured.sudoPath, `#!${process.execPath}\nimport { spawnSync } from 'node:child_process';\nif (process.argv[2] !== '-n') process.exit(3);\nconst result = spawnSync(process.execPath, process.argv.slice(3), { stdio: 'inherit' });\nprocess.exit(result.status ?? 4);\n`, { mode: 0o700 });
-  fs.writeFileSync(configured.policyPath, JSON.stringify({ machineId: "test-machine", inspectUid: 1, inspectGid: 1, services: { [unit]: { actions: ["restart"] } } }));
+  const machineId = fs.readFileSync("/etc/machine-id", "utf8").trim();
+  // 仅验证固定 sudo 参数与恢复；夹具模拟 root 文件归属，真实部署另验。
+  const lstat = nodeFs.lstatSync;
+  t.mock.method(nodeFs, "lstatSync", (target: fs.PathLike, options?: fs.StatOptions) => {
+    const stat = lstat(target, options);
+    if (stat && [configured.helperPath, configured.policyPath, configured.sudoPath].includes(String(target))) stat.uid = 0;
+    return stat;
+  }); syncBuiltinESMExports(); t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports(); });
+  fs.writeFileSync(configured.policyPath, JSON.stringify({ machineId, inspectUid: 1, inspectGid: 1, services: { [unit]: { actions: ["restart"] } } }), { mode: 0o600 });
   fs.mkdirSync(path.join(helper, "units"));
   fs.writeFileSync(path.join(helper, "units", unit), "[Service]\nExecStart=/usr/bin/true\n");
   fs.writeFileSync(path.join(helper, "state.json"), JSON.stringify({ [unit]: { loadState: "loaded", activeState: "active", subState: "running", mainPid: 1234, invocationId: "test", result: "success", activeEnterTimestamp: "2026-10-17T00:00:00Z" } }));
-  const answers = [configured.helperPath, configured.policyPath, configured.sudoPath, "2"];
+  const answers = ["2", configured.helperPath, configured.policyPath, configured.sudoPath, "2"];
   await configurePersonalServices({ question: async () => { assert.ok(answers.length); return answers.shift()!; }, write: () => {} }, f.dir);
   const stop = async () => {
     await personalControl(f.dir, "POST", "/stop");
     await until(() => { try { lockPersonalProfile(f.dir).release(); return true; } catch (error) { if (code("profile_busy")(error)) return false; throw error; } });
   };
   for (let run = 0; run < 2; run++) {
-    await launchPersonalServer(f.dir);
+    await f.start();
     assert.equal((await personalControl<PersonalStatus>(f.dir, "GET", "/status")).services, true);
     const input = preparePersonalInput(f.dir, "检查测试服务");
     await personalControl(f.dir, "POST", "/inputs", input);
@@ -495,8 +511,8 @@ test("personal 服务配置：生产 sudo 后台接线和恢复（Linux），其
   }
   const calls = fs.readFileSync(path.join(helper, "calls.log"), "utf8").trim().split("\n").map(line => JSON.parse(line));
   assert.deepEqual(calls.map(call => call[0]), ["inspect-op", "stop-inspect", "inspect-op", "stop-inspect"]);
-  for (const index of [0, 2]) { assert.deepEqual(calls[index].slice(2), ["test-machine", unit]); assert.deepEqual(calls[index + 1].slice(1), [calls[index][1], "test-machine"]); }
-  assert.deepEqual(f.model.calls[0].tools?.map(tool => (tool.function as { name: string }).name), ["ask_user", "app_data_define_table", "app_data_migrate", "app_data_query", "app_data_insert", "app_data_update", "app_data_delete", "memory", "history_search", "history_read", "skill", "read_artifact", "service_inspect", "read_service_inspection", "background_work", "schedule_create", "schedule_query", "schedule_cancel"]);
+  for (const index of [0, 2]) { assert.deepEqual(calls[index].slice(2), [machineId, unit]); assert.deepEqual(calls[index + 1].slice(1), [calls[index][1], machineId]); }
+  assert.deepEqual(f.model.calls[0].tools?.map(tool => (tool.function as { name: string }).name).sort(), ["ask_user", "app_data_define_table", "app_data_migrate", "app_data_query", "app_data_insert", "app_data_update", "app_data_delete", "memory", "history_search", "history_read", "skill", "read_artifact", "service_inspect", "read_service_inspection", "background_work", "schedule_create", "schedule_query", "schedule_cancel"].sort());
   const storage = await openNodeSqliteStorage(path.join(f.dir, "personal.sqlite"));
   for (const token of [PersonalServiceDoc, PersonalServiceGrantsDoc, PersonalServiceOperationsDoc]) assert.ok(await storage.findDocument({ kind: token.definition.kind, scope: { kind: "session" } }, "current", context));
   const entries = (await storage.scanEntries({ conversationId: ROOT_CONVERSATION_ID }, 256, undefined, context)).items;
@@ -504,7 +520,7 @@ test("personal 服务配置：生产 sudo 后台接线和恢复（Linux），其
   assert.ok(entries.some(entry => entry.kind === "ruukoto.model-request" && JSON.stringify(entry.data).includes("service_inspect")));
   await storage.close(context);
   fs.writeFileSync(path.join(helper, "inspection-stop-fails"), "");
-  await launchPersonalServer(f.dir);
+  await f.start();
   const input = preparePersonalInput(f.dir, "待重核的检查"); await personalControl(f.dir, "POST", "/inputs", input);
   await until(async () => (await checkPersonalInput(f.dir, input)).status === "done");
   type Page = { items: { ref: { taskId: number; admission: number }; canRecheck: boolean }[] };
@@ -526,14 +542,22 @@ test("personal 服务配置：生产 sudo 后台接线和恢复（Linux），其
   const callsBeforeRefusal = fs.readFileSync(path.join(helper, "calls.log"), "utf8");
   const modelCallsBeforeRefusal = f.model.calls.length;
   const filename = path.join(f.dir, "service.json");
+  const originalContent = fs.readFileSync(filename, "utf8");
+  type Settings = { fileIssues: { target: string; code: string }[] };
   fs.rmSync(filename);
-  await assert.rejects(f.start(), code("service_config_changed"));
-  await assert.rejects(savePersonalServices(f.dir, { ...configured, helperPath: configured.helperPath + ".other" }), code("service_config_changed"));
+  await f.start();
+  assert.ok((await personalControl<Settings>(f.dir, "POST", "/settings", { v: 1, op: "settings.read" })).fileIssues.some(issue => issue.target === "services" && issue.code === "settings_file_unverified"));
+  await assert.rejects(savePersonalServices(f.dir, { ...configured, helperPath: configured.helperPath + ".other" }), code("settings_file_unverified"));
   assert.equal(fs.existsSync(filename), false);
-  await savePersonalServices(f.dir, configured);
-  fs.writeFileSync(filename, JSON.stringify({ ...configured, policyPath: configured.policyPath + ".other" }));
-  await assert.rejects(f.start(), code("service_config_changed"));
-  fs.writeFileSync(filename, JSON.stringify(configured));
+  fs.writeFileSync(filename, originalContent, { mode: 0o600 });
+  assert.equal((await personalControl<Settings>(f.dir, "POST", "/settings", { v: 1, op: "settings.read" })).fileIssues.length, 0);
+  await stop();
+  fs.writeFileSync(filename, JSON.stringify({ ...configured, policyPath: configured.policyPath + ".other" }) + "\n");
+  await f.start();
+  assert.ok((await personalControl<Settings>(f.dir, "POST", "/settings", { v: 1, op: "settings.read" })).fileIssues.some(issue => issue.target === "services"));
+  fs.writeFileSync(filename, originalContent, { mode: 0o600 });
+  assert.equal((await personalControl<Settings>(f.dir, "POST", "/settings", { v: 1, op: "settings.read" })).fileIssues.length, 0);
+  await stop();
   assert.equal(f.model.calls.length, modelCallsBeforeRefusal);
   assert.equal(fs.readFileSync(path.join(helper, "calls.log"), "utf8"), callsBeforeRefusal);
 });
@@ -585,7 +609,14 @@ test("服务核实 HTTP：Linux sudo 接线、原状态刷新及慢停止不阻�
   fs.writeFileSync(configured.sudoPath, `#!${process.execPath}\nimport {spawnSync} from 'node:child_process'; if(process.argv[2]!=='-n')process.exit(3);const r=spawnSync(process.execPath,process.argv.slice(3),{stdio:'inherit'});process.exit(r.status??4);\n`, { mode: 0o700 });
   fs.mkdirSync(path.join(helper, "units")); fs.mkdirSync(path.join(helper, "ops"));
   fs.writeFileSync(path.join(helper, "units", unit), "[Service]\nExecStart=/usr/bin/true\n");
-  fs.writeFileSync(configured.policyPath, JSON.stringify({ machineId: "test-machine", inspectUid: 1, inspectGid: 1, services: { [unit]: { actions: ["restart"] } } }));
+  const machineId = fs.readFileSync("/etc/machine-id", "utf8").trim();
+  const lstat = nodeFs.lstatSync;
+  t.mock.method(nodeFs, "lstatSync", (target: fs.PathLike, options?: fs.StatOptions) => {
+    const stat = lstat(target, options);
+    if ([configured.helperPath, configured.policyPath, configured.sudoPath].includes(String(target)) && stat) stat.uid = 0;
+    return stat;
+  }); syncBuiltinESMExports(); t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports(); });
+  fs.writeFileSync(configured.policyPath, JSON.stringify({ machineId, inspectUid: 1, inspectGid: 1, services: { [unit]: { actions: ["restart"] } } }), { mode: 0o600 });
   fs.writeFileSync(path.join(helper, "state.json"), JSON.stringify({ [unit]: { starts: 0, loadState: "loaded", activeState: "active", subState: "running", mainPid: 123, invocationId: "before", result: "success", activeEnterTimestamp: "2026-10-17T00:00:00Z" } }));
   fs.writeFileSync(path.join(helper, "fail-after-launch"), ""); fs.writeFileSync(path.join(helper, "stop-query-fails"), "");
   await savePersonalServices(f.dir, configured);

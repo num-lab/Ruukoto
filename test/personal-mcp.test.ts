@@ -13,8 +13,10 @@ import type { McpRemoteTool } from "@ruukoto/agent/mcp/transport.ts";
 import { openPersonalHarness, type PersonalHarness } from "../apps/ruukoto/src/personal-harness.ts";
 import { personalProvider, type PersonalModelConfig } from "../apps/ruukoto/src/personal-model.ts";
 import { PersonalPermissionsDoc } from "../apps/ruukoto/src/personal-permissions.ts";
-import { PersonalMcpDoc } from "../apps/ruukoto/src/personal-mcp.ts";
-import { migratePersonalMcp, personalMcpCredential, parsePersonalMcp, savePersonalMcp } from "../apps/ruukoto/src/personal-mcp-config.ts";
+import { PersonalMcpDoc, PersonalMcpConfigDoc } from "../apps/ruukoto/src/personal-mcp.ts";
+import { migratePersonalMcp, personalMcpCredential, parsePersonalMcp, readPersonalMcp, savePersonalMcp } from "../apps/ruukoto/src/personal-mcp-config.ts";
+import { lockPersonalProfile } from "../apps/ruukoto/src/personal-profile.ts";
+import { PersonalConfigurationDoc, PersonalSettingsOperationDoc } from "../apps/ruukoto/src/personal-settings-records.ts";
 import { PersonalWorkDoc, requestPersonalWorkCancel, type PersonalWorkRef } from "../apps/ruukoto/src/personal-work.ts";
 import { PersonalDelegationDoc, listPersonalDelegations, personalDelegationProgress, type PersonalDelegationRef } from "../apps/ruukoto/src/personal-delegation.ts";
 import { personalReportResult } from "../apps/ruukoto/src/personal-report.ts";
@@ -148,7 +150,10 @@ test("durable MCP：已完成旧历史显式迁入后逐服务启停，原接纳
   const answer = JSON.parse(await p.answer(invocation(), "old-call")) as { operation: TaskId };
   const original = await record(p, answer.operation), originalDetail = await details(p, answer.operation);
   await p.close();
-  const migrated = await migratePersonalMcp(f.directory);
+  await migratePersonalMcp(f.directory);
+  const lock = lockPersonalProfile(f.directory);
+  const migrated = readPersonalMcp(lock)!;
+  lock.release();
   p = await f.open({ mcp: migrated });
   assert.deepEqual(await record(p, answer.operation), original);
   assert.deepEqual(await details(p, answer.operation), originalDetail);
@@ -166,7 +171,9 @@ test("durable MCP：已完成旧历史显式迁入后逐服务启停，原接纳
   assert.equal((await p.mcp!.list()).items.length, 1);
   assert.deepEqual(await record(p, answer.operation), original);
   await p.close();
-  await assert.rejects(f.open({ mcp: f.mcp }), code("mcp_config_downgrade"));
+  p = await f.open({ mcp: f.mcp });
+  assert.deepEqual((await p.harness.snapshot(PersonalMcpConfigDoc, context))!.config!.services, disabled.services);
+  await p.close();
   const enabled = parsePersonalMcp({ ...disabled, generation: "enabled-again", services: disabled.services.map(service => ({ ...service, enabled: true })) });
   await savePersonalMcp(f.directory, enabled);
   p = await f.open({ mcp: enabled });
@@ -307,18 +314,23 @@ test("durable MCP：响应已到达但未提交时 SIGKILL，恢复保留同原�
   assert.equal((await first(reopened)), operation); assert.equal(server.calls.length, 1);
 });
 
-test("durable MCP：主工具与输入均终结后仍拒绝绕过未知调用更换配置", { timeout: 20000 }, async t => {
+test("durable MCP：未知HTTP调用不阻止更新，原版本和待核实效果保留且不重发", { timeout: 20000 }, async t => {
   const server = await remote(t, () => undefined), f = await fixture(t, server);
   let p = await f.open({ mcpTimeouts: { callTimeoutMs: 50 } }); await mode(p, "full_access");
   await p.answer(invocation(), "terminal-main"); const operation = await first(p);
   const inspected = await p.harness.inspect(context);
   assert.equal(inspected.tasks.length, 0); assert.equal(inspected.submissions.length, 0);
   assert.equal((await record(p, operation)).effect, "effect_unknown");
-  const next = { ...f.mcp, generation: "second-generation" };
+  const original = await record(p, operation);
+  const next = parsePersonalMcp({ ...f.mcp, generation: "second-generation", services: f.mcp.services.map(service => ({ ...service, tools: service.tools.map(tool => ({ ...tool, description: "候选定义" })) })) });
   await p.close();
-  await assert.rejects(savePersonalMcp(f.directory, next), code("mcp_config_pending"));
-  await assert.rejects(f.open({ mcp: next }), code("mcp_config_pending"));
-  p = await f.open();
+  await savePersonalMcp(f.directory, next);
+  p = await f.open({ mcp: next });
+  const index = await p.harness.snapshot(PersonalConfigurationDoc, context);
+  const receipt = (await p.harness.snapshot(PersonalSettingsOperationDoc, index!.operations.at(-1)!, context))!.operation!.receipt;
+  assert.equal(receipt.status, "active");
+  assert.equal((await p.harness.snapshot(PersonalMcpConfigDoc, context))!.config!.services[0].tools[0].description, "候选定义");
+  assert.deepEqual(await record(p, operation), original);
   assert.equal((await first(p)), operation); assert.equal(server.calls.length, 1);
 });
 

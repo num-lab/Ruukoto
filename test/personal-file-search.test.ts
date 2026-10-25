@@ -5,6 +5,17 @@ import { tmpdir } from "node:os";
 import { test } from "node:test";
 import { preparePersonalFileSearch, executePersonalFileSearch, personalSearchExecutable, stopPersonalFileSearch } from "../apps/ruukoto/src/personal-file-search.ts";
 
+test("个人检索：原 PATH 安装后下一次发现可用 rg，无需重启后台", t => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(tmpdir(), "rk-search-install-")));
+  const previous = process.env.PATH;
+  t.after(() => { if (previous === undefined) delete process.env.PATH; else process.env.PATH = previous; fs.rmSync(root, { recursive: true, force: true }); });
+  process.env.PATH = root;
+  assert.throws(personalSearchExecutable, { code: "file_search_unavailable" });
+  const executable = path.join(root, "rg");
+  fs.writeFileSync(executable, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+  assert.equal(personalSearchExecutable(), executable);
+});
+
 test("个人检索：原生只读资料根、过滤、原字节和持久停止", { timeout: 60_000 }, async t => {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(tmpdir(), "rk-search-"))), profile = path.join(root, "profile"), workspace = path.join(root, "data");
   fs.mkdirSync(profile, { mode: 0o700 }); fs.mkdirSync(workspace);

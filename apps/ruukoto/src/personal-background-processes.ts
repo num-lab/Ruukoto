@@ -17,7 +17,7 @@ import { personalToolOrigin, type PersonalToolOrigin } from "./personal-tool-sou
 import { personalSource } from "./personal-source.ts";
 import { telegramSourceActive } from "./personal-permissions.ts";
 import { samePersonalEntry, type PersonalEntryIdentity } from "./personal-telegram-records.ts";
-import { personalCommandsFingerprint, PersonalCommandsDoc } from "./personal-command-work.ts";
+import { personalCommandConfiguration, personalCommandsFingerprint, PersonalCommandsDoc, requirePersonalExecutionSelection } from "./personal-command-work.ts";
 import { verifyPersonalCommandConfig, type PersonalCommandConfig } from "./personal-command-config.ts";
 import { acquirePersonalDirectory, releasePersonalDirectory, type PersonalDirectory } from "./personal-directory-claims.ts";
 import { PersonalBackgroundCapture, readPersonalBackgroundLog, type PersonalBackgroundLogs } from "./personal-background-logs.ts";
@@ -26,7 +26,7 @@ export const PERSONAL_BACKGROUND = "personal-background-processes";
 export const PERSONAL_BACKGROUND_TOOL_NAMES = ["process_start", "process_status", "process_output", "process_stop"];
 type State = "starting" | "running" | "stop_requested" | "stopped" | "stop_unverified";
 type ExecutionRef = Pick<ReturnType<typeof backgroundExecutionRef>, keyof ReturnType<typeof backgroundExecutionRef>>;
-export type PersonalBackgroundProcess = { id: string; operation: TaskId; taskId: TaskId; command: string; origin: PersonalToolOrigin; config: PersonalCommandConfig; directory: PersonalDirectory; admission: EntryId; accepted: EntryId; claim: EntryId; state: State; createdAt: number; launchClaim?: EntryId; fingerprint?: string; execution: ExecutionRef; stopped: boolean; partial: boolean; reason?: string; logs?: PersonalBackgroundLogs; exit?: { code: number | null; signal: string | null }; observation?: EntryId; observations?: EntryId[]; stopIntents?: Array<{ taskId: TaskId; entry: EntryId; reason: string }>; stopTask?: TaskId };
+export type PersonalBackgroundProcess = { id: string; operation: TaskId; taskId: TaskId; command: string; origin: PersonalToolOrigin; config: PersonalCommandConfig; configRevision?: string; configVersion?: string; directory: PersonalDirectory; admission: EntryId; accepted: EntryId; claim: EntryId; state: State; createdAt: number; launchClaim?: EntryId; fingerprint?: string; execution: ExecutionRef; stopped: boolean; partial: boolean; reason?: string; logs?: PersonalBackgroundLogs; exit?: { code: number | null; signal: string | null }; observation?: EntryId; observations?: EntryId[]; stopIntents?: Array<{ taskId: TaskId; entry: EntryId; reason: string }>; stopTask?: TaskId };
 type Closure = { requestId: string; actor?: PersonalEntryIdentity; through?: EntryId; processes: string[]; entry: EntryId };
 export const PersonalBackgroundDoc = defineDoc<{ ids: string[]; closures: Closure[] }>({ kind: "ruukoto.background-processes", scope: "session", version: 1, initial: () => ({ ids: [], closures: [] }) });
 export const PersonalBackgroundProcessDoc = defineDocFamily<{ process?: PersonalBackgroundProcess }, null>({ kind: "ruukoto.background-process", scope: "session", version: 1, family: true, initial: () => ({}) });
@@ -78,7 +78,8 @@ export async function personalBackgroundToolNames(tx: Tx, conversationId: Conver
   return available.filter(name => allowed.includes(name));
 }
 
-export function personalBackground(profile: string, config: PersonalCommandConfig, getHarness: () => Harness) {
+export function personalBackground(profile: string, initialConfig: PersonalCommandConfig, getHarness: () => Harness, isSuspended: () => boolean = () => false) {
+  let config = structuredClone(initialConfig);
   verifyPersonalCommandConfig(config, profile, "full_access");
   const directory = path.join(profile, "background"), logsDirectory = path.join(directory, "logs"), executionsDirectory = path.join(directory, "executions");
   const starts = new Map<string, Promise<void>>();
@@ -176,7 +177,7 @@ export function personalBackground(profile: string, config: PersonalCommandConfi
         let finishStart!: () => void;
         starts.set(saved.id, new Promise<void>(resolve => { finishStart = resolve; }));
         try {
-          const spec: LaunchSpec = { taskId: `personal-background:${saved.operation}`, mode: "full_access", workspace: config.workspace, workspaceIdentity: config.identity, grantedPaths: [] };
+          const spec: LaunchSpec = { taskId: `personal-background:${saved.operation}`, mode: "full_access", workspace: saved.config.workspace, workspaceIdentity: saved.config.identity, grantedPaths: [] };
           const prepared = prepareBackgroundExecution(executionsDirectory, saved.execution, spec);
           const capture = new PersonalBackgroundCapture(path.join(logsDirectory, saved.id)); captures.set(saved.id, capture);
           let launch = false;
@@ -236,6 +237,7 @@ export function personalBackground(profile: string, config: PersonalCommandConfi
     const record = await api.commit(async tx => {
       const existing = (await personalBackgroundProcesses(tx)).find(value => value.operation === api.taskId);
       if (existing) { if (existing.command !== command) throw new PersonalError("background_request_conflict", "原后台工具参数不符，未重放；请查询原记录。"); return { id: existing.id, taskId: existing.taskId }; }
+      if (isSuspended()) throw new PersonalError("settings_target_suspended", "当前命令配置不接受新执行，未接纳后台；请结束本轮并报告拥有者，核实配置状态。");
       const origin = await authorize(tx, api, requestId), state = await tx.doc(PersonalBackgroundDoc);
       const source = await personalSource(tx, origin.source.requestId);
       if (source.scheduled) throw new PersonalError("background_source_invalid", "定时工作不能启动会话后台，请结束本轮并报告拥有者。");
@@ -243,11 +245,13 @@ export function personalBackground(profile: string, config: PersonalCommandConfi
       if (closing || origin.permission.mode !== "full_access" || closedBefore(state.closures, origin, accepted)) throw new PersonalError("background_source_invalid", "原拥有者输入不具启动资格或已结束后台；请结束本轮并报告拥有者。");
       if (!command.trim() || command.includes("\0")) throw new PersonalError("background_invalid_params", "命令须非空且不包含NUL，请修正命令。");
       if ((await personalBackgroundProcesses(tx)).some(value => !value.stopped)) throw new PersonalError("background_pending", "本会话已有未核实停止的后台；先查停原执行，勿重放命令。");
+      const selected = await tx.doc(PersonalCommandsDoc), configRevision = selected.configRevision, configVersion = selected.configVersion;
+      await requirePersonalExecutionSelection(tx, api.taskId, "commands", configVersion ?? configRevision);
       verifyPersonalCommandConfig(config, profile, origin.permission.mode);
       const id = `process_${randomBytes(12).toString("hex")}`, directory = { path: config.workspace, ...config.identity }, execution = backgroundExecutionRef();
       const claim = await acquirePersonalDirectory(tx, { kind: "background", operation: api.taskId }, directory);
       const taskId = await tx.createTask(startTask, { id }, { conversationId: ROOT_CONVERSATION_ID, ownership: { kind: "conversation" }, background: true });
-      const data = { id, operation: api.taskId, taskId, command, origin, config, directory, execution, accepted, createdAt: Date.now() };
+      const data = { id, operation: api.taskId, taskId, command, origin, config, ...(configRevision ? { configRevision } : {}), ...(configVersion ? { configVersion } : {}), directory, execution, accepted, createdAt: Date.now() };
       const admission = await tx.appendEntry(BackgroundAdmission, ROOT_CONVERSATION_ID, { data });
       (await tx.doc(PersonalBackgroundProcessDoc, id, null)).process = { ...data, admission: admission.id, claim, state: "starting", stopped: false, partial: false }; state.ids.push(id);
       return { id, taskId };
@@ -286,6 +290,7 @@ export function personalBackground(profile: string, config: PersonalCommandConfi
     return undefined;
   } })] });
   return { extension, directory, statusIn, outputIn, requestStop, closeIn,
+    publishConfig(next: PersonalCommandConfig) { verifyPersonalCommandConfig(next, profile, "full_access"); config = structuredClone(next); },
     async stopLive() { await Promise.allSettled([...units.values()].map(unit => unit.stop())); },
     async verifyEvidence() { const all = await commit(async tx => copyJson(await personalBackgroundProcesses(tx)) as PersonalBackgroundProcess[]); for (const process of all) if (process.logs) for (const stream of ["stdout", "stderr"] as const) readPersonalBackgroundLog(path.join(logsDirectory, process.id), process.logs, stream); },
     async recover() { void getHarness().closed.then(() => { harnessEnded = true; }); for (const target of [directory, logsDirectory, executionsDirectory]) fs.mkdirSync(target, { recursive: true, mode: 0o700 }); const all = await commit(async tx => copyJson(await personalBackgroundProcesses(tx)) as PersonalBackgroundProcess[]); for (const process of all) if (!process.stopped) { await commit(tx => requestStop(tx, process.id, "backend_restart")); await stopOnce(process.id); } },
@@ -303,6 +308,7 @@ export async function verifyPersonalBackground(tx: Tx, keys: string[], enabled: 
   if (!Array.isArray(doc.ids) || new Set(doc.ids).size !== doc.ids.length || keys.length !== values.length || values.some(value => !keys.includes(value.id)) || values.length > 0 && !enabled) throw invalid();
   if (!await tx.conversation(ROOT_CONVERSATION_ID)) { if (values.length || doc.closures.length) throw invalid(); return; }
   for (const process of values) {
+    if (process.configRevision && !isDeepStrictEqual(await personalCommandConfiguration(tx, process.configRevision, process.config, process.configVersion), process.config)) throw invalid();
     const admission = await tx.entry(BackgroundAdmission, process.admission), task = await tx.task(process.taskId), tool = await tx.task(process.operation), input = tool?.input;
     const assistant = input && typeof input === "object" && !Array.isArray(input) && typeof input.assistant === "number" ? await tx.entry(input.assistant as EntryId) : undefined;
     const call = assistant?.model?.flatMap(message => message.role === "assistant" ? message.content : []).find(part => part.type === "toolCall" && input && typeof input === "object" && !Array.isArray(input) && part.id === input.callId);
@@ -312,7 +318,7 @@ export async function verifyPersonalBackground(tx: Tx, keys: string[], enabled: 
       if (!definition) throw invalid();
       try { normalized = validateToolArguments(definition, { ...call, arguments: copyJson(call.arguments) as { command: string } }); } catch { throw invalid(); }
     }
-    const data = { id: process.id, operation: process.operation, taskId: process.taskId, command: process.command, origin: process.origin, config: process.config, directory: process.directory, execution: process.execution, accepted: process.accepted, createdAt: process.createdAt };
+    const data = { id: process.id, operation: process.operation, taskId: process.taskId, command: process.command, origin: process.origin, config: process.config, ...(process.configRevision ? { configRevision: process.configRevision } : {}), ...(process.configVersion ? { configVersion: process.configVersion } : {}), directory: process.directory, execution: process.execution, accepted: process.accepted, createdAt: process.createdAt };
     if (!admission || admission.conversationId !== ROOT_CONVERSATION_ID || !isDeepStrictEqual(admission.data, data) || task?.kind !== "ruukoto.background-start" || task.version !== 1 || task.owner !== undefined || !task.background || task.conversationId !== ROOT_CONVERSATION_ID || !isDeepStrictEqual(task.input, { id: process.id }) || tool?.kind !== "pi.tool" || tool.conversationId !== ROOT_CONVERSATION_ID || tool.owner !== process.origin.generation || assistant?.byTaskId !== process.origin.generation || assistant.id >= admission.id || call?.type !== "toolCall" || call.name !== "process_start" || !isDeepStrictEqual(normalized, { command: process.command }) || process.origin.work || process.origin.conversationId !== ROOT_CONVERSATION_ID || process.origin.permission.mode !== "full_access" || !["starting", "running", "stop_requested", "stopped", "stop_unverified"].includes(process.state) || process.stopped !== (process.state === "stopped")) throw invalid();
     const source = await personalSource(tx, process.origin.source.requestId);
     if (source.scheduled || source.accepted !== process.accepted || !isDeepStrictEqual(source.source, process.origin.source) || !isDeepStrictEqual(source.permission, process.origin.permission) || !isDeepStrictEqual(source.telegram, process.origin.telegram)) throw invalid();

@@ -17,6 +17,7 @@ import { savePersonalConfig } from "../apps/ruukoto/src/personal-config.ts";
 import { openPersonalHarness } from "../apps/ruukoto/src/personal-harness.ts";
 import { personalProvider, type PersonalModelConfig } from "../apps/ruukoto/src/personal-model.ts";
 import { startPersonalServer, personalControl } from "../apps/ruukoto/src/personal-control.ts";
+import { readPersonalSettings, savePersonalSettings } from "../apps/ruukoto/src/personal-settings.ts";
 import { PersonalMockModelServer } from "./helpers/mock-provider.ts";
 
 const context = BACKGROUND_CONTEXT;
@@ -143,7 +144,9 @@ test("个人托管技能：真实后台重开与有历史档案启停，实际�
     const profile = lockPersonalProfile(f.directory);
     try {
       const store = personalSkillStore(profile), expectedRevision = store.list().revision;
-      if (removed) store.remove({ id: f.imported.id, expectedRevision }); else store.setEnabled({ id: f.imported.id, expectedRevision, enabled: false });
+      const snapshot = await readPersonalSettings(profile);
+      const receipt = await savePersonalSettings(profile, snapshot, expectedRevision, removed ? { kind: "skills.remove", id: f.imported.id } : { kind: "skills.set-enabled", id: f.imported.id, enabled: false });
+      assert.equal(receipt.status, "saved");
     } finally { profile.release(); }
     current = await open();
     const count = model.calls.length;
@@ -197,13 +200,13 @@ test("个人技能真实请求：准备后正文变化沿本次快照发送，�
   assert.match(JSON.stringify(entries.filter(entry => entry.kind === "ruukoto.skills-snapshot")), /PINNED_BODY.*NEXT_BODY/s);
 });
 
-test("个人托管技能真实请求：规范输入和实际 payload 前停用或移除均零外发", async t => {
+test("个人托管技能真实请求：准备后停用或移除保留本次目录，后续请求撤下选择", async t => {
   for (const boundary of ["input", "payload"] as const) for (const state of ["disabled", "removed"] as const) await t.test(`${boundary}/${state}`, async t => {
     const f = fixture(t), external = path.join(f.root, "external"), skill = path.join(external, "skills", "mutable"), body = path.join(skill, "SKILL.md");
     fs.mkdirSync(skill, { recursive: true }); fs.writeFileSync(body, "---\ndescription: 触发新快照\n---\ninitial\n");
     await savePersonalSkills(f.directory, { version: 1, directory: external });
     const key = "RUUKOTO_PERSONAL_MANAGED_TEST_KEY", previous = process.env[key]; process.env[key] = "test-only";
-    const model = new PersonalMockModelServer(() => ({ kind: "text", text: "不应发送" }));
+    const model = new PersonalMockModelServer(() => ({ kind: "text", text: "请求已固定" }));
     const config: PersonalModelConfig = { api: "openai-completions", baseUrl: await model.start(), modelId: "mock-model", apiKeyEnv: key, contextWindow: 128000, maxTokens: 1024 };
     const provider = personalProvider(config);
     let current: Awaited<ReturnType<typeof openPersonalHarness>> | undefined, armed = false, changed = false;
@@ -228,9 +231,32 @@ test("个人托管技能真实请求：规范输入和实际 payload 前停用�
       return storage;
     } });
     armed = true; fs.appendFileSync(body, "changed\n");
-    assert.equal((await (await current.submit("使用当前技能", `${boundary}-${state}`)).wait(context)).status, "unanswered");
-    assert.equal(changed, true); assert.equal(model.calls.length, 0);
+    assert.equal((await (await current.submit("使用当前技能", `${boundary}-${state}`)).wait(context)).status, "done");
+    assert.equal(changed, true); assert.equal(model.calls.length, 1);
+    assert.match(JSON.stringify(model.calls[0].system), /alpha/);
+    await current.answer("使用更新后的技能", `${boundary}-${state}-next`);
+    assert.doesNotMatch(JSON.stringify(model.calls[1].system), /alpha/);
     const entries = (await current.main.entries({ order: "ascending" }, 256, undefined, context)).items;
-    assert.equal(entries.filter(entry => entry.kind === "ruukoto.model-request").length, boundary === "input" ? 0 : 1);
+    assert.equal(entries.filter(entry => entry.kind === "ruukoto.model-request").length, 4);
   });
+});
+
+test("个人托管技能：停用前已准备的响应不能开始新的技能加载", async t => {
+  const f = fixture(t), key = "RUUKOTO_MANAGED_LOAD_UPDATE_KEY", previous = process.env[key]; process.env[key] = "test-only";
+  let release!: () => void, received!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; }), started = new Promise<void>(resolve => { received = resolve; });
+  const model = new PersonalMockModelServer(async request => {
+    const last = request.messages.at(-1);
+    if (last?.role === "user") { received(); await held; return { kind: "tool_calls", calls: [{ id: "old-skill-load", name: "skill", arguments: { name: "alpha" } }] }; }
+    return { kind: "text", text: String(last?.content) };
+  });
+  const config: PersonalModelConfig = { api: "openai-completions", baseUrl: await model.start(), modelId: "mock-model", apiKeyEnv: key, contextWindow: 128000, maxTokens: 1024 };
+  const current = await openPersonalHarness({ directory: f.directory, provider: personalProvider(config), modelId: config.modelId });
+  t.after(async () => { release(); await current.close(); await model.close(); if (previous === undefined) delete process.env[key]; else process.env[key] = previous; });
+  const pending = current.answer("加载原技能", "held-skill-request"); await started;
+  const store = new ManagedSkillsStore(f.directory, []); store.setEnabled({ id: f.imported.id, enabled: false, expectedRevision: store.list().revision });
+  release(); assert.match(await pending, /原技能已停用或变更/);
+  assert.match(String(model.calls[0].system), /alpha/); assert.doesNotMatch(String(model.calls[1].system), /alpha/);
+  const entries = (await current.main.entries({ order: "ascending" }, 256, undefined, context)).items;
+  assert.equal(entries.some(entry => entry.kind === "ruukoto.skill-load"), false);
 });

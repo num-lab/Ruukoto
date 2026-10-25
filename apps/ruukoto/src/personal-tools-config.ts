@@ -12,12 +12,25 @@ import type { PersonalToolCredential } from "./personal-tool-io.ts";
 import type { PersonalServiceMode } from "./personal-service-operations.ts";
 
 export type PersonalToolsConfig = { version: 1; generation: string; workspace: string; identity: { dev: number; ino: number }; credentials: PersonalToolCredential[]; search?: { apiKeyEnv: string } };
+export type PersonalWebSearchConfig = { version: 1; generation: string; enabled: boolean; apiKeyEnv?: string };
 const invalid = () => new PersonalError("tools_config_invalid", "资料与网络配置无法核实，请保留档案并运行配置向导。");
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
 const validHost = (value: unknown): value is string => {
   try { return typeof value === "string" && !!value && new URL(`https://${value}`).host === value; } catch { return false; }
 };
 const envName = (value: unknown): value is string => typeof value === "string" && /^[A-Z_][A-Z0-9_]{0,127}$/.test(value) && !value.startsWith("RUUKOTO_");
+export function parsePersonalWebSearch(value: unknown): PersonalWebSearchConfig {
+  if (!object(value) || Object.keys(value).some(key => !["version", "generation", "enabled", "apiKeyEnv"].includes(key)) || value.version !== 1 || typeof value.generation !== "string" || !/^[A-Za-z0-9-]{1,128}$/.test(value.generation) || typeof value.enabled !== "boolean" || value.apiKeyEnv !== undefined && !envName(value.apiKeyEnv) || value.enabled && !envName(value.apiKeyEnv)) throw new PersonalError("search_config_invalid", "搜索配置无法核实，请重新选择启停状态与凭据环境变量名称。");
+  return { version: 1, generation: value.generation, enabled: value.enabled, ...(value.apiKeyEnv === undefined ? {} : { apiKeyEnv: value.apiKeyEnv as string }) };
+}
+export function readPersonalWebSearch(profile: PersonalProfileLock): PersonalWebSearchConfig | undefined {
+  const filename = path.join(profile.directory, "web-search.json"), stat = fs.lstatSync(filename, { throwIfNoEntry: false });
+  if (!stat) return;
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1 || stat.uid !== process.getuid?.() || (stat.mode & 0o077)) throw new PersonalError("search_config_invalid", "搜索配置文件无法核实，请保留档案并检查文件权限。");
+  let value: unknown;
+  try { value = JSON.parse(fs.readFileSync(filename, "utf8")); } catch (error) { throw new PersonalError("search_config_invalid", "搜索配置无法读取，请保留档案并检查文件。", { cause: error }); }
+  return parsePersonalWebSearch(value);
+}
 export function parsePersonalTools(value: unknown): PersonalToolsConfig {
   if (!object(value) || Object.keys(value).some(key => !["version", "generation", "workspace", "identity", "credentials", "search"].includes(key)) || value.version !== 1 || typeof value.generation !== "string" || !/^[A-Za-z0-9-]{1,128}$/.test(value.generation) || typeof value.workspace !== "string" || !path.isAbsolute(value.workspace) || path.resolve(value.workspace) !== value.workspace || /[\x00-\x1f\x7f]/.test(value.workspace) || !object(value.identity) || !Number.isSafeInteger(value.identity.dev) || !Number.isSafeInteger(value.identity.ino) || Number(value.identity.dev) < 0 || Number(value.identity.ino) < 1 || !Array.isArray(value.credentials) || value.credentials.length > 32) throw invalid();
   const names = new Set<string>();

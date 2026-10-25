@@ -23,6 +23,8 @@ interface RuntimeModelStack {
   reviewer: ApprovalReviewer;
 }
 
+type CatalogProvider = Record<string, unknown> & { name?: string; models?: Array<Record<string, unknown> & { id: string; name?: string }> };
+
 interface RuntimeModelsDeps {
   store: Store;
   config: {
@@ -245,18 +247,27 @@ export class RuntimeModels {
   async saveCatalog(input: { providers: unknown; expectedRevision: unknown }): Promise<{ revision: string }> {
     return this.manage(async () => {
       this.assertConfigRevision(input.expectedRevision);
-      const before = loadModelCatalogFile(this.deps.config.agentDir).providers;
+      const before: Record<string, CatalogProvider> = loadModelCatalogFile(this.deps.config.agentDir).providers;
       // 脱敏视图原样回写：占位符还原为原值，未改动的秘密不必重新输入
       const providers = restoreCatalogSecrets(input.providers, before);
       const errors = validateModelCatalog({ providers });
       if (errors.length > 0) {
         throw new RuntimeApiError("invalid_params", `模型目录结构无效：${errors.join("；")}`);
       }
-      const next = { providers: providers as Record<string, any> };
-      // 受影响 = 被修改或删除的 provider；新增的 provider 不影响任何运行中任务
-      const affected = Object.keys(before).filter(
-        (id) => !(id in next.providers) || !isDeepStrictEqual(before[id], next.providers[id]),
-      );
+      const next = { providers: providers as Record<string, CatalogProvider> };
+      // Note: 见 .agents/notes/implemented/simplification/2026-10-25-configuration-checks.md
+      const affected = [...new Set([...Object.keys(before), ...Object.keys(next.providers)])].filter(id => {
+        if (!(id in next.providers)) return true;
+        const { name: _oldName, models: oldModels = [], ...oldProvider } = before[id] ?? {};
+        const { name: _newName, models: newModels = [], ...newProvider } = next.providers[id];
+        if (!isDeepStrictEqual(oldProvider, newProvider)) return true;
+        const remaining = new Map(newModels.map(({ name: _name, ...model }) => [model.id, model]));
+        for (const { name: _name, ...model } of oldModels) {
+          if (!isDeepStrictEqual(model, remaining.get(model.id))) return true;
+          remaining.delete(model.id);
+        }
+        return [...remaining.keys()].some(modelId => this.current.modelRuntime.getModel(id, modelId) !== undefined);
+      });
       // 经目录保存删除 provider/模型与 remove_model_provider 同一约束，不留悬空引用
       for (const id of Object.keys(before)) {
         if (!(id in next.providers)) {

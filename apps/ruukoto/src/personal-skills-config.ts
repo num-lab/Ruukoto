@@ -1,10 +1,6 @@
-import { hasPendingPersonalWork } from "./personal-config-idle.ts";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { isDeepStrictEqual } from "node:util";
-import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
-import { lockPersonalProfile, PERSONAL_FORMAT, type PersonalProfileLock } from "./personal-profile.ts";
+import type { PersonalProfileLock } from "./personal-profile.ts";
 import { PersonalError } from "./personal-error.ts";
 
 export type PersonalSkillsConfig = { version: 1; directory: string };
@@ -41,24 +37,9 @@ export function readPersonalSkills(target: string | PersonalProfileLock): Person
 }
 
 export async function savePersonalSkills(target: string | PersonalProfileLock, value: unknown): Promise<void> {
-  const config = parsePersonalSkills(value), profile = typeof target === "string" ? lockPersonalProfile(target) : target;
-  try {
-    personalSkillsDirectory(config);
-    if (isDeepStrictEqual(readPersonalSkills(profile), config)) return;
-    const filename = path.join(profile.directory, "personal.sqlite"), context = BACKGROUND_CONTEXT;
-    if (fs.existsSync(filename)) {
-      const storage = await openNodeSqliteStorage(filename);
-      try {
-        const record = await storage.findDocument({ kind: "ruukoto.format", scope: { kind: "session" } }, "current", context), saved = record && await storage.document(record.id, "current", context);
-        if (!saved || saved.version !== 1 || !isDeepStrictEqual(saved.value, PERSONAL_FORMAT)) throw invalid();
-        if (await hasPendingPersonalWork(storage)) throw new PersonalError("skills_config_pending", "仍有未完成输入或工作，未更改技能配置；请先用原配置完成原工作。");
-      } finally { await storage.close(context); }
-    }
-    const temporary = path.join(profile.directory, "skills.json.tmp");
-    try {
-      const fd = fs.openSync(temporary, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW, 0o600);
-      try { fs.writeFileSync(fd, JSON.stringify(config) + "\n"); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
-      fs.renameSync(temporary, path.join(profile.directory, "skills.json"));
-    } catch (error) { throw new PersonalError("skills_config_write_failed", "技能配置未能保存，请检查磁盘与临时配置文件；原配置仍保留。", { cause: error }); }
-  } finally { if (typeof target === "string") profile.release(); }
+  const config = parsePersonalSkills(value);
+  personalSkillsDirectory(config);
+  const { readPersonalSettings, savePersonalSettings } = await import("./personal-settings.ts");
+  const snapshot = await readPersonalSettings(target);
+  await savePersonalSettings(target, snapshot, snapshot.revisions.skills, { kind: "config.save", target: "skills", value: config });
 }

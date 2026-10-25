@@ -155,7 +155,7 @@ test("MCP 配置向导：旧配置经明确选择迁入，启停保留端点与�
     const profile = lockPersonalProfile(dir);
     try { return readPersonalMcp(profile)!; } finally { profile.release(); }
   };
-  assert.deepEqual(await run(["4", "1"]), original);
+  assert.deepEqual((await run(["4", "1"])).services, original.services);
   const migrated = await run(["4", "2"]);
   assert.equal(migrated.version, 2); assert.equal(migrated.services[0].enabled, true);
   assert.notEqual(migrated.generation, original.generation);

@@ -124,6 +124,20 @@ test("实际 worker：rg 缺失、退出2、输出预算均返回具名失败和
   }
 });
 
+test("实际 worker：原 PATH 安装 rg 后同一 worker 的下一次调用重新发现", async () => {
+  const f = await fixture({ fake: "" });
+  try {
+    const unavailable = await f.call("list_files");
+    assert.equal(unavailable.result.code, "file_search_unavailable");
+    assert.match(unavailable.result.message!, /安装 ripgrep 后再次调用/);
+    fs.writeFileSync(path.join(f.root, "bin", "rg"), `#!${process.execPath}\nprocess.stdout.write('sample.txt\\0');\n`, { mode: 0o755 });
+    const installed = await f.call("list_files");
+    assert.equal(installed.result.code, undefined);
+    assert.equal(installed.result.scanComplete, true);
+    assert.deepEqual(installed.result.entries.map(entry => entry.path), ["sample.txt"]);
+  } finally { await f.cleanup(); }
+});
+
 test("实际 worker：10秒预算停止检索、保留计数且 worker 可继续服务", async () => {
   const f = await fixture({ fake: "process.stdout.write('sample.txt\\0'); setInterval(() => {}, 1000);" });
   try {

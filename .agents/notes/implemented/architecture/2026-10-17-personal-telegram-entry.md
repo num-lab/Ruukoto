@@ -2,7 +2,9 @@
 
 Status: implemented
 
-配置更新与迁移的拟调整范围见[按受影响对象更新配置](../../proposed/architecture/2026-10-25-operation-scoped-configuration.md)；该提案尚未落地，本文现行约束继续有效。
+[按平台在线切换](2026-10-25-personal-im-updates.md)取代停机配对和启动固定 API；原来源身份、权限及未知发送规则保留。
+
+在线配对、按平台切换与原发送句柄采用[个人 IM 更新](2026-10-25-personal-im-updates.md)，不再要求普通配置停机；本文其余固定拥有者、收件与未知发送约束继续适用。
 
 ## 问题
 

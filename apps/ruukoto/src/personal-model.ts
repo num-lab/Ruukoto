@@ -6,7 +6,7 @@ import { anthropicMessagesApi } from "@earendil-works/pi-ai/api/anthropic-messag
 import { PersonalError } from "./personal-error.ts";
 import type { PersonalModelMedia } from "./personal-media.ts";
 import { randomUUID } from "node:crypto";
-import type { ConversationId, EntryId } from "@earendil-works/pi-durable";
+import type { ConversationId, EntryId, TaskId, Tx } from "@earendil-works/pi-durable";
 
 export type PersonalModelConfig = {
   api: "openai-completions" | "openai-responses" | "anthropic-messages";
@@ -41,14 +41,16 @@ export function parsePersonalModel(value: unknown): PersonalModelConfig {
   return { api: value.api, baseUrl: value.baseUrl, modelId: value.modelId, apiKeyEnv: value.apiKeyEnv, contextWindow: value.contextWindow, maxTokens: value.maxTokens, ...("imageInput" in value ? { imageInput: value.imageInput as boolean } : {}) };
 }
 
-export function personalProvider(config: PersonalModelConfig): Provider {
+// Note: 见 .agents/notes/implemented/architecture/2026-10-25-personal-request-configuration.md
+export function personalProvider(config: PersonalModelConfig, version?: string): Provider {
+  const provider = version === undefined ? "personal" : `personal-${version}`;
   const model: Model<PersonalModelConfig["api"]> = {
-    id: config.modelId, name: config.modelId, api: config.api, provider: "personal", baseUrl: config.baseUrl,
+    id: config.modelId, name: config.modelId, api: config.api, provider, baseUrl: config.baseUrl,
     reasoning: false, input: config.imageInput ? ["text", "image"] : ["text"], contextWindow: config.contextWindow, maxTokens: config.maxTokens,
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
   };
   return createProvider({
-    id: "personal", name: "个人模型", models: [model],
+    id: provider, name: "个人模型", models: [model],
     auth: { apiKey: { name: "个人模型凭据", resolve: async () => {
       const apiKey = process.env[config.apiKeyEnv];
       if (!apiKey) throw new PersonalError("model_credentials_missing", "模型凭据未配置，请设置向导中指定的环境变量后重启。");
@@ -58,8 +60,28 @@ export function personalProvider(config: PersonalModelConfig): Provider {
   });
 }
 
-export type PersonalReferenceSelection = { conversationId: ConversationId; memory: { memory: EntryId; version: number; revision: EntryId }[]; skills: { version: string; snapshotEntry: EntryId } };
+export type PersonalReferenceSelection = { conversationId: ConversationId; generation?: TaskId; configurations?: { commands: string | null; services: string | null; webSearch?: string | null; mcp?: { service: string; version: string | null }[] }; memory: { memory: EntryId; version: number; revision: EntryId }[]; skills: { version: string; snapshotEntry: EntryId } };
 export type RequestEvidence = { requestId: string; sessionId: string; provider: string; modelId: string; input: JsonValue; reasoning: string; payload?: JsonValue; imageMappings?: JsonValue; references?: PersonalReferenceSelection };
+
+export async function personalModelRequestSelection(tx: Tx, toolId: TaskId): Promise<PersonalReferenceSelection | undefined> {
+  const tool = await tx.task(toolId), input = tool?.input;
+  if (tool?.kind !== "pi.tool" || !input || typeof input !== "object" || Array.isArray(input) || input.kind !== "model" || typeof input.assistant !== "number") throw new PersonalError("model_tool_source_invalid", "工具缺少原模型响应身份，未开始操作；请保留档案并查询原输入。");
+  const assistant = await tx.entry(input.assistant as EntryId);
+  if (assistant?.kind !== "pi.assistant" || assistant.byTaskId !== tool.owner || assistant.conversationId !== tool.conversationId) throw new PersonalError("model_tool_source_invalid", "工具的原模型响应无法核实，未开始操作；请保留档案并查询原输入。");
+  let cursor;
+  do {
+    const page = await tx.scanEntries({ conversationId: tool.conversationId, maxEntryId: assistant.id, order: "descending" }, 256, cursor);
+    for (const entry of page.items) {
+      const data = entry.data;
+      if (entry.kind !== "ruukoto.model-request" || !data || typeof data !== "object" || Array.isArray(data)) continue;
+      const refs = data.references;
+      if (!refs || typeof refs !== "object" || Array.isArray(refs) || refs.generation !== tool.owner) continue;
+      if (refs.conversationId !== tool.conversationId || !refs.configurations || typeof refs.configurations !== "object" || Array.isArray(refs.configurations) || ![refs.configurations.commands, refs.configurations.services].every(value => value === null || typeof value === "string") || !Array.isArray(refs.memory) || !refs.skills || typeof refs.skills !== "object" || Array.isArray(refs.skills) || typeof refs.skills.version !== "string" || typeof refs.skills.snapshotEntry !== "number") throw new PersonalError("model_selection_invalid", "原模型请求的配置选择无法核实，未开始操作；请保留档案并查询原输入。");
+      return refs as PersonalReferenceSelection;
+    }
+    cursor = page.next;
+  } while (cursor);
+}
 
 function json(value: unknown): JsonValue {
   return JSON.parse(JSON.stringify(value)) as JsonValue;
@@ -88,10 +110,11 @@ export function recordedModels(provider: Provider, record: (evidence: RequestEvi
       },
     } };
   };
-  models.setProvider({
+  const setRecordedProvider = (provider: Provider) => models.setProvider({
     ...provider,
     stream: (model, input, options) => lazyStream(model, async () => { const prepared = await prepare(model, input, options); return provider.stream(model, normalizeContext(prepared.input), Object.assign({}, options, prepared.options)); }),
     streamSimple: (model, input, options) => lazyStream(model, async () => { const prepared = await prepare(model, input, options); return provider.streamSimple(model, normalizeContext(prepared.input), { ...options, ...prepared.options }); }),
   });
-  return models;
+  setRecordedProvider(provider);
+  return Object.assign(models, { setRecordedProvider });
 }

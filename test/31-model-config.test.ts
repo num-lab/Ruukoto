@@ -437,7 +437,7 @@ test("set_model_api_key：0600 持久化、脱敏、重启后仍有效", async (
   }
 });
 
-test("应用门闩：运行中与排队任务阻止受影响 provider，未受影响的新 provider 照常应用", async () => {
+test("应用门闩：运行中与排队任务允许展示变更及新增模型，只阻止执行变化", async () => {
   let release!: () => void;
   const blocked = new Promise<void>((resolve) => { release = resolve; });
   const responder: Responder = async (_req, index) => {
@@ -456,21 +456,42 @@ test("应用门闩：运行中与排队任务阻止受影响 provider，未受�
     const withQ = readModels(t.dirs).providers;
     withQ.q = { baseUrl: t.baseUrl, apiKey: "q-key", api: "openai-completions", models: [{ id: "q-model", contextWindow: 100000, maxTokens: 512 }] };
     const r0 = (await t.client.request<any>("get_model_config", {})).revision;
-    const saved = await t.client.request<any>("save_model_catalog", { providers: withQ, expected_revision: r0 });
+    let saved = await t.client.request<any>("save_model_catalog", { providers: withQ, expected_revision: r0 });
     const listed = await t.client.request<any>("list_models", { provider: "q" });
     assert.equal(listed.total, 1, "新 provider 应用后立即可见");
 
-    // 修改 mock：running + queued 各一个任务 → 阻止，文件字节不变
+    const presentation = readModels(t.dirs).providers;
+    presentation.mock.name = "Mock Renamed";
+    presentation.mock.models[0].name = "新显示名";
+    presentation.mock.models.push({ ...presentation.mock.models[0], id: "new-model" });
+    saved = await t.client.request<any>("save_model_catalog", { providers: presentation, expected_revision: saved.revision });
+    presentation.mock.models.reverse();
+    saved = await t.client.request<any>("save_model_catalog", { providers: presentation, expected_revision: saved.revision });
+    const models = await t.client.request<any>("list_models", { provider: "mock" });
+    assert.equal(models.total, 2);
+    assert.ok(models.models.some((model: any) => model.modelId === "mock-model" && model.name === "新显示名"));
+
+    // running + queued 均保留原执行选择，协议、凭据、能力和未知字段仍不能变化。
     const bytesBefore = fs.readFileSync(path.join(t.dirs.agentDir, "models.json"), "utf8");
     const authBefore = fs.existsSync(path.join(t.dirs.agentDir, "auth.json"))
       ? fs.readFileSync(path.join(t.dirs.agentDir, "auth.json"), "utf8")
       : null;
     const touching = readModels(t.dirs).providers;
-    touching.mock.name = "Mock Renamed";
-    await assert.rejects(
-      t.client.request("save_model_catalog", { providers: touching, expected_revision: saved.revision }),
+    touching.mock.models[0].maxTokens = 512;
+    const changes = [
+      touching,
+      { ...presentation, mock: { ...presentation.mock, baseUrl: "https://models.example.test" } },
+      { ...presentation, mock: { ...presentation.mock, api: "openai-responses" } },
+      { ...presentation, mock: { ...presentation.mock, apiKey: "changed" } },
+      { ...presentation, mock: { ...presentation.mock, headers: { "X-New": "changed" } } },
+      { ...presentation, mock: { ...presentation.mock, advanced: true } },
+      { ...presentation, mock: { ...presentation.mock, models: presentation.mock.models.map((model: any) => ({ ...model, reasoning: true })) } },
+    ];
+    for (const providers of changes) await assert.rejects(
+      t.client.request("save_model_catalog", { providers, expected_revision: saved.revision }),
       (err: any) => err.code === "model_config_blocked" && err.message.includes("2"),
     );
+    await assert.rejects(t.client.request("save_model_catalog", { providers: { ...presentation, mock: { ...presentation.mock, models: [presentation.mock.models[0], presentation.mock.models[0]] } }, expected_revision: saved.revision }), (err: any) => err.code === "invalid_params");
     assert.equal(fs.readFileSync(path.join(t.dirs.agentDir, "models.json"), "utf8"), bytesBefore, "被阻止时不得改动文件");
     const authAfter = fs.existsSync(path.join(t.dirs.agentDir, "auth.json"))
       ? fs.readFileSync(path.join(t.dirs.agentDir, "auth.json"), "utf8")
@@ -484,7 +505,7 @@ test("应用门闩：运行中与排队任务阻止受影响 provider，未受�
     });
     // 任务结束后同一修改可以应用
     await t.client.request("save_model_catalog", { providers: touching, expected_revision: saved.revision });
-    assert.equal(readModels(t.dirs).providers.mock.name, "Mock Renamed");
+    assert.equal(readModels(t.dirs).providers.mock.models[0].maxTokens, 512);
     // 在线新增的 provider 在既有会话上可用（旧 SDK 会话按新模型栈重建）
     const qTask = await t.client.request<any>("submit", {
       session_id: sessionId, request_id: "gate-q", input: "use q",
@@ -513,18 +534,43 @@ test("应用门闩：等待确认的任务同样阻止受影响 provider", async
     const bytesBefore = fs.readFileSync(path.join(t.dirs.agentDir, "models.json"), "utf8");
     const touching = readModels(t.dirs).providers;
     touching.mock.name = "Mock Renamed";
-    const r0 = (await t.client.request<any>("get_model_config", {})).revision;
+    touching.mock.models[0].name = "等待确认时更名";
+    touching.mock.models.push({ ...touching.mock.models[0], id: "new-model" });
+    let r0 = (await t.client.request<any>("get_model_config", {})).revision;
+    r0 = (await t.client.request<any>("save_model_catalog", { providers: touching, expected_revision: r0 })).revision;
+    assert.equal((await taskStatus(t.client, task.id)).task.status, "awaiting_confirmation");
+    const activeBytes = fs.readFileSync(path.join(t.dirs.agentDir, "models.json"), "utf8");
+    touching.mock.models[0].maxTokens = 512;
     await assert.rejects(
       t.client.request("save_model_catalog", { providers: touching, expected_revision: r0 }),
       (err: any) => err.code === "model_config_blocked",
     );
-    assert.equal(fs.readFileSync(path.join(t.dirs.agentDir, "models.json"), "utf8"), bytesBefore);
+    assert.notEqual(activeBytes, bytesBefore);
+    assert.equal(fs.readFileSync(path.join(t.dirs.agentDir, "models.json"), "utf8"), activeBytes);
     await t.client.request("respond_confirmation", { confirmation_id: confirmation.id, decision: "approve" });
     await waitFor("任务完成", async () => (await taskStatus(t.client, task.id)).task.status === "completed");
     await t.client.request("save_model_catalog", { providers: touching, expected_revision: r0 });
   } finally {
     await cleanupManual(t);
   }
+});
+
+test("应用门闩：目录中首次声明 SDK 内置模型仍是覆盖，不能当作新增 ID", async context => {
+  const t = await startManual("model-config-builtin", textResponder);
+  try {
+    const builtin = t.runtime.models.current.modelRuntime.getModels("openai")[0];
+    assert.ok(builtin);
+    context.mock.method(t.runtime.store, "countActiveTasksByProviders", (providers: string[]) => providers.includes(builtin.provider) ? 1 : 0);
+    const providers = readModels(t.dirs).providers;
+    const revision = t.runtime.models.getConfig().revision;
+    const bytes = fs.readFileSync(path.join(t.dirs.agentDir, "models.json"));
+    providers[builtin.provider] = { models: [{ id: builtin.id, name: "覆盖内置模型" }] };
+    await assert.rejects(t.runtime.models.saveCatalog({ providers, expectedRevision: revision }), { code: "model_config_blocked" });
+    assert.deepEqual(fs.readFileSync(path.join(t.dirs.agentDir, "models.json")), bytes);
+    providers[builtin.provider] = { models: [{ ...builtin, id: "ruukoto-genuinely-new-model" }] };
+    await t.runtime.models.saveCatalog({ providers, expectedRevision: revision });
+    assert.ok(t.runtime.models.current.modelRuntime.getModel(builtin.provider, "ruukoto-genuinely-new-model"));
+  } finally { context.mock.restoreAll(); await cleanupManual(t); }
 });
 
 test("remove_model_provider：被会话引用时拒绝，切换后允许并清理凭据", async () => {
@@ -1004,7 +1050,7 @@ for (const phase of ["rebuild", "rollback", "flush"] as const) {
       const revision = t.runtime.models.getConfig().revision;
       const original = fs.readFileSync(path.join(t.dirs.agentDir, "models.json"));
       const providers = readModels(t.dirs).providers;
-      providers.mock.models[0].name = "停止期间完成配置";
+      providers.mock.models[0].maxTokens = 512;
       const create = ModelRuntime.create.bind(ModelRuntime);
       const dispose = Driver.prototype.dispose;
       context.mock.method(Driver.prototype, "dispose", async function (this: Driver) { disposed = true; return dispose.call(this); });

@@ -23,7 +23,7 @@ macOS原生监督器与MyGo CGO均需Command Line Tools的Clang。平台前置�
 | `npm run build:worker` | 打包共享 `worker/worker.mjs`、独立 `worker/background-worker.mjs` 及自包含的 `worker/personal-command-worker.mjs`、`worker/personal-file-search-worker.mjs`；个人命令使用 Linux 原生执行，资料检索另用只读资料根 |
 | `npm run desktop:mygo` / `npm run desktop:mygo:build` | 重建并启动／只构建 MyGo 试验应用，要求 macOS arm64 和 Go ≥ 1.27.1；详见[桌面开发](desktop-development.md) |
 | `npm run desktop:build` | 构建桌面三个目标、检查产物并 ad-hoc 签名 `dist/mac-arm64/Ruukoto.app`；根 build 不打包 Electron |
-| `npm start`、`npm run personal:durable` | 个人菜单，默认`~/.ruukoto-durable/`；`RUUKOTO_PERSONAL_DIR`选择新目录；`serve --directory`固定服务档案；`settings`有界JSON在线读、离线持锁改；`maintenance`核实并显式启停原服务；`remote`配对向导，`remote serve`托管入口；见[操作](usage.md#25-个人-agent-引导与管理) |
+| `npm start`、`npm run personal:durable` | 个人菜单，默认`~/.ruukoto-durable/`；`RUUKOTO_PERSONAL_DIR`选择新目录；`serve --directory`固定服务档案；`settings`有界JSON在线读写、离线持锁保存，v2原键核实生效；`maintenance`核实并显式启停原服务；`remote`配对向导，`remote serve`托管入口；见[操作](usage.md#25-个人-agent-引导与管理) |
 | `npm run dev`、`npm run dev -- --config` | 默认由 Node watch 托管个人开发后台；`--config` 直接运行不监听源码的同档案菜单；固定检出散列档案，不继承正式目录，已启用 QQ/Telegram 时拒绝启动，退出停止本次后台 |
 | `npm run build:script` | 打包 `worker/workflow-script.mjs` 并复制同目录 WASM；脚本测试前运行 |
 | `npm run lint` | 检查正确性与关键约定，不统一全库排版 |

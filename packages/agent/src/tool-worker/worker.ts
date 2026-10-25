@@ -34,7 +34,7 @@ import { statsFromPatch } from "@ruukoto/core/history.ts";
 import { grantCoversPath } from "@ruukoto/core/worktree.ts";
 import type { EditStats } from "@ruukoto/core/types.ts";
 import { imageMime } from "../artifacts.ts";
-import { runFileSearch } from "./file-search.ts";
+import { resolveFileSearchExecutable, runFileSearch } from "./file-search.ts";
 import {
   DATA_CHUNK_BYTES,
   MAX_FRAME_BYTES,
@@ -353,7 +353,7 @@ async function handleToolCall(req: Extract<WorkerRequest, { type: "tool_call" }>
     inFlight.set(req.opId, { controller, timer: undefined });
     try {
       const result = await runFileSearch({ name: req.name, params: req.params, cwd: loaded.cwd,
-        executable: fileSearch?.executable, roots: fileSearch ? fileSearch.roots : [{ path: loaded.cwd }], signal: controller.signal,
+        executable: resolveFileSearchExecutable(), roots: fileSearch ? fileSearch.roots : [{ path: loaded.cwd }], signal: controller.signal,
         onData: (stream, bytes) => streamData(req.opId, stream, bytes),
         track: pid => { trackedChildren.set(pid, {}); }, stop: killTrackedChild });
       sendMessage({ type: "result", opId: req.opId, ok: true, content: [{ type: "text", text: JSON.stringify(result) }], details: result, isError: result.code !== undefined });

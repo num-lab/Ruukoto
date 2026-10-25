@@ -3,33 +3,41 @@ import { execFile } from "node:child_process";
 import { discoverCuaTargets } from "@ruukoto/agent/mcp/cua-discovery.ts";
 import { restrictCuaTool } from "@ruukoto/agent/mcp/cua.ts";
 import { exportPersonalArtifact, type PersonalArtifact } from "./personal-artifacts.ts";
-import { executePersonalSettings } from "./personal-settings.ts";
+import { executePersonalSettings, readPersonalSettings, savePersonalSettings, personalSettingsMessage } from "./personal-settings.ts";
 import { PersonalError } from "./personal-error.ts";
 import * as path from "node:path";
 import { randomUUID } from "node:crypto";
 import type { TaskId } from "@earendil-works/pi-durable";
 import { choose, type PersonalCliIO } from "./personal-cli.ts";
 import { personalControl } from "./personal-control.ts";
-import { lockPersonalProfile } from "./personal-profile.ts";
-import { discoverPersonalMcp, migratePersonalMcp, personalMcpCredential, readPersonalMcp, savePersonalMcp, type PersonalMcpService } from "./personal-mcp-config.ts";
+import { personalMcpCredential, type PersonalMcpService } from "./personal-mcp-config.ts";
 import { personalMcpDescription } from "./personal-mcp-controls.ts";
 import type { mcpList, mcpDetail } from "./personal-mcp.ts";
 
 export async function configurePersonalMcp(io: PersonalCliIO, directory: string): Promise<void> {
-  const profile = lockPersonalProfile(directory);
-  try {
-    const current = readPersonalMcp(profile);
+  const snapshot = await readPersonalSettings(directory), current = snapshot.mcp;
+  const query = (op: string, fields: Record<string, unknown> = {}) => executePersonalSettings(directory, { v: 1, op, profile: snapshot.profile, expectedRevision: snapshot.revisions.mcp, ...fields });
     const services = current?.services ?? [];
     const choices = ["新增服务", ...services.map(service => service.label), "Linux 桌面沙箱", ...(current?.version === 1 ? ["迁入服务启停配置"] : []), "返回"];
     const selected = await choose(io, "个人 MCP 服务", choices);
     if (selected === choices.length - 1) return;
     if (current?.version === 1 && selected === services.length + 2) {
       if (await choose(io, "迁入后保留原工具与历史，旧程序不能再打开此 MCP 配置", ["返回", "确认迁入服务启停配置"]) === 0) return;
-      await migratePersonalMcp(profile);
+      const receipt = await savePersonalSettings(directory, snapshot, snapshot.revisions.mcp, { kind: "mcp.migrate" });
+      io.write(personalSettingsMessage(receipt) + "\n");
       io.write("MCP 已迁入服务启停配置；原服务保持启用，旧历史与请求证据保留。\n");
       return;
     }
-    const original = selected > 0 && selected <= services.length ? services[selected - 1] : undefined;
+    const summary = selected > 0 && selected <= services.length ? services[selected - 1] : undefined;
+    let original: PersonalMcpService | undefined;
+    if (summary) {
+      const tools: PersonalMcpService["tools"] = [];
+      for (let offset = 0;; offset += 50) {
+        const page = await query("mcp.get", { id: summary.id, offset, limit: 50 }) as { service: PersonalMcpService; toolsHasMore: boolean };
+        tools.push(...page.service.tools); original = { ...page.service, tools };
+        if (!page.toolsHasMore) break;
+      }
+    }
     const cuaSelection = selected === services.length + 1 || !!original?.cua;
     const version = current?.version ?? 2;
     if (original) {
@@ -39,14 +47,14 @@ export async function configurePersonalMcp(io: PersonalCliIO, directory: string)
       if (action === actions.length - 1) return;
       if (action === 0) { io.write(`${JSON.stringify(original.tools, null, 2)}\n`); return; }
       if (action === 3) {
-        await savePersonalMcp(profile, { version, generation: randomUUID(), services: services.map(service => service === original ? { ...service, enabled: !service.enabled } : service) });
-        io.write(`MCP 服务已${original.enabled ? "停用" : "启用"}；原端点、凭据引用和允许工具保留，请启动后台使配置生效。\n`);
+        const receipt = await savePersonalSettings(directory, snapshot, snapshot.revisions.mcp, { kind: "mcp.set-enabled", id: original.id, enabled: !original.enabled });
+        io.write(personalSettingsMessage(receipt) + "\n");
         return;
       }
       if (action === 2) {
         if (await choose(io, "移除后旧工作仍保留原配置与未知效果，不能自动改用其他服务", ["返回", "确认移除服务"]) === 0) return;
-        await savePersonalMcp(profile, { version, generation: randomUUID(), services: services.filter(service => service !== original) });
-        io.write("MCP 服务已移除；旧工作不会换服务重发，请从操作管理核实未决请求。\n");
+        const receipt = await savePersonalSettings(directory, snapshot, snapshot.revisions.mcp, { kind: "mcp.remove", id: original.id });
+        io.write(personalSettingsMessage(receipt) + "\n");
         return;
       }
     }
@@ -55,7 +63,7 @@ export async function configurePersonalMcp(io: PersonalCliIO, directory: string)
     if (label === "/back") return;
     let target: { id: string; label: string; endpoint?: string; cua?: PersonalMcpService["cua"]; credential?: PersonalMcpService["credential"] };
     if (cuaSelection) {
-      const result = await discoverCuaTargets("cua-linux");
+      const result = await query("mcp.cua-targets") as Awaited<ReturnType<typeof discoverCuaTargets>>;
       for (const issue of result.issues) io.write(`${issue.message}\n`);
       const targets = result.targets.filter(item => item.config.kind === "cua-linux");
       if (!targets.length) { io.write("未发现可用的既有 Linux 桌面沙箱，请按安装说明准备本地环境。\n"); return; }
@@ -77,7 +85,8 @@ export async function configurePersonalMcp(io: PersonalCliIO, directory: string)
     }
     target = { id: original?.id ?? randomUUID(), label, endpoint, ...(credential ? { credential } : {}) };
     }
-    const discovered = (await discoverPersonalMcp(target)).filter(tool => !target.cua || restrictCuaTool(target.cua, tool));
+    const discovery = await query("mcp.discover", { service: { ...target, ...(!target.cua ? { authentication: target.credential ? "credential" : "anonymous" } : {}) } }) as { tools: PersonalMcpService["tools"] };
+    const discovered = discovery.tools.filter(tool => !target.cua || restrictCuaTool(target.cua, tool));
     const tools: PersonalMcpService["tools"] = [];
     for (const tool of discovered) {
       io.write(`\n服务返回的原工具定义：\n${JSON.stringify(tool, null, 2)}\n`);
@@ -88,9 +97,9 @@ export async function configurePersonalMcp(io: PersonalCliIO, directory: string)
     if (target.cua && !tools.some(tool => tool.name === "computer_screenshot")) { io.write("电脑入口必须允许 computer_screenshot 才能观察与恢复，未保存服务。\n"); return; }
     if (!tools.length) { io.write("没有选择允许工具，未保存服务。\n"); return; }
     if (await choose(io, `${label}：固定允许 ${tools.map(tool => tool.name).join("、")}`, ["返回", "保存服务与固定工具"]) === 0) return;
-    await savePersonalMcp(profile, { version: target.cua ? 3 : version, generation: randomUUID(), services: [...services.filter(service => service !== original), { ...target, tools, ...(target.cua || version !== 1 ? { enabled: original?.enabled ?? true } : {}) }] });
-    io.write("MCP 配置与原工具定义已保存；配置不授予操作权限。请启动后台；旧操作从管理菜单核实，不要换服务重发。\n");
-  } finally { profile.release(); }
+    const receipt = await savePersonalSettings(directory, snapshot, snapshot.revisions.mcp, { kind: "mcp.save-service", service: { ...target, tools, ...(!target.cua ? { authentication: target.credential ? "credential" : "anonymous" } : {}), ...(target.cua || version !== 1 ? { enabled: original?.enabled ?? true } : {}) } });
+    io.write(personalSettingsMessage(receipt) + "\n");
+    io.write("MCP 配置与原工具定义已保存；配置不授予操作权限。旧操作从管理菜单核实，不要换服务重发。\n");
 }
 
 const openLinuxImage = (filename: string) => new Promise<void>((resolve, reject) => execFile("/usr/bin/xdg-open", [filename], { timeout: 15_000, maxBuffer: 4096 }, error => error ? reject(new PersonalError("cua_image_viewer_unavailable", "新截图已导出，但无法打开图片查看器；请在有图形会话的原主机查看，未接受现场。")) : resolve()));

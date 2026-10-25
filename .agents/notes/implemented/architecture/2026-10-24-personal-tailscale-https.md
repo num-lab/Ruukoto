@@ -2,7 +2,7 @@
 
 Status: implemented
 
-配置更新与迁移的拟调整范围见[按受影响对象更新配置](../../proposed/architecture/2026-10-25-operation-scoped-configuration.md)；该提案尚未落地，本文现行约束继续有效。
+普通配置保存、回执与按对象等待由[设置保存与生效](2026-10-25-personal-settings-versions.md)收窄；本文的 HTTPS/WSS、认证与原档案绑定继续适用，旧维护回执沿原解释恢复。
 
 ## 问题
 

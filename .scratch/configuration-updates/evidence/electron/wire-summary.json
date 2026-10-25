@@ -1,0 +1,316 @@
+{
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/pair"
+    },
+    {
+      "method": "GET",
+      "path": "/handshake"
+    },
+    {
+      "method": "GET",
+      "path": "/handshake"
+    },
+    {
+      "method": "UPGRADE",
+      "path": "/events"
+    },
+    {
+      "method": "GET",
+      "path": "/tools/operations"
+    },
+    {
+      "method": "GET",
+      "path": "/app-data/operations"
+    },
+    {
+      "method": "GET",
+      "path": "/services"
+    },
+    {
+      "method": "GET",
+      "path": "/mcp/operations"
+    },
+    {
+      "method": "GET",
+      "path": "/works"
+    },
+    {
+      "method": "GET",
+      "path": "/questions"
+    },
+    {
+      "method": "GET",
+      "path": "/permissions"
+    },
+    {
+      "method": "GET",
+      "path": "/management"
+    },
+    {
+      "method": "GET",
+      "path": "/management"
+    },
+    {
+      "method": "GET",
+      "path": "/management"
+    },
+    {
+      "method": "GET",
+      "path": "/management"
+    },
+    {
+      "method": "POST",
+      "path": "/maintenance"
+    },
+    {
+      "method": "GET",
+      "path": "/management"
+    },
+    {
+      "method": "GET",
+      "path": "/management"
+    },
+    {
+      "method": "POST",
+      "path": "/maintenance"
+    },
+    {
+      "method": "GET",
+      "path": "/management"
+    },
+    {
+      "method": "GET",
+      "path": "/maintenance"
+    },
+    {
+      "method": "GET",
+      "path": "/management"
+    },
+    {
+      "method": "GET",
+      "path": "/management"
+    },
+    {
+      "method": "POST",
+      "path": "/maintenance"
+    },
+    {
+      "method": "GET",
+      "path": "/management"
+    },
+    {
+      "method": "GET",
+      "path": "/management"
+    },
+    {
+      "method": "GET",
+      "path": "/management"
+    },
+    {
+      "method": "POST",
+      "path": "/maintenance"
+    },
+    {
+      "method": "GET",
+      "path": "/management"
+    },
+    {
+      "method": "GET",
+      "path": "/management"
+    },
+    {
+      "method": "POST",
+      "path": "/settings"
+    },
+    {
+      "method": "GET",
+      "path": "/management"
+    },
+    {
+      "method": "POST",
+      "path": "/maintenance"
+    },
+    {
+      "method": "GET",
+      "path": "/management"
+    },
+    {
+      "method": "GET",
+      "path": "/management"
+    },
+    {
+      "method": "GET",
+      "path": "/management"
+    },
+    {
+      "method": "GET",
+      "path": "/management"
+    },
+    {
+      "method": "GET",
+      "path": "/management"
+    },
+    {
+      "method": "GET",
+      "path": "/management"
+    },
+    {
+      "method": "GET",
+      "path": "/management"
+    },
+    {
+      "method": "GET",
+      "path": "/management"
+    },
+    {
+      "method": "POST",
+      "path": "/maintenance"
+    },
+    {
+      "method": "GET",
+      "path": "/management"
+    },
+    {
+      "method": "GET",
+      "path": "/management"
+    },
+    {
+      "method": "POST",
+      "path": "/settings"
+    },
+    {
+      "method": "GET",
+      "path": "/management"
+    },
+    {
+      "method": "POST",
+      "path": "/maintenance"
+    },
+    {
+      "method": "GET",
+      "path": "/management"
+    }
+  ],
+  "writes": 7,
+  "receipts": [
+    {
+      "v": 2,
+      "id": "2a07a8cb-c9fc-4522-a367-fca7ce6a2807",
+      "profile": {
+        "directory": "/tmp/rk-egui-SGgDjR/backend-profile",
+        "id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "target": "model",
+      "scope": "*",
+      "requestDigest": "b271b13e8b55bff2e6a2a6e1e89e1cee1384d249451c04c87faaac2a49970e8d",
+      "status": "active",
+      "savedRevision": "sha256:e62a9d792f5a4a50d18c372697c229d2d15c45582d98b036f63e691299253d08",
+      "effectiveRevision": "sha256:e62a9d792f5a4a50d18c372697c229d2d15c45582d98b036f63e691299253d08",
+      "code": "settings_active",
+      "relatedOperations": []
+    },
+    {
+      "v": 2,
+      "id": "694bf040-cfbe-4df0-96eb-66552be22a4a",
+      "profile": {
+        "directory": "/tmp/rk-egui-SGgDjR/backend-profile",
+        "id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "target": "model",
+      "scope": "*",
+      "requestDigest": "cd5b81ff59de18de138447a4548854f60d12214158f59b006957427a20cf2146",
+      "status": "active",
+      "savedRevision": "sha256:3bd572d17730230e5a8fdfb12c202e819bb242b33b1ad4a4b7e96e09be097d34",
+      "effectiveRevision": "sha256:3bd572d17730230e5a8fdfb12c202e819bb242b33b1ad4a4b7e96e09be097d34",
+      "code": "settings_active",
+      "relatedOperations": []
+    },
+    {
+      "v": 2,
+      "id": "d0483902-b176-402d-b1ec-3847d8f464f3",
+      "profile": {
+        "directory": "/tmp/rk-egui-SGgDjR/backend-profile",
+        "id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "target": "model",
+      "scope": "*",
+      "requestDigest": "7fe20dc9c3ae0dfceff355af285e3d325363d00f3829bb7dd8fb545b98d477c4",
+      "status": "active",
+      "savedRevision": "sha256:f4e261eeb2eb71d0e699d75f82f43e36e6f6e36f90112e7c3420fb6f69dc5ce8",
+      "effectiveRevision": "sha256:f4e261eeb2eb71d0e699d75f82f43e36e6f6e36f90112e7c3420fb6f69dc5ce8",
+      "code": "settings_saved_offline",
+      "relatedOperations": []
+    },
+    {
+      "v": 2,
+      "id": "bdfd6748-de5c-4f1c-ba97-14090becfedc",
+      "profile": {
+        "directory": "/tmp/rk-egui-SGgDjR/backend-profile",
+        "id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "target": "model",
+      "scope": "*",
+      "requestDigest": "0d47346ffa2f3714c9ba95a47d4a619d2c1c419f1c9ab13cc1a5ff99d3a4249c",
+      "status": "active",
+      "savedRevision": "sha256:5344c2da21dc8a6d899365d5faaa8d4a1b26a1860b3979739142e8478b8f8822",
+      "effectiveRevision": "sha256:5344c2da21dc8a6d899365d5faaa8d4a1b26a1860b3979739142e8478b8f8822",
+      "code": "related_operation_pending",
+      "relatedOperations": [
+        {
+          "kind": "test",
+          "id": "controlled-blocker"
+        }
+      ]
+    },
+    {
+      "v": 2,
+      "id": "8d1a33ed-3b4c-4a08-a6ca-35a7aea1e1ff",
+      "profile": {
+        "directory": "/tmp/rk-egui-SGgDjR/backend-profile",
+        "id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "target": "skills",
+      "scope": "*",
+      "requestDigest": "97a9f5bd4b85ff7352096455d85cb88573dc80fb9ed93644ad7405275ef52b04",
+      "status": "active",
+      "savedRevision": "sha256:3aebba8d630101da0525d14f30a78b02cd9e09878d3260d3bfb4d76313ae4c0d",
+      "effectiveRevision": "sha256:3aebba8d630101da0525d14f30a78b02cd9e09878d3260d3bfb4d76313ae4c0d",
+      "code": "settings_active",
+      "relatedOperations": []
+    },
+    {
+      "v": 2,
+      "id": "46c1341c-133a-4f8b-add5-036da9f97136",
+      "profile": {
+        "directory": "/tmp/rk-egui-SGgDjR/backend-profile",
+        "id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "target": "model",
+      "scope": "*",
+      "requestDigest": "5ab8e4f99ce350168b84b8e924b824a8848fd38d5ae2fdc3478d4bf60e96c0ff",
+      "status": "failed",
+      "savedRevision": "sha256:4563d6e628cbd6e4673858900605e36bca06be3b626f2584443d97123254aac1",
+      "effectiveRevision": "sha256:5344c2da21dc8a6d899365d5faaa8d4a1b26a1860b3979739142e8478b8f8822",
+      "code": "settings_apply_failed",
+      "relatedOperations": []
+    },
+    {
+      "v": 2,
+      "id": "bc449a7b-903b-4a71-b80f-291537b534b8",
+      "profile": {
+        "directory": "/tmp/rk-egui-SGgDjR/backend-profile",
+        "id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "target": "mcp",
+      "scope": "broken-service",
+      "requestDigest": "c6fd690789542d48cac090970201b1a408b8d2dac947e091ee925bcf724d68db",
+      "status": "active",
+      "savedRevision": "sha256:0b08741798b540b1ccff2e724f61e271c7b6d68e0112b68297db231ac020b2d0",
+      "effectiveRevision": "sha256:0b08741798b540b1ccff2e724f61e271c7b6d68e0112b68297db231ac020b2d0",
+      "code": "settings_active",
+      "relatedOperations": []
+    }
+  ]
+}

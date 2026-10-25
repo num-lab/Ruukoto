@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { test } from "node:test";
 import type { DesktopBridge, DesktopFailure, DesktopResult, DesktopTarget } from "../apps/desktop/src/shared/bridge.ts";
-import type { PersonalMaintenanceRecord } from "../apps/desktop/src/shared/personal-settings.ts";
+import type { PersonalMaintenanceRecord, PersonalConfigurationReceipt } from "../apps/desktop/src/shared/personal-settings.ts";
 import { PersonalSettingsPageState } from "../apps/desktop/src/renderer/personal-settings-state.ts";
 import type { PersonalService } from "../apps/desktop/src/renderer/personal-settings-state.ts";
 import { SettingsState } from "../apps/desktop/src/renderer/settings-state.ts";
@@ -21,14 +21,14 @@ function deferred<T>() { let resolve!: (value: T) => void; const promise = new P
 function makeView() {
   return {
     settings: {
-      product: "ruukoto", profile: { ...profile }, online: true,
-      revisions: { model: modelRevision, skills: libraryRevision, mcp: mcpRevision }, blockers: [] as unknown[],
+      product: "ruukoto", settingsProtocol: 2 as const, profile: { ...profile }, online: true,
+      fileIssues: [] as { target: string; code: string; expectedRevision: string; actualRevision: string | null }[], revisions: { model: modelRevision, skills: libraryRevision, mcp: mcpRevision }, blockers: [] as unknown[],
       model: { config: { ...modelConfig }, credential: { state: "available", reference: modelConfig.apiKeyEnv } },
       skills: { sourceHost: "personal", config: { version: 1, directory: "/remote/library" }, externalAvailable: true, revision: managedRevision, skills: [{ ...skill }], offset: 0, hasMore: false, diagnostics: [] as string[], diagnosticsTruncated: false },
       mcp: { version: 2, generation: "program-managed-generation", services: [{ ...service }] as PersonalService[], offset: 0, hasMore: false }, lifecycle: { managedDevelopment: false },
     },
     maintenance: { profile: { ...profile }, online: true, writable: true, code: "maintenance_supported", reason: "原系统服务已核实。", lifecycle: { kind: "systemd", state: "running", managedDevelopment: false, originalEnvironment: "verified" } },
-    pending: null as PersonalMaintenanceRecord | null, saved: null as boolean | null, message: "已读取原档案。",
+    operations: [] as PersonalConfigurationReceipt[], pending: null as PersonalMaintenanceRecord | null, saved: null as boolean | null, message: "已读取原档案。",
   };
 }
 interface Call { target: DesktopTarget; op: string; params: Record<string, unknown>; request: Record<string, unknown> }
@@ -187,14 +187,14 @@ test("新 MCP 服务要求明确认证选择，匿名选择后才能准备保存
   assert.equal(value.authentication, "anonymous"); assert.equal(value.credential, undefined); assert.equal(value.credentialPath, undefined);
 });
 
-test("忙、离线与只读状态阻止停存启，并保留可处理的未决事项", async () => {
+test("无关工作、离线和无systemd不阻止配置保存", async () => {
   for (const blocked of ["busy", "offline", "readonly"] as const) {
     const h = harness("models");
     if (blocked === "busy") h.view.settings.blockers = [{ kind: "pending-work" }];
     if (blocked === "offline") h.view.settings.online = false;
     if (blocked === "readonly") h.view.maintenance.writable = false;
     await h.state.read(); h.state.editModel("modelId", "next"); await h.state.save(); await h.state.confirmApply();
-    assert.equal(h.state.writable, false); assert.equal(h.writes().length, 0);
+    assert.equal(h.state.writable, true); assert.equal(h.writes().length, 1);
     if (blocked === "busy") assert.deepEqual(h.state.view?.settings.blockers, [{ kind: "pending-work" }]);
   }
 });
@@ -314,7 +314,7 @@ test("Personal 三页 SSR 展示真实字段、远端来源、维护恢复与安
   const h = harness("models"); h.view.pending = { v: 1, id: "pending", profile, op: "config.save", target: "model", expectedRevision: modelRevision, requestDigest: "1".repeat(64), saveAttempted: true, stage: "starting", savedRevision: contentRevision }; h.view.saved = true; h.view.settings.online = false; h.view.settings.model.credential.state = "unverified";
   await h.state.read();
   const html = renderToStaticMarkup(createElement(PersonalSettingsEditor, { state: h.state, onConnection() {} }));
-  assert.match(html, /原后台模型凭据缺失或尚未核实/); assert.match(html, /配置已保存，后台尚未启动/); assert.match(html, /恢复原服务/); assert.match(html, /结束维护/);
+  assert.doesNotMatch(html, /原后台模型凭据缺失或尚未核实，当前只读/); assert.match(html, /配置已保存，后台尚未启动/); assert.match(html, /恢复原服务/); assert.match(html, /结束维护/);
 });
 
 test("Personal MCP：Cua固定配置不进入HTTP编辑器，启停保留原服务", async () => {
@@ -422,4 +422,46 @@ test("Personal 电脑页 SSR 只呈现 Linux 沙箱与恢复控制，MCP 页不�
   const mcpHtml = renderToStaticMarkup(createElement(PersonalSettingsEditor, { state: mcp.state, onConnection() {} }));
   assert.match(mcpHtml, /添加 HTTP 服务/); assert.match(mcpHtml, /远端服务/);
   assert.doesNotMatch(mcpHtml, /Linux 桌面沙箱|Linux 电脑|远端电脑/);
+});
+
+
+test("配置文件异常只锁定对应页，恢复原文件后刷新解封且不改草稿", async () => {
+  const models = harness("models"), skills = harness("skills");
+  const issue = { target: "managed-skills", code: "settings_file_unverified", expectedRevision: managedRevision, actualRevision: null };
+  models.view.settings.fileIssues = [issue]; skills.view.settings.fileIssues = [issue];
+  await models.state.read(); await skills.state.read();
+  assert.equal(models.state.writable, true); assert.equal(skills.state.writable, false); assert.equal(skills.state.disabled, true); assert.equal(skills.state.phase, "ready");
+  const settings = new SettingsState(() => {}); settings.show("personal", "skills"); settings.form = skills.state;
+  settings.chooseCategory("models"); assert.equal(settings.category, "models");
+  skills.view.settings.fileIssues = []; await skills.state.read(); assert.equal(skills.state.writable, true); assert.equal(skills.state.phase, "ready");
+});
+
+test("v2待核实原操作只锁本目标，导航后其他配置可保存且原键仍可见", async () => {
+  const models = harness("models"), skills = harness("skills"), id = "00000000-0000-4000-8000-000000000009";
+  const operation: PersonalConfigurationReceipt = { v: 2, id, profile, target: "model", scope: "*", requestDigest: "1".repeat(64), status: "unknown", savedRevision: null, effectiveRevision: null, code: "settings_file_unverified", relatedOperations: [] };
+  models.view.operations = [operation]; skills.view.operations = [operation];
+  await models.state.read(); assert.equal(models.state.writable, false); assert.equal(models.state.disabled, true);
+  const settings = new SettingsState(() => {}); settings.show("personal", "models"); settings.form = models.state;
+  settings.chooseCategory("skills"); assert.equal(settings.category, "skills");
+  await skills.state.read(); assert.equal(skills.state.writable, true); assert.equal(skills.state.disabled, false);
+  skills.state.editLibrary("/remote/new-library"); await skills.state.save(); await skills.state.confirmApply();
+  assert.equal(skills.writes().length, 1); assert.equal(skills.state.view?.operations?.[0].id, id);
+  await models.state.read(); assert.equal(models.state.operations[0].id, id); assert.equal(models.writes().length, 0);
+});
+
+test("MCP A等待不锁B，撤回使用原更改与当前文件修订且保留保存记录", async () => {
+  const h = harness("mcp"), id = "00000000-0000-4000-8000-000000000003";
+  h.view.operations = [{ v: 2, id, profile, target: "mcp", scope: service.id, requestDigest: "1".repeat(64), status: "waiting", savedRevision: mcpRevision, effectiveRevision: libraryRevision, code: "mcp_busy", relatedOperations: [] }];
+  await h.state.read(); assert.equal(h.state.writable, true);
+  await h.state.selectService(service.id); assert.equal(h.state.writable, false);
+  await h.state.withdrawOperation(id); assert.ok(h.state.confirmation); assert.equal(h.state.writable, true);
+  await h.state.confirmApply();
+  assert.deepEqual(h.writes()[0].request, { v: 1, op: "settings.withdraw", profile, expectedRevision: mcpRevision, id });
+  assert.equal(h.state.view?.operations?.[0].savedRevision, mcpRevision);
+});
+
+test("旧后台显示升级要求并保留可编辑草稿，不回退停存启", async () => {
+  const h = harness("models"); delete (h.view.settings as { settingsProtocol?: number }).settingsProtocol;
+  await h.state.read(); h.state.editModel("modelId", "saved-draft"); await h.state.save();
+  assert.equal(h.state.writable, false); assert.match(h.state.message, /原更改|升级/); assert.equal(h.writes().length, 0); assert.equal(h.state.model.modelId, "saved-draft");
 });

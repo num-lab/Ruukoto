@@ -11,7 +11,8 @@ import { PersonalRemoteAuth, personalRemoteDirectory, type PersonalRemoteBinding
 import { readPersonalRemoteFile, writePersonalRemoteFile } from "./personal-remote-storage.ts";
 import { PersonalRemoteMaintenance, PERSONAL_REMOTE_SETTINGS_READ } from "./personal-remote-maintenance.ts";
 import { executePersonalSettings, parsePersonalSettingsRequest, personalSettingsDirectoryIdentity } from "./personal-settings.ts";
-import { PERSONAL_FORMAT } from "./personal-profile.ts";
+import { personalProfileFormatSupported } from "./personal-profile.ts";
+import { parsePersonalImPairingRequest } from "./personal-im-pairing.ts";
 
 const MAX_REQUEST = 128 * 1024, MAX_RESPONSE = 256 * 1024;
 const READ_ROUTES = new Set(["/status", "/timeline", "/history/entry", "/questions", "/question", "/question/receipt", "/works", "/work", "/input", "/permissions", "/tools/operations", "/tools/operation", "/mcp/operations", "/mcp/operation", "/services", "/service", "/app-data/operations", "/app-data/operation"]);
@@ -25,7 +26,7 @@ function existingProfile(directory: string): void {
   const filename = path.join(directory, "profile.json"), stat = fs.lstatSync(filename, { throwIfNoEntry: false });
   if (!stat?.isFile() || stat.isSymbolicLink() || stat.nlink !== 1 || stat.uid !== process.getuid?.() || (stat.mode & 0o077) || stat.size > 4096) throw invalid();
   const fd = fs.openSync(filename, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
-  try { if (!isDeepStrictEqual(JSON.parse(fs.readFileSync(fd, "utf8")), PERSONAL_FORMAT)) throw invalid(); }
+  try { if (!personalProfileFormatSupported(JSON.parse(fs.readFileSync(fd, "utf8")))) throw invalid(); }
   catch (error) { if (error instanceof PersonalError) throw error; throw invalid(); }
   finally { fs.closeSync(fd); }
 }
@@ -166,15 +167,15 @@ export async function startPersonalRemote(options: { home?: () => string; backen
       } else if (request.method === "GET" && url.pathname === "/management") {
         const result = await maintenance.view(); authorize(request); respond(response, result);
       } else if (request.method === "GET" && url.pathname === "/maintenance") {
-        respond(response, maintenance.query(url.searchParams.get("id") ?? ""));
+        const result = await maintenance.querySettings(url.searchParams.get("id") ?? ""); authorize(request); respond(response, result);
       } else if (request.method === "POST" && ["/maintenance", "/maintenance/restore", "/maintenance/finish"].includes(url.pathname)) {
-        if (!object(body) || body.v !== 1 || typeof body.id !== "string" || Object.keys(body).some(key => !["v", "id", ...(url.pathname === "/maintenance" ? ["request"] : [])].includes(key))) throw new PersonalError("remote_request_invalid", "维护请求无效，请读取原操作；请求标识由程序管理。");
+        if (!object(body) || ![1, 2].includes(Number(body.v)) || body.v === 2 && url.pathname !== "/maintenance" || typeof body.id !== "string" || Object.keys(body).some(key => !["v", "id", ...(url.pathname === "/maintenance" ? ["request"] : [])].includes(key))) throw new PersonalError("remote_request_invalid", "维护请求无效，请读取原操作；请求标识由程序管理。");
         const permit = () => { authorize(request); };
-        const result = url.pathname === "/maintenance" ? await maintenance.admit(body.id, body.request, permit) : url.pathname.endsWith("restore") ? await maintenance.restore(body.id, permit) : await maintenance.finish(body.id, permit);
-        respond(response, result, result.stage === "complete" ? 200 : 202);
+        const result = url.pathname === "/maintenance" ? body.v === 2 ? await maintenance.admitSettings(body.id, body.request, permit) : await maintenance.admit(body.id, body.request, permit) : url.pathname.endsWith("restore") ? await maintenance.restore(body.id, permit) : await maintenance.finish(body.id, permit);
+        respond(response, result, "stage" in result ? result.stage === "complete" ? 200 : 202 : result.status === "active" ? 200 : 202);
       } else if (request.method === "POST" && url.pathname === "/settings") {
-        const settings = parsePersonalSettingsRequest(body);
-        if (!PERSONAL_REMOTE_SETTINGS_READ.includes(settings.op)) throw new PersonalError("remote_route_unavailable", "设置写入需要完整维护入口，请读取原设置后显式停存启。");
+        const settings = object(body) && typeof body.op === "string" && body.op.startsWith("im.pair-") ? parsePersonalImPairingRequest(body) : parsePersonalSettingsRequest(body);
+        if (!PERSONAL_REMOTE_SETTINGS_READ.includes(settings.op)) throw new PersonalError("settings_upgrade_required", "配置写入需要 v2 保存入口，请更新客户端后读取原设置。");
         if ("profile" in settings && !isDeepStrictEqual(settings.profile, auth.identity().binding.profile)) throw new PersonalError("remote_profile_changed", "设置请求档案不同，请重新读取原目标。");
         authorize(request);
         const result = OFFLINE_SETTINGS.has(settings.op) ? await executePersonalSettings(config.profile.directory, settings) : await backend("POST", "/settings", settings);

@@ -2,6 +2,8 @@
 
 Status: implemented
 
+IM 续接接纳、原发送句柄和配置版本按[平台在线切换](../architecture/2026-10-25-personal-im-updates.md)串行核实，问题与回答的原身份保持。
+
 ## 问题
 
 个人 main 共用输入队列，工具内等待答案会占住接收答案的通路；普通聊天没有问题版本、原入口与消费事实。Coding 的问题表、Task Store 和控制协议不属于个人 durable，不能为复用工具而重新装配它们。

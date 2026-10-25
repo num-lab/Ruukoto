@@ -2,7 +2,7 @@
 
 Status: implemented
 
-配置更新与迁移的拟调整范围见[按受影响对象更新配置](../../proposed/architecture/2026-10-25-operation-scoped-configuration.md)；该提案尚未落地，本文现行约束继续有效。
+Skills 的在线选择与原请求快照采用[请求配置](2026-10-25-personal-request-configuration.md)，不再以当前清单变化否定已固定请求；本文其余记忆、历史、来源及引用完整性约束继续适用。
 
 [读取检查复用](../bug-fix/2026-10-24-read-check-overhead.md)将外部技能正文刷新固定在本次请求准备；发送前核实已保存快照、配置与托管选择，不再全库重读。
 

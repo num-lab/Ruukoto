@@ -64,7 +64,7 @@ test("remote HTTP：双重身份、Origin拒绝、私有admin与显式路由名�
   assert.equal((await request(f.socketPath, "/tools/export", bound, {})).status, 404);
   assert.equal((await request(f.socketPath, "/commands", bound)).status, 404);
   assert.equal((await request(f.socketPath, "/tools/grant", bound, { path: "/tmp" })).status, 404);
-  assert.equal((await request(f.socketPath, "/settings", bound, { v: 1, op: "config.save", profile: f.config.profile, target: "model", expectedRevision: "missing", value: {} })).status, 404);
+  assert.equal((await request(f.socketPath, "/settings", bound, { v: 1, op: "config.save", profile: f.config.profile, target: "model", expectedRevision: "missing", value: {} })).status, 409);
   assert.equal((await request(f.socketPath, "/status", { ...bound, "x-ruukoto-profile-id": "other" })).status, 409);
   assert.equal(f.calls.filter(call => call !== "GET /desktop/identity").length, 0);
   const accepted = await request(f.socketPath, "/inputs", bound, { requestId: randomUUID(), input: "hello" });

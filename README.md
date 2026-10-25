@@ -23,7 +23,7 @@
 
 [逐项验收证据](docs/release-acceptance.md)。
 
-个人 [`ruukoto`](docs/usage.md#25-个人-agent-引导与管理) 使用 Pi 1.3.0；无参打开菜单，`serve`前台运行，`--directory`固定档案；`settings` 用有界 JSON 管理模型、Skills 与 MCP，`maintenance`核实并显式启停原服务。`remote`管理桌面配对，`remote serve`托管HTTPS/WSS入口。IM用`/帮助`查入口；固定Linux命令目录的会话后台由CLI或`/后台`查日志、停止及结束。
+个人 [`ruukoto`](docs/usage.md#25-个人-agent-引导与管理) 使用 Pi 1.3.0；无参菜单，`serve`前台运行，`--directory`固定档案；`settings` 用有界 JSON 在线或离线持锁保存，原键核实保存/生效，`maintenance`核实并显式启停原服务。`remote`管理桌面配对，`remote serve`托管HTTPS/WSS入口。IM用`/帮助`查入口；固定Linux命令目录的会话后台由CLI或`/后台`查日志、停止及结束。
 
 ## 快速开始
 

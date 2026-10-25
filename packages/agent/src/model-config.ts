@@ -156,6 +156,7 @@ export function validateModelCatalog(data: unknown): string[] {
       errors.push(`provider ${providerId}：models 必须是数组`);
       continue;
     }
+    const ids = new Set<string>();
     for (const [index, model] of ((def["models"] as unknown[] | undefined) ?? []).entries()) {
       const label = `provider ${providerId} 的第 ${index + 1} 个模型`;
       if (!isPlainObject(model)) {
@@ -164,6 +165,9 @@ export function validateModelCatalog(data: unknown): string[] {
       }
       if (typeof model["id"] !== "string" || !(model["id"] as string).trim()) {
         errors.push(`${label}：id 必须是非空字符串`);
+      } else {
+        if (ids.has(model["id"])) errors.push(`${label}：id 不能重复`);
+        ids.add(model["id"]);
       }
       checkApiKey(model["apiKey"], label);
       checkHeaders(model["headers"], label);

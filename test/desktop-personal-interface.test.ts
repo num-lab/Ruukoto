@@ -1,85 +1,62 @@
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import tls from "node:tls";
 import { test } from "node:test";
 import { DesktopHost } from "../apps/desktop/src/main/host.ts";
-import { savePersonalConfig } from "../apps/desktop/src/main/personal-config.ts";
+import { personalPendingFile } from "../apps/desktop/src/main/personal-config.ts";
 import { adoptEnvironment } from "../apps/desktop/src/main/environment.ts";
 import type { DesktopTarget, DesktopUpdate } from "../apps/desktop/src/shared/bridge.ts";
 import { product as codeProduct } from "../apps/ruukoto-code/src/product.ts";
-import { startTestRuntime, waitFor } from "./helpers/testkit.ts";
+import { startTestRuntime } from "./helpers/testkit.ts";
+import { desktopRemoteFixture, waitFor } from "./helpers/personal-remote-desktop.ts";
+import { personalTestCertificate } from "./helpers/personal-https.ts";
 
-test("双后台的附件与 pending 路由隔离，选择期间同实例重连拒绝原连接结果", async () => {
-  const previous = { ...process.env };
-  const code = await startTestRuntime("pa-host-code", () => ({ kind: "text", text: "Code" }), { config: { product: codeProduct.runtime } });
-  const personal = await startTestRuntime("pa-host-main", () => ({ kind: "text", text: "PA" }));
-  const temporary = fs.mkdtempSync("/tmp/rk-pa-host-");
-  const controlDir = path.join(temporary, "control"), userData = path.join(temporary, "app");
-  fs.mkdirSync(controlDir);
-  fs.symlinkSync(path.join(code.runtime.controlDir(), "owner.token"), path.join(controlDir, "owner.token"));
-  fs.symlinkSync(code.runtime.socketPath(), path.join(controlDir, "control.sock"));
-  // SSH 仅替换传输进程，两端仍通过真实 ControlServer 认证与上传。
-  fs.writeFileSync(path.join(temporary, "ssh"), `#!${process.execPath}
-const fs=require('node:fs'), net=require('node:net');
-const args=process.argv.slice(2);
-if (!args.includes('-N')) process.stdout.write(fs.readFileSync(process.env.PA_TOKEN_FILE));
-else {
- const local=args[args.indexOf('-L')+1].split(':')[0];
- fs.rmSync(local,{force:true});
- net.createServer(client=>{
-  const remote=net.connect(process.env.PA_SOCKET);
-  client.pipe(remote);remote.pipe(client);
-  client.on('error',()=>remote.destroy());remote.on('error',()=>client.destroy());
-  client.on('close',()=>remote.destroy());remote.on('close',()=>client.destroy());
- }).listen(local);
-}
-`, { mode: 0o755 });
-  savePersonalConfig(userData, { host: "test-personal", controlDir: "/var/lib/ruukoto/control" });
-  const env = { ...previous, PATH: `${temporary}:${previous.PATH}`, RUUKOTO_DESKTOP_MANAGED: "1", RUUKOTO_CODE_CONTROL_DIR: controlDir, RUUKOTO_CODE_DATA_DIR: code.dirs.dataDir, RUUKOTO_CODE_AGENT_DIR: code.dirs.agentDir, PA_SOCKET: personal.runtime.socketPath(), PA_TOKEN_FILE: path.join(personal.runtime.controlDir(), "owner.token") };
+test("双后台：HTTPS个人输入和Code附件独立，同实例重连拒绝旧选择与迟到结果", { timeout: 30000 }, async t => {
+  const previous = { ...process.env }, ca = tls.getCACertificates();
+  let code: Awaited<ReturnType<typeof startTestRuntime>> | undefined, host: DesktopHost | undefined, releaseRead = () => {};
+  t.after(async () => { releaseRead(); await host?.close(); await code?.shutdown(); tls.setDefaultCACertificates(ca); adoptEnvironment(previous); });
+  const f = await desktopRemoteFixture(t), pairing = f.create(); await pairing.pair("ABCDEFGHIJKL", "Electron"); await pairing.close();
+  // Host 使用系统信任入口；本测试只信任隔离 HTTPS 服务的证书，仍校验证书与主机名。
+  tls.setDefaultCACertificates([...ca, personalTestCertificate]);
+  code = await startTestRuntime("personal-interface-code", () => ({ kind: "text", text: "Code" }), { config: { product: codeProduct.runtime } });
+  const opened = await code.runtime.openWorkspace({ cwd: code.work[0] });
+  const controlDir = path.join(f.directory, "control"); fs.mkdirSync(controlDir); fs.symlinkSync(path.join(code.runtime.controlDir(), "owner.token"), path.join(controlDir, "owner.token")); fs.symlinkSync(code.runtime.socketPath(), path.join(controlDir, "control.sock"));
+  const env = { ...previous, RUUKOTO_DESKTOP_MANAGED: "1", RUUKOTO_CODE_CONTROL_DIR: controlDir, RUUKOTO_CODE_DATA_DIR: code.dirs.dataDir, RUUKOTO_CODE_AGENT_DIR: code.dirs.agentDir };
   const updates: Record<DesktopTarget, DesktopUpdate[]> = { code: [], personal: [] };
-  const host = new DesktopHost(path.resolve(import.meta.dirname, ".."), userData, { publish: (target, update) => { updates[target].push(update); }, focused: () => true, notice() {}, badge() {} }, async () => ({ env, node: process.execPath }));
+  host = new DesktopHost(path.resolve(import.meta.dirname, ".."), f.directory, { publish: (target, update) => { updates[target].push(update); }, focused: () => true, notice() {}, badge() {}, credentials: f.storage }, async () => ({ env, node: process.execPath }));
   const online = (target: DesktopTarget) => updates[target].filter(update => update.type === "state").at(-1)?.state === "online";
-  try {
-    const codeSession = (await code.runtime.openWorkspace({ cwd: code.work[0] })).session.id;
-    const main = personal.runtime.snapshot().mainSessionId!;
-    host.subscribe("code"); host.subscribe("personal");
-    await waitFor("两个真实后台在线", () => online("code") && online("personal"));
-    const selected = path.join(temporary, "selected.txt"); fs.writeFileSync(selected, "按目标上传");
-    for (const [target, sessionId, runtime] of [["code", codeSession, code.runtime], ["personal", main, personal.runtime]] as const) {
-      const [attachment] = await host.pickAttachments(sessionId, async () => [selected], undefined, target);
-      assert.equal(runtime.attachments.prepare(sessionId, [attachment])[0].bytes.toString(), "按目标上传");
-      const pending = await host.request(target, "desktop_pending_read", { request_id: "missing" });
-      assert.equal(pending.ok, false);
-      if (!pending.ok) assert.equal(pending.error.code, "not_restorable");
-      if (target === "personal") {
-        const submitted = await host.request("personal", "submit", { session_id: main, request_id: "main-with-file", input: "查看附件", attachments: [attachment], model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" } });
-        assert.equal(submitted.ok && typeof submitted.value === "object" && submitted.value !== null && "kind" in submitted.value && submitted.value.kind, "accepted");
-        const task = personal.runtime.store.listTasksBySession(main).find(item => item.requestId === "main-with-file")!;
-        assert.equal(personal.runtime.store.taskAttachments(task.id)[0].id, attachment.id);
-      }
-    }
-    const original = host.attachmentInstance("personal");
-    await assert.rejects(host.pickAttachments(main, async () => {
-      await host.request("personal", "reconnect", {});
-      await waitFor("同 PA 数据实例重连", () => online("personal"));
-      return ["/must-not-read"];
-    }, original, "personal"), { code: "attachment_instance_changed" });
-    assert.notEqual(host.attachmentInstance("personal"), original);
-    let picked = false;
-    assert.throws(() => host.pickAttachments(main, async () => { picked = true; return [selected]; }, original, "personal"), { code: "attachment_instance_changed" });
-    assert.equal(picked, false);
-    const codeSelection = host.attachmentInstance();
-    await host.request("code", "reconnect", {});
-    await waitFor("同 Code 数据实例重连", () => online("code"));
-    assert.notEqual(host.attachmentInstance(), codeSelection);
-    assert.throws(() => host.pickAttachments(codeSession, async () => assert.fail("旧连接不能打开选择器"), codeSelection), { code: "attachment_instance_changed" });
-    assert.throws(() => host.attachmentInstance("other"), { code: "target_unavailable" });
-    assert.equal(online("code"), true);
-    const before = updates.personal.filter(update => update.type === "snapshot").at(-1);
-    assert.equal(before?.type === "snapshot" && before.result.snapshot.instanceId, personal.runtime.snapshot().instanceId);
-  } finally {
-    await host.close(); adoptEnvironment(previous);
-    await personal.shutdown(); await code.shutdown();
-    fs.rmSync(temporary, { recursive: true, force: true });
-  }
+  host.subscribe("code"); host.subscribe("personal");
+  await waitFor(() => online("code") && online("personal") && updates.personal.some(update => update.type === "personal_frame")).catch(() => assert.fail(JSON.stringify({ code: updates.code.filter(update => update.type === "state"), personal: updates.personal.filter(update => update.type === "state") })));
+  assert.equal((await host.request("code", "get_session", { session_id: opened.session.id })).ok, true);
+  assert.equal((await host.request("personal", "get_session", { session_id: opened.session.id })).ok, false);
+  assert.equal((await host.request("code", "desktop_personal_input_submit", { text: "不可投Code" })).ok, false);
+  let picked = false;
+  assert.throws(() => host!.pickAttachments(opened.session.id, async () => { picked = true; return []; }, undefined, "personal"), { code: "op_not_allowed" }); assert.equal(picked, false);
+  const selected = path.join(f.directory, "selected.txt"); fs.writeFileSync(selected, "只交给Code");
+  const [attachment] = await host.pickAttachments(opened.session.id, async () => [selected]);
+  assert.equal(code.runtime.attachments.prepare(opened.session.id, [attachment])[0].bytes.toString(), "只交给Code");
+  f.state.dropInput = true;
+  const pending = await host.request("personal", "desktop_personal_input_submit", { text: "个人原输入" });
+  assert.equal(pending.ok && typeof pending.value === "object" && pending.value !== null && "kind" in pending.value && pending.value.kind, "pending");
+  const originalInput = f.state.inputCalls[0]; assert.ok(originalInput);
+  const codePending = await host.request("code", "desktop_pending_read", { request_id: originalInput.requestId }); assert.equal(codePending.ok, false); if (!codePending.ok) assert.equal(codePending.error.code, "not_restorable");
+  const connection = host.attachmentInstance();
+  await assert.rejects(host.pickAttachments(opened.session.id, async () => { await host!.request("code", "reconnect", {}); await waitFor(() => online("code")); return [selected]; }, connection), { code: "attachment_instance_changed" });
+  assert.notEqual(host.attachmentInstance(), connection);
+  const currentConnection = host.attachmentInstance();
+  assert.throws(() => host!.pickAttachments(opened.session.id, async () => assert.fail("旧选择不得打开选择器"), connection), { code: "attachment_instance_changed" });
+  assert.equal(f.state.inputCalls.length, 1);
+  const config = pairing.config, local = JSON.parse(fs.readFileSync(personalPendingFile(f.directory, config), "utf8")); assert.equal(local.input.requestId, originalInput.requestId);
+  assert.equal((await host.request("personal", "reconnect", {})).ok, true); await waitFor(() => online("personal"));
+  assert.equal(f.state.inputCalls.length, 1); assert.equal(host.attachmentInstance(), currentConnection);
+  assert.equal(JSON.parse(fs.readFileSync(personalPendingFile(f.directory, config), "utf8")).input, null);
+  let readEntered = false;
+  const gate = new Promise<void>(resolve => { releaseRead = resolve; });
+  f.overrides.set("/permissions", async (_req, res) => { readEntered = true; await gate; f.respond(res, { default: { mode: "confirm" } }); });
+  const reading = host.request("personal", "desktop_personal_request", { method: "GET", path: "/permissions" }); await waitFor(() => readEntered);
+  await host.request("personal", "reconnect", {}); releaseRead();
+  const late = await reading; assert.equal(late.ok, false);
+  assert.equal((await host.request("code", "get_session", { session_id: opened.session.id })).ok, true);
+  assert.ok(updates.code.some(update => update.type === "snapshot")); assert.ok(updates.personal.some(update => update.type === "personal_identity"));
 });

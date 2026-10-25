@@ -6,7 +6,17 @@ import { DatabaseSync } from "node:sqlite";
 import { ManagedSkillsError, validateManagedSkillsLayout } from "@ruukoto/agent/managed-skills.ts";
 import { PersonalError } from "./personal-error.ts";
 
-export const PERSONAL_FORMAT = { product: "ruukoto", format: 1, pi: "1.3.0", extensions: { personal: 2 } } as const;
+export const LEGACY_PERSONAL_FORMAT = { product: "ruukoto", format: 1, pi: "1.3.0", extensions: { personal: 2 } } as const;
+export const PERSONAL_FORMAT = { ...LEGACY_PERSONAL_FORMAT, configuration: 1 } as const;
+export type PersonalConfigurationMigration = { from: typeof LEGACY_PERSONAL_FORMAT; to: typeof PERSONAL_FORMAT; id: string; revisions: { target: string; revision: string }[] };
+export function personalProfileFormatSupported(value: unknown): boolean {
+  if (isDeepStrictEqual(value, PERSONAL_FORMAT) || isDeepStrictEqual(value, LEGACY_PERSONAL_FORMAT)) return true;
+  if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).sort().join(",") !== "configurationMigration,extensions,format,pi,product" || !("configurationMigration" in value)) return false;
+  const { configurationMigration: migration, ...base } = value;
+  if (!isDeepStrictEqual(base, LEGACY_PERSONAL_FORMAT) || !migration || typeof migration !== "object" || Array.isArray(migration) || Object.keys(migration).sort().join(",") !== "from,id,revisions,to" || !("from" in migration) || !("to" in migration) || !("id" in migration) || !("revisions" in migration) || !isDeepStrictEqual(migration.from, LEGACY_PERSONAL_FORMAT) || !isDeepStrictEqual(migration.to, PERSONAL_FORMAT) || typeof migration.id !== "string" || !/^[0-9a-f-]{36}$/.test(migration.id) || !Array.isArray(migration.revisions)) return false;
+  const targets = new Set<string>();
+  return migration.revisions.every(value => value && typeof value === "object" && !Array.isArray(value) && Object.keys(value).sort().join(",") === "revision,target" && typeof value.target === "string" && ["model", "skills", "managed-skills", "mcp", "web-search", "telegram", "qq", "commands", "services"].includes(value.target) && !targets.has(value.target) && !!targets.add(value.target) && typeof value.revision === "string" && /^(missing|sha256:[0-9a-f]{64})$/.test(value.revision));
+}
 export type PersonalProfileLock = { directory: string; release(): void };
 export const PERSONAL_PENDING_FILE = /^pending-(?:work-)?([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.json$/;
 export const PERSONAL_SCHEDULE_PENDING_FILE = /^pending-schedule-([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.json$/;
@@ -23,7 +33,7 @@ export function lockPersonalProfile(directory: string): PersonalProfileLock {
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
   if (!fs.lstatSync(directory).isDirectory() || fs.lstatSync(directory).isSymbolicLink()) throw new PersonalError("profile_unrecognized", "个人档案必须是普通目录，请另选空目录。");
   const names = fs.readdirSync(directory);
-  const allowed = new Set(["profile.json", "owner.sqlite", "owner.sqlite-journal", "personal.sqlite", "personal.sqlite-wal", "personal.sqlite-shm", "model.json", "model.json.tmp", "skills.json", "skills.json.tmp", "telegram.json", "telegram.json.tmp", "qq.json", "qq.json.tmp", "service.json", "service.json.tmp", "command.json", "command.json.tmp", "mcp.json", "mcp.json.tmp", "tools.json", "tools.json.tmp", "browser.json", "browser.json.tmp", "control.token", "control.token.tmp", "backend.log", "pending-background-end.json"]);
+  const allowed = new Set(["profile.json", "profile.json.tmp", "owner.sqlite", "owner.sqlite-journal", "personal.sqlite", "personal.sqlite-wal", "personal.sqlite-shm", "model.json", "model.json.tmp", "skills.json", "skills.json.tmp", "telegram.json", "telegram.json.tmp", "qq.json", "qq.json.tmp", "service.json", "service.json.tmp", "command.json", "command.json.tmp", "mcp.json", "mcp.json.tmp", "tools.json", "tools.json.tmp", "web-search.json", "web-search.json.tmp", "browser.json", "browser.json.tmp", "control.token", "control.token.tmp", "backend.log", "pending-background-end.json"]);
   if (names.some(name => {
     const stat = fs.lstatSync(path.join(directory, name), { throwIfNoEntry: false });
     return stat && (name === "control.sock" ? !stat.isSocket() : privateDirectories.has(name) ? !stat.isDirectory() || stat.isSymbolicLink() || stat.uid !== process.getuid?.() || (stat.mode & 0o077) !== 0 : ((!allowed.has(name) && !PERSONAL_PENDING_FILE.test(name) && !PERSONAL_SCHEDULE_PENDING_FILE.test(name) && !PERSONAL_QUESTION_PENDING_FILE.test(name)) || !stat.isFile()));
@@ -56,7 +66,7 @@ export function lockPersonalProfile(directory: string): PersonalProfileLock {
     const manifest = path.join(directory, "profile.json");
     if (fs.existsSync(manifest)) {
       const saved: unknown = JSON.parse(fs.readFileSync(manifest, "utf8"));
-      if (!isDeepStrictEqual(saved, PERSONAL_FORMAT)) {
+      if (!personalProfileFormatSupported(saved)) {
         throw new PersonalError("profile_version", "个人档案版本不受当前程序支持，请使用对应版本并在停止实例后安排升级。");
       }
     } else {

@@ -2,7 +2,7 @@
 
 Status: implemented
 
-配置更新与迁移的拟调整范围见[按受影响对象更新配置](../../proposed/architecture/2026-10-25-operation-scoped-configuration.md)；该提案尚未落地，本文现行约束继续有效。
+Web Search 的独立配置与运行选择采用[请求配置](2026-10-25-personal-request-configuration.md)，不切换无关文件/HTTP 操作；本文其余权限、原请求证据与未知效果约束继续适用。
 
 运行时无条件资料目录核实由[按操作核实范围](../bug-fix/2026-10-24-operation-specific-checks.md)取代；网络与完全访问操作只检查实际依赖，原来源、审批、权限修订与未知效果规则继续适用。
 

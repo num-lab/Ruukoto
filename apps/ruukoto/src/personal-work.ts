@@ -250,7 +250,7 @@ export async function delegatePersonalWork(tx: Tx, model: ModelRef, input: Deleg
     if (Array.isArray(main.extensions) && main.extensions.includes(PERSONAL_TOOLS)) {
       const config = await tx.doc(AgentDoc, child.id);
       if (!Array.isArray(config.extensions) || !Array.isArray(config.tools)) throw new PersonalError("work_config_changed", "子会话工具配置无法核实，请保留档案。");
-      config.extensions.push(PERSONAL_TOOLS, PERSONAL_FILE_SEARCH); config.tools.push(...PERSONAL_TOOL_NAMES);
+      config.extensions.push(PERSONAL_TOOLS, ...(main.extensions.includes(PERSONAL_FILE_SEARCH) ? [PERSONAL_FILE_SEARCH] : [])); config.tools.push(...PERSONAL_TOOL_NAMES.filter(name => Array.isArray(main.tools) && main.tools.includes(name)));
     }
     if (Array.isArray(main.extensions) && main.extensions.includes(PERSONAL_MEDIA)) {
       const config = await tx.doc(AgentDoc, child.id);
@@ -514,10 +514,10 @@ export async function closePersonalWorkAgent(tx: Tx, ref: PersonalWorkRef) {
 }
 
 /** 可信宿主接口；取消等待子会话及其固定检查停止，未核实时保留占用并继续等待。 */
-export function personalWork(harness: Harness, model: ModelRef) {
+export function personalWork(harness: Harness, model: ModelRef | (() => ModelRef)) {
   return {
     async delegate(input: DelegateInput): Promise<PersonalWorkRef> {
-      const ref = await harness.commit(tx => delegatePersonalWork(tx, model, input), context);
+      const ref = await harness.commit(tx => delegatePersonalWork(tx, typeof model === "function" ? model() : model, input), context);
       harness.resume();
       return ref;
     },

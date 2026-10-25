@@ -1,7 +1,6 @@
 import { personalSource, personalSourceImReceipt } from "./personal-source.ts";
 import { AppDataAdmission, PersonalAppDataOperationDoc } from "./personal-app-data.ts";
-import { PersonalImApiError } from "./personal-im-api.ts";
-import type { PersonalQqApi } from "./personal-qq-api.ts";
+import { PersonalImApiError, withPersonalImEntry, type PersonalImAccess, type PersonalImSender } from "./personal-im-api.ts";
 import { PersonalToolDoc, ToolAdmission } from "./personal-tools.ts";
 import { PersonalBrowserOperationDoc, BrowserAdmission } from "./personal-browser.ts";
 import { isDeepStrictEqual } from "node:util";
@@ -19,7 +18,7 @@ import { personalTelegramApi } from "./personal-telegram-api.ts";
 import { telegramToken } from "./personal-telegram-config.ts";
 
 type Delivery = "waiting" | "local" | "pending" | "sending" | "sent" | "failed" | "effect_unknown" | "canceled" | "blocked" | "unanswered";
-export type PersonalReportFacts = { taskId: TaskId; admission: EntryId; source: PersonalWorkSource; modelCall: TaskId; content: string; attempt: number; pauses: EntryId[]; submissionId?: SubmissionId; answer?: EntryId; reply?: string; delivery: Delivery; platformMessageId?: string };
+export type PersonalReportFacts = { taskId: TaskId; admission: EntryId; source: PersonalWorkSource; modelCall: TaskId; content: string; attempt: number; pauses: EntryId[]; submissionId?: SubmissionId; answer?: EntryId; reply?: string; delivery: Delivery; platformMessageId?: string; configurationVersion?: string };
 type ReportInput = { delegation: PersonalDelegationRef; source: PersonalWorkSource; modelCall: TaskId; content: string };
 const ReportAdmission = defineEntry<ReportInput & { taskId: TaskId }>("ruukoto.report-admission");
 const ReportPause = defineEntry<{ taskId: TaskId; attempt: number; submissionId: SubmissionId; blocker: PersonalServiceBlocker }>("ruukoto.report-pause");
@@ -73,7 +72,7 @@ function canceled(reader: DocumentObserver, ref: PersonalDelegationRef, context:
 }
 
 // Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-delegation-reports.md
-function personalReportTask(qqApi?: PersonalQqApi) { return defineTask<ReportInput, { phase: "wait" } | { phase: "summarize"; attempt: number } | { phase: "send"; retryAt?: number } | { phase: "verify" }, { delivery: Delivery }>({
+function personalReportTask(im?: PersonalImAccess) { return defineTask<ReportInput, { phase: "wait" } | { phase: "summarize"; attempt: number } | { phase: "send"; retryAt?: number } | { phase: "verify" }, { delivery: Delivery }>({
   name: "ruukoto.delegation-report", version: 1, initial: () => ({ phase: "wait" }),
   phases: {
     async wait(current, runtime, context) {
@@ -116,12 +115,19 @@ function personalReportTask(qqApi?: PersonalQqApi) { return defineTask<ReportInp
             if (stillBlocked) await Promise.race([changed, cancel.promise]);
           } finally { await watch.stop(); }
         }
-        const saved = (await runtime.snapshot(PersonalDelegationDoc, String(ref.entryId), context))!.delegation!.report!;
+        const original = (await runtime.snapshot(PersonalDelegationDoc, String(ref.entryId), context))!.delegation!, saved = original.report!;
         const main = await runtime.conversation(ROOT_CONVERSATION_ID, context);
         if (!main) throw new PersonalError("report_main_missing", "报告主会话缺失，请保留档案。");
-        const submission = await main.submit({ type: "input", requestId: submissionKey(current.id, saved.attempt), content: saved.content, entry: { kind: INPUT_KIND, data: inputData(ref, saved) }, whenBusy: "followUp" }, context);
         let cancelNow = false;
-        await runtime.commit(async tx => { const { value, report } = await reportFacts(tx, ref, current.id); await verifyInput(tx, ref, report); report.submissionId = submission.id; cancelNow = value.cancelRequested; return undefined; }, context);
+        const submission = await withPersonalImEntry(im, original.telegram ?? {}, async () => {
+          let permitted = true;
+          await runtime.commit(async tx => { const { value, report } = await reportFacts(tx, ref, current.id); if (!await verifyInput(tx, ref, report) && value.telegram && im && !im.isActive(value.telegram)) { permitted = false; report.delivery = "canceled"; return { status: "terminal", outcome: { status: "completed", result: { delivery: report.delivery } } }; } await requireReportReady(tx, ref); return undefined; }, context);
+          if (!permitted) return;
+          const submission = await main.submit({ type: "input", requestId: submissionKey(current.id, saved.attempt), content: saved.content, entry: { kind: INPUT_KIND, data: inputData(ref, saved) }, whenBusy: "followUp" }, context);
+          await runtime.commit(async tx => { const { value, report } = await reportFacts(tx, ref, current.id); await verifyInput(tx, ref, report); report.submissionId = submission.id; cancelNow = value.cancelRequested; return undefined; }, context);
+          return submission;
+        });
+        if (!submission) return;
         if (cancelNow) await submission.abort(context);
         const settled = await Promise.race([submission.wait(context), cancel.promise.then(() => undefined)]);
         if (!settled) await submission.abort(context);
@@ -150,24 +156,28 @@ function personalReportTask(qqApi?: PersonalQqApi) { return defineTask<ReportInp
       const source = (await runtime.snapshot(PersonalDelegationDoc, String(ref.entryId), context))?.delegation?.telegram;
       const state = await runtime.snapshot(PersonalTelegramDoc, context);
       const config = personalEntryConfig(state ?? {}, source ?? {});
-      const api = source?.platform === "qq" ? qqApi : state?.config?.enabled ? personalTelegramApi(state.config.apiBase, telegramToken(state.config)) : undefined;
+      let api: PersonalImSender | undefined = !im && state?.config?.enabled ? personalTelegramApi(state.config.apiBase, telegramToken(state.config)) : undefined;
       let owner = "", message = 0, reply = "";
+      await withPersonalImEntry(im, source ?? {}, async () => {
       await runtime.commit(async tx => {
         const { value, report } = await reportFacts(tx, ref, current.id);
         const currentConfig = personalEntryConfig(await tx.doc(PersonalTelegramDoc), source ?? {});
-        if (value.cancelRequested || (value.telegram && (!isDeepStrictEqual(config, currentConfig) || !config?.enabled || config.generation !== value.telegram.generation || config.botId !== value.telegram.botId || config.ownerId !== value.telegram.ownerId))) { report.delivery = "canceled"; return { status: "terminal", outcome: { status: "completed", result: { delivery: "canceled" } } }; }
+        if (value.cancelRequested || value.telegram && im && !im.isActive(value.telegram) || (value.telegram && (!isDeepStrictEqual(config, currentConfig) || !config?.enabled || config.generation !== value.telegram.generation || config.botId !== value.telegram.botId || config.ownerId !== value.telegram.ownerId))) { report.delivery = "canceled"; return { status: "terminal", outcome: { status: "completed", result: { delivery: "canceled" } } }; }
         if (await personalDelegationBlocker(tx, value)) return { status: "running", checkpoint: { phase: "summarize", attempt: report.attempt } };
         if (!value.telegram) { report.delivery = "local"; return { status: "terminal", outcome: { status: "completed", result: { delivery: "local" } } }; }
         const receipt = await personalSourceImReceipt(tx, value.source.requestId);
-        if (!receipt || !report.reply || report.delivery !== "pending" || !api) throw new PersonalError("report_send_invalid", "报告固定目标或正文缺失，已停止发送；请保留档案。");
+        if (!receipt || !report.reply || report.delivery !== "pending") throw new PersonalError("report_send_invalid", "报告固定目标或正文缺失，已停止发送；请保留档案。");
         owner = value.telegram.ownerId; message = receipt.messageId; reply = report.reply;
         report.delivery = "sending";
+        const version = im?.configurationVersion(value.telegram); if (version) report.configurationVersion = version;
         return { status: "running", checkpoint: { phase: "verify" } };
       }, context);
+      if (owner && im && source) api = im.sender(source);
+      });
       if (!owner) return;
       let platformMessageId: string | undefined;
       let failure: PersonalImApiError | undefined;
-      try { platformMessageId = await api!.send(owner, message, reply, runtime.signal); } catch (error) { if (!(error instanceof PersonalImApiError)) throw error; failure = error; }
+      try { if (!api) throw new PersonalImApiError("im_target_inactive", "原报告入口已失效，未发送；请查询原委托。", "not_sent"); platformMessageId = await api.send(owner, message, reply, runtime.signal); } catch (error) { if (!(error instanceof PersonalImApiError)) throw error; failure = error; }
       await runtime.commit(async tx => {
         const { report } = await reportFacts(tx, ref, current.id);
         if (failure?.retryAfterMs) { report.delivery = "pending"; return { status: "running", checkpoint: { phase: "send", retryAt: runtime.now() + failure.retryAfterMs } }; }
@@ -192,7 +202,7 @@ function personalReportTask(qqApi?: PersonalQqApi) { return defineTask<ReportInp
 
 }
 export const PersonalReportTask = personalReportTask();
-export function personalReports(qqApi: PersonalQqApi) { return defineExtension({ name: "personal-delegation-reports", tasks: [personalReportTask(qqApi)] }); }
+export function personalReports(im: PersonalImAccess) { return defineExtension({ name: "personal-delegation-reports", tasks: [personalReportTask(im)] }); }
 export const personalDelegationReports = defineExtension({ name: "personal-delegation-reports", tasks: [PersonalReportTask] });
 
 export async function requestPersonalReport(tx: Tx, ref: PersonalDelegationRef, sourceRequestId: string, modelCall: TaskId) {

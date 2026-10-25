@@ -15,14 +15,14 @@ type Secret = { id: string; secret: string; origin: string };
 type Active = Secret & { remoteId: string; profile: PersonalRemoteIdentity["profile"] };
 type Candidate = Secret & { request: { v: 1; code: string; label: string }; rejected?: true };
 type Credentials = { v: 1; active?: Active; candidate?: Candidate };
-type Pending = { v: 1; input: PersonalPendingInput | null; maintenance?: { id: string; requestDigest: string } };
+type Pending = { v: 1; input: PersonalPendingInput | null; maintenance?: { id: string; requestDigest: string }; settings?: { id: string; requestDigest: string; target: string; scope: string }[] };
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
 const failed = (code: string, message: string, outcome: "not_sent" | "unknown" | "rejected" = "not_sent") => new ControlClientError(code, message, outcome);
 const bindingMatches = (identity: PersonalRemoteIdentity, binding: { remoteId: string; profile: PersonalRemoteIdentity["profile"] }) => identity.remoteId === binding.remoteId && isDeepStrictEqual(identity.profile, binding.profile);
 const READ_PATHS = ["/status", "/timeline", "/history/entry", "/input", "/permissions", "/questions", "/question", "/question/receipt", "/works", "/work", "/tools/operations", "/tools/operation", "/mcp/operations", "/mcp/operation", "/app-data/operations", "/app-data/operation", "/services", "/service"];
 const WRITE_PATHS = ["/permissions", "/question/answer", "/question/cancel", "/work/cancel", "/tools/decide", "/mcp/decide", "/app-data/decide", "/service/decide"];
-const KNOWN_REJECTIONS = new Set(["remote_request_invalid", "remote_maintenance_request_invalid", "remote_maintenance_pending", "settings_pending", "settings_revision_changed", "skills_revision_conflict", "settings_stop_required", "profile_busy", "maintenance_read_only", "model_environment_unverified", "input_invalid", "input_conflict"]);
+const KNOWN_REJECTIONS = new Set(["remote_request_invalid", "remote_maintenance_request_invalid", "remote_maintenance_pending", "settings_pending", "settings_revision_changed", "settings_target_pending", "settings_request_conflict", "settings_upgrade_required", "settings_profile_changed", "settings_file_unverified", "skills_revision_conflict", "settings_stop_required", "profile_busy", "maintenance_read_only", "model_environment_unverified", "input_invalid", "input_conflict"]);
 const authorization = (value: Secret) => `Bearer ${value.id}.${value.secret}`;
 function parseCredentials(raw: string | null): Credentials {
   if (raw === null) return { v: 1 };
@@ -187,7 +187,7 @@ export class PersonalController {
   private persistBinding(identity: PersonalRemoteIdentity): void {
     const binding = { remoteId: identity.remoteId, profile: identity.profile };
     if (isDeepStrictEqual(this.config.binding, binding)) return;
-    if (this.config.binding && (this.pending().input || this.pending().maintenance)) throw failed("personal_pending", "原档案仍有待核实请求，请先核实原输入与维护；未更改原绑定或凭据。");
+    if (this.config.binding && (this.pending().input || this.pending().maintenance || this.pending().settings?.length)) throw failed("personal_pending", "原档案仍有待核实请求，请先核实原输入与维护；未更改原绑定或凭据。");
     this.config = savePersonalConfig(this.userData, { v: 1, origin: this.config.origin, binding });
   }
   private adopt(identity: PersonalRemoteIdentity): void {
@@ -330,6 +330,7 @@ export class PersonalController {
     const value = readPersonalRecord(personalPendingFile(this.userData, this.config));
     if (value === null) return { v: 1, input: null };
     if (!object(value) || value.v !== 1 || value.input !== null && (!object(value.input) || value.input.v !== 1 || value.input.origin !== this.config.origin || value.input.remoteId !== this.config.binding?.remoteId || !isDeepStrictEqual(value.input.profile, this.config.binding?.profile) || typeof value.input.requestId !== "string" || !UUID.test(value.input.requestId) || typeof value.input.input !== "string" || Buffer.byteLength(value.input.input) > 16 * 1024) || value.maintenance !== undefined && (!object(value.maintenance) || typeof value.maintenance.id !== "string" || !UUID.test(value.maintenance.id) || typeof value.maintenance.requestDigest !== "string" || !/^[0-9a-f]{64}$/.test(value.maintenance.requestDigest))) throw new DesktopError("personal_pending_invalid", "原个人请求记录无法核实，发送已停止；请保留文件并检查原档案。");
+    if (value.settings !== undefined && (!Array.isArray(value.settings) || value.settings.some(item => !object(item) || Object.keys(item).sort().join(",") !== "id,requestDigest,scope,target" || typeof item.id !== "string" || !UUID.test(item.id) || typeof item.requestDigest !== "string" || !/^[0-9a-f]{64}$/.test(item.requestDigest) || !["model", "skills", "mcp", "web-search", "telegram", "qq", "commands", "services"].includes(String(item.target)) || typeof item.scope !== "string" || !item.scope || item.scope.length > 128) || new Set(value.settings.map(item => item.id)).size !== value.settings.length)) throw new DesktopError("personal_pending_invalid", "原配置请求关联无法核实，请保留记录并查询原档案。");
     return value as Pending;
   }
   private record(value: Pending, result?: PersonalInputReceipt): void { writePersonalRecord(personalPendingFile(this.userData, this.config), value); this.publish({ type: "personal_pending", record: value.input, ...(result ? { result } : {}) }); }
@@ -339,12 +340,20 @@ export class PersonalController {
     this.switching = true;
     try {
       const credentials = await this.readCredentials(), pending = this.config.binding ? this.pending() : null;
-      if (pending?.input || pending?.maintenance || credentials.candidate) throw failed("personal_pending", "原连接仍有待核实请求，请先核实原输入、维护与配对；未切换地址。");
+      if (pending?.input || pending?.maintenance || pending?.settings?.length || credentials.candidate) throw failed("personal_pending", "原连接仍有待核实请求，请先核实原输入、维护与配对；未切换地址。");
       return () => { this.switching = false; };
     } catch (error) { this.switching = false; throw error; }
   }
   maintenance(): Pending["maintenance"] { return this.pending().maintenance; }
   recordMaintenance(value: Pending["maintenance"]): void { if (this.closed || this.switching && value) throw failed("personal_pending", "个人连接已关闭或正在切换，未接纳新维护。"); const pending = this.pending(); if (value) pending.maintenance = value; else delete pending.maintenance; this.record(pending); }
+  settingsOperations(): NonNullable<Pending["settings"]> { return this.pending().settings ?? []; }
+  recordSettingsOperation(id: string, value?: NonNullable<Pending["settings"]>[number]): void {
+    if (this.closed || this.switching && value) throw failed("personal_pending", "个人连接已关闭或正在切换，未接纳配置更改。");
+    const pending = this.pending(), settings = (pending.settings ?? []).filter(item => item.id !== id);
+    if (value) settings.push(value);
+    if (settings.length) pending.settings = settings; else delete pending.settings;
+    this.record(pending);
+  }
   private inputReceipt(requestId: string, value: unknown): PersonalInputReceipt {
     if (!object(value) || !["queued", "placed", "done", "unanswered", "missing"].includes(String(value.status)) || value.answer !== undefined && typeof value.answer !== "string" || value.truncated !== undefined && typeof value.truncated !== "boolean") throw failed("personal_protocol", "原输入应答无法核实，请查询原请求；不会换键重发。", "unknown");
     return { kind: value.status === "missing" ? "missing" : "accepted", requestId, ...(value.status === "missing" ? {} : { status: value.status as "queued" | "placed" | "done" | "unanswered" }), ...(typeof value.answer === "string" ? { answer: value.answer } : {}), ...(typeof value.truncated === "boolean" ? { truncated: value.truncated } : {}) };

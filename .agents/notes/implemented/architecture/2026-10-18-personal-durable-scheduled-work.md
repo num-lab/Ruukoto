@@ -2,7 +2,9 @@
 
 Status: implemented
 
-配置更新与迁移的拟调整范围见[按受影响对象更新配置](../../proposed/architecture/2026-10-25-operation-scoped-configuration.md)；该提案尚未落地，本文现行约束继续有效。
+定时接纳和回报发送按[IM 平台在线切换](2026-10-25-personal-im-updates.md)固定句柄与配置版本；旧计划仍受创建时来源和范围约束。
+
+请求选择与连续 MCP 改名兼容由[请求配置](2026-10-25-personal-request-configuration.md)收窄，命令/服务范围迁移由[执行配置版本](2026-10-25-personal-execution-configuration-versions.md)持有；本文其余创建范围、权限及整项收尾约束继续适用。
 
 ## 问题
 

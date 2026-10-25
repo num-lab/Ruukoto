@@ -2,7 +2,7 @@
 
 Status: implemented
 
-配置更新与迁移的拟调整范围见[按受影响对象更新配置](../../proposed/architecture/2026-10-25-operation-scoped-configuration.md)；该提案尚未落地，本文现行约束继续有效。
+普通配置的在线保存、对象生效与原键核实由[设置保存与生效](2026-10-25-personal-settings-versions.md)收窄；本文其余本机认证、档案锁、输入及管理接口约束继续适用。
 
 独立远程入口见 [Tailscale HTTPS／WebSocket](2026-10-24-personal-tailscale-https.md)；本机 Unix socket、唯一 Harness 与锁规则保持。
 

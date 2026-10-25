@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { test, type TestContext } from "node:test";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { defineDocFamily, ROOT_CONVERSATION_ID } from "@earendil-works/pi-durable";
+import { AgentDoc, createSession, defineDocFamily, ROOT_CONVERSATION_ID } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { openPersonalHarness, type PersonalHarness } from "../apps/ruukoto/src/personal-harness.ts";
 import { personalProvider, type PersonalModelConfig } from "../apps/ruukoto/src/personal-model.ts";
@@ -15,6 +15,7 @@ import { savePersonalTools } from "../apps/ruukoto/src/personal-tools-config.ts"
 import { savePersonalBrowser } from "../apps/ruukoto/src/personal-browser-config.ts";
 import { PersonalSchedulesDoc } from "../apps/ruukoto/src/personal-scheduler-records.ts";
 import { hasPendingPersonalWork } from "../apps/ruukoto/src/personal-config-idle.ts";
+import { personalConfigurationVersions } from "../apps/ruukoto/src/personal-settings-records.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
 import { PersonalMockModelServer as MockModelServer } from "./helpers/mock-provider.ts";
 
@@ -48,22 +49,30 @@ test("配置闭环：合法空闲调度监督允许启用和更换能力，保�
   assert.equal(f.model.calls.length, 0); assert.ok((await p.harness.snapshot(PersonalSchedulesDoc, context))!.supervisor);
 });
 
-test("配置闭环：未决输入拒绝同模型换端点和能力配置，文件原样保留；同配置仍可恢复", async t => {
+test("配置闭环：未决输入固定原模型，离线模型与 MCP 保存独立于未完成输入", async t => {
   const f = await fixture(t), p = await f.open(); await p.submit("旧输入", "pending-config");
   const deadline = Date.now() + 10000;
   while (!f.model.calls.length) { assert.ok(Date.now() < deadline, "等待原模型请求超时"); await new Promise(resolve => setTimeout(resolve, 5)); }
+  const originalModel = (await p.harness.snapshot(AgentDoc, p.main.id, context))?.model;
   await p.close();
   const before = fs.readFileSync(path.join(f.directory, "model.json"), "utf8");
   await savePersonalConfig(f.directory, f.config);
-  for (const change of [{ baseUrl: "https://different.example/v1" }, { apiKeyEnv: "ANOTHER_MODEL_KEY" }, { api: "openai-responses" as const }, { imageInput: true }]) await assert.rejects(savePersonalConfig(f.directory, { ...f.config, ...change }), code("model_changed_pending"));
-  assert.equal(fs.readFileSync(path.join(f.directory, "model.json"), "utf8"), before);
-  await assert.rejects(savePersonalMcp(f.directory, f.mcp), code("mcp_config_pending"));
+  for (const change of [{ baseUrl: "https://different.example/v1" }, { apiKeyEnv: "ANOTHER_MODEL_KEY" }, { api: "openai-responses" as const }, { imageInput: true }]) await savePersonalConfig(f.directory, { ...f.config, ...change });
+  assert.notEqual(fs.readFileSync(path.join(f.directory, "model.json"), "utf8"), before);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(f.directory, "model.json"), "utf8")).imageInput, true);
+  await savePersonalMcp(f.directory, f.mcp);
   await assert.rejects(savePersonalTools(f.directory, f.tools), code("tools_config_pending"));
   await assert.rejects(savePersonalBrowser(f.directory, f.browser), code("browser_config_pending"));
-  for (const name of ["mcp", "tools", "browser"]) assert.equal(fs.existsSync(path.join(f.directory, `${name}.json`)), false);
+  assert.equal(fs.existsSync(path.join(f.directory, "mcp.json")), true);
+  for (const name of ["tools", "browser"]) assert.equal(fs.existsSync(path.join(f.directory, `${name}.json`)), false);
+  const session = createSession(await openNodeSqliteStorage(path.join(f.directory, "personal.sqlite")));
+  try {
+    assert.deepEqual((await session.snapshot(AgentDoc, ROOT_CONVERSATION_ID, context))?.model, originalModel);
+    assert.ok((await session.commit(tx => personalConfigurationVersions(tx, "model"), context)).length >= 5);
+  } finally { await session.close(context); }
 });
 
-for (const broken of ["supervisor-id", "unclosed-run", "queued-input"] as const) test(`配置空闲：${broken} 不能冒充空闲监督任务`, async t => {
+for (const broken of ["supervisor-id", "unclosed-run", "queued-input"] as const) test(`配置空闲扫描：${broken} 仍非空闲，但不阻止独立模型保存`, async t => {
   const f = await fixture(t), p = await f.open(), requestId = randomUUID();
   await p.harness.commit(tx => p.scheduler.create(tx, { requestId, label: "监督", instruction: "未来", rule: { kind: "once", at: new Date(Date.now() + 3600000).toISOString(), timeZone: "UTC" } }, { kind: "local", requestId }), context);
   await p.harness.commit(async tx => {
@@ -76,5 +85,7 @@ for (const broken of ["supervisor-id", "unclosed-run", "queued-input"] as const)
   await p.close();
   const storage = await openNodeSqliteStorage(path.join(f.directory, "personal.sqlite"));
   try { assert.equal(await hasPendingPersonalWork(storage), true); } finally { await storage.close(context); }
-  await assert.rejects(savePersonalConfig(f.directory, { ...f.config, modelId: "next" }), code("model_changed_pending"));
+  await savePersonalConfig(f.directory, { ...f.config, modelId: "next" });
+  assert.equal(JSON.parse(fs.readFileSync(path.join(f.directory, "model.json"), "utf8")).modelId, "next");
+  await assert.rejects(savePersonalTools(f.directory, f.tools), code("tools_config_pending"));
 });

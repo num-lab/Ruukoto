@@ -24,6 +24,8 @@ import { personalQqApi, qqPhoto } from "../apps/ruukoto/src/personal-qq-api.ts";
 import { PersonalMediaError } from "../apps/ruukoto/src/personal-media.ts";
 import { configurePersonalQq } from "../apps/ruukoto/src/personal-qq-cli.ts";
 import { lockPersonalProfile } from "../apps/ruukoto/src/personal-profile.ts";
+import { savePersonalConfig } from "../apps/ruukoto/src/personal-config.ts";
+import { startPersonalServer } from "../apps/ruukoto/src/personal-control.ts";
 import { PersonalMockModelServer as MockModelServer, type Responder } from "./helpers/mock-provider.ts";
 import { startMockOneBot, MOCK_QQ_ACCOUNT, MOCK_QQ_SECRET } from "./helpers/mock-onebot.ts";
 
@@ -119,6 +121,25 @@ test("QQ：双平台共用主会话，负消息号、乱序和重投只接纳一
   assert.ok(f.sends().every(action => String(action.params.user_id) === OWNER));
   assert.match(JSON.stringify(f.model.calls[2].messages), /Telegram 查阅共享内容/);
   assert.doesNotMatch(JSON.stringify((await p.main.entries({}, 256, undefined, context)).items), /qq-onebot-test-secret/);
+});
+
+test("QQ 在线换绑：原 sending 保留旧连接与目标，Telegram 和新代次继续接纳", async t => {
+  const f = await fixture(t), p = await f.open(); f.bot.setSendDelayMs(700);
+  await p.qq.receive(event(701)); await until(() => f.sends().length === 1);
+  const next = { ...f.qq, generation: randomUUID(), ownerId: "880002" };
+  const version = randomUUID(); await p.telegram.update("qq", next, version, "new-qq-revision");
+  assert.ok(f.bot.connectionCount() >= 2, "已领取发送结束前保留旧 socket");
+  const independent = await f.receive("QQ 切换时的独立 Telegram", undefined, "telegram"); assert.equal(independent.value.delivery, "sent");
+  assert.equal((await settled(p, 701)).delivery, "sent");
+  assert.equal(String(f.sends()[0].params.user_id), OWNER);
+  f.bot.setSendDelayMs(0);
+  await p.qq.receive(event(702, "新入口", { user_id: Number(next.ownerId) }));
+  const receipt = (await p.harness.snapshot(PersonalTelegramReceiptDoc, `qq:${next.botId}:${next.ownerId}:702`, context))!.receipt!;
+  await p.harness.waitForTask(receipt.taskId, context);
+  assert.equal((await p.harness.snapshot(PersonalTelegramReceiptDoc, receipt.requestId, context))!.receipt!.configurationVersion, version);
+  assert.equal(String(f.sends().at(-1)!.params.user_id), next.ownerId);
+  await assert.rejects(p.telegram.update("qq", { ...next, generation: randomUUID(), tokenDigest: "0".repeat(64) }, randomUUID(), "bad"), code("qq_credentials_changed"));
+  assert.equal((await p.harness.snapshot(PersonalTelegramDoc, context))!.qqConfig!.generation, next.generation);
 });
 
 test("QQ：群聊、临时会话、错账号、错拥有者、接管前及畸形事件不建任务", async t => {
@@ -265,8 +286,11 @@ test("QQ：后台最终报告固定原消息，Telegram 后续聊天不改变发
   assert.equal(String(sends[0].params.user_id), OWNER); assert.equal(f.telegramSends.filter(send => String(send.text).includes(report)).length, 0);
 });
 
-test("QQ：配对从真实好友消息选拥有者，凭据不落盘，边界同秒不接纳，停用换代且在线持锁拒绝", async t => {
+test("QQ：后台配对核实好友，凭据不落盘，边界同秒不接纳，停用换代", async t => {
   const f = await fixture(t), answers = ["1", f.qq.endpoint, f.qq.tokenEnv, "", "1"], platformTime = Math.floor(Date.now() / 1000) + 60; let output = "";
+  await savePersonalConfig(f.options.directory, f.config);
+  const backend = await startPersonalServer(f.options.directory);
+  t.after(() => backend.stop());
   await configurePersonalQq({ question: async prompt => {
     if (prompt.includes("直接发送")) {
       const phrase = prompt.match(/“([^”]+)”/)![1];
@@ -274,15 +298,16 @@ test("QQ：配对从真实好友消息选拥有者，凭据不落盘，边界同
     }
     assert.ok(answers.length); return answers.shift()!;
   }, write: value => { output += value; } }, f.options.directory);
-  const profile = lockPersonalProfile(f.options.directory), saved = readPersonalQq(profile)!; profile.release();
-  assert.equal(saved.botId, MOCK_QQ_ACCOUNT); assert.equal(saved.ownerId, OWNER); assert.equal(saved.enabled, true); assert.match(output, /已配对/); assert.equal(saved.boundary, platformTime); assert.equal(saved.boundaryMessageId, "-1");
+  const saved = parsePersonalQq(JSON.parse(fs.readFileSync(path.join(f.options.directory, "qq.json"), "utf8")));
+  await backend.stop();
+  assert.equal(saved.botId, MOCK_QQ_ACCOUNT); assert.equal(saved.ownerId, OWNER); assert.equal(saved.enabled, true); assert.match(output, /已保存并生效/); assert.equal(saved.boundary, platformTime); assert.equal(saved.boundaryMessageId, "-1");
   const file = path.join(f.options.directory, "qq.json"); assert.equal(fs.statSync(file).mode & 0o777, 0o600); assert.doesNotMatch(fs.readFileSync(file, "utf8"), /qq-onebot-test-secret/);
   const p = await f.open({ qq: saved });
   await p.qq.receive(event(-1, "边界同秒", { time: saved.boundary })); assert.equal(f.model.calls.length, 0);
   await p.qq.receive(event(-10, "平台时钟快时的旧积压", { time: platformTime - 20 })); assert.equal(f.model.calls.length, 0);
   await p.qq.receive(event(-1, "配对消息重投改时间", { time: platformTime + 1 })); assert.equal(f.model.calls.length, 0);
   await p.qq.receive(event(-2, "边界后新消息", { time: saved.boundary + 1 })); assert.equal((await settled(p, -2)).delivery, "sent");
-  assert.throws(() => savePersonalQq(f.options.directory, saved), code("profile_busy"));
+  await assert.rejects(savePersonalQq(f.options.directory, saved), code("profile_busy"));
   await assert.rejects(configurePersonalQq({ question: async () => "2", write: () => {} }, f.options.directory), code("profile_busy"));
   await f.stop(); await configurePersonalQq({ question: async () => "2", write: () => {} }, f.options.directory);
   const stopped = lockPersonalProfile(f.options.directory), disabled = readPersonalQq(stopped)!; stopped.release();
@@ -397,4 +422,19 @@ test("QQ问题：同数字身份双平台不能互答，原菜单Skip后唯一�
   await until(async () => (await p.harness.commit(tx => personalQuestionDetail(tx, q.id), context)).answer?.delivery === "sent");
   const answered = await p.harness.commit(tx => personalQuestionDetail(tx, q.id), context); assert.deepEqual(answered.answer?.answers, [{ text: "" }]); assert.equal(answered.answer?.telegram?.platform, "qq");
   const sends = f.sends().length; await f.stop(); const reopened = await f.open(); assert.equal((await reopened.harness.commit(tx => personalQuestionDetail(tx, q.id), context)).answer?.delivery, "sent"); assert.equal(f.sends().length, sends);
+});
+
+
+test("QQ配对：候选证据提交失败后停止连接并释放实例锁，不恢复或使用未保存候选", { timeout: 10000 }, async t => {
+  const f = await fixture(t), cause = new Error("pairing-candidate-storage-failed"); let armed = false;
+  const p = await f.open({ qq: { ...f.qq, enabled: false }, openStorage: async filename => {
+    const storage = await openNodeSqliteStorage(filename), commit = storage.commit.bind(storage);
+    storage.commit = (writes, ctx) => armed && JSON.stringify(writes).includes('candidates') ? Promise.reject(cause) : commit(writes, ctx);
+    return storage;
+  } });
+  const pairing = await p.imPairing.start({ v: 1, op: "im.pair-start", id: randomUUID(), platform: "qq", endpoint: f.bot.url, tokenEnv: f.qq.tokenEnv });
+  armed = true; f.bot.pushPrivateMessage({ userId: OWNER, messageId: 77, segments: [{ type: "text", data: { text: pairing.phrase } }] });
+  assert.equal((await p.harness.closed).reason, "failed");
+  await assert.doesNotReject(p.close());
+  lockPersonalProfile(f.options.directory).release();
 });

@@ -9,7 +9,7 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { defineDoc, defineDocFamily, type JsonObject } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { ManagedSkillsStore } from "@ruukoto/agent/managed-skills.ts";
-import { dispatchPersonalSettings, executePersonalSettings, type PersonalSettingsIdentity } from "../apps/ruukoto/src/personal-settings.ts";
+import { dispatchPersonalSettings, executePersonalSettings, personalSettingsIdentity, type PersonalSettingsIdentity } from "../apps/ruukoto/src/personal-settings.ts";
 import { personalSettingsExternalBlockers } from "../apps/ruukoto/src/personal-settings-blockers.ts";
 import { savePersonalConfig } from "../apps/ruukoto/src/personal-config.ts";
 import { savePersonalSkills } from "../apps/ruukoto/src/personal-skills-config.ts";
@@ -19,8 +19,9 @@ import { lockPersonalProfile } from "../apps/ruukoto/src/personal-profile.ts";
 import { openPersonalHarness } from "../apps/ruukoto/src/personal-harness.ts";
 import { PersonalPermissionsDoc } from "../apps/ruukoto/src/personal-permissions.ts";
 import { acquirePersonalDirectory, releasePersonalDirectory } from "../apps/ruukoto/src/personal-directory-claims.ts";
-import { cancelPersonalQuestion, PersonalQuestionDoc, PersonalQuestionsDoc } from "../apps/ruukoto/src/personal-questions.ts";
+import { cancelPersonalQuestion, personalQuestionList, PersonalQuestionDoc, PersonalQuestionsDoc } from "../apps/ruukoto/src/personal-questions.ts";
 import { toolOperations } from "../apps/ruukoto/src/personal-tools.ts";
+import type { PersonalSettingsReceipt } from "../apps/ruukoto/src/personal-settings-records.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
 import { personalProvider, type PersonalModelConfig } from "../apps/ruukoto/src/personal-model.ts";
 import { PersonalMockModelServer } from "./helpers/mock-provider.ts";
@@ -37,7 +38,7 @@ async function fixture(t: TestContext) {
   return { root, directory, workspace, config };
 }
 
-test("设置在线预检：终态任务的待答问题与目录认领仍阻断，解除后恢复空闲", async t => {
+test("设置在线查询：不扫描无关待答问题与目录认领，损坏引用在原问题入口报告", async t => {
   const f = await fixture(t), model = new PersonalMockModelServer(request => request.messages.at(-1)?.role === "user" ? { kind: "tool_calls", calls: [{ id: "ask", name: "ask_user", arguments: { questions: [{ question: "是否继续" }] } }] } : { kind: "text", text: "等待回答" });
   f.config.baseUrl = await model.start(); await savePersonalConfig(f.directory, f.config); t.after(() => model.close());
   const profile = lockPersonalProfile(f.directory), instance = await openPersonalHarness({ profile, provider: personalProvider(f.config), modelId: f.config.modelId });
@@ -46,20 +47,21 @@ test("设置在线预检：终态任务的待答问题与目录认领仍阻断�
   await instance.answer("发起提问", "settings-pending-question");
   const id = (await instance.harness.snapshot(PersonalQuestionsDoc, context))!.ids[0], question = (await instance.harness.snapshot(PersonalQuestionDoc, id, context))!.question!;
   assert.equal(question.status, "pending"); assert.equal((await instance.harness.inspect(context)).tasks.length, 0);
-  assert.deepEqual((await read()).blockers, [{ kind: "pending-work" }]);
+  assert.deepEqual((await read()).blockers, []);
   await instance.harness.commit(tx => cancelPersonalQuestion(tx, { question: id, version: question.version, requestId: randomUUID() }, { kind: "local" }), context);
   assert.deepEqual((await read()).blockers, []);
   const owner = { kind: "background" as const, operation: question.operation }, stat = fs.statSync(f.workspace);
   await instance.harness.commit(tx => acquirePersonalDirectory(tx, owner, { path: f.workspace, dev: stat.dev, ino: stat.ino }), context);
   assert.equal((await instance.harness.inspect(context)).tasks.length, 0);
-  assert.deepEqual((await read()).blockers, [{ kind: "pending-work" }]);
+  assert.deepEqual((await read()).blockers, []);
   await instance.harness.commit(tx => releasePersonalDirectory(tx, owner), context);
   assert.deepEqual((await read()).blockers, []);
   await instance.harness.commit(async tx => { (await tx.doc(PersonalQuestionsDoc)).ids.push("missing-question"); }, context);
-  await assert.rejects(read(), code("config_state_invalid"));
+  assert.deepEqual((await read()).blockers, []);
+  await assert.rejects(instance.harness.commit(tx => personalQuestionList(tx), context), code("question_missing"));
 });
 
-test("设置全局占用：真实主会话 HTTP 写断线且工具已终结，在线离线仍报告并拒绝全部配置/托管保存", async t => {
+test("设置独立保存：HTTP 写断线保留未知效果，在线模型和离线其他配置不受无关占用阻止", async t => {
   const f = await fixture(t), endpoint = http.createServer((request, _response) => { request.resume(); request.once("end", () => request.socket.destroy()); });
   endpoint.listen(0, "127.0.0.1"); await once(endpoint, "listening");
   t.after(async () => { endpoint.closeAllConnections(); await new Promise<void>(resolve => endpoint.close(() => resolve())); });
@@ -72,7 +74,7 @@ test("设置全局占用：真实主会话 HTTP 写断线且工具已终结，�
   const mcp = { version: 2 as const, generation: "mcp-first", services: [] }; await savePersonalMcp(f.directory, mcp);
   const source = path.join(f.root, "source"); fs.mkdirSync(source, { mode: 0o700 }); fs.writeFileSync(path.join(source, "SKILL.md"), "---\nname: settings-regression\ndescription: 保留原托管状态\n---\n技能正文\n", { mode: 0o600 });
   const profile = lockPersonalProfile(f.directory), store = new ManagedSkillsStore(f.directory, [path.join(library, "skills")]), preview = store.preview(source), skillId = randomUUID();
-  store.import({ id: skillId, sourceDir: source, contentRevision: preview.contentRevision, expectedRevision: store.list().revision });
+  await dispatchPersonalSettings({ profile }, { v: 2, id: randomUUID(), profile: personalSettingsIdentity(profile), expectedRevision: store.list().revision, op: { kind: "skills.import", id: skillId, directory: source, contentRevision: preview.contentRevision } });
   const instance = await openPersonalHarness({ profile, provider: personalProvider(f.config), modelId: f.config.modelId, tools, mcp });
   t.after(() => instance.close());
   await instance.harness.commit(async tx => { (await tx.doc(PersonalPermissionsDoc)).mode = "full_access"; }, context);
@@ -82,15 +84,25 @@ test("设置全局占用：真实主会话 HTTP 写断线且工具已终结，�
   await instance.harness.commit(async tx => { assert.equal((await tx.task(operation.operation as Parameters<typeof tx.task>[0]))?.state.status, "terminal"); }, context);
   type Snapshot = { profile: PersonalSettingsIdentity; revisions: { model: string; skills: string; mcp: string }; skills: { revision: string }; blockers: { kind: string; operation?: number }[] };
   const online = await dispatchPersonalSettings({ profile, instance }, { v: 1, op: "settings.read" }) as Snapshot;
-  assert.ok(online.blockers.some(item => item.kind === "tool-unresolved" && item.operation === operation.operation));
+  assert.deepEqual(online.blockers, []);
+  const onlineSaved = await dispatchPersonalSettings({ profile, instance }, { v: 2, id: randomUUID(), profile: online.profile, expectedRevision: online.revisions.model, op: { kind: "config.save", target: "model", value: f.config } }) as PersonalSettingsReceipt;
+  assert.equal(onlineSaved.status, "active");
   assert.deepEqual(await personalSettingsExternalBlockers({ harness: instance.harness }), [{ kind: "tool-unresolved", operation: operation.operation }]);
   await instance.close();
   const offline = await executePersonalSettings(f.directory, { v: 1, op: "settings.read" }) as Snapshot;
-  assert.deepEqual(offline.blockers, [{ kind: "tool-unresolved", operation: operation.operation }]);
-  const before = new Map(["model.json", "skills.json", "mcp.json", "managed-skills/state.json"].map(filename => [filename, fs.readFileSync(path.join(f.directory, filename), "utf8")]));
-  for (const [target, value] of [["model", f.config], ["skills", skills], ["mcp", mcp]] as const) await assert.rejects(executePersonalSettings(f.directory, { v: 1, op: "config.save", profile: offline.profile, target, expectedRevision: offline.revisions[target], value }), code("settings_pending"));
-  await assert.rejects(executePersonalSettings(f.directory, { v: 1, op: "skills.set-enabled", profile: offline.profile, expectedRevision: offline.skills.revision, id: skillId, enabled: false }), code("settings_pending"));
-  for (const [filename, bytes] of before) assert.equal(fs.readFileSync(path.join(f.directory, filename), "utf8"), bytes);
+  assert.deepEqual(offline.blockers, []);
+  for (const [target, value] of [["model", f.config], ["skills", skills], ["mcp", mcp]] as const) {
+    const receipt = await executePersonalSettings(f.directory, { v: 2, id: randomUUID(), profile: offline.profile, expectedRevision: offline.revisions[target], op: { kind: "config.save", target, value } }) as PersonalSettingsReceipt;
+    assert.equal(receipt.status, "saved"); assert.ok(receipt.savedRevision);
+  }
+  const disabled = await executePersonalSettings(f.directory, { v: 2, id: randomUUID(), profile: offline.profile, expectedRevision: offline.skills.revision, op: { kind: "skills.set-enabled", id: skillId, enabled: false } }) as PersonalSettingsReceipt;
+  assert.equal(disabled.status, "saved");
+  const storage = await openNodeSqliteStorage(path.join(f.directory, "personal.sqlite"));
+  try {
+    assert.deepEqual(await personalSettingsExternalBlockers({ storage }), [{ kind: "tool-unresolved", operation: operation.operation }]);
+    const ref = await storage.findDocument({ kind: "ruukoto.tool-operation", scope: { kind: "session" }, key: String(operation.operation) }, "current", context), original = ref && await storage.document(ref.id, "current", context);
+    assert.equal((original?.value.operation as typeof operation).effect, "effect_unknown"); assert.equal((original?.value.operation as typeof operation).stopped, false);
+  } finally { await storage.close(context); }
 });
 
 const cases = [
@@ -137,7 +149,7 @@ test("设置占用扫描：失效调用留下的未被引用空 family 不冻结
   await p.close();
   const read = await executePersonalSettings(f.directory, { v: 1, op: "settings.read" }) as { profile: PersonalSettingsIdentity; revisions: { model: string }; blockers: unknown[] };
   assert.deepEqual(read.blockers, []);
-  assert.equal((await executePersonalSettings(f.directory, { v: 1, op: "config.save", target: "model", profile: read.profile, expectedRevision: read.revisions.model, value: { ...f.config, maxTokens: 129 } }) as { saved: boolean }).saved, true);
+  assert.equal((await executePersonalSettings(f.directory, { v: 2, id: randomUUID(), profile: read.profile, expectedRevision: read.revisions.model, op: { kind: "config.save", target: "model", value: { ...f.config, maxTokens: 129 } } }) as PersonalSettingsReceipt).status, "saved");
 });
 
 for (const [index, family, property] of [["ruukoto.tools", "ruukoto.tool-operation", "operations"], ["ruukoto.browser", "ruukoto.browser-operation", "operations"], ["ruukoto.mcp-config", "ruukoto.mcp", "operations"], ["ruukoto.app-data", "ruukoto.app-data-operation", "operations"], ["ruukoto.service-executions", "ruukoto.service-execution", "tasks"]] as const) test(`设置占用扫描：${index} 引用空 family 必须拒绝`, async t => {
@@ -186,5 +198,5 @@ test("设置占用扫描：已核实效果与停止保持原历史，全部原�
   try { assert.deepEqual(await personalSettingsExternalBlockers({ storage }), []); }
   finally { await storage.close(context); }
   const snapshot = await executePersonalSettings(f.directory, { v: 1, op: "settings.read" }) as { profile: PersonalSettingsIdentity; revisions: { model: string } };
-  assert.equal((await executePersonalSettings(f.directory, { v: 1, op: "config.save", profile: snapshot.profile, target: "model", expectedRevision: snapshot.revisions.model, value: { ...f.config, maxTokens: 129 } }) as { saved: boolean }).saved, true);
+  assert.equal((await executePersonalSettings(f.directory, { v: 2, id: randomUUID(), profile: snapshot.profile, expectedRevision: snapshot.revisions.model, op: { kind: "config.save", target: "model", value: { ...f.config, maxTokens: 129 } } }) as PersonalSettingsReceipt).status, "saved");
 });

@@ -258,7 +258,7 @@ export class ManagedSkillsStore {
   private checkRevision(state: ManagedState, expected: string) {
     if (state.revision !== expected) throw new ManagedSkillsError("skills_revision_conflict", "托管技能清单已变化；请刷新当前状态并比较后重新提交。");
   }
-  private commit(state: ManagedState) {
+  private commit(content: string) {
     const root = managedSkillsDirFor(this.hostDir), temporary = path.join(root, "state.json.tmp");
     try {
       const before = fs.lstatSync(temporary, { throwIfNoEntry: false });
@@ -267,14 +267,15 @@ export class ManagedSkillsStore {
       try {
         const stat = fs.fstatSync(fd);
         if (!stat.isFile() || stat.nlink !== 1 || stat.uid !== process.getuid?.() || (stat.mode & 0o777) !== 0o600 || before && (stat.dev !== before.dev || stat.ino !== before.ino)) throw invalidLayout();
-        fs.ftruncateSync(fd, 0); fs.writeFileSync(fd, JSON.stringify(state) + "\n"); fs.fsyncSync(fd);
+        fs.ftruncateSync(fd, 0); fs.writeFileSync(fd, content); fs.fsyncSync(fd);
       } finally { fs.closeSync(fd); }
       fs.renameSync(temporary, path.join(root, "state.json"));
     } catch (error) {
       throw new ManagedSkillsError("skills_state_write_failed", "技能清单未提交；源库与原清单保留，请检查托管区后读回核实。", { cause: error });
     }
   }
-  import(input: { id: SkillId; sourceDir: string; contentRevision: string; expectedRevision: string }) {
+  /** 发布不可变包并准备清单；不改当前选择，调用方须持有宿主写锁并另行提交清单。 */
+  prepareImport(input: { id: SkillId; sourceDir: string; contentRevision: string; expectedRevision: string }) {
     const state = readManagedState(this.hostDir); this.checkRevision(state, input.expectedRevision);
     if (!uuid.test(input.id) || !revisionPattern.test(input.contentRevision)) throw new ManagedSkillsError("invalid_params", "导入身份或内容修订无效；请重新预览技能包。");
     if (state.packages.length >= MANAGED_SKILL_LIMITS.packages) throw new ManagedSkillsError("skills_limit_exceeded", "托管技能包数量已达限额；请保留旧引用并检查托管区。");
@@ -313,10 +314,13 @@ export class ManagedSkillsStore {
       throw new ManagedSkillsError("skills_copy_failed", "技能复制或发布失败；源库与原清单保留，暂存不作为已安装技能，请检查后重新预览。", { cause: error });
     }
     this.checkRevision(readManagedState(this.hostDir), input.expectedRevision);
-    const next = stateFor([...state.packages, item]); this.commit(next);
-    return { revision: next.revision, ...summary({ ...source.skill, id: item.id, source: "managed", readOnly: false, contentRevision: item.contentRevision }), body: source.skill.body };
+    const next = stateFor([...state.packages, item]);
+    return { content: JSON.stringify(next) + "\n", revision: next.revision, result: { revision: next.revision, ...summary({ ...source.skill, id: item.id, source: "managed", readOnly: false, contentRevision: item.contentRevision }), body: source.skill.body } };
   }
-  private change(id: SkillId, expectedRevision: string, status: PackageState) {
+  import(input: { id: SkillId; sourceDir: string; contentRevision: string; expectedRevision: string }) {
+    const candidate = this.prepareImport(input); this.commit(candidate.content); return candidate.result;
+  }
+  private prepareChange(id: SkillId, expectedRevision: string, status: PackageState) {
     const state = readManagedState(this.hostDir); this.checkRevision(state, expectedRevision);
     const item = state.packages.find(item => item.id === id);
     if (!item) throw new ManagedSkillsError("skills_read_only", "只能管理选定的托管技能；外部来源由原技能库维护。");
@@ -327,12 +331,22 @@ export class ManagedSkillsStore {
       if (this.conflicts(skill.name, state, id).length) throw new ManagedSkillsError("skills_name_conflict", "重新启用与当前可用技能重名；请先处理来源冲突后再启用。");
     }
     const next = stateFor(state.packages.map(value => value.id === id ? { ...value, state: status } : value));
-    if (item.state !== status) this.commit(next);
-    return { revision: next.revision, ...summary(skill, status), body: skill.body };
+    return { content: JSON.stringify(next) + "\n", revision: next.revision, result: { revision: next.revision, ...summary(skill, status), body: skill.body } };
   }
-  setEnabled(input: { id: SkillId; enabled: boolean; expectedRevision: string }) {
+  /** 只准备候选清单；当前选择保留到调用方完成条件保存。 */
+  prepareSetEnabled(input: { id: SkillId; enabled: boolean; expectedRevision: string }) {
     if (typeof input.enabled !== "boolean") throw new ManagedSkillsError("invalid_params", "技能启用状态须为布尔值。");
-    return this.change(input.id, input.expectedRevision, input.enabled ? "enabled" : "disabled");
+    return this.prepareChange(input.id, input.expectedRevision, input.enabled ? "enabled" : "disabled");
   }
-  remove(input: { id: SkillId; expectedRevision: string }) { return this.change(input.id, input.expectedRevision, "removed"); }
+  prepareRemove(input: { id: SkillId; expectedRevision: string }) { return this.prepareChange(input.id, input.expectedRevision, "removed"); }
+  setEnabled(input: { id: SkillId; enabled: boolean; expectedRevision: string }) {
+    const candidate = this.prepareSetEnabled(input);
+    if (candidate.revision !== input.expectedRevision) this.commit(candidate.content);
+    return candidate.result;
+  }
+  remove(input: { id: SkillId; expectedRevision: string }) {
+    const candidate = this.prepareRemove(input);
+    if (candidate.revision !== input.expectedRevision) this.commit(candidate.content);
+    return candidate.result;
+  }
 }

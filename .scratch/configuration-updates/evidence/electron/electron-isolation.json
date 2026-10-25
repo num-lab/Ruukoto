@@ -1,0 +1,11 @@
+{
+  "appData": "/tmp/rk-egui-SGgDjR/app-data",
+  "userData": "/tmp/rk-egui-SGgDjR/app-data/Ruukoto Development",
+  "sessionData": "/tmp/rk-egui-SGgDjR/session-data",
+  "logs": "/tmp/rk-egui-SGgDjR/logs",
+  "safeStorageSubstitute": true,
+  "counters": {
+    "encrypt": 2,
+    "decrypt": 5
+  }
+}

@@ -18,13 +18,13 @@ Code MCP 另开放 `mcp_list/configure/set_enabled/remove/check`、`list_credent
 
 Code Skills 开放 `skills_list`、`skill_get`、`skill_set_enabled` 与 `skill_remove`；本地导入经系统目录选择和后台预览后，仅用宿主选择引用调用 `desktop_skill_import`。宿主固定原 Code 连接、实例、路径与修订，拒绝 renderer 任意路径及旧选择；两壳共用同一检查，Personal 不放行。
 
-Personal 沿同一 `request` 桥开放 `desktop_personal_config_read/save`、配对及原候选核实、输入提交/核实/显式恢复、`desktop_personal_request` 与 `desktop_personal_settings_read/request/apply/restore/finish`。Host 校验路由和操作，发布 `personal_identity`、`personal_frame` 与不含秘密的 `personal_pending`；Personal 模型、Skills、MCP 页面共用当前连接和原档案身份，进行中的读取由切页和连接核实共享，完成或失败后清除；不同查询和写入仍互斥。旧维护清单通过 `desktop_personal_legacy_read/acknowledge` 只读核实及记录人工确认，不改动原文件。
+Personal 沿同一 `request` 桥开放 `desktop_personal_config_read/save`、配对及原候选核实、输入提交/核实/显式恢复、`desktop_personal_request` 与 `desktop_personal_settings_read/request/apply/operation/restore/finish`。Host 校验路由和操作，发布 `personal_identity`、`personal_frame` 与不含秘密的 `personal_pending`；Personal 模型、Skills、MCP 页面共用当前连接和原档案身份，进行中的读取由切页和连接核实共享，完成或失败后清除；配置保存由后台按文件短串行，等待生效不占客户端全局互斥。旧维护清单通过 `desktop_personal_legacy_read/acknowledge` 只读核实及记录人工确认，不改动原文件。
 
 ## 数据与状态
 
 Code 连接目标由产品身份、socket 和令牌来源组成，固定为 `ruukoto-code`；安装快照前核对产品，不符停在 failed。Personal 握手核对协议、产品、origin、持久 remote 身份、档案与后台 runId，随后安装独立订阅。连接状态包含 connecting、online、reconnecting、failed 与 closed；明确身份、版本、认证或 TLS 错误停止自动重试。Code令牌仅在Node宿主内存，主进程保存连接配置和待核实提交；历史权威仍在各自后台。
 
-Personal 的 `personal-remote.json` 保存版本、唯一 HTTPS origin 与程序核实的 remote/档案绑定；请求记录位于 `pending/personal-remote/<origin及绑定摘要>.json`，保存原输入键、完整正文和维护关联。配对候选先安全持久化并读回才兑换，服务器仅存摘要；丢答使用原候选核实与显式恢复，不生成第二份凭据。
+Personal 的 `personal-remote.json` 保存版本、唯一 HTTPS origin 与程序核实的 remote/档案绑定；请求记录位于 `pending/personal-remote/<origin及绑定摘要>.json`，保存原输入键、完整正文、旧维护及按对象区分的配置接纳关联。配对候选先安全持久化并读回才兑换，服务器仅存摘要；丢答使用原候选核实与显式恢复，不生成第二份凭据。
 
 Electron 使用异步 safeStorage 加密并原子保存私有密文，MyGo 由 Go 内的 Security.framework 保存 Keychain 条目；Node 只经私有桥使用固定存储槽。两壳凭据和应用数据独立，生产与开发命名空间分开。锁定、拒绝、损坏或断桥保留原候选/active关联并报告，不当作凭据不存在，也不回退明文。
 
@@ -102,13 +102,13 @@ Code MCP 新服务先保存禁用草稿，再主动联网发现工具，逐项�
 
 Web 搜索设置仅向 Code 开放：Tavily 密钥经专用 op 保存到固定名绑定，不接受名称、主机或用途参数；按名称排序呈现生效绑定，CLI 创建的绑定只读并提示用原命令管理。实例级开关读自本地快照（全实例共用），写入携带期望版本，冲突提示按当前值重选；停用立即阻止后续调用，启用从下一任务生效。
 
-Personal 各页每次打开重读原档案，模型编辑单模型、API 类型、容量、图片能力与环境变量引用，显式测试当前草稿且与保存分开；技能库与包均通过远端目录选择和预览，外部来源只读，托管启停与逻辑移除保留旧引用所需字节。MCP 编辑档案级服务、私有凭据文件或显式匿名；电脑页编辑 Linux 沙箱，共用 MCP 修订与维护流程。原工具允许列表分页读取完整定义，未改工具时由后台保留，不用摘要覆盖 schema。写入先展示影响并确认停存启；忙时返回原入口处理事项，丢答、已保存未启动与待核实保留恢复及人工结束维护动作。
+Personal 各页每次打开重读原档案，模型编辑单模型、API 类型、容量、图片能力与环境变量引用，显式测试当前草稿且与保存分开；技能库与包均通过远端目录选择和预览，外部来源只读，托管启停与逻辑移除保留旧引用所需字节。MCP 编辑档案级服务、私有凭据文件或显式匿名；电脑页编辑 Linux 沙箱，共用 MCP 修订与维护流程。原工具允许列表分页读取完整定义，未改工具时由后台保留，不用摘要覆盖 schema。写入先展示影响再保存，展示已保存、等待生效、生效失败或待核实；保存与服务启停独立。离线及开发后台可保存，无关工作和原模型凭据状态不控制页面可写性；旧后台明确要求升级。草稿和原键在冲突、断线与迟到应答时保留；可核实原更改或撤回已证明保存的待生效候选。
 
 Personal 不显示右栏，在主聊天中查看后台工作结果、补读长结果及取消可取消的工作。
 
 ## 不变量与失败处理
 
-服务器 remote 接纳单项停存启并保存维护回执；桌面断线不取消已接纳维护。实际后台凭据、未决预检、固定 systemd 身份及精确权限可核实才允许写，未知环境、开发实例和缺部署前提保持只读。停止超时保留原进程与锁，保存后启动失败保留已保存事实；任何阶段断线或重开只查原键，不重发保存或强杀。恢复原服务与人工结束维护均为显式动作，迟到的已完成请求只返回原回执。
+服务器 remote 通过既有维护接纳/查询通道转发 v2 设置请求，仅持久保存自身的接纳关联；档案内设置回执持有保存与生效权威。断线不取消已接纳操作，不换键重存，不自动停启后台；相同对象待核实时阻止该对象新写，其他对象继续管理。v1 未决停存启回执仍保留原阶段、显式恢复服务及人工结束入口，先处理旧维护再接纳新配置。
 
 选择会话名称或正文结果均直接打开对应的普通会话，沿用已有标签、最新消息、历史分页、实时输出与输入区，保留原草稿和附件。正文片段用于辨认会话，不单独进入历史模式或滚动定位原消息。已存档结果可显式打开且不取消存档。
 
@@ -141,6 +141,8 @@ PA 来源动作以后台能力为准：本机问题可逐题回答、跳过并�
 PA 输入先持久化原请求再提交；重连与重开只核实，明确恢复仍用原键原文。换档案清空旧活动投影并保留草稿，未核实期间禁发；保存中的设置保留 unknown，迟到应答不覆盖草稿。输入、配对或维护未决时不能切换 origin。
 
 ## 设计依据
+
+- [设置保存、版本与生效恢复](../../.agents/notes/implemented/architecture/2026-10-25-personal-settings-versions.md)
 
 - [正文渲染迁移 Streamdown](../../.agents/notes/implemented/feature/2026-10-25-desktop-streamdown.md)
 

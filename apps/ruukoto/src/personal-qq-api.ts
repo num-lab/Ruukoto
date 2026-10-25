@@ -3,6 +3,7 @@ import { PersonalError } from "./personal-error.ts";
 import { PersonalImApiError } from "./personal-im-api.ts";
 import { PersonalMediaError, type PersonalMediaDownload } from "./personal-media.ts";
 import type { PersonalQqConfig } from "./personal-qq-config.ts";
+import { setTimeout as delay } from "node:timers/promises";
 
 function object(value: unknown): value is Record<string, unknown> { return !!value && typeof value === "object" && !Array.isArray(value); }
 export type QqMessage = { id: number; ownerId: string; text: string; direct: boolean; replyTo?: number; media?: { identity: string; url?: string }[] };
@@ -53,7 +54,13 @@ export function personalQqApi(config: PersonalQqConfig, token: string) {
   }, onStateChange(online) { if (connection) enqueue(async () => { await connection?.(online && client.selfId === config.botId); }); } });
   return {
     get online() { return client.online && client.selfId === config.botId; },
-    async poll(handler: (event: Record<string, unknown>) => Promise<void>, signal: AbortSignal, onConnection?: (online: boolean) => Promise<void>) {
+    async verify(signal: AbortSignal) {
+      client.start();
+      while (!client.online && !signal.aborted) await delay(25, undefined, { signal });
+      if (!client.online || client.selfId !== config.botId) throw new PersonalError("qq_identity_changed", "QQ 候选登录账号与绑定不符，原入口保留；请重新配对。");
+    },
+    close: () => client.stop(),
+    async poll(handler: (event: Record<string, unknown>) => Promise<void>, signal: AbortSignal, onConnection?: (online: boolean) => Promise<void>, keepConnection = false) {
       if (listening) throw new PersonalError("qq_poll_busy", "QQ 收件循环已启动，请使用当前后台连接。");
       listening = true; receive = handler; failure = undefined;
       connection = onConnection;
@@ -72,7 +79,7 @@ export function personalQqApi(config: PersonalQqConfig, token: string) {
         if (failure) throw failure;
       } finally {
         receive = undefined; connection = undefined;
-        try { await client.stop(); await pending; await onConnection?.(false); } finally { listening = false; }
+        try { if (!keepConnection) await client.stop(); await pending; await onConnection?.(false); } finally { listening = false; }
       }
     },
     photo(input: { identity: string; url?: string }) { return qqPhoto(input, async (file, signal) => {

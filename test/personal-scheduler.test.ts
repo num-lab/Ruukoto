@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
+import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 import { tmpdir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
@@ -11,6 +12,7 @@ import { personalScheduler, type PersonalSchedulerDeps } from "../apps/ruukoto/s
 import { PersonalScheduleDoc, PersonalScheduleRunDoc, PersonalSchedulesDoc, PersonalScheduledConversationDoc, ScheduleSummary, ScheduleResult, ScheduleSendAdmission, personalScheduledSource, requireScheduledSourceReady, scheduledConversation, verifySchedules, type PersonalScheduleRun, type PersonalScheduleScope } from "../apps/ruukoto/src/personal-scheduler-records.ts";
 import { personalProvider, recordedModels } from "../apps/ruukoto/src/personal-model.ts";
 import { PersonalImApiError } from "../apps/ruukoto/src/personal-im-api.ts";
+import { personalTelegram } from "../apps/ruukoto/src/personal-telegram.ts";
 import { PersonalTelegramDoc, type TelegramControlInput } from "../apps/ruukoto/src/personal-telegram-records.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
 import { PersonalMockModelServer as MockModelServer, type Responder } from "./helpers/mock-provider.ts";
@@ -206,4 +208,51 @@ test("定时：跨下一到期点后先收尾或取消再扫描，也把漏期�
   assert.equal((await f.harness.snapshot(PersonalScheduleRunDoc, run.id, context))!.run!.mergedThrough, "2026-10-19T00:01:00.000Z");
   assert.equal((await f.harness.snapshot(PersonalScheduleDoc, plan.id, context))!.plan!.nextDueAt, end === "cancel" ? null : end === "abort" ? "2026-10-21T00:01:00.000Z" : "2026-10-20T00:01:00.000Z");
   });
+});
+
+
+test("定时：设置暂停与停止收件未完成均阻止旧入口的新执行和汇总", async t => {
+  for (const reason of ["suspended", "switching"] as const) for (const phase of ["run", "summarize"] as const) await t.test(`${reason}-${phase}`, async t => {
+    const target = { generation: `target-${reason}-${phase}`, botId: "123", ownerId: "456", mode: "auto-review" as const, version: 1 };
+    const config = { version: 1 as const, enabled: true, generation: target.generation, botId: target.botId, ownerId: target.ownerId, apiBase: "https://api.telegram.org", tokenEnv: "UNUSED_SCHEDULE_KEY", tokenDigest: "0".repeat(64), boundary: 0 };
+    let suspended = false, pollSignal: AbortSignal | undefined, enteredSettlement = false, releaseStop!: () => void, releaseSettlement!: () => void;
+    const stopGate = new Promise<void>(resolve => { releaseStop = resolve; }), settlementGate = new Promise<void>(resolve => { releaseSettlement = resolve; });
+    let cleanup = async () => {}; t.after(async () => { releaseStop(); releaseSettlement(); await cleanup(); });
+    const im = personalTelegram(config, { me: async () => ({ id: target.botId, username: "bot" }), updates: async signal => { pollSignal = signal; if (!signal.aborted) await new Promise<void>(resolve => signal.addEventListener("abort", () => resolve(), { once: true })); await stopGate; return []; }, photo: () => { throw new Error("unused"); }, send: async () => "1" }, undefined, undefined, undefined, undefined, undefined, () => suspended);
+    const f = await fixture(t, undefined, { im, authorize: async () => ({ permission: { mode: target.mode, version: 1 }, telegram: target, proof: { authenticated: true } }), settle: async () => { if (phase === "summarize") { enteredSettlement = true; await settlementGate; } return { failed: false, facts: "核实完成" }; } });
+    await f.harness.commit(async tx => { (await tx.doc(PersonalTelegramDoc)).config = config; }, context);
+    const plan = await f.create(`blocked-${reason}-${phase}`); f.time("2026-10-18T00:00:02Z"); await f.harness.commit(tx => f.scheduler.scan(tx, Date.parse("2026-10-18T00:00:02Z")), context); const run = (await f.run(plan.id))!;
+    if (phase === "summarize") { f.harness.resume(); await until(async () => enteredSettlement); }
+    const entry = im.api(f.harness), parent = new AbortController();
+    let update: Promise<unknown> | undefined;
+    if (reason === "suspended") suspended = true;
+    else {
+      const polling = entry.poll(parent.signal); await until(async () => !!pollSignal);
+      update = entry.update("telegram", { ...config, enabled: false, generation: randomUUID() }, "next-version", "next-revision");
+      await until(async () => pollSignal!.aborted);
+      assert.equal((await f.harness.snapshot(PersonalTelegramDoc, context))!.config!.generation, target.generation);
+      cleanup = async () => { parent.abort(); releaseStop(); await polling; await entry.close(); };
+    }
+    f.harness.resume(); releaseSettlement(); await f.harness.waitForTask(run.taskId, context);
+    const saved = (await f.harness.snapshot(PersonalScheduleRunDoc, run.id, context))!.run!;
+    assert.equal(f.server.calls.length, phase === "run" ? 0 : 1);
+    if (phase === "run") { assert.equal(saved.submissionId, undefined); assert.equal(saved.result?.status, "failed"); }
+    else { assert.equal(saved.summary!.submissionId, undefined); assert.equal(saved.result?.status, "canceled"); assert.equal(await f.harness.commit(tx => tx.submissionByRequest(run.conversationId, `personal-schedule-summary:${run.id}`), context), undefined); }
+    releaseStop(); await update;
+  });
+});
+
+test("定时：设置暂停仍重连已提交的原输入，禁止随后产生新的汇总输入", async t => {
+  const target = { generation: "existing-source", botId: "123", ownerId: "456", mode: "auto-review" as const, version: 1 };
+  const config = { version: 1 as const, enabled: true, generation: target.generation, botId: target.botId, ownerId: target.ownerId, apiBase: "https://api.telegram.org", tokenEnv: "UNUSED_SCHEDULE_KEY", tokenDigest: "0".repeat(64), boundary: 0 };
+  let suspended = false;
+  const im = personalTelegram(config, undefined, undefined, undefined, undefined, undefined, undefined, () => suspended);
+  const f = await fixture(t, undefined, { im, authorize: async () => ({ permission: { mode: target.mode, version: 1 }, telegram: target, proof: { authenticated: true } }) });
+  await f.harness.commit(async tx => { (await tx.doc(PersonalTelegramDoc)).config = config; }, context);
+  const plan = await f.create("existing-input"); f.time("2026-10-18T00:00:02Z"); await f.harness.commit(tx => f.scheduler.scan(tx, Date.parse("2026-10-18T00:00:02Z")), context); const run = (await f.run(plan.id))!;
+  const conversation = (await f.harness.conversation(run.conversationId, context))!;
+  const original = await conversation.submit({ type: "input", content: plan.instruction, requestId: run.requestId, entry: { kind: "ruukoto.schedule-input", data: { runId: run.id, admission: run.admission } }, whenBusy: "reject" }, context);
+  suspended = true; f.harness.resume(); await f.harness.waitForTask(run.taskId, context);
+  const saved = (await f.harness.snapshot(PersonalScheduleRunDoc, run.id, context))!.run!;
+  assert.equal(saved.submissionId, original.id); assert.ok(saved.initialAnswer); assert.equal(f.server.calls.length, 1); assert.equal(saved.summary!.submissionId, undefined); assert.equal(saved.result?.status, "canceled");
 });

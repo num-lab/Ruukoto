@@ -2,7 +2,9 @@
 
 Status: implemented
 
-配置更新与迁移的拟调整范围见[按受影响对象更新配置](../../proposed/architecture/2026-10-25-operation-scoped-configuration.md)；该提案尚未落地，本文现行约束继续有效。
+配置在线保存与逐服务发布采用[设置保存与生效](2026-10-25-personal-settings-versions.md)及[请求配置](2026-10-25-personal-request-configuration.md)，不再统一停机或等待无关占用；本文其余原工具身份、权限与未知效果约束继续适用。
+
+[非执行配置检查](../simplification/2026-10-25-configuration-checks.md)收窄保存时的凭据求值范围：停用、删除与未改认证项不依赖旧凭据可用，真实调用与未知效果规则保留。
 
 [Cua 接入](2026-10-23-cua-official-mcp.md)增加version3具名电脑配置、跨调用绑定与恢复结算。Cua接受新观察后可结束旧等待，原remoteEnded仍只由完整原应答决定；普通HTTP保留本篇原请求、结束证据与阻塞规则。
 

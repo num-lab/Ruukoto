@@ -6,6 +6,8 @@ import { personalControl } from "./personal-control.ts";
 import { lockPersonalProfile } from "./personal-profile.ts";
 import { PersonalError } from "./personal-error.ts";
 import { personalReadPath, readPersonalTools, savePersonalTools, type PersonalToolsConfig } from "./personal-tools-config.ts";
+import { readPersonalSettings, savePersonalSettings, personalSettingsMessage } from "./personal-settings.ts";
+import { parsePersonalWebSearch } from "./personal-tools-config.ts";
 import { personalToolDescription } from "./personal-tools-controls.ts";
 import type { toolList, toolDetail } from "./personal-tools.ts";
 
@@ -16,7 +18,7 @@ export async function configurePersonalTools(io: PersonalCliIO, directory: strin
     let workspace = current?.workspace;
     io.write("资料目录供个人文件工具使用；目录外读取与网络沿原工作权限核实。凭据只绑定环境变量名称，不粘贴密钥。配置不会扩大已有工作的权限。输入 /back 返回。\n");
     if (current) {
-      io.write(`当前资料目录：${current.workspace}\nHTTP 凭据：${current.credentials.map(value => value.name).join("、") || "无"}\nWeb Search：${current.search ? "启用 Tavily" : "停用"}\n`);
+      io.write(`当前资料目录：${current.workspace}\nHTTP 凭据：${current.credentials.map(value => value.name).join("、") || "无"}\n`);
       const selected = await choose(io, "个人资料目录", ["继续使用当前目录", "选择另一个现有目录", "返回"]);
       if (selected === 2) return;
       if (selected === 1) workspace = undefined;
@@ -52,21 +54,31 @@ export async function configurePersonalTools(io: PersonalCliIO, directory: strin
       const item = { name, host, header: headerChoice === 0 ? "authorization" : "x-api-key", env };
       if (original) credentials.splice(selected - 1, 1, item); else credentials.push(item);
     }
-    const searchChoice = await choose(io, "Web Search", ["启用 Tavily", "停用 Tavily", "取消本次配置"]);
-    if (searchChoice === 2) return;
-    let search: PersonalToolsConfig["search"];
-    if (searchChoice === 0) {
-      const apiKeyEnv = (await io.question(`Tavily 环境变量名称（环境变量保存原始 API key；回车使用 ${current?.search?.apiKeyEnv ?? "TAVILY_API_KEY"}）：`)).trim() || current?.search?.apiKeyEnv || "TAVILY_API_KEY";
-      if (apiKeyEnv === "/back") return;
-      search = { apiKeyEnv };
-    }
+    const search = current?.search;
     const selected = personalReadPath(profile.directory, workspace);
     const config = { version: 1, generation: randomUUID(), workspace, identity: { dev: selected.dev, ino: selected.ino }, credentials, ...(search ? { search } : {}) };
-    io.write(`资料目录：${workspace}\nHTTP 凭据绑定：${credentials.length} 项\nWeb Search：${search ? "启用 Tavily" : "停用"}\n`);
+    io.write(`资料目录：${workspace}\nHTTP 凭据绑定：${credentials.length} 项\n`);
     if (await choose(io, "保存资料与网络配置", ["返回", "保存配置"]) === 0) return;
     await savePersonalTools(profile, config);
     io.write("资料与网络配置已保存。请启动后台；资料授权可在运行中查看和撤销，原操作的批准、效果与结束分别核实。\n");
   } finally { profile.release(); }
+}
+
+export async function configurePersonalWebSearch(io: PersonalCliIO, directory: string): Promise<void> {
+  const snapshot = await readPersonalSettings(directory);
+  const current = snapshot["web-search"] ? parsePersonalWebSearch(snapshot["web-search"]) : undefined;
+  const selected = await choose(io, "Web Search", ["启用 Tavily", "停用 Tavily", "返回"]);
+  if (selected === 2) return;
+  const enabled = selected === 0;
+  let apiKeyEnv = current?.apiKeyEnv;
+  if (enabled) {
+    apiKeyEnv = (await io.question(`Tavily 环境变量名称（不填密钥；回车使用 ${apiKeyEnv ?? "TAVILY_API_KEY"}）：`)).trim() || apiKeyEnv || "TAVILY_API_KEY";
+    if (apiKeyEnv === "/back") return;
+  }
+  const config = parsePersonalWebSearch({ version: 1, generation: randomUUID(), enabled, ...(apiKeyEnv ? { apiKeyEnv } : {}) });
+  if (await choose(io, enabled ? "启用 Web Search" : "停用 Web Search", ["返回", "保存配置"]) === 0) return;
+  const receipt = await savePersonalSettings(directory, snapshot, snapshot.revisions["web-search"], { kind: "config.save", target: "web-search", value: config });
+  io.write(personalSettingsMessage(receipt) + "\n");
 }
 
 async function manageOperations(io: PersonalCliIO, directory: string): Promise<void> {

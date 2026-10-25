@@ -13,11 +13,10 @@ import { PersonalToolDoc, toolOperations } from "./personal-tools.ts";
 import { PersonalBrowserOperationDoc, PersonalBrowserSessionDoc, browserOperations, browserSessionStopped } from "./personal-browser.ts";
 import { PERSONAL_SCHEDULED_WORK, PersonalScheduleRunDoc, type PersonalSchedule, type PersonalScheduleRun } from "./personal-scheduler-records.ts";
 import type { PersonalScheduleRuntime } from "./personal-scheduler.ts";
-import { PersonalImApiError } from "./personal-im-api.ts";
+import { PersonalImApiError, withPersonalImEntry, type PersonalImAccess } from "./personal-im-api.ts";
 import { PersonalTelegramDoc, PersonalTelegramReceiptDoc, personalEntryConfig } from "./personal-telegram-records.ts";
 import { personalTelegramApi } from "./personal-telegram-api.ts";
 import { telegramToken } from "./personal-telegram-config.ts";
-import type { PersonalQqApi } from "./personal-qq-api.ts";
 
 export async function configurePersonalScheduledConversation(tx: Tx, conversationId: ConversationId, plan: PersonalSchedule, options: { summary: boolean }) {
   const main = await tx.doc(AgentDoc, ROOT_CONVERSATION_ID);
@@ -85,7 +84,7 @@ export async function settlePersonalScheduledRun(run: PersonalScheduleRun, runti
   } finally { await cancelWatch.stop(); }
 }
 
-export async function sendPersonalScheduledReport(harness: Harness, plan: PersonalSchedule, text: string, signal: AbortSignal, qqApi?: PersonalQqApi) {
+export async function preparePersonalScheduledReport(harness: Harness, plan: PersonalSchedule, text: string, signal: AbortSignal, im?: PersonalImAccess) {
   const source = plan.telegram;
   const target = await harness.commit(async tx => {
     const state = await tx.doc(PersonalTelegramDoc), config = personalEntryConfig(state, source ?? {});
@@ -96,7 +95,12 @@ export async function sendPersonalScheduledReport(harness: Harness, plan: Person
     if (!receipt) throw new PersonalImApiError("schedule_target_missing", "定时原回报来源缺失，未发送；请保留档案。", "not_sent");
     return { messageId: receipt.messageId, telegram: state.config && { ...state.config } };
   }, BACKGROUND_CONTEXT);
-  const api = source!.platform === "qq" ? qqApi : target.telegram && personalTelegramApi(target.telegram.apiBase, telegramToken(target.telegram));
+  const api = im ? im.sender(source!) : source!.platform !== "qq" && target.telegram && personalTelegramApi(target.telegram.apiBase, telegramToken(target.telegram));
   if (!api) throw new PersonalImApiError("schedule_target_unavailable", "定时原回报平台不可用，未发送；请查询连接。", "not_sent");
-  return api.send(source!.ownerId, target.messageId, text, signal);
+  return () => api.send(source!.ownerId, target.messageId, text, signal);
+}
+
+export async function sendPersonalScheduledReport(harness: Harness, plan: PersonalSchedule, text: string, signal: AbortSignal, im?: PersonalImAccess) {
+  const send = await withPersonalImEntry(im, plan.telegram ?? {}, () => preparePersonalScheduledReport(harness, plan, text, signal, im));
+  return send();
 }

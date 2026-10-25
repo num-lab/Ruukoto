@@ -14,7 +14,6 @@ import { assertGrantNotProtected } from "@ruukoto/agent/execution/approved-ops.t
 import { lockPersonalProfile } from "../apps/ruukoto/src/personal-profile.ts";
 import { configurePersonalCommands, launchPersonalServer, personalMenu } from "../apps/ruukoto/src/personal-cli.ts";
 import { startPersonalServer } from "../apps/ruukoto/src/personal-control.ts";
-import { savePersonalConfig } from "../apps/ruukoto/src/personal-config.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
 import { openPersonalHarness } from "../apps/ruukoto/src/personal-harness.ts";
 import { personalProvider } from "../apps/ruukoto/src/personal-model.ts";
@@ -24,7 +23,7 @@ import { setTimeout as delay } from "node:timers/promises";
 const code = (expected: string) => (error: unknown) => error instanceof PersonalError && error.code === expected;
 const machineId = "a".repeat(32);
 function fixture(t: TestContext) {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(tmpdir(), "personal-command-config-")));
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(process.platform === "darwin" ? "/tmp" : tmpdir(), "rk-command-config-")));
   const directory = path.join(root, "profile"), workspace = path.join(root, "files");
   fs.mkdirSync(workspace);
   lockPersonalProfile(directory).release();
@@ -45,7 +44,7 @@ test("个人命令配置：拒绝额外授权、相对路径及无效身份", t 
   for (const invalid of [null, [], { ...f.config, version: 2 }, { ...f.config, workspace: "relative" }, { ...f.config, tmpdir: "/tmp\n" }, { ...f.config, machineId: "invalid" }, { ...f.config, identity: { dev: 1, ino: 0 } }, { ...f.config, identity: { ...f.config.identity, extra: true } }, { ...f.config, grantedPaths: [] }, { ...f.config, workerPath: "/other-worker" }]) assert.throws(() => parsePersonalCommands(invalid), code("command_config_invalid"));
 });
 
-test("个人命令配置：持锁私有保存且不可换目录，固定 worker 与空依赖", async t => {
+test("个人命令配置：持锁私有保存与同机换目录，固定 worker 与空依赖", async t => {
   const f = fixture(t);
   await savePersonalCommands(f.directory, f.config);
   assert.equal(fs.statSync(path.join(f.directory, "command.json")).mode & 0o777, 0o600);
@@ -55,7 +54,9 @@ test("个人命令配置：持锁私有保存且不可换目录，固定 worker 
     await savePersonalCommands(profile, f.config);
     await assert.rejects(savePersonalCommands(f.directory, f.config), code("profile_busy"));
     const other = path.join(f.root, "other"); fs.mkdirSync(other); const stat = fs.statSync(other);
-    await assert.rejects(savePersonalCommands(profile, { ...f.config, workspace: other, identity: { dev: stat.dev, ino: stat.ino } }), code("command_config_changed"));
+    const next = { ...f.config, workspace: other, identity: { dev: stat.dev, ino: stat.ino } };
+    await savePersonalCommands(profile, next);
+    assert.deepEqual(readPersonalCommands(profile), next);
     const environment = personalCommandEnvironment(f.directory, f.config);
     assert.equal(environment.directory, path.join(f.directory, "commands"));
     assert.equal(environment.native.workerPath, fileURLToPath(new URL("../worker/personal-command-worker.mjs", import.meta.url)));
@@ -107,7 +108,7 @@ test("个人命令配置：损坏和链接配置拒绝读取，不作为未配�
     assert.throws(() => readPersonalCommands(profile), code("command_config_invalid"));
     fs.rmSync(filename); fs.symlinkSync(path.join(f.root, "missing"), filename);
     assert.throws(() => readPersonalCommands(profile), code("command_config_invalid"));
-    await assert.rejects(savePersonalCommands(profile, f.config), code("command_config_invalid"));
+    await assert.rejects(savePersonalCommands(profile, f.config), code("settings_history_invalid"));
   } finally { profile.release(); }
 });
 
@@ -146,7 +147,7 @@ test("个人命令配置：前台与 detached 启动先拒绝坏版本，零模�
   const baseUrl = await server.start(); t.after(() => server.close());
   const key = "RUUKOTO_COMMAND_START_TEST_KEY", before = process.env[key]; process.env[key] = "test-only";
   t.after(() => { if (before === undefined) delete process.env[key]; else process.env[key] = before; });
-  await savePersonalConfig(f.directory, { api: "openai-completions", baseUrl, modelId: "mock-model", apiKeyEnv: key, contextWindow: 128000, maxTokens: 1024 });
+  fs.writeFileSync(path.join(f.directory, "model.json"), JSON.stringify({ api: "openai-completions", baseUrl, modelId: "mock-model", apiKeyEnv: key, contextWindow: 128000, maxTokens: 1024 }) + "\n", { mode: 0o600 });
   fs.writeFileSync(path.join(f.directory, "command.json"), JSON.stringify({ ...f.config, version: 2 }), { mode: 0o600 });
   await assert.rejects(startPersonalServer(f.directory), code("command_config_invalid"));
   await assert.rejects(launchPersonalServer(f.directory), code("command_config_invalid"));
@@ -155,7 +156,7 @@ test("个人命令配置：前台与 detached 启动先拒绝坏版本，零模�
   lockPersonalProfile(f.directory).release();
 });
 
-test("个人命令配置：首次启用拒绝未决输入，原配置完成后可保存", async t => {
+test("个人命令配置：离线保存不依赖无关未决输入，也不调用模型或启动后台", async t => {
   const f = fixture(t); let blocked = true;
   const server = new MockModelServer(() => blocked ? new Promise(() => {}) : { kind: "text", text: "完成" });
   const baseUrl = await server.start();
@@ -169,8 +170,11 @@ test("个人命令配置：首次启用拒绝未决输入，原配置完成后�
     const deadline = Date.now() + 10000;
     while (!server.calls.length) { assert.ok(Date.now() < deadline, "等待原模型请求超时"); await delay(10); }
   } finally { await personal.close(); }
-  await assert.rejects(savePersonalCommands(f.directory, f.config), code("command_config_pending"));
-  assert.equal(fs.existsSync(path.join(f.directory, "command.json")), false);
+  const requests = server.calls.length;
+  await savePersonalCommands(f.directory, f.config);
+  assert.equal(fs.existsSync(path.join(f.directory, "command.json")), true);
+  assert.equal(fs.existsSync(path.join(f.directory, "control.sock")), false);
+  assert.equal(server.calls.length, requests);
   blocked = false;
   const resumed = await openPersonalHarness({ directory: f.directory, provider, modelId: "mock-model" });
   try { await resumed.answer("处理完成", "next"); }
@@ -180,14 +184,14 @@ test("个人命令配置：首次启用拒绝未决输入，原配置完成后�
 });
 
 test("个人命令配置向导：分组入口返回不写，选择目录后固定保存", async t => {
-  const f = fixture(t); let output = ""; const answers = ["5", "5", "/back", "7"];
+  const f = fixture(t); let output = ""; const answers = ["5", "5", "2", "/back", "7"];
   await personalMenu(f.directory, { question: async () => { assert.ok(answers.length); return answers.shift()!; }, write: value => { output += value; } });
   assert.equal(fs.existsSync(path.join(f.directory, "command.json")), false);
   assert.match(output, /5\. 配置或查看命令目录/);
   assert.match(output, /7\. 退出向导/);
-  const selected = [f.workspace, "2"];
+  const selected = ["2", f.workspace, "2"];
   await configurePersonalCommands({ question: async () => selected.shift()!, write: value => { output += value; } }, f.directory);
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(f.directory, "command.json"), "utf8")), f.config);
-  await configurePersonalCommands({ question: async () => { throw new Error("固定配置不再提问"); }, write: value => { output += value; } }, f.directory);
-  assert.match(output, /命令目录已固定/);
+  await configurePersonalCommands({ question: async () => "1", write: value => { output += value; } }, f.directory);
+  assert.match(output, /当前命令目录/);
 });

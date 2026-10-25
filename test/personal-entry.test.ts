@@ -13,7 +13,6 @@ import { ControlClient } from "@ruukoto/control/client.ts";
 import { personalDevDirectory, personalDevelopmentEnv, savePersonalConfig } from "../apps/ruukoto/src/personal-config.ts";
 import { lockPersonalProfile } from "../apps/ruukoto/src/personal-profile.ts";
 import { personalControl, readPersonalToken, startPersonalServer, type PersonalStatus } from "../apps/ruukoto/src/personal-control.ts";
-import { savePersonalTelegram } from "../apps/ruukoto/src/personal-telegram-config.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
 import { PersonalMockModelServer as MockModelServer } from "./helpers/mock-provider.ts";
 import { authenticateClient, cleanupDirs, makeTestDirs, writeModelsJson } from "./helpers/testkit.ts";
@@ -72,11 +71,13 @@ async function ready(directory: string, processChild: ChildProcess, output: () =
     }
   });
 }
-async function fixture(t: TestContext, directory = temp(t)) {
+async function fixture(t: TestContext, directory = temp(t), legacy = false) {
   const model = new MockModelServer(() => ({ kind: "text", text: "ENTRY_OK" }));
   const baseUrl = await model.start();
   cleanupFor(t).models.push(() => model.close());
-  await savePersonalConfig(directory, { api: "openai-completions", baseUrl, modelId: "mock-model", apiKeyEnv: "R38_MODEL_KEY", contextWindow: 128000, maxTokens: 1024 });
+  const modelConfig = { api: "openai-completions", baseUrl, modelId: "mock-model", apiKeyEnv: "R38_MODEL_KEY", contextWindow: 128000, maxTokens: 1024 };
+  if (legacy) { const profile = lockPersonalProfile(directory); try { fs.writeFileSync(path.join(profile.directory, "model.json"), JSON.stringify(modelConfig) + "\n", { mode: 0o600 }); } finally { profile.release(); } }
+  else await savePersonalConfig(directory, modelConfig);
   return { directory, model, baseUrl, env: { RUUKOTO_PERSONAL_DIR: directory, R38_MODEL_KEY: "test-only" } };
 }
 
@@ -209,11 +210,11 @@ test("serve 启动中的关闭意图及真实 SIGTERM/SIGHUP 均等待停止后�
 });
 
 test("开发环境固定档案并清洗双方生产配置，保留模型凭据；启用 IM 的档案零恢复零连接", async t => {
-  const f = await fixture(t);
+  const f = await fixture(t, temp(t), true);
   const env = personalDevelopmentEnv(f.directory, { RUUKOTO_PERSONAL_DIR: "daily", RUUKOTO_DATA_DIR: "old", RUUKOTO_CODE_DATA_DIR: "code", RUUKOTO_OWNER_TOKEN: "secret", RUUKOTO_SERVICE_HELPER: "helper", RUUKOTO_RELOAD_STATE_FILE: "old-state", RUUKOTO_DURABLE_CLI_KEY: "model", PATH: "path" });
   assert.deepEqual(env, { RUUKOTO_PERSONAL_DIR: f.directory, RUUKOTO_DURABLE_CLI_KEY: "model", PATH: "path" });
   const profile = lockPersonalProfile(f.directory);
-  try { savePersonalTelegram(profile, { version: 1, enabled: true, generation: randomUUID(), apiBase: "https://api.telegram.org", tokenEnv: "R38_BOT_TOKEN", tokenDigest: "a".repeat(64), botId: "1", ownerId: "42", boundary: 0 }); } finally { profile.release(); }
+  try { fs.writeFileSync(path.join(profile.directory, "telegram.json"), JSON.stringify({ version: 1, enabled: true, generation: randomUUID(), apiBase: "https://api.telegram.org", tokenEnv: "R38_BOT_TOKEN", tokenDigest: "a".repeat(64), botId: "1", ownerId: "42", boundary: 0 }) + "\n", { mode: 0o600 }); } finally { profile.release(); }
   const original = fs.readFileSync(path.join(f.directory, "telegram.json"));
   await assert.rejects(startPersonalServer(f.directory, { development: true }), code("development_im_enabled"));
   assert.deepEqual(fs.readFileSync(path.join(f.directory, "telegram.json")), original);

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import { test } from "node:test";
 import { ControlClientError } from "@ruukoto/control/client.ts";
 import { PersonalSettingsController } from "../apps/desktop/src/main/personal-settings-controller.ts";
@@ -8,86 +9,99 @@ import { personalPendingFile } from "../apps/desktop/src/main/personal-config.ts
 import { desktopRemoteFixture } from "./helpers/personal-remote-desktop.ts";
 
 const code = (expected: string) => (error: unknown) => error instanceof ControlClientError && error.code === expected;
-
 async function fixture(t: Parameters<typeof desktopRemoteFixture>[0]) {
   const f = await desktopRemoteFixture(t), controller = f.create(); await controller.pair("ABCDEFGHIJKL", "Electron");
-  const state = { calls: 0, restores: 0, finishes: 0, dropAfterAdmission: false, rejectBeforeAdmission: false, uncertainCode: "", pending: null as string | null, online: true, receipts: new Map<string, Record<string, unknown>>(), requests: [] as unknown[] };
-  const revisions = { model: `sha256:${"1".repeat(64)}`, skills: "missing", mcp: "missing" };
+  const state = { calls: 0, restores: 0, dropAfterAdmission: false, rejectBeforeAdmission: false, uncertainCode: "", pending: null as string | null, online: true, protocol: 2, receipts: new Map<string, Record<string, unknown>>() };
+  const revisions = { model: "sha256:" + "1".repeat(64), skills: "missing", mcp: "missing" };
   const request = { v: 1, op: "config.save", target: "model", profile: f.profile, expectedRevision: revisions.model, value: { modelId: "new-model" } };
-  const view = () => ({ settings: { product: "ruukoto", profile: f.profile, online: state.online, revisions, blockers: [], model: { config: {}, credential: { state: "available", reference: "TEST_API_KEY" } }, skills: null, mcp: null, lifecycle: { managedDevelopment: false } }, maintenance: { profile: f.profile, online: state.online, writable: true, code: "maintenance_ready", reason: "已核实原服务", lifecycle: { kind: "systemd", state: state.online ? "running" : "stopped", managedDevelopment: false, originalEnvironment: "unverified" } }, pending: state.pending ? state.receipts.get(state.pending) : null });
+  const view = () => ({ settings: { product: "ruukoto", settingsProtocol: state.protocol, profile: f.profile, online: state.online, revisions, operations: [...state.receipts.values()].filter(item => item.v === 2), blockers: [], model: { config: {}, credential: { state: "missing", reference: "TEST_API_KEY" } }, skills: null, mcp: null, lifecycle: { managedDevelopment: true } }, maintenance: { profile: f.profile, online: state.online, writable: false, code: "settings_ready", reason: "配置可保存", lifecycle: { kind: "cli", state: state.online ? "running" : "stopped", managedDevelopment: true, originalEnvironment: "unverified" } }, pending: state.pending ? state.receipts.get(state.pending) : null });
   f.overrides.set("/management", (_req, res) => { f.respond(res, view()); });
-  f.overrides.set("/settings", (_req, res, value) => { state.requests.push(value); f.respond(res, (value as { op: string }).op === "settings.read" ? view().settings : { profile: f.profile, tested: true }); });
+  f.overrides.set("/settings", (_req, res, value) => { f.respond(res, (value as { op: string }).op === "settings.read" ? view().settings : { profile: f.profile, tested: true }); });
   f.overrides.set("/maintenance", (req, res, value) => {
     if (req.method === "GET") { f.respond(res, state.receipts.get(new URL(req.url!, f.origin).searchParams.get("id")!) ?? null); return; }
     state.calls++;
-    const input = value as { id: string; request: typeof request };
-    const local = JSON.parse(fs.readFileSync(personalPendingFile(f.directory, controller.config), "utf8")); assert.equal(local.maintenance.id, input.id);
+    const input = value as { v: number; id: string; request: { id: string; v: number; op: { kind: string; target: string } } };
+    assert.equal(input.v, 2); assert.equal(input.request.v, 2); assert.equal(input.id, input.request.id);
+    const local = JSON.parse(fs.readFileSync(personalPendingFile(f.directory, controller.config), "utf8"));
+    const association = local.settings.find((item: { id: string }) => item.id === input.id); assert.ok(association);
     if (state.rejectBeforeAdmission) { f.reject(res, "settings_revision_changed", 400); return; }
-    state.receipts.set(input.id, { v: 1, id: input.id, profile: f.profile, op: input.request.op, target: "model", expectedRevision: revisions.model, requestDigest: local.maintenance.requestDigest, stage: "stopping", saveAttempted: false, saved: false, started: false }); state.pending = input.id;
+    if ([...state.receipts.values()].some(item => item.v === 2 && item.target === input.request.op.target && item.status === "waiting")) { f.reject(res, "settings_target_pending", 409); return; }
+    const receipt = { v: 2, id: input.id, profile: f.profile, target: input.request.op.target, scope: "*", requestDigest: association.requestDigest, status: "waiting", savedRevision: revisions.model, effectiveRevision: null, code: "settings_waiting", relatedOperations: [] };
+    state.receipts.set(input.id, receipt);
     if (state.dropAfterAdmission) { req.socket.destroy(); return; }
     if (state.uncertainCode) { f.reject(res, state.uncertainCode, 409); return; }
-    f.respond(res, state.receipts.get(input.id), 202);
+    f.respond(res, receipt, 202);
   });
-  for (const action of ["restore", "finish"] as const) f.overrides.set(`/maintenance/${action}`, (_req, res, value) => {
-    const { id } = value as { id: string }; if (action === "restore") state.restores++; else state.finishes++;
-    const receipt = state.receipts.get(id)!; Object.assign(receipt, { stage: "complete", saved: action === "restore" ? true : receipt.saved, started: true }); state.pending = null; state.online = true; f.respond(res, receipt);
+  f.overrides.set("/maintenance/restore", (_req, res, value) => {
+    state.restores++; const id = (value as { id: string }).id, receipt = state.receipts.get(id)!;
+    Object.assign(receipt, { stage: "complete", saved: true, saveAttempted: true, savedRevision: revisions.model, started: true }); state.pending = null; f.respond(res, receipt);
   });
-  return { ...f, controller, settings: new PersonalSettingsController(controller, f.directory), state, request, view, complete: () => { const receipt = state.receipts.get(state.pending!)!; Object.assign(receipt, { stage: "complete", saveAttempted: true, saved: true, savedRevision: revisions.model, started: true }); state.pending = null; } };
+  return { ...f, controller, settings: new PersonalSettingsController(controller, f.directory), state, request, view, complete: () => { for (const receipt of state.receipts.values()) if (receipt.v === 2) Object.assign(receipt, { status: "active", effectiveRevision: receipt.savedRevision }); } };
 }
 
-test("PA设置：三类设置沿已核实的同一HTTPS连接读取与测试，档案变化拒绝", async t => {
-  const f = await fixture(t), view = await f.settings.read();
-  assert.equal(view.settings.profile.id, f.profile.id); assert.equal(view.maintenance.writable, true);
-  const tested = await f.settings.request({ v: 1, op: "model.test", profile: f.profile, expectedRevision: f.request.expectedRevision, value: {} }); assert.equal(tested.tested, true);
-  await assert.rejects(f.settings.request({ v: 1, op: "model.test", profile: { ...f.profile, id: `sha256:${"b".repeat(64)}` } }), code("settings_profile_changed"));
+test("PA设置：认证读取与测试保留档案身份，写入只经v2保存入口", async t => {
+  const f = await fixture(t), view = await f.settings.read(); assert.equal(view.settings.profile.id, f.profile.id);
+  assert.equal((await f.settings.request({ v: 1, op: "model.test", profile: f.profile, expectedRevision: f.request.expectedRevision, value: {} })).tested, true);
+  await assert.rejects(f.settings.request({ v: 1, op: "model.test", profile: { ...f.profile, id: "sha256:" + "b".repeat(64) } }), code("settings_profile_changed"));
   await assert.rejects(f.settings.request({ v: 1, op: "config.save" }), code("op_not_allowed"));
   assert.equal(f.state.calls, 0);
 });
 
-test("PA维护：接纳202后只读原回执，完整阶段归服务器；完成后允许下一项", async t => {
-  const f = await fixture(t), view = await f.settings.apply(f.request);
-  assert.equal(view.pending?.stage, "stopping"); assert.equal(f.state.calls, 1); assert.equal(!!f.controller.maintenance(), true);
-  await assert.rejects(f.settings.apply(f.request), code("maintenance_pending")); assert.equal(f.state.calls, 1);
-  f.complete(); const complete = await f.settings.read(); assert.equal(complete.pending, null); assert.equal(complete.saved, true); assert.equal(!!f.controller.maintenance(), false);
-  await f.settings.apply(f.request); assert.equal(f.state.calls, 2);
-  const ids = [...f.state.receipts.keys()]; assert.notEqual(ids[0], ids[1]);
+test("PA设置：收齐回执和scope生效分页，后页未结操作保持可查询", async t => {
+  const f = await fixture(t);
+  const receipts = Array.from({ length: 34 }, (_, index) => ({ v: 2, id: randomUUID(), profile: f.profile, target: "mcp", scope: `service-${index}`, requestDigest: "a".repeat(64), status: index === 33 ? "waiting" : "active", savedRevision: f.request.expectedRevision, effectiveRevision: null, code: "settings_waiting", relatedOperations: [] }));
+  const effective = receipts.map(item => ({ target: "mcp", scope: item.scope, version: item.id, revision: f.request.expectedRevision }));
+  f.overrides.set("/management", (_req, res) => { const view = f.view(); Object.assign(view.settings, { operations: receipts.slice(0, 32), operationsNextOffset: 32, effective: effective.slice(0, 32), effectiveNextOffset: 32 }); f.respond(res, view); });
+  f.overrides.set("/settings", (_req, res, value) => { const request = value as { operationsOffset?: number; effectiveOffset?: number }; f.respond(res, { profile: f.profile, operations: request.operationsOffset === 32 ? receipts.slice(32) : receipts.slice(0, 32), effective: request.effectiveOffset === 32 ? effective.slice(32) : effective.slice(0, 32) }); });
+  const view = await f.settings.read();
+  assert.deepEqual(view.operations?.map(item => item.id), receipts.map(item => item.id));
+  assert.deepEqual(view.settings.effective, effective); assert.equal(view.operations?.at(-1)?.status, "waiting");
+  assert.equal(view.settings.operationsNextOffset, undefined); assert.equal(view.settings.effectiveNextOffset, undefined);
 });
 
-test("PA维护丢答：原关联落盘，重开查原键且不重存，已保存启动失败可显式恢复", async t => {
+test("PA保存：无systemd、开发后台和缺模型凭据可保存，等待仅阻止同对象", async t => {
+  const f = await fixture(t), view = await f.settings.apply(f.request);
+  assert.equal(view.operation?.status, "waiting"); assert.equal(view.saved, true); assert.equal(view.pending, null); assert.equal(f.controller.maintenance(), undefined);
+  await assert.rejects(f.settings.apply(f.request), code("settings_target_pending"));
+  const other = await f.settings.apply({ ...f.request, target: "skills" }); assert.equal(other.operation?.target, "skills");
+  f.complete(); await f.settings.apply(f.request); assert.equal(f.state.calls, 4);
+});
+
+test("PA保存丢答：原关联先落盘，重开只查询原键，不重复保存", async t => {
   const f = await fixture(t); f.state.dropAfterAdmission = true;
   await assert.rejects(f.settings.apply(f.request), code("personal_connection_lost"));
-  const pending = f.controller.maintenance()!; assert.ok(pending.id); assert.equal(f.state.calls, 1);
-  const old = f.state.receipts.get(pending.id)!; Object.assign(old, { stage: "saved", saved: true, saveAttempted: true, savedRevision: f.request.expectedRevision, started: false }); f.state.online = false;
-  const reopened = new PersonalSettingsController(f.controller, f.directory), view = await reopened.read(); assert.equal(view.saved, true); assert.equal(view.pending?.id, pending.id);
-  const restored = await reopened.restore(); assert.equal(restored.pending, null); assert.equal(f.state.restores, 1); assert.equal(f.state.calls, 1);
+  const pending = f.controller.settingsOperations()[0]; assert.ok(pending); assert.equal(f.state.calls, 1);
+  const reopened = new PersonalSettingsController(f.controller, f.directory), view = await reopened.read();
+  assert.equal(view.operations?.find(item => item.id === pending.id)?.status, "waiting");
+  assert.equal(f.controller.settingsOperations().length, 0); assert.equal(f.state.calls, 1);
+  const result = await reopened.operation(pending.id); assert.equal(result.saved, true); assert.equal(f.state.calls, 1);
 });
 
-test("PA维护：明确拒绝不留假接纳，未知结果不自动换键；人工结束需先读取", async t => {
+test("PA保存：明确拒绝清除本机接纳关联，未知409保留原键直到查询", async t => {
   const f = await fixture(t); f.state.rejectBeforeAdmission = true;
-  await assert.rejects(f.settings.apply(f.request), code("settings_revision_changed")); assert.equal(f.controller.maintenance(), undefined);
-  f.state.rejectBeforeAdmission = false; await f.settings.apply(f.request);
-  const unopened = new PersonalSettingsController(f.controller, f.directory); await assert.rejects(unopened.finish(), code("maintenance_unverified"));
-  await unopened.read(); await unopened.finish(); assert.equal(f.state.finishes, 1); assert.equal(f.controller.maintenance(), undefined);
+  await assert.rejects(f.settings.apply(f.request), code("settings_revision_changed")); assert.equal(f.controller.settingsOperations().length, 0);
+  f.state.rejectBeforeAdmission = false; f.state.uncertainCode = "remote_response_large";
+  await assert.rejects(f.settings.apply(f.request), (error: unknown) => error instanceof ControlClientError && error.outcome === "unknown");
+  const original = f.controller.settingsOperations()[0]; assert.ok(original);
+  const calls = f.state.calls; await f.settings.read(); assert.equal(f.state.calls, calls); assert.equal(f.controller.settingsOperations().length, 0);
 });
 
-test("旧桌面维护：原损坏记录阻止新写维护，查询和原文件均保留", async t => {
-  const f = await fixture(t), directory = path.join(f.directory, "pending", "personal-settings"); fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+test("旧停存启回执：读取与显式恢复保留原解释，不执行新保存", async t => {
+  const f = await fixture(t), id = randomUUID();
+  f.state.receipts.set(id, { v: 1, id, profile: f.profile, op: "config.save", target: "model", expectedRevision: f.request.expectedRevision, requestDigest: "1".repeat(64), stage: "saved", saveAttempted: true, saved: true, savedRevision: f.request.expectedRevision, started: false });
+  f.state.pending = id; f.controller.recordMaintenance({ id, requestDigest: "1".repeat(64) });
+  const view = await f.settings.read(); assert.equal(view.pending?.stage, "saved"); assert.equal(view.saved, true);
+  await assert.rejects(f.settings.apply(f.request), code("legacy_maintenance_pending"));
+  assert.equal((await f.settings.restore()).pending, null); assert.equal(f.state.restores, 1); assert.equal(f.state.calls, 0);
+});
+
+test("旧后台与旧桌面损坏维护：新写入明确拒绝，原记录保留", async t => {
+  const f = await fixture(t); f.state.protocol = 1;
+  await assert.rejects(f.settings.apply(f.request), code("settings_upgrade_required")); assert.equal(f.state.calls, 0);
+  const directory = path.join(f.directory, "pending", "personal-settings"); fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
   const old = path.join(directory, "original.json"); fs.writeFileSync(old, "broken old journal", { mode: 0o600 });
-  await f.settings.read(); await assert.rejects(f.settings.apply(f.request), code("legacy_maintenance_pending"));
-  assert.equal(f.state.calls, 0); assert.equal(fs.readFileSync(old, "utf8"), "broken old journal");
+  await assert.rejects(f.settings.apply(f.request), code("legacy_maintenance_pending")); assert.equal(fs.readFileSync(old, "utf8"), "broken old journal");
 });
-
-
-test("409不能证明未执行：应答超限或服务器未知失败保留原维护键，不再次保存", async t => {
-  for (const failure of ["remote_response_large", "remote_unavailable"]) {
-    const f = await fixture(t); f.state.uncertainCode = failure;
-    await assert.rejects(f.settings.apply(f.request), (error: unknown) => error instanceof ControlClientError && error.code === failure && error.outcome === "unknown");
-    const original = f.controller.maintenance()!; assert.ok(original.id); assert.equal(f.state.calls, 1);
-    f.state.uncertainCode = ""; const view = await f.settings.read(); assert.equal(view.pending?.id, original.id);
-    await assert.rejects(f.settings.apply(f.request), code("maintenance_pending")); assert.equal(f.state.calls, 1);
-  }
-});
-
 
 test("PA切页读取：旧页尚未卸载时共享原档案读取，完成与失败后均可重新读取", async t => {
   const f = await fixture(t);
@@ -106,8 +120,8 @@ test("PA切页读取：旧页尚未卸载时共享原档案读取，完成与失
     const first = f.settings.read(); await started;
     const second = f.settings.read();
     const results = Promise.allSettled([first, second]);
-    await assert.rejects(f.settings.request({ v: 1, op: "settings.read" }), code("management_busy"));
-    await assert.rejects(f.settings.apply(f.request), code("management_busy"));
+    const independent = await f.settings.request({ v: 1, op: "settings.read" });
+    assert.deepEqual(independent.profile, f.profile);
     release();
     const settled = await results;
     assert.equal(settled[0].status, rejected ? "rejected" : "fulfilled");

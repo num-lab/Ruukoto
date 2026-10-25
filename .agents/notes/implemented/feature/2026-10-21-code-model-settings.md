@@ -2,7 +2,9 @@
 
 Status: implemented
 
-配置更新与迁移的拟调整范围见[按受影响对象更新配置](../../proposed/architecture/2026-10-25-operation-scoped-configuration.md)；该提案尚未落地，本文现行约束继续有效。
+显示名、唯一 ID 排序与真正新增模型的保存采用[非执行配置检查](../simplification/2026-10-25-configuration-checks.md)；本文其余配置来源、凭据、修订与旧任务选择约束继续适用。
+
+[非执行配置检查](../simplification/2026-10-25-configuration-checks.md)放行显示名、模型排序和真实新增 ID；执行字段、内置覆盖、重复 ID 与引用校验仍保留。
 
 ## 问题
 

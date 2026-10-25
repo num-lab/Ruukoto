@@ -17,7 +17,7 @@ import { PersonalPermissionsDoc } from "../apps/ruukoto/src/personal-permissions
 import { PersonalAgentsDoc, PersonalWorkDoc, requestPersonalWorkCancel } from "../apps/ruukoto/src/personal-work.ts";
 import { PersonalDelegationDoc, cancelPersonalDelegation, delegatePersonalAnalysis, listPersonalDelegations, personalDelegationProgress, type PersonalDelegationRef } from "../apps/ruukoto/src/personal-delegation.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
-import { savePersonalConfig } from "../apps/ruukoto/src/personal-config.ts";
+import { lockPersonalProfile } from "../apps/ruukoto/src/personal-profile.ts";
 import { startPersonalServer, personalControl, readPersonalToken } from "../apps/ruukoto/src/personal-control.ts";
 import { managePersonalDelegations } from "../apps/ruukoto/src/personal-cli.ts";
 import { PersonalTelegramReceiptDoc } from "../apps/ruukoto/src/personal-telegram-records.ts";
@@ -47,7 +47,9 @@ async function fixture(t: TestContext, analyze: Responder = () => ({ kind: "text
   const config: PersonalModelConfig = { api: "openai-completions", baseUrl: await model.start(), modelId: "mock-model", apiKeyEnv: "RUUKOTO_DELEGATION_MODEL_KEY", contextWindow: 128000, maxTokens: 8192 };
   const previous = [process.env[config.apiKeyEnv], process.env.RUUKOTO_DELEGATION_BOT_KEY];
   process.env[config.apiKeyEnv] = "test-only"; process.env.RUUKOTO_DELEGATION_BOT_KEY = "123:test-token";
-  await savePersonalConfig(directory, config);
+  const profile = lockPersonalProfile(directory);
+  fs.writeFileSync(path.join(directory, "model.json"), JSON.stringify(config) + "\n", { mode: 0o600 });
+  profile.release();
   let p: PersonalHarness;
   let server: Awaited<ReturnType<typeof startPersonalServer>> | undefined;
   let bot: http.Server | undefined;

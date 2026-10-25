@@ -2,6 +2,8 @@
 
 Status: implemented
 
+报告的主会话接纳及外发认领通过[IM 平台短互斥](2026-10-25-personal-im-updates.md)选择原配置和固定句柄，不捕获启动时 QQ API。
+
 ## 问题
 
 [分析委托](../../implemented/architecture/2026-10-17-personal-analysis-delegations.md)保存跨轮成员，但成员空闲不能证明主 Agent 已完成整项安排。缺少汇总与原入口回报，拥有者仍须逐项询问；把最新主聊天回答当报告还会串线。主会话只有一个活动轮次，未知效果不能在 provider 内等待而阻塞其他聊天。

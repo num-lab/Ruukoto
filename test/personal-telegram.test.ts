@@ -112,6 +112,108 @@ test("Telegram：绑定私聊、稳定消息去重与同键异参，回复严格
   assert.doesNotMatch(JSON.stringify((await p.main.entries({}, 256, undefined, context)).items), /telegram-test-secret/);
 });
 
+test("Telegram 在线换绑：admission 与原 submission 绑定完成后才切换，旧回复不改发", async t => {
+  let releaseAdmission!: () => void, releaseModel!: () => void, admitted = false;
+  const admission = new Promise<void>(resolve => { releaseAdmission = resolve; }), model = new Promise<void>(resolve => { releaseModel = resolve; });
+  t.after(() => { releaseAdmission(); releaseModel(); });
+  const f = await fixture(t, async (_request, index) => { if (index === 0) await model; return { kind: "text", text: "固定回答" }; });
+  const p = await f.open({ openStorage: async filename => {
+    const storage = await openNodeSqliteStorage(filename), commit = storage.commit.bind(storage);
+    storage.commit = async (writes, callContext) => { const result = await commit(writes, callContext); if (!admitted && writes.some(write => write.type === "submission" && write.value.requestId === "telegram:123:456:501")) { admitted = true; await admission; } return result; }; return storage;
+  } });
+  await p.telegram.receive(update(501)); await until(() => admitted);
+  const next = { ...f.telegram, generation: randomUUID(), ownerId: "789" };
+  const version = randomUUID();
+  let applied = false;
+  const switching = p.telegram.update("telegram", next, version, "new-revision").then(result => { applied = true; return result; });
+  await delay(40); assert.equal(applied, false);
+  releaseAdmission(); await switching;
+  assert.equal((await p.harness.snapshot(PersonalTelegramReceiptDoc, "telegram:123:456:501", context))!.receipt!.submissionId !== undefined, true);
+  assert.equal(f.bot.sends.length, 0);
+  releaseModel(); assert.ok(["canceled", "unanswered"].includes((await settled(p, 501)).delivery));
+  await p.telegram.receive(update(502, 502, "新入口", "789"));
+  const current = (await p.harness.snapshot(PersonalTelegramReceiptDoc, "telegram:123:789:502", context))!.receipt!; await p.harness.waitForTask(current.taskId, context);
+  assert.equal((await p.harness.snapshot(PersonalTelegramReceiptDoc, current.requestId, context))!.receipt!.configurationVersion, version);
+  assert.deepEqual(f.bot.sends.map(value => value.chat_id), ["789"]);
+  assert.ok(f.model.calls.length <= 2);
+});
+
+test("Telegram 在线换绑：不等待已开始模型请求，旧模型结果保留且旧发送取消", async t => {
+  let release!: () => void; const held = new Promise<void>(resolve => { release = resolve; }); t.after(() => release());
+  const f = await fixture(t, async () => { await held; return { kind: "text", text: "原模型请求的回答" }; }), p = await f.open();
+  await p.telegram.receive(update(505)); await until(() => f.model.calls.length === 1);
+  await p.telegram.update("telegram", { ...f.telegram, generation: randomUUID(), ownerId: "789" }, randomUUID(), "next");
+  assert.equal(f.bot.sends.length, 0); release();
+  assert.equal((await settled(p, 505)).delivery, "canceled");
+  const messages = await p.main.entries({}, 64, undefined, context);
+  assert.match(JSON.stringify(messages.items), /原模型请求的回答/);
+});
+
+test("Telegram 旧凭据缺失：只停该入口，后台聊天、管理和停用保存仍可执行", async t => {
+  const f = await fixture(t); delete process.env[f.telegram.tokenEnv];
+  const p = await f.open(); const state = await p.telegram.status();
+  assert.equal(state.enabled, true); assert.equal(state.online, false); assert.equal(state.code, "im_credentials_unavailable");
+  assert.equal(await p.answer("修复其他配置时的聊天", "credentials-independent"), "固定回答");
+  await p.updateIm("telegram", { ...f.telegram, enabled: false, generation: randomUUID() }, randomUUID(), "disabled");
+  assert.equal((await p.telegram.status()).enabled, false);
+});
+
+test("Telegram 在线换绑：sending 已领取的响应仍完成原发送，坏候选不替换当前入口", async t => {
+  let entered = false, release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; }); t.after(() => release());
+  const f = await fixture(t), p = await f.open(), originalFetch = globalThis.fetch;
+  t.mock.method(globalThis, "fetch", async (...args: Parameters<typeof fetch>) => { const response = await originalFetch(...args); if (!entered && String(args[0]).endsWith("/sendMessage")) { entered = true; await held; } return response; });
+  await p.telegram.receive(update(511)); await until(() => entered);
+  const next = { ...f.telegram, generation: randomUUID(), ownerId: "789" };
+  await p.telegram.update("telegram", next, randomUUID(), "new-revision");
+  release(); assert.equal((await settled(p, 511)).delivery, "sent");
+  assert.deepEqual(f.bot.sends.map(value => value.chat_id), [OWNER]);
+  await assert.rejects(p.telegram.update("telegram", { ...next, generation: randomUUID(), tokenDigest: "0".repeat(64) }, randomUUID(), "bad-revision"), code("telegram_credentials_changed"));
+  assert.equal((await p.harness.snapshot(PersonalTelegramDoc, context))!.config!.generation, next.generation);
+});
+
+test("Telegram 后台配对：CLI 没有 token，独立后台仍按自己的环境核实并在线应用", { timeout: 30000 }, async t => {
+  const f = await fixture(t); await savePersonalConfig(f.options.directory, f.config);
+  const script = `import { startPersonalServer } from ${JSON.stringify(new URL("../apps/ruukoto/src/personal-control.ts", import.meta.url).href)}; const backend=await startPersonalServer(${JSON.stringify(f.options.directory)}); process.send("ready"); process.on("message",async()=>{await backend.stop();process.disconnect();}); await backend.closed;`;
+  const child = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "--eval", script], { cwd: new URL("..", import.meta.url), env: { ...process.env }, stdio: ["ignore", "ignore", "pipe", "ipc"] });
+  let ready = false, output = ""; child.on("message", () => { ready = true; }); child.stderr!.on("data", chunk => { output += String(chunk); });
+  try {
+    await until(() => { assert.equal(child.exitCode, null, output); return ready; });
+    delete process.env[f.telegram.tokenEnv];
+    const answers = ["1", f.telegram.apiBase, f.telegram.tokenEnv, "2", "", "1"];
+    await configurePersonalTelegram({ question: async prompt => { if (prompt.includes("直接发送")) f.bot.updates.push(update(601, 601, prompt.match(/“([^”]+)”/)![1])); assert.ok(answers.length); return answers.shift()!; }, write: () => {} }, f.options.directory);
+    assert.equal(process.env[f.telegram.tokenEnv], undefined);
+    const status = await personalControl<{ enabled: boolean }>(f.options.directory, "GET", "/telegram"); assert.equal(status.enabled, true);
+    f.bot.updates.push(update(602)); await until(() => f.bot.sends.length === 1);
+    assert.equal(f.bot.sends[0].chat_id, OWNER);
+  } finally {
+    if (child.exitCode === null && child.connected) child.send("stop");
+    const deadline = Date.now() + 5000; while (child.exitCode === null && Date.now() < deadline) await delay(10);
+    if (child.exitCode === null) child.kill("SIGKILL");
+    if (child.exitCode === null) await once(child, "exit");
+  }
+});
+
+test("Telegram 配对回执：同键不重复接管，水位调用丢答保留事实且原入口仍可用", async t => {
+  const f = await fixture(t), p = await f.open(), id = randomUUID();
+  const request = { v: 1 as const, op: "im.pair-start" as const, id, platform: "telegram" as const, endpoint: f.telegram.apiBase, tokenEnv: f.telegram.tokenEnv };
+  const first = await p.imPairing.start(request), polls = f.bot.polls.length;
+  assert.deepEqual(await p.imPairing.start(request), first); assert.equal(f.bot.polls.length, polls);
+  await assert.rejects(p.imPairing.start({ ...request, tokenEnv: "OTHER_TOKEN" }), code("im_pairing_conflict"));
+  await p.imPairing.cancel(id);
+  const originalFetch = globalThis.fetch; let injected = false;
+  t.mock.method(globalThis, "fetch", async (...args: Parameters<typeof fetch>) => { const response = await originalFetch(...args); if (!injected && String(args[0]).endsWith("/getUpdates")) { injected = true; throw new Error("reply-lost-after-platform-effect"); } return response; });
+  f.bot.updates = [update(1), update(2)]; const lost = randomUUID();
+  await assert.rejects(p.imPairing.start({ ...request, id: lost }), code("telegram_unverified"));
+  const receipt = await p.imPairing.read(lost);
+  assert.equal(receipt.phase, "failed"); assert.equal(receipt.accountId, f.telegram.botId);
+  assert.ok(receipt.facts.some(fact => fact.code === "telegram_takeover_started" && fact.offset === -1));
+  assert.equal(f.bot.updates.length, 1);
+  const count = f.bot.polls.length; await p.imPairing.start({ ...request, id: lost }); assert.equal(f.bot.polls.length, count);
+  assert.equal((await p.harness.snapshot(PersonalTelegramDoc, context))!.config!.generation, f.telegram.generation);
+  await p.telegram.receive(update(603)); assert.equal((await settled(p, 603)).delivery, "sent");
+});
+
 test("Telegram：一次性短期确认，空批/重启/一周空闲后的较小 update_id 不漏收", async t => {
   assert.equal(telegramOffset({ offset: 900, receivedAt: 100 }, 60099), 900);
   assert.equal(telegramOffset({ offset: 900, receivedAt: 100 }, 60100), undefined);
@@ -213,28 +315,31 @@ test("Telegram：配置、收件、Task 与版本断链拒绝恢复", async t =>
   });
 });
 
-test("Telegram：向导从真实配对消息选择身份，确认接管边界，离线文件无凭据", async t => {
+test("Telegram：在线向导使用后台配对身份和接管边界，同一后台生效且文件无凭据", async t => {
   const f = await fixture(t); const answers = ["1", f.telegram.apiBase, f.telegram.tokenEnv, "2", "", "1"];
+  await savePersonalConfig(f.options.directory, f.config);
+  const backend = await startPersonalServer(f.options.directory); t.after(() => backend.stop());
   f.bot.updates = [update(1), update(2)]; let output = "";
   await configurePersonalTelegram({ question: async prompt => {
-    if (prompt.includes("私聊发送")) { const phrase = prompt.match(/“([^”]+)”/)![1]; f.bot.updates.push(update(3, 3, phrase)); }
+    if (prompt.includes("直接发送")) { const phrase = prompt.match(/“([^”]+)”/)![1]; f.bot.updates.push(update(3, 3, phrase)); }
     assert.ok(answers.length); return answers.shift()!;
   }, write: text => { output += text; } }, f.options.directory);
-  const profile = lockPersonalProfile(f.options.directory); const saved = readPersonalTelegram(profile)!; profile.release();
+  const saved = parsePersonalTelegram(JSON.parse(fs.readFileSync(path.join(f.options.directory, "telegram.json"), "utf8")));
   assert.equal(saved.ownerId, OWNER); assert.equal(saved.botId, "123"); assert.equal(saved.boundary, 3); assert.equal(saved.enabled, true);
-  assert.equal(f.bot.polls[0].offset, -1); assert.equal(f.bot.polls.at(-1)!.offset, 4); assert.equal(f.bot.updates.length, 0);
+  assert.equal(f.bot.polls[0].offset, -1); assert.ok(f.bot.polls.some(poll => poll.offset === 4)); assert.equal(f.bot.updates.length, 0);
   assert.doesNotMatch(fs.readFileSync(path.join(f.options.directory, "telegram.json"), "utf8"), /telegram-test-secret/);
-  assert.match(output, /已配对/); assert.equal(fs.statSync(path.join(f.options.directory, "telegram.json")).mode & 0o777, 0o600);
+  assert.match(output, /已保存并生效/); assert.equal(fs.statSync(path.join(f.options.directory, "telegram.json")).mode & 0o777, 0o600);
   const env = personalChildEnv(f.options.directory, [f.config.apiKeyEnv, f.telegram.tokenEnv], { RUUKOTO_DATA_DIR: "old", [f.config.apiKeyEnv]: "model", [f.telegram.tokenEnv]: TOKEN });
   assert.equal(env[f.telegram.tokenEnv], TOKEN); assert.equal(env.RUUKOTO_DATA_DIR, undefined);
-  const lock = lockPersonalProfile(f.options.directory);
-  assert.throws(() => savePersonalTelegram(f.options.directory, saved), code("profile_busy")); lock.release();
+  assert.throws(() => lockPersonalProfile(f.options.directory), code("profile_busy"));
+  await savePersonalTelegram(f.options.directory, saved);
   assert.throws(() => parsePersonalTelegram({ ...saved, tokenEnv: "RUUKOTO_OWNER_TOKEN" }), code("telegram_config_invalid"));
   process.env[saved.tokenEnv] = "123:changed-token"; assert.throws(() => telegramToken(saved), code("telegram_credentials_changed"));
 });
 
 test("Telegram：真实本机后台装配轮询，停止收齐后释放档案锁", async t => {
-  const f = await fixture(t); await savePersonalConfig(f.options.directory, f.config); savePersonalTelegram(f.options.directory, f.telegram);
+  const f = await fixture(t), profile = lockPersonalProfile(f.options.directory);
+  try { fs.writeFileSync(path.join(profile.directory, "model.json"), JSON.stringify(f.config) + "\n", { mode: 0o600 }); fs.writeFileSync(path.join(profile.directory, "telegram.json"), JSON.stringify(f.telegram) + "\n", { mode: 0o600 }); } finally { profile.release(); }
   const server = await startPersonalServer(f.options.directory); t.after(() => server.stop());
   f.bot.updates.push(update(11)); await until(() => f.bot.sends.length === 1);
   const state = await personalControl<{ enabled: boolean; recent: { delivery: string }[] }>(f.options.directory, "GET", "/telegram"); assert.equal(state.enabled, true); assert.equal(state.recent[0].delivery, "sent");
@@ -243,13 +348,15 @@ test("Telegram：真实本机后台装配轮询，停止收齐后释放档案锁
 });
 
 test("Telegram：配对身份选择过期，不发送旧确认水位或保存绑定", async t => {
-  const f = await fixture(t); let clock = 0; t.mock.method(performance, "now", () => clock);
+  const f = await fixture(t); await savePersonalConfig(f.options.directory, f.config);
+  const backend = await startPersonalServer(f.options.directory); t.after(() => backend.stop());
+  let clock = 0; t.mock.method(performance, "now", () => clock);
   const answers = ["1", f.telegram.apiBase, f.telegram.tokenEnv, "2", "", "1"];
   await assert.rejects(configurePersonalTelegram({ question: async prompt => {
-    if (prompt.includes("私聊发送")) f.bot.updates.push(update(11, 11, prompt.match(/“([^”]+)”/)![1]));
+    if (prompt.includes("直接发送")) f.bot.updates.push(update(11, 11, prompt.match(/“([^”]+)”/)![1]));
     if (answers.length === 1) clock = 60_000;
     assert.ok(answers.length); return answers.shift()!;
-  }, write: () => {} }, f.options.directory), code("telegram_pairing_expired"));
+  }, write: () => {} }, f.options.directory), code("im_pairing_expired"));
   assert.equal(fs.existsSync(path.join(f.options.directory, "telegram.json")), false);
   assert.equal(f.bot.polls.length, 2);
 });
@@ -288,6 +395,25 @@ test("Telegram问题：原菜单逐题多选、Skip、可信权限与一次续�
   const answered = await p.harness.commit(tx => personalQuestionDetail(tx, q.id), context); assert.deepEqual(answered.answer?.answers, [{ text: "甲\n乙", options: [0, 1] }, { text: "" }]);
   const sends = f.bot.sends.length;
   await p.close(); const reopened = await f.open(); assert.equal((await reopened.harness.commit(tx => personalQuestionDetail(tx, q.id), context)).answer?.delivery, "effect_unknown"); assert.equal(f.bot.sends.length, sends);
+});
+
+test("Telegram问题：设置暂停先于续接接纳时不提交新的旧入口输入", async t => {
+  const f = await fixture(t, request => request.messages.at(-1)?.role === "user" && String(request.messages.at(-1)?.content).includes("发起问题") ? { kind: "tool_calls", calls: [{ id: "ask", name: "ask_user", arguments: { questions: [{ question: "选择目标", options: ["甲", "乙"] }] } }] } : { kind: "text", text: "问题已登记" });
+  let p!: PersonalHarness;
+  p = await f.open({ openStorage: async filename => {
+    const storage = await openNodeSqliteStorage(filename), commit = storage.commit.bind(storage);
+    storage.commit = async (writes, callContext) => { const result = await commit(writes, callContext); if (writes.some(write => write.type === "task" && write.value.kind === "ruukoto.question-continuation")) p.suspendSettings("telegram", "*"); return result; }; return storage;
+  } });
+  let id = 700;
+  const receive = async (text: string, replyTo?: number) => { const messageId = ++id; const incoming = update(messageId, messageId, text); if (replyTo !== undefined) Object.assign(incoming.message!, { reply_to_message: { message_id: replyTo, from: { id: Number(f.telegram.botId), is_bot: true } } }); await p.telegram.receive(incoming); return settled(p, messageId); };
+  await receive("发起问题"); const q = (await p.harness.commit(tx => personalQuestionList(tx), context)).items[0];
+  let menu = await receive("/问题"); menu = await receive("问题1", Number(menu.platformMessageId)); menu = await receive("1", Number(menu.platformMessageId));
+  const calls = f.model.calls.length;
+  await receive("确认回答", Number(menu.platformMessageId));
+  await until(async () => (await p.harness.commit(tx => personalQuestionDetail(tx, q.id), context)).answer?.delivery === "canceled");
+  const answer = (await p.harness.commit(tx => personalQuestionDetail(tx, q.id), context)).answer!;
+  assert.equal(answer.submissionId, undefined); assert.equal(f.model.calls.length, calls);
+  assert.equal(await p.harness.commit(tx => tx.submissionByRequest(p.main.id, `personal-question:${answer.taskId}`), context), undefined);
 });
 
 test("Telegram问题：重新配对使未答失效，本机只可查询或取消旧问题", { timeout: 30000 }, async t => {

@@ -153,7 +153,7 @@ sequenceDiagram
 
 ## PA桌面连接
 
-PA桌面经Serve的HTTPS/WSS→私有remote（拥有者+应用凭据）→唯一durable Harness；设置维护用独立账本，admin仅供本机配对/撤销。wire类型归view；安全见[桌面](modules/desktop.md)，部署见[部署说明](../deploy/systemd/README.md)。
+PA桌面经Serve HTTPS/WSS→私有remote（拥有者+应用凭据）→唯一durable Harness；配置回执归档案，remote存接纳关联、兼容旧维护；admin供本机配对/撤销。安全见[桌面](modules/desktop.md)，部署见[部署说明](../deploy/systemd/README.md)。
 
 ## 设计依据
 

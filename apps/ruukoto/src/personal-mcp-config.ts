@@ -113,6 +113,15 @@ export async function resolvePersonalMcpToken(service: McpTarget): Promise<strin
   return saved.token;
 }
 
+/** 只核实新增、启用或改变连接认证的服务；原调用仍逐请求核实固定凭据。 */
+export async function validatePersonalMcpCredentials(config: PersonalMcpConfig, current: PersonalMcpConfig | undefined): Promise<void> {
+  for (const service of config.services) {
+    if (service.enabled === false) continue;
+    const previous = current?.services.find(item => item.id === service.id);
+    if (!previous || previous.enabled === false || !isDeepStrictEqual(previous.credential, service.credential) || !isDeepStrictEqual(previous.cua, service.cua)) await resolvePersonalMcpToken(service);
+  }
+}
+
 /** 返回完整发现结果；允许列表由拥有者选择，连接在返回或失败时关闭。 */
 export async function discoverPersonalMcp(service: McpTarget): Promise<PersonalMcpTool[]> {
   const connection = service.cua ? await connectMcpStdio({ serviceId: service.id, ...await cuaProgram(service.cua) }) : await connectMcpEndpoint({ serviceId: service.id, endpoint: service.endpoint! }, service.credential ? { resolveToken: () => resolvePersonalMcpToken(service) } : {});
@@ -147,45 +156,17 @@ export async function checkPersonalMcpEnablement(profile: PersonalProfileLock) {
 // Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-durable-mcp.md
 export async function savePersonalMcp(target: string | PersonalProfileLock, value: unknown): Promise<void> {
   const config = parsePersonalMcp(value);
-  const profile = typeof target === "string" ? lockPersonalProfile(target) : target;
-  try {
-    const current = readPersonalMcp(profile);
-    if (isDeepStrictEqual(current, config)) return;
-    if (current && current.version > config.version) throw new PersonalError("mcp_config_downgrade", "MCP 已迁入服务启停格式，未保存旧版配置；请保留档案并使用当前格式修改。");
-    if (current?.generation === config.generation) throw new PersonalError("mcp_config_changed", "MCP 配置变化必须使用新代次，未覆盖原配置；请重新运行 MCP 配置向导。");
-    for (const service of config.services) await resolvePersonalMcpToken(service);
-    try { await checkPersonalMcpEnablement(profile); } catch (error) {
-      if (error instanceof PersonalError) throw error;
-      throw new PersonalError("mcp_config_check_failed", "无法核实档案是否可修改 MCP 配置，未保存；请保留档案并检查存储。", { cause: error });
-    }
-    const temporary = path.join(profile.directory, "mcp.json.tmp");
-    try {
-      if (fs.lstatSync(temporary, { throwIfNoEntry: false })) privateFile(temporary, Number.MAX_SAFE_INTEGER);
-      const fd = fs.openSync(temporary, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK, 0o600);
-      try {
-        const stat = fs.fstatSync(fd);
-        if (!stat.isFile() || stat.nlink !== 1 || stat.uid !== process.getuid?.() || (stat.mode & 0o077)) throw invalid();
-        fs.ftruncateSync(fd);
-        fs.writeFileSync(fd, JSON.stringify(config) + "\n");
-        fs.fsyncSync(fd);
-      }
-      finally { fs.closeSync(fd); }
-      fs.renameSync(temporary, path.join(profile.directory, "mcp.json"));
-    } catch (error) {
-      throw new PersonalError("mcp_config_write_failed", "MCP 配置未能保存；请保留档案并检查磁盘，再查看当前配置。", { cause: error });
-    }
-  } finally { if (typeof target === "string") profile.release(); }
+  const { readPersonalSettings, savePersonalSettings } = await import("./personal-settings.ts");
+  const snapshot = await readPersonalSettings(target);
+  if (snapshot.mcp && snapshot.mcp.version > config.version) throw new PersonalError("mcp_config_downgrade", "MCP 已迁入新格式，请使用当前格式修改；未覆盖原配置。");
+  await savePersonalSettings(target, snapshot, snapshot.revisions.mcp, { kind: "config.save", target: "mcp", value: { ...config, services: config.services.map(service => service.cua ? service : { ...service, authentication: service.credential ? "credential" : "anonymous" }) } });
 }
 
 /** 显式迁入服务启停格式；原历史不改写，已迁入时返回当前配置。 */
-export async function migratePersonalMcp(target: string | PersonalProfileLock): Promise<PersonalMcpConfig> {
-  const profile = typeof target === "string" ? lockPersonalProfile(target) : target;
-  try {
-    const current = readPersonalMcp(profile);
-    if (!current) throw new PersonalError("mcp_config_missing", "尚未配置 MCP 服务，请先保存服务配置。");
-    if (current.version !== 1) return current;
-    const migrated = parsePersonalMcp({ version: 2, generation: randomUUID(), services: current.services.map(service => ({ ...service, enabled: true })) });
-    await savePersonalMcp(profile, migrated);
-    return migrated;
-  } finally { if (typeof target === "string") profile.release(); }
+export async function migratePersonalMcp(target: string | PersonalProfileLock): Promise<void> {
+  const { readPersonalSettings, savePersonalSettings } = await import("./personal-settings.ts");
+  const snapshot = await readPersonalSettings(target);
+  if (!snapshot.mcp) throw new PersonalError("mcp_config_missing", "尚未配置 MCP 服务，请先保存服务配置。");
+  if (snapshot.mcp.version !== 1) return;
+  await savePersonalSettings(target, snapshot, snapshot.revisions.mcp, { kind: "mcp.migrate" });
 }

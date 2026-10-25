@@ -78,7 +78,8 @@ export async function listPersonalInspections(tx: Tx, offset = 0, actor?: Entran
 }
 
 // Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-inspection-stop-controls.md
-export function personalInspectionControls(config: ServiceManagerConfig | undefined, getHarness: () => Harness) {
+export function personalInspectionControls(initialConfig: ServiceManagerConfig | undefined, getHarness: () => Harness) {
+  let config = initialConfig;
   async function checkStop(input: StopInput, taskId: TaskId, ctx: Context) {
     const value = await getHarness().commit(async tx => {
       const receipt = input.telegramRequestId ? (await tx.doc(PersonalTelegramReceiptDoc, input.telegramRequestId, null)).receipt : undefined;
@@ -104,6 +105,7 @@ export function personalInspectionControls(config: ServiceManagerConfig | undefi
   });
   return {
     extension: defineExtension({ name: NAME, tasks: [task] }),
+    publishConfig(next: ServiceManagerConfig | undefined) { config = next; },
     async request(tx: Tx, ref: PersonalInspectionRef, actor?: TelegramControlInput) {
       if (!config) throw new PersonalError("service_config_missing", "宿主未启用服务检查，请先核实服务配置。");
       await mayStop(tx, ref, actor);

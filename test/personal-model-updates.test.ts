@@ -1,0 +1,43 @@
+import assert from "node:assert/strict";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { tmpdir } from "node:os";
+import { test } from "node:test";
+import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+import { AgentDoc } from "@earendil-works/pi-durable";
+import { openPersonalHarness, type PersonalHarness } from "../apps/ruukoto/src/personal-harness.ts";
+import { personalProvider, type PersonalModelConfig } from "../apps/ruukoto/src/personal-model.ts";
+import { PersonalMockModelServer } from "./helpers/mock-provider.ts";
+
+const context = BACKGROUND_CONTEXT;
+
+test("个人模型在线切换：在途原地址结束，同名模型后续请求和冷启动使用独立版本", async t => {
+  const directory = fs.realpathSync(fs.mkdtempSync(path.join(tmpdir(), "personal-model-update-")));
+  let release!: () => void, received!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; }), started = new Promise<void>(resolve => { received = resolve; });
+  const first = new PersonalMockModelServer(async () => { received(); await held; return { kind: "text", text: "旧地址回答" }; });
+  const second = new PersonalMockModelServer(() => ({ kind: "text", text: "新地址回答" }));
+  const key = "RUUKOTO_MODEL_UPDATE_TEST_KEY", previous = process.env[key]; process.env[key] = "test-only";
+  const original: PersonalModelConfig = { api: "openai-completions", baseUrl: await first.start(), modelId: "mock-model", apiKeyEnv: key, contextWindow: 128000, maxTokens: 1024 };
+  const next = { ...original, baseUrl: await second.start(), imageInput: true };
+  let current: PersonalHarness | undefined;
+  t.after(async () => { release(); await current?.close(); await first.close(); await second.close(); fs.rmSync(directory, { recursive: true, force: true }); if (previous === undefined) delete process.env[key]; else process.env[key] = previous; });
+  current = await openPersonalHarness({ directory, provider: personalProvider(original), modelId: original.modelId });
+  const pending = current.answer("旧请求", "old-request"); await started;
+  await current.updateModel(next, "second-version");
+  assert.equal((await current.harness.snapshot(AgentDoc, current.main.id, context))?.model?.provider, "personal-second-version");
+  await current.updateModel(next, "second-version");
+  release(); assert.equal(await pending, "旧地址回答");
+  assert.equal(await current.answer("新请求", "new-request"), "新地址回答");
+  assert.equal(first.calls.length, 1); assert.equal(second.calls.length, 1);
+  await current.close();
+  current = await openPersonalHarness({ directory, provider: personalProvider(next), modelId: next.modelId, modelVersions: [{ version: "first-version", revision: "first-file", config: original }, { version: "second-version", revision: "second-file", config: next }] });
+  assert.equal(await current.answer("重启后请求", "reopened-request"), "新地址回答");
+  current.suspendSettings("skills", "managed");
+  assert.equal((await (await current.submit("等待技能配置", "suspended-request")).wait(context)).status, "unanswered");
+  assert.equal(second.calls.length, 2);
+  current.resumeSettings("skills", "managed");
+  const requests = (await current.main.entries({}, 256, undefined, context)).items.filter(entry => entry.kind === "ruukoto.model-request");
+  assert.match(JSON.stringify(requests), /personal-second-version/);
+  assert.equal(first.calls.length, 1); assert.equal(second.calls.length, 2);
+});

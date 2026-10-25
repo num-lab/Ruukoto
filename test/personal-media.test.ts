@@ -35,7 +35,7 @@ async function fixture(t: TestContext, options: { imageInput?: boolean; capture?
   const inboundMime = options.inboundMime ?? "image/png", inboundBytes = options.inboundMime ? Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 1, 2]) : png;
   const api: PersonalTelegramApi = { me: async () => ({ id: "123", username: "bot" }), updates: async () => [], send: async (_owner, _id, text) => { sends.push(text); return String(sends.length); }, photo: input => ({ identity: input.identity, declaredMime: inboundMime, download: async () => { downloads++; return new Response(inboundBytes, { headers: { "content-type": inboundMime } }); } }) };
   const qqConfig = { version: 1 as const, enabled: true, generation: randomUUID(), endpoint: "ws://127.0.0.1:1", tokenEnv: "TOKEN", tokenDigest: "0".repeat(64), botId: "123", ownerId: "456", boundary: 0, boundaryMessageId: "0" };
-  const qqApi: PersonalQqApi = { online: true, poll: async () => {}, send: api.send, photo: input => api.photo({ identity: input.identity, fileId: input.identity }) };
+  const qqApi: PersonalQqApi = { online: true, verify: async () => {}, close: async () => {}, poll: async () => {}, send: api.send, photo: input => api.photo({ identity: input.identity, fileId: input.identity }) };
   const tg = personalTelegram(tgConfig, api, undefined, media, qqConfig, qqApi);
   // 暂停真实收件任务，让手动提交落在 admission 与媒体 bind 之间；重开后恢复原任务执行。
   const phases = tg.extension.tasks![0].definition.phases, run = phases.run;

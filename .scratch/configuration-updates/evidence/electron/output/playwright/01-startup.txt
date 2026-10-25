@@ -1,0 +1,17 @@
+Ruukoto
+Scheduled
+New chat
+工作区
+暂时无法连接
+
+开发档案的 owner.token 不可读；请重启开发启动器。
+
+重新连接
+
+打开
+
+浏览器
+终端
+文件树
+Git graph
+后台进程

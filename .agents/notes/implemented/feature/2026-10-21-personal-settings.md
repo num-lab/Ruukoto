@@ -2,7 +2,9 @@
 
 Status: implemented
 
-配置更新与迁移的拟调整范围见[按受影响对象更新配置](../../proposed/architecture/2026-10-25-operation-scoped-configuration.md)；该提案尚未落地，本文现行约束继续有效。
+普通配置的在线/离线保存、版本回执与生效恢复采用[设置保存与生效](../architecture/2026-10-25-personal-settings-versions.md)，不再统一停机或核实无关工作；本文其余认证、档案身份、修订与有界管理入口约束继续适用。
+
+普通配置保存的停机条件由[设置版本与生效恢复](../architecture/2026-10-25-personal-settings-versions.md)部分取代；本篇保留原身份、认证与旧维护恢复依据。
 
 ## 问题
 

@@ -1,0 +1,168 @@
+[
+  {
+    "type": "state",
+    "state": "closed",
+    "detail": "尚未配置 Personal 连接"
+  },
+  {
+    "type": "state",
+    "state": "connecting"
+  },
+  {
+    "type": "state",
+    "state": "failed",
+    "error": {
+      "code": "personal_pairing_required",
+      "outcome": "not_sent",
+      "message": "请在服务器开启配对窗口，然后输入配对码。"
+    },
+    "detail": "请在服务器开启配对窗口，然后输入配对码。"
+  },
+  {
+    "type": "state",
+    "state": "connecting"
+  },
+  {
+    "type": "state",
+    "state": "failed",
+    "error": {
+      "code": "personal_pairing_required",
+      "outcome": "not_sent",
+      "message": "请在服务器开启配对窗口，然后输入配对码。"
+    },
+    "detail": "请在服务器开启配对窗口，然后输入配对码。"
+  },
+  {
+    "type": "state",
+    "state": "failed",
+    "error": {
+      "code": "personal_pairing_required",
+      "outcome": "not_sent",
+      "message": "请在服务器开启配对窗口，然后输入配对码。"
+    },
+    "detail": "请在服务器开启配对窗口，然后输入配对码。"
+  },
+  {
+    "type": "personal_identity",
+    "identity": {
+      "v": 1,
+      "product": "ruukoto",
+      "origin": "https://127.0.0.1:61345",
+      "remoteId": "3d1d2a59-ebcf-4f73-9639-503f292286c4",
+      "profile": {
+        "directory": "/tmp/rk-egui-SGgDjR/backend-profile",
+        "id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "online": true,
+      "runId": "81939a35-4957-412e-a4af-3b8ef42d5953"
+    }
+  },
+  {
+    "type": "state",
+    "state": "connecting"
+  },
+  {
+    "type": "personal_identity",
+    "identity": {
+      "v": 1,
+      "product": "ruukoto",
+      "origin": "https://127.0.0.1:61345",
+      "remoteId": "3d1d2a59-ebcf-4f73-9639-503f292286c4",
+      "profile": {
+        "directory": "/tmp/rk-egui-SGgDjR/backend-profile",
+        "id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "online": true,
+      "runId": "81939a35-4957-412e-a4af-3b8ef42d5953"
+    }
+  },
+  {
+    "type": "state",
+    "state": "online",
+    "detail": "已连接个人 Agent"
+  },
+  {
+    "type": "personal_pending",
+    "record": null
+  },
+  {
+    "type": "personal_frame",
+    "frame": {
+      "v": 1,
+      "type": "snapshot",
+      "runId": "81939a35-4957-412e-a4af-3b8ef42d5953",
+      "subscription": "6c6c14e5-033b-43aa-9399-a23e98471182",
+      "seq": 0,
+      "timeline": {
+        "through": 0,
+        "items": []
+      },
+      "live": {
+        "tools": [],
+        "toolCount": 0,
+        "inbox": [],
+        "inboxCount": 0
+      }
+    }
+  },
+  {
+    "type": "personal_pending",
+    "record": null
+  },
+  {
+    "type": "personal_pending",
+    "record": null
+  },
+  {
+    "type": "personal_pending",
+    "record": null
+  },
+  {
+    "type": "personal_pending",
+    "record": null
+  },
+  {
+    "type": "personal_pending",
+    "record": null
+  },
+  {
+    "type": "personal_pending",
+    "record": null
+  },
+  {
+    "type": "personal_pending",
+    "record": null
+  },
+  {
+    "type": "personal_pending",
+    "record": null
+  },
+  {
+    "type": "personal_pending",
+    "record": null
+  },
+  {
+    "type": "personal_pending",
+    "record": null
+  },
+  {
+    "type": "personal_pending",
+    "record": null
+  },
+  {
+    "type": "personal_pending",
+    "record": null
+  },
+  {
+    "type": "personal_pending",
+    "record": null
+  },
+  {
+    "type": "personal_pending",
+    "record": null
+  },
+  {
+    "type": "personal_pending",
+    "record": null
+  }
+]

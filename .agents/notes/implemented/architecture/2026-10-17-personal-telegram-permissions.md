@@ -2,6 +2,8 @@
 
 Status: implemented
 
+入口在线切换及发送前短互斥见[个人 IM 更新](2026-10-25-personal-im-updates.md)；旧代次不恢复授权，权限与批准仍按本文的原来源核实。
+
 ## 问题
 
 [文本入口](../../implemented/architecture/2026-10-17-personal-telegram-entry.md)只记录收发，[服务工作](../../implemented/architecture/2026-10-17-personal-service-operations.md)只有可信宿主审批 API。把聊天内容转成决定会让模型或过期入口提供权限，按当前默认模式重建旧输入又会扩大原委托。

@@ -6,7 +6,7 @@ import { readPersonalMemory, searchPersonalMemory } from "./personal-memory.ts";
 import { readPersonalHistory, searchPersonalHistory, personalTimeline } from "./personal-history.ts";
 import { personalDesktopEvents } from "./personal-desktop-events.ts";
 import { ROOT_CONVERSATION_ID } from "@earendil-works/pi-durable";
-import { readPersonalQq } from "./personal-qq-config.ts";
+import { parsePersonalQq, readPersonalQq } from "./personal-qq-config.ts";
 import { exportPersonalArtifact, type PersonalArtifact } from "./personal-artifacts.ts";
 import { browserList, browserDetail, browserResolve } from "./personal-browser.ts";
 import { readPersonalBrowser } from "./personal-browser-config.ts";
@@ -23,13 +23,14 @@ import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { AssistantEntry, type EntryRecord, type EntryId, type TaskId } from "@earendil-works/pi-durable";
 import { openPersonalHarness } from "./personal-harness.ts";
-import { personalProvider } from "./personal-model.ts";
+import { parsePersonalModel, personalProvider } from "./personal-model.ts";
 import { lockPersonalProfile } from "./personal-profile.ts";
 import { readPersonalConfig } from "./personal-config.ts";
 import { PersonalError } from "./personal-error.ts";
-import { readPersonalTelegram } from "./personal-telegram-config.ts";
-import { readPersonalServices } from "./personal-service-config.ts";
-import { readPersonalCommands } from "./personal-command-config.ts";
+import { parsePersonalTelegram, readPersonalTelegram } from "./personal-telegram-config.ts";
+import { parsePersonalServices, readPersonalServices } from "./personal-service-config.ts";
+import { parsePersonalCommands, readPersonalCommands } from "./personal-command-config.ts";
+import { personalBootstrapConfigurations } from "./personal-settings-records.ts";
 import { appendPersonalWork, PersonalWorkDoc, closePersonalWorkAgent, listPersonalWorks, personalWorkRef, personalWorkResult, personalWorkSummary, requestPersonalWorkCancel } from "./personal-work.ts";
 import { cancelPersonalDelegation, listPersonalDelegations, personalDelegationProgress } from "./personal-delegation.ts";
 import { personalReportResult } from "./personal-report.ts";
@@ -38,9 +39,12 @@ import { listPersonalServices, personalServiceDetail, personalServiceRef, parseP
 import { resolvePersonalServiceOperation } from "./personal-service-operations.ts";
 import { personalCommandRef, resolvePersonalCommand } from "./personal-command-work.ts";
 import { mcpDecide, mcpDetail, mcpList, mcpResolve } from "./personal-mcp.ts";
-import { readPersonalMcp } from "./personal-mcp-config.ts";
+import { parsePersonalMcp, readPersonalMcp } from "./personal-mcp-config.ts";
 import { parsePersonalScheduleCreate, type PersonalScheduleCreateBody } from "./personal-scheduler-controls.ts";
 import { dispatchPersonalSettings, personalSettingsIdentity, PERSONAL_SETTINGS_LIMITS, type PersonalSettingsRequest } from "./personal-settings.ts";
+import type { PersonalImPairingRequest } from "./personal-im-pairing.ts";
+import type { PersonalSettingsWriteRequest } from "./personal-settings-operations.ts";
+import { PersonalTelegramDoc } from "./personal-telegram.ts";
 
 import { LocalInputDoc, personalInputDigest } from "./personal-local-records.ts";
 export { LocalInputDoc } from "./personal-local-records.ts";
@@ -137,16 +141,17 @@ export async function startPersonalServer(directory: string, options: { developm
   })();
   const stop = () => shutdown ??= (async () => { await closeListener(); await personal?.close(); })();
   try {
-    const config = readPersonalConfig(profile);
-    const telegram = readPersonalTelegram(profile);
-    const qq = readPersonalQq(profile);
+    if (options.development && (readPersonalTelegram(profile)?.enabled || readPersonalQq(profile)?.enabled)) throw new PersonalError("development_im_enabled", "开发实例不接入真实 IM。请先在开发配置菜单停用 QQ 与 Telegram；原配置与消息保持，请勿使用生产凭据配对。");
+    const bootstrap = await personalBootstrapConfigurations(profile);
+    const config = bootstrap.has("model") ? parsePersonalModel(bootstrap.get("model")) : readPersonalConfig(profile);
+    const telegram = bootstrap.has("telegram") ? bootstrap.get("telegram") === null ? undefined : parsePersonalTelegram(bootstrap.get("telegram")) : readPersonalTelegram(profile);
+    const qq = bootstrap.has("qq") ? bootstrap.get("qq") === null ? undefined : parsePersonalQq(bootstrap.get("qq")) : readPersonalQq(profile);
     if (options.development && (telegram?.enabled || qq?.enabled)) throw new PersonalError("development_im_enabled", "开发实例不接入真实 IM。请先在开发配置菜单停用 QQ 与 Telegram；原配置与消息保持，请勿使用生产凭据配对。");
-    const services = readPersonalServices(profile);
-    const commands = readPersonalCommands(profile);
-    const mcp = readPersonalMcp(profile);
+    const services = bootstrap.has("services") ? bootstrap.get("services") === null ? undefined : parsePersonalServices(bootstrap.get("services")) : readPersonalServices(profile);
+    const commands = bootstrap.has("commands") ? bootstrap.get("commands") === null ? undefined : parsePersonalCommands(bootstrap.get("commands")) : readPersonalCommands(profile);
+    const mcp = bootstrap.has("mcp") ? bootstrap.get("mcp") === null ? undefined : parsePersonalMcp(bootstrap.get("mcp")) : readPersonalMcp(profile);
     const tools = readPersonalTools(profile);
     const browser = readPersonalBrowser(profile);
-    if (!process.env[config.apiKeyEnv]) throw new PersonalError("model_credentials_missing", "模型凭据环境变量尚未设置，请设置后再启动隔离后台。");
     if (fs.existsSync(path.join(directory, "control.token"))) readPersonalToken(directory);
     if (Buffer.byteLength(socketPath) > 100) throw new PersonalError("control_path_long", "隔离档案路径过长，请用较短的新目录启动。");
     const token = randomBytes(32).toString("hex");
@@ -188,7 +193,8 @@ export async function startPersonalServer(directory: string, options: { developm
           result = await dispatchPersonalSettings({ profile, instance, development: options.development }, await readControlJSON(req));
         } else if (req.method === "GET" && url.pathname === "/status") {
           const live = await instance.harness.inspect(context);
-          result = { model: config.modelId, tasks: live.tasks.length, inputs: live.submissions.length, services: !!services, capabilities: { commands: !!commands, mcp: !!mcp?.services.some(service => service.enabled !== false), tools: !!tools, browser: !!browser, telegram: !!telegram?.enabled, qq: !!qq?.enabled } } satisfies PersonalStatus;
+          const selected = instance.configurationStatus(), im = await instance.harness.snapshot(PersonalTelegramDoc, context);
+          result = { ...selected, tasks: live.tasks.length, inputs: live.submissions.length, capabilities: { ...selected.capabilities, telegram: !!im?.config?.enabled, qq: !!im?.qqConfig?.enabled } } satisfies PersonalStatus;
         } else if (req.method === "GET" && url.pathname === "/messages") {
           const entries = await instance.main.entries({}, 64, undefined, context);
           result = entries.items.map(text).filter(item => item !== undefined).slice(0, 16).reverse();
@@ -494,7 +500,7 @@ export async function startPersonalServer(directory: string, options: { developm
   }
 }
 
-export async function personalControl<T>(directory: string, method: "GET" | "POST", route: string, value?: ReturnType<typeof parsePersonalMemoryControl> | PersonalInput | PersonalServiceResolution | { decision: "approved" | "rejected" } | PersonalToolsControlBody | { action: "stop" | "begin" | "observe" | "accept"; observation?: EntryId } | PersonalScheduleCreateBody | PersonalQuestionWrite | PersonalSettingsRequest, timeoutMs?: number): Promise<T> {
+export async function personalControl<T>(directory: string, method: "GET" | "POST", route: string, value?: ReturnType<typeof parsePersonalMemoryControl> | PersonalInput | PersonalServiceResolution | { decision: "approved" | "rejected" } | PersonalToolsControlBody | { action: "stop" | "begin" | "observe" | "accept"; observation?: EntryId } | PersonalScheduleCreateBody | PersonalQuestionWrite | PersonalSettingsRequest | PersonalSettingsWriteRequest | PersonalImPairingRequest, timeoutMs?: number): Promise<T> {
   const token = readPersonalToken(directory);
   return new Promise<T>((resolve, reject) => {
     const req = http.request({ socketPath: path.join(directory, "control.sock"), method, path: route, headers: { authorization: `Bearer ${token}`, "content-type": "application/json", connection: "close" } });

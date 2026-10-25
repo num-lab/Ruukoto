@@ -51,7 +51,7 @@ export async function preparePersonalFileSearch(profile: string, operation: stri
 
 export function personalSearchExecutable(): string {
   const executable = resolveFileSearchExecutable();
-  if (!executable) throw new PersonalError("file_search_unavailable", "宿主未安装可用 rg，未扫描；请由拥有者安装 ripgrep 并重启后台。");
+  if (!executable) throw new PersonalError("file_search_unavailable", "后台 PATH 中未找到可用 rg，未扫描；请由拥有者在现有 PATH 的目录安装 ripgrep 后再次调用；若需改变后台 PATH，再重启后台。");
   return executable;
 }
 

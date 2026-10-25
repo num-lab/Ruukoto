@@ -18,7 +18,13 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { AgentDoc, ROOT_CONVERSATION_ID, SessionFailed, type StorageWrite } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { openPersonalHarness, type PersonalHarness } from "../apps/ruukoto/src/personal-harness.ts";
-import { PersonalCommandDoc, personalCommandWork, resolvePersonalCommand, type PersonalCommandRef } from "../apps/ruukoto/src/personal-command-work.ts";
+import { PersonalCommandDoc, PersonalCommandsDoc, personalCommandWork, resolvePersonalCommand, personalCommandConfiguration, personalCommandsFingerprint, type PersonalCommandRef } from "../apps/ruukoto/src/personal-command-work.ts";
+import { lockPersonalProfile } from "../apps/ruukoto/src/personal-profile.ts";
+import { capturePersonalScheduleScope, verifyPersonalScheduleScope } from "../apps/ruukoto/src/personal-schedule-scope.ts";
+import { appendPersonalConfiguration, personalConfigurationVersions, personalConfigurationDigest, selectPersonalConfiguration, initializePersonalSettings, PersonalConfigurationDoc } from "../apps/ruukoto/src/personal-settings-records.ts";
+import { withPersonalSettingsSession, dispatchPersonalConfiguration } from "../apps/ruukoto/src/personal-settings-operations.ts";
+import { personalSettingsIdentity } from "../apps/ruukoto/src/personal-settings.ts";
+import { savePersonalCommands } from "../apps/ruukoto/src/personal-command-config.ts";
 import type { PersonalCommandConfig } from "../apps/ruukoto/src/personal-command-config.ts";
 import { personalCommandFingerprint } from "../apps/ruukoto/src/personal-command-execution.ts";
 import { PersonalWorkDoc, personalWorkResult, type PersonalWorkRef } from "../apps/ruukoto/src/personal-work.ts";
@@ -107,7 +113,7 @@ async function fixture(t: TestContext, command = "echo x >> count", respond?: Re
   t.mock.method(childProcess, "spawn", (file: string, args: string[], options: childProcess.SpawnOptions) => {
     if (file !== "/usr/bin/systemd-run") return realSpawn(file, args, options);
     const scope = args[args.indexOf("--unit") + 1], worker = args.at(-1)!;
-    const child = realSpawn(process.execPath, [worker], { cwd: workspace, detached: true, stdio: ["pipe", "pipe", "pipe"] });
+    const child = realSpawn(process.execPath, [worker], { cwd: options.cwd ?? workspace, detached: true, stdio: ["pipe", "pipe", "pipe"] });
     const disk = path.join(groups, scope); fs.mkdirSync(disk, { mode: 0o700 });
     children.set(scope, { child, disk, group: `/user.slice/${scope}`, description: args.find(arg => arg.startsWith("Description="))!.slice("Description=".length) });
     const marker = new PassThrough(); child.stdio[4] = marker; setImmediate(() => marker.end("started\n"));
@@ -701,4 +707,185 @@ for (const corruption of ["marker", "resolution-actor", "resolution-receipt", "s
   const before = f.server.calls.length;
   await assert.rejects(im.open(), error => error instanceof PersonalError && ["command_control_invalid", "command_record_invalid"].includes(error.code));
   assert.equal(f.server.calls.length, before); assert.equal(f.launches(), 1);
+});
+
+
+for (const initial of ["file", "host"] as const) test(`命令配置切换：${initial} 新目录只接新执行，旧目录消失后终态历史仍可重开且不再停止旧执行`, async t => {
+  const f = await fixture(t, "pwd");
+  if (initial === "file") { const lock = lockPersonalProfile(f.directory); fs.writeFileSync(path.join(f.directory, "command.json"), JSON.stringify(f.commands) + "\n", { mode: 0o600 }); lock.release(); }
+  let p = await f.open();
+  await p.harness.commit(async tx => { (await tx.doc(PersonalPermissionsDoc)).mode = "full_access"; }, context);
+  await source(p);
+  const work = await p.work.delegate(draft("old-directory"));
+  const ref = await original(p); await p.harness.waitForTask(work.taskId, context);
+  const oldOutput = await p.commands!.detail(ref, "stdout");
+  assert.equal(Buffer.from(oldOutput.output!.data, "base64").toString().trim(), f.workspace);
+  const workspace = path.join(f.root, "next-work"); fs.mkdirSync(workspace);
+  const { dev, ino } = fs.statSync(workspace), next = { ...f.commands, workspace, identity: { dev, ino } };
+  const content = JSON.stringify(next) + "\n", revision = personalConfigurationDigest(content), version = "next-command-directory";
+  await p.harness.commit(async tx => {
+    const previous = (await personalConfigurationVersions(tx, "commands")).at(-1)!;
+    await appendPersonalConfiguration(tx, { target: "commands", version, revision, previousRevision: previous.revision, previousVersion: previous.version, config: next, content });
+  }, context);
+  fs.writeFileSync(path.join(f.directory, "command.json"), content, { mode: 0o600 });
+  assert.deepEqual(await p.updateCommands(next, version, revision), { effectiveRevision: revision, code: "active", relatedOperations: [] });
+  assert.deepEqual(await p.harness.commit(tx => personalCommandConfiguration(tx, undefined, next), context), f.commands);
+  await p.harness.commit(tx => selectPersonalConfiguration(tx, "commands", "*", version), context);
+  fs.writeFileSync(path.join(f.directory, "command.json"), content, { mode: 0o600 });
+  await p.answer("新来源", "new-source");
+  const nextWork = await p.work.delegate({ ...draft("new-directory"), sourceRequestId: "new-source" });
+  await p.harness.waitForTask(nextWork.taskId, context);
+  const newest = (await p.commands!.list()).items[0].ref;
+  assert.equal(Buffer.from((await p.commands!.detail(newest, "stdout")).output!.data, "base64").toString().trim(), workspace);
+  await p.close(); fs.rmSync(f.workspace, { recursive: true });
+  const stops = f.stopQueries(); p = await f.open();
+  assert.deepEqual((await p.commands!.detail(ref, "stdout")).result, oldOutput.result);
+  assert.equal(f.stopQueries(), stops);
+});
+
+
+test("命令配置切换：原未知命令只阻止命令生效，独立聊天继续", async t => {
+  const f = await fixture(t); f.failReceipt(); f.failStop();
+  const lock = lockPersonalProfile(f.directory);
+  fs.writeFileSync(path.join(f.directory, "command.json"), JSON.stringify(f.commands) + "\n", { mode: 0o600 }); lock.release();
+  const p = await f.open(); await source(p);
+  await p.work.delegate(draft("pending-migration")); const ref = await original(p); await unknown(p, ref);
+  const workspace = path.join(f.root, "next-work"); fs.mkdirSync(workspace);
+  const { dev, ino } = fs.statSync(workspace), next = { ...f.commands, workspace, identity: { dev, ino } };
+  const baseline = (await p.harness.commit(tx => personalConfigurationVersions(tx, "commands"), context))[0];
+  assert.equal((await p.updateCommands(f.commands, baseline.version, baseline.revision)).code, "active");
+  const result = await p.updateCommands(next, "unpublished", "sha256:" + "a".repeat(64));
+  assert.equal(result.code, "commands_busy"); assert.ok(result.relatedOperations.some(value => value.kind === "command" && value.id === ref.requestId));
+  assert.equal(await p.answer("不依赖命令的聊天", "independent-migration"), "完成");
+  assert.equal(f.launches(), 1);
+});
+
+
+test("命令配置切换：旧模型响应不改用新目录，新请求选择新版本", async t => {
+  let release!: () => void, entered = false, first = true;
+  const waiting = new Promise<void>(resolve => { release = resolve; }); t.after(() => release());
+  const f = await fixture(t, "pwd", async request => {
+    if (request.system?.includes("你是个人助手的子 Agent") && request.messages.at(-1)?.role === "user") {
+      if (first) { first = false; entered = true; await waiting; }
+      return { kind: "tool_calls", calls: [{ id: "command", name: "run_command", arguments: { command: "pwd" } }] };
+    }
+    return { kind: "text", text: "完成" };
+  });
+  const lock = lockPersonalProfile(f.directory); fs.writeFileSync(path.join(f.directory, "command.json"), JSON.stringify(f.commands) + "\n", { mode: 0o600 }); lock.release();
+  const p = await f.open(); await source(p); const work = await p.work.delegate(draft("old-response")); await until(() => entered);
+  const workspace = path.join(f.root, "next-work"); fs.mkdirSync(workspace);
+  const { dev, ino } = fs.statSync(workspace), next = { ...f.commands, workspace, identity: { dev, ino } }, content = JSON.stringify(next) + "\n", revision = personalConfigurationDigest(content), version = "changed-during-request";
+  await p.harness.commit(async tx => {
+    const previous = (await personalConfigurationVersions(tx, "commands")).at(-1)!;
+    await appendPersonalConfiguration(tx, { target: "commands", version, revision, previousRevision: previous.revision, previousVersion: previous.version, config: next, content });
+  }, context);
+  fs.writeFileSync(path.join(f.directory, "command.json"), content, { mode: 0o600 });
+  assert.equal((await p.updateCommands(next, version, revision)).code, "active");
+  await p.harness.commit(tx => selectPersonalConfiguration(tx, "commands", "*", version), context);
+  release(); await p.harness.waitForTask(work.taskId, context);
+  assert.equal(f.launches(), 0); assert.match(JSON.stringify(f.server.calls.at(-1)!.messages), /execution_configuration_changed/);
+  await p.answer("新来源", "new-response-source");
+  const follow = await p.work.delegate({ ...draft("new-response"), sourceRequestId: "new-response-source" }); await p.harness.waitForTask(follow.taskId, context);
+  assert.equal(f.launches(), 1);
+});
+
+for (const initial of ["existing", "first"] as const) test(`命令配置切换：${initial} 发布后回执前崩溃，冷启不把模块候选当成缺失配置`, async t => {
+  const f = await fixture(t);
+  if (initial === "existing") { const lock = lockPersonalProfile(f.directory); fs.writeFileSync(path.join(f.directory, "command.json"), JSON.stringify(f.commands) + "\n", { mode: 0o600 }); lock.release(); }
+  const overrides = initial === "first" ? { commands: undefined } : {};
+  let p = await f.open(overrides);
+  const workspace = path.join(f.root, "next-work"); fs.mkdirSync(workspace);
+  const { dev, ino } = fs.statSync(workspace), next = { ...f.commands, workspace, identity: { dev, ino } }, content = JSON.stringify(next) + "\n", revision = personalConfigurationDigest(content), version = "saved-before-publication-receipt";
+  const previous = (await p.harness.commit(tx => personalConfigurationVersions(tx, "commands"), context)).at(-1)!;
+  await p.harness.commit(tx => appendPersonalConfiguration(tx, { target: "commands", version, revision, previousRevision: previous.revision, previousVersion: previous.version, config: next, content }), context);
+  fs.writeFileSync(path.join(f.directory, "command.json"), content, { mode: 0o600 });
+  assert.equal((await p.updateCommands(next, version, revision)).code, "active");
+  await p.close(); p = await f.open(overrides);
+  if (initial === "existing") assert.equal((await p.harness.snapshot(PersonalCommandsDoc, context))?.configVersion, previous.version);
+  assert.equal((await p.updateCommands(next, version, revision)).code, "active");
+  assert.equal(f.launches(), 0);
+});
+
+
+test("命令配置切换：目录改回仍不恢复旧计划范围", async t => {
+  const f = await fixture(t);
+  const lock = lockPersonalProfile(f.directory); fs.writeFileSync(path.join(f.directory, "command.json"), JSON.stringify(f.commands) + "\n", { mode: 0o600 }); lock.release();
+  const p = await f.open(), scope = await p.harness.commit(tx => capturePersonalScheduleScope(tx), context);
+  const workspace = path.join(f.root, "next-work"); fs.mkdirSync(workspace); const { dev, ino } = fs.statSync(workspace);
+  for (const [version, config] of [["changed-directory", { ...f.commands, workspace, identity: { dev, ino } }], ["returned-directory", f.commands]] as const) {
+    const content = JSON.stringify(config) + "\n", revision = personalConfigurationDigest(content);
+    await p.harness.commit(async tx => {
+      const previous = (await personalConfigurationVersions(tx, "commands")).at(-1)!;
+      await appendPersonalConfiguration(tx, { target: "commands", version, revision, previousRevision: previous.revision, previousVersion: previous.version, config, content });
+    }, context);
+    fs.writeFileSync(path.join(f.directory, "command.json"), content, { mode: 0o600 });
+    assert.equal((await p.updateCommands(config, version, revision)).code, "active");
+  }
+  await assert.rejects(p.harness.commit(tx => verifyPersonalScheduleScope(tx, scope), context), code("schedule_scope_changed"));
+});
+
+
+test("命令配置切换：首次候选撤回到未启用，null文件与冷启动均不重新装配工具", async t => {
+  const f = await fixture(t); let p = await f.open();
+  assert.ok(p.commands); assert.ok(p.background);
+  const content = "null\n", revision = personalConfigurationDigest(content), version = "withdraw-first-command";
+  await p.harness.commit(async tx => {
+    const previous = (await personalConfigurationVersions(tx, "commands")).at(-1)!;
+    await appendPersonalConfiguration(tx, { target: "commands", version, revision, previousRevision: previous.revision, previousVersion: previous.version, config: null, content });
+  }, context);
+  fs.writeFileSync(path.join(f.directory, "command.json"), content, { mode: 0o600 });
+  assert.equal((await p.updateCommands(null, version, revision)).code, "active");
+  await p.harness.commit(tx => selectPersonalConfiguration(tx, "commands", "*", version), context);
+  fs.writeFileSync(path.join(f.directory, "command.json"), content, { mode: 0o600 });
+  assert.equal(p.commands, undefined); assert.equal(p.background, undefined);
+  await p.close(); p = await f.open();
+  assert.equal(p.commands, undefined); assert.equal(p.background, undefined);
+  assert.equal((await p.main.agent(context)).tools.some(tool => tool.name === "run_command" || tool.name === "process_start"), false);
+  const restoredContent = JSON.stringify(f.commands) + "\n", restoredRevision = personalConfigurationDigest(restoredContent), restoredVersion = "enable-after-command-withdrawal";
+  await p.harness.commit(tx => appendPersonalConfiguration(tx, { target: "commands", version: restoredVersion, revision: restoredRevision, previousRevision: revision, previousVersion: version, config: f.commands, content: restoredContent }), context);
+  fs.writeFileSync(path.join(f.directory, "command.json"), restoredContent, { mode: 0o600 });
+  assert.equal((await p.updateCommands(f.commands, restoredVersion, restoredRevision)).code, "active");
+  await p.harness.commit(tx => selectPersonalConfiguration(tx, "commands", "*", restoredVersion), context);
+  fs.writeFileSync(path.join(f.directory, "command.json"), restoredContent, { mode: 0o600 });
+  await p.close(); p = await f.open(); assert.ok(p.commands); assert.ok(p.background);
+});
+
+
+test("命令配置切换：离线旧宿主基线未记录时保存前拒绝，原宿主核实后仍可迁移", async t => {
+  const f = await fixture(t), profile = lockPersonalProfile(f.directory);
+  try {
+    await withPersonalSettingsSession({ profile }, async session => {
+      await initializePersonalSettings(profile, session);
+      await session.commit(async tx => { (await tx.doc(PersonalCommandsDoc)).fingerprint = personalCommandsFingerprint(f.commands); }, context);
+    });
+    await assert.rejects(savePersonalCommands(profile, f.commands), code("command_config_baseline_missing"));
+    assert.equal(fs.existsSync(path.join(f.directory, "command.json")), false);
+    await withPersonalSettingsSession({ profile }, async session => {
+      assert.equal((await session.commit(tx => personalConfigurationVersions(tx, "commands"), context)).length, 1);
+      assert.deepEqual((await session.snapshot(PersonalConfigurationDoc, context))?.operations, []);
+    });
+  } finally { profile.release(); }
+  const p = await f.open();
+  const versions = await p.harness.commit(tx => personalConfigurationVersions(tx, "commands"), context);
+  assert.equal(versions[1].origin, "host"); assert.equal(versions[1].revision, "missing"); assert.equal(versions[1].content, null);
+  assert.deepEqual(await p.harness.commit(tx => personalCommandConfiguration(tx, undefined, f.commands), context), f.commands);
+});
+
+
+test("命令配置切换：宿主原配置可撤回等待中的目录迁移，原missing基线保持真实", async t => {
+  const f = await fixture(t); f.failReceipt(); f.failStop();
+  const profile = lockPersonalProfile(f.directory);
+  const p = await openPersonalHarness({ profile, commands: f.commands, provider: f.provider, modelId: "mock-model" });
+  try {
+    await source(p); await p.work.delegate(draft("host-withdraw-pending")); const ref = await original(p); await unknown(p, ref);
+    const workspace = path.join(f.root, "next-work"); fs.mkdirSync(workspace); const { dev, ino } = fs.statSync(workspace);
+    const next = { ...f.commands, workspace, identity: { dev, ino } }, current = { profile, instance: p }, identity = personalSettingsIdentity(profile);
+    const saved = await dispatchPersonalConfiguration(current, { v: 2, id: randomUUID(), profile: identity, expectedRevision: "missing", op: { kind: "config.save", target: "commands", value: next } });
+    assert.equal(saved?.status, "waiting");
+    const withdrawn = await dispatchPersonalConfiguration(current, { v: 2, id: randomUUID(), profile: identity, expectedRevision: saved!.savedRevision, op: { kind: "settings.withdraw", id: saved!.id } });
+    assert.ok(withdrawn && ["waiting", "active"].includes(withdrawn.status));
+    assert.equal(fs.readFileSync(path.join(f.directory, "command.json"), "utf8"), JSON.stringify(f.commands) + "\n");
+    const versions = await p.harness.commit(tx => personalConfigurationVersions(tx, "commands"), context);
+    assert.equal(versions[0].content, null); assert.equal(versions[1].origin, "host"); assert.equal(versions[1].content, null); assert.equal(versions[1].revision, "missing");
+  } finally { await p.close(); }
 });

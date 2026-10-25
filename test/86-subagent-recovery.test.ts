@@ -351,7 +351,7 @@ for (const rollback of [false, true]) {
       const configFile = path.join(kit.dirs.agentDir, "models.json");
       const original = fs.readFileSync(configFile, "utf8");
       const changed = JSON.parse(original);
-      changed.providers.mock.models[0].name = "配置应用后的模型";
+      changed.providers.mock.models[0].maxTokens = 512;
       let entered = false;
       const create = ModelRuntime.create.bind(ModelRuntime);
       context.mock.method(ModelRuntime, "create", async (...args: Parameters<typeof ModelRuntime.create>) => {

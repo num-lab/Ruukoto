@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -18,6 +19,11 @@ import { PersonalDelegationDoc, listPersonalDelegations, personalDelegationProgr
 import { personalReportResult } from "../apps/ruukoto/src/personal-report.ts";
 import { PersonalPermissionsDoc } from "../apps/ruukoto/src/personal-permissions.ts";
 import { PERSONAL_SERVICE_WORK, personalServiceOperations, ServiceWorkAdmission } from "../apps/ruukoto/src/personal-service-operations.ts";
+import { lockPersonalProfile } from "../apps/ruukoto/src/personal-profile.ts";
+import { PersonalConfigurationDoc, PersonalConfigurationVersionDoc, personalConfigurationVersions, selectPersonalConfiguration } from "../apps/ruukoto/src/personal-settings-records.ts";
+import { PersonalServiceDoc } from "../apps/ruukoto/src/personal-services.ts";
+import { executePersonalSettings, personalSettingsDirectoryIdentity } from "../apps/ruukoto/src/personal-settings.ts";
+import type { PersonalSettingsReceipt } from "../apps/ruukoto/src/personal-settings-records.ts";
 import { personalProvider, type PersonalModelConfig, type RequestEvidence } from "../apps/ruukoto/src/personal-model.ts";
 import type { ServiceManagerConfig } from "../apps/ruukoto/src/service-helper.ts";
 import { PersonalMockModelServer as MockModelServer, type Responder } from "./helpers/mock-provider.ts";
@@ -123,7 +129,7 @@ test("服务核实控制：接纳失败零停止外调，缺原执行身份拒�
   assert.equal((await p.harness.commit(tx => tx.scanTasks({ kind: "ruukoto.service-stop" }, 8), context)).items.length, 0);
   const id = await p.requestServiceStop(ref); await p.harness.waitForTask(id, context);
   await p.harness.commit(async tx => { (await tx.doc(PersonalServiceOperationDoc, ref.requestId, null)).operation!.hostOpId = `op_${"f".repeat(24)}`; }, context);
-  await p.close(); await assert.rejects(f.open(), code("service_control_invalid"));
+  await p.close(); await assert.rejects(f.open(), code("service_operation_invalid"));
 });
 
 test("服务核实控制：真实 SIGKILL 后恢复原停止 Task，不重发 restart", { timeout: 20000 }, async t => {
@@ -1052,4 +1058,63 @@ test("独立补充：仅移出旧result产生missing_result时拒绝请求而不
   const after = (await child.entries({}, 256, undefined, context)).items;
   assert.ok(after.some(e => JSON.stringify(e).includes("原服务工具结果无法核实")));
   assert.deepEqual(after.find(e => e.id === original.id), original);
+});
+
+
+test("服务配置切换：旧未知操作只阻止服务生效，重核仍固定原helper", async t => {
+  const f = await fixture(t);
+  const saved = { version: 1 as const, helperPath: f.service.helperPath, policyPath: f.service.policyPath, sudoPath: f.service.sudoPath };
+  const lock = lockPersonalProfile(f.options.directory); fs.writeFileSync(path.join(f.options.directory, "service.json"), JSON.stringify(saved) + "\n", { mode: 0o600 }); lock.release();
+  const helper = path.join(f.root, "next-helper"); fs.cpSync(f.helper, helper, { recursive: true });
+  f.touch("fail-after-launch"); f.touch("stop-query-fails");
+  const p = await f.open(); await p.answer("服务工作", "owner");
+  const ref = await p.service!.request(input("migration-original", "full_access")); await unknown(p, ref);
+  const operation = (await p.service!.status(ref)).operation;
+  const baseline = (await p.harness.commit(tx => personalConfigurationVersions(tx, "services"), context))[0];
+  assert.equal(operation.configVersion, baseline.version); assert.equal(operation.configRevision, baseline.revision);
+  assert.equal((await p.updateServices(saved, baseline.version, baseline.revision)).code, "active");
+  const result = await p.updateServices({ ...saved, helperPath: path.join(helper, "helper.mjs"), policyPath: path.join(helper, "services.json") }, "new-service-version", "sha256:" + "a".repeat(64));
+  assert.equal(result.code, "services_busy"); assert.ok(result.relatedOperations.some(value => value.kind === "service" && value.id === ref.requestId));
+  await p.service!.recheckStop(ref);
+  assert.equal((await p.service!.status(ref)).operation.launcherStopped, false);
+  assert.equal(fs.existsSync(path.join(helper, "calls.log")), false);
+  assert.equal(await p.answer("不依赖服务的聊天", "independent-service-migration"), "收到");
+});
+
+
+test("服务宿主基线：旧无版本操作先捕获原部署，离线保存和冷恢复不改停机路由", async t => {
+  const f = await fixture(t), helper = path.join(f.root, "next-helper"); fs.cpSync(f.helper, helper, { recursive: true });
+  f.touch("fail-after-launch"); f.touch("stop-query-fails");
+  let p = await f.open();
+  // 模拟升级前只有固定指纹的档案；业务接纳和证据仍由下方真实流程产生。
+  await p.harness.commit(async tx => {
+    const index = await tx.doc(PersonalConfigurationDoc), versions = await personalConfigurationVersions(tx, "services"), baseline = versions[0];
+    for (const version of versions.filter(value => value.origin === "host")) { index.versions = index.versions.filter(ref => ref.target !== "services" || ref.version !== version.version); await tx.retireDoc(PersonalConfigurationVersionDoc, `services:${version.version}`); }
+    index.effective = index.effective.map(ref => ref.target === "services" ? { ...ref, version: baseline.version } : ref);
+    const current = await tx.doc(PersonalServiceDoc); delete current.configRevision; delete current.configVersion;
+  }, context);
+  await p.answer("旧宿主服务工作", "owner");
+  const ref = await p.service!.request(input("legacy-host-operation", "full_access")); await unknown(p, ref);
+  const original = (await p.service!.status(ref)).operation; assert.equal(original.configRevision, undefined); assert.equal(original.configVersion, undefined);
+  const next = { version: 1 as const, helperPath: path.join(helper, "helper.mjs"), policyPath: path.join(helper, "services.json"), sudoPath: f.service.sudoPath };
+  const request = { v: 2, id: randomUUID(), profile: personalSettingsDirectoryIdentity(f.options.directory), expectedRevision: "missing", op: { kind: "config.save", target: "services", value: next } };
+  await p.close();
+  await assert.rejects(executePersonalSettings(f.options.directory, request), code("service_config_baseline_missing"));
+  assert.equal(fs.existsSync(path.join(f.options.directory, "service.json")), false);
+  p = await f.open(); const recovered = (await p.service!.status(ref)).operation; assert.equal(recovered.hostOpId, original.hostOpId); assert.deepEqual(recovered.snapshot, original.snapshot); assert.equal(recovered.configRevision, undefined); assert.equal(recovered.configVersion, undefined);
+  const baseline = (await p.harness.commit(tx => personalConfigurationVersions(tx, "services"), context))[1];
+  assert.equal(baseline.origin, "host"); assert.equal(baseline.revision, "missing"); assert.equal(baseline.content, null);
+  await p.close();
+  const saved = await executePersonalSettings(f.options.directory, request) as PersonalSettingsReceipt; assert.equal(saved.status, "saved");
+  p = await f.open();
+  const pending = (await p.service!.status(ref)).operation; assert.equal(pending.hostOpId, original.hostOpId); assert.deepEqual(pending.snapshot, original.snapshot);
+  assert.equal(fs.existsSync(path.join(helper, "calls.log")), false);
+  await p.service!.recheckStop(ref); assert.equal((await p.service!.status(ref)).operation.launcherStopped, false);
+  await p.service!.resolve(ref, "applied", "独立服务计数恰增加一次"); fs.rmSync(path.join(f.helper, "stop-query-fails")); await p.service!.recheckStop(ref); await finish(p, ref);
+  assert.equal((await p.service!.status(ref)).operation.launcherStopped, true); assert.equal(fs.existsSync(path.join(helper, "calls.log")), false);
+  assert.equal((await p.updateServices(next, request.id, saved.savedRevision!)).code, "active");
+  await p.harness.commit(tx => selectPersonalConfiguration(tx, "services", "*", request.id), context);
+  await p.close(); p = await f.open();
+  const oldCalls = f.calls().length, nextCalls = fs.existsSync(path.join(helper, "calls.log")) ? fs.readFileSync(path.join(helper, "calls.log"), "utf8") : null;
+  await p.service!.recheckStop(ref); assert.equal(f.calls().length, oldCalls); assert.equal(fs.existsSync(path.join(helper, "calls.log")) ? fs.readFileSync(path.join(helper, "calls.log"), "utf8") : null, nextCalls);
 });

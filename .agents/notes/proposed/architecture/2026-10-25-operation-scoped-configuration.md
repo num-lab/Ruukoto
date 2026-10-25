@@ -6,7 +6,7 @@ Status: proposed
 
 个人设置沿用最初停机持锁向导，在线读写、配置生效和整个后台生命周期被绑在一起。只读入口也可能抢锁，Skills 已能逐请求刷新却仍要求重启，坏模型环境阻止修改无关配置，命令目录和服务路径则永久绑定档案。Code 模型目录与 PA 计划范围还把显示名变化当作执行变化。
 
-拥有者在 2026-10-25 确认解除这些用户限制，同时保留实际权限、单一写入者、原操作和历史恢复。本轮仅制定方案，当前实现仍由既有 implemented 笔记描述。目标、实施顺序和完整验收见[工单](../../../../.scratch/configuration-updates/issues/01-remove-global-restrictions.md)与[规格](../../../../.scratch/configuration-updates/spec.md)。
+拥有者在 2026-10-25 确认解除这些用户限制，同时保留实际权限、单一写入者、原操作和历史恢复。方案阶段仅交付方案；接手后的 R1–R8 运行改动已实施，现行约束分别由[设置与生效](../../implemented/architecture/2026-10-25-personal-settings-versions.md)、[请求配置](../../implemented/architecture/2026-10-25-personal-request-configuration.md)、[IM 切换](../../implemented/architecture/2026-10-25-personal-im-updates.md)、[执行配置](../../implemented/architecture/2026-10-25-personal-execution-configuration-versions.md)及[非执行检查](../../implemented/simplification/2026-10-25-configuration-checks.md)持有。本篇保留整体方案和审计背景；MyGo 实机验收仍待完成，目标、实施顺序和完整验收见[工单](../../../../.scratch/configuration-updates/issues/01-remove-global-restrictions.md)与[规格](../../../../.scratch/configuration-updates/spec.md)。
 
 ## 方案
 

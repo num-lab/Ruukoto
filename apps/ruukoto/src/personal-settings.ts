@@ -12,18 +12,22 @@ import { restrictCuaTool } from "@ruukoto/agent/mcp/cua.ts";
 import { ROOT_CONVERSATION_ID, type TaskId, type EntryId } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { hasPendingPersonalWork } from "./personal-config-idle.ts";
-import { readPersonalConfig, savePersonalConfig } from "./personal-config.ts";
-import { PersonalDirectoryClaimsDoc } from "./personal-directory-claims.ts";
+import { readPersonalConfig } from "./personal-config.ts";
 import { PersonalError } from "./personal-error.ts";
-import { PersonalFormatDoc, type PersonalHarness } from "./personal-harness.ts";
-import { migratePersonalMcp, discoverPersonalMcp, parsePersonalMcp, personalMcpCredential, readPersonalMcp, resolvePersonalMcpToken, savePersonalMcp, type PersonalMcpConfig, type PersonalMcpService } from "./personal-mcp-config.ts";
+import type { PersonalHarness } from "./personal-harness.ts";
+import { discoverPersonalMcp, parsePersonalMcp, personalMcpCredential, readPersonalMcp, resolvePersonalMcpToken, validatePersonalMcpCredentials, type PersonalMcpConfig, type PersonalMcpService } from "./personal-mcp-config.ts";
+import { PERSONAL_CONFIGURATION_FILES, PersonalConfigurationDoc, PersonalSettingsOperationDoc, PersonalConfigurationVersionDoc, readPersonalConfigurationFile, readPersonalConfigurationRevision, type PersonalConfigurationTarget, type PersonalSettingsFileIssue } from "./personal-settings-records.ts";
 import { personalSettingsExternalBlockers, type PersonalExternalSettingsBlocker } from "./personal-settings-blockers.ts";
 import { parsePersonalModel, personalProvider, type PersonalModelConfig } from "./personal-model.ts";
 import { PERSONAL_FORMAT, PERSONAL_PENDING_FILE, PERSONAL_QUESTION_PENDING_FILE, PERSONAL_SCHEDULE_PENDING_FILE, lockPersonalProfile, type PersonalProfileLock } from "./personal-profile.ts";
-import { PersonalQuestionDoc, PersonalQuestionsDoc } from "./personal-questions.ts";
-import { PersonalSchedulesDoc, PersonalScheduleRunDoc, SCHEDULE_SUPERVISOR_TASK } from "./personal-scheduler-records.ts";
-import { parsePersonalSkills, personalSkillsDirectory, readPersonalSkills, savePersonalSkills } from "./personal-skills-config.ts";
+import { parsePersonalSkills, personalSkillsDirectory, readPersonalSkills } from "./personal-skills-config.ts";
 import { personalSkillStore } from "./personal-skills.ts";
+import type { PersonalCommandConfig } from "./personal-command-config.ts";
+import type { PersonalServiceConfig } from "./personal-service-config.ts";
+import type { PersonalSkillsConfig } from "./personal-skills-config.ts";
+import type { PersonalSettingsWriteRequest } from "./personal-settings-operations.ts";
+import { readPersonalWebSearch, type PersonalWebSearchConfig } from "./personal-tools-config.ts";
+import type { PersonalSettingsReceipt } from "./personal-settings-records.ts";
 
 export const PERSONAL_SETTINGS_LIMITS = { requestBytes: 128 * 1024, responseBytes: 256 * 1024, modelTestMs: 30_000 } as const;
 export type PersonalSettingsTarget = "model" | "skills" | "mcp";
@@ -37,7 +41,7 @@ type PersonalSkillSettingsRequest = { v: 1; profile: PersonalSettingsIdentity; e
   | { op: "skills.import"; id: SkillId; directory: string; contentRevision: string }
   | { op: "skills.set-enabled"; id: SkillId; enabled: boolean }
   | { op: "skills.remove"; id: SkillId });
-export type PersonalSettingsRequest = { v: 1; op: "settings.read" | "lifecycle.status"; offset?: number; limit?: number }
+export type PersonalSettingsRequest = { v: 1; op: "settings.read" | "lifecycle.status"; offset?: number; limit?: number; operationsOffset?: number; effectiveOffset?: number }
   | { v: 1; op: "config.save" | "config.preflight"; profile: PersonalSettingsIdentity; target: PersonalSettingsTarget; expectedRevision: string; value: unknown }
   | { v: 1; op: "model.test"; profile: PersonalSettingsIdentity; expectedRevision: string; value: unknown }
   | { v: 1; op: "mcp.cua-targets" | "mcp.cua-status"; profile: PersonalSettingsIdentity; expectedRevision: string }
@@ -50,7 +54,44 @@ export type PersonalSettingsRequest = { v: 1; op: "settings.read" | "lifecycle.s
   | { v: 1; op: "mcp.remove"; profile: PersonalSettingsIdentity; expectedRevision: string; id: string }
   | { v: 1; op: "mcp.save-service"; profile: PersonalSettingsIdentity; expectedRevision: string; service: unknown }
   | PersonalSkillSettingsRequest;
-export type PersonalSettingsContext = { profile: PersonalProfileLock; instance?: PersonalHarness; development?: boolean };
+export type PersonalSettingsContext = { profile: PersonalProfileLock; instance?: PersonalHarness; development?: boolean; checkpoint?: (stage: "intent" | "file" | "saved" | "published") => void | Promise<void> };
+type PersonalMcpSummary = Omit<PersonalMcpConfig, "services"> & { services: (Omit<PersonalMcpService, "tools"> & { tools: { name: string; description?: string }[] })[]; offset: number; hasMore: boolean };
+export type PersonalSettingsSnapshot = { profile: PersonalSettingsIdentity; online: boolean; settingsProtocol: 2; revisions: Record<Exclude<PersonalConfigurationTarget, "managed-skills">, string>; revisionsUnknown: PersonalConfigurationTarget[]; fileIssues: PersonalSettingsFileIssue[]; operations: PersonalSettingsReceipt[]; operationsNextOffset?: number; effective: { target: PersonalConfigurationTarget; scope: string; version: string; revision: string | null }[]; effectiveNextOffset?: number; commands: PersonalCommandConfig | null; "web-search": PersonalWebSearchConfig | null; services: PersonalServiceConfig | null; model: { config: PersonalModelConfig } | null; skills: { config: PersonalSkillsConfig | null; revision: string; skills: { name: string; description: string; disableModelInvocation?: boolean }[]; diagnostics: string[] }; mcp: PersonalMcpSummary | null };
+
+export async function readPersonalSettings(target: string | PersonalProfileLock): Promise<PersonalSettingsSnapshot> {
+  return await executePersonalSettings(target, { v: 1, op: "settings.read" }) as PersonalSettingsSnapshot;
+}
+
+export async function savePersonalSettings(target: string | PersonalProfileLock, snapshot: Pick<PersonalSettingsSnapshot, "profile">, expectedRevision: string, op: Extract<PersonalSettingsWriteRequest, { op: unknown }>["op"]): Promise<PersonalSettingsReceipt> {
+  return await executePersonalSettings(target, { v: 2, id: randomUUID(), profile: snapshot.profile, expectedRevision, op }) as PersonalSettingsReceipt;
+}
+
+export function personalSettingsMessage(receipt: PersonalSettingsReceipt): string {
+  return receipt.status === "active" ? "配置已保存并生效。" : receipt.status === "saved" ? "配置已保存，后台启动时应用。" : receipt.status === "waiting" ? "配置已保存，等待相关操作结束；请查询原更改或撤回待生效更改。" : receipt.status === "failed" ? "配置已保存，生效失败；请查询原更改并检查对应配置。" : receipt.status === "superseded" ? "原更改已被取代，保存记录保留。" : receipt.status === "rejected" ? "配置未保存，请刷新并比较草稿。" : "保存结果待核实，请查询原更改；不要重复保存。";
+}
+
+async function settingsFacts(current: PersonalSettingsContext, request: { operationsOffset?: number; effectiveOffset?: number }) {
+  if (!current.instance && !fs.existsSync(path.join(current.profile.directory, "personal.sqlite"))) return { operations: [], effective: [] };
+  const { withPersonalSettingsSession } = await import("./personal-settings-operations.ts");
+  return withPersonalSettingsSession(current, async session => {
+    const index = await session.snapshot(PersonalConfigurationDoc, context);
+    if (!index) return { operations: [], effective: [] };
+    const operationsOffset = request.operationsOffset ?? 0, effectiveOffset = request.effectiveOffset ?? 0;
+    const receipts: PersonalSettingsReceipt[] = [];
+    for (const id of index.operations.slice(operationsOffset, operationsOffset + 32)) {
+      const operation = (await session.snapshot(PersonalSettingsOperationDoc, id, context))?.operation;
+      if (!operation || operation.receipt.id !== id) throw new PersonalError("settings_history_invalid", "原配置回执缺失，请保留档案并核实原更改。");
+      receipts.push(structuredClone(operation.receipt));
+    }
+    const effective = [];
+    for (const ref of index.effective.slice(effectiveOffset, effectiveOffset + 32)) {
+      const value = (await session.snapshot(PersonalConfigurationVersionDoc, `${ref.target}:${ref.version}`, context))?.value;
+      if (!value || value.target !== ref.target || value.version !== ref.version) throw new PersonalError("settings_history_invalid", "原生效配置缺失，请保留档案并核实原更改。");
+      effective.push({ ...ref, revision: value.revision === "missing" ? null : value.revision });
+    }
+    return { operations: receipts, ...(operationsOffset + 32 < index.operations.length ? { operationsNextOffset: operationsOffset + 32 } : {}), effective, ...(effectiveOffset + 32 < index.effective.length ? { effectiveNextOffset: effectiveOffset + 32 } : {}) };
+  });
+}
 const context = BACKGROUND_CONTEXT;
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
 const digest = (value: string | Buffer) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
@@ -69,6 +110,10 @@ export function parsePersonalSettingsRequest(value: unknown): PersonalSettingsRe
   if (value.op === "settings.read" || value.op === "lifecycle.status") {
     allowed = ["v", "op", "offset", "limit"];
     checkPage(value);
+    if (value.op === "settings.read") {
+      allowed.push("operationsOffset", "effectiveOffset");
+      for (const key of ["operationsOffset", "effectiveOffset"]) if (value[key] !== undefined && (!Number.isSafeInteger(value[key]) || Number(value[key]) < 0)) throw invalid();
+    }
   } else {
     allowed = ["v", "op", "profile", "expectedRevision"];
     if (!object(value.profile) || Object.keys(value.profile).sort().join(",") !== "directory,id" || typeof value.profile.directory !== "string" || !path.isAbsolute(value.profile.directory) || path.resolve(value.profile.directory) !== value.profile.directory || typeof value.profile.id !== "string" || !/^sha256:[0-9a-f]{64}$/.test(value.profile.id) || typeof value.expectedRevision !== "string" || !/^(missing|sha256:[0-9a-f]{64})$/.test(value.expectedRevision)) throw invalid();
@@ -160,22 +205,6 @@ export async function assertPersonalSettingsIdle(profile: PersonalProfileLock): 
   if ((await personalSettingsBlockers(profile)).length) throw new PersonalError("settings_pending", "仍有待核实输入、未完成工作或未核实外部占用，未更改设置；请先用原配置处理后再保存。");
 }
 
-async function onlineBlockers(current: PersonalSettingsContext): Promise<PersonalSettingsBlocker[]> {
-  const instance = current.instance!;
-  if (!isDeepStrictEqual(await instance.harness.snapshot(PersonalFormatDoc, context), PERSONAL_FORMAT)) throw new PersonalError("extension_version", "个人业务格式无法核实，请保留档案并使用对应程序。");
-  const blockers = pendingFiles(current.profile), live = await instance.harness.inspect(context), schedules = await instance.harness.snapshot(PersonalSchedulesDoc, context);
-  const claims = await instance.harness.snapshot(PersonalDirectoryClaimsDoc, context), questions = await instance.harness.snapshot(PersonalQuestionsDoc, context);
-  let pendingWork = !!live.submissions.length || !!claims?.claims.some(claim => !claim.released) || live.tasks.some(({ record: task }) => task.kind !== SCHEDULE_SUPERVISOR_TASK || task.version !== 1 || task.conversationId !== ROOT_CONVERSATION_ID || task.owner !== undefined || !task.background || !isDeepStrictEqual(task.input, {}) || schedules?.supervisor !== task.id);
-  for (const run of schedules?.runs ?? []) if (!(await instance.harness.snapshot(PersonalScheduleRunDoc, run, context))?.run?.result) pendingWork = true;
-  for (const id of questions?.ids ?? []) {
-    const question = (await instance.harness.snapshot(PersonalQuestionDoc, id, context))?.question;
-    if (!question || question.id !== id) throw new PersonalError("config_state_invalid", "原问题记录无法核实，未更改设置；请保留档案并查询原问题。");
-    if (question.status === "pending") pendingWork = true;
-  }
-  if (pendingWork) blockers.push({ kind: "pending-work" });
-  blockers.push(...await personalSettingsExternalBlockers({ harness: instance.harness }));
-  return blockers.slice(0, 32);
-}
 
 function safeEndpoint(endpoint: string) {
   const url = new URL(endpoint);
@@ -211,15 +240,15 @@ function mcpDraft(profile: PersonalProfileLock, value: unknown) {
     if (raw.cua !== undefined) { if (authentication !== undefined || credentialPath !== undefined) throw invalid(); return raw; }
     if (authentication !== undefined && authentication !== "anonymous" && authentication !== "credential" || credentialPath !== undefined && typeof credentialPath !== "string") throw invalid();
     const original = previous?.services.find(item => item.id === raw.id);
-    const credential = typeof credentialPath === "string" ? personalMcpCredential(credentialPath) : raw.credential;
+    const credential = typeof credentialPath === "string" ? original?.credential?.path === credentialPath ? raw.credential ?? original.credential : personalMcpCredential(credentialPath) : raw.credential;
     if (authentication === "anonymous" && credential || authentication !== "anonymous" && !credential && !(original && !original.credential)) throw new PersonalError("mcp_credentials_required", "请选择私有凭据文件或明确匿名连接，未保存服务。");
     return { ...raw, endpoint: restoreEndpoint(raw, previous), ...(credential ? { credential } : {}) };
   }) });
 }
-function parseDraft(profile: PersonalProfileLock, target: PersonalSettingsTarget, value: unknown) {
+export function parsePersonalSettingsDraft(profile: PersonalProfileLock, target: PersonalSettingsTarget, value: unknown) {
   return target === "model" ? parsePersonalModel(value) : target === "skills" ? parsePersonalSkills(value) : mcpDraft(profile, value);
 }
-function mcpServiceDraft(profile: PersonalProfileLock, value: unknown) {
+export function mcpServiceDraft(profile: PersonalProfileLock, value: unknown) {
   if (!object(value) || typeof value.id !== "string") throw invalid();
   const previous = readPersonalMcp(profile), original = previous?.services.find(service => service.id === value.id);
   const service: Record<string, unknown> = { ...(original ?? { tools: [], ...(previous?.version === 1 ? {} : { enabled: true }) }), ...value };
@@ -263,7 +292,7 @@ function selectSkillDirectory(request: Extract<PersonalSkillSettingsRequest, { o
 
 function isSkillSettings(request: PersonalSettingsRequest): request is PersonalSkillSettingsRequest { return skillOperations.includes(request.op); }
 
-async function skillSettings(profile: PersonalProfileLock, request: PersonalSkillSettingsRequest, online: boolean) {
+async function skillSettings(profile: PersonalProfileLock, request: PersonalSkillSettingsRequest) {
   const state = new ManagedSkillsStore(profile.directory, []).list({ limit: 1 });
   if (state.revision !== request.expectedRevision) throw new PersonalError("skills_revision_conflict", "托管技能清单已变化，未更改技能；请刷新原后台并比较后重新选择。");
   if (request.op === "skills.select-directory") {
@@ -277,11 +306,7 @@ async function skillSettings(profile: PersonalProfileLock, request: PersonalSkil
   const store = personalSkillStore(profile);
   if (request.op === "skills.get") return store.get(request.id);
   if (request.op === "skills.preview-import") return store.preview(request.directory);
-  if (online) throw new PersonalError("settings_stop_required", "托管技能变更需要停止原后台并取得档案锁；请先处理未决事项。");
-  await assertPersonalSettingsIdle(profile);
-  const result = request.op === "skills.import" ? store.import({ id: request.id, sourceDir: request.directory, contentRevision: request.contentRevision, expectedRevision: request.expectedRevision }) : request.op === "skills.set-enabled" ? store.setEnabled(request) : store.remove(request);
-  const { body: _body, ...summary } = result;
-  return { saved: true, target: "skills", ...summary };
+  throw new PersonalError("settings_upgrade_required", "配置写入需要新版管理客户端，请升级后读取原配置；未执行保存。");
 }
 
 type ModelTestEvidence = { version: 1; requestId: string; config: PersonalModelConfig; input: { messages: { role: "user"; content: string; timestamp: number }[] }; maxTokens: 1; payload?: JsonValue };
@@ -312,20 +337,35 @@ export async function testPersonalModel(config: PersonalModelConfig, options: { 
 
 // Note: 见 .agents/notes/implemented/feature/2026-10-21-personal-settings.md
 export async function dispatchPersonalSettings(current: PersonalSettingsContext, value: unknown): Promise<unknown> {
+  if (object(value) && typeof value.op === "string" && value.op.startsWith("im.pair-")) {
+    const { parsePersonalImPairingRequest, dispatchPersonalImPairing } = await import("./personal-im-pairing.ts");
+    const request = parsePersonalImPairingRequest(value);
+    if (!current.instance) throw new PersonalError("im_pairing_online_required", "入口配对需要原后台在线，以后台实际凭据核实身份；当前未验证，未启动后台。");
+    return dispatchPersonalImPairing(current.instance, request);
+  }
+  if (object(value) && value.v === 2) {
+    const { dispatchPersonalConfiguration } = await import("./personal-settings-operations.ts");
+    return dispatchPersonalConfiguration(current, value);
+  }
   const request = parsePersonalSettingsRequest(value), { profile } = current, online = !!current.instance;
+  if (["config.save", "mcp.migrate", "mcp.save-service", "mcp.set-enabled", "mcp.remove", "skills.import", "skills.set-enabled", "skills.remove"].includes(request.op)) throw new PersonalError("settings_upgrade_required", "配置写入需要 v2 客户端，请升级后读取原配置；未执行停存启。");
   const identity = personalSettingsIdentity(profile), base = { product: "ruukoto", profile: identity, online };
   if (request.op === "lifecycle.status") return { ...base, lifecycle: { state: online ? "running" : "stopped", ...(online ? { pid: process.pid } : {}), managedDevelopment: !!current.development, automaticRestart: false, originalEnvironment: "unverified" } };
   if (request.op === "settings.read") {
-    const revisions = { model: personalSettingsRevision(profile, "model"), skills: personalSettingsRevision(profile, "skills"), mcp: personalSettingsRevision(profile, "mcp") };
-    const model = revisions.model === "missing" ? undefined : readPersonalConfig(profile), mcp = readPersonalMcp(profile), offset = request.offset ?? 0, limit = request.limit ?? 20;
-    return { ...base, revisions, model: model ? { config: model, credential: await credentialState(model, online) } : null, skills: settingsSkillLibrary(profile, { offset, limit }),
+    const { personalSettingsFileIssues } = await import("./personal-settings-operations.ts");
+    const fileIssues = await personalSettingsFileIssues(current), affected = new Set(fileIssues.map(issue => issue.target));
+    const revisions = Object.fromEntries((Object.keys(PERSONAL_CONFIGURATION_FILES) as PersonalConfigurationTarget[]).filter(target => target !== "managed-skills").map(target => { const issue = fileIssues.find(issue => issue.target === target); return [target, issue ? issue.actualRevision ?? "unverified" : readPersonalConfigurationRevision(profile, target)]; }));
+    const revisionsUnknown = fileIssues.filter(issue => issue.actualRevision === null).map(issue => issue.target);
+    const model = affected.has("model") || revisions.model === "missing" ? undefined : readPersonalConfig(profile), mcp = affected.has("mcp") ? undefined : readPersonalMcp(profile), offset = request.offset ?? 0, limit = request.limit ?? 20;
+    const config = (target: PersonalConfigurationTarget) => affected.has(target) ? null : readPersonalConfigurationFile(profile, target).config;
+    return { ...base, settingsProtocol: 2, ...await settingsFacts(current, request), revisions, revisionsUnknown, fileIssues, commands: config("commands"), services: config("services"), "web-search": affected.has("web-search") ? null : readPersonalWebSearch(profile) ?? null, telegram: config("telegram"), qq: config("qq"), model: model ? { config: model, credential: await credentialState(model, online) } : null, skills: affected.has("skills") || affected.has("managed-skills") ? { config: null, revision: "unverified", skills: [], diagnostics: ["技能配置文件与保存历史不符，已暂停新接纳；请恢复原文件后刷新。"] } : settingsSkillLibrary(profile, { offset, limit }),
       mcp: mcp ? { version: mcp.version, generation: mcp.generation, services: await Promise.all(mcp.services.slice(offset, offset + limit).map(async service => ({ ...await safeService(service), tools: service.tools.map(tool => ({ name: tool.name, description: tool.description?.slice(0, 1024) })) }))), offset, hasMore: offset + limit < mcp.services.length } : null,
-      blockers: online ? await onlineBlockers(current) : await personalSettingsBlockers(profile), lifecycle: { managedDevelopment: !!current.development, automaticRestart: false, originalEnvironment: "unverified" } };
+      blockers: [], lifecycle: { managedDevelopment: !!current.development, automaticRestart: false, originalEnvironment: "unverified" } };
   }
   if (!("profile" in request)) throw invalid();
   if (isSkillSettings(request)) {
     if (!isDeepStrictEqual(identity, request.profile)) throw new PersonalError("settings_profile_changed", "所选个人档案身份已变化，未更改技能；请重新选择原档案。");
-    return { ...base, sourceHost: "personal", ...await skillSettings(profile, request, online) };
+    return { ...base, sourceHost: "personal", ...await skillSettings(profile, request) };
   }
   const target = request.op === "model.test" ? "model" : request.op === "config.save" || request.op === "config.preflight" ? request.target : "mcp";
   checkTarget(profile, request, target);
@@ -343,32 +383,11 @@ export async function dispatchPersonalSettings(current: PersonalSettingsContext,
     const config = parsePersonalModel(request.value);
     return { ...base, revision: request.expectedRevision, test: online ? await testPersonalModel(config, { record: async evidence => { await current.instance!.harness.commit(tx => tx.appendEntry(ROOT_CONVERSATION_ID, { kind: "ruukoto.settings-model-test", data: evidence }), context); } }) : { status: "unverified", code: "model_environment_unverified", message: "后台已停机，无法核实原服务凭据环境；请启动原后台后显式测试。" } };
   }
-  if (request.op === "mcp.migrate") {
-    if (online) throw new PersonalError("settings_stop_required", "MCP 格式迁入需要停止原后台并取得档案锁；请先处理未决事项。");
-    await assertPersonalSettingsIdle(profile);
-    await migratePersonalMcp(profile);
-    return { ...base, saved: true, target: "mcp", revision: personalSettingsRevision(profile, "mcp"), connection: "untested" };
-  }
   if (request.op === "mcp.get") {
     const service = readPersonalMcp(profile)?.services.find(service => service.id === request.id);
     if (!service) throw new PersonalError("mcp_service_missing", "原 MCP 服务不存在，请刷新服务列表。");
     const offset = request.offset ?? 0, limit = request.limit ?? 1;
     return { ...base, revision: request.expectedRevision, service: await safeService({ ...service, tools: service.tools.slice(offset, offset + limit) }), toolsOffset: offset, toolsHasMore: offset + limit < service.tools.length };
-  }
-  if (request.op === "mcp.save-service" || request.op === "mcp.set-enabled" || request.op === "mcp.remove") {
-    if (online) throw new PersonalError("settings_stop_required", "MCP 配置变更需要停止原后台并取得档案锁；请先处理未决事项。");
-    await assertPersonalSettingsIdle(profile);
-    let config: PersonalMcpConfig;
-    if (request.op === "mcp.save-service") config = mcpServiceDraft(profile, request.service);
-    else {
-      const previous = readPersonalMcp(profile);
-      if (!previous?.services.some(service => service.id === request.id)) throw new PersonalError("mcp_service_missing", "原 MCP 服务不存在，请刷新服务列表。");
-      if (request.op === "mcp.set-enabled" && previous.version === 1) throw new PersonalError("mcp_migration_required", "原 MCP 配置需先显式迁入新格式，再编辑单服务启停；未覆盖原配置。");
-      const services = request.op === "mcp.remove" ? previous.services.filter(service => service.id !== request.id) : previous.services.map(service => service.id === request.id ? { ...service, enabled: request.enabled } : service);
-      config = { ...previous, generation: randomUUID(), services };
-    }
-    await savePersonalMcp(profile, config);
-    return { ...base, saved: true, target: "mcp", revision: personalSettingsRevision(profile, "mcp"), connection: "untested" };
   }
   if (request.op === "mcp.discover") {
     if (!object(request.service)) throw invalid();
@@ -389,23 +408,20 @@ export async function dispatchPersonalSettings(current: PersonalSettingsContext,
     catch (error) { if (error instanceof PersonalError) throw error; throw new PersonalError("mcp_discovery_failed", "MCP 工具发现失败，请检查端点与凭据后显式重试；未调用业务工具。"); }
     return { ...base, revision: request.expectedRevision, service: await safeService(config.services[0]), tools };
   }
-  if (request.op !== "config.save" && request.op !== "config.preflight") throw invalid();
-  const draft = parseDraft(profile, target, request.value);
+  if (request.op !== "config.preflight") throw invalid();
+  const draft = parsePersonalSettingsDraft(profile, target, request.value);
   if (request.op === "config.preflight") {
     if (target === "skills") personalSkillsDirectory(parsePersonalSkills(draft));
-    if (target === "mcp") for (const service of parsePersonalMcp(draft).services) await resolvePersonalMcpToken(service);
-    return { ...base, revision: request.expectedRevision, blockers: online ? await onlineBlockers(current) : await personalSettingsBlockers(profile), ...(target === "model" ? { credential: await credentialState(parsePersonalModel(draft), online) } : {}), connection: "untested" };
+    if (target === "mcp") await validatePersonalMcpCredentials(parsePersonalMcp(draft), readPersonalMcp(profile));
+    return { ...base, revision: request.expectedRevision, blockers: [], ...(target === "model" ? { credential: await credentialState(parsePersonalModel(draft), online) } : {}), connection: "untested" };
   }
-  if (online) throw new PersonalError("settings_stop_required", "设置保存需要停止原后台并取得档案锁；请先检查未决事项，再选择停止、保存并启动。");
-  await assertPersonalSettingsIdle(profile);
-  if (target === "model") await savePersonalConfig(profile, draft);
-  else if (target === "skills") await savePersonalSkills(profile, draft);
-  else await savePersonalMcp(profile, draft);
-  return { ...base, saved: true, target, revision: personalSettingsRevision(profile, target), connection: "untested" };
+  throw invalid();
 }
 
-export async function executePersonalSettings(directory: string, value: unknown): Promise<unknown> {
-  const request = parsePersonalSettingsRequest(value);
+export async function executePersonalSettings(target: string | PersonalProfileLock, value: unknown): Promise<unknown> {
+  if (typeof target !== "string") return dispatchPersonalSettings({ profile: target }, value);
+  const directory = target;
+  const request = object(value) && value.v === 2 ? (await import("./personal-settings-operations.ts")).parsePersonalSettingsWriteRequest(value) : object(value) && typeof value.op === "string" && value.op.startsWith("im.pair-") ? (await import("./personal-im-pairing.ts")).parsePersonalImPairingRequest(value) : parsePersonalSettingsRequest(value);
   const { personalControl } = await import("./personal-control.ts");
   try { return await personalControl(directory, "POST", "/settings", request); }
   catch (error) {

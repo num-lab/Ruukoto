@@ -344,23 +344,13 @@ test("委托报告：本机菜单经后台查询完整报告，Telegram 原菜�
 test("委托报告：取消与发送领取按事务顺序仲裁，已开始发送保留真实效果", async t => {
   for (const stage of ["before-claim", "after-claim"] as const) await t.test(stage, async t => {
     const held = gate(t); let entered = false;
-    const phases = PersonalReportTask.definition.phases;
-    const original = phases.send;
-    const intercept: typeof original = async (current, runtime, c) => {
-      if (stage === "before-claim") { entered = true; await held.wait; return original(current, runtime, c); }
-      let intercepted = false;
-      const proxy = new Proxy(runtime, { get(target, key) {
-        if (key === "commit") return async (...params: Parameters<typeof runtime.commit>) => {
-          const result = await target.commit(...params);
-          if (!intercepted) { intercepted = true; entered = true; await held.wait; }
-          return result;
-        };
-        return Reflect.get(target, key);
-      } });
-      return original(current, proxy, c);
-    };
-    Object.assign(phases, { send: intercept }); t.after(() => { Object.assign(phases, { send: original }); });
-    const f = await fixture(t); const telegram = await f.telegram(); const p = await f.open({ telegram });
+    const originalFetch = globalThis.fetch;
+    if (stage === "after-claim") t.mock.method(globalThis, "fetch", async (...args: Parameters<typeof fetch>) => {
+      const response = await originalFetch(...args);
+      if (String(args[0]).endsWith("/sendMessage") && JSON.parse(String(args[1]?.body)).text === REPORT) { entered = true; await held.wait; }
+      return response;
+    });
+    const f = await fixture(t, stage === "before-claim" ? { summarize: async () => { entered = true; await held.wait; return { kind: "text", text: REPORT }; } } : {}); const telegram = await f.telegram(); const p = await f.open({ telegram });
     await f.receive(f.update("multi")); const ref = await first(p); await finishMembers(p, ref);
     await f.receive(f.update(args("report", { delegation: ref.entryId }))); await until(() => entered);
     await p.harness.commit(tx => cancelPersonalDelegation(tx, ref), context);

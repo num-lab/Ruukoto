@@ -17,6 +17,7 @@ import { savePersonalSkills } from "../apps/ruukoto/src/personal-skills-config.t
 import { personalControl, startPersonalServer } from "../apps/ruukoto/src/personal-control.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
 import { dispatchPersonalSettings, executePersonalSettings, parsePersonalSettingsRequest, runPersonalSettingsMachine, testPersonalModel } from "../apps/ruukoto/src/personal-settings.ts";
+import type { PersonalSettingsReceipt } from "../apps/ruukoto/src/personal-settings-records.ts";
 import type { PersonalModelConfig } from "../apps/ruukoto/src/personal-model.ts";
 import { PersonalMockModelServer } from "./helpers/mock-provider.ts";
 import { startMockMcp } from "./helpers/mock-mcp.ts";
@@ -34,8 +35,11 @@ async function fixture(t: TestContext) {
   return { root, directory, model, config, read: () => executePersonalSettings(directory, { v: 1, op: "settings.read" }) as Promise<Snapshot>, start: async (development = false) => server = await startPersonalServer(directory, { development }) };
 }
 
+function write(base: { profile: Snapshot["profile"]; expectedRevision: string }, op: Record<string, unknown>) {
+  return { v: 2, id: randomUUID(), profile: base.profile, expectedRevision: base.expectedRevision, op };
+}
 function save(snapshot: Snapshot, value: unknown, target = "model") {
-  return { v: 1, op: "config.save", profile: snapshot.profile, target, expectedRevision: snapshot.revisions[target as keyof Snapshot["revisions"]], value };
+  return write({ profile: snapshot.profile, expectedRevision: snapshot.revisions[target as keyof Snapshot["revisions"]] }, { kind: "config.save", target, value });
 }
 
 async function machine(directory: string, value: unknown) {
@@ -66,36 +70,39 @@ test("设置查询：离线持锁与修订保存，错档案、旧修订及非�
   await assert.rejects(executePersonalSettings(f.directory, save(initial, { ...f.config, maxTokens: 9000 })), code("model_config_invalid"));
   assert.equal(fs.readFileSync(path.join(f.directory, "model.json"), "utf8"), before);
   const next = { ...f.config, modelId: "next-model" };
-  assert.equal((await executePersonalSettings(f.directory, save(initial, next)) as { saved: boolean }).saved, true);
+  const receipt = await executePersonalSettings(f.directory, save(initial, next)) as PersonalSettingsReceipt;
+  assert.equal(receipt.status, "saved"); assert.equal(receipt.savedRevision, (await f.read()).revisions.model); assert.notEqual(receipt.effectiveRevision, receipt.savedRevision);
   const updated = await f.read(); assert.equal(updated.model.config.modelId, "next-model"); assert.notEqual(updated.revisions.model, initial.revisions.model);
   await assert.rejects(executePersonalSettings(f.directory, save(initial, f.config)), code("settings_revision_changed"));
   assert.equal(f.model.calls.length, 0);
 });
 
-test("设置保存：待核实本机输入阻断无变化保存，原配置与请求保留；原子替换失败不改原文件", async t => {
+test("设置保存：本机待核实输入不阻止配置，无效替换目标保留原文件与原键", async t => {
   const f = await fixture(t), initial = await f.read(), before = fs.readFileSync(path.join(f.directory, "model.json"), "utf8");
   for (const name of [`pending-${randomUUID()}.json`, `pending-question-${randomUUID()}.json`, "pending-background-end.json"]) {
     const pending = path.join(f.directory, name);
     fs.writeFileSync(pending, "{}\n", { mode: 0o600 });
-    assert.deepEqual((await f.read()).blockers, [{ kind: "pending-input" }]);
-    await assert.rejects(executePersonalSettings(f.directory, save(initial, f.config)), code("settings_pending"));
+    assert.deepEqual((await f.read()).blockers, []);
+    assert.equal((await executePersonalSettings(f.directory, save(initial, f.config)) as PersonalSettingsReceipt).status, "saved");
     assert.equal(fs.existsSync(pending), true); assert.equal(fs.readFileSync(path.join(f.directory, "model.json"), "utf8"), before);
     fs.unlinkSync(pending);
   }
   const profile = lockPersonalProfile(f.directory);
   try {
     fs.mkdirSync(path.join(f.directory, "model.json.tmp"), { mode: 0o700 });
-    await assert.rejects(dispatchPersonalSettings({ profile }, save(initial, { ...f.config, modelId: "changed" })), code("model_config_write_failed"));
+    await assert.rejects(dispatchPersonalSettings({ profile }, save(initial, { ...f.config, modelId: "changed" })), code("settings_history_invalid"));
     assert.equal(fs.readFileSync(path.join(f.directory, "model.json"), "utf8"), before);
   } finally { fs.rmdirSync(path.join(f.directory, "model.json.tmp")); profile.release(); }
 });
 
-test("设置在线查询：认证、脱敏、明确停机保存与开发实例生命周期，不联网或创建工作", async t => {
+test("设置在线查询：认证与脱敏保持，开发实例同 PID 保存而不触发生命周期或模型", async t => {
   const f = await fixture(t); await f.start(true);
   const result = await f.read(); assert.equal(result.online, true); assert.equal(result.model.credential.state, "available"); assert.equal(f.model.calls.length, 0);
   const lifecycle = await executePersonalSettings(f.directory, { v: 1, op: "lifecycle.status" }) as { lifecycle: { managedDevelopment: boolean; automaticRestart: boolean; originalEnvironment: string } };
   assert.deepEqual(lifecycle.lifecycle, { state: "running", pid: process.pid, managedDevelopment: true, automaticRestart: false, originalEnvironment: "unverified" });
-  await assert.rejects(executePersonalSettings(f.directory, save(result, f.config)), code("settings_stop_required"));
+  const receipt = await executePersonalSettings(f.directory, save(result, f.config)) as PersonalSettingsReceipt;
+  assert.equal(receipt.status, "active"); assert.equal(receipt.savedRevision, receipt.effectiveRevision);
+  assert.deepEqual((await executePersonalSettings(f.directory, { v: 1, op: "lifecycle.status" }) as typeof lifecycle).lifecycle, lifecycle.lifecycle); assert.equal(f.model.calls.length, 0);
   const unauthorized = await new Promise<string>((resolve, reject) => {
     const request = http.request({ socketPath: path.join(f.directory, "control.sock"), path: "/settings", headers: { authorization: "Bearer wrong" } }, response => { let text = ""; response.on("data", chunk => { text += chunk; }); response.on("end", () => resolve(text)); }); request.on("error", reject); request.end();
   });
@@ -154,7 +161,7 @@ test("设置命令：真实非交互入口只输出一份版本化 JSON", async 
   assert.equal(result.status, 0, result.err); assert.equal(JSON.parse(result.out).product, "ruukoto"); assert.equal(result.out.trim().split("\n").length, 1); assert.ok(!result.out.includes("test-secret-value"));
 });
 
-for (const state of ["input", "mcp"] as const) test(`设置保存：持久化 ${state} 未决阻断所有保存，原配置保留`, async t => {
+for (const state of ["input", "mcp"] as const) test(`设置保存：持久化 ${state} 未决不阻止独立模型保存，原业务记录保留`, async t => {
   const f = await fixture(t), initial = await f.read(), before = fs.readFileSync(path.join(f.directory, "model.json"), "utf8");
   const instance = await openPersonalHarness({ directory: f.directory, provider: personalProvider(f.config), modelId: f.config.modelId });
   try {
@@ -166,8 +173,8 @@ for (const state of ["input", "mcp"] as const) test(`设置保存：持久化 ${
       }
     }, BACKGROUND_CONTEXT);
   } finally { await instance.close(); }
-  assert.ok((await f.read()).blockers.some(item => item.kind === (state === "input" ? "pending-work" : "mcp-unresolved")));
-  await assert.rejects(executePersonalSettings(f.directory, save(initial, f.config)), code("settings_pending"));
+  assert.deepEqual((await f.read()).blockers, []);
+  assert.equal((await executePersonalSettings(f.directory, save(initial, f.config)) as PersonalSettingsReceipt).status, "saved");
   assert.equal(fs.readFileSync(path.join(f.directory, "model.json"), "utf8"), before);
 });
 
@@ -179,7 +186,7 @@ test("MCP 设置：查询隐藏端点 query 与令牌、显式迁入及保存代
   const initial = await f.read(), queried = await executePersonalSettings(f.directory, { v: 1, op: "mcp.get", profile: initial.profile, expectedRevision: initial.revisions.mcp, id: service.id }) as { service: typeof service & { endpointRedacted: boolean; credentialStatus: string } };
   assert.equal(queried.service.endpointRedacted, true); assert.equal(queried.service.credentialStatus, "valid"); assert.ok(!JSON.stringify(queried).includes("endpoint-private-secret")); assert.ok(!JSON.stringify(queried).includes("mcp-private-secret"));
   await assert.rejects(executePersonalSettings(f.directory, save(initial, { version: 2, services: [{ ...queried.service, enabled: false }] }, "mcp")), code("mcp_migration_required"));
-  await executePersonalSettings(f.directory, { v: 1, op: "mcp.migrate", profile: initial.profile, expectedRevision: initial.revisions.mcp });
+  await executePersonalSettings(f.directory, write({ profile: initial.profile, expectedRevision: initial.revisions.mcp }, { kind: "mcp.migrate" }));
   const migrated = await f.read();
   assert.notEqual(migrated.revisions.mcp, initial.revisions.mcp);
   await executePersonalSettings(f.directory, save(migrated, { version: 2, services: [{ ...queried.service, enabled: false }] }, "mcp"));
@@ -208,21 +215,21 @@ test("MCP 设置：超过请求限额的既有合法配置仍可分页读、迁�
   assert.ok(fs.statSync(path.join(f.directory, "mcp.json")).size > 128 * 1024);
   let snapshot = await f.read();
   let base = { v: 1, profile: snapshot.profile, expectedRevision: snapshot.revisions.mcp };
-  assert.equal((await machine(f.directory, { ...base, op: "mcp.migrate" })).status, 0);
+  assert.equal((await machine(f.directory, write(base, { kind: "mcp.migrate" }))).status, 0);
   snapshot = await f.read(); base = { ...base, expectedRevision: snapshot.revisions.mcp };
   const page = await executePersonalSettings(f.directory, { ...base, op: "mcp.get", id: "large", limit: 1 }) as { service: { tools: typeof tools }; toolsHasMore: boolean };
   assert.deepEqual(page.service.tools, tools.slice(0, 1)); assert.equal(page.toolsHasMore, true);
-  assert.equal((await machine(f.directory, { ...base, op: "mcp.set-enabled", id: "large", enabled: false })).status, 0);
+  assert.equal((await machine(f.directory, write(base, { kind: "mcp.set-enabled", id: "large", enabled: false }))).status, 0);
   snapshot = await f.read(); base = { ...base, expectedRevision: snapshot.revisions.mcp };
-  assert.equal((await machine(f.directory, { ...base, op: "mcp.save-service", service: { id: "large", label: "新名称" } })).status, 0);
+  assert.equal((await machine(f.directory, write(base, { kind: "mcp.save-service", service: { id: "large", label: "新名称" } }))).status, 0);
   const saved = JSON.parse(fs.readFileSync(path.join(f.directory, "mcp.json"), "utf8"));
   assert.equal(saved.services[0].enabled, false); assert.equal(saved.services[0].label, "新名称"); assert.deepEqual(saved.services[0].tools, tools);
   snapshot = await f.read(); base = { ...base, expectedRevision: snapshot.revisions.mcp };
-  assert.equal((await machine(f.directory, { ...base, op: "mcp.remove", id: "large" })).status, 0);
+  assert.equal((await machine(f.directory, write(base, { kind: "mcp.remove", id: "large" }))).status, 0);
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(f.directory, "mcp.json"), "utf8")).services, []);
 });
 
-test("技能设置：远端有界目录选择、预览/导入/详情/启停/移除、修订与忙状态闭环", async t => {
+test("技能设置：远端有界目录选择、预览/导入/详情/启停/移除、修订与在线保存闭环", async t => {
   const f = await fixture(t), sources = path.join(f.root, "sources"), source = path.join(sources, "alpha");
   fs.mkdirSync(path.join(source, "refs"), { recursive: true }); fs.mkdirSync(path.join(sources, "beta")); fs.writeFileSync(path.join(sources, "not-a-directory"), "不应列出");
   fs.writeFileSync(path.join(source, "SKILL.md"), "---\ndescription: 原远端技能\n---\n技能正文\n"); fs.writeFileSync(path.join(source, "refs", "guide.md"), "引用原字节");
@@ -241,29 +248,25 @@ test("技能设置：远端有界目录选择、预览/导入/详情/启停/移�
   const external = path.join(f.root, "external-root"), actual = path.join(f.root, "actual-skills"); fs.mkdirSync(external); fs.mkdirSync(actual); fs.symlinkSync(actual, path.join(external, "skills"));
   const libraryChoice = await executePersonalSettings(f.directory, { ...base, op: "skills.select-directory", purpose: "library", directory: external }) as { selectable: boolean };
   assert.equal(libraryChoice.selectable, true);
-  const request = { ...base, op: "skills.import", directory: source, id: preview.id, contentRevision: preview.contentRevision };
+  const request = write(base, { kind: "skills.import", directory: source, id: preview.id, contentRevision: preview.contentRevision });
   const pending = path.join(f.directory, `pending-work-${randomUUID()}.json`); fs.writeFileSync(pending, "{}", { mode: 0o600 });
-  await assert.rejects(executePersonalSettings(f.directory, request), code("settings_pending")); assert.equal(fs.existsSync(path.join(f.directory, "managed-skills")), false); fs.unlinkSync(pending);
-  const imported = await executePersonalSettings(f.directory, request) as { saved: boolean; target: string; revision: string; source: string; readOnly: boolean };
-  assert.equal(imported.saved, true); assert.equal(imported.target, "skills");
-  assert.equal(imported.source, "managed"); assert.equal(imported.readOnly, false); assert.equal("body" in imported, false);
+  const imported = await executePersonalSettings(f.directory, request) as PersonalSettingsReceipt;
+  assert.equal(imported.status, "saved"); assert.equal(imported.target, "skills"); assert.equal(fs.existsSync(pending), true); fs.unlinkSync(pending);
+  assert.deepEqual(await executePersonalSettings(f.directory, request), imported); assert.equal("body" in imported, false);
   assert.equal((await machine(f.directory, { ...base, op: "skills.get", id: preview.id })).body.code, "skills_revision_conflict");
-  const current = { ...base, expectedRevision: imported.revision };
+  const current = { ...base, expectedRevision: imported.savedRevision! };
   await assert.rejects(executePersonalSettings(f.directory, { ...current, op: "skills.list", profile: { ...initial.profile, id: `sha256:${"0".repeat(64)}` } }), code("settings_profile_changed"));
   const server = await f.start();
   const listing = await executePersonalSettings(f.directory, { ...current, op: "skills.list" }) as Snapshot["skills"];
-  assert.equal(listing.skills[0].name, "alpha"); assert.equal(listing.sourceHost, "personal");
+  assert.equal(listing.skills[0].name, "alpha"); assert.equal(listing.sourceHost, "personal"); assert.equal(listing.skills[0].source, "managed"); assert.equal(listing.skills[0].readOnly, false);
   const detail = await executePersonalSettings(f.directory, { ...current, op: "skills.get", id: preview.id }) as { body: string };
   assert.equal(detail.body, "技能正文");
-  await assert.rejects(executePersonalSettings(f.directory, { ...current, op: "skills.set-enabled", id: preview.id, enabled: false }), code("settings_stop_required"));
+  const disabled = await executePersonalSettings(f.directory, write(current, { kind: "skills.set-enabled", id: preview.id, enabled: false })) as PersonalSettingsReceipt;
+  assert.equal(disabled.status, "active"); assert.equal(disabled.target, "skills"); assert.equal((await f.read()).skills.skills[0].state, "disabled");
   const invalid = await machine(f.directory, { ...current, op: "skills.get", id: preview.id, path: "/etc/passwd" }); assert.equal(invalid.body.code, "settings_request_invalid");
   await server.stop();
-  const disabled = await executePersonalSettings(f.directory, { ...current, op: "skills.set-enabled", id: preview.id, enabled: false }) as { saved: boolean; target: string; revision: string; state: string };
-  assert.equal(disabled.saved, true); assert.equal(disabled.target, "skills");
-  assert.equal(disabled.state, "disabled");
-  const removed = await executePersonalSettings(f.directory, { ...current, expectedRevision: disabled.revision, op: "skills.remove", id: preview.id }) as { saved: boolean; target: string; revision: string; state: string };
-  assert.equal(removed.saved, true); assert.equal(removed.target, "skills");
-  assert.equal(removed.state, "removed"); assert.deepEqual((await f.read()).skills.skills, []);
+  const removed = await executePersonalSettings(f.directory, write({ ...current, expectedRevision: disabled.savedRevision! }, { kind: "skills.remove", id: preview.id })) as PersonalSettingsReceipt;
+  assert.equal(removed.status, "saved"); assert.equal(removed.target, "skills"); assert.deepEqual((await f.read()).skills.skills, []);
   assert.equal(fs.readFileSync(path.join(source, "refs", "guide.md"), "utf8"), "引用原字节");
   assert.equal(fs.readFileSync(path.join(f.directory, "managed-skills", "packages", preview.id, "alpha", "refs", "guide.md"), "utf8"), "引用原字节");
 });
@@ -273,7 +276,7 @@ test("技能设置：外部来源只读，源目录失效仍可查询模型及�
   fs.mkdirSync(source, { recursive: true }); fs.writeFileSync(path.join(source, "SKILL.md"), "---\ndescription: 外部来源\n---\n正文\n");
   await savePersonalSkills(f.directory, { version: 1, directory: agent });
   const initial = await f.read(), external = initial.skills.skills[0]; assert.equal(external.source, "external"); assert.equal(external.readOnly, true);
-  const response = await machine(f.directory, { v: 1, op: "skills.remove", profile: initial.profile, expectedRevision: initial.skills.revision, id: external.id });
+  const response = await machine(f.directory, write({ profile: initial.profile, expectedRevision: initial.skills.revision }, { kind: "skills.remove", id: external.id }));
   assert.equal(response.body.code, "skills_read_only"); assert.equal(fs.existsSync(path.join(source, "SKILL.md")), true);
   fs.renameSync(agent, `${agent}-moved`);
   const broken = await f.read(); assert.equal(broken.model.config.modelId, f.config.modelId); assert.equal(broken.skills.externalAvailable, false); assert.match(broken.skills.diagnostics.join(""), /外部技能库不可用/);

@@ -1,6 +1,6 @@
 # 配置更新与迁移规格
 
-本规格由拥有者在 2026-10-25 的对话要求产生：解除已审计的不必要停机、无关条件、展示字段阻塞和配置永久不可变限制；保留单一写入者、实际权限、旧操作身份、未知效果核实与历史证据。当前授权为制定方案，尚未实施。执行入口为[工单](issues/01-remove-global-restrictions.md)，理由与旧决定审计见[决策提案](../../.agents/notes/proposed/architecture/2026-10-25-operation-scoped-configuration.md)。
+本规格由拥有者在 2026-10-25 的对话要求产生：解除已审计的不必要停机、无关条件、展示字段阻塞和配置永久不可变限制；保留单一写入者、实际权限、旧操作身份、未知效果核实与历史证据。拥有者在方案交付后要求接手工单，当前已进入实施；提交、推送和部署不由接手指令额外授权。执行入口为[工单](issues/01-remove-global-restrictions.md)，理由与旧决定审计见[决策提案](../../.agents/notes/proposed/architecture/2026-10-25-operation-scoped-configuration.md)。
 
 ## 目标与范围
 

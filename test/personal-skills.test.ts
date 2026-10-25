@@ -98,14 +98,16 @@ test("个人技能：目录、全文与身份先留不可改快照，后续变�
   await f.reopen(); await f.harness.commit(tx => f.skills.verify(tx, ROOT_CONVERSATION_ID, next.version), context);
 });
 
-test("个人技能：发送前配置目录身份变化仍阻断本次快照", async t => {
+test("个人技能：准备后的目录变化不改写原请求快照，下一请求固定新选择", async t => {
   const f = await fixture(t), first = await f.harness.commit(tx => f.skills.prepare(tx, ROOT_CONVERSATION_ID), context), previous = `${f.agent}-previous`;
   fs.renameSync(f.agent, previous); fs.mkdirSync(path.join(f.agent, "skills"), { recursive: true });
-  await assert.rejects(f.harness.commit(tx => f.skills.verify(tx, ROOT_CONVERSATION_ID, first.version), context), code("skills_changed"));
+  await f.harness.commit(tx => f.skills.verify(tx, ROOT_CONVERSATION_ID, first.version, first.snapshotEntry), context);
   fs.rmdirSync(path.join(f.agent, "skills")); fs.rmdirSync(f.agent); fs.renameSync(previous, f.agent);
   fs.mkdirSync(path.join(f.alpha, "skills"));
   fs.writeFileSync(path.join(f.directory, "skills.json"), JSON.stringify({ version: 1, directory: f.alpha }));
-  await assert.rejects(f.harness.commit(tx => f.skills.verify(tx, ROOT_CONVERSATION_ID, first.version), context), code("skills_changed"));
+  const next = await f.harness.commit(tx => f.skills.prepare(tx, ROOT_CONVERSATION_ID), context);
+  assert.notEqual(next.version, first.version);
+  await f.harness.commit(tx => f.skills.verify(tx, ROOT_CONVERSATION_ID, first.version, first.snapshotEntry), context);
 });
 
 test("个人技能：没有来源元数据的旧快照原样核实，新选择只追加快照", async t => {
@@ -213,7 +215,7 @@ test("个人技能配置：私有文件、严格字段、目录身份和向导�
   writeSkill(agent, "guide", "正文");
   assert.throws(() => parsePersonalSkills({ version: 1, directory: agent, tools: ["bash"] }), code("skills_config_invalid"));
   assert.throws(() => parsePersonalSkills({ version: 1, directory: "relative" }), code("skills_config_invalid"));
-  const answers = [agent, "2"]; let output = "";
+  const answers = ["2", agent, "2"]; let output = "";
   await configurePersonalSkills({ question: async () => answers.shift()!, write: text => { output += text; } }, directory);
   assert.match(output, /guide的任务指引/); assert.match(output, /已保存/);
   assert.deepEqual(readPersonalSkills(directory), { version: 1, directory: agent });
@@ -221,7 +223,7 @@ test("个人技能配置：私有文件、严格字段、目录身份和向导�
   fs.chmodSync(path.join(directory, "skills.json"), 0o644); assert.throws(() => readPersonalSkills(directory), code("skills_config_invalid"));
 });
 
-test("个人技能配置：空闲调度监督不阻止改目录，未关闭运行仍拒绝", async t => {
+test("个人技能配置：空闲调度监督和旧运行不阻止保存下次请求的目录", async t => {
   const f = await fixture(t), next = path.join(f.agent, "next"), later = path.join(f.agent, "later"); writeSkill(next, "next", "下次目录"); writeSkill(later, "later", "另一个目录");
   const supervisor = defineTask<object, { phase: "scan" }, object>({ name: SCHEDULE_SUPERVISOR_TASK, version: 1, initial: () => ({ phase: "scan" }), phases: { async scan(_task, runtime, taskContext) { await runtime.sleep(runtime.now() + 3600000, taskContext); } }, async abort(_task, runtime, taskContext) { await runtime.commit(() => ({ status: "terminal", outcome: { status: "aborted", result: {} } }), taskContext); } });
   f.registry.install(defineExtension({ name: "skills-test-supervisor", tasks: [supervisor] }));
@@ -232,6 +234,6 @@ test("个人技能配置：空闲调度监督不阻止改目录，未关闭运�
   const runDoc = defineDocFamily<{ run?: { id: string } }, null>({ kind: "ruukoto.schedule-run", scope: "session", version: 1, family: true, initial: () => ({}) });
   await f.harness.commit(async tx => { (await tx.doc(PersonalSchedulesDoc)).runs.push("unclosed"); (await tx.doc(runDoc, "unclosed", null)).run = { id: "unclosed" }; }, context);
   await f.harness.close(context);
-  await assert.rejects(savePersonalSkills(f.directory, { version: 1, directory: later }), code("skills_config_pending"));
-  assert.equal(readPersonalSkills(f.directory)!.directory, next);
+  await savePersonalSkills(f.directory, { version: 1, directory: later });
+  assert.equal(readPersonalSkills(f.directory)!.directory, later);
 });

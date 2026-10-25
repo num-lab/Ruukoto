@@ -1,0 +1,55 @@
+Ruukoto
+Scheduled
+New chat
+工作区
+暂时无法连接
+
+开发档案的 owner.token 不可读；请重启开发启动器。
+
+重新连接
+
+打开
+
+浏览器
+终端
+文件树
+Git graph
+后台进程
+设置
+
+选择左侧类别查看设置项，配置目标独立于聊天。
+
+设置
+外观
+模型
+Skills
+MCP
+电脑
+Web 搜索
+PA 远程连接
+已存档会话
+Skills
+Code
+PA
+PA 远程连接
+
+/tmp/rk-egui-SGgDjR/backend-profile · 在线
+
+配置可独立保存；后台环境缺少测试模型凭据。
+
+远端外部技能库
+
+/tmp/rk-egui-SGgDjR/skills-library
+
+库根含 skills 子目录；外部维护项只读。
+
+按名称检索
+
+没有匹配的技能。
+
+放弃更改
+查看保存影响
+
+配置已保存并生效。
+
+关闭

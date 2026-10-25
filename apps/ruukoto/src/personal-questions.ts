@@ -14,8 +14,7 @@ import { personalPermissionFor, telegramSelection, telegramSourceActive, type Pe
 import { personalEntryConfig, PersonalTelegramDoc, PersonalTelegramReceiptDoc, samePersonalEntry, type TelegramControlInput } from "./personal-telegram-records.ts";
 import { personalTelegramApi } from "./personal-telegram-api.ts";
 import { telegramToken } from "./personal-telegram-config.ts";
-import { PersonalImApiError } from "./personal-im-api.ts";
-import type { PersonalQqApi } from "./personal-qq-api.ts";
+import { PersonalImApiError, withPersonalImEntry, type PersonalImAccess, type PersonalImSender } from "./personal-im-api.ts";
 
 export type PersonalOwnerAnswer = { [K in keyof OwnerAnswer]: OwnerAnswer[K] };
 export type PersonalQuestionItem = { [K in keyof OwnerQuestionItem]: OwnerQuestionItem[K] };
@@ -26,7 +25,7 @@ const context = BACKGROUND_CONTEXT;
 type Identity = { kind: "local" } | { kind: "im"; requestId: string; menuRequestId: string };
 export type PersonalQuestionActor = { kind: "local" } | { kind: "im"; input: TelegramControlInput; menuRequestId: string };
 type Delivery = "waiting" | "local" | "pending" | "sending" | "sent" | "failed" | "effect_unknown" | "canceled" | "unanswered";
-export type PersonalQuestion = { id: string; operation: TaskId; generation: TaskId; admission: EntryId; origin: PersonalToolOrigin; questions: PersonalQuestionItem[]; version: number; status: "pending" | "answered" | "canceled" | "stale"; terminal?: EntryId; answer?: { requestId: string; answers: PersonalOwnerAnswer[]; actor: Identity; permission: { mode: PersonalTelegramSource["mode"]; version: number }; telegram?: PersonalTelegramSource; admission: EntryId; taskId: TaskId; content: string; submissionId?: SubmissionId; answerEntry?: EntryId; delivery: Delivery; reply?: string; platformMessageId?: string } };
+export type PersonalQuestion = { id: string; operation: TaskId; generation: TaskId; admission: EntryId; origin: PersonalToolOrigin; questions: PersonalQuestionItem[]; version: number; status: "pending" | "answered" | "canceled" | "stale"; terminal?: EntryId; answer?: { requestId: string; answers: PersonalOwnerAnswer[]; actor: Identity; permission: { mode: PersonalTelegramSource["mode"]; version: number }; telegram?: PersonalTelegramSource; admission: EntryId; taskId: TaskId; content: string; submissionId?: SubmissionId; answerEntry?: EntryId; delivery: Delivery; reply?: string; platformMessageId?: string; configurationVersion?: string } };
 export type PersonalQuestionReceipt = { requestId: string; question: string; version: number; operation: "answer" | "cancel"; answers?: PersonalOwnerAnswer[]; actor: Identity; entry: EntryId; taskId?: TaskId };
 export const PersonalQuestionsDoc = defineDoc<{ ids: string[] }>({ kind: "ruukoto.questions", scope: "session", version: 1, initial: () => ({ ids: [] }) });
 export const PersonalQuestionDoc = defineDocFamily<{ question?: PersonalQuestion }, null>({ kind: "ruukoto.question", scope: "session", version: 1, family: true, initial: () => ({}) });
@@ -150,18 +149,25 @@ async function verifyQuestionAnswer(tx: Tx, value: PersonalQuestion) {
   } else if (answer.telegram || value.origin.telegram) throw invalid();
 }
 
-function questionTask(qqApi?: PersonalQqApi) { return defineTask<{ question: string; requestId: string }, { phase: "admit" } | { phase: "send"; retryAt?: number } | { phase: "verify" }, { delivery: Delivery }>({
+function questionTask(im?: PersonalImAccess) { return defineTask<{ question: string; requestId: string }, { phase: "admit" } | { phase: "send"; retryAt?: number } | { phase: "verify" }, { delivery: Delivery }>({
   name: "ruukoto.question-continuation", version: 1, initial: () => ({ phase: "admit" }),
   phases: {
     async admit(current, runtime, callContext) {
       let proceed = true;
-      await runtime.commit(async tx => { const value = await personalQuestion(tx, current.input.question); await verifyQuestionAnswer(tx, value); if (value.answer!.telegram && !await telegramSourceActive(tx, value.answer!.telegram!)) { value.answer!.delivery = "canceled"; proceed = false; return { status: "terminal", outcome: { status: "completed", result: { delivery: "canceled" } } }; } return undefined; }, callContext);
+      await runtime.commit(async tx => { const value = await personalQuestion(tx, current.input.question); await verifyQuestionAnswer(tx, value); if (!await personalQuestionSubmission(tx, value) && value.answer!.telegram && (!await telegramSourceActive(tx, value.answer!.telegram!) || im && !im.isActive(value.answer!.telegram!))) { value.answer!.delivery = "canceled"; proceed = false; return { status: "terminal", outcome: { status: "completed", result: { delivery: "canceled" } } }; } return undefined; }, callContext);
       if (!proceed) return;
       const saved = (await runtime.snapshot(PersonalQuestionDoc, current.input.question, callContext))!.question!;
       const main = await runtime.conversation(ROOT_CONVERSATION_ID, callContext);
       if (!main) throw invalid();
-      const submission = await main.submit({ type: "input", requestId: keyFor(current.id), content: saved.answer!.content, entry: { kind: PERSONAL_QUESTION_INPUT, data: inputData(saved) }, whenBusy: "followUp" }, callContext);
-      await runtime.commit(async tx => { const value = await personalQuestion(tx, saved.id); await personalQuestionSubmission(tx, value); value.answer!.submissionId = submission.id; return undefined; }, callContext);
+      const submission = await withPersonalImEntry(im, saved.answer!.telegram ?? {}, async () => {
+        let permitted = true;
+        await runtime.commit(async tx => { const value = await personalQuestion(tx, saved.id); await verifyQuestionAnswer(tx, value); if (!await personalQuestionSubmission(tx, value) && value.answer!.telegram && (!await telegramSourceActive(tx, value.answer!.telegram!) || im && !im.isActive(value.answer!.telegram!))) { value.answer!.delivery = "canceled"; permitted = false; return { status: "terminal", outcome: { status: "completed", result: { delivery: "canceled" } } }; } return undefined; }, callContext);
+        if (!permitted) return;
+        const submission = await main.submit({ type: "input", requestId: keyFor(current.id), content: saved.answer!.content, entry: { kind: PERSONAL_QUESTION_INPUT, data: inputData(saved) }, whenBusy: "followUp" }, callContext);
+        await runtime.commit(async tx => { const value = await personalQuestion(tx, saved.id); await personalQuestionSubmission(tx, value); value.answer!.submissionId = submission.id; return undefined; }, callContext);
+        return submission;
+      });
+      if (!submission) return;
       const settled = await submission.wait(callContext);
       await runtime.commit(async tx => {
         const value = await personalQuestion(tx, saved.id), answer = value.answer!;
@@ -176,12 +182,15 @@ function questionTask(qqApi?: PersonalQqApi) { return defineTask<{ question: str
     async send(current, runtime, callContext) {
       if (current.state.checkpoint.retryAt) await runtime.sleep(current.state.checkpoint.retryAt, callContext);
       const saved = (await runtime.snapshot(PersonalQuestionDoc, current.input.question, callContext))!.question!, answer = saved.answer!, state = await runtime.snapshot(PersonalTelegramDoc, callContext), config = personalEntryConfig(state ?? {}, answer.telegram!);
-      const api = answer.telegram?.platform === "qq" ? qqApi : state?.config?.enabled ? personalTelegramApi(state.config.apiBase, telegramToken(state.config)) : undefined;
+      let api: PersonalImSender | undefined = !im && state?.config?.enabled ? personalTelegramApi(state.config.apiBase, telegramToken(state.config)) : undefined;
       let target: { owner: string; message: number; reply: string } | undefined;
-      await runtime.commit(async tx => { const value = await personalQuestion(tx, saved.id), answer = value.answer!; if (!answer.telegram || !await telegramSourceActive(tx, answer.telegram) || !isDeepStrictEqual(config, personalEntryConfig(await tx.doc(PersonalTelegramDoc), answer.telegram))) { answer.delivery = "canceled"; return { status: "terminal", outcome: { status: "completed", result: { delivery: "canceled" } } }; } const actor = answer.actor.kind === "im" && (await tx.doc(PersonalTelegramReceiptDoc, answer.actor.requestId, null)).receipt; if (!api || !actor || answer.delivery !== "pending" || !answer.reply) throw invalid(); target = { owner: answer.telegram.ownerId, message: actor.messageId, reply: answer.reply }; answer.delivery = "sending"; return { status: "running", checkpoint: { phase: "verify" } }; }, callContext);
+      await withPersonalImEntry(im, answer.telegram ?? {}, async () => {
+      await runtime.commit(async tx => { const value = await personalQuestion(tx, saved.id), answer = value.answer!; if (!answer.telegram || im && !im.isActive(answer.telegram) || !await telegramSourceActive(tx, answer.telegram) || !isDeepStrictEqual(config, personalEntryConfig(await tx.doc(PersonalTelegramDoc), answer.telegram))) { answer.delivery = "canceled"; return { status: "terminal", outcome: { status: "completed", result: { delivery: "canceled" } } }; } const actor = answer.actor.kind === "im" && (await tx.doc(PersonalTelegramReceiptDoc, answer.actor.requestId, null)).receipt; if (!actor || answer.delivery !== "pending" || !answer.reply) throw invalid(); target = { owner: answer.telegram.ownerId, message: actor.messageId, reply: answer.reply }; answer.delivery = "sending"; const version = im?.configurationVersion(answer.telegram); if (version) answer.configurationVersion = version; return { status: "running", checkpoint: { phase: "verify" } }; }, callContext);
+      if (target && im) api = im.sender(answer.telegram!);
+      });
       if (!target) return;
       let message: string | undefined, failure: PersonalImApiError | undefined;
-      try { message = await api!.send(target.owner, target.message, target.reply, runtime.signal); } catch (error) { if (!(error instanceof PersonalImApiError)) throw error; failure = error; }
+      try { if (!api) throw new PersonalImApiError("im_target_inactive", "原问题回复入口已失效，未发送；请查询原问题。", "not_sent"); message = await api.send(target.owner, target.message, target.reply, runtime.signal); } catch (error) { if (!(error instanceof PersonalImApiError)) throw error; failure = error; }
       await runtime.commit(async tx => { const answer = (await personalQuestion(tx, saved.id)).answer!; if (failure?.retryAfterMs) { answer.delivery = "pending"; return { status: "running", checkpoint: { phase: "send", retryAt: runtime.now() + failure.retryAfterMs } }; } answer.delivery = message ? "sent" : failure?.effect === "not_sent" ? "failed" : "effect_unknown"; if (message) answer.platformMessageId = message; return { status: "terminal", outcome: { status: "completed", result: { delivery: answer.delivery } } }; }, callContext);
     },
     async verify(current, runtime, callContext) { await runtime.commit(async tx => { const answer = (await personalQuestion(tx, current.input.question)).answer!; answer.delivery = "effect_unknown"; return { status: "terminal", outcome: { status: "completed", result: { delivery: answer.delivery } } }; }, callContext); },
@@ -202,7 +211,7 @@ export async function verifyPersonalQuestionRequest(tx: Tx, conversationId: Conv
   const live = await tx.doc(LiveDoc, conversationId);
   for (const id of (await tx.doc(PersonalQuestionsDoc)).ids) { const value = await personalQuestion(tx, id), input = await personalQuestionSubmission(tx, value); if (input && live.run?.inputs.includes(input.id)) await personalQuestionSource(tx, keyFor(value.answer!.taskId), true); }
 }
-export function personalQuestions(getHarness: () => Harness, qqApi?: PersonalQqApi) {
+export function personalQuestions(getHarness: () => Harness, im?: PersonalImAccess) {
   const ask = defineTool({ name: "ask_user", description: "登记1–3题业务澄清并立即返回pending；拥有者从本机问题菜单或原私聊 /问题 逐题选择、输入或跳过，最后核对提交。有选项也允许自由输入；multiple开启多选，推荐仅展示。每会话只保留一批待答问题。成功后结束本轮，回答作为后续拥有者输入；待答期间普通聊天继续，业务回答不批准操作。", parameters: Type.Object({ questions: Type.Array(Type.Object({ question: Type.String({ minLength: 1, maxLength: 2000 }), options: Type.Optional(Type.Array(Type.Union([Type.String({ minLength: 1, maxLength: 200 }), Type.Object({ label: Type.String({ minLength: 1, maxLength: 200 }), description: Type.Optional(Type.String({ maxLength: 500 })), recommended: Type.Optional(Type.Boolean()) }, { additionalProperties: false })]), { minItems: 2, maxItems: 5, description: "选项名互异；省略时自由输入。" })), multiple: Type.Optional(Type.Boolean({ description: "true须有options；省略或false为单选。" })) }, { additionalProperties: false }), { minItems: 1, maxItems: 3 }) }, { additionalProperties: false }), replay: "safe", executionMode: "sequential", async execute(input, api, callContext) {
     const questions = parsed(() => parseOwnerQuestions(input.questions));
     const live = await api.snapshot(LiveDoc, api.conversationId, callContext), candidate = live?.run?.inputs.length === 1 ? await getHarness().submission(live.run.inputs[0], callContext) : undefined, sourceRequestId = (await candidate?.status(callContext))?.requestId;
@@ -220,7 +229,7 @@ export function personalQuestions(getHarness: () => Harness, qqApi?: PersonalQqA
     }, callContext);
     return { output: [{ type: "text", text: JSON.stringify({ status: "pending", message: "结束本轮，回答将作为后续拥有者输入。" }) }] };
   } });
-  return defineExtension({ name: PERSONAL_QUESTIONS, tools: [ask], tasks: [questionTask(qqApi)], hooks: [hook(ToolTask, { async beforeTool(call, api, callContext) { const names = await getHarness().commit(tx => personalQuestionToolNames(tx, api.conversationId, [call.name]), callContext); if (!names.includes(call.name)) return { block: "本轮已登记问题，只可查询后台状态；请输出说明并结束本轮，收到实际回答后再继续。" }; } })] });
+  return defineExtension({ name: PERSONAL_QUESTIONS, tools: [ask], tasks: [questionTask(im)], hooks: [hook(ToolTask, { async beforeTool(call, api, callContext) { const names = await getHarness().commit(tx => personalQuestionToolNames(tx, api.conversationId, [call.name]), callContext); if (!names.includes(call.name)) return { block: "本轮已登记问题，只可查询后台状态；请输出说明并结束本轮，收到实际回答后再继续。" }; } })] });
 }
 export async function verifyPersonalQuestions(tx: Tx, keys: string[], receiptKeys: string[], enabled: boolean, definition?: ToolRegistration) {
   const ids = (await tx.doc(PersonalQuestionsDoc)).ids;

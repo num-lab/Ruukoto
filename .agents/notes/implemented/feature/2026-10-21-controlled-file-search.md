@@ -2,6 +2,8 @@
 
 Status: implemented
 
+rg 的逐调用重新发现与安装提示见[非执行配置检查](../simplification/2026-10-25-configuration-checks.md)，读取范围与原生执行边界保留。
+
 ## 问题
 
 Coding能经bash运行rg，但只读调研缺少稳定的目录发现和内容搜索接口；个人工具只读已知普通文件，主会话不能靠独立子命令目录发现已授权资料。直接使用上游grep/find还会引入工具调用时下载rg/fd及宿主spawn，绕开已有执行归属。

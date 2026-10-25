@@ -216,7 +216,7 @@ test("Code Skills 导入丢答但后台未安装时明确读回未生效，重�
   assert.equal((await h.list()).skills.length, 0);
 });
 
-test("Code Skills 导入草稿受关闭与目标导航保护，正文显示图片并跳过 HTML", async t => {
+test("Code Skills 导入草稿受关闭与目标导航保护，正文显示图片并过滤危险内容", async t => {
   const h = await fixture(t);
   await h.choose(h.source());
   const settings = new SettingsState(() => {}); settings.open = true; settings.form = h.state;
@@ -232,6 +232,8 @@ test("Code Skills 导入草稿受关闭与目标导航保护，正文显示图�
   const module = await server.ssrLoadModule("/code-skills-settings.tsx");
   const Editor: ComponentType<{ state: CodeSkillsState }> = module.CodeSkillsEditor;
   const html = renderToStaticMarkup(createElement(Editor, { state: h.state }));
-  assert.match(html, /后续新任务选择/); assert.match(html, /包字节保留/); assert.match(html, /<img src="https:\/\/invalid.example\/pixel" alt="远程"/);
+  assert.match(html, /后续新任务选择/); assert.match(html, /包字节保留/);
+  const image = html.match(/<img\b[^>]*>/)?.[0] ?? "";
+  assert.match(image, /src="https:\/\/invalid.example\/pixel"/); assert.match(image, /alt="远程"/);
   assert.doesNotMatch(html, /<script|javascript:|<iframe/);
 });

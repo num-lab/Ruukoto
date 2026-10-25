@@ -2,7 +2,7 @@
 
 Status: proposed
 
-正文图片占位与图片来源限制由[Markdown 直接显示图片](../../implemented/simplification/2026-10-25-desktop-markdown-images.md)取代；原始 HTML、脚本与进程隔离继续适用。
+正文图片占位与图片来源限制由[Markdown 直接显示图片](../../implemented/simplification/2026-10-25-desktop-markdown-images.md)取代，原始 HTML 禁令由[Markdown 渲染 HTML](../../implemented/simplification/2026-10-25-desktop-markdown-html.md)取代；脚本与进程隔离继续适用。
 
 PA 连接已由下述决定取代，见 [Tailscale HTTPS／WebSocket](../../implemented/architecture/2026-10-24-personal-tailscale-https.md)；本篇 Code 决定保留。
 

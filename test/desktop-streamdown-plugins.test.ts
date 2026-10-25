@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { createServer } from "vite";
 import react from "@vitejs/plugin-react";
 
-test("Desktop 正文插件：KaTeX 数学、Mermaid 图表管线与代码块结构，单美元与原始 HTML 不变", async t => {
+test("Desktop 正文插件：KaTeX 数学、Mermaid 图表管线与代码块结构，单美元保持文本", async t => {
   const server = await createServer({ configFile: false, root: "apps/desktop/src/renderer", plugins: [react()], server: { middlewareMode: true, hmr: false }, appType: "custom" });
   t.after(() => server.close());
   const MarkdownText: ComponentType<{ children: string }> = (await server.ssrLoadModule("/markdown.tsx")).MarkdownText;

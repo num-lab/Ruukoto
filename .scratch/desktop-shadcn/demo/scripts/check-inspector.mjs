@@ -82,9 +82,10 @@ export async function checkInspector(server) {
   assert.equal((escaped.match(/class="file-line"/g) ?? []).length, 2);
   const empty = preview({ path: "empty.txt", kind: "text", content: "" });
   assert.ok(empty.includes('aria-label="文件源码"') && !empty.includes('class="file-line"') && !empty.includes("文件不可用"), "空文件保持空源码区");
-  const markdownFile = { path: "sample.md", kind: "markdown", content: '# Heading\n\n<script>alert(1)</script>\n\n[web](https://example.com) [credentials](https://user:pass@example.com) [local](./README.md) [fragment](#heading) [mail](mailto:a@example.com) [bad](javascript:alert)\n\n![remote](https://example.com/image.png)' };
+  const markdownFile = { path: "sample.md", kind: "markdown", content: '# Heading\n\n<details ontoggle="alert(1)"><summary>展开</summary><p>HTML 正文</p></details>\n\n<script>alert(1)</script>\n\n[web](https://example.com) [credentials](https://user:pass@example.com) [local](./README.md) [fragment](#heading) [mail](mailto:a@example.com) [bad](javascript:alert)\n\n![remote](https://example.com/image.png)' };
   const markdown = preview(markdownFile);
-  assert.ok(/<h1[^>]*>Heading<\/h1>/.test(markdown) && !markdown.includes("<script"), "标题渲染且跳过原始 HTML");
+  assert.ok(/<h1[^>]*>Heading<\/h1>/.test(markdown) && !/<script|ontoggle=/.test(markdown), "标题渲染且过滤危险内容");
+  assert.ok(markdown.includes("<details><summary>展开</summary><p>HTML 正文</p></details>"), "HTML 折叠块正常渲染");
   assert.ok(/<img[^>]*alt="remote"[^>]*src="https:\/\/example.com\/image.png"/.test(markdown), "图片原样直出");
   assert.equal((markdown.match(/class="file-preview-link"/g) ?? []).length, 1, "只有无凭据 HTTP(S) 链接可打开内置浏览器");
   assert.ok(!markdown.includes("<a "), "Markdown 不得导航父页面");

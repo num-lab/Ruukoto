@@ -2,7 +2,7 @@
 
 Status: implemented
 
-技能正文的图片占位由[Markdown 直接显示图片](../simplification/2026-10-25-desktop-markdown-images.md)取代，原始 HTML 与链接规则继续适用。
+技能正文的图片占位由[Markdown 直接显示图片](../simplification/2026-10-25-desktop-markdown-images.md)取代，原始 HTML 跳过规则由[Markdown 渲染 HTML](../simplification/2026-10-25-desktop-markdown-html.md)取代，链接规则继续适用。
 
 ## 问题
 

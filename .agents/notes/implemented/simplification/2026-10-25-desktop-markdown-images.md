@@ -2,6 +2,8 @@
 
 Status: implemented
 
+原始 HTML 跳过规则由[Markdown 渲染 HTML](2026-10-25-desktop-markdown-html.md)取代，图片与链接规则继续适用。
+
 ## 问题
 
 Desktop 把 Markdown 图片统一替换成文字，正常回复中的截图与插图无法展示。拥有者明确要求删除这些限制；只删占位仍会被 Markdown URL 转换和 CSP 拦截。

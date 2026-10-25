@@ -8,10 +8,17 @@ import { CodeState } from "../apps/desktop/src/renderer/code-state.ts";
 import { PersonalState } from "../apps/desktop/src/renderer/personal-state.ts";
 
 const sources = ["https://example.invalid/pixel.png", "http://example.invalid/pixel.png", "file:///tmp/pixel.png", "data:image/png;base64,aGVsbG8=", "blob:https://example.invalid/image", "/tmp/pixel.png", "../pixel.png"];
-const body = `${sources.map((src, index) => `![图片${index}](${src})`).join("\n\n")}\n\n<script>evil()</script>\n\n[危险链接](javascript:evil())`;
+const body = [
+  sources.map((src, index) => `![图片${index}](${src})`).join("\n\n"),
+  '<details ontoggle="evil()"><summary>展开</summary><p>HTML 正文<br>下一行</p></details>',
+  '<script>evil()</script>',
+  '<a href="javascript:evil()">危险 HTML 链接</a>',
+  '[危险链接](javascript:evil())',
+  '```html\n<aside>代码示例</aside>\n```',
+].join("\n\n");
 const noop = () => {};
 
-test("Desktop 各 Markdown 正文保留图片地址与说明，HTML 和链接仍按原规则处理", async t => {
+test("Desktop 各 Markdown 正文渲染 HTML、保留图片地址并过滤危险内容", async t => {
   const server = await createServer({ configFile: false, root: "apps/desktop/src/renderer", plugins: [react()], server: { middlewareMode: true, hmr: false }, appType: "custom" });
   t.after(() => server.close());
   const Conversation: ComponentType<{ model: CodeState; sessionId: string; child?: boolean }> = (await server.ssrLoadModule("/conversation.tsx")).Conversation;
@@ -34,6 +41,8 @@ test("Desktop 各 Markdown 正文保留图片地址与说明，HTML 和链接仍
     const html = renderToStaticMarkup(element);
     assert.deepEqual([...html.matchAll(/<img\b[^>]*\bsrc="([^"]*)"[^>]*>/g)].map(match => match[1]), sources, name);
     for (let index = 0; index < sources.length; index++) assert.ok(html.includes(`alt="图片${index}"`), name);
-    assert.doesNotMatch(html, /\[图片|<script|href="javascript:/, name);
+    assert.match(html, /<details><summary>展开<\/summary><p>HTML 正文<br\/>下一行<\/p><\/details>/, name);
+    assert.match(html, /&lt;aside&gt;代码示例&lt;\/aside&gt;/, name);
+    assert.doesNotMatch(html, /\[图片|<script|ontoggle=|href="javascript:|<aside>/, name);
   }
 });

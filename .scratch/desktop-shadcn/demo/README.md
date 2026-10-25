@@ -26,7 +26,7 @@ AI Elements 本轮范围和验收见[新工单](../issues/03-ai-elements-demo.md
 
 右栏加号的新标签页提供「浏览器」「文件树」与可用的Git入口，SubAgent从委派行打开，不列工具差异清单。浏览器支持地址栏 Enter、前后退和刷新，默认打开本地可交互演示页；接受不含账号密码的 HTTP(S) 与本机file地址，错误时保留原页面；普通Web Demo无桌面宿主，file显示明确提示，不读取任意本机文件。外站在隔离 iframe 中显示，部分网站会拒绝嵌入；地址栏历史仅记录从地址栏或文件链接发起的导航，不读取网页内部导航或最终重定向地址。输入同源 demo 根入口时，父界面直接显示提示。普通右栏标签切换保留网页状态，切换会话保留地址和导航记录并重新加载；关闭浏览器标签后记录清除。
 
-文件树按工作区展示只读样例，新工作区为空且不显示空目录提示；可用 Enter／空格折叠目录，点击文件打开独立预览标签，同一文件去重并与 diff 共存。源码／文本显示固定行号，Markdown 可切换排版与源码，图片使用本地样例资源；空文件保持空白，不支持格式或缺失文件有明确提示。Markdown 使用 react-markdown 10.1.0，禁原始 HTML和远程图片，HTTP(S) 链接在内置浏览器打开，其他链接保留文本。目录展开按工作区保存，预览模式按标签保存；新开、切换或调宽后活动标签保持可见。所有文件均为内存 fixture，不读取真实目录。范围和验收见[右栏扩充工单](../issues/04-inspector-tools-demo.md)。
+文件树按工作区展示只读样例，新工作区为空且不显示空目录提示；可用 Enter／空格折叠目录，点击文件打开独立预览标签，同一文件去重并与 diff 共存。源码／文本显示固定行号，Markdown 可切换排版与源码，图片使用本地样例资源；空文件保持空白，不支持格式或缺失文件有明确提示。Markdown 使用 Streamdown 渲染正文与内嵌 HTML，经 rehype-sanitize 过滤危险内容，图片直接显示；HTTP(S) 链接在内置浏览器打开，其他链接保留文本。目录展开按工作区保存，预览模式按标签保存；新开、切换或调宽后活动标签保持可见。所有文件均为内存 fixture，不读取真实目录。范围和验收见[右栏扩充工单](../issues/04-inspector-tools-demo.md)。
 
 文本预览按文件扩展名使用 [highlight.js](https://highlightjs.readthedocs.io/en/latest/api.html#highlight) 语法高亮，覆盖现有 TypeScript／TSX、JavaScript／JSX、JSON、Markdown、Rust、Python、Swift 与 HTML／XML；未知格式保持纯文本。行号固定、内容横滚，Markdown 排版预览沿用原行为，切到源码时高亮。Demo 与 Desktop 使用同版高亮器，各冻结稿保持对应轮次的内容。
 

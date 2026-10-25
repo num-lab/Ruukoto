@@ -2,6 +2,8 @@
 
 Status: implemented
 
+原始 HTML 转义及仅含 sanitize 的管线由[Markdown 渲染 HTML](../simplification/2026-10-25-desktop-markdown-html.md)取代，其余决定继续适用。
+
 ## 问题
 
 桌面四处 Markdown 正文（Code 主／子会话、Personal、文件预览、双端技能）用 react-markdown 逐次全量渲染：模型流式输出中的未闭合代码块、表格会先以错误结构闪现，完整后重排；代码块与表格也没有复制等操作。拥有者要求把渲染换成 Streamdown。

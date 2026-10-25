@@ -2,6 +2,8 @@
 
 Status: implemented
 
+可变 Demo 的原始 HTML 禁令由[Markdown 渲染 HTML](../simplification/2026-10-25-desktop-markdown-html.md)取代，冻结稿保留历史。
+
 ## 问题
 
 拥有者需要在可变 demo 内扩充浏览器、文件树和文件预览。[前版定稿](../architecture/2026-10-15-desktop-shadcn-demo.md)只交付 diff 与 SubAgent，正式端禁止直读工作区与加载远程内容；不能把 demo 的新试验自动变成 Electron 或控制面的改动。

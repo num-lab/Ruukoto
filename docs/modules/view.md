@@ -2,77 +2,86 @@
 
 ## 职责与边界
 
-`ViewState`、`EventFlow` 与 `HistoryRecovery` 适用于 Coding 与保留的旧格式实现；正式个人 Agent 的状态由[个人持久会话](personal-durable.md)持有，不接入旧 Runtime、Task Store 或控制协议。PA 的纯 wire 类型由本包 `personal-protocol.ts` 唯一定义，后台和桌面仅作类型引用。
+`@ruukoto/view`（对应 `packages/view/src/`）是为前端客户端（终端 TUI、Web 控制台与桌面客户端）提供共享内存状态投影、流式事件流合并与历史会话恢复的核心状态层。
 
-`@ruukoto/view`（`packages/view/src/`）提供客户端共用的内存投影与历史恢复：`ViewState`、`EventFlow` 只安装输入，独立的 `HistoryRecovery` 编排注入的读取。它可以在浏览器运行，不打开连接或文件，不持久化状态，也不渲染界面。连接与全局事件序号恢复归 [control](control.md)；命令执行、命令持久化、输入历史、工作流侧栏与终端样式归 [tui](tui.md)。
+### 核心职责
+- **内存视图投影（`ViewState`）**：将控制面返回的系统快照与增量持久事件，投影为客户端 UI 易于绑定的响应式会话、任务与审批树。
+- **事件流合并与对齐（`EventFlow`）**：将模型流式输出的文本片段（`output_fragment`）、思考推理片段（`thinking`）与工具调用结果按时间线精准合并。
+- **会话历史窗口恢复（`HistoryRecovery`）**：在用户向前翻页或打开既有会话时，编排历史消息的分页拉取与正文补齐。
+- **纯浏览器环境运行**：全包不依赖 Node.js 内置模块与全局变量，可无缝运行在现代浏览器、Electron Renderer 与终端环境。
+
+### 边界与非职责
+- 底层 Unix Socket 连接管理与 RPC 通信归 [control](control.md)。
+- 终端具体渲染排版与按键交互归 [tui](tui.md)。
+- 桌面窗口管理与本地生命周期归 [desktop](desktop.md)。
 
 ## 对外接口
 
-| 入口 | 输入与用途 |
-| --- | --- |
-| `ViewState.applySnapshot` | 安装 `ConnectResult`；数据实例变化时丢弃全部会话视图 |
-| `ViewState.applyEvent` | 应用实时或补发的 `PersistentEvent`；补发只恢复展示，不回滚快照中的任务与审批状态 |
-| `installHistoryPage` / `appendEntryView` | 安装 `read_history` 历史页或 `read_history_entry` 单条历史内容 |
-| `installTaskDetail` | 安装 `get_task` 的任务、工具、预览与响应中的 `seq` |
-| `openSession` / 查询方法 | 获取会话投影，按会话选择任务、待审批与工作委托 |
-| `EventFlow` | 按稳定身份投影正文、思考、工具、任务与本地提示条目，合并历史与任务事件 |
-| `HistoryRecovery.readTasks` / `restoreTask` | 查找历史窗口任务并安装状态，恢复单任务详情、事件与缺失正文 |
-| `HistoryRecovery.loadEntry` / `historyReady` | 按客户端正文策略补读条目，查询任务是否仍有缺失正文待确认 |
-| `HistoryRecovery.generation` / `reset` | 捕获本次恢复代次；新快照使旧请求失效，清空游标、在途读取与缺失正文事实 |
-| `utf8ByteLength` / 标签函数 | 计算 UTF-8 字节数，提供模式、任务、工作流与 SubAgent 状态文字 |
-
-输入类型来自 core 与 control，仅浏览器可用的模块参与值引用。`ACTIVE_TASK_STATUSES` 与 `TERMINAL_TASK_STATUSES` 由 core 的 `task-status.ts` 提供，展示归属由 control 的 `session-attribution.ts` 提供；原模块仍再导出它们。
-
-`personal-protocol.ts` 定义 PA 的时间线 entry/分页、消息块、实时工具、snapshot/events 帧及 runId/subscription/seq；不含 Node、Electron、连接或状态实现。PA renderer 的原生投影归[桌面客户端](desktop.md)，不复用 Code 的 `ViewState`。
+| 核心类 / 函数 | 适用环境 | 职责与行为描述 |
+|---|---|---|
+| `ViewState.applySnapshot` | 浏览器 / Node | 安装全量连接快照，初始化项目列表、活动会话、待决审批与 SubAgent 清单 |
+| `ViewState.applyEvent` | 浏览器 / Node | 增量应用单条持久事件，平滑驱动 UI 状态流转（任务开始、输出增长、审批生成） |
+| `EventFlow` | 浏览器 / Node | 维护单会话的消息流时间线，将零散的文本碎片与工具结果对齐拼装为完整消息项 |
+| `HistoryRecovery` | 浏览器 / Node | 历史消息分页加载编排器，按 UTF-8 字节偏移续读长正文，杜绝卡顿 |
+| `personal-protocol.ts` | 浏览器 / Node | 导出 PA 桌面与移动端通用的时间线与协议类型定义（纯 TypeScript 类型） |
 
 ## 数据与状态
 
-`backgroundProcesses` 安装快照中的后台状态，并仅接受不早于已有版本的 `background_process.changed` 实时事件。退出观察与停止核实分别保留，`stop_unverified` 显示占用仍在；实例变化时重新安装，补发不回滚快照。后台列表与日志的分页读取由客户端负责。
+### 1. 客户端视图数据树
 
-`ownerQuestions` 从快照和问题状态事件恢复待答卡片、已答内容与唯一续接引用，保留选项说明、推荐标记、多选类型、选择索引与跳过的空答案。实时事件只接受不早于已有版本的状态；补发不回滚快照，数据实例变化重新安装问题数组，普通会话草稿独立保留。
+```
+ViewState (根快照)
+├── activeSessionId          # 当前选中的会话
+├── sessions                 # 会话列表 (按工作区隔离)
+│   └── [sessionId]
+│       ├── tasks            # 任务历史与当前执行任务
+│       ├── pendingApprovals # 该会话待决的审批项列表
+│       └── eventFlow        # 实时合并的时间线流 (包含模型思考、输出与工具)
+└── backgroundProcesses      # 会话关联的后台服务与日志索引
+```
 
-`ViewState` 保存快照给出的 mainSessionId、项目、会话、任务、审批、产物、工作委托与 SubAgent，以及按会话隔离的 `SessionView`。`EventFlow` 以任务、消息段、思考段和工具操作的身份维护条目、事件版本与未连续到达的正文及思考片段。内存中的命令条目只参与统一排序与重同步保留；生成命令、执行及读写 SQLite 由 TUI 持有。
+### 2. 状态恢复两阶段流程
 
-初始历史窗口最多保留 300 条；主动向前翻页会扩展窗口，已读内容可保留。会话 JSONL 仍是最终正文的唯一权威副本，投影与预览不替代它。
-
-`task.attachments` 与历史按任务身份合并为同一用户消息，保留安全文件名与大小；纯附件允许空正文。迟到任务详情只补未落盘的输入，不覆盖已关联的历史正文。
-
-任务详情中的 `displayInput` 作为不可变展示元数据保留；迟到详情只补该字段，不回滚较新的任务状态。同实例快照与未携带该字段的任务更新不清除它，跨实例清空；EventFlow 及历史原文保持不变。
+当客户端接入服务端时，状态恢复严格按两阶段执行：
+1. **快照重置（Snapshot Reset）**：安装 `ConnectResult` 快照，建立基准状态；
+2. **事件对齐（Event Replay）**：若存在快照之后的未消费事件，按 `seq` 顺序重放补发，确保与服务端完全对齐。
 
 ## 主要流程
 
-1. 调用方每次安装新快照都重置 `HistoryRecovery` 与自身异步代次，包括重连及同一连接内因 seq 缺口重同步。先安装快照，再以 `replay` 应用握手补发事件，以 `live` 应用实时事件；旧恢复沿用原代次，不得跨阶段借新代次继续。
-2. 客户端读取并安装 `read_history` 页，`HistoryRecovery` 经注入的 `list_tasks` 补齐窗口任务状态，再用 `get_task` 安装详情及响应 `seq`，分页调用 `read_task_events` 恢复思考、工具身份与正文顺序。同任务读取在途去重，事件游标首次从 `after_seq=0` 开始，不能使用详情 `seq`；不同任务可并发恢复。
-3. `HistoryRecovery` 经 `read_history_entry` 按 UTF-8 字节偏移补齐正文，组装后交给 `appendEntryView`。同条目读取在途去重；TUI 每页 48 KiB、只续读 assistant，Desktop 每页 64 KiB、续读所有角色。只有快照与历史页不足以恢复完整事件流。
-4. 正文片段按 UTF-8 字节偏移拼接，重复片段不重复追加；工具意图与结果按操作身份合并，结果到达保留原始开始位置。完整历史到达后校正缺失的正文。
+### 客户端快照加载与流式事件渲染流程
 
-客户端保留显示顺序：TUI 先显示历史页，再按全部已加载条目恢复任务，事件逐页刷新；Desktop 先查本页任务状态再装历史，合并恢复期间的重绘。每次快照安装时，TUI 重载本地命令记录；保存失败的本地结果优先于旧存储，失败提示仍在事件流中显示。
+```mermaid
+sequenceDiagram
+  participant Client as 终端/桌面客户端
+  participant View as ViewState
+  participant Flow as EventFlow
+  participant Control as 控制面连接
+
+  Client->>Control: 建立连接并请求快照
+  Control-->>Client: 返回全量快照与当前 seq 水位
+  Client->>View: applySnapshot(snapshot)
+  View-->>Client: 触发全屏初始渲染
+  loop 实时事件推送
+    Control-->>Client: push: "event" (task.output_fragment)
+    Client->>View: applyEvent(event)
+    View->>Flow: 追加流式文字增量 (按 UTF-8 偏移去重拼装)
+    Flow-->>Client: 局部更新气泡视图
+  end
+```
+
+1. **初始装配**：客户端接收到连接快照后，`ViewState` 一次性建立项目与会话索引，并展示初始历史消息。
+2. **增量流式追加**：模型生成回复时，`EventFlow` 根据片段偏移量原子拼接文本与思考过程，即便在网络乱序场景下也能保证顺序正确。
+3. **按需长文本加载**：若历史中存在超过单页大小的超长回答，`HistoryRecovery` 异步向服务端请求正文切片，平滑拼接进视图。
 
 ## 不变量与失败处理
 
-全局 seq 去重、缺口检测与连接恢复由 `ControlConnection` 持有；view 按条目版本拒绝旧投影更新，任务详情用响应 `seq` 防止覆盖较新的实时状态。调用方不得把补发事件作为实时状态再次应用。
-
-正文首页必须从零开始，续页偏移连续、总字节数稳定且不越界；异常通过带 `history_discontinuous` 的 `HistoryRecoveryError` 通知客户端，不安装伪完整条目。`entry_not_found` 由客户端按错误类型与 code 识别并延后，其余单条失败通知客户端后继续后续条目；任务查询失败交客户端处理。缺失正文在成功安装前保持未就绪，已在历史页中的条目补全不阻止 Desktop 收起 trace。旧代次成功、失败与请求清理均不能改变新投影或新请求状态。
-
-UTF-8 字节计数使用 `TextEncoder`，中文、emoji 与孤立代理项的计数与 Node 一致。源码 lint 拒绝 Node 内置模块及 Node 全局；浏览器打包后的全部可达代码仅按浏览器全局做 `no-undef` 检查，再在不提供 Node 全局的 VM 中执行投影。传递依赖中未执行分支的 Node 全局也会被拒绝。
-
-历史关联缺失时保留普通正文并显示原因，不猜测任务或跨任务配对工具结果。数据实例变化时旧会话视图失效，同实例快照保留草稿与本地提示。思考增量按 UTF-8 offset 补洞去重，较旧缺失片段可补齐正文，阶段时间只取最新事件；旧无偏移快照仍替换。任务结束收尾尚未结束的思考段。待审批只包含状态为 pending、所属任务非终态且权限版本一致的请求。`task.mode_switch_failed` 只随后台中断产生，实时投影将非终态任务设为 interrupted、记录结束时间并保留失败原因；已有终态不回滚，不能将停止未核实解释为安全停止。
+- **零 Node.js 依赖污染**：全包严格遵守 Web 跨平台标准，静态检查与测试杜绝任何 `node:*` 模块与 Node 全局变量，保障在纯浏览器环境中稳定运行。
+- **事件版本防回滚**：当由于网络重试收到早于当前视图版本的旧事件时，`ViewState` 主动忽略，防止页面闪烁或状态倒退。
+- **分页连续性校验**：历史正文拉取时严格校验返回切片的起始偏移量是否与当前已读字节连续，发生空洞时抛出明确异常并请求重拉，拒绝展示残缺内容。
 
 ## 设计依据
 
-- [个人 Tailscale HTTPS 与 WebSocket](../../.agents/notes/implemented/architecture/2026-10-24-personal-tailscale-https.md)
-
 - [双端共用会话历史恢复](../../.agents/notes/implemented/architecture/2026-10-23-shared-history-recovery.md)
-
-- [搜索结果直接打开普通会话](../../.agents/notes/implemented/simplification/2026-10-21-desktop-search-session-navigation.md)
-
-- [应用内 Spotlight 与历史定位](../../.agents/notes/implemented/feature/2026-10-21-desktop-spotlight-search.md)
-
-- [Coding 会话后台持有独立目录占用](../../.agents/notes/implemented/feature/2026-10-21-coding-background-processes.md)
-
-- [Coding 持久问题与可信续接](../../.agents/notes/implemented/feature/2026-10-21-coding-owner-questions.md)
-
 - [完整思考与文件预览](../../.agents/notes/implemented/feature/2026-10-18-complete-reasoning-and-preview.md)
-
-- [同仓 workspaces 分包](../../.agents/notes/implemented/architecture/2026-10-11-in-repo-workspace-packages.md)：包依赖、浏览器投影与 TUI 的职责划分。
-- [桌面客户端作为又一个控制面客户端](../../.agents/notes/proposed/architecture/2026-10-15-desktop-client.md)：共享投影的使用方向与浏览器约束。
+- [同仓 workspaces 分包](../../.agents/notes/implemented/architecture/2026-10-11-in-repo-workspace-packages.md)
+- [桌面客户端作为又一个控制面客户端](../../.agents/notes/proposed/architecture/2026-10-15-desktop-client.md)

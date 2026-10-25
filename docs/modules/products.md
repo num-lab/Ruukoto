@@ -2,59 +2,94 @@
 
 ## 职责与边界
 
-`apps/ruukoto` 持有个人 Agent 的正式 bin、主入口、开发入口与 durable 业务接线；`apps/ruukoto-code` 持有 Coding Agent 的 bin、主入口、开发入口、`product.ts` 和开发资料导入策略。两个产品互不依赖，各自拥有运行状态与客户端协议。个人能力见[个人持久会话](personal-durable.md)，Coding CLI 与界面见 [tui](tui.md)。
+`products` 模块（对应 `apps/ruukoto` 与 `apps/ruukoto-code`）负责将底层各共享包组装为两个定位明确的最终产品，并提供对应的命令行可执行文件（bin）、引导交互与前后台生命周期接线。
+
+### 核心职责
+- **`apps/ruukoto`**：个人 Agent 产品。装配 durable 原生持久层、引导式 CLI、QQ/Telegram 双通道及 PA 桌面远程协议。
+- **`apps/ruukoto-code`**：Coding Agent 产品。装配基于 `packages/runtime` 的多任务调度器、终端 TUI、Web 控制台与工作区工程能力。
+- **产品隔离**：两个产品在运行时完全独立，互不依赖，拥有各自独立的运行档案、实例锁与协议栈。
+
+### 边界与非职责
+- 个人端的会话推进、后台工作与记忆机制归 [personal-durable](personal-durable.md)。
+- Coding 端的任务调度与 SubAgent 编排归 [runtime](runtime.md)。
+- 跨平台的终端渲染与 CLI 命令分发归 [tui](tui.md)。
 
 ## 对外接口
 
-个人 bin 与根 `npm start` 默认进入同一个引导式 CLI，无参打开菜单，`serve` 前台运行后台，`settings` 提供模型、Skills 与 MCP 的受限 JSON 管理，`remote` 打开本机配对管理向导，`remote serve` 前台托管固定远程入口；`personal:durable` 是该入口的兼容命令。正式默认目录为 `~/.ruukoto-durable/`，可用 `RUUKOTO_PERSONAL_DIR` 选择独立新目录。个人开发入口固定检出散列档案，忽略继承目录，默认由薄启动器托管 Node watch 前台后台；`--config` 直接打开同一菜单且不监听源码，菜单启动的后台由本进程持有，退出时停止。配置菜单源码变化须退出重开。开发拒绝已启用 QQ/Telegram 的档案，不改写配置或连接平台。
+两个产品分别提供独立的 CLI 二进制入口与核心交互命令：
 
-Coding bin 固定产品身份，向共享 CLI 传入 `CliProduct`，并向 `Runtime.start` 显式传入 `product.runtime`。`npm start` 的 `RUUKOTO_PRODUCT=ruukoto-code` 选择及 app 的独立 start 保留；Coding 的工作区、会话、四种界面模式、SubAgent、工作流、按需后台与旧开发资料导入保持。
+| 产品 | 命令入口 | 核心作用与行为 |
+|---|---|---|
+| `ruukoto` | `ruukoto` / `npm start` | 无参打开个人交互引导菜单（支持聊天、状态查询、通道配对与能力配置） |
+| `ruukoto` | `ruukoto serve` | 前台托管常驻后台服务（支持 `--directory` 指定独立档案路径） |
+| `ruukoto` | `ruukoto settings` | 供外部客户端调用的结构化 JSON 配置接口，支持模型、Skills 与 MCP 管理 |
+| `ruukoto` | `ruukoto remote` | 本机配对管理向导；`remote serve` 托管 Tailscale HTTPS/WSS 远程接入 |
+| `ruukoto-code` | `ruukoto-code [路径]` | 打开指定工作区会话并启动 TUI，服务未运行时自动按需拉起后台 |
+| `ruukoto-code` | `ruukoto-code server` | 前台启动 Coding 后台服务 |
+| `ruukoto-code` | `ruukoto-code config` | 打开模型离线配置终端界面 |
+| `ruukoto-code` | `ruukoto-code stop` | 优雅停止运行中的 Coding 后台服务 |
 
-| 能力 | ruukoto | ruukoto-code |
-| --- | --- | --- |
-| 会话与运行权威 | Pi durable 1.3.0 | 原共享 Runtime/Driver，Pi 0.85.1 |
-| 主要界面 | QQ/Telegram、引导式 CLI 与 PA 桌面 | TUI、配置中心与 Code 桌面 |
-| 持久历史 | durable SQLite | 核心元数据与原 JSONL |
-| 后台工作 | 长期子 Agent、分析委托与独立定时运行 | 通用 SubAgent、worktree、工作流与 Scheduled |
-| 旧资料 | 原地归档，不导入 | 开发资料离线导入 |
-| 编码专用入口 | 不提供开发会话、worktree 汇总、旧工作流或 GitHub 自动评审 | 保留既有 Coding 能力 |
+### 产品能力矩阵对比
 
-个人另提供 `maintenance` 受限 JSON 生命周期入口；`serve --directory <绝对路径>` 将服务档案固定在启动参数，优先于环境。安装与操作见[操作手册](../usage.md)，开发与构建见[开发说明](../development.md)。PA 桌面聊天与设置共用独立 HTTPS/WSS 原生协议，旧 PA SSH 与旧控制面入口不再装配；Coding TUI/桌面继续使用自己的控制协议。
+| 能力维度 | `ruukoto`（个人 Agent） | `ruukoto-code`（Coding Agent） |
+|---|---|---|
+| **会话与状态模型** | Pi durable 1.3.0 原生记录与状态管理 | 共享 Runtime 编排，基于 SQLite 元数据 + JSONL 消息历史 |
+| **主要交互终端** | QQ / Telegram 私聊、引导式菜单、PA 桌面 | 全屏终端 TUI、Web 控制台、Coding 桌面客户端 |
+| **后台执行体系** | 长期子 Agent、异步分析委托、原生定时计划 | 串行任务队列、通用 SubAgent、Git Worktree 隔离与工作流 |
+| **执行沙箱模式** | 宿主安全命令 Worker（支持有限与完全访问） | 原生系统沙箱（macOS Seatbelt / Linux bubblewrap） |
+| **开发工作区模式** | 不提供项目级代码编辑与 Git 自动评审 | 支持任意本地工程目录与代码工作区 |
 
 ## 数据与状态
 
-Code Scheduled 在核心库独立保存计划、运行和回执，后台装配专属协调器，只共享原时间 helper；个人 durable 与旧个人 scheduler 不接管这些计划。启用新 schema 使用独立新档案，不复制旧会话、设置或授权；含 Code 调度及其来源记录的实例导入明确拒绝。
+每个产品在宿主上持有严格隔离的数据与控制档案，互不干扰：
 
-个人档案、锁、本机认证 socket、配置、凭据引用及请求证据独立保存，版本和旧目录在恢复前核实。Coding 的产品身份继续登记在核心库 `meta.product.type`，档案、锁与控制面各自隔离。Coding MCP 按实例保存服务与专用凭据，全部工作区共用；Personal 保留自身档案格式，不共享服务或秘密。两个版本的 Pi 对象不跨产品传递，个人不双写旧 Task Store 或 JSONL。
-
-远程入口的 `~/.config/ruukoto-remote/` 独立保存固定配置、持久 remote 身份、应用凭据摘要/撤销墓碑和维护账本；它不拥有第二个 Harness。业务 socket 由 Tailscale Serve 发布，admin socket 仅本机管理；后台、remote和tailscaled分别监督，维护停止后台不停止remote。
+- **个人 Agent 档案根**：默认位于 `~/.ruukoto-durable/`（可通过环境变量 `RUUKOTO_PERSONAL_DIR` 覆盖），内部管理专属的 durable 数据库、凭据映射与认证 Socket。
+- **Coding Agent 档案根**：默认位于 `~/.ruukoto-code/`（可通过 `RUUKOTO_CODE_DATA_DIR` 等变量覆盖），核心库 `meta.product.type` 显式标识为 `ruukoto-code`，并持有独立的实例锁与任务数据库。
+- **互斥保证**：系统拒绝跨产品复用数据目录，防止底层存储布局混淆。
 
 ## 主要流程
 
-**启动。** 个人入口使用已配置模型打开唯一 Harness；运行中菜单仅经本机认证接口管理，离线配置持实例锁。认证令牌逐启动生成，完整写入私有临时文件后替换，坏旧令牌仍拒绝启动。Coding 入口按能力声明选择 native 与导入方向，装配 Runtime、控制面与客户端。日常个人后台独立于菜单，开发进程拥有其后台生命周期。
+### 1. 服务启动与初始化
 
-Coding 请求由 `control` 交给 `runtime` 建任务并取出，`agent-context` 组装上下文，`agent-tools` 判定可用性并取审批，`execution` 在边界内执行，`core` 存下每一步的事实，`control` 把事件流推给 `tui`，个人请求由 app 的 durable 会话与发送 Task 衔接 IM，运行事实不写旧 Task Store。
+```mermaid
+sequenceDiagram
+  participant User as 用户 / CLI
+  participant App as 产品入口 (apps/*)
+  participant Lock as 实例文件锁
+  participant Backend as 运行时核心
 
-**构建。** 两个产品的宿主最低为 Node 24.15，包声明与开发环境检查使用同一版本门槛。根构建生成共享 `worker/worker.mjs`、自包含的 `worker/personal-command-worker.mjs`、工作流脚本及平台产物，再生成两个 app 的 npm tarball。个人命令 worker 不依赖 Pi SDK，运行依赖从构建制品解析；Coding worker 保留原 SDK 与依赖。tarball 交付源码、bin 和依赖声明，安装仍需要完整 workspace、根 worker 与宿主工具链，不是独立发行版。
+  User->>App: 启动命令
+  App->>Lock: 尝试获取专属实例锁
+  alt 锁冲突
+    App-->>User: 报错退出或自动复用既有服务
+  else 获锁成功
+    App->>Backend: 初始化数据存储与上下文环境
+    App->>Backend: 加载模型配置并拉起交互/监听服务
+  end
+```
+
+- **个人 Agent**：使用当前配置的模型初始化唯一的 durable Harness；日常后台与菜单交互解耦，菜单退出不会中断后台任务。
+- **Coding Agent**：按能力声明配置原生沙箱并装配 Runtime 与控制面 Socket；终端 TUI 启动时自动探测后台，支持按需拉起后台。
+
+### 2. 构建与分发流程
+
+根构建流程（`npm run build`）统一完成多包制品的编译与输出：
+1. 编译生成跨产品共享的工具 Worker（`worker/worker.mjs`）与个人命令 Worker（`worker/personal-command-worker.mjs`）；
+2. 编译 macOS 原生监督器与工作流驱动脚本；
+3. 构建 `apps/ruukoto` 与 `apps/ruukoto-code` 的 npm 包，保留对同仓共享包的完整依赖链。
 
 ## 不变量与失败处理
 
-- 正式个人与兼容入口只有一套装配，不加载旧 Runtime、Driver、Task Store、控制协议或个人导入器；仅复用实际共享的业务库、传输、校验、浏览器及原生执行原语。
-- 新个人档案不覆盖、迁移或自动复制旧资料和凭据；旧目录、不支持版本、锁冲突或配置未齐时明确拒绝，拒绝前不连接 IM、不恢复任务。
-- Coding 拒绝跨产品目录、旧 local/container 覆盖及非当前 schema；保留旧 SQLite、JSONL 与凭据，使用独立新数据及凭据目录重新配置，不能原地继续旧会话；个人命令模式由宿主配置，不接受旧 CLI 执行覆盖。
-- 同账户完全访问使用后台账户已有权限，外部效果未知或停止未核实仍保留原占用；退出界面不能代替停止证明。
-- 跨包引用使用 exports 与已声明依赖；反向运行时协作采用注入，core 不依赖其他 workspace 包。个人 app 直接声明 Pi 1.3.0，Coding 调用方保留 0.85.1。
+- **装配纯粹性**：正式个人 Agent 仅装配自身持久体系，绝不反向加载旧 Runtime、Task Store 或控制协议；Coding 仅装配工程底座与开发能力。
+- **档案互斥与版本一致**：严格禁止跨产品复用数据目录。底层 Schema 版本与当前代码版本不一致时拒绝启动，杜绝隐式损坏历史数据。
+- **失败优雅降级**：模型配置缺失或网络故障时，服务仍可进入离线配置模式；外部客户端断开连接时，后台进行中的任务持续推进而不被级联取消。
 
 ## 设计依据
 
 - [Coding 调度的固定配置与独立会话](../../.agents/notes/implemented/feature/2026-10-25-code-scheduled.md)
-
 - [个人 Tailscale HTTPS 与 WebSocket](../../.agents/notes/implemented/architecture/2026-10-24-personal-tailscale-https.md)
-
 - [Code MCP 按实例配置与旧格式退出](../../.agents/notes/implemented/simplification/2026-10-24-code-instance-mcp.md)
-
 - [个人认证令牌完整写入后发布](../../.agents/notes/implemented/bug-fix/2026-10-24-personal-token-atomic-publish.md)
-
 - [个人正式入口使用唯一 durable 装配](../../.agents/notes/implemented/simplification/2026-10-18-personal-product-entry.md)
 - [两个 Agent 产品](../../.agents/notes/implemented/architecture/2026-10-02-two-agent-products.md)
 - [同仓 workspaces 分包](../../.agents/notes/implemented/architecture/2026-10-11-in-repo-workspace-packages.md)

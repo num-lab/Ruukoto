@@ -2,101 +2,98 @@
 
 ## 职责与边界
 
-本篇的运行状态、历史或客户端协议适用于 Coding 与保留的旧格式实现；正式个人 Agent 使用[个人持久会话](personal-durable.md)，不接入旧 Runtime、Task Store 或控制协议。
+`workflows` 模块（对应 `packages/runtime/src/workflows.ts`）为 Coding Agent 提供声明式、多步骤的后台自动化工作流编排引擎。
 
-`packages/runtime/src/workflows.ts` 持有固定脚本的后台运行、持久步骤、共享名额、计费、重放和取消。core 保存事实，agent 提供隔离脚本、结果 schema 校验与实际执行边界。`workflow-steps.ts` 默认接入真实 Driver、来源能力与冻结成果汇总；控制面与 IM 处理可信业务回答，父级送达负责整项最终汇总，调度等待名下完整工作流。`workflow-library.ts` 管理实例命名文件与不可变历史；Coding 模型工具和 CLI/TUI 入口经 Runtime 统一核实发起与控制；旧 IM 分支保留实现，新个人不装配工作流语言或定义库。
+### 核心职责
+- **流程脚本执行**：在受限脚本沙箱中运行工作流逻辑，支持并发派发任务、动态依赖编排与结果校验。
+- **持久化步骤模型**：工作流中的每一个步骤（Step）作为持久实体落盘，支持断点恢复、进度追溯与状态可视化。
+- **交互式问答（`ask`）**：在自动化流程的关键节点暂停并向拥有者发起问答交互，获取决策输入后继续向下执行。
+- **代码改动受控汇入（`integrate`）**：将各步骤在独立 worktree 中生成的代码补丁进行组合检查与原子汇入。
+
+### 边界与非职责
+- 步骤内底层工具的实际沙箱执行归 [execution](execution.md)。
+- 工作流外部调度与时间触发规则归 [scheduler](scheduler.md)。
+- 个人 Agent 的日常任务与分析归 [personal-durable](personal-durable.md)。
 
 ## 对外接口
 
-| 入口 | 调用者与用途 |
-| --- | --- |
-| `WorkflowCoordinator.start` | 宿主核实来源任务并固定脚本、参数、模型、来源及更小的预算；同键同参先返回原运行 |
-| `recover` / `onEvents` / `stop` | Runtime 在任务账本收尾后恢复，按提交事件调度，关闭库前停止并等待所持有的执行 |
-| `control` / `answer` | 可信宿主控制预算、暂停、恢复、取消与业务回答；运行/问题代次、版本及请求键在事务内仲裁，脚本不能调用资源调整 |
-| `Runtime.startWorkflowTask` / `startWorkflowOwner` | 模型沿当前任务，拥有者由宿主登记短期发起任务；同键重放先返回原运行，固定会话模型与模式 |
-| `WorkflowLibrary` | 保存/加载命名文件，保留名称版本和保存回执；同一 QuickJS 包装只编译校验 |
-| `Runtime.getWorkflowDetail` / `getWorkflowStep` / `getWorkflowLogs` / `getWorkflowQuestion` / `answerWorkflowQuestion` | 查询运行、步骤结果和阶段日志，按 UTF-8 分页读取正文及问题/回答；来源授权不回填到 wire |
-| `Runtime.workflowHostOperation` | 宿主按运行与步骤派生短期操作任务、复用完整缓存；callback 负责调用固定工作副本操作 |
-| `HostExecutionManager` | 绑定实际任务、登记起始/实际单元、核实活动资格并停止，由统一收尾函数处理账本及终态；不创建模型会话 |
-| core `workflow.ts` | 定义版本、运行、步骤、执行、问题、控制回执及事务内启动/交付原语 |
+### 1. 脚本环境核心 API
 
-脚本只调用 `agent(key, params)`、`ask(key, params)`、`integrate(key, params)` 和 `progress(key, params)`。四类都可声明 `dependsOn`，依赖必须已登记；Agent 参数含非空 `request`，输出默认文本，或 `{output:{format:"json",schema:...}}`。有界基础 schema 支持对象、数组、标量及属性、必填、数组项、枚举/常量、长度和数值范围；拒绝正则、引用与复杂组合，避免阻塞后台校验。失败与跳过返回具名状态，格式不符保留原输出。
+在工作流脚本（JavaScript）中，开发者可通过全局上下文调用以下声明式原语：
 
-Agent 参数 `role` 从运行固定的共享目录选择，省略为 general，普通审查可选 reviewer。代码修改或审查显式给 `target`，要求来源范围内的 Git 目录；无目标在独立目录使用来源工具。`verify` 指向本运行已冻结的目标步骤并列入 `dependsOn`，与 `target` 互斥；它是宿主验证操作，可选择任意适用角色，始终强制受限执行与编码验证工具。旧 `mode` 参数以 `interface_upgrade_required` 拒绝。`tools` 只收窄来源工具，若排除了角色显式必需工具则拒绝启动。默认 general 的 shell 在无目标独立目录可用。验证返回含 `passed` 布尔值的 JSON，可附 `reason`；脚本结果不能伪造验证记录。`integrate` 的 `steps` 列出已完成验证步骤，并列入 `dependsOn`，`check` 保存汇总后实际执行的检查命令。
+| 脚本函数 | 参数核心字段 | 功能描述与关键契约 |
+|---|---|---|
+| `agent(key, params)` | `request`, `role`, `target`, `dependsOn`, `output` | 启动一个子 Agent 执行特定任务；支持依赖前序步骤，支持声明 JSON Schema 输出 |
+| `ask(key, params)` | `question`, `options`, `dependsOn` | 挂起流程向人类发起决策提问，用户回答后继续推进后续步骤 |
+| `integrate(key, params)`| `steps`, `check`, `dependsOn` | 将已通过验证的步骤产生的 Git 分支改动原子合入主工程，并执行自检命令 |
+| `progress(key, params)` | `percentage`, `message` | 上报工作流当前执行进度与阶段说明 |
 
-`ask` 可带最多 20 个互不重复的字符串 `options` 和基础 JSON `schema` 约束；问题完整参数保留。回答绑定运行、步骤、问题版本和建立时的 `runVersion`，其他分支进度不改变这个问题代次；首次消费同时复核当前运行活动状态、来源和问题依赖资料。工具批准继续走既有审批，业务回答不消费审批。
+### 2. 宿主管理接口
 
-可信宿主注入的 Agent 执行器负责自己的执行证据并使用真实 Task 的操作账本，不产生 Driver 冻结验证资格；默认 Driver 的记录核实始终启用。在启动实际单元前调用 `context.register` 登记起始句柄，其 stop 必须等待启动收尾，取得实际身份后用 `context.updateIdentity` 更新原句柄。适配器不能先启动 worker 再补登记，取消期间的新登记会被拒绝，已登记单元的迟到实际身份仍保存。
+| 宿主接口 | 调用方 | 职责与行为 |
+|---|---|---|
+| `WorkflowCoordinator.start` | 客户端 / 调度器 | 校验脚本完整性与预算配额，启动新的工作流运行实例 |
+| `WorkflowLibrary` | TUI / 控制面 | 工作流脚本文件的存储库，支持命名工作流的存储、版本演进与模板管理 |
+| `WorkflowCoordinator.control` | 控制面 / CLI | 人工干预工作流：支持暂停（pause）、恢复（resume）或取消（cancel）运行 |
 
 ## 数据与状态
 
-Code 定时来源在 `WorkflowSource.codeScheduledRunId` 固定原运行，步骤 Task、宿主操作、问题回答和最终报告沿同一归属登记与核实。取消计划后来源失效，迟到回答或报告不派生任务；整项 Code 调度等待工作流、报告及停止核实，不按首次 Task 结束提前关闭。
+### 1. 工作流运行状态机
 
-运行 `roleCatalog` 固定启动时的完整角色目录及加载诊断；每步按 `role` 选择，文件编辑或删除不改变已启动运行。恢复和缓存消费复核已完成步骤的角色、来源执行快照及目标基线；缺失、摘要失配或身份不一致即拒绝，保留 Task、结果和成果，不读取当前配置补回。
+```mermaid
+stateDiagram-v2
+  [*] --> queued: 实例入队
+  queued --> running: 调度器激活，执行脚本逻辑
+  running --> waiting: 等待子 Agent 结束或用户答复 (ask)
+  waiting --> running: 依赖步骤完成或用户已提交答复
+  running --> paused: 用户手动暂停
+  paused --> running: 用户手动恢复
+  running --> succeeded: 全部关键步骤成功完成 (终态)
+  running --> failed: 关键步骤失败或抛出异常 (终态)
+  running --> canceled: 用户主动取消 (终态)
+  succeeded --> [*]
+  failed --> [*]
+  canceled --> [*]
+```
 
-当前定义位于 `<agentDir>/workflows/<名称>.js`，名称为 1–64 位字母数字及 `_`/`-`，首位为字母数字。文件由保存入口自动写入首行 `// ruukoto-workflow-interface: 2`，其余为脚本正文；无标记文件按旧接口保留查询，须显式保存新版才能新启动。`workflow_definitions` 保存完整脚本、`interfaceVersion` 和包含接口版本的内容摘要，`workflow_definition_refs` 保存名称历史及稳定保存键的请求摘要和版本引用；`workflow_runs` 固定接口与脚本版本、来源、参数/摘要、展示名称、显式简短说明、宿主创建时间、模型、预算、累计墙钟、计时与脚本停止核实、结果与版本。状态为 `queued`、`running`、`waiting`、`paused`，终态为 `succeeded`、`partial`、`failed`、`canceled`。
+### 2. 存储数据模型
 
-`workflow_steps` 按运行/稳定键唯一，保存类别、登记序号、完整参数与摘要、依赖、状态、输出、交付序号和尝试数；`workflow_executions` 绑定真实 Task、执行类别/编号、单元身份及停止事实。`workflow_questions` 保存问题、来源、问题/建立代次与回答；`workflow_controls` 为控制和回答共用请求键空间，保存输入摘要与原回执。状态、步骤完成、回答及适用的 IM 回执同事务提交，之后才调度和广播。
-
-名称历史每页 100 项，通过历史偏移续读；运行列表/详情返回固定名称、说明和创建时间；效果未知按运行已登记原因或任一所属执行任务显示，`stopUnverified` 按全部执行及脚本停止事实汇总；暂停或终态仍在执行、已启动但停止结论缺失都会标记，正常运行中的空结论不误报，明细仅返回最近百项。命名定义使用启动时所选名称，临时脚本必须提供 1–64 字单行 `title`；可提供 1–240 字单行 `description`，不从任意参数推导说明。旧无标题记录显示“未命名工作流＋创建时间”，详情保留 ID；修改或删除当前命名文件不改变历史名称。当前列表包含全部活动运行和最近十项终态，先筛选再分页；历史列表保留全部运行。列表/详情只返回送达摘要，阶段日志包含可分页的完整最终事实与回报正文。
-
-首次终态固定 `terminalVersion`；`delivery` 保存一次覆盖清单、停止核实事实、结果预览、汇总 taskId 和送达状态。脚本区分已核实、未核实与未启动，执行只在已启动项中计已核实，排队项另列；本轮终态事实取代启动和中途的旧状态，停止已核实不代表写入效果已知。`reported` 表示汇总结果及适用的发送操作已登记，平台是否 sent/failed/effect_unknown 仍查 outbox。`undelivered` 保留来源失效等原因，停止收尾更新运行版本不改变原送达键。
-
-脚本限 128 KiB，单个参数/结果限 512 KiB；更大原始输出进入产物，保存完整字节、字节数与 SHA-256，脚本得到超限失败。正文、SQLite 与会话 JSONL 没有跨文件原子保证。步骤的工作、SubAgent、会话、任务和工具操作继续保留各自归属；宿主操作任务模型选择为空，历史条目为空。
-
-运行来源另固定实际工具类别、资料授权 ID、配置摘要及工作区身份。配置摘要中的 MCP 与 Web Search 开关来自整个实例，其他用途凭据仍按来源项目；实例服务或凭据变更使原配置摘要失效，角色、步骤工具及 Cua 资格继续收窄能力。修改步骤保存相对当前工作区捕获基线的冻结补丁、SHA-256、长度、HEAD、快照摘要与工作/任务归属；验证记录同时固定快照摘要和冻结摘要、产物、独立任务及真实结论；至少一次真实编码工具调用且全部操作成功、无未知效果才可通过，模型文本不能覆盖账本。汇入再次核实账本、两步身份及冻结归属。摘要缺失或失配不能取得汇入资格，新增授权不扩大旧运行。
+- **`workflow_definitions`**：存储命名工作流脚本正文、版本号与内容哈希。
+- **`workflow_runs`**：存储每次运行的实例元数据、输入参数、累计执行时间（Wall-clock time）与终态。
+- **`workflow_steps`**：存储运行中各个步骤的依赖关系（`dependsOn`）、状态、输出内容与回执。
+- **`workflow_questions`**：存储流程中挂起的人类问答记录与答案快照。
 
 ## 主要流程
 
-1. 新请求核实可信来源，读取并编译命名或临时脚本，固定不可变版本及运行输入。显式入口的短期发起任务、运行与适用 IM 回执同事务登记，先保存接受结果再结束发起任务，不调用模型；模型发起沿活动 Task。发起任务结束不撤销已登记的运行授权。
-2. 从固定脚本登记步骤，先核对旧键、参数及序号，再按依赖派发。失败依赖记跳过，独立分支继续；重放完成结果按已记录交付顺序逐个回复。
-3. Agent 启动事务同时抢来源名额、尝试预算及目录占用，创建/关联既有工作与身份；满额排队。完成与停止按真实操作账本分类，结果先持久后交付。
-4. 运行累计墙钟；仅脚本最新 idle、无待交付结果、无可执行/活动工作且纯等人工问题/工具审批时停计。自动审批审查和同 Task 另有活动工具仍计费；宿主发送回复前同步恢复活动计费。超限先暂停与保存计费，再停止执行并保留成果。
-5. 宿主操作按稳定键建立短期任务，取得源/副本占用，沿运行模式启动真实 worker。完整缓存可复用；尚未启动的登记按原键恢复，已生效写入缺结果不重做。
-6. 脚本返回后核对所有登记步骤、结果和退出事实，再保存包含失败/跳过项的覆盖清单。步骤结果不进入原有逐个父模型唤醒或下一轮注入。
-7. 终态提交并收尾停止事实后，以固定终态代次将结果交给有效等待父轮，否则在原会话登记无工具汇总；认领、入队和持久绑定由事务仲裁。已排队汇总可保留原任务、请求键及输入并暂停领取，同来源多个目标共用一份报告；已经开始或完成的汇总不重复接管。dev/main/scheduled 都只汇总整项一次；main 有原 IM 来源时回原入口、CLI/TUI 来源留原会话，定时来源只由整项调度回报发送，宿主状态、覆盖与失败事实位于外发文本最前。
+### 多步骤依赖执行流程
 
-修改先捕获当前稳定工作区并创建独立 Git 副本，停止核实后在占用下冻结相对捕获内容的子增量；非 Git 修改在 worker 与模型前拒绝。验证新建 Agent 与从同一捕获基线/冻结补丁物化的副本，始终用原生沙箱，只写验证副本，来源与附加路径只读。汇总宿主任务持续占用副本与全部目标，比较冻结字节、快照摘要和来源完整受影响文件后套用子增量，再运行组合检查；冲突只拒该份，此前汇入保留，检查失败如实报告。
+```mermaid
+sequenceDiagram
+  participant Engine as 工作流引擎 (Coordinator)
+  participant StepA as 步骤 A (代码生成 Agent)
+  participant User as 拥有者 (ask 节点)
+  participant StepB as 步骤 B (测试与合入)
+
+  Engine->>StepA: 启动步骤 A (在独立 worktree 中编码)
+  StepA-->>Engine: 步骤 A 完成，生成代码补丁
+  Engine->>User: 触发 ask 节点 (等待人工确认改动)
+  User-->>Engine: 人工核实并点击确认
+  Engine->>StepB: 启动步骤 B (执行 integrate 并跑测试)
+  StepB-->>Engine: 验证通过，改动合入主分支
+  Engine->>Engine: 全流程完成，标记为 succeeded
+```
+
+1. **依赖解析与拓扑调度**：引擎依据 `dependsOn` 解析步骤拓扑图，无依赖的步骤并行推进，有依赖的步骤自动等待前序输出。
+2. **人工审查插入**：流程遇到 `ask` 步骤时自动切入 `waiting` 状态，待用户在 TUI 或 Web 端提交答案后自动恢复。
+3. **隔离验证与合入**：所有代码变更在独立工作目录中完成单元测试，验证成功后通过 `integrate` 安全合入。
 
 ## 不变量与失败处理
 
-定义读写拒绝非法名称、路径越界、符号链接、硬链接、非普通文件、UTF-8/大小及编译错误（含解释器栈耗尽），以固定工作流 code 拒绝，不回退旧版本。更新保存核对当前摘要，先落文件、核实字节后登记新版本及原键回执；原键重放只返回归档版本，不重写后来编辑的当前文件。模型保存在异步编译后重新核实活动身份、取消状态和权限版本；文件和 SQLite 之间失败须核实当前摘要与原键，不能宣称跨文件原子。
-
-同来源固定共用三个 Agent 名额；每运行默认 100 次 Agent 尝试和一小时，拥有者可调整这两项。安全重试最多两次，缓存与宿主操作不消耗 Agent 次数。普通 SubAgent 实际出队也在同一启动事务核实名额，停止未核实的占用继续计入。宿主操作时间属于运行墙钟。
-
-来源、资料或固定定义失效，调用/交付记录分歧、结果/产物缺失、格式失败后的写入、已知写入缺输出和未知效果均暂停保留现场。恢复复核接口版本、真实 Task、角色与执行快照、目标基线、操作分类和停止状态；旧接口只供查询与取消，不能恢复执行。临时脚本的旧字段在调用时拒绝，此前已执行步骤保留真实副作用，不自动重放。只读或全部批准未消费才可有限重试。停止和计时分别核实，拥有者需先通过既有占用核实出口确认旧执行停止，再从可信控制提供相应确认；不能把旧运行的用量清零。
-
-同一 Agent 尝试从 `AgentJob` 经执行器到 Driver 共享首次中止快照；后到中止即使遇到自然停止 Promise，也先保存快照和取消意图。宿主自然收尾期间首次中止也先保存快照再复用停止。自然结束只停止单元，不补工具结果；逐操作写结果缺失即以 `write_result_missing` 暂停，即使最终输出合法也不完成步骤或派发依赖。完整写结果与合法输出正常完成，只读或全部审批未消费仍可有限重试。
-
-取消先提交状态和事件，再停止脚本及所属执行，阻止新登记、回答和迟到结果推进。原外部效果不回滚，停止未核实保留实际身份、账本与占用。重发历史控制键只返回已有事实，不再停止已经恢复的执行。工作流步骤拒绝普通任务继续/模式切换、普通任务中断/取消及工作委托取消，运行控制持有其生命周期。
-
-问题通知失败或效果未知仍保留待答；入口换代和依赖资料撤销阻止回答及旧正文发送，不改发。汇总任务靠持久绑定识别，每次模型请求再次核实全部步骤来源；用户 request_id 前缀不能获得汇总身份。取消报告只陈述取消及停止事实。定时计划等待全部运行和汇总，安全重试已恢复的旧尝试不算整项失败；自身取消先提交意图，再异步停止，让当前工具能返回。
-
-跨实例导入拒绝含工作流执行记录的源，不能通过丢掉绑定把步骤当普通 SubAgent 继续；原实例保留可查。操作见[导入说明](../usage.md#6-导入旧实例)。
+- **强类型依赖闭环**：步骤声明的 `dependsOn` 目标必须在同一次运行中存在且已登记；若前序依赖步骤失败，后续步骤自动跳过（skip），防止级联脏数据。
+- **预算与超时硬限制**：每个工作流运行实例配置有严格的累计执行墙钟时间与 Token 预算配额，超限时流程自动暂停并安全保留已产生结果。
+- **代码合入前置验证**：未通过测试验证的代码步骤严禁调用 `integrate`，杜绝破坏主代码库稳定性。
 
 ## 设计依据
 
-- [Coding 调度的固定配置与独立会话](../../.agents/notes/implemented/feature/2026-10-25-code-scheduled.md)
-
-- [Code MCP 按实例配置与旧格式退出](../../.agents/notes/implemented/simplification/2026-10-24-code-instance-mcp.md)
-
-- [运行中任务的收尾协议](../../.agents/notes/implemented/architecture/2026-10-16-task-ending-protocol.md)
-
-- [共享角色与工作流接口版本](../../.agents/notes/implemented/architecture/2026-10-15-workflow-role-interface.md)
-
-- [当前工作区快照与子增量](../../.agents/notes/implemented/architecture/2026-10-15-current-workspace-snapshots.md)
-
-- [子代理角色持久快照](../../.agents/notes/implemented/architecture/2026-10-14-subagent-role-snapshots.md)：运行目录与步骤定义保持固定版本。
-
-- [等待让出与唯一报告归属](../../.agents/notes/implemented/architecture/2026-10-14-agent-wait-and-report-ownership.md)
-
-- [定义库与可信交互入口](../../.agents/notes/implemented/feature/2026-10-13-workflow-library-and-controls.md)：命名文件、版本与原键、显式宿主发起及模型/拥有者控制分工。
-
-- [业务回答与整项最终送达](../../.agents/notes/implemented/feature/2026-10-13-workflow-owner-input-and-delivery.md)：固定问题代次、可信汇总绑定、原入口回报与调度归属。
-
-- [真实步骤与冻结成果](../../.agents/notes/implemented/architecture/2026-10-13-workflow-step-capabilities.md)：来源交集、验证者的原生收窄及冻结字节汇总。
-
-- [持久运行与真实执行](../../.agents/notes/implemented/architecture/2026-10-13-workflow-runtime-and-store.md)：执行归属、重放、预算、效果分类及恢复核实。
-- [固定脚本入口](../../.agents/notes/implemented/architecture/2026-10-13-workflow-script-isolation.md)：QuickJS/WASM 权限、限额与停止保证。
-
-- [普通与工作流的可信来源能力](../../.agents/notes/implemented/architecture/2026-10-15-subagent-source-capabilities.md)。
+- [工作委托、SubAgent 与任务](../../.agents/notes/implemented/architecture/2026-10-03-work-delegation-subagent-task.md)
+- [Coding Agent 的原生受限执行](../../.agents/notes/implemented/architecture/2026-10-10-native-execution-sandbox.md)

@@ -2,236 +2,94 @@
 
 ## 职责与边界
 
-Personal 以一个 Tailscale HTTPS 地址连接 durable 主会话与全部设置；HTTPS 查询和 WSS 原生投影共用配对身份。Code 保留独立控制面与共享 view 投影，两个目标不共用会话状态。
+`desktop` 模块（对应 `apps/desktop/`）是专为桌面环境（主要支持 macOS）打造的图形化 GUI 客户端。它支持双模式切换：本地工程编码（Coding 目标）与远程个人助理（Personal 目标）。
 
-`apps/desktop` 是 macOS 上的控制面客户端，与 TUI 共用后台。Code 目标提供工作区与会话树、添加工作区、新建会话、会话标签页、对话流、输入提交、模型／Effort 与会话默认模式选择、停止与继续、暂停队列恢复，以及右栏独立标签中的 SubAgent 历史与单次工具差异、隔离浏览器、工作区只读文件树／预览、Git graph、本机集成终端与后台进程清单／日志；Code 在会话内展示审批与拥有者问题卡片，两个目标共用系统通知与 Dock 角标；Personal 提供 durable 单一主会话的文本聊天、完整历史、实时工具状态、问题/审批与后台工作查询和取消，两个后台连接并存。后台事实只经控制面取得，不通过数据库、JSONL、工作区文件或 git 重建；主进程为终端核实已登记工作区根目录，并读取拥有者选择的附件快照，以及地址栏明确打开的本机文档与同目录静态资源。
+### 核心职责
+- **双产品目标支持**：
+  - **Coding 目标**：通过本地 Unix Domain Socket 接入 `ruukoto-code`，提供多工作区管理、会话标签页、代码 Diff 查看、SubAgent 监控与集成终端。
+  - **Personal 目标**：通过安全的 Tailscale HTTPS/WSS 接入远程 `ruukoto` 个人 Agent，管理长效主会话、日常问答与后台工作。
+- **安全 IPC 桥接**：主进程（Node `DesktopHost`）持有控制面凭据，通过严格的白名单 IPC（Preload）向渲染进程暴露受限操作，渲染层无直接底层访问权限。
+- **现代前端视图与动效**：基于 React、Tailwind CSS、Radix UI 与 Lucide 图标库构建现代化深浅色三栏工作区。
+- **Spotlight 全局快搜（⌘K）**：提供类似 macOS 原生体验的工作区会话与历史消息全文秒级即时检索。
+
+### 边界与非职责
+- 视图的纯内存状态投影与事件合并归 [view](view.md)。
+- 后台核心任务调度归 [runtime](runtime.md)。
+- 个人端的业务数据持久化归 [personal-durable](personal-durable.md)。
 
 ## 对外接口
 
-Scheduled 经 Code bridge 的 `code_schedules`、`code_schedule`、`code_schedule_save/control/receipt` 管理计划，Electron 与 MyGo 使用同一操作名单、拥有者认证和原请求核实；不新增 preload 特权。计划页保留聊天标签，运行历史打开既有会话、审批与问题卡片。
+### 1. 宿主与外壳架构
 
-Electron 或 MyGo 共用的 Node DesktopHost 持有 Code 令牌、`ControlConnection` 和后台拉起，以及 PA 的 HTTPS/WSS、配对与原请求核实。preload 只向渲染进程暴露 `subscribe(target, listener)`、`request(target, op, params)`、`pickFolder()`、`pickSkillFolder(target, instanceId)`、`pickAttachments(sessionId, target?)` 与 `reveal(path)`及终端的open/input/resize/kill四方法。主进程校验 IPC 来源和操作名单：本地 `reconnect`、`desktop_browser_open`／`desktop_browser_release`及仅向Code开放的`desktop_terminal_open/input/resize/kill`，以及后台的 `list_session_summaries`、`open_workspace`、`create_session`、`read_history`、`read_history_entry`、`list_tasks`、`get_task`、`read_task_events`、`work_list`、`work_get`、`read_tool_result`、`read_artifact`、`get_tool_op_params`、`list_models`、`set_session_model`、`set_session_mode`、`get_session`、`interrupt`、`cancel`、`resume_queue`、`get_confirmation_params`、`respond_confirmation`、`list_prompt_requests`、`get_context_breakdown`、`list_workspace_files`、`read_workspace_file`、`read_workspace_git`。`search_history`、`background_processes`、`background_process_output`、`background_process_stop`、`session_background_end` 及 `owner_questions`、`owner_question_answer`、`owner_question_cancel` 与 `owner_question_receipt` 仅向 Code 开放；`submit`、`continue` 与 `owner_question_answer` 交主进程的 SubmissionGuard，`find_task` 仅供守护内部使用；本地 `desktop_pending_read` 与 `desktop_pending_clear` 处理输入恢复。上述后台控制协议仅向 Code 开放；Personal 经专用操作访问 durable 原生接口。PA 不提供附件、Continue、Context、会话级模型、Plan 或主聊天停止入口。Code 另开放 `get_model_config`、`save_model_catalog`、`set_model_api_key`、`remove_model_api_key`、`remove_model_provider`、`set_default_model`、`set_summary_model` 与 `test_model_connection`，Personal 不放行这些操作。字段与权限继续由控制面校验。错误作为 `{ code, outcome, message, versions? }` 响应数据跨 IPC 传递，保留应答丢失分类。
+桌面客户端支持两种外壳运行时，底层复用同一套 Node 业务桥接层：
 
-渲染进程使用 React、Tailwind v4、shadcn 源码组件与 AI Elements、Lucide，主题和三栏布局以定稿 demo 为准，Code 消费 `@ruukoto/view` 的快照和事件投影，PA 的 wire 类型也归该包，但状态由独立 `PersonalState` 安装。开发与构建命令见[开发说明](../development.md#桌面客户端)，启动与故障恢复见[操作手册](../usage.md#桌面客户端)。
+| 外壳运行时 | 技术栈 | 职责与特点 |
+|---|---|---|
+| **Electron 外壳** (主流) | Electron + Chromium | 提供完整的本地窗口管理、系统级通知、Dock 角标与操作系统钥匙串（Keychain）安全加密 |
+| **MyGo 实验外壳** | Go + WKWebView | 轻量化探索架构，利用原生 WKWebView 渲染界面，通过标准输入输出管道与 Node 宿主通信 |
 
-MyGo 试验外壳使用 Go 与 WKWebView，预加载实现同一 DesktopBridge，Node 子进程复用 DesktopHost；双方通过私有 JSONL 管道交换原始 JSON，单帧上限 16 MiB；凭据使用宿主专用帧，不经过界面事件、Go 绑定或 renderer。Go 负责选择器、Finder、系统通知和角标；附件选择前固定目标、控制器、连接对象与实例，路径只在宿主之间传递。构建记录 Node 绝对路径，使用独立应用数据目录；操作与构建见[桌面开发](../desktop-development.md#mygo-试验)。
+### 2. 渲染层核心交互与功能
 
-Code MCP 另开放 `mcp_list/configure/set_enabled/remove/check`、`list_credentials` 与 `mcp_save_credential/remove_credential`；Web 搜索另开放只写固定 Tavily 绑定的 `web_search_save_credential/remove_credential` 与实例级开关 `set_web_search`；通用凭据写入不向桌面开放，Personal 不放行这些操作。
-
-Code Skills 开放 `skills_list`、`skill_get`、`skill_set_enabled` 与 `skill_remove`；本地导入经系统目录选择和后台预览后，仅用宿主选择引用调用 `desktop_skill_import`。宿主固定原 Code 连接、实例、路径与修订，拒绝 renderer 任意路径及旧选择；两壳共用同一检查，Personal 不放行。
-
-Personal 沿同一 `request` 桥开放 `desktop_personal_config_read/save`、配对及原候选核实、输入提交/核实/显式恢复、`desktop_personal_request` 与 `desktop_personal_settings_read/request/apply/operation/restore/finish`。Host 校验路由和操作，发布 `personal_identity`、`personal_frame` 与不含秘密的 `personal_pending`；Personal 模型、Skills、MCP 页面共用当前连接和原档案身份，进行中的读取由切页和连接核实共享，完成或失败后清除；配置保存由后台按文件短串行，等待生效不占客户端全局互斥。旧维护清单通过 `desktop_personal_legacy_read/acknowledge` 只读核实及记录人工确认，不改动原文件。
+| 功能模块 | 快捷键 / 入口 | 核心功能与交互 |
+|---|---|---|
+| **Spotlight 全局检索** | `⌘K` 或顶栏搜索图标 | 瞬时搜索当前实例下所有工作区会话标题与消息正文，高亮匹配词并一键定位跳转 |
+| **工作区与会话树** | 左侧边栏 | 支持添加工作区目录、新建分支会话、切换安全模式与配置模型参数 |
+| **时间线与对话区** | 中间主画布 | 流式呈现用户输入、模型思考过程（Thinking）、代码生成与结构化提问卡片 |
+| **辅助检查抽屉** | 右侧边栏 | Tab 切换：查看代码 Diff 补丁、SubAgent 执行进展、Git Graph、只读文件树与后台服务日志 |
+| **集成终端** | 底部抽屉 | 内嵌基于 xterm.js 的真实终端模拟器，直接在工作区目录执行日常编译命令 |
 
 ## 数据与状态
 
-Scheduled 草稿与所选计划归当前 Code 数据实例；保存及控制在发送前保留稳定请求键、完整参数和实例绑定，应答丢失先查原回执，换实例不重放。计划、运行、等待原因和通知归后台快照与持久事件，页面不计时触发任务。
+### 1. 客户端连接状态机
 
-Code 连接目标由产品身份、socket 和令牌来源组成，固定为 `ruukoto-code`；安装快照前核对产品，不符停在 failed。Personal 握手核对协议、产品、origin、持久 remote 身份、档案与后台 runId，随后安装独立订阅。连接状态包含 connecting、online、reconnecting、failed 与 closed；明确身份、版本、认证或 TLS 错误停止自动重试。Code令牌仅在Node宿主内存，主进程保存连接配置和待核实提交；历史权威仍在各自后台。
+```mermaid
+stateDiagram-v2
+  [*] --> connecting: 启动探测本地后台或拨测远程服务
+  connecting --> online: 认证通过，拉取基准快照成功
+  connecting --> failed: 认证失败或服务未拉起 (终态，提示修复)
+  online --> reconnecting: 网络波动或后台被意外终止
+  reconnecting --> online: 重连成功，依据 seq 补齐事件
+  reconnecting --> failed: 重试超限
+  failed --> [*]
+```
 
-Personal 的 `personal-remote.json` 保存版本、唯一 HTTPS origin 与程序核实的 remote/档案绑定；请求记录位于 `pending/personal-remote/<origin及绑定摘要>.json`，保存原输入键、完整正文、旧维护及按对象区分的配置接纳关联。配对候选先安全持久化并读回才兑换，服务器仅存摘要；丢答使用原候选核实与显式恢复，不生成第二份凭据。
+### 2. 本地与远程状态隔离
 
-Electron 使用异步 safeStorage 加密并原子保存私有密文，MyGo 由 Go 内的 Security.framework 保存 Keychain 条目；Node 只经私有桥使用固定存储槽。两壳凭据和应用数据独立，生产与开发命名空间分开。锁定、拒绝、损坏或断桥保留原候选/active关联并报告，不当作凭据不存在，也不回退明文。
-
-会话标签页和待完成创建记录仅保存在渲染进程内存。创建记录持有原请求键、参数、连接目标和数据实例，结果核实前阻止另起创建；安装新快照不会丢弃它。同实例快照保留标签页，换实例清空旧标签与会话视图。普通草稿、附件引用、主题、侧栏宽度与折叠状态仅在渲染进程内存中保存；草稿按实例和会话隔离，退出或重载后丢失。提交中的原文、附件引用与继续来源留在输入区并锁定，权威接收后才清空；未确认原文继续保存在主进程记录里。
-
-Code 提交与继续的完整参数、原请求键和数据实例先保存在 `pending/code/<控制目录摘要>` 再发送；原始与损坏记录留在主进程，同会话未决输入禁发。PA 的旧 `personal.json`、`personal-settings.json`、`pending/personal/` 与 `pending/personal-settings/` 原地保留，不导入新协议；新连接成功不证明旧维护结束，存在旧维护清单时先核实原服务与配置，再在当前壳确认。
-
-本机终端及xterm滚动历史只在本次应用内存中保留，最多同时8个，滚动历史5000行；关闭终端标签或所属会话、换数据实例、页面重载／崩溃与应用退出均回收，普通断线、同实例快照和切换标签／会话／Personal保留。终端用与全局一致的等宽字体栈，明暗主题各带完整ANSI 16色；样式依赖生产CSP对内联样式的放行。
+- **Coding 状态**：严格绑定本地 `<controlDir>`，消费 `@ruukoto/view` 的 `ViewState` 内存投影，草稿与未提交输入在客户端安全暂存。
+- **Personal 状态**：严格绑定远程 Tailscale HTTPS Origin，基于 WSS 实时消费原生帧，配对凭据存入 macOS Keychain 加密保护。
 
 ## 主要流程
 
-Scheduled 是 Code 独立主画布页，表单依次设置 Title、Schedule、Instructions、Workspace、Permission、Model/Effort；一次性增加日期，每周多选星期，Schedule 显示固定创建时区。仅选择已登记工作区，默认请求确认，正文最多 UTF-8 64 KiB，保存前校验未来日期和可用模型档位。列表区分当前与历史，详情支持编辑、暂停、恢复、取消及原会话导航；活动运行禁普通输入、会话模式与模型修改，审批与问题回答按原快照处理。
+### 客户端接入与会话交互流程
 
-应用内 ⌘K 切换当前 Code 实例的 Spotlight 开关，顶栏侧栏开关左侧的搜索图标也可打开；弹窗从上向下进入，在 PA 页面也只搜 Code 工作区。完整普通会话摘要用于即时名称匹配，正文在输入稳定 180ms 且组合输入结束后查询；每个控制器最多一页在途，空命中进度页继续推进，满 20 条后滚动接近列表底部自动续查。候选与结果只在内存中保存，关闭、断线、新快照和换实例淘汰旧轮次；名称结果保留工作区与存档标记；正文结果上行显示会话名和存档标记，下行显示单行正文预览，短消息完整保留，超宽时按实际像素宽度让匹配词尽量居中，右侧显示相对时间；匹配词高亮，搜索弹窗使用主题灰色背景；长名称在末尾省略，正文预览保持单行，超出显示范围的部分裁切；加载使用搜索框内图标，检索状态仅向读屏播报，实际读取失败与离线可见，两种结果之间用分隔线区分，滚动条只在滚动中及停止后短暂显示，不再提供加载按钮。
+```mermaid
+sequenceDiagram
+  participant Renderer as 渲染进程 (React UI)
+  participant Preload as IPC 边界 (Preload)
+  participant Main as 主进程 (DesktopHost)
+  participant Backend as Coding 后台 / PA 远程
 
-Code 的后台进程在右栏「后台进程」标签管理，从新标签页进入，会话菜单只保留存档。清单每页最多20项，并受256 KiB响应预算约束，选择命令读取 stdout/stderr 的原字节页、完整性及可切换的base64；单个停止只显示请求已接纳，退出码与停止核实分别展示。结束动作经确认后由主进程保存原请求键与实例，应答未知时查询状态并保留原键，显式重核沿原键重试；关闭后台标签、窗口、断线与存档均不触发停止，换父会话只丢弃渲染进程的浏览位置。
+  Renderer->>Preload: request("open_workspace", { path })
+  Preload->>Main: IPC 转发 (校验方法白名单)
+  Main->>Backend: Unix Socket / WSS 发送 RPC
+  Backend-->>Main: 返回会话快照与事件
+  Main-->>Renderer: 事件推送更新 ViewState
+  Renderer-->>Renderer: 响应式重新渲染消息流
+```
 
-Node 宿主创建时开始准备环境，与窗口加载并行。日常应用执行一次登录 shell，取得 Node ≥24.15 与环境，旧版本返回 node_unavailable；首次连接复用结果，采用后显式解析 Code 的数据、agent、控制目录。预热失败由连接报告，重新连接可重试；退出取消并回收直接读取进程，迟到结果不再采用。`ensureBackend` 先经认证 ping 轻量探测已有后台，正式连接再安装一次完整快照；需要启动时用登录环境中的 node 执行构建时记录的仓库 bin。Code 后台脱离运行，关闭应用不停止它。
-
-首次本地 Code 建连显示全屏毛玻璃加载页，旋转环与连接提示整体居中；connecting 或 online 尚无实例快照时保持。就绪、明确失败、关闭或进入首次退避重试时淡出，退出完成前底层与快捷键不可操作。失败后沿原界面恢复连接或配置 PA；之后普通重连不再显示全屏遮罩。减少动态效果时直接退出，正式端没有模拟展示延时。
-
-受管开发前端同样核实 Node ≥24.15，使用启动器清洗后的环境，从开发控制目录读取 owner.token，不执行登录 shell，也不调用 ensureBackend；后台重载后由 ControlConnection 自动重连。桌面源码由 electron-vite 监听，渲染进程热更新，主进程重建后重启 Electron，preload 重建后重载渲染进程。启动器负责整组进程退出。
-
-Personal 通过系统信任的 HTTPS/WSS 直连固定 origin，拒绝重定向与不符的远程/档案身份。凭据不进入 renderer、URL、argv 或日志；Serve 只发布业务 socket，管理 socket 保持本机私有。后台逐启动令牌由 remote 本机读取，桌面无须取回或保存。
-
-PA 每次订阅先安装快照及固定历史水位，再应用同一 runId/subscription 的连续 seq；entry 身份合并历史与实时消息，长正文按原 entry 补读。旧订阅、断序与后台重启触发重新同步；实时工具与消息块按原索引保序，不能转换成 Code 快照。首次、重连、页面可见及存在运行/未决时补查问题、审批与工作，周期为5秒且单飞，断线或销毁即停止。
-
-左右侧栏支持收起、展开和拖动调宽，方向键可调节边界；左栏收起后保留两个图标宽的轨道，只留 Ruukoto 与设置两个图标，其余内容不渲染也不可聚焦，右栏关闭内容不可聚焦，减少动态效果时关闭过渡。左下设置打开左分类、右内容浮窗，包含外观、模型、Skills、MCP、电脑、Web 搜索、PA 远程连接、已存档会话。外观切换明暗主题，PA 远程连接按地址、连接核实和服务器配对码逐步完成，远端离线也可编辑本机地址；Code 模型页可管理实例级提供方、模型、凭据和默认值；Code MCP 页按实例管理服务与凭据；Code Skills 与 Personal 模型、Skills、MCP 均已接入各自真实配置；工作区上方 Ruukoto 切换到唯一 Personal 主会话，不新开顶部标签，PA 身份由独立握手与原生快照提供；选中时图标周围显示圆角方块底色。名称筛选只过滤已加载的工作区与会话，不查询全文历史。
-
-左栏按工作区组织归属列出普通开发会话，摘要按 `workspace_id` 查询，排除角色与 SubAgent 会话与已存档会话；会话行悬停时行内右端浮现存档键（叠在会话按钮内，按钮固定预留键位，短名不渐隐、长名尾部渐隐收尾，状态点在键左侧），存档后从列表与顶部标签移除，历史与任务保持不变，可在设置的「已存档会话」中取消存档。Ruukoto 下方的 New chat 打开不含会话的新对话草稿页，在线且没有已选会话时（启动后未打开、关掉全部标签）主画布默认就停在该页，没有单独的「选择工作区」占位页：输入区与既有会话页一致，带附件、模式与模型选择（未选时继承当前会话或后台默认值），工作区选择器位于输入框之外，菜单顶部按名称搜索、底部可直接新建工作区，未选中时不能开始对话；发出首条消息时才按所选工作区与草稿设置创建会话、补传附件并提交，创建在途或失败时草稿保留原文、不发送，切换会话即收起草稿页，默认页没有来路会话、再次点击 New chat 不动作。添加工作区先打开系统文件夹选择框，再带新请求键调用 `open_workspace`；新建会话同样带键调用 `create_session`，成功后打开原会话；请求在途时只有发起该请求的工作区行把加号换成加载图标，其余新建入口保持禁用。成功之后再次添加同一目录会在已有工作区下新建会话。新会话在首次点击时继承当前或最近 Code 会话的模式、模型与 Effort，跨工作区同样适用；关闭最后标签仍保留本次连接来源，换实例清除。设置保存中或结果未知先核实，不建立旧设置的新会话。初始选择随原创建键固定，和 session.created 同事务保存；重放不覆盖后来设置。
-
-Code 模型设置在总览直接选择默认模型／Effort 与摘要模型并自动保存；提供方在完整弹窗内添加或编辑连接、存储 Key、模型能力与高级字段，API 类型使用选择框，保留脱敏占位符。弹窗叉号放弃草稿并退出，已提交操作仍可核实；删除按钮位于左下角，保存位于右下角。目录与存储 Key 同时修改时先保存目录并读回，再按新修订保存 Key，后一步失败明确报告部分成功。列表只读配置位置与已注册成员、真实 Effort，不解析动态凭据或验证认证；存储条目、目录 apiKey 和具体请求头分别操作，环境由后台启动环境维护。OAuth 条目的替换／移除不会撤销远端令牌。后台默认模型与会话模型分开，摘要模型可清除；显式启动参数覆盖会提示。所有写入携带读取修订，冲突保留草稿并读回当前值，应答丢失只核实原实例，不自动重发；秘密提交后清空。点击连接测试直接联网；模型名旁以黄／绿／红点表示未测试、成功／失败，失败详情放在圆点提示中，配置变化后旧结果失效。目录事件淘汰会话和新聊天菜单的旧分页并刷新运行时默认值，不改已有任务选择。
-
-Code Skills 列表按名称检索已取得项，显示托管／外部维护、启停、仅显式调用及诊断；正文有界，支持经过过滤的 HTML，图片直接显示。外部来源只读；托管单包导入复制到 Code 私有区，源库不变。启停和逻辑移除只影响后续新任务选择，旧任务正文、原恢复引用与包字节保留；操作前展示影响。冲突保留列表、选择和预览供刷新比较；丢答按原技能身份读回，不再次复制，查询失败保持待核实。
-
-设置无需打开会话。模型、Skills、MCP、电脑各自通过 Code / PA 双页签选择本地 Code 或远程 Personal，打开时默认聊天目标，此后不切换聊天；Code MCP 只关联产品与后台实例，无工作区或会话也可管理，不显示工作区和配置来源选择；切换聊天工作区不重建表单或丢弃草稿。各页统一为「分区标题＋标题行动作」布局：是/否配置用开关行，两三个短选项（如明暗主题）用分段选项卡，刷新、添加、取消存档等标准动作用图标按钮；说明文字只保留错误、状态与影响判断的必要提示。设置容器内未保存的模型、MCP、电脑、Skills 导入与 PA 连接编辑在切类别、关闭及收起侧栏前提供保存、放弃或继续编辑；提供方弹窗叉号直接放弃草稿，保存中禁止重复动作；浮窗与两侧内容在窄窗内滚动。Web 搜索页为即时操作，无草稿保护。
-
-Code 对话恢复由 [view 的 HistoryRecovery](view.md) 共用任务查询、事件与正文分页；桌面保留历史页读取、安装及显示顺序。先取历史页与历史窗口内的任务状态，任务状态先装入再公开历史页，随后安装带 seq 的任务详情并从零起分页补读任务事件；恢复期间的重绘合并为一次，打开会话时已收起的 trace 从首次可见起保持收起。长正文每页 64 KiB、所有角色按连续 UTF-8 字节偏移补全；历史页里已有条目的补全不阻止自动收起，页外缺失正文由共享模块记录未就绪事实。单条失败可见并继续后续条目，暂未落盘的正文延后补读。每条工具结果落盘后即补发条目引用，同批后续工具仍运行时，已展开详情也能自动读取。每次新快照都重置恢复代次、游标与合并重绘计数；旧代次成功、失败降级和收尾均不改新投影、检查器或重绘，当前任务查询失败仍显示已读历史并报告错误；向前翻页保留已加载条目。正文经共享的 MarkdownText 用 Streamdown 解析 Markdown 与内嵌 HTML，经 rehype-sanitize 过滤脚本、事件属性和危险链接，代码围栏保持源码：聊天正文按流式补全未闭合块，文件与技能正文按静态渲染；代码块带 Shiki 高亮（纯 JS 引擎）与行号，表格自带复制等操作，数学公式按 KaTeX 渲染（单美元记法关闭），Mermaid 图表按需渲染；下载类操作关闭，外链沿主进程打开系统浏览器。Code 主／子会话、Personal、文件预览与双端技能的 Markdown 图片直接显示，保留地址与说明，按容器宽度缩放；本机路径指向桌面所在机器，相对路径按页面地址解析，加载与失败沿浏览器原生行为。历史在滚动到顶部时补读并保留锚点，工具与 SubAgent 按时间顺序逐条显示，单条调用保留各自的详情展开。已记录 reasoning 使用 Thought 行，Thinking 下直接显示当前原文，两处均限6行视觉高度并可内部滚动（Driver 只记录8KiB尾部）；在线 running 的请求前、参数生成及工具轮间显示 Thinking，最新同任务非空正文流接替状态，工具执行时直接显示本批次已完成／进行中调用，不显示 Working 标题；任务完成且最终 assistant 正文已确认后，动画收起此前连续的执行记录及中间进度正文，摘要显示 Worked for 与实际任务耗时（缺时间显示 Worked），可重新展开，最终回复、用户输入和审批卡保持可见，不跨排队输入重排记录；等待审批、取消、暂停及终态不留旋转状态，TUI 操作说明与工作流提示不显示。标签关闭键仅 hover／焦点时覆盖显示并渐隐邻近文本；拖动结束及取消后暂停旧位置hover，隐藏关闭键并停止其鼠标命中，待本组指针移动后恢复，键盘焦点提示保留。选中标签两侧不显示分隔，左右标签区以短竖线隔开，右栏正文与顶部标签之间没有横向分割线；关闭标签不删除会话。两组标签独立等宽，按空间在96至180px调整；拖动邻项避让，放下提交顺序，取消恢复，Alt+Shift+左右方向键也可排序。整个窗口提供单层半透明模糊，左栏、顶部与消息区圆角露出同一底层，减少透明效果回退实色。筛选与工作区／工具折叠有开合动画，关闭内容不接收焦点，遵守减弱动画；手写行按钮的 hover、悬停显露的关闭与添加键、展开箭头旋转和提示条出现也有短过渡。
-
-Code 右栏标签位于窗口顶栏，与侧栏共用宽度，按父会话保存文件差异、SubAgent、浏览器、文件树和文件预览；新标签页固定列出浏览器、终端、文件树和 Git graph，不预先检测仓库。有工作区即可点击 Git graph，进入后才查询，非仓库显示简短提示及刷新，失败可重试。委派行按结构化 sub_agent_id、work_id 或 requestKey 关联工作与子会话，不解析工具返回文字。委派行显示 Agent 的真实身份状态；子会话用户气泡优先展示任务详情中可核实的原始委派请求，缺失时保留原文。选择子会话后复用对话恢复，实时补读和新快照同样覆盖子会话；Code 工作详情和取消入口暂不展示。已加载的主／子消息每次渲染只读取一次有序流，Markdown按正文与路径引用缓存，保留真实行布局以减少快速滚动时的延迟绘制。工具调用直接平铺，等待结果沿用对应工具进行中动作，Read 不折叠，路径按来源会话 cwdReal 映射已登记工作区打开文件；域外成功 Read 的唯一捕获产物可直接预览当时版本，仅在部分捕获时显示紧凑提示，校验任务／会话／产物身份，不读取任意绝对路径；缺失、多义或完整参数不可用时明确提示。Edit／Write 行内展开已记录 diff，Bash 展开完整命令与结果；截断参数核实操作及来源后分页补齐，错误标红并显示原始错误，未知效果不显示成功。缺失与空 diff 分开，旧 Write 没有记录 diff 时明确提示。对应正文中的文件路径仍打开单次调用差异，同文件多次修改保留独立标签。成功 edit 显示 unified patch 的行号、增删与上下文，write 显示实际写入内容，空文件沿用零行内容区。差异直接平铺，横向滚动时行号与标记固定；超过单页的正文经 more 按 UTF-8 偏移加载，失败保留已读内容。
-
-输入框 Enter 发送、Shift+Enter 换行，IME 组合与重复按键不发送；空输入 Enter 不停止任务，附件输入沿相同资格检查。发送时携带会话模型，继续输入保留原任务来源；暂停期间新任务显示为排队。模型目录按 `nextOffset` 分页并保留思考档位与可用性，认证不可用的选项禁用。Effort 位于模型菜单内，以一条分段粗滑杆展示实际 thinkingLevels，档位保持菜单项可键盘到达，点选即切换并收起菜单；切换模型保留支持的档位，否则采用该模型首个支持档位。输入区功能键始终单排，较窄时模式只留对应图标、模型只留 Brain 图标。模型与默认模式设置均带版本；默认模式只影响后续任务。运行且草稿为空时，发送按钮变为停止图标；有输入时仍可排队。中断请求受理不当作终态，只有后台确认 interrupted 才展示继续来源；继续只从当前会话的中断任务发起。独立取消列表和效果未知提示卡不展示。恢复队列前检查缺模型的旧任务，先选模型，再确认补齐数量与模型；取消确认保持暂停，没有缺模型任务时只传会话。
-
-Context 环形入口不显示百分比数字，悬浮层按 System prompt、Tool definitions 和 Messages 展示最近一次已记录模型输入的估算与当时容量；Messages 包含除前两类外的所有已选输入。没有记录、容量或读取失败时保持未知，不用 provider usage 或当前目录代替；实时输出与终态刷新，在途刷新合并后补读，新快照和断线淘汰旧请求。
-
-流式思考保持 6 行可见高度，随新增文本滚动内部内容到末尾；历史思考可手动滚动。完整思考由有界增量重组，取消总量截断。
-
-Code 的 present 成功 live 工具结果会在来源会话侧栏打开文件捕获快照或网页；当前在另一会话时保存原会话标签，不切换当前页。重复事件和历史重放不自动重开，工具行可显式打开历史请求。文件始终读取任务产物，后续源文件修改不改变快照，也不借拥有者文件树授权读取模型路径。网页预览不要求切换完全访问或逐次审批，沿既有隔离浏览器；失败工具不打开，回执不证明页面已经加载。
-
-文件树只读当前会话组织归属的已登记工作区，逐层读取，每页最多 200 项，各层末尾可加载更多；目录优先、名称按固定字符串顺序排列，游标失效时刷新目录。文件预览按页读取全部内容，支持文本、Markdown、PNG／JPEG／GIF／WebP，其他类型明确不支持；跨页修订、来源或大小变化丢弃整次结果；Markdown 可切源码，源码按已支持扩展名高亮并保留完整原文、固定行号，未知类型纯文本，图片失败可见。拥有者浏览不采用 Agent 的后台保护目录限制；后台允许普通硬链接预览，按登记根身份和全路径拒绝符号链接及不稳定读取，renderer 不获得任意宿主路径读取权。断线和快照淘汰旧读取；文件预览关闭重开及读取重试同样丢弃旧应答，目录缓存按工作区保留，活动文件树每3秒和窗口聚焦刷新根与已展开层，重建已加载前缀后一次替换，前部新增不会使旧末项丢失；追加或刷新失败保留旧树并可重试，确认删除才失效对应缓存。切换、关闭、折叠或离线停止后续页与层的读取。Read／present 快照按256KiB页读取全部捕获内容，partial明确提示；新零字节读取也创建空产物，旧缺失捕获不伪造。文件树与预览只核实目标及父链，不扫描后台保护树；工作区登记只核实目录身份，受限工具在执行入口核对保护范围。
-
-浏览器初始为空页，地址接受无凭据 HTTP(S) 与本机file，提供后退、前进与刷新；历史记录只覆盖地址栏提交。本机文档由Host分配临时loopback地址与随机令牌，保留原始file地址；可读取同目录／子目录相对资源，不按文件或目录名称判断敏感性，拒绝越界、链接及userData。每文件8MiB、每文档累计32MiB／256次请求，至多8份文档和16个并发读取；地址栏导航、刷新、关闭与Host退出释放能力，iframe内部导航不记历史或保证即时释放。模块与fetch支持无凭据CORS，本地HTML可用CDN和联网，其脚本可能转交同目录能力，不能把此功能当作不可信JS防泄密执行器。网页使用无 same-origin、顶层导航、弹窗或下载权限的 iframe，不加载桌面开发来源；远程 frame 无 preload／IPC／Node，所有网页权限、设备与屏幕捕获均拒绝。站点禁止嵌入时不能预览，界面不显示固定嵌入提示。普通Web Demo没有任意本机读取能力。
-
-右栏新标签页的终端入口是与文件树同形的按钮，点击为当前会话归属的工作区开新终端，无归属工作区或未登记根目录时禁用；宿主按预期数据实例与工作区根真实身份选择cwd，启动默认登录shell；不调用后台，也不受Agent任务沙箱限制。输入、resize和base64输出按终端引用分流，output直接写xterm，不重绘React；隐藏终端常驻，重新显示后更新尺寸，明暗跟随应用并各自提供完整16色，字体使用具体等宽字体栈（与全局--font-mono同值；canvas字体语法不解析var()，CSS变量会静默回退比例字体并压错行高），Ctrl组合交给shell。
-
-文件树首读用加载图标；文件夹读取时在行末显示图标，完成或失败后展开，失败可重试，空目录留空。读取中再次点击取消展开；缓存命中直接展开，刷新保留现有内容。左栏折叠与展开共用一个按钮，位置连续过渡，保持焦点并避开原生交通灯。
-
-Git graph 每页读取200条真实提交，滚动接近底部自动追加直到末尾，没有累计条数上限；只渲染可视区附近的行与图线，窗口外行以占位撑高，横向内容宽度保存本次打开见过的最宽行，滚到短行窗口后仍可左右滚动并触发续页；Tab、读屏、文本选择与浏览器 Find 只覆盖窗口内已渲染行（窗口外焦点行旁路渲染时除外）。提交主题与分支名保持自然宽度，可左右滚动，续页无可见加载文字；隐藏、离线、加载中或发生错误时暂停，追加失败显示重试。父关系、branch／tag与remote共用六种彩色lane，28px摘要只给左侧图标着色，名称保持中性。点击展开作者、时间、短哈希与父提交，可刷新。翻页绑定工作区与仓库修订，refs、HEAD、shallow、grafts或目录身份变化时要求刷新；追加失败保留已有历史并可重试，刷新或换实例丢弃旧追加。每次后台读取预算5秒并限制输出，不遍历保护树或整个 Git 目录；支持元数据链接、本地克隆的硬链接对象、alternates与配置include。命令固定关闭外部程序和自动取回对象，日志使用UTF-8；HEAD链接目标变化同样淘汰游标，元数据格式、读取变化或超限明确报错。
-
-Code 附件加号打开系统文件选择器，每次最多 4 个、每个不超过 8 MiB；文件按原目标、连接对象与实例上传，renderer 只收到引用、名称与大小。选取与上传期间禁止发送，成功后附件与草稿一起提交；移除附件不删除后台快照，普通文件与图片的读取方式见 [runtime](runtime.md)。
-
-Code 拥有者问题卡片由 view 的快照和事件恢复，顶部只显示当前问题，选项纵向整行展示，名字后显示可选说明和 Recommended 标记，全文允许换行；单选保留编号，多选以复选框替代编号，不显示多选标签；推荐不预选。12像素的自由输入图标与输入行位于选项下方，输入文字清除所有选择，选择不重复填入输入行。底部保留题号、翻页、Skip 和下一步；Skip 清空当前答案并前进，末题进入整批核对，核对与终态显示已跳过但保存空字符串。顶部没有进度、折叠或取消入口。选项不自动补齐；已回答、取消和失效显示简短状态，原回答和题目继续可读。快照省略的题目在选择会话与快照恢复时经控制面查询待答优先的最近一页，保留全文；查询代次隔离会话与实例，并保留较新的事件状态。取消整批问题不产生回答或后续任务；关闭标签、普通聊天和断线保留待答问题。回答与取消由主进程发送前落盘原键、完整参数与实例，丢答和重连按原回执恢复；未决问题记录不并入普通聊天草稿。
-
-已回答的问题卡片取代对应回答的用户消息，留在当时的消息位置，底部只保留待答、取消或失效的独立卡片。替换按同会话的续接任务关联，不按正文猜测；原历史和模型输入保留。问题资料尚未加载时先显示原用户消息，资料到达后原位更新。
-
-审批卡片以 view 的当前待审批集合为准，任务终态、权限版本变化、人工或自动审查解决后立即失效。卡片只展示本次实际命令或参数及用途，完整参数自动按 UTF-8 字节偏移续读，读完后直接批准或拒绝；权威成功应答后移除卡片。正文较窄时，标题与按钮组自动换行。操作绑定原目标、实例、审批和展示的权限版本。
-
-主进程为Code维护view；新待审批及完成、失败、中断任务发系统通知，取消不通知。Scheduled 名下 Task 不单独发终态通知，整项运行关闭才通知完成、失败或中断，待审批仍沿原入口。PA以原生快照建助手entry基线，实时新助手条目及补查新增的问题/审批另行通知。前台只更新已见记录；Dock角标合计Code待审批和PA当前待答/待审批。点击PA通知打开主会话，Code通知定位原会话，SubAgent定位父会话并保留子会话/任务选择及右栏历史。
-
-Code首次观察实例的快照及其截止seq 以内的补发只建基线，握手缓冲的更新实时事件照常通知。同实例重连按审批和终态任务 ID 去重补通知；没有补发时，用 `get_task` 查询此前观察中、现已离开快照的任务。失败保留待查，下次快照再查。应用不持久化通知基线，也不扫描全部历史：离线期间新建又结束、既无补发又超出快照范围的任务不补通知。
-
-消息流以外的文字在原尺寸上增加2px，包括输入框、菜单、设置及右栏文件／Git内容；依赖 tailwind 字号 token 的菜单项、按钮、输入框与 Select 触发器统一钉在 14px 次级档，不随 token 膨胀到 16px。主与SubAgent消息正文、工具和审批字号保持不变。深色左栏及Tab选中项使用更亮的半透明底色，沿用单一玻璃背景。源码与行号共同保持23.8px行高。
-
-Code MCP 新服务先保存禁用草稿，再主动联网发现工具，逐项选择允许工具与本地副作用类别后保存并显式启用；远端只读注解不自动授权。服务表单关联原实例与服务身份，保存携带读取版本，启停后读回。凭据仅保存到本地 Code 后台，首次落盘即限本实例与 MCP 操作；省略引用保留，匿名选择清除引用。列表显示配置状态与服务引用，仍被引用的凭据不能清理。冲突保留草稿并展示当前值，丢答仅读回原实例，不自动重发；停用不取消已经发出的远端调用。
-
-双端「电脑」设置类别可选择「本机 Cua Driver」或「Linux 桌面沙箱」；后台发现已安装固定程序与既有沙箱，生成版本、哈希及目标身份，界面展示检查结果。Code 工具发现只读静态清单并预检当前后台宿主授权位，不宣称实际桌面捕获成功。电脑配置仍是 MCP 服务存储，与普通服务共用修订检查和未决阻塞，MCP 页只呈现 HTTP 服务。暂停与继续经原后台管理，关闭设置窗不停止后台动作。恢复页展示原未知动作，依次核实停止、人工检查和新截图；图片按原观察分页读取、校验并实际加载后才可接受，重观察、失败或连接更换丢弃旧选择，后台再次核实观察身份。Linux 整沙箱停止须明确确认内存与未保存应用状态丢失，磁盘保留。
-
-Web 搜索设置仅向 Code 开放：Tavily 密钥经专用 op 保存到固定名绑定，不接受名称、主机或用途参数；按名称排序呈现生效绑定，CLI 创建的绑定只读并提示用原命令管理。实例级开关读自本地快照（全实例共用），写入携带期望版本，冲突提示按当前值重选；停用立即阻止后续调用，启用从下一任务生效。
-
-Personal 各页每次打开重读原档案，模型编辑单模型、API 类型、容量、图片能力与环境变量引用，显式测试当前草稿且与保存分开；技能库与包均通过远端目录选择和预览，外部来源只读，托管启停与逻辑移除保留旧引用所需字节。MCP 编辑档案级服务、私有凭据文件或显式匿名；电脑页编辑 Linux 沙箱，共用 MCP 修订与维护流程。原工具允许列表分页读取完整定义，未改工具时由后台保留，不用摘要覆盖 schema。写入先展示影响再保存，展示已保存、等待生效、生效失败或待核实；保存与服务启停独立。离线及开发后台可保存，无关工作和原模型凭据状态不控制页面可写性；旧后台明确要求升级。草稿和原键在冲突、断线与迟到应答时保留；可核实原更改或撤回已证明保存的待生效候选。
-
-Personal 不显示右栏，在主聊天中查看后台工作结果、补读长结果及取消可取消的工作。
+1. **环境自检与按需拉起**：客户端启动时探测后台，若未启动则由主进程安全拉起 `ruukoto-code server`，免去手动开终端操作。
+2. **多会话无缝切换**：左侧栏点击会话时秒级切换激活视图，历史消息异步分段拉取，保证流畅不掉帧。
+3. **一键审批响应**：工具调用触发审批时，时间线即时弹出审批卡片，拥有者可查看参数 Diff 并一键批准或拒绝。
 
 ## 不变量与失败处理
 
-Scheduled 暂停只影响未来；取消确认明确包含当前整项运行且保留成果。未知效果先核实原会话停止，再在恢复中确认保留未知、只允许未来周期；确认绑定运行版本，不重发旧操作。后台拒绝或版本冲突保留草稿供核对，后台与桌面退出不等同，宿主退出后不保证系统通知。
-
-服务器 remote 通过既有维护接纳/查询通道转发 v2 设置请求，仅持久保存自身的接纳关联；档案内设置回执持有保存与生效权威。断线不取消已接纳操作，不换键重存，不自动停启后台；相同对象待核实时阻止该对象新写，其他对象继续管理。v1 未决停存启回执仍保留原阶段、显式恢复服务及人工结束入口，先处理旧维护再接纳新配置。
-
-选择会话名称或正文结果均直接打开对应的普通会话，沿用已有标签、最新消息、历史分页、实时输出与输入区，保留原草稿和附件。正文片段用于辨认会话，不单独进入历史模式或滚动定位原消息。已存档结果可显式打开且不取消存档。
-
-终端参数不接受任意cwd；仅按当前Code实例已登记根的真实路径和inode启动，迟到打开或实例变化拒绝。输出16ms合并／发送节流、单帧最多64KiB，pending达64KiB暂停PTY，MyGo等待管道写完后继续。回收先核实shell及当前后代进程组，TERM后500ms升级KILL，不因shell先退出取消；回收失败保留记录和界面提示，提供重试回收入口；输入与尺寸更新逐终端串行，失败后停止后续发送。主动脱离、已经成为孤儿或回收快照后新派生的外部进程无法保证追回；工作区只限制启动cwd，终端可访问应用账户可访问的其他目录。
-
-MyGo 仅在精确 `mygo://localhost/` 顶层文档安装 bridge，每个 Go 方法另核对调用窗口及文档 URL，原生拒绝子 frame IPC。保留生产 CSP 与 iframe sandbox，拒绝网页权限、下载和全部新窗口，主文档外链交系统浏览器。子 frame 隔离不依赖主文档导航回调。未写入 Node 的请求为 not_sent，交付后丢答保留 unknown／disconnected，禁止自动重放；坏帧、EOF、写入故障或传输期限使全部在途调用失败并报告 failed，旧更新不再安装。退出先等待 Node 回收连接，再有界升级终止；日常后台继续运行。
-
-Electron 窗口启用 sandbox、contextIsolation，关闭 nodeIntegration。sandbox preload 构建为单个 CommonJS 文件；preload除Electron与Node内置模块外的依赖全部打包；主进程另精确允许vendor node-pty，包含runtime JS、本平台native与macOS spawn-helper，native/helper从asar解包。生产 HTML 的 head 首个元素是严格 CSP meta，样式额外放行内联，因 xterm 运行时注入无 nonce 的 style 元素承载终端颜色与字体；开发页面只使用带本次 nonce 的响应头策略，放行 dev server 的 HTTP 与 WebSocket 源，脚本不开放 unsafe-inline。开发页面仅允许对配置的完整文档 URL 自身重载；其他导航被拦截，只有主页面 HTTP(S) 链接交给系统浏览器。CSP 对 iframe 开放 HTTP(S)，图片来源允许网络、file、data 与 blob；脚本 nonce、主 frame IPC 与主页面导航限制保持。
-
-版本不一致显示双方版本与更新方向：客户端较旧时重建应用；受管后台较旧时重启开发启动器；日常后台较旧时按当前 control.sock 的 lsof 指引核对唯一 PID、用户和完整后台命令，由拥有者手动结束后重新连接。未查到监听进程时先核对命令是否成功，多匹配或无法核实时停止操作。桌面客户端不向后台进程发送信号。仓库移动或 node 不可用会提示修复环境或重建。
-
-PA 来源动作以后台能力为准：本机问题可逐题回答、跳过并整批核对；IM 问题仅查询和取消，回答回原私聊。工具、MCP、应用数据与服务审批必须读完完整参数页且具备原来源能力才显示决定；丢答查原操作，不自动批准或拒绝。后台工作只查询/取消具体工作，退出页面与断线不停止主会话。
-
-两壳在开放凭据前完成启动校验与单实例锁。Electron 正式包核实整包签名与 ASAR 位置，关闭 RunAsNode、NODE_OPTIONS、inspect，启用 ASAR 完整性并拒绝调试/开发覆盖参数。MyGo 核实签名资源、固定 Node 路径及摘要、sidecar路径和签名内的命名空间，再清洗注入环境启动 Node；正式包不接受 USER_DATA 或受管开发覆盖。登录 shell 环境只用于 Code 后台和终端，采用到 Host 前再次清除 Node/动态库/证书等注入变量。
-
-创建明确拒绝时清除待完成记录并提示失败；在线应答丢失先按 `createRequestId` 核实，找不到才按原键原参数重发一次。断线或未发送等新快照安装后再核实。一次重发仍无法确认时保留记录，提示在左栏工作区树查看；迟到的创建事件也可确认结果。实例不符时保留“原操作结果仍未知”，要求连回原实例，不向当前实例重发，也不采纳旧实例的迟到成功。读取失败沿现有提示呈现原因，正文分页不连续时不安装伪完整内容。
-
-差异先按工具状态判定：运行中不读取，成功但没有历史条目 ID 时等待落盘；失败与效果未知保留状态，有 ID 才读错误正文，否则显示摘要或明确状态。只有 `done` 且结果明确 `isError: false` 才显示 patch／写入内容，字段缺失显示“差异不可用”，不拿调用参数补位。工作读取与工具结果随每次快照换代，跨实例清空右栏选择；读取失败提供刷新或重试。
-
-提交丢答时保留原记录：在线超时当场核实，每次快照安装后串行核实全部记录，覆盖重启、重连和同连接重同步；运行中的触发合并为补跑。找到原任务就关联，明确未接收才原键原参数重发，实例不符保留并提示连回原实例。未发送或明确拒绝时原文仍在所属会话，保留已有草稿；原请求与在途草稿只按请求键关联，不按会话或相同正文猜测。
-
-缺模型且确认未接收的记录在所属会话自动交付为可编辑草稿，不自动发送。交付先只读原记录、按请求键合入原文和附件，再确认严格清除；同一渲染进程重复确认不重复拼接，继续来源保留。读取／删除的权限与 IO 失败可见且保持发送禁用；清理应答丢失可以重试。只有当前目标、当前实例、最近核实为缺模型的现存记录可恢复；清理已不存在记录幂等成功。
-
-设置容器的导航、关闭与 Code 断线和快照淘汰旧读取；Personal 三页以统一连接、档案身份和读取轮次隔离；换实例淘汰旧 MCP 读取，原提交中的表单保留待核实关联。PA 连接保存区分请求未送出、明确拒绝与应答丢失：前两者保留可编辑草稿，丢答锁定原提交并提供只读核实，不自动重新保存。读回不同值时展示当前配置并保留草稿，查询失败继续待核实；连接配置已保存不等于远端连接成功。
-
-设置冲突或在线丢答读回 `get_session`；任务控制在线丢答读回 `get_task`，队列恢复丢答读回实际队列。断线等待同实例新快照，查询失败保留结果未知；这些操作都不自动重放。设置尚在保存或等待核实时，恢复队列也等待核实，保留原设置未知标记。设置应答不覆盖较新的队列事件。
-
-审批决定从不自动重发。明确失效移除卡片；权限版本不符重读详情并等待重新决定；未发送保留卡片。在线应答丢失查询原审批，断线等待同实例快照，查询失败或过旧保留防重复状态并经现有提示报告；重新连接可再次核实。新快照淘汰旧详情与核实结果；换实例丢弃原操作结果。系统通知送达仍受 macOS 通知设置约束。
-
-PA 输入先持久化原请求再提交；重连与重开只核实，明确恢复仍用原键原文。换档案清空旧活动投影并保留草稿，未核实期间禁发；保存中的设置保留 unknown，迟到应答不覆盖草稿。输入、配对或维护未决时不能切换 origin。
+- **渲染进程零特权**：Preload 严格限制暴露的 Node API，渲染进程无法直接执行操作系统任意命令或读写任意物理文件。
+- **凭据硬件级加密**：所有配对令牌与 API Key 通过操作系统的安全加密存储（macOS Keychain / safeStorage）落盘，严禁明文写入配置文件。
+- **后台与界面解耦**：桌面窗口关闭或前端崩溃绝不导致后台正在执行的代码任务被意外终止，重开桌面后自动恢复进度。
 
 ## 设计依据
 
-- [Coding 调度的固定配置与独立会话](../../.agents/notes/implemented/feature/2026-10-25-code-scheduled.md)
-
-- [设置保存、版本与生效恢复](../../.agents/notes/implemented/architecture/2026-10-25-personal-settings-versions.md)
-
-- [正文渲染迁移 Streamdown](../../.agents/notes/implemented/feature/2026-10-25-desktop-streamdown.md)
-
-- [设置拆出电脑与 Web 搜索类别](../../.agents/notes/implemented/feature/2026-10-25-desktop-computer-websearch-settings.md)
-
-- [Markdown 直接显示图片](../../.agents/notes/implemented/simplification/2026-10-25-desktop-markdown-images.md)
-
-- [Agent侧栏预览](../../.agents/notes/implemented/feature/2026-10-25-code-present.md)
-
-- [个人 Tailscale HTTPS 与 WebSocket](../../.agents/notes/implemented/architecture/2026-10-24-personal-tailscale-https.md)
-
-- [Code MCP 按实例配置与旧格式退出](../../.agents/notes/implemented/simplification/2026-10-24-code-instance-mcp.md)
-
-- [文件树续页与按需 Git](../../.agents/notes/implemented/feature/2026-10-24-directory-pages-lazy-git.md)
-
-- [读取检查复用](../../.agents/notes/implemented/bug-fix/2026-10-24-read-check-overhead.md)
-
-- [拥有者工作区浏览权限](../../.agents/notes/implemented/feature/2026-10-24-owner-workspace-browsing.md)
-
-- [Cua 具名配置与人工恢复](../../.agents/notes/implemented/architecture/2026-10-23-cua-official-mcp.md)
-
-- [Personal 三类设置与维护关联](../../.agents/notes/implemented/feature/2026-10-21-desktop-personal-pages.md)
-
-- [Personal SSH 维护](../../.agents/notes/implemented/feature/2026-10-21-personal-settings-ssh.md)：固定原服务生命周期与断线核实；连接方式以当前HTTPS/WSS协议为准。
-
-- [Code Skills 宿主目录选择与核实](../../.agents/notes/implemented/feature/2026-10-21-desktop-code-skills.md)
-
-- [Code MCP 来源与凭据管理](../../.agents/notes/implemented/feature/2026-10-21-code-mcp-settings.md)
-
-- [Code 模型设置与凭据来源](../../.agents/notes/implemented/feature/2026-10-21-code-model-settings.md)
-
-- [设置容器、范围选择与原表单保护](../../.agents/notes/implemented/feature/2026-10-21-desktop-settings-shell.md)
-
-- [搜索结果直接打开普通会话](../../.agents/notes/implemented/simplification/2026-10-21-desktop-search-session-navigation.md)
-
+- [桌面客户端作为又一个控制面客户端](../../.agents/notes/proposed/architecture/2026-10-15-desktop-client.md)
+- [双端共用会话历史恢复](../../.agents/notes/implemented/architecture/2026-10-23-shared-history-recovery.md)
 - [应用内 Spotlight 与历史定位](../../.agents/notes/implemented/feature/2026-10-21-desktop-spotlight-search.md)
-
-- [Coding 会话后台持有独立目录占用](../../.agents/notes/implemented/feature/2026-10-21-coding-background-processes.md)
-
-- [持久拥有者问题](../../.agents/notes/implemented/feature/2026-10-21-coding-owner-questions.md)：问题与审批分别登记，可信回答唯一续接。
-
-- [本机集成终端](../../.agents/notes/implemented/feature/2026-10-20-desktop-integrated-terminal.md)
-
-- [首次连接加载页](../../.agents/notes/implemented/feature/2026-10-18-desktop-connection-loading.md)
-
-- [完整思考与文件预览](../../.agents/notes/implemented/feature/2026-10-18-complete-reasoning-and-preview.md)
-
-- [Git历史分页](../../.agents/notes/implemented/feature/2026-10-17-desktop-git-history-pages.md)
-- [Git历史自动续页](../../.agents/notes/implemented/feature/2026-10-17-desktop-git-lazy-loading.md)
-- [Git graph 行窗口化](../../.agents/notes/implemented/feature/2026-10-18-desktop-git-graph-windowing.md)
-- [文件树加载反馈](../../.agents/notes/implemented/feature/2026-10-17-desktop-file-tree-loading.md)
-- [侧栏折叠按钮](../../.agents/notes/implemented/bug-fix/2026-10-17-desktop-sidebar-toggle.md)
-- [收起后的左栏图标轨道](../../.agents/notes/implemented/feature/2026-10-19-desktop-sidebar-rail.md)
-- [新建会话在途显示加载图标](../../.agents/notes/implemented/feature/2026-10-20-desktop-creation-spinner.md)
-- [新对话在首条消息时创建会话](../../.agents/notes/implemented/feature/2026-10-20-desktop-new-chat.md)
-- [会话存档只影响列表可见性](../../.agents/notes/implemented/feature/2026-10-20-desktop-session-archive.md)
-- [Tab hover资格](../../.agents/notes/implemented/bug-fix/2026-10-17-desktop-tab-hover.md)
-- [非消息字号与选中样式](../../.agents/notes/implemented/feature/2026-10-17-desktop-chrome-typography.md)
-
-- [PA 与仓库标签迁移](../../.agents/notes/implemented/architecture/2026-10-17-desktop-demo-v4.md)
-
-- [启动环境预热与就绪探测](../../.agents/notes/implemented/bug-fix/2026-10-17-desktop-connection-startup.md)
-
-- [MyGo 外壳试验](../../.agents/notes/implemented/architecture/2026-10-17-desktop-mygo-experiment.md)
-
-- [Desktop Trace 详情与执行状态](../../.agents/notes/implemented/architecture/2026-10-16-desktop-trace-migration.md)
-
-- [按当前 demo 更新](../../.agents/notes/implemented/architecture/2026-10-16-desktop-current-demo.md)
-
-- [按定稿 demo 迁移](../../.agents/notes/implemented/architecture/2026-10-15-desktop-shadcn-demo.md)
-- [工具结果分页](../../.agents/notes/implemented/feature/2026-10-16-tool-result-pagination.md)
-- [桌面客户端提案](../../.agents/notes/proposed/architecture/2026-10-15-desktop-client.md)
-- [同仓 workspaces 分包](../../.agents/notes/implemented/architecture/2026-10-11-in-repo-workspace-packages.md)
-- [开发启动器](../../.agents/notes/implemented/process/2026-10-09-dev-launchers.md)
-- [按操作核实范围](../../.agents/notes/implemented/bug-fix/2026-10-24-operation-specific-checks.md)：Git引用兼容与登记、执行的检查归属。
-
-- [工具平铺与完成后的执行记录](../../.agents/notes/implemented/feature/2026-10-18-completed-trace.md)
-- [执行阶段与reasoning批次](../../.agents/notes/implemented/bug-fix/2026-10-17-desktop-execution-activity.md)
-
-- [本机文档预览能力](../../.agents/notes/implemented/feature/2026-10-17-desktop-local-browser.md)
-- [本机预览路径名称](../../.agents/notes/implemented/simplification/2026-10-25-browser-path-names.md)
-- [Markdown 渲染 HTML](../../.agents/notes/implemented/simplification/2026-10-25-desktop-markdown-html.md)
+- [个人 Tailscale HTTPS 与 WebSocket](../../.agents/notes/implemented/architecture/2026-10-24-personal-tailscale-https.md)

@@ -1,159 +1,154 @@
 # 架构总览
 
-`ruukoto` 个人 Agent 与 `ruukoto-code` Coding Agent 同仓交付；个人端由 durable 持有运行状态，Coding 继续使用共享底座；细节见[模块文档](modules/)。
+Ruukoto 在同一个代码仓库中交付两个独立定位的 Agent 产品：
+- **`ruukoto`（个人 Agent）**：面向个人日常事务与长效助理，由 durable 原生持久层持有会话与运行状态；
+- **`ruukoto-code`（Coding Agent）**：面向软件工程与复杂编码任务，依托共享 Runtime 底座与多任务调度编排。
+
+各模块的深度设计与技术契约见 [modules/](modules/)。
 
 ## 模块地图
 
-| 模块 | 一句职责 | 主要依赖方向 |
+系统由应用层（Apps）与核心包（Packages）组成，严格遵循自顶向下的单向依赖：
+
+| 模块 | 核心职责 | 主要依赖关系 |
 | --- | --- | --- |
-| [products](modules/products.md)（`apps/ruukoto`、`apps/ruukoto-code`） | 持有各产品入口与专属业务装配 | 个人装配 durable，Coding 注入共享 runtime/CLI；产品包互不依赖 |
-| [personal-durable](modules/personal-durable.md)（个人 app 内） | 个人会话、工作、档案与请求证据、权限、IM/本机/远程管理和工具 | 依赖 Pi 1.3.0 与独立底层能力；正式 bin/start/dev 同装配 |
-| [runtime](modules/runtime.md) | 拥有任务生命周期、队列、Code 调度与 SubAgent 编排；模型配置与栈归 RuntimeModels | 依赖 core 的存储、agent-context 的模型装配、agent-tools 的工具、execution 的执行边界；被 control 与 channels 驱动 |
-| [core](modules/core.md) | 定义数据布局、schema、任务状态机与会话身份判定 | 不依赖其他模块，被全部模块依赖 |
-| [workflows](modules/workflows.md)（runtime 内） | 为模型与拥有者入口提供定义库、固定后台运行、持久步骤及控制 | 依赖 core 的事务、agent 的脚本与执行边界；默认接真实 Driver、来源权限与冻结汇总 |
-| [agent-context](modules/agent-context.md) | 组装每次模型调用的上下文：资料范围、历史、参考块、压缩与记忆 | 依赖 core 的存储与会话文件；被 runtime 的驱动循环调用 |
-| [agent-tools](modules/agent-tools.md) | 决定会话有哪些工具，并经统一审批与操作账本执行 | 依赖 core、execution；被 runtime 装配 |
-| [execution](modules/execution.md) | 执行工具与受限脚本，核实进程停止 | 依赖 core；工具由 agent-tools 调用，脚本经注入回调请求宿主 |
-| [control](modules/control.md) | 提供控制面 socket、拥有者认证与协议 | 调用 runtime 与 core；被 tui、desktop 与 view 消费 |
-| [view](modules/view.md) | Coding界面投影、历史读取编排及PA纯wire类型 | 依赖 core 与 control 的浏览器可用模块；被 tui 与 desktop 消费 |
-| [desktop](modules/desktop.md)（`apps/desktop`） | 桌面连接（Electron／MyGo） | Node宿主连接Code控制面与PA HTTPS/WSS，renderer使用独立投影；后台独立运行 |
-| [tui](modules/tui.md) | 共享 CLI、交互终端与配置中心 | 界面只经 control 协议连接后台；CLI 的 `server` 入口在本进程装配 runtime |
-| [channels](modules/channels.md) | 拥有者 IM 入口、图片入站与 GitHub 事件来源 | 依赖 core 登记入站事件；驱动 runtime 建任务；经 scheduler 的 outbox 外发 |
-| [scheduler](modules/scheduler.md) | 共享时间规则、旧个人调度与通知 outbox 账本 | 依赖 core；驱动 runtime 建唤醒任务；经 channels 发送 |
-| [deploy](modules/deploy.md) | 部署的系统身份、单元、提权入口与服务管理 | 不参与运行时调用；定义当前账户的后台与可选服务 OS 授权 |
+| [products](modules/products.md)（`apps/`） | 产品入口装配与命令行引导（`ruukoto` / `ruukoto-code`） | 装配底层各包；两产品实现独立，互不依赖 |
+| [personal-durable](modules/personal-durable.md) | 个人 Agent 的持久会话、任务治理、IM/本机/远程接入与工具链 | 依赖 Pi 1.3.0 与底层系统能力；正式与开发入口共用装配 |
+| [runtime](modules/runtime.md) | Coding 任务生命周期、串行队列、调度协调与 SubAgent 编排 | 依赖 `core`、`agent`、`execution`；被 `control` 与 `channels` 驱动 |
+| [core](modules/core.md) | 数据布局定义、SQLite Schema、任务状态机与会话身份识别 | 系统最底层，不依赖任何 workspace 包，被全仓依赖 |
+| [workflows](modules/workflows.md) | 持久化工作流定义库、后台执行引擎与多步骤控制 | 依赖 `core` 事务管理与 `agent` 的脚本沙箱环境 |
+| [agent-context](modules/agent-context.md) | 组装模型调用上下文：工作区资料、历史滑动窗口、参考快照与记忆 | 依赖 `core` 的数据存储；由 `runtime` 驱动循环调用 |
+| [agent-tools](modules/agent-tools.md) | 工具可用性判定、审批闸门介入与不可变操作账本 | 依赖 `core` 与 `execution`，由 `runtime` 统一装配 |
+| [execution](modules/execution.md) | 原生受限沙箱与工具工作进程，管理文件系统挂载与进程退出核实 | 依赖 `core`；工具由 `agent-tools` 调用并执行 |
+| [control](modules/control.md) | 控制面 Unix Socket、拥有者令牌认证与双向 RPC 协议 | 调用 `runtime` 与 `core`；被 `tui`、`desktop` 与 `view` 消费 |
+| [view](modules/view.md) | Web 与桌面界面的状态投影、历史读取编排及客户端模型定义 | 依赖 `core` 与 `control` 中可在浏览器运行的模块 |
+| [desktop](modules/desktop.md)（`apps/desktop`） | 跨平台桌面客户端宿主与本地窗口渲染 | Node 宿主连接控制面与 HTTPS/WSS 远程服务 |
+| [tui](modules/tui.md) | 终端交互界面、共享 CLI 分发与离线配置中心 | 经由 `control` 协议与后台解耦通信；纯 CLI 提供独立管理入口 |
+| [channels](modules/channels.md) | 外部 IM 通道（QQ / Telegram）、图片入站管道与 GitHub 事件源 | 依赖 `core` 登记事件并触发 `runtime` 任务 |
+| [scheduler](modules/scheduler.md) | 时间触发规则引擎与外部通知发件箱（Outbox） | 依赖 `core` 存储；驱动 `runtime` 定时任务并通过 channels 发送 |
+| [deploy](modules/deploy.md) | 生产部署的 systemd 服务单元、系统提权入口与环境权限管理 | 不参与运行时代码调用；定义操作系统层级凭据与单元配置 |
 
-`packages/` 含七个共享包；agent-context、agent-tools 与 execution 属于 agent，scheduler 属于 channels；Coding 的 `product.ts` 声明旧底座能力，个人 app 直接持有 durable 业务接线。
-
-运行时值依赖为 `agent → core`、`channels → agent/core`、`runtime → channels/agent/core`、`control → core`、`view → control/core`、`tui → view/control/runtime/agent/core`；control 通过注入的 Runtime 实例提供服务。依赖声明与静态约束见[产品装配](modules/products.md#不变量与失败处理)。
+> 共享包的核心依赖分层为：`core` ← `agent` ← `execution` ← `runtime` ← `control` ← `view/tui`。
 
 ## 主流程一：任务生命周期
 
-以下任务、工具与 SubAgent 图描述 Coding 底座；保留的旧个人身份分支不构成新个人入口。个人会话、执行、队列与恢复由 durable 原生记录持有，宿主只记录业务归属与外部证据，见[个人持久会话](modules/personal-durable.md)。
-
-会话输入或 Code 调度产生任务，持久化后排队执行，终态在同一事务收尾。
+在 Coding Agent 底座中，一次用户输入或定时调度会触发一个完整的任务生命周期。任务先写入持久存储，再按会话排队执行，终态在单一事务中原子收尾：
 
 ```mermaid
 sequenceDiagram
-  participant C as 客户端（TUI/CLI/入站事件）
-  participant Rt as runtime
-  participant St as core（SQLite + JSONL）
-  participant D as Driver + agent-context
-  participant CP as 控制面事件流
+  participant Client as 客户端 (TUI / CLI)
+  participant Runtime as runtime (调度器)
+  participant Store as core (SQLite + JSONL)
+  participant Driver as Driver + agent-context
+  participant Control as 控制面事件总线
 
-  C->>Rt: submit（session, request_id, 输入, accessMode）
-  Rt->>St: 幂等查重（session + request_id）
-  Rt->>St: 登记任务 queued 并写 task.* 事件
-  Rt->>CP: 发布持久事件
-  Rt->>Rt: 队列取出，计算 executionProfile
-  Rt->>St: queued → running
-  Rt->>D: 组装模型上下文并流式调用
-  D-->>CP: task.output_fragment / task.thinking / task.tool_result
-  D-->>Rt: 工具调用、审批、继续
-  Rt->>St: endTask 条件更新为 completed/failed/canceled/interrupted
-  Rt->>St: 释放目录占用、清除待生效模式、失效未消费审批
-  Rt->>CP: 发布 task.* 终态事件
+  Client->>Runtime: submit (会话, 请求ID, 输入, accessMode)
+  Runtime->>Store: 幂等性校验 (基于 session + request_id)
+  Runtime->>Store: 登记任务为 queued 并写入 task.* 事件
+  Runtime->>Control: 广播任务入队事件
+  Runtime->>Runtime: 队列调度，计算 executionProfile 执行画像
+  Runtime->>Store: 任务状态迁移: queued → running
+  Runtime->>Driver: 组装上下文并流式调用大模型
+  Driver-->>Control: 推送流式增量 (output_fragment / thinking / tool_result)
+  Driver-->>Runtime: 请求工具调用与审批确认
+  Runtime->>Store: 任务结束: 原子更新为 completed / failed / canceled / interrupted
+  Runtime->>Store: 释放工作目录占用，失效未决审批
+  Runtime->>Control: 广播 task.* 终态事件
 ```
 
-要点：
-
-- 提交幂等键的唯一范围是会话；同键同参重放返回原任务，同键异参报 `request_conflict`。重试先核实原请求，不换键重复提交。
-- 任务携带 `accessMode`、`planMode`、权限版本与授予路径；模式与范围进入幂等比较，切换只在无执行中工具的边界生效。
-- 执行画像（会话类别、SubAgent 工具集、资料受限、计划资格）在任务开始算一次并钉到任务结束；工具集变化时重建 SDK 会话。
-- 终止状态只有 `completed`、`failed`、`canceled`、`interrupted`；所有在线终态路径都经同一个收尾事务，只有当前状态仍在起点集合时才继续。
-- 普通目录占用按任务释放；会话后台持有独立占用，停止核实后才释放，同一目录保持单写入者。
-- 后台重启把 `running`／`awaiting_confirmation` 定为 `interrupted`（原因 `backend_restart`），未决审批标 `stale`，有排队任务的会话暂停自动调度，由拥有者用 `resume-queue` 显式恢复。
+### 核心机制
+- **幂等性保障**：以 `(sessionId, requestId)` 二元组为唯一键。同键同参重放直接返回原任务，同键异参报错拒绝。
+- **动态执行画像（`executionProfile`）**：在任务开始时根据会话身份、代码写入目标与安全模式计算并固化，任务运行期间不可变更。
+- **终态收敛**：任务终态严格收敛为 `completed`、`failed`、`canceled`、`interrupted` 之一，所有收尾动作（清理目录占用、作废未决审批）均在单一事务中执行。
+- **异常恢复**：后台进程若意外重启，所有未决任务被标记为 `interrupted`（原因 `backend_restart`），防止任务孤立挂起。
 
 ## 主流程二：入站消息到回复
 
-个人 QQ/Telegram、本机菜单与 PA 桌面共用 durable 主会话；平台消息先提交持久接纳事实，再推进接管水位。
+个人 Agent 的各外部接入端（QQ、Telegram、本机终端、PA 桌面）统一汇总到 durable 主会话，严格遵循持久接纳与原路回传：
 
 ```mermaid
 sequenceDiagram
-  participant P as QQ / Telegram / 本机菜单 / PA桌面
-  participant A as 个人入口
-  participant H as durable Harness
-  participant M as main Conversation
-  participant R as 原入口回复 Task
-  P->>A: 输入与固定来源
-  A->>H: 提交来源、稳定请求与后台 Task
-  H->>M: 原键 admission
-  M-->>H: 对应 Submission 的回答
-  H->>R: 固定平台、账号、owner 与代次
-  R->>P: 核实原入口后发送
+  participant Platform as 外部平台 (QQ / Telegram / 桌面)
+  participant Inbound as 个人入口适配器
+  participant Harness as durable Harness
+  participant Conv as 主会话 (Conversation)
+  participant ReplyTask as 回复发送任务
+
+  Platform->>Inbound: 接收消息与来源凭据
+  Inbound->>Harness: 提交持久接纳事实 (Admission)
+  Harness->>Conv: 递交输入并推进会话流水
+  Conv-->>Harness: 模型生成对应回答
+  Harness->>ReplyTask: 锁定原平台、账号与对话代次
+  ReplyTask->>Platform: 核验发送渠道活性后回传消息
 ```
 
-重复消息定位原 Submission，不新建第二份执行；QQ/Telegram 配置换代使旧审批和未发送回复失效，不改发。未知发送保留事实、不自动重发；客户端断开不取消工作。独立定时会话和后台分析先等整项工作及外部停止核实，再沿原来源汇总，详见[个人持久会话](modules/personal-durable.md)。旧 channels/outbox 的记录与实现见[消息渠道](modules/channels.md)，正式个人入口不装配它们。
+### 核心机制
+- **原路回传**：消息发送端与回复接收端严格绑定。回复任务必须核验原接入平台的有效性与账号代次，禁止串流发向错误终端。
+- **幂等接纳**：重复接收的消息基于平台消息 ID 去重，定位既有处理事实，绝不重复生成多份回复任务。
+- **断线韧性**：客户端界面临时关闭或网络抖动不影响后台既有会话的执行，会话与分析工作在后台完整推进。
 
 ## 主流程三：工具调用与审批
 
-模型调用工具后，宿主先判定可用性，越界操作进入审批闸门，执行发生在执行边界内。
+当模型发起工具调用时，系统通过可用性过滤与权限闸门评估风险；越界或写操作进入人工审批通道，并在受控沙箱内安全执行：
 
 ```mermaid
 sequenceDiagram
-  participant D as Driver
-  participant Av as agent-tools（可用性）
-  participant G as 审批闸门
-  participant R as agent-tools 审查/核实
-  participant W as execution（原生沙箱或启动账户）
-  participant L as 工具操作账本
+  participant Driver as 模型驱动层 (Driver)
+  participant Filter as agent-tools (可用性检查)
+  participant Gate as 审批闸门 (Approval Gate)
+  participant Sandbox as execution (原生受限沙箱)
+  participant Ledger as 工具操作账本 (Store)
 
-  D->>Av: 调用工具（宿主注入身份与操作编号）
-  Av->>Av: 检查本任务工具集合与调用门
-  alt 需要审批
-    Av->>G: 登记不可变审批并转入等待确认
-    G->>R: auto-review 先经无工具审查调用
-    G->>G: 等待拥有者决定（TUI 或 IM）
-    G->>G: 获批后同一事务内复核并单次消费
+  Driver->>Filter: 发起工具调用请求 (带操作指纹)
+  Filter->>Filter: 校验当前会话模式与调用白名单
+  alt 触发审批规则
+    Filter->>Gate: 登记不可变审批请求，挂起任务
+    Gate->>Gate: 等待拥有者确认 (TUI 确认或 IM 命令)
+    Gate->>Gate: 获批后单次消费该审批凭据
   end
-  G->>W: 以审批快照为参数执行
-  W-->>L: 结果与 task.tool_result 成对写入
-  L-->>D: 有界模型视图（超长正文入产物）
+  Gate->>Sandbox: 传入审批快照并在沙箱内执行
+  Sandbox-->>Ledger: 记录实际执行结果与产物指纹
+  Ledger-->>Driver: 返回有界模型视图 (超长输出转为产物文件)
 ```
 
-要点：
-
-- 工具可用性是唯一来源：会话类别清单减去宿主按任务的收窄（计划模式、GitHub 评审、实例停用的 Web Search），激活、发送前检查与调用门共用同一集合。
-- 审批是结构化且不可变的：绑定目标、内容指纹、方法与完整 URL、凭据名称与用途；批准经条件更新单次消费，其他 URL／方法／正文／任务不能复用。
-- 完全访问的所有已开放工具免操作审批，仍核实活动任务、权限版本、目标、修订与凭据，记录真实任务授权及操作结果。
-- 效果分类是硬边界：审批未消费一律已知未执行；只读工具中止记无写入效果；其余效果无法核实的记 `effect_unknown`，不重放。
-- 工具输出在上游截断前捕获为产物文件，中断或写失败保留已捕获部分并标 `partial`；按任务归属可跨重启按 id 读取。
+### 核心机制
+- **动态可用性判定**：根据会话类别、计划模式（Plan Mode）及安全模式实时收窄工具集，未授权工具在调用前即被拦截。
+- **不可变审批快照**：审批项强绑定目标资源、命令指纹与操作参数。拥有者批准仅对该特定快照生效一次，杜绝越权复用。
+- **沙箱隔离执行**：真实命令与脚本执行被限制在原生沙箱边界内，执行完毕后系统严格核实进程树完全退出。
 
 ## 主流程四：SubAgent 委派
 
-主 Agent 登记工作委托，创建独立上下文的 SubAgent，结果回到父级。
+主 Agent 可将复杂工作分解并委派给拥有独立上下文的子 Agent（SubAgent），各子任务独立推进并受控归集：
 
 ```mermaid
 sequenceDiagram
-  participant PA as 主 Agent（普通开发会话 / main）
-  participant SM as SubAgent 管理器
-  participant St as core（work_delegations / sub_agents / tasks）
-  participant SA as SubAgent 子会话
-  participant PD as 父级送达（runtime）
+  participant Master as 主 Agent (主会话)
+  participant Mgr as SubAgent 管理器
+  participant Store as core (工作与任务存储)
+  participant Sub as SubAgent 子会话
+  participant Delivery as 父级结果送达 (runtime)
 
-  PA->>SM: subagent_delegate（request, key, role, target）
-  SM->>SM: 准备（模型门闩、执行入口、工作目录、资料快照）
-  SM->>St: 事务登记工作、Agent、Session 与排队任务
-  SM->>SA: 提交后 kick 子会话（独立目录或目标副本）
-  SA-->>St: 终态结果（setTaskResult 一次写入）
-  SM->>St: resultRecorded：按占用记 idle / unverified
-  SM->>PD: 结果已登记 / 消息已登记
-  PD->>PA: main 建 wake:<子任务>；普通开发会话下次任务注入
-  PA->>SM: subagent_result / subagent_integrate / subagent_cancel
+  Master->>Mgr: subagent_delegate (委托参数, 角色, 目标)
+  Mgr->>Mgr: 准备子上下文 (隔离工作区 / 资料快照)
+  Mgr->>Store: 单事务登记工作委托与子会话任务
+  Mgr->>Sub: 激活子会话串行执行
+  Sub-->>Store: 子任务执行完毕，写入执行结果
+  Mgr->>Delivery: 登记子会话结果通知
+  Delivery->>Master: 唤醒父会话，在下一轮对话中注入汇总
+  Master->>Mgr: subagent_integrate (合并改动) 或 subagent_close
 ```
 
-要点：
-
-- 拥有者输入、已核实 IM 与 Code 定时来源可委派；子任务回报等来源不能借开发身份取得委派权。
-- 一层委派：SubAgent 不能再派生下一层，也不能与拥有者直接交互。
-- 普通委派与工作流共用角色与来源能力：省略 role 为 general，工具继承或显式要求，权限只能收紧；target 独立指定代码目标，verify 由工作流宿主持有冻结验证资格。单次批准与长期授权不继承。
-- 目标委派在 Git 上先捕获当前稳定内容，再登记独立 worktree；保护来源的角色只写副本检查产物，原目录和共享 Git 只读。主 Agent 用 `subagent_integrate` 只汇入捕获后的子增量，冲突保留双方；非 Git 普通目标直接写入并按目录占用串行。
-- 送达与登记分开：结果与消息的登记只是投递登记，进入父模型调用才算送达；已取消的工作不建唤醒、不注入，队列循环在唤醒启动前再检查一次。
-- 任务终态、TUI 退出与空闲都不关闭 SubAgent；关闭是独立列，关闭后拒绝新委派但保留历史与产物。
-- 后台重启时排队的委派任务定 `interrupted` 不自动继续；宿主固定评审的排队任务由编排器启动恢复自动继续；占用未核实的旧执行保留占用并由拥有者用 `resume-queue` 释放。
+### 核心机制
+- **单层委派模型**：SubAgent 由主会话统一发起与管理，子 Agent 禁止再嵌套派生下级，避免无节制的递归调用。
+- **工作区隔离**：代码修改类委派优先在独立的 Git worktree 中执行。主会话通过 `subagent_integrate` 显式审查并合入子分支改动。
+- **生命周期独立**：子任务的完成不等于子会话销毁。子会话保留独立历史与产物以供复查，直至主 Agent 显式关闭。
 
 ## PA桌面连接
 
-PA桌面经Serve HTTPS/WSS→私有remote（拥有者+应用凭据）→唯一durable Harness；配置回执归档案，remote存接纳关联、兼容旧维护；admin供本机配对/撤销。安全见[桌面](modules/desktop.md)，部署见[部署说明](../deploy/systemd/README.md)。
+PA 桌面客户端（Desktop）通过安全的远程协议与服务端通信：
+- **通信链路**：Tailscale Serve（HTTPS / WSS）→ 本地私有 Remote 服务（校验拥有者身份与应用凭据）→ 独占的 durable Harness 实例。
+- **安全与配对**：桌面首次接入需在服务端通过本机终端管理向导进行显式配对；凭据支持随时吊销。
+- 详细安全机制见 [桌面](modules/desktop.md)，生产部署步骤见 [部署说明](../deploy/systemd/README.md)。
 
 ## 设计依据
 

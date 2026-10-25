@@ -25,7 +25,7 @@ const notes = (view: SessionView) => view.flow.items.filter((entry) => entry.kin
 function snapshot(overrides: Partial<ConnectResult["snapshot"]> = {}): ConnectResult["snapshot"] {
   return {
     product: "ruukoto-code", mainSessionId: null,
-    projects: [{ id: "proj_1", name: "演示", createRequestId: null, rootDir: null, instructionFiles: [], webSearch: "enabled", settingsVersion: 1, createdAt: "2026-09-20T00:00:00Z" }],
+    projects: [{ id: "proj_1", name: "演示", createRequestId: null, rootDir: null, instructionFiles: [], settingsVersion: 1, createdAt: "2026-09-20T00:00:00Z" }],
     sessions: [
       {
         id: "sess_1",

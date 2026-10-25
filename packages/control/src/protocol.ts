@@ -128,6 +128,8 @@ export interface ConnectSnapshot {
   execution: { backend: string; note: string };
   /** 后台启动默认模型；会话选择和任务实际配置分别随会话、任务返回。 */
   defaultModel: { provider: string; id: string; name: string; thinkingLevel: string };
+  /** 实例级 Web Search 开关（全实例共用；旧后台缺省视为启用）。 */
+  webSearch?: { state: "enabled" | "disabled"; version: number };
   mainSessionId: string | null;
   /** 逻辑角色绑定的会话（工作区入口不以其作为自动归属依据；旧后台缺省）。 */
   roleSessionIds?: string[];

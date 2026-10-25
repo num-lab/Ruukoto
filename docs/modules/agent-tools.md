@@ -93,7 +93,7 @@
 | 历史服务操作分类（工具已退出） | `service_inspect`、`service_manage` 仅用于旧账本核实 |
 | MCP | `search_tools`、`mcp_<服务名>_<远端工具名>` |
 
-`executionProfile` 沿会话身份与持久来源快照确定实际工具、MCP、资料范围、系统提示与 SDK 签名；宿主固定评审另沿固定只读规则。普通与工作流角色权限在登记时只继承或收紧，单次批准与长期授权不继承。装配过滤、任务收窄与 SDK 会话签名同用这一份。本任务工具按固定画像及当前资源阶段收窄，再扣除计划模式、GitHub 评审及项目关闭的 Web Search；激活、发送前检查（`task_tools_forbidden`）与调用门共用这一集合。
+`executionProfile` 沿会话身份与持久来源快照确定实际工具、MCP、资料范围、系统提示与 SDK 签名；宿主固定评审另沿固定只读规则。普通与工作流角色权限在登记时只继承或收紧，单次批准与长期授权不继承。装配过滤、任务收窄与 SDK 会话签名同用这一份。本任务工具按固定画像及当前资源阶段收窄，再扣除计划模式、GitHub 评审及实例停用的 Web Search；激活、发送前检查（`task_tools_forbidden`）与调用门共用这一集合。
 
 `wait` 向有目标查询资格的主 Agent 开放，固定最多 20 个同来源任务或工作流，SubAgent、工作流步骤与无工具汇总不开放；默认 60 秒、最多 300 秒，任一结果、需介入、超时或中断均返回事实，等待属于无外部效果的顺序工具。ID 来自实际委派或启动结果，保存的定义名须先启动。每个目标至多返回 100 条产物引用并附总数，完整产物沿原查询接口读取。续接轮接手旧组最终报告时，`reportTargets` 额外提供最多 20 项完整事实，`targets` 保持本次等待集合；旧消费证明保留，全组才可汇报。普通内部对话阶段开放等待、后台记录、历史及结果查询，以及 present 网页预览；后台观测阶段另开放本页所列状态、停止、提问与浏览器。项目读写、bash、技能文件读取和MCP须重新取得执行资源，装配、发送前与调用门使用同一收窄集合。
 
@@ -106,7 +106,7 @@ Coding 装配的 `browser` 在完全访问的拥有者 main / 普通开发任务
 | 入口 | 命令 |
 |---|---|
 | Web Search 凭据 | `ruukoto-code credentials add --name tavily --host api.tavily.com --header authorization --purpose tavily_search --secret-env TAVILY_API_KEY` |
-| Web Search 开关 | `ruukoto-code project web-search <项目id> off`／`on` |
+| Web Search 开关 | `ruukoto-code web-search off`／`on`（实例级，全实例共用） |
 | MCP 凭据 | `ruukoto-code credentials add --name github-mcp --host api.githubcopilot.com --header authorization --purpose mcp --secret-env GITHUB_MCP_PAT` |
 | MCP 配置 | `ruukoto-code mcp configure --project <id> --name github --endpoint https://api.githubcopilot.com/mcp/readonly --credential github-mcp --tools get_me,get_file_contents [--expected-version N]` |
 | MCP 查看 | `ruukoto-code mcp list [--project <id>]`（脱敏视图）、`ruukoto-code mcp check <service-id>`（连接检查 + 工具发现，先打印将联系的端点） |
@@ -240,7 +240,7 @@ sequenceDiagram
 - **计划模式**：普通开发会话可以选择 Plan，main、SubAgent、已退役归档与 IM 入口不能选择，后台按会话身份核实。工具白名单在激活、发送前与调用时三处检查：`read`、`present`、`bash`、`request_file_access`、`http_request`、`web_fetch`、`read_artifact`、`search_tools`、`wait`、`history_search`、`history_read`、`memory_list`、`memory_read`、`web_search`、`todo_write`、`skill` 与类别为只读的 MCP 工具；`edit`、`write`、`memory_save`、`memory_revoke` 与非只读 MCP 工具不可用；白名单之外的名称一律拒绝，新增工具族不写进白名单即不可用。计划模式与 GitHub 评审的按任务收窄组合生效。任务级 `switch_mode` 不能进入或退出 Plan，也不能改其固定的 Auto review 策略。计划说明的注入位置与 `「计划模式」` 上下文类别归 [agent-context](agent-context.md)。
 - **应用数据写入**：六个工具 `app_data_define_table` / `app_data_migrate` / `app_data_query` / `app_data_insert` / `app_data_update` / `app_data_delete` 在 main 与独立定时会话按个人业务类别装配（业务类别清单含应用数据类别，装配、发送前检查与调用门共用同一结论），执行入口每次重新核实宿主任务、会话、项目与个人助手宿主绑定。非破坏性变更自动执行；删表、删字段、删唯一索引、多行写与批量重写在受限模式下进入统一审批，完全访问使用任务授权免审批。执行前重核身份与版本，按不可变快照执行。所有写入在单事务内提交业务变更、版本递增与追加审计回执：`hostOpId` 唯一，同参重放返回原结果，异参冲突；审计、约束或磁盘失败回滚业务变更。版本不一致返回可识别冲突与当前版本，不自动覆盖。
 - **旧长期操作授权**：旧服务模型工具已退出，核心库继续保留 `standing_permissions`、关联审批、使用来源与行级版本，供旧记录查询、撤销和恢复核实；不再从该工具创建或消费新授权。个人 durable 使用自己的权限与服务操作记录，见[个人持久会话](personal-durable.md)。
-- **Web Search**：默认对所有项目启用并注册；工具按 `purpose=tavily_search` 且 host 与目标一致的绑定取凭据，经 `Bearer <key>` 注入；未配置、host 或用途不匹配一律拒绝调用且不发送请求。任务开始固定工具清单，禁用中的项目任务不注册 `web_search`（模型不可见，系统提示同步重建）；任务内禁用立即阻止后续调用，重新启用从下一任务生效。
+- **Web Search**：实例级开关（默认启用，全实例共用，存 `meta` 表带独立版本）；工具按 `purpose=tavily_search` 且 host 与目标一致的绑定取凭据，经 `Bearer <key>` 注入；未配置、host 或用途不匹配一律拒绝调用且不发送请求。任务开始固定工具清单，停用中的实例任务不注册 `web_search`（模型不可见，系统提示同步重建）；任务内停用立即阻止后续调用，重新启用从下一任务生效。
 - **历史引用**：每条工具结果在 SDK message_end 后落盘，下一拍按已落盘 JSONL 补发 output_entry，不等待整批工具结束；旧任务回调不消费下一任务的去重与消息身份。
 - **正文产物**：工具输出在上游截断之前捕获为受保护的产物文件，先落盘再生成限长模型视图。中断或写失败保留已捕获部分并标 `partial`；按任务归属经工具或控制接口按 id、偏移、长度查询，跨重启可读。
 - **Write 差异**：结果只保留该调用在执行边界内捕获的写前文本与成功写入内容的补丁；后续磁盘变更不改写历史。未捕获补丁仍保留真实写入结果，读取缺失或空补丁的区别见[core](core.md#对外接口)，执行侧预算见[执行边界](execution.md#工具工作进程)。

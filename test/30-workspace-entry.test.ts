@@ -123,7 +123,7 @@ function fakeProject(over: Partial<Project> & { id: string }): Project {
     createRequestId: null,
     rootDir: null,
     instructionFiles: [],
-    webSearch: "enabled",
+
     settingsVersion: 1,
     createdAt: "2026-01-01T00:00:00Z",
     ...over,

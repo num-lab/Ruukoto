@@ -169,11 +169,9 @@ export function createWebSearchTools(deps: WebSearchToolsDeps): ToolDefinition[]
     ),
     execute: bindExecute(async (params, ctx, signal) => {
       try {
-        // 项目开关每次调用新鲜读取：拥有者禁用后立即阻止后续调用
-        const project = deps.store.getProject(ctx.projectId);
-        if (!project) return failText(`项目不存在：${ctx.projectId}`);
-        if (project.webSearch === "disabled") {
-          return failText("web_search 已被拥有者按项目禁用，本次调用未发送任何网络请求（重新启用从下一任务生效）");
+        // 全局开关每次调用新鲜读取：拥有者停用后立即阻止后续调用
+        if (deps.store.getWebSearch().state === "disabled") {
+          return failText("web_search 已被拥有者停用，本次调用未发送任何网络请求（重新启用从下一任务生效）");
         }
 
         // 每任务上限：按执行意图计数（含本次与未发请求的调用），重启后可核对

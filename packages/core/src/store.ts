@@ -62,6 +62,9 @@ import { sameDirIdentity, type DirIdentity } from "./dir-identity.ts";
 import { parseWorkWriteTarget, writeTargetToJson } from "./types.ts";
 import * as path from "node:path";
 
+/** 实例级 Web Search 开关在 meta 表的键（值形如 {"version":1,"state":"enabled"}）。 */
+const WEB_SEARCH_META_KEY = "web_search";
+
 /**
  * 占用冲突判定（agent-direction issue 16，模块级纯函数，占用取/放与
  * subagent_result 提示共用）：dev+ino 相等（同一目录的符号链接/挂载别名都
@@ -161,7 +164,7 @@ export class Store {
     if (rootDir && this.findProjectByRoot(rootDir)) {
       throw new StoreConflictError(`工作区已存在：${rootDir.cwdReal}`, "duplicate");
     }
-    const project: Project = { id: randomId("proj"), name, createRequestId: createRequestId ?? null, rootDir: rootDir ?? null, instructionFiles: [], webSearch: "enabled", settingsVersion: 1, createdAt: new Date().toISOString() };
+    const project: Project = { id: randomId("proj"), name, createRequestId: createRequestId ?? null, rootDir: rootDir ?? null, instructionFiles: [], settingsVersion: 1, createdAt: new Date().toISOString() };
     try {
       this.db
         .prepare("INSERT INTO projects (id, name, create_request_id, root_cwd, root_real, root_dev, root_ino, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
@@ -242,7 +245,7 @@ export class Store {
 
   /**
    * 更新项目设置（agent-direction issue 06；拥有者入口，调用方负责校验路径与
-   * 版本形状）。settings_version 只保护指令列表与 Web Search 开关：
+   * 版本形状）。settings_version 只保护指令列表：
    * - 携带 expectedVersion 时核对当前版本，不符抛 version_conflict，
    *   不修改配置、不产生事件；
    * - 省略版本 = 旧入口兼容写入：同样更新同一行、递增同一版本并追加同一
@@ -254,7 +257,6 @@ export class Store {
   updateProjectSettings(input: {
     projectId: string;
     instructionFiles?: string[];
-    webSearch?: "enabled" | "disabled";
     expectedVersion?: number;
   }): Project {
     const current = this.getProject(input.projectId);
@@ -266,8 +268,7 @@ export class Store {
       );
     }
     const files = input.instructionFiles ?? current.instructionFiles;
-    const webSearch = input.webSearch ?? current.webSearch;
-    if (JSON.stringify(files) === JSON.stringify(current.instructionFiles) && webSearch === current.webSearch) {
+    if (JSON.stringify(files) === JSON.stringify(current.instructionFiles)) {
       return current;
     }
     if (current.settingsVersion >= Number.MAX_SAFE_INTEGER) {
@@ -275,17 +276,40 @@ export class Store {
     }
     const nextVersion = current.settingsVersion + 1;
     this.db
-      .prepare("UPDATE projects SET instruction_files = ?, web_search = ?, settings_version = ? WHERE id = ?")
-      .run(JSON.stringify(files), webSearch, nextVersion, input.projectId);
+      .prepare("UPDATE projects SET instruction_files = ?, settings_version = ? WHERE id = ?")
+      .run(JSON.stringify(files), nextVersion, input.projectId);
     const updated = this.getProject(input.projectId)!;
     this.appendEvent({
       type: "project.settings_changed",
       projectId: input.projectId,
       settingsVersion: nextVersion,
       instructionFiles: updated.instructionFiles,
-      webSearch: updated.webSearch,
     });
     return updated;
+  }
+
+  /** 实例级 Web Search 开关（全实例共用）：缺省启用，版本从 1 起。 */
+  getWebSearch(): { state: "enabled" | "disabled"; version: number } {
+    const raw = this.getMetaValue(WEB_SEARCH_META_KEY);
+    if (raw === null) return { state: "enabled", version: 1 };
+    const parsed = JSON.parse(raw) as { state?: unknown; version?: unknown };
+    return { state: parsed.state === "disabled" ? "disabled" : "enabled", version: Number.isSafeInteger(parsed.version) && (parsed.version as number) >= 1 ? (parsed.version as number) : 1 };
+  }
+
+  /**
+   * 保存实例级 Web Search 开关：期望版本冲突抛 version_conflict；同值保存幂等
+   * （不递增版本、不产生事件）。调用方须以 withTx 包住（更新与事件单一事务）。
+   */
+  setWebSearch(input: { state: "enabled" | "disabled"; expectedVersion?: number }): { state: "enabled" | "disabled"; version: number } {
+    const current = this.getWebSearch();
+    if (input.expectedVersion !== undefined && input.expectedVersion !== current.version) {
+      throw new StoreConflictError(`Web Search 版本冲突：期望 v${input.expectedVersion}，当前 v${current.version}（请刷新后重试）`, "version_conflict");
+    }
+    if (input.state === current.state) return current;
+    const next: { state: "enabled" | "disabled"; version: number } = { state: input.state, version: current.version + 1 };
+    this.setMetaValue(WEB_SEARCH_META_KEY, JSON.stringify(next));
+    this.appendEvent({ type: "web_search.changed", version: next.version, state: next.state });
+    return next;
   }
 
   getProject(id: string): Project | null {
@@ -312,7 +336,6 @@ export class Store {
         ? { cwd: row.root_cwd, cwdReal: row.root_real, dev: row.root_dev, ino: row.root_ino }
         : null,
       instructionFiles: JSON.parse(row.instruction_files ?? "[]") as string[],
-      webSearch: row.web_search === "disabled" ? "disabled" : "enabled",
       settingsVersion: Number(row.settings_version ?? 1),
       createdAt: row.created_at,
     };

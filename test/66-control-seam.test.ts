@@ -37,7 +37,7 @@ const TUI_OPS: Record<TuiOp, true> = {
   get_model_config: true, save_model_catalog: true, set_model_api_key: true, remove_model_api_key: true,
   remove_model_provider: true, set_default_model: true, set_summary_model: true, test_model_connection: true,
   mcp_list: true, mcp_configure: true, mcp_cua_status: true, mcp_cua_targets: true, mcp_cua_stop: true, mcp_cua_begin_recovery: true, mcp_cua_observe: true, mcp_cua_accept: true, mcp_set_enabled: true, mcp_remove: true, mcp_check: true,
-  mcp_save_credential: true, mcp_remove_credential: true, web_search_save_credential: true, web_search_remove_credential: true, set_project_web_search: true, list_credentials: true, remove_credential: true,
+  mcp_save_credential: true, mcp_remove_credential: true, web_search_save_credential: true, web_search_remove_credential: true, set_web_search: true, list_credentials: true, remove_credential: true,
   put_attachment: true,
   list_workspace_files: true, read_workspace_file: true, read_workspace_git: true,
   work_list: true, work_get: true,
@@ -256,7 +256,7 @@ test("服务端错误应答：业务码原样，系统码与没带码的异常�
 
 const T0 = "2026-09-27T00:00:00.000Z";
 const MODEL = { provider: "mock", modelId: "mock-model", thinkingLevel: "off" } as const;
-const PROJECT: Project = { id: "proj_fake", name: "fake", createRequestId: null, rootDir: null, instructionFiles: [], webSearch: "enabled", settingsVersion: 1, createdAt: T0 };
+const PROJECT: Project = { id: "proj_fake", name: "fake", createRequestId: null, rootDir: null, instructionFiles: [], settingsVersion: 1, createdAt: T0 };
 
 function session(overrides: Partial<Session> = {}): Session {
   return {

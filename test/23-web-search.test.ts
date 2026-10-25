@@ -337,12 +337,12 @@ test("每任务最多 5 次搜索：第 6 次拒绝且不发送请求；调用�
   }
 });
 
-test("项目禁用：任务开始不注册工具；任务内禁用立即阻止后续调用；启用从下一任务生效", async () => {
+test("全局停用：任务开始不注册工具；任务内停用立即阻止后续调用；启用从下一任务生效", async () => {
   const ctl: { client?: TestRuntime["client"]; projectId?: string } = {};
   const tavily = await startMockTavily(async (hit) => {
     // 第一次命中时由拥有者禁用本项目（模拟任务内禁用；严格先于第二次调用）
     if (ctl.client && ctl.projectId) {
-      await ctl.client.request("set_project_web_search", { project_id: ctl.projectId, enabled: false });
+      await ctl.client.request("set_web_search", { enabled: false });
     }
     return { json: { query: hit.body?.query ?? "", results: [{ title: "A", url: "https://a.example.com", content: "x" }], response_time: "0.1" } };
   });
@@ -366,23 +366,23 @@ test("项目禁用：任务开始不注册工具；任务内禁用立即阻止�
     ctl.projectId = projectId;
 
     // 禁用状态提交任务：工具不注册，模型工具清单不含 web_search，不发任何请求
-    await t.client.request("set_project_web_search", { project_id: projectId, enabled: false });
-    const off = await submitAndWait(t, sessionId, "r-off", "搜索禁用");
-    assert.equal(tavily.hits.length, 0, "禁用项目不得发送请求");
-    const offCall = t.server.calls.find((c) => c.messages.some((m: any) => m.role === "user" && JSON.stringify(m).includes("搜索禁用")));
+    await t.client.request("set_web_search", { enabled: false });
+    const off = await submitAndWait(t, sessionId, "r-off", "搜索停用");
+    assert.equal(tavily.hits.length, 0, "停用后不得发送请求");
+    const offCall = t.server.calls.find((c) => c.messages.some((m: any) => m.role === "user" && JSON.stringify(m).includes("搜索停用")));
     assert.ok(offCall, "应有禁用任务的模型调用");
-    assert.ok(!JSON.stringify(offCall!.tools ?? []).includes("web_search"), "禁用项目的工具清单不含 web_search");
+    assert.ok(!JSON.stringify(offCall!.tools ?? []).includes("web_search"), "停用后的工具清单不含 web_search");
     assert.equal(off.task.status, "completed");
 
     // 重新启用：同一 SDK 会话的下一任务起注册工具
-    await t.client.request("set_project_web_search", { project_id: projectId, enabled: true });
+    await t.client.request("set_web_search", { enabled: true });
     const callsBefore = t.server.calls.length;
     const on = await submitAndWait(t, sessionId, "r-on", "搜索启用");
     const onCall = t.server.calls.slice(callsBefore)[0];
     assert.ok(JSON.stringify(onCall!.tools ?? []).includes("web_search"), "启用后下一任务注册 web_search");
     assert.equal(tavily.hits.length, 1, "任务内禁用后第二次调用被阻止，只发送一次请求");
     assert.equal(on.task.status, "interrupted");
-    assert.match(on.task.interruptReason ?? "", /^task_tools_forbidden:.*web_search.*项目已关闭 Web Search/);
+    assert.match(on.task.interruptReason ?? "", /^task_tools_forbidden:.*web_search.*Web Search 已停用/);
     assert.equal(t.server.calls.length - callsBefore, 1, "任务内禁用在下一次模型发送前阻断");
   } finally {
     await t.shutdown();

@@ -56,6 +56,7 @@
 | `RUUKOTO_DATA_DIR` / `RUUKOTO_AGENT_DIR` / `RUUKOTO_CONTROL_DIR` / `RUUKOTO_PENDING_DIR` | ruukoto 的四类路径覆盖；`ruukoto-code` 只读 `RUUKOTO_CODE_*_DIR` 同名变量，同机并存不串用 |
 | `product.type` | 核心库 `meta` 表里登记的产品归属；跨产品复用同一数据目录被拒绝 |
 | `schema_version` / `instance_id` | `meta` 表里的 schema 版本与数据实例标识 |
+| `web_search` | `meta` 表里的实例级 Web Search 开关（全实例共用，带独立版本与 `web_search.changed` 事件） |
 
 控制接口按 id、偏移与长度读取产物正文：`queryArtifact({ taskId, artifactId, offset?, length? })` 校验产物属于该任务，`offset` 下限 0，`length` 默认 256 KiB、上限 720 KiB（按线上帧约束：base64 膨胀 4/3 加 JSON 开销必须留在 `MAX_FRAME_BYTES` 即 1 MiB 内），返回 `base64` 编码的片段。模型侧读产物的工具是 `read_artifact`，参数 `artifact_id` / `offset` / `length`，单次上限 64 KiB，默认按 `utf8`、可显式选 `base64`。
 
@@ -159,7 +160,7 @@ Coding 档案根为 `~/.ruukoto-code`，开发实例为 `~/.ruukoto-code-dev/<�
 | 表 | 关键列 |
 |---|---|
 | `meta` | `key` / `value`；`schema_version`、`instance_id`、`product.type`、`app_data.main_instance_id`、`github_retirement_done`、`jev.project.<项目>` |
-| `projects` | `id`、`name`、`create_request_id`、工作区根目录身份四列 `root_cwd` / `root_real` / `root_dev` / `root_ino`（四列同空即旧项目）、`instruction_files`、`web_search`、`settings_version`（并发保护） |
+| `projects` | `id`、`name`、`create_request_id`、工作区根目录身份四列 `root_cwd` / `root_real` / `root_dev` / `root_ino`（四列同空即旧项目）、`instruction_files`、`settings_version`（并发保护） |
 | `sessions` | `id`、`project_id`、`kind`（`dev` / `qq_group`）、`cwd` / `cwd_real` / `cwd_dev` / `cwd_ino`、`pi_session_id`、`session_file`、`confirm_tools`、`create_request_id`、`queue_state`（`active` / `paused`）与 `queue_pause_reason`、`workspace_project_id`（组织归属仅展示，资料身份仍是 `project_id`）、`model_selection` 与版本、`default_access_mode` 与版本（`confirm` / `full_access` / `auto-review` / `plan`） |
 | `tasks` | `id`、`session_id`、`request_id`、`input`、`status`、`access_mode`、`plan_mode`、`permission_version`、`granted_paths`、`pending_access_mode`、`interrupt_reason`、`cancel_requested`、`effect_unknown`、`error_message`、`history_entry_ids`、`resumes_task_id`、`agent_id`、`parent_task_id`、`source_event_id`、`deadline`、`result_summary`、`result_ref`、SubAgent 关联四列 `work_id` / `sub_agent_id` / `read_scope` / `result_delivered_at`、`created_at` / `started_at` / `ended_at`；唯一键 `(session_id, request_id)` |
 | `occupancy` | `cwd_real` 主键、`cwd_dev` / `cwd_ino`、`session_id`、`task_id`、`acquired_at`；一个任务可持有父目录及临时副本的多条占用，整任务释放按 `task_id`，已核实的临时副本可单独释放 |

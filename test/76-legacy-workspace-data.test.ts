@@ -30,7 +30,7 @@
  * 测试接缝（验证与验收场景补齐）：
  * 12. 接入边界：两旧项目归入同一工作区后原授权方向/项目内访问保留、跨来源仍拒；
  *    新会话不因映射获得源资料；显式授权→撤销最后一条→拒绝；
- * 13. 配置来源：映射旧会话后续任务用原指令/Web Search；实例 MCP 服务 ID/版本、凭据
+ * 13. 配置来源：映射旧会话后续任务用原指令；实例 MCP 服务 ID/版本、凭据
  *    绑定、记忆版本不被动；新会话用目标配置；认领后新会话延续原 ID 配置；
  * 14. 标识与字节核对：pi ID/历史路径/JSONL 与产物字节/任务/选择记录迁移前后不变；
  * 15. 回退只恢复显式组织字段，新任务/配置修改/授权撤销保留；目标根被替换拒绝且
@@ -194,8 +194,8 @@ test("ViewState 投影 session.workspace_mapped：更新组织归属，来源标
       snapshot: {
         product: "ruukoto-code", mainSessionId: null,
         projects: [
-          { id: "p_leg", name: "旧项目", createRequestId: null, rootDir: null, instructionFiles: [], webSearch: "enabled", settingsVersion: 1, createdAt: "2026-01-01T00:00:00Z" },
-          { id: "p_ws", name: "工作区", createRequestId: null, rootDir: { cwd: "/w", cwdReal: "/w", dev: 1, ino: 2 }, instructionFiles: [], webSearch: "enabled", settingsVersion: 1, createdAt: "2026-01-01T00:00:00Z" },
+          { id: "p_leg", name: "旧项目", createRequestId: null, rootDir: null, instructionFiles: [], settingsVersion: 1, createdAt: "2026-01-01T00:00:00Z" },
+          { id: "p_ws", name: "工作区", createRequestId: null, rootDir: { cwd: "/w", cwdReal: "/w", dev: 1, ino: 2 }, instructionFiles: [], settingsVersion: 1, createdAt: "2026-01-01T00:00:00Z" },
         ],
         sessions: [fakeSession({ id: "sess_1", projectId: "p_leg" })],
         tasks: [],
@@ -746,7 +746,7 @@ function fakeProject(over: Partial<Project> & { id: string }): Project {
     name: over.id,
     createRequestId: null,
     instructionFiles: [],
-    webSearch: "enabled",
+
     settingsVersion: 1,
     rootDir: null,
     createdAt: "2026-01-01T00:00:00Z",
@@ -916,15 +916,14 @@ test("接入边界：两旧项目归入同一工作区后跨来源仍拒；新�
   }
 });
 
-test("映射后任务配置与资料来源不变：指令/Web Search/记忆按源项目，MCP 归实例；新会话用目标配置；认领后新会话延续原 ID", async () => {
+test("映射后任务配置与资料来源不变：指令/记忆按源项目，MCP 归实例；新会话用目标配置；认领后新会话延续原 ID", async () => {
   const t = await startTestRuntime("ws76-config-src", async () => ({ kind: "text", text: "好" }));
   try {
-    // 来源项目保留指令、Web Search 与记忆；MCP 使用实例服务。
+    // 来源项目保留指令与记忆；MCP 使用实例服务。
     const dirS = t.work[0]!;
     fs.writeFileSync(path.join(dirS, "AGENTS.md"), "旧项目约定：SRC-INSTRUCTION-MARK");
     const { projectId: l1, sessionId: s1 } = await createProjectSession(t.client, dirS, { projectName: "来源项目" });
     await t.client.request("set_project_instructions", { project_id: l1, files: ["AGENTS.md"] });
-    await t.client.request("set_project_web_search", { project_id: l1, enabled: false });
     await t.client.request("add_credential", { name: "legacy-key", host: "docs.example.com", header: "Authorization", purpose: "mcp", secret: "smoke-dummy-secret" });
     const mcpBefore = (await t.client.request<any>("mcp_configure", {
       name: "docs", endpoint: "https://docs.example.com/mcp", credential: "legacy-key", tool_allowlist: ["search"],
@@ -956,23 +955,20 @@ test("映射后任务配置与资料来源不变：指令/Web Search/记忆按�
     assert.equal(memNow.memory.currentVersion, 1, "记忆来源与版本保持");
     assert.equal(memNow.memory.projectId, l1, "记忆留在来源项目");
 
-    // 映射旧会话的后续任务：使用原项目指令，且本项目禁用 Web Search 的工具清单不含 web_search
+    // 映射旧会话的后续任务：使用原项目指令
     let before = t.server.calls.length;
     await submitAndWait(t, s1, "cfg-after-1", "映射后的任务");
     const offPayload = JSON.stringify(t.server.calls.slice(before).map((c) => c.messages));
     assert.ok(offPayload.includes("SRC-INSTRUCTION-MARK"), "映射旧会话任务使用原项目指令");
     assert.ok(!offPayload.includes("WS-INSTRUCTION-MARK"), "不注入目标工作区指令");
-    const offTools = t.server.calls.slice(before).map((c) => JSON.stringify(c.tools ?? []));
-    assert.ok(offTools.every((tools) => !tools.includes("web_search")), "源项目禁用 Web Search 保持");
 
-    // 工作区新会话：使用目标工作区配置（指令 + 启用的 Web Search）
+    // 工作区新会话：使用目标工作区配置（指令）
     const sW = (await t.client.request<any>("create_session", { project_id: wsId, cwd: dirW })) as any;
     before = t.server.calls.length;
     await submitAndWait(t, sW.id, "cfg-after-2", "工作区新任务");
     const onPayload = JSON.stringify(t.server.calls.slice(before).map((c) => c.messages));
     assert.ok(onPayload.includes("WS-INSTRUCTION-MARK"), "目标工作区新会话使用目标指令");
     assert.ok(!onPayload.includes("SRC-INSTRUCTION-MARK"), "目标工作区不注入旧项目指令");
-    assert.ok(t.server.calls.slice(before).some((c) => JSON.stringify(c.tools ?? []).includes("web_search")), "目标工作区 Web Search 启用");
 
     // 安全认领：新会话延续原 ID 已有的配置与资料范围（指令按认领根目录读取）
     const dirC = path.join(t.dirs.root, "claim-src2");

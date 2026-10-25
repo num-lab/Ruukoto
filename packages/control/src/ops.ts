@@ -106,7 +106,7 @@ export interface TuiOps {
   mcp_remove_credential: { params: { name: string }; result: R<"mcpRemoveCredential"> };
   web_search_save_credential: { params: { secret: string }; result: R<"webSearchSaveCredential"> };
   web_search_remove_credential: { params: Record<string, never>; result: R<"webSearchRemoveCredential"> };
-  set_project_web_search: { params: { project_id: string; enabled: boolean; expected_version?: number }; result: R<"setProjectWebSearch"> };
+  set_web_search: { params: { enabled: boolean; expected_version?: number }; result: R<"setWebSearch"> };
   list_credentials: { params: { purpose?: string; endpoint?: string }; result: R<"listCredentialBindings"> };
   remove_credential: { params: { name: string }; result: { removed: R<"removeCredentialBinding"> } };
   set_session_model: {

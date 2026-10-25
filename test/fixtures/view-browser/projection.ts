@@ -14,7 +14,7 @@ export function runProjection() {
       product: "ruukoto-code", mainSessionId: null,
       instanceId: "instance", execution: { backend: "native", note: "" },
       defaultModel: { provider: "mock", id: "mock", name: "Mock", thinkingLevel: "off" },
-      projects: [{ id: "project", name: "工作区", rootDir: null, createRequestId: null, instructionFiles: [], webSearch: "enabled", settingsVersion: 1, createdAt: at }],
+      projects: [{ id: "project", name: "工作区", rootDir: null, createRequestId: null, instructionFiles: [], settingsVersion: 1, createdAt: at }],
       sessions: [{ id: "session", projectId: "project", workspaceProjectId: null, name: null, branchSource: null,
         kind: "dev", cwd: "/work", cwdReal: "/work", cwdDev: 1, cwdIno: 1, piSessionId: "pi-session", sessionFile: null,
         confirmTools: [], createRequestId: null, modelSelection: null, modelSelectionVersion: 0,

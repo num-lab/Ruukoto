@@ -71,12 +71,11 @@ test("Web 搜索凭据专用 op 只写固定 Tavily 绑定，项目开关按版�
     await assert.rejects(request(t, "web_search_remove_credential", {}), rejected("credential_scope_mismatch"));
     assert.equal(t.runtime.credentials.get("web-search")?.purpose, "mcp", "同名 MCP 凭据不被专用 op 改写或删除");
     assert.ok(!JSON.stringify(t.runtime.credentials.list()).includes("tvly-secret"));
-    const a = await createProjectSession(t.client, t.work[0]);
-    const disabled = await request(t, "set_project_web_search", { project_id: a.projectId, enabled: false, expected_version: 1 });
-    assert.equal(disabled.webSearch, "disabled"); assert.equal(disabled.settingsVersion, 2);
-    await assert.rejects(request(t, "set_project_web_search", { project_id: a.projectId, enabled: true, expected_version: 1 }), rejected("version_conflict"));
-    const enabled = await request(t, "set_project_web_search", { project_id: a.projectId, enabled: true, expected_version: 2 });
-    assert.equal(enabled.webSearch, "enabled");
+    const disabled = await request(t, "set_web_search", { enabled: false, expected_version: 1 });
+    assert.deepEqual(disabled, { state: "disabled", version: 2 });
+    await assert.rejects(request(t, "set_web_search", { enabled: true, expected_version: 1 }), rejected("version_conflict"));
+    const enabled = await request(t, "set_web_search", { enabled: true, expected_version: 2 });
+    assert.equal(enabled.state, "enabled");
   } finally { await t.shutdown(); }
 });
 

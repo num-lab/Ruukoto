@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { ControlClientError } from "@ruukoto/control/client.ts";
-import type { Project } from "@ruukoto/core/types.ts";
 import { handleRequest } from "../apps/desktop/src/main/ipc.ts";
 import type { DesktopBridge, DesktopResult } from "../apps/desktop/src/shared/bridge.ts";
 import { CodeWebSearchState } from "../apps/desktop/src/renderer/code-web-search-state.ts";
@@ -10,13 +9,8 @@ import { CodeWebSearchState } from "../apps/desktop/src/renderer/code-web-search
 type Credential = { name: string; host: string; header: string; purpose: string; references: unknown[] };
 const tavilyBinding = (name: string): Credential => ({ name, host: "api.tavily.com", header: "authorization", purpose: "tavily_search", references: [] });
 
-function project(id: string): Project {
-  return { id, name: `名称 ${id}`, createRequestId: null, rootDir: null, instructionFiles: [], webSearch: "enabled", settingsVersion: 1, createdAt: "2026-10-25" };
-}
-
 function webSearchFixture() {
   const credentials: Credential[] = [];
-  const projects = [project("a"), project("b")];
   const requests: { op: string; params: Record<string, unknown> }[] = [];
   const hooks: { reply?: (op: string, params: Record<string, unknown>) => unknown } = {};
   const context = { instanceId: "instance", online: true };
@@ -27,7 +21,7 @@ function webSearchFixture() {
     assert.fail(`未预期的操作：${name}`);
   }) };
   const state = new CodeWebSearchState(bridge, () => {}, "instance", () => context);
-  return { state, credentials, projects, requests, hooks, context, bridge };
+  return { state, credentials, requests, hooks, context, bridge };
 }
 
 test("Web 搜索读取 Tavily 凭据并按名称排序呈现生效绑定", async () => {
@@ -64,38 +58,35 @@ test("Web 搜索凭据保存只发密钥，校验失败不发，成功后清空�
   assert.deepEqual(h.requests.at(-1)?.op, "list_credentials", "保存后重读核实");
 });
 
-test("Web 搜索移除凭据走专用 op；项目开关带期望版本且同值不重发", async () => {
+test("Web 搜索移除凭据走专用 op；全局开关带期望版本", async () => {
   const h = webSearchFixture(); await h.state.read();
   h.hooks.reply = op => {
     if (op === "web_search_remove_credential") { h.credentials.splice(0); return { removed: true }; }
-    assert.equal(op, "set_project_web_search");
-    return { ...h.projects[0], webSearch: "disabled", settingsVersion: 2 };
+    assert.equal(op, "set_web_search");
+    return { state: "disabled", version: 2 };
   };
   assert.equal(await h.state.removeCredential(), true, h.state.message);
-  const before = h.requests.length;
-  assert.equal(await h.state.setProjectEnabled(h.projects[0], true), false, "同值切换不发送");
-  assert.equal(h.requests.length, before);
-  assert.equal(await h.state.setProjectEnabled(h.projects[0], false), true, h.state.message);
-  assert.deepEqual(h.requests.find(request => request.op === "set_project_web_search")?.params, { project_id: "a", enabled: false, expected_version: 1 });
+  assert.equal(await h.state.setWebSearch(false, 1), true, h.state.message);
+  assert.deepEqual(h.requests.find(request => request.op === "set_web_search")?.params, { enabled: false, expected_version: 1 });
   assert.match(h.state.message, /已停用/);
 });
 
-test("Web 搜索项目开关版本冲突提示重选，丢答保留待核实并读回核对", async () => {
+test("Web 搜索全局开关版本冲突提示重选，丢答保留待核实并读回核对", async () => {
   const h = webSearchFixture(); await h.state.read();
   h.hooks.reply = () => { throw new ControlClientError("version_conflict", "设置已被其他客户端修改", "rejected"); };
-  assert.equal(await h.state.setProjectEnabled(h.projects[0], false), false);
+  assert.equal(await h.state.setWebSearch(false, 1), false);
   assert.match(h.state.message, /重新选择/);
   h.hooks.reply = () => { throw new ControlClientError("request_timeout", "合成丢答", "unknown"); };
-  assert.equal(await h.state.setProjectEnabled(h.projects[0], false), false);
-  assert.equal(h.requests.filter(request => request.op === "set_project_web_search").length, 2);
+  assert.equal(await h.state.setWebSearch(false, 1), false);
+  assert.equal(h.requests.filter(request => request.op === "set_web_search").length, 2);
   assert.match(h.state.message, /核对|待核实/);
   h.context.online = false;
-  assert.equal(await h.state.setProjectEnabled(h.projects[1], false), false);
+  assert.equal(await h.state.setWebSearch(false, 1), false);
   assert.equal(await h.state.read(), false);
 });
 
 test("Web 搜索操作仅向 Code 目标放行", async () => {
-  for (const op of ["web_search_save_credential", "web_search_remove_credential", "set_project_web_search"]) {
+  for (const op of ["web_search_save_credential", "web_search_remove_credential", "set_web_search"]) {
     let called = false;
     const result = await handleRequest("personal", op, {}, async () => {}, async () => { called = true; return {}; });
     assert.equal(result.ok, false);
@@ -119,11 +110,11 @@ test("Web 搜索页 SSR 呈现凭据状态与项目开关", async t => {
   try {
     const bridge: Pick<DesktopBridge, "request"> = { request: async () => ({ ok: true, value: null }) };
     const code = new CodeState(bridge, () => {});
-    code.view.applySnapshot({ snapshot: fakeSnapshot({ projects: [project("a"), project("b")] }), replay: [], seq: 0 }, false);
+    code.view.applySnapshot({ snapshot: fakeSnapshot({}), replay: [], seq: 0 }, false);
     code.status = { type: "state", state: "online" };
     let html = renderToStaticMarkup(createElement(CodeWebSearchSettings, { code }));
     assert.match(html, /Tavily 凭据/); assert.match(html, /Tavily API Key/); assert.match(html, /保存密钥/);
-    assert.match(html, /名称 a/); assert.match(html, /名称 b/); assert.match(html, /从下一任务生效/);
+    assert.match(html, /所有项目共用/); assert.match(html, /从下一任务生效/);
     code.view.instanceId = null;
     html = renderToStaticMarkup(createElement(CodeWebSearchSettings, { code }));
     assert.match(html, /Code 已离线/);

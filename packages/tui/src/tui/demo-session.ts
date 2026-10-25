@@ -99,7 +99,7 @@ function demoTasks(): Task[] {
   ];
 }
 
-const PROJECT: Project = { id: PROJECT_ID, name: "合成项目", createRequestId: null, rootDir: null, instructionFiles: ["AGENTS.md"], webSearch: "enabled", settingsVersion: 2, createdAt: ts(120) };
+const PROJECT: Project = { id: PROJECT_ID, name: "合成项目", createRequestId: null, rootDir: null, instructionFiles: ["AGENTS.md"], settingsVersion: 2, createdAt: ts(120) };
 
 const SESSION: Session = {
   id: SESSION_ID,
@@ -422,8 +422,8 @@ function demoEvents(): PersistentEvent[] {
     { type: "github.publish_settled", publishOpId: "pub_demo00000000", draftId: "draft_demo000000", status: "effect_unknown", remoteUrl: null, errorMessage: "发送后超时" },
     { type: "mcp.service_changed", serviceId: "mcps_demo000000", name: "docs", endpoint: "https://mcp.example.com/mcp/", configVersion: 1, action: "upsert" },
     { type: "project.jev_changed", projectId: PROJECT_ID, configVersion: 2, enabled: true },
-    // agent-direction issue 06：项目指令与 Web Search 的设置版本并发保护
-    { type: "project.settings_changed", projectId: PROJECT_ID, settingsVersion: 2, instructionFiles: ["AGENTS.md"], webSearch: "enabled" },
+    // agent-direction issue 06：项目指令的设置版本并发保护
+    { type: "project.settings_changed", projectId: PROJECT_ID, settingsVersion: 2, instructionFiles: ["AGENTS.md"] },
     { type: "mcp.service_unavailable", serviceId: "mcps_demo000000", taskId: "task_completed000", sessionId: SESSION_ID, name: "docs", endpoint: "https://mcp.example.com/mcp/", reason: "连接超时（timeout）" },
     // issue 07：QQ 群聊入口配置变化（群允许列表增删/启停/连接参数）
     { type: "qq.config_changed", configVersion: 3, action: "group_added", groupId: "100001" },

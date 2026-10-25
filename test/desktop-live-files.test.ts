@@ -25,7 +25,7 @@ const at = "2026-10-17T00:00:00Z";
 const session: Session = { id: "session", projectId: "workspace", kind: "dev", workspaceProjectId: null, name: null, branchSource: null, cwd: "/work", cwdReal: "/work", cwdDev: 1, cwdIno: 1, piSessionId: "s", sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: null, modelSelectionVersion: 0, defaultAccessMode: "confirm", defaultAccessModeVersion: 0, queueState: "active", queuePauseReason: null, archivedAt: null, createdAt: at };
 function harness(root: string, handlers: FakeHandlers = {}) {
   const identity = resolveDirIdentitySync(root);
-  const project: Project = { id: "workspace", name: "工作区", rootDir: identity, createRequestId: null, instructionFiles: [], webSearch: "enabled", settingsVersion: 1, createdAt: at };
+  const project: Project = { id: "workspace", name: "工作区", rootDir: identity, createRequestId: null, instructionFiles: [], settingsVersion: 1, createdAt: at };
   const transport = new FakeTransport({ handlers: { work_list: () => ({ works: [] }), list_workspace_files: params => listWorkspaceFiles(params.workspace_id, identity, params.path ?? "", params.cursor), read_workspace_file: params => readWorkspaceFile(params.workspace_id, identity, params.path, params), ...handlers } });
   const model = new CodeState({ request: (_target, op, params) => ipcResult(() => transport.request(op as TuiOp, params as OpParams<TuiOp>)) }, () => {});
   model.view.applySnapshot({ snapshot: fakeSnapshot({ projects: [project], sessions: [{ ...session, cwd: identity.cwdReal, cwdReal: identity.cwdReal }] }), replay: [], seq: 0 }, false);

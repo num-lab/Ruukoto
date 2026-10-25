@@ -610,7 +610,7 @@ export class Driver {
       const candidates = this.sourceTools({ ...profile, tools: undefined }, plan.toolDefs).tools;
       const sourceTask = this.deps.store.getTask(source.taskId);
       const available = taskToolSet({ registered: candidates.map(tool => tool.name), plan: false,
-        webSearchEnabled: this.deps.store.getProject(source.projectId)?.webSearch !== "disabled",
+        webSearchEnabled: this.deps.store.getWebSearch().state !== "disabled",
         mcpEffect: name => plan.tools.get(name)?.effect,
         narrow: (name, effect) => sourceAllows({ ...profile, tools: undefined }, name) && Boolean(sourceTask && (!this.deps.allowTaskTool || this.deps.allowTaskTool(sourceTask, name, effect))) });
       const required = [...new Set([...(definition.tools ?? []), ...(options.tools ?? [])])];
@@ -1180,7 +1180,7 @@ export class Driver {
       resourcePhase: this.resourcePhase,
       plan: this.profile.plan,
       browserEnabled: this.deps.browser?.allowed(task) ?? false,
-      webSearchEnabled: this.deps.store.getProject(this.session.projectId)?.webSearch !== "disabled",
+      webSearchEnabled: this.deps.store.getWebSearch().state !== "disabled",
       mcpEffect: (name) => this.currentMcpPlan?.tools.get(name)?.effect,
       // SubAgent 任务收窄（issue 16）：画像工具集决定清单（装配、发送前与调用门
       // 同一结论）；收窄不进 workerKey。宿主评审任务（issue 19）另加 effect=read

@@ -1078,7 +1078,7 @@ export class Runtime {
       try { servicePolicy = createHash("sha256").update(fs.readFileSync(this.config.service.policyPath)).digest("hex"); }
       catch (cause) { throw new WorkflowError("source_configuration_unavailable", { cause }); }
     }
-    return workflowDigest({ services, credentials, webSearch: this.store.getProject(projectId)?.webSearch, searchConfig: this.config.webSearch ?? null,
+    return workflowDigest({ services, credentials, webSearch: this.store.getWebSearch().state, searchConfig: this.config.webSearch ?? null,
       execution: this.config.execution, service: this.config.service ?? null, servicePolicy, appInstance: this.appDataStore?.getInstanceId() ?? null });
   }
 
@@ -4332,6 +4332,8 @@ export class Runtime {
     instanceId: string;
     execution: { backend: string; note: string };
     defaultModel: { provider: string; id: string; name: string; thinkingLevel: string };
+    /** 实例级 Web Search 开关（全实例共用）。 */
+    webSearch: { state: "enabled" | "disabled"; version: number };
     mainSessionId: string | null;
     roleSessionIds: string[];
     subAgentSessionIds: string[];
@@ -4368,6 +4370,7 @@ export class Runtime {
       instanceId: this.db.getInstanceId(),
       execution: this.executionInfo(),
       defaultModel: this.modelInfo(),
+      webSearch: this.store.getWebSearch(),
       mainSessionId: this.store.getAgentRole("main")?.sessionId ?? null,
       roleSessionIds: this.store.listAgentRoles().map((r) => r.sessionId),
       subAgentSessionIds: this.store.listSubAgents().map((a) => a.sessionId),
@@ -4890,19 +4893,17 @@ export class Runtime {
   }
 
   /**
-   * 按项目启用/禁用 Web Search（issue 20；拥有者入口）。默认启用；
-   * 禁用立即阻止后续调用（工具按调用新鲜检查），启用从下一任务生效
+   * 启用/停用实例级 Web Search 开关（issue 20；拥有者入口，全实例共用）。默认
+   * 启用；停用立即阻止后续调用（工具按调用新鲜检查），启用从下一任务生效
    * （任务开始固定工具清单）。expected_version 语义同 setProjectInstructions。
    */
-  setProjectWebSearch(input: { projectId: string; enabled: boolean; expectedVersion?: number }): Project {
-    const project = this.store.getProject(input.projectId);
-    if (!project) throw new RuntimeApiError("not_found", `项目不存在：${input.projectId}`);
+  setWebSearch(input: { enabled: boolean; expectedVersion?: number }): { state: "enabled" | "disabled"; version: number } {
     if (input.expectedVersion !== undefined && (!Number.isSafeInteger(input.expectedVersion) || input.expectedVersion < 1)) {
       throw new RuntimeApiError("invalid_params", "expected_version 须为正整数（设置版本从 1 起）");
     }
     try {
       return this.store.withTx(() =>
-        this.store.updateProjectSettings({ projectId: project.id, webSearch: input.enabled ? "enabled" : "disabled", expectedVersion: input.expectedVersion }),
+        this.store.setWebSearch({ state: input.enabled ? "enabled" : "disabled", expectedVersion: input.expectedVersion }),
       );
     } catch (err) {
       if (err instanceof StoreConflictError) throw new RuntimeApiError(err.code, err.message);

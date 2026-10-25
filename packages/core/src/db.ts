@@ -12,7 +12,7 @@ import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 
-export const SCHEMA_VERSION = 51;
+export const SCHEMA_VERSION = 52;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS background_processes (
@@ -128,7 +128,6 @@ CREATE TABLE IF NOT EXISTS projects (
   root_dev INTEGER,
   root_ino INTEGER,
   instruction_files TEXT NOT NULL DEFAULT '[]',
-  web_search TEXT NOT NULL DEFAULT 'enabled' CHECK (web_search IN ('enabled','disabled')),
   settings_version INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL
 );

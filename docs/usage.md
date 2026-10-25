@@ -308,10 +308,10 @@ ruukoto-code work cancel <工作ID> [--reason R]        # 停止中拒绝
 
 ```bash
 ruukoto-code project set-instructions <项目id> <文件...>    # 工作区相对路径
-ruukoto-code project web-search <项目id> on|off             # 默认启用
+ruukoto-code web-search on|off                              # 实例级开关，默认启用
 ```
 
-项目指令从 `project.rootDir?.cwdReal ?? session.cwdReal` 起经受限读取钉版（realpath 后必须仍在基准目录内），任务内固定、下一任务重新读取。项目指令与 Web Search 共用 `projects.settings_version`：保存经 `Store.updateProjectSettings` 在同一事务核对可选期望版本、更新同一行、递增同一版本并追加 `project.settings_changed` 事件；不符 = `version_conflict`，不改配置、无事件；同值保存幂等。
+项目指令从 `project.rootDir?.cwdReal ?? session.cwdReal` 起经受限读取钉版（realpath 后必须仍在基准目录内），任务内固定、下一任务重新读取。项目指令用 `projects.settings_version`：保存经 `Store.updateProjectSettings` 在同一事务核对可选期望版本、更新同一行、递增同一版本并追加 `project.settings_changed` 事件；不符 = `version_conflict`，不改配置、无事件；同值保存幂等。Web Search 为实例级开关（全实例共用），存 `meta` 表并带独立版本，保存经 `Store.setWebSearch` 同事务追加 `web_search.changed` 事件。
 
 ### 4.4 子代理角色文件
 
@@ -357,10 +357,10 @@ QQ/Telegram 主会话支持 JPEG、PNG、WebP，格式、大小、模型图片�
 ```bash
 ruukoto-code credentials add --name tavily --host api.tavily.com --header authorization \
   --purpose tavily_search --secret-env TAVILY_API_KEY
-ruukoto-code project web-search <项目id> off     # on 恢复；默认对所有项目启用
+ruukoto-code web-search off                      # on 恢复；实例级开关，默认启用
 ```
 
-秘密值为 API key，工具按 `Bearer <key>` 注入；值不进入模型上下文、事件、日志、历史正文或错误文本。未配置、host 或用途不匹配一律拒绝调用且不发送请求。任务开始固定工具清单：禁用中的项目任务不注册 `web_search`；任务内禁用立即阻止后续调用；重新启用从下一任务生效。
+秘密值为 API key，工具按 `Bearer <key>` 注入；值不进入模型上下文、事件、日志、历史正文或错误文本。未配置、host 或用途不匹配一律拒绝调用且不发送请求。任务开始固定工具清单：实例停用时不注册 `web_search`；任务内停用立即阻止后续调用；重新启用从下一任务生效。
 
 ### 5.7 MCP 服务
 

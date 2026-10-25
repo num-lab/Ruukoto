@@ -102,14 +102,9 @@ export interface Project {
    */
   instructionFiles: string[];
   /**
-   * Web Search 开关（issue 20）：默认 enabled；拥有者可按项目显式禁用。
-   * 任务开始固定工具清单；禁用立即阻止后续调用，启用从下一任务生效。
-   */
-  webSearch: "enabled" | "disabled";
-  /**
-   * 项目设置版本（agent-direction issue 06）：只保护指令列表与 Web Search
-   * 开关；任何变化递增，拥有者入口按期望版本做乐观并发校验。MCP、Jev 与
-   * 会话默认继续使用各自的 configVersion/版本列，不合并为一个总版本。
+   * 项目设置版本（agent-direction issue 06）：只保护指令列表；任何变化递增，
+   * 拥有者入口按期望版本做乐观并发校验。MCP、Jev 与会话默认继续使用各自的
+   * configVersion/版本列，不合并为一个总版本。
    */
   settingsVersion: number;
   createdAt: string;
@@ -928,10 +923,15 @@ export type PersistentEventBody =
   | { type: "project.root_attached"; projectId: string; rootDir: DirIdentity }
   | { type: "project.jev_changed"; projectId: string; configVersion: number; enabled: boolean }
   /**
-   * 项目指令列表与 Web Search 开关已保存（agent-direction issue 06）：携带设置
-   * 版本与可供视图更新的配置字段；不含指令正文或秘密。冲突的保存不产生本事件。
+   * 项目指令列表已保存（agent-direction issue 06）：携带设置版本与可供视图
+   * 更新的配置字段；不含指令正文或秘密。冲突的保存不产生本事件。
    */
-  | { type: "project.settings_changed"; projectId: string; settingsVersion: number; instructionFiles: string[]; webSearch: "enabled" | "disabled" }
+  | { type: "project.settings_changed"; projectId: string; settingsVersion: number; instructionFiles: string[] }
+  /**
+   * 实例级 Web Search 开关已保存：全实例共用一个开关，携带版本与状态；
+   * 同值保存幂等，不产生本事件。
+   */
+  | { type: "web_search.changed"; version: number; state: "enabled" | "disabled" }
   | { type: "session.created"; sessionId: string; projectId: string; kind: SessionKind; cwd: string; modelSelection: ModelSelection | null; modelSelectionVersion: number; createRequestId: string | null; session?: Session }
   /**
    * 会话工作区组织归属已设置（agent-direction issue 07）：仅组织展示归属，资料

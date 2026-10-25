@@ -271,6 +271,7 @@ export class ControlServer {
             instanceId: snapshot.instanceId,
             execution: snapshot.execution,
             defaultModel: snapshot.defaultModel,
+            webSearch: snapshot.webSearch,
             mainSessionId: snapshot.mainSessionId,
             roleSessionIds: snapshot.roleSessionIds,
             subAgentSessionIds: snapshot.subAgentSessionIds,
@@ -794,13 +795,12 @@ export class ControlServer {
           expectedVersion: optionalExpectedVersion(),
         });
       }
-      case "set_project_web_search": {
+      case "set_web_search": {
         const enabled = params["enabled"];
         if (typeof enabled !== "boolean") {
           throw Object.assign(new Error("enabled 必须是布尔值"), { code: "invalid_params" });
         }
-        return runtime.setProjectWebSearch({
-          projectId: requireString("project_id"),
+        return runtime.setWebSearch({
           enabled,
           expectedVersion: optionalExpectedVersion(),
         });

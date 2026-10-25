@@ -204,7 +204,7 @@ export function taskToolSet(input: {
       : input.plan && !PLAN_TOOL_NAMES.has(name) && !["process_status", "process_output", "process_stop"].includes(name) && effect !== "read" ? "计划模式不开放"
       : name === "browser" && !input.browserEnabled ? "浏览器仅开放完全访问的拥有者会话"
       : input.narrow && !input.narrow(name, effect) ? "本任务由宿主收窄"
-      : !input.webSearchEnabled && (WEB_SEARCH_TOOL_NAMES as readonly string[]).includes(name) ? "项目已关闭 Web Search"
+      : !input.webSearchEnabled && (WEB_SEARCH_TOOL_NAMES as readonly string[]).includes(name) ? "Web Search 已停用"
       : null;
     if (reason) rejected.set(name, reason);
     else allowed.add(name);

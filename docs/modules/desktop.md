@@ -14,7 +14,7 @@ Electron 或 MyGo 共用的 Node DesktopHost 持有 Code 令牌、`ControlConnec
 
 MyGo 试验外壳使用 Go 与 WKWebView，预加载实现同一 DesktopBridge，Node 子进程复用 DesktopHost；双方通过私有 JSONL 管道交换原始 JSON，单帧上限 16 MiB；凭据使用宿主专用帧，不经过界面事件、Go 绑定或 renderer。Go 负责选择器、Finder、系统通知和角标；附件选择前固定目标、控制器、连接对象与实例，路径只在宿主之间传递。构建记录 Node 绝对路径，使用独立应用数据目录；操作与构建见[桌面开发](../desktop-development.md#mygo-试验)。
 
-Code MCP 另开放 `mcp_list/configure/set_enabled/remove/check`、`list_credentials` 与 `mcp_save_credential/remove_credential`；Web 搜索另开放只写固定 Tavily 绑定的 `web_search_save_credential/remove_credential` 与 `set_project_web_search`；通用凭据写入不向桌面开放，Personal 不放行这些操作。
+Code MCP 另开放 `mcp_list/configure/set_enabled/remove/check`、`list_credentials` 与 `mcp_save_credential/remove_credential`；Web 搜索另开放只写固定 Tavily 绑定的 `web_search_save_credential/remove_credential` 与实例级开关 `set_web_search`；通用凭据写入不向桌面开放，Personal 不放行这些操作。
 
 Code Skills 开放 `skills_list`、`skill_get`、`skill_set_enabled` 与 `skill_remove`；本地导入经系统目录选择和后台预览后，仅用宿主选择引用调用 `desktop_skill_import`。宿主固定原 Code 连接、实例、路径与修订，拒绝 renderer 任意路径及旧选择；两壳共用同一检查，Personal 不放行。
 
@@ -100,7 +100,7 @@ Code MCP 新服务先保存禁用草稿，再主动联网发现工具，逐项�
 
 双端「电脑」设置类别可选择「本机 Cua Driver」或「Linux 桌面沙箱」；后台发现已安装固定程序与既有沙箱，生成版本、哈希及目标身份，界面展示检查结果。Code 工具发现只读静态清单并预检当前后台宿主授权位，不宣称实际桌面捕获成功。电脑配置仍是 MCP 服务存储，与普通服务共用修订检查和未决阻塞，MCP 页只呈现 HTTP 服务。暂停与继续经原后台管理，关闭设置窗不停止后台动作。恢复页展示原未知动作，依次核实停止、人工检查和新截图；图片按原观察分页读取、校验并实际加载后才可接受，重观察、失败或连接更换丢弃旧选择，后台再次核实观察身份。Linux 整沙箱停止须明确确认内存与未保存应用状态丢失，磁盘保留。
 
-Web 搜索设置仅向 Code 开放：Tavily 密钥经专用 op 保存到固定名绑定，不接受名称、主机或用途参数；按名称排序呈现生效绑定，CLI 创建的绑定只读并提示用原命令管理。项目开关读取本地快照的项目与设置版本，写入携带期望版本，冲突提示按当前值重选；停用立即阻止后续调用，启用从下一任务生效。
+Web 搜索设置仅向 Code 开放：Tavily 密钥经专用 op 保存到固定名绑定，不接受名称、主机或用途参数；按名称排序呈现生效绑定，CLI 创建的绑定只读并提示用原命令管理。实例级开关读自本地快照（全实例共用），写入携带期望版本，冲突提示按当前值重选；停用立即阻止后续调用，启用从下一任务生效。
 
 Personal 各页每次打开重读原档案，模型编辑单模型、API 类型、容量、图片能力与环境变量引用，显式测试当前草稿且与保存分开；技能库与包均通过远端目录选择和预览，外部来源只读，托管启停与逻辑移除保留旧引用所需字节。MCP 编辑档案级服务、私有凭据文件或显式匿名；电脑页编辑 Linux 沙箱，共用 MCP 修订与维护流程。原工具允许列表分页读取完整定义，未改工具时由后台保留，不用摘要覆盖 schema。写入先展示影响并确认停存启；忙时返回原入口处理事项，丢答、已保存未启动与待核实保留恢复及人工结束维护动作。
 

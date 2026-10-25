@@ -91,7 +91,7 @@ test("终端op只向Code本机入口开放，不转发控制面或接受未知�
 test("终端标签跨父会话保留、输出不重绘、关闭与迟到open回收", async () => {
   const f = fixture(), view = new ViewState();
   view.instanceId = "inst-1";
-  view.projects = ["w1", "w2"].map(id => ({ id, name: id, rootDir: f.identity, createRequestId: null, instructionFiles: [], webSearch: "enabled", settingsVersion: 1, createdAt: "" }));
+  view.projects = ["w1", "w2"].map(id => ({ id, name: id, rootDir: f.identity, createRequestId: null, instructionFiles: [], settingsVersion: 1, createdAt: "" }));
   const calls: { op: string; params: Record<string, unknown> }[] = [];
   let changed = 0, release!: (result: DesktopResult<unknown>) => void;
   const inspector = new DesktopInspector({ request: async (_target, op, params) => { calls.push({ op, params }); if (op === "desktop_terminal_open") return new Promise(resolve => { release = resolve; }); return { ok: true, value: null }; } }, view, async () => {}, () => { changed++; });
@@ -115,7 +115,7 @@ test("终端标签跨父会话保留、输出不重绘、关闭与迟到open回�
 test("终端按钮打开当前会话归属的工作区，未归属或无根目录不开", () => {
   const f = fixture(), view = new ViewState();
   view.instanceId = "inst-1";
-  view.projects = ["w1", "w2"].map(id => ({ id, name: id, rootDir: id === "w2" ? null : f.identity, createRequestId: null, instructionFiles: [], webSearch: "enabled", settingsVersion: 1, createdAt: "" }));
+  view.projects = ["w1", "w2"].map(id => ({ id, name: id, rootDir: id === "w2" ? null : f.identity, createRequestId: null, instructionFiles: [], settingsVersion: 1, createdAt: "" }));
   view.sessions = [{ id: "a", projectId: "w1", workspaceProjectId: null, kind: "dev", name: null, branchSource: null, cwd: "/work/w1", cwdReal: "/work/w1", cwdDev: 1, cwdIno: 1, piSessionId: "a", sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: null, modelSelectionVersion: 0, defaultAccessMode: "confirm", defaultAccessModeVersion: 0, queueState: "active", queuePauseReason: null, archivedAt: null, createdAt: "" }];
   const inspector = new DesktopInspector({ request: async () => { throw new Error("打开前不应请求"); } }, view, async () => {}, () => {});
   try {
@@ -176,7 +176,7 @@ for (const action of ["kill", "reset", "close"] as const) test(`宿主打开期�
   const host = new DesktopHost(f.root, path.join(f.root, "user"), { publish() {}, focused: () => true, notice() {}, badge() {} }, () => reading, () => { spawns++; return fakePty(10).pty; });
   // 本用例固定可信快照输入，不伪造renderer可直接注入宿主快照的入口。
   const publish = Reflect.get(host, "publish").bind(host) as (target: "code", update: import("../apps/desktop/src/shared/bridge.ts").DesktopUpdate) => void;
-  publish("code", { type: "snapshot", instanceChanged: false, result: { seq: 0, replay: [], snapshot: fakeSnapshot({ projects: [{ id: "workspace", name: "工作区", rootDir: f.identity, createRequestId: null, instructionFiles: [], webSearch: "enabled", settingsVersion: 1, createdAt: "" }] }) } });
+  publish("code", { type: "snapshot", instanceChanged: false, result: { seq: 0, replay: [], snapshot: fakeSnapshot({ projects: [{ id: "workspace", name: "工作区", rootDir: f.identity, createRequestId: null, instructionFiles: [], settingsVersion: 1, createdAt: "" }] }) } });
   try {
     const id = randomUUID();
     assert.equal((await host.request("code", "desktop_terminal_open", { id, workspace_id: "workspace", instance_id: "old", cols: 80, rows: 24 })).ok, false);
@@ -191,7 +191,7 @@ for (const action of ["kill", "reset", "close"] as const) test(`宿主打开期�
 
 test("MyGo并发调度仍串行发送终端输入和尺寸，失败后不继续发送", async () => {
   const f = fixture(), view = new ViewState();
-  view.instanceId = "inst-1"; view.projects = [{ id: "workspace", name: "工作区", rootDir: f.identity, createRequestId: null, instructionFiles: [], webSearch: "enabled", settingsVersion: 1, createdAt: "" }];
+  view.instanceId = "inst-1"; view.projects = [{ id: "workspace", name: "工作区", rootDir: f.identity, createRequestId: null, instructionFiles: [], settingsVersion: 1, createdAt: "" }];
   const sent: string[] = [];
   let release!: (value: DesktopResult<unknown>) => void;
   const inspector = new DesktopInspector({ request: async (_target, op, params) => { sent.push(op === "desktop_terminal_input" ? String(params.data) : "resize"); if (sent.length === 1) return new Promise(resolve => { release = resolve; }); return { ok: true, value: null }; } }, view, async () => {}, () => {});
@@ -209,7 +209,7 @@ test("MyGo并发调度仍串行发送终端输入和尺寸，失败后不继续�
 
 test("关闭标签的回收失败保持可见并能重试，成功才清除", async () => {
   const f = fixture(), view = new ViewState();
-  view.instanceId = "inst-1"; view.projects = [{ id: "workspace", name: "工作区", rootDir: f.identity, createRequestId: null, instructionFiles: [], webSearch: "enabled", settingsVersion: 1, createdAt: "" }];
+  view.instanceId = "inst-1"; view.projects = [{ id: "workspace", name: "工作区", rootDir: f.identity, createRequestId: null, instructionFiles: [], settingsVersion: 1, createdAt: "" }];
   let failed = true, changed = 0;
   const inspector = new DesktopInspector({ request: async () => failed ? { ok: false, error: { code: "terminal_stop_failed", outcome: "not_sent", message: "终端仍有进程运行" } } : { ok: true, value: null } }, view, async () => {}, () => { changed++; });
   try {

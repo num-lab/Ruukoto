@@ -19,7 +19,7 @@ function WebSearchForm({ code }: { code: CodeState }) {
   useEffect(() => { void state.read(); return () => { state.invalidate(); }; }, [state]);
   const effective = state.effective;
   const secretField = !effective || replacing;
-  const projects = [...code.view.projects].sort((a, b) => a.name.localeCompare(b.name));
+  const webSearch = code.view.webSearch;
   return <div className="model-settings web-search-settings" aria-label="Web 搜索设置" aria-busy={state.reading || state.writing}>
     <fieldset className="model-settings-section"><legend>Tavily 凭据</legend>
       <div className="model-settings-actions"><Button type="button" variant="ghost" size="icon-sm" aria-label="重新读取凭据" disabled={state.reading || state.writing} onClick={() => void state.read()}><RefreshCw /></Button>{state.reading && <span role="status">正在读取…</span>}</div>
@@ -33,8 +33,8 @@ function WebSearchForm({ code }: { code: CodeState }) {
       {secretField && <Field data-invalid={!!state.fieldErrors.secret}><FieldLabel htmlFor="web-search-secret">Tavily API Key</FieldLabel><Input id="web-search-secret" type="password" autoComplete="off" value={state.secret} disabled={state.disabled} aria-invalid={!!state.fieldErrors.secret} onChange={event => state.editSecret(event.target.value)} />{state.fieldErrors.secret && <FieldDescription role="alert">{state.fieldErrors.secret}</FieldDescription>}</Field>}
       {secretField && <div className="model-settings-actions">{replacing && <Button type="button" variant="ghost" size="sm" disabled={state.disabled} onClick={() => setReplacing(false)}>取消更换</Button>}<Button type="button" size="sm" disabled={state.disabled} onClick={() => void state.saveSecret().then(saved => { if (saved) setReplacing(false); })}>保存密钥</Button></div>}
     </fieldset>
-    <fieldset className="model-settings-section"><legend>项目</legend>
-      {projects.length ? <FieldGroup>{projects.map(project => <Field key={project.id} orientation="horizontal" className="settings-row"><FieldLabel htmlFor={`web-search-project-${project.id}`}>{project.name}</FieldLabel><Select value={project.webSearch} disabled={state.disabled || state.busyProjectId === project.id} onValueChange={value => void state.setProjectEnabled(project, value === "enabled")}><SelectTrigger id={`web-search-project-${project.id}`}><SelectValue /></SelectTrigger><SelectContent position="popper" align="end" sideOffset={6}><SelectGroup><SelectItem value="enabled">启用</SelectItem><SelectItem value="disabled">停用</SelectItem></SelectGroup></SelectContent></Select></Field>)}</FieldGroup> : <FieldDescription>没有项目；打开工作区后可在这里按项目启停 Web Search。</FieldDescription>}
+    <fieldset className="model-settings-section"><legend>开关</legend>
+      <FieldGroup><Field orientation="horizontal" className="settings-row"><FieldLabel htmlFor="web-search-toggle">所有项目共用</FieldLabel><Select value={webSearch.state} disabled={state.disabled} onValueChange={value => void state.setWebSearch(value === "enabled", webSearch.version)}><SelectTrigger id="web-search-toggle"><SelectValue /></SelectTrigger><SelectContent position="popper" align="end" sideOffset={6}><SelectGroup><SelectItem value="enabled">启用</SelectItem><SelectItem value="disabled">停用</SelectItem></SelectGroup></SelectContent></Select></Field></FieldGroup>
       <FieldDescription>停用立即阻止后续调用，启用从下一任务生效。</FieldDescription>
     </fieldset>
     {state.message && <p className="model-settings-notice" role="status">{state.message}</p>}

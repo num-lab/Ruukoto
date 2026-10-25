@@ -52,7 +52,7 @@ async function fixture(t: TestContext, mode: SessionDefaultMode = "plan") {
 function rendererFixture(mode: SessionDefaultMode) {
   const work = ["/work/first", "/work/second"];
   const source: Session = { id: "source", projectId: "project", workspaceProjectId: null, kind: "dev", name: null, branchSource: null, cwd: work[0], cwdReal: work[0], cwdDev: 1, cwdIno: 1, piSessionId: "pi", sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: { ...selected }, modelSelectionVersion: 1, defaultAccessMode: mode, defaultAccessModeVersion: 1, queueState: "active", queuePauseReason: null, archivedAt: null, createdAt: "now" };
-  const project: Project = { id: source.projectId, name: "工作区", createRequestId: null, rootDir: { cwd: work[0], cwdReal: work[0], dev: 1, ino: 1 }, instructionFiles: [], webSearch: "enabled", settingsVersion: 1, createdAt: "now" };
+  const project: Project = { id: source.projectId, name: "工作区", createRequestId: null, rootDir: { cwd: work[0], cwdReal: work[0], dev: 1, ino: 1 }, instructionFiles: [], settingsVersion: 1, createdAt: "now" };
   const creations: { op: string; params: Record<string, unknown> }[] = [];
   const model = new CodeState({ request: async (_target, op, params) => {
     if (op === "create_session" || op === "open_workspace") {

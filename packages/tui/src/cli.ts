@@ -336,17 +336,6 @@ async function runLegacy(cmd: string, rest: string[], product: CliProduct): Prom
         print(await withClient((c) => c.request("set_project_instructions", { project_id: projectId, files })));
         return 0;
       }
-      // Web Search 项目开关（issue 20；拥有者入口）：web-search <项目id> <on|off>
-      if (sub === "web-search") {
-        const projectId = positional[1] ?? "";
-        const state = positional[2] ?? "";
-        if (!projectId || (state !== "on" && state !== "off")) {
-          console.error("用法：ruukoto project web-search <项目id> <on|off>");
-          return 1;
-        }
-        print(await withClient((c) => c.request("set_project_web_search", { project_id: projectId, enabled: state === "on" })));
-        return 0;
-      }
       // 旧数据 → 工作区组织迁移（agent-direction issue 07）：migration-preview 只读，
       // --plan 校验选择并把绑定最终选择的修订写回计划文件；migration-apply 按计划文件应用
       if (sub === "migration-preview") {
@@ -405,7 +394,7 @@ async function runLegacy(cmd: string, rest: string[], product: CliProduct): Prom
         );
         return 0;
       }
-      console.error("用法：ruukoto project set-instructions <项目id> <工作区相对路径...>（空列表 = 清除）；ruukoto project web-search <项目id> <on|off>；ruukoto project migration-preview <项目id> [--plan <文件>] [--limit N]；ruukoto project migration-apply --plan <文件> [--request-id <id>]");
+      console.error("用法：ruukoto project set-instructions <项目id> <工作区相对路径...>（空列表 = 清除）；ruukoto project migration-preview <项目id> [--plan <文件>] [--limit N]；ruukoto project migration-apply --plan <文件> [--request-id <id>]");
       return 1;
     }
     case "create-session": {
@@ -545,6 +534,16 @@ async function runLegacy(cmd: string, rest: string[], product: CliProduct): Prom
         `artifact ${result.artifact.id}（${result.artifact.name}，共 ${result.artifact.byteCount} 字节，${result.artifact.status}）`,
       );
       process.stdout.write(Buffer.from(result.data, "base64"));
+      return 0;
+    }
+    case "web-search": {
+      // 实例级 Web Search 开关（issue 20；拥有者入口，全实例共用）：<on|off>
+      const state = positional[0] ?? "";
+      if (state !== "on" && state !== "off") {
+        console.error("用法：ruukoto web-search <on|off>");
+        return 1;
+      }
+      print(await withClient((c) => c.request("set_web_search", { enabled: state === "on" })));
       return 0;
     }
     case "credentials": {
@@ -1264,9 +1263,9 @@ function defaultHelp(): string {
     "      ruukoto server [启动参数]                     前台启动后台（start 为兼容别名，文档推荐 server）\n" +
     "管理命令：models | set-model <session> <provider/model> --thinking <level> | set-session-mode <session> <confirm|full_access|auto-review|plan> |\n" +
     "      create-project | create-session | submit | continue | switch-mode | status | events |\n" +
-    "      interrupt | cancel | resume-queue | confirm | read-artifact | credentials | mcp | qq | telegram | stop |\n" +
+    "      interrupt | cancel | resume-queue | confirm | read-artifact | credentials | mcp | qq | telegram | stop | web-search <on|off> |\n" +
     "      grant | service-grant list/show/revoke | work list/show/close | workflow（详情见 workflow help） | history-search | memory | selection-records |\n" +
-    "      project set-instructions | project web-search | project migration-preview | project migration-apply\n" +
+    "      project set-instructions | project migration-preview | project migration-apply\n" +
     "      legacy-import（两产品分流）：ruukoto-code 迁入旧实例开发资料；ruukoto 迁入旧实例个人资料\n" +
     "      （main/应用数据/调度/平台绑定与必要凭据，目标为全新实例）。离线执行，要求源与目标后台均已停止；\n" +
     "      preview --from <源数据目录> [--plan 文件] | apply --plan 文件 | revert <导入ID> | list\n" +

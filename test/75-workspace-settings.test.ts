@@ -101,29 +101,29 @@ test("settings_version：携带期望版本保存成功并递增版本；旧版�
   }
 });
 
-test("settings_version：兼容写入（省略版本）仍更新同一行并产生事件；指令与 Web Search 共用一个版本", async () => {
+test("settings_version：指令兼容写入（省略版本）仍更新同一行并产生事件，旧表单版本失效", async () => {
   const t = await startTestRuntime("ws75-settings-legacy", RESPONDER);
   try {
     const project = (await t.client.request<any>("create_project", { name: "p-legacy" })) as any;
 
     // 旧入口省略版本：兼容写入
-    const legacy = (await t.client.request<any>("set_project_web_search", {
-      project_id: project.id, enabled: false,
+    const legacy = (await t.client.request<any>("set_project_instructions", {
+      project_id: project.id, files: ["AGENTS.md"],
     })) as any;
-    assert.equal(legacy.webSearch, "disabled");
+    assert.deepEqual(legacy.instructionFiles, ["AGENTS.md"]);
     assert.equal(legacy.settingsVersion, 2, "兼容写入递增同一版本");
     assert.equal(settingsEvents(t, project.id).length, 1, "兼容写入产生同一事件");
 
-    // 带版本客户端读到 v2 后保存指令；旧表单拿 v1 再保存被拒
-    const stale = await requestError(t.client, "set_project_web_search", {
-      project_id: project.id, enabled: true, expected_version: 1,
+    // 带版本客户端读到 v2 后清除指令；旧表单拿 v1 再保存被拒
+    const stale = await requestError(t.client, "set_project_instructions", {
+      project_id: project.id, files: [], expected_version: 1,
     });
     assert.equal(stale.code, "version_conflict", "旧入口写入后旧表单版本失效");
-    const ws = (await t.client.request<any>("set_project_web_search", {
-      project_id: project.id, enabled: true, expected_version: 2,
+    const ws = (await t.client.request<any>("set_project_instructions", {
+      project_id: project.id, files: [], expected_version: 2,
     })) as any;
     assert.equal(ws.settingsVersion, 3);
-    assert.equal(t.runtime.store.getProject(project.id)!.instructionFiles.length, 0, "开关保存不动指令列表");
+    assert.equal(t.runtime.store.getProject(project.id)!.instructionFiles.length, 0, "清除后指令列表为空");
   } finally {
     await t.shutdown();
   }
@@ -213,10 +213,8 @@ test("工作区并存：根目录与子目录会话都只按根目录读指令�
     assert.notEqual(projectS, projectR, "同名目录是两个工作区（配置归属按稳定 projectId）");
 
     await t.client.request("set_project_instructions", { project_id: projectS, files: ["TEAM.md"] });
-    await t.client.request("set_project_web_search", { project_id: projectS, enabled: false });
     const rAfter = t.runtime.store.getProject(projectR)!;
     assert.deepEqual(rAfter.instructionFiles, ["TEAM.md"], "S 的保存不影响 R 的指令列表");
-    assert.equal(rAfter.webSearch, "enabled", "S 的保存不影响 R 的 Web Search");
     assert.equal(rAfter.settingsVersion, 2, "S 的保存不递增 R 的版本");
     assert.equal(settingsEvents(t, projectR).length, 1, "R 只产生自己的设置事件");
 
@@ -597,15 +595,14 @@ test("旧入口兼容与认领：认领后原配置/授权/凭据引用保持可
     assert.ok(String(op.resultSummary).includes("靛蓝榫卯"), "认领后原资料授权保持可用");
 
     // 旧 CLI 风格写入：settingsVersion 递增且 project.settings_changed 事件出现（控制面断言事件载荷）
-    const ws = (await t.client.request<any>("set_project_web_search", { project_id: legacy.id, enabled: false })) as any;
+    const ws = (await t.client.request<any>("set_project_instructions", { project_id: legacy.id, files: ["LEGACY.md", "TEAM.md"] })) as any;
     assert.equal(ws.settingsVersion, 3, "兼容写入递增同一版本");
     const events = settingsEvents(t, legacy.id);
     assert.equal(events.length, 2, "两次成功写入各产生一个设置事件");
     const last = events.at(-1)!.body as any;
     assert.equal(last.projectId, legacy.id);
     assert.equal(last.settingsVersion, 3, "事件携带新设置版本");
-    assert.deepEqual(last.instructionFiles, ["LEGACY.md"], "事件携带指令字段（列表，非正文）");
-    assert.equal(last.webSearch, "disabled", "事件携带开关字段");
+    assert.deepEqual(last.instructionFiles, ["LEGACY.md", "TEAM.md"], "事件携带指令字段（列表，非正文）");
     assert.ok(!("instructions" in last) && !("text" in last), "事件不含指令正文");
 
     // 幂等键复用的重复 open_workspace：不重复迁移或复制状态
@@ -673,7 +670,7 @@ test("store：updateProjectSettings 同值保存幂等（不递增版本、不�
     const events = () => store.getEventsAfter(0).filter((e) => e.body.type === "project.settings_changed");
 
     const same = store.withTx(() =>
-      store.updateProjectSettings({ projectId: project.id, instructionFiles: [], webSearch: "enabled" }),
+      store.updateProjectSettings({ projectId: project.id, instructionFiles: [] }),
     );
     assert.equal(same.settingsVersion, 1, "同值保存不递增版本");
     assert.equal(events().length, 0, "同值保存不产生事件");
@@ -685,18 +682,40 @@ test("store：updateProjectSettings 同值保存幂等（不递增版本、不�
     assert.equal(event.projectId, project.id);
     assert.equal(event.settingsVersion, 2);
     assert.deepEqual(event.instructionFiles, ["TEAM.md"]);
-    assert.equal(event.webSearch, "enabled", "事件携带当前配置字段");
     assert.ok(!("instructions" in event) && !("text" in event), "事件不含指令正文");
 
     const again = store.withTx(() =>
-      store.updateProjectSettings({ projectId: project.id, instructionFiles: ["TEAM.md"], webSearch: "enabled" }),
+      store.updateProjectSettings({ projectId: project.id, instructionFiles: ["TEAM.md"] }),
     );
     assert.equal(again.settingsVersion, 2, "重复同值保存仍幂等");
     assert.equal(events().length, 1, "重复同值保存不再发事件");
+  } finally {
+    db.close();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
 
-    const web = store.withTx(() => store.updateProjectSettings({ projectId: project.id, webSearch: "disabled" }));
-    assert.equal(web.settingsVersion, 3, "开关改动递增版本");
-    assert.equal(events().length, 2, "开关改动产生事件");
+test("store：实例级 Web Search 开关默认启用，幂等、版本冲突与事件同事务", () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-ws75-web-"));
+  const db = new Db(dataDir);
+  try {
+    const store = new Store(db);
+    assert.deepEqual(store.getWebSearch(), { state: "enabled", version: 1 }, "缺省启用");
+    const events = () => store.getEventsAfter(0).filter((e) => e.body.type === "web_search.changed");
+
+    assert.equal(events().length, 0);
+    assert.deepEqual(store.withTx(() => store.setWebSearch({ state: "enabled" })), { state: "enabled", version: 1 }, "同值保存幂等");
+    assert.equal(events().length, 0, "同值保存不产生事件");
+
+    assert.deepEqual(store.withTx(() => store.setWebSearch({ state: "disabled" })), { state: "disabled", version: 2 });
+    assert.deepEqual(store.getWebSearch(), { state: "disabled", version: 2 });
+    assert.equal(events().length, 1);
+    assert.deepEqual(events()[0]!.body, { type: "web_search.changed", version: 2, state: "disabled" });
+
+    assert.throws(() => store.withTx(() => store.setWebSearch({ state: "enabled", expectedVersion: 1 })), /版本冲突/);
+    assert.equal(events().length, 1, "冲突保存不产生事件");
+    assert.deepEqual(store.withTx(() => store.setWebSearch({ state: "enabled", expectedVersion: 2 })), { state: "enabled", version: 3 });
+    assert.equal(events().length, 2);
   } finally {
     db.close();
     fs.rmSync(dataDir, { recursive: true, force: true });

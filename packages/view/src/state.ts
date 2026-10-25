@@ -77,6 +77,8 @@ export class ViewState {
     name: "",
     thinkingLevel: "",
   };
+  /** 实例级 Web Search 开关（快照 + web_search.changed 事件；旧后台缺省启用）。 */
+  webSearch: { state: "enabled" | "disabled"; version: number } = { state: "enabled", version: 0 };
   connection: ConnectionInfo = { state: "connecting", detail: null, lastSyncAt: null };
   sessionViews = new Map<string, SessionView>();
   currentSessionId: string | null = null;
@@ -109,6 +111,7 @@ export class ViewState {
     this.instanceId = result.snapshot.instanceId;
     this.execution = result.snapshot.execution;
     this.defaultModel = result.snapshot.defaultModel ?? this.defaultModel;
+    this.webSearch = result.snapshot.webSearch ?? this.webSearch;
     this.roleSessionIds = result.snapshot.roleSessionIds ?? [];
     this.mainSessionId = result.snapshot.mainSessionId;
     this.subAgentSessionIds = result.snapshot.subAgentSessionIds ?? [];
@@ -188,7 +191,7 @@ export class ViewState {
         return;
       case "project.created":
         if (!this.projects.some((p) => p.id === body.projectId)) {
-          this.projects.push({ id: body.projectId, name: body.name, createRequestId: body.createRequestId ?? null, rootDir: body.rootDir ?? null, instructionFiles: [], webSearch: "enabled", settingsVersion: 1, createdAt: event.createdAt });
+          this.projects.push({ id: body.projectId, name: body.name, createRequestId: body.createRequestId ?? null, rootDir: body.rootDir ?? null, instructionFiles: [], settingsVersion: 1, createdAt: event.createdAt });
         }
         return;
       case "project.root_attached": {
@@ -200,11 +203,13 @@ export class ViewState {
         const project = this.projects.find((p) => p.id === body.projectId);
         if (project) {
           project.instructionFiles = body.instructionFiles;
-          project.webSearch = body.webSearch;
           project.settingsVersion = body.settingsVersion;
         }
         return;
       }
+      case "web_search.changed":
+        this.webSearch = { state: body.state, version: body.version };
+        return;
       case "session.created":
         if (!this.sessions.some((s) => s.id === body.sessionId)) {
           this.sessions.push(body.session ?? {

@@ -148,6 +148,8 @@ export class ConfigTuiApp {
   // 在线快照的本地补丁副本（项目/会话列表；分区每步操作前仍会重读版本）
   private projects: Project[] = [];
   private sessions: Session[] = [];
+  // 实例级 Web Search 开关（快照 + web_search.changed 事件；旧后台缺省启用）
+  private webSearch: { state: "enabled" | "disabled"; version: number } = { state: "enabled", version: 0 };
   // 工作区/旧项目分类所需的角色会话标识（协议快照可选字段，旧后台缺省为 []）
   private roleSessionIds: string[] = [];
   private subAgentSessionIds: string[] = [];
@@ -171,6 +173,7 @@ export class ConfigTuiApp {
     if (deps.snapshot) {
       this.projects = deps.snapshot.projects;
       this.sessions = deps.snapshot.sessions;
+      this.webSearch = deps.snapshot.webSearch ?? this.webSearch;
       this.roleSessionIds = deps.snapshot.roleSessionIds ?? [];
       this.subAgentSessionIds = deps.snapshot.subAgentSessionIds ?? [];
       this.instanceId = deps.snapshot.instanceId;
@@ -490,12 +493,15 @@ export class ConfigTuiApp {
     // 项目/会话列表的轻量补丁（与任务 TUI 的 ViewState 同源语义，这里只留展示字段）
     switch (body.type) {
       case "project.created":
-        this.projects = [...this.projects.filter((p) => p.id !== body.projectId), { id: body.projectId, name: body.name, createRequestId: body.createRequestId, rootDir: body.rootDir ?? null, instructionFiles: [], webSearch: "enabled", settingsVersion: 1, createdAt: event.createdAt } as Project];
+        this.projects = [...this.projects.filter((p) => p.id !== body.projectId), { id: body.projectId, name: body.name, createRequestId: body.createRequestId, rootDir: body.rootDir ?? null, instructionFiles: [], settingsVersion: 1, createdAt: event.createdAt } as Project];
         break;
       case "project.settings_changed":
         this.projects = this.projects.map((p) =>
-          p.id === body.projectId ? { ...p, instructionFiles: body.instructionFiles, webSearch: body.webSearch, settingsVersion: body.settingsVersion } : p,
+          p.id === body.projectId ? { ...p, instructionFiles: body.instructionFiles, settingsVersion: body.settingsVersion } : p,
         );
+        break;
+      case "web_search.changed":
+        this.webSearch = { state: body.state, version: body.version };
         break;
       case "project.root_attached":
         this.projects = this.projects.map((p) => (p.id === body.projectId && !p.rootDir ? { ...p, rootDir: body.rootDir } : p));
@@ -538,6 +544,7 @@ export class ConfigTuiApp {
       const result = await this.deps.client.handshake();
       this.projects = result.snapshot.projects;
       this.sessions = result.snapshot.sessions;
+      this.webSearch = result.snapshot.webSearch ?? this.webSearch;
       this.roleSessionIds = result.snapshot.roleSessionIds ?? [];
       this.subAgentSessionIds = result.snapshot.subAgentSessionIds ?? [];
     } catch {
@@ -550,11 +557,12 @@ export class ConfigTuiApp {
   private rootScreen(): Screen {
     const defs: Array<{ id: string; title: string; desc: string; offline: boolean }> = [
       { id: "models", title: "模型与提供方", desc: "模型目录、API key、后台默认模型", offline: true },
-      { id: "projects", title: "项目", desc: "指令文件、Web Search、Jev 实验、资料授权", offline: false },
+      { id: "projects", title: "项目", desc: "指令文件、Jev 实验、资料授权", offline: false },
       { id: "sessions", title: "会话", desc: "默认模型、思考档位、默认模式", offline: false },
       { id: "mcp", title: "MCP 服务", desc: "HTTP 服务、电脑与工具允许列表", offline: false },
       { id: "qq", title: "QQ 入口", desc: "连接配置、启停与拥有者私聊", offline: false },
       { id: "credentials", title: "服务凭据", desc: "HTTP 凭据绑定（仅展示元数据）", offline: false },
+      { id: "websearch", title: "Web Search", desc: "实例级启停（所有项目共用）", offline: false },
     ];
     const offline = this.deps.mode === "offline";
     return {
@@ -588,6 +596,8 @@ export class ConfigTuiApp {
             return this.pushScreen(this.sessionsScreen());
           case "mcp":
             return this.pushScreen(this.mcpScreen());
+          case "websearch":
+            return this.pushScreen(this.webSearchScreen());
           case "qq":
             return this.pushScreen(this.qqScreen());
           case "credentials":
@@ -1040,7 +1050,7 @@ export class ConfigTuiApp {
         this.orderedProjects().map(({ project: p, tag }) => ({
           value: `project:${p.id}`,
           label: tag ? `${tag} · ${p.name}` : p.name,
-          description: `${this.product === "ruukoto-code" && p.rootDir ? `根目录 ${p.rootDir.cwdReal} · ` : ""}指令 ${p.instructionFiles.length} 个 · Web Search ${p.webSearch === "enabled" ? "启用" : "禁用"}`,
+          description: `${this.product === "ruukoto-code" && p.rootDir ? `根目录 ${p.rootDir.cwdReal} · ` : ""}指令 ${p.instructionFiles.length} 个`,
         })),
       onSelect: async (item) => {
         if (item.value.startsWith("project:")) return this.pushScreen(this.projectScreen(item.value.slice("project:".length)));
@@ -1070,7 +1080,6 @@ export class ConfigTuiApp {
         if (!p) return [];
         const items: SelectItem[] = [
           { value: "instructions", label: `指令文件：${p.instructionFiles.join("，") || "（无）"}`, description: `工作区相对路径，逗号分隔 · 设置版本 v${p.settingsVersion}` },
-          { value: "websearch", label: `Web Search：${p.webSearch === "enabled" ? "启用" : "禁用"}` },
           { value: "jev", label: "Jev 上下文筛选实验", description: "默认关闭，按项目选择服务凭据与启停" },
           { value: "grants", label: "资料授权", description: "跨项目历史/产物/记忆读取授权" },
         ];
@@ -1120,22 +1129,33 @@ export class ConfigTuiApp {
             this.notify(files.length > 0 ? `已保存 ${files.length} 个指令文件` : "已清除项目指令");
             return this.refresh();
           }
-          case "websearch": {
-            const value = await this.pick("Web Search 开关", [
-              { value: "enabled", label: "启用" },
-              { value: "disabled", label: "禁用（立即阻止后续调用）" },
-            ]);
-            if (value === null) return;
-            const saved = await client.request<Project>("set_project_web_search", { project_id: projectId, enabled: value === "enabled", expected_version: p.settingsVersion });
-            this.patchProject(projectId, saved);
-            this.notify(value === "enabled" ? "Web Search 已启用" : "Web Search 已禁用");
-            return this.refresh();
-          }
           case "grants":
             return this.pushScreen(this.grantsScreen(projectId));
           case "jev":
             return this.pushScreen(this.jevScreen(projectId));
         }
+      },
+    };
+  }
+
+  /** 实例级 Web Search 开关（全实例共用）：携带读取版本保存，冲突经 act() 重读。 */
+  private webSearchScreen(): Screen {
+    return {
+      id: "websearch",
+      title: "Web Search",
+      watch: (t) => t === "web_search.changed",
+      load: async () => [
+        { value: "state", label: `状态：${this.webSearch.state === "enabled" ? "启用" : "停用"}（所有项目共用）`, description: "停用立即阻止后续调用，启用从下一任务生效" },
+        { value: "toggle", label: this.webSearch.state === "enabled" ? "停用" : "启用" },
+      ],
+      onSelect: async (item) => {
+        if (item.value !== "toggle") return;
+        const client = this.deps.client!;
+        const next = this.webSearch.state === "enabled" ? "disabled" : "enabled";
+        const saved = await client.request<{ state: "enabled" | "disabled"; version: number }>("set_web_search", { enabled: next === "enabled", expected_version: this.webSearch.version });
+        this.webSearch = saved;
+        this.notify(next === "enabled" ? "Web Search 已启用" : "Web Search 已停用");
+        return this.refresh();
       },
     };
   }

@@ -11,7 +11,7 @@ Status: implemented
 - 新增托管类别「电脑」（Code/PA 双页签，沿[设置容器](2026-10-21-desktop-settings-shell.md)机制）：Code 页管理本机 Cua Driver，PA 页管理 Linux 桌面沙箱，运行恢复控制一并迁入。数据不变，仍是 [Cua 官方 MCP 方案](../architecture/2026-10-23-cua-official-mcp.md)下的 MCP 服务存储；MCP 页只呈现 HTTP 服务，双页各自过滤，同名冲突按本类服务认领。
 - Code 侧 `CodeMcpState` 增加 `mode`（mcp/computer）参数共用全部状态机：computer 模式下 `select(null)` 直接产出 cua-mac 草稿，冲突查找按 mode 过滤。PA 侧 `PersonalSettingsPageState` 的 computer 类别映射到 `revisions.mcp` 与同一保存入口。
 - 新增普通类别「Web 搜索」，仅 Code、无页签、即时操作无草稿。Tavily 凭据经新专用 op `web_search_save_credential/remove_credential` 保存到固定名 `web-search` 绑定（host/purpose 固定，不接受名称、主机或用途参数），仿 `mcp_save_credential` 的用途收窄模式；`list_credentials` 复用已有放行。页面按名称排序呈现生效绑定（与服务端 `resolveCredential` 同序），CLI 创建的绑定只读并提示用原命令管理。
-- 项目开关复用既有 `set_project_web_search`（补入 TuiOps 表与桌面白名单）；项目列表与当前值来自本地 view 快照（已含 `webSearch`/`settingsVersion`），写入带期望版本，冲突提示重选，事件驱动自动刷新。
+- 项目开关复用既有 `set_project_web_search`（补入 TuiOps 表与桌面白名单）；项目列表与当前值来自本地 view 快照（已含 `webSearch`/`settingsVersion`），写入带期望版本，冲突提示重选，事件驱动自动刷新。注：当日稍后 Web Search 已[收窄为实例级全局开关](../simplification/2026-10-25-web-search-global-toggle.md)，本页项目列表改为单一全局开关行，op 为 `set_web_search`。
 - 边界保持：`add_credential`/`remove_credential` 等通用凭据写仍不向桌面开放；PA 的 web search（远端 personal tools 的 apiKeyEnv）不动远端管理协议，桌面不覆盖。
 
 ## 备选方案

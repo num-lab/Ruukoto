@@ -377,7 +377,7 @@ for (const instanceChanged of [false, true]) for (const fails of [false, true]) 
 });
 
 test("Desktop 新对话草稿：工作区选择在输入框外，未选工作区禁止发送，控件与会话输入区一致", () => {
-  const projects: Project[] = [{ id: "p1", name: "ruukoto", createRequestId: null, rootDir: { cwd: "/work", cwdReal: "/work", dev: 1, ino: 1 }, instructionFiles: [], webSearch: "enabled", settingsVersion: 1, createdAt: at }];
+  const projects: Project[] = [{ id: "p1", name: "ruukoto", createRequestId: null, rootDir: { cwd: "/work", cwdReal: "/work", dev: 1, ino: 1 }, instructionFiles: [], settingsVersion: 1, createdAt: at }];
   const h = harness();
   const draft = (workspaceId: string, modelSelection: ModelSelection | null = selection) => renderToStaticMarkup(createElement(NewChatDraft, { model: h.model, workspaces: projects, value: { workspaceId, text: "写一个测试", mode: "auto-review", modelSelection, attachments: [] }, fallbackSelection: null, onChange() {}, onSend() {}, onAddWorkspace() {}, starting: false, blocked: false }));
   const empty = draft("");
@@ -414,7 +414,7 @@ test("在线且未选会话时主画布默认是新对话草稿页，空态页�
 });
 
 test("工作区菜单按名称筛选，空结果与未登记工作区都有明确文案", () => {
-  const projects: Project[] = ["ruukoto", "ruukoto-avatar", "dev"].map((name, index) => ({ id: `p${index}`, name, createRequestId: null, rootDir: { cwd: `/${name}`, cwdReal: `/${name}`, dev: 1, ino: index + 1 }, instructionFiles: [], webSearch: "enabled", settingsVersion: 1, createdAt: at }));
+  const projects: Project[] = ["ruukoto", "ruukoto-avatar", "dev"].map((name, index) => ({ id: `p${index}`, name, createRequestId: null, rootDir: { cwd: `/${name}`, cwdReal: `/${name}`, dev: 1, ino: index + 1 }, instructionFiles: [], settingsVersion: 1, createdAt: at }));
   assert.deepEqual(filterWorkspaces(projects, "").map(project => project.name), ["ruukoto", "ruukoto-avatar", "dev"]);
   assert.deepEqual(filterWorkspaces(projects, "  AVATAR ").map(project => project.name), ["ruukoto-avatar"]);
   assert.deepEqual(filterWorkspaces(projects, "zzz"), []);

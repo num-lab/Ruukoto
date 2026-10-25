@@ -874,13 +874,32 @@ test("ruukoto-code：设置编辑期另一客户端保存后，本界面旧表�
       assert.ok(!h.terminal.output().includes("指令文件：MINE.md"), "旧表单提交未生效");
       assert.deepEqual(t.runtime.store.getProject(projectId)!.instructionFiles, ["OTHER.md"], "后台值未被旧表单覆盖");
 
-      // 重读后版本已刷新：用 Web Search 开关立即再保存成功（v2 → v3；未变更的保存按设计是 no-op）
-      h.terminal.send(DOWN + ENTER); // → Web Search
-      await waitForText(h.terminal, "Web Search 开关");
-      h.terminal.send(DOWN + ENTER); // → 禁用
-      await waitForText(h.terminal, "Web Search 已禁用", "重读后保存成功");
-      assert.equal(t.runtime.store.getProject(projectId)!.webSearch, "disabled");
+      // 重读后版本已刷新：用刷新后的表单立即再保存成功（v2 → v3；表单预填且光标在开头，输入为前插）
+      h.terminal.send(ENTER); // 重读后的表单（v2）再次打开
+      await waitForText(h.terminal, "项目指令文件");
+      h.terminal.send("OTHER2.md," + ENTER);
+      await waitForText(h.terminal, "已保存 2 个指令文件", "重读后保存成功");
+      assert.deepEqual(t.runtime.store.getProject(projectId)!.instructionFiles, ["OTHER2.md", "OTHER.md"], "后台值未被旧表单覆盖");
       assert.equal(t.runtime.store.getProject(projectId)!.settingsVersion, 3, "冲突重读后的版本可继续保存");
+    } finally {
+      assert.equal(await h.quit(), 0);
+    }
+  } finally {
+    await t.shutdown();
+  }
+});
+
+test("ruukoto-code：根菜单 Web Search 为实例级开关，保存全局生效", async () => {
+  const t = await startTestRuntime("cfg-tui-websearch", textResponder);
+  try {
+    const h = startConfig(t, { product: "ruukoto-code" });
+    try {
+      await waitForText(h.terminal, "配置分区");
+      h.terminal.send(DOWN.repeat(6) + ENTER); // → Web Search
+      await waitForText(h.terminal, "状态：启用（所有项目共用）");
+      h.terminal.send(DOWN + ENTER); // → 停用
+      await waitForText(h.terminal, "Web Search 已停用");
+      assert.deepEqual(t.runtime.store.getWebSearch(), { state: "disabled", version: 2 });
     } finally {
       assert.equal(await h.quit(), 0);
     }
@@ -907,7 +926,7 @@ test("ruukoto-code：资料授权标注出向/入向；同范围多条撤销提�
       await waitForText(h.terminal, "旧项目 · alpha-g");
       h.terminal.send(ENTER); // alpha（旧项目第一个）
       await waitForText(h.terminal, "指令文件：");
-      h.terminal.send(DOWN.repeat(3) + ENTER); // → 资料授权
+      h.terminal.send(DOWN.repeat(2) + ENTER); // → 资料授权
       await waitForText(h.terminal, "出向");
       const listing = h.terminal.output();
       assert.ok(listing.includes("入向"), "B→A 的记忆授权标注入向");
@@ -1087,7 +1106,7 @@ test("ruukoto-code：工作区详情列出关联旧资料与原配置入口；�
       assert.ok(out.includes("v1"), "来源设置版本并列显示");
       // 打开原配置入口：来源项目的指令/版本页面（沿用 06 的版本校验）
       const beforeEnter = h.terminal.output().length;
-      h.terminal.send(DOWN.repeat(4) + ENTER); // instructions..grants → 关联旧资料
+      h.terminal.send(DOWN.repeat(3) + ENTER); // instructions..grants → 关联旧资料
       await waitForText(h.terminal, "项目 legacy-src");
       const tail = h.terminal.output().slice(beforeEnter);
       assert.ok(tail.includes("指令文件："), "来源详情打开");

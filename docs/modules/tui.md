@@ -133,7 +133,7 @@ stateDiagram-v2
 
 **命令行私有记录**：当前会话的命令行及其结果保存到 `tui/commands.sqlite`（位于待确认请求目录的同级目录，默认 `~/.ruukoto-code/tui/commands.sqlite`；dev 沿用独立 profile）。记录按数据实例和会话隔离，退出后重新进入会话仍按原时间显示，恢复记录不会再次执行命令；`/quit` 不记录。
 
-**配置中心状态**：模型配置以 `expected_revision` 标示，它是 models.json、auth.json、default-model.json 与 summary-model.json 的内容指纹；项目、会话、MCP、QQ 沿用各自的 `expected_version`。项目指令与 Web Search 共用 `projects.settings_version`（只保护这两项，不与 MCP/Jev/会话默认各自的版本列合并），旧项目初始版本为 1。后台默认模型保存为 `<agentDir>/default-model.json`，摘要模型保存为 `<agentDir>/summary-model.json`（形如 `{provider, modelId}`，不存思考档位）；显式启动参数 `--model` 优先于默认模型文件。模型 API key 在 auth.json，服务凭据在 credentials.json，分开管理。离线模式的互斥按规范化 agentDir 的配置锁 `<agentDir>/config.lock/` 判定；后台运行时持有该锁（不同 dataDir 共用 agentDir 也被覆盖）。
+**配置中心状态**：模型配置以 `expected_revision` 标示，它是 models.json、auth.json、default-model.json 与 summary-model.json 的内容指纹；项目、会话、MCP、QQ 沿用各自的 `expected_version`。项目指令用 `projects.settings_version`（不与 MCP/Jev/会话默认各自的版本列合并），旧项目初始版本为 1；Web Search 为实例级开关，存 `meta` 表并带独立版本。后台默认模型保存为 `<agentDir>/default-model.json`，摘要模型保存为 `<agentDir>/summary-model.json`（形如 `{provider, modelId}`，不存思考档位）；显式启动参数 `--model` 优先于默认模型文件。模型 API key 在 auth.json，服务凭据在 credentials.json，分开管理。离线模式的互斥按规范化 agentDir 的配置锁 `<agentDir>/config.lock/` 判定；后台运行时持有该锁（不同 dataDir 共用 agentDir 也被覆盖）。
 
 **界面状态**：草稿、输入历史、当前选择的模式/模型/思考档位保存在客户端内存中。切换普通开发会话时沿用切换前选择的模式（含 Plan）、模型和思考档位，并保存为目标会话的默认设置；提交新任务会等待设置保存完成，已有任务继续使用创建时的设置。切换保留草稿；连续按键依次保存，后台确认后更新显示。
 
@@ -224,7 +224,7 @@ sequenceDiagram
 
 Code 配置中心的 MCP 服务可选择已安装的本机 Driver；程序版本、哈希和固定参数由后台生成，新服务先保存禁用草稿。检查读取制品的静态工具清单，并通过原生 helper 只读预检当前后台启动宿主的辅助功能与屏幕录制授权位，不启动电脑 runtime 或证明实际捕获成功。工具允许列表更新携带原电脑配置与版本；暂停先停用，再核实原执行停止，继续须启用并重新观察。未知恢复依次展示原动作、停止核实、人工检查、只读新观察与接受；截图经原产物分页校验后打开系统查看器，接受绑定刚查看的观察。关闭配置界面不停止后台，普通 HTTPS 的配置和检查沿原入口。
 
-**配置中心在线保存**：`ruukoto-code config` 在线管理 provider 与模型目录（显式端点、SDK 已支持协议、模型列表及上下文/输出参数）、模型 API key、后台默认模型、摘要模型、项目指令/Web Search/资料授权、会话默认模型/思考档位/权限模式、MCP 服务、QQ 配置与服务凭据。项目详情内完成指令、Web Search、Jev 与资料授权：指令与 Web Search 保存携带读取时的设置版本；MCP 统一从独立管理分区进入，实例内名称唯一，无项目选择或分组，CLI 的 MCP 命令拒绝旧 `--project`；资料授权页标注出向/入向，新建方向固定为本项目 → 目标（目标按工作区/旧项目选择），撤销按单条授权 ID，同范围（同来源/目标/类别）还有其他有效授权时确认与结果都明示「不关闭该类访问」，「查看已撤销」为只读记录（含撤销时间）。服务凭据选择 mcp 用途时首次写入即限 authorization 头与 mcp 操作，服务绑定核实 host；旧项目/仓库 scope 与无操作限制的同名绑定拒绝转换，通用删除也拒绝仍被 MCP 服务引用的凭据。同名修改或删除（`add_credential` / `remove_credential`）在写入前单调推进引用它的 QQ/Telegram 配置 `config_version`：旧连接、旧入站与旧批准失效，A→B→A 轮换不恢复旧代次，写入失败不恢复旧版本。
+**配置中心在线保存**：`ruukoto-code config` 在线管理 provider 与模型目录（显式端点、SDK 已支持协议、模型列表及上下文/输出参数）、模型 API key、后台默认模型、摘要模型、项目指令/资料授权、实例级 Web Search、会话默认模型/思考档位/权限模式、MCP 服务、QQ 配置与服务凭据。项目详情内完成指令、Jev 与资料授权（指令保存携带读取时的设置版本）；根菜单的 Web Search 分区管理实例级开关（携带开关版本）；MCP 统一从独立管理分区进入，实例内名称唯一，无项目选择或分组，CLI 的 MCP 命令拒绝旧 `--project`；资料授权页标注出向/入向，新建方向固定为本项目 → 目标（目标按工作区/旧项目选择），撤销按单条授权 ID，同范围（同来源/目标/类别）还有其他有效授权时确认与结果都明示「不关闭该类访问」，「查看已撤销」为只读记录（含撤销时间）。服务凭据选择 mcp 用途时首次写入即限 authorization 头与 mcp 操作，服务绑定核实 host；旧项目/仓库 scope 与无操作限制的同名绑定拒绝转换，通用删除也拒绝仍被 MCP 服务引用的凭据。同名修改或删除（`add_credential` / `remove_credential`）在写入前单调推进引用它的 QQ/Telegram 配置 `config_version`：旧连接、旧入站与旧批准失效，A→B→A 轮换不恢复旧代次，写入失败不恢复旧版本。
 
 **配置中心项目分区**：ruukoto-code 的「项目」分区把工作区列在前（标注「工作区」并展示根目录），旧项目列在后（标注「旧项目」）；ruukoto 产品平铺项目名称，列表不展示工作区分类或根目录前缀。ruukoto-code 的项目详情显示分类与根目录。工作区详情经已映射会话派生列出「关联旧资料来源」（来源 ID、会话数、Jev、授权出入向、设置版本、指令基准；并列显示不合并，来源设置各按来源项目 ID 与自身版本访问）。
 
@@ -255,7 +255,7 @@ Code 配置中心的 MCP 服务可选择已安装的本机 Driver；程序版本
 
 后台把系统错误码（ENOENT、ERR_SQLITE_* 等）收口为 `internal_error`，原码写进消息。已接收则关联原任务，明确未接收才以原键原参数重试；记录绑定数据实例标识，换新数据库后不会向空后台重发。
 
-- **上下文并发冲突**：模型编辑动作沿用打开时的来源与修订，期间的配置事件在动作结束后刷新；模型配置以 `expected_revision` 做条件更新，项目、会话、MCP、QQ 沿用各自的 `expected_version`；冲突时要求重新加载，不静默覆盖。项目指令与 Web Search 保存经 `Store.updateProjectSettings` 在同一事务核对可选期望版本、更新同一行、递增同一版本并追加 `project.settings_changed` 事件（携带配置字段，不含指令正文或秘密）；不符返回 `version_conflict`，不改配置、无事件；省略版本时按兼容写入处理（同样递增并发事件），不能绕过冲突检测；同值保存幂等，不递增、无事件。`set_project_instructions` / `set_project_web_search` 接受可选 `expected_version`（正整数；0、负数、非整数返回 `invalid_params`）。任务界面与配置中心都投影 `project.settings_changed` 刷新项目展示；配置中心冲突后先实际重读后台数据（不刷旧缓存），再刷新当前分区。
+- **上下文并发冲突**：模型编辑动作沿用打开时的来源与修订，期间的配置事件在动作结束后刷新；模型配置以 `expected_revision` 做条件更新，项目、会话、MCP、QQ 沿用各自的 `expected_version`；冲突时要求重新加载，不静默覆盖。项目指令保存经 `Store.updateProjectSettings` 在同一事务核对可选期望版本、更新同一行、递增同一版本并追加 `project.settings_changed` 事件（携带配置字段，不含指令正文或秘密）；不符返回 `version_conflict`，不改配置、无事件；省略版本时按兼容写入处理（同样递增并发事件），不能绕过冲突检测；同值保存幂等，不递增、无事件。实例级 Web Search 经 `Store.setWebSearch` 同事务写 `meta` 表并追加 `web_search.changed` 事件，版本语义同上。`set_project_instructions` / `set_web_search` 接受可选 `expected_version`（正整数；0、负数、非整数返回 `invalid_params`）。任务界面与配置中心都投影 `project.settings_changed` 与 `web_search.changed` 刷新展示；配置中心冲突后先实际重读后台数据（不刷旧缓存），再刷新当前分区。
 - **模型配置占用**：检查到应用完成之间，受影响 provider 的新提交与会话模型设置被拒绝（`model_config_busy`，核实期间目录被重建同样拒绝，可重试）；后台内部提交（编排器唤醒/委派、入站事件、QQ）在本次应用结束后自动重试。占用时返回 `model_config_blocked` 与任务数，不先改文件、不部分应用、不自动取消任务。应用在 `finally` 中 `await flushPendingMessages`（成功或回滚）；门闩忙碌等预检失败保留这些消息等待后续投递。需要新建执行任务的消息预检失败则不登记消息、任务或事件；纯 dev 父会话注入不新建执行任务，不经过这道预检。
 - **秘密**：API key 与模型自定义请求头编辑均遮蔽输入；请求头的 `***` 沿用原值，留空清除该提供方的请求头；响应只展示是否配置与必要元数据；秘密不进入日志、事件、命令行参数或重载状态文件。模型 API key（auth.json）与服务凭据（credentials.json）分开管理。
 - **离线互斥**：socket 不可达或认证失败不证明后台已停；无法取得配置锁的独占时明确失败，不放宽权限、不改属主。

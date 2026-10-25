@@ -91,17 +91,17 @@ test("本任务允许的工具：宿主按任务收窄（GitHub 评审式：read
   assert.deepEqual(seen.find(([name]) => name === "mcp_svc_put"), ["mcp_svc_put", "write"], "收窄函数收到 MCP 工具的类别");
 });
 
-test("本任务允许的工具：项目关闭 Web Search 时拒绝 web_search；多种收窄同时生效按先后给出原因", () => {
+test("本任务允许的工具：Web Search 停用时拒绝 web_search；多种收窄同时生效按先后给出原因", () => {
   const off = tools({ webSearchEnabled: false });
   assert.ok(!off.allowed.has("web_search"));
-  assert.equal(off.reasonFor("web_search"), "项目已关闭 Web Search");
+  assert.equal(off.reasonFor("web_search"), "Web Search 已停用");
   assert.equal(off.allowed.size, REGISTERED.length - 1);
 
   const all = tools({ plan: true, webSearchEnabled: false, narrow: (name) => name !== "read" });
   assert.deepEqual([...all.allowed], ["list_files", "search_files", "bash", "todo_write", "history_read", "skill", "mcp_svc_get"]);
   assert.equal(all.reasonFor("edit"), "计划模式不开放");
   assert.equal(all.reasonFor("read"), "本任务由宿主收窄");
-  assert.equal(all.reasonFor("web_search"), "项目已关闭 Web Search");
+  assert.equal(all.reasonFor("web_search"), "Web Search 已停用");
   assert.equal(all.reasonFor("bash"), "", "允许的工具没有拒绝原因");
 });
 

@@ -1,5 +1,5 @@
 import type { ComponentType } from "react";
-import { Archive, Blocks, Brain, Globe, Monitor, Moon, Puzzle, Server, Settings, Sun } from "lucide-react";
+import { Archive, ArchiveRestore, Blocks, Brain, Globe, Monitor, Moon, Puzzle, Server, Settings, Sun } from "lucide-react";
 import type { DesktopTarget } from "../shared/bridge.ts";
 import type { CodeState } from "./code-state.ts";
 import { SettingsState, type ManagedSettingsCategory, type SettingsCategory, type SettingsScope } from "./settings-state.ts";
@@ -13,7 +13,6 @@ import { PersonalSettingsPage } from "./personal-settings-pages.tsx";
 import { Button } from "./components/ui/button.tsx";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "./components/ui/dialog.tsx";
 import { Field, FieldGroup, FieldLabel } from "./components/ui/field.tsx";
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "./components/ui/select.tsx";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs.tsx";
 
 export interface SettingsPageProps {
@@ -55,10 +54,10 @@ export function SettingsContents(props: SettingsContentsProps) {
   const { settings, code, personal, dark, onDark } = props;
   return <Tabs value={settings.category} onValueChange={value => settings.chooseCategory(value as SettingsCategory)} orientation="vertical" className="settings-tabs"><div className="settings-navigation"><h2 id="settings-navigation-title">设置</h2><TabsList className="settings-categories" aria-label="设置类别">{categories.map(item => { const Icon = item.value === "appearance" && dark ? Moon : item.icon; return <TabsTrigger key={item.value} value={item.value}><Icon />{item.label}</TabsTrigger>; })}</TabsList></div>
     {categories.map(item => <TabsContent key={item.value} value={item.value} className="settings-panel"><h2>{item.label}</h2>
-      {item.value === "appearance" ? <FieldGroup><Field orientation="horizontal" className="settings-row"><FieldLabel htmlFor="settings-theme">主题</FieldLabel><Select value={dark ? "dark" : "light"} onValueChange={value => onDark(value === "dark")}><SelectTrigger id="settings-theme"><SelectValue /></SelectTrigger><SelectContent position="popper" align="end" sideOffset={6}><SelectGroup><SelectItem value="light">浅色</SelectItem><SelectItem value="dark">深色</SelectItem></SelectGroup></SelectContent></Select></Field></FieldGroup>
+      {item.value === "appearance" ? <FieldGroup><Field orientation="horizontal" className="settings-row"><FieldLabel>主题</FieldLabel><Tabs value={dark ? "dark" : "light"} onValueChange={value => onDark(value === "dark")} className="settings-segmented" aria-label="主题"><TabsList><TabsTrigger value="light"><Sun />浅色</TabsTrigger><TabsTrigger value="dark"><Moon />深色</TabsTrigger></TabsList></Tabs></Field></FieldGroup>
         : item.value === "web-search" ? <CodeWebSearchSettings code={code} />
           : item.value === "personal" ? <PersonalConnectionSettings settings={settings} />
-          : item.value === "archived" ? <><p className="settings-hint">存档只把这些会话从左栏隐藏，历史与任务仍保留。</p>{code.archivedSessions().length ? <ul className="archived-sessions">{code.archivedSessions().map(session => <li key={session.id}><div><span>{code.sessionName(session.id)}</span><small>{code.view.projects.find(project => project.id === (session.workspaceProjectId ?? session.projectId))?.name ?? "未知工作区"} · {session.archivedAt?.slice(0, 10)}</small></div><Button type="button" variant="ghost" size="sm" className="unarchive-button" aria-label={`取消存档 ${code.sessionName(session.id)}`} disabled={code.status.state !== "online"} onClick={() => void code.setArchived(session.id, false)}><Archive /><span>取消存档</span></Button></li>)}</ul> : <p className="settings-hint">没有已存档的会话。</p>}</>
+          : item.value === "archived" ? <><p className="settings-hint">存档只把这些会话从左栏隐藏，历史与任务仍保留。</p>{code.archivedSessions().length ? <ul className="archived-sessions">{code.archivedSessions().map(session => <li key={session.id}><div><span>{code.sessionName(session.id)}</span><small>{code.view.projects.find(project => project.id === (session.workspaceProjectId ?? session.projectId))?.name ?? "未知工作区"} · {session.archivedAt?.slice(0, 10)}</small></div><Button type="button" variant="ghost" size="icon-sm" className="unarchive-button" aria-label={`取消存档 ${code.sessionName(session.id)}`} title="取消存档" disabled={code.status.state !== "online"} onClick={() => void code.setArchived(session.id, false)}><ArchiveRestore /></Button></li>)}</ul> : <p className="settings-hint">没有已存档的会话。</p>}</>
             : <ManagedSettingsPage {...props} category={item.value} />}
     </TabsContent>)}
   </Tabs>;

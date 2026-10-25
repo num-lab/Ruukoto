@@ -180,7 +180,7 @@ test("设置 SSR 保留八分类与真实内容插槽，MCP 无工作区与来�
   const render = () => renderToStaticMarkup(createElement(SettingsContents, props));
   let html = render();
   for (const label of ["外观", "模型", "Skills", "MCP", "电脑", "Web 搜索", "PA 远程连接", "已存档会话"]) assert.ok(html.includes(label));
-  assert.match(html, /aria-label="设置类别"/); assert.match(html, /for="settings-theme"/);
+  assert.match(html, /aria-label="设置类别"/); assert.match(html, /aria-label="主题"/); assert.match(html, />浅色<\/button>/); assert.match(html, />深色<\/button>/);
   h.settings.chooseCategory("mcp");
   html = render();
   const targetTabs = html.match(/<div[^>]*role="tablist"[^>]*aria-label="配置目标"[^>]*>(.*?)<\/div>/s)?.[1];
@@ -201,7 +201,7 @@ test("PA 聊天与设置共用一处地址，不再显示SSH字段", () => {
   try {
     const h = harness(); h.settings.chooseCategory("personal");
     const html = renderToStaticMarkup(createElement(SettingsContents, { ...h, dark: false, onDark() {} }));
-    assert.match(html, /aria-label="PA 远程连接"/); assert.match(html, /for="personal-origin"/);
+    assert.match(html, /aria-label="PA 远程连接"/); assert.match(html, /aria-label="编辑地址"/); assert.doesNotMatch(html, /for="personal-origin"/);
     assert.doesNotMatch(html, /SSH|旧聊天连接|PA 连接用途|检测程序|management-/);
     assert.doesNotMatch(html, /name="token"|name="command"/);
   } finally { if (original) Object.defineProperty(globalThis, "window", original); else Reflect.deleteProperty(globalThis, "window"); }

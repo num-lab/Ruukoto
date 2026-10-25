@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Plus, RefreshCw } from "lucide-react";
 import type { SettingsPageProps } from "./settings-dialog.tsx";
 import { CodeMcpState } from "./code-mcp-state.ts";
+import { SettingsSection } from "./settings-ui.tsx";
 import { Tools } from "./code-mcp-settings.tsx";
 import { Button } from "./components/ui/button.tsx";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./components/ui/dialog.tsx";
@@ -13,7 +14,8 @@ type Confirmation = { kind: "enable" | "disable" | "remove" };
 
 function CuaRecovery({ state }: { state: CodeMcpState }) {
   const status = state.cuaStatus, observation = status?.observation;
-  return <fieldset className="model-settings-section"><legend>本机电脑</legend><div className="model-settings-actions"><Button type="button" variant="ghost" size="icon-sm" aria-label="刷新电脑状态" disabled={state.reading || state.checking || !state.connected || state.phase === "saving"} onClick={() => void state.refreshCua()}><RefreshCw /></Button>{status && <span role="status">{({ idle: "未连接", connecting: "连接中", active: "使用中", frozen: "待恢复", recovering: "恢复中" })[status.state]}</span>}</div>
+  return <SettingsSection title="本机电脑" action={<Button type="button" variant="ghost" size="icon-sm" aria-label="刷新电脑状态" title="刷新电脑状态" disabled={state.reading || state.checking || !state.connected || state.phase === "saving"} onClick={() => void state.refreshCua()}><RefreshCw /></Button>}>
+    {status && <div className="model-settings-actions"><span role="status">{({ idle: "未连接", connecting: "连接中", active: "使用中", frozen: "待恢复", recovering: "恢复中" })[status.state]}</span></div>}
     {status && <>{status.original && <p>{status.original.toolName} · 结果待确认</p>}
       <div className="model-settings-actions">{(status.state === "frozen" && !status.stopped || status.state === "active" && !!state.service?.cua) && <Button type="button" variant="outline" size="sm" disabled={state.disabled || state.dirty} onClick={() => { if (status.state === "active") void state.pauseCua(); else void state.cuaAction("stop"); }}>停止电脑操作</Button>}
         {status.stopped && !status.ownerStarted && <Button type="button" variant="outline" size="sm" disabled={state.disabled || state.dirty} onClick={() => void state.cuaAction("begin")}>已检查结果，开始恢复</Button>}
@@ -22,7 +24,7 @@ function CuaRecovery({ state }: { state: CodeMcpState }) {
       {observation && <>{state.cuaImages.map((image, index) => <div className="file-image" key={`${observation.id}:${image.id}`}><img src={image.source} alt={`恢复新截图 ${index + 1}`} onLoad={() => state.imageLoaded(observation.id, image.id, true)} onError={() => state.imageLoaded(observation.id, image.id, false)} /></div>)}<div className="model-settings-actions"><Button type="button" variant="outline" size="sm" disabled={state.disabled || state.dirty} onClick={() => void state.cuaAction("observe")}>重新截图</Button><Button type="button" size="sm" disabled={state.disabled || state.dirty || !state.canAcceptCua} onClick={() => void state.cuaAction("accept")}>确认恢复</Button></div></>}
     </>}
     {state.cuaError && <p role="alert">{state.cuaError}</p>}
-  </fieldset>;
+  </SettingsSection>;
 }
 
 export function CodeComputerEditor({ state }: { state: CodeMcpState }) {
@@ -36,7 +38,7 @@ export function CodeComputerEditor({ state }: { state: CodeMcpState }) {
     else if (action?.kind === "remove") await state.remove();
   };
   return <div className="model-settings computer-settings" aria-label="Code 电脑配置" aria-busy={state.reading || state.phase === "saving"}>
-    <div className="model-settings-section-heading"><h3>服务</h3><div className="model-settings-actions"><Button type="button" variant="ghost" size="icon-sm" aria-label="重新读取电脑配置" disabled={state.reading || state.phase === "saving"} onClick={() => void state.read()}><RefreshCw /></Button><Button type="button" variant="ghost" size="sm" disabled={state.disabled || state.dirty} onClick={() => state.select(null)}><Plus data-icon="inline-start" />添加电脑</Button></div></div>
+    <div className="model-settings-section-heading"><h3>服务</h3><div className="model-settings-actions"><Button type="button" variant="ghost" size="icon-sm" aria-label="重新读取电脑配置" title="重新读取电脑配置" disabled={state.reading || state.phase === "saving"} onClick={() => void state.read()}><RefreshCw /></Button><Button type="button" variant="ghost" size="icon-sm" aria-label="添加电脑" title="添加电脑" disabled={state.disabled || state.dirty} onClick={() => state.select(null)}><Plus /></Button></div></div>
     {!state.connected && <p className="model-settings-notice" role="status">Code 已离线，请恢复连接。</p>}
     {state.reading && <p role="status">正在读取配置…</p>}
     <div className="mcp-service-list">{state.services.filter(service => service.cua).map(service => <Button key={service.id} type="button" variant="ghost" className="model-settings-row" disabled={state.disabled || state.dirty} onClick={() => state.select(service.id)}><span className="model-settings-row-copy"><span className="model-settings-row-title">{service.name} · {service.enabled ? "已启用" : "已停用"}</span><span className="model-settings-row-detail">本机 Cua Driver</span><span className="model-settings-row-detail">本机 · {service.toolAllowlist.length} 个允许工具</span></span></Button>)}</div>

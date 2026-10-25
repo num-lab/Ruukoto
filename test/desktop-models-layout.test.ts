@@ -69,7 +69,7 @@ test("模型能力直接在提供方表单编辑，多模型字段有独立标�
 
 test("默认与摘要始终留在总览，待核实与离线状态有显式恢复入口", async () => {
   const model = await state(); model.chooseScreen("default");
-  assert.match(render(model), /运行时选择仍受显式启动参数影响/);
+  assert.match(render(model), /运行时显式启动参数仍覆盖此处默认/);
   model.chooseScreen("summary");
   assert.match(render(model), /id="settings-model-choice"/);
   assert.match(render(model), /id="settings-summary-model"/);

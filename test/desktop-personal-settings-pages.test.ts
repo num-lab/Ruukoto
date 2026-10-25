@@ -302,9 +302,9 @@ test("Personal 三页 SSR 展示真实字段、远端来源、维护恢复与安
     const html = renderToStaticMarkup(createElement(PersonalSettingsEditor, { state: h.state, onConnection() {} }));
     assert.match(html, /remote\/profile/);
     assert.doesNotMatch(html, /摘要模型|默认模型|配置来源|选择工作区|Bearer 令牌|存储 API Key/);
-    if (category === "models") { assert.match(html, /API 类型/); assert.match(html, /上下文上限/); assert.match(html, /凭据环境变量引用/); assert.match(html, /图片输入能力/); }
+    if (category === "models") { assert.match(html, /API 类型/); assert.match(html, /上下文上限/); assert.match(html, /凭据环境变量引用/); assert.match(html, /图片输入/); assert.match(html, /role="switch"/); }
     if (category === "skills") {
-      assert.match(html, /选择远端技能库/); assert.match(html, /包字节保留/);
+      assert.match(html, /选择远端技能库/); assert.doesNotMatch(html, /停用或逻辑移除影响后续新任务选择/);
       const image = html.match(/<img\b[^>]*>/)?.[0] ?? "";
       assert.match(image, /src="https:\/\/images.example\/x.png"/); assert.match(image, /alt="远程"/);
       assert.doesNotMatch(html, /<script|<iframe/);

@@ -306,12 +306,15 @@ code, pre { font-family: var(--font-mono); }
 .settings-categories svg { width: 14px; height: 14px; color: var(--text-muted); }
 .settings-panel { min-width: 0; min-height: 0; overflow-y: auto; padding: 28px 32px; }
 .settings-panel > h2 { margin: 0 0 32px; font-size: 16px; line-height: 1.4; font-weight: 500; }
-.settings-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; font-size: 12.5px; }
+.settings-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; font-size: 14.5px; }
 .settings-row > label { flex-shrink: 0; }
-.settings-row [data-slot="select-trigger"] { width: 190px; min-width: 0; height: 32px; padding: 0 10px; border: 1px solid var(--ui-border); border-radius: 7px; background: var(--bg-surface); color: var(--text-primary); box-shadow: none; font-size: 12px; }
-.settings-row [data-slot="select-value"] { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 外层设置导航是竖向 Tabs，group 变体选择器会穿透到内部分段控件，须显式拉回横排。 */
+.settings-segmented > [data-slot="tabs-list"] { flex-direction: row; height: 30px; padding: 2px; }
+.settings-segmented > [data-slot="tabs-list"] > [data-slot="tabs-trigger"] { width: auto; height: 26px; justify-content: center; padding: 0 10px; gap: 5px; font-size: 13px; }
+.settings-segmented [data-slot="tabs-trigger"] svg { width: 13px; height: 13px; }
+.connection-value { margin: 0; font-size: 14px; overflow-wrap: anywhere; }
 .settings-dialog [data-slot="dialog-close"] { color: var(--text-muted); }
-@media (max-width: 540px) { .settings-dialog .settings-tabs { grid-template-columns: 128px minmax(0, 1fr); } .settings-navigation { padding: 24px 8px; } .settings-panel { padding: 28px 16px; } .settings-row { flex-direction: column; align-items: stretch; gap: 12px; } .settings-row [data-slot="select-trigger"] { width: 100%; } }
+@media (max-width: 540px) { .settings-dialog .settings-tabs { grid-template-columns: 128px minmax(0, 1fr); } .settings-navigation { padding: 24px 8px; } .settings-panel { padding: 28px 16px; } .settings-row { flex-direction: column; align-items: stretch; gap: 12px; } .settings-segmented { align-self: flex-start; } }
 
 .conversation { flex: 1; height: auto; min-height: 0; }
 .agent-stream { min-height: 100%; }
@@ -450,8 +453,8 @@ html.dark { --git-lane-0: #60a5fa; --git-lane-1: #4ade80; --git-lane-2: #c084fc;
 .inspector-header { border-bottom: 0; }
 body { font-size: 15.5px; }
 .projects-heading, .right-tabs .right-tab, .diff-line { font-size: 13.5px; }
-.workspace-row > button:first-child, .workspace-session, .personal-row, .settings-row { font-size: 14.5px; }
-.workspace-filter input, .center-tabs .center-tab, .context-details, .context-summary, .composer-actions [data-slot="select-trigger"], .composer .model-selector, .model-menu [role="menuitemradio"], .model-menu [data-slot="dropdown-menu-label"], .git-commit-subject, .git-commit-detail-body > p, .new-tab-page > span, .new-tab-page > button, .diff-error, .empty-state p, .demo-dialog [data-slot="dialog-description"], .demo-dialog [data-slot="dialog-footer"] button, .demo-dialog input, .toast-pill, [data-slot="select-item"], .settings-categories [data-slot="tabs-trigger"], .settings-row [data-slot="select-trigger"], .file-panel-heading, .file-tree .file-tree-row, .file-panel-empty, .file-source, .file-image { font-size: 14px; }
+.workspace-row > button:first-child, .workspace-session, .personal-row { font-size: 14.5px; }
+.workspace-filter input, .center-tabs .center-tab, .context-details, .context-summary, .composer-actions [data-slot="select-trigger"], .composer .model-selector, .model-menu [role="menuitemradio"], .model-menu [data-slot="dropdown-menu-label"], .git-commit-subject, .git-commit-detail-body > p, .new-tab-page > span, .new-tab-page > button, .diff-error, .empty-state p, .demo-dialog [data-slot="dialog-description"], .demo-dialog [data-slot="dialog-footer"] button, .demo-dialog input, .toast-pill, [data-slot="select-item"], .settings-categories [data-slot="tabs-trigger"], .file-panel-heading, .file-tree .file-tree-row, .file-panel-empty, .file-source, .file-image { font-size: 14px; }
 .attachment-chip, .git-commit-detail-body, .diff-heading, .diff-heading code, .new-tab-page > p, .new-tab-page > button code, .new-tab-page > button small, .task-notice, .task-notice button, .empty-state > span, .diff-more, .browser-toolbar [data-slot="input"], .browser-note, .browser-error, .file-panel-heading > code, .file-preview-modes button { font-size: 13px; }
 .composer [data-slot="textarea"] { font-size: 15.5px; }
 .git-ref[data-slot="badge"], .diff-line > span:first-child, .file-panel-heading small, .file-source-gutter { font-size: 12px; }
@@ -686,10 +689,28 @@ body { font-size: 15.5px; }
 .mcp-tool-row { display: flex; align-items: center; flex-wrap: wrap; }
 .mcp-tool-row [data-slot="field-label"] { flex: 1; overflow-wrap: anywhere; }
 .mcp-tool-row [data-slot="select-trigger"] { width: 150px; }
+.model-settings [data-slot="switch"] { flex-shrink: 0; }
 .mcp-settings-context { position: sticky; top: 0; z-index: 1; margin: 0; padding: 10px 0; background: var(--bg-canvas); color: var(--text-secondary); font-size: 12px; overflow-wrap: anywhere; }
 
-.skills-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
-.skills-list-button { width: 100%; height: auto; display: flex; flex-direction: column; align-items: flex-start; white-space: normal; text-align: left; overflow-wrap: anywhere; }
+.skills-toolbar { display: flex; align-items: center; gap: 8px; }
+.skills-search { position: relative; display: flex; flex: 1; align-items: center; min-width: 0; }
+.skills-search > svg { position: absolute; left: 10px; width: 14px; height: 14px; color: var(--text-muted); pointer-events: none; }
+.skills-search input { height: 32px; padding-left: 30px; }
+.skills-group { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.skills-group > h3 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 15px; font-weight: 600; }
+.skills-count { padding: 1px 8px; border-radius: 9999px; background: var(--bg-surface-active); color: var(--text-secondary); font-size: 12px; font-weight: 400; }
+.skills-list { display: flex; flex-direction: column; gap: 0; margin: 0; padding: 0; list-style: none; }
+.skills-list > li + li { border-top: 1px solid var(--ui-border); }
+.skills-list-button { width: 100%; height: auto; display: flex; align-items: center; gap: 12px; padding: 10px 6px; border-radius: 7px; white-space: normal; text-align: left; }
+.skills-list-button[aria-pressed="true"] { background: var(--selection-surface); }
+.skills-icon { display: flex; width: 34px; height: 34px; flex-shrink: 0; align-items: center; justify-content: center; border: 1px solid var(--ui-border); border-radius: 8px; background: var(--bg-surface); }
+.skills-icon svg { width: 15px; height: 15px; color: var(--text-secondary); }
+.skills-copy { display: flex; flex: 1; flex-direction: column; gap: 3px; min-width: 0; }
+.skills-title { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 14px; font-weight: 500; }
+.skills-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.skills-title [data-slot="badge"] { font-weight: 400; }
+.skills-description { overflow: hidden; color: var(--text-muted); font-size: 12.5px; text-overflow: ellipsis; white-space: nowrap; }
+.skills-state { flex-shrink: 0; color: var(--text-muted); font-size: 12.5px; }
 .skills-body { max-width: 100%; overflow-wrap: anywhere; overflow-x: auto; }
 
 /* Note: 见 .agents/notes/implemented/feature/2026-10-17-desktop-chrome-typography.md */

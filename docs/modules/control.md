@@ -42,6 +42,10 @@
 | **模型与凭据配置** | `list_models`, `get_model_config`, `set_session_model`, `test_model_connection` | 动态查询模型目录、按会话切换模型、保存 API Key 与执行连通性测试 |
 | **工作流控制** | `workflow_start`, `workflow_list`, `workflow_control`, `workflow_answer` | 启动自动化工作流、查询执行步骤、人工干预与问答提交 |
 | **历史与产物读取** | `read_history`, `read_tool_result`, `read_artifact` | 只读解析 JSONL 会话历史、读取工具执行补丁与提取产物二进制片段 |
+| **实例 MCP 管理** | `mcp_list`, `mcp_configure`, `mcp_check`, `mcp_set_enabled` | 管理实例服务、允许工具与本地效果类别，检查连接与发现工具 |
+| **电脑恢复** | `mcp_cua_status`, `mcp_cua_stop`, `mcp_cua_observe`, `mcp_cua_accept` | 核实原执行停止、取得新观察并接受当前新图 |
+
+电脑恢复在停止核实后直接调用 `mcp_cua_observe`；独立的 `mcp_cua_begin_recovery` 已退役，旧请求按未知操作拒绝。Personal 的原调用人工结束走其远程管理协议，入口见[桌面客户端](desktop.md#mcp-原调用收尾与电脑恢复)。
 
 ## 数据与状态
 
@@ -51,7 +55,7 @@
 stateDiagram-v2
   [*] --> connected: Socket 连接建立
   connected --> authed: 发送 auth(token) 验证通过
-  connected --> rejected: 令牌错误或协议版本不匹配 (连接关闭)
+  connected --> rejected: 令牌错误或协议版本不匹配
   authed --> ready: 执行 connect 握手，拉取初始快照
   ready --> streaming: 订阅事件流，双向收发 RPC
   streaming --> closed: 客户端主动退出或服务停止
@@ -94,14 +98,17 @@ sequenceDiagram
 2. **快照与事件对齐**：客户端执行 `connect` 时获取最新系统快照与当前事件水位号（`seq`），后续增量事件按序追加，杜绝状态盲区。
 3. **断线平滑恢复**：若客户端短暂断开，重连鉴权后传入上次处理的 `seq`，控制面直接从持久事件表中拉取未消费事件补齐。
 
+电脑恢复沿“停止核实 → 新图观察 → 接受此观察”转发到运行时。控制面传递原恢复身份与当前观察，真实执行停止、图片保存和接受资格由运行时核实。
+
 ## 不变量与失败处理
 
 - **鉴权先于一切业务**：未通过 `auth` 校验的连接，绝对无法触发任何数据读取、会话操作或任务提交。
 - **常量时间比对（Timing-safe）**：服务端验证令牌时使用 `crypto.timingSafeEqual`，防止通过统计学旁路时序攻击推测令牌。
 - **大参数有界传输防阻塞**：对于超过 1 MiB 的工具输出或大参数，控制面接口强制要求客户端按 offset 与 limit 分片读取，防止打爆内存与套接字缓冲区。
-- **协议版本硬匹配**：客户端协议版本号与服务端当前版本号（`41`）不匹配时直接返回 `protocol_version_mismatch` 并终止连接，杜绝因协议格式漂移产生脏数据。
+- **协议版本硬匹配**：当前协议为 `42`，版本检查先于认证与业务派发。不匹配时返回 `protocol_version`；旧客户端需升级，新客户端遇到旧后台需结束旧进程后重开入口。
 
 ## 设计依据
 
 - [后台任务与终端](../../.agents/notes/implemented/architecture/2026-09-19-detach-terminal-from-task-runtime.md)
 - [人类文档与决策记录](../../.agents/notes/implemented/process/2026-10-09-split-agent-and-human-docs.md)
+- [MCP 宿主职责收缩](../../.agents/notes/implemented/simplification/2026-10-26-mcp-host-responsibilities.md)：删除独立电脑开始恢复操作，以协议升级明确拒绝旧客户端。

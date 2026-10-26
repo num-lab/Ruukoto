@@ -393,7 +393,7 @@ test("输入框上横线右侧显示工作区名，长输入与粘贴保留边�
       }
       const cursorRow = rendered.findIndex((line) => line.includes(CURSOR_MARKER));
       assert.ok(cursorRow > 0 && cursorRow < box.rect.height - 1, "光标位于两条横线之间");
-      assert.ok((screen[box.rect.y + cursorRow] ?? "").includes("\x1b[7m"), "光标所在输入行在画面中可见");
+      assert.equal(h.terminal.cursorVisible, true, "输入光标由终端显示");
       assert.equal(editor.getExpandedText(), text, "全文不因可视区域限制而丢失");
       return box.rect.height;
     };

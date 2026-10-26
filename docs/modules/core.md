@@ -74,6 +74,7 @@ stateDiagram-v2
 - **`background_processes`**：记录普通会话拉起的常驻后台进程、启动命令、目录身份、输出字节统计与退出核验状态。
 - **`owner_questions`**：记录模型向人类发起的交互式提问、选项清单、答案内容与回执状态。
 - **`tool_ops` & 审批表**：记录所有外部工具调用的不可变参数快照、审批授权记录与执行审计。
+- **`tool_ops.mcp`**：普通 HTTP 保存操作与结果事实；Cua 另保存受监督执行身份及恢复观察。SQLite schema 保持 `53`；仅真实 Cua 执行参与电脑停止核实。
 
 ### 目录布局标准
 
@@ -134,3 +135,4 @@ sequenceDiagram
 - [后台任务与终端](../../.agents/notes/implemented/architecture/2026-09-19-detach-terminal-from-task-runtime.md)：后台与客户端分离、事件流恢复与请求幂等的基础决定。
 - [工作委托、SubAgent 与任务](../../.agents/notes/implemented/architecture/2026-10-03-work-delegation-subagent-task.md)：委派三层数据模型与一层派生的来源。
 - [人类文档与决策记录](../../.agents/notes/implemented/process/2026-10-09-split-agent-and-human-docs.md)：模块文档的读者分层与约定。
+- [MCP 宿主职责收缩](../../.agents/notes/implemented/simplification/2026-10-26-mcp-host-responsibilities.md)：普通操作与真实电脑执行分开记录。

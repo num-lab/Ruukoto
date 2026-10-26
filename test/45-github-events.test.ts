@@ -83,20 +83,20 @@ async function harness(prefix: string, beforeReview?: () => Promise<void>) {
         await beforeReview?.();
         // 伪造写/副作用不明 MCP、bash 与下级委派：发送前与调用门两处都必须拒绝
         return { kind: "tool_calls", calls: [
-          { id: "forged-write", name: "mcp_github_publish_review", arguments: {} },
-          { id: "forged-unknown", name: "mcp_github_sync_unknown", arguments: {} },
+          { id: "forged-write", name: "mcp__github__publish_review", arguments: {} },
+          { id: "forged-unknown", name: "mcp__github__sync_unknown", arguments: {} },
           { id: "forged-shell", name: "bash", arguments: { command: "printf forbidden" } },
           { id: "forged-delegate", name: "subagent_delegate", arguments: { request: "x", key: "f1" } },
         ] };
       }
       if (!results.some((message) => message.tool_call_id === "pr-before")) {
-        return { kind: "tool_calls", calls: [{ id: "pr-before", name: "mcp_github_get_pr", arguments: {} }] };
+        return { kind: "tool_calls", calls: [{ id: "pr-before", name: "mcp__github__get_pr", arguments: {} }] };
       }
       if (!results.some((message) => message.tool_call_id === "diff")) {
-        return { kind: "tool_calls", calls: [{ id: "diff", name: "mcp_github_get_diff", arguments: {} }] };
+        return { kind: "tool_calls", calls: [{ id: "diff", name: "mcp__github__get_diff", arguments: {} }] };
       }
       if (!results.some((message) => message.tool_call_id === "pr-after")) {
-        return { kind: "tool_calls", calls: [{ id: "pr-after", name: "mcp_github_get_pr", arguments: {} }] };
+        return { kind: "tool_calls", calls: [{ id: "pr-after", name: "mcp__github__get_pr", arguments: {} }] };
       }
       return { kind: "text", text: DRAFT };
     }
@@ -212,15 +212,15 @@ test("GitHub webhook：登记去重快速返回，宿主评审走通用 SubAgent
     assert.ok(childCalls.every(call => !call.system?.includes("USER_ROLE_MUST_NOT_REPLACE_REVIEW")));
     const wakeCalls = h.server.calls.filter((call) => lastUserText(call).startsWith("[编排器] 子任务"));
     assert.deepEqual(toolNames(parentCall), [], "MCP 配在 main 项目，main 自身的确认接收任务也不出现工具");
-    assert.deepEqual(toolNames(childCalls[0]!), ["mcp_github_get_diff", "mcp_github_get_pr", "read", "list_files", "search_files", "read_artifact"].sort(),
+    assert.deepEqual(toolNames(childCalls[0]!), ["mcp__github__get_diff", "mcp__github__get_pr", "read", "list_files", "search_files", "read_artifact"].sort(),
       "评审 SubAgent 只有静态只读与只读 MCP，不能把评审改派给主 Agent");
     assert.deepEqual(toolNames(wakeCalls[0]!), ["coding_result", "subagent_result"].sort(), "coding_result 只读查阅退役前的旧评审");
     assert.deepEqual(h.mcp.hits.filter((hit) => hit.rpcMethod === "tools/call").map((hit) => hit.toolName), ["get_pr", "get_diff", "get_pr"],
       "伪造的 write/unknown MCP 调用从未到达服务");
-    assert.deepEqual(h.runtime.store.listToolOpsByTask(child.id).map((tool) => tool.toolName).sort(), ["mcp_github_get_diff", "mcp_github_get_pr", "mcp_github_get_pr"].sort());
+    assert.deepEqual(h.runtime.store.listToolOpsByTask(child.id).map((tool) => tool.toolName).sort(), ["mcp__github__get_diff", "mcp__github__get_pr", "mcp__github__get_pr"].sort());
     const rejected = toolResultTexts(childCalls.slice(1));
-    assert.match(rejected, /mcp_github_publish_review not found|mcp_github_publish_review（本任务由宿主收窄）/, "伪造 write MCP 在发送前与调用门被拒");
-    assert.match(rejected, /mcp_github_sync_unknown not found|mcp_github_sync_unknown（本任务由宿主收窄）/, "伪造副作用不明 MCP 被拒");
+    assert.match(rejected, /mcp__github__publish_review not found|mcp__github__publish_review（本任务由宿主收窄）/, "伪造 write MCP 在发送前与调用门被拒");
+    assert.match(rejected, /mcp__github__sync_unknown not found|mcp__github__sync_unknown（本任务由宿主收窄）/, "伪造副作用不明 MCP 被拒");
     assert.match(rejected, /bash not found|bash（本会话不开放）/, "伪造 bash 被拒");
     assert.match(rejected, /subagent_delegate not found|subagent_delegate（本会话不开放）/, "伪造下级委派被拒");
     const wakeText = toolResultTexts(wakeCalls.slice(1));
@@ -439,7 +439,7 @@ test("实例 MCP：普通子代理沿可信来源取得 MCP，main 自身工具�
     });
     const subCalls = h.server.calls.filter((call) => lastUserText(call).startsWith("[SubAgent 委派 · 独立执行]"));
     assert.ok(subCalls.length > 0);
-    assert.ok(toolNames(subCalls[0]!).some(name => name.startsWith("mcp_")), "普通子代理沿来源取得配置的 MCP");
+    assert.ok(toolNames(subCalls[0]!).includes("tool_search"), "普通子代理沿来源搜索配置的 MCP");
     assert.ok(toolNames(subCalls[0]!).includes("bash"));
     const parentCalls = h.server.calls.filter((call) => lastUserText(call) === "分析这些材料");
     assert.ok(parentCalls.length > 0 && toolNames(parentCalls[0]!).length > 0, "main 自身按类别装配工具");

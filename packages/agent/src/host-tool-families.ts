@@ -9,7 +9,6 @@ import type { MemorySourceRef } from "@ruukoto/core/types.ts";
 import type { AgentWaitCall } from "./agent-wait-tools.ts";
 import type { OwnerQuestion, OwnerQuestionItem } from "@ruukoto/core/owner-questions.ts";
 import type { BackgroundProcessCalls } from "./background-process-tools.ts";
-import type { ToolSearchResult } from "./search-tools.ts";
 
 /** 一次宿主工具调用的身份；调用之间不得共享可变上下文。 */
 export interface HostToolContext {
@@ -84,7 +83,6 @@ export interface HostToolRuntime {
   agentWait?: AgentWaitCall;
   ownerQuestions?: { create(ctx: HostToolContext, questions: OwnerQuestionItem[]): OwnerQuestion };
   backgroundProcesses?: BackgroundProcessCalls;
-  searchTools?(ctx: HostToolContext, query: string, limit: number): ToolSearchResult;
 }
 
 export interface HostToolFamily {

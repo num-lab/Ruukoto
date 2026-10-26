@@ -38,7 +38,8 @@ async function fixture(t: TestContext, unknown = false) {
   const dir = fs.mkdtempSync(path.join(process.platform === "darwin" ? "/tmp" : tmpdir(), "rk-mcp-tg-"));
   const mcp = await startMockMcp({ ...(unknown ? { dropOnCall: true } : {}), tools: [{ name: "write", result: { content: [{ type: "text", text: "原响应".repeat(1400) }] } }] });
   const target = { id: "owner-service", label: "拥有者文档服务", endpoint: mcp.url };
-  const mcpConfig: PersonalMcpConfig = { version: 1, generation: randomUUID(), services: [{ ...target, tools: await discoverPersonalMcp(target) }] };
+  const discovered = await discoverPersonalMcp(target);
+  const mcpConfig: PersonalMcpConfig = { version: 4, generation: randomUUID(), services: [{ ...target, enabled: true, tools: discovered, toolEffects: Object.fromEntries(discovered.map(tool => [tool.name, "unknown" as const])) }] };
   const model = new MockModelServer((_request, index) => index === 0 ? { kind: "tool_calls", calls: [{ id: "original-call", name: "mcp_call", arguments: { service: target.id, tool: "write", arguments: {} } }] } : { kind: "text", text: "已核对原响应" });
   const config: PersonalModelConfig = { api: "openai-completions", baseUrl: await model.start(), modelId: "mock-model", apiKeyEnv: "RUUKOTO_MCP_UI_MODEL_KEY", contextWindow: 128000, maxTokens: 4096 };
   const bot = http.createServer(async (req, res) => {
@@ -132,12 +133,12 @@ test("MCP 效果核实：原菜单保存业务证据仍不证明远端结束，�
 
 test("MCP 配置向导：显式匿名、逐项允许工具，服务键和配置代次由程序生成", async t => {
   const dir = directory(t), mcp = await startMockMcp({ tools: [{ name: "allow" }, { name: "exclude" }] }); t.after(() => mcp.close());
-  const answers = ["1", "自己的服务", mcp.url, "2", "2", "1", "2"]; let output = "";
+  const answers = ["1", "自己的服务", mcp.url, "2", "2", "1", "1", "2"]; let output = "";
   await configurePersonalMcp({ question: async () => { assert.ok(answers.length); return answers.shift()!; }, write: text => { output += text; } }, dir);
   const profile = lockPersonalProfile(dir);
   try {
     const config = readPersonalMcp(profile)!;
-    assert.equal(config.version, 2); assert.equal(config.services[0].enabled, true);
+    assert.equal(config.version, 4); assert.equal(config.services[0].enabled, true);
     assert.equal(config.services.length, 1); assert.equal(config.services[0].label, "自己的服务"); assert.equal(config.services[0].credential, undefined);
     assert.deepEqual(config.services[0].tools.map(tool => tool.name), ["allow"]); assert.match(config.generation, /^[0-9a-f-]{36}$/); assert.match(config.services[0].id, /^[0-9a-f-]{36}$/);
     assert.doesNotMatch(output, new RegExp(`${config.generation}|${config.services[0].id}`));
@@ -157,7 +158,7 @@ test("MCP 配置向导：旧配置经明确选择迁入，启停保留端点与�
   };
   assert.deepEqual((await run(["4", "1"])).services, original.services);
   const migrated = await run(["4", "2"]);
-  assert.equal(migrated.version, 2); assert.equal(migrated.services[0].enabled, true);
+  assert.equal(migrated.version, 4); assert.equal(migrated.services[0].enabled, true);
   assert.notEqual(migrated.generation, original.generation);
   const disabled = await run(["2", "4"]);
   assert.notEqual(disabled.generation, migrated.generation);
@@ -221,4 +222,21 @@ test("Cua CLI 恢复新截图导出真实图片并逐张打开，查看失败不
   assert.equal(opened.length, 1);
   await assert.rejects(viewPersonalCuaImages(io, dir, [image], async () => { throw new PersonalError("cua_image_viewer_unavailable", "图片查看器无法打开"); }), code("cua_image_viewer_unavailable"));
   assert.equal(await viewPersonalCuaImages(io, dir, [], async () => assert.fail()), false);
+});
+
+test("MCP 原入口：退役重核明确拒绝，人工收尾按原调用幂等且凭原回执可核实", async t => {
+  const f = await fixture(t, true), list = await f.receive("/MCP"), menu = await f.receive("MCP1", list.sentId);
+  await f.receive("MCP批准本次", menu.sentId);
+  await until(async () => { const op = (await f.p.harness.snapshot(PersonalMcpDoc, String(f.operation), context))?.operation; return op?.effect === "effect_unknown" && op.code !== "started"; });
+  const detail = await f.receive("刷新MCP", menu.sentId), before = f.mcp.hits.length;
+  const retired = await f.receive("核实MCP原请求结束", detail.sentId);
+  assert.equal(retired.value.mcpRecheck, undefined); assert.match(retired.value.reply!, /已退役/);
+  const ended = await f.receive("MCP结束此工作", detail.sentId);
+  assert.equal(ended.value.mcpEnded?.operation, f.operation);
+  const original = (await f.p.harness.snapshot(PersonalMcpDoc, String(f.operation), context))!.operation!;
+  assert.equal(original.effect, "effect_unknown"); assert.equal(original.remoteEnded, false); assert.equal(original.ended?.requestId, ended.key);
+  await f.receive("MCP结束此工作", detail.sentId);
+  assert.equal((await f.p.harness.snapshot(PersonalMcpDoc, String(f.operation), context))!.operation!.ended?.entry, original.ended!.entry);
+  await f.p.harness.commit(tx => verifyMcpControls(tx, f.keys, true), context);
+  assert.equal(f.mcp.hits.length, before);
 });

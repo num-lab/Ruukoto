@@ -27,6 +27,7 @@ import { withMcpDiscovery, startMockMcp, MOCK_MCP_SECRET, type MockMcp, type Moc
 import { MockModelServer, type Responder } from "./helpers/mock-provider.ts";
 import { killProcessTree, spawnBackend } from "./helpers/backend.ts";
 import { canonicalParamsDigest } from "@ruukoto/agent/mcp/tools.ts";
+import { ToolOpLedger } from "@ruukoto/agent/tool-op-ledger.ts";
 
 const startTestRuntime: typeof startRuntime = (prefix, responder, options) => startRuntime(prefix, withMcpDiscovery(responder), options);
 
@@ -171,7 +172,7 @@ test("mcp 写：confirm 模式写工具批准前零调用，批准后按批准�
   });
   const args = { title: "发布计划", body: "正文内容" };
   const responder: Responder = async (_req, callIndex) => {
-    if (callIndex === 0) return { kind: "tool_calls", calls: [{ id: "c1", name: "mcp_mock_create_issue", arguments: args }] };
+    if (callIndex === 0) return { kind: "tool_calls", calls: [{ id: "c1", name: "mcp__mock__create_issue", arguments: args }] };
     return { kind: "text", text: "完成" };
   };
   const t = await startTestRuntime("mcp-write-approve", responder);
@@ -183,7 +184,7 @@ test("mcp 写：confirm 模式写工具批准前零调用，批准后按批准�
     const conf = await pendingConfirmation(t.client, task.id);
 
     // 审批范围：服务/配置版本/远端工具/工具定义版本/参数摘要/凭据引用名/操作类别
-    assert.equal(conf.toolName, "mcp_mock_create_issue");
+    assert.equal(conf.toolName, "mcp__mock__create_issue");
     assert.equal(conf.scope.kind, "mcp_tool");
     assert.equal(conf.scope.serviceId, service.id);
     assert.equal(conf.scope.serviceName, "mock");
@@ -208,7 +209,7 @@ test("mcp 写：confirm 模式写工具批准前零调用，批准后按批准�
     assert.deepEqual(toolCalls(mcp, "create_issue")[0]!.args, args, "执行参数来自批准的不可变快照");
     assert.ok(toolCalls(mcp)[0]!.hasAuth, "请求携带凭据");
 
-    const op = final.toolOps.find((o: any) => o.toolName === "mcp_mock_create_issue");
+    const op = final.toolOps.find((o: any) => o.toolName === "mcp__mock__create_issue");
     assert.equal(op.isError, false);
     const consumed = final.confirmations.find((c: any) => c.id === conf.id);
     assert.equal(consumed.status, "approved");
@@ -227,7 +228,7 @@ test("mcp 写：confirm 模式写工具批准前零调用，批准后按批准�
 test("mcp 写：拒绝执行零次，操作已知未执行", async () => {
   const mcp = await startMockMcp({ tools: [{ name: "create_issue", result: { content: [{ type: "text", text: "created" }] } }] });
   const responder: Responder = async (_req, callIndex) => {
-    if (callIndex === 0) return { kind: "tool_calls", calls: [{ id: "c1", name: "mcp_mock_create_issue", arguments: { title: "x" } }] };
+    if (callIndex === 0) return { kind: "tool_calls", calls: [{ id: "c1", name: "mcp__mock__create_issue", arguments: { title: "x" } }] };
     return { kind: "text", text: "按拒绝结果继续" };
   };
   const t = await startTestRuntime("mcp-write-reject", responder);
@@ -242,7 +243,7 @@ test("mcp 写：拒绝执行零次，操作已知未执行", async () => {
 
     const final = await taskStatus(t.client, task.id);
     assert.equal(toolCalls(mcp).length, 0, "拒绝的操作不得执行");
-    const op = final.toolOps.find((o: any) => o.toolName === "mcp_mock_create_issue");
+    const op = final.toolOps.find((o: any) => o.toolName === "mcp__mock__create_issue");
     assert.equal(op.isError, true);
     assert.match(op.resultSummary, /拥有者拒绝/);
     assert.equal(final.task.effectUnknown, false, "拒绝 = 已知未执行");
@@ -256,7 +257,7 @@ test("mcp 写：拒绝执行零次，操作已知未执行", async () => {
 test("mcp 写：重复响应只有一次成功，操作只执行一次", async () => {
   const mcp = await startMockMcp({ tools: [{ name: "create_issue" }] });
   const responder: Responder = async (_req, callIndex) => {
-    if (callIndex === 0) return { kind: "tool_calls", calls: [{ id: "c1", name: "mcp_mock_create_issue", arguments: { title: "x" } }] };
+    if (callIndex === 0) return { kind: "tool_calls", calls: [{ id: "c1", name: "mcp__mock__create_issue", arguments: { title: "x" } }] };
     return { kind: "text", text: "完成" };
   };
   const t = await startTestRuntime("mcp-write-dupe", responder);
@@ -287,7 +288,7 @@ test("mcp 写：重复响应只有一次成功，操作只执行一次", async (
 test("mcp 写：批准等待期间配置变化，旧批准失效且不发送", async () => {
   const mcp = await startMockMcp({ tools: [{ name: "create_issue" }] });
   const responder: Responder = async (_req, callIndex) => {
-    if (callIndex === 0) return { kind: "tool_calls", calls: [{ id: "c1", name: "mcp_mock_create_issue", arguments: { title: "x" } }] };
+    if (callIndex === 0) return { kind: "tool_calls", calls: [{ id: "c1", name: "mcp__mock__create_issue", arguments: { title: "x" } }] };
     return { kind: "text", text: "完成" };
   };
   const t = await startTestRuntime("mcp-write-stale", responder);
@@ -310,7 +311,7 @@ test("mcp 写：批准等待期间配置变化，旧批准失效且不发送", a
 
     const final = await taskStatus(t.client, task.id);
     assert.equal(toolCalls(mcp).length, 0, "配置变化后旧批准不得发送");
-    const op = final.toolOps.find((o: any) => o.toolName === "mcp_mock_create_issue");
+    const op = final.toolOps.find((o: any) => o.toolName === "mcp__mock__create_issue");
     assert.equal(op.isError, true);
     assert.match(op.resultSummary, /配置已变化/, "应说明配置变化导致未执行");
     const staleConf = final.confirmations.find((c: any) => c.id === conf.id);
@@ -327,8 +328,8 @@ test("mcp 写：不同参数的再次调用需要新的审批（批准不复用�
   const mcp = await startMockMcp({ tools: [{ name: "create_issue" }] });
   const responder: Responder = async (req) => {
     const done = req.messages.filter((m: any) => m?.role === "tool").length;
-    if (done === 0) return { kind: "tool_calls", calls: [{ id: "c1", name: "mcp_mock_create_issue", arguments: { title: "第一" } }] };
-    if (done === 1) return { kind: "tool_calls", calls: [{ id: "c2", name: "mcp_mock_create_issue", arguments: { title: "第二" } }] };
+    if (done === 0) return { kind: "tool_calls", calls: [{ id: "c1", name: "mcp__mock__create_issue", arguments: { title: "第一" } }] };
+    if (done === 1) return { kind: "tool_calls", calls: [{ id: "c2", name: "mcp__mock__create_issue", arguments: { title: "第二" } }] };
     return { kind: "text", text: "完成" };
   };
   const t = await startTestRuntime("mcp-write-no-reuse", responder);
@@ -366,7 +367,7 @@ test("mcp 写：full_access 跳过逐次审批，但不越过允许列表", asyn
     ],
   });
   const responder: Responder = async (_req, callIndex) => {
-    if (callIndex === 0) return { kind: "tool_calls", calls: [{ id: "c1", name: "mcp_mock_create_issue", arguments: { title: "x" } }] };
+    if (callIndex === 0) return { kind: "tool_calls", calls: [{ id: "c1", name: "mcp__mock__create_issue", arguments: { title: "x" } }] };
     return { kind: "text", text: "完成" };
   };
   const t = await startTestRuntime("mcp-write-full", responder);
@@ -379,7 +380,7 @@ test("mcp 写：full_access 跳过逐次审批，但不越过允许列表", asyn
     assert.equal(done.confirmations.length, 0, "full_access 不产生逐次审批");
     assert.equal(toolCalls(mcp, "create_issue").length, 1);
     const offered = offeredToolNames(t, 1);
-    assert.ok(offered.includes("mcp_mock_create_issue"));
+    assert.ok(offered.includes("mcp__mock__create_issue"));
     assert.ok(!offered.some((n) => n.includes("delete_all")), "未允许的工具不注册（full_access 不越过服务范围）");
   } finally {
     await t.shutdown();
@@ -390,7 +391,7 @@ test("mcp 写：full_access 跳过逐次审批，但不越过允许列表", asyn
 test("mcp 写：auto-review 一律转拥有者（不扩大自动批准范围）", async () => {
   const mcp = await startMockMcp({ tools: [{ name: "create_issue" }] });
   const responder: Responder = async (_req, callIndex) => {
-    if (callIndex === 0) return { kind: "tool_calls", calls: [{ id: "c1", name: "mcp_mock_create_issue", arguments: { title: "x" } }] };
+    if (callIndex === 0) return { kind: "tool_calls", calls: [{ id: "c1", name: "mcp__mock__create_issue", arguments: { title: "x" } }] };
     return { kind: "text", text: "完成" };
   };
   const t = await startTestRuntime("mcp-write-autoreview", responder);
@@ -426,8 +427,8 @@ test("mcp 写：副作用不明工具默认逐次审批；两个服务同名工�
   const mcpB = await startMockMcp({ tools: [{ name: "post_comment", result: { content: [{ type: "text", text: "posted-B" }] } }] });
   const responder: Responder = async (req) => {
     const done = req.messages.filter((m: any) => m?.role === "tool").length;
-    if (done === 0) return { kind: "tool_calls", calls: [{ id: "c1", name: "mcp_alt_post_comment", arguments: { text: "hi" } }] };
-    if (done === 1) return { kind: "tool_calls", calls: [{ id: "c2", name: "mcp_mock_post_comment", arguments: { text: "hi" } }] };
+    if (done === 0) return { kind: "tool_calls", calls: [{ id: "c1", name: "mcp__alt__post_comment", arguments: { text: "hi" } }] };
+    if (done === 1) return { kind: "tool_calls", calls: [{ id: "c2", name: "mcp__mock__post_comment", arguments: { text: "hi" } }] };
     return { kind: "text", text: "完成" };
   };
   const t = await startTestRuntime("mcp-write-twosvc", responder);
@@ -441,13 +442,13 @@ test("mcp 写：副作用不明工具默认逐次审批；两个服务同名工�
 
     // alt（unknown 类别）：审批范围标明副作用不明
     const confB = await pendingConfirmation(t.client, task.id);
-    assert.equal(confB.toolName, "mcp_alt_post_comment");
+    assert.equal(confB.toolName, "mcp__alt__post_comment");
     assert.equal(confB.scope.serviceName, "alt");
     assert.equal(confB.scope.operationCategory, "unknown");
     await t.client.request("respond_confirmation", { confirmation_id: confB.id, decision: "approve" });
 
     const confA = await pendingConfirmation(t.client, task.id, [confB.id]);
-    assert.equal(confA.toolName, "mcp_mock_post_comment");
+    assert.equal(confA.toolName, "mcp__mock__post_comment");
     assert.equal(confA.scope.serviceName, "mock");
     assert.equal(confA.scope.operationCategory, "write");
     await t.client.request("respond_confirmation", { confirmation_id: confA.id, decision: "approve" });
@@ -475,7 +476,7 @@ test("mcp 写：规范化参数摘要键序稳定", () => {
 
 test("mcp 写：审批等待中取消任务 —— 零调用、已知未执行、审批失效", async () => {
   const mcp = await startMockMcp({ tools: [{ name: "create_issue" }] });
-  const responder: Responder = async () => ({ kind: "tool_calls", calls: [{ id: "c1", name: "mcp_mock_create_issue", arguments: { title: "x" } }] });
+  const responder: Responder = async () => ({ kind: "tool_calls", calls: [{ id: "c1", name: "mcp__mock__create_issue", arguments: { title: "x" } }] });
   const t = await startTestRuntime("mcp-write-cancel-pending", responder);
   try {
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
@@ -491,7 +492,7 @@ test("mcp 写：审批等待中取消任务 —— 零调用、已知未执行�
     const staleConf = final.confirmations.find((c: any) => c.id === conf.id);
     assert.equal(staleConf.status, "stale", "取消后未决审批失效");
     assert.equal(staleConf.consumedAt, null);
-    const op = final.toolOps.find((o: any) => o.toolName === "mcp_mock_create_issue");
+    const op = final.toolOps.find((o: any) => o.toolName === "mcp__mock__create_issue");
     assert.equal(op.isError, true);
     assert.match(op.resultSummary, /未执行/, "未消费的批准 = 已知未执行");
     assert.equal(op.effectUnknown, false);
@@ -511,7 +512,7 @@ test("mcp 写：审批等待中取消任务 —— 零调用、已知未执行�
 
 test("mcp 写：在途写调用取消（批准已消费）—— effect_unknown，不重发", async () => {
   const mcp = await startMockMcp({ tools: [{ name: "create_issue", delayMs: 30_000 }] });
-  const responder: Responder = async () => ({ kind: "tool_calls", calls: [{ id: "c1", name: "mcp_mock_create_issue", arguments: { title: "x" } }] });
+  const responder: Responder = async () => ({ kind: "tool_calls", calls: [{ id: "c1", name: "mcp__mock__create_issue", arguments: { title: "x" } }] });
   const t = await startTestRuntime("mcp-write-cancel-flight", responder);
   try {
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
@@ -526,7 +527,7 @@ test("mcp 写：在途写调用取消（批准已消费）—— effect_unknown�
     await waitFor("任务中断", async () => ["interrupted", "canceled"].includes((await taskStatus(t.client, task.id)).task.status));
 
     const final = await taskStatus(t.client, task.id);
-    const op = final.toolOps.find((o: any) => o.toolName === "mcp_mock_create_issue");
+    const op = final.toolOps.find((o: any) => o.toolName === "mcp__mock__create_issue");
     assert.ok(op, "在途调用有操作记录");
     assert.equal(op.effectUnknown, true, "已消费批准的在途调用 = 效果不明");
     assert.equal(final.task.effectUnknown, true);
@@ -544,7 +545,7 @@ const CRASH_MODEL = { provider: "mock", modelId: "mock-model", thinkingLevel: "o
 async function crashSetup(prefix: string, mcp: MockMcp) {
   const modelServer = new MockModelServer(withMcpDiscovery(async () => ({
     kind: "tool_calls",
-    calls: [{ id: "c0", name: "mcp_mock_create_issue", arguments: { title: "崩溃验证" } }],
+    calls: [{ id: "c0", name: "mcp__mock__create_issue", arguments: { title: "崩溃验证" } }],
   })));
   const baseUrl = await modelServer.start();
   try {
@@ -604,7 +605,7 @@ test("mcp 写：崩溃重启 —— 已消费的在途写调用标 effect_unknow
     const s = await taskStatus(backend.client, task.id);
     assert.equal(s.task.status, "interrupted");
     assert.equal(s.task.interruptReason, "backend_restart");
-    const op = s.toolOps.find((o: any) => o.toolName === "mcp_mock_create_issue");
+    const op = s.toolOps.find((o: any) => o.toolName === "mcp__mock__create_issue");
     assert.ok(op, "在途写调用有操作记录");
     assert.equal(op.effectUnknown, true, "批准已消费且结果未落盘 → effect_unknown");
     const crashedConf = s.confirmations.find((c: any) => c.id === conf.id);
@@ -648,7 +649,7 @@ test("mcp 写：崩溃重启 —— 审批待决未消费 = 已知未执行，�
     backend = await spawnBackend(ctx.dataDir, ctx.agentDir);
     const s = await taskStatus(backend.client, task.id);
     assert.equal(s.task.status, "interrupted");
-    const op = s.toolOps.find((o: any) => o.toolName === "mcp_mock_create_issue");
+    const op = s.toolOps.find((o: any) => o.toolName === "mcp__mock__create_issue");
     assert.ok(op);
     assert.match(op.resultSummary ?? "", /已知未执行/, "审批未消费即重启 = 已知未执行");
     assert.equal(op.effectUnknown, false);
@@ -671,7 +672,7 @@ test("mcp 写：崩溃重启 —— 审批待决未消费 = 已知未执行，�
 test("mcp 写：已发送写调用断线 —— 结果无法确认标 effect_unknown，不重发", async () => {
   const mcp = await startMockMcp({ tools: [{ name: "create_issue" }], dropOnCall: true });
   const responder: Responder = async (_req, callIndex) => {
-    if (callIndex === 0) return { kind: "tool_calls", calls: [{ id: "c1", name: "mcp_mock_create_issue", arguments: { title: "x" } }] };
+    if (callIndex === 0) return { kind: "tool_calls", calls: [{ id: "c1", name: "mcp__mock__create_issue", arguments: { title: "x" } }] };
     return { kind: "text", text: "完成" };
   };
   const t = await startTestRuntime("mcp-write-drop", responder);
@@ -682,10 +683,11 @@ test("mcp 写：已发送写调用断线 —— 结果无法确认标 effect_unk
     const task = (await t.client.request<any>("submit", { model_selection: MODEL, session_id: sessionId, request_id: "r1", input: "创建 issue" })) as any;
     const conf = await pendingConfirmation(t.client, task.id);
     await t.client.request("respond_confirmation", { confirmation_id: conf.id, decision: "approve" });
-    await waitFor("任务完成", async () => (await taskStatus(t.client, task.id)).task.status === "completed");
+    await waitFor("未知结果中断任务", async () => (await taskStatus(t.client, task.id)).task.status === "interrupted");
 
     const final = await taskStatus(t.client, task.id);
-    const op = final.toolOps.find((o: any) => o.toolName === "mcp_mock_create_issue");
+    assert.equal(final.task.interruptReason, "mcp_effect_unknown");
+    const op = final.toolOps.find((o: any) => o.toolName === "mcp__mock__create_issue");
     assert.equal(op.isError, true, "断线是失败结果");
     assert.equal(op.effectUnknown, true, "已发送写调用断线 = 结果无法确认");
     assert.equal(final.task.effectUnknown, true, "任务保留效果不明事实");
@@ -706,8 +708,8 @@ test("mcp 写：已发送写调用超时 —— effect_unknown；只读超时只
   });
   const responder: Responder = async (req) => {
     const done = req.messages.filter((m: any) => m?.role === "tool").length;
-    if (done === 0) return { kind: "tool_calls", calls: [{ id: "c1", name: "mcp_mock_create_issue", arguments: { title: "x" } }] };
-    if (done === 1) return { kind: "tool_calls", calls: [{ id: "c2", name: "mcp_mock_get_me", arguments: {} }] };
+    if (done === 0) return { kind: "tool_calls", calls: [{ id: "c1", name: "mcp__mock__create_issue", arguments: { title: "x" } }] };
+    if (done === 1) return { kind: "tool_calls", calls: [{ id: "c2", name: "mcp__mock__get_me", arguments: {} }] };
     return { kind: "text", text: "完成" };
   };
   const t = await startTestRuntime("mcp-write-timeout", responder, { config: { mcp: { callTimeoutMs: 300 } } });
@@ -718,19 +720,18 @@ test("mcp 写：已发送写调用超时 —— effect_unknown；只读超时只
     const task = (await t.client.request<any>("submit", { model_selection: MODEL, session_id: sessionId, request_id: "r1", input: "先写后读" })) as any;
     const conf = await pendingConfirmation(t.client, task.id);
     await t.client.request("respond_confirmation", { confirmation_id: conf.id, decision: "approve" });
-    await waitFor("任务完成", async () => (await taskStatus(t.client, task.id)).task.status === "completed", 60_000);
+    await waitFor("未知结果中断任务", async () => (await taskStatus(t.client, task.id)).task.status === "interrupted");
 
     const final = await taskStatus(t.client, task.id);
-    const writeOp = final.toolOps.find((o: any) => o.toolName === "mcp_mock_create_issue");
+    assert.equal(final.task.interruptReason, "mcp_effect_unknown");
+    const writeOp = final.toolOps.find((o: any) => o.toolName === "mcp__mock__create_issue");
     assert.equal(writeOp.isError, true);
     assert.match(writeOp.resultSummary, /超时/);
     assert.equal(writeOp.effectUnknown, true, "写调用超时 = 结果无法确认");
-    const readOp = final.toolOps.find((o: any) => o.toolName === "mcp_mock_get_me");
-    assert.equal(readOp.isError, true);
-    assert.equal(readOp.effectUnknown, false, "只读调用超时无外部副作用，只是已知失败");
+    assert.equal(final.toolOps.some((o: any) => o.toolName === "mcp__mock__get_me"), false, "未知写结果后不继续原工作的自动调用");
     assert.equal(final.task.effectUnknown, true);
     assert.equal(toolCalls(mcp, "create_issue").length, 1, "超时不重发");
-    assert.equal(toolCalls(mcp, "get_me").length, 1);
+    assert.equal(toolCalls(mcp, "get_me").length, 0);
   } finally {
     await t.shutdown();
     await mcp.close();
@@ -742,7 +743,7 @@ test("mcp 写：审批等待中切换模式 —— 旧审批失效不执行，�
   const responder: Responder = async (req) => {
     // 两次工具结果（第一次=审批失效，第二次=切换后执行）后收尾
     if (req.messages.filter((m: any) => m?.role === "tool").length >= 2) return { kind: "text", text: "完成" };
-    return { kind: "tool_calls", calls: [{ id: "c1", name: "mcp_mock_create_issue", arguments: { title: "x" } }] };
+    return { kind: "tool_calls", calls: [{ id: "c1", name: "mcp__mock__create_issue", arguments: { title: "x" } }] };
   };
   const t = await startTestRuntime("mcp-write-modeswitch", responder);
   try {
@@ -760,7 +761,7 @@ test("mcp 写：审批等待中切换模式 —— 旧审批失效不执行，�
     const staleConf = final.confirmations.find((c: any) => c.id === conf.id);
     assert.equal(staleConf.status, "stale", "模式切换使待决审批失效");
     assert.equal(staleConf.consumedAt, null);
-    const ops = final.toolOps.filter((o: any) => o.toolName === "mcp_mock_create_issue");
+    const ops = final.toolOps.filter((o: any) => o.toolName === "mcp__mock__create_issue");
     assert.equal(ops.length, 2);
     assert.equal(ops[0].isError, true);
     assert.match(ops[0].resultSummary, /审批已失效/, "旧待批准操作不自动执行");
@@ -772,7 +773,7 @@ test("mcp 写：审批等待中切换模式 —— 旧审批失效不执行，�
   }
 });
 
-test("mcp 写：工具定义变化 → 下一任务钉版新签名（旧批准不跨任务复用）", async () => {
+test("mcp 写：官方重新注册的 schema 改变授权签名，旧批准不跨任务复用", async () => {
   const toolSpec: MockMcpToolSpec = {
     name: "create_issue",
     inputSchema: { type: "object", properties: { title: { type: "string" } }, required: ["title"] },
@@ -781,7 +782,7 @@ test("mcp 写：工具定义变化 → 下一任务钉版新签名（旧批准�
   // 每个任务的首轮（最后一条是 user 输入）调用写工具；工具结果返回后收尾
   const responder: Responder = async (req) => {
     if (req.messages.at(-1)?.role === "user") {
-      return { kind: "tool_calls", calls: [{ id: "c1", name: "mcp_mock_create_issue", arguments: { title: "x" } }] };
+      return { kind: "tool_calls", calls: [{ id: "c1", name: "mcp__mock__create_issue", arguments: { title: "x" } }] };
     }
     return { kind: "text", text: "完成" };
   };
@@ -799,6 +800,7 @@ test("mcp 写：工具定义变化 → 下一任务钉版新签名（旧批准�
 
     // 远端工具定义变化（schema 增加字段）：任务 2 重新发现，钉版新签名
     toolSpec.inputSchema = { type: "object", properties: { title: { type: "string" }, body: { type: "string" } }, required: ["title"] };
+    await configureMockService(t, mcp, { allowlist: [{ name: "create_issue", effect: "write" }, "refresh_registration"], credential: false });
     const task2 = (await t.client.request<any>("submit", { model_selection: MODEL, session_id: sessionId, request_id: "r2", input: "再创建 issue" })) as any;
     const conf2 = await pendingConfirmation(t.client, task2.id);
     assert.notEqual(conf2.scope.toolSignature, signatureV1, "工具定义变化产生新的定义版本");
@@ -827,7 +829,7 @@ test("mcp 写：远端 JSON-RPC 错误应答记已知错误；结构化结果不
       },
     ],
   });
-  const calls = ["mcp_mock_bad_args", "mcp_mock_typed_write"];
+  const calls = ["mcp__mock__bad_args", "mcp__mock__typed_write"];
   const responder: Responder = async (req) => {
     const done = (req.messages as any[]).filter((m) => m.role === "tool").length;
     return done < calls.length ? { kind: "tool_calls", calls: [{ id: `c${done}`, name: calls[done]!, arguments: {} }] } : { kind: "text", text: "完成" };
@@ -848,8 +850,8 @@ test("mcp 写：远端 JSON-RPC 错误应答记已知错误；结构化结果不
     }
     await waitFor("任务完成", async () => (await taskStatus(t.client, task.id)).task.status === "completed");
     const final = await taskStatus(t.client, task.id);
-    const badArgs = final.toolOps.find((o: any) => o.toolName === "mcp_mock_bad_args");
-    const typed = final.toolOps.find((o: any) => o.toolName === "mcp_mock_typed_write");
+    const badArgs = final.toolOps.find((o: any) => o.toolName === "mcp__mock__bad_args");
+    const typed = final.toolOps.find((o: any) => o.toolName === "mcp__mock__typed_write");
     assert.equal(badArgs.isError, true);
     assert.equal(badArgs.effectUnknown, false, "远端已应答的错误是已知结果");
     assert.match(badArgs.resultSummary, /MCP 服务返回错误（-32602）/);
@@ -868,7 +870,7 @@ test("mcp 写：等待批准时凭据范围改变不消费批准、不发送请�
   const mcp = await startMockMcp({ requireAuth: true, tools: [{ name: "create_issue" }] });
   const t = await startTestRuntime("mcp-write-credential-scope", req => req.messages.at(-1)?.role === "tool"
     ? { kind: "text", text: "停止并报告凭据变化" }
-    : { kind: "tool_calls", calls: [{ id: "write", name: "mcp_mock_create_issue", arguments: {} }] });
+    : { kind: "tool_calls", calls: [{ id: "write", name: "mcp__mock__create_issue", arguments: {} }] });
   try {
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
     await configureMockService(t, mcp, { allowlist: [{ name: "create_issue", effect: "write" }] });
@@ -887,9 +889,57 @@ test("mcp 写：等待批准时凭据范围改变不消费批准、不发送请�
       const final = await taskStatus(t.client, task.id);
       assert.equal(final.confirmations[0].consumedAt, null);
       assert.equal(final.confirmations[0].status, "stale");
-      assert.ok(final.toolOps.some((op: any) => op.toolName === "mcp_mock_create_issue" && op.isError && !op.effectUnknown));
+      assert.ok(final.toolOps.some((op: any) => op.toolName === "mcp__mock__create_issue" && op.isError && !op.effectUnknown));
       assert.equal(mcp.hits.length, sends, "批准后凭据复核失败，连业务请求前的网络发送也不发生");
     }
     assert.equal(toolCalls(mcp).length, 0);
+  } finally { await t.shutdown(); await mcp.close(); }
+});
+
+for (const result of [{ content: [], resultType: "input_required" }, { content: [], task: { taskId: "remote" } }]) test(`mcp 写：原中间应答 ${"task" in result ? "task" : "input_required"} 保留未知并停止后续调用`, async () => {
+  const mcp = await startMockMcp({ tools: [{ name: "partial", result }, { name: "later" }] });
+  const t = await startTestRuntime("mcp-partial", (_req, index) => ({ kind: "tool_calls", calls: [{ id: `call-${index}`, name: index ? "mcp__mock__later" : "mcp__mock__partial", arguments: {} }] }));
+  try {
+    const { sessionId } = await createProjectSession(t.client, t.work[0]);
+    await configureMockService(t, mcp, { allowlist: [{ name: "partial", effect: "write" }, "later"], credential: false });
+    const final = await submitAndWait(t, sessionId, "partial", "中间结果", "full_access");
+    assert.equal(final.task.status, "interrupted");
+    const op = t.runtime.store.getToolOp(final.toolOps.find((op: any) => op.toolName === "mcp__mock__partial").id)!;
+    assert.equal(op.effectUnknown, true);
+    assert.ok(op.mcp && "transport" in op.mcp);
+    assert.equal(op.mcp.remoteEnded, false);
+    assert.ok(op.mcp.resultArtifactId, "收到的原中间结果仍可查询");
+    assert.equal(toolCalls(mcp).length, 1);
+  } finally { await t.shutdown(); await mcp.close(); }
+});
+
+test("mcp 写：未知子操作冻结父来源、同源兄弟、续任务与工作流，新拥有者输入可使用同服务", async () => {
+  const mcp = await startMockMcp({ tools: [{ name: "write", result: { content: [{ type: "text", text: "新工作完成" }] } }] });
+  const t = await startTestRuntime("mcp-lineage", (_req, index) => index ? { kind: "text", text: "done" } : { kind: "tool_calls", calls: [{ id: "new", name: "mcp__mock__write", arguments: { new: true } }] });
+  try {
+    const rt = t.runtime, { sessionId } = await createProjectSession(t.client, t.work[0]);
+    const service = await configureMockService(t, mcp, { allowlist: [{ name: "write", effect: "write" }], credential: false });
+    const tasks = rt.store.withTx(() => {
+      rt.store.setSessionQueueState(sessionId, "paused", "test_source");
+      const parent = rt.store.insertQueuedTask({ sessionId, requestId: "origin", input: "原输入", modelSelection: MODEL, submissionDigest: "origin", accessMode: "full_access" }).task;
+      const child = rt.store.insertQueuedTask({ sessionId, requestId: "child", input: "原委派", modelSelection: MODEL, submissionDigest: "child", parentTaskId: parent.id, accessMode: "full_access" }).task;
+      const sibling = rt.store.insertQueuedTask({ sessionId, requestId: "sibling", input: "换参数同源", modelSelection: MODEL, submissionDigest: "sibling", parentTaskId: parent.id, accessMode: "full_access" }).task;
+      const continued = rt.store.insertQueuedTask({ sessionId, requestId: "continued", input: "换请求键同源", modelSelection: MODEL, submissionDigest: "continued", resumesTaskId: parent.id, accessMode: "full_access" }).task;
+      for (const task of [parent, child, sibling, continued]) rt.store.transitionTask(task.id, ["queued"], "running");
+      rt.store.recordToolIntent({ id: "unknown", taskId: child.id, sessionId, toolName: "mcp__mock__write", params: {} });
+      rt.store.saveMcpOperation("unknown", { recordVersion: 2, transport: "http", serviceId: service.id, configVersion: service.configVersion, remoteName: "write", effect: "write", state: "sent", started: true, remoteEnded: false });
+      new ToolOpLedger(rt.store).markEffectUnknown(child, "unknown");
+      return [parent, child, sibling, continued];
+    });
+    for (const task of tasks) {
+      await assert.rejects(rt.subagents!.delegate({ parentTaskId: task.id, key: `new-${task.id}`, request: "换委派", paramsDigest: "changed" }), error => error instanceof Error && "code" in error && error.code === "effect_unknown");
+      await assert.rejects(rt.startWorkflowTask({ taskId: task.id, requestKey: `workflow-${task.id}`, script: 'return "changed";', input: null }), error => error instanceof Error && "code" in error && error.code === "effect_unknown");
+    }
+    assert.equal(rt.store.listToolOpsByTask(tasks[1].id)[0].effectUnknown, true, "旧结果仍可只读查询");
+    const independent = await createProjectSession(t.client, t.work[1]);
+    const final = await submitAndWait(t, independent.sessionId, "new-owner-input", "独立新工作", "full_access");
+    assert.equal(final.task.status, "completed");
+    assert.equal(toolCalls(mcp).length, 1, "同服务URL不形成跨独立来源锁");
+    assert.deepEqual(toolCalls(mcp)[0].args, { new: true });
   } finally { await t.shutdown(); await mcp.close(); }
 });

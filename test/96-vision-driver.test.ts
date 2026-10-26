@@ -87,7 +87,7 @@ test("首次图片与重开会话的两次 resumesTaskId 续聊保留顺序、�
     assert.equal((await resuming).status, "interrupted");
     assert.deepEqual(imageUrls(k.server.calls[1]!.messages.at(-1)), expected, "源图片在本轮用户消息中必留");
     const historyMessages = parseSessionFile(k.store.getSession(k.session.id)!.sessionFile!)
-      .filter((entry) => entry.type === "message").map((entry) => entry.message);
+      .filter((entry) => entry.type === "message" && (entry.message as any)?.role !== "system").map((entry) => entry.message);
     k.store.withTx(() => k.store.insertCheckpoint({
       id: randomId("ckpt"), sessionId: k.session.id, summarizedCount: historyMessages.length, clearedCount: historyMessages.length,
       fingerprint: checkpointFingerprint(historyMessages, historyMessages.length), summary: "较早图片对话已压缩，细节需查看原始图片。", summaryUntil: new Date().toISOString(),

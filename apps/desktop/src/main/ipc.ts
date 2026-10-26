@@ -5,7 +5,7 @@ import { serializeFailure } from "./controller.ts";
 import type { OpParams, TuiOp } from "@ruukoto/control/ops.ts";
 
 export const CODE_MODEL_OPS = ["get_model_config", "save_model_catalog", "set_model_api_key", "remove_model_api_key", "remove_model_provider", "set_default_model", "set_summary_model", "test_model_connection"] as const satisfies readonly TuiOp[];
-export const CODE_MCP_OPS = ["mcp_list", "mcp_configure", "mcp_set_enabled", "mcp_remove", "mcp_check", "mcp_cua_targets", "mcp_cua_status", "mcp_cua_stop", "mcp_cua_begin_recovery", "mcp_cua_observe", "mcp_cua_accept", "get_tool_op_mcp", "list_credentials", "mcp_save_credential", "mcp_remove_credential"] as const satisfies readonly TuiOp[];
+export const CODE_MCP_OPS = ["mcp_list", "mcp_configure", "mcp_set_enabled", "mcp_remove", "mcp_check", "mcp_cua_targets", "mcp_cua_status", "mcp_cua_stop", "mcp_cua_observe", "mcp_cua_accept", "get_tool_op_mcp", "list_credentials", "mcp_save_credential", "mcp_remove_credential"] as const satisfies readonly TuiOp[];
 export const CODE_WEB_SEARCH_OPS = ["web_search_save_credential", "web_search_remove_credential", "set_web_search"] as const satisfies readonly TuiOp[];
 // Note: 见 .agents/notes/implemented/feature/2026-10-25-desktop-computer-websearch-settings.md
 export const CODE_SKILL_OPS = ["skills_list", "skill_get", "skill_set_enabled", "skill_remove"] as const satisfies readonly TuiOp[];

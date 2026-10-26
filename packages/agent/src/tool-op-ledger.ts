@@ -41,6 +41,7 @@ type StaticToolName =
   | (typeof CODING_TOOL_NAMES)[number]
   | (typeof APPROVAL_TOOL_NAMES)[number]
   | typeof ARTIFACT_TOOL_NAME
+  | "tool_search"
   | "present"
   | (typeof MOCK_TOOL_NAMES)[number]
   | "worktree_start"
@@ -54,6 +55,7 @@ const RULES: Record<StaticToolName, Rule | ((params: Record<string, unknown>) =>
   agent_wait: "no_effect",
   read: "no_effect",
   present: "no_effect",
+  tool_search: "no_effect",
   list_files: "no_effect",
   search_files: "no_effect",
   edit: "approval",
@@ -172,7 +174,7 @@ export class ToolOpLedger {
     const confirmations = this.store.listConfirmationsByTask(taskId);
     return this.store
       .listUnresolvedToolOps(taskId)
-      .filter((op) => ruleOf(op, this.hostLedgers) === "approval" && (!op.mcp || !!op.mcp.request && !(op.mcp.response && mcpResponseEnded(op.mcp.response))) && !approvalUnconsumed(op, confirmations))
+      .filter((op) => ruleOf(op, this.hostLedgers) === "approval" && (!op.mcp || ("transport" in op.mcp ? op.mcp.started && !op.mcp.remoteEnded : op.mcp.state !== "not_sent" && !!op.mcp.request && !(op.mcp.response && mcpResponseEnded(op.mcp.response)))) && !approvalUnconsumed(op, confirmations))
       .map((op) => op.id);
   }
 
@@ -218,7 +220,12 @@ export class ToolOpLedger {
   /** 按分类器补记已知结论；返回 false = 效果未知。 */
   private recordKnown(task: TaskRef, op: ToolOp, confirmations: ConfirmationRequest[], occasion: keyof typeof OCCASIONS): boolean {
     const { when, notExecuted } = OCCASIONS[occasion];
-    if (op.mcp && !op.mcp.request) { this.recordResult(task, op.id, "已知未执行：电脑原请求尚未发送。", true); return true; }
+    if (op.mcp && "transport" in op.mcp) {
+      if (op.mcp.remoteRejected) { this.recordResult(task, op.id, "已知未执行：MCP 服务明确拒绝原请求，未接纳业务。", true); return true; }
+      if (!op.mcp.started) { this.recordResult(task, op.id, "已知未执行：MCP 原调用尚未开始。", true); return true; }
+      if (op.mcp.remoteEnded) { this.recordResult(task, op.id, "MCP 原应答已保存；请查阅原结果产物。", op.mcp.isError ?? false, { artifactIds: op.mcp.resultArtifactId ? [op.mcp.resultArtifactId] : [] }); return true; }
+    }
+    if (op.mcp && !("transport" in op.mcp) && (!op.mcp.request || op.mcp.state === "not_sent")) { this.recordResult(task, op.id, "已知未执行：电脑原请求尚未发送。", true); return true; }
     if (op.mcp?.response && mcpResponseEnded(op.mcp.response)) {
       const response = JSON.parse(op.mcp.response) as { error?: unknown; result?: { isError?: boolean } };
       this.recordResult(task, op.id, "电脑原应答已保存；请拥有者检查画面与原记录，不能重试旧操作。", response.error !== undefined || response.result?.isError === true);

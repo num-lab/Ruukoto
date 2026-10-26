@@ -36,6 +36,8 @@ function history(t: TestRuntime, session: Session) {
   store.setSessionFile(session.id, file);
   let parentId: string | null = null;
   const entry = (value: Record<string, unknown>) => {
+    const tail = fs.readFileSync(file, "utf8").trim().split("\n").at(-1);
+    parentId = tail ? (JSON.parse(tail) as { type: string; id: string }).type === "session" ? null : (JSON.parse(tail) as { id: string }).id : null;
     const id = randomUUID().slice(0, 8);
     fs.appendFileSync(file, `${JSON.stringify({ ...value, id, parentId, timestamp: new Date().toISOString() })}\n`);
     parentId = id;

@@ -1,0 +1,66 @@
+[
+  {
+    "identity": "personal-child",
+    "callIndex": 1,
+    "toolSchemas": 2487,
+    "systemPrompt": 353,
+    "estimateMethod": "对实际provider输入使用共用context-selector静态估算，无Personal选择记录",
+    "tools": [
+      "memory",
+      "history_search",
+      "history_read",
+      "skill",
+      "mcp_tools",
+      "mcp_call",
+      "read_mcp_result"
+    ]
+  },
+  {
+    "identity": "personal-child",
+    "callIndex": 2,
+    "toolSchemas": 2487,
+    "systemPrompt": 353,
+    "estimateMethod": "对实际provider输入使用共用context-selector静态估算，无Personal选择记录",
+    "tools": [
+      "memory",
+      "history_search",
+      "history_read",
+      "skill",
+      "mcp_tools",
+      "mcp_call",
+      "read_mcp_result"
+    ]
+  },
+  {
+    "identity": "personal-child",
+    "callIndex": 3,
+    "toolSchemas": 2487,
+    "systemPrompt": 353,
+    "estimateMethod": "对实际provider输入使用共用context-selector静态估算，无Personal选择记录",
+    "tools": [
+      "memory",
+      "history_search",
+      "history_read",
+      "skill",
+      "mcp_tools",
+      "mcp_call",
+      "read_mcp_result"
+    ]
+  },
+  {
+    "identity": "personal-child",
+    "callIndex": 4,
+    "toolSchemas": 2487,
+    "systemPrompt": 353,
+    "estimateMethod": "对实际provider输入使用共用context-selector静态估算，无Personal选择记录",
+    "tools": [
+      "memory",
+      "history_search",
+      "history_read",
+      "skill",
+      "mcp_tools",
+      "mcp_call",
+      "read_mcp_result"
+    ]
+  }
+]

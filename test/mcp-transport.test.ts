@@ -2,7 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as http from "node:http";
 import { setTimeout as delay } from "node:timers/promises";
-import { connectMcpEndpoint, McpError, parseMcpEndpoint, mcpResponseEnded, resumeMcpCall, type McpCallEvidence } from "@ruukoto/agent/mcp/transport.ts";
+import { McpClient, type JsonRpcId } from "@earendil-works/pi-mcp";
+import { connectMcpEndpoint, createMcpHttpTransport, McpError, parseMcpEndpoint, mcpResponseEnded, type McpCallEvidence } from "@ruukoto/agent/mcp/transport.ts";
 import { McpError as LegacyMcpError, parseMcpEndpoint as legacyParse } from "@ruukoto/agent/mcp/client.ts";
 import { startMockMcp, MOCK_MCP_SECRET } from "./helpers/mock-mcp.ts";
 
@@ -14,6 +15,69 @@ const deferred = () => {
   const promise = new Promise<void>(done => { resolve = done; });
   return { promise, resolve };
 };
+
+for (const fail of [false, true]) test(`MCP 传输：重复 ID 等待原答复持久化${fail ? "失败后保持未知" : "完成后才交付"}`, async () => {
+  const saving = deferred(), release = deferred();
+  let calls = 0, secondId: JsonRpcId, saved = false;
+  const server = http.createServer((req, res) => {
+    let body = "";
+    req.on("data", chunk => { body += chunk; });
+    req.on("end", () => {
+      const request = JSON.parse(body) as { id: JsonRpcId; method: string };
+      const reply = (id: JsonRpcId, result: object) => res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ jsonrpc: "2.0", id, result }));
+      if (request.method === "initialize") reply(request.id, { protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "duplicate", version: "1" } });
+      else if (request.method === "tools/call") {
+        if (++calls === 1) void saving.promise.then(() => reply(secondId, { content: [{ type: "text", text: "duplicate" }] }));
+        else { secondId = request.id; reply(request.id, { content: [{ type: "text", text: "original" }] }); }
+      } else res.writeHead(202).end();
+    });
+  });
+  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+  const endpoint = `http://127.0.0.1:${(server.address() as import("node:net").AddressInfo).port}/mcp`;
+  const evidence: McpCallEvidence[] = [];
+  const transport = createMcpHttpTransport(endpoint, undefined, () => {
+    const current = {}; evidence.push(current);
+    return { evidence: current, active: () => true, hooks: { async recordCallProgress() {
+      saving.resolve(); await release.promise;
+      if (fail) throw new Error("disk failed");
+      saved = true;
+    } } };
+  });
+  const client = new McpClient({ name: "duplicate", version: "1", requestTimeoutMs: 1000 });
+  try {
+    await client.connect(transport);
+    const first = client.callTool("first", {}).catch(error => error);
+    const second = client.callTool("second", {}).then(result => ({ result }), error => ({ error }));
+    await saving.promise;
+    assert.equal(await Promise.race([second.then(() => true), delay(50).then(() => false)]), false);
+    assert.equal(saved, false);
+    release.resolve();
+    const outcome = await second;
+    if (fail) { assert.ok("error" in outcome); assert.equal(evidence[1].response, undefined); }
+    else { assert.ok("result" in outcome); assert.equal(saved, true); assert.ok(evidence[1].response); }
+    await first;
+  } finally { release.resolve(); await client.close(); server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
+});
+
+test("MCP 传输：取消后迟到的持久回调不能覆盖同连接新调用证据", async () => {
+  const saving = deferred(), release = deferred();
+  let saves = 0;
+  const mcp = await startMockMcp({ tools: [{ name: "read" }] });
+  const connection = await connectMcpEndpoint(target(mcp.url), { async recordCallProgress() {
+    if (++saves === 1) { saving.resolve(); await release.promise; }
+  } });
+  try {
+    const controller = new AbortController();
+    const rejected = assert.rejects(connection.callTool(tool, { old: true }, controller.signal), code("canceled"));
+    await saving.promise; controller.abort(); await rejected;
+    await connection.callTool(tool, { current: true });
+    const current = { ...connection.callEvidence };
+    release.resolve(); await delay(20);
+    assert.deepEqual(connection.callEvidence, current);
+    assert.deepEqual(JSON.parse(current.request!).params.arguments, { current: true });
+    assert.equal(JSON.parse(current.response!).id, JSON.parse(current.request!).id);
+  } finally { release.resolve(); await connection.close(); await mcp.close(); }
+});
 
 test("MCP 传输：持久钩子完成后才发调用，第二次钩子拒绝时保留原请求与完整应答", async () => {
   const mcp = await startMockMcp({ tools: [{ name: "read", result: { content: [{ type: "text", text: "完整原文" }], structuredContent: { nested: [1, 2] } } }] });
@@ -36,7 +100,7 @@ test("MCP 传输：持久钩子完成后才发调用，第二次钩子拒绝时�
     assert.equal(JSON.parse(evidence.request!).id, JSON.parse(evidence.response!).id);
     assert.equal(mcpResponseEnded(evidence.response!), true);
     await assert.rejects(connection.callTool(tool, { changed: true }), code("already_recorded"));
-    assert.deepEqual(connection.callEvidence, evidence);
+    assert.deepEqual(connection.callEvidence, {}, "后一次未发送调用不继承前一次答复");
     assert.equal(mcp.hits.filter(hit => hit.rpcMethod === "tools/call").length, 1);
   } finally { release.resolve(); await connection.close(); await mcp.close(); }
 });
@@ -62,7 +126,7 @@ for (const interrupted of ["cancel", "revoke"] as const) {
   });
 }
 
-for (const callback of ["recordCallRequest", "recordCallProgress"] as const) test(`MCP 传输：${callback} 写入失败不发送工具，不泄露持久回调异常`, async () => {
+for (const callback of ["recordCallRequest", "recordCallProgress"] as const) test(`MCP 传输：${callback} 写入失败按发送阶段记证，不泄露持久回调异常`, async () => {
   const mcp = await startMockMcp({ tools: [{ name: "read" }] });
   const connection = await connectMcpEndpoint(target(mcp.url), { [callback]: async () => { throw new Error(MOCK_MCP_SECRET); } });
   try {
@@ -72,7 +136,7 @@ for (const callback of ["recordCallRequest", "recordCallProgress"] as const) tes
       assert.ok(!error.message.includes(MOCK_MCP_SECRET));
       return true;
     });
-    assert.equal(mcp.hits.filter(hit => hit.rpcMethod === "tools/call").length, 0);
+    assert.equal(mcp.hits.filter(hit => hit.rpcMethod === "tools/call").length, callback === "recordCallRequest" ? 0 : 1);
   } finally { await connection.close(); await mcp.close(); }
 });
 
@@ -83,109 +147,6 @@ test("MCP 传输：只承认完整终结应答，交互中间结果和异步任�
   assert.equal(mcpResponseEnded(JSON.stringify({ jsonrpc: "2.0", id: "7", error: { code: -1, message: "错误", data: { original: true } } })), true);
   for (const raw of ["invalid", "{}", response({}), response({ content: [], resultType: "input_required", requestState: "state" }), response({ content: [], resultType: "future" }), response({ content: [], task: { taskId: "remote" } }), JSON.stringify({ jsonrpc: "2.0", id: null, result: { content: [] } })]) assert.equal(mcpResponseEnded(raw), false, raw);
 });
-
-async function startResumableCall(opts: { error?: boolean; incomplete?: boolean; wrongId?: boolean; holdResume?: boolean } = {}) {
-  const hits: Array<{ method: string; rpc?: string; token?: string; session?: string; protocol?: string }> = [];
-  const canceled = deferred();
-  let originalId = 0;
-  const server = await startServer((request, response) => {
-    const headers = { session: request.headers["mcp-session-id"] as string | undefined, protocol: request.headers["mcp-protocol-version"] as string | undefined };
-    if (request.method === "GET") {
-      const token = request.headers["last-event-id"] as string | undefined;
-      hits.push({ method: "GET", token, ...headers });
-      if (!token) { response.writeHead(405).end(); return; }
-      if (opts.holdResume) return;
-      response.writeHead(200, { "content-type": "text/event-stream" });
-      const id = opts.wrongId ? originalId + 100 : originalId;
-      const message = opts.error ? { jsonrpc: "2.0", id, error: { code: -32602, message: "原错误", data: { nested: ["完整错误数据"] } } } : { jsonrpc: "2.0", id, result: opts.incomplete ? { resultType: "input_required", requestState: "state", content: [] } : { content: [{ type: "text", text: "迟到完整结果" }] } };
-      response.end(`id: terminal\nevent: message\ndata: ${JSON.stringify(message)}\n\n`);
-      return;
-    }
-    const chunks: Buffer[] = [];
-    request.on("data", chunk => chunks.push(chunk));
-    request.on("end", () => {
-      const message = JSON.parse(Buffer.concat(chunks).toString("utf8")) as { method: string; id: number };
-      hits.push({ method: request.method!, rpc: message.method, ...headers });
-      if (message.method === "initialize") {
-        response.writeHead(200, { "content-type": "application/json", "mcp-session-id": "original-session" }).end(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: { protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "resumable", version: "1" } } }));
-      } else if (message.method === "tools/call") {
-        originalId = message.id;
-        response.writeHead(200, { "content-type": "text/event-stream" });
-        response.write(`id: priming\nevent: message\ndata: ${JSON.stringify({ jsonrpc: "2.0", method: "notifications/progress", params: { progressToken: message.id, progress: 0 } })}\n\n`);
-      } else { response.writeHead(202).end(); if (message.method === "notifications/cancelled") canceled.resolve(); }
-    });
-  });
-  return { ...server, hits, canceled: canceled.promise };
-}
-
-for (const error of [false, true]) {
-  test(`MCP 传输：标准 SSE 恢复原 ${error ? "错误" : "结果"}，不握手或重发原工具`, { timeout: 5000 }, async () => {
-    const server = await startResumableCall({ error });
-    const progress: McpCallEvidence[] = [];
-    const connection = await connectMcpEndpoint(target(server.url), { callTimeoutMs: 100, recordCallProgress: async value => { progress.push({ ...value }); } });
-    try {
-      await assert.rejects(connection.callTool(tool, {}), code("timeout"));
-      assert.equal(connection.callEvidence?.sessionId, "original-session");
-      assert.equal(connection.callEvidence?.protocolVersion, "2025-06-18");
-      assert.equal(connection.callEvidence?.resumptionToken, "priming");
-      assert.equal(connection.callEvidence?.response, undefined);
-      await server.canceled;
-      await connection.close();
-      const before = server.hits.length;
-      const evidence = await resumeMcpCall(target(server.url), connection.callEvidence!, { callTimeoutMs: 1000, recordCallProgress: async value => { progress.push({ ...value }); } });
-      assert.equal(mcpResponseEnded(evidence.response!), true);
-      assert.equal(evidence.resumptionToken, "terminal");
-      assert.ok(progress.some(value => value.resumptionToken === "priming"));
-      assert.ok(progress.filter(value => value.resumptionToken === "terminal").every(value => value.response === evidence.response));
-      assert.deepEqual(server.hits.slice(before), [{ method: "GET", token: "priming", session: "original-session", protocol: "2025-06-18" }]);
-      assert.equal(server.hits.filter(hit => hit.rpc === "tools/call").length, 1);
-      if (error) assert.deepEqual(JSON.parse(evidence.response!).error.data, { nested: ["完整错误数据"] });
-      else assert.equal(JSON.parse(evidence.response!).result.content[0].text, "迟到完整结果");
-    } finally { await connection.close(); await server.close(); }
-  });
-}
-
-test("MCP 传输：缺原恢复身份或已取消时不联网", async () => {
-  const server = await startResumableCall();
-  const original = { request: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call" }), sessionId: "session", protocolVersion: "2025-06-18", resumptionToken: "event" };
-  try {
-    for (const key of ["request", "sessionId", "protocolVersion", "resumptionToken"] as const) await assert.rejects(resumeMcpCall(target(server.url), { ...original, [key]: undefined }), code("resume_unavailable"));
-    await assert.rejects(resumeMcpCall(target(server.url), original, { signal: AbortSignal.abort() }), code("canceled"));
-    await assert.rejects(resumeMcpCall(target(server.url), original, { resolveToken: async () => "" }), code("auth_failed"));
-    assert.equal(server.hits.length, 0);
-  } finally { await server.close(); }
-});
-
-for (const failure of ["incomplete", "wrongId", "holdResume", "write"] as const) {
-  test(`MCP 传输：恢复 ${failure} 不生成远端结束证明或重发工具`, { timeout: 5000 }, async () => {
-    const server = await startResumableCall({ [failure]: true });
-    const connection = await connectMcpEndpoint(target(server.url), { callTimeoutMs: 100 });
-    try {
-      await assert.rejects(connection.callTool(tool, {}), code("timeout"));
-      await server.canceled;
-      await connection.close();
-      let latest: McpCallEvidence | undefined;
-      const controller = new AbortController();
-      const before = server.hits.length;
-      const resumed = resumeMcpCall(target(server.url), connection.callEvidence!, { callTimeoutMs: 150, signal: controller.signal, recordCallProgress: async value => {
-        latest = { ...value };
-        if (failure === "write") throw new Error(MOCK_MCP_SECRET);
-      } });
-      const rejected = assert.rejects(resumed, error => {
-        assert.ok(error instanceof McpError);
-        assert.equal(error.code, { incomplete: "remote_incomplete", wrongId: "timeout", holdResume: "canceled", write: "evidence_failed" }[failure]);
-        assert.ok(!error.message.includes(MOCK_MCP_SECRET));
-        return true;
-      });
-      if (failure === "holdResume") { await delay(30); controller.abort(); }
-      await rejected;
-      if (failure === "incomplete") assert.equal(mcpResponseEnded(latest!.response!), false);
-      if (failure === "wrongId" || failure === "holdResume") assert.equal(latest?.response, undefined);
-      assert.ok(server.hits.slice(before).every(hit => hit.method === "GET"));
-      assert.equal(server.hits.filter(hit => hit.rpc === "tools/call").length, 1);
-    } finally { await connection.close(); await server.close(); }
-  });
-}
 
 test("MCP 传输：无需旧项目或凭据对象，分页发现并保留参数、结构化结果与工具错误", async () => {
   const result = { content: [{ type: "text", text: "原文" }], structuredContent: { count: 3 } };
@@ -206,28 +167,18 @@ test("MCP 传输：无需旧项目或凭据对象，分页发现并保留参数�
     assert.deepEqual(await connection.callTool(tool, { value: "原参数" }), result);
     assert.deepEqual(mcp.hits.find(hit => hit.rpcMethod === "tools/call")?.args, { value: "原参数" });
     assert.equal((await connection.callTool({ ...tool, name: "bad" }, {})).isError, true);
-    await assert.rejects(connection.callTool({ ...tool, name: "rpc" }, {}), code("remote_error"));
+    await assert.rejects(connection.callTool({ ...tool, name: "rpc" }, {}), code("protocol_error"));
     assert.ok(mcp.hits.every(hit => !hit.hasAuth));
   } finally { await connection.close(); await mcp.close(); }
 });
 
-for (const pages of [16, 17]) {
-  test(`MCP 传输：${pages} 页发现遵守 16 页上限`, async () => {
-    const mcp = await startMockMcp({ pageSize: 1, tools: Array.from({ length: pages }, (_, index) => ({ name: `tool_${index}` })) });
-    const connection = await connectMcpEndpoint(target(mcp.url));
-    try {
-      if (pages === 16) assert.equal((await connection.listTools()).length, 16);
-      else await assert.rejects(connection.listTools(), code("too_many_pages"));
-      assert.equal(mcp.hits.filter(hit => hit.rpcMethod === "tools/list").length, 16);
-    } finally { await connection.close(); await mcp.close(); }
-  });
-}
-
-test("MCP 传输：SDK 汇总后仍拒绝超过 64 个工具", async () => {
-  const mcp = await startMockMcp({ tools: Array.from({ length: 65 }, (_, index) => ({ name: `tool_${index}` })) });
+test("MCP 传输：由 Pi 分页发现超过旧页数与工具数上限的清单", async () => {
+  const mcp = await startMockMcp({ pageSize: 1, tools: Array.from({ length: 65 }, (_, index) => ({ name: `tool_${index}` })) });
   const connection = await connectMcpEndpoint(target(mcp.url));
-  try { await assert.rejects(connection.listTools(), code("too_many_tools")); }
-  finally { await connection.close(); await mcp.close(); }
+  try {
+    assert.equal((await connection.listTools()).length, 65);
+    assert.equal(mcp.hits.filter(hit => hit.rpcMethod === "tools/list").length, 65);
+  } finally { await connection.close(); await mcp.close(); }
 });
 
 for (const failure of ["empty", "throw"] as const) {
@@ -382,4 +333,94 @@ test("MCP 传输：重定向不跟随到同源其他路径或其他端点，不�
     assert.equal(initialRequests, 2);
     assert.deepEqual(forwarded, []);
   } finally { await server.close(); await destination.close(); }
+});
+
+for (const actual of [false, true]) test(`MCP 传输：同文案的${actual ? "原远端" : "Pi 合成"} SSE 错误按原流来源区分`, async () => {
+  let calls = 0;
+  const server = await startServer((request, response) => {
+    const chunks: Buffer[] = [];
+    request.on("data", chunk => chunks.push(chunk));
+    request.on("end", () => {
+      const message = JSON.parse(Buffer.concat(chunks).toString());
+      if (message.method === "initialize") response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: { protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "provenance", version: "1" } } }));
+      else if (message.method === "tools/call") {
+        calls++;
+        response.writeHead(200, { "content-type": "text/event-stream" });
+        response.end(actual ? `data: ${JSON.stringify({ jsonrpc: "2.0", id: message.id, error: { code: -32603, message: "MCP response stream failed: stream ended without a response" } })}\n\n` : ": no reply\n\n");
+      } else response.writeHead(202).end();
+    });
+  });
+  const connection = await connectMcpEndpoint(target(server.url));
+  try {
+    await assert.rejects(connection.callTool(tool, {}), code("protocol_error"));
+    assert.equal(!!connection.callEvidence?.response, actual);
+    assert.equal(calls, 1);
+  } finally { await connection.close(); await server.close(); }
+});
+
+test("MCP 传输：Pi 会话内 GET 续流的真实答复保留原调用归属", { timeout: 5000 }, async () => {
+  let originalId: number | undefined, calls = 0, gets = 0;
+  const server = await startServer((request, response) => {
+    if (request.method !== "POST" && request.method !== "GET") { response.writeHead(202).end(); return; }
+    if (request.method === "GET") {
+      gets++;
+      assert.equal(request.headers["last-event-id"], "priming");
+      response.writeHead(200, { "content-type": "text/event-stream" }).end(`data: ${JSON.stringify({ jsonrpc: "2.0", id: originalId, result: { content: [{ type: "text", text: "GET 原答复" }] } })}\n\n`);
+      return;
+    }
+    const chunks: Buffer[] = [];
+    request.on("data", chunk => chunks.push(chunk));
+    request.on("end", () => {
+      const message = JSON.parse(Buffer.concat(chunks).toString());
+      if (message.method === "initialize") response.writeHead(200, { "content-type": "application/json", "mcp-session-id": "incarnation" }).end(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: { protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "get", version: "1" } } }));
+      else if (message.method === "tools/call") {
+        calls++; originalId = message.id;
+        response.writeHead(200, { "content-type": "text/event-stream" }).end("retry: 1\nid: priming\n\n");
+      } else response.writeHead(202).end();
+    });
+  });
+  const connection = await connectMcpEndpoint(target(server.url), { callTimeoutMs: 4000 });
+  try {
+    assert.equal((await connection.callTool(tool, {})).content[0].type, "text");
+    assert.equal(JSON.parse(connection.callEvidence!.response!).id, originalId);
+    assert.equal(calls, 1); assert.equal(gets, 1);
+    assert.equal(connection.callEvidence!.resumptionToken, undefined, "不保存跨重启游标");
+  } finally { await connection.close(); await server.close(); }
+});
+
+test("MCP 传输：超时发生于持久等待时明确未发送，释放等待后仍零调用", async () => {
+  const mcp = await startMockMcp({ tools: [{ name: "read" }] });
+  const entered = deferred(), release = deferred();
+  const connection = await connectMcpEndpoint(target(mcp.url), { callTimeoutMs: 50, recordCallRequest: async () => { entered.resolve(); await release.promise; } });
+  try {
+    const call = connection.callTool(tool, {});
+    const rejected = assert.rejects(call, error => error instanceof McpError && error.code === "timeout" && error.requestSent === false);
+    await entered.promise;
+    await rejected;
+    release.resolve(); await delay(20);
+    assert.equal(mcp.hits.filter(hit => hit.rpcMethod === "tools/call").length, 0);
+    assert.equal(connection.callEvidence!.request, undefined);
+  } finally { release.resolve(); await connection.close(); await mcp.close(); }
+});
+
+test("MCP 传输：原session的HTTP404明确未接纳，保持实际发送事实且不自动重试", async () => {
+  let calls = 0;
+  const server = await startServer((request, response) => {
+    if (request.method !== "POST") { response.writeHead(202).end(); return; }
+    const chunks: Buffer[] = [];
+    request.on("data", chunk => chunks.push(chunk));
+    request.on("end", () => {
+      const message = JSON.parse(Buffer.concat(chunks).toString());
+      if (message.method === "initialize") response.writeHead(200, { "content-type": "application/json", "mcp-session-id": "original" }).end(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: { protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "reject", version: "1" } } }));
+      else if (message.method === "tools/call") { calls++; response.writeHead(404).end(); }
+      else response.writeHead(202).end();
+    });
+  });
+  const connection = await connectMcpEndpoint(target(server.url));
+  try {
+    await assert.rejects(connection.callTool(tool, {}), error => error instanceof McpError && error.code === "session_expired" && error.requestSent === true && error.remoteRejected === true);
+    assert.equal(calls, 1);
+    assert.ok(connection.callEvidence?.request);
+    assert.equal(connection.callEvidence?.response, undefined);
+  } finally { await connection.close(); await server.close(); }
 });

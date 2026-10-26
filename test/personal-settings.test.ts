@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as http from "node:http";
 import { once } from "node:events";
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { defineDocFamily, ROOT_CONVERSATION_ID } from "@earendil-works/pi-durable";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
@@ -181,7 +181,7 @@ for (const state of ["input", "mcp"] as const) test(`设置保存：持久化 ${
 test("MCP 设置：查询隐藏端点 query 与令牌、显式迁入及保存代次，缺凭据保留认证引用", async t => {
   const f = await fixture(t), filename = path.join(f.root, "token"); fs.writeFileSync(filename, "mcp-private-secret", { mode: 0o600 });
   const { personalMcpCredential } = await import("../apps/ruukoto/src/personal-mcp-config.ts");
-  const service = { id: "service", label: "服务", endpoint: "https://mcp.example.test/api?token=endpoint-private-secret", credential: personalMcpCredential(filename), tools: [] };
+  const service = { id: "service", label: "服务", endpoint: "https://mcp.example.test/api?token=endpoint-private-secret", credential: { path: filename, sha256: createHash("sha256").update(fs.readFileSync(filename)).digest("hex") }, tools: [] };
   await savePersonalMcp(f.directory, { version: 1, generation: "original", services: [service] });
   const initial = await f.read(), queried = await executePersonalSettings(f.directory, { v: 1, op: "mcp.get", profile: initial.profile, expectedRevision: initial.revisions.mcp, id: service.id }) as { service: typeof service & { endpointRedacted: boolean; credentialStatus: string } };
   assert.equal(queried.service.endpointRedacted, true); assert.equal(queried.service.credentialStatus, "valid"); assert.ok(!JSON.stringify(queried).includes("endpoint-private-secret")); assert.ok(!JSON.stringify(queried).includes("mcp-private-secret"));
@@ -189,12 +189,12 @@ test("MCP 设置：查询隐藏端点 query 与令牌、显式迁入及保存代
   await executePersonalSettings(f.directory, write({ profile: initial.profile, expectedRevision: initial.revisions.mcp }, { kind: "mcp.migrate" }));
   const migrated = await f.read();
   assert.notEqual(migrated.revisions.mcp, initial.revisions.mcp);
-  await executePersonalSettings(f.directory, save(migrated, { version: 2, services: [{ ...queried.service, enabled: false }] }, "mcp"));
-  const saved = JSON.parse(fs.readFileSync(path.join(f.directory, "mcp.json"), "utf8")); assert.equal(saved.version, 2); assert.equal(saved.services[0].enabled, false); assert.equal(saved.services[0].endpoint, service.endpoint); assert.notEqual(saved.generation, "original");
+  await executePersonalSettings(f.directory, save(migrated, { version: 4, services: [{ ...queried.service, enabled: false, toolEffects: {} }] }, "mcp"));
+  const saved = JSON.parse(fs.readFileSync(path.join(f.directory, "mcp.json"), "utf8")); assert.equal(saved.version, 4); assert.equal(saved.services[0].enabled, false); assert.equal(saved.services[0].endpoint, service.endpoint); assert.notEqual(saved.generation, "original");
   fs.unlinkSync(filename);
   const current = await f.read(), missing = await executePersonalSettings(f.directory, { v: 1, op: "mcp.get", profile: current.profile, expectedRevision: current.revisions.mcp, id: service.id }) as { service: { credentialStatus: string; credential?: unknown } };
   assert.equal(missing.service.credentialStatus, "missing"); assert.ok(missing.service.credential);
-  await assert.rejects(executePersonalSettings(f.directory, save(current, { version: 2, services: [{ ...queried.service, enabled: true }] }, "mcp")), code("mcp_credentials_invalid"));
+  await assert.rejects(executePersonalSettings(f.directory, save(current, { version: 4, services: [{ ...queried.service, enabled: true, toolEffects: {} }] }, "mcp")), code("mcp_credentials_invalid"));
   assert.equal(JSON.parse(fs.readFileSync(path.join(f.directory, "mcp.json"), "utf8")).services[0].enabled, false);
 });
 

@@ -11,7 +11,7 @@ import { readPersonalRemoteFile, writePersonalRemoteFile } from "./personal-remo
 import { parsePersonalSettingsWriteRequest, type PersonalSettingsWriteRequest } from "./personal-settings-operations.ts";
 import type { PersonalSettingsReceipt } from "./personal-settings-records.ts";
 
-export const PERSONAL_REMOTE_SETTINGS_READ = ["settings.read", "lifecycle.status", "config.preflight", "model.test", "mcp.discover", "mcp.cua-targets", "mcp.cua-status", "mcp.cua-control", "mcp.cua-image", "mcp.get", "skills.list", "skills.get", "skills.select-directory", "skills.preview-import", "im.pair-start", "im.pair-read", "im.pair-confirm", "im.pair-cancel"];
+export const PERSONAL_REMOTE_SETTINGS_READ = ["settings.read", "lifecycle.status", "config.preflight", "model.test", "mcp.discover", "mcp.cua-targets", "mcp.cua-status", "mcp.cua-control", "mcp.cua-image", "mcp.get", "mcp.operations", "mcp.operation", "mcp.end", "skills.list", "skills.get", "skills.select-directory", "skills.preview-import", "im.pair-start", "im.pair-read", "im.pair-confirm", "im.pair-cancel"];
 export const PERSONAL_REMOTE_SETTINGS_WRITE = ["config.save", "mcp.migrate", "mcp.set-enabled", "mcp.remove", "mcp.save-service", "skills.import", "skills.set-enabled", "skills.remove"];
 type Stage = "stopping" | "stopped" | "saving" | "saved" | "starting" | "complete";
 export type PersonalRemoteMaintenanceReceipt = {

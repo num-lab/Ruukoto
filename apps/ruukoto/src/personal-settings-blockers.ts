@@ -41,6 +41,7 @@ function operationBlocker(family: Family, value: unknown, key: string): Personal
     if (typeof value.started !== "boolean" || typeof value.stopped !== "boolean" || !result(value.result, ["returned", "not_executed", "effect_unknown"]) || !resolved(value.resolution)) throw invalid();
     pending = personalCommandUnresolved(value as Parameters<typeof personalCommandUnresolved>[0]);
   } else {
+    if (family === "mcp" && value.ended !== undefined && (!object(value.ended) || !id(value.ended.entry) || value.effect !== "effect_unknown" || value.ended.requestId !== undefined && typeof value.ended.requestId !== "string")) throw invalid();
     if (typeof value.started !== "boolean" || typeof (family === "mcp" ? value.remoteEnded : value.stopped) !== "boolean" || !resolved(value.resolution) || typeof value.effect !== "string" || !(family === "mcp" ? ["not_executed", "returned", "effect_unknown", "no_write"] : ["not_executed", "returned", "no_write", "effect_unknown"]).includes(value.effect)) throw invalid();
     pending = family === "mcp" ? mcpUnresolved(value as Parameters<typeof mcpUnresolved>[0]) : family === "tool" ? toolUnresolved(value as Parameters<typeof toolUnresolved>[0]) : browserUnresolved(value as Parameters<typeof browserUnresolved>[0]);
   }

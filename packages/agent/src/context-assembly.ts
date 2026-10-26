@@ -16,6 +16,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { createHash } from "node:crypto";
+import { getCurrentSystemPrompt, getCurrentTools } from "@earendil-works/pi-ai";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { AccessScope, Accessor } from "@ruukoto/core/access.ts";
 import type { MemoryStore, MemoryWithContent } from "@ruukoto/core/memory.ts";
@@ -777,7 +778,7 @@ export class ContextAssembly {
     // 预算复核：对实际发送的消息重新估算（含系统提示与工具定义）
     let total = selection.estimates.systemPrompt + selection.estimates.toolSchemas;
     for (const message of context?.messages ?? []) {
-      total += estimateMessageTokens(message, config.calibration);
+      if (message.role !== "system") total += estimateMessageTokens(message, config.calibration);
     }
     if (total > selection.budget) {
       throw new ContextSendBlocked(
@@ -859,9 +860,9 @@ export class ContextAssembly {
       thinkingLevel: task.modelSelection?.thinkingLevel ?? null,
       reasoning: options?.reasoning ?? "off",
       maxTokens: options?.maxTokens ?? null,
-      systemPrompt: typeof context?.systemPrompt === "string" ? context.systemPrompt : "",
-      messages: Array.isArray(context?.messages) ? imageReferenceSnapshot(context.messages) : [],
-      tools: Array.isArray(context?.tools) ? context.tools : [],
+      systemPrompt: getCurrentSystemPrompt(context.messages),
+      messages: Array.isArray(context?.messages) ? imageReferenceSnapshot(context.messages.filter((message: any) => message.role !== "system")) : [],
+      tools: getCurrentTools(context.messages),
     };
     try {
       const artifact = this.deps.artifacts.begin({ taskId: task.id, sessionId: task.sessionId, name: `prompt-snapshot:${recordId}` });

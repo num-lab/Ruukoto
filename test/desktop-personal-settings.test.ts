@@ -47,6 +47,29 @@ test("PA设置：认证读取与测试保留档案身份，写入只经v2保存�
   assert.equal(f.state.calls, 0);
 });
 
+test("PA MCP 调用管理按原身份读取与收尾，不进入配置保存账本，旧恢复动作零请求", async t => {
+  const f = await fixture(t), operation = { operation: 12, service: "服务", tool: "write", effect: "effect_unknown", code: "timeout", canEnd: true, ended: false };
+  let requests = 0;
+  f.overrides.set("/settings", (_req, res, value) => {
+    requests++;
+    const request = value as { op: string; operation?: number };
+    f.respond(res, { profile: f.profile, ...(request.op === "mcp.operations" ? { operations: [operation] } : request.op === "mcp.operation" ? { summary: operation, text: "original" } : { operation: request.operation, ended: true }) });
+  });
+  const envelope = { v: 1, profile: f.profile, expectedRevision: "missing" };
+  assert.deepEqual((await f.settings.request({ ...envelope, op: "mcp.operations" })).operations, [operation]);
+  assert.equal((await f.settings.request({ ...envelope, op: "mcp.operation", operation: 12 })).text, "original");
+  assert.equal((await f.settings.request({ ...envelope, op: "mcp.end", operation: 12 })).ended, true);
+  assert.equal(f.state.calls, 0); assert.deepEqual(f.controller.settingsOperations(), []);
+  const before = requests;
+  await assert.rejects(f.settings.request({ ...envelope, op: "mcp.cua-control", action: "begin", operation: 12 }), code("op_not_allowed"));
+  await assert.rejects(f.settings.request({ ...envelope, op: "mcp.recheck", operation: 12 }), code("op_not_allowed"));
+  assert.equal(requests, before);
+  f.overrides.set("/settings", (_req, res) => { f.respond(res, { profile: f.profile, operation: 13, ended: true }); });
+  await assert.rejects(f.settings.request({ ...envelope, op: "mcp.end", operation: 12 }), code("personal_protocol"));
+  f.overrides.set("/settings", (_req, res) => { f.reject(res, "mcp_end_invalid", 400); });
+  await assert.rejects(f.settings.request({ ...envelope, op: "mcp.end", operation: 12 }), error => error instanceof ControlClientError && error.code === "mcp_end_invalid" && error.outcome === "rejected");
+});
+
 test("PA设置：收齐回执和scope生效分页，后页未结操作保持可查询", async t => {
   const f = await fixture(t);
   const receipts = Array.from({ length: 34 }, (_, index) => ({ v: 2, id: randomUUID(), profile: f.profile, target: "mcp", scope: `service-${index}`, requestDigest: "a".repeat(64), status: index === 33 ? "waiting" : "active", savedRevision: f.request.expectedRevision, effectiveRevision: null, code: "settings_waiting", relatedOperations: [] }));

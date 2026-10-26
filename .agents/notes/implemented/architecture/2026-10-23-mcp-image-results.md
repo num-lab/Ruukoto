@@ -2,6 +2,8 @@
 
 Status: implemented
 
+结果来源与新普通操作记录采用[MCP宿主职责收缩](../simplification/2026-10-26-mcp-host-responsibilities.md)；本篇图片顺序、原字节、产物归属与坏图不重做动作的决定继续成立。
+
 ## 问题
 
 Code 的 MCP 结果整形忽略图片，isError 抛错也会丢附件；Personal 保存完整应答但只给模型摘要。[Cua 接入](2026-10-23-cua-official-mcp.md)的观察必须成为实际模型输入，并能从历史恢复，图片失败不能把已收到的动作应答改成效果未知。

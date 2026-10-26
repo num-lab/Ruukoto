@@ -34,6 +34,7 @@
 | 能力维度 | `ruukoto`（个人 Agent） | `ruukoto-code`（Coding Agent） |
 |---|---|---|
 | **会话与状态模型** | Pi durable 1.3.0 原生记录与状态管理 | 共享 Runtime 编排，基于 SQLite 元数据 + JSONL 消息历史 |
+| **MCP 接入** | Pi MCP 薄适配，保留 durable 原工具身份 | 官方 MCP 与 tool_search 扩展，宿主审批与产物 |
 | **主要交互终端** | QQ / Telegram 私聊、引导式菜单、PA 桌面 | 全屏终端 TUI、Web 控制台、Coding 桌面客户端 |
 | **后台执行体系** | 长期子 Agent、异步分析委托、原生定时计划 | 串行任务队列、通用 SubAgent、Git Worktree 隔离与工作流 |
 | **执行沙箱模式** | 宿主安全命令 Worker（支持有限与完全访问） | 原生系统沙箱（macOS Seatbelt / Linux bubblewrap） |
@@ -93,3 +94,4 @@ sequenceDiagram
 - [个人正式入口使用唯一 durable 装配](../../.agents/notes/implemented/simplification/2026-10-18-personal-product-entry.md)
 - [两个 Agent 产品](../../.agents/notes/implemented/architecture/2026-10-02-two-agent-products.md)
 - [同仓 workspaces 分包](../../.agents/notes/implemented/architecture/2026-10-11-in-repo-workspace-packages.md)
+- [MCP 宿主职责收缩](../../.agents/notes/implemented/simplification/2026-10-26-mcp-host-responsibilities.md)：两个产品固定同版 Pi，运行与配置权威仍分别持有。

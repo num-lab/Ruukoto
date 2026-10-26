@@ -1,3 +1,4 @@
+import { getCurrentSystemPrompt, getCurrentTools, createInitialSystemMessage, toToolDeclaration } from "@earendil-works/pi-ai";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 /**
  * 会话驱动器：把 SDK 会话接到任务状态机上。
@@ -81,8 +82,9 @@ import { WorkflowError, type WorkflowSource } from "@ruukoto/core/workflow.ts";
 import { requireSubAgentExecution, snapshotSubAgentExecution, SubAgentExecutionError, type SubAgentExecutionSnapshot } from "@ruukoto/core/subagent-execution.ts";
 import { subAgentAccessPolicy, subAgentSourceProfile } from "./subagent-capabilities.ts";
 import type { CodeCuaManager } from "./mcp/code.ts";
-import { planMcpTaskTools, EMPTY_MCP_PLAN, type McpTaskPlan } from "./mcp/tools.ts";
-import { searchToolDefinitions, ToolSearchError } from "./search-tools.ts";
+import type { McpToolInfo } from "./mcp/tools.ts";
+import { mcpCredentialDigest } from "./mcp/client.ts";
+import { McpSession } from "./mcp/session.ts";
 import type { McpTimeouts } from "./mcp/client.ts";
 import type { McpStore, McpToolEffect } from "./mcp/store.ts";
 import type { Accessor } from "@ruukoto/core/access.ts";
@@ -200,6 +202,7 @@ export class Driver {
   readonly session: Session;
   private readonly deps: DriverDeps;
   private sdk: AgentSession | null = null;
+  private sdkDisposal: Promise<void> | null = null;
   private registry: ManagedProcessRegistry;
   private managedTaskId: string | null = null;
   // Note: 见 .agents/notes/implemented/bug-fix/2026-10-11-preserve-unverified-worker-stop.md
@@ -208,6 +211,7 @@ export class Driver {
   private ending = false;
   readonly router: ToolRouter;
   private currentTask: Task | null = null;
+  private currentModelSupportsImages = false;
   private taskEnding: TaskEndingContext | null = null;
   private stopRequested = false;
   /** 审批闸门（架构工单 04）：审批请求全程；Driver 只接线应答、模式切换与停止。 */
@@ -244,22 +248,23 @@ export class Driver {
   private allToolNames: string[] = [];
   /** 当前任务已装配的静态宿主工具名（由族清单派生）。 */
   private hostToolNames: ReadonlySet<string> = new Set<string>();
-  /** 当前任务钉版的 MCP 工具名集合（handleToolCall 分派依据；任务间比对签名）。 */
+  /** 当前任务从官方注册表固定的 MCP 工具名。 */
   private mcpToolNames = new Set<string>();
-  /** 当前任务钉版的 MCP 计划（工具元数据 + 按服务持有的连接；结束/取消/关闭时回收）。 */
-  private currentMcpPlan: McpTaskPlan | null = null;
-  /** 上次 SDK 会话创建时的工具签名（画像工具集 + MCP 清单；不一致则重建会话换工具定义）。 */
+  /** 首轮选定的授权元数据；任务恢复资源时保持，调用门继续求交。 */
+  private currentMcpTools = new Map<string, McpToolInfo>();
+  private mcpSession: McpSession | null = null;
+  private mcpPreflights = 0;
+  private mcpTaskToolsSelected = false;
+  private mcpConfigurations = new Map<string, string>();
+  /** SDK 装配的执行画像与角色正文签名。 */
   private toolSignature: string | null = null;
   /** 模型配置已应用、存活 SDK 会话待丢弃重建（issue 21 §4；见 updateModelDeps）。 */
   private sdkConfigStale = false;
-  /** 待装配进新 SDK 会话的 MCP 工具定义（runInner 计划后由 ensureSdk 消费）。 */
-  private pendingMcpToolDefs: ToolDefinition[] = [];
   /** 执行画像（架构工单 08）：任务开始算一次、钉到下一任务开始；首个任务前为 null。 */
   private pinnedProfile: ExecutionProfile | null = null;
   /** 本任务允许的工具（任务开始时算一次；激活、发送前与调用门共用；null = 尚未算出，一律拒绝）。 */
   private taskTools: TaskToolSet | null = null;
   private eligibleTools: TaskToolSet | null = null;
-  private readonly discoveredTools = new Set<string>();
   /** 本任务的模型上下文组装（任务开始时建、结束即丢；context 钩子与发送前复核共用）。 */
   private assembly: ContextAssembly | null = null;
   /** 原始 streamFunction（包装前保存；发送前检查在委托前执行）。 */
@@ -275,8 +280,6 @@ export class Driver {
   private activeToolCalls = new Set<string>();
   private injection: ReturnType<ParentDelivery["takeInjection"]> | null = null;
   private injectionAccepted = false;
-  private rebuildSdkAfterTurn = false;
-  private restoreMcpSignature = "";
   private modelResponseAccepted = false;
   private reportContext: AgentReportContext | null = null;
   private pinnedDefinition: SubAgentDefinitionSnapshot | null = null;
@@ -327,7 +330,7 @@ export class Driver {
       },
       approvals: this.approvals,
       // MCP 动态工具经路由器统一处理（issue 18）：计划按任务钉版，执行时读取
-      mcp: deps.mcp ? { store: deps.mcp.store, cua: deps.mcp.cua, supportsImages: async task => (await this.deps.modelCatalog.resolve(task.modelSelection!)).input?.includes("image") ?? false, plan: () => this.currentMcpPlan } : undefined,
+      mcp: deps.mcp ? { store: deps.mcp.store, cua: deps.mcp.cua, supportsImages: async task => (await this.deps.modelCatalog.resolve(task.modelSelection!)).input?.includes("image") ?? false, tool: name => this.currentMcpTools.get(name), verifyCall: (task, name) => { this.refreshTaskTools(this.deps.store.getTask(task.id) ?? task); return this.taskTools?.allowed.has(name) ? null : this.toolRejection(name); }, call: async (params, hooks) => { if (!this.mcpSession) throw new Error("MCP SDK 未装配"); return this.mcpSession.call(params, hooks); }, evidence: () => this.mcpSession?.evidence() } : undefined,
     });
   }
 
@@ -342,10 +345,10 @@ export class Driver {
   }
 
   /** 会话类别的清单含该工具类别（装配各注册来源的唯一条件）。 */
-  private allows(category: ToolCategory): boolean {
-    if (category === "browser" && (this.profile.workflow || this.profile.toolSignature === "scheduled")) return false;
-    return this.profile.source ? this.profile.source.categories.includes(category)
-      : this.profile.workflow ? this.profile.workflow.categories.includes(category) : allowsCategory(this.profile.toolClass, category);
+  private allows(category: ToolCategory, profile = this.profile): boolean {
+    if (category === "browser" && (profile.workflow || profile.toolSignature === "scheduled")) return false;
+    return profile.source ? profile.source.categories.includes(category)
+      : profile.workflow ? profile.workflow.categories.includes(category) : allowsCategory(profile.toolClass, category);
   }
 
   /** 已登记句柄变成真实执行身份时仍沿原任务记录，不重新登记单元。 */
@@ -478,7 +481,7 @@ export class Driver {
 
   /** 会话记录更新后同步（如 sessionFile 落盘回填）。 */
   syncSessionRecord(latest: Session): void {
-    if (this.session.cwdReal !== latest.cwdReal || this.session.cwdDev !== latest.cwdDev || this.session.cwdIno !== latest.cwdIno) this.dropSdkForToolChange();
+    if (this.session.cwdReal !== latest.cwdReal || this.session.cwdDev !== latest.cwdDev || this.session.cwdIno !== latest.cwdIno) this.sdkConfigStale = true;
     this.session.cwd = latest.cwd;
     this.session.cwdReal = latest.cwdReal;
     this.session.cwdDev = latest.cwdDev;
@@ -541,19 +544,6 @@ export class Driver {
         },
       },
       skills: () => this.pinnedSkills,
-      searchTools: (ctx, query, limit) => {
-        const task = this.deps.store.getTask(ctx.taskId);
-        if (!task || this.currentTask?.id !== task.id || task.sessionId !== ctx.sessionId || ctx.projectId !== this.session.projectId || task.status !== "running" || task.cancelRequested || this.stopRequested || this.verifyWorkflowTask(task)) throw new ToolSearchError("search_unavailable", "当前任务已停止或来源已失效；结束本轮并报告拥有者。");
-        this.refreshTaskTools(task);
-        if (!this.taskTools?.allowed.has("search_tools")) throw new ToolSearchError("search_unavailable", "当前任务不开放工具搜索；按当前工具清单继续。");
-        const result = searchToolDefinitions((this.currentMcpPlan?.toolDefs ?? []).filter(tool => {
-          const pinned = this.currentMcpPlan!.tools.get(tool.name)!.service, current = this.deps.mcp!.store.getService(pinned.id);
-          return this.eligibleTools?.allowed.has(tool.name) && current?.enabled && current.configVersion === pinned.configVersion;
-        }), query, limit);
-        for (const tool of result.tools) this.discoveredTools.add(tool.name);
-        this.refreshTaskTools(task);
-        return result;
-      },
       agentWait: this.deps.agentWait ? async (ctx, sdkCallId, targets, timeoutMs, signal) => {
         const result = await this.deps.agentWait!.wait(ctx, sdkCallId, targets, timeoutMs, signal);
         if (!this.stopRequested && !signal?.aborted && result.reason !== "interrupted") await this.restoreWorkspace(ctx.taskId);
@@ -600,57 +590,89 @@ export class Driver {
     const profile = subAgentSourceProfile(source, options);
     const launcher = policy.protectSource ? this.deps.verificationLauncher?.() : this.deps.launcherFor(policy.accessMode);
     if (!launcher || (policy.protectSource && launcher.kind !== "native")) throw new SubAgentExecutionError("source_protection_unavailable", "来源保护的原生执行环境不可用；停止派发并报告拥有者。");
-    const plan = this.deps.mcp && profile.categories.includes("mcp") ? await planMcpTaskTools({
-      mcpStore: this.deps.mcp.store, credentials: this.deps.credentials,
-      dispatch: (sdkCallId, params, signal) => this.router.executeRouted(sdkCallId, params, signal),
-      connectTimeoutMs: this.deps.mcp.connectTimeoutMs, listTimeoutMs: this.deps.mcp.listTimeoutMs, callTimeoutMs: this.deps.mcp.callTimeoutMs,
-    }) : EMPTY_MCP_PLAN;
-    try {
-      if (plan.unavailable.length) throw new SubAgentExecutionError("mcp_unavailable", `来源 MCP 服务 ${plan.unavailable.map(item => item.service.name).join("、")} 工具发现失败；核实服务配置后重新派发。`);
-      const candidates = this.sourceTools({ ...profile, tools: undefined }, plan.toolDefs).tools;
-      const sourceTask = this.deps.store.getTask(source.taskId);
+    const sourceTask = this.deps.store.getTask(source.taskId);
+    if (!sourceTask?.modelSelection) throw new SubAgentExecutionError("source_invalid", "来源任务缺少模型选择；不能核实实际工具注册表。");
+    if (sourceTask.sessionId !== this.session.id) throw new SubAgentExecutionError("source_invalid", "来源任务不属于当前会话；不能核实工具注册表。");
+    if (profile.categories.includes("mcp") && this.deps.mcp) {
+      const identity = this.deps.store.getSessionIdentity(sourceTask.sessionId);
+      if (!identity) throw new SubAgentExecutionError("source_invalid", "来源会话身份缺失；不能核实工具注册表。");
+      const sourceProfile = executionProfile({ identity, planMode: sourceTask.planMode,
+        writeTarget: Boolean(sourceTask.workId && this.deps.store.getWorkDelegation(sourceTask.workId)?.writeTarget),
+        review: identity.kind === "subagent" && (this.deps.taskMcp?.(sourceTask) ?? false), workflow: this.deps.workflow?.resolve(sourceTask) });
+      this.mcpPreflights++;
+      try {
+        if (!this.sdk) await this.ensureSdk(await this.deps.modelCatalog.resolve(sourceTask.modelSelection), sourceTask.modelSelection.thinkingLevel, sourceProfile);
+        await this.mcpSession?.ready();
+      } finally { this.mcpPreflights--; }
+    }
+    if (this.currentTask?.id === source.taskId) this.refreshTaskTools(sourceTask);
+    const catalog = new Map((profile.categories.includes("mcp") ? this.mcpSession?.tools() ?? [] : []).filter(meta => {
+      if (meta.service.cua) return false;
+      if (this.currentTask?.id !== source.taskId) return true;
+      const captured = this.currentMcpTools.get(meta.exposedName);
+      return this.taskTools?.allowed.has(meta.exposedName) && captured?.service.configVersion === meta.service.configVersion && captured.toolSignature === meta.toolSignature && captured.credentialDigest === (meta.service.credential ? mcpCredentialDigest(this.deps.credentials.get(meta.service.credential)) : null);
+    }).map(meta => [meta.exposedName, { ...meta, credentialDigest: meta.service.credential ? mcpCredentialDigest(this.deps.credentials.get(meta.service.credential)) : null }]));
+    const definitions = [...catalog.keys()].map(name => this.sdk!.getToolDefinition(name)!).filter(Boolean);
+
+      const candidates = this.sourceTools({ ...profile, tools: undefined }, definitions).tools;
       const available = taskToolSet({ registered: candidates.map(tool => tool.name), plan: false,
         webSearchEnabled: this.deps.store.getWebSearch().state !== "disabled",
-        mcpEffect: name => plan.tools.get(name)?.effect,
+        mcpEffect: name => catalog.get(name)?.effect,
         narrow: (name, effect) => sourceAllows({ ...profile, tools: undefined }, name) && Boolean(sourceTask && (!this.deps.allowTaskTool || this.deps.allowTaskTool(sourceTask, name, effect))) });
       const required = [...new Set([...(definition.tools ?? []), ...(options.tools ?? [])])];
       const missing = required.filter(name => !available.allowed.has(name) || (definition.tools?.includes(name) && options.tools && !options.tools.includes(name)) ||
         (options.tools?.includes(name) && definition.tools && !definition.tools.includes(name)));
-      if (missing.length) throw new SubAgentExecutionError("tools_unavailable", `角色所需工具不可用：${missing.map(name => `${name}（${definition.tools?.includes(name) && options.tools && !options.tools.includes(name) ? "步骤工具清单未包含" : options.tools?.includes(name) && definition.tools && !definition.tools.includes(name) ? "角色工具清单未包含" : plan.rejected?.get(name) ?? available.reasonFor(name)}）`).join("、")}；调整角色或来源配置后重新派发。`);
+      if (missing.length) throw new SubAgentExecutionError("tools_unavailable", `角色所需工具不可用：${missing.map(name => `${name}（${definition.tools?.includes(name) && options.tools && !options.tools.includes(name) ? "步骤工具清单未包含" : options.tools?.includes(name) && definition.tools && !definition.tools.includes(name) ? "角色工具清单未包含" : available.reasonFor(name)}）`).join("、")}；调整角色或来源配置后重新派发。`);
       const selected = options.tools ?? definition.tools ?? [...available.allowed];
       const tools = selected.filter(name => !definition.tools || definition.tools.includes(name));
-      return snapshotSubAgentExecution({ source, roleDigest: definition.digest, ...policy, tools, mcpSignature: plan.signature });
-    } finally {
-      await Promise.all([...plan.connections.values()].map(connection => connection.close()));
-    }
+      return snapshotSubAgentExecution({ source, roleDigest: definition.digest, ...policy, tools, mcpSignature: this.mcpSignature([...catalog.values()]) });
   }
 
-  private async ensureSdk(model: any, thinkingLevel: ThinkingLevel): Promise<AgentSession> {
+  private mcpSignature(tools: McpToolInfo[]): string {
+    return tools.map(meta => `${meta.service.id}:${meta.service.configVersion}:${meta.exposedName}:${meta.toolSignature}:${meta.credentialDigest ?? ""}`).sort().join("|");
+  }
+
+  private async ensureSdk(model: any, thinkingLevel: ThinkingLevel, profile = this.profile): Promise<AgentSession> {
+    if (this.sdkDisposal) await this.sdkDisposal;
     if (this.sdk) return this.sdk;
-    const hostToolSet = this.profile.source ? this.sourceTools(this.profile.source, this.pendingMcpToolDefs) : buildHostToolSet(
+    const hostToolSet = profile.source ? this.sourceTools(profile.source, []) : buildHostToolSet(
       this.deps.hostToolFamilies.filter((family) =>
-        (this.allows(family.category) || (family.category === "subagent" && this.profile.toolClass === "subagent")) &&
+        (this.allows(family.category, profile) || (family.category === "subagent" && profile.toolClass === "subagent")) &&
         (family.category !== "owner_question" || Boolean(this.currentTask && this.deps.ownerQuestions && ownerQuestionTaskEligible(this.deps.store, this.currentTask))) &&
         (family.category !== "background_process" || Boolean(this.currentTask && this.deps.backgroundProcesses && ownerQuestionTaskEligible(this.deps.store, this.currentTask)))),
-      this.hostToolRuntime(),
+      this.hostToolRuntime(profile.toolClass),
     );
-    const subAgentTools = this.profile.subAgentTools;
-    const allTools = this.profile.source ? hostToolSet.tools : [
-      ...(this.allows("coding") ? this.deps.toolFactory({ registry: this.registry, router: this.router })
-        .filter(tool => !this.profile.workflow || this.profile.toolClass !== "main" || subAgentAllows({ write: true, review: false }, tool.name)) : []),
-      ...(this.profile.workflow && !this.allows("coding")
+    const subAgentTools = profile.subAgentTools;
+    const allTools = profile.source ? hostToolSet.tools : [
+      ...(this.allows("coding", profile) ? this.deps.toolFactory({ registry: this.registry, router: this.router })
+        .filter(tool => !profile.workflow || profile.toolClass !== "main" || subAgentAllows({ write: true, review: false }, tool.name)) : []),
+      ...(profile.workflow && !this.allows("coding", profile)
         ? this.deps.toolFactory({ registry: this.registry, router: this.router }).filter(tool => subAgentAllows({ write: false, review: false }, tool.name)) : []),
       ...(subAgentTools
         ? this.deps.toolFactory({ registry: this.registry, router: this.router })
             .filter((t) => subAgentAllows(subAgentTools, t.name))
         : []),
       ...hostToolSet.tools,
-      ...this.pendingMcpToolDefs,
     ];
-    this.pendingMcpToolDefs = [];
     this.hostToolNames = hostToolSet.names;
     this.allToolNames = allTools.map((t) => t.name);
     if (new Set(this.allToolNames).size !== allTools.length) throw new Error("工具装配存在重复名字");
+    this.mcpSession = this.deps.mcp && profile.planMcp ? new McpSession({
+      ...this.deps.mcp, store: this.deps.mcp.store, credentials: this.deps.credentials, cua: this.deps.mcp.cua,
+      task: () => this.currentTask,
+      discover: () => this.resourcePhase === "execution" || this.mcpPreflights > 0,
+      cuaAllowed: () => this.resourcePhase === "execution" && this.currentModelSupportsImages && !!this.currentTask && ownerQuestionTaskEligible(this.deps.store, this.currentTask),
+      direct: () => !!this.pinnedExecution && !this.pinnedExecution.tools.includes("tool_search") || !!this.pinnedDefinition?.tools && !this.pinnedDefinition.tools.includes("tool_search") || !!this.currentTask && !!this.deps.allowTaskTool && !this.deps.allowTaskTool(this.currentTask, "tool_search"),
+      allow: meta => {
+        const current = this.deps.mcp!.store.getService(meta.service.id);
+        const task = this.currentTask;
+        return !!task && !this.stopRequested && !this.deps.store.getTask(task.id)?.effectUnknown &&
+          current?.enabled === true && current.configVersion === meta.service.configVersion &&
+          this.currentMcpTools.get(meta.exposedName)?.service.configVersion === meta.service.configVersion && this.currentMcpTools.get(meta.exposedName)?.toolSignature === meta.toolSignature && this.currentMcpTools.get(meta.exposedName)?.credentialDigest === (meta.service.credential ? mcpCredentialDigest(this.deps.credentials.get(meta.service.credential)) : null) && (this.taskTools?.allowed.has(meta.exposedName) ?? true);
+      },
+      dispatch: (id, params, signal) => this.router.executeRouted(id, params, signal),
+      changed: () => { if (this.sdk) this.allToolNames = [...new Set([...allTools.map(tool => tool.name), ...this.sdk.getAllTools().map(tool => tool.name)])]; },
+    }) : null;
     this.sdk = await createSdkSession({
       session: this.session,
       sessionsDir: this.deps.sessionsDir,
@@ -659,11 +681,12 @@ export class Driver {
       model,
       thinkingLevel,
       tools: allTools,
-      systemPrompt: (this.profile.workflow
+      systemPrompt: (profile.workflow
         ? SYSTEM_PROMPTS.workflow
-        : this.profile.toolSignature === "scheduled"
+        : profile.toolSignature === "scheduled"
         ? `${SYSTEM_PROMPTS.main}\n- 当前是宿主为本次定时计划创建的独立执行上下文，不读取主聊天或前次运行历史。任务按计划保存的模式执行，子任务与汇总属于本次运行。完成全部工作后给出最终结果或失败原因；宿主向创建时固定的目标发送一次最终回报，无目标则保存结果。`
-        : SYSTEM_PROMPTS[this.profile.toolClass]) + (this.pinnedDefinition ? `\n[${this.pinnedDefinition.kind === "role" ? `子代理角色 ${this.pinnedDefinition.name}` : "宿主固定评审"}]\n${this.pinnedDefinition.body}\n[/子代理定义]` : ""),
+        : SYSTEM_PROMPTS[profile.toolClass]) + (this.pinnedDefinition ? `\n[${this.pinnedDefinition.kind === "role" ? `子代理角色 ${this.pinnedDefinition.name}` : "宿主固定评审"}]\n${this.pinnedDefinition.body}\n[/子代理定义]` : ""),
+      mcp: this.mcpSession ?? undefined,
       hooks: {
         onToolCall: (event) => this.handleToolCall(event),
         onSessionEvent: (event) => this.handleSessionEvent(event),
@@ -673,8 +696,16 @@ export class Driver {
         onContext: (messages) => this.handleContext(messages),
       },
     });
+    if (this.mcpSession) {
+      this.hostToolNames = new Set([...this.hostToolNames, "tool_search"]);
+      this.allToolNames = [...new Set([...this.allToolNames, ...this.sdk.getAllTools().map(tool => tool.name)])];
+    }
     this.wrapStreamFunction(this.sdk);
-    this.sdk.agent.shouldStopAfterTurn = () => this.rebuildSdkAfterTurn;
+    const finishTurn = this.sdk.agent.finishTurn;
+    this.sdk.agent.finishTurn = async (turn, signal) => {
+      const decision = await finishTurn?.(turn, signal);
+      return this.currentTask && this.deps.store.listToolOpsByTask(this.currentTask.id).some(op => op.mcp && op.effectUnknown) ? { action: "end" } : decision || undefined;
+    };
     return this.sdk;
   }
 
@@ -713,15 +744,22 @@ export class Driver {
   // ---------- 模型上下文（组装见 context-assembly）与发送前检查 ----------
 
   /** context 钩子：交给本任务的组装实例；任务之外的调用不修改视图。 */
-  private handleContext(messages: any[]): Promise<{ messages: any[] } | undefined> | undefined {
+  private async handleContext(messages: any[]): Promise<{ messages: any[] } | undefined> {
     const sdk = this.sdk;
     if (!this.assembly || !sdk) return undefined;
-    return this.assembly.assemble(messages, {
-      systemPrompt: sdk.systemPrompt ?? "",
-      tools: (sdk.agent.state.tools ?? []) as any[],
+    await this.mcpSession?.sync();
+    if (this.currentTask) this.refreshTaskTools(this.deps.store.getTask(this.currentTask.id)!);
+    const tools = [...getCurrentTools(messages).filter(tool => !tool.name.startsWith("mcp__")), ...sdk.getActiveToolNames().filter(name => name.startsWith("mcp__")).map(name => sdk.getToolDefinition(name)!).filter(Boolean).map(toToolDeclaration)];
+    const system = createInitialSystemMessage(getCurrentSystemPrompt(messages), tools);
+    const transcript = system ? [system, ...messages.filter(message => message.role !== "system")] : messages;
+    const result = await this.assembly.assemble(transcript.filter(message => message.role !== "system"), {
+      systemPrompt: getCurrentSystemPrompt(transcript),
+      tools: getCurrentTools(transcript),
       model: sdk.model,
       sessionFile: sdk.sessionFile,
     });
+    if (!result) return undefined;
+    return { messages: system ? [system, ...result.messages] : result.messages };
   }
 
   /**
@@ -789,8 +827,8 @@ export class Driver {
     }
     // 工具可用性（架构工单 03）：发送载荷中的每个工具都必须在本任务允许的集合内
     // （按实际载荷检查，覆盖全部注册来源）
-    if (Array.isArray(context?.tools)) {
-      const forbidden = context.tools
+    {
+      const forbidden = getCurrentTools(context.messages)
         .map((t: any) => t?.name ?? t?.function?.name)
         .filter((name: unknown) => typeof name !== "string" || !this.taskTools?.allowed.has(name))
         .map((name: unknown) => `${String(name)}（${typeof name === "string" ? this.toolRejection(name) : "工具名无效"}）`);
@@ -856,6 +894,8 @@ export class Driver {
       source: this.pinnedExecution ? subAgentSourceProfile(this.pinnedExecution.source, { tools: this.pinnedExecution.tools, workflow: Boolean(workflow), verify: workflow?.hostVerify }) : null,
     });
     if (this.deps.ownerQuestions && identity.kind === "dev") this.pinnedProfile.toolSignature += `|owner-question:${ownerQuestionTaskEligible(this.deps.store, task)}`;
+    this.mcpTaskToolsSelected = false;
+    this.mcpConfigurations = new Map(this.deps.mcp?.store.listServices().filter(service => service.enabled).map(service => [service.id, `${service.configVersion}:${service.credential ? mcpCredentialDigest(this.deps.credentials.get(service.credential)) ?? "missing" : "anonymous"}`]));
     const resourcePhase = this.deps.agentWait?.initialPhase(task) ?? "execution";
     const referenceSnapshot = resourcePhase === "conversation" ? this.deps.agentWait?.snapshot(task) ?? null : null;
     if (this.pinnedExecution && resourcePhase === "conversation" && !referenceSnapshot) throw new SubAgentExecutionError("reference_snapshot_missing", "内部对话所需的参考快照缺失；停止本次执行并报告拥有者。");
@@ -885,12 +925,10 @@ export class Driver {
     this.pendingUserAttachments = [];
     this.taskTools = null;
     this.eligibleTools = null;
-    this.discoveredTools.clear();
     this.resourcePhase = resourcePhase;
     this.backgroundObservation = this.deps.backgroundProcesses?.active(task.sessionId) ?? false;
     this.recordResourcePhase(task);
     this.activeToolCalls.clear();
-    this.rebuildSdkAfterTurn = false;
     this.modelResponseAccepted = false;
     // Note: 见 .agents/notes/implemented/feature/2026-10-21-managed-skills.md
     this.pinnedSkills = null;
@@ -941,8 +979,8 @@ export class Driver {
       this.assembly = null;
       this.flushOutput();
       this.endThinking();
-      // 任务终态后回收本任务持有的 MCP 连接（所有退出路径统一兜底）
-      await this.closeMcpConns();
+      this.currentMcpTools.clear();
+      this.mcpSession?.qualify();
       this.mcpToolNames = new Set();
       this.runPromise = null;
       this.currentTask = null;
@@ -951,48 +989,39 @@ export class Driver {
     }
   }
 
-  /** 任务开始的 MCP 工具计划：重读项目配置并发现工具；无 MCP 配置时零开销。 */
-  private async planMcp(task: Task): Promise<McpTaskPlan> {
-    if (this.resourcePhase === "conversation") return EMPTY_MCP_PLAN;
-    if (this.verifyWorkflowTask(task)) throw new WorkflowError("source_invalid");
-    if (!this.deps.mcp) return EMPTY_MCP_PLAN;
-    // 画像决定是否规划：类别含 mcp，或 SubAgent 宿主评审任务另开只读 MCP（issue 19）
-    if (!this.profile.planMcp) return EMPTY_MCP_PLAN;
-    const plan = await planMcpTaskTools({
-      mcpStore: this.deps.mcp.store,
-      credentials: this.deps.credentials,
-      connectCua: this.deps.mcp.cua && ownerQuestionTaskEligible(this.deps.store, task) ? service => this.deps.mcp!.cua!.connect(service, task.sessionId, false, task.id) : undefined,
-      dispatch: (sdkCallId, params, signal) => this.router.executeRouted(sdkCallId, params, signal),
-      connectTimeoutMs: this.deps.mcp.connectTimeoutMs,
-      listTimeoutMs: this.deps.mcp.listTimeoutMs,
-      callTimeoutMs: this.deps.mcp.callTimeoutMs,
-    });
-    if (this.pinnedExecution && (plan.signature !== this.pinnedExecution.mcpSignature || plan.unavailable.length)) {
-      await Promise.all([...plan.connections.values()].map(connection => connection.close()));
-      throw new SubAgentExecutionError("mcp_configuration_changed", "来源 MCP 工具已变化或无法发现；停止本次执行并报告拥有者。");
-    }
-    return plan;
+  private async selectMcpTools(): Promise<void> {
+    if (this.resourcePhase !== "execution") return;
+    await this.mcpSession?.ready();
+    if (this.currentTask) for (const service of this.mcpSession?.unavailable() ?? []) this.deps.store.withTx(() => this.deps.store.appendEvent({ type: "mcp.service_unavailable", serviceId: service.id, taskId: this.currentTask!.id, sessionId: this.currentTask!.sessionId, name: service.name, endpoint: service.endpoint, reason: `服务尚未就绪或未提供允许的工具（${this.mcpSession!.failure(service)}）；本任务不使用该服务。` }, { taskId: this.currentTask!.id, sessionId: this.currentTask!.sessionId }));
+    this.currentMcpTools = new Map(this.mcpSession?.tools().filter(meta => this.mcpConfigurations.get(meta.service.id) === `${meta.service.configVersion}:${meta.service.credential ? mcpCredentialDigest(this.deps.credentials.get(meta.service.credential)) ?? "missing" : "anonymous"}`).map(meta => [meta.exposedName, { ...meta, credentialDigest: meta.service.credential ? mcpCredentialDigest(this.deps.credentials.get(meta.service.credential)) : null }]));
+    this.mcpToolNames = new Set(this.currentMcpTools.keys());
+    this.mcpTaskToolsSelected = true;
+    if (this.pinnedExecution && this.mcpSignature([...this.currentMcpTools.values()]) !== this.pinnedExecution.mcpSignature) throw new SubAgentExecutionError("mcp_configuration_changed", "来源 MCP 工具已改变；停止执行并重新核实来源。");
+    if (this.sdk) this.allToolNames = [...new Set([...this.allToolNames, ...this.sdk.getAllTools().map(tool => tool.name)])];
   }
 
-  /**
-   * 工具清单签名变化时丢弃 SDK 会话（issue 16 §4 既定回退路径）：SDK 的
-   * 工具白名单在创建时固定（session-factory 封闭运行时），无法安全替换定义；
-   * ensureSdk 随后从同一历史文件重开会话并重新绑定宿主钩子，历史不丢。
+  /** 取消与队列回收共用一次关闭；停止失败时保留原 SDK 待核实。
+   * Note: 见 .agents/notes/implemented/simplification/2026-10-26-mcp-host-responsibilities.md
    */
-  private dropSdkForToolChange(): void {
-    if (!this.sdk) return;
-    this.sdk.dispose();
-    this.sdk = null;
-    this.originalStreamFn = null;
-    this.markerApi = null;
+  private dropSdkForToolChange(): Promise<void> {
+    if (this.sdkDisposal) return this.sdkDisposal;
+    const sdk = this.sdk;
+    if (!sdk) return Promise.resolve();
+    this.sdkDisposal = (async () => {
+      await this.deps.mcp?.cua?.shutdown(this.session.id);
+      await sdk.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
+      sdk.dispose();
+      this.sdk = null;
+      this.mcpSession = null;
+      this.originalStreamFn = null;
+      this.markerApi = null;
+    })().finally(() => { this.sdkDisposal = null; });
+    return this.sdkDisposal;
   }
 
-  /** 归还当前任务的 MCP 连接；HTTPS 关闭，Cua 借用归还后仍由产品保留。 */
-  private async closeMcpConns(): Promise<void> {
-    const plan = this.currentMcpPlan;
-    this.currentMcpPlan = null;
-    if (!plan) return;
-    await Promise.all([...plan.connections.values()].map((c) => c.close()));
+  private clearMcpTaskTools(): void {
+    this.currentMcpTools.clear();
+    this.mcpSession?.qualify();
   }
 
   private recordResourcePhase(task: Task): void {
@@ -1014,6 +1043,7 @@ export class Driver {
     try {
       if (!task.modelSelection) throw new Error("model_selection_missing:任务未记录模型配置");
       const model = await this.deps.modelCatalog.resolve(task.modelSelection);
+      this.currentModelSupportsImages = !!model.input?.includes("image");
       this.pendingUserImages = taskImageReferences(task, this.deps.store);
       this.pendingUserAttachments = taskAttachmentReferences(task, this.deps.store);
       if (this.pendingUserImages.length > 0 && !model?.input?.includes("image")) {
@@ -1022,47 +1052,21 @@ export class Driver {
       // 模型配置应用后（issue 21 §4）：旧 SDK 会话闭包持有旧 ModelRuntime，
       // 任务边界处丢弃，由 ensureSdk 以新模型栈重建（历史在会话文件中）
       if (this.sdkConfigStale) {
+        await this.dropSdkForToolChange();
         this.sdkConfigStale = false;
-        this.dropSdkForToolChange();
       }
-      // MCP（issue 16）：任务开始重读配置并发现工具，钉版本任务工具清单；
-      // 单个服务初始化失败降级为不可用事件，不阻断任务
-      const mcpPlan = await this.planMcp(task);
-      // SDK 会话签名 = 画像工具集 + MCP 清单（架构工单 08）：复用的 SubAgent 从只读
-      // 转到写入工作时重建，正确性不依赖 Runtime 每任务释放 Driver
-      const toolSignature = `${this.profile.toolSignature}|${mcpPlan.signature}|${this.pinnedDefinition?.digest ?? ""}`;
-      if (this.sdk && this.resourcePhase !== "conversation" && toolSignature !== this.toolSignature) this.dropSdkForToolChange();
-      this.pendingMcpToolDefs = mcpPlan.toolDefs;
-      // 计划先登记：ensureSdk 失败时 catch 路径的 closeMcpConns 才能回收连接
-      this.currentMcpPlan = mcpPlan;
+      const toolSignature = `${this.profile.toolSignature}|${this.pinnedDefinition?.digest ?? ""}`;
+      if (this.sdk && this.resourcePhase !== "conversation" && toolSignature !== this.toolSignature) await this.dropSdkForToolChange();
       sdk = await this.ensureSdk(model, task.modelSelection.thinkingLevel);
-      this.pendingMcpToolDefs = [];
+      await this.selectMcpTools();
       if (this.resourcePhase !== "conversation" || this.toolSignature === null) this.toolSignature = toolSignature;
-      if (this.resourcePhase !== "conversation") this.restoreMcpSignature = mcpPlan.signature;
-      this.mcpToolNames = new Set(mcpPlan.toolDefs.map((t) => t.name));
-      for (const u of mcpPlan.unavailable) {
-        this.deps.store.withTx(() => {
-          this.deps.store.appendEvent(
-            {
-              type: "mcp.service_unavailable",
-              serviceId: u.service.id,
-              taskId: task.id,
-              sessionId: task.sessionId,
-              name: u.service.name,
-              endpoint: u.service.endpoint,
-              reason: u.reason,
-            },
-            { taskId: task.id, sessionId: task.sessionId },
-          );
-        });
-      }
       if (sdk.model?.provider !== model.provider || sdk.model?.id !== model.id) await sdk.setModel(model);
       sdk.setThinkingLevel(task.modelSelection.thinkingLevel);
       if (sdk.model?.provider !== model.provider || sdk.model?.id !== model.id || sdk.thinkingLevel !== task.modelSelection.thinkingLevel) {
         throw new Error("model_selection_mismatch:SDK 未应用任务模型配置");
       }
     } catch (err) {
-      await this.closeMcpConns();
+      this.clearMcpTaskTools();
       await this.finalize(task, "failed", { errorMessage: `SDK 会话创建失败：${(err as Error).message}` });
       return;
     }
@@ -1106,16 +1110,7 @@ export class Driver {
     if (this.reportContext) this.appendMarker("ruukoto_agent_report_context", { taskId: task.id, ...this.reportContext });
     try {
       await sdk.prompt(promptText);
-      while (this.rebuildSdkAfterTurn && !this.stopRequested) {
-        this.rebuildSdkAfterTurn = false;
-        const plan = this.currentMcpPlan ?? EMPTY_MCP_PLAN;
-        this.dropSdkForToolChange();
-        this.pendingMcpToolDefs = plan.toolDefs;
-        sdk = await this.ensureSdk(await this.deps.modelCatalog.resolve(task.modelSelection!), task.modelSelection!.thinkingLevel);
-        this.toolSignature = `${this.profile.toolSignature}|${plan.signature}|${this.pinnedDefinition?.digest ?? ""}`;
-        this.refreshTaskTools(this.deps.store.getTask(task.id)!);
-        await sdk.agent.continue();
-      }
+
     } catch (err) {
       await this.killManagedProcesses();
       if (!this.stopRequested) await this.finalize(task, "failed", { errorMessage: (err as Error).message });
@@ -1155,6 +1150,12 @@ export class Driver {
       return;
     }
 
+    if (this.deps.store.listToolOpsByTask(task.id).some(op => op.mcp && op.effectUnknown)) {
+      this.appendMarker(TASK_END_MARKER, { taskId: task.id, status: "interrupted" });
+      await this.finalize(task, "interrupted", { interruptReason: "mcp_effect_unknown" });
+      return;
+    }
+
     if (stopReason === "error") {
       this.appendMarker(TASK_END_MARKER, { taskId: task.id, status: "failed" });
       await this.finalize(task, "failed", { errorMessage: lastAssistant?.errorMessage ?? "模型返回错误" });
@@ -1181,7 +1182,7 @@ export class Driver {
       plan: this.profile.plan,
       browserEnabled: this.deps.browser?.allowed(task) ?? false,
       webSearchEnabled: this.deps.store.getWebSearch().state !== "disabled",
-      mcpEffect: (name) => this.currentMcpPlan?.tools.get(name)?.effect,
+      mcpEffect: (name) => this.currentMcpTools.get(name)?.effect,
       // SubAgent 任务收窄（issue 16）：画像工具集决定清单（装配、发送前与调用门
       // 同一结论）；收窄不进 workerKey。宿主评审任务（issue 19）另加 effect=read
       // 的 MCP（只读资料入口，写与副作用不明的 MCP 留在拒绝集）
@@ -1201,11 +1202,12 @@ export class Driver {
       if (missing.length) throw new SubAgentExecutionError("tools_unavailable", `已固定工具不可用：${missing.join("、")}；停止本次执行并报告拥有者。`);
     }
     this.eligibleTools = eligible;
-    // 固定能力清单没有发现入口时保持直接可用，避免已授权工具无处激活。
-    const deferred = eligible.allowed.has("search_tools");
-    const allowed = new Set([...eligible.allowed].filter(name => !deferred || !this.mcpToolNames.has(name) || this.discoveredTools.has(name)));
-    this.taskTools = { allowed, reasonFor: name => eligible.allowed.has(name) && !allowed.has(name) ? "先用 search_tools 搜索并激活此工具" : eligible.reasonFor(name) };
-    this.sdk?.setActiveToolsByName([...allowed]);
+    const allowed = new Set([...eligible.allowed].filter(name => !name.startsWith("mcp__") || this.currentMcpTools.has(name) && !task.effectUnknown));
+    this.taskTools = { allowed, reasonFor: name => eligible.reasonFor(name) };
+    this.mcpSession?.qualify();
+    const active = new Set(this.sdk?.getActiveToolNames());
+    this.sdk?.setActiveToolsByName([...allowed].filter(name => !name.startsWith("mcp__") || this.currentMcpTools.get(name)?.exposure === "direct" || active.has(name)));
+
   }
 
   referenceSnapshot(): AgentWaitSnapshot {
@@ -1230,8 +1232,6 @@ export class Driver {
       return false;
     }
     if (!this.stopRequested && ending.stopSnapshot === candidate) ending.stopSnapshot = previous;
-    this.restoreMcpSignature = this.currentMcpPlan?.signature ?? "";
-    await this.closeMcpConns();
     transfer?.(this.referenceSnapshot());
     this.resourcePhase = "conversation";
     if (transfer) this.backgroundObservation = true;
@@ -1251,13 +1251,8 @@ export class Driver {
     this.resourcePhase = "execution";
     this.backgroundObservation = false;
     this.recordResourcePhase(this.currentTask!);
-    const plan = await this.planMcp(task);
-    if (this.stopRequested) { await Promise.all([...plan.connections.values()].map(connection => connection.close())); return false; }
-    this.currentMcpPlan = plan;
-    this.mcpToolNames = new Set(plan.toolDefs.map(tool => tool.name));
-    if (plan.signature !== this.restoreMcpSignature || plan.toolDefs.some(tool => !this.allToolNames.includes(tool.name))) {
-      this.rebuildSdkAfterTurn = true;
-    }
+    if (this.mcpTaskToolsSelected) await this.mcpSession?.ready(); else await this.selectMcpTools();
+    if (this.stopRequested) return false;
     this.assembly?.setResourcePhase(this.resourcePhase, this.pinnedSkills);
     this.refreshTaskTools(this.deps.store.getTask(task.id)!);
     return true;
@@ -1328,7 +1323,7 @@ export class Driver {
         }) : null;
         const [managedReaped, browserReaped] = await Promise.all([this.killManagedProcesses(), this.deps.browser?.close(task.sessionId) ?? true]);
         if (abortPromise) await abortPromise;
-        await this.closeMcpConns();
+        this.clearMcpTaskTools();
         this.flushOutput();
         this.endThinking();
         return managedReaped && browserReaped;
@@ -1881,9 +1876,8 @@ export class Driver {
 
   async dispose(): Promise<void> {
     if (this.runPromise) await this.runPromise.catch(() => {});
-    await this.closeMcpConns();
-    this.sdk?.dispose();
-    this.sdk = null;
+    this.clearMcpTaskTools();
+    await this.dropSdkForToolChange();
   }
 }
 

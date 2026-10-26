@@ -34,7 +34,7 @@ async function runState(tx: Tx, run: PersonalScheduleRun) {
   if (run.result) return run.result.status;
   if (run.cancelRequested) return "canceling";
   const source = await tx.submissionByRequest(run.conversationId, run.requestId);
-  if (source?.entry && await personalServiceSourceBlocker(tx, run.requestId)) return "paused";
+  if (source?.entry && await personalServiceSourceBlocker(tx, run.requestId, true)) return "paused";
   return (await tx.task(run.taskId))?.state.status ?? "missing";
 }
 function pageText(text: string, offset: number, size = 4096) { let end = Math.min(text.length, offset + size); if (end < text.length && /[\ud800-\udbff]/.test(text[end - 1]) && /[\udc00-\udfff]/.test(text[end])) end--; return { text: text.slice(offset, end), ...(end < text.length ? { nextOffset: end } : {}) }; }

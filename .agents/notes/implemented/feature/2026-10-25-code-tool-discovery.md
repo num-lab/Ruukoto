@@ -2,6 +2,8 @@
 
 Status: implemented
 
+本地搜索算法、旧工具名、任务激活集合与重置由[MCP宿主职责收缩](../simplification/2026-10-26-mcp-host-responsibilities.md)取代；Pi负责搜索和分支发现。按需暴露、当前资格求交及模型输入可重建继续成立，本篇保留原决定。
+
 ## 问题
 
 MCP 在任务开始时把所有获准工具定义放进模型请求，未使用的定义也占上下文。拥有者要求 `search_tools` 搜索延迟注册工具，并确认本次先覆盖 Coding Agent。

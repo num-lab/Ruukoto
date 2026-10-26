@@ -10,6 +10,7 @@ import { ToolOpLedger } from "@ruukoto/agent/tool-op-ledger.ts";
 import { endTaskExecution, type TaskEndingContext } from "@ruukoto/agent/task-ending.ts";
 import type { Driver } from "@ruukoto/agent/driver.ts";
 import { ExecutionError } from "@ruukoto/agent/execution/launchers.ts";
+import { McpError } from "@ruukoto/agent/mcp/transport.ts";
 import { createMockTools } from "@ruukoto/agent/mock-tools.ts";
 import type { ManagedProcessRegistry } from "@ruukoto/agent/managed-processes.ts";
 import type { Task } from "@ruukoto/core/types.ts";
@@ -36,6 +37,67 @@ async function driverFixture(stop: () => Promise<boolean>) {
   const driver: Driver = await (t.runtime as any).getDriver(session);
   return { ...t, session, task, driver, registry: () => registry! };
 }
+
+test("Driver 并发销毁等待同一次 SDK 关闭，扩展与会话各清理一次", async context => {
+  const t = await driverFixture(async () => true);
+  let release!: () => void, entered!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  try {
+    await t.driver.run(t.task);
+    const sdk = t.driver["sdk"]!;
+    const emit = sdk.extensionRunner.emit.bind(sdk.extensionRunner), dispose = sdk.dispose.bind(sdk);
+    let shutdowns = 0, disposals = 0;
+    context.mock.method(sdk.extensionRunner, "emit", async (event: Parameters<typeof emit>[0]) => {
+      if (event.type === "session_shutdown") { shutdowns++; entered(); await gate; }
+      return emit(event);
+    });
+    context.mock.method(sdk, "dispose", () => { disposals++; dispose(); });
+    const first = t.driver.dispose();
+    await started;
+    const second = t.driver.dispose();
+    release();
+    await Promise.all([first, second]);
+    assert.equal(shutdowns, 1);
+    assert.equal(disposals, 1);
+  } finally { release(); context.mock.restoreAll(); await t.shutdown(); }
+});
+
+test("Driver 重建前停止未核实时保留旧 SDK 与重建要求，核实后可重试", async context => {
+  const t = await driverFixture(async () => true);
+  const nextTask = (requestId: string) => t.runtime.store.withTx(() => {
+    const store = t.runtime.store;
+    const task = store.insertQueuedTask({ sessionId: t.session.id, requestId, input: "下一轮", modelSelection: t.runtime.defaultSelection, submissionDigest: requestId }).task;
+    store.transitionTask(task.id, ["queued"], "running");
+    assert.equal(store.tryAcquireOccupancy({ cwdReal: t.session.cwdReal, cwdDev: t.session.cwdDev, cwdIno: t.session.cwdIno, sessionId: t.session.id, taskId: task.id }), true);
+    return store.getTask(task.id)!;
+  });
+  try {
+    await t.driver.run(t.task);
+    const sdk = t.driver["sdk"], deps = t.driver["deps"], cua = deps.mcp!.cua!;
+    const shutdown = cua.shutdown.bind(cua);
+    let verified = false;
+    context.mock.method(cua, "shutdown", async (sessionId?: string) => {
+      assert.equal(sessionId, t.session.id);
+      if (!verified) throw new McpError("cua_stop_unverified", "测试：原执行停止尚未核实");
+      await shutdown(sessionId);
+    });
+    t.driver.updateModelDeps(deps);
+    const blocked = nextTask("rebuild-blocked");
+    await t.driver.run(blocked);
+    assert.equal(t.runtime.store.getTask(blocked.id)!.status, "failed");
+    assert.equal(t.driver["sdk"], sdk);
+    assert.equal(t.driver["sdkConfigStale"], true);
+    assert.equal(t.server.calls.length, 1);
+    verified = true;
+    const retry = nextTask("rebuild-retry");
+    await t.driver.run(retry);
+    assert.equal(t.runtime.store.getTask(retry.id)!.status, "completed");
+    assert.notEqual(t.driver["sdk"], sdk);
+    assert.equal(t.driver["sdkConfigStale"], false);
+    assert.equal(t.server.calls.length, 2);
+  } finally { context.mock.restoreAll(); await t.shutdown(); }
+});
 
 for (const failure of ["false", "throw"] as const) {
   for (const ending of ["completed", "prompt_error", "before_prompt_cancel"] as const) {

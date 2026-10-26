@@ -3,12 +3,13 @@ import { isDeepStrictEqual } from "node:util";
 import { ControlClientError } from "@ruukoto/control/client.ts";
 import { legacyPersonalMaintenance, personalProfile } from "./personal-config.ts";
 import type { PersonalController } from "./personal-controller.ts";
-import type { PersonalMaintenanceRecord, PersonalManagementView, PersonalSettingsSnapshot, PersonalConfigurationReceipt } from "../shared/personal-settings.ts";
+import type { PersonalMaintenanceRecord, PersonalManagementView, PersonalSettingsSnapshot, PersonalConfigurationReceipt, PersonalMcpOperationSummary } from "../shared/personal-settings.ts";
 
-const READ_OPS = ["settings.read", "lifecycle.status", "config.preflight", "model.test", "mcp.discover", "mcp.cua-targets", "mcp.cua-status", "mcp.cua-control", "mcp.cua-image", "mcp.get", "skills.list", "skills.get", "skills.select-directory", "skills.preview-import"];
+const REQUEST_OPS = ["settings.read", "lifecycle.status", "config.preflight", "model.test", "mcp.discover", "mcp.cua-targets", "mcp.cua-status", "mcp.cua-control", "mcp.cua-image", "mcp.get", "mcp.operations", "mcp.operation", "mcp.end", "skills.list", "skills.get", "skills.select-directory", "skills.preview-import"];
 const WRITE_OPS = ["config.save", "mcp.migrate", "mcp.set-enabled", "mcp.remove", "mcp.save-service", "skills.import", "skills.set-enabled", "skills.remove"];
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
 const failure = (code: string, message: string, unknown = false) => new ControlClientError(code, message, unknown ? "unknown" : "not_sent");
+const mcpSummary = (value: unknown): value is PersonalMcpOperationSummary => object(value) && Number.isSafeInteger(value.operation) && Number(value.operation) > 0 && typeof value.service === "string" && typeof value.tool === "string" && typeof value.effect === "string" && typeof value.code === "string" && typeof value.canEnd === "boolean" && typeof value.ended === "boolean" && (value.cuaRecovery === undefined || ["frozen", "stopped", "begun", "observed", "accepted"].includes(String(value.cuaRecovery)));
 function receipt(value: unknown): PersonalMaintenanceRecord & { saved: boolean | null; started: boolean; code?: string } {
   if (!object(value) || value.v !== 1 || typeof value.id !== "string" || !/^[0-9a-f-]{36}$/.test(value.id) || !personalProfile(value.profile) || typeof value.op !== "string" || !WRITE_OPS.includes(value.op) || !["model", "skills", "mcp"].includes(String(value.target)) || typeof value.expectedRevision !== "string" || typeof value.requestDigest !== "string" || typeof value.saveAttempted !== "boolean" || !["stopping", "stopped", "saving", "saved", "starting", "complete"].includes(String(value.stage)) || ![true, false, null].includes(value.saved as boolean | null) || typeof value.started !== "boolean") throw failure("personal_protocol", "原维护回执无法核实，请保留原请求并检查远程版本。", true);
   return value as unknown as PersonalMaintenanceRecord & { saved: boolean | null; started: boolean; code?: string };
@@ -90,10 +91,15 @@ export class PersonalSettingsController {
   }
   request(value: unknown): Promise<Record<string, unknown>> {
     return this.exclusive(async () => {
-      if (!object(value) || value.v !== 1 || typeof value.op !== "string" || !READ_OPS.includes(value.op)) throw failure("op_not_allowed", "此设置操作尚未开放，请重新读取原配置。");
+      if (!object(value) || value.v !== 1 || typeof value.op !== "string" || !REQUEST_OPS.includes(value.op)) throw failure("op_not_allowed", "此设置操作尚未开放，请重新读取原配置。");
+      if (value.op === "mcp.cua-control" && !["pause", "resume", "stop", "observe", "accept"].includes(String(value.action))) throw failure("op_not_allowed", "请选择当前电脑恢复操作；旧开始恢复动作已合并到检查并恢复。");
+      if (["mcp.operation", "mcp.end"].includes(value.op) && (!Number.isSafeInteger(value.operation) || Number(value.operation) < 1)) throw failure("op_not_allowed", "请选择原 MCP 调用。");
       if (value.profile !== undefined) this.profile(value.profile);
       const result = await this.connection.request("POST", "/settings", value);
       if (!object(result)) throw failure("personal_protocol", "设置应答无法核实，请查询原操作。", true);
+      if (value.op === "mcp.operations" && (!Array.isArray(result.operations) || result.operations.some(item => !mcpSummary(item)) || result.nextOffset !== undefined && (!result.operations.length || !Number.isSafeInteger(result.nextOffset) || result.nextOffset !== Number(value.offset ?? 0) + result.operations.length))) throw failure("personal_protocol", "MCP 调用身份或分页无法核实，请重新读取原调用。", true);
+      if (value.op === "mcp.operation" && (!mcpSummary(result.summary) || result.summary.operation !== value.operation || typeof result.text !== "string" || result.nextOffset !== undefined && (!Number.isSafeInteger(result.nextOffset) || Number(result.nextOffset) <= Number(value.offset ?? 0)))) throw failure("personal_protocol", "MCP 原调用应答无法核实，请保留原身份并重新读取。", true);
+      if (value.op === "mcp.end" && (result.operation !== value.operation || result.ended !== true)) throw failure("personal_protocol", "MCP 收尾应答不属于原调用，请读取原调用核实。", true);
       this.profile(result.profile); return result;
     });
   }

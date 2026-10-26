@@ -1,3 +1,4 @@
+import { mcpExecutionCompatible } from "./personal-mcp.ts";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
@@ -123,7 +124,7 @@ async function candidate(current: PersonalSettingsContext, session: Session, req
     else {
       const previous = readPersonalMcp(profile);
       if (!previous) throw new PersonalError("mcp_service_missing", "原 MCP 服务不存在，请刷新配置。");
-      if (op.kind === "mcp.migrate") value = { ...previous, version: previous.version === 1 ? 2 : previous.version, generation: randomUUID(), services: previous.services.map(service => ({ ...service, enabled: service.enabled !== false })) };
+      if (op.kind === "mcp.migrate") value = previous.version === 4 ? previous : { ...previous, version: 4, generation: randomUUID(), services: previous.services.map(service => ({ ...service, enabled: service.enabled !== false, ...(!service.cua ? { toolEffects: Object.fromEntries(service.tools.map(tool => [tool.name, "unknown"])) } : {}) })) };
       else if (op.kind === "mcp.set-enabled" || op.kind === "mcp.remove") {
         if (!previous.services.some(service => service.id === op.id)) throw new PersonalError("mcp_service_missing", "原 MCP 服务不存在，请刷新配置。");
         if (op.kind === "mcp.set-enabled" && previous.version === 1) throw new PersonalError("mcp_migration_required", "请先迁入支持服务启停的格式，再修改服务。");
@@ -352,12 +353,21 @@ export async function personalSettingsFileIssues(current: PersonalSettingsContex
 async function refreshSuspension(current: PersonalSettingsContext, session: Session, target: PersonalConfigurationTarget, knownIssues?: PersonalSettingsFileIssue[]): Promise<void> {
   if (!current.instance) return;
   const issues = knownIssues ?? await configurationFileIssues(current, session, [target]);
-  const operations = await session.commit(async tx => {
-    const index = await tx.doc(PersonalConfigurationDoc), operations = [];
-    for (const id of index.operations) { const operation = await personalSettingsOperation(tx, id); if (operation?.candidate.target === target) operations.push(operation); }
-    return operations;
+  const { operations, scopes } = await session.commit(async tx => {
+    const index = await tx.doc(PersonalConfigurationDoc), operations = [], scopes = new Set<string>(["*"]);
+    for (const id of index.operations) {
+      const operation = await personalSettingsOperation(tx, id);
+      if (operation?.candidate.target !== target) continue;
+      scopes.add(operation.receipt.scope);
+      if (target === "mcp" && operation.receipt.status !== "unknown" && operation.receipt.savedRevision !== null && operation.candidate.config !== null) {
+        const effective = await effectivePersonalConfiguration(tx, "mcp", operation.receipt.scope) ?? await effectivePersonalConfiguration(tx, "mcp", "*");
+        if (effective?.config && mcpExecutionCompatible(parsePersonalMcp(effective.config), parsePersonalMcp(operation.candidate.config), operation.receipt.scope)) continue;
+      }
+      operations.push(operation);
+    }
+    return { operations, scopes: [...scopes] };
   }, context);
-  for (const scope of new Set(["*", ...operations.map(value => value.receipt.scope)])) current.instance.resumeSettings(target, scope);
+  for (const scope of scopes) current.instance.resumeSettings(target, scope);
   for (const operation of operations) if (!["active", "superseded", "rejected"].includes(operation.receipt.status)) current.instance.suspendSettings(target, operation.receipt.status === "unknown" ? "*" : operation.receipt.scope);
   if (issues.some(issue => issue.target === target)) current.instance.suspendSettings(target, "*");
 }

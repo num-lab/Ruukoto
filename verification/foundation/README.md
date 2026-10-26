@@ -2,7 +2,7 @@
 
 运行要求 Node ≥24.15，与根工作区的支持范围一致。
 
-验证 pi（`@earendil-works/pi-coding-agent` 0.85.1）的公开 API：并发会话、完整磁盘历史、可控模型上下文、工具与扩展，以及 Linux 受限执行边界。本目录是验证脚手架；关键结论与复跑入口保存在下文，阶段 0 的完整本地调查记录位于`.scratch/personal-agent/foundation-findings.md`。
+验证 pi（`@earendil-works/pi-coding-agent` 1.3.0）的公开 API：并发会话、完整磁盘历史、可控模型上下文、工具与扩展，以及 Linux 受限执行边界。本目录是验证脚手架；关键结论与复跑入口保存在下文，阶段 0 的完整本地调查记录位于`.scratch/personal-agent/foundation-findings.md`。
 
 模型服务复用仓库内的 `test/helpers/mock-provider.ts`。使用完整仓库，以下命令均在仓库根目录运行；环境、提交钩子与全部检查入口见 [开发说明](../../docs/development.md)。
 
@@ -31,7 +31,11 @@ npm run linux:probes     # Linux bubblewrap 原生边界探针（需要已安装
 | `test/07-connectivity.test.ts` | 真实模型连通（默认跳过，RUN_MODEL_CHECK=1 开启） | ✅ deepseek-v4-flash |
 | `scripts/linux-isolation/` | 容器受限执行边界探针（文件/子进程/网络/凭据/控制面/系统身份） | ✅ 31/31（Docker Desktop Linux VM） |
 
-## 已知的 SDK 行为要点（验证中发现）
+## 当前接线与历史 SDK 行为
+
+当前两产品固定 Pi 1.3.0，Code 经公开 `discoverAndLoadExtensions` 加载显式宿主模块，以各 SDK 的 EventBus 注入依赖；MCP 使用官方 factory 与注册表。模型请求使用 `TranscriptContext.messages` 的系统条目保存提示和工具，发送前复核及快照读取同一份最终消息。
+
+下列为阶段 0 的历史调查结论，不能据此替代当前产品接线；迁移依据见[MCP宿主职责收缩](../../.agents/notes/implemented/simplification/2026-10-26-mcp-host-responsibilities.md)。
 
 - `createAgentSession()` **不接受** `extensionFactories` 选项（静默忽略）；inline 扩展必须经 `DefaultResourceLoader({ extensionFactories })` 传入。
 - SDK 路径下 `session_start` / `session_shutdown` 不会派发给 inline 扩展（CLI 交互模式才有）；每轮 `before_agent_start` / `agent_start` / `agent_end` / `agent_settled` 可靠。

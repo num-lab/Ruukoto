@@ -5,18 +5,20 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { createHash, randomBytes } from "node:crypto";
 import type { Store } from "@ruukoto/core/store.ts";
-import { randomId, type McpOperation, type Task, type ToolOp } from "@ruukoto/core/types.ts";
+import type { JsonRpcMessage, JsonRpcRequest } from "@earendil-works/pi-mcp";
+import { randomId, type McpCuaOperation as McpOperation, type Task, type ToolOp } from "@ruukoto/core/types.ts";
 import { ownerQuestionTaskEligible } from "@ruukoto/core/owner-questions.ts";
 import type { ArtifactStore } from "../artifacts.ts";
 import { prepareMacosStdioExecution, stopMacosExecution } from "../execution/native-macos-identity.ts";
 import { cuaArguments, cuaProgram, cuaToolEffect } from "./cua.ts";
-import { connectMcpStdio, McpError, mcpResponseEnded, type McpConnection, type McpTimeouts, type CallToolResult } from "./transport.ts";
+import { connectMcpStdio, createMcpStdioTransport, McpError, mcpResponseEnded, type ManagedMcpTransport, type McpCallBinding, type McpCallHooks, type McpConnection, type McpTimeouts, type CallToolResult } from "./transport.ts";
 import type { McpServiceConfig, McpStore } from "./store.ts";
-import { formatMcpResult, type PlannedTool } from "./tools.ts";
+import { formatMcpResult, type McpToolInfo } from "./tools.ts";
 import { mcpImages, McpImageError } from "./images.ts";
 
 type Execution = McpOperation["execution"];
-interface Binding { service: McpServiceConfig; sessionId: string; conn: McpConnection; execution: Execution; observed: boolean }
+type CuaToolOp = ToolOp & { mcp: McpOperation };
+interface Binding { service: McpServiceConfig; sessionId: string; conn?: McpConnection; transport?: ManagedMcpTransport; execution: Execution; observed: boolean }
 export interface CodeCuaStatus {
   state: "idle" | "connecting" | "active" | "frozen" | "recovering";
   sessionId?: string;
@@ -30,6 +32,7 @@ export class CodeCuaManager {
   private binding: Binding | null = null;
   private busy = false;
   private connecting = false;
+  private stopping: Promise<CodeCuaStatus> | null = null;
   private readonly directory: string;
   constructor(private readonly store: Store, private readonly services: McpStore, private readonly artifacts: ArtifactStore, dataDir: string, private readonly timeouts: McpTimeouts = {}) {
     const directory = path.join(dataDir, "cua-executions");
@@ -47,24 +50,24 @@ export class CodeCuaManager {
     });
   }
 
-  private latestExecutions(): ToolOp[] {
-    return this.store.listOpenMcpOperations(this.binding?.execution.executionId);
+  private latestExecutions(): CuaToolOp[] {
+    return this.store.listOpenMcpOperations(this.binding?.execution.executionId).filter((op): op is CuaToolOp => !!op.mcp?.execution);
   }
-  private pending(): ToolOp | undefined { return this.latestExecutions().find(op => ["starting", "frozen", "recovering", "sent"].includes(op.mcp!.state)); }
+  private pending(): CuaToolOp | undefined { return this.latestExecutions().find(op => ["starting", "frozen", "recovering", "sent"].includes(op.mcp!.state)); }
   private save(opId: string, value: McpOperation): void {
-    this.store.withTx(() => { const saved = this.store.getToolOp(opId)?.mcp; this.store.saveMcpOperation(opId, { ...saved, ...value }); });
+    this.store.withTx(() => { const saved = this.store.getToolOp(opId)?.mcp; this.store.saveMcpOperation(opId, { ...saved, ...value } as McpOperation); });
   }
-  private original(): ToolOp {
+  private original(): CuaToolOp {
     const op = this.pending();
     if (!op) throw new McpError("cua_recovery_unavailable", "没有待恢复的电脑操作；请读取当前电脑状态。");
-    return this.store.getToolOp(op.id)!;
+    return this.store.getToolOp(op.id)! as CuaToolOp;
   }
 
   private detectClosed(): void {
-    if (!this.binding?.conn.closed) return;
+    if (!this.binding?.conn?.closed && !this.binding?.transport?.closed) return;
     this.binding.observed = false;
     const last = this.latestExecutions().find(op => op.mcp!.execution.executionId === this.binding!.execution.executionId);
-    if (last && !["recovered", "frozen", "recovering"].includes(last.mcp!.state)) this.save(last.id, { ...last.mcp!, state: "frozen" });
+    if (last && !["closed", "recovered", "frozen", "recovering"].includes(last.mcp!.state)) this.save(last.id, { ...last.mcp!, state: "frozen" });
   }
 
   status(): CodeCuaStatus {
@@ -88,13 +91,101 @@ export class CodeCuaManager {
     }
   }
 
-  async connect(service: McpServiceConfig, sessionId: string, recovering = false, taskId?: string): Promise<McpConnection> {
+  createTransport(service: McpServiceConfig, task: Task, bind: (request: JsonRpcRequest, signal?: AbortSignal) => McpCallBinding): ManagedMcpTransport {
+    let transport: ManagedMcpTransport | undefined;
+    let closed = false;
+    let initializeId: string | number | undefined;
+    const messages = new Set<(message: JsonRpcMessage) => void>();
+    const errors = new Set<(error: Error) => void>();
+    const closers = new Set<() => void>();
+    return {
+      get pid() { return transport?.pid; }, get closed() { return closed || !!transport?.closed; },
+      start: async () => {
+        this.detectClosed();
+        this.verify(service, task);
+        if (this.binding || this.pending() || this.busy || this.connecting) throw new McpError("cua_binding_busy", "原电脑执行尚未停止并核实；不能建立新连接。");
+        this.connecting = true;
+        const ref = { executionId: `native_${randomBytes(12).toString("hex")}` };
+        let execution: Execution | undefined, opId: string | undefined;
+        try {
+          const program = await cuaProgram(service.cua!);
+          execution = { ...ref, directory: this.directory, fingerprint: createHash("sha256").update(JSON.stringify(program)).digest("hex") };
+          opId = randomId("op");
+          const operation: McpOperation = { serviceId: service.id, configVersion: service.configVersion, configuration: service.cua as McpOperation["configuration"], effect: "read", rawTool: { name: "initialize", inputSchema: {} }, modelTool: { name: "initialize", inputSchema: {} }, arguments: {}, execution, state: "starting" };
+          this.store.withTx(() => { this.store.recordToolIntent({ id: opId!, taskId: task.id, sessionId: task.sessionId, toolName: "cua_connection", params: {} }); this.store.saveMcpOperation(opId!, operation); });
+          const programInScope = await prepareMacosStdioExecution(this.directory, ref, program);
+          this.verify(service, task);
+          transport = createMcpStdioTransport(programInScope, bind);
+          this.binding = { service, sessionId: task.sessionId, transport, execution, observed: false };
+          transport.onError(error => { for (const listener of errors) listener(error); });
+          transport.onClose(() => { closed = true; for (const listener of closers) listener(); });
+          transport.onMessage(message => {
+            void (async () => {
+              if ("id" in message && message.id === initializeId && "result" in message) {
+                this.store.withTx(() => {
+                  this.store.saveMcpOperation(opId!, { ...operation, state: "finished" });
+                  this.store.recordToolResult(opId!, "电脑连接已由官方 MCP 初始化。", false);
+                  this.store.appendEvent({ type: "task.tool_result", taskId: task.id, toolOpId: opId!, summary: "电脑连接已由官方 MCP 初始化。", isError: false, artifactIds: [] }, { taskId: task.id, sessionId: task.sessionId });
+                });
+              }
+              for (const listener of messages) listener(message);
+            })().catch(async () => {
+              this.save(opId!, { ...operation, state: "frozen" });
+              const proof = await stopMacosExecution(execution!.directory, ref, execution!.fingerprint);
+              if (proof.exited) {
+                this.save(opId!, { ...operation, state: "closed", stoppedAt: new Date().toISOString() });
+                this.binding = null;
+                await transport?.close();
+              }
+              for (const listener of errors) listener(new McpError("evidence_failed", proof.exited ? "电脑初始化结果无法保存；原执行停止已核实，请拥有者检查原操作。" : "电脑初始化结果无法保存，原执行停止尚未核实；保持冻结，请拥有者检查原现场。"));
+            }).catch(() => {
+              closed = true;
+              if (this.binding?.execution.executionId === execution!.executionId) this.binding.observed = false;
+              for (const listener of errors) listener(new McpError("evidence_failed", "电脑初始化结果或停止证明无法保存；保持冻结，请拥有者检查原现场与存储。"));
+              for (const listener of closers) listener();
+            });
+          });
+          await transport.start();
+        } catch (error) {
+          if (execution && opId) {
+            const current = this.store.getToolOp(opId)?.mcp as McpOperation | undefined;
+            if (current) this.save(opId, { ...current, state: "frozen" });
+            const proof = await stopMacosExecution(execution.directory, ref, execution.fingerprint);
+            if (proof.exited) {
+              if (current) this.save(opId, { ...current, state: "closed", stoppedAt: new Date().toISOString() });
+              this.binding = null;
+              await transport?.close();
+            }
+          }
+          throw error;
+        } finally { this.connecting = false; }
+      },
+      close: async () => {
+        if (closed && !this.binding) return;
+        if (this.binding?.transport === transport) await this.stop(service.id);
+        else await transport?.close();
+        closed = true;
+      },
+      onMessage(listener) { messages.add(listener); return () => { messages.delete(listener); }; },
+      onError(listener) { errors.add(listener); return () => { errors.delete(listener); }; },
+      onClose(listener) { closers.add(listener); return () => { closers.delete(listener); }; },
+      setProtocolVersion(version) { transport?.setProtocolVersion?.(version); },
+      send: async (message, options) => {
+        if ("method" in message && message.method === "initialize" && "id" in message) initializeId = message.id;
+        if (!transport) throw new McpError("cua_connection_unavailable", "电脑连接未由宿主建立；该请求未发送。");
+        await transport.send(message, options);
+      },
+    };
+  }
+
+  private async connect(service: McpServiceConfig, sessionId: string, recovering = false, taskId?: string): Promise<McpConnection> {
     this.detectClosed();
     if (this.busy && !recovering) throw new McpError("cua_binding_busy", "电脑管理动作仍在执行；请等待原操作结束。");
     if (!service.cua || service.cua.kind !== "cua-mac") throw new McpError("cua_product_invalid", "Code 仅支持本机 Mac 电脑入口；请拥有者检查配置。");
     if (!recovering && this.pending()) throw new McpError("cua_frozen", "电脑已冻结；请拥有者核实原执行停止并完成恢复，不能重发旧操作。");
     if (this.binding) {
       if (this.binding.sessionId !== sessionId || this.binding.service.id !== service.id || this.binding.service.configVersion !== service.configVersion) throw new McpError("cua_binding_busy", "电脑已由另一主会话或配置使用；请拥有者先暂停原会话的电脑连接。");
+      if (!this.binding.conn) throw new McpError("cua_binding_busy", "电脑连接由原 SDK 持有；请先核实其停止。");
       return this.lease(this.binding.conn);
     }
     if (this.connecting) throw new McpError("cua_binding_busy", "电脑连接正在建立；请等待原主会话完成连接。");
@@ -144,7 +235,7 @@ export class CodeCuaManager {
       close: async () => undefined };
   }
 
-  async call(task: Task, meta: PlannedTool, params: Record<string, unknown>, opId: string, signal?: AbortSignal, consume?: (operation: McpOperation) => void): Promise<CallToolResult> {
+  async call(task: Task, meta: McpToolInfo, params: Record<string, unknown>, opId: string, signal?: AbortSignal, consume?: (operation: McpOperation) => void, invoke?: (args: Record<string, unknown>, hooks: McpCallHooks) => Promise<CallToolResult>): Promise<CallToolResult> {
     this.detectClosed();
     this.verify(meta.service, task);
     if (this.pending()) throw new McpError("cua_frozen", "电脑已冻结；停止调用并报告拥有者完成原操作恢复，不能换参数重试。");
@@ -158,12 +249,21 @@ export class CodeCuaManager {
     this.save(opId, operation);
     if (["get_desktop_state", "get_window_state"].includes(meta.remoteName)) binding.observed = false;
     this.busy = true;
+    let originalRequest: string | undefined;
     try {
-      const result = await binding.conn.callTool(operation.rawTool, args, signal, {
+      if (!invoke) throw new McpError("cua_official_required", "电脑业务工具必须由官方 MCP 扩展执行。");
+      const result = await invoke(args, {
         recordCallRequest: async request => {
           this.verify(meta.service, task);
           if (signal?.aborted) throw new McpError("canceled", "电脑操作已取消，尚未发送；查询原操作并结束本轮。");
-          const sent: McpOperation = { ...operation, request, state: "sent" };
+          const rpc = JSON.parse(request) as { params: { name: string; arguments: Record<string, unknown> } };
+          if (rpc.params.name !== meta.remoteName || JSON.stringify(rpc.params.arguments) !== JSON.stringify(args)) throw new McpError("authorization_invalid", "电脑原调用目标或参数已改变；该请求未发送。", false);
+          originalRequest = request;
+        },
+        beforeDispatch: () => {
+          this.verify(meta.service, task);
+          if (!originalRequest || signal?.aborted) throw new McpError("canceled", "电脑原调用已停止；该请求未发送。", false);
+          const sent: McpOperation = { ...operation, request: originalRequest, state: "sent" };
           if (consume) consume(sent); else this.store.withTx(() => { this.verify(meta.service, task); this.store.saveMcpOperation(opId, sent); });
         },
         recordCallProgress: async evidence => {
@@ -172,14 +272,15 @@ export class CodeCuaManager {
           this.save(opId, { ...current, ...(evidence.response ? { response: evidence.response } : {}) });
         },
       });
-      const current = this.store.getToolOp(opId)!.mcp!;
+      const current = this.store.getToolOp(opId)!.mcp! as McpOperation;
       if (!current.response || !mcpResponseEnded(current.response)) throw new McpError("remote_incomplete", "电脑原请求尚无完整终结应答，已冻结电脑；停止调用并报告拥有者核实，不能重发旧动作。");
       this.save(opId, { ...current, state: "finished" });
       if (mcpImages(result).size) binding.observed = false;
       return result;
     } catch (error) {
-      const current = this.store.getToolOp(opId)!.mcp!;
-      if (current.request && (!current.response || !mcpResponseEnded(current.response))) {
+      const current = this.store.getToolOp(opId)!.mcp! as McpOperation;
+      if (error instanceof McpError && error.requestSent === false) this.save(opId, { ...current, state: "not_sent" });
+      else if (current.request && (!current.response || !mcpResponseEnded(current.response))) {
         this.save(opId, { ...current, state: "frozen" });
         binding.observed = false;
       } else this.save(opId, { ...current, state: current.request ? "finished" : "not_sent" });
@@ -189,11 +290,20 @@ export class CodeCuaManager {
 
   acceptObservation(opId: string): void {
     const operation = this.store.getToolOp(opId)?.mcp;
-    if (!operation || operation.state !== "finished" || operation.execution.executionId !== this.binding?.execution.executionId) throw new McpError("cua_observation_invalid", "新观察与电脑执行不匹配；停止操作并报告拥有者核实。");
-    this.binding.observed = true;
+    if (!operation || operation.state !== "finished" || operation.execution?.executionId !== this.binding?.execution.executionId) throw new McpError("cua_observation_invalid", "新观察与电脑执行不匹配；停止操作并报告拥有者核实。");
+    this.binding!.observed = true;
   }
 
   async stop(expectedServiceId?: string): Promise<CodeCuaStatus> {
+    if (this.stopping) {
+      if (expectedServiceId && this.binding && this.binding.service.id !== expectedServiceId) throw new McpError("cua_service_changed", "当前电脑连接属于另一服务，未停止其他服务；请选择实际使用的原服务后核实停止。");
+      return this.stopping;
+    }
+    this.stopping = this.stopExecution(expectedServiceId);
+    try { return await this.stopping; } finally { this.stopping = null; }
+  }
+
+  private async stopExecution(expectedServiceId?: string): Promise<CodeCuaStatus> {
     if (this.busy || this.connecting) throw new McpError("cua_call_active", "电脑调用仍在执行；请先中断当前任务，再核实停止。");
     const latest = this.latestExecutions();
     if (expectedServiceId && (this.binding && this.binding.service.id !== expectedServiceId || latest.some(op => ["starting", "frozen", "recovering", "sent"].includes(op.mcp!.state) && !op.mcp!.stoppedAt && op.mcp!.serviceId !== expectedServiceId))) throw new McpError("cua_service_changed", "当前电脑连接属于另一服务，未停止其他服务；请选择实际使用的原服务后核实停止。");
@@ -205,23 +315,24 @@ export class CodeCuaManager {
         const proof = await stopMacosExecution(execution.directory, { executionId: execution.executionId }, execution.fingerprint);
         if (!proof.exited) throw new McpError("cua_stop_unverified", "原电脑执行停止尚未核实；保持冻结，请拥有者检查原执行现场。");
         const last = latest.find(op => op.mcp!.execution.executionId === execution.executionId);
-        if (last) this.save(last.id, { ...last.mcp!, state: last.toolName !== "cua_recovery_observe" && ["frozen", "recovering", "sent"].includes(last.mcp!.state) ? "frozen" : "closed", stoppedAt: new Date().toISOString() });
-        if (this.binding?.execution.executionId === execution.executionId) { const connection = this.binding.conn; this.binding = null; await connection.close(); }
+        if (last) this.save(last.id, { ...last.mcp!, state: !["cua_connection", "cua_recovery_observe"].includes(last.toolName) && ["frozen", "recovering", "sent"].includes(last.mcp!.state) ? "frozen" : "closed", stoppedAt: new Date().toISOString() });
+        if (this.binding?.execution.executionId === execution.executionId) { const connection = this.binding.conn ?? this.binding.transport!; this.binding = null; await connection.close(); }
       }
       return this.status();
     } finally { this.busy = false; }
   }
 
-  beginRecovery(): CodeCuaStatus {
+  private beginRecovery(): CodeCuaStatus {
     const op = this.original();
-    if (!op.mcp!.stoppedAt || this.busy || this.binding) throw new McpError("cua_recovery_precondition", "须先核实原电脑执行停止并检查桌面结果，再选择开始恢复。");
+    if (!op.mcp!.stoppedAt || this.busy || this.binding) throw new McpError("cua_recovery_precondition", "须先核实原电脑执行停止，再选择检查并恢复取得新截图。");
     this.save(op.id, { ...op.mcp!, state: "recovering", ownerStartedAt: new Date().toISOString(), observationOpId: undefined, acceptedAt: undefined });
     return this.status();
   }
 
   async observe(): Promise<CodeCuaStatus> {
+    if (this.original().mcp.state !== "recovering") this.beginRecovery();
     const original = this.original(), saved: McpOperation = { ...original.mcp!, observationOpId: undefined, observationArtifactIds: undefined };
-    if (saved.state !== "recovering" || !saved.stoppedAt || !saved.ownerStartedAt || this.busy) throw new McpError("cua_recovery_precondition", "请拥有者先核实停止并选择开始恢复，再取得新画面。");
+    if (saved.state !== "recovering" || !saved.stoppedAt || !saved.ownerStartedAt || this.busy) throw new McpError("cua_recovery_precondition", "请拥有者先核实原执行停止，再选择检查并恢复取得新画面。");
     this.save(original.id, saved);
     const task = this.store.getTask(original.taskId)!, service = this.services.getService(saved.serviceId);
     if (!service?.enabled || !service.cua || !saved.configuration || JSON.stringify(service.cua) !== JSON.stringify(saved.configuration)) throw new McpError("cua_source_invalid", "原电脑配置已改变；保持冻结并检查原档案。");
@@ -232,18 +343,20 @@ export class CodeCuaManager {
       const conn = await this.connect(service, task.sessionId, true, task.id);
       binding = this.binding!;
       const tools = await conn.listTools();
-      const tool = ["get_desktop_state", "get_window_state"].map(name => tools.find(candidate => candidate.name === name)).find(candidate => candidate && cuaToolEffect(service.cua!, candidate.name) === "read" && !(candidate.inputSchema.required?.length));
+      const tool = ["get_desktop_state", "get_window_state"].map(name => tools.find(candidate => candidate.name === name)).find(candidate => candidate && cuaToolEffect(service.cua!, candidate.name) === "read" && !((candidate.inputSchema.required as string[] | undefined)?.length));
       if (!tool) throw new McpError("cua_observation_unavailable", "当前电脑程序没有可用的无参画面观察工具；保持冻结，请拥有者检查固定制品。");
       opId = randomId("op");
       const observationId = opId, operation: McpOperation = { ...saved, configVersion: service.configVersion, recoversOpId: original.id, effect: "read", rawTool: { name: tool.name, inputSchema: tool.inputSchema }, modelTool: { name: tool.name, inputSchema: tool.inputSchema }, arguments: {}, execution: binding.execution, state: "prepared", request: undefined, response: undefined, stoppedAt: undefined, ownerStartedAt: undefined, observationOpId: undefined, acceptedAt: undefined };
       this.store.withTx(() => { this.store.recordToolIntent({ id: observationId, taskId: task.id, sessionId: task.sessionId, toolName: "cua_recovery_observe", params: {} }); this.store.saveMcpOperation(observationId, operation); });
+      let recoveryRequest: string | undefined;
       const result = await conn.callTool(operation.rawTool, {}, undefined, {
-        recordCallRequest: async request => this.store.withTx(() => {
+        recordCallRequest: async request => { recoveryRequest = request; },
+        beforeDispatch: () => this.store.withTx(() => {
           const fresh = this.services.getService(service.id);
-          if (!fresh?.enabled || fresh.configVersion !== operation.configVersion || JSON.stringify(fresh.cua) !== JSON.stringify(service.cua)) throw new McpError("cua_source_invalid", "电脑配置已停用或变化，恢复观察未发送；保持冻结，请拥有者检查原配置后重新取得新观察。");
-          this.store.saveMcpOperation(observationId, { ...operation, request, state: "sent" });
+          if (!recoveryRequest || !fresh?.enabled || fresh.configVersion !== operation.configVersion || JSON.stringify(fresh.cua) !== JSON.stringify(service.cua)) throw new McpError("cua_source_invalid", "电脑配置已停用或变化，恢复观察未发送；保持冻结，请拥有者检查原配置后重新取得新观察。", false);
+          this.store.saveMcpOperation(observationId, { ...operation, request: recoveryRequest, state: "sent" });
         }),
-        recordCallProgress: async evidence => { const current = this.store.getToolOp(observationId)!.mcp!; this.save(observationId, { ...current, ...(evidence.response ? { response: evidence.response } : {}) }); },
+        recordCallProgress: async evidence => { const current = this.store.getToolOp(observationId)!.mcp! as McpOperation; this.save(observationId, { ...current, ...(evidence.response ? { response: evidence.response } : {}) }); },
       });
       const response = this.store.getToolOp(observationId)?.mcp?.response;
       if (!response || !mcpResponseEnded(response)) throw new McpError("remote_incomplete", "新观察尚无完整终结应答；保持冻结，请拥有者核实原电脑执行。");
@@ -262,9 +375,9 @@ export class CodeCuaManager {
           const proof = await stopMacosExecution(binding.execution.directory, { executionId: binding.execution.executionId }, binding.execution.fingerprint);
           if (proof.exited) {
             const last = opId ? this.store.getToolOp(opId) : this.latestExecutions().find(operation => operation.mcp!.execution.executionId === binding!.execution.executionId);
-            if (last?.mcp) this.save(last.id, { ...last.mcp, state: "closed", stoppedAt: new Date().toISOString() });
+            if (last?.mcp?.execution) this.save(last.id, { ...last.mcp, state: "closed", stoppedAt: new Date().toISOString() });
             this.binding = null;
-            await binding.conn.close();
+            await binding.conn!.close();
           }
         }
       } finally { this.busy = false; }
@@ -281,5 +394,8 @@ export class CodeCuaManager {
     return this.status();
   }
 
-  async shutdown(): Promise<void> { if (!this.busy && !this.connecting && (this.binding || this.pending())) await this.stop(); }
+  async shutdown(sessionId?: string): Promise<void> {
+    if (sessionId && this.status().sessionId !== sessionId) return;
+    if (!this.busy && !this.connecting && (this.binding || this.pending())) await this.stop();
+  }
 }

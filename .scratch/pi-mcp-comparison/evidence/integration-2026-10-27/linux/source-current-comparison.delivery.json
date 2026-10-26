@@ -1,0 +1,110 @@
+[
+  {
+    "path": "package-lock.json",
+    "matchesCurrent": true,
+    "linuxSha256": "4aee0b54c0f07cd5419b491dbbd501eac52dc853fe8854bb1d6bbc7861357088",
+    "currentSha256": "4aee0b54c0f07cd5419b491dbbd501eac52dc853fe8854bb1d6bbc7861357088"
+  },
+  {
+    "path": "packages/agent/src/mcp/session.ts",
+    "matchesCurrent": true,
+    "linuxSha256": "ad89d6477605779db6ecc6847e32905c7b4ab7e4d7fbfbdf0b2427fd79905170",
+    "currentSha256": "ad89d6477605779db6ecc6847e32905c7b4ab7e4d7fbfbdf0b2427fd79905170"
+  },
+  {
+    "path": "packages/agent/src/mcp/transport.ts",
+    "matchesCurrent": true,
+    "linuxSha256": "d34f21dfb61cd7aec3c66b9222a3b00168ce90a2e1224c5f64515b417c343e60",
+    "currentSha256": "d34f21dfb61cd7aec3c66b9222a3b00168ce90a2e1224c5f64515b417c343e60"
+  },
+  {
+    "path": "packages/agent/src/mcp/code.ts",
+    "matchesCurrent": true,
+    "linuxSha256": "af6164d99adc1060caaca98919958daeeb787393a7abf378750870f20b284797",
+    "currentSha256": "af6164d99adc1060caaca98919958daeeb787393a7abf378750870f20b284797"
+  },
+  {
+    "path": "packages/agent/src/driver.ts",
+    "matchesCurrent": true,
+    "linuxSha256": "81a94e6a308bf71dda08950ac9f273d6c65e9c11dd7f784351c9a4fb5a425189",
+    "currentSha256": "81a94e6a308bf71dda08950ac9f273d6c65e9c11dd7f784351c9a4fb5a425189"
+  },
+  {
+    "path": "packages/agent/src/context-assembly.ts",
+    "matchesCurrent": true,
+    "linuxSha256": "9cd91d44fadbb01c56338aa254a42c1b231556bb2db088bbab9f5f39f37ebf69",
+    "currentSha256": "9cd91d44fadbb01c56338aa254a42c1b231556bb2db088bbab9f5f39f37ebf69"
+  },
+  {
+    "path": "packages/agent/src/manual-compaction.ts",
+    "matchesCurrent": true,
+    "linuxSha256": "f78528251c057aa65885ce2f9ee1d7a66247692f73268bc6a8521e436adf8be2",
+    "currentSha256": "f78528251c057aa65885ce2f9ee1d7a66247692f73268bc6a8521e436adf8be2"
+  },
+  {
+    "path": "apps/ruukoto/src/personal-mcp.ts",
+    "matchesCurrent": true,
+    "linuxSha256": "5c2e560d6fe7f80b740e6d2917de015f459c37d13f8c3905d34ebccbb46d37b9",
+    "currentSha256": "5c2e560d6fe7f80b740e6d2917de015f459c37d13f8c3905d34ebccbb46d37b9"
+  },
+  {
+    "path": "test/personal-cua.test.ts",
+    "matchesCurrent": true,
+    "linuxSha256": "b32878d9b3ef76b63fa5ef12143c52cde165a5a221c94df791ff60a65a38ed5d",
+    "currentSha256": "b32878d9b3ef76b63fa5ef12143c52cde165a5a221c94df791ff60a65a38ed5d"
+  },
+  {
+    "path": "test/personal-tools.test.ts",
+    "matchesCurrent": true,
+    "linuxSha256": "559a16f593bdf9b62d54997bdcd285c71fa04133f24191d603bd0a58f00ddfc8",
+    "currentSha256": "559a16f593bdf9b62d54997bdcd285c71fa04133f24191d603bd0a58f00ddfc8"
+  },
+  {
+    "path": "test/24-mcp.test.ts",
+    "matchesCurrent": true,
+    "linuxSha256": "6062f9985ed777b802fd439687b3d8b596553fe8c00a2109208af1653612b216",
+    "currentSha256": "6062f9985ed777b802fd439687b3d8b596553fe8c00a2109208af1653612b216"
+  },
+  {
+    "path": "test/mcp-transport.test.ts",
+    "matchesCurrent": true,
+    "linuxSha256": "728e598fd394ed4d517697cd309bf96b6de2d0db5af28ec5b59ca7bd4254cb69",
+    "currentSha256": "728e598fd394ed4d517697cd309bf96b6de2d0db5af28ec5b59ca7bd4254cb69"
+  },
+  {
+    "path": "test/94-task-ending.test.ts",
+    "matchesCurrent": true,
+    "linuxSha256": "677c1feb6ac99158658276e0219b872c60bd3910999b5360100201a9e32748af",
+    "currentSha256": "677c1feb6ac99158658276e0219b872c60bd3910999b5360100201a9e32748af"
+  },
+  {
+    "path": "test/cua-code.test.ts",
+    "matchesCurrent": true,
+    "linuxSha256": "6e53b31e3a1c679ee9f0da933b2ce2be0613721d766586eb12bb0ad5e8eaa863",
+    "currentSha256": "6e53b31e3a1c679ee9f0da933b2ce2be0613721d766586eb12bb0ad5e8eaa863"
+  },
+  {
+    "path": "verification/foundation/test/01-compaction.test.ts",
+    "matchesCurrent": true,
+    "linuxSha256": "10916f34c9b2d0abab8945108ee45f83c12ece202b5c25bfb8393ae8c69fe378",
+    "currentSha256": "10916f34c9b2d0abab8945108ee45f83c12ece202b5c25bfb8393ae8c69fe378"
+  },
+  {
+    "path": "verification/foundation/test/02-context.test.ts",
+    "matchesCurrent": true,
+    "linuxSha256": "42df58b9c53dcbd3789b4c66d9f6ff1ed7370a8ff77dbecf5605dd08b236d360",
+    "currentSha256": "42df58b9c53dcbd3789b4c66d9f6ff1ed7370a8ff77dbecf5605dd08b236d360"
+  },
+  {
+    "path": "test/113-workflow-source-capabilities.test.ts",
+    "matchesCurrent": true,
+    "linuxSha256": "85c948efe864347623f3ece963c1bc1616d2f102415bd158b56b293c4101db5a",
+    "currentSha256": "85c948efe864347623f3ece963c1bc1616d2f102415bd158b56b293c4101db5a"
+  },
+  {
+    "path": "test/subagent-source-capabilities.test.ts",
+    "matchesCurrent": true,
+    "linuxSha256": "57d736e03965f305e9daf8f91d5196988198f21d8b6c4ba53eda802f6fe05daf",
+    "currentSha256": "57d736e03965f305e9daf8f91d5196988198f21d8b6c4ba53eda802f6fe05daf"
+  }
+]

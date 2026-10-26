@@ -9,7 +9,41 @@ import type { AgentWaitSnapshot } from "@ruukoto/core/agent-wait.ts";
 import { verifyDirIdentity } from "@ruukoto/core/dir-identity.ts";
 import { parseSessionFile } from "@ruukoto/core/history.ts";
 import { lastUserText, realTools, startTestRuntime, toolNamesOf, waitFor } from "./helpers/testkit.ts";
-import { startMockMcp } from "./helpers/mock-mcp.ts";
+import { startMockMcp, withMcpDiscovery } from "./helpers/mock-mcp.ts";
+
+test("MCP 任务让出后重取目录仍使用首轮授权，新增工具只进入新输入", async () => {
+  const mcp = await startMockMcp({ tools: [{ name: "old" }, { name: "new" }] });
+  let stage = 0;
+  const t = await startTestRuntime("mcp-wait-frozen", withMcpDiscovery(request => {
+    if (lastUserText(request) === "NEW") return request.messages.at(-1)?.role === "user" ? { kind: "tool_calls", calls: [{ id: "new-input", name: "mcp__probe__new", arguments: {} }] } : { kind: "text", text: "new-done" };
+    const current = stage++;
+    if (current === 0) return { kind: "tool_calls", calls: [{ id: "old", name: "mcp__probe__old", arguments: {} }] };
+    if (current === 1) return { kind: "tool_calls", calls: [{ id: "wait", name: "wait", arguments: { targets: [{ kind: "task", task_id: "reference" }] } }] };
+    if (current === 2) return { kind: "tool_calls", calls: [{ id: "forbidden-new", name: "mcp__probe__new", arguments: {} }] };
+    return { kind: "text", text: "old-done" };
+  }), { config: { ...realTools(), product: codeProduct.runtime }, workDirs: 1 });
+  try {
+    const rt = t.runtime, session = await rt.createSession({ projectName: "mcp-wait", cwd: t.work[0] });
+    await t.client.request("mcp_configure", { name: "probe", endpoint: mcp.url, tool_allowlist: ["old"] });
+    const driver = await rt["getDriver"](session);
+    driver["deps"].agentWait = {
+      initialPhase: () => "execution", snapshot: () => null,
+      acquireResources: async task => rt.store.withTx(() => rt.store.tryAcquireOccupancy({ taskId: task.id, sessionId: session.id, cwdReal: session.cwdReal, cwdDev: session.cwdDev, cwdIno: session.cwdIno })),
+      wait: async (ctx, _sdkCallId, targets) => {
+        assert.equal(await driver.yieldWorkspace(ctx.taskId), true);
+        rt.store.withTx(() => rt.store.releaseOccupancy(ctx.taskId));
+        await t.client.request("mcp_configure", { name: "probe", endpoint: mcp.url, tool_allowlist: ["old", "new"] });
+        return { reason: "result", targets: targets.map(target => ({ ...target, status: "completed", resultSummary: "reference-done" })) };
+      },
+    };
+    const task = await rt.submit({ sessionId: session.id, requestId: "old", input: "OLD", accessMode: "full_access", modelSelection: rt.defaultSelection });
+    await waitFor("原任务收尾", () => rt.store.getTask(task.id)?.status === "completed");
+    assert.equal(mcp.hits.filter(hit => hit.toolName === "new").length, 0, "恢复资源不能重捕获新MCP权限");
+    const next = await rt.submit({ sessionId: session.id, requestId: "new", input: "NEW", accessMode: "full_access", modelSelection: rt.defaultSelection });
+    await waitFor("新输入收尾", () => rt.store.getTask(next.id)?.status === "completed");
+    assert.equal(mcp.hits.filter(hit => hit.toolName === "new").length, 1);
+  } finally { await t.shutdown(); await mcp.close(); }
+});
 
 test("真实 worker：父轮安全让出同目录，另一任务执行，重取目录后新 worker 继续写入", async () => {
   let childId = "";
@@ -138,7 +172,39 @@ test("停止未核实：等待拒绝释放目录，下一模型请求不继续",
   } finally { await t.shutdown(); }
 });
 
-test("冷启对话恢复：取得目录后才规划 MCP，旧 prompt 退出后重建 SDK 并继续同一任务", async () => {
+test("冷启对话等待期间放宽 MCP 配置，取得目录后的首次选择不扩大原任务权限", async () => {
+  const mcp = await startMockMcp({ tools: [{ name: "old" }, { name: "new" }] });
+  const t = await startTestRuntime("cold-mcp-scope", (_request, index) => {
+    if (index === 0) return { kind: "tool_calls", calls: [{ id: "wait", name: "wait", arguments: { targets: [{ kind: "task", task_id: "reference" }] } }] };
+    if (index === 1) return { kind: "tool_calls", calls: [{ id: "search", name: "tool_search", arguments: { query: "mcp__probe__new" } }] };
+    if (index === 2) return { kind: "tool_calls", calls: [{ id: "blocked", name: "mcp__probe__new", arguments: {} }] };
+    return { kind: "text", text: "原任务未执行新增工具" };
+  }, { config: { ...realTools(), product: codeProduct.runtime }, workDirs: 1 });
+  try {
+    const rt = t.runtime, session = await rt.createSession({ projectName: "scope", cwd: t.work[0] });
+    await t.client.request("mcp_configure", { name: "probe", endpoint: mcp.url, tool_allowlist: ["old"] });
+    const driver = await rt["getDriver"](session);
+    driver["deps"].agentWait = {
+      initialPhase: () => "conversation", snapshot: () => null,
+      wait: async (_ctx, _id, targets) => { assert.equal(mcp.hits.length, 0); return { reason: "result", targets: targets.map(target => ({ ...target, status: "completed" })) }; },
+      acquireResources: async task => {
+        await t.client.request("mcp_configure", { name: "probe", endpoint: mcp.url, tool_allowlist: ["old", "new"] });
+        return rt.store.withTx(() => rt.store.tryAcquireOccupancy({ taskId: task.id, sessionId: session.id, cwdReal: session.cwdReal, cwdDev: session.cwdDev, cwdIno: session.cwdIno }));
+      },
+    };
+    const task = rt.store.withTx(() => {
+      const queued = rt.store.insertQueuedTask({ sessionId: session.id, requestId: "cold", input: "等待目录", modelSelection: rt.defaultSelection, submissionDigest: "cold", accessMode: "full_access" }).task;
+      rt.store.transitionTask(queued.id, ["queued"], "running");
+      return rt.store.getTask(queued.id)!;
+    });
+    await driver.run(task);
+    assert.equal(rt.store.getTask(task.id)?.status, "completed");
+    assert.equal(mcp.hits.filter(hit => hit.rpcMethod === "tools/call").length, 0);
+    assert.ok(t.server.calls.every(request => !toolNamesOf(request).includes("mcp__probe__new")));
+  } finally { await t.shutdown(); await mcp.close(); }
+});
+
+test("冷启对话恢复：取得目录后同一 SDK 发现 MCP 并继续同一任务", async () => {
   const mcp = await startMockMcp({ tools: [{ name: "read", result: { content: [{ type: "text", text: "MCP_RESULT" }] } }] });
   const t = await startTestRuntime("wait-resource-mcp-restore", (request, index) => {
     if (index === 0) {
@@ -146,14 +212,14 @@ test("冷启对话恢复：取得目录后才规划 MCP，旧 prompt 退出后�
       return { kind: "tool_calls", calls: [{ id: "wait", name: "wait", arguments: { targets: [{ kind: "task", task_id: "child" }] } }] };
     }
     if (index === 1) {
-      assert.ok(toolNamesOf(request).includes("search_tools"));
-      assert.ok(!toolNamesOf(request).includes("mcp_restored_read"));
+      assert.ok(toolNamesOf(request).includes("tool_search"));
+      assert.ok(!toolNamesOf(request).includes("mcp__restored__read"));
       assert.ok(toolNamesOf(request).includes("write"));
-      return { kind: "tool_calls", calls: [{ id: "discover", name: "search_tools", arguments: { query: "mcp_restored_read" } }] };
+      return { kind: "tool_calls", calls: [{ id: "discover", name: "tool_search", arguments: { query: "mcp__restored__read" } }] };
     }
     if (index === 2) {
-      assert.ok(toolNamesOf(request).includes("mcp_restored_read"));
-      return { kind: "tool_calls", calls: [{ id: "mcp", name: "mcp_restored_read", arguments: {} }] };
+      assert.ok(toolNamesOf(request).includes("mcp__restored__read"));
+      return { kind: "tool_calls", calls: [{ id: "mcp", name: "mcp__restored__read", arguments: {} }] };
     }
     assert.match(JSON.stringify(request.messages), /MCP_RESULT/);
     return { kind: "text", text: "恢复后完成" };

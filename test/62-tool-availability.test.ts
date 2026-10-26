@@ -52,8 +52,8 @@ test("会话类别 × 工具类别：每个会话类别只开放清单内的类�
   }
 });
 
-const REGISTERED = ["read", "list_files", "search_files", "edit", "bash", "todo_write", "history_read", "memory_save", "web_search", "skill", "mcp_svc_get", "mcp_svc_put", "mock_new"];
-const EFFECTS: Record<string, "read" | "write"> = { mcp_svc_get: "read", mcp_svc_put: "write" };
+const REGISTERED = ["read", "list_files", "search_files", "edit", "bash", "todo_write", "history_read", "memory_save", "web_search", "skill", "mcp__svc__get", "mcp__svc__put", "mock_new"];
+const EFFECTS: Record<string, "read" | "write"> = { mcp__svc__get: "read", mcp__svc__put: "write" };
 const tools = (opts: { plan?: boolean; webSearchEnabled?: boolean; narrow?: (name: string, effect?: string) => boolean }) =>
   taskToolSet({ registered: REGISTERED, plan: opts.plan ?? false, webSearchEnabled: opts.webSearchEnabled ?? true, mcpEffect: (name) => EFFECTS[name], narrow: opts.narrow });
 
@@ -64,7 +64,7 @@ test("本任务允许的工具：无收窄时即装配结果；未装配的工�
 });
 
 test("内部对话阶段：等待与后台查询开放，工作目录、技能、MCP 和新工具默认拒绝，原任务收窄仍有效", () => {
-  const registered = ["wait", "subagent_result", "workflow_query", "history_read", "read_artifact", "read", "list_files", "search_files", "write", "bash", "skill", "mcp_svc_get", "mock_new", "browser"];
+  const registered = ["wait", "subagent_result", "workflow_query", "history_read", "read_artifact", "read", "list_files", "search_files", "write", "bash", "skill", "mcp__svc__get", "mock_new", "browser"];
   const input = { registered, resourcePhase: "conversation" as const, plan: false, browserEnabled: true, webSearchEnabled: true, mcpEffect: (name: string) => EFFECTS[name] };
   const set = taskToolSet(input);
   assert.deepEqual([...set.allowed], registered.slice(0, 5));
@@ -79,16 +79,16 @@ test("内部对话阶段：等待与后台查询开放，工作目录、技能�
 
 test("本任务允许的工具：计划模式只留白名单与只读 MCP，今后新增的工具默认不可用", () => {
   const set = tools({ plan: true });
-  assert.deepEqual([...set.allowed], ["read", "list_files", "search_files", "bash", "todo_write", "history_read", "web_search", "skill", "mcp_svc_get"]);
-  for (const name of ["edit", "memory_save", "mcp_svc_put", "mock_new"]) assert.equal(set.reasonFor(name), "计划模式不开放", name);
+  assert.deepEqual([...set.allowed], ["read", "list_files", "search_files", "bash", "todo_write", "history_read", "web_search", "skill", "mcp__svc__get"]);
+  for (const name of ["edit", "memory_save", "mcp__svc__put", "mock_new"]) assert.equal(set.reasonFor(name), "计划模式不开放", name);
 });
 
 test("本任务允许的工具：宿主按任务收窄（GitHub 评审式：read、read_artifact 与只读 MCP），收到 MCP 类别", () => {
   const seen: Array<[string, string | undefined]> = [];
   const set = tools({ narrow: (name, effect) => { seen.push([name, effect]); return name === "read" || effect === "read"; } });
-  assert.deepEqual([...set.allowed], ["read", "mcp_svc_get"]);
+  assert.deepEqual([...set.allowed], ["read", "mcp__svc__get"]);
   assert.equal(set.reasonFor("bash"), "本任务由宿主收窄");
-  assert.deepEqual(seen.find(([name]) => name === "mcp_svc_put"), ["mcp_svc_put", "write"], "收窄函数收到 MCP 工具的类别");
+  assert.deepEqual(seen.find(([name]) => name === "mcp__svc__put"), ["mcp__svc__put", "write"], "收窄函数收到 MCP 工具的类别");
 });
 
 test("本任务允许的工具：Web Search 停用时拒绝 web_search；多种收窄同时生效按先后给出原因", () => {
@@ -98,7 +98,7 @@ test("本任务允许的工具：Web Search 停用时拒绝 web_search；多种�
   assert.equal(off.allowed.size, REGISTERED.length - 1);
 
   const all = tools({ plan: true, webSearchEnabled: false, narrow: (name) => name !== "read" });
-  assert.deepEqual([...all.allowed], ["list_files", "search_files", "bash", "todo_write", "history_read", "skill", "mcp_svc_get"]);
+  assert.deepEqual([...all.allowed], ["list_files", "search_files", "bash", "todo_write", "history_read", "skill", "mcp__svc__get"]);
   assert.equal(all.reasonFor("edit"), "计划模式不开放");
   assert.equal(all.reasonFor("read"), "本任务由宿主收窄");
   assert.equal(all.reasonFor("web_search"), "Web Search 已停用");
@@ -132,11 +132,11 @@ test("执行画像：SubAgent 只读 / 写入 / 评审工具集——装配与�
   const sub: SessionIdentity = { kind: "subagent", agent };
   const p = (writeTarget: boolean, review: boolean) => executionProfile({ identity: sub, writeTarget, review, planMode: false });
   const read = p(false, false), write = p(true, false), review = p(false, true);
-  const names = ["read", "list_files", "search_files", "edit", "write", "bash", "read_artifact", "subagent_message", "mcp_svc_get", "mcp_svc_put"];
+  const names = ["read", "list_files", "search_files", "edit", "write", "bash", "read_artifact", "subagent_message", "mcp__svc__get", "mcp__svc__put"];
   const allowed = (prof: ExecutionProfile) => names.filter((n) => subAgentAllows(prof.subAgentTools!, n, EFFECTS[n]));
   assert.deepEqual(allowed(read), ["read", "list_files", "search_files", "read_artifact", "subagent_message"]);
   assert.deepEqual(allowed(write), ["read", "list_files", "search_files", "edit", "write", "bash", "read_artifact", "subagent_message"]);
-  assert.deepEqual(allowed(review), ["read", "list_files", "search_files", "read_artifact", "mcp_svc_get"], "宿主评审另开只读 MCP、关 subagent_message");
+  assert.deepEqual(allowed(review), ["read", "list_files", "search_files", "read_artifact", "mcp__svc__get"], "宿主评审另开只读 MCP、关 subagent_message");
   assert.equal(new Set([read, write, review, p(false, false)].map((x) => x.toolSignature)).size, 3);
   assert.notEqual(executionProfile({ identity: { kind: "dev" }, writeTarget: false, review: false, planMode: false }).toolSignature, read.toolSignature);
 });

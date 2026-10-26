@@ -345,9 +345,11 @@ export async function startPersonalServer(directory: string, options: { developm
             await instance.harness.commit(tx => appDataRecheck(tx, directory, id), context);
           }
           result = { saved: true };
+        } else if (req.method === "POST" && url.pathname === "/mcp/recheck") {
+          throw new PersonalError("mcp_recheck_retired", "原请求续流核实已退役，不会联网；请查询原调用，结果未知时可选择结束此工作。");
         } else if (req.method === "GET" && url.pathname === "/mcp/operations") {
           result = await instance.harness.commit(tx => mcpList(tx, queryNumber(url, "offset", 0)), context);
-        } else if ((req.method === "GET" && url.pathname === "/mcp/operation") || (req.method === "POST" && ["/mcp/decide", "/mcp/resolve", "/mcp/recheck", "/mcp/cua-recover"].includes(url.pathname))) {
+        } else if ((req.method === "GET" && url.pathname === "/mcp/operation") || (req.method === "POST" && ["/mcp/decide", "/mcp/resolve", "/mcp/end", "/mcp/cua-recover"].includes(url.pathname))) {
           const operation = queryNumber(url, "operation") as TaskId;
           if (operation < 1) throw new PersonalError("mcp_input_invalid", "请选择列表中的原 MCP 操作。");
           if (url.pathname === "/mcp/decide") {
@@ -362,12 +364,14 @@ export async function startPersonalServer(directory: string, options: { developm
             result = { saved: true };
           } else if (url.pathname === "/mcp/cua-recover") {
             const value = await readControlJSON(req);
-            if (!instance.mcp || !value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).some(key => !["action", "observation"].includes(key)) || !("action" in value) || !["stop", "begin", "observe", "accept"].includes(String(value.action))) throw new PersonalError("cua_recovery_invalid", "请从原电脑操作依次选择停止、开始恢复、新截图与接受现场。");
-            await instance.mcp.recoverCua(operation, value.action as "stop" | "begin" | "observe" | "accept", "observation" in value && Number.isSafeInteger(value.observation) ? value.observation as EntryId : undefined);
+            if (!instance.mcp || !value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).some(key => !["action", "observation"].includes(key)) || !("action" in value) || !["stop", "observe", "accept"].includes(String(value.action))) throw new PersonalError("cua_recovery_invalid", "请从原电脑操作依次选择停止核实、检查并恢复与接受新图。");
+            await instance.mcp.recoverCua(operation, value.action as "stop" | "observe" | "accept", "observation" in value && Number.isSafeInteger(value.observation) ? value.observation as EntryId : undefined);
             result = { saved: true };
-          } else if (url.pathname === "/mcp/recheck") {
+          } else if (url.pathname === "/mcp/end") {
+            const value = await readControlJSON(req);
+            if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).length) throw new PersonalError("mcp_end_invalid", "请从原调用选择结束此工作，不能修改原结果或来源。");
             if (!instance.mcp) throw new PersonalError("mcp_config_missing", "MCP 未装配，请停止后台后通过向导配置服务。");
-            await instance.mcp.requestRecheck(operation);
+            await instance.mcp.end(operation);
             result = { requested: true };
           } else result = await instance.harness.commit(tx => mcpDetail(tx, operation, queryNumber(url, "offset", 0)), context);
         } else if (req.method === "GET" && url.pathname === "/background") {
@@ -500,7 +504,7 @@ export async function startPersonalServer(directory: string, options: { developm
   }
 }
 
-export async function personalControl<T>(directory: string, method: "GET" | "POST", route: string, value?: ReturnType<typeof parsePersonalMemoryControl> | PersonalInput | PersonalServiceResolution | { decision: "approved" | "rejected" } | PersonalToolsControlBody | { action: "stop" | "begin" | "observe" | "accept"; observation?: EntryId } | PersonalScheduleCreateBody | PersonalQuestionWrite | PersonalSettingsRequest | PersonalSettingsWriteRequest | PersonalImPairingRequest, timeoutMs?: number): Promise<T> {
+export async function personalControl<T>(directory: string, method: "GET" | "POST", route: string, value?: ReturnType<typeof parsePersonalMemoryControl> | PersonalInput | PersonalServiceResolution | Record<string, never> | { decision: "approved" | "rejected" } | PersonalToolsControlBody | { action: "stop" | "observe" | "accept"; observation?: EntryId } | PersonalScheduleCreateBody | PersonalQuestionWrite | PersonalSettingsRequest | PersonalSettingsWriteRequest | PersonalImPairingRequest, timeoutMs?: number): Promise<T> {
   const token = readPersonalToken(directory);
   return new Promise<T>((resolve, reject) => {
     const req = http.request({ socketPath: path.join(directory, "control.sock"), method, path: route, headers: { authorization: `Bearer ${token}`, "content-type": "application/json", connection: "close" } });

@@ -51,7 +51,7 @@ test("Cua stdio：跨调用保持同进程，每次证据独立，记录失败�
       const result = JSON.parse(content.text); pids.push(result.pid); assert.equal(result.inheritedSecret, null);
     }
     assert.equal(pids[0], pids[1]); assert.equal(pids[0], f.connection.pid);
-    assert.equal(saved[1][0].response, undefined);
+    assert.equal(JSON.parse(saved[1][0].request!).params.arguments.index, 1);
     assert.notEqual(JSON.parse(saved[0].at(-1)!.response!).id, JSON.parse(saved[1].at(-1)!.response!).id);
     assert.equal(JSON.parse(saved[1].at(-1)!.request!).params.arguments.index, 1);
     await assert.rejects(f.connection.callTool(tool, {}, undefined, { async recordCallRequest() { throw new Error("disk failed"); } }), (error: unknown) => error instanceof McpError && error.code === "evidence_failed");
@@ -64,10 +64,10 @@ test("Cua stdio：写后取消和异常退出不重发，拒绝并发抢占", as
   try {
     const controller = new AbortController();
     let sent!: () => void; const recorded = new Promise<void>(resolve => { sent = resolve; });
-    const call = f.connection.callTool(tool, { hang: true }, controller.signal, { async recordCallProgress(evidence) { if (evidence.request) sent(); } });
+    const call = f.connection.callTool(tool, { hang: true }, controller.signal, { async recordCallRequest() { sent(); } });
     const rejected = assert.rejects(call, (error: unknown) => error instanceof McpError && error.code === "canceled");
     await recorded;
-    await assert.rejects(f.connection.callTool(tool, {}), (error: unknown) => error instanceof McpError && error.code === "call_in_progress");
+    await assert.rejects(f.connection.callTool(tool, {}), (error: unknown) => error instanceof McpError && error.code === "call_active");
     // 等管道实际可见，避免只证明记录后、写入前取消。
     while (!(await f.calls()).length) await new Promise(resolve => setTimeout(resolve, 5));
     controller.abort(); await rejected;
@@ -126,12 +126,12 @@ test("Cua stdio：两次调用间退出使连接失效，下一调用不记录�
   } finally { await f.close(); }
 });
 
-test("Cua stdio：进展记录慢于SDK超时，仍在排空证据时禁止首次发送", async () => {
+test("Cua stdio：原请求持久慢于SDK超时，释放后禁止首次发送", async () => {
   const f = await fixture({ callTimeoutMs: 40 });
   let release!: () => void, entered!: () => void;
   const gate = new Promise<void>(resolve => { release = resolve; }), started = new Promise<void>(resolve => { entered = resolve; });
   try {
-    const pending = f.connection.callTool(tool, { stale: true }, undefined, { async recordCallProgress() { entered(); await gate; } });
+    const pending = f.connection.callTool(tool, { stale: true }, undefined, { async recordCallRequest() { entered(); await gate; } });
     const rejected = assert.rejects(pending, (error: unknown) => error instanceof McpError && error.code === "timeout");
     await started;
     await new Promise(resolve => setTimeout(resolve, 80));

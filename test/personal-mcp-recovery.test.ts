@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
 import { test, type TestContext } from "node:test";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import type { TaskId } from "@earendil-works/pi-durable";
+import { defineTask, ROOT_CONVERSATION_ID, type EntryId, type TaskId } from "@earendil-works/pi-durable";
 import { openPersonalHarness, type PersonalHarness } from "../apps/ruukoto/src/personal-harness.ts";
 import { personalProvider, type PersonalModelConfig } from "../apps/ruukoto/src/personal-model.ts";
 import { PersonalPermissionsDoc } from "../apps/ruukoto/src/personal-permissions.ts";
@@ -38,6 +38,7 @@ async function fixture(t: TestContext, reply: Reply, callTimeoutMs = 80) {
       response.end(`id: terminal\nevent: message\ndata: ${JSON.stringify({ jsonrpc: "2.0", id: calls[0].id, ...reply })}\n\n`);
       return;
     }
+    if (request.method !== "POST") { response.writeHead(204).end(); return; }
     const chunks: Buffer[] = [];
     for await (const chunk of request) chunks.push(Buffer.from(chunk));
     const rpc = JSON.parse(Buffer.concat(chunks).toString("utf8")) as Rpc;
@@ -63,12 +64,12 @@ async function fixture(t: TestContext, reply: Reply, callTimeoutMs = 80) {
     }
     if (last?.role === "user" && content === "委派") return { kind: "tool_calls", calls: [{ id: "delegate", name: "background_work", arguments: { action: "delegate", content: "调用原 MCP" } }] };
     if (last?.role === "user" && content === "安排报告") return { kind: "tool_calls", calls: [{ id: "report", name: "background_work", arguments: { action: "report", delegation: group!.entryId } }] };
-    return { kind: "text", text: content.startsWith("宿主委托汇总参考") ? "原请求已核实，报告恢复" : "独立聊天完成" };
+    return { kind: "text", text: content.startsWith("宿主委托汇总参考") ? "原 MCP 结果未知，人工收尾后报告" : "独立聊天完成" };
   });
   const config: PersonalModelConfig = { api: "openai-completions", baseUrl: await model.start(), modelId: "mock-model", apiKeyEnv: "RUUKOTO_MCP_RECOVERY_KEY", contextWindow: 128000, maxTokens: 8192 };
   const previous = process.env[config.apiKeyEnv]; process.env[config.apiKeyEnv] = "test-only";
   const directory = fs.realpathSync(fs.mkdtempSync(path.join(tmpdir(), "rk-mcp-recovery-")));
-  const mcp = parsePersonalMcp({ version: 1, generation: "original-generation", services: [{ id: "late", label: "迟到结果服务", endpoint: `http://127.0.0.1:${address.port}/mcp`, tools: [definition] }] });
+  const mcp = parsePersonalMcp({ version: 4, generation: "original-generation", services: [{ id: "late", label: "迟到结果服务", endpoint: `http://127.0.0.1:${address.port}/mcp`, enabled: true, tools: [definition], toolEffects: { act: "unknown" } }] });
   let current: PersonalHarness | undefined;
   t.after(async () => {
     release(); await current?.close(); await model.close(); server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); fs.rmSync(directory, { recursive: true, force: true });
@@ -88,9 +89,8 @@ const record = async (p: PersonalHarness, operation: TaskId) => (await p.harness
 async function first(p: PersonalHarness) { await until(async () => !!(await p.mcp!.list()).items.length); return (await p.mcp!.list()).items[0].operation; }
 const report = async (p: PersonalHarness, group: PersonalDelegationRef) => (await p.harness.snapshot(PersonalDelegationDoc, String(group.entryId), context))!.delegation!.report!;
 
-for (const result of ["success", "tool_error", "remote_error"] as const) test(`durable MCP SSE：超时后 GET 接回原 ${result}，释放工作并恢复原报告`, { timeout: 20000 }, async t => {
-  const reply: Reply = result === "remote_error" ? { error: { code: -32007, message: "原远端错误", data: { nested: ["原错误证据", { count: 17 }] } } } : { result: { content: [{ type: "text", text: "迟到原结果" }], ...(result === "tool_error" ? { isError: true, structuredContent: { reason: "远端业务失败" } } : {}) } };
-  const f = await fixture(t, reply);
+test("durable MCP：未知写跨重启不续流，人工收尾后成员停止才生成报告，原来源仍禁执行", { timeout: 20000 }, async t => {
+  const f = await fixture(t, { result: { content: [{ type: "text", text: "未取回的结果" }] } });
   let p = await f.open();
   const { group, member } = await f.delegate(p);
   await p.answer("安排报告", "report-source");
@@ -99,63 +99,57 @@ for (const result of ["success", "tool_error", "remote_error"] as const) test(`d
   const operation = await first(p);
   await until(async () => (await record(p, operation)).code === "timeout");
   const original = await record(p, operation);
-  assert.equal(original.origin.work!.ref.taskId, member.taskId); assert.equal(original.evidence.resumptionToken, "original-event");
-  assert.equal(original.remoteEnded, false); assert.equal(original.effect, "effect_unknown");
-  assert.equal((await p.work.list()).find(agent => agent.id === member.agentId)!.work!.taskId, member.taskId);
-  assert.equal((await p.harness.commit(tx => personalDelegationProgress(tx, group), context)).paused, true);
-  assert.equal((await p.harness.commit(tx => tx.task(reportTask), context))!.state.status, "waiting");
-  assert.equal(f.model.calls.filter(request => String(request.messages.at(-1)?.content).startsWith("宿主委托汇总参考")).length, 0);
-  await p.mcp!.resolve(operation, "applied", "业务记录能确认原操作，但不能证明原请求结束");
-  assert.equal((await record(p, operation)).remoteEnded, false);
-  assert.equal(await p.answer("独立聊天", "independent-source"), "独立聊天完成");
-  await p.close(); p = await f.open();
+  assert.equal(original.recordVersion, 2); assert.deepEqual(original.evidence, {});
+  assert.equal(original.effect, "effect_unknown"); assert.equal(original.remoteEnded, false);
+  const summaries = () => f.model.calls.filter(request => String(request.messages.at(-1)?.content).startsWith("宿主委托汇总参考"));
+  assert.equal(summaries().length, 0);
+  await p.mcp!.resolve(operation, "applied", "业务记录存在，原结果仍未知");
+  assert.equal(summaries().length, 0);
+  await p.close();
+  const networkBefore = f.requests.length;
+  p = await f.open();
+  assert.equal(f.requests.length, networkBefore); assert.equal(f.calls.length, 1);
   assert.equal((await record(p, operation)).admission, original.admission);
-  assert.equal((await record(p, operation)).remoteEnded, false);
-  const initialized = f.requests.filter(request => request.rpc === "initialize").length;
-  const recheck = await p.mcp!.requestRecheck(operation);
-  const verified = await p.harness.waitForTask(recheck, context);
-  assert.equal(verified.state.outcome.status, "completed");
-  const final = await record(p, operation);
-  assert.equal(final.remoteEnded, true); assert.equal(final.effect, "returned");
-  assert.equal(final.evidence.request, original.evidence.request);
-  assert.equal(final.code, result === "success" ? "returned" : result);
-  assert.deepEqual(JSON.parse(final.evidence.response!), { jsonrpc: "2.0", id: f.calls[0].id, ...reply });
-  assert.equal(final.evidence.resumptionToken, "terminal");
-  assert.equal(f.calls.length, 1); assert.deepEqual(f.calls[0].params?.arguments, invocation.arguments);
-  assert.equal(f.requests.filter(request => request.rpc === "initialize").length, initialized);
-  assert.deepEqual(f.requests.filter(request => request.token), [{ method: "GET", token: "original-event", session: "original-session", protocol: "2025-06-18" }]);
+  await p.mcp!.end(operation);
   await p.harness.waitForTask(member.taskId, context);
   await p.harness.waitForTask(reportTask, context);
+  const final = await record(p, operation);
+  assert.equal(final.effect, "effect_unknown"); assert.equal(final.remoteEnded, false); assert.ok(final.ended);
   assert.equal((await p.work.list()).find(agent => agent.id === member.agentId)!.work, undefined);
-  assert.equal((await p.harness.commit(tx => personalDelegationProgress(tx, group), context)).paused, false);
   const summary = await p.harness.commit(tx => personalReportResult(tx, group), context);
-  assert.equal(summary.delivery, "local"); assert.match(summary.text!, /报告恢复/);
+  assert.equal(summary.delivery, "local"); assert.match(summary.text!, /结果未知/); assert.equal(summaries().length, 1);
+  await assert.rejects(p.work.delegate({ requestId: "same-source", sourceRequestId: "owner-source", content: "换键重试" }), code("work_source_paused"));
   await p.close(); p = await f.open();
-  assert.deepEqual((await record(p, operation)).evidence, final.evidence); assert.equal(f.calls.length, 1);
+  assert.deepEqual((await record(p, operation)).ended, final.ended); assert.equal(f.calls.length, 1);
 });
 
-test("durable MCP SSE：实际取消在途子工作不证明远端停止，GET 原终结后才释放并复用身份", { timeout: 20000 }, async t => {
-  const reply = { result: { content: [{ type: "text", text: "取消后远端迟到完成" }] } };
-  const f = await fixture(t, reply, 10000), p = await f.open();
+test("durable MCP：取消不会伪造远端结束，人工收尾释放本地身份供独立工作复用", { timeout: 20000 }, async t => {
+  const f = await fixture(t, { result: { content: [{ type: "text", text: "未取回的原结果" }] } }, 10000), p = await f.open();
   const { member } = await f.delegate(p); f.release();
-  const operation = await first(p);
-  await until(async () => f.calls.length === 1 && !!(await record(p, operation)).evidence.resumptionToken);
+  const operation = await first(p); await until(() => f.calls.length === 1);
   let ended = false;
   const canceled = p.work.cancel(member).then(value => { ended = true; return value; });
   await until(async () => (await record(p, operation)).code === "canceled");
-  await p.mcp!.resolve(operation, "applied", "远端业务存在，原请求仍须单独结束核实");
   assert.equal(ended, false); assert.equal((await record(p, operation)).remoteEnded, false);
-  assert.equal((await p.work.list()).find(agent => agent.id === member.agentId)!.work!.taskId, member.taskId);
-  await assert.rejects(p.work.delegate({ requestId: "blocked-reuse", sourceRequestId: "owner-source", content: "完成分析", agentId: member.agentId }), code("work_source_paused"));
-  assert.equal(await p.answer("独立聊天", "independent-source"), "独立聊天完成");
-  const initialized = f.requests.filter(request => request.rpc === "initialize").length;
-  await p.harness.waitForTask(await p.mcp!.requestRecheck(operation), context);
-  assert.equal((await canceled).state.outcome.status, "aborted");
-  assert.equal(ended, true); assert.equal((await record(p, operation)).remoteEnded, true);
-  assert.deepEqual(JSON.parse((await record(p, operation)).evidence.response!), { jsonrpc: "2.0", id: f.calls[0].id, ...reply });
-  assert.equal((await p.work.list()).find(agent => agent.id === member.agentId)!.work, undefined);
+  await p.mcp!.end(operation);
+  assert.equal((await canceled).state.outcome.status, "aborted"); assert.equal(ended, true);
+  assert.equal((await record(p, operation)).remoteEnded, false);
+  await assert.rejects(p.work.delegate({ requestId: "same-source", sourceRequestId: "owner-source", content: "重试", agentId: member.agentId }), code("work_source_paused"));
+  await p.answer("独立聊天", "independent-source");
   const reused = await p.work.delegate({ requestId: "safe-reuse", sourceRequestId: "independent-source", content: "完成分析", agentId: member.agentId });
-  assert.equal(reused.agentId, member.agentId);
-  assert.equal((await p.harness.waitForTask(reused.taskId, context)).state.outcome.status, "completed");
-  assert.equal(f.calls.length, 1); assert.equal(f.requests.filter(request => request.rpc === "initialize").length, initialized);
+  assert.equal(reused.agentId, member.agentId); await p.harness.waitForTask(reused.taskId, context);
+  assert.equal(f.calls.length, 1); assert.equal(f.requests.filter(request => request.token).length, 0);
+});
+
+test("durable MCP：旧重核 v1 verify 阶段只核实归属后退役，零 GET/POST 且原操作不改写", { timeout: 20000 }, async t => {
+  const f = await fixture(t, { result: { content: [] } }), p = await f.open();
+  await f.delegate(p); f.release();
+  const operation = await first(p); await until(async () => (await record(p, operation)).code === "timeout");
+  const original = await record(p, operation), before = f.requests.length;
+  const legacy = defineTask<{ operation: TaskId; admission: EntryId }, { phase: "verify" }, object>({ name: "ruukoto.mcp-recheck", version: 1, initial: () => ({ phase: "verify" }), phases: { async verify() { throw new Error("应调用安装的退役定义"); } }, async abort() { throw new Error("应调用安装的退役定义"); } });
+  const task = await p.harness.commit(tx => tx.createTask(legacy, { operation, admission: original.admission }, { conversationId: ROOT_CONVERSATION_ID, ownership: { kind: "conversation" }, background: true }), context);
+  p.harness.resume();
+  const result = await p.harness.waitForTask(task, context);
+  assert.equal(result.state.outcome.status, "completed"); assert.deepEqual(result.state.outcome.result, { retired: true });
+  assert.deepEqual(await record(p, operation), original); assert.equal(f.requests.length, before);
 });

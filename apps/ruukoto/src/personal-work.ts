@@ -452,7 +452,8 @@ export async function personalWorkResult(tx: Tx, ref: PersonalWorkRef, offset = 
   const state = task.state.status === "terminal" ? task.state.outcome.status : task.state.status;
   const commands = (await personalWorkCommands(tx, ref.taskId)).map(personalCommandResult);
   const services = await workServiceResults(tx, ref.taskId);
-  const notice = [commands.length ? `当前宿主命令事实（优先于历史子回答）：\n${commands.map(command => command.verification).join("\n")}` : "", services.length ? `当前宿主服务事实（优先于历史子回答）：\n${services.map(service => service.verification).join("\n")}` : ""].filter(Boolean).join("\n");
+  const unknownMcp = (await mcpOperations(tx)).filter(value => value.origin.work?.ref.taskId === ref.taskId && value.effect === "effect_unknown");
+  const notice = [commands.length ? `当前宿主命令事实（优先于历史子回答）：\n${commands.map(command => command.verification).join("\n")}` : "", services.length ? `当前宿主服务事实（优先于历史子回答）：\n${services.map(service => service.verification).join("\n")}` : "", unknownMcp.length ? `原 MCP 调用结果未知：${unknownMcp.map(value => `${value.config.services.find(service => service.id === value.service)!.label}/${value.tool}${value.ended ? "（拥有者已人工结束工作，未知事实保留）" : "（等待拥有者人工收尾）"}`).join("、")}；同一来源不再执行。` : ""].filter(Boolean).join("\n");
   const executionFacts = { ...(commands.length ? { commands } : {}), ...(services.length ? { services } : {}), ...(notice ? { notice } : {}) };
   if (state !== "completed") return { work: ref.taskId, state, ...executionFacts, cancelRequested, next: task.state.status === "terminal" ? "工作未成功完成，后续已接纳说明未继续执行；请向拥有者报告，身份仍有占用时不要重试或复用。" : "工作尚未结束，请结束本轮，后续拥有者询问时再查询。" };
   const entry = submission?.status === "done" && submission.type === "input" ? await tx.entry(AssistantEntry, submission.answer) : undefined;

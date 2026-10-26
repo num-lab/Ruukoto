@@ -25,7 +25,7 @@ function makeView() {
       fileIssues: [] as { target: string; code: string; expectedRevision: string; actualRevision: string | null }[], revisions: { model: modelRevision, skills: libraryRevision, mcp: mcpRevision }, blockers: [] as unknown[],
       model: { config: { ...modelConfig }, credential: { state: "available", reference: modelConfig.apiKeyEnv } },
       skills: { sourceHost: "personal", config: { version: 1, directory: "/remote/library" }, externalAvailable: true, revision: managedRevision, skills: [{ ...skill }], offset: 0, hasMore: false, diagnostics: [] as string[], diagnosticsTruncated: false },
-      mcp: { version: 2, generation: "program-managed-generation", services: [{ ...service }] as PersonalService[], offset: 0, hasMore: false }, lifecycle: { managedDevelopment: false },
+      mcp: { version: 4, generation: "program-managed-generation", services: [{ ...service }] as PersonalService[], offset: 0, hasMore: false }, lifecycle: { managedDevelopment: false },
     },
     maintenance: { profile: { ...profile }, online: true, writable: true, code: "maintenance_supported", reason: "原系统服务已核实。", lifecycle: { kind: "systemd", state: "running", managedDevelopment: false, originalEnvironment: "verified" } },
     operations: [] as PersonalConfigurationReceipt[], pending: null as PersonalMaintenanceRecord | null, saved: null as boolean | null, message: "已读取原档案。",
@@ -124,7 +124,7 @@ test("托管技能停用仅在确认后提交；外部维护技能保持只读",
   assert.equal(external.state.confirmation, null); assert.equal(external.writes().length, 0);
 });
 
-test("MCP 编辑保留隐藏端点和完整工具定义，允许列表不伪造 Code effect 字段", async () => {
+test("MCP 编辑保留隐藏端点和完整工具定义，本地效果独立保存且不采信readOnlyHint", async () => {
   const h = harness("mcp"); await h.state.read(); await h.state.selectService(service.id);
   h.state.editService("label", "新服务名称");
   const newTool = { name: "search", inputSchema: { type: "object", properties: {} }, annotations: { readOnlyHint: true } };
@@ -133,7 +133,45 @@ test("MCP 编辑保留隐藏端点和完整工具定义，允许列表不伪造 
   assert.equal(request.op, "mcp.save-service"); assert.equal(request.expectedRevision, mcpRevision); assert.deepEqual(request.profile, profile);
   assert.equal(value.endpoint, service.endpoint); assert.equal(value.label, "新服务名称");
   assert.deepEqual(value.tools, [remoteTool, newTool]);
+  assert.deepEqual(value.toolEffects, { lookup: "unknown", search: "unknown" });
   assert.ok(!(value.tools as Record<string, unknown>[]).some(tool => "effect" in tool));
+});
+
+test("Personal MCP 显式修改效果或重绑凭据，不改远端定义也不暗中重绑同路径", async () => {
+  const h = harness("mcp"); await h.state.read(); await h.state.selectService(service.id);
+  h.state.editService("label", "只改名称"); await h.state.save();
+  assert.equal(Object.hasOwn(h.state.confirmation!.request.service as object, "credentialRebind"), false);
+  h.state.cancelConfirmation();
+  h.state.toolEffect("lookup", "read"); h.state.rebindCredential();
+  assert.deepEqual(h.state.service.tools, [remoteTool]);
+  await h.state.save(); await h.state.confirmApply();
+  const saved = h.writes()[0].request.service as Record<string, unknown>;
+  assert.deepEqual(saved.toolEffects, { lookup: "read" });
+  assert.equal(saved.credentialRebind, true); assert.equal(saved.credentialPath, service.credential.path);
+  assert.equal(Object.hasOwn(saved, "tools"), false);
+  const ordinary = harness("mcp"); ordinary.view.settings.mcp.version = 3; await ordinary.state.read(); await ordinary.state.selectService(service.id);
+  ordinary.state.editService("label", "旧配置"); await ordinary.state.save();
+  assert.equal(ordinary.state.confirmation, null); assert.match(ordinary.state.message, /先迁入/); assert.equal(ordinary.writes().length, 0);
+});
+
+test("Personal MCP 原调用收尾不走配置账本，丢答须先核实同一调用", async () => {
+  const h = harness("mcp"); await h.state.read();
+  const original = { operation: 12, service: "服务", tool: "write", effect: "effect_unknown", code: "timeout", canEnd: true, ended: false };
+  let lost = true;
+  h.hooks.query = async request => request.op === "mcp.operations" ? ok({ profile, operations: [{ ...original }] }) : request.op === "mcp.operation" ? ok({ profile, summary: { ...original }, text: "original arguments" }) : request.op === "mcp.end" ? lost ? fail("unknown") : ok({ profile, operation: 12, ended: true }) : assert.fail(String(request.op));
+  await h.state.readMcpOperations(); h.state.prepareMcpEnd(12);
+  assert.equal(h.calls.some(call => call.request.op === "mcp.end"), false);
+  h.state.cancelMcpEnd(); assert.equal(h.state.mcpEndConfirmation, null);
+  h.state.prepareMcpEnd(12); await h.state.confirmMcpEnd();
+  assert.equal(h.state.mcpEndPending, 12); assert.equal(h.writes().length, 0);
+  h.state.prepareMcpEnd(12); await h.state.confirmMcpEnd();
+  assert.equal(h.calls.filter(call => call.request.op === "mcp.end").length, 1);
+  await h.state.readMcpOperations(); lost = false;
+  assert.deepEqual(h.calls.find(call => call.request.op === "mcp.operation")?.request, { v: 1, op: "mcp.operation", profile, expectedRevision: mcpRevision, operation: 12, offset: 0 });
+  h.state.prepareMcpEnd(12); await h.state.confirmMcpEnd();
+  assert.deepEqual(h.calls.find(call => call.request.op === "mcp.end")?.request, { v: 1, op: "mcp.end", profile, expectedRevision: mcpRevision, operation: 12 });
+  assert.equal(h.state.mcpOperations[0].ended, true); assert.equal(h.state.mcpOperations[0].effect, "effect_unknown");
+  assert.equal(h.writes().length, 0);
 });
 
 test("MCP 服务详情合并完整工具分页，未改允许列表时保存不重建 tools", async () => {
@@ -298,7 +336,11 @@ test("Personal 三页 SSR 展示真实字段、远端来源、维护恢复与安
   for (const category of ["models", "skills", "mcp"] as const) {
     const h = harness(category); await h.state.read();
     if (category === "skills") { await h.state.selectSkill(skillId); h.state.detail!.body = '<script>alert(1)</script>\n![远程](https://images.example/x.png)'; }
-    if (category === "mcp") await h.state.selectService(service.id);
+    if (category === "mcp") {
+      await h.state.selectService(service.id);
+      const summary = { operation: 12, service: "远端服务", tool: "lookup", effect: "effect_unknown", code: "timeout", canEnd: true, ended: false };
+      h.state.mcpOperations = [summary]; h.state.mcpDetail = { summary, text: "原调用参数与未知结果" };
+    }
     const html = renderToStaticMarkup(createElement(PersonalSettingsEditor, { state: h.state, onConnection() {} }));
     assert.match(html, /remote\/profile/);
     assert.doesNotMatch(html, /摘要模型|默认模型|配置来源|选择工作区|Bearer 令牌|存储 API Key/);
@@ -309,7 +351,7 @@ test("Personal 三页 SSR 展示真实字段、远端来源、维护恢复与安
       assert.match(image, /src="https:\/\/images.example\/x.png"/); assert.match(image, /alt="远程"/);
       assert.doesNotMatch(html, /<script|<iframe/);
     }
-    if (category === "mcp") { assert.match(html, /远端私有凭据文件/); assert.match(html, /允许的工具/); assert.doesNotMatch(html, /副作用类别/); }
+    if (category === "mcp") { assert.match(html, /远端私有凭据文件/); assert.match(html, /允许的工具/); assert.match(html, /副作用不明/); assert.match(html, /重新绑定凭据/); assert.match(html, /刷新 MCP 调用/); assert.match(html, /结束此工作，保留结果未知/); assert.match(html, /原调用参数与未知结果/); assert.doesNotMatch(html, /副作用类别/); }
   }
   const h = harness("models"); h.view.pending = { v: 1, id: "pending", profile, op: "config.save", target: "model", expectedRevision: modelRevision, requestDigest: "1".repeat(64), saveAttempted: true, stage: "starting", savedRevision: contentRevision }; h.view.saved = true; h.view.settings.online = false; h.view.settings.model.credential.state = "unverified";
   await h.state.read();
@@ -369,7 +411,19 @@ test("Personal Cua 恢复必须显示完整新截图，接受绑定原观察，�
   await h.state.readCua(); await h.state.loadCuaImages(12); h.state.cuaImageLoaded(12, 34, id, true);
   mode = "failed"; await h.state.controlCua("observe", 12);
   assert.equal(h.state.cuaImages.length, 0); h.state.cuaImageLoaded(12, 34, id, true); assert.equal(h.state.canAcceptCua(12, 34), false);
+  await h.state.readCua(); await h.state.loadCuaImages(12); assert.equal(h.state.cuaImages.length, 0); assert.equal(h.state.canAcceptCua(12, 34), false);
   assert.equal(h.writes().length, 0, "电脑控制不触发停存启维护");
+});
+
+test("旧 Personal Cua begun或stopped直接检查恢复，v3格式不阻塞原身份管理", async () => {
+  const h = harness("computer"); h.view.settings.mcp.version = 3; await h.state.read();
+  h.hooks.query = async request => request.op === "mcp.cua-control" ? ok({ profile, available: true, paused: true, busy: false, operations: [] }) : assert.fail(String(request.op));
+  for (const cuaRecovery of ["stopped", "begun"] as const) {
+    h.state.cua = { available: true, paused: true, busy: false, operations: [{ operation: 12, service: "电脑", tool: "click", effect: "effect_unknown", code: "timeout", cuaRecovery, images: [] }] };
+    await h.state.controlCua("observe", 12);
+  }
+  assert.equal(h.calls.filter(call => call.request.op === "mcp.cua-control" && call.request.action === "observe").length, 2);
+  assert.equal(h.calls.some(call => call.request.action === "begin"), false); assert.equal(h.writes().length, 0);
 });
 
 test("Personal Cua 截图缺页或哈希不符不显示，目标缺安装仍可编辑普通HTTP服务", async () => {

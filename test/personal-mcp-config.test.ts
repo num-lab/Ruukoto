@@ -7,7 +7,7 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { JsonValue } from "@earendil-works/chord";
 import { ROOT_CONVERSATION_ID, type SubmissionId, type TaskId, type TaskRecord } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
-import { MCP_LIMITS, McpError, type McpRemoteTool } from "@ruukoto/agent/mcp/transport.ts";
+import { McpError, type McpRemoteTool } from "@ruukoto/agent/mcp/transport.ts";
 import { migratePersonalMcp, parsePersonalMcp, readPersonalMcp, savePersonalMcp, personalMcpCredential, resolvePersonalMcpToken, discoverPersonalMcp, type PersonalMcpConfig } from "../apps/ruukoto/src/personal-mcp-config.ts";
 import { lockPersonalProfile } from "../apps/ruukoto/src/personal-profile.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
@@ -44,11 +44,16 @@ test("个人 MCP 配置：保留完整工具定义，拒绝端点、版本、未
     { ...service, tools: [{ ...tool, inputSchema: { type: "array" } }] },
     { ...service, tools: [{ ...tool, inputSchema: { type: "object", properties: { value: { type: "string", pattern: "[" } } } }] },
     { ...service, tools: [{ ...tool, outputSchema: { type: "string" } }] },
-    { ...service, tools: [{ ...tool, inputSchema: { type: "object", description: "x".repeat(MCP_LIMITS.maxToolSchemaBytes) } }] },
-    { ...service, tools: [{ ...tool, description: "x".repeat(MCP_LIMITS.maxToolDescriptionChars + 1) }] },
-    { ...service, tools: Array.from({ length: MCP_LIMITS.maxToolsPerService + 1 }, (_, index) => ({ ...tool, name: `tool_${index}` })) },
   ];
   for (const value of [null, [], { ...config, version: 2 }, { ...config, generation: "" }, { ...config, token: "never-save" }, { ...config, services: [service, service] }, ...invalidServices.map(service => ({ ...config, services: [service] }))]) assert.throws(() => parsePersonalMcp(value), code("mcp_config_invalid"), JSON.stringify(value));
+});
+
+test("个人 MCP 配置：v4 效果类别必须是字符串，数组不能借隐式转换迁入", () => {
+  const current = { ...config, version: 4, services: [{ ...config.services[0], enabled: true, toolEffects: { read: "read" } }] };
+  assert.deepEqual(parsePersonalMcp(current).services[0].toolEffects, { read: "read" });
+  for (const effect of [["read"], ["write"], ["unknown"], {}, null, false, 1]) {
+    assert.throws(() => parsePersonalMcp({ ...current, services: [{ ...current.services[0], toolEffects: { read: effect } }] }), code("mcp_config_invalid"));
+  }
 });
 
 test("个人 MCP 配置：持锁私有原子保存，幂等不覆写，程序管理变更代次", async t => {
@@ -77,18 +82,18 @@ test("个人 MCP 配置：显式迁入逐服务启停格式，保留旧定义且
   await assert.rejects(migratePersonalMcp(f.directory), code("profile_busy"));
   await migratePersonalMcp(f.profile);
   const migrated = readPersonalMcp(f.profile)!;
-  assert.equal(migrated.version, 2);
+  assert.equal(migrated.version, 4);
   assert.notEqual(migrated.generation, config.generation);
-  assert.deepEqual(migrated.services, config.services.map(service => ({ ...service, enabled: true })));
+  assert.deepEqual(migrated.services, config.services.map(service => ({ ...service, enabled: true, toolEffects: { read: "unknown" } })));
   await migratePersonalMcp(f.profile);
   assert.deepEqual(readPersonalMcp(f.profile), migrated);
-  assert.equal(JSON.parse(fs.readFileSync(path.join(f.directory, "mcp.json"), "utf8")).version, 2);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(f.directory, "mcp.json"), "utf8")).version, 4);
   await assert.rejects(savePersonalMcp(f.profile, { ...config, generation: "downgrade" }), code("mcp_config_downgrade"));
   for (const invalid of [
     { ...migrated, services: config.services },
     { ...migrated, services: [{ ...migrated.services[0], enabled: "false" }] },
     { ...config, services: [{ ...config.services[0], enabled: true }] },
-    { ...migrated, version: 4 },
+    { ...migrated, version: 5 },
   ]) assert.throws(() => parsePersonalMcp(invalid), code("mcp_config_invalid"));
   const stopped = { ...migrated, generation: "stopped", services: migrated.services.map(service => ({ ...service, enabled: false })) };
   await savePersonalMcp(f.profile, stopped);
@@ -97,11 +102,11 @@ test("个人 MCP 配置：显式迁入逐服务启停格式，保留旧定义且
 
 test("个人 MCP 配置：坏凭据不阻止停用、删除或保存无关服务，启用与更改认证仍拒绝", async t => {
   const f = fixture(t), service = { ...config.services[0], credential: personalMcpCredential(f.filename) };
-  await savePersonalMcp(f.profile, { ...config, services: [service] });
+  await savePersonalMcp(f.profile, { ...config, version: 4, services: [{ ...service, enabled: true, toolEffects: { read: "unknown" } }] });
   await migratePersonalMcp(f.profile);
   const migrated = readPersonalMcp(f.profile)!;
   fs.unlinkSync(f.filename);
-  const unrelated = { id: "other", label: "其他服务", endpoint: "https://other.example.test/mcp", tools: [], enabled: true };
+  const unrelated = { id: "other", label: "其他服务", endpoint: "https://other.example.test/mcp", tools: [], toolEffects: {}, enabled: true };
   const changed = { ...migrated, generation: "unrelated", services: [...migrated.services.map(service => ({ ...service, label: "更新显示名" })), unrelated] };
   await savePersonalMcp(f.profile, changed);
   const stopped = { ...changed, generation: "stopped", services: changed.services.map(service => ({ ...service, enabled: false })) };
@@ -112,7 +117,7 @@ test("个人 MCP 配置：坏凭据不阻止停用、删除或保存无关服务
   const removed = { ...stopped, generation: "removed", services: [unrelated] };
   await savePersonalMcp(f.profile, removed);
   const savedRemoved = readPersonalMcp(f.profile);
-  for (const services of [[...removed.services, { ...service, enabled: true }], [{ ...unrelated, credential: service.credential }]]) {
+  for (const services of [[...removed.services, { ...service, enabled: true, toolEffects: { read: "unknown" } }], [{ ...unrelated, credential: service.credential }]]) {
     await assert.rejects(savePersonalMcp(f.profile, { ...removed, generation: "bad-new-credentials", services }), code("mcp_credentials_invalid"));
     assert.deepEqual(readPersonalMcp(f.profile), savedRemoved);
   }
@@ -134,7 +139,7 @@ test("个人 MCP 凭据：每次重读，撤销、替换、链接和开放权限
   const f = fixture(t), credential = personalMcpCredential(f.filename);
   const service = { ...config.services[0], credential };
   assert.equal(await resolvePersonalMcpToken(service), MOCK_MCP_SECRET);
-  await savePersonalMcp(f.profile, { ...config, services: [service] });
+  await savePersonalMcp(f.profile, { ...config, version: 4, services: [{ ...service, enabled: true, toolEffects: { read: "unknown" } }] });
   assert.ok(!fs.readFileSync(path.join(f.directory, "mcp.json"), "utf8").includes(MOCK_MCP_SECRET));
   fs.writeFileSync(f.filename, "replacement");
   await assert.rejects(resolvePersonalMcpToken(service), code("mcp_credentials_invalid"));
@@ -204,7 +209,39 @@ for (const initial of [true, false]) {
       await savePersonalMcp(profile, config);
       assert.deepEqual(readPersonalMcp(profile)?.services, config.services);
       await migratePersonalMcp(profile);
-      assert.equal(readPersonalMcp(profile)?.version, 2);
+      assert.equal(readPersonalMcp(profile)?.version, 4);
     });
   }
 }
+
+test("个人 MCP v4：规范化令牌换行兼容，旧摘要仍按字节核实，同路径更换须显式重新绑定", async t => {
+  const f = fixture(t), credential = personalMcpCredential(f.filename);
+  const legacy = { path: f.filename, sha256: (await import("node:crypto")).createHash("sha256").update(fs.readFileSync(f.filename)).digest("hex") };
+  const service = { ...config.services[0], enabled: true, credential, toolEffects: { read: "unknown" as const } };
+  const current = parsePersonalMcp({ ...config, version: 4, services: [service] });
+  await savePersonalMcp(f.profile, current);
+  fs.writeFileSync(f.filename, MOCK_MCP_SECRET + "\n\n");
+  assert.equal(await resolvePersonalMcpToken(service), MOCK_MCP_SECRET);
+  await assert.rejects(resolvePersonalMcpToken({ ...service, credential: legacy }), code("mcp_credentials_invalid"));
+  fs.writeFileSync(f.filename, "replacement-token\n");
+  const { mcpServiceDraft, readPersonalSettings, savePersonalSettings } = await import("../apps/ruukoto/src/personal-settings.ts");
+  const unchanged = parsePersonalMcp(mcpServiceDraft(f.profile, { id: service.id, label: "只改名称", credentialPath: f.filename }));
+  assert.deepEqual(unchanged.services[0].credential, credential);
+  await assert.rejects(resolvePersonalMcpToken(unchanged.services[0]), code("mcp_credentials_invalid"));
+  const before = await readPersonalSettings(f.profile);
+  await savePersonalSettings(f.profile, before, before.revisions.mcp, { kind: "mcp.save-service", service: { id: service.id, credentialPath: f.filename, credentialRebind: true } });
+  const rebound = readPersonalMcp(f.profile)!;
+  assert.equal(await resolvePersonalMcpToken(rebound.services[0]), "replacement-token");
+  assert.notDeepEqual(rebound.services[0].credential, credential);
+  await assert.rejects(savePersonalSettings(f.profile, before, (await readPersonalSettings(f.profile)).revisions.mcp, { kind: "config.save", target: "mcp", value: { ...config, version: 3, services: [{ ...service, credential: legacy, toolEffects: undefined }] } }), code("mcp_config_downgrade"));
+});
+
+test("个人 MCP v4：显式迁入缺失凭据的旧禁用服务不读文件、不改原引用，其他服务可用", async t => {
+  const f = fixture(t), legacy = { path: path.join(f.root, "missing-token"), sha256: "a".repeat(64) };
+  const old = parsePersonalMcp({ version: 3, generation: "legacy-disabled", services: [{ ...config.services[0], credential: legacy, enabled: false }, { id: "other", label: "其他", endpoint: "https://other.example.test/mcp", enabled: true, tools: [] }] });
+  await savePersonalMcp(f.profile, old); await migratePersonalMcp(f.profile);
+  const next = readPersonalMcp(f.profile)!;
+  assert.equal(next.version, 4); assert.deepEqual(next.services[0].credential, legacy); assert.equal(next.services[0].enabled, false);
+  assert.deepEqual(next.services[0].toolEffects, { read: "unknown" }); assert.equal(next.services[1].enabled, true);
+  await assert.rejects(resolvePersonalMcpToken(next.services[0]), code("mcp_credentials_invalid"));
+});

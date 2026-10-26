@@ -142,14 +142,14 @@ export async function waitPersonalServiceEffect(reader: DocumentObserver, ref: P
 
 export type PersonalServiceBlocker = string | { appData: string; admission: EntryId } | { inspection: TaskId; admission: EntryId } | { command: string; admission: EntryId } | { mcp: string; admission: EntryId } | { tool: string; admission: EntryId } | { browser: string; admission: EntryId; pause?: EntryId; session?: boolean };
 
-export async function personalServiceSourceBlocker(tx: Tx, sourceRequestId: string): Promise<PersonalServiceBlocker | undefined> {
+export async function personalServiceSourceBlocker(tx: Tx, sourceRequestId: string, forReport = false): Promise<PersonalServiceBlocker | undefined> {
   const appData = await appDataSourceBlocker(tx, sourceRequestId);
   if (appData) return appData;
   const browser = await browserSourceBlocker(tx, sourceRequestId);
   if (browser) return browser;
   const tool = await toolSourceBlocker(tx, sourceRequestId);
   if (tool) return tool;
-  const mcp = await mcpSourceBlocker(tx, sourceRequestId);
+  const mcp = await mcpSourceBlocker(tx, sourceRequestId, forReport);
   if (mcp) return mcp;
   const command = await personalCommandSourceBlocker(tx, sourceRequestId);
   if (command) return command;

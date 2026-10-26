@@ -185,7 +185,7 @@ test("设置占用扫描：已核实效果与停止保持原历史，全部原�
   const states = [
     ["ruukoto.tool-operation", "operation", "7", { operation: 7, started: true, stopped: true, effect: "effect_unknown", resolution: proof }],
     ["ruukoto.browser-operation", "operation", "8", { operation: 8, started: true, stopped: true, effect: "effect_unknown", resolution: proof }],
-    ["ruukoto.mcp", "operation", "9", { operation: 9, started: true, remoteEnded: true, effect: "effect_unknown", resolution: proof }],
+    ["ruukoto.mcp", "operation", "9", { operation: 9, started: true, remoteEnded: true, effect: "effect_unknown", resolution: proof, ended: { entry: 91 } }],
     ["ruukoto.command", "command", "known-command", { ref: { requestId: "known-command", taskId: 10 }, started: true, stopped: true, result: { effect: "effect_unknown", code: "interrupted" }, resolution: proof }],
     ["ruukoto.service-operation", "operation", "known-service", { ref: { requestId: "known-service", taskId: 11 }, consumed: true, launcherStopped: true, result: { effect: "effect_unknown", code: "interrupted" }, resolution: proof }],
     ["ruukoto.service-execution", "inspection", "12", { taskId: 12, stopped: true }],

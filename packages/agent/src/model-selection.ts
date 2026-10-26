@@ -78,7 +78,7 @@ export async function createModelCatalog(runtime: ModelRuntime, agentDir: string
   };
 }
 
-/** pi 0.85.1 的响应上限包含思考；按完整上限预留，不重复扣除思考 token。 */
+/** Pi 的响应上限包含思考；按完整上限预留，不重复扣除思考 token。 */
 export function modelResponseBudget(model: Model<Api>): { contextWindow: number; maxTokens: number; thinkingBudget: number } {
   if (!Number.isFinite(model.contextWindow) || model.contextWindow <= 0 || !Number.isFinite(model.maxTokens) || model.maxTokens <= 0 || model.maxTokens > model.contextWindow) {
     throw new ModelSelectionError("model_budget_invalid", "模型缺少可靠的上下文窗口或输出上限");

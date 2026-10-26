@@ -13,8 +13,8 @@ import { openPersonalHarness, type PersonalHarness } from "../apps/ruukoto/src/p
 import { parsePersonalTools } from "../apps/ruukoto/src/personal-tools-config.ts";
 import { personalProvider } from "../apps/ruukoto/src/personal-model.ts";
 import { PersonalPermissionsDoc } from "../apps/ruukoto/src/personal-permissions.ts";
-import { parsePersonalMcp, checkPersonalMcpEnablement } from "../apps/ruukoto/src/personal-mcp-config.ts";
-import { mcpUnresolved, mcpSourceBlocker, PersonalMcpDoc, verifyMcp, waitWorkMcp } from "../apps/ruukoto/src/personal-mcp.ts";
+import { parsePersonalMcp } from "../apps/ruukoto/src/personal-mcp-config.ts";
+import { mcpUnresolved, mcpSourceBlocker, PersonalMcpDoc, verifyMcp, waitWorkMcp, PersonalMcpConfigDoc } from "../apps/ruukoto/src/personal-mcp.ts";
 import { mcpResponseEnded } from "@ruukoto/agent/mcp/transport.ts";
 import { personalCuaLinux, type CuaLinuxGeneration } from "../apps/ruukoto/src/personal-cua-linux.ts";
 import { personalSettingsExternalBlockers } from "../apps/ruukoto/src/personal-settings-blockers.ts";
@@ -25,7 +25,7 @@ const definitions = ["computer_screenshot", "computer_click", "computer_shell"].
 async function fixture(t: TestContext, images = true, cua = true) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(tmpdir(), "personal-cua-"))), directory = path.join(root, "profile"), sent = path.join(root, "sent.jsonl"), schema = path.join(root, "tools.json");
   fs.writeFileSync(schema, JSON.stringify(definitions)); fs.writeFileSync(sent, "");
-  const config = parsePersonalMcp({ version: cua ? 3 : 2, generation: "cua-first", services: [{ id: "desktop", label: "电脑", ...(cua ? { cua: { kind: "cua-linux", executable: "/usr/local/bin/cua", version: "0.7.0", sha256: "a".repeat(64), sandbox: "local:desktop", sandboxId: "b".repeat(64) } } : { endpoint: "http://127.0.0.1:9/mcp" }), enabled: true, tools: definitions }] });
+  const config = parsePersonalMcp({ version: cua ? 3 : 4, generation: "cua-first", services: [{ id: "desktop", label: "电脑", ...(cua ? { cua: { kind: "cua-linux", executable: "/usr/local/bin/cua", version: "0.7.0", sha256: "a".repeat(64), sandbox: "local:desktop", sandboxId: "b".repeat(64) } } : { endpoint: "http://127.0.0.1:9/mcp" }), enabled: true, tools: definitions, ...(!cua ? { toolEffects: Object.fromEntries(definitions.map(tool => [tool.name, "unknown"])) } : {}) }] });
   const workspace = path.join(root, "workspace"); fs.mkdirSync(workspace); const stat = fs.statSync(workspace), tools = parsePersonalTools({ version: 1, generation: "tool-first", workspace, identity: { dev: stat.dev, ino: stat.ino }, credentials: [] });
   let generation: CuaLinuxGeneration = { containerId: "b".repeat(64), startedAt: "2026-10-23T01:00:00Z", bootId: "c".repeat(36), pid: 42, processIdentity: "10" }, stopped = false, sequence = 0;
   let programFailure = false; const stoppedScopes: string[] = [];
@@ -43,7 +43,7 @@ async function fixture(t: TestContext, images = true, cua = true) {
   const open = async () => current = await openPersonalHarness({ directory, provider, modelId: "mock-model", mcp: config, tools, mcpCuaHost: host, mcpTimeouts: { callTimeoutMs: 100 } });
   t.after(async () => { await current?.close(); await model.close(); delete process.env.RUUKOTO_CUA_MODEL_TEST_KEY; fs.rmSync(root, { recursive: true, force: true }); });
   const calls = () => fs.readFileSync(sent, "utf8").split("\n").filter(Boolean).map(line => JSON.parse(line)).filter(item => item.method === "tools/call");
-  return { directory, config, model, host, open, calls, stoppedScopes, failProgram(value = true) { programFailure = value; }, setImageMode(mode: string) { fs.writeFileSync(sent + ".mode", mode); }, async full(p: PersonalHarness) { await p.harness.commit(async tx => { const permission = await tx.doc(PersonalPermissionsDoc); permission.mode = "full_access"; permission.version++; }, context); } };
+  return { directory, config, model, host, open, calls, stoppedScopes, setDefinitions(tools: object[]) { fs.writeFileSync(schema, JSON.stringify(tools)); }, failProgram(value = true) { programFailure = value; }, setImageMode(mode: string) { fs.writeFileSync(sent + ".mode", mode); }, async full(p: PersonalHarness) { await p.harness.commit(async tx => { const permission = await tx.doc(PersonalPermissionsDoc); permission.mode = "full_access"; permission.version++; }, context); } };
 }
 const input = (tool: string, args: Record<string, unknown> = {}) => "调用:" + JSON.stringify({ service: "desktop", tool, arguments: args });
 test("Personal Cua：持续连接、真实固定目标与受限定义进入模型历史，旧证据不串调用", async t => {
@@ -71,6 +71,20 @@ test("Personal Cua：持续连接、真实固定目标与受限定义进入模�
   t.diagnostic(JSON.stringify({ estimatedTokens: { before: estimate(before), after: estimate(f.model.calls.at(-1)!) } }));
   await p.answer(input("computer_click", { sandbox: "local:other" }), "override"); assert.equal(f.calls().length, 2);
 });
+test("Personal Cua：恢复允许描述变化，参数 schema 改变仍拒绝", async t => {
+  const f = await fixture(t), p = await f.open(); await f.full(p);
+  await p.answer(input("computer_screenshot"), "initial");
+  const { operation } = JSON.parse(await p.answer(input("computer_click", { hang: true }), "lost"));
+  await p.mcp!.recoverCua(operation, "stop");
+  f.setDefinitions(definitions.map(tool => ({ ...tool, inputSchema: { ...tool.inputSchema, required: ["sandbox"] } })));
+  await assert.rejects(p.mcp!.recoverCua(operation, "observe"), { code: "cua_definition_changed" });
+  assert.equal(f.calls().length, 2);
+  f.setDefinitions(definitions.map(tool => ({ ...tool, description: "更新后的工具描述" })));
+  await p.mcp!.recoverCua(operation, "observe");
+  await p.mcp!.recoverCua(operation, "accept", (await p.mcp!.detail(operation)).summary.cuaObservation);
+  assert.equal((await p.mcp!.detail(operation)).summary.cuaRecovery, "accepted");
+  assert.equal(f.calls().length, 3);
+});
 test("Personal Cua：文本模型在电脑动作前拒绝且零发送", async t => {
   const f = await fixture(t, false), p = await f.open(); await f.full(p);
   const answer = await p.answer(input("computer_screenshot"), "text-model");
@@ -84,9 +98,9 @@ test("Personal Cua：丢答冷恢复保留unknown和remoteEnded，接受新观�
   await p.close(); p = await f.open();
   assert.equal(mcpUnresolved((await p.harness.snapshot(PersonalMcpDoc, String(operation), context))!.operation!), true);
   assert.ok(await p.harness.commit(tx => mcpSourceBlocker(tx, "lost"), context));
-  await assert.rejects(p.mcp!.recoverCua(operation, "begin"));
+  await assert.rejects(p.mcp!.recoverCua(operation, "observe"));
   await assert.rejects(p.mcp!.recoverCua(operation, "accept"));
-  await p.mcp!.recoverCua(operation, "stop"); await p.mcp!.recoverCua(operation, "begin"); await p.mcp!.recoverCua(operation, "observe");
+  await p.mcp!.recoverCua(operation, "stop"); await p.mcp!.recoverCua(operation, "observe");
   assert.equal(f.calls().length, 3);
   await p.mcp!.recoverCua(operation, "accept", (await p.mcp!.detail(operation)).summary.cuaObservation);
   const original = (await p.harness.snapshot(PersonalMcpDoc, String(operation), context))!.operation!;
@@ -99,7 +113,6 @@ test("Personal Cua：丢答冷恢复保留unknown和remoteEnded，接受新观�
   await p.answer(input("computer_click"), "new-work"); assert.equal(f.calls().length, 5);
   await p.close(); p = await f.open();
   assert.equal(mcpUnresolved((await p.harness.snapshot(PersonalMcpDoc, String(operation), context))!.operation!), false);
-  await p.close(); const profile = lockPersonalProfile(f.directory); try { await checkPersonalMcpEnablement(profile); } finally { profile.release(); }
 });
 
 for (const bad of ["empty", "invalid", "error"]) test(`Personal Cua：${bad} 截图不能开放点击`, async t => {
@@ -118,7 +131,7 @@ test("Personal Cua：未决电脑调用不会破坏独立HTTP目标检查，恢�
   const address = server.address(); assert.ok(address && typeof address !== "string");
   const answer = await p.answer(`HTTP:http://127.0.0.1:${address.port}/independent`, "independent");
   assert.ok(answer.includes("独立HTTP成功"), answer);
-  await p.mcp!.recoverCua(unknown.operation, "stop"); await p.mcp!.recoverCua(unknown.operation, "begin");
+  await p.mcp!.recoverCua(unknown.operation, "stop");
   f.setImageMode("invalid"); await assert.rejects(p.mcp!.recoverCua(unknown.operation, "observe"));
   await assert.rejects(p.mcp!.recoverCua(unknown.operation, "accept"));
   assert.equal((await p.mcp!.detail(unknown.operation)).summary.cuaRecovery, "begun");
@@ -128,7 +141,7 @@ test("Personal Cua：成功观察后再次观察失败，冷启动可继续恢�
   const f = await fixture(t); let p = await f.open(); await f.full(p);
   await p.answer(input("computer_screenshot"), "initial");
   const unknown = JSON.parse(await p.answer(input("computer_click", { hang: true }), "lost"));
-  await p.mcp!.recoverCua(unknown.operation, "stop"); await p.mcp!.recoverCua(unknown.operation, "begin"); await p.mcp!.recoverCua(unknown.operation, "observe");
+  await p.mcp!.recoverCua(unknown.operation, "stop"); await p.mcp!.recoverCua(unknown.operation, "observe");
   const old = (await p.mcp!.detail(unknown.operation)).summary.cuaObservation;
   f.setImageMode("empty"); await assert.rejects(p.mcp!.recoverCua(unknown.operation, "observe"));
   await p.close(); p = await f.open();
@@ -147,7 +160,7 @@ for (const [mode, code] of [["error", "cua_observation_failed"], ["invalid", "cu
   f.host.restart = async execution => { restarts++; return restart(execution); };
   await p.answer(input("computer_screenshot"), "initial");
   const unknown = JSON.parse(await p.answer(input("computer_click", { hang: true }), "lost"));
-  await p.mcp!.recoverCua(unknown.operation, "stop"); await p.mcp!.recoverCua(unknown.operation, "begin");
+  await p.mcp!.recoverCua(unknown.operation, "stop");
   f.setImageMode(mode); await assert.rejects(p.mcp!.recoverCua(unknown.operation, "observe"), { code });
   const failed = (await p.harness.snapshot(PersonalMcpDoc, String(unknown.operation), context))!.operation!, recovery = failed.cua!.recovery!;
   assert.equal(failed.effect, "effect_unknown"); assert.equal(failed.remoteEnded, false); assert.equal(mcpUnresolved(failed), true);
@@ -184,7 +197,7 @@ for (const damage of ["missing-id", "null-response"]) test(`Personal Cua：恢�
   const f = await fixture(t), p = await f.open(); await f.full(p);
   await p.answer(input("computer_screenshot"), "initial");
   const unknown = JSON.parse(await p.answer(input("computer_click", { hang: true }), "lost"));
-  await p.mcp!.recoverCua(unknown.operation, "stop"); await p.mcp!.recoverCua(unknown.operation, "begin");
+  await p.mcp!.recoverCua(unknown.operation, "stop");
   f.setImageMode("error"); await assert.rejects(p.mcp!.recoverCua(unknown.operation, "observe"), { code: "cua_observation_failed" });
   const recovery = (await p.harness.snapshot(PersonalMcpDoc, String(unknown.operation), context))!.operation!.cua!.recovery!, responseId = recovery.responses![0];
   const data = JSON.parse(JSON.stringify((await p.harness.commit(tx => tx.entry(responseId), context))!.data)) as { evidence: { request: string; response: string } };
@@ -271,7 +284,7 @@ test("Personal Cua：恢复图片分页绑定最新观察，重观察启动失�
   await p.answer(input("computer_screenshot"), "initial");
   const unknown = JSON.parse(await p.answer(input("computer_click", { hang: true }), "lost"));
   await p.mcp!.pauseCua(true);
-  await p.mcp!.recoverCua(unknown.operation, "stop"); await p.mcp!.recoverCua(unknown.operation, "begin"); await p.mcp!.recoverCua(unknown.operation, "observe");
+  await p.mcp!.recoverCua(unknown.operation, "stop"); await p.mcp!.recoverCua(unknown.operation, "observe");
   const detail = await p.mcp!.detail(unknown.operation), observation = detail.summary.cuaObservation!, image = detail.recoveryImages![0];
   const page = await p.mcp!.cuaImage(unknown.operation, observation, image.id);
   assert.equal(page.mime, image.mime); assert.equal(Buffer.from(page.base64, "base64").length, image.bytes);
@@ -295,4 +308,28 @@ test("Personal Cua：在途调用期间暂停先拒绝新发送，丢答后继�
   assert.equal((await p.mcp!.cuaStatus()).busy, false);
   await assert.rejects(p.mcp!.pauseCua(false), { code: "cua_frozen" });
   assert.equal((await p.mcp!.cuaStatus()).paused, true); assert.equal(f.calls().length, 2);
+});
+
+test("Personal Cua：v3 格式迁入 v4 不改变旧执行身份或自锁，旧未知按合并观察恢复", async t => {
+  const f = await fixture(t);
+  const profile = lockPersonalProfile(f.directory);
+  fs.writeFileSync(path.join(f.directory, "mcp.json"), JSON.stringify(f.config) + "\n", { mode: 0o600 });
+  profile.release();
+  let p = await f.open(); await f.full(p);
+  await p.answer(input("computer_screenshot"), "initial");
+  const unknown = JSON.parse(await p.answer(input("computer_click", { hang: true }), "lost"));
+  const original = (await p.harness.snapshot(PersonalMcpDoc, String(unknown.operation), context))!.operation!;
+  await p.close();
+  const { migratePersonalMcp } = await import("../apps/ruukoto/src/personal-mcp-config.ts");
+  await migratePersonalMcp(f.directory); p = await f.open();
+  assert.equal((await p.harness.snapshot(PersonalMcpConfigDoc, context))!.config!.version, 4);
+  assert.deepEqual((await p.harness.snapshot(PersonalMcpDoc, String(unknown.operation), context))!.operation!.cua!.execution, original.cua!.execution);
+  assert.equal(f.calls().length, 2);
+  await assert.rejects(p.mcp!.end(unknown.operation));
+  await p.mcp!.recoverCua(unknown.operation, "stop"); await p.mcp!.recoverCua(unknown.operation, "observe");
+  const detail = await p.mcp!.detail(unknown.operation);
+  await p.mcp!.recoverCua(unknown.operation, "accept", detail.summary.cuaObservation);
+  assert.equal((await p.mcp!.detail(unknown.operation)).summary.cuaRecovery, "accepted");
+  assert.equal((await p.harness.snapshot(PersonalMcpDoc, String(unknown.operation), context))!.operation!.remoteEnded, false);
+  assert.equal(f.calls().length, 3);
 });

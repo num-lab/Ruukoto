@@ -48,18 +48,18 @@ export async function settlePersonalScheduledRun(run: PersonalScheduleRun, runti
   try {
     if (cancel || cancelWatch.value.run.cancelRequested) { cancellationObserved = true; await stop(); }
     let initial: Awaited<ReturnType<typeof personalServiceSourceBlocker>>;
-    await runtime.commit(async tx => { initial = await personalServiceSourceBlocker(tx, run.requestId); return undefined; }, context);
+    await runtime.commit(async tx => { initial = await personalServiceSourceBlocker(tx, run.requestId, true); return undefined; }, context);
     if (typeof initial === "string" || !initial || !("pause" in initial)) await stop();
     while (true) {
       let blocker: Awaited<ReturnType<typeof personalServiceSourceBlocker>>;
-      await runtime.commit(async tx => { blocker = await personalServiceSourceBlocker(tx, run.requestId); return undefined; }, context);
+      await runtime.commit(async tx => { blocker = await personalServiceSourceBlocker(tx, run.requestId, true); return undefined; }, context);
       if (!blocker) break;
       const watch = typeof blocker === "string" ? await runtime.watchDoc(PersonalServiceOperationDoc, blocker, context) : "appData" in blocker ? await runtime.watchDoc(PersonalAppDataOperationDoc, blocker.appData, context) : "browser" in blocker ? blocker.session ? await runtime.watchDoc(PersonalBrowserSessionDoc, String(run.conversationId), context) : await runtime.watchDoc(PersonalBrowserOperationDoc, blocker.browser, context) : "tool" in blocker ? await runtime.watchDoc(PersonalToolDoc, blocker.tool, context) : "mcp" in blocker ? await runtime.watchDoc(PersonalMcpDoc, blocker.mcp, context) : "command" in blocker ? await runtime.watchDoc(PersonalCommandDoc, blocker.command, context) : await runtime.watchDoc(PersonalInspectionDoc, String(blocker.inspection), context);
       if (!watch) throw new PersonalError("schedule_effect_missing", "定时运行的待核实操作缺失，已保留占用；请保留档案。");
       try {
         const changed = new Promise<void>(resolve => { watch.start(async () => resolve()); void watch.closed.then(() => resolve()); });
         let waiting = false;
-        await runtime.commit(async tx => { waiting = isDeepStrictEqual(await personalServiceSourceBlocker(tx, run.requestId), blocker); return undefined; }, context);
+        await runtime.commit(async tx => { waiting = isDeepStrictEqual(await personalServiceSourceBlocker(tx, run.requestId, true), blocker); return undefined; }, context);
         if (waiting) {
           if (cancellationObserved) await changed;
           else await Promise.race([changed, canceled]);

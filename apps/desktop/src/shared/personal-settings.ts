@@ -66,3 +66,14 @@ export interface PersonalCuaStatus {
   busy: boolean;
   operations: { operation: number; service: string; tool: string; effect: string; code: string; cuaRecovery?: "frozen" | "stopped" | "begun" | "observed" | "accepted"; cuaObservation?: number; images: { id: string; mime: string; bytes: number; sha256: string }[] }[];
 }
+
+export interface PersonalMcpOperationSummary {
+  operation: number;
+  service: string;
+  tool: string;
+  effect: string;
+  code: string;
+  canEnd: boolean;
+  ended: boolean;
+  cuaRecovery?: "frozen" | "stopped" | "begun" | "observed" | "accepted";
+}

@@ -2,6 +2,8 @@
 
 Status: implemented
 
+MCP客户端归属、Personal配置v4与合并恢复交互由[MCP宿主职责收缩](../simplification/2026-10-26-mcp-host-responsibilities.md)更新；本篇保留原决定，固定程序、持续连接、真实停止证明、原动作不重放与具体新观察接受继续成立。
+
 Code 的项目配置及 49→50 迁移按[实例 MCP 方案](../../implemented/simplification/2026-10-24-code-instance-mcp.md)退出；持续连接、未决恢复及 Personal 格式不在该调整内。本篇保留被取代的原决定与仍成立的持续连接约束。
 
 ## 问题

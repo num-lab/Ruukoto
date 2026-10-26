@@ -6,7 +6,7 @@ import { test } from "node:test";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { createLocalLauncher } from "@ruukoto/agent/execution/launchers.ts";
-import { Driver } from "@ruukoto/agent/driver.ts";
+import { Driver, type DriverDeps } from "@ruukoto/agent/driver.ts";
 import { createHostDataFamily } from "@ruukoto/agent/host-tools.ts";
 import { hostCallFor, type HostToolFamily } from "@ruukoto/agent/host-tool-families.ts";
 import { parseSubAgentRole } from "@ruukoto/agent/subagent-roles.ts";
@@ -85,7 +85,7 @@ async function fixture(responder: Responder, opts: { ordinary?: boolean; tools?:
   let authorized = true;
   const forbiddenSessions = new Set<string>();
   const readableArtifacts = new Set<string>();
-  const driver = new Driver(child, { ...kit.deps, ledger: new ToolOpLedger(kit.store), historyIndex, sessionsDir: path.join(kit.dirs.dataDir, "sessions"),
+  const driverDeps: DriverDeps = { ...kit.deps, ledger: new ToolOpLedger(kit.store), historyIndex, sessionsDir: path.join(kit.dirs.dataDir, "sessions"),
     model: kit.model, thinkingLevel: "off", toolFactory: ({ router }) => createCodingTools(router),
     launcherFor: () => createLocalLauncher(), protectedRoots: [kit.dirs.dataDir], onOccupancyReleased: () => {},
     hostToolFamilies: [hostData, createSkillFamily(), ...(opts.families ?? [])],
@@ -95,8 +95,10 @@ async function fixture(responder: Responder, opts: { ordinary?: boolean; tools?:
       artifactAccess: (current, artifact) => artifact.taskId === current.id || readableArtifacts.has(artifact.id),
       historyAccess: (_current, sessionId) => !forbiddenSessions.has(sessionId),
     },
-  });
-  const execution = await driver.preflightSubAgent(authority, agent.definition!, { tools: opts.tools, workflow: !opts.ordinary });
+  };
+  const driver = new Driver(child, driverDeps);
+  const sourceDriver = new Driver(source, { ...driverDeps, workflow: undefined });
+  const execution = await sourceDriver.preflightSubAgent(authority, agent.definition!, { tools: opts.tools, workflow: !opts.ordinary }).catch(async error => { await sourceDriver.dispose(); await kit.close(); throw error; });
   kit.store.db.prepare("UPDATE tasks SET read_scope = ? WHERE id = ?").run(JSON.stringify({ paths: [], sourceRefs: [], execution }), task.id);
   const run = async () => {
     kit.store.transitionTask(task.id, ["queued"], "running");
@@ -104,7 +106,7 @@ async function fixture(responder: Responder, opts: { ordinary?: boolean; tools?:
     return kit.store.getTask(task.id)!;
   };
   return { ...kit, source, child, task, driver, run, forbiddenSessions, readableArtifacts, revoke: () => { authorized = false; },
-    execution, authority, async close() { await driver.dispose(); await kit.close(); } };
+    execution, authority, sourceDriver, async close() { await driver.dispose(); await sourceDriver.dispose(); await kit.close(); } };
 }
 
 test("真实 Driver 装配来源业务与技能，步骤自身的技能结果落盘且来源任务结束不影响执行", async () => {
@@ -262,9 +264,9 @@ test("预检缺少显式工具或步骤削减角色要求时拒绝，操作账�
   try {
     const required = parseSubAgentRole("shell", "---\ndescription: 运行检查\ntools: [bash]\n---\n执行要求。\n");
     const unknown = parseSubAgentRole("unknown", "---\ndescription: 核实能力\ntools: [missing-tool]\n---\n执行要求。\n");
-    await assert.rejects(k.driver.preflightSubAgent(k.authority, unknown), { code: "tools_unavailable" });
-    await assert.rejects(k.driver.preflightSubAgent(k.authority, required, { tools: ["read"] }), { code: "tools_unavailable" });
-    await assert.rejects(k.driver.preflightSubAgent(k.authority, agent.definition!, { tools: ["missing-tool"] }), { code: "tools_unavailable" });
+    await assert.rejects(k.sourceDriver.preflightSubAgent(k.authority, unknown), { code: "tools_unavailable" });
+    await assert.rejects(k.sourceDriver.preflightSubAgent(k.authority, required, { tools: ["read"] }), { code: "tools_unavailable" });
+    await assert.rejects(k.sourceDriver.preflightSubAgent(k.authority, agent.definition!, { tools: ["missing-tool"] }), { code: "tools_unavailable" });
     assert.equal(k.server.calls.length, 0);
     assert.equal(k.store.listToolOpsByTask(k.task.id).length, 0);
   } finally { await k.close(); }

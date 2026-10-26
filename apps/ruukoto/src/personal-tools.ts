@@ -1,7 +1,6 @@
 import { mediaArtifacts, type PersonalImageRegistrar } from "./personal-media.ts";
 import { imageMime } from "@ruukoto/agent/artifacts.ts";
 import { browserOperations } from "./personal-browser.ts";
-import { mcpOperations, mcpUnresolved } from "./personal-mcp.ts";
 /** 通用操作保存精确接纳与开始事实；safe 重放只返回原观察，不重新执行。
  * Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-tools-access-artifacts.md
  */
@@ -138,10 +137,7 @@ async function active(tx: Tx, value: PersonalToolOperation, profile: string) {
     if (!isDeepStrictEqual(current, pinned)) throw new PersonalError("tool_target_changed", "原文件或内容已变化，本次批准失效，未执行；请查询原操作。");
     if (value.approval === "unneeded" && value.origin.permission.mode !== "full_access" && !await within(tx, value.config!, pinned.path, pinned.access, profile)) throw new PersonalError("tool_permission_changed", "原资料不在当前允许范围，未执行；请查询原操作。");
   }
-  if (value.prepared.kind === "http") {
-    const endpoint = new URL(value.prepared.request.url).origin;
-    for (const other of await mcpOperations(tx)) if (mcpUnresolved(other) && !other.config.services.find(service => service.id === other.service)!.cua && new URL(other.config.services.find(service => service.id === other.service)!.endpoint!).origin === endpoint) throw new PersonalError("tool_target_busy", "原MCP端点仍有未核实请求，未发送HTTP；请查询原MCP操作。");
-  }
+
   const target = value.prepared.kind === "file" ? value.prepared.request.path : value.prepared.kind === "http" ? new URL(value.prepared.request.url).origin : "search";
   for (const other of await toolOperations(tx)) {
     if (other.operation === value.operation || !toolUnresolved(other)) continue;
@@ -368,7 +364,6 @@ export function personalTools(profile: string, configValue: PersonalToolsConfig 
     },
   };
 }
-
 export async function personalArtifactEntries(tx: Tx, conversationId = ROOT_CONVERSATION_ID) {
   const tools = (await toolOperations(tx)).filter(value => value.artifact && (conversationId === ROOT_CONVERSATION_ID || value.origin.conversationId === conversationId)).map(value => ({ artifact: value.artifact!, kind: value.kind as string, target: value.prepared.kind === "file" ? value.prepared.request.path : value.prepared.kind === "http" ? value.prepared.request.url : value.prepared.kind === "file_search" ? value.prepared.execution.request.cwd : "Web Search" }));
   const browser = (await browserOperations(tx)).filter(value => value.artifact && (conversationId === ROOT_CONVERSATION_ID || value.origin.conversationId === conversationId)).map(value => ({ artifact: value.artifact!, kind: "browser", target: "浏览器截图" }));
@@ -466,9 +461,4 @@ export async function verifyTools(tx: Tx, keys: string[], profile: string, tools
   }
   if (new Set(doc.grants.map(grant => grant.id)).size !== doc.grants.length || new Set(grants.map(entry => entry.data.id)).size !== doc.grants.length) throw invalid();
   for (const grant of doc.grants) { const entries = grants.filter(entry => entry.data.id === grant.id), latest = entries.at(-1); if (!latest || !isDeepStrictEqual(grant, { ...latest.data, entry: latest.id }) || entries.some((entry, index) => entry.data.version !== index + 1 || entry.data.revoked !== (index > 0) || entry.data.path !== grant.path || entry.data.dev !== grant.dev || entry.data.ino !== grant.ino) || entries.length > 2) throw invalid(); }
-}
-
-export async function requireToolEndpointReady(tx: Tx, endpoint: string) {
-  const origin = new URL(endpoint).origin;
-  if ((await toolOperations(tx)).some(value => value.prepared.kind === "http" && toolUnresolved(value) && new URL(value.prepared.request.url).origin === origin)) throw new PersonalError("tool_target_busy", "原HTTP端点仍有未核实请求，未调用MCP；请查询原工具操作。");
 }

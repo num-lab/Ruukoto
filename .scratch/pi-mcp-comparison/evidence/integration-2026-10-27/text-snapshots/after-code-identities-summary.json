@@ -1,0 +1,82 @@
+[
+  {
+    "identity": "code-subagent",
+    "callIndex": 1,
+    "toolSchemas": 6344,
+    "systemPrompt": 890,
+    "tools": [
+      "read",
+      "edit",
+      "write",
+      "bash",
+      "list_files",
+      "search_files",
+      "request_file_access",
+      "http_request",
+      "web_fetch",
+      "read_artifact",
+      "todo_write",
+      "history_search",
+      "history_read",
+      "memory_list",
+      "memory_read",
+      "memory_save",
+      "memory_revoke",
+      "web_search",
+      "subagent_message",
+      "skill",
+      "mcp__text__capture"
+    ],
+    "snapshot": "after-code-subagent-1.prompt.json"
+  },
+  {
+    "identity": "code-subagent",
+    "callIndex": 2,
+    "toolSchemas": 6344,
+    "systemPrompt": 890,
+    "tools": [
+      "read",
+      "edit",
+      "write",
+      "bash",
+      "list_files",
+      "search_files",
+      "request_file_access",
+      "http_request",
+      "web_fetch",
+      "read_artifact",
+      "todo_write",
+      "history_search",
+      "history_read",
+      "memory_list",
+      "memory_read",
+      "memory_save",
+      "memory_revoke",
+      "web_search",
+      "subagent_message",
+      "skill",
+      "mcp__text__capture"
+    ],
+    "snapshot": "after-code-subagent-2.prompt.json"
+  },
+  {
+    "identity": "code-workflow-direct",
+    "callIndex": 1,
+    "toolSchemas": 54,
+    "systemPrompt": 1074,
+    "tools": [
+      "mcp__text__capture"
+    ],
+    "snapshot": "after-code-workflow-direct-1.prompt.json"
+  },
+  {
+    "identity": "code-workflow-direct",
+    "callIndex": 2,
+    "toolSchemas": 54,
+    "systemPrompt": 1074,
+    "tools": [
+      "mcp__text__capture"
+    ],
+    "snapshot": "after-code-workflow-direct-2.prompt.json"
+  }
+]

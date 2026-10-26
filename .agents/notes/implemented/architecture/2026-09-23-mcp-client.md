@@ -2,6 +2,8 @@
 
 Status: implemented
 
+传输、命名、发现与SDK重建规则由[MCP宿主职责收缩](../simplification/2026-10-26-mcp-host-responsibilities.md)取代；本篇保留原决定，允许范围、秘密隔离、参数校验及未知写不重放继续成立。
+
 模型工具接口的后续决定见[按需工具发现](../feature/2026-10-25-code-tool-discovery.md)；本篇持久化与权限机制仍有效。
 
 Code 项目配置与凭据范围由[实例 MCP 方案](../../implemented/simplification/2026-10-24-code-instance-mcp.md)取代；本篇保留被取代的原决定，传输、允许列表、钉版与未知效果规则继续成立。

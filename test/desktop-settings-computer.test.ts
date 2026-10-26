@@ -60,6 +60,18 @@ test("电脑页添加默认固定 Cua 草稿，同名冲突只认电脑服务", 
   assert.equal(mcpState.conflictingService, null, "MCP 页的同名冲突不认领电脑服务");
 });
 
+test("Code 旧开始恢复操作在IPC拒绝，停止后直接使用合并观察", async () => {
+  let called = false;
+  const retired = await handleRequest("code", "mcp_cua_begin_recovery", {}, async () => {}, async () => { called = true; });
+  assert.equal(retired.ok, false); if (!retired.ok) assert.equal(retired.error.code, "op_not_allowed");
+  assert.equal(called, false);
+  const h = cuaSettingsFixture(); await h.state.read();
+  h.control.status = { ...h.control.status, state: "frozen", stopped: true, ownerStarted: false, observation: undefined };
+  await h.state.refreshCua(); await h.state.cuaAction("observe");
+  assert.equal(h.calls.filter(call => call.op === "mcp_cua_observe").length, 1);
+  assert.equal(h.calls.some(call => call.op === "mcp_cua_begin_recovery"), false);
+});
+
 test("Code Cua 正常设置选择固定程序，不走HTTP认证；缺安装、缺权限与保存拒绝保留草稿", async () => {
   const h = cuaSettingsFixture(); await h.state.read(); h.state.select(null);
   assert.equal(h.state.dirty, false, "未选择 Driver 前没有可保存的草稿");

@@ -137,6 +137,7 @@ class FakeTerminal implements Terminal {
   clearScreen(): void {}
   setTitle(): void {}
   setProgress(): void {}
+  setProgramStatus(): void {}
   send(...keys: string[]): void { for (const key of keys) this.input?.(key); }
 }
 
@@ -152,11 +153,11 @@ test("Jev 配置中心：选择凭据、披露数据发送、处理并发冲突�
     done = runConfigTui({ terminal, agentDir: t.dirs.agentDir, connect: { socketPath: t.runtime.socketPath(), token: readOwnerToken(t.runtime.controlDir())! } });
     await see("配置分区");
     terminal.send(down, enter);
-    await see("Web Search 启用");
+    await see("指令 ");
     const index = t.runtime.store.listProjects().findIndex((project) => project.id === projectId);
     terminal.send(...Array.from({ length: index }, () => down), enter);
     await see("Jev 上下文筛选实验");
-    terminal.send(down, down, enter);
+    terminal.send(down, enter);
     await see("普通账号的零保留未获保证");
     terminal.send(down, enter);
     await see("Jev 服务凭据");

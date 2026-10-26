@@ -87,6 +87,8 @@ sequenceDiagram
 2. **人工审查插入**：流程遇到 `ask` 步骤时自动切入 `waiting` 状态，待用户在 TUI 或 Web 端提交答案后自动恢复。
 3. **隔离验证与合入**：所有代码变更在独立工作目录中完成单元测试，验证成功后通过 `integrate` 安全合入。
 
+工作流具名 MCP 要求使用官方 `mcp__<server>__<tool>` 名称，启动模型前等注册完成并核实当前来源资格。旧发布定义与能力快照保持原内容；无法匹配的要求明确报出，更新定义后再发起新运行。
+
 ## 不变量与失败处理
 
 - **强类型依赖闭环**：步骤声明的 `dependsOn` 目标必须在同一次运行中存在且已登记；若前序依赖步骤失败，后续步骤自动跳过（skip），防止级联脏数据。
@@ -97,3 +99,4 @@ sequenceDiagram
 
 - [工作委托、SubAgent 与任务](../../.agents/notes/implemented/architecture/2026-10-03-work-delegation-subagent-task.md)
 - [Coding Agent 的原生受限执行](../../.agents/notes/implemented/architecture/2026-10-10-native-execution-sandbox.md)
+- [MCP 宿主职责收缩](../../.agents/notes/implemented/simplification/2026-10-26-mcp-host-responsibilities.md)：官方工具名称与必需能力前置核实。

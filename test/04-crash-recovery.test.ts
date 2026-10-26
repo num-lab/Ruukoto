@@ -173,12 +173,15 @@ test("首次 assistant 消息前崩溃：不宣布消息已持久化，请求保
     const detail = await taskStatus(backend.client, task.id);
     assert.equal(detail.task.status, "interrupted", "重启后标为中断");
     assert.equal(detail.task.input, "SLOWFIRST:第一个请求", "已接收请求必须保留");
-    // 会话从未落盘：不得伪造任何历史
+    // Pi 可先保存用户与系统条目；崩溃恢复不能补造尚未收到的 assistant。
     const snap = await backend.client.handshake();
     const sessionRec = snap.snapshot.sessions.find((s: any) => s.id === sessionId);
     const sessionFile = sessionRec?.sessionFile ?? null;
     if (sessionFile) {
-      assert.ok(!fsSync.existsSync(sessionFile), "首次响应前崩溃不得产生会话文件");
+      if (fsSync.existsSync(sessionFile)) {
+        const entries = fsSync.readFileSync(sessionFile, "utf8").trim().split("\n").map(line => JSON.parse(line));
+        assert.ok(entries.every(entry => entry.message?.role !== "assistant"), "首次响应前崩溃不得补造 assistant 消息");
+      }
     }
     // 拥有者恢复队列后可继续使用该会话（新任务正常执行）
     await backend.client.request("resume_queue", { session_id: sessionId });

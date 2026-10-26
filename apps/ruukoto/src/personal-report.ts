@@ -54,7 +54,7 @@ async function membersStopped(tx: Tx, ref: PersonalDelegationRef) {
 
 async function requireReportReady(tx: Tx, ref: PersonalDelegationRef) {
   await membersStopped(tx, ref);
-  await requirePersonalDelegationReady(tx, ref);
+  await requirePersonalDelegationReady(tx, ref, true);
 }
 
 function canceled(reader: DocumentObserver, ref: PersonalDelegationRef, context: Context) {
@@ -93,10 +93,14 @@ function personalReportTask(im?: PersonalImAccess) { return defineTask<ReportInp
           await runtime.commit(async tx => {
             const { value, report } = await reportFacts(tx, ref, current.id);
             if (value.cancelRequested) { report.delivery = "canceled"; stop = true; return { status: "terminal", outcome: { status: "completed", result: { delivery: "canceled" } } }; }
-            blocker = await personalDelegationBlocker(tx, value);
+            blocker = await personalDelegationBlocker(tx, value, true);
             if (!blocker) {
               try { await requireReportReady(tx, ref); } catch (error) {
                 if (!(error instanceof PersonalError) || !["report_stop_unverified", "delegation_source_inactive", "delegation_canceled"].includes(error.code)) throw error;
+                if (error.code === "report_stop_unverified") {
+                  const members = await Promise.all(value.members.map(member => tx.task(member.taskId)));
+                  if (members.some(member => member?.state.status !== "terminal")) { stop = true; return { status: "waiting", checkpoint: { phase: "summarize", attempt: report.attempt }, on: value.members.map(member => member.taskId), policy: "allSettled" }; }
+                }
                 stop = true; report.delivery = error.code === "report_stop_unverified" ? "blocked" : "canceled";
                 return { status: "terminal", outcome: { status: "failed", error: { message: error.message, detail: { code: error.code } }, result: { delivery: report.delivery } } };
               }
@@ -111,7 +115,7 @@ function personalReportTask(im?: PersonalImAccess) { return defineTask<ReportInp
           try {
             const changed = new Promise<void>(resolve => { watch.start(async () => { resolve(); }); void watch.closed.then(() => resolve()); });
             let stillBlocked = false;
-            await runtime.commit(async tx => { stillBlocked = isDeepStrictEqual(await personalDelegationBlocker(tx, await personalDelegation(tx, ref)), blocker); return undefined; }, context);
+            await runtime.commit(async tx => { stillBlocked = isDeepStrictEqual(await personalDelegationBlocker(tx, await personalDelegation(tx, ref), true), blocker); return undefined; }, context);
             if (stillBlocked) await Promise.race([changed, cancel.promise]);
           } finally { await watch.stop(); }
         }
@@ -163,7 +167,7 @@ function personalReportTask(im?: PersonalImAccess) { return defineTask<ReportInp
         const { value, report } = await reportFacts(tx, ref, current.id);
         const currentConfig = personalEntryConfig(await tx.doc(PersonalTelegramDoc), source ?? {});
         if (value.cancelRequested || value.telegram && im && !im.isActive(value.telegram) || (value.telegram && (!isDeepStrictEqual(config, currentConfig) || !config?.enabled || config.generation !== value.telegram.generation || config.botId !== value.telegram.botId || config.ownerId !== value.telegram.ownerId))) { report.delivery = "canceled"; return { status: "terminal", outcome: { status: "completed", result: { delivery: "canceled" } } }; }
-        if (await personalDelegationBlocker(tx, value)) return { status: "running", checkpoint: { phase: "summarize", attempt: report.attempt } };
+        if (await personalDelegationBlocker(tx, value, true)) return { status: "running", checkpoint: { phase: "summarize", attempt: report.attempt } };
         if (!value.telegram) { report.delivery = "local"; return { status: "terminal", outcome: { status: "completed", result: { delivery: "local" } } }; }
         const receipt = await personalSourceImReceipt(tx, value.source.requestId);
         if (!receipt || !report.reply || report.delivery !== "pending") throw new PersonalError("report_send_invalid", "报告固定目标或正文缺失，已停止发送；请保留档案。");
@@ -240,7 +244,7 @@ export async function personalReportRequest(tx: Tx) {
         if (attempt !== report.attempt || live.run.inputs.length !== 1 || value.cancelRequested || task.abortRequested || task.state.status === "terminal") return new PersonalError("report_inactive", "报告已停止，未继续请求；请查询原委托。");
         try { await requireReportReady(tx, ref); } catch (error) {
           if (!(error instanceof PersonalError)) throw error;
-          if (error.code === "work_source_paused" && !report.pauses[attempt]) report.pauses[attempt] = (await tx.appendEntry(ReportPause, ROOT_CONVERSATION_ID, { data: { taskId: task.id, attempt, submissionId: submission.id, blocker: (await personalDelegationBlocker(tx, value))! } })).id;
+          if (error.code === "work_source_paused" && !report.pauses[attempt]) report.pauses[attempt] = (await tx.appendEntry(ReportPause, ROOT_CONVERSATION_ID, { data: { taskId: task.id, attempt, submissionId: submission.id, blocker: (await personalDelegationBlocker(tx, value, true))! } })).id;
           return error;
         }
       }

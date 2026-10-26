@@ -2,6 +2,8 @@
 
 Status: implemented
 
+旧SDK执行、发现限额与跨重启原流核实由[MCP宿主职责收缩](../simplification/2026-10-26-mcp-host-responsibilities.md)取代；共享传输改用Pi MCP。宿主resolver归属、钉源、秘密隔离与取消不证明远端停止继续成立，本篇保留原决定。
+
 [Cua 接入](2026-10-23-cua-official-mcp.md)增加受控stdio和逐调用证据钩子；目标绑定、持续连接与恢复由产品承担，普通HTTP接口和语义保持。
 
 ## 问题

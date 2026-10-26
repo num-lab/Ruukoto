@@ -81,7 +81,7 @@ async function fixture(t: TestContext, directory = temp(t), legacy = false) {
   return { directory, model, baseUrl, env: { RUUKOTO_PERSONAL_DIR: directory, R38_MODEL_KEY: "test-only" } };
 }
 
-test("个人正式与开发实际 import 图不加载旧运行装配，双 Pi 版本独立解析", async () => {
+test("个人正式与开发实际 import 图不加载旧运行装配，两产品固定同版 Pi 并保持独立运行装配", async () => {
   for (const entry of ["main", "dev"]) {
     const result = await build({ entryPoints: [`apps/ruukoto/src/${entry}.ts`], bundle: true, platform: "node", format: "esm", write: false, metafile: true,
       plugins: [{ name: "workspace-only", setup(builder) { builder.onResolve({ filter: /^[^./]/ }, args => args.path.startsWith("@ruukoto/") ? undefined : { path: args.path, external: true }); } }] });
@@ -95,10 +95,10 @@ test("个人正式与开发实际 import 图不加载旧运行装配，双 Pi �
   };
   const personal = await resolve("apps/ruukoto"), coding = await resolve("packages/agent");
   assert.equal(personal.version, "1.3.0");
-  assert.equal(coding.version, "0.85.1");
-  assert.notEqual(personal.module, coding.module);
-  assert.equal((await resolve("apps/ruukoto-code")).version, "0.85.1");
-  for (const [name, version] of [["pi-durable", "1.3.0"], ["pi-coding-agent", "0.85.1"]]) {
+  assert.equal(coding.version, "1.3.0");
+  assert.equal(personal.module, coding.module);
+  assert.equal((await resolve("apps/ruukoto-code")).version, "1.3.0");
+  for (const [name, version] of [["pi-durable", "1.3.0"], ["pi-coding-agent", "1.3.0"]]) {
     assert.equal(JSON.parse(fs.readFileSync(path.join(root, "node_modules/@earendil-works", name, "package.json"), "utf8")).version, version);
   }
   const manifest = JSON.parse(fs.readFileSync(path.join(root, "apps/ruukoto/package.json"), "utf8"));
@@ -228,14 +228,12 @@ test("原生 watch 在源码重载前等待旧个人后台释放锁，忽略继�
   fs.cpSync(path.join(root, "apps/ruukoto/src"), path.join(repo, "apps/ruukoto/src"), { recursive: true });
   fs.writeFileSync(path.join(repo, "package.json"), '{"type":"module"}\n');
   fs.symlinkSync(path.join(root, "node_modules"), path.join(repo, "node_modules"));
-  // Pi 1.3.0 随个人 app 单独解析，不从 Coding 的根版本取对象。
-  fs.symlinkSync(path.join(root, "apps/ruukoto/node_modules"), path.join(repo, "apps/ruukoto/node_modules"));
   const directory = personalDevDirectory(repo, home), f = await fixture(t, directory);
   const watched = child(t, ["--import", "tsx", path.join(repo, "apps/ruukoto/src/dev.ts")], { ...f.env, HOME: home, RUUKOTO_PERSONAL_DIR: daily });
   await ready(directory, watched.process, watched.output);
   const token = fs.readFileSync(path.join(directory, "control.token"), "utf8");
   fs.appendFileSync(path.join(repo, "apps/ruukoto/src/dev.ts"), "\n// 重载验证。\n");
-  await until(() => fs.readFileSync(path.join(directory, "control.token"), "utf8") !== token);
+  await until(() => fs.readFileSync(path.join(directory, "control.token"), "utf8") !== token).catch(error => { t.diagnostic(watched.output()); throw error; });
   await ready(directory, watched.process, watched.output);
   assert.doesNotMatch(watched.output(), /profile_busy|停止未核实/);
   assert.deepEqual(fs.readdirSync(daily), []);

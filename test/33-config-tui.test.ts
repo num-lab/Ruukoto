@@ -1122,12 +1122,14 @@ test("ruukoto-code：工作区详情列出关联旧资料与原配置入口；�
   }
 });
 
-test("Code Cua 配置TUI从固定程序创建停用服务，恢复图片未能打开时不提供接受动作", async context => {
+test("Code Cua 配置TUI从固定程序创建停用服务，合并观察且未打开图片不提供接受动作", async context => {
   const t = await startTestRuntime("cfg-cua", textResponder, { config: { product: codeProduct.runtime } });
   const config = { kind: "cua-mac" as const, executable: "/Applications/Cua.app/Contents/MacOS/cua-driver", version: "0.38.0" as const, sha256: "a".repeat(64) };
   const targets = { targets: [{ label: "本机 Cua Driver 0.38.0", config }], issues: [] };
   context.mock.method(t.runtime, "mcpCuaTargets", async () => targets);
-  context.mock.method(t.runtime, "mcpCuaStatus", () => ({ state: "recovering", stopped: true, ownerStarted: true, original: { opId: "unknown", taskId: "missing-task", sessionId: "original-session", toolName: "click", effect: "write", state: "frozen" }, observation: { id: "new-observation", artifactIds: ["missing-image"] } }));
+  let status: ReturnType<typeof t.runtime.mcpCuaStatus> = { state: "frozen", stopped: true, ownerStarted: false, original: { opId: "unknown", taskId: "missing-task", sessionId: "original-session", toolName: "click", effect: "write", state: "frozen" } };
+  context.mock.method(t.runtime, "mcpCuaStatus", () => status);
+  const observes = context.mock.method(t.runtime, "mcpCuaObserve", async () => { status = { ...status, state: "recovering", ownerStarted: true, observation: { id: "new-observation", artifactIds: ["missing-image"] } }; return status; });
   const accepts = context.mock.method(t.runtime, "mcpCuaAccept");
   try {
     const h = startConfig(t, { product: "ruukoto-code" });
@@ -1139,9 +1141,12 @@ test("Code Cua 配置TUI从固定程序创建停用服务，恢复图片未能�
       await waitForText(h.terminal, "电脑服务已保存为停用状态");
       const { services } = await t.client.request<{ services: { enabled: boolean; cua: typeof config; toolAllowlist: unknown[]; credential: null }[] }>("mcp_list", {});
       assert.equal(services.length, 1); assert.deepEqual(services[0].cua, config); assert.equal(services[0].enabled, false); assert.deepEqual(services[0].toolAllowlist, []); assert.equal(services[0].credential, null);
-      h.terminal.send(DOWN + ENTER); await waitForText(h.terminal, "打开当前新截图");
+      h.terminal.send(DOWN + ENTER); await waitForText(h.terminal, "检查并恢复");
+      assert.equal(h.terminal.output().includes("已检查结果，开始只读恢复"), false);
+      h.terminal.send(DOWN.repeat(2) + ENTER); await waitForText(h.terminal, "打开当前新截图");
+      assert.equal(observes.mock.callCount(), 1);
       assert.equal(h.terminal.output().includes("接受已查看的新截图"), false);
-      h.terminal.send(DOWN.repeat(3) + ENTER); await waitForText(h.terminal, "任务不存在");
+      h.terminal.send(DOWN + ENTER); await waitForText(h.terminal, "任务不存在");
       assert.equal(h.terminal.output().includes("接受已查看的新截图"), false);
       assert.equal(accepts.mock.callCount(), 0);
     } finally { assert.equal(await h.quit(), 0); }

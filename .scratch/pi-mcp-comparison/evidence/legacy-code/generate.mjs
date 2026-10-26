@@ -1,0 +1,50 @@
+/** 用真实旧 0.85.1 Code 运行图生成隔离历史；不会写正式档案。 */
+import fs from 'node:fs';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { createRequire } from 'node:module';
+const source = process.argv[2];
+const require = createRequire(path.join(source, 'package.json'));
+const installed = path.join(path.dirname(require.resolve('@earendil-works/pi-coding-agent')), '..', 'package.json');
+assert.equal(JSON.parse(fs.readFileSync(installed, 'utf8')).version, '0.85.1');
+const fromSource = name => import(pathToFileURL(path.join(source, name)).href);
+const { startTestRuntime, createProjectSession, waitFor, taskStatus } = await fromSource('test/helpers/testkit.ts');
+const { withMcpDiscovery, startMockMcp } = await fromSource('test/helpers/mock-mcp.ts');
+const { product } = await fromSource('apps/ruukoto-code/src/product.ts');
+const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==';
+const mcp = await startMockMcp({ tools: [{ name: 'capture', result: { content: [{ type: 'text', text: '旧版原文：图前' }, { type: 'image', data: png, mimeType: 'image/png' }, { type: 'text', text: '旧版原文：图后' }] } }] });
+const t = await startTestRuntime('old-085-jsonl', withMcpDiscovery((_request, index) => index === 0 ? { kind: 'tool_calls', calls: [{ id: 'old-capture', name: 'mcp_mock_capture', arguments: {} }] } : { kind: 'text', text: '旧版终结' }), { config: { product: product.runtime } });
+const resolve = t.runtime.models.current.modelCatalog.resolve.bind(t.runtime.models.current.modelCatalog);
+t.runtime.models.current.modelCatalog.resolve = async selection => ({ ...await resolve(selection), input: ['text', 'image'] });
+let stopped = false;
+try {
+  const { sessionId } = await createProjectSession(t.client, t.work[0]);
+  await t.client.request('mcp_configure', { name: 'mock', endpoint: mcp.url, credential: null, tool_allowlist: ['capture'] });
+  const task = await t.client.request('submit', { model_selection: { provider: 'mock', modelId: 'mock-model', thinkingLevel: 'off' }, session_id: sessionId, request_id: 'old-history', input: '读取旧版截图' });
+  await waitFor('旧版任务终结', async () => ['completed', 'failed', 'interrupted', 'canceled'].includes((await taskStatus(t.client, task.id)).task.status));
+  const result = await taskStatus(t.client, task.id);
+  assert.equal(result.task.status, 'completed');
+  const session = t.runtime.store.getSession(sessionId), file = session.sessionFile;
+  const bytes = fs.readFileSync(file);
+  assert.match(bytes.toString(), /mcp_mock_capture/);
+  assert.match(bytes.toString(), /ruukotoMediaRef/);
+  assert.ok(!bytes.includes(Buffer.from(png)));
+  const image = t.runtime.store.listArtifactsByTask(task.id).find(artifact => artifact.mimeType === 'image/png');
+  assert.ok(image);
+  assert.ok(JSON.stringify(t.server.calls).includes(`data:image/png;base64,${png}`));
+  t.client.close();
+  await t.runtime.stop('old-history-frozen');
+  stopped = true;
+  await t.server.close();
+  await mcp.close();
+  const descriptor = { version: '0.85.1', dirs: t.dirs, work: t.work, session, taskId: task.id, file, bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex'), image, png, oldMcpPosts: mcp.hits.filter(hit => hit.rpcMethod === 'tools/call').length };
+  fs.writeFileSync('/tmp/ruukoto-code-review-old-history.json', JSON.stringify(descriptor, null, 2) + '\n');
+  fs.writeFileSync('/tmp/ruukoto-code-review-085.jsonl', bytes);
+  fs.copyFileSync(path.join(t.dirs.dataDir, 'artifacts', `${image.id}.bin`), '/tmp/ruukoto-code-review-085.png');
+  console.log(JSON.stringify({ descriptor: '/tmp/ruukoto-code-review-old-history.json', file, bytes: descriptor.bytes, sha256: descriptor.sha256, imageId: image.id, oldMcpPosts: descriptor.oldMcpPosts }));
+} finally {
+  if (!stopped) await t.shutdown();
+  await mcp.close();
+}

@@ -224,13 +224,13 @@ export class CodeMcpState implements SettingsForm {
     if (!this.accepts(generation)) return;
     this.checking = false; this.changed();
   }
-  async cuaAction(action: "stop" | "begin" | "observe" | "accept", serviceId?: string): Promise<void> {
+  async cuaAction(action: "stop" | "observe" | "accept", serviceId?: string): Promise<void> {
     if (this.disabled || this.dirty || this.cuaUnknown || action === "accept" && !this.canAcceptCua) return;
     const observationId = this.cuaStatus?.observation?.id;
     const generation = ++this.generation; this.checking = true; this.cuaImages = []; this.cuaError = "";
     if (action === "observe" && this.cuaStatus) { this.invalidatedObservation = observationId ?? null; this.cuaStatus = { ...this.cuaStatus, observation: undefined }; }
     this.changed();
-    const operation = { stop: "mcp_cua_stop", begin: "mcp_cua_begin_recovery", observe: "mcp_cua_observe", accept: "mcp_cua_accept" }[action];
+    const operation = { stop: "mcp_cua_stop", observe: "mcp_cua_observe", accept: "mcp_cua_accept" }[action];
     const result = await this.request<CuaStatus>(operation, action === "accept" ? { observation_id: observationId } : action === "stop" && serviceId ? { service_id: serviceId } : {});
     if (!this.accepts(generation)) return;
     if (result.ok) await this.adoptCua(result.value, generation);

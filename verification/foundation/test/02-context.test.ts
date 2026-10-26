@@ -44,7 +44,7 @@ test("context 事件过滤早期消息，磁盘原文完整保留", async () => 
 
     // 磁盘保留全部原文（6 条消息 = 3 轮 × 2）
     const entries = await readSessionFile(s.sessionFile());
-    const messages = entries.filter((e) => e.type === "message");
+    const messages = entries.filter((e) => e.type === "message" && (e.message as { role?: unknown })?.role !== "system");
     assert.equal(messages.length, 6, "磁盘会话文件必须保留全部原文");
     const userTexts = messages
       .filter((e) => (e.message as any).role === "user")
@@ -53,7 +53,7 @@ test("context 事件过滤早期消息，磁盘原文完整保留", async () => 
     assert.ok(userTexts.some((t) => t.includes("beta")), "第二轮原文必须完整保留在磁盘");
 
     // 进程内历史同样完整（非破坏性过滤）
-    assert.equal(s.session.messages.length, 6, "扩展过滤不得修改会话历史");
+    assert.equal(s.session.messages.filter(message => message.role !== "system").length, 6, "扩展过滤不得修改对话历史");
 
     // 最后一轮模型输入确实包含第三轮问题（配对完整，无孤儿消息）
     const lastCall = seenMessageCounts[seenMessageCounts.length - 1];

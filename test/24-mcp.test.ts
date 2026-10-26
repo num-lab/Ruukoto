@@ -239,7 +239,7 @@ test("mcp：任务内发现与只读调用（经真实宿主路径，凭据注�
     ],
   });
   const responder: Responder = async (_req, callIndex) => {
-    if (callIndex === 0) return { kind: "tool_calls", calls: [{ id: "c1", name: "mcp_mock_get_me", arguments: {} }] };
+    if (callIndex === 0) return { kind: "tool_calls", calls: [{ id: "c1", name: "mcp__mock__get_me", arguments: {} }] };
     return { kind: "text", text: "完成" };
   };
   const t = await startTestRuntime("mcp-run", responder);
@@ -250,9 +250,9 @@ test("mcp：任务内发现与只读调用（经真实宿主路径，凭据注�
     const done = await submitAndWait(t, sessionId, "r1", "查一下我是谁");
     assert.equal(done.task.status, "completed");
 
-    // 模型可见工具：mcp_mock_get_me 注册；未允许的 create_issue 不注册（伪造只读标注无效）
+    // 模型可见工具：mcp__mock__get_me 注册；未允许的 create_issue 不注册（伪造只读标注无效）
     const offered = offeredToolNames(t, 1);
-    assert.ok(offered.includes("mcp_mock_get_me"), `应注册 mcp_mock_get_me：${offered.join(",")}`);
+    assert.ok(offered.includes("mcp__mock__get_me"), `应注册 mcp__mock__get_me：${offered.join(",")}`);
     assert.ok(!offered.some((n) => n.includes("create_issue")), "未允许的工具不得注册");
 
     // 远端实际收到：initialize + tools/list + tools/call 各一次，均带凭据
@@ -264,8 +264,8 @@ test("mcp：任务内发现与只读调用（经真实宿主路径，凭据注�
     assert.ok(mcp.hits.every((h) => h.hasAuth), "所有请求必须携带凭据");
 
     // 操作记录与结果：isError=false，模型看到头部与正文
-    const op = done.toolOps.find((o: any) => o.toolName === "mcp_mock_get_me");
-    assert.ok(op, "应有 mcp_mock_get_me 操作记录");
+    const op = done.toolOps.find((o: any) => o.toolName === "mcp__mock__get_me");
+    assert.ok(op, "应有 mcp__mock__get_me 操作记录");
     assert.equal(op.isError, false);
     const seen = toolResultTexts(t).join("\n");
     assert.ok(seen.includes("[mcp｜mock/get_me]"), "结果应带服务/工具来源头");
@@ -278,41 +278,44 @@ test("mcp：任务内发现与只读调用（经真实宿主路径，凭据注�
   }
 });
 
-test("mcp：分页发现、重名与不支持 schema 的处理", async () => {
+test("mcp：分页发现、官方命名与 schema 校验；合法大定义可调用", async () => {
   const mcp = await startMockMcp({
     pageSize: 2,
     tools: [
       { name: "get_me", result: { content: [{ type: "text", text: "me" }] } },
       { name: "list_repos", result: { content: [{ type: "text", text: "repos" }] } },
-      // 转义后同名：get me → get_me，与 get_me 冲突 → 后者禁用
+      // 特殊字符工具名由 Pi 命名，不保留宿主转义策略。
       { name: "get me", result: { content: [{ type: "text", text: "dup" }] } },
-      // 超过 schema 大小上限：SDK 接受（合法 object schema），客户端明确禁用
-      { name: "bad_schema", inputSchema: { type: "object", properties: { pad: { type: "string", description: "x".repeat(20000) } } } },
+      { name: "bad_schema", inputSchema: { type: "string" } },
+      { name: "large_schema", inputSchema: { type: "object", properties: { pad: { type: "string", description: "x".repeat(20000) } } }, result: { content: [{ type: "text", text: "large" }] } },
       { name: "extra", description: "未允许" },
     ],
   });
   const responder: Responder = async (_req, callIndex) => {
-    if (callIndex === 0) return { kind: "tool_calls", calls: [{ id: "c1", name: "mcp_mock_list_repos", arguments: {} }] };
+    if (callIndex === 0) return { kind: "tool_calls", calls: [{ id: "c1", name: "mcp__mock__list_repos", arguments: {} }] };
+    if (callIndex === 1) return { kind: "tool_calls", calls: [{ id: "c2", name: "mcp__mock__large_schema", arguments: { pad: "ok" } }] };
     return { kind: "text", text: "完成" };
   };
   const t = await startTestRuntime("mcp-pages", responder);
   try {
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
-    await configureMockService(t, mcp, { allowlist: ["get_me", "list_repos", "get me", "bad_schema"], credential: false });
+    await configureMockService(t, mcp, { allowlist: ["get_me", "list_repos", "get me", "bad_schema", "large_schema"], credential: false });
 
     const done = await submitAndWait(t, sessionId, "r1", "列出仓库");
     assert.equal(done.task.status, "completed");
 
-    // 分页：pageSize=2，5 个工具 → 3 页
+    // 分页：pageSize=2，6 个工具 → 3 页
     assert.equal(mcp.hits.filter((h) => h.rpcMethod === "tools/list").length, 3);
 
     const offered = offeredToolNames(t, 1);
-    assert.ok(!offered.includes("mcp_mock_get_me"), "未命中的工具保持延迟");
-    assert.equal(offered.filter((n) => n === "mcp_mock_list_repos").length, 1);
-    assert.ok(!offered.includes("mcp_mock_bad_schema"), "不支持的 schema 不得注册");
+    assert.ok(!offered.includes("mcp__mock__get_me"), "未命中的工具保持延迟");
+    assert.equal(offered.filter((n) => n === "mcp__mock__list_repos").length, 1);
+    assert.ok(!offered.includes("mcp__mock__bad_schema"), "不支持的 schema 不得注册");
     assert.ok(!offered.some((n) => n.includes("extra")), "未允许的工具不得注册");
+    assert.ok(offeredToolNames(t, t.server.calls.length - 1).includes("mcp__mock__large_schema"));
+    assert.deepEqual(mcp.hits.filter(hit => hit.rpcMethod === "tools/call").map(hit => hit.toolName), ["list_repos", "large_schema"]);
 
-    const op = done.toolOps.find((o: any) => o.toolName === "mcp_mock_list_repos");
+    const op = done.toolOps.find((o: any) => o.toolName === "mcp__mock__list_repos");
     assert.ok(op && !op.isError);
   } finally {
     await t.shutdown();
@@ -331,7 +334,7 @@ test("mcp：参数校验失败不发送网络请求", async () => {
     ],
   });
   const responder: Responder = async (_req, callIndex) => {
-    if (callIndex === 0) return { kind: "tool_calls", calls: [{ id: "c1", name: "mcp_mock_get_file", arguments: {} }] };
+    if (callIndex === 0) return { kind: "tool_calls", calls: [{ id: "c1", name: "mcp__mock__get_file", arguments: {} }] };
     return { kind: "text", text: "完成" };
   };
   const t = await startTestRuntime("mcp-badparams", responder);
@@ -362,7 +365,7 @@ test("mcp：结构化结果、isError 与传输错误的区分", async () => {
       { name: "broken", rpcError: { code: -32603, message: "backend exploded" } },
     ],
   });
-  const calls = ["mcp_mock_get_pr", "mcp_mock_failing", "mcp_mock_broken"];
+  const calls = ["mcp__mock__get_pr", "mcp__mock__failing", "mcp__mock__broken"];
   const responder: Responder = async (req) => {
     const toolResults = (req.messages as any[]).filter((m) => m.role === "tool").length;
     if (toolResults < calls.length) {
@@ -383,9 +386,9 @@ test("mcp：结构化结果、isError 与传输错误的区分", async () => {
     assert.ok(seen.includes("远端工具执行错误"), "isError 应标注为工具执行错误");
     assert.ok(seen.includes("仓库不存在"), "isError 保留远端说明");
 
-    const opOk = done.toolOps.find((o: any) => o.toolName === "mcp_mock_get_pr");
-    const opToolErr = done.toolOps.find((o: any) => o.toolName === "mcp_mock_failing");
-    const opTransport = done.toolOps.find((o: any) => o.toolName === "mcp_mock_broken");
+    const opOk = done.toolOps.find((o: any) => o.toolName === "mcp__mock__get_pr");
+    const opToolErr = done.toolOps.find((o: any) => o.toolName === "mcp__mock__failing");
+    const opTransport = done.toolOps.find((o: any) => o.toolName === "mcp__mock__broken");
     assert.equal(opOk.isError, false);
     assert.equal(opToolErr.isError, true, "isError 保留");
     assert.ok(opToolErr.resultSummary.includes("远端工具执行错误"));
@@ -416,8 +419,8 @@ test("mcp：超大结果入产物、不支持内容类型明确说明", async ()
   });
   const responder: Responder = async (req) => {
     const toolResults = (req.messages as any[]).filter((m) => m.role === "tool").length;
-    if (toolResults === 0) return { kind: "tool_calls", calls: [{ id: "c0", name: "mcp_mock_big", arguments: {} }] };
-    if (toolResults === 1) return { kind: "tool_calls", calls: [{ id: "c1", name: "mcp_mock_with_image", arguments: {} }] };
+    if (toolResults === 0) return { kind: "tool_calls", calls: [{ id: "c0", name: "mcp__mock__big", arguments: {} }] };
+    if (toolResults === 1) return { kind: "tool_calls", calls: [{ id: "c1", name: "mcp__mock__with_image", arguments: {} }] };
     return { kind: "text", text: "完成" };
   };
   const t = await startTestRuntime("mcp-big", responder);
@@ -450,7 +453,7 @@ const MCP_PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8D
 test("mcp 图片：结构化文字预览超限有提示和产物，图片不被截断", async () => {
   const structuredContent = { rows: Array.from({ length: 7000 }, () => 1) };
   const mcp = await startMockMcp({ tools: [{ name: "capture", result: { content: [{ type: "image", data: MCP_PNG, mimeType: "image/png" }], structuredContent } }] });
-  const t = await startTestRuntime("mcp-image-text-cap", (_request, index) => index === 0 ? { kind: "tool_calls", calls: [{ id: "capture", name: "mcp_mock_capture", arguments: {} }] } : { kind: "text", text: "完成" });
+  const t = await startTestRuntime("mcp-image-text-cap", (_request, index) => index === 0 ? { kind: "tool_calls", calls: [{ id: "capture", name: "mcp__mock__capture", arguments: {} }] } : { kind: "text", text: "完成" });
   const resolve = t.runtime.models.current.modelCatalog.resolve.bind(t.runtime.models.current.modelCatalog);
   t.runtime.models.current.modelCatalog.resolve = async selection => ({ ...await resolve(selection), input: ["text", "image"] });
   try {
@@ -469,7 +472,7 @@ for (const variant of ["pure", "mixed", "error", "invalid", "disk"] as const) {
     const image = { type: "image", data: variant === "invalid" ? "aGVsbG8=" : MCP_PNG, mimeType: "image/png" };
     const content = variant === "mixed" ? [{ type: "text", text: "图前" }, image, { type: "text", text: "图间" }, image, { type: "text", text: "图后" }] : [image];
     const mcp = await startMockMcp({ tools: [{ name: "capture", result: { content, isError: variant === "error" } }] });
-    const t = await startTestRuntime("mcp-images", (_request, index) => index === 0 ? { kind: "tool_calls", calls: [{ id: "capture", name: "mcp_mock_capture", arguments: {} }] } : { kind: "text", text: "已看原图" });
+    const t = await startTestRuntime("mcp-images", (_request, index) => index === 0 ? { kind: "tool_calls", calls: [{ id: "capture", name: "mcp__mock__capture", arguments: {} }] } : { kind: "text", text: "已看原图" });
     const resolve = t.runtime.models.current.modelCatalog.resolve.bind(t.runtime.models.current.modelCatalog);
     t.runtime.models.current.modelCatalog.resolve = async selection => ({ ...await resolve(selection), input: ["text", "image"] });
     if (variant === "disk") t.runtime.artifacts.importImage = () => { throw new ArtifactWriteError("fixture"); };
@@ -479,17 +482,18 @@ for (const variant of ["pure", "mixed", "error", "invalid", "disk"] as const) {
       const done = await submitAndWait(t, sessionId, "image", "看图");
       assert.equal(done.task.status, "completed");
       const history = parseSessionFile(t.runtime.store.getSession(sessionId)!.sessionFile!);
-      const message = history.find(entry => entry.type === "message" && (entry.message as any)?.role === "toolResult" && (entry.message as any)?.toolName === "mcp_mock_capture")!.message as any;
+      const message = history.find(entry => entry.type === "message" && (entry.message as any)?.role === "toolResult" && (entry.message as any)?.toolName === "mcp__mock__capture")!.message as any;
       const failed = variant === "invalid" || variant === "disk";
       assert.equal(message.isError, variant === "error" || failed);
       assert.deepEqual(message.content.slice(1).map((part: any) => part.type), failed ? ["text"] : content.map(part => part.type));
       assert.ok(!JSON.stringify(message).includes(MCP_PNG), "JSONL 只保留图片引用");
       const images = message.content.filter((part: any) => part.type === "image");
       assert.equal(images.length, failed ? 0 : variant === "mixed" ? 2 : 1);
-      assert.equal(done.toolOps.find((op: any) => op.toolName === "mcp_mock_capture")!.effectUnknown, false, "完整应答后的图片失败不得改成效果未知");
-      const capture = done.toolOps.find((op: any) => op.toolName === "mcp_mock_capture")!;
+      assert.equal(done.toolOps.find((op: any) => op.toolName === "mcp__mock__capture")!.effectUnknown, false, "完整应答后的图片失败不得改成效果未知");
+      const capture = t.runtime.store.getToolOp(done.toolOps.find((op: any) => op.toolName === "mcp__mock__capture")!.id)!;
       const event = eventsOf(t, "task.tool_result").find(event => event.taskId === done.task.id && event.toolOpId === capture.id)!;
-      assert.deepEqual(event.artifactIds, images.map((part: any) => part.ruukotoMediaRef.artifactId));
+      assert.ok(capture.mcp && "transport" in capture.mcp);
+      assert.deepEqual(event.artifactIds, [capture.mcp.resultArtifactId, ...images.map((part: any) => part.ruukotoMediaRef.artifactId)]);
       if (failed) {
         assert.match(toolResultTexts(t).join("\n"), /原工具应答已收到.*勿因缺图重试原动作/);
         assert.equal(mcp.hits.filter(hit => hit.rpcMethod === "tools/call").length, 1);
@@ -547,7 +551,7 @@ test("mcp：调用超时与断线（不自动重试）", async () => {
   const slow = await startMockMcp({ tools: [{ name: "slow", delayMs: 5000 }] });
   const t = await startTestRuntime("mcp-timeout", async (req) => {
     const toolResults = (req.messages as any[]).filter((m) => m.role === "tool").length;
-    if (toolResults === 0) return { kind: "tool_calls", calls: [{ id: "c0", name: "mcp_mock_slow", arguments: {} }] };
+    if (toolResults === 0) return { kind: "tool_calls", calls: [{ id: "c0", name: "mcp__mock__slow", arguments: {} }] };
     return { kind: "text", text: "完成" };
   }, { config: { mcp: { callTimeoutMs: 300 } } });
   try {
@@ -555,7 +559,7 @@ test("mcp：调用超时与断线（不自动重试）", async () => {
     await configureMockService(t, slow, { allowlist: ["slow"], credential: false });
     const done = await submitAndWait(t, sessionId, "r1", "调用慢工具");
     assert.equal(done.task.status, "completed");
-    const op = done.toolOps.find((o: any) => o.toolName === "mcp_mock_slow");
+    const op = done.toolOps.find((o: any) => o.toolName === "mcp__mock__slow");
     assert.equal(op.isError, true);
     assert.ok(op.resultSummary.includes("超时"), `应标注超时：${op.resultSummary}`);
     assert.equal(slow.hits.filter((h) => h.rpcMethod === "tools/call").length, 1, "超时不自动重试");
@@ -567,7 +571,7 @@ test("mcp：调用超时与断线（不自动重试）", async () => {
   const dropping = await startMockMcp({ tools: [{ name: "fragile" }], dropOnCall: true });
   const t2 = await startTestRuntime("mcp-drop", async (req) => {
     const toolResults = (req.messages as any[]).filter((m) => m.role === "tool").length;
-    if (toolResults === 0) return { kind: "tool_calls", calls: [{ id: "c0", name: "mcp_mock_fragile", arguments: {} }] };
+    if (toolResults === 0) return { kind: "tool_calls", calls: [{ id: "c0", name: "mcp__mock__fragile", arguments: {} }] };
     return { kind: "text", text: "完成" };
   });
   try {
@@ -575,7 +579,7 @@ test("mcp：调用超时与断线（不自动重试）", async () => {
     await configureMockService(t2, dropping, { allowlist: ["fragile"], credential: false });
     const done = await submitAndWait(t2, sessionId, "r1", "调用会断线的工具");
     assert.equal(done.task.status, "completed");
-    const op = done.toolOps.find((o: any) => o.toolName === "mcp_mock_fragile");
+    const op = done.toolOps.find((o: any) => o.toolName === "mcp__mock__fragile");
     assert.equal(op.isError, true);
     assert.equal(dropping.hits.filter((h) => h.rpcMethod === "tools/call").length, 1, "断线不自动重放调用");
   } finally {
@@ -586,7 +590,7 @@ test("mcp：调用超时与断线（不自动重试）", async () => {
 
 test("mcp：任务取消中断在途调用并回收连接", async () => {
   const mcp = await startMockMcp({ tools: [{ name: "slow", delayMs: 30_000 }] });
-  const t = await startTestRuntime("mcp-cancel", async () => ({ kind: "tool_calls", calls: [{ id: "c0", name: "mcp_mock_slow", arguments: {} }] }));
+  const t = await startTestRuntime("mcp-cancel", async () => ({ kind: "tool_calls", calls: [{ id: "c0", name: "mcp__mock__slow", arguments: {} }] }));
   try {
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
     await configureMockService(t, mcp, { allowlist: ["slow"], credential: false });
@@ -598,7 +602,7 @@ test("mcp：任务取消中断在途调用并回收连接", async () => {
       return ["interrupted", "canceled"].includes(s.task.status);
     });
     const done = await taskStatus(t.client, task.id);
-    const op = done.toolOps.find((o: any) => o.toolName === "mcp_mock_slow");
+    const op = done.toolOps.find((o: any) => o.toolName === "mcp__mock__slow");
     assert.ok(op, "在途调用有操作记录");
     assert.equal(mcp.hits.filter((h) => h.rpcMethod === "tools/call").length, 1, "取消后不重发");
   } finally {
@@ -614,7 +618,7 @@ test("mcp：任务间工具刷新（允许列表变化 → 下一任务生效）
       { name: "tool_b", result: { content: [{ type: "text", text: "B" }] } },
     ],
   });
-  const responder: Responder = async req => req.messages.at(-1)?.role === "user" ? { kind: "tool_calls", calls: [{ id: "find", name: "search_tools", arguments: { query: "mcp_mock", limit: 20 } }] } : { kind: "text", text: "完成" };
+  const responder: Responder = async req => req.messages.at(-1)?.role === "user" ? { kind: "tool_calls", calls: [{ id: "find", name: "tool_search", arguments: { query: "mock", limit: 20 } }] } : { kind: "text", text: "完成" };
   const t = await startTestRuntime("mcp-refresh", responder);
   try {
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
@@ -623,10 +627,10 @@ test("mcp：任务间工具刷新（允许列表变化 → 下一任务生效）
     const first = await submitAndWait(t, sessionId, "r1", "第一个任务");
     assert.equal(first.task.status, "completed");
     const offeredFirst = offeredToolNames(t, 1);
-    assert.ok(offeredFirst.includes("mcp_mock_tool_a"));
-    assert.ok(!offeredFirst.includes("mcp_mock_tool_b"), "新增工具不得进入既有任务");
+    assert.ok(offeredFirst.includes("mcp__mock__tool_a"));
+    assert.ok(!offeredFirst.includes("mcp__mock__tool_b"), "新增工具不得进入既有任务");
 
-    // 拥有者扩大允许列表 → 下一任务生效（SDK 会话重建）
+    // 官方注册表更新只在下一任务取得新的授权清单。
     await t.client.request("mcp_configure", {
       name: "mock",
       endpoint: mcp.url,
@@ -636,7 +640,7 @@ test("mcp：任务间工具刷新（允许列表变化 → 下一任务生效）
     const second = await submitAndWait(t, sessionId, "r2", "第二个任务");
     assert.equal(second.task.status, "completed");
     const offeredSecond = offeredToolNames(t, t.server.calls.length - 1);
-    assert.ok(offeredSecond.includes("mcp_mock_tool_b"), "新工具从下一任务生效");
+    assert.ok(offeredSecond.includes("mcp__mock__tool_b"), JSON.stringify({ message: "新工具从下一任务生效", offeredSecond, ops: second.toolOps, events: eventsOf(t, "mcp.service_unavailable") }));
   } finally {
     await t.shutdown();
     await mcp.close();
@@ -648,11 +652,11 @@ test("mcp：运行中禁用服务 → 后续调用立即阻止且不发请求", 
   let serviceId = "";
   const responder: Responder = async (req) => {
     const toolResults = (req.messages as any[]).filter((m) => m.role === "tool").length;
-    if (toolResults === 0) return { kind: "tool_calls", calls: [{ id: "c0", name: "mcp_mock_get_me", arguments: {} }] };
+    if (toolResults === 0) return { kind: "tool_calls", calls: [{ id: "c0", name: "mcp__mock__get_me", arguments: {} }] };
     if (toolResults === 1) {
       // 第二次调用前等待拥有者禁用服务（确定性时序）
       await waitFor("服务已禁用", () => t.runtime.mcp.getService(serviceId)?.enabled === false);
-      return { kind: "tool_calls", calls: [{ id: "c1", name: "mcp_mock_get_me", arguments: {} }] };
+      return { kind: "tool_calls", calls: [{ id: "c1", name: "mcp__mock__get_me", arguments: {} }] };
     }
     return { kind: "text", text: "完成" };
   };
@@ -666,7 +670,7 @@ test("mcp：运行中禁用服务 → 后续调用立即阻止且不发请求", 
     // 第一次调用落盘后禁用服务
     await waitFor("第一次调用完成", async () => {
       const s = await taskStatus(t.client, submit.id);
-      return s.toolOps.some((o: any) => o.toolName === "mcp_mock_get_me" && !o.isError);
+      return s.toolOps.some((o: any) => o.toolName === "mcp__mock__get_me" && !o.isError);
     });
     await t.client.request("mcp_set_enabled", { service_id: serviceId, enabled: false });
 
@@ -676,7 +680,7 @@ test("mcp：运行中禁用服务 → 后续调用立即阻止且不发请求", 
     });
     const final = await taskStatus(t.client, submit.id);
     assert.equal(final.task.status, "completed");
-    const ops = final.toolOps.filter((o: any) => o.toolName === "mcp_mock_get_me");
+    const ops = final.toolOps.filter((o: any) => o.toolName === "mcp__mock__get_me");
     assert.equal(ops.length, 2);
     assert.equal(ops[0].isError, false);
     assert.equal(ops[1].isError, true, "禁用后调用被阻止");
@@ -692,10 +696,10 @@ test("mcp：运行中撤销凭据 → 后续调用失败且不再发出认证请
   const mcp = await startMockMcp({ requireAuth: true, tools: [{ name: "get_me", result: { content: [{ type: "text", text: "me" }] } }] });
   const responder: Responder = async (req) => {
     const toolResults = (req.messages as any[]).filter((m) => m.role === "tool").length;
-    if (toolResults === 0) return { kind: "tool_calls", calls: [{ id: "c0", name: "mcp_mock_get_me", arguments: {} }] };
+    if (toolResults === 0) return { kind: "tool_calls", calls: [{ id: "c0", name: "mcp__mock__get_me", arguments: {} }] };
     if (toolResults === 1) {
-      await waitFor("凭据已撤销", () => !t.runtime.credentials.get("mcp-cred-mock"));
-      return { kind: "tool_calls", calls: [{ id: "c1", name: "mcp_mock_get_me", arguments: {} }] };
+      t.runtime.credentials.remove("mcp-cred-mock");
+      return { kind: "tool_calls", calls: [{ id: "c1", name: "mcp__mock__get_me", arguments: {} }] };
     }
     return { kind: "text", text: "完成" };
   };
@@ -707,20 +711,18 @@ test("mcp：运行中撤销凭据 → 后续调用失败且不再发出认证请
     const submit = await t.client.request<any>("submit", { model_selection: MODEL, session_id: sessionId, request_id: "r1", input: "调用两次" });
     await waitFor("第一次调用完成", async () => {
       const s = await taskStatus(t.client, submit.id);
-      return s.toolOps.some((o: any) => o.toolName === "mcp_mock_get_me" && !o.isError);
+      return s.toolOps.some((o: any) => o.toolName === "mcp__mock__get_me" && !o.isError);
     });
-    t.runtime.credentials.remove("mcp-cred-mock");
-
     await waitFor("任务终态", async () => {
       const s = await taskStatus(t.client, submit.id);
       return ["completed", "failed", "interrupted", "canceled"].includes(s.task.status);
     });
     const final = await taskStatus(t.client, submit.id);
-    const ops = final.toolOps.filter((o: any) => o.toolName === "mcp_mock_get_me");
-    assert.equal(ops.length, 2);
+    const ops = final.toolOps.filter((o: any) => o.toolName === "mcp__mock__get_me");
+    assert.equal(ops.length, 2, "保存已发调用与撤销后拒绝的调用意图");
+    assert.equal(ops[1].isError, true);
+    assert.match(ops[1].resultSummary, /凭据/);
     assert.equal(ops[0].isError, false);
-    assert.equal(ops[1].isError, true, "撤销后调用失败");
-    assert.ok(ops[1].resultSummary.includes("认证") || ops[1].resultSummary.includes("凭据"), `应说明认证失败：${ops[1].resultSummary}`);
     assert.equal(mcp.hits.filter((h) => h.rpcMethod === "tools/call").length, 1, "凭据撤销后不再发出请求");
     assert.ok(!JSON.stringify(final.toolOps).includes(SECRET));
   } finally {
@@ -734,8 +736,8 @@ test("mcp：跨工作区共享认证服务与第二服务同一路径", async ()
   const mcpB = await startMockMcp({ tools: [{ name: "get_time", result: { content: [{ type: "text", text: "from-B" }] } }] });
   const responder: Responder = async (req) => {
     const text = JSON.stringify(req.messages.at(-1)?.content ?? "");
-    if (text.includes("用B")) return { kind: "tool_calls", calls: [{ id: "cb", name: "mcp_alt_get_time", arguments: {} }] };
-    if (text.includes("用A")) return { kind: "tool_calls", calls: [{ id: "ca", name: "mcp_mock_get_me", arguments: {} }] };
+    if (text.includes("用B")) return { kind: "tool_calls", calls: [{ id: "cb", name: "mcp__alt__get_time", arguments: {} }] };
+    if (text.includes("用A")) return { kind: "tool_calls", calls: [{ id: "ca", name: "mcp__mock__get_me", arguments: {} }] };
     return { kind: "text", text: "完成" };
   };
   const t = await startTestRuntime("mcp-xproj", responder);
@@ -767,18 +769,18 @@ test("mcp：跨工作区共享认证服务与第二服务同一路径", async ()
     assert.equal(mcpB.hits.filter((h) => h.rpcMethod === "tools/call").length, 1, "第二服务走同一发现/调用路径");
     assert.equal(doneB.task.status, "completed");
     // 并发下按请求内容定位项目 B 的模型调用（其输入为"用A 查询"）
-    const bCall = t.server.calls.slice(callsBefore).find((c: any) => JSON.stringify(c.messages).includes("用A 查询") && (c.tools ?? []).some((tool: any) => tool.function?.name === "mcp_mock_get_me"));
+    const bCall = t.server.calls.slice(callsBefore).find((c: any) => JSON.stringify(c.messages).includes("用A 查询") && (c.tools ?? []).some((tool: any) => tool.function?.name === "mcp__mock__get_me"));
     const offeredB = ((bCall?.tools ?? []) as any[]).map((x) => String(x?.function?.name ?? x?.name ?? ""));
     assert.ok(bCall, "应有项目 B 的模型调用");
-    assert.ok(offeredB.includes("mcp_mock_get_me"), "另一工作区也能发现并使用实例服务工具");
+    assert.ok(offeredB.includes("mcp__mock__get_me"), "另一工作区也能发现并使用实例服务工具");
     assert.equal(mcpA.hits.filter((h) => h.rpcMethod === "tools/call").length, 2, "第二工作区可使用同一认证服务");
     await t.client.request("mcp_set_enabled", { service_id: shared.id, enabled: false, expected_version: shared.configVersion });
     for (const [index, session] of [a, b].entries()) {
       const before = t.server.calls.length;
       const stopped = await submitAndWait(t, session.sessionId, `disabled-${index}`, "用A 查询");
       assert.equal(stopped.task.status, "completed");
-      assert.ok(stopped.toolOps.every((op: any) => op.toolName !== "mcp_mock_get_me" || op.isError));
-      assert.ok(t.server.calls.slice(before).every(call => !(call.tools ?? []).some((tool: any) => (tool.function?.name ?? tool.name) === "mcp_mock_get_me")));
+      assert.ok(stopped.toolOps.every((op: any) => op.toolName !== "mcp__mock__get_me" || op.isError));
+      assert.ok(t.server.calls.slice(before).every(call => !(call.tools ?? []).some((tool: any) => (tool.function?.name ?? tool.name) === "mcp__mock__get_me")));
     }
     assert.equal(mcpA.hits.filter((h) => h.rpcMethod === "tools/call").length, 2, "实例停用阻止两个工作区后续调用");
   } finally {
@@ -851,11 +853,11 @@ test("mcp：未搜索的延迟工具不计入上下文预算", async () => {
 
 // ---------- 后台重启（真实子进程 + SIGKILL，helpers/backend.ts） ----------
 
-test("mcp：后台崩溃重启 —— 在途调用标 effect_unknown，不重放", async () => {
+test("mcp：后台崩溃重启 —— 只读调用记失败且不重放", async () => {
   const mcp = await startMockMcp({ tools: [{ name: "slow", delayMs: 30_000 }] });
   const modelServer = new MockModelServer(withMcpDiscovery(async () => ({
     kind: "tool_calls",
-    calls: [{ id: "c0", name: "mcp_mock_slow", arguments: {} }],
+    calls: [{ id: "c0", name: "mcp__mock__slow", arguments: {} }],
   })));
   const baseUrl = await modelServer.start();
   const root = await mkdtemp(path.join(tmpdir(), "ruukoto-it-mcp-crash-"));
@@ -903,9 +905,9 @@ test("mcp：后台崩溃重启 —— 在途调用标 effect_unknown，不重放
     const s = await taskStatus(backend.client, task.id);
     assert.equal(s.task.status, "interrupted");
     assert.equal(s.task.interruptReason, "backend_restart");
-    const op = s.toolOps.find((o: any) => o.toolName === "mcp_mock_slow");
+    const op = s.toolOps.find((o: any) => o.toolName === "mcp__mock__slow");
     assert.ok(op, "在途调用有操作记录");
-    assert.equal(op.effectUnknown, true, "结果未落盘的在途调用标 effect_unknown");
+    assert.equal(op.effectUnknown, false, "只读中止不产生未知写入效果");
     assert.equal(mcp.hits.filter((h) => h.rpcMethod === "tools/call").length, 1, "重启不重放已发出的调用");
   } finally {
     backend.client.close();
@@ -919,7 +921,7 @@ test("mcp：后台崩溃重启 —— 在途调用标 effect_unknown，不重放
 test("mcp：断连重放保留服务变更与工具活动事件（脱敏）", async () => {
   const mcp = await startMockMcp({ tools: [{ name: "get_me", result: { content: [{ type: "text", text: "me" }] } }] });
   const responder: Responder = async (_req, callIndex) => {
-    if (callIndex === 0) return { kind: "tool_calls", calls: [{ id: "c1", name: "mcp_mock_get_me", arguments: {} }] };
+    if (callIndex === 0) return { kind: "tool_calls", calls: [{ id: "c1", name: "mcp__mock__get_me", arguments: {} }] };
     return { kind: "text", text: "完成" };
   };
   const t = await startTestRuntime("mcp-reconnect", responder);
@@ -955,6 +957,7 @@ test("mcp：声明的结构化输出被校验（不匹配即失败）", async ()
       {
         name: "typed",
         inputSchema: { type: "object", properties: {} },
+        outputSchema: { type: "object", properties: { count: { $ref: "#/$defs/Count" } }, required: ["count"], $defs: { Count: { type: "number" } } },
         result: { content: [{ type: "text", text: "typed ok" }], structuredContent: { count: 1 } },
       },
       {
@@ -968,8 +971,8 @@ test("mcp：声明的结构化输出被校验（不匹配即失败）", async ()
   });
   const responder: Responder = async (req) => {
     const toolResults = (req.messages as any[]).filter((m) => m.role === "tool").length;
-    if (toolResults === 0) return { kind: "tool_calls", calls: [{ id: "c0", name: "mcp_mock_typed", arguments: {} }] };
-    if (toolResults === 1) return { kind: "tool_calls", calls: [{ id: "c1", name: "mcp_mock_lying", arguments: {} }] };
+    if (toolResults === 0) return { kind: "tool_calls", calls: [{ id: "c0", name: "mcp__mock__typed", arguments: {} }] };
+    if (toolResults === 1) return { kind: "tool_calls", calls: [{ id: "c1", name: "mcp__mock__lying", arguments: {} }] };
     return { kind: "text", text: "完成" };
   };
   const t = await startTestRuntime("mcp-outschema", responder);
@@ -978,8 +981,8 @@ test("mcp：声明的结构化输出被校验（不匹配即失败）", async ()
     await configureMockService(t, mcp, { allowlist: ["typed", "lying"], credential: false });
     const done = await submitAndWait(t, sessionId, "r1", "调用两个工具");
     assert.equal(done.task.status, "completed");
-    const opOk = done.toolOps.find((o: any) => o.toolName === "mcp_mock_typed");
-    const opBad = done.toolOps.find((o: any) => o.toolName === "mcp_mock_lying");
+    const opOk = done.toolOps.find((o: any) => o.toolName === "mcp__mock__typed");
+    const opBad = done.toolOps.find((o: any) => o.toolName === "mcp__mock__lying");
     assert.equal(opOk.isError, false);
     assert.ok(toolResultTexts(t).join("\n").includes('"count": 1'), "匹配的结构化结果正常返回");
     assert.equal(opBad.isError, true, "结构化输出与声明 outputSchema 不匹配即失败");

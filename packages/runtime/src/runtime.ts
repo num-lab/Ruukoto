@@ -182,7 +182,6 @@ import {
 import { GIT_SAFE_DIRECTORY_ENV,grantCoversPath,resolveWorktreeCommonGitDir,taskWorkspaceFor } from "@ruukoto/core/worktree.ts";
 import { ParentDelivery, workflowWakeInput, workflowReport } from "@ruukoto/runtime/parent-delivery.ts";
 import { RuntimeAgentWait, agentWaitGroupTargets, agentWaitTargetsReady } from "./agent-wait.ts";
-import { createSearchToolsFamily } from "@ruukoto/agent/search-tools.ts";
 import { AgentWaitError, agentWaitView, agentReportKey, bindAgentReportFallback, consumeAgentReport, getAgentReport, registerAgentReport, isAgentReportFallback, isAgentReportParked,
   completeAgentReports, finishAgentReportFallback, invalidateAgentReports, parkAgentReportFallback, transferAgentReportFallbacks, latestAgentReferenceSnapshot, listAgentReports, listAgentWaits, recoverAgentWaits, releaseAgentReports, sameAgentReportSource, startAgentReportFallback,
   type AgentReport, type AgentReportCompletion, type AgentReportTarget, type AgentWaitTarget } from "@ruukoto/core/agent-wait.ts";
@@ -890,7 +889,7 @@ export class Runtime {
     runtime.subagents = new SubAgentManager({
       store: runtime.store,
       roles: () => loadSubAgentRoleLibrary(fullConfig.agentDir),
-      source: taskId => runtime.workflowSource(taskId, false, true),
+      source: taskId => { const task = runtime.store.getTask(taskId); if (task && runtime.mcpSourceBlocked(task)) throw new SubAgentExecutionError("effect_unknown", "原来源存在未知 MCP 效果；请查询原工作，不能重新委派业务。"); return runtime.workflowSource(taskId, false, true); },
       verifySource: source => runtime.verifyWorkflowSource(source),
       preflight: async (source, definition) => (await runtime.getDriver(runtime.store.getSession(source.sessionId)!)).preflightSubAgent(source, definition),
       workRoot: path.join(path.dirname(path.resolve(fullConfig.dataDir)), "agent-work", "sub-agents"),
@@ -925,7 +924,7 @@ export class Runtime {
         roles: () => loadSubAgentRoleLibrary(fullConfig.agentDir),
         ledger: runtime.ledger,
         workRoot: path.join(path.dirname(path.resolve(fullConfig.dataDir)), "agent-work", "workflow-agents"),
-        source: taskId => runtime.workflowSource(taskId), selection: taskId => runtime.store.getTask(taskId)!.modelSelection!,
+        source: taskId => { const task = runtime.store.getTask(taskId); if (task && runtime.mcpSourceBlocked(task)) throw new WorkflowError("effect_unknown"); return runtime.workflowSource(taskId); }, selection: taskId => runtime.store.getTask(taskId)!.modelSelection!,
         verifySource: source => runtime.verifyWorkflowSource(source), agent: fullConfig.workflowAgent ?? (context => runtime.workflowSteps.agent(context)),
         ...(fullConfig.workflowAgent ? {} : { preflight: async (source, definition, options) => (await runtime.getDriver(runtime.store.getSession(source.sessionId)!)).preflightSubAgent(source, definition, options) }),
         integrate: fullConfig.workflowIntegrate ?? (context => runtime.workflowSteps.integrate(context)),
@@ -1101,10 +1100,40 @@ export class Runtime {
       execution: this.config.execution, service: this.config.service ?? null, servicePolicy, appInstance: this.appDataStore?.getInstanceId() ?? null });
   }
 
+  /** 未知 MCP 效果冻结原输入的自动业务；新拥有者输入拥有独立来源。 */
+  private mcpSourceBlocked(task: Task): boolean {
+    const roots = new Set<string>();
+    const pending = [task.id];
+    while (pending.length) {
+      const id = pending.pop()!;
+      if (roots.has(id)) continue;
+      roots.add(id);
+      const current = this.store.getTask(id);
+      if (!current) continue;
+      if (current.parentTaskId) pending.push(current.parentTaskId);
+      if (current.resumesTaskId) pending.push(current.resumesTaskId);
+      const work = current.workId ? this.store.getWorkDelegation(current.workId) : null;
+      if (work) pending.push(work.originTaskId);
+      const inherited = current.readScope?.execution?.source.taskId;
+      if (inherited) pending.push(inherited);
+      const execution = getWorkflowExecution(this.store, id);
+      if (execution) pending.push(requireWorkflowRun(this.store, execution.runId).source.taskId);
+    }
+    const placeholders = [...roots].map(() => "?").join(",");
+    return !!this.store.db.prepare(`WITH RECURSIVE lineage(id) AS (
+      SELECT id FROM tasks WHERE id IN (${placeholders})
+      UNION SELECT child.id FROM tasks child JOIN lineage parent ON child.parent_task_id = parent.id
+        OR child.resumes_task_id = parent.id
+        OR json_extract(child.read_scope, '$.execution.source.taskId') = parent.id
+        OR child.work_id IN (SELECT id FROM work_delegations WHERE origin_task_id = parent.id)
+      ) SELECT 1 FROM tool_ops op JOIN lineage ON lineage.id = op.task_id WHERE op.effect_unknown = 1 AND op.mcp IS NOT NULL LIMIT 1`).get(...roots);
+  }
+
   private verifyWorkflowSource(source: WorkflowSource, finalReport = false): boolean {
     const task = this.store.getTask(source.taskId);
     const session = this.store.getSession(source.sessionId);
     const identity = this.store.getSessionIdentity(source.sessionId);
+    if (task && !finalReport && this.mcpSourceBlocked(task)) return false;
     if (this.stopping || source.product !== this.productType || !task || task.sessionId !== source.sessionId || task.permissionVersion !== source.permissionVersion || task.accessMode !== source.accessMode || !isDeepStrictEqual(task.grantedPaths, source.grantedPaths) || !session || session.projectId !== source.projectId ||
         !identity || !["dev", "main", "scheduled"].includes(identity.kind)) return false;
     try {
@@ -1604,6 +1633,7 @@ export class Runtime {
   async startWorkflowTask(input: WorkflowLaunch & { taskId: string; requestKey: string }) {
     const task = this.store.getTask(input.taskId);
     if (!task) throw new WorkflowError("source_missing");
+    if (this.mcpSourceBlocked(task)) throw new WorkflowError("effect_unknown");
     const digest = workflowLaunchDigest(input), old = this.workflowReplay(task.sessionId, input.requestKey, digest);
     if (old) return this.getWorkflowDetail(old.id);
     if (this.stopping || !this.workflows) throw new WorkflowError("runtime_unavailable");
@@ -3382,7 +3412,7 @@ export class Runtime {
       this.assertCodeScheduleSelection(run, input);
       if (old.effectUnknown || this.store.listToolOpsByTask(old.id).some(op => op.effectUnknown)) throw new RuntimeApiError("schedule_recovery_required", "本轮有未知操作效果；请在 Scheduled 核对记录后仅恢复未来周期。");
     }
-    if (this.store.listToolOpsByTask(old.id).some(op => op.mcp && op.effectUnknown)) throw new RuntimeApiError("cua_task_not_replayable", "电脑操作结果未知的旧任务不能继续；请完成电脑恢复后发起新工作。");
+    if (this.mcpSourceBlocked(old)) throw new RuntimeApiError("mcp_task_not_replayable", "原来源存在未知 MCP 效果，不能继续原业务；请查询原结果并以独立新输入建立工作。");
     if (getWorkflowExecution(this.store, old.id)) throw new RuntimeApiError("invalid_state", "工作流执行由运行恢复，不接受普通任务继续");
     if (workCopyHostFor(old)) throw new RuntimeApiError("invalid_state", "宿主工作副本操作不能作为模型任务继续；请核实保留现场后重新发起工作");
     if (input.sessionId !== undefined && input.sessionId !== old.sessionId) throw new RuntimeApiError("invalid_params", "源任务不属于指定会话");
@@ -3747,7 +3777,6 @@ export class Runtime {
   mcpCuaStatus() { return this.cuaManager.status(); }
   mcpCuaTargets() { return discoverCuaTargets("cua-mac"); }
   mcpCuaStop(serviceId?: string) { return this.cuaManager.stop(serviceId); }
-  mcpCuaBeginRecovery() { return this.cuaManager.beginRecovery(); }
   mcpCuaObserve() { return this.cuaManager.observe(); }
   mcpCuaAccept(observationId: string) { return this.cuaManager.accept(observationId); }
 
@@ -4079,7 +4108,6 @@ export class Runtime {
       }),
     });
     this.hostToolFamilies = [
-      createSearchToolsFamily(),
       createBackgroundProcessFamily(this.store),
       createAgentWaitFamily(),
       createBrowserFamily({ store: this.store, artifacts: this.artifacts, manager: this.browserManager,
@@ -4239,7 +4267,7 @@ export class Runtime {
         jev: this.config.jev,
         compaction: this.config.compaction,
         mcp: { store: this.mcp, cua: this.cuaManager, ...this.config.mcp },
-        allowTaskTool: (task, name) => !getWorkflowDeliveryRun(this.store, task.id) && !isAgentReportFallback(this.store, task.id) && this.githubEvents.allowTool(task, name),
+        allowTaskTool: (task, name) => (!this.mcpSourceBlocked(task) || !name.startsWith("mcp__") && this.ledger.hasNoWriteEffect({ toolName: name, params: {} })) && !getWorkflowDeliveryRun(this.store, task.id) && !isAgentReportFallback(this.store, task.id) && this.githubEvents.allowTool(task, name),
         browser: { allowed: task => this.browserAllowed(task), close: sessionId => this.browserManager.close(sessionId) },
         verifyTask: task => {
           const sourceProblem = this.verifySubAgentSource(task);

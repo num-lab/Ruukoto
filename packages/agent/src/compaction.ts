@@ -128,8 +128,7 @@ export async function generateRollingSummary(opts: {
         undefined,
         async (m, c, o) => {
           if (!opts.manual) return opts.modelRuntime.streamSimple(m, c, o);
-          const fullNeed = estimateMessageTokens({ role: "user", content: c.systemPrompt ?? "" }, calibration) +
-            c.messages.reduce((total, message) => total + estimateMessageTokens(message, calibration), 0);
+          const fullNeed = c.messages.reduce((total, message) => total + estimateMessageTokens(message, calibration), 0);
           if (fullNeed > inputBudget) throw new SummaryFailure("summary_input_budget_exceeded", `摘要请求估算 ${fullNeed} 超过输入预算 ${inputBudget}`);
           if (controller.signal.aborted) throw new SummaryFailure("summary_canceled", "摘要已取消");
           const stream = opts.modelRuntime.streamSimple(m, c, o);

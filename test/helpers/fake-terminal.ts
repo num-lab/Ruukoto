@@ -8,6 +8,7 @@ export class FakeTerminal implements Terminal {
   columns = 100;
   rows = 30;
   readonly kittyProtocolActive = false;
+  cursorVisible = false;
   private written: string[] = [];
   private onInput: ((data: string) => void) | null = null;
   private onResize: (() => void) | null = null;
@@ -19,15 +20,17 @@ export class FakeTerminal implements Terminal {
   async drainInput(): Promise<void> {}
   write(data: string): void {
     this.written.push(data);
+    for (const match of data.matchAll(/\x1b\[\?25([hl])/g)) this.cursorVisible = match[1] === "h";
   }
   moveBy(): void {}
-  hideCursor(): void {}
-  showCursor(): void {}
+  hideCursor(): void { this.cursorVisible = false; }
+  showCursor(): void { this.cursorVisible = true; }
   clearLine(): void {}
   clearFromCursor(): void {}
   clearScreen(): void {}
   setTitle(): void {}
   setProgress(): void {}
+  setProgramStatus(): void {}
   resize(columns: number, rows: number): void {
     this.columns = columns;
     this.rows = rows;

@@ -44,8 +44,8 @@ import * as dns from "node:dns";
 import { ToolWorkerHost } from "./tool-worker/host.ts";
 import type { DataStream } from "./tool-worker/protocol.ts";
 import { allowlistEffectFor, type McpStore } from "./mcp/store.ts";
-import { canonicalParamsDigest, formatMcpResult, type McpTaskPlan, type PlannedTool } from "./mcp/tools.ts";
-import { isMcpCredential, McpError } from "./mcp/client.ts";
+import { canonicalParamsDigest, formatMcpResult, type McpToolInfo } from "./mcp/tools.ts";
+import { isMcpCredential, mcpCredentialDigest, McpError } from "./mcp/client.ts";
 import { mcpResponseEnded } from "./mcp/transport.ts";
 import { cuaToolEffect } from "./mcp/cua.ts";
 import type { CodeCuaManager } from "./mcp/code.ts";
@@ -94,7 +94,10 @@ export interface ToolRouterDeps {
     cua?: CodeCuaManager;
     supportsImages?: (task: Task) => Promise<boolean>;
     /** 当前任务钉版的 MCP 计划（Driver 在任务边界设置；null = 本任务无 MCP 工具）。 */
-    plan(): McpTaskPlan | null;
+    tool(name: string): McpToolInfo | undefined;
+    verifyCall(task: Task, name: string): string | null;
+    call(params: Record<string, unknown>, hooks: import("./mcp/transport.ts").McpCallHooks): Promise<import("./mcp/transport.ts").CallToolResult>;
+    evidence(): import("./mcp/transport.ts").McpCallEvidence | undefined;
   };
 }
 
@@ -716,11 +719,12 @@ export class ToolRouter {
    */
   private async executeMcpOp(task: Task, input: RoutedCallInput): Promise<RoutedCallOutput> {
     const mcp = this.deps.mcp;
-    const meta = mcp?.plan()?.tools.get(input.name);
+    const meta = mcp?.tool(input.name);
     if (!mcp || !meta) return textResult(`未知工具：${input.name}`, true);
 
+    if (canonicalParamsDigest(input.params) !== canonicalParamsDigest(this.deps.store.getToolOp(input.hostOpId)!.params)) return textResult("MCP 参数在意图登记后已改变；该请求未发送。", true);
     // 调用前重读当前配置与凭据绑定：禁用/撤销/版本变化/移出允许列表立即阻止
-    const blocked = this.mcpConfigBlock(mcp.store, meta);
+    const blocked = this.mcpConfigBlock(mcp.store, meta, task);
     if (blocked) return textResult(blocked, true);
     if (meta.service.cua && !await mcp.supportsImages?.(task)) return textResult("当前模型不支持图片，电脑操作未发送；请拥有者选择支持图片的模型后发起新工作。", true);
 
@@ -744,26 +748,26 @@ export class ToolRouter {
     // 获批后复核：批准等待期间的配置/凭据变化使旧批准失效（不消费、不发送，
     // 操作按已知未执行记录）。服务配置与批准消费在同一 SQLite 事务内核对；
     // 凭据绑定在消费前核对、发送时由 getForUse 再核对一次（撤销即时生效）。
-    const approvalInput: ApprovalRequest<void> = { task, hostOpId: input.hostOpId, toolName: input.name, params: input.params, scope, signal: input.signal, recheck: () => this.mcpConfigBlock(mcp.store, meta) };
-    if (meta.service.cua) {
-      const deferred = await this.deps.approvals.defer(approvalInput);
-      if (!deferred.approved) return textResult(deferred.text, true);
-      return this.mcpSend(mcp, task, meta, deferred.params, input, operation => {
-        const consumed = this.deps.approvals.consumeDeferred({ ...approvalInput, commit: () => this.deps.store.saveMcpOperation(input.hostOpId, operation) }, deferred.confirmationId);
-        if (!consumed.approved) throw new McpError("cua_authorization_invalid", consumed.text);
-      });
-    }
-    const approval = await this.deps.approvals.request(approvalInput);
-    if (!approval.approved) return textResult(approval.text, true);
-    const workflowProblem = this.deps.verifyTask?.(task);
-    if (workflowProblem) return textResult(workflowProblem, true);
+    const approvalInput: ApprovalRequest<void> = { task, hostOpId: input.hostOpId, toolName: input.name, params: input.params, scope, signal: input.signal, recheck: () => this.mcpConfigBlock(mcp.store, meta, task) };
+    const deferred = await this.deps.approvals.defer(approvalInput);
+    if (!deferred.approved) return textResult(deferred.text, true);
+    let consumed = false;
+    return this.mcpSend(mcp, task, meta, deferred.params, input, operation => {
+      const fresh = this.deps.store.getTask(task.id);
+      const problem = this.mcpConfigBlock(mcp.store, meta, task) ?? this.deps.verifyTask?.(task);
+      if (!fresh || fresh.cancelRequested || fresh.effectUnknown || fresh.permissionVersion !== task.permissionVersion || input.signal?.aborted || problem) throw new McpError("authorization_invalid", problem ?? "原任务或 MCP 授权已失效；该请求未发送。");
+      if (consumed) { this.deps.store.withTx(() => this.deps.store.saveMcpOperation(input.hostOpId, operation)); return; }
+      const result = this.deps.approvals.consumeDeferred({ ...approvalInput, commit: () => this.deps.store.saveMcpOperation(input.hostOpId, operation) }, deferred.confirmationId);
+      if (!result.approved) throw new McpError("authorization_invalid", result.text);
+      consumed = true;
+    });
 
-    // 执行参数取自审批记录保存的快照
-    return this.mcpSend(mcp, task, meta, approval.params, input);
   }
 
   /** 调用前/批准消费前的配置与凭据核对：任何变化即阻止（返回原因；null = 通过）。 */
-  private mcpConfigBlock(mcpStore: McpStore, meta: PlannedTool): string | null {
+  private mcpConfigBlock(mcpStore: McpStore, meta: McpToolInfo, task: Task): string | null {
+    const denied = this.deps.mcp?.verifyCall(task, meta.exposedName);
+    if (denied) return denied;
     const { service, remoteName } = meta;
     const fresh = mcpStore.getService(service.id);
     if (!fresh) {
@@ -780,7 +784,7 @@ export class ToolRouter {
     }
     if (service.credential) {
       const binding = this.deps.credentials.get(service.credential);
-      if (!isMcpCredential(binding, new URL(fresh.endpoint!).host)) {
+      if (!isMcpCredential(binding, new URL(fresh.endpoint!).host) || mcpCredentialDigest(binding) !== meta.credentialDigest) {
         return `MCP 凭据已撤销或使用范围不匹配，本次调用未发送网络请求；请报告拥有者检查凭据配置`;
       }
     }
@@ -791,18 +795,54 @@ export class ToolRouter {
   private async mcpSend(
     mcp: NonNullable<ToolRouterDeps["mcp"]>,
     task: Task,
-    meta: PlannedTool,
+    meta: McpToolInfo,
     params: Record<string, unknown>,
     input: RoutedCallInput,
     consume?: (operation: McpOperation) => void,
   ): Promise<RoutedCallOutput> {
-    const conn = mcp.plan()?.connections.get(meta.service.id);
-    if (!conn) return textResult(`MCP 服务 ${meta.service.name} 连接不可用（初始化失败或已关闭）`, true);
+    let originalArtifact: string | undefined;
+    const current = () => this.deps.store.getToolOp(input.hostOpId)?.mcp;
+    const ordinary: import("@ruukoto/core/types.ts").McpHttpOperation = { recordVersion: 2, transport: "http", serviceId: meta.service.id, configVersion: meta.service.configVersion, remoteName: meta.remoteName, effect: meta.effect, state: "prepared", started: false, remoteEnded: false };
+    const beforeDispatch = () => {
+      const latest = this.deps.store.getTask(task.id);
+      const problem = this.mcpConfigBlock(mcp.store, meta, task) ?? this.deps.verifyTask?.(task);
+      if (!latest || latest.status !== "running" || latest.cancelRequested || latest.effectUnknown || latest.permissionVersion !== task.permissionVersion || input.signal?.aborted || problem) throw new McpError("authorization_invalid", problem ?? "MCP 原来源或权限已失效；该请求未发送。", false);
+      if (!meta.service.cua) {
+        const started = { ...ordinary, started: true, state: "sent" as const };
+        if (consume) consume(started); else this.deps.store.withTx(() => this.deps.store.saveMcpOperation(input.hostOpId, started));
+      }
+    };
+    const hooks: import("./mcp/transport.ts").McpCallHooks = {
+      beforeDispatch,
+      recordCallRequest: async request => {
+        const paramsInRequest = (JSON.parse(request) as { params: { name: string; arguments: Record<string, unknown> } }).params;
+        const latest = this.deps.store.getTask(task.id);
+        const blocked = this.mcpConfigBlock(mcp.store, meta, task) ?? this.deps.verifyTask?.(task);
+        if (!latest || latest.cancelRequested || latest.effectUnknown || latest.permissionVersion !== task.permissionVersion || input.signal?.aborted || blocked || paramsInRequest.name !== meta.remoteName || canonicalParamsDigest(paramsInRequest.arguments) !== canonicalParamsDigest(params)) throw new McpError("authorization_invalid", blocked ?? "MCP 原调用目标、参数或授权已失效；该请求未发送。");
+      },
+      recordCallProgress: async evidence => {
+        if (!evidence.response) return;
+        const reply = JSON.parse(evidence.response) as { result?: unknown; error?: { code: number; message: string; data?: unknown } };
+        const original = this.deps.artifacts.begin({ taskId: task.id, sessionId: task.sessionId, name: "mcp-original-result" });
+        const result = reply.result && typeof reply.result === "object" && !Array.isArray(reply.result) ? Object.fromEntries(Object.entries(reply.result).filter(([key]) => key !== "_meta")) : reply.result;
+        this.deps.artifacts.append(original.id, Buffer.from(JSON.stringify(result ?? reply.error)));
+        this.deps.artifacts.complete(original.id);
+        originalArtifact = original.id;
+        const remoteEnded = mcpResponseEnded(evidence.response);
+        const isError = !!reply.error || !!result && typeof result === "object" && "isError" in result && result.isError === true;
+        this.deps.store.withTx(() => this.deps.store.saveMcpOperation(input.hostOpId, { ...ordinary, started: true, state: remoteEnded ? "finished" : "sent", remoteEnded, resultArtifactId: original.id, isError, ...(reply.error ? { error: reply.error } : {}) }));
+      },
+    };
+    if (!meta.service.cua) this.deps.store.withTx(() => this.deps.store.saveMcpOperation(input.hostOpId, ordinary));
     try {
       if (meta.service.cua && !await mcp.supportsImages?.(task)) throw new McpError("cua_model_unsupported", "当前模型不支持图片，电脑操作未发送；请拥有者选择支持图片的模型后发起新工作。");
       const result = meta.service.cua
-        ? await mcp.cua!.call(task, meta, params, input.hostOpId, input.signal, consume)
-        : await conn.callTool({ name: meta.remoteName, inputSchema: meta.inputSchema }, params, input.signal);
+        ? await mcp.cua!.call(task, meta, params, input.hostOpId, input.signal, consume, (args, cuaHooks) => mcp.call(args, { ...cuaHooks, beforeDispatch: () => { beforeDispatch(); cuaHooks.beforeDispatch?.(); } }))
+        : await mcp.call(params, hooks);
+      if (!meta.service.cua && !(current() as import("@ruukoto/core/types.ts").McpHttpOperation | undefined)?.remoteEnded) {
+        if (originalArtifact) this.artifactRefs.set(input.hostOpId, [originalArtifact]);
+        throw new McpError("remote_incomplete", "MCP 原调用尚无完整终结应答；停止本轮并报告拥有者检查原结果，不能重发未知效果的动作。");
+      }
       if (meta.checkOutput && !result.isError && (result.structuredContent === undefined || !meta.checkOutput(result.structuredContent))) {
         // 远端成功应答即已执行：结果不符是已知错误，不标 effect_unknown
         return textResult(`远端已执行，但结构化结果与声明的 outputSchema 不符（${meta.service.name}/${meta.remoteName}）`, true);
@@ -813,18 +853,24 @@ export class ToolRouter {
         meta.service.name,
         meta.remoteName,
         result,
+        originalArtifact,
       );
       if (meta.service.cua && !formatted.isError && formatted.content.some(part => part.type === "image" && part.ruukotoMediaRef)) mcp.cua!.acceptObservation(input.hostOpId);
       this.artifactRefs.set(input.hostOpId, formatted.artifactIds ?? []);
       return formatted;
     } catch (err) {
-      // 写/副作用不明工具的传输类失败（超时/断线/取消）：请求可能已发出而结果
-      // 无法确认 → effect_unknown（不重发）。远端已应答的错误（isError/HTTP 状态/
-      // JSON-RPC 错误应答 remote_error）与发送前失败（凭据/校验）是已知结果，不标。
-      const operation = meta.service.cua && this.deps.store.getToolOp(input.hostOpId)?.mcp;
-      if (meta.effect !== "read" && (operation ? operation.request && (!operation.response || !mcpResponseEnded(operation.response)) : !meta.service.cua && err instanceof McpError && ["timeout", "connect_failed", "canceled"].includes(err.code))) {
-        this.deps.store.withTx(() => this.deps.ledger.markEffectUnknown(task, input.hostOpId));
+      let operation = current();
+      if (operation && "transport" in operation && err instanceof McpError && err.remoteRejected) {
+        this.deps.store.withTx(() => this.deps.store.saveMcpOperation(input.hostOpId, { ...operation as import("@ruukoto/core/types.ts").McpHttpOperation, state: "finished", remoteRejected: true, isError: true }));
+        operation = current();
       }
+      if (operation && err instanceof McpError && err.requestSent === false) {
+        this.deps.store.withTx(() => this.deps.store.saveMcpOperation(input.hostOpId, "transport" in operation! ? { ...operation as import("@ruukoto/core/types.ts").McpHttpOperation, state: "not_sent", started: false } : { ...operation as import("@ruukoto/core/types.ts").McpCuaOperation, state: "not_sent" }));
+        operation = current();
+      }
+      const began = operation && ("transport" in operation ? operation.started && !operation.remoteRejected : !!operation.request && operation.state !== "not_sent");
+      const ended = operation && ("transport" in operation ? operation.remoteEnded : !!operation.response && mcpResponseEnded(operation.response));
+      if (meta.effect !== "read" && began && !ended) this.deps.store.withTx(() => this.deps.ledger.markEffectUnknown(task, input.hostOpId));
       return textResult((err as Error).message, true);
     }
   }

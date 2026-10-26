@@ -102,7 +102,6 @@ export interface TuiOps {
   mcp_cua_status: { params: Record<string, never>; result: R<"mcpCuaStatus"> };
   mcp_cua_targets: { params: Record<string, never>; result: R<"mcpCuaTargets"> };
   mcp_cua_stop: { params: { service_id?: string }; result: R<"mcpCuaStop"> };
-  mcp_cua_begin_recovery: { params: Record<string, never>; result: R<"mcpCuaBeginRecovery"> };
   mcp_cua_observe: { params: Record<string, never>; result: R<"mcpCuaObserve"> };
   mcp_cua_accept: { params: { observation_id: string }; result: R<"mcpCuaAccept"> };
   mcp_set_enabled: { params: { service_id: string; enabled: boolean; expected_version?: number }; result: R<"mcpSetEnabled"> };

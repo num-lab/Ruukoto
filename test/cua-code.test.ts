@@ -7,6 +7,7 @@ import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { Db, SchemaVersionError } from "@ruukoto/core/db.ts";
 import { Store } from "@ruukoto/core/store.ts";
+import type { McpCuaOperation } from "@ruukoto/core/types.ts";
 import { ArtifactStore } from "@ruukoto/agent/artifacts.ts";
 import { McpStore } from "@ruukoto/agent/mcp/store.ts";
 import { CodeCuaManager } from "@ruukoto/agent/mcp/code.ts";
@@ -49,7 +50,7 @@ test("Code Cua：拒绝49/50旧库且保留配置、证据、JSONL与凭据", ()
   }
 });
 
-test("Code Cua：原操作冷恢复冻结跨配置，缺停止/观察/接受均拒绝", () => {
+test("Code Cua：原操作冷恢复冻结跨配置，缺停止/观察/接受均拒绝", async () => {
   const directory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cua-cold-"))), db = new Db(directory), store = new Store(db);
   try {
     const project = store.createProject("cua"), stat = fs.statSync(directory);
@@ -62,7 +63,7 @@ test("Code Cua：原操作冷恢复冻结跨配置，缺停止/观察/接受均�
     const manager = new CodeCuaManager(store, new McpStore(db), new ArtifactStore(directory, store), directory);
     store.withTx(() => {
       store.recordToolIntent({ id: "starting-op", taskId: task.id, sessionId: session.id, toolName: "cua_connection", params: {} });
-      const original = store.getToolOp("old-op")!.mcp!;
+      const original = store.getToolOp("old-op")!.mcp! as McpCuaOperation;
       store.saveMcpOperation("starting-op", { ...original, effect: "read", state: "starting", request: undefined, execution: { ...original.execution, executionId: "native_" + "c".repeat(24) } });
     });
     manager.recover();
@@ -70,7 +71,7 @@ test("Code Cua：原操作冷恢复冻结跨配置，缺停止/观察/接受均�
     assert.ok(store.getToolOp("old-op")!.mcp!.request, "状态投影和恢复不能丢弃原请求");
     assert.equal(manager.status().state, "frozen");
     assert.throws(() => manager.assertConfigurationChange(), { code: "cua_binding_active" });
-    assert.throws(() => manager.beginRecovery(), { code: "cua_recovery_precondition" });
+    await assert.rejects(manager.observe(), { code: "cua_recovery_precondition" });
     assert.throws(() => manager.accept("unseen"), { code: "cua_observation_changed" });
     assert.equal(store.getToolOp("old-op")!.mcp!.response, undefined);
   } finally { db.close(); fs.rmSync(directory, { recursive: true, force: true }); }
@@ -98,7 +99,7 @@ test("Code Cua：真实产品链保存原schema和请求，持续连接、批准
   const resolve = runtime.runtime.models.current.modelCatalog.resolve.bind(runtime.runtime.models.current.modelCatalog);
   runtime.runtime.models.current.modelCatalog.resolve = async selection => ({ ...await resolve(selection), input: vision ? ["text", "image"] : ["text"] });
   async function submit(sessionId: string, key: string, tool?: string, args: Record<string, unknown> = {}, mode = "full_access") {
-    next = tool ? { name: `mcp_mac_${tool}`, arguments: args } : null;
+    next = tool ? { name: `mcp__mac__${tool}`, arguments: args } : null;
     const task = await client.request<{ id: string }>("submit", { session_id: sessionId, request_id: key, input: key, model_selection: MODEL, access_mode: mode });
     return task.id;
   }
@@ -116,23 +117,29 @@ test("Code Cua：真实产品链保存原schema和请求，持续连接、批准
     assert.equal(checked.ok, checked.permissions.accessibility && checked.permissions.screenRecording);
     assert.deepEqual(checked.tools.map(tool => tool.name), ["get_desktop_state", "click"]);
     assert.equal(calls().length, 0, "连接检查不创建额外电脑执行");
-    const parallel = new CodeCuaManager(runtime.runtime.store, runtime.runtime.mcp, runtime.runtime.artifacts, dirs.dataDir);
-    const configured = runtime.runtime.mcp.getService(service.id)!;
     const recordResult = runtime.runtime.store.recordToolResult.bind(runtime.runtime.store);
     let startupWriteFailed = false;
     runtime.runtime.store.recordToolResult = (opId, summary, isError) => {
       if (!startupWriteFailed && runtime.runtime.store.getToolOp(opId)?.toolName === "cua_connection") { startupWriteFailed = true; throw new Error("fixture startup result write failed"); }
       return recordResult(opId, summary, isError);
     };
-    await assert.rejects(parallel.connect(configured, sessionId, false, plain), /startup result write failed/);
+    vision = true;
+    const startupFailure = await submit(sessionId, "startup-result-failure", "get_desktop_state"); await done(startupFailure);
     runtime.runtime.store.recordToolResult = recordResult;
-    const failedStartup = runtime.runtime.store.listToolOpsByTask(plain).find(op => op.toolName === "cua_connection")!;
+    try { await waitFor("初始化失败的执行停止证明", () => runtime.runtime.store.listToolOpsByTask(startupFailure).find(op => op.toolName === "cua_connection")?.mcp?.state === "closed"); }
+    catch (error) {
+      const operation = runtime.runtime.store.listToolOpsByTask(startupFailure).find(op => op.toolName === "cua_connection")!.mcp!;
+      const receipt = path.join(operation.execution!.directory, operation.execution!.executionId, "stopped.json");
+      const raw = fs.existsSync(receipt) ? JSON.parse(fs.readFileSync(receipt, "utf8")) : {};
+      t.diagnostic(JSON.stringify({ startupStop: { state: operation.state, reason: raw.reason, reaped: raw.reaped, stdoutEof: raw.stdoutEof, stderrEof: raw.stderrEof, receipt: fs.existsSync(receipt) } }));
+      throw error;
+    }
+    const failedStartup = runtime.runtime.store.listToolOpsByTask(startupFailure).find(op => op.toolName === "cua_connection")!;
     assert.equal(failedStartup.mcp!.state, "closed");
-    assert.ok(failedStartup.mcp!.stoppedAt, "初始化结果落盘失败也核实原执行停止");
-    const competing = await Promise.allSettled([parallel.connect(configured, sessionId, false, plain), parallel.connect(configured, "other-session", false, plain)]);
-    assert.equal(competing.filter(result => result.status === "fulfilled").length, 1);
-    assert.equal(competing.filter(result => result.status === "rejected").length, 1);
-    await parallel.stop();
+    assert.ok(failedStartup.mcp!.stoppedAt, "官方初始化结果落盘失败也核实原执行停止");
+    assert.equal(sent().length, 0);
+    await client.request("mcp_cua_stop", {});
+    vision = false;
     const textOnly = await submit(sessionId, "text-model", "click", { x: 1, y: 2 }); await done(textOnly);
     assert.equal(sent().length, 0, "不支持视觉时零发送");
     await client.request("mcp_cua_stop", {});
@@ -141,18 +148,24 @@ test("Code Cua：真实产品链保存原schema和请求，持续连接、批准
     const observe = await submit(sessionId, "observe", "get_desktop_state"); await done(observe);
     const first = runtime.runtime.store.listToolOpsByTask(observe).find(op => op.mcp && op.toolName !== "cua_connection")!;
     assert.ok(first, JSON.stringify(runtime.runtime.store.getEventsAfter(0).filter(event => event.taskId === observe).map(event => event.body)));
+    const otherDriver = await runtime.runtime["getDriver"](runtime.runtime.store.getSession(initial.sessionId)!);
+    await otherDriver.dispose();
+    const currentComputer = await client.request<{ state: string; sessionId: string }>("mcp_cua_status", {});
+    assert.equal(currentComputer.state, "active", "无关会话销毁 SDK 不得停止当前电脑连接");
+    assert.equal(currentComputer.sessionId, sessionId);
     const beforeOtherPause = calls().length;
     await assert.rejects(client.request("mcp_cua_stop", { service_id: "another-service" }), /当前电脑连接属于另一服务/);
     assert.equal((await client.request<{ state: string }>("mcp_cua_status", {})).state, "active");
     assert.equal(calls().length, beforeOtherPause, "其他配置的暂停不能停止当前电脑绑定");
-    assert.ok(first.mcp!.rawTool.inputSchema.properties && "screenshot_out_file" in (first.mcp!.rawTool.inputSchema.properties as object));
+    assert.ok(first.mcp && !("transport" in first.mcp));
+    assert.ok(first.mcp.rawTool.inputSchema.properties && "screenshot_out_file" in (first.mcp!.rawTool.inputSchema.properties as object));
     assert.ok(!("screenshot_out_file" in (first.mcp!.modelTool.inputSchema.properties as object)));
     assert.equal(JSON.parse(first.mcp!.request!).params.name, "get_desktop_state");
-    const request = runtime.server.calls.find(call => JSON.stringify(call.tools).includes("mcp_mac_get_desktop_state"))!;
+    const request = runtime.server.calls.find(call => JSON.stringify(call.tools).includes("mcp__mac__get_desktop_state"))!;
     assert.ok(!JSON.stringify(request.tools).includes("screenshot_out_file"));
     assert.ok(!JSON.stringify(request.tools).includes("debug_image_out"));
     assert.ok(!JSON.stringify(request.tools).includes("run_script"));
-    assert.match(JSON.stringify(request.tools), /冻结/);
+    assert.match(JSON.stringify(request.tools), /连接中断或结果未知时停止电脑操作/);
     const before = runtime.runtime.store.listSelectionRecordsByTask(plain)[0].estimates;
     const after = runtime.runtime.store.listSelectionRecordsByTask(observe)[0].estimates;
     t.diagnostic(JSON.stringify({ before: { toolSchemas: before.toolSchemas, systemPrompt: before.systemPrompt }, after: { toolSchemas: after.toolSchemas, systemPrompt: after.systemPrompt } }));
@@ -168,7 +181,7 @@ test("Code Cua：真实产品链保存原schema和请求，持续连接、批准
     assert.equal((await client.request<{ state: string }>("mcp_cua_status", {})).state, "active", "完整错误应答不会冻结");
     const saveMcp = runtime.runtime.store.saveMcpOperation.bind(runtime.runtime.store);
     runtime.runtime.store.saveMcpOperation = (id, operation) => {
-      if (operation.state === "sent" && operation.arguments.mode === "disk") throw new Error("fixture write failed");
+      if (operation.state === "sent" && !("transport" in operation) && operation.arguments.mode === "disk") throw new Error("fixture write failed");
       saveMcp(id, operation);
     };
     const disk = await submit(sessionId, "record-failure", "click", { x: 5, y: 6, mode: "disk" }, "confirm");
@@ -193,10 +206,9 @@ test("Code Cua：真实产品链保存原schema和请求，持续连接、批准
     assert.equal(oldOp.mcp!.state, "frozen");
     assert.equal((await client.request<{ state: string }>("mcp_cua_status", {})).state, "frozen");
     await assert.rejects(client.request("mcp_configure", { name: "mac", cua: { ...cua, sha256: "f".repeat(64) }, tool_allowlist: ["click"] }));
-    await assert.rejects(client.request("mcp_cua_begin_recovery", {}));
+    await assert.rejects(client.request("mcp_cua_observe", {}));
     await client.request("mcp_cua_stop", {});
     await assert.rejects(client.request("mcp_cua_accept", {}));
-    await client.request("mcp_cua_begin_recovery", {});
     await client.request("mcp_cua_observe", {});
     const recovery = await client.request<{ observation: { id: string; artifactIds: string[] } }>("mcp_cua_status", {});
     assert.ok(recovery.observation.artifactIds.length);

@@ -41,6 +41,7 @@
 | **安全文件与网络** | `read_file` / `write_file` / `web_search` / `http_request` | 在授权范围内读写文件与检索网络，越界操作触发人工审批 |
 | **浏览器自动化** | `personal-browser` | 在独立沙箱中驱动可视化/无头浏览器完成网页操作与截图 |
 | **应用数据存储** | `app_data_*` | 访问专属于个人 Agent 的结构化业务数据库（`agent-data/main.db`） |
+| **MCP** | `mcp_tools` / `mcp_call` / `read_mcp_result` | 发现获准工具、发起调用与只读查询原结果；传输与分页使用 Pi MCP |
 
 ## 数据与状态
 
@@ -71,6 +72,9 @@ stateDiagram-v2
 | **长期记忆与技能** | `ruukoto.memories` & `skills.json` | 稳定记忆版本链、撤销记录、托管技能包及启用清单 |
 | **定时计划与运行** | `ruukoto.schedules` | 定时触发规则、历史运行记录、执行快照与投递凭据 |
 | **应用业务数据** | `agent-data/main.db` | 个人业务数据库，支持关系模型与事务一致性审计 |
+| **MCP 配置与操作** | `mcp.json` / durable entries | 配置 v4 分开保存工具效果与定义；新操作保存身份、批准、开始事实、规范结果与产物，旧记录只读保留 |
+
+MCP 配置先经拥有者管理入口显式迁入 v4，再接纳普通服务的新业务。迁入沿保存／生效回执恢复，保留旧凭据引用及其字节摘要语义；重新绑定凭据才改用实际 token 摘要。旧未开始批准在迁入时失效，旧未知调用保持原事实，原电脑停止与恢复可继续管理。
 
 ## 主要流程
 
@@ -99,6 +103,12 @@ sequenceDiagram
 2. **执行与安全审批**：在默认的“自动审查”模式下，只读操作自动放行，敏感写操作挂起并向原平台发送审批菜单。
 3. **原路安全回传**：回复生成后严格沿原接入平台与账号代次发回，绝不串号或误发。
 
+### 2. 普通 MCP 未知调用收尾
+
+普通写入或副作用不明工具已发送后丢答，原来源停止自动业务调用；已授权只读工具中断记读取失败。拥有者可从原调用管理选择“结束此工作，保留结果未知”，沿工作结束路径停止本地执行。工作成员终态与真实资源停止确认后，最终未知报告经原入口发送账本送达。
+
+人工收尾追加事实并永久保留原来源的自动执行禁令。新的独立拥有者输入可以处理同一服务；服务 URL 不承担业务资源锁。跨重启原 SSE 重核任务只做无网络退役，恢复与查询读取原记录。
+
 ## 不变量与失败处理
 
 - **主会话单例与排他性**：一个个人 Agent 实例只持有一个核心 durable Harness，所有入口（IM、本机向导、桌面）共享该会话事实。
@@ -112,3 +122,4 @@ sequenceDiagram
 - [个人 Tailscale HTTPS 与 WebSocket](../../.agents/notes/implemented/architecture/2026-10-24-personal-tailscale-https.md)
 - [个人认证令牌完整写入后发布](../../.agents/notes/implemented/bug-fix/2026-10-24-personal-token-atomic-publish.md)
 - [后台任务与终端](../../.agents/notes/implemented/architecture/2026-09-19-detach-terminal-from-task-runtime.md)
+- [MCP 宿主职责收缩](../../.agents/notes/implemented/simplification/2026-10-26-mcp-host-responsibilities.md)：配置迁入、来源级未知收尾与 Pi MCP 薄适配。

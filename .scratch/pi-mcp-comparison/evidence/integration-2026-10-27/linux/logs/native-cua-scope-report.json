@@ -1,0 +1,20 @@
+{
+  "node": "v24.21.0",
+  "platform": "linux",
+  "actualScope": {
+    "scope": "ruukoto-cua-61d7ccc2-5a61-4dd2-bc94-52392d2ac622.scope",
+    "description": "ruukoto-cua-61d7ccc2-5a61-4dd2-bc94-52392d2ac622",
+    "invocationId": "2f2a98e148cb48a9b8afa64af1a5c8d7",
+    "group": "/sys/fs/cgroup/user.slice/user-1003.slice/user@1003.service/app.slice/ruukoto-cua-61d7ccc2-5a61-4dd2-bc94-52392d2ac622.scope",
+    "dev": 29,
+    "ino": 2352208
+  },
+  "before": "populated 1\nfrozen 0\n",
+  "screenshotFixture": true,
+  "businessCalls": 1,
+  "serverPid": 2209559,
+  "stopped": true,
+  "groupExists": false,
+  "serverPidExists": false,
+  "pass": true
+}

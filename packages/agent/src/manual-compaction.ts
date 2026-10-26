@@ -32,9 +32,9 @@ export type ManualCompactionResult =
   | { kind: "noop"; estimateBefore: number; reason: string }
   | { kind: "completed"; checkpoint: ManualCheckpointCandidate };
 
-/** 严格快照中的 message 条目保持 SDK 原序号；宿主 custom 标记不成为模型消息。 */
+/** 压缩序号与上下文装配一致；SDK 系统提示与工具登记不计入对话消息。 */
 function historyMessages(entries: ParsedSessionEntry[]): AgentMessage[] {
-  return entries.filter(entry => entry.type === "message").map(entry => {
+  return entries.filter(entry => entry.type === "message" && (entry.message as { role?: unknown } | undefined)?.role !== "system").map(entry => {
     // 严格历史读取与 SDK 消息之间的 JSON 边界。
     const message = entry.message as Record<string, unknown> | null | undefined;
     const role = message?.role;

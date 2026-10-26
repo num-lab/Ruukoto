@@ -8,12 +8,9 @@ import { randomId, type Session, type Task } from "@ruukoto/core/types.ts";
 import { AccessScope } from "@ruukoto/core/access.ts";
 import { requireSubAgentExecution } from "@ruukoto/core/subagent-execution.ts";
 import { listWorkflowExecutions, requireWorkflowRun } from "@ruukoto/core/workflow.ts";
-import { ArtifactStore } from "@ruukoto/agent/artifacts.ts";
-import { CredentialStore } from "@ruukoto/agent/execution/credentials.ts";
-import { McpStore } from "@ruukoto/agent/mcp/store.ts";
-import { planMcpTaskTools } from "@ruukoto/agent/mcp/tools.ts";
 import { createSourceResolver } from "@ruukoto/channels/source-resolver.ts";
 import { Runtime } from "@ruukoto/runtime/runtime.ts";
+import { ArtifactStore } from "@ruukoto/agent/artifacts.ts";
 import { afterTool, inputText, lastUserText, realTools, startTestRuntime, toolNamesOf, waitFor } from "./helpers/testkit.ts";
 import { startMockMcp, withMcpDiscovery } from "./helpers/mock-mcp.ts";
 
@@ -152,7 +149,7 @@ test("显式角色缺工具或 MCP 远端缺失在登记前失败，工具意图
     const rt = t.runtime, session = await rt.createSession({ projectName: "required", cwd: t.work[0] });
     await t.client.request("mcp_configure", { name: "probe", endpoint: mcp.url, tool_allowlist: ["missing"] });
     const source = sourceTask(rt, session);
-    for (const name of ["unknown_tool", "schedule_query", "mcp_probe_missing"]) {
+    for (const name of ["unknown_tool", "schedule_query", "mcp__probe__missing"]) {
       roleFile(t.dirs.agentDir, "required", `tools: [read, ${name}]\n`);
       await assert.rejects(() => rt.subagents!.delegate({ parentTaskId: source.id, key: name, role: "required", request: "必要工具", paramsDigest: name }),
         error => error instanceof Error && error.message.includes(name));
@@ -162,7 +159,7 @@ test("显式角色缺工具或 MCP 远端缺失在登记前失败，工具意图
     await assert.rejects(() => rt.subagents!.delegate({ parentTaskId: limited.id, key: "elevated", role: "elevated", request: "不能提高权限", paramsDigest: "elevated" }),
       /权限|模式|full_access/);
     await mcp.close(); mcpClosed = true;
-    await assert.rejects(() => rt.subagents!.delegate({ parentTaskId: source.id, key: "discovery", role: "required", request: "必需 MCP", paramsDigest: "discovery" }), /MCP|发现|连接/);
+    await assert.rejects(() => rt.subagents!.delegate({ parentTaskId: source.id, key: "discovery", role: "required", request: "必需 MCP", paramsDigest: "discovery" }), /mcp__probe__missing/);
     assert.equal(rt.store.listSubAgents().length, 0);
     assert.equal(rt.store.listWorkDelegationsBySession(session.id).length, 0);
     assert.equal(rt.store.listToolOpsByTask(source.id).length, 0);
@@ -171,25 +168,52 @@ test("显式角色缺工具或 MCP 远端缺失在登记前失败，工具意图
   } finally { await t.shutdown(); if (!mcpClosed) await mcp.close(); }
 });
 
-test("MCP 未装配原因覆盖远端缺失与非法 schema，停用服务无需发现", async () => {
-  const mcp = await startMockMcp({ tools: [{ name: "bad", inputSchema: { type: "object", properties: { pad: { type: "string", description: "x".repeat(20000) } } } }, { name: "good" }] });
-  const t = await startTestRuntime("mcp-rejected-reasons", () => ({ kind: "text", text: "未执行" }));
+test("MCP 角色要求按官方实际注册表核实，停用服务不再提供工具", async () => {
+  const mcp = await startMockMcp({ tools: [{ name: "bad", inputSchema: { type: "string" } }, { name: "good" }] });
+  const t = await startTestRuntime("mcp-registered-requirements", () => ({ kind: "text", text: "已核实工具" }), { config: realTools() });
   try {
-    const session = await t.runtime.createSession({ projectName: "reasons", cwd: t.work[0] });
+    const rt = t.runtime, session = await rt.createSession({ projectName: "reasons", cwd: t.work[0] });
     const service = await t.client.request<{ id: string }>("mcp_configure", { name: "probe", endpoint: mcp.url, tool_allowlist: ["missing", "bad", "good"] });
-    const deps = { mcpStore: new McpStore(t.runtime.store.db), credentials: new CredentialStore(t.dirs.agentDir),
-      dispatch: async () => ({ content: [], isError: false }) };
-    const plan = await planMcpTaskTools(deps);
-    try {
-      assert.match(plan.rejected!.get("mcp_probe_missing")!, /未发现.*missing/);
-      assert.match(plan.rejected!.get("mcp_probe_bad")!, /inputSchema.*上限/);
-      assert.ok(plan.tools.has("mcp_probe_good"));
-    } finally { await Promise.all([...plan.connections.values()].map(connection => connection.close())); }
+    const source = sourceTask(rt, session);
+    for (const name of ["missing", "bad"]) {
+      roleFile(t.dirs.agentDir, name, `tools: [mcp__probe__${name}]\n`);
+      await assert.rejects(() => rt.subagents!.delegate({ parentTaskId: source.id, key: name, role: name, request: "核实工具", paramsDigest: name }), /工具|MCP/);
+    }
+    assert.equal(t.server.calls.length, 0);
+    roleFile(t.dirs.agentDir, "good", "tools: [mcp__probe__good]\n");
+    const child = await rt.subagents!.delegate({ parentTaskId: source.id, key: "good", role: "good", request: "核实工具", paramsDigest: "good" });
+    assert.equal((await childDone(rt, child.task.id)).status, "completed");
     await t.client.request("mcp_set_enabled", { service_id: service.id, enabled: false });
-    const before = mcp.hits.length, disabled = await planMcpTaskTools(deps);
-    assert.match(disabled.rejected!.get("mcp_probe_good")!, /停用/);
-    assert.equal(mcp.hits.length, before);
+    await assert.rejects(() => rt.subagents!.delegate({ parentTaskId: source.id, key: "disabled", role: "good", request: "不能使用停用工具", paramsDigest: "disabled" }), /工具|MCP/);
+    assert.equal(mcp.hits.filter(hit => hit.rpcMethod === "tools/call").length, 0);
   } finally { await t.shutdown(); await mcp.close(); }
+});
+
+test("固定 MCP 角色等待健康服务注册，其他服务认证失败不提前判缺工具", async () => {
+  const bad = await startMockMcp({ requireAuth: true, tools: [{ name: "bad" }] });
+  const good = await startMockMcp({ listDelayMs: 150, tools: [{ name: "good" }] });
+  const t = await startTestRuntime("mcp-ready-per-service", req => {
+    assert.ok(!toolNamesOf(req).includes("tool_search"));
+    assert.doesNotMatch(req.system!, /<mcp_servers>/, "固定角色只引导当前可用的直接工具");
+    return { kind: "text", text: "注册完成" };
+  }, { config: realTools() });
+  try {
+    const rt = t.runtime, session = await rt.createSession({ projectName: "ready", cwd: t.work[0] });
+    rt.credentials.upsert({ name: "wrong", host: bad.host, header: "authorization", purpose: "mcp", secret: "wrong", scope: { operations: ["mcp"] } });
+    await t.client.request("mcp_configure", { name: "bad", endpoint: bad.url, credential: "wrong", tool_allowlist: ["bad"] });
+    await t.client.request("mcp_configure", { name: "good", endpoint: good.url, tool_allowlist: ["good"] });
+    roleFile(t.dirs.agentDir, "ready", "tools: [mcp__good__good]\n");
+    const source = sourceTask(rt, session);
+    const delegated = rt.subagents!.delegate({ parentTaskId: source.id, key: "ready", role: "ready", request: "等注册", paramsDigest: "ready" });
+    const observed = delegated.then(child => ({ child }), error => ({ error }));
+    await waitFor("健康服务开始分页发现", () => good.hits.some(hit => hit.rpcMethod === "tools/list"));
+    assert.equal(t.server.calls.length, 0, "必要工具未就绪前零模型请求");
+    const outcome = await observed;
+    assert.ok("child" in outcome, "健康必要工具应在预算内完成注册");
+    const child = outcome.child;
+    assert.equal((await childDone(rt, child.task.id)).status, "completed");
+    assert.ok(toolNamesOf(t.server.calls[0]).includes("mcp__good__good"));
+  } finally { await t.shutdown(); await bad.close(); await good.close(); }
 });
 
 test("普通子任务模型应答后 MCP 配置变化在工具意图前阻断，无远端副作用", async () => {
@@ -197,13 +221,13 @@ test("普通子任务模型应答后 MCP 配置变化在工具意图前阻断，
   let changeConfiguration: (() => Promise<void>) | null = null;
   const t = await startTestRuntime("ordinary-mcp-change", async () => {
     await changeConfiguration!();
-    return { kind: "tool_calls", calls: [{ id: "write", name: "mcp_probe_write", arguments: {} }] };
+    return { kind: "tool_calls", calls: [{ id: "write", name: "mcp__probe__write", arguments: {} }] };
   }, { config: realTools() });
   try {
     const rt = t.runtime, session = await rt.createSession({ projectName: "mcp", cwd: t.work[0] });
     const service = await t.client.request<{ id: string }>("mcp_configure", { name: "probe", endpoint: mcp.url, tool_allowlist: [{ name: "write", effect: "write" }] });
     changeConfiguration = async () => { await t.client.request("mcp_set_enabled", { service_id: service.id, enabled: false }); };
-    roleFile(t.dirs.agentDir, "remote", "tools: [mcp_probe_write]\n");
+    roleFile(t.dirs.agentDir, "remote", "tools: [mcp__probe__write]\n");
     const source = sourceTask(rt, session);
     const child = await rt.subagents!.delegate({ parentTaskId: source.id, key: "mcp", role: "remote", request: "调用 MCP", paramsDigest: "mcp" });
     assert.notEqual((await childDone(rt, child.task.id)).status, "completed");
@@ -358,7 +382,7 @@ for (const tool of ["memory_list", "memory_read"]) test(`普通 ${tool} 的读�
     rt.ownerRevokeMemory({ memoryId: memory.id, expectedVersion: memory.currentVersion, reason: "撤销读取来源" });
     const requests = t.server.calls.length;
     const second = await rt.subagents!.delegate({ parentTaskId: source.id, subAgentId: first.agent.id, key: "second", request: "复用", paramsDigest: "second" });
-    assert.equal((await childDone(rt, second.task.id)).status, "failed");
+    assert.equal((await childDone(rt, second.task.id)).status, "interrupted");
     assert.equal(t.server.calls.length, requests);
     assert.equal(rt.store.listToolOpsByTask(second.task.id).length, 0);
   } finally { await t.shutdown(); }
@@ -367,7 +391,7 @@ for (const tool of ["memory_list", "memory_read"]) test(`普通 ${tool} 的读�
 test("普通 MCP 旧配置的结果不能通过身份复用洗成新来源上下文", async () => {
   const mcp = await startMockMcp({ tools: [{ name: "read", result: { content: [{ type: "text", text: "MCP-OLD-SECRET" }] } }] });
   const t = await startTestRuntime("mcp-history", withMcpDiscovery(req => afterTool(req) ? { kind: "text", text: "已读取" } :
-    { kind: "tool_calls", calls: [{ id: "read", name: "mcp_probe_read", arguments: {} }] }), { config: realTools() });
+    { kind: "tool_calls", calls: [{ id: "read", name: "mcp__probe__read", arguments: {} }] }), { config: realTools() });
   try {
     const rt = t.runtime, session = await rt.createSession({ projectName: "mcp-history", cwd: t.work[0] });
     const service = await t.client.request<{ id: string }>("mcp_configure", { name: "probe", endpoint: mcp.url, tool_allowlist: ["read"] });
@@ -378,7 +402,7 @@ test("普通 MCP 旧配置的结果不能通过身份复用洗成新来源上下
     await t.client.request("mcp_set_enabled", { service_id: service.id, enabled: false });
     const calls = t.server.calls.length;
     const second = await rt.subagents!.delegate({ parentTaskId: source.id, subAgentId: first.agent.id, key: "second", request: "复用历史", paramsDigest: "second" });
-    assert.equal((await childDone(rt, second.task.id)).status, "failed");
+    assert.equal((await childDone(rt, second.task.id)).status, "interrupted");
     assert.equal(t.server.calls.length, calls);
     assert.equal(rt.store.listToolOpsByTask(second.task.id).length, 0);
   } finally { await t.shutdown(); await mcp.close(); }

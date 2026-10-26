@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { ExtensionToolContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Db } from "@ruukoto/core/db.ts";
 import { Store } from "@ruukoto/core/store.ts";
 import { AccessScope } from "@ruukoto/core/access.ts";
@@ -96,7 +96,7 @@ test("QQ 私聊资料边界：授权不能放开 main/coding 的群资料，来�
       },
     });
     const call = async (tools: ToolDefinition[], name: string, params: Record<string, unknown>) => {
-      const result = await tools.find((tool) => tool.name === name)!.execute("scope-test", params, undefined, undefined, {} as ExtensionContext);
+      const result = await tools.find((tool) => tool.name === name)!.execute("scope-test", params, undefined, undefined, {} as ExtensionToolContext);
       return result.content.map((part) => part.type === "text" ? part.text : "").join("\n");
     };
     for (const session of [sessions.main, sessions.coding]) {

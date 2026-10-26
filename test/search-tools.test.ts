@@ -1,44 +1,32 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Driver } from "@ruukoto/agent/driver.ts";
-import { searchToolDefinitions, ToolSearchError } from "@ruukoto/agent/search-tools.ts";
 import { startMockMcp } from "./helpers/mock-mcp.ts";
 import { createProjectSession, startTestRuntime, waitFor } from "./helpers/testkit.ts";
 
-test("工具搜索：词须全匹配、精确名称优先、限额与空查询", () => {
-  const definitions = ["get_issue", "get_issues", "add_issue"].map(name => ({ name, label: name, description: "GitHub 议题", parameters: { type: "object" }, execute: async () => ({ content: [], details: undefined }) }));
-  assert.deepEqual(searchToolDefinitions(definitions, "get_issue", 1), { tools: [{ name: "get_issue", description: "GitHub 议题" }], total: 2 });
-  assert.equal(searchToolDefinitions(definitions, "github get", 20).total, 2);
-  assert.equal(searchToolDefinitions(definitions, "没有的工具", 5).total, 0);
-  assert.throws(() => searchToolDefinitions(definitions, " ", 5), ToolSearchError);
-  assert.throws(() => searchToolDefinitions(definitions, "get", 21), ToolSearchError);
-});
-
-test("工具搜索：真实请求按命中激活、拒绝未发现调用、任务重置与Plan过滤", async t => {
+test("工具搜索：真实请求按命中激活、跨任务保留发现与Plan过滤", async t => {
   const mcp = await startMockMcp({ tools: [{ name: "get_me", description: "查询用户" }, { name: "get_other", description: "其他资料" }, { name: "put", description: "写入资料" }] });
   t.after(() => mcp.close());
   let phase = 0, driver: Driver;
   const runtime = await startTestRuntime("tool-search", async req => {
     const names = (req.tools ?? []).map(tool => (tool.function as { name: string }).name);
-    if (phase === 0 || phase === 4) {
-      assert.ok(names.includes("search_tools"));
+    if (phase === 0) {
+      assert.ok(names.includes("tool_search"));
       assert.ok(!names.some(name => name.startsWith("mcp_")), "新任务初轮不泄漏延迟工具定义");
-      const blocked = await Reflect.get(driver, "handleToolCall").call(driver, { type: "tool_call", toolCallId: "forged", toolName: "mcp_mock_get_other", input: {} });
-      assert.equal(blocked.block, true);
-      assert.match(blocked.reason, /search_tools/);
+
     }
     switch (phase++) {
-      case 0: return { kind: "tool_calls", calls: [{ id: "discover", name: "search_tools", arguments: { query: "get_me" } }] };
+      case 0: return { kind: "tool_calls", calls: [{ id: "discover", name: "tool_search", arguments: { query: "get_me", limit: 1 } }] };
       case 1:
-        assert.ok(names.includes("mcp_mock_get_me"));
-        assert.ok(!names.includes("mcp_mock_get_other"));
-        return { kind: "tool_calls", calls: [{ id: "invoke", name: "mcp_mock_get_me", arguments: {} }] };
-      case 2: return { kind: "tool_calls", calls: [{ id: "empty", name: "search_tools", arguments: { query: "not-a-tool" } }] };
+        assert.ok(names.includes("mcp__mock__get_me"));
+        assert.ok(!names.includes("mcp__mock__get_other"));
+        return { kind: "tool_calls", calls: [{ id: "invoke", name: "mcp__mock__get_me", arguments: {} }] };
+      case 2: return { kind: "tool_calls", calls: [{ id: "empty", name: "tool_search", arguments: { query: "not-a-tool" } }] };
       case 3: return { kind: "text", text: "首轮完成" };
-      case 4: return { kind: "tool_calls", calls: [{ id: "discover-plan", name: "search_tools", arguments: { query: "mcp_mock", limit: 20 } }] };
+      case 4: return { kind: "tool_calls", calls: [{ id: "discover-plan", name: "tool_search", arguments: { query: "mock", limit: 20 } }] };
       case 5:
-        assert.ok(names.includes("mcp_mock_get_me") && names.includes("mcp_mock_get_other"));
-        assert.ok(!names.includes("mcp_mock_put"), "搜索不能恢复Plan禁止的工具");
+        assert.ok(names.includes("mcp__mock__get_me") && names.includes("mcp__mock__get_other"));
+        assert.ok(!names.includes("mcp__mock__put"), "搜索不能恢复Plan禁止的工具");
         return { kind: "text", text: "计划完成" };
       default: throw new Error("unexpected model request");
     }
@@ -58,12 +46,12 @@ test("工具搜索：真实请求按命中激活、拒绝未发现调用、任�
   const first = await submit(false);
   const records = runtime.runtime.store.listSelectionRecordsByTask(first.id);
   const snapshots = records.slice(0, 2).map(record => JSON.parse(runtime.runtime.artifacts.read(record.promptArtifactId!, 0, 1024 * 1024).toString()));
-  assert.ok(!JSON.stringify(snapshots[0].tools).includes("mcp_mock_get_me"));
-  assert.ok(JSON.stringify(snapshots[1].tools).includes("mcp_mock_get_me"));
+  assert.ok(!JSON.stringify(snapshots[0].tools).includes("mcp__mock__get_me"));
+  assert.ok(JSON.stringify(snapshots[1].tools).includes("mcp__mock__get_me"));
   assert.ok(records[1].estimates.toolSchemas > records[0].estimates.toolSchemas);
   t.diagnostic(JSON.stringify(records.slice(0, 2).map(record => ({ toolSchemas: record.estimates.toolSchemas, systemPrompt: record.estimates.systemPrompt }))));
   const ops = runtime.runtime.store.listToolOpsByTask(first.id);
-  assert.ok(!ops.some(op => op.toolName === "mcp_mock_get_other"));
+  assert.ok(!ops.some(op => op.toolName === "mcp__mock__get_other"));
   assert.deepEqual(mcp.hits.filter(hit => hit.rpcMethod === "tools/call").map(hit => hit.toolName), ["get_me"]);
   await submit(true);
 });

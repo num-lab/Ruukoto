@@ -19,7 +19,7 @@ import type { SubAgentExecutionSnapshot } from "./subagent-execution.ts";
 import type { WorkCopyHostSnapshot } from "./work-copy-host.ts";
 import { requireWorkspaceSnapshot, WorkspaceSnapshotError, type WorkspaceSnapshot } from "./workspace-snapshot.ts";
 
-export const PROTOCOL_VERSION = 41;
+export const PROTOCOL_VERSION = 42;
 
 export interface ModelSelection {
   provider: string;
@@ -843,7 +843,7 @@ export type ToolAuthorization =
   | { source: "full_access"; taskId: string; permissionVersion: number; scope: ApprovalScope }
   | { source: "approval"; taskId: string; permissionVersion: number; confirmationId: string; scope: ApprovalScope };
 
-export interface McpOperation {
+export interface McpCuaOperation {
   serviceId: string;
   configVersion: number;
   configuration?: { kind: "cua-mac"; executable: string; version: "0.38.0"; sha256: string };
@@ -862,6 +862,28 @@ export interface McpOperation {
   observationArtifactIds?: string[];
   acceptedAt?: string;
 }
+
+/** 普通 MCP 只保存操作证据，不持有电脑执行身份。 */
+export interface McpHttpOperation {
+  recordVersion: 2;
+  transport: "http";
+  serviceId: string;
+  configVersion: number;
+  remoteName: string;
+  effect: "read" | "write" | "unknown";
+  state: "prepared" | "not_sent" | "sent" | "finished" | "frozen";
+  started: boolean;
+  remoteEnded: boolean;
+  remoteRejected?: boolean;
+  resultArtifactId?: string;
+  isError?: boolean;
+  error?: { code: number; message: string; data?: unknown };
+  execution?: never;
+  configuration?: never;
+  request?: never;
+  response?: never;
+}
+export type McpOperation = McpCuaOperation | McpHttpOperation;
 
 export interface ToolOp {
   mcp?: McpOperation;

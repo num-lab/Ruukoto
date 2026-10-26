@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { test } from "node:test";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import { createWorkflowFamily } from "@ruukoto/agent/workflow-tools.ts";
 import type { HostToolRuntime } from "@ruukoto/agent/host-tool-families.ts";
 import { createManagedProcessRegistry } from "@ruukoto/agent/managed-processes.ts";
@@ -313,7 +313,7 @@ test("模型保存异步期间取消不落文件；查询/取消只限来源，�
       approval: { request: async () => { throw new Error("unused"); }, requestStanding: () => { throw new Error("unused"); } },
     };
     const tools = family.build(host);
-    const invoke = (name: string, params: Record<string, unknown>) => tools.find(tool => tool.name === name)!.execute("call", params, undefined, undefined, {} as ExtensionContext);
+    const invoke = (name: string, params: Record<string, unknown>) => tools.find(tool => tool.name === name)!.execute("call", params, undefined, undefined, {} as ExtensionToolContext);
     const pending = invoke("workflow_save", { name: "late", script: "return 1;", key: "late", expected_digest: null });
     rt.store.withTx(() => rt.store.endTask(task.id, ["running"], "canceled"));
     await assert.rejects(pending, { code: "source_invalid" });

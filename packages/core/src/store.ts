@@ -2605,7 +2605,7 @@ export class Store {
   listOpenMcpOperations(includeExecutionId?: string): ToolOp[] {
     return (this.db.prepare(`SELECT op.id, op.task_id, op.tool_name, op.sdk_call_id, op.params, op.intent_recorded_at, op.authorization,
       op.result_summary, op.is_error, op.effect_unknown, op.recorded_result_at, json_remove(op.mcp, '$.request', '$.response') AS mcp
-      FROM tool_ops op WHERE op.rowid IN (SELECT MAX(rowid) FROM tool_ops WHERE mcp IS NOT NULL GROUP BY json_extract(mcp, '$.execution.executionId'))
+      FROM tool_ops op WHERE op.rowid IN (SELECT MAX(rowid) FROM tool_ops WHERE json_extract(mcp, '$.execution.executionId') IS NOT NULL GROUP BY json_extract(mcp, '$.execution.executionId'))
       AND (json_extract(op.mcp, '$.state') NOT IN ('closed', 'recovered') OR json_extract(op.mcp, '$.execution.executionId') = ?) ORDER BY op.rowid`)
       .all(includeExecutionId ?? null) as any[]).map(Store.rowToToolOp);
   }

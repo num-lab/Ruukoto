@@ -20,14 +20,14 @@ test("宿主任务白名单：只读 MCP、调用门与发送校验，下一普�
     if (req.messages.slice(lastUser + 1).some((m) => m.role === "tool")) return { kind: "text", text: "完成" };
     if (lastUserText(req) === "restricted-read") {
       // 直接注入越过 SDK 可见工具过滤的调用，执行门仍不得登记意图。
-      for (const toolName of ["mock_mark", "mcp_policy_write", "mcp_policy_unknown"]) {
+      for (const toolName of ["mock_mark", "mcp__policy__write", "mcp__policy__unknown"]) {
         const blocked = await driver.handleToolCall({ type: "tool_call", toolCallId: toolName, toolName, input: {} });
         assert.equal(blocked?.block, true);
         assert.match(blocked.reason, /任务工具白名单/);
       }
       assert.equal(t.runtime.store.listToolOpsByTask(driver.currentTaskId).length, 0);
       gateChecked = true;
-      return { kind: "tool_calls", calls: [{ id: "read", name: "mcp_policy_get", arguments: {} }] };
+      return { kind: "tool_calls", calls: [{ id: "read", name: "mcp__policy__get", arguments: {} }] };
     }
     return { kind: "tool_calls", calls: [{ id: "mark", name: "mock_mark", arguments: { path: marker, content: "owner" } }] };
   });
@@ -57,7 +57,7 @@ test("宿主任务白名单：只读 MCP、调用门与发送校验，下一普�
     const restricted = await submit("restricted-read");
     assert.equal(restricted.status, "completed", restricted.errorMessage ?? restricted.interruptReason ?? "");
     assert.equal(gateChecked, true);
-    assert.deepEqual(namesOf(0), ["mcp_policy_get", "mock_delay"]);
+    assert.deepEqual(namesOf(0), ["mcp__policy__get", "mock_delay"]);
     assert.deepEqual(mcp.hits.filter((hit) => hit.rpcMethod === "tools/call").map((hit) => hit.toolName), ["get"]);
     assert.equal(t.runtime.store.listConfirmationsByTask(restricted.id).length, 0);
     const sdk = driver.sdk;
@@ -67,14 +67,14 @@ test("宿主任务白名单：只读 MCP、调用门与发送校验，下一普�
     assert.equal(owner.status, "completed", owner.errorMessage ?? owner.interruptReason ?? "");
     assert.equal(driver.sdk, sdk, "任务限制变化不重建 SDK 会话");
     assert.equal(readFileSync(marker, "utf8"), "owner\n", "普通任务恢复工具执行能力");
-    for (const name of ["mock_mark", "history_search", "web_search", "search_tools"]) {
+    for (const name of ["mock_mark", "history_search", "web_search", "tool_search"]) {
       assert.ok(namesOf(ownerCallIndex).includes(name), `下一任务恢复 ${name}`);
     }
-    assert.ok(!namesOf(ownerCallIndex).some(name => name.startsWith("mcp_")), "普通任务恢复搜索入口，MCP仍须发现");
+    assert.ok(!namesOf(ownerCallIndex).includes("mcp__policy__write") && !namesOf(ownerCallIndex).includes("mcp__policy__unknown"), "普通任务没有发现的写工具保持延迟");
 
     // 模拟 SDK 向发送载荷泄漏已注册的写工具，最终发送门须阻止整个请求。
     const setActiveTools = sdk.setActiveToolsByName.bind(sdk);
-    sdk.setActiveToolsByName = (names: string[]) => setActiveTools([...names, "mcp_policy_write"]);
+    sdk.setActiveToolsByName = (names: string[]) => setActiveTools([...names, "mock_mark"]);
     const beforeLeak = t.server.calls.length;
     const leaked = await submit("restricted-leak");
     assert.equal(leaked.status, "interrupted");

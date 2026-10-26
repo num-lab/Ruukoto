@@ -19,13 +19,13 @@ function source(rt: Runtime, session: Session) {
 test("真实 MCP 步骤审批与业务回答独立；回答有约束、事务回滚与原键回执，整项审批等待停计", async () => {
   const mcp = await startMockMcp({ tools: [{ name: "write", result: { content: [{ type: "text", text: "once" }] } }] });
   const t = await startTestRuntime("workflow-input", req => afterTool(req) || lastUserText(req).startsWith("[工作流最终回报]")
-    ? { kind: "text", text: "完成" } : { kind: "tool_calls", calls: [{ id: "write", name: "mcp_probe_write", arguments: {} }] }, { config: realTools() });
+    ? { kind: "text", text: "完成" } : { kind: "tool_calls", calls: [{ id: "write", name: "mcp__probe__write", arguments: {} }] }, { config: realTools() });
   try {
     const rt = t.runtime, session = await rt.createSession({ projectName: "workflow", cwd: t.work[0] });
     await t.client.request("mcp_configure", { name: "probe", endpoint: mcp.url, tool_allowlist: [{ name: "write", effect: "write" }] });
     const parent = source(rt, session);
     const run = rt.workflows!.start({ sourceTaskId: parent.id, requestKey: "ask-approval", input: null,
-      script: 'return await Promise.all([ask("question",{prompt:"选择",options:["yes","no"],schema:{type:"string"}}),agent("write",{request:"写",tools:["mcp_probe_write"]})]);' });
+      script: 'return await Promise.all([ask("question",{prompt:"选择",options:["yes","no"],schema:{type:"string"}}),agent("write",{request:"写",tools:["mcp__probe__write"]})]);' });
     rt.store.withTx(() => rt.store.endTask(parent.id, ["running"], "completed"));
     await waitFor("人工问题和工具审批都已登记", () => getWorkflowQuestion(rt.store, run.id, "question") !== null && rt.store.listConfirmationsByStatus("pending").length === 1);
     await waitFor("整项等待停计", () => requireWorkflowRun(rt.store, run.id).status === "waiting");

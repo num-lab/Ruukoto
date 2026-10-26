@@ -62,13 +62,13 @@ test("compaction.enabled=false 时阈值不再触发压缩，磁盘历史完整"
     assert.equal(compactionEvents.length, 0, "不应有任何压缩事件");
 
     // 磁盘历史 = 3 轮 × (user + assistant)，且没有摘要消息
-    const messages = entries.filter((e) => e.type === "message");
+    const messages = entries.filter((e) => e.type === "message" && (e.message as { role?: unknown })?.role !== "system");
     assert.equal(messages.length, 6, "磁盘应有完整 6 条消息");
     const roles = messages.map((e) => (e.message as any)?.role);
     assert.deepEqual(roles, ["user", "assistant", "user", "assistant", "user", "assistant"]);
 
     // Agent 进程内状态同样完整
-    assert.equal(s.session.messages.length, 6, "进程内历史应完整");
+    assert.equal(s.session.messages.filter(message => message.role !== "system").length, 6, "进程内对话历史应完整");
 
     // 每次模型调用收到的输入都包含全部此前消息（完整历史进入上下文）
     const counts = s.server.calls.map((c) => c.messages.length);

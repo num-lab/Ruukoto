@@ -68,9 +68,9 @@ export function cuaToolEffect(config: CuaConfig, name: string): McpToolEffect | 
 export function restrictCuaTool(config: CuaConfig, remote: McpRemoteTool): McpRemoteTool | undefined {
   if (!cuaToolEffect(config, remote.name)) return undefined;
   const schema = remote.inputSchema;
-  const properties = { ...schema.properties };
+  const properties = { ...(schema.properties as Record<string, unknown> | undefined) };
   for (const key of HOST_FIELDS) delete properties[key];
-  const required = schema.required?.filter(key => !HOST_FIELDS.includes(key));
+  const required = (schema.required as string[] | undefined)?.filter(key => !HOST_FIELDS.includes(key));
   const description = `电脑目标和连接由宿主管理，使用最新观察中的窗口、元素与坐标。连接中断或结果未知时停止电脑操作，报告拥有者从管理入口核实并恢复。\n${remote.description ?? ""}`;
   return { ...remote, description, inputSchema: { ...schema, properties, ...(required ? { required } : {}), additionalProperties: false } };
 }

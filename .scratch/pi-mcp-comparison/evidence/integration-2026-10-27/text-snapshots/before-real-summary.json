@@ -1,0 +1,162 @@
+[
+  {
+    "stage": "before",
+    "version": "0.85.1",
+    "flavor": "real",
+    "identity": "code-dev",
+    "accessMode": "confirm",
+    "callIndex": 1,
+    "systemPrompt": 1503,
+    "toolSchemas": 13364,
+    "toolCount": 37,
+    "searchName": "search_tools",
+    "search": {
+      "name": "search_tools",
+      "label": "search_tools",
+      "description": "按工具名或描述中的关键词搜索延迟注册的 MCP 工具。空格分隔的词须全部匹配；返回命中名称与描述，并在下一次模型请求提供完整参数定义，激活持续到本任务结束。没有命中时改用更短关键词；只搜索当前任务获准的工具，搜索不改变权限。",
+      "parameters": {
+        "type": "object",
+        "required": [
+          "query"
+        ],
+        "properties": {
+          "query": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "description": "工具名或描述关键词；空格分隔，全部匹配，最多500字符。"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 20,
+            "description": "最多返回并激活的工具数，默认5，上限20。"
+          }
+        },
+        "additionalProperties": false
+      },
+      "executionMode": "sequential"
+    },
+    "snapshot": "before-real-confirm-1.prompt.json"
+  },
+  {
+    "stage": "before",
+    "version": "0.85.1",
+    "flavor": "real",
+    "identity": "code-dev",
+    "accessMode": "confirm",
+    "callIndex": 2,
+    "systemPrompt": 1503,
+    "toolSchemas": 13481,
+    "toolCount": 38,
+    "searchName": "search_tools",
+    "search": {
+      "name": "search_tools",
+      "label": "search_tools",
+      "description": "按工具名或描述中的关键词搜索延迟注册的 MCP 工具。空格分隔的词须全部匹配；返回命中名称与描述，并在下一次模型请求提供完整参数定义，激活持续到本任务结束。没有命中时改用更短关键词；只搜索当前任务获准的工具，搜索不改变权限。",
+      "parameters": {
+        "type": "object",
+        "required": [
+          "query"
+        ],
+        "properties": {
+          "query": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "description": "工具名或描述关键词；空格分隔，全部匹配，最多500字符。"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 20,
+            "description": "最多返回并激活的工具数，默认5，上限20。"
+          }
+        },
+        "additionalProperties": false
+      },
+      "executionMode": "sequential"
+    },
+    "snapshot": "before-real-confirm-2.prompt.json"
+  },
+  {
+    "stage": "before",
+    "version": "0.85.1",
+    "flavor": "real",
+    "identity": "code-dev",
+    "accessMode": "confirm",
+    "callIndex": 3,
+    "systemPrompt": 1503,
+    "toolSchemas": 13481,
+    "toolCount": 38,
+    "searchName": "search_tools",
+    "search": {
+      "name": "search_tools",
+      "label": "search_tools",
+      "description": "按工具名或描述中的关键词搜索延迟注册的 MCP 工具。空格分隔的词须全部匹配；返回命中名称与描述，并在下一次模型请求提供完整参数定义，激活持续到本任务结束。没有命中时改用更短关键词；只搜索当前任务获准的工具，搜索不改变权限。",
+      "parameters": {
+        "type": "object",
+        "required": [
+          "query"
+        ],
+        "properties": {
+          "query": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "description": "工具名或描述关键词；空格分隔，全部匹配，最多500字符。"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 20,
+            "description": "最多返回并激活的工具数，默认5，上限20。"
+          }
+        },
+        "additionalProperties": false
+      },
+      "executionMode": "sequential"
+    },
+    "snapshot": "before-real-confirm-3.prompt.json"
+  },
+  {
+    "stage": "before",
+    "version": "0.85.1",
+    "flavor": "real",
+    "identity": "code-dev",
+    "accessMode": "plan",
+    "callIndex": 1,
+    "systemPrompt": 1503,
+    "toolSchemas": 7688,
+    "toolCount": 22,
+    "searchName": "search_tools",
+    "search": {
+      "name": "search_tools",
+      "label": "search_tools",
+      "description": "按工具名或描述中的关键词搜索延迟注册的 MCP 工具。空格分隔的词须全部匹配；返回命中名称与描述，并在下一次模型请求提供完整参数定义，激活持续到本任务结束。没有命中时改用更短关键词；只搜索当前任务获准的工具，搜索不改变权限。",
+      "parameters": {
+        "type": "object",
+        "required": [
+          "query"
+        ],
+        "properties": {
+          "query": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "description": "工具名或描述关键词；空格分隔，全部匹配，最多500字符。"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 20,
+            "description": "最多返回并激活的工具数，默认5，上限20。"
+          }
+        },
+        "additionalProperties": false
+      },
+      "executionMode": "sequential"
+    },
+    "snapshot": "before-real-plan-1.prompt.json"
+  }
+]

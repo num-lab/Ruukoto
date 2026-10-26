@@ -53,6 +53,15 @@ test("Code MCP 操作只向 Code 放行，通用凭据写入与移除保持关�
   }
 });
 
+test("Code 控制面退役独立开始恢复，拒绝旧请求且不改原事件", async () => {
+  const t = await startTestRuntime("d-cua-retired", quiet);
+  try {
+    const events = t.runtime.store.getEventsAfter(0);
+    await assert.rejects(t.client.request("mcp_cua_begin_recovery", {}), rejected("unknown_op"));
+    assert.deepEqual(t.runtime.store.getEventsAfter(0), events);
+  } finally { await t.shutdown(); }
+});
+
 test("Web 搜索凭据专用 op 只写固定 Tavily 绑定，项目开关按版本生效", async () => {
   const t = await startTestRuntime("d-web-search-credential", quiet);
   try {
@@ -115,7 +124,7 @@ test("旧 MCP 来源操作与归属参数明确拒绝，不转成实例操作或
       ["mcp_list", {}], ["mcp_check", { service_id: service.id }],
       ["mcp_set_enabled", { service_id: service.id, enabled: true }], ["mcp_remove", { service_id: service.id }],
       ["mcp_save_credential", { name: "new", endpoint: mcp.url, secret: MOCK_MCP_SECRET }], ["mcp_remove_credential", { name: "bound" }],
-      ["mcp_cua_status", {}], ["mcp_cua_targets", {}], ["mcp_cua_stop", {}], ["mcp_cua_begin_recovery", {}], ["mcp_cua_observe", {}], ["mcp_cua_accept", { observation_id: "old" }],
+      ["mcp_cua_status", {}], ["mcp_cua_targets", {}], ["mcp_cua_stop", {}], ["mcp_cua_observe", {}], ["mcp_cua_accept", { observation_id: "old" }],
       ["list_credentials", { purpose: "mcp" }],
       ["add_credential", { name: "new", host: new URL(mcp.url).host, header: "authorization", purpose: "mcp", secret: MOCK_MCP_SECRET }], ["remove_credential", { name: "bound" }],
     ];

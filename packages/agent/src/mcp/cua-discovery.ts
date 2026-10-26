@@ -7,7 +7,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { cuaProgram, parseCuaConfig, type CuaConfig } from "./cua.ts";
-import { MCP_LIMITS, McpError, type McpRemoteTool } from "./transport.ts";
+import { McpError, type McpRemoteTool } from "./transport.ts";
 
 export type CuaTargets = { targets: { label: string; config: CuaConfig }[]; issues: { code: string; message: string }[] };
 type Command = (command: string, args: string[], env: Record<string, string>) => Promise<string>;
@@ -69,7 +69,7 @@ export async function discoverCuaTargets(kind: CuaConfig["kind"], host = { platf
 export async function describeCuaTools(config: CuaConfig): Promise<McpRemoteTool[]> {
   const program = await cuaProgram(config);
   const raw: unknown = JSON.parse(await run(program.command, ["dump-docs", "--type", "mcp"], program.env));
-  if (!object(raw) || raw.version !== config.version || !Array.isArray(raw.tools) || raw.tools.length > MCP_LIMITS.maxToolsPerService) throw new McpError("cua_tools_invalid", "电脑程序的固定工具清单无法核实；请检查官方制品版本。");
+  if (!object(raw) || raw.version !== config.version || !Array.isArray(raw.tools)) throw new McpError("cua_tools_invalid", "电脑程序的固定工具清单无法核实；请检查官方制品版本。");
   return raw.tools.map((tool: unknown) => {
     if (!object(tool) || typeof tool.name !== "string" || typeof tool.description !== "string" || !object(tool.input_schema) || tool.input_schema.type !== "object") throw new McpError("cua_tools_invalid", "电脑工具定义不完整；请检查官方制品后重新发现。");
     return { name: tool.name, description: tool.description, inputSchema: tool.input_schema as McpRemoteTool["inputSchema"] };

@@ -320,7 +320,7 @@ test("durable 模型快照：主子三模式保留实际工具定义与启用前
   t.diagnostic(JSON.stringify({ estimatedTokens: evidence }));
 });
 
-test("durable HTTP：未知写入同时挡住同源 MCP 和新来源同端点调用", { timeout: 60_000 }, async t => {
+test("durable HTTP：未知写入禁止原来源改用 MCP，独立来源可用同端点", { timeout: 60_000 }, async t => {
   let writes = 0, mcpRequests = 0;
   const endpoint = await remote(t, (req, res) => {
     if (req.url === "/write") { writes++; req.resume(); req.once("end", () => req.socket.destroy()); }
@@ -332,12 +332,12 @@ test("durable HTTP：未知写入同时挡住同源 MCP 和新来源同端点调
     if (last?.role === "tool" && String(last.content).includes('"effect":"effect_unknown"')) return { kind: "tool_calls", calls: [{ id: "mcp-bypass", name: "mcp_call", arguments: mcpArgs }] };
     return respond(request, 0);
   });
-  const mcp = parsePersonalMcp({ version: 1, generation: "test-mcp", services: [{ id: "test", label: "测试服务", endpoint: endpoint + "/mcp", tools: [{ name: "act", inputSchema: { type: "object", properties: {}, additionalProperties: false } }] }] });
+  const mcp = parsePersonalMcp({ version: 4, generation: "test-mcp", services: [{ id: "test", label: "测试服务", endpoint: endpoint + "/mcp", enabled: true, tools: [{ name: "act", inputSchema: { type: "object", properties: {}, additionalProperties: false } }], toolEffects: { act: "unknown" } }] });
   const p = await f.open({ mcp }); await mode(p, "full_access");
   assert.match(await p.answer(invoke("http_request", { url: endpoint + "/write", method: "POST", body: "write" }), "source"), /work_source_paused/);
   assert.equal(writes, 1); assert.equal(mcpRequests, 0);
-  assert.match(await p.answer(invoke("mcp_call", mcpArgs), "independent-same-endpoint"), /tool_target_busy/);
-  assert.equal(mcpRequests, 0); assert.equal((await first(p)).effect, "effect_unknown");
+  assert.match(await p.answer(invoke("mcp_call", mcpArgs), "independent-same-endpoint"), /connect_failed/);
+  assert.ok(mcpRequests > 0); assert.equal((await first(p)).effect, "effect_unknown");
 });
 
 test("durable 工具恢复：SDK转换后的数字文本写入与原始调用可跨重启核实", { timeout: 60_000 }, async t => {

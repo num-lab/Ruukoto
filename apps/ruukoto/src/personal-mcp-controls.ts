@@ -2,23 +2,22 @@ import { ROOT_CONVERSATION_ID, type TaskId, type Tx } from "@earendil-works/pi-d
 import { PersonalError } from "./personal-error.ts";
 import { telegramSelection } from "./personal-permissions.ts";
 import { PersonalTelegramReceiptDoc, type TelegramControlInput } from "./personal-telegram-records.ts";
-import { mcpDecide, mcpDetail, mcpList, mcpOperations, mcpOriginal, mcpResolve, PersonalMcpDoc } from "./personal-mcp.ts";
+import { mcpDecide, mcpDetail, mcpList, mcpOperations, mcpOriginal, mcpResolve, mcpEnd, PersonalMcpDoc } from "./personal-mcp.ts";
 
-const ACTIONS = ["/MCP", "更多MCP操作", "刷新MCP", "下一页MCP原记录", "MCP批准本次", "MCP拒绝", "MCP确认已生效", "MCP确认未生效", "核实MCP原请求结束"];
+const ACTIONS = ["/MCP", "更多MCP操作", "刷新MCP", "下一页MCP原记录", "MCP批准本次", "MCP拒绝", "MCP确认已生效", "MCP确认未生效", "核实MCP原请求结束", "MCP结束此工作"];
 const EVIDENCE = "MCP核实说明 ";
-type Recheck = (tx: Tx, operation: TaskId, actor: TelegramControlInput) => Promise<TaskId>;
 
 export function personalMcpDescription(item: Awaited<ReturnType<typeof mcpList>>["items"][number]): string {
   const decision = { pending: item.canDecide ? "等待本次批准" : "未登记人工批准", approved: "本次已批准", rejected: "本次已拒绝" }[item.decision];
-  const effect = { not_executed: "已知未执行", effect_unknown: "业务效果未知", returned: "已返回，请核对原响应", no_write: "只读观察中断，无写入效果" }[item.effect];
-  return `${item.service} / ${item.tool}；${decision}；${item.started ? "执行已开始" : "执行未开始"}；${effect}；${item.remoteEnded ? "原远端请求结束已核实" : "原远端请求结束未核实"}${item.cuaRecovery ? `；电脑恢复：${({ frozen: "绑定暂停，请从本机管理核实停止并恢复", stopped: "停止已核实，等待本人检查结果", begun: "本人已选择恢复，等待新截图", observed: "新截图已保存，等待本人接受", accepted: "本人已接受新观察，可开始新工作" })[item.cuaRecovery]}` : ""}`;
+  const effect = { not_executed: "已知未执行", effect_unknown: "业务效果未知", returned: "已返回，请核对原响应", no_write: "只读调用中断，无写入效果" }[item.effect];
+  return `${item.service} / ${item.tool}；${decision}；${item.started ? "执行已开始" : "执行未开始"}；${effect}；${item.remoteEnded ? "原远端请求结束已核实" : "原远端请求结束未核实"}${item.ended ? "；已人工结束，原结果未知保留" : ""}${item.cuaRecovery ? `；电脑恢复：${({ frozen: "绑定暂停，请从本机管理核实停止并恢复", stopped: "停止已核实，等待本人检查结果", begun: "本人已选择恢复，等待新截图", observed: "新截图已保存，等待本人接受", accepted: "本人已接受新观察，可开始新工作" })[item.cuaRecovery]}` : ""}`;
 }
 
-export async function personalMcpControl(tx: Tx, value: TelegramControlInput, requestRecheck?: Recheck): Promise<boolean> {
+export async function personalMcpControl(tx: Tx, value: TelegramControlInput, installed = false): Promise<boolean> {
   const choice = /^MCP([1-8])$/.exec(value.content);
   const evidence = value.content.startsWith(EVIDENCE) ? value.content.slice(EVIDENCE.length) : undefined;
   if (!choice && evidence === undefined && !ACTIONS.includes(value.content)) return false;
-  if (!requestRecheck) { value.reply = "MCP 尚未装配，请在后台停止后通过本机向导配置服务，再启动并查询。"; return true; }
+  if (!installed) { value.reply = "MCP 尚未装配，请在后台停止后通过本机向导配置服务，再启动并查询。"; return true; }
   if (!value.direct) { value.reply = "请直接发送 /MCP，再回复已送达宿主菜单选择；转发和引用摘录不能管理 MCP 操作。"; return true; }
   try {
     const menu = value.content === "/MCP" ? undefined : (await telegramSelection(tx, value))?.selection;
@@ -48,14 +47,17 @@ export async function personalMcpControl(tx: Tx, value: TelegramControlInput, re
       value.mcpDecision = { operation, decision };
       value.reply = "原 MCP 操作决定已登记；批准只用于本次操作并单次消费，不表示操作成功。回复「刷新MCP」核实原请求与原响应。";
     } else if (value.content === "核实MCP原请求结束") {
-      if (menu?.kind !== "mcp" || !(await mcpDetail(tx, operation, 0, value)).summary.canRecheck) throw new PersonalError("mcp_recheck_unavailable", "原 MCP 请求当前没有可恢复的远端结果流，请保留原占用并从本机查询原记录。");
-      value.mcpRecheck = { operation, taskId: await requestRecheck(tx, operation, value) };
-      value.reply = "已登记原请求结果流核实；登记不证明远端结束。只查询原结果流，不重新调用工具；回复「刷新MCP」查询原响应。";
+      throw new PersonalError("mcp_recheck_retired", "原请求续流核实已退役，不会重新联网；请刷新原调用，结果未知时可选择结束此工作。");
+    } else if (value.content === "MCP结束此工作") {
+      if (menu?.kind !== "mcp") throw new PersonalError("mcp_menu_stale", "请从原 MCP 详情选择结束此工作。");
+      await mcpEnd(tx, operation, value);
+      if ((await tx.doc(PersonalMcpDoc, String(operation), null)).operation!.ended?.requestId === value.requestId) value.mcpEnded = { operation };
+      value.reply = "此工作已登记人工收尾，原结果保持未知；本地执行和成员停止核实后才送最终报告，同一来源不会再次执行。回复「刷新MCP」查询。";
     } else {
       if (value.content === "下一页MCP原记录" && (menu?.kind !== "mcp" || menu.nextOffset === undefined)) throw new PersonalError("mcp_menu_stale", "此菜单没有下一页原记录，请刷新 MCP 从头读取。");
       const detail = await mcpDetail(tx, operation, value.content === "下一页MCP原记录" && menu?.kind === "mcp" ? menu.nextOffset! : 0, value);
       value.selection = { kind: "mcp", operation, ...(detail.nextOffset === undefined ? {} : { nextOffset: detail.nextOffset }) };
-      value.reply = `${personalMcpDescription(detail.summary)}。\n原请求、响应与核实证据：\n${detail.text}\n回复本消息选择：刷新MCP${detail.nextOffset === undefined ? "" : "、下一页MCP原记录"}${detail.summary.canDecide ? "、MCP批准本次、MCP拒绝" : ""}${detail.summary.canResolve ? "、MCP确认已生效、MCP确认未生效" : ""}${detail.summary.canRecheck ? "、核实MCP原请求结束" : ""}。原响应返回不代表业务成功；人工效果说明不证明远端结束。`;
+      value.reply = `${personalMcpDescription(detail.summary)}。\n原请求、响应与核实证据：\n${detail.text}\n回复本消息选择：刷新MCP${detail.nextOffset === undefined ? "" : "、下一页MCP原记录"}${detail.summary.canDecide ? "、MCP批准本次、MCP拒绝" : ""}${detail.summary.canResolve ? "、MCP确认已生效、MCP确认未生效" : ""}${detail.summary.canEnd ? "、MCP结束此工作" : ""}。原响应返回不代表业务成功；人工效果说明不证明远端结束。`;
     }
   } catch (error) {
     if (!(error instanceof PersonalError)) throw error;
@@ -69,7 +71,7 @@ export async function verifyMcpControls(tx: Tx, keys: string[], enabled: boolean
   for (const key of keys) {
     const value = (await tx.doc(PersonalTelegramReceiptDoc, key, null)).receipt!;
     const menu = value.selection;
-    if (menu?.kind !== "mcp-list" && menu?.kind !== "mcp" && menu?.kind !== "mcp-resolution" && !value.mcpDecision && !value.mcpResolution && !value.mcpRecheck) continue;
+    if (menu?.kind !== "mcp-list" && menu?.kind !== "mcp" && menu?.kind !== "mcp-resolution" && !value.mcpDecision && !value.mcpResolution && !value.mcpRecheck && !value.mcpEnded) continue;
     const invalid = () => new PersonalError("mcp_control_invalid", "MCP 宿主菜单或原入口无法核实，已停止恢复；请保留档案。");
     if (!enabled || !value.control || !value.direct) throw invalid();
     const operations = menu?.kind === "mcp-list" ? menu.operations : menu?.kind === "mcp" || menu?.kind === "mcp-resolution" ? [menu.operation] : [];
@@ -88,6 +90,12 @@ export async function verifyMcpControls(tx: Tx, keys: string[], enabled: boolean
       const op = (await tx.doc(PersonalMcpDoc, String(operation), null)).operation;
       if (selected?.kind !== "mcp-resolution" || selected.operation !== operation || selected.effect !== value.mcpResolution.effect || op?.resolution?.requestId !== key || op.resolution.effect !== selected.effect || value.content !== `${EVIDENCE}${op.resolution.evidence}`) throw invalid();
     }
+    if (value.mcpEnded) {
+      const operation = value.mcpEnded.operation;
+      await mcpOriginal(tx, operation, value, false);
+      const op = (await tx.doc(PersonalMcpDoc, String(operation), null)).operation;
+      if (selected?.kind !== "mcp" || selected.operation !== operation || value.content !== "MCP结束此工作" || op?.ended?.requestId !== key) throw invalid();
+    }
     if (value.mcpRecheck) {
       await mcpOriginal(tx, value.mcpRecheck.operation, value, false);
       const task = await tx.task(value.mcpRecheck.taskId);
@@ -100,6 +108,10 @@ export async function verifyMcpControls(tx: Tx, keys: string[], enabled: boolean
     if (op.decidedBy) {
       const receipt = (await tx.doc(PersonalTelegramReceiptDoc, op.decidedBy, null)).receipt;
       if (!enabled || !keys.includes(op.decidedBy) || receipt?.mcpDecision?.operation !== op.operation || receipt.mcpDecision.decision !== op.decision) throw invalid();
+    }
+    if (op.ended?.requestId) {
+      const receipt = (await tx.doc(PersonalTelegramReceiptDoc, op.ended.requestId, null)).receipt;
+      if (!enabled || !keys.includes(op.ended.requestId) || receipt?.mcpEnded?.operation !== op.operation) throw invalid();
     }
     if (op.resolution?.requestId) {
       const receipt = (await tx.doc(PersonalTelegramReceiptDoc, op.resolution.requestId, null)).receipt;

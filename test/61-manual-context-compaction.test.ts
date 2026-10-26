@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { AssistantMessage, ToolResultMessage, UserMessage } from "@earendil-works/pi-ai";
 import { checkpointFingerprint } from "@ruukoto/agent/compaction.ts";
-import { generateManualCompaction, ManualCompactionError, type ManualCheckpointCandidate } from "@ruukoto/agent/manual-compaction.ts";
+import { generateManualCompaction, inspectManualCompaction, ManualCompactionError, type ManualCheckpointCandidate } from "@ruukoto/agent/manual-compaction.ts";
 import { DEFAULT_BUDGET_CONFIG, planCompaction, planManualCompaction, selectContext, type SelectorBudgetConfig } from "@ruukoto/agent/context-selector.ts";
 import type { ParsedSessionEntry } from "@ruukoto/core/history.ts";
 import type { ContextCheckpoint } from "@ruukoto/core/types.ts";
@@ -18,6 +18,17 @@ const entries = (messages: object[]): ParsedSessionEntry[] => messages.map((mess
 const budget: SelectorBudgetConfig = { ...DEFAULT_BUDGET_CONFIG, contextWindow: 200_000, maxTokens: 1_000 };
 const checkpoint = (candidate: ManualCheckpointCandidate): ContextCheckpoint => ({ ...candidate, sessionId: "session_1", status: "active", taskId: null, callIndex: null, createdAt: new Date().toISOString() });
 const promptOf = (kit: Awaited<ReturnType<typeof startAssemblyKit>>) => JSON.stringify(kit.server.calls.at(-1)?.messages ?? []);
+
+test("手动规划：Pi 系统登记保留原历史，对话序号与实际装配一致", () => {
+  const messages = [user("拥有者要求"), call("old"), result("old", "旧结果"), reply("尾部回复")];
+  const history = entries([{ role: "system", content: "宿主提示", toolsAdded: [], timestamp: 0 }, ...messages.slice(0, 3), { role: "system", content: "", toolsRemoved: [{ name: "old" }], timestamp: 0 }, messages[3]]);
+  const original = JSON.stringify(history);
+  const inspected = inspectManualCompaction({ entries: history, sessionId: "session_1", checkpoint: null, budget });
+  assert.deepEqual(inspected.messages, messages);
+  assert.equal(inspected.plan!.summarizedCount, 3);
+  assert.equal(checkpointFingerprint(inspected.messages, 3), checkpointFingerprint(messages, 3));
+  assert.equal(JSON.stringify(history), original);
+});
 
 test("手动规划：低水位也摘要单个任务的较早批次与要求，不保底旧清单，最后配对批次整批保留", () => {
   const messages = [user("保留要求"), call("old-todo", "todo_write"), result("old-todo", "旧清单", "todo_write"), call("last"), result("last", "尾部原文"), user("尾部新文本")];

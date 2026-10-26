@@ -2,6 +2,8 @@
 
 Status: implemented
 
+官方执行接线、工具签名与HTTP错误来源定性采用[MCP宿主职责收缩](../simplification/2026-10-26-mcp-host-responsibilities.md)；本篇保留原决定，批准单次消费、参数快照、本地效果声明与不重放继续成立。HTTP状态或客户端异常本身不再代表完整远端结果。
+
 相关未实施方案：[桌面设置管理](../../proposed/feature/2026-10-21-desktop-settings-management.md)提供配置入口，保留本篇允许列表、批准消费与未知效果规则。
 
 [Cua 接入](../architecture/2026-10-23-cua-official-mcp.md)在stdio写入前同事务保存原请求与批准消费；写操作已发送却无完整终结应答时保留未知并冻结电脑。原HTTP权限、批准与结果定性保持。

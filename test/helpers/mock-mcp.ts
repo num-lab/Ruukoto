@@ -23,13 +23,13 @@ export function withMcpDiscovery(responder: Responder): Responder {
     }
     const { response, attempted } = next;
     const names = (request.tools ?? []).map(tool => (tool.function as { name: string } | undefined)?.name ?? tool.name);
-    const missing = response.kind === "tool_calls" && names.includes("search_tools")
-      ? response.calls.find(call => call.name.startsWith("mcp_") && !names.includes(call.name) && !attempted.has(call.name)) : undefined;
+    const missing = response.kind === "tool_calls" && names.includes("tool_search")
+      ? response.calls.find(call => call.name.startsWith("mcp__") && !names.includes(call.name) && !attempted.has(call.name)) : undefined;
     if (missing) {
       const id = `discover-mcp-${searches.size}`;
       searches.add(id); attempted.add(missing.name);
       pending.set(id, next);
-      return { kind: "tool_calls", calls: [{ id, name: "search_tools", arguments: { query: missing.name, limit: 1 } }] };
+      return { kind: "tool_calls", calls: [{ id, name: "tool_search", arguments: { query: missing.name, limit: 1 } }] };
     }
     return response;
   };
@@ -69,6 +69,7 @@ export async function startMockMcp(opts: {
   tools: MockMcpToolSpec[];
   requireAuth?: boolean;
   pageSize?: number;
+  listDelayMs?: number;
   dropOnCall?: boolean;
   /** 认证期望值（与调用方配置的凭据秘密一致）。 */
   secret?: string;
@@ -120,6 +121,7 @@ export async function startMockMcp(opts: {
             reply({});
             return;
           case "tools/list": {
+            if (opts.listDelayMs) await new Promise(resolve => setTimeout(resolve, opts.listDelayMs));
             const pageSize = opts.pageSize ?? 100;
             const start = body?.params?.cursor ? Number(body.params.cursor) : 0;
             const page = opts.tools.slice(start, start + pageSize).map((t) => ({

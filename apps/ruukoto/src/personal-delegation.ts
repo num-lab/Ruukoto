@@ -51,12 +51,12 @@ export async function personalDelegationSources(tx: Tx, value: Delegation) {
   return sources;
 }
 
-export async function personalDelegationBlocker(tx: Tx, value: Delegation) {
-  for (const requestId of await personalDelegationSources(tx, value)) { const blocker = await personalServiceSourceBlocker(tx, requestId); if (blocker) return blocker; }
+export async function personalDelegationBlocker(tx: Tx, value: Delegation, forReport = false) {
+  for (const requestId of await personalDelegationSources(tx, value)) { const blocker = await personalServiceSourceBlocker(tx, requestId, forReport); if (blocker) return blocker; }
 }
 
-async function sourcesReady(tx: Tx, value: Delegation) {
-  if (await personalDelegationBlocker(tx, value)) throw new PersonalError("work_source_paused", "委托有尚未核实的服务效果或停止状态，已暂停分析和汇总；请查询原操作并核实，不要换委托重试。");
+async function sourcesReady(tx: Tx, value: Delegation, forReport = false) {
+  if (await personalDelegationBlocker(tx, value, forReport)) throw new PersonalError("work_source_paused", "委托有尚未核实的服务效果或停止状态，已暂停分析和汇总；请查询原操作并核实，不要换委托重试。");
 }
 
 export async function requirePersonalDelegationOpen(tx: Tx, ref: PersonalDelegationRef) {
@@ -70,8 +70,8 @@ export async function requirePersonalDelegationActive(tx: Tx, ref: PersonalDeleg
   return value;
 }
 
-export async function requirePersonalDelegationReady(tx: Tx, ref: PersonalDelegationRef) {
-  await sourcesReady(tx, await requirePersonalDelegationActive(tx, ref));
+export async function requirePersonalDelegationReady(tx: Tx, ref: PersonalDelegationRef, forReport = false) {
+  await sourcesReady(tx, await requirePersonalDelegationActive(tx, ref), forReport);
 }
 
 // Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-analysis-delegations.md

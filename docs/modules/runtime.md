@@ -119,6 +119,8 @@ sequenceDiagram
 3. **完成唤醒**：子任务完成后，Runtime 向父会话登记唤醒事件，在主 Agent 的下一轮对话中注入子任务摘要；
 4. **变更合入**：主 Agent 检查无误后调用 `subagent_integrate`，系统将子分支变动通过 Git 补丁安全合入主分支。
 
+角色、工作流和委派的 MCP 必需工具在官方注册完成后核实，缺失时在模型运行前报告具体要求。任务内资格固定，当前撤销继续收紧；新发现工具与 SDK 恢复不会扩大原来源权限。
+
 <a id="coding-定时执行"></a>
 
 ### 3. Coding 定时执行与独立激活
@@ -132,9 +134,12 @@ sequenceDiagram
 - **终态收尾原子事务**：释放目录占用、作废失效审批与更新任务终态必须在单一 SQLite 事务内完成，杜绝资源泄漏。
 - **进程重启全面收敛**：服务若被强行重启，所有悬空任务统一标记为 `interrupted`（原因 `backend_restart`），待决审批标为 `stale`，会话队列暂停并需拥有者显式唤醒。
 
+- **业务未知与资源停止分开**：普通 MCP 未知写中断本轮自动业务执行并保留原账本；SubAgent 复用仍等待其本地进程和真实共享资源停止，不能以报告终态代替。
+
 ## 设计依据
 
 - [后台任务与终端](../../.agents/notes/implemented/architecture/2026-09-19-detach-terminal-from-task-runtime.md)
 - [工作委托、SubAgent 与任务](../../.agents/notes/implemented/architecture/2026-10-03-work-delegation-subagent-task.md)
 - [Coding 调度的固定配置与独立会话](../../.agents/notes/implemented/feature/2026-10-25-code-scheduled.md)
 - [会话历史与模型上下文](../../.agents/notes/implemented/architecture/2026-09-19-preserve-session-history.md)
+- [MCP 宿主职责收缩](../../.agents/notes/implemented/simplification/2026-10-26-mcp-host-responsibilities.md)：官方注册表前置核实与未知写收尾。

@@ -27,6 +27,6 @@ export const PLAN_NOTICE: ReferenceBlock = {
 export const PLAN_TOOL_NAMES: ReadonlySet<string> = new Set([
   "read", "present", "list_files", "search_files", "bash", "request_file_access", "http_request", "web_fetch", "read_artifact",
   "history_search", "history_read", "memory_list", "memory_read", "web_search",
-  "todo_write", "skill", "search_tools",
+  "todo_write", "skill", "tool_search",
   "ask_user", "wait",
 ]);

@@ -18,6 +18,7 @@ import type { PersonalHarness } from "./personal-harness.ts";
 import { discoverPersonalMcp, parsePersonalMcp, personalMcpCredential, readPersonalMcp, resolvePersonalMcpToken, validatePersonalMcpCredentials, type PersonalMcpConfig, type PersonalMcpService } from "./personal-mcp-config.ts";
 import { PERSONAL_CONFIGURATION_FILES, PersonalConfigurationDoc, PersonalSettingsOperationDoc, PersonalConfigurationVersionDoc, readPersonalConfigurationFile, readPersonalConfigurationRevision, type PersonalConfigurationTarget, type PersonalSettingsFileIssue } from "./personal-settings-records.ts";
 import { personalSettingsExternalBlockers, type PersonalExternalSettingsBlocker } from "./personal-settings-blockers.ts";
+import { mcpEnd, mcpList, mcpDetail } from "./personal-mcp.ts";
 import { parsePersonalModel, personalProvider, type PersonalModelConfig } from "./personal-model.ts";
 import { PERSONAL_FORMAT, PERSONAL_PENDING_FILE, PERSONAL_QUESTION_PENDING_FILE, PERSONAL_SCHEDULE_PENDING_FILE, lockPersonalProfile, type PersonalProfileLock } from "./personal-profile.ts";
 import { parsePersonalSkills, personalSkillsDirectory, readPersonalSkills } from "./personal-skills-config.ts";
@@ -45,10 +46,13 @@ export type PersonalSettingsRequest = { v: 1; op: "settings.read" | "lifecycle.s
   | { v: 1; op: "config.save" | "config.preflight"; profile: PersonalSettingsIdentity; target: PersonalSettingsTarget; expectedRevision: string; value: unknown }
   | { v: 1; op: "model.test"; profile: PersonalSettingsIdentity; expectedRevision: string; value: unknown }
   | { v: 1; op: "mcp.cua-targets" | "mcp.cua-status"; profile: PersonalSettingsIdentity; expectedRevision: string }
-  | { v: 1; op: "mcp.cua-control"; profile: PersonalSettingsIdentity; expectedRevision: string; action: "pause" | "resume" | "stop" | "begin" | "observe" | "accept"; operation?: number; observation?: number }
+  | { v: 1; op: "mcp.cua-control"; profile: PersonalSettingsIdentity; expectedRevision: string; action: "pause" | "resume" | "stop" | "observe" | "accept"; operation?: number; observation?: number }
   | { v: 1; op: "mcp.cua-image"; profile: PersonalSettingsIdentity; expectedRevision: string; operation: number; observation: number; image: string; offset?: number }
   | { v: 1; op: "mcp.discover"; profile: PersonalSettingsIdentity; expectedRevision: string; service: unknown }
   | { v: 1; op: "mcp.migrate"; profile: PersonalSettingsIdentity; expectedRevision: string }
+  | { v: 1; op: "mcp.operations"; profile: PersonalSettingsIdentity; expectedRevision: string; offset?: number }
+  | { v: 1; op: "mcp.operation"; profile: PersonalSettingsIdentity; expectedRevision: string; operation: number; offset?: number }
+  | { v: 1; op: "mcp.end"; profile: PersonalSettingsIdentity; expectedRevision: string; operation: number }
   | { v: 1; op: "mcp.get"; profile: PersonalSettingsIdentity; expectedRevision: string; id: string; offset?: number; limit?: number }
   | { v: 1; op: "mcp.set-enabled"; profile: PersonalSettingsIdentity; expectedRevision: string; id: string; enabled: boolean }
   | { v: 1; op: "mcp.remove"; profile: PersonalSettingsIdentity; expectedRevision: string; id: string }
@@ -105,7 +109,7 @@ function checkPage(value: Record<string, unknown>) {
 
 export function parsePersonalSettingsRequest(value: unknown): PersonalSettingsRequest {
   if (!object(value) || value.v !== 1 || typeof value.op !== "string") throw invalid();
-  if (!["settings.read", "lifecycle.status", "config.save", "config.preflight", "model.test", "mcp.discover", "mcp.cua-targets", "mcp.cua-status", "mcp.cua-control", "mcp.cua-image", "mcp.get", "mcp.migrate", "mcp.set-enabled", "mcp.remove", "mcp.save-service", ...skillOperations].includes(value.op)) throw new PersonalError("settings_operation_unsupported", "此设置操作不受支持，请更新管理客户端；未执行其他命令。");
+  if (!["settings.read", "lifecycle.status", "config.save", "config.preflight", "model.test", "mcp.discover", "mcp.cua-targets", "mcp.cua-status", "mcp.cua-control", "mcp.cua-image", "mcp.get", "mcp.migrate", "mcp.operations", "mcp.operation", "mcp.end", "mcp.set-enabled", "mcp.remove", "mcp.save-service", ...skillOperations].includes(value.op)) throw new PersonalError("settings_operation_unsupported", "此设置操作不受支持，请更新管理客户端；未执行其他命令。");
   let allowed: string[];
   if (value.op === "settings.read" || value.op === "lifecycle.status") {
     allowed = ["v", "op", "offset", "limit"];
@@ -123,11 +127,13 @@ export function parsePersonalSettingsRequest(value: unknown): PersonalSettingsRe
     } else if (value.op === "model.test") { allowed.push("value"); if (!("value" in value)) throw invalid(); }
     else if (value.op === "mcp.cua-control" || value.op === "mcp.cua-image") {
       allowed.push("operation", "observation");
-      if (value.op === "mcp.cua-control") { allowed.push("action"); if (!["pause", "resume", "stop", "begin", "observe", "accept"].includes(String(value.action))) throw invalid(); }
+      if (value.op === "mcp.cua-control") { allowed.push("action"); if (!["pause", "resume", "stop", "observe", "accept"].includes(String(value.action))) throw invalid(); }
       else { allowed.push("image", "offset"); if (typeof value.image !== "string" || !/^[0-9a-f-]{36}$/.test(value.image) || value.offset !== undefined && (!Number.isSafeInteger(value.offset) || Number(value.offset) < 0)) throw invalid(); }
       const recovery = value.op === "mcp.cua-image" || !["pause", "resume"].includes(String(value.action));
       if (recovery && (!Number.isSafeInteger(value.operation) || Number(value.operation) < 1) || value.observation !== undefined && (!Number.isSafeInteger(value.observation) || Number(value.observation) < 1) || (value.op === "mcp.cua-image" || value.action === "accept") && value.observation === undefined || !recovery && (value.operation !== undefined || value.observation !== undefined)) throw invalid();
     }
+    else if (value.op === "mcp.operations") { allowed.push("offset"); checkPage(value); }
+    else if (value.op === "mcp.end" || value.op === "mcp.operation") { allowed.push("operation"); if (!Number.isSafeInteger(value.operation) || Number(value.operation) < 1) throw invalid(); if (value.op === "mcp.operation") { allowed.push("offset"); checkPage(value); } }
     else if (value.op === "mcp.discover" || value.op === "mcp.save-service") { allowed.push("service"); if (!object(value.service)) throw invalid(); }
     else if (value.op === "mcp.get" || value.op === "mcp.set-enabled" || value.op === "mcp.remove") {
       allowed.push("id"); if (typeof value.id !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(value.id)) throw invalid();
@@ -233,14 +239,16 @@ function restoreEndpoint(service: Record<string, unknown>, previous: PersonalMcp
 function mcpDraft(profile: PersonalProfileLock, value: unknown) {
   if (!object(value) || !Array.isArray(value.services) || Object.keys(value).some(key => !["version", "generation", "services"].includes(key))) throw invalid();
   const previous = readPersonalMcp(profile);
+  if (previous && Number(value.version) < previous.version) throw new PersonalError("mcp_config_downgrade", "MCP 已迁入新格式，不能降回旧配置；请刷新当前服务。");
   if (previous?.version === 1 && value.version === 2) throw new PersonalError("mcp_migration_required", "原 MCP 配置需先显式迁入新格式，再编辑单服务启停；未覆盖原配置。");
   return parsePersonalMcp({ ...value, generation: randomUUID(), services: value.services.map(service => {
     if (!object(service)) throw invalid();
-    const { endpointRedacted: _redacted, credentialStatus: _status, authentication, credentialPath, ...raw } = service;
-    if (raw.cua !== undefined) { if (authentication !== undefined || credentialPath !== undefined) throw invalid(); return raw; }
-    if (authentication !== undefined && authentication !== "anonymous" && authentication !== "credential" || credentialPath !== undefined && typeof credentialPath !== "string") throw invalid();
+    const { endpointRedacted: _redacted, credentialStatus: _status, authentication, credentialPath, credentialRebind, ...raw } = service;
+    if (raw.cua !== undefined) { if (authentication !== undefined || credentialPath !== undefined || credentialRebind !== undefined) throw invalid(); return raw; }
+    if (authentication !== undefined && authentication !== "anonymous" && authentication !== "credential" || credentialPath !== undefined && typeof credentialPath !== "string" || credentialRebind !== undefined && typeof credentialRebind !== "boolean") throw invalid();
     const original = previous?.services.find(item => item.id === raw.id);
-    const credential = typeof credentialPath === "string" ? original?.credential?.path === credentialPath ? raw.credential ?? original.credential : personalMcpCredential(credentialPath) : raw.credential;
+    if (credentialRebind && (value.version !== 4 || typeof credentialPath !== "string")) throw invalid();
+    const credential = typeof credentialPath === "string" ? original?.credential?.path === credentialPath && !credentialRebind ? original.credential : personalMcpCredential(credentialPath) : object(raw.credential) && original && raw.credential.path === original.credential?.path ? original.credential : raw.credential;
     if (authentication === "anonymous" && credential || authentication !== "anonymous" && !credential && !(original && !original.credential)) throw new PersonalError("mcp_credentials_required", "请选择私有凭据文件或明确匿名连接，未保存服务。");
     return { ...raw, endpoint: restoreEndpoint(raw, previous), ...(credential ? { credential } : {}) };
   }) });
@@ -251,10 +259,12 @@ export function parsePersonalSettingsDraft(profile: PersonalProfileLock, target:
 export function mcpServiceDraft(profile: PersonalProfileLock, value: unknown) {
   if (!object(value) || typeof value.id !== "string") throw invalid();
   const previous = readPersonalMcp(profile), original = previous?.services.find(service => service.id === value.id);
-  const service: Record<string, unknown> = { ...(original ?? { tools: [], ...(previous?.version === 1 ? {} : { enabled: true }) }), ...value };
+  if (previous && previous.version !== 4 && value.cua === undefined && !original?.cua) throw new PersonalError("mcp_migration_required", "请先迁入 MCP 工具效果分类，再修改服务。");
+  const service: Record<string, unknown> = { ...(original ?? { tools: [], enabled: true }), ...value };
   if (value.authentication === "anonymous" && !("credential" in value) && !("credentialPath" in value)) delete service.credential;
   const services = original ? previous!.services.map(item => item.id === value.id ? service : item) : [...(previous?.services ?? []), service];
-  return mcpDraft(profile, { version: value.cua !== undefined ? 3 : previous?.version ?? 2, services });
+  if (previous?.version === 4 || !previous) for (const item of services) if (item.cua === undefined && item.toolEffects === undefined) item.toolEffects = Object.fromEntries((item.tools as PersonalMcpService["tools"]).map(tool => [tool.name, "unknown"]));
+  return mcpDraft(profile, { version: previous?.version ?? 4, services });
 }
 async function credentialState(config: PersonalModelConfig, online: boolean) {
   return { reference: config.apiKeyEnv, state: online ? process.env[config.apiKeyEnv] ? "available" : "missing" : "unverified" };
@@ -370,6 +380,14 @@ export async function dispatchPersonalSettings(current: PersonalSettingsContext,
   const target = request.op === "model.test" ? "model" : request.op === "config.save" || request.op === "config.preflight" ? request.target : "mcp";
   checkTarget(profile, request, target);
   if (request.op === "mcp.cua-targets") return { ...base, revision: request.expectedRevision, ...await discoverCuaTargets("cua-linux") };
+  if (request.op === "mcp.operations" || request.op === "mcp.operation" || request.op === "mcp.end") {
+    const { withPersonalSettingsSession } = await import("./personal-settings-operations.ts");
+    if (request.op === "mcp.operations") return withPersonalSettingsSession(current, async session => { const page = await session.commit(tx => mcpList(tx, request.offset ?? 0), context); return { ...base, operations: page.items, ...(page.nextOffset !== undefined ? { nextOffset: page.nextOffset } : {}) }; });
+    if (request.op === "mcp.operation") return withPersonalSettingsSession(current, async session => ({ ...base, ...await session.commit(tx => mcpDetail(tx, request.operation as TaskId, request.offset ?? 0), context) }));
+    if (current.instance?.mcp) await current.instance.mcp.end(request.operation as TaskId);
+    else await withPersonalSettingsSession(current, session => session.commit(tx => mcpEnd(tx, request.operation as TaskId), context));
+    return { ...base, operation: request.operation, ended: true };
+  }
   if (request.op === "mcp.cua-status") return { ...base, revision: request.expectedRevision, available: !!current.instance?.mcp && !!readPersonalMcp(profile)?.services.some(service => service.cua), ...(current.instance?.mcp ? await current.instance.mcp.cuaStatus() : { paused: true, busy: false, operations: [] }) };
   if (request.op === "mcp.cua-control" || request.op === "mcp.cua-image") {
     const mcp = current.instance?.mcp;
@@ -402,7 +420,7 @@ export async function dispatchPersonalSettings(current: PersonalSettingsContext,
     if (raw.authentication !== undefined && raw.authentication !== "anonymous" && raw.authentication !== "credential" || raw.credentialPath !== undefined && typeof raw.credentialPath !== "string") throw invalid();
     const credential = typeof raw.credentialPath === "string" ? personalMcpCredential(raw.credentialPath) : raw.credential;
     if (raw.authentication === "anonymous" && credential || raw.authentication !== "anonymous" && !credential) throw new PersonalError("mcp_credentials_required", "请选择私有凭据文件或明确匿名连接，未发送发现请求。");
-    const config = parsePersonalMcp({ version: 1, generation: randomUUID(), services: [{ id: raw.id ?? randomUUID(), label: raw.label ?? "MCP", endpoint, ...(credential ? { credential } : {}), tools: [] }] });
+    const config = parsePersonalMcp({ version: 4, generation: randomUUID(), services: [{ id: raw.id ?? randomUUID(), label: raw.label ?? "MCP", endpoint, enabled: true, ...(credential ? { credential } : {}), tools: [], toolEffects: {} }] });
     let tools;
     try { tools = await discoverPersonalMcp(config.services[0]); }
     catch (error) { if (error instanceof PersonalError) throw error; throw new PersonalError("mcp_discovery_failed", "MCP 工具发现失败，请检查端点与凭据后显式重试；未调用业务工具。"); }

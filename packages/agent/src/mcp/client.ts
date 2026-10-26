@@ -2,6 +2,7 @@
  * Note: 见 .agents/notes/implemented/architecture/2026-10-17-mcp-transport-reuse.md
  * Note: 见 .agents/notes/implemented/simplification/2026-10-24-code-instance-mcp.md
  */
+import { createHash } from "node:crypto";
 import type { CredentialBinding, CredentialStore } from "../execution/credentials.ts";
 import type { McpServiceConfig } from "./store.ts";
 import { connectMcpEndpoint, McpError, parseMcpEndpoint, type McpConnection, type McpTimeouts } from "./transport.ts";
@@ -16,7 +17,7 @@ export interface McpConnectOptions extends McpTimeouts {
 
 export function isMcpCredential(binding: CredentialBinding | null, host?: string): binding is CredentialBinding {
   return binding !== null && !!binding.secret && binding.purpose === MCP_CREDENTIAL_PURPOSE && binding.header.toLowerCase() === "authorization" &&
-    binding.scope?.projectId === undefined && binding.scope?.repoId === undefined && binding.scope?.operations?.length === 1 &&
+    binding.scope?.projectId === undefined && binding.scope?.repoId === undefined && binding.scope?.repoId === undefined && binding.scope?.operations?.length === 1 &&
     binding.scope.operations[0] === MCP_CREDENTIAL_PURPOSE && (host === undefined || binding.host === host);
 }
 
@@ -37,4 +38,9 @@ export async function connectMcpService(service: McpServiceConfig, opts: McpConn
       return binding.secret;
     } : undefined,
   });
+}
+
+/** 摘要只绑定实际认证选择；同令牌的空白变化不更换账户授权。 */
+export function mcpCredentialDigest(binding: CredentialBinding | null): string | null {
+  return binding ? createHash("sha256").update(JSON.stringify([binding.host, binding.header.toLowerCase(), binding.purpose, [binding.scope?.projectId ?? null, binding.scope?.repoId ?? null, binding.scope?.operations ?? null], binding.secret.trim()])).digest("hex") : null;
 }

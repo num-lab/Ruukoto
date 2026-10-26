@@ -100,6 +100,26 @@ async function onlineFixture(t: TestContext, mcp?: PersonalMcpConfig, openStorag
 
 const mcpConfig = () => parsePersonalMcp({ version: 2, generation: randomUUID(), services: ["a", "b"].map(id => ({ id, label: id, enabled: true, endpoint: `http://127.0.0.1:${id === "a" ? 1 : 2}/mcp`, tools: [{ name: "read", inputSchema: { type: "object" } }] })) });
 
+test("MCP 迁入：v4 已保存、v3 仍有效时管理可用，重开沿原回执发布且不降版", async t => {
+  const legacy = parsePersonalMcp({ ...mcpConfig(), version: 3 }), f = await onlineFixture(t, legacy);
+  const request = f.write({ kind: "mcp.migrate" }, readPersonalConfigurationFile(f.profile, "mcp").revision);
+  await assert.rejects(f.dispatch(request, stage => { if (stage === "saved") throw new Error("migration saved gap"); }));
+  assert.equal(parsePersonalMcp(readPersonalConfigurationFile(f.profile, "mcp").config).version, 4);
+  assert.equal((await f.instance.harness.snapshot(PersonalMcpConfigDoc, BACKGROUND_CONTEXT))?.config?.version, 3);
+  assert.equal(f.instance.isSettingsSuspended("mcp"), false);
+  const snapshot = await dispatchPersonalSettings({ profile: f.profile, instance: f.instance }, { v: 1, op: "settings.read" }) as PersonalSettingsSnapshot;
+  assert.equal(snapshot.operations.find(value => value.id === request.id)?.status, "saved");
+  await f.instance.close();
+  const profile = lockPersonalProfile(f.directory), instance = await openPersonalHarness({ profile, provider: personalProvider(parsePersonalModel(model)), modelId: model.modelId });
+  try {
+    const operation = (await instance.harness.snapshot(PersonalSettingsOperationDoc, request.id, BACKGROUND_CONTEXT))?.operation;
+    assert.equal(operation?.receipt.status, "active"); assert.equal(operation?.candidate.version, request.id);
+    assert.equal((await instance.harness.snapshot(PersonalMcpConfigDoc, BACKGROUND_CONTEXT))?.config?.version, 4);
+    assert.equal(instance.isSettingsSuspended("mcp"), false);
+    await assert.rejects(dispatchPersonalSettings({ profile, instance }, { ...request, id: randomUUID(), expectedRevision: operation!.receipt.savedRevision, op: { kind: "config.save", target: "mcp", value: legacy } }), (error: unknown) => error instanceof PersonalError && error.code === "mcp_config_downgrade");
+  } finally { await instance.close(); }
+});
+
 test("配置操作：相同内容的意图失败可按原键证明保存，文件不替换", async t => {
   const f = fixture(t), first = await f.dispatch(f.save()), filename = path.join(f.directory, "model.json"), inode = fs.statSync(filename).ino;
   const request = f.save(model, first.savedRevision!);

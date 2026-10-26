@@ -1567,8 +1567,7 @@ export class ConfigTuiApp {
           { value: "refresh", label: `刷新电脑状态：${({ idle: "尚未连接", connecting: "正在连接", active: "使用中", frozen: "原动作待核实", recovering: "只读恢复中" })[status.state]}` },
           ...(status.original ? [{ value: "original", label: `查看原动作：${status.original.toolName}`, description: "原效果保留；检查实际桌面结果，旧动作不会重发" }] : []),
           ...(status.state === "frozen" && !status.stopped ? [{ value: "stop", label: "核实原执行停止" }] : []),
-          ...(status.stopped && !status.ownerStarted ? [{ value: "begin", label: "已检查结果，开始只读恢复" }] : []),
-          ...(status.ownerStarted ? [{ value: "observe", label: status.observation ? "重新读取恢复截图" : "取得新的恢复截图", description: "须先启用原电脑服务；启用不解除待核实" }] : []),
+          ...(status.stopped ? [{ value: "observe", label: status.observation ? "重新读取恢复截图" : "检查并恢复", description: "须先启用原电脑服务；启用不解除待核实" }] : []),
           ...(status.observation ? [{ value: "images", label: "打开当前新截图" }] : []),
           ...(status.observation && viewed === status.observation.id ? [{ value: "accept", label: "接受已查看的新截图，开放新工作" }] : []),
         ];
@@ -1582,9 +1581,9 @@ export class ConfigTuiApp {
           if (!status?.observation || viewed !== status.observation.id || !await this.confirm("已检查新截图并接受现场？", "仅开放新工作，原未知动作保持原记录，不会重发。")) return;
           await client.request("mcp_cua_accept", { observation_id: viewed }); viewed = null; return this.refresh();
         }
-        if (["stop", "begin", "observe"].includes(item.value)) {
+        if (["stop", "observe"].includes(item.value)) {
           viewed = null;
-          await client.request(({ stop: "mcp_cua_stop", begin: "mcp_cua_begin_recovery", observe: "mcp_cua_observe" } as const)[item.value as "stop" | "begin" | "observe"], {});
+          await client.request(({ stop: "mcp_cua_stop", observe: "mcp_cua_observe" } as const)[item.value as "stop" | "observe"], {});
           return this.refresh();
         }
       },

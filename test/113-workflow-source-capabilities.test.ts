@@ -202,8 +202,12 @@ test("同一来源的不同运行隔离真实产物与子历史", async () => {
 
 for (const mode of ["full_access", "confirm", "configuration", "revoke"] as const) test(`真实工作流 MCP：${mode} 的调用、批准与来源失效`, async () => {
   const mcp = await startMockMcp({ tools: [{ name: "write", result: { content: [{ type: "text", text: "written-once" }] } }] });
-  const t = await startTestRuntime(`workflow-mcp-${mode}`, req => afterTool(req) ? { kind: "text", text: "调用完成" } :
-    { kind: "tool_calls", calls: [{ id: "same-sdk-id", name: "mcp_probe_write", arguments: {} }] }, { config: realTools() });
+  const t = await startTestRuntime(`workflow-mcp-${mode}`, req => {
+    assert.deepEqual(toolNamesOf(req), ["mcp__probe__write"]);
+    assert.doesNotMatch(req.system!, /<mcp_servers>/, "具名工具已直接声明，不引导调用未开放的搜索工具");
+    return afterTool(req) ? { kind: "text", text: "调用完成" } :
+      { kind: "tool_calls", calls: [{ id: "same-sdk-id", name: "mcp__probe__write", arguments: {} }] };
+  }, { config: realTools() });
   try {
     const rt = t.runtime, session = await rt.createSession({ projectName: "workflow", cwd: t.work[0] });
     const service = await t.client.request<{ configVersion: number }>("mcp_configure", {
@@ -211,7 +215,7 @@ for (const mode of ["full_access", "confirm", "configuration", "revoke"] as cons
     const access = new AccessScope(rt.store.db), foreign = rt.store.createProject("foreign");
     const grant = access.createGrant({ fromProjectId: foreign.id, toProjectId: session.projectId, category: "history" });
     const source = ownerSource(rt, session, mode === "full_access" ? "full_access" : "confirm");
-    const script = 'return await agent("write",{request:"调用获准 MCP 工具",tools:["mcp_probe_write"]});';
+    const script = 'return await agent("write",{request:"调用获准 MCP 工具",tools:["mcp__probe__write"]});';
     const run = rt.workflows!.start({ sourceTaskId: source.id, requestKey: "mcp", script, input: null });
     if (mode !== "full_access") {
       await waitFor("步骤审批登记", () => rt.store.listConfirmationsByStatus("pending").length === 1);

@@ -2,6 +2,8 @@
 
 Status: implemented
 
+普通HTTP的效果分类、配置v4、操作级记录、来源级人工收尾与原流重核退役由[MCP宿主职责收缩](../simplification/2026-10-26-mcp-host-responsibilities.md)取代；本篇原决定保留，durable原工具身份、权限与历史只读约束继续成立。
+
 配置在线保存与逐服务发布采用[设置保存与生效](2026-10-25-personal-settings-versions.md)及[请求配置](2026-10-25-personal-request-configuration.md)，不再统一停机或等待无关占用；本文其余原工具身份、权限与未知效果约束继续适用。
 
 [非执行配置检查](../simplification/2026-10-25-configuration-checks.md)收窄保存时的凭据求值范围：停用、删除与未改认证项不依赖旧凭据可用，真实调用与未知效果规则保留。

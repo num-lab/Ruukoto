@@ -4,7 +4,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { test } from "node:test";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import { Db, SCHEMA_VERSION } from "@ruukoto/core/db.ts";
 import { Store } from "@ruukoto/core/store.ts";
 import { AccessScope } from "@ruukoto/core/access.ts";
@@ -50,7 +50,7 @@ function fixture() {
   const call = async (name: string, params: Record<string, unknown>, override?: Partial<HostToolContext>) => {
     ctx = { taskId: mainTask.id, sessionId: sessions.main.id, projectId: sessions.main.projectId, hostOpId: `op-${++seq}`, ...override };
     store.recordToolIntent({ id: ctx.hostOpId, taskId: ctx.taskId, sessionId: ctx.sessionId, toolName: name, params });
-    const result = await tools.find((tool) => tool.name === name)!.execute(ctx.hostOpId, params, undefined, undefined, {} as ExtensionContext);
+    const result = await tools.find((tool) => tool.name === name)!.execute(ctx.hostOpId, params, undefined, undefined, {} as ExtensionToolContext);
     return JSON.parse(result.content.map((part) => part.type === "text" ? part.text : "").join("\n"));
   };
   const source = (name: "a" | "b", messageId: string, summary: string, time: number, complete = true) => {

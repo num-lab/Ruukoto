@@ -1,0 +1,7 @@
+4aee0b54c0f07cd5419b491dbbd501eac52dc853fe8854bb1d6bbc7861357088  package-lock.json
+80aa835ea6ca741fe8a27c56c68ba2e9e673298adb7490fdc10b3c2de586c037  packages/agent/src/mcp/session.ts
+31af4a93a867d1156d1b3b15a4fb15a28fc15cc8a21a9e79ce53f060cc3eb29c  packages/agent/src/mcp/transport.ts
+7787e7249d827ecb2b0be63ab2068eb8a1909b5de195fe5a31c855f0809c0ddf  apps/ruukoto/src/personal-mcp.ts
+707b8c022488c476057b35d2c50902175d8ead6c302eed2b261582cd01f9f823  test/personal-cua.test.ts
+27f85854c3fd1a339d29a9ce2eed7d2be40aad783af1c35f60c10c25f73e452e  test/personal-tools.test.ts
+68e2149ef89aa7c22754d4ace5c5133b9d82e1cbc2bb600285475ebba92e1698  test/24-mcp.test.ts

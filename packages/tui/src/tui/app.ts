@@ -888,7 +888,7 @@ export class TuiApp {
       this.workspacePhase = "pending";
     }
 
-    const keybindings = new KeybindingsManager(TUI_KEYBINDINGS);
+    const keybindings = new KeybindingsManager(TUI_KEYBINDINGS, { "tui.altScreen.top": "home", "tui.altScreen.bottom": "end" });
     const match = keybindings.matches.bind(keybindings);
     // 只在侧栏获焦时让出视口键；聊天、搜索和覆盖层仍沿终端库的原路由。
     keybindings.matches = (data, key) => !(this.workflowSidebar?.focused && ["tui.altScreen.pageUp", "tui.altScreen.pageDown", "tui.altScreen.top", "tui.altScreen.bottom"].includes(key)) && match(data, key);

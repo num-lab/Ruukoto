@@ -2,6 +2,8 @@
 
 Status: implemented
 
+实例配置与凭据权威保持；SDK接线、发现和工具签名由[MCP宿主职责收缩](2026-10-26-mcp-host-responsibilities.md)更新。当前控制协议为42、SQLite schema为53；下文保留当时不兼容切换的原决定。
+
 ## 问题
 
 Code MCP 把服务定义、凭据和项目授权绑在一起，设置需要选择工作区与旧项目来源，多个工作区共用同一服务也要重复配置。2026-10-24 拥有者要求「去掉按工作区配置 mcp，同时删除向后兼容」，先完成方案修订与独立审查，随后要求接手实施。实施入口为[桌面设置 03](../../../../.scratch/desktop-settings/issues/03-code-mcp.md)。

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { HistoryEntryView } from "@ruukoto/core/history.ts";
-import type { PersistentEvent } from "@ruukoto/core/types.ts";
+import type { PersistentEvent, Session } from "@ruukoto/core/types.ts";
 import type { TaskView } from "@ruukoto/core/views.ts";
 import { ControlClientError } from "@ruukoto/control/client.ts";
 import { HistoryRecovery, HistoryRecoveryError } from "@ruukoto/view/history-recovery.ts";
@@ -60,6 +60,41 @@ for (const assistantOnly of [false, true]) test(`正文策略与 UTF-8 分页：
   assert.equal(items.find(item => item.entryId === "user")?.truncated, assistantOnly);
   assert.equal(h.recovery.historyReady("session", "task"), true);
   assert.equal(h.transport.requests.length, assistantOnly ? 4 : 6);
+});
+
+test("分支来源任务按当前历史页补齐状态", async () => {
+  const branch: Session = { id: "session", projectId: "workspace", kind: "dev", workspaceProjectId: null, name: "分支", branchSource: { sessionId: "source", number: 1, entryId: "entry", messageCount: 1, excluded: [], taskIds: ["ancestor"], artifacts: [], results: [] }, cwd: "/w", cwdReal: "/w", cwdDev: 1, cwdIno: 1, piSessionId: "pi", sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: null, modelSelectionVersion: 0, defaultAccessMode: "confirm", defaultAccessModeVersion: 0, queueState: "active", queuePauseReason: null, archivedAt: null, createdAt: at };
+  const transport = new FakeTransport({ handlers: {
+    list_tasks: () => ({ tasks: [], hasMore: false }),
+    get_task: params => ({ task: { ...task, id: params.task_id, sessionId: "source" }, toolOps: [], outputPreview: null, seq: 1, confirmations: [], artifacts: [] }),
+  } });
+  const state = new ViewState();
+  state.applySnapshot({ snapshot: fakeSnapshot({ sessions: [branch] }), replay: [], seq: 0 }, false);
+  const recovery = new HistoryRecovery({ state, request: (op, params) => transport.request(op, params), entryPageBytes: 64 * 1024, completeEntry: () => true, isMissingEntry: () => false, changed: () => {}, entryFailed: () => {} });
+  assert.deepEqual([...(await recovery.readTasks("session", [entry("answer", "分支历史", { taskId: "ancestor" })], 0))!], []);
+  assert.equal(state.getTask("ancestor")?.status, "completed");
+  assert.deepEqual(transport.requests.map(request => request.op), ["list_tasks", "get_task"]);
+});
+
+test("分支会话按来源任务恢复思考与工具 trace", async () => {
+  const branch: Session = { id: "session", projectId: "workspace", kind: "dev", workspaceProjectId: null, name: "分支", branchSource: { sessionId: "source", number: 1, entryId: "entry", messageCount: 1, excluded: [], taskIds: ["ancestor"], artifacts: [], results: [] }, cwd: "/w", cwdReal: "/w", cwdDev: 1, cwdIno: 1, piSessionId: "pi", sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: null, modelSelectionVersion: 0, defaultAccessMode: "confirm", defaultAccessModeVersion: 0, queueState: "active", queuePauseReason: null, archivedAt: null, createdAt: at };
+  const events: PersistentEvent[] = [
+    { seq: 1, sessionId: "source", taskId: "ancestor", createdAt: at, body: { type: "task.thinking", taskId: "ancestor", sessionId: "source", thinkingId: "thought", messageId: "message", startedAt: at, endedAt: at, text: "之前对话的思考" } },
+    { seq: 2, sessionId: "source", taskId: "ancestor", createdAt: at, body: { type: "task.tool_intent", taskId: "ancestor", toolOpId: "operation", sdkCallId: "call", toolName: "read", params: { path: "old.ts" } } },
+    { seq: 3, sessionId: "source", taskId: "ancestor", createdAt: at, body: { type: "task.tool_result", taskId: "ancestor", toolOpId: "operation", summary: "之前读取完成", isError: false, artifactIds: [] } },
+  ];
+  const transport = new FakeTransport({ handlers: {
+    get_task: params => ({ task: { ...task, id: params.task_id, sessionId: "source" }, toolOps: [], outputPreview: null, seq: 3, confirmations: [], artifacts: [] }),
+    read_task_events: params => ({ events: events.filter(event => event.seq > (params.after_seq ?? 0)), nextAfter: null }),
+  } });
+  const state = new ViewState();
+  state.applySnapshot({ snapshot: fakeSnapshot({ sessions: [branch] }), replay: [], seq: 0 }, false);
+  const recovery = new HistoryRecovery({ state, request: (op, params) => transport.request(op, params), entryPageBytes: 64 * 1024, completeEntry: () => true, isMissingEntry: () => false, changed: () => {}, entryFailed: () => {} });
+  await recovery.restoreBranchTask("session", "ancestor", 0);
+  const items = state.openSession("session").flow.items;
+  assert.ok(items.some(item => item.kind === "thinking" && item.text === "之前对话的思考"));
+  assert.ok(items.some(item => item.kind === "tool" && item.name === "read" && item.summary === "之前读取完成"));
+  assert.equal(state.sessionViews.has("source"), false, "不打开来源会话");
 });
 
 test("任务读取去重，事件从零分页，单条失败不阻断后续正文", async () => {

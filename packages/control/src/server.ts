@@ -293,9 +293,10 @@ export class ControlServer {
         return runtime.createProject(requireString("name"), optionalRequestId());
       case "branch_session": {
         if (params["name"] !== undefined && typeof params["name"] !== "string") throw new RuntimeApiError("invalid_params", "name 必须是字符串");
+        if (params["task_id"] !== undefined && typeof params["task_id"] !== "string") throw new RuntimeApiError("invalid_params", "task_id 必须是字符串");
         const requestId = optionalRequestId();
         if (!requestId) throw new RuntimeApiError("invalid_params", "会话分支必须提供 request_id");
-        return runtime.branchSession({ sessionId: requireString("session_id"), requestId, name: params["name"] as string | undefined });
+        return runtime.branchSession({ sessionId: requireString("session_id"), requestId, name: params["name"] as string | undefined, taskId: params["task_id"] as string | undefined });
       }
       case "find_branch_session":
         return runtime.findBranchSession(requireString("request_id"));

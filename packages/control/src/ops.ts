@@ -79,7 +79,7 @@ export interface TuiOps {
   get_confirmation_params: { params: { confirmation_id: string } & Slice; result: R<"getConfirmationParams"> };
   read_artifact: { params: { task_id: string; artifact_id: string; session_id?: string } & Slice; result: R<"queryArtifact"> };
   get_session_todos: { params: { session_id: string }; result: R<"getSessionTodos"> };
-  branch_session: { params: { session_id: string; name?: string; request_id: string }; result: R<"branchSession"> };
+  branch_session: { params: { session_id: string; name?: string; task_id?: string; request_id: string }; result: R<"branchSession"> };
   find_branch_session: { params: { request_id: string }; result: R<"findBranchSession"> };
   compact_session: { params: { session_id: string; request_id: string; prompt?: string }; result: R<"compactSession"> };
   get_session_compaction: { params: { session_id: string; request_id?: string }; result: R<"getSessionCompaction"> };

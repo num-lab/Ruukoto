@@ -2,7 +2,7 @@
 
 Status: implemented
 
-实例配置与凭据权威保持；SDK接线、发现和工具签名由[MCP宿主职责收缩](2026-10-26-mcp-host-responsibilities.md)更新。当前控制协议为42、SQLite schema为53；下文保留当时不兼容切换的原决定。
+实例配置与凭据权威保持；SDK接线、发现和工具签名由[MCP宿主职责收缩](2026-10-26-mcp-host-responsibilities.md)更新。当前控制协议为43、SQLite schema为53；下文保留当时不兼容切换的原决定。
 
 ## 问题
 

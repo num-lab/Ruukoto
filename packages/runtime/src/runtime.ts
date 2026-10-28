@@ -2657,7 +2657,7 @@ export class Runtime {
       } };
   }
 
-  async branchSession(input: { sessionId: string; name?: string; requestId: string }): Promise<Session> {
+  async branchSession(input: { sessionId: string; name?: string; taskId?: string; requestId: string }): Promise<Session> {
     this.assertCodeScheduleSessionMutable(input.sessionId);
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝会话分支");
     return branchSession(this.branchDeps(), input);

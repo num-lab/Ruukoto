@@ -1,5 +1,6 @@
 /** 固定快照、准备独立文件后发布会话；请求回执跨后台重启保留。
  * Note: 见 .agents/notes/implemented/feature/2026-10-11-branch-session-snapshot.md
+ * Note: 见 .agents/notes/implemented/feature/2026-10-28-desktop-message-actions.md
  */
 import { createHash, randomUUID } from "node:crypto";
 import * as fs from "node:fs";
@@ -97,18 +98,27 @@ function snapshotSources(deps: BranchSessionDeps, source: Session, snapshot: His
       }
     }
   }
-  const lastMessage = snapshot.entries.findLast(entry => entry.type === "message")!;
-  const message = lastMessage.message as { timestamp?: unknown };
-  const until = typeof message.timestamp === "number" ? message.timestamp : Date.parse(String(lastMessage.timestamp));
+  const lastEntry = snapshot.entries.at(-1)!;
+  const lastMessage = snapshot.entries.findLast(entry => entry.type === "message");
+  const entryTime = typeof lastEntry.timestamp === "number" ? lastEntry.timestamp : Date.parse(String(lastEntry.timestamp));
+  const message = lastMessage?.message as { timestamp?: unknown } | undefined;
+  const messageTime = message && typeof message.timestamp === "number" ? message.timestamp : lastMessage ? Date.parse(String(lastMessage.timestamp)) : Number.NaN;
+  const until = Number.isFinite(entryTime) ? entryTime : messageTime;
+  if (!Number.isFinite(until)) throw new RuntimeApiError("history_corrupt", "分支时间戳无法核实");
   // 祖先范围只继承原清单，不查询祖先的新增资料。
   for (const frozen of source.branchSource?.artifacts ?? []) if (tasks.has(frozen.taskId)) addArtifact(frozen.id);
   const results = new Map<string, string[]>();
   for (const old of source.branchSource?.results ?? []) {
     const work = store.getWorkDelegation(old.workId);
-    if (work && tasks.has(work.originTaskId)) {
-      results.set(old.workId, sourceResultTasks(store, access, source.id, old.workId)!);
-      for (const artifact of source.branchSource!.artifacts) if (old.taskIds.includes(artifact.taskId)) addArtifact(artifact.id, artifact.taskId);
-    }
+    if (!work || !tasks.has(work.originTaskId)) continue;
+    const available = new Set(old.taskIds.filter(id => {
+      const task = store.getTask(id);
+      return task?.status === "completed" && task.endedAt !== null && Date.parse(task.endedAt) <= until;
+    }));
+    const validated = (sourceResultTasks(store, access, source.id, old.workId) ?? []).filter(id => available.has(id));
+    if (!validated.length) continue;
+    results.set(old.workId, validated);
+    for (const artifact of source.branchSource!.artifacts) if (validated.includes(artifact.taskId)) addArtifact(artifact.id, artifact.taskId);
   }
   for (const work of store.listWorkDelegationsBySession(source.id)) {
     if (!tasks.has(work.originTaskId)) continue;
@@ -138,12 +148,13 @@ function publishedSession(deps: BranchSessionDeps, request: BranchRequest): Sess
   return session;
 }
 
-export async function branchSession(deps: BranchSessionDeps, input: { sessionId: string; name?: string; requestId: string }): Promise<Session> {
+export async function branchSession(deps: BranchSessionDeps, input: { sessionId: string; name?: string; taskId?: string; requestId: string }): Promise<Session> {
   if (!deps.enabled) throw new RuntimeApiError("unavailable", "当前产品不提供会话分支");
   if (!/^[A-Za-z0-9_-]{1,128}$/.test(input.requestId) || (input.name !== undefined && (!input.name.trim() || input.name.length > 512))) {
     throw new RuntimeApiError("invalid_params", "分支请求键或名称无效（名称最多 512 字符）");
   }
-  const digest = createHash("sha256").update(JSON.stringify([input.sessionId, input.name ?? null])).digest("hex");
+  // 未带 task_id 时沿用旧参数形状，升级后仍能核实原请求键。
+  const digest = createHash("sha256").update(JSON.stringify(input.taskId === undefined ? [input.sessionId, input.name ?? null] : [input.sessionId, input.name ?? null, input.taskId])).digest("hex");
   let request = getBranchRequest(deps.store, input.requestId);
   if (request && request.paramsDigest !== digest) throw new RuntimeApiError("request_conflict", "分支请求键已用于不同参数");
   if (request?.status === "published") {
@@ -151,6 +162,13 @@ export async function branchSession(deps: BranchSessionDeps, input: { sessionId:
   }
   const source = deps.store.getSession(input.sessionId);
   if (!source) throw new RuntimeApiError("not_found", "来源会话不存在");
+  if (input.taskId !== undefined) {
+    const task = deps.store.getTask(input.taskId);
+    if (!task || (task.sessionId !== source.id && !source.branchSource?.taskIds.includes(input.taskId))) {
+      throw new RuntimeApiError("invalid_params", "分支任务不属于来源会话");
+    }
+    if (task.status !== "completed") throw new RuntimeApiError("invalid_params", "只有已完成任务可以建立分支");
+  }
   await deps.validate(source);
   try {
     const fresh = deps.store.getSession(input.sessionId);
@@ -167,7 +185,7 @@ export async function branchSession(deps: BranchSessionDeps, input: { sessionId:
         if (snapshotSource.branchSource) throw new RuntimeApiError("history_corrupt", "来源分支的历史文件缺失，请恢复历史后再分支");
         throw new RuntimeApiError("history_empty", "尚无可复制的已落盘消息，请等待落盘或使用 /new");
       }
-      const snapshot = snapshotSessionHistory(snapshotSource.sessionFile, id => deps.store.getTask(id)?.status ?? null);
+      const snapshot = snapshotSessionHistory(snapshotSource.sessionFile, id => deps.store.getTask(id)?.status ?? null, { throughTaskId: input.taskId });
       if (snapshot.entries[0]!.id !== snapshotSource.piSessionId) throw new RuntimeApiError("history_corrupt", "来源历史 header 与登记的 pi 会话身份不符");
       const todos = historyTodoParams(snapshot.entries);
       if (todos !== null) {

@@ -1,6 +1,8 @@
 // Note: 见 .agents/notes/implemented/bug-fix/2026-10-17-desktop-transcript-rendering.md
 // Note: 见 .agents/notes/implemented/feature/2026-10-21-coding-owner-questions.md
+// Note: 见 .agents/notes/implemented/feature/2026-10-28-desktop-message-actions.md
 import { Fragment, useMemo, useRef, useState } from "react";
+import { Check, Copy, GitBranch, Loader2 } from "lucide-react";
 import type { Components } from "streamdown";
 import type { FlowEntry } from "@ruukoto/view/event-flow.ts";
 import type { OwnerQuestionView } from "@ruukoto/core/owner-questions.ts";
@@ -12,11 +14,33 @@ import { AgentActivity, ExecutionTrace, ToolActivity } from "./tool-activity.tsx
 import { OwnerQuestionCard, OwnerQuestionCards } from "./owner-question-cards.tsx";
 import { ApprovalCards } from "./approval-cards.tsx";
 import { Bubble, BubbleContent } from "./components/ui/bubble.tsx";
+import { Button } from "./components/ui/button.tsx";
 import { Message, MessageContent } from "./components/ui/message.tsx";
 import { MessageScroller, MessageScrollerContent, MessageScrollerItem, MessageScrollerProvider, MessageScrollerViewport } from "./components/ui/message-scroller.tsx";
 
-function MessageEntry({ model, sessionId, entry, child, tools, toolCount, referencesKey, question }: { model: CodeState; sessionId: string; entry: Extract<FlowEntry, { kind: "message" }>; child: boolean; tools: DiffTool[]; toolCount: number; referencesKey: string; question?: OwnerQuestionView }) {
+async function copyText(text: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return;
+  } catch (error) {
+    if (!(error instanceof Error)) throw error;
+    // 宿主统一拒绝网页权限；退回不依赖权限的选区复制。
+  }
+  const area = document.createElement("textarea");
+  area.value = text;
+  area.setAttribute("readonly", "");
+  area.style.position = "fixed";
+  area.style.top = "-9999px";
+  document.body.appendChild(area);
+  area.select();
+  const copied = document.execCommand("copy");
+  area.remove();
+  if (!copied) throw new Error("复制消息失败");
+}
+
+function MessageEntry({ model, sessionId, entry, child, branchable, tools, toolCount, referencesKey, question }: { model: CodeState; sessionId: string; entry: Extract<FlowEntry, { kind: "message" }>; child: boolean; branchable: boolean; tools: DiffTool[]; toolCount: number; referencesKey: string; question?: OwnerQuestionView }) {
   const text = child && entry.role === "user" && entry.taskId ? model.view.tasks.get(entry.taskId)?.displayInput ?? entry.text : entry.text;
+  const [copied, setCopied] = useState(false);
   const markdown = useMemo(() => {
     const components: Components = {
       inlineCode: ({ children }) => {
@@ -30,7 +54,24 @@ function MessageEntry({ model, sessionId, entry, child, tools, toolCount, refere
     return <div className="markdown"><MarkdownText components={components}>{text}</MarkdownText></div>;
   }, [text, model, sessionId, referencesKey]);
   const content = <>{markdown}{entry.attachments?.map(attachment => <div key={attachment.id}>［附件：{attachment.name}］</div>)}</>;
-  return <Message align={entry.role === "user" ? "end" : "start"}><MessageContent>{question ? <OwnerQuestionCard model={model} question={question} /> : entry.role === "user" ? <Bubble variant="muted" align="end"><BubbleContent>{content}</BubbleContent></Bubble> : content}</MessageContent></Message>;
+  const task = entry.taskId ? model.view.tasks.get(entry.taskId) : undefined;
+  const completed = entry.role === "assistant" && !entry.streaming && task?.status === "completed" && (!!entry.text.trim() || !!entry.attachments?.length);
+  const pendingHere = model.pendingBranch?.sessionId === sessionId && model.pendingBranch?.taskId === entry.taskId;
+  const copy = async () => {
+    try {
+      await copyText(text);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      model.message = "复制消息失败，请手动选择正文复制。";
+      model.refresh();
+    }
+  };
+  const actions = completed && <div className="flex items-center gap-0.5 -mt-0.5 -ml-1.5 text-muted-foreground" role="group" aria-label="消息操作">
+    <Button type="button" variant="ghost" size="icon-xs" aria-label="复制消息" title={entry.truncated ? "正文尚未读取完整" : "复制消息"} disabled={entry.truncated} onClick={() => void copy()}>{copied ? <Check /> : <Copy />}</Button>
+    {branchable && <Button type="button" variant="ghost" size="icon-xs" aria-label="从当前任务建立分支" title="从当前任务建立分支" disabled={model.status.state !== "online" || !!model.pendingCreation || (!!model.pendingBranch && !pendingHere)} onClick={() => void model.branch(sessionId, entry.taskId!)}>{pendingHere ? <Loader2 className="animate-spin" /> : <GitBranch />}</Button>}
+  </div>;
+  return <Message align={entry.role === "user" ? "end" : "start"}><MessageContent>{question ? <OwnerQuestionCard model={model} question={question} /> : entry.role === "user" ? <Bubble variant="muted" align="end"><BubbleContent>{content}</BubbleContent></Bubble> : <>{content}{actions}</>}</MessageContent></Message>;
 }
 // Note: 见 .agents/notes/implemented/architecture/2026-10-16-desktop-trace-migration.md
 export function Conversation({ model, sessionId, child = false }: { model: CodeState; sessionId: string; child?: boolean }) {
@@ -53,6 +94,7 @@ export function Conversation({ model, sessionId, child = false }: { model: CodeS
     } else if (item.kind === "message") references.set(item.key, { count: diffTools.length, key: referencesKey });
   }
   const taskId = model.view.activeTaskFor(sessionId)?.id;
+  const branchable = !child && !model.view.roleSessionIds.includes(sessionId) && !model.view.subAgentSessionIds.includes(sessionId) && !model.view.sessions.find(item => item.id === sessionId)?.codeScheduleRunId;
   const sections = conversationSections(model.view, items, timeline, phase && !activeKey && taskId ? { taskId, phase } : undefined, id => model.historyReady(sessionId, id));
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const onExpand = (key: string, open: boolean) => setExpanded(items => ({ ...items, [key]: open }));
@@ -69,7 +111,7 @@ export function Conversation({ model, sessionId, child = false }: { model: CodeS
     {sections.map(section => {
       const contents = section.groups.map(group => {
         const entry = group[0];
-        return <Fragment key={entry.key}>{entry.kind === "message" ? <MessageEntry model={model} sessionId={sessionId} entry={entry} child={child} tools={diffTools} toolCount={references.get(entry.key)!.count} referencesKey={references.get(entry.key)!.key} question={entry.role === "user" && entry.taskId ? answeredQuestions.get(entry.taskId) : undefined} /> : entry.kind === "tool" || entry.kind === "thinking" ? entry.kind === "tool" && isAgentTool(entry) && entry.status !== "error" && entry.status !== "effect_unknown" && entry.key !== activeKey ? <AgentActivity model={model} tool={entry} /> : <ToolActivity model={model} sessionId={sessionId} tools={group.filter((item): item is DiffTool => item.kind === "tool")} thinking={group.find((item): item is Extract<FlowEntry, { kind: "thinking" }> => item.kind === "thinking")} phase={entry.key === activeKey ? phase : undefined} expanded={expanded} onExpand={onExpand} /> : entry.kind === "task" && entry.task.errorMessage ? <p className="text-muted-foreground" role="alert">{entry.task.errorMessage}</p> : null}</Fragment>;
+        return <Fragment key={entry.key}>{entry.kind === "message" ? <MessageEntry model={model} sessionId={sessionId} entry={entry} child={child} branchable={branchable} tools={diffTools} toolCount={references.get(entry.key)!.count} referencesKey={references.get(entry.key)!.key} question={entry.role === "user" && entry.taskId ? answeredQuestions.get(entry.taskId) : undefined} /> : entry.kind === "tool" || entry.kind === "thinking" ? entry.kind === "tool" && isAgentTool(entry) && entry.status !== "error" && entry.status !== "effect_unknown" && entry.key !== activeKey ? <AgentActivity model={model} tool={entry} /> : <ToolActivity model={model} sessionId={sessionId} tools={group.filter((item): item is DiffTool => item.kind === "tool")} thinking={group.find((item): item is Extract<FlowEntry, { kind: "thinking" }> => item.kind === "thinking")} phase={entry.key === activeKey ? phase : undefined} expanded={expanded} onExpand={onExpand} /> : entry.kind === "task" && entry.task.errorMessage ? <p className="text-muted-foreground" role="alert">{entry.task.errorMessage}</p> : null}</Fragment>;
       });
       const hasTrace = section.tailPhase || section.groups.some(group => group[0].kind === "tool" || group[0].kind === "thinking");
       const failed = section.groups.some(group => group.some(item => item.kind === "tool" && (item.status === "error" || model.inspector.toolResult(sessionId, item)?.value?.isError === true)));

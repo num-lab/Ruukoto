@@ -38,7 +38,7 @@
 | **任务与队列控制** | `submit`, `continue`, `interrupt`, `cancel`, `switch_mode`, `resume_queue` | 任务提交、在途任务中断与取消、模式切换（受限/完全访问）与队列恢复 |
 | **状态与事件查询** | `get_task`, `list_tasks`, `read_task_events` | 任务执行状态检索与事件历史分页拉取 |
 | **安全审批响应** | `respond_confirmation`, `get_confirmation_params` | 拥有者批准/拒绝敏感操作；按需分段读取超长审批参数 |
-| **会话与工作区** | `open_workspace`, `create_session`, `branch_session`, `compact_session` | 映射工作区目录、新建会话、拉取会话分支与手动触发历史压缩 |
+| **会话与工作区** | `open_workspace`, `create_session`, `branch_session`, `compact_session` | 映射工作区目录、新建会话、按已完成任务或当前安全尾拉取会话分支与手动触发历史压缩 |
 | **模型与凭据配置** | `list_models`, `get_model_config`, `set_session_model`, `test_model_connection` | 动态查询模型目录、按会话切换模型、保存 API Key 与执行连通性测试 |
 | **工作流控制** | `workflow_start`, `workflow_list`, `workflow_control`, `workflow_answer` | 启动自动化工作流、查询执行步骤、人工干预与问答提交 |
 | **历史与产物读取** | `read_history`, `read_tool_result`, `read_artifact` | 只读解析 JSONL 会话历史、读取工具执行补丁与提取产物二进制片段 |
@@ -105,7 +105,7 @@ sequenceDiagram
 - **鉴权先于一切业务**：未通过 `auth` 校验的连接，绝对无法触发任何数据读取、会话操作或任务提交。
 - **常量时间比对（Timing-safe）**：服务端验证令牌时使用 `crypto.timingSafeEqual`，防止通过统计学旁路时序攻击推测令牌。
 - **大参数有界传输防阻塞**：对于超过 1 MiB 的工具输出或大参数，控制面接口强制要求客户端按 offset 与 limit 分片读取，防止打爆内存与套接字缓冲区。
-- **协议版本硬匹配**：当前协议为 `42`，版本检查先于认证与业务派发。不匹配时返回 `protocol_version`；旧客户端需升级，新客户端遇到旧后台需结束旧进程后重开入口。
+- **协议版本硬匹配**：当前协议为 `43`，版本检查先于认证与业务派发。不匹配时返回 `protocol_version`；旧客户端需升级，新客户端遇到旧后台需结束旧进程后重开入口。
 
 ## 设计依据
 

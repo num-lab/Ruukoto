@@ -122,11 +122,18 @@ export function readHistoryPrefix(file: string, expected?: Pick<HistorySnapshot,
   } finally { fs.closeSync(fd); }
 }
 
+export interface SnapshotSessionHistoryOptions {
+  allowEmpty?: boolean;
+  /** 只取到该任务的完成标记为止；必须存在可核实的结束标记。 */
+  throughTaskId?: string;
+}
+
 /** 按任务及 assistant 批次选择安全分支点，保留终态任务的孤儿记录。只读源文件。
  * allowEmpty 时仍严格核实 header、条目链和文件身份，允许返回只有 header 的快照。
  * Note: 见 .agents/notes/implemented/feature/2026-10-11-branch-session-snapshot.md
+ * Note: 见 .agents/notes/implemented/feature/2026-10-28-desktop-message-actions.md
  */
-export function snapshotSessionHistory(file: string, taskStatus: (taskId: string) => TaskStatus | null, options: { allowEmpty?: boolean } = {}): HistorySnapshot {
+export function snapshotSessionHistory(file: string, taskStatus: (taskId: string) => TaskStatus | null, options: SnapshotSessionHistoryOptions = {}): HistorySnapshot {
   const stat = fs.statSync(file);
   const bytes = readHistoryPrefix(file);
   const completeBytes = bytes.lastIndexOf(10) + 1;
@@ -142,14 +149,15 @@ export function snapshotSessionHistory(file: string, taskStatus: (taskId: string
   let taskId: string | null = null;
   let batch: { index: number; ids: Map<string, string>; taskId: string } | null = null;
   let cut = entries.length;
-  const excluded = completeBytes < bytes.length ? ["未换行的尾记录"] : [];
+  let activeBatchIndex: number | null = null;
+  let throughTaskEnd: number | null = null;
   const closeBatch = () => {
     if (batch?.ids.size) {
       const status = taskStatus(batch.taskId);
       if (!status) throw new HistoryReadError("history_corrupt", "工具批次缺少可核实的宿主任务");
       if (status === "running" || status === "awaiting_confirmation" || status === "queued") {
         cut = Math.min(cut, batch.index);
-        if (!excluded.includes("活动任务未完成的工具批次")) excluded.push("活动任务未完成的工具批次");
+        activeBatchIndex = activeBatchIndex === null ? batch.index : Math.min(activeBatchIndex, batch.index);
       }
     }
     batch = null;
@@ -165,8 +173,10 @@ export function snapshotSessionHistory(file: string, taskStatus: (taskId: string
       if (typeof data?.taskId !== "string" || !taskStatus(data.taskId)) throw new HistoryReadError("history_corrupt", "历史任务标记无法核实");
       taskId = data.taskId;
     } else if (entry.type === "custom" && entry.customType === TASK_END_MARKER) {
-      if ((entry.data as { taskId?: unknown } | undefined)?.taskId !== taskId) throw new HistoryReadError("history_corrupt", "历史任务结束标记不匹配");
+      const endedTaskId = (entry.data as { taskId?: unknown } | undefined)?.taskId;
+      if (endedTaskId !== taskId) throw new HistoryReadError("history_corrupt", "历史任务结束标记不匹配");
       closeBatch();
+      if (options.throughTaskId !== undefined && endedTaskId === options.throughTaskId) throughTaskEnd = i + 1;
       taskId = null;
     } else if (entry.type === "message") {
       const message = entry.message as Record<string, unknown> | undefined;
@@ -193,6 +203,14 @@ export function snapshotSessionHistory(file: string, taskStatus: (taskId: string
     }
   }
   closeBatch();
+  if (options.throughTaskId !== undefined) {
+    if (throughTaskEnd === null) throw new HistoryReadError("entry_not_found", "分支任务没有可核实的完成记录");
+    if (cut < throughTaskEnd) throw new HistoryReadError("history_corrupt", "指定任务之前存在未完成的活动批次");
+    cut = throughTaskEnd;
+  }
+  const excluded: string[] = [];
+  if (activeBatchIndex !== null && activeBatchIndex <= cut) excluded.push("活动任务未完成的工具批次");
+  if (completeBytes < bytes.length) excluded.push("未换行的尾记录");
   const selected = entries.slice(0, cut);
   const messages = selected.filter(entry => entry.type === "message");
   if (!messages.length && !options.allowEmpty) throw new HistoryReadError("entry_not_found", "尚无可复制的已落盘消息，请等待落盘或使用 /new");

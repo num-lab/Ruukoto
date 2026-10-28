@@ -59,6 +59,56 @@ function history(t: TestRuntime, session: Session) {
   return { file, entry, task, user, assistant, result };
 }
 
+test("按指定已完成任务分支：截到该任务结束标记，拒绝未完成、无结束标记与外部任务", async () => {
+  const { t, session, h } = await fixture("branch-through-task");
+  try {
+    const first = h.task();
+    h.user("第一轮问题");
+    h.assistant([{ type: "text", text: "第一轮回答" }]);
+    h.entry({ type: "custom", customType: TASK_END_MARKER, data: { taskId: first.id, status: "completed" } });
+    const second = h.task();
+    h.user("第二轮问题");
+    h.assistant([{ type: "text", text: "第二轮回答" }]);
+    h.entry({ type: "custom", customType: TASK_END_MARKER, data: { taskId: second.id, status: "completed" } });
+    const snapshot = snapshotSessionHistory(h.file, id => t.runtime.store.getTask(id)?.status ?? null, { throughTaskId: first.id });
+    assert.equal(snapshot.messageCount, 2);
+    const branch = await t.runtime.branchSession({ sessionId: session.id, taskId: first.id, requestId: "through-first" });
+    const messages = parseSessionFileStrict(fs.readFileSync(branch.sessionFile!, "utf8")).entries.filter(entry => entry.type === "message").map(entry => {
+      const content = (entry.message as { content?: unknown }).content;
+      return typeof content === "string" ? content : Array.isArray(content) ? content.map(part => typeof part?.text === "string" ? part.text : "").join("") : "";
+    });
+    assert.deepEqual(messages, ["第一轮问题", "第一轮回答"]);
+    assert.deepEqual(branch.branchSource!.taskIds, [first.id]);
+    assert.equal((await t.runtime.branchSession({ sessionId: session.id, taskId: first.id, requestId: "through-first" })).id, branch.id);
+    const viaControl = await t.client.request<Session>("branch_session", { session_id: session.id, task_id: first.id, request_id: "through-control" });
+    assert.deepEqual(viaControl.branchSource!.taskIds, [first.id]);
+    await assert.rejects(() => t.runtime.branchSession({ sessionId: session.id, taskId: second.id, requestId: "through-first" }), (error: any) => error.code === "request_conflict");
+    const inherited = await t.runtime.branchSession({ sessionId: branch.id, taskId: first.id, requestId: "through-ancestor" });
+    assert.deepEqual(inherited.branchSource!.taskIds, [first.id]);
+    const running = h.task("running");
+    h.user("进行中");
+    await assert.rejects(() => t.runtime.branchSession({ sessionId: session.id, taskId: running.id, requestId: "through-running" }), (error: any) => error.code === "invalid_params");
+    await assert.rejects(() => t.runtime.branchSession({ sessionId: session.id, taskId: "missing", requestId: "through-missing" }), (error: any) => error.code === "invalid_params");
+    const foreign = await t.runtime.createSession({ projectName: "其他资料", cwd: t.work[1]! });
+    const foreignTask = t.runtime.store.withTx(() => {
+      const task = t.runtime.store.insertQueuedTask({ sessionId: foreign.id, requestId: randomId("req"), input: "外部任务", modelSelection: t.runtime.defaultSelection, submissionDigest: randomId("digest") }).task;
+      t.runtime.store.endTask(task.id, ["queued"], "completed");
+      return t.runtime.store.getTask(task.id)!;
+    });
+    await assert.rejects(() => t.runtime.branchSession({ sessionId: session.id, taskId: foreignTask.id, requestId: "through-foreign" }), (error: any) => error.code === "invalid_params");
+    const activeBatch = h.task("running");
+    h.user("活动批次");
+    h.assistant([{ type: "toolCall", id: "open", name: "read", arguments: {} }]);
+    const afterBatch = h.task();
+    h.user("活动批次之后");
+    h.entry({ type: "custom", customType: TASK_END_MARKER, data: { taskId: afterBatch.id, status: "completed" } });
+    await assert.rejects(() => t.runtime.branchSession({ sessionId: session.id, taskId: afterBatch.id, requestId: "through-after-active" }), (error: any) => error.code === "history_corrupt");
+    const unclosed = h.task();
+    h.user("没有结束标记");
+    await assert.rejects(() => t.runtime.branchSession({ sessionId: session.id, taskId: unclosed.id, requestId: "through-unclosed" }), (error: any) => error.code === "entry_not_found");
+  } finally { await t.shutdown(); }
+});
+
 async function fixture(prefix: string) {
   const t = await startTestRuntime(prefix, async () => ({ kind: "text", text: "分支回复" }), { config: { product: product.runtime } });
   const session = (await t.runtime.openWorkspace({ cwd: t.work[0]! })).session;
@@ -459,6 +509,7 @@ test("来源 SubAgent 结果固定到原任务；连续分支只读，后续复�
     await waitFor("原子任务完成且空闲", () => rt.store.getTask(first.task.id)!.status === "completed" && rt.store.getSubAgent(first.agent.id)!.state === "idle");
     await assert.rejects(() => rt.branchSession({ sessionId: first.agent.sessionId, requestId: "subagent-source" }), /普通开发/);
     h.user("已取得原结果");
+    h.entry({ type: "custom", customType: TASK_END_MARKER, data: { taskId: parent.id, status: "completed" } });
     const artifact = rt.artifacts.begin({ taskId: first.task.id, sessionId: first.agent.sessionId, name: "result.txt" }); rt.artifacts.append(artifact.id, Buffer.from("原结果产物")); rt.artifacts.complete(artifact.id);
     const b = await rt.branchSession({ sessionId: source.id, requestId: "result-b" });
     const c = await rt.branchSession({ sessionId: b.id, requestId: "result-c" });
@@ -466,6 +517,13 @@ test("来源 SubAgent 结果固定到原任务；连续分支只读，后续复�
     assert.ok(c.branchSource!.artifacts.some(a => a.id === artifact.id));
     const later = await delegateFromActiveTask(rt, { parentTaskId: parent.id, workId, key: "later", request: "后续执行", readPaths: ["."], materials: null, paramsDigest: "later" });
     await waitFor("后续源任务完成", () => rt.store.getTask(later.task.id)!.status === "completed" && rt.store.getSubAgent(first.agent.id)!.state === "idle");
+    const laterArtifact = rt.artifacts.begin({ taskId: later.task.id, sessionId: first.agent.sessionId, name: "later.txt" }); rt.artifacts.append(laterArtifact.id, Buffer.from("后续产物")); rt.artifacts.complete(laterArtifact.id);
+    h.user("后续已取得");
+    const full = await rt.branchSession({ sessionId: source.id, requestId: "result-full" });
+    assert.deepEqual(full.branchSource!.results, [{ workId, taskIds: [first.task.id, later.task.id] }]);
+    const early = await rt.branchSession({ sessionId: full.id, taskId: parent.id, requestId: "result-early" });
+    assert.deepEqual(early.branchSource!.results, [{ workId, taskIds: [first.task.id] }]);
+    assert.ok(early.branchSource!.artifacts.some(a => a.id === artifact.id) && !early.branchSource!.artifacts.some(a => a.id === laterArtifact.id));
     const before = t.server.calls.length;
     const own = await rt.submit({ sessionId: c.id, requestId: "read-results", input: "读取已有结果", modelSelection: rt.defaultSelection });
     await waitFor("分支结果查询完成", () => rt.store.getTask(own.id)!.status === "completed");

@@ -33,8 +33,8 @@
 | 功能模块 | 快捷键 / 入口 | 核心功能与交互 |
 |---|---|---|
 | **Spotlight 全局检索** | `⌘K` 或顶栏搜索图标 | 瞬时搜索当前实例下所有工作区会话标题与消息正文，高亮匹配词并一键定位跳转 |
-| **工作区与会话树** | 左侧边栏 | 支持添加工作区目录、新建分支会话、切换安全模式与配置模型参数 |
-| **时间线与对话区** | 中间主画布 | 流式呈现用户输入、模型思考过程（Thinking）、代码生成与结构化提问卡片 |
+| **工作区与会话树** | 左侧边栏 | 支持添加工作区目录、切换安全模式与配置模型参数 |
+| **时间线与对话区** | 中间主画布 | 流式呈现用户输入、模型思考过程（Thinking）、代码生成与结构化提问卡片；已完成任务的 agent 消息底部提供复制与从当前任务建立分支；分支会话恢复来源任务的思考与工具 trace |
 | **辅助检查抽屉** | 右侧边栏 | Tab 切换：查看代码 Diff 补丁、SubAgent 执行进展、Git Graph、只读文件树与后台服务日志 |
 | **集成终端** | 底部抽屉 | 内嵌基于 xterm.js 的真实终端模拟器，直接在工作区目录执行日常编译命令 |
 | **Skills** | 设置 → Code/PA → Skills | 只读查看所属后台账户 `$HOME/.agents/skills/` 的技能列表、分页与诊断 |
@@ -134,6 +134,7 @@ sequenceDiagram
 
 - [桌面客户端作为又一个控制面客户端](../../.agents/notes/proposed/architecture/2026-10-15-desktop-client.md)
 - [双端共用会话历史恢复](../../.agents/notes/implemented/architecture/2026-10-23-shared-history-recovery.md)
+- [Desktop 消息操作：复制与按任务建立分支](../../.agents/notes/implemented/feature/2026-10-28-desktop-message-actions.md)
 - [应用内 Spotlight 与历史定位](../../.agents/notes/implemented/feature/2026-10-21-desktop-spotlight-search.md)
 - [个人 Tailscale HTTPS 与 WebSocket](../../.agents/notes/implemented/architecture/2026-10-24-personal-tailscale-https.md)
 - [技能统一从宿主 HOME 发现](../../.agents/notes/implemented/simplification/2026-10-28-home-skills-discovery.md)：两端只读 Skills 与旧维护回执核实。

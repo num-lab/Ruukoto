@@ -1617,7 +1617,12 @@ export class TuiApp {
       this.refreshTranscript();
       const tasks = await this.history.readTasks(sessionId, view.flow.historyEntries, recoveryGeneration);
       if (!tasks || generation !== this.generation) return;
-      await Promise.all([...tasks].map(taskId => this.history.restoreTask(taskId, recoveryGeneration)));
+      const branchTaskIds = new Set(this.state.sessions.find(item => item.id === sessionId)?.branchSource?.taskIds ?? []);
+      const branchTasks = [...new Set(view.flow.historyEntries.map(entry => entry.taskId).filter((taskId): taskId is string => !!taskId))].filter(taskId => branchTaskIds.has(taskId));
+      await Promise.all([
+        ...([...tasks].map(taskId => this.history.restoreTask(taskId, recoveryGeneration))),
+        ...branchTasks.map(taskId => this.history.restoreBranchTask(sessionId, taskId, recoveryGeneration)),
+      ]);
       if (generation === this.generation) this.refreshAll();
     } catch (err) {
       if (generation !== this.generation) return;

@@ -28,6 +28,16 @@ interface PendingCreation {
   retried: boolean;
   waitGeneration: number | null;
 }
+interface PendingBranch {
+  sessionId: string;
+  taskId: string;
+  requestId: string;
+  target: DesktopTarget;
+  instanceId: string;
+  busy: boolean;
+  retried: boolean;
+  waitGeneration: number | null;
+}
 
 // Note: 见 .agents/notes/proposed/architecture/2026-10-15-desktop-client.md
 export class CodeState {
@@ -38,6 +48,7 @@ export class CodeState {
   message: string | null = null;
   readError: string | null = null;
   pendingCreation: PendingCreation | null = null;
+  pendingBranch: PendingBranch | null = null;
   defaultModelKnown = false;
   private generation = 0;
   private questionRead = 0;
@@ -103,7 +114,7 @@ export class CodeState {
       this.status = update;
       if (update.state !== "online") { ++this.defaultModelRead; this.defaultModelKnown = false; }
       this.inspector.update(update);
-      if (update.state === "online") { void this.reconcileCreation(); void this.loadOwnerQuestions(); }
+      if (update.state === "online") { void this.reconcileCreation(); void this.reconcileBranch(); void this.loadOwnerQuestions(); }
     } else if (update.type === "snapshot") {
       ++this.generation;
       this.requests.clear();
@@ -116,7 +127,13 @@ export class CodeState {
       this.view.applySnapshot(update.result, instanceChanged);
       this.defaultModelKnown = true;
       this.inspector.update({ ...update, instanceChanged });
-      if (instanceChanged) { this.tabs = []; this.notificationSelection = null; this.creationSourceId = null; }
+      if (instanceChanged) {
+        this.tabs = [];
+        this.notificationSelection = null;
+        this.creationSourceId = null;
+        // 旧实例里的分支无法在新实例核实，不能继续按原键重发。
+        if (this.pendingBranch) { this.pendingBranch = null; this.message = "分支结果未知：数据实例已改变，请查看原实例的会话列表。"; }
+      }
       this.tabs = this.tabs.filter(id => this.view.sessions.some(session => session.id === id));
       if (this.target === "code") void this.loadSummaries();
       for (const id of this.tabs) void this.loadHistory(id);
@@ -124,13 +141,14 @@ export class CodeState {
       if (this.navigation) this.navigate(this.navigation);
       void this.loadOwnerQuestions();
       void this.reconcileCreation();
+      void this.reconcileBranch();
     } else if (update.type === "event") {
       this.view.applyEvent(update.event, update.kind);
       const body = update.event.body;
       if (body.type === "owner_question.changed" && body.question.sessionId === this.view.currentSessionId) void this.loadOwnerQuestions();
       if (this.target === "code" && body.type === "model.config_changed") void this.refreshDefaultModel();
       if (this.target === "code" && (body.type === "session.created" || body.type === "session.workspace_mapped" || body.type === "project.created" || body.type === "task.queued")) void this.loadSummaries();
-      if (body.type === "session.created") void this.reconcileCreation();
+      if (body.type === "session.created") { void this.reconcileCreation(); void this.reconcileBranch(); }
       if (body.type === "task.output_entry" && (this.tabs.includes(body.sessionId) || this.inspector.childSessionId === body.sessionId)) void this.loadEntry(body.sessionId, body.entryId, body.taskId);
       this.inspector.update(update);
     }
@@ -277,6 +295,8 @@ export class CodeState {
       if (mode === "prepend" && !view.historyCursor) return;
       const page = await this.request("read_history", { session_id: sessionId, before: mode === "prepend" ? view.historyCursor ?? undefined : undefined, limit: 50 });
       if (generation !== this.generation) return;
+      const branchTaskIds = new Set(this.view.sessions.find(item => item.id === sessionId)?.branchSource?.taskIds ?? []);
+      const branchTasks = [...new Set(page.entries.map(entry => entry.taskId).filter((taskId): taskId is string => !!taskId))].filter(taskId => branchTaskIds.has(taskId));
       // 有界快照只带近期任务；旧任务状态晚到会让历史页首次渲染把已完成 trace 当成展开态再收起。
       // 状态读取失败时仍先装历史页，保持原先「历史可见、错误报到 readError」的降级。
       // Note: 见 .agents/notes/implemented/bug-fix/2026-10-19-trace-hydration-flash.md
@@ -290,7 +310,10 @@ export class CodeState {
         this.view.installHistoryPage(sessionId, page, mode);
         this.mark();
         if (generation !== this.generation) return;
-        await Promise.all([...relevant].map(taskId => this.read(() => this.history.restoreTask(taskId, recoveryGeneration))));
+        await Promise.all([
+          ...[...relevant].map(taskId => this.read(() => this.history.restoreTask(taskId, recoveryGeneration))),
+          ...branchTasks.map(taskId => this.read(() => this.history.restoreBranchTask(sessionId, taskId, recoveryGeneration))),
+        ]);
         if (generation !== this.generation) return;
         for (const entry of this.view.openSession(sessionId).flow.historyEntries) {
           if (generation !== this.generation) return;
@@ -314,6 +337,7 @@ export class CodeState {
     if (!workspace?.rootDir) { this.report("所选工作区已不可用，请重新选择。"); return null; }
     // create() 在途时不另发请求：先拒绝，免得把草稿交给正在核实的另一个会话。
     if (this.pendingCreation) { this.report("上一个创建仍在核实，请稍后再发送。"); return null; }
+    if (this.pendingBranch) { this.report("正在建立分支，请稍后再发送。"); return null; }
     if (!await this.create("create_session", { project_id: workspace.id, cwd: workspace.rootDir.cwdReal }, { mode: input.mode, modelSelection: input.modelSelection })) return null;
     const sessionId = this.view.currentSessionId;
     if (!sessionId) return null;
@@ -329,8 +353,100 @@ export class CodeState {
     return sessionId;
   }
 
+  // Note: 见 .agents/notes/implemented/feature/2026-10-28-desktop-message-actions.md
+  /** 从已完成任务建立分支；应答丢失后按原请求键核实，不重复创建。 */
+  async branch(sessionId: string, taskId: string): Promise<boolean> {
+    if (this.pendingCreation) { this.report("会话创建仍在核实，请稍后再建立分支。"); return false; }
+    if (this.pendingBranch) {
+      if (this.pendingBranch.sessionId === sessionId && this.pendingBranch.taskId === taskId) {
+        // 上次发布未完成时保留原键；用户再次点击即按原键重试。
+        this.pendingBranch.retried = false;
+        this.pendingBranch.waitGeneration = null;
+        return this.reconcileBranch();
+      }
+      this.report("另一个分支操作仍在进行，请稍后重试。");
+      return false;
+    }
+    if (!this.view.instanceId || this.status.state !== "online") { this.report("请等待连接恢复后再建立分支。"); return false; }
+    const session = this.view.sessions.find(item => item.id === sessionId);
+    const task = this.view.tasks.get(taskId);
+    if (!session || task?.status !== "completed" || (task.sessionId !== sessionId && !session.branchSource?.taskIds.includes(taskId))) { this.report("任务尚未完成或不属于当前会话，无法建立分支。"); return false; }
+    if (this.writes.settingsPending(sessionId)) { this.report("会话设置仍在保存或等待核实，请确认后台实际设置后再建立分支。"); return false; }
+    const pending: PendingBranch = { sessionId, taskId, requestId: crypto.randomUUID(), target: this.target, instanceId: this.view.instanceId, busy: false, retried: false, waitGeneration: null };
+    this.pendingBranch = pending;
+    this.message = null;
+    this.mark();
+    return this.sendBranch(pending);
+  }
+  private ownsBranch(pending: PendingBranch): boolean {
+    if (pending.target === this.target && pending.instanceId === this.view.instanceId) return true;
+    this.report("原分支结果仍未知；请连回原数据实例后核实左栏工作区树。当前实例不会重发原操作。");
+    return false;
+  }
+  private completeBranch(pending: PendingBranch, session: Session): boolean {
+    if (!this.ownsBranch(pending)) return false;
+    if (!this.view.sessions.some(item => item.id === session.id)) this.view.sessions.push(session);
+    this.pendingBranch = null;
+    this.message = `已建立分支：${session.name ?? "新会话"}`;
+    this.openSession(session.id);
+    void this.loadSummaries();
+    return true;
+  }
+  private async reconcileBranch(): Promise<boolean> {
+    const pending = this.pendingBranch;
+    if (!pending || !this.ownsBranch(pending) || pending.busy) return false;
+    if (pending.waitGeneration !== null && this.generation <= pending.waitGeneration) return false;
+    const session = this.view.sessions.find(item => item.createRequestId === pending.requestId);
+    if (session) return this.completeBranch(pending, session);
+    if (this.status.state !== "online") return false;
+    if (pending.retried) { this.report("分支结果未知；请在左栏工作区树查看会话是否已建好，恢复连接后继续核实。"); return false; }
+    pending.retried = true;
+    return this.sendBranch(pending);
+  }
+  private async sendBranch(pending: PendingBranch): Promise<boolean> {
+    if (!this.ownsBranch(pending)) return false;
+    pending.busy = true;
+    this.mark();
+    const generation = this.generation;
+    let session: Session;
+    try { session = await this.request("branch_session", { session_id: pending.sessionId, task_id: pending.taskId, request_id: pending.requestId }); }
+    catch (error) {
+      pending.busy = false;
+      if (!this.ownsBranch(pending)) return false;
+      if (error instanceof DesktopRequestError && error.failure.outcome === "rejected") {
+        try {
+          const found = await this.request("find_branch_session", { request_id: pending.requestId });
+          if (found.session) return this.completeBranch(pending, found.session);
+          if (found.status === "failed") {
+            this.pendingBranch = null;
+            this.report(`建立分支失败：${found.error ?? error.message}`);
+            return false;
+          }
+          if (found.status === "not_found") {
+            this.pendingBranch = null;
+            this.report(`建立分支失败：${error.message}`);
+            return false;
+          }
+          this.report(`分支尚未发布${found.error ? `：${found.error}` : ""}；再次点击分支按钮按原请求重试。`);
+          return false;
+        } catch {
+          this.report("分支结果待核实；连接恢复后将按原操作核实，请查看左栏工作区树。");
+          return false;
+        }
+      }
+      if (error instanceof DesktopRequestError && error.failure.outcome === "unknown") return this.reconcileBranch();
+      pending.waitGeneration = generation;
+      this.report("分支结果待核实；连接恢复后将按原操作核实，请在左栏工作区树查看会话。");
+      if (this.generation > generation) return this.reconcileBranch();
+      return false;
+    }
+    pending.busy = false;
+    return this.completeBranch(pending, session);
+  }
+
   async create(op: PendingCreation["op"], params: { cwd: string; project_id?: string }, settingsOverride?: { mode: SessionDefaultMode; modelSelection: ModelSelection | null }): Promise<boolean> {
     if (this.pendingCreation) return this.reconcileCreation();
+    if (this.pendingBranch) { this.report("正在建立分支，请稍后再创建会话。"); return false; }
     if (!this.view.instanceId || this.status.state !== "online") { this.report("请等待连接恢复后再创建会话。"); return false; }
     const source = this.creationSource();
     if (source && this.writes.settingsPending(source.id)) { this.report("会话设置仍在保存或等待核实，请确认后台实际设置后再创建会话。"); return false; }

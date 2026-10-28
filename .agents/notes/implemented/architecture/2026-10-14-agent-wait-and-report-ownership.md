@@ -2,6 +2,8 @@
 
 Status: implemented
 
+相关提案：[Coding 消息重排与引导](../../proposed/feature/2026-10-28-coding-message-control.md)。
+
 模型工具接口的后续决定见[通用等待](../feature/2026-10-25-code-wait.md)；本篇持久化与权限机制仍有效。
 
 相关决定：[托管技能](../feature/2026-10-21-managed-skills.md)用固定包路径保留旧等待参考，新任务按当前托管状态过滤并记录，不改写原快照；其他设置范围由[桌面设置管理](../../proposed/feature/2026-10-21-desktop-settings-management.md)持有。

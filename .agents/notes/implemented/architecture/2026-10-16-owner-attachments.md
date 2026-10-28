@@ -2,6 +2,8 @@
 
 Status: implemented
 
+相关提案：[Coding 消息重排与引导](../../proposed/feature/2026-10-28-coding-message-control.md)。
+
 ## 问题
 
 定稿 desktop demo 的附件加号需要真实文件输入，原 submit 仅支持字符串。将路径塞进输入会让模型读取后来变化的文件，并依赖原文件权限；将完整 base64 写进提交与 JSONL 又会越过 1 MiB 控制帧并重复存储。

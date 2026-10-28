@@ -18,8 +18,7 @@ function SkillsListGroup() {
   const [preview, setPreview] = useState(false);
   const filtered = skills.filter(skill => skill.name.includes(query));
   return (
-    <SettingsGroup title="全部技能">
-      <SettingsSearch id="skill-search" value={query} onChange={event => setQuery(event.target.value)} placeholder="按名称检索" aria-label="检索技能" />
+    <SettingsGroup title="全部技能" action={<SettingsSearch className="settings-group-search" id="skill-search" value={query} onChange={event => setQuery(event.target.value)} placeholder="按名称检索" aria-label="检索技能" />}>
       {preview && <SettingsCard className="settings-import-preview">
         <SettingsRow title="导入预览：research" description="3 个文件 · 4,096 字节 · 仅显式调用" />
         <SettingsRow title="来源与冲突" description="复制到托管区，源目录保持原样；技能不增加工具或权限。没有名称冲突。" />

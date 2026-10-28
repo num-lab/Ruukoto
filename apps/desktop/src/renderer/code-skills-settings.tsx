@@ -8,8 +8,7 @@ import { SettingsGroup, SettingsList, SettingsListItem, SettingsPage, SettingsRo
 export function CodeSkillsEditor({ state }: { state: CodeSkillsState }) {
   return (
     <SettingsPage title="Skills" description="从 Code 后台账户的 $HOME/.agents/skills/ 读取技能。">
-      <SettingsGroup title="全部技能">
-        <SettingsSearch value={state.query} onChange={event => { state.query = event.target.value; state.changed(); }} placeholder="按名称检索" aria-label="检索技能" />
+      <SettingsGroup title="全部技能" action={<SettingsSearch className="settings-group-search" value={state.query} onChange={event => { state.query = event.target.value; state.changed(); }} placeholder="按名称检索" aria-label="检索技能" />}>
         {!state.connected && <SettingsNotice>Code 已离线或实例已变化，请恢复原实例后读取；原操作不会改发到新实例。</SettingsNotice>}
         {state.phase === "loading" && <SettingsNotice>正在读取技能…</SettingsNotice>}
         <SettingsList label="技能列表" empty={state.query ? "已取得的列表中没有匹配名称。" : "没有可展示的技能。"}>

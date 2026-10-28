@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ChevronRight, Plus, RefreshCw } from "lucide-react";
+import { ChevronRight, Plus } from "lucide-react";
 import type { SettingsPageProps } from "./settings-dialog.tsx";
 import { CodeMcpState } from "./code-mcp-state.ts";
 import { SettingsButton, SettingsInput, SettingsNotice, SettingsSelect, SettingsSwitch, SettingsTag } from "./components/controls.tsx";
@@ -26,52 +26,56 @@ export function Tools({ state }: { state: CodeMcpState }) {
   </SettingsGroup>;
 }
 
-function ServiceDetails({ state, confirmation, setConfirmation }: { state: CodeMcpState; confirmation: Confirmation | null; setConfirmation: (value: Confirmation | null) => void }) {
-  const [endpoint, setEndpoint] = useState(state.draft.endpoint);
+function ServiceFields({ state, onAdopt }: { state: CodeMcpState; onAdopt?: () => void }) {
   const credential = state.credentials.find(credential => credential.name === state.service?.credential);
   const comparison = state.service ?? state.conflictingService;
+  const credentialUnavailable = state.draft.auth === "keep" && !!state.service?.credential && !credential;
+  const authError = state.draft.auth === "existing" ? undefined : state.fieldErrors.auth;
+  return (
+    <>
+      <SettingsRow title="服务名称" htmlFor="mcp-name" error={state.fieldErrors.name}><SettingsInput id="mcp-name" value={state.draft.name} disabled={state.disabled || !!state.service} placeholder="服务名称" aria-invalid={!!state.fieldErrors.name} onChange={event => state.edit("name", event.target.value)} /></SettingsRow>
+      <SettingsRow title="HTTPS 端点" htmlFor="mcp-endpoint" error={state.fieldErrors.endpoint}><SettingsInput id="mcp-endpoint" type="url" value={state.draft.endpoint} disabled={state.disabled} placeholder="https://mcp.example.com" aria-invalid={!!state.fieldErrors.endpoint} onChange={event => state.edit("endpoint", event.target.value)} /></SettingsRow>
+      <SettingsRow title="认证" htmlFor="mcp-auth" error={authError ?? (credentialUnavailable ? "当前凭据不可用，请重新选择。" : undefined)}><SettingsSelect id="mcp-auth" value={state.draft.auth} disabled={state.disabled} aria-invalid={!!authError || credentialUnavailable} onChange={event => state.edit("auth", event.target.value as typeof state.draft.auth)} options={[{ value: "", label: "选择认证方式", disabled: true }, ...(state.service ? [{ value: "keep", label: "保留当前凭据" }] : []), { value: "anonymous", label: "匿名" }, { value: "existing", label: "选择已有凭据" }, { value: "new", label: "保存新的 Bearer 令牌" }]} /></SettingsRow>
+      {state.draft.auth === "existing" && <SettingsRow title="已有凭据" htmlFor="mcp-credential" error={state.fieldErrors.auth}><SettingsSelect id="mcp-credential" value={state.draft.credential} disabled={state.disabled} aria-invalid={!!state.fieldErrors.auth} onChange={event => state.edit("credential", event.target.value)} options={[{ value: "", label: "选择凭据", disabled: true }, ...state.credentials.map((credential, index) => ({ value: credential.name, label: `${credential.host} · ${credential.references.length ? credential.references.map(ref => ref.serviceName).join("、") : `未引用凭据 ${index + 1}`}` }))]} /></SettingsRow>}
+      {state.draft.auth === "new" && <SettingsRow title="Bearer 令牌" htmlFor="mcp-secret" error={state.fieldErrors.secret}><SettingsInput id="mcp-secret" type="password" autoComplete="off" value={state.secret} disabled={state.disabled} aria-invalid={!!state.fieldErrors.secret} onChange={event => state.editSecret(event.target.value)} /></SettingsRow>}
+      <Tools state={state} />
+      {state.service && <SettingsRow title="连接与工具发现" description="检查不执行业务工具，远端只读标注不自动成为本地授权。" footer={state.check && <SettingsNotice>{state.check.ok ? `发现 ${state.check.tools.length} 个工具` : state.check.error ?? `检查失败（${state.check.errorCode ?? "连接错误"}），请核实当前入口后再检查。`}</SettingsNotice>}>
+        <SettingsButton disabled={state.disabled || state.dirty} onClick={() => void state.discover()}>检查连接</SettingsButton>
+      </SettingsRow>}
+      {state.phase === "conflict" && comparison && <SettingsRow title="后台当前值" description="草稿仍在上方，比较后决定。" footer={<pre className="settings-code-block">{JSON.stringify({ endpoint: comparison.endpoint, credential: comparison.credential ? "已引用凭据" : "匿名", enabled: comparison.enabled, tools: comparison.toolAllowlist }, null, 2)}</pre>}>
+        {!state.selectedId && <SettingsButton variant="ghost" disabled={state.disabled} onClick={() => { state.useCurrentService(); onAdopt?.(); }}>以当前同名服务继续编辑</SettingsButton>}
+      </SettingsRow>}
+    </>
+  );
+}
+
+function ServiceDetails({ state, confirmation, setConfirmation }: { state: CodeMcpState; confirmation: Confirmation | null; setConfirmation: (value: Confirmation | null) => void }) {
   return (
     <div className="settings-provider-settings">
-      <SettingsRow title={state.service ? "编辑服务" : "添加服务"} description="配置 MCP HTTP 服务与允许的工具。"><SettingsButton variant="ghost" disabled={state.phase === "saving" || state.phase === "unknown"} onClick={() => state.closeEditor()}>关闭编辑</SettingsButton></SettingsRow>
-      <SettingsRow title="服务名称" htmlFor="mcp-name"><SettingsInput id="mcp-name" value={state.draft.name} disabled={state.disabled || !!state.service} aria-invalid={!!state.fieldErrors.name} onChange={event => state.edit("name", event.target.value)} /></SettingsRow>
-      {state.fieldErrors.name && <SettingsRow title="" description={state.fieldErrors.name} />}
-      <SettingsRow title="HTTPS 端点" htmlFor="mcp-endpoint"><SettingsInput id="mcp-endpoint" value={endpoint} disabled={state.disabled} aria-invalid={!!state.fieldErrors.endpoint} onChange={event => { setEndpoint(event.target.value); state.edit("endpoint", event.target.value); }} /></SettingsRow>
-      {state.fieldErrors.endpoint && <SettingsRow title="" description={state.fieldErrors.endpoint} />}
-      <SettingsRow title="认证" htmlFor="mcp-auth"><SettingsSelect id="mcp-auth" value={state.draft.auth} disabled={state.disabled} onChange={event => state.edit("auth", event.target.value as typeof state.draft.auth)} options={[...(state.service ? [{ value: "keep", label: "保留当前凭据" }] : []), { value: "anonymous", label: "匿名" }, { value: "existing", label: "选择已有凭据" }, { value: "new", label: "保存新的 Bearer 令牌" }]} /></SettingsRow>
-      {state.fieldErrors.auth && <SettingsRow title="" description={state.fieldErrors.auth} />}
-      {state.draft.auth === "keep" && state.service?.credential && !credential && <SettingsRow title="" description="当前凭据不可用，请重新选择。" />}
-      {state.draft.auth === "existing" && <SettingsRow title="已有凭据" htmlFor="mcp-credential"><SettingsSelect id="mcp-credential" value={state.draft.credential} disabled={state.disabled} onChange={event => state.edit("credential", event.target.value)} options={state.credentials.map((credential, index) => ({ value: credential.name, label: `${credential.host} · ${credential.references.length ? credential.references.map(ref => ref.serviceName).join("、") : `未引用凭据 ${index + 1}`}` }))} /></SettingsRow>}
-      {state.draft.auth === "new" && <SettingsRow title="Bearer 令牌" htmlFor="mcp-secret"><SettingsInput id="mcp-secret" type="password" autoComplete="off" value={state.secret} disabled={state.disabled} aria-invalid={!!state.fieldErrors.secret} onChange={event => state.editSecret(event.target.value)} /></SettingsRow>}
-      {state.fieldErrors.secret && <SettingsRow title="" description={state.fieldErrors.secret} />}
-      <Tools state={state} />
-      <SettingsRow title="连接与工具发现" description="检查不执行业务工具，远端只读标注不自动成为本地授权。" footer={state.check && <SettingsNotice>{state.check.ok ? `发现 ${state.check.tools.length} 个工具` : state.check.error ?? `检查失败（${state.check.errorCode ?? "连接错误"}），请核实当前入口后再检查。`}</SettingsNotice>}>
-        <SettingsButton disabled={state.disabled || state.dirty || !state.service} onClick={() => void state.discover()}>检查连接</SettingsButton>
-      </SettingsRow>
-      {state.phase === "conflict" && comparison && <SettingsRow title="后台当前值" description="草稿仍在上方，比较后决定。" footer={<pre className="settings-code-block">{JSON.stringify({ endpoint: comparison.endpoint, credential: comparison.credential ? "已引用凭据" : "匿名", enabled: comparison.enabled, tools: comparison.toolAllowlist }, null, 2)}</pre>}>
-        {!state.selectedId && <SettingsButton variant="ghost" disabled={state.disabled} onClick={() => state.useCurrentService()}>以当前同名服务继续编辑</SettingsButton>}
-      </SettingsRow>}
+      <SettingsRow title="编辑服务" description="配置 MCP HTTP 服务与允许的工具。"><SettingsButton variant="ghost" disabled={state.phase === "saving" || state.phase === "unknown"} onClick={() => state.closeEditor()}>关闭编辑</SettingsButton></SettingsRow>
+      <ServiceFields state={state} />
       <SettingsRow title="服务操作" description="本实例的全部工作区共用此配置。">
         {state.service && <><SettingsButton variant="ghost" disabled={state.disabled || state.dirty} onClick={() => setConfirmation({ kind: "remove" })}>删除服务</SettingsButton><SettingsButton variant="ghost" disabled={state.disabled || state.dirty} onClick={() => setConfirmation({ kind: state.service!.enabled ? "disable" : "enable" })}>{state.service.enabled ? "停用" : "启用"}</SettingsButton></>}
         <SettingsButton variant="ghost" disabled={state.disabled || !state.dirty} onClick={() => state.discard()}>放弃更改</SettingsButton>
-        <SettingsButton disabled={state.disabled || !state.dirty} onClick={() => void state.save()}>{state.service ? "保存" : "保存草稿"}</SettingsButton>
+        <SettingsButton disabled={state.disabled || !state.dirty} onClick={() => void state.save()}>保存</SettingsButton>
       </SettingsRow>
     </div>
   );
 }
 
-function AddServicePage({ state, onBack }: { state: CodeMcpState; onBack: () => void }) {
-  const [name, setName] = useState("");
-  const [endpoint, setEndpoint] = useState("");
+export function AddServicePage({ state, onCancel, onSaved }: { state: CodeMcpState; onCancel: () => void; onSaved: () => void }) {
+  const save = async () => {
+    state.edit("name", state.draft.name.trim()); state.edit("endpoint", state.draft.endpoint.trim());
+    if (await state.save()) onSaved();
+  };
   return (
-    <SettingsSubpage title="添加服务" description="配置 MCP HTTP 服务与允许的工具。" onBack={onBack}>
+    <SettingsSubpage title="添加服务" description="配置 MCP HTTP 服务与允许的工具。" onBack={onCancel}>
+      {!state.connected && <SettingsNotice>Code 已离线，请恢复连接。</SettingsNotice>}
       <SettingsGroup title="服务">
-        <SettingsCard>
-          <SettingsRow title="服务名称" htmlFor="new-mcp-name"><SettingsInput id="new-mcp-name" value={name} onChange={event => setName(event.target.value)} placeholder="服务名称" /></SettingsRow>
-          <SettingsRow title="HTTPS 端点" htmlFor="new-mcp-endpoint"><SettingsInput id="new-mcp-endpoint" type="url" value={endpoint} onChange={event => setEndpoint(event.target.value)} placeholder="https://mcp.example.com" /></SettingsRow>
-          <SettingsRow title="认证方式" htmlFor="new-mcp-auth"><SettingsSelect id="new-mcp-auth" options={[{ value: "anonymous", label: "匿名" }, { value: "new", label: "保存新的 Bearer 令牌" }]} /></SettingsRow>
-        </SettingsCard>
+        <SettingsCard><ServiceFields state={state} onAdopt={onSaved} /></SettingsCard>
       </SettingsGroup>
-      <div className="settings-subpage-actions"><SettingsButton variant="ghost" onClick={onBack}>取消</SettingsButton><SettingsButton disabled={!name.trim() || !endpoint.trim()} onClick={() => { state.select(null); state.edit("name", name.trim()); state.edit("endpoint", endpoint.trim()); onBack(); }}>保存草稿</SettingsButton></div>
+      {state.message && <SettingsNotice>{state.message}</SettingsNotice>}
+      <div className="settings-subpage-actions"><SettingsButton variant="ghost" disabled={state.phase === "saving" || state.phase === "unknown"} onClick={onCancel}>取消</SettingsButton><SettingsButton disabled={state.disabled || !state.dirty} onClick={() => void save()}>保存</SettingsButton></div>
     </SettingsSubpage>
   );
 }
@@ -87,10 +91,11 @@ export function CodeMcpEditor({ state }: { state: CodeMcpState }) {
     else if (action?.kind === "remove") await state.remove();
     else if (action?.kind === "credential") await state.removeCredential(action.name);
   };
-  if (adding) return <AddServicePage state={state} onBack={() => setAdding(false)} />;
+  const cancelAdd = () => { if (state.phase === "saving" || state.phase === "unknown") return; state.closeEditor(); setAdding(false); };
+  if (adding) return <AddServicePage state={state} onCancel={cancelAdd} onSaved={() => setAdding(false)} />;
   return (
     <SettingsPage title="MCP" description="管理当前 Code 实例共用的 HTTP 服务。">
-      <SettingsGroup title="服务" action={<SettingsButton onClick={() => setAdding(true)} disabled={state.disabled || state.dirty}><Plus />添加服务</SettingsButton>}>
+      <SettingsGroup title="服务" action={<SettingsButton onClick={() => { state.select(null); setAdding(true); }} disabled={state.disabled || state.dirty}><Plus />添加服务</SettingsButton>}>
         {!state.connected && <SettingsNotice>Code 已离线，请恢复连接。</SettingsNotice>}
         {state.reading && <SettingsNotice>正在读取配置…</SettingsNotice>}
         <SettingsList label="MCP 服务" empty="尚未配置 HTTP 服务。">
@@ -99,7 +104,6 @@ export function CodeMcpEditor({ state }: { state: CodeMcpState }) {
             <SettingsButton variant="ghost" onClick={() => state.editing && state.selectedId === service.id ? state.closeEditor() : state.select(service.id)} aria-expanded={state.editing && state.selectedId === service.id} aria-label={`${state.editing && state.selectedId === service.id ? "收起" : "编辑"} ${service.name}`}><ChevronRight /></SettingsButton>
           </SettingsListItem>)}
         </SettingsList>
-        {state.editing && !state.selectedId && <SettingsCard className="settings-import-preview"><ServiceDetails state={state} confirmation={confirmation} setConfirmation={setConfirmation} /></SettingsCard>}
       </SettingsGroup>
       {!!state.credentials.length && <SettingsGroup title="MCP 凭据" description="凭据只写入所属后端，列表不显示秘密。">
         <SettingsCard>

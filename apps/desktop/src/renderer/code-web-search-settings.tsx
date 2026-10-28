@@ -34,8 +34,7 @@ function WebSearchForm({ code }: { code: CodeState }) {
           {state.phase === "ready" && effective && effective.name !== WEB_SEARCH_CREDENTIAL_NAME && <SettingsRow title="" description="由 CLI 创建，请用 ruukoto credentials 命令管理。" />}
           {state.credentials.length > 1 && <SettingsRow title="" description={`共 ${state.credentials.length} 条绑定，取名称排序第一个生效。`} />}
           {state.phase === "ready" && !effective && <SettingsRow title="" description="未配置 Tavily 凭据。" />}
-          {secretField && <SettingsRow title="Tavily API Key" description="只显示新秘密输入，不回显已有值。" htmlFor="web-search-secret"><SettingsInput id="web-search-secret" type="password" autoComplete="off" value={state.secret} disabled={state.disabled} aria-invalid={!!state.fieldErrors.secret} onChange={event => state.editSecret(event.target.value)} /></SettingsRow>}
-          {state.fieldErrors.secret && <SettingsRow title="" description={state.fieldErrors.secret} />}
+          {secretField && <SettingsRow title="Tavily API Key" description="只显示新秘密输入，不回显已有值。" htmlFor="web-search-secret" error={state.fieldErrors.secret}><SettingsInput id="web-search-secret" type="password" autoComplete="off" value={state.secret} disabled={state.disabled} aria-invalid={!!state.fieldErrors.secret} onChange={event => state.editSecret(event.target.value)} /></SettingsRow>}
           {secretField && <SettingsRow title="密钥操作" description="保存后生效。">
             {replacing && <SettingsButton variant="ghost" disabled={state.disabled} onClick={() => setReplacing(false)}>取消更换</SettingsButton>}
             <SettingsButton disabled={state.disabled} onClick={() => void state.saveSecret().then(saved => { if (saved) setReplacing(false); })}>保存密钥</SettingsButton>

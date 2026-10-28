@@ -78,7 +78,7 @@ html:not(.dark) .settings-dialog {
 .settings-sidebar .settings-reset { align-self: flex-start; margin-top: auto; color: var(--st-muted); }
 .settings-main { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
 .settings-main::after { position: absolute; z-index: 1; top: 0; right: 0; left: 0; height: 72px; background: linear-gradient(to bottom, var(--st-background) 0%, var(--st-background) 24%, rgb(from var(--st-background) r g b / 0%) 100%); content: ""; pointer-events: none; }
-.settings-window-action { position: absolute; z-index: 2; top: 16px; right: 20px; }
+.settings-window-action { position: absolute; z-index: 3; top: 16px; right: 20px; }
 .settings-content { height: 100%; }
 .settings-page { width: 100%; height: 100%; max-width: 920px; margin-inline: auto; padding: 48px 48px 72px; overflow-y: auto; overscroll-behavior: contain; scrollbar-color: var(--st-border-strong) transparent; scrollbar-width: thin; }
 .settings-page-header { margin-bottom: 40px; }
@@ -114,8 +114,7 @@ label.settings-row-title { cursor: pointer; }
 .settings-row-description { margin: 5px 0 0; color: var(--st-muted); font-size: 13px; line-height: 1.55; overflow-wrap: anywhere; }
 .settings-row-control { display: flex; flex: 0 1 auto; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; max-width: 100%; }
 .settings-row-footer { flex: 0 0 100%; min-width: 0; }
-.settings-row-note { margin: -2px 0 0; color: var(--st-muted); font-size: 12px; line-height: 1.7; }
-.settings-row-note kbd { display: inline-block; min-width: 23px; padding: 0 5px; border: 1px solid var(--st-border-strong); border-radius: 4px; background: var(--st-control); color: var(--st-secondary); font-family: var(--st-mono); font-size: 11px; line-height: 20px; text-align: center; }
+.settings-row-error { flex: 0 0 100%; min-width: 0; margin: -4px 0 0; color: var(--st-muted); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
 .settings-value { color: var(--st-secondary); font-size: 13px; }
 
 .settings-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 36px; padding: 7px 14px; border: 1px solid transparent; border-radius: 7px; font-size: 13px; font-weight: 500; line-height: 20px; white-space: nowrap; }

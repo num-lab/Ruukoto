@@ -36,15 +36,11 @@ function ComputerDetails({ state, confirmation, setConfirmation }: { state: Code
   return (
     <div className="settings-provider-settings">
       <SettingsRow title={state.service ? "编辑电脑" : "添加电脑"} description="配置本机 Cua Driver 与工具权限。"><SettingsButton variant="ghost" disabled={state.phase === "saving" || state.phase === "unknown"} onClick={() => state.closeEditor()}>关闭编辑</SettingsButton></SettingsRow>
-      <SettingsRow title="服务名称" htmlFor="computer-name"><SettingsInput id="computer-name" value={state.draft.name} disabled={state.disabled || !!state.service} aria-invalid={!!state.fieldErrors.name} onChange={event => state.edit("name", event.target.value)} /></SettingsRow>
-      {state.fieldErrors.name && <SettingsRow title="" description={state.fieldErrors.name} />}
-      <SettingsRow title="已安装的 Cua Driver" description="选择本机程序。" htmlFor="computer-cua-program">
+      <SettingsRow title="服务名称" htmlFor="computer-name" error={state.fieldErrors.name}><SettingsInput id="computer-name" value={state.draft.name} disabled={state.disabled || !!state.service} aria-invalid={!!state.fieldErrors.name} onChange={event => state.edit("name", event.target.value)} /></SettingsRow>
+      <SettingsRow title="已安装的 Cua Driver" description="选择本机程序。" htmlFor="computer-cua-program" error={state.fieldErrors.cua ?? (state.cuaIssues.length ? state.cuaIssues.map(issue => issue.message).join("；") : !state.cuaTargets.length ? "未找到 Cua Driver，请先安装。" : undefined)}>
         <SettingsSelect id="computer-cua-program" value={selectedProgram < 0 ? "" : String(selectedProgram)} disabled={state.disabled} onChange={event => state.selectCua(Number(event.target.value))} options={state.cuaTargets.map((target, index) => ({ value: String(index), label: target.label }))} />
       </SettingsRow>
       {state.service?.cua && <SettingsRow title="程序路径" description={state.service.cua.executable} />}
-      {!state.cuaTargets.length && !state.cuaIssues.length && <SettingsRow title="" description="未找到 Cua Driver，请先安装。" />}
-      {state.cuaIssues.map((issue, index) => <SettingsRow key={index} title="" description={issue.message} />)}
-      {state.fieldErrors.cua && <SettingsRow title="" description={state.fieldErrors.cua} />}
       <Tools state={state} />
       <SettingsRow title="检查权限与工具" description="辅助功能与屏幕录制分别核实。" footer={state.check && <SettingsNotice>{state.check.ok ? `发现 ${state.check.tools.length} 个工具` : state.check.error ?? `检查失败（${state.check.errorCode ?? "连接错误"}），请核实当前入口后再检查。`}</SettingsNotice>}>
         <SettingsButton disabled={state.disabled || state.dirty || !state.service} onClick={() => void state.discover()}>检查权限与工具</SettingsButton>

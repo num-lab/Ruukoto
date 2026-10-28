@@ -345,17 +345,31 @@ test("Code MCP 原服务删除后读回不把编辑降为新增，重复保存�
   assert.equal(h.state.draft.endpoint, `${h.mcp.url}/old-draft`);
 });
 
-test("Code MCP 页只呈现 HTTPS 服务，不再含电脑入口与恢复控制", async t => {
+test("Code MCP 页与新增表单只呈现 HTTPS 服务，不再含电脑入口与恢复控制", async t => {
   const { createElement } = await import("react"), { renderToStaticMarkup } = await import("react-dom/server");
   const { createServer } = await import("vite"), { default: react } = await import("@vitejs/plugin-react"), { fileURLToPath } = await import("node:url");
   const server = await createServer({ configFile: false, root: fileURLToPath(new URL("../apps/desktop/src/renderer/", import.meta.url)), plugins: [react()], server: { middlewareMode: true, hmr: false }, appType: "custom" });
   t.after(() => server.close());
-  const { CodeMcpEditor } = await server.ssrLoadModule("/code-mcp-settings.tsx");
+  const { CodeMcpEditor, AddServicePage } = await server.ssrLoadModule("/code-mcp-settings.tsx");
   const h = await rendererFixture();
   h.services.push(h.service, { ...h.service, id: "computer", name: "computer", cua: { kind: "cua-mac", executable: "/Applications/Cua.app/Contents/MacOS/cua-driver", version: "0.38.0", sha256: "a".repeat(64) } } as Service);
   await h.state.read(); h.state.select(null);
   assert.equal(h.state.draft.kind, "http");
-  const html = renderToStaticMarkup(createElement(CodeMcpEditor, { state: h.state }));
-  assert.match(html, /HTTPS 端点/);
-  assert.doesNotMatch(html, /computer|Cua|电脑|恢复|服务类型/);
+  const list = renderToStaticMarkup(createElement(CodeMcpEditor, { state: h.state }));
+  assert.match(list, /添加服务/);
+  assert.doesNotMatch(list, /computer|Cua|电脑|恢复|服务类型/);
+  const form = renderToStaticMarkup(createElement(AddServicePage, { state: h.state, onCancel: () => {}, onSaved: () => {} }));
+  assert.match(form, /服务名称/); assert.match(form, /HTTPS 端点/); assert.match(form, /认证/);
+  assert.doesNotMatch(form, /保存草稿|computer|Cua|电脑|恢复/);
+  h.state.select(h.service.id);
+  const details = renderToStaticMarkup(createElement(CodeMcpEditor, { state: h.state }));
+  assert.match(details, /HTTPS 端点/);
+  assert.doesNotMatch(details, /computer|Cua|电脑|恢复|服务类型/);
+  h.state.select(null);
+  h.state.edit("endpoint", "not-a-url");
+  assert.equal(await h.state.save(), false);
+  const invalid = renderToStaticMarkup(createElement(AddServicePage, { state: h.state, onCancel: () => {}, onSaved: () => {} }));
+  assert.match(invalid, /settings-row-error/);
+  assert.match(invalid, /请输入完整的 HTTPS 端点。/);
+  assert.doesNotMatch(invalid, /settings-row-title"><\/div>/);
 });

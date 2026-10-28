@@ -133,14 +133,10 @@ function ServiceDetails({ state }: { state: PersonalSettingsPageState }) {
   return (
     <div className="settings-provider-settings">
       <SettingsRow title="编辑服务" description="配置 MCP HTTP 服务与允许的工具。" />
-      <SettingsRow title="服务名称" htmlFor="pa-mcp-label"><SettingsInput id="pa-mcp-label" autoComplete="off" value={state.service.label} disabled={state.disabled} aria-invalid={!!state.fieldErrors.label} onChange={event => state.editService("label", event.target.value)} /></SettingsRow>
-      {state.fieldErrors.label && <SettingsRow title="" description={state.fieldErrors.label} />}
-      <SettingsRow title="HTTPS 端点" htmlFor="pa-mcp-endpoint"><SettingsInput id="pa-mcp-endpoint" autoComplete="off" value={state.service.endpoint} disabled={state.disabled} aria-invalid={!!state.fieldErrors.endpoint} onChange={event => state.editService("endpoint", event.target.value)} /></SettingsRow>
-      {state.fieldErrors.endpoint && <SettingsRow title="" description={state.fieldErrors.endpoint} />}
-      <SettingsRow title="认证方式" htmlFor="pa-mcp-auth"><SettingsSelect id="pa-mcp-auth" value={state.service.authentication} disabled={state.disabled} onChange={event => state.editService("authentication", event.target.value as typeof state.service.authentication)} options={[{ value: "anonymous", label: "显式匿名" }, { value: "credential", label: "远端私有凭据文件" }]} /></SettingsRow>
-      {state.fieldErrors.authentication && <SettingsRow title="" description={state.fieldErrors.authentication} />}
-      {state.service.authentication === "credential" && <SettingsRow title="远端私有凭据文件" description="引用无效不降级匿名，保存时可重新绑定。" htmlFor="pa-mcp-credential"><SettingsInput id="pa-mcp-credential" value={state.service.credentialPath} disabled={state.disabled} autoComplete="off" aria-invalid={!!state.fieldErrors.credentialPath} onChange={event => state.editService("credentialPath", event.target.value)} /></SettingsRow>}
-      {state.fieldErrors.credentialPath && <SettingsRow title="" description={state.fieldErrors.credentialPath} />}
+      <SettingsRow title="服务名称" htmlFor="pa-mcp-label" error={state.fieldErrors.label}><SettingsInput id="pa-mcp-label" autoComplete="off" value={state.service.label} disabled={state.disabled} aria-invalid={!!state.fieldErrors.label} onChange={event => state.editService("label", event.target.value)} /></SettingsRow>
+      <SettingsRow title="HTTPS 端点" htmlFor="pa-mcp-endpoint" error={state.fieldErrors.endpoint}><SettingsInput id="pa-mcp-endpoint" autoComplete="off" value={state.service.endpoint} disabled={state.disabled} aria-invalid={!!state.fieldErrors.endpoint} onChange={event => state.editService("endpoint", event.target.value)} /></SettingsRow>
+      <SettingsRow title="认证方式" htmlFor="pa-mcp-auth" error={state.fieldErrors.authentication}><SettingsSelect id="pa-mcp-auth" value={state.service.authentication} disabled={state.disabled} aria-invalid={!!state.fieldErrors.authentication} onChange={event => state.editService("authentication", event.target.value as typeof state.service.authentication)} options={[{ value: "anonymous", label: "显式匿名" }, { value: "credential", label: "远端私有凭据文件" }]} /></SettingsRow>
+      {state.service.authentication === "credential" && <SettingsRow title="远端私有凭据文件" description="引用无效不降级匿名，保存时可重新绑定。" htmlFor="pa-mcp-credential" error={state.fieldErrors.credentialPath}><SettingsInput id="pa-mcp-credential" value={state.service.credentialPath} disabled={state.disabled} autoComplete="off" aria-invalid={!!state.fieldErrors.credentialPath} onChange={event => state.editService("credentialPath", event.target.value)} /></SettingsRow>}
       {state.service.authentication === "credential" && state.services.some(item => item.id === state.service.id) && !state.mcpNeedsMigration && <SettingsRow title="凭据绑定"><SettingsButton variant="ghost" disabled={state.disabled || state.service.credentialRebind} onClick={() => state.rebindCredential()}>{state.service.credentialRebind ? "保存时重新绑定" : "重新绑定凭据"}</SettingsButton></SettingsRow>}
       <SettingsRow title="连接与工具发现" description="检查不执行业务工具，远端只读标注不自动成为本地授权。" footer={state.discovered && <SettingsNotice>发现 {state.discovered.length} 个工具，未发起真实连接。</SettingsNotice>}>
         <SettingsButton disabled={state.disabled} onClick={() => void state.discover()}>检查连接</SettingsButton>
@@ -176,14 +172,12 @@ function ComputerEditor({ state }: { state: PersonalSettingsPageState }) {
 function ComputerDetails({ state }: { state: PersonalSettingsPageState }) {
   return (
     <div className="settings-provider-settings">
-      <SettingsRow title="Linux 桌面沙箱" description="远端独立 Linux 桌面环境。" />
+      <SettingsRow title="Linux 桌面沙箱" description="远端独立 Linux 桌面环境。" error={state.cuaIssues.length ? state.cuaIssues.map(issue => issue.message).join("；") : undefined} />
       {state.cuaChoosing && <SettingsRow title="既有沙箱" description="选择目标后展示工具与权限配置。">
         {state.cuaTargets.map((target, index) => <SettingsButton key={target.config.sandboxId} variant={state.service.cua?.sandboxId === target.config.sandboxId ? "secondary" : "ghost"} disabled={state.disabled} onClick={() => state.chooseCua(index)}>{target.label}</SettingsButton>)}
       </SettingsRow>}
-      {state.cuaIssues.map((issue, index) => <SettingsRow key={index} title="" description={issue.message} />)}
       {(!state.cuaChoosing || state.service.cua) && <>
-        <SettingsRow title="服务名称" htmlFor="pa-computer-label"><SettingsInput id="pa-computer-label" autoComplete="off" value={state.service.label} disabled={state.disabled} aria-invalid={!!state.fieldErrors.label} onChange={event => state.editService("label", event.target.value)} /></SettingsRow>
-        {state.fieldErrors.label && <SettingsRow title="" description={state.fieldErrors.label} />}
+        <SettingsRow title="服务名称" htmlFor="pa-computer-label" error={state.fieldErrors.label}><SettingsInput id="pa-computer-label" autoComplete="off" value={state.service.label} disabled={state.disabled} aria-invalid={!!state.fieldErrors.label} onChange={event => state.editService("label", event.target.value)} /></SettingsRow>
         {state.service.cua && <SettingsRow title="沙箱" description={state.service.cua.sandbox} />}
         <SettingsRow title="连接与工具发现" description="检查不执行业务工具。" footer={state.discovered && <SettingsNotice>发现 {state.discovered.length} 个工具。</SettingsNotice>}>
           <SettingsButton disabled={state.disabled} onClick={() => void state.discover()}>检查连接</SettingsButton>

@@ -48,17 +48,21 @@ function ServiceDetails({ service, variant, onChange, onRemove }: { service: Ser
 function AddServicePage({ variant, onBack, onAdd }: { variant: Variant; onBack: () => void; onAdd: (service: Service) => void }) {
   const [name, setName] = useState("");
   const [endpoint, setEndpoint] = useState("");
+  const [auth, setAuth] = useState(variant === "code" ? "anonymous" : "credential");
   return (
     <SettingsSubpage title="添加服务" description="配置 MCP HTTP 服务与允许的工具。" onBack={onBack}>
       <SettingsGroup title="服务">
         <SettingsCard>
           <SettingsRow title="服务名称" htmlFor="new-mcp-name"><input className="settings-plain-input" id="new-mcp-name" value={name} onChange={event => setName(event.target.value)} placeholder="服务名称" /></SettingsRow>
           <SettingsRow title="HTTPS 端点" htmlFor="new-mcp-endpoint"><input className="settings-plain-input" id="new-mcp-endpoint" type="url" value={endpoint} onChange={event => setEndpoint(event.target.value)} placeholder="https://mcp.example.com" /></SettingsRow>
-          <SettingsRow title="认证方式" htmlFor="new-mcp-auth"><SettingsSelect id="new-mcp-auth" options={variant === "code" ? [{ value: "anonymous", label: "匿名" }, { value: "new", label: "保存新的 Bearer 令牌" }] : [{ value: "anonymous", label: "显式匿名" }, { value: "credential", label: "远端私有凭据文件" }]} /></SettingsRow>
+          <SettingsRow title="认证方式" htmlFor="new-mcp-auth"><SettingsSelect id="new-mcp-auth" value={auth} onChange={event => setAuth(event.target.value)} options={variant === "code" ? [{ value: "anonymous", label: "匿名" }, { value: "new", label: "保存新的 Bearer 令牌" }] : [{ value: "anonymous", label: "显式匿名" }, { value: "credential", label: "远端私有凭据文件" }]} /></SettingsRow>
+          {variant === "code"
+            ? auth === "new" && <TextSetting id="new-mcp-secret" title="Bearer 令牌" description="令牌只写入所属后端。" type="password" placeholder="Bearer 令牌" />
+            : auth === "credential" && <TextSetting id="new-mcp-credential-path" title="远端私有凭据文件" description="引用无效不降级匿名，保存时可重新绑定。" defaultValue="/var/lib/ruukoto/credentials/mcp.json" />}
           <ToolPermissions />
         </SettingsCard>
       </SettingsGroup>
-      <div className="settings-subpage-actions"><SettingsButton variant="ghost" onClick={onBack}>取消</SettingsButton><SettingsButton disabled={!name.trim() || !endpoint.trim()} onClick={() => onAdd({ id: `service-${Date.now()}`, name: name.trim(), endpoint: endpoint.trim(), enabled: true, credential: "匿名", tools: 2 })}>保存草稿</SettingsButton></div>
+      <div className="settings-subpage-actions"><SettingsButton variant="ghost" onClick={onBack}>取消</SettingsButton><SettingsButton disabled={!name.trim() || !endpoint.trim()} onClick={() => onAdd({ id: `service-${Date.now()}`, name: name.trim(), endpoint: endpoint.trim(), enabled: true, credential: auth === "anonymous" ? "匿名" : "已配置凭据", tools: 2 })}>保存</SettingsButton></div>
     </SettingsSubpage>
   );
 }

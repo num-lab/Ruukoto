@@ -15,7 +15,8 @@ Status: implemented
 - 类别扩为 12 项：外观，Code 组的模型/Skills/MCP/电脑，PA 组的同名四项，Web 搜索、PA 远程连接、已存档会话。左栏用分组标签分隔 Code 与 PA，单层导航，不再有页内目标页签。
 - `SettingsCategory` 直接编码目标（`code-*` / `pa-*`），`SettingsState` 删除 `selections` 与 `chooseTarget`，`scope()` 从类别推导 target 与实例。打开设置时按聊天目标落到对应组的第一页。
 - 共享组件位于 `components/settings.tsx`（Shell、NavItem、NavSection、Page、Subpage、Group、Card、List、ListItem、Row）与 `components/controls.tsx`（Button、Select、Switch、Segmented、Input、Search、Tag、Notice），样式集中在 `settings.css`：按 demo 原值定义深色与浅色两套调色板、尺寸和控件值，不映射到 Desktop 主题变量。对话框尺寸受窗口约束（`min(1240px, 100vw - 200px)` × `min(860px, 100dvh - 120px)`），避免遮挡 macOS 红绿灯；其余外观按 demo 原值。旧 `model-settings-*` 样式与 `settings-ui.tsx` 删除。
-- 各设置页改为“页标题 + 组 + 卡片 + 行”：Code/PA 页面各导出独立组件，不再接受 target/onTargetChange。详情编辑沿用列表行内展开，展开状态由页面 state 的 `editing/selected` 驱动，保证 SSR 与运行时一致。
+- 各设置页改为“页标题 + 组 + 卡片 + 行”：Code/PA 页面各导出独立组件，不再接受 target/onTargetChange。详情编辑沿用列表行内展开，展开状态由页面 state 的 `editing/selected` 驱动，保证 SSR 与运行时一致；新增 MCP 服务进入二级页填写完整表单，保存或取消即结束，不再先在列表生成草稿再补齐字段。
+- 字段校验错误随所属控件所在行显示（`SettingsRow.error`），不另起无标题行。
 - Skills 页删除技能展开、正文、停用/移除入口；搜索框改为独立全宽控件，不再包在行里。MCP 页删除「重新读取 MCP 配置」按钮，列表项操作改为箭头图标。Select 宽度随内容且有上限，Segmented 图标固定 13px。
 - `SettingsContentsProps.pages` 的键从 4 个 managed 类别改为完整 `SettingsCategory`，测试可替换任一页面。
 

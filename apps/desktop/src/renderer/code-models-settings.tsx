@@ -111,7 +111,7 @@ function DefaultSettings({ state, reload }: { state: CodeModelsState; reload: Re
   const modelOptions = models.map((model, index) => ({ value: String(index), label: `${model.name} · ${model.provider}${model.thinkingLevels === null ? "（档位未知）" : ""}` }));
   return <SettingsGroup title="默认设置" action={reload}>
     <SettingsCard>
-      <SettingsRow title="后台默认模型" description="影响后续新会话，运行时显式启动参数仍覆盖此处默认。" htmlFor="settings-model-choice">
+      <SettingsRow title="后台默认模型" description="影响后续新会话，运行时显式启动参数仍覆盖此处默认。" htmlFor="settings-model-choice" error={state.fieldErrors.model}>
         <div className="settings-row-control">
           <SettingsSelect id="settings-model-choice" value={defaultIndex >= 0 ? String(defaultIndex) : ""} disabled={state.disabled} onChange={event => { const model = models[Number(event.target.value)]; if (model) void change("default", { provider: model.provider, modelId: model.modelId, thinkingLevel: model.thinkingLevels?.includes(effective.thinkingLevel) ? effective.thinkingLevel : model.thinkingLevels?.[0] ?? "off" }); }} options={modelOptions} />
           <SettingsSelect id="settings-model-effort" aria-label="Effort" value={effective.thinkingLevel} disabled={state.disabled || !effortModel?.thinkingLevels?.length} onChange={event => { const thinkingLevel = effortModel?.thinkingLevels?.find(level => level === event.target.value); if (thinkingLevel) void change("default", { ...effective, thinkingLevel }); }} options={(effortModel?.thinkingLevels ?? []).map(level => ({ value: level, label: level }))} />
@@ -120,7 +120,6 @@ function DefaultSettings({ state, reload }: { state: CodeModelsState; reload: Re
       <SettingsRow title="摘要模型" description="未单独指定时跟随任务模型。" htmlFor="settings-summary-model">
         <SettingsSelect id="settings-summary-model" value={currentSummary ? summaryIndex >= 0 ? String(summaryIndex) : "" : "task"} disabled={state.disabled} onChange={event => { const model = models[Number(event.target.value)]; if (event.target.value === "task") void change("summary", null); else if (model) void change("summary", { provider: model.provider, modelId: model.modelId, thinkingLevel: "off" }); }} options={[{ value: "task", label: "跟随任务模型" }, ...modelOptions]} />
       </SettingsRow>
-      {state.fieldErrors.model && <SettingsRow title="" description={state.fieldErrors.model} />}
       {(view.runtimeOverrides.model || view.runtimeOverrides.thinking) && <SettingsRow title="" description="运行时显式启动参数仍覆盖此处默认。" />}
       {!models.length && <SettingsRow title="" description="尚无已配置模型，请先添加提供方和模型。" />}
     </SettingsCard>

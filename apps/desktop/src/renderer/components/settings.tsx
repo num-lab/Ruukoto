@@ -1,5 +1,5 @@
 import { ChevronLeft } from "lucide-react";
-import { Children, useId, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode } from "react";
+import { Children, useEffect, useId, useRef, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode } from "react";
 
 export function SettingsShell({ navigation, action, footer, children, className = "", ...props }: HTMLAttributes<HTMLDivElement> & {
   navigation: ReactNode;
@@ -61,7 +61,8 @@ export function SettingsSubpage({ title, description, onBack, children }: {
   onBack: () => void;
   children: ReactNode;
 }) {
-  const backRef = (node: HTMLButtonElement | null) => node?.focus({ preventScroll: true });
+  const backRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => { backRef.current?.focus({ preventScroll: true }); }, []);
   return (
     <div className="settings-subpage">
       <button ref={backRef} type="button" className="settings-button settings-button-ghost settings-subpage-back" onClick={onBack}><ChevronLeft aria-hidden="true" /> Back</button>
@@ -125,11 +126,12 @@ export function SettingsLinkRow({ title, description, ...props }: ButtonHTMLAttr
   );
 }
 
-export function SettingsRow({ title, description, htmlFor, footer, children }: {
+export function SettingsRow({ title, description, htmlFor, footer, error, children }: {
   title: ReactNode;
   description?: ReactNode;
   htmlFor?: string;
   footer?: ReactNode;
+  error?: ReactNode;
   children?: ReactNode;
 }) {
   return (
@@ -140,6 +142,7 @@ export function SettingsRow({ title, description, htmlFor, footer, children }: {
       </div>
       {children && <div className="settings-row-control">{children}</div>}
       {footer && <div className="settings-row-footer">{footer}</div>}
+      {error && <p className="settings-row-error" role="alert">{error}</p>}
     </div>
   );
 }

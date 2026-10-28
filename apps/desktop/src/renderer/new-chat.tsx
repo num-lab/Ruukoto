@@ -4,7 +4,7 @@ import { MAX_ATTACHMENTS } from "@ruukoto/core/attachments.ts";
 import type { ModelSelection, Project, SessionDefaultMode } from "@ruukoto/core/types.ts";
 import type { DesktopAttachment, DesktopTarget } from "../shared/bridge.ts";
 import type { CodeState } from "./code-state.ts";
-import { ModeSelector, ModelSelector, composerModes, submitOnEnter } from "./composer.tsx";
+import { ModeSelector, ModelSelector, composerModes, resizeComposerInput, submitOnEnter } from "./composer.tsx";
 import { Button } from "./components/ui/button.tsx";
 import { Textarea } from "./components/ui/textarea.tsx";
 import { WorkspacePicker } from "./workspace-picker.tsx";
@@ -37,6 +37,12 @@ export function NewChatDraft({ model, workspaces, value, fallbackSelection, onCh
   const selection = value.modelSelection ?? fallbackSelection;
   const canSend = !!selected && hasInput && !!selection && !busy && online;
   useEffect(() => { if (online) void writes.loadModels(); }, [writes, online, model.view.instanceId]);
+  useEffect(() => { resizeComposerInput(input.current); }, [value.text]);
+  useEffect(() => {
+    const resize = () => resizeComposerInput(input.current);
+    window.addEventListener("resize", resize);
+    return () => window.removeEventListener("resize", resize);
+  }, []);
   useEffect(() => { input.current?.focus(); }, []);
   function send() { if (canSend) onSend(); }
   // 会话还没建，附件只登记本机文件；建好后由 startChat 补做上传。

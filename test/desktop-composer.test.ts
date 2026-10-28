@@ -26,6 +26,7 @@ import { waitFor } from "./helpers/testkit.ts";
 type ModelOption = OpResult<"list_models">["models"][number];
 let server: ViteDevServer;
 let Composer: ComponentType<{ model: CodeState; session: Session }>;
+let composerInputHeight: (scrollHeight: number, viewportHeight: number) => number;
 let Scheduled: ComponentType<{ model: CodeState; onOpenSession: (id: string) => void }>;
 type DraftValue = { workspaceId: string; text: string; mode: SessionDefaultMode; modelSelection: ModelSelection | null; attachments: DesktopAttachment[]; attaching?: boolean };
 let NewChatDraft: ComponentType<{ model: CodeState; workspaces: Project[]; value: DraftValue; fallbackSelection: ModelSelection | null; onChange: (value: DraftValue) => void; onSend: () => void; onAddWorkspace: () => void; starting: boolean; blocked: boolean }>;
@@ -40,7 +41,7 @@ let Conversation: ComponentType<{ model: CodeState; sessionId: string; child?: b
 let MessageScrollerProvider: ComponentType<{ children?: ReactNode }>;
 before(async () => {
   server = await createServer({ configFile: false, root: fileURLToPath(new URL("../apps/desktop/src/renderer/", import.meta.url)), plugins: [react()], server: { middlewareMode: true, hmr: false }, appType: "custom" });
-  ({ Composer, selectionForModel, EffortSlider } = await server.ssrLoadModule("/composer.tsx"));
+  ({ Composer, composerInputHeight, selectionForModel, EffortSlider } = await server.ssrLoadModule("/composer.tsx"));
   ({ Scheduled } = await server.ssrLoadModule("/scheduled.tsx"));
   ({ NewChatDraft, filterWorkspaces, showsNewChat } = await server.ssrLoadModule("/new-chat.tsx"));
   ({ ContextDetails, ContextIndicator } = await server.ssrLoadModule("/context-indicator.tsx"));
@@ -239,6 +240,13 @@ function context(overrides: Partial<SelectionRecord> = {}): DesktopContextState 
   const maxTokens = breakdown.window?.contextWindow ?? null;
   return { loading: false, error: null, missing: false, value: { record, breakdown, checkpoint: null, display: { systemTokens: record.estimates.systemPrompt ?? 0, toolTokens: record.estimates.toolSchemas ?? 0, messageTokens: record.estimatedTotal - (record.estimates.systemPrompt ?? 0) - (record.estimates.toolSchemas ?? 0), usedTokens: record.estimatedTotal, maxTokens, usedPercent: maxTokens === null ? null : record.estimatedTotal / maxTokens * 100 } } };
 }
+
+test("输入框随内容增高但不超过窗口高度的三分之一", () => {
+  assert.equal(composerInputHeight(40, 900), 48);
+  assert.equal(composerInputHeight(200, 900), 200);
+  assert.equal(composerInputHeight(1000, 900), 300);
+  assert.equal(composerInputHeight(1000, 120), 48);
+});
 
 test("Desktop 模型切换保留支持的真实档位，否则选目录首档，不假设 Medium", () => {
   assert.deepEqual(selectionForModel(option({ provider: "other", modelId: "same-name" }), selection), { provider: "other", modelId: "same-name", thinkingLevel: "high" });

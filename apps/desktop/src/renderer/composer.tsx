@@ -53,6 +53,19 @@ export function ModelSelector({ models, selected, loading, disabled, onChange }:
   const levels = option?.thinkingLevels ?? [];
   return <DropdownMenu onOpenChange={open => { if (open) loading(); }}><DropdownMenuTrigger asChild><Button type="button" variant="ghost" className="model-selector" aria-label="会话模型" aria-description={`${option?.name ?? selected?.modelId ?? "选择模型"} · Effort: ${selected ? effortLabel(selected.thinkingLevel) : "—"}`} disabled={disabled}><Brain className="model-selector-icon" /><span className="model-selector-name">{option?.name ?? selected?.modelId ?? "选择模型"}</span>{selected && <span className="model-selector-effort">{effortLabel(selected.thinkingLevel)}</span>}<ChevronDown className="model-selector-chevron" /></Button></DropdownMenuTrigger><DropdownMenuContent className="composer-menu model-menu" side="top" align="end" sideOffset={6} aria-label="模型与 Effort"><DropdownMenuRadioGroup aria-label="会话模型" value={value} onValueChange={next => { const item = models.find(item => modelKey(item) === next); const selection = item && selectionForModel(item, selected); if (!disabled && selection) onChange(selection); }}>{selected && !option && <DropdownMenuRadioItem value={value} disabled aria-description="当前模型未在目录中，可用性未知">{selected.modelId}</DropdownMenuRadioItem>}{models.map(item => <DropdownMenuRadioItem key={modelKey(item)} value={modelKey(item)} disabled={disabled || !item.available || !item.thinkingLevels.length}>{item.name}{!item.available && " · 认证不可用"}</DropdownMenuRadioItem>)}</DropdownMenuRadioGroup><DropdownMenuSeparator /><DropdownMenuLabel>Effort</DropdownMenuLabel><EffortSlider levels={levels} current={selected?.thinkingLevel ?? null} disabled={disabled || !option?.available} onChange={level => { if (selected) onChange({ ...selected, thinkingLevel: level }); }} /></DropdownMenuContent></DropdownMenu>;
 }
+export function composerInputHeight(scrollHeight: number, viewportHeight: number): number {
+  return Math.max(48, Math.min(scrollHeight, Math.floor(viewportHeight / 3)));
+}
+
+export function resizeComposerInput(input: HTMLTextAreaElement | null): void {
+  if (!input) return;
+  const max = Math.max(48, Math.floor(window.innerHeight / 3));
+  input.style.maxHeight = `${max}px`;
+  input.style.height = "auto";
+  input.style.height = `${composerInputHeight(input.scrollHeight, window.innerHeight)}px`;
+  input.style.overflowY = input.scrollHeight > max ? "auto" : "hidden";
+}
+
 // Note: 见 .agents/notes/implemented/architecture/2026-10-16-desktop-current-demo.md
 export function Composer({ model, session }: { model: CodeState; session: Session }) {
   const writes = model.writes;
@@ -73,6 +86,12 @@ export function Composer({ model, session }: { model: CodeState; session: Sessio
   const selected = session.modelSelection;
   const decision = queueDecision(model.view, session);
   useEffect(() => { if (online) void writes.loadModels(); }, [writes, online, model.view.instanceId, writes.modelGeneration]);
+  useEffect(() => { resizeComposerInput(input.current); }, [draft.text]);
+  useEffect(() => {
+    const resize = () => resizeComposerInput(input.current);
+    window.addEventListener("resize", resize);
+    return () => window.removeEventListener("resize", resize);
+  }, []);
   useEffect(() => { if (model.view.openSession(session.id).historyLoaded && model.view.openSession(session.id).flow.items.length === 0) input.current?.focus(); }, [model, session.id, model.view.openSession(session.id).historyLoaded]);
   useEffect(() => { void writes.preparePending(session.id); }, [writes, session.id, writes.entries, model.view.instanceId, online]);
   function send() {

@@ -151,7 +151,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     let publishedCommandVersion: string | undefined, publishedCommandRevision: string | null = null;
     background = commandConfig && personalBackground(lock.directory, commandConfig, () => harness!, () => !commandsEnabled || isSettingsSuspended("commands"));
     appData = personalAppData(lock.directory, () => harness!);
-    const memory = personalMemory(lock.directory, () => harness!), history = personalHistory(), skills = personalSkills(lock.directory, () => isSettingsSuspended("skills") || isSettingsSuspended("managed-skills"));
+    const memory = personalMemory(lock.directory, () => harness!), history = personalHistory(), skills = personalSkills();
     const savedSearchSelection = await loadPersonalConfigurationSelection(storage, "web-search");
     const effectiveSearch = savedSearchSelection?.effective.find(value => value.scope === "*")?.value.config;
     const initialSearch = effectiveSearch ? parsePersonalWebSearch(effectiveSearch) : savedSearchSelection ? undefined : options.webSearch ?? readPersonalWebSearch(lock);
@@ -528,7 +528,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
       do { const page = await storage.scanDocuments({ kind, scope: { kind: "session" }, at: "current" }, 256, cursor, context); for (const record of page.items) { const saved = await storage.document(record.id, "current", context); if (!saved || saved.version !== 1 || record.key === undefined) throw new PersonalError("question_record_invalid", "问题记录版本或引用无法核实，已停止恢复。"); if (saved.value.question || saved.value.receipt) keys.push(record.key); } cursor = page.next; } while (cursor);
     }
     const models = recordedModels(versions.length && options.provider.id === "personal" ? personalProvider(versions[0].config) : options.provider, record, media.modelMedia, async (input, settings) => {
-      if (isSettingsSuspended("model") || isSettingsSuspended("skills") || isSettingsSuspended("managed-skills")) throw new PersonalError("settings_waiting", "模型或技能配置正在核实，本次新请求未发送；请查询原设置操作，完成核实后再继续。");
+      if (isSettingsSuspended("model")) throw new PersonalError("settings_waiting", "模型配置正在核实，本次新请求未发送；请查询原设置操作，完成核实后再继续。");
       const conversationId = await requestConversation(settings!.sessionId!);
       const live = await harness!.snapshot(LiveDoc, conversationId, context);
       const source = live?.run?.inputs.length === 1 ? await harness!.submission(live.run.inputs[0], context) : undefined;

@@ -11,8 +11,9 @@ import { readPersonalRemoteFile, writePersonalRemoteFile } from "./personal-remo
 import { parsePersonalSettingsWriteRequest, type PersonalSettingsWriteRequest } from "./personal-settings-operations.ts";
 import type { PersonalSettingsReceipt } from "./personal-settings-records.ts";
 
-export const PERSONAL_REMOTE_SETTINGS_READ = ["settings.read", "lifecycle.status", "config.preflight", "model.test", "mcp.discover", "mcp.cua-targets", "mcp.cua-status", "mcp.cua-control", "mcp.cua-image", "mcp.get", "mcp.operations", "mcp.operation", "mcp.end", "skills.list", "skills.get", "skills.select-directory", "skills.preview-import", "im.pair-start", "im.pair-read", "im.pair-confirm", "im.pair-cancel"];
-export const PERSONAL_REMOTE_SETTINGS_WRITE = ["config.save", "mcp.migrate", "mcp.set-enabled", "mcp.remove", "mcp.save-service", "skills.import", "skills.set-enabled", "skills.remove"];
+export const PERSONAL_REMOTE_SETTINGS_READ = ["settings.read", "lifecycle.status", "config.preflight", "model.test", "mcp.discover", "mcp.cua-targets", "mcp.cua-status", "mcp.cua-control", "mcp.cua-image", "mcp.get", "mcp.operations", "mcp.operation", "mcp.end", "skills.list", "skills.get", "im.pair-start", "im.pair-read", "im.pair-confirm", "im.pair-cancel"];
+export const PERSONAL_REMOTE_SETTINGS_WRITE = ["config.save", "mcp.migrate", "mcp.set-enabled", "mcp.remove", "mcp.save-service"];
+const LEGACY_SETTINGS_WRITE = [...PERSONAL_REMOTE_SETTINGS_WRITE, "skills.import", "skills.set-enabled", "skills.remove"];
 type Stage = "stopping" | "stopped" | "saving" | "saved" | "starting" | "complete";
 export type PersonalRemoteMaintenanceReceipt = {
   v: 1; id: string; profile: PersonalSettingsIdentity; op: string; target: PersonalSettingsTarget; expectedRevision: string; requestDigest: string;
@@ -60,7 +61,7 @@ export class PersonalRemoteMaintenance {
     if (!object(value) || ![1, 2].includes(Number(value.v)) || !object(value.receipts) || value.pending !== null && typeof value.pending !== "string" || value.v === 2 && !object(value.settings) || value.v === 1 && value.settings !== undefined) throw error("remote_maintenance_invalid", "维护记录版本或内容无效，请保留记录并检查原服务。");
     if (object(value.settings)) for (const [id, association] of Object.entries(value.settings)) if (!PERSONAL_REQUEST_ID.test(id) || !object(association) || Object.keys(association).sort().join(",") !== "profile,requestDigest" || !identity(association.profile) || typeof association.requestDigest !== "string" || !/^[0-9a-f]{64}$/.test(association.requestDigest)) throw error("remote_maintenance_invalid", "配置接纳关联无法核实，请保留记录并查询原档案。");
     for (const [id, receipt] of Object.entries(value.receipts)) {
-      if (!PERSONAL_REQUEST_ID.test(id) || !object(receipt) || receipt.v !== 1 || receipt.id !== id || !identity(receipt.profile) || typeof receipt.op !== "string" || !PERSONAL_REMOTE_SETTINGS_WRITE.includes(receipt.op) || !["model", "skills", "mcp"].includes(String(receipt.target)) || !revision(receipt.expectedRevision) || typeof receipt.requestDigest !== "string" || !/^[0-9a-f]{64}$/.test(receipt.requestDigest) || !["stopping", "stopped", "saving", "saved", "starting", "complete"].includes(String(receipt.stage)) || typeof receipt.saveAttempted !== "boolean" || ![true, false, null].includes(receipt.saved as boolean | null) || typeof receipt.started !== "boolean" || receipt.savedRevision !== undefined && !revision(receipt.savedRevision) || receipt.code !== undefined && typeof receipt.code !== "string") throw error("remote_maintenance_invalid", "原维护回执无法核实，请保留记录；未重复执行保存。");
+      if (!PERSONAL_REQUEST_ID.test(id) || !object(receipt) || receipt.v !== 1 || receipt.id !== id || !identity(receipt.profile) || typeof receipt.op !== "string" || !LEGACY_SETTINGS_WRITE.includes(receipt.op) || !["model", "skills", "mcp"].includes(String(receipt.target)) || !revision(receipt.expectedRevision) || typeof receipt.requestDigest !== "string" || !/^[0-9a-f]{64}$/.test(receipt.requestDigest) || !["stopping", "stopped", "saving", "saved", "starting", "complete"].includes(String(receipt.stage)) || typeof receipt.saveAttempted !== "boolean" || ![true, false, null].includes(receipt.saved as boolean | null) || typeof receipt.started !== "boolean" || receipt.savedRevision !== undefined && !revision(receipt.savedRevision) || receipt.code !== undefined && typeof receipt.code !== "string") throw error("remote_maintenance_invalid", "原维护回执无法核实，请保留记录；未重复执行保存。");
       if (receipt.saved === true ? !receipt.saveAttempted || !receipt.savedRevision : receipt.savedRevision !== undefined) throw error("remote_maintenance_invalid", "原保存事实与修订不一致，请保留记录并核实原配置。");
       if (!receipt.saveAttempted && receipt.saved !== false || receipt.started && receipt.stage !== "complete" || receipt.stage === "stopping" && (receipt.saveAttempted || receipt.saved !== false) || receipt.stage === "stopped" && receipt.saved !== false || receipt.stage === "saving" && (!receipt.saveAttempted || receipt.saved !== null) || receipt.stage === "saved" && receipt.saved !== true) throw error("remote_maintenance_invalid", "原维护阶段与保存事实不一致，请保留记录；未继续启停或保存。");
     }
@@ -146,8 +147,9 @@ export class PersonalRemoteMaintenance {
         await this.deps.maintenance("start");
       }
       const current = await this.settings();
-      const observed = receipt.target === "skills" && receipt.op !== "config.save" ? current.skills?.revision : current.revisions[receipt.target];
-      if (current.online && receipt.savedRevision && observed === receipt.savedRevision) receipt = { ...receipt, stage: "complete", started: true, code: undefined };
+      // 旧技能来源已退役；恢复只核实后台启动，保留原保存事实，不宣称旧技能重新生效。
+      if (current.online && receipt.target === "skills") receipt = { ...receipt, stage: "complete", started: true, code: "skills_source_retired" };
+      else if (current.online && receipt.savedRevision && current.revisions[receipt.target] === receipt.savedRevision) receipt = { ...receipt, stage: "complete", started: true, code: undefined };
       this.update(receipt);
       return structuredClone(receipt);
     } finally { this.busy = false; }

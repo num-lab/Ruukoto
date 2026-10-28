@@ -52,7 +52,7 @@ const TUI_OPS: Record<TuiOp, true> = {
   set_session_model: true, set_session_mode: true, set_session_archived: true, create_project: true, create_session: true, open_workspace: true, submit: true, continue: true,
   interrupt: true, cancel: true, resume_queue: true, respond_confirmation: true, list_selection_records: true,
   get_context_breakdown: true, list_prompt_requests: true, read_prompt_snapshot: true, search_history: true, list_skills: true, list_subagent_roles: true,
-  skills_list: true, skill_get: true, skill_import_preview: true, skill_import: true, skill_set_enabled: true, skill_remove: true,
+  skills_list: true, skill_get: true,
   list_memories: true, get_memory: true, revoke_memory: true, restore_memory: true, qq_status: true, qq_set_enabled: true,
   qq_inbox_list: true, qq_outbox_list: true,
 };
@@ -69,47 +69,12 @@ test("op 表：表里每个 op 服务端都认得（空参数只会被参数校�
   }
 });
 
-test("技能管理控制面：预览提交、启停与逻辑移除读回，保留外部源和旧正文", async () => {
-  const t = await startTestRuntime("managed-skill-ops", routeResponder([]));
-  try {
-    const source = path.join(fs.realpathSync(t.dirs.root), "controlled-skill"), raw = "---\nname: controlled-skill\ndescription: 控制面技能\ndisable-model-invocation: true\n---\nCONTROLLED-SKILL-BODY\n";
-    fs.mkdirSync(source);
-    fs.writeFileSync(path.join(source, "SKILL.md"), raw);
-    const preview = await t.client.request<OpResult<"skill_import_preview">>("skill_import_preview", { source_dir: source });
-    assert.equal(fs.readFileSync(path.join(source, "SKILL.md"), "utf8"), raw);
-    assert.equal((await t.client.request<OpResult<"list_skills">>("list_skills", {})).skills.length, 0, "预览不安装");
-    await t.client.request<OpResult<"skill_import">>("skill_import", { skill_id: preview.id, source_dir: preview.sourceDir, content_revision: preview.contentRevision, expected_revision: preview.revision });
-    let legacy = await t.client.request<OpResult<"list_skills">>("list_skills", {});
-    assert.deepEqual(legacy.skills.map(skill => [skill.name, skill.explicitOnly]), [["controlled-skill", true]], "仅显式调用仍可供拥有者选择");
-    assert.match(JSON.stringify(await t.client.request<OpResult<"skill_get">>("skill_get", { skill_id: preview.id })), /CONTROLLED-SKILL-BODY/);
-    let current = await t.client.request<OpResult<"skills_list">>("skills_list", { offset: 0, limit: 1 });
-    await t.client.request<OpResult<"skill_set_enabled">>("skill_set_enabled", { skill_id: preview.id, enabled: false, expected_revision: current.revision });
-    assert.equal((await t.client.request<OpResult<"list_skills">>("list_skills", {})).skills.length, 0);
-    assert.match(JSON.stringify(await t.client.request<OpResult<"skill_get">>("skill_get", { skill_id: preview.id })), /disabled/);
-    current = await t.client.request<OpResult<"skills_list">>("skills_list", {});
-    await t.client.request<OpResult<"skill_set_enabled">>("skill_set_enabled", { skill_id: preview.id, enabled: true, expected_revision: current.revision });
-    legacy = await t.client.request<OpResult<"list_skills">>("list_skills", {});
-    assert.equal(legacy.skills[0]?.name, "controlled-skill");
-    current = await t.client.request<OpResult<"skills_list">>("skills_list", {});
-    await t.client.request<OpResult<"skill_remove">>("skill_remove", { skill_id: preview.id, expected_revision: current.revision });
-    assert.equal((await t.client.request<OpResult<"list_skills">>("list_skills", {})).skills.length, 0);
-    assert.match(JSON.stringify(await t.client.request<OpResult<"skill_get">>("skill_get", { skill_id: preview.id })), /CONTROLLED-SKILL-BODY/, "逻辑移除仍可按原身份读回");
-    assert.equal(fs.readFileSync(path.join(source, "SKILL.md"), "utf8"), raw, "管理不改外部源");
-  } finally {
-    await t.shutdown();
-  }
-});
-
-test("技能管理参数：拒绝越界分页、未知字段与缺失修订，不开放任意文件操作", async () => {
+test("技能读取参数：拒绝越界分页和未知字段，不开放任意文件操作", async () => {
   const t = await startTestRuntime("managed-skill-params", routeResponder([]));
   try {
     const requests: Array<[TuiOp, Record<string, unknown>]> = [
       ["skills_list", { offset: -1 }], ["skills_list", { limit: 101 }], ["skills_list", { limit: "1" }],
       ["skill_get", { skill_id: "selected", path: "secret" }],
-      ["skill_import_preview", { source_dir: "/selected", command: "run" }],
-      ["skill_import", { skill_id: "selected", source_dir: "/selected", content_revision: "revision" }],
-      ["skill_set_enabled", { skill_id: "selected", enabled: "false", expected_revision: "revision" }],
-      ["skill_remove", { skill_id: "selected", expected_revision: "revision", recursive: true }],
     ];
     for (const [op, params] of requests) {
       const code = await t.client.request(op, params).then(() => null, (error: { code?: string }) => error.code);

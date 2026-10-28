@@ -180,7 +180,7 @@ export async function mcpDetail(tx: Tx, operation: TaskId, offset = 0, actor?: M
   let response = value.evidence.response;
   let result: JsonValue | CallToolResult | undefined = value.result;
   const originalResult = operationResult(value);
-  if (originalResult && value.imageProjection) result = { ...originalResult, content: originalResult.content?.map((part, index) => part.type === "image" ? { type: "text", text: JSON.stringify(value.imageProjection!.output[index]) } : part) };
+  if (originalResult && value.imageProjection) result = { ...originalResult, content: originalResult.content?.map((part, index) => part.type === "image" ? { type: "text" as const, text: JSON.stringify(value.imageProjection!.output[index]) } : part) };
   if (response && value.imageProjection) {
     const parsed = JSON.parse(response) as { result: CallToolResult };
     parsed.result.content = parsed.result.content?.map((part, index) => part.type === "image" ? { type: "text", text: JSON.stringify(value.imageProjection!.output[index]) } : part);

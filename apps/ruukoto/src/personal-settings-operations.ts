@@ -12,8 +12,6 @@ import { LEGACY_PERSONAL_FORMAT, PERSONAL_FORMAT } from "./personal-profile.ts";
 import { mcpServiceDraft, parsePersonalSettingsDraft, parsePersonalSettingsRequest, personalSettingsIdentity, type PersonalSettingsContext } from "./personal-settings.ts";
 import { parsePersonalModel } from "./personal-model.ts";
 import { parsePersonalMcp, readPersonalMcp, validatePersonalMcpCredentials } from "./personal-mcp-config.ts";
-import { personalSkillStore } from "./personal-skills.ts";
-import { parsePersonalSkills, personalSkillsDirectory } from "./personal-skills-config.ts";
 import { PersonalCommandsDoc, personalCommandLegacyVersion } from "./personal-command-work.ts";
 import { parsePersonalCommands, verifyPersonalCommandConfig } from "./personal-command-config.ts";
 import { PersonalServiceDoc, personalServiceLegacyVersion } from "./personal-services.ts";
@@ -22,22 +20,21 @@ import { parsePersonalWebSearch } from "./personal-tools-config.ts";
 import { parsePersonalTelegram } from "./personal-telegram-config.ts";
 import { parsePersonalQq } from "./personal-qq-config.ts";
 import {
-  advancePersonalSettingsOperation, appendPersonalConfiguration, assertPersonalConfigurationStorage, effectivePersonalConfiguration, initializePersonalSettings, PERSONAL_CONFIGURATION_FILES,
+  advancePersonalSettingsOperation, appendPersonalConfiguration, assertPersonalConfigurationStorage, effectivePersonalConfiguration, initializePersonalSettings, PERSONAL_CONFIGURATION_FILES, PERSONAL_ACTIVE_CONFIGURATION_TARGETS,
   PersonalConfigurationDoc, PersonalFormatDoc, personalConfigurationContentRevision, personalConfigurationVersions, personalSettingsOperation,
   readPersonalConfigurationFile, readPersonalConfigurationRevision, recordPersonalSettingsOperation, replacePersonalConfigurationFile, selectPersonalConfiguration,
   type PersonalConfigurationTarget, type PersonalConfigurationVersion, type PersonalSettingsReceipt, type PersonalSettingsFileIssue,
 } from "./personal-settings-records.ts";
 
-type SettingsWriteOperation = { kind: "config.save"; target: Exclude<PersonalConfigurationTarget, "managed-skills">; value: unknown }
+type SettingsWriteOperation = { kind: "config.save"; target: Exclude<PersonalConfigurationTarget, "skills" | "managed-skills">; value: unknown }
   | { kind: "mcp.save-service"; service: unknown } | { kind: "mcp.set-enabled"; id: string; enabled: boolean } | { kind: "mcp.remove"; id: string } | { kind: "mcp.migrate" }
-  | { kind: "skills.import"; id: string; directory: string; contentRevision: string } | { kind: "skills.set-enabled"; id: string; enabled: boolean } | { kind: "skills.remove"; id: string }
   | { kind: "settings.withdraw"; id: string };
 export type PersonalSettingsWriteRequest = { v: 2; id: string } | { v: 2; id: string; profile: { directory: string; id: string }; expectedRevision: string; op: SettingsWriteOperation };
 const context = BACKGROUND_CONTEXT;
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const invalid = () => new PersonalError("settings_request_invalid", "配置操作无效，请更新管理客户端并读取原操作。");
-const writes = ["config.save", "mcp.save-service", "mcp.set-enabled", "mcp.remove", "mcp.migrate", "skills.import", "skills.set-enabled", "skills.remove", "settings.withdraw"];
+const writes = ["config.save", "mcp.save-service", "mcp.set-enabled", "mcp.remove", "mcp.migrate", "settings.withdraw"];
 function canonical(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
   if (object(value)) return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonical(value[key])}`).join(",")}}`;
@@ -73,7 +70,7 @@ async function serialize<T>(directory: string, change: () => Promise<T>): Promis
 export async function withPersonalSettingsSession<T>(current: PersonalSettingsContext, action: (session: Session) => Promise<T>): Promise<T> {
   if (current.instance) return action(current.instance.harness);
   const filename = path.join(current.profile.directory, "personal.sqlite"), existing = fs.existsSync(filename);
-  if (!existing) for (const target of Object.keys(PERSONAL_CONFIGURATION_FILES) as PersonalConfigurationTarget[]) readPersonalConfigurationFile(current.profile, target);
+  if (!existing) for (const target of PERSONAL_ACTIVE_CONFIGURATION_TARGETS) readPersonalConfigurationFile(current.profile, target);
   let storage: Storage;
   try { storage = await openNodeSqliteStorage(filename); } catch (error) { throw new PersonalError("settings_storage_unavailable", "个人配置档案无法打开，未保存配置；请保留档案并检查数据库。", { cause: error }); }
   const session = createSession(storage);
@@ -87,7 +84,7 @@ async function candidate(current: PersonalSettingsContext, session: Session, req
   const op = request.op, profile = current.profile;
   if (op.kind === "settings.withdraw") {
     const previous = await session.commit(tx => personalSettingsOperation(tx, op.id), context);
-    if (!previous || previous.receipt.status !== "waiting" && previous.receipt.status !== "saved") throw new PersonalError("settings_withdraw_unavailable", "请先核实原操作；仅可撤回已证明保存且尚未生效的更改。");
+    if (!previous || !PERSONAL_ACTIVE_CONFIGURATION_TARGETS.includes(previous.candidate.target) || previous.receipt.status !== "waiting" && previous.receipt.status !== "saved") throw new PersonalError("settings_withdraw_unavailable", "请先核实原操作；仅可撤回已证明保存且尚未生效的更改。");
     const effective = await session.commit(async tx => await effectivePersonalConfiguration(tx, previous.candidate.target, previous.receipt.scope) ?? await effectivePersonalConfiguration(tx, previous.candidate.target, "*"), context);
     if (effective?.version === previous.candidate.version) throw new PersonalError("settings_withdraw_unavailable", "原更改可能已经发布，请先查询原操作完成生效核实。");
     if (!effective) throw new PersonalError("settings_withdraw_unavailable", "原生效配置无法核实，请保留原操作并恢复配置记录。");
@@ -110,12 +107,6 @@ async function candidate(current: PersonalSettingsContext, session: Session, req
     if (content === null || config === null && previous.candidate.target !== "commands" && previous.candidate.target !== "services") throw new PersonalError("settings_withdraw_unavailable", "原设置尚未配置，此能力暂不支持恢复到未配置；请保留原操作，先查询生效状态后再选择配置。");
     return { target: previous.candidate.target, scope: previous.receipt.scope, content, config, supersedes: op.id };
   }
-  if (op.kind.startsWith("skills.")) {
-    const store = personalSkillStore(profile);
-    const prepared = op.kind === "skills.import" ? store.prepareImport({ id: op.id, sourceDir: op.directory, contentRevision: op.contentRevision, expectedRevision: request.expectedRevision }) : op.kind === "skills.set-enabled" ? store.prepareSetEnabled({ ...op, expectedRevision: request.expectedRevision }) : op.kind === "skills.remove" ? store.prepareRemove({ ...op, expectedRevision: request.expectedRevision }) : undefined;
-    if (!prepared) throw invalid();
-    return { target: "managed-skills", scope: "managed", content: prepared.content, config: JSON.parse(prepared.content) as JsonValue };
-  }
   let target: PersonalConfigurationTarget, scope = "*", value: unknown;
   if (op.kind === "config.save") { target = op.target; value = op.value; }
   else {
@@ -133,9 +124,8 @@ async function candidate(current: PersonalSettingsContext, session: Session, req
     }
   }
   let config: JsonValue;
-  if (target === "model" || target === "skills" || target === "mcp") {
+  if (target === "model" || target === "mcp") {
     config = (target === "mcp" && op.kind !== "config.save" ? parsePersonalMcp(value) : parsePersonalSettingsDraft(profile, target, value)) as JsonValue;
-    if (target === "skills") personalSkillsDirectory(parsePersonalSkills(config));
     if (target === "mcp") {
       const parsed = parsePersonalMcp(config), previous = readPersonalMcp(profile);
       if (previous && isDeepStrictEqual({ ...parsed, generation: previous.generation }, previous)) config = previous as JsonValue;
@@ -165,6 +155,7 @@ async function publish(current: PersonalSettingsContext, session: Session, origi
   const known = await session.commit(tx => personalSettingsOperation(tx, original.receipt.id), context);
   if (!known) throw invalid();
   let operation = known;
+  if (!PERSONAL_ACTIVE_CONFIGURATION_TARGETS.includes(operation.candidate.target)) return operation.receipt;
   if (["active", "superseded", "rejected", "unknown"].includes(operation.receipt.status)) return operation.receipt;
   const instance = current.instance;
   if (!instance) return operation.receipt;
@@ -268,7 +259,7 @@ export async function dispatchPersonalConfiguration(current: PersonalSettingsCon
         return verifySaved(current, session, previous);
       }
       const op = request.op;
-      const target = op.kind === "settings.withdraw" ? (await session.commit(tx => personalSettingsOperation(tx, op.id), context))?.candidate.target : op.kind.startsWith("skills.") ? "managed-skills" : op.kind.startsWith("mcp.") ? "mcp" : op.kind === "config.save" ? op.target : undefined;
+      const target = op.kind === "settings.withdraw" ? (await session.commit(tx => personalSettingsOperation(tx, op.id), context))?.candidate.target : op.kind.startsWith("mcp.") ? "mcp" : op.kind === "config.save" ? op.target : undefined;
       if (target) {
         await refreshSuspension(current, session, target);
         if ((await configurationFileIssues(current, session, [target])).length) throw new PersonalError("settings_file_unverified", "配置文件与保存历史不符，已暂停此目标的新操作；请保留档案并恢复原文件后查询。");
@@ -323,7 +314,7 @@ export async function dispatchPersonalConfiguration(current: PersonalSettingsCon
   });
 }
 
-async function configurationFileIssues(current: PersonalSettingsContext, session: Session, targets: PersonalConfigurationTarget[]): Promise<PersonalSettingsFileIssue[]> {
+async function configurationFileIssues(current: PersonalSettingsContext, session: Session, targets: readonly PersonalConfigurationTarget[]): Promise<PersonalSettingsFileIssue[]> {
   const latest = await session.commit(async tx => {
     const values = [];
     for (const target of targets) { const value = (await personalConfigurationVersions(tx, target)).at(-1); if (value) values.push(value); }
@@ -343,7 +334,7 @@ export async function personalSettingsFileIssues(current: PersonalSettingsContex
   if (!current.instance && !fs.existsSync(path.join(current.profile.directory, "personal.sqlite"))) return [];
   return withPersonalSettingsSession(current, session => serialize(current.profile.directory, async () => {
     if (!await session.snapshot(PersonalConfigurationDoc, context)) return [];
-    const targets = Object.keys(PERSONAL_CONFIGURATION_FILES) as PersonalConfigurationTarget[];
+    const targets = PERSONAL_ACTIVE_CONFIGURATION_TARGETS;
     const issues = await configurationFileIssues(current, session, targets);
     for (const target of targets) await refreshSuspension(current, session, target, issues);
     return issues;
@@ -351,7 +342,7 @@ export async function personalSettingsFileIssues(current: PersonalSettingsContex
 }
 
 async function refreshSuspension(current: PersonalSettingsContext, session: Session, target: PersonalConfigurationTarget, knownIssues?: PersonalSettingsFileIssue[]): Promise<void> {
-  if (!current.instance) return;
+  if (!current.instance || !PERSONAL_ACTIVE_CONFIGURATION_TARGETS.includes(target)) return;
   const issues = knownIssues ?? await configurationFileIssues(current, session, [target]);
   const { operations, scopes } = await session.commit(async tx => {
     const index = await tx.doc(PersonalConfigurationDoc), operations = [], scopes = new Set<string>(["*"]);
@@ -378,7 +369,7 @@ export async function recoverPersonalSettings(current: PersonalSettingsContext):
   await personalSettingsFileIssues(current);
   const pending = await session.commit(async tx => {
     const index = await tx.doc(PersonalConfigurationDoc), operations = [];
-    for (const id of index.operations) { const operation = await personalSettingsOperation(tx, id); if (operation && !["active", "superseded", "rejected"].includes(operation.receipt.status)) operations.push(operation); }
+    for (const id of index.operations) { const operation = await personalSettingsOperation(tx, id); if (operation && PERSONAL_ACTIVE_CONFIGURATION_TARGETS.includes(operation.candidate.target) && !["active", "superseded", "rejected"].includes(operation.receipt.status)) operations.push(operation); }
     return operations;
   }, context);
   for (const operation of pending) current.instance.suspendSettings(operation.candidate.target, operation.receipt.status === "unknown" ? "*" : operation.receipt.scope);

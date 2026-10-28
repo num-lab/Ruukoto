@@ -2,6 +2,8 @@
 
 Status: implemented
 
+技能导入与状态管理由[统一 HOME 发现](../simplification/2026-10-28-home-skills-discovery.md)取代；桌面保留只读列表、分页与诊断，原历史引用继续保留。
+
 技能正文的图片占位由[Markdown 直接显示图片](../simplification/2026-10-25-desktop-markdown-images.md)取代，原始 HTML 跳过规则由[Markdown 渲染 HTML](../simplification/2026-10-25-desktop-markdown-html.md)取代，链接规则继续适用。
 
 ## 问题

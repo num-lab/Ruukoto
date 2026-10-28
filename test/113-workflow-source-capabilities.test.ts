@@ -1,3 +1,5 @@
+import { skillsDirFor } from "@ruukoto/agent/skills.ts";
+import { isolateSkillHome } from "./helpers/skill-home.ts";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -54,7 +56,8 @@ async function finished(rt: Runtime, run: WorkflowRun): Promise<WorkflowRun> {
   return requireWorkflowRun(rt.store, run.id);
 }
 
-test("工作流步骤从持久来源装配技能目录与真实 skill 调用", async () => {
+test("工作流步骤从持久来源装配技能目录与真实 skill 调用", async tc => {
+  isolateSkillHome(tc);
   const t = await startTestRuntime("workflow-skill-binding", req => {
     assert.match(inputText(req), /\[技能目录\]/);
     assert.deepEqual(toolNamesOf(req), ["skill"]);
@@ -62,7 +65,7 @@ test("工作流步骤从持久来源装配技能目录与真实 skill 调用", a
     return { kind: "tool_calls", calls: [{ id: "skill", name: "skill", arguments: { name: "proof" } }] };
   }, { config: realTools() });
   try {
-    const folder = path.join(t.dirs.agentDir, "skills", "proof"); fs.mkdirSync(folder, { recursive: true });
+    const folder = path.join(skillsDirFor(), "proof"); fs.mkdirSync(folder, { recursive: true });
     fs.writeFileSync(path.join(folder, "SKILL.md"), "---\nname: proof\ndescription: 工作流技能证据\n---\nWORKFLOW-SKILL-BODY\n");
     const rt = t.runtime, session = await rt.createSession({ projectName: "skill", cwd: t.work[0] }), source = ownerSource(rt, session);
     const run = rt.workflows!.start({ sourceTaskId: source.id, requestKey: "skill", input: null, script: 'return await agent("read",{request:"读取来源技能",tools:["skill"]});' });

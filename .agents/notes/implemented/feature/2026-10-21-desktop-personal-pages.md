@@ -2,6 +2,8 @@
 
 Status: implemented
 
+Skills 页面由[统一 HOME 发现](../simplification/2026-10-28-home-skills-discovery.md)部分取代，提供固定目录的只读列表与诊断；旧维护仍可查询和核实。
+
 普通保存、按对象等待与原键核实采用[设置保存与生效](../architecture/2026-10-25-personal-settings-versions.md)，不再统一停存启；本文其余远端来源、草稿、身份与旧维护恢复约束继续适用。
 
 统一 PA 聊天与设置连接见 [Tailscale HTTPS／WebSocket](../architecture/2026-10-24-personal-tailscale-https.md)；本篇表单字段、原档案与维护核实规则保持。

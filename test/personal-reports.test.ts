@@ -20,10 +20,11 @@ import { savePersonalConfig } from "../apps/ruukoto/src/personal-config.ts";
 import { startPersonalServer } from "../apps/ruukoto/src/personal-control.ts";
 import { managePersonalDelegations } from "../apps/ruukoto/src/personal-cli.ts";
 import { PersonalTelegramReceiptDoc } from "../apps/ruukoto/src/personal-telegram-records.ts";
-import { savePersonalSkills } from "../apps/ruukoto/src/personal-skills-config.ts";
 import type { PersonalTelegramConfig } from "../apps/ruukoto/src/personal-telegram-config.ts";
 import type { TelegramUpdate } from "../apps/ruukoto/src/personal-telegram-api.ts";
 import { PersonalMockModelServer as MockModelServer, type RecordedRequest, type Responder } from "./helpers/mock-provider.ts";
+
+import { isolateSkillHome } from "./helpers/skill-home.ts";
 
 const context = BACKGROUND_CONTEXT;
 const TOKEN = "123:report-test-only";
@@ -70,6 +71,7 @@ async function fixture(t: TestContext, respond: { analyze?: Responder; summarize
     await model.close(); fs.rmSync(directory, { recursive: true, force: true });
     for (const [i, key] of [config.apiKeyEnv, "RUUKOTO_REPORT_BOT_KEY"].entries()) { if (previous[i] === undefined) delete process.env[key]; else process.env[key] = previous[i]; }
   });
+  isolateSkillHome(t);
   return { directory, config, model, options, sends,
     open: async (overrides: Partial<Omit<Parameters<typeof openPersonalHarness>[0], "directory" | "profile">> = {}) => p = await openPersonalHarness({ ...options, ...overrides }),
     async telegram(image?: Buffer): Promise<PersonalTelegramConfig> {
@@ -193,10 +195,8 @@ test("当前输入：原生工具边界之后的合成user不冒充原拥有者�
 });
 
 test("当前输入：显式技能先按原消息展开，只包围本轮正文且保留原记录", async t => {
-  const f = await fixture(t), library = fs.realpathSync(fs.mkdtempSync(path.join(tmpdir(), "rk-boundary-skill-"))), skill = path.join(library, "skills", "boundary");
-  t.after(() => fs.rmSync(library, { recursive: true, force: true }));
+  const f = await fixture(t), skill = path.join(isolateSkillHome(t), ".agents", "skills", "boundary");
   fs.mkdirSync(skill, { recursive: true }); fs.writeFileSync(path.join(skill, "SKILL.md"), "---\nname: boundary\ndescription: 本轮输入归属\n---\n技能正文保持原样。\n");
-  await savePersonalSkills(f.directory, { version: 1, directory: library });
   const p = await f.open(); await p.answer("/skill:boundary 本轮参数", "explicit-owner");
   const first = String(f.model.calls.at(-1)!.messages.at(-1)?.content);
   assert.match(first, /^【本轮拥有者输入，独立于此前宿主汇总参考】\n/); assert.match(first, /技能正文保持原样/); assert.match(first, /本轮参数/); assert.match(first, /\n【本轮拥有者输入结束】$/);

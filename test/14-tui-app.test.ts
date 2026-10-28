@@ -1,3 +1,5 @@
+import { skillsDirFor } from "@ruukoto/agent/skills.ts";
+import { isolateSkillHome } from "./helpers/skill-home.ts";
 import { fixtureSubAgentDefinition } from "./helpers/subagent-definition.ts";
 /**
  * TUI 应用集成（无终端：假 Terminal + 真实后台与控制协议）。
@@ -1143,15 +1145,16 @@ test("/context：最近一次上下文窗口分解写入事件流", async () => 
   }
 });
 
-test("/skill 与 /skills：显式调用提交 /skill:<名称> 任务，列表展示技能与诊断", async () => {
+test("/skill 与 /skills：显式调用提交 /skill:<名称> 任务，列表展示技能与诊断", async tc => {
+  isolateSkillHome(tc);
   const t = await startTestRuntime("tui-skill", async () => ({ kind: "text", text: "照做" }));
   const apps: AppHarness[] = [];
   try {
-    const skillDir = path.join(t.dirs.agentDir, "skills", "beta");
+    const skillDir = path.join(skillsDirFor(), "beta");
     fs.mkdirSync(skillDir, { recursive: true });
     fs.writeFileSync(path.join(skillDir, "SKILL.md"), "---\nname: beta\ndescription: BETA-DESC\ndisable-model-invocation: true\n---\nBETA-BODY");
-    fs.mkdirSync(path.join(t.dirs.agentDir, "skills", "nodesc"));
-    fs.writeFileSync(path.join(t.dirs.agentDir, "skills", "nodesc", "SKILL.md"), "---\nname: nodesc\n---\nx");
+    fs.mkdirSync(path.join(skillsDirFor(), "nodesc"));
+    fs.writeFileSync(path.join(skillsDirFor(), "nodesc", "SKILL.md"), "---\nname: nodesc\n---\nx");
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
     const h = await startApp(t, { sessionId });
     apps.push(h);

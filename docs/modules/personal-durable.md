@@ -26,7 +26,7 @@
 |---|---|---|
 | `ruukoto` / `npm start` | 交互式终端向导 | 引导用户配置模型、启停后台、查看最近会话、管理授权与回答待决问题 |
 | `ruukoto serve` | 前台常驻后台服务 | 托管个人 durable 运行引擎，支持通过 `--directory` 指定独立存储目录 |
-| `ruukoto settings` | JSON-RPC 运维配置接口 | 供上层客户端程序读写模型、Skills 与 MCP 配置，支持在线与离线模式 |
+| `ruukoto settings` | JSON 运维配置接口 | 读写模型与 MCP 配置，只读查询固定目录技能，支持在线与离线模式 |
 | `ruukoto maintenance` | 系统级服务管理 | 针对生产环境验证并显式启停 systemd 服务单元 |
 | `ruukoto remote` | 远程配对向导 | 管理 Tailscale HTTPS/WSS 访问凭据，支持设备配对与凭据吊销 |
 
@@ -69,12 +69,14 @@ stateDiagram-v2
 |---|---|---|
 | **核心会话与工作** | `durable SQLite` | 主会话记录、长效子 Agent、异步分析任务状态与完整报告 |
 | **提问与回执** | `ruukoto.questions` | 交互式提问内容、选项清单、用户提交答案及原路回执 |
-| **长期记忆与技能** | `ruukoto.memories` & `skills.json` | 稳定记忆版本链、撤销记录、托管技能包及启用清单 |
+| **长期记忆与技能** | `ruukoto.memories` / `ruukoto.skills` 与 entries | 记忆修订与撤销、技能来源和正文快照、加载与显式调用证据 |
 | **定时计划与运行** | `ruukoto.schedules` | 定时触发规则、历史运行记录、执行快照与投递凭据 |
 | **应用业务数据** | `agent-data/main.db` | 个人业务数据库，支持关系模型与事务一致性审计 |
 | **MCP 配置与操作** | `mcp.json` / durable entries | 配置 v4 分开保存工具效果与定义；新操作保存身份、批准、开始事实、规范结果与产物，旧记录只读保留 |
 
 MCP 配置先经拥有者管理入口显式迁入 v4，再接纳普通服务的新业务。迁入沿保存／生效回执恢复，保留旧凭据引用及其字节摘要语义；重新绑定凭据才改用实际 token 摘要。旧未开始批准在迁入时失效，旧未知调用保持原事实，原电脑停止与恢复可继续管理。
+
+个人技能从后台账户的 `$HOME/.agents/skills/` 发现，每次模型请求前刷新并保存完整快照，模型只先取得名称与描述。`skill` 按需返回正文或引用文本，主会话支持 `/skill:名称 参数`。当前发现与旧技能库配置、托管状态分开；旧来源不同的定时计划明确停止并要求取消重建。
 
 ## 主要流程
 
@@ -123,3 +125,4 @@ sequenceDiagram
 - [个人认证令牌完整写入后发布](../../.agents/notes/implemented/bug-fix/2026-10-24-personal-token-atomic-publish.md)
 - [后台任务与终端](../../.agents/notes/implemented/architecture/2026-09-19-detach-terminal-from-task-runtime.md)
 - [MCP 宿主职责收缩](../../.agents/notes/implemented/simplification/2026-10-26-mcp-host-responsibilities.md)：配置迁入、来源级未知收尾与 Pi MCP 薄适配。
+- [技能统一从宿主 HOME 发现](../../.agents/notes/implemented/simplification/2026-10-28-home-skills-discovery.md)：固定来源与旧快照、配置回执的保留范围。

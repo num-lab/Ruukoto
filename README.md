@@ -12,7 +12,7 @@
 | 后台 | 打开 TUI 时按需拉起，`ruukoto-code stop` 才停止 | systemd 常驻 |
 | 档案根 | `~/.ruukoto-code/` | `~/.ruukoto-durable/`（生产须显式选择新目录） |
 
-两端独立启停；设计见[架构总览](docs/architecture.md)。
+两端独立启停，技能均读取后台账户的 `$HOME/.agents/skills/`，由目录维护；设计见[架构总览](docs/architecture.md)。
 
 ## 当前状态
 
@@ -23,7 +23,7 @@
 
 [逐项验收证据](docs/release-acceptance.md)。
 
-个人 [`ruukoto`](docs/usage.md#25-个人-agent-引导与管理) 使用 Pi 1.3.0；无参菜单，`serve`前台运行，`--directory`固定档案；`settings` 用有界 JSON 在线或离线持锁保存，原键核实保存/生效，`maintenance`核实并显式启停原服务。`remote`管理桌面配对，`remote serve`托管HTTPS/WSS入口。IM用`/帮助`查入口；固定Linux命令目录的会话后台由CLI或`/后台`查日志、停止及结束。
+个人 [`ruukoto`](docs/usage.md#25-个人-agent-引导与管理) 无参进入菜单，`serve`前台运行，`--directory`固定档案；`settings`有界JSON在线或离线持锁保存，按原键核实生效；`maintenance`核实并显式启停原服务。`remote`管理桌面配对，`remote serve`托管HTTPS/WSS入口。IM用`/帮助`查入口；固定Linux命令目录的会话后台由CLI或`/后台`查日志、停止及结束。
 
 ## 快速开始
 
@@ -83,7 +83,7 @@ npm run desktop:build      # 构建Electron应用（含终端）
 npm run code -- ../my-project  # 以该目录创建/复用工作区，并进入新会话
 ```
 
-开发与测试见[开发说明](docs/development.md)；MyGo：`npm run desktop:mygo`，见[桌面开发](docs/desktop-development.md)；[浏览器用法](docs/usage.md#12-浏览器)含登录与截图导出。
+MyGo：`npm run desktop:mygo`，见[桌面开发](docs/desktop-development.md)；[浏览器用法](docs/usage.md#12-浏览器)含登录与截图导出。
 
 [模型验收](docs/development.md#外部验收)使用显式模型文件与隔离档案。
 

@@ -2,176 +2,97 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import * as path from "node:path";
 import { tmpdir } from "node:os";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { syncBuiltinESMExports } from "node:module";
 import { test, type TestContext } from "node:test";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+import { ROOT_CONVERSATION_ID } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
-import { readSkill } from "@ruukoto/agent/skills.ts";
-import { loadHostSkillLibrary, ManagedSkillsStore } from "@ruukoto/agent/managed-skills.ts";
-import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
-import { lockPersonalProfile, PERSONAL_FORMAT } from "../apps/ruukoto/src/personal-profile.ts";
-import { personalSkillStore } from "../apps/ruukoto/src/personal-skills.ts";
-import { savePersonalSkills } from "../apps/ruukoto/src/personal-skills-config.ts";
+import { loadSkillLibrary, readSkill } from "@ruukoto/agent/skills.ts";
+import { lockPersonalProfile } from "../apps/ruukoto/src/personal-profile.ts";
+import { PersonalSkillsDoc } from "../apps/ruukoto/src/personal-skills.ts";
 import { savePersonalConfig } from "../apps/ruukoto/src/personal-config.ts";
 import { openPersonalHarness } from "../apps/ruukoto/src/personal-harness.ts";
 import { personalProvider, type PersonalModelConfig } from "../apps/ruukoto/src/personal-model.ts";
-import { startPersonalServer, personalControl } from "../apps/ruukoto/src/personal-control.ts";
-import { readPersonalSettings, savePersonalSettings } from "../apps/ruukoto/src/personal-settings.ts";
+import { capturePersonalScheduleScope, verifyPersonalScheduleScope } from "../apps/ruukoto/src/personal-schedule-scope.ts";
+import { appendPersonalConfiguration, effectivePersonalConfiguration, personalConfigurationContentRevision, personalConfigurationVersions, recordPersonalSettingsOperation, selectPersonalConfiguration, type PersonalSettingsReceipt } from "../apps/ruukoto/src/personal-settings-records.ts";
+import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
+import { dispatchPersonalSettings, personalSettingsDirectoryIdentity, readPersonalSettings } from "../apps/ruukoto/src/personal-settings.ts";
 import { PersonalMockModelServer } from "./helpers/mock-provider.ts";
+import { isolateSkillHome } from "./helpers/skill-home.ts";
 
 const context = BACKGROUND_CONTEXT;
-const code = (expected: string) => (error: unknown) => error instanceof PersonalError && error.code === expected;
+const digest = (value: string) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
 function fixture(t: TestContext) {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(tmpdir(), "rk-pa-managed-"))), directory = path.join(root, "profile"), source = path.join(root, "alpha");
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  fs.mkdirSync(path.join(source, "refs"), { recursive: true });
-  fs.writeFileSync(path.join(source, "SKILL.md"), "---\nname: alpha\ndescription: 托管任务指引\n---\n任务正文，读取 refs/guide.md\n");
-  fs.writeFileSync(path.join(source, "refs", "guide.md"), "原始引用资料");
-  const profile = lockPersonalProfile(directory);
-  let imported;
-  try {
-    const store = personalSkillStore(profile), preview = store.preview(source);
-    imported = store.import({ id: preview.id, sourceDir: source, contentRevision: preview.contentRevision, expectedRevision: preview.revision });
-  } finally { profile.release(); }
-  const managed = path.join(directory, "managed-skills"), pkg = path.join(managed, "packages", imported.id, "alpha");
-  return { root, directory, source, managed, pkg, imported };
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(tmpdir(), "rk-pa-old-skills-"))), directory = path.join(root, "profile");
+  const model = new PersonalMockModelServer(() => ({ kind: "text", text: "已收到" }));
+  let current: Awaited<ReturnType<typeof openPersonalHarness>> | undefined;
+  t.after(async () => { await current?.close(); await model.close(); fs.rmSync(root, { recursive: true, force: true }); });
+  const home = isolateSkillHome(t), agent = path.join(home, ".agents"), id = randomUUID(), managed = path.join(directory, "managed-skills"), pkg = path.join(managed, "packages", id, "alpha");
+  lockPersonalProfile(directory).release();
+  fs.mkdirSync(path.join(pkg, "refs"), { recursive: true, mode: 0o700 });
+  const body = "---\nname: alpha\ndescription: 旧托管任务指引\n---\n旧任务正文\n", reference = "原始引用资料";
+  fs.writeFileSync(path.join(pkg, "SKILL.md"), body, { mode: 0o600 }); fs.writeFileSync(path.join(pkg, "refs", "guide.md"), reference, { mode: 0o600 });
+  const contentRevision = digest(JSON.stringify({ directories: ["refs"], files: [["SKILL.md", digest(body)], ["refs/guide.md", digest(reference)]] }));
+  const state = { version: 1, packages: [{ id, directory: "alpha", contentRevision, state: "enabled" }] };
+  fs.writeFileSync(path.join(managed, "state.json"), JSON.stringify({ ...state, revision: digest(JSON.stringify(state)) }) + "\n", { mode: 0o600 });
+  const oldConfig = JSON.stringify({ version: 1, directory: path.join(root, "retired-library") }) + "\n";
+  fs.writeFileSync(path.join(directory, "skills.json"), oldConfig, { mode: 0o600 });
+  return { root, directory, agent, managed, pkg, id, contentRevision, oldConfig, model, async open(config: PersonalModelConfig, options: Pick<Parameters<typeof openPersonalHarness>[0], "openStorage"> = {}) { return current = await openPersonalHarness({ directory, provider: personalProvider(config), modelId: config.modelId, ...options }); } };
 }
 
-test("个人托管技能：导入后重新持锁、启停和逻辑移除保留私有权限与旧引用", t => {
-  const f = fixture(t), pinned = loadHostSkillLibrary(f.directory, []);
-  for (const state of ["disabled", "enabled", "removed"] as const) {
-    const profile = lockPersonalProfile(f.directory);
-    try {
-      const store = personalSkillStore(profile), expectedRevision = store.list().revision;
-      const result = state === "removed" ? store.remove({ id: f.imported.id, expectedRevision }) : store.setEnabled({ id: f.imported.id, expectedRevision, enabled: state === "enabled" });
-      assert.equal(result.state, state);
-    } finally { profile.release(); }
-    lockPersonalProfile(f.directory).release();
-    assert.equal(loadHostSkillLibrary(f.directory, []).skills.length, state === "enabled" ? 1 : 0);
-    assert.match(readSkill(pinned, "alpha", "refs/guide.md"), /原始引用资料/);
-    for (const filename of [f.managed, path.dirname(f.pkg), f.pkg, path.join(f.pkg, "refs")]) assert.equal(fs.statSync(filename).mode & 0o777, 0o700);
-    for (const filename of [path.join(f.managed, "state.json"), path.join(f.pkg, "SKILL.md"), path.join(f.pkg, "refs", "guide.md")]) assert.equal(fs.statSync(filename).mode & 0o777, 0o600);
-    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(f.directory, "profile.json"), "utf8")), PERSONAL_FORMAT);
-  }
-  assert.equal(fs.readFileSync(path.join(f.source, "refs", "guide.md"), "utf8"), "原始引用资料");
+test("个人旧技能：托管包与配置留在原处，新发现只读 HOME 目录", async t => {
+  const f = fixture(t), original = loadSkillLibrary([{ dir: f.pkg, source: "managed", id: f.id, contentRevision: f.contentRevision }]);
+  assert.match(readSkill(original, "alpha", "refs/guide.md"), /原始引用资料/);
+  assert.deepEqual(loadSkillLibrary().skills, []);
+  const snapshot = await readPersonalSettings(f.directory);
+  assert.deepEqual(snapshot.skills.skills, []); assert.equal(snapshot.skills.config, null);
+  assert.equal(fs.readFileSync(path.join(f.directory, "skills.json"), "utf8"), f.oldConfig);
+  assert.equal(fs.readFileSync(path.join(f.pkg, "refs", "guide.md"), "utf8"), "原始引用资料");
 });
 
-test("个人托管技能：不解析部分临时清单、不选择暂存和孤立包，仍可重开", t => {
-  const f = fixture(t), temporary = path.join(f.managed, "state.json.tmp");
-  fs.writeFileSync(temporary, '{"version":', { mode: 0o600 });
-  for (const collection of [".staging", "packages"]) {
-    const pkg = path.join(f.managed, collection, randomUUID(), "unfinished");
-    fs.mkdirSync(pkg, { recursive: true, mode: 0o700 });
-    fs.writeFileSync(path.join(pkg, "SKILL.md"), "部分复制", { mode: 0o600 });
-  }
-  lockPersonalProfile(f.directory).release();
-  assert.deepEqual(loadHostSkillLibrary(f.directory, []).skills.map(skill => skill.name), ["alpha"]);
-  assert.equal(fs.readFileSync(temporary, "utf8"), '{"version":');
-  assert.equal(fs.readdirSync(path.join(f.managed, "packages")).length, 2);
-});
-
-test("个人托管技能：根、嵌套、清单及包文件的公开权限和链接拒绝且不自动修复", async t => {
-  const f = fixture(t);
-  for (const node of ["root", "nested", "manifest", "file"] as const) for (const violation of ["public", "symlink", "owner"] as const) await t.test(`${node}/${violation}`, t => {
-    const filename = node === "root" ? f.managed : node === "nested" ? path.join(f.pkg, "refs") : node === "manifest" ? path.join(f.managed, "state.json") : path.join(f.pkg, "refs", "guide.md");
-    const directory = node === "root" || node === "nested", originalNode = path.join(f.root, "original");
-    if (violation === "public") fs.chmodSync(filename, directory ? 0o755 : 0o644);
-    else if (violation === "symlink") {
-      fs.renameSync(filename, originalNode); fs.symlinkSync(originalNode, filename);
-    } else {
-      const original = fs.lstatSync;
-      t.mock.method(fs, "lstatSync", (...args: Parameters<typeof original>) => {
-        const stat = Reflect.apply(original, fs, args);
-        if (String(args[0]) === filename && stat) stat.uid = (process.getuid?.() ?? 0) + 1;
-        return stat;
-      }); syncBuiltinESMExports();
-    }
-    try {
-      assert.throws(() => lockPersonalProfile(f.directory), code(node === "root" ? "profile_unrecognized" : violation === "symlink" && node !== "manifest" ? "skills_source_unsafe" : "skills_layout_invalid"));
-      if (violation === "public") assert.equal(fs.statSync(filename).mode & 0o777, directory ? 0o755 : 0o644);
-      if (violation === "symlink") assert.equal(fs.lstatSync(filename).isSymbolicLink(), true);
-    } finally {
-      t.mock.restoreAll(); syncBuiltinESMExports();
-      if (violation === "public") fs.chmodSync(filename, directory ? 0o700 : 0o600);
-      if (violation === "symlink") { fs.unlinkSync(filename); fs.renameSync(originalNode, filename); }
-    }
-    lockPersonalProfile(f.directory).release();
-  });
-});
-
-test("个人托管技能：硬链接、未知管理节点/顶层及清单版本继续拒绝", async t => {
-  const f = fixture(t), manifest = path.join(f.managed, "state.json"), original = fs.readFileSync(manifest);
-  for (const violation of ["manifest-hardlink", "file-hardlink", "unknown-node", "unknown-top", "version"] as const) await t.test(violation, () => {
-    if (violation.endsWith("hardlink")) fs.linkSync(violation === "manifest-hardlink" ? path.join(f.managed, "state.json") : path.join(f.pkg, "refs", "guide.md"), path.join(f.root, "hardlink"));
-    if (violation === "unknown-node") fs.mkdirSync(path.join(f.managed, "other"), { mode: 0o700 });
-    if (violation === "unknown-top") fs.mkdirSync(path.join(f.directory, "other"), { mode: 0o700 });
-    if (violation === "version") { const state = JSON.parse(original.toString("utf8")); state.version = 2; fs.writeFileSync(manifest, JSON.stringify(state)); }
-    const expected = violation === "unknown-top" ? "profile_unrecognized" : violation === "version" ? "skills_state_version_unknown" : violation === "file-hardlink" ? "skills_source_unsafe" : "skills_layout_invalid";
-    try { assert.throws(() => lockPersonalProfile(f.directory), code(expected)); }
-    finally {
-      if (violation.endsWith("hardlink")) fs.unlinkSync(path.join(f.root, "hardlink"));
-      if (violation === "unknown-node") fs.rmdirSync(path.join(f.managed, "other"));
-      if (violation === "unknown-top") fs.rmdirSync(path.join(f.directory, "other"));
-      if (violation === "version") fs.writeFileSync(manifest, original);
-    }
-    lockPersonalProfile(f.directory).release();
-  });
-});
-
-test("个人托管技能：真实后台重开与有历史档案启停，实际目录/正文/引用保留请求证据", async t => {
-  const f = fixture(t), key = "RUUKOTO_PERSONAL_MANAGED_TEST_KEY", previous = process.env[key]; process.env[key] = "test-only";
-  const model = new PersonalMockModelServer(request => {
-    const last = request.messages.at(-1);
-    if (last?.role === "user" && last.content === "读取引用") return { kind: "tool_calls", calls: [{ id: "read-alpha", name: "skill", arguments: { name: "alpha", path: "refs/guide.md" } }] };
-    return { kind: "text", text: "已收到" };
-  });
-  const config: PersonalModelConfig = { api: "openai-completions", baseUrl: await model.start(), modelId: "mock-model", apiKeyEnv: key, contextWindow: 128000, maxTokens: 1024 };
-  let current: Awaited<ReturnType<typeof openPersonalHarness>> | undefined, server: Awaited<ReturnType<typeof startPersonalServer>> | undefined;
-  t.after(async () => { await current?.close(); await server?.stop(); await model.close(); if (previous === undefined) delete process.env[key]; else process.env[key] = previous; });
+test("个人旧技能：旧快照可重开核实，退役配置和损坏旧包不暂停新请求", async t => {
+  const f = fixture(t), key = "RUUKOTO_OLD_SKILL_TEST_KEY", previous = process.env[key]; process.env[key] = "test-only";
+  t.after(() => { if (previous === undefined) delete process.env[key]; else process.env[key] = previous; });
+  const config: PersonalModelConfig = { api: "openai-completions", baseUrl: await f.model.start(), modelId: "mock-model", apiKeyEnv: key, contextWindow: 128000, maxTokens: 1024 };
   await savePersonalConfig(f.directory, config);
-  server = await startPersonalServer(f.directory); assert.equal((await personalControl<{ model: string }>(f.directory, "GET", "/status")).model, "mock-model"); await server.stop();
-  const open = () => openPersonalHarness({ directory: f.directory, provider: personalProvider(config), modelId: config.modelId });
-  current = await open();
-  await current.answer("/skill:alpha 执行", "body"); await current.answer("读取引用", "reference");
-  assert.match(JSON.stringify(model.calls), /任务正文/); assert.match(JSON.stringify(model.calls), /原始引用资料/);
-  const history = (await current.main.entries({ order: "ascending" }, 256, undefined, context)).items;
-  const snapshots = history.filter(entry => entry.kind === "ruukoto.skills-snapshot");
-  assert.match(JSON.stringify(snapshots), /managed/); assert.match(JSON.stringify(snapshots), new RegExp(f.imported.id));
-  assert.ok(history.some(entry => entry.kind === "ruukoto.model-request" && JSON.stringify(entry.data).includes("原始引用资料")));
+  let current = await f.open(config);
+  const library = loadSkillLibrary([{ dir: f.pkg, source: "managed", id: f.id, contentRevision: f.contentRevision }]), value = { config: null, identity: null, library };
+  const saved = { ...value, version: createHash("sha256").update(JSON.stringify(value)).digest("hex") };
+  const original = await current.harness.commit(async tx => {
+    await appendPersonalConfiguration(tx, { target: "skills", version: "legacy-skills", revision: digest(f.oldConfig), previousRevision: null, previousVersion: null, config: JSON.parse(f.oldConfig), content: f.oldConfig });
+    await selectPersonalConfiguration(tx, "skills", "*", "legacy-skills");
+    const doc = await tx.doc(PersonalSkillsDoc), entry = await tx.appendEntry(ROOT_CONVERSATION_ID, { kind: "ruukoto.skills-snapshot", data: JSON.parse(JSON.stringify(saved)) });
+    doc.snapshots.push({ ...saved, entry: entry.id, conversationId: ROOT_CONVERSATION_ID });
+    const selected = doc.current.find(item => item.conversationId === ROOT_CONVERSATION_ID)!;
+    selected.version = saved.version; selected.snapshotEntry = entry.id;
+    return entry;
+  }, context);
   await current.close();
-  for (const removed of [false, true]) {
-    const profile = lockPersonalProfile(f.directory);
-    try {
-      const store = personalSkillStore(profile), expectedRevision = store.list().revision;
-      const snapshot = await readPersonalSettings(profile);
-      const receipt = await savePersonalSettings(profile, snapshot, expectedRevision, removed ? { kind: "skills.remove", id: f.imported.id } : { kind: "skills.set-enabled", id: f.imported.id, enabled: false });
-      assert.equal(receipt.status, "saved");
-    } finally { profile.release(); }
-    current = await open();
-    const count = model.calls.length;
-    assert.equal((await (await current.submit("/skill:alpha 新调用", `disabled-${removed}`)).wait(context)).status, "unanswered");
-    assert.equal(model.calls.length, count);
-    await current.answer("继续", `continue-${removed}`);
-    const after = (await current.main.entries({ order: "ascending" }, 256, undefined, context)).items;
-    assert.deepEqual(after.filter(entry => history.some(original => original.id === entry.id)), history);
-    await current.close();
-    server = await startPersonalServer(f.directory); await server.stop();
-  }
+  fs.writeFileSync(path.join(f.managed, "state.json"), "{retired"); fs.writeFileSync(path.join(f.directory, "skills.json"), "{retired");
+  fs.mkdirSync(path.join(f.agent, "skills", "current"), { recursive: true }); fs.writeFileSync(path.join(f.agent, "skills", "current", "SKILL.md"), "---\ndescription: 当前固定来源\n---\n新正文\n");
+  current = await f.open(config); await current.answer("/skill:current 当前输入", "current-source");
+  assert.equal(f.model.calls.length, 1); assert.match(JSON.stringify(f.model.calls[0].raw), /新正文/);
+  assert.doesNotMatch(JSON.stringify(f.model.calls[0].system), /旧托管任务指引/);
+  assert.deepEqual(await current.harness.commit(tx => tx.entry(original.id), context), original);
+  const versions = await current.harness.commit(tx => personalConfigurationVersions(tx, "skills"), context);
+  assert.equal(versions.length, 1); assert.equal(versions[0].content, f.oldConfig);
+  await current.close();
+  assert.deepEqual((await readPersonalSettings(f.directory)).fileIssues, []);
+  assert.equal(fs.readFileSync(path.join(f.managed, "state.json"), "utf8"), "{retired");
   assert.equal(fs.readFileSync(path.join(f.pkg, "refs", "guide.md"), "utf8"), "原始引用资料");
 });
 
 test("个人技能真实请求：准备后正文变化沿本次快照发送，下一请求刷新，发送边界不重读", async t => {
-  const f = fixture(t), external = path.join(f.root, "external"), skill = path.join(external, "skills", "mutable"), body = path.join(skill, "SKILL.md");
+  const f = fixture(t), skill = path.join(f.agent, "skills", "mutable"), body = path.join(skill, "SKILL.md");
   fs.mkdirSync(skill, { recursive: true });
-  const write = (text: string) => fs.writeFileSync(body, `---\nname: mutable\ndescription: 外部任务指引\n---\n${text}\n`);
-  write("INITIAL_BODY"); await savePersonalSkills(f.directory, { version: 1, directory: external });
-  const key = "RUUKOTO_PERSONAL_MANAGED_TEST_KEY", previous = process.env[key]; process.env[key] = "test-only";
-  const model = new PersonalMockModelServer(() => ({ kind: "text", text: "已收到" }));
-  const config: PersonalModelConfig = { api: "openai-completions", baseUrl: await model.start(), modelId: "mock-model", apiKeyEnv: key, contextWindow: 128000, maxTokens: 1024 };
+  const write = (text: string) => fs.writeFileSync(body, `---\nname: mutable\ndescription: 当前任务指引\n---\n${text}\n`);
+  write("INITIAL_BODY");
+  const key = "RUUKOTO_PINNED_SKILL_TEST_KEY", previous = process.env[key]; process.env[key] = "test-only";
+  const config: PersonalModelConfig = { api: "openai-completions", baseUrl: await f.model.start(), modelId: "mock-model", apiKeyEnv: key, contextWindow: 128000, maxTokens: 1024 };
   let current: Awaited<ReturnType<typeof openPersonalHarness>> | undefined, armed = false, changed = false, reads = 0;
-  t.after(async () => { await current?.close(); await model.close(); if (previous === undefined) delete process.env[key]; else process.env[key] = previous; });
-  current = await openPersonalHarness({ directory: f.directory, provider: personalProvider(config), modelId: config.modelId, openStorage: async filename => {
+  t.after(async () => { await current?.close(); if (previous === undefined) delete process.env[key]; else process.env[key] = previous; });
+  current = await f.open(config, { openStorage: async filename => {
     const storage = await openNodeSqliteStorage(filename), commit = storage.commit.bind(storage);
     storage.commit = async (writes, context) => {
       const result = await commit(writes, context);
@@ -189,10 +110,10 @@ test("个人技能真实请求：准备后正文变化沿本次快照发送，�
   try {
     await current.answer("/skill:mutable 本次", "pinned");
     assert.equal(changed, true); assert.equal(reads, 2);
-    assert.match(JSON.stringify(model.calls[0].raw), /PINNED_BODY/); assert.doesNotMatch(JSON.stringify(model.calls[0].raw), /NEXT_BODY/);
+    assert.match(JSON.stringify(f.model.calls[0].raw), /PINNED_BODY/); assert.doesNotMatch(JSON.stringify(f.model.calls[0].raw), /NEXT_BODY/);
     reads = 0;
     await current.answer("/skill:mutable 下次", "next");
-    assert.equal(reads, 2); assert.match(JSON.stringify(model.calls[1].raw), /NEXT_BODY/);
+    assert.equal(reads, 2); assert.match(JSON.stringify(f.model.calls[1].raw), /NEXT_BODY/);
   } finally { t.mock.restoreAll(); syncBuiltinESMExports(); }
   const entries = (await current.main.entries({ order: "ascending" }, 256, undefined, context)).items;
   const requests = entries.filter(entry => entry.kind === "ruukoto.model-request");
@@ -200,63 +121,38 @@ test("个人技能真实请求：准备后正文变化沿本次快照发送，�
   assert.match(JSON.stringify(entries.filter(entry => entry.kind === "ruukoto.skills-snapshot")), /PINNED_BODY.*NEXT_BODY/s);
 });
 
-test("个人托管技能真实请求：准备后停用或移除保留本次目录，后续请求撤下选择", async t => {
-  for (const boundary of ["input", "payload"] as const) for (const state of ["disabled", "removed"] as const) await t.test(`${boundary}/${state}`, async t => {
-    const f = fixture(t), external = path.join(f.root, "external"), skill = path.join(external, "skills", "mutable"), body = path.join(skill, "SKILL.md");
-    fs.mkdirSync(skill, { recursive: true }); fs.writeFileSync(body, "---\ndescription: 触发新快照\n---\ninitial\n");
-    await savePersonalSkills(f.directory, { version: 1, directory: external });
-    const key = "RUUKOTO_PERSONAL_MANAGED_TEST_KEY", previous = process.env[key]; process.env[key] = "test-only";
-    const model = new PersonalMockModelServer(() => ({ kind: "text", text: "请求已固定" }));
-    const config: PersonalModelConfig = { api: "openai-completions", baseUrl: await model.start(), modelId: "mock-model", apiKeyEnv: key, contextWindow: 128000, maxTokens: 1024 };
-    const provider = personalProvider(config);
-    let current: Awaited<ReturnType<typeof openPersonalHarness>> | undefined, armed = false, changed = false;
-    const revoke = () => {
-      if (!armed || changed) return;
-      changed = true;
-      const store = new ManagedSkillsStore(f.directory, [path.join(external, "skills")]), expectedRevision = store.list().revision;
-      if (state === "disabled") store.setEnabled({ id: f.imported.id, enabled: false, expectedRevision });
-      else store.remove({ id: f.imported.id, expectedRevision });
-    };
-    t.after(async () => { await current?.close(); await model.close(); if (previous === undefined) delete process.env[key]; else process.env[key] = previous; });
-    current = await openPersonalHarness({ directory: f.directory, provider: { ...provider, streamSimple: (model, input, options) => provider.streamSimple(model, input, { ...options, onPayload: async payload => {
-      if (boundary === "payload") revoke();
-      return await options?.onPayload?.(payload, model) ?? payload;
-    } }) }, modelId: config.modelId, openStorage: async filename => {
-      const storage = await openNodeSqliteStorage(filename), commit = storage.commit.bind(storage);
-      storage.commit = async (writes, context) => {
-        const result = await commit(writes, context);
-        if (boundary === "input" && writes.some(write => write.type === "entry" && write.value.kind === "ruukoto.skills-snapshot")) revoke();
-        return result;
-      };
-      return storage;
-    } });
-    armed = true; fs.appendFileSync(body, "changed\n");
-    assert.equal((await (await current.submit("使用当前技能", `${boundary}-${state}`)).wait(context)).status, "done");
-    assert.equal(changed, true); assert.equal(model.calls.length, 1);
-    assert.match(JSON.stringify(model.calls[0].system), /alpha/);
-    await current.answer("使用更新后的技能", `${boundary}-${state}-next`);
-    assert.doesNotMatch(JSON.stringify(model.calls[1].system), /alpha/);
-    const entries = (await current.main.entries({ order: "ascending" }, 256, undefined, context)).items;
-    assert.equal(entries.filter(entry => entry.kind === "ruukoto.model-request").length, 4);
-  });
+for (const target of ["skills", "managed-skills"] as const) for (const status of ["saved", "waiting"] as const) test(`个人旧技能 ${target}/${status}：查询只核实保存，不发布退役来源或改生效版本`, async t => {
+  const f = fixture(t), config: PersonalModelConfig = { api: "openai-completions", baseUrl: await f.model.start(), modelId: "mock-model", apiKeyEnv: "ABSENT_RETIRED_SKILL_KEY", contextWindow: 128000, maxTokens: 1024 };
+  await savePersonalConfig(f.directory, config);
+  const current = await f.open(config), id = randomUUID(), profile = personalSettingsDirectoryIdentity(f.directory);
+  const content = fs.readFileSync(path.join(f.directory, target === "skills" ? "skills.json" : "managed-skills/state.json"), "utf8"), revision = personalConfigurationContentRevision(target, content);
+  const candidate = { target, version: id, revision, previousRevision: null, previousVersion: null, config: JSON.parse(content), content };
+  const receipt: PersonalSettingsReceipt = { v: 2, id, profile, target: "skills", scope: target === "skills" ? "*" : "managed", requestDigest: "1".repeat(64), status, savedRevision: revision, effectiveRevision: null, code: "settings_saved_offline", relatedOperations: [] };
+  await current.harness.commit(async tx => {
+    await appendPersonalConfiguration(tx, candidate);
+    await recordPersonalSettingsOperation(tx, { candidate, receipt, expectedRevision: "missing", facts: [{ status, code: receipt.code, savedRevision: revision, effectiveRevision: null }] });
+  }, context);
+  assert.equal(await current.harness.commit(tx => effectivePersonalConfiguration(tx, target, receipt.scope), context), undefined);
+  const queried = await dispatchPersonalSettings({ profile: { directory: f.directory, release() {} }, instance: current }, { v: 2, id });
+  assert.deepEqual(queried, receipt);
+  assert.equal(await current.harness.commit(tx => effectivePersonalConfiguration(tx, target, receipt.scope), context), undefined);
+  assert.equal(fs.readFileSync(path.join(f.directory, target === "skills" ? "skills.json" : "managed-skills/state.json"), "utf8"), content);
+  assert.equal(f.model.calls.length, 0);
 });
 
-test("个人托管技能：停用前已准备的响应不能开始新的技能加载", async t => {
-  const f = fixture(t), key = "RUUKOTO_MANAGED_LOAD_UPDATE_KEY", previous = process.env[key]; process.env[key] = "test-only";
-  let release!: () => void, received!: () => void;
-  const held = new Promise<void>(resolve => { release = resolve; }), started = new Promise<void>(resolve => { received = resolve; });
-  const model = new PersonalMockModelServer(async request => {
-    const last = request.messages.at(-1);
-    if (last?.role === "user") { received(); await held; return { kind: "tool_calls", calls: [{ id: "old-skill-load", name: "skill", arguments: { name: "alpha" } }] }; }
-    return { kind: "text", text: String(last?.content) };
-  });
-  const config: PersonalModelConfig = { api: "openai-completions", baseUrl: await model.start(), modelId: "mock-model", apiKeyEnv: key, contextWindow: 128000, maxTokens: 1024 };
-  const current = await openPersonalHarness({ directory: f.directory, provider: personalProvider(config), modelId: config.modelId });
-  t.after(async () => { release(); await current.close(); await model.close(); if (previous === undefined) delete process.env[key]; else process.env[key] = previous; });
-  const pending = current.answer("加载原技能", "held-skill-request"); await started;
-  const store = new ManagedSkillsStore(f.directory, []); store.setEnabled({ id: f.imported.id, enabled: false, expectedRevision: store.list().revision });
-  release(); assert.match(await pending, /原技能已停用或变更/);
-  assert.match(String(model.calls[0].system), /alpha/); assert.doesNotMatch(String(model.calls[1].system), /alpha/);
-  const entries = (await current.main.entries({ order: "ascending" }, 256, undefined, context)).items;
-  assert.equal(entries.some(entry => entry.kind === "ruukoto.skill-load"), false);
+test("个人技能定时范围：正文更新可继续，不同旧来源明确拒绝", async t => {
+  const f = fixture(t), key = "RUUKOTO_SKILL_SCOPE_TEST_KEY", previous = process.env[key]; process.env[key] = "test-only";
+  t.after(() => { if (previous === undefined) delete process.env[key]; else process.env[key] = previous; });
+  const config: PersonalModelConfig = { api: "openai-completions", baseUrl: await f.model.start(), modelId: "mock-model", apiKeyEnv: key, contextWindow: 128000, maxTokens: 1024 };
+  const directory = path.join(f.agent, "skills", "current"); fs.mkdirSync(directory, { recursive: true });
+  const body = path.join(directory, "SKILL.md"); fs.writeFileSync(body, "---\ndescription: 定时资料指引\n---\n原正文\n");
+  const current = await f.open(config), scope = await current.harness.commit(tx => capturePersonalScheduleScope(tx), context);
+  assert.ok(scope.snapshot && typeof scope.snapshot === "object" && !Array.isArray(scope.snapshot));
+  assert.deepEqual(scope.snapshot.skills, { version: 1, directory: f.agent });
+  fs.appendFileSync(body, "更新正文\n");
+  await current.harness.commit(tx => current.skills.prepare(tx, ROOT_CONVERSATION_ID), context);
+  await current.harness.commit(tx => verifyPersonalScheduleScope(tx, scope), context);
+  const legacy = { ...scope, snapshot: { ...scope.snapshot, skills: { version: 1, directory: f.root } } };
+  await assert.rejects(current.harness.commit(tx => verifyPersonalScheduleScope(tx, legacy), context), (error: unknown) => error instanceof PersonalError && error.code === "schedule_scope_changed");
+  assert.equal(f.model.calls.length, 0);
 });

@@ -15,7 +15,7 @@ import { copyJson } from "@earendil-works/chord";
 import { readPersonalTools } from "./personal-tools-config.ts";
 import { PersonalToolsDoc, personalArtifactEntries, toolList, toolDetail, toolDecide, toolResolve, toolVerifyStop, toolGrant, toolRevoke } from "./personal-tools.ts";
 import * as fs from "node:fs";
-import { ManagedSkillsError } from "@ruukoto/agent/managed-skills.ts";
+import { SkillLibraryError } from "@ruukoto/agent/skills.ts";
 import * as path from "node:path";
 import * as http from "node:http";
 import { once } from "node:events";
@@ -482,7 +482,7 @@ export async function startPersonalServer(directory: string, options: { developm
         } else throw new PersonalError("control_route_missing", "此管理操作不可用，请更新向导与后台到相同版本。");
         respond(res, 200, { v: 1, ok: true, result });
       } catch (error) {
-        const known = error instanceof PersonalError || error instanceof ManagedSkillsError;
+        const known = error instanceof PersonalError || error instanceof SkillLibraryError;
         if (!known) process.stderr.write("[ruukoto:personal] 本机管理操作失败，请保留档案并查询原请求；未自动重试。\n");
         respond(res, known ? 400 : 500, { v: 1, ok: false, code: known ? error.code : "control_internal", message: known ? error.message : "后台未能确认操作结果，请保留原请求并重新查询。" });
       }

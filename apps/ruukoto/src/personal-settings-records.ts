@@ -28,6 +28,7 @@ export const PersonalSettingsOperationDoc = defineDocFamily<{ operation?: Settin
 export const personalConfigurationDigest = (content: string) => `sha256:${createHash("sha256").update(content).digest("hex")}`;
 export const PersonalFormatDoc = defineDoc({ kind: "ruukoto.format", scope: "session", version: 1, initial: () => ({ ...PERSONAL_FORMAT }) });
 export const PERSONAL_CONFIGURATION_FILES: Record<PersonalConfigurationTarget, string> = { model: "model.json", skills: "skills.json", "managed-skills": "managed-skills/state.json", mcp: "mcp.json", "web-search": "web-search.json", telegram: "telegram.json", qq: "qq.json", commands: "command.json", services: "service.json" };
+export const PERSONAL_ACTIVE_CONFIGURATION_TARGETS: readonly PersonalConfigurationTarget[] = ["model", "mcp", "web-search", "telegram", "qq", "commands", "services"];
 const invalid = () => new PersonalError("settings_history_invalid", "配置保存历史无法核实，请保留档案并核实原操作；未发布候选配置。");
 function validConfigurationOrigin(value: PersonalConfigurationVersion, previous: PersonalConfigurationVersion | undefined) {
   if (value.origin === undefined) return (value.content !== null || value.config === null) && (value.hostService === undefined || value.target === "services" && previous?.hostService !== undefined && isDeepStrictEqual(value.hostService, previous.hostService));
@@ -109,8 +110,9 @@ export async function initializePersonalSettings(profile: PersonalProfileLock, s
     if (!isDeepStrictEqual(format, PERSONAL_FORMAT) || !root && !index.initializedWithoutRoot) throw invalid();
     return;
   }
-  const files = (Object.keys(PERSONAL_CONFIGURATION_FILES) as PersonalConfigurationTarget[]).map(target => ({ target, ...readPersonalConfigurationFile(profile, target) }));
   const existingMigration = manifest && typeof manifest === "object" && "configurationMigration" in manifest ? manifest.configurationMigration as PersonalConfigurationMigration : undefined;
+  const targets = existingMigration ? existingMigration.revisions.map(value => value.target as PersonalConfigurationTarget) : PERSONAL_ACTIVE_CONFIGURATION_TARGETS;
+  const files = targets.map(target => ({ target, ...readPersonalConfigurationFile(profile, target) }));
   const revisions = files.map(({ target, revision }) => ({ target, revision }));
   const migration: PersonalConfigurationMigration = existingMigration ?? { from: LEGACY_PERSONAL_FORMAT, to: PERSONAL_FORMAT, id: randomUUID(), revisions };
   if (!isDeepStrictEqual(migration.revisions, revisions) || index?.migrationId && index.migrationId !== migration.id || format && !isDeepStrictEqual(format, PERSONAL_FORMAT) && !isDeepStrictEqual(format, LEGACY_PERSONAL_FORMAT)) throw invalid();

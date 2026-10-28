@@ -1,3 +1,5 @@
+import { skillsDirFor } from "@ruukoto/agent/skills.ts";
+import { isolateSkillHome } from "./helpers/skill-home.ts";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -81,7 +83,8 @@ for (const product of [codingProduct]) test(`${product.runtime.type} 普通与�
   } finally { await t.shutdown(); }
 });
 
-test("普通来源项目指令、技能与角色正文可从子任务模型快照重建，父聊天和个人记忆不自动复制", async () => {
+test("普通来源项目指令、技能与角色正文可从子任务模型快照重建，父聊天和个人记忆不自动复制", async tc => {
+  isolateSkillHome(tc);
   const t = await startTestRuntime("ordinary-source-context", req => {
     assert.match(inputText(req), /SOURCE-INSTRUCTIONS/);
     assert.match(inputText(req), /\[技能目录\]/);
@@ -95,7 +98,7 @@ test("普通来源项目指令、技能与角色正文可从子任务模型快�
     const rt = t.runtime, session = await rt.createSession({ projectName: "context", cwd: t.work[0] });
     fs.writeFileSync(path.join(session.cwdReal, "TEAM.md"), "SOURCE-INSTRUCTIONS\n");
     rt.setProjectInstructions({ projectId: session.projectId, files: ["TEAM.md"] });
-    const folder = path.join(t.dirs.agentDir, "skills", "proof"); fs.mkdirSync(folder, { recursive: true });
+    const folder = path.join(skillsDirFor(), "proof"); fs.mkdirSync(folder, { recursive: true });
     fs.writeFileSync(path.join(folder, "SKILL.md"), "---\nname: proof\ndescription: 来源技能证据\n---\nSOURCE-SKILL-BODY\n");
     roleFile(t.dirs.agentDir, "proof", "tools: [skill]\n");
     fs.appendFileSync(path.join(t.dirs.agentDir, "agents", "proof.md"), "SOURCE-ROLE-BODY\n");

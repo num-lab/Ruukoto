@@ -5,13 +5,14 @@ import { legacyPersonalMaintenance, personalProfile } from "./personal-config.ts
 import type { PersonalController } from "./personal-controller.ts";
 import type { PersonalMaintenanceRecord, PersonalManagementView, PersonalSettingsSnapshot, PersonalConfigurationReceipt, PersonalMcpOperationSummary } from "../shared/personal-settings.ts";
 
-const REQUEST_OPS = ["settings.read", "lifecycle.status", "config.preflight", "model.test", "mcp.discover", "mcp.cua-targets", "mcp.cua-status", "mcp.cua-control", "mcp.cua-image", "mcp.get", "mcp.operations", "mcp.operation", "mcp.end", "skills.list", "skills.get", "skills.select-directory", "skills.preview-import"];
-const WRITE_OPS = ["config.save", "mcp.migrate", "mcp.set-enabled", "mcp.remove", "mcp.save-service", "skills.import", "skills.set-enabled", "skills.remove"];
+const REQUEST_OPS = ["settings.read", "lifecycle.status", "config.preflight", "model.test", "mcp.discover", "mcp.cua-targets", "mcp.cua-status", "mcp.cua-control", "mcp.cua-image", "mcp.get", "mcp.operations", "mcp.operation", "mcp.end", "skills.list", "skills.get"];
+const WRITE_OPS = ["config.save", "mcp.migrate", "mcp.set-enabled", "mcp.remove", "mcp.save-service"];
+const LEGACY_WRITE_OPS = [...WRITE_OPS, "skills.import", "skills.set-enabled", "skills.remove"];
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
 const failure = (code: string, message: string, unknown = false) => new ControlClientError(code, message, unknown ? "unknown" : "not_sent");
 const mcpSummary = (value: unknown): value is PersonalMcpOperationSummary => object(value) && Number.isSafeInteger(value.operation) && Number(value.operation) > 0 && typeof value.service === "string" && typeof value.tool === "string" && typeof value.effect === "string" && typeof value.code === "string" && typeof value.canEnd === "boolean" && typeof value.ended === "boolean" && (value.cuaRecovery === undefined || ["frozen", "stopped", "begun", "observed", "accepted"].includes(String(value.cuaRecovery)));
 function receipt(value: unknown): PersonalMaintenanceRecord & { saved: boolean | null; started: boolean; code?: string } {
-  if (!object(value) || value.v !== 1 || typeof value.id !== "string" || !/^[0-9a-f-]{36}$/.test(value.id) || !personalProfile(value.profile) || typeof value.op !== "string" || !WRITE_OPS.includes(value.op) || !["model", "skills", "mcp"].includes(String(value.target)) || typeof value.expectedRevision !== "string" || typeof value.requestDigest !== "string" || typeof value.saveAttempted !== "boolean" || !["stopping", "stopped", "saving", "saved", "starting", "complete"].includes(String(value.stage)) || ![true, false, null].includes(value.saved as boolean | null) || typeof value.started !== "boolean") throw failure("personal_protocol", "原维护回执无法核实，请保留原请求并检查远程版本。", true);
+  if (!object(value) || value.v !== 1 || typeof value.id !== "string" || !/^[0-9a-f-]{36}$/.test(value.id) || !personalProfile(value.profile) || typeof value.op !== "string" || !LEGACY_WRITE_OPS.includes(value.op) || !["model", "skills", "mcp"].includes(String(value.target)) || typeof value.expectedRevision !== "string" || typeof value.requestDigest !== "string" || typeof value.saveAttempted !== "boolean" || !["stopping", "stopped", "saving", "saved", "starting", "complete"].includes(String(value.stage)) || ![true, false, null].includes(value.saved as boolean | null) || typeof value.started !== "boolean") throw failure("personal_protocol", "原维护回执无法核实，请保留原请求并检查远程版本。", true);
   return value as unknown as PersonalMaintenanceRecord & { saved: boolean | null; started: boolean; code?: string };
 }
 function configurationReceipt(value: unknown): PersonalConfigurationReceipt {
@@ -92,6 +93,7 @@ export class PersonalSettingsController {
   request(value: unknown): Promise<Record<string, unknown>> {
     return this.exclusive(async () => {
       if (!object(value) || value.v !== 1 || typeof value.op !== "string" || !REQUEST_OPS.includes(value.op)) throw failure("op_not_allowed", "此设置操作尚未开放，请重新读取原配置。");
+      if (value.op === "config.preflight" && value.target === "skills") throw failure("op_not_allowed", "技能由后台账户的 $HOME/.agents/skills/ 维护，请刷新技能列表。");
       if (value.op === "mcp.cua-control" && !["pause", "resume", "stop", "observe", "accept"].includes(String(value.action))) throw failure("op_not_allowed", "请选择当前电脑恢复操作；旧开始恢复动作已合并到检查并恢复。");
       if (["mcp.operation", "mcp.end"].includes(value.op) && (!Number.isSafeInteger(value.operation) || Number(value.operation) < 1)) throw failure("op_not_allowed", "请选择原 MCP 调用。");
       if (value.profile !== undefined) this.profile(value.profile);
@@ -107,6 +109,7 @@ export class PersonalSettingsController {
     return this.exclusive(async () => {
       if (legacyPersonalMaintenance(this.userData, this.connection.config.origin).length || this.connection.maintenance()) throw failure("legacy_maintenance_pending", "仍有旧维护待核实，请先核实原服务与配置。");
       if (!object(value) || value.v !== 1 || typeof value.op !== "string" || ![...WRITE_OPS, "settings.withdraw"].includes(value.op)) throw failure("op_not_allowed", "请选择一项有效设置操作。");
+      if (value.op === "config.save" && value.target === "skills") throw failure("op_not_allowed", "技能由后台账户的 $HOME/.agents/skills/ 维护，请刷新技能列表。");
       this.profile(value.profile);
       const view = await this.inspect();
       if (view.settings.settingsProtocol !== 2) throw failure("settings_upgrade_required", "原后台需要升级后才能在线保存配置；请升级后重新读取。");

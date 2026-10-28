@@ -64,10 +64,13 @@ test("MyGo 设置管理沿原 Request 桥保留操作、目标与 JSON 参数", 
   assert.deepEqual(f.calls.at(-1), { method: "Desktop.Request", args: ["personal", "desktop_personal_settings_request", params] });
 });
 
-test("MyGo 技能目录选择只传目标与实例，不接收 renderer 路径", async () => {
-  const f = fixture(); f.window.ruukoto!.subscribe("code", () => {});
-  await f.window.ruukoto!.pickSkillFolder("code", "original-instance");
-  assert.deepEqual(f.calls.at(-1), { method: "Desktop.PickSkillFolder", args: ["code", "original-instance"] });
+test("MyGo 不暴露技能目录选择桥", () => {
+  const f = fixture();
+  assert.equal(Object.hasOwn(f.window.ruukoto!, "pickSkillFolder"), false);
+  const main = fs.readFileSync(new URL("../apps/desktop/mygo/main.go", import.meta.url), "utf8");
+  const sidecar = fs.readFileSync(new URL("../apps/desktop/src/mygo/sidecar.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(main, /PickSkillFolder/);
+  assert.doesNotMatch(sidecar, /skill_pick_begin|skill_pick_preview/);
 });
 
 test("MyGo终端四方法复用本机Request并按ID透传输出", async () => {

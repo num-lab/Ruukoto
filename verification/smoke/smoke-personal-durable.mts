@@ -10,7 +10,6 @@ import { savePersonalConfig } from "../../apps/ruukoto/src/personal-config.ts";
 import { lockPersonalProfile } from "../../apps/ruukoto/src/personal-profile.ts";
 import { personalControl, type PersonalInputStatus } from "../../apps/ruukoto/src/personal-control.ts";
 import { launchPersonalServer, preparePersonalInput, checkPersonalInput } from "../../apps/ruukoto/src/personal-cli.ts";
-import { savePersonalSkills } from "../../apps/ruukoto/src/personal-skills-config.ts";
 import { PersonalError } from "../../apps/ruukoto/src/personal-error.ts";
 
 // Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-local-management.md
@@ -42,6 +41,8 @@ async function main() {
   process.env[credentialName] = credential;
   const directory = fs.realpathSync(fs.mkdtempSync(path.join(process.platform === "darwin" ? "/tmp" : tmpdir(), "rk-real-")));
   const skillDirectory = fs.realpathSync(fs.mkdtempSync(path.join(process.platform === "darwin" ? "/tmp" : tmpdir(), "rk-real-skills-")));
+  const previousHome = process.env.HOME;
+  process.env.HOME = skillDirectory;
   let running = false;
   const stop = async () => {
     if (!running) return;
@@ -57,9 +58,8 @@ async function main() {
   try {
     await savePersonalConfig(directory, parsePersonalModel({ api: model.api ?? provider.api, baseUrl: provider.baseUrl, modelId: model.id, apiKeyEnv: credentialName, contextWindow: model.contextWindow ?? 128000, maxTokens: Math.min(model.maxTokens ?? 4096, 4096) }));
     const marker = `PERSONAL_CHECK_${randomUUID().replaceAll("-", "")}`, skillMarker = `SKILL_CHECK_${randomUUID().replaceAll("-", "")}`;
-    const skill = path.join(skillDirectory, "skills", "acceptance-reference"); fs.mkdirSync(skill, { recursive: true, mode: 0o700 });
+    const skill = path.join(skillDirectory, ".agents", "skills", "acceptance-reference"); fs.mkdirSync(skill, { recursive: true, mode: 0o700 });
     fs.writeFileSync(path.join(skill, "SKILL.md"), `---\nname: acceptance-reference\ndescription: 隔离验收技能，要求时加载并按正文回复。\n---\n本技能只供参考，不增加工具或权限。本次任务完成后的最终回答必须仅为：${skillMarker}\n`, { mode: 0o600 });
-    await savePersonalSkills(directory, { version: 1, directory: skillDirectory });
     running = true;
     await launchPersonalServer(directory);
     const answer = async (message: string, expected = marker) => {
@@ -120,6 +120,7 @@ async function main() {
   } finally {
     try { await stop(); } finally {
       if (!running) { fs.rmSync(directory, { recursive: true, force: true }); fs.rmSync(skillDirectory, { recursive: true, force: true }); }
+      if (previousHome === undefined) delete process.env.HOME; else process.env.HOME = previousHome;
       if (previous === undefined) delete process.env[credentialName]; else process.env[credentialName] = previous;
     }
   }

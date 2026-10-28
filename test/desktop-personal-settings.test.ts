@@ -47,6 +47,17 @@ test("PA设置：认证读取与测试保留档案身份，写入只经v2保存�
   assert.equal(f.state.calls, 0);
 });
 
+test("PA技能只读：目录选择、导入与启停删除在桌面宿主拒绝，零远端保存", async t => {
+  const f = await fixture(t), envelope = { v: 1, profile: f.profile, expectedRevision: "missing" };
+  let requests = 0;
+  f.overrides.set("/settings", (_req, res) => { requests++; f.respond(res, { profile: f.profile }); });
+  for (const op of ["skills.select-directory", "skills.preview-import"]) await assert.rejects(f.settings.request({ ...envelope, op, directory: "/remote/package" }), code("op_not_allowed"));
+  await assert.rejects(f.settings.request({ ...envelope, op: "config.preflight", target: "skills", value: { version: 1, directory: "/remote/library" } }), code("op_not_allowed"));
+  for (const op of ["skills.import", "skills.set-enabled", "skills.remove"]) await assert.rejects(f.settings.apply({ ...envelope, op }), code("op_not_allowed"));
+  await assert.rejects(f.settings.apply({ ...envelope, op: "config.save", target: "skills", value: { version: 1, directory: "/remote/library" } }), code("op_not_allowed"));
+  assert.equal(requests, 0); assert.equal(f.state.calls, 0); assert.deepEqual(f.controller.settingsOperations(), []);
+});
+
 test("PA MCP 调用管理按原身份读取与收尾，不进入配置保存账本，旧恢复动作零请求", async t => {
   const f = await fixture(t), operation = { operation: 12, service: "服务", tool: "write", effect: "effect_unknown", code: "timeout", canEnd: true, ended: false };
   let requests = 0;
@@ -86,8 +97,8 @@ test("PA保存：无systemd、开发后台和缺模型凭据可保存，等待�
   const f = await fixture(t), view = await f.settings.apply(f.request);
   assert.equal(view.operation?.status, "waiting"); assert.equal(view.saved, true); assert.equal(view.pending, null); assert.equal(f.controller.maintenance(), undefined);
   await assert.rejects(f.settings.apply(f.request), code("settings_target_pending"));
-  const other = await f.settings.apply({ ...f.request, target: "skills" }); assert.equal(other.operation?.target, "skills");
-  f.complete(); await f.settings.apply(f.request); assert.equal(f.state.calls, 4);
+  await assert.rejects(f.settings.apply({ ...f.request, target: "skills" }), code("op_not_allowed"));
+  f.complete(); await f.settings.apply(f.request); assert.equal(f.state.calls, 3);
 });
 
 test("PA保存丢答：原关联先落盘，重开只查询原键，不重复保存", async t => {
@@ -109,14 +120,16 @@ test("PA保存：明确拒绝清除本机接纳关联，未知409保留原键直
   const calls = f.state.calls; await f.settings.read(); assert.equal(f.state.calls, calls); assert.equal(f.controller.settingsOperations().length, 0);
 });
 
-test("旧停存启回执：读取与显式恢复保留原解释，不执行新保存", async t => {
-  const f = await fixture(t), id = randomUUID();
-  f.state.receipts.set(id, { v: 1, id, profile: f.profile, op: "config.save", target: "model", expectedRevision: f.request.expectedRevision, requestDigest: "1".repeat(64), stage: "saved", saveAttempted: true, saved: true, savedRevision: f.request.expectedRevision, started: false });
-  f.state.pending = id; f.controller.recordMaintenance({ id, requestDigest: "1".repeat(64) });
-  const view = await f.settings.read(); assert.equal(view.pending?.stage, "saved"); assert.equal(view.saved, true);
-  await assert.rejects(f.settings.apply(f.request), code("legacy_maintenance_pending"));
-  assert.equal((await f.settings.restore()).pending, null); assert.equal(f.state.restores, 1); assert.equal(f.state.calls, 0);
-});
+for (const operation of [{ op: "config.save", target: "model" }, { op: "skills.import", target: "skills" }]) {
+  test(`旧停存启回执：${operation.op}读取与显式恢复保留原解释，不执行新保存`, async t => {
+    const f = await fixture(t), id = randomUUID();
+    f.state.receipts.set(id, { v: 1, id, profile: f.profile, ...operation, expectedRevision: f.request.expectedRevision, requestDigest: "1".repeat(64), stage: "saved", saveAttempted: true, saved: true, savedRevision: f.request.expectedRevision, started: false });
+    f.state.pending = id; f.controller.recordMaintenance({ id, requestDigest: "1".repeat(64) });
+    const view = await f.settings.read(); assert.equal(view.pending?.stage, "saved"); assert.equal(view.saved, true);
+    await assert.rejects(f.settings.apply(f.request), code("legacy_maintenance_pending"));
+    assert.equal((await f.settings.restore()).pending, null); assert.equal(f.state.restores, 1); assert.equal(f.state.calls, 0);
+  });
+}
 
 test("旧后台与旧桌面损坏维护：新写入明确拒绝，原记录保留", async t => {
   const f = await fixture(t); f.state.protocol = 1;

@@ -3,17 +3,19 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { test } from "node:test";
 import { configurePersonalCommands, configurePersonalServices } from "../apps/ruukoto/src/personal-cli.ts";
-import { configurePersonalSkills } from "../apps/ruukoto/src/personal-skills-cli.ts";
+import { showPersonalSkills } from "../apps/ruukoto/src/personal-skills-cli.ts";
 import { configurePersonalMcp } from "../apps/ruukoto/src/personal-mcp-cli.ts";
 import { personalControl, startPersonalServer, type PersonalStatus } from "../apps/ruukoto/src/personal-control.ts";
 import { lockPersonalProfile } from "../apps/ruukoto/src/personal-profile.ts";
 import { readPersonalSettings, savePersonalSettings } from "../apps/ruukoto/src/personal-settings.ts";
+import { isolateSkillHome } from "./helpers/skill-home.ts";
 import { PersonalMockModelServer } from "./helpers/mock-provider.ts";
 
 test("CLI配置查看：持锁后台同PID读四类配置，模型更新后status反映实际选择且零模型调用", async t => {
   const directory = fs.realpathSync(fs.mkdtempSync("/tmp/rk-online-cli-settings-"));
   const model = new PersonalMockModelServer(() => assert.fail("查看和声明式保存不能请求模型"));
   t.after(async () => { await model.close(); fs.rmSync(directory, { recursive: true, force: true }); });
+  isolateSkillHome(t);
   const profile = lockPersonalProfile(directory);
   const config = { api: "openai-completions", baseUrl: await model.start(), modelId: "before-update", apiKeyEnv: "RUUKOTO_ONLINE_READ_UNUSED_KEY", contextWindow: 4096, maxTokens: 128 };
   fs.writeFileSync(path.join(directory, "model.json"), JSON.stringify(config) + "\n", { mode: 0o600 });
@@ -23,7 +25,7 @@ test("CLI配置查看：持锁后台同PID读四类配置，模型更新后statu
   t.after(() => backend.stop());
   const before = await readPersonalSettings(directory), inode = fs.statSync(path.join(directory, "control.sock")).ino;
   assert.equal(before.online, true);
-  for (const [configure, answers] of [[configurePersonalSkills, ["1"]], [configurePersonalMcp, ["2", "1"]], [configurePersonalServices, ["1"]], [configurePersonalCommands, ["1"]]] as const) {
+  for (const [configure, answers] of [[showPersonalSkills, []], [configurePersonalMcp, ["2", "1"]], [configurePersonalServices, ["1"]], [configurePersonalCommands, ["1"]]] as const) {
     const pending = [...answers]; let output = "";
     await configure({ question: async () => { assert.ok(pending.length); return pending.shift()!; }, write: value => { output += value; } }, directory);
     assert.equal(pending.length, 0); assert.ok(output.length);

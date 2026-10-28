@@ -2,6 +2,8 @@
 
 Status: implemented
 
+技能发现与管理由[统一 HOME 发现](../simplification/2026-10-28-home-skills-discovery.md)部分取代；两端通过固定目录维护技能，原包字节与历史引用原位保留。
+
 Personal 的在线清单提交与原请求快照采用[设置保存与生效](../architecture/2026-10-25-personal-settings-versions.md)及[请求配置](../architecture/2026-10-25-personal-request-configuration.md)；本文其余包字节、来源安全、逻辑移除及 Code 任务钉版约束继续适用。
 
 [读取检查复用](../bug-fix/2026-10-24-read-check-overhead.md)补充同次管理读取复用与个人发送前的清单级选择核实；完整包仍在加载、管理和重开检查。

@@ -37,6 +37,7 @@
 | **时间线与对话区** | 中间主画布 | 流式呈现用户输入、模型思考过程（Thinking）、代码生成与结构化提问卡片 |
 | **辅助检查抽屉** | 右侧边栏 | Tab 切换：查看代码 Diff 补丁、SubAgent 执行进展、Git Graph、只读文件树与后台服务日志 |
 | **集成终端** | 底部抽屉 | 内嵌基于 xterm.js 的真实终端模拟器，直接在工作区目录执行日常编译命令 |
+| **Skills** | 设置 → Code/PA → Skills | 只读查看所属后台账户 `$HOME/.agents/skills/` 的技能列表、分页与诊断 |
 | **MCP 设置** | 设置 → Code/PA → MCP | Coding 管理实例服务；Personal 管理远端档案的普通服务、工具效果与原调用 |
 | **电脑设置** | 设置 → Code/PA → 电脑 | 选择固定电脑程序或 Linux 沙箱，暂停操作、核实停止并接受恢复新图 |
 
@@ -131,4 +132,5 @@ sequenceDiagram
 - [双端共用会话历史恢复](../../.agents/notes/implemented/architecture/2026-10-23-shared-history-recovery.md)
 - [应用内 Spotlight 与历史定位](../../.agents/notes/implemented/feature/2026-10-21-desktop-spotlight-search.md)
 - [个人 Tailscale HTTPS 与 WebSocket](../../.agents/notes/implemented/architecture/2026-10-24-personal-tailscale-https.md)
+- [技能统一从宿主 HOME 发现](../../.agents/notes/implemented/simplification/2026-10-28-home-skills-discovery.md)：两端只读 Skills 与旧维护回执核实。
 - [MCP 宿主职责收缩](../../.agents/notes/implemented/simplification/2026-10-26-mcp-host-responsibilities.md)：效果与凭据由拥有者设置，普通未知人工收尾，电脑恢复合并为取图与接受。

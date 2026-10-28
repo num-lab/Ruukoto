@@ -1,3 +1,4 @@
+import { isolateSkillHome } from "./helpers/skill-home.ts";
 import { fixtureSubAgentDefinition, fixtureSubAgentRoleCatalog } from "./helpers/subagent-definition.ts";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
@@ -10,7 +11,7 @@ import { Driver, type DriverDeps } from "@ruukoto/agent/driver.ts";
 import { createHostDataFamily } from "@ruukoto/agent/host-tools.ts";
 import { hostCallFor, type HostToolFamily } from "@ruukoto/agent/host-tool-families.ts";
 import { parseSubAgentRole } from "@ruukoto/agent/subagent-roles.ts";
-import { createSkillFamily } from "@ruukoto/agent/skills.ts";
+import { createSkillFamily, skillsDirFor } from "@ruukoto/agent/skills.ts";
 import { ToolOpLedger } from "@ruukoto/agent/tool-op-ledger.ts";
 import { createCodingTools } from "@ruukoto/agent/tool-router.ts";
 import { executionProfile, sessionToolCategories, subAgentAllows, workflowAllows, type WorkflowExecutionProfile } from "@ruukoto/agent/tool-availability.ts";
@@ -109,11 +110,12 @@ async function fixture(responder: Responder, opts: { ordinary?: boolean; tools?:
     execution, authority, sourceDriver, async close() { await driver.dispose(); await sourceDriver.dispose(); await kit.close(); } };
 }
 
-test("真实 Driver 装配来源业务与技能，步骤自身的技能结果落盘且来源任务结束不影响执行", async () => {
+test("真实 Driver 装配来源业务与技能，步骤自身的技能结果落盘且来源任务结束不影响执行", async tc => {
+  isolateSkillHome(tc);
   const k = await fixture(req => afterTool(req) ? { kind: "text", text: lastToolText(req) } :
     { kind: "tool_calls", calls: [{ id: "skill", name: "skill", arguments: { name: "step-skill" } }] });
   try {
-    const directory = path.join(k.dirs.agentDir, "skills", "step-skill");
+    const directory = path.join(skillsDirFor(), "step-skill");
     fs.mkdirSync(directory, { recursive: true });
     fs.writeFileSync(path.join(directory, "SKILL.md"), "---\nname: step-skill\ndescription: 步骤验收说明\n---\n只返回此技能的验收说明。\n");
     const ended = await k.run();
@@ -272,12 +274,13 @@ test("预检缺少显式工具或步骤削减角色要求时拒绝，操作账�
   } finally { await k.close(); }
 });
 
-for (const ordinary of [true, false]) test(`真实 Driver 的${ordinary ? "普通委派" : "工作流步骤"}注入来源项目指令和技能，正文进入请求快照`, async () => {
+for (const ordinary of [true, false]) test(`真实 Driver 的${ordinary ? "普通委派" : "工作流步骤"}注入来源项目指令和技能，正文进入请求快照`, async tc => {
+  isolateSkillHome(tc);
   const k = await fixture(() => ({ kind: "text", text: "上下文已核实" }), { ordinary });
   try {
     fs.writeFileSync(path.join(k.source.cwdReal, "TEAM.md"), "SOURCE-PROJECT-INSTRUCTION");
     k.store.updateProjectSettings({ projectId: k.source.projectId, instructionFiles: ["TEAM.md"] });
-    const directory = path.join(k.dirs.agentDir, "skills", "source-skill");
+    const directory = path.join(skillsDirFor(), "source-skill");
     fs.mkdirSync(directory, { recursive: true });
     fs.writeFileSync(path.join(directory, "SKILL.md"), "---\nname: source-skill\ndescription: SOURCE-SKILL-CATALOG\n---\n技能正文。\n");
     k.deps.memories.create({ projectId: k.source.projectId, category: "preference", content: "PERSONAL-MEMORY-NOT-INJECTED", sourceRefs: [{ kind: "owner_note", note: "拥有者提供" }], author: "owner" });
@@ -303,12 +306,13 @@ test("来源执行快照缺失时真实 Driver 不发送请求、不登记工具
   } finally { await k.close(); }
 });
 
-test("子代理内部对话只使用持久参考快照，不读取当前项目指令或技能", async () => {
+test("子代理内部对话只使用持久参考快照，不读取当前项目指令或技能", async tc => {
+  isolateSkillHome(tc);
   const k = await fixture(() => ({ kind: "text", text: "继续内部对话" }), { ordinary: true });
   try {
     fs.writeFileSync(path.join(k.source.cwdReal, "TEAM.md"), "CURRENT-INSTRUCTION-MUST-NOT-LOAD");
     k.store.updateProjectSettings({ projectId: k.source.projectId, instructionFiles: ["TEAM.md"] });
-    const directory = path.join(k.dirs.agentDir, "skills", "current-skill");
+    const directory = path.join(skillsDirFor(), "current-skill");
     fs.mkdirSync(directory, { recursive: true });
     fs.writeFileSync(path.join(directory, "SKILL.md"), "---\nname: current-skill\ndescription: CURRENT-SKILL-MUST-NOT-LOAD\n---\n当前正文。\n");
     k.driver["deps"].agentWait = { initialPhase: () => "conversation", snapshot: () => ({ taskId: k.task.id, permissionVersion: k.task.permissionVersion,

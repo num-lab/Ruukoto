@@ -1,20 +1,19 @@
 import { createHash } from "node:crypto";
 import * as path from "node:path";
+import * as fs from "node:fs";
 import { isDeepStrictEqual } from "node:util";
 import { defineDoc, defineDocFamily, defineEntry, defineExtension, defineTool, ROOT_CONVERSATION_ID, type ConversationId, type EntryId, type TaskId, type Tx } from "@earendil-works/pi-durable";
 import type { TranscriptContext } from "@earendil-works/pi-ai";
 import { validateToolArguments } from "@earendil-works/pi-ai/utils/validation";
 import { Type } from "typebox";
-import { expandSkillCommand, readSkill, skillCatalogBlock, type PinnedSkill } from "@ruukoto/agent/skills.ts";
-import { assertManagedSkillsSelected, loadHostSkillLibrary, ManagedSkillsError, ManagedSkillsStore } from "@ruukoto/agent/managed-skills.ts";
-import type { PersonalProfileLock } from "./personal-profile.ts";
-import { readPersonalSkills, personalSkillsDirectory, type PersonalSkillsConfig } from "./personal-skills-config.ts";
+import { expandSkillCommand, loadSkillLibrary, readSkill, skillCatalogBlock, skillsDirFor, type PinnedSkill } from "@ruukoto/agent/skills.ts";
 import { activePersonalReferenceTool } from "./personal-history.ts";
 import { PersonalError } from "./personal-error.ts";
 
 export const PERSONAL_SKILLS = "personal-skills";
 export const PERSONAL_SKILL_TOOLS = ["skill"] as const;
 type Library = { skills: { [K in keyof PinnedSkill]: PinnedSkill[K] }[]; diagnostics: string[]; version: string };
+type PersonalSkillsConfig = { version: 1; directory: string };
 type Snapshot = { version: string; config: PersonalSkillsConfig | null; identity: { dev: number; ino: number } | null; library: Library };
 type SavedSnapshot = Snapshot & { entry: EntryId; conversationId: ConversationId };
 export const PersonalSkillsDoc = defineDoc<{ config: PersonalSkillsConfig | null; current: { conversationId: ConversationId; version: string; snapshotEntry: EntryId }[]; snapshots: SavedSnapshot[]; loads: TaskId[]; expansions: EntryId[] }>({ kind: "ruukoto.skills", scope: "session", version: 1, initial: () => ({ config: null, current: [], snapshots: [], loads: [], expansions: [] }) });
@@ -38,18 +37,18 @@ function expandInput(library: Library, input: string): { expanded: string; error
   return { expanded };
 }
 
-function load(directory: string): Snapshot {
-  const config = readPersonalSkills(directory) ?? null, identity = config ? personalSkillsDirectory(config) : null;
-  let library: Library;
-  try { library = loadHostSkillLibrary(directory, config ? [path.join(config.directory, "skills")] : []); } catch (error) { throw new PersonalError("skills_directory_unavailable", "技能目录无法完整读取，请由拥有者恢复配置目录后继续。", { cause: error }); }
-  const value = { config, identity, library };
-  return { ...value, version: createHash("sha256").update(JSON.stringify(value)).digest("hex") };
+function skillSource(): { config: PersonalSkillsConfig; identity: Snapshot["identity"] } {
+  const directory = skillsDirFor();
+  let stat: fs.Stats | undefined;
+  try { stat = fs.statSync(directory, { throwIfNoEntry: false }); }
+  catch (error) { throw new PersonalError("skills_directory_unavailable", "技能目录无法读取，请由拥有者检查后台账户的 ~/.agents/skills/ 后继续。", { cause: error }); }
+  if (stat && !stat.isDirectory()) throw new PersonalError("skills_directory_unavailable", "后台账户的 ~/.agents/skills/ 不是目录，请由拥有者恢复目录后继续。");
+  return { config: { version: 1, directory: path.dirname(directory) }, identity: stat ? { dev: stat.dev, ino: stat.ino } : null };
 }
 
-export function personalSkillStore(profile: PersonalProfileLock): ManagedSkillsStore {
-  const config = readPersonalSkills(profile);
-  if (config) personalSkillsDirectory(config);
-  return new ManagedSkillsStore(profile.directory, config ? [path.join(config.directory, "skills")] : []);
+function load(): Snapshot {
+  const value = { ...skillSource(), library: loadSkillLibrary() };
+  return { ...value, version: createHash("sha256").update(JSON.stringify(value)).digest("hex") };
 }
 
 async function snapshotByEntry(tx: Tx, conversationId: ConversationId, snapshotEntry: EntryId) {
@@ -129,9 +128,10 @@ export async function verifySkillRecords(tx: Tx) {
 
 // Note: 见 .agents/notes/implemented/architecture/2026-10-18-personal-memory-skills-history.md
 // Note: 见 .agents/notes/implemented/architecture/2026-10-25-personal-request-configuration.md
-export function personalSkills(directory: string, isSuspended = () => false) {
+// Note: 见 .agents/notes/implemented/simplification/2026-10-28-home-skills-discovery.md
+export function personalSkills() {
   async function prepare(tx: Tx, conversationId: ConversationId) {
-    const value = load(directory), doc = await tx.doc(PersonalSkillsDoc);
+    const value = load(), doc = await tx.doc(PersonalSkillsDoc);
     const current = doc.current.find(item => item.conversationId === conversationId);
     if (current?.version === value.version) {
       const saved = await snapshot(tx, conversationId, value.version);
@@ -159,17 +159,9 @@ export function personalSkills(directory: string, isSuspended = () => false) {
           await snapshotByEntry(tx, api.conversationId, value.snapshotEntry);
           return value.text;
         }
-        if (isSuspended()) throw new PersonalError("skills_settings_waiting", "技能配置正在核实，未开始加载；请结束本轮并查询原设置操作。");
         const saved = await snapshot(tx, api.conversationId);
-        const selected = saved.library.skills.find(value => value.name === name);
-        if (selected) {
-          const current = readPersonalSkills(directory) ?? null;
-          if (selected.source !== "managed" && (!isDeepStrictEqual(current, saved.config) || current && !isDeepStrictEqual(personalSkillsDirectory(current), saved.identity))) throw new PersonalError("skill_unavailable", "原技能目录已停用或变更，未开始加载；请结束本轮并使用当前技能目录。");
-          try { assertManagedSkillsSelected({ ...saved.library, skills: [selected] }, directory); } catch (error) {
-            if (error instanceof ManagedSkillsError && error.code === "skills_selection_changed") throw new PersonalError("skill_unavailable", "原技能已停用或变更，未开始加载；请结束本轮并使用当前技能目录。", { cause: error });
-            throw error;
-          }
-        }
+        const current = skillSource();
+        if (!isDeepStrictEqual(current.config, saved.config) || !isDeepStrictEqual(current.identity, saved.identity)) throw new PersonalError("skill_unavailable", "原技能目录已变化，未开始加载；请结束本轮并使用当前技能目录。");
         let text: string;
         try { text = readSkill(saved.library, name, path); } catch (error) { throw new PersonalError("skill_unavailable", "技能或引用文本不可用，请核对技能目录中的名称和相对路径；仅限显式调用的技能需由拥有者调用，仍不可用时结束本轮并报告拥有者。", { cause: error }); }
         const index = await tx.doc(PersonalSkillsDoc), value = { taskId: api.taskId, conversationId: api.conversationId, snapshotEntry: saved.entry, name, path, text };
@@ -183,7 +175,6 @@ export function personalSkills(directory: string, isSuspended = () => false) {
   });
   return {
     extension: defineExtension({ name: PERSONAL_SKILLS, tools: [skill] }), prepare,
-    configuration: () => readPersonalSkills(directory),
     // Note: 见 .agents/notes/implemented/bug-fix/2026-10-24-read-check-overhead.md
     async verify(tx: Tx, conversationId: ConversationId, version: string, snapshotEntry?: EntryId) {
       const saved = snapshotEntry === undefined ? (await tx.doc(PersonalSkillsDoc)).snapshots.findLast(value => value.conversationId === conversationId && value.version === version) : { entry: snapshotEntry };

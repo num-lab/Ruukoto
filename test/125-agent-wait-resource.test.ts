@@ -1,3 +1,4 @@
+import { skillsDirFor } from "@ruukoto/agent/skills.ts";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import * as path from "node:path";
@@ -130,7 +131,7 @@ test("冷启对话：不读工作区或技能、不启动 MCP，已记录指令�
       const original = fs[name];
       context.mock.method(fs, name, (...args: Parameters<typeof original>) => {
         const file = String(args[0]);
-        if (file.startsWith(session.cwdReal + path.sep) || file.startsWith(path.join(t.dirs.agentDir, "skills"))) reads.push(`${name}:${file}`);
+        if (file.startsWith(session.cwdReal + path.sep) || file.startsWith(skillsDirFor())) reads.push(`${name}:${file}`);
         return Reflect.apply(original, fs, args);
       });
     }

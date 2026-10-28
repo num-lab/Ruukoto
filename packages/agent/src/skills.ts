@@ -1,5 +1,5 @@
 /**
- * 技能库（issue 22）：拥有者放入 <agentDir>/skills/ 的 Agent Skills（SKILL.md）。
+ * 技能库：从宿主用户的 ~/.agents/skills/ 发现 Agent Skills（SKILL.md）。
  *
  * - 扫描与校验复用 pi 的 loadSkillsFromDir（嵌套技能包、符号链接、frontmatter
  *   校验）；只用 name / description / disable-model-invocation，其余字段不生效；
@@ -12,6 +12,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { homedir } from "node:os";
 import { createHash } from "node:crypto";
 import { Type } from "typebox";
 import { defineTool, loadSkillsFromDir, stripFrontmatter, type ToolDefinition } from "@earendil-works/pi-coding-agent";
@@ -66,13 +67,14 @@ export interface SkillLibrary {
 
 const sha256 = (data: string | Buffer): string => createHash("sha256").update(data).digest("hex");
 
-export function skillsDirFor(agentDir: string): string {
-  return path.join(agentDir, "skills");
+// Note: 见 .agents/notes/implemented/simplification/2026-10-28-home-skills-discovery.md
+export function skillsDirFor(): string {
+  return path.join(homedir(), ".agents", "skills");
 }
 
 /** 读取技能库（不抛错：单个技能的问题记为诊断）。 */
-export function loadSkillLibrary(input: string | readonly SkillSource[]): SkillLibrary {
-  const sources: readonly SkillSource[] = typeof input === "string" ? [{ dir: skillsDirFor(input), source: "external" }] : input;
+export function loadSkillLibrary(input: string | readonly SkillSource[] = [{ dir: skillsDirFor(), source: "external" }]): SkillLibrary {
+  const sources: readonly SkillSource[] = typeof input === "string" ? [{ dir: path.join(input, "skills"), source: "external" }] : input;
   const skills: PinnedSkill[] = [], diagnostics: string[] = [];
   const winners = new Map<string, string>();
   // 外部来源先取原排序赢家，新增托管来源不能覆盖它。
@@ -123,6 +125,27 @@ export function loadSkillLibrary(input: string | readonly SkillSource[]): SkillL
 export function skillLibraryVersion(skills: PinnedSkill[]): string {
   const content = skills.map(({ name, description, disableModelInvocation, body, version }) => ({ name, description, disableModelInvocation, body, version }));
   return skills.length > 0 ? `sha256:${sha256(JSON.stringify(content)).slice(0, 16)}` : "";
+}
+
+export class SkillLibraryError extends Error {
+  constructor(readonly code: string, message: string) { super(message); this.name = "SkillLibraryError"; }
+}
+
+function skillSummary(skill: PinnedSkill) {
+  return { id: skill.id!, name: skill.name, description: skill.description.slice(0, 1024), explicitOnly: skill.disableModelInvocation, source: skill.source!, readOnly: true, state: "enabled" as const, contentRevision: skill.contentRevision! };
+}
+
+export function listSkillLibrary(input: { offset?: number; limit?: number } = {}) {
+  const { offset = 0, limit = 50 } = input;
+  if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new SkillLibraryError("invalid_params", "技能列表分页无效，请重新读取技能列表。");
+  const library = loadSkillLibrary(), diagnostics = library.diagnostics.slice(0, 100).map(value => value.slice(0, 1024));
+  return { directory: skillsDirFor(), revision: `sha256:${sha256(JSON.stringify(library.skills))}`, skills: library.skills.slice(offset, offset + limit).map(skillSummary), offset, hasMore: offset + limit < library.skills.length, diagnostics, diagnosticsTruncated: library.diagnostics.length > diagnostics.length || library.diagnostics.some(value => value.length > 1024) };
+}
+
+export function getSkillDetail(id: SkillId) {
+  const library = loadSkillLibrary(), skill = library.skills.find(value => value.id === id);
+  if (!skill) throw new SkillLibraryError("skill_not_found", "技能不存在，请刷新所属后台的技能列表。");
+  return { revision: `sha256:${sha256(JSON.stringify(library.skills))}`, ...skillSummary(skill), body: skill.body };
 }
 
 /** 技能目录参考块：只含可由模型加载的技能的名称与描述（无主机路径）；没有时不产出。 */

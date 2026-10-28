@@ -8,7 +8,7 @@
 - **上下文装配（`ContextAssembly`）**：将系统提示、工作区参考资料、历史消息、长期记忆与技能说明融合成模型输入，并在发送前核实选择与预算。
 - **有损上下文压缩（Context Compaction）**：当会话长度逼近模型的上下文窗口上限时，通过语义提取算法将早前历史归纳为高质量摘要，保留关键上下文的同时释放窗口空间。
 - **长期记忆管理（`memory`）**：提供基于版本链的长期事实检索、显式更新与撤销机制，支持跨会话沉淀用户偏好与关键业务事实。
-- **技能库注入（Skills）**：根据当前任务的意图动态加载技能指南与参考规范，并将其以快照形式嵌入上下文。
+- **技能库注入（Skills）**：从后台账户的 `$HOME/.agents/skills/` 固定技能版本，注入名称与描述，模型按需加载正文和引用资料。
 
 ### 边界与非职责
 - 会话消息在磁盘上的权威只读 JSONL 存储归 [core](core.md)。
@@ -25,7 +25,7 @@
 | `planCompaction(history, limits)` | 上下文编排层 | 纯函数计算当前历史是否超过压缩水位线，规划需要归纳的历史区间 |
 | `selectContext(options)` | 上下文编排层 | 执行滑动窗口选择，生成包含摘要与最新消息的上下文视图 |
 | `MemoryStore` | 模型工具 / TUI | 长期记忆的增删改查门面，提供多版本追溯与撤销支持 |
-| `SkillStore` | 运行时 / 客户端 | 扫描、加载并校验技能 Markdown 文件，提供带内容哈希的不可变快照 |
+| `loadSkillLibrary` / `listSkillLibrary` / `getSkillDetail` | 运行时 / 客户端 | 固定目录发现、只读分页与详情；正文按内容哈希形成快照 |
 
 ## 数据与状态
 
@@ -47,7 +47,7 @@ stateDiagram-v2
 | 上下文切片 | 内容与来源 | 动态行为 |
 |---|---|---|
 | **System Prompt** | 宿主角色定位、安全边界与行为规范 | 静态内置，针对不同产品微调 |
-| **参考快照 (References)** | 工作区结构、当前任务说明、激活的技能规范 | 按任务动态注入，运行中只读 |
+| **参考快照 (References)** | 项目指令、技能名称与描述、当前任务说明 | 按任务固定选择；技能正文经工具结果或显式调用进入历史 |
 | **长期记忆 (Memories)** | 检索到的用户偏好与跨会话事实 | 按语义相关度召回或由用户显式绑定 |
 | **压缩摘要 (Compaction)** | 被压缩历史的高层语义提炼 | 仅在触发压缩后出现，替代老旧消息 |
 | **消息滑动窗口 (Messages)** | 近期的用户输入、模型回复与工具执行结果 | 保持原汁原味的流式对话历史 |
@@ -96,3 +96,4 @@ sequenceDiagram
 
 - [会话历史与模型上下文](../../.agents/notes/implemented/architecture/2026-09-19-preserve-session-history.md)
 - [有损上下文压缩与视图选择](../../.agents/notes/implemented/architecture/2026-09-26-lossy-context-compaction.md)
+- [技能统一从宿主 HOME 发现](../../.agents/notes/implemented/simplification/2026-10-28-home-skills-discovery.md)：固定来源、任务钉版与历史保留。

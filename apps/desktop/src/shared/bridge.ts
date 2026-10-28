@@ -7,7 +7,6 @@ import type { PersistentEvent } from "@ruukoto/core/types.ts";
 import type { PendingRequest } from "@ruukoto/control/pending-requests.ts";
 import type { OwnerQuestionCancelOutcome, OwnerQuestionCancelReconcileOutcome } from "@ruukoto/control/owner-question-cancel.ts";
 import type { ReconcileOutcome, SubmitOutcome } from "@ruukoto/control/submission.ts";
-import type { OpResult } from "@ruukoto/control/ops.ts";
 import type { PersonalDesktopFrame, PersonalRemoteIdentity, PersonalPendingInput, PersonalInputReceipt } from "./personal-desktop.ts";
 
 export type DesktopAttachment = AttachmentMetadata;
@@ -20,7 +19,6 @@ export type PendingOp = "desktop_pending_read" | "desktop_pending_clear";
 export type BrowserDocumentId = string;
 export interface BrowserDocumentHandle { id: BrowserDocumentId; url: string }
 export type DesktopTarget = "code" | "personal";
-export type DesktopSkillPreview = OpResult<"skill_import_preview">;
 export type DesktopTerminalId = string;
 export type DesktopTerminalUpdate = { type: "terminal"; id: DesktopTerminalId } & ({ kind: "output"; data: string } | { kind: "exit"; exitCode: number; signal?: number });
 export interface DesktopFailure {
@@ -52,7 +50,6 @@ export interface DesktopBridge {
   pickDraftAttachments(): Promise<DesktopResult<DesktopAttachment[]>>;
   uploadDraftAttachments(sessionId: string, tokens: string[], target?: DesktopTarget): Promise<DesktopResult<DesktopAttachment[]>>;
   pickFolder(): Promise<DesktopResult<string | null>>;
-  pickSkillFolder(target: DesktopTarget, instanceId: string): Promise<DesktopResult<DesktopSkillPreview | null>>;
   reveal(path: string): Promise<DesktopResult<void>>;
   openTerminal(id: DesktopTerminalId, workspaceId: string, instanceId: string, cols: number, rows: number): Promise<DesktopResult<{ id: DesktopTerminalId; cwd: string }>>;
   inputTerminal(id: DesktopTerminalId, data: string): Promise<DesktopResult<void>>;

@@ -13,16 +13,16 @@ import { test, type TestContext } from "node:test";
 import { savePersonalMcp } from "../apps/ruukoto/src/personal-mcp-config.ts";
 import { lockPersonalProfile } from "../apps/ruukoto/src/personal-profile.ts";
 import { savePersonalConfig } from "../apps/ruukoto/src/personal-config.ts";
-import { savePersonalSkills } from "../apps/ruukoto/src/personal-skills-config.ts";
 import { personalControl, startPersonalServer } from "../apps/ruukoto/src/personal-control.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
 import { dispatchPersonalSettings, executePersonalSettings, parsePersonalSettingsRequest, runPersonalSettingsMachine, testPersonalModel } from "../apps/ruukoto/src/personal-settings.ts";
 import type { PersonalSettingsReceipt } from "../apps/ruukoto/src/personal-settings-records.ts";
 import type { PersonalModelConfig } from "../apps/ruukoto/src/personal-model.ts";
 import { PersonalMockModelServer } from "./helpers/mock-provider.ts";
+import { isolateSkillHome } from "./helpers/skill-home.ts";
 import { startMockMcp } from "./helpers/mock-mcp.ts";
 
-type Snapshot = { profile: { directory: string; id: string }; revisions: { model: string; skills: string; mcp: string }; online: boolean; model: { config: PersonalModelConfig; credential: { state: string } }; blockers: { kind: string }[]; skills: { sourceHost: string; revision: string; config: { directory: string } | null; externalAvailable: boolean; diagnostics: string[]; skills: { id: string; name: string; source: string; readOnly: boolean; state: string }[] } };
+type Snapshot = { profile: { directory: string; id: string }; revisions: { model: string; skills: string; mcp: string }; online: boolean; model: { config: PersonalModelConfig; credential: { state: string } }; blockers: { kind: string }[]; skills: { sourceHost: string; revision: string; config: null; directory: string; diagnostics: string[]; skills: { id: string; name: string; source: string; readOnly: boolean; state: string }[] } };
 const code = (expected: string) => (error: unknown) => error instanceof PersonalError && error.code === expected;
 
 async function fixture(t: TestContext) {
@@ -32,6 +32,7 @@ async function fixture(t: TestContext) {
   await savePersonalConfig(directory, config);
   let server: Awaited<ReturnType<typeof startPersonalServer>> | undefined;
   t.after(async () => { await server?.stop(); await model.close(); delete process.env[config.apiKeyEnv]; fs.rmSync(root, { recursive: true, force: true }); });
+  isolateSkillHome(t);
   return { root, directory, model, config, read: () => executePersonalSettings(directory, { v: 1, op: "settings.read" }) as Promise<Snapshot>, start: async (development = false) => server = await startPersonalServer(directory, { development }) };
 }
 
@@ -229,61 +230,34 @@ test("MCP 设置：超过请求限额的既有合法配置仍可分页读、迁�
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(f.directory, "mcp.json"), "utf8")).services, []);
 });
 
-test("技能设置：远端有界目录选择、预览/导入/详情/启停/移除、修订与在线保存闭环", async t => {
-  const f = await fixture(t), sources = path.join(f.root, "sources"), source = path.join(sources, "alpha");
-  fs.mkdirSync(path.join(source, "refs"), { recursive: true }); fs.mkdirSync(path.join(sources, "beta")); fs.writeFileSync(path.join(sources, "not-a-directory"), "不应列出");
-  fs.writeFileSync(path.join(source, "SKILL.md"), "---\ndescription: 原远端技能\n---\n技能正文\n"); fs.writeFileSync(path.join(source, "refs", "guide.md"), "引用原字节");
+test("技能设置：固定 HOME 只读发现、详情与分页，退役操作拒绝且源文件保留", async t => {
+  const f = await fixture(t), skills = path.join(isolateSkillHome(t), ".agents", "skills"), source = path.join(skills, "alpha");
+  fs.mkdirSync(source, { recursive: true }); fs.mkdirSync(path.join(skills, "beta"));
+  const body = "---\ndescription: 固定目录技能\n---\n技能正文\n";
+  fs.writeFileSync(path.join(source, "SKILL.md"), body); fs.writeFileSync(path.join(skills, "beta", "SKILL.md"), "---\ndescription: 第二个技能\n---\n正文\n");
   const initial = await f.read(), base = { v: 1, profile: initial.profile, expectedRevision: initial.skills.revision };
-  assert.equal(initial.skills.sourceHost, "personal"); assert.deepEqual(initial.skills.skills, []);
-  const selected = await executePersonalSettings(f.directory, { ...base, op: "skills.select-directory", purpose: "import", directory: sources, limit: 1 }) as { directories: { name: string; directory: string }[]; hasMore: boolean };
-  assert.deepEqual(selected.directories, [{ name: "alpha", directory: source }]); assert.equal(selected.hasMore, true); assert.ok(!JSON.stringify(selected).includes("not-a-directory"));
-  const preview = await executePersonalSettings(f.directory, { ...base, op: "skills.preview-import", directory: source }) as { id: string; contentRevision: string; sourceDir: string; revision: string };
-  assert.equal(preview.sourceDir, source);
-  const many = path.join(f.root, "many"); fs.mkdirSync(many);
-  for (let index = 0; index < 1001; index++) fs.writeFileSync(path.join(many, `file-${index}`), "");
-  const bounded = await executePersonalSettings(f.directory, { ...base, op: "skills.select-directory", purpose: "import", directory: many }) as { directories: unknown[]; truncated: boolean };
-  assert.equal(bounded.truncated, true); assert.deepEqual(bounded.directories, []);
-  const linked = path.join(f.root, "linked"); fs.symlinkSync(source, linked);
-  await assert.rejects(executePersonalSettings(f.directory, { ...base, op: "skills.select-directory", purpose: "import", directory: linked }), code("skills_directory_invalid"));
-  const external = path.join(f.root, "external-root"), actual = path.join(f.root, "actual-skills"); fs.mkdirSync(external); fs.mkdirSync(actual); fs.symlinkSync(actual, path.join(external, "skills"));
-  const libraryChoice = await executePersonalSettings(f.directory, { ...base, op: "skills.select-directory", purpose: "library", directory: external }) as { selectable: boolean };
-  assert.equal(libraryChoice.selectable, true);
-  const request = write(base, { kind: "skills.import", directory: source, id: preview.id, contentRevision: preview.contentRevision });
-  const pending = path.join(f.directory, `pending-work-${randomUUID()}.json`); fs.writeFileSync(pending, "{}", { mode: 0o600 });
-  const imported = await executePersonalSettings(f.directory, request) as PersonalSettingsReceipt;
-  assert.equal(imported.status, "saved"); assert.equal(imported.target, "skills"); assert.equal(fs.existsSync(pending), true); fs.unlinkSync(pending);
-  assert.deepEqual(await executePersonalSettings(f.directory, request), imported); assert.equal("body" in imported, false);
-  assert.equal((await machine(f.directory, { ...base, op: "skills.get", id: preview.id })).body.code, "skills_revision_conflict");
-  const current = { ...base, expectedRevision: imported.savedRevision! };
-  await assert.rejects(executePersonalSettings(f.directory, { ...current, op: "skills.list", profile: { ...initial.profile, id: `sha256:${"0".repeat(64)}` } }), code("settings_profile_changed"));
-  const server = await f.start();
-  const listing = await executePersonalSettings(f.directory, { ...current, op: "skills.list" }) as Snapshot["skills"];
-  assert.equal(listing.skills[0].name, "alpha"); assert.equal(listing.sourceHost, "personal"); assert.equal(listing.skills[0].source, "managed"); assert.equal(listing.skills[0].readOnly, false);
-  const detail = await executePersonalSettings(f.directory, { ...current, op: "skills.get", id: preview.id }) as { body: string };
+  assert.equal(initial.skills.sourceHost, "personal"); assert.equal(initial.skills.directory, skills); assert.equal(initial.skills.config, null);
+  assert.deepEqual(initial.skills.skills.map(skill => [skill.name, skill.source, skill.readOnly, skill.state]), [["alpha", "external", true, "enabled"], ["beta", "external", true, "enabled"]]);
+  const page = await executePersonalSettings(f.directory, { ...base, op: "skills.list", offset: 1, limit: 1 }) as Snapshot["skills"];
+  assert.deepEqual(page.skills.map(skill => skill.name), ["beta"]);
+  const detail = await executePersonalSettings(f.directory, { ...base, op: "skills.get", id: initial.skills.skills[0].id }) as { body: string };
   assert.equal(detail.body, "技能正文");
-  const disabled = await executePersonalSettings(f.directory, write(current, { kind: "skills.set-enabled", id: preview.id, enabled: false })) as PersonalSettingsReceipt;
-  assert.equal(disabled.status, "active"); assert.equal(disabled.target, "skills"); assert.equal((await f.read()).skills.skills[0].state, "disabled");
-  const invalid = await machine(f.directory, { ...current, op: "skills.get", id: preview.id, path: "/etc/passwd" }); assert.equal(invalid.body.code, "settings_request_invalid");
-  await server.stop();
-  const removed = await executePersonalSettings(f.directory, write({ ...current, expectedRevision: disabled.savedRevision! }, { kind: "skills.remove", id: preview.id })) as PersonalSettingsReceipt;
-  assert.equal(removed.status, "saved"); assert.equal(removed.target, "skills"); assert.deepEqual((await f.read()).skills.skills, []);
-  assert.equal(fs.readFileSync(path.join(source, "refs", "guide.md"), "utf8"), "引用原字节");
-  assert.equal(fs.readFileSync(path.join(f.directory, "managed-skills", "packages", preview.id, "alpha", "refs", "guide.md"), "utf8"), "引用原字节");
+  await assert.rejects(executePersonalSettings(f.directory, { ...base, op: "skills.list", profile: { ...initial.profile, id: `sha256:${"0".repeat(64)}` } }), code("settings_profile_changed"));
+  for (const op of ["skills.select-directory", "skills.preview-import", "skills.import", "skills.set-enabled", "skills.remove"]) {
+    const v1 = await machine(f.directory, { ...base, op, directory: source, purpose: "import", id: randomUUID(), enabled: false });
+    assert.equal(v1.status, 1); assert.equal(v1.body.code, "settings_operation_unsupported");
+    if (!["skills.select-directory", "skills.preview-import"].includes(op)) {
+      const v2 = await machine(f.directory, write(base, { kind: op, directory: source, id: randomUUID(), contentRevision: initial.skills.revision, enabled: false }));
+      assert.equal(v2.status, 1); assert.equal(v2.body.code, "settings_request_invalid");
+    }
+  }
+  for (const op of ["config.preflight", "config.save"]) {
+    assert.equal((await machine(f.directory, { ...base, op, target: "skills", value: { version: 1, directory: f.root } })).body.code, "settings_request_invalid");
+  }
+  assert.equal((await machine(f.directory, write(base, { kind: "config.save", target: "skills", value: { version: 1, directory: f.root } }))).body.code, "settings_request_invalid");
+  assert.equal(fs.existsSync(path.join(f.directory, "skills.json")), false); assert.equal(fs.existsSync(path.join(f.directory, "managed-skills")), false);
+  assert.equal(fs.readFileSync(path.join(source, "SKILL.md"), "utf8"), body);
 });
-
-test("技能设置：外部来源只读，源目录失效仍可查询模型及诊断并修复配置", async t => {
-  const f = await fixture(t), agent = path.join(f.root, "external"), source = path.join(agent, "skills", "external-skill");
-  fs.mkdirSync(source, { recursive: true }); fs.writeFileSync(path.join(source, "SKILL.md"), "---\ndescription: 外部来源\n---\n正文\n");
-  await savePersonalSkills(f.directory, { version: 1, directory: agent });
-  const initial = await f.read(), external = initial.skills.skills[0]; assert.equal(external.source, "external"); assert.equal(external.readOnly, true);
-  const response = await machine(f.directory, write({ profile: initial.profile, expectedRevision: initial.skills.revision }, { kind: "skills.remove", id: external.id }));
-  assert.equal(response.body.code, "skills_read_only"); assert.equal(fs.existsSync(path.join(source, "SKILL.md")), true);
-  fs.renameSync(agent, `${agent}-moved`);
-  const broken = await f.read(); assert.equal(broken.model.config.modelId, f.config.modelId); assert.equal(broken.skills.externalAvailable, false); assert.match(broken.skills.diagnostics.join(""), /外部技能库不可用/);
-  await executePersonalSettings(f.directory, save(broken, { version: 1, directory: `${agent}-moved` }, "skills"));
-  assert.equal((await f.read()).skills.externalAvailable, true);
-});
-
 
 test("MCP 设置发现：具名Cua经过解析并报告制品不可用，不走HTTP认证", async t => {
   const f = await fixture(t), initial = await f.read();

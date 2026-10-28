@@ -112,13 +112,6 @@ ipcMain.handle("desktop:upload-draft-attachments", (event, sessionId: unknown, t
   assertTrusted(event);
   return host.uploadDraftAttachments(sessionId, tokens, target);
 }));
-ipcMain.handle("desktop:pick-skill-folder", (event, target: unknown, instanceId: unknown) => ipcResult(async () => {
-  assertTrusted(event);
-  return host.pickSkillFolder(target, instanceId, async () => {
-    const result = await dialog.showOpenDialog(window!, { properties: ["openDirectory"], title: "选择技能目录" });
-    return result.canceled ? null : result.filePaths[0] ?? null;
-  });
-}));
 ipcMain.handle("desktop:pick-folder", event => ipcResult(async () => {
   assertTrusted(event);
   const result = await dialog.showOpenDialog(window!, { properties: ["openDirectory"], title: "选择工作区" });

@@ -12,6 +12,7 @@ import { product as personalProduct } from "./legacy-product.ts";
 import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
 import * as fs from "node:fs";
 import { tmpdir } from "node:os";
+import { after } from "node:test";
 import * as path from "node:path";
 import { InMemoryModelsStore } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
@@ -31,6 +32,16 @@ import { createModelCatalog } from "@ruukoto/agent/model-selection.ts";
 import { createMockTools } from "@ruukoto/agent/mock-tools.ts";
 import { createCodingTools } from "@ruukoto/agent/tool-router.ts";
 import { MockModelServer, type Responder } from "./mock-provider.ts";
+
+// 全局技能发现也会影响未使用技能的运行时用例，测试进程统一隔离宿主 HOME。
+const originalHome = process.env.HOME;
+const runtimeHome = fs.mkdtempSync(path.join(tmpdir(), "ruukoto-test-home-"));
+process.env.HOME = runtimeHome;
+after(() => {
+  if (originalHome === undefined) delete process.env.HOME;
+  else process.env.HOME = originalHome;
+  fs.rmSync(runtimeHome, { recursive: true, force: true });
+});
 
 export interface TestDirs {
   root: string;

@@ -3,7 +3,6 @@ import * as path from "node:path";
 import { homedir } from "node:os";
 import { isDeepStrictEqual } from "node:util";
 import { DatabaseSync } from "node:sqlite";
-import { ManagedSkillsError, validateManagedSkillsLayout } from "@ruukoto/agent/managed-skills.ts";
 import { PersonalError } from "./personal-error.ts";
 
 export const LEGACY_PERSONAL_FORMAT = { product: "ruukoto", format: 1, pi: "1.3.0", extensions: { personal: 2 } } as const;
@@ -61,7 +60,6 @@ export function lockPersonalProfile(directory: string): PersonalProfileLock {
     owner.close();
   };
   try {
-    validateManagedSkillsLayout(directory);
     for (const name of fs.readdirSync(directory)) if (name !== "control.sock" && !PERSONAL_PENDING_FILE.test(name)) fs.chmodSync(path.join(directory, name), privateDirectories.has(name) ? 0o700 : 0o600);
     const manifest = path.join(directory, "profile.json");
     if (fs.existsSync(manifest)) {
@@ -76,7 +74,6 @@ export function lockPersonalProfile(directory: string): PersonalProfileLock {
   } catch (error) {
     release();
     if (error instanceof PersonalError) throw error;
-    if (error instanceof ManagedSkillsError) throw new PersonalError(error.code, error.message, { cause: error });
     throw new PersonalError("profile_invalid", "无法核实个人档案，请保留现场并检查档案标记。", { cause: error });
   }
 }

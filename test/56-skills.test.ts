@@ -8,7 +8,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { createHash } from "node:crypto";
-import { expandSkillCommand, loadSkillLibrary, readSkill } from "@ruukoto/agent/skills.ts";
+import { expandSkillCommand, loadSkillLibrary, readSkill, skillsDirFor } from "@ruukoto/agent/skills.ts";
+import { isolateSkillHome } from "./helpers/skill-home.ts";
 import type { Responder } from "./helpers/mock-provider.ts";
 import { createProjectSession, lastUserText, startTestRuntime, taskStatus, waitFor, type TestRuntime } from "./helpers/testkit.ts";
 
@@ -105,10 +106,11 @@ test("技能库：嵌套包、符号链接、缺描述、YAML 错误、同名冲
 
 // ---------- 集成 ----------
 
-test("集成：main 与开发会话的技能目录与工具装配（todo_write 仅开发会话）；/skills 可见诊断", async () => {
+test("集成：main 与开发会话的技能目录与工具装配（todo_write 仅开发会话）；/skills 可见诊断", async tc => {
+  isolateSkillHome(tc);
   const t = await startTestRuntime("skills-roles", async (req) => ({ kind: "text", text: `ok:${lastUserText(req).slice(0, 20)}` }));
   try {
-    const lib = path.join(t.dirs.agentDir, "skills");
+    const lib = skillsDirFor();
     writeSkill(path.join(lib, "alpha"), "name: alpha\ndescription: ALPHA-DESC", "ALPHA-BODY");
     writeSkill(path.join(lib, "beta"), "name: beta\ndescription: BETA-DESC\ndisable-model-invocation: true", "BETA-BODY");
     writeSkill(path.join(lib, "nodesc"), "name: nodesc", "x");
@@ -139,7 +141,8 @@ test("集成：main 与开发会话的技能目录与工具装配（todo_write �
   }
 });
 
-test("集成：技能库为空时不注入目录，任务正常执行", async () => {
+test("集成：技能库为空时不注入目录，任务正常执行", async tc => {
+  isolateSkillHome(tc);
   const t = await startTestRuntime("skills-empty", async () => ({ kind: "text", text: "ok" }));
   try {
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
@@ -153,7 +156,8 @@ test("集成：技能库为空时不注入目录，任务正常执行", async ()
   }
 });
 
-test("集成：skill 加载完整正文（不截取、无审批），任务内钉版，下一任务生效；/context 有技能类别", async () => {
+test("集成：skill 加载完整正文（不截取、无审批），任务内钉版，下一任务生效；/context 有技能类别", async tc => {
+  isolateSkillHome(tc);
   let skillFile = "";
   const longBody = (tag: string) => `${tag}-HEAD ${"正文".repeat(3000)} ${tag}-TAIL`;
   const responder: Responder = async (req) => {
@@ -168,7 +172,7 @@ test("集成：skill 加载完整正文（不截取、无审批），任务内�
   };
   const t = await startTestRuntime("skills-load", responder);
   try {
-    skillFile = path.join(t.dirs.agentDir, "skills", "alpha", "SKILL.md");
+    skillFile = path.join(skillsDirFor(), "alpha", "SKILL.md");
     writeSkill(path.dirname(skillFile), "name: alpha\ndescription: ALPHA-DESC", longBody("OLD"));
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
 
@@ -200,7 +204,8 @@ test("集成：skill 加载完整正文（不截取、无审批），任务内�
   }
 });
 
-test("集成：/skill: 显式调用展开进入历史（含仅显式技能）；未知名称任务失败并列出可用技能", async () => {
+test("集成：/skill: 显式调用展开进入历史（含仅显式技能）；未知名称任务失败并列出可用技能", async tc => {
+  isolateSkillHome(tc);
   let skillFile = "";
   const t = await startTestRuntime("skills-explicit", async () => {
     // 任务进行中修改 SKILL.md：本任务的展开仍是开始时的内容
@@ -208,7 +213,7 @@ test("集成：/skill: 显式调用展开进入历史（含仅显式技能）；
     return { kind: "text", text: "照做" };
   });
   try {
-    skillFile = path.join(t.dirs.agentDir, "skills", "beta", "SKILL.md");
+    skillFile = path.join(skillsDirFor(), "beta", "SKILL.md");
     writeSkill(path.dirname(skillFile), "name: beta\ndescription: BETA-DESC\ndisable-model-invocation: true", "BETA-BODY");
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
     const task = await submit(t, sessionId, "x1", "/skill:beta 附加参数");
@@ -232,11 +237,12 @@ test("集成：/skill: 显式调用展开进入历史（含仅显式技能）；
   }
 });
 
-test("集成：技能目录超出预算按现有规则中断并暂停队列，不截断", async () => {
+test("集成：技能目录超出预算按现有规则中断并暂停队列，不截断", async tc => {
+  isolateSkillHome(tc);
   const t = await startTestRuntime("skills-budget", async () => ({ kind: "text", text: "不应到达" }), { contextWindow: 60_000 });
   try {
     for (let i = 0; i < 150; i++) {
-      writeSkill(path.join(t.dirs.agentDir, "skills", `s${i}`), `name: s${i}\ndescription: ${"d".repeat(1000)}`, "x");
+      writeSkill(path.join(skillsDirFor(), `s${i}`), `name: s${i}\ndescription: ${"d".repeat(1000)}`, "x");
     }
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
     const task = await submit(t, sessionId, "b1", "你好");

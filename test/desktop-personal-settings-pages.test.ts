@@ -8,11 +8,11 @@ import type { PersonalService } from "../apps/desktop/src/renderer/personal-sett
 import { SettingsState } from "../apps/desktop/src/renderer/settings-state.ts";
 
 const profile = { directory: "/remote/profile", id: "sha256:" + "a".repeat(64) };
-const modelRevision = "sha256:" + "b".repeat(64), libraryRevision = "sha256:" + "c".repeat(64), managedRevision = "sha256:" + "d".repeat(64), mcpRevision = "sha256:" + "e".repeat(64);
-const skillId = "00000000-0000-4000-8000-000000000001", importedId = "00000000-0000-4000-8000-000000000002";
+const modelRevision = "sha256:" + "b".repeat(64), libraryRevision = "sha256:" + "c".repeat(64), skillsRevision = "sha256:" + "d".repeat(64), mcpRevision = "sha256:" + "e".repeat(64);
+const skillId = "00000000-0000-4000-8000-000000000001", secondSkillId = "00000000-0000-4000-8000-000000000002";
 const contentRevision = "sha256:" + "f".repeat(64);
 const modelConfig = { api: "openai-responses", baseUrl: "https://model.example/v1", modelId: "personal-model", apiKeyEnv: "PERSONAL_MODEL_KEY", contextWindow: 32768, maxTokens: 2048, imageInput: true };
-const skill = { id: skillId, name: "远端技能", description: "技能说明", explicitOnly: true, source: "managed", readOnly: false, state: "enabled", contentRevision };
+const skill = { id: skillId, name: "远端技能", description: "技能说明", explicitOnly: true, source: "external", readOnly: true, state: "enabled", contentRevision };
 const remoteTool = { name: "lookup", description: "查询资料", inputSchema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] }, annotations: { readOnlyHint: true } };
 const service = { id: "existing-service", label: "远端服务", endpoint: "https://mcp.example/tools?token=__RUUKOTO_REDACTED__", endpointRedacted: true, enabled: true, credential: { path: "/remote/secrets/mcp", sha256: "1".repeat(64) }, credentialStatus: "valid", tools: [remoteTool] };
 const ok = (value: unknown): DesktopResult<unknown> => ({ ok: true, value });
@@ -24,7 +24,7 @@ function makeView() {
       product: "ruukoto", settingsProtocol: 2 as const, profile: { ...profile }, online: true,
       fileIssues: [] as { target: string; code: string; expectedRevision: string; actualRevision: string | null }[], revisions: { model: modelRevision, skills: libraryRevision, mcp: mcpRevision }, blockers: [] as unknown[],
       model: { config: { ...modelConfig }, credential: { state: "available", reference: modelConfig.apiKeyEnv } },
-      skills: { sourceHost: "personal", config: { version: 1, directory: "/remote/library" }, externalAvailable: true, revision: managedRevision, skills: [{ ...skill }], offset: 0, hasMore: false, diagnostics: [] as string[], diagnosticsTruncated: false },
+      skills: { sourceHost: "personal", config: null, directory: "/home/ruukoto/.agents/skills", revision: skillsRevision, skills: [{ ...skill }], offset: 0, hasMore: false, diagnostics: [] as string[], diagnosticsTruncated: false },
       mcp: { version: 4, generation: "program-managed-generation", services: [{ ...service }] as PersonalService[], offset: 0, hasMore: false }, lifecycle: { managedDevelopment: false },
     },
     maintenance: { profile: { ...profile }, online: true, writable: true, code: "maintenance_supported", reason: "原系统服务已核实。", lifecycle: { kind: "systemd", state: "running", managedDevelopment: false, originalEnvironment: "verified" } },
@@ -46,9 +46,7 @@ function harness(category: "models" | "skills" | "mcp" | "computer") {
     assert.equal(op, "desktop_personal_settings_request");
     if (hooks.query) return hooks.query(request);
     if (request.op === "skills.list") return ok({ ...base(), ...structuredClone(view.settings.skills) });
-    if (request.op === "skills.get") return ok({ ...base(), ...skill, revision: managedRevision, body: "# 远端正文\n旧引用保留。\n" });
-    if (request.op === "skills.select-directory") return ok({ ...base(), purpose: request.purpose, directory: request.directory, selectable: true, directories: [{ name: "child", directory: `${request.directory}/child` }], offset: 0, hasMore: false, truncated: false });
-    if (request.op === "skills.preview-import") return ok({ ...base(), ...skill, id: importedId, sourceDir: request.directory, revision: managedRevision, files: 2, bytes: 128, diagnostics: [], conflicts: [] });
+    if (request.op === "skills.get") return ok({ ...base(), ...skill, revision: skillsRevision, body: "# 远端正文\n旧引用保留。\n" });
     if (request.op === "model.test") return ok({ ...base(), revision: modelRevision, test: { status: "passed", code: "model_connection_ok", message: "模型连接测试成功。" } });
     if (request.op === "mcp.get") return ok({ ...base(), revision: mcpRevision, service: structuredClone(service), toolsOffset: 0, toolsHasMore: false });
     if (request.op === "mcp.discover") return ok({ ...base(), revision: mcpRevision, service: structuredClone(service), tools: [structuredClone(remoteTool)] });
@@ -61,12 +59,12 @@ function harness(category: "models" | "skills" | "mcp" | "computer") {
 test("Personal 各页从独立管理连接读取真实档案，不依赖旧聊天实例", async () => {
   for (const category of ["models", "skills", "mcp", "computer"] as const) {
     const h = harness(category); await h.state.read();
-    assert.equal(h.state.phase, "ready"); assert.equal(h.state.writable, true); assert.equal(h.state.dirty, false);
+    assert.equal(h.state.phase, "ready"); assert.equal(h.state.writable, category !== "skills"); assert.equal(h.state.dirty, false);
     assert.deepEqual(h.state.view?.settings.profile, profile);
     assert.ok(h.calls.every(call => call.target === "personal"));
     assert.equal(h.writes().length, 0);
     if (category === "models") assert.deepEqual(h.state.model, { ...modelConfig, contextWindow: "32768", maxTokens: "2048" });
-    if (category === "skills") assert.equal(h.state.library, "/remote/library");
+    if (category === "skills") assert.equal(h.state.view?.settings.skills.directory, "/home/ruukoto/.agents/skills");
   }
 });
 
@@ -95,29 +93,15 @@ test("显式模型测试发送草稿，测试不保存配置", async () => {
   h.state.editModel("modelId", "another-draft"); assert.equal(h.state.test, null);
 });
 
-test("外部库选择与保存使用远端目录，来源修订与托管清单修订分开", async () => {
+test("Personal Skills 只读固定远端目录，检索和离开不产生草稿或保存", async () => {
   const h = harness("skills"); await h.state.read();
-  await h.state.browse("library", "/remote/next-library"); h.state.chooseDirectory();
-  assert.equal(h.state.library, "/remote/next-library");
-  await h.state.save(); assert.equal(h.writes().length, 0); await h.state.confirmApply();
-  assert.deepEqual(h.writes()[0].request, { v: 1, op: "config.save", profile, target: "skills", expectedRevision: libraryRevision, value: { version: 1, directory: "/remote/next-library" } });
-  const selection = h.calls.find(call => call.request.op === "skills.select-directory")!.request;
-  assert.equal(selection.purpose, "library"); assert.equal(selection.directory, "/remote/next-library"); assert.equal(selection.expectedRevision, managedRevision);
-});
-
-test("技能导入先读远端预览，提交复用预览身份、内容与托管修订", async () => {
-  const h = harness("skills"); await h.state.read(); await h.state.previewImport("/remote/packages/new-skill");
-  assert.equal(h.state.preview?.contentRevision, contentRevision); assert.equal(h.state.dirty, true);
-  await h.state.save(); assert.equal(h.writes().length, 0); await h.state.confirmApply();
-  const request = h.writes()[0].request;
-  assert.deepEqual(request, { v: 1, op: "skills.import", profile, expectedRevision: managedRevision, id: importedId, directory: "/remote/packages/new-skill", contentRevision });
-  assert.ok(h.calls.every(call => call.target === "personal" && !call.op.includes("desktop_skill_import")));
-});
-
-test("托管技能停用仅在确认后提交；外部维护技能保持只读", async () => {
-  const h = harness("skills"); await h.state.read();
-  const external = harness("skills"); await external.state.read();
-  external.hooks.query = async () => ok({ product: "ruukoto", profile, online: true, ...skill, source: "external", readOnly: true, revision: managedRevision, body: "外部正文" });
+  assert.equal(h.state.view?.settings.skills.config, null); assert.equal(h.state.writable, false);
+  assert.equal(h.state.view?.settings.skills.directory, "/home/ruukoto/.agents/skills");
+  h.state.query = "不存在"; assert.equal(h.state.filtered.length, 0);
+  h.state.query = "远端"; assert.equal(h.state.filtered.length, 1);
+  assert.equal(h.state.dirty, false); assert.equal(await h.state.save(), false); assert.equal(h.state.confirmation, null); assert.equal(h.writes().length, 0);
+  const settings = new SettingsState(() => {}); settings.show("personal", "pa-skills"); settings.form = h.state;
+  settings.chooseCategory("pa-models"); assert.equal(settings.category, "pa-models"); assert.equal(settings.leave, null);
 });
 
 test("MCP 编辑保留隐藏端点和完整工具定义，本地效果独立保存且不采信readOnlyHint", async () => {
@@ -206,10 +190,13 @@ test("MCP 服务续页不混入新修订，冲突明确要求重读", async () =
   }
 });
 
-test("技能续页不混合已切换的外部来源，即使托管清单修订未变化", async () => {
-  const h = harness("skills"); h.view.settings.skills.hasMore = true; await h.state.read();
-  h.hooks.query = async () => ok({ product: "ruukoto", profile, online: true, ...h.view.settings.skills, config: { version: 1, directory: "/remote/other-library" }, skills: [{ ...skill, id: importedId }] });
-  await h.state.more(); assert.equal(h.state.phase, "conflict"); assert.equal(h.state.skills.length, 1); assert.equal(h.state.library, "/remote/library"); assert.match(h.state.message, /未混入其他来源/);
+test("技能续页不混合变化的目录或版本，保留已取得列表", async () => {
+  for (const changed of [{ directory: "/other/.agents/skills" }, { revision: contentRevision }]) {
+    const h = harness("skills"); h.view.settings.skills.hasMore = true; await h.state.read();
+    h.hooks.query = async () => ok({ product: "ruukoto", profile, online: true, ...h.view.settings.skills, ...changed, skills: [{ ...skill, id: secondSkillId }] });
+    await h.state.more(); assert.equal(h.state.phase, "conflict"); assert.equal(h.state.skills.length, 1);
+    assert.equal(h.state.view?.settings.skills.directory, "/home/ruukoto/.agents/skills"); assert.match(h.state.message, /已取得的列表仍保留/);
+  }
 });
 
 test("新 MCP 服务要求明确认证选择，匿名选择后才能准备保存", async () => {
@@ -268,11 +255,11 @@ test("失效轮次的读取与保存响应不能覆盖原草稿或另一目标",
   assert.equal(write.state.phase, "unknown"); assert.equal(write.state.model.modelId, "original-draft"); assert.equal(write.writes().length, 1);
 });
 
-test("查询应答档案不匹配时拒绝导入预览，原档案与草稿保留", async () => {
+test("技能查询应答档案不匹配时拒绝续页，原档案与列表保留", async () => {
   const h = harness("skills"); await h.state.read();
-  h.hooks.query = async () => ok({ product: "ruukoto", profile: { ...profile, id: contentRevision }, online: true, ...skill, revision: managedRevision, files: 1, bytes: 16, diagnostics: [], conflicts: [] });
-  await h.state.previewImport("/remote/other-host/package");
-  assert.equal(h.state.phase, "conflict"); assert.equal(h.state.preview, null); assert.deepEqual(h.state.view?.settings.profile, profile); assert.equal(h.writes().length, 0);
+  h.hooks.query = async () => ok({ ...h.view.settings.skills, product: "ruukoto", profile: { ...profile, id: contentRevision }, online: true });
+  await h.state.more();
+  assert.equal(h.state.phase, "conflict"); assert.equal(h.state.skills.length, 1); assert.deepEqual(h.state.view?.settings.profile, profile); assert.equal(h.writes().length, 0);
 });
 
 test("重新读取保留冲突草稿，放弃后才能基于新修订保存", async () => {
@@ -331,7 +318,6 @@ test("Personal 三页 SSR 展示真实字段、远端来源、维护恢复与安
   const { PersonalSettingsEditor } = await server.ssrLoadModule("/personal-settings-pages.tsx");
   for (const category of ["models", "skills", "mcp"] as const) {
     const h = harness(category); await h.state.read();
-    if (category === "skills") { /* 技能展开已移除，只保留列表展示 */ }
     if (category === "mcp") {
       await h.state.selectService(service.id);
       const summary = { operation: 12, service: "远端服务", tool: "lookup", effect: "effect_unknown", code: "timeout", canEnd: true, ended: false };
@@ -342,7 +328,8 @@ test("Personal 三页 SSR 展示真实字段、远端来源、维护恢复与安
     assert.doesNotMatch(html, /摘要模型|默认模型|配置来源|选择工作区|Bearer 令牌|存储 API Key/);
     if (category === "models") { assert.match(html, /API 类型/); assert.match(html, /上下文上限/); assert.match(html, /凭据环境变量引用/); assert.match(html, /图片输入/); assert.match(html, /role="switch"/); }
     if (category === "skills") {
-      assert.match(html, /选择技能库/); assert.doesNotMatch(html, /停用或逻辑移除影响后续新任务选择/);
+      assert.match(html, /home\/ruukoto\/\.agents\/skills/); assert.match(html, /远端技能/);
+      assert.doesNotMatch(html, /选择技能库|导入|托管副本|未保存的更改|查看保存影响|保存更改/);
     }
     if (category === "mcp") { assert.match(html, /远端私有凭据文件/); assert.match(html, /允许的工具/); assert.match(html, /副作用不明/); assert.match(html, /重新绑定凭据/); assert.match(html, /刷新 MCP 调用/); assert.match(html, /结束此工作，保留结果未知/); assert.match(html, /原调用参数与未知结果/); assert.doesNotMatch(html, /副作用类别/); }
   }
@@ -472,15 +459,22 @@ test("Personal 电脑页 SSR 只呈现 Linux 沙箱与恢复控制，MCP 页不�
 });
 
 
-test("配置文件异常只锁定对应页，恢复原文件后刷新解封且不改草稿", async () => {
+test("退役技能配置的异常和待核实更改保留记录，不阻止只读技能分页", async () => {
   const models = harness("models"), skills = harness("skills");
-  const issue = { target: "managed-skills", code: "settings_file_unverified", expectedRevision: managedRevision, actualRevision: null };
+  const issue = { target: "managed-skills", code: "settings_file_unverified", expectedRevision: skillsRevision, actualRevision: null };
   models.view.settings.fileIssues = [issue]; skills.view.settings.fileIssues = [issue];
+  const id = "00000000-0000-4000-8000-000000000008";
+  skills.view.operations = [{ v: 2, id, profile, target: "skills", scope: "managed", requestDigest: "1".repeat(64), status: "unknown", savedRevision: null, effectiveRevision: null, code: "settings_file_unverified", relatedOperations: [] }];
+  skills.view.pending = { v: 1, id: "legacy-import", profile, op: "skills.import", target: "skills", expectedRevision: skillsRevision, requestDigest: "1".repeat(64), saveAttempted: true, stage: "starting" };
+  skills.view.settings.skills.hasMore = true;
   await models.state.read(); await skills.state.read();
-  assert.equal(models.state.writable, true); assert.equal(skills.state.writable, false); assert.equal(skills.state.disabled, true); assert.equal(skills.state.phase, "ready");
+  assert.equal(models.state.writable, true); assert.equal(skills.state.writable, false); assert.equal(skills.state.disabled, false); assert.equal(skills.state.phase, "ready");
+  assert.deepEqual(skills.state.view!.settings.fileIssues, [issue]); assert.equal(skills.state.operations[0].id, id); assert.equal(skills.state.fileIssues.length, 0);
+  skills.hooks.query = async () => ok({ profile, ...skills.view.settings.skills, skills: [{ ...skill, id: secondSkillId }], offset: 1, hasMore: false });
+  await skills.state.more(); assert.equal(skills.state.skills.length, 2);
+  await skills.state.withdrawOperation(id); assert.equal(skills.state.confirmation, null); assert.equal(skills.writes().length, 0);
   const settings = new SettingsState(() => {}); settings.show("personal", "pa-skills"); settings.form = skills.state;
   settings.chooseCategory("pa-models"); assert.equal(settings.category, "pa-models");
-  skills.view.settings.fileIssues = []; await skills.state.read(); assert.equal(skills.state.writable, true); assert.equal(skills.state.phase, "ready");
 });
 
 test("v2待核实原操作只锁本目标，导航后其他配置可保存且原键仍可见", async () => {
@@ -490,9 +484,9 @@ test("v2待核实原操作只锁本目标，导航后其他配置可保存且原
   await models.state.read(); assert.equal(models.state.writable, false); assert.equal(models.state.disabled, true);
   const settings = new SettingsState(() => {}); settings.show("personal", "pa-models"); settings.form = models.state;
   settings.chooseCategory("pa-skills"); assert.equal(settings.category, "pa-skills");
-  await skills.state.read(); assert.equal(skills.state.writable, true); assert.equal(skills.state.disabled, false);
-  skills.state.editLibrary("/remote/new-library"); await skills.state.save(); await skills.state.confirmApply();
-  assert.equal(skills.writes().length, 1); assert.equal(skills.state.view?.operations?.[0].id, id);
+  await skills.state.read(); assert.equal(skills.state.writable, false); assert.equal(skills.state.disabled, false);
+  await skills.state.save(); await skills.state.confirmApply();
+  assert.equal(skills.writes().length, 0); assert.equal(skills.state.view?.operations?.[0].id, id);
   await models.state.read(); assert.equal(models.state.operations[0].id, id); assert.equal(models.writes().length, 0);
 });
 

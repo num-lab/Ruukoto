@@ -2,6 +2,8 @@
 
 Status: implemented
 
+技能来源与管理由[统一 HOME 发现](../simplification/2026-10-28-home-skills-discovery.md)部分取代；本文保留记忆、历史与既有技能快照的核实依据。
+
 Skills 的在线选择与原请求快照采用[请求配置](2026-10-25-personal-request-configuration.md)，不再以当前清单变化否定已固定请求；本文其余记忆、历史、来源及引用完整性约束继续适用。
 
 [读取检查复用](../bug-fix/2026-10-24-read-check-overhead.md)将外部技能正文刷新固定在本次请求准备；发送前核实已保存快照、配置与托管选择，不再全库重读。

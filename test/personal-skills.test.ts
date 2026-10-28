@@ -6,18 +6,17 @@ import { createHash } from "node:crypto";
 import { syncBuiltinESMExports } from "node:module";
 import { test, type TestContext } from "node:test";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { Harness, createRegistry, defineDocFamily, defineExtension, defineTask, wrapTool, LiveDoc, ROOT_CONVERSATION_ID } from "@earendil-works/pi-durable";
+import { Harness, createRegistry, defineExtension, wrapTool, LiveDoc, ROOT_CONVERSATION_ID } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { personalSkills, PersonalSkillsDoc, PERSONAL_SKILL_TOOLS } from "../apps/ruukoto/src/personal-skills.ts";
-import { parsePersonalSkills, personalSkillsDirectory, readPersonalSkills, savePersonalSkills } from "../apps/ruukoto/src/personal-skills-config.ts";
 import { loadSkillLibrary } from "@ruukoto/agent/skills.ts";
-import { configurePersonalSkills } from "../apps/ruukoto/src/personal-skills-cli.ts";
+import { showPersonalSkills } from "../apps/ruukoto/src/personal-skills-cli.ts";
 import { lockPersonalProfile } from "../apps/ruukoto/src/personal-profile.ts";
 import { PersonalFormatDoc } from "../apps/ruukoto/src/personal-harness.ts";
-import { PersonalSchedulesDoc, SCHEDULE_SUPERVISOR_TASK } from "../apps/ruukoto/src/personal-scheduler-records.ts";
 import { personalProvider, recordedModels, type RequestEvidence } from "../apps/ruukoto/src/personal-model.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
 import { PersonalMockModelServer as MockModelServer } from "./helpers/mock-provider.ts";
+import { isolateSkillHome } from "./helpers/skill-home.ts";
 
 const context = BACKGROUND_CONTEXT;
 const code = (expected: string) => (error: unknown) => error instanceof PersonalError && error.code === expected;
@@ -27,20 +26,24 @@ function writeSkill(agent: string, name: string, body: string, explicit = false)
   fs.writeFileSync(path.join(directory, "SKILL.md"), `---\nname: ${name}\ndescription: ${name}的任务指引\n${explicit ? "disable-model-invocation: true\n" : ""}allowed-tools: bash\n---\n${body}`);
   return directory;
 }
-async function fixture(t: TestContext, configured = true, holdLoad = false) {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(tmpdir(), "rk-skills-"))), directory = path.join(root, "profile"), agent = path.join(root, "agent");
-  fs.mkdirSync(agent); const alpha = writeSkill(agent, "alpha", "任务正文：读取 refs/guide.md；不要扩大权限。"); writeSkill(agent, "explicit", "拥有者显式正文", true);
-  fs.mkdirSync(path.join(alpha, "refs")); fs.writeFileSync(path.join(alpha, "refs", "guide.md"), "原始引用资料");
-  if (configured) await savePersonalSkills(directory, { version: 1, directory: agent });
-  const lock = lockPersonalProfile(directory), key = "RUUKOTO_SKILLS_TEST_KEY", previous = process.env[key]; process.env[key] = "test-only";
+async function fixture(t: TestContext, withSkills = true, holdLoad = false) {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(tmpdir(), "rk-skills-"))), directory = path.join(root, "profile");
+  const key = "RUUKOTO_SKILLS_TEST_KEY", previous = process.env[key]; process.env[key] = "test-only";
+  let harness!: Harness, lock!: ReturnType<typeof lockPersonalProfile>, failEvidence = false;
   const model = new MockModelServer(request => {
     const last = request.messages.at(-1), value = String(last?.content);
     if (last?.role === "user" && value.startsWith("skill:")) return { kind: "tool_calls", calls: [{ id: "skill-call", name: "skill", arguments: JSON.parse(value.slice(6)) }] };
     return { kind: "text", text: value };
   });
+  t.after(async () => { if (harness) await harness.close(context); await model.close(); lock?.release(); if (previous === undefined) delete process.env[key]; else process.env[key] = previous; fs.rmSync(root, { recursive: true, force: true }); });
+  const home = isolateSkillHome(t), agent = path.join(home, ".agents"), alpha = path.join(agent, "skills", "alpha");
+  if (withSkills) {
+    writeSkill(agent, "alpha", "任务正文：读取 refs/guide.md；不要扩大权限。"); writeSkill(agent, "explicit", "拥有者显式正文", true);
+    fs.mkdirSync(path.join(alpha, "refs")); fs.writeFileSync(path.join(alpha, "refs", "guide.md"), "原始引用资料");
+  }
+  lock = lockPersonalProfile(directory);
   const config = { api: "openai-completions" as const, baseUrl: await model.start(), modelId: "mock-model", apiKeyEnv: key, contextWindow: 128000, maxTokens: 2048 };
-  let harness!: Harness, failEvidence = false;
-  const skills = personalSkills(directory), registry = createRegistry(); registry.install(skills.extension);
+  const skills = personalSkills(), registry = createRegistry(); registry.install(skills.extension);
   let loaded!: () => void; const didLoad = new Promise<void>(resolve => { loaded = resolve; });
   const observer = defineExtension({ name: "skills-test-observer", wraps: [wrapTool(skills.extension.tools![0], tool => ({ ...tool, async execute(args, api, toolContext) {
     const result = await tool.execute(args, api, toolContext);
@@ -69,7 +72,6 @@ async function fixture(t: TestContext, configured = true, holdLoad = false) {
     return main;
   };
   let main = await open();
-  t.after(async () => { await harness.close(context); await model.close(); lock.release(); if (previous === undefined) delete process.env[key]; else process.env[key] = previous; fs.rmSync(root, { recursive: true, force: true }); });
   return { directory, agent, alpha, skills, model, requests, registry, didLoad, unlock: () => lock.release(), get harness() { return harness; }, get main() { return main; }, failEvidence: () => { failEvidence = true; }, async reopen() { await harness.close(context); main = await open(); }, async answer(content: string, requestId: string) { return (await main.submit({ type: "input", content, requestId }, context)).wait(context); } };
 }
 
@@ -103,15 +105,15 @@ test("个人技能：准备后的目录变化不改写原请求快照，下一�
   fs.renameSync(f.agent, previous); fs.mkdirSync(path.join(f.agent, "skills"), { recursive: true });
   await f.harness.commit(tx => f.skills.verify(tx, ROOT_CONVERSATION_ID, first.version, first.snapshotEntry), context);
   fs.rmdirSync(path.join(f.agent, "skills")); fs.rmdirSync(f.agent); fs.renameSync(previous, f.agent);
-  fs.mkdirSync(path.join(f.alpha, "skills"));
-  fs.writeFileSync(path.join(f.directory, "skills.json"), JSON.stringify({ version: 1, directory: f.alpha }));
+  writeSkill(f.agent, "alpha", "下一请求的新正文");
+  fs.writeFileSync(path.join(f.directory, "skills.json"), JSON.stringify({ version: 1, directory: f.alpha }), { mode: 0o600 });
   const next = await f.harness.commit(tx => f.skills.prepare(tx, ROOT_CONVERSATION_ID), context);
   assert.notEqual(next.version, first.version);
   await f.harness.commit(tx => f.skills.verify(tx, ROOT_CONVERSATION_ID, first.version, first.snapshotEntry), context);
 });
 
 test("个人技能：没有来源元数据的旧快照原样核实，新选择只追加快照", async t => {
-  const f = await fixture(t), config = readPersonalSkills(f.directory)!, identity = personalSkillsDirectory(config), library = loadSkillLibrary(f.agent);
+  const f = await fixture(t), config = { version: 1 as const, directory: f.agent }, { dev, ino } = fs.statSync(path.join(f.agent, "skills")), identity = { dev, ino }, library = loadSkillLibrary(f.agent);
   for (const skill of library.skills) { delete skill.id; delete skill.source; delete skill.readOnly; delete skill.contentRevision; }
   const value = { config, identity, library }, saved = { version: createHash("sha256").update(JSON.stringify(value)).digest("hex"), ...value };
   const original = await f.harness.commit(async tx => {
@@ -202,38 +204,27 @@ test("个人技能：显式输入只在主会话展开，快照损坏阻断后�
   const count = f.model.calls.length; await f.answer("后续调用", "corrupt"); assert.equal(f.model.calls.length, count);
 });
 
-test("个人技能：未配置为空库，目录缺失与证据失败均不发送请求", async t => {
-  const empty = await fixture(t, false), prepared = await empty.harness.commit(tx => empty.skills.prepare(tx, ROOT_CONVERSATION_ID), context); assert.equal(prepared.text, "");
-  const f = await fixture(t); fs.renameSync(path.join(f.agent, "skills"), path.join(f.agent, "skills-away"));
-  await f.answer("缺目录", "missing-root"); assert.equal(f.model.calls.length, 0);
-  fs.renameSync(path.join(f.agent, "skills-away"), path.join(f.agent, "skills")); f.failEvidence();
-  await f.answer("证据失败", "evidence"); assert.equal(f.model.calls.length, 0);
+test("个人技能：固定目录缺失为空库，证据失败仍阻止模型请求", async t => {
+  const f = await fixture(t, false), prepared = await f.harness.commit(tx => f.skills.prepare(tx, ROOT_CONVERSATION_ID), context);
+  assert.equal(prepared.text, "");
+  const saved = (await f.harness.snapshot(PersonalSkillsDoc, context))!.snapshots[0];
+  assert.deepEqual(saved.config, { version: 1, directory: f.agent }); assert.equal(saved.identity, null);
+  assert.equal(fs.existsSync(path.join(f.agent, "skills")), false);
+  assert.equal((await f.answer("空技能库也可聊天", "missing-root")).status, "done"); assert.equal(f.model.calls.length, 1);
+  f.failEvidence(); await f.answer("证据失败", "evidence"); assert.equal(f.model.calls.length, 1);
 });
 
-test("个人技能配置：私有文件、严格字段、目录身份和向导选择", async t => {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(tmpdir(), "rk-skills-cli-"))), directory = path.join(root, "profile"), agent = path.join(root, "agent"); t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  writeSkill(agent, "guide", "正文");
-  assert.throws(() => parsePersonalSkills({ version: 1, directory: agent, tools: ["bash"] }), code("skills_config_invalid"));
-  assert.throws(() => parsePersonalSkills({ version: 1, directory: "relative" }), code("skills_config_invalid"));
-  const answers = ["2", agent, "2"]; let output = "";
-  await configurePersonalSkills({ question: async () => answers.shift()!, write: text => { output += text; } }, directory);
-  assert.match(output, /guide的任务指引/); assert.match(output, /已保存/);
-  assert.deepEqual(readPersonalSkills(directory), { version: 1, directory: agent });
-  assert.equal(fs.statSync(path.join(directory, "skills.json")).mode & 0o777, 0o600);
-  fs.chmodSync(path.join(directory, "skills.json"), 0o644); assert.throws(() => readPersonalSkills(directory), code("skills_config_invalid"));
+test("个人技能：固定目录不是目录时不发送请求", async t => {
+  const f = await fixture(t, false); fs.mkdirSync(f.agent); fs.writeFileSync(path.join(f.agent, "skills"), "不是目录");
+  await f.answer("检查技能库", "invalid-root"); assert.equal(f.model.calls.length, 0);
 });
 
-test("个人技能配置：空闲调度监督和旧运行不阻止保存下次请求的目录", async t => {
-  const f = await fixture(t), next = path.join(f.agent, "next"), later = path.join(f.agent, "later"); writeSkill(next, "next", "下次目录"); writeSkill(later, "later", "另一个目录");
-  const supervisor = defineTask<object, { phase: "scan" }, object>({ name: SCHEDULE_SUPERVISOR_TASK, version: 1, initial: () => ({ phase: "scan" }), phases: { async scan(_task, runtime, taskContext) { await runtime.sleep(runtime.now() + 3600000, taskContext); } }, async abort(_task, runtime, taskContext) { await runtime.commit(() => ({ status: "terminal", outcome: { status: "aborted", result: {} } }), taskContext); } });
-  f.registry.install(defineExtension({ name: "skills-test-supervisor", tasks: [supervisor] }));
-  await f.harness.commit(async tx => { const index = await tx.doc(PersonalSchedulesDoc); index.supervisor = await tx.createTask(supervisor, {}, { conversationId: ROOT_CONVERSATION_ID, ownership: { kind: "conversation" }, background: true }); }, context);
-  await f.harness.close(context); f.unlock();
-  await savePersonalSkills(f.directory, { version: 1, directory: next }); assert.equal(readPersonalSkills(f.directory)!.directory, next);
-  await f.reopen();
-  const runDoc = defineDocFamily<{ run?: { id: string } }, null>({ kind: "ruukoto.schedule-run", scope: "session", version: 1, family: true, initial: () => ({}) });
-  await f.harness.commit(async tx => { (await tx.doc(PersonalSchedulesDoc)).runs.push("unclosed"); (await tx.doc(runDoc, "unclosed", null)).run = { id: "unclosed" }; }, context);
-  await f.harness.close(context);
-  await savePersonalSkills(f.directory, { version: 1, directory: later });
-  assert.equal(readPersonalSkills(f.directory)!.directory, later);
+test("个人技能查看：直接显示固定目录与诊断，不提问或写技能配置", async t => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(tmpdir(), "rk-skills-cli-"))), directory = path.join(root, "profile");
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const agent = path.join(isolateSkillHome(t), ".agents"); writeSkill(agent, "guide", "正文");
+  let output = "";
+  await showPersonalSkills({ question: async () => assert.fail("查看技能无需选择目录"), write: text => { output += text; } }, directory);
+  assert.match(output, /guide的任务指引/); assert.doesNotMatch(output, /选择|保存/);
+  assert.equal(fs.existsSync(path.join(directory, "skills.json")), false);
 });

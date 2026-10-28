@@ -2,6 +2,8 @@
 
 Status: implemented
 
+技能库配置与托管管理由[统一 HOME 发现](../simplification/2026-10-28-home-skills-discovery.md)部分取代；旧技能配置与维护回执保留为历史，新技能查询只读固定目录。
+
 普通配置的在线/离线保存、版本回执与生效恢复采用[设置保存与生效](../architecture/2026-10-25-personal-settings-versions.md)，不再统一停机或核实无关工作；本文其余认证、档案身份、修订与有界管理入口约束继续适用。
 
 普通配置保存的停机条件由[设置版本与生效恢复](../architecture/2026-10-25-personal-settings-versions.md)部分取代；本篇保留原身份、认证与旧维护恢复依据。

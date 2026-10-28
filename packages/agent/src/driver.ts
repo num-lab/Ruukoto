@@ -69,8 +69,7 @@ import type { JevRequestConfig } from "./jev.ts";
 import type { HostToolContext } from "./host-tools.ts";
 import { ownerQuestionCreatedByTask, ownerQuestionTaskEligible, type OwnerQuestion, type OwnerQuestionItem } from "@ruukoto/core/owner-questions.ts";
 import type { ParentDelivery } from "@ruukoto/runtime/parent-delivery.ts";
-import { expandSkillCommand, type SkillLibrary } from "./skills.ts";
-import { loadHostSkillLibrary, ManagedSkillsError, reselectManagedSkills } from "./managed-skills.ts";
+import { expandSkillCommand, loadSkillLibrary, type SkillLibrary } from "./skills.ts";
 import { validateSubAgentRole, validateSubAgentRoleLibrary, type SubAgentRoleLibrary } from "./subagent-roles.ts";
 import { requireSubAgentDefinition, SubAgentDefinitionError, type SubAgentDefinitionSnapshot } from "@ruukoto/core/subagent-definition.ts";
 import { SubAgentRoleError } from "./subagent-roles.ts";
@@ -930,17 +929,9 @@ export class Driver {
     this.recordResourcePhase(task);
     this.activeToolCalls.clear();
     this.modelResponseAccepted = false;
-    // Note: 见 .agents/notes/implemented/feature/2026-10-21-managed-skills.md
-    this.pinnedSkills = null;
-    try {
-      this.pinnedSkills = this.resourcePhase === "conversation" ? referenceSnapshot?.taskId === task.id ? referenceSnapshot.skills : reselectManagedSkills(referenceSnapshot?.skills ?? null, this.deps.agentDir)
-        : this.profile.restricted && !this.profile.source && !this.profile.workflow ? null : this.allows("skills") ? loadHostSkillLibrary(this.deps.agentDir) : null;
-    } catch (error) {
-      if (!(error instanceof ManagedSkillsError)) throw error;
-      try { await this.finalize(task, "failed", { errorMessage: `${error.code}：${error.message}` }); }
-      finally { this.currentTask = null; this.taskEnding = null; }
-      return;
-    }
+    // Note: 见 .agents/notes/implemented/simplification/2026-10-28-home-skills-discovery.md
+    this.pinnedSkills = this.resourcePhase === "conversation" ? referenceSnapshot?.taskId === task.id ? referenceSnapshot.skills : referenceSnapshot?.skills ? loadSkillLibrary() : null
+      : this.profile.restricted && !this.profile.source && !this.profile.workflow ? null : this.allows("skills") ? loadSkillLibrary() : null;
     this.pinnedRoles = this.resourcePhase === "conversation" ? referenceSnapshot?.roles ?? null
       : this.allows("subagent") && this.profile.toolClass !== "subagent" ? this.deps.subAgentRoles?.() ?? null : null;
     if (this.pinnedRoles) validateSubAgentRoleLibrary(this.pinnedRoles);

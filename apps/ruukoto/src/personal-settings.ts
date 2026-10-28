@@ -4,8 +4,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { createModels, type Provider } from "@earendil-works/pi-ai";
 import type { JsonValue } from "@earendil-works/chord";
-import { ManagedSkillsError, ManagedSkillsStore } from "@ruukoto/agent/managed-skills.ts";
-import type { SkillId } from "@ruukoto/agent/skills.ts";
+import { getSkillDetail, listSkillLibrary, SkillLibraryError, type SkillId } from "@ruukoto/agent/skills.ts";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { discoverCuaTargets } from "@ruukoto/agent/mcp/cua-discovery.ts";
 import { restrictCuaTool } from "@ruukoto/agent/mcp/cua.ts";
@@ -21,11 +20,8 @@ import { personalSettingsExternalBlockers, type PersonalExternalSettingsBlocker 
 import { mcpEnd, mcpList, mcpDetail } from "./personal-mcp.ts";
 import { parsePersonalModel, personalProvider, type PersonalModelConfig } from "./personal-model.ts";
 import { PERSONAL_FORMAT, PERSONAL_PENDING_FILE, PERSONAL_QUESTION_PENDING_FILE, PERSONAL_SCHEDULE_PENDING_FILE, lockPersonalProfile, type PersonalProfileLock } from "./personal-profile.ts";
-import { parsePersonalSkills, personalSkillsDirectory, readPersonalSkills } from "./personal-skills-config.ts";
-import { personalSkillStore } from "./personal-skills.ts";
 import type { PersonalCommandConfig } from "./personal-command-config.ts";
 import type { PersonalServiceConfig } from "./personal-service-config.ts";
-import type { PersonalSkillsConfig } from "./personal-skills-config.ts";
 import type { PersonalSettingsWriteRequest } from "./personal-settings-operations.ts";
 import { readPersonalWebSearch, type PersonalWebSearchConfig } from "./personal-tools-config.ts";
 import type { PersonalSettingsReceipt } from "./personal-settings-records.ts";
@@ -37,13 +33,9 @@ export type PersonalSettingsBlocker = { kind: "pending-input" | "pending-work" }
 type PersonalSkillSettingsRequest = { v: 1; profile: PersonalSettingsIdentity; expectedRevision: string } & (
   { op: "skills.list"; offset?: number; limit?: number }
   | { op: "skills.get"; id: SkillId }
-  | { op: "skills.select-directory"; purpose: "library" | "import"; directory: string; offset?: number; limit?: number }
-  | { op: "skills.preview-import"; directory: string }
-  | { op: "skills.import"; id: SkillId; directory: string; contentRevision: string }
-  | { op: "skills.set-enabled"; id: SkillId; enabled: boolean }
-  | { op: "skills.remove"; id: SkillId });
+  );
 export type PersonalSettingsRequest = { v: 1; op: "settings.read" | "lifecycle.status"; offset?: number; limit?: number; operationsOffset?: number; effectiveOffset?: number }
-  | { v: 1; op: "config.save" | "config.preflight"; profile: PersonalSettingsIdentity; target: PersonalSettingsTarget; expectedRevision: string; value: unknown }
+  | { v: 1; op: "config.save" | "config.preflight"; profile: PersonalSettingsIdentity; target: Exclude<PersonalSettingsTarget, "skills">; expectedRevision: string; value: unknown }
   | { v: 1; op: "model.test"; profile: PersonalSettingsIdentity; expectedRevision: string; value: unknown }
   | { v: 1; op: "mcp.cua-targets" | "mcp.cua-status"; profile: PersonalSettingsIdentity; expectedRevision: string }
   | { v: 1; op: "mcp.cua-control"; profile: PersonalSettingsIdentity; expectedRevision: string; action: "pause" | "resume" | "stop" | "observe" | "accept"; operation?: number; observation?: number }
@@ -60,7 +52,7 @@ export type PersonalSettingsRequest = { v: 1; op: "settings.read" | "lifecycle.s
   | PersonalSkillSettingsRequest;
 export type PersonalSettingsContext = { profile: PersonalProfileLock; instance?: PersonalHarness; development?: boolean; checkpoint?: (stage: "intent" | "file" | "saved" | "published") => void | Promise<void> };
 type PersonalMcpSummary = Omit<PersonalMcpConfig, "services"> & { services: (Omit<PersonalMcpService, "tools"> & { tools: { name: string; description?: string }[] })[]; offset: number; hasMore: boolean };
-export type PersonalSettingsSnapshot = { profile: PersonalSettingsIdentity; online: boolean; settingsProtocol: 2; revisions: Record<Exclude<PersonalConfigurationTarget, "managed-skills">, string>; revisionsUnknown: PersonalConfigurationTarget[]; fileIssues: PersonalSettingsFileIssue[]; operations: PersonalSettingsReceipt[]; operationsNextOffset?: number; effective: { target: PersonalConfigurationTarget; scope: string; version: string; revision: string | null }[]; effectiveNextOffset?: number; commands: PersonalCommandConfig | null; "web-search": PersonalWebSearchConfig | null; services: PersonalServiceConfig | null; model: { config: PersonalModelConfig } | null; skills: { config: PersonalSkillsConfig | null; revision: string; skills: { name: string; description: string; disableModelInvocation?: boolean }[]; diagnostics: string[] }; mcp: PersonalMcpSummary | null };
+export type PersonalSettingsSnapshot = { profile: PersonalSettingsIdentity; online: boolean; settingsProtocol: 2; revisions: Record<Exclude<PersonalConfigurationTarget, "managed-skills">, string>; revisionsUnknown: PersonalConfigurationTarget[]; fileIssues: PersonalSettingsFileIssue[]; operations: PersonalSettingsReceipt[]; operationsNextOffset?: number; effective: { target: PersonalConfigurationTarget; scope: string; version: string; revision: string | null }[]; effectiveNextOffset?: number; commands: PersonalCommandConfig | null; "web-search": PersonalWebSearchConfig | null; services: PersonalServiceConfig | null; model: { config: PersonalModelConfig } | null; skills: ReturnType<typeof settingsSkillLibrary>; mcp: PersonalMcpSummary | null };
 
 export async function readPersonalSettings(target: string | PersonalProfileLock): Promise<PersonalSettingsSnapshot> {
   return await executePersonalSettings(target, { v: 1, op: "settings.read" }) as PersonalSettingsSnapshot;
@@ -101,8 +93,7 @@ const object = (value: unknown): value is Record<string, unknown> => !!value && 
 const digest = (value: string | Buffer) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
 const invalid = () => new PersonalError("settings_request_invalid", "设置请求无效，请更新管理客户端并重新读取原档案。");
 const redacted = "__RUUKOTO_REDACTED__";
-const skillOperations = ["skills.list", "skills.get", "skills.select-directory", "skills.preview-import", "skills.import", "skills.set-enabled", "skills.remove"];
-const revision = (value: unknown) => typeof value === "string" && /^(missing|sha256:[0-9a-f]{64})$/.test(value);
+const skillOperations = ["skills.list", "skills.get"];
 function checkPage(value: Record<string, unknown>) {
   for (const key of ["offset", "limit"]) if (value[key] !== undefined && (!Number.isSafeInteger(value[key]) || Number(value[key]) < (key === "offset" ? 0 : 1) || key === "limit" && Number(value[key]) > 50)) throw invalid();
 }
@@ -123,7 +114,7 @@ export function parsePersonalSettingsRequest(value: unknown): PersonalSettingsRe
     if (!object(value.profile) || Object.keys(value.profile).sort().join(",") !== "directory,id" || typeof value.profile.directory !== "string" || !path.isAbsolute(value.profile.directory) || path.resolve(value.profile.directory) !== value.profile.directory || typeof value.profile.id !== "string" || !/^sha256:[0-9a-f]{64}$/.test(value.profile.id) || typeof value.expectedRevision !== "string" || !/^(missing|sha256:[0-9a-f]{64})$/.test(value.expectedRevision)) throw invalid();
     if (value.op === "config.save" || value.op === "config.preflight") {
       allowed.push("target", "value");
-      if ((value.target !== "model" && value.target !== "skills" && value.target !== "mcp") || !("value" in value)) throw invalid();
+      if ((value.target !== "model" && value.target !== "mcp") || !("value" in value)) throw invalid();
     } else if (value.op === "model.test") { allowed.push("value"); if (!("value" in value)) throw invalid(); }
     else if (value.op === "mcp.cua-control" || value.op === "mcp.cua-image") {
       allowed.push("operation", "observation");
@@ -141,18 +132,11 @@ export function parsePersonalSettingsRequest(value: unknown): PersonalSettingsRe
       if (value.op === "mcp.set-enabled") { allowed.push("enabled"); if (typeof value.enabled !== "boolean") throw invalid(); }
     }
     else if (skillOperations.includes(value.op)) {
-      if (["skills.list", "skills.select-directory"].includes(value.op)) { allowed.push("offset", "limit"); checkPage(value); }
-      if (["skills.get", "skills.import", "skills.set-enabled", "skills.remove"].includes(value.op)) {
+      if (value.op === "skills.list") { allowed.push("offset", "limit"); checkPage(value); }
+      if (value.op === "skills.get") {
         allowed.push("id");
-        if (typeof value.id !== "string" || !/^(?:external:[0-9a-f]{64}|[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/.test(value.id)) throw invalid();
+        if (typeof value.id !== "string" || !/^external:[0-9a-f]{64}$/.test(value.id)) throw invalid();
       }
-      if (["skills.select-directory", "skills.preview-import", "skills.import"].includes(value.op)) {
-        allowed.push("directory");
-        if (typeof value.directory !== "string" || value.directory.length > 4096 || !path.isAbsolute(value.directory) || path.resolve(value.directory) !== value.directory || /[\x00-\x1f\x7f]/.test(value.directory)) throw invalid();
-      }
-      if (value.op === "skills.select-directory") { allowed.push("purpose"); if (value.purpose !== "library" && value.purpose !== "import") throw invalid(); }
-      if (value.op === "skills.import") { allowed.push("contentRevision"); if (!revision(value.contentRevision) || value.contentRevision === "missing") throw invalid(); }
-      if (value.op === "skills.set-enabled") { allowed.push("enabled"); if (typeof value.enabled !== "boolean") throw invalid(); }
     } else if (!["mcp.migrate", "mcp.cua-targets", "mcp.cua-status"].includes(value.op)) throw invalid();
   }
   if (Object.keys(value).some(key => !allowed.includes(key))) throw invalid();
@@ -253,8 +237,8 @@ function mcpDraft(profile: PersonalProfileLock, value: unknown) {
     return { ...raw, endpoint: restoreEndpoint(raw, previous), ...(credential ? { credential } : {}) };
   }) });
 }
-export function parsePersonalSettingsDraft(profile: PersonalProfileLock, target: PersonalSettingsTarget, value: unknown) {
-  return target === "model" ? parsePersonalModel(value) : target === "skills" ? parsePersonalSkills(value) : mcpDraft(profile, value);
+export function parsePersonalSettingsDraft(profile: PersonalProfileLock, target: Exclude<PersonalSettingsTarget, "skills">, value: unknown) {
+  return target === "model" ? parsePersonalModel(value) : mcpDraft(profile, value);
 }
 export function mcpServiceDraft(profile: PersonalProfileLock, value: unknown) {
   if (!object(value) || typeof value.id !== "string") throw invalid();
@@ -270,53 +254,14 @@ async function credentialState(config: PersonalModelConfig, online: boolean) {
   return { reference: config.apiKeyEnv, state: online ? process.env[config.apiKeyEnv] ? "available" : "missing" : "unverified" };
 }
 
-function settingsSkillLibrary(profile: PersonalProfileLock, page: { offset?: number; limit?: number } = {}) {
-  const config = readPersonalSkills(profile) ?? null;
-  let store: ManagedSkillsStore, externalAvailable = true;
-  try { store = personalSkillStore(profile); }
-  catch (error) {
-    if (!(error instanceof PersonalError) || error.code !== "skills_directory_unavailable") throw error;
-    externalAvailable = false;
-    store = new ManagedSkillsStore(profile.directory, []);
-  }
-  const library = store.list(page);
-  return { sourceHost: "personal", config, externalAvailable, ...library, diagnostics: [...(externalAvailable ? [] : ["外部技能库不可用；请恢复原目录或停机修改技能库配置。"]), ...library.diagnostics].slice(0, 100), diagnosticsTruncated: library.diagnosticsTruncated || !externalAvailable && library.diagnostics.length === 100 };
-}
-
-function selectSkillDirectory(request: Extract<PersonalSkillSettingsRequest, { op: "skills.select-directory" }>) {
-  const directory = request.directory;
-  if (fs.realpathSync(directory) !== directory || !fs.lstatSync(directory).isDirectory()) throw new PersonalError("skills_directory_invalid", "请选择远端真实普通目录，链接目录请改选原路径。");
-  const handle = fs.opendirSync(directory), names: string[] = [];
-  let scanned = 0, truncated = false;
-  try {
-    for (let entry = handle.readSync(); entry; entry = handle.readSync()) {
-      if (++scanned > 1000) { truncated = true; break; }
-      if (entry.isDirectory() && !/[\x00-\x1f\x7f]/.test(entry.name)) names.push(entry.name);
-    }
-  } finally { handle.closeSync(); }
-  names.sort();
-  const offset = request.offset ?? 0, limit = request.limit ?? 20, candidate = path.join(directory, request.purpose === "library" ? "skills" : "SKILL.md");
-  const stat = request.purpose === "library" ? fs.statSync(candidate, { throwIfNoEntry: false }) : fs.lstatSync(candidate, { throwIfNoEntry: false });
-  return { purpose: request.purpose, directory, selectable: request.purpose === "library" ? !!stat?.isDirectory() : !!stat?.isFile(), directories: names.slice(offset, offset + limit).map(name => ({ name, directory: path.join(directory, name) })), offset, hasMore: offset + limit < names.length, truncated };
+function settingsSkillLibrary(page: { offset?: number; limit?: number } = {}) {
+  return { sourceHost: "personal", config: null, ...listSkillLibrary(page) };
 }
 
 function isSkillSettings(request: PersonalSettingsRequest): request is PersonalSkillSettingsRequest { return skillOperations.includes(request.op); }
 
-async function skillSettings(profile: PersonalProfileLock, request: PersonalSkillSettingsRequest) {
-  const state = new ManagedSkillsStore(profile.directory, []).list({ limit: 1 });
-  if (state.revision !== request.expectedRevision) throw new PersonalError("skills_revision_conflict", "托管技能清单已变化，未更改技能；请刷新原后台并比较后重新选择。");
-  if (request.op === "skills.select-directory") {
-    try { return selectSkillDirectory(request); }
-    catch (error) {
-      if (error instanceof PersonalError) throw error;
-      throw new PersonalError("skills_directory_unavailable", "所选远端目录无法列出，请核实配置来源或技能导入目录后重新选择。", { cause: error });
-    }
-  }
-  if (request.op === "skills.list") return settingsSkillLibrary(profile, request);
-  const store = personalSkillStore(profile);
-  if (request.op === "skills.get") return store.get(request.id);
-  if (request.op === "skills.preview-import") return store.preview(request.directory);
-  throw new PersonalError("settings_upgrade_required", "配置写入需要新版管理客户端，请升级后读取原配置；未执行保存。");
+function skillSettings(request: PersonalSkillSettingsRequest) {
+  return request.op === "skills.list" ? settingsSkillLibrary(request) : getSkillDetail(request.id);
 }
 
 type ModelTestEvidence = { version: 1; requestId: string; config: PersonalModelConfig; input: { messages: { role: "user"; content: string; timestamp: number }[] }; maxTokens: 1; payload?: JsonValue };
@@ -358,24 +303,25 @@ export async function dispatchPersonalSettings(current: PersonalSettingsContext,
     return dispatchPersonalConfiguration(current, value);
   }
   const request = parsePersonalSettingsRequest(value), { profile } = current, online = !!current.instance;
-  if (["config.save", "mcp.migrate", "mcp.save-service", "mcp.set-enabled", "mcp.remove", "skills.import", "skills.set-enabled", "skills.remove"].includes(request.op)) throw new PersonalError("settings_upgrade_required", "配置写入需要 v2 客户端，请升级后读取原配置；未执行停存启。");
+  if (["config.save", "mcp.migrate", "mcp.save-service", "mcp.set-enabled", "mcp.remove"].includes(request.op)) throw new PersonalError("settings_upgrade_required", "配置写入需要 v2 客户端，请升级后读取原配置；未执行停存启。");
   const identity = personalSettingsIdentity(profile), base = { product: "ruukoto", profile: identity, online };
   if (request.op === "lifecycle.status") return { ...base, lifecycle: { state: online ? "running" : "stopped", ...(online ? { pid: process.pid } : {}), managedDevelopment: !!current.development, automaticRestart: false, originalEnvironment: "unverified" } };
   if (request.op === "settings.read") {
     const { personalSettingsFileIssues } = await import("./personal-settings-operations.ts");
     const fileIssues = await personalSettingsFileIssues(current), affected = new Set(fileIssues.map(issue => issue.target));
-    const revisions = Object.fromEntries((Object.keys(PERSONAL_CONFIGURATION_FILES) as PersonalConfigurationTarget[]).filter(target => target !== "managed-skills").map(target => { const issue = fileIssues.find(issue => issue.target === target); return [target, issue ? issue.actualRevision ?? "unverified" : readPersonalConfigurationRevision(profile, target)]; }));
+    const skills = settingsSkillLibrary({ offset: request.offset, limit: request.limit });
+    const revisions = Object.fromEntries((Object.keys(PERSONAL_CONFIGURATION_FILES) as PersonalConfigurationTarget[]).filter(target => target !== "managed-skills").map(target => { const issue = fileIssues.find(issue => issue.target === target); return [target, target === "skills" ? skills.revision : issue ? issue.actualRevision ?? "unverified" : readPersonalConfigurationRevision(profile, target)]; }));
     const revisionsUnknown = fileIssues.filter(issue => issue.actualRevision === null).map(issue => issue.target);
     const model = affected.has("model") || revisions.model === "missing" ? undefined : readPersonalConfig(profile), mcp = affected.has("mcp") ? undefined : readPersonalMcp(profile), offset = request.offset ?? 0, limit = request.limit ?? 20;
     const config = (target: PersonalConfigurationTarget) => affected.has(target) ? null : readPersonalConfigurationFile(profile, target).config;
-    return { ...base, settingsProtocol: 2, ...await settingsFacts(current, request), revisions, revisionsUnknown, fileIssues, commands: config("commands"), services: config("services"), "web-search": affected.has("web-search") ? null : readPersonalWebSearch(profile) ?? null, telegram: config("telegram"), qq: config("qq"), model: model ? { config: model, credential: await credentialState(model, online) } : null, skills: affected.has("skills") || affected.has("managed-skills") ? { config: null, revision: "unverified", skills: [], diagnostics: ["技能配置文件与保存历史不符，已暂停新接纳；请恢复原文件后刷新。"] } : settingsSkillLibrary(profile, { offset, limit }),
+    return { ...base, settingsProtocol: 2, ...await settingsFacts(current, request), revisions, revisionsUnknown, fileIssues, commands: config("commands"), services: config("services"), "web-search": affected.has("web-search") ? null : readPersonalWebSearch(profile) ?? null, telegram: config("telegram"), qq: config("qq"), model: model ? { config: model, credential: await credentialState(model, online) } : null, skills,
       mcp: mcp ? { version: mcp.version, generation: mcp.generation, services: await Promise.all(mcp.services.slice(offset, offset + limit).map(async service => ({ ...await safeService(service), tools: service.tools.map(tool => ({ name: tool.name, description: tool.description?.slice(0, 1024) })) }))), offset, hasMore: offset + limit < mcp.services.length } : null,
       blockers: [], lifecycle: { managedDevelopment: !!current.development, automaticRestart: false, originalEnvironment: "unverified" } };
   }
   if (!("profile" in request)) throw invalid();
   if (isSkillSettings(request)) {
     if (!isDeepStrictEqual(identity, request.profile)) throw new PersonalError("settings_profile_changed", "所选个人档案身份已变化，未更改技能；请重新选择原档案。");
-    return { ...base, sourceHost: "personal", ...await skillSettings(profile, request) };
+    return { ...base, sourceHost: "personal", ...skillSettings(request) };
   }
   const target = request.op === "model.test" ? "model" : request.op === "config.save" || request.op === "config.preflight" ? request.target : "mcp";
   checkTarget(profile, request, target);
@@ -429,7 +375,6 @@ export async function dispatchPersonalSettings(current: PersonalSettingsContext,
   if (request.op !== "config.preflight") throw invalid();
   const draft = parsePersonalSettingsDraft(profile, target, request.value);
   if (request.op === "config.preflight") {
-    if (target === "skills") personalSkillsDirectory(parsePersonalSkills(draft));
     if (target === "mcp") await validatePersonalMcpCredentials(parsePersonalMcp(draft), readPersonalMcp(profile));
     return { ...base, revision: request.expectedRevision, blockers: [], ...(target === "model" ? { credential: await credentialState(parsePersonalModel(draft), online) } : {}), connection: "untested" };
   }
@@ -467,7 +412,7 @@ export async function runPersonalSettingsMachine(directory: string, input: Async
     if (Buffer.byteLength(JSON.stringify(response)) > PERSONAL_SETTINGS_LIMITS.responseBytes) throw new PersonalError("settings_response_large", "设置查询结果过大，请缩小分页或选择单个服务后查询。");
   } catch (error) {
     status = 1;
-    const known = error instanceof PersonalError || error instanceof ManagedSkillsError;
+    const known = error instanceof PersonalError || error instanceof SkillLibraryError;
     response = { v: 1, product: "ruukoto", ok: false, code: known ? error.code : "settings_internal", message: known ? error.message : "设置结果无法核实，请保留档案并重新读取原配置；未自动重试。" };
   }
   write(JSON.stringify(response) + "\n");

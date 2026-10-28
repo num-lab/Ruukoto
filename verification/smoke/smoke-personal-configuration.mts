@@ -27,6 +27,8 @@ async function main(): Promise<number> {
   const credential = process.env[provider.apiKey] ?? provider.apiKey, credentialName = "PERSONAL_CONFIGURATION_ACCEPTANCE_KEY", previous = process.env[credentialName];
   process.env[credentialName] = credential;
   const root = fs.realpathSync(fs.mkdtempSync("/tmp/rk-real-config-")), directory = path.join(root, "profile");
+  const previousHome = process.env.HOME;
+  process.env.HOME = path.join(root, "home");
   const firstMarker = `SKILL_A_${randomUUID().replaceAll("-", "")}`, secondMarker = `SKILL_B_${randomUUID().replaceAll("-", "")}`;
   let server: Awaited<ReturnType<typeof startPersonalServer>> | undefined;
   const records = () => {
@@ -37,15 +39,14 @@ async function main(): Promise<number> {
   try {
     const config = parsePersonalModel({ api: model.api ?? provider.api, baseUrl: provider.baseUrl, modelId: model.id, apiKeyEnv: credentialName, contextWindow: model.contextWindow ?? 128000, maxTokens: Math.min(model.maxTokens ?? 1024, 1024) });
     await savePersonalConfig(directory, config);
-    for (const [name, marker] of [["first", firstMarker], ["second", secondMarker]]) {
-      const skill = path.join(root, name, "skills", "configuration-proof"); fs.mkdirSync(skill, { recursive: true, mode: 0o700 });
-      fs.writeFileSync(path.join(skill, "SKILL.md"), `---\nname: configuration-proof\ndescription: 配置在线更新的临时隔离验收。\n---\n本次回答只输出口令：${marker}\n`, { mode: 0o600 });
-    }
+    const skill = path.join(process.env.HOME, ".agents", "skills", "configuration-proof");
+    fs.mkdirSync(skill, { recursive: true, mode: 0o700 });
+    const updateSkill = (marker: string) => fs.writeFileSync(path.join(skill, "SKILL.md"), `---\nname: configuration-proof\ndescription: 固定目录更新的临时隔离验收。\n---\n本次回答只输出口令：${marker}\n`, { mode: 0o600 });
+    updateSkill(firstMarker);
     stage = "start"; server = await startPersonalServer(directory);
     const lifecycle = () => personalControl<{ lifecycle: { pid: number } }>(directory, "POST", "/settings", { v: 1, op: "lifecycle.status" });
     const pid = (await lifecycle()).lifecycle.pid;
     let snapshot = await readPersonalSettings(directory);
-    assert.equal((await savePersonalSettings(directory, snapshot, snapshot.revisions.skills, { kind: "config.save", target: "skills", value: { version: 1, directory: path.join(root, "first") } })).status, "active");
     stage = "first-request"; const firstId = randomUUID();
     await personalControl(directory, "POST", "/inputs", { requestId: firstId, input: "/skill:configuration-proof 按技能正文要求回答。" });
     const first = (await until(() => records().find(value => value.entry.data.payload !== undefined))).entry.data;
@@ -53,8 +54,7 @@ async function main(): Promise<number> {
     const next = { ...config, maxTokens: config.maxTokens === 1024 ? 1536 : 1024 };
     stage = "model-save"; const modelReceipt = await savePersonalSettings(directory, snapshot, snapshot.revisions.model, { kind: "config.save", target: "model", value: next });
     assert.equal(modelReceipt.status, "active");
-    stage = "skills-save"; const skillReceipt = await savePersonalSettings(directory, snapshot, snapshot.revisions.skills, { kind: "config.save", target: "skills", value: { version: 1, directory: path.join(root, "second") } });
-    assert.equal(skillReceipt.status, "active");
+    stage = "skills-update"; updateSkill(secondMarker);
     const answer = (requestId: string, marker: string) => until(async () => {
       const value = await personalControl<PersonalInputStatus>(directory, "GET", `/input?requestId=${requestId}`);
       assert.notEqual(value.status, "unanswered", "真实模型请求失败");
@@ -78,8 +78,11 @@ async function main(): Promise<number> {
     process.stdout.write(`真实配置在线更新通过：${requested}；同PID、旧/新Skills正文、独立provider版本及冷恢复，3次拥有者输入；无IM。\n`);
     return 0;
   } finally {
-    await server?.stop(); fs.rmSync(root, { recursive: true, force: true });
-    if (previous === undefined) delete process.env[credentialName]; else process.env[credentialName] = previous;
+    try { await server?.stop(); fs.rmSync(root, { recursive: true, force: true }); }
+    finally {
+      if (previousHome === undefined) delete process.env.HOME; else process.env.HOME = previousHome;
+      if (previous === undefined) delete process.env[credentialName]; else process.env[credentialName] = previous;
+    }
   }
 }
 try { process.exitCode = await main(); }

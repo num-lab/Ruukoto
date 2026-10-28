@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ArrowUp, ChevronRight, FolderOpen, House, Plus, Puzzle, RefreshCw } from "lucide-react";
+import { ChevronRight, Plus, Puzzle, RefreshCw } from "lucide-react";
 import type { PersonalSettingsPageProps } from "./settings-dialog.tsx";
 import { PersonalSettingsPageState } from "./personal-settings-state.ts";
 import { SettingsButton, SettingsInput, SettingsNotice, SettingsSearch, SettingsSelect, SettingsSwitch, SettingsTag } from "./components/controls.tsx";
@@ -45,42 +45,10 @@ function ModelEditor({ state }: { state: PersonalSettingsPageState }) {
 function SkillsEditor({ state }: { state: PersonalSettingsPageState }) {
   const library = state.view!.settings.skills;
   return <>
-    <SettingsGroup title="远端外部技能库" description="库根含 skills 子目录，外部维护项只读。">
-      <SettingsCard>
-        <SettingsRow title="技能库目录" description={state.library || "尚未配置"} />
-        <SettingsRow title="远端目录" description="从远端目录选择技能库，不使用本机路径冒充远端目录。">
-          <SettingsButton disabled={state.disabled || !!state.preview} onClick={() => void state.browse("library", state.view!.settings.profile.directory)}><FolderOpen />选择技能库</SettingsButton>
-        </SettingsRow>
-      </SettingsCard>
-    </SettingsGroup>
-    {state.directory && <SettingsGroup title={`选择远端${state.directory.purpose === "library" ? "技能库" : "技能包"}`}>
-      <SettingsCard>
-        <SettingsRow title="当前目录" description={state.directory.directory} />
-        <SettingsRow title="目录操作" description="技能包根须含 SKILL.md。">
-          <SettingsButton variant="icon" aria-label="上一层" title="上一层" disabled={state.disabled} onClick={() => void state.browse(state.directory!.purpose, state.directory!.directory.replace(/\/[^/]+\/?$/, "") || "/")}><ArrowUp /></SettingsButton>
-          <SettingsButton variant="icon" aria-label="远端根目录" title="远端根目录" disabled={state.disabled} onClick={() => void state.browse(state.directory!.purpose, "/")}><House /></SettingsButton>
-        </SettingsRow>
-        {state.directory.directories.map(item => <SettingsRow key={item.directory} title={item.name}><SettingsButton variant="ghost" disabled={state.disabled} onClick={() => void state.browse(state.directory!.purpose, item.directory)}>进入</SettingsButton></SettingsRow>)}
-        {state.directory.hasMore && <SettingsRow title="更多目录"><SettingsButton variant="ghost" disabled={state.disabled} onClick={() => void state.browse(state.directory!.purpose, state.directory!.directory, true)}>下一页目录</SettingsButton></SettingsRow>}
-        {state.directory.truncated && <SettingsRow title="" description="目录列表已截断。" />}
-        <SettingsRow title="选择"><SettingsButton disabled={state.disabled || !state.directory.selectable} onClick={() => void state.chooseDirectory()}>{state.directory.purpose === "library" ? "使用此技能库" : "预览此技能包"}</SettingsButton></SettingsRow>
-      </SettingsCard>
-    </SettingsGroup>}
-    {state.preview && <SettingsGroup title={`导入预览：${state.preview.name}`}>
-      <SettingsCard>
-        <SettingsRow title="描述" description={state.preview.description} />
-        <SettingsRow title="规模" description={`${state.preview.files} 个文件 · ${state.preview.bytes} 字节${state.preview.explicitOnly ? " · 仅显式调用" : ""}`} />
-        {state.preview.diagnostics.map((item, index) => <SettingsRow key={index} title="诊断" description={item} />)}
-        {!!state.preview.conflicts.length && <SettingsRow title="名称冲突" description={`不能覆盖：${state.preview.conflicts.map(item => item.name).join("、")}。请更改源包后重新预览。`} />}
-        <SettingsRow title="来源与冲突" description="复制到此远端档案的托管区，源目录保持原样；技能不增加工具或权限。" />
-      </SettingsCard>
-    </SettingsGroup>}
-    <SettingsGroup title="全部技能">
+    <SettingsGroup title="全部技能" description={library.directory}>
       <SettingsSearch value={state.query} onChange={event => { state.query = event.target.value; state.changed(); }} placeholder="按名称检索" aria-label="检索技能" />
       <SettingsList label="技能列表" empty="没有可展示的技能。">
-        {state.filtered.map(skill => <SettingsListItem key={skill.id} title={<span className="settings-title-with-icon"><Puzzle aria-hidden="true" />{skill.name}</span>} description={`${skill.description} · ${skill.source === "managed" ? "托管副本" : "外部维护"}${skill.explicitOnly ? " · 仅显式调用" : ""}`}>
-          {skill.state === "disabled" && <SettingsTag>已停用</SettingsTag>}
-        </SettingsListItem>)}
+        {state.filtered.map(skill => <SettingsListItem key={skill.id} title={<span className="settings-title-with-icon"><Puzzle aria-hidden="true" />{skill.name}</span>} description={`${skill.description}${skill.explicitOnly ? " · 仅显式调用" : ""}`} />)}
       </SettingsList>
       {library.hasMore && <SettingsRow title="更多技能"><SettingsButton variant="ghost" disabled={state.disabled || state.dirty} onClick={() => void state.more()}>加载更多技能</SettingsButton></SettingsRow>}
     </SettingsGroup>
@@ -236,7 +204,7 @@ export function PersonalSettingsEditor({ state, onConnection }: { state: Persona
   const view = state.view;
   useEffect(() => { if (Object.keys(state.fieldErrors).length) document.querySelector<HTMLElement>('.settings-page [aria-invalid="true"]')?.focus(); }, [state.fieldErrors]);
   const title = state.category === "models" ? "模型" : state.category === "skills" ? "Skills" : state.category === "computer" ? "电脑" : "MCP";
-  const description = state.category === "models" ? "管理 Personal Agent 的当前模型与凭据引用。" : state.category === "skills" ? "管理 Personal Agent 的远端技能库与托管副本。" : state.category === "computer" ? "管理远端 Linux 桌面沙箱与电脑操作恢复。" : "管理 Personal Agent 的远端 MCP 服务与凭据引用。";
+  const description = state.category === "models" ? "管理 Personal Agent 的当前模型与凭据引用。" : state.category === "skills" ? "从 PA 后台账户的 $HOME/.agents/skills/ 读取技能。" : state.category === "computer" ? "管理远端 Linux 桌面沙箱与电脑操作恢复。" : "管理 Personal Agent 的远端 MCP 服务与凭据引用。";
   return (
     <SettingsPage title={title} description={description}>
       <div className="settings-row-control"><SettingsButton variant="ghost" disabled={state.phase === "saving" || state.phase === "unknown"} onClick={onConnection}>PA 远程连接</SettingsButton></div>
@@ -257,25 +225,25 @@ export function PersonalSettingsEditor({ state, onConnection }: { state: Persona
           <SettingsCard>
             <SettingsRow title="原更改">
               <SettingsButton disabled={state.reading || state.phase === "saving"} onClick={() => void state.checkOperation(operation.id)}>核实原更改</SettingsButton>
-              {operation.status !== "unknown" && <SettingsButton variant="ghost" disabled={state.dirty || state.reading || state.phase === "saving"} onClick={() => void state.withdrawOperation(operation.id)}>撤回待生效更改</SettingsButton>}
+              {state.category !== "skills" && operation.status !== "unknown" && <SettingsButton variant="ghost" disabled={state.dirty || state.reading || state.phase === "saving"} onClick={() => void state.withdrawOperation(operation.id)}>撤回待生效更改</SettingsButton>}
             </SettingsRow>
           </SettingsCard>
         </SettingsGroup>)}
         {state.category === "models" ? <ModelEditor state={state} /> : state.category === "skills" ? <SkillsEditor state={state} /> : state.category === "computer" ? <ComputerEditor state={state} /> : <McpEditor state={state} />}
         {state.phase === "conflict" && <SettingsGroup title="当前远端配置（原草稿保留）">
           <SettingsCard>
-            <SettingsRow title="配置" footer={<pre className="settings-code-block">{JSON.stringify(state.category === "models" ? view.settings.model?.config : state.category === "skills" ? view.settings.skills.config : view.settings.mcp?.services.map(service => ({ name: service.label, endpoint: service.cua ? `Linux 电脑 ${service.cua.sandbox}` : service.endpoint, enabled: service.enabled })), null, 2)}</pre>} />
+            <SettingsRow title="配置" footer={<pre className="settings-code-block">{JSON.stringify(state.category === "models" ? view.settings.model?.config : state.category === "skills" ? view.settings.skills.directory : view.settings.mcp?.services.map(service => ({ name: service.label, endpoint: service.cua ? `Linux 电脑 ${service.cua.sandbox}` : service.endpoint, enabled: service.enabled })), null, 2)}</pre>} />
             <SettingsRow title="" description="不会自动覆盖；放弃更改后以当前配置继续。" />
           </SettingsCard>
         </SettingsGroup>}
-        <SettingsGroup title="操作">
+        {state.category !== "skills" && <SettingsGroup title="操作">
           <SettingsCard>
             <SettingsRow title="未保存的更改" description="保存或放弃当前草稿。">
               <SettingsButton variant="ghost" disabled={state.disabled || !state.dirty} onClick={() => state.discard()}>放弃更改</SettingsButton>
               <SettingsButton disabled={state.disabled || !state.writable || !state.dirty || state.phase === "conflict"} onClick={() => void state.save()}>查看保存影响</SettingsButton>
             </SettingsRow>
           </SettingsCard>
-        </SettingsGroup>
+        </SettingsGroup>}
       </>}
       {state.message && <SettingsNotice>{state.message}</SettingsNotice>}
       <Dialog open={!!state.confirmation} onOpenChange={open => { if (!open) state.cancelConfirmation(); }}><DialogContent className="demo-dialog"><DialogHeader><DialogTitle>保存更改？</DialogTitle><DialogDescription>Personal · {view?.settings.profile.directory}。{state.confirmation?.label}</DialogDescription></DialogHeader><DialogFooter><Button type="button" variant="ghost" onClick={() => state.cancelConfirmation()}>继续编辑</Button><Button type="button" disabled={state.disabled || !state.writable} onClick={() => void state.confirmApply()}>保存更改</Button></DialogFooter></DialogContent></Dialog>

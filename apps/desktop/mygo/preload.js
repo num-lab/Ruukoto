@@ -10,7 +10,6 @@
     },
     request: (target, op, params) => call("Request", target, op, params),
     pickFolder: () => call("PickFolder"),
-    pickSkillFolder: (target, instanceId) => call("PickSkillFolder", target, instanceId),
     pickAttachments: (sessionId, target = "code") => call("PickAttachments", sessionId, target),
     pickDraftAttachments: () => call("PickDraftAttachments"),
     uploadDraftAttachments: (sessionId, tokens, target = "code") => call("UploadDraftAttachments", sessionId, tokens, target),

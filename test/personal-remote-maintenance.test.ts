@@ -69,6 +69,25 @@ test("旧维护：保存未启动回执可显式恢复，新v1写要求升级且
   assert.equal((await reopened.restore(id, () => {})).stage, "complete"); assert.equal(f.calls.filter(call => call === "start").length, 1); assert.equal(f.calls.some(call => call.startsWith("save:")), false); await reopened.close();
 });
 
+for (const op of ["skills.import", "config.save"]) test(`旧技能维护 ${op}：恢复后台后解除退役来源维护，原保存事实保留`, async t => {
+  const f = fixture(t), initialized = new PersonalRemoteMaintenance(f.directory, profile, { initialize: true, dependencies: f.dependencies });
+  await initialized.close();
+  const id = randomUUID(), receipt = { v: 1, id, profile, op, target: "skills", expectedRevision: revision, requestDigest: "4".repeat(64), stage: "saved", saveAttempted: true, saved: true, savedRevision: revision, started: false };
+  fs.writeFileSync(path.join(f.directory, "maintenance.json"), JSON.stringify({ v: 1, pending: id, receipts: { [id]: receipt } }), { mode: 0o600 });
+  const reopened = new PersonalRemoteMaintenance(f.directory, profile, { dependencies: f.dependencies });
+  const restored = await reopened.restore(id, () => {});
+  assert.deepEqual(restored, { ...receipt, stage: "complete", started: true, code: "skills_source_retired" });
+  assert.equal(reopened.pending(), null);
+  assert.equal(f.calls.filter(call => call === "start").length, 1);
+  assert.equal(f.calls.some(call => call.startsWith("save:")), false);
+  await reopened.close();
+  const again = new PersonalRemoteMaintenance(f.directory, profile, { dependencies: f.dependencies });
+  assert.deepEqual(again.query(id), restored);
+  const request = f.request();
+  assert.equal((await again.admitSettings(request.id, request, () => {})).status, "saved");
+  await again.close();
+});
+
 test("remote记录：缺失、损坏、旧未决关联断链及新接纳关联非法都拒绝", t => {
   const f = fixture(t);
   assert.throws(() => new PersonalRemoteMaintenance(f.directory, profile, { dependencies: f.dependencies }), { code: "remote_maintenance_invalid" });

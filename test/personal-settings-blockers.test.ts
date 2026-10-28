@@ -8,11 +8,9 @@ import { test, type TestContext } from "node:test";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { defineDoc, defineDocFamily, type JsonObject } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
-import { ManagedSkillsStore } from "@ruukoto/agent/managed-skills.ts";
-import { dispatchPersonalSettings, executePersonalSettings, personalSettingsIdentity, type PersonalSettingsIdentity } from "../apps/ruukoto/src/personal-settings.ts";
+import { dispatchPersonalSettings, executePersonalSettings, type PersonalSettingsIdentity } from "../apps/ruukoto/src/personal-settings.ts";
 import { personalSettingsExternalBlockers } from "../apps/ruukoto/src/personal-settings-blockers.ts";
 import { savePersonalConfig } from "../apps/ruukoto/src/personal-config.ts";
-import { savePersonalSkills } from "../apps/ruukoto/src/personal-skills-config.ts";
 import { savePersonalMcp } from "../apps/ruukoto/src/personal-mcp-config.ts";
 import { savePersonalTools } from "../apps/ruukoto/src/personal-tools-config.ts";
 import { lockPersonalProfile } from "../apps/ruukoto/src/personal-profile.ts";
@@ -24,6 +22,7 @@ import { toolOperations } from "../apps/ruukoto/src/personal-tools.ts";
 import type { PersonalSettingsReceipt } from "../apps/ruukoto/src/personal-settings-records.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
 import { personalProvider, type PersonalModelConfig } from "../apps/ruukoto/src/personal-model.ts";
+import { isolateSkillHome } from "./helpers/skill-home.ts";
 import { PersonalMockModelServer } from "./helpers/mock-provider.ts";
 
 const context = BACKGROUND_CONTEXT;
@@ -35,6 +34,7 @@ async function fixture(t: TestContext) {
   process.env[config.apiKeyEnv] = "test-only";
   await savePersonalConfig(directory, config);
   t.after(() => { delete process.env[config.apiKeyEnv]; fs.rmSync(root, { recursive: true, force: true }); });
+  isolateSkillHome(t);
   return { root, directory, workspace, config };
 }
 
@@ -70,11 +70,8 @@ test("设置独立保存：HTTP 写断线保留未知效果，在线模型和离
   f.config.baseUrl = await model.start(); await savePersonalConfig(f.directory, f.config); t.after(() => model.close());
   const stat = fs.statSync(f.workspace), tools = { version: 1 as const, generation: "tools-first", workspace: f.workspace, identity: { dev: stat.dev, ino: stat.ino }, credentials: [] };
   await savePersonalTools(f.directory, tools);
-  const library = path.join(f.root, "library"); fs.mkdirSync(path.join(library, "skills"), { recursive: true }); const skills = { version: 1 as const, directory: library }; await savePersonalSkills(f.directory, skills);
   const mcp = { version: 2 as const, generation: "mcp-first", services: [] }; await savePersonalMcp(f.directory, mcp);
-  const source = path.join(f.root, "source"); fs.mkdirSync(source, { mode: 0o700 }); fs.writeFileSync(path.join(source, "SKILL.md"), "---\nname: settings-regression\ndescription: 保留原托管状态\n---\n技能正文\n", { mode: 0o600 });
-  const profile = lockPersonalProfile(f.directory), store = new ManagedSkillsStore(f.directory, [path.join(library, "skills")]), preview = store.preview(source), skillId = randomUUID();
-  await dispatchPersonalSettings({ profile }, { v: 2, id: randomUUID(), profile: personalSettingsIdentity(profile), expectedRevision: store.list().revision, op: { kind: "skills.import", id: skillId, directory: source, contentRevision: preview.contentRevision } });
+  const profile = lockPersonalProfile(f.directory);
   const instance = await openPersonalHarness({ profile, provider: personalProvider(f.config), modelId: f.config.modelId, tools, mcp });
   t.after(() => instance.close());
   await instance.harness.commit(async tx => { (await tx.doc(PersonalPermissionsDoc)).mode = "full_access"; }, context);
@@ -91,12 +88,10 @@ test("设置独立保存：HTTP 写断线保留未知效果，在线模型和离
   await instance.close();
   const offline = await executePersonalSettings(f.directory, { v: 1, op: "settings.read" }) as Snapshot;
   assert.deepEqual(offline.blockers, []);
-  for (const [target, value] of [["model", f.config], ["skills", skills], ["mcp", mcp]] as const) {
+  for (const [target, value] of [["model", f.config], ["mcp", mcp]] as const) {
     const receipt = await executePersonalSettings(f.directory, { v: 2, id: randomUUID(), profile: offline.profile, expectedRevision: offline.revisions[target], op: { kind: "config.save", target, value } }) as PersonalSettingsReceipt;
     assert.equal(receipt.status, "saved"); assert.ok(receipt.savedRevision);
   }
-  const disabled = await executePersonalSettings(f.directory, { v: 2, id: randomUUID(), profile: offline.profile, expectedRevision: offline.skills.revision, op: { kind: "skills.set-enabled", id: skillId, enabled: false } }) as PersonalSettingsReceipt;
-  assert.equal(disabled.status, "saved");
   const storage = await openNodeSqliteStorage(path.join(f.directory, "personal.sqlite"));
   try {
     assert.deepEqual(await personalSettingsExternalBlockers({ storage }), [{ kind: "tool-unresolved", operation: operation.operation }]);

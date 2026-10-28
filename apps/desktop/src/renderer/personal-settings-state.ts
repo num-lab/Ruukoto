@@ -8,14 +8,12 @@ export type PersonalTool = { name: string; description?: string; inputSchema: Re
 export type PersonalToolEffect = "read" | "write" | "unknown";
 export type PersonalService = { id: string; label: string; endpoint?: string; cua?: { kind: "cua-linux"; executable: string; version: "0.7.0"; sha256: string; sandbox: string; sandboxId: string }; credential?: { path: string; sha256: string } | { path: string; tokenSha256: string }; credentialStatus?: string; enabled?: boolean; tools: PersonalTool[]; toolEffects?: Record<string, PersonalToolEffect> };
 type Skill = OpResult<"skills_list">["skills"][number];
-type SkillPreview = OpResult<"skill_import_preview">;
 export type PersonalPageView = Omit<PersonalManagementView, "settings"> & { settings: PersonalManagementView["settings"] & {
   model: { config: PersonalModel; credential: { state: "available" | "missing" | "unverified"; reference: string } } | null;
-  skills: { config: { version: 1; directory: string } | null; revision: string; skills: Skill[]; diagnostics: string[]; diagnosticsTruncated: boolean; hasMore: boolean; offset: number };
+  skills: { config: null; directory: string; revision: string; skills: Skill[]; diagnostics: string[]; diagnosticsTruncated: boolean; hasMore: boolean; offset: number };
   mcp: { version: 1 | 2 | 3 | 4; services: (Omit<PersonalService, "tools"> & { tools: Pick<PersonalTool, "name" | "description">[] })[]; hasMore: boolean; offset: number } | null;
 } };
 type CuaImagePage = { observation: number; id: string; mime: string; sha256: string; bytes: number; offset: number; base64: string; nextOffset?: number };
-type Directory = { purpose: "library" | "import"; directory: string; selectable: boolean; directories: { name: string; directory: string }[]; offset: number; hasMore: boolean; truncated: boolean };
 type ServiceDraft = { cua?: PersonalService["cua"]; id: string; label: string; endpoint: string; authentication: "" | "anonymous" | "credential"; credentialPath: string; credentialRebind: boolean; enabled: boolean; tools: PersonalTool[]; toolEffects: Record<string, PersonalToolEffect> };
 const emptyModel = () => ({ api: "openai-responses" as PersonalModel["api"], baseUrl: "", modelId: "", apiKeyEnv: "", contextWindow: "", maxTokens: "", imageInput: false });
 const emptyService = (): ServiceDraft => ({ id: crypto.randomUUID(), label: "", endpoint: "", authentication: "", credentialPath: "", credentialRebind: false, enabled: false, tools: [], toolEffects: {} });
@@ -23,19 +21,15 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 
 // Note: 见 .agents/notes/implemented/feature/2026-10-21-desktop-personal-pages.md
 // Note: 见 .agents/notes/implemented/architecture/2026-10-23-cua-official-mcp.md
+// Note: 见 .agents/notes/implemented/simplification/2026-10-28-home-skills-discovery.md
 export class PersonalSettingsPageState implements SettingsForm {
   phase: SettingsPhase = "loading";
   reading = false;
   message = "";
   view: PersonalPageView | null = null;
   model = emptyModel();
-  library = "";
   service = emptyService();
   editingService = false;
-  detail: null = null;
-  preview: SkillPreview | null = null;
-  importDirectory = "";
-  directory: Directory | null = null;
   query = "";
   test: { status: string; message?: string } | null = null;
   discovered: PersonalTool[] | null = null;
@@ -63,15 +57,15 @@ export class PersonalSettingsPageState implements SettingsForm {
   /** 电脑页与 MCP 页共用 mcp 配置与修订，只是各自过滤服务。 */
   private get mcpLike(): boolean { return this.category === "mcp" || this.category === "computer"; }
   get mcpNeedsMigration(): boolean { return !!this.view?.settings.mcp && this.view.settings.mcp.version !== 4; }
-  private draft(): unknown { return this.category === "models" ? this.model : this.category === "skills" ? { library: this.library, preview: this.preview } : this.editingService ? this.service : null; }
+  private draft(): unknown { return this.category === "models" ? this.model : this.category === "skills" ? null : this.editingService ? this.service : null; }
   get dirty(): boolean { return !!this.view && JSON.stringify(this.draft()) !== this.baseline; }
-  get disabled(): boolean { return !this.view || this.reading || this.phase === "saving" || this.phase === "unknown" || !!this.fileIssues.length || this.operations.some(item => item.status === "unknown"); }
+  get disabled(): boolean { return !this.view || this.reading || this.category !== "skills" && (this.phase === "saving" || this.phase === "unknown" || !!this.fileIssues.length || this.operations.some(item => item.status === "unknown")); }
   get confirming(): boolean { return this.cuaConfirmation !== null || this.mcpEndConfirmation !== null || this.confirmation !== null || this.continueAfterSave !== null; }
   private get target(): "model" | "skills" | "mcp" { return this.category === "models" ? "model" : this.category === "skills" ? "skills" : "mcp"; }
-  get fileIssues() { return (this.view?.settings.fileIssues ?? []).filter(item => item.target === this.target || this.target === "skills" && item.target === "managed-skills"); }
+  get fileIssues() { return (this.view?.settings.fileIssues ?? []).filter(item => this.category !== "skills" && item.target === this.target); }
   get operations(): PersonalConfigurationReceipt[] { return (this.view?.operations ?? []).filter(item => item.target === this.target && ["saved", "waiting", "failed", "unknown"].includes(item.status)); }
-  private get hasUnknown(): boolean { return !!this.view?.pending; }
-  get writable(): boolean { return !!this.view && this.view.settings.settingsProtocol === 2 && !this.fileIssues.length && !this.view.pending && !this.operations.some(item => item.status === "unknown" || this.confirmation?.request.op !== "settings.withdraw" && (item.status !== "saved" || this.view!.settings.online) && (this.target !== "mcp" || item.scope === "*" || this.editingService && item.scope === this.service.id)); }
+  private get hasUnknown(): boolean { return this.category !== "skills" && !!this.view?.pending; }
+  get writable(): boolean { return this.category !== "skills" && !!this.view && this.view.settings.settingsProtocol === 2 && !this.fileIssues.length && !this.view.pending && !this.operations.some(item => item.status === "unknown" || this.confirmation?.request.op !== "settings.withdraw" && (item.status !== "saved" || this.view!.settings.online) && (this.target !== "mcp" || item.scope === "*" || this.editingService && item.scope === this.service.id)); }
   get skills(): Skill[] { return this.view?.settings.skills.skills ?? []; }
   get services() { return this.view?.settings.mcp?.services ?? []; }
   get filtered(): Skill[] { return this.skills.filter(skill => skill.name.toLocaleLowerCase().includes(this.query.trim().toLocaleLowerCase())); }
@@ -81,8 +75,7 @@ export class PersonalSettingsPageState implements SettingsForm {
     if (!this.view) return;
     const config = this.view.settings.model?.config;
     this.model = config ? { ...config, contextWindow: String(config.contextWindow), maxTokens: String(config.maxTokens), imageInput: config.imageInput ?? false } : emptyModel();
-    this.library = this.view.settings.skills.config?.directory ?? "";
-    this.cuaChoosing = false; this.cuaTargets = []; this.cuaIssues = []; this.cuaImages = []; this.cuaConfirmation = null; this.preview = null; this.detail = null; this.directory = null; this.service = emptyService(); this.editingService = false; this.toolsChanged = false;
+    this.cuaChoosing = false; this.cuaTargets = []; this.cuaIssues = []; this.cuaImages = []; this.cuaConfirmation = null; this.service = emptyService(); this.editingService = false; this.toolsChanged = false;
     this.revision = this.view.settings.revisions[this.category === "models" ? "model" : this.category === "computer" ? "mcp" : this.category];
     this.baseline = JSON.stringify(this.draft()); this.fieldErrors = {}; this.test = null; this.discovered = null;
   }
@@ -129,7 +122,6 @@ export class PersonalSettingsPageState implements SettingsForm {
     this.changed(); return result.value;
   }
   editModel<K extends keyof typeof this.model>(key: K, value: (typeof this.model)[K]): void { if (this.disabled) return; this.model = { ...this.model, [key]: value }; this.test = null; this.confirmation = null; delete this.fieldErrors[key]; this.changed(); }
-  editLibrary(value: string): void { if (this.disabled) return; this.library = value; this.preview = null; this.confirmation = null; this.changed(); }
   private modelValue(): PersonalModel | null {
     const value = { ...this.model, contextWindow: Number(this.model.contextWindow), maxTokens: Number(this.model.maxTokens) };
     this.fieldErrors = {};
@@ -144,16 +136,6 @@ export class PersonalSettingsPageState implements SettingsForm {
     return value;
   }
   async testModel(): Promise<void> { const value = this.modelValue(); if (!value) return; const result = await this.queryRemote<{ test: { status: string; message?: string } }>("model.test", { value }); if (result) { this.test = result.test; this.changed(); } }
-  async browse(purpose: Directory["purpose"], directory: string, more = false): Promise<void> {
-    const previous = this.directory;
-    const result = await this.queryRemote<Directory>("skills.select-directory", { purpose, directory, offset: more && previous ? previous.offset + previous.directories.length : 0, limit: 20 }, true);
-    if (result) { this.directory = result; this.changed(); }
-  }
-  async chooseDirectory(): Promise<void> { const directory = this.directory; if (!directory?.selectable) return; if (directory.purpose === "library") { this.editLibrary(directory.directory); this.directory = null; } else await this.previewImport(directory.directory); this.changed(); }
-  async previewImport(directory: string): Promise<void> {
-    const result = await this.queryRemote<SkillPreview>("skills.preview-import", { directory }, true);
-    if (result) { this.preview = result; this.importDirectory = directory; this.directory = null; this.changed(); }
-  }
   async selectService(id: string | null): Promise<void> {
     if (this.disabled || this.dirty) return;
     if (!id && this.category === "mcp" && this.view?.settings.mcp && this.view.settings.mcp.version !== 4) { this.message = "请先迁入 MCP 调用格式，再添加普通服务。"; this.changed(); return; }
@@ -323,13 +305,10 @@ export class PersonalSettingsPageState implements SettingsForm {
   }
   private prepare(request: Record<string, unknown>, label: string): void { if (this.disabled || !this.writable || this.phase === "conflict") { this.message = "请先核实此对象的原更改或配置冲突。"; this.changed(); return; } this.confirmation = { request, label }; this.changed(); }
   async save(): Promise<boolean> {
-    if (this.disabled || !this.dirty || this.phase === "conflict") return false;
+    if (this.category === "skills" || this.disabled || !this.dirty || this.phase === "conflict") return false;
     if (this.mcpLike && !this.service.cua && this.view?.settings.mcp && this.view.settings.mcp.version !== 4) { this.message = "请先迁入 MCP 调用格式，再保存普通服务。"; this.changed(); return false; }
     if (this.category === "models") { const value = this.modelValue(); if (value) this.prepare(this.envelope("config.save", { target: "model", value }), "保存当前模型，影响后续任务"); }
-    else if (this.category === "skills") {
-      if (this.preview) { if (this.library !== (this.view?.settings.skills.config?.directory ?? "")) { this.message = "请先单独保存外部技能库，再重新预览导入。"; this.changed(); return false; } if (!this.preview.conflicts.length) this.prepare(this.envelope("skills.import", { id: this.preview.id, directory: this.importDirectory, contentRevision: this.preview.contentRevision }, true), `导入技能 ${this.preview.name} 到远端私有托管区；保留源目录`); }
-      else this.prepare(this.envelope("config.save", { target: "skills", value: { version: 1, directory: this.library } }), "更换远端外部技能库，源目录由外部维护");
-    } else { if (this.service.cua && !this.service.tools.some(tool => tool.name === "computer_screenshot")) { this.message = "电脑入口必须允许 computer_screenshot 才能观察与恢复。"; this.changed(); return false; } const service = this.serviceValue(); if (service) this.prepare(this.envelope("mcp.save-service", { service: { ...service, ...(!this.service.cua && !this.mcpNeedsMigration ? { toolEffects: this.service.toolEffects } : {}), ...(this.view?.settings.mcp?.version === 1 ? {} : { enabled: this.service.enabled }), ...(this.toolsChanged || !this.services.some(item => item.id === this.service.id) ? { tools: this.service.tools } : {}) } }), `保存 MCP 服务 ${this.service.label}${this.service.credentialRebind ? "，重新绑定凭据并使未开始的旧批准失效" : ""}`); }
+    else { if (this.service.cua && !this.service.tools.some(tool => tool.name === "computer_screenshot")) { this.message = "电脑入口必须允许 computer_screenshot 才能观察与恢复。"; this.changed(); return false; } const service = this.serviceValue(); if (service) this.prepare(this.envelope("mcp.save-service", { service: { ...service, ...(!this.service.cua && !this.mcpNeedsMigration ? { toolEffects: this.service.toolEffects } : {}), ...(this.view?.settings.mcp?.version === 1 ? {} : { enabled: this.service.enabled }), ...(this.toolsChanged || !this.services.some(item => item.id === this.service.id) ? { tools: this.service.tools } : {}) } }), `保存 MCP 服务 ${this.service.label}${this.service.credentialRebind ? "，重新绑定凭据并使未开始的旧批准失效" : ""}`); }
     return false;
   }
   async saveAndContinue(): Promise<boolean> {
@@ -376,6 +355,7 @@ export class PersonalSettingsPageState implements SettingsForm {
     this.changed();
   }
   async withdrawOperation(id: string): Promise<void> {
+    if (this.category === "skills") return;
     const original = this.operations.find(item => item.id === id);
     if (!original || original.status === "unknown" || this.dirty || this.reading || this.phase === "saving") return;
     this.confirmation = { request: this.envelope("settings.withdraw", { id }, original.scope === "managed"), label: "撤回这项待生效更改，保留原保存记录" };
@@ -387,7 +367,7 @@ export class PersonalSettingsPageState implements SettingsForm {
       const previous = this.view.settings.skills;
       const result = await this.queryRemote<typeof previous>("skills.list", { offset: previous.skills.length, limit: 20 }, true);
       if (result) {
-        if (result.revision !== previous.revision || !same(result.config, previous.config)) { this.phase = "conflict"; this.message = "技能库或托管清单在分页期间变化，请重新读取原配置；未混入其他来源。"; }
+        if (result.revision !== previous.revision || result.directory !== previous.directory) { this.phase = "conflict"; this.message = "技能目录在分页期间变化，请重新读取；已取得的列表仍保留。"; }
         else this.view.settings.skills = { ...result, skills: [...previous.skills, ...result.skills] };
         this.changed();
       }

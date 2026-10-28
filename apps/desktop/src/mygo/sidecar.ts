@@ -40,8 +40,6 @@ async function receive(line: string): Promise<void> {
       case "subscribe": return host.subscribe(args[0]);
       case "terminal_reset": return host.resetTerminals();
       case "request": return host.request(args[0], args[1], args[2]);
-      case "skill_pick_begin": return host.beginSkillSelection(args[0], args[1]);
-      case "skill_pick_preview": return host.previewSkillSelection(args[0], args[1]);
       case "attachment_instance": return host.attachmentInstance(args[0] ?? "code");
       case "attachments": {
         const files: unknown = args[1];

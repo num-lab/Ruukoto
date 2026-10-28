@@ -2,6 +2,8 @@
 
 Status: proposed
 
+技能发现与管理范围由[统一 HOME 发现](../../implemented/simplification/2026-10-28-home-skills-discovery.md)取代；两端只读固定目录，本文其他设置与组合验收范围保留。
+
 配置更新与迁移的拟调整范围见[按受影响对象更新配置](../architecture/2026-10-25-operation-scoped-configuration.md)；该提案尚未落地，本文现行约束继续有效。
 
 PA 连接已由下述决定取代，见 [Tailscale HTTPS／WebSocket](../../implemented/architecture/2026-10-24-personal-tailscale-https.md)，统一新聊天与设置；本篇配置能力与生效规则继续适用。

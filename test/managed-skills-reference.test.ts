@@ -3,8 +3,8 @@ import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { test } from "node:test";
-import { loadHostSkillLibrary, managedSkillsDirFor, ManagedSkillsStore } from "@ruukoto/agent/managed-skills.ts";
-import { expandSkillCommand, readSkill } from "@ruukoto/agent/skills.ts";
+import { expandSkillCommand, loadSkillLibrary, readSkill, skillsDirFor } from "@ruukoto/agent/skills.ts";
+import { isolateSkillHome } from "./helpers/skill-home.ts";
 import { latestAgentReferenceSnapshot, listAgentWaits } from "@ruukoto/core/agent-wait.ts";
 import type { Session } from "@ruukoto/core/types.ts";
 import { Runtime } from "@ruukoto/runtime/runtime.ts";
@@ -12,24 +12,6 @@ import { product as codeProduct } from "../apps/ruukoto-code/src/product.ts";
 import { lastToolText, lastUserText, startTestRuntime, toolNamesOf, waitFor } from "./helpers/testkit.ts";
 
 const hash = (value: string | Buffer) => createHash("sha256").update(value).digest("hex");
-
-test("托管校验在资源启动前失败：保留错误码、无模型调用或虚假占用，恢复后可继续", async () => {
-  const t = await startTestRuntime("managed-reference-invalid", () => ({ kind: "text", text: "正常回答" }), { config: { product: codeProduct.runtime }, workDirs: 1 });
-  try {
-    const root = managedSkillsDirFor(t.dirs.agentDir), unknown = path.join(root, "unknown");
-    fs.mkdirSync(unknown, { recursive: true, mode: 0o700 });
-    const session = await t.runtime.createSession({ projectName: "invalid", cwd: t.work[0] });
-    const task = await t.runtime.submit({ sessionId: session.id, requestId: "invalid", input: "检查", accessMode: "full_access", modelSelection: t.runtime.defaultSelection });
-    await waitFor("无效托管区阻断任务", () => t.runtime.store.getTask(task.id)?.status === "failed");
-    assert.match(t.runtime.store.getTask(task.id)?.errorMessage ?? "", /^skills_layout_invalid：/);
-    assert.equal(t.server.calls.length, 0); assert.equal(t.runtime.store.listToolOpsByTask(task.id).length, 0);
-    assert.equal(t.runtime.store.listAllOccupancy().some(held => held.taskId === task.id), false);
-    fs.rmdirSync(unknown);
-    const next = await t.runtime.submit({ sessionId: session.id, requestId: "restored", input: "继续", accessMode: "full_access", modelSelection: t.runtime.defaultSelection });
-    await waitFor("恢复私有布局后可开始下一任务", () => ["completed", "failed", "interrupted"].includes(t.runtime.store.getTask(next.id)!.status));
-    assert.equal(t.runtime.store.getTask(next.id)?.status, "completed"); assert.equal(t.server.calls.length, 1);
-  } finally { await t.shutdown(); }
-});
 
 function holdWorkspace(runtime: Runtime, session: Session, requestId: string): string {
   return runtime.store.withTx(() => {
@@ -42,11 +24,11 @@ function holdWorkspace(runtime: Runtime, session: Session, requestId: string): s
   });
 }
 
-for (const state of ["disabled", "removed"] as const) test(`托管技能 ${state}：ended wait 旧证据及同轮恢复可读，后续内部对话与重启不复活`, async () => {
+test("技能目录变更：同轮恢复保留钉版，ended wait 派生的新任务和重启刷新固定目录", async tc => {
+  isolateSkillHome(tc);
   let originPhase = 0, runId = "";
   const newRequests: string[] = [];
-  let preview: ReturnType<ManagedSkillsStore["preview"]>;
-  const t = await startTestRuntime(`managed-reference-${state}`, request => {
+  const t = await startTestRuntime("global-reference", request => {
     const input = lastUserText(request);
     if (input === "REFERENCE_ORIGIN") {
       assert.ok(toolNamesOf(request).includes("skill"));
@@ -59,7 +41,7 @@ for (const state of ["disabled", "removed"] as const) test(`托管技能 ${state
           runId = (JSON.parse(lastToolText(request)) as { run: { id: string } }).run.id;
           return { kind: "tool_calls", calls: [{ id: "wait", name: "wait", arguments: { targets: [{ kind: "workflow", run_id: runId }], timeout_ms: 1 } }] };
         case 2:
-          assert.equal(new ManagedSkillsStore(t.dirs.agentDir).get(preview.id).state, state);
+          assert.match(fs.readFileSync(path.join(skillsDirFor(), "managed-reference", "SKILL.md"), "utf8"), /CURRENT-DESCRIPTION/);
           return { kind: "tool_calls", calls: [{ id: "body", name: "skill", arguments: { name: "managed-reference" } }] };
         case 3:
           assert.match(lastToolText(request), /REFERENCE-BODY/);
@@ -71,19 +53,18 @@ for (const state of ["disabled", "removed"] as const) test(`托管技能 ${state
     }
     assert.ok(input.startsWith("REFERENCE_NEW"), input);
     assert.ok(!toolNamesOf(request).includes("skill"));
-    assert.ok(!JSON.stringify(request.messages).includes("[技能目录]"), "新参考块不复活旧托管选择，历史正文仍保留");
+    assert.match(JSON.stringify(request.messages), /CURRENT-DESCRIPTION/, "内部对话的新任务刷新固定目录");
     newRequests.push(input);
     return { kind: "text", text: "旧技能已从本次选择中排除" };
   }, { config: { product: codeProduct.runtime }, workDirs: 1 });
   let restarted: Runtime | null = null;
   try {
-    const managed = new ManagedSkillsStore(t.dirs.agentDir), sourcePath = path.join(t.dirs.root, "managed-reference");
-    fs.mkdirSync(path.join(sourcePath, "refs"), { recursive: true });
-    const source = fs.realpathSync(sourcePath), raw = "---\nname: managed-reference\ndescription: MANAGED-REFERENCE-DESCRIPTION\n---\nREFERENCE-BODY 见 refs/guide.md\n";
+    const source = path.join(skillsDirFor(), "managed-reference");
+    fs.mkdirSync(path.join(source, "refs"), { recursive: true });
+    const raw = "---\nname: managed-reference\ndescription: ORIGINAL-DESCRIPTION\n---\nREFERENCE-BODY 见 refs/guide.md\n";
+    const currentRaw = "---\nname: current-reference\ndescription: CURRENT-DESCRIPTION\n---\nCURRENT-BODY\n";
     fs.writeFileSync(path.join(source, "SKILL.md"), raw);
     fs.writeFileSync(path.join(source, "refs/guide.md"), "REFERENCE-GUIDE\n");
-    preview = managed.preview(source);
-    managed.import({ id: preview.id, sourceDir: preview.sourceDir, contentRevision: preview.contentRevision, expectedRevision: preview.revision });
     const runtime = t.runtime, session = await runtime.createSession({ projectName: "reference", cwd: t.work[0] });
     const blocker = await runtime.createSession({ projectName: "blocker", cwd: t.work[0] });
     const driver = await runtime["getDriver"](session), agentWait = driver["deps"].agentWait!;
@@ -93,10 +74,8 @@ for (const state of ["disabled", "removed"] as const) test(`托管技能 ${state
       const result = await originalWait(...args);
       const wait = listAgentWaits(runtime.store, { taskId: args[0].taskId }).at(-1)!;
       assert.equal(wait.phase, "ended");
-      assert.equal(wait.snapshot.skills?.skills[0]?.id, preview.id);
-      const expectedRevision = managed.list().revision;
-      if (state === "disabled") managed.setEnabled({ id: preview.id, enabled: false, expectedRevision });
-      else managed.remove({ id: preview.id, expectedRevision });
+      assert.equal(wait.snapshot.skills?.skills[0]?.name, "managed-reference");
+      fs.writeFileSync(path.join(source, "SKILL.md"), currentRaw);
       return result;
     };
     const origin = await runtime.submit({ sessionId: session.id, requestId: "origin", input: "REFERENCE_ORIGIN", accessMode: "full_access", modelSelection: runtime.defaultSelection });
@@ -119,7 +98,7 @@ for (const state of ["disabled", "removed"] as const) test(`托管技能 ${state
       const artifact = runtime.store.getArtifact(record.promptArtifactId)!;
       return { id: artifact.id, bytes: artifact.byteCount, hash: hash(runtime.artifacts.read(artifact.id, 0, artifact.byteCount)) };
     });
-    const pinned = snapshot.skills!.skills.find(skill => skill.id === preview.id)!;
+    const pinned = snapshot.skills!.skills.find(skill => skill.name === "managed-reference")!;
     const oldDirectory = pinned.dir;
     function verifyOldEvidence(current: Runtime) {
       assert.equal(hash(JSON.stringify(latestAgentReferenceSnapshot(current.store, session.id))), savedSnapshot);
@@ -128,12 +107,12 @@ for (const state of ["disabled", "removed"] as const) test(`托管技能 ${state
       assert.equal(hash(JSON.stringify(current.store.listSelectionRecordsByTask(origin.id))), oldSelection);
       for (const prompt of promptHashes) assert.equal(hash(current.artifacts.read(prompt.id, 0, prompt.bytes)), prompt.hash);
       assert.equal(pinned.dir, oldDirectory);
-      assert.equal(fs.readFileSync(path.join(pinned.dir, "SKILL.md"), "utf8"), raw);
+      assert.equal(fs.readFileSync(path.join(pinned.dir, "SKILL.md"), "utf8"), currentRaw);
       assert.match(readSkill(snapshot.skills, "managed-reference"), /REFERENCE-BODY/);
       assert.match(readSkill(snapshot.skills, "managed-reference", "refs/guide.md"), /REFERENCE-GUIDE/);
-      assert.equal(fs.readFileSync(path.join(source, "SKILL.md"), "utf8"), raw);
-      assert.equal(loadHostSkillLibrary(t.dirs.agentDir).skills.length, 0);
-      assert.throws(() => expandSkillCommand(loadHostSkillLibrary(t.dirs.agentDir), "/skill:managed-reference"), /未知技能/);
+      assert.equal(fs.readFileSync(path.join(source, "SKILL.md"), "utf8"), currentRaw);
+      assert.deepEqual(loadSkillLibrary().skills.map(skill => skill.name), ["current-reference"]);
+      assert.throws(() => expandSkillCommand(loadSkillLibrary(), "/skill:managed-reference"), /未知技能/);
     }
     async function verifyNewSelection(current: Runtime, label: string) {
       const blockerTaskId = holdWorkspace(current, blocker, `block-${label}`);
@@ -142,7 +121,7 @@ for (const state of ["disabled", "removed"] as const) test(`托管技能 ${state
       assert.equal(current.store.getTask(next.id)?.status, "completed", current.store.getTask(next.id)?.errorMessage ?? "新任务未完成");
       const records = current.store.listSelectionRecordsByTask(next.id);
       assert.equal(records.length, 1);
-      assert.equal(records[0].skillVersion, "", "新选择记录保存当前清单过滤结果");
+      assert.equal(records[0].skillVersion, loadSkillLibrary().version, "新选择记录保存当前固定目录版本");
       const before = t.server.calls.length;
       const explicit = await current.submit({ sessionId: session.id, requestId: `explicit-${label}`, input: "/skill:managed-reference", accessMode: "full_access", modelSelection: current.defaultSelection });
       await waitFor("新显式调用明确拒绝", () => ["completed", "failed", "interrupted"].includes(current.store.getTask(explicit.id)!.status));

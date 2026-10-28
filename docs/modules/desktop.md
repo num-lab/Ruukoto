@@ -94,6 +94,10 @@ sequenceDiagram
 2. **多会话无缝切换**：左侧栏点击会话时秒级切换激活视图，历史消息异步分段拉取，保证流畅不掉帧。
 3. **一键审批响应**：工具调用触发审批时，时间线即时弹出审批卡片，拥有者可查看参数 Diff 并一键批准或拒绝。
 
+### PA 配置保存
+
+PA 模型、MCP 与电脑配置编辑后直接保存。刷新保留草稿，保存采用当前连接与最新修订；保存期间其他入口对同一对象的修改可能被覆盖。结果尚未确定时仍可离开设置，桌面保留原提交，在页面打开时自动查询保存与生效结果。异常和待生效更改才展示核实、撤回或恢复动作。
+
 ### MCP 原调用收尾与电脑恢复
 
 Personal 的 MCP 页从“调用”区刷新列表并查看原调用，人工结束需要明确确认。客户端把收尾交给原工作，结果仍保留未知；本地执行停止与最终报告由[个人持久会话](personal-durable.md)处理。收尾应答丢失时，刷新先核实同一个原调用，再由拥有者决定下一步。
@@ -134,3 +138,4 @@ sequenceDiagram
 - [个人 Tailscale HTTPS 与 WebSocket](../../.agents/notes/implemented/architecture/2026-10-24-personal-tailscale-https.md)
 - [技能统一从宿主 HOME 发现](../../.agents/notes/implemented/simplification/2026-10-28-home-skills-discovery.md)：两端只读 Skills 与旧维护回执核实。
 - [MCP 宿主职责收缩](../../.agents/notes/implemented/simplification/2026-10-26-mcp-host-responsibilities.md)：效果与凭据由拥有者设置，普通未知人工收尾，电脑恢复合并为取图与接受。
+- [PA 配置直接保存](../../.agents/notes/implemented/simplification/2026-10-28-desktop-personal-direct-save.md)：一次保存、当前修订与可离页的原结果核实。

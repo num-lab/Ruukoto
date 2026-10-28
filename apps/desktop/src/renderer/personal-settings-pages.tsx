@@ -113,7 +113,7 @@ function McpEditor({ state }: { state: PersonalSettingsPageState }) {
   const editing = state.editingService;
   return <>
     {state.mcpNeedsMigration && <SettingsGroup title="配置迁移" description="保留服务、凭据与旧调用；旧普通工具的副作用默认为不明。">
-      <SettingsCard><SettingsRow title="旧版配置"><SettingsButton disabled={state.disabled || state.dirty} onClick={() => state.prepareService("migrate")}>更新 MCP 配置</SettingsButton></SettingsRow></SettingsCard>
+      <SettingsCard><SettingsRow title="旧版配置"><SettingsButton disabled={state.disabled || state.dirty} onClick={() => void state.changeService("migrate")}>更新 MCP 配置</SettingsButton></SettingsRow></SettingsCard>
     </SettingsGroup>}
     <SettingsGroup title="服务" action={<SettingsButton onClick={() => void state.selectService(null)} disabled={state.disabled || state.dirty || state.mcpNeedsMigration}><Plus />添加服务</SettingsButton>}>
       <SettingsList label="MCP 服务" empty="尚未配置 HTTP 服务。">
@@ -143,8 +143,8 @@ function ServiceDetails({ state }: { state: PersonalSettingsPageState }) {
       </SettingsRow>
       <ServiceTools state={state} />
       {state.services.some(item => item.id === state.service.id) && <SettingsRow title="服务操作" description="本实例的全部工作区共用此配置。">
-        <SettingsButton variant="ghost" disabled={state.disabled || state.dirty} onClick={() => state.prepareService("remove")}>删除服务</SettingsButton>
-        <SettingsButton variant="ghost" disabled={state.disabled || state.dirty || state.view!.settings.mcp?.version === 1} onClick={() => state.prepareService(state.service.enabled ? "disable" : "enable")}>{state.service.enabled ? "停用" : "启用"}</SettingsButton>
+        <SettingsButton variant="ghost" disabled={state.disabled || state.dirty} onClick={() => void state.changeService("remove")}>删除服务</SettingsButton>
+        <SettingsButton variant="ghost" disabled={state.disabled || state.dirty || state.view!.settings.mcp?.version === 1} onClick={() => void state.changeService(state.service.enabled ? "disable" : "enable")}>{state.service.enabled ? "停用" : "启用"}</SettingsButton>
       </SettingsRow>}
     </div>
   );
@@ -153,7 +153,7 @@ function ServiceDetails({ state }: { state: PersonalSettingsPageState }) {
 function ComputerEditor({ state }: { state: PersonalSettingsPageState }) {
   return <>
     {state.mcpNeedsMigration && <SettingsGroup title="配置迁移" description="保留原服务、凭据与调用记录，电脑恢复仍可继续。">
-      <SettingsCard><SettingsRow title="旧版配置"><SettingsButton disabled={state.disabled || state.dirty} onClick={() => state.prepareService("migrate")}>更新 MCP 配置</SettingsButton></SettingsRow></SettingsCard>
+      <SettingsCard><SettingsRow title="旧版配置"><SettingsButton disabled={state.disabled || state.dirty} onClick={() => void state.changeService("migrate")}>更新 MCP 配置</SettingsButton></SettingsRow></SettingsCard>
     </SettingsGroup>}
     <SettingsGroup title="服务" action={<SettingsButton onClick={() => void state.addCua()} disabled={state.disabled || state.dirty || state.view!.settings.mcp?.version === 1}><Plus />添加 Linux 桌面沙箱</SettingsButton>}>
       <SettingsList label="电脑服务" empty="尚未配置 Linux 桌面沙箱。">
@@ -185,8 +185,8 @@ function ComputerDetails({ state }: { state: PersonalSettingsPageState }) {
         <ServiceTools state={state} />
       </>}
       {state.services.some(item => item.id === state.service.id) && <SettingsRow title="电脑操作" description="启停只更新演示状态。">
-        <SettingsButton variant="ghost" disabled={state.disabled || state.dirty} onClick={() => state.prepareService("remove")}>删除服务</SettingsButton>
-        <SettingsButton variant="ghost" disabled={state.disabled || state.dirty || state.view!.settings.mcp?.version === 1} onClick={() => state.prepareService(state.service.enabled ? "disable" : "enable")}>{state.service.enabled ? "停用" : "启用"}</SettingsButton>
+        <SettingsButton variant="ghost" disabled={state.disabled || state.dirty} onClick={() => void state.changeService("remove")}>删除服务</SettingsButton>
+        <SettingsButton variant="ghost" disabled={state.disabled || state.dirty || state.view!.settings.mcp?.version === 1} onClick={() => void state.changeService(state.service.enabled ? "disable" : "enable")}>{state.service.enabled ? "停用" : "启用"}</SettingsButton>
       </SettingsRow>}
     </div>
   );
@@ -204,8 +204,7 @@ export function PersonalSettingsEditor({ state, onConnection }: { state: Persona
       <div className="settings-row-control"><SettingsButton variant="ghost" disabled={state.phase === "saving" || state.phase === "unknown"} onClick={onConnection}>PA 远程连接</SettingsButton></div>
       {state.reading && <SettingsNotice>正在读取远端档案与原服务状态…</SettingsNotice>}
       {view && <>
-        <SettingsRow title="档案状态" description={`${view.settings.profile.directory} · ${view.settings.online ? "在线" : "离线"}${!state.writable ? " · 只读" : ""}`} />
-        {(state.category !== "mcp" && state.category !== "computer" || !state.writable) && <SettingsRow title="维护原因" description={view.maintenance.reason} />}
+        {!view.settings.online && <SettingsNotice>PA 后台离线，更改保存后将在后台启动时应用。</SettingsNotice>}
         {!!state.fileIssues.length && <SettingsNotice>配置文件与原保存记录不符。请保留档案并核实当前文件，恢复原文件后重新读取；其他配置仍可管理。</SettingsNotice>}
         {view.pending && <SettingsGroup title={`原维护：${stages[view.pending.stage]}`}>
           <SettingsCard>
@@ -224,29 +223,31 @@ export function PersonalSettingsEditor({ state, onConnection }: { state: Persona
           </SettingsCard>
         </SettingsGroup>)}
         {state.category === "models" ? <ModelEditor state={state} /> : state.category === "skills" ? <SkillsEditor state={state} /> : state.category === "computer" ? <ComputerEditor state={state} /> : <McpEditor state={state} />}
-        {state.phase === "conflict" && <SettingsGroup title="当前远端配置（原草稿保留）">
-          <SettingsCard>
-            <SettingsRow title="配置" footer={<pre className="settings-code-block">{JSON.stringify(state.category === "models" ? view.settings.model?.config : state.category === "skills" ? view.settings.skills.directory : view.settings.mcp?.services.map(service => ({ name: service.label, endpoint: service.cua ? `Linux 电脑 ${service.cua.sandbox}` : service.endpoint, enabled: service.enabled })), null, 2)}</pre>} />
-            <SettingsRow title="" description="不会自动覆盖；放弃更改后以当前配置继续。" />
-          </SettingsCard>
-        </SettingsGroup>}
         {state.category !== "skills" && <SettingsGroup title="操作">
           <SettingsCard>
             <SettingsRow title="未保存的更改" description="保存或放弃当前草稿。">
               <SettingsButton variant="ghost" disabled={state.disabled || !state.dirty} onClick={() => state.discard()}>放弃更改</SettingsButton>
-              <SettingsButton disabled={state.disabled || !state.writable || !state.dirty || state.phase === "conflict"} onClick={() => void state.save()}>查看保存影响</SettingsButton>
+              <SettingsButton disabled={state.disabled || !state.writable || !state.dirty} onClick={() => void state.save()}>{state.phase === "saving" ? "正在保存…" : "保存"}</SettingsButton>
             </SettingsRow>
           </SettingsCard>
         </SettingsGroup>}
       </>}
       {state.message && <SettingsNotice>{state.message}</SettingsNotice>}
-      <Dialog open={!!state.confirmation} onOpenChange={open => { if (!open) state.cancelConfirmation(); }}><DialogContent className="demo-dialog"><DialogHeader><DialogTitle>保存更改？</DialogTitle><DialogDescription>Personal · {view?.settings.profile.directory}。{state.confirmation?.label}</DialogDescription></DialogHeader><DialogFooter><Button type="button" variant="ghost" onClick={() => state.cancelConfirmation()}>继续编辑</Button><Button type="button" disabled={state.disabled || !state.writable} onClick={() => void state.confirmApply()}>保存更改</Button></DialogFooter></DialogContent></Dialog>
     </SettingsPage>
   );
 }
 
-export function PersonalSettingsPage({ settings, category }: PersonalSettingsPageProps) {
-  const [state] = useState(() => new PersonalSettingsPageState({ request: (...args) => window.ruukoto.request(...args) }, settings.changed, category));
-  useEffect(() => { settings.form = state; void state.read(); return () => { state.invalidate(); if (settings.form === state) settings.form = null; }; }, [settings, state]);
+export function PersonalSettingsPage({ settings, category, scope }: PersonalSettingsPageProps) {
+  const key = `${scope.instanceId}:${category}`;
+  const [state] = useState(() => settings.personalPages.get(key) ?? new PersonalSettingsPageState({ request: (...args) => window.ruukoto.request(...args) }, settings.changed, category));
+  useEffect(() => {
+    settings.form = state; void state.read();
+    return () => settings.releasePersonalPage(key, state);
+  }, [settings, state, key]);
+  useEffect(() => {
+    if (!state.needsRefresh) return;
+    const timer = setTimeout(() => void state.read(), 2000);
+    return () => clearTimeout(timer);
+  });
   return <PersonalSettingsEditor state={state} onConnection={() => settings.chooseCategory("personal")} />;
 }

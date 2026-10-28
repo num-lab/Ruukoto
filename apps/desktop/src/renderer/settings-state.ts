@@ -1,5 +1,6 @@
 import type { DesktopTarget, DesktopUpdate } from "../shared/bridge.ts";
 import type { CodeState } from "./code-state.ts";
+import type { PersonalSettingsPageState } from "./personal-settings-state.ts";
 
 export type ManagedSettingsCategory = "models" | "skills" | "mcp" | "computer";
 export type SettingsCategory = "appearance" | `code-${ManagedSettingsCategory}` | `pa-${ManagedSettingsCategory}` | "web-search" | "personal" | "archived";
@@ -14,7 +15,6 @@ export interface SettingsForm {
   readonly phase: SettingsPhase;
   readonly confirming?: boolean;
   save(): Promise<boolean>;
-  saveAndContinue?(): Promise<boolean>;
   discard(): void;
   invalidate(): void;
 }
@@ -42,6 +42,7 @@ export class SettingsState {
   open = false;
   category: SettingsCategory = "appearance";
   form: SettingsForm | null = null;
+  readonly personalPages = new Map<string, PersonalSettingsPageState>();
   leave: (() => void) | null = null;
   private blockedNavigation = false;
   pageKey = 0;
@@ -68,6 +69,12 @@ export class SettingsState {
   }
   ticket(): number { return this.generation; }
   accepts(ticket: number): boolean { return this.open && ticket === this.generation; }
+  releasePersonalPage(key: string, form: PersonalSettingsPageState): void {
+    if (form.dirty || form.phase === "saving" || form.phase === "unknown") this.personalPages.set(key, form);
+    else this.personalPages.delete(key);
+    form.leave();
+    if (this.form === form) this.form = null;
+  }
   private invalidate(): void { ++this.generation; this.form?.invalidate(); }
   observe(target: DesktopTarget, update: DesktopUpdate): void {
     if (!this.open) return;
@@ -81,6 +88,7 @@ export class SettingsState {
   /** 仅保存 UI 导航续步；配置请求仍由具体页面发起。 */
   navigate(action: () => void): boolean {
     if (this.form?.phase === "saving" || this.form?.phase === "unknown") {
+      if (isPaCategory(this.category)) { this.finish(action); return true; }
       this.blockedNavigation = true;
       this.changed(); return false;
     }
@@ -88,7 +96,9 @@ export class SettingsState {
     this.finish(action); return true;
   }
   private finish(action: () => void): void {
-    this.invalidate(); ++this.pageKey; this.form = null; this.leave = null; this.blockedNavigation = false;
+    if (isPaCategory(this.category)) ++this.generation;
+    else this.invalidate();
+    ++this.pageKey; this.form = null; this.leave = null; this.blockedNavigation = false;
     action(); this.changed();
   }
   chooseCategory(category: SettingsCategory): void { if (category !== this.category) this.navigate(() => { this.category = category; }); }
@@ -101,6 +111,6 @@ export class SettingsState {
   async saveAndLeave(): Promise<void> {
     const action = this.leave, form = this.form;
     if (!action || !form || form.phase === "saving" || form.phase === "unknown") return;
-    if (await (form.saveAndContinue?.() ?? form.save()) && this.form === form && this.leave === action) this.finish(action);
+    if (await form.save() && this.form === form && this.leave === action) this.finish(action);
   }
 }

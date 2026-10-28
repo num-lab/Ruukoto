@@ -69,7 +69,8 @@ export class PersonalSettingsController {
     }
     value.settings.effective = effective;
     delete value.settings.operationsNextOffset; delete value.settings.effectiveNextOffset;
-    for (const local of this.connection.settingsOperations()) {
+    const unresolved = new Map([...operations.filter(item => ["saved", "waiting", "unknown"].includes(item.status)), ...this.connection.settingsOperations()].map(item => [item.id, item]));
+    for (const local of unresolved.values()) {
       const known = await this.connection.request("GET", `/maintenance?id=${encodeURIComponent(local.id)}`);
       const result = known === null ? { v: 2 as const, id: local.id, profile: this.connection.config.binding!.profile, target: local.target as PersonalConfigurationReceipt["target"], scope: local.scope, requestDigest: local.requestDigest, status: "unknown" as const, savedRevision: null, effectiveRevision: null, code: "settings_admission_unverified", relatedOperations: [] } : configurationReceipt(known);
       this.profile(result.profile);
@@ -105,25 +106,27 @@ export class PersonalSettingsController {
       this.profile(result.profile); return result;
     });
   }
-  apply(value: unknown): Promise<PersonalManagementView> {
+  apply(value: unknown, id: unknown = randomUUID()): Promise<PersonalManagementView> {
     return this.exclusive(async () => {
+      if (typeof id !== "string" || !/^[0-9a-f-]{36}$/.test(id)) throw failure("op_not_allowed", "保存请求无效，请重新保存。");
       if (legacyPersonalMaintenance(this.userData, this.connection.config.origin).length || this.connection.maintenance()) throw failure("legacy_maintenance_pending", "仍有旧维护待核实，请先核实原服务与配置。");
       if (!object(value) || value.v !== 1 || typeof value.op !== "string" || ![...WRITE_OPS, "settings.withdraw"].includes(value.op)) throw failure("op_not_allowed", "请选择一项有效设置操作。");
       if (value.op === "config.save" && value.target === "skills") throw failure("op_not_allowed", "技能由后台账户的 $HOME/.agents/skills/ 维护，请刷新技能列表。");
-      this.profile(value.profile);
-      const view = await this.inspect();
+      let view: PersonalManagementView;
+      try { view = await this.inspect(); }
+      catch (error) { if (error instanceof ControlClientError) throw failure(error.code, error.message); throw error; }
       if (view.settings.settingsProtocol !== 2) throw failure("settings_upgrade_required", "原后台需要升级后才能在线保存配置；请升级后重新读取。");
-      const { v: _v, op, profile, expectedRevision, ...fields } = value;
+      const { v: _v, op, profile: _profile, expectedRevision: _expectedRevision, ...fields } = value;
       const original = op === "settings.withdraw" ? view.operations?.find(item => item.id === fields.id) : undefined;
       const target = original?.target ?? (op === "config.save" ? fields.target : op.startsWith("skills.") ? "skills" : "mcp");
       const scope = original?.scope ?? (op.startsWith("mcp.") && op !== "mcp.migrate" ? op === "mcp.save-service" && object(fields.service) ? fields.service.id : fields.id : op.startsWith("skills.") ? "managed" : "*");
-      if (typeof target !== "string" || typeof scope !== "string") throw failure("op_not_allowed", "配置对象无法核实，请刷新原配置。");
+      if (target !== "model" && target !== "mcp" || typeof scope !== "string") throw failure("op_not_allowed", "请选择有效的模型或 MCP 配置。");
       if (this.connection.settingsOperations().some(item => item.target === target && (item.scope === "*" || scope === "*" || item.scope === scope))) throw failure("settings_target_pending", "此对象仍有原保存结果待核实，请先查询原操作。");
-      const id = randomUUID(), request = { v: 2, id, profile, expectedRevision, op: { kind: op, ...fields } };
+      const request = { v: 2, id, profile: view.settings.profile, expectedRevision: view.settings.revisions[target], op: { kind: op, ...fields } };
       this.connection.recordSettingsOperation(id, { id, requestDigest: createHash("sha256").update(JSON.stringify(request)).digest("hex"), target, scope });
       let response: unknown;
       try { response = await this.connection.request("POST", "/maintenance", { v: 2, id, request }); }
-      catch (error) { if (error instanceof ControlClientError && error.outcome === "rejected") this.connection.recordSettingsOperation(id); throw error; }
+      catch (error) { if (error instanceof ControlClientError && ["not_sent", "rejected"].includes(error.outcome)) this.connection.recordSettingsOperation(id); throw error; }
       const result = configurationReceipt(response);
       this.profile(result.profile);
       if (result.id !== id) throw failure("personal_protocol", "配置应答不属于原请求，请保留原关联。", true);

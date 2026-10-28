@@ -2,6 +2,8 @@
 
 Status: proposed
 
+PA 配置的当前交互由[直接保存](../../implemented/simplification/2026-10-28-desktop-personal-direct-save.md)收窄为一次保存，通用确认和编辑前修订不再作为桌面保存前提。
+
 技能发现与管理范围由[统一 HOME 发现](../../implemented/simplification/2026-10-28-home-skills-discovery.md)取代；两端只读固定目录，本文其他设置与组合验收范围保留。
 
 配置更新与迁移的拟调整范围见[按受影响对象更新配置](../architecture/2026-10-25-operation-scoped-configuration.md)；该提案尚未落地，本文现行约束继续有效。

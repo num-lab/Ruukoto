@@ -2,6 +2,8 @@
 
 Status: implemented
 
+PA 配置页的保存及待核实导航采用[直接保存](../simplification/2026-10-28-desktop-personal-direct-save.md)，本文的全窗导航限制继续用于 Code 与 PA 连接设置。
+
 本篇的页内 Code/PA 页签与 shadcn 字段布局已被 [demo 设计](2026-10-28-desktop-settings-demo-design.md) 取代；容器表单保护、票据与请求归属继续沿用，下面保留被取代的原决定。
 
 MCP 专属工作区、来源与候选接口按[实例 MCP 方案](../../implemented/simplification/2026-10-24-code-instance-mcp.md)删除；容器的产品选择、表单保护与原实例核实继续沿用，本篇保留被取代的原决定。

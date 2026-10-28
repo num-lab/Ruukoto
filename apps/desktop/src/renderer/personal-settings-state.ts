@@ -19,12 +19,14 @@ const emptyModel = () => ({ api: "openai-responses" as PersonalModel["api"], bas
 const emptyService = (): ServiceDraft => ({ id: crypto.randomUUID(), label: "", endpoint: "", authentication: "", credentialPath: "", credentialRebind: false, enabled: false, tools: [], toolEffects: {} });
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
+// Note: 见 .agents/notes/implemented/simplification/2026-10-28-desktop-personal-direct-save.md
 // Note: 见 .agents/notes/implemented/feature/2026-10-21-desktop-personal-pages.md
 // Note: 见 .agents/notes/implemented/architecture/2026-10-23-cua-official-mcp.md
 // Note: 见 .agents/notes/implemented/simplification/2026-10-28-home-skills-discovery.md
 export class PersonalSettingsPageState implements SettingsForm {
   phase: SettingsPhase = "loading";
   reading = false;
+  readFailed = false;
   message = "";
   view: PersonalPageView | null = null;
   model = emptyModel();
@@ -45,14 +47,13 @@ export class PersonalSettingsPageState implements SettingsForm {
   mcpEndPending: number | null = null;
   mcpEndConfirmation: number | null = null;
   fieldErrors: Record<string, string> = {};
-  confirmation: { request: Record<string, unknown>; label: string } | null = null;
   private baseline = "";
   private revision = "";
   private generation = 0;
   private toolsChanged = false;
   private uncertain = false;
+  private pendingSave: string | null = null;
   private readonly invalidatedCuaObservations = new Map<number, number>();
-  private continueAfterSave: ((saved: boolean) => void) | null = null;
   constructor(private readonly bridge: Pick<DesktopBridge, "request">, readonly changed: () => void, readonly category: ManagedSettingsCategory) {}
   /** 电脑页与 MCP 页共用 mcp 配置与修订，只是各自过滤服务。 */
   private get mcpLike(): boolean { return this.category === "mcp" || this.category === "computer"; }
@@ -60,17 +61,18 @@ export class PersonalSettingsPageState implements SettingsForm {
   private draft(): unknown { return this.category === "models" ? this.model : this.category === "skills" ? null : this.editingService ? this.service : null; }
   get dirty(): boolean { return !!this.view && JSON.stringify(this.draft()) !== this.baseline; }
   get disabled(): boolean { return !this.view || this.reading || this.category !== "skills" && (this.phase === "saving" || this.phase === "unknown" || !!this.fileIssues.length || this.operations.some(item => item.status === "unknown")); }
-  get confirming(): boolean { return this.cuaConfirmation !== null || this.mcpEndConfirmation !== null || this.confirmation !== null || this.continueAfterSave !== null; }
+  get confirming(): boolean { return this.cuaConfirmation !== null || this.mcpEndConfirmation !== null; }
   private get target(): "model" | "skills" | "mcp" { return this.category === "models" ? "model" : this.category === "skills" ? "skills" : "mcp"; }
   get fileIssues() { return (this.view?.settings.fileIssues ?? []).filter(item => this.category !== "skills" && item.target === this.target); }
   get operations(): PersonalConfigurationReceipt[] { return (this.view?.operations ?? []).filter(item => item.target === this.target && ["saved", "waiting", "failed", "unknown"].includes(item.status)); }
+  get needsRefresh(): boolean { return !this.reading && !this.readFailed && this.phase !== "saving" && this.phase !== "error" && (this.pendingSave !== null || this.operations.some(item => ["saved", "waiting", "unknown"].includes(item.status))); }
   private get hasUnknown(): boolean { return this.category !== "skills" && !!this.view?.pending; }
-  get writable(): boolean { return this.category !== "skills" && !!this.view && this.view.settings.settingsProtocol === 2 && !this.fileIssues.length && !this.view.pending && !this.operations.some(item => item.status === "unknown" || this.confirmation?.request.op !== "settings.withdraw" && (item.status !== "saved" || this.view!.settings.online) && (this.target !== "mcp" || item.scope === "*" || this.editingService && item.scope === this.service.id)); }
+  get writable(): boolean { return this.category !== "skills" && !!this.view && this.view.settings.settingsProtocol === 2 && !this.fileIssues.length && !this.view.pending && !this.operations.some(item => item.status === "unknown" || (item.status !== "saved" || this.view!.settings.online) && (this.target !== "mcp" || item.scope === "*" || this.editingService && item.scope === this.service.id)); }
   get skills(): Skill[] { return this.view?.settings.skills.skills ?? []; }
   get services() { return this.view?.settings.mcp?.services ?? []; }
   get filtered(): Skill[] { return this.skills.filter(skill => skill.name.toLocaleLowerCase().includes(this.query.trim().toLocaleLowerCase())); }
   private accepts(generation: number): boolean { return generation === this.generation; }
-  invalidate(): void { ++this.generation; this.reading = false; this.cancelConfirmation(); this.discovered = null; this.test = null; this.cuaImages = []; this.cuaConfirmation = null; this.mcpOperations = []; this.mcpDetail = null; this.mcpNextOffset = undefined; this.mcpEndConfirmation = null; if (this.phase === "saving") { this.uncertain = true; this.phase = "unknown"; } }
+  invalidate(): void { ++this.generation; this.reading = false; this.discovered = null; this.test = null; this.cuaImages = []; this.cuaConfirmation = null; this.mcpOperations = []; this.mcpDetail = null; this.mcpNextOffset = undefined; this.mcpEndConfirmation = null; if (this.phase === "saving") { this.uncertain = true; this.phase = "unknown"; } }
   private adopt(): void {
     if (!this.view) return;
     const config = this.view.settings.model?.config;
@@ -79,33 +81,38 @@ export class PersonalSettingsPageState implements SettingsForm {
     this.revision = this.view.settings.revisions[this.category === "models" ? "model" : this.category === "computer" ? "mcp" : this.category];
     this.baseline = JSON.stringify(this.draft()); this.fieldErrors = {}; this.test = null; this.discovered = null;
   }
-  discard(): void { if (this.phase === "saving" || this.phase === "unknown") return; this.confirmation = null; this.adopt(); this.phase = "ready"; this.changed(); }
+  discard(): void { if (this.phase === "saving" || this.phase === "unknown") return; this.adopt(); this.phase = "ready"; this.changed(); }
   private async request<T>(op: string, params: Record<string, unknown> = {}): Promise<DesktopResult<T>> {
     try { return await this.bridge.request("personal", `desktop_personal_settings_${op}`, params) as DesktopResult<T>; }
-    catch { return { ok: false, error: { code: "bridge_unavailable", outcome: "unknown", message: "宿主应答丢失，请读取原档案与维护记录；不会自动重发。" } }; }
+    catch { return { ok: false, error: { code: "bridge_unavailable", outcome: "unknown", message: "未取得宿主应答，请稍后刷新。" } }; }
   }
   private fail(error: Extract<DesktopResult<unknown>, { ok: false }>["error"], write = false): void {
     this.uncertain ||= write && (error.outcome === "unknown" || error.outcome === "disconnected");
     this.phase = this.uncertain ? "unknown" : ["settings_revision_changed", "skills_revision_conflict", "settings_profile_changed"].includes(error.code) ? "conflict" : "error";
     this.message = error.message;
   }
-  private belongs(view: PersonalPageView): boolean {
-    return !this.view || same(view.settings.profile, this.view.settings.profile);
+  private acceptView(view: PersonalPageView): void {
+    const preserve = this.dirty || this.editingService || this.confirming || this.cuaImages.length > 0;
+    this.readFailed = false;
+    this.view = view;
+    const original = view.operation?.id === this.pendingSave ? view.operation : view.operations?.find(item => item.id === this.pendingSave);
+    const saved = original?.savedRevision !== null && original?.savedRevision !== undefined && original.status !== "unknown";
+    const rejected = original?.status === "rejected";
+    if (saved || rejected) this.pendingSave = null;
+    this.uncertain = this.hasUnknown || this.pendingSave !== null;
+    if (!preserve || saved) this.adopt();
+    this.phase = this.uncertain ? "unknown" : rejected ? "error" : "ready";
+    this.message = this.view.settings.settingsProtocol !== 2 ? "原后台尚不支持在线配置，请升级后重新读取。" : this.uncertain ? "正在核实保存结果…" : rejected ? "配置未保存，请重新保存。" : saved ? "配置已保存。" : "";
   }
   async read(): Promise<boolean> {
     if (this.reading || this.phase === "saving") return false;
-    const generation = this.generation, preserve = this.dirty;
-    this.reading = true; this.confirmation = null; this.changed();
+    const generation = this.generation;
+    this.reading = true; this.changed();
     const result = await this.request<PersonalPageView>("read");
     if (!this.accepts(generation)) return false;
     this.reading = false;
-    if (!result.ok) { this.fail(result.error); this.changed(); return false; }
-    if (!this.belongs(result.value)) { this.phase = "conflict"; this.message = "远端档案身份已变化，请保留草稿并返回 PA 远程连接核实；不会改发到新档案。"; this.changed(); return false; }
-    this.view = result.value;
-    this.uncertain = this.hasUnknown;
-    if (!preserve) this.adopt();
-    this.phase = this.uncertain ? "unknown" : preserve ? "conflict" : "ready";
-    this.message = (this.view.settings.settingsProtocol !== 2 ? "原后台尚不支持在线配置，请升级后重新读取。" : this.mcpLike && this.phase === "ready" ? "" : this.view.message) + (preserve ? " 原草稿保留，请比较当前配置；放弃更改后可基于当前值编辑。" : "");
+    if (!result.ok) { this.readFailed = true; this.fail(result.error); this.changed(); return false; }
+    this.acceptView(result.value);
     this.changed(); return true;
   }
   private envelope(op: string, params: Record<string, unknown> = {}, managed = false): Record<string, unknown> {
@@ -121,7 +128,7 @@ export class PersonalSettingsPageState implements SettingsForm {
     if (!same(result.value.profile, this.view!.settings.profile)) { this.phase = "conflict"; this.message = "查询应答不属于原档案，请核实管理连接。"; this.changed(); return null; }
     this.changed(); return result.value;
   }
-  editModel<K extends keyof typeof this.model>(key: K, value: (typeof this.model)[K]): void { if (this.disabled) return; this.model = { ...this.model, [key]: value }; this.test = null; this.confirmation = null; delete this.fieldErrors[key]; this.changed(); }
+  editModel<K extends keyof typeof this.model>(key: K, value: (typeof this.model)[K]): void { if (this.disabled) return; this.model = { ...this.model, [key]: value }; this.test = null; delete this.fieldErrors[key]; this.changed(); }
   private modelValue(): PersonalModel | null {
     const value = { ...this.model, contextWindow: Number(this.model.contextWindow), maxTokens: Number(this.model.maxTokens) };
     this.fieldErrors = {};
@@ -152,10 +159,10 @@ export class PersonalSettingsPageState implements SettingsForm {
     this.service = service ? { id: service.id, label: service.label, endpoint: service.endpoint ?? "", ...(service.cua ? { cua: service.cua } : {}), authentication: service.credential ? "credential" : "anonymous", credentialPath: service.credential?.path ?? "", credentialRebind: false, enabled: service.enabled ?? true, tools: service.tools, toolEffects: Object.fromEntries(service.tools.map(tool => [tool.name, service.toolEffects?.[tool.name] ?? "unknown"])) } : emptyService();
     this.cuaChoosing = false; this.editingService = true; this.toolsChanged = false; this.discovered = null; this.baseline = id ? JSON.stringify(this.draft()) : "null"; this.changed();
   }
-  editService<K extends keyof ServiceDraft>(key: K, value: ServiceDraft[K]): void { if (this.disabled || this.service.cua && ["endpoint", "authentication", "credentialPath", "cua"].includes(key)) return; this.service = { ...this.service, [key]: value }; this.discovered = null; this.confirmation = null; delete this.fieldErrors[key]; this.changed(); }
-  allowTool(tool: PersonalTool, allowed: boolean): void { if (this.disabled || this.service.cua && !this.discovered?.some(item => item.name === tool.name) && !this.service.tools.some(item => item.name === tool.name)) return; this.service.tools = allowed ? [...this.service.tools.filter(item => item.name !== tool.name), tool] : this.service.tools.filter(item => item.name !== tool.name); this.service.toolEffects = Object.fromEntries(this.service.tools.map(item => [item.name, this.service.toolEffects[item.name] ?? "unknown"])); this.toolsChanged = true; this.confirmation = null; this.changed(); }
-  toolEffect(name: string, effect: PersonalToolEffect): void { if (this.disabled || this.service.cua || !this.service.tools.some(tool => tool.name === name) || this.mcpNeedsMigration) return; this.service.toolEffects = { ...this.service.toolEffects, [name]: effect }; this.confirmation = null; this.changed(); }
-  rebindCredential(): void { if (this.disabled || this.service.cua || this.service.authentication !== "credential" || this.mcpNeedsMigration) return; this.service.credentialRebind = true; this.confirmation = null; this.changed(); }
+  editService<K extends keyof ServiceDraft>(key: K, value: ServiceDraft[K]): void { if (this.disabled || this.service.cua && ["endpoint", "authentication", "credentialPath", "cua"].includes(key)) return; this.service = { ...this.service, [key]: value }; this.discovered = null; delete this.fieldErrors[key]; this.changed(); }
+  allowTool(tool: PersonalTool, allowed: boolean): void { if (this.disabled || this.service.cua && !this.discovered?.some(item => item.name === tool.name) && !this.service.tools.some(item => item.name === tool.name)) return; this.service.tools = allowed ? [...this.service.tools.filter(item => item.name !== tool.name), tool] : this.service.tools.filter(item => item.name !== tool.name); this.service.toolEffects = Object.fromEntries(this.service.tools.map(item => [item.name, this.service.toolEffects[item.name] ?? "unknown"])); this.toolsChanged = true; this.changed(); }
+  toolEffect(name: string, effect: PersonalToolEffect): void { if (this.disabled || this.service.cua || !this.service.tools.some(tool => tool.name === name) || this.mcpNeedsMigration) return; this.service.toolEffects = { ...this.service.toolEffects, [name]: effect }; this.changed(); }
+  rebindCredential(): void { if (this.disabled || this.service.cua || this.service.authentication !== "credential" || this.mcpNeedsMigration) return; this.service.credentialRebind = true; this.changed(); }
   private serviceValue(): Record<string, unknown> | null {
     if (this.service.cua) {
       if (!this.service.label.trim() || this.service.label.length > 128) { this.fieldErrors = { label: "请输入不超过 128 字的服务名称。" }; this.changed(); return null; }
@@ -183,7 +190,7 @@ export class PersonalSettingsPageState implements SettingsForm {
     const target = this.cuaTargets[index];
     if (!target || this.disabled) return;
     this.service = { ...emptyService(), id: this.service.id, label: target.label, cua: target.config };
-    this.discovered = null; this.toolsChanged = true; this.confirmation = null; this.changed();
+    this.discovered = null; this.toolsChanged = true; this.changed();
   }
   async readCua(): Promise<void> {
     this.cuaImages = []; this.cuaConfirmation = null;
@@ -249,9 +256,9 @@ export class PersonalSettingsPageState implements SettingsForm {
     this.changed();
   }
   async discover(): Promise<void> { const service = this.serviceValue(); if (!service) return; const result = await this.queryRemote<{ tools: PersonalTool[] }>("mcp.discover", { service }); if (result) { this.discovered = result.tools; this.message = ""; this.changed(); } }
-  prepareService(action: "enable" | "disable" | "remove" | "migrate"): void {
-    if (this.dirty) return;
-    this.prepare(this.envelope(action === "migrate" ? "mcp.migrate" : action === "remove" ? "mcp.remove" : "mcp.set-enabled", action === "migrate" ? {} : { id: this.service.id, ...(action === "remove" ? {} : { enabled: action === "enable" }) }), action === "migrate" ? "迁入 MCP 调用格式；保留原服务和凭据引用，旧普通工具的副作用默认为不明" : `${action === "remove" ? "删除" : action === "enable" ? "启用" : "停用"} MCP 服务 ${this.service.label}；原调用的效果仍须核实`);
+  async changeService(action: "enable" | "disable" | "remove" | "migrate"): Promise<boolean> {
+    if (this.dirty) return false;
+    return this.apply({ v: 1, op: action === "migrate" ? "mcp.migrate" : action === "remove" ? "mcp.remove" : "mcp.set-enabled", ...(action === "migrate" ? {} : { id: this.service.id, ...(action === "remove" ? {} : { enabled: action === "enable" }) }) });
   }
   async readMcpOperations(more = false): Promise<void> {
     if (more && this.mcpNextOffset === undefined) return;
@@ -303,34 +310,34 @@ export class PersonalSettingsPageState implements SettingsForm {
     if (this.mcpDetail?.summary.operation === operation) this.mcpDetail = { ...this.mcpDetail, summary: { ...this.mcpDetail.summary, canEnd: false, ended: true } };
     this.message = "已接纳工作收尾，原调用结果仍未知；真实资源停止与最终报告由原工作继续核实。"; this.changed();
   }
-  private prepare(request: Record<string, unknown>, label: string): void { if (this.disabled || !this.writable || this.phase === "conflict") { this.message = "请先核实此对象的原更改或配置冲突。"; this.changed(); return; } this.confirmation = { request, label }; this.changed(); }
   async save(): Promise<boolean> {
-    if (this.category === "skills" || this.disabled || !this.dirty || this.phase === "conflict") return false;
+    if (this.category === "skills" || this.disabled || !this.dirty) return false;
     if (this.mcpLike && !this.service.cua && this.view?.settings.mcp && this.view.settings.mcp.version !== 4) { this.message = "请先迁入 MCP 调用格式，再保存普通服务。"; this.changed(); return false; }
-    if (this.category === "models") { const value = this.modelValue(); if (value) this.prepare(this.envelope("config.save", { target: "model", value }), "保存当前模型，影响后续任务"); }
-    else { if (this.service.cua && !this.service.tools.some(tool => tool.name === "computer_screenshot")) { this.message = "电脑入口必须允许 computer_screenshot 才能观察与恢复。"; this.changed(); return false; } const service = this.serviceValue(); if (service) this.prepare(this.envelope("mcp.save-service", { service: { ...service, ...(!this.service.cua && !this.mcpNeedsMigration ? { toolEffects: this.service.toolEffects } : {}), ...(this.view?.settings.mcp?.version === 1 ? {} : { enabled: this.service.enabled }), ...(this.toolsChanged || !this.services.some(item => item.id === this.service.id) ? { tools: this.service.tools } : {}) } }), `保存 MCP 服务 ${this.service.label}${this.service.credentialRebind ? "，重新绑定凭据并使未开始的旧批准失效" : ""}`); }
-    return false;
+    if (this.category === "models") {
+      const value = this.modelValue();
+      return value ? this.apply({ v: 1, op: "config.save", target: "model", value }) : false;
+    }
+    if (this.service.cua && !this.service.tools.some(tool => tool.name === "computer_screenshot")) { this.message = "电脑入口必须允许 computer_screenshot 才能观察与恢复。"; this.changed(); return false; }
+    const service = this.serviceValue();
+    return service ? this.apply({ v: 1, op: "mcp.save-service", service: { ...service, ...(!this.service.cua && !this.mcpNeedsMigration ? { toolEffects: this.service.toolEffects } : {}), ...(this.view?.settings.mcp?.version === 1 ? {} : { enabled: this.service.enabled }), ...(this.toolsChanged || !this.services.some(item => item.id === this.service.id) ? { tools: this.service.tools } : {}) } }) : false;
   }
-  async saveAndContinue(): Promise<boolean> {
-    await this.save();
-    if (!this.confirmation) return false;
-    return new Promise(resolve => { this.continueAfterSave = resolve; });
+  private async apply(request: Record<string, unknown>): Promise<boolean> {
+    if (this.disabled || request.op !== "settings.withdraw" && !this.writable) return false;
+    const generation = this.generation;
+    this.pendingSave = crypto.randomUUID();
+    this.phase = "saving"; this.message = "正在保存…"; this.changed();
+    const result = await this.request<PersonalPageView>("apply", { id: this.pendingSave, request });
+    if (!this.accepts(generation)) return false;
+    if (!result.ok) { if (["not_sent", "rejected"].includes(result.error.outcome)) this.pendingSave = null; this.fail(result.error, true); this.changed(); return false; }
+    this.view = result.value; this.uncertain = this.hasUnknown || result.value.saved === null;
+    if (result.value.saved) { this.pendingSave = null; this.adopt(); }
+    else if (result.value.saved === false) this.pendingSave = null;
+    this.phase = this.uncertain ? "unknown" : result.value.saved ? "ready" : "error"; this.message = result.value.message; this.changed();
+    return result.value.saved === true && !this.uncertain;
   }
-  private savedForNavigation(saved: boolean): void { this.continueAfterSave?.(saved); this.continueAfterSave = null; }
-  cancelConfirmation(): void { this.confirmation = null; this.savedForNavigation(false); this.changed(); }
-  async confirmApply(): Promise<boolean> {
-    if (!this.confirmation || this.disabled || !this.writable) return false;
-    const request = this.confirmation.request, generation = this.generation;
-    this.confirmation = null; this.phase = "saving"; this.message = "正在保存并应用配置…"; this.changed();
-    const result = await this.request<PersonalPageView>("apply", { request });
-    if (!this.accepts(generation)) { this.savedForNavigation(false); return false; }
-    if (!result.ok) { this.fail(result.error, true); this.savedForNavigation(false); this.changed(); return false; }
-    if (!this.belongs(result.value)) { this.uncertain = true; this.phase = "unknown"; this.message = "保存应答档案不匹配，请核实原服务；不会重新提交。"; this.savedForNavigation(false); this.changed(); return false; }
-    this.view = result.value; this.uncertain = this.hasUnknown;
-    if (result.value.saved) this.adopt();
-    this.phase = this.uncertain ? "unknown" : result.value.saved ? "ready" : "error"; this.message = this.mcpLike && this.phase === "ready" ? "" : result.value.message; this.changed();
-    const saved = result.value.saved === true && !this.uncertain;
-    this.savedForNavigation(saved); return saved;
+  leave(): void {
+    this.cuaImages = []; this.cuaConfirmation = null; this.mcpEndConfirmation = null;
+    if (this.phase !== "saving") this.invalidate();
   }
   private async recover(action: "restore" | "finish"): Promise<void> {
     if (!this.view?.pending || this.reading || this.phase === "saving") return;
@@ -339,7 +346,7 @@ export class PersonalSettingsPageState implements SettingsForm {
     if (!this.accepts(generation)) return;
     this.reading = false;
     if (!result.ok) { this.uncertain = true; this.fail(result.error); }
-    else if (this.belongs(result.value)) { this.view = result.value; this.uncertain = this.hasUnknown; this.phase = this.uncertain ? "unknown" : this.dirty ? "conflict" : "ready"; this.message = this.mcpLike && this.phase === "ready" ? "" : this.view.message; if (!this.dirty) this.adopt(); }
+    else { this.view = result.value; this.uncertain = this.hasUnknown; this.phase = this.uncertain ? "unknown" : "ready"; this.message = this.mcpLike && this.phase === "ready" ? "" : this.view.message; if (!this.dirty) this.adopt(); }
     this.changed();
   }
   restore(): Promise<void> { return this.recover("restore"); }
@@ -351,15 +358,14 @@ export class PersonalSettingsPageState implements SettingsForm {
     if (!this.accepts(generation)) return;
     this.reading = false;
     if (!result.ok) this.fail(result.error);
-    else if (this.belongs(result.value)) { const preserve = this.dirty; this.view = result.value; this.uncertain = this.hasUnknown; if (!preserve) this.adopt(); this.phase = this.uncertain ? "unknown" : preserve ? "conflict" : "ready"; this.message = result.value.message; }
+    else { this.acceptView(result.value); this.message = result.value.message; }
     this.changed();
   }
   async withdrawOperation(id: string): Promise<void> {
     if (this.category === "skills") return;
     const original = this.operations.find(item => item.id === id);
     if (!original || original.status === "unknown" || this.dirty || this.reading || this.phase === "saving") return;
-    this.confirmation = { request: this.envelope("settings.withdraw", { id }, original.scope === "managed"), label: "撤回这项待生效更改，保留原保存记录" };
-    this.changed();
+    await this.apply({ v: 1, op: "settings.withdraw", id });
   }
   async more(): Promise<void> {
     if (!this.view || this.dirty) return;

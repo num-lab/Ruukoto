@@ -41,6 +41,7 @@ function harness(category: "models" | "skills" | "mcp" | "computer") {
     calls.push({ target, op, params: structuredClone(params), request: structuredClone(request) });
     if (op === "desktop_personal_settings_read") return hooks.read ? hooks.read() : ok(structuredClone(view));
     if (op === "desktop_personal_settings_apply") return hooks.apply ? hooks.apply(request) : ok({ ...structuredClone(view), saved: true, message: "已保存且已启动。" });
+    if (op === "desktop_personal_settings_operation") return ok(structuredClone(view));
     if (op === "desktop_personal_settings_restore") { view.settings.online = true; view.maintenance.online = true; return ok(structuredClone(view)); }
     if (op === "desktop_personal_settings_finish") { view.pending = null; return ok(structuredClone(view)); }
     assert.equal(op, "desktop_personal_settings_request");
@@ -68,18 +69,16 @@ test("Personal 各页从独立管理连接读取真实档案，不依赖旧聊�
   }
 });
 
-test("模型保存先确认影响，取消不写；确认后只提交当前档案与原修订", async () => {
+test("模型一次保存直接提交业务内容，不携带原档案与旧修订", async () => {
   const h = harness("models"); await h.state.read(); h.state.editModel("modelId", "next-model");
-  assert.equal(await h.state.save(), false); assert.ok(h.state.confirmation); assert.equal(h.writes().length, 0);
-  h.state.cancelConfirmation(); assert.equal(h.state.confirmation, null); assert.equal(h.state.dirty, true);
-  await h.state.save(); await h.state.confirmApply();
+  assert.equal(await h.state.save(), true);
   assert.equal(h.writes().length, 1);
-  assert.deepEqual(h.writes()[0].request, { v: 1, op: "config.save", profile, target: "model", expectedRevision: modelRevision, value: { ...modelConfig, modelId: "next-model" } });
+  assert.deepEqual(h.writes()[0].request, { v: 1, op: "config.save", target: "model", value: { ...modelConfig, modelId: "next-model" } });
 });
 
 test("模型字段校验定位错误，输出上限必须小于上下文容量", async () => {
   const h = harness("models"); await h.state.read(); h.state.editModel("modelId", "");
-  await h.state.save(); assert.ok(h.state.fieldErrors.modelId); assert.equal(h.state.confirmation, null);
+  await h.state.save(); assert.ok(h.state.fieldErrors.modelId); assert.equal(h.writes().length, 0);
   h.state.editModel("modelId", "valid"); h.state.editModel("contextWindow", "1024"); h.state.editModel("maxTokens", "1024");
   await h.state.save(); assert.ok(h.state.fieldErrors.maxTokens); assert.equal(h.writes().length, 0);
 });
@@ -99,7 +98,7 @@ test("Personal Skills 只读固定远端目录，检索和离开不产生草稿�
   assert.equal(h.state.view?.settings.skills.directory, "/home/ruukoto/.agents/skills");
   h.state.query = "不存在"; assert.equal(h.state.filtered.length, 0);
   h.state.query = "远端"; assert.equal(h.state.filtered.length, 1);
-  assert.equal(h.state.dirty, false); assert.equal(await h.state.save(), false); assert.equal(h.state.confirmation, null); assert.equal(h.writes().length, 0);
+  assert.equal(h.state.dirty, false); assert.equal(await h.state.save(), false); assert.equal(h.writes().length, 0);
   const settings = new SettingsState(() => {}); settings.show("personal", "pa-skills"); settings.form = h.state;
   settings.chooseCategory("pa-models"); assert.equal(settings.category, "pa-models"); assert.equal(settings.leave, null);
 });
@@ -108,9 +107,9 @@ test("MCP 编辑保留隐藏端点和完整工具定义，本地效果独立保�
   const h = harness("mcp"); await h.state.read(); await h.state.selectService(service.id);
   h.state.editService("label", "新服务名称");
   const newTool = { name: "search", inputSchema: { type: "object", properties: {} }, annotations: { readOnlyHint: true } };
-  h.state.allowTool(newTool, true); await h.state.save(); await h.state.confirmApply();
+  h.state.allowTool(newTool, true); await h.state.save();
   const request = h.writes()[0].request, value = request.service as Record<string, unknown>;
-  assert.equal(request.op, "mcp.save-service"); assert.equal(request.expectedRevision, mcpRevision); assert.deepEqual(request.profile, profile);
+  assert.equal(request.op, "mcp.save-service"); assert.equal(request.expectedRevision, undefined); assert.equal(request.profile, undefined);
   assert.equal(value.endpoint, service.endpoint); assert.equal(value.label, "新服务名称");
   assert.deepEqual(value.tools, [remoteTool, newTool]);
   assert.deepEqual(value.toolEffects, { lookup: "unknown", search: "unknown" });
@@ -120,18 +119,18 @@ test("MCP 编辑保留隐藏端点和完整工具定义，本地效果独立保�
 test("Personal MCP 显式修改效果或重绑凭据，不改远端定义也不暗中重绑同路径", async () => {
   const h = harness("mcp"); await h.state.read(); await h.state.selectService(service.id);
   h.state.editService("label", "只改名称"); await h.state.save();
-  assert.equal(Object.hasOwn(h.state.confirmation!.request.service as object, "credentialRebind"), false);
-  h.state.cancelConfirmation();
+  assert.equal(Object.hasOwn(h.writes()[0].request.service as object, "credentialRebind"), false);
+  await h.state.selectService(service.id);
   h.state.toolEffect("lookup", "read"); h.state.rebindCredential();
   assert.deepEqual(h.state.service.tools, [remoteTool]);
-  await h.state.save(); await h.state.confirmApply();
-  const saved = h.writes()[0].request.service as Record<string, unknown>;
+  await h.state.save();
+  const saved = h.writes()[1].request.service as Record<string, unknown>;
   assert.deepEqual(saved.toolEffects, { lookup: "read" });
   assert.equal(saved.credentialRebind, true); assert.equal(saved.credentialPath, service.credential.path);
   assert.equal(Object.hasOwn(saved, "tools"), false);
   const ordinary = harness("mcp"); ordinary.view.settings.mcp.version = 3; await ordinary.state.read(); await ordinary.state.selectService(service.id);
   ordinary.state.editService("label", "旧配置"); await ordinary.state.save();
-  assert.equal(ordinary.state.confirmation, null); assert.match(ordinary.state.message, /先迁入/); assert.equal(ordinary.writes().length, 0);
+  assert.match(ordinary.state.message, /先迁入/); assert.equal(ordinary.writes().length, 0);
 });
 
 test("Personal MCP 原调用收尾不走配置账本，丢答须先核实同一调用", async () => {
@@ -165,7 +164,7 @@ test("MCP 服务详情合并完整工具分页，未改允许列表时保存不�
   await h.state.selectService(service.id);
   assert.deepEqual(h.state.service.tools, [remoteTool, secondTool]);
   assert.deepEqual(h.calls.filter(call => call.request.op === "mcp.get").map(call => call.request.offset), [0, 1]);
-  h.state.editService("label", "只改名称"); await h.state.save(); await h.state.confirmApply();
+  h.state.editService("label", "只改名称"); await h.state.save();
   assert.equal("tools" in (h.writes()[0].request.service as Record<string, unknown>), false);
 });
 
@@ -199,11 +198,11 @@ test("技能续页不混合变化的目录或版本，保留已取得列表", as
   }
 });
 
-test("新 MCP 服务要求明确认证选择，匿名选择后才能准备保存", async () => {
+test("新 MCP 服务要求明确认证选择，选择后直接保存", async () => {
   const h = harness("mcp"); await h.state.read(); await h.state.selectService(null);
   h.state.editService("label", "匿名服务"); h.state.editService("endpoint", "https://mcp.example/public");
-  await h.state.save(); assert.equal(h.state.confirmation, null); assert.ok(Object.keys(h.state.fieldErrors).length);
-  h.state.editService("authentication", "anonymous"); await h.state.save(); assert.ok(h.state.confirmation); await h.state.confirmApply();
+  await h.state.save(); assert.ok(Object.keys(h.state.fieldErrors).length);
+  h.state.editService("authentication", "anonymous"); assert.equal(await h.state.save(), true);
   const value = h.writes()[0].request.service as Record<string, unknown>;
   assert.equal(value.authentication, "anonymous"); assert.equal(value.credential, undefined); assert.equal(value.credentialPath, undefined);
 });
@@ -214,7 +213,7 @@ test("无关工作、离线和无systemd不阻止配置保存", async () => {
     if (blocked === "busy") h.view.settings.blockers = [{ kind: "pending-work" }];
     if (blocked === "offline") h.view.settings.online = false;
     if (blocked === "readonly") h.view.maintenance.writable = false;
-    await h.state.read(); h.state.editModel("modelId", "next"); await h.state.save(); await h.state.confirmApply();
+    await h.state.read(); h.state.editModel("modelId", "next"); await h.state.save();
     assert.equal(h.state.writable, true); assert.equal(h.writes().length, 1);
     if (blocked === "busy") assert.deepEqual(h.state.view?.settings.blockers, [{ kind: "pending-work" }]);
   }
@@ -222,10 +221,11 @@ test("无关工作、离线和无systemd不阻止配置保存", async () => {
 
 test("保存丢答保持待核实，查询失败不开放重发；恢复服务与结束维护不重存", async () => {
   const h = harness("models"); await h.state.read(); h.state.editModel("modelId", "uncertain-draft");
-  h.hooks.apply = async () => fail("unknown"); await h.state.save(); await h.state.confirmApply();
+  h.hooks.apply = async () => fail("unknown"); await h.state.save();
   assert.equal(h.state.phase, "unknown"); assert.equal(h.writes().length, 1);
-  await h.state.save(); await h.state.confirmApply(); assert.equal(h.writes().length, 1);
-  h.hooks.read = async () => fail("not_sent"); await h.state.read(); assert.equal(h.state.phase, "unknown");
+  assert.equal(h.state.needsRefresh, true);
+  await h.state.save(); assert.equal(h.writes().length, 1);
+  h.hooks.read = async () => fail("not_sent"); await h.state.read(); assert.equal(h.state.phase, "unknown"); assert.equal(h.state.needsRefresh, false);
   h.hooks.read = undefined;
   h.view.pending = { v: 1, id: "original-maintenance", profile, op: "config.save", target: "model", expectedRevision: modelRevision, requestDigest: "1".repeat(64), saveAttempted: true, stage: "saving" };
   await h.state.read(); assert.equal(h.state.phase, "unknown"); assert.equal(h.state.model.modelId, "uncertain-draft");
@@ -238,7 +238,7 @@ test("已保存但启动失败保留事实，并提供恢复原服务的操作",
   h.view.pending = { v: 1, id: "saved-maintenance", profile, op: "config.save", target: "model", expectedRevision: modelRevision, requestDigest: "1".repeat(64), saveAttempted: true, stage: "starting", savedRevision: contentRevision };
   h.view.saved = true; h.view.settings.online = false; h.view.maintenance.online = false;
   h.hooks.apply = async () => ok(structuredClone(h.view));
-  await h.state.save(); await h.state.confirmApply();
+  await h.state.save();
   assert.equal(h.state.view?.saved, true); assert.equal(h.state.phase, "unknown");
   await h.state.restore(); assert.ok(h.calls.some(call => call.op === "desktop_personal_settings_restore")); assert.equal(h.writes().length, 1);
 });
@@ -250,7 +250,7 @@ test("失效轮次的读取与保存响应不能覆盖原草稿或另一目标",
   assert.equal(read.state.view, null);
   const write = harness("models"); await write.state.read(); write.state.editModel("modelId", "original-draft");
   const pendingWrite = deferred<DesktopResult<unknown>>(); write.hooks.apply = () => pendingWrite.promise;
-  await write.state.save(); const saving = write.state.confirmApply(); write.state.invalidate();
+  const saving = write.state.save(); write.state.invalidate();
   pendingWrite.resolve(ok({ ...write.view, saved: true })); await saving;
   assert.equal(write.state.phase, "unknown"); assert.equal(write.state.model.modelId, "original-draft"); assert.equal(write.writes().length, 1);
 });
@@ -262,15 +262,42 @@ test("技能查询应答档案不匹配时拒绝续页，原档案与列表保�
   assert.equal(h.state.phase, "conflict"); assert.equal(h.state.skills.length, 1); assert.deepEqual(h.state.view?.settings.profile, profile); assert.equal(h.writes().length, 0);
 });
 
-test("重新读取保留冲突草稿，放弃后才能基于新修订保存", async () => {
+test("重新读取保留草稿，远端变化和相同修订都不阻止直接保存", async () => {
   const h = harness("models"); await h.state.read(); h.state.editModel("modelId", "local-draft");
   h.view.settings.revisions.model = contentRevision; h.view.settings.model.config.modelId = "new-remote-model";
   await h.state.read();
-  assert.equal(h.state.phase, "conflict"); assert.equal(h.state.model.modelId, "local-draft");
+  assert.equal(h.state.phase, "ready"); assert.equal(h.state.model.modelId, "local-draft");
   assert.equal(h.state.view?.settings.model?.config.modelId, "new-remote-model");
-  await h.state.save(); assert.equal(h.state.confirmation, null); assert.equal(h.writes().length, 0);
-  h.state.discard(); h.state.editModel("modelId", "resolved-draft"); await h.state.save(); await h.state.confirmApply();
-  assert.equal(h.writes()[0].request.expectedRevision, contentRevision);
+  assert.equal(await h.state.save(), true); assert.equal(h.writes().length, 1);
+  assert.equal(h.writes()[0].request.expectedRevision, undefined);
+  h.state.editModel("modelId", "another-draft"); await h.state.read();
+  assert.equal(h.state.phase, "ready"); assert.equal(h.state.model.modelId, "another-draft");
+});
+
+test("等待生效时自动读取不关闭其他服务编辑器", async () => {
+  const h = harness("mcp");
+  h.view.operations = [{ v: 2, id: "00000000-0000-4000-8000-000000000003", profile, target: "mcp", scope: "other-service", requestDigest: "1".repeat(64), status: "waiting", savedRevision: mcpRevision, effectiveRevision: null, code: "mcp_busy", relatedOperations: [] }];
+  await h.state.read(); await h.state.selectService(service.id);
+  assert.equal(h.state.dirty, false); await h.state.read();
+  assert.equal(h.state.editingService, true); assert.equal(h.state.service.id, service.id);
+  assert.equal(h.state.writable, true); h.state.editService("label", "继续编辑"); assert.equal(await h.state.save(), true);
+  h.state.cuaImages = [{ operation: 12, observation: 34, id: "image", src: "data:image/png;base64,AA==", loaded: true }];
+  await h.state.read(); assert.equal(h.state.cuaImages.length, 1);
+});
+
+for (const action of ["read", "operation"] as const) for (const status of ["active", "rejected"] as const) test(`保存丢答后${action}按原键核实为${status}，草稿与结果收敛且不重存`, async () => {
+  const h = harness("models"); await h.state.read(); h.state.editModel("modelId", "submitted-model");
+  h.hooks.apply = async () => fail("unknown"); await h.state.save();
+  const id = String(h.writes()[0].params.id);
+  h.view.operations = [{ v: 2, id, profile, target: "model", scope: "*", requestDigest: "1".repeat(64), status, savedRevision: status === "active" ? contentRevision : null, effectiveRevision: status === "active" ? contentRevision : null, code: status, relatedOperations: [] }];
+  if (status === "active") h.view.settings.model.config.modelId = "submitted-model";
+  if (action === "read") await h.state.read();
+  else await h.state.checkOperation(id);
+  assert.equal(h.state.phase, status === "active" ? "ready" : "error"); assert.equal(h.state.dirty, status !== "active");
+  assert.equal(h.state.model.modelId, "submitted-model"); assert.equal(h.writes().length, 1);
+  assert.equal(h.state.needsRefresh, false);
+  const settings = new SettingsState(() => {}); settings.show("personal", "pa-models"); settings.form = h.state;
+  assert.equal(settings.close(), status === "active");
 });
 
 test("关闭后新建页面重新读取原档案，不复用本机草稿缓存", async () => {
@@ -283,29 +310,43 @@ test("Personal 统一连接断开使在途保存待核实，迟到结果不改�
   const h = harness("models"); await h.state.read(); h.state.editModel("modelId", "new-model");
   const settings = new SettingsState(() => {}); settings.open = true; settings.category = "pa-models"; settings.form = h.state;
   const response = deferred<DesktopResult<unknown>>(); h.hooks.apply = () => response.promise;
-  await h.state.save(); const saving = h.state.confirmApply();
+  const saving = h.state.save();
   settings.observe("personal", { type: "state", state: "closed" });
   response.resolve(ok({ ...h.view, saved: true }));
   assert.equal(await saving, false); assert.equal(h.state.phase, "unknown"); assert.equal(h.state.model.modelId, "new-model");
 });
 
-test("Personal 保存并继续保留原导航，维护确认取消不导航，成功后完成导航", async () => {
+test("Personal 保存并继续一次提交后完成原导航", async () => {
   const h = harness("models"); await h.state.read(); h.state.editModel("modelId", "new-model");
   const settings = new SettingsState(() => {}); settings.open = true; settings.category = "pa-models"; settings.form = h.state;
   settings.chooseCategory("pa-skills");
-  const cancelled = settings.saveAndLeave(); await Promise.resolve();
-  assert.ok(h.state.confirmation); assert.equal(settings.category, "pa-models"); assert.ok(settings.leave);
-  h.state.cancelConfirmation(); await cancelled; assert.equal(settings.category, "pa-models");
-  const continuing = settings.saveAndLeave(); await Promise.resolve();
-  await h.state.confirmApply(); await continuing;
+  await settings.saveAndLeave();
   assert.equal(settings.category, "pa-skills"); assert.equal(settings.leave, null); assert.equal(h.writes().length, 1);
+});
+
+for (const outcome of ["saved", "not_sent", "unknown"] as const) test(`PA保存中离页保留原提交及${outcome}结果，不锁其他设置`, async () => {
+  const h = harness("models"); await h.state.read(); h.state.editModel("modelId", "submitted-model");
+  const settings = new SettingsState(() => {}); settings.show("personal", "pa-models"); settings.form = h.state;
+  const response = deferred<DesktopResult<unknown>>(); h.hooks.apply = () => response.promise;
+  const saving = h.state.save(); assert.equal(h.state.phase, "saving");
+  assert.equal(await h.state.save(), false); assert.equal(h.writes().length, 1);
+  settings.chooseCategory("code-models"); settings.releasePersonalPage("original:models", h.state);
+  assert.equal(settings.category, "code-models"); assert.equal(settings.leave, null);
+  assert.equal(settings.personalPages.get("original:models"), h.state); assert.equal(settings.personalPages.has("other:models"), false);
+  response.resolve(outcome === "saved" ? ok({ ...h.view, saved: true }) : fail(outcome));
+  assert.equal(await saving, outcome === "saved");
+  assert.equal(h.state.phase, outcome === "saved" ? "ready" : outcome === "unknown" ? "unknown" : "error");
+  if (outcome !== "saved") assert.equal(h.state.model.modelId, "submitted-model");
+  settings.show("personal", "pa-models"); settings.form = h.state;
+  if (outcome === "unknown") { assert.equal(settings.close(), true); assert.equal(settings.open, false); }
+  assert.equal(h.writes().length, 1);
 });
 
 test("旧 MCP 格式须先显式迁入，再允许新增停用服务", async () => {
   const h = harness("mcp"); h.view.settings.mcp.version = 1; await h.state.read();
   await h.state.selectService(null); assert.equal(h.state.editingService, false); assert.equal(h.writes().length, 0);
-  h.state.prepareService("migrate"); assert.equal(h.state.confirmation?.request.op, "mcp.migrate");
-  await h.state.confirmApply(); assert.equal(h.writes().length, 1);
+  await h.state.changeService("migrate"); assert.equal(h.writes()[0].request.op, "mcp.migrate");
+  assert.equal(h.writes().length, 1);
 });
 
 test("Personal 三页 SSR 展示真实字段、远端来源、维护恢复与安全正文", async t => {
@@ -324,7 +365,7 @@ test("Personal 三页 SSR 展示真实字段、远端来源、维护恢复与安
       h.state.mcpOperations = [summary]; h.state.mcpDetail = { summary, text: "原调用参数与未知结果" };
     }
     const html = renderToStaticMarkup(createElement(PersonalSettingsEditor, { state: h.state, onConnection() {} }));
-    assert.match(html, /remote\/profile/);
+    assert.doesNotMatch(html, /remote\/profile|档案状态|维护原因|查看保存影响|保存更改？/);
     assert.doesNotMatch(html, /摘要模型|默认模型|配置来源|选择工作区|Bearer 令牌|存储 API Key/);
     if (category === "models") { assert.match(html, /API 类型/); assert.match(html, /上下文上限/); assert.match(html, /凭据环境变量引用/); assert.match(html, /图片输入/); assert.match(html, /role="switch"/); }
     if (category === "skills") {
@@ -347,10 +388,10 @@ test("Personal MCP：Cua固定配置不进入HTTP编辑器，启停保留原服�
   h.state.editService("endpoint", "https://replacement.example/mcp");
   h.state.allowTool({ name: "unsafe", inputSchema: {} }, true);
   assert.equal(h.state.service.endpoint, ""); assert.equal(h.state.service.tools.length, 1); assert.equal(h.state.dirty, false);
-  h.state.prepareService("disable");
-  assert.equal(h.state.confirmation?.request.op, "mcp.set-enabled");
-  assert.equal(h.state.confirmation?.request.id, service.id);
-  assert.equal(h.state.confirmation?.request.enabled, false);
+  await h.state.changeService("disable");
+  assert.equal(h.writes()[0].request.op, "mcp.set-enabled");
+  assert.equal(h.writes()[0].request.id, service.id);
+  assert.equal(h.writes()[0].request.enabled, false);
 });
 
 test("Personal Cua 设置从远端选择固定目标，保存不要求路径、哈希或认证输入", async () => {
@@ -361,7 +402,7 @@ test("Personal Cua 设置从远端选择固定目标，保存不要求路径、�
   await h.state.addCua(); assert.equal(h.state.cuaTargets.length, 1); h.state.chooseCua(0);
   assert.deepEqual(h.state.service.cua, cua); assert.equal(h.state.service.label, "专用桌面");
   await h.state.discover(); h.state.allowTool(screenshot, true);
-  await h.state.save(); await h.state.confirmApply();
+  await h.state.save();
   const saved = h.writes()[0].request.service as Record<string, unknown>;
   assert.deepEqual(saved.cua, cua); assert.equal(saved.enabled, false); assert.deepEqual(saved.tools, [screenshot]);
   assert.equal("endpoint" in saved, false); assert.equal("authentication" in saved, false);
@@ -411,8 +452,7 @@ test("Personal Cua 截图缺页或哈希不符不显示，目标缺安装仍可�
   h.hooks.query = async () => ok({ product: "ruukoto", profile, targets: [], issues: [{ code: "cua_artifact_missing", message: "请安装官方固定版本。" }] });
   await h.state.addCua(); assert.equal(h.state.cuaTargets.length, 0); assert.equal(h.state.cuaIssues[0].code, "cua_artifact_missing");
   h.state.discard(); await h.state.selectService(null); h.state.editService("label", "HTTP"); h.state.editService("endpoint", "https://mcp.example/new"); h.state.editService("authentication", "anonymous");
-  await h.state.save(); assert.ok(h.state.confirmation);
-  h.state.cancelConfirmation(); h.state.discard();
+  assert.equal(await h.state.save(), true); h.state.discard();
   const id = "00000000-0000-4000-8000-000000000010";
   h.state.cua = { available: true, paused: true, busy: false, operations: [{ operation: 12, service: "电脑", tool: "click", effect: "effect_unknown", code: "timeout", cuaRecovery: "observed", cuaObservation: 34, images: [{ id, mime: "image/png", bytes: 3, sha256: "a".repeat(64) }] }] };
   h.hooks.query = async () => ok({ product: "ruukoto", profile, id, mime: "image/png", bytes: 3, sha256: "a".repeat(64), observation: 34, offset: 0, base64: Buffer.from("bad").toString("base64") });
@@ -434,10 +474,10 @@ test("Personal 电脑页共用 MCP 修订与保存入口，只编辑 CUA 服务"
   assert.deepEqual(h.state.services.map(item => item.id), ["existing-service", "cua-service"], "状态层保留全量服务，过滤在页面渲染");
   await h.state.selectService(cuaService.id);
   assert.deepEqual(h.state.service.cua, cuaService.cua);
-  h.state.prepareService("disable");
-  assert.equal(h.state.confirmation?.request.op, "mcp.set-enabled");
-  assert.equal(h.state.confirmation?.request.expectedRevision, mcpRevision);
-  assert.equal(h.state.confirmation?.request.id, cuaService.id);
+  await h.state.changeService("disable");
+  assert.equal(h.writes()[0].request.op, "mcp.set-enabled");
+  assert.equal(h.writes()[0].request.expectedRevision, undefined);
+  assert.equal(h.writes()[0].request.id, cuaService.id);
 });
 
 test("Personal 电脑页 SSR 只呈现 Linux 沙箱与恢复控制，MCP 页不再显示 Cua", async t => {
@@ -472,7 +512,7 @@ test("退役技能配置的异常和待核实更改保留记录，不阻止只�
   assert.deepEqual(skills.state.view!.settings.fileIssues, [issue]); assert.equal(skills.state.operations[0].id, id); assert.equal(skills.state.fileIssues.length, 0);
   skills.hooks.query = async () => ok({ profile, ...skills.view.settings.skills, skills: [{ ...skill, id: secondSkillId }], offset: 1, hasMore: false });
   await skills.state.more(); assert.equal(skills.state.skills.length, 2);
-  await skills.state.withdrawOperation(id); assert.equal(skills.state.confirmation, null); assert.equal(skills.writes().length, 0);
+  await skills.state.withdrawOperation(id); assert.equal(skills.writes().length, 0);
   const settings = new SettingsState(() => {}); settings.show("personal", "pa-skills"); settings.form = skills.state;
   settings.chooseCategory("pa-models"); assert.equal(settings.category, "pa-models");
 });
@@ -485,7 +525,7 @@ test("v2待核实原操作只锁本目标，导航后其他配置可保存且原
   const settings = new SettingsState(() => {}); settings.show("personal", "pa-models"); settings.form = models.state;
   settings.chooseCategory("pa-skills"); assert.equal(settings.category, "pa-skills");
   await skills.state.read(); assert.equal(skills.state.writable, false); assert.equal(skills.state.disabled, false);
-  await skills.state.save(); await skills.state.confirmApply();
+  await skills.state.save();
   assert.equal(skills.writes().length, 0); assert.equal(skills.state.view?.operations?.[0].id, id);
   await models.state.read(); assert.equal(models.state.operations[0].id, id); assert.equal(models.writes().length, 0);
 });
@@ -495,9 +535,8 @@ test("MCP A等待不锁B，撤回使用原更改与当前文件修订且保留�
   h.view.operations = [{ v: 2, id, profile, target: "mcp", scope: service.id, requestDigest: "1".repeat(64), status: "waiting", savedRevision: mcpRevision, effectiveRevision: libraryRevision, code: "mcp_busy", relatedOperations: [] }];
   await h.state.read(); assert.equal(h.state.writable, true);
   await h.state.selectService(service.id); assert.equal(h.state.writable, false);
-  await h.state.withdrawOperation(id); assert.ok(h.state.confirmation); assert.equal(h.state.writable, true);
-  await h.state.confirmApply();
-  assert.deepEqual(h.writes()[0].request, { v: 1, op: "settings.withdraw", profile, expectedRevision: mcpRevision, id });
+  await h.state.withdrawOperation(id);
+  assert.deepEqual(h.writes()[0].request, { v: 1, op: "settings.withdraw", id });
   assert.equal(h.state.view?.operations?.[0].savedRevision, mcpRevision);
 });
 

@@ -115,7 +115,7 @@ export function SettingsContents(props: SettingsContentsProps) {
         {category === "personal" && <PersonalConnectionSettings settings={settings} />}
         {category === "archived" && <ArchivedPage code={code} />}
         {category.startsWith("code-") && (() => { const Page = props.pages?.[category] ?? codePages[category as `code-${ManagedSettingsCategory}`]; return <Page category={category} scope={scope} settings={settings} code={code} personal={personal} />; })()}
-        {category.startsWith("pa-") && (() => { const Page = PersonalSettingsPage; const mapped = paCategory(category); return mapped ? <Page category={mapped} scope={scope} settings={settings} code={code} personal={personal} /> : null; })()}
+        {category.startsWith("pa-") && (() => { const Page = PersonalSettingsPage; const mapped = paCategory(category); return mapped ? <Page key={scope.instanceId} category={mapped} scope={scope} settings={settings} code={code} personal={personal} /> : null; })()}
       </div>
     </SettingsShell>
   );

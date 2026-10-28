@@ -85,12 +85,56 @@ test("PA设置：收齐回执和scope生效分页，后页未结操作保持可�
   const f = await fixture(t);
   const receipts = Array.from({ length: 34 }, (_, index) => ({ v: 2, id: randomUUID(), profile: f.profile, target: "mcp", scope: `service-${index}`, requestDigest: "a".repeat(64), status: index === 33 ? "waiting" : "active", savedRevision: f.request.expectedRevision, effectiveRevision: null, code: "settings_waiting", relatedOperations: [] }));
   const effective = receipts.map(item => ({ target: "mcp", scope: item.scope, version: item.id, revision: f.request.expectedRevision }));
+  f.state.receipts.set(receipts[33].id, receipts[33]);
   f.overrides.set("/management", (_req, res) => { const view = f.view(); Object.assign(view.settings, { operations: receipts.slice(0, 32), operationsNextOffset: 32, effective: effective.slice(0, 32), effectiveNextOffset: 32 }); f.respond(res, view); });
   f.overrides.set("/settings", (_req, res, value) => { const request = value as { operationsOffset?: number; effectiveOffset?: number }; f.respond(res, { profile: f.profile, operations: request.operationsOffset === 32 ? receipts.slice(32) : receipts.slice(0, 32), effective: request.effectiveOffset === 32 ? effective.slice(32) : effective.slice(0, 32) }); });
   const view = await f.settings.read();
   assert.deepEqual(view.operations?.map(item => item.id), receipts.map(item => item.id));
   assert.deepEqual(view.settings.effective, effective); assert.equal(view.operations?.at(-1)?.status, "waiting");
   assert.equal(view.settings.operationsNextOffset, undefined); assert.equal(view.settings.effectiveNextOffset, undefined);
+});
+
+test("PA保存使用当前认证连接和最新修订，不要求表单提交原档案", async t => {
+  const f = await fixture(t), latest = "sha256:" + "2".repeat(64);
+  await f.settings.read(); f.view().settings.revisions.model = latest;
+  const original = f.overrides.get("/maintenance")!;
+  f.overrides.set("/maintenance", (req, res, value) => {
+    if (req.method === "POST") {
+      const request = (value as { request: { profile: unknown; expectedRevision: string; op: object } }).request;
+      assert.deepEqual(request.profile, f.profile); assert.equal(request.expectedRevision, latest);
+      assert.deepEqual(request.op, { kind: "config.save", target: "model", value: { modelId: "new-model" } });
+    }
+    return original(req, res, value);
+  });
+  const result = await f.settings.apply({ ...f.request, profile: { id: "old-profile" }, expectedRevision: "old-revision" });
+  assert.equal(result.saved, true); assert.equal(f.state.calls, 1);
+});
+
+test("PA读取自动核实已保存和等待中的原更改，不重发配置", async t => {
+  const f = await fixture(t), first = await f.settings.apply(f.request), id = first.operation!.id;
+  assert.equal(f.controller.settingsOperations().length, 0);
+  const original = f.overrides.get("/maintenance")!;
+  f.overrides.set("/maintenance", (req, res, value) => {
+    if (req.method === "GET") f.complete();
+    return original(req, res, value);
+  });
+  const next = await f.settings.read();
+  assert.equal(next.operations?.find(item => item.id === id)?.status, "active"); assert.equal(f.state.calls, 1);
+});
+
+test("PA保存明确未发送不留下待核实锁，读取失败也不算已提交", async t => {
+  const f = await fixture(t), request = f.controller.request.bind(f.controller);
+  let reject = true;
+  t.mock.method(f.controller, "request", async (...args: Parameters<typeof request>) => {
+    if (reject && args[0] === "POST" && args[1] === "/maintenance") throw new ControlClientError("connection_unavailable", "未发送", "not_sent");
+    return request(...args);
+  });
+  await assert.rejects(f.settings.apply(f.request), error => code("connection_unavailable")(error) && error instanceof ControlClientError && error.outcome === "not_sent");
+  assert.deepEqual(f.controller.settingsOperations(), []); assert.equal(f.state.calls, 0);
+  reject = false; assert.equal((await f.settings.apply(f.request)).saved, true);
+  f.overrides.set("/management", (_req, res) => { f.reject(res, "remote_internal", 500); });
+  await assert.rejects(f.settings.apply(f.request), error => error instanceof ControlClientError && error.outcome === "not_sent");
+  assert.deepEqual(f.controller.settingsOperations(), []); assert.equal(f.state.calls, 1);
 });
 
 test("PA保存：无systemd、开发后台和缺模型凭据可保存，等待仅阻止同对象", async t => {

@@ -224,10 +224,10 @@ export class DesktopHost {
         result = await controller.business(input.method, input.path, input.body);
         if (input.method === "GET" && typeof input.path === "string") this.notificationState.personalPending(controller.instanceId()!, input.path, result);
       } else if (["desktop_personal_settings_read", "desktop_personal_settings_request", "desktop_personal_settings_apply", "desktop_personal_settings_operation", "desktop_personal_settings_restore", "desktop_personal_settings_finish"].includes(op)) {
-        expect(op === "desktop_personal_settings_request" || op === "desktop_personal_settings_apply" ? ["request"] : op === "desktop_personal_settings_operation" ? ["id"] : []);
+        expect(op === "desktop_personal_settings_apply" ? ["request", "id"] : op === "desktop_personal_settings_request" ? ["request"] : op === "desktop_personal_settings_operation" ? ["id"] : []);
         this.personalSettings ??= new PersonalSettingsController(controller, this.userData);
         const settings = this.personalSettings;
-        result = op === "desktop_personal_settings_read" ? await settings.read() : op === "desktop_personal_settings_request" ? await settings.request(input.request) : op === "desktop_personal_settings_apply" ? await settings.apply(input.request) : op === "desktop_personal_settings_operation" ? await settings.operation(String(input.id)) : op === "desktop_personal_settings_restore" ? await settings.restore() : await settings.finish();
+        result = op === "desktop_personal_settings_read" ? await settings.read() : op === "desktop_personal_settings_request" ? await settings.request(input.request) : op === "desktop_personal_settings_apply" ? await settings.apply(input.request, input.id) : op === "desktop_personal_settings_operation" ? await settings.operation(String(input.id)) : op === "desktop_personal_settings_restore" ? await settings.restore() : await settings.finish();
       } else throw new DesktopError("op_not_allowed", "此操作未向个人 Agent 开放。");
       if (controller !== this.personal || generation !== this.personalGeneration || this.closing) throw new ControlClientError("personal_identity_changed", "个人连接已变化，请核实原请求；未采用迟到结果。", "unknown");
       return result;

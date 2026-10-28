@@ -1,12 +1,12 @@
 # 消息重排与引导方案审查
 
-日期：2026-10-28（Asia/Tokyo）。基点：`ebbfc255bbeddf73e84d45c673181a43c8d6d2da`。本记录只证明未提交规划材料的审查结果；没有实施新功能、切换数据目录或重启实例。
+初版日期：2026-10-28（Asia/Tokyo），审查基点为 `ebbfc255`，审查结果随 `081fe491` 提交。以下初版结论只覆盖该提交；2026-10-29 的修订与复审见末节，不沿用旧通过结论。两轮都没有实施新功能、切换数据目录或重启实例。
 
 ## 审查对象与结论
 
 [规格](../spec.md)、[实施工单](../issues/01-queue-and-guidance.md)、[决策草案](../../../.agents/notes/proposed/feature/2026-10-28-coding-message-control.md)，以及四篇旧笔记的提案互链。作者为 `/root`；独立方案审查者为 `/root/plan_review`，客户端专项审查者为 `/root/input_facts`，均为不同执行上下文，只读审查，作者单独负责修改文件。
 
-独立方案复审通过，无剩余阻断。客户端限定复审通过，输入身份与聊天顺序两项阻断已解除。复审后只同步工单阶段、证据、旧笔记数量、审计措辞及拥有者后续提交授权，不改变已审产品行为及技术契约。最终文件的可核对摘要列在文末。
+初版独立方案与客户端限定复审通过，输入身份与聊天顺序两项阻断已解除。原内容用 `git show 081fe491:<文件路径>` 核对；本文件不再手工维护已提交文件的重复摘要表。
 
 ## 初审问题与修订
 
@@ -37,16 +37,20 @@
 
 关键风险是同一输入同时留在 SDK 和普通队列、日志与 SQL 分阶段事实混淆、多条 user 投影合并，以及未消费审批被旧工具批次抢先执行。部署还受既有严格 schema 规则约束：本能力上线需新数据目录，旧档案保留但不会自动出现在新实例。
 
-## 最终交接快照
+## 2026-10-29 精简修订
 
-下列为最终交接文件的 SHA-256；证据文件不包含自己的摘要，避免循环。前三份文件复审后仅同步状态、审查措辞和来源目录事实，关键契约不变。
+拥有者要求检查过度设计，并在收到五项结论后明确要求修订。当前审查对象为 `081fe491d4a4652e1c299e2f90c5b0277df21b41` 之后的规格、proposed 笔记、工单及本记录四份文件，均以 `git diff 081fe491 -- <路径>` 核对；其他文件未改。
 
-| 文件 | SHA-256 |
+| 删除的额外要求 | 最小保留方式与源码依据 |
 | --- | --- |
-| `.scratch/coding-message-control/spec.md` | `f8fbc33b33c17da5509ab132621d8f619839673f814c171c7a2b87defe3b0703` |
-| `.scratch/coding-message-control/issues/01-queue-and-guidance.md` | `d58d34f990e56ae9a90968cf0c45fd6f92cd588d9713192cdb3b2f06550d7d9a` |
-| `.agents/notes/proposed/feature/2026-10-28-coding-message-control.md` | `b2e50be10b7608ddfe554e002d52f3a4928f8ad55e2c8f3e6be6b584807565ce` |
-| `.agents/notes/implemented/architecture/2026-09-19-detach-terminal-from-task-runtime.md` | `d3be45076d2b9639aba773c7b277aa6587a43695a0048c4d52c4cbef30dca535` |
-| `.agents/notes/implemented/architecture/2026-10-14-agent-wait-and-report-ownership.md` | `86c9b9a4f50f50d2b4e783bfa4f3074b5c224952ae9ed2336d564fb6f4ce8000` |
-| `.agents/notes/implemented/architecture/2026-10-16-owner-attachments.md` | `12e7437f95dc6507883f70efd593c2d5f10ff5beee8db57ef3119c01dae4edae` |
-| `.agents/notes/implemented/simplification/2026-10-24-code-instance-mcp.md` | `97d1f6fba0a86b954d4e0b3e84ed241731b817aab38748523262abbf46a9047a` |
+| 请求快照成为引导执行／恢复门槛 | JSONL entry 决定接入归属；`ContextAssembly.prepareSend` 仍写必要选择记录，`capturePromptSnapshot` 的可选诊断失败继续报告，不新增暂停条件 |
+| 继续输入与问题回答转引导 | 只让普通 submit 输入转换；`continueTask`、`answerOwnerQuestion` 原有独立来源与回执保留，其执行期间仍能接收普通引导 |
+| 跨实例导入引导／答案来源 | 源产品检查已拒绝 Code，旧导入也拒绝问题记录；仅登记新表排除并拒绝相关源，保留 `branch-session` 所需的附件来源冻结 |
+| 独立 guidance ID | 源 Task 已是唯一输入回执，SDK 元数据、JSONL 与气泡共同复用它，不另造输入身份 |
+| 每条新用例都人工撤实现／变异 | 每处行为用最窄有效用例，关键竞态选代表性负例验证，不扩大成逐条变异流程 |
+
+同时去掉通用动作回执接口的预设：新输入复用 SubmissionGuard、Task 请求键和 find_task；纯重排丢答读取实际队列。持久路由表、异步目录核实后的队首复查、JSONL／SQL 恢复、SDK 残余清理、审批屏障与多 user 投影均保留。
+
+2026-10-29，`/root/revision_review` 独立复审通过，无剩余阻断：直接核对当前四份文档及 diff，并亲读上下文快照、SDK 持久化、EventFlow、分支附件、导入与停止路径；其子代理独立核对 submit／SubmissionGuard／请求摘要与查询，审查者亲跑 `git diff --check` 通过。`/root/lean_runtime_review` 对身份、归属与丢答处理的限定复审同样通过。审查者均未改文件，作者单独写入。
+
+作者本次 `npm run check:static` 通过；补充固定目标说明和审查状态后，核对四份规划文件的相对链接、单物理行段落、单个末尾换行及 `git diff --check` 通过。复审后只同步交接状态和证据，不改变已审关键契约。功能测试、SDK 契约、真实客户端与模型验收仍待实施后执行。

@@ -118,7 +118,7 @@ test("PA视图：原生聊天复用消息与trace，附件/停止/Continue/Conte
   const markup = renderToStaticMarkup(createElement(Chat, { model: f.state, onConnect() {} }));
   assert.match(markup, /原输入/); assert.match(markup, /read_file/); assert.match(markup, /发送个人消息/); assert.match(markup, /新输入的默认权限/);
   assert.doesNotMatch(markup, /附加文件|停止任务|发送并继续|Context|会话模型|Plan/);
-  const settings = new SettingsState(() => {}); settings.show("personal", "models"); let invalidated = false;
+  const settings = new SettingsState(() => {}); settings.show("personal", "pa-models"); let invalidated = false;
   settings.form = { dirty: true, phase: "ready", async save() { return true; }, discard() {}, invalidate() { invalidated = true; } };
   settings.observe("personal", { type: "personal_identity", identity } satisfies DesktopUpdate); assert.equal(invalidated, true); assert.equal(settings.form.dirty, true);
 });

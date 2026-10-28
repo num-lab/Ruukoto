@@ -8,7 +8,6 @@ export type PersonalTool = { name: string; description?: string; inputSchema: Re
 export type PersonalToolEffect = "read" | "write" | "unknown";
 export type PersonalService = { id: string; label: string; endpoint?: string; cua?: { kind: "cua-linux"; executable: string; version: "0.7.0"; sha256: string; sandbox: string; sandboxId: string }; credential?: { path: string; sha256: string } | { path: string; tokenSha256: string }; credentialStatus?: string; enabled?: boolean; tools: PersonalTool[]; toolEffects?: Record<string, PersonalToolEffect> };
 type Skill = OpResult<"skills_list">["skills"][number];
-type SkillDetail = OpResult<"skill_get">;
 type SkillPreview = OpResult<"skill_import_preview">;
 export type PersonalPageView = Omit<PersonalManagementView, "settings"> & { settings: PersonalManagementView["settings"] & {
   model: { config: PersonalModel; credential: { state: "available" | "missing" | "unverified"; reference: string } } | null;
@@ -33,7 +32,7 @@ export class PersonalSettingsPageState implements SettingsForm {
   library = "";
   service = emptyService();
   editingService = false;
-  detail: SkillDetail | null = null;
+  detail: null = null;
   preview: SkillPreview | null = null;
   importDirectory = "";
   directory: Directory | null = null;
@@ -154,11 +153,6 @@ export class PersonalSettingsPageState implements SettingsForm {
   async previewImport(directory: string): Promise<void> {
     const result = await this.queryRemote<SkillPreview>("skills.preview-import", { directory }, true);
     if (result) { this.preview = result; this.importDirectory = directory; this.directory = null; this.changed(); }
-  }
-  async selectSkill(id: string): Promise<void> { if (this.dirty) return; const detail = await this.queryRemote<SkillDetail>("skills.get", { id }, true); if (detail) { this.detail = detail; this.changed(); } }
-  prepareSkill(action: "enable" | "disable" | "remove"): void {
-    if (!this.detail || this.detail.readOnly || this.detail.state === "removed" || this.dirty) return;
-    this.prepare(this.envelope(action === "remove" ? "skills.remove" : "skills.set-enabled", { id: this.detail.id, ...(action === "remove" ? {} : { enabled: action === "enable" }) }, true), `${action === "remove" ? "逻辑移除" : action === "enable" ? "启用" : "停用"}技能 ${this.detail.name}；包字节保留供旧引用读取`);
   }
   async selectService(id: string | null): Promise<void> {
     if (this.disabled || this.dirty) return;

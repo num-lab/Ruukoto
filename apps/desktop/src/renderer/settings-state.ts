@@ -2,7 +2,7 @@ import type { DesktopTarget, DesktopUpdate } from "../shared/bridge.ts";
 import type { CodeState } from "./code-state.ts";
 
 export type ManagedSettingsCategory = "models" | "skills" | "mcp" | "computer";
-export type SettingsCategory = "appearance" | ManagedSettingsCategory | "web-search" | "personal" | "archived";
+export type SettingsCategory = "appearance" | `code-${ManagedSettingsCategory}` | `pa-${ManagedSettingsCategory}` | "web-search" | "personal" | "archived";
 export interface SettingsScope {
   target: DesktopTarget;
   instanceId: string | null;
@@ -18,17 +18,29 @@ export interface SettingsForm {
   discard(): void;
   invalidate(): void;
 }
+/** 把分组类别映射回 PA 页面使用的原始类别。 */
+export function paCategory(category: SettingsCategory): ManagedSettingsCategory | null {
+  switch (category) {
+    case "pa-models": return "models";
+    case "pa-skills": return "skills";
+    case "pa-mcp": return "mcp";
+    case "pa-computer": return "computer";
+    default: return null;
+  }
+}
+/** 判断类别是否属于 Code 侧 managed 设置。 */
+export function isCodeCategory(category: SettingsCategory): category is `code-${ManagedSettingsCategory}` {
+  return category.startsWith("code-");
+}
+/** 判断类别是否属于 PA 侧 managed 设置。 */
+export function isPaCategory(category: SettingsCategory): category is `pa-${ManagedSettingsCategory}` {
+  return category.startsWith("pa-");
+}
 // Note: 见 .agents/notes/implemented/feature/2026-10-21-desktop-settings-shell.md
 // Note: 见 .agents/notes/implemented/feature/2026-10-25-desktop-computer-websearch-settings.md
 export class SettingsState {
   open = false;
   category: SettingsCategory = "appearance";
-  selections: Record<ManagedSettingsCategory, { target: DesktopTarget }> = {
-    models: { target: "code" },
-    skills: { target: "code" },
-    mcp: { target: "code" },
-    computer: { target: "code" },
-  };
   form: SettingsForm | null = null;
   leave: (() => void) | null = null;
   private blockedNavigation = false;
@@ -41,23 +53,27 @@ export class SettingsState {
   }
   show(target: DesktopTarget, category?: SettingsCategory): void {
     if (!this.open) {
-      for (const item of Object.values(this.selections)) item.target = target;
       this.open = true;
       ++this.generation;
+      // 首次打开时按当前聊天目标落到对应分组。
+      if (!category) this.category = target === "personal" ? "pa-models" : "code-models";
     }
     if (category) this.navigate(() => { this.category = category; });
     this.changed();
   }
   scope(code: CodeState, personal: { view: { instanceId: string | null } }): SettingsScope {
-    const selection = this.selections[this.category as ManagedSettingsCategory] ?? this.selections.models;
-    const instanceId = (selection.target === "code" ? code : personal).view.instanceId;
-    return { target: selection.target, instanceId };
+    const target: DesktopTarget = isPaCategory(this.category) ? "personal" : "code";
+    const instanceId = (target === "code" ? code : personal).view.instanceId;
+    return { target, instanceId };
   }
   ticket(): number { return this.generation; }
   accepts(ticket: number): boolean { return this.open && ticket === this.generation; }
   private invalidate(): void { ++this.generation; this.form?.invalidate(); }
   observe(target: DesktopTarget, update: DesktopUpdate): void {
-    if (!this.open || !["models", "skills", "mcp", "computer"].includes(this.category) || this.selections[this.category as ManagedSettingsCategory].target !== target) return;
+    if (!this.open) return;
+    const currentTarget = isPaCategory(this.category) ? "personal" : "code";
+    if (currentTarget !== target) return;
+    if (!isCodeCategory(this.category) && !isPaCategory(this.category)) return;
     if (update.type !== "snapshot" && update.type !== "personal_identity" && !(update.type === "personal_frame" && update.frame.type === "snapshot") && !(update.type === "state" && update.state !== "online")) return;
     this.invalidate();
     this.changed();
@@ -76,7 +92,6 @@ export class SettingsState {
     action(); this.changed();
   }
   chooseCategory(category: SettingsCategory): void { if (category !== this.category) this.navigate(() => { this.category = category; }); }
-  chooseTarget(category: ManagedSettingsCategory, target: DesktopTarget): void { if (this.selections[category].target !== target) this.navigate(() => { this.selections[category].target = target; }); }
   close(after?: () => void): boolean { return this.navigate(() => { this.open = false; after?.(); }); }
   continueEditing(): void { this.leave = null; this.changed(); }
   discardAndLeave(): void {

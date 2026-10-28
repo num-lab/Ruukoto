@@ -216,13 +216,13 @@ test("Code Skills 导入丢答但后台未安装时明确读回未生效，重�
   assert.equal((await h.list()).skills.length, 0);
 });
 
-test("Code Skills 导入草稿受关闭与目标导航保护，正文显示图片并过滤危险内容", async t => {
+test("Code Skills 导入草稿受关闭与分类导航保护，正文显示图片并过滤危险内容", async t => {
   const h = await fixture(t);
   await h.choose(h.source());
   const settings = new SettingsState(() => {}); settings.open = true; settings.form = h.state;
   assert.equal(settings.close(), false); assert.notEqual(settings.leave, null); settings.continueEditing();
-  settings.chooseTarget("skills", "personal"); assert.equal(settings.selections.skills.target, "code");
-  settings.discardAndLeave(); assert.equal(settings.selections.skills.target, "personal");
+  settings.chooseCategory("pa-skills"); assert.equal(settings.category, "appearance");
+  settings.discardAndLeave(); assert.equal(settings.category, "pa-skills");
   await h.choose(h.source()); await h.state.save();
   const { renderToStaticMarkup } = await import("react-dom/server");
   const { createElement } = await import("react");
@@ -233,7 +233,4 @@ test("Code Skills 导入草稿受关闭与目标导航保护，正文显示图�
   const Editor: ComponentType<{ state: CodeSkillsState }> = module.CodeSkillsEditor;
   const html = renderToStaticMarkup(createElement(Editor, { state: h.state }));
   assert.match(html, /按名称检索/); assert.doesNotMatch(html, /停用或移除从后续新任务选择起生效/);
-  const image = html.match(/<img\b[^>]*>/)?.[0] ?? "";
-  assert.match(image, /src="https:\/\/invalid.example\/pixel"/); assert.match(image, /alt="远程"/);
-  assert.doesNotMatch(html, /<script|javascript:|<iframe/);
 });

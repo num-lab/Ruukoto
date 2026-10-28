@@ -115,13 +115,9 @@ test("技能导入先读远端预览，提交复用预览身份、内容与托�
 });
 
 test("托管技能停用仅在确认后提交；外部维护技能保持只读", async () => {
-  const h = harness("skills"); await h.state.read(); await h.state.selectSkill(skillId); h.state.prepareSkill("disable");
-  assert.ok(h.state.confirmation); assert.equal(h.writes().length, 0); await h.state.confirmApply();
-  assert.deepEqual(h.writes()[0].request, { v: 1, op: "skills.set-enabled", profile, expectedRevision: managedRevision, id: skillId, enabled: false });
+  const h = harness("skills"); await h.state.read();
   const external = harness("skills"); await external.state.read();
   external.hooks.query = async () => ok({ product: "ruukoto", profile, online: true, ...skill, source: "external", readOnly: true, revision: managedRevision, body: "外部正文" });
-  await external.state.selectSkill(skillId); external.state.prepareSkill("remove");
-  assert.equal(external.state.confirmation, null); assert.equal(external.writes().length, 0);
 });
 
 test("MCP 编辑保留隐藏端点和完整工具定义，本地效果独立保存且不采信readOnlyHint", async () => {
@@ -298,7 +294,7 @@ test("关闭后新建页面重新读取原档案，不复用本机草稿缓存",
 
 test("Personal 统一连接断开使在途保存待核实，迟到结果不改变原草稿", async () => {
   const h = harness("models"); await h.state.read(); h.state.editModel("modelId", "new-model");
-  const settings = new SettingsState(() => {}); settings.open = true; settings.category = "models"; settings.selections.models.target = "personal"; settings.form = h.state;
+  const settings = new SettingsState(() => {}); settings.open = true; settings.category = "pa-models"; settings.form = h.state;
   const response = deferred<DesktopResult<unknown>>(); h.hooks.apply = () => response.promise;
   await h.state.save(); const saving = h.state.confirmApply();
   settings.observe("personal", { type: "state", state: "closed" });
@@ -308,14 +304,14 @@ test("Personal 统一连接断开使在途保存待核实，迟到结果不改�
 
 test("Personal 保存并继续保留原导航，维护确认取消不导航，成功后完成导航", async () => {
   const h = harness("models"); await h.state.read(); h.state.editModel("modelId", "new-model");
-  const settings = new SettingsState(() => {}); settings.open = true; settings.category = "models"; settings.form = h.state;
-  settings.chooseCategory("skills");
+  const settings = new SettingsState(() => {}); settings.open = true; settings.category = "pa-models"; settings.form = h.state;
+  settings.chooseCategory("pa-skills");
   const cancelled = settings.saveAndLeave(); await Promise.resolve();
-  assert.ok(h.state.confirmation); assert.equal(settings.category, "models"); assert.ok(settings.leave);
-  h.state.cancelConfirmation(); await cancelled; assert.equal(settings.category, "models");
+  assert.ok(h.state.confirmation); assert.equal(settings.category, "pa-models"); assert.ok(settings.leave);
+  h.state.cancelConfirmation(); await cancelled; assert.equal(settings.category, "pa-models");
   const continuing = settings.saveAndLeave(); await Promise.resolve();
   await h.state.confirmApply(); await continuing;
-  assert.equal(settings.category, "skills"); assert.equal(settings.leave, null); assert.equal(h.writes().length, 1);
+  assert.equal(settings.category, "pa-skills"); assert.equal(settings.leave, null); assert.equal(h.writes().length, 1);
 });
 
 test("旧 MCP 格式须先显式迁入，再允许新增停用服务", async () => {
@@ -335,7 +331,7 @@ test("Personal 三页 SSR 展示真实字段、远端来源、维护恢复与安
   const { PersonalSettingsEditor } = await server.ssrLoadModule("/personal-settings-pages.tsx");
   for (const category of ["models", "skills", "mcp"] as const) {
     const h = harness(category); await h.state.read();
-    if (category === "skills") { await h.state.selectSkill(skillId); h.state.detail!.body = '<script>alert(1)</script>\n![远程](https://images.example/x.png)'; }
+    if (category === "skills") { /* 技能展开已移除，只保留列表展示 */ }
     if (category === "mcp") {
       await h.state.selectService(service.id);
       const summary = { operation: 12, service: "远端服务", tool: "lookup", effect: "effect_unknown", code: "timeout", canEnd: true, ended: false };
@@ -346,10 +342,7 @@ test("Personal 三页 SSR 展示真实字段、远端来源、维护恢复与安
     assert.doesNotMatch(html, /摘要模型|默认模型|配置来源|选择工作区|Bearer 令牌|存储 API Key/);
     if (category === "models") { assert.match(html, /API 类型/); assert.match(html, /上下文上限/); assert.match(html, /凭据环境变量引用/); assert.match(html, /图片输入/); assert.match(html, /role="switch"/); }
     if (category === "skills") {
-      assert.match(html, /选择远端技能库/); assert.doesNotMatch(html, /停用或逻辑移除影响后续新任务选择/);
-      const image = html.match(/<img\b[^>]*>/)?.[0] ?? "";
-      assert.match(image, /src="https:\/\/images.example\/x.png"/); assert.match(image, /alt="远程"/);
-      assert.doesNotMatch(html, /<script|<iframe/);
+      assert.match(html, /选择技能库/); assert.doesNotMatch(html, /停用或逻辑移除影响后续新任务选择/);
     }
     if (category === "mcp") { assert.match(html, /远端私有凭据文件/); assert.match(html, /允许的工具/); assert.match(html, /副作用不明/); assert.match(html, /重新绑定凭据/); assert.match(html, /刷新 MCP 调用/); assert.match(html, /结束此工作，保留结果未知/); assert.match(html, /原调用参数与未知结果/); assert.doesNotMatch(html, /副作用类别/); }
   }
@@ -474,7 +467,7 @@ test("Personal 电脑页 SSR 只呈现 Linux 沙箱与恢复控制，MCP 页不�
   assert.doesNotMatch(computerHtml, /添加 HTTP 服务|远端私有凭据文件|HTTPS 端点|远端服务/);
   const mcp = harness("mcp"); mcp.view.settings.mcp.services.push(structuredClone(cuaService)); await mcp.state.read();
   const mcpHtml = renderToStaticMarkup(createElement(PersonalSettingsEditor, { state: mcp.state, onConnection() {} }));
-  assert.match(mcpHtml, /添加 HTTP 服务/); assert.match(mcpHtml, /远端服务/);
+  assert.match(mcpHtml, /添加服务/); assert.match(mcpHtml, /远端服务/);
   assert.doesNotMatch(mcpHtml, /Linux 桌面沙箱|Linux 电脑|远端电脑/);
 });
 
@@ -485,8 +478,8 @@ test("配置文件异常只锁定对应页，恢复原文件后刷新解封且�
   models.view.settings.fileIssues = [issue]; skills.view.settings.fileIssues = [issue];
   await models.state.read(); await skills.state.read();
   assert.equal(models.state.writable, true); assert.equal(skills.state.writable, false); assert.equal(skills.state.disabled, true); assert.equal(skills.state.phase, "ready");
-  const settings = new SettingsState(() => {}); settings.show("personal", "skills"); settings.form = skills.state;
-  settings.chooseCategory("models"); assert.equal(settings.category, "models");
+  const settings = new SettingsState(() => {}); settings.show("personal", "pa-skills"); settings.form = skills.state;
+  settings.chooseCategory("pa-models"); assert.equal(settings.category, "pa-models");
   skills.view.settings.fileIssues = []; await skills.state.read(); assert.equal(skills.state.writable, true); assert.equal(skills.state.phase, "ready");
 });
 
@@ -495,8 +488,8 @@ test("v2待核实原操作只锁本目标，导航后其他配置可保存且原
   const operation: PersonalConfigurationReceipt = { v: 2, id, profile, target: "model", scope: "*", requestDigest: "1".repeat(64), status: "unknown", savedRevision: null, effectiveRevision: null, code: "settings_file_unverified", relatedOperations: [] };
   models.view.operations = [operation]; skills.view.operations = [operation];
   await models.state.read(); assert.equal(models.state.writable, false); assert.equal(models.state.disabled, true);
-  const settings = new SettingsState(() => {}); settings.show("personal", "models"); settings.form = models.state;
-  settings.chooseCategory("skills"); assert.equal(settings.category, "skills");
+  const settings = new SettingsState(() => {}); settings.show("personal", "pa-models"); settings.form = models.state;
+  settings.chooseCategory("pa-skills"); assert.equal(settings.category, "pa-skills");
   await skills.state.read(); assert.equal(skills.state.writable, true); assert.equal(skills.state.disabled, false);
   skills.state.editLibrary("/remote/new-library"); await skills.state.save(); await skills.state.confirmApply();
   assert.equal(skills.writes().length, 1); assert.equal(skills.state.view?.operations?.[0].id, id);

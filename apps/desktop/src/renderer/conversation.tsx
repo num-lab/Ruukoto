@@ -56,6 +56,8 @@ function MessageEntry({ model, sessionId, entry, child, branchable, tools, toolC
   const content = <>{markdown}{entry.attachments?.map(attachment => <div key={attachment.id}>［附件：{attachment.name}］</div>)}</>;
   const task = entry.taskId ? model.view.tasks.get(entry.taskId) : undefined;
   const completed = entry.role === "assistant" && !entry.streaming && task?.status === "completed" && (!!entry.text.trim() || !!entry.attachments?.length);
+  const showCopy = !!text.trim() && (entry.role === "user" || completed);
+  const showBranch = completed && branchable;
   const pendingHere = model.pendingBranch?.sessionId === sessionId && model.pendingBranch?.taskId === entry.taskId;
   const copy = async () => {
     try {
@@ -67,11 +69,11 @@ function MessageEntry({ model, sessionId, entry, child, branchable, tools, toolC
       model.refresh();
     }
   };
-  const actions = completed && <div className="flex items-center gap-0.5 -mt-0.5 -ml-1.5 text-muted-foreground" role="group" aria-label="消息操作">
-    <Button type="button" variant="ghost" size="icon-xs" aria-label="复制消息" title={entry.truncated ? "正文尚未读取完整" : "复制消息"} disabled={entry.truncated} onClick={() => void copy()}>{copied ? <Check /> : <Copy />}</Button>
-    {branchable && <Button type="button" variant="ghost" size="icon-xs" aria-label="从当前任务建立分支" title="从当前任务建立分支" disabled={model.status.state !== "online" || !!model.pendingCreation || (!!model.pendingBranch && !pendingHere)} onClick={() => void model.branch(sessionId, entry.taskId!)}>{pendingHere ? <Loader2 className="animate-spin" /> : <GitBranch />}</Button>}
+  const actions = (showCopy || showBranch) && <div className={`flex items-center gap-0.5 -mt-0.5 -ml-1.5 text-muted-foreground ${entry.role === "user" ? "self-end" : ""}`} role="group" aria-label="消息操作">
+    {showCopy && <Button type="button" variant="ghost" size="icon-xs" aria-label="复制消息" title={entry.truncated ? "正文尚未读取完整" : "复制消息"} disabled={entry.truncated} onClick={() => void copy()}>{copied ? <Check /> : <Copy />}</Button>}
+    {showBranch && <Button type="button" variant="ghost" size="icon-xs" aria-label="从当前任务建立分支" title="从当前任务建立分支" disabled={model.status.state !== "online" || !!model.pendingCreation || (!!model.pendingBranch && !pendingHere)} onClick={() => void model.branch(sessionId, entry.taskId!)}>{pendingHere ? <Loader2 className="animate-spin" /> : <GitBranch />}</Button>}
   </div>;
-  return <Message align={entry.role === "user" ? "end" : "start"}><MessageContent>{question ? <OwnerQuestionCard model={model} question={question} /> : entry.role === "user" ? <Bubble variant="muted" align="end"><BubbleContent>{content}</BubbleContent></Bubble> : <>{content}{actions}</>}</MessageContent></Message>;
+  return <Message align={entry.role === "user" ? "end" : "start"}><MessageContent>{question ? <OwnerQuestionCard model={model} question={question} /> : entry.role === "user" ? <><Bubble variant="muted" align="end"><BubbleContent>{content}</BubbleContent></Bubble>{actions}</> : <>{content}{actions}</>}</MessageContent></Message>;
 }
 // Note: 见 .agents/notes/implemented/architecture/2026-10-16-desktop-trace-migration.md
 export function Conversation({ model, sessionId, child = false }: { model: CodeState; sessionId: string; child?: boolean }) {

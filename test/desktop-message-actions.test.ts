@@ -60,9 +60,12 @@ test("任务内多条 assistant 消息各自显示操作，定时会话不显示
   assert.doesNotMatch(scheduled, /aria-label="从当前任务建立分支"/);
 });
 
-test("用户消息不显示操作，子会话不提供建立分支", () => {
-  const user = renderToStaticMarkup(createElement(Conversation, { model: model("completed", "user"), sessionId: "s1" }));
-  assert.doesNotMatch(user, /aria-label="复制消息"|aria-label="从当前任务建立分支"/);
+test("用户消息显示复制，子会话不提供建立分支", () => {
+  for (const status of ["completed", "running"] as const) {
+    const user = renderToStaticMarkup(createElement(Conversation, { model: model(status, "user"), sessionId: "s1" }));
+    assert.match(user, /aria-label="复制消息"/);
+    assert.doesNotMatch(user, /aria-label="从当前任务建立分支"/);
+  }
   const child = renderToStaticMarkup(createElement(Conversation, { model: model("completed"), sessionId: "s1", child: true }));
   assert.match(child, /aria-label="复制消息"/);
   assert.doesNotMatch(child, /aria-label="从当前任务建立分支"/);

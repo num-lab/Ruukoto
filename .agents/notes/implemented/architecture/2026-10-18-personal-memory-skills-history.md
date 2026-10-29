@@ -2,6 +2,8 @@
 
 Status: implemented
 
+技能脚本执行的[提案](../../proposed/feature/2026-10-29-skill-script-execution.md)复用原请求技能快照，并保留旧加载与显式展开字节；当前实现仍沿本篇及后续已落地决定。
+
 技能来源与管理由[统一 HOME 发现](../simplification/2026-10-28-home-skills-discovery.md)部分取代；本文保留记忆、历史与既有技能快照的核实依据。
 
 Skills 的在线选择与原请求快照采用[请求配置](2026-10-25-personal-request-configuration.md)，不再以当前清单变化否定已固定请求；本文其余记忆、历史、来源及引用完整性约束继续适用。

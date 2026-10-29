@@ -2,7 +2,7 @@
 
 ## 目标与确认依据
 
-让拥有者在 Coding Agent 主任务继续执行时，通过 `/side` 打开可连续追问的独立侧聊，讨论当前上下文而不把侧聊内容带回主 Agent。本文持有产品要求；理由与技术取舍见[决策草案](../../.agents/notes/proposed/feature/2026-10-29-coding-side-chat.md)，实施与验证见[工单](issues/01-side-chat.md)。
+让拥有者在 Coding Agent 主任务继续执行时，通过 `/side` 打开可连续追问的独立侧聊，讨论当前上下文而不把侧聊内容带回主 Agent。本文持有产品要求；理由与技术取舍见[决策记录](../../.agents/notes/implemented/feature/2026-10-29-coding-side-chat.md)，实施与验证见[工单](issues/01-side-chat.md)。
 
 拥有者于 2026-10-29 在本聊天的三轮 grill-me 访谈中，分别以「全部按照建议」确认 Q1–Q4、Q5–Q8、Q9–Q12。下表是这些确认的合并记录。
 

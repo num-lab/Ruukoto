@@ -65,6 +65,7 @@ const TABLE_POLICY: TablePolicy = {
   workflow_questions: { policy: "exclude", reason: "问题与回答绑定原运行和入口" },
   workflow_controls: { policy: "exclude", reason: "控制请求只属于原实例" },
   branch_requests: { policy: "exclude", reason: "分支准备回执只属于原实例；已发布来源随会话保留" },
+  side_chats: { policy: "exclude", reason: "侧聊绑定与准备回执只属于原实例，非空源库明确拒绝" },
   compaction_requests: { policy: "exclude", reason: "手动压缩回执只属于原实例；压缩点的来源标识随资料保留" },
   projects: { policy: "import" },
   sessions: { policy: "import" },
@@ -471,6 +472,7 @@ function analyze(
   const tdb = target.db;
   checkTablePolicy(snap.db, tdb, TABLE_POLICY);
   if (allRows(snap.db, "SELECT 1 FROM task_guidance LIMIT 1").length) fail("task_guidance_import_unavailable", "源档案含消息引导路由，暂不支持跨实例导入；请保留原档案查阅。");
+  if (allRows(snap.db, "SELECT 1 FROM side_chats LIMIT 1").length) fail("side_chat_import_unavailable", "源档案含侧聊绑定：侧聊不随普通资料跨实例导入，请保留原档案查阅。");
   if (["code_schedules", "code_schedule_runs", "code_schedule_tasks", "code_schedule_receipts"].some(table => allRows(snap.db, `SELECT 1 FROM ${table} LIMIT 1`).length) || ["owner_questions", "background_processes", "agent_waits", "agent_reports", "workflow_runs"].some(table => allRows(snap.db, `SELECT 1 FROM ${table} WHERE json_extract(payload, '$.source.kind') = 'coding-schedule' OR json_extract(payload, '$.source.codeScheduledRunId') IS NOT NULL LIMIT 1`).length)) fail("code_schedules_import_unavailable", "源档案含 Coding 定时计划或来源记录，暂不支持跨实例导入；请保留原档案查阅。");
   if (["owner_questions", "owner_question_receipts"].some(table => allRows(snap.db, `SELECT 1 FROM ${table} LIMIT 1`).length)) fail("owner_questions_import_unavailable", "源档案含拥有者问题或回执，暂不支持跨实例导入；请保留原档案查阅。");
   if (["background_processes", "background_process_closures"].some(table => allRows(snap.db, `SELECT 1 FROM ${table} LIMIT 1`).length)) fail("background_processes_import_unavailable", "源档案含后台执行或关闭屏障，暂不支持跨实例导入；请保留原档案查阅。");

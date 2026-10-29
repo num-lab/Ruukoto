@@ -31,6 +31,8 @@ const SESSION_TOOL_CATEGORIES: Record<SessionToolClass, readonly ToolCategory[]>
   // （不走注册来源类别），子身份不能再委派下级；宿主评审任务（issue 19）的只读
   // MCP 由画像按任务另开，不在本静态清单
   subagent: [],
+  // 侧聊（coding-side-chat）：纯文本、无工具；历史里的工具调用只是复制的正文
+  side: [],
 };
 
 /**

@@ -90,7 +90,7 @@ test("/workflow 直接打开逐层侧栏，旧长命令不再发送协议字段"
 
 test("操作手册命令表：第一列列出的 /名字 与可见条目正好一致", () => {
   const usage = fs.readFileSync(new URL("../docs/usage.md", import.meta.url), "utf8");
-  const table = usage.slice(usage.indexOf("### 7.2 命令"), usage.indexOf("### 7.3 断开与重连"));
+  const table = usage.slice(usage.indexOf("### 7.4 命令"));
   const names = table
     .split("\n")
     .filter((l) => l.startsWith("| `/"))

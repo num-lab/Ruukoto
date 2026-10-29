@@ -286,6 +286,53 @@ class AboveEditor extends Editor {
   }
 }
 
+/** 侧聊悬浮层（coding-side-chat）：独立转录/草稿/滚动；Esc 隐藏但状态保留在 SessionView。 */
+class SideChatOverlay {
+  /** 绑定的父会话与侧聊会话；hide 不清空，重开按父会话比对。 */
+  parentSessionId: string | null = null;
+  sideSessionId: string | null = null;
+  private readonly flowView = new EventFlowView();
+  private readonly scroll: HistoryScrollView;
+  readonly editor: AboveEditor;
+  readonly component: VStack;
+
+  constructor(tui: TuiAltScreen) {
+    this.editor = new AboveEditor(tui, editorTheme, {});
+    this.scroll = new HistoryScrollView(
+      new GutterContainer(this.flowView, () => ({ top: 0, lines: [] })),
+      { follow: "end", primary: false, scrollbar: "auto" },
+    );
+    this.component = new VStack([
+      { component: this.scroll, grow: 1, shrink: 1, minSize: 1 },
+      { component: this.editor, grow: 0, shrink: 0, minSize: 3 },
+    ]);
+  }
+
+  /** 草稿/滚动位置交回 SessionView（隐藏与切会话共用）。 */
+  stash(view: SessionView): void {
+    view.draft = this.editor.getExpandedText();
+    view.scrollTop = this.scroll.isFollowingEnd ? null : this.scroll.scrollTop;
+  }
+
+  restore(view: SessionView): void {
+    this.editor.setText(view.draft);
+    if (view.scrollTop !== null) this.scroll.scrollTo(view.scrollTop, { disableFollow: true });
+    else this.scroll.scrollToEnd();
+  }
+
+  refresh(entries: readonly FlowEntry[], cwd: string): void {
+    this.flowView.setEntries(entries, cwd);
+  }
+
+  scrollBy(lines: number): void {
+    this.scroll.scrollBy(lines);
+  }
+
+  get draft(): string {
+    return this.editor.getExpandedText();
+  }
+}
+
 /** 模型面板列宽比例：提供方 / 模型 / 思考强度。 */
 const MODEL_PANEL_RATIO = [0.3, 0.45, 0.25];
 const MODEL_PANEL_GAP = 3;
@@ -829,6 +876,12 @@ export class TuiApp {
   private readonly backgroundProcesses: BackgroundProcesses;
   private todoOverlay: OverlayHandle | null = null;
   private readonly sessionTodos = new Map<string, Todo[] | null>();
+  /** 侧聊悬浮层：一个进程一份；绑定关系在 state.sideChats。 */
+  private readonly sideChat: SideChatOverlay;
+  private sideChatHandle: OverlayHandle | null = null;
+  private sideChatInFlight = false;
+  private sideChatSubmitting = false;
+  private readonly sideChatPendingStore: PendingRequestStore;
   private pendingBranch: { sessionId: string; name?: string; requestId: string; instanceId: string; autoSwitch: boolean; result: CommandResult } | null = null;
   private branchInFlight = false;
   private readonly history: HistoryRecovery;
@@ -914,6 +967,9 @@ export class TuiApp {
     this.editor = new AboveEditor(this.tui, editorTheme, {});
     this.editor.setAutocompleteProvider(new SlashCommandAutocomplete(VISIBLE_COMMANDS));
     this.editor.onSubmit = (text) => void this.handleSubmit(text);
+    this.sideChatPendingStore = new PendingRequestStore(join(opts.pendingStore.dir, "side-chats"));
+    this.sideChat = new SideChatOverlay(this.tui);
+    this.sideChat.editor.onSubmit = (text) => void this.submitSideChatText(text);
     this.editor.onChange = () => {
       const view = this.currentView();
       // 草稿保留展开后的原文（大段粘贴的折叠标记只用于展示）
@@ -1018,7 +1074,15 @@ export class TuiApp {
         return { consume: true };
       }
       if (data === "\x03") {
-        if (this.editor.getText().trim().length > 0) {
+        // 侧聊获焦时 Ctrl+C 只作用于侧聊草稿；空草稿同样退出客户端
+        if (this.sideChatHandle) {
+          if (this.sideChat.editor.getText().trim().length > 0) {
+            this.sideChat.editor.setText("");
+            this.notify("侧聊草稿已清空；再按一次 Ctrl+C 退出");
+          } else {
+            this.quit(0);
+          }
+        } else if (this.editor.getText().trim().length > 0) {
           this.editor.setText("");
           this.notify("草稿已清空；再按一次 Ctrl+C 退出");
         } else {
@@ -1169,6 +1233,8 @@ export class TuiApp {
     }
     this.normalStartupFlow(ctx);
     if (this.pendingBranch) void this.reconcileBranch();
+    this.checkSideChatBinding();
+    void this.reconcileSideChat();
   }
 
   // ---------- dev 重载状态（issue 21 §5） ----------
@@ -1522,6 +1588,8 @@ export class TuiApp {
   }
 
   private switchSession(sessionId: string, preserveSettings = false): void {
+    // 侧聊跟随父会话：切走即收起（草稿/滚动/生成状态保留在侧聊视图，重开恢复）
+    if (this.sideChatHandle && this.sideChat.parentSessionId !== sessionId) this.hideSideChat();
     this.clearToolExpansions();
     const prev = this.currentView();
     const source = this.state.sessions.find((session) => session.id === prev?.sessionId);
@@ -1864,6 +1932,7 @@ export class TuiApp {
     },
     submit: (text) => this.submitText(text),
     steer: (text) => this.submitText(text, { guidance: true }),
+    toggleSide: () => this.cmdSide(),
   };
 
   private async cmdNewSession(cwd: string): Promise<void> {
@@ -1972,6 +2041,205 @@ export class TuiApp {
       else if (retry) await this.sendBranch();
       else pending.result(`分支请求 ${pending.requestId} 尚未发布${found.error ? `：${found.error}` : ""}；重连或再次 /branch 按原键核实`, true);
     } catch { /* 断线查询不能证明未创建，继续保留原请求键。 */ }
+  }
+
+  // ---------- 侧聊（coding-side-chat） ----------
+
+  /** 当前父会话的侧聊会话 id（绑定只由后台事实得出，不在客户端另建映射）。 */
+  private sideSessionFor(parentSessionId: string): string | null {
+    for (const [sideId, parentId] of this.state.sideChats) if (parentId === parentSessionId) return sideId;
+    return null;
+  }
+
+  /** 侧聊视图：cwd 取自父会话（侧聊会话不在普通会话投影内）。 */
+  private sideView(sideSessionId: string): SessionView {
+    const view = this.state.openSession(sideSessionId);
+    const parentId = this.state.sideChats.get(sideSessionId);
+    const parent = parentId ? this.state.sessions.find(s => s.id === parentId) : null;
+    if (!view.cwd && parent) { view.cwd = parent.cwd; view.projectId = parent.projectId; }
+    return view;
+  }
+
+  /** /side：打开则收起；未开则按绑定打开（无绑定先经后台创建/重开）。 */
+  private async cmdSide(): Promise<void> {
+    if (productFromEnv() !== "ruukoto-code") { this.notify("侧聊仅 Coding 提供"); return; }
+    const parentId = this.state.currentSessionId;
+    if (!parentId) { this.notify("尚未选择会话"); return; }
+    if (this.sideChatHandle) { this.hideSideChat(); return; }
+    const bound = this.sideSessionFor(parentId);
+    if (bound) { this.openSideChat(parentId, bound); return; }
+    if (this.connection.state !== "online") { this.notify("当前离线：恢复在线后再打开侧聊"); return; }
+    if (this.sideChatInFlight) { this.notify("侧聊打开请求进行中"); return; }
+    const requestId = randomUUID();
+    const instanceId = this.state.instanceId;
+    if (!instanceId) { this.notify("后台实例尚未核实，请稍后重试"); return; }
+    try {
+      this.sideChatPendingStore.save({ requestId, op: "open_side_chat", instanceId,
+        params: { session_id: parentId, request_id: requestId }, createdAt: new Date().toISOString() });
+    } catch {
+      this.notify(red("无法保存侧聊请求键，未发送打开请求；请核实客户端存储"));
+      return;
+    }
+    this.sideChatInFlight = true;
+    try {
+      const session = await this.connection.request("open_side_chat", { session_id: parentId, request_id: requestId });
+      this.sideChatPendingStore.clear(requestId);
+      this.state.sideChats.set(session.id, parentId);
+      this.openSideChat(parentId, session.id);
+    } catch (error) {
+      if (requestOutcome(error) === "rejected") {
+        this.sideChatPendingStore.clear(requestId);
+        this.notify(red(`打开侧聊失败：${(error as Error).message}`));
+      } else {
+        this.notify(yellow(`打开侧聊结果未知：${(error as Error).message}；重连后按原键核实`));
+      }
+    } finally { this.sideChatInFlight = false; this.refreshAll(); }
+  }
+
+  /** 应答丢失的 open_side_chat：按原键核实，已发布则直接打开。 */
+  private async reconcileSideChat(): Promise<void> {
+    if (this.connection.state !== "online" || this.sideChatInFlight) return;
+    const saved = this.sideChatPendingStore.list();
+    for (const name of saved.corrupt) this.notify(`侧聊待核实记录损坏：${name}，请核实原后台结果`);
+    for (const record of saved.records) {
+      if (record.op === "open_side_chat") {
+        if (record.instanceId !== this.state.instanceId) { this.sideChatPendingStore.clear(record.requestId); continue; }
+        try {
+          const found = await this.connection.request("find_side_chat", { request_id: record.requestId });
+          if (found.session) {
+            this.sideChatPendingStore.clear(record.requestId);
+            const parentId = typeof record.params.session_id === "string" ? record.params.session_id : found.parentSessionId;
+            if (parentId) this.state.sideChats.set(found.session.id, parentId);
+          } else if (found.status === "failed") {
+            this.sideChatPendingStore.clear(record.requestId);
+            this.notify(`打开侧聊失败：${found.error ?? "发布未完成"}；再次 /side 重试`);
+          }
+        } catch { /* 查询失败保留原请求键 */ }
+      } else if (record.op === "submit_side_chat") {
+        if (record.instanceId !== this.state.instanceId) { this.sideChatPendingStore.clear(record.requestId); continue; }
+        const sessionId = typeof record.params.session_id === "string" ? record.params.session_id : null;
+        if (!sessionId) { this.sideChatPendingStore.clear(record.requestId); continue; }
+        try {
+          const found = await this.connection.request("find_task", { session_id: sessionId, request_id: record.requestId });
+          if (found) this.sideChatPendingStore.clear(record.requestId);
+        } catch { /* 查询失败保留原请求键 */ }
+      }
+    }
+  }
+
+  private openSideChat(parentId: string, sideId: string): void {
+    this.sideChat.parentSessionId = parentId;
+    this.sideChat.sideSessionId = sideId;
+    const view = this.sideView(sideId);
+    this.sideChat.restore(view);
+    if (!view.historyLoaded) void this.loadHistory(sideId, "replace");
+    const frame = new WindowFrame(this.sideChat.component);
+    const rows = this.terminal.rows || 24;
+    frame.setHeight(Math.max(6, Math.floor(rows * 0.6)));
+    this.sideChatHandle = this.showWindow(frame, { width: "100%", anchor: "bottom-left", maxHeight: rows });
+    frame.onKey = (data) => {
+      if (data === "\x1b") { this.hideSideChat(); return; }
+      if (matchesKey(data, "pageUp") || matchesKey(data, "pageDown")) {
+        this.sideChat.scrollBy(matchesKey(data, "pageUp") ? -5 : 5);
+        this.tui.requestRender();
+        return;
+      }
+      this.sideChat.editor.handleInput(data);
+    };
+    this.refreshSideChat();
+  }
+
+  /** Esc/切会话共用：隐藏不清理（草稿/历史/滚动/生成状态都留在 SessionView）。 */
+  private hideSideChat(): void {
+    if (!this.sideChatHandle) return;
+    const sideId = this.sideChat.sideSessionId;
+    if (sideId) this.sideChat.stash(this.sideView(sideId));
+    this.sideChatHandle.hide();
+    this.sideChatHandle = null;
+    this.tui.setFocus(this.editor);
+    this.refreshAll();
+  }
+
+  /** 数据实例改变或绑定消失时丢弃面板引用（内存视图按 instanceChanged 一并清理）。 */
+  private checkSideChatBinding(): void {
+    if (!this.sideChatHandle || !this.sideChat.sideSessionId) return;
+    if (!this.state.sideChats.has(this.sideChat.sideSessionId)) this.hideSideChat();
+  }
+
+  private refreshSideChat(): void {
+    if (!this.sideChatHandle || !this.sideChat.sideSessionId) return;
+    const view = this.state.sessionViews.get(this.sideChat.sideSessionId);
+    if (!view) return;
+    const entries: FlowEntry[] = view.flow.items.length ? view.flow.items
+      : [{ key: "$side-empty", kind: "note", text: view.historyLoaded ? "（暂无侧聊消息）" : "侧聊历史加载中…", at: "", seq: 0 }];
+    this.sideChat.refresh(entries, view.cwd);
+  }
+
+  /** 侧聊输入：仅 /interrupt 有作用域语义，其余原样发送；生成中可编辑、提交等待。 */
+  private async submitSideChatText(text: string): Promise<void> {
+    const sideId = this.sideChat.sideSessionId;
+    if (!sideId) { this.hideSideChat(); return; }
+    const view = this.sideView(sideId);
+    if (/^\/interrupt(?:\s|$)/.test(text.trim())) {
+      // 侧聊中断不携带任务 id：参数无效，仍只作用于侧聊自身任务
+      await this.interruptSideChat(sideId);
+      return;
+    }
+    if (!text.trim()) return;
+    if (this.connection.state !== "online") {
+      this.sideChat.editor.setText(text);
+      this.state.note(sideId, "当前离线：草稿已保留，恢复在线后请重新提交");
+      this.refreshAll();
+      return;
+    }
+    if (this.sideChatSubmitting) {
+      this.sideChat.editor.setText(text);
+      this.state.note(sideId, "上一条侧聊输入提交中，请稍候");
+      this.refreshAll();
+      return;
+    }
+    const requestId = randomUUID();
+    const instanceId = this.state.instanceId;
+    if (!instanceId) { this.sideChat.editor.setText(text); return; }
+    try {
+      this.sideChatPendingStore.save({ requestId, op: "submit_side_chat", instanceId,
+        params: { session_id: sideId, request_id: requestId, input: text }, createdAt: new Date().toISOString() });
+    } catch {
+      this.sideChat.editor.setText(text);
+      this.state.note(sideId, "无法保存侧聊请求键，未发送；请核实客户端存储");
+      this.refreshAll();
+      return;
+    }
+    this.sideChatSubmitting = true;
+    try {
+      const task = await this.connection.request("submit_side_chat", { session_id: sideId, request_id: requestId, input: text });
+      this.sideChatPendingStore.clear(requestId);
+      this.state.upsertTask(task);
+      this.state.addPendingInput(task);
+    } catch (error) {
+      const outcome = requestOutcome(error);
+      if (outcome === "rejected" || outcome === "not_sent") {
+        this.sideChatPendingStore.clear(requestId);
+        this.sideChat.editor.setText(text);
+        this.state.note(sideId, `侧聊提交${outcome === "rejected" ? "被拒绝" : "未发送"}：${(error as Error).message}`);
+      } else {
+        this.sideChat.editor.setText(text);
+        this.state.note(sideId, `侧聊提交结果未知：${(error as Error).message}；重连后按原键核实`);
+      }
+    } finally { this.sideChatSubmitting = false; this.refreshAll(); }
+  }
+
+  /** 侧聊作用域中断：只作用于侧聊自己的任务；排队任务按取消处理。 */
+  private async interruptSideChat(sideId: string): Promise<void> {
+    const active = this.state.activeTaskFor(sideId);
+    const queued = active ?? this.state.tasksFor(sideId).find(task => task.status === "queued") ?? null;
+    if (!queued) { this.state.note(sideId, "侧聊没有进行中的任务"); this.refreshAll(); return; }
+    try {
+      await this.connection.request(queued.status === "queued" ? "cancel" : "interrupt", { task_id: queued.id });
+    } catch (error) {
+      this.state.note(sideId, `侧聊${queued.status === "queued" ? "取消" : "中断"}失败：${(error as Error).message}`);
+    }
+    this.refreshAll();
   }
 
   /** 原键与命令关联保留到终态；切换会话和退出不取消后台摘要。
@@ -3239,7 +3507,7 @@ export class TuiApp {
     if (!this.devProductPicker()) return true;
     const session = this.state.sessions.find((s) => s.id === sessionId);
     // issue 11：SubAgent 内部工作会话与逻辑角色会话一样不进入普通入口；未知会话如旧放行
-    return !session || (session.kind === "dev" && !this.state.excludedPickerSessionIds().has(session.id));
+    return !this.state.sideChats.has(sessionId) && (!session || (session.kind === "dev" && !this.state.excludedPickerSessionIds().has(session.id)));
   }
 
   private openProjectPicker(): void {
@@ -3458,6 +3726,7 @@ export class TuiApp {
       entries.push({ key: "$empty", kind: "note", text: view ? (view.historyLoaded ? "（暂无历史消息）" : "历史加载中…") : "ruukoto TUI\n使用 /project 选择会话，或 /new-project、/new-session 创建。\n/help 查看命令与终端操作。", at: "", seq: 0 });
     }
     this.eventFlowView.setEntries(entries, view?.cwd);
+    this.refreshSideChat();
     this.todoPanel.set(view ? (this.sessionTodos.has(view.sessionId) ? this.sessionTodos.get(view.sessionId)! : latestTodos(view.flow.tools)) : null);
     this.tui.requestRender();
   }

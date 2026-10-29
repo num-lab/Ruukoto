@@ -104,6 +104,11 @@ export interface ContextAssemblyInput {
   accessor: Accessor;
   /** 资料受限会话不自动注入记忆，不跑 Jev 与压缩；项目指令与技能另按来源装配。 */
   restricted: boolean;
+  /**
+   * 侧聊任务（coding-side-chat）：不注入项目指令、记忆、技能、角色与父会话
+   * 进展；压缩按侧聊自己的会话断点照常运行（侧聊上下文与父会话独立）。
+   */
+  side?: boolean;
   /** 以计划模式运行（issue 26；driver 钉版）。 */
   plan: boolean;
   /** 任务钉版的技能库（issue 22；driver 钉版，null = 不读取）。 */
@@ -153,6 +158,8 @@ export class ContextAssembly {
   private readonly reportContext: AgentReportContext | null;
   private readonly accessor: Accessor;
   private readonly restricted: boolean;
+  /** 侧聊任务：普通参考与父会话注入一律关闭（见 ContextAssemblyInput.side）。 */
+  private readonly side: boolean;
   /** 资料受限任务的技能来自持久来源，宿主固定评审保持关闭。 */
   private readonly plan: boolean;
   private skills: SkillLibrary | null;
@@ -191,19 +198,21 @@ export class ContextAssembly {
     this.session = input.session;
     this.accessor = input.accessor;
     this.restricted = input.restricted;
+    this.side = input.side === true;
     this.plan = !input.restricted && input.plan;
-    this.skills = input.restricted && !input.referenceSource && !getWorkflowExecution(deps.store, input.task.id) ? null : input.skills;
+    this.skills = this.side || (input.restricted && !input.referenceSource && !getWorkflowExecution(deps.store, input.task.id)) ? null : input.skills;
     this.referenceSource = input.referenceSource;
-    this.roles = input.roles ?? null;
-    this.resourcePhase = input.resourcePhase ?? "execution";
+    this.roles = this.side ? null : input.roles ?? null;
+    // 侧聊固定 execution 相：无工具即无资源阶段，不注入 [执行资源] 等待提示与参考快照降级
+    this.resourcePhase = this.side ? "execution" : input.resourcePhase ?? "execution";
     this.backgroundObservation = input.backgroundObservation ?? false;
     this.referencesFromSnapshot = this.resourcePhase === "conversation";
-    this.subagentResults = input.restricted ? undefined : input.subagentResults;
-    this.subagentMessages = input.restricted ? undefined : input.subagentMessages;
-    this.reportContext = input.reportContext ?? null;
+    this.subagentResults = input.restricted || this.side ? undefined : input.subagentResults;
+    this.subagentMessages = input.restricted || this.side ? undefined : input.subagentMessages;
+    this.reportContext = this.side ? null : input.reportContext ?? null;
     this.deps = deps;
     try {
-      this.pinnedJev = this.restricted ? null : getProjectJevConfig(deps.store, this.session.projectId);
+      this.pinnedJev = this.restricted || this.side ? null : getProjectJevConfig(deps.store, this.session.projectId);
     } catch {
       this.pinnedJev = null; // 无法核实实验授权时只运行基础规则。
     }
@@ -211,6 +220,7 @@ export class ContextAssembly {
   }
 
   setResourcePhase(phase: AgentResourcePhase, skills?: SkillLibrary | null, backgroundObservation = false): void {
+    if (this.side) return; // 侧聊无资源阶段（见构造处）
     this.resourcePhase = phase;
     this.backgroundObservation = backgroundObservation;
     if (phase === "execution" && this.referencesFromSnapshot) {
@@ -303,7 +313,7 @@ export class ContextAssembly {
         preExcludedMemories.push({ memoryId: memory.id, version: memory.currentVersion, reason: "source_scope_revoked" });
       }
     }
-    const todos = this.deps.store.getSession(this.session.id)?.branchSource && sdk.sessionFile ? historyTodoParams(parseSessionFile(sdk.sessionFile)) : null;
+    const todos = !this.side && this.deps.store.getSession(this.session.id)?.branchSource && sdk.sessionFile ? historyTodoParams(parseSessionFile(sdk.sessionFile)) : null;
     return {
       messages,
       systemPrompt: sdk.systemPrompt,
@@ -611,6 +621,8 @@ export class ContextAssembly {
    * - 长期记忆（issue 29）：当时生效记忆的 id 与顺序（项目优先 → 更新时间倒序）。
    */
   private loadPinnedContext(snapshot?: AgentWaitSnapshot | null): typeof this.pinnedContext {
+    // 侧聊不钉版项目指令/继续来源/记忆：上下文只有快照复制的父历史与侧聊自身历史
+    if (this.side) return { instructions: null, resumedFrom: null, memoryIds: [] };
     if (this.restricted) return { instructions: this.referenceSource ? this.resourcePhase === "conversation" ? snapshot?.instructions ?? null : this.loadProjectInstructions() : null,
       resumedFrom: null, memoryIds: [] };
     const task = this.task;

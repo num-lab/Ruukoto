@@ -151,6 +151,8 @@ export interface ConnectSnapshot {
   backgroundProcesses?: BackgroundProcessView[];
   /** 引导路由（coding-message-control）：全部状态随快照下发，投影与重排共用同一事实。 */
   taskGuidance?: import("@ruukoto/core/types.ts").TaskGuidance[];
+  /** 侧聊持久绑定（coding-side-chat）：重连后据此恢复侧聊身份；侧聊会话不在 sessions 内。 */
+  sideChats?: Array<{ parentSessionId: string; sideSessionId: string }>;
 }
 
 /** 单任务持久事件分页；nextAfter 非空时继续读，最终消息正文以历史接口为准。 */

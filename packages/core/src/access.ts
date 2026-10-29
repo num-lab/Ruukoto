@@ -160,10 +160,16 @@ export class AccessScope {
       .filter((projectId) => this.canAccess(accessor, projectId, category));
   }
 
+  /** 侧聊会话（宿主绑定判定）：侧聊历史与产物只对拥有者侧聊入口开放。 */
+  isSideSession(sessionId: string): boolean {
+    return this.db.prepare("SELECT 1 FROM side_chats WHERE side_session_id = ?").get(sessionId) !== undefined;
+  }
+
   /**
    * 记忆来源引用的当前可访问性（§5：引用受限来源的派生记忆，后续读取与
    * 注入时仍检查来源范围；撤销授权后不再可读/注入）。owner_note 是拥有者
-   * 可信操作的记录，不依赖资料范围。
+   * 可信操作的记录，不依赖资料范围。侧聊会话的历史与产物不属于普通
+   * 会话资料，agent 一律不可读（含本项目内读取与跨项目授权）。
    */
   sourceRefAccessible(accessor: Accessor, ref: MemorySourceRef): boolean {
     if (accessor.kind === "owner") return true;
@@ -173,13 +179,13 @@ export class AccessScope {
     if (ref.kind === "owner_note") return accessor.kind === "agent";
     if (ref.kind === "history_entry") {
       const row = this.db.prepare("SELECT project_id FROM sessions WHERE id = ?").get(ref.sessionId) as any;
-      if (!row) return false;
+      if (!row || this.isSideSession(ref.sessionId)) return false;
       return this.canAccess(accessor, row.project_id as string, "history");
     }
     const artifact = this.db.prepare("SELECT session_id FROM artifacts WHERE id = ?").get(ref.artifactId) as any;
     if (!artifact) return false;
     const session = this.db.prepare("SELECT project_id FROM sessions WHERE id = ?").get(artifact.session_id) as any;
-    if (!session) return false;
+    if (!session || this.isSideSession(artifact.session_id as string)) return false;
     return this.canAccess(accessor, session.project_id as string, "artifact");
   }
 }

@@ -24,7 +24,7 @@ export interface BranchSessionDeps {
   validate(session: Session): Promise<void>;
 }
 
-function snapshotSources(deps: BranchSessionDeps, source: Session, snapshot: HistorySnapshot, number: number): SessionBranchSource {
+export function snapshotSources(deps: BranchSessionDeps, source: Session, snapshot: HistorySnapshot, number: number): SessionBranchSource {
   const { store, access } = deps;
   const tasks = new Set<string>();
   const artifacts = new Map<string, Artifact>();

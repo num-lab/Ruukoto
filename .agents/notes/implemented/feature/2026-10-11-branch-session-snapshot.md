@@ -2,7 +2,7 @@
 
 Status: implemented
 
-相关提案：[Coding 侧聊](../../proposed/feature/2026-10-29-coding-side-chat.md)复用本篇的安全历史与准备／发布机制，另行收窄会话身份、工具和资料访问，不改变普通分支行为。
+相关笔记：[Coding 侧聊](2026-10-29-coding-side-chat.md)复用本篇的安全历史与准备／发布机制，另行收窄会话身份、工具和资料访问，不改变普通分支行为。
 
 ## 问题
 

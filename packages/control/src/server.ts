@@ -282,6 +282,7 @@ export class ControlServer {
             backgroundProcesses: snapshot.backgroundProcesses,
             codeScheduleRuns: snapshot.codeScheduleRuns,
             taskGuidance: snapshot.taskGuidance,
+            sideChats: snapshot.sideChats,
           },
         };
         if (since > 0 && Buffer.byteLength(encodeFrame({ v: CONTROL_PROTOCOL_VERSION, id: request.id, ok: true, result }), "utf8") > MAX_FRAME_BYTES) {
@@ -301,6 +302,17 @@ export class ControlServer {
       }
       case "find_branch_session":
         return runtime.findBranchSession(requireString("request_id"));
+      case "open_side_chat": {
+        const requestId = optionalRequestId();
+        if (!requestId) throw new RuntimeApiError("invalid_params", "打开侧聊必须提供 request_id");
+        return runtime.openSideChat({ sessionId: requireString("session_id"), requestId });
+      }
+      case "find_side_chat":
+        return runtime.findSideChat(requireString("request_id"));
+      case "submit_side_chat": {
+        if (typeof params["input"] !== "string") throw new RuntimeApiError("invalid_params", "侧聊输入必须是字符串");
+        return runtime.submitSideChat({ sessionId: requireString("session_id"), requestId: requireString("request_id"), input: params["input"] });
+      }
       case "compact_session": {
         if (params["prompt"] !== undefined && typeof params["prompt"] !== "string") throw new RuntimeApiError("invalid_params", "prompt 必须是字符串");
         const requestId = optionalRequestId();

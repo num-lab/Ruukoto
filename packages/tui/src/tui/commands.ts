@@ -54,6 +54,8 @@ export interface CommandHost {
   submit(text: string): Promise<void>;
   /** 把正文作为引导接入当前任务（/steer；错过目标回队首）。 */
   steer(text: string): Promise<void>;
+  /** 打开或收起当前会话的侧聊悬浮层（coding-side-chat）。 */
+  toggleSide(): Promise<void>;
 }
 
 export interface CommandContext {
@@ -312,6 +314,7 @@ export const COMMANDS: readonly SlashCommand[] = [
   { name: "new-project", description: "创建项目", argumentHint: "<名称>", run: (ctx, { arg }) => newProject(ctx, arg) },
   { name: "new-session", description: "在当前项目创建会话", argumentHint: "<工作目录>", run: (ctx, { arg }) => ctx.host.newSession(arg) },
   { name: "new", description: "在当前工作区创建会话", run: (ctx) => ctx.host.newSessionHere() },
+  { name: "side", description: "打开或收起当前会话的侧聊（无工具的持久讨论）", run: (ctx) => ctx.host.toggleSide() },
   { name: "branch", description: "从当前会话的已落盘历史建立独立会话", argumentHint: "[名称]", keepsResult: true,
     run: (ctx, { line }) => ctx.host.branchSession(line.replace(/^\/branch\s*/, ""), ctx.result) },
   { name: "compact", description: "主动压缩当前会话上下文", argumentHint: "[prompt]", keepsResult: true,

@@ -90,6 +90,8 @@ export class ViewState {
   corruptPendingFiles: string[] = [];
   /** 全局提示（尚未选择会话时展示）。 */
   globalNotes: ActivityNote[] = [];
+  /** 侧聊绑定（sideSessionId → parentSessionId；快照下发 + side_chat.bound 事件）。 */
+  sideChats = new Map<string, string>();
   /** 快照中的任务预览（按任务）；会话视图打开时应用。 */
   private snapshotPreviews = new Map<string, OutputPreview>();
   private taskSeq = new Map<string, number>();
@@ -121,6 +123,7 @@ export class ViewState {
     this.workDelegations = result.snapshot.workDelegations ?? [];
     this.guidance = new Map((result.snapshot.taskGuidance ?? []).map(route => [route.sourceTaskId, route]));
     this.subAgents = result.snapshot.subAgents ?? [];
+    this.sideChats = new Map((result.snapshot.sideChats ?? []).map(binding => [binding.sideSessionId, binding.parentSessionId]));
     if (instanceChanged) {
       this.sessionViews.clear();
       this.currentSessionId = null;
@@ -224,7 +227,13 @@ export class ViewState {
       case "web_search.changed":
         this.webSearch = { state: body.state, version: body.version };
         return;
+      case "side_chat.bound":
+        // 绑定与侧聊 session.created 同事务到达：把它从普通会话投影里拿掉
+        this.sideChats.set(body.sideSessionId, body.parentSessionId);
+        this.sessions = this.sessions.filter(session => session.id !== body.sideSessionId);
+        return;
       case "session.created":
+        if (this.sideChats.has(body.sessionId)) return;
         if (!this.sessions.some((s) => s.id === body.sessionId)) {
           this.sessions.push(body.session ?? {
             id: body.sessionId,

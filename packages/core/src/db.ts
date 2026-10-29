@@ -12,7 +12,7 @@ import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 
-export const SCHEMA_VERSION = 54;
+export const SCHEMA_VERSION = 55;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS code_schedules (
@@ -198,6 +198,19 @@ CREATE TABLE IF NOT EXISTS branch_requests (
   status TEXT NOT NULL CHECK (status IN ('prepared','published','failed')),
   error TEXT,
   UNIQUE(source_session_id, branch_number)
+);
+-- 侧聊绑定（coding-side-chat）：父会话唯一一条，prepare 阶段即占用绑定，
+-- 两个客户端并发打开也不能各自冻结不同的快照。payload 存准备回执
+-- （SideChatReceipt：会话元数据 + 冻结历史清单 + 文件哈希 + 压缩点）。
+CREATE TABLE IF NOT EXISTS side_chats (
+  parent_session_id TEXT PRIMARY KEY,
+  side_session_id TEXT NOT NULL UNIQUE,
+  request_id TEXT NOT NULL UNIQUE,
+  params_digest TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('prepared','published','failed')),
+  error TEXT,
+  created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS compaction_requests (
   request_id TEXT PRIMARY KEY,

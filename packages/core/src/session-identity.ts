@@ -29,19 +29,23 @@ export const CODING_ROLE_RETIRED = "coding_role_retired:固定 coding 角色已�
 
 /**
  * dev = 普通开发会话；main = 宿主为 main 绑定的会话；subagent = SubAgent 的独立
- * 工作会话（会话类别也是 dev）；retired = 已退役归档（QQ 群、chat/coding 角色），
- * 只读、不运行任务，reason 即入口拒绝与队列兜底取消的原因。
+ * 工作会话（会话类别也是 dev）；side = 普通 Code 会话的无工具侧聊（身份由宿主
+ * 的 side_chats 绑定记录确定，见 coding-side-chat 工单）；retired = 已退役归档
+ * （QQ 群、chat/coding 角色），只读、不运行任务，reason 即入口拒绝与队列兜底
+ * 取消的原因。
  */
 export type SessionIdentity =
   | { kind: "dev" }
   | { kind: "main"; role: AgentRole }
   | ({ kind: "scheduled" } & ScheduledSessionBinding)
   | { kind: "subagent"; agent: SubAgent; workflow?: WorkflowSessionBinding }
+  | { kind: "side"; parentSessionId: string }
   | { kind: "retired"; reason: string };
 
-export function classifySession(session: Pick<Session, "kind">, role: AgentRole | null, agent: SubAgent | null, scheduled: ScheduledSessionBinding | null = null, workflow: WorkflowSessionBinding | null = null): SessionIdentity {
+export function classifySession(session: Pick<Session, "kind">, role: AgentRole | null, agent: SubAgent | null, scheduled: ScheduledSessionBinding | null = null, workflow: WorkflowSessionBinding | null = null, sideParentSessionId: string | null = null): SessionIdentity {
   if (scheduled) return { kind: "scheduled", ...scheduled };
   if (agent) return { kind: "subagent", agent, ...(workflow ? { workflow } : {}) };
+  if (sideParentSessionId) return { kind: "side", parentSessionId: sideParentSessionId };
   if (session.kind === "qq_group" || role?.id === "chat") return { kind: "retired", reason: CORE_GROUP_CHAT_RETIRED };
   if (role?.id === "coding") return { kind: "retired", reason: CODING_ROLE_RETIRED };
   if (role?.id === "main") return { kind: "main", role };

@@ -46,6 +46,7 @@ test("会话类别 × 工具类别：每个会话类别只开放清单内的类�
     // service（agent-direction issue 09）：仅 main；装配另要求产品/Linux/显式部署配置
     main: ["host_data", "web_search", "browser", "app_data", "scheduler", "delegation", "chat_results", "service", "skills", "subagent", "workflow"],
     subagent: [],
+    side: [],
   };
   for (const [cls, open] of Object.entries(expected) as Array<[SessionToolClass, ToolCategory[]]>) {
     assert.deepEqual(categories.filter((c) => allowsCategory(cls, c)), open, cls);

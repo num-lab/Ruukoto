@@ -20,7 +20,7 @@ import { parseWorkflowControl, workflowLaunchDigest, type WorkflowLaunch } from 
 
 export interface PendingRequest {
   requestId: string;
-  op: "submit" | "continue" | "branch_session" | "compact_session" | "workflow_start" | "workflow_answer" | "workflow_control" | "owner_question_answer" | "owner_question_cancel" | "session_background_end" | "code_schedule_save" | "code_schedule_control";
+  op: "submit" | "continue" | "branch_session" | "compact_session" | "workflow_start" | "workflow_answer" | "workflow_control" | "owner_question_answer" | "owner_question_cancel" | "session_background_end" | "code_schedule_save" | "code_schedule_control" | "open_side_chat" | "submit_side_chat";
   /** 完整原请求参数，包含请求键、业务输入及操作使用的原版本。 */
   params: Record<string, unknown>;
   /** 提交时握手返回的数据实例标识。 */
@@ -137,7 +137,7 @@ export class PendingRequestStore {
     catch { return { kind: "corrupt" }; }
     try {
       if (typeof raw?.requestId !== "string" || raw.requestId !== requestId ||
-        !["submit", "continue", "branch_session", "compact_session", "workflow_start", "workflow_answer", "workflow_control", "owner_question_answer", "owner_question_cancel", "session_background_end", "code_schedule_save", "code_schedule_control"].includes(raw.op) ||
+        !["submit", "continue", "branch_session", "compact_session", "workflow_start", "workflow_answer", "workflow_control", "owner_question_answer", "owner_question_cancel", "session_background_end", "code_schedule_save", "code_schedule_control", "open_side_chat", "submit_side_chat"].includes(raw.op) ||
         typeof raw.params !== "object" || raw.params === null || Array.isArray(raw.params) ||
         typeof raw.instanceId !== "string" || !raw.instanceId ||
         typeof raw.createdAt !== "string" || !Number.isFinite(Date.parse(raw.createdAt)) || !validWorkflowParams(raw)) return { kind: "corrupt" };

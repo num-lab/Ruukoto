@@ -38,7 +38,7 @@
 | **任务与队列控制** | `submit`, `continue`, `interrupt`, `cancel`, `switch_mode`, `resume_queue`, `task_queue`, `queue_reorder`, `steer_task` | 任务提交、在途任务中断与取消、模式切换（受限/完全访问）、队列恢复、持久顺序读取与重排、排队输入转引导 |
 | **状态与事件查询** | `get_task`, `list_tasks`, `read_task_events` | 任务执行状态检索与事件历史分页拉取 |
 | **安全审批响应** | `respond_confirmation`, `get_confirmation_params` | 拥有者批准/拒绝敏感操作；按需分段读取超长审批参数 |
-| **会话与工作区** | `open_workspace`, `create_session`, `branch_session`, `compact_session` | 映射工作区目录、新建会话、按已完成任务或当前安全尾拉取会话分支与手动触发历史压缩 |
+| **会话与工作区** | `open_workspace`, `create_session`, `branch_session`, `compact_session`, `open_side_chat`, `find_side_chat`, `submit_side_chat` | 映射工作区目录、新建会话、按已完成任务或当前安全尾拉取会话分支与手动触发历史压缩；侧聊三操作分别完成创建/重开、原键核实与纯文本提交 |
 | **模型与凭据配置** | `list_models`, `get_model_config`, `set_session_model`, `test_model_connection` | 动态查询模型目录、按会话切换模型、保存 API Key 与执行连通性测试 |
 | **工作流控制** | `workflow_start`, `workflow_list`, `workflow_control`, `workflow_answer` | 启动自动化工作流、查询执行步骤、人工干预与问答提交 |
 | **历史与产物读取** | `read_history`, `read_tool_result`, `read_artifact` | 只读解析 JSONL 会话历史、读取工具执行补丁与提取产物二进制片段 |

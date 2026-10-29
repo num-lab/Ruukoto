@@ -75,7 +75,8 @@ stateDiagram-v2
 - **`owner_questions`**：记录模型向人类发起的交互式提问、选项清单、答案内容与回执状态。
 - **`tool_ops` & 审批表**：记录所有外部工具调用的不可变参数快照、审批授权记录与执行审计。
 - **`task_guidance`**：以源 Task ID 保存引导路由（目标 Task、接纳次序、阶段与接入 entry）；`tasks.queue_order` 与 `sessions.queue_revision` 保存排队顺序与乐观并发修订。
-- **`tool_ops.mcp`**：普通 HTTP 保存操作与结果事实；Cua 另保存受监督执行身份及恢复观察。SQLite schema 保持 `54`；仅真实 Cua 执行参与电脑停止核实。
+- **`side_chats`**：Coding 侧聊的父会话唯一持久绑定（父会话 ID、侧聊会话 ID、请求键、准备回执 payload、`prepared/published/failed` 状态）；准备阶段即占用绑定，恢复凭原回执发布。
+- **`tool_ops.mcp`**：普通 HTTP 保存操作与结果事实；Cua 另保存受监督执行身份及恢复观察。SQLite schema 保持 `55`；仅真实 Cua 执行参与电脑停止核实。
 
 ### 目录布局标准
 
@@ -120,7 +121,7 @@ sequenceDiagram
 
 系统在处理任何外部输入前，通过纯函数一次性解析会话身份：
 1. 从 `sessions` 表读取会话记录，并关联查询 `sub_agents` 与定时调度绑定；
-2. 依据是否绑定主会话、是否为 SubAgent、是否为调度来源，判定出规范身份枚举（`normal`、`main`、`subagent`、`scheduled`）；
+2. 依据是否绑定主会话、是否为 SubAgent、是否为调度来源，判定出规范身份枚举（`dev`、`main`、`subagent`、`scheduled`、`side`、`retired`）；
 3. 结合任务的工作目标与安全模式，生成当前任务全局唯一的执行画像（`executionProfile`）。
 
 ## 不变量与失败处理

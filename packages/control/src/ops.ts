@@ -83,6 +83,9 @@ export interface TuiOps {
   get_session_todos: { params: { session_id: string }; result: R<"getSessionTodos"> };
   branch_session: { params: { session_id: string; name?: string; task_id?: string; request_id: string }; result: R<"branchSession"> };
   find_branch_session: { params: { request_id: string }; result: R<"findBranchSession"> };
+  open_side_chat: { params: { session_id: string; request_id: string }; result: R<"openSideChat"> };
+  find_side_chat: { params: { request_id: string }; result: R<"findSideChat"> };
+  submit_side_chat: { params: { session_id: string; request_id: string; input: string }; result: R<"submitSideChat"> };
   compact_session: { params: { session_id: string; request_id: string; prompt?: string }; result: R<"compactSession"> };
   get_session_compaction: { params: { session_id: string; request_id?: string }; result: R<"getSessionCompaction"> };
   interrupt_session_compaction: { params: { session_id: string; request_id: string }; result: R<"interruptSessionCompaction"> };

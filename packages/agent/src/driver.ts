@@ -329,6 +329,8 @@ export class Driver {
       protectedRoots: deps.protectedRoots,
       skillRoots: () => this.pinnedSkills?.skills.map(skill => ({ name: skill.name, dir: skill.dir })) ?? [],
       artifactAccess: (task, artifact) => {
+        // 侧聊会话的产物不是普通会话资料（与历史直读同一排除判定）
+        if (deps.store.sideParentId(artifact.sessionId) !== null) return false;
         if (this.profile.workflow) return !artifact.name.startsWith("prompt-snapshot:") &&
           this.verifyWorkflowTask(task) === null && Boolean(deps.workflow?.artifactAccess(task, artifact));
         if (this.profile.source) {
@@ -454,7 +456,8 @@ export class Driver {
 
   private dataSessionReadable(ctx: HostToolContext, sessionId: string, category: "history" | "artifact"): boolean {
     const session = this.deps.store.getSession(sessionId);
-    if (!session || !this.deps.access.canAccess(this.accessor(), session.projectId, category)) return false;
+    // 侧聊会话不属于普通会话资料：显式指名与候选集一视同仁（拥有者侧聊入口不经本路径）
+    if (!session || this.deps.store.sideParentId(sessionId) !== null || !this.deps.access.canAccess(this.accessor(), session.projectId, category)) return false;
     const task = this.deps.store.getTask(ctx.taskId);
     if (this.profile.source && (!task || this.verifyWorkflowTask(task))) return false;
     return !this.profile.workflow || Boolean(task && this.verifyWorkflowTask(task) === null && this.deps.workflow?.historyAccess(task, sessionId));
@@ -1089,6 +1092,7 @@ export class Driver {
       session: this.session,
       accessor: this.accessor(),
       restricted: this.profile.restricted,
+      side: identity.kind === "side",
       plan: this.profile.plan,
       skills: this.pinnedSkills,
       roles: this.pinnedRoles,
@@ -1231,7 +1235,7 @@ export class Driver {
 
     let promptText: string;
     try {
-      promptText = this.profile.restricted ? task.input : expandSkillCommand(this.pinnedSkills, task.input, this.profile.toolClass === "main" ? undefined : "bash");
+      promptText = this.profile.restricted || this.profile.toolClass === "side" ? task.input : expandSkillCommand(this.pinnedSkills, task.input, this.profile.toolClass === "main" ? undefined : "bash");
     } catch (err) {
       await this.finalize(task, "failed", { errorMessage: (err as Error).message });
       return;
@@ -1546,6 +1550,8 @@ export class Driver {
   }
 
   private pauseQueue(reason: string): void {
+    // 侧聊失败只结束本任务：上下文阻断/溢出也不暂停会话队列，新提交照常接纳
+    if (this.profile.toolClass === "side") return;
     this.deps.store.withTx(() => {
       this.deps.store.setSessionQueueState(this.session.id, "paused", reason);
       this.deps.store.appendEvent(

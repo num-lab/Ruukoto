@@ -56,7 +56,8 @@ export interface HostToolLedger {
 
 export interface HostToolRuntime {
   registry: ManagedProcessRegistry;
-  toolClass: "dev" | "main" | "subagent";
+  /** side 也在联合内：侧聊画像经同一装配路径，类别表恒为空、不会真正建出工具。 */
+  toolClass: "dev" | "main" | "subagent" | "side";
   call: {
     taskContext(): HostToolContext | null;
     bindCall: HostCallBinder;

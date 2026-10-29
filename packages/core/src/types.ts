@@ -19,7 +19,7 @@ import type { SubAgentExecutionSnapshot } from "./subagent-execution.ts";
 import type { WorkCopyHostSnapshot } from "./work-copy-host.ts";
 import { requireWorkspaceSnapshot, WorkspaceSnapshotError, type WorkspaceSnapshot } from "./workspace-snapshot.ts";
 
-export const PROTOCOL_VERSION = 45;
+export const PROTOCOL_VERSION = 46;
 
 export interface ModelSelection {
   provider: string;
@@ -976,6 +976,8 @@ export type PersistentEventBody =
    */
   | { type: "web_search.changed"; version: number; state: "enabled" | "disabled" }
   | { type: "session.created"; sessionId: string; projectId: string; kind: SessionKind; cwd: string; modelSelection: ModelSelection | null; modelSelectionVersion: number; createRequestId: string | null; session?: Session }
+  /** 侧聊绑定已发布（coding-side-chat）：与侧聊会话的 session.created 同一事务；普通列表按此排除。 */
+  | { type: "side_chat.bound"; parentSessionId: string; sideSessionId: string }
   /**
    * 会话工作区组织归属已设置（agent-direction issue 07）：仅组织展示归属，资料
    * 身份与配置来源仍是 projectId；目标必须带根目录归属。null = 恢复未映射。

@@ -208,3 +208,37 @@ ruukoto-code legacy-import --revert <源目录>   # 撤销导入并还原旧库�
 
 - **macOS**：如遇到工具执行失败，检查是否未授权终端的 Accessibility 或 Command Line Tools。
 - **Linux**：若原生受限沙箱报错 `execution_unavailable`，确保系统安装了 `bubblewrap`，且当前用户开启了 cgroup v2 访问权限。
+
+### 7.4 命令
+
+| 命令 | 说明 |
+| --- | --- |
+| `/help` | 命令与快捷键说明 |
+| `/todo` | 打开或关闭工作清单悬浮层 |
+| `/resume` | 切换当前项目的会话 |
+| `/project` | 切换项目（ruukoto-code 为工作区／旧项目列表） |
+| `/new-project <名称>`、`/new-session <目录>`、`/new` | 创建项目／在当前项目创建会话／在当前工作区创建会话 |
+| `/branch [名称]` | Coding Agent 从当前普通开发会话的已落盘历史建立独立会话并切换 |
+| `/side` | Coding Agent 打开或收起当前会话的无工具侧聊悬浮层，Esc 收起保留草稿与生成 |
+| `/compact [prompt]` | Coding Agent 主动摘要当前空闲普通开发会话，可补充本次摘要重点 |
+| `/history` | 重新加载当前会话历史；滚动到顶部自动加载更早历史 |
+| `/artifact <id 前缀>` | 查看工具产物正文（按字节分页） |
+| `/approvals` | 待处理审批；详情内 `a` 批准、`r` 拒绝，`Esc`／`q` 关闭不等于拒绝 |
+| `/interrupt [taskId]`、`/cancel <taskId>`、`/continue [taskId]` | 停止与继续任务；侧聊层内 `/interrupt` 只作用于侧聊 |
+| `/resume-queue` | 恢复已暂停的会话队列 |
+| `/queue` | 查看排队输入，逐项上移/下移或转为引导 |
+| `/steer <正文>` | 把正文作为引导接入当前任务的下一边界，错过目标回队首 |
+| `/model` | 选择提供方／模型／思考强度，作用于之后提交的任务 |
+| `/mode` | 选择会话默认模式，作用于后续新任务 |
+| `/status` | 查看当前任务详情 |
+| `/search <关键词>` | 字面搜索会话历史原文 |
+| `/memory <子命令>` | 长期记忆：list / show / revoke / restore |
+| `/context` | 上下文窗口分解（各部分占比与压缩点） |
+| `/prompt` | 本会话的模型请求列表与每次调用的 prompt |
+| `/skill <名称> [参数]` | 显式调用技能（不带名称时同 `/skills`） |
+| `/skills` | 技能库与诊断 |
+| `/workflow` | 工作流侧栏：选择运行、历史、定义启动与逐层操作 |
+| `/processes` | 查看本会话后台，分页读取输出，停止单项或结束本会话后台 |
+| `/questions` | 查看待答问题，逐题单选、多选、自由输入或跳过，核对后发送 |
+| `/qq <子命令>` | QQ 入口：status / enable / disable / groups / inbox / outbox（后三者为旧群归档） |
+| `/quit` | 退出客户端（后台任务继续运行） |

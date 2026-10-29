@@ -47,12 +47,13 @@ npx tsx --test verification/foundation/test/03-tools.test.ts
 | 修改位置 | 常用测试起点 |
 | --- | --- |
 | `packages/tui/src/`（cli.ts、cli-entry.ts、dev.ts）、`packages/core/src/product.ts`、`apps/ruukoto-code/src/dev.ts` | `test/29-cli-entry.test.ts`、`test/32-dev.test.ts`、`test/71-product-entry.test.ts`；MCP 用 `mcp list`、`mcp cua`，拒绝旧 `--project` |
-| `apps/ruukoto/src/personal-*.ts`（Pi 1.3.0） | 按[个人检查集](../.agents/skills/pre-push-checks/SKILL.md#2-按面选证据)选配置、入口、真实 Linux 停止与模型验证；前提见[外部验收](#外部验收)，生产切换另验 |
-| `apps/ruukoto/src/service-helper.ts`、`deploy/systemd/ruukoto-service.mjs` | `test/service-helper-transport.test.ts`（传输退出/捕获）、`test/service-helper-stop.test.ts`（Linux 进程/系统命令桩）；helper 与旧存储规则分别为 `test/78-linux-service-management.test.ts`、`test/79-standing-permissions.test.ts`，新调用方为 `test/personal-services.test.ts`、`test/personal-service-operations.test.ts` |
+| `apps/ruukoto/src/personal-*.ts`（Pi 1.3.0） | 按[个人检查集](../.agents/skills/pre-push-checks/SKILL.md#2-按面选证据)选配置与入口验证；前提见[外部验收](#外部验收) |
+| `apps/ruukoto/src/service-helper.ts`、`deploy/systemd/ruukoto-service.mjs` | 传输/停止 `test/service-helper-transport.test.ts`、`test/service-helper-stop.test.ts`；规则 `test/78-linux-service-management.test.ts`、`test/79-standing-permissions.test.ts`；调用方 `test/personal-services.test.ts`、`test/personal-service-operations.test.ts` |
 | `packages/runtime/src/` 与 `packages/control/src/` 的任务生命周期 | `test/01-concurrency.test.ts` 至 `test/05-overflow-db.test.ts`、`test/66-control-seam.test.ts`、`test/94-task-ending.test.ts` |
+| 侧聊 | `test/127-side-chat.test.ts` |
 | `packages/agent/src/` 的工具与 Skills | 按[检查集](../.agents/skills/pre-push-checks/SKILL.md#2-按面选证据)选工具与权限用例；Skills 验固定 HOME、旧快照与退役操作 |
 | 浏览器 | `test/browser-tools.test.ts`、`test/browser-lifecycle.test.ts`；[验收入口](../.scratch/agent-browser/evidence/implementation-checks.md) |
-| Coding 会话后台 | `test/background-processes.test.ts`、`test/background-processes-recovery.test.ts`；core、客户端、平台串行前提与真实browser/模型入口见[后台检查集](../.agents/skills/pre-push-checks/SKILL.md#2-按面选证据) |
+| Coding 会话后台 | `test/background-processes.test.ts`、`test/background-processes-recovery.test.ts`；前提与真实验收见[后台检查集](../.agents/skills/pre-push-checks/SKILL.md#2-按面选证据) |
 | `packages/agent/src/script-worker/` | `test/104-workflow-script.test.ts`、`test/100-worker-stop.test.ts` |
 | `scripts/test-app.mjs` 的分批与退出 | `test/124-test-app-runner.test.ts`；共享 UID 孤儿冲突的独占清单由脚本持有 |
 | 工作流存储、协调器、真实步骤与宿主操作 | `test/105-workflow-runtime.test.ts` 至 `test/113-workflow-source-capabilities.test.ts`；新增角色/版本回归见 `test/workflow-*.test.ts` |

@@ -369,8 +369,11 @@ export class Store {
     /** 分支发布只接受宿主预先固定的完整元数据。 */
     branchSession?: Session;
   }): Session {
-    if (input.createRequestId && !input.branchSession && this.db.prepare("SELECT 1 FROM branch_requests WHERE request_id = ?").get(input.createRequestId)) {
-      throw new StoreConflictError("请求键已用于会话分支", "request_conflict");
+    if (input.createRequestId && !input.branchSession && (
+      this.db.prepare("SELECT 1 FROM branch_requests WHERE request_id = ?").get(input.createRequestId) ||
+      this.db.prepare("SELECT 1 FROM side_chats WHERE request_id = ?").get(input.createRequestId)
+    )) {
+      throw new StoreConflictError("请求键已用于会话分支或侧聊绑定", "request_conflict");
     }
     if (input.createRequestId) {
       const existing = this.findSessionByCreateRequestId(input.createRequestId);
@@ -537,7 +540,8 @@ export class Store {
   /** 调用方在事务中执行；启动默认值仅初始化没有记录的旧会话。 */
   initializeSessionModelSelections(selection: ModelSelection): void {
     for (const session of this.listSessions()) {
-      if (session.modelSelection === null) this.setSessionModel(session.id, selection, session.modelSelectionVersion);
+      // 侧聊没有独立模型配置：任务固定父会话受理时的选择，不留默认选择记录
+      if (session.modelSelection === null && this.sideParentId(session.id) === null) this.setSessionModel(session.id, selection, session.modelSelectionVersion);
     }
   }
 
@@ -1322,7 +1326,13 @@ export class Store {
     return classifySession(session, this.getAgentRoleBySession(sessionId), agent, run ? {
       runId: run.id, scheduleId: run.schedule_id, rootTaskId: run.root_task_id!, projectId: run.project_id,
       modelSelection: this.getAgentRole("main")?.modelSelection ?? null,
-    } : null, workflow ? { runId: workflow.run_id, stepKey: workflow.step_key, sourceSessionId: workflow.source_session_id } : null);
+    } : null, workflow ? { runId: workflow.run_id, stepKey: workflow.step_key, sourceSessionId: workflow.source_session_id } : null, this.sideParentId(sessionId));
+  }
+
+  /** 侧聊绑定反查（宿主身份的唯一依据；无绑定时 null，含未发布绑定）。 */
+  sideParentId(sessionId: string): string | null {
+    const row = this.db.prepare("SELECT parent_session_id FROM side_chats WHERE side_session_id = ?").get(sessionId) as { parent_session_id: string } | undefined;
+    return row?.parent_session_id ?? null;
   }
 
   /** 按独立子会话反查 SubAgent 绑定（宿主识别动态身份的唯一依据）。 */

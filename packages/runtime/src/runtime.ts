@@ -85,6 +85,7 @@ import { AccessDeniedError,AccessScope } from "@ruukoto/core/access.ts";
 import { RuntimeApiError } from "@ruukoto/core/api-error.ts";
 import { Db } from "@ruukoto/core/db.ts";
 import { getBranchRequest, sourceArtifact } from "@ruukoto/core/branch.ts";
+import { getSideChatByRequest, listSideChats } from "@ruukoto/core/side-chat.ts";
 import { finishCompactionRequest, getCompactionRequest, getLatestSessionCompaction, recoverCompactionRequests, reserveCompactionRequest, updateCompactionSource } from "@ruukoto/core/compaction.ts";
 import { DirIdentityError,legacyProjectClaimableFromDir,resolveDirIdentity,sameDirIdentity,verifyDirIdentity,type DirIdentity } from "@ruukoto/core/dir-identity.ts";
 import { HistoryIndex,searchHistory } from "@ruukoto/core/history-index.ts";
@@ -132,6 +133,7 @@ import { WorkflowLibrary } from "./workflow-library.ts";
 import { workflowLaunchDigest, workflowDefinitionDigest, requireWorkflowInterface, type WorkflowLaunch } from "@ruukoto/core/workflow.ts";
 import { validateWorkflowScript } from "@ruukoto/agent/script-worker/validate.ts";
 import { branchSession, recoverBranchSessions, type BranchSessionDeps } from "./branch-session.ts";
+import { openSideChat, recoverSideChats, type SideChatDeps } from "./side-chat.ts";
 import type { DataCategory,DataGrant,Memory,MemorySourceRef,MemoryVersion,SelectionRecord } from "@ruukoto/core/types.ts";
 import {
   ACTIVE_TASK_STATUSES,
@@ -220,6 +222,8 @@ export interface QqInboxArchiveRow extends QqInboxRow {
 export interface RuntimeProduct {
   type: ProductType;
   branchSessions?: boolean;
+  /** 无工具侧聊（coding-side-chat）：普通开发会话的持久父子绑定。 */
+  sideChats?: boolean;
   manualCompaction?: boolean;
   im: boolean;
   scheduler: boolean;
@@ -960,6 +964,7 @@ export class Runtime {
       });
     }
     await recoverBranchSessions(runtime.branchDeps());
+    await recoverSideChats(runtime.sideDeps());
     // GitHub 专用模块退役迁移（issue 17）：仅升级后首次启动执行；无旧表直接跳过
     retireGitHubModule({ db: runtime.db, store: runtime.store, artifacts: runtime.artifacts, dataDir: fullConfig.dataDir });
     // 固定角色退役收尾（agent-direction issue 20/23）：只把未终态的行改成终态
@@ -2438,6 +2443,15 @@ export class Runtime {
 
       interruptedTaskIds.push(...this.subagents!.recoverQueuedTasks());
 
+      // 侧聊排队任务（含接纳后未启动的窗口）：重启一律中断，不暂停会话队列、
+      // 不等待 /resume-queue，也不重放输入；新提交按正常校验重新接纳
+      for (const task of store.listTasksByStatus(["queued"])) {
+        if (store.sideParentId(task.sessionId) === null) continue;
+        if (store.endTask(task.id, ["queued"], "interrupted", { interruptReason: "backend_restart", endedAt: new Date().toISOString() })) {
+          interruptedTaskIds.push(task.id);
+        }
+      }
+
       // 2. 遗留占用：旧执行单元状态无法确认时保留占用并暂停会话，
       //    由拥有者核实后 resume_queue 释放；user scope 独立于后台服务，
       //    backend 的 KillMode 不能证明该 scope 与后代已退出。
@@ -2679,6 +2693,91 @@ export class Runtime {
   findBranchSession(requestId: string) {
     const request = getBranchRequest(this.store, requestId);
     return { status: request?.status ?? "not_found", session: request?.status === "published" ? this.store.getSession(request.session.id) : null, error: request?.error ?? null };
+  }
+
+  /** 侧聊与分支共用同一目录/身份核实；能力开关独立。 */
+  private sideDeps(): SideChatDeps {
+    return { ...this.branchDeps(), enabled: this.config.product.sideChats === true };
+  }
+
+  /** 打开侧聊（创建或重开）：父会话唯一绑定，首次打开冻结安全快照。 */
+  async openSideChat(input: { sessionId: string; requestId: string }): Promise<Session> {
+    if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝打开侧聊");
+    return openSideChat(this.sideDeps(), input);
+  }
+
+  /** 侧聊请求键核实（应答丢失后按原键查询；published 返回会话，其余回执给出状态与原因）。 */
+  findSideChat(requestId: string) {
+    const binding = getSideChatByRequest(this.store, requestId);
+    return { status: binding?.status ?? "not_found", session: binding?.status === "published" ? this.store.getSession(binding.sideSessionId) : null, parentSessionId: binding?.parentSessionId ?? null, error: binding?.error ?? null };
+  }
+
+  /** 侧聊持久绑定清单（快照恢复与列表排除共用同一事实）。 */
+  sideChatBindings(): Array<{ parentSessionId: string; sideSessionId: string }> {
+    // 只下发已发布绑定：prepared/failed 没有可用侧聊会话，客户端须回退 open_side_chat 完成或核实
+    return listSideChats(this.store).filter(binding => binding.status === "published").map(binding => ({ parentSessionId: binding.parentSessionId, sideSessionId: binding.sideSessionId }));
+  }
+
+  /**
+   * 侧聊新提交：只收纯文本，无附件/继续/引导/编排字段；模型固定父会话
+   * 受理时选择；同一时刻最多接纳一个未终结任务（并发按入队事务仲裁）。
+   */
+  async submitSideChat(input: { sessionId: string; requestId: string; input: string }): Promise<TaskView> {
+    if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝新任务");
+    const session = this.store.getSession(input.sessionId);
+    if (!session) throw new RuntimeApiError("not_found", `会话不存在：${input.sessionId}`);
+    const identity = this.store.getSessionIdentity(session.id);
+    if (identity?.kind !== "side") throw new RuntimeApiError("invalid_state", "该会话不是侧聊；请用 /side 打开侧聊后发送");
+    if (!input.requestId) throw new RuntimeApiError("invalid_params", "request_id 不能为空");
+    if (typeof input.input !== "string" || !input.input.trim()) throw new RuntimeApiError("invalid_params", "请输入消息。");
+    const parent = this.store.getSession(identity.parentSessionId);
+    if (!parent) throw new RuntimeApiError("history_corrupt", "侧聊的父会话绑定缺失，请核实后台状态");
+    const selection = parseModelSelection(parent.modelSelection ?? this.defaultSelection);
+    const submission = { input: input.input, modelSelection: selection, side: true };
+    const submissionDigest = `request-v2:${createHash("sha256").update(JSON.stringify(submission)).digest("hex")}`;
+    const existing = this.store.findMatchingSubmission({ sessionId: session.id, requestId: input.requestId, submissionDigest });
+    if (existing) return this.taskView(existing);
+    this.assertNoSessionCompaction(session.id);
+    const check = await this.models.resolveSelection(selection);
+    if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝新任务");
+    let task: Task;
+    let duplicate: boolean;
+    try {
+      ({ task, duplicate } = this.store.withTx(() => {
+        const raced = this.store.findMatchingSubmission({ sessionId: session.id, requestId: input.requestId, submissionDigest });
+        if (raced) return { task: raced, duplicate: true };
+        this.assertNoSessionCompaction(session.id);
+        check();
+        if (this.store.listTasksBySession(session.id).some(item => ACTIVE_TASK_STATUSES.includes(item.status))) {
+          throw new StoreConflictError("侧聊正在生成中，请等待本轮结束后发送；输入已保留", "side_busy");
+        }
+        // 侧聊不得请求目录占用；发现占用即数据异常，按异常报错不自动释放
+        if (this.store.listAllOccupancy().some(held => held.taskId !== null && this.store.getTask(held.taskId)?.sessionId === session.id)) {
+          throw new StoreConflictError("侧聊存在不应有的执行占用，请核实后台状态", "side_occupancy_invalid");
+        }
+        return this.store.insertQueuedTask({
+          sessionId: session.id,
+          requestId: input.requestId,
+          input: input.input,
+          accessMode: "confirm",
+          planMode: false,
+          grantedPaths: [],
+          resumesTaskId: undefined,
+          modelSelection: selection,
+          submissionDigest,
+          agentId: null,
+          parentTaskId: null,
+          sourcePermissionVersion: null,
+          sourceEventId: null,
+          deadline: null,
+        });
+      }));
+    } catch (err) {
+      if (err instanceof StoreConflictError) throw new RuntimeApiError(err.code, err.message);
+      throw err;
+    }
+    if (!duplicate) this.kick(session.id);
+    return this.taskView(task);
   }
 
   private assertNoSessionCompaction(sessionId: string): void {
@@ -3016,13 +3115,15 @@ export class Runtime {
       if (input.projectId || input.workspaceId) throw new RuntimeApiError("invalid_params", "workspace_chats 查询使用全部工作区，不接受项目限制");
       return this.store.listAllSessionSummaries().flatMap(summary => {
         const session = sessions.get(summary.sessionId);
-        return session ? [{ ...summary, workspaceId: session.workspaceProjectId ?? session.projectId, archivedAt: session.archivedAt }] : [];
+        return session && this.store.sideParentId(summary.sessionId) === null ? [{ ...summary, workspaceId: session.workspaceProjectId ?? session.projectId, archivedAt: session.archivedAt }] : [];
       });
     }
     const id = input.workspaceId ?? input.projectId;
     if (!id) throw new RuntimeApiError("invalid_params", "project_id 或 workspace_id 必填其一");
     if (!this.store.getProject(id)) throw new RuntimeApiError("not_found", "项目不存在");
-    return input.workspaceId ? this.store.listSessionSummariesForWorkspace(id) : this.store.listSessionSummaries(id);
+    const summaries = input.workspaceId ? this.store.listSessionSummariesForWorkspace(id) : this.store.listSessionSummaries(id);
+    // 侧聊不属于普通会话清单；拥有者经侧聊专用入口访问
+    return summaries.filter(summary => this.store.sideParentId(summary.sessionId) === null);
   }
 
   async setSessionModel(input: { sessionId: string; modelSelection: ModelSelection; expectedVersion: number }): Promise<Session> {
@@ -3175,6 +3276,10 @@ export class Runtime {
       throw new RuntimeApiError("invalid_state", identity.reason === CORE_GROUP_CHAT_RETIRED
         ? "核心群聊已退役：该会话是只读归档，不能提交任务（历史可经 qq inbox / read_history 查阅）"
         : "固定 coding 角色已退役：该会话是只读归档，不能提交任务（委派改用 subagent_delegate，旧结果经 coding_result / read_history 查阅）");
+    }
+    // 侧聊走专用提交：客户端给的模型/模式等参数对侧聊无意义，不接受普通提交形状
+    if (identity.kind === "side") {
+      throw new RuntimeApiError("invalid_state", "该会话是侧聊，请使用侧聊专用提交入口");
     }
     if (input.agentId != null && !AGENT_ROLE_IDS.includes(input.agentId)) {
       throw new RuntimeApiError("invalid_params", `逻辑角色无效：${input.agentId}`);
@@ -4023,10 +4128,12 @@ export class Runtime {
       }
 
       // 任务开始前核对目录身份（issue 16：占用键是任务写入目标；排队期间被
-      // 替换或失效的写入目录拒绝执行，不自动重建）
-      let workspaceLaunch: ReturnType<typeof taskWorkspaceFor>;
-      let dialogue: boolean;
-      try {
+      // 替换或失效的写入目录拒绝执行，不自动重建）。
+      // 侧聊不核实目录身份，也不取目录占用（无工具、不触碰工作区）；父会话
+      // 任务、审批与目录占用互不影响。
+      let workspaceLaunch: ReturnType<typeof taskWorkspaceFor> | null = null;
+      let dialogue = identity.kind === "side";
+      if (!dialogue) try {
         const workLaunch = task.workId ? this.store.getWorkDelegation(task.workId) : null;
         workspaceLaunch = taskWorkspaceFor({ session, work: workLaunch });
         dialogue = this.conversationAdmitted(task) && Boolean(this.store.findBlockingOccupancy(workspaceLaunch.path, workspaceLaunch.dev, workspaceLaunch.ino));
@@ -4065,9 +4172,9 @@ export class Runtime {
             return;
           }
           if (!dialogue && !this.store.tryAcquireOccupancy({
-            cwdReal: workspaceLaunch.path,
-            cwdDev: workspaceLaunch.dev,
-            cwdIno: workspaceLaunch.ino,
+            cwdReal: workspaceLaunch!.path,
+            cwdDev: workspaceLaunch!.dev,
+            cwdIno: workspaceLaunch!.ino,
             sessionId,
             taskId: task.id,
           })) {
@@ -4672,12 +4779,17 @@ export class Runtime {
     backgroundProcesses: BackgroundProcessView[];
     codeScheduleRuns: CodeScheduleRun[];
     taskGuidance: TaskGuidance[];
+    /** 侧聊持久绑定（重连后客户端恢复侧聊身份；普通会话列表按此排除）。 */
+    sideChats: Array<{ parentSessionId: string; sideSessionId: string }>;
     seq: number;
   } {
-    // 有界快照：全部活动任务 + 每个会话最近结束的若干任务；更早的经 list_tasks 分页
-    const sessions = this.store.listSessions().map(session => this.codeSessionView(session));
+    // 有界快照：全部活动任务 + 每个会话最近结束的若干任务；更早的经 list_tasks 分页。
+    // 侧聊会话不进入普通会话列表（专用入口经 sideChats 绑定恢复）；任务仍全量
+    // 扫描，侧聊悬浮层要靠任务状态恢复生成中与中断目标。
+    const allSessions = this.store.listSessions();
+    const sessions = allSessions.filter(session => this.store.sideParentId(session.id) === null).map(session => this.codeSessionView(session));
     const tasks: Task[] = [];
-    for (const session of sessions) {
+    for (const session of allSessions) {
       const all = this.store.listTasksBySession(session.id);
       const active = all.filter((t) => ACTIVE_TASK_STATUSES.includes(t.status));
       const ended = all
@@ -4711,6 +4823,7 @@ export class Runtime {
       backgroundProcesses: sessions.flatMap(session => this.listBackgroundProcesses(session.id).processes),
       codeScheduleRuns: this.codeScheduleRunSnapshot(),
       taskGuidance: sessions.flatMap(session => this.store.listSessionGuidance(session.id)),
+      sideChats: this.sideChatBindings(),
       seq: this.store.getMaxSeq(),
     };
     let questionBytes = 0;
@@ -5172,6 +5285,10 @@ export class Runtime {
       }
     }
     let sessions = this.store.listSessions();
+    // 侧聊不属于普通会话搜索范围；拥有者按会话/任务显式定位时仍可读取
+    if (input.sessionId === undefined && input.taskId === undefined) {
+      sessions = sessions.filter(session => this.store.sideParentId(session.id) === null);
+    }
     if (input.taskId) {
       const task = this.store.getTask(input.taskId);
       if (!task) throw new RuntimeApiError("not_found", `任务不存在：${input.taskId}`);

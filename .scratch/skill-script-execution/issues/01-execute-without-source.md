@@ -1,10 +1,10 @@
 # 技能脚本直接执行且源码默认不进入上下文
 
-Status: ready-for-agent
+Status: ready-for-human
 
 ## 目标与边界
 
-拥有者于 2026-10-29 要求制定方案，将技能附带脚本从“只能作为文本返回、不能直接执行”改为“可以执行、源码不主动进入上下文”，模型使用脚本无需理解实现。本轮交付方案与实施交接，尚未开始代码实现；行为、取舍与失败保证见[决策提案](../../../.agents/notes/proposed/feature/2026-10-29-skill-script-execution.md)。本任务涉及执行资源与恢复证据，采用[开发流程](../../../.agents/skills/development-workflow/SKILL.md)重流程。
+拥有者于 2026-10-29 要求制定方案，将技能附带脚本从“只能作为文本返回、不能直接执行”改为“可以执行、源码不主动进入上下文”，模型使用脚本无需理解实现。本轮交付方案与实施交接，尚未开始代码实现；行为、取舍与失败保证见[决策笔记](../../../.agents/notes/implemented/feature/2026-10-29-skill-script-execution.md)。本任务涉及执行资源与恢复证据，采用[开发流程](../../../.agents/skills/development-workflow/SKILL.md)重流程。
 
 拥有者逐项确认并最终确认整体方案：默认不读源码，审计或排障必要时可读；沿用任务现有执行资格、审批与沙箱规则；个人主会话仍委派；执行磁盘当前脚本，不复制技能包；复用 bash/run_command，受限环境只读开放本次发现的各技能真实目录，接受命令可读同包其他文件。新增可见性仅限技能资源，不开放整个 HOME，也不替代原权限校验。
 
@@ -41,13 +41,17 @@ Status: ready-for-agent
 
 ## 进展与交接
 
-- 当前角色与阶段：方案交付；拥有者已确认全部范围，独立落盘方案审查通过、无阻断，不含实现。文档/笔记检查通过，完整静态检查受其他队列任务类型错误阻断，详见证据。
-- 下一角色与动作：实施者从本入口开始，核实当前检出及其他任务的类型检查状态，按方案实现并留证；此次聊天只交付方案。
-- 当前内容：基点与 HEAD 为 `5c55e96b5de38f068eabb0aa58b7885e9e085781`；本任务修改仅本工单、方案审查记录、proposed 笔记及 HOME 发现/个人技能历史两篇的提案互链，均未提交。其他 coding-message-control、core/runtime/legacy-import 与 sdk-steering 未提交改动属于其他工作，实施前重新核实影响，不能将 HEAD 视为完整待审内容。
-- 阻塞与恢复条件：无方案阻断或待拥有者决定；实施前核实其他队列任务的未提交变更与静态缺口，实现及外部验收仍待执行。
+- 当前角色与阶段：独立实现审查通过（无阻断意见，见[实现审查记录](../evidence/implementation-review.md)），审查后修正已重验；工程验收完成，仅剩真实环境与真实模型闭环的外部验收。
+- 下一角色与动作：外部环境验收者按验收表「实际执行和上下文效果」行执行——macOS/Linux 分别真实验证受限技能根（含个人命令 `ssh tx`）、两产品真实模型闭环（`RUN_MODEL_CHECK=1`+隔离档案/HOME），检查原请求快照与工具序列并记录 systemPrompt/toolSchemas 与代表性链路的上下文差异。
+- 当前内容：实现与审查后修正覆盖 `packages/agent/src/skills.ts`、`execution/skill-roots.ts`（新）、`tool-router.ts`、`driver.ts`、`context-assembly.ts`、`apps/ruukoto/src/personal-skills.ts`、`personal-command-work.ts`、六篇测试与五篇文档；证据含[实现检查记录](../evidence/implementation-checks.md)（含审查后修正清单与修正后计数）。
+- 阻塞与恢复条件：无工程阻断；转 resolved 的唯一条件是外部真实环境与真实模型验收完成或拥有者决定接受缺口。
 
 ## Comments
 
 2026-10-29：拥有者逐项回答 Q1–Q5 选择推荐方案，并对 Q6 整体边界回复“确认”。只读探索已核实旧脚本文本禁令、原生目录可见性、PA 原请求选择与旧展开恢复约束；本工单承载确认后的当前方案。
 
 2026-10-29：独立上下文 review_skill_script_plan 亲读落盘内容、相关源码与旧决定，结论为通过，无阻断和新增用户决策；原生文件别名须按最终授权集合判断的实施提醒及内容哈希见方案审查记录。工单仅回填状态与交接，方案和验收未改变。
+
+2026-10-29：实现完成。按方案步骤 1–4 落地：技能块附真实目录并按会话命令工具措辞给执行说明，冻结旧格式供历史展开精确重放；共享 `selectSkillReadRoots` 逐技能选择只读根并按最终授权集合核实别名；Coding 经 `skillRoots` 依赖并入 `LaunchSpec.readRoots` 与 worker key；Personal 经原请求 `skills.snapshotEntry` 绑定 `CommandAdmission.skills` 证据并贯通 spec/mounts/恢复校验。验收表用例均落地并过线（实现检查记录）；两处实现期修正（合法跨根链接对互相等待被拒、漂移占位去重）已由最窄用例覆盖。真实平台与真实模型闭环记为外部验收缺口。
+
+2026-10-29：独立上下文实现审查（记录见[实现审查记录](../evidence/implementation-review.md)）结论为通过、无阻断意见；审查者亲读需求、笔记、暂存 diff 与证据并亲自重跑验收相关测试。九条非阻断意见中五条已当场修正并重验（零候选全树扫描回退、`/` 覆盖判定漏检、去重名额抢占诊断、验证降 confirm 缺直接断言、证据计数与陈旧注释），其余四条为良性或未修的偏好项；修正后 typecheck/lint 与 100-worker-stop 42/42、native-mount-protection 7/7 全过。状态转 ready-for-human：剩余仅为真实平台与真实模型闭环的外部验收。

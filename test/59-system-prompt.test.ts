@@ -130,10 +130,21 @@ test("参考块块头只保留名称、id、类别与范围；资料受限会话
     fs.writeFileSync(path.join(root, "ref.md"), "引用正文");
     const skill = { name: "beta", description: "d", disableModelInvocation: false, dir: root, body: "BETA-BODY", version: "sha256:0" };
     const lib = { skills: [skill], diagnostics: [], version: "sha256:1" };
-    for (const text of [readSkill(lib, "beta"), readSkill(lib, "beta", "ref.md"), expandSkillCommand(lib, "/skill:beta")]) {
+    // 正文与显式展开块：给出技能目录与按当前命令能力的执行说明，旧禁令移除
+    for (const text of [readSkill(lib, "beta"), expandSkillCommand(lib, "/skill:beta")]) {
       assert.ok(!/参考内容|控制面身份/.test(text), text);
-      assert.match(text, /脚本只作为文本提供/);
+      assert.ok(text.includes(`目录 ${root}`), text);
+      assert.match(text, /可委派子 Agent 按其目录路径执行/);
+      assert.match(text, /脚本源码默认无需读取/);
+      assert.ok(!/脚本只作为文本提供|不能原地执行/.test(text), text);
     }
+    // 有直发命令工具的会话按实际工具措辞
+    assert.match(readSkill(lib, "beta", undefined, "bash"), /可用 bash 按其目录路径执行/);
+    assert.match(readSkill(lib, "beta", undefined, "run_command"), /可用 run_command 按其目录路径执行/);
+    // 引用文件块只保留文件名与 sha256，不再附旧禁令
+    const ref = readSkill(lib, "beta", "ref.md");
+    assert.match(ref, /引用文件 ref\.md · sha256:/);
+    assert.ok(!/参考内容|控制面身份|脚本只作为文本提供|不能原地执行/.test(ref), ref);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

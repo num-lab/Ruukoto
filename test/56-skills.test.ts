@@ -11,7 +11,7 @@ import { createHash } from "node:crypto";
 import { expandSkillCommand, loadSkillLibrary, readSkill, skillsDirFor } from "@ruukoto/agent/skills.ts";
 import { isolateSkillHome } from "./helpers/skill-home.ts";
 import type { Responder } from "./helpers/mock-provider.ts";
-import { createProjectSession, lastUserText, startTestRuntime, taskStatus, waitFor, type TestRuntime } from "./helpers/testkit.ts";
+import { createProjectSession, lastUserText, realTools, startTestRuntime, taskStatus, waitFor, type TestRuntime } from "./helpers/testkit.ts";
 
 const MODEL = { provider: "mock", modelId: "mock-model", thinkingLevel: "off" };
 
@@ -84,7 +84,7 @@ test("技能库：嵌套包、符号链接、缺描述、YAML 错误、同名冲
     const guide = readSkill(loaded, "alpha", "refs/guide.md");
     assert.ok(guide.includes("指南正文"));
     assert.ok(guide.includes(`sha256:${createHash("sha256").update("指南正文").digest("hex")}`), "带文件 sha256");
-    assert.ok(readSkill(loaded, "alpha", "run.sh").includes("echo hi"), "脚本只作为文本返回");
+    assert.ok(readSkill(loaded, "alpha", "run.sh").includes("echo hi"), "按需读取仍返回源码文本");
     assert.throws(() => readSkill(loaded, "alpha", "../alpha/refs/guide.md"), /不含 \.\./);
     assert.throws(() => readSkill(loaded, "alpha", path.join(alphaDir, "refs", "guide.md")), /相对路径/);
     assert.throws(() => readSkill(loaded, "alpha", "escape.txt"), /越出技能目录/);
@@ -232,6 +232,54 @@ test("集成：/skill: 显式调用展开进入历史（含仅显式技能）；
     assert.equal(status.task.status, "failed");
     assert.match(status.task.errorMessage, /未知技能：nope（可用技能：beta）/);
     assert.equal(t.server.calls.length, 2, "未知技能不发模型请求");
+  } finally {
+    await t.shutdown();
+  }
+});
+
+test("集成：技能脚本经现有 bash 直接执行，源码默认不进模型请求；显式 path 仍可读取", async tc => {
+  isolateSkillHome(tc);
+  const dir = path.join(skillsDirFor(), "runner");
+  writeSkill(dir, "name: runner\ndescription: RUNNER-DESC", "RUNNER-BODY 执行目录中的 run.sh");
+  fs.writeFileSync(path.join(dir, "run.sh"), "#!/bin/sh\n# SCRIPT-SOURCE-MARKER 永不打印\necho RUN-MARKER\ncat \"$(dirname \"$0\")/data.txt\"\necho WROTE >> out.txt\n");
+  fs.writeFileSync(path.join(dir, "data.txt"), "DATA-MARKER");
+
+  let calls = 0;
+  const responder: Responder = async (req) => {
+    calls++;
+    const tool = lastToolContent(req);
+    if (tool !== null) {
+      if (tool.includes("RUN-MARKER") || tool.includes("SCRIPT-SOURCE-MARKER")) return { kind: "text", text: "执行完成" };
+      // skill 工具结果给出技能目录：模型按目录路径直接执行脚本
+      const match = /目录 (\/[^\s；]+)/.exec(tool);
+      if (match) return { kind: "tool_calls", calls: [{ id: `b-${calls}`, name: "bash", arguments: { command: `sh "${match[1]}/run.sh"` } }] };
+      return { kind: "text", text: "读取完成" };
+    }
+    if (lastUserText(req).includes("读取脚本源码")) return { kind: "tool_calls", calls: [{ id: `p-${calls}`, name: "skill", arguments: { name: "runner", path: "run.sh" } }] };
+    return { kind: "tool_calls", calls: [{ id: `s-${calls}`, name: "skill", arguments: { name: "runner" } }] };
+  };
+  const t = await startTestRuntime("skills-exec", responder, { workDirs: 1, config: { ...realTools(), execution: { backend: "local" } } });
+  try {
+    const { sessionId } = await createProjectSession(t.client, t.work[0]!);
+    const task = await submit(t, sessionId, "e1", "运行技能脚本");
+    assert.equal((await waitDone(t, task.id)).task.status, "completed");
+
+    const requests = t.server.calls.map(call => JSON.stringify(call.messages));
+    assert.ok(!requests.some(text => text.includes("SCRIPT-SOURCE-MARKER")), "脚本源码从未进入模型请求");
+
+    const skillResult = t.server.calls.map(lastToolContent).find(content => content?.includes("RUNNER-BODY"))!;
+    assert.ok(skillResult.includes(`目录 ${fs.realpathSync(dir)}`), "skill 结果给出可执行的技能目录");
+    assert.ok(skillResult.includes("按其目录路径执行"), "结果说明脚本可经命令路径执行");
+
+    const bashResult = t.server.calls.map(lastToolContent).find(content => content?.includes("RUN-MARKER"))!;
+    assert.ok(bashResult.includes("RUN-MARKER") && bashResult.includes("DATA-MARKER"), "脚本真实执行并读到技能目录数据文件");
+    assert.equal(fs.readFileSync(path.join(t.work[0]!, "out.txt"), "utf8").trim(), "WROTE", "脚本可在原授权工作区写入");
+
+    // 显式源码读取仍然可用（审计/排障路径不关闭）
+    const callsBefore = t.server.calls.length;
+    const readTask = await submit(t, sessionId, "e2", "读取脚本源码");
+    assert.equal((await waitDone(t, readTask.id)).task.status, "completed");
+    assert.ok(t.server.calls.slice(callsBefore).map(lastToolContent).some(content => content?.includes("SCRIPT-SOURCE-MARKER")), "显式 path 读取仍返回源码");
   } finally {
     await t.shutdown();
   }

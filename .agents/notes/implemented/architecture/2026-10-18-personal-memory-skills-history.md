@@ -2,7 +2,7 @@
 
 Status: implemented
 
-技能脚本执行的[提案](../../proposed/feature/2026-10-29-skill-script-execution.md)复用原请求技能快照，并保留旧加载与显式展开字节；当前实现仍沿本篇及后续已落地决定。
+技能脚本执行的[决定](../feature/2026-10-29-skill-script-execution.md)复用原请求技能快照绑定命令证据，并保留旧加载与显式展开字节；当前实现仍沿本篇及后续已落地决定。
 
 技能来源与管理由[统一 HOME 发现](../simplification/2026-10-28-home-skills-discovery.md)部分取代；本文保留记忆、历史与既有技能快照的核实依据。
 

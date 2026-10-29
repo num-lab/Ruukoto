@@ -30,7 +30,8 @@ import { AccessScope } from "@ruukoto/core/access.ts";
 import { requireSubAgentExecution } from "@ruukoto/core/subagent-execution.ts";
 import type { CredentialStore } from "./execution/credentials.ts";
 import type { ManagedEntry, ManagedProcessRegistry, ManagedUnitKind } from "./managed-processes.ts";
-import { ExecutionError, type WorkerLauncher } from "./execution/launchers.ts";
+import { ExecutionError, type LaunchSpec, type WorkerLauncher } from "./execution/launchers.ts";
+import { selectSkillReadRoots, type SkillRootCandidate } from "./execution/skill-roots.ts";
 import {
   assertGrantNotProtected,
   executeApprovedFileOp,
@@ -78,6 +79,11 @@ export interface ToolRouterDeps {
   verificationLauncher?: () => WorkerLauncher;
   /** 受限模式排除的保护根目录（后台数据、服务凭据、控制面）。 */
   protectedRoots: string[];
+  /**
+   * 当前任务钉版的技能目录候选（realpath）。受限原生执行把可用目录
+   * 并入 LaunchSpec.readRoots 只读开放；完全访问与本地启动器不追加。
+   */
+  skillRoots?: (task: Task) => readonly SkillRootCandidate[];
   /**
    * 产物读取的范围判定（issue 05 §1）：同项目旧任务的产物在授权范围内可读，
    * 跨项目需有效授权；未提供时退回"仅当前任务"（兼容旧装配）。
@@ -169,8 +175,12 @@ export class ToolRouter {
 
   // ---------- 工作进程生命周期 ----------
 
-  private workerKeyFor(task: Task): string {
-    return `${task.id}:${task.accessMode}:${JSON.stringify(task.grantedPaths)}:${task.readScope?.execution?.digest ?? ""}`;
+  /** 最近 launchSpecFor 计算出的技能目录不可用诊断（逐技能；随每次 spec 计算刷新）。 */
+  private specDiagnostics: Array<{ name: string; reason: string }> = [];
+
+  private workerKeyFor(task: Task, spec: LaunchSpec): string {
+    // 最终根及目录身份都在 spec 内：技能根/身份变化即换 key，先停止核实再重建。
+    return `${task.id}:${task.readScope?.execution?.digest ?? ""}:${JSON.stringify(spec)}`;
   }
 
   private sourceProtection(task: Task): string[] {
@@ -197,7 +207,7 @@ export class ToolRouter {
    * 目标决定执行工作区与挂载单。修改工作执行在钉定副本/写入根；多一个子任务
    * 改仓库即多一个独立副本任务进 LaunchSpec（共享 Git 只读）。
    */
-  launchSpecFor(task: Task, session: Session): { taskId: string; mode: AccessMode; workspace: string; grantedPaths: GrantedPath[]; readRoots?: Array<{ path: string; dev?: number; ino?: number }>; env?: Record<string, string>; workspaceIdentity?: { dev: number; ino: number } } {
+  launchSpecFor(task: Task, session: Session, options?: { skillRoots?: boolean }): { taskId: string; mode: AccessMode; workspace: string; grantedPaths: GrantedPath[]; readRoots?: Array<{ path: string; dev?: number; ino?: number }>; env?: Record<string, string>; workspaceIdentity?: { dev: number; ino: number } } {
     const work = task.workId ? this.deps.store.getWorkDelegation(task.workId) : null;
     const ws = taskWorkspaceFor({ session, work });
     const scope = task.readScope;
@@ -244,6 +254,23 @@ export class ToolRouter {
     if (work?.writeTarget?.kind === "worktree") readRoots.push(work.writeTarget.snapshot.repository);
     // 材料分析没有额外路径时仍钉定只读工具的 cwd；完全访问的修改任务保留原范围。
     if (readRoots.length > 0 || (scope && !work?.writeTarget)) base.readRoots = [...new Map(readRoots.map(root => [root.path, root])).values()];
+    // 受限原生执行只读开放本任务钉版技能目录；完全访问不追加（权限不增不减）。
+    // Note: 见 .agents/notes/implemented/feature/2026-10-29-skill-script-execution.md
+    this.specDiagnostics = [];
+    if (options?.skillRoots && base.mode !== "full_access") {
+      const selection = selectSkillReadRoots({
+        candidates: this.deps.skillRoots?.(task) ?? [],
+        mounts: [
+          { path: base.workspace, access: "read_write" },
+          ...base.grantedPaths.map(grant => ({ path: grant.path, access: grant.access })),
+          ...(base.readRoots ?? []).map(root => ({ path: root.path, access: "read" as const })),
+        ],
+        protectedRoots: this.deps.protectedRoots,
+        checkAliases: true,
+      });
+      if (selection.roots.length) base.readRoots = [...new Map([...(base.readRoots ?? []), ...selection.roots].map(root => [root.path, root])).values()];
+      this.specDiagnostics = selection.unavailable;
+    }
     return base;
   }
 
@@ -296,7 +323,16 @@ export class ToolRouter {
 
   /** 确保工作进程匹配当前任务（模式与授予路径）；不匹配则回收重建。 */
   private async ensureWorker(task: Task): Promise<ToolWorkerHost> {
-    const key = this.workerKeyFor(task);
+    const protectedSource = this.sourceProtection(task);
+    const launcher = this.verification(task) ? this.deps.verificationLauncher?.() : this.deps.launcherFor(task.accessMode);
+    if (!launcher || ((this.verification(task) || protectedSource.length) && launcher.kind !== "native")) throw new ExecutionError("source_protection_unavailable", "来源保护需要原生沙箱；请恢复受限执行环境后继续");
+    const session = this.deps.store.getSession(task.sessionId);
+    if (!session) throw new ExecutionError("invalid_state", `会话不存在：${task.sessionId}`);
+    // LaunchSpec 由静态助手算出（issue 16）：写入目标在 workspace/workspaceIdentity；
+    // 共享 Git 目录作为只读 readRoot + Git safe.directory 环境集；技能根每次
+    // 从原钉版候选重核，目录身份变化进入 spec 从而更换 worker key。
+    const spec = this.launchSpecFor(task, session, { skillRoots: launcher.kind === "native" });
+    const key = this.workerKeyFor(task, spec);
     if (this.worker && this.workerKey === key && !this.workerStopped) return this.worker.start();
     if (this.worker) {
       const identity = this.workerIdentity();
@@ -305,14 +341,6 @@ export class ToolRouter {
         throw new ExecutionError("mode_switch_unverified", `无法核实旧执行单元（${identity?.id ?? "?"}）已退出，拒绝建立新的执行环境`);
       }
     }
-    const protectedSource = this.sourceProtection(task);
-    const launcher = this.verification(task) ? this.deps.verificationLauncher?.() : this.deps.launcherFor(task.accessMode);
-    if (!launcher || ((this.verification(task) || protectedSource.length) && launcher.kind !== "native")) throw new ExecutionError("source_protection_unavailable", "来源保护需要原生沙箱；请恢复受限执行环境后继续");
-    const session = this.deps.store.getSession(task.sessionId);
-    if (!session) throw new ExecutionError("invalid_state", `会话不存在：${task.sessionId}`);
-    // LaunchSpec 由静态助手算出（issue 16）：写入目标在 workspace/workspaceIdentity；
-    // 共享 Git 目录作为只读 readRoot + Git safe.directory 环境集。
-    const spec = this.launchSpecFor(task, session);
     const host = ToolWorkerHost.create(launcher, spec);
     this.worker = host;
     this.workerKey = key;
@@ -470,6 +498,9 @@ export class ToolRouter {
       if (!partial) for (const entry of artifactsByStream.values()) this.deps.artifacts.complete(entry.id);
       const content = Array.isArray(result.content) ? [...(result.content as any[])] : [];
       if (searchResult) content[0] = { type: "text", text: JSON.stringify(searchResult) };
+      if (this.specDiagnostics.length) {
+        content.push({ type: "text", text: `宿主提示：以下技能目录未开放给本次命令环境：${this.specDiagnostics.map(entry => `${entry.name}（${entry.reason}）`).join("、")}；其中文件可用 skill 工具的 path 参数按需读取。` });
+      }
       for (const entry of artifactsByStream.values()) {
         const bytes = this.deps.artifacts.byteLength(entry.id);
         content.push({

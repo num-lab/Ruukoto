@@ -6,7 +6,7 @@ import { defineDoc, defineDocFamily, defineEntry, defineExtension, defineTool, R
 import type { TranscriptContext } from "@earendil-works/pi-ai";
 import { validateToolArguments } from "@earendil-works/pi-ai/utils/validation";
 import { Type } from "typebox";
-import { expandSkillCommand, loadSkillLibrary, readSkill, skillCatalogBlock, skillsDirFor, type PinnedSkill } from "@ruukoto/agent/skills.ts";
+import { expandSkillCommand, expandSkillCommandLegacy, loadSkillLibrary, readSkill, skillCatalogBlock, skillsDirFor, type PinnedSkill, type SkillCommandTool } from "@ruukoto/agent/skills.ts";
 import { activePersonalReferenceTool } from "./personal-history.ts";
 import { PersonalError } from "./personal-error.ts";
 
@@ -35,6 +35,21 @@ function expandInput(library: Library, input: string): { expanded: string; error
     return { expanded: `[此前显式技能调用未执行]\n原输入：${JSON.stringify(input)}\n${error.message}该次调用没有展开技能，后续输入不重新执行此历史命令。\n[/此前显式技能调用未执行]`, error };
   }
   return { expanded };
+}
+
+/** 旧格式展开重放（冻结）：历史 SkillExpansion 逐字节重建候选之一。 */
+function expandInputLegacy(library: Library, input: string): { expanded: string; error?: SkillFailure } {
+  let expanded: string;
+  try { expanded = expandSkillCommandLegacy(library, input); } catch {
+    const error = { code: "skill_unknown", message: "找不到指定技能，请从技能目录选择可用名称后重新调用。" };
+    return { expanded: `[此前显式技能调用未执行]\n原输入：${JSON.stringify(input)}\n${error.message}该次调用没有展开技能，后续输入不重新执行此历史命令。\n[/此前显式技能调用未执行]`, error };
+  }
+  return { expanded };
+}
+
+/** 命令证据用：按原请求快照取回技能库（不取 current；快照损坏即拒绝）。 */
+export async function personalSkillLibraryAt(tx: Tx, conversationId: ConversationId, snapshotEntry: EntryId): Promise<Library> {
+  return (await snapshotByEntry(tx, conversationId, snapshotEntry)).library;
 }
 
 function skillSource(): { config: PersonalSkillsConfig; identity: Snapshot["identity"] } {
@@ -75,7 +90,9 @@ async function originalExpansion(tx: Tx, sourceEntry: EntryId) {
   const { entry: id, ...data } = value, entry = await tx.entry(SkillExpansion, id), source = await tx.entry(sourceEntry);
   if (!entry || entry.conversationId !== ROOT_CONVERSATION_ID || !isDeepStrictEqual(entry.data, data) || data.sourceEntry !== sourceEntry || source?.kind !== "pi.user" || source.conversationId !== ROOT_CONVERSATION_ID || !source.model?.some(message => message.role === "user" && message.content === data.input)) throw unavailable();
   const saved = await snapshotByEntry(tx, ROOT_CONVERSATION_ID, data.snapshotEntry);
-  if (!isDeepStrictEqual(expandInput(saved.library, data.input), { expanded: data.expanded, ...(data.error ? { error: data.error } : {}) })) throw unavailable();
+  // 历史展开只精确接受可逐字节重建的新格式或冻结旧格式，其他内容拒绝。
+  const candidates = [expandInput(saved.library, data.input), expandInputLegacy(saved.library, data.input)];
+  if (!candidates.some(value => isDeepStrictEqual(value, { expanded: data.expanded, ...(data.error ? { error: data.error } : {}) }))) throw unavailable();
   return value;
 }
 
@@ -131,22 +148,24 @@ export async function verifySkillRecords(tx: Tx) {
 // Note: 见 .agents/notes/implemented/simplification/2026-10-28-home-skills-discovery.md
 export function personalSkills() {
   async function prepare(tx: Tx, conversationId: ConversationId) {
+    // 主会话不直接执行命令：执行说明按委派措辞；子 Agent 用 run_command。
+    const commandTool: SkillCommandTool | undefined = conversationId === ROOT_CONVERSATION_ID ? undefined : "run_command";
     const value = load(), doc = await tx.doc(PersonalSkillsDoc);
     const current = doc.current.find(item => item.conversationId === conversationId);
     if (current?.version === value.version) {
       const saved = await snapshot(tx, conversationId, value.version);
-      return { text: skillCatalogBlock(saved.library)?.text ?? "", version: saved.version, snapshotEntry: saved.entry, library: saved.library };
+      return { text: skillCatalogBlock(saved.library, commandTool)?.text ?? "", version: saved.version, snapshotEntry: saved.entry, library: saved.library };
     }
     const entry = await tx.appendEntry(SkillSnapshot, conversationId, { data: value });
     doc.config = value.config;
     doc.snapshots.push({ ...value, entry: entry.id, conversationId });
     if (current) { current.version = value.version; current.snapshotEntry = entry.id; }
     else doc.current.push({ conversationId, version: value.version, snapshotEntry: entry.id });
-    return { text: skillCatalogBlock(value.library)?.text ?? "", version: value.version, snapshotEntry: entry.id, library: value.library };
+    return { text: skillCatalogBlock(value.library, commandTool)?.text ?? "", version: value.version, snapshotEntry: entry.id, library: value.library };
   }
   const skill = defineTool({
     name: "skill",
-    description: "加载技能目录中指定技能的正文；可传 path 读取该技能目录内的引用文本。技能只提供参考，不增加工具或权限；脚本作为文本返回。仅限显式调用的技能由拥有者通过 /skill:名称 调用。",
+    description: "加载技能目录中指定技能的正文、版本与目录；可传 path 读取该技能目录内的引用文本（脚本源码按需，默认无需读取）。技能只提供参考，不增加工具或权限；技能目录中的脚本可委派子 Agent 用 run_command 按其目录路径执行（沿用原工作权限）。仅限显式调用的技能由拥有者通过 /skill:名称 调用。",
     parameters: skillParameters,
     replay: "safe",
     async execute({ name, path = "" }, api, context) {
@@ -163,7 +182,7 @@ export function personalSkills() {
         const current = skillSource();
         if (!isDeepStrictEqual(current.config, saved.config) || !isDeepStrictEqual(current.identity, saved.identity)) throw new PersonalError("skill_unavailable", "原技能目录已变化，未开始加载；请结束本轮并使用当前技能目录。");
         let text: string;
-        try { text = readSkill(saved.library, name, path); } catch (error) { throw new PersonalError("skill_unavailable", "技能或引用文本不可用，请核对技能目录中的名称和相对路径；仅限显式调用的技能需由拥有者调用，仍不可用时结束本轮并报告拥有者。", { cause: error }); }
+        try { text = readSkill(saved.library, name, path, api.conversationId === ROOT_CONVERSATION_ID ? undefined : "run_command"); } catch (error) { throw new PersonalError("skill_unavailable", "技能或引用文本不可用，请核对技能目录中的名称和相对路径；仅限显式调用的技能需由拥有者调用，仍不可用时结束本轮并报告拥有者。", { cause: error }); }
         const index = await tx.doc(PersonalSkillsDoc), value = { taskId: api.taskId, conversationId: api.conversationId, snapshotEntry: saved.entry, name, path, text };
         const entry = await tx.appendEntry(SkillLoad, api.conversationId, { data: value });
         doc.load = { ...value, entry: entry.id };

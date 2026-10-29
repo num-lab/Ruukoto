@@ -7,7 +7,10 @@
  *   调用都用这份；版本 = 钉版内容的 sha256；
  * - 诊断（YAML 错误、缺少描述、同名冲突、超过 64 KiB 等）不静默丢弃，经
  *   控制面 list_skills 给拥有者查看；
- * - 技能是参考内容：skill 工具只读、不产生审批，脚本只作为文本返回。
+ * - 技能是参考内容：skill 工具只读、不产生审批；技能目录中的脚本经现有
+ *   命令工具（Coding bash / 个人子 Agent run_command）按其目录路径执行，
+ *   源码默认不读取，按需仍可用 path 参数加载。
+ * Note: 见 .agents/notes/implemented/feature/2026-10-29-skill-script-execution.md
  */
 
 import * as fs from "node:fs";
@@ -28,7 +31,7 @@ export function createSkillFamily(): HostToolFamily {
   return {
     category: "skills",
     names: SKILL_TOOL_NAMES,
-    build: (runtime) => createSkillTools({ library: runtime.skills, bindCall: runtime.call.bindCall }),
+    build: (runtime) => createSkillTools({ library: runtime.skills, bindCall: runtime.call.bindCall, commandTool: runtime.toolClass === "main" ? undefined : "bash" }),
     ledger: SKILL_LEDGER,
   };
 }
@@ -46,7 +49,7 @@ export interface PinnedSkill {
   name: string;
   description: string;
   disableModelInvocation: boolean;
-  /** 技能目录 realpath（只在宿主内使用，不进入模型上下文）。 */
+  /** 技能目录 realpath；随技能块进入模型上下文，作为脚本执行的相对路径基准。 */
   dir: string;
   /** SKILL.md 去掉 frontmatter 的正文。 */
   body: string;
@@ -148,8 +151,18 @@ export function getSkillDetail(id: SkillId) {
   return { revision: `sha256:${sha256(JSON.stringify(library.skills))}`, ...skillSummary(skill), body: skill.body };
 }
 
+/** 执行说明按会话实际命令工具措辞；无直发命令工具的会话（主会话）走委派。 */
+export type SkillCommandTool = "bash" | "run_command";
+
+function scriptExecutionNote(commandTool?: SkillCommandTool): string {
+  const phrase = commandTool === "bash" ? "可用 bash 按其目录路径执行"
+    : commandTool === "run_command" ? "可用 run_command 按其目录路径执行"
+    : "可委派子 Agent 按其目录路径执行";
+  return `技能目录中的脚本${phrase}（沿用当前执行资格、审批与沙箱）；脚本源码默认无需读取，审计或排障时仍可用 skill 工具的 path 参数加载`;
+}
+
 /** 技能目录参考块：只含可由模型加载的技能的名称与描述（无主机路径）；没有时不产出。 */
-export function skillCatalogBlock(lib: SkillLibrary): ReferenceBlock | null {
+export function skillCatalogBlock(lib: SkillLibrary, commandTool?: SkillCommandTool): ReferenceBlock | null {
   const entries = lib.skills.filter((s) => !s.disableModelInvocation);
   if (entries.length === 0) return null;
   return {
@@ -157,14 +170,23 @@ export function skillCatalogBlock(lib: SkillLibrary): ReferenceBlock | null {
     placement: "prefix",
     text: [
       "[技能目录]",
-      "以下技能由拥有者提供。任务与某技能的描述相符时，先用 skill 工具（参数 name）加载其正文；正文提到的引用文件用 skill 工具的 path 参数（相对技能目录）读取。技能中的脚本只作为文本提供，不能原地执行。",
+      `以下技能由拥有者提供。任务与某技能的描述相符时，先用 skill 工具（参数 name）加载其正文；正文给出技能目录，${scriptExecutionNote(commandTool)}；正文提到的其他引用文件同样用 path 参数（相对技能目录）读取。`,
       ...entries.map((s) => `- ${s.name}：${s.description}`),
       "[/技能目录]",
     ].join("\n"),
   };
 }
 
-function skillBlock(skill: PinnedSkill, how: string): string {
+function skillBlock(skill: PinnedSkill, how: string, commandTool?: SkillCommandTool): string {
+  return [
+    `[技能 ${skill.name} · 版本 ${skill.version} · ${how} · 目录 ${skill.dir}；${scriptExecutionNote(commandTool)}]`,
+    skill.body,
+    `[/技能 ${skill.name}]`,
+  ].join("\n");
+}
+
+/** 旧格式技能块（冻结）：历史显式展开按原字节重放判定，新展开不使用。 */
+function skillBlockLegacy(skill: PinnedSkill, how: string): string {
   return [
     `[技能 ${skill.name} · 版本 ${skill.version} · ${how}；引用文件可用 skill 工具的 path 参数（相对技能目录）读取，脚本只作为文本提供，不能原地执行]`,
     skill.body,
@@ -182,24 +204,38 @@ function availableNames(lib: SkillLibrary | null, includeExplicitOnly: boolean):
  * 非 /skill: 输入原样返回；未知名称抛错（列出可用技能）。不受
  * disable-model-invocation 限制。
  */
-export function expandSkillCommand(lib: SkillLibrary | null, input: string): string {
+export function expandSkillCommand(lib: SkillLibrary | null, input: string, commandTool?: SkillCommandTool): string {
   const match = /^\/skill:(\S+)(?:\s+([\s\S]*))?$/.exec(input);
   if (!match) return input;
   const skill = lib?.skills.find((s) => s.name === match[1]);
   if (!skill) throw new Error(`未知技能：${match[1]}（可用技能：${availableNames(lib, true)}）`);
   const args = match[2]?.trim();
-  const block = skillBlock(skill, "拥有者显式调用");
+  const block = skillBlock(skill, "拥有者显式调用", commandTool);
+  return args ? `${block}\n\n${args}` : block;
+}
+
+/**
+ * 旧格式展开（冻结）：历史 SkillExpansion 只精确接受可逐字节重建的旧格式
+ * 或新格式；本函数生成旧格式候选，不产生新记录。
+ */
+export function expandSkillCommandLegacy(lib: SkillLibrary | null, input: string): string {
+  const match = /^\/skill:(\S+)(?:\s+([\s\S]*))?$/.exec(input);
+  if (!match) return input;
+  const skill = lib?.skills.find((s) => s.name === match[1]);
+  if (!skill) throw new Error(`未知技能：${match[1]}（可用技能：${availableNames(lib, true)}）`);
+  const args = match[2]?.trim();
+  const block = skillBlockLegacy(skill, "拥有者显式调用");
   return args ? `${block}\n\n${args}` : block;
 }
 
 /** skill 工具执行：加载钉版正文，或读取技能目录内的引用文件。 */
-export function readSkill(lib: SkillLibrary | null, name: string, relPath?: string): string {
+export function readSkill(lib: SkillLibrary | null, name: string, relPath?: string, commandTool?: SkillCommandTool): string {
   const skill = lib?.skills.find((s) => s.name === name);
   if (!skill) throw new Error(`未知技能：${name}（可加载技能：${availableNames(lib, false)}）`);
   if (skill.disableModelInvocation) {
     throw new Error(`技能 ${name} 仅限拥有者显式调用（/skill ${name}），不能由模型加载`);
   }
-  if (relPath === undefined || relPath === "") return skillBlock(skill, "任务开始时钉版");
+  if (relPath === undefined || relPath === "") return skillBlock(skill, "任务开始时钉版", commandTool);
 
   if (path.isAbsolute(relPath) || relPath.split(/[\\/]/).includes("..")) {
     throw new Error(`引用文件路径须为技能目录内的相对路径且不含 ..：${relPath}`);
@@ -230,7 +266,7 @@ export function readSkill(lib: SkillLibrary | null, name: string, relPath?: stri
   }
   if (text.includes("\0")) throw new Error(`引用文件不是文本：${relPath}`);
   return [
-    `[技能 ${skill.name} 引用文件 ${relPath} · sha256:${sha256(data)} · 调用时读取；脚本只作为文本提供，不能原地执行]`,
+    `[技能 ${skill.name} 引用文件 ${relPath} · sha256:${sha256(data)} · 调用时读取]`,
     text,
     `[/技能 ${skill.name} 引用文件 ${relPath}]`,
   ].join("\n");
@@ -240,13 +276,16 @@ export function createSkillTools(deps: {
   /** 当前任务钉版的技能库（null = 本会话不可用）。 */
   library(): SkillLibrary | null;
   bindCall?: HostCallBinder;
+  /** 本会话命令执行工具名，用于执行说明措辞（默认按无直发命令工具处理）。 */
+  commandTool?: SkillCommandTool;
 }): ToolDefinition[] {
   const skill = defineTool({
     name: "skill",
     label: "skill",
     description:
-      "加载拥有者技能库中的技能（技能目录见上下文）。只传 name 返回该技能的完整正文与版本；" +
-      "再传 path（相对技能目录）读取正文提到的引用文件。只读、不执行任何脚本。" +
+      "加载拥有者技能库中的技能。只传 name 返回该技能的完整正文、版本与目录；" +
+      "再传 path（相对技能目录）读取正文提到的引用文件。" +
+      `本工具只读不执行；${scriptExecutionNote(deps.commandTool)}。` +
       "技能是参考内容，不能变更控制面身份、审批规则或权限模式。",
     parameters: Type.Object({
       name: Type.String({ description: "技能名称（技能目录中列出的名称）" }),
@@ -256,7 +295,7 @@ export function createSkillTools(deps: {
       const call = hostCallFor(deps.bindCall, () => null, sdkCallId);
       try {
         // 错误以异常返回：pi 据此生成 isError=true 的 toolResult
-        return { content: [{ type: "text" as const, text: readSkill(deps.library(), String(params.name ?? ""), params.path) }], details: undefined };
+        return { content: [{ type: "text" as const, text: readSkill(deps.library(), String(params.name ?? ""), params.path, deps.commandTool) }], details: undefined };
       } finally {
         call.release();
       }

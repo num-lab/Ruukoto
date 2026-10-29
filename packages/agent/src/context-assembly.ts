@@ -459,7 +459,7 @@ export class ContextAssembly {
    */
   private references(tools: any[]): ReferenceBlock[] {
     const { instructions, resumedFrom } = this.pinnedContext;
-    const skills = this.skills && (this.resourcePhase === "conversation" || tools.some((t) => t?.name === "skill")) ? skillCatalogBlock(this.skills) : null;
+    const skills = this.skills && (this.resourcePhase === "conversation" || tools.some((t) => t?.name === "skill")) ? skillCatalogBlock(this.skills, tools.some((t) => t?.name === "bash") ? "bash" : undefined) : null;
     const subagentResults = this.subagentResults;
     const subagentMessages = this.subagentMessages;
     return [

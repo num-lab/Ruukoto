@@ -2,7 +2,7 @@
 
 ## 对象与依据
 
-日期：2026-10-29。对象为[工单](../issues/01-execute-without-source.md)、[决策提案](../../../.agents/notes/proposed/feature/2026-10-29-skill-script-execution.md)及 HOME 发现、个人技能历史两篇已有笔记中的提案互链；基点为 `5c55e96b5de38f068eabb0aa58b7885e9e085781`，本任务文件未提交。原需求和逐项确认由工单记录，实施与真实执行不在本轮交付范围。
+日期：2026-10-29。对象为[工单](../issues/01-execute-without-source.md)、[决策提案](../../../.agents/notes/implemented/feature/2026-10-29-skill-script-execution.md)及 HOME 发现、个人技能历史两篇已有笔记中的提案互链；基点为 `5c55e96b5de38f068eabb0aa58b7885e9e085781`，本任务文件未提交。原需求和逐项确认由工单记录，实施与真实执行不在本轮交付范围。
 
 聊天中的独立只读预审已核实方案可行，并要求补齐最终 LaunchSpec.mode、run_command 当前权限说明、原 cwd/输出归属和 Personal 原请求快照绑定；以上已写入落盘方案。预审不替代本文件针对最终落盘内容的独立审查。
 
@@ -19,7 +19,7 @@
 | 被审内容 | SHA256 |
 | --- | --- |
 | `.scratch/skill-script-execution/issues/01-execute-without-source.md`（审查时 plan-review） | `a230291e463e04172317a391d6be1065f2c9a10917ff609206b929b27bd5cc1b` |
-| `.agents/notes/proposed/feature/2026-10-29-skill-script-execution.md` | `2bc1e5f6ef99d172c941bb9bddda942c28c3e31c3955e7a827adc3169b42da82` |
+| `.agents/notes/implemented/feature/2026-10-29-skill-script-execution.md` | `2bc1e5f6ef99d172c941bb9bddda942c28c3e31c3955e7a827adc3169b42da82` |
 | `.agents/notes/implemented/simplification/2026-10-28-home-skills-discovery.md` | `f461e04909027d1240150b891d7e2dbaaea9b46f3fd1db260ca6c0f56d75ccf6` |
 | `.agents/notes/implemented/architecture/2026-10-18-personal-memory-skills-history.md` | `b7a849703bcc366c1fe8f39367e6cb26674f67433372c9ffd53cfa63deded7c1` |
 | 本记录（审查前检查记录） | `59ecd54433ffe6541680b014d8e47d5b7eb3deb90b234f6623fac698198522ac` |

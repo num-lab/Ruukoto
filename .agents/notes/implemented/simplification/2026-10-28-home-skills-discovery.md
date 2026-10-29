@@ -2,7 +2,7 @@
 
 Status: implemented
 
-技能脚本执行与目录只读开放的[提案](../../proposed/feature/2026-10-29-skill-script-execution.md)保留本篇固定来源和历史字节规则，实施前不改变当前行为。
+技能脚本执行与目录只读开放的[决定](../feature/2026-10-29-skill-script-execution.md)保留本篇固定来源和历史字节规则，只增加执行寻址与技能资源可见性。
 
 ## 问题
 

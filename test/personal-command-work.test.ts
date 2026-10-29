@@ -36,6 +36,7 @@ import type { ServiceManagerConfig } from "../apps/ruukoto/src/service-helper.ts
 import { personalProvider, type PersonalModelConfig } from "../apps/ruukoto/src/personal-model.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
 import { PersonalMockModelServer as MockModelServer, type Responder } from "./helpers/mock-provider.ts";
+import { isolateSkillHome } from "./helpers/skill-home.ts";
 
 // Note: 见 .agents/notes/implemented/testing/2026-10-24-test-suite-reduction.md
 const context = BACKGROUND_CONTEXT;
@@ -304,6 +305,63 @@ for (const scenario of ["restricted", "full_access", "unproved-stop"] as const) 
     const requests = f.server.calls.length;
     await assert.rejects(f.open(), code(mutation === "claim" ? "directory_claim_invalid" : "command_record_invalid"));
     assert.equal(f.server.calls.length, requests); assert.equal(f.launches(), 1);
+  });
+});
+
+test("durable 命令：受限命令绑定原请求技能快照并入只读根，证据篡改拒绝，旧无字段记录精确恢复", async t => {
+  const home = isolateSkillHome(t);
+  const skillDir = path.join(home, ".agents", "skills", "data-skill");
+  fs.mkdirSync(skillDir, { recursive: true });
+  fs.writeFileSync(path.join(skillDir, "SKILL.md"), "---\nname: data-skill\ndescription: 数据技能\n---\n数据技能正文");
+  fs.writeFileSync(path.join(skillDir, "data.txt"), "SKILL-DATA");
+  const skillReal = fs.realpathSync(skillDir);
+  const f = await fixture(t, `cat "${skillReal}/data.txt" >> count`);
+  let p = await f.open();
+  await source(p);
+  const work = await p.work.delegate(draft("run-skills"));
+  const ref = await original(p);
+  await p.harness.waitForTask(work.taskId, context);
+  const saved = structuredClone((await p.harness.snapshot(PersonalCommandDoc, ref.requestId, context))!.command!);
+  const stat = fs.statSync(skillReal);
+  assert.equal(typeof saved.skills?.snapshotEntry, "number");
+  assert.deepEqual(saved.skills!.roots, [{ path: skillReal, dev: stat.dev, ino: stat.ino }], "技能根绑定原快照钉版目录身份");
+  assert.deepEqual(saved.skills!.unavailable, []);
+  assert.deepEqual(saved.prepared!.spec.readRoots, saved.skills!.roots, "执行规格携带同一批只读根");
+  assert.deepEqual([...saved.prepared!.input.mounts].sort((a, b) => a.path.length - b.path.length), [{ path: f.workspace, access: "read_write" }, { path: skillReal, access: "read" }].sort((a, b) => a.path.length - b.path.length), "技能目录以只读挂载进入执行输入");
+  assert.equal(fs.readFileSync(path.join(f.workspace, "count"), "utf8").trim(), "SKILL-DATA", "命令真实执行并读到技能目录数据");
+  await p.close();
+  p = await f.open();
+  await p.close();
+
+  const database = path.join(f.directory, "personal.sqlite"), snapshot = path.join(f.root, "skills-baseline.sqlite");
+  fs.copyFileSync(database, snapshot);
+  for (const mutation of ["root-identity", "snapshot", "legacy"] as const) await t.test(mutation, async () => {
+    fs.copyFileSync(snapshot, database);
+    let instance = await f.open();
+    const mutated = structuredClone((await instance.harness.snapshot(PersonalCommandDoc, ref.requestId, context))!.command!);
+    if (mutation === "legacy") {
+      // 旧格式命令没有技能字段：从命令、接纳与执行意图中整体移除，按旧校验恢复
+      delete mutated.skills;
+      delete mutated.prepared!.spec.readRoots;
+      mutated.prepared!.input.mounts = mutated.prepared!.input.mounts.filter(mount => mount.path !== skillReal);
+      mutated.prepared!.fingerprint = personalCommandFingerprint(mutated.command, mutated.prepared!.spec, mutated.prepared!.input);
+      await instance.harness.commit(async tx => { (await tx.doc(PersonalCommandDoc, ref.requestId, null)).command = mutated; }, context);
+      await instance.close();
+      const db = new DatabaseSync(database);
+      try {
+        db.prepare("UPDATE entries SET record = json_remove(record, '$.data.skills') WHERE id = ?").run(mutated.admission);
+        db.prepare("UPDATE entries SET record = json_set(record, '$.data.prepared', json(?)) WHERE id = ?").run(JSON.stringify(mutated.prepared), mutated.startEntry!);
+        db.prepare("UPDATE entries SET record = json_set(record, '$.data.fingerprint', ?) WHERE id = ?").run(mutated.prepared!.fingerprint, mutated.observation!);
+      } finally { db.close(); }
+      instance = await f.open();
+      await instance.close();
+      return;
+    }
+    if (mutation === "root-identity") mutated.skills!.roots[0].ino += 1;
+    else mutated.skills!.snapshotEntry = mutated.startEntry!;
+    await instance.harness.commit(async tx => { (await tx.doc(PersonalCommandDoc, ref.requestId, null)).command = mutated; }, context);
+    await instance.close();
+    await assert.rejects(f.open(), error => error instanceof PersonalError && ["command_record_invalid", "skill_snapshot_invalid"].includes(error.code));
   });
 });
 

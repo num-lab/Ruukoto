@@ -5,11 +5,12 @@ import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import { syncBuiltinESMExports } from "node:module";
 import { test, type TestContext } from "node:test";
+import { DatabaseSync } from "node:sqlite";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { Harness, createRegistry, defineExtension, wrapTool, LiveDoc, ROOT_CONVERSATION_ID } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
-import { personalSkills, PersonalSkillsDoc, PERSONAL_SKILL_TOOLS } from "../apps/ruukoto/src/personal-skills.ts";
-import { loadSkillLibrary } from "@ruukoto/agent/skills.ts";
+import { personalSkills, PersonalSkillsDoc, PersonalSkillExpansionDoc, PERSONAL_SKILL_TOOLS } from "../apps/ruukoto/src/personal-skills.ts";
+import { expandSkillCommandLegacy, loadSkillLibrary } from "@ruukoto/agent/skills.ts";
 import { showPersonalSkills } from "../apps/ruukoto/src/personal-skills-cli.ts";
 import { lockPersonalProfile } from "../apps/ruukoto/src/personal-profile.ts";
 import { PersonalFormatDoc } from "../apps/ruukoto/src/personal-harness.ts";
@@ -78,7 +79,8 @@ async function fixture(t: TestContext, withSkills = true, holdLoad = false) {
 test("个人技能：目录、全文与身份先留不可改快照，后续变化保留版本和原正文", async t => {
   const f = await fixture(t);
   const first = await f.harness.commit(tx => f.skills.prepare(tx, ROOT_CONVERSATION_ID), context);
-  assert.match(first.text, /alpha的任务指引/); assert.doesNotMatch(first.text, /任务正文|explicit|\/tmp|bash/);
+  assert.match(first.text, /alpha的任务指引/); assert.doesNotMatch(first.text, /任务正文|explicit|\/tmp|bash|只作为文本提供/);
+  assert.match(first.text, /可委派子 Agent 按其目录路径执行/, "主会话目录给出委派执行指引");
   assert.deepEqual([...PERSONAL_SKILL_TOOLS], ["skill"]);
   const doc = (await f.harness.snapshot(PersonalSkillsDoc, context))!;
   assert.equal(doc.snapshots.length, 1); assert.match(doc.snapshots[0].library.skills[0].body, /任务正文/);
@@ -192,6 +194,8 @@ test("个人技能：显式输入只在主会话展开，快照损坏阻断后�
   const f = await fixture(t);
   await f.answer("/skill:explicit 参数", "explicit-input");
   assert.match(JSON.stringify(f.model.calls[0].raw), /拥有者显式正文/); assert.match(JSON.stringify(f.model.calls[0].raw), /参数/);
+  assert.match(JSON.stringify(f.model.calls[0].raw), /· 目录 \//, "展开给出可执行的技能目录");
+  assert.match(JSON.stringify(f.model.calls[0].raw), /按其目录路径执行/);
   const source = (await f.main.entries({}, 256, undefined, context)).items.find(entry => entry.kind === "pi.user")!;
   assert.equal(source.model![0].role === "user" && source.model![0].content, "/skill:explicit 参数");
   await f.harness.commit(tx => f.skills.verifyRecords(tx), context);
@@ -202,6 +206,30 @@ test("个人技能：显式输入只在主会话展开，快照损坏阻断后�
   await f.harness.commit(async tx => { (await tx.doc(PersonalSkillsDoc)).snapshots[0].library.skills[0].body = "伪造正文"; }, context);
   await assert.rejects(f.harness.commit(tx => f.skills.verifyRecords(tx), context), code("skill_snapshot_invalid"));
   const count = f.model.calls.length; await f.answer("后续调用", "corrupt"); assert.equal(f.model.calls.length, count);
+});
+
+test("个人技能：冻结旧格式展开按原字节接受，伪造展开拒绝", async t => {
+  const f = await fixture(t);
+  await f.answer("/skill:explicit 参数", "legacy-explicit");
+  const source = (await f.main.entries({}, 256, undefined, context)).items.find(entry => entry.kind === "pi.user")!;
+  const saved = (await f.harness.snapshot(PersonalSkillsDoc, context))!.snapshots[0];
+  const legacy = expandSkillCommandLegacy(saved.library, "/skill:explicit 参数");
+  assert.doesNotMatch(legacy, /· 目录 \//, "旧格式不含目录与执行指引");
+  for (const [name, expanded] of [["legacy", legacy], ["forged", "伪造的展开内容"]] as const) await t.test(name, async () => {
+    // doc 与 entry 同步改写成目标格式：旧格式逐字节重建通过，非任一格式拒绝
+    await f.harness.commit(async tx => {
+      const doc = await tx.doc(PersonalSkillExpansionDoc, String(source.id), null);
+      doc.expansion!.expanded = expanded;
+    }, context);
+    const entryId = await f.harness.commit(async tx => (await tx.doc(PersonalSkillExpansionDoc, String(source.id), null)).expansion!.entry, context);
+    const db = new DatabaseSync(path.join(f.directory, "personal.sqlite"));
+    try {
+      db.prepare("UPDATE entries SET record = json_set(record, '$.data.expanded', ?) WHERE id = ?").run(expanded, entryId);
+    } finally { db.close(); }
+    const verify = () => f.harness.commit(tx => f.skills.verifyRecords(tx), context);
+    if (name === "legacy") await verify();
+    else await assert.rejects(verify, code("skill_snapshot_invalid"));
+  });
 });
 
 test("个人技能：固定目录缺失为空库，证据失败仍阻止模型请求", async t => {

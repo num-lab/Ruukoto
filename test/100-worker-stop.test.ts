@@ -15,15 +15,18 @@ import { createLocalLauncher, ExecutionError, type LaunchedUnit, type LaunchSpec
 import { createManagedProcessRegistry, killProcessGroup } from "@ruukoto/agent/managed-processes.ts";
 import { Db } from "@ruukoto/core/db.ts";
 import { Store } from "@ruukoto/core/store.ts";
+import { randomId } from "@ruukoto/core/types.ts";
+import { WORKFLOW_INTERFACE_VERSION, bindWorkflowExecution, createWorkflowRun, registerWorkflowStep, saveWorkflowDefinition, workflowDigest } from "@ruukoto/core/workflow.ts";
 import { ToolRouter } from "@ruukoto/agent/tool-router.ts";
 import { ToolOpLedger } from "@ruukoto/agent/tool-op-ledger.ts";
 import { ArtifactStore } from "@ruukoto/agent/artifacts.ts";
 import { CredentialStore } from "@ruukoto/agent/execution/credentials.ts";
+import { fixtureSubAgentRoleCatalog } from "./helpers/subagent-definition.ts";
 import { realTools, startTestRuntime, waitFor } from "./helpers/testkit.ts";
 
 const spec: LaunchSpec = { taskId: "worker-stop", mode: "confirm", workspace: process.cwd(), grantedPaths: [] };
 
-function controlledUnit(stop: () => Promise<boolean>, opts: { fatal?: boolean; initError?: boolean; shutdownOutput?: string } = {}) {
+function controlledUnit(stop: () => Promise<boolean>, opts: { fatal?: boolean; initError?: boolean; shutdownOutput?: string; respondCalls?: boolean } = {}) {
   const stdout = new PassThrough();
   const stderr = new PassThrough();
   const requests: string[] = [];
@@ -36,6 +39,9 @@ function controlledUnit(stop: () => Promise<boolean>, opts: { fatal?: boolean; i
       if (request.type === "shutdown") {
         exit({ code: 0, signal: null });
         if (opts.shutdownOutput !== undefined) setImmediate(() => stdout.end(opts.shutdownOutput));
+      }
+      if (request.type === "tool_call" && opts.respondCalls) {
+        setImmediate(() => stdout.write(JSON.stringify({ type: "result", opId: request.opId, ok: true, content: [{ type: "text", text: "ok" }] }) + "\n"));
       }
       callback(request.type === "init" && opts.initError ? new ExecutionError("init_write_failed", "模拟 init 写入失败") : undefined);
       if (request.type === "init" && opts.initError) exit({ code: 1, signal: null });
@@ -311,7 +317,7 @@ test("静态 start 失败交出可核实的宿主记录与原错误", async () =
   assert.equal(await failure.host.stop(), false);
 });
 
-function routerKit(launcher: WorkerLauncher) {
+function routerKit(launcher: WorkerLauncher, extra: Partial<import("@ruukoto/agent/tool-router.ts").ToolRouterDeps> = {}) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-router-stop-")));
   const db = new Db(root);
   const store = new Store(db);
@@ -320,9 +326,9 @@ function routerKit(launcher: WorkerLauncher) {
   const session = store.createSession({ projectId: project.id, cwd: root, cwdReal: root, cwdDev: stat.dev, cwdIno: stat.ino, piSessionId: "test", confirmTools: [] });
   const { task } = store.insertQueuedTask({ sessionId: session.id, requestId: "start", input: "停止回归", modelSelection: { provider: "mock", modelId: "mock", thinkingLevel: "off" }, submissionDigest: "start" });
   const registry = createManagedProcessRegistry();
-  const router = new ToolRouter({ store, registry, ledger: new ToolOpLedger(store), artifacts: new ArtifactStore(root, store), credentials: new CredentialStore(root), launcherFor: () => launcher, protectedRoots: [], approvals: { request: async () => { throw new ExecutionError("approval_unused", "本用例不请求审批"); }, defer: async () => { throw new ExecutionError("approval_unused", "本用例不请求审批"); }, consumeDeferred() { throw new ExecutionError("approval_unused", "本用例不请求审批"); }, supersedeAll() {} } });
+  const router = new ToolRouter({ store, registry, ledger: new ToolOpLedger(store), artifacts: new ArtifactStore(root, store), credentials: new CredentialStore(root), launcherFor: () => launcher, protectedRoots: [], approvals: { request: async () => { throw new ExecutionError("approval_unused", "本用例不请求审批"); }, defer: async () => { throw new ExecutionError("approval_unused", "本用例不请求审批"); }, consumeDeferred() { throw new ExecutionError("approval_unused", "本用例不请求审批"); }, supersedeAll() {} }, ...extra });
   const run = () => router.executeTool({ task, hostOpId: "op", sdkCallId: "call", name: "read", params: { path: "file" } });
-  return { store, task, router, registry, run, close() { db.close(); fs.rmSync(root, { recursive: true, force: true }); } };
+  return { store, task, router, registry, session, run, close() { db.close(); fs.rmSync(root, { recursive: true, force: true }); } };
 }
 
 test("router 的 starting 与实际登记保留 ready 失败，不重建未知退出单元", async () => {
@@ -358,6 +364,96 @@ test("router 在 launch 前登记；启动期间取消不会安装迟到 worker"
     assert.equal(kit.router.workerIdentity(), null);
     assert.ok(!controlled.requests.includes("init"));
   } finally { kit.close(); }
+});
+
+// 技能根并入 spec.readRoots 与其身份即入 worker key；目录身份变化→先核实停止再重建，坏根按技能隔离。
+// Note: 见 .agents/notes/implemented/feature/2026-10-29-skill-script-execution.md
+function skillRootKit(stop: () => Promise<boolean>, candidates: Array<{ name: string; dir: string }>) {
+  const specs: LaunchSpec[] = [];
+  const kit = routerKit(
+    { kind: "native", launch(spec) {
+      // 每次启动独立单元：旧单元的 exit 已兑现，复用会让新宿主立即判定退出
+      specs.push(structuredClone(spec));
+      return controlledUnit(stop, { respondCalls: true }).launcher.launch(spec);
+    } },
+    { skillRoots: () => candidates },
+  );
+  return { kit, specs };
+}
+
+test("router 技能根：受限原生根并入 readRoots 与 worker key；目录身份变化先核实停止再重建，坏根逐技能隔离", async () => {
+  const skillDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-skill-root-")));
+  try {
+    const { kit, specs } = skillRootKit(async () => true, [
+      { name: "good", dir: skillDir },
+      { name: "gone", dir: path.join(skillDir, "missing") },
+    ]);
+    try {
+      const first = await kit.run();
+      assert.equal(first.isError, false);
+      assert.equal(specs.length, 1);
+      assert.deepEqual(specs[0].readRoots?.map(root => root.path), [skillDir]);
+      assert.ok(JSON.stringify(first.content).includes("gone"), "不可用技能根的诊断进入工具结果");
+      // 目录身份（dev/ino）变化 → spec 变化 → worker key 变化 → 先停止核实再重建
+      const oldStat = fs.statSync(skillDir);
+      fs.rmdirSync(skillDir); fs.mkdirSync(skillDir);
+      const second = await kit.run();
+      assert.equal(second.isError, false);
+      assert.equal(specs.length, 2);
+      assert.notEqual(specs[1].readRoots?.[0]?.ino, oldStat.ino);
+    } finally { kit.close(); }
+  } finally { fs.rmSync(skillDir, { recursive: true, force: true }); }
+});
+
+test("router 技能根身份变化而停止未核实：保留占用并拒绝替代执行环境", async () => {
+  const skillDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-skill-root-")));
+  try {
+    const { kit, specs } = skillRootKit(async () => false, [{ name: "good", dir: skillDir }]);
+    try {
+      assert.equal((await kit.run()).isError, false);
+      fs.rmdirSync(skillDir); fs.mkdirSync(skillDir);
+      const refused = await kit.run();
+      assert.equal(refused.isError, true);
+      assert.ok(JSON.stringify(refused.content).includes("无法核实") || JSON.stringify(refused.content).includes("mode_switch_unverified"), "拒绝替代旧执行单元");
+      assert.equal(specs.length, 1, "未发起第二次启动");
+      assert.equal(kit.router.workerIdentity()?.id, "123456");
+    } finally { kit.close(); }
+  } finally { fs.rmSync(skillDir, { recursive: true, force: true }); }
+});
+
+// 验证步骤把 spec 降为 confirm 时仍补技能根；真正完全访问不追加（权限不增不减）。
+test("router 技能根：full_access 不追加；验证步骤降为 confirm 的 spec 仍含技能根", () => {
+  const skillDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-skill-root-")));
+  try {
+    const { kit } = skillRootKit(async () => true, [{ name: "good", dir: skillDir }]);
+    try {
+      const { task: fullTask } = kit.store.insertQueuedTask({ sessionId: kit.session.id, requestId: "full", input: "完全访问", accessMode: "full_access", modelSelection: { provider: "mock", modelId: "mock", thinkingLevel: "off" }, submissionDigest: "full" });
+      const plain = kit.router.launchSpecFor(fullTask, kit.session, { skillRoots: true });
+      assert.equal(plain.mode, "full_access");
+      assert.equal(plain.readRoots, undefined, "完全访问不追加技能根");
+      kit.store.withTx(() => {
+        const definition = saveWorkflowDefinition(kit.store, "return 1;");
+        const run = createWorkflowRun(kit.store, {
+          interfaceVersion: WORKFLOW_INTERFACE_VERSION, roleCatalog: fixtureSubAgentRoleCatalog(),
+          id: randomId("wfrun"), requestKey: "verify-run", paramsDigest: "verify-run", definitionId: definition.id,
+          scriptDigest: definition.digest, input: null, inputDigest: workflowDigest(null),
+          source: { product: "ruukoto", projectId: kit.session.projectId, sessionId: kit.session.id, taskId: kit.task.id,
+            permissionVersion: kit.task.permissionVersion, accessMode: kit.task.accessMode, grantedPaths: [],
+            capabilities: [], references: [], replyTarget: null, scheduledRunId: null },
+          modelSelection: { provider: "mock", modelId: "mock", thinkingLevel: "off" }, status: "running", version: 1, reason: null,
+          attempts: 0, maxAttempts: 100, durationMs: 3_600_000, usedMs: 0, clockStartedAt: null,
+          scriptUnits: [], scriptStopVerified: null,
+          clockVerified: true,
+          result: null, resultRecorded: false, createdAt: new Date().toISOString(), endedAt: null,
+        });
+        registerWorkflowStep(kit.store, { runId: run.id, key: "verify", ordinal: 1, kind: "agent", params: { request: "验证", verify: "source" }, dependsOn: [] });
+        bindWorkflowExecution(kit.store, { id: randomId("wfexec"), runId: run.id, stepKey: "verify", kind: "agent", taskId: fullTask.id, number: 1, status: "queued", units: [], stopVerified: null });
+      });
+      const verify = kit.router.launchSpecFor(fullTask, kit.session, { skillRoots: true });
+      assert.equal(verify.mode, "confirm", "验证步骤降为 confirm");
+      assert.deepEqual(verify.readRoots?.map(root => root.path), [skillDir], "降级后的受限 spec 仍补技能根");
+    } finally { kit.close(); }
+  } finally { fs.rmSync(skillDir, { recursive: true, force: true }); }
 });
 
 for (const reaped of [true, false, null]) {

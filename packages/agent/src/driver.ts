@@ -327,6 +327,7 @@ export class Driver {
       launcherFor: deps.launcherFor,
       verificationLauncher: deps.verificationLauncher,
       protectedRoots: deps.protectedRoots,
+      skillRoots: () => this.pinnedSkills?.skills.map(skill => ({ name: skill.name, dir: skill.dir })) ?? [],
       artifactAccess: (task, artifact) => {
         if (this.profile.workflow) return !artifact.name.startsWith("prompt-snapshot:") &&
           this.verifyWorkflowTask(task) === null && Boolean(deps.workflow?.artifactAccess(task, artifact));
@@ -1230,7 +1231,7 @@ export class Driver {
 
     let promptText: string;
     try {
-      promptText = this.profile.restricted ? task.input : expandSkillCommand(this.pinnedSkills, task.input);
+      promptText = this.profile.restricted ? task.input : expandSkillCommand(this.pinnedSkills, task.input, this.profile.toolClass === "main" ? undefined : "bash");
     } catch (err) {
       await this.finalize(task, "failed", { errorMessage: (err as Error).message });
       return;

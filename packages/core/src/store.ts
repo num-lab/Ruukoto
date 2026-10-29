@@ -829,6 +829,19 @@ export class Store {
     return row ? this.rowToTask(row) : null;
   }
 
+  /**
+   * MyGo 桌面浏览器绑定：经已登记浏览器能力的控制连接提交时，与任务同事务写入；
+   * 连接断开即失效，新连接不能继承旧页面句柄。
+   */
+  bindTaskBrowser(taskId: string, connectionId: string): void {
+    this.db.prepare("INSERT INTO task_browser_bindings (task_id, connection_id, created_at) VALUES (?, ?, ?)").run(taskId, connectionId, new Date().toISOString());
+  }
+
+  getTaskBrowserBinding(taskId: string): { connectionId: string } | null {
+    const row = this.db.prepare("SELECT connection_id FROM task_browser_bindings WHERE task_id = ?").get(taskId) as { connection_id: string } | undefined;
+    return row ? { connectionId: row.connection_id } : null;
+  }
+
   listTasksBySession(sessionId: string): Task[] {
     const rows = this.db
       .prepare("SELECT * FROM tasks WHERE session_id = ? ORDER BY created_at, id")

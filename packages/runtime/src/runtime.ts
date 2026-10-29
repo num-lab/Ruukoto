@@ -414,6 +414,14 @@ export class Runtime {
   /** 控制面注入：事件广播与停止回调。 */
   onEventBroadcast: ((events: PersistentEvent[]) => void) | null = null;
   onCloseServer: (() => Promise<void>) | null = null;
+  /**
+   * MyGo 桌面浏览器通路（mygo-agent-browser）：由控制面在启动时挂接——
+   * desktopBrowserCall 向已登记连接发起窄命令（含截图/快照分块装配）；
+   * onDesktopBrowserEvent 由宿主消费页面事实（闸门/导航/渲染失效），
+   * 断线即绑定失效，事件与页面只认发出时那个连接身份。
+   */
+  desktopBrowserCall: ((connectionId: string, params: Record<string, unknown>, timeoutMs?: number) => Promise<unknown>) | null = null;
+  onDesktopBrowserEvent: ((connectionId: string, event: { session: string; kind: string; generation: number; owned?: boolean; source?: string; url?: string; title?: string }) => void) | null = null;
 
   private constructor(config: RuntimeConfig, db: Db, store: Store, lock: AcquiredLock, configLock: AcquiredLock) {
     this.config = config;
@@ -3247,6 +3255,11 @@ export class Runtime {
      * 错过目标按普通队列输入回到队首。仅普通开发会话的拥有者新输入可用。
      */
     guidance?: boolean;
+    /**
+     * MyGo 桌面浏览器来源（mygo-agent-browser）：仅控制面按已登记连接写定，
+     * 模型与客户端参数不能自称；与任务同事务持久化，连接断开绑定即失效。
+     */
+    browser?: { connectionId: string };
   }, internal = false): Promise<TaskView> {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝新任务");
     const session = this.store.getSession(input.sessionId);
@@ -3411,6 +3424,7 @@ export class Runtime {
         });
         if (!queued.duplicate) this.attachments.bind(queued.task.id, session.id, attachments);
         if (codeSource) bindCodeScheduleTask(this.store, { runId: codeSource.runId, taskId: queued.task.id, sourceTaskId: codeSource.taskId });
+        if (input.browser && !queued.duplicate) this.store.bindTaskBrowser(queued.task.id, input.browser.connectionId);
         if (input.ownerAnswer) consumeOwnerQuestion(this.store, { questionId: input.ownerAnswer.questionId, sessionId: session.id,
           version: input.ownerAnswer.version, requestKey: input.requestId, requestDigest: submissionDigest,
           answers: input.ownerAnswer.answers, source: { ...getCodingTaskOrigin(this.store, queued.task.id)!, sessionId: session.id }, taskId: queued.task.id });
@@ -3499,7 +3513,7 @@ export class Runtime {
 
   // Note: 见 .agents/notes/implemented/feature/2026-10-21-owner-question-choice-types.md
   async answerOwnerQuestion(input: { sessionId: string; questionId: string; version: number; requestId: string; answers: unknown;
-    modelSelection: ModelSelection; accessMode?: SessionDefaultMode; grantedPaths?: GrantedPath[] }): Promise<TaskView> {
+    modelSelection: ModelSelection; accessMode?: SessionDefaultMode; grantedPaths?: GrantedPath[]; browser?: { connectionId: string } }): Promise<TaskView> {
     const question = getOwnerQuestion(this.store, input.questionId);
     if (!question || question.sessionId !== input.sessionId) throw new RuntimeApiError("question_missing", "问题已不可用，请刷新问题卡片。");
     const answers = parseOwnerAnswers(input.answers, question.questions);
@@ -3509,6 +3523,7 @@ export class Runtime {
     return this.submit({ sessionId: input.sessionId, requestId: input.requestId, input: text, modelSelection: input.modelSelection,
       accessMode: run ? run.snapshot.permission : input.accessMode, grantedPaths: input.grantedPaths,
       ...(run ? { parentTaskId: question.taskId, sourcePermissionVersion: this.store.getTask(question.taskId)!.permissionVersion } : {}),
+      ...(input.browser ? { browser: input.browser } : {}),
       ownerAnswer: { questionId: input.questionId, version: input.version, answers } }, true);
   }
 
@@ -3542,7 +3557,7 @@ export class Runtime {
    * 中断任务的人工继续：新任务带 resumes_task_id；不自动重放任何执行。
    * 新任务沿用会话默认模式（提交时可显式覆盖）；旧批准不继承。
    */
-  async continueTask(input: { taskId: string; sessionId?: string; requestId: string; input: string; attachments?: AttachmentMetadata[]; accessMode?: SessionDefaultMode; grantedPaths?: GrantedPath[]; modelSelection: ModelSelection }): Promise<TaskView> {
+  async continueTask(input: { taskId: string; sessionId?: string; requestId: string; input: string; attachments?: AttachmentMetadata[]; accessMode?: SessionDefaultMode; grantedPaths?: GrantedPath[]; modelSelection: ModelSelection; browser?: { connectionId: string } }): Promise<TaskView> {
     const old = this.store.getTask(input.taskId);
     if (!old) throw new RuntimeApiError("not_found", `任务不存在：${input.taskId}`);
     const run = getOpenCodeScheduleRunForSession(this.store, old.sessionId);
@@ -3567,6 +3582,7 @@ export class Runtime {
       resumesTaskId: old.id,
       modelSelection: input.modelSelection,
       ...(run ? { parentTaskId: old.id, sourcePermissionVersion: old.permissionVersion } : {}),
+      ...(input.browser ? { browser: input.browser } : {}),
     }, Boolean(run));
   }
 

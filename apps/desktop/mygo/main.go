@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
@@ -141,6 +142,25 @@ func (d *Desktop) OpenExternal(ctx context.Context, value string) json.RawMessag
 	return json.RawMessage(`{"ok":true}`)
 }
 
+// browserRequest 处理子进程→Go 的窄请求；参数形为 [{op, session, generation, ...}]。
+// 命令在独立协程执行（读循环不阻塞），页面串行与代次校验由 browser.Manager 保证。
+func (d *Desktop) browserRequest(method string, args json.RawMessage) json.RawMessage {
+	if method != "browser_command" || d.browser == nil {
+		return failure("unknown_method", "not_sent", "未知的子进程请求。")
+	}
+	var raw []json.RawMessage
+	var call struct {
+		Op string `json:"op"`
+		browser.CommandIn
+	}
+	if json.Unmarshal(args, &raw) != nil || len(raw) != 1 || json.Unmarshal(raw[0], &call) != nil || call.Op == "" {
+		return failure("invalid_params", "not_sent", "浏览器命令缺少操作或输入。")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 55*time.Second)
+	defer cancel()
+	return d.browser.Command(ctx, call.Op, call.CommandIn)
+}
+
 // browserEvent 把页面事实上报子进程；闸门在原生侧已生效，送达失败只记诊断。
 func (d *Desktop) browserEvent(e browser.Event) {
 	if d.child == nil {
@@ -245,7 +265,7 @@ func (d *Desktop) ready() {
 				}
 				credentials, credentialErr := newNativeCredentials(namespace)
 				if credentialErr == nil {
-					d.child, err = startSidecar(command, d.event, credentials)
+					d.child, err = startSidecar(command, d.event, d.browserRequest, credentials)
 					if err == nil {
 						d.child.mu.Lock()
 						d.child.onFail = func() { d.browser.ReleaseAll() }

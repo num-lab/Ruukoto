@@ -23,6 +23,7 @@ import * as net from "node:net";
 import { parseWorkflowControl } from "@ruukoto/core/workflow.ts";
 import { parseCodeScheduleConfig } from "@ruukoto/core/code-scheduler.ts";
 import { ensureOwnerToken,tokenMatches } from "./owner-token.ts";
+import { createHash, randomUUID } from "node:crypto";
 import {
   CONTROL_PROTOCOL_VERSION,
   MAX_FRAME_BYTES,
@@ -30,9 +31,14 @@ import {
   type ConnectResult,
   type ControlRequest,
   type ControlResponse,
+  type DesktopBrowserEvent,
 } from "./protocol.ts";
 
 const REPLAY_LIMIT = 5000;
+/** 桌面浏览器分块：单块 ≤256KiB 原始字节；合计 ≤8MiB（与图像预算同界）。 */
+const BROWSER_CHUNK_BYTES = 256 * 1024;
+const BROWSER_TRANSFER_BYTES = 8 * 1024 * 1024;
+const BROWSER_CALL_LIMIT = 64;
 
 export class ControlServer {
   private server: net.Server;
@@ -43,6 +49,21 @@ export class ControlServer {
   private runtime: Runtime;
   private readonly ownerToken: string;
   private stopped = false;
+  /** 已登记浏览器能力的连接：socket↔连接身份双向索引；断开即失效不可继承。 */
+  private browserSockets = new Map<net.Socket, { id: string }>();
+  private browserIds = new Map<string, net.Socket>();
+  /** 在途的服务端→桌面窄请求：分块与迟到应答都按 command_id 绑定于此。 */
+  private browserCalls = new Map<string, {
+    socket: net.Socket;
+    resolve: (value: unknown) => void;
+    reject: (err: Error) => void;
+    timer: NodeJS.Timeout;
+    reply?: unknown;
+    declared?: { kind: string; sha256: string; total: number; total_bytes: number };
+    chunkMeta?: { sha256: string; total: number; total_bytes: number };
+    chunks: Map<number, Buffer>;
+  }>();
+  private browserCallSeq = 0;
 
   private constructor(runtime: Runtime, ownerToken: string) {
     this.runtime = runtime;
@@ -62,6 +83,8 @@ export class ControlServer {
     } catch (err: any) {
       if (err?.code !== "ENOENT") throw err;
     }
+    // 桌面浏览器窄命令通道：运行时经此回调到达本服务端，连接身份在登记时发定
+    runtime.desktopBrowserCall = (connectionId, params, timeoutMs) => server.callBrowser(connectionId, params, timeoutMs);
     await new Promise<void>((resolve, reject) => {
       server.server.once("error", reject);
       server.server.listen(socketPath, () => resolve());
@@ -106,7 +129,22 @@ export class ControlServer {
     socket.on("close", () => {
       this.subscribers.delete(socket);
       this.connections.delete(socket);
+      this.revokeBrowser(socket);
     });
+  }
+
+  /** 登记随连接消亡：在途请求按断线拒绝，登记身份不解绑给其他连接。 */
+  private revokeBrowser(socket: net.Socket): void {
+    const reg = this.browserSockets.get(socket);
+    if (!reg) return;
+    this.browserSockets.delete(socket);
+    this.browserIds.delete(reg.id);
+    for (const [id, call] of this.browserCalls) {
+      if (call.socket !== socket) continue;
+      this.browserCalls.delete(id);
+      clearTimeout(call.timer);
+      call.reject(Object.assign(new Error("桌面浏览器连接已断开；请核实页面状态后重试"), { code: "browser_disconnected", outcome: "disconnected" }));
+    }
   }
 
   private async handleLine(socket: net.Socket, line: string): Promise<void> {
@@ -115,6 +153,11 @@ export class ControlServer {
       request = JSON.parse(line) as ControlRequest;
     } catch {
       this.reply(socket, { v: CONTROL_PROTOCOL_VERSION, id: "", ok: false, error: { code: "bad_frame", message: "非法 JSON 帧" } });
+      return;
+    }
+    // 应答帧（客户端→服务端，v47 窄请求的回程）：无 op、带 ok 布尔位。
+    if (typeof (request as unknown as { op?: unknown }).op !== "string" && typeof (request as unknown as { ok?: unknown }).ok === "boolean" && typeof request.id === "string" && request.v === CONTROL_PROTOCOL_VERSION) {
+      this.handleCallResponse(socket, request as unknown as ControlResponse);
       return;
     }
     if (request.v !== CONTROL_PROTOCOL_VERSION) {
@@ -170,6 +213,76 @@ export class ControlServer {
     } catch (err: any) {
       this.reply(socket, { v: CONTROL_PROTOCOL_VERSION, id: request.id, ok: false, error: errorReply(err) });
     }
+  }
+
+  /**
+   * 向已登记的桌面连接发起窄命令。超时按效果未知拒绝（命令可能已执行），
+   * 断线按 disconnected；应答/分块只认发出请求的那个 socket。
+   */
+  callBrowser(connectionId: string, params: Record<string, unknown>, timeoutMs = 90_000): Promise<unknown> {
+    const socket = this.browserIds.get(connectionId);
+    if (!socket || socket.destroyed || this.stopped) {
+      return Promise.reject(Object.assign(new Error("桌面浏览器连接不可用；请重新打开桌面"), { code: "browser_unavailable", outcome: "not_sent" }));
+    }
+    let pending = 0;
+    for (const call of this.browserCalls.values()) if (call.socket === socket) pending += 1;
+    if (pending >= BROWSER_CALL_LIMIT) {
+      return Promise.reject(Object.assign(new Error("桌面浏览器请求过多，请稍后重试"), { code: "browser_calls_overflow", outcome: "not_sent" }));
+    }
+    const id = `call-${++this.browserCallSeq}`;
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        if (this.browserCalls.delete(id)) reject(Object.assign(new Error("桌面浏览器请求未应答，效果未知；请核实页面状态"), { code: "browser_timeout", outcome: "unknown" }));
+      }, timeoutMs);
+      this.browserCalls.set(id, { socket, resolve, reject, timer, chunks: new Map() });
+      socket.write(encodeFrame({ v: CONTROL_PROTOCOL_VERSION, push: "request", id, op: "browser_command", params }));
+    });
+  }
+
+  private finishCall(id: string, call: { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }, err: Error | null, value?: unknown): void {
+    this.browserCalls.delete(id);
+    clearTimeout(call.timer);
+    if (err) call.reject(err); else call.resolve(value);
+  }
+
+  /** 应答到达：先核对 socket 归属，再按是否声明传输决定立即完成或等待分块齐。 */
+  private handleCallResponse(socket: net.Socket, response: ControlResponse): void {
+    const call = this.browserCalls.get(response.id);
+    if (!call || call.socket !== socket) return;
+    if (!response.ok) {
+      const code = response.error?.code ?? "browser_failed";
+      this.finishCall(response.id, call, Object.assign(new Error(response.error?.message ?? "桌面浏览器请求被拒绝"), { code, outcome: "rejected" }));
+      return;
+    }
+    call.reply = response.result;
+    call.declared = browserTransfer(response.result);
+    if (!call.declared) {
+      this.finishCall(response.id, call, null, call.reply);
+      return;
+    }
+    this.tryAssemble(response.id, call);
+  }
+
+  /** 分块齐备且与应答声明一致才完成：字节数与 sha256 双重校验。 */
+  private tryAssemble(id: string, call: NonNullable<ReturnType<ControlServer["browserCalls"]["get"]>>): void {
+    const declared = call.declared, meta = call.chunkMeta;
+    if (!declared || !meta || call.chunks.size < declared.total) return;
+    if (meta.sha256 !== declared.sha256 || meta.total !== declared.total || meta.total_bytes !== declared.total_bytes) {
+      this.finishCall(id, call, Object.assign(new Error("桌面浏览器传输与应答声明不一致"), { code: "transfer_invalid", outcome: "unknown" }));
+      return;
+    }
+    const parts: Buffer[] = [];
+    for (let i = 0; i < declared.total; i += 1) {
+      const part = call.chunks.get(i);
+      if (!part) return;
+      parts.push(part);
+    }
+    const bytes = Buffer.concat(parts);
+    if (bytes.length !== declared.total_bytes || createHash("sha256").update(bytes).digest("hex") !== declared.sha256) {
+      this.finishCall(id, call, Object.assign(new Error("桌面浏览器传输校验失败，效果未知"), { code: "transfer_corrupt", outcome: "unknown" }));
+      return;
+    }
+    this.finishCall(id, call, null, browserAttachTransfer(call.reply, declared, bytes));
   }
 
   private parseAccessMode(params: Record<string, unknown>): SessionDefaultMode | undefined {
@@ -524,7 +637,7 @@ export class ControlServer {
         if (!Number.isSafeInteger(version) || (version as number) < 1) throw new RuntimeApiError("invalid_params", "问题已不可用，请刷新卡片后作答。");
         const reference = { sessionId: requireString("session_id"), questionId: requireString("question_id"), version: version as number, requestId: requireString("request_id") };
         return answering ? runtime.answerOwnerQuestion({ ...reference, answers: params["answers"], modelSelection: parseModelSelection(params["model_selection"]),
-          accessMode: this.parseAccessMode(params), grantedPaths: this.parseGrantedPaths(params) }) : runtime.cancelOwnerQuestion(reference);
+          accessMode: this.parseAccessMode(params), grantedPaths: this.parseGrantedPaths(params), ...this.browserSource(socket) }) : runtime.cancelOwnerQuestion(reference);
       }
       case "owner_question_receipt": {
         workflowParams("session_id", "request_id", "operation");
@@ -542,6 +655,7 @@ export class ControlServer {
           accessMode: this.parseAccessMode(params),
           grantedPaths: this.parseGrantedPaths(params),
           ...(params["guidance"] === true ? { guidance: true } : {}),
+          ...this.browserSource(socket),
         });
       case "continue":
         return runtime.continueTask({
@@ -553,6 +667,7 @@ export class ControlServer {
           attachments: params["attachments"] as import("@ruukoto/core/attachments.ts").AttachmentMetadata[] | undefined,
           accessMode: this.parseAccessMode(params),
           grantedPaths: this.parseGrantedPaths(params),
+          ...this.browserSource(socket),
         });
       case "switch_mode": {
         const mode = this.parseAccessMode({ access_mode: params["mode"] });
@@ -1168,9 +1283,58 @@ export class ControlServer {
         void runtime.stop("control_plane").catch(() => {});
         return { accepted: true };
       }
+      case "desktop_browser_register": {
+        const existing = this.browserSockets.get(socket);
+        if (existing) return { connection_id: existing.id };
+        if (params["shell"] !== "mygo") throw new RuntimeApiError("invalid_params", "未知的浏览器外壳。");
+        const id = `desktop-${randomUUID()}`;
+        this.browserSockets.set(socket, { id });
+        this.browserIds.set(id, socket);
+        return { connection_id: id };
+      }
+      case "desktop_browser_event": {
+        const reg = this.browserSockets.get(socket);
+        if (!reg) throw new RuntimeApiError("not_registered", "桌面浏览器连接未登记。");
+        const event = params["event"] as DesktopBrowserEvent | undefined;
+        if (!event || typeof event.session !== "string" || typeof event.kind !== "string" || !Number.isSafeInteger(event.generation)) {
+          throw new RuntimeApiError("invalid_params", "浏览器事件缺少 session/kind/generation。");
+        }
+        this.runtime.onDesktopBrowserEvent?.(reg.id, event);
+        return { received: true };
+      }
+      case "desktop_browser_chunk": {
+        const reg = this.browserSockets.get(socket);
+        if (!reg) throw new RuntimeApiError("not_registered", "桌面浏览器连接未登记。");
+        const commandId = params["command_id"];
+        const call = typeof commandId === "string" ? this.browserCalls.get(commandId) : undefined;
+        if (!call || call.socket !== socket) throw new RuntimeApiError("unknown_command", "分块所属请求不在途或已结束。");
+        const index = params["index"], total = params["total"], totalBytes = params["total_bytes"], sha256 = params["sha256"], data = params["data"];
+        if (!Number.isSafeInteger(index) || !Number.isSafeInteger(total) || !Number.isSafeInteger(totalBytes) || typeof sha256 !== "string" || typeof data !== "string"
+          || (index as number) < 0 || (index as number) >= (total as number) || (total as number) < 1 || (total as number) > Math.ceil(BROWSER_TRANSFER_BYTES / BROWSER_CHUNK_BYTES)
+          || (totalBytes as number) < 0 || (totalBytes as number) > BROWSER_TRANSFER_BYTES || !/^[0-9a-f]{64}$/.test(sha256)) {
+          throw new RuntimeApiError("invalid_params", "分块字段越界或缺失。");
+        }
+        const bytes = Buffer.from(data, "base64");
+        if (bytes.length > BROWSER_CHUNK_BYTES) throw new RuntimeApiError("invalid_params", "分块超过 256KiB 上限。");
+        const meta = { sha256: sha256 as string, total: total as number, total_bytes: totalBytes as number };
+        if (call.chunkMeta && (call.chunkMeta.sha256 !== meta.sha256 || call.chunkMeta.total !== meta.total || call.chunkMeta.total_bytes !== meta.total_bytes)) {
+          throw new RuntimeApiError("transfer_invalid", "同一请求的分块声明不一致。");
+        }
+        if (call.chunks.has(index as number)) throw new RuntimeApiError("transfer_invalid", "分块序号重复。");
+        call.chunkMeta ??= meta;
+        call.chunks.set(index as number, bytes);
+        this.tryAssemble(commandId as string, call);
+        return { received: true };
+      }
       default:
         throw Object.assign(new Error(`未知操作：${request.op}`), { code: "unknown_op" });
     }
+  }
+
+  /** 提交来源归属：仅服务端按已登记连接写定，客户端参数不能自称浏览器来源。 */
+  private browserSource(socket: net.Socket): { browser?: { connectionId: string } } {
+    const reg = this.browserSockets.get(socket);
+    return reg ? { browser: { connectionId: reg.id } } : {};
   }
 
   private reply(socket: net.Socket, response: ControlResponse): void {
@@ -1207,6 +1371,7 @@ export class ControlServer {
   async stop(): Promise<void> {
     if (this.stopped) return;
     this.stopped = true;
+    if (this.runtime.desktopBrowserCall) this.runtime.desktopBrowserCall = null;
     // 强制关闭全部连接：server.close() 会等待已建立的连接，不主动销毁
     // 则任何仍在线的客户端都会让停止悬挂
     for (const socket of this.connections) socket.destroy();
@@ -1229,4 +1394,20 @@ export function errorReply(err: any): { code: string; message: string } {
   const message = String(err?.message ?? err);
   if (typeof raw === "string" && /^[a-z][a-z0-9_]*$/.test(raw)) return { code: raw, message };
   return { code: "internal_error", message: raw === undefined ? message : `${String(raw)}：${message}` };
+}
+
+/** 应答中声明的分块传输：result.value.transfer {kind,sha256,total_bytes,total}。 */
+function browserTransfer(result: unknown): { kind: string; sha256: string; total: number; total_bytes: number } | undefined {
+  const value = (result as { value?: { transfer?: unknown } } | undefined)?.value?.transfer as Record<string, unknown> | undefined;
+  if (!value) return undefined;
+  const kind = value["kind"], sha256 = value["sha256"], total = value["total"], totalBytes = value["total_bytes"];
+  if (typeof kind !== "string" || typeof sha256 !== "string" || !Number.isSafeInteger(total) || !Number.isSafeInteger(totalBytes)) return undefined;
+  return { kind, sha256, total: total as number, total_bytes: totalBytes as number };
+}
+
+/** 装配完成后的应答形状：transfer 声明就地换成含字节的结果。 */
+function browserAttachTransfer(reply: unknown, declared: { kind: string; sha256: string; total: number; total_bytes: number }, bytes: Buffer): unknown {
+  const top = reply as { value?: Record<string, unknown> } | undefined;
+  if (!top?.value || typeof top.value !== "object") return reply;
+  return { ...top, value: { ...top.value, transfer: { ...declared, data: bytes } } };
 }

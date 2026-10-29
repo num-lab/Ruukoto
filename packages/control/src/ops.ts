@@ -177,6 +177,13 @@ export interface TuiOps {
   qq_set_enabled: { params: { enabled: boolean; expected_version?: number }; result: R<"qqSetEnabled"> };
   qq_inbox_list: { params: { group_id?: string; limit?: number }; result: { entries: R<"qqListInbox"> } };
   qq_outbox_list: { params: { group_id?: string; limit?: number }; result: { entries: R<"qqListOutbox"> } };
+  // ---------- mygo-agent-browser：桌面浏览器通路（v47） ----------
+  /** 登记浏览器能力：同连接重复登记幂等返回原身份；shell 首版仅 mygo。 */
+  desktop_browser_register: { params: { shell: "mygo" }; result: { connection_id: string } };
+  /** 页面事实上报（闸门/导航/标题/渲染失效/关闭）；仅已登记连接可发。 */
+  desktop_browser_event: { params: { event: import("./protocol.ts").DesktopBrowserEvent }; result: { received: true } };
+  /** 截图/快照分块；command_id 必须是在途服务端请求的 id。 */
+  desktop_browser_chunk: { params: import("./protocol.ts").DesktopBrowserChunk; result: { received: true } };
 }
 
 export type TuiOp = keyof TuiOps;

@@ -20,18 +20,21 @@ const maxFrameBytes = 16 * 1024 * 1024
 // Note: 见 .agents/notes/implemented/architecture/2026-10-17-desktop-mygo-experiment.md
 // 已写入管道的请求无法推断是否执行；传输失败不能降为 not_sent 或自动重放。
 type sidecar struct {
-	mu                sync.Mutex
-	writeMu           sync.Mutex
-	eventMu           sync.Mutex
-	stdin             io.WriteCloser
-	cmd               *exec.Cmd
-	next              uint64
-	pending           map[uint64]*pendingCall
-	closed            bool
-	stopping          bool
-	done              chan struct{}
-	onEvent           func(json.RawMessage)
-	onFail            func()
+	mu       sync.Mutex
+	writeMu  sync.Mutex
+	eventMu  sync.Mutex
+	stdin    io.WriteCloser
+	cmd      *exec.Cmd
+	next     uint64
+	pending  map[uint64]*pendingCall
+	closed   bool
+	stopping bool
+	done     chan struct{}
+	onEvent  func(json.RawMessage)
+	onFail   func()
+	// onRequest 处理 Node→Go 窄请求（浏览器命令）：返回值作为 result 应答，
+	// 在独立协程执行，不阻塞读循环；命令自身的串行由 browser.Manager 保证。
+	onRequest         func(method string, args json.RawMessage) json.RawMessage
 	credentials       credentialStore
 	generation        string
 	credentialLast    uint64
@@ -60,7 +63,7 @@ func disconnected() json.RawMessage {
 	return failure("bridge_disconnected", "disconnected", "MyGo 连接已关闭；请重新打开应用，原操作结果仍需核实。")
 }
 
-func startSidecar(cmd *exec.Cmd, onEvent func(json.RawMessage), stores ...credentialStore) (*sidecar, error) {
+func startSidecar(cmd *exec.Cmd, onEvent func(json.RawMessage), onRequest func(method string, args json.RawMessage) json.RawMessage, stores ...credentialStore) (*sidecar, error) {
 	var credentials credentialStore
 	var generation string
 	if len(stores) != 0 {
@@ -86,7 +89,7 @@ func startSidecar(cmd *exec.Cmd, onEvent func(json.RawMessage), stores ...creden
 		output.Close()
 		return nil, err
 	}
-	s := &sidecar{stdin: input, cmd: cmd, pending: make(map[uint64]*pendingCall), done: make(chan struct{}), onEvent: onEvent, credentials: credentials, generation: generation}
+	s := &sidecar{stdin: input, cmd: cmd, pending: make(map[uint64]*pendingCall), done: make(chan struct{}), onEvent: onEvent, onRequest: onRequest, credentials: credentials, generation: generation}
 	go func() {
 		s.read(output)
 		output.Close()
@@ -114,6 +117,28 @@ func (s *sidecar) read(output io.Reader) {
 			if !s.receiveCredential(data) {
 				break
 			}
+			continue
+		}
+		if message.Kind == "request" {
+			var request struct {
+				Method string          `json:"method"`
+				Args   json.RawMessage `json:"args"`
+			}
+			if json.Unmarshal(data, &request) != nil || request.Method == "" {
+				break
+			}
+			s.mu.Lock()
+			handler, closed := s.onRequest, s.closed
+			s.mu.Unlock()
+			if handler == nil || closed {
+				s.writePrivate(map[string]any{"kind": "response", "id": message.ID, "result": failure("bridge_closed", "not_sent", "MyGo 连接不可用，请重新打开应用后核实原操作。")})
+				continue
+			}
+			id := message.ID
+			go func() {
+				result := handler(request.Method, request.Args)
+				s.writePrivate(map[string]any{"kind": "response", "id": id, "result": result})
+			}()
 			continue
 		}
 		if message.Kind == "result" && message.ID != 0 && len(message.Result) != 0 {

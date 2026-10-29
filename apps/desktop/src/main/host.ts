@@ -16,6 +16,8 @@ import type { DesktopTarget, DesktopUpdate } from "../shared/bridge.ts";
 import type { DirIdentity } from "@ruukoto/core/dir-identity.ts";
 import { spawn } from "node-pty";
 import { TerminalManager, type PtyFactory } from "./terminal.ts";
+import type { MyGoBrowserTransport } from "./browser-bridge.ts";
+import type { DesktopBrowserEvent } from "@ruukoto/control/protocol.ts";
 
 export interface DesktopPlatform {
   publish(target: DesktopTarget, update: DesktopUpdate): void | Promise<void>;
@@ -53,7 +55,7 @@ export class DesktopHost {
   private readonly terminalOpening = new Set<string>();
   private readonly terminalCanceled = new Set<string>();
 
-  constructor(private readonly repository: string, private readonly userData: string, private readonly platform: DesktopPlatform, private readonly prepareEnvironment = (signal: AbortSignal) => selectEnvironment(process.env, undefined, signal), terminalFactory: PtyFactory = spawn) {
+  constructor(private readonly repository: string, private readonly userData: string, private readonly platform: DesktopPlatform, private readonly prepareEnvironment = (signal: AbortSignal) => selectEnvironment(process.env, undefined, signal), terminalFactory: PtyFactory = spawn, private readonly browserTransport?: MyGoBrowserTransport) {
     this.browserDocuments = new BrowserDocuments([userData]);
     this.terminals = new TerminalManager(terminalFactory, update => this.platform.publish("code", update));
     this.notificationState = new DesktopNotifications(platform.focused, platform.notice, platform.badge, (target, taskId) => {
@@ -100,7 +102,7 @@ export class DesktopHost {
     const source = await this.getEnvironment();
     if (this.closing) return;
     const config = codeTargetConfig(this.repository, source);
-    this.controller = new CodeController(config, update => this.publish("code", update), undefined, new PendingRequestStore(path.join(this.userData, "pending", "code", createHash("sha256").update(config.controlDir).digest("hex"))));
+    this.controller = new CodeController(config, update => this.publish("code", update), undefined, new PendingRequestStore(path.join(this.userData, "pending", "code", createHash("sha256").update(config.controlDir).digest("hex"))), this.browserTransport);
   }
   reconnectPersonal(replace = false): Promise<void> {
     if (this.closing) return Promise.resolve();
@@ -144,6 +146,14 @@ export class DesktopHost {
     if (intent) { this.navigation.delete(target); this.publish(target, intent); }
     if (target === "code" && (!this.controller || this.controller.status.state === "online")) void this.reconnect();
     if (target === "personal" && (!this.personal || this.personal.status.state === "online")) void this.reconnectPersonal();
+  }
+  /**
+   * 原生浏览器页面事实（Go→Node）：上行到控制面供宿主消费，同时转发前端
+   * 渲染器更新右栏（URL/标题/闸门状态）。闸门本体在原生侧，不依赖本路径。
+   */
+  browserEvent(event: DesktopBrowserEvent): void {
+    this.publish("code", { type: "browser_event", event });
+    this.controller?.browserEvent(event);
   }
   navigate(notice: DesktopNotice): void {
     const update: Extract<DesktopUpdate, { type: "navigate" }> = { type: "navigate", instanceId: notice.instanceId, navigation: { sessionId: notice.sessionId, taskId: notice.taskId } };

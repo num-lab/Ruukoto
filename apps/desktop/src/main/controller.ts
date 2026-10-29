@@ -10,6 +10,8 @@ import { versionRecovery } from "./recovery.ts";
 import { DesktopSubmissions } from "./submissions.ts";
 import { PendingRequestStore } from "@ruukoto/control/pending-requests.ts";
 import type { DesktopOp } from "./ipc.ts";
+import { DesktopBrowserBridge, type MyGoBrowserTransport } from "./browser-bridge.ts";
+import type { DesktopBrowserEvent } from "@ruukoto/control/protocol.ts";
 
 type Connection = Pick<ControlConnection, "start" | "close" | "request"> & { instanceId?: string | null };
 export interface ControllerDeps {
@@ -33,10 +35,15 @@ export class CodeController {
   private token: string | undefined;
   submissions: DesktopSubmissions | null = null;
   status: Extract<DesktopUpdate, { type: "state" }> = { type: "state", state: "connecting" };
+  /** MyGo 原生浏览器桥：仅 MyGo 外壳注入；登记、窄命令应答与事件上行经当前连接。 */
+  private readonly browserBridge: DesktopBrowserBridge | null;
+
   constructor(readonly config: CodeTargetConfig, private readonly publish: (update: DesktopUpdate) => void, private readonly deps: ControllerDeps = {
     ensure: ensureBackend,
     connection: (config, callbacks) => new ControlConnection(config, callbacks),
-  }, private readonly pendingStore?: PendingRequestStore) {}
+  }, private readonly pendingStore?: PendingRequestStore, browserTransport?: MyGoBrowserTransport) {
+    this.browserBridge = browserTransport ? new DesktopBrowserBridge(browserTransport) : null;
+  }
 
   private state(update: Extract<DesktopUpdate, { type: "state" }>): void {
     this.status = update;
@@ -71,7 +78,10 @@ export class CodeController {
     }
     this.token = this.config.managed ? readOwnerToken(this.config.controlDir) ?? undefined : resolveOwnerToken(this.config.controlDir);
     if (!this.token) throw new DesktopError("owner_token_missing", "开发档案的 owner.token 不可读；请重启开发启动器。");
-    this.connection = this.deps.connection({ socketPath: this.config.socketPath, token: this.token, expectedProduct: "ruukoto-code" }, {
+    this.connection = this.deps.connection({
+      socketPath: this.config.socketPath, token: this.token, expectedProduct: "ruukoto-code",
+      ...(this.browserBridge ? { callHandler: (op: string, params: Record<string, unknown>, callId: string) => this.browserBridge!.handleCall(op, params, callId, () => this.connection) } : {}),
+    }, {
       onState: (state, detail, error) => {
         if (this.stopped || generation !== this.generation) return;
         if (state === "failed" && error) this.failed(serializeFailure(error, this.token));
@@ -81,6 +91,7 @@ export class CodeController {
         if (this.stopped || generation !== this.generation) return;
         this.publish({ type: "snapshot", result, instanceChanged: context.instanceChanged });
         void this.submissions?.reconcile();
+        this.browserBridge?.register(this.connection);
       },
       onEvent: (event, kind) => { if (!this.stopped && generation === this.generation) this.publish({ type: "event", event, kind }); },
     });
@@ -111,6 +122,10 @@ export class CodeController {
       return this.submissions.cancelQuestion(params);
     }
     return this.request(op, params);
+  }
+  /** 页面事实上行到控制面（闸门/导航/关闭）；MyGo 外壳限定。 */
+  browserEvent(event: DesktopBrowserEvent): void {
+    this.browserBridge?.event(this.connection, event);
   }
   instanceId(): string | null { return this.connection?.instanceId ?? null; }
   connectionIdentity(): object | null { return this.connection; }

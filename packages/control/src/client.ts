@@ -78,6 +78,8 @@ export interface ControlTransport {
   onClose(listener: (info: ClientCloseInfo) => void): () => void;
   close(): void;
   request<K extends TuiOp>(op: K, params: OpParams<K>, timeoutMs?: number): Promise<OpResult<K>>;
+  /** 服务端窄请求（v47）：登记能力的客户端安装处理；未安装时按 unsupported 应答。 */
+  onCall?(listener: (op: string, params: Record<string, unknown>, callId: string) => Promise<unknown>): () => void;
 }
 
 /** request 保持宽松签名：CLI 与配置中心按字符串调用任意 op。 */
@@ -86,6 +88,7 @@ export class ControlClient implements ControlTransport {
   private buffer = "";
   private pending = new Map<string, { resolve: (v: any) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>();
   private eventListeners = new Set<(event: ControlPush["event"]) => void>();
+  private callHandler: ((op: string, params: Record<string, unknown>, callId: string) => Promise<unknown>) | null = null;
   private closeListeners = new Set<(info: ClientCloseInfo) => void>();
   private requestCounter = 0;
   private lastSeq = 0;
@@ -151,6 +154,10 @@ export class ControlClient implements ControlTransport {
       this.terminate("bad_frame", "收到非法 JSON 帧");
       return;
     }
+    if (frame?.push === "request") {
+      this.handleCall(frame);
+      return;
+    }
     if (frame?.push === "event" && frame.event) {
       const event = frame.event as ControlPush["event"];
       if (typeof event.seq !== "number") {
@@ -179,6 +186,39 @@ export class ControlClient implements ControlTransport {
         ? { client: CONTROL_PROTOCOL_VERSION, server: response.v } : undefined;
       waiter.reject(new ControlClientError(code, response.error?.message ?? "未知错误", UNKNOWN_REPLY_CODES.has(code) ? "unknown" : "rejected", versions));
     }
+  }
+
+  /**
+   * 服务端窄请求（v47）：应答帧沿用 ControlResponse 形状回流客户端→服务端。
+   * handler 结果受帧上限约束；超限只回错误码不写半截帧。
+   */
+  private handleCall(frame: { id?: unknown; op?: unknown; params?: unknown }): void {
+    const respond = (ok: boolean, result?: unknown, error?: { code: string; message: string }): void => {
+      if (this.closed || typeof frame.id !== "string") return;
+      const body = ok ? { result } : { error };
+      const line = encodeFrame({ v: CONTROL_PROTOCOL_VERSION, id: frame.id, ok, ...body });
+      if (Buffer.byteLength(line, "utf8") > MAX_FRAME_BYTES) {
+        this.socket.write(encodeFrame({ v: CONTROL_PROTOCOL_VERSION, id: frame.id, ok: false, error: { code: "result_too_large", message: "应答超过帧上限" } }));
+        return;
+      }
+      this.socket.write(line);
+    };
+    if (typeof frame.id !== "string" || typeof frame.op !== "string") return;
+    const handler = this.callHandler;
+    if (!handler) {
+      respond(false, undefined, { code: "unsupported", message: "客户端未登记服务端请求能力" });
+      return;
+    }
+    const params = frame.params && typeof frame.params === "object" && !Array.isArray(frame.params) ? frame.params as Record<string, unknown> : {};
+    void Promise.resolve()
+      .then(() => handler(frame.op as string, params, frame.id as string))
+      .then(
+        result => respond(true, result),
+        (err: unknown) => {
+          const code = err instanceof ControlClientError || (err && typeof (err as { code?: unknown }).code === "string") ? (err as { code: string }).code : "handler_failed";
+          respond(false, undefined, { code, message: err instanceof Error ? err.message : String(err) });
+        },
+      );
   }
 
   /** 关闭并通知：任何路径导致的不可用都经此收口，保证只通知一次；在途请求应答丢失。 */
@@ -238,6 +278,11 @@ export class ControlClient implements ControlTransport {
   onEvent(listener: (event: ControlPush["event"]) => void): () => void {
     this.eventListeners.add(listener);
     return () => this.eventListeners.delete(listener);
+  }
+
+  onCall(listener: (op: string, params: Record<string, unknown>, callId: string) => Promise<unknown>): () => void {
+    this.callHandler = listener;
+    return () => { if (this.callHandler === listener) this.callHandler = null; };
   }
 
   /** 断线通知：只触发一次；已关闭时立即回调。 */

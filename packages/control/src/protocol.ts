@@ -98,6 +98,14 @@
  * queueOrder，新增 session.queue_changed 与 task.guidance 事件、
  * task_queue/queue_reorder/steer_task 操作；submit 新增 guidance 标志。
  * 普通提交不再自动解除等待中任务。旧客户端须升级。
+ *
+ * v47（mygo-agent-browser）：桌面浏览器通路。客户端可登记浏览器能力
+ * （desktop_browser_register），服务端经 {v,push:"request"} 帧向该连接发起
+ * 窄命令，客户端以 {v,id,ok,result|error} 帧应答；页面事实上报与截图/快照
+ * 分块走 desktop_browser_event / desktop_browser_chunk。任务来源归属由
+ * 服务端按提交连接写定，客户端参数不能自称。旧客户端须升级（旧客户端
+ * 收到 push:"request" 会按坏帧断开，故能力只对已登记连接发送）。
+ * Note: 见 .agents/notes/proposed/feature/2026-10-29-mygo-agent-browser.md
  */
 
 import {
@@ -188,6 +196,36 @@ export type ControlPush = {
   v: number;
   push: "event";
   event: PersistentEvent;
+};
+
+/** 服务端→已登记客户端的窄请求（v47）：客户端以 ControlResponse 形状帧应答。 */
+export type ControlCall = {
+  v: number;
+  push: "request";
+  id: string;
+  op: string;
+  params?: Record<string, unknown>;
+};
+
+/** 页面事实上报（Go browser.Manager 的 Event 同形）；非持久事件，不进重放。 */
+export type DesktopBrowserEvent = {
+  session: string;
+  kind: "gate" | "nav" | "title" | "gone" | "closed";
+  generation: number;
+  owned?: boolean;
+  source?: "owner" | "host";
+  url?: string;
+  title?: string;
+};
+
+/** 截图/快照的有界分块（每块 ≤256KiB 原始字节）；command_id 绑定在途请求。 */
+export type DesktopBrowserChunk = {
+  command_id: string;
+  index: number;
+  total: number;
+  total_bytes: number;
+  sha256: string;
+  data: string;
 };
 
 export function encodeFrame(obj: unknown): string {

@@ -29,6 +29,7 @@
 | **请求帧** (客户端 → 服务端) | `{ v, id, op, params }` | `v`: 协议版本号；`id`: 请求流水号；`op`: 操作名；`params`: 参数载荷 |
 | **应答帧** (服务端 → 客户端) | `{ v, id, ok, result \| error }` | `ok: true` 返回业务数据 `result`；`ok: false` 返回结构化错误对象 `error` |
 | **事件推送** (服务端 → 客户端) | `{ v, push: "event", event }` | `event` 包含单调递增的 `seq`、事件类型 `type` 与业务载荷 |
+| **窄请求** (服务端 → 已登记客户端) | `{ v, push: "request", id, op, params }` | 仅发往以 `desktop_browser_register` 登记浏览器能力的连接；客户端以 `{ v, id, ok, result \| error }` 应答帧回流 |
 
 ### 2. 控制面核心操作分类 (op 目录)
 
@@ -44,6 +45,7 @@
 | **历史与产物读取** | `read_history`, `read_tool_result`, `read_artifact` | 只读解析 JSONL 会话历史、读取工具执行补丁与提取产物二进制片段 |
 | **实例 MCP 管理** | `mcp_list`, `mcp_configure`, `mcp_check`, `mcp_set_enabled` | 管理实例服务、允许工具与本地效果类别，检查连接与发现工具 |
 | **电脑恢复** | `mcp_cua_status`, `mcp_cua_stop`, `mcp_cua_observe`, `mcp_cua_accept` | 核实原执行停止、取得新观察并接受当前新图 |
+| **桌面浏览器通路** | `desktop_browser_register`, `desktop_browser_event`, `desktop_browser_chunk` | 登记浏览器能力连接身份、页面事实上行、截图/快照 ≤256KiB 分块回流 |
 
 电脑恢复在停止核实后直接调用 `mcp_cua_observe`；独立的 `mcp_cua_begin_recovery` 已退役，旧请求按未知操作拒绝。Personal 的原调用人工结束走其远程管理协议，入口见[桌面客户端](desktop.md#mcp-原调用收尾与电脑恢复)。
 
@@ -105,7 +107,8 @@ sequenceDiagram
 - **鉴权先于一切业务**：未通过 `auth` 校验的连接，绝对无法触发任何数据读取、会话操作或任务提交。
 - **常量时间比对（Timing-safe）**：服务端验证令牌时使用 `crypto.timingSafeEqual`，防止通过统计学旁路时序攻击推测令牌。
 - **大参数有界传输防阻塞**：对于超过 1 MiB 的工具输出或大参数，控制面接口强制要求客户端按 offset 与 limit 分片读取，防止打爆内存与套接字缓冲区。
-- **协议版本硬匹配**：当前协议为 `43`，版本检查先于认证与业务派发。不匹配时返回 `protocol_version`；旧客户端需升级，新客户端遇到旧后台需结束旧进程后重开入口。
+- **协议版本硬匹配**：当前协议为 `47`，版本检查先于认证与业务派发。不匹配时返回 `protocol_version`；旧客户端需升级，新客户端遇到旧后台需结束旧进程后重开入口。
+- **桌面浏览器来源归属**：任务是否源自 MyGo 登记连接由服务端按 socket 写定（`submit`/`continue`/`owner_question_answer`），客户端参数不能自称；页面事件、分块与窄命令应答只认发出时那个连接，断线即解绑且不可继承。截图/快照走有界分块（≤256KiB/块、合计 ≤8MiB、sha256 校验），不走持久事件重放。
 
 ## 设计依据
 

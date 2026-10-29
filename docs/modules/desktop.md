@@ -26,7 +26,9 @@
 | 外壳运行时 | 技术栈 | 职责与特点 |
 |---|---|---|
 | **Electron 外壳** (主流) | Electron + Chromium | 提供完整的本地窗口管理、系统级通知、Dock 角标与操作系统钥匙串（Keychain）安全加密 |
-| **MyGo 实验外壳** | Go + WKWebView | 轻量化探索架构，利用原生 WKWebView 渲染界面，通过标准输入输出管道与 Node 宿主通信 |
+| **MyGo 实验外壳** | Go + WKWebView | 轻量化探索架构，利用原生 WKWebView 渲染界面，通过标准输入输出管道与 Node 宿主通信；Coding 会话右栏可嵌入原生浏览器页面（见下） |
+
+MyGo 外壳的 Coding 右栏浏览器（mygo-agent-browser）：每个主会话一个原生 WebView，由 Go 侧 `browser.Manager` 管页面生命周期、矩形放置、导航代次与输入闸门。Node 子进程经 stdin/stdout 私有帧双向通信：Go→Node 上报页面事实（闸门/导航/关闭）经 `browser_event`，控制面→Go 下发窄命令经 `kind:"request"`/`kind:"response"`；截图与快照由 Node 拆成 ≤256KiB 分块经 `desktop_browser_chunk` 上行，服务端按 `command_id` 与 sha256 装配。任务来源归属由控制面按已登记连接写定。Electron 外壳无此通道。
 
 ### 2. 渲染层核心交互与功能
 

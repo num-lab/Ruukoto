@@ -59,6 +59,20 @@ func TestSidecarProcess(t *testing.T) {
 			time.Sleep(100 * time.Millisecond)
 			fmt.Println(`{"kind":"update","target":"code","update":{"type":"state","state":"online"}}`)
 			os.Exit(0)
+		case "ask_browser":
+			fmt.Printf("{\"kind\":\"request\",\"id\":%d,\"method\":\"browser_command\",\"args\":[{\"op\":\"status\",\"session\":\"s1\"}]}\n", request.ID)
+			if !input.Scan() {
+				os.Exit(6)
+			}
+			var response struct {
+				ID     uint64          `json:"id"`
+				Result json.RawMessage `json:"result"`
+			}
+			if json.Unmarshal(input.Bytes(), &response) != nil || response.ID != request.ID {
+				os.Exit(7)
+			}
+			fmt.Printf("{\"kind\":\"result\",\"id\":%d,\"result\":%s}\n", request.ID, response.Result)
+			continue
 		case "die":
 			os.Exit(9)
 		case "malformed":
@@ -91,7 +105,7 @@ func testChild(t *testing.T, event func(json.RawMessage)) *sidecar {
 	}
 	cmd := exec.Command(program, "-test.run=^TestSidecarProcess$")
 	cmd.Env = append(os.Environ(), "RUUKOTO_MYGO_TEST_CHILD=1")
-	child, err := startSidecar(cmd, event)
+	child, err := startSidecar(cmd, event, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,8 +185,33 @@ func TestSidecarEOFAndMissingNode(t *testing.T) {
 	if data, err := os.ReadFile(marker); err != nil || string(data) != "closed" {
 		t.Fatalf("EOF cleanup: %s, %v", data, err)
 	}
-	if _, err := startSidecar(exec.Command(t.TempDir()+"/missing-node"), func(json.RawMessage) {}); err == nil {
+	if _, err := startSidecar(exec.Command(t.TempDir()+"/missing-node"), func(json.RawMessage) {}, nil); err == nil {
 		t.Fatal("missing Node accepted")
+	}
+}
+
+func TestSidecarBrowserRequest(t *testing.T) {
+	child := testChild(t, func(json.RawMessage) {})
+	var gotMethod string
+	var gotArgs json.RawMessage
+	child.mu.Lock()
+	child.onRequest = func(method string, args json.RawMessage) json.RawMessage {
+		gotMethod = method
+		gotArgs = append(json.RawMessage(nil), args...)
+		return json.RawMessage(`{"ok":true,"value":{"generation":3}}`)
+	}
+	child.mu.Unlock()
+	result := child.call(context.Background(), "ask_browser")
+	if !strings.Contains(string(result), `"generation":3`) {
+		t.Fatalf("response lost: %s", result)
+	}
+	if gotMethod != "browser_command" || !strings.Contains(string(gotArgs), `"session":"s1"`) {
+		t.Fatalf("request mangled: %s %s", gotMethod, gotArgs)
+	}
+	// 未安装处理器的连接收到请求时按 bridge_closed 拒绝，不悬挂
+	plain := testChild(t, func(json.RawMessage) {})
+	if got := outcome(t, plain.call(context.Background(), "ask_browser")); got != "not_sent" {
+		t.Fatal(got)
 	}
 }
 
@@ -188,7 +227,7 @@ func TestExternalURLs(t *testing.T) {
 }
 
 func TestSidecarBlockedWriteCanCancelAndClose(t *testing.T) {
-	child, err := startSidecar(exec.Command("/bin/sleep", "30"), func(json.RawMessage) {})
+	child, err := startSidecar(exec.Command("/bin/sleep", "30"), func(json.RawMessage) {}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

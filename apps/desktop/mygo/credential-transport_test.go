@@ -45,7 +45,7 @@ func credentialChild(t *testing.T, store credentialStore) *sidecar {
 		if strings.Contains(string(data), "secret") || strings.Contains(string(data), "credential_") {
 			t.Errorf("private frame emitted: %s", data)
 		}
-	}, store)
+	}, nil, store)
 	if err != nil {
 		t.Fatal(err)
 	}

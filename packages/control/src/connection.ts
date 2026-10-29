@@ -44,6 +44,11 @@ export interface ConnectionConfig {
   connectTimeoutMs?: number;
   /** 测试注入点：替换底层客户端工厂（默认 ControlClient.connect）。 */
   clientFactory?: (socketPath: string, timeoutMs: number) => Promise<ControlTransport>;
+  /**
+   * 服务端窄请求处理（v47 桌面浏览器通路）：每次建连安装到当前 transport；
+   * 闭包内不得缓存 transport，发送应答/分块要走当前请求通道。
+   */
+  callHandler?: (op: string, params: Record<string, unknown>, callId: string) => Promise<unknown>;
 }
 
 export class ControlConnection {
@@ -108,6 +113,7 @@ export class ControlConnection {
       this.client = client;
       client.onClose((info) => { if (this.current(generation)) this.handleClose(info); });
       client.onEvent((event) => { if (this.current(generation)) this.routeEvent(event); });
+      if (this.config.callHandler) client.onCall?.(this.config.callHandler);
       await client.authenticate(token);
       if (!this.current(generation)) { client.close(); return; }
       await this.sync(client, since, generation);

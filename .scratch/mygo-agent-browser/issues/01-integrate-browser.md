@@ -27,10 +27,10 @@ Status: in-progress
 
 ## 进展与交接
 
-- 当前角色与阶段：实施者，独立工作副本 `mirasim-worktrees/ruukoto/mygo-agent-browser` @ c39b8ddc。步骤 1 原生探针（P01–P17 全过，[探针证据](../evidence/probe.md)）与步骤 2 MyGo 页面宿主（H01–H08 全过，[宿主证据](../evidence/host-probe.md)）已完成，结论支持进入步骤 3。
-- 基点漂移：方案基点 fc5acf83 之后 develop 新增 c39b8ddc（持久无工具侧聊），与本方案决定不冲突；其实现触及 driver/runtime/context-assembly/tool-availability/control，步骤 3、4 实施时须按新 HEAD 核对，侧聊无工具来源在 A4 作负例。
+- 当前角色与阶段：实施者，独立工作副本 `mirasim-worktrees/ruukoto/mygo-agent-browser` @ c39b8ddc。步骤 1 原生探针（P01–P17 全过，[探针证据](../evidence/probe.md)）、步骤 2 MyGo 页面宿主（H01–H08 全过，[宿主证据](../evidence/host-probe.md)）与步骤 3 桌面/控制通路已完成，结论支持进入步骤 4。
+- 基点漂移：方案基点 fc5acf83 之后 develop 新增 c39b8ddc（持久无工具侧聊），与本方案决定不冲突；其实现触及 driver/runtime/context-assembly/tool-availability/control，步骤 4 实施时须按新 HEAD 核对，侧聊无工具来源在 A4 作负例。
 - 探针遗留：M1–M4 与 H09 人工项、真实下载/渲染崩溃事件、跨源子 frame、发布构建形态未验，明细见两份证据「未覆盖项」；已验证 macOS 仅 27.0.1 arm64。
-- 下一动作：步骤 3 桌面/控制通路（sidecar.ts、main/host.ts、main/controller.ts、shared/bridge.ts 与 control 协议/客户端/服务端）。
+- 下一动作：步骤 4 宿主工具与接管等待（`desktop_browser` 工具族、资格判定、串行命令、接管屏障与交还后新观察）。
 - 技术阻塞与恢复条件：探针与宿主假设全部实测通过，无方案阻断；若后续原生行为偏离探针结论须回到本证据与提案重核。
 
 ## 验收与证据
@@ -65,3 +65,5 @@ Status: in-progress
 2026-10-29：拥有者在完整方案交付后要求“提交”，据此记录定稿并提交本功能方案及交叉链接；本轮不开始实施。
 
 2026-10-29：步骤 2 MyGo 页面宿主完成。`main.go` 迁 `WindowOptions.Content`；新增 `apps/desktop/mygo/browser/`：`Manager`（页面池/矩形钳制/导航代次/原生盖输入闸门/定向 EmitPage/RenderProcessGone/ReleaseAll）与绑定面 `Frontend`（Rect/State/Takeover/Return/Navigate/Back/Forward/Reload/Close，`BindAs("Browser")`，身份精确到 Page+窗口+URL）。`mygo.Bind` 反射绑定全部导出方法，故宿主方法不放在绑定类型上。`preload.js` 加 `window.ruukoto.browser`；sidecar 失效经 `onFail`→`ReleaseAll` 放开输入并废代次。宿主探针 `-host` 模式在生产 Manager 上 H01–H08 全过：真实 `mygo.call` 信任路径、接管/交还闸门与代次、拥有者导航 `page_owned`、外来 WebView `ipc_sender` 拒、关闭销毁。单测 `go test ./...` 与 `-race` 全绿。证据：[host-probe.md](../evidence/host-probe.md) 与 probe-report-host.json。
+
+2026-10-29：步骤 3 桌面/控制通路完成。控制面协议升到 v47（PROTOCOL_VERSION 46→47，SCHEMA_VERSION 55→56 新增 `task_browser_bindings`）：新增 `push:"request"` 服务端→已登记客户端窄请求帧，客户端以 `{v,id,ok,result|error}` 应答；`ControlTransport.onCall` 为可选挂载，Electron/TUI 不受影响。`desktop_browser_register`（幂等登记连接身份，仅 shell:"mygo"）、`desktop_browser_event`（页面事实上行，进 `runtime.onDesktopBrowserEvent`）、`desktop_browser_chunk`（≤256KiB/块、≤8MiB、乱序补齐、index/total/sha256 与应答声明一致性校验、迟到/越界/重复/篡改拒绝）三 op 只服务已登记 socket。`server.callBrowser` 经 `runtime.desktopBrowserCall` 挂接：超时按效果未知、断线 disconnected、未登记 not_sent、应答只认发出 socket。`submit`/`continue`/`owner_question_answer` 经已登记连接提交时与任务同事务写 `task_browser_bindings`（服务端按 socket 归属，客户端不能自称；幂等重放不偷换）。Go 侧 `transport.go` 加 `kind:"request"`→`onRequest`→`browser.Manager.Command`（55s 超时，独立协程）；Node 侧 `sidecar.ts` 加 `goRequest` 通道（60s 超时按效果未知）与 `browser_event` 分发；`browser-bridge.ts` 负责分块拆分/内联上限/错误透传，`controller.ts` 快照后登记、`host.ts` 事件双向转发（控制面+渲染层 `browser_event` update）。`DESKTOP_OPS` 不含 browser ops，渲染层不可达。验证：新测试 `desktop-browser-control.test.ts`（登记/应答/事件/断线/串话/分块完整性/来源归属）与 Go `TestSidecarBrowserRequest` 全过；66/02/06/12/38/control-readiness/desktop-* 回归全绿；tsc/eslint/check:docs/verify-notes 全过。

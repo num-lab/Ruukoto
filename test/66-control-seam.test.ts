@@ -56,6 +56,7 @@ const TUI_OPS: Record<TuiOp, true> = {
   skills_list: true, skill_get: true,
   list_memories: true, get_memory: true, revoke_memory: true, restore_memory: true, qq_status: true, qq_set_enabled: true,
   qq_inbox_list: true, qq_outbox_list: true,
+  desktop_browser_register: true, desktop_browser_event: true, desktop_browser_chunk: true,
 };
 
 test("op 表：表里每个 op 服务端都认得（空参数只会被参数校验拒绝，不回 unknown_op）", async () => {

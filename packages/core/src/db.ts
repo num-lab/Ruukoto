@@ -12,7 +12,7 @@ import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 
-export const SCHEMA_VERSION = 55;
+export const SCHEMA_VERSION = 56;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS code_schedules (
@@ -850,6 +850,16 @@ CREATE TABLE IF NOT EXISTS subagent_messages (
   delivered_task_id TEXT,
   delivered_at TEXT,
   undelivered_reason TEXT
+);
+/*
+ * v56（mygo-agent-browser）：MyGo 桌面浏览器绑定。任务经已登记浏览器能力的
+ * 桌面控制连接提交时，与任务同事务记录连接身份；连接断开绑定即失效，
+ * 新连接不能继承旧句柄，绑定行不随实例导入迁移。
+ */
+CREATE TABLE IF NOT EXISTS task_browser_bindings (
+  task_id TEXT PRIMARY KEY REFERENCES tasks(id),
+  connection_id TEXT NOT NULL,
+  created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_smsg_work ON subagent_messages (work_id);
 CREATE INDEX IF NOT EXISTS idx_smsg_pending ON subagent_messages (parent_session_id, delivered_at);

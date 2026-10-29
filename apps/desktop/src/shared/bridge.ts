@@ -2,7 +2,7 @@ import type { CodeScheduleReconcileOutcome } from "@ruukoto/control/code-schedul
 import type { AttachmentMetadata } from "@ruukoto/core/attachments.ts";
 import type { RequestOutcome } from "@ruukoto/control/client.ts";
 import type { ConnectionState } from "@ruukoto/control/connection.ts";
-import type { ConnectResult } from "@ruukoto/control/protocol.ts";
+import type { ConnectResult, DesktopBrowserEvent } from "@ruukoto/control/protocol.ts";
 import type { PersistentEvent } from "@ruukoto/core/types.ts";
 import type { PendingRequest } from "@ruukoto/control/pending-requests.ts";
 import type { OwnerQuestionCancelOutcome, OwnerQuestionCancelReconcileOutcome } from "@ruukoto/control/owner-question-cancel.ts";
@@ -41,7 +41,9 @@ export type DesktopUpdate =
   | { type: "pending"; entries: PendingInput[]; corrupt: string[]; dir: string }
   | { type: "schedule_submission"; record: PendingRequest; result: CodeScheduleReconcileOutcome }
   | { type: "question_cancel"; record: PendingRequest; result: OwnerQuestionCancelReconcileOutcome }
-  | { type: "submission"; record: PendingRequest; result: ReconcileOutcome };
+  | { type: "submission"; record: PendingRequest; result: ReconcileOutcome }
+  /** 原生浏览器页面事实（闸门/导航/标题/关闭）；经 Go→Node→前端转发。 */
+  | { type: "browser_event"; event: DesktopBrowserEvent };
 export interface DesktopBridge {
   subscribe(target: DesktopTarget, listener: (update: DesktopUpdate) => void): () => void;
   request(target: DesktopTarget, op: string, params: Record<string, unknown>): Promise<DesktopResult<unknown>>;

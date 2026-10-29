@@ -11,6 +11,9 @@ import (
 	"sync/atomic"
 
 	"github.com/egoist/mygo"
+	"github.com/egoist/mygo/ui"
+
+	"ruukoto-desktop-mygo/browser"
 )
 
 //go:embed preload.js
@@ -22,15 +25,20 @@ const documentURL = "mygo://localhost/"
 
 type Desktop struct {
 	window       *mygo.Window
+	frontend     *mygo.WebView
+	browser      *browser.Manager
 	child        *sidecar
 	error        json.RawMessage
 	instanceLock *os.File
 	failed       bool
 }
 
+// Note: 见 .agents/notes/proposed/feature/2026-10-29-mygo-agent-browser.md
+// 可信调用者必须同时匹配前端 Page 对象、宿主窗口与精确前端 URL：
+// 同一 URL 的另一独立 WebView 不能借 URL 冒充前端。
 func (d *Desktop) trusted(ctx context.Context) bool {
 	page := mygo.CallerPage(ctx)
-	return page != nil && mygo.CallerWindow(ctx) == d.window && page.URL() == documentURL
+	return page != nil && d.frontend != nil && page == d.frontend.Page() && mygo.CallerWindow(ctx) == d.window && page.URL() == documentURL
 }
 
 func (d *Desktop) call(ctx context.Context, method string, args ...any) json.RawMessage {
@@ -133,6 +141,22 @@ func (d *Desktop) OpenExternal(ctx context.Context, value string) json.RawMessag
 	return json.RawMessage(`{"ok":true}`)
 }
 
+// browserEvent 把页面事实上报子进程；闸门在原生侧已生效，送达失败只记诊断。
+func (d *Desktop) browserEvent(e browser.Event) {
+	if d.child == nil {
+		return
+	}
+	go func() {
+		res := d.child.call(context.Background(), "browser_event", e)
+		var v struct {
+			OK bool `json:"ok"`
+		}
+		if json.Unmarshal(res, &v) != nil || !v.OK {
+			os.Stderr.WriteString("[ruukoto:desktop] 浏览器事件未送达子进程；请核实后台会话状态。\n")
+		}
+	}()
+}
+
 func (d *Desktop) event(data json.RawMessage) {
 	var event struct {
 		Kind   string          `json:"kind"`
@@ -144,7 +168,10 @@ func (d *Desktop) event(data json.RawMessage) {
 	}
 	switch event.Kind {
 	case "update":
-		if err := updates.Emit(d.window, data); err != nil {
+		if d.frontend == nil {
+			return
+		}
+		if err := updates.EmitPage(d.frontend.Page(), data); err != nil {
 			os.Stderr.WriteString("[ruukoto:desktop] MyGo 更新未送达窗口；请重新打开应用核实当前状态。\n")
 		}
 	case "badge":
@@ -168,9 +195,29 @@ func (d *Desktop) event(data json.RawMessage) {
 	}
 }
 
+// view 构建原生布局：前端页占满窗口，浏览器页按前端上报矩形覆盖其上。
+func (d *Desktop) view(c *ui.Context) {
+	ui.Column(c).Fill().Children(func() {
+		if d.frontend != nil {
+			ui.WebView(c, d.frontend).Fill()
+		}
+		if d.browser != nil {
+			d.browser.View(c)
+		}
+	})
+}
+
 func (d *Desktop) ready() {
-	d.window = mygo.NewWindow(mygo.WindowOptions{Title: "Ruukoto MyGo", Width: 1160, Height: 780, MinWidth: 760, MinHeight: 500, TitleBarStyle: mygo.TitleBarHiddenInset, Vibrancy: mygo.VibrancySidebar, Page: mygo.PageOptions{PreloadScript: preload}})
-	page := d.window.Page()
+	d.window = mygo.NewWindow(mygo.WindowOptions{Title: "Ruukoto MyGo", Width: 1160, Height: 780, MinWidth: 760, MinHeight: 500, TitleBarStyle: mygo.TitleBarHiddenInset, Vibrancy: mygo.VibrancySidebar, Content: ui.View(d.view)})
+	frontend, err := d.window.NewWebView(mygo.WebViewOptions{URL: "/", Page: mygo.PageOptions{PreloadScript: preload}})
+	if err != nil {
+		os.Stderr.WriteString("[ruukoto:desktop] MyGo 前端视图创建失败；请重新构建应用。\n")
+		d.failed = true
+		mygo.App.Quit()
+		return
+	}
+	d.frontend = frontend
+	page := frontend.Page()
 	page.OnRenderProcessGone(func(string) {
 		if d.child != nil {
 			go d.child.call(context.Background(), "terminal_reset")
@@ -199,6 +246,11 @@ func (d *Desktop) ready() {
 				credentials, credentialErr := newNativeCredentials(namespace)
 				if credentialErr == nil {
 					d.child, err = startSidecar(command, d.event, credentials)
+					if err == nil {
+						d.child.mu.Lock()
+						d.child.onFail = func() { d.browser.ReleaseAll() }
+						d.child.mu.Unlock()
+					}
 				}
 			} else {
 				d.error = failure("desktop_integrity", "not_sent", "应用签名、资源或固定 Node 校验失败；请重新构建应用。")
@@ -217,10 +269,7 @@ func (d *Desktop) ready() {
 	d.window.OnFocus(func() { focus(true) })
 	d.window.OnBlur(func() { focus(false) })
 	focus(d.window.IsFocused())
-	if err := page.LoadURL("/"); err != nil {
-		os.Stderr.WriteString("[ruukoto:desktop] MyGo 窗口加载失败；请重新构建应用。\n")
-		mygo.App.Quit()
-	}
+	d.window.Invalidate()
 }
 
 func runDesktop() int {
@@ -229,6 +278,23 @@ func runDesktop() int {
 		return 1
 	}
 	desktop := &Desktop{}
+	desktop.browser = browser.New(browser.Deps{
+		Identity:   desktop.trusted,
+		Update:     func(fn func()) { desktop.window.Update(fn) },
+		Invalidate: func() { desktop.window.Invalidate() },
+		Focus: func() {
+			if desktop.frontend != nil {
+				desktop.frontend.Focus()
+			}
+		},
+		NewView: func(o mygo.WebViewOptions) (*mygo.WebView, error) { return desktop.window.NewWebView(o) },
+		Content: func() (float32, float32) {
+			w, h := desktop.window.ContentSize()
+			return float32(w), float32(h)
+		},
+		Emit:  desktop.browserEvent,
+		Alive: func() bool { return desktop.window != nil && !desktop.window.IsDestroyed() },
+	})
 	defer func() {
 		if desktop.child != nil {
 			desktop.child.close()
@@ -238,6 +304,7 @@ func runDesktop() int {
 		}
 	}()
 	mygo.Bind(desktop)
+	mygo.BindAs("Browser", desktop.browser.Frontend())
 	var quitting, quitReady atomic.Bool
 	mygo.App.OnBeforeQuit(func(event *mygo.QuitEvent) {
 		if quitReady.Load() {

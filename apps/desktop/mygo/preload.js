@@ -14,6 +14,20 @@
     pickDraftAttachments: () => call("PickDraftAttachments"),
     uploadDraftAttachments: (sessionId, tokens, target = "code") => call("UploadDraftAttachments", sessionId, tokens, target),
     reveal: path => call("Reveal", path),
+    browser: (() => {
+      const send = (method, ...args) => window.mygo.call(`Browser.${method}`, ...args).catch(failure);
+      return {
+        rect: (x, y, w, h) => send("Rect", { x, y, w, h }),
+        state: (session, shown, covered) => send("State", { session, shown, covered }),
+        takeover: session => send("Takeover", session),
+        returnToAgent: session => send("Return", session),
+        navigate: (session, url) => send("Navigate", session, url),
+        back: session => send("Back", session),
+        forward: session => send("Forward", session),
+        reload: session => send("Reload", session),
+        close: session => send("Close", session),
+      };
+    })(),
     openTerminal: (id, workspaceId, instanceId, cols, rows) => call("Request", "code", "desktop_terminal_open", { id, workspace_id: workspaceId, instance_id: instanceId, cols, rows }),
     inputTerminal: (id, data) => call("Request", "code", "desktop_terminal_input", { id, data }),
     resizeTerminal: (id, cols, rows) => call("Request", "code", "desktop_terminal_resize", { id, cols, rows }),

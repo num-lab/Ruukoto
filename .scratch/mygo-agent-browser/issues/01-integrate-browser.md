@@ -1,6 +1,6 @@
 # MyGo 右栏浏览器接入 Coding 主 Agent
 
-Status: ready-for-agent
+Status: in-progress
 
 ## 目标与边界
 
@@ -27,10 +27,11 @@ Status: ready-for-agent
 
 ## 进展与交接
 
-- 当前角色与阶段：方案者，三轮 grilling 已完成 Q1–Q10 产品决定；源码与固定版本 API 只读调查、独立方案审查均完成，无未解决方案阻断。拥有者在完整方案交付后要求提交，方案已定稿；功能未实现。
-- 方案提交的父基点：develop，fc5acf83b32e9228bd305431f565c94f6b05d0b2。本任务只新增本工单、决策提案与审查证据，并给五篇既有笔记补提案链接；不包含其他功能改动。
-- 下一角色与动作：实施者，另行发起实施后以步骤 1 探针开始。独立方案审查通过不代表原生探针或功能验收通过。
-- 技术阻塞与恢复条件：隐藏页面截图、表单输入、弹层与原生焦点尚无实测；真实探针满足 A1–A3/A7 才可沿主路线继续。没有本功能实施或发布授权。
+- 当前角色与阶段：实施者，独立工作副本 `mirasim-worktrees/ruukoto/mygo-agent-browser` @ c39b8ddc。步骤 1 原生探针（P01–P17 全过，[探针证据](../evidence/probe.md)）与步骤 2 MyGo 页面宿主（H01–H08 全过，[宿主证据](../evidence/host-probe.md)）已完成，结论支持进入步骤 3。
+- 基点漂移：方案基点 fc5acf83 之后 develop 新增 c39b8ddc（持久无工具侧聊），与本方案决定不冲突；其实现触及 driver/runtime/context-assembly/tool-availability/control，步骤 3、4 实施时须按新 HEAD 核对，侧聊无工具来源在 A4 作负例。
+- 探针遗留：M1–M4 与 H09 人工项、真实下载/渲染崩溃事件、跨源子 frame、发布构建形态未验，明细见两份证据「未覆盖项」；已验证 macOS 仅 27.0.1 arm64。
+- 下一动作：步骤 3 桌面/控制通路（sidecar.ts、main/host.ts、main/controller.ts、shared/bridge.ts 与 control 协议/客户端/服务端）。
+- 技术阻塞与恢复条件：探针与宿主假设全部实测通过，无方案阻断；若后续原生行为偏离探针结论须回到本证据与提案重核。
 
 ## 验收与证据
 
@@ -59,4 +60,8 @@ Status: ready-for-agent
 
 2026-10-29：独立方案审查指出本机文档 handle、控制面截图帧预算和探针验收依赖缺口；方案修订并复审通过。作者另补齐最终回答期间接管后的新观察续轮；具体审查对象与检查见审查证据。
 
+2026-10-29：实施者接手，建独立工作副本跑步骤 1 原生探针。P01–P17 自动项全过：隐藏页持续执行且截图新鲜（位块==DOM 值逐帧比对）、React 受控表单合成事件成功、EvalContext 无显式 return 双执行、双会话页独立且切换保现场、`Emit` 广播会到浏览器页故前端事件须 `EmitPage`、外部 https 页被引擎层拒绝且同 URL 伪前端被 Page 身份拒绝、Cookie 跨页跨启动共享。人工项 M1–M4 与下载/子 frame/发布形态列未覆盖项。证据：[probe.md](../evidence/probe.md) 与两份 JSON 报告、shots/。
+
 2026-10-29：拥有者在完整方案交付后要求“提交”，据此记录定稿并提交本功能方案及交叉链接；本轮不开始实施。
+
+2026-10-29：步骤 2 MyGo 页面宿主完成。`main.go` 迁 `WindowOptions.Content`；新增 `apps/desktop/mygo/browser/`：`Manager`（页面池/矩形钳制/导航代次/原生盖输入闸门/定向 EmitPage/RenderProcessGone/ReleaseAll）与绑定面 `Frontend`（Rect/State/Takeover/Return/Navigate/Back/Forward/Reload/Close，`BindAs("Browser")`，身份精确到 Page+窗口+URL）。`mygo.Bind` 反射绑定全部导出方法，故宿主方法不放在绑定类型上。`preload.js` 加 `window.ruukoto.browser`；sidecar 失效经 `onFail`→`ReleaseAll` 放开输入并废代次。宿主探针 `-host` 模式在生产 Manager 上 H01–H08 全过：真实 `mygo.call` 信任路径、接管/交还闸门与代次、拥有者导航 `page_owned`、外来 WebView `ipc_sender` 拒、关闭销毁。单测 `go test ./...` 与 `-race` 全绿。证据：[host-probe.md](../evidence/host-probe.md) 与 probe-report-host.json。

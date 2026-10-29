@@ -31,6 +31,7 @@ type sidecar struct {
 	stopping          bool
 	done              chan struct{}
 	onEvent           func(json.RawMessage)
+	onFail            func()
 	credentials       credentialStore
 	generation        string
 	credentialLast    uint64
@@ -152,6 +153,7 @@ func (s *sidecar) fail() {
 	}
 	s.closed = true
 	stopping := s.stopping
+	onFail := s.onFail
 	for id, waiting := range s.pending {
 		result := disconnected()
 		if !waiting.started {
@@ -163,6 +165,9 @@ func (s *sidecar) fail() {
 	s.mu.Unlock()
 	if stopping {
 		return
+	}
+	if onFail != nil {
+		onFail()
 	}
 	s.eventMu.Lock()
 	defer s.eventMu.Unlock()

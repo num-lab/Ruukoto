@@ -1,0 +1,26 @@
+<!doctype html>
+<meta charset="utf-8"><title>counter</title>
+<style>
+body{margin:0;font:16px Menlo,monospace;background:#fff}
+#bits{position:fixed;left:8px;top:8px;display:flex;flex-direction:column}
+#bits i{display:block;width:24px;height:24px;background:#000}
+#bits i.o{background:#fff;box-shadow:inset 0 0 0 1px #999}
+#n{position:fixed;left:44px;top:8px;font-size:64px}
+</style>
+<div id="bits"></div><div id="n">0</div>
+<script src="/common.js"></script>
+<script>
+window.__count = 0; window.__pause = false;
+var cells = [];
+(function () { var b = document.getElementById("bits"); for (var i = 0; i < 12; i++) { var c = document.createElement("i"); b.appendChild(c); cells.push(c); } })();
+function render() { var n = window.__count; for (var i = 0; i < 12; i++) { cells[i].className = ((n >> i) & 1) ? "" : "o"; } document.getElementById("n").textContent = n; window.__rendered = n; }
+setInterval(function () { if (!window.__pause) { window.__count++; render(); } }, 100);
+render();
+window.__net = async function () {
+  try {
+    var r = await fetch("/ping?c=" + window.__count);
+    var m = await import("/mod.js?x=" + window.__count);
+    return { ping: r.status, mod: m.v, ok: r.ok && m.v === "m1" };
+  } catch (e) { return { error: String(e), ok: false }; }
+};
+</script>

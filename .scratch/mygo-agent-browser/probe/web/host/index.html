@@ -1,0 +1,31 @@
+<!doctype html>
+<meta charset="utf-8">
+<style>
+html,body{margin:0;height:100%;font:14px -apple-system,sans-serif}
+body{display:flex}
+#chat{flex:1;padding:12px;background:#f5f5f7;box-sizing:border-box}
+#pane{width:45%;background:#d8dee9;transition:width .18s ease}
+#pane.closed{width:0}
+</style>
+<div id="chat">宿主探针前端页（模拟聊天区）</div>
+<div id="pane"></div>
+<script>
+var pane = document.getElementById("pane");
+var SESSION = "s1";
+var report = function () {
+  var r = pane.getBoundingClientRect();
+  if (window.mygo) {
+    mygo.call("Browser.Rect", { x: r.x, y: r.y, w: r.width, h: r.height }).catch(function () {});
+  }
+};
+var state = function (shown, covered) {
+  if (window.mygo) {
+    mygo.call("Browser.State", { session: SESSION, shown: shown, covered: covered }).catch(function () {});
+  }
+};
+new ResizeObserver(report).observe(pane);
+report();
+state(true, false);
+window.__collapse = function (v) { pane.classList.toggle("closed", !!v); };
+window.__covered = function (v) { state(true, !!v); };
+</script>

@@ -1,0 +1,15 @@
+{
+  "started": "2026-10-29T22:13:38.698431+09:00",
+  "finished": "2026-10-29T22:13:38.707984+09:00",
+  "macos": "27.0.1",
+  "go": "go1.27.2",
+  "mygo_dev": true,
+  "checks": [
+    {
+      "id": "P17",
+      "name": "跨启动持久 Cookie",
+      "status": "pass",
+      "detail": "跨启动持久 Cookie 1 个（probe_persist=…）"
+    }
+  ]
+}

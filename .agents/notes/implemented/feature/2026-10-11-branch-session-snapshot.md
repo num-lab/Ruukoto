@@ -2,6 +2,8 @@
 
 Status: implemented
 
+相关提案：[Coding 侧聊](../../proposed/feature/2026-10-29-coding-side-chat.md)复用本篇的安全历史与准备／发布机制，另行收窄会话身份、工具和资料访问，不改变普通分支行为。
+
 ## 问题
 
 [工单 28](../../../../.scratch/agent-direction/issues/28-branch-session.md)确认 `/branch` 要在来源仍执行时建立独立会话，保留历史与适用设置、可读引用，但不能继承任务、批准或工作管理权限。`/new` 创建空会话，pi 分支 API 不承担 Ruukoto 的严格历史、幂等、资料来源和跨文件恢复；直接复用无法满足已确认行为。

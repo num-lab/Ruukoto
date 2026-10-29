@@ -58,3 +58,22 @@ export interface DesktopBridge {
   resizeTerminal(id: DesktopTerminalId, cols: number, rows: number): Promise<DesktopResult<void>>;
   killTerminal(id: DesktopTerminalId): Promise<DesktopResult<void>>;
 }
+
+/** MyGo 原生浏览器页的可信调用面；仅 mygo preload 注入，Electron/其他宿主无此字段。 */
+export interface NativeBrowserApi {
+  rect(x: number, y: number, w: number, h: number): Promise<unknown>;
+  state(session: string, shown: boolean, covered: boolean): Promise<unknown>;
+  takeover(session: string): Promise<unknown>;
+  returnToAgent(session: string): Promise<unknown>;
+  navigate(session: string, url: string): Promise<unknown>;
+  back(session: string): Promise<unknown>;
+  forward(session: string): Promise<unknown>;
+  reload(session: string): Promise<unknown>;
+  close(session: string): Promise<unknown>;
+}
+
+declare global {
+  interface Window {
+    ruukoto: DesktopBridge & { browser?: NativeBrowserApi };
+  }
+}

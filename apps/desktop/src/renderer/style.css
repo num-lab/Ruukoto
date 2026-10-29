@@ -373,6 +373,11 @@ html.dark .terminal-panel { background: #171717; }
 .browser-toolbar [data-slot="input"] { height: 28px; border: 0; padding: 0 8px; background: var(--muted); box-shadow: none; font-size: 11px; }
 .browser-toolbar .quiet-icon:disabled { opacity: .3; }
 .browser-panel iframe { flex: 1; width: 100%; min-height: 0; border: 0; background: var(--background); }
+/* 原生页占位：区域只上报几何，页面由宿主原生层绘制。 */
+.native-browser-host { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.native-browser-host .file-panel-empty { flex: 1; }
+.native-browser-caption { margin: 0; padding: 4px 12px; font-size: 11px; color: var(--text-muted); border-top: 1px solid var(--ui-border); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; }
+.browser-gate-note { margin: 0; padding: 7px 12px; font-size: 11px; color: var(--text-secondary); border-bottom: 1px solid var(--ui-border); flex-shrink: 0; }
 .browser-note, .browser-error { margin: 0; padding: 7px 12px; font-size: 11px; }
 .browser-note { color: var(--text-muted); border-top: 1px solid var(--ui-border); }
 .browser-error { color: var(--destructive); }

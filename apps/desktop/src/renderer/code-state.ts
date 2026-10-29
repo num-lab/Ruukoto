@@ -13,6 +13,7 @@ import { CodeWrites } from "./code-writes.ts";
 import { DesktopContext } from "./context-state.ts";
 import { DesktopInspector } from "./inspector.ts";
 import { DesktopSearch } from "./search-state.ts";
+import { NativeBrowserState } from "./native-browser.ts";
 import { DesktopScheduled } from "./scheduled-state.ts";
 
 export class DesktopRequestError extends Error {
@@ -64,6 +65,7 @@ export class CodeState {
   readonly questions: DesktopQuestions;
   readonly background: DesktopBackgroundProcesses;
   readonly inspector: DesktopInspector;
+  readonly browser = new NativeBrowserState();
   readonly context: DesktopContext;
   readonly search: DesktopSearch;
   readonly scheduled: DesktopScheduled;
@@ -110,6 +112,7 @@ export class CodeState {
   }
   update(update: DesktopUpdate): void {
     if (update.type === "terminal") { this.inspector.update(update); return; }
+    if (update.type === "browser_event") { this.browser.update(update); this.mark(); return; }
     if (update.type === "state") {
       this.status = update;
       if (update.state !== "online") { ++this.defaultModelRead; this.defaultModelKnown = false; }

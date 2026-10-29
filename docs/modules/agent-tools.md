@@ -50,7 +50,7 @@ stateDiagram-v2
   [*] --> pending: 触发越界操作，生成不可变审批快照
   pending --> approved: 拥有者批准本次调用
   pending --> rejected: 拥有者拒绝本次调用
-  pending --> stale: 服务重启或任务被取消，审批作废
+  pending --> stale: 服务重启、任务取消、模式切换或输入引导接入，审批作废
   approved --> consumed: 执行器单次消费凭据并调用工具
   consumed --> [*]
   rejected --> [*]

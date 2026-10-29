@@ -4,7 +4,7 @@ Status: implemented
 
 实例配置与凭据权威保持；SDK接线、发现和工具签名由[MCP宿主职责收缩](2026-10-26-mcp-host-responsibilities.md)更新。当前控制协议为43、SQLite schema为53；下文保留当时不兼容切换的原决定。
 
-相关提案：[Coding 消息重排与引导](../../proposed/feature/2026-10-28-coding-message-control.md)沿用本篇严格版本切换，不恢复旧库迁移。
+相关决定：[Coding 消息重排与引导](../feature/2026-10-28-coding-message-control.md)沿用本篇严格版本切换，不恢复旧库迁移。
 
 ## 问题
 

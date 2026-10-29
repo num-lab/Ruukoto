@@ -93,6 +93,11 @@
  * v26：握手快照携带产品身份，桌面客户端在安装快照前核对连接目标。
  * v43：会话分支可指定已完成任务作为分支点；旧后台不得忽略 task_id。
  * Note: 见 .agents/notes/proposed/architecture/2026-10-15-desktop-client.md
+ *
+ * v45（coding-message-control）：持久队列顺序/修订——task.queued 携带
+ * queueOrder，新增 session.queue_changed 与 task.guidance 事件、
+ * task_queue/queue_reorder/steer_task 操作；submit 新增 guidance 标志。
+ * 普通提交不再自动解除等待中任务。旧客户端须升级。
  */
 
 import {
@@ -144,6 +149,8 @@ export interface ConnectSnapshot {
   ownerQuestions?: OwnerQuestionView[];
   codeScheduleRuns?: import("@ruukoto/core/code-scheduler.ts").CodeScheduleRun[];
   backgroundProcesses?: BackgroundProcessView[];
+  /** 引导路由（coding-message-control）：全部状态随快照下发，投影与重排共用同一事实。 */
+  taskGuidance?: import("@ruukoto/core/types.ts").TaskGuidance[];
 }
 
 /** 单任务持久事件分页；nextAfter 非空时继续读，最终消息正文以历史接口为准。 */

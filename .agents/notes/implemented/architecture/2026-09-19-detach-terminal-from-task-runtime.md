@@ -4,7 +4,7 @@ Status: implemented
 
 客户端退出后的动画释放补充见[迟到应答修复](../bug-fix/2026-10-24-tui-exit-late-response.md)；退出不停止后台的决定保持。
 
-相关提案：[Coding 消息重排与引导](../../proposed/feature/2026-10-28-coding-message-control.md)。
+相关决定：[Coding 消息重排与引导](../feature/2026-10-28-coding-message-control.md)。
 
 原编号：ADR 0002
 

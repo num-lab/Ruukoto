@@ -2,7 +2,7 @@
 
 Status: implemented
 
-相关提案：[Coding 消息重排与引导](../../proposed/feature/2026-10-28-coding-message-control.md)。
+相关决定：[Coding 消息重排与引导](../feature/2026-10-28-coding-message-control.md)。
 
 ## 问题
 

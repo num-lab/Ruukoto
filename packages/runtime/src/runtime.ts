@@ -161,6 +161,8 @@ import {
   type SubAgent,
   type SubAgentMessage,
   type Task,
+  type TaskGuidance,
+  type TaskQueue,
   type ToolOp,
   type WorkDelegation
 } from "@ruukoto/core/types.ts";
@@ -2510,6 +2512,17 @@ export class Runtime {
         }
       }
 
+      // 5. 引导路由核实（coding-message-control）：目标已被本次恢复中断，
+      //    按权威 JSONL 裁决——已落盘的输入归原任务 joined，未落的回普通队首。
+      for (const guidance of store.listPendingGuidance()) {
+        const file = store.getSession(guidance.sessionId)?.sessionFile;
+        const entry = file && fs.existsSync(file)
+          ? parseSessionFile(file).find(e => e.type === "message" && (e.message as { ruukotoSourceTaskId?: string } | undefined)?.ruukotoSourceTaskId === guidance.sourceTaskId)
+          : undefined;
+        if (entry) store.recordTaskGuidanceEntry(guidance.sourceTaskId, guidance.targetTaskId, entry.id);
+        else store.fallbackTaskGuidance(guidance.targetTaskId);
+      }
+
       store.appendEvent(
         { type: "backend.recovered", interruptedTaskIds, pausedSessionIds },
       );
@@ -3128,6 +3141,11 @@ export class Runtime {
     reportKeys?: string[];
     /** 仅可信问题入口提交；客户端与模型不能指定回答来源。 */
     ownerAnswer?: { questionId: string; version: number; answers: OwnerAnswer[] };
+    /**
+     * 显式引导（coding-message-control）：把本输入接入会话当前任务的下一边界；
+     * 错过目标按普通队列输入回到队首。仅普通开发会话的拥有者新输入可用。
+     */
+    guidance?: boolean;
   }, internal = false): Promise<TaskView> {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝新任务");
     const session = this.store.getSession(input.sessionId);
@@ -3138,6 +3156,9 @@ export class Runtime {
     if (input.reportKey && !internal) throw new RuntimeApiError("invalid_params", "结果补报只能由宿主登记");
     if (input.reportKeys && !internal) throw new RuntimeApiError("invalid_params", "结果补报只能由宿主登记");
     if (input.ownerAnswer && (!internal || this.store.getSessionIdentity(session.id)?.kind !== "dev")) throw new RuntimeApiError("invalid_params", "请从问题卡片提交回答。");
+    if (input.guidance && (internal || input.resumesTaskId || input.ownerAnswer || this.store.getSessionIdentity(session.id)?.kind !== "dev")) {
+      throw new RuntimeApiError("invalid_params", "仅普通开发会话的拥有者新输入可转为引导");
+    }
     const identity = this.store.getSessionIdentity(session.id)!;
     // SubAgent 子会话（agent-direction issue 11）：不是普通用户对话入口；任务
     // 只能经集中委派登记（直接写库，不经本入口），控制面不能把它当作用户会话提交
@@ -3191,6 +3212,7 @@ export class Runtime {
       ...(input.reportKey ? { reportKey: input.reportKey } : {}),
       ...(input.reportKeys ? { reportKeys: input.reportKeys } : {}),
       ...(input.ownerAnswer ? { ownerAnswer: input.ownerAnswer } : {}),
+      ...(input.guidance ? { guidance: true } : {}),
     };
     const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
     const submissionDigest = `request-v2:${digest(submission)}`;
@@ -3290,6 +3312,8 @@ export class Runtime {
         if (ordinaryInbound) this.store.markInboundQueued(ordinaryInbound.id, queued.task.id);
         if (workflow) updateWorkflowRun(this.store, { ...workflow, delivery: { ...workflow.delivery!, taskId: queued.task.id, status: "queued" } });
         for (const key of reportKeys) bindAgentReportFallback(this.store, key, queued.task.id);
+        // 显式引导与源 Task 同事务创建路由：先持久化才谈接入与回退
+        if (input.guidance && !queued.duplicate) this.acceptGuidanceForTask(queued.task.id);
         return queued;
       }));
     } catch (err) {
@@ -3299,12 +3323,22 @@ export class Runtime {
       throw err;
     }
     if (!duplicate) {
-      const trustedOwnerInput = !internal || Boolean(input.ownerAnswer) || Boolean(task.sourceEventId && task.requestId === `evt:${task.sourceEventId}` &&
-        sourceEvent && [QQ_PRIVATE_SOURCE, TELEGRAM_SOURCE].includes(sourceEvent.source) && this.inboundGate(sourceEvent) === "run");
-      const driver = this.drivers.get(input.sessionId), activeTaskId = driver?.currentTaskId;
-      if (trustedOwnerInput && driver && activeTaskId && (this.agentWait.interrupt(activeTaskId, "owner_input") || this.backgroundProcesses.interruptWait(activeTaskId))) {
-        const active = this.store.getTask(activeTaskId)!;
-        await driver.requestStop(active, { terminal: "interrupted", reason: "owner_input", cancelIntent: false });
+      const guidance = this.store.getTaskGuidance(task.id);
+      if (guidance?.state === "pending") {
+        // 显式引导仅解除等待：不中断任务与已开始的工具批次；目标在下一个安全边界接入
+        this.agentWait.interrupt(guidance.targetTaskId, "owner_input");
+        this.backgroundProcesses.interruptWait(guidance.targetTaskId);
+        this.drivers.get(input.sessionId)?.releaseGuidanceWaits();
+      } else {
+        const trustedOwnerInput = !internal || Boolean(input.ownerAnswer) || Boolean(task.sourceEventId && task.requestId === `evt:${task.sourceEventId}` &&
+          sourceEvent && [QQ_PRIVATE_SOURCE, TELEGRAM_SOURCE].includes(sourceEvent.source) && this.inboundGate(sourceEvent) === "run");
+        const driver = this.drivers.get(input.sessionId), activeTaskId = driver?.currentTaskId;
+        // 普通开发会话（dev）：普通 Enter 一律排队，不再因等待中的任务自动解除等待并
+        // requestStop；个人 Agent 等其他会话保持原有资格与打断语义，不借此新增打断权
+        if (identity.kind !== "dev" && trustedOwnerInput && driver && activeTaskId && (this.agentWait.interrupt(activeTaskId, "owner_input") || this.backgroundProcesses.interruptWait(activeTaskId))) {
+          const active = this.store.getTask(activeTaskId)!;
+          await driver.requestStop(active, { terminal: "interrupted", reason: "owner_input", cancelIntent: false });
+        }
       }
       this.kick(input.sessionId);
     }
@@ -3916,6 +3950,11 @@ export class Runtime {
     }
   }
 
+  private isExecutableQueueHead(task: Task): boolean {
+    return !this.stopping && !this.compactions.has(task.sessionId) && this.store.getSession(task.sessionId)?.queueState === "active" &&
+      this.store.listQueuedTasksFifo(task.sessionId).find(candidate => !isAgentReportParked(this.store, candidate.id))?.id === task.id;
+  }
+
   private async runQueueLoop(sessionId: string): Promise<void> {
     for (;;) {
       if (this.stopping || this.compactions.has(sessionId)) return;
@@ -4000,6 +4039,7 @@ export class Runtime {
       } catch (err) {
         if (!(err instanceof DirIdentityError) && (!(err instanceof WorkspaceSnapshotError) || !["target_corrupt", "snapshot_missing", "snapshot_corrupt"].includes(err.code))) throw err;
         this.store.withTx(() => {
+          if (!this.isExecutableQueueHead(task)) return;
           if (codeRun) pauseCodeSchedule(this.store, { planId: codeRun.scheduleId, reason: "schedule_workspace_invalid" });
           this.store.endTask(task.id, ["queued"], "failed", {
             errorMessage: err instanceof WorkspaceSnapshotError ? `${err.code}：${err.message}` : err.message,
@@ -4012,6 +4052,7 @@ export class Runtime {
       try {
         this.store.withTx(() => {
           if (this.stopping) throw new TaskGoneError(); // 停止开始后不再让排队任务转入运行
+          if (!this.isExecutableQueueHead(task)) throw new TaskGoneError();
           this.assertNoSessionCompaction(sessionId);
           if (task.subAgentId && !task.sourceEventId) {
             const work = task.workId ? this.store.getWorkDelegation(task.workId) : null;
@@ -4338,11 +4379,99 @@ export class Runtime {
     return this.store.getTask(taskId)!;
   }
 
+  /**
+   * 引导目标解析（事务内）：执行归属的活动任务优先；错过时锚定最近的非排队
+   * 普通开发任务（含刚结束者，回退路由据此把源放回队首）；无候选返回 null，
+   * 调用方按普通排队处理。排队中的任务与源自身都不是有效目标。
+   */
+  private guidanceTarget(sessionId: string, excludeTaskId: string): string | null {
+    const active = this.drivers.get(sessionId)?.currentTaskId;
+    const activeTask = active && active !== excludeTaskId ? this.store.getTask(active) : null;
+    if (activeTask && (activeTask.status === "running" || activeTask.status === "awaiting_confirmation") && this.store.ordinaryCodeTask(activeTask)) return activeTask.id;
+    const candidate = [...this.store.listTasksBySession(sessionId)].reverse()
+      .find(task => task.id !== excludeTaskId && task.status !== "queued" && this.store.ordinaryCodeTask(task));
+    return candidate ? candidate.id : null;
+  }
+
+  /** 事务内受理引导路由；目标可接入时同时失效其未消费审批（不批准、不取消旧操作）。 */
+  private acceptGuidanceForTask(sourceTaskId: string, expectedQueueRevision?: number): TaskGuidance | null {
+    const source = this.store.getTask(sourceTaskId);
+    if (!source) throw new StoreConflictError("输入不存在，请刷新会话", "not_found");
+    const targetId = this.guidanceTarget(source.sessionId, sourceTaskId);
+    if (!targetId) return null;
+    const guidance = this.store.acceptTaskGuidance(sourceTaskId, targetId, true, expectedQueueRevision);
+    if (guidance.state === "pending") this.store.stalePendingConfirmations(targetId);
+    return guidance;
+  }
+
+  /**
+   * 已排队的普通输入显式转换成当前任务的引导（coding-message-control）：
+   * 正文、附件、请求身份与队列事实不变；错过目标回普通队首。
+   */
+  async steerTask(taskId: string, opts?: { expectedQueueRevision?: number }): Promise<Task> {
+    if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，请稍后重试");
+    const task = this.store.getTask(taskId);
+    if (!task) throw new RuntimeApiError("not_found", `任务不存在：${taskId}`);
+    const session = this.store.getSession(task.sessionId);
+    if (!session) throw new RuntimeApiError("not_found", `会话不存在：${task.sessionId}`);
+    if (this.store.getSessionIdentity(session.id)?.kind !== "dev") throw new RuntimeApiError("guidance_not_allowed", "仅普通开发会话支持引导");
+    let guidance: TaskGuidance | null;
+    try {
+      guidance = this.store.withTx(() => this.acceptGuidanceForTask(taskId, opts?.expectedQueueRevision));
+    } catch (err) {
+      if (err instanceof StoreConflictError) throw new RuntimeApiError(err.code, err.message);
+      throw err;
+    }
+    // 错过目标：输入保持普通排队（位置不变）
+    if (!guidance) return this.store.getTask(taskId)!;
+    if (guidance.state === "pending") {
+      this.agentWait.interrupt(guidance.targetTaskId, "owner_input");
+      this.backgroundProcesses.interruptWait(guidance.targetTaskId);
+      this.drivers.get(session.id)?.releaseGuidanceWaits();
+    }
+    this.kick(session.id);
+    return this.store.getTask(taskId)!;
+  }
+
+  /**
+   * 控制面队列快照：持久顺序、修订、本会话全部引导路由与可重排/可转引导集合
+   * （queue.tasks 含不可重排的宿主/编排项；客户端只按 reorderableTaskIds 提交，
+   * 「转为引导」动作只对 steerableTaskIds 开放）。
+   */
+  getTaskQueueDetail(sessionId: string): { queue: TaskQueue; reorderableTaskIds: string[]; steerableTaskIds: string[]; guidance: TaskGuidance[] } {
+    const reorderable = this.store.listReorderableTasks(sessionId);
+    return {
+      queue: this.store.getTaskQueue(sessionId),
+      reorderableTaskIds: reorderable.map(task => task.id),
+      steerableTaskIds: reorderable.filter(task => !task.resumesTaskId && !this.store.hasOwnerQuestionContinuation(task.id)).map(task => task.id),
+      guidance: this.store.listSessionGuidance(sessionId),
+    };
+  }
+
+  /** 队列重排：仅交换普通拥有者输入的位置；冲突以实际持久状态拒绝并回执。 */
+  reorderQueue(sessionId: string, taskIds: string[], expectedRevision: number): TaskQueue {
+    if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，请稍后重试");
+    try {
+      return this.store.withTx(() => this.store.reorderTaskQueue(sessionId, taskIds, expectedRevision));
+    } catch (err) {
+      if (err instanceof StoreConflictError) throw new RuntimeApiError(err.code, err.message);
+      throw err;
+    }
+  }
+
   async cancelTask(taskId: string, opts?: { reason?: string }): Promise<Task> {
     const task = this.store.getTask(taskId);
     if (!task) throw new RuntimeApiError("not_found", `任务不存在：${taskId}`);
     if (getWorkflowExecution(this.store, task.id)?.kind === "agent") throw new RuntimeApiError("invalid_state", "工作流步骤由所属运行控制，请取消运行");
     if (task.status === "queued") {
+      // 待接入引导源：已预留进目标边界的源取消等待该批实际落盘结果，再核实现状
+      const guidance = this.store.getTaskGuidance(task.id);
+      if (guidance?.state === "pending") {
+        const driver = this.drivers.get(task.sessionId);
+        if (driver) await driver.waitGuidanceSource(task.id);
+        const settled = this.store.getTaskGuidance(task.id);
+        if (settled?.state === "joined") throw new RuntimeApiError("invalid_state", "输入已接入目标任务，不能取消");
+      }
       this.store.withTx(() => {
         this.store.endTask(task.id, ["queued"], "canceled", {
           endedAt: new Date().toISOString(),
@@ -4542,6 +4671,7 @@ export class Runtime {
     ownerQuestions: OwnerQuestionView[];
     backgroundProcesses: BackgroundProcessView[];
     codeScheduleRuns: CodeScheduleRun[];
+    taskGuidance: TaskGuidance[];
     seq: number;
   } {
     // 有界快照：全部活动任务 + 每个会话最近结束的若干任务；更早的经 list_tasks 分页
@@ -4580,6 +4710,7 @@ export class Runtime {
       ownerQuestions: sessions.flatMap(session => this.listOwnerQuestions(session.id).questions),
       backgroundProcesses: sessions.flatMap(session => this.listBackgroundProcesses(session.id).processes),
       codeScheduleRuns: this.codeScheduleRunSnapshot(),
+      taskGuidance: sessions.flatMap(session => this.store.listSessionGuidance(session.id)),
       seq: this.store.getMaxSeq(),
     };
     let questionBytes = 0;

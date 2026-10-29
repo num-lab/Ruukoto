@@ -54,6 +54,7 @@ npm run change-scope -- --base <已核实的基点引用>
 | Coding 四输入工作流组合 | `npx tsx --test test/122-workflow-code-acceptance.test.ts`；真实模型另用 `RUN_MODEL_CHECK=1 RUN_WORKFLOW_MODELS_FILE=/path/models.json npx tsx --test test/123-workflow-model-acceptance.test.ts`，缺前提不记通过 |
 | `packages/agent/src/` 的上下文、模型、压缩 | `npx tsx --test test/18-model-selection.test.ts test/60-context-prefix.test.ts test/61-context-compaction.test.ts` |
 | `packages/runtime/src/`、`packages/control/src/` 的任务生命周期 | `npx tsx --test test/01-concurrency.test.ts test/66-control-seam.test.ts test/94-task-ending.test.ts` |
+| Coding 排队顺序、重排与运行中引导 | `npx tsx --test test/queue-guidance-store.test.ts test/queue-guidance-runtime.test.ts test/sdk-steering-contract.test.ts test/66-control-seam.test.ts`；按面加 01/02 并发与幂等、34/36 投影、13/14/15 TUI、桌面 composer；真实模型与双客户端交互另作外部验收，旧档案不自动迁移 |
 | `packages/tui/src/cli.ts` 的管理命令与产物导出 | `npx tsx --test test/29-cli-entry.test.ts`；触及产品入口再加 `test/71-product-entry.test.ts` |
 | `packages/tui/src/tui/`、`packages/tui/src/config-tui/` | `npx tsx --test test/13-tui-state.test.ts test/14-tui-app.test.ts test/33-config-tui.test.ts`；改终端交互再加 `test/15-tui-pty.test.ts` |
 | 桌面设置模型、Skills、MCP 与共用容器 | `npx tsx --test test/desktop-settings.test.ts test/desktop-settings-models.test.ts test/desktop-models-layout.test.ts test/desktop-settings-mcp.test.ts test/desktop-settings-mcp-backend.test.ts test/desktop-settings-skills.test.ts`；Personal 页面加 `test/desktop-personal-settings-pages.test.ts`，协议与维护按PA HTTPS/WSS行；双壳构建、签名和真实环境证据按桌面行 |

@@ -279,8 +279,8 @@ test(`重启回归（${product.runtime.type}）：只读与旧个人账本可核
       for (const [id, status, flagged] of [["task_live", "running", 0], ["task_done", "completed", 0], ["task_flagged", "running", 1]] as const) {
         db.prepare(
           `INSERT INTO tasks (id, session_id, request_id, input, status, access_mode, permission_version, granted_paths,
-             cancel_requested, effect_unknown, history_entry_ids, created_at, agent_id)
-           VALUES (?, ?, ?, 'x', ?, 'confirm', 1, '[]', 0, ?, '[]', ?, 'main')`,
+             cancel_requested, effect_unknown, history_entry_ids, created_at, agent_id, queue_order)
+           VALUES (?, ?, ?, 'x', ?, 'confirm', 1, '[]', 0, ?, '[]', ?, 'main', 1)`,
         ).run(id, main.sessionId, `req_${id}`, status, flagged, now);
       }
       db.prepare(`INSERT INTO tool_ops (id, task_id, tool_name, params, intent_recorded_at, effect_unknown) VALUES ('op_read', 'task_live', 'read', '{}', ?, 0)`).run(now);

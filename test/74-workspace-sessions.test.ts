@@ -89,7 +89,7 @@ function fakeSession(over: Partial<Session> & { id: string; projectId: string })
     defaultAccessMode: "confirm",
     defaultAccessModeVersion: 0,
     queueState: "active",
-    queuePauseReason: null, archivedAt: null,
+    queuePauseReason: null, queueRevision: 0, archivedAt: null,
     createdAt: "2026-01-01T00:00:00Z",
     ...over,
   };

@@ -1,14 +1,14 @@
 # Agent Note: Coding 消息队列重排与运行中引导
 
-Status: proposed
+Status: implemented
 
 ## 问题
 
 Code 当前把每条用户输入登记为 Task，再按创建时间串行执行；拥有者不能调整待执行顺序，也不能在同一任务内补充纠正。只调用 SDK steer 会把已接纳输入留在内存，且当前上下文选择把最后一条 user 当作当前任务，可能使原始要求退出必留范围。
 
-产品约定由[规格](../../../../.scratch/coding-message-control/spec.md)持有，步骤与证据由[工单](../../../../.scratch/coding-message-control/issues/01-queue-and-guidance.md)持有。本篇拟部分扩展[后台持有与 FIFO](../../implemented/architecture/2026-09-19-detach-terminal-from-task-runtime.md)、[用户附件来源](../../implemented/architecture/2026-10-16-owner-attachments.md)和[等待解除](../../implemented/architecture/2026-10-14-agent-wait-and-report-ownership.md)，尚不改变它们描述的当前行为。
+产品约定由[规格](../../../../.scratch/coding-message-control/spec.md)持有，步骤与证据由[工单](../../../../.scratch/coding-message-control/issues/01-queue-and-guidance.md)持有。本篇扩展[后台持有与 FIFO](../../implemented/architecture/2026-09-19-detach-terminal-from-task-runtime.md)、[用户附件来源](../../implemented/architecture/2026-10-16-owner-attachments.md)和[等待解除](../../implemented/architecture/2026-10-14-agent-wait-and-report-ownership.md)，并同步其中因本功能改变的事实。
 
-## 方案
+## 决定
 
 复用 Task 作为持久输入回执，增加队列顺序与引导路由。新引导和排队转引导只接收普通聊天输入，沿用源 Task ID、正文、附件和提交选择；路由决定输入进入当前任务，还是回到普通队首。继续与问题回答保留原有独立执行关系，不新增它们转交另一任务的语义。
 
@@ -18,7 +18,7 @@ Code 当前把每条用户输入登记为 Task，再按创建时间串行执行�
 
 `runQueueLoop` 在异步目录核实之后、真正置 running 的事务内，重查 Task 仍 queued、没有待引导路由且仍为可执行队首。重排不能恢复暂停队列。握手、查询、事件补发与共享 view 全部读取同一顺序，不再用创建时间推断执行顺序。
 
-基线 schema 为 53、控制协议为 43；实施时以实际检出版本为准递增。新格式必须升级 schema，因为旧程序不认识待引导路由，可能把源 queued Task 独立执行。沿用[Code 库严格版本切换](../../implemented/simplification/2026-10-24-code-instance-mcp.md)：新数据目录从空档案开始，旧 SQLite、JSONL、产物与凭据原地保留，不修改、不移动、不删除，不提供 v53 加法迁移或旧配置转换。旧程序拒绝新 schema，新程序拒绝全部旧 schema；拒绝前不能先写新表或版本号。若以后需要原地延续旧会话，须由拥有者重审既有决定，不能由实施者暗加兼容。
+基线 schema 为 53、控制协议为 43；落地为 schema 54、协议 v45。新格式必须升级 schema，因为旧程序不认识待引导路由，可能把源 queued Task 独立执行。沿用[Code 库严格版本切换](../../implemented/simplification/2026-10-24-code-instance-mcp.md)：新数据目录从空档案开始，旧 SQLite、JSONL、产物与凭据原地保留，不修改、不移动、不删除，不提供 v53 加法迁移或旧配置转换。旧程序拒绝新 schema，新程序拒绝全部旧 schema；拒绝前不能先写新表或版本号。若以后需要原地延续旧会话，须由拥有者重审既有决定，不能由实施者暗加兼容。
 
 ### 引导路由与执行归属
 
@@ -30,13 +30,21 @@ Code 当前把每条用户输入登记为 Task，再按创建时间串行执行�
 
 ### SDK 与历史接入
 
+Pi 1.3.0 会先把引导取到局部批次，再异步准备下一轮；此时公开队列为空，`clearQueue` 与 `abort + clearQueue` 均不能阻止该批次继续落 user 历史。[SDK 门槛证据](../../../../.scratch/coding-message-control/evidence/sdk-contract.md)覆盖这个反例与下述公开接口修补；不能把取出视为历史接入，也不能据清队列成功直接回退源 Task。
+
 通过公开的 `sdk.agent.steer` 排入带源 Task ID 和附件引用的原生 user 消息，并采用 SDK 的 all 消费方式，在下一安全边界按次序读取当时待处理输入；不按文本或时间猜身份。先用窄 SDK 契约检查核实元数据保留、批次消费及收尾行为，不依赖私有字段或改 vendor。
+
+持久接纳后先留在宿主路由，不立即排 SDK。`finishTurn` 尊重原有 `action: end`、错误和停止决定；只有可继续且有待引导时，才在返回 `continue` 前同步预留当时的源 ID 为内存接入批次。源取消若先完成事务，预留不选它；预留若先发生，源取消等待实际落盘结果后核实现状，不提前更新 SQL 的已接入阶段。这样不因准备期间取消成空批而额外调用模型。
+
+公开 `prepareNextTurnWithContext` 先完成原 SDK 准备，再同步加入准备期间收到、尚未取消的引导，按持久接纳次序一起排入 `agent.steer`。这个选批时刻是下一请求的输入截点；截点后到达的引导属于下一边界，审批屏障仍覆盖它们。全部 user 已追加后，在公开 `prepareRequest` 核实实际 JSONL entry、更新持久路由，再解除该批源取消等待；选批与归属更新之间不放入长模型调用。选择记录仍由原装配负责，不把这里变成 prompt 快照执行门槛。
+
+目标停止后，公开 `sdk.subscribe` 的同步 user `message_start`／`message_end` 监听在 append 之前抛固定带 code 的停止错误，阻止尚未落历史的引导继续接入；不能改成 async 监听，也不能搬到会吞异常的扩展钩子。SDK 的 Agent 与 SessionManager 都可能保留未落盘条目，`refreshContext()` 只读 manager 内存，不是磁盘重读。必须等本次 run 真正收束，按实际 JSONL 核实源归属，丢弃旧 SDK／manager；必要收尾标记与后续任务由重新打开原 JSONL 的新 SDK 处理，不继续写污染 manager。磁盘解析或归属核实失败时暂停受影响会话。部分接入逐条裁决：已落 entry 归目标，未落源才撤销或回退；失败／停止路径在核实后解除批次等待，不留悬挂 Promise。
 
 SDK 的 user `message_end` 回调早于 JSONL append，只用来装配引用；实际 entry 落盘后，按源 Task ID 核实目标归属并登记接入。后续发送复用现有上下文装配：选择记录仍须落盘，prompt 快照继续作为可缺失的诊断，失败只按原路径报告，不新增引导执行门槛。历史接入不等于模型已读，实际发送与响应沿已有记录判断。
 
 JSONL 是消息历史唯一权威副本，与 SQLite 不承诺原子。恢复只需用源 Task ID 对照目标日志与持久路由：未落历史的输入回到普通队首，已落历史的输入归原目标任务，不能重复追加或独立执行。日志已写而 SQL 未更新时补可证关联；SQL 声称已接入但日志缺失或归属冲突时暂停受影响会话并报告。诊断快照缺失不影响这些判断。
 
-SDK abort 不会清空 steering 队列；目标停止／收尾时清除其残余输入，再依据持久状态决定回退。同文消息用不同源 Task ID 区分，内存清理结果不充当接入证明。
+SDK abort 不会清空 steering 队列；目标停止／收尾先封闭接纳，等 run 收束后清除残余输入、逐条核实 JSONL 与持久路由，再决定回退。同文消息用不同源 Task ID 区分，内存清理结果不充当接入证明。
 
 ### 完整输入、上下文与授权
 
@@ -76,12 +84,10 @@ SDK abort 不会清空 steering 队列；目标停止／收尾时清除其残余
 - 为继续／答案增加转换、导入路由或独立引导 ID 与快照账本：可统一所有输入路径；首版没有这些使用场景，源 Task、目标 JSONL entry 和现有请求记录已足以表达普通消息归属，不承担额外关系维护。
 - v53 到新版本的加法迁移：可以原地保留已有会话，格式变化也较局部；现有拥有者决定明确删除兼容并要求重审后才能恢复迁移，本功能未获翻转授权，沿用严格拒绝与新数据目录，保留旧档案。
 
-## 验收标准
+## 后果
 
-规格 R1–R9 实施后均须有最窄有效用例，重点覆盖重排竞争、持久接纳与重复请求、同文多附件引导、原要求和气泡保留、审批消费竞争、等待解除、SDK 残余清理、队首回退 FIFO 与跨存储恢复。补一个诊断快照失败仍可发送的反例，并核对特殊输入无转换入口、分支附件来源及旧 schema 原样拒绝；不为不支持的引导导入新增流程。具体证据见工单。
+落地形态：Store 负责顺序/修订/引导路由单一事实（`tasks.queue_order`、`sessions.queue_revision`、`task_guidance` 表）；Runtime 提供 `submit` 的 `guidance` 标志、`steerTask`、`reorderQueue`、`getTaskQueueDetail`；控制面新增 `task_queue`、`queue_reorder`、`steer_task` op 与 `session.queue_changed`、`task.guidance` 事件，快照携带 `taskGuidance`；共享 view 按路由区分投影（`guidanceFor`、`queuedTasksFor` 排除待接入源，历史归属以 `ruukotoSourceTaskId` 为准，已接入气泡按真实接入时刻定位）。桌面有紧凑排队面板（上移/下移/转引导、键盘与无障碍反馈）与发送为引导开关；TUI 有 `/queue` 与 `/steer`。
 
-桌面与 TUI 均需实际交互验收，真实模型确认纠正进入下一请求且未重复执行；缺前提时保持待验收，不记通过。
+覆盖：store 窄测（顺序/修订/重排/引导状态机/旧 schema 拒绝）、runtime 集成（submit 引导接入、steer_task 转换与回退队首、queue_reorder 修订冲突）、SDK 契约（steer/abort/边界预留/停止守卫）、控制面 op 穷举均在 `test/queue-guidance-*.test.ts`、`test/sdk-steering-contract.test.ts`、`test/66-control-seam.test.ts` 通过；`npm run check:static` 全绿。
 
-## 风险
-
-必须区分持久接纳、历史接入与模型实际读取，避免同一输入同时留在 SDK 和普通队列。跨存储恢复、原任务必留输入、多 user 投影和审批屏障仍需验证。首版不支持继续或答案转引导；以后确有需求再单独定义其来源语义。严格 schema 切换仍要求新数据目录，旧会话不会自动出现，原档案与未核实外部效果在原版本保留核实。
+代价与遗留：必须继续区分持久接纳、历史接入与模型实际读取，避免同一输入同时留在 SDK 和普通队列；跨存储恢复、多 user 投影和审批屏障依赖历史归属字段的完整性。首版不支持继续或答案转引导；以后确有需求再单独定义其来源语义。严格 schema 切换仍要求新数据目录，旧会话不会自动出现，原档案与未核实外部效果在原版本保留核实。真实模型与真实双客户端交互仍属外部验收，缺前提时不记通过。

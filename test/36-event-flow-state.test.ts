@@ -33,7 +33,7 @@ test("思考增量完整补洞、重复幂等，结束先到不回滚阶段，�
 function task(id = "task", extra: Partial<Task> = {}): Task {
   return {
     id, sessionId: "session", requestId: `request:${id}`, input: "same input", inputPurpose: "user", modelSelection: null,
-    submissionDigest: null, status: "running", accessMode: "confirm", planMode: false, permissionVersion: 1,
+    submissionDigest: null, status: "running", queueOrder: 1, accessMode: "confirm", planMode: false, permissionVersion: 1,
     sourcePermissionVersion: null, grantedPaths: [],
     pendingAccessMode: null, interruptReason: null, cancelRequested: false, effectUnknown: false, errorMessage: null,
     historyEntryIds: [], resumesTaskId: null, agentId: null, parentTaskId: null, sourceEventId: null, deadline: null,
@@ -274,11 +274,11 @@ test("不同任务复用 SDK 调用 ID 时，晚到的历史关联不串工具�
 
 test("附件事件先到、任务详情后到补全占位正文；真实历史不被迟到任务覆盖", () => {
   const flow = new EventFlow();
-  flow.task(task("task", { input: "", status: "queued" }));
+  flow.task(task("task", { input: "", status: "queued", startedAt: null }));
   const attachment = { id: "att-reference", name: "资料.txt", size: 3, taskId: "task", sessionId: "session", mimeType: null, contentHash: "hash" };
   flow.apply(event(1, { type: "task.attachments", taskId: "task", sessionId: "session", attachments: [attachment] }));
-  assert.equal(messages(flow).length, 1);
-  assert.equal(messages(flow)[0].text, "");
+  // 排队输入只在排队区展示，不出气泡；附件暂存，随开始后的气泡落位
+  assert.equal(messages(flow).length, 0);
   flow.task(task("task", { input: "实际用户原文", status: "failed", endedAt: at(2) }));
   assert.equal(messages(flow).length, 1);
   assert.equal(messages(flow)[0].key, "input:task");

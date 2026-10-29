@@ -53,7 +53,7 @@ function notExecutedText(
     return source === "auto_review" ? `自动审查拒绝执行 ${toolName}：${reviewReason ?? "未给出理由"}` : `拥有者拒绝执行 ${toolName}`;
   }
   return decision === "superseded"
-    ? `审批已失效（模式切换或任务停止），${toolName} 未执行；如仍需要请重新申请`
+    ? `审批已失效（输入引导、模式切换或任务停止），${toolName} 未执行；如仍需要请重新申请`
     : `任务停止，确认等待解除（${toolName} 未执行）`;
 }
 
@@ -245,7 +245,7 @@ export class ApprovalGate {
     // 自动审查只覆盖 auto-review 任务且需要任务固定的模型配置；缺任一条件退化为纯人工
     const reviewSelection =
       input.task.accessMode === "auto-review" && this.deps.reviewer() ? input.task.modelSelection : null;
-    const confirmation = store.withTx(() => {
+    const created = store.withTx(() => {
       const c = store.createConfirmation({
         taskId: input.task.id,
         sessionId: input.task.sessionId,
@@ -258,12 +258,23 @@ export class ApprovalGate {
           ? { model: `${reviewSelection.provider}/${reviewSelection.modelId}`, policyVersion: REVIEW_POLICY_VERSION }
           : undefined,
       });
+      // 目标已受理引导：受理后迟到的审批同批失效——不进入等待、不通知拥有者，
+      // 也不能挡住接入边界或被抢先消费（记录保留作证据）。
+      const guided = store.listTaskGuidance(input.task.id).some(route => route.state === "pending");
+      if (guided) return { confirmation: c, guided };
       store.transitionTask(input.task.id, ["running"], "awaiting_confirmation", {});
       // IM 审批通知与审批登记同事务：通知暂时发送失败不使操作获批，但登记失败
       // 整笔回滚（不留"审批已存在但绑定入口未获通知"的状态）
       this.deps.notifyConfirmation?.(c, input.task);
-      return c;
+      return { confirmation: c, guided };
     });
+    const confirmation = created.confirmation;
+    if (created.guided) {
+      store.invalidateConfirmation(confirmation.id);
+      const text = notExecutedText(input.toolName, "superseded", null, null);
+      store.withTx(() => this.recordNotExecuted(input, text));
+      return { approved: false, text };
+    }
 
     if (input.signal?.aborted) {
       // 只动本审批；其他仍在等待的审批照常计数

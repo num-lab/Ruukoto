@@ -321,7 +321,11 @@ function historyTaskIds(entries: ParsedSessionEntry[]): Map<string, string | nul
       }
       // 中断或崩溃可能没有结束标记；下一次开始仍是新的可信边界。
       taskId = entry.customType === TASK_START_MARKER ? data.taskId : null;
-    } else if (entry.type === "message") tasks.set(entry.id, taskId);
+    } else if (entry.type === "message") {
+      // 引导输入以源 Task 归属投影（气泡按源 Task ID＋entry 去重）；其余按任务标记段。
+      const source = (entry.message as { ruukotoSourceTaskId?: unknown } | undefined)?.ruukotoSourceTaskId;
+      tasks.set(entry.id, typeof source === "string" ? source : taskId);
+    }
   }
   return tasks;
 }

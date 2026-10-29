@@ -14,6 +14,7 @@ import type {
   SubAgentState,
   TaskStatus,
   WorkDelegation,
+  TaskGuidance,
 } from "@ruukoto/core/types.ts";
 import { ACTIVE_TASK_STATUSES, TERMINAL_TASK_STATUSES } from "@ruukoto/core/task-status.ts";
 import type { ConnectResult } from "@ruukoto/control/protocol.ts";
@@ -69,6 +70,8 @@ export class ViewState {
   subAgentSessionIds: string[] = [];
   /** 工作委托（issue 11；快照 + work_delegation.created 事件补齐）。 */
   workDelegations: WorkDelegation[] = [];
+  /** 引导路由（coding-message-control）：快照 + task.guidance 事件，按源 Task ID。 */
+  guidance = new Map<string, TaskGuidance>();
   /** 动态 SubAgent 身份（快照 + 委派事件补齐；状态以快照为准）。 */
   subAgents: SubAgent[] = [];
   defaultModel: { provider: string; id: string; name: string; thinkingLevel: string } = {
@@ -116,6 +119,7 @@ export class ViewState {
     this.mainSessionId = result.snapshot.mainSessionId;
     this.subAgentSessionIds = result.snapshot.subAgentSessionIds ?? [];
     this.workDelegations = result.snapshot.workDelegations ?? [];
+    this.guidance = new Map((result.snapshot.taskGuidance ?? []).map(route => [route.sourceTaskId, route]));
     this.subAgents = result.snapshot.subAgents ?? [];
     if (instanceChanged) {
       this.sessionViews.clear();
@@ -243,6 +247,7 @@ export class ViewState {
             defaultAccessModeVersion: 0,
             queueState: "active",
             queuePauseReason: null,
+            queueRevision: 0,
             archivedAt: null,
             createdAt: event.createdAt,
           });
@@ -258,6 +263,7 @@ export class ViewState {
           modelSelection: body.modelSelection,
           submissionDigest: null,
           status: "queued",
+          queueOrder: body.queueOrder,
           accessMode: body.accessMode,
           planMode: body.planMode,
           permissionVersion: 1,
@@ -298,6 +304,19 @@ export class ViewState {
       }
       case "session.default_mode_changed":
         this.applySessionDefaultMode(body.sessionId, body.defaultAccessMode, body.defaultAccessModeVersion);
+        return;
+      case "session.queue_changed": {
+        const session = this.sessions.find(item => item.id === body.sessionId);
+        if (session) session.queueRevision = body.queue.revision;
+        // 顺序只取事件携带的持久事实；不在成员内的排队任务保持原序待 task.* 事件定态
+        for (const item of body.queue.tasks) {
+          const task = this.tasks.get(item.taskId);
+          if (task) task.queueOrder = item.queueOrder;
+        }
+        return;
+      }
+      case "task.guidance":
+        this.guidance.set(body.guidance.sourceTaskId, body.guidance);
         return;
       case "tasks.model_selection_recorded":
         for (const taskId of body.taskIds) this.patchTask(taskId, { modelSelection: body.modelSelection });
@@ -685,7 +704,15 @@ export class ViewState {
   }
 
   queuedTasksFor(sessionId: string): Task[] {
-    return this.tasksFor(sessionId).filter((t) => t.status === "queued" && !t.reportParked);
+    return this.tasksFor(sessionId)
+      // 待接入引导源不独立执行，不属于队列成员；顺序只取持久 queue_order 事实
+      .filter((t) => t.status === "queued" && !t.reportParked && this.guidance.get(t.id)?.state !== "pending")
+      .sort((a, b) => a.queueOrder - b.queueOrder || a.id.localeCompare(b.id));
+  }
+
+  /** 输入的引导路由（无路由返回 null）。 */
+  guidanceFor(taskId: string): TaskGuidance | null {
+    return this.guidance.get(taskId) ?? null;
   }
 
   /** 本会话发起的工作委托（issue 11；按登记顺序）。 */

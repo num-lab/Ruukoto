@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowUp, Brain, ChevronDown, FileCode2, ListTodo, Loader2, MessageCircleQuestion, Pause, Plus, ShieldCheck, ShieldOff, Square, X } from "lucide-react";
+import { ArrowUp, Brain, ChevronDown, FileCode2, ListTodo, Loader2, MessageCircleQuestion, Pause, Plus, ShieldCheck, ShieldOff, Square, Waypoints, X } from "lucide-react";
 import { MAX_ATTACHMENTS } from "@ruukoto/core/attachments.ts";
 import type { OpResult } from "@ruukoto/control/ops.ts";
 import type { ModelSelection, Session, SessionDefaultMode, ThinkingLevel } from "@ruukoto/core/types.ts";
@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./components/ui/dialog.tsx";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger } from "./components/ui/dropdown-menu.tsx";
 import { ContextIndicator } from "./context-indicator.tsx";
+import { QueuePanel } from "./queue-panel.tsx";
 import { IconButton } from "./ui.tsx";
 
 export const composerModes = [
@@ -72,6 +73,7 @@ export function Composer({ model, session }: { model: CodeState; session: Sessio
   const draft = writes.draft(session.id);
   const input = useRef<HTMLTextAreaElement>(null);
   const [queueConfirm, setQueueConfirm] = useState(false);
+  const [guidance, setGuidance] = useState(false);
   const picking = !!draft.attaching;
   const online = model.status.state === "online";
   const checking = writes.checking(session.id);
@@ -82,6 +84,8 @@ export function Composer({ model, session }: { model: CodeState; session: Sessio
   const hasInput = !!draft.text.trim() || attachments.length > 0;
   const active = model.view.activeTaskFor(session.id);
   const stopping = !!active && !hasInput;
+  // 引导开关只在有可接入目标时出现（普通运行中任务；继续任务不可转引导）
+  const canSteer = !!active && !draft.taskId && !scheduled;
   const availableModes = model.target === "personal" ? composerModes.filter(mode => mode.value !== "plan") : composerModes;
   const selected = session.modelSelection;
   const decision = queueDecision(model.view, session);
@@ -97,7 +101,8 @@ export function Composer({ model, session }: { model: CodeState; session: Sessio
   function send() {
     if (blocked || picking || inputLocked && !stopping) return;
     if (stopping) { void writes.control("interrupt", session.id, active!.id); return; }
-    void writes.send(session.id);
+    void writes.send(session.id, { guidance });
+    setGuidance(false);
   }
   async function attach() {
     if (writes.blocked(session.id)) return;
@@ -121,11 +126,12 @@ export function Composer({ model, session }: { model: CodeState; session: Sessio
       else void writes.resume(session);
     }}>恢复队列</Button></div>}
     {draft.taskId && <div className="task-notice"><span>正在继续中断的任务</span><Button variant="ghost" size="sm" disabled={checking} onClick={() => { delete draft.taskId; writes.edit(session.id, draft.text); }}>改为新任务</Button></div>}
+    <QueuePanel model={model} session={session} />
     <form className="surface-composer composer" onSubmit={event => { event.preventDefault(); send(); }}>
       {attachments.length > 0 && <div className="attached-files" aria-label="已附加文件">{attachments.map(attachment => <span className="attachment-chip" key={attachment.id}><FileCode2 /><span>{attachment.name}</span><button type="button" disabled={checking} aria-label={`移除附件 ${attachment.name}`} onClick={() => { draft.attachments = attachments.filter(item => item.id !== attachment.id); model.refresh(); }}><X /></button></span>)}</div>}
       <Textarea ref={input} aria-label="输入消息" rows={2} readOnly={checking || inputLocked} value={draft.text} placeholder={draft.taskId ? "输入继续任务的指示…" : "描述你想做的事…"} onChange={event => writes.edit(session.id, event.target.value)} onKeyDown={event => submitOnEnter(event, hasInput && !blocked && !picking && !inputLocked && !!session.modelSelection, send)} />
       <div className="composer-actions"><div className="composer-left"><IconButton className="attachment-button" label="附加文件" disabled={blocked || picking || inputLocked || attachments.length >= MAX_ATTACHMENTS} onClick={() => void attach()}><Plus /></IconButton><ModeSelector value={session.defaultAccessMode} modes={availableModes} disabled={blocked || scheduled} onChange={mode => void writes.setMode(session, mode)} /></div>
-        <div className="composer-right"><ContextIndicator context={model.context.get(session.id)} onOpen={() => void model.context.load(session.id)} /><ModelSelector models={writes.models} selected={selected} loading={() => void writes.loadModels()} disabled={blocked || scheduled} onChange={selection => void writes.setModel(session, selection)} /><Button size="icon" className="send-button" type="submit" disabled={blocked || picking || (!stopping && (inputLocked || !hasInput || !session.modelSelection))} aria-label={checking ? "正在核实输入" : stopping ? "停止任务" : draft.taskId ? "发送并继续" : "发送消息"} aria-busy={checking}>{checking ? <Loader2 className="animate-spin" /> : stopping ? <Square fill="currentColor" /> : <ArrowUp />}</Button></div>
+        <div className="composer-right"><ContextIndicator context={model.context.get(session.id)} onOpen={() => void model.context.load(session.id)} /><ModelSelector models={writes.models} selected={selected} loading={() => void writes.loadModels()} disabled={blocked || scheduled} onChange={selection => void writes.setModel(session, selection)} />{canSteer && <IconButton className={guidance ? "steer-toggle is-on" : "steer-toggle"} label={guidance ? "引导模式：将接入当前任务（点击取消）" : "发送为引导：接入当前任务下一边界"} disabled={blocked || picking} onClick={() => setGuidance(!guidance)}><Waypoints /></IconButton>}<Button size="icon" className="send-button" type="submit" disabled={blocked || picking || (!stopping && (inputLocked || !hasInput || !session.modelSelection))} aria-label={checking ? "正在核实输入" : stopping ? "停止任务" : draft.taskId ? "发送并继续" : guidance ? "发送为引导" : "发送消息"} aria-busy={checking}>{checking ? <Loader2 className="animate-spin" /> : stopping ? <Square fill="currentColor" /> : <ArrowUp />}</Button></div>
       </div>
     </form>
   </div><Dialog open={queueConfirm && decision.kind === "confirm"} onOpenChange={setQueueConfirm}><DialogContent className="demo-dialog"><DialogHeader><DialogTitle>恢复队列</DialogTitle><DialogDescription>{decision.kind === "confirm" ? `为 ${decision.count} 个旧任务补齐 ${decision.selection.modelId} · ${decision.selection.thinkingLevel}，然后恢复队列。` : ""}</DialogDescription></DialogHeader><DialogFooter><Button variant="ghost" onClick={() => setQueueConfirm(false)}>取消</Button><Button disabled={blocked} onClick={() => { setQueueConfirm(false); void writes.resume(session, true); }}>补齐模型并恢复</Button></DialogFooter></DialogContent></Dialog></div>;

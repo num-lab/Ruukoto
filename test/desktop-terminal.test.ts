@@ -116,7 +116,7 @@ test("终端按钮打开当前会话归属的工作区，未归属或无根目�
   const f = fixture(), view = new ViewState();
   view.instanceId = "inst-1";
   view.projects = ["w1", "w2"].map(id => ({ id, name: id, rootDir: id === "w2" ? null : f.identity, createRequestId: null, instructionFiles: [], settingsVersion: 1, createdAt: "" }));
-  view.sessions = [{ id: "a", projectId: "w1", workspaceProjectId: null, kind: "dev", name: null, branchSource: null, cwd: "/work/w1", cwdReal: "/work/w1", cwdDev: 1, cwdIno: 1, piSessionId: "a", sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: null, modelSelectionVersion: 0, defaultAccessMode: "confirm", defaultAccessModeVersion: 0, queueState: "active", queuePauseReason: null, archivedAt: null, createdAt: "" }];
+  view.sessions = [{ id: "a", projectId: "w1", workspaceProjectId: null, kind: "dev", name: null, branchSource: null, cwd: "/work/w1", cwdReal: "/work/w1", cwdDev: 1, cwdIno: 1, piSessionId: "a", sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: null, modelSelectionVersion: 0, defaultAccessMode: "confirm", defaultAccessModeVersion: 0, queueState: "active", queuePauseReason: null, queueRevision: 0, archivedAt: null, createdAt: "" }];
   const inspector = new DesktopInspector({ request: async () => { throw new Error("打开前不应请求"); } }, view, async () => {}, () => {});
   try {
     inspector.parentSessionId = "a"; inspector.openTerminal();

@@ -155,7 +155,7 @@ test("未批准：拥有者拒绝、模式切换、停止——返回与落库�
     const superseded = k.ask();
     k.gate.supersedeAll();
     const s = await superseded.result;
-    assert.deepEqual(s, { approved: false, text: `审批已失效（模式切换或任务停止），${TOOL} 未执行；如仍需要请重新申请` });
+    assert.deepEqual(s, { approved: false, text: `审批已失效（输入引导、模式切换或任务停止），${TOOL} 未执行；如仍需要请重新申请` });
     assert.equal(k.summary(superseded.hostOpId), (s as { text: string }).text);
 
     const canceled = k.ask();
@@ -318,7 +318,7 @@ test("提前中止：只有本审批失效，另一个等待中的审批与任�
     const aborted = new AbortController();
     aborted.abort();
     const early = k.ask({ signal: aborted.signal });
-    const text = `审批已失效（模式切换或任务停止），${TOOL} 未执行；如仍需要请重新申请`;
+    const text = `审批已失效（输入引导、模式切换或任务停止），${TOOL} 未执行；如仍需要请重新申请`;
     assert.deepEqual(await early.result, { approved: false, text });
     assert.equal(k.summary(early.hostOpId), text);
     assert.equal(k.approval(early.id).status, "stale");

@@ -30,6 +30,8 @@ type Submit = {
   attachments?: AttachmentMetadata[];
   access_mode?: SessionDefaultMode;
   granted_paths?: GrantedPath[];
+  /** 显式引导（coding-message-control）：本输入接入当前任务下一边界；错过目标回队首。 */
+  guidance?: boolean;
 };
 
 export interface TuiOps {
@@ -139,6 +141,9 @@ export interface TuiOps {
   interrupt: { params: { task_id: string }; result: { accepted: true } };
   cancel: { params: { task_id: string }; result: { accepted: true } };
   resume_queue: { params: { session_id: string; model_selection?: ModelSelection }; result: R<"resumeQueue"> };
+  task_queue: { params: { session_id: string }; result: R<"getTaskQueueDetail"> };
+  queue_reorder: { params: { session_id: string; task_ids: string[]; expected_revision: number }; result: R<"reorderQueue"> };
+  steer_task: { params: { task_id: string; expected_queue_revision?: number }; result: R<"steerTask"> };
   respond_confirmation: {
     params: { confirmation_id: string; decision: "approve" | "reject"; permission_version?: number };
     result: R<"respondConfirmation">;

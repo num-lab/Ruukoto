@@ -12,7 +12,7 @@ import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 
-export const SCHEMA_VERSION = 53;
+export const SCHEMA_VERSION = 54;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS code_schedules (
@@ -182,6 +182,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   create_request_id TEXT,
   queue_state TEXT NOT NULL DEFAULT 'active' CHECK (queue_state IN ('active','paused')),
   queue_pause_reason TEXT,
+  queue_revision INTEGER NOT NULL DEFAULT 0 CHECK (queue_revision >= 0),
   -- 拥有者存档：非空即从工作区会话列表隐藏，仅设置页列出；只影响列表可见性
   archived_at TEXT,
   -- 工作区组织归属（agent-direction issue 07）：仅展示归属；资料身份仍是 project_id
@@ -218,6 +219,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   session_id TEXT NOT NULL REFERENCES sessions(id),
   request_id TEXT NOT NULL,
   input TEXT NOT NULL,
+  queue_order INTEGER NOT NULL CHECK (queue_order > 0),
   status TEXT NOT NULL CHECK (status IN
     ('queued','running','awaiting_confirmation','completed','failed','canceled','interrupted')),
   access_mode TEXT NOT NULL DEFAULT 'confirm' CHECK (access_mode IN ('confirm','full_access','auto-review')),
@@ -241,10 +243,27 @@ CREATE TABLE IF NOT EXISTS tasks (
   created_at TEXT NOT NULL,
   started_at TEXT,
   ended_at TEXT,
-  UNIQUE (session_id, request_id)
+  UNIQUE (session_id, request_id),
+  UNIQUE (id, session_id)
 );
 CREATE INDEX IF NOT EXISTS idx_tasks_session_created ON tasks (session_id, created_at, id);
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks (status);
+CREATE INDEX IF NOT EXISTS idx_tasks_queue ON tasks (session_id, status, queue_order);
+CREATE TABLE IF NOT EXISTS task_guidance (
+  source_task_id TEXT PRIMARY KEY,
+  target_task_id TEXT NOT NULL,
+  session_id TEXT NOT NULL REFERENCES sessions(id),
+  accepted_seq INTEGER NOT NULL CHECK (accepted_seq > 0),
+  state TEXT NOT NULL CHECK (state IN ('pending','joined','fallback','canceled')),
+  entry_id TEXT,
+  CHECK (source_task_id != target_task_id),
+  CHECK ((state = 'joined' AND entry_id IS NOT NULL AND entry_id != '') OR (state != 'joined' AND entry_id IS NULL)),
+  UNIQUE (session_id, accepted_seq),
+  FOREIGN KEY (source_task_id, session_id) REFERENCES tasks(id, session_id),
+  FOREIGN KEY (target_task_id, session_id) REFERENCES tasks(id, session_id)
+);
+CREATE INDEX IF NOT EXISTS idx_task_guidance_target ON task_guidance (target_task_id, state, accepted_seq);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_task_guidance_entry ON task_guidance (target_task_id, entry_id) WHERE state = 'joined';
 CREATE TABLE IF NOT EXISTS occupancy (
   cwd_real TEXT PRIMARY KEY,
   cwd_dev INTEGER NOT NULL,

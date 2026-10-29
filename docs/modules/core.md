@@ -74,7 +74,8 @@ stateDiagram-v2
 - **`background_processes`**：记录普通会话拉起的常驻后台进程、启动命令、目录身份、输出字节统计与退出核验状态。
 - **`owner_questions`**：记录模型向人类发起的交互式提问、选项清单、答案内容与回执状态。
 - **`tool_ops` & 审批表**：记录所有外部工具调用的不可变参数快照、审批授权记录与执行审计。
-- **`tool_ops.mcp`**：普通 HTTP 保存操作与结果事实；Cua 另保存受监督执行身份及恢复观察。SQLite schema 保持 `53`；仅真实 Cua 执行参与电脑停止核实。
+- **`task_guidance`**：以源 Task ID 保存引导路由（目标 Task、接纳次序、阶段与接入 entry）；`tasks.queue_order` 与 `sessions.queue_revision` 保存排队顺序与乐观并发修订。
+- **`tool_ops.mcp`**：普通 HTTP 保存操作与结果事实；Cua 另保存受监督执行身份及恢复观察。SQLite schema 保持 `54`；仅真实 Cua 执行参与电脑停止核实。
 
 ### 目录布局标准
 

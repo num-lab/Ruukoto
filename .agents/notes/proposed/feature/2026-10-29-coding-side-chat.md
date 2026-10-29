@@ -46,7 +46,7 @@ Driver 的 ContextSendBlocked／ContextOverflow 目前会调用 `pauseQueue`；�
 
 持久身份与协议改变时递增 schema／控制协议版本，沿[Code 严格版本切换](../../implemented/simplification/2026-10-24-code-instance-mcp.md)处理；不暗加旧库迁移或跨实例侧聊导入。新档案不自动延续旧会话，原 SQLite、JSONL、产物和凭据保持原地；切换前沿现有规则核实旧任务与受管进程，不把新档案当停止证明。
 
-[消息控制](./2026-10-28-coding-message-control.md)仍在同工作区实施。`/side` 必须在普通提交／steer 解析之前独立分流；不能借侧聊送出主会话消息、使主任务等待解除或改写父审批。实施前以该功能最终代码重新核实 submit、schema 和协议版本，不基于本次调研行号机械打补丁。
+[消息控制](../../implemented/feature/2026-10-28-coding-message-control.md)仍在同工作区实施。`/side` 必须在普通提交／steer 解析之前独立分流；不能借侧聊送出主会话消息、使主任务等待解除或改写父审批。实施前以该功能最终代码重新核实 submit、schema 和协议版本，不基于本次调研行号机械打补丁。
 
 ## 既有笔记审计
 

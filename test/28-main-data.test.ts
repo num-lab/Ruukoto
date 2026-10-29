@@ -1158,8 +1158,8 @@ test("恢复：回执补记已提交 / 无回执记未提交 / 应用库丢失�
     try {
       db.prepare(
         `INSERT INTO tasks (id, session_id, request_id, input, status, access_mode, permission_version, granted_paths,
-           cancel_requested, effect_unknown, history_entry_ids, created_at, agent_id)
-         VALUES ('task_crash', ?, 'req_crash', '崩溃任务', 'running', 'confirm', 1, '[]', 0, 0, '[]', ?, 'main')`,
+           cancel_requested, effect_unknown, history_entry_ids, created_at, agent_id, queue_order)
+         VALUES ('task_crash', ?, 'req_crash', '崩溃任务', 'running', 'confirm', 1, '[]', 0, 0, '[]', ?, 'main', 1)`,
       ).run(main.sessionId, new Date().toISOString());
       db.prepare(
         `INSERT INTO tool_ops (id, task_id, tool_name, params, intent_recorded_at, effect_unknown)
@@ -1619,8 +1619,8 @@ test("P1：终态任务缺结果的应用数据操作在重启时按回执补记
     try {
       db.prepare(
         `INSERT INTO tasks (id, session_id, request_id, input, status, access_mode, permission_version, granted_paths,
-           cancel_requested, effect_unknown, history_entry_ids, created_at, started_at, ended_at, agent_id)
-         VALUES ('task_done', ?, 'req_done', '已完成任务', 'completed', 'confirm', 1, '[]', 0, 0, '[]', ?, ?, ?, 'main')`,
+           cancel_requested, effect_unknown, history_entry_ids, created_at, started_at, ended_at, agent_id, queue_order)
+         VALUES ('task_done', ?, 'req_done', '已完成任务', 'completed', 'confirm', 1, '[]', 0, 0, '[]', ?, ?, ?, 'main', 1)`,
       ).run(main.sessionId, new Date().toISOString(), new Date().toISOString(), new Date().toISOString());
       db.prepare(
         `INSERT INTO tool_ops (id, task_id, tool_name, params, intent_recorded_at, effect_unknown)

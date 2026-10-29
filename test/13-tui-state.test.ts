@@ -47,7 +47,7 @@ function snapshot(overrides: Partial<ConnectResult["snapshot"]> = {}): ConnectRe
         defaultAccessMode: "confirm",
         defaultAccessModeVersion: 0,
         queueState: "active",
-        queuePauseReason: null, archivedAt: null,
+        queuePauseReason: null, queueRevision: 0, archivedAt: null,
         createdAt: "2026-09-20T00:00:00Z",
       },
     ],
@@ -93,6 +93,7 @@ function task(id: string, overrides: Partial<Task> = {}): Task {
     createdAt: "2026-09-20T00:00:00Z",
     startedAt: null,
     endedAt: null,
+    queueOrder: 1,
     ...overrides,
   };
 }
@@ -151,7 +152,7 @@ test("内部回报单条历史先于任务和引用到达时全程隐藏；重�
   state.appendEntryView("sess_1", entry);
   assert.deepEqual(users(), [], "补读到达时已分类，不等待任务事件");
   state.applyEvent(ev(3, { type: "task.queued", taskId: internal.id, sessionId: "sess_1", requestId: internal.requestId,
-    accessMode: "confirm", planMode: false, modelSelection: null }), "live");
+    accessMode: "confirm", planMode: false, modelSelection: null, queueOrder: 1 }), "live");
   state.applyEvent(ev(4, { type: "task.started", taskId: internal.id, sessionId: "sess_1" }), "live");
   state.installTaskDetail(internal, [], null, 2);
   assert.deepEqual(users(), [], "较旧详情仍需在补输入时同步用途，不让新状态事件把输入变成用户要求");
@@ -411,7 +412,7 @@ test("Plan 默认值按版本更新，排队事件与重连快照保留任务独
   state.applySessionDefaultMode("sess_1", "full_access", 1);
   state.applyEvent(ev(9, { type: "session.default_mode_changed", sessionId: "sess_1", defaultAccessMode: "confirm", defaultAccessModeVersion: 3 }), "replay");
   assert.equal(state.sessions[0]!.defaultAccessMode, "plan");
-  state.applyEvent(ev(12, { type: "task.queued", taskId: "plan", sessionId: "sess_1", requestId: "r-plan", accessMode: "auto-review", planMode: true, modelSelection: snapshot().sessions[0]!.modelSelection! }), "live");
+  state.applyEvent(ev(12, { type: "task.queued", taskId: "plan", sessionId: "sess_1", requestId: "r-plan", accessMode: "auto-review", planMode: true, modelSelection: snapshot().sessions[0]!.modelSelection!, queueOrder: 1 }), "live");
   const queued = state.getTask("plan")!;
   assert.equal(queued.input, "", "仅凭事件标记即可识别其他客户端提交的 Plan");
   assert.equal(queued.planMode, true);

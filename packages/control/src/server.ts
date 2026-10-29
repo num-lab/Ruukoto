@@ -281,6 +281,7 @@ export class ControlServer {
             ownerQuestions: snapshot.ownerQuestions,
             backgroundProcesses: snapshot.backgroundProcesses,
             codeScheduleRuns: snapshot.codeScheduleRuns,
+            taskGuidance: snapshot.taskGuidance,
           },
         };
         if (since > 0 && Buffer.byteLength(encodeFrame({ v: CONTROL_PROTOCOL_VERSION, id: request.id, ok: true, result }), "utf8") > MAX_FRAME_BYTES) {
@@ -528,6 +529,7 @@ export class ControlServer {
           attachments: params["attachments"] as import("@ruukoto/core/attachments.ts").AttachmentMetadata[] | undefined,
           accessMode: this.parseAccessMode(params),
           grantedPaths: this.parseGrantedPaths(params),
+          ...(params["guidance"] === true ? { guidance: true } : {}),
         });
       case "continue":
         return runtime.continueTask({
@@ -558,6 +560,15 @@ export class ControlServer {
         return { accepted: true };
       case "resume_queue":
         return runtime.resumeQueue(requireString("session_id"), params["model_selection"] === undefined ? undefined : parseModelSelection(params["model_selection"]));
+      case "task_queue":
+        return runtime.getTaskQueueDetail(requireString("session_id"));
+      case "queue_reorder": {
+        const taskIds = params["task_ids"];
+        if (!Array.isArray(taskIds) || taskIds.some(id => typeof id !== "string")) throw new RuntimeApiError("invalid_params", "task_ids 必须是任务 ID 数组");
+        return runtime.reorderQueue(requireString("session_id"), taskIds as string[], workflowInt("expected_revision", 0, 0));
+      }
+      case "steer_task":
+        return runtime.steerTask(requireString("task_id"), params["expected_queue_revision"] === undefined ? undefined : { expectedQueueRevision: workflowInt("expected_queue_revision", 0, 0) });
       case "respond_confirmation": {
         const decision = params["decision"];
         if (decision !== "approve" && decision !== "reject") {

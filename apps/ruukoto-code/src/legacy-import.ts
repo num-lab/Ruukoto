@@ -46,6 +46,7 @@ export interface LegacyImportPlan {
 }
 
 const TABLE_POLICY: TablePolicy = {
+  task_guidance: { policy: "exclude", reason: "引导路由与实际历史接入绑定原实例，非空源库明确拒绝" },
   code_schedules: { policy: "exclude", reason: "Coding 定时计划只属于原实例，非空源库明确拒绝" },
   code_schedule_runs: { policy: "exclude", reason: "Coding 调度运行与快照不能跨实例复制" },
   code_schedule_tasks: { policy: "exclude", reason: "Coding 定时来源归属不得丢弃或改为拥有者输入" },
@@ -469,6 +470,7 @@ function analyze(
 ): ImportAnalysis {
   const tdb = target.db;
   checkTablePolicy(snap.db, tdb, TABLE_POLICY);
+  if (allRows(snap.db, "SELECT 1 FROM task_guidance LIMIT 1").length) fail("task_guidance_import_unavailable", "源档案含消息引导路由，暂不支持跨实例导入；请保留原档案查阅。");
   if (["code_schedules", "code_schedule_runs", "code_schedule_tasks", "code_schedule_receipts"].some(table => allRows(snap.db, `SELECT 1 FROM ${table} LIMIT 1`).length) || ["owner_questions", "background_processes", "agent_waits", "agent_reports", "workflow_runs"].some(table => allRows(snap.db, `SELECT 1 FROM ${table} WHERE json_extract(payload, '$.source.kind') = 'coding-schedule' OR json_extract(payload, '$.source.codeScheduledRunId') IS NOT NULL LIMIT 1`).length)) fail("code_schedules_import_unavailable", "源档案含 Coding 定时计划或来源记录，暂不支持跨实例导入；请保留原档案查阅。");
   if (["owner_questions", "owner_question_receipts"].some(table => allRows(snap.db, `SELECT 1 FROM ${table} LIMIT 1`).length)) fail("owner_questions_import_unavailable", "源档案含拥有者问题或回执，暂不支持跨实例导入；请保留原档案查阅。");
   if (["background_processes", "background_process_closures"].some(table => allRows(snap.db, `SELECT 1 FROM ${table} LIMIT 1`).length)) fail("background_processes_import_unavailable", "源档案含后台执行或关闭屏障，暂不支持跨实例导入；请保留原档案查阅。");

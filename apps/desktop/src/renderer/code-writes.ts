@@ -5,6 +5,9 @@ import { formatTaskStatus, type ViewState } from "@ruukoto/view/state.ts";
 import type { DesktopAttachment, DesktopBridge, DesktopSubmitResult, DesktopTarget, DesktopUpdate, PendingInput } from "../shared/bridge.ts";
 
 export interface Draft { text: string; taskId?: string; attachments?: DesktopAttachment[]; attaching?: boolean }
+
+/** task_queue 回执（coding-message-control）：顺序/修订/资格集合以服务端为准。 */
+export type QueueDetail = OpResult<"task_queue">;
 export type QueueDecision = { kind: "select_model" } | { kind: "confirm"; count: number; selection: ModelSelection } | { kind: "send"; params: OpParams<"resume_queue"> };
 export function queueDecision(view: ViewState, session: Session, confirmed = false): QueueDecision {
   const count = view.queuedTasksFor(session.id).filter(task => !task.modelSelection).length;
@@ -39,6 +42,8 @@ export class CodeWrites {
   private readonly held = new Map<string, HeldInput>();
   private readonly restoring = new Set<string>();
   private readonly stopping = new Map<string, { sessionId: string; instanceId: string | null }>();
+  private readonly queues = new Map<string, QueueDetail>();
+  queueDetail(sessionId: string): QueueDetail | undefined { return this.queues.get(`${this.view.instanceId}:${sessionId}`); }
   constructor(private readonly bridge: Pick<DesktopBridge, "request">, readonly view: ViewState, private readonly online: () => boolean, private readonly changed: () => void, private readonly target: DesktopTarget) {}
   private key(sessionId: string): string { return `${this.view.instanceId}:${sessionId}`; }
   draft(sessionId: string): Draft {
@@ -139,6 +144,14 @@ export class CodeWrites {
     }
     if (modelChanged) void this.loadModels();
     if (update.type === "snapshot" || (update.type === "event" && update.kind === "live" && (update.event.body.type === "session.queue_paused" || update.event.body.type === "session.queue_resumed"))) ++this.queueRevision;
+    // 队列/引导事件后惰性刷新面板缓存（面板经 queueRevision 依赖触发 loadQueue）
+    if (update.type === "event" && update.kind === "live") {
+      const body = update.event.body;
+      if (body.type === "session.queue_changed" || body.type === "task.guidance") {
+        const sessionId = "sessionId" in body ? body.sessionId : undefined;
+        if (sessionId) void this.loadQueue(sessionId);
+      }
+    }
     if (update.type === "pending") {
       this.entries = new Map(update.entries.filter(entry => entry.record.op === "submit" || entry.record.op === "continue").map(entry => [entry.record.requestId, entry]));
       this.corrupt = update.corrupt;
@@ -181,7 +194,49 @@ export class CodeWrites {
       this.report("输入已恢复，请选择模型后发送。");
     } catch (error) { this.report(error instanceof Error ? error.message : "恢复输入失败；原记录仍保留，请重试。"); }
   }
-  async send(sessionId: string): Promise<void> {
+  /** 队列详情缓存（面板打开与事件时刷新）；实例变化时键自动隔离。 */
+  async loadQueue(sessionId: string): Promise<void> {
+    if (!this.online() || !this.view.instanceId) return;
+    const instanceId = this.view.instanceId;
+    try {
+      const detail = await this.request<QueueDetail>("task_queue", { session_id: sessionId });
+      if (instanceId !== this.view.instanceId) return;
+      this.queues.set(this.key(sessionId), detail);
+      this.changed();
+    } catch (error) { void error; /* 吞掉 task_queue 请求失败（离线或远端拒绝）：面板显示空态，不打扰主流程 */ }
+  }
+
+  /** 上移/下移一项：向服务端提交完整重排清单（乐观并发按修订拒绝）。 */
+  async moveQueued(sessionId: string, taskId: string, delta: -1 | 1): Promise<void> {
+    const detail = this.queueDetail(sessionId);
+    if (!detail) { await this.loadQueue(sessionId); return; }
+    const order = [...detail.reorderableTaskIds];
+    const index = order.indexOf(taskId);
+    const next = index + delta;
+    if (index < 0 || next < 0 || next >= order.length) return;
+    [order[index], order[next]] = [order[next]!, order[index]!];
+    try {
+      const result = await this.request<QueueDetail["queue"]>("queue_reorder", { session_id: sessionId, task_ids: order, expected_revision: detail.queue.revision });
+      this.queues.set(this.key(sessionId), { ...detail, queue: result });
+      this.changed();
+    } catch (error) {
+      this.report(error instanceof Error ? error.message : "重排失败，请刷新队列。");
+      await this.loadQueue(sessionId);
+    }
+  }
+
+  /** 已排队输入转为当前任务引导；错过目标自动回队首（服务端处理）。 */
+  async steerQueued(sessionId: string, taskId: string): Promise<void> {
+    const revision = this.queueDetail(sessionId)?.queue.revision;
+    try {
+      await this.request("steer_task", { task_id: taskId, ...(revision !== undefined ? { expected_queue_revision: revision } : {}) });
+    } catch (error) {
+      this.report(error instanceof Error ? error.message : "转为引导失败，请重试。");
+    }
+    await this.loadQueue(sessionId);
+  }
+
+  async send(sessionId: string, opts: { guidance?: boolean } = {}): Promise<void> {
     const session = this.view.sessions.find(item => item.id === sessionId);
     const draft = this.draft(sessionId);
     if (session?.codeScheduleActive && !draft.taskId) { this.report("定时运行期间请从 Scheduled 查看与处理本轮，结束后可发送普通消息。"); return; }
@@ -195,7 +250,7 @@ export class CodeWrites {
     this.busy.add(sessionId);
     this.changed();
     try {
-      const result = await this.request<DesktopSubmitResult>(input.taskId ? "continue" : "submit", { session_id: sessionId, request_id: held.requestId, ...(input.taskId ? { task_id: input.taskId } : {}), input: input.text, model_selection: session.modelSelection, ...(input.attachments?.length ? { attachments: input.attachments } : {}) });
+      const result = await this.request<DesktopSubmitResult>(input.taskId ? "continue" : "submit", { session_id: sessionId, request_id: held.requestId, ...(input.taskId ? { task_id: input.taskId } : {}), input: input.text, model_selection: session.modelSelection, ...(input.attachments?.length ? { attachments: input.attachments } : {}), ...(opts.guidance && !input.taskId ? { guidance: true } : {}) });
       if (result.kind === "accepted") {
         this.settle(held, true);
         this.notices.add(result.requestId);

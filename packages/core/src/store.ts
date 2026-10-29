@@ -11,6 +11,7 @@
 import type { AttachmentReference } from "./attachments.ts";
 import type { Db } from "./db.ts";
 import { classifySession, type SessionIdentity } from "./session-identity.ts";
+import { ownerQuestionTaskEligible } from "./owner-questions.ts";
 import { SubAgentDefinitionError, requireSubAgentDefinition, subAgentDefinitionFromJson } from "./subagent-definition.ts";
 import {
   ACTIVE_TASK_STATUSES,
@@ -47,6 +48,8 @@ import {
   type SubAgentReadScope,
   type SubAgentState,
   type Task,
+  type TaskGuidance,
+  type TaskQueue,
   type TaskStatus,
   type ToolCategory,
   type ToolOp,
@@ -407,6 +410,7 @@ export class Store {
       defaultAccessModeVersion: 0,
       queueState: "active",
       queuePauseReason: null,
+      queueRevision: 0,
       archivedAt,
       createdAt: new Date().toISOString(),
     };
@@ -654,6 +658,7 @@ export class Store {
       defaultAccessModeVersion: Number(row.default_access_mode_version ?? 0),
       queueState: row.queue_state as "active" | "paused",
       queuePauseReason: row.queue_pause_reason,
+      queueRevision: Number(row.queue_revision),
       archivedAt: row.archived_at ?? null,
       createdAt: row.created_at,
     };
@@ -696,6 +701,7 @@ export class Store {
     const grantedPaths = input.grantedPaths ?? [];
     const existing = this.findMatchingSubmission(input);
     if (existing) return { task: existing, duplicate: true };
+    const queueOrder = Number(this.db.prepare("SELECT COALESCE(MAX(queue_order), 0) + 1 AS next FROM tasks WHERE session_id = ? AND status = 'queued'").get(input.sessionId)!.next);
     const task: Task = {
       id: randomId("task"),
       sessionId: input.sessionId,
@@ -704,6 +710,7 @@ export class Store {
       modelSelection: input.modelSelection,
       submissionDigest: input.submissionDigest,
       status: "queued",
+      queueOrder,
       accessMode,
       planMode,
       permissionVersion: 1,
@@ -737,8 +744,8 @@ export class Store {
          cancel_requested, effect_unknown, error_message, history_entry_ids, resumes_task_id,
          created_at, started_at, ended_at, model_selection, submission_digest,
          agent_id, parent_task_id, source_permission_version, source_event_id, deadline, result_summary, result_ref,
-         work_id, sub_agent_id, read_scope, result_delivered_at)
-         VALUES (?, ?, ?, ?, 'queued', ?, ?, 1, ?, NULL, NULL, 0, 0, NULL, '[]', ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, NULL)`,
+         work_id, sub_agent_id, read_scope, result_delivered_at, queue_order)
+         VALUES (?, ?, ?, ?, 'queued', ?, ?, 1, ?, NULL, NULL, 0, 0, NULL, '[]', ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, NULL, ?)`,
       )
       .run(
         task.id,
@@ -760,6 +767,7 @@ export class Store {
         task.workId,
         task.subAgentId,
         task.readScope ? JSON.stringify(task.readScope) : null,
+        task.queueOrder,
       );
     this.appendEvent(
       {
@@ -772,6 +780,7 @@ export class Store {
         sourcePermissionVersion: task.sourcePermissionVersion,
         planMode: task.planMode,
         modelSelection: input.modelSelection,
+        queueOrder: task.queueOrder,
       },
       { taskId: task.id, sessionId: task.sessionId },
     );
@@ -781,6 +790,7 @@ export class Store {
         { taskId: task.id, sessionId: task.sessionId },
       );
     }
+    this.publishQueue(task.sessionId);
     return { task, duplicate: false };
   }
 
@@ -844,9 +854,139 @@ export class Store {
 
   listQueuedTasksFifo(sessionId: string): Task[] {
     const rows = this.db
-      .prepare("SELECT * FROM tasks WHERE session_id = ? AND status = 'queued' AND json_type(read_scope, '$.workCopyHost') IS NULL AND request_id NOT LIKE 'work-copy-host:%' AND NOT EXISTS (SELECT 1 FROM workflow_executions e WHERE e.task_id = tasks.id) ORDER BY created_at, rowid")
+      .prepare("SELECT * FROM tasks WHERE session_id = ? AND status = 'queued' AND json_type(read_scope, '$.workCopyHost') IS NULL AND request_id NOT LIKE 'work-copy-host:%' AND NOT EXISTS (SELECT 1 FROM workflow_executions e WHERE e.task_id = tasks.id) AND NOT EXISTS (SELECT 1 FROM task_guidance g WHERE g.source_task_id = tasks.id AND g.state = 'pending') ORDER BY queue_order, rowid")
       .all(sessionId) as any[];
     return rows.map((r) => this.rowToTask(r));
+  }
+
+  getTaskQueue(sessionId: string): TaskQueue {
+    const session = this.getSession(sessionId);
+    if (!session) throw new StoreConflictError("会话不存在，请刷新后选择会话", "not_found");
+    const rows = this.db.prepare("SELECT id, queue_order FROM tasks WHERE session_id = ? AND status = 'queued' AND NOT EXISTS (SELECT 1 FROM task_guidance g WHERE g.source_task_id = tasks.id AND g.state = 'pending') ORDER BY queue_order, rowid").all(sessionId);
+    return { revision: session.queueRevision, tasks: rows.map(row => ({ taskId: String(row.id), queueOrder: Number(row.queue_order) })) };
+  }
+
+  private publishQueue(sessionId: string): void {
+    this.db.prepare("UPDATE sessions SET queue_revision = queue_revision + 1 WHERE id = ?").run(sessionId);
+    this.appendEvent({ type: "session.queue_changed", sessionId, queue: this.getTaskQueue(sessionId) }, { sessionId });
+  }
+
+  /** 输入是否为拥有者问题回答的续接任务（不得转引导；判定与 acceptTaskGuidance 一致）。 */
+  hasOwnerQuestionContinuation(taskId: string): boolean {
+    return !!this.db.prepare("SELECT 1 FROM owner_questions WHERE json_extract(payload, '$.continuationTaskId') = ?").get(taskId);
+  }
+
+  ordinaryCodeTask(task: Task): boolean {
+    return ownerQuestionTaskEligible(this, task) && !task.readScope?.workCopyHost && !task.requestId.startsWith("work-copy-host:")
+      && !this.db.prepare("SELECT 1 FROM code_schedule_tasks WHERE task_id = ?").get(task.id);
+  }
+
+  listReorderableTasks(sessionId: string): Task[] {
+    return this.listQueuedTasksFifo(sessionId).filter(task => this.ordinaryCodeTask(task));
+  }
+
+  /** 调用方在事务内赋绝对顺序；内部汇总已有槽位不参与置换。 */
+  reorderTaskQueue(sessionId: string, taskIds: string[], expectedRevision: number): TaskQueue {
+    const queue = this.getTaskQueue(sessionId);
+    if (queue.revision !== expectedRevision) throw new StoreConflictError("队列已改变，请刷新实际顺序后重新选择", "queue_conflict");
+    const tasks = this.listReorderableTasks(sessionId), byId = new Map(tasks.map(task => [task.id, task]));
+    if (taskIds.length !== tasks.length || new Set(taskIds).size !== taskIds.length || taskIds.some(id => !byId.has(id))) {
+      throw new StoreConflictError("待执行输入已改变，请刷新队列", "queue_conflict");
+    }
+    if (taskIds.every((id, index) => id === tasks[index].id)) return queue;
+    const update = this.db.prepare("UPDATE tasks SET queue_order = ? WHERE id = ? AND status = 'queued'");
+    for (const [index, id] of taskIds.entries()) update.run(tasks[index].queueOrder, id);
+    this.publishQueue(sessionId);
+    return this.getTaskQueue(sessionId);
+  }
+
+  getTaskGuidance(sourceTaskId: string): TaskGuidance | null {
+    const row = this.db.prepare("SELECT * FROM task_guidance WHERE source_task_id = ?").get(sourceTaskId);
+    return row ? {
+      sourceTaskId: String(row.source_task_id), targetTaskId: String(row.target_task_id), sessionId: String(row.session_id),
+      acceptedSeq: Number(row.accepted_seq), state: row.state as TaskGuidance["state"], entryId: row.entry_id === null ? null : String(row.entry_id),
+    } : null;
+  }
+
+  listTaskGuidance(targetTaskId: string): TaskGuidance[] {
+    return this.db.prepare("SELECT source_task_id FROM task_guidance WHERE target_task_id = ? ORDER BY accepted_seq").all(targetTaskId)
+      .map(row => this.getTaskGuidance(String(row.source_task_id))!);
+  }
+
+  /** 控制面快照/重连用：会话内全部引导路由（含已接入与回退），按接纳次序。 */
+  listSessionGuidance(sessionId: string): TaskGuidance[] {
+    return this.db.prepare("SELECT source_task_id FROM task_guidance WHERE session_id = ? ORDER BY accepted_seq").all(sessionId)
+      .map(row => this.getTaskGuidance(String(row.source_task_id))!);
+  }
+
+  /** 恢复核实（重启）与扫描用：所有仍待接入的引导路由，按接纳次序。 */
+  listPendingGuidance(sessionId?: string): TaskGuidance[] {
+    const rows = (sessionId === undefined
+      ? this.db.prepare("SELECT source_task_id FROM task_guidance WHERE state = 'pending' ORDER BY accepted_seq").all()
+      : this.db.prepare("SELECT source_task_id FROM task_guidance WHERE state = 'pending' AND session_id = ? ORDER BY accepted_seq").all(sessionId)) as any[];
+    return rows.map(row => this.getTaskGuidance(String(row.source_task_id))!);
+  }
+
+  private writeGuidance(guidance: TaskGuidance): void {
+    this.db.prepare(`INSERT INTO task_guidance (source_task_id, target_task_id, session_id, accepted_seq, state, entry_id)
+      VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(source_task_id) DO UPDATE SET
+      target_task_id = excluded.target_task_id, accepted_seq = excluded.accepted_seq, state = excluded.state, entry_id = excluded.entry_id`)
+      .run(guidance.sourceTaskId, guidance.targetTaskId, guidance.sessionId, guidance.acceptedSeq, guidance.state, guidance.entryId);
+    this.appendEvent({ type: "task.guidance", taskId: guidance.sourceTaskId, sessionId: guidance.sessionId, guidance }, { taskId: guidance.sourceTaskId, sessionId: guidance.sessionId });
+  }
+
+  /** 新提交与转换共用源 Task；目标已结束时保存同一回执并回到队首。 */
+  acceptTaskGuidance(sourceTaskId: string, targetTaskId: string, targetAccepting: boolean, expectedRevision?: number): TaskGuidance {
+    const existing = this.getTaskGuidance(sourceTaskId);
+    if (existing?.targetTaskId === targetTaskId) return existing;
+    if (existing && existing.state !== "fallback") throw new StoreConflictError("该输入的引导目标已固定，请核实原任务现状", "request_conflict");
+    const source = this.getTask(sourceTaskId), target = this.getTask(targetTaskId);
+    if (!source || !target) throw new StoreConflictError("输入或目标任务不存在，请刷新会话", "not_found");
+    if (source.status !== "queued") throw new StoreConflictError("输入已开始执行，不能转换为引导", "already_started");
+    if (source.id === target.id || source.sessionId !== target.sessionId || !this.ordinaryCodeTask(source) || !this.ordinaryCodeTask(target) || source.resumesTaskId ||
+      this.hasOwnerQuestionContinuation(source.id)) {
+      throw new StoreConflictError("此会话或输入来源不允许转为引导", "guidance_not_allowed");
+    }
+    if (expectedRevision !== undefined && this.getTaskQueue(source.sessionId).revision !== expectedRevision) throw new StoreConflictError("队列已改变，请刷新后重新选择", "queue_conflict");
+    const acceptedSeq = Number(this.db.prepare("SELECT COALESCE(MAX(accepted_seq), 0) + 1 AS next FROM task_guidance WHERE session_id = ?").get(source.sessionId)!.next);
+    const accepting = targetAccepting && ["running", "awaiting_confirmation"].includes(target.status) && !target.cancelRequested;
+    const guidance: TaskGuidance = { sourceTaskId, targetTaskId, sessionId: source.sessionId, acceptedSeq, state: accepting ? "pending" : "fallback", entryId: null };
+    this.writeGuidance(guidance);
+    if (!accepting) this.placeFallbackQueue(source.sessionId);
+    else this.publishQueue(source.sessionId);
+    return this.getTaskGuidance(sourceTaskId)!;
+  }
+
+  recordTaskGuidanceEntry(sourceTaskId: string, targetTaskId: string, entryId: string): TaskGuidance {
+    const guidance = this.getTaskGuidance(sourceTaskId);
+    if (!guidance || guidance.targetTaskId !== targetTaskId) throw new StoreConflictError("引导历史缺少可信路由，保留会话并核实记录", "guidance_unverified");
+    if (guidance.state === "joined" && guidance.entryId === entryId) return guidance;
+    if (guidance.state !== "pending" || !entryId) throw new StoreConflictError("引导历史与路由状态冲突，保留会话并核实记录", "guidance_unverified");
+    const joined: TaskGuidance = { ...guidance, state: "joined", entryId };
+    this.writeGuidance(joined);
+    if (!this.endTask(sourceTaskId, ["queued"], "canceled", { interruptReason: "converted_to_guidance", endedAt: new Date().toISOString() })) {
+      throw new StoreConflictError("引导源已独立执行，保留会话并核实记录", "guidance_unverified");
+    }
+    return joined;
+  }
+
+  fallbackTaskGuidance(targetTaskId: string): void {
+    const pending = this.listTaskGuidance(targetTaskId).filter(guidance => guidance.state === "pending");
+    if (pending.length === 0) return;
+    const sessionId = pending[0].sessionId;
+    for (const guidance of pending) this.writeGuidance({ ...guidance, state: "fallback" });
+    this.placeFallbackQueue(sessionId);
+  }
+
+  private placeFallbackQueue(sessionId: string): void {
+    const queue = this.getTaskQueue(sessionId).tasks;
+    const prior = queue.filter(item => this.getTaskGuidance(item.taskId)?.state === "fallback");
+    const front = prior.sort((a, b) => this.getTaskGuidance(a.taskId)!.acceptedSeq - this.getTaskGuidance(b.taskId)!.acceptedSeq);
+    const ids = new Set(front.map(item => item.taskId));
+    const ordered = [...front, ...queue.filter(item => !ids.has(item.taskId))];
+    const update = this.db.prepare("UPDATE tasks SET queue_order = ? WHERE id = ? AND status = 'queued'");
+    for (const [index, item] of ordered.entries()) update.run(index + 1, item.taskId);
+    this.publishQueue(sessionId);
   }
 
   /**
@@ -859,6 +999,14 @@ export class Store {
     to: TaskStatus,
     extra: Partial<Pick<Task, "interruptReason" | "errorMessage" | "startedAt" | "endedAt" | "cancelRequested">> = {},
   ): boolean {
+    const previous = this.getTask(taskId);
+    if (previous && from.includes(previous.status) && previous.status === "queued" && to !== "queued") {
+      const guidance = this.getTaskGuidance(taskId);
+      if (guidance?.state === "pending") {
+        if (to !== "canceled") throw new StoreConflictError("输入已用于引导，不能独立执行或收尾", "guidance_pending");
+        this.writeGuidance({ ...guidance, state: "canceled" });
+      }
+    }
     const sets: string[] = ["status = ?"];
     const values: unknown[] = [to];
     if (extra.interruptReason !== undefined) {
@@ -889,6 +1037,7 @@ export class Store {
       )
       .run(...(values as any[]));
     const changed = Number(info.changes) === 1;
+    if (changed && previous?.status === "queued" && to !== "queued") this.publishQueue(previous.sessionId);
     if (changed && isTerminalTaskStatus(to)) {
       // 后台重启等没有存活 Driver 的终态路径也收束已持久化的思考阶段。
       const open = this.db.prepare(`SELECT body FROM events WHERE seq IN (
@@ -999,6 +1148,7 @@ export class Store {
       modelSelection: row.model_selection ? JSON.parse(row.model_selection) as ModelSelection : null,
       submissionDigest: row.submission_digest ?? null,
       status: row.status as TaskStatus,
+      queueOrder: Number(row.queue_order),
       accessMode: (row.access_mode ?? "confirm") as AccessMode,
       planMode: Number(row.plan_mode ?? 0) === 1,
       permissionVersion: Number(row.permission_version ?? 1),

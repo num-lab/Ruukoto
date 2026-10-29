@@ -1,12 +1,12 @@
 # Coding Agent 消息重排与引导
 
-Status: ready-for-agent
+Status: in-progress
 
 ## 目标与边界
 
-实施[已确认产品规格](../spec.md)，让普通 Code 主会话在桌面与 TUI 中重排待执行消息、显式引导当前任务，并将未赶上的引导按收到顺序放到普通队首。完整契约与备选由[决策草案](../../../.agents/notes/proposed/feature/2026-10-28-coding-message-control.md)持有；本工单只组织实施与证据。
+实施[已确认产品规格](../spec.md)，让普通 Code 主会话在桌面与 TUI 中重排待执行消息、显式引导当前任务，并将未赶上的引导按收到顺序放到普通队首。完整契约与备选由[决策记录](../../../.agents/notes/implemented/feature/2026-10-28-coding-message-control.md)持有；本工单只组织实施与证据。
 
-拥有者于 2026-10-28 确认访谈并提交初版方案，2026-10-29 要求按过度设计审查结论修订。当前只修订规划材料，不实施产品代码、推送或重启实例；已提交初稿为 `081fe491`。
+拥有者于 2026-10-28 确认访谈并提交初版方案，2026-10-29 要求按过度设计审查结论修订，并随后授权接手实施；已提交初稿为 `081fe491`。本次从 SDK 门槛开始，尚未改产品代码；接手不授予提交、推送、切换档案或重启实例权限。
 
 不改个人 Agent、SubAgent 会话、工作流步骤或活动 Scheduled 会话的交互资格；不增加消息编辑、批量操作、拖拽或模型工具。仅普通聊天输入可转引导；继续与问题回答保留原有独立执行、来源、回执及重排，不增加它们转引导的能力。
 
@@ -16,7 +16,7 @@ Status: ready-for-agent
 
 | 步骤 | 改动与出口 | 主要落点 |
 | --- | --- | --- |
-| 1 | 用窄 SDK 契约检查核实公开 steer 接口保留源 Task ID、all 批次与中止清理行为。失败则修订并复审，不改用正文匹配。 | `packages/agent/src/driver.ts`、新增定向用例 |
+| 1 | 用窄 SDK 契约检查核实源 Task ID、all、边界预留与取消竞争、同步停止守卫及历史刷新。清理限制及公开接口修补见 SDK 证据；受影响的接入方案复审后恢复实施，不改用正文匹配。 | `packages/agent/src/driver.ts`、`test/sdk-steering-contract.test.ts` |
 | 2 | 增加队列顺序、修订与引导表，递增 schema 并沿用旧版拒绝／新数据目录规则，不新增迁移。所有入队来源与出队、取消、路由切换都使用同一顺序事实；加入异步核实后的队首复查。 | `packages/core/src/db.ts`、`store.ts`、`types.ts`、`packages/runtime/src/runtime.ts` 及内部提交调用方 |
 | 3 | 普通新输入复用 submit 与既有 Task 接纳，队列转引导复用原 Task；持久路由关联源 ID 与目标 JSONL entry，处理停止、取消、恢复和队首回退。分支只补附件来源冻结；导入只登记新表排除并拒绝相关源记录。 | runtime 引导协调、`owner-attachments.ts`、core 存储／历史、`branch-session.ts` 与既有导入表策略 |
 | 4 | 接入带源 Task ID 的 SDK user 消息，扩展当前任务必留输入、Jev、压缩与附件恢复；不新增 prompt 快照执行门槛。普通 Code submit 移除等待时自动 requestStop 的旧分支；显式引导使未消费审批失效并仅解除等待，保持同一 Task、资源和报告规则。 | `packages/agent/src/driver.ts`、`context-selector.ts`、`context-assembly.ts`、审批／附件装配，runtime submit／wait／恢复接口 |
@@ -44,10 +44,11 @@ Status: ready-for-agent
 
 ## 进展与交接
 
-- 当前角色与阶段：方案者；2026-10-29 按拥有者要求精简，当前修订已通过独立复审及运行时限定复审，无剩余阻断。初版结论不用于替代本次审查。
-- 当前内容：本次修订基点为 `081fe491`；只改产品规格、实施工单、proposed 笔记及审查记录，无产品代码改动。旧笔记互链不变，审查对象用 Git 基点与当前 diff 核对，见[方案审查记录](../evidence/plan-review.md)。
-- 下一角色与动作：实施者从步骤 1 验证 SDK 契约，前提不成立时退回修订与复审。本轮不自动实施，不将 ready-for-agent 解释为提交、推送或部署授权。
-- 阻塞与恢复条件：无待拥有者产品决定；技术审查阻断须在本工单修订并复审，不能静默收窄已确认行为。
+- 当前角色与阶段：工程实现、定向验证、文档同步与独立实现审查均已完成，待真实双客户端＋真实模型验收。2026-10-29 接手基点为 `5c55e96b`。README 常驻预算由 3350 提至 3420：新增 `/queue`、`/steer` 两条命令说明属本层内容，无其他层可搬走。
+- 当前内容：schema 54（`queue_order`/`queue_revision`/`task_guidance`）与协议 v45 落地；runtime 提供 `guidance` 提交、`steerTask`、`reorderQueue`、`getTaskQueueDetail`；控制面新增 `task_queue`/`queue_reorder`/`steer_task` 与 `session.queue_changed`/`task.guidance` 事件；普通 dev submit 不再自动 `requestStop(owner_input)`；共享 view 按 `ruukotoSourceTaskId` 归属投影、排除待接入源、已接入气泡按接入时刻定位；桌面有紧凑排队面板与发送为引导开关，TUI 有 `/queue`、`/steer`。新增 `test/queue-guidance-store.test.ts`、`test/queue-guidance-runtime.test.ts`；`npm run check:static` 与相关回归（并发、幂等重连、控制面穷举、SDK 契约、桌面/视图）全绿。
+- 独立实现审查（code-review 双轴）已执行并修复：规范轴发现 TUI 面板 `as unknown as QueueDetail` 类型逃逸、桌面板可重排下标空间错误、store 重复 owner_questions 查询、吞错注释不完整、队列二次拉取；规格轴发现 R6 无运行目标时整个引导提交被拒（目标解析把源自身当目标）、排队输入仍按创建时间进气泡、回退项被加「引导回退」标签（违反规格"不为正常回退新增状态标签"）、受理后迟到达审批仍可挂起等待（R5 竞争）、首尾禁用下标错。修复：目标解析排除源且锚定仅限非排队任务；EventFlow 对 queued/未开始输入不落气泡、已开始按 `startedAt` 定位、附件暂存随气泡落位；approval-gate 对已受理引导的任务在登记同事务即时失效迟到审批；DESKTOP_OPS 补三个新 op；旧语义测试（普通输入中断等待）改为显式引导触发或按排队可见性断言。审查后 306+ 定向用例、`check:static`、`check:docs` 全绿。
+- 下一角色与动作：真实双客户端＋真实模型验收（引导进下一请求、不重复执行、队首回退、审批/等待行为），缺前提不记通过。
+- 阻塞与恢复条件：无待拥有者产品决定；真实环境验收仍待执行，门槛用例不替代产品验收。
 
 ## 验收与证据
 
@@ -76,6 +77,10 @@ Status: ready-for-agent
 
 初版在 2026-10-28 通过独立审查并提交为 `081fe491`；2026-10-29 按五项过度设计结论修订后，由 `/root/revision_review` 独立复审、`/root/lean_runtime_review` 运行时限定复审，均通过。实现审查与真实体验验收仍待后续实施。
 
+### 接手后的 SDK 门槛
+
+`npx tsx --test test/sdk-steering-contract.test.ts` 在 macOS、Node 24.15.0、Pi 1.3.0 上通过 10 条契约检查，独立修订复审无剩余阻断；尚未接线产品 runtime。新测试和交接材料的静态检查、独立核实及未覆盖项由[SDK 门槛证据](../evidence/sdk-contract.md)持有；不沿用上一轮的静态检查结论。
+
 ## Comments
 
 2026-10-28：拥有者最后确认全部访谈取舍；Q10 以“队首、任务结束后立即发送”取代早期队尾／未送达建议。方案必须遵守现有暂停、停止和占用约束，未授权自动启动产品实施。
@@ -83,3 +88,5 @@ Status: ready-for-agent
 2026-10-28：独立审查发现初稿的自动迁移违反既有严格版本决定，已删除；补齐普通提交不再中断等待、输入身份和执行归属分离，以及聊天接入次序。复审无剩余阻断，交接实施者；既有不兼容切换规则没有翻转。
 
 2026-10-29：拥有者要求修订过度设计。移除特殊输入转引导、跨实例引导导入、独立 guidance ID、prompt 快照执行门槛与逐条变异验证；保留持久接纳、队首回退、SDK 清理、审批竞争及多 user 投影。不预设通用动作回执账本，原 Task 查询与提交核实继续复用。
+
+2026-10-29：拥有者要求由当前 Agent 接手工单。步骤 1 的正向契约成立，但实际 SDK 已取出未落历史的输入无法由公开清理撤回，触发工单原定的前提失败出口。保存窄用例与证据，退回 planning；未越过门槛修改产品、版本或实例。

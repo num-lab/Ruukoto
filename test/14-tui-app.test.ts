@@ -342,8 +342,10 @@ test("曾被等待覆盖的普通子任务补报：实时与重连均隐藏内�
     await submitViaEditor(live, "后台委派");
     await waitFor("父轮持久等待", () => live.state.tasksFor(sessionId).some(task => task.wait?.phase === "waiting"));
     await submitViaEditor(live, "新消息");
-    await waitFor("新消息先结束", () => t.runtime.store.listTasksBySession(sessionId).some(task => task.input === "新消息" && task.status === "completed"));
+    // R1：普通输入不再中断等待，"新消息"排队到子任务放行后才执行
+    await waitFor("新消息已排队", () => live.state.queuedTasksFor(sessionId).some(task => task.input === "新消息"));
     releaseChild();
+    await waitFor("新消息先结束", () => t.runtime.store.listTasksBySession(sessionId).some(task => task.input === "新消息" && task.status === "completed"));
     await waitFor("补报最终总结已展示", () => live.state.openSession(sessionId).flow.items.some(entry => entry.kind === "message" && entry.text === summary));
     await renderFlush();
     assert.ok(!stripTerminalSequences(live.terminal.output()).includes("[后台工作最终回报]"));

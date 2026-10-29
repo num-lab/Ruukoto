@@ -93,6 +93,13 @@ import { hasImageInput, IMAGE_INPUT_UNSUPPORTED, taskImageReferences, type Image
 
 const FRAGMENT_INTERVAL_MS = 250;
 
+/** 引导 user 消息携带的源 Task ID（随消息序列化进会话 JSONL，来源与正文一起成为历史）。 */
+function guidanceSourceId(message: unknown): string | null {
+  return message !== null && typeof message === "object" && typeof (message as { ruukotoSourceTaskId?: unknown }).ruukotoSourceTaskId === "string"
+    ? (message as { ruukotoSourceTaskId: string }).ruukotoSourceTaskId
+    : null;
+}
+
 export interface DriverDeps {
   store: Store;
   /** 工具操作账本（架构工单 05）：结果、效果未知与停止补记只经它写。 */
@@ -284,6 +291,16 @@ export class Driver {
   private pinnedDefinition: SubAgentDefinitionSnapshot | null = null;
   private pinnedRoles: SubAgentRoleLibrary | null = null;
   private pinnedExecution: SubAgentExecutionSnapshot | null = null;
+  /**
+   * 引导批次（coding-message-control）：joining = 已预留进当前边界的源 Task ID，
+   * 源取消需等待本批落盘结果；steered = 本次 run 已向 SDK 移交过输入；
+   * contaminated = 有已移交输入未能核实在权威历史，run 末必须丢弃 SDK／manager。
+   */
+  private guidanceJoining = new Set<string>();
+  private guidanceJoined: Promise<void> = Promise.resolve();
+  private guidanceJoinedResolve: (() => void) | null = null;
+  private guidanceSteered = false;
+  private guidanceContaminated = false;
 
   constructor(session: Session, deps: DriverDeps) {
     this.session = session;
@@ -700,12 +717,128 @@ export class Driver {
       this.allToolNames = [...new Set([...this.allToolNames, ...this.sdk.getAllTools().map(tool => tool.name)])];
     }
     this.wrapStreamFunction(this.sdk);
-    const finishTurn = this.sdk.agent.finishTurn;
-    this.sdk.agent.finishTurn = async (turn, signal) => {
+    const sdk = this.sdk;
+    const finishTurn = sdk.agent.finishTurn;
+    sdk.agent.finishTurn = async (turn, signal) => {
       const decision = await finishTurn?.(turn, signal);
-      return this.currentTask && this.deps.store.listToolOpsByTask(this.currentTask.id).some(op => op.mcp && op.effectUnknown) ? { action: "end" } : decision || undefined;
+      const task = this.currentTask;
+      if (!task) return decision || undefined;
+      if (this.deps.store.listToolOpsByTask(task.id).some(op => op.mcp && op.effectUnknown)) return { action: "end" };
+      // 引导边界预留（coding-message-control）：尊重 SDK 与停止的原有决定；只有可
+      // 继续且存在持久接纳的引导时才续轮。预留（joining）与源取消在核心库事务上
+      // 互斥——先取消者不在 pending，先预留者令取消等待本批落盘结果。
+      if (this.stopRequested || signal?.aborted || turn.message.stopReason === "error" || turn.message.stopReason === "aborted" || decision?.action === "end") {
+        return decision || undefined;
+      }
+      const pending = this.deps.store.withTx(() => {
+        const list = this.deps.store.listTaskGuidance(task.id).filter(guidance => guidance.state === "pending");
+        for (const guidance of list) this.guidanceJoining.add(guidance.sourceTaskId);
+        return list;
+      });
+      if (pending.length === 0) return decision || undefined;
+      this.guidanceJoined = new Promise<void>(done => { this.guidanceJoinedResolve = done; });
+      return { action: "continue" };
     };
+    const prepareNextTurn = sdk.agent.prepareNextTurnWithContext;
+    if (prepareNextTurn) {
+      sdk.agent.prepareNextTurnWithContext = async (turn, signal) => {
+        const next = await prepareNextTurn(turn, signal);
+        const task = this.currentTask;
+        if (!task || this.stopRequested || signal?.aborted) return next || undefined;
+        // 选批截点（下一请求的输入截点）：同步事务内重读持久路由并移交 SDK——
+        // 取消先提交者已不在 pending；已预留者取消在等落盘结果，仍在 pending 同批接入。
+        // 准备期间收到、尚未取消的引导按持久接纳次序一起排入。
+        this.deps.store.withTx(() => {
+          for (const guidance of this.deps.store.listTaskGuidance(task.id)) {
+            if (guidance.state !== "pending") continue;
+            const source = this.deps.store.getTask(guidance.sourceTaskId);
+            if (!source || source.status !== "queued") continue;
+            const media = taskImageReferences(source, this.deps.store);
+            // 目标模型不支持图片：本条不移交，留在路由；目标结束按回退回队首。
+            if (media.length > 0 && !this.currentModelSupportsImages) continue;
+            this.guidanceJoining.add(guidance.sourceTaskId);
+            this.guidanceSteered = true;
+            sdk.agent.steer({
+              role: "user",
+              content: [{ type: "text", text: source.input }],
+              timestamp: Date.now(),
+              ruukotoSourceTaskId: source.id,
+              ruukotoTaskId: task.id,
+              ruukotoAttachmentRefs: taskAttachmentReferences(source, this.deps.store),
+              ruukotoMediaRefs: media,
+            } as any);
+          }
+        });
+        return next || undefined;
+      };
+    }
+    const prepareRequest = sdk.agent.prepareRequest;
+    sdk.agent.prepareRequest = async (request, signal) => {
+      const next = await prepareRequest?.(request, signal);
+      this.settleGuidanceBatch();
+      return next || undefined;
+    };
+    sdk.setSteeringMode("all");
+    // 目标停止后的接入阻断：监听先于 JSONL append 同步触发；已停止时让追加失败，
+    // 把本轮收束成停止而不是把未核实的输入写进权威历史。
+    sdk.subscribe((event) => {
+      if ((event.type === "message_start" || event.type === "message_end") && this.stopRequested && guidanceSourceId((event as { message?: unknown }).message)) {
+        this.guidanceContaminated = true;
+        throw Object.assign(new Error("引导接入在目标停止后被阻断，本次运行按停止收束"), { code: "guidance_stopped_before_append" });
+      }
+    });
     return this.sdk;
+  }
+
+  /** 批次落定（prepareRequest）：核实实际 JSONL——已落 entry 记 joined 并解除本批取消等待。 */
+  private settleGuidanceBatch(): void {
+    if (this.guidanceJoining.size === 0) return;
+    const file = this.sdk?.sessionFile;
+    const entries = file && fs.existsSync(file) ? parseSessionFile(file) : [];
+    this.deps.store.withTx(() => {
+      for (const sourceTaskId of [...this.guidanceJoining]) {
+        const entry = entries.find(e => e.type === "message" && guidanceSourceId(e.message) === sourceTaskId);
+        if (entry) this.deps.store.recordTaskGuidanceEntry(sourceTaskId, this.deps.store.getTaskGuidance(sourceTaskId)!.targetTaskId, entry.id);
+        else this.guidanceContaminated = true; // 已移交 SDK 却未落权威历史：manager 可能有残留，run 末丢弃
+        this.guidanceJoining.delete(sourceTaskId);
+      }
+    });
+    this.releaseGuidanceWaiters();
+  }
+
+  private releaseGuidanceWaiters(): void {
+    const resolve = this.guidanceJoinedResolve;
+    this.guidanceJoinedResolve = null;
+    resolve?.();
+  }
+
+  /**
+   * 目标结束事务内裁决引导路由：已落权威历史的源归本任务（joined），
+   * 未落的 pending 源回普通队首；同时解除所有源取消的等待。
+   */
+  private settleGuidanceAtTaskEnd(taskId: string): void {
+    const pending = this.deps.store.listTaskGuidance(taskId).filter(guidance => guidance.state === "pending");
+    if (pending.length > 0) {
+      const file = this.sdk?.sessionFile;
+      const entries = file && fs.existsSync(file) ? parseSessionFile(file) : [];
+      for (const guidance of pending) {
+        const entry = entries.find(e => e.type === "message" && guidanceSourceId(e.message) === guidance.sourceTaskId);
+        if (entry) this.deps.store.recordTaskGuidanceEntry(guidance.sourceTaskId, guidance.targetTaskId, entry.id);
+      }
+    }
+    this.deps.store.fallbackTaskGuidance(taskId);
+    this.guidanceJoining.clear();
+    this.releaseGuidanceWaiters();
+  }
+
+  /** 取消待接入引导源：已预留进当前批次的等待本批落定（可能已接入），未预留的立即可取消。 */
+  async waitGuidanceSource(sourceTaskId: string): Promise<void> {
+    if (this.guidanceJoining.has(sourceTaskId)) await this.guidanceJoined;
+  }
+
+  /** 显式引导接入：未消费审批已在受理事务内 stale；这里解除工具等待，让运行到达下一边界。 */
+  releaseGuidanceWaits(): void {
+    this.approvals.supersedeAll();
   }
 
   /** 工具执行入口按 sdkCallId 绑定宿主上下文（execute 包装时调用）。 */
@@ -902,6 +1035,11 @@ export class Driver {
     this.taskEnding = ending ?? { taskId: task.id, stopSnapshot: null };
     this.stopRequested = false;
     this.stopPromise = null;
+    this.guidanceJoining.clear();
+    this.guidanceJoined = Promise.resolve();
+    this.guidanceJoinedResolve = null;
+    this.guidanceSteered = false;
+    this.guidanceContaminated = false;
     this.flushedEntryIds = new Set();
     this.callMap = new Map();
     this.currentMsgId = null;
@@ -968,6 +1106,13 @@ export class Driver {
       await this.stopPromise;
       this.assembly?.abort();
       this.assembly = null;
+      // 引导收尾：解除仍在等待的源取消；已移交却未核实落盘或停止时移交过输入的
+      // SDK/manager 可能残留未落盘 entry，必须丢弃，由下次运行从权威 JSONL 重开。
+      this.guidanceJoining.clear();
+      this.releaseGuidanceWaiters();
+      if (this.guidanceSteered && (this.stopRequested || this.guidanceContaminated)) await this.dropSdkForToolChange();
+      this.guidanceSteered = false;
+      this.guidanceContaminated = false;
       this.flushOutput();
       this.endThinking();
       this.currentMcpTools.clear();
@@ -1305,6 +1450,8 @@ export class Driver {
       terminal: opts.terminal, reason: opts.reason, abort: true,
       unreapedReason: opts.modeSwitchFailure ? "mode_switch_unverified" : "tool_process_unreaped",
       modeSwitchFailure: opts.modeSwitchFailure,
+      // 中止完成后在同一事务裁决引导路由：SDK 已收束，JSONL 是此时刻的权威历史。
+      inTx: () => this.settleGuidanceAtTaskEnd(task.id),
       halt: async () => {
         this.assembly?.abort();
         this.approvals.cancelAll();
@@ -1387,6 +1534,7 @@ export class Driver {
     await endTaskExecution({ store: this.deps.store, ledger: this.deps.ledger, onReleased: this.deps.onOccupancyReleased }, task, this.taskEnding!, {
       terminal: to, reason: extra.interruptReason ?? extra.errorMessage, abort: extra.abort,
       unreapedReason: extra.occupancyIssueReason ?? "tool_process_unreaped", modeSwitchFailure: extra.modeSwitchFailure,
+      inTx: () => this.settleGuidanceAtTaskEnd(task.id),
       halt: async () => {
         const reaped = await this.killManagedProcesses();
         this.flushOutput();
@@ -1703,6 +1851,11 @@ export class Driver {
           // SDK 在监听返回后同步落盘；逐条发引用，不等待同批其他工具结束。
           setImmediate(() => this.flushEntryRefs(task));
           return;
+        }
+        // 任务归属标记（coding-message-control）：本任务全部 user 输入（原始要求与
+        // 已接入引导）共享目标 Task ID；上下文选择的"必留输入"按它界定任务跨度。
+        if (event.message.role === "user" && (event.message as any).ruukotoTaskId === undefined) {
+          (event.message as any).ruukotoTaskId = task.id;
         }
         if (event.message.role === "user" && this.pendingUserAttachments.length > 0) {
           (event.message as any).ruukotoAttachmentRefs = this.pendingUserAttachments;

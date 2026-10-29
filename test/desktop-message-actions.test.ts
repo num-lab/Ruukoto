@@ -25,7 +25,7 @@ before(async () => {
 after(async () => { await server.close(); });
 
 function task(status: TaskStatus): TaskView {
-  return { id: "task", sessionId: "s1", requestId: "request", input: "问题", inputPurpose: "user", modelSelection: null, submissionDigest: null, status, accessMode: "confirm", planMode: false, permissionVersion: 1, sourcePermissionVersion: null, grantedPaths: [], pendingAccessMode: null, interruptReason: null, cancelRequested: false, effectUnknown: false, errorMessage: null, historyEntryIds: ["answer"], resumesTaskId: null, agentId: null, parentTaskId: null, sourceEventId: null, deadline: null, resultSummary: null, resultRef: null, workId: null, subAgentId: null, readScope: null, resultDeliveredAt: null, createdAt: at, startedAt: at, endedAt: status === "completed" || status === "failed" || status === "canceled" || status === "interrupted" ? at : null };
+  return { id: "task", sessionId: "s1", requestId: "request", input: "问题", inputPurpose: "user", modelSelection: null, submissionDigest: null, status, queueOrder: 1, accessMode: "confirm", planMode: false, permissionVersion: 1, sourcePermissionVersion: null, grantedPaths: [], pendingAccessMode: null, interruptReason: null, cancelRequested: false, effectUnknown: false, errorMessage: null, historyEntryIds: ["answer"], resumesTaskId: null, agentId: null, parentTaskId: null, sourceEventId: null, deadline: null, resultSummary: null, resultRef: null, workId: null, subAgentId: null, readScope: null, resultDeliveredAt: null, createdAt: at, startedAt: at, endedAt: status === "completed" || status === "failed" || status === "canceled" || status === "interrupted" ? at : null };
 }
 function model(status: TaskStatus, role: "assistant" | "user" = "assistant"): CodeState {
   const state = new CodeState({ request: async () => ({ ok: false, error: { code: "unused", outcome: "rejected", message: "不应发起请求" } }) }, () => {});
@@ -36,7 +36,7 @@ function model(status: TaskStatus, role: "assistant" | "user" = "assistant"): Co
   state.view.tasks.set("task", task(status));
   return state;
 }
-const source: Session = { id: "s1", projectId: "workspace", kind: "dev", workspaceProjectId: null, name: "来源", branchSource: null, cwd: "/w", cwdReal: "/w", cwdDev: 1, cwdIno: 1, piSessionId: "pi", sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: null, modelSelectionVersion: 0, defaultAccessMode: "confirm", defaultAccessModeVersion: 0, queueState: "active", queuePauseReason: null, archivedAt: null, createdAt: at };
+const source: Session = { id: "s1", projectId: "workspace", kind: "dev", workspaceProjectId: null, name: "来源", branchSource: null, cwd: "/w", cwdReal: "/w", cwdDev: 1, cwdIno: 1, piSessionId: "pi", sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: null, modelSelectionVersion: 0, defaultAccessMode: "confirm", defaultAccessModeVersion: 0, queueState: "active", queuePauseReason: null, queueRevision: 0, archivedAt: null, createdAt: at };
 
 test("agent 消息只在对应任务完成时显示复制与分支操作", () => {
   const completed = renderToStaticMarkup(createElement(Conversation, { model: model("completed"), sessionId: "s1" }));

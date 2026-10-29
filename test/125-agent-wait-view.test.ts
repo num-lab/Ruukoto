@@ -47,7 +47,8 @@ test("控制面补报停车：原任务与别名都保留可信身份，实时�
     const view = state.openSession(session.id);
     t.client.onEvent(event => state.applyEvent(event, "live"));
     assert.equal(state.tasks.get(owner.id)?.inputPurpose, "user", "普通同名输入不取得补报身份");
-    assert.deepEqual(view.flow.items.filter(entry => entry.kind === "message" && entry.role === "user" && entry.text === sameInput).map(entry => entry.taskId), [owner.id]);
+    // 排队输入只在排队区展示，不入聊天流；同文用户消息的去重在开始后再验
+    assert.equal(view.flow.items.filter(entry => entry.kind === "message" && entry.role === "user" && entry.text === sameInput).length, 0);
     store.withTx(() => transferAgentReportFallbacks(store, reports.map(report => report.key), canonical.id));
     await waitFor("别名实时停车", () => state.tasks.get(alias.id)?.reportParked === true);
     assert.equal(state.tasks.get(canonical.id)?.reportParked, false);
@@ -71,7 +72,7 @@ test("控制面补报停车：原任务与别名都保留可信身份，实时�
   } finally { for (const client of clients) client.close(); await t.shutdown(); }
 });
 
-test("真实控制面等待：实时与重连含完整对象，TUI 状态与实际渲染区分等待和新输入中断", async () => {
+test("真实控制面等待：实时与重连含完整对象，TUI 状态与实际渲染区分等待和引导解除", async () => {
   let releaseChild!: () => void;
   const childReady = new Promise<void>(resolve => { releaseChild = resolve; });
   let parentPhase = 0, runId = "";
@@ -115,14 +116,17 @@ test("真实控制面等待：实时与重连含完整对象，TUI 状态与实�
     for (const event of snapshot.replay) restored.applyEvent(event, "replay");
     assert.equal(restored.tasks.get(parent.id)?.wait?.phase, "waiting", "重放不能回退等待阶段");
 
-    const next = await t.runtime.submit({ sessionId: session.id, requestId: "owner-next", input: "新消息", modelSelection: t.runtime.defaultSelection });
-    await waitFor("可信新输入已打断等待", () => state.tasks.get(parent.id)?.status === "interrupted" && state.tasks.get(parent.id)?.wait?.reason === "owner_input");
+    const next = await t.runtime.submit({ sessionId: session.id, requestId: "owner-next", input: "新消息", modelSelection: t.runtime.defaultSelection, guidance: true });
+    // 显式引导解除等待：等待记录 owner_input 原因，父任务不中断而在下一边界接入后完成
+    await waitFor("等待已被引导解除", () => state.tasks.get(parent.id)?.wait?.reason === "owner_input");
     assert.equal(listAgentWaits(t.runtime.store, { taskId: parent.id })[0].reason, "owner_input");
     rendered.setEntries(view.flow.items);
     assert.match(stripTerminalSequences(rendered.render(100).join("\n")), /新输入打断等待，后台工作继续/);
     const resource = events.find(event => event.body.type === "task.resources_changed" && event.body.taskId === parent.id);
     assert.ok(resource, "资源阶段有持久事件");
-    await waitFor("新输入完成", () => t.runtime.store.getTask(next.id)?.status === "completed");
+    await waitFor("引导已接入且父轮完成", () => t.runtime.store.getTaskGuidance(next.id)?.state === "joined" && t.runtime.store.getTask(parent.id)?.status === "completed");
+    assert.equal(t.runtime.store.getTask(next.id)!.status, "canceled");
+    assert.equal(t.runtime.store.getTask(next.id)!.interruptReason, "converted_to_guidance");
     const interrupted = await again.request<OpResult<"get_task">>("get_task", { task_id: parent.id });
     assert.equal(interrupted.task.wait?.reason, "owner_input");
     const waitOp = interrupted.toolOps.find(op => op.toolName === "wait")!;

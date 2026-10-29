@@ -33,7 +33,7 @@ function project(id: string, workspace = true): Project {
   return { id, name: `名称 ${id}`, createRequestId: null, rootDir: workspace ? { cwd: `/work/${id}`, cwdReal: `/work/${id}`, dev: 1, ino: id === "a" ? 1 : 2 } : null, instructionFiles: [], settingsVersion: 1, createdAt: "2026-10-21" };
 }
 function session(): Session {
-  return { id: "session", projectId: "legacy", workspaceProjectId: "b", kind: "dev", name: null, branchSource: null, cwd: "/work/b", cwdReal: "/work/b", cwdDev: 1, cwdIno: 2, piSessionId: "pi", sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: null, modelSelectionVersion: 1, defaultAccessMode: "confirm", defaultAccessModeVersion: 1, queueState: "active", queuePauseReason: null, archivedAt: null, createdAt: "2026-10-21" };
+  return { id: "session", projectId: "legacy", workspaceProjectId: "b", kind: "dev", name: null, branchSource: null, cwd: "/work/b", cwdReal: "/work/b", cwdDev: 1, cwdIno: 2, piSessionId: "pi", sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: null, modelSelectionVersion: 1, defaultAccessMode: "confirm", defaultAccessModeVersion: 1, queueState: "active", queuePauseReason: null, queueRevision: 0, archivedAt: null, createdAt: "2026-10-21" };
 }
 function harness(withSession = false) {
   const bridge: Pick<DesktopBridge, "request"> = { request: async () => ok(null) };

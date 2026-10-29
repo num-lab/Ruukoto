@@ -69,13 +69,20 @@ function snapshotSources(deps: BranchSessionDeps, source: Session, snapshot: His
       }
       calls.delete(message.toolCallId);
     }
+    // 引导输入的附件/图片绑定源 Task（无本分支 start marker）：按 joined 路由核实——
+    // 消息携带的源 ID 必须等于产物归属任务、路由已 joined 到本历史条且目标在分支任务内。
+    const guidanceVerified = (taskIdOfRef: string, entryId: string): boolean => {
+      if (message.ruukotoSourceTaskId !== taskIdOfRef) return false;
+      const route = store.getTaskGuidance(taskIdOfRef);
+      return route !== null && route.state === "joined" && route.entryId === entryId && tasks.has(route.targetTaskId);
+    };
     if (message.ruukotoAttachmentRefs !== undefined) {
       if (message.role !== "user" || !Array.isArray(message.ruukotoAttachmentRefs)) throw new RuntimeApiError("history_corrupt", "历史附件引用格式无效");
       for (const ref of message.ruukotoAttachmentRefs as import("@ruukoto/core/attachments.ts").AttachmentReference[]) {
         const artifact = store.getArtifact(ref.id);
         const inherited = source.branchSource?.artifacts.some(item => item.id === ref.id);
         const recorded = store.taskAttachments(ref.taskId).some(item => canonicalJson(item) === canonicalJson(ref));
-        if (!recorded || !artifact || artifact.taskId !== ref.taskId || artifact.sessionId !== ref.sessionId || artifact.name !== ref.name || artifact.contentHash !== ref.contentHash || artifact.byteCount !== ref.size || artifact.status !== "complete" || (!inherited && !tasks.has(ref.taskId))) throw new RuntimeApiError("attachment_reference_invalid", "历史附件缺少宿主核实的来源");
+        if (!recorded || !artifact || artifact.taskId !== ref.taskId || artifact.sessionId !== ref.sessionId || artifact.name !== ref.name || artifact.contentHash !== ref.contentHash || artifact.byteCount !== ref.size || artifact.status !== "complete" || (!inherited && !tasks.has(ref.taskId) && !guidanceVerified(ref.taskId, entry.id))) throw new RuntimeApiError("attachment_reference_invalid", "历史附件缺少宿主核实的来源");
         addArtifact(ref.id, ref.taskId);
         if (!artifacts.has(ref.id)) throw new RuntimeApiError("access_denied", "历史附件的资料读取范围已失效");
       }
@@ -90,7 +97,7 @@ function snapshotSources(deps: BranchSessionDeps, source: Session, snapshot: His
         const attachment = artifact && store.taskAttachments(artifact.taskId).some(ref => ref.id === artifact.id && ref.contentHash === artifact.contentHash);
         if (!artifact || artifact.sessionId !== raw.sessionId || artifact.taskId !== raw.taskId || artifact.mimeType !== raw.mimeType ||
             artifact.byteCount !== raw.byteCount || artifact.contentHash !== raw.contentHash || artifact.status !== "complete" ||
-            (!inherited && (!tasks.has(artifact.taskId) || (!attachment && (inbound?.taskId !== artifact.taskId || !inbound.artifactRefs.includes(artifact.id)))))) {
+            (!inherited && !tasks.has(artifact.taskId) && !guidanceVerified(artifact.taskId, entry.id) && (!attachment && (inbound?.taskId !== artifact.taskId || !inbound.artifactRefs.includes(artifact.id))))) {
           throw new RuntimeApiError("image_reference_invalid", "历史图片缺少宿主核实的来源");
         }
         addArtifact(artifact.id, artifact.taskId);

@@ -82,6 +82,7 @@ import { activityAgo, TwoLineSelectList } from "./session-list.ts";
 import { WorkflowSidebar } from "./workflows.ts";
 import { BackgroundProcesses } from "./background-processes.ts";
 import { OwnerQuestions } from "./owner-questions.ts";
+import { TaskQueuePanel } from "./task-queue.ts";
 import { formatPromptSnapshot } from "./prompt-format.ts";
 import { formatContextTokens } from "./context-format.ts";
 import type { FlowEntry } from "./event-flow.ts";
@@ -824,6 +825,7 @@ export class TuiApp {
   private readonly todoPanel = new TodoPanel();
   private readonly workflowSidebar: WorkflowSidebar;
   private readonly ownerQuestions: OwnerQuestions;
+  private readonly taskQueue: TaskQueuePanel;
   private readonly backgroundProcesses: BackgroundProcesses;
   private todoOverlay: OverlayHandle | null = null;
   private readonly sessionTodos = new Map<string, Todo[] | null>();
@@ -951,6 +953,18 @@ export class TuiApp {
       session: () => this.state.sessions.find(session => session.id === this.state.currentSessionId),
       instanceId: () => this.state.instanceId,
       online: () => this.connection.state === "online",
+      render: () => this.tui.requestRender(),
+      close: () => { this.windows.at(-1)?.hide(); this.tui.setFocus(this.editor); },
+    });
+
+    this.taskQueue = new TaskQueuePanel({
+      request: (op, params) => this.connection.request(op, params),
+      sessionId: () => this.state.currentSessionId,
+      online: () => this.connection.state === "online",
+      taskLabel: (taskId) => {
+        const task = this.state.tasks.get(taskId);
+        return task ? (task.displayInput ?? task.input ?? task.requestId) : null;
+      },
       render: () => this.tui.requestRender(),
       close: () => { this.windows.at(-1)?.hide(); this.tui.setFocus(this.editor); },
     });
@@ -1403,6 +1417,7 @@ export class TuiApp {
     const body = event.body;
     if (body.type === "background_process.changed" && body.process.sessionId === this.state.currentSessionId) void this.backgroundProcesses.refresh();
     if (body.type === "owner_question.changed") void this.ownerQuestions.refresh();
+    if (body.type === "session.queue_changed" || body.type === "task.guidance") void this.taskQueue.refresh();
     if (body.type === "workflow.changed" || body.type === "workflow.step" || body.type === "workflow.execution" || body.type === "agent_wait.changed") this.workflowSidebar.refresh();
     if (body.type === "session.usage_updated" && body.sessionId === this.state.currentSessionId) {
       void this.refreshSessionUsage(body.sessionId);
@@ -1684,7 +1699,7 @@ export class TuiApp {
   }
 
   /** 以当前会话提交任务（沿用 request_id 去重；/skill 以 /skill:<名称> 输入复用）。 */
-  private async submitText(text: string): Promise<void> {
+  private async submitText(text: string, opts: { guidance?: boolean } = {}): Promise<void> {
     const view = this.currentView();
     if (!view) {
       this.notify("尚未选择会话：/project 选择，或 /new-project、/new-session 创建");
@@ -1701,6 +1716,12 @@ export class TuiApp {
       this.notify("上一条输入提交中，请稍候（重复提交不会产生第二个任务）");
       return;
     }
+    if (opts.guidance && this.continueForTaskId) {
+      // 续接/问题回答绑定输入不具引导资格；不静默丢弃意图
+      this.editor.setText(text);
+      this.notify("当前输入已绑定为续接或问题回答，不能作为引导；先发送该输入再另行引导");
+      return;
+    }
     this.submitting = true;
     try {
       await this.sessionSettingsSync;
@@ -1713,7 +1734,7 @@ export class TuiApp {
       if (!modelSelection) throw new Error("请先通过 /model 选择模型");
       const outcome = continueTaskId
         ? await this.guard.submit("continue", { task_id: continueTaskId, session_id: view.sessionId, input: text, model_selection: modelSelection })
-        : await this.guard.submit("submit", { session_id: view.sessionId, input: text, model_selection: modelSelection });
+        : await this.guard.submit("submit", { session_id: view.sessionId, input: text, model_selection: modelSelection, ...(opts.guidance ? { guidance: true } : {}) });
       switch (outcome.kind) {
         case "accepted": {
           this.state.upsertTask(outcome.task);
@@ -1831,7 +1852,18 @@ export class TuiApp {
       this.showWindow(frame, { width: "85%", anchor: "center", maxHeight: "85%" });
     },
     openWorkflow: () => { this.workflowSidebar.open(); this.tui.setFocus(this.workflowSidebar); this.tui.requestRender(); },
+    openQueue: () => {
+      void this.taskQueue.refresh();
+      const frame = new WindowFrame(this.taskQueue, true);
+      frame.onKey = data => {
+        if (matchesKey(data, "pageUp") || matchesKey(data, "pageDown")) frame.scrollBy(matchesKey(data, "pageUp") ? -5 : 5);
+        else this.taskQueue.handleInput(data);
+        this.tui.requestRender();
+      };
+      this.showWindow(frame, { width: "85%", anchor: "center", maxHeight: "85%" });
+    },
     submit: (text) => this.submitText(text),
+    steer: (text) => this.submitText(text, { guidance: true }),
   };
 
   private async cmdNewSession(cwd: string): Promise<void> {

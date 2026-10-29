@@ -65,6 +65,8 @@ export class EventFlow {
   private readonly tasks = new Map<string, Task>();
   private readonly streams = new Map<string, { text: string; bytes: number; pending: Map<number, string> }>();
   private readonly hidden = new Set<string>();
+  /** 排队输入的附件先暂存：气泡在实际开始时才创建，附件随气泡落位。 */
+  private readonly pendingAttachments = new Map<string, { id: string; name: string; size: number }[]>();
 
   get items(): FlowEntry[] {
     return [...this.entries.values()].filter((entry) => !this.hidden.has(entry.key)).sort((a, b) => {
@@ -102,11 +104,17 @@ export class EventFlow {
     }
     const inputKey = `input:${task.id}`;
     const pendingInput = this.entries.get(inputKey);
-    if (task.input.trim() && pendingInput?.kind === "message" && pendingInput.entryId === null && pendingInput.text === "") { pendingInput.text = task.input; pendingInput.totalBytes = utf8ByteLength(task.input); }
     if (task.inputPurpose === "internal_report") this.entries.delete(inputKey);
-    else if (task.input.trim() && !this.entries.has(inputKey)) {
-      this.entries.set(inputKey, { key: inputKey, taskId: task.id, kind: "message", role: "user", text: task.input, at: task.createdAt, seq: -1,
-        entryId: null, totalBytes: utf8ByteLength(task.input), truncated: false, streaming: false });
+    else if (task.status === "queued") {
+      // 排队输入只在排队区展示；本地回显/附件占位在实际开始或历史接入时由真实证据替换。
+      if (pendingInput?.kind === "message" && pendingInput.entryId === null) this.entries.delete(inputKey);
+    } else {
+      if (task.input.trim() && pendingInput?.kind === "message" && pendingInput.entryId === null && pendingInput.text === "") { pendingInput.text = task.input; pendingInput.totalBytes = utf8ByteLength(task.input); }
+      if (task.input.trim() && !this.entries.has(inputKey)) {
+        // 聊天位置取执行开始（或从未开始的终态时刻），不沿用排队创建时间；接入时刻由历史条目时间另定。
+        this.entries.set(inputKey, { key: inputKey, taskId: task.id, kind: "message", role: "user", text: task.input, at: task.startedAt ?? task.endedAt ?? task.createdAt, seq: -1,
+          entryId: null, totalBytes: utf8ByteLength(task.input), truncated: false, streaming: false, ...(this.pendingAttachments.has(task.id) ? { attachments: this.pendingAttachments.get(task.id) } : {}) });
+      }
     }
     if (task.endedAt) {
       for (const entry of this.entries.values()) {
@@ -155,8 +163,9 @@ export class EventFlow {
         const old = this.entries.get(key);
         const task = this.tasks.get(body.taskId);
         const attachments = body.attachments.map(ref => ({ id: ref.id, name: ref.name, size: ref.size }));
+        this.pendingAttachments.set(body.taskId, attachments);
         if (old?.kind === "message") old.attachments = attachments;
-        else this.entries.set(key, { key, taskId: body.taskId, kind: "message", role: "user", text: task?.input ?? "", at: task?.createdAt ?? event.createdAt, seq: -1, entryId: null, totalBytes: utf8ByteLength(task?.input ?? ""), truncated: false, streaming: false, attachments });
+        else if (!task || task.status !== "queued") this.entries.set(key, { key, taskId: body.taskId, kind: "message", role: "user", text: task?.input ?? "", at: task?.startedAt ?? task?.createdAt ?? event.createdAt, seq: -1, entryId: null, totalBytes: utf8ByteLength(task?.input ?? ""), truncated: false, streaming: false, attachments });
         return;
       }
       case "workflow.changed":
@@ -346,8 +355,11 @@ export class EventFlow {
     const old = this.entries.get(key);
     if (key !== fallback) this.entries.delete(fallback);
     const keepFull = history.truncated && old?.kind === "message" && !old.truncated && utf8ByteLength(old.text) >= history.totalBytes;
+    // 已接入引导（源归属 ≠ 条目归属的执行任务）：气泡按源 Task ID 去重，
+    // 显示位置按真实接入时刻而非输入创建时刻。
+    const guidanceJoined = history.role === "user" && taskId !== undefined && ref !== undefined && ref.taskId !== taskId;
     this.entries.set(key, { key, kind: "message", role: history.role, taskId,
-      at: old?.at || history.timestamp, seq: old?.seq ?? ref?.seq ?? 0,
+      at: guidanceJoined ? history.timestamp : (old?.at || history.timestamp), seq: old?.seq ?? ref?.seq ?? 0,
       text: keepFull && old.kind === "message" ? old.text : history.text,
       entryId: history.entryId, totalBytes: history.totalBytes, truncated: keepFull ? false : history.truncated, streaming: false, ...(history.attachments ? { attachments: history.attachments } : old?.kind === "message" && old.attachments ? { attachments: old.attachments } : {}) });
   }

@@ -16,7 +16,7 @@ const entry = (id: string, text: string, extra: Partial<HistoryEntryView> = {}):
 });
 const task: TaskView = {
   id: "task", sessionId: "session", requestId: "request", input: "问题", inputPurpose: "user", modelSelection: null,
-  submissionDigest: null, status: "completed", accessMode: "confirm", planMode: false, permissionVersion: 1,
+  submissionDigest: null, status: "completed", queueOrder: 1, accessMode: "confirm", planMode: false, permissionVersion: 1,
   sourcePermissionVersion: null, grantedPaths: [], pendingAccessMode: null, interruptReason: null, cancelRequested: false,
   effectUnknown: false, errorMessage: null, historyEntryIds: [], resumesTaskId: null, agentId: null, parentTaskId: null,
   sourceEventId: null, deadline: null, resultSummary: null, resultRef: null, workId: null, subAgentId: null, readScope: null,
@@ -63,7 +63,7 @@ for (const assistantOnly of [false, true]) test(`正文策略与 UTF-8 分页：
 });
 
 test("分支来源任务按当前历史页补齐状态", async () => {
-  const branch: Session = { id: "session", projectId: "workspace", kind: "dev", workspaceProjectId: null, name: "分支", branchSource: { sessionId: "source", number: 1, entryId: "entry", messageCount: 1, excluded: [], taskIds: ["ancestor"], artifacts: [], results: [] }, cwd: "/w", cwdReal: "/w", cwdDev: 1, cwdIno: 1, piSessionId: "pi", sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: null, modelSelectionVersion: 0, defaultAccessMode: "confirm", defaultAccessModeVersion: 0, queueState: "active", queuePauseReason: null, archivedAt: null, createdAt: at };
+  const branch: Session = { id: "session", projectId: "workspace", kind: "dev", workspaceProjectId: null, name: "分支", branchSource: { sessionId: "source", number: 1, entryId: "entry", messageCount: 1, excluded: [], taskIds: ["ancestor"], artifacts: [], results: [] }, cwd: "/w", cwdReal: "/w", cwdDev: 1, cwdIno: 1, piSessionId: "pi", sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: null, modelSelectionVersion: 0, defaultAccessMode: "confirm", defaultAccessModeVersion: 0, queueState: "active", queuePauseReason: null, queueRevision: 0, archivedAt: null, createdAt: at };
   const transport = new FakeTransport({ handlers: {
     list_tasks: () => ({ tasks: [], hasMore: false }),
     get_task: params => ({ task: { ...task, id: params.task_id, sessionId: "source" }, toolOps: [], outputPreview: null, seq: 1, confirmations: [], artifacts: [] }),
@@ -77,7 +77,7 @@ test("分支来源任务按当前历史页补齐状态", async () => {
 });
 
 test("分支会话按来源任务恢复思考与工具 trace", async () => {
-  const branch: Session = { id: "session", projectId: "workspace", kind: "dev", workspaceProjectId: null, name: "分支", branchSource: { sessionId: "source", number: 1, entryId: "entry", messageCount: 1, excluded: [], taskIds: ["ancestor"], artifacts: [], results: [] }, cwd: "/w", cwdReal: "/w", cwdDev: 1, cwdIno: 1, piSessionId: "pi", sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: null, modelSelectionVersion: 0, defaultAccessMode: "confirm", defaultAccessModeVersion: 0, queueState: "active", queuePauseReason: null, archivedAt: null, createdAt: at };
+  const branch: Session = { id: "session", projectId: "workspace", kind: "dev", workspaceProjectId: null, name: "分支", branchSource: { sessionId: "source", number: 1, entryId: "entry", messageCount: 1, excluded: [], taskIds: ["ancestor"], artifacts: [], results: [] }, cwd: "/w", cwdReal: "/w", cwdDev: 1, cwdIno: 1, piSessionId: "pi", sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: null, modelSelectionVersion: 0, defaultAccessMode: "confirm", defaultAccessModeVersion: 0, queueState: "active", queuePauseReason: null, queueRevision: 0, archivedAt: null, createdAt: at };
   const events: PersistentEvent[] = [
     { seq: 1, sessionId: "source", taskId: "ancestor", createdAt: at, body: { type: "task.thinking", taskId: "ancestor", sessionId: "source", thinkingId: "thought", messageId: "message", startedAt: at, endedAt: at, text: "之前对话的思考" } },
     { seq: 2, sessionId: "source", taskId: "ancestor", createdAt: at, body: { type: "task.tool_intent", taskId: "ancestor", toolOpId: "operation", sdkCallId: "call", toolName: "read", params: { path: "old.ts" } } },

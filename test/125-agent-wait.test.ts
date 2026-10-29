@@ -92,8 +92,8 @@ test("wait：超时或人工问题只结束一次等待，后台工作仍继续"
   } finally { await t.shutdown(); }
 });
 
-test("非 Git 子任务持真实目录：新拥有者输入打断父等待，内部对话拒绝业务工具，晚到结果自动补报", async () => {
-  let rt!: Runtime, phase = 0, newPhase = 0, childId = "", parentId = "";
+test("非 Git 子任务持真实目录：拥有者引导解除父等待并接入下一边界，晚到结果自动补报", async () => {
+  let rt!: Runtime, phase = 0, childId = "", parentId = "";
   const t = await startTestRuntime("agent-wait-direct", req => {
     const input = lastUserText(req);
     if (input === "后台修改") {
@@ -102,12 +102,10 @@ test("非 Git 子任务持真实目录：新拥有者输入打断父等待，内
         childId = rt.store.listTasksByStatus(["queued", "running"]).find(task => task.subAgentId !== null)!.id;
         return { kind: "tool_calls", calls: [{ id: "wait", name: "wait", arguments: { targets: [{ kind: "task", task_id: childId }] } }] };
       }
-      assert.fail("新输入打断后不能恢复旧父模型执行");
+      assert.fail("等待解除后不应再出现只有原输入的父模型请求");
     }
     if (input === "先回答新问题") {
-      assert.ok(!toolNamesOf(req).some(name => ["write", "bash", "skill"].includes(name)));
-      if (newPhase++ === 0) return { kind: "tool_calls", calls: [{ id: "hidden-write", name: "write", arguments: { path: "forbidden.txt", content: "禁止" } }] };
-      assert.match(lastToolText(req), /白名单|资源|Tool write not found/);
+      // 显式引导接入父任务边界：正文在目标上下文内应答，不另起受限工具集的任务
       return { kind: "text", text: "新消息已处理，后台修改仍继续" };
     }
     if (input.startsWith("[后台工作最终回报]")) {
@@ -127,11 +125,12 @@ test("非 Git 子任务持真实目录：新拥有者输入打断父等待，内
     const parent = await rt.submit({ sessionId: session.id, requestId: "parent", input: "后台修改", accessMode: "full_access", modelSelection: rt.defaultSelection });
     parentId = parent.id;
     await waitFor("子任务持目录实际执行且父轮已等待", () => fs.existsSync(path.join(t.work[0], "child-started")) && listAgentWaits(rt.store, { taskId: parentId }).some(wait => wait.phase === "waiting"));
-    const newTask = await rt.submit({ sessionId: session.id, requestId: "new-owner", input: "先回答新问题", accessMode: "full_access", modelSelection: rt.defaultSelection });
-    await waitFor("新输入未取得工作目录也能结束", () => ["completed", "failed", "interrupted"].includes(rt.store.getTask(newTask.id)!.status));
-    assert.equal(rt.store.getTask(newTask.id)!.status, "completed", rt.store.getTask(newTask.id)!.errorMessage ?? "新输入未完成");
-    assert.equal(rt.store.getTask(parentId)!.status, "interrupted");
-    assert.equal(rt.store.getTask(parentId)!.interruptReason, "owner_input");
+    const newTask = await rt.submit({ sessionId: session.id, requestId: "new-owner", input: "先回答新问题", accessMode: "full_access", modelSelection: rt.defaultSelection, guidance: true });
+    await waitFor("引导已接入父任务下一边界", () => rt.store.getTaskGuidance(newTask.id)?.state === "joined");
+    await waitFor("父任务接入引导后完成", () => rt.store.getTask(parentId)!.status === "completed");
+    assert.equal(rt.store.getTask(newTask.id)!.status, "canceled");
+    assert.equal(rt.store.getTask(newTask.id)!.interruptReason, "converted_to_guidance");
+    assert.equal(listAgentWaits(rt.store, { taskId: parentId })[0].reason, "owner_input");
     assert.equal(rt.store.getTask(childId)!.status, "running");
     assert.equal(rt.store.getTask(childId)!.cancelRequested, false);
     assert.ok(rt.store.listAllOccupancy().some(held => held.taskId === childId));

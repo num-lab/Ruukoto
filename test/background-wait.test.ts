@@ -68,10 +68,13 @@ for (const interruption of ["owner", "cancel"] as const) test(`进程 wait 的 $
   try {
     await waitFor("已订阅后台等待", () => t.runtime["backgroundProcesses"]["waits"].has(task.id));
     if (interruption === "owner") {
-      const next = t.runtime.submit({ sessionId: session.id, requestId: "next", input: "新问题", modelSelection: t.runtime.defaultSelection });
-      await waitFor("新输入及时打断等待", () => t.runtime.store.getTask(task.id)!.status === "interrupted", 3000);
-      const queued = await next;
-      await waitFor("新问题已应答", () => t.runtime.store.getTask(queued.id)!.status === "completed");
+      // R1 后普通输入不再中断等待；显式引导解除等待，父轮在下一边界接入并完成
+      const next = t.runtime.submit({ sessionId: session.id, requestId: "next", input: "新问题", modelSelection: t.runtime.defaultSelection, guidance: true });
+      await waitFor("引导已解除等待且父轮完成", () => t.runtime.store.getTask(task.id)!.status === "completed", 3000);
+      const source = await next;
+      await waitFor("引导源已接入", () => t.runtime.store.getTaskGuidance(source.id)?.state === "joined");
+      assert.equal(t.runtime.store.getTask(source.id)!.status, "canceled");
+      assert.equal(t.runtime.store.getTask(source.id)!.interruptReason, "converted_to_guidance");
     } else {
       const canceled = t.runtime.cancelTask(task.id);
       await waitFor("取消及时打断等待", () => t.runtime.store.getTask(task.id)!.status === "canceled", 3000);

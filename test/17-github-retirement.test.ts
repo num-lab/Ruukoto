@@ -136,7 +136,7 @@ function buildLegacyDb(dirs: TestDirs): void {
     );
     for (const t of ["t1", "t2"]) {
       run(
-        "INSERT INTO tasks (id, session_id, request_id, input, status, created_at, started_at, ended_at) VALUES (?, 's1', ?, '输入', 'completed', ?, ?, ?)",
+        "INSERT INTO tasks (id, session_id, request_id, input, status, created_at, started_at, ended_at, queue_order) VALUES (?, 's1', ?, '输入', 'completed', ?, ?, ?, 1)",
         t,
         `req-${t}`,
         T0,

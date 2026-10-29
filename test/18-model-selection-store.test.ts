@@ -130,7 +130,7 @@ test("旧队列批量补配置事件保持有界，所有任务可同步", () =>
   try {
     const { store, db, session } = f;
     store.withTx(() => {
-      for (let i = 0; i < 2000; i++) db.prepare("INSERT INTO tasks (id, session_id, request_id, input, status, created_at) VALUES (?, ?, ?, '', 'queued', '')").run(`legacy-${i}-${"x".repeat(50)}`, session.id, String(i));
+      for (let i = 0; i < 2000; i++) db.prepare("INSERT INTO tasks (id, session_id, request_id, input, status, created_at, queue_order) VALUES (?, ?, ?, '', 'queued', '', ?)").run(`legacy-${i}-${"x".repeat(50)}`, session.id, String(i), i + 1);
     });
     const seq = store.getMaxSeq();
     store.withTx(() => store.fillLegacyQueuedModelSelections(session.id, b));

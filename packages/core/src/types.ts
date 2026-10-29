@@ -19,7 +19,7 @@ import type { SubAgentExecutionSnapshot } from "./subagent-execution.ts";
 import type { WorkCopyHostSnapshot } from "./work-copy-host.ts";
 import { requireWorkspaceSnapshot, WorkspaceSnapshotError, type WorkspaceSnapshot } from "./workspace-snapshot.ts";
 
-export const PROTOCOL_VERSION = 43;
+export const PROTOCOL_VERSION = 45;
 
 export interface ModelSelection {
   provider: string;
@@ -536,6 +536,7 @@ export interface Session {
   defaultAccessModeVersion: number;
   queueState: SessionQueueState;
   queuePauseReason: string | null;
+  queueRevision: number;
   /**
    * 拥有者存档时间（null = 未存档）。存档只把会话从工作区会话列表隐藏，
    * 不改资料身份、历史、任务归属或排队状态；设置页列出并可取消存档。
@@ -555,6 +556,7 @@ export interface Task {
   /** 原始提交的不可变摘要；旧任务无法还原时为 null。 */
   submissionDigest: string | null;
   status: TaskStatus;
+  queueOrder: number;
   /** 任务访问模式；默认请求确认。只有已认证拥有者能选择完全访问。 */
   accessMode: AccessMode;
   /** 提交时固定的计划工作方式；为 true 时访问策略恒为 auto-review。 */
@@ -607,6 +609,20 @@ export interface Task {
 }
 
 export type ConfirmationStatus = "pending" | "approved" | "rejected" | "stale";
+
+export interface TaskGuidance {
+  sourceTaskId: string;
+  targetTaskId: string;
+  sessionId: string;
+  acceptedSeq: number;
+  state: "pending" | "joined" | "fallback" | "canceled";
+  entryId: string | null;
+}
+
+export interface TaskQueue {
+  revision: number;
+  tasks: Array<{ taskId: string; queueOrder: number }>;
+}
 
 /** 审批展示的权限范围（结构化、可验证；凭据只出现名称与用途，不含原值）。 */
 export type ApprovalScope =
@@ -972,8 +988,10 @@ export type PersistentEventBody =
   | { type: "session.context_compaction"; sessionId: string; requestId: string; status: SessionCompactionRequest["status"] }
   | { type: "tasks.model_selection_recorded"; sessionId: string; taskIds: string[]; modelSelection: ModelSelection }
   | { type: "task.attachments"; taskId: string; sessionId: string; attachments: AttachmentReference[] }
-  | { type: "task.queued"; taskId: string; sessionId: string; requestId: string; accessMode: AccessMode; parentTaskId?: string | null; sourcePermissionVersion?: number | null; planMode: boolean; modelSelection: ModelSelection | null }
+  | { type: "task.queued"; taskId: string; sessionId: string; requestId: string; accessMode: AccessMode; parentTaskId?: string | null; sourcePermissionVersion?: number | null; planMode: boolean; modelSelection: ModelSelection | null; queueOrder: number }
   | { type: "task.started"; taskId: string; sessionId: string }
+  | { type: "session.queue_changed"; sessionId: string; queue: TaskQueue }
+  | { type: "task.guidance"; taskId: string; sessionId: string; guidance: TaskGuidance }
   /** Jev 选择尝试；即使主模型未发送，取消与回退仍有任务归属记录。 */
   | { type: "task.context_experiment"; taskId: string; sessionId: string; experiment: ContextExperimentRecord }
   /**

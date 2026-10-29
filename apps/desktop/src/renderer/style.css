@@ -251,6 +251,24 @@ code, pre { font-family: var(--font-mono); }
 .task-notice > svg { width: 13px; height: 13px; }
 .task-notice > span { margin-right: auto; }
 .task-notice button { height: 26px; padding: 0 7px; font-size: 11px; }
+
+/* 紧凑排队面板（coding-message-control） */
+.queue-panel { margin-bottom: 8px; }
+.queue-panel-toggle { display: flex; align-items: center; gap: 8px; width: 100%; border: 0; background: none; padding: 8px 10px; font-size: 11px; color: var(--text-secondary); cursor: pointer; }
+.queue-panel-icon { width: 13px; height: 13px; }
+.queue-panel-chevron { width: 13px; height: 13px; margin-left: auto; transition: transform .15s; }
+.queue-panel-chevron.is-open { transform: rotate(180deg); }
+.queue-panel-list { list-style: none; margin: 0; padding: 0 6px 8px; max-height: 220px; overflow-y: auto; }
+.queue-panel-item { display: flex; align-items: center; gap: 8px; padding: 5px 4px; border-radius: 7px; outline: none; }
+.queue-panel-item:focus-visible { box-shadow: 0 0 0 2px var(--ui-border); }
+.queue-panel-pos { width: 18px; height: 18px; border-radius: 5px; background: var(--bg-surface-active); color: var(--text-secondary); font-size: 10px; display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.queue-panel-text { flex: 1; min-width: 0; font-size: 12px; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.queue-panel-actions { display: inline-flex; gap: 2px; }
+.queue-panel-btn { width: 24px; height: 24px; padding: 0; }
+.queue-panel-btn svg { width: 13px; height: 13px; }
+.queue-panel-steer svg { color: var(--text-secondary); }
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip-path: inset(50%); }
+.steer-toggle.is-on { color: var(--text-primary); background: var(--bg-surface-active); }
 .empty-state { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 30px; }
 .empty-symbol { color: var(--text-muted); margin-bottom: 20px; }
 .empty-symbol svg { width: 32px; height: 32px; }

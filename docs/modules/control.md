@@ -35,7 +35,7 @@
 | 操作类别 | 代表性 op 名称 | 核心能力说明 |
 |---|---|---|
 | **鉴权与连接** | `auth`, `ping`, `connect`, `stop` | 令牌鉴权、服务活性探测、全量快照握手与服务优雅停止 |
-| **任务与队列控制** | `submit`, `continue`, `interrupt`, `cancel`, `switch_mode`, `resume_queue` | 任务提交、在途任务中断与取消、模式切换（受限/完全访问）与队列恢复 |
+| **任务与队列控制** | `submit`, `continue`, `interrupt`, `cancel`, `switch_mode`, `resume_queue`, `task_queue`, `queue_reorder`, `steer_task` | 任务提交、在途任务中断与取消、模式切换（受限/完全访问）、队列恢复、持久顺序读取与重排、排队输入转引导 |
 | **状态与事件查询** | `get_task`, `list_tasks`, `read_task_events` | 任务执行状态检索与事件历史分页拉取 |
 | **安全审批响应** | `respond_confirmation`, `get_confirmation_params` | 拥有者批准/拒绝敏感操作；按需分段读取超长审批参数 |
 | **会话与工作区** | `open_workspace`, `create_session`, `branch_session`, `compact_session` | 映射工作区目录、新建会话、按已完成任务或当前安全尾拉取会话分支与手动触发历史压缩 |

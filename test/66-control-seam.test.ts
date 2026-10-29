@@ -51,6 +51,7 @@ const TUI_OPS: Record<TuiOp, true> = {
   get_tool_op_mcp: true, get_tool_op_params: true, get_confirmation_params: true, read_artifact: true, get_session_usage: true, get_session: true, list_session_summaries: true, list_models: true,
   set_session_model: true, set_session_mode: true, set_session_archived: true, create_project: true, create_session: true, open_workspace: true, submit: true, continue: true,
   interrupt: true, cancel: true, resume_queue: true, respond_confirmation: true, list_selection_records: true,
+  task_queue: true, queue_reorder: true, steer_task: true,
   get_context_breakdown: true, list_prompt_requests: true, read_prompt_snapshot: true, search_history: true, list_skills: true, list_subagent_roles: true,
   skills_list: true, skill_get: true,
   list_memories: true, get_memory: true, revoke_memory: true, restore_memory: true, qq_status: true, qq_set_enabled: true,
@@ -231,14 +232,14 @@ function session(overrides: Partial<Session> = {}): Session {
     branchSource: null, kind: "dev", cwd: os.tmpdir(), cwdReal: os.tmpdir(), cwdDev: 0, cwdIno: 0,
     piSessionId: "pi_fake", sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: { ...MODEL },
     modelSelectionVersion: 1, defaultAccessMode: "confirm", defaultAccessModeVersion: 1, queueState: "active",
-    queuePauseReason: null, archivedAt: null, createdAt: T0, ...overrides,
+    queuePauseReason: null, queueRevision: 0, archivedAt: null, createdAt: T0, ...overrides,
   };
 }
 
 function task(overrides: Partial<Task> = {}): Task {
   return {
     id: "task_fake", sessionId: "sess_fake", requestId: "req_fake", input: "输入", inputPurpose: "user", modelSelection: { ...MODEL },
-    submissionDigest: null, status: "queued", accessMode: "confirm", planMode: false, permissionVersion: 1, sourcePermissionVersion: null, grantedPaths: [],
+    submissionDigest: null, status: "queued", queueOrder: 1, accessMode: "confirm", planMode: false, permissionVersion: 1, sourcePermissionVersion: null, grantedPaths: [],
     pendingAccessMode: null, interruptReason: null, cancelRequested: false, effectUnknown: false, errorMessage: null,
     historyEntryIds: [], resumesTaskId: null, agentId: null, parentTaskId: null, sourceEventId: null, deadline: null,
     resultSummary: null, resultRef: null,

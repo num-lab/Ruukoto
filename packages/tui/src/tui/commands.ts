@@ -48,8 +48,12 @@ export interface CommandHost {
   openWorkflow(): void;
   openQuestions(): void;
   openProcesses(): void;
+  /** 排队输入面板：逐项上移/下移、转为引导。 */
+  openQueue(): void;
   /** 以当前会话提交任务输入。 */
   submit(text: string): Promise<void>;
+  /** 把正文作为引导接入当前任务（/steer；错过目标回队首）。 */
+  steer(text: string): Promise<void>;
 }
 
 export interface CommandContext {
@@ -320,6 +324,12 @@ export const COMMANDS: readonly SlashCommand[] = [
   { name: "model", description: "切换模型", keepsResult: true, run: (ctx) => ctx.host.openModelPicker(ctx.result) },
   { name: "continue", description: "继续已中断任务", argumentHint: "[taskId]", run: (ctx, { arg }) => ctx.host.continueTask(arg) },
   { name: "resume-queue", description: "恢复已暂停的会话队列", run: (ctx) => ctx.host.resumeQueue() },
+  { name: "queue", description: "查看排队输入，逐项上移/下移或转为引导", run: (ctx) => ctx.host.openQueue() },
+  { name: "steer", description: "把正文作为引导接入当前任务的下一边界", argumentHint: "<正文>",
+    run: async (ctx, { arg }) => {
+      if (!arg) { ctx.notify("用法：/steer <正文>（引导接入当前任务；错过目标回到队首）"); return; }
+      await ctx.host.steer(arg);
+    } },
   { name: "mode", description: "选择当前会话的默认模式", keepsResult: true, run: (ctx, { rest }) => ctx.host.openModeList(rest, ctx.result) },
   {
     name: "status",

@@ -2,7 +2,7 @@
 
 Status: implemented
 
-相关提案：[Coding 消息重排与引导](../../proposed/feature/2026-10-28-coding-message-control.md)。
+相关决定：[Coding 消息重排与引导](../feature/2026-10-28-coding-message-control.md)。
 
 模型工具接口的后续决定见[通用等待](../feature/2026-10-25-code-wait.md)；本篇持久化与权限机制仍有效。
 

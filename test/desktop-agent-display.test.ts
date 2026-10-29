@@ -119,7 +119,7 @@ test("子任务详情仅从唯一成功委派投影原始请求，继续与协�
 
 function taskView(extra: Partial<TaskView> = {}): TaskView {
   return { id: "child", sessionId: "session", requestId: "request", input: "完整宿主输入", inputPurpose: "user", modelSelection: null, submissionDigest: "digest",
-    status: "running", accessMode: "confirm", planMode: false, permissionVersion: 1, grantedPaths: [], pendingAccessMode: null, interruptReason: null,
+    status: "running", queueOrder: 1, accessMode: "confirm", planMode: false, permissionVersion: 1, grantedPaths: [], pendingAccessMode: null, interruptReason: null,
     cancelRequested: false, effectUnknown: false, errorMessage: null, historyEntryIds: [], resumesTaskId: null, agentId: null, parentTaskId: "parent",
     sourcePermissionVersion: null, sourceEventId: null, deadline: null, resultSummary: null, resultRef: null, workId: "work", subAgentId: "agent", readScope: null,
     resultDeliveredAt: null, createdAt: "2026-10-16T00:00:00Z", startedAt: "2026-10-16T00:00:00Z", endedAt: null, ...extra };

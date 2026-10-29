@@ -75,6 +75,7 @@ function task(over: Partial<Task> & { id: string; status: Task["status"] }): Tas
     createdAt: ts(60),
     startedAt: ts(59),
     endedAt: ts(50),
+    queueOrder: 1,
     ...over,
   };
 }
@@ -121,7 +122,7 @@ const SESSION: Session = {
   defaultAccessMode: "confirm",
   defaultAccessModeVersion: 0,
   queueState: "paused",
-  queuePauseReason: "backend_restart", archivedAt: null,
+  queuePauseReason: "backend_restart", queueRevision: 0, archivedAt: null,
   createdAt: ts(120),
 };
 
@@ -332,7 +333,7 @@ function demoEvents(): PersistentEvent[] {
     { type: "session.model_selection_changed", sessionId: SESSION_ID, modelSelection: MODEL, modelSelectionVersion: 3 },
     { type: "session.default_mode_changed", sessionId: SESSION_ID, defaultAccessMode: "confirm", defaultAccessModeVersion: 1 },
     { type: "session.context_compaction", sessionId: SESSION_ID, requestId: "cmp_demo00000001", status: "succeeded" },
-    { type: "task.queued", taskId: "task_completed000", sessionId: SESSION_ID, requestId: "req-1", accessMode: "full_access", planMode: false, modelSelection: MODEL },
+    { type: "task.queued", taskId: "task_completed000", sessionId: SESSION_ID, requestId: "req-1", accessMode: "full_access", planMode: false, modelSelection: MODEL, queueOrder: 1 },
     { type: "task.attachments", taskId: "task_completed000", sessionId: SESSION_ID, attachments: [] },
     { type: "task.started", taskId: "task_completed000", sessionId: SESSION_ID },
     { type: "task.context_compaction", taskId: "task_completed000", sessionId: SESSION_ID, compactionId: "compact_demo0001", phase: "finished", checkpointId: null, summaryModel: null, estimateBefore: 8000, estimateAfter: 6000, clearedResults: 1, summarizedCount: 0 },
@@ -370,7 +371,7 @@ function demoEvents(): PersistentEvent[] {
       },
     },
     { type: "task.completed", taskId: "task_completed000", sessionId: SESSION_ID },
-    { type: "task.queued", taskId: "task_awaiting0000", sessionId: SESSION_ID, requestId: "req-2", accessMode: "auto-review", planMode: false, modelSelection: MODEL },
+    { type: "task.queued", taskId: "task_awaiting0000", sessionId: SESSION_ID, requestId: "req-2", accessMode: "auto-review", planMode: false, modelSelection: MODEL, queueOrder: 1 },
     { type: "task.started", taskId: "task_awaiting0000", sessionId: SESSION_ID },
     {
       type: "task.awaiting_confirmation",
@@ -394,11 +395,11 @@ function demoEvents(): PersistentEvent[] {
     { type: "task.mode_switched", taskId: "task_running000000", sessionId: SESSION_ID, from: "confirm", to: "full_access", permissionVersion: 2 },
     { type: "task.mode_switch_failed", taskId: "task_failed00000", sessionId: SESSION_ID, to: "full_access", reason: "任务已结束" },
     { type: "task.thinking", taskId: "task_running000000", sessionId: SESSION_ID, messageId: "msg_live", thinkingId: "thought_live", startedAt: ts(2), endedAt: null, text: "正在检查任务恢复与终端宽度。最新内容保留在这一行的尾部。" },
-    { type: "task.queued", taskId: "task_failed00000", sessionId: SESSION_ID, requestId: "req-3", accessMode: "confirm", planMode: false, modelSelection: MODEL },
+    { type: "task.queued", taskId: "task_failed00000", sessionId: SESSION_ID, requestId: "req-3", accessMode: "confirm", planMode: false, modelSelection: MODEL, queueOrder: 1 },
     { type: "task.failed", taskId: "task_failed00000", sessionId: SESSION_ID, errorMessage: "模型返回 429：速率限制" },
-    { type: "task.queued", taskId: "task_canceled000", sessionId: SESSION_ID, requestId: "req-4", accessMode: "confirm", planMode: false, modelSelection: MODEL },
+    { type: "task.queued", taskId: "task_canceled000", sessionId: SESSION_ID, requestId: "req-4", accessMode: "confirm", planMode: false, modelSelection: MODEL, queueOrder: 1 },
     { type: "task.canceled", taskId: "task_canceled000", sessionId: SESSION_ID },
-    { type: "task.queued", taskId: "task_interrupt00", sessionId: SESSION_ID, requestId: "req-5", accessMode: "confirm", planMode: false, modelSelection: MODEL },
+    { type: "task.queued", taskId: "task_interrupt00", sessionId: SESSION_ID, requestId: "req-5", accessMode: "confirm", planMode: false, modelSelection: MODEL, queueOrder: 1 },
     { type: "task.interrupted", taskId: "task_interrupt00", sessionId: SESSION_ID, reason: "backend_restart", cancelRequested: false, effectUnknown: true },
     { type: "task.continued", taskId: "task_contd000000", sessionId: SESSION_ID, resumesTaskId: "task_interrupt00" },
     { type: "task.tool_process_unreaped", taskId: "task_interrupt00", sessionId: SESSION_ID, reason: "原生单元停止未核实" },

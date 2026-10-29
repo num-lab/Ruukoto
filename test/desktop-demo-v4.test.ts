@@ -10,7 +10,7 @@ import { reorderTab, tabDragOffset } from "../apps/desktop/src/renderer/tab-orde
 import { fakeSnapshot } from "./helpers/fake-control.ts";
 import { waitFor } from "./helpers/testkit.ts";
 
-const session: Session = { id: "same-id", projectId: "main", kind: "dev", workspaceProjectId: null, name: null, branchSource: null, cwd: "/work", cwdReal: "/work", cwdDev: 1, cwdIno: 1, piSessionId: "pi", sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: null, modelSelectionVersion: 0, defaultAccessMode: "confirm", defaultAccessModeVersion: 0, queueState: "active", queuePauseReason: null, archivedAt: null, createdAt: "2026-10-17T00:00:00Z" };
+const session: Session = { id: "same-id", projectId: "main", kind: "dev", workspaceProjectId: null, name: null, branchSource: null, cwd: "/work", cwdReal: "/work", cwdDev: 1, cwdIno: 1, piSessionId: "pi", sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: null, modelSelectionVersion: 0, defaultAccessMode: "confirm", defaultAccessModeVersion: 0, queueState: "active", queuePauseReason: null, queueRevision: 0, archivedAt: null, createdAt: "2026-10-17T00:00:00Z" };
 
 test("PA 按快照 main 身份读取历史和正文，跨目标相同 session id 不串线", async () => {
   const requests: { target: string; op: string }[] = [];

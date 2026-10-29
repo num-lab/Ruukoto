@@ -443,6 +443,8 @@ function prepareContextGroups(messages: any[], from = 0): {
   batches: number[][];
   todoUnit: number[] | undefined;
   mandatory: Set<number>;
+  /** 当前任务的持久身份（user 消息的 ruukotoTaskId）；无标记的历史沿用最后组语义。 */
+  currentTaskId: string | null;
   droppedUnpaired: SelectionDroppedUnpaired[];
 } {
   // 崩溃残留的孤儿只从模型视图移出，不删历史，也不连带删掉当前任务要求。
@@ -456,13 +458,21 @@ function prepareContextGroups(messages: any[], from = 0): {
   const groups = units.length > 0 ? [...history, units.flat()] : history;
   const mandatory = new Set<number>(units[0] ?? []);
   if (units.length > 1) for (const index of units.at(-1)!) mandatory.add(index);
+  // 必留输入（coding-message-control）：当前任务的全部 user 输入＝原始要求＋已接入的
+  // 全部引导。引导在消息流中另起一组但携带同一 ruukotoTaskId，不再把最后一条 user
+  // 等同于整个当前任务；无标记的历史消息沿用最后组语义。
+  const tagged = units.length > 0 ? messages[units[0]![0]!]?.ruukotoTaskId : undefined;
+  const currentTaskId = typeof tagged === "string" ? tagged : null;
+  if (currentTaskId) for (let i = 0; i < messages.length; i++) {
+    if (messages[i]?.role === "user" && messages[i].ruukotoTaskId === currentTaskId) mandatory.add(i);
+  }
   // 工作清单保底（issue 25）：当前任务最近一次成功 todo_write 所在批次与最新批次同级必留。
   // ponytail: 只在当前任务内保底；上一任务整轮被移出时模型看不到旧清单，需要时自行重写。
   // 跨任务保底另行立项（issue 25「关联与后续」）
   const todoUnit = units.slice(1).findLast((unit) => unit.some((i) => isTodoWriteSuccess(messages[i])));
   if (todoUnit) for (const index of todoUnit) mandatory.add(index);
   const batches = units.slice(1, -1).filter((unit) => unit !== todoUnit);
-  return { groups, units, batches, todoUnit, mandatory, droppedUnpaired };
+  return { groups, units, batches, todoUnit, mandatory, currentTaskId, droppedUnpaired };
 }
 
 /** 调用 ID 只在本 assistant 批次内配对，不能由其他任务或轮次的结果补齐。
@@ -657,7 +667,7 @@ export function selectContext(input: SelectorInput, decisions?: ReadonlyMap<stri
   const checkpoint = compaction?.checkpoint ?? null;
   const from = checkpoint?.summarizedCount ?? 0;
 
-  const { groups, batches, mandatory, droppedUnpaired } = prepareContextGroups(messages, from);
+  const { groups, batches, mandatory, currentTaskId, droppedUnpaired } = prepareContextGroups(messages, from);
   if (decisions) {
     const ids = new Set([...batches, ...groups.slice(0, -1)].map(candidateId));
     for (const [id, keep] of decisions) {
@@ -685,7 +695,7 @@ export function selectContext(input: SelectorInput, decisions?: ReadonlyMap<stri
   // 必留合计 = 此刻已写入的各项估算之和（失败文案逐项列出，数字总能对上）
   const fixed = Object.values(estimates).reduce((n, tokens) => n + tokens, 0);
   let unboundedTotal = fixed;
-  for (const unit of [...batches, ...groups.slice(0, -1)]) for (const index of unit) unboundedTotal += tokensOf(index);
+  for (const unit of [...batches, ...groups.slice(0, -1)]) for (const index of unit) if (!mandatory.has(index)) unboundedTotal += tokensOf(index);
   if (fixed > budget) {
     const listed = (Object.keys(CONTEXT_CATEGORIES) as ContextCategory[])
       .filter((key) => estimates[key] > 0)
@@ -719,16 +729,16 @@ export function selectContext(input: SelectorInput, decisions?: ReadonlyMap<stri
   for (let u = batches.length - 1; u >= 0; u--) {
     const unit = batches[u]!;
     if (decisions?.get(candidateId(unit)) === false) {
-      for (const index of unit) excluded.push({ index, reason: "jev_rejected" });
+      for (const index of unit) if (!mandatory.has(index)) excluded.push({ index, reason: "jev_rejected" });
       continue;
     }
     let unitTokens = 0;
-    for (const index of unit) unitTokens += tokensOf(index);
+    for (const index of unit) if (!mandatory.has(index)) unitTokens += tokensOf(index);
     if (used + unitTokens > budget) {
       for (let rest = u; rest >= 0; rest--) {
         const reason = exclusionReason(batches[rest]!);
         if (reason === "budget") evicted.push(batches[rest]!);
-        for (const index of batches[rest]!) excluded.push({ index, reason });
+        for (const index of batches[rest]!) if (!mandatory.has(index)) excluded.push({ index, reason });
       }
       break;
     }
@@ -742,16 +752,16 @@ export function selectContext(input: SelectorInput, decisions?: ReadonlyMap<stri
   for (let g = groups.length - 2; g >= 0; g--) {
     const group = groups[g]!;
     if (decisions?.get(candidateId(group)) === false) {
-      for (const index of group) excluded.push({ index, reason: "jev_rejected" });
+      for (const index of group) if (!mandatory.has(index)) excluded.push({ index, reason: "jev_rejected" });
       continue;
     }
     let groupTokens = 0;
-    for (const index of group) groupTokens += tokensOf(index);
+    for (const index of group) if (!mandatory.has(index)) groupTokens += tokensOf(index);
     if (used + groupTokens > budget) {
       for (let rest = g; rest >= 0; rest--) {
         const reason = exclusionReason(groups[rest]!);
         if (reason === "budget") evicted.push(groups[rest]!);
-        for (const index of groups[rest]!) excluded.push({ index, reason });
+        for (const index of groups[rest]!) if (!mandatory.has(index)) excluded.push({ index, reason });
       }
       break;
     }
@@ -769,8 +779,10 @@ export function selectContext(input: SelectorInput, decisions?: ReadonlyMap<stri
   estimates.historyTurns = used - fixed - estimates.currentTaskBatches;
 
   const includedIndices = messages.map((_, i) => i).filter((i) => included.has(i));
-  // 当前任务输入（最后一组的首条）必留，任务级块插在它之前
-  const taskStart = includedIndices.indexOf(groups.at(-1)?.[0] ?? -1);
+  // 当前任务输入（最后一组的首条）必留，任务级块插在它之前；带 ruukotoTaskId 的
+  // 任务段从原始要求起算（引导输入在流中另起一组，但任务级上下文先于整个任务）
+  const taskSpanStart = currentTaskId === null ? -1 : (includedIndices.find((i) => messages[i]?.ruukotoTaskId === currentTaskId) ?? -1);
+  const taskStart = includedIndices.indexOf(taskSpanStart >= 0 ? taskSpanStart : (groups.at(-1)?.[0] ?? -1));
   const view = includedIndices.map((i) => viewOf(i));
   view.splice(taskStart < 0 ? view.length : taskStart, 0, ...taskMessages);
   // 前缀参考块与记忆 → 摘要块 → 移出标记 → [S, n) 的历史 → 任务级参考块 → 当前任务

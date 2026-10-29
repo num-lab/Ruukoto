@@ -1,7 +1,7 @@
 // Package browser 是 MyGo 右栏浏览器页面宿主：每主会话一个独立 WebView。
 // 可信前端上报占位矩形、可见性与遮挡，原生按矩形放置当前会话页；
 // owned=true 表示 Agent 持有页面，原生盖挡住人工输入，交还/接管由可信前端发起。
-// Note: 见 .agents/notes/proposed/feature/2026-10-29-mygo-agent-browser.md
+// Note: 见 .agents/notes/implemented/feature/2026-10-29-mygo-agent-browser.md
 package browser
 
 import (
@@ -84,9 +84,10 @@ type page struct {
 	view    *mygo.WebView // 单测中为 nil
 	handle  handle
 
-	gen   atomic.Uint64 // 每次导航请求/提交、闸门翻转、页销毁均推进；动作按代次拒绝
-	owned atomic.Bool   // true = Agent 持有：原生盖遮挡人工输入
-	gone  atomic.Bool   // 渲染进程消失或页已销毁
+	gen       atomic.Uint64 // 每次导航请求/提交、闸门翻转、页销毁均推进；动作按代次拒绝
+	owned     atomic.Bool   // true = Agent 持有：原生盖遮挡人工输入
+	ownerHeld atomic.Bool   // true = 拥有者曾接管且未交还；open 不得夺页
+	gone      atomic.Bool   // 渲染进程消失或页已销毁
 
 	infoMu     sync.RWMutex
 	url, title string
@@ -273,6 +274,7 @@ func (m *Manager) setOwned(p *page, owned bool, source string) {
 		return
 	}
 	gen := p.gen.Add(1)
+	p.ownerHeld.Store(!owned)
 	if owned && m.placedPage() == p {
 		m.deps.Focus()
 	}
@@ -386,22 +388,6 @@ func (m *Manager) Command(ctx context.Context, op string, in CommandIn) json.Raw
 			return failure("capture_failed", "unknown", err.Error())
 		}
 		return succeed(map[string]any{"png": base64.StdEncoding.EncodeToString(png), "generation": p.gen.Load()})
-	case "own":
-		return m.syncMain(ctx, func() json.RawMessage {
-			if p == nil {
-				return failure("no_page", "not_sent", "该会话没有浏览器页面。")
-			}
-			m.setOwned(p, true, "host")
-			return succeed(m.snapshot(p))
-		})
-	case "release":
-		if p == nil {
-			return succeed(map[string]any{"released": false})
-		}
-		return m.syncMain(ctx, func() json.RawMessage {
-			m.setOwned(p, false, "host")
-			return succeed(m.snapshot(p))
-		})
 	case "close":
 		return m.syncMain(ctx, func() json.RawMessage {
 			return succeed(map[string]any{"closed": m.closePage(in.Session)})
@@ -422,10 +408,14 @@ func (m *Manager) syncMain(ctx context.Context, fn func() json.RawMessage) json.
 }
 
 // open 建立或复用会话页，授予 Agent 持有并导航；主线程。
+// 拥有者持页时拒绝：open 不得绕过交还闸门夺页。
 func (m *Manager) open(session, rawURL string) json.RawMessage {
 	p, err := m.ensurePage(session)
 	if err != nil {
 		return failure("open_failed", "not_sent", err.Error())
+	}
+	if p.ownerHeld.Load() {
+		return failure("page_owned", "not_sent", "页面正由拥有者持有；请先交还。")
 	}
 	m.setOwned(p, true, "host")
 	if rawURL == "" {

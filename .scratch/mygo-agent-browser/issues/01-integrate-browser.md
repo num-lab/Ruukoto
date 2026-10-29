@@ -4,7 +4,7 @@ Status: in-progress
 
 ## 目标与边界
 
-让 MyGo 中发起的完全访问 Coding 主 Agent 任务，查看并操控所属主会话右栏的同一浏览器页面；首要验收是本地前端开发闭环。拥有者用“接管／交还 Agent”在人工操作与同一任务自动化之间切换。2026-10-29 访谈 Q1–Q10 的决定、理由、备选和关键契约统一由[决策提案](../../../.agents/notes/proposed/feature/2026-10-29-mygo-agent-browser.md)持有，下一角色必须先读；本工单只持有实施与验收。
+让 MyGo 中发起的完全访问 Coding 主 Agent 任务，查看并操控所属主会话右栏的同一浏览器页面；首要验收是本地前端开发闭环。拥有者用“接管／交还 Agent”在人工操作与同一任务自动化之间切换。2026-10-29 访谈 Q1–Q10 的决定、理由、备选和关键契约统一由[决策提案](../../../.agents/notes/implemented/feature/2026-10-29-mygo-agent-browser.md)持有，下一角色必须先读；本工单只持有实施与验收。
 
 本轮只提交已制定和审查的方案，不实现或发布。Electron/Personal 自动化、SubAgent、受限模式、计划模式、后台来源、新浏览器配置和通用电脑控制不在首版；TUI Chrome、既有文件预览和 present 的展示授权保持。
 
@@ -36,7 +36,7 @@ Status: in-progress
 
 ## 验收与证据
 
-目前工程验收：待验证；产品验收：待验收。下列都是未来实施验收，尚未执行。方案审查单独记录于[审查证据](../evidence/plan-review.md)，不能把方案通过写成功能通过。
+目前工程验收：部分完成——步骤 1–5 的实现级证据已落盘（探针 P01–P17、宿主探针 H01–H08、控制通路/工具族/屏障单测、check:static 与 desktop:mygo:build 全绿）；产品验收：待验收。下表 A1–A10 中依赖真实模型闭环、真实双窗口交互与人工视觉判断的项（A1、A2、A3、A5 整链路、A9 实窗、A10 拥有者体验）尚未执行，不得以现有自动证据记为通过。方案审查单独记录于[审查证据](../evidence/plan-review.md)，不能把方案通过写成功能通过。
 
 | 编号 | 必须证明的行为 | 最小证据 |
 | --- | --- | --- |
@@ -71,4 +71,4 @@ Status: in-progress
 
 2026-10-29：步骤 4 宿主工具与接管屏障完成。新增 `desktop_browser` 工具类别与专用族（`desktop-browser.ts` 管理器 + `desktop-browser-tools.ts`）：资格 = `task_browser_bindings` 持久来源 + dev 会话 + 完全访问 + 非 Plan/SubAgent/定时后代；与旧 `browser` 由 Driver 收窄互斥（MyGo 绑定任务只见新族，TUI/其他照旧）。命令按 `connectionId|session` 串行，`execute` 发送边界复核闸门：拥有者持有时 `awaitGate` 等交还（25ms 取消轮询），页面消亡/未绑定/未登记拒绝；`disconnected`/`unknown` 按效果未知记不静默重发。快照引用绑 (任务, 代次)，导航/代次翻转作废，`stale_ref` 要求重新 snapshot；截图走 `transfer` 分块或内联 base64，校验图片签名后 `importImage` 进 ArtifactStore 并记 `recordArtifact`；超 24k 字符快照截断标注并尝试 `importAttachment` 全文产物。接管屏障：Go `gate` 事件 `owned:false→true` 置 `pendingReturn`，Driver 在 `finishTurn`/`prepareNextTurnWithContext`/`prepareRequest`/`handleToolCall` 四边界 `browserGate`：持有时发 `task.browser_wait` 事件并等待，任务保持 running；释放后 `recordBrowserObservation` 先 eval 取 DOM 摘要（失败写 unavailable 事实）、`appendMarker("ruukoto_browser_observation")` 落会话 JSONL 并解析核实、`mustRejudge` 强制一次 `finishTurn` continue；装配层把未投影的最新 marker 投为 `browserObservation` 参考块并按 observationId 记录交付，发送兜底 `checkBeforeSend`/`prepareRequest` 对未交付观察拒绝旧上下文发送。`server.revokeBrowser` 断线时回调 `onDesktopBrowserDisconnected` 标记页面 gone 并释放等待。验证：新测试 `desktop-browser-manager.test.ts` 7 例（资格矩阵、互斥、事件投影/一次消费、断线释放、等待/取消不发送、串行、代次引用作废、观察 marker→参考块投影与 unavailable），control/tool-availability/host-tool-families/task-tool-policy 回归全过；check:static 全绿。
 
-2026-10-29：步骤 5 前端接线完成。新增 `renderer/native-browser.ts`（`NativeBrowserApi` 类型 + `nativeBrowser()` 取 `window.ruukoto.browser`，`NativeBrowserState` 按 session 投影 gate/nav/title/gone/closed 事件）与 `renderer/native-browser-panel.tsx`（右栏原生宿主面板：`.native-browser-host` 占位区只上报几何不绘制页面，ResizeObserver + MutationObserver + scroll/resize 监听经 `reportRef` 上报 `rect` 与 `state(session, shown, covered)`；顶栏按所有权渲染「接管/交还 Agent」按钮与后退/前进/刷新/地址栏/关闭——后退、前进、刷新与地址栏仅 Agent 持有时可用，「接管」「关闭」始终可用；`usePageReporter` 的 rect/state 上报按 `[api, sessionId, visible]` 收窄不逐帧刷屏）。`code-state.ts` 接 `browser_event` update 进 `NativeBrowserState` 并投到 `code-browser` 标签；`inspector-panel.tsx` 的 browser 标签在 `state.pages` 命中时改渲 `NativeBrowserPanel`，命中不了保持原 iframe `BrowserPanel`——普通浏览器/文件预览标签完全不动。`env.d.ts` 暴露 `RuukotoDesktop` 联合类型（原 `DesktopBridge` + 可选 `browser` 面），MyGo preload 已有同名 API。样式 `.native-browser-host`/`.browser-gate-note`/`.native-browser-caption` 加进 style.css 既有 browser 区块。验证：`apps/desktop` tsc、eslint、全量 `desktop:mygo:build`（Go + 前端 + bindings + 签名）全过；真实窗口下的交互验收并入 A1–A3、A5。
+2026-10-29：步骤 5 前端接线完成。新增 `renderer/native-browser.ts`（`NativeBrowserApi` 类型 + `nativeBrowser()` 取 `window.ruukoto.browser`，`NativeBrowserState` 按 session 投影 gate/nav/title/gone/closed 事件）与 `renderer/native-browser-panel.tsx`（右栏原生宿主面板：`.native-browser-host` 占位区只上报几何不绘制页面，ResizeObserver + MutationObserver + scroll/resize 监听经 `reportRef` 上报 `rect` 与 `state(session, shown, covered)`；顶栏按所有权渲染「接管/交还 Agent」按钮与后退/前进/刷新/地址栏/关闭——后退、前进、刷新与地址栏仅 Agent 持有时可用，「接管」「关闭」始终可用；`usePageReporter` 的 rect/state 上报按 `[api, sessionId, visible]` 收窄不逐帧刷屏）。`code-state.ts` 接 `browser_event` update 进 `NativeBrowserState` 并投到 `code-browser` 标签；`inspector-panel.tsx` 的 browser 标签在 `state.pages` 命中时改渲 `NativeBrowserPanel`，命中不了保持原 iframe `BrowserPanel`——普通浏览器/文件预览标签完全不动。`NativeBrowserApi` 与 `Window.ruukoto` 声明落在 `shared/bridge.ts`（根 typecheck 程序与桌面程序共用同一来源），原 `env.d.ts` 删除；MyGo preload 已有同名 API。样式 `.native-browser-host`/`.browser-gate-note`/`.native-browser-caption` 加进 style.css 既有 browser 区块。验证：`apps/desktop` tsc、eslint、全量 `desktop:mygo:build`（Go + 前端 + bindings + 签名）全过；真实窗口下的交互验收并入 A1–A3、A5。

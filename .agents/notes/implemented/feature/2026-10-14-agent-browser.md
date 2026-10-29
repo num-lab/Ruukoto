@@ -2,7 +2,7 @@
 
 Status: implemented
 
-MyGo 右栏拟使用独立的桌面工具与接管规则，见[待实施提案](../../proposed/feature/2026-10-29-mygo-agent-browser.md)；本篇 Chrome 生命周期与暂停约束保持。
+MyGo 右栏使用独立的桌面工具与接管规则，见[右栏浏览器决定](2026-10-29-mygo-agent-browser.md)；本篇 Chrome 生命周期与暂停约束保持。
 
 ## 问题
 

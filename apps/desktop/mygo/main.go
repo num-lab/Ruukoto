@@ -34,7 +34,7 @@ type Desktop struct {
 	failed       bool
 }
 
-// Note: 见 .agents/notes/proposed/feature/2026-10-29-mygo-agent-browser.md
+// Note: 见 .agents/notes/implemented/feature/2026-10-29-mygo-agent-browser.md
 // 可信调用者必须同时匹配前端 Page 对象、宿主窗口与精确前端 URL：
 // 同一 URL 的另一独立 WebView 不能借 URL 冒充前端。
 func (d *Desktop) trusted(ctx context.Context) bool {

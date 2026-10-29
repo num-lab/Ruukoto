@@ -6,7 +6,7 @@ import { randomId, type Task } from "@ruukoto/core/types.ts";
 // 与 browser-manager（TUI Chrome）独立：页面生命周期归桌面进程，
 // 这里只跟踪控制面上行事件投影的页面状态、按页串行下发命令，
 // 并实现接管/交还的等待屏障。
-// Note: 见 .agents/notes/proposed/feature/2026-10-29-mygo-agent-browser.md
+// Note: 见 .agents/notes/implemented/feature/2026-10-29-mygo-agent-browser.md
 
 export class DesktopBrowserError extends Error {
   constructor(
@@ -76,7 +76,7 @@ export class DesktopBrowserManager {
   private readonly waiters = new Map<string, Set<(s: DesktopBrowserState) => void>>();
   private readonly tails = new Map<string, Promise<void>>();
   /** 会话内最近一次模型快照的引用集合，按 (任务绑定键) 与页面代次绑定。 */
-  private readonly snapshots = new Map<string, { generation: number; refs: Set<string> }>();
+  private readonly snapshots = new Map<string, { taskId: string; generation: number; refs: Set<string> }>();
 
   constructor(private readonly deps: { store: Store; call: () => CallFn | null }) {}
 
@@ -159,6 +159,7 @@ export class DesktopBrowserManager {
       if (!k.endsWith(`|${sessionId}`)) continue;
       const ws = this.waiters.get(k);
       if (ws) { this.waiters.delete(k); for (const w of ws) w(s); }
+      this.states.delete(k);
     }
     for (const k of [...this.snapshots.keys()]) if (k.endsWith(`|${sessionId}`)) this.snapshots.delete(k);
   }
@@ -199,14 +200,14 @@ export class DesktopBrowserManager {
     const st = k ? this.states.get(k) : null;
     const snap = k ? this.snapshots.get(k) : null;
     if (!st || st.gone) throw new DesktopBrowserError("disconnected", "页面不可用；请 status 核实后重开");
-    if (!snap || snap.generation !== st.generation || !snap.refs.has(ref)) {
+    if (!snap || snap.taskId !== task.id || snap.generation !== st.generation || !snap.refs.has(ref)) {
       throw new DesktopBrowserError("stale_ref", "引用未由当前页面代次的 snapshot 提供；请重新取快照");
     }
   }
 
   noteSnapshot(task: Task, generation: number, refs: Iterable<string>): void {
     const k = this.key(task);
-    if (k) this.snapshots.set(k, { generation, refs: new Set(refs) });
+    if (k) this.snapshots.set(k, { taskId: task.id, generation, refs: new Set(refs) });
   }
 
   /** 串行执行页面命令：发送边界复核闸门，接管中先等交还，拒绝旧代次重放。 */
@@ -222,10 +223,12 @@ export class DesktopBrowserManager {
 
   private async execute(k: string, connectionId: string, task: Task, op: string, input: Record<string, unknown>, timeoutMs: number, stopped: () => boolean): Promise<DesktopBrowserCommandResult> {
     let st = this.states.get(k);
-    // status/open 不过闸门：status 是探针本身（如实回传 owned:false 的接管态），open 允许页面不存在。
-    if (op !== "status" && op !== "open") {
-      if (!st || st.gone) throw new DesktopBrowserError("disconnected", "页面已关闭或连接断开");
-      if (!st.owned) {
+    // status 不过闸门：它是探针本身，如实回传 owned:false 的接管态；open 只在
+    // 页面不存在或已消亡时直放，页面存在且被接管时同样等交还，不得夺页。
+    if (op !== "status") {
+      if (!st || st.gone) {
+        if (op !== "open") throw new DesktopBrowserError("disconnected", "页面已关闭或连接断开");
+      } else if (!st.owned) {
         const outcome = await this.awaitGate(task, stopped);
         if (outcome === "stopped") throw new DesktopBrowserError("canceled", "任务已停止，浏览器动作未发送");
         st = this.states.get(k);
@@ -243,13 +246,20 @@ export class DesktopBrowserManager {
       const err = wire.error ?? { code: "rejected", outcome: "rejected", message: "命令被拒绝" };
       const outcome = err.outcome ?? "rejected";
       // unknown/disconnected 都可能已越过发送点，按效果未知记，不静默重试。
-      throw new DesktopBrowserError(err.code, `${err.message}（${err.code}）`, outcome === "unknown" || outcome === "disconnected");
+      throw new DesktopBrowserError(err.code, err.message, outcome === "unknown" || outcome === "disconnected");
     }
     const value = wire.value ?? {};
     const latest = this.states.get(k);
     if (typeof value.generation === "number" && latest && value.generation !== latest.generation) {
       latest.generation = value.generation;
       this.snapshots.delete(k);
+    }
+    if (op === "open") {
+      // 新开页清除消亡投影并恢复 Agent 持有；随后到达的页面事件再核对。
+      const cur = latest ?? { generation: 0, owned: true, gone: false };
+      cur.gone = false;
+      cur.owned = true;
+      this.states.set(k, cur);
     }
     return { value: value.value ?? {}, generation: value.generation, transfer: value.transfer as DesktopBrowserCommandResult["transfer"] };
   }

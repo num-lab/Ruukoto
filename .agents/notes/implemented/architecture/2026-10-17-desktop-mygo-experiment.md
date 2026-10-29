@@ -2,7 +2,7 @@
 
 Status: implemented
 
-MyGo 右栏的原生页面、Coding 自动化与显式接管另见[待实施提案](../../proposed/feature/2026-10-29-mygo-agent-browser.md)；本篇仍描述当前外壳。
+MyGo 右栏的原生页面、Coding 自动化与显式接管见[右栏浏览器决定](../feature/2026-10-29-mygo-agent-browser.md)；本篇描述外壳其余部分。
 
 PA连接与双壳秘密存储见 [Tailscale HTTPS／WebSocket](2026-10-24-personal-tailscale-https.md)；共用Host与私有管道的归属保持，凭据帧不进入界面事件。
 

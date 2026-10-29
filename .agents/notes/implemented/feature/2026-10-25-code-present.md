@@ -2,7 +2,7 @@
 
 Status: implemented
 
-MyGo 的 URL 展示载体与接管时导航顺序拟由[右栏自动化提案](../../proposed/feature/2026-10-29-mygo-agent-browser.md)补充；本篇来源、文件捕获与历史规则保持，提案尚未实施。
+MyGo 的 URL 展示载体与接管时导航顺序见[右栏浏览器决定](2026-10-29-mygo-agent-browser.md)；本篇来源、文件捕获与历史规则保持。
 
 [网页展示权限](2026-10-25-present-preview-access.md)取代本篇URL沿完全访问浏览器资格的约束；文件捕获、来源与侧栏接线保持。
 

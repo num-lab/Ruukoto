@@ -105,7 +105,7 @@
  * 分块走 desktop_browser_event / desktop_browser_chunk。任务来源归属由
  * 服务端按提交连接写定，客户端参数不能自称。旧客户端须升级（旧客户端
  * 收到 push:"request" 会按坏帧断开，故能力只对已登记连接发送）。
- * Note: 见 .agents/notes/proposed/feature/2026-10-29-mygo-agent-browser.md
+ * Note: 见 .agents/notes/implemented/feature/2026-10-29-mygo-agent-browser.md
  */
 
 import {

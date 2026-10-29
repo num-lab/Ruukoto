@@ -218,3 +218,36 @@ test("交还观察经会话 marker 投影为参考块，且只投影一次", asy
     assert.match(JSON.stringify(view3), /交还后观察不可得/);
   } finally { await t.close(); }
 });
+
+test("open 闸门：接管中 open 等交还不夺页；closed 后 open 重开清除消亡", async () => {
+  const t = await kit();
+  try {
+    const { session } = t.project();
+    const task = fullTask(t.store, session.id);
+    t.store.withTx(() => t.store.bindTaskBrowser(task.id, CONN));
+    const calls: { op: string; params: Record<string, unknown> }[] = [];
+    const m = managerWith(t.store, { log: calls });
+
+    // 首开：页面不存在时 open 直放
+    await m.command(task, "open", { url: "https://a.test" });
+    assert.equal(calls.length, 1);
+    assert.equal(m.state(task)?.owned, true);
+
+    // 接管中 open 挂起，交还后才发出
+    m.onEvent(CONN, ev(session.id, { kind: "gate", generation: 2, owned: false }));
+    const held = m.command(task, "open", { url: "https://b.test" });
+    await new Promise(r => setTimeout(r, 60));
+    assert.equal(calls.length, 1);
+    m.onEvent(CONN, ev(session.id, { kind: "gate", generation: 3, owned: true }));
+    await held;
+    assert.equal(calls.length, 2);
+
+    // 关页后 open 重开：消亡投影被清除，后续命令可发
+    m.onEvent(CONN, ev(session.id, { kind: "closed", generation: 4 }));
+    assert.equal(m.state(task)?.gone, true);
+    await m.command(task, "open", { url: "https://c.test" });
+    assert.equal(m.state(task)?.gone, false);
+    await m.command(task, "navigate", { url: "https://d.test" });
+    assert.equal(calls.length, 4);
+  } finally { await t.close(); }
+});

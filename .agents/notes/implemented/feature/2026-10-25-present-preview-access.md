@@ -2,7 +2,7 @@
 
 Status: implemented
 
-MyGo 拟把 URL 展示接到原生右栏页面，见[待实施提案](../../proposed/feature/2026-10-29-mygo-agent-browser.md)；本篇四模式展示资格与零审批决定保持。
+MyGo 的 URL 展示已接入原生右栏页面，见[右栏浏览器决定](2026-10-29-mygo-agent-browser.md)；本篇四模式展示资格与零审批决定保持。
 
 ## 问题
 

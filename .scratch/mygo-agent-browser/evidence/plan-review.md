@@ -2,7 +2,7 @@
 
 ## 对象与边界
 
-2026-10-29，独立审查者为 collaboration 子代理 /root/plan_review，直接核对本功能的[实施工单](../issues/01-integrate-browser.md)、[决策提案](../../../.agents/notes/proposed/feature/2026-10-29-mygo-agent-browser.md)、原始 Q1–Q10 决定、当前源码和固定版本 MyGo API。工作副本含无关功能改动，审查不为其背书。
+2026-10-29，独立审查者为 collaboration 子代理 /root/plan_review，直接核对本功能的[实施工单](../issues/01-integrate-browser.md)、[决策提案](../../../.agents/notes/implemented/feature/2026-10-29-mygo-agent-browser.md)、原始 Q1–Q10 决定、当前源码和固定版本 MyGo API。工作副本含无关功能改动，审查不为其背书。
 
 ## 当前结果
 

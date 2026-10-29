@@ -6,7 +6,7 @@ import type { DesktopBrowserChunk, DesktopBrowserEvent } from "@ruukoto/control/
  * MyGo 桌面浏览器桥（mygo-agent-browser）：控制面窄命令经此转到 Go 侧
  * browser.Manager；截图/快照结果按 256KiB 原始字节分块回流，服务端按
  * command_id 与 sha256 校验装配。事件上报与登记走同一控制连接。
- * Note: 见 .agents/notes/proposed/feature/2026-10-29-mygo-agent-browser.md
+ * Note: 见 .agents/notes/implemented/feature/2026-10-29-mygo-agent-browser.md
  */
 
 /** Go 侧命令通道（Node→Go 私有帧）；结果即 Manager.Command 的 {ok,value|error}。 */
@@ -24,7 +24,7 @@ export interface BrowserConn {
 const CHUNK_BYTES = 256 * 1024;
 /** 应答内联上限：结果超过即要求 transfer；非 transfer 字段超限按结果过大拒绝。 */
 const INLINE_RESULT_BYTES = 768 * 1024;
-const TRANSFER_FIELDS: Record<string, string> = { png: "screenshot", snapshot: "snapshot" };
+const TRANSFER_FIELDS: Record<string, string> = { png: "screenshot" };
 
 interface TransferPick {
   field: string;
@@ -87,7 +87,9 @@ export class DesktopBrowserBridge {
     const transfer = pickTransfer(raw);
     if (!transfer) {
       if (Buffer.byteLength(JSON.stringify(raw), "utf8") <= INLINE_RESULT_BYTES) return raw;
-      return { ok: false, error: { code: "result_too_large", outcome: "unknown", message: "浏览器结果超过内联上限，效果未知。" } };
+      // 超限只发生在只读结果（快照/截图文本）；可变更动作的结果体都很小。
+      // 应答未送达而非效果未知，标 not_sent 允许安全重试。
+      return { ok: false, error: { code: "result_too_large", outcome: "not_sent", message: "浏览器结果超过内联上限，未送达；请缩小范围后重试。" } };
     }
     const conn = connection();
     if (!conn) {

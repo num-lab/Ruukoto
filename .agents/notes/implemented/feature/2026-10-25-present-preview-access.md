@@ -2,6 +2,8 @@
 
 Status: implemented
 
+MyGo 拟把 URL 展示接到原生右栏页面，见[待实施提案](../../proposed/feature/2026-10-29-mygo-agent-browser.md)；本篇四模式展示资格与零审批决定保持。
+
 ## 问题
 
 present 的网页展示复用了 browser 自动化资格，普通模式和 Plan 因此无法打开侧栏预览。拥有者明确要求取消这项权限限制；预览只登记给桌面的展示目标，不向 Agent 提供读取DOM、点击或填写表单的工具能力。

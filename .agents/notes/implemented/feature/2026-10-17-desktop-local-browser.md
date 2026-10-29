@@ -2,6 +2,8 @@
 
 Status: implemented
 
+MyGo 本机文档的展示载体拟随[右栏自动化提案](../../proposed/feature/2026-10-29-mygo-agent-browser.md)改为原生页面；本篇能力根与拥有者入口保持，提案尚未实施。
+
 路径名称黑名单由[本机预览职责调整](../simplification/2026-10-25-browser-path-names.md)取代，其余决定继续适用。
 
 ## 问题

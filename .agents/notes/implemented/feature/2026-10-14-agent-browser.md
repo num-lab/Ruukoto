@@ -2,6 +2,8 @@
 
 Status: implemented
 
+MyGo 右栏拟使用独立的桌面工具与接管规则，见[待实施提案](../../proposed/feature/2026-10-29-mygo-agent-browser.md)；本篇 Chrome 生命周期与暂停约束保持。
+
 ## 问题
 
 两个产品的主 Agent 要直接打开网站、操作并看截图，也要复用已有登录态。main 没有 bash/MCP；普通开发会话的 bash 和 Driver registry 按任务回收。仅安装 CLI/skill 无法覆盖 main、跨轮页面、取消核实与附接保留用户窗口。原版 v0.39.0 在 daemon 丢响应后重发命令，不能靠宿主只调用一次消除重复提交。

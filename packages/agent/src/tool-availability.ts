@@ -23,7 +23,7 @@ import { WEB_SEARCH_TOOL_NAMES } from "./web-search.ts";
 export type SessionToolClass = Exclude<SessionIdentity["kind"], "retired" | "scheduled">;
 
 const SESSION_TOOL_CATEGORIES: Record<SessionToolClass, readonly ToolCategory[]> = {
-  dev: ["coding", "host_data", "web_search", "browser", "mcp", "skills", "subagent", "workflow", "owner_question", "background_process"],
+  dev: ["coding", "host_data", "web_search", "browser", "desktop_browser", "mcp", "skills", "subagent", "workflow", "owner_question", "background_process"],
   // main：日常对话/信息整理/编排，不持有编码工具；service 仅装配另要求
   // 产品 ruukoto + Linux + 显式部署配置（agent-direction issue 09）
   main: ["host_data", "web_search", "browser", "app_data", "scheduler", "delegation", "chat_results", "service", "skills", "subagent", "workflow"],
@@ -100,14 +100,14 @@ export interface WorkflowExecutionProfile {
 }
 
 export function sourceAllows(profile: WorkflowExecutionProfile, name: string): boolean {
-  return !name.startsWith("process_") && name !== "ask_user" && name !== "present" && !(profile.toolClass === "main" && name === "todo_write") && name !== "coding_delegate" && name !== "browser" &&
+  return !name.startsWith("process_") && name !== "ask_user" && name !== "present" && !(profile.toolClass === "main" && name === "todo_write") && name !== "coding_delegate" && name !== "browser" && name !== "desktop_browser" &&
     (!profile.hostVerify || SUBAGENT_WRITE_TOOL_NAMES.has(name)) &&
     !name.startsWith("workflow_") && (!name.startsWith("subagent_") || (name === "subagent_message" && profile.collaboration === true)) &&
     (!profile.tools || profile.tools.includes(name));
 }
 
 export function workflowAllows(profile: WorkflowExecutionProfile, name: string): boolean {
-  return !name.startsWith("process_") && name !== "ask_user" && name !== "present" && !(profile.toolClass === "main" && name === "todo_write") && !name.startsWith("subagent_") && !name.startsWith("workflow_") && name !== "coding_delegate" && name !== "browser" &&
+  return !name.startsWith("process_") && name !== "ask_user" && name !== "present" && !(profile.toolClass === "main" && name === "todo_write") && !name.startsWith("subagent_") && !name.startsWith("workflow_") && name !== "coding_delegate" && name !== "browser" && name !== "desktop_browser" &&
     (profile.verifyTarget === true || !["edit", "write", "bash", "request_file_access"].includes(name)) &&
     (!profile.tools || profile.tools.includes(name));
 }
@@ -133,7 +133,7 @@ export function executionProfile(input: {
   }
   if (input.workflow) {
     if (identity.kind !== "subagent" || !identity.workflow) throw new WorkflowError("workflow_binding_invalid");
-    const workflow = { ...input.workflow, categories: input.workflow.categories.filter(category => !["subagent", "delegation", "workflow", "browser"].includes(category)) };
+    const workflow = { ...input.workflow, categories: input.workflow.categories.filter(category => !["subagent", "delegation", "workflow", "browser", "desktop_browser"].includes(category)) };
     return { toolClass: workflow.toolClass, subAgentTools: null, planMcp: workflow.categories.includes("mcp"), restricted: true,
       plan: false, toolSignature: `workflow:${JSON.stringify(workflow)}`, workflow };
   }
@@ -182,6 +182,8 @@ export function taskToolSet(input: {
   plan: boolean;
   webSearchEnabled: boolean;
   browserEnabled?: boolean;
+  /** MyGo 绑定任务开放桌面浏览器；与旧 browser 工具互斥。 */
+  desktopBrowserEnabled?: boolean;
   mcpEffect: (name: string) => McpToolEffect | undefined;
   /** 宿主按任务收窄（GitHub 评审等；已绑定任务）。 */
   narrow?: (name: string, mcpEffect?: McpToolEffect) => boolean;
@@ -205,6 +207,7 @@ export function taskToolSet(input: {
       : input.resourcePhase === "conversation" && !input.backgroundObservation && !CONVERSATION_TOOL_NAMES.has(name) ? "执行资源未取得：当前仅处理对话与后台记录"
       : input.plan && !PLAN_TOOL_NAMES.has(name) && !["process_status", "process_output", "process_stop"].includes(name) && effect !== "read" ? "计划模式不开放"
       : name === "browser" && !input.browserEnabled ? "浏览器仅开放完全访问的拥有者会话"
+      : name === "desktop_browser" && !input.desktopBrowserEnabled ? "桌面浏览器仅开放 MyGo 来源的完全访问 Coding 任务"
       : input.narrow && !input.narrow(name, effect) ? "本任务由宿主收窄"
       : !input.webSearchEnabled && (WEB_SEARCH_TOOL_NAMES as readonly string[]).includes(name) ? "Web Search 已停用"
       : null;

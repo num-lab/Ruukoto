@@ -26,6 +26,8 @@ import { createDelegationFamily,delegationOpCheck } from "@ruukoto/agent/delegat
 import { Driver } from "@ruukoto/agent/driver.ts";
 import { endTaskExecution, type TaskEndingContext } from "@ruukoto/agent/task-ending.ts";
 import { BrowserManager, BROWSER_META_KEY, type BrowserManagerOptions } from "@ruukoto/agent/browser-manager.ts";
+import { DesktopBrowserManager } from "@ruukoto/agent/desktop-browser.ts";
+import { createDesktopBrowserFamily } from "@ruukoto/agent/desktop-browser-tools.ts";
 import { browserTaskAllowed, createBrowserFamily } from "@ruukoto/agent/browser-tools.ts";
 import { assertGrantNotProtected, assertGrantsNotProtected } from "@ruukoto/agent/execution/approved-ops.ts";
 import { CredentialStore } from "@ruukoto/agent/execution/credentials.ts";
@@ -334,6 +336,7 @@ export class Runtime {
   readonly attachments: OwnerAttachments;
   readonly artifacts: ArtifactStore;
   private browserManager!: BrowserManager;
+  private desktopBrowserManager!: DesktopBrowserManager;
   private cuaManager!: CodeCuaManager;
   private backgroundProcesses!: RuntimeBackgroundProcesses;
   readonly inboundMedia: InboundMediaStore;
@@ -422,6 +425,8 @@ export class Runtime {
    */
   desktopBrowserCall: ((connectionId: string, params: Record<string, unknown>, timeoutMs?: number) => Promise<unknown>) | null = null;
   onDesktopBrowserEvent: ((connectionId: string, event: { session: string; kind: string; generation: number; owned?: boolean; source?: string; url?: string; title?: string }) => void) | null = null;
+  /** 已登记桌面浏览器连接断开（ControlServer 在 socket 关闭回收时通知）。 */
+  onDesktopBrowserDisconnected: ((connectionId: string) => void) | null = null;
 
   private constructor(config: RuntimeConfig, db: Db, store: Store, lock: AcquiredLock, configLock: AcquiredLock) {
     this.config = config;
@@ -918,6 +923,7 @@ export class Runtime {
       protectedRoots: () => runtime.protectedRoots(),
       dataDir: fullConfig.dataDir,
     });
+    runtime.initDesktopBrowser();
     runtime.initHostToolFamilies();
     runtime.workflowSteps = new WorkflowSteps({ store: runtime.store, artifacts: runtime.artifacts, access: runtime.access,
       copies: new WorkCopyManager({ worktreeRoot: path.join(path.dirname(path.resolve(fullConfig.dataDir)), "agent-work", "worktrees"),
@@ -4248,6 +4254,12 @@ export class Runtime {
   }
 
   /** 同一份清单用于会话装配与后台恢复；能力停用仍保留历史操作的核实规则。 */
+  private initDesktopBrowser(): void {
+    this.desktopBrowserManager = new DesktopBrowserManager({ store: this.store, call: () => this.desktopBrowserCall });
+    this.onDesktopBrowserEvent = (connectionId, event) => this.desktopBrowserManager.onEvent(connectionId, event);
+    this.onDesktopBrowserDisconnected = connectionId => this.desktopBrowserManager.onDisconnect(connectionId);
+  }
+
   private browserAllowed(task: Task): boolean {
     if (!browserTaskAllowed(this.store, task) || getWorkflowDeliveryRun(this.store, task.id)) return false;
     const background = listActiveBackgroundProcesses(this.store, task.sessionId).find(record => record.handedOff);
@@ -4275,6 +4287,7 @@ export class Runtime {
       createAgentWaitFamily(),
       createBrowserFamily({ store: this.store, artifacts: this.artifacts, manager: this.browserManager,
         screenshotDir: path.join(this.config.dataDir, "browser", "screenshots"), allowed: task => this.browserAllowed(task) }),
+      createDesktopBrowserFamily({ store: this.store, artifacts: this.artifacts, manager: this.desktopBrowserManager }),
       createTodoFamily(),
       createHostDataFamily({
         store: this.store,
@@ -4432,6 +4445,7 @@ export class Runtime {
         mcp: { store: this.mcp, cua: this.cuaManager, ...this.config.mcp },
         allowTaskTool: (task, name) => (!this.mcpSourceBlocked(task) || !name.startsWith("mcp__") && this.ledger.hasNoWriteEffect({ toolName: name, params: {} })) && !getWorkflowDeliveryRun(this.store, task.id) && !isAgentReportFallback(this.store, task.id) && this.githubEvents.allowTool(task, name),
         browser: { allowed: task => this.browserAllowed(task), close: sessionId => this.browserManager.close(sessionId) },
+        desktopBrowser: this.desktopBrowserManager,
         verifyTask: task => {
           const sourceProblem = this.verifySubAgentSource(task);
           if (sourceProblem) return sourceProblem;

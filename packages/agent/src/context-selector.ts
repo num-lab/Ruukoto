@@ -163,6 +163,7 @@ const CONTEXT_CATEGORIES = {
   subagentResults: "SubAgent 结果",
   subagentMessages: "工作内消息",
   workList: "工作清单",
+  browserObservation: "浏览器观察",
 } as const;
 
 export type ContextCategory = keyof typeof CONTEXT_CATEGORIES;

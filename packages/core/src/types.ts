@@ -371,7 +371,7 @@ export interface SubAgentReadScope {
  * delegation、chat_results、service 只在 main 的清单中（service 另要求产品与
  * 部署配置具备，见 tool-availability 与 Driver 装配）。
  */
-export type ToolCategory = "coding" | "host_data" | "web_search" | "browser" | "mcp" | "app_data" | "scheduler" | "delegation" | "chat_results" | "service" | "skills" | "subagent" | "workflow" | "owner_question" | "background_process";
+export type ToolCategory = "coding" | "host_data" | "web_search" | "browser" | "desktop_browser" | "mcp" | "app_data" | "scheduler" | "delegation" | "chat_results" | "service" | "skills" | "subagent" | "workflow" | "owner_question" | "background_process";
 
 /**
  * 可信宿主配置的通知目标（issue 03）：渠道、账号、会话 ID 与配置版本。
@@ -1020,6 +1020,8 @@ export type PersistentEventBody =
   | { type: "task.mode_switch_requested"; taskId: string; sessionId: string; from: AccessMode; to: AccessMode }
   | { type: "task.mode_switched"; taskId: string; sessionId: string; from: AccessMode; to: AccessMode; permissionVersion: number }
   | { type: "task.mode_switch_failed"; taskId: string; sessionId: string; to: AccessMode; reason: string }
+  /** 桌面浏览器接管等待边界：waiting 翻转仅作投影事实，任务保持 running。 */
+  | { type: "task.browser_wait"; taskId: string; sessionId: string; waiting: boolean }
   /**
    * 运行中输出：contentIndex 是后台分配的连续正文段序号（不等同 SDK
    * 块索引，部分 provider 在思考/正文交错时复用 SDK 索引）。offset/totalBytes

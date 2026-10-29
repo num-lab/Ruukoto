@@ -65,6 +65,7 @@ import type { HistoryIndex } from "@ruukoto/core/history-index.ts";
 import type { MemoryStore } from "@ruukoto/core/memory.ts";
 import type { SelectorBudgetConfig } from "./context-selector.ts";
 import { beginContextAssembly, ContextSendBlocked, type AgentReportContext, type ContextAssembly } from "./context-assembly.ts";
+import { DesktopBrowserError, type DesktopBrowserManager } from "./desktop-browser.ts";
 import type { JevRequestConfig } from "./jev.ts";
 import type { HostToolContext } from "./host-tools.ts";
 import { ownerQuestionCreatedByTask, ownerQuestionTaskEligible, type OwnerQuestion, type OwnerQuestionItem } from "@ruukoto/core/owner-questions.ts";
@@ -144,6 +145,8 @@ export interface DriverDeps {
   /** 宿主按任务收紧工具白名单；MCP 类别取自本地钉版配置，不接受模型声明。 */
   allowTaskTool?: (task: Task, name: string, mcpEffect?: McpToolEffect) => boolean;
   browser?: { allowed(task: Task): boolean; close(sessionId: string): Promise<boolean> };
+  /** MyGo 右栏桌面浏览器句柄：资格、闸门状态、接管等待与交还观察（issue mygo-agent-browser）。 */
+  desktopBrowser?: DesktopBrowserManager;
   /**
    * 宿主按任务另开只读 MCP（agent-direction issue 19 的 GitHub 评审 SubAgent）：
    * subagent 类会话只有该依赖为真时才规划 MCP，收窄为「静态只读白名单 ∪
@@ -220,6 +223,8 @@ export class Driver {
   private currentModelSupportsImages = false;
   private taskEnding: TaskEndingContext | null = null;
   private stopRequested = false;
+  /** 交还后待重判的观察 id（mygo-agent-browser）：携带该观察的请求取得回答前，收尾与发送让位。 */
+  private mustRejudge: string | null = null;
   /** 审批闸门（架构工单 04）：审批请求全程；Driver 只接线应答、模式切换与停止。 */
   private readonly approvals: ApprovalGate;
   /** 本次任务中 sdkCallId → 宿主操作 id（结果记录与事件引用的关联键）。 */
@@ -731,7 +736,18 @@ export class Driver {
       // 引导边界预留（coding-message-control）：尊重 SDK 与停止的原有决定；只有可
       // 继续且存在持久接纳的引导时才续轮。预留（joining）与源取消在核心库事务上
       // 互斥——先取消者不在 pending，先预留者令取消等待本批落盘结果。
-      if (this.stopRequested || signal?.aborted || turn.message.stopReason === "error" || turn.message.stopReason === "aborted" || decision?.action === "end") {
+      if (this.stopRequested || signal?.aborted || turn.message.stopReason === "error" || turn.message.stopReason === "aborted") {
+        return decision || undefined;
+      }
+      // 接管等待（mygo-agent-browser）：最终回答期间发生接管时任务保持 running；
+      // 交还后须带新观察重判一次——每次交还只续一轮，以携带该观察的请求取得回答为准。
+      await this.browserGate(task);
+      if (this.stopRequested || signal?.aborted) return decision || undefined;
+      if (this.mustRejudge) {
+        if (this.assembly?.browserObservationDelivered === this.mustRejudge) this.mustRejudge = null;
+        else return { action: "continue" };
+      }
+      if (decision?.action === "end") {
         return decision || undefined;
       }
       const pending = this.deps.store.withTx(() => {
@@ -749,6 +765,9 @@ export class Driver {
         const next = await prepareNextTurn(turn, signal);
         const task = this.currentTask;
         if (!task || this.stopRequested || signal?.aborted) return next || undefined;
+        // 接管等待：交还前不准备下一轮（续轮上下文要携带新观察）。
+        await this.browserGate(task);
+        if (this.stopRequested || signal?.aborted) return next || undefined;
         // 选批截点（下一请求的输入截点）：同步事务内重读持久路由并移交 SDK——
         // 取消先提交者已不在 pending；已预留者取消在等落盘结果，仍在 pending 同批接入。
         // 准备期间收到、尚未取消的引导按持久接纳次序一起排入。
@@ -779,6 +798,14 @@ export class Driver {
     const prepareRequest = sdk.agent.prepareRequest;
     sdk.agent.prepareRequest = async (request, signal) => {
       const next = await prepareRequest?.(request, signal);
+      const task = this.currentTask;
+      if (task && !this.stopRequested && !signal?.aborted) {
+        await this.browserGate(task);
+        // 发送前复核：交还后的新观察未进入本请求上下文时不得按旧上下文发送。
+        if (this.mustRejudge && this.assembly?.browserObservationDelivered !== this.mustRejudge) {
+          throw new ContextSendBlocked("browser_context_stale:浏览器交还后的新观察未进入上下文，拒绝发送旧请求");
+        }
+      }
       this.settleGuidanceBatch();
       return next || undefined;
     };
@@ -934,6 +961,10 @@ export class Driver {
   /** 发送前本模块的检查（模型选择与工具白名单）：失败即抛（宿主原因已保存；Driver 据此中断任务）。 */
   private checkBeforeSend(task: Task, model: any, context: any, options: any): void {
     this.verifyRoleDefinition(task);
+    // 发送兜底：交还后的新观察未进入上下文时任何请求不得发送。
+    if (this.mustRejudge && this.assembly?.browserObservationDelivered !== this.mustRejudge) {
+      throw new ContextSendBlocked("browser_context_stale:浏览器交还后的新观察未进入上下文，拒绝发送旧请求");
+    }
     const fresh = this.deps.store.getTask(task.id) ?? task;
     this.refreshTaskTools(fresh);
     const workflowProblem = this.verifyWorkflowTask(task);
@@ -998,6 +1029,56 @@ export class Driver {
     return null;
   }
 
+  /**
+   * 桌面浏览器接管屏障（mygo-agent-browser）：闸门被拥有者持有时在边界等待，
+   * 任务保持 running；闸门回到 Agent 持有时消费一次待观察并写会话 marker。
+   * 等待可取消（停止优先），翻页代次与引用由管理器/工具层作废，不重放。
+   */
+  private async browserGate(task: Task): Promise<"released" | "stopped" | "clear"> {
+    const db = this.deps.desktopBrowser;
+    if (!db?.eligible(task)) return "clear";
+    const st = db.state(task);
+    if (!st) return "clear";
+    if (!st.owned && !st.gone) {
+      this.deps.store.withTx(() => {
+        this.deps.store.appendEvent({ type: "task.browser_wait", taskId: task.id, sessionId: task.sessionId, waiting: true }, { sessionId: task.sessionId });
+      });
+      const outcome = await db.awaitGate(task, () => this.stopRequested);
+      this.deps.store.withTx(() => {
+        this.deps.store.appendEvent({ type: "task.browser_wait", taskId: task.id, sessionId: task.sessionId, waiting: false }, { sessionId: task.sessionId });
+      });
+      if (outcome === "stopped") return "stopped";
+    }
+    if (db.takePendingReturn(task) !== null) await this.recordBrowserObservation(task);
+    return "clear";
+  }
+
+  /**
+   * 交还后的可信观察：DOM 摘要经会话 marker 落盘再投影为参考块。
+   * 页面关闭/断线/效果未知时记录不可用事实而非伪造观察；marker 落盘核实
+   * 失败即 ContextSendBlocked，拒绝在无记录事实下继续。
+   */
+  private async recordBrowserObservation(task: Task): Promise<void> {
+    const db = this.deps.desktopBrowser!;
+    const observationId = randomId("obs");
+    let data: Record<string, unknown>;
+    try {
+      const obs = await db.observe(task);
+      data = { taskId: task.id, observationId: obs.observationId, generation: obs.generation, url: obs.url ?? null, title: obs.title ?? null, text: obs.text, unavailable: null };
+    } catch (error) {
+      data = {
+        taskId: task.id, observationId, generation: db.state(task)?.generation ?? 0, url: null, title: null, text: null,
+        unavailable: error instanceof DesktopBrowserError ? `${error.message}（${error.code}）` : String(error),
+      };
+    }
+    this.appendMarker("ruukoto_browser_observation", data);
+    const file = this.sdk?.sessionFile;
+    const entries = file && fs.existsSync(file) ? parseSessionFile(file) : [];
+    const recorded = entries.some(entry => entry.type === "custom" && entry.customType === "ruukoto_browser_observation" && (entry.data as { observationId?: string } | undefined)?.observationId === observationId);
+    if (!recorded) throw new ContextSendBlocked("browser_observation_unrecorded:浏览器观察未落入权威会话记录，拒绝继续");
+    this.mustRejudge = observationId;
+  }
+
   private appendMarker(customType: string, data: unknown): void {
     // SDK 会话创建前标记 API 不可用；此时代码路径不应产生标记
     this.markerApi?.(customType, data);
@@ -1038,6 +1119,7 @@ export class Driver {
     this.currentTask = task;
     this.taskEnding = ending ?? { taskId: task.id, stopSnapshot: null };
     this.stopRequested = false;
+    this.mustRejudge = null;
     this.stopPromise = null;
     this.guidanceJoining.clear();
     this.guidanceJoined = Promise.resolve();
@@ -1321,7 +1403,9 @@ export class Driver {
       backgroundObservation: this.backgroundObservation,
       resourcePhase: this.resourcePhase,
       plan: this.profile.plan,
-      browserEnabled: this.deps.browser?.allowed(task) ?? false,
+      desktopBrowserEnabled: this.deps.desktopBrowser?.eligible(task) ?? false,
+      // MyGo 绑定任务与旧 Chrome 工具互斥：来源绑定是唯一判定。
+      browserEnabled: (this.deps.browser?.allowed(task) ?? false) && !this.deps.desktopBrowser?.eligible(task),
       webSearchEnabled: this.deps.store.getWebSearch().state !== "disabled",
       mcpEffect: (name) => this.currentMcpTools.get(name)?.effect,
       // SubAgent 任务收窄（issue 16）：画像工具集决定清单（装配、发送前与调用门
@@ -1622,6 +1706,12 @@ export class Driver {
       return { block: true, reason: "模式切换失败，任务已停止" };
     }
     if (this.stopRequested) {
+      return { block: true, reason: "任务已停止，确认等待解除" };
+    }
+
+    // 接管等待（mygo-agent-browser）：拥有者持有闸门期间不发新调用；
+    // 交还后旧引用与旧代次由工具层按快照校验拒绝，不重放。
+    if (await this.browserGate(task) === "stopped" || this.stopRequested) {
       return { block: true, reason: "任务已停止，确认等待解除" };
     }
 

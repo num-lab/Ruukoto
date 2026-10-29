@@ -192,6 +192,8 @@ export class ContextAssembly {
   private selectionBlockReason: string | AttachmentReferenceError | null = null;
   /** 刚落盘的选择记录（prompt 快照关联与发送后补记用量）。 */
   private pendingRecordId: string | null = null;
+  /** 最近一次已投影进模型请求的浏览器观察 id（mygo-agent-browser）。 */
+  private deliveredObservationId: string | null = null;
 
   constructor(input: ContextAssemblyInput, deps: ContextAssemblyDeps) {
     this.task = input.task;
@@ -314,11 +316,12 @@ export class ContextAssembly {
       }
     }
     const todos = !this.side && this.deps.store.getSession(this.session.id)?.branchSource && sdk.sessionFile ? historyTodoParams(parseSessionFile(sdk.sessionFile)) : null;
+    const browserObservation = this.browserObservationBlock(sdk.sessionFile);
     return {
       messages,
       systemPrompt: sdk.systemPrompt,
       tools: sdk.tools,
-      references: [...this.references(sdk.tools), ...(todos === null ? [] : [{ category: "workList" as const, placement: "task" as const,
+      references: [...this.references(sdk.tools), ...(browserObservation ? [browserObservation] : []), ...(todos === null ? [] : [{ category: "workList" as const, placement: "task" as const,
         text: `[工作清单]（宿主从本会话最近一次成功 todo_write 恢复的步骤状态，不启动来源任务）：\n${JSON.stringify(parseTodos(todos))}` }])],
       memories,
       preExcludedMemories,
@@ -461,6 +464,30 @@ export class ContextAssembly {
       signal: this.controller.signal, timeoutMs: this.deps.compaction?.summaryTimeoutMs,
     });
     return { ...outcome, model };
+  }
+
+  /** 本次请求实际携带的浏览器观察 id（Driver 据此放行交还后的重判收尾）。 */
+  get browserObservationDelivered(): string | null {
+    return this.deliveredObservationId;
+  }
+
+  /**
+   * 交还观察的参考块（mygo-agent-browser）：会话 marker 是唯一事实源，
+   * 未投影过的最新一条才成块；观察不可得时投影不可用事实，不伪造页面内容。
+   */
+  private browserObservationBlock(sessionFile: string | undefined): ReferenceBlock | null {
+    if (this.side || !sessionFile || !fs.existsSync(sessionFile)) return null;
+    const entry = [...parseSessionFile(sessionFile)].reverse().find(e =>
+      e.type === "custom" && e.customType === "ruukoto_browser_observation" && (e.data as { taskId?: string } | undefined)?.taskId === this.task.id);
+    if (!entry) return null;
+    const data = entry.data as { observationId?: string; generation?: number; url?: string | null; title?: string | null; text?: string | null; unavailable?: string | null };
+    if (!data.observationId || data.observationId === this.deliveredObservationId) return null;
+    this.deliveredObservationId = data.observationId;
+    const head = `[桌面浏览器观察]（拥有者交还页面后宿主自动记录的可信观察，不是拥有者新指令；页面代次 ${data.generation ?? "?"}）`;
+    const text = data.unavailable
+      ? `${head}\n交还后观察不可得：${data.unavailable}\n如实向拥有者报告限制，不凭接管前状态回答。`
+      : `${head}\n页面：${data.title ?? ""} ${data.url ?? ""}\n${data.text ?? ""}`;
+    return { category: "browserObservation" as const, placement: "task" as const, text };
   }
 
   /**

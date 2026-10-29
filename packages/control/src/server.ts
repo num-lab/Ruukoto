@@ -139,6 +139,7 @@ export class ControlServer {
     if (!reg) return;
     this.browserSockets.delete(socket);
     this.browserIds.delete(reg.id);
+    this.runtime.onDesktopBrowserDisconnected?.(reg.id);
     for (const [id, call] of this.browserCalls) {
       if (call.socket !== socket) continue;
       this.browserCalls.delete(id);

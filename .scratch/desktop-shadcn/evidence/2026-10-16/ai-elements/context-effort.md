@@ -8,4 +8,4 @@ Session 保存 Effort 与 Context。普通新会话和新增工作区的首个�
 
 浏览器：原生 974×827 下排列为 Context → 模型 → Effort → 发送；菜单上弹且不覆盖选择框，进入位移为 0。A 选 High → B 仍为 Medium → A 保留 High；两个新建入口均继承 High 且显示 0%。输入核实时草稿仍在、模型与 Effort 同时禁用。760×500 双侧栏打开并调整到主栏 220px、操作区 144px 时，三个控件同排，发送另排靠右，整页和操作区均无横向溢出。极窄栏保留 Context 百分比与可访问名称，仅隐藏装饰图标；模型名可截断。明暗主题均核对，临时视口已恢复，测试工作区／会话已通过重载清除。
 
-效果见[深色菜单](context-effort-dark.png)、[浅色菜单](context-effort-light.png)、[最窄布局](context-effort-minimum.png)，测量见[数据](context-effort.json)。本轮无新依赖和后台调用，未执行真实模型或 Electron 验收；外观交拥有者审阅。
+效果见[深色菜单](../../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2F2026-10-16%2Fai-elements%2Fcontext-effort-dark.png)、[浅色菜单](../../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2F2026-10-16%2Fai-elements%2Fcontext-effort-light.png)、[最窄布局](../../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2F2026-10-16%2Fai-elements%2Fcontext-effort-minimum.png)，测量见[数据](context-effort.json)。本轮无新依赖和后台调用，未执行真实模型或 Electron 验收；外观交拥有者审阅。

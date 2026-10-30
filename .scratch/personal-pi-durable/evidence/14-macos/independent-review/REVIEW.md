@@ -9,7 +9,7 @@
 - 8 次实际 HTTP 请求与 durable payload 逐份深等；覆盖主、子、汇总及汇总内 progress 工具轮次。完整系统提示、工具定义及报告输入见 [输入快照](model-input.json)。子会话工具为空；未取启用服务时的完整请求快照。
 - 亲跑 verify-notes、check:docs 与 diff --check 通过。修复了停用凭据先读取导致 faulted，以及最后未知检查与 ready 检查之间的竞态；复核相关修复。
 
-最终只筛「独立探针」重新执行 10/10、零跳过，命令/退出码/源码哈希见 [元数据](independent-probes.json)，完整 stdout/stderr 见 [日志](independent-probes.log)。
+最终只筛「独立探针」重新执行 10/10、零跳过，命令/退出码/源码哈希见 [元数据](independent-probes.json)，完整 stdout/stderr 见 [日志](../../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F14-macos%2Findependent-review%2Findependent-probes.log)。
 
 探针代码保存在 [probe.mts](probe.mts)，其绝对 import 指向本轮主检出，原临时目录的 node_modules 是该检出的软链。停用凭据探针首次因探针本身字符串换行转义失败，输入快照探针首次因省略的空 tools 被误断言为数组失败，修正探针后通过；两者不是产品通过记录。
 

@@ -1,5 +1,7 @@
 # 单次命令宿主消费者独立审查
 
+> 本文部分原始证据已移出 Git；原路径保留用于查找原件，见[归档说明](../../../../git-history-cleanup/archive.md)。
+
 审查上下文 `command_plan` 只读共享工作区，亲跑既有 worker/native 三文件 31/31 与新宿主消费者 14/14。此目录是独立临时副本：`personal-command-execution.ts` 只把 Linux 进程导入改为 `stub.ts` 并固定本机身份；`proof.ts` 直接调用其余适配实现，覆盖临时目录独占、独立停止、缺请求/回执及坏反链；不以此证明 OS 隔离。
 
 旧源码两项反例由审查者直接复现：同一 prepared temp 下 fast 返回清理完成而 slow 仍活，原目录已不存在；独立停止已创建 stop-requested 并返回 true 后，run 仍发布完整回执。最终源码替换后 `final-proof.log` 五项通过，缺记录及坏反链均保守拒绝。原反例输出未保存为原始日志，此处仅为审查者观察记录。

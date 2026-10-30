@@ -8,7 +8,7 @@
 
 ## 浏览器亲验
 
-使用独立后台 QA 标签，在 1003×827 下检查：diff 容器背景透明、阴影 none、圆角和 padding 均为 0；文件与 Agent 标签图标计算颜色均为 rgb(94, 100, 112)。批准和拒绝后 command-card 均为 0，切回会话没有再出现。页面原生 title 与 Tooltip 节点均为 0。[最终截图](flat-diff-dark.jpg)显示无卡片差异、灰色标签图标和决定后的对话。
+使用独立后台 QA 标签，在 1003×827 下检查：diff 容器背景透明、阴影 none、圆角和 padding 均为 0；文件与 Agent 标签图标计算颜色均为 rgb(94, 100, 112)。批准和拒绝后 command-card 均为 0，切回会话没有再出现。页面原生 title 与 Tooltip 节点均为 0。[最终截图](../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2F2026-10-16%2Fflat-diff-dark.jpg)显示无卡片差异、灰色标签图标和决定后的对话。
 
 菜单展开时按 Meta+B：门户菜单关闭，左栏最终宽度 0、aria-hidden 为 true、inert 生效，焦点为「展开侧栏」。重开后左栏宽度与内层宽度均为 200px。右标签内按 Meta+J：焦点为「展开右栏」，过渡中外层宽度 39.16px、内层仍为 310px；重开后均为 310px。左右栏计算过渡均为 width、opacity，时长 0.2s。现有 prefers-reduced-motion 规则禁用过渡。760×500 下页面无横向溢出、发送按钮位于正文范围内；控制台无 error 或 warn。验证结束清除尺寸覆盖并关闭 QA 标签，保留原有两个预览标签。
 

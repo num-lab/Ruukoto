@@ -4,11 +4,11 @@
 
 ## 实际失败与证据
 
-原回归最终执行 381 项，380 通过、1 失败，耗时 223730.766375 ms；唯一失败为 `test/122-workflow-code-acceptance.test.ts` 等待“六输入整项回报”超时，不能记为该集合全通过。原始摘要见 [regression-excerpt.log](regression-excerpt.log)，超时时完整工作流快照见 [failure.json](failure.json)。
+原回归最终执行 381 项，380 通过、1 失败，耗时 223730.766375 ms；唯一失败为 `test/122-workflow-code-acceptance.test.ts` 等待“六输入整项回报”超时，不能记为该集合全通过。原始摘要见 [regression-excerpt.log](../../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F17-macos%2Fcoding-diagnostic%2Fregression-excerpt.log)，超时时完整工作流快照见 [failure.json](failure.json)。
 
 `verify_3` 的原生监督器报告 `identity_unavailable`，其执行 `stopVerified=false`；工作流快照为 `paused`、`reason=write_result_missing`、`stopUnverified=true`。运行中只读 SQLite 查询还观察到该 Task 的 agent/worktree 两处占用仍保留。`change_6=failed`、`verify_6=skipped` 符合用例预期；模型 Task 为 completed 本身不代表工作流步骤成功。
 
-16:21:09 对进程 72239 采样 3 秒，2349 个主线程采样中 2281 个停在 `kevent`；同期 `ps` 的 CPU 为约 1–2%，没有持续忙循环证据。原回归前部没有测试结果输出，是 Node 测试输出等待该文件收尾的表现；稍后原生错误已写入日志。样本见 [process-sample.txt.gz](process-sample.txt.gz)。该观测不解释更早的瞬时 CPU 峰值。
+16:21:09 对进程 72239 采样 3 秒，2349 个主线程采样中 2281 个停在 `kevent`；同期 `ps` 的 CPU 为约 1–2%，没有持续忙循环证据。原回归前部没有测试结果输出，是 Node 测试输出等待该文件收尾的表现；稍后原生错误已写入日志。样本见 [process-sample.txt.gz](../../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F17-macos%2Fcoding-diagnostic%2Fprocess-sample.txt.gz)。该观测不解释更早的瞬时 CPU 峰值。
 
 `native-macos-supervisor.c` 对身份核实失败采取保守处理：同 UID 进程枚举或已登记成员身份查询无法核实即保留 uncertain，最后不得给出停止证明。现有日志没有记录失败查询的 PID、返回值或 errno，无法进一步断言具体 syscall 失败原因。初查时 worker、workflow-script 与 native supervisor 的文件时间均为当天 15:46；`worker/native-macos-supervisor --check` 返回 `{"launchdVerified":true}`。因此没有缺构建产物证据；16:29 的其他构建已更新产物，不能用它反推失败时的二进制字节。
 

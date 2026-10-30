@@ -17,7 +17,7 @@ Status: resolved
 
 ## 进展与交接
 
-- 当前角色：工程交接，独立终审及材料复核无未解决阻断。分支 `Eitrous/migrate-to-pi-durable`，基点 `36c2c77d0d31631d222efc816ae4f13695a11c0a`；接手工作区干净，拥有者已授权本次提交，由本次提交承载实现与证据。八个实施/测试/说明文件的哈希及内容由[本机快照](../evidence/24-macos/source-manifest.json)和[归档](../evidence/24-macos/source-final.tar.gz)持有，工单记账不在源码快照中。
+- 当前角色：工程交接，独立终审及材料复核无未解决阻断。分支 `Eitrous/migrate-to-pi-durable`，基点 `36c2c77d0d31631d222efc816ae4f13695a11c0a`；接手工作区干净，拥有者已授权本次提交，由本次提交承载实现与证据。八个实施/测试/说明文件的哈希及内容由[本机快照](../evidence/24-macos/source-manifest.json)和[归档](../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F24-macos%2Fsource-final.tar.gz)持有，工单记账不在源码快照中。
 - 当前成果：`runPersonalCommand` 消费可信宿主已 prepare 的个人空依赖输入，保存原请求、临时目录独占绑定与原始双流；读取回执与按原引用停止可在独立进程完成。没有新增 durable Task、配置、模型工具或菜单。
 - 下一角色与动作：总工单实施者将此 API 接到原工作权限、操作准入、未知暂停与持久占用；须覆盖全部工作收尾/释放、跨来源服务调用及报告恢复。调用前先持久保存原工作与执行引用，不把回执退出观察解释成业务效果。
 - 阻塞：本片无未解决阻断，无新增产品取舍；完整迁移仍未完成。恢复要求原机器、证据目录及 TMPDIR，变化时保留现场并恢复原环境。
@@ -25,7 +25,7 @@ Status: resolved
 ## 验收与证据
 
 - 独立方案审查 `command_plan` 于 2026-10-17 直接核对规格、原生 launcher/worker 与本方案，补齐完整输入指纹、私有文件核对及取消末次停止后无未解决阻断；亲跑 verify-notes 通过。
-- 本机 macOS 27.0.1 / Node 24.15.0：`npm run setup`、`npm run build`、`npm run check:static` 通过；六文件基线 67/67；最后仅补强独立停止的离线灵敏度，受影响 adapter 最终复跑 14/14，合并覆盖 67 个唯一场景，含旧 worker/native 身份/策略及两产品入口。源码未改变共享 launcher 或 Coding 装配；新宿主用例使用真实 Node worker 和系统调用桩，不当作 macOS 沙箱或 Linux OS 证据。[测试](../evidence/24-macos/tests-final.log)、[构建](../evidence/24-macos/build-final.log)、[静态](../evidence/24-macos/static-final.log)保存实际输出；末轮测试补强及互链/TMPDIR 前提补充后，最终 static 再次通过。
+- 本机 macOS 27.0.1 / Node 24.15.0：`npm run setup`、`npm run build`、`npm run check:static` 通过；六文件基线 67/67；最后仅补强独立停止的离线灵敏度，受影响 adapter 最终复跑 14/14，合并覆盖 67 个唯一场景，含旧 worker/native 身份/策略及两产品入口。源码未改变共享 launcher 或 Coding 装配；新宿主用例使用真实 Node worker 和系统调用桩，不当作 macOS 沙箱或 Linux OS 证据。[测试](../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F24-macos%2Ftests-final.log)、[构建](../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F24-macos%2Fbuild-final.log)、[静态](../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F24-macos%2Fstatic-final.log)保存实际输出；末轮测试补强及互链/TMPDIR 前提补充后，最终 static 再次通过。
 - Linux tx / Linux 6.8.0-117 / Node 24.21.0 / bwrap 0.9.0 / systemd 255：真实 prepare、空依赖 worker 与 user scope 最终七项通过。覆盖二进制/非零与新进程读回执、3 MiB 双流、timeout/cancel 的 setsid 后代、独立新进程停止与活 run 并发无回执、owner SIGKILL 后无回执/不重放、原临时目录替换保留。原 scope 全部 not-found、原目录/fixture/匹配进程为零，远端专属目录已删除。十个运行文件与本机一致；[Linux 导航](../evidence/24-linux/README.md)保存源码/探针/原始记录/清理与全部历史轮次。未做 Linux npm 安装或全产品构建。
 - 独立实现审查 `command_plan` 亲跑 worker/native 三文件 31/31 及新 adapter 14/14；在隔离副本重现两项阻断：不同 ref 共用 temp 时快者会删慢者目录，独立停止后普通退出码仍会发布完成回执。修复为私有目录的 temp 路径哈希/dev/ino 独占反链及发布前停止标记检查。最新源码隔离反证确认两者修复，并核实缺 request 拒读/不清理、缺 receipt 保持未知/不重跑、坏 temp 反链拒清理。[隔离材料](../evidence/24-macos/independent-review/README.md)不修改共享源码；最终代码无未解决阻断。仓库独立停止窄用例另模拟 systemd-run 的 137/null 退出；隔离撤去停止标记检查时以 Missing expected rejection 预期失败，最终单例由审查者亲验通过。
 - 原失败：本机新测试首轮 9/11，通过后复核发现重复调用先检查已清理 temp 而返回通用登记失败，现先拒绝已认领引用；另一项夹具嵌套 mock 恢复残留导致下一用例 prepare 失败，改为显式夹具接点。最终 14/14。Linux 首轮六项通过；新增独立停止探针曾同步等待新进程而堵塞 owner 事件循环，导致 launcher 未回收、停止保守 false，改异步等待后最终七项通过；初始与中间材料均保留，不累计通过数。

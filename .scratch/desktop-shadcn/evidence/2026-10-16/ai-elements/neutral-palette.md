@@ -8,4 +8,4 @@
 
 浏览器验证深色背景 .145、侧栏／右栏／菜单 .205、输入区 .269；浅色背景／右栏／菜单 1、侧栏 .985、输入区 .97，均为无色度 OKLCH。模型菜单的文字和边框、设置窗口的背景与分栏、主按钮颜色符合默认 token；菜单仍无位移／缩放，保留渐显。10 个区域的宽高、字号、字重、行高、内边距、间距与圆角在同一临时侧栏宽度和展开状态下逐项比较完全一致；没有修改 JSX、会话数据或交互函数。
 
-本次新增主题导入触发 Vite 全页重载，临时侧栏宽度重置后已通过界面恢复，随后才作精确几何比较。截图见[深色](neutral-palette-dark.png)和[浅色](neutral-palette-light.png)，测量见同目录 neutral-palette.json。浏览器模拟验收不替代正式 Electron 验收，本轮未迁移正式 GUI。
+本次新增主题导入触发 Vite 全页重载，临时侧栏宽度重置后已通过界面恢复，随后才作精确几何比较。截图见[深色](../../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2F2026-10-16%2Fai-elements%2Fneutral-palette-dark.png)和[浅色](../../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2F2026-10-16%2Fai-elements%2Fneutral-palette-light.png)，测量见同目录 neutral-palette.json。浏览器模拟验收不替代正式 Electron 验收，本轮未迁移正式 GUI。

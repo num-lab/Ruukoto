@@ -12,17 +12,17 @@
 
 | 对象 | 命令或入口 | 实际结果 |
 | --- | --- | --- |
-| 主子工具、自动审查成功/拒绝/非法/失败/length/error、资料授权、产物损坏、SIGKILL、权限快照、HTTP/MCP 占用、配置写盘失败重试 | `RUUKOTO_TOOLS_EVIDENCE=.scratch/personal-pi-durable/evidence/29-macos/independent-review/model-requests npx tsx --test test/personal-tools.test.ts test/personal-tools-config.test.ts` | [初轮日志](core-and-config.log)：12 项 core 和 3 项 config，共 15/15；100.81 秒；无跳过。 |
-| SDK 数字文本标准化恢复、SDK 拒绝意图计额度、搜索普通视图与原 JSON 分工、审查请求证据缺失/损坏 | 下方新增用例命令 | [最终新增用例日志](latest-added-core.log)：4/4；26.43 秒；无跳过。 |
-| 普通文件修改、二进制引用读取和导出、关闭重开 | `node --import tsx --input-type=module < .scratch/personal-pi-durable/evidence/29-macos/independent-review/scenarios/harness.mjs` | [日志](harness.log)：原文和产物一致；重开保留 2 项操作、1 份产物。 |
-| native SDK 把 `content: 123` 转成 `"123"` 后执行并恢复 | 同上，脚本换为 `scenarios/coercion.mjs` | [日志](coercion.log)：写入、读取、`read_artifact`、导出、重开均通过。 |
-| 自动审查请求和取消 | 同上，脚本换为 `scenarios/auto-review.mjs` | [日志](auto-review.log)：一次无工具审查；claim、payload 和结论可恢复；另一审查已发出后取消，未写审查结论且没有开始文件读取。 |
-| 未知 HTTP、取消、子占用、重启和报告恢复 | 同上，脚本换为 `scenarios/unknown-recovery.mjs` | [日志](unknown-recovery.log)：远端只收到 1 次 POST；业务效果核实不能单独释放占用；独立核实结束后取消工作释放，原报告恢复为 `local/completed`。 |
-| 截短后的失败分类 | `npx tsx --test --test-name-pattern='截短已开始后异常' test/personal-tool-io.test.ts` | [恢复修复后的日志](regression-truncate-restored.log)：1/1。 |
-| 文件写后强杀的恢复事实 | `npx tsx --test --test-name-pattern='durable 文件写入：写后强杀' test/personal-tools.test.ts` | [新增强杀日志](file-write-kill-recovery.log)：1/1；1.96 秒；文件实际已写，观察提交前 SIGKILL，恢复为 `effect_unknown/stopped=true`，不覆盖拥有者后续内容，核实效果后原来源恢复。 |
-| 真实本机认证管理路由 | `npx tsx --test --test-name-pattern='durable 本机入口：真实认证接口' test/personal-tools.test.ts` | [本机接口日志](local-control-real-routes.log)：1/1；5.26 秒；实际后台与认证客户端完成 pending→批准、产物读取和独占导出、资料授权及撤销。 |
+| 主子工具、自动审查成功/拒绝/非法/失败/length/error、资料授权、产物损坏、SIGKILL、权限快照、HTTP/MCP 占用、配置写盘失败重试 | `RUUKOTO_TOOLS_EVIDENCE=.scratch/personal-pi-durable/evidence/29-macos/independent-review/model-requests npx tsx --test test/personal-tools.test.ts test/personal-tools-config.test.ts` | [初轮日志](../../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F29-macos%2Findependent-review%2Fcore-and-config.log)：12 项 core 和 3 项 config，共 15/15；100.81 秒；无跳过。 |
+| SDK 数字文本标准化恢复、SDK 拒绝意图计额度、搜索普通视图与原 JSON 分工、审查请求证据缺失/损坏 | 下方新增用例命令 | [最终新增用例日志](../../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F29-macos%2Findependent-review%2Flatest-added-core.log)：4/4；26.43 秒；无跳过。 |
+| 普通文件修改、二进制引用读取和导出、关闭重开 | `node --import tsx --input-type=module < .scratch/personal-pi-durable/evidence/29-macos/independent-review/scenarios/harness.mjs` | [日志](../../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F29-macos%2Findependent-review%2Fharness.log)：原文和产物一致；重开保留 2 项操作、1 份产物。 |
+| native SDK 把 `content: 123` 转成 `"123"` 后执行并恢复 | 同上，脚本换为 `scenarios/coercion.mjs` | [日志](../../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F29-macos%2Findependent-review%2Fcoercion.log)：写入、读取、`read_artifact`、导出、重开均通过。 |
+| 自动审查请求和取消 | 同上，脚本换为 `scenarios/auto-review.mjs` | [日志](../../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F29-macos%2Findependent-review%2Fauto-review.log)：一次无工具审查；claim、payload 和结论可恢复；另一审查已发出后取消，未写审查结论且没有开始文件读取。 |
+| 未知 HTTP、取消、子占用、重启和报告恢复 | 同上，脚本换为 `scenarios/unknown-recovery.mjs` | [日志](../../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F29-macos%2Findependent-review%2Funknown-recovery.log)：远端只收到 1 次 POST；业务效果核实不能单独释放占用；独立核实结束后取消工作释放，原报告恢复为 `local/completed`。 |
+| 截短后的失败分类 | `npx tsx --test --test-name-pattern='截短已开始后异常' test/personal-tool-io.test.ts` | [恢复修复后的日志](../../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F29-macos%2Findependent-review%2Fregression-truncate-restored.log)：1/1。 |
+| 文件写后强杀的恢复事实 | `npx tsx --test --test-name-pattern='durable 文件写入：写后强杀' test/personal-tools.test.ts` | [新增强杀日志](../../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F29-macos%2Findependent-review%2Ffile-write-kill-recovery.log)：1/1；1.96 秒；文件实际已写，观察提交前 SIGKILL，恢复为 `effect_unknown/stopped=true`，不覆盖拥有者后续内容，核实效果后原来源恢复。 |
+| 真实本机认证管理路由 | `npx tsx --test --test-name-pattern='durable 本机入口：真实认证接口' test/personal-tools.test.ts` | [本机接口日志](../../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F29-macos%2Findependent-review%2Flocal-control-real-routes.log)：1/1；5.26 秒；实际后台与认证客户端完成 pending→批准、产物读取和独占导出、资料授权及撤销。 |
 
-本机路由用例的首轮夹具误用了 `POST /input`，触发既有 `control_route_missing`；改成既有 `POST /inputs` 后重跑通过，没有修改运行源码。[夹具首轮日志](local-control-initial-fixture.log)保留该次失败，不计作通过。
+本机路由用例的首轮夹具误用了 `POST /input`，触发既有 `control_route_missing`；改成既有 `POST /inputs` 后重跑通过，没有修改运行源码。[夹具首轮日志](../../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F29-macos%2Findependent-review%2Flocal-control-initial-fixture.log)保留该次失败，不计作通过。
 
 新增用例命令：`npx tsx --test --test-name-pattern='SDK转换|SDK失败|审查证据' test/personal-tools.test.ts`。
 
@@ -32,8 +32,8 @@
 
 两项反证均实际执行，失败后恢复原源码并以同一命令重新通过；没有把预期失败写成通过。[标准化结果](regression-result.json)和[截短结果](regression-truncate-result.json)记录命令、退出码，以及修改前、负例状态、恢复后的 SHA-256。
 
-- 标准化：[负例补丁](regression-standardization.patch)仅把恢复时的标准化参数比较改回原始 assistant 参数比较。`SDK转换后的数字文本` 用例在写入 `"123"` 后重开失败，退出码为 1，错误为 `tool_record_invalid`，见[失败日志](regression-unfixed.log)。恢复补丁后同一用例退出码为 0，见[通过日志](regression-restored.log)。
-- 截短：[负例补丁](regression-truncate.patch)仅把 `writing = true` 移回 `ftruncateSync` 返回后。用例真实截短后抛错，旧位置使 `effectUnknown` 为 `undefined`，断言失败并退出 1，见[原始失败日志（gzip）](regression-truncate-unfixed.log.gz)。恢复到截短前标记后同一用例退出 0，见[通过日志](regression-truncate-restored.log)。
+- 标准化：[负例补丁](regression-standardization.patch)仅把恢复时的标准化参数比较改回原始 assistant 参数比较。`SDK转换后的数字文本` 用例在写入 `"123"` 后重开失败，退出码为 1，错误为 `tool_record_invalid`，见[失败日志](../../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F29-macos%2Findependent-review%2Fregression-unfixed.log)。恢复补丁后同一用例退出码为 0，见[通过日志](../../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F29-macos%2Findependent-review%2Fregression-restored.log)。
+- 截短：[负例补丁](regression-truncate.patch)仅把 `writing = true` 移回 `ftruncateSync` 返回后。用例真实截短后抛错，旧位置使 `effectUnknown` 为 `undefined`，断言失败并退出 1，见[原始失败日志（gzip）](../../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F29-macos%2Findependent-review%2Fregression-truncate-unfixed.log.gz)。恢复到截短前标记后同一用例退出 0，见[通过日志](../../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F29-macos%2Findependent-review%2Fregression-truncate-restored.log)。
 
 补丁只用于隔离副本中的反证。复现时先应用对应负例补丁，运行各结果 JSON 中的命令，随后反向应用补丁并再次运行；两项补丁不可作为生产修复应用。
 

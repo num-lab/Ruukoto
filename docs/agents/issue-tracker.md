@@ -1,6 +1,6 @@
 # 任务跟踪：本地 Markdown
 
-工单与规格以 Markdown 保存在 `.scratch/`。
+工单、规格与结论存为 `.scratch/` 下的 Markdown；原始产物[外存](../../.scratch/git-history-cleanup/archive.md)，保留定位与复跑说明。
 
 ## 文件约定
 
@@ -12,7 +12,7 @@
 
 [开发流程](../../.agents/skills/development-workflow/SKILL.md)定义角色与推进条件，重流程使用[工单模板](templates/task.md)。交接给出角色与工单路径，正文引用长期规范、决定与证据。
 
-接手旧工单先核实当前代码与决定，再补必要字段。笔记 `implemented` 不代表工单已验收。
+旧工单先核实当前代码与决定，再补必要字段。笔记 `implemented` 不代表工单已验收。
 
 ## 发布与读取
 

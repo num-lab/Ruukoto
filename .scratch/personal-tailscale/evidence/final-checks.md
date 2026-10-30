@@ -1,6 +1,6 @@
 # 最终实现检查
 
-本记录对应实施基点 `78ba1927` 上的未提交改动，环境为 macOS arm64、Node24.15.0。不代表生产切换、真实模型/IM或全部A1–A13通过；原始输出见[日志包](final-check-logs.tar.gz)。
+本记录对应实施基点 `78ba1927` 上的未提交改动，环境为 macOS arm64、Node24.15.0。不代表生产切换、真实模型/IM或全部A1–A13通过；原始输出见[日志包](../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-tailscale%2Fevidence%2Ffinal-check-logs.tar.gz)。
 
 | 检查 | 结果 |
 | --- | --- |
@@ -17,11 +17,11 @@
 
 最新真实tailnet实跑以新的随机输入请求验证系统TLS/SNI、无凭据401、Serve覆盖伪造身份、Host握手、原生WS快照、文本流、renderer最终entry、同地址设置、不泄漏秘密和Code投影隔离；[原始结果](host-tailnet-result.json)10项通过，entries6、frames4，模型与IM均为false。凭据经SSH管道stdin使用，不存入本记录。此前成功结果只有工具stdout，未伪造补存；本报告是nested字段校验后的新一次实际执行。
 
-[systemd证据](linux-systemd-results.tar.gz)包含13项真实隔离服务检查及探针首次重启时序失败的原始记录；[mock证据](linux-mock-results.tar.gz)与[最初Host诊断](host-stream-diagnosis.tar.gz)保留原输入已完成但客户端误拒合法submission事件的事实，没有重发原输入。
+[systemd证据](../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-tailscale%2Fevidence%2Flinux-systemd-results.tar.gz)包含13项真实隔离服务检查及探针首次重启时序失败的原始记录；[mock证据](../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-tailscale%2Fevidence%2Flinux-mock-results.tar.gz)与[最初Host诊断](../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-tailscale%2Fevidence%2Fhost-stream-diagnosis.tar.gz)保留原输入已完成但客户端误拒合法submission事件的事实，没有重发原输入。
 
-[客户端独立复核](independent-client-review.json)记录7个反例与6类阻断的修复；[首次帧复核](independent-frame-review.json)保留合法submission先红后绿；[最终增量复核](independent-final-review.json)与[可复现源码包](independent-frame-source-and-results.tar.gz)覆盖21个合法事件/快照和17个非法嵌套字段，结论无新增实现阻断。各报告只覆盖注明的内容，作者不对自己实现作独立通过结论。
+[客户端独立复核](independent-client-review.json)记录7个反例与6类阻断的修复；[首次帧复核](independent-frame-review.json)保留合法submission先红后绿；[最终增量复核](independent-final-review.json)与[可复现源码包](../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-tailscale%2Fevidence%2Findependent-frame-source-and-results.tar.gz)覆盖21个合法事件/快照和17个非法嵌套字段，结论无新增实现阻断。各报告只覆盖注明的内容，作者不对自己实现作独立通过结论。
 
-[TLS初始化缓存对照](tls-startup-source-and-results.tar.gz)使用同版Electron：生产nodeOptions fuse关闭时额外CA及其余TLS注入被拒绝；仅开启fuse的对照仍信任额外CA，证明不能用JS启动后删环境变量代替fuse。包内仅源码、配置和结果，无私钥或应用制品。
+[TLS初始化缓存对照](../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-tailscale%2Fevidence%2Ftls-startup-source-and-results.tar.gz)使用同版Electron：生产nodeOptions fuse关闭时额外CA及其余TLS注入被拒绝；仅开启fuse的对照仍信任额外CA，证明不能用JS启动后删环境变量代替fuse。包内仅源码、配置和结果，无私钥或应用制品。
 
 拥有者确认策略只替换src；[节点下发结果](netmap-owner-grant-current.json)唯一规则包含6台owner节点的12个源前缀，目的和端口全放行，Caps/SrcCaps为空。它证明当前节点收到的规则，不能代替完整管理员策略审计或不存在的非owner/tagged来源实测。
 

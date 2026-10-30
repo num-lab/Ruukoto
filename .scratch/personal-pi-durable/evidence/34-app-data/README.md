@@ -1,5 +1,7 @@
 # 应用数据 durable 接线证据
 
+> 本文部分原始证据已移出 Git；原路径保留用于查找原件，见[归档说明](../../../git-history-cleanup/archive.md)。
+
 基线 `8bbcbc4abb4d3c7c5268ef172b72798d09636ebb`，macOS arm64 / Node 24.15.0；未修改正式入口、生产档案或部署。使用真实SQLite、原生durable Harness、离线OpenAI兼容模型替身和QQ/Telegram传输替身；Linux窄验见下文，真实模型/IM另行验收。
 
 ## 实现与窄反例

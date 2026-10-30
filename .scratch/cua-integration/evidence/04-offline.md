@@ -25,9 +25,9 @@
 
 ## 浏览器界面核实
 
-以实际React设置组件、构建后的CSS和离线桥接替身在127.0.0.1打开；PNG由浏览器canvas生成，明确标注OFFLINE RECOVERY FIXTURE。浏览器只核图片展示与事件，不连接Cua。Code及PA图片均complete=true、naturalWidth=640、naturalHeight=320；Code失败重观察后图片与接受资格消失，再读回同一旧观察也不能接受；PA点击接受实际发送原operation=42／observation=99。初版页面截图：[Code](04-code-browser.png)、[PA](04-personal-browser.png)。查看器不会据此宣称读过真实桌面。
+以实际React设置组件、构建后的CSS和离线桥接替身在127.0.0.1打开；PNG由浏览器canvas生成，明确标注OFFLINE RECOVERY FIXTURE。浏览器只核图片展示与事件，不连接Cua。Code及PA图片均complete=true、naturalWidth=640、naturalHeight=320；Code失败重观察后图片与接受资格消失，再读回同一旧观察也不能接受；PA点击接受实际发送原operation=42／observation=99。初版页面截图：[Code](../../git-history-cleanup/archive.md?path=.scratch%2Fcua-integration%2Fevidence%2F04-code-browser.png)、[PA](../../git-history-cleanup/archive.md?path=.scratch%2Fcua-integration%2Fevidence%2F04-personal-browser.png)。查看器不会据此宣称读过真实桌面。
 
-拥有者要求按布局说明操作，删除两端MCP页的重复范围、后台保证、常驻恢复提醒与原始证据正文；新服务按钮表达保存草稿，恢复页按当前阶段、截图、确认操作呈现。保留实际错误、图片接受检查和Linux停止丢失未保存状态的确认。精简后1280×1000浏览器夹具核实两端图片加载后确认可用、确认位于图片之后、Code失败重观察显示错误并废弃旧图，Personal确认仍发送原观察99。当前截图：[Code](04-code-cleanup-browser.png)、[Personal](04-personal-cleanup-browser.png)。
+拥有者要求按布局说明操作，删除两端MCP页的重复范围、后台保证、常驻恢复提醒与原始证据正文；新服务按钮表达保存草稿，恢复页按当前阶段、截图、确认操作呈现。保留实际错误、图片接受检查和Linux停止丢失未保存状态的确认。精简后1280×1000浏览器夹具核实两端图片加载后确认可用、确认位于图片之后、Code失败重观察显示错误并废弃旧图，Personal确认仍发送原观察99。当前截图：[Code](../../git-history-cleanup/archive.md?path=.scratch%2Fcua-integration%2Fevidence%2F04-code-cleanup-browser.png)、[Personal](../../git-history-cleanup/archive.md?path=.scratch%2Fcua-integration%2Fevidence%2F04-personal-cleanup-browser.png)。
 
 首轮Code浏览器脚本把“失败后接受按钮消失”误写成“按钮仍存在但disabled”，等待不存在的locator超时；改为接受消失或disabled并在读回旧观察后再断言，结果通过。页面唯一资源错误为未提供favicon的404，不影响组件。临时浏览器与只读HTTP夹具在结束时关闭。
 

@@ -50,9 +50,9 @@ Linux 全量首轮 **915 项，909 通过、5 失败、1 跳过**，494.3 秒。
 
 关键可审阅日志：
 
-- [最终 Linux 全量结尾](release-24-linux-logs/release24-linux-npm-test-final-tail.log)
-- [最终类型检查](release-24-linux-logs/release24-linux-typecheck-final.log)
-- [首轮失败与数字](release-24-linux-logs/release24-linux-npm-test-first-failures.log)
-- [干净基线目录身份失败](release-24-linux-logs/release24-linux-identity-baseline.log)
-- [修复后 Linux 目录身份两文件](release-24-linux-logs/release24-linux-identity-fixed-tail.log)
-- [资源与日常 PID 清理核查](release-24-linux-logs/release24-linux-cleanup.log)
+- [最终 Linux 全量结尾](../git-history-cleanup/archive.md?path=.scratch%2Fagent-direction%2Frelease-24-linux-logs%2Frelease24-linux-npm-test-final-tail.log)
+- [最终类型检查](../git-history-cleanup/archive.md?path=.scratch%2Fagent-direction%2Frelease-24-linux-logs%2Frelease24-linux-typecheck-final.log)
+- [首轮失败与数字](../git-history-cleanup/archive.md?path=.scratch%2Fagent-direction%2Frelease-24-linux-logs%2Frelease24-linux-npm-test-first-failures.log)
+- [干净基线目录身份失败](../git-history-cleanup/archive.md?path=.scratch%2Fagent-direction%2Frelease-24-linux-logs%2Frelease24-linux-identity-baseline.log)
+- [修复后 Linux 目录身份两文件](../git-history-cleanup/archive.md?path=.scratch%2Fagent-direction%2Frelease-24-linux-logs%2Frelease24-linux-identity-fixed-tail.log)
+- [资源与日常 PID 清理核查](../git-history-cleanup/archive.md?path=.scratch%2Fagent-direction%2Frelease-24-linux-logs%2Frelease24-linux-cleanup.log)

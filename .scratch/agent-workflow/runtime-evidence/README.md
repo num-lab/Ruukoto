@@ -6,21 +6,21 @@
 
 | 内容 | 命令与结果 | 原始记录 |
 | --- | --- | --- |
-| 协调器、人工停计、Runtime 接线与真实冷恢复 | `npx tsx --test test/105-workflow-runtime.test.ts test/107-workflow-runtime-wiring.test.ts test/109-workflow-cold-recovery.test.ts`，43/43，零跳过 | [activity-clock-accepted.log](activity-clock-accepted.log) |
-| 两方向 preview/apply 拒绝丢弃绑定 | `npx tsx --test test/108-workflow-import.test.ts`，2/2，零跳过 | [import-guard-accepted.log](import-guard-accepted.log) |
-| 宿主任务、真实 Git 与停止未核实 | 独立亲跑 106/107/108 共 14/14 中的 `test/106-workflow-host.test.ts` 七项 | [independent-14.log](independent-14.log) |
-| 固定脚本构建 | `npm run build:script`，退出 0 | [build-script-final.log](build-script-final.log) |
-| 脚本活动与 worker 停止 | `npx tsx --test test/104-workflow-script.test.ts test/100-worker-stop.test.ts`，68/68，零跳过 | [activity-script-accepted.log](activity-script-accepted.log) |
-| 操作效果分类 | 104/100/64 联合 77/77 中的 `test/64-tool-op-ledger.test.ts` 九项；分类器此后未改，受影响的脚本部分另行复核 | [execution-accepted.log](execution-accepted.log) |
-| 普通核心任务与委派 | 下方完整命令，144/144，零跳过 | [ordinary-accepted.log](ordinary-accepted.log) |
-| 原两方向导入与发布组合回归 | `npx tsx --test test/85-legacy-instance-import.test.ts test/86-personal-instance-import.test.ts test/91-release-acceptance.test.ts`，13/13，零跳过；导入新拒绝路径随后由 108 复核，91 亦在普通回归中复核 | [import-regressions.log](import-regressions.log) |
-| 静态门禁 | `npm run check:static`，退出 0，覆盖 lint、typecheck、notes 与 docs | [static-final.log](static-final.log) |
+| 协调器、人工停计、Runtime 接线与真实冷恢复 | `npx tsx --test test/105-workflow-runtime.test.ts test/107-workflow-runtime-wiring.test.ts test/109-workflow-cold-recovery.test.ts`，43/43，零跳过 | [activity-clock-accepted.log](../../git-history-cleanup/archive.md?path=.scratch%2Fagent-workflow%2Fruntime-evidence%2Factivity-clock-accepted.log) |
+| 两方向 preview/apply 拒绝丢弃绑定 | `npx tsx --test test/108-workflow-import.test.ts`，2/2，零跳过 | [import-guard-accepted.log](../../git-history-cleanup/archive.md?path=.scratch%2Fagent-workflow%2Fruntime-evidence%2Fimport-guard-accepted.log) |
+| 宿主任务、真实 Git 与停止未核实 | 独立亲跑 106/107/108 共 14/14 中的 `test/106-workflow-host.test.ts` 七项 | [independent-14.log](../../git-history-cleanup/archive.md?path=.scratch%2Fagent-workflow%2Fruntime-evidence%2Findependent-14.log) |
+| 固定脚本构建 | `npm run build:script`，退出 0 | [build-script-final.log](../../git-history-cleanup/archive.md?path=.scratch%2Fagent-workflow%2Fruntime-evidence%2Fbuild-script-final.log) |
+| 脚本活动与 worker 停止 | `npx tsx --test test/104-workflow-script.test.ts test/100-worker-stop.test.ts`，68/68，零跳过 | [activity-script-accepted.log](../../git-history-cleanup/archive.md?path=.scratch%2Fagent-workflow%2Fruntime-evidence%2Factivity-script-accepted.log) |
+| 操作效果分类 | 104/100/64 联合 77/77 中的 `test/64-tool-op-ledger.test.ts` 九项；分类器此后未改，受影响的脚本部分另行复核 | [execution-accepted.log](../../git-history-cleanup/archive.md?path=.scratch%2Fagent-workflow%2Fruntime-evidence%2Fexecution-accepted.log) |
+| 普通核心任务与委派 | 下方完整命令，144/144，零跳过 | [ordinary-accepted.log](../../git-history-cleanup/archive.md?path=.scratch%2Fagent-workflow%2Fruntime-evidence%2Fordinary-accepted.log) |
+| 原两方向导入与发布组合回归 | `npx tsx --test test/85-legacy-instance-import.test.ts test/86-personal-instance-import.test.ts test/91-release-acceptance.test.ts`，13/13，零跳过；导入新拒绝路径随后由 108 复核，91 亦在普通回归中复核 | [import-regressions.log](../../git-history-cleanup/archive.md?path=.scratch%2Fagent-workflow%2Fruntime-evidence%2Fimport-regressions.log) |
+| 静态门禁 | `npm run check:static`，退出 0，覆盖 lint、typecheck、notes 与 docs | [static-final.log](../../git-history-cleanup/archive.md?path=.scratch%2Fagent-workflow%2Fruntime-evidence%2Fstatic-final.log) |
 
 ```sh
 npx tsx --test test/01-concurrency.test.ts test/03-lifecycle.test.ts test/04-crash-recovery.test.ts test/05-overflow-db.test.ts test/66-control-seam.test.ts test/80-subagent-delegation.test.ts test/81-subagent-reuse-close.test.ts test/82-subagent-cancel-work.test.ts test/83-subagent-worktrees.test.ts test/84-subagent-integrate.test.ts test/86-subagent-messaging.test.ts test/86-subagent-recovery.test.ts test/88-parent-delivery.test.ts test/91-release-acceptance.test.ts test/94-task-ending.test.ts
 ```
 
-新增 105–109 当前共有 52 项：35 项状态/重放与竞争，7 项宿主执行，5 项 Runtime 接线，2 项导入拒绝，3 项后台冷恢复。表中证据有重叠，不把各轮次数相加作为覆盖数量。最终静态门禁与独立工程审查均通过，不用旧的 48 项联合结果冒充新增检查已执行。按已核实基点执行 `npm run change-scope -- --base df34a05dc03f1d56fcda2f9e4988603f94503163`，范围记录见[change-scope.log](change-scope.log)。
+新增 105–109 当前共有 52 项：35 项状态/重放与竞争，7 项宿主执行，5 项 Runtime 接线，2 项导入拒绝，3 项后台冷恢复。表中证据有重叠，不把各轮次数相加作为覆盖数量。最终静态门禁与独立工程审查均通过，不用旧的 48 项联合结果冒充新增检查已执行。按已核实基点执行 `npm run change-scope -- --base df34a05dc03f1d56fcda2f9e4988603f94503163`，范围记录见[change-scope.log](../../git-history-cleanup/archive.md?path=.scratch%2Fagent-workflow%2Fruntime-evidence%2Fchange-scope.log)。
 
 ## 要求与事实
 
@@ -40,9 +40,9 @@ npx tsx --test test/01-concurrency.test.ts test/03-lifecycle.test.ts test/04-cra
 
 [diagnostics](diagnostics/)保留施工轮次：`regressions.log` 为 143/144，新增表未加入导入 TABLE_POLICY 导致 91 失败；两方向显式登记并拒绝有执行绑定的源后，当前普通回归 144/144、导入回归 13/13。`workflows.log` 为 41/42，揭示只读中断输出/占用核实不能重排；修复事实补记、账本判定和恢复后，当前 105/109 均通过。`wiring-import-accepted.log` 名称沿用当时尝试但实际是失败日志：107 夹具经正常 stop 已暂停、108 预建目标缺目录，修正夹具后以表中 final/guard 日志为准。其他诊断日志是被新用例或内容变更取代的早期通过结果，不作为新增行为的最终证据。
 
-独立上下文 `runtime_seams` 在隔离副本撤去 109 对应的三项恢复修复，分别看到同键宿主重复写、只读尝试不能续接及 queued 宿主登记不能恢复的负例，然后恢复改动；记录由该上下文提供。最终独立审查 `store_plan_audit` 亲读规格、计划、实际源码及文档，确认本单无未解决工程阻断；亲跑 `npx tsx --test test/104-workflow-script.test.ts test/105-workflow-runtime.test.ts test/107-workflow-runtime-wiring.test.ts test/109-workflow-cold-recovery.test.ts` 为 80/80、零跳过，见[independent-80.log](independent-80.log)；亲跑 `npx tsx --test test/106-workflow-host.test.ts test/107-workflow-runtime-wiring.test.ts test/108-workflow-import.test.ts` 为 14/14、零跳过，见[independent-14.log](independent-14.log)。审查者还亲跑原计时反例、核对作者原始日志与文档范围，`git diff --check` 通过。
+独立上下文 `runtime_seams` 在隔离副本撤去 109 对应的三项恢复修复，分别看到同键宿主重复写、只读尝试不能续接及 queued 宿主登记不能恢复的负例，然后恢复改动；记录由该上下文提供。最终独立审查 `store_plan_audit` 亲读规格、计划、实际源码及文档，确认本单无未解决工程阻断；亲跑 `npx tsx --test test/104-workflow-script.test.ts test/105-workflow-runtime.test.ts test/107-workflow-runtime-wiring.test.ts test/109-workflow-cold-recovery.test.ts` 为 80/80、零跳过，见[independent-80.log](../../git-history-cleanup/archive.md?path=.scratch%2Fagent-workflow%2Fruntime-evidence%2Findependent-80.log)；亲跑 `npx tsx --test test/106-workflow-host.test.ts test/107-workflow-runtime-wiring.test.ts test/108-workflow-import.test.ts` 为 14/14、零跳过，见[independent-14.log](../../git-history-cleanup/archive.md?path=.scratch%2Fagent-workflow%2Fruntime-evidence%2Findependent-14.log)。审查者还亲跑原计时反例、核对作者原始日志与文档范围，`git diff --check` 通过。
 
-`store_plan_audit` 另以真实 `Date.now`、250 ms 预算和 QuickJS 脚本 `const question=ask("q",{prompt:"wait"}); await progress("tick",{}); let sum=0; for(let i=0;i<10000000;i++)sum+=i; await agent("after",{request:"after compute"}); return await question;` 复现活动误算等待：修前经过 483 ms、启动一次 Agent、只计 39 ms；活动通知修复后独立复测经过 257 ms、启动零次、计 253 ms 并暂停 duration_limit。作者同一反例的[实际记录](activity-clock-repro.log)为经过 253 ms、启动零次、计 254 ms。105 的持久进度交付后推进可信注入时钟用例固定捕获旧错误，不依赖机器启动快慢；其他人工停计回归仍通过。
+`store_plan_audit` 另以真实 `Date.now`、250 ms 预算和 QuickJS 脚本 `const question=ask("q",{prompt:"wait"}); await progress("tick",{}); let sum=0; for(let i=0;i<10000000;i++)sum+=i; await agent("after",{request:"after compute"}); return await question;` 复现活动误算等待：修前经过 483 ms、启动一次 Agent、只计 39 ms；活动通知修复后独立复测经过 257 ms、启动零次、计 253 ms 并暂停 duration_limit。作者同一反例的[实际记录](../../git-history-cleanup/archive.md?path=.scratch%2Fagent-workflow%2Fruntime-evidence%2Factivity-clock-repro.log)为经过 253 ms、启动零次、计 254 ms。105 的持久进度交付后推进可信注入时钟用例固定捕获旧错误，不依赖机器启动快慢；其他人工停计回归仍通过。
 
 ## 未覆盖与后续
 

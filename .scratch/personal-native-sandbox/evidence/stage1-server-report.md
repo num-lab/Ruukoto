@@ -8,23 +8,23 @@
 
 隔离 VM 使用[Ubuntu 官方最小镜像](https://cloud-images.ubuntu.com/minimal/releases/noble/release/) `ubuntu-24.04-minimal-cloudimg-amd64.img`，SHA-256 为 `2f119f50bf29fe40e73b69ae2a736e8210d8146796f036e0324315b6b3a777df`，与下载的官方 SHA256SUMS 一致。来宾为 Ubuntu 24.04.5、Linux 6.8.0-146-generic、systemd 255，服务账户 UID 999 / GID 991。最终 QEMU TCG 配置为 2 vCPU、768 MiB 来宾内存，宿主 QEMU 单元限制为 CPUQuota=200% / MemoryMax=1536M；tx 本机没有重启。依赖复制到来宾 ext4，锁版本和 SDK 未改，仅未复制其他架构的 esbuild 二进制。
 
-两个环境均使用正式 `/usr/bin/bwrap` 与按路径 AppArmor profile，保持 `kernel.apparmor_restrict_unprivileged_userns=1`，未设置 bwrap setuid。VM 内没有 Docker。完整元数据见[VM 元数据](stage1-vm-metadata.log.gz)，账户、运行时环境和后代证据见下面原始记录。
+两个环境均使用正式 `/usr/bin/bwrap` 与按路径 AppArmor profile，保持 `kernel.apparmor_restrict_unprivileged_userns=1`，未设置 bwrap setuid。VM 内没有 Docker。完整元数据见[VM 元数据](../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-native-sandbox%2Fevidence%2Fstage1-vm-metadata.log.gz)，账户、运行时环境和后代证据见下面原始记录。
 
 ## 真实结果
 
 | 验证 | 结果与原始证据 |
 | --- | --- |
 | 指定账户的系统服务，无登录冷启动 | UID 996 的 `service-start` 记录 `State=lingering`、空 `Sessions`、`Linger=yes`，进程位于 `/system.slice/ruukoto-native-stage1.service`，user runtime dir 与 bus 均为 `/run/user/996`；[记录](stage1-tx-results.jsonl) |
-| 正式 SDK worker 与真实边界 | 以该系统服务账户运行 smoke-26-native-worker，10/10 通过，含四工具、工具链、文件/网络/环境/FD 边界、授予收窄及硬链接拒绝；[journal](stage1-tx-journal.log) |
+| 正式 SDK worker 与真实边界 | 以该系统服务账户运行 smoke-26-native-worker，10/10 通过，含四工具、工具链、文件/网络/环境/FD 边界、授予收窄及硬链接拒绝；[journal](../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-native-sandbox%2Fevidence%2Fstage1-tx-journal.log) |
 | 完整原生探针 | 同账户、同 user bus 环境的独立系统服务运行正式 bwrap 探针，54 pass、0 fail、0 unavailable；[JSON](stage1-tx-native-probes.json)、[表格](stage1-tx-native-probes.md) |
 | 正常停止、脱离组后代、启动中取消 | SDK bash 创建 `setsid` 后代，自报 PGID 等于其 PID、持续写心跳；停止返回 true 后心跳冻结，已登记的 scope cgroup 为空/移除。真实单元创建后、宿主接手前取消也返回 true；[记录](stage1-tx-results.jsonl) |
 | 无登录定时运行 | 02:52:39 UTC 的 `scheduled-report` 核实独立定时根任务、修改委派的真实 SubAgent、成功 write 操作、实际 boot ID 文件内容和占用清零，报告时 `Sessions` 为空；[记录](stage1-tx-results.jsonl) |
-| 退出登录后定时运行 | 02:55:41 服务启动时 `Sessions=253867`，真实 SSH 会话于 02:55:51 退出；02:56:16 以同服务 PID 完成真实定时委派，核实成功操作和文件，`State=lingering`、空 `Sessions`；[登录记录](stage1-tx-logout.log)、[运行记录](stage1-tx-results.jsonl) |
-| 后台被 SIGKILL 与自动重启 | `systemctl kill --signal=SIGKILL --kill-whom=main ruukoto-native-stage1.service`。旧 scope `ruukoto-native-140aa799-e222-49fc-930e-4dc26ae5e78c.scope` 从 active 转 not-found/inactive；心跳 802→804 后稳定 804。恢复后任务为 `interrupted/backend_restart`，任务与 bash 操作均 `effectUnknown=true`，保留原目录占用，原会话暂停 `occupancy_unverified`，未重放；[任务](stage1-tx-recovery.json)、[SQLite](stage1-tx-occupancy.json.gz)、[journal](stage1-tx-journal.log) |
-| 缺 user runtime/user manager | 在独立系统服务中使用不存在的 runtime dir 与 bus，拒绝为 `execution_unavailable/policy_missing`，停止核实 true；[journal](stage1-tx-journal.log) |
-| 缺 cgroup 委派 | 新账户 UID 995 的独立 `user@995.service` 设 `Delegate=no`，systemd 因 `init.scope` 创建权限被拒而无法启动 manager。同账户的独立系统服务运行原 launcher，拒绝为 `execution_unavailable/policy_missing`，停止返回 true；没有 native scope 或 UID 995 残留 PID，没有回退。记录后仅清理该新账户、单元 drop-in 和临时资料，UID 996 及在线实例保持运行；[原始记录](stage1-tx-no-delegate.log) |
-| 缺 bwrap/profile | 只在隔离 VM 临时移走正式二进制或卸载并移走 profile，得到 `execution_unavailable/binary_missing` 或 `policy_missing`；随后恢复原文件和 profile，整机 userns 加固仍为 1；[记录](stage1-vm-prerequisite-refusals.log)、[脚本](vm-negative-prerequisites.sh) |
-| 真正重启后的无人登录自动原生单元 | 校准后的冷启动 boot ID 为 `598d51e4-00c0-4a91-86a2-3b29b83191b0`，自动 oneshot 成功。来宾内执行 `sudo reboot` 后变为 `ba2237e4-e5d9-4eae-8213-0d41032d106a`；04:04:03 自动 Starting、04:04:47 pass、04:04:48 Finished/exit 0。服务与 worker 均 UID 999，worker 原文 `uid=999 gid=991 groups=991`，`Linger=yes`、空 `Sessions`；真实 write/bash、user bus 不进入 worker、已知 scope 的 cgroupEmpty 均通过。worker-ready 30 秒与 namespace marker 10 秒均未改；[结果](stage1-vm-reboot-results.jsonl)、[journal](stage1-vm-journal.log)、[原始源码](reboot-worker.mts) |
+| 退出登录后定时运行 | 02:55:41 服务启动时 `Sessions=253867`，真实 SSH 会话于 02:55:51 退出；02:56:16 以同服务 PID 完成真实定时委派，核实成功操作和文件，`State=lingering`、空 `Sessions`；[登录记录](../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-native-sandbox%2Fevidence%2Fstage1-tx-logout.log)、[运行记录](stage1-tx-results.jsonl) |
+| 后台被 SIGKILL 与自动重启 | `systemctl kill --signal=SIGKILL --kill-whom=main ruukoto-native-stage1.service`。旧 scope `ruukoto-native-140aa799-e222-49fc-930e-4dc26ae5e78c.scope` 从 active 转 not-found/inactive；心跳 802→804 后稳定 804。恢复后任务为 `interrupted/backend_restart`，任务与 bash 操作均 `effectUnknown=true`，保留原目录占用，原会话暂停 `occupancy_unverified`，未重放；[任务](stage1-tx-recovery.json)、[SQLite](../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-native-sandbox%2Fevidence%2Fstage1-tx-occupancy.json.gz)、[journal](../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-native-sandbox%2Fevidence%2Fstage1-tx-journal.log) |
+| 缺 user runtime/user manager | 在独立系统服务中使用不存在的 runtime dir 与 bus，拒绝为 `execution_unavailable/policy_missing`，停止核实 true；[journal](../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-native-sandbox%2Fevidence%2Fstage1-tx-journal.log) |
+| 缺 cgroup 委派 | 新账户 UID 995 的独立 `user@995.service` 设 `Delegate=no`，systemd 因 `init.scope` 创建权限被拒而无法启动 manager。同账户的独立系统服务运行原 launcher，拒绝为 `execution_unavailable/policy_missing`，停止返回 true；没有 native scope 或 UID 995 残留 PID，没有回退。记录后仅清理该新账户、单元 drop-in 和临时资料，UID 996 及在线实例保持运行；[原始记录](../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-native-sandbox%2Fevidence%2Fstage1-tx-no-delegate.log) |
+| 缺 bwrap/profile | 只在隔离 VM 临时移走正式二进制或卸载并移走 profile，得到 `execution_unavailable/binary_missing` 或 `policy_missing`；随后恢复原文件和 profile，整机 userns 加固仍为 1；[记录](../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-native-sandbox%2Fevidence%2Fstage1-vm-prerequisite-refusals.log)、[脚本](vm-negative-prerequisites.sh) |
+| 真正重启后的无人登录自动原生单元 | 校准后的冷启动 boot ID 为 `598d51e4-00c0-4a91-86a2-3b29b83191b0`，自动 oneshot 成功。来宾内执行 `sudo reboot` 后变为 `ba2237e4-e5d9-4eae-8213-0d41032d106a`；04:04:03 自动 Starting、04:04:47 pass、04:04:48 Finished/exit 0。服务与 worker 均 UID 999，worker 原文 `uid=999 gid=991 groups=991`，`Linger=yes`、空 `Sessions`；真实 write/bash、user bus 不进入 worker、已知 scope 的 cgroupEmpty 均通过。worker-ready 30 秒与 namespace marker 10 秒均未改；[结果](stage1-vm-reboot-results.jsonl)、[journal](../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-native-sandbox%2Fevidence%2Fstage1-vm-journal.log)、[原始源码](reboot-worker.mts) |
 
 ## 保留的失败与未充分结果
 

@@ -6,4 +6,4 @@
 
 `npm --prefix .scratch/desktop-shadcn/demo run check` 和根 `npm run check:static` 通过。新增 SSR 检查把时长从 5 改为 12，确认标题随数据变化；默认不挂载文本，展开时出现完整文本且无旧勾选图标；主／子流两个 Read files 触发器内均有前置扳手。独立方案与实现复审无阻断，审查者亲跑 demo check。
 
-浏览器为 837×827：确认初始收起、Enter 展开、Space 收起、鼠标展开与工具组正常展开；思考正文保留两段、14px、pre-wrap，239px 窄栏内无横向溢出。扳手位于工具摘要前并隐藏于辅助技术，不改变按钮名称。六处其他区域尺寸和背景前后一致；80 个正式／冻结／来源／依赖保护文件哈希及本轮 CSS 字节核对通过。证据见[截图](thought-text-wrench.png)与[测量数据](thought-text-wrench.json)。本轮未重新跑真实模型或 Electron 验收；产品外观交拥有者审阅。
+浏览器为 837×827：确认初始收起、Enter 展开、Space 收起、鼠标展开与工具组正常展开；思考正文保留两段、14px、pre-wrap，239px 窄栏内无横向溢出。扳手位于工具摘要前并隐藏于辅助技术，不改变按钮名称。六处其他区域尺寸和背景前后一致；80 个正式／冻结／来源／依赖保护文件哈希及本轮 CSS 字节核对通过。证据见[截图](../../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2F2026-10-16%2Fai-elements%2Fthought-text-wrench.png)与[测量数据](thought-text-wrench.json)。本轮未重新跑真实模型或 Electron 验收；产品外观交拥有者审阅。

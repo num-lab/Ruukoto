@@ -8,4 +8,4 @@
 
 浏览器：837×827；鼠标、Enter、Space 均能切换思考区域。A→B→A 会话切换后，B 没有思考入口，A 保留展开，工具组仍收起。主／子消息 code 实测为 13px、400；命令仍为 14px、44px 高且无滚动条。文件路径按 Enter 仍打开对应差异。右栏展开后消息内容宽 239px，三条摘要自然换行且无横向溢出；深色和浅色均核对。其他六区的尺寸与背景在改动前后逐项一致，原 80 文件哈希保护和本轮 CSS 字节核对通过。
 
-效果见[深色主视图](chain-of-thought-dark.png)、[浅色窄栏](chain-of-thought-light-narrow.png)，计算样式与尺寸见[测量数据](chain-of-thought.json)。仅模拟展示；未接真实模型思考、后台或正式桌面，外观交拥有者审阅。
+效果见[深色主视图](../../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2F2026-10-16%2Fai-elements%2Fchain-of-thought-dark.png)、[浅色窄栏](../../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2F2026-10-16%2Fai-elements%2Fchain-of-thought-light-narrow.png)，计算样式与尺寸见[测量数据](chain-of-thought.json)。仅模拟展示；未接真实模型思考、后台或正式桌面，外观交拥有者审阅。

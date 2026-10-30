@@ -2,6 +2,8 @@
 
 Status: implemented
 
+原始产物的入库范围按[历史瘦身方案](../../proposed/process/2026-10-30-git-history-evidence-retention.md)调整；本篇对原始字节的保留要求继续适用于外部归档，不再要求把日志放回 Git。
+
 ## 问题
 
 原始测试日志的诊断空行可能包含空格，统一补丁的空白上下文行也以空格开头。将这些证据入库时，git diff --cached --check 会把数据中的必要字符当成编辑错误；直接修剪又会改变原始输出、补丁和已固定的摘要。
@@ -20,4 +22,4 @@ Status: implemented
 
 ## 后果
 
-原始输出和补丁可逐字节复核，提交门禁继续保护源码与文档。代价是该目录这两类数据的行尾空格不再产生诊断，不能把它们当作手写源码存放处。隔离 Git 仓以实际证据核实属性前失败、属性后通过、字节不变，并验证源码行尾空格、证据 space-before-tab 与末尾空行仍失败；结果见[探针记录](../../../../.scratch/subagent-roles/evidence/commit-whitespace-probe.log)。
+原始输出和补丁可逐字节复核，提交门禁继续保护源码与文档。代价是该目录这两类数据的行尾空格不再产生诊断，不能把它们当作手写源码存放处。隔离 Git 仓以实际证据核实属性前失败、属性后通过、字节不变，并验证源码行尾空格、证据 space-before-tab 与末尾空行仍失败；结果见[探针记录](../../../../.scratch/git-history-cleanup/archive.md?path=.scratch%2Fsubagent-roles%2Fevidence%2Fcommit-whitespace-probe.log)。

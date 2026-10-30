@@ -1,5 +1,7 @@
 # Desktop 本轮迁移的隔离 Electron 验收
 
+> 本文部分原始证据已移出 Git；原路径保留用于查找原件，见[归档说明](../../../../git-history-cleanup/archive.md)。
+
 状态：本地隔离 Electron 验收通过；外部环境与未注入的分支见文末限制。
 
 ## 环境与内容

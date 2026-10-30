@@ -9,11 +9,11 @@
 - fumo-entry有Git graph入口；fumo-open以独立标签显示6提交、6父边、HEAD／分支／tag、作者、日期与短哈希。fumo-dedup重复打开后仍为1个Git标签。
 - non-git-eval没有入口、标签或面板，即使此目录原有工具差异；pa-no-git同样不提供Git能力。未知与新工作区资格另由纯函数自检覆盖。
 - nexus-open显示独立的3提交线性历史，fumo-restored返回原6提交图，文本与先前相同；没有跨会话混用历史。
-- empty-repo-entry仍提供入口，empty-repo-open展示macos-menubar-kit与「暂无提交」，没有节点或父边；见[空仓库截图](empty-repo.png)。
+- empty-repo-entry仍提供入口，empty-repo-open展示macos-menubar-kit与「暂无提交」，没有节点或父边；见[空仓库截图](../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2Fgit-graph%2Fempty-repo.png)。
 - graph-tab-dragged把Git标签拖至首位，面板保留；graph-tab-closed移除标签及面板，graph-tab-reopened恢复且去重为1个。关闭后的相邻diff仍显示原内容。
 - narrow在260px右栏保留6行，所有节点中心与对应56px行中心误差小于0.05px；其他有提交的状态同样对齐。父边颜色均实际解析，没有无效var或none，所有面板均无原生title。
 
-[暗色最终界面](dark.png)、[浅色](light.png)、[最窄右栏](narrow-dark.png)均为真实界面截图；最终完整可访问树见[final-accessible.txt](final-accessible.txt)。图中数据明确标注只读样例，不表示真实仓库或真实历史。图线由父关系计算，提交行仅展示，没有Git写操作。
+[暗色最终界面](../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2Fgit-graph%2Fdark.png)、[浅色](../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2Fgit-graph%2Flight.png)、[最窄右栏](../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2Fgit-graph%2Fnarrow-dark.png)均为真实界面截图；最终完整可访问树见[final-accessible.txt](final-accessible.txt)。图中数据明确标注只读样例，不表示真实仓库或真实历史。图线由父关系计算，提交行仅展示，没有Git写操作。
 
 ## 工程检查与范围
 

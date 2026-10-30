@@ -22,7 +22,7 @@
 
 ## 检查与制品
 
-初轮组合以接手代码启动，384 项中 382 通过、1 失败、1 Linux 专用跳过，约 313 秒。失败为 `desktop-settings-mcp.test.ts:87` 把并发创建数组顺序误当工作区显示顺序；修正为显示列表首工作区，保留自身来源及映射会话原来源断言。Linux 跳过项已在 Oracle 亲跑 1/1，通过，见[服务回归](09-linux-service-regression.log)。后续改变的文件以最终窄复跑为准，未改变模块沿用初轮通过项与各前置交付证据。
+初轮组合以接手代码启动，384 项中 382 通过、1 失败、1 Linux 专用跳过，约 313 秒。失败为 `desktop-settings-mcp.test.ts:87` 把并发创建数组顺序误当工作区显示顺序；修正为显示列表首工作区，保留自身来源及映射会话原来源断言。Linux 跳过项已在 Oracle 亲跑 1/1，通过，见[服务回归](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-settings%2Fevidence%2F09-linux-service-regression.log)。后续改变的文件以最终窄复跑为准，未改变模块沿用初轮通过项与各前置交付证据。
 
 初轮命令：
 
@@ -34,7 +34,7 @@ npx tsx --test --test-concurrency=1 test/desktop-settings.test.ts test/desktop-s
 | --- | --- |
 | `npx tsx --test test/desktop-personal-settings.test.ts test/desktop-personal-settings-pages.test.ts` | 44/44 |
 | `npx tsx --test test/desktop-settings-mcp.test.ts test/desktop-models-layout.test.ts` | 22/22 |
-| `npx tsx --test test/personal-maintenance.test.ts` | macOS 10/10；Oracle 最终同文件 10/10、无跳过，见[日志](09-linux-maintenance.log) |
+| `npx tsx --test test/personal-maintenance.test.ts` | macOS 10/10；Oracle 最终同文件 10/10、无跳过，见[日志](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-settings%2Fevidence%2F09-linux-maintenance.log) |
 | Standards 亲跑 `test/managed-skills.test.ts test/personal-settings.test.ts test/personal-maintenance.test.ts test/31-model-config.test.ts` | 当时 64/64；后续维护修复由上述最终用例与独立负例替代旧维护结论 |
 | `npm run check:static` | 源码返工后通过；最终记录/文档另跑 `npm run check:docs`、`npm run verify-notes` |
 | `npm run desktop:build`、`npm run desktop:mygo:build` | 最终桌面源码构建通过；保留既有 chunk、打包元数据及未公证提示 |

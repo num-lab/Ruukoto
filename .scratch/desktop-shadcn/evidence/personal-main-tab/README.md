@@ -26,9 +26,9 @@
 
 浏览器末尾对唯一 Ruukoto 标签、PA 草稿／历史保留、PA 右栏不含文件树／差异、Code 不含 PA 输入及设置不含运行目标做了断言，均通过。截图中的验收文本只是本次浏览器操作输入，未写入 fixture。
 
-- [暗色，PA 与右栏](dark.png)
-- [浅色，PA 与右栏](light.png)
-- [暗色，右栏收起](dark-collapsed.png)
+- [暗色，PA 与右栏](../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2Fpersonal-main-tab%2Fdark.png)
+- [浅色，PA 与右栏](../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2Fpersonal-main-tab%2Flight.png)
+- [暗色，右栏收起](../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2Fpersonal-main-tab%2Fdark-collapsed.png)
 
 ## 验收边界
 

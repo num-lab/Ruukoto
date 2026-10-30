@@ -43,7 +43,7 @@ node --import tsx /tmp/ruukoto-electron-review/run.mjs --run
 - `output/playwright/`：逐步界面文本、个人连接状态与截图。
 - `scripts/`：本轮实际执行的bootstrap、受控远端和Playwright驱动；不包含临时存储密钥或凭据目录。
 
-关键截图：[等待生效](output/playwright/05-waiting-model.png)、[独立Skills保存](output/playwright/06-independent-skills.png)、[目标文件异常](output/playwright/07-model-file-issue.png)、[生效失败](output/playwright/09-publication-failed.png)、[坏凭据服务已停用](output/playwright/10-disabled-bad-mcp.png)。
+关键截图：[等待生效](../../../git-history-cleanup/archive.md?path=.scratch%2Fconfiguration-updates%2Fevidence%2Felectron%2Foutput%2Fplaywright%2F05-waiting-model.png)、[独立Skills保存](../../../git-history-cleanup/archive.md?path=.scratch%2Fconfiguration-updates%2Fevidence%2Felectron%2Foutput%2Fplaywright%2F06-independent-skills.png)、[目标文件异常](../../../git-history-cleanup/archive.md?path=.scratch%2Fconfiguration-updates%2Fevidence%2Felectron%2Foutput%2Fplaywright%2F07-model-file-issue.png)、[生效失败](../../../git-history-cleanup/archive.md?path=.scratch%2Fconfiguration-updates%2Fevidence%2Felectron%2Foutput%2Fplaywright%2F09-publication-failed.png)、[坏凭据服务已停用](../../../git-history-cleanup/archive.md?path=.scratch%2Fconfiguration-updates%2Fevidence%2Felectron%2Foutput%2Fplaywright%2F10-disabled-bad-mcp.png)。
 
 ## 来源指纹
 

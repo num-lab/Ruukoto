@@ -1,5 +1,7 @@
 # 30 本机工程证据
 
+> 本文部分原始证据已移出 Git；原路径保留用于查找原件，见[归档说明](../../../git-history-cleanup/archive.md)。
+
 对应[工单 30](../../issues/30-browser-media.md)，起点 `1bd0d021ca1ed1432abd2b69f087d402ed22eb5f`，macOS arm64、Node 24.15.0。所有模型 HTTP 均为 loopback 替身，Telegram 下载/发送为替身；没有使用真实视觉模型或真实 IM。最终源码指纹由 `implementation-manifest.json` 持有，独立审查见 `independent-review.md`。
 
 `npx tsx .scratch/personal-pi-durable/evidence/30-macos/verify-handoff.mts` 核对工单/证据链接与格式、45 项实施指纹、Linux 源码差异和 15 项归档内容，结果在 `handoff-check.json`；`handoff-manifest.json` 保存本轮交接工单和证据文件的指纹，不包含自身。

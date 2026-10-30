@@ -31,7 +31,7 @@ Electron 与 MyGo 的系统目录选择均消费 DesktopHost：选择前固定�
 
 Playwright CLI 的 Chromium 加载正式设置组件、样式和合成 bridge。浅色 1280×720 检查列表、来源与诊断；深色 760×500 检查滚动、正文与停用确认，实测 document.scrollWidth 为 760、对话框宽 728、右侧 panel.clientWidth 与 scrollWidth 均为 558，没有横向溢出。模拟减少动态效果后，键盘 Tab／Enter 能确认停用并读回已停用状态；导入预览显示名称、描述、文件数、字节数、仅显式调用和源目录不变说明，预览未确认时原技能操作禁用。
 
-正文中包含 script 与远程图片，实际 `.skills-body` 中 img、script 节点均为 0，图片替换为文字。SSR 另断言不产生 script、img、iframe 或 javascript: 链接。已查看[浅色列表](desktop-skills-light.png)、[深色窄窗确认](desktop-skills-dark-narrow.png)与[导入预览](desktop-skills-import-preview.png)。合成入口初次缺 Vite React preamble，修正入口后继续检查；开发 HMR WebSocket 被浏览器本地网络规则阻断，不将该合成入口当作真实应用控制台或生产 CSP 验收。
+正文中包含 script 与远程图片，实际 `.skills-body` 中 img、script 节点均为 0，图片替换为文字。SSR 另断言不产生 script、img、iframe 或 javascript: 链接。已查看[浅色列表](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-settings%2Fevidence%2Fdesktop-skills-light.png)、[深色窄窗确认](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-settings%2Fevidence%2Fdesktop-skills-dark-narrow.png)与[导入预览](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-settings%2Fevidence%2Fdesktop-skills-import-preview.png)。合成入口初次缺 Vite React preamble，修正入口后继续检查；开发 HMR WebSocket 被浏览器本地网络规则阻断，不将该合成入口当作真实应用控制台或生产 CSP 验收。
 
 ## 独立实现审查
 

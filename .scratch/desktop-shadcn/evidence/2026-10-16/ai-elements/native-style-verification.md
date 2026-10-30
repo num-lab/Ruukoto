@@ -21,4 +21,4 @@
 | 审批 | 批准和拒绝分别实点验证，决定后卡片消失，没有添加结果行 |
 | 窄窗 | 两侧展开时主／子消息容器无横向溢出，长路径能换行；命令仅在 pre 内横滚，输入卡在窗口内；整页无横向溢出 |
 
-截图：[深色](native-dark.png)、[浅色](native-light.png)、[窄窗](native-narrow.png)。本轮只涉及样式，发送、核实与滚动逻辑未变，完整交互基线见[前轮验收](verification.md)；未重跑真实模型、SSH 或 Electron 验收。产品外观等待拥有者审阅。
+截图：[深色](../../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2F2026-10-16%2Fai-elements%2Fnative-dark.png)、[浅色](../../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2F2026-10-16%2Fai-elements%2Fnative-light.png)、[窄窗](../../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2F2026-10-16%2Fai-elements%2Fnative-narrow.png)。本轮只涉及样式，发送、核实与滚动逻辑未变，完整交互基线见[前轮验收](verification.md)；未重跑真实模型、SSH 或 Electron 验收。产品外观等待拥有者审阅。

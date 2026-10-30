@@ -18,23 +18,23 @@
 
 | 检查对象与文件集合 | 结果与证据 |
 | --- | --- |
-| npm run check:static；npm run build | 均通过，见[静态](02-static.log)、[构建](02-build.log)。静态包含 lint、根及 workspace 类型、笔记、文档门禁；最终静态在最后代码与夹具修订后执行。 |
-| 45-github-events、46-github-recovery、62-tool-availability、81-subagent-reuse-close、83-subagent-worktrees、111-workflow-capabilities、113-workflow-source-capabilities、subagent-source-capabilities、subagent-capabilities、subagent-execution-core | 99/99 通过，见[交付回归](02-delivery-tests.log)；最新消息和导入增量另见下两批。 |
-| subagent-source-capabilities、86-subagent-recovery、92-subagent-lifecycle、51-generic-scheduler | 最终 61/61 通过，见[消息与生命周期](02-message-tests.log)。包含双产品真实 bash、业务归属、显式工具/MCP 缺失、资料/配置撤销、快照损坏、记忆撤销、旧 MCP 结果、消息收紧和取消。 |
-| subagent-execution-core、94-task-ending、106-workflow-host、108-workflow-import、109-workflow-cold-recovery、110-workflow-workcopy | 46/46 通过，见[存储与恢复](02-storage-tests.log)。该批误写的不存在导入文件名未提供覆盖，实际导入补在下一批，不能据此宣称导入通过。 |
-| 85-legacy-instance-import、86-personal-instance-import、125-agent-wait-import | 26/26 通过，见[两方向导入](02-import-tests.log)。 |
-| 105-workflow-runtime、83-subagent-worktrees、86-subagent-recovery、subagent-capabilities、subagent-source-capabilities | 83/83 通过，见[预检与停止恢复](02-preflight-recovery-tests.log)。迟到预检不创建 Task、不访问停机后的库；工作副本与占用保留原语义。 |
-| 107-workflow-runtime-wiring、112-workflow-real-steps、subagent-capabilities | 最终 17/17 通过，见[真实工作流步骤](02-workflow-tests.log)。使用真实 Driver、Git、worker、文件和 macOS native 冻结验证；模型应答由 mock provider 驱动。 |
-| core 生命周期 01/03/04/05、上下文 16/18/56/60/61、105/107/112 与 agent_wait 报告/恢复相关用例 | 初次 180/183，见[原始批次](02-core-context-tests.log)。107 的旧手工任务缺执行快照，112 的无目标步骤旧断言及冻结验证漏 hostVerify 已修；受影响 107/112 在上述 17/17 中通过。其它已通过部分不重复跑。 |
-| 审批/工具 07/08/10/63/64、control 66、恢复/结果 86/92/91/88、IM 审批 77、scheduler 37/51 与 101-native-execution | 初次 182/183，见[跨层原始批次](02-cross-tests.log)。唯一失败是取消来源被记为 source_invalid；已恢复 work_canceled 分类，51 与新来源用例 24/24，见[取消修复](02-scheduler-tests.log)，最新完整消息批 61/61。 |
-| 导入 85/86、复用 81/82/92 与 agent_wait 等生命周期相关用例 | 初次 93/94，见[生命周期原始批次](02-lifecycle-tests.log)。81 对撤销仅等待 interrupted，实际可在首次发送前 failed；修正夹具为两种合法阻断终态，最终 99/99 包含该用例。 |
-| git diff --check；npm run change-scope -- --base d12eb6329da9fd9128989ef0725ce1243627068d；笔记锚点检查 | 通过，见[范围](02-change-scope.json)、[锚点](02-anchors.log)。锚点无悬空，已有未被代码引用笔记仅作报告。 |
+| npm run check:static；npm run build | 均通过，见[静态](../../git-history-cleanup/archive.md?path=.scratch%2Fsubagent-roles%2Fevidence%2F02-static.log)、[构建](../../git-history-cleanup/archive.md?path=.scratch%2Fsubagent-roles%2Fevidence%2F02-build.log)。静态包含 lint、根及 workspace 类型、笔记、文档门禁；最终静态在最后代码与夹具修订后执行。 |
+| 45-github-events、46-github-recovery、62-tool-availability、81-subagent-reuse-close、83-subagent-worktrees、111-workflow-capabilities、113-workflow-source-capabilities、subagent-source-capabilities、subagent-capabilities、subagent-execution-core | 99/99 通过，见[交付回归](../../git-history-cleanup/archive.md?path=.scratch%2Fsubagent-roles%2Fevidence%2F02-delivery-tests.log)；最新消息和导入增量另见下两批。 |
+| subagent-source-capabilities、86-subagent-recovery、92-subagent-lifecycle、51-generic-scheduler | 最终 61/61 通过，见[消息与生命周期](../../git-history-cleanup/archive.md?path=.scratch%2Fsubagent-roles%2Fevidence%2F02-message-tests.log)。包含双产品真实 bash、业务归属、显式工具/MCP 缺失、资料/配置撤销、快照损坏、记忆撤销、旧 MCP 结果、消息收紧和取消。 |
+| subagent-execution-core、94-task-ending、106-workflow-host、108-workflow-import、109-workflow-cold-recovery、110-workflow-workcopy | 46/46 通过，见[存储与恢复](../../git-history-cleanup/archive.md?path=.scratch%2Fsubagent-roles%2Fevidence%2F02-storage-tests.log)。该批误写的不存在导入文件名未提供覆盖，实际导入补在下一批，不能据此宣称导入通过。 |
+| 85-legacy-instance-import、86-personal-instance-import、125-agent-wait-import | 26/26 通过，见[两方向导入](../../git-history-cleanup/archive.md?path=.scratch%2Fsubagent-roles%2Fevidence%2F02-import-tests.log)。 |
+| 105-workflow-runtime、83-subagent-worktrees、86-subagent-recovery、subagent-capabilities、subagent-source-capabilities | 83/83 通过，见[预检与停止恢复](../../git-history-cleanup/archive.md?path=.scratch%2Fsubagent-roles%2Fevidence%2F02-preflight-recovery-tests.log)。迟到预检不创建 Task、不访问停机后的库；工作副本与占用保留原语义。 |
+| 107-workflow-runtime-wiring、112-workflow-real-steps、subagent-capabilities | 最终 17/17 通过，见[真实工作流步骤](../../git-history-cleanup/archive.md?path=.scratch%2Fsubagent-roles%2Fevidence%2F02-workflow-tests.log)。使用真实 Driver、Git、worker、文件和 macOS native 冻结验证；模型应答由 mock provider 驱动。 |
+| core 生命周期 01/03/04/05、上下文 16/18/56/60/61、105/107/112 与 agent_wait 报告/恢复相关用例 | 初次 180/183，见[原始批次](../../git-history-cleanup/archive.md?path=.scratch%2Fsubagent-roles%2Fevidence%2F02-core-context-tests.log)。107 的旧手工任务缺执行快照，112 的无目标步骤旧断言及冻结验证漏 hostVerify 已修；受影响 107/112 在上述 17/17 中通过。其它已通过部分不重复跑。 |
+| 审批/工具 07/08/10/63/64、control 66、恢复/结果 86/92/91/88、IM 审批 77、scheduler 37/51 与 101-native-execution | 初次 182/183，见[跨层原始批次](../../git-history-cleanup/archive.md?path=.scratch%2Fsubagent-roles%2Fevidence%2F02-cross-tests.log)。唯一失败是取消来源被记为 source_invalid；已恢复 work_canceled 分类，51 与新来源用例 24/24，见[取消修复](../../git-history-cleanup/archive.md?path=.scratch%2Fsubagent-roles%2Fevidence%2F02-scheduler-tests.log)，最新完整消息批 61/61。 |
+| 导入 85/86、复用 81/82/92 与 agent_wait 等生命周期相关用例 | 初次 93/94，见[生命周期原始批次](../../git-history-cleanup/archive.md?path=.scratch%2Fsubagent-roles%2Fevidence%2F02-lifecycle-tests.log)。81 对撤销仅等待 interrupted，实际可在首次发送前 failed；修正夹具为两种合法阻断终态，最终 99/99 包含该用例。 |
+| git diff --check；npm run change-scope -- --base d12eb6329da9fd9128989ef0725ce1243627068d；笔记锚点检查 | 通过，见[范围](02-change-scope.json)、[锚点](../../git-history-cleanup/archive.md?path=.scratch%2Fsubagent-roles%2Fevidence%2F02-anchors.log)。锚点无悬空，已有未被代码引用笔记仅作报告。 |
 
 中间失败未记作通过。独立审查另用负例确认：读取记录缺失、未知资料引用、旧 MCP 上下文、冻结验证调用门、预检停机竞态及 SDK cwd 更新；完整结论见[实现审查](../02-implementation-review.md)。实际工作目录变化时销毁旧 SDK 并更新 cwd 身份，保留原 JSONL 历史，对应最窄 Driver 回归在未修代码上失败、修复后通过；该回归只切换到新的子目录，不以此证明 Git 副本准备。
 
 ## 模型可见文本估算
 
-使用真实 Driver/SDK、mock provider 与选择记录的 estimates；[探针](02-metrics-probe.mts)和[基线](02-metrics-baseline.log)/[当前](02-metrics-current.log)留存。两产品均为 dev 来源、general、full_access。普通比较用相同 readPaths 为 [.]，因为改前无资料默认入口会被拒；工作流默认步骤只给正文。独立副本临时恢复基点的四个 agent 文件及脚本构建进行比较，随后恢复；它比较实际模型输入，不是旧基点的完整产品验收。
+使用真实 Driver/SDK、mock provider 与选择记录的 estimates；[探针](02-metrics-probe.mts)和[基线](../../git-history-cleanup/archive.md?path=.scratch%2Fsubagent-roles%2Fevidence%2F02-metrics-baseline.log)/[当前](../../git-history-cleanup/archive.md?path=.scratch%2Fsubagent-roles%2Fevidence%2F02-metrics-current.log)留存。两产品均为 dev 来源、general、full_access。普通比较用相同 readPaths 为 [.]，因为改前无资料默认入口会被拒；工作流默认步骤只给正文。独立副本临时恢复基点的四个 agent 文件及脚本构建进行比较，随后恢复；它比较实际模型输入，不是旧基点的完整产品验收。
 
 | 产品 | 入口 | 改前 systemPrompt | 改后 systemPrompt | 改前 toolSchemas | 改后 toolSchemas |
 | --- | --- | ---: | ---: | ---: | ---: |

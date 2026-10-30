@@ -41,7 +41,7 @@
 | 脚本与危险链接 | script／img onerror 未生成可执行元素，三个执行标志均为 false，javascript 链接 href 清空，见 [最终安全记录](04-electron/security-images-fixed.json) |
 | 本机图片负例 | 修复前，绝对路径和相对路径均实际加载临时自有 PNG，naturalWidth/Height 为 2；修复后正文与思考各含 file、绝对、相对和 HTTP 图片，DOM 图片总数为零且替代说明保留，见 [修复前](04-electron/security-local-image-before-fix.json)与[修复后](04-electron/security-images-fixed.json) |
 
-创建请求幂等、丢答与跨实例回归由上述真实 Runtime／ControlServer 的 11 项检查证明；GUI 另用 IPC 边界替身制造创建 unknown，并同时从真实 ControlServer 触发读取失败，两个提示均持续显示。小窗口恢复区可滚动至重连按钮，见[最终 UI 记录](04-electron/final-ui-evidence.json)与[滚到底部截图](04-electron/final-small-recovery-bottom.png)。明暗截图检查了文字、树、标签、工具组和正文可读性，见[明亮](04-electron/final-stream-light.png)与[深色](04-electron/final-stream-dark.png)；最终长标签关闭按钮宽 28、scrollWidth 等于 clientWidth，见[控件记录](04-electron/final-tab-close-controls.json)。
+创建请求幂等、丢答与跨实例回归由上述真实 Runtime／ControlServer 的 11 项检查证明；GUI 另用 IPC 边界替身制造创建 unknown，并同时从真实 ControlServer 触发读取失败，两个提示均持续显示。小窗口恢复区可滚动至重连按钮，见[最终 UI 记录](04-electron/final-ui-evidence.json)与[滚到底部截图](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-gui%2Fevidence%2F04-electron%2Ffinal-small-recovery-bottom.png)。明暗截图检查了文字、树、标签、工具组和正文可读性，见[明亮](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-gui%2Fevidence%2F04-electron%2Ffinal-stream-light.png)与[深色](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-gui%2Fevidence%2F04-electron%2Ffinal-stream-dark.png)；最终长标签关闭按钮宽 28、scrollWidth 等于 clientWidth，见[控件记录](04-electron/final-tab-close-controls.json)。
 
 独立外部验收结论为通过，无未解决阻断；[探针摘要](04-electron/probe-summary.json)记录了环境、模拟范围、令牌检查和进程清理。最终 app.asar SHA-256 为 `c8495b4ead243ee7d980401cdc1396d370bf19db2ddd64d43c0da2c799f4e8c4`。
 

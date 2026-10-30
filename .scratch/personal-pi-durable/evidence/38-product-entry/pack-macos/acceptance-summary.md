@@ -1,5 +1,7 @@
 # 工单 38 隔离安装与实际打包验收
 
+> 本文部分原始证据已移出 Git；原路径保留用于查找原件，见[归档说明](../../../../git-history-cleanup/archive.md)。
+
 验收副本 `/tmp/ruukoto38-pack-20261018-1`；证据目录 `/tmp/ruukoto38-pack-evidence-20261018-1`。macOS 27.0.1 arm64、Node 24.15.0、npm 11.12.1。基点 `12b1a66cfa661f2a8bddaa9405283ab9f22cb20c` 加主副本当时 tracked diff 和三个必要 untracked 文件；未复制任何 node_modules。4,045 项源清单在安装、构建、解包替换和测试后仍逐字节相符，包含 8 个退出路径，详见 source-manifest.json。
 
 `npm run setup -- --skip-hooks` 返回 0，用时 9.622 秒，执行根与 foundation 的独立 npm ci。`npm run build` 返回 0，用时 1.114 秒，独立生成共享 worker、个人命令 worker、工作流脚本/WASM、macOS 监督器和两个 app tarball。

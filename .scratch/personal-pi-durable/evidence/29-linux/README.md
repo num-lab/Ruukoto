@@ -15,11 +15,11 @@ HTTP 恢复中的下一次子模型调用因未知来源被宿主拦截，原子
 
 ## 源码与依赖
 
-四场景实际执行的 47 项仓库源文件、测试模型帮助程序及 worker 由 [source-four-scenarios-manifest.json](source-four-scenarios-manifest.json)、[源码归档](source-four-scenarios.tar.gz)及 [linux-tools-probe.mjs](linux-tools-probe.mjs) 固定；远端运行后逐文件核对通过，见 [source-verification.json](source-verification.json)。Pi 1.3.0、typebox 及 MCP SDK 保留原 ESM 包，只有仓库源码打包；每个原模块的 `import.meta.url` 保留其远端原目录语义。
+四场景实际执行的 47 项仓库源文件、测试模型帮助程序及 worker 由 [source-four-scenarios-manifest.json](source-four-scenarios-manifest.json)、[源码归档](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F29-linux%2Fsource-four-scenarios.tar.gz)及 [linux-tools-probe.mjs](linux-tools-probe.mjs) 固定；远端运行后逐文件核对通过，见 [source-verification.json](source-verification.json)。Pi 1.3.0、typebox 及 MCP SDK 保留原 ESM 包，只有仓库源码打包；每个原模块的 `import.meta.url` 保留其远端原目录语义。
 
-四场景后只增加 `approved-ops.ts` 的异常失败分类修复：在截短前登记写入已开始，截短产生效果后抛错必须保持未知。实际差异见 [source-final-delta.diff.gz](source-final-delta.diff.gz)。正常文件、HTTP、原命令与隔离路径未改，因此保留四场景原证据；新增失败分支在 Linux 单独复验，最终 IO 15、Search 10、FIFO 3 共 28 项全通过，见 [最终叶测日志](leaf-linux-final-tests.log)、[叶测源码](leaf-tests.tar.gz)及 [叶测 bundle 摘要](leaf-source-manifest.json)。先前的 27 项日志保留，不重复累计。
+四场景后只增加 `approved-ops.ts` 的异常失败分类修复：在截短前登记写入已开始，截短产生效果后抛错必须保持未知。实际差异见 [source-final-delta.diff.gz](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F29-linux%2Fsource-final-delta.diff.gz)。正常文件、HTTP、原命令与隔离路径未改，因此保留四场景原证据；新增失败分支在 Linux 单独复验，最终 IO 15、Search 10、FIFO 3 共 28 项全通过，见 [最终叶测日志](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F29-linux%2Fleaf-linux-final-tests.log)、[叶测源码](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F29-linux%2Fleaf-tests.tar.gz)及 [叶测 bundle 摘要](leaf-source-manifest.json)。先前的 27 项日志保留，不重复累计。
 
-最新 47 项文件由 [source-final-manifest.json](source-final-manifest.json)与 [最终源码归档](source-final.tar.gz) 固定；[远端增量核验](final-source-verification.json)及 [当前根检出复核](source-comparison.json)均确认字节相符。没有声称四场景原 bundle 执行过后来新增的异常分支。
+最新 47 项文件由 [source-final-manifest.json](source-final-manifest.json)与 [最终源码归档](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F29-linux%2Fsource-final.tar.gz) 固定；[远端增量核验](final-source-verification.json)及 [当前根检出复核](source-comparison.json)均确认字节相符。没有声称四场景原 bundle 执行过后来新增的异常分支。
 
 宿主依赖复用工单 26 的 108 包闭包，另外复制当前 MCP 2.0 的 13 包闭包，均没有安装或改写 SDK；两组 package.json SHA-256 逐项核对。精确包清单见 [基础闭包](base-runtime-dependencies.json)与 [MCP 闭包](mcp-runtime-dependencies.json)。磁盘约剩 660 MiB 时开始，避免重新 setup；这不证明完整 Linux 安装或构建成功。构造与运行入口见 [build-probe.mjs](build-probe.mjs)、[probe-entry.mjs](probe-entry.mjs)及 [finalize.py](finalize.py)。
 

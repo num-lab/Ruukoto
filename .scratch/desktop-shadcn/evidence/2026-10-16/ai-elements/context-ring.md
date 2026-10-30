@@ -8,4 +8,4 @@
 
 浏览器在原生 974×827 核对：入口 18×18px，静态灰环，没有数字；聚焦时打开 Context、32,000／200,000 tokens 及 Progress，详情也没有百分比文本。进度条 aria-valuenow 为 16，详情在入口上方相隔 8px；Escape 可关闭，指针停留详情时按原生行为保持展开，移出后关闭。新会话描述为 0／200,000，弧线透明，详情进度为 0。明暗主题均核对。760×500 双侧栏、144px 操作区下，环形图标仍为 18px，模型／Effort／发送均在范围内，无页面横向溢出；临时视口已恢复，测试会话已重载清除。
 
-截图见[深色入口](context-ring-dark.png)、[深色详情](context-ring-details-dark.png)、[浅色详情](context-ring-details-light.png)、[最窄布局](context-ring-minimum.png)，测量见[数据](context-ring.json)。本轮用量仍为模拟值，未接真实模型或执行 Electron 验收；外观交拥有者审阅。
+截图见[深色入口](../../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2F2026-10-16%2Fai-elements%2Fcontext-ring-dark.png)、[深色详情](../../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2F2026-10-16%2Fai-elements%2Fcontext-ring-details-dark.png)、[浅色详情](../../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2F2026-10-16%2Fai-elements%2Fcontext-ring-details-light.png)、[最窄布局](../../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2F2026-10-16%2Fai-elements%2Fcontext-ring-minimum.png)，测量见[数据](context-ring.json)。本轮用量仍为模拟值，未接真实模型或执行 Electron 验收；外观交拥有者审阅。

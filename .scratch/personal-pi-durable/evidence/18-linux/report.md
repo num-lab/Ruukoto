@@ -1,5 +1,7 @@
 # 工单18 Linux隔离验证
 
+> 本文部分原始证据已移出 Git；原路径保留用于查找原件，见[归档说明](../../../git-history-cleanup/archive.md)。
+
 - 时间：2026-10-17 UTC；主机 ssh tx（BJ-Tencent），Ubuntu Linux 6.8.0-117-generic x86_64，非root，Node v24.21.0 / npm 11.19.0；Python3/PTY、git、bash、g++、make可用。
 - 源码目录：`/dev/shm/rk-18-linux-20261017T074832Z`；日志目录：远端及本机 `/tmp/rk-18-linux-20261017T074832Z`。仅写这些专属副本和测试自行创建/删除的唯一临时夹具，未操作真实服务或其他远端副本。
 - 输入：根工作区实际tracked与未忽略untracked文件；排除`.git`、`.scratch`、`dist`、`worker`与所有`node_modules`，736个文件、11,766,929字节。远端独立git init/提交快照满足setup环境检查；依赖独立npm ci，未复制/复用已有node_modules。

@@ -12,11 +12,11 @@ Status: resolved
 
 ## 进展与交接
 
-基点63077580，开始时工作区干净。preview_landscape 独立方案审查指出审批还持有任务活动检查，已纳入上述保留条件；实施与独立实现审查完成，无剩余阻断。旧实现运行新验收用例在 confirm 明确失败，见[修改前日志](../evidence/preview-permissions/before.log)。当前改动随本工单入库，源码指纹见[快照](../evidence/preview-permissions/source-snapshot.json)。
+基点63077580，开始时工作区干净。preview_landscape 独立方案审查指出审批还持有任务活动检查，已纳入上述保留条件；实施与独立实现审查完成，无剩余阻断。旧实现运行新验收用例在 confirm 明确失败，见[修改前日志](../../git-history-cleanup/archive.md?path=.scratch%2Fagent-tools-next%2Fevidence%2Fpreview-permissions%2Fbefore.log)。当前改动随本工单入库，源码指纹见[快照](../evidence/preview-permissions/source-snapshot.json)。
 
 ## 验收与证据
 
-工程验收通过。`test/present-tools.test.ts` 3项通过：四种模式成功且零审批、持久工具结果、实际prompt描述；未运行／缺失／异会话／取消／signal中止拒绝，URL校验及文件范围保留，见[修改后日志](../evidence/preview-permissions/after.log)。桌面检查器、工具活动、62工具资格与browser-tools合计108项通过，见[回归日志](../evidence/preview-permissions/regression.log)。`npm run check:static`通过，见[静态日志](../evidence/preview-permissions/static.log)。
+工程验收通过。`test/present-tools.test.ts` 3项通过：四种模式成功且零审批、持久工具结果、实际prompt描述；未运行／缺失／异会话／取消／signal中止拒绝，URL校验及文件范围保留，见[修改后日志](../../git-history-cleanup/archive.md?path=.scratch%2Fagent-tools-next%2Fevidence%2Fpreview-permissions%2Fafter.log)。桌面检查器、工具活动、62工具资格与browser-tools合计108项通过，见[回归日志](../../git-history-cleanup/archive.md?path=.scratch%2Fagent-tools-next%2Fevidence%2Fpreview-permissions%2Fregression.log)。`npm run check:static`通过，见[静态日志](../../git-history-cleanup/archive.md?path=.scratch%2Fagent-tools-next%2Fevidence%2Fpreview-permissions%2Fstatic.log)。
 
 实际请求估算：toolSchemas 14291 → 14292，systemPrompt 1500 → 1500。preview_landscape 独立读取实现、文档并亲跑present-tools 3/3，确认browser自动化、文件读取及iframe未放宽，审查通过。
 

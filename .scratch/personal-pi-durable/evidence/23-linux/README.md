@@ -1,5 +1,7 @@
 # Linux 真实个人命令 worker 验证
 
+> 本文部分原始证据已移出 Git；原路径保留用于查找原件，见[归档说明](../../../git-history-cleanup/archive.md)。
+
 最终轮在 tx 的 Linux 6.8.0-117 x64、Node v24.21.0、bubblewrap 0.9.0、systemd 255 user manager running、cgroup v2 上执行，七项场景通过。最终 worker SHA-256 为 `c1d8bc3492be8253ce5bdf4ed5dc553e44da91fc3eda4be663eddd7d49e63cf3`，对应源码 SHA-256 为 `c13a477a2432fd1b06ad1dfb5a7d0bb85135acb9e422eb564de80fffa7519503`。`source-comparison.json` 对照运行后共享工作区，生产文件与快照一致。
 
 探针直接调用真实 `prepareNativeLaunch({ workerPath, dependencyRoots: [], protectedRoots }, spec)` 与 `launchLinuxExecution`，不手写 prepared 输入；源码和私有认领目录作为保护根。独立副本没有仓库 node_modules。探针通过 esbuild 打成纯 Node bundle，输出放在 `source/packages/agent/src/execution/linux-probe.mjs`，保持 `native.ts` 从 `import.meta.url` 推导 codeRoot 的目录层级；个人 worker 产物单独位于 `source/worker/`。每次在 launch 返回后接好 stdout/stderr/exit，再关闭 stdin 提交 JSON。宿主既有 npm 工具链的 `node_modules/npm` 仍由原生准备提供，此项不是 Pi 或仓库依赖。

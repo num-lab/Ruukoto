@@ -34,11 +34,11 @@ edit／write 条目均可点击，差异始终绑定原工具和原会话。结�
 
 | 外部验收项 | 结果与证据 |
 | --- | --- |
-| 编辑与截断编辑 | 真实小 edit 的增删与上下文行正确；大 edit 返回截断标记，GUI 明确提示 64 KiB 上限，见[普通编辑](07-electron/edit-small-light.png)、[截断编辑](07-electron/edit-truncated-light.png)及[接口结果](07-electron/tool-results.json) |
-| 新文件与空文件 | 新文件显示准确写入正文；成功空 Write 显示空文件（0 行），见[新文件](07-electron/write-new-light.png)、[空文件](07-electron/write-empty-light.png) |
-| 失败 Write | 真实写入已存在目录失败，目标仍是目录；返回仍带参数还原的 never written 正文，但差异页只显示失败，见[失败记录](07-electron/write-failed.json)与[截图](07-electron/write-failed-light.png) |
-| 子会话运行中重连 | 真实委派后显示两段思考、一个成功 read 与当时的两条消息；通过真实桥接重连后条目内容和数量一致，无重复或缺失，完成后的最终回答仍出现在所选子会话，见[重连前](07-electron/subagent-before-reconnect.json)、[重连后](07-electron/subagent-after-reconnect.json)、[最终回答](07-electron/subagent-completed-dark.png) |
-| 外观与最小窗口 | 明暗可读；原生窗口设为 760×500，文档 scrollWidth 为 760，两页均可用，见[差异页](07-electron/minimum-window-diff-dark.png)、[SubAgent 页](07-electron/minimum-window-subagent-dark.png)与[视觉记录](07-electron/external-review.json) |
+| 编辑与截断编辑 | 真实小 edit 的增删与上下文行正确；大 edit 返回截断标记，GUI 明确提示 64 KiB 上限，见[普通编辑](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-gui%2Fevidence%2F07-electron%2Fedit-small-light.png)、[截断编辑](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-gui%2Fevidence%2F07-electron%2Fedit-truncated-light.png)及[接口结果](07-electron/tool-results.json) |
+| 新文件与空文件 | 新文件显示准确写入正文；成功空 Write 显示空文件（0 行），见[新文件](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-gui%2Fevidence%2F07-electron%2Fwrite-new-light.png)、[空文件](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-gui%2Fevidence%2F07-electron%2Fwrite-empty-light.png) |
+| 失败 Write | 真实写入已存在目录失败，目标仍是目录；返回仍带参数还原的 never written 正文，但差异页只显示失败，见[失败记录](07-electron/write-failed.json)与[截图](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-gui%2Fevidence%2F07-electron%2Fwrite-failed-light.png) |
+| 子会话运行中重连 | 真实委派后显示两段思考、一个成功 read 与当时的两条消息；通过真实桥接重连后条目内容和数量一致，无重复或缺失，完成后的最终回答仍出现在所选子会话，见[重连前](07-electron/subagent-before-reconnect.json)、[重连后](07-electron/subagent-after-reconnect.json)、[最终回答](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-gui%2Fevidence%2F07-electron%2Fsubagent-completed-dark.png) |
+| 外观与最小窗口 | 明暗可读；原生窗口设为 760×500，文档 scrollWidth 为 760，两页均可用，见[差异页](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-gui%2Fevidence%2F07-electron%2Fminimum-window-diff-dark.png)、[SubAgent 页](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-gui%2Fevidence%2F07-electron%2Fminimum-window-subagent-dark.png)与[视觉记录](07-electron/external-review.json) |
 | 打包资源启动 | 使用已安装的同版 Electron 加载最终 app.asar 内的 main／preload／renderer，成功连接真实临时实例并打开工作区，见[环境](07-electron/packaged-smoke/environment.json)与[结果](07-electron/packaged-smoke/verification.json)；未直接双击 .app |
 
 最终 app.asar SHA-256 为 `ef49cae47bc5f97bf23c04890de58c74a720f3bbfb85bfb1706d2e37ac9c5836`。两次最终探针的 Electron 均正常退出，进程、临时 Runtime、工作区与控制目录已清理；没有访问日常档案。此前旧构建的 GUI 结果不作最终证据，归档仅包含最终版本。

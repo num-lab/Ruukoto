@@ -1,5 +1,7 @@
 # Scheduled 桌面构建与离线浏览器核验
 
+> 本文部分原始证据已移出 Git；原路径保留用于查找原件，见[归档说明](../../../git-history-cleanup/archive.md)。
+
 2026-10-26，独立工作副本 `/tmp/ruukoto-code-scheduled-desktop`，桌面修复内容为 `d469a786`，基础实现为 `de6dba56`、`23b167be`。环境为 macOS arm64、Node 24.15.0、Go 1.27.2，Clang 来自 Xcode；原始环境输出见 `environment.log`。
 
 ## 构建

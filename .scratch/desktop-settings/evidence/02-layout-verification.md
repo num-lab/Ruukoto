@@ -34,7 +34,7 @@ Playwright CLI 的 Chromium 加载正式 App／renderer 与[合成 bridge](model
 - 键盘聚焦模型标题能看到失败详情，聚焦测试按钮能看到联网／费用提示；两者的 `aria-describedby` 均关联实际 tooltip ID。修正缺失 Provider 后，最终重载至完整操作期间 page errors 为 0。
 - 删除按钮位于保存按钮左侧、同一行并使用 destructive 红色；窄窗 footer 保持可用，弹窗体内滚动。
 
-已查看最终[深色总览](models-layout-final-overview-dark.png)、[深色提供方](models-layout-final-provider-dark.png)、[浅色总览](models-layout-final-overview-light.png)、[浅色提供方](models-layout-final-provider-light.png)、[窄窗总览](models-layout-final-overview-narrow-light.png)、[窄窗提供方](models-layout-final-provider-narrow-light.png)、[窄窗模型字段](models-layout-final-provider-narrow-fields-light.png)与[键盘失败详情](models-layout-final-keyboard-error-dark.png)。截图等待弹窗过渡完成；此前迭代图只作临时资料，不作为最终验收。
+已查看最终[深色总览](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-settings%2Fevidence%2Fmodels-layout-final-overview-dark.png)、[深色提供方](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-settings%2Fevidence%2Fmodels-layout-final-provider-dark.png)、[浅色总览](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-settings%2Fevidence%2Fmodels-layout-final-overview-light.png)、[浅色提供方](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-settings%2Fevidence%2Fmodels-layout-final-provider-light.png)、[窄窗总览](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-settings%2Fevidence%2Fmodels-layout-final-overview-narrow-light.png)、[窄窗提供方](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-settings%2Fevidence%2Fmodels-layout-final-provider-narrow-light.png)、[窄窗模型字段](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-settings%2Fevidence%2Fmodels-layout-final-provider-narrow-fields-light.png)与[键盘失败详情](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-settings%2Fevidence%2Fmodels-layout-final-keyboard-error-dark.png)。截图等待弹窗过渡完成；此前迭代图只作临时资料，不作为最终验收。
 
 ## 独立复核与交接
 
@@ -44,7 +44,7 @@ Playwright CLI 的 Chromium 加载正式 App／renderer 与[合成 bridge](model
 
 ## 字号与间距微调
 
-拥有者追加要求仅涉及总览排版，按轻量路径处理：两个分组标题为 15px／700，默认与摘要标签为 14px／400 常规正体，分组间距从 24px 增为 36px；「添加提供方」为 13px。规则只作用于总览，提供方弹窗与选择框尺寸沿用原值。布局用例 7/7、静态检查通过，Chromium 实测字号／字重／间距均匹配，480px 窄窗无横向溢出；[桌面截图](models-typography-dark.png)与[窄窗截图](models-typography-narrow-dark.png)覆盖此次排版。上述两壳构建与签名仍对应前一版，本次纯样式微调未重新打包。
+拥有者追加要求仅涉及总览排版，按轻量路径处理：两个分组标题为 15px／700，默认与摘要标签为 14px／400 常规正体，分组间距从 24px 增为 36px；「添加提供方」为 13px。规则只作用于总览，提供方弹窗与选择框尺寸沿用原值。布局用例 7/7、静态检查通过，Chromium 实测字号／字重／间距均匹配，480px 窄窗无横向溢出；[桌面截图](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-settings%2Fevidence%2Fmodels-typography-dark.png)与[窄窗截图](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-settings%2Fevidence%2Fmodels-typography-narrow-dark.png)覆盖此次排版。上述两壳构建与签名仍对应前一版，本次纯样式微调未重新打包。
 
 ## 拥有者结单
 

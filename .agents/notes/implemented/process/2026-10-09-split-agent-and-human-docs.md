@@ -4,6 +4,8 @@ Status: implemented
 
 部分取代：[删除停止维护的可视化文档](../simplification/2026-10-12-remove-visual-docs.md)接管原地保留快照的选择；本篇的文档分层与原决定理由继续保留。
 
+原始证据的入库策略按[历史瘦身方案](../../proposed/process/2026-10-30-git-history-evidence-retention.md)调整；工单、结论与必要复现材料继续入库，原件找回见[归档说明](../../../../.scratch/git-history-cleanup/archive.md)。
+
 ## 问题
 
 仓库文档同时服务人类与 agent，但没有按读者分开，四类材料混在 `docs/` 下：

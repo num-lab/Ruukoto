@@ -1,5 +1,7 @@
 # Linux 个人命令宿主消费者验证
 
+> 本文部分原始证据已移出 Git；原路径保留用于查找原件，见[归档说明](../../../git-history-cleanup/archive.md)。
+
 在 tx 的 Linux 6.8.0-117、Node v24.21.0、bubblewrap 0.9.0、systemd user manager running、cgroup v2 上执行，最终七项真实 bwrap/user scope 场景全部通过。本轮只使用 `/tmp/ruukoto-command-24.uPkbfF` 专属目录，没有 npm 安装、凭据上传、生产服务操作或部署。
 
 探针调用真实 `prepareNativeLaunch({ workerPath, dependencyRoots: [], protectedRoots }, spec)` 后调用 `runPersonalCommand`；没有构造假的 PreparedNativeLaunch。源码经 esbuild 打成纯 Node bundle，各 TypeScript 模块的 `import.meta.url` 保留远端 source 镜像中的原目录语义，worker 自包含产物单独复制到 `source/worker/`；远端 source 没有仓库 node_modules。

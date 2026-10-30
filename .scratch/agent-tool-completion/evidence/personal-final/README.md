@@ -14,19 +14,19 @@
 
 | 检查 | 实际结果与证据 |
 | --- | --- |
-| `npm run build` | 原生、四worker、script及两个产品打包通过；两处来源兼容补修后另执行 `npm run build --workspace=ruukoto` 刷新个人制品，见[最终打包](app-build-final.log) |
-| `npm run check:static` | 最终lint、全部workspace与foundation类型、notes和docs门禁通过，见[完整输出](static-final.log) |
-| 后台、提问、命令、工具、durable、定时6文件 | 首轮125计：123通过、1真实Linux本机跳过、1定时检索超时；[原输出](combined-first.log)保留失败。原生检查结束后同代码单独重跑超时用例1/1通过，见[重跑](scheduled-search-final.log) |
-| CLI、QQ、Telegram、权限、服务、工作工具、产品入口8文件 | 首轮317计：312通过、1既有跳过、4失败计数，见[原输出](entry-first.log)。其中来源兼容两项已修复；服务取消用例单独及完整服务回归重跑通过。最终权限/服务/服务操作3文件202/202，见[修复后回归](sources-final.log)；最终产品入口15/15，见[入口](product-entry-final.log) |
-| 工具控制/IO、命令执行/worker、调度权限、浏览器、委派、报告8文件 | 131/131，见[回归](other-final.log) |
-| 新增问题与后台组合 | 2/2，见[交集与水位](policy-combination.log)；类型检查补充了scheduled判别，未改运行行为 |
-| macOS真实原生与只读检索 | 串行18/18，见[原生检查](native-macos-final.log)，包含持久停止、同ID不重放、身份替换、背压、环境过滤及检索原流/取消 |
+| `npm run build` | 原生、四worker、script及两个产品打包通过；两处来源兼容补修后另执行 `npm run build --workspace=ruukoto` 刷新个人制品，见[最终打包](../../../git-history-cleanup/archive.md?path=.scratch%2Fagent-tool-completion%2Fevidence%2Fpersonal-final%2Fapp-build-final.log) |
+| `npm run check:static` | 最终lint、全部workspace与foundation类型、notes和docs门禁通过，见[完整输出](../../../git-history-cleanup/archive.md?path=.scratch%2Fagent-tool-completion%2Fevidence%2Fpersonal-final%2Fstatic-final.log) |
+| 后台、提问、命令、工具、durable、定时6文件 | 首轮125计：123通过、1真实Linux本机跳过、1定时检索超时；[原输出](../../../git-history-cleanup/archive.md?path=.scratch%2Fagent-tool-completion%2Fevidence%2Fpersonal-final%2Fcombined-first.log)保留失败。原生检查结束后同代码单独重跑超时用例1/1通过，见[重跑](../../../git-history-cleanup/archive.md?path=.scratch%2Fagent-tool-completion%2Fevidence%2Fpersonal-final%2Fscheduled-search-final.log) |
+| CLI、QQ、Telegram、权限、服务、工作工具、产品入口8文件 | 首轮317计：312通过、1既有跳过、4失败计数，见[原输出](../../../git-history-cleanup/archive.md?path=.scratch%2Fagent-tool-completion%2Fevidence%2Fpersonal-final%2Fentry-first.log)。其中来源兼容两项已修复；服务取消用例单独及完整服务回归重跑通过。最终权限/服务/服务操作3文件202/202，见[修复后回归](../../../git-history-cleanup/archive.md?path=.scratch%2Fagent-tool-completion%2Fevidence%2Fpersonal-final%2Fsources-final.log)；最终产品入口15/15，见[入口](../../../git-history-cleanup/archive.md?path=.scratch%2Fagent-tool-completion%2Fevidence%2Fpersonal-final%2Fproduct-entry-final.log) |
+| 工具控制/IO、命令执行/worker、调度权限、浏览器、委派、报告8文件 | 131/131，见[回归](../../../git-history-cleanup/archive.md?path=.scratch%2Fagent-tool-completion%2Fevidence%2Fpersonal-final%2Fother-final.log) |
+| 新增问题与后台组合 | 2/2，见[交集与水位](../../../git-history-cleanup/archive.md?path=.scratch%2Fagent-tool-completion%2Fevidence%2Fpersonal-final%2Fpolicy-combination.log)；类型检查补充了scheduled判别，未改运行行为 |
+| macOS真实原生与只读检索 | 串行18/18，见[原生检查](../../../git-history-cleanup/archive.md?path=.scratch%2Fagent-tool-completion%2Fevidence%2Fpersonal-final%2Fnative-macos-final.log)，包含持久停止、同ID不重放、身份替换、背压、环境过滤及检索原流/取消 |
 
 未运行全仓 `npm run check`。首轮并发超时和取消停止观察失败均原样保留，不涂成首轮全过；最终相关重跑没有剩余失败。来源兼容补修保留旧无权限快照IM服务的历史恢复和效果核实资格，拒绝新消费；可信本机可以给IM工作补资料，IM来源仍必须原入口。
 
 ## Linux与真实模型
 
-Linux隔离源码为 `tx:/tmp/ruukoto-personal-04.YNFVXZ7o`，user systemd/cgroup v2、Node24.21.0。宿主没有全局rg，本次只用既有隔离工具链中的rg14.1.0，不改系统依赖。真实后台scope启动、第二拥有者轮保留、显停核实、释放认领及重开不重放1/1通过，见[日志](background-linux.log)。Linux原生只读检索与durable/定时检索各2/2由[检索证据](../personal-search/)持有。Linux命令恢复6/6和共享claim2/2分别见[命令](claim-linux.log)、[认领](shared-claim-linux.log)；prepare崩溃用例是在真实提交后注入异常，不宣称真实SIGKILL。问题的三处真实SIGKILL由[提问证据](../personal-questions-acceptance.md)持有。
+Linux隔离源码为 `tx:/tmp/ruukoto-personal-04.YNFVXZ7o`，user systemd/cgroup v2、Node24.21.0。宿主没有全局rg，本次只用既有隔离工具链中的rg14.1.0，不改系统依赖。真实后台scope启动、第二拥有者轮保留、显停核实、释放认领及重开不重放1/1通过，见[日志](../../../git-history-cleanup/archive.md?path=.scratch%2Fagent-tool-completion%2Fevidence%2Fpersonal-final%2Fbackground-linux.log)。Linux原生只读检索与durable/定时检索各2/2由[检索证据](../personal-search/)持有。Linux命令恢复6/6和共享claim2/2分别见[命令](../../../git-history-cleanup/archive.md?path=.scratch%2Fagent-tool-completion%2Fevidence%2Fpersonal-final%2Fclaim-linux.log)、[认领](../../../git-history-cleanup/archive.md?path=.scratch%2Fagent-tool-completion%2Fevidence%2Fpersonal-final%2Fshared-claim-linux.log)；prepare崩溃用例是在真实提交后注入异常，不宣称真实SIGKILL。问题的三处真实SIGKILL由[提问证据](../personal-questions-acceptance.md)持有。
 
 真实模型统一沿拥有者指定的 `/Users/eitrous/.ruukoto/agent/models.json`，选择 `deepseek/deepseek-flash`。检索实际完成list_files→search_files→read_file并取得随机口令，4次请求；提问实际完成登记、普通聊天保持pending、多选/Skip/自由口令、唯一续接和答复时权限下的read_file/write_file，6次请求。原证据分别见[检索](../personal-search/model-summary.json)与[提问](../personal-questions-model/README.md)；最终公共策略由本次组合回归复核。
 

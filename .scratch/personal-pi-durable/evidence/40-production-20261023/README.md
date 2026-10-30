@@ -21,8 +21,8 @@
 ## 验证与处置
 
 - 安装、完整构建、单元语法、sudoers 语法、固定服务维护检查通过；旧档案指纹与备份哈希经独立复核。
-- [命令 worker 检查](command-worker-tests.log) 5/5 通过；[Linux 原生边界探针](native-probes.json) 54 pass、0 fail、0 unavailable，原报告同时保留于远端 `/tmp/ruukoto-pa-native-probes/`。
-- 使用同一普通账户、同样 PATH/runtime/bus 从临时系统服务运行[真实 Linux 后台检查](real-background-test.log)，1/1 通过，覆盖真实 scope、跨轮保留、停止核实与认领释放；未触碰生产档案。
+- [命令 worker 检查](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F40-production-20261023%2Fcommand-worker-tests.log) 5/5 通过；[Linux 原生边界探针](native-probes.json) 54 pass、0 fail、0 unavailable，原报告同时保留于远端 `/tmp/ruukoto-pa-native-probes/`。
+- 使用同一普通账户、同样 PATH/runtime/bus 从临时系统服务运行[真实 Linux 后台检查](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F40-production-20261023%2Freal-background-test.log)，1/1 通过，覆盖真实 scope、跨轮保留、停止核实与认领释放；未触碰生产档案。
 - 初次实际模型请求与 QQ「你好」均 unanswered，持久任务记录明确为 DeepSeek HTTP 401；旧验收凭据已失效。只读 `/models` 同样返回 401，不能将 QQ 在线视作聊天通过。
 - 本机既有个人模型配置的同提供方凭据经 `/models` 返回 200 后，通过私有临时文件安全传输并更新 root 环境文件，临时密钥文件随即删除。正常停止生产 PID 3017314 并核实退出，再启动 PID 3019474；InvocationID 更换、NRestarts 0、档案身份保持。修正后新请求 `03206ca1-ef8a-413c-acf3-e8d217fa8d0b` 得到真实 `done` 回答「PA 部署自检通过」，未重放旧失败输入。
 - 独立上下文 deployment_review 亲自复核 328 份运行源码与当前检出逐字节一致、模板/账户/锁/权限/唯一后台、旧档案 244 份摘要、备份哈希、实际检查日志、重启前后身份及模型结果。当前部署结构、归档、停止/启动及模型无阻断；拥有者已在修复后发送新消息并明确确认收到 QQ 回复，本轮部署与 QQ 实际收发验收完成。
@@ -38,7 +38,7 @@
 
 真实 Controller 连跑两次成功、第三次 `management_ssh`；使用真实 DesktopHost、登录环境和拥有者保存的 MyGo 配置复现 `{ok:true,value:[]}`，同路径再次又能检测到 `/opt/ruukoto/apps/ruukoto/bin/ruukoto.mjs`。程序存在且可执行，SSH 间歇失败被原 Host 捕获并转换为空清单，界面因此误报未找到。没有把该误报当作程序缺失，也未修改 SSH 服务或防火墙策略；SSH 间歇中断仍未归因。
 
-现 Host 缓存首个结构化探测错误，全部候选失败时透传给既有界面；任何候选成功仍返回成功列表，不加协议、配置字段、自动重试或原始 stderr 外发。三项真 Host → renderer 回归在原实现观察到全失败场景报红，修改后全失败、失败→成功、成功→失败均通过。Personal SSH 六文件定向检查 116 通过、0 失败、1 项 Linux 专用用例在 macOS 跳过；`npm run check:static` 与 `npm run desktop:mygo:build`（含签名核实）通过，日志见[定向检查](desktop-tests.log)、[静态检查](desktop-static.log)与[MyGo 构建](desktop-mygo-build.log)。新 sidecar SHA-256 为 `290d5954e674fe75ad4582aeb8332e14720cc1b1d830c73ebd2be1c3e65f8921`，对应本机未提交修复，不改变服务器应用源码版本。
+现 Host 缓存首个结构化探测错误，全部候选失败时透传给既有界面；任何候选成功仍返回成功列表，不加协议、配置字段、自动重试或原始 stderr 外发。三项真 Host → renderer 回归在原实现观察到全失败场景报红，修改后全失败、失败→成功、成功→失败均通过。Personal SSH 六文件定向检查 116 通过、0 失败、1 项 Linux 专用用例在 macOS 跳过；`npm run check:static` 与 `npm run desktop:mygo:build`（含签名核实）通过，日志见[定向检查](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F40-production-20261023%2Fdesktop-tests.log)、[静态检查](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F40-production-20261023%2Fdesktop-static.log)与[MyGo 构建](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F40-production-20261023%2Fdesktop-mygo-build.log)。新 sidecar SHA-256 为 `290d5954e674fe75ad4582aeb8332e14720cc1b1d830c73ebd2be1c3e65f8921`，对应本机未提交修复，不改变服务器应用源码版本。
 
 另外，原单位指定 home 中的 Node，而非交互 SSH 的 shebang 使用 root 拥有的 `/usr/local/bin/node`，虽版本与 SHA-256 相同，规范路径不同仍被维护身份检查正确拒绝为只读。通过原版本维护入口在 blockers 为空时停止并核实旧 PID 3019474 与档案锁，再备份单元为 `/etc/systemd/system/ruukoto-backend.service.pre-desktop-20261024`，仅把 ExecStart 和 PATH 优先级统一到 root 全局 Node，daemon-reload 后正常启动 PID 3041190。原样 shebang `maintenance inspect` 已返回 `maintenance_ready`、`online=true`、`writable=true`，档案身份不变。这项配置修复只解决维护身份不一致，不声称解决 SSH 间歇中断。
 
@@ -52,6 +52,6 @@
 
 Controller 仅为 `read()` 共享进行中的 Promise，成功或失败后清引用，缓存命中前仍核关闭；`request/apply/restore/finish` 的互斥与权限、原请求和写入未知处理不变。没有排队重发写入，也未合并模型测试/发现等不同查询。独立上下文 deployment_review 复核实际 diff 并亲跑两项新回归，无阻断。
 
-[七文件定向检查](read-tests.log) 146 通过、0 失败、1 项 Linux 专用用例在 macOS 跳过；[静态检查](read-static.log)与[MyGo 构建及签名](read-mygo-build.log)通过。额外只读连接真实服务器，用实际 Controller、两个页面状态与连接核实执行相同并发过程，[真实结果](live-page-reads.json)为旧应答丢弃、新页和连接核实均 ready、online/writable=true、maintenance_ready；没有模型请求、保存或服务启停。
+[七文件定向检查](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F40-production-20261023%2Fread-tests.log) 146 通过、0 失败、1 项 Linux 专用用例在 macOS 跳过；[静态检查](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F40-production-20261023%2Fread-static.log)与[MyGo 构建及签名](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F40-production-20261023%2Fread-mygo-build.log)通过。额外只读连接真实服务器，用实际 Controller、两个页面状态与连接核实执行相同并发过程，[真实结果](live-page-reads.json)为旧应答丢弃、新页和连接核实均 ready、online/writable=true、maintenance_ready；没有模型请求、保存或服务启停。
 
 最新 sidecar SHA-256 为 `ac186995b33bb9c6904eed85301c54d6ea77d623f72a107b304daba85ecf1bad`，替代上节本机旧构建；应用路径仍为 `dist/mygo/darwin-arm64/Ruukoto MyGo.app`。真实新原生窗口需拥有者保留未发内容后重开确认；SSH 间歇中断及不同查询的互斥不声称由此次读取合并解决。

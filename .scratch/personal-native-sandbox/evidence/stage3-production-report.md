@@ -4,9 +4,9 @@
 
 | 检查 | 结果 | 原始记录 |
 | --- | --- | --- |
-| `npx tsx --test test/07-real-tools.test.ts test/10-access-modes.test.ts test/22-auto-review.test.ts test/83-subagent-worktrees.test.ts test/95-work-copy.test.ts test/100-worker-stop.test.ts test/101-native-execution.test.ts test/101-native-linux-scope.test.ts` | 102/102，通过，24.24 秒 | [日志](stage3-production-tests.log) |
-| `npx tsx --test test/84-subagent-integrate.test.ts` | 13/13，通过，26.63 秒 | [日志](stage3-integrate-tests.log) |
-| 23 个相关源码与测试文件的定向 ESLint，`--max-warnings=0` | 通过 | [日志](stage3-production-eslint.log) |
+| `npx tsx --test test/07-real-tools.test.ts test/10-access-modes.test.ts test/22-auto-review.test.ts test/83-subagent-worktrees.test.ts test/95-work-copy.test.ts test/100-worker-stop.test.ts test/101-native-execution.test.ts test/101-native-linux-scope.test.ts` | 102/102，通过，24.24 秒 | [日志](../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-native-sandbox%2Fevidence%2Fstage3-production-tests.log) |
+| `npx tsx --test test/84-subagent-integrate.test.ts` | 13/13，通过，26.63 秒 | [日志](../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-native-sandbox%2Fevidence%2Fstage3-integrate-tests.log) |
+| 23 个相关源码与测试文件的定向 ESLint，`--max-warnings=0` | 通过 | [日志](../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-native-sandbox%2Fevidence%2Fstage3-production-eslint.log) |
 | `git diff --check` | 通过 | 无输出 |
 
 额外运行 84 是因为它与 83 共用受控工作副本 fixture；fixture 现使用 native 启动器身份和 systemd_unit 单元身份，汇总后停止失败仍需核对父目录占用及双方成果保留。

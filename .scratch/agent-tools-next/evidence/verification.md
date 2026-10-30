@@ -6,12 +6,12 @@
 
 | 检查 | 结果与证据 |
 | --- | --- |
-| search、fetch、present、进程 wait、125-resource、58-Plan、62资格、64账本 | 48/48，[integration.log](integration.log) |
-| 07真实工具、08审批、10模式、63闸门、90族、桌面检查器／工具活动／浏览器安全 | 151/151，[routing-desktop.log](routing-desktop.log) |
-| 09产物、38桌面构建约束 | 17/17，[artifacts-build-tests.log](artifacts-build-tests.log) |
-| 全量静态检查 | `npm run check:static`通过，[static.log](static.log)；曾因新增导航重复造成文档超预算，已移回既有检查集，不抬高预算 |
-| worker／脚本／原生／workspace构建 | `npm run build`通过，[build.log](build.log) |
-| Electron、MyGo正式构建 | 两者通过，[desktop-build.log](desktop-build.log)、[mygo-build.log](mygo-build.log)；均通过 `codesign --verify --deep --strict` |
+| search、fetch、present、进程 wait、125-resource、58-Plan、62资格、64账本 | 48/48，[integration.log](../../git-history-cleanup/archive.md?path=.scratch%2Fagent-tools-next%2Fevidence%2Fintegration.log) |
+| 07真实工具、08审批、10模式、63闸门、90族、桌面检查器／工具活动／浏览器安全 | 151/151，[routing-desktop.log](../../git-history-cleanup/archive.md?path=.scratch%2Fagent-tools-next%2Fevidence%2Frouting-desktop.log) |
+| 09产物、38桌面构建约束 | 17/17，[artifacts-build-tests.log](../../git-history-cleanup/archive.md?path=.scratch%2Fagent-tools-next%2Fevidence%2Fartifacts-build-tests.log) |
+| 全量静态检查 | `npm run check:static`通过，[static.log](../../git-history-cleanup/archive.md?path=.scratch%2Fagent-tools-next%2Fevidence%2Fstatic.log)；曾因新增导航重复造成文档超预算，已移回既有检查集，不抬高预算 |
+| worker／脚本／原生／workspace构建 | `npm run build`通过，[build.log](../../git-history-cleanup/archive.md?path=.scratch%2Fagent-tools-next%2Fevidence%2Fbuild.log) |
+| Electron、MyGo正式构建 | 两者通过，[desktop-build.log](../../git-history-cleanup/archive.md?path=.scratch%2Fagent-tools-next%2Fevidence%2Fdesktop-build.log)、[mygo-build.log](../../git-history-cleanup/archive.md?path=.scratch%2Fagent-tools-next%2Fevidence%2Fmygo-build.log)；均通过 `codesign --verify --deep --strict` |
 | 生产依赖 | npm离线重算锁文件，parse5与其entities不再标dev；`npm ls parse5 --omit=dev --all`及锁文件断言通过，版本未变 |
 | 行尾与差异 | `git diff --check`通过 |
 

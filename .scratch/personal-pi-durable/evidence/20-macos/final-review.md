@@ -1,5 +1,7 @@
 # 工单 20 独立实现审查
 
+> 本文部分原始证据已移出 Git；原路径保留用于查找原件，见[归档说明](../../../git-history-cleanup/archive.md)。
+
 审查者：`service_recovery_review`。结论：列明的 17 个最终实施文件无未解决阻断；本审查不表示完整迁移或正式切换已验收。主工作区只读，隔离实验与报告均写于 `/tmp/ruukoto-20-independent-2ex4jqto`。
 
 ## 对象与依据

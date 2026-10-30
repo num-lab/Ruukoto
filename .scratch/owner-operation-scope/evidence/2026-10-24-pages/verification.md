@@ -1,5 +1,7 @@
 # 文件树续页与按需 Git 验证
 
+> 本文部分原始证据已移出 Git；原路径保留用于查找原件，见[归档说明](../../../git-history-cleanup/archive.md)。
+
 基点 `18c6e8ab` 是本轮开始时按拥有者要求提交的第 4–6 项。本记录覆盖其后的第 7、8 项；最终源码、文档及可执行验收夹具见 `source-hashes.json`。已有 CI／测试策略工作不在范围内，日常应用与后台未重启。
 
 ## 工程验证
@@ -28,7 +30,7 @@ macOS、Node v24.15.0，真实临时目录含 12,000 个文件。三轮首页为
 | 点击真实仓库及空仓库 | 各增加一次查询；分别显示真实「验收提交」和「暂无提交」 |
 | 明暗及窄栏 | 320px 右栏的续页按钮、标签和内容可见；沿原滚动容器显示 |
 
-截图见 [固定入口](screenshots/entry-light.png)、[非仓库](screenshots/no-repository.png)、[明色续页](screenshots/directory-more-light.png)、[窄栏暗色续页](screenshots/directory-more-dark-narrow.png)、[子目录末页](screenshots/nested-pages-dark-narrow.png)、[真实提交](screenshots/git-repository-dark.png)和[空仓库](screenshots/git-empty-dark.png)。最初验收夹具缺少正式布局的邻栏及高度容器，修正夹具后重新加载并重拍；编辑夹具触发的 Vite 热更新警告不属于产品结论。最终截图和计数来自修正后的正式容器装配。
+截图见 [固定入口](../../../git-history-cleanup/archive.md?path=.scratch%2Fowner-operation-scope%2Fevidence%2F2026-10-24-pages%2Fscreenshots%2Fentry-light.png)、[非仓库](../../../git-history-cleanup/archive.md?path=.scratch%2Fowner-operation-scope%2Fevidence%2F2026-10-24-pages%2Fscreenshots%2Fno-repository.png)、[明色续页](../../../git-history-cleanup/archive.md?path=.scratch%2Fowner-operation-scope%2Fevidence%2F2026-10-24-pages%2Fscreenshots%2Fdirectory-more-light.png)、[窄栏暗色续页](../../../git-history-cleanup/archive.md?path=.scratch%2Fowner-operation-scope%2Fevidence%2F2026-10-24-pages%2Fscreenshots%2Fdirectory-more-dark-narrow.png)、[子目录末页](../../../git-history-cleanup/archive.md?path=.scratch%2Fowner-operation-scope%2Fevidence%2F2026-10-24-pages%2Fscreenshots%2Fnested-pages-dark-narrow.png)、[真实提交](../../../git-history-cleanup/archive.md?path=.scratch%2Fowner-operation-scope%2Fevidence%2F2026-10-24-pages%2Fscreenshots%2Fgit-repository-dark.png)和[空仓库](../../../git-history-cleanup/archive.md?path=.scratch%2Fowner-operation-scope%2Fevidence%2F2026-10-24-pages%2Fscreenshots%2Fgit-empty-dark.png)。最初验收夹具缺少正式布局的邻栏及高度容器，修正夹具后重新加载并重拍；编辑夹具触发的 Vite 热更新警告不属于产品结论。最终截图和计数来自修正后的正式容器装配。
 
 浏览器、Vite 与临时后台已关闭，两次验收的临时数据目录已清理；未修改真实工作区、系统配置或日常后台。
 

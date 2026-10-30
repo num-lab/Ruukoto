@@ -1,5 +1,7 @@
 # 工单 31 独立 Linux 定向验证
 
+> 本文部分原始证据已移出 Git；原路径保留用于查找原件，见[归档说明](../../../../git-history-cleanup/archive.md)。
+
 通过 `ssh tx` 在独立 `/tmp/ruukoto-31-linux.zdImFh/repo` 执行，环境为 Linux x64、Ubuntu 内核 6.8.0-117-generic、uid 1003、Node 24.21.0。没有读取生产档案或启动旧个人后台；测试创建隔离档案和回环模型／消息平台替身，生产路径的 sudo 接线使用测试命令桩，不代表真实 sudo/systemd 或真实 IM 验收。
 
 `node --import tsx --test --test-concurrency=1 test/personal-qq.test.ts test/personal-cli.test.ts` 为 49/49，零失败、零跳过，约 29 秒。覆盖 macOS 唯一跳过的“服务核实 HTTP：Linux sudo 接线、原状态刷新及慢停止不阻塞独立聊天”，也覆盖 Linux 后台启动/恢复及最终 QQ 重复 poll 拒绝/状态保留回归。原始记录见 `records/personal-tests.log` 与 `records/test-results-personal.json`。

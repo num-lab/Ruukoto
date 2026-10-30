@@ -6,7 +6,7 @@ Node 24.15.0、macOS 下使用真实 `magpie/auto/deepseek-v4.1-flash`，effort=
 
 ## 结果
 
-初测通过，实际任务约 15.5 秒、四次真实模型请求，见 [run-initial.log](run-initial.log) 与 [result-initial.json](result-initial.json)。后端冻结后使用同一用例独立复验，结果与启动前源码摘要见 [run-frozen.log](run-frozen.log)、[result-frozen.json](result-frozen.json)、[frozen-source-manifest.json](frozen-source-manifest.json)；冻结轮另证明统一关闭逻辑。每轮上限为六次请求、三分钟，没有加跑第二条完全访问计划。
+初测通过，实际任务约 15.5 秒、四次真实模型请求，见 [run-initial.log](../../../git-history-cleanup/archive.md?path=.scratch%2Fcode-scheduled%2Fevidence%2Fmodel-2026-10-26%2Frun-initial.log) 与 [result-initial.json](result-initial.json)。后端冻结后使用同一用例独立复验，结果与启动前源码摘要见 [run-frozen.log](../../../git-history-cleanup/archive.md?path=.scratch%2Fcode-scheduled%2Fevidence%2Fmodel-2026-10-26%2Frun-frozen.log)、[result-frozen.json](result-frozen.json)、[frozen-source-manifest.json](frozen-source-manifest.json)；冻结轮另证明统一关闭逻辑。每轮上限为六次请求、三分钟，没有加跑第二条完全访问计划。
 
 - 到期接纳建立独立会话，实际 cwd 为临时工作区，计划标题、说明、模型、权限和 effort 固定；活动运行的普通 submit 被宿主拒绝。
 - 第一轮真实调用一次 ask_user，题目持久化后结束；运行保持开放。专用问题入口回答“允许写入”，续接仍属于原运行并沿原模型与 confirm 权限。
@@ -16,7 +16,7 @@ Node 24.15.0、macOS 下使用真实 `magpie/auto/deepseek-v4.1-flash`，effort=
 
 普通 write 在工作区内不必然要求审批，因此本轮使用真实结构化 request_file_access 验证 confirm 的逐次批准。验收仅向编码工具集合提供该受精确参数保护的工具，ask_user 沿真实宿主工具；异常工具意图会持久取消，不允许扩大测试范围。
 
-临时外部测试目录最初缺少 ESM 声明，导致 typebox 在导入时失败，见 [harness-before-esm.log](harness-before-esm.log)；当时尚未读取模型文件或发送模型请求。补临时 package.json 的 type=module 后才开始初测。初测后将凭据副本写入移入既有 try/finally，覆盖写入失败清理；冻结轮使用提交的最终用例。
+临时外部测试目录最初缺少 ESM 声明，导致 typebox 在导入时失败，见 [harness-before-esm.log](../../../git-history-cleanup/archive.md?path=.scratch%2Fcode-scheduled%2Fevidence%2Fmodel-2026-10-26%2Fharness-before-esm.log)；当时尚未读取模型文件或发送模型请求。补临时 package.json 的 type=module 后才开始初测。初测后将凭据副本写入移入既有 try/finally，覆盖写入失败清理；冻结轮使用提交的最终用例。
 
 ## 未覆盖
 

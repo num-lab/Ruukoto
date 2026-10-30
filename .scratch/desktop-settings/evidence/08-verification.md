@@ -25,7 +25,7 @@
 
 使用正式 `main.tsx` 与设置组件，入口 [personal-pages.html](personal-pages.html)、[合成 bridge](personal-pages.js)。Playwright 验证：模型保存并继续到 Skills；远端目录选择/预览/导入与托管停用；MCP 编辑、发现与停用；丢答后读回已保存未启动，再恢复和结束维护，写次数不增加。全部写请求属于 Personal，技能不调用 Mac 选择器，正文不生成外部图片；430px 无页面横向溢出，减少动态效果下可操作，控制台 0 错误、0 警告。
 
-截图仅展示模拟配置，不含真实凭据：[深色模型](08-model-dark.png)、[技能导入确认](08-skill-import-dark.png)、[深色 MCP](08-mcp-dark.png)、[430px 浅色模型](08-model-light-430.png)、[430px 恢复入口](08-recovery-light-430.png)。截图前后有正常组件滚动；模拟页面不能证明真实 SSH、systemd、MCP 或原生两壳可用。
+截图仅展示模拟配置，不含真实凭据：[深色模型](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-settings%2Fevidence%2F08-model-dark.png)、[技能导入确认](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-settings%2Fevidence%2F08-skill-import-dark.png)、[深色 MCP](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-settings%2Fevidence%2F08-mcp-dark.png)、[430px 浅色模型](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-settings%2Fevidence%2F08-model-light-430.png)、[430px 恢复入口](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-settings%2Fevidence%2F08-recovery-light-430.png)。截图前后有正常组件滚动；模拟页面不能证明真实 SSH、systemd、MCP 或原生两壳可用。
 
 ## 待真实环境验收
 

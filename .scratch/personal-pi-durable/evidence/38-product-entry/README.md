@@ -16,31 +16,31 @@
 
 | 对象 | 实际命令与结果 | 证据 |
 | --- | --- | --- |
-| 首轮入口与旧 CLI | 入口/个人 CLI/71/29 一组 66 项：65 通过、1 项 Linux 专用在 macOS 跳过；初版 dev 仍缺完整退出语义，不作为最终 dev 通过 | [首轮日志](entry-initial.log) |
-| 最终个人入口 | `npx tsx --test test/personal-entry.test.ts`：7/7 通过；正式/根/兼容入口、默认/旧档案、锁、两产品并存与 schema、启动中停止、TERM/HUP、开发 IM 拒绝、重载 | [最终入口](entry-final.log) |
+| 首轮入口与旧 CLI | 入口/个人 CLI/71/29 一组 66 项：65 通过、1 项 Linux 专用在 macOS 跳过；初版 dev 仍缺完整退出语义，不作为最终 dev 通过 | [首轮日志](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F38-product-entry%2Fentry-initial.log) |
+| 最终个人入口 | `npx tsx --test test/personal-entry.test.ts`：7/7 通过；正式/根/兼容入口、默认/旧档案、锁、两产品并存与 schema、启动中停止、TERM/HUP、开发 IM 拒绝、重载 | [最终入口](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F38-product-entry%2Fentry-final.log) |
 | 旧工具退出后的测试 | 独立副本 9 个保留文件 58/58；helper、旧存储/schema、Coding 导入与共享资料/通知回归保留 | 调用方与退出测试日志在本目录另存 |
 | 真实 PTY | 开发菜单启动→退出、信号、外来持锁后台；默认 dev 只向父 PID 发 INT/TERM/HUP，重载前后核实原锁及新 token，均通过 | [脚本与日志](pty/)；结论见独立审查 |
 | 独立安装与实际 app 包 | 新副本运行 `npm run setup -- --skip-hooks` 和 `npm run build`，实际解包两个 tgz 替换 app 后 12/12 通过，无跳过；双 Pi 分别解析，worker 实际执行 | [制品摘要](pack-macos/acceptance-summary.md)、[交付指纹](pack-macos/delivery-sha256.json) |
 | Linux | Node 24.21.0、普通账户；复用只读共享依赖并独立安装 Pi 1.3 最小依赖；四文件最终 48 项通过，无跳过。worker 独立构建、实际账户/Node 替换后的模板只读 verify 均返回 0；569 份源码前后相符，临时目录与进程已清理 | [Linux 摘要](linux/summary.json)、[原日志](linux/remote/logs/)、[清理](linux/remote-cleanup.txt) |
-| Coding 真实安装升级 | `SMOKE24_BASE=12b1a66c npm run test:upgrade`：4/4 通过；两份 Coding 安装独立升级，原审批、产物、JSONL、工作副本及未知占用保持，旧任务不重放 | [升级日志](coding-upgrade.log) |
-| 调用方修订 | 独立副本 117 个唯一场景通过，环境加固后重叠复跑 10/10；独立审查亲跑恢复/MCP/CLI 八项 8/8 | [作者摘要](callers/ruukoto38-caller-fixes-summary.json)、[独立日志](callers/independent-callers.log) |
-| 两处检查调用方 | workspace 错误断言和已删除 smoke 的测试数组先确认失败，再按两产品契约/现存脚本修正；最终分别 5/5、6/6 | [workspace 前](callers/workspace-before.log)、[后](callers/workspace-final.log)，[smoke 前](callers/verification-before.log)、[后](callers/verification-final.log) |
+| Coding 真实安装升级 | `SMOKE24_BASE=12b1a66c npm run test:upgrade`：4/4 通过；两份 Coding 安装独立升级，原审批、产物、JSONL、工作副本及未知占用保持，旧任务不重放 | [升级日志](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F38-product-entry%2Fcoding-upgrade.log) |
+| 调用方修订 | 独立副本 117 个唯一场景通过，环境加固后重叠复跑 10/10；独立审查亲跑恢复/MCP/CLI 八项 8/8 | [作者摘要](callers/ruukoto38-caller-fixes-summary.json)、[独立日志](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F38-product-entry%2Fcallers%2Findependent-callers.log) |
+| 两处检查调用方 | workspace 错误断言和已删除 smoke 的测试数组先确认失败，再按两产品契约/现存脚本修正；最终分别 5/5、6/6 | [workspace 前](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F38-product-entry%2Fcallers%2Fworkspace-before.log)、[后](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F38-product-entry%2Fcallers%2Fworkspace-final.log)，[smoke 前](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F38-product-entry%2Fcallers%2Fverification-before.log)、[后](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F38-product-entry%2Fcallers%2Fverification-final.log) |
 | 退役工具调用方 | 113/115/subagent 的有效资料/历史与宿主取消规则保留，三文件 35/35；40/49/51/85 的身份、快照、审批与恢复保留，25 个不同用例各有通过证据。原模型通知与取消工具用例退出，不恢复工具或复制装配 | [三文件摘要](tool-retirement/ruukoto38-tool-retirement-summary.md)、[四文件摘要](retired-callers/summary.json) |
-| 开发文件复核 | 主树 `node --import tsx --test --test-timeout=180000 test/32-dev.test.ts`：25/25，通过，无跳过；不替代之前整批停滞的归因 | [单独开发日志](dev-final.log) |
-| 共享工作流与 Coding 窄复核 | 主树串行选择 112 的前两种产品/验证写回拒绝、118 Coding 入口与 122 编码六输入：5/5，通过，无跳过 | [最终窄日志](workflow-focused-final.log) |
-| 最终共享提示 | main/定时两身份实际 SDK 与 HTTP 快照均无退役通知/服务指导；工具清单逐项不变。系统提示估算分别 1,862→1,613、2,088→1,790；工具 schema 估算分别 11,265→11,265、10,737→10,737。定时三例 3/3；主树 59 两例 2/2 | [快照摘要](shared-prompts/ruukoto38-scheduled-prompt-summary.md)、[main 回归](prompt-main-final.log) |
-| 最终静态与制品 | `npm run check:static`、`npm run build:worker`、diff 检查通过；最终七项 worker/app 制品哈希与实际 pack 验收一致，晚提示源码变化另计 | [静态](static-delivery.log)、[worker](worker-final.log)、[制品对照](artifact-final-comparison.json) |
-| 基础验证 | `npm run test:foundation`：9 项通过、1 项真实模型按离线规则跳过，无失败 | [基础日志](foundation-final.log) |
+| 开发文件复核 | 主树 `node --import tsx --test --test-timeout=180000 test/32-dev.test.ts`：25/25，通过，无跳过；不替代之前整批停滞的归因 | [单独开发日志](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F38-product-entry%2Fdev-final.log) |
+| 共享工作流与 Coding 窄复核 | 主树串行选择 112 的前两种产品/验证写回拒绝、118 Coding 入口与 122 编码六输入：5/5，通过，无跳过 | [最终窄日志](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F38-product-entry%2Fworkflow-focused-final.log) |
+| 最终共享提示 | main/定时两身份实际 SDK 与 HTTP 快照均无退役通知/服务指导；工具清单逐项不变。系统提示估算分别 1,862→1,613、2,088→1,790；工具 schema 估算分别 11,265→11,265、10,737→10,737。定时三例 3/3；主树 59 两例 2/2 | [快照摘要](shared-prompts/ruukoto38-scheduled-prompt-summary.md)、[main 回归](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F38-product-entry%2Fprompt-main-final.log) |
+| 最终静态与制品 | `npm run check:static`、`npm run build:worker`、diff 检查通过；最终七项 worker/app 制品哈希与实际 pack 验收一致，晚提示源码变化另计 | [静态](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F38-product-entry%2Fstatic-delivery.log)、[worker](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F38-product-entry%2Fworker-final.log)、[制品对照](artifact-final-comparison.json) |
+| 基础验证 | `npm run test:foundation`：9 项通过、1 项真实模型按离线规则跳过，无失败 | [基础日志](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F38-product-entry%2Ffoundation-final.log) |
 
 App tarball 仍依赖完整 workspace 安装及根 `worker/`，本单没有改成独立发行版。macOS pack 证据的 4,045 项原始清单与测试后快照一致。后续除了文档、注释和测试调用方，还清理了共享 `driver.ts` / `session-factory.ts` 的 main/定时系统提示，因此旧 pack、Linux 和升级结果不能声称覆盖最终全部运行文本。两 app 入口与依赖声明保持；提示变化由实际模型快照与窄回归另证，最终候选以收尾清单标识。
 
 ## 首次失败与证据局限
 
-全仓首轮静态通过后，04 崩溃与 10 CLI 暴露测试驱动仍调用旧个人 main/bin；本轮主动 SIGINT 停止，返回 130，不记通过。[中断日志](check-interrupted.log)保留原失败和未完成项，随后按实际调用方修订并重新检查。
+全仓首轮静态通过后，04 崩溃与 10 CLI 暴露测试驱动仍调用旧个人 main/bin；本轮主动 SIGINT 停止，返回 130，不记通过。[中断日志](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F38-product-entry%2Fcheck-interrupted.log)保留原失败和未完成项，随后按实际调用方修订并重新检查。
 
-修订后的 `npm run check` 构建与静态通过，但 runner 首串行批次 44 项中有 1 项失败：101 macOS 监督器回收已累计后代返回 `reaped:false/identity_unavailable`，后续应用批次与 foundation 未由该命令运行，整条命令失败。[原失败](check-exclusive-failure.log)与[窄诊断](native101-diagnostic/summary.json)保留：五份 native 源码/测试/构建脚本及独立编译二进制与 `12b1a66c` 相同，当前/基点最窄复跑各 3/3，通过不能覆盖原失败。未稳定重现，未排除组合时序或共享环境影响，不能确定机制，也不能认定与原 17 同因；36 和最终验收阻断不解除。之后单独补跑剩余应用批次与 foundation，结果另记，不拼成一次全仓通过。
+修订后的 `npm run check` 构建与静态通过，但 runner 首串行批次 44 项中有 1 项失败：101 macOS 监督器回收已累计后代返回 `reaped:false/identity_unavailable`，后续应用批次与 foundation 未由该命令运行，整条命令失败。[原失败](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F38-product-entry%2Fcheck-exclusive-failure.log)与[窄诊断](native101-diagnostic/summary.json)保留：五份 native 源码/测试/构建脚本及独立编译二进制与 `12b1a66c` 相同，当前/基点最窄复跑各 3/3，通过不能覆盖原失败。未稳定重现，未排除组合时序或共享环境影响，不能确定机制，也不能认定与原 17 同因；36 和最终验收阻断不解除。之后单独补跑剩余应用批次与 foundation，结果另记，不拼成一次全仓通过。
 
-剩余应用批次原始计数为 2,542 项、2,480 通过、40 失败、3 取消、19 跳过，约 1,306 秒；这是[部分补跑](app-rest-partial.log)。32 文件停滞逾 13 分钟后单独中断；随后计划结束五个持续扫描的自有文件，实际枚举时两个已退出，只向仍在的三个发 INT，合计四个文件中断，见[记录](app-rest-interrupt.json)及[32 记录](app-rest-test32-interrupt.json)。两处 99 测试在批次期间修订，共享提示也在后段修改；该批次不代表最终候选完整覆盖。[失败分组](app-rest-failure-analysis/README.md)区分退役工具依赖、等待/HTTP/脚本预算失败、118 事件数断言与中断；不能把它们一概归为环境或原 17。工具依赖已按上表修订，其他未归因项与未完成范围保留待验。
+剩余应用批次原始计数为 2,542 项、2,480 通过、40 失败、3 取消、19 跳过，约 1,306 秒；这是[部分补跑](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F38-product-entry%2Fapp-rest-partial.log)。32 文件停滞逾 13 分钟后单独中断；随后计划结束五个持续扫描的自有文件，实际枚举时两个已退出，只向仍在的三个发 INT，合计四个文件中断，见[记录](app-rest-interrupt.json)及[32 记录](app-rest-test32-interrupt.json)。两处 99 测试在批次期间修订，共享提示也在后段修改；该批次不代表最终候选完整覆盖。[失败分组](app-rest-failure-analysis/README.md)区分退役工具依赖、等待/HTTP/脚本预算失败、118 事件数断言与中断；不能把它们一概归为环境或原 17。工具依赖已按上表修订，其他未归因项与未完成范围保留待验。
 
 112 自有进程的 macOS sample/约一秒 CPU profile 定位采样瞬间的 `identityCovers` 同步保护目录扫描，[记录](workflow-diagnostic/README.md)保存源码、调用栈及 inspector 收尾。它不解释全部失败；也没有量化新证据目录的耗时增量。后续开发 25/25 与关键工作流 5/5 不替代原宽批次归因。主代理没有停止观察到的未知归属长时间测试进程。
 
@@ -60,6 +60,6 @@ Linux 首轮 CLI/entry 因隔离依赖布局缺 durable/QuickJS 等加载失败�
 
 ## 提交材料格式
 
-原始日志、PTY输出和补丁含行尾空白或缺末尾换行，提交前保留原字节到[原文归档](commit-raw-evidence.tar.gz)，同路径文件为规范化展示副本；补丁需要精确重放时读取归档成员。原阶段清单的指纹仍对应归档原字节，不用展示副本冒充原文。
+原始日志、PTY输出和补丁含行尾空白或缺末尾换行，提交前保留原字节到[原文归档](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F38-product-entry%2Fcommit-raw-evidence.tar.gz)，同路径文件为规范化展示副本；补丁需要精确重放时读取归档成员。原阶段清单的指纹仍对应归档原字节，不用展示副本冒充原文。
 
 [格式映射](commit-evidence-format.json)逐项记录归档成员的原SHA-256、字节数和展示副本指纹；未列出的原阶段材料未变。此操作不修改源码、测试结论、失败记录或生产状态。

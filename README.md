@@ -75,7 +75,7 @@ PA桌面连接和QQ/Telegram共用主会话；配对与切换见[操作手册](d
 
 工作流与可打断等待见[操作说明](docs/usage.md#511-工作流问题与回报)，四输入编码组合与真实模型见[测试导航](docs/development.md#日常反馈)。
 
-修改时先运行 `npm run check:static` 与相关测试，按改动面选最小检查集（[提交前检查](.agents/skills/pre-push-checks/SKILL.md)）；全量 `npm run check` 由 CI 与显式复跑执行。应用测试最多两文件并行，macOS 先串行执行共享 UID 夹具。
+修改跑 `npm run check:static` 与定向测试，按[改动面](.agents/skills/pre-push-checks/SKILL.md)选检查；全量 `npm run check` 由 CI 与显式复跑执行。应用测试最多两文件并行，macOS 先串行执行共享 UID 夹具。原始证据另存。
 
 ```bash
 npm run dev                # 隔离个人开发档案，前台后台随源码变更重启

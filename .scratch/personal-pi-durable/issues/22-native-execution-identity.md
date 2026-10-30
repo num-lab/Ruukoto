@@ -28,9 +28,9 @@ Status: resolved
 
 - 本机 macOS 27.0.1 / Node 24.15.0 / npm 11.12.1：`npm run setup`、`npm run build` 与最终 `npm run check:static` 通过；P2 修复后原生三文件 31/31、产品入口 17/17（未受 P2 影响，沿用）。原始日志与[内容快照](../evidence/22-macos/source-manifest.json)区分基线、增量和最终内容，不累加重叠用例。末轮只补文档与工单记账，另执行 docs 检查。
 - Linux 6.8.0-117 / Node 24.21.0：P2 修复后最小独立源码副本用 `node --experimental-transform-types --test test/native-linux-identity.test.ts test/101-native-linux-scope.test.ts` 执行 26/26，并复跑两真实场景；这些模块只有 Node 内置运行依赖，本次未安装 npm 或执行 Linux 全产品构建。[源码核对](../evidence/22-linux/source-comparison.json)确认两处生产文件及最终两测试与本机一致。
-- [真实 OS 结果](../evidence/22-linux/real.log)：真实 bwrap/user scope 中运行 Python setsid 后代，另一进程分别在后台存活及 SIGKILL 后按原引用停止，两个场景均证明心跳冻结、同键拒绝、重复停止可核实；不是命令桩或模型替身。每项 fixture 在证明停止后删除，最终本次残留进程与 fixture 为零。该结果不证明命令外部效果、完全访问或远端 MCP。
+- [真实 OS 结果](../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F22-linux%2Freal.log)：真实 bwrap/user scope 中运行 Python setsid 后代，另一进程分别在后台存活及 SIGKILL 后按原引用停止，两个场景均证明心跳冻结、同键拒绝、重复停止可核实；不是命令桩或模型替身。每项 fixture 在证明停止后删除，最终本次残留进程与 fixture 为零。该结果不证明命令外部效果、完全访问或远端 MCP。
 - 独立实现审查首轮 `next_slice` 亲跑既有 scope 3/3；隔离副本的 InvocationID/inode 基线 2/2。分别删除两项核实后，对应测试各预期失败，捕获错误 cgroup.kill 写入；共享生产文件哈希前后一致，反证副本已清理。
-- 原失败保留：首次本机窄测试把轮询重复停止误断言为一次，改用可控时间后通过；首轮静态因新笔记尚在 proposed 而源码引用 implemented 失败，落地迁移笔记后通过。首次 Linux 真实探针因夹具字符串未转义导致心跳超时，仅修夹具后通过，[初始日志](../evidence/22-linux/real-initial-failure.log)和初始源码 tar 保留；该次夹具修正未改生产实现。
+- 原失败保留：首次本机窄测试把轮询重复停止误断言为一次，改用可控时间后通过；首轮静态因新笔记尚在 proposed 而源码引用 implemented 失败，落地迁移笔记后通过。首次 Linux 真实探针因夹具字符串未转义导致心跳超时，仅修夹具后通过，[初始日志](../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F22-linux%2Freal-initial-failure.log)和初始源码 tar 保留；该次夹具修正未改生产实现。
 - 独立终审发现并复现 P2：前置失败后未派发证明写入再 EIO，裸错误越层且遮蔽原失败。已保留两次原因并返回 `ExecutionError`，缺证明时停止保持 false；最窄回归及两端最终检查通过。独立复核后无未解决阻断，见[终审记录](../evidence/22-macos/final-review.md)。初始源码 tar 对应修复前，最终 tar/快照对应修复后，不混用。
 
 - 同 ID 并发/恢复至多一次启动；异机器、坏认领与可写/可见认领目录拒绝；认领写失败零启动。

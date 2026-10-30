@@ -15,7 +15,7 @@ Codex 内置浏览器访问 `http://127.0.0.1:5173/`，使用独立 QA 标签测
 
 | 操作 | 实际结果 |
 | --- | --- |
-| 1160×780，深色与浅色 | 三栏、48px 单行标签头、纯树、气泡、轻工具行与浮动输入面板可见；[深色](preview-dark.jpg)、[浅色](preview-light.jpg)截图已保存 |
+| 1160×780，深色与浅色 | 三栏、48px 单行标签头、纯树、气泡、轻工具行与浮动输入面板可见；[深色](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2Fpreview-dark.jpg)、[浅色](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2Fpreview-light.jpg)截图已保存 |
 | 760×500，输入 80 行文字 | 输入框内部滚动，高度 43.875px；发送按钮底部 458px，仍在窗口内；右栏初始收起 |
 | 默认会话打开「查看完整参数后决定」 | 批准与拒绝由禁用变为可用；点击模拟批准只显示已记录，不执行命令 |
 | 当前会话改为 Plan 并输入草稿，切换 MCP 会话再切回 | 另一会话仍为 Auto review 且无该草稿；原会话恢复 Plan 与原草稿 |

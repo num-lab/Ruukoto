@@ -72,9 +72,9 @@ Driver 以 `ruukotoMediaRefs` 保存图片归属，JSONL 和 prompt 快照不重
 
 独立审查发现并修复四个窗口：未提升图片被拒绝后遗留排队任务阻塞主会话；24 小时清理与活跃下载竞争；能力检查与提交之间默认模型变化；旧代次暂存图片重投被新入口信封重新包装。另补 Telegram 重新在线时派发/队列唤醒、二进制下载按平台文件扩展声明 MIME，以及 QQ 含图长文字保留原接收文字。图片损坏时已有任务明确收尾，后续文本可运行，拒绝回执与普通任务失败回执不会重复发送。
 
-验证记录：`npm run typecheck` 与 `git diff --check` 通过；全量 `npm test` 为 995 项通过、0 项失败、1 项 RUN_MODEL_CHECK 门控跳过（[完整日志](../issue-25-validation.log)）；最后的模型选择、配置、图解与媒体相关检查 41/41 通过（[相关日志](../issue-25-validation-related.log)）。模型钉定用例随后补齐三个窗口，连同图解检查再次 5/5 通过（[补充日志](../issue-25-validation-pinning.log)）。新增媒体验收在 test/90、95、96、97、98；均使用真实 Runtime/SQLite/文件与模拟平台、模拟模型，未接入真实 Telegram/QQ。
+验证记录：`npm run typecheck` 与 `git diff --check` 通过；全量 `npm test` 为 995 项通过、0 项失败、1 项 RUN_MODEL_CHECK 门控跳过（[完整日志](../../git-history-cleanup/archive.md?path=.scratch%2Fagent-direction%2Fissue-25-validation.log)）；最后的模型选择、配置、图解与媒体相关检查 41/41 通过（[相关日志](../../git-history-cleanup/archive.md?path=.scratch%2Fagent-direction%2Fissue-25-validation-related.log)）。模型钉定用例随后补齐三个窗口，连同图解检查再次 5/5 通过（[补充日志](../../git-history-cleanup/archive.md?path=.scratch%2Fagent-direction%2Fissue-25-validation-pinning.log)）。新增媒体验收在 test/90、95、96、97、98；均使用真实 Runtime/SQLite/文件与模拟平台、模拟模型，未接入真实 Telegram/QQ。
 
-全量首次检查还暴露既有测试前提：test/75 写死旧 schema 版本，现改为核对迁移后的数据库版本；test/34 的模拟提供方收到空正文 GET 后 JSON.parse 抛错，HEAD 隔离 worktree 也重现，已仅修 fixture 的空正文/取消处理并保留事件断言；本机 fake-IP DNS 将 nonexistent.invalid 解析成 198.18.0.126，test/08 现定向 mock 该域名的 ENOTFOUND。Linux tx 使用隔离源码目录运行未 mock DNS 的原 test/08，16/16 通过（Node v24.21.0、SDK 0.85.1；[Linux 日志](../issue-25-validation-linux.log)）；没有改动生产配置或后台，临时目录已清理。
+全量首次检查还暴露既有测试前提：test/75 写死旧 schema 版本，现改为核对迁移后的数据库版本；test/34 的模拟提供方收到空正文 GET 后 JSON.parse 抛错，HEAD 隔离 worktree 也重现，已仅修 fixture 的空正文/取消处理并保留事件断言；本机 fake-IP DNS 将 nonexistent.invalid 解析成 198.18.0.126，test/08 现定向 mock 该域名的 ENOTFOUND。Linux tx 使用隔离源码目录运行未 mock DNS 的原 test/08，16/16 通过（Node v24.21.0、SDK 0.85.1；[Linux 日志](../../git-history-cleanup/archive.md?path=.scratch%2Fagent-direction%2Fissue-25-validation-linux.log)）；没有改动生产配置或后台，临时目录已清理。
 
 真实平台 smoke 单独登记：Telegram Bot API 实际图片下载、真实视觉模型识图及回复未实测；QQ/NapCat 实际图片 URL/file 格式、下载、真实视觉模型识图及回复未实测。Linux 的审批回归不等于真实 IM 图片 smoke。
 

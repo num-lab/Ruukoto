@@ -15,15 +15,15 @@
 
 使用[隔离夹具](electron-fixture.mts)启动真实 Runtime、ControlServer、工具 worker 与 Electron 生产 renderer，独立 userData、控制目录和临时工作区；未对日常运行实例提交输入或重启它。夹具多次重启使用相同场景，ready.json／fixture-progress.json 属最终截图轮，backend-status.json 保留首轮交互状态，不作为最终截图轮的当前状态证明。模型为本地确定性 MockModelServer，Thought 的 5 秒文本是夹具显式写入的持久 task.thinking 事件，用于检验真实读取、耗时和折叠，不是 provider 输出。
 
-通过原生 UI 打开真实会话，确认 Thought 默认折叠、展开实际事件文本；工具分类和 Wrench、13px 正常字重的内联 code、顶部右栏标签、短分隔线、独立差异与 Agent 历史显示。最终[主界面](final-dark.png)没有空帧间隔。子 Agent 夹具等待期间真实请求超时，界面如实显示超时；本轮不把它记作成功完成的真实模型委派。
+通过原生 UI 打开真实会话，确认 Thought 默认折叠、展开实际事件文本；工具分类和 Wrench、13px 正常字重的内联 code、顶部右栏标签、短分隔线、独立差异与 Agent 历史显示。最终[主界面](../../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2F2026-10-16%2Fmigration-v2%2Ffinal-dark.png)没有空帧间隔。子 Agent 夹具等待期间真实请求超时，界面如实显示超时；本轮不把它记作成功完成的真实模型委派。
 
-模型菜单包含实际 Mock Model 与 Off 档位，模式菜单显示四个模式；点击 Auto review 后回读实际会话值。Context 打开后显示最新选择记录的约 87.5K／1M 与三分类，环形入口无数字，见[明细](context-dark.png)。键盘将右栏从 375 调到 599，使消息区变窄，模式与模型收为图标、功能键保持单排；恢复原宽度并切明暗，见[窄栏](narrow-dark.png)和[浅色](light.png)。本轮鼠标调整原生窗口外框没有稳定改变尺寸，不将该尝试记为通过。
+模型菜单包含实际 Mock Model 与 Off 档位，模式菜单显示四个模式；点击 Auto review 后回读实际会话值。Context 打开后显示最新选择记录的约 87.5K／1M 与三分类，环形入口无数字，见[明细](../../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2F2026-10-16%2Fmigration-v2%2Fcontext-dark.png)。键盘将右栏从 375 调到 599，使消息区变窄，模式与模型收为图标、功能键保持单排；恢复原宽度并切明暗，见[窄栏](../../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2F2026-10-16%2Fmigration-v2%2Fnarrow-dark.png)和[浅色](../../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2F2026-10-16%2Fmigration-v2%2Flight.png)。本轮鼠标调整原生窗口外框没有稳定改变尺寸，不将该尝试记为通过。
 
-28 个真实任务生成 56 条用户／回复历史，首次窗口从 gui-scroll 03 开始。向下再向上滚动后 AX 新增 gui-scroll 00～02，补页前后 gui-scroll 03 与正文保持原阅读位置，见[补读前](history-before.png)与[补读后](history-after-prepend.png)。在该位置发送新输入，接收后输入清空而阅读仍停 gui-scroll 03，见[新消息不抢位置](history-new-message-stays.png)；滚动到底部后再发送 follow-bottom，最终停在新回复末尾，见[底部跟随](history-follow-bottom.png)。这些结论结合实际输入、滚动与 AX 观察，截图不是自动几何断言。
+28 个真实任务生成 56 条用户／回复历史，首次窗口从 gui-scroll 03 开始。向下再向上滚动后 AX 新增 gui-scroll 00～02，补页前后 gui-scroll 03 与正文保持原阅读位置，见[补读前](../../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2F2026-10-16%2Fmigration-v2%2Fhistory-before.png)与[补读后](../../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2F2026-10-16%2Fmigration-v2%2Fhistory-after-prepend.png)。在该位置发送新输入，接收后输入清空而阅读仍停 gui-scroll 03，见[新消息不抢位置](../../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2F2026-10-16%2Fmigration-v2%2Fhistory-new-message-stays.png)；滚动到底部后再发送 follow-bottom，最终停在新回复末尾，见[底部跟随](../../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2F2026-10-16%2Fmigration-v2%2Fhistory-follow-bottom.png)。这些结论结合实际输入、滚动与 AX 观察，截图不是自动几何断言。
 
-文件树来自注册工作区；实际打开 README 的 Markdown 及源码，PNG 显示图片，PDF 显示不支持，空文件保留空源码。点击 Markdown 中本地链接打开浏览器，地址栏导航、后退和前进可用。远程子框实际报告 bridge=undefined、node=undefined、geolocation=denied；点击 Popup 与 Top navigation 后桌面主 frame 保持原 file URL，未打开新窗口，见[隔离页](browser-isolation.png)。静态图只显示隔离页结果，不单独证明上述点击发生。
+文件树来自注册工作区；实际打开 README 的 Markdown 及源码，PNG 显示图片，PDF 显示不支持，空文件保留空源码。点击 Markdown 中本地链接打开浏览器，地址栏导航、后退和前进可用。远程子框实际报告 bridge=undefined、node=undefined、geolocation=denied；点击 Popup 与 Top navigation 后桌面主 frame 保持原 file URL，未打开新窗口，见[隔离页](../../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2F2026-10-16%2Fmigration-v2%2Fbrowser-isolation.png)。静态图只显示隔离页结果，不单独证明上述点击发生。
 
-实际待审批卡使用真实参数，点击拒绝后卡片立即移除；[卡片](approval.png)有独立背景、没有额外图标和线框。圆形附件按钮打开系统选择器，选取当前临时工作区 clock.txt 后显示附件，纯附件提交经真实控制面接收，清除输入并在消息中显示附件名。原未知应答与恢复语义由定向回归覆盖，本轮未通过人为断网重新演练。
+实际待审批卡使用真实参数，点击拒绝后卡片立即移除；[卡片](../../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2F2026-10-16%2Fmigration-v2%2Fapproval.png)有独立背景、没有额外图标和线框。圆形附件按钮打开系统选择器，选取当前临时工作区 clock.txt 后显示附件，纯附件提交经真实控制面接收，清除输入并在消息中显示附件名。原未知应答与恢复语义由定向回归覆盖，本轮未通过人为断网重新演练。
 
 ## 限制与交接
 

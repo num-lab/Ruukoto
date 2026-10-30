@@ -1,5 +1,7 @@
 # 配置与拥有者控制证据
 
+> 本文部分原始证据已移出 Git；原路径保留用于查找原件，见[归档说明](../../../git-history-cleanup/archive.md)。
+
 接手基线：`3d6e9b90588bf065940e5227acbf262690e8b57e`，2026-10-18。入口为[工单35](../../issues/35-owner-configuration-controls.md)，范围与授权沿[规格](../../spec.md)。正式入口、生产、旧档案、依赖和Coding运行时没有改动。实现文件的最终指纹见 `source-manifest.json`；原建单快照不证明本轮实现。
 
 ## 能力入口矩阵

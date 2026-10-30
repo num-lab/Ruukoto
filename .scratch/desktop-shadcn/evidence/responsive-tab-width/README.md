@@ -10,7 +10,7 @@
 
 [小数宽主栏向后拖动](fractional-main-forward-final.json)记录相邻项 shift=-1、源位移2槽且松手后提交；[反向拖动](fractional-main-reverse.json)恢复原顺序；[右栏小数宽拖动](fractional-right-reverse.json)记录112.5px下的预览与排序。每组原DOM顺序在预览期间保持，结束偏移清空。[溢出后拖动](overflow-main.json)在主栏scrollLeft108时正确移到第二位，[取消](responsive-cancel.json)保持原序并清理预览。空／单项及返回Code后，原右栏顺序和活动页面保持。原键盘及身份保护接线未更改，沿用上一轮证据。
 
-[暗色](dark.png)、[浅色](light.png)为900px实际界面；[拖动帧](drag-fractional-dark.png)展示收缩标签的避让，[默认视口最终界面](final-dark.png)及[完整AX](final-state.txt)为收尾状态。fractional-main-forward.json是带截图的初次采样，只采到中间落点；最终无截图采样补齐2槽预览后再断言，不把稀疏采样误作功能失败。截图不包含系统原生拖影。
+[暗色](../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2Fresponsive-tab-width%2Fdark.png)、[浅色](../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2Fresponsive-tab-width%2Flight.png)为900px实际界面；[拖动帧](../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2Fresponsive-tab-width%2Fdrag-fractional-dark.png)展示收缩标签的避让，[默认视口最终界面](../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2Fresponsive-tab-width%2Ffinal-dark.png)及[完整AX](final-state.txt)为收尾状态。fractional-main-forward.json是带截图的初次采样，只采到中间落点；最终无截图采样补齐2槽预览后再断言，不把稀疏采样误作功能失败。截图不包含系统原生拖影。
 
 ## 工程检查与限度
 

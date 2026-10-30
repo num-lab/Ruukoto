@@ -37,7 +37,7 @@
 
 ## 浏览器模拟验证
 
-使用 Playwright、真实 React/shadcn 与模拟 Host 渲染实际 SettingsDialog；本机 Vite 临时入口无真实后台调用。430×420 视口，内容面板 clientWidth=scrollWidth=268，clientHeight=370、scrollHeight=1065，支持纵向滚动而没有横向溢出；用途页签横排并有对应 tabpanel。实测编辑 SSH 草稿后切用途弹出继续编辑/放弃/保存三选，放弃后显示独立旧连接；聚焦旧用途页签后 ArrowLeft 返回管理。明暗均可读，底部操作可滚入，最终 fixture 无浏览器运行错误。窄窗截图：[浅色](07-personal-light-430.png)、[深色](07-personal-dark-430.png)、[底部操作](07-personal-light-bottom-430.png)。这些是合成 bridge，不能替代原生两壳、SSH 或真实服务验收。
+使用 Playwright、真实 React/shadcn 与模拟 Host 渲染实际 SettingsDialog；本机 Vite 临时入口无真实后台调用。430×420 视口，内容面板 clientWidth=scrollWidth=268，clientHeight=370、scrollHeight=1065，支持纵向滚动而没有横向溢出；用途页签横排并有对应 tabpanel。实测编辑 SSH 草稿后切用途弹出继续编辑/放弃/保存三选，放弃后显示独立旧连接；聚焦旧用途页签后 ArrowLeft 返回管理。明暗均可读，底部操作可滚入，最终 fixture 无浏览器运行错误。窄窗截图：[浅色](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-settings%2Fevidence%2F07-personal-light-430.png)、[深色](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-settings%2Fevidence%2F07-personal-dark-430.png)、[底部操作](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-settings%2Fevidence%2F07-personal-light-bottom-430.png)。这些是合成 bridge，不能替代原生两壳、SSH 或真实服务验收。
 
 ## Linux 与待验收项
 

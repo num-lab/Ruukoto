@@ -1,5 +1,7 @@
 # 30 独立 Linux 证据
 
+> 本文部分原始证据已移出 Git；原路径保留用于查找原件，见[归档说明](../../../git-history-cleanup/archive.md)。
+
 对应[工单 30](../../issues/30-browser-media.md)。独立审查者通过 `ssh tx` 在 Ubuntu x64、Node 24.21.0、uid 1003 的专属目录执行，没有读取个人生产档案；原始环境在 `records/environment.json`，命令及退出码在 `records/leaf-tests-result.json`。
 
 ## 定向用例

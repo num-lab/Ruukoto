@@ -8,20 +8,20 @@ macOS 使用 Node `24.15.0`；Linux 使用 `ssh tx` 的隔离目录 `/tmp/ruukot
 
 | 检查 | 实际结果 | 证据 |
 | --- | --- | --- |
-| 根构建、两份锁与依赖解析 | 通过；Pi 系列固定 `1.3.0`，没有旧客户端直接依赖 | [构建](integration-2026-10-27/logs/build.log)、[依赖树](integration-2026-10-27/logs/dependencies.log) |
-| `npm run check:static`，文档最终同步后另跑 `check:docs` | lint、各包类型、笔记和文档门禁通过 | [静态](integration-2026-10-27/logs/static.log)、[文档](integration-2026-10-27/logs/docs.log) |
-| Code／共享 SDK 最终定向集合 | 303/303，0 skip | [完整输出](integration-2026-10-27/logs/code-final.log) |
-| 官方 direct／deferred 曝光同步后的复核 | 90/90，0 skip；覆盖 24/25-MCP、搜索、工作流与 SubAgent 来源及等待资源链 | [曝光复核](integration-2026-10-27/logs/exposure-final.log) |
-| Personal MCP／配置／Cua／工具最终集合 | 136/136，0 skip | [完整输出](integration-2026-10-27/logs/personal-final.log) |
-| 取消、调度来源与收尾 | 57/57；后补停止失败重建单例也通过 | [生命周期](integration-2026-10-27/logs/lifecycle-and-cancel.log)、Code 最终集合 |
-| Foundation | 7 通过，1 真实模型用例按离线开关跳过 | [输出](integration-2026-10-27/logs/foundation.log) |
-| Code Cua 原生产品链 | 3/3，包含无关会话销毁后仍保持原连接 | [输出](integration-2026-10-27/logs/cua-session-ownership.log) |
-| TUI／请求快照／手动压缩 | TUI 三个受影响用例、prompt 六例、手动压缩十四例及真实 PTY compact 单例通过 | [TUI](integration-2026-10-27/logs/final-tui-14.log)、[prompt](integration-2026-10-27/logs/final-prompt-20.log)；独立复审记录见下文 |
-| Electron 与 MyGo | 两壳构建、ad-hoc 签名通过 | [Electron](integration-2026-10-27/logs/electron-build.log)、[MyGo](integration-2026-10-27/logs/mygo-build.log) |
-| Linux MCP／Cua／原生集合 | 首轮 202 pass、1 fail、2 平台 skip；修复复核 104/104、旧联锁回归 1/1、最后生命周期 2/2 | [首轮](integration-2026-10-27/linux/logs/mcp-native-tests.log)、[复核](integration-2026-10-27/linux/logs/recheck-tests.log)、[联锁](integration-2026-10-27/linux/logs/personal-tools-recheck.log)、[生命周期](integration-2026-10-27/linux/logs/final-lifecycle-tests.log) |
-| Linux 真实 scope 与清理 | 个人后台 1/1、launcher 三项探针、Cua 管理 scope 通过；原 scope／cgroup／fixture PID 已消失 | [后台](integration-2026-10-27/linux/logs/personal-background-real-linux.log)、[launcher](integration-2026-10-27/linux/logs/linux-scope-probe.log)、[Cua](integration-2026-10-27/linux/logs/native-cua-scope-probe.recheck.log)、[清理](integration-2026-10-27/linux/logs/native-cleanup-check.recheck.json) |
+| 根构建、两份锁与依赖解析 | 通过；Pi 系列固定 `1.3.0`，没有旧客户端直接依赖 | [构建](../../git-history-cleanup/archive.md?path=.scratch%2Fpi-mcp-comparison%2Fevidence%2Fintegration-2026-10-27%2Flogs%2Fbuild.log)、[依赖树](../../git-history-cleanup/archive.md?path=.scratch%2Fpi-mcp-comparison%2Fevidence%2Fintegration-2026-10-27%2Flogs%2Fdependencies.log) |
+| `npm run check:static`，文档最终同步后另跑 `check:docs` | lint、各包类型、笔记和文档门禁通过 | [静态](../../git-history-cleanup/archive.md?path=.scratch%2Fpi-mcp-comparison%2Fevidence%2Fintegration-2026-10-27%2Flogs%2Fstatic.log)、[文档](../../git-history-cleanup/archive.md?path=.scratch%2Fpi-mcp-comparison%2Fevidence%2Fintegration-2026-10-27%2Flogs%2Fdocs.log) |
+| Code／共享 SDK 最终定向集合 | 303/303，0 skip | [完整输出](../../git-history-cleanup/archive.md?path=.scratch%2Fpi-mcp-comparison%2Fevidence%2Fintegration-2026-10-27%2Flogs%2Fcode-final.log) |
+| 官方 direct／deferred 曝光同步后的复核 | 90/90，0 skip；覆盖 24/25-MCP、搜索、工作流与 SubAgent 来源及等待资源链 | [曝光复核](../../git-history-cleanup/archive.md?path=.scratch%2Fpi-mcp-comparison%2Fevidence%2Fintegration-2026-10-27%2Flogs%2Fexposure-final.log) |
+| Personal MCP／配置／Cua／工具最终集合 | 136/136，0 skip | [完整输出](../../git-history-cleanup/archive.md?path=.scratch%2Fpi-mcp-comparison%2Fevidence%2Fintegration-2026-10-27%2Flogs%2Fpersonal-final.log) |
+| 取消、调度来源与收尾 | 57/57；后补停止失败重建单例也通过 | [生命周期](../../git-history-cleanup/archive.md?path=.scratch%2Fpi-mcp-comparison%2Fevidence%2Fintegration-2026-10-27%2Flogs%2Flifecycle-and-cancel.log)、Code 最终集合 |
+| Foundation | 7 通过，1 真实模型用例按离线开关跳过 | [输出](../../git-history-cleanup/archive.md?path=.scratch%2Fpi-mcp-comparison%2Fevidence%2Fintegration-2026-10-27%2Flogs%2Ffoundation.log) |
+| Code Cua 原生产品链 | 3/3，包含无关会话销毁后仍保持原连接 | [输出](../../git-history-cleanup/archive.md?path=.scratch%2Fpi-mcp-comparison%2Fevidence%2Fintegration-2026-10-27%2Flogs%2Fcua-session-ownership.log) |
+| TUI／请求快照／手动压缩 | TUI 三个受影响用例、prompt 六例、手动压缩十四例及真实 PTY compact 单例通过 | [TUI](../../git-history-cleanup/archive.md?path=.scratch%2Fpi-mcp-comparison%2Fevidence%2Fintegration-2026-10-27%2Flogs%2Ffinal-tui-14.log)、[prompt](../../git-history-cleanup/archive.md?path=.scratch%2Fpi-mcp-comparison%2Fevidence%2Fintegration-2026-10-27%2Flogs%2Ffinal-prompt-20.log)；独立复审记录见下文 |
+| Electron 与 MyGo | 两壳构建、ad-hoc 签名通过 | [Electron](../../git-history-cleanup/archive.md?path=.scratch%2Fpi-mcp-comparison%2Fevidence%2Fintegration-2026-10-27%2Flogs%2Felectron-build.log)、[MyGo](../../git-history-cleanup/archive.md?path=.scratch%2Fpi-mcp-comparison%2Fevidence%2Fintegration-2026-10-27%2Flogs%2Fmygo-build.log) |
+| Linux MCP／Cua／原生集合 | 首轮 202 pass、1 fail、2 平台 skip；修复复核 104/104、旧联锁回归 1/1、最后生命周期 2/2 | [首轮](integration-2026-10-27/linux/logs/mcp-native-tests.log)、[复核](../../git-history-cleanup/archive.md?path=.scratch%2Fpi-mcp-comparison%2Fevidence%2Fintegration-2026-10-27%2Flinux%2Flogs%2Frecheck-tests.log)、[联锁](../../git-history-cleanup/archive.md?path=.scratch%2Fpi-mcp-comparison%2Fevidence%2Fintegration-2026-10-27%2Flinux%2Flogs%2Fpersonal-tools-recheck.log)、[生命周期](../../git-history-cleanup/archive.md?path=.scratch%2Fpi-mcp-comparison%2Fevidence%2Fintegration-2026-10-27%2Flinux%2Flogs%2Ffinal-lifecycle-tests.log) |
+| Linux 真实 scope 与清理 | 个人后台 1/1、launcher 三项探针、Cua 管理 scope 通过；原 scope／cgroup／fixture PID 已消失 | [后台](integration-2026-10-27/linux/logs/personal-background-real-linux.log)、[launcher](integration-2026-10-27/linux/logs/linux-scope-probe.log)、[Cua](../../git-history-cleanup/archive.md?path=.scratch%2Fpi-mcp-comparison%2Fevidence%2Fintegration-2026-10-27%2Flinux%2Flogs%2Fnative-cua-scope-probe.recheck.log)、[清理](integration-2026-10-27/linux/logs/native-cleanup-check.recheck.json) |
 
-Linux 最终核对的 18 项源码摘要与主工作区一致，见 [交付对照](integration-2026-10-27/linux/source-current-comparison.delivery.json)。最后曝光修订另跑四种工作流和固定角色共 [5/5](integration-2026-10-27/linux/logs/fixed-role-exposure-tests.log)；随后仅增加 TypeScript readonly 元组注解，无运行时变化。Cua 截图服务为 fixture，真实部分是原生执行身份、scope、停止与清理，不代表实际 Cua 桌面截图或模型体验。Linux 版本高于仓库最低 Node；macOS 已在最低版本验证。
+Linux 最终核对的 18 项源码摘要与主工作区一致，见 [交付对照](integration-2026-10-27/linux/source-current-comparison.delivery.json)。最后曝光修订另跑四种工作流和固定角色共 [5/5](../../git-history-cleanup/archive.md?path=.scratch%2Fpi-mcp-comparison%2Fevidence%2Fintegration-2026-10-27%2Flinux%2Flogs%2Ffixed-role-exposure-tests.log)；随后仅增加 TypeScript readonly 元组注解，无运行时变化。Cua 截图服务为 fixture，真实部分是原生执行身份、scope、停止与清理，不代表实际 Cua 桌面截图或模型体验。Linux 版本高于仓库最低 Node；macOS 已在最低版本验证。
 
 ## 集成时发现并修复
 
@@ -58,20 +58,20 @@ Linux 最终核对的 18 项源码摘要与主工作区一致，见 [交付对�
 
 ## 全量结果与既有失败
 
-最初 `npm test` 的 macOS 独占批次 71/71，常规批次 3553 例为 3505 pass、25 fail、23 skip，见 [原始输出](integration-2026-10-27/logs/initial-full-app.log)。其中迁移引入或随迁移失效的行为／夹具已用最终定向集合复核；未重复跑一遍已知仍会失败的全量，也不把该次全量写成通过。Foundation 后续单独完成。
+最初 `npm test` 的 macOS 独占批次 71/71，常规批次 3553 例为 3505 pass、25 fail、23 skip，见 [原始输出](../../git-history-cleanup/archive.md?path=.scratch%2Fpi-mcp-comparison%2Fevidence%2Fintegration-2026-10-27%2Flogs%2Finitial-full-app.log)。其中迁移引入或随迁移失效的行为／夹具已用最终定向集合复核；未重复跑一遍已知仍会失败的全量，也不把该次全量写成通过。Foundation 后续单独完成。
 
 以下八项失败在 `85d007b9`／Pi 0.85.1 对照复现，保留原安全规则，不为本工单扩修产品或放宽断言：
 
 | 用例 | 既有原因与对照 |
 | --- | --- |
-| 19 demo 全事件 | 缺 Code schedule 与 Web Search 事件；[19/43 对照](integration-2026-10-27/baseline/baseline-19-43.log) |
+| 19 demo 全事件 | 缺 Code schedule 与 Web Search 事件；[19/43 对照](../../git-history-cleanup/archive.md?path=.scratch%2Fpi-mcp-comparison%2Fevidence%2Fintegration-2026-10-27%2Fbaseline%2Fbaseline-19-43.log) |
 | 43 GUI 定稿样式 | 冻结 CSS 前缀缺行；同上 |
-| 45 普通子代理 MCP | 旧输入头匹配不到实际子请求；[对照](integration-2026-10-27/baseline/baseline-45-mcp.log) |
-| 65 操作手册命令表 | 文档重构后解析得到空表；[对照](integration-2026-10-27/baseline/baseline-65-context-82.log) |
+| 45 普通子代理 MCP | 旧输入头匹配不到实际子请求；[对照](../../git-history-cleanup/archive.md?path=.scratch%2Fpi-mcp-comparison%2Fevidence%2Fintegration-2026-10-27%2Fbaseline%2Fbaseline-45-mcp.log) |
+| 65 操作手册命令表 | 文档重构后解析得到空表；[对照](../../git-history-cleanup/archive.md?path=.scratch%2Fpi-mcp-comparison%2Fevidence%2Fintegration-2026-10-27%2Fbaseline%2Fbaseline-65-context-82.log) |
 | desktop-context 双目标 | 旧 Personal 通用连接按现行安全规则拒绝；同上 |
-| desktop-settings-models 忙提供方 | 元数据保存返回值与旧断言不符；[对照](integration-2026-10-27/baseline/baseline-desktop-models-busy.log) |
-| personal-background-processes 认证 socket | 测试绕过已记录配置历史后才写配置文件；[对照](integration-2026-10-27/linux/personal-baseline/ruukoto-pi-mcp-personal-late-head-baseline.log) |
-| personal-services 取消检查 | helper 在创建 claim 与完整写入之间被取消，旧用例过早以 calls.log 为完成前提；[原基点确定性反例](integration-2026-10-27/linux/personal-baseline/ruukoto-pi-mcp-personal-claim-race-baseline.log)、[等待 claim 的对照](integration-2026-10-27/linux/personal-baseline/ruukoto-pi-mcp-personal-claim-race-fixed.log) |
+| desktop-settings-models 忙提供方 | 元数据保存返回值与旧断言不符；[对照](../../git-history-cleanup/archive.md?path=.scratch%2Fpi-mcp-comparison%2Fevidence%2Fintegration-2026-10-27%2Fbaseline%2Fbaseline-desktop-models-busy.log) |
+| personal-background-processes 认证 socket | 测试绕过已记录配置历史后才写配置文件；[对照](../../git-history-cleanup/archive.md?path=.scratch%2Fpi-mcp-comparison%2Fevidence%2Fintegration-2026-10-27%2Flinux%2Fpersonal-baseline%2Fruukoto-pi-mcp-personal-late-head-baseline.log) |
+| personal-services 取消检查 | helper 在创建 claim 与完整写入之间被取消，旧用例过早以 calls.log 为完成前提；[原基点确定性反例](../../git-history-cleanup/archive.md?path=.scratch%2Fpi-mcp-comparison%2Fevidence%2Fintegration-2026-10-27%2Flinux%2Fpersonal-baseline%2Fruukoto-pi-mcp-personal-claim-race-baseline.log)、[等待 claim 的对照](../../git-history-cleanup/archive.md?path=.scratch%2Fpi-mcp-comparison%2Fevidence%2Fintegration-2026-10-27%2Flinux%2Fpersonal-baseline%2Fruukoto-pi-mcp-personal-claim-race-fixed.log) |
 
 ## 模型可见文本
 

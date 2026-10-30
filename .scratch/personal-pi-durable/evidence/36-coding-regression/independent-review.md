@@ -1,6 +1,6 @@
 # 独立实现与工程材料审查
 
-2026-10-18，独立上下文 `failure_mechanism` 核对停止调用方并通过有界尾帧等待方案；独立上下文 `audit_scope` 直接读取规格、36、原 17、当前代码、调用方、文档及本轮原始日志，完成实现与工程材料终审。作者的进度说明仅作导航。被审内容为 `3053bf6` 加本轮两文件修复；[代码审查指纹](independent-code-review.json)与当前实现、注释文档和格式探针逐项相符，[实施补丁](implementation.patch.gz)解压后与现行 `git diff --abbrev=7 -- packages/agent/src/tool-worker/host.ts test/100-worker-stop.test.ts` 输出逐字节相同。
+2026-10-18，独立上下文 `failure_mechanism` 核对停止调用方并通过有界尾帧等待方案；独立上下文 `audit_scope` 直接读取规格、36、原 17、当前代码、调用方、文档及本轮原始日志，完成实现与工程材料终审。作者的进度说明仅作导航。被审内容为 `3053bf6` 加本轮两文件修复；[代码审查指纹](independent-code-review.json)与当前实现、注释文档和格式探针逐项相符，[实施补丁](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F36-coding-regression%2Fimplementation.patch.gz)解压后与现行 `git diff --abbrev=7 -- packages/agent/src/tool-worker/host.ts test/100-worker-stop.test.ts` 输出逐字节相同。
 
 ## 实现审查
 

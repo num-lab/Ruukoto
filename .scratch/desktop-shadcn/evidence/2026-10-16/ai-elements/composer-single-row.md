@@ -8,4 +8,4 @@
 
 `npm --prefix .scratch/desktop-shadcn/demo run check` 与 `npm run check:static` 通过；只读独立复核无阻断，审查者亲跑 demo check 通过。80 个正式文件／冻结稿／来源保护核对通过；未做真实 Electron 或后台验收。本轮不新增逻辑测试，用真实浏览器几何和操作记录验证样式回归。
 
-效果见[深色](composer-single-row-dark.png)、[浅色](composer-single-row-light.png)、[最窄布局](composer-single-row-narrow.png)，测量见[JSON](composer-single-row.json)。
+效果见[深色](../../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2F2026-10-16%2Fai-elements%2Fcomposer-single-row-dark.png)、[浅色](../../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2F2026-10-16%2Fai-elements%2Fcomposer-single-row-light.png)、[最窄布局](../../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2F2026-10-16%2Fai-elements%2Fcomposer-single-row-narrow.png)，测量见[JSON](composer-single-row.json)。

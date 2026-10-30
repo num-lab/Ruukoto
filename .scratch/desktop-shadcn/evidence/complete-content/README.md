@@ -20,6 +20,6 @@ reasoning_preview_plan_review 独立方案审查和最终实现审查无剩余�
 
 [浏览器夹具](browser-fixture.mts)使用实际 Desktop ToolActivity、EventFlow、FilePreview 与实际 Demo ToolActivity。控制数据用于验证组件，不把它记作日常 MyGo 进程或真实模型验收。明暗模式均验证新增内容后六行容器滚底；[DOM 测量](browser-metrics.json)中初始高度 134px、行高 22.4px，追加后内部 scrollHeight 从 538 增为 1030、1523，scrollTop 分别为 896、1388.5。主区域分别保持 0 与手动操作后的 54，不由内部跟随改变；历史区追加文本前后仍为 scrollTop 0。
 
-文件预览包含 1,260,146 个字符，末尾 `FILE_PREVIEW_END_完整末尾` 完整存在；固定预览区高度 734px，scrollHeight 2923px，滚动至 2189px 后末尾可见。截图：[流式跟随](scrolling.png)、[文件末尾](file-preview.png)。
+文件预览包含 1,260,146 个字符，末尾 `FILE_PREVIEW_END_完整末尾` 完整存在；固定预览区高度 734px，scrollHeight 2923px，滚动至 2189px 后末尾可见。截图：[流式跟随](../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2Fcomplete-content%2Fscrolling.png)、[文件末尾](../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2Fcomplete-content%2Ffile-preview.png)。
 
 未重启日常后台或桌面进程，未调用真实模型，未跑全仓检查或 Linux 平台矩阵。协议 32 需要桌面和后台共同升级；旧版已截掉的展示前文不自动恢复。取消总量限制后内存、字符串容量、源码高亮和全量 DOM 的成本随内容增长，未增加大文件虚拟化。

@@ -10,9 +10,9 @@
 
 | 上下文与原记录 | 独立审查范围 | 本人作者部分的交叉覆盖 |
 | --- | --- | --- |
-| workflow_audit，[正文](evidence/04-workflow-review.md)、[输入](evidence/04-workflow-review-inputs.json)、[原始包](evidence/04-independent-review.tar.gz) | 全部 04 生产接线、core/library 版本、普通旧接口、恢复/消费/冻结/汇入、实际新测试及文档；没有编写生产实现 | 无作者生产部分；独立探针与回归判断不当作生产实现 |
-| version_audit，[正文](evidence/04-delegate-runtime-review.md)、[输入](evidence/04-delegate-runtime-review-inputs.json)、[原始包](evidence/04-version-review.tar.gz) | root 的 workflow/runtime/ToolRouter 与普通委派作者的旧 mode 替换；亲自复现和重验可信注入执行器回归 | 本人 core/workflow、schema/protocol、workflow-library 由 workflow_audit 及 root 核实，不自授独立通过 |
-| delegate_upgrade，[作者记录](evidence/04-role-test-author.md)、[原始包](evidence/04-delegate-author.tar.gz) | 普通旧接口迁移与九例真实 Runtime/Driver/native 测试的作者执行证据；不算本人的独立审查 | 普通委派实现由上述两审查者核实；新测试由 workflow_audit 直接读实际断言，主仓最终串行全组执行 |
+| workflow_audit，[正文](evidence/04-workflow-review.md)、[输入](evidence/04-workflow-review-inputs.json)、[原始包](../git-history-cleanup/archive.md?path=.scratch%2Fsubagent-roles%2Fevidence%2F04-independent-review.tar.gz) | 全部 04 生产接线、core/library 版本、普通旧接口、恢复/消费/冻结/汇入、实际新测试及文档；没有编写生产实现 | 无作者生产部分；独立探针与回归判断不当作生产实现 |
+| version_audit，[正文](evidence/04-delegate-runtime-review.md)、[输入](evidence/04-delegate-runtime-review-inputs.json)、[原始包](../git-history-cleanup/archive.md?path=.scratch%2Fsubagent-roles%2Fevidence%2F04-version-review.tar.gz) | root 的 workflow/runtime/ToolRouter 与普通委派作者的旧 mode 替换；亲自复现和重验可信注入执行器回归 | 本人 core/workflow、schema/protocol、workflow-library 由 workflow_audit 及 root 核实，不自授独立通过 |
+| delegate_upgrade，[作者记录](evidence/04-role-test-author.md)、[原始包](../git-history-cleanup/archive.md?path=.scratch%2Fsubagent-roles%2Fevidence%2F04-delegate-author.tar.gz) | 普通旧接口迁移与九例真实 Runtime/Driver/native 测试的作者执行证据；不算本人的独立审查 | 普通委派实现由上述两审查者核实；新测试由 workflow_audit 直接读实际断言，主仓最终串行全组执行 |
 
 生产改动均有非作者上下文读取和核实；共享文件按实际作者改动归属判断。审查者在独立副本执行，主工作区保持一个写入者。
 

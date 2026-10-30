@@ -29,7 +29,7 @@
 | 原视图 | diff 仍展示原增删行，Schema Auditor 仍展示原委派请求与工具摘要 |
 | 明暗与窄窗口 | 新面板均可操作，无页面横向溢出；Context、模式、模型与发送保持同排；控制台 error 列表为空 |
 
-[文件树](files-dark.png)、[源码](source-dark.png)、[Markdown](markdown-dark.png)、[浏览器](browser-dark.png)、[窄窗口](browser-narrow.png)、[浅色窄窗口](browser-light-narrow.png)、[浅色 Markdown](markdown-light-narrow.png)保留实际截图。
+[文件树](../../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2F2026-10-16%2Finspector-tools%2Ffiles-dark.png)、[源码](../../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2F2026-10-16%2Finspector-tools%2Fsource-dark.png)、[Markdown](../../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2F2026-10-16%2Finspector-tools%2Fmarkdown-dark.png)、[浏览器](../../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2F2026-10-16%2Finspector-tools%2Fbrowser-dark.png)、[窄窗口](../../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2F2026-10-16%2Finspector-tools%2Fbrowser-narrow.png)、[浅色窄窗口](../../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2F2026-10-16%2Finspector-tools%2Fbrowser-light-narrow.png)、[浅色 Markdown](../../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2F2026-10-16%2Finspector-tools%2Fmarkdown-light-narrow.png)保留实际截图。
 
 ## 审查与边界
 

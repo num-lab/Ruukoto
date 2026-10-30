@@ -6,13 +6,13 @@
 
 | 检查 | 结果与证据 |
 | --- | --- |
-| npm run check:static | 通过，[日志](evidence/static.log) |
-| desktop 全部定向文件，含 desktop-startup、control-readiness | 217/217，[日志](evidence/desktop-tests.log) |
-| 12-reconnect-pending、66-control-seam、71-product-entry、72-on-demand-backend | 91/91，[日志](evidence/control-tests.log) |
-| 32-dev 的启动就绪、已有实例、非 TTY 清理与已有 socket 门控 | 4/4，[日志](evidence/dev-tests.log) |
-| go test -race ./...（apps/desktop/mygo） | 通过，[日志](evidence/go-tests.log) |
-| npm run desktop:mygo:build | 构建及签名通过，[日志](evidence/mygo-build.log) |
-| npm run desktop:build | 构建通过，[日志](evidence/electron-build.log)；另行 codesign --verify --deep --strict 通过 |
+| npm run check:static | 通过，[日志](../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-connection%2Fevidence%2Fstatic.log) |
+| desktop 全部定向文件，含 desktop-startup、control-readiness | 217/217，[日志](../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-connection%2Fevidence%2Fdesktop-tests.log) |
+| 12-reconnect-pending、66-control-seam、71-product-entry、72-on-demand-backend | 91/91，[日志](../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-connection%2Fevidence%2Fcontrol-tests.log) |
+| 32-dev 的启动就绪、已有实例、非 TTY 清理与已有 socket 门控 | 4/4，[日志](../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-connection%2Fevidence%2Fdev-tests.log) |
+| go test -race ./...（apps/desktop/mygo） | 通过，[日志](../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-connection%2Fevidence%2Fgo-tests.log) |
+| npm run desktop:mygo:build | 构建及签名通过，[日志](../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-connection%2Fevidence%2Fmygo-build.log) |
+| npm run desktop:build | 构建通过，[日志](../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-connection%2Fevidence%2Felectron-build.log)；另行 codesign --verify --deep --strict 通过 |
 
 DesktopHost 的定向用例核实订阅前预热、重复订阅只读一次环境、正式快照一次、预热失败可见与显式重连可重试、关闭后不采用迟到环境。真实环境子进程测试分别覆盖登录 shell 与受管 Node，故意忽略 SIGTERM，取消返回时核实 PID 已消失。畸形 shell 路径也按原环境错误报告。
 

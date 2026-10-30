@@ -12,7 +12,7 @@
 - [右栏横滚后向前排序](right-scroll-reverse.json)由 indexeddb.ts、Schema Auditor 变为 Schema Auditor、indexeddb.ts，默认活动页仍为子 Agent 消息；首次尝试使用旧视口坐标落在可见区外而取消，按最新可见区重新定位后通过。
 - 键盘 Alt+Shift+左排序后焦点、活动页与「避让验收草稿」保留；最终等宽与清理状态见 checks.json，完整可访问界面见[最终状态](final-state.txt)。上述断言来自实际浏览器读取。
 
-[暗色拖动帧](drag-preview-dark.png)和[浅色拖动帧](drag-preview-light.png)显示源标签隐藏及兄弟项过渡中的位置；网页截图不包含系统绘制的原生拖影。right-drag-preview.png 是落下后的结果，不能证明拖动中避让。[暗色最终界面](dark.png)与[浅色最终界面](light.png)用于静态样式核对。
+[暗色拖动帧](../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2Ftab-drag-preview%2Fdrag-preview-dark.png)和[浅色拖动帧](../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2Ftab-drag-preview%2Fdrag-preview-light.png)显示源标签隐藏及兄弟项过渡中的位置；网页截图不包含系统绘制的原生拖影。right-drag-preview.png 是落下后的结果，不能证明拖动中避让。[暗色最终界面](../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2Ftab-drag-preview%2Fdark.png)与[浅色最终界面](../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2Ftab-drag-preview%2Flight.png)用于静态样式核对。
 
 ## 工程检查与限度
 

@@ -1,4 +1,4 @@
-Linux 隔离验证完成；主工作区全程只读。原始日志、完整输入清单、执行脚本和清理证据保存在[原始材料归档](raw-materials.tar.gz)，下文相对路径均指归档内路径。
+Linux 隔离验证完成；主工作区全程只读。原始日志、完整输入清单、执行脚本和清理证据保存在[原始材料归档](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F13-linux%2Fraw-materials.tar.gz)，下文相对路径均指归档内路径。
 
 基点为 `dcf094a4e2006fadb9aacde081ed6683b9277e1f`，输入包含当时 tracked 与 untracked 文件去重后的 2372 项，共 80,491,419 字节。逐文件 SHA-256、类型、权限及大小见 `input-manifest.json`，运输归档 SHA-256 为 `aca53589c0a4e5fa184a117654e373f857938edb2bf24c249b9c6ccadc683d22`。远端在任何安装与测试前逐项核对全部输入，普通文件权限保留、符号链接权限不作跨系统比较。32 份 personal 源码和测试另列于 `runtime-input-manifest.json`。
 

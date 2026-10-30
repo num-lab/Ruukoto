@@ -1,5 +1,7 @@
 # 工作流联合验收证据
 
+> 本文部分原始证据已移出 Git；原路径保留用于查找原件，见[归档说明](../../git-history-cleanup/archive.md)。
+
 验收入口为[07](../issues/07-acceptance.md)，要求见[规格](../spec.md)。起点 `84f0d4d78ced04b76f6c8be9ba299c66091e2e74`，工作区初始干净。证据区分实际宿主/worker、模型、联网/IM 替身与人工体验；真实 IM 和拥有者体验仍待验。历史未知停止和失败日志保留，不从后续成功反推旧现场已停止。
 
 入库日志仅清理空白行的尾随空格及文件末尾多余换行，不改诊断正文。
@@ -10,8 +12,8 @@
 | --- | --- |
 | 编码六输入 | `git show 28c033f7:test/122-workflow-code-acceptance.test.ts`，`code-batch.log` 1/1。真实 Runtime/Driver/Git，三个实际修改者并发，第六项输出失败、依赖验证跳过；五份冻结补丁与独立验证任务/副本对应，目标实际字节与组合检查一致，终态 partial、唯一汇总 |
 | 个人六输入 | `git show 28c033f7:test/121-workflow-personal-acceptance.test.ts`，`personal-batch.log` 1/1。实际联网工具与应用数据，Tavily/Telegram 为本地替身；十一项搜索、六次查询、五项独立检查，等待期间聊天、重复回答，实际五行与唯一回报。`personal-batch-first/second.log` 是夹具路由/ask 返回值诊断，不计通过 |
-| 指定真实模型 | [123](../../../test/123-workflow-model-acceptance.test.ts)，[最终日志](model-workflows-final-report.log) 2/2，零跳过，[实际最终回报](model-reports.md)。用户指定 `/Users/eitrous/.ruukoto-code-dev/ruukoto-2159f2e3/agent/models.json` 的 `magpie/mirasim/deepseek-flash`，low 思考；模型通过工具启动命名定义、等待期间真实聊天、业务回答后实际应用数据/编码与独立验证、唯一汇总。实际查询行和目标字节、所有停止与零占用硬断言通过。没有真实 IM，也不证明模型自行选择编排策略 |
-| 模型验证操作 | [编码增量](model-workflows-verify-op-final.log) 1/1，零跳过；实际独立验证者的 bash/grep 操作、宿主 worktree_verify/integrate 与已核实停止/目标字节记录均留证。只增加显式模型用例断言与脱敏操作事实，不重跑已通过且不受影响的离线全量 |
+| 指定真实模型 | [123](../../../test/123-workflow-model-acceptance.test.ts)，[最终日志](../../git-history-cleanup/archive.md?path=.scratch%2Fagent-workflow%2Facceptance-evidence%2Fmodel-workflows-final-report.log) 2/2，零跳过，[实际最终回报](model-reports.md)。用户指定 `/Users/eitrous/.ruukoto-code-dev/ruukoto-2159f2e3/agent/models.json` 的 `magpie/mirasim/deepseek-flash`，low 思考；模型通过工具启动命名定义、等待期间真实聊天、业务回答后实际应用数据/编码与独立验证、唯一汇总。实际查询行和目标字节、所有停止与零占用硬断言通过。没有真实 IM，也不证明模型自行选择编排策略 |
+| 模型验证操作 | [编码增量](../../git-history-cleanup/archive.md?path=.scratch%2Fagent-workflow%2Facceptance-evidence%2Fmodel-workflows-verify-op-final.log) 1/1，零跳过；实际独立验证者的 bash/grep 操作、宿主 worktree_verify/integrate 与已核实停止/目标字节记录均留证。只增加显式模型用例断言与脱敏操作事实，不重跑已通过且不受影响的离线全量 |
 | 模型诊断 | `model-workflows-initial.log` 0/2：medium 不受该模型配置支持；`model-workflows-low.log` 1/2：编码验证以 write_result_missing 暂停。首轮失败档案当时被测试清理，缺少原始输出，原因未证实；最终样例显式收窄 bash 与 JSON schema 后成功，不能反向声称首轮成功或已恢复。123 已改为失败保留档案 |
 | 真实回报返工 | `model-workflows-reports.log` 个人成功、编码发起上游 503；[失败摘要](model-upstream-503.json)与隔离档案保留。`model-workflows-code-report.log` 编码补跑 1/1，但实际模型正文引用启动时的停止 null，与终态账本 true 矛盾；最终回报现明确脚本三态、已启动执行核实数、未启动数，并说明终态取代旧状态。最后同批 2/2 正文与停止事实一致 |
 | 连通性 | `model-connectivity*.log` 分别记录思考/保护根夹具失败、agentrouter 503 与其他档案的 DeepSeek 连通；只有上述指定配置的工作流用例计为本次真实模型联合证据 |
@@ -22,7 +24,7 @@
 
 `static-docs.log`、`check-final.log`、`check-accepted.log`、`static-runner-report.log` 是文档预算触红，均不计通过。重复操作说明归 smoke 文档，预算不变。`check-current.log` 曾完整退出 0：应用 1335/1338、三项真实模型跳过；基础 9/10、一项真实模型跳过，不能覆盖随后修正。查询修正的 28/113/121 集合 `query-close-current.log` 51/51；终态事实修正的 115/116/121/122 集合 `report-stop-fixed.log` 15/15。
 
-最终 [npm run check](check-runner-final.log) 完整退出 0：应用先独占 38/38、其余 1310/1313（3 项模型跳过），合计 1348/1351；基础 9/10（1 项模型跳过），零失败。构建、lint、全 workspace 类型、notes 与 docs 均通过，Python/PTY 用例实际执行。Node22 的 115/124 增量另为 19/19、零跳过，见 [Mac 增量](macos-node22-report-runner-final.log)。最后 123 只增真实模型验证者实际 bash 调用断言和脱敏证据，不改变离线或产品执行链，单独真实复核；[末轮静态门禁](static-handoff-final.log)退出 0，后续仅诊断措辞和决定锚点的 prose 改动由[文档门禁](docs-handoff-final.log)及[锚点检查](note-anchors-handoff.log)补证。
+最终 [npm run check](../../git-history-cleanup/archive.md?path=.scratch%2Fagent-workflow%2Facceptance-evidence%2Fcheck-runner-final.log) 完整退出 0：应用先独占 38/38、其余 1310/1313（3 项模型跳过），合计 1348/1351；基础 9/10（1 项模型跳过），零失败。构建、lint、全 workspace 类型、notes 与 docs 均通过，Python/PTY 用例实际执行。Node22 的 115/124 增量另为 19/19、零跳过，见 [Mac 增量](../../git-history-cleanup/archive.md?path=.scratch%2Fagent-workflow%2Facceptance-evidence%2Fmacos-node22-report-runner-final.log)。最后 123 只增真实模型验证者实际 bash 调用断言和脱敏证据，不改变离线或产品执行链，单独真实复核；[末轮静态门禁](../../git-history-cleanup/archive.md?path=.scratch%2Fagent-workflow%2Facceptance-evidence%2Fstatic-handoff-final.log)退出 0，后续仅诊断措辞和决定锚点的 prose 改动由[文档门禁](../../git-history-cleanup/archive.md?path=.scratch%2Fagent-workflow%2Facceptance-evidence%2Fdocs-handoff-final.log)及[锚点检查](../../git-history-cleanup/archive.md?path=.scratch%2Fagent-workflow%2Facceptance-evidence%2Fnote-anchors-handoff.log)补证。
 
 Linux 六输入在单文件仍复现查询丢失：子进程 360ms 正常 exit=0，结果随后到 stdout，原 runner 在 exit 先结算 child_exited。修正只把无响应结算移到 close，原两秒预算、SIGKILL 和退出等待不变。`query-close-without-fix.log` 在原错误处红，`query-close-fixed-narrow.log` 2/2；首次 `query-close-before/after.log` 的 namespace mock 不可写问题是夹具失败，不作为产品负例。
 

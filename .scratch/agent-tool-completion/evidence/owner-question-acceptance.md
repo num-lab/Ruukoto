@@ -46,9 +46,9 @@
 
 Python PTY 在90×28真实终端运行TUI、临时Runtime和ControlServer，模型mock。四轮分别验证含 q 的中文自由文本、显式取消、单选加自由文本，以及5个长选项的PgDn续读和正确选择。最后一轮逐输入分段断言最后选项尾部出现在翻页阶段，初始页不可见，不靠后续核对页补全文；每轮核对原始答案/无续接及退出alt screen恢复。完整脚本命令为 `npx tsx .scratch/agent-tool-completion/evidence/owner-question-tui-pty.mts`。
 
-Electron 使用当前生产构建的main/preload/renderer，两个独立进程与客户端数据目录，真实Runtime/ControlServer，模型mock。[夹具](owner-question-electron-harness.mts)是交互后台与CDP实验入口，非单命令自动GUI测试；仅在临时构建副本设置隐藏BrowserWindow并抑制通知，不改正式应用源码。通过CDP操作实际渲染控件：选项以ArrowUp/Enter选择“共享”，中文自由输入“真实 Electron 中文 q 回答”，上一题/下一题保留答案，核对页见[1160×780截图](owner-question-electron-review.jpg)。
+Electron 使用当前生产构建的main/preload/renderer，两个独立进程与客户端数据目录，真实Runtime/ControlServer，模型mock。[夹具](owner-question-electron-harness.mts)是交互后台与CDP实验入口，非单命令自动GUI测试；仅在临时构建副本设置隐藏BrowserWindow并抑制通知，不改正式应用源码。通过CDP操作实际渲染控件：选项以ArrowUp/Enter选择“共享”，中文自由输入“真实 Electron 中文 q 回答”，上一题/下一题保留答案，核对页见[1160×780截图](../../git-history-cleanup/archive.md?path=.scratch%2Fagent-tool-completion%2Fevidence%2Fowner-question-electron-review.jpg)。
 
-原回答完成事务后扣住应答，确认客户端pending已保存原键 `5bc21f29-0b54-434b-85dc-88aa6000348f` 及完整答案；随后停止并重启同档案Runtime，真实socket断开触发重连。恢复后pending为0，仍只有原续接 `task_0ad8b88372b0b029d7fceffc`；第二窗口实时显示相同答案及终态，其旧参数经实际IPC晚提交被拒。第二批从第二窗口测试取消→返回回答→确认取消，两窗口均显示取消且无续接。持久白名单导出并断言的[结果](owner-question-electron-result.json)为两批问题、一答一取消、两次提问加一次续接共3个任务；[760×500恢复截图](owner-question-electron-recovered.jpg)保留题目、实际答案与终态，诊断无新增页面异常。
+原回答完成事务后扣住应答，确认客户端pending已保存原键 `5bc21f29-0b54-434b-85dc-88aa6000348f` 及完整答案；随后停止并重启同档案Runtime，真实socket断开触发重连。恢复后pending为0，仍只有原续接 `task_0ad8b88372b0b029d7fceffc`；第二窗口实时显示相同答案及终态，其旧参数经实际IPC晚提交被拒。第二批从第二窗口测试取消→返回回答→确认取消，两窗口均显示取消且无续接。持久白名单导出并断言的[结果](owner-question-electron-result.json)为两批问题、一答一取消、两次提问加一次续接共3个任务；[760×500恢复截图](../../git-history-cleanup/archive.md?path=.scratch%2Fagent-tool-completion%2Fevidence%2Fowner-question-electron-recovered.jpg)保留题目、实际答案与终态，诊断无新增页面异常。
 
 这里证明隐藏Electron真实渲染、CDP键盘/文本、双客户端状态和真实传输断线；没有声称前台人工输入法、两个窗口同时点击竞速或其他平台Electron通过。真正并发消费由离线真实控制面双客户端竞争用例证明。两个Electron已退出，Runtime、临时档案和控制目录已清理。
 

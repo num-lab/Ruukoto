@@ -12,7 +12,7 @@
 
 独立后台 QA 标签，955×827。Read 详情仅剩动作与文件名，+38、-8 统计保留；右栏头部底边为 1px solid rgba(255,255,255,0.08)，整体高度仍 48px。
 
-在 indexeddb.ts 混合长短行的差异中，用实际横向滚动操作到最右端，scrollLeft 由 0 到 301.5。全部 8 行的行号 x 坐标均固定为 639px，标记均固定为 675px，包含末尾只有右花括号的短行；第一行代码 x 坐标从 689 变为 387.5px。控制台无 error 或 warn，验证结束后关闭 QA 标签并恢复尺寸覆盖，保留原有预览。行号底色没有文字穿透，见[滚到右端的截图](fixed-gutter-dark.jpg)。
+在 indexeddb.ts 混合长短行的差异中，用实际横向滚动操作到最右端，scrollLeft 由 0 到 301.5。全部 8 行的行号 x 坐标均固定为 639px，标记均固定为 675px，包含末尾只有右花括号的短行；第一行代码 x 坐标从 689 变为 387.5px。控制台无 error 或 warn，验证结束后关闭 QA 标签并恢复尺寸覆盖，保留原有预览。行号底色没有文字穿透，见[滚到右端的截图](../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2F2026-10-16%2Ffixed-gutter-dark.jpg)。
 
 ## 范围
 

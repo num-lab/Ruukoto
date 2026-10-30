@@ -20,4 +20,4 @@
 
 ## 证据
 
-[深色整体](header-model-dark.png)、[合并菜单](header-model-menu.png)、[浅色](header-model-light.png)、[144px 窄栏](header-model-narrow.png)；完整 DOM 测量和交互记录见[JSON](header-model.json)。
+[深色整体](../../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2F2026-10-16%2Fai-elements%2Fheader-model-dark.png)、[合并菜单](../../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2F2026-10-16%2Fai-elements%2Fheader-model-menu.png)、[浅色](../../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2F2026-10-16%2Fai-elements%2Fheader-model-light.png)、[144px 窄栏](../../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2F2026-10-16%2Fai-elements%2Fheader-model-narrow.png)；完整 DOM 测量和交互记录见[JSON](header-model.json)。

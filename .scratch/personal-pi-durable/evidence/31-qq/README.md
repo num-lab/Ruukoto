@@ -6,15 +6,15 @@
 
 环境见 [environment](macos-environment.json)。模型为回环 HTTP/SSE 替身，OneBot 是真实回环 WebSocket，Telegram 是回环 HTTP；服务 helper 用专属临时策略/目录，不代表真实服务管理验收。成功图片用受控 fetch 返回真实 PNG 字节，证明原生视觉请求和证据重建，不代表真实 CDN 或模型识图效果。
 
-[定向回归](macos-regression.log)执行以下 16 文件，235 项中 234 通过、0 失败、1 项仅 Linux 适用（服务核实 HTTP 的 sudo/慢停止用例），18.6 秒：
+[定向回归](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F31-qq%2Fmacos-regression.log)执行以下 16 文件，235 项中 234 通过、0 失败、1 项仅 Linux 适用（服务核实 HTTP 的 sudo/慢停止用例），18.6 秒：
 
 ```sh
 RUN_MODEL_CHECK=0 npx tsx --test test/personal-qq.test.ts test/personal-media.test.ts test/personal-work-controls.test.ts test/personal-mcp-controls.test.ts test/personal-tools-controls.test.ts test/personal-browser-integration.test.ts test/personal-telegram-permissions.test.ts test/personal-telegram.test.ts test/personal-reports.test.ts test/personal-work-notes.test.ts test/26-qq.test.ts test/40-qq-private.test.ts test/41-qq-private-scope.test.ts test/38-telegram-owner.test.ts test/89-im-entries.test.ts test/personal-cli.test.ts
 ```
 
-随后按最终受影响内容执行 QQ/媒体两个文件，36/36 通过，结果见 [final QQ/media](macos-final-qq-media.log)。覆盖 QQ 平台时间快60秒的旧积压、配对消息身份重投、换代重置默认权限、成功 get_image 图片请求、收件失败断线记录，以及最新测试清理。其余已经通过且未受这些修改影响的用例不重复运行。最后补查重复 poll 被拒绝且首循环仍在线的[单用例](macos-duplicate-poll.log)，独立审查者同例1/1通过。
+随后按最终受影响内容执行 QQ/媒体两个文件，36/36 通过，结果见 [final QQ/media](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F31-qq%2Fmacos-final-qq-media.log)。覆盖 QQ 平台时间快60秒的旧积压、配对消息身份重投、换代重置默认权限、成功 get_image 图片请求、收件失败断线记录，以及最新测试清理。其余已经通过且未受这些修改影响的用例不重复运行。最后补查重复 poll 被拒绝且首循环仍在线的[单用例](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F31-qq%2Fmacos-duplicate-poll.log)，独立审查者同例1/1通过。
 
-`npm run check:static` 通过，原始输出见 [static](static.log)。最终只删除未使用的 type 和修改测试后，补跑对应 ESLint 与根 `npx tsc --noEmit`。没有跑全仓 `npm run check`，改动不涉及依赖/构建/正式入口，未用全量代替定向证据。
+`npm run check:static` 通过，原始输出见 [static](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F31-qq%2Fstatic.log)。最终只删除未使用的 type 和修改测试后，补跑对应 ESLint 与根 `npx tsc --noEmit`。没有跑全仓 `npm run check`，改动不涉及依赖/构建/正式入口，未用全量代替定向证据。
 
 最终源码和常驻文档由 [SHA-256 清单](implementation.sha256)标识，不含本证据或工单自身。`.scratch` 的链接、段落、状态和末尾换行另用仓库 Markdown 解析器显式核对，见 [检查结果](scratch-doc-check.json)。
 

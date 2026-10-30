@@ -14,7 +14,7 @@
 
 [动画抽查](motion.json)记录开／关起点与按住Enter 60ms后的中间帧：分支行由189.5703125px收至163.9609375px，最终关闭高度为56px；中间帧SVG仍覆盖实际行高，摘要节点保持cy=28，后续行无间隙接续。稳定状态每条跨行线的坐标与颜色也逐一接上下一行，节点与摘要中心误差小于0.05px。
 
-截图：[最终暗色](final-dark.png)、[最窄暗色](narrow-dark.png)、[最窄浅色](narrow-light.png)、[多个详情](multiple-open.png)。前两个状态在移除覆盖refs的aria-label之前采集，视觉与布局结论有效；collapsed及其后状态均含最终自然读屏名称。页面控制台无error／warn。
+截图：[最终暗色](../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2Fgit-commit-details%2Ffinal-dark.png)、[最窄暗色](../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2Fgit-commit-details%2Fnarrow-dark.png)、[最窄浅色](../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2Fgit-commit-details%2Fnarrow-light.png)、[多个详情](../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2Fgit-commit-details%2Fmultiple-open.png)。前两个状态在移除覆盖refs的aria-label之前采集，视觉与布局结论有效；collapsed及其后状态均含最终自然读屏名称。页面控制台无error／warn。
 
 ## 工程范围
 

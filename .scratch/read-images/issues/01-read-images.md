@@ -21,15 +21,15 @@ Status: resolved
 
 ## 验收与证据
 
-工程验收通过。2026-10-12 独立方案审查者 `/root/read_images_review` 直接核对 worker、上游公开接口、传输与会话记录后确认方案通过，无剩余阻断；审查对象为本工单的最终接法与 HEAD 源码。该审查者在独立执行上下文核对[实现快照](../evidence/implementation.patch.gz)与实际工作区的 8 个文件，亲自执行新增图片回归 6/6、`git diff --check` 和快照哈希核对 8/8，通过实现审查且无阻断。审查后只同步本工单的验收事实，未改实现、测试或契约；快照无损压缩存放，解压后的内容与审查时相同。
+工程验收通过。2026-10-12 独立方案审查者 `/root/read_images_review` 直接核对 worker、上游公开接口、传输与会话记录后确认方案通过，无剩余阻断；审查对象为本工单的最终接法与 HEAD 源码。该审查者在独立执行上下文核对[实现快照](../../git-history-cleanup/archive.md?path=.scratch%2Fread-images%2Fevidence%2Fimplementation.patch.gz)与实际工作区的 8 个文件，亲自执行新增图片回归 6/6、`git diff --check` 和快照哈希核对 8/8，通过实现审查且无阻断。审查后只同步本工单的验收事实，未改实现、测试或契约；快照无损压缩存放，解压后的内容与审查时相同。
 
 | 验收要求 | 实际证据 |
 | --- | --- |
 | 普通、工作区只读与额外资料根均读取 JPEG、PNG、WebP；原始字节只捕获一次，文本不回归 | 作者与独立审查者分别执行 `npx tsx --test test/07-read-images.test.ts`，均为 6/6 通过、0 跳过 |
 | 范围外图片和符号链接拒绝，整帧超限只失败当前操作且后续读取可继续 | 同一新增回归，真实 local worker；不把 local 结果视为 OS 沙箱证明 |
 | 实际模型 HTTP 请求含图像，JSONL／prompt 快照可重建，仅文本模型发图前失败，原始产物定稿 | 同一新增回归，真实 Runtime／SQLite／worker 与模拟 HTTP 模型 |
-| 既有工具、审批、访问模式、账本、SubAgent 与 IM 图片输入不回归 | 作者执行 `npx tsx --test test/07-real-tools.test.ts test/08-approvals.test.ts test/10-access-modes.test.ts test/63-approval-gate.test.ts test/64-tool-op-ledger.test.ts test/80-subagent-delegation.test.ts test/96-vision-driver.test.ts`，81/81 通过、0 跳过；[完整日志](../evidence/regressions.log) |
-| 构建与静态规范 | `npm run build:worker`、`npm run check:static`、`git diff --check` 通过；[静态日志](../evidence/static.log) |
+| 既有工具、审批、访问模式、账本、SubAgent 与 IM 图片输入不回归 | 作者执行 `npx tsx --test test/07-real-tools.test.ts test/08-approvals.test.ts test/10-access-modes.test.ts test/63-approval-gate.test.ts test/64-tool-op-ledger.test.ts test/80-subagent-delegation.test.ts test/96-vision-driver.test.ts`，81/81 通过、0 跳过；[完整日志](../../git-history-cleanup/archive.md?path=.scratch%2Fread-images%2Fevidence%2Fregressions.log) |
+| 构建与静态规范 | `npm run build:worker`、`npm run check:static`、`git diff --check` 通过；[静态日志](../../git-history-cleanup/archive.md?path=.scratch%2Fread-images%2Fevidence%2Fstatic.log) |
 | 正式原生入口可处理图片 | 作者在 macOS、Node 24.15.0 用 native／confirm、空 readRoots 与钉定工作区身份读取无扩展名 PNG，结果图像与原始字节一致，停止已核实；[结果](../evidence/native-read.json) |
 
 产品验收不适用：本任务没有主观体验取舍。没有执行全量 check、Linux native、Node 22、真实视觉模型或真实 IM；模拟 HTTP 证明传输与记录，不证明真实识图效果。正在运行的后台需重新加载改动后的宿主代码，worker 已构建。

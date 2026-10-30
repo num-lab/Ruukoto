@@ -29,12 +29,12 @@
 
 | 证据 | 已观察到的结果 |
 | --- | --- |
-| [Demo 连续玻璃](demo-continuous-glass.png) | 当前 Demo 的侧栏、顶栏、圆角共同底层，取代旧分区玻璃证据 |
-| [原生深色](glass-first/continuous-glass.png)、[原生浅色](glass-first/continuous-glass-light.png) | 相同 common glass CSS 在实际 MyGo 中呈现连续交界，圆角无额外矩形底板 |
-| [PA 对话与排序](glass-first/pa-and-order.ax.txt)、[截图](glass-first/pa-and-order.png) | PA 主会话读取真实历史；输入“最终 PA 回归”得到后台回显；Alt+Shift+Left 后保持焦点并播报第2位；PA 右栏仅浏览器和 SubAgent |
-| [Git 提交详情](glass-first/git-details.ax.txt)、[截图](glass-first/git-details-light.png) | 真实4次提交含合并、branch／tag／remote；紧凑行和独立详情；非仓库无 graph 入口 |
-| [连接设置](before-corner/settings-pa.png) | 真实隔离 host/controlDir 读写与重新连接；该图仅证明设置，不证明最终玻璃 |
-| [最后构建的键盘排序](final/keyboard-order.ax.txt)、[截图](final/continuous-glass-and-order.png) | 最后原生构建读取 mainSessionId，PA 标签从第3位改至第2位并保留活动项；包含 common glass 与 WebKit draggable 样式，先于最终 HEAD 独立徽标修正 |
+| [Demo 连续玻璃](../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2Fmigration-v4%2Fdemo-continuous-glass.png) | 当前 Demo 的侧栏、顶栏、圆角共同底层，取代旧分区玻璃证据 |
+| [原生深色](../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2Fmigration-v4%2Fglass-first%2Fcontinuous-glass.png)、[原生浅色](../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2Fmigration-v4%2Fglass-first%2Fcontinuous-glass-light.png) | 相同 common glass CSS 在实际 MyGo 中呈现连续交界，圆角无额外矩形底板 |
+| [PA 对话与排序](glass-first/pa-and-order.ax.txt)、[截图](../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2Fmigration-v4%2Fglass-first%2Fpa-and-order.png) | PA 主会话读取真实历史；输入“最终 PA 回归”得到后台回显；Alt+Shift+Left 后保持焦点并播报第2位；PA 右栏仅浏览器和 SubAgent |
+| [Git 提交详情](glass-first/git-details.ax.txt)、[截图](../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2Fmigration-v4%2Fglass-first%2Fgit-details-light.png) | 真实4次提交含合并、branch／tag／remote；紧凑行和独立详情；非仓库无 graph 入口 |
+| [连接设置](../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2Fmigration-v4%2Fbefore-corner%2Fsettings-pa.png) | 真实隔离 host/controlDir 读写与重新连接；该图仅证明设置，不证明最终玻璃 |
+| [最后构建的键盘排序](final/keyboard-order.ax.txt)、[截图](../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2Fmigration-v4%2Ffinal%2Fcontinuous-glass-and-order.png) | 最后原生构建读取 mainSessionId，PA 标签从第3位改至第2位并保留活动项；包含 common glass 与 WebKit draggable 样式，先于最终 HEAD 独立徽标修正 |
 
 ## 未验证与产品验收
 

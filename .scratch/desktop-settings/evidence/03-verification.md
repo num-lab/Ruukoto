@@ -39,7 +39,7 @@ Playwright CLI 的 Chromium 加载正式 App 与[合成 bridge](mcp.js)，入口
 - 480×850 下内容区域 clientWidth 与 scrollWidth 均为 318，无横向溢出；滚动到底部时范围文字仍在浮窗内。表单、页签、来源选择和确认窗保持键盘可达。
 - 最终浏览器控制台 0 errors、0 warnings。首轮自动化未等待选择菜单聚焦，导致选择未变而保存按钮保持禁用；等待菜单可见并按真实键盘顺序重测后通过，不记首轮为产品缺陷。
 
-已查看[深色总览](mcp-dark.png)和[浅色窄窗编辑](mcp-light-narrow.png)；截图不含真实凭据。
+已查看[深色总览](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-settings%2Fevidence%2Fmcp-dark.png)和[浅色窄窗编辑](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-settings%2Fevidence%2Fmcp-light-narrow.png)；截图不含真实凭据。
 
 ## 独立审查
 

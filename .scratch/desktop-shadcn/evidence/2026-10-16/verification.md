@@ -8,7 +8,7 @@
 
 ## 浏览器亲验
 
-在独立 QA 标签测试，保留用户预览；检查 1003×827 与 760×500，分别保存[深色](preview-dark.jpg)及[浅色](preview-light.jpg)截图。控制台最终无 error。
+在独立 QA 标签测试，保留用户预览；检查 1003×827 与 760×500，分别保存[深色](../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2F2026-10-16%2Fpreview-dark.jpg)及[浅色](../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2F2026-10-16%2Fpreview-light.jpg)截图。控制台最终无 error。
 
 | 批注 | 实际结果 |
 | --- | --- |

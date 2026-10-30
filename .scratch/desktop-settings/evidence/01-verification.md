@@ -25,7 +25,7 @@
 - 纵向方向键可从外观切到模型，Tab 可进入面板；明暗选择实际修改根主题。
 - 430×420 视口的浮窗为 x=16、y=24、398×372；面板 clientHeight=370、scrollHeight=601、clientWidth=scrollWidth=268，可滚至保存按钮且没有横向溢出。
 - 减少动态效果下，编辑 PA 后 ⌘B 仍先确认，放弃后收起侧栏，动画/自动归焦完成后焦点回到「展开侧栏」。
-- 已查看[深色宽窗](settings-dark.png)及[浅色窄窗底部](settings-light-narrow.png)。首次临时页面仅有缺 favicon 的 404；保存的重放页已使用空 data favicon，没有 renderer 异常。
+- 已查看[深色宽窗](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-settings%2Fevidence%2Fsettings-dark.png)及[浅色窄窗底部](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-settings%2Fevidence%2Fsettings-light-narrow.png)。首次临时页面仅有缺 favicon 的 404；保存的重放页已使用空 data favicon，没有 renderer 异常。
 
 浏览器检查中的第一次方向键断言和侧栏焦点断言在 React/自动归焦提交前读取，等待实际状态完成后均通过；没有据此修改产品交互，也不以这些即时读数声称失败。截图由合成配置生成，无秘密。
 
@@ -45,4 +45,4 @@
 
 2026-10-21，依据拥有者截图反馈，将目标下拉框替换为现有 shadcn/ui Tabs，仅显示 Code、PA，删除标题、说明与重复范围提示，MCP 工作区/来源字段继续按目标呈现。目标面板由 TabsContent 关联；两个按钮沿用保存中/待核实禁用和原 chooseTarget 保护。嵌套纵向分类时，局部样式保持目标页签横向排列和居中。
 
-作者重跑 14/14 定向测试、check:static 与 git diff --check，通过。独立上下文 `/root/target_tabs_check` 复核结构与交互保护，亲跑 SSR 窄测 1 项通过，无阻断。Chromium 合成 renderer 核实目标区域文本恰为 Code/PA、两个页签位于同一行、aria-controls 指向实际面板、方向右键选中 PA；已查看[当前页签截图](settings-target-tabs.png)。这次仅复测局部 renderer，没有新增真实 Electron/MyGo 或远程服务证据。
+作者重跑 14/14 定向测试、check:static 与 git diff --check，通过。独立上下文 `/root/target_tabs_check` 复核结构与交互保护，亲跑 SSR 窄测 1 项通过，无阻断。Chromium 合成 renderer 核实目标区域文本恰为 Code/PA、两个页签位于同一行、aria-controls 指向实际面板、方向右键选中 PA；已查看[当前页签截图](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-settings%2Fevidence%2Fsettings-target-tabs.png)。这次仅复测局部 renderer，没有新增真实 Electron/MyGo 或远程服务证据。

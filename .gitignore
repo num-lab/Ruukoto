@@ -3,8 +3,28 @@ node_modules/
 *.log
 # 本地运行时数据目录（默认 ~/.ruukoto，测试使用系统临时目录）
 .ruukoto-data/
-# 工单与验证证据入库，日志作为证据一并入库
-!.scratch/**/*.log
+# 原始证据留在仓库外；工单、结论和必要源码入库。
+# Note: 见 .agents/notes/proposed/process/2026-10-30-git-history-evidence-retention.md
+# shortcut: 忽略规则只防普通误加；若再发生强制误入库，再增加独立准入检查。
+/.scratch/**/*.stdout
+/.scratch/**/*.stderr
+/.scratch/**/*.gz
+/.scratch/**/*.tgz
+/.scratch/**/*.tar
+/.scratch/**/*.zip
+/.scratch/**/*.sqlite
+/.scratch/**/*.sqlite-*
+/.scratch/**/*.db
+/.scratch/**/*.png
+/.scratch/**/*.jpg
+/.scratch/**/*.jpeg
+/.scratch/**/*.webp
+/.scratch/**/*.gif
+/.scratch/**/*.mp4
+/.scratch/**/*.webm
+/.scratch/**/evidence/**/*.json
+/.scratch/**/evidence/**/*.jsonl
+/.scratch/**/evidence/**/*.txt
 # 构建产物和本机凭据
 /worker/
 /dist/

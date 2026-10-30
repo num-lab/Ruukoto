@@ -13,7 +13,7 @@ macOS原生监督器与MyGo CGO均需Command Line Tools的Clang。平台前置�
 
 ## 跨模型协作
 
-交接给出工单与角色。[开发流程](../.agents/skills/development-workflow/SKILL.md)定义交接和验收；角色和模型独立选择；工程、产品验收分开记录。
+交接给出工单与角色。[开发流程](../.agents/skills/development-workflow/SKILL.md)定义交接和验收；角色和模型独立选择；工程、产品验收分开记录。原始证据另存。
 
 ## 日常反馈
 
@@ -136,7 +136,7 @@ Coding 档案固定为 `~/.ruukoto-code-dev/<仓库>-<哈希>/`，含 `data/agen
 
 `npm run code -- --desktop` 使用隔离开发档案，与 --config 和位置路径互斥；electron-vite 负责桌面及其依赖的重建和 HMR，启动器管理后台与整组退出。构建、Electron 下载前提及验收见[桌面开发](desktop-development.md)。
 
-前端参考见 [shadcn demo](../.scratch/desktop-shadcn/demo/README.md)，独立安装与启动，不依赖 Electron 或后台；正式 GUI 按已冻结定稿迁移，冻结源码与验收证据位于同一目录。
+参考 [shadcn demo](../.scratch/desktop-shadcn/demo/README.md)，独立安装启动，不依赖 Electron 或后台；正式 GUI 按冻结定稿迁移，源码与验收结论随库保留。
 
 ## 耗时基线与后续批次
 

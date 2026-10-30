@@ -6,7 +6,7 @@
 
 ## ruukoto
 
-运行 `wfrun_7c7b03b7c1fd4d5e8866b6ff`，终态 `succeeded`；原始日志 [model-workflows-final-report.log](model-workflows-final-report.log)。
+运行 `wfrun_7c7b03b7c1fd4d5e8866b6ff`，终态 `succeeded`；原始日志 [model-workflows-final-report.log](../../git-history-cleanup/archive.md?path=.scratch%2Fagent-workflow%2Facceptance-evidence%2Fmodel-workflows-final-report.log)。
 
 ````text
 工作流 wfrun_7c7b03b7c1fd4d5e8866b6ff｜终态 succeeded
@@ -26,7 +26,7 @@
 
 ## ruukoto-code
 
-运行 `wfrun_c0d2287641306c59962c3f1b`，终态 `succeeded`；原始日志 [model-workflows-verify-op-final.log](model-workflows-verify-op-final.log)。
+运行 `wfrun_c0d2287641306c59962c3f1b`，终态 `succeeded`；原始日志 [model-workflows-verify-op-final.log](../../git-history-cleanup/archive.md?path=.scratch%2Fagent-workflow%2Facceptance-evidence%2Fmodel-workflows-verify-op-final.log)。
 
 ````text
 工作流 wfrun_c0d2287641306c59962c3f1b｜终态 succeeded

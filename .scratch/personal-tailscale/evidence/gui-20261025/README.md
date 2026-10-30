@@ -1,5 +1,7 @@
 # 双壳实际配对、聊天与重开
 
+> 本文部分原始证据已移出 Git；原路径保留用于查找原件，见[归档说明](../../../git-history-cleanup/archive.md)。
+
 拥有者于2026-10-25明确许可启动两个完整Acceptance应用、切换测试窗口与可能出现的Keychain授权。实际操作只针对独立应用名称、数据目录和Linux隔离档案；没有打开正式Ruukoto、读取正式凭据或停止生产PA。界面经macOS AX与已授权的鼠标/按键操作，没有CDP、外部renderer、调试端口或诊断注入。
 
 ## 已完成的实际检查
@@ -21,13 +23,13 @@ Electron另只读打开模型、Skills、MCP，三页显示同一 `/var/lib/rkte
 
 ## 实际失败与修复
 
-`mygo-first-start-failed.png`保留首次MyGo界面连接不可用。签名制品的原sidecar在装载已打包ws时执行 `require("events")`，ESM没有require而退出，尚未调用凭据存储。修复只为Node内置模块提供require，拒绝从应用外解析可选扩展。真实bundle私有管道回归7/7通过；独立松绑对照实际加载两个伪造扩展并使断言失败，见[独立复核](mygo-bundle-independent-review.json)及[源码/结果](mygo-bundle-review-source-and-results.tar.gz)。
+`mygo-first-start-failed.png`保留首次MyGo界面连接不可用。签名制品的原sidecar在装载已打包ws时执行 `require("events")`，ESM没有require而退出，尚未调用凭据存储。修复只为Node内置模块提供require，拒绝从应用外解析可选扩展。真实bundle私有管道回归7/7通过；独立松绑对照实际加载两个伪造扩展并使断言失败，见[独立复核](mygo-bundle-independent-review.json)及[源码/结果](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-tailscale%2Fevidence%2Fgui-20261025%2Fmygo-bundle-review-source-and-results.tar.gz)。
 
 MyGo在原路径单独重建并重新核实签名、固定Node摘要和隔离service，未重建或替换已测Electron；新制品元数据在 `artifacts-mygo-builtin-fix.json`，复现补丁在 `mygo-builtin-fix-on-source-snapshot.patch`。根正式MyGo重建通过，`static-after-bundle-fix.log`对应随后完整静态检查。
 
 测试中公网SSH短暂返回Connection closed；改用同节点tailnet IP和原公钥校验后恢复本机管理，没有更改sshd或跳过host key校验。第一次撤销尝试没有收到响应，后来只读确认仍active；重新按同一测试ID执行后服务器明确revoked，Electron保留历史、显示明确撤销原因并禁用发送，见 `electron-revocation.json`。此事实不等于Tailscale策略或设备撤销验收。
 
-设置切页的失败另由真实React与Radix最小夹具复现：前页已显示数据后，旧panel在卸载前因pageKey变化先重挂并读取，新页相同完整view读取被误报management_busy。修复按在途promise合并同档案read，成功/失败后清理，关闭后拒绝新读取；其他查询与维护写入继续互斥。根[设置定向检查](settings-tests.log)36/36通过，原始红绿与可复跑夹具见[源码/结果](settings-page-read-source-and-results.tar.gz)。
+设置切页的失败另由真实React与Radix最小夹具复现：前页已显示数据后，旧panel在卸载前因pageKey变化先重挂并读取，新页相同完整view读取被误报management_busy。修复按在途promise合并同档案read，成功/失败后清理，关闭后拒绝新读取；其他查询与维护写入继续互斥。根[设置定向检查](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-tailscale%2Fevidence%2Fgui-20261025%2Fsettings-tests.log)36/36通过，原始红绿与可复跑夹具见[源码/结果](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-tailscale%2Fevidence%2Fgui-20261025%2Fsettings-page-read-source-and-results.tar.gz)。
 
 最终签名MyGo已在原Keychain记录上复验模型→Skills→MCP直接切页，三个页面首次加载成功，没有点击重新读取，见两张 `mygo-settings-direct-*` 截图及 `settings-direct-results.json`。更新后的应用仍读回原凭据并恢复原历史，未观察到系统授权框；这是本次更新的观察，不代表完整更新授权矩阵。
 
@@ -37,7 +39,7 @@ MyGo在原路径单独重建并重新核实签名、固定Node摘要和隔离ser
 
 ## 服务器清理
 
-[冻结清理包](linux-final-cleanup-results.tar.gz)保存最后只读marker、精确两GUI凭据revoked、mock调用总数5、无未决输入/工作/维护、Serve/Funnel配置、三测试单元停止以及容器和专属目录消失的原始结果与执行源码。[结果摘要](linux-cleanup-result.json)确认生产 `ruukoto-backend.service` 前后保持active、MainPID3041190。只移除原测试443代理，不重置其他tailnet配置，拥有者grant与管理员开启的HTTPS能力保留。
+[冻结清理包](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-tailscale%2Fevidence%2Fgui-20261025%2Flinux-final-cleanup-results.tar.gz)保存最后只读marker、精确两GUI凭据revoked、mock调用总数5、无未决输入/工作/维护、Serve/Funnel配置、三测试单元停止以及容器和专属目录消失的原始结果与执行源码。[结果摘要](linux-cleanup-result.json)确认生产 `ruukoto-backend.service` 前后保持active、MainPID3041190。只移除原测试443代理，不重置其他tailnet配置，拥有者grant与管理员开启的HTTPS能力保留。
 
 ## 独立闭合
 

@@ -6,7 +6,7 @@
 
 SSR 单独渲染 Portal 内详情，覆盖 0／16／50／100% 数值和色标、分类名称、0 值无 NaN／Infinity、三类合计 32K，以及 18.7K／1M 的紧凑格式与百分比取整。保留原入口无文字、弧线、原生 Progress aria 值、提交和右栏回归。分类 1.5K system、5.3K tools、25.2K messages 均为模拟；没有接真实统计。
 
-浏览器亲验自然 833×827、临时 760×500 后恢复；[深色](context-details-dark.png)、[浅色](context-details-light.png)、[零用量](context-details-zero.png)、[短窄窗口](context-details-narrow.png)保留实际效果。[测量](context-details.json)记录 320×167.57px 详情、5px 条带、三类颜色与 16% Progress 数值，未出现页面横向溢出。短窄窗口弹层处于视口内，五个输入区按键纵坐标相差不超过 1px。
+浏览器亲验自然 833×827、临时 760×500 后恢复；[深色](../../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2F2026-10-16%2Fai-elements%2Fcontext-details-dark.png)、[浅色](../../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2F2026-10-16%2Fai-elements%2Fcontext-details-light.png)、[零用量](../../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2F2026-10-16%2Fai-elements%2Fcontext-details-zero.png)、[短窄窗口](../../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2F2026-10-16%2Fai-elements%2Fcontext-details-narrow.png)保留实际效果。[测量](context-details.json)记录 320×167.57px 详情、5px 条带、三类颜色与 16% Progress 数值，未出现页面横向溢出。短窄窗口弹层处于视口内，五个输入区按键纵坐标相差不超过 1px。
 
 普通新会话和新增工作区首会话均显示 0%／~0、三类各 ~0、进度 Indicator 完全移出轨道；切回原会话恢复 16% 和原分类。聚焦环形入口打开详情，Escape 关闭；截图后恢复原默认样例与自然视口，无新增验收工作区残留。控制台 error 列表为空。
 

@@ -28,13 +28,13 @@ Message Scroller 由 @shadcn/react 提供滚动行为，删除旧的追加消息
 
 拥有者指出窄栏内联路径换行居中；已修复为真正的行内链接，保留差异跳转，验收见[路径换行修复](../evidence/2026-10-16/ai-elements/inline-path-fix.md)。上一轮样式验收不覆盖续行对齐。
 
-本轮按三条批注移除审批标题圆点和外框，内联代码上下内边距由 3.2px 减为 1.6px；字号、审批区占位及交互保持原样。demo check、check:static 和明暗主题计算样式核对通过，截图见[深色](../evidence/2026-10-16/ai-elements/approval-refinement-dark.png)与[浅色](../evidence/2026-10-16/ai-elements/approval-refinement-light.png)。
+本轮按三条批注移除审批标题圆点和外框，内联代码上下内边距由 3.2px 减为 1.6px；字号、审批区占位及交互保持原样。demo check、check:static 和明暗主题计算样式核对通过，截图见[深色](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2F2026-10-16%2Fai-elements%2Fapproval-refinement-dark.png)与[浅色](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2F2026-10-16%2Fai-elements%2Fapproval-refinement-light.png)。
 
-审批卡改用 Item 的 muted 背景，保留无边框与原间距。输入区模式／模型两处 SelectContent 单独取消位移和缩放，保留淡入淡出、最终偏移与设置菜单原动画；浏览器分别打开两菜单，核对 enter 位移为 0、scale 为 1，截图与测量见[本轮效果](../evidence/2026-10-16/ai-elements/card-menu-refinement.png)和[计算样式](../evidence/2026-10-16/ai-elements/card-menu-refinement.json)。demo check、根 check:static 通过，正式 GUI 未改。
+审批卡改用 Item 的 muted 背景，保留无边框与原间距。输入区模式／模型两处 SelectContent 单独取消位移和缩放，保留淡入淡出、最终偏移与设置菜单原动画；浏览器分别打开两菜单，核对 enter 位移为 0、scale 为 1，截图与测量见[本轮效果](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2F2026-10-16%2Fai-elements%2Fcard-menu-refinement.png)和[计算样式](../evidence/2026-10-16/ai-elements/card-menu-refinement.json)。demo check、根 check:static 通过，正式 GUI 未改。
 
-本轮隐藏审批命令的横向滚动条，保留可聚焦的命令区与横向滚动；正文采用 text-pretty，文件路径优先在目录分隔处换行，过长单段仍可应急断行，链接名称和跳转保持一致；删除右栏子 Agent 元信息行及其废弃样式。837×827 与 760×500 下 PassTimeline.tsx 均保持一整段，无横向溢出；命令右移 40px 时高度仍为 44px。效果与测量见[排版截图](../evidence/2026-10-16/ai-elements/flow-refinement.png)和[验收记录](../evidence/2026-10-16/ai-elements/flow-refinement.json)。
+本轮隐藏审批命令的横向滚动条，保留可聚焦的命令区与横向滚动；正文采用 text-pretty，文件路径优先在目录分隔处换行，过长单段仍可应急断行，链接名称和跳转保持一致；删除右栏子 Agent 元信息行及其废弃样式。837×827 与 760×500 下 PassTimeline.tsx 均保持一整段，无横向溢出；命令右移 40px 时高度仍为 44px。效果与测量见[排版截图](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2F2026-10-16%2Fai-elements%2Fflow-refinement.png)和[验收记录](../evidence/2026-10-16/ai-elements/flow-refinement.json)。
 
-活动摘要改为 Read files、ran commands、edited files、wrote files，只显示实际出现的类型，首个短语首字母大写；不再列文件数、文件名或子 Agent。Read/Grep 归入读取，Run/Build/Bench 归入命令，Edit/Edited 归入编辑，Write 归入写入；未分类活动保持原回退，不臆断为命令。既有摘要用例先对旧实现失败，更新后通过，覆盖四类、别名／重复项、缺类和未知类型，SSR 首屏为 Read files, edited files。内联 code 改为 font-normal，主／子消息实测均为 400。效果见[截图](../evidence/2026-10-16/ai-elements/summary-typography.png)与[计算样式](../evidence/2026-10-16/ai-elements/summary-typography.json)。
+活动摘要改为 Read files、ran commands、edited files、wrote files，只显示实际出现的类型，首个短语首字母大写；不再列文件数、文件名或子 Agent。Read/Grep 归入读取，Run/Build/Bench 归入命令，Edit/Edited 归入编辑，Write 归入写入；未分类活动保持原回退，不臆断为命令。既有摘要用例先对旧实现失败，更新后通过，覆盖四类、别名／重复项、缺类和未知类型，SSR 首屏为 Read files, edited files。内联 code 改为 font-normal，主／子消息实测均为 400。效果见[截图](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2F2026-10-16%2Fai-elements%2Fsummary-typography.png)与[计算样式](../evidence/2026-10-16/ai-elements/summary-typography.json)。
 
 拥有者进一步要求整个 demo 使用 shadcn/ui 默认 Neutral 配色，替代此前仅限消息流的换色范围；布局、字号、圆角与交互保持现状。已统一主界面、侧栏、输入区和 Portal 弹层，移除蓝灰背景与局部重复配色，明暗及尺寸核对见[全局配色验收](../evidence/2026-10-16/ai-elements/neutral-palette.md)。
 
@@ -58,7 +58,7 @@ Message Scroller 由 @shadcn/react 提供滚动行为，删除旧的追加消息
 
 三处批注已实施，独立复审无阻断；demo check、check:static 通过，浏览器确认时长标题、分段文本、扳手、折叠与窄栏换行。80 文件保护与 CSS 核对通过；效果和范围见[本轮验收](../evidence/2026-10-16/ai-elements/thought-text-wrench.md)，下一步由拥有者审阅，未迁移正式 GUI。
 
-本轮按批注在顶部会话与右栏相邻 tab 之间增加 1×12px 短竖线，使用主题 border 色，绝对定位且不接收点击，不增加 DOM 或布局占位；首个／单个 tab 无分隔线，设置分类不受影响。纯样式走轻量路径，demo check、check:static 通过，浏览器核对明暗、原尺寸／间距不变、切换／关闭与单标签。效果见[深色](../evidence/2026-10-16/ai-elements/tab-dividers-dark.png)、[浅色](../evidence/2026-10-16/ai-elements/tab-dividers-light.png)和[测量](../evidence/2026-10-16/ai-elements/tab-dividers.json)；80 文件保护核对通过，正式 GUI 未改。
+本轮按批注在顶部会话与右栏相邻 tab 之间增加 1×12px 短竖线，使用主题 border 色，绝对定位且不接收点击，不增加 DOM 或布局占位；首个／单个 tab 无分隔线，设置分类不受影响。纯样式走轻量路径，demo check、check:static 通过，浏览器核对明暗、原尺寸／间距不变、切换／关闭与单标签。效果见[深色](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2F2026-10-16%2Fai-elements%2Ftab-dividers-dark.png)、[浅色](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2F2026-10-16%2Fai-elements%2Ftab-dividers-light.png)和[测量](../evidence/2026-10-16/ai-elements/tab-dividers.json)；80 文件保护核对通过，正式 GUI 未改。
 
 ## Context 与 Effort 控件
 

@@ -4,7 +4,7 @@
 
 ## 对象与范围
 
-基点为 `d12eb6329da9fd9128989ef0725ce1243627068d`，分支 `Eitrous/subagent-roles`。接手时逐项核实 03 原输入与实际工作区一致（[69/69 与 38/38 核对日志](04-inherited-input-check.log)），然后保存 [1378 项接手输入](04-baseline-inputs.sha256)及[原文归档](04-baseline-originals.tar.gz)；归档回读逐项匹配。本单范围按接手副本比较，不按包含 02/03 的整个 git diff 判断。
+基点为 `d12eb6329da9fd9128989ef0725ce1243627068d`，分支 `Eitrous/subagent-roles`。接手时逐项核实 03 原输入与实际工作区一致（[69/69 与 38/38 核对日志](../../git-history-cleanup/archive.md?path=.scratch%2Fsubagent-roles%2Fevidence%2F04-inherited-input-check.log)），然后保存 [1378 项接手输入](04-baseline-inputs.sha256)及[原文归档](../../git-history-cleanup/archive.md?path=.scratch%2Fsubagent-roles%2Fevidence%2F04-baseline-originals.tar.gz)；归档回读逐项匹配。本单范围按接手副本比较，不按包含 02/03 的整个 git diff 判断。
 
 [范围清单](04-change-scope.json)与[独立补丁](04-implementation.patch)记录 04 变更；[生产/测试清单](04-production-inputs.sha256)固定 12 个生产文件与 28 个测试/smoke 调用文件，清单 SHA-256 为 `5295b93d01abc7a2c9eb4b5ca3cf14f86c790caa6e77733447cd59d55098659c`。完整要求、规则、源码、文档和本记录由[最终输入](04-implementation-inputs.sha256)固定；审查归属与最终核实由[实现审查汇总](../04-implementation-review.md)持有。历史 03 摘要、补丁和归档不改写；总角色笔记的生命周期及活跃入站链接随本单迁到 implemented。
 
@@ -37,14 +37,14 @@ schema 45、控制协议 26 沿现行严格版本政策拒绝旧库/客户端；
 
 | 检查 | 结果与原日志 |
 | --- | --- |
-| 普通委派、复用、worktree、汇入、发布、生命周期、快照边界与等待，8 文件 | 隔离副本 104/104，[原日志](04-delegate-tests.log)、[命令与范围](04-delegate-verification.md)；后续只澄清工具文字 |
-| 105/108/117/118、版本、普通角色、wait core/view，8 文件 | 88/88，[日志](04-version-runtime-tests.log)；随后新增的 105 参数与 SDK 用例分别重验 |
-| 最终 105 参数/编排用例 | 44/44，[日志](04-params-runtime-tests.log)，含旧 mode、target/verify 互斥、依赖要求及非法角色 |
-| 真实 SDK 普通旧 mode 入口 | 1/1，[日志](04-old-mode-sdk-test.log)，证明旧字段不会被 SDK 静默丢弃 |
-| 107/109/115 可信注入与恢复回报 | 修复后 18/18，[日志](04-adapter-recovery-tests.log) |
-| 106/110/112/122/125 与新角色集成，6 文件 | 最终串行 43/43，0 skipped，[原日志](04-native-workflow-tests.log)；`npx tsx --test --test-concurrency=1 test/106-workflow-host.test.ts test/110-workflow-workcopy.test.ts test/112-workflow-real-steps.test.ts test/workflow-role-integration.test.ts test/122-workflow-code-acceptance.test.ts test/125-agent-wait.test.ts` |
-| 并发、崩溃、真实工具、审批、能力、控制、来源、回报、IM 替身、CLI、wait/sidebar，19 文件 | 首轮 208 项中 201 通过、7 失败，[原日志](04-cross-tests.log)；5 个 115 失败来自下述已修复回归，两条 HTTP 审批断言另单独重验 2/2，[日志](04-http-recheck.log) |
-| 打包与静态 | 最终 `npm run build` 通过，[日志](04-build-final.log)；`npm run check:static` 通过，[日志](04-static-final.log)，交接及笔记生命周期更新后的复核另见 [handoff 日志](04-static-handoff.log)；最后仅笔记事实澄清再跑 [check:docs](04-docs-handoff-final.log) 与 [verify-notes](04-notes-handoff-final.log) 通过；`git diff --check` 与 EOF/链接检查通过 |
+| 普通委派、复用、worktree、汇入、发布、生命周期、快照边界与等待，8 文件 | 隔离副本 104/104，[原日志](../../git-history-cleanup/archive.md?path=.scratch%2Fsubagent-roles%2Fevidence%2F04-delegate-tests.log)、[命令与范围](04-delegate-verification.md)；后续只澄清工具文字 |
+| 105/108/117/118、版本、普通角色、wait core/view，8 文件 | 88/88，[日志](../../git-history-cleanup/archive.md?path=.scratch%2Fsubagent-roles%2Fevidence%2F04-version-runtime-tests.log)；随后新增的 105 参数与 SDK 用例分别重验 |
+| 最终 105 参数/编排用例 | 44/44，[日志](../../git-history-cleanup/archive.md?path=.scratch%2Fsubagent-roles%2Fevidence%2F04-params-runtime-tests.log)，含旧 mode、target/verify 互斥、依赖要求及非法角色 |
+| 真实 SDK 普通旧 mode 入口 | 1/1，[日志](../../git-history-cleanup/archive.md?path=.scratch%2Fsubagent-roles%2Fevidence%2F04-old-mode-sdk-test.log)，证明旧字段不会被 SDK 静默丢弃 |
+| 107/109/115 可信注入与恢复回报 | 修复后 18/18，[日志](../../git-history-cleanup/archive.md?path=.scratch%2Fsubagent-roles%2Fevidence%2F04-adapter-recovery-tests.log) |
+| 106/110/112/122/125 与新角色集成，6 文件 | 最终串行 43/43，0 skipped，[原日志](../../git-history-cleanup/archive.md?path=.scratch%2Fsubagent-roles%2Fevidence%2F04-native-workflow-tests.log)；`npx tsx --test --test-concurrency=1 test/106-workflow-host.test.ts test/110-workflow-workcopy.test.ts test/112-workflow-real-steps.test.ts test/workflow-role-integration.test.ts test/122-workflow-code-acceptance.test.ts test/125-agent-wait.test.ts` |
+| 并发、崩溃、真实工具、审批、能力、控制、来源、回报、IM 替身、CLI、wait/sidebar，19 文件 | 首轮 208 项中 201 通过、7 失败，[原日志](../../git-history-cleanup/archive.md?path=.scratch%2Fsubagent-roles%2Fevidence%2F04-cross-tests.log)；5 个 115 失败来自下述已修复回归，两条 HTTP 审批断言另单独重验 2/2，[日志](../../git-history-cleanup/archive.md?path=.scratch%2Fsubagent-roles%2Fevidence%2F04-http-recheck.log) |
+| 打包与静态 | 最终 `npm run build` 通过，[日志](../../git-history-cleanup/archive.md?path=.scratch%2Fsubagent-roles%2Fevidence%2F04-build-final.log)；`npm run check:static` 通过，[日志](../../git-history-cleanup/archive.md?path=.scratch%2Fsubagent-roles%2Fevidence%2F04-static-final.log)，交接及笔记生命周期更新后的复核另见 [handoff 日志](../../git-history-cleanup/archive.md?path=.scratch%2Fsubagent-roles%2Fevidence%2F04-static-handoff.log)；最后仅笔记事实澄清再跑 [check:docs](../../git-history-cleanup/archive.md?path=.scratch%2Fsubagent-roles%2Fevidence%2F04-docs-handoff-final.log) 与 [verify-notes](../../git-history-cleanup/archive.md?path=.scratch%2Fsubagent-roles%2Fevidence%2F04-notes-handoff-final.log) 通过；`git diff --check` 与 EOF/链接检查通过 |
 
 独立审查先发现空工具账本可取得验证资格、已完成结果消费缺少快照核实，两处均加真实反例后修复。随后跨用例发现 verifyResultSources 无条件要求 Driver 快照，破坏可信注入执行器的旧合同；通过与原 preflight 相同的宿主装配回调修复。独立审查者亲自执行修补前 0/2、修补后 2/2，并在默认 Driver 下移除完成依赖的定义/执行记录，核实仍严格拒绝。另一个非作者上下文执行默认 execution 缺失冷恢复 1/1；报告和原始探针由独立审查汇总链接。
 
@@ -60,7 +60,7 @@ schema 45、控制协议 26 沿现行严格版本政策拒绝旧库/客户端；
 | 两产品 reviewer | 920 → 920 | 551 → 551 |
 | ruukoto main，两轮相同，36 工具 | 1869 → 1866 | 13341 → 13232 |
 
-[父/子 before](04-metrics-before.log)、[最终 after](04-metrics-after-final.log)、[main before](04-main-metrics-before.log)、[main after](04-main-metrics-after.log)保存完整实际输入。较早 after 的 1505/9906 与 main1865/13248 因随后目标中性文字澄清失效，仅保留为历史；最终重新捕获，没有只按文本长度推算。
+[父/子 before](../../git-history-cleanup/archive.md?path=.scratch%2Fsubagent-roles%2Fevidence%2F04-metrics-before.log)、[最终 after](../../git-history-cleanup/archive.md?path=.scratch%2Fsubagent-roles%2Fevidence%2F04-metrics-after-final.log)、[main before](../../git-history-cleanup/archive.md?path=.scratch%2Fsubagent-roles%2Fevidence%2F04-main-metrics-before.log)、[main after](../../git-history-cleanup/archive.md?path=.scratch%2Fsubagent-roles%2Fevidence%2F04-main-metrics-after.log)保存完整实际输入。较早 after 的 1505/9906 与 main1865/13248 因随后目标中性文字澄清失效，仅保留为历史；最终重新捕获，没有只按文本长度推算。
 
 ## 交接与限制
 

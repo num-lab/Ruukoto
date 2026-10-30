@@ -1,4 +1,4 @@
-Linux 隔离验证完成；主工作区全程只读。原始日志、基点至最终代码的 diff、逐文件 SHA-256、两次增量差异与执行脚本保存在[原始材料归档](raw-materials.tar.gz)，下文相对路径均指归档内路径。
+Linux 隔离验证完成；主工作区全程只读。原始日志、基点至最终代码的 diff、逐文件 SHA-256、两次增量差异与执行脚本保存在[原始材料归档](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F14-linux%2Fraw-materials.tar.gz)，下文相对路径均指归档内路径。
 
 基点为 `0c6f60c5a03b46f145e5737eacc07d82ce1fda3b`。首次冻结当前 tracked 与 untracked 文件共 1374 项、18,705,887 字节，排除 `.scratch/` 下旧 evidence；运输归档为 5,497,855 字节，SHA-256 为 `483ff95a44314faf3d281e6512a09cb5bd97481e9a6e98faced6d2801d4ece26`。运输包不入库，摘要保留于 `source.sha256`；最终代码差异见 `final-code.diff`。全部输入逐文件类型、权限、大小及摘要见 `input-manifest.json`，其中 34 份 personal 源码与测试另见 `runtime-input-manifest.json`。远端在安装前逐项核对全部输入，零差异；普通文件比较权限，符号链接不比较跨系统权限位。
 

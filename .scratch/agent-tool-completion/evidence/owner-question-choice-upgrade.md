@@ -1,5 +1,7 @@
 # 提问卡片题型与跳题验收
 
+> 本文部分原始证据已移出 Git；原路径保留用于查找原件，见[归档说明](../../git-history-cleanup/archive.md)。
+
 2026-10-21，拥有者在参考布局上追加缩小自由输入图标、Skip 空答案、删除顶部题号与折叠/关闭、选项可选说明与推荐标记、多选；随后明确多选用复选框替代编号，不显示多选标签。有效决定见[题型扩展](../../../.agents/notes/implemented/feature/2026-10-21-owner-question-choice-types.md)，当前代码覆盖全部要求。原[界面补修](owner-question-ui-simplification.md)中的折叠、关闭、仅单选和必填限制按新要求取代，其余原位替换与可信续接继续适用。
 
 ## 结果
@@ -14,7 +16,7 @@
 | 持久化与恢复 | 原键保存完整答案，丢答与后台重启仍只有一次消费和续接；当前格式schema48、协议35，查询页256KiB，快照预览128KiB |
 | 回答位置 | 已答卡片继续替换对应用户消息，只有一份，位于续接回复之前 |
 
-最终截图：[650像素卡片](owner-question-choice-checkboxes.jpg)、[760×600视口](owner-question-choice-checkboxes-narrow.jpg)；[实际测量与刷新恢复](owner-question-choice-electron-result.json)和[实际GUI提交后的后台状态](owner-question-choice-submission.json)分别保存，未把另一个档案的IPC预置当成GUI作答证据。`owner-question-choice-multiple.jpg` 是拥有者纠正复选框之前的截图，不作为最终布局证据。
+最终截图：[650像素卡片](../../git-history-cleanup/archive.md?path=.scratch%2Fagent-tool-completion%2Fevidence%2Fowner-question-choice-checkboxes.jpg)、[760×600视口](../../git-history-cleanup/archive.md?path=.scratch%2Fagent-tool-completion%2Fevidence%2Fowner-question-choice-checkboxes-narrow.jpg)；[实际测量与刷新恢复](owner-question-choice-electron-result.json)和[实际GUI提交后的后台状态](owner-question-choice-submission.json)分别保存，未把另一个档案的IPC预置当成GUI作答证据。`owner-question-choice-multiple.jpg` 是拥有者纠正复选框之前的截图，不作为最终布局证据。
 
 ## 工程检查
 
@@ -26,7 +28,7 @@
 
 ## 实际客户端
 
-[真实Python PTY夹具](owner-question-choice-tui-pty.mts)运行隔离Runtime、ControlServer和TUI，两轮验证推荐与说明、多选保光标和按题序回答、中文含q的自由输入、返回修改与Skip空答案，以及退出alt screen；[日志](owner-question-choice-tui-pty.log)通过，模型mock。末次运行包含多选以复选框替代编号的最终呈现。
+[真实Python PTY夹具](owner-question-choice-tui-pty.mts)运行隔离Runtime、ControlServer和TUI，两轮验证推荐与说明、多选保光标和按题序回答、中文含q的自由输入、返回修改与Skip空答案，以及退出alt screen；[日志](../../git-history-cleanup/archive.md?path=.scratch%2Fagent-tool-completion%2Fevidence%2Fowner-question-choice-tui-pty.log)通过，模型mock。末次运行包含多选以复选框替代编号的最终呈现。
 
 [隐藏Electron夹具](owner-question-choice-electron-harness.mts)使用生产main/preload/renderer、隔离档案与mock模型。实际验证初始无预选、点击及Space勾选/撤销、自由输入清多选、重新选择、翻页、Skip清空手写和单选答案、末题核对及提交。后台最终只保存一个多选答案和两个空答案，只有原任务及一个已完成续接；renderer诊断无新增异常。760×600视口无横向溢出，500字符长说明另以临时DOM布局探针测量，恢复原文后截图，不声称真实提交了该长说明。
 
@@ -34,7 +36,7 @@
 
 ## 真实模型与模型可见文本
 
-[一次性脚本](owner-question-choice-model-check.mts)沿实际模型测试的三题用例，显式配置 `magpie/workbuddy-ai/deepseek-v4.1-flash`、普通Coding完全访问会话。真实模型自然结束提问轮，待答期间普通聊天不消费，专用入口提交多选、空备注和随机自由口令后原键唯一续接。[运行日志](owner-question-choice-model-check.log)为1通过、0跳过；[请求与历史](owner-question-choice-model/summary.json)保存4份实际SDK发送前快照、JSONL、选择记录、宿主操作、题答/回执及摘要。
+[一次性脚本](owner-question-choice-model-check.mts)沿实际模型测试的三题用例，显式配置 `magpie/workbuddy-ai/deepseek-v4.1-flash`、普通Coding完全访问会话。真实模型自然结束提问轮，待答期间普通聊天不消费，专用入口提交多选、空备注和随机自由口令后原键唯一续接。[运行日志](../../git-history-cleanup/archive.md?path=.scratch%2Fagent-tool-completion%2Fevidence%2Fowner-question-choice-model-check.log)为1通过、0跳过；[请求与历史](owner-question-choice-model/summary.json)保存4份实际SDK发送前快照、JSONL、选择记录、宿主操作、题答/回执及摘要。
 
 独立审查按实际快照核对J1–J8：工具声明包含选项对象、多选及跳题，参数约束和登记后的下一步一致；创建后请求只剩3个宿主查询工具；结果不泄露内部标识，回答快照包含完整元数据和实际答案。[量化](owner-question-choice-model/tool-schema-estimates.json)中单个ask_user估算417→699 tokens，实际完整请求toolSchemas=11747、systemPrompt=1506；历史不同提供方的11463/1506只作参考，不作同口径前后比较。[manifest](owner-question-choice-model/manifest.json)的9份文件字节及SHA-256全部核对，4份请求的原产物摘要也一致；凭据精确值扫描通过，未保存配置或凭据，Runtime停止后清理临时档案。
 

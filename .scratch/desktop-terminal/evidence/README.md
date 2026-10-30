@@ -7,10 +7,10 @@
 ## 已执行
 
 - `npm run setup`：依赖按锁文件恢复完成；此前定向 npm install 只安装 desktop 后个人依赖缺失，恢复后静态检查通过。
-- `npm run check:static`：lint、根／workspace／foundation 类型、笔记和文档门禁通过，见[日志](static.log)。
-- `npx tsx --test test/desktop-terminal.test.ts test/38-desktop-build.test.ts test/desktop-mygo.test.ts test/38-desktop-main.test.ts test/42-desktop-inspector.test.ts test/desktop-inspector-tools.test.ts test/desktop-startup.test.ts test/desktop-personal-interface.test.ts`：139通过、0失败、0跳过，见[日志](tests.log)。包括真实PTY中文、cwd、resize、200000字符输出与忽略TERM/HUP的交互前台进程回收，以及宿主打开期间取消／重置／退出的回归。
-- `npm run build`：[根构建](root-build.log)通过。
-- `npm run desktop:build`、`npm run desktop:mygo:build`：[Electron](electron-build.log)及[MyGo](mygo-build.log)构建通过。
+- `npm run check:static`：lint、根／workspace／foundation 类型、笔记和文档门禁通过，见[日志](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-terminal%2Fevidence%2Fstatic.log)。
+- `npx tsx --test test/desktop-terminal.test.ts test/38-desktop-build.test.ts test/desktop-mygo.test.ts test/38-desktop-main.test.ts test/42-desktop-inspector.test.ts test/desktop-inspector-tools.test.ts test/desktop-startup.test.ts test/desktop-personal-interface.test.ts`：139通过、0失败、0跳过，见[日志](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-terminal%2Fevidence%2Ftests.log)。包括真实PTY中文、cwd、resize、200000字符输出与忽略TERM/HUP的交互前台进程回收，以及宿主打开期间取消／重置／退出的回归。
+- `npm run build`：[根构建](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-terminal%2Fevidence%2Froot-build.log)通过。
+- `npm run desktop:build`、`npm run desktop:mygo:build`：[Electron](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-terminal%2Fevidence%2Felectron-build.log)及[MyGo](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-terminal%2Fevidence%2Fmygo-build.log)构建通过。
 - 两包 `codesign --verify --deep --strict` 通过；[包内PTY探针](packaged-pty.mjs)在Electron app.asar及MyGo resources中直接加载vendor，中文和100×30尺寸通过，见[Electron结果](electron-packaged-pty.json)和[MyGo结果](mygo-packaged-pty.json)。
 - MyGo `go test -race ./...`通过（7.926s）；Go代码此后没有改变。
 

@@ -6,12 +6,12 @@
 
 ## Linux 真实 Coding Agent 回归
 
-使用第二阶段的独立检出与 UID 996/GID 985 系统服务环境，读取更新后的源码，不接触在线实例。依赖仍为只读 bind，账户没有 Docker 组或 socket 读写资格。删除隔离源码中对应的旧镜像目录及容器 worker 探针后，[重新构建 worker](stage3-build-worker.log)通过，实际源码见 [哈希](stage3-source-hashes.json)。
+使用第二阶段的独立检出与 UID 996/GID 985 系统服务环境，读取更新后的源码，不接触在线实例。依赖仍为只读 bind，账户没有 Docker 组或 socket 读写资格。删除隔离源码中对应的旧镜像目录及容器 worker 探针后，[重新构建 worker](../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-native-sandbox%2Fevidence%2Fstage3-build-worker.log)通过，实际源码见 [哈希](stage3-source-hashes.json)。
 
 | 入口 | 结果 | 原始记录 |
 | --- | --- | --- |
-| `node --import tsx verification/smoke/smoke-26-native-worker.mts` | 原 10 项全部通过，退出 0 | [worker](stage3-linux-coding-worker.log) |
-| `node --import tsx verification/smoke/smoke-26-native-worktrees.mts` | 原 8 项全部通过，cleanupVerified=true，退出 0 | [worktrees](stage3-linux-coding-worktrees.log) |
+| `node --import tsx verification/smoke/smoke-26-native-worker.mts` | 原 10 项全部通过，退出 0 | [worker](../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-native-sandbox%2Fevidence%2Fstage3-linux-coding-worker.log) |
+| `node --import tsx verification/smoke/smoke-26-native-worktrees.mts` | 原 8 项全部通过，cleanupVerified=true，退出 0 | [worktrees](../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-native-sandbox%2Fevidence%2Fstage3-linux-coding-worktrees.log) |
 
 worker 覆盖四工具、宿主工具链、文件/网络/FD/环境隔离、身份替换、硬链接、启动取消和真实后代停止，以及默认原生的正式按需后台。worktrees 保留修复前失败/修后通过、限定只读范围、两个并行副本、共享 Git 拒写、父未提交改动保留、汇总与停止核实。
 

@@ -2,6 +2,8 @@
 
 Status: completed
 
+> 本文部分原始证据已移出 Git；原路径保留用于查找原件，见[归档说明](../../../../git-history-cleanup/archive.md)。
+
 ## 对象与快照
 
 本次独立审查对象为 HEAD `b1e975437f4cd3ca8084a8b07e451f19ba80ba17` 之上的未提交候选工作区；`git status --porcelain` 为 64 个已跟踪改动加 4 个未跟踪路径（其中本证据目录为未跟踪），`git diff --stat HEAD` 合计 64 files / 914 insertions / 160 deletions，HEAD 在审查期间未变。审查范围限于工单指定的 6 份晚改动、其调用方、测试与文档一致性，以及 macOS/Linux 制品记录与已存档测试日志；不重审 A1–A12 全矩阵、其余候选改动文件及真实模型/IM 场景。

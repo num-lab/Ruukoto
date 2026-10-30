@@ -36,7 +36,7 @@ npx tsx .agents/skills/maintain-notes/scripts/check-note-anchors.ts
 git diff --check
 ```
 
-第一组 204/204 通过，见[相关回归](../experience-evidence/09-tests.log)；返工后的 TUI 三文件 62/62 通过，见[最终 TUI 复核](../experience-evidence/09-tui-final.log)；控制面最终 22/22 通过，见[最终控制复核](../experience-evidence/09-control-final.log)。计数含重叠，不相加。[静态门禁](../experience-evidence/09-static.log)通过；锚点无悬空，差异检查及改动文本唯一末尾换行通过。仅文档和工单证据补齐后另核实 notes/docs 门禁。
+第一组 204/204 通过，见[相关回归](../../git-history-cleanup/archive.md?path=.scratch%2Fagent-workflow%2Fexperience-evidence%2F09-tests.log)；返工后的 TUI 三文件 62/62 通过，见[最终 TUI 复核](../../git-history-cleanup/archive.md?path=.scratch%2Fagent-workflow%2Fexperience-evidence%2F09-tui-final.log)；控制面最终 22/22 通过，见[最终控制复核](../../git-history-cleanup/archive.md?path=.scratch%2Fagent-workflow%2Fexperience-evidence%2F09-control-final.log)。计数含重叠，不相加。[静态门禁](../../git-history-cleanup/archive.md?path=.scratch%2Fagent-workflow%2Fexperience-evidence%2F09-static.log)通过；锚点无悬空，差异检查及改动文本唯一末尾换行通过。仅文档和工单证据补齐后另核实 notes/docs 门禁。
 
 实现者未跑全量 `npm run check`、Linux、真实模型或真实绑定 IM；它们不计为实现者检查通过。拥有者已确认本单实际对话体验；真实服务与组合场景继续由 11 验收。协议 23 的后台与客户端须同步更新。
 

@@ -24,12 +24,12 @@ Status: 已由拥有者决定（A1 按披露性残余风险收口；本地 commi
 
 ## 检查结果
 
-- 静态：`npm run check:static` 通过（lint、typecheck、verify-notes、check:docs），见 [本轮静态日志](handoff-2026-10-19/round3/static-round3.log)；构建 exit 0 并生成上述 worker、包与 75/6 成员。
+- 静态：`npm run check:static` 通过（lint、typecheck、verify-notes、check:docs），见 [本轮静态日志](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F39-final-acceptance%2Fhandoff-2026-10-19%2Fround3%2Fstatic-round3.log)；构建 exit 0 并生成上述 worker、包与 75/6 成员。
 - 独立终审（独立执行上下文，范围=6 份晚改动、两 OS 制品绑定、相关调用方/测试/文档）：无阻断，见 [independent-final-review.md](handoff-2026-10-19/independent-final-review.md)。
-- Linux 子服务族：Node24 32/32、Node22 32/32，含原件撤销、未知调用拒绝与接纳前参数错误，见 [Node24](handoff-2026-10-19/round3/linux-final-boundary24.log)、[Node22](handoff-2026-10-19/round3/linux-final-boundary22.log)。
+- Linux 子服务族：Node24 32/32、Node22 32/32，含原件撤销、未知调用拒绝与接纳前参数错误，见 [Node24](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F39-final-acceptance%2Fhandoff-2026-10-19%2Fround3%2Flinux-final-boundary24.log)、[Node22](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F39-final-acceptance%2Fhandoff-2026-10-19%2Fround3%2Flinux-final-boundary22.log)。
 - macOS 定向：独立审查亲跑三文件 135/135、四文件 87/87、五文件 124/124，均 exit 0。
 - 真实模型与真实 QQ：委托 918 复用原身份 801，仅一次对 `ruukoto39-test.service` 的 `service_restart` 经拥有者原入口批准一次后执行，测试服务计数 3→4（唯一新增启动行 `2026-10-19T13:41:10Z`、MainPID 更换），委托唯一报告 `delivery=sent` 且 557 字符与宿主事实逐句一致，无二次重启与其它业务；采集见 [qq-approval-image-collect.json](handoff-2026-10-19/round3/qq-approval-image-collect.json)。
-- 真实 QQ 图片：新图 → 持久产物（11464 字节 PNG，sha256 `24ba983e…`）→ 模型输入 image part → 实际请求 payload `input[190].content[3]` 为 `input_image` 且映射同一 sha → 模型读出图内“Steve3957”；根 Agent 独立读图一致。原图见 [qq-image-39.png](handoff-2026-10-19/round3/qq-image-39.png)。
+- 真实 QQ 图片：新图 → 持久产物（11464 字节 PNG，sha256 `24ba983e…`）→ 模型输入 image part → 实际请求 payload `input[190].content[3]` 为 `input_image` 且映射同一 sha → 模型读出图内“Steve3957”；根 Agent 独立读图一致。原图见 [qq-image-39.png](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F39-final-acceptance%2Fhandoff-2026-10-19%2Fround3%2Fqq-image-39.png)。
 - 真实环境与 OS 边界、A12 隔离演练、A5 受限执行、A6 强杀等沿用已核叶证据；不同快照或不同环境不合成一次全绿。
 
 ## 已知限制与未验证项

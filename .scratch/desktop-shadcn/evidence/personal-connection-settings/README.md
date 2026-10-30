@@ -21,7 +21,7 @@
 | 改成未保存值，再切换外观并返回 | 丢弃编辑，恢复合法的已保存值 |
 | 改成 closing-draft 后关闭，从 PA 再打开 | 恢复 pa-server，目录仍为已保存值；[重开快照](reopened-state.txt) |
 | PA 中保留输入草稿、打开设置并用 Enter 保存 | 不切换主会话，不清空草稿，右栏仍只有浏览器／SubAgent；[保存后的 PA](pa-after-settings.txt) |
-| 明暗切换 | 字段、按钮、提示均可读；见[暗色](dark.png)和[浅色](light.png)截图 |
+| 明暗切换 | 字段、按钮、提示均可读；见[暗色](../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2Fpersonal-connection-settings%2Fdark.png)和[浅色](../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2Fpersonal-connection-settings%2Flight.png)截图 |
 
 表单合法保存、重开值、类别切换丢弃草稿、PA 输入与右栏隔离均执行了断言。关闭的即时 AX 曾仍暴露退出动画中的模态窗口，等窗口退出后完整快照确认 PA 草稿与右栏不变；未把该中间状态记作界面失败。当前 949px 视口中设置宽720px，clientWidth与scrollWidth均718px，无横向溢出。
 

@@ -10,7 +10,7 @@
 
 后端冻结后，UTC 16:03:54 再补六文件，归档 SHA-256 为 `43e742b80920c88fb3e3a2c35621f83bd7e63355ee053b0c554409b959baebf1`；覆盖来源失效、独立子工作取消、未知效果待报告关闭及真实 Git 工作副本宿主归属。冻结内容摘要见 [frozen-source-manifest.json](frozen-source-manifest.json)，前两轮日志与摘要保留为对应旧内容的证据；最终调度结论采用冻结轮。
 
-环境为 Linux x86_64、kernel 6.8.0-117-generic、Node 24.21.0、npm 11.19.0、bubblewrap 0.9.0、ripgrep 14.1.0、cgroup v2，user manager 为 running，见 [environment.log](environment.log)。Node 满足最低版本，但不是 CI 固定的 24.15.0。依赖只读复用既有临时验收目录 `/tmp/ruukoto-config-stage6.6ojMkl`，为本轮源码建立独立 workspace 链接，没有运行 npm install 或修改依赖供体；供体锁文件摘要单独记录。
+环境为 Linux x86_64、kernel 6.8.0-117-generic、Node 24.21.0、npm 11.19.0、bubblewrap 0.9.0、ripgrep 14.1.0、cgroup v2，user manager 为 running，见 [environment.log](../../../git-history-cleanup/archive.md?path=.scratch%2Fcode-scheduled%2Fevidence%2Flinux-2026-10-26%2Fenvironment.log)。Node 满足最低版本，但不是 CI 固定的 24.15.0。依赖只读复用既有临时验收目录 `/tmp/ruukoto-config-stage6.6ojMkl`，为本轮源码建立独立 workspace 链接，没有运行 npm install 或修改依赖供体；供体锁文件摘要单独记录。
 
 所有测试使用新临时档案、loopback 模型替身及 `RUN_MODEL_CHECK=0`；运行环境只保留路径、系统用户和 user bus 所需变量，不继承产品目录、API key 或模型凭据。没有启动或停止日常产品后台，没有读取或复制旧 settings、会话或授权。
 
@@ -18,13 +18,13 @@
 
 | 内容 | 结果与证据 |
 | --- | --- |
-| Linux 构建 | `npm run build:native`、`build:worker`、`build:script` 均退出 0；[native](build-native.log)、[worker](build-worker.log)、[script](build-script.log)。Linux native 构建入口无 macOS 监督器编译，Linux 执行代码由实际测试覆盖 |
-| 首次源码快照 | [targeted.log](targeted.log) 保留未知效果恢复的 `schedule_source_invalid` 旧失败；该内容已由后续两次增量取代，不计为最终通过 |
-| 第一次增量后的调度 | 三文件 26 条通过，见 [scheduled-final.log](scheduled-final.log)，证明六文件修复后的行为；第二增量的对应证据在下一行 |
-| 第二次增量后的调度 | `test/code-scheduler-core.test.ts`、`test/code-scheduler.test.ts`、`test/code-scheduled-sources.test.ts` 共 27 条通过、零跳过，见 [scheduled-final-2.log](scheduled-final-2.log)；后续受影响内容由冻结轮取代 |
-| 冻结调度 core/runtime/sources | 同三文件共 31 条通过、零跳过，见 [scheduled-frozen.log](scheduled-frozen.log)，包括来源失效、取消子工作、未知待报告恢复及真实 Git 宿主任务归属 |
-| 平台与普通产品回归 | `test/background-processes-core.test.ts`、`test/background-processes.test.ts`、`test/background-processes-recovery.test.ts`、`test/native-linux-identity.test.ts`、`test/101-native-linux-scope.test.ts`、`test/71-product-entry.test.ts` 共 63 条通过、零跳过，见 [platform-final.log](platform-final.log)。此轮只对应第一次增量；后续调度来源、恢复与收尾改动采用冻结调度及真实取消探针的对应证据 |
-| Scheduled 真实 Linux 后台取消 | 三轮探针均通过，冻结结果见 [scheduled-process-stop-frozen.log](scheduled-process-stop-frozen.log)，前轮见 [scheduled-process-stop-2.log](scheduled-process-stop-2.log)；探针源码为 [scheduled-process-stop.mts](scheduled-process-stop.mts)，执行时位于远端源码根的 `code-scheduled-stop-linux.mts` |
+| Linux 构建 | `npm run build:native`、`build:worker`、`build:script` 均退出 0；[native](../../../git-history-cleanup/archive.md?path=.scratch%2Fcode-scheduled%2Fevidence%2Flinux-2026-10-26%2Fbuild-native.log)、[worker](../../../git-history-cleanup/archive.md?path=.scratch%2Fcode-scheduled%2Fevidence%2Flinux-2026-10-26%2Fbuild-worker.log)、[script](../../../git-history-cleanup/archive.md?path=.scratch%2Fcode-scheduled%2Fevidence%2Flinux-2026-10-26%2Fbuild-script.log)。Linux native 构建入口无 macOS 监督器编译，Linux 执行代码由实际测试覆盖 |
+| 首次源码快照 | [targeted.log](../../../git-history-cleanup/archive.md?path=.scratch%2Fcode-scheduled%2Fevidence%2Flinux-2026-10-26%2Ftargeted.log) 保留未知效果恢复的 `schedule_source_invalid` 旧失败；该内容已由后续两次增量取代，不计为最终通过 |
+| 第一次增量后的调度 | 三文件 26 条通过，见 [scheduled-final.log](../../../git-history-cleanup/archive.md?path=.scratch%2Fcode-scheduled%2Fevidence%2Flinux-2026-10-26%2Fscheduled-final.log)，证明六文件修复后的行为；第二增量的对应证据在下一行 |
+| 第二次增量后的调度 | `test/code-scheduler-core.test.ts`、`test/code-scheduler.test.ts`、`test/code-scheduled-sources.test.ts` 共 27 条通过、零跳过，见 [scheduled-final-2.log](../../../git-history-cleanup/archive.md?path=.scratch%2Fcode-scheduled%2Fevidence%2Flinux-2026-10-26%2Fscheduled-final-2.log)；后续受影响内容由冻结轮取代 |
+| 冻结调度 core/runtime/sources | 同三文件共 31 条通过、零跳过，见 [scheduled-frozen.log](../../../git-history-cleanup/archive.md?path=.scratch%2Fcode-scheduled%2Fevidence%2Flinux-2026-10-26%2Fscheduled-frozen.log)，包括来源失效、取消子工作、未知待报告恢复及真实 Git 宿主任务归属 |
+| 平台与普通产品回归 | `test/background-processes-core.test.ts`、`test/background-processes.test.ts`、`test/background-processes-recovery.test.ts`、`test/native-linux-identity.test.ts`、`test/101-native-linux-scope.test.ts`、`test/71-product-entry.test.ts` 共 63 条通过、零跳过，见 [platform-final.log](../../../git-history-cleanup/archive.md?path=.scratch%2Fcode-scheduled%2Fevidence%2Flinux-2026-10-26%2Fplatform-final.log)。此轮只对应第一次增量；后续调度来源、恢复与收尾改动采用冻结调度及真实取消探针的对应证据 |
+| Scheduled 真实 Linux 后台取消 | 三轮探针均通过，冻结结果见 [scheduled-process-stop-frozen.log](../../../git-history-cleanup/archive.md?path=.scratch%2Fcode-scheduled%2Fevidence%2Flinux-2026-10-26%2Fscheduled-process-stop-frozen.log)，前轮见 [scheduled-process-stop-2.log](../../../git-history-cleanup/archive.md?path=.scratch%2Fcode-scheduled%2Fevidence%2Flinux-2026-10-26%2Fscheduled-process-stop-2.log)；探针源码为 [scheduled-process-stop.mts](scheduled-process-stop.mts)，执行时位于远端源码根的 `code-scheduled-stop-linux.mts` |
 
 最终调度测试覆盖真实工作区写入和固定配置、漏期合并、接纳失败零模型调用、问答快照及取消后迟到回答、失效目录、同主会话续接不递归唤醒、重启保留 queued 原键并显式恢复、未知效果的停止与版本确认。平台回归覆盖真实 HTTP 后台跨轮、目录占用、宿主强杀后冷恢复核实且命令零重放，以及 Linux 单元身份、派发失败及停止竞态。
 

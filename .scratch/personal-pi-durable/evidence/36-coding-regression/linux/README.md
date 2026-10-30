@@ -1,5 +1,7 @@
 # 工单 36：真实 Linux 对照与最终补验
 
+> 本文部分原始证据已移出 Git；原路径保留用于查找原件，见[归档说明](../../../../git-history-cleanup/archive.md)。
+
 本目录包含真实 Linux 版本对照、最终补验、环境与清理证据，可直接放入 `.scratch/personal-pi-durable/evidence/36-coding-regression/linux/`。本轮只使用测试副本，没有修改主工作区；远端唯一目录为 `/dev/shm/rk-coding36-linux.gaWtu6`。
 
 环境与原 17 同为 tx 的 Linux 6.8.0-117 x86_64、Node 24.21.0、npm 11.19.0、UID 1003。两版由独立 git archive 提取，排除 `.scratch/`，分别 `git init` 和独立 `npm run setup -- --skip-hooks`，未共享 node_modules。基点 `a8fd60caceda3bbb243afff167a7c44751e749f4` 的 733 文件、原版当前 `3053bf6a3d1d9bab0c06ec61755b8723bb06dbff` 的 840 文件在运行前后均按 SHA-256 核实。两版 Pi 的 agent-core、ai、coding-agent 均为 0.85.1，tsx 4.23.13、esbuild 0.28.1、MCP client 2.0.0；完整解析见各版 `npm-tree.log` 和 `npm-paths.log`。

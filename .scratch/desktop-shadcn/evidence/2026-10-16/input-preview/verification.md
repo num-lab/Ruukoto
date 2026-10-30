@@ -18,7 +18,7 @@
 
 展开筛选后高度 36 px、焦点进入输入；输入 fumo 后 nexus 工作区消失。Escape 清空并关闭，焦点返回筛选按钮；收起瞬间仍有 36 px 高度和完整透明度，随后到 0 px／0，确认收起过渡而非卸载；样式为 160 ms 高度／透明度过渡。关闭区域有 inert／aria-hidden，触发器 Tab 后焦点到添加工作区，跳过隐藏输入。连续四次切换后状态、焦点和高度正常。减弱动画由已有全局 CSS 规则与独立实现复核覆盖，未切换系统偏好模拟实测。
 
-通过文件树打开 PassTimeline.tsx，源码产生 34 个高亮 token，原始文本保留；行号列与源码行高均为 20.4 px。窄栏内容可横滚，ArrowRight 后实测 scrollLeft 大于 0，行号左边缘仍与滚动区左边缘相同。深色关键词为 rgb(255,123,114)，浅色为 rgb(207,34,46)，见[深色](dark.png)与[浅色](light.png)。README 排版切到源码后也有高亮，其余样例语言与危险内容由定向检查覆盖。刷新后的浏览器未出现新的应用错误，读取到的 Vite WebSocket 错误属于服务停止时的旧记录。
+通过文件树打开 PassTimeline.tsx，源码产生 34 个高亮 token，原始文本保留；行号列与源码行高均为 20.4 px。窄栏内容可横滚，ArrowRight 后实测 scrollLeft 大于 0，行号左边缘仍与滚动区左边缘相同。深色关键词为 rgb(255,123,114)，浅色为 rgb(207,34,46)，见[深色](../../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2F2026-10-16%2Finput-preview%2Fdark.png)与[浅色](../../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2F2026-10-16%2Finput-preview%2Flight.png)。README 排版切到源码后也有高亮，其余样例语言与危险内容由定向检查覆盖。刷新后的浏览器未出现新的应用错误，读取到的 Vite WebSocket 错误属于服务停止时的旧记录。
 
 ## 限制
 

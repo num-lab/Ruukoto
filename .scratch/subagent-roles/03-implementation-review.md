@@ -8,9 +8,9 @@
 
 | 审查者与原记录 | 独立覆盖 | 作者部分的交叉归属 |
 | --- | --- | --- |
-| `/root/snapshot_probe`，[审查正文](evidence/03-snapshot-review.md)、[输入](evidence/03-snapshot-review-inputs.json)、[原始包](evidence/03-snapshot-review.tar.gz) | host Task/来源绑定/停止占用、Runtime 队列/消息/恢复、Orchestrator/ParentDelivery 实物门禁、schema/双向导入、workflow snapshotDigest、native/宿主 file bind、大小写与 D/F/link 路径修复及文档 | 自己编写的 split-index、索引认证/阶段 blob 闭包、promisor 只读视图与模板/SHA-1 hunks 排除，由 contract_audit 独立审查 |
-| `/root/contract_audit`，[审查正文](evidence/03-contract-review.md)、[原始包](evidence/03-contract-audit.tar.gz) | 原始捕获/完整来源零写入、私有对象与 staged blob 闭包、split-index、promisor/模板、完整受影响字节门禁、symlink 配置修复及 execution 文档 | 自己编写的 host/runtime 绑定与大小写/D/F 路径 hunks 排除，由 snapshot_probe 独立审查 |
-| `/root/native_probe`，[最终 Linux 报告](evidence/03-linux-final.md)、[原始包](evidence/03-linux-final.tar.gz) | 最终真实 Linux build/Runtime/native/scope/Git2.43/等待与非 Git，源码运行前后同一冻点 | 自己编写的终态/父送达与 file bind 修复不自授独立通过，由 snapshot_probe 阅读和负例复核 |
+| `/root/snapshot_probe`，[审查正文](evidence/03-snapshot-review.md)、[输入](evidence/03-snapshot-review-inputs.json)、[原始包](../git-history-cleanup/archive.md?path=.scratch%2Fsubagent-roles%2Fevidence%2F03-snapshot-review.tar.gz) | host Task/来源绑定/停止占用、Runtime 队列/消息/恢复、Orchestrator/ParentDelivery 实物门禁、schema/双向导入、workflow snapshotDigest、native/宿主 file bind、大小写与 D/F/link 路径修复及文档 | 自己编写的 split-index、索引认证/阶段 blob 闭包、promisor 只读视图与模板/SHA-1 hunks 排除，由 contract_audit 独立审查 |
+| `/root/contract_audit`，[审查正文](evidence/03-contract-review.md)、[原始包](../git-history-cleanup/archive.md?path=.scratch%2Fsubagent-roles%2Fevidence%2F03-contract-audit.tar.gz) | 原始捕获/完整来源零写入、私有对象与 staged blob 闭包、split-index、promisor/模板、完整受影响字节门禁、symlink 配置修复及 execution 文档 | 自己编写的 host/runtime 绑定与大小写/D/F 路径 hunks 排除，由 snapshot_probe 独立审查 |
+| `/root/native_probe`，[最终 Linux 报告](evidence/03-linux-final.md)、[原始包](../git-history-cleanup/archive.md?path=.scratch%2Fsubagent-roles%2Fevidence%2F03-linux-final.tar.gz) | 最终真实 Linux build/Runtime/native/scope/Git2.43/等待与非 Git，源码运行前后同一冻点 | 自己编写的终态/父送达与 file bind 修复不自授独立通过，由 snapshot_probe 阅读和负例复核 |
 
 共享文件整体哈希包含作者与非作者 hunks，独立批准按上述实际改动归属判断。所有生产改动均有非作者上下文核对，不以作者测试或 fixture 平台替身代替独立审查与真实环境证据。
 

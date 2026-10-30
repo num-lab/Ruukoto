@@ -76,7 +76,7 @@ npm run change-scope -- --base <已核实的基点引用>
 | `deploy/` | 相关 README 的步骤能否仍被执行；服务 helper 加 `test/service-helper-stop.test.ts`（Linux 真实进程与系统命令桩）和 78 helper／79 旧存储规则回归；改 systemd 单元时加 `npm run build`、替换实际账户与 Node 路径后的模板核实，并按实际账户演练原生前置与 scope 停止 |
 | `package.json` 的 scripts、依赖、构建入口 | `npm run build`，加 `npm run lint` 与 `npm run typecheck` |
 
-`.scratch/` 的工单与证据不改行为，不需要跑检查；其中的验证记录要区分模拟结果与真实环境结果。可执行的 [desktop shadcn demo](../../../.scratch/desktop-shadcn/demo/README.md) 例外：运行 `npm --prefix .scratch/desktop-shadcn/demo run check`，并检查明暗、窗口尺寸与受影响交互；不将模拟结果记为真实 Electron 验收。
+`.scratch/` 的工单与结论不改行为，无需行为测试；记录须区分模拟与真实环境。改原始产物的忽略规则时跑 `npx tsx --test test/scratch-retention.test.ts`；原件找回见[归档说明](../../../.scratch/git-history-cleanup/archive.md)。可执行的 [desktop shadcn demo](../../../.scratch/desktop-shadcn/demo/README.md) 例外：运行 `npm --prefix .scratch/desktop-shadcn/demo run check`，并检查明暗、窗口尺寸与受影响交互；不将模拟结果记为真实 Electron 验收。
 
 ## 3. 静态门禁的位置
 

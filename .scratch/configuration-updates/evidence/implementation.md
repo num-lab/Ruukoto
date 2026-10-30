@@ -38,7 +38,7 @@
 
 ## 真实环境与待验
 
-Linux 在 `ssh tx` 的隔离副本执行，Node 24.21.0，与 CI 固定24.15.0有差异。迁移受控用例15/15、[真实后台 scope](linux-background.log) 1/1及[最终宿主基线组](linux-final.log)14/14通过；独立审查者亲自读取远端日志，并验证最终组10个相关源/测试文件与主区逐字节相同。最终源包 SHA-256 为 `ff9fe80eddf8c315166045a5b40ac642172396abd88a549c234837fd5aacb225`，最终组日志为 `de504deb726326992e57a17c7647db584cda428338bc4efdceb04f1e2b79c724`。只把真实后台用例计作内核 scope 实证，不把受控 helper 桩当生产 sudoers 部署。
+Linux 在 `ssh tx` 的隔离副本执行，Node 24.21.0，与 CI 固定24.15.0有差异。迁移受控用例15/15、[真实后台 scope](../../git-history-cleanup/archive.md?path=.scratch%2Fconfiguration-updates%2Fevidence%2Flinux-background.log) 1/1及[最终宿主基线组](../../git-history-cleanup/archive.md?path=.scratch%2Fconfiguration-updates%2Fevidence%2Flinux-final.log)14/14通过；独立审查者亲自读取远端日志，并验证最终组10个相关源/测试文件与主区逐字节相同。最终源包 SHA-256 为 `ff9fe80eddf8c315166045a5b40ac642172396abd88a549c234837fd5aacb225`，最终组日志为 `de504deb726326992e57a17c7647db584cda428338bc4efdceb04f1e2b79c724`。只把真实后台用例计作内核 scope 实证，不把受控 helper 桩当生产 sudoers 部署。
 
 Electron 使用真实 shell/Host/bridge/renderer、临时 HTTPS/WSS 远端和测试专用凭据存储，最终10/10交互通过、页面错误0，覆盖生效失败、坏凭据服务停用和目标异常跨页修复；[逐步截图、隔离与来源指纹](electron/electron-gui-review.md)已入库，主代理核对截图和来源/构建/脚本哈希。入库文本仅规范末尾换行，本目录制品哈希重算，原始证据包哈希保留。这不证明真实 Keychain 或实际 PA 服务部署。MyGo 已有开发凭据槽，无法用临时 userData 隔离 Keychain，未读取或改写其内容；真实保存/草稿/断线/等待交互保留待验，需要独立系统测试账号或可隔离凭据环境。Telegram/QQ 实机验收由拥有者明确暂缓，对应替身测试不冒充外部通过。
 

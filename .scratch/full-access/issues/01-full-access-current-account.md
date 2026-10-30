@@ -141,4 +141,4 @@ Status: resolved
 
 `README.md` 与 `docs/visual/index.html` 明确该目录是已停止维护的历史快照。本次误把它当作当前文档更新；用户指出后，已撤回全部 11 个 HTML 文件改动，恢复原图、正文及快照标注，目录与任务开始时的版本完全一致。实施计划与交付记录已修正，当前行为只维护模块文档、使用及部署说明，不以旧图解与新代码不一致为由改写冻结资料。该纠正不改变运行代码或原功能验收结论。
 
-`git diff --exit-code -- docs/visual` 与 `git diff --check` 均退出 0；`npm run check:docs` 和 `npm run verify-notes` 均通过，见[纠正文档检查](../frozen-visual-doc-checks.log)。仅文档还原与记录纠正，未重跑应用测试。
+`git diff --exit-code -- docs/visual` 与 `git diff --check` 均退出 0；`npm run check:docs` 和 `npm run verify-notes` 均通过，见[纠正文档检查](../../git-history-cleanup/archive.md?path=.scratch%2Ffull-access%2Ffrozen-visual-doc-checks.log)。仅文档还原与记录纠正，未重跑应用测试。

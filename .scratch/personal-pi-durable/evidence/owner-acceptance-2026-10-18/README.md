@@ -6,8 +6,8 @@
 
 - HEAD 为 `12b1a66cfa661f2a8bddaa9405283ab9f22cb20c`，工作区已有未提交改动；[源码指纹](candidate-source.json)保存658份实际源码、测试、部署和构建文件，[初始状态](initial-status.txt)区分原有修改。本轮没有改产品源码。
 - macOS Node 24.15.0、Python 3.14.5；`npm run check:static` 实际退出0。原始命令输出保留于本聊天工具记录，未另存完整日志。
-- 复用[35的PTY驱动](../35-owner-controls/pty-walkthrough.py)，在内存中把启动目标替换为正式 `apps/ruukoto/bin/ruukoto.mjs`，新日志写入本目录，不覆盖35证据。首次因旧驱动期待“隔离后台已启动”而失败；[原始终端记录](pty.log.gz)实际已显示“个人后台已启动”。finally核实停止、重新取得锁并清理临时档案后，驱动只更新该期待文本再运行。
-- [当前正式入口记录](pty-current.log.gz)与[通过摘要](pty-summary-current.json)：真实160×50 PTY完成首次虚构模型配置、启停和状态、完全访问二次选择后切回自动审查、授权空列表、在线配置持锁拒绝、正常退出；真实模型及IM请求均为0，结束重新取得实例锁后清理档案。自动驱动不计拥有者体验通过。
+- 复用[35的PTY驱动](../35-owner-controls/pty-walkthrough.py)，在内存中把启动目标替换为正式 `apps/ruukoto/bin/ruukoto.mjs`，新日志写入本目录，不覆盖35证据。首次因旧驱动期待“隔离后台已启动”而失败；[原始终端记录](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2Fowner-acceptance-2026-10-18%2Fpty.log.gz)实际已显示“个人后台已启动”。finally核实停止、重新取得锁并清理临时档案后，驱动只更新该期待文本再运行。
+- [当前正式入口记录](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2Fowner-acceptance-2026-10-18%2Fpty-current.log.gz)与[通过摘要](pty-summary-current.json)：真实160×50 PTY完成首次虚构模型配置、启停和状态、完全访问二次选择后切回自动审查、授权空列表、在线配置持锁拒绝、正常退出；真实模型及IM请求均为0，结束重新取得实例锁后清理档案。自动驱动不计拥有者体验通过。
 - Linux `ssh tx` 可连接，PATH中有Node、npm、bwrap，未发现chromium/google-chrome命令；`/tmp`所在根分区40G、可用约934MB、使用98%。探测末尾因远端没有rg退出127，不能据此声称已检查服务环境变量。本轮未安装、清理或启停远端资源。
 - 开始探测时本机进程未提供验收模型/IM凭据变量，默认 `~/.ruukoto-durable/` 不存在。37专用凭据和资源已清理，不能直接恢复其旧档案继续执行；后续新授权和实际操作见下文。
 - 本轮检查结果汇总见[checks.json](checks.json)。已准备独立空白档案和启动器并请求Terminal打开，路径见[本机真人会话](human-session.json)；`open`退出0。界面工具禁止访问 `com.apple.Terminal`，因此未核实屏幕内容、未代操作或记录为真人验收；也未改用其他方式读取界面。
@@ -61,7 +61,7 @@
 
 本轮选 `deepseek/deepseek-flash`，OpenAI Responses、上下文1000000、输出上限4096、纯文字。拥有者实际完成首次配置、启动及状态查看，并回复“配置保存成功，后台在线”。Agent通过认证本机接口独立核对：[第一步记录](human-step-01.json)显示模型参数匹配、零输入/活动任务、目录0700及配置0600，配置只含凭据环境变量名。03/35增加该步真实拥有者证据，尚不关闭。
 
-并行的独立临时档案执行[真实模型窄检查](model-smoke.json)，退出0、约24.7秒；[原始输出](model-smoke.log)记录5次输入、两次正常重启，脚本断言记忆保存/原版本读取、技能加载、应用表单事务两行及重启查询、成对请求证据和凭据不入证据。该脚本按其finally清理临时档案，不保留完整SQLite；因此只补33/34等对应叶测，不算当前真人档案、真实IM或最终组合通过。
+并行的独立临时档案执行[真实模型窄检查](model-smoke.json)，退出0、约24.7秒；[原始输出](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2Fowner-acceptance-2026-10-18%2Fmodel-smoke.log)记录5次输入、两次正常重启，脚本断言记忆保存/原版本读取、技能加载、应用表单事务两行及重启查询、成对请求证据和凭据不入证据。该脚本按其finally清理临时档案，不保留完整SQLite；因此只补33/34等对应叶测，不算当前真人档案、真实IM或最终组合通过。
 
 实际 `oracle-4c24g` 为Ubuntu 24.04.4/aarch64、ubuntu账户，user manager为running、根分区约91GB可用；PATH未发现node/npm/bwrap，未安装任何依赖。该机3001端口无监听，本机3001返回HTTP426，后续核实NapCat位置与鉴权；初始tx探针不代表本轮目标环境。
 

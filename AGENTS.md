@@ -24,7 +24,7 @@ test/               应用测试；verification/foundation/ 基础验证（独�
 deploy/             系统身份、单元、提权入口与服务管理
 worker/             构建产物 worker.mjs，由 npm run build 生成
 docs/               面向人类；docs/modules/ 按模块；docs/agents/ 是 agent 配置
-.agents/notes/      决策记录；.agents/skills/ 操作规范；.scratch/ 入库的工单与证据
+.agents/notes/      决策记录；.agents/skills/ 操作规范；.scratch/ 工单与复现材料
 ```
 
 模块职责、依赖方向与产品差异见[模块地图](docs/architecture.md#模块地图)与[产品模块](docs/modules/products.md)。

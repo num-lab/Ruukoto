@@ -6,9 +6,9 @@
 
 | 材料 | 内容与边界 |
 | --- | --- |
-| [最终 SQLite](live-linux/personal-live.sqlite.gz) | Linux 实际档案，495 entries、228 tasks、115 documents、478 revisions；168 条模型请求记录组成 84 对基础输入/实际 payload。原模型回答、真实 TG 控制收件与送达事实均保留 |
-| [执行归档](live-linux/runtime-records.tar.gz)与[清单](live-linux/archive-manifest.json) | 123 个文件，含完整 SQLite 备份、逐阶段控制快照、6 次后台身份、原生命令 claim/输出、helper claim/操作证据、测试服务与计数；逐文件大小和 SHA-256。排除 private、control.token、锁库及进程环境；实际 token/模型密钥及编码变体扫描零命中 |
-| [最终源码与检查](live-linux/final-checks.json)及[改动快照](live-linux/final-change.diff.gz) | 对基线的最终实现、测试、文档哈希与实际检查；9 个应用文件与 server6 相符，其余 241 个部署源码匹配基线。旧 source-manifest/checks/record-checks 仅证明最初本机候选 |
+| [最终 SQLite](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F37-current-live-flow%2Flive-linux%2Fpersonal-live.sqlite.gz) | Linux 实际档案，495 entries、228 tasks、115 documents、478 revisions；168 条模型请求记录组成 84 对基础输入/实际 payload。原模型回答、真实 TG 控制收件与送达事实均保留 |
+| [执行归档](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F37-current-live-flow%2Flive-linux%2Fruntime-records.tar.gz)与[清单](live-linux/archive-manifest.json) | 123 个文件，含完整 SQLite 备份、逐阶段控制快照、6 次后台身份、原生命令 claim/输出、helper claim/操作证据、测试服务与计数；逐文件大小和 SHA-256。排除 private、control.token、锁库及进程环境；实际 token/模型密钥及编码变体扫描零命中 |
+| [最终源码与检查](live-linux/final-checks.json)及[改动快照](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F37-current-live-flow%2Flive-linux%2Ffinal-change.diff.gz) | 对基线的最终实现、测试、文档哈希与实际检查；9 个应用文件与 server6 相符，其余 241 个部署源码匹配基线。旧 source-manifest/checks/record-checks 仅证明最初本机候选 |
 | [实际工具估算](live-linux/final-text-estimates.json) | 实际入模完整工具列表与系统正文的 UTF-8/4 估算；主工具 21 个由 6515→6710，子工具 15 个由 3618→3716，系统分别保持 366/196。非供应商计费 token |
 | [Linux 清理](live-linux/cleanup-linux.json)与[本机清理](live-linux/cleanup-local.json) | 停后台并取得原锁，精确核实 3 个命令 scope、8 个 helper 启动组、2 个操作单元及测试服务停止，归档后删除专用资源；生产 PID 与标准 helper/策略哈希保持。代理、隧道及临时凭据也已清理 |
 | [独立终审](live-linux/final-review.md) | 直接读取实现、回归、实际请求与归档，不以用户按钮或作者摘要替代实际内容；同时保留报告措辞缺陷 |

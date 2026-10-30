@@ -20,9 +20,9 @@
 - 中文粘贴、Shift+Enter 换行、Enter 提交后得到真实新任务回显；[后台任务](tasks.json)保留原输入中的换行和 completed 状态。
 - 原生附件选择器选中临时 sample.txt，上传后出现附件引用，发送后后台完成任务；原文与 34 字节附件信息可从任务记录和截图核对。
 - 工作区文件树只列临时后台返回的 README.md／sample.txt，Markdown 预览显示真实正文。
-- 设置中的明暗主题均能切换，见[暗色](mygo-dark.png)与[浅色](mygo-light.png)截图。UI 使用原 renderer，MyGo 追加 --app-region 拖动属性。
-- 浏览器打开[本地恶意 iframe](iframe-probe.mjs)，[结果](iframe-result.json)与[真实树](mygo-iframe-ax.txt)显示 own runtime／bridge 为 undefined，读取 top.ruukoto 为 SecurityError，window.open 返回 null，顶层导航为 SecurityError，media API 不可用；顶层仍是 mygo://localhost/。见[截图](mygo-iframe-probe.png)。此探针没有证明所有下载或网页权限分支；它们的拒绝另有原生 API 配置和源码审查依据。
-- 只对夹具的 Node 子进程发送 SIGTERM 后，界面显示“暂时无法连接／MyGo 连接已关闭”，添加／发送禁用，见[故障截图](mygo-disconnected.png)与[真实树](mygo-disconnected-ax.txt)。Cmd+Q 后夹具 app 与 Node PID 均不存在，夹具正常结束并回收临时后台。未发送重复业务请求。
+- 设置中的明暗主题均能切换，见[暗色](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-mygo%2Fevidence%2Fmygo-dark.png)与[浅色](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-mygo%2Fevidence%2Fmygo-light.png)截图。UI 使用原 renderer，MyGo 追加 --app-region 拖动属性。
+- 浏览器打开[本地恶意 iframe](iframe-probe.mjs)，[结果](iframe-result.json)与[真实树](mygo-iframe-ax.txt)显示 own runtime／bridge 为 undefined，读取 top.ruukoto 为 SecurityError，window.open 返回 null，顶层导航为 SecurityError，media API 不可用；顶层仍是 mygo://localhost/。见[截图](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-mygo%2Fevidence%2Fmygo-iframe-probe.png)。此探针没有证明所有下载或网页权限分支；它们的拒绝另有原生 API 配置和源码审查依据。
+- 只对夹具的 Node 子进程发送 SIGTERM 后，界面显示“暂时无法连接／MyGo 连接已关闭”，添加／发送禁用，见[故障截图](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-mygo%2Fevidence%2Fmygo-disconnected.png)与[真实树](mygo-disconnected-ax.txt)。Cmd+Q 后夹具 app 与 Node PID 均不存在，夹具正常结束并回收临时后台。未发送重复业务请求。
 
 首次构建还曾只读打开日常已有后台列表，确认可连接后立即退出，未提交任务、改配置或停止日常后台；上述可变操作全部在隔离夹具完成。
 

@@ -20,7 +20,7 @@ Status: resolved
 - 下一角色与动作：无剩余实现或本人体验项；首版验收结束，原失败及非阻断限制见05证据。
 - 当前内容：Code桌面与配置TUI选择本机固定Driver，CLI的mcp cua复用配置向导；Personal菜单和桌面PA设置选择既有Linux沙箱。路径、版本、哈希、容器及观察身份由程序管理。Code用固定制品静态工具清单与同direct宿主的OS只读授权预检；Linux固定--embedded且只接本机Docker，不连接共享daemon或新建网关。正常暂停拒绝新调用，停止未核实时仍保留待处理状态。
 - 恢复结果：两端实际呈现受保护的新图；桌面完整读取、校验并成功加载全部图片后才可接受，CLI交系统图片查看器再由本人确认。接受绑定原观察，重观察前失效旧图，配置停用或换修订后的Code旧接受也拒绝。Code逐服务暂停带原service_id，不能停止另一来源的绑定；Personal恢复接受保留原全局暂停状态，此前已显式暂停的须另选继续，未显式暂停时接受即完成本次冻结结算。
-- 界面精简：按拥有者反馈删除常驻提醒、重复说明与原始证据正文，用当前阶段、截图和操作顺序表达恢复流程；实际错误与Linux停止丢失未保存状态的确认保留。当前截图：[Code](../evidence/04-code-cleanup-browser.png)、[Personal](../evidence/04-personal-cleanup-browser.png)。
+- 界面精简：按拥有者反馈删除常驻提醒、重复说明与原始证据正文，用当前阶段、截图和操作顺序表达恢复流程；实际错误与Linux停止丢失未保存状态的确认保留。当前截图：[Code](../../git-history-cleanup/archive.md?path=.scratch%2Fcua-integration%2Fevidence%2F04-code-cleanup-browser.png)、[Personal](../../git-history-cleanup/archive.md?path=.scratch%2Fcua-integration%2Fevidence%2F04-personal-cleanup-browser.png)。
 - 证据与限制：[本单工程证据](../evidence/04-offline.md)与离线浏览器截图只证明离线行为；[05正式验收](../evidence/05-acceptance.md)补真实Cua与隔离Linux环境，不代表生产部署。缺安装或权限时普通聊天与HTTP设置保留；授权位、合成图片和离线成功不能代替实际捕获或人工体验。
 
 ## 验收与证据

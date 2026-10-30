@@ -14,11 +14,11 @@ NapCat当前首错已由本人提供启动日志明确为macOS原生模块加载
 
 ## 服务事实引用返工与证据
 
-独立审查复现未知callId的伪造assistant/toolResult仍进入实际HTTP；[原回归红](service-reference-red.log)保留。修复在已有服务事实映射后，沿本身份原terminal pi.tool、结果entry/byTaskId及原assistant补核尚未匹配的服务结果；合法接纳前拒绝仍可进入模型，但没有操作事实；未知或歧义在provider前拒绝，不额外放宽缺结果的合成输入。实际input/payload保存投影，旧entry不改，批准、消费、取消、效果与停止状态机均未改变。
+独立审查复现未知callId的伪造assistant/toolResult仍进入实际HTTP；[原回归红](../../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F39-final-acceptance%2Fhandoff-2026-10-19%2Fservice-reference-red.log)保留。修复在已有服务事实映射后，沿本身份原terminal pi.tool、结果entry/byTaskId及原assistant补核尚未匹配的服务结果；合法接纳前拒绝仍可进入模型，但没有操作事实；未知或歧义在provider前拒绝，不额外放宽缺结果的合成输入。实际input/payload保存投影，旧entry不改，批准、消费、取消、效果与停止状态机均未改变。
 
-[五条原绿](service-reference-green.log)和[最终六条](service-boundary-6-final.log)覆盖取消复用、原结果改写零HTTP、成对移出上下文后相同callId、重复调用歧义、未知callId零HTTP及接纳前参数错误零操作。移出贡献用durable ContextEdit，不称完整真实compaction；独立另核正常compaction不切开原调用与结果。新输入未证真实模型或私人IM结果。
+[五条原绿](../../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F39-final-acceptance%2Fhandoff-2026-10-19%2Fservice-reference-green.log)和[最终六条](../../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F39-final-acceptance%2Fhandoff-2026-10-19%2Fservice-boundary-6-final.log)覆盖取消复用、原结果改写零HTTP、成对移出上下文后相同callId、重复调用歧义、未知callId零HTTP及接纳前参数错误零操作。移出贡献用durable ContextEdit，不称完整真实compaction；独立另核正常compaction不切开原调用与结果。新输入未证真实模型或私人IM结果。
 
-macOS Node24：初四文件164/164，返工后四文件168/168（最后添加的参数拒绝正例另在六条检查）；work/delegations/scheduler/controls四文件87/87。Linux独立实体副本Node24服务/work-tools/reports通过，Node22六条边界通过，原日志见[24](linux-service24.log)、[22](linux-service22.log)。Node24整文件发生在最后仅新增参数拒绝测试之前，不能改称同一全矩阵。静态与build通过，生成个人75/Coding6成员；[当前源码清单](source-manifest.json)、[macOS制品](macos-artifacts.json)绑定实际内容；后续源码再变须重定范围。
+macOS Node24：初四文件164/164，返工后四文件168/168（最后添加的参数拒绝正例另在六条检查）；work/delegations/scheduler/controls四文件87/87。Linux独立实体副本Node24服务/work-tools/reports通过，Node22六条边界通过，原日志见[24](../../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F39-final-acceptance%2Fhandoff-2026-10-19%2Flinux-service24.log)、[22](../../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F39-final-acceptance%2Fhandoff-2026-10-19%2Flinux-service22.log)。Node24整文件发生在最后仅新增参数拒绝测试之前，不能改称同一全矩阵。静态与build通过，生成个人75/Coding6成员；[当前源码清单](source-manifest.json)、[macOS制品](macos-artifacts.json)绑定实际内容；后续源码再变须重定范围。
 
 ## 2026-10-19 晚更新
 

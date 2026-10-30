@@ -29,9 +29,9 @@
 
 中间一次用AX差分判断未变的子Agent正文，因差分省略正文而触发验收断言；完整快照确认选中身份和页面均保持，不记为界面失败。正文文件路径换行时，工具点击包围盒中心落在文字空隙；改点实际文字片段后差异正常打开，没有改动文件链接行为。
 
-- [深色，两组标签](dark.png)
-- [浅色，两组标签](light.png)
-- [深色，恢复左栏与常用右栏宽度](dark-sidebar.png)
+- [深色，两组标签](../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2Ftab-reorder%2Fdark.png)
+- [浅色，两组标签](../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2Ftab-reorder%2Flight.png)
+- [深色，恢复左栏与常用右栏宽度](../../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-shadcn%2Fevidence%2Ftab-reorder%2Fdark-sidebar.png)
 
 ## 范围与限制
 

@@ -1,5 +1,7 @@
 # 32 定时工作工程核实
 
+> 本文部分原始证据已移出 Git；原路径保留用于查找原件，见[归档说明](../../../git-history-cleanup/archive.md)。
+
 2026-10-18 接手；基线 `eb0f77c9d2e7adffc784f14064a0e1a51b1d9642`，开始工作区干净。实际变更范围由 `change-scope.json` 持有；最终源码指纹另存 `source-sha256.txt`。本机 macOS、Node 24.15.0；Linux 为 `ssh tx` 的 Linux 6.8.0-117-generic、Node 24.21.0，非 CI Node 22.19/24.15 完整矩阵。实施验收时尚未提交、推送、部署或切换正式入口；后续提交交接由工单持有。
 
 ## 已验行为

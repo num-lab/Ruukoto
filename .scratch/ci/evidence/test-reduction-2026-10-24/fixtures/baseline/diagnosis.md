@@ -1,5 +1,7 @@
 # baseline 三项失败的独立诊断
 
+> 本文部分原始证据已移出 Git；原路径保留用于查找原件，见[归档说明](../../../../../git-history-cleanup/archive.md)。
+
 对象：HEAD 28c033f7，原版完整 baseline `/tmp/ruukoto-reduction-before-28c033f7.log` 中的三项失败。实际位置是 `test/19-tui-demo.test.ts:58`（不是43-desktop-demo）以及 `test/40-desktop-creation.test.ts:25` 的两项 rejected 展开用例（不是desktop-session-settings）。执行人只读主工作区，没有改动生产文件、测试文件或本次baseline。
 
 ## 红绿反馈

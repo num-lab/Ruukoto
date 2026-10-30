@@ -29,7 +29,7 @@ Chromium 通过 Playwright CLI 加载正式 App、现有 React／Tailwind Vite �
 - 存储秘密输入后切 PA 触发导航保护，继续编辑保留；保存恰发一次写请求，输入清空。目录秘密输入新值后清空恢复原占位，保存保持禁用。
 - 新请求头值在尚未点击添加时也计入草稿；切目标可放弃，切类别可「保存并继续」，原页面秘密随后清空。
 - 默认模型／Effort 保存 high，摘要保存后清除；选择 modelOverrides 的具体请求头清除后，provider 请求头和其他高级字段保留。
-- 已查看[深色列表](code-models-list-dark.png)、[深色提供方](code-models-provider-dark.png)、[浅色提供方](code-models-provider-light.png)、[430×420 窄窗顶部](code-models-narrow-top-light.png)与[窄窗底部](code-models-narrow-light.png)。窄窗浮窗 clientWidth＝scrollWidth＝396，活动面板 clientHeight＝370、scrollHeight＝1243，无横向溢出，可滚至保存按钮；减少动态效果下继续可操作。
+- 已查看[深色列表](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-settings%2Fevidence%2Fcode-models-list-dark.png)、[深色提供方](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-settings%2Fevidence%2Fcode-models-provider-dark.png)、[浅色提供方](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-settings%2Fevidence%2Fcode-models-provider-light.png)、[430×420 窄窗顶部](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-settings%2Fevidence%2Fcode-models-narrow-top-light.png)与[窄窗底部](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-settings%2Fevidence%2Fcode-models-narrow-light.png)。窄窗浮窗 clientWidth＝scrollWidth＝396，活动面板 clientHeight＝370、scrollHeight＝1243，无横向溢出，可滚至保存按钮；减少动态效果下继续可操作。
 - Tab 可聚焦 Code／PA；方向右键选中并聚焦 PA，Escape 关闭浮窗。并行构建曾使根目录合成 Vite 页重载，重新打开独立会话、等渲染提交后复验方向键通过；不把即时 aria 读取当成功。最终控制台 Errors＝0、Warnings＝0。
 
 ## 独立实现审查

@@ -1,5 +1,7 @@
 # 工单 29 工程证据
 
+> 本文部分原始证据已移出 Git；原路径保留用于查找原件，见[归档说明](../../../git-history-cleanup/archive.md)。
+
 2026-10-18（东京时间），从干净基点 `93eac52a715d03f5e8432fd4d34670ad4e83a4d7` 实施[通用工具、资料授权与产物](../../issues/29-tools-access-artifacts.md)。本机为 macOS arm64、Node 24.15.0。使用独立开发档案、本地模拟模型和回环 HTTP；没有使用真实模型、IM、Tavily 凭据或生产档案。以下证据只证明相应工程行为，不代表完整 A1–A12 或正式切换通过。
 
 ## 实现与旧能力映射
@@ -13,7 +15,7 @@
 | `artifacts.ts` | 新私有不可变原字节文件及 durable 来源引用，分页校验身份/长度/SHA-256，独占导出；命令/MCP 沿已有原引用，不复制正文，不引入旧 core Db。 |
 | 旧拥有者操作 | 本机向导、认证接口及 Telegram `/工具`，明确批准/拒绝、效果和远端结束分别核实、资料授权与撤销、原产物导出。Telegram 只离线核对原入口记录，尚未真实体验。 |
 
-决定及被拒方案见[架构笔记](../../../../.agents/notes/implemented/architecture/2026-10-17-personal-tools-access-artifacts.md)。当前 38 项源码、测试和常驻文档由 [source-manifest.json](source-manifest.json)与[源码归档](source.tar.gz)固定，根已[逐项核对归档和当前字节](root-source-verification.json)；清单不包含本页、工单和证据，避免递归指纹。
+决定及被拒方案见[架构笔记](../../../../.agents/notes/implemented/architecture/2026-10-17-personal-tools-access-artifacts.md)。当前 38 项源码、测试和常驻文档由 [source-manifest.json](source-manifest.json)与[源码归档](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F29-macos%2Fsource.tar.gz)固定，根已[逐项核对归档和当前字节](root-source-verification.json)；清单不包含本页、工单和证据，避免递归指纹。
 
 ## 本机检查
 
@@ -22,14 +24,14 @@
 | 范围 | 实际命令与结果 |
 | --- | --- |
 | 既有 MCP、工作、命令及共享审批 | `npx tsx --test test/personal-mcp.test.ts test/personal-mcp-recovery.test.ts test/personal-work.test.ts test/personal-command-work.test.ts test/08-approvals.test.ts test/22-auto-review.test.ts test/62-tool-availability.test.ts`：118/118，213.83 秒；原输出保存在本轮工具执行历史，没有伪造原始日志。 |
-| IO、产物、配置、控制与共享搜索 | `npx tsx --test test/personal-artifacts.test.ts test/personal-tool-io.test.ts test/personal-tool-fifo.test.ts test/personal-tools-controls.test.ts test/personal-tools-config.test.ts test/08-approvals.test.ts test/23-web-search.test.ts test/web-search-transport.test.ts`：[日志](io-regression-final.log)80/80；当时 IO 为 14 项，之后新增截短异常用例另验。 |
-| 实际调用方 | `npx tsx --test test/personal-durable.test.ts test/personal-cli.test.ts test/personal-work-tools.test.ts test/personal-work-controls.test.ts test/personal-delegations.test.ts test/personal-reports.test.ts test/personal-service-operations.test.ts test/personal-telegram.test.ts test/personal-telegram-permissions.test.ts test/personal-mcp-controls.test.ts test/personal-mcp-config.test.ts test/71-product-entry.test.ts`：[日志](callers-regression.log)313 项中 312 通过、1 个既有 Linux sudo 场景在 macOS 跳过。 |
-| 原生工具核心 | `RUUKOTO_TOOLS_EVIDENCE=.scratch/personal-pi-durable/evidence/29-macos/model-requests-final npx tsx --test test/personal-tools.test.ts`：[初次最终日志](tools-tests-final.log)16 项中 15 通过，资料授权用例超过原 20 秒预算；并发文件身份检查使该例耗时 21.53 秒。只把预算改为 60 秒，断言不变，[同例重跑](confirm-final.log)1/1、10.90 秒。 |
-| 文件写后强杀 | `npx tsx --test --test-name-pattern='durable 文件写入：写后强杀' test/personal-tools.test.ts`：[日志](file-crash-final-2.log)1/1；真实 SIGKILL 后不重写拥有者后改内容，效果未知、本地已结束，核实后解除来源暂停。 |
-| 真实本机认证路由 | `npx tsx --test --test-name-pattern='durable 本机入口：真实认证接口' test/personal-tools.test.ts`：[日志](control-api-final-2.log)1/1；实际后台完成批准、资料授权/撤销、原产物独占导出。 |
-| 截短失败回归 | `npx tsx --test --test-name-pattern='截短已开始后异常\|文件写入开始后' test/personal-tool-io.test.ts test/08-approvals.test.ts`：[日志](truncate-final-2.log)2/2；实际截短再抛错必须保持未知，原 fsync 失败分类仍通过。 |
-| 配置保存故障重试 | `npx tsx --test test/personal-tools-config.test.ts`：[最终日志](config-tests-final.log)3/3，首次及已有配置写盘失败后均可安全重试。 |
-| 构建与静态 | `npm run build`：[日志](build.log)通过；`npm run check:static`：[首次全绿日志](static-final-3.log)通过。交接修改后的[最终静态日志](static-handoff.log)退出 0，包含类型、lint、文档预算/链接/换行与笔记门禁；`git diff --check` 通过。 |
+| IO、产物、配置、控制与共享搜索 | `npx tsx --test test/personal-artifacts.test.ts test/personal-tool-io.test.ts test/personal-tool-fifo.test.ts test/personal-tools-controls.test.ts test/personal-tools-config.test.ts test/08-approvals.test.ts test/23-web-search.test.ts test/web-search-transport.test.ts`：[日志](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F29-macos%2Fio-regression-final.log)80/80；当时 IO 为 14 项，之后新增截短异常用例另验。 |
+| 实际调用方 | `npx tsx --test test/personal-durable.test.ts test/personal-cli.test.ts test/personal-work-tools.test.ts test/personal-work-controls.test.ts test/personal-delegations.test.ts test/personal-reports.test.ts test/personal-service-operations.test.ts test/personal-telegram.test.ts test/personal-telegram-permissions.test.ts test/personal-mcp-controls.test.ts test/personal-mcp-config.test.ts test/71-product-entry.test.ts`：[日志](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F29-macos%2Fcallers-regression.log)313 项中 312 通过、1 个既有 Linux sudo 场景在 macOS 跳过。 |
+| 原生工具核心 | `RUUKOTO_TOOLS_EVIDENCE=.scratch/personal-pi-durable/evidence/29-macos/model-requests-final npx tsx --test test/personal-tools.test.ts`：[初次最终日志](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F29-macos%2Ftools-tests-final.log)16 项中 15 通过，资料授权用例超过原 20 秒预算；并发文件身份检查使该例耗时 21.53 秒。只把预算改为 60 秒，断言不变，[同例重跑](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F29-macos%2Fconfirm-final.log)1/1、10.90 秒。 |
+| 文件写后强杀 | `npx tsx --test --test-name-pattern='durable 文件写入：写后强杀' test/personal-tools.test.ts`：[日志](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F29-macos%2Ffile-crash-final-2.log)1/1；真实 SIGKILL 后不重写拥有者后改内容，效果未知、本地已结束，核实后解除来源暂停。 |
+| 真实本机认证路由 | `npx tsx --test --test-name-pattern='durable 本机入口：真实认证接口' test/personal-tools.test.ts`：[日志](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F29-macos%2Fcontrol-api-final-2.log)1/1；实际后台完成批准、资料授权/撤销、原产物独占导出。 |
+| 截短失败回归 | `npx tsx --test --test-name-pattern='截短已开始后异常\|文件写入开始后' test/personal-tool-io.test.ts test/08-approvals.test.ts`：[日志](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F29-macos%2Ftruncate-final-2.log)2/2；实际截短再抛错必须保持未知，原 fsync 失败分类仍通过。 |
+| 配置保存故障重试 | `npx tsx --test test/personal-tools-config.test.ts`：[最终日志](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F29-macos%2Fconfig-tests-final.log)3/3，首次及已有配置写盘失败后均可安全重试。 |
+| 构建与静态 | `npm run build`：[日志](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F29-macos%2Fbuild.log)通过；`npm run check:static`：[首次全绿日志](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F29-macos%2Fstatic-final-3.log)通过。交接修改后的[最终静态日志](../../../git-history-cleanup/archive.md?path=.scratch%2Fpersonal-pi-durable%2Fevidence%2F29-macos%2Fstatic-handoff.log)退出 0，包含类型、lint、文档预算/链接/换行与笔记门禁；`git diff --check` 通过。 |
 
 核心最终共 18 个不同用例，原 16 项加文件强杀和真实接口两项均已实际通过，未声称一次全文件运行 18/18。配置和截短首轮失败来自测试夹具：前者试图直接改只读 ESM namespace，后改用 Node 内置模块同步导出；后者错误解构文件路径。真实接口首轮误用 `POST /input`，改回既有 `POST /inputs`。对应失败日志 `config-tests.log`、`truncate-final.log`、`control-api-final.log` 原样保留。早期静态失败为缺决策锚点及文档预算，修正后全绿；没有提高预算。
 

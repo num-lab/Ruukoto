@@ -45,7 +45,7 @@ UI 独立审查由 `/root/search_gate_review` 承担，发现候选未准备却�
 
 ## 真实 renderer 验证
 
-使用 Playwright 独立后台 Chromium 155.0.0.0、真实 App 与 renderer 源码、临时合成 DesktopBridge，未连接日常后台；[桥接夹具](renderer-harness.js)、[入口](renderer-harness.html)、[Vite 配置](renderer-vite.config.mjs)可复制到 output/playwright 后按原文件名 spotlight-fixture.js、spotlight.html、spotlight-vite.config.mjs 启动 `npx vite --config output/playwright/spotlight-vite.config.mjs`，地址为 `http://127.0.0.1:4318/output/playwright/spotlight.html`。截图分别为[深色历史定位](renderer-history-dark.png)、[浅色窄窗搜索](renderer-search-light-narrow.png)。夹具只含 Alpha／Beta、普通／存档会话与收起执行记录中的「蓝色灯塔」。
+使用 Playwright 独立后台 Chromium 155.0.0.0、真实 App 与 renderer 源码、临时合成 DesktopBridge，未连接日常后台；[桥接夹具](renderer-harness.js)、[入口](renderer-harness.html)、[Vite 配置](renderer-vite.config.mjs)可复制到 output/playwright 后按原文件名 spotlight-fixture.js、spotlight.html、spotlight-vite.config.mjs 启动 `npx vite --config output/playwright/spotlight-vite.config.mjs`，地址为 `http://127.0.0.1:4318/output/playwright/spotlight.html`。截图分别为[深色历史定位](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-search%2Fevidence%2Frenderer-history-dark.png)、[浅色窄窗搜索](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-search%2Fevidence%2Frenderer-search-light-narrow.png)。夹具只含 Alpha／Beta、普通／存档会话与收起执行记录中的「蓝色灯塔」。
 
 亲验 ⌘K 自动聚焦 combobox，名称与正文分组、组织归属和已存档标记可见；Enter 后对话框完全退出，所属 trace 已展开，真实 data-entry-id=middle 取得焦点、CSS 关键词高亮存在，历史 banner 可见，提交表单为零。Esc 后焦点恢复原消息。预热标题后重复打开 20 次，打开加首组标题的 p95 为 24ms（样本 14–25ms），这是 renderer 证据，与控制面性能分开计算。浅色 760×500 下弹窗 x60／y24／w640／h203.22，四边保留空间；多命中场景另由独立审查验证。
 
@@ -73,7 +73,7 @@ Playwright 独立后台 Chromium 使用真实 App 和合成 DesktopBridge，运�
 
 2026-10-21 来源字段修复：上一版将会话名、工作区和时间作为整条文本省略，长名称会隐藏后两项；先前单行验证不足以证明字段可见。来源行拆成独立项，会话名和工作区平分可用空间并分别省略，时间及存档标记不收缩。原[单行回归](renderer-single-line-check.js)增强为逐字段检查：1280／400px 下两字段均至少 2em 可见宽度、时间等于完整 locale 字符串且未裁切、存档标记可见，并保留单行及无横向溢出断言；另验证时间和存档标记同时缺省。增强断言先红后绿，[结果](renderer-metadata-result.json)含字段宽度与时间原文。静态门禁、两壳构建及独立局部审查通过，原生界面仍未复验。
 
-2026-10-21 最终正文结果布局：拥有者新参考图取代前述 snippet 在上、来源在下及完整时间常显的排版。上行会话名旁保留工作区和存档标记，下行单行 snippet，右侧独立显示相对时间；time 保留 ISO dateTime 和绝对日期 title。复用[单行回归](renderer-single-line-check.js)改验最终上下／左右关系，[结果](renderer-result-layout-result.json)覆盖 1280／400px、长中英文名称、换行正文、工作区和 Badge 可见、右侧 yesterday 完整显示，以及时间／Badge 缺省；[窄窗截图](renderer-result-layout-narrow.png)已实际查看。搜索测试 9／9 通过，新增相对时间的分钟／小时／日／月／年、未来及无效日期检查；月和年按 30／365 天近似。静态门禁及双壳构建通过，原生体验仍待拥有者。
+2026-10-21 最终正文结果布局：拥有者新参考图取代前述 snippet 在上、来源在下及完整时间常显的排版。上行会话名旁保留工作区和存档标记，下行单行 snippet，右侧独立显示相对时间；time 保留 ISO dateTime 和绝对日期 title。复用[单行回归](renderer-single-line-check.js)改验最终上下／左右关系，[结果](renderer-result-layout-result.json)覆盖 1280／400px、长中英文名称、换行正文、工作区和 Badge 可见、右侧 yesterday 完整显示，以及时间／Badge 缺省；[窄窗截图](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-search%2Fevidence%2Frenderer-result-layout-narrow.png)已实际查看。搜索测试 9／9 通过，新增相对时间的分钟／小时／日／月／年、未来及无效日期检查；月和年按 30／365 天近似。静态门禁及双壳构建通过，原生体验仍待拥有者。
 
 ## 隔离原生验收
 
@@ -83,7 +83,7 @@ Playwright 独立后台 Chromium 使用真实 App 和合成 DesktopBridge，运�
 
 真实 Electron 首次启动暴露既有 node-pty 构建问题：Vite 先解析依赖，现有 vendor 插件没有生效，原生加载器被内联后按 main 目录查找 pty.node。仅给 terminal-runtime 增加 enforce:pre；test/38-desktop-build.test.ts 使用实际配置插件做 write:false 的 Vite 构建，原配置外部引用为空，修复后精确引用 vendor 且不内联 loadNativeModule。最窄回归先红后绿，全文件 9／9 通过；独立只读审查确认无阻断。修复后的 desktop:build、check:static 和 codesign --verify --deep --strict dist/mac-arm64/Ruukoto.app 通过；临时日志分别为 /tmp/spotlight-native-build-before.log、/tmp/spotlight-native-build-after.log、/tmp/spotlight-native-electron-rebuild.log、/tmp/spotlight-native-final-static.log。
 
-Electron 使用实际应用窗口与生产 renderer，通过 CDP 驱动，未注入 DesktopBridge。⌘K 自动聚焦搜索；点击加载更多后选项 22→42（含两个名称结果），输入继续聚焦，方向键更新 aria-activedescendant，继续键入 x 得到 needlex；Esc 等关闭动画完成后恢复原「收起侧栏」按钮焦点。Enter 打开存档会话，普通「输入消息」框可编辑；PA 页面搜索中文正文后 Enter 切回对应 Code 会话，合成草稿可编辑，收起侧栏后 ⌘K 仍打开搜索。明暗主题均实际查看；滚动使 search-results.scrollTop 从 0 到 345，无诊断错误。[深色结果](native-electron-dark.jpg)、[浅色滚动结果](native-electron-light-wide.jpg)保留画面。独立重启时用临时 bootstrap 将 BrowserWindow 设为真实 760×500，[窄窗截图](native-electron-dark-narrow.jpg)显示弹窗 x60／y24／w640／h436、无横向溢出，名称／snippet 单行，工作区、存档标记和相对时间可见。
+Electron 使用实际应用窗口与生产 renderer，通过 CDP 驱动，未注入 DesktopBridge。⌘K 自动聚焦搜索；点击加载更多后选项 22→42（含两个名称结果），输入继续聚焦，方向键更新 aria-activedescendant，继续键入 x 得到 needlex；Esc 等关闭动画完成后恢复原「收起侧栏」按钮焦点。Enter 打开存档会话，普通「输入消息」框可编辑；PA 页面搜索中文正文后 Enter 切回对应 Code 会话，合成草稿可编辑，收起侧栏后 ⌘K 仍打开搜索。明暗主题均实际查看；滚动使 search-results.scrollTop 从 0 到 345，无诊断错误。[深色结果](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-search%2Fevidence%2Fnative-electron-dark.jpg)、[浅色滚动结果](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-search%2Fevidence%2Fnative-electron-light-wide.jpg)保留画面。独立重启时用临时 bootstrap 将 BrowserWindow 设为真实 760×500，[窄窗截图](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-search%2Fevidence%2Fnative-electron-dark-narrow.jpg)显示弹窗 x60／y24／w640／h436、无横向溢出，名称／snippet 单行，工作区、存档标记和相对时间可见。
 
 MyGo 连接同一合成后台，原生无障碍路径打开搜索、设置 needle 并读取结果，点击加载更多后实际读取 40 条正文。曾取得 1160×780 的真实截图并目视确认最终双行布局，另一次真实键入 x 经值回读确认 needlex；这两项不合并推定为完整分页后焦点通过。台前调度开启时，工具反复只绑定到 -1 或系统缩略窗口，截图、方向键与后续键入因窗口失效或 backgroundtype needs number window 被拒绝；重新绑定仅暂时恢复。分页动作虽曾返回 uncertain，但随后读到第 40 条，未重复未确认动作。未将窗口绑定失败当作产品故障，也未据此修改 MyGo。
 
@@ -95,7 +95,7 @@ A7 仍未全部通过：MyGo 完整快捷键／方向键／Enter／Esc／焦点�
 
 2026-10-21 按拥有者新要求，搜索图标从侧栏菜单移到顶栏侧栏开关左侧；展开／收起均复用同一定位与位移规则，收起的搜索键／侧栏键为 x84／114，首标签从 x144 起，保留原生窗口控制空间。⌘K 切换搜索开关，忽略按键重复和组合输入；关闭继续走既有焦点恢复。搜索弹窗用独立 translate 居中，沿用 Dialog 的 fade 与 Y=-12px→0 位移，取消缩放；不静态声明 transform，避免 CSS 优化将居中合并进动画使用的 transform。
 
-[真实 App 回归](renderer-search-controls-check.js)分别在开发样式和实际构建产物 CSS 下执行，后者先移除所有开发样式再安装 out/renderer/assets 中的 CSS。[结果](renderer-search-controls-result.json)各 10 项通过：动画 0／50／100% 的 x 均为 320，y 从 160.80 经 170.43 到 172.80；⌘K 关闭／恢复焦点、长按不反复开关、组合阶段不关闭、展开／收起／400px 窄窗布局、减少动画和其他模态窗口护栏均通过。受控负例还原旧 transform 居中、无纵移、快捷键只打开，并模拟旧搜索行位置，动画／⌘K／按钮位置共 5 项失败；没有改动源码运行负例。[截图](renderer-search-controls.png)已实际查看。搜索控制器测试 9／9、check:static、desktop:build、desktop:mygo:build、Electron 严格签名校验及 diff --check 通过；独立只读实现审查无阻断，并亲验 Safari16／Chrome124 的 CSS 压缩仍保留独立 translate。
+[真实 App 回归](renderer-search-controls-check.js)分别在开发样式和实际构建产物 CSS 下执行，后者先移除所有开发样式再安装 out/renderer/assets 中的 CSS。[结果](renderer-search-controls-result.json)各 10 项通过：动画 0／50／100% 的 x 均为 320，y 从 160.80 经 170.43 到 172.80；⌘K 关闭／恢复焦点、长按不反复开关、组合阶段不关闭、展开／收起／400px 窄窗布局、减少动画和其他模态窗口护栏均通过。受控负例还原旧 transform 居中、无纵移、快捷键只打开，并模拟旧搜索行位置，动画／⌘K／按钮位置共 5 项失败；没有改动源码运行负例。[截图](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-search%2Fevidence%2Frenderer-search-controls.png)已实际查看。搜索控制器测试 9／9、check:static、desktop:build、desktop:mygo:build、Electron 严格签名校验及 diff --check 通过；独立只读实现审查无阻断，并亲验 Safari16／Chrome124 的 CSS 压缩仍保留独立 translate。
 
 本轮没有重新启动原生窗口；上节原生证据不覆盖本次改变的动画、⌘K 关闭和入口布局，其他未改行为的证据仍有效。真实 IME 不能由本轮 composition 事件模拟推定，原生验收缺口继续保留；未提交或推送。
 
@@ -103,7 +103,7 @@ A7 仍未全部通过：MyGo 完整快捷键／方向键／Enter／Esc／焦点�
 
 2026-10-21 拥有者反馈 snippet 高亮未显示，要求去掉聊天内容结果的工作区名并将搜索弹窗改为灰色。根因是后端默认保留命中前 80 个字符，首个 mark 被单行 ellipsis 裁到可视区域外。只有正文预览使用 SearchHighlight 的 fromMatch：前文替换成一个省略号，匹配词紧接开头并保留完整后文；名称高亮保持全文，字面空格与 ASCII 折叠语义不变。删除消息结果的工作区元素及死样式，名称结果仍显示工作区；背景复用 --bg-surface，mark 文字使用 --text-primary。
 
-增强既有[单行探针](renderer-single-line-check.js)，注入 80 字前文加 emoji 后才出现 needle 的 snippet，检查 mark 的左右边界实际位于预览框内；同时验证消息无工作区、名称结果仍有工作区，存档标记、相对时间、单行省略及可选字段保持。[结果](renderer-preview-result.json)记录修改前 1280px 场景的 markVisible=false／工作区未删除，修复后 1280／400px 两宽通过。每个视口重新加载并核实弹窗实宽分别为 640／368px，避免 resize 后采到旧布局。已实际查看[深色窄窗](renderer-preview-dark.png)与[浅色](renderer-preview-light.png)截图；浅色背景实测 oklch(0.97 0 0)，消息结果工作区元素为零。
+增强既有[单行探针](renderer-single-line-check.js)，注入 80 字前文加 emoji 后才出现 needle 的 snippet，检查 mark 的左右边界实际位于预览框内；同时验证消息无工作区、名称结果仍有工作区，存档标记、相对时间、单行省略及可选字段保持。[结果](renderer-preview-result.json)记录修改前 1280px 场景的 markVisible=false／工作区未删除，修复后 1280／400px 两宽通过。每个视口重新加载并核实弹窗实宽分别为 640／368px，避免 resize 后采到旧布局。已实际查看[深色窄窗](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-search%2Fevidence%2Frenderer-preview-dark.png)与[浅色](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-search%2Fevidence%2Frenderer-preview-light.png)截图；浅色背景实测 oklch(0.97 0 0)，消息结果工作区元素为零。
 
 搜索测试 9／9、check:static、双壳构建、两壳严格签名及 diff --check 通过；独立只读复核无阻断，另亲跑真实组件 SSR 的 6 组边界断言（长前文、emoji、大小写、字面空格、标题与空查询）通过。本次未启动原生窗口；旧原生截图不覆盖本轮预览与背景改动，原生输入法／读屏及 MyGo 完整交互缺口继续保留。未提交或推送。
 
@@ -111,7 +111,7 @@ A7 仍未全部通过：MyGo 完整快捷键／方向键／Enter／Esc／焦点�
 
 2026-10-21 拥有者最新反馈取代上节 fromMatch 从匹配处开头展示及底部加载按钮。正文预览保留后端完整 snippet；SearchSnippet 用首个 mark 和容器实际像素宽度设置 scrollLeft，超宽时让高亮尽量居中，短消息保持从头显示，ResizeObserver 随宽度变化重算。正文使用 clip，标题仍用 ellipsis；实际截图发现 ellipsis 在横向定位后会隐藏本应绘制的高亮，改用 clip 后文字与高亮均可见。两种结果之间增加分隔线；滚动条固定宽度、静止透明，滚动中及停止后 700ms 显示。删除加载更多按钮，底部哨兵进入距滚动视口底部 80px 的范围时复用原分页器续查；每轮只触发一次，关闭、离线、组合输入、错误和扫描完成时停用。
 
-真实 App、合成 DesktopBridge 和独立后台 Chromium 沿用上文 Vite 夹具，运行更新的[单行预览探针](renderer-single-line-check.js)与[自动分页探针](renderer-load-more-focus-check.js)。[合并结果](renderer-lazy-search-result.json)保留修改前失败与最终通过：旧预览 centered=false，旧分页有 6 项失败；最终 1280／400px 两宽的高亮可见、中心误差 ≤1px、单行、时间、存档标记和工作区字段规则均通过。同一个弹窗 400→1280→400 缩放后保持居中，scrollLeft 分别为 730／866；ping 搜索 in 保留完整 ping、scrollLeft=0。另移除开发样式后加载实际构建 CSS，在浅色主题重复预览、缩放和短消息检查，全部通过。已实际查看[深色预览](renderer-centered-preview-dark.png)、[生产 CSS 浅色预览](renderer-centered-preview-light.png)与[短消息](renderer-short-message-light.png)截图，确认实际文字和高亮绘制。
+真实 App、合成 DesktopBridge 和独立后台 Chromium 沿用上文 Vite 夹具，运行更新的[单行预览探针](renderer-single-line-check.js)与[自动分页探针](renderer-load-more-focus-check.js)。[合并结果](renderer-lazy-search-result.json)保留修改前失败与最终通过：旧预览 centered=false，旧分页有 6 项失败；最终 1280／400px 两宽的高亮可见、中心误差 ≤1px、单行、时间、存档标记和工作区字段规则均通过。同一个弹窗 400→1280→400 缩放后保持居中，scrollLeft 分别为 730／866；ping 搜索 in 保留完整 ping、scrollLeft=0。另移除开发样式后加载实际构建 CSS，在浅色主题重复预览、缩放和短消息检查，全部通过。已实际查看[深色预览](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-search%2Fevidence%2Frenderer-centered-preview-dark.png)、[生产 CSS 浅色预览](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-search%2Fevidence%2Frenderer-centered-preview-light.png)与[短消息](../../git-history-cleanup/archive.md?path=.scratch%2Fdesktop-search%2Fevidence%2Frenderer-short-message-light.png)截图，确认实际文字和高亮绘制。
 
 自动分页检查在 80ms 与仅 await Promise.resolve() 的快速应答下各 14 项通过：分隔线、无加载按钮、静止隐藏→滚动显条→停止隐藏、到达底部前不提前扫完、20→40→60 自动续载、单页在途、焦点和方向键保持、继续输入、关闭后取消 debounce、完成停止，以及分页错误保留结果且停止自动重试。错误与完成不凭列表仍可见而继续请求。合成响应只替换桥接数据，不替换被验收的 App 与搜索实现。
 

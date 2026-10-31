@@ -208,8 +208,8 @@ class WindowFrame implements Component {
 
   /** 滚动内容区：delta 为行数（正数向下）。 */
   scrollBy(delta: number): void {
-    this.overflow();
-    this.scrollTop = Math.max(0, Math.min(Math.max(0, this.contentRows - this.maxRows), this.scrollTop + delta));
+    const { below } = this.overflow();
+    this.scrollTop = Math.max(0, Math.min(this.scrollTop + below, this.scrollTop + delta));
   }
 
   /** 是否还有未显示的内容（用于滚动提示与批准门禁）。按需以最近渲染宽度重算，
@@ -220,7 +220,8 @@ class WindowFrame implements Component {
       const visible = this.maxRows > 0 ? Math.min(this.contentRows, this.maxRows) : this.contentRows;
       this.scrollTop = Math.max(0, Math.min(this.scrollTop, Math.max(0, this.contentRows - visible)));
     }
-    const max = Math.max(0, this.contentRows - this.maxRows);
+    // maxRows<=0 视为不限高（全部可见），否则报告视口外剩余行
+    const max = this.maxRows > 0 ? Math.max(0, this.contentRows - this.maxRows) : 0;
     return { above: this.scrollTop, below: max - this.scrollTop };
   }
 
@@ -3371,7 +3372,7 @@ export class TuiApp {
         refreshFooter();
         this.tui.requestRender();
       } catch (err) {
-        paramsText.setText(red(`参数读取失败：${(err as Error).message}`));
+        paramsText.setText(red(`参数读取失败：${sanitizeForDisplay((err as Error).message)}`));
         this.tui.requestRender();
       }
     };

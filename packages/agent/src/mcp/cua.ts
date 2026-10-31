@@ -123,7 +123,7 @@ export function restrictCuaTool(config: CuaConfig, remote: McpRemoteTool): McpRe
   const mac = config.kind === "cua-mac";
   const base = `电脑目标和连接由宿主管理，使用最新观察中的窗口、元素与坐标；未列出的电脑能力不可用。连接中断或结果未知时停止电脑操作，报告拥有者从管理入口核实并恢复。\n${remote.description ?? ""}`;
   if (remote.name === "run_steps") {
-    const description = `在一个已观察窗口内按序执行至多 ${CUA_BATCH_MAX_STEPS} 个确定性动作，并以 observe 取得末尾观察；先 get_window_state 观察该窗口。写操作先观察：元素动作使用观察中交付的 element_token，坐标动作需要该窗口已交付的截图。整批一次审批绑定，宿主发送后不再逐步重核；steps 只接受 {tool,args} 形式，不支持别名、条件、等待或脚本；子动作与观察都须在服务允许列表。type_text 只接受坐标或焦点目标（不接受 element_token/选择器），set_value 不在批次内；菜单栏元素的 click 会被钉版驱动改执行为 invoke_menu，故不接受菜单栏元素令牌，菜单请用 hotkey 或等价键。执行到首个失败步停止：executed 计已报告步数而非已确认效果，失败步可能有部分效果，顶层成功不代表末尾观察有效或任务已完成；批次派发后旧观察授权作废，仅由有效交付的末尾观察恢复；失败或结果不明时重新观察并计划新批次，不要原样重放。\n${base}`;
+    const description = `在一个已观察窗口内按序执行至多 ${CUA_BATCH_MAX_STEPS} 个确定性动作，并以 observe 取得末尾观察；先 get_window_state 观察该窗口。写操作先观察：元素动作使用观察中交付的 element_token，坐标动作需要该窗口已交付的截图。整批一次审批绑定，宿主发送后不再逐步重核；steps 只接受 {tool,args}（可附 timeout_ms≤10s）形式，不支持别名、条件、等待或脚本；子动作与观察都须在服务允许列表。type_text 只接受坐标或焦点目标（不接受 element_token/选择器），set_value 不在批次内；菜单栏元素的 click 会被钉版驱动改执行为 invoke_menu，故不接受菜单栏元素令牌（elements 格式观察无可判定行，其令牌同样不授权 click），菜单请用 hotkey 或等价键。执行到首个失败步停止：executed 计已报告步数而非已确认效果，失败步可能有部分效果，顶层成功不代表末尾观察有效或任务已完成；批次派发后旧观察授权作废，仅由有效交付的末尾观察恢复；失败或结果不明时重新观察并计划新批次，不要原样重放。\n${base}`;
     return { ...remote, description, inputSchema: RUN_STEPS_SCHEMA };
   }
   const schema = remote.inputSchema;
@@ -161,7 +161,7 @@ function checkObject(value: unknown, fields: Record<string, FieldSpec>, required
   const object = value as Record<string, unknown>;
   for (const key of Object.keys(object)) {
     if (key.startsWith("_")) throw batchError(`${at} 的 ${key} 为保留字段`);
-    if (!fields[key]) throw batchError(`${at} 不开放字段 ${key}`);
+    if (!Object.hasOwn(fields, key)) throw batchError(`${at} 不开放字段 ${key}`);
   }
   for (const key of required) if (object[key] === undefined) throw batchError(`${at} 缺少 ${key}`);
   for (const [key, spec] of Object.entries(fields)) if (object[key] !== undefined) checkField(spec, object[key], `${at} 的 ${key}`);
@@ -255,7 +255,7 @@ export function cuaBatchArguments(config: CuaConfig, allowlist: readonly McpAllo
     for (const key of Object.keys(args as Record<string, unknown>)) {
       if (key.startsWith("_")) throw batchError(`${at} args 的 ${key} 为保留字段`);
       if (STEP_FORBIDDEN_FIELDS.includes(key)) throw batchError(`${at} args 不开放字段 ${key}（批次窗口与会话由宿主/批次固定）`);
-      if (!STEP_ARG_FIELDS[tool]![key] && !STEP_SELECTOR_FIELDS[key]) throw batchError(`${at} args 不开放字段 ${key}`);
+      if (!Object.hasOwn(STEP_ARG_FIELDS[tool]!, key) && !Object.hasOwn(STEP_SELECTOR_FIELDS, key)) throw batchError(`${at} args 不开放字段 ${key}`);
     }
     checkObject(args, { ...STEP_ARG_FIELDS[tool], ...STEP_SELECTOR_FIELDS }, Object.entries(STEP_ARG_FIELDS[tool]!).filter(([, spec]) => spec.required).map(([key]) => key), `${at} args`);
     checkStepTarget(tool, args as Record<string, unknown>, at);
@@ -303,7 +303,8 @@ export function cuaActionNeed(args: Record<string, unknown>): CuaActionNeed {
     const row = split.length === 2 ? Number.parseInt(split[1]!, 10) : NaN;
     return { kind: "token", sid: split[0]!, row, ...(windowKey ? { windowKey } : {}) };
   }
-  if (args.scope === "desktop" || target?.kind === "desktop") return { kind: "desktop" };
+  // 上游只在 pid/window_id 均缺省时走桌面分支；带窗口目标时 scope:"desktop" 被忽略，x/y 按窗口内坐标解释
+  if ((args.scope === "desktop" || target?.kind === "desktop") && pid === undefined && windowId === undefined) return { kind: "desktop" };
   const coords = COORD_FIELDS.some(key => args[key] !== undefined);
   return windowKey || coords ? { kind: "window", ...(windowKey ? { windowKey } : {}), coords } : { kind: "context" };
 }

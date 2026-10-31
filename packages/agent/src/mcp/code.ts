@@ -11,7 +11,7 @@ import { ownerQuestionTaskEligible } from "@ruukoto/core/owner-questions.ts";
 import type { ArtifactStore } from "../artifacts.ts";
 import { prepareMacosStdioExecution, stopMacosExecution } from "../execution/native-macos-identity.ts";
 import { cuaActionNeed, cuaArguments, cuaBatchPlan, cuaProgram, cuaToolEffect } from "./cua.ts";
-import { clearObservationGrant, cuaObservationBlocked, dropObservationBase, freshCuaGrants, grantWindowObservation, requireCuaEligibility, revokeActionable, tokenGrantWindow, type CuaGrants } from "./cua-observation.ts";
+import { clearObservationGrant, cuaObservationBlocked, dropObservationGrant, freshCuaGrants, grantWindowObservation, requireCuaEligibility, revokeActionable, tokenGrantWindow, type CuaGrants } from "./cua-observation.ts";
 import { connectMcpStdio, createMcpStdioTransport, McpError, mcpResponseEnded, type ManagedMcpTransport, type McpCallBinding, type McpCallHooks, type McpConnection, type McpTimeouts, type CallToolResult } from "./transport.ts";
 import type { McpServiceConfig, McpStore } from "./store.ts";
 import { formatMcpResult, type McpToolInfo } from "./tools.ts";
@@ -304,18 +304,25 @@ export class CodeCuaManager {
     const truncated = delivered.truncated === true;
     const state = result.structuredContent && typeof result.structuredContent === "object" && !Array.isArray(result.structuredContent) ? result.structuredContent as Record<string, unknown> : undefined;
     const args = ((operation as McpOperation).arguments ?? {}) as Record<string, unknown>;
-    // 授权归属按返回状态报出的窗口（上游可经 session/app/window 覆盖解析到不同目标），缺字段时退回请求参数。
-    const stateKey = (inner: Record<string, unknown>) => `${inner.pid ?? args.pid}:${inner.window_id ?? args.window_id}`;
+    // 授权归属按返回状态报出的窗口（上游可经 app/window 覆盖解析到不同目标），缺字段时退回请求参数；
+    // 两端都缺字段时不可归属——不发放授权，并按读基线可能已前移清除受影响窗口的授权与基线。
+    const stateKey = (inner: Record<string, unknown>) => {
+      const pid = inner.pid ?? args.pid, wid = inner.window_id ?? args.window_id;
+      return pid !== undefined && wid !== undefined ? `${pid}:${wid}` : undefined;
+    };
     if (remoteName === "get_window_state") {
-      if (state) grantWindowObservation(grants, stateKey(state), state, text, image, truncated);
+      const key = state ? stateKey(state) : undefined;
+      if (state && key) grantWindowObservation(grants, key, state, text, image, truncated);
+      else dropObservationGrant(grants, state ? { pid: state.pid, window_id: state.window_id } : args);
     } else if (remoteName === "get_desktop_state") {
       if (image && !cuaObservationBlocked(state)) grants.desktopScreenshot = true;
     } else if (remoteName === "run_steps") {
       const observation = state?.observation;
-      if (observation && typeof observation === "object" && (observation as { ok?: unknown }).ok === true) {
-        const inner = (observation as { state?: unknown }).state;
-        if (inner && typeof inner === "object" && !Array.isArray(inner)) grantWindowObservation(grants, stateKey(inner as Record<string, unknown>), inner as Record<string, unknown>, text, image, truncated);
-      }
+      const inner = observation && typeof observation === "object" && (observation as { ok?: unknown }).ok === true ? (observation as { state?: unknown }).state : undefined;
+      const key = inner && typeof inner === "object" && !Array.isArray(inner) ? stateKey(inner as Record<string, unknown>) : undefined;
+      // 末尾观察不可用（失败、缺失或不可归属）：派发时已撤销可操作授权，此处连 diff 基线一并清除
+      if (key) grantWindowObservation(grants, key, inner as Record<string, unknown>, text, image, truncated);
+      else dropObservationGrant(grants, args);
     } else if (cuaToolEffect(binding.service.cua!, remoteName) === "write") {
       const need = cuaActionNeed(args);
       grants.activeWindow = need.kind === "token" && need.sid ? tokenGrantWindow(grants, need.sid)?.[0] ?? grants.activeWindow
@@ -329,7 +336,7 @@ export class CodeCuaManager {
     const operation = this.store.getToolOp(opId)?.mcp;
     if (!operation || operation.execution?.executionId !== this.binding?.execution.executionId) return;
     const args = ((operation as McpOperation).arguments ?? {}) as Record<string, unknown>;
-    if (remoteName === "get_window_state" || remoteName === "run_steps") dropObservationBase(this.binding!.grants, `${args.pid}:${args.window_id}`);
+    if (remoteName === "get_window_state" || remoteName === "run_steps") dropObservationGrant(this.binding!.grants, args);
     else if (remoteName === "get_desktop_state") this.binding!.grants.desktopScreenshot = false;
   }
 

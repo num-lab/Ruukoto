@@ -876,6 +876,8 @@ export class ToolRouter {
       }
       if (meta.checkOutput && !result.isError && (result.structuredContent === undefined || !meta.checkOutput(result.structuredContent))) {
         // 远端成功应答即已执行：结果不符是已知错误，不标 effect_unknown
+        // CUA 观察调用结果未交付（读基线已前移）：连同授权与基线一起清除
+        if (meta.service.cua) mcp.cua!.observationDeliveryFailed(input.hostOpId, meta.remoteName);
         return textResult(`远端已执行，但结构化结果与声明的 outputSchema 不符（${meta.service.name}/${meta.remoteName}）`, true);
       }
       const formatted = formatMcpResult(

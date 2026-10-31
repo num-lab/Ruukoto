@@ -79,6 +79,7 @@ import {
 } from "./state.ts";
 
 import { HistoryRecovery } from "@ruukoto/view/history-recovery.ts";
+import { cuaBatchSummary } from "@ruukoto/view/cua-batch.ts";
 import { EventFlowView } from "./event-flow-view.ts";
 import { activityAgo, TwoLineSelectList } from "./session-list.ts";
 import { WorkflowSidebar } from "./workflows.ts";
@@ -3305,10 +3306,15 @@ export class TuiApp {
       header.setText(lines.join("\n"));
     };
     renderHeader(c.permissionVersion, c.status);
+    // 批次审批绑定整批动作：批准前必须连续读完全部参数
+    const isCuaBatch = c.scope.kind === "mcp_tool" && c.scope.remoteName === "run_steps" && !!c.scope.cua;
     const paramsText = new Text("参数加载中…", 1, 0);
-    const footerText = new Text(dim("a 批准 · r 拒绝 · n/p 参数翻页 · Esc/q 关闭（关闭不等于拒绝）"), 1, 0);
+    const batchText = new Text("", 1, 0);
+    const batchFooter = () => `a 批准${isCuaBatch ? "（须读完全部参数）" : ""} · r 拒绝 · n/p 参数翻页 · Esc/q 关闭（关闭不等于拒绝）`;
+    const footerText = new Text(dim(batchFooter()), 1, 0);
     const box = new OverlayBox([
       { component: header, grow: 0 },
+      ...(isCuaBatch ? [{ component: batchText, grow: 0 }] : []),
       { component: paramsText, grow: 1 },
       { component: footerText, grow: 0 },
     ]);
@@ -3317,6 +3323,17 @@ export class TuiApp {
     let offset = 0;
     let total = c.paramsTruncated ? c.paramsBytes : 0;
     let nextOffset = 0;
+    const pages = new Map<number, string>();
+    let batchRendered = false;
+    /** 已加载页是否从 0 起连续覆盖全部参数字节（批次批准的前置条件）。 */
+    const paramsComplete = () => {
+      let end = 0;
+      for (const off of [...pages.keys()].sort((a, b) => a - b)) {
+        if (off !== end) return false;
+        end = off + Buffer.byteLength(pages.get(off)!, "utf8");
+      }
+      return total > 0 && end >= total;
+    };
     // 详情展示以服务端最新记录为准（权限版本可能已变化）
     let currentVersion = c.permissionVersion;
     const loadParams = async (off: number) => {
@@ -3325,6 +3342,7 @@ export class TuiApp {
         if (generation !== this.generation) return;
         offset = slice.params.offset;
         total = slice.params.totalBytes;
+        pages.set(slice.params.offset, slice.params.text);
         // 前进按实际消费字节数（UTF-8 边界对齐），跨页字符不丢
         nextOffset = slice.params.offset + Buffer.byteLength(slice.params.text, "utf8");
         currentVersion = slice.confirmation.permissionVersion;
@@ -3333,6 +3351,12 @@ export class TuiApp {
           footerText.setText(yellow(`该审批当前状态：${slice.confirmation.status}（已不可批准/拒绝） · Esc/q 关闭`));
         }
         paramsText.setText(sanitizeForDisplay(slice.params.text));
+        if (isCuaBatch && paramsComplete() && !batchRendered) {
+          batchRendered = true;
+          let steps: string[] | null = null;
+          try { steps = cuaBatchSummary(JSON.parse([...pages.entries()].sort((a, b) => a[0] - b[0]).map(([, text]) => text).join(""))); } catch { steps = null; }
+          if (steps) batchText.setText([bold("批次动作（一次批准绑定全部步骤）"), ...steps, ""].join("\n"));
+        }
         this.tui.requestRender();
       } catch (err) {
         paramsText.setText(red(`参数读取失败：${(err as Error).message}`));
@@ -3342,6 +3366,11 @@ export class TuiApp {
     void loadParams(0);
 
     const respond = async (decision: "approve" | "reject") => {
+      if (decision === "approve" && isCuaBatch && !paramsComplete()) {
+        footerText.setText(yellow("批次批准绑定全部步骤；请先用 n 翻页读完全部参数，再决定批准。"));
+        this.tui.requestRender();
+        return;
+      }
       footerText.setText(dim("已发送应答，等待后台状态…"));
       this.tui.requestRender();
       try {

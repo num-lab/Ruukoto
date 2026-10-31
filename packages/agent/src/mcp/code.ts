@@ -10,7 +10,8 @@ import { randomId, type McpCuaOperation as McpOperation, type Task, type ToolOp 
 import { ownerQuestionTaskEligible } from "@ruukoto/core/owner-questions.ts";
 import type { ArtifactStore } from "../artifacts.ts";
 import { prepareMacosStdioExecution, stopMacosExecution } from "../execution/native-macos-identity.ts";
-import { cuaArguments, cuaProgram, cuaToolEffect } from "./cua.ts";
+import { cuaActionNeed, cuaArguments, cuaProgram, cuaToolEffect } from "./cua.ts";
+import { clearObservationGrant, cuaObservationBlocked, freshCuaGrants, grantWindowObservation, requireCuaEligibility, tokenGrantWindow, type CuaGrants } from "./cua-observation.ts";
 import { connectMcpStdio, createMcpStdioTransport, McpError, mcpResponseEnded, type ManagedMcpTransport, type McpCallBinding, type McpCallHooks, type McpConnection, type McpTimeouts, type CallToolResult } from "./transport.ts";
 import type { McpServiceConfig, McpStore } from "./store.ts";
 import { formatMcpResult, type McpToolInfo } from "./tools.ts";
@@ -18,7 +19,7 @@ import { mcpImages, McpImageError } from "./images.ts";
 
 type Execution = McpOperation["execution"];
 type CuaToolOp = ToolOp & { mcp: McpOperation };
-interface Binding { service: McpServiceConfig; sessionId: string; conn?: McpConnection; transport?: ManagedMcpTransport; execution: Execution; observed: boolean }
+interface Binding { service: McpServiceConfig; sessionId: string; conn?: McpConnection; transport?: ManagedMcpTransport; execution: Execution; grants: CuaGrants }
 export interface CodeCuaStatus {
   state: "idle" | "connecting" | "active" | "frozen" | "recovering";
   sessionId?: string;
@@ -65,7 +66,7 @@ export class CodeCuaManager {
 
   private detectClosed(): void {
     if (!this.binding?.conn?.closed && !this.binding?.transport?.closed) return;
-    this.binding.observed = false;
+    this.binding.grants = freshCuaGrants();
     const last = this.latestExecutions().find(op => op.mcp!.execution.executionId === this.binding!.execution.executionId);
     if (last && !["closed", "recovered", "frozen", "recovering"].includes(last.mcp!.state)) this.save(last.id, { ...last.mcp!, state: "frozen" });
   }
@@ -116,7 +117,7 @@ export class CodeCuaManager {
           const programInScope = await prepareMacosStdioExecution(this.directory, ref, program);
           this.verify(service, task);
           transport = createMcpStdioTransport(programInScope, bind);
-          this.binding = { service, sessionId: task.sessionId, transport, execution, observed: false };
+          this.binding = { service, sessionId: task.sessionId, transport, execution, grants: freshCuaGrants() };
           transport.onError(error => { for (const listener of errors) listener(error); });
           transport.onClose(() => { closed = true; for (const listener of closers) listener(); });
           transport.onMessage(message => {
@@ -140,7 +141,7 @@ export class CodeCuaManager {
               for (const listener of errors) listener(new McpError("evidence_failed", proof.exited ? "电脑初始化结果无法保存；原执行停止已核实，请拥有者检查原操作。" : "电脑初始化结果无法保存，原执行停止尚未核实；保持冻结，请拥有者检查原现场。"));
             }).catch(() => {
               closed = true;
-              if (this.binding?.execution.executionId === execution!.executionId) this.binding.observed = false;
+              if (this.binding?.execution.executionId === execution!.executionId) this.binding.grants = freshCuaGrants();
               for (const listener of errors) listener(new McpError("evidence_failed", "电脑初始化结果或停止证明无法保存；保持冻结，请拥有者检查原现场与存储。"));
               for (const listener of closers) listener();
             });
@@ -209,7 +210,7 @@ export class CodeCuaManager {
         if (proof.exited) this.save(opId, { ...operation, state: "closed", stoppedAt: new Date().toISOString() });
         throw error;
       }
-      this.binding = { service, sessionId, conn, execution, observed: false };
+      this.binding = { service, sessionId, conn, execution, grants: freshCuaGrants() };
       try {
         this.store.withTx(() => {
           this.store.saveMcpOperation(opId, { ...operation, state: "finished" });
@@ -242,12 +243,12 @@ export class CodeCuaManager {
     const binding = this.binding;
     if (!binding || binding.sessionId !== task.sessionId || binding.service.id !== meta.service.id || this.busy) throw new McpError("cua_binding_busy", "电脑连接正由另一操作使用；结束本轮并报告拥有者核实连接。");
     if (task.planMode && meta.effect !== "read") throw new McpError("cua_plan_read_only", "计划模式只允许观察电脑；请向拥有者说明所需操作后结束本轮。");
-    if (!binding.observed && meta.effect !== "read") throw new McpError("cua_observation_required", "电脑连接需要先取得新的画面；先调用画面观察工具，再根据新画面操作。");
     const args = cuaArguments(meta.service.cua!, meta.remoteName, params);
+    if (meta.effect !== "read") requireCuaEligibility(binding.grants, meta.remoteName, args);
+    else if (["get_window_state", "get_desktop_state"].includes(meta.remoteName)) clearObservationGrant(binding.grants, meta.remoteName, args);
     const operation: McpOperation = { serviceId: meta.service.id, configVersion: meta.service.configVersion, configuration: meta.service.cua!.kind === "cua-mac" ? meta.service.cua : undefined, effect: meta.effect,
       rawTool: { name: meta.remoteName, inputSchema: meta.rawInputSchema ?? meta.inputSchema }, modelTool: { name: meta.exposedName, inputSchema: meta.inputSchema }, arguments: args, execution: binding.execution, state: "prepared" };
     this.save(opId, operation);
-    if (["get_desktop_state", "get_window_state"].includes(meta.remoteName)) binding.observed = false;
     this.busy = true;
     let originalRequest: string | undefined;
     try {
@@ -275,23 +276,46 @@ export class CodeCuaManager {
       const current = this.store.getToolOp(opId)!.mcp! as McpOperation;
       if (!current.response || !mcpResponseEnded(current.response)) throw new McpError("remote_incomplete", "电脑原请求尚无完整终结应答，已冻结电脑；停止调用并报告拥有者核实，不能重发旧动作。");
       this.save(opId, { ...current, state: "finished" });
-      if (mcpImages(result).size) binding.observed = false;
       return result;
     } catch (error) {
       const current = this.store.getToolOp(opId)!.mcp! as McpOperation;
       if (error instanceof McpError && error.requestSent === false) this.save(opId, { ...current, state: "not_sent" });
       else if (current.request && (!current.response || !mcpResponseEnded(current.response))) {
         this.save(opId, { ...current, state: "frozen" });
-        binding.observed = false;
+        binding.grants = freshCuaGrants();
       } else this.save(opId, { ...current, state: current.request ? "finished" : "not_sent" });
       throw error;
     } finally { this.busy = false; }
   }
 
-  acceptObservation(opId: string): void {
+  /**
+   * 成功调用完成后，按真正持久化并投影给模型的内容更新观察授权。
+   * 只有 get_window_state（含批次末尾观察）与 get_desktop_state 会建立授权；
+   * 写操作结果中的图片与 verify_state 谓词结果都不构成可执行观察。
+   */
+  recordObservation(opId: string, remoteName: string, result: CallToolResult, delivered: { content: { type: string; text?: string; ruukotoMediaRef?: unknown }[] }): void {
     const operation = this.store.getToolOp(opId)?.mcp;
     if (!operation || operation.state !== "finished" || operation.execution?.executionId !== this.binding?.execution.executionId) throw new McpError("cua_observation_invalid", "新观察与电脑执行不匹配；停止操作并报告拥有者核实。");
-    this.binding!.observed = true;
+    const binding = this.binding!, grants = binding.grants;
+    const text = delivered.content.filter(part => part.type === "text" && typeof part.text === "string").map(part => part.text!).join("\n");
+    const image = delivered.content.some(part => part.type === "image" && !!part.ruukotoMediaRef);
+    const state = result.structuredContent && typeof result.structuredContent === "object" && !Array.isArray(result.structuredContent) ? result.structuredContent as Record<string, unknown> : undefined;
+    const args = ((operation as McpOperation).arguments ?? {}) as Record<string, unknown>;
+    if (remoteName === "get_window_state") {
+      if (state) grantWindowObservation(grants, `${args.pid}:${args.window_id}`, state, text, image);
+    } else if (remoteName === "get_desktop_state") {
+      if (image && !cuaObservationBlocked(state)) grants.desktopScreenshot = true;
+    } else if (remoteName === "run_steps") {
+      const observation = state?.observation;
+      if (observation && typeof observation === "object" && (observation as { ok?: unknown }).ok === true) {
+        const inner = (observation as { state?: unknown }).state;
+        if (inner && typeof inner === "object" && !Array.isArray(inner)) grantWindowObservation(grants, `${(inner as Record<string, unknown>).pid}:${(inner as Record<string, unknown>).window_id}`, inner as Record<string, unknown>, text, image);
+      }
+    } else if (cuaToolEffect(binding.service.cua!, remoteName) === "write") {
+      const need = cuaActionNeed(args);
+      grants.activeWindow = need.kind === "token" && need.sid ? tokenGrantWindow(grants, need.sid)?.[0] ?? grants.activeWindow
+        : need.kind === "window" ? need.windowKey ?? grants.activeWindow : grants.activeWindow;
+    }
   }
 
   async stop(expectedServiceId?: string): Promise<CodeCuaStatus> {

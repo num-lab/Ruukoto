@@ -56,6 +56,8 @@ A pending `ask_user` retains the task's execution phase and occupancy. Answers, 
 
 The owner classifies ordinary MCP tools as `read/write/unknown` locally. Remote read-only hints do not grant permission. New services or broader permissions affect later tasks; revocation/tightening takes effect before the next call. Required named role/workflow/SubAgent tools must exist in the actual official registry before a model call. Side chat has no tools, MCP or host-data access; tool calls in its frozen historical snapshot are text only.
 
+Code's managed Cua program exposes only the owner-allowlisted read and write sets; `get_guide` is a read-only guidance lookup and `run_steps` is a canonical batch of at most eight deterministic actions in one observed window plus a mandatory trailing observation. Window observation grants follow the content actually persisted and projected to the model: element actions need a delivered element token in the current snapshot, coordinate actions need the delivered screenshot for that window, and rereads, invalidation, freezing or rebinding drop the grants. A batch is one write under a single approval; the trailing observation does not authorize the batch itself. Only calls whose result can contain images require a vision-capable model.
+
 `confirmations` stores targets, fingerprints, permission versions and decisions. `tool_ops` stores unique operation IDs, parameters, timing and outcomes. `artifacts` indexes content hashes, length and media type.
 
 ## Main Flows

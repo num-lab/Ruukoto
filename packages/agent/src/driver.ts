@@ -701,7 +701,7 @@ export class Driver {
       ...this.deps.mcp, store: this.deps.mcp.store, credentials: this.deps.credentials, cua: this.deps.mcp.cua,
       task: () => this.currentTask,
       discover: () => this.resourcePhase === "execution" || this.mcpPreflights > 0,
-      cuaAllowed: () => this.resourcePhase === "execution" && this.currentModelSupportsImages && !!this.currentTask && ownerQuestionTaskEligible(this.deps.store, this.currentTask),
+      cuaAllowed: () => this.resourcePhase === "execution" && !!this.currentTask && ownerQuestionTaskEligible(this.deps.store, this.currentTask),
       direct: () => !!this.pinnedExecution && !this.pinnedExecution.tools.includes("tool_search") || !!this.pinnedDefinition?.tools && !this.pinnedDefinition.tools.includes("tool_search") || !!this.currentTask && !!this.deps.allowTaskTool && !this.deps.allowTaskTool(this.currentTask, "tool_search"),
       allow: meta => {
         const current = this.deps.mcp!.store.getService(meta.service.id);

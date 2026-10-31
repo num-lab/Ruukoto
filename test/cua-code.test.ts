@@ -88,7 +88,7 @@ test("Code Cua：真实产品链保存原schema和请求，持续连接、批准
   const executable = path.join(dirs.root, "cua-fixture"), record = path.join(dirs.root, "calls.jsonl");
   const tools = [
     { name: "get_desktop_state", description: "观察当前画面", inputSchema: { type: "object", properties: { screenshot_out_file: { type: "string" } } } },
-    { name: "click", description: "点击画面", inputSchema: { type: "object", properties: { x: { type: "number" }, y: { type: "number" }, mode: { type: "string" }, debug_image_out: { type: "string" }, session: { type: "string" } }, required: ["x", "y"] } },
+    { name: "click", description: "点击画面", inputSchema: { type: "object", properties: { x: { type: "number" }, y: { type: "number" }, scope: { type: "string" }, mode: { type: "string" }, debug_image_out: { type: "string" }, session: { type: "string" } }, required: ["x", "y"] } },
     { name: "run_script", inputSchema: { type: "object", properties: {} } },
   ];
   fs.writeFileSync(executable, `#!${process.execPath}\nimport fs from 'node:fs';import readline from 'node:readline';const record=${JSON.stringify(record)},tools=${JSON.stringify(tools)};if(process.argv[2]==='dump-docs'){process.stdout.write(JSON.stringify({version:'0.38.0',tools:tools.map(t=>({name:t.name,description:t.description??'',input_schema:t.inputSchema}))}));process.exit(0);}fs.appendFileSync(record,JSON.stringify({start:process.pid})+'\\n');for await(const line of readline.createInterface({input:process.stdin})){const m=JSON.parse(line);if(m.id===undefined)continue;let result;if(m.method==='initialize')result={protocolVersion:m.params.protocolVersion,capabilities:{tools:{}},serverInfo:{name:'offline-cua',version:'0.38.0'}};else if(m.method==='tools/list')result={tools};else if(m.method==='tools/call'){fs.appendFileSync(record,JSON.stringify({...m,pid:process.pid})+'\\n');if(m.params.arguments.mode==='lost')continue;if(m.params.arguments.mode==='incomplete'){process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{resultType:'input_required',content:[]}})+'\\n');continue;}if(m.params.arguments.mode==='error'){process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,error:{code:-32000,message:'known failure'}})+'\\n');continue;}result={content:m.params.name==='get_desktop_state'?[{type:'image',data:${JSON.stringify(PNG)},mimeType:'image/png'}]:[{type:'text',text:'clicked'}]};}else result={};process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');}\n`, { mode: 0o700 });
@@ -177,20 +177,20 @@ test("Code Cua：真实产品链保存原schema和请求，持续连接、批准
     const stale = await submit(sessionId, "stale-observation", "click", { x: 9, y: 9 }); await done(stale);
     assert.equal(sent().length, beforeStale, "未保存的新画面不能放行下一次点击");
     const fresh = await submit(sessionId, "fresh-observation", "get_desktop_state"); await done(fresh);
-    const error = await submit(sessionId, "known-error", "click", { x: 1, y: 2, mode: "error" }); await done(error);
+    const error = await submit(sessionId, "known-error", "click", { scope: "desktop", x: 1, y: 2, mode: "error" }); await done(error);
     assert.equal((await client.request<{ state: string }>("mcp_cua_status", {})).state, "active", "完整错误应答不会冻结");
     const saveMcp = runtime.runtime.store.saveMcpOperation.bind(runtime.runtime.store);
     runtime.runtime.store.saveMcpOperation = (id, operation) => {
       if (operation.state === "sent" && !("transport" in operation) && operation.arguments.mode === "disk") throw new Error("fixture write failed");
       saveMcp(id, operation);
     };
-    const disk = await submit(sessionId, "record-failure", "click", { x: 5, y: 6, mode: "disk" }, "confirm");
+    const disk = await submit(sessionId, "record-failure", "click", { scope: "desktop", x: 5, y: 6, mode: "disk" }, "confirm");
     const diskApproval = await pendingConfirmation(client, disk), beforeDisk = sent().length;
     await client.request("respond_confirmation", { confirmation_id: diskApproval.id, decision: "approve" }); await done(disk);
     runtime.runtime.store.saveMcpOperation = saveMcp;
     assert.equal(sent().length, beforeDisk, "原请求记录失败时零发送");
     assert.equal(runtime.runtime.store.getConfirmation(diskApproval.id)!.consumedAt, null, "批准消费与原请求保存一起回滚");
-    const approved = await submit(sessionId, "approval", "click", { x: 2, y: 3 }, "confirm");
+    const approved = await submit(sessionId, "approval", "click", { scope: "desktop", x: 2, y: 3 }, "confirm");
     const confirmation = await pendingConfirmation(client, approved);
     const beforeApproval = sent().length;
     await client.request("mcp_set_enabled", { service_id: service.id, enabled: false, expected_version: service.configVersion });
@@ -200,7 +200,7 @@ test("Code Cua：真实产品链保存原schema和请求，持续连接、批准
     await client.request("mcp_cua_stop", {});
     service = await client.request("mcp_set_enabled", { service_id: service.id, enabled: true });
     const newObserve = await submit(sessionId, "observe-again", "get_desktop_state"); await done(newObserve);
-    const lost = await submit(sessionId, "lost", "click", { x: 3, y: 4, mode: "lost" }); await done(lost);
+    const lost = await submit(sessionId, "lost", "click", { scope: "desktop", x: 3, y: 4, mode: "lost" }); await done(lost);
     const oldOp = runtime.runtime.store.listToolOpsByTask(lost).find(op => op.mcp && op.toolName !== "cua_connection")!;
     assert.equal(oldOp.effectUnknown, true);
     assert.equal(oldOp.mcp!.state, "frozen");
@@ -251,11 +251,81 @@ test("Code Cua：真实产品链保存原schema和请求，持续连接、批准
     assert.equal(sent().filter(call => call.params.arguments.mode === "lost").length, 1);
     assert.equal(new Set(sent().slice(0, 2).map(call => call.pid)).size, 1, "同一连接跨任务保持进程");
     const observedAfterRecovery = await submit(sessionId, "new-work-observe", "get_desktop_state"); await done(observedAfterRecovery);
-    const incomplete = await submit(sessionId, "incomplete", "click", { x: 7, y: 8, mode: "incomplete" }); await done(incomplete);
+    const incomplete = await submit(sessionId, "incomplete", "click", { scope: "desktop", x: 7, y: 8, mode: "incomplete" }); await done(incomplete);
     const incompleteOp = runtime.runtime.store.listToolOpsByTask(incomplete).find(op => op.mcp && op.toolName !== "cua_connection")!;
     assert.equal(incompleteOp.effectUnknown, true);
     assert.equal(incompleteOp.mcp!.state, "frozen", "非终结应答不能开放新输入");
     assert.ok(incompleteOp.mcp!.response);
     assert.equal(sent().filter(call => call.params.arguments.mode === "incomplete").length, 1);
+  } finally { await runtime.shutdown(); }
+});
+
+test("Code Cua：窗口观察授权元素动作与批次，坐标需截图，get_guide 只读", { skip: !available }, async t => {
+  let next: { name: string; arguments: Record<string, unknown> } | null = null;
+  const responder: Responder = async () => {
+    const call = next; next = null;
+    return call ? { kind: "tool_calls", calls: [{ id: `call-${Date.now()}`, ...call }] } : { kind: "text", text: "done" };
+  };
+  const runtime = await startTestRuntime("cua-batch", withMcpDiscovery(responder), { config: { product: product.runtime, mcp: { callTimeoutMs: 300 } } });
+  const { client, dirs } = runtime;
+  const TREE = "snapshot s00000001\n- [14] AXButton \"保存\"\n- [20] AXTextField \"名称\"";
+  const executable = path.join(dirs.root, "cua-fixture"), record = path.join(dirs.root, "calls.jsonl");
+  const tools = [
+    { name: "get_window_state", description: "观察窗口", inputSchema: { type: "object", properties: { pid: { type: "integer" }, window_id: { type: "integer" }, include_screenshot: { type: "boolean" }, screenshot_out_file: { type: "string" } }, required: ["pid", "window_id"] } },
+    { name: "get_guide", description: "只读指南", inputSchema: { type: "object", properties: { topic: { type: "string" }, session: { type: "string" } } } },
+    { name: "click", description: "点击", inputSchema: { type: "object", properties: { x: { type: "number" }, y: { type: "number" }, pid: { type: "integer" }, window_id: { type: "integer" }, element_token: { type: "string" }, session: { type: "string" } } } },
+    { name: "run_steps", description: "批次", inputSchema: { type: "object", properties: { steps: { type: "array" }, session: { type: "string" }, foreground_fallback: { type: "boolean" } } } },
+  ];
+  fs.writeFileSync(executable, `#!${process.execPath}\nimport fs from 'node:fs';import readline from 'node:readline';const record=${JSON.stringify(record)},tools=${JSON.stringify(tools)};if(process.argv[2]==='dump-docs'){process.stdout.write(JSON.stringify({version:'0.38.0',tools:tools.map(t=>({name:t.name,description:t.description??'',input_schema:t.inputSchema}))}));process.exit(0);}fs.appendFileSync(record,JSON.stringify({start:process.pid})+'\\n');for await(const line of readline.createInterface({input:process.stdin})){const m=JSON.parse(line);if(m.id===undefined)continue;let result;if(m.method==='initialize')result={protocolVersion:m.params.protocolVersion,capabilities:{tools:{}},serverInfo:{name:'offline-cua',version:'0.38.0'}};else if(m.method==='tools/list')result={tools};else if(m.method==='tools/call'){fs.appendFileSync(record,JSON.stringify(m)+'\\n');const a=m.params.arguments;if(m.params.name==='get_window_state')result={content:[{type:'text',text:${JSON.stringify(TREE)}}],structuredContent:{pid:a.pid,window_id:a.window_id,snapshot_id:'s00000001',elements:[],truncated:false}};else if(m.params.name==='get_guide')result={content:[{type:'text',text:'topics: overview, batching'}]};else if(m.params.name==='run_steps')result={content:[{type:'text',text:'2 steps executed'}],structuredContent:{ok:true,executed:2,results:[{ok:true},{ok:true}],observation:{ok:true,state:{pid:a.pid,window_id:a.window_id,snapshot_id:'s00000002',invalidated_snapshot_ids:['s00000001']}}}};else result={content:[{type:'text',text:'done'}]};}else result={};process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');}\n`, { mode: 0o700 });
+  const cua = { kind: "cua-mac", executable, version: "0.38.0", sha256: createHash("sha256").update(fs.readFileSync(executable)).digest("hex") } as const;
+  const calls = () => fs.existsSync(record) ? fs.readFileSync(record, "utf8").trim().split("\n").map(line => JSON.parse(line)) : [];
+  const sent = (name: string) => calls().filter(call => call.method === "tools/call" && call.params.name === name);
+  const resolve = runtime.runtime.models.current.modelCatalog.resolve.bind(runtime.runtime.models.current.modelCatalog);
+  runtime.runtime.models.current.modelCatalog.resolve = async selection => ({ ...await resolve(selection), input: ["text"] });
+  async function submit(sessionId: string, key: string, tool?: string, args: Record<string, unknown> = {}, mode = "full_access") {
+    next = tool ? { name: `mcp__mac__${tool}`, arguments: args } : null;
+    const task = await client.request<{ id: string }>("submit", { session_id: sessionId, request_id: key, input: key, model_selection: MODEL, access_mode: mode });
+    return task.id;
+  }
+  async function done(id: string) {
+    await waitFor("Cua task ended", () => ["completed", "failed", "canceled", "interrupted"].includes(runtime.runtime.store.getTask(id)!.status));
+    return runtime.runtime.store.getTask(id)!;
+  }
+  try {
+    const { sessionId } = await createProjectSession(client, runtime.work[0]);
+    await done(await submit(sessionId, "baseline"));
+    const service = await client.request<{ id: string }>("mcp_configure", { name: "mac", cua, tool_allowlist: ["get_window_state", "get_guide", "click", "run_steps"] });
+    const checked = await client.request<{ ok: boolean; tools: { name: string }[] }>("mcp_check", { service_id: service.id });
+    assert.ok(checked.tools.some(tool => tool.name === "get_guide"), "get_guide 按允许清单出现");
+    // 未观察窗口的批次整体拒绝（零发送），get_guide 只读可发
+    await done(await submit(sessionId, "early-batch", "run_steps", { steps: [{ tool: "click", args: { element_token: "s00000001:14" } }], pid: 42, window_id: 7, observe: {} }));
+    assert.equal(sent("run_steps").length, 0, "未观察窗口不放行批次");
+    const guide = await submit(sessionId, "guide", "get_guide", { topic: "batching" }); await done(guide);
+    const serialized = JSON.stringify(runtime.server.calls);
+    const schemaMatch = serialized.match(/"name":"mcp__mac__run_steps".{0,4000}/);
+    t.diagnostic(schemaMatch ? schemaMatch[0].slice(0, 900) : "run_steps def absent");
+    const hasRestricted = serialized.includes('"maxItems":8') || serialized.includes('"maxItems": 8');
+    assert.ok(hasRestricted, "模型只见受限批次 schema");
+    assert.ok(!/"run_steps"[^}]*foreground_fallback/.test(serialized.replace(/\\/g, "")), "不向前台回退能力");
+    assert.equal(sent("get_guide").length, 1, "get_guide 作为只读调用放行");
+    // 纯文本模型也能观察并取得树内授权（不带截图的窗口观察不要求视觉模型）
+    await done(await submit(sessionId, "observe", "get_window_state", { pid: 42, window_id: 7, include_screenshot: false }));
+    // 树内元素单发与批次放行；坐标动作仍拒绝
+    await done(await submit(sessionId, "element-click", "click", { pid: 42, window_id: 7, element_token: "s00000001:14" }));
+    assert.equal(sent("click").length, 1, "已交付元素令牌放行");
+    await done(await submit(sessionId, "coord-click", "click", { pid: 42, window_id: 7, x: 10, y: 20 }));
+    assert.equal(sent("click").length, 1, "无截图不放行坐标动作");
+    const batch = await submit(sessionId, "batch", "run_steps", { steps: [{ tool: "click", args: { element_token: "s00000001:14" } }, { tool: "type_text", args: { element_token: "s00000001:20", text: "你好" } }], pid: 42, window_id: 7, observe: { include_screenshot: false } }, "confirm");
+    const approval = await pendingConfirmation(client, batch);
+    await client.request("respond_confirmation", { confirmation_id: approval.id, decision: "approve" });
+    await done(batch);
+    assert.equal(sent("run_steps").length, 1, "一次批准发送整批");
+    assert.equal(sent("run_steps")[0].params.arguments.steps.length, 2, "原样转发规范步骤");
+    // 批次末尾观察（s00000002）成为新授权，旧快照令牌作废
+    await done(await submit(sessionId, "stale-element", "click", { pid: 42, window_id: 7, element_token: "s00000001:14" }));
+    assert.equal(sent("click").length, 1, "批次观察公告失效后旧令牌不放行");
+    await done(await submit(sessionId, "new-element", "click", { pid: 42, window_id: 7, element_token: "s00000002:1" }));
+    assert.equal(sent("click").length, 1, "未交付的行号不授权");
+    // 批次自身结果的文本已投影；新快照行未在批次返回中出现，故 s00000002 行不可见
   } finally { await runtime.shutdown(); }
 });

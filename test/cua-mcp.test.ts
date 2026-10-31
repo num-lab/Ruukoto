@@ -171,3 +171,81 @@ test("Cua配置：拒绝任意启动项与异sandbox，模型清单去掉宿主�
   }
   assert.equal(restrictCuaTool(mac, { ...raw, name: "launch_app" }), undefined);
 });
+
+const MAC = () => parseCuaConfig({ kind: "cua-mac", executable: "/Applications/Cua.app/Contents/MacOS/cua-driver", sha256: "a".repeat(64), version: "0.38.0" });
+const VALID_BATCH = () => ({ steps: [{ tool: "click", args: { x: 10, y: 20 } }, { tool: "type_text", args: { text: "hi" } }], pid: 42, window_id: 7, observe: {} });
+
+test("Cua批次：get_guide只读、run_steps受限为规范schema且单步动作集合固定", () => {
+  const mac = MAC();
+  assert.equal(cuaToolEffect(mac, "get_guide"), "read");
+  assert.equal(cuaToolEffect(mac, "run_steps"), "write");
+  assert.equal(restrictCuaTool(mac, { name: "run_script", inputSchema: {} }), undefined);
+  const guide = restrictCuaTool(mac, { name: "get_guide", description: "d", inputSchema: { type: "object", properties: { topic: { type: "string" }, session: { type: "string" } } } })!;
+  assert.deepEqual(Object.keys(guide.inputSchema.properties!), ["topic"], "get_guide 同样去掉会话字段");
+  const schema = restrictCuaTool(mac, { name: "run_steps", description: "d", inputSchema: { type: "object", properties: { foreground_fallback: {}, session: {} } } })!.inputSchema as Record<string, any>;
+  assert.deepEqual(schema.required, ["steps", "pid", "window_id", "observe"]);
+  assert.equal(schema.properties.steps.maxItems, 8);
+  assert.equal(schema.properties.observe.type, "object");
+  for (const field of ["foreground_fallback", "session", "app", "window", "target", "scope"]) assert.equal(field in schema.properties, false, `${field} 不向模型开放`);
+});
+
+test("Cua批次：规范形式通过，别名、简写、条件、越界与嵌套宿主字段一律拒绝", () => {
+  const mac = MAC();
+  const pass = cuaArguments(mac, "run_steps", VALID_BATCH()) as { steps: unknown[] };
+  assert.deepEqual(pass.steps.length, 2);
+  const denied = (mutate: (batch: Record<string, any>) => void, label: string) => {
+    const batch = VALID_BATCH();
+    mutate(batch);
+    assert.throws(() => cuaArguments(mac, "run_steps", batch), (error: unknown) => error instanceof McpError && error.code === "cua_batch_invalid", label);
+  };
+  denied(b => { b.steps = Array.from({ length: 9 }, () => ({ tool: "click", args: { x: 1, y: 2 } })); }, "超过八步");
+  denied(b => { b.steps = []; }, "空批次");
+  denied(b => { b.steps[0] = { click: { x: 1, y: 2 } }; }, "{tool:args} 简写");
+  denied(b => { b.steps[0].tool = "press"; }, "上游别名 press");
+  denied(b => { b.steps[0].tool = "tab"; }, "键名被当作工具");
+  denied(b => { b.steps[0].tool = "get_window_state"; }, "批次内不含观察工具");
+  denied(b => { b.steps[0].tool = "wait_for"; }, "wait_for 不在首批");
+  denied(b => { b.steps[0].tool = "expect"; }, "expect 不在首批");
+  denied(b => { b.foreground_fallback = true; }, "foreground_fallback 不开放");
+  denied(b => { b.delay_ms = 5000; }, "delay_ms 越界");
+  denied(b => { delete b.observe; }, "observe 必填");
+  denied(b => { delete b.pid; }, "批次窗口必填");
+  denied(b => { b.observe.pid = 999; }, "observe 指向其他窗口");
+  denied(b => { b.observe.session = "other"; }, "observe 嵌套会话覆盖");
+  denied(b => { b.observe.screenshot_out_file = "/tmp/x.png"; }, "observe 嵌套文件输出");
+  denied(b => { b.observe._internal = true; }, "observe 保留字段");
+  denied(b => { b.steps[0].args.session = "other"; }, "步骤嵌套会话覆盖");
+  denied(b => { b.steps[0].args.sandbox = "x"; }, "步骤嵌套 sandbox");
+  denied(b => { b.steps[0].args.debug_image_out = "/tmp/x"; }, "步骤嵌套文件输出");
+  denied(b => { b.steps[0].args.pid = 999; }, "步骤重定向窗口");
+  denied(b => { b.steps[0].args.window = "其他"; }, "步骤 window 覆盖");
+  denied(b => { b.steps[0].args.scope = "desktop"; }, "步骤桌面重定向");
+  denied(b => { b.steps[0].args.from_zoom = true; }, "未开放 zoom 参照");
+  denied(b => { b.steps[0].args.nope = 1; }, "未知步骤字段");
+  denied(b => { b.steps[0].args._internal = true; }, "步骤保留字段");
+  denied(b => { b.steps[0].timeout_ms = 20000; }, "步骤 timeout 越界");
+  denied(b => { b.steps[1].args.text = "x".repeat(1025); }, "文本超长");
+  denied(b => { delete b.steps[1].args.text; }, "必填字段缺失");
+  denied(b => { b.steps[0].args.x = "10"; }, "坐标类型错误");
+  denied(b => { b.steps[0].args.delivery_mode = "yolo"; }, "delivery_mode 枚举");
+  denied(b => { b.steps[0].args = undefined; }, "args 必填");
+  denied(b => { b.steps[0] = { tool: "click" }; }, "步骤缺 args");
+  denied(b => { b.steps[0].args.app = "其他"; }, "步骤 app 覆盖");
+  denied(b => { b.steps[0].args.target = { kind: "desktop" }; }, "步骤 target 覆盖");
+  // 合法形态：选择器、元素令牌、整数 delay、显式批次 delivery_mode、observe 限定字段
+  for (const mutate of [
+    (b: Record<string, any>) => { b.steps[0].args = { element_token: "s00000001:14" }; },
+    (b: Record<string, any>) => { b.steps[0].args = { role: "AXButton", name: "Save", nth: 0 }; },
+    (b: Record<string, any>) => { b.steps[0].timeout_ms = 3000; b.delay_ms = 500; b.delivery_mode = "foreground"; },
+    (b: Record<string, any>) => { b.observe = { include_screenshot: false, max_elements: 100, pid: 42, window_id: 7 }; },
+    (b: Record<string, any>) => { b.steps.push({ tool: "hotkey", args: { keys: ["cmd", "s"] } }); },
+  ]) {
+    const batch = VALID_BATCH();
+    mutate(batch);
+    assert.doesNotThrow(() => cuaArguments(mac, "run_steps", batch));
+  }
+  // Linux 配置不开放 run_steps（未获能力平价）
+  const linux = parseCuaConfig({ kind: "cua-linux", executable: "/usr/local/bin/cua", sha256: "a".repeat(64), version: "0.7.0", sandbox: "local:desktop", sandboxId: "b".repeat(64) });
+  assert.equal(cuaToolEffect(linux, "run_steps"), null);
+  assert.throws(() => cuaArguments(linux, "run_steps", VALID_BATCH()), (error: unknown) => error instanceof McpError && error.code === "cua_tool_denied");
+});

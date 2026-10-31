@@ -1,9 +1,0 @@
-
-> ruukoto-workspace@0.1.0 build:worker
-> esbuild packages/agent/src/tool-worker/worker.ts apps/ruukoto/src/personal-command-worker.ts --bundle --format=esm --platform=node --target=node24 --external:@earendil-works/* --outdir=worker --entry-names=[name] --out-extension:.js=.mjs
-
-
-  worker/worker.mjs                   15.6kb
-  worker/personal-command-worker.mjs   4.1kb
-
-⚡ Done in 18ms

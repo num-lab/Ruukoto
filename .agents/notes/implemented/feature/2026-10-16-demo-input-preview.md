@@ -1,27 +1,25 @@
-# Agent Note: Demo 输入键盘与文本预览细化
+# Agent Note: Demo input keys and text preview
 
 Status: implemented
 
-## 问题
+## Problem
 
-拥有者在正式迁移提交后要求返回可变 demo，修改发送快捷键、文本预览与工作区筛选过渡。[右栏预览](2026-10-16-demo-inspector-tools.md)原本仅显示纯文本，逐行分块会截断高亮器生成的跨行注释；直接卸载筛选框也不能播放收起动画。
+After the production migration, the owner requested another mutable-Demo iteration for send shortcuts, text preview, and workspace-filter transitions. [Inspector preview](2026-10-16-demo-inspector-tools.md) originally displayed plain text; splitting highlighted HTML by line broke multiline comment spans. Unmounting the filter immediately prevented its closing animation.
 
-## 决定
+## Decision
 
-Enter 发送，Shift+Enter 保持原生换行；组合输入、229 键码与按键重复不提交。空输入 Enter 只阻止换行，不调用复用停止行为的 send；离线与核实中沿用原提交门槛。
+Enter sends and Shift+Enter preserves native newline insertion. Composition input, key code 229, and repeated keydown do not submit. Enter on empty input only prevents a newline; it does not call `send`, which also owns stop behavior. Offline and verification-in-progress submission restrictions remain.
 
-demo 独立声明 highlight.js 11.12.0，仅注册现有样例所需语言与 JSX 的 XML 子语言，按路径扩展名选择，未知按纯文本。[官方 highlight API](https://highlightjs.readthedocs.io/en/latest/api.html#highlight)接收原始源码并生成已转义的高亮 HTML；只有该输出进入 HTML 渲染，原始内容不直接插入。全文一次高亮，独立 sticky 行号列与单个 pre／code 共用滚动容器，保留字符、空行和换行。语法颜色通过局部语义变量切换明暗，不影响 Neutral 基础配色。
+Demo declares `highlight.js` 11.12.0 directly and registers only languages needed by existing samples, including XML for JSX. File extensions select the language; unknown extensions stay plain text. The [highlight API](https://highlightjs.readthedocs.io/en/latest/api.html#highlight) receives raw source and returns escaped highlighted HTML. Only that output enters HTML rendering, never unescaped source. Highlight the entire file once. A sticky line-number column and a single pre/code block share one scroller, preserving characters, blank lines, and newlines. Local semantic syntax-color variables follow light/dark mode without changing the Neutral base palette.
 
-筛选外壳常驻，以 grid 高度、透明度和轻微位移过渡，不增加动画依赖。收起时 inert／aria-hidden，展开聚焦输入，Escape 清空筛选后返回触发按钮；减弱动画沿用全局规则。
+The filter shell stays mounted and transitions grid height, opacity, and slight displacement without an animation dependency. Collapsed content is inert and aria-hidden. Expanding focuses the input; Escape clears the filter and returns focus to the trigger. Reduced motion follows global rules.
 
-历史检索：既有 demo 架构与右栏工具笔记部分重叠，保留并互链；正式 Desktop 的历史、上下文和隔离契约不受影响。范围仅可变 demo，两份冻结稿与正式端等待拥有者另行授权迁移。
+These decisions originally applied only to the mutable Demo; production history, context, and isolation contracts were unchanged. Frozen drafts and production migration required separate owner approval. Later Desktop migrations retain their own scope.
 
-## 备选方案
+## Alternatives considered
 
-- 自动识别所有语言：覆盖更广，但增加包体与误判；当前按路径装配有限语法即可覆盖样例。
-- 高亮后按换行拆成行 HTML：最接近原结构，但会拆断跨行 token 标签；保留整个高亮树与独立行号。
-- 条件挂载筛选框：DOM 更少，但无法播放收起过渡；常驻外壳并隔离焦点。
+Registering and autodetecting every language broadens coverage but increases bundle size and false detection; extension-selected sample grammars suffice. Splitting highlighted HTML by newline resembles the old layout but breaks multiline token tags. Conditional mounting uses less DOM but cannot animate closing; a persistent shell with isolated focus works.
 
-## 后果
+## Consequences
 
-源码可读性与键盘行为符合本轮要求，新增一个仅 demo 使用的依赖；未知语言仍可完整读取。测试与体验记录由[工单06](../../../../.scratch/desktop-shadcn/issues/06-input-preview-refinement.md)持有，真实系统输入法及最终动画观感由拥有者确认。
+Source readability and key behavior meet the requested interaction. The original change adds a Demo-only dependency; unknown languages remain fully readable. Historical tests and experience records are in the offline copy of `.scratch/desktop-shadcn/issues/06-input-preview-refinement.md`. Real system IME behavior and final motion feel require owner confirmation.

@@ -1,24 +1,22 @@
-# Agent Note: 强杀用例在停止前固定原检查引用
+# Agent Note: Pin the original inspection reference before force-stop tests
 
 Status: implemented
 
-## 问题
+## Problem
 
-子检查强杀恢复用例杀掉原 helper 后等待 30 毫秒，再从未核实列表取第一项请求重核。取消中的工具也会核实退出；它先取得证明时，列表合法变空，用例因读取 undefined.taskId 失败，无法继续验证取消收尾。[固定检查归属](../architecture/2026-10-17-personal-subagent-inspection.md)允许这个先后顺序。
+The child-inspection force-kill recovery test killed its helper, waited 30 ms, then took the first unverified-list entry to request verification. The canceling tool also verifies exit and can legitimately empty that list first. Reading `undefined.taskId` then prevented testing cancellation cleanup. [Fixed inspection ownership](../architecture/2026-10-17-personal-subagent-inspection.md) permits that ordering.
 
-## 决定
+## Decision
 
-用例在确认原工作停止未核实后捕获原检查引用，杀掉 helper 后始终重核该引用。重核已退出的原检查是幂等操作；保留杀进程前的占用、独立聊天、原检查调用次数和取消后释放身份的全部断言，不改运行时。
+After confirming the original work's stop is unverified, capture its inspection reference. After killing the helper, always recheck that reference. Rechecking an already exited original inspection is idempotent. Retain all assertions about pre-kill occupation, separate chat, original inspection invocation count and identity release after cancellation; do not change runtime behavior.
 
-## 既有笔记审计
+The child/durable inspection ownership and control notes retain product behavior; this note owns only test ordering. Shared-helper and other fault-injection decisions remain unaffected.
 
-按检查、停止、强杀和用例检索 active notes。子检查归属、durable 检查归属和检查控制部分重叠，继续持有产品契约；本篇只记录验证时序。共享 helper 与其他故障注入笔记无关，无需归档。
+## Alternatives considered
 
-## 备选方案
+- Reading the unverified list after killing mirrors the management menu, but that list describes current pending items and cannot guarantee the original item remains.
+- Disabling automatic rechecks fixes the manual recheck's ordering, but removes the real cancellation-recovery path and its coverage.
 
-- 杀进程后重读未核实列表：最接近管理菜单，但它只列当前未决项，无法保证原项仍存在。
-- 禁止用例中的自动重核：可固定人工重核先手，但会删掉真实取消恢复路径，让用例失去覆盖。
+## Consequences
 
-## 后果
-
-基点与候选均能复现原失败；隔离诊断确认空列表同时已有原检查 stopped 与 stopEvidence。捕获引用移除列表竞态，仍要求取得原退出证明才能完成取消；新增一个局部引用，不增加生产逻辑。实际命令及证据见[服务恢复实施记录](../../../../.scratch/personal-pi-durable/issues/20-service-recovery-controls.md)。
+Both baseline and candidate reproduced the original failure. Isolated diagnosis showed an empty list alongside the original inspection's `stopped` and `stopEvidence`. Pinning its reference removes the list race while cancellation still requires original exit evidence. This adds one local reference, no production logic. Historical commands/evidence remain in the offline Personal service-recovery work item.

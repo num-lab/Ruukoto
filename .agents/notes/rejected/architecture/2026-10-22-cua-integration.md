@@ -1,50 +1,48 @@
-# Agent Note: Cua 经受控 MCP 接入双产品的电脑操作
+# Agent Note: Integrate Cua computer operation through controlled MCP for both products
 
-Status: rejected — 拥有者撤销跨产品桌面独占，改用官方MCP直连
+Status: rejected — The owner withdrew cross-product desktop exclusivity and chose direct official MCP
 
-本篇保留旧方案理由，不再指导实施；由[官方MCP接入](../../implemented/architecture/2026-10-23-cua-official-mcp.md)取代。旧实验证据已在仓库外完整保存，见[归档索引](../../../../.scratch/cua-integration/archive.md)。
+This records the rejected rationale, not implementation guidance. [Official MCP integration](../../implemented/architecture/2026-10-23-cua-official-mcp.md) supersedes it. Complete experiments remain outside the repository; the offline provenance index is `.scratch/cua-integration/archive.md`.
 
-## 问题
+## Problem
 
-拥有者要求 ruukoto-code 和个人 Agent 都能使用 Cua，首版确定本机 macOS 与独立 Linux 桌面沙箱，沿现有 MCP 权限。现有 MCP 仅 HTTP，Cua 常规入口是 stdio；两端 MCP 结果都没有将图片送入视觉模型，普通 MCP 也没有电脑目标的持续占用。只加配置会造成“能调用却看不到画面”，并可能在重连或多会话时操作错目标。[规格与工单](../../../../.scratch/cua-integration/spec.md)持有范围、契约和验收。
+The owner required Cua in ruukoto-code and Personal, initially local macOS and an independent Linux desktop sandbox under existing MCP permissions. MCP then supported HTTP only while Cua normally used stdio. Neither product delivered MCP images to vision models, and generic MCP had no persistent computer-target occupancy. Configuration alone could enable calls without screenshots and misdirect actions after reconnection/multiple sessions. Original scope/contracts/acceptance are offline at `.scratch/cua-integration/spec.md`.
 
-## 方案
+## Proposal
 
-保留各产品的模型、会话和权限，优先用固定执行端的 stdio→Streamable HTTP 桥接承载 Cua。共享 agent 模块只承担协议和无状态图片校验，Code 继续持有 core/Runtime 的操作账本，Personal 继续用 durable 记录；两端复用各自既有图片产物和 provider 链路。允许内联 MCP 图片是对原文本结果限制的拟议扩展，原历史保持可读取。
+Retain each product's models, sessions and permissions, preferring a fixed executor's stdio-to-Streamable-HTTP bridge. Shared agent code handles protocol/stateless image validation; Code keeps core/Runtime ledgers, Personal keeps durable. Each reuses its media artifacts/provider chain. Inline MCP images extend the former text-only result limit while old history remains readable.
 
-电脑服务由拥有者显式登记并绑定目标，来源、配置修订和批准均在实际发送前核对；远端只读注解不授权。目标持续绑定主会话，暂停交还或解除必须先核实在途动作。同一目标的独占在执行端核实，不能将 URL、HTTP session 或本机内存互斥当作跨入口的电脑身份。模型只能使用已绑定的目标和实际窗口引用。
+The owner explicitly registers/binds a computer target. Source, configuration revision and approval are checked immediately before sending; remote read-only annotations do not authorize. The target binds persistently to main. Pause/handoff/unbind first verifies in-flight actions. Executor-side target identity establishes exclusivity, not URL, HTTP session or local in-memory mutex. Models use only bound targets and actual window references.
 
-桥接是候选路线，不宣称现成网关已经提供持久回执或电脑独占。先通过[01 探针](../../../../.scratch/cua-integration/issues/01-transport-and-lifecycle-probe.md)钉定版本、目标认领/释放、跨调用 session 和原结果查询协议；不足时先修订适配方案并独立复审，再接业务工具。生产端点保持 HTTPS；将测试 loopback HTTP 用于本机产品须作为另一项明确决定讨论，本提案不隐式放宽。
+Bridging is a candidate, not a claim that an existing gateway provides durable receipts/exclusivity. Original probe 01 must first pin versions, target claim/release, cross-call sessions and original-result querying. If insufficient, revise the adapter and independently review before business tools. Production endpoints stay HTTPS; using loopback HTTP in local products requires a separate explicit decision. The probe's offline path is `.scratch/cua-integration/issues/01-transport-and-lifecycle-probe.md`.
 
-动作已发送后的未知效果与远端是否结束分别保留。原流或原操作查询只读已有回执，不能重发动作；桥接关闭或 Cua session 结束没有经过实测就不作为停止证明。网关自行生成的 HTTP/JSON-RPC 错误、响应预算中断和解析失败不证明下游未执行，分类依据发送及原下游终结证据。图片校验/落盘失败发生在已取得原终结应答之后时，保留原执行事实，只报告结果处理失败。
+After sending, unknown effects and remote completion remain separate. Original-stream/operation queries only read existing receipts, never repeat actions. Bridge close/Cua session termination is not stop proof without actual verification. Gateway-generated HTTP/JSON-RPC errors, response-budget interruption and parsing failures do not prove downstream non-execution; classify from sends and original downstream terminal evidence. Image validation/persistence failure after terminal response preserves execution facts and reports result-processing failure only.
 
-### 既有决定审计
+## Related decisions
 
-按 Cua、MCP、browser、图片、目标占用与恢复检索 proposed/implemented；rejected 目录不存在。未发现同题提案，其他桌面样式命中无关；没有完全吸收或过时提案需要迁移。
+The original proposed/implemented audit searched Cua, MCP, browser, images, occupancy and recovery. No same-topic proposal existed then; other desktop-style hits were unrelated, with no whole absorption/obsolete proposal migration.
 
-| 既有笔记 | 关系与处理 |
+| Decision | Proposed relationship |
 | --- | --- |
-| [MCP 客户端](../../implemented/architecture/2026-09-23-mcp-client.md) | 部分重叠；保留 HTTP/认证和工具定义规则，拟扩展内联图片；旧决定正文不改，补提案互链 |
-| [MCP 传输复用](../../implemented/architecture/2026-10-17-mcp-transport-reuse.md) | 部分重叠；沿宿主凭据与无任务状态接口；电脑绑定在消费者层，补互链 |
-| [个人 MCP](../../implemented/architecture/2026-10-17-personal-durable-mcp.md) | 部分重叠；沿原请求/批准和结束证据，连接寿命和图片投影作为新增消费者契约，补互链 |
-| [个人浏览器与图片](../../implemented/architecture/2026-10-18-personal-browser-media.md) | 部分重叠；复用图片事实与 provider 核实，不复用浏览器执行归属，补互链 |
-| [MCP 写工具](../../implemented/feature/2026-09-23-mcp-write-tools-approval.md) | 部分重叠并拟扩展结果定性；权限/批准不变，新增响应未完整读取分类及 Cua 桥接下游终结核实，补互链并保留旧决定正文 |
+| [MCP client](../../implemented/architecture/2026-09-23-mcp-client.md) | Retain HTTP/auth/tool definitions; extend inline images with cross-links, not rewrite original decisions. |
+| [Transport reuse](../../implemented/architecture/2026-10-17-mcp-transport-reuse.md) | Retain host credentials/stateless interfaces; consumers own computer binding. |
+| [Personal MCP](../../implemented/architecture/2026-10-17-personal-durable-mcp.md) | Retain original request/approval/completion evidence; add connection lifetime/image projection. |
+| [Personal browser/media](../../implemented/architecture/2026-10-18-personal-browser-media.md) | Reuse image facts/provider checks, not browser execution ownership. |
+| [MCP writes](../../implemented/feature/2026-09-23-mcp-write-tools-approval.md) | Retain permissions/approval while extending incomplete-response classification/downstream terminal checks. |
 
-旧 MCP 写工具把 HTTP/JSON-RPC 错误视为已知；桥接自己生成的错误不能证明下游 Cua 结束，因此本提案明确扩展这一判断。02 对所有 MCP write/unknown 增加响应预算/截断等“未完整读取”失败的未知处理；03 仅对显式电脑目标核实网关错误是否有下游终结证据。普通 MCP 的其他既有错误与原历史不追溯改写，批准与本地副作用类别不变。
+Legacy MCP writes treated HTTP/JSON-RPC errors as known. Gateway-generated errors cannot prove downstream Cua completion, so this proposal explicitly extends classification. Original slice 02 would mark incomplete reads, budgets/truncation as unknown for all MCP write/unknown calls. Slice 03 would check downstream terminal evidence only for explicit computer targets. Other ordinary MCP errors/history would not be rewritten retroactively, and approvals/local effect classes remain. [Image reading](../../implemented/bug-fix/2026-10-12-read-images.md) and [progressive interaction](../../implemented/process/2026-10-14-progressive-human-interaction.md) retain visual-input/management constraints.
 
-[读图](../../implemented/bug-fix/2026-10-12-read-images.md)和[渐进交互](../../implemented/process/2026-10-14-progressive-human-interaction.md)提供不变的视觉输入和管理入口约束，本提案不修改其决定。
+## Alternatives considered
 
-## 备选方案
+- Cua CLI plus skill: cheapest trial, but production still needs screenshot records, target occupancy and no replay. Arbitrary shell cannot provide these guarantees; CLI suits isolated probes.
+- Cua TypeScript SDK in both products: avoids HTTP bridge and gives structured results, but needs dual approval adapters, process/native-library lifecycle and remote recovery. Keep as a fallback if probe 01 disproves bridging, not two production routes.
+- Arbitrary stdio in generic MCP: useful for more services, but broadens host-account execution/child cleanup. Only fixed Cua execution is required, not a platform.
+- Configure an existing HTTP gateway alone: least code, but images, cross-call references and exclusivity remain missing. Successful discovery is not feature completion.
 
-- 直接使用 Cua CLI 和 skill，试用成本最低；但正式产品还需处理截图记录、目标占用及不重放，任意 shell 调用不能承担这些保证。CLI 仅适合隔离探针。
-- 两端各用 Cua TypeScript SDK，可避开 HTTP 桥接并得到结构化结果；但需另接两端工具审批、进程/原生库生命周期和远端恢复。保留为 01 证明桥接不满足要求时的备选，不同时维护两条正式路线。
-- 给通用 MCP 增加任意 stdio 子进程，接其他服务也方便；但扩大宿主执行账户及子进程回收范围，本需求只需要固定 Cua 执行端，不据此建设通用平台。
-- 只配现成 HTTP 网关，代码最少；但图片、跨调用引用和目标独占缺口仍在，不能把发现工具成功当作功能完成。
+## Acceptance criteria
 
-## 验收标准
+Prove original specification R1-R8 individually. Probe 01 needs actual dual-platform transport, permissions, targets and failure evidence; 02-04 provide narrow regressions/real wiring; 05 uses both production entries to verify randomized screens, action counts, screenshot history and complete export. Record real models, actual execution and human experience separately. Target changes/restart cannot bypass unknown results. Missing external prerequisites leave acceptance pending. These were rejected-plan requirements, not claims that the replacement implements withdrawn global exclusivity.
 
-按[规格 R1–R8](../../../../.scratch/cua-integration/spec.md#共同契约)逐项证明。01 先提供真实双平台传输、授权、目标和故障证据，02–04 提供窄回归与实际接线，05 经两端正式入口核实随机画面、动作计数、截图历史和完整导出；真实模型、真实执行和人工体验分别记录。未知结果不可通过换目标或重启绕过，缺外部前提保持待验收。
+## Risks
 
-## 风险
-
-桥接与 Cua session 的寿命可能不适配 Personal 逐调用连接；目标认领与原操作查询可能需要最窄执行端适配；这些均先实验再放行。原生授权、Linux 桌面和 HTTPS 是交付前提，不在模型任务中自动准备。截图含被控桌面的可见内容，进入模型的范围与历史保留随原会话权限；人工接管不能撤回已发送内容。沿现有 Personal MCP 的逐次审批会影响操作节奏，连续操作可由拥有者选择既有完全访问模式，不自动扩权。
+Bridge/Cua session lifetimes may not match per-call Personal connections. Target claims/original-result queries may need a narrow executor adapter; experiment before approval. Native permissions, Linux desktop and HTTPS are delivery prerequisites, not automatically provisioned in model tasks. Screenshots expose visible desktop contents under original conversation permissions/history retention; human takeover cannot recall sent data. Per-call Personal approvals affect interaction speed; the owner may explicitly choose existing full access for continuous work, without automatic escalation.

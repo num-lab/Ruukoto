@@ -1,87 +1,85 @@
-# Agent Note: MCP 宿主职责收缩与过度设计筛选
+# Agent Note: Narrow MCP host responsibilities and remove unnecessary mechanisms
 
 Status: implemented
 
-## 问题
+## Problem
 
-拥有者在比较 Pi 内置 MCP 后要求列出现有额外机制的设计目的，筛掉过度设计，随后于2026-10-26明确要求制定Pi接入与简化方案并接手实施工单。实施顺序与验收归[工单](../../../../.scratch/pi-mcp-comparison/issues/01-pi-mcp-migration.md)，关键契约归[规格](../../../../.scratch/pi-mcp-comparison/spec.md)；本篇持有取舍。P0发现公开错误来源接口缺口，拥有者已确认只读SSE解析的修订方向；实现只修改仓库与隔离测试档案，真实档案切换和部署没有授权。上游固定版本与接口证据见[比较记录](../../../../.scratch/pi-mcp-comparison/research.md)，实测见[P0证据](../../../../.scratch/pi-mcp-comparison/evidence/2026-10-26-p0.md)。
+After comparing built-in Pi MCP, the owner requested the purpose of each additional mechanism and removal of overengineering, then explicitly requested a Pi integration/simplification plan and implementation on 2026-10-26. Original implementation order/acceptance, contracts, pinned upstream research and P0 experiments are offline at `.scratch/pi-mcp-comparison/issues/01-pi-mcp-migration.md`, `.scratch/pi-mcp-comparison/spec.md`, `.scratch/pi-mcp-comparison/research.md` and `.scratch/pi-mcp-comparison/evidence/2026-10-26-p0.md`. P0 exposed missing public error-provenance information; the owner approved a read-only SSE parsing adjustment. Authorization covered repository/isolated-test profiles, not real-profile cutover/deployment.
 
-普通 HTTP MCP 的未决调用按 origin+pathname 占用端点，并阻止同 origin 的通用 HTTP；没有原 SSE 恢复身份时，即使人工确认业务已生效，子工作仍维持 running。见[个人 MCP](../../../../apps/ruukoto/src/personal-mcp.ts)、[跨工具限制](../../../../apps/ruukoto/src/personal-tools.ts)和[已生效仍等待的用例](../../../../test/personal-mcp.test.ts)。这个限制能阻止本实例继续调用，却不能保证远端互斥；同一 URL 也不等于同一个业务资源。
+Ordinary HTTP MCP unresolved calls occupied origin+pathname and blocked general HTTP to the same origin. Without original SSE recovery identity, child work stayed running even after human confirmation that the business effect occurred. This blocked this instance, not remote concurrency; one URL is not one business resource. Original consumers/counterexamples are personal-mcp.ts, personal-tools.ts and personal-mcp.test.ts.
 
-## 决定
+## Decision
 
-在当前个人自用、双产品的范围内，保留不越权、不泄露凭据、同一批准不重复执行、未知写入不自动重放、模型输入可重建这些目标。通用 MCP 协议和发现优先由 Pi 承担，宿主保留产品所需的授权、记录和真实资源管理。
+For the current personal-use, two-product scope, retain no escalation, no credential leakage, no repeated execution of one approval, no automatic unknown-write replay and reconstructable model input. Pi owns general MCP protocol/discovery; the host owns product authorization, evidence and real resource management.
 
-Code采用Pi 1.3.0官方内置MCP与tool_search扩展，Personal继续用durable并复用同版独立pi-mcp包，不更换其运行时。保留现有HTTP/Bearer/Cua产品范围，取消旧通用客户端、第二发现清单与搜索实现；不顺带增加OAuth、任意stdio或Resources入口。官方factory的薄执行包装只承担调用身份、实际发送前授权与结果产物，不能演变为另一套MCP runtime。
+Code uses official Pi 1.3.0 MCP/tool_search extensions. Personal keeps durable and reuses the same-version standalone pi-mcp package, not a new runtime. Retain HTTP/Bearer/Cua scope and remove the old general client, duplicate discovery catalog/search implementation. Do not add OAuth, arbitrary stdio or Resources. Thin execution wrapping around official factories owns only call identity, actual-pre-send authorization and result artifacts, not another MCP runtime.
 
-凭据选择最小收缩而非删除所有指纹：新增／重新绑定时对实际发送的规范化token求摘要，真正换token沿现有设置显式轮换，旧批准失效；迁入v4可保留旧引用及其字节摘要语义，显式重新绑定后采用规范化token摘要。Cua合并恢复按钮但保留已有begin事实，避免为删字段迁写历史。旧持久SSE核实Task只保留无网络退役定义，普通未知操作追加人工收尾事实，原始证据不改。具体新旧版本、执行资格及停止限制以规格为准。
+Credential simplification retains the minimum useful fingerprints. New/rebound credentials hash the normalized token actually sent. Real token changes use explicit existing settings rotation and invalidate old approvals. v4 migration may retain old references/full-byte digest semantics; explicit rebinding adopts normalized-token digests. Cua combines recovery actions but keeps old begin facts, avoiding historical rewrites just to delete fields. Old durable SSE recheck Tasks retain only non-network retirement definitions. Ordinary unknown operations append human completion facts without changing original evidence. Format/eligibility/stop limits remain explicit.
 
-| 现有机制 | 设计目的 | 本次处理 |
+| Mechanism | Purpose | Decision |
 | --- | --- | --- |
-| 服务允许范围、操作快照与批准单次消费 | 防止换目标、改参数或重复批准造成越权执行 | 保留；接 Pi 调用钩子与既有审批，不另建 MCP 审批系统 |
-| Personal 对普通 MCP 每次调用审批、读取失败也按未知写处理 | 无本地效果分类时不信远端只读注解 | 简化；沿用 Code 已有的拥有者确认 read/write/unknown 分类，已授权读免逐次批准，写与未知维持原规则 |
-| 凭据目标／用途隔离、撤销复核、禁止降级匿名 | 防止秘密外泄与撤销后继续调用 | 保留目标；集中在现有凭据与认证接口，不重复实现 OAuth 或多层同义校验 |
-| 凭据文件完整字节指纹 | 防止同一路径换令牌后沿用旧批准 | 收窄；保护账户／权限绑定及未决批准，不把正常换行或受管令牌刷新当永久停服理由；不能仅删哈希而放任外部文件静默换账户 |
-| 配置修订、服务身份与丢答读回 | 防旧表单覆盖、同名重建误写与重复提交 | 保留；沿产品共享配置能力，不借迁移 MCP 删除这些保护 |
-| 原工具定义整体深比较、描述参与调用失效 | 保证模型看到的定义与执行一致 | 收窄；记录模型所见定义，保留参数校验、工具资格和授权相关变更复核；描述或无关元数据变化不直接拒绝调用，schema 一致本来也不能证明服务实现未变 |
-| 每次强制保存完整 JSON-RPC 与恢复游标 | 支持原流查询、审计及断线恢复 | 简化为操作级持久记录；发送前保存身份、目标参数、授权与开始事实，结果缺失保留未知；模型可见定义和内容仍沿会话／产物完整保存 |
-| 普通 HTTP 的端点／origin 长期占用 | 防止换工具或委派绕过未知操作 | 删除通用 URL 级无限占用；硬性暂停原工作自动续做和重试，允许报告未知及拥有者明确结束工作／决定新工作，不把这些决定写成远端已停止 |
-| 跨重启原 SSE 流重核任务、专属管理流程 | 找回迟到终结应答以解除占用 | 删除；会话内流恢复交 Pi，通用宿主不承诺跨重启找回原远端结果；有具体服务需求后再评估，不能以拿不到游标阻止人工收尾 |
-| 图片与长结果持久产物、归属及有界输入 | 历史重开仍能读原结果，避免输入耗尽资源 | 保留产品通用产物与校验，删除等价 MCP 专用重复逻辑；Pi 临时文件不直接替代持久历史 |
-| Cua 固定程序／目标、单主会话串行、观察前置、停止核实 | 防止操作错桌面、交叉输入或旧动作破坏新观察 | 保留；Cua 是真实共享桌面，与通用 URL 占用不同，不能因 stdio 能连接就删生命周期管理 |
-| Cua 开始恢复与取得截图的独立人工步骤 | 记录本人开始恢复及绑定新观察 | 合并交互；保留旧执行停止、新截图、观察身份和最终接受，整沙箱停止的未保存状态损失仍须明确选择 |
+| Service allowlists, operation snapshots and single-use approvals | Prevent target/argument substitution or repeated approval execution | Retain through Pi hooks/existing approvals, not a separate MCP approval system. |
+| Personal approval for every MCP call and unknown-write classification of read failures | Avoid trusting remote read hints without local classification | Reuse owner-confirmed Code read/write/unknown classification. Authorized reads skip per-call approval; writes/unknown retain rules. |
+| Credential target/purpose isolation, revocation and no anonymous fallback | Prevent secret leakage and post-revocation use | Retain in existing credential/authentication interfaces, without duplicate OAuth or synonymous validation layers. |
+| Full credential-file byte fingerprint | Prevent same-path token replacement retaining old approval | Protect account/permission binding and pending approvals without treating newlines/managed refresh as permanent outages; silent external account replacement still cannot bypass checks. |
+| Configuration revision, service identity and lost-response readback | Prevent stale forms, same-name recreation errors and duplicate submission | Retain shared product configuration protections. |
+| Whole-definition deep equality, including descriptions | Keep model-seen definitions aligned with execution | Record model-seen definitions and retain schema, eligibility and authorization-relevant checks. Description/unrelated metadata changes do not alone reject; equal schema never proves unchanged service implementation. |
+| Mandatory full JSON-RPC/cursor persistence per call | Original-stream queries, audit and reconnect recovery | Replace with pre-send operation identity, target/arguments, authorization/start records and unknown when results are absent. Model-seen definitions/content remain complete in sessions/artifacts. |
+| Indefinite ordinary HTTP endpoint/origin occupancy | Prevent tool/delegation bypass of unknown operations | Remove generic URL-wide blocking. Hard-pause original-work automatic continuation/retry; allow unknown reports and explicit owner completion/new-work choices without claiming remote stopping. |
+| Cross-restart original-SSE recheck Tasks/management | Recover late terminal responses | Retire. Pi handles in-session stream recovery; the generic host does not promise cross-restart original-result recovery or require cursors for human completion. |
+| Persistent image/long-result artifacts and bounded input | Reopen original history without exhausting input | Retain common artifacts/validation, remove equivalent MCP-only duplication. Pi temporary files do not replace persistent history. |
+| Cua fixed program/target, main-only serial connection, observations and stopping | Prevent wrong desktops, crossed input or old actions invalidating observations | Retain: real shared desktops differ from URL occupancy; a working stdio connection is not lifecycle management. |
+| Separate human begin-recovery and screenshot steps | Record recovery choice and bind a new observation | Combine interaction while retaining original stopping, new screenshot identity/final acceptance and explicit unsaved-state-loss choice before sandbox stop. |
 
-普通 HTTP 的业务效果与远端请求结束仍是不同事实。收尾按来源与资源分别判定：原工作不得自动补发或转交重试；报告可以结束并明确结果未知，拥有者可结束该工作，旧未知记录保留。不能用超时自动解除、把人工说明伪装成停止证明，或继续依赖未知结果执行下一步。普通 MCP 的人工收尾只结束逻辑工作；释放 SubAgent 前仍须核实该工作持有的本地执行已停止，真实共享资源的占用不随报告终态自动释放。
+Ordinary HTTP business effects and remote completion remain distinct. Completion follows source/resource separately: original work must not automatically resend or delegate a retry; reports can end with unknown outcomes and owners can end logical work, retaining old unknown records. No timeout auto-release, fake stopping from human statements or next step depending on unknown results. Before releasing a SubAgent, locally owned execution must still be verified stopped. Real shared-resource occupancy is not released by report termination.
 
-取消自制跨重启原流恢复后，完整协议报文不再是每次调用的硬性持久契约；原业务调用记录仍在发送前提交，失败零发送，重启见已开始而无结果时不再次执行。既有原始证据和历史不可删除或回写。Pi 的原 POST 会话过期拒绝与已接纳后丢答分别处理，客户端合成错误不能当真实远端终结证明，细节见比较记录。
+With custom cross-restart stream recovery removed, full protocol envelopes cease to be mandatory persisted evidence for every call. Business-call records still commit before sending; failed recording means zero sends, and restart never reexecutes a started call without results. Existing raw evidence/history remains immutable. Original POST session-expiry rejection is distinct from lost responses after admission; client-synthesized errors are not remote terminal proof.
 
-Cua 已有双端正式桌面、模型、丢答冷恢复与本人接受新观察的[实机证据](../../../../.scratch/cua-integration/evidence/05-acceptance.md)；其中 Mac 闲置连接收尾仍出现 identity_unavailable 并冻结，不能说全部停止核实成功。可另行验证闲置且没有未决写的断线能否只要求重新观察；目前不据此删除停止判据，也不引入跨实例全局锁或执行网关。
+Original Cua evidence covered formal desktops, models, lost-response cold recovery and owner acceptance of new observations, retained offline at `.scratch/cua-integration/evidence/05-acceptance.md`. Mac idle-connection cleanup still produced identity_unavailable and freezing; not all stopping checks passed. Whether idle disconnection without pending writes can require only re-observation needs separate verification. This change does not remove stopping criteria or add global locks/gateways.
 
-### 既有记录审计
+## Related decisions
 
-本次检索 MCP、端点占用、SSE、凭据指纹、工具签名及 Cua。以下记录部分重叠，保留原决定并互链；本篇取代列明的实现与行为，旧篇继续持有其他独立约束。没有完全吸收的笔记，归档记录保持冻结。
+The audit searched MCP, endpoint occupancy, SSE, credential fingerprints, tool signatures and Cua. Partial supersessions preserve original decisions/other constraints; no note is wholly absorbed and sealed archives remain frozen.
 
-- [MCP客户端](../architecture/2026-09-23-mcp-client.md)：取代协议、命名、SDK重建和独立清单；保留允许范围、参数校验、秘密隔离与历史事实。
-- [个人 durable MCP](../../implemented/architecture/2026-10-17-personal-durable-mcp.md)、[传输复用](../../implemented/architecture/2026-10-17-mcp-transport-reuse.md)：取代通用端点占用、跨重启原流核实和旧客户端实现，保留未知事实、不重放和单一运行权威。
-- [MCP 写工具审批](../../implemented/feature/2026-09-23-mcp-write-tools-approval.md)、[实例配置](../../implemented/simplification/2026-10-24-code-instance-mcp.md)：保留授权、隔离与配置并发保护，复用本地效果分类。
-- [MCP 图片](../../implemented/architecture/2026-10-23-mcp-image-results.md)、[官方 Cua](../../implemented/architecture/2026-10-23-cua-official-mcp.md)：保留历史媒体与真实桌面保护，取代独立开始恢复的公开交互。
-- [Code按需发现](../../implemented/feature/2026-10-25-code-tool-discovery.md)：Pi接管工具搜索、命名和分支发现状态，保留每次选择及调用按当前来源资格收窄。
-- [配置更新总方案](../../proposed/architecture/2026-10-25-operation-scoped-configuration.md)、[设置与生效](../../implemented/architecture/2026-10-25-personal-settings-versions.md)：保留逐对象发布、保存／生效回执和旧选择归属，仅对本次格式迁入及普通未知收尾明确解除过宽阻塞。
+- [MCP client](../architecture/2026-09-23-mcp-client.md): replaces protocol, naming, SDK reconstruction and independent catalogs; retains allowlists, argument checks, secret isolation and history.
+- [Personal MCP](../architecture/2026-10-17-personal-durable-mcp.md), [transport reuse](../architecture/2026-10-17-mcp-transport-reuse.md): replaces URL occupancy, cross-restart stream rechecks and old client, retaining unknown facts, no replay and one runtime authority.
+- [Write approvals](../feature/2026-09-23-mcp-write-tools-approval.md), [instance configuration](2026-10-24-code-instance-mcp.md): retain authorization, isolation and concurrent-save protection with local effect classification.
+- [MCP images](../architecture/2026-10-23-mcp-image-results.md), [official Cua](../architecture/2026-10-23-cua-official-mcp.md): retain historical media/real desktop protection, replacing separate public begin-recovery interaction.
+- [Code on-demand discovery](../feature/2026-10-25-code-tool-discovery.md): Pi owns search/naming/branch discovery state; each selection/call still narrows to current source eligibility.
+- [Configuration proposal](../../proposed/architecture/2026-10-25-operation-scoped-configuration.md), [save/publication](../architecture/2026-10-25-personal-settings-versions.md): retain per-object publication, save/effect receipts and original selections, narrowing excessive format-migration/ordinary-unknown blocking.
 
-其他命中的命令、后台、来源、配置与历史笔记只引用MCP或持有独立规则，保持原归属；桌面设置提案的非MCP内容不受影响。
+Other command/background/source/configuration/history notes keep independent rules. Non-MCP desktop settings are unaffected. The [rejected Cua proposal](../../rejected/architecture/2026-10-22-cua-integration.md) still rejects global exclusivity/custom gateways.
 
-- [被否 Cua 提案](../../rejected/architecture/2026-10-22-cua-integration.md)：继续否定全局独占和自建网关，不重新提出；其他桌面设置提案的非 MCP 内容不受影响。
+## Error-provenance exception after P0
 
-### P0后的来源解析例外
+Pinned Pi 1.3.0 synthesizes local failures after admitted-SSE response loss as ordinary JSON-RPC errors. Public callbacks give no provenance, and a real server can return identical errors. Loopback comparison proves send/onMessage alone cannot make the required distinction; neither message parsing nor default remote-completion classification is acceptable.
 
-固定Pi 1.3.0把已接纳SSE丢答的本地失败合成为普通JSON-RPC错误，公开回调没有来源，真实服务器可以返回相同错误。实际回环对照已经证明仅靠`send/onMessage`不能满足既定区分；不以错误文本或默认远端终结绕过。
+The owner chose to retain Pi 1.3.0 and permit read-only SSE response-origin parsing without weakening S3/A4 source/completion requirements. This narrow protocol exception reuses maintained eventsource-parser as a declared direct dependency and Pi's public JSON-RPC parser. It observes actual HTTP bytes before giving them to Pi, without asynchronous tee, response rewriting or changed Pi recovery arguments. Responses bind original client/transport instance plus request ID, avoiding repeated IDs across services/reconnections. Necessary persistence precedes byte delivery. Normal EOF supplies the parser's terminating blank line; canceled/broken streams do not. The observer records received responses only: no sends, retries, second client or cross-restart cursor. Observation failure remains unknown; upstream still owns connections, execution, discovery and recovery.
 
-拥有者明确选择保持Pi 1.3.0，允许宿主保留只读SSE应答来源解析；S3/A4的来源与收尾要求不变。这是通用协议职责收缩的窄例外：复用已维护的`eventsource-parser`并声明直接依赖，使用Pi公开JSON-RPC解析，在原HTTP字节流交给Pi之前观察真实答复，不用异步tee，不改远端正文或Pi恢复参数。答复按原Pi客户端／transport实例和请求ID共同归属，避免跨服务／重连的重复ID串账；必要持久化先于原字节交付，正常EOF补观察parser终止空行，取消或断流不补。只记录收到的答复，不发请求、不重试、不建立第二客户端，不持有跨重启游标；观察失败时保持未知。MCP连接、协议执行、发现和恢复继续由上游持有。
+A future public upstream source API could remove this parsing. Read-only inspection of released 1.4.0 found the same gap, so a current-version upgrade alone did not solve it. Treating every protocol error as unknown would preserve no-replay but force human completion for actual remote terminal errors too, so it was not chosen. CallToolResult.isError remains separate from protocol errors.
 
-等待上游公开来源接口能进一步删除解析重复，但只读检查已发布1.4.0仍有相同缺口，不能通过升级现有版本直接解决。统一把协议错误记未知能守住不重放，却会把真实远端终结也改成人工收尾，因此没有选择。`CallToolResult.isError`与协议错误分别保存，不能把所有工具错误混为一类。
+P0 also showed official 404 reconnection leaves old detached clients outside default shutdown. The host retains only lifecycle handles for already-created transports, cleaning retired transports after original operations stop and joining cleanup before SDK destruction. It neither reuses connections nor owns a second client; close is not Cua stopping proof. Official registration still needs explicit MCP wildcard eligibility and a thin empty OAuth interface. Actual authentication uses original resolver; configuration/credential authority does not migrate to Pi default files.
 
-P0另证明官方404重连脱离的旧客户端没有被默认shutdown关闭。宿主只保留已创建传输的生命周期句柄，在原操作停止后清理退役传输，SDK销毁前收齐；不复用连接或持有第二客户端，不用close替代Cua停止证明。官方工具注册仍需要显式MCP通配资格与薄空OAuth接口，实际认证只走原resolver，配置和凭据权威不迁往Pi默认文件。
+## Alternatives considered
 
-## 备选方案
+- Retain every host mechanism and replace transport only: easiest regression/recovery preservation, but leaves indefinite ordinary-read blocking, rotation friction and duplicate recovery workflows.
+- Adopt Pi defaults and delete host evidence: least code/broad compatibility, but violates cross-restart approvals, unknown-write no-replay, historical media and Cua stopping.
+- Retain product guarantees, narrow ordinary-HTTP recovery promises and reuse Pi: removes protocol duplication/excess pauses, at the cost of human inspection instead of guaranteed automatic lost-result recovery. Chosen.
 
-- 原样保留全部宿主机制，只替换传输：最容易维持现有回归及恢复能力；未解决普通查询被长期阻塞、凭据正常轮换和多重恢复流程的成本，因此不作为目标。
-- 完全采用 Pi 默认行为并删除宿主记录：代码最少、兼容范围更广；不能满足拥有者跨重启审批、未知写不重放、历史媒体和 Cua 停止核实，因此不选。
-- 保留产品保证，收缩普通 HTTP 的恢复承诺并复用 Pi：能删除通用客户端重复实现及过宽暂停条件；代价是普通远端丢答后可能只能人工检查而不能自动找回结果，本次采用。
+## Verification
 
-## 验证
+- Target/argument changes or revocation after approval yield zero sends. Rejection/repeated approval never duplicates operations; pre-send persistence failure sends nothing.
+- Crash after a write but before result persistence never resends on reopen. Original work cannot continue automatically; it can report unknown and the owner can explicitly end it. Unrelated queries/independent work are not indefinitely blocked by URL.
+- Authorized reads skip per-call approval; remote hints cannot escalate. Account/permission replacement invalidates pending approvals; managed refresh does not permanently disable all future calls.
+- Model-seen definitions/text/images reconstruct after reopen without history rewriting. Protocol rejection, remote results and synthetic client failures do not collapse into success or non-execution.
+- Cua target binding, per-instance serialization, original-action no-replay, stop verification, new-observation acceptance and sandbox-stop confirmation retain counterexamples and required hardware evidence.
 
-- 获批后换目标、参数或撤销权限时零发送；拒绝和重复批准不产生重复操作；发送前持久记录失败零发送。
-- 写入成功但结果落盘前崩溃，重开不重发；原工作禁止自动继续，能够报告未知并由拥有者明确收尾；无关查询和独立工作不因同一 URL 被无限阻塞。
-- 已授权读不逐次审批，远端只读 hint 不能自行升权；账户／权限替换使未决批准失效，受管刷新不使全部未来调用永久失效。
-- 模型可见定义、文字和图片重开可重建，旧记录不改写；协议拒绝、远端结果和客户端合成失败不会混为一种成功或未执行状态。
-- Cua 的目标、单实例串行、原动作不重放、停止核实、新观察接受和沙箱停止确认继续有反例及必要实机证据。
+## Consequences
 
-## 后果
+Ending work with an unknown result does not stop remote execution. Owners must know this and use actual business state to resolve later conflicts; simplification is not timeout unlocking. A service needing automatic cross-restart recovery/resource exclusivity must be evaluated from real receipts/resource identities, not restored URL assumptions.
 
-允许拥有者在未知结果下结束工作，不会停止远端可能仍在执行的操作；必须明确这一点，后续冲突由拥有者结合真实业务状态决定。不能把简化做成自动超时解锁。若实际服务需要跨重启自动结果恢复或共享业务资源互斥，基于该服务的真实回执与资源身份重新评估，不能恢复 URL 级假定。
+Both products pin Pi 1.3.0. Code uses public factories/explicit host extensions; Personal uses the same client version. Configuration/operation versions preserve historical entries. The original change raised Code protocol 41 to 42 without SQLite layout change, retaining then-schema 53; later constants supersede these historical numbers. Engineering checks/independent implementation review depend on final combined evidence. Isolated HTTP, Faux models and stdio processes do not establish real HTTPS write services, models, IM or Cua; missing product prerequisites retain resumption conditions. Cua idle disconnect remains frozen under original stopping criteria.
 
-两端依赖固定1.3.0，Code使用公开factory与显式宿主扩展，Personal使用同版客户端。配置与操作新增版本不迁写历史，Code控制协议41升42，SQLite表布局不变、schema保持53。工程检查与独立实现审查以工单的最终组合证据为准；隔离HTTP、Faux模型和stdio子进程不证明真实HTTPS写服务、模型、IM或Cua，未具备前提的产品验收保留恢复条件。Cua闲置断线仍按原停止判据冻结，不借本次迁移放宽。
+SDK system prompts/tool registration remain in JSONL. Host compaction indices count conversation messages only, matching context assembly; request snapshot v1 still separately records system prompt, tools and conversation. SDK shutdown belongs to one Driver execution, and a new execution waits for close. Stop failure retains original SDK/rebuild requirement. Closing a session stops only its owned Cua; instance shutdown performs global stopping so unrelated child cleanup cannot interrupt main's computer connection.
 
-SDK系统提示与工具登记仍保留原JSONL，宿主压缩序号只计算对话消息，与上下文装配一致；请求快照v1继续分别保存系统提示、工具定义和对话。SDK关闭按Driver单次执行，新建等待关闭完成；停止失败保留原SDK及重建要求。会话关闭只停止其自身持有的Cua，全实例退出才执行全局停止，避免无关SubAgent收尾打断主会话电脑连接。
-
-固定工具身份的direct／deferred同时发布给官方注册表与宿主资格包装，使官方系统提示也遵循实际可用路径；不以修改提示正文掩盖注册状态不一致。曝光变化纳入既有选择，并沿无在途调用的边界发布。
+Fixed tool direct/deferred identities publish together to official registry and host eligibility wrapper, so official prompts reflect the actual available path. Do not edit prompt text to hide registry inconsistency. Exposure changes enter existing selection and publish only without in-flight calls.

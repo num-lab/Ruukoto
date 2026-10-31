@@ -1,43 +1,39 @@
-# Agent Note: 托管技能以固定内容路径与状态清单管理
+# Agent Note: Keep managed skill bytes fixed and change availability through a manifest
 
 Status: implemented
 
-技能发现与管理由[统一 HOME 发现](../simplification/2026-10-28-home-skills-discovery.md)部分取代；两端通过固定目录维护技能，原包字节与历史引用原位保留。
+[Fixed HOME discovery](../simplification/2026-10-28-home-skills-discovery.md) supersedes active discovery/management: both products now use fixed directories; old managed bytes and historical references remain in place. This note preserves the rationale and original package guarantees, not a live import/enable/remove API. [Settings publication](../architecture/2026-10-25-personal-settings-versions.md) and [request configuration](../architecture/2026-10-25-personal-request-configuration.md) superseded personal online publication/request snapshots before that retirement. [Read-check reuse](../bug-fix/2026-10-24-read-check-overhead.md) owns same-read reuse and manifest-level personal pre-send verification; full packages remain verified at load/manage/reopen where applicable.
 
-Personal 的在线清单提交与原请求快照采用[设置保存与生效](../architecture/2026-10-25-personal-settings-versions.md)及[请求配置](../architecture/2026-10-25-personal-request-configuration.md)；本文其余包字节、来源安全、逻辑移除及 Code 任务钉版约束继续适用。
+## Problem
 
-[读取检查复用](../bug-fix/2026-10-24-read-check-overhead.md)补充同次管理读取复用与个人发送前的清单级选择核实；完整包仍在加载、管理和重开检查。
+External skill trees may contain links and belong to other tools; the host cannot write disable markers or delete them. A task pins its instruction body but still reads references at original paths. Even an ended agent_wait can supply context to later tasks, so an idle task does not prove old directories can be moved or reclaimed.
 
-## 问题
+## Decision
 
-外部技能库可能含符号链接并由其他工具维护，宿主不能写停用状态或删除源包。任务内正文已钉版，但引用文件仍沿原目录读取；ended `agent_wait` 的参考也会被后续任务使用，任务空闲不能证明旧目录可以移动或回收。
+The original managed store separates immutable content from manifest availability. Shared `managed-skills.ts` owns files/manifests only; Code supplies its agentDir, Personal its locked profile and external skills subdirectory. Do not share product tasks/locks/request evidence. External `loadSkillLibrary(string)` remains distinct. The original explicit source list selected winners in external-path order before loading manifest-selected managed packages. New snapshots included host identity/source/read-only/full-content revision, while model catalog/body hashes kept original fields so old snapshots still verified.
 
-## 决定
+Managed layout permits only state.json, state.json.tmp, packages, and .staging. Package paths are permanently `packages/<UUID>/<original-directory-name>`. Manifest v1 records identity/name/full content revision (including references and empty directories) and enabled/disabled/removed state; revision is SHA-256 of the entire manifest. Unknown versions/broken references fail. Preview assigns the commit identity for later lookup; lost response must not produce a new identity/resend.
 
-共享 `managed-skills.ts` 只持有技能文件与清单操作，Code 使用自身 agentDir，Personal 在档案锁后传入档案目录及外部 skills 子目录；不共享两端任务、锁或请求证据。原 `loadSkillLibrary(string)` 保留外部库入口，显式来源列表先按外部原路径排序取赢家，再加载清单选中的托管包。宿主身份、来源、只读状态和完整内容修订随新快照记录；模型目录和原正文版本哈希只包含原字段，旧快照原样验证。
+Source scans try at most three times, discarding unstable reads and fully rechecking path chains, identities, and content each time. Unrelated child changes under a shared temporary ancestor may cause a reread, not relaxed link checks or final preview-hash comparison. Accept regular files only; reject links in source root/ancestors/package, hardlinks, and special objects. Check path chain and directory/file identity before/after reads; parent replacement invalidates the read. Limits: 512 files, 8 MiB, 128 subdirectories, depth 32; body retains its 64 KiB rule.
 
-托管区只允许 `state.json`、`state.json.tmp`、`packages`、`.staging`。包路径固定为 `packages/<UUID>/<原目录名>`，清单版本为 1，修订是完整清单内容的 SHA-256。清单记录包身份、目录名、包含引用与空目录的内容修订及 enabled/disabled/removed；未知版本或损坏引用拒绝使用。导入预览生成提交身份，客户端可用该身份读回，丢答后不另建身份重发。源扫描至多尝试三次，每次丢弃不稳定读取并完整复核路径链、文件身份和内容；共享临时祖先的无关子项变动可以重读，不放宽链接检查或最终预览哈希比较。
+Copy under the original directory name into private staging, verify full contents/original parse, then recheck preview revision/current source/name conflicts. Publish the fixed package path before conditionally atomically committing the manifest, the sole visibility point. Original mutations ran synchronously in the owning backend's serial section: Code instance lock and Personal offline profile lock; later personal publication rules superseded the offline-only requirement.
 
-导入读取普通文件，拒绝源根与父路径中的链接、包内链接、硬链接及特殊对象；路径链与目录/文件身份在读取前后核实，父路径变化使本次读取作废。每包至多 512 文件、8 MiB、128 子目录和 32 层；正文继续沿原 64 KiB 规则。复制保留原目录名，在私有暂存校验完整内容和原解析结果，再复核预览修订、当前源内容与重名冲突，发布固定包路径，最后条件原子提交清单。所有变更同步执行在所属后台串行段，Code 沿实例锁，Personal 必须沿停机档案锁；清单提交是唯一可见点。
+Root/managed/package directories must be current-owner regular 0700 directories; files current-owner regular 0600 with nlink=1. Safe partial temporary manifests/staging/orphan packages may survive reopening. Never parse temp state as current or automatically promote/clean orphans. Packages and staging each allow at most 256 identities; check actual sets before importing so failure remnants cannot make the next layout unreopenable.
 
-根、管理目录与包内目录必须是当前所有者的 0700 普通目录，文件必须是当前所有者的 0600 普通文件且 nlink=1。安全的部分临时清单、暂存和孤立包允许重开，不解析临时清单为当前状态，不自动清理或扫描孤立包为已安装。packages 与 staging 分别最多 256 身份，新导入先核对实际集合容量，失败残留不能让下一次操作制造不可重开的布局。
+Enable/disable/remove changes only manifest state, never bytes/path. Explicit-invocation-only is separate frontmatter metadata; disabled entries are unavailable even explicitly. New tasks using old references verify managed layout and filter the original selection by current state, recording a new selection/prompt without rescanning external trees or rewriting old waits. Resource reacquisition in the same task keeps its starting selection. Original-task recovery, already-recorded body, and references use original pins. Pre-resource validation failure follows normal Driver failure with error code, not false occupancy. Mutation receipts derive from verified content and committed manifest; a failed readback after commit cannot imply nothing saved.
 
-启停及移除只提交状态，包路径和字节不变。仅显式调用是 frontmatter 属性，与停用独立；停用项不供新显式调用。新任务从旧参考启动时校验托管区并按当前状态过滤原选择，保存新的选择记录和 prompt，不重扫外部技能或修改原 wait；本任务重取执行资源仍保留开始时选择。原任务恢复、已写入正文和引用沿旧钉版读取。读取校验在资源启动前失败时由 Driver 正常失败收尾，保留错误码而不留下虚假占用。变更回执来自已校验内容和已提交清单，提交后不再用读回失败冒充未保存。
+The original audit partially implemented [settings management](../../proposed/feature/2026-10-21-desktop-settings-management.md) while leaving GUI/profile/maintenance assembly to its owners. [Personal data ownership](../architecture/2026-10-18-personal-memory-skills-history.md) and [wait/report ownership](../architecture/2026-10-14-agent-wait-and-report-ownership.md) retain history/locks/lifecycle/request evidence. Compaction/workflow/source/import decisions were not superseded. No note required full absorption/archival.
 
-## 既有笔记审计
+## Alternatives considered
 
-按 skills、技能、托管与 agent_wait 检索 proposed/implemented；rejected 无相关记录。[桌面设置提案](../../proposed/feature/2026-10-21-desktop-settings-management.md)的技能后端部分由本篇落地，GUI、Personal 档案接线与维护仍由原工单持有；[个人资料归属](../architecture/2026-10-18-personal-memory-skills-history.md)和[等待与回报](../architecture/2026-10-14-agent-wait-and-report-ownership.md)部分重叠，保留其历史、锁、生命周期与请求证据，只补托管来源和新任务过滤。共享压缩、工作流步骤、子来源能力与实例导入笔记保留各自职责，无完全吸收或归档。
+- Move directories for enable/disable: simple layout, but historical references and ended snapshots need stable paths. Change availability, not content location.
+- Mutate external sources: saves disk/copying, but violates external ownership and old-version evidence. Private copies leave sources read-only.
+- Automatically clean orphan packages after failed manifest commit: reduces residue, but lacks committed install identity and adds destructive recovery. Keep safe remnants without making them visible installations.
 
-## 备选方案
+## Consequences
 
-- 用启用/停用目录移动代替清单：文件布局简单，但旧引用仍需固定路径，ended 快照可被未来任务消费；选择内容不动、可用性只改清单。
-- 直接修改外部源树：无需复制并节省磁盘，但破坏外部维护归属及旧版本证据；选择私有托管副本，外部只读。
-- 对清单失败的孤立包自动清理：减少残留，但失败时没有已提交安装身份，自动回收又引入额外可破坏的恢复操作；保留合法残留并拒绝当作可见包。
+The design allowed Code availability changes while older task references survived. Logical removal and failure residue consume disk indefinitely; real capacity limits reject new imports. Physical GC requires a separate proof that no old references remain and was not delivered. Unstable source ancestors require a new preview once stable.
 
-## 后果
+Historical management paged 1-100 entries, bounded diagnostics to 100 entries/1024 characters with explicit truncation, and returned bounded bodies by stable identity without arbitrary reference reads/deletion. Code list_skills returned the current effective library; [Personal settings](2026-10-21-personal-settings.md) owned layout classification/lock calling and each actual personal request recorded a new selection. These describe the retired manager, not the new fixed-HOME read-only entry.
 
-启停可在 Code 任务存在旧参考时执行，历史和引用路径不受影响；代价是逻辑移除和失败残留持续占用磁盘，真实集合达限额时拒绝新导入。需要回收空间时单独设计能证明无旧引用的 GC，本期没有物理删除接口。源父路径变化会保守拒绝导入，需要在目录稳定时重新预览。
-
-管理列表以 1–100 条分页，诊断至多 100 条、单条至多 1024 字符并明确标记截断；详情只按稳定身份返回有界正文，不开放任意引用读取或文件删除。Code 旧 list_skills 继续返回当前有效库。[Personal 设置入口](2026-10-21-personal-settings.md)持有顶层布局分类与停机持锁调用，每次实际模型请求仍由个人快照记录新选择。
-
-安全导入、失败暂存、孤立包、清单版本/权限、状态冲突、外部赢家及旧钉版由 `test/managed-skills.test.ts` 覆盖；Runtime/Control 契约由 `test/66-control-seam.test.ts` 覆盖。ended 参考的新任务与恢复回归见 `test/managed-skills-reference.test.ts`；实际命令、独立审查及未验证项由[04 工单](../../../../.scratch/desktop-settings/issues/04-managed-skills.md)持有。模型工具描述与系统提示未增加文字；改变的是已记录的技能选择。
+Historical `test/managed-skills.test.ts` covered safe imports/staging/orphans/version/permissions/conflicts/external winners/pins; test/66 covered Runtime/control, and `test/managed-skills-reference.test.ts` covered new tasks from ended references and recovery. Former `.scratch/desktop-settings/issues/04-managed-skills.md` held executed commands, independent review, and evidence gaps offline. Tool descriptions/system prompts gained no text: the change was in recorded skill selection. Current checks must follow the HOME-discovery decision, not assume the retired management API remains available.

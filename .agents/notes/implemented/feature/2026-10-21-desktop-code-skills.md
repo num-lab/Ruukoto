@@ -1,35 +1,33 @@
-# Agent Note: Code Skills 导入绑定宿主目录选择
+# Agent Note: Bind Code Skill imports to host directory selection
 
 Status: implemented
 
-技能导入与状态管理由[统一 HOME 发现](../simplification/2026-10-28-home-skills-discovery.md)取代；桌面保留只读列表、分页与诊断，原历史引用继续保留。
+[Unified HOME discovery](../simplification/2026-10-28-home-skills-discovery.md) supersedes import/state management; Desktop retains read-only listing, pagination and diagnostics. [Markdown images](../simplification/2026-10-25-desktop-markdown-images.md) and [HTML rendering](../simplification/2026-10-25-desktop-markdown-html.md) replace the original image placeholders/HTML skipping; link rules remain.
 
-技能正文的图片占位由[Markdown 直接显示图片](../simplification/2026-10-25-desktop-markdown-images.md)取代，原始 HTML 跳过规则由[Markdown 渲染 HTML](../simplification/2026-10-25-desktop-markdown-html.md)取代，链接规则继续适用。
+## Problem
 
-## 问题
+The managed backend could preview/import absolute paths for its control owner, but a renderer string is not proof of owner directory selection. Electron/MyGo own different pickers, and connections/instances may change or responses disappear between preview and confirmation.
 
-托管后端允许所属控制面按绝对路径预览与导入，但桌面 renderer 不能把任意字符串当作已由拥有者选择的目录。Electron 与 MyGo 又分别持有系统选择器，预览、确认之间可能换连接、换实例或丢失应答。
+## Decision
 
-## 决定
+The original DesktopHost flow retained selected Code connection, instance, host ticket and backend preview. Electron opened its system picker in a host callback; MyGo obtained a Node ticket, selected through Go and returned the path to that host. Check original connection before selection, after path/preview and before submission; cancellation never calls the backend. Only dedicated `pickSkillFolder(target, instanceId)` and `desktop_skill_import` were exposed. Submission accepted a selection reference; the host supplied path/content revision/skill identity/original inventory revision. Raw backend import operations were excluded from the desktop allowlist; Personal's allowlist stayed unchanged.
 
-DesktopHost 保存本次 Code 选择的连接对象、实例、宿主票据与后台预览；Electron 在宿主回调内打开系统目录选择器，MyGo 先从 Node 宿主取得票据，再由 Go 选择并把路径交回同一宿主。选择前、取得路径后、预览应答后和提交前均核对原连接，取消不调用后台。只公开专用 `pickSkillFolder(target, instanceId)` 与 `desktop_skill_import`，提交只收选择引用；路径、内容修订、技能身份和原清单修订由宿主回填。后台原始 `skill_import_preview`／`skill_import` 不进入桌面操作白名单，旧 Personal 白名单保持原范围。
+One selection issued one import. CodeSkillsState retained original import/enable/remove identity. Lost responses or invalidation while pending required verification, not resend/navigation. After the same instance recovered, read original `skill_get` identity/inventory; failed reads remained pending. Explicit current-state observation allowed another owner action. Import failure, reselection or connection change invalidated the old preview but retained comparison data; importing again required explicit selection. Conflict retained list/selection/preview until manual refresh; reads never copied or rewrote the original import request.
 
-一次选择只发送一次导入。CodeSkillsState 保存原导入身份或启停／移除身份，丢答及在途失效进入待核实，禁止重发与离开；恢复同一实例后按 `skill_get` 原身份及清单读回，查询失败继续等待，明确读回当前值后才允许拥有者再操作。导入失败、重新选择或连接变化使旧预览失效，保留用于比较，须显式重新选择才可再次导入。冲突保留列表、选择与预览，手动刷新读回当前值；读取不会自动复制或更新导入请求。
+Listings remain bounded/paged, with name filtering only over loaded items. Mid-page inventory changes retain the old list and require reload. Stable-identity detail reads bounded bodies; refreshing page one does not remove management access to selected later-page items. The original Markdown renderer skipped HTML and represented images as text, later superseded as linked above. Only HTTP(S) links open the system browser. Original managed enable/remove used backend manifests and explained new-task selection, old-task recovery and retained bytes; externally maintained sources were read-only. HOME discovery now removes these management operations.
 
-列表有界分页，名称检索只过滤已取得项；分页期间清单变化时保留旧列表并要求重读。详情沿稳定身份读取有界正文，刷新首屏不会使首屏以外的已选详情失去管理能力。Markdown 复用 react-markdown 的 HTML 跳过规则，图片只显示文字，只有 HTTP(S) 链接可交系统浏览器；技能正文不运行脚本、不自动加载远程图片。托管启停与逻辑移除复用后端清单，页面说明新任务选择、旧任务恢复与历史字节的影响；外部维护来源只读。
+## Related decisions
 
-## 既有笔记审计
+This implemented the original Code Skills slice of the [settings proposal](../../proposed/feature/2026-10-21-desktop-settings-management.md). [Settings container](2026-10-21-desktop-settings-shell.md), [managed backend](2026-10-21-managed-skills.md) and [shared MyGo host](../architecture/2026-10-17-desktop-mygo-experiment.md) retain navigation, storage safety and host ownership in their applicable scope.
 
-按 desktop、settings、skills、技能和托管检索 proposed／implemented／rejected。[设置管理提案](../../proposed/feature/2026-10-21-desktop-settings-management.md)的 Code Skills 页面部分由本篇落地，Personal 与最终验收仍由原工单持有；[设置容器](2026-10-21-desktop-settings-shell.md)、[托管后端](2026-10-21-managed-skills.md)、[MyGo 共用宿主](../architecture/2026-10-17-desktop-mygo-experiment.md)部分重叠，分别保留导航保护、文件与清单安全、壳与宿主职责。本次无完全吸收或失效笔记。
+## Alternatives considered
 
-## 备选方案
+- Returning picker paths to the renderer for direct import reuses pickFolder but cannot establish selection/connection provenance consistently across shells.
+- Re-preview/import after lost response generates another identity and can duplicate imports. Verify the original first.
+- Refreshing the original preview's revision automatically reduces steps but loses the owner's content/inventory association. Preserve it and require reselection.
 
-- 选择器返回路径后由 renderer 直接调用后台导入：可以复用已有 pickFolder，但后台不能证明路径来自本次选择，也无法统一两壳的连接归属，因此使用最窄专用宿主操作。
-- 丢答后再次预览并导入：能重新检查源包，却每次生成新身份，可能复制第二份，因此先按原身份核实，再由拥有者决定下一次选择。
-- 刷新时自动更新原预览修订：冲突后更省一步，却使确认对应的内容与清单失去原关联，因此保留预览供比较，显式重选。
+## Consequences
 
-## 后果
+The historical flow managed Code Skills without sessions or a general filesystem API, but connection changes/cancel/rejection required a new selection and logical removal never reclaimed bytes. Current read-only discovery retains historical references, not the retired controls.
 
-桌面可以无需会话管理本地 Code Skills，两壳复用真实控制面与相同选择安全检查，不开放通用文件 API。代价是连接变化、重选取消或导入明确拒绝后需要重新选择目录；逻辑移除持续保留字节，界面不提供物理回收。
-
-真实隔离 Runtime／Control 与共用 DesktopHost 的回归覆盖导入、取消、只读来源、冲突、原身份读回、分页和迟到；SSR 检查 Markdown 与影响说明。选择器回调及 MyGo 两步传输在测试中模拟，真实两壳选择、重启与键盘、明暗、窄窗和诊断体验仍需工单产品验收，不以模拟通过替代。
+Isolated Runtime/Control/DesktopHost tests covered import/cancel/read-only sources/conflict/identity verification/pagination/stale replies; SSR covered Markdown/consequence text. Picker callbacks/MyGo transport were mocked, so real picker, restart, keyboard/themes/narrow layout and diagnostics still required product evidence.

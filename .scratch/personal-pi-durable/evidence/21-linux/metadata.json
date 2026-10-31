@@ -1,9 +1,0 @@
-{
-  "driver": "/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/rk-linux-driver.nuh94kln",
-  "run_dir": "/tmp/rk-linux-verify.CohhCfz7",
-  "deps_dir": "/dev/shm/rk-linux-deps.H6A9ny4b",
-  "archive_sha256": "4c7aac3e634dc9679f09db34bd40fcc5e4e0653424c100d1076898d61424758a",
-  "archive_bytes": 5661285,
-  "files": 1394,
-  "source_git_head": "b385f7a302eb099acdce716964dcf97ca8d8f632"
-}

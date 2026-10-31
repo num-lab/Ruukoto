@@ -1,9 +1,0 @@
-{
-  "passed": true,
-  "kind": "test.unknown-reference",
-  "dynamicSourceSection": false,
-  "delegateError": "work_source_invalid",
-  "newWorkTasks": 0,
-  "modelRequests": 2,
-  "requestEvidenceEntries": 4
-}

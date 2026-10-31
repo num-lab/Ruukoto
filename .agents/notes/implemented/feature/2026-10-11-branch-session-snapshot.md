@@ -1,62 +1,56 @@
-# Agent Note: 会话分支由宿主发布独立历史快照与限定来源
+# Agent Note: Publish session branches from strict history snapshots and bounded sources
 
 Status: implemented
 
-相关笔记：[Coding 侧聊](2026-10-29-coding-side-chat.md)复用本篇的安全历史与准备／发布机制，另行收窄会话身份、工具和资料访问，不改变普通分支行为。
+[Coding side chat](2026-10-29-coding-side-chat.md) reuses safe history and prepare/publish while narrowing identity, tools, and data access; it does not change ordinary branches.
 
-## 问题
+## Problem
 
-[工单 28](../../../../.scratch/agent-direction/issues/28-branch-session.md)确认 `/branch` 要在来源仍执行时建立独立会话，保留历史与适用设置、可读引用，但不能继承任务、批准或工作管理权限。`/new` 创建空会话，pi 分支 API 不承担 Ruukoto 的严格历史、幂等、资料来源和跨文件恢复；直接复用无法满足已确认行为。
+The owner confirmed that `/branch` must create an independent session while the source may still run, retaining history, applicable settings, and readable references without inheriting task/approval/work-management authority. `/new` is empty; pi branching does not provide Ruukoto's strict history parsing, request idempotency, bounded provenance, or cross-file recovery.
 
-## 决定
+## Decision
 
-由 Runtime 编排一次“固定来源 → 准备文件 → 发布会话”。core 的 history 与 branch 提供严格只读解析、准备回执及限定来源核实，agent 提供独立 JSONL 文件准备及上下文适配；core 不写历史、不依赖其他 workspace 包。控制面只接收来源 ID、可选任务 ID、名称和幂等键，不能接收客户端生成的权限清单或历史路径。
+Runtime fixes the source, prepares the file, then publishes the session. Core history/branch owns strict read-only parsing, preparation receipts, and source verification; agent prepares independent JSONL and adapts context. Core neither writes history nor depends on other workspaces. Control accepts source ID, optional task ID, name, and idempotency key, never client-generated authority lists or history paths.
 
-### 历史与独立状态
+### Independent history and state
 
-读取时固定源文件身份和字节上限，以完整 JSONL 行和条目链确定分支点。工具批次按宿主任务及调用轮次配对，只回退活动尾部未闭合批次；旧终态任务缺配对是历史事实，不能截掉其后对话。指定任务时只取到该任务的完成标记，任务归属与完成状态由宿主核实。完整用户消息可作末条，部分尾行排除，完整坏行拒绝。源文件保持只读。
+Pin source-file identity and byte limit, then determine the branch point from complete JSONL lines and the entry chain. Pair tool batches by host task and call round. Roll back only an unclosed active tail batch; missing pairs in old terminal tasks are historical facts and must not truncate later conversation. A specified task cuts at its completion marker after host verification of ownership/completion. A complete user message may be last; exclude partial tail lines and reject complete malformed lines. Never modify the source.
 
-新文件有独立 header、pi ID 和宿主会话 ID，复制条目保留内容、顺序、ID 与来源标记。项目身份、组织归属和核实后的目录保持来源值；会话设置独立复制并初始化自己的版本。目录仍共享，执行继续受原占用规则约束。
+The new file has its own header, pi ID, and host session ID; copied entries preserve body/order/IDs/provenance. Copy original project identity, organization ownership, verified cwd, and independent settings with initial versions. The directory remains shared and ordinary occupancy still applies.
 
-压缩点只有覆盖范围及指纹与快照匹配才复制，分配新记录 ID 并保留生成来源。工作清单从快照内最后一次成功 `todo_write` 参数派生，后台为模型与 TUI 提供一致事实，不复制工具账本。任务、队列、审批、临时授权、工作与 SubAgent 身份、通知及用量不复制。
+Copy a compaction point only if coverage and fingerprint match the snapshot; assign a new record ID and retain generation provenance. Derive the checklist from the last successful `todo_write` arguments inside that snapshot so model/TUI agree, without copying tool ledgers. Do not copy tasks, queues, approvals, temporary grants, work/SubAgent identities, notifications, or usage.
 
-### 请求准备与发布
+### Prepare, publish, recover
 
-采用持久分支请求记录承载幂等和恢复，未发布请求不建立可选 sessions 行。第一次请求在验证和快照读取后，事务保存参数指纹、目标 ID、名称/编号、源范围/指纹、适用设置、压缩点内容及来源清单；同键异参冲突，同键同参固定原记录。自动编号在同事务分配，来源后续追加和设置变化不能改变该请求。
+A durable branch-request record owns idempotency/recovery; unpublished requests have no selectable sessions row. After initial validation/snapshot read, one transaction fixes parameter fingerprint, target ID, name/number, source range/fingerprint, applicable settings, checkpoint content, and source allow-list. Same-key differing parameters conflict; identical parameters reuse that record. Allocate automatic numbering in that transaction. Later source appends/settings changes cannot alter the request.
 
-agent 在目标历史目录独占写准备文件并刷盘，安装最终文件后，Runtime 在一个数据库事务中发布会话、来源、有效压缩点、完成回执与创建事件，提交后应答和广播。文件和 SQLite 不承诺原子；准备记录就是两个提交之间的核实依据。
+Agent exclusively writes/fsyncs the target preparation file and installs the final file. Runtime then atomically publishes session, sources, active checkpoint, completed receipt, and creation event in SQLite, responding/broadcasting after commit. File and SQLite commits are not atomic; the preparation record bridges them.
 
-后台恢复或同键重试只重用该记录与已核实文件。文件已完整安装时按目标准备摘要核实；需要重建时核实原前缀。需要重建准备文件时仅可读取记录中的原前缀并校验，不得重新分支到最新历史。来源身份或目录无法核实、重建时原前缀缺失或变化，留下明确失败，不发布半成品；只清理本请求的目标准备文件，绝不删源资料。已发布分支的文件缺失按损坏拒绝，不能由 SDK 打开路径静默新建空历史。
+Restart/same-key retry uses only that record and verified files. Verify an already installed file by its target preparation digest. Rebuild only from the recorded original source prefix after verification, never branch from newer history. Unverifiable source/directory identity or missing/changed required prefix fails explicitly without publishing a partial session. Clean only this request's target preparation file, never source data. A missing published history file is corruption; do not let the SDK silently create an empty history.
 
-### 来源只读资格
+### Read-only source eligibility
 
-来源关系使用宿主核实的限定清单，条目关联原任务/会话/产物及分支范围；partial 产物保存当时字节上限和状态，图片保存原不可变引用与内容校验信息，SubAgent 结果限定到已有的完成任务和产物。用户或模型正文里的 ID 不构成授权。
+The host-verified allow-list binds original task/session/artifact and branch range. Partial artifacts retain their captured byte limit/state; images retain immutable references/content verification; SubAgent results refer only to already completed tasks/artifacts. IDs in user/model prose are not authority.
 
-历史、产物、图片与来源结果读取复用当前资料权限，再与清单范围相交；撤销后不恢复资格，损坏图片拒绝模型调用。连续分支继承仍在快照内的祖先条目及原上限，不重新查询祖先当前的全部资料。共享项目已有资料范围维持原规则，清单不把全项目改成时间快照。
+Reads intersect existing history/artifact/image/result permissions with that allow-list. Revocation cannot be undone by branching; corrupt images reject the model call. Rebranching inherits only ancestor entries still inside the snapshot and their original limits, not every current ancestor object. Existing same-project access rules remain: this list is not a time snapshot of the entire project.
 
-来源清单不参与委派、Agent 复用、消息、取消、关闭和改动汇总。源任务也不进入新会话活动列表或累计统计。新会话通过正常提交建立自己的任务与工作。
+Source eligibility never authorizes delegation, reuse, messaging, cancellation, closing, or integration. Source tasks are absent from new-session active lists and accumulated usage. The branch creates its own work through normal submission.
 
-### 客户端一致性
+### Client agreement
 
-创建应答、持久事件、查询和重连快照投影同一套名称、来源、归属、设置及版本。发起客户端安装完整结果后切换并保留目标继承设置，不能让通用跨会话设置传播覆盖它；其他客户端只更新列表。应答丢失保留原键核实，只有明确再次执行命令才创建新键。Desktop 消息底部的按任务分支见 [Desktop 消息操作](./2026-10-28-desktop-message-actions.md)。
+Response, durable event, queries, and reconnect snapshot project identical name/source/ownership/settings/version data. The initiating client installs the complete result before switching and retains inherited settings without generic cross-session propagation overwriting them. Other clients only update lists. Lost response retains the original key for verification; only explicitly invoking the command again creates a new key. Per-task desktop branching follows [message actions](2026-10-28-desktop-message-actions.md).
 
-## 既有笔记审计
+[History preservation](../architecture/2026-09-19-preserve-session-history.md) remains authoritative. Compaction, workspace organization, Plan, SubAgent messages/results, work copies, and native stop rules retain their independent semantics. Branching creates no execution environment and releases no source occupancy.
 
-- [完整保留会话历史](../../implemented/architecture/2026-09-19-preserve-session-history.md)：部分重叠，原篇继续管理历史与模型视图分离，本篇补独立快照文件及来源读取，互链，不改变原历史权威。
-- 检索命中的上下文压缩、旧工作区组织归属、Plan、SubAgent 消息/结果与工作副本笔记：与本篇的快照发布选择无关。它们的现行算法、配置身份、管理归属与文件执行语义继续沿用，不取代这些决定。
-- 原生沙箱与停止结果提案：与本单无依赖，分支不创建执行环境，也不释放来源目录占用。
+## Alternatives considered
 
-## 备选方案
+- Direct SDK `createBranchedSession`/`forkFrom`: minimal code and existing pi header/ID generation, but the former changes the manager/reorders some entries and the latter reads permissively. Neither provides bounded provenance/preparation receipts. Retain SDK format/opening, not its source-file branching path.
+- Create sessions first, copy later, delete on failure: reuses `/new`, but exposes selectable sessions without history during copy/crash and cannot undo broadcast events by deletion. Prepare before publication.
+- Store only a parent ID and recursively open ancestors: compact and convenient for repeated branching, but leaks later artifacts/reused results and risks confusing read eligibility with management authority. Save concrete objects/ranges.
+- Clone tasks/tool ledgers/artifacts: easier projection reuse, but duplicates activity/approval/usage and obscures original data identity. Copy conversation and necessary derived state, reference other data read-only.
 
-- 直接调用源 SessionManager 的 `createBranchedSession` 或 `forkFrom`：上游已经会生成 pi ID/header，代码最少；前者会修改 manager 并重排部分条目，后者使用宽松文件读取，也没有本项目的来源限定与准备回执，故不直接用于源文件。保留 SDK 格式和打开能力，复制由宿主严格快照驱动。
-- 先创建 sessions 行，再复制文件，失败时删除新行：能复用 `/new` 的大部分路径；复制或后台崩溃期间会出现可选但缺历史的会话，删除也无法替代已广播事件的恢复，故采用发布前准备记录。
-- 仅记录父会话 ID，读取时递归开放祖先：存储少、连续分支简单；会引入分支后的产物和复用结果，也容易把来源读取误用于管理授权，故保存具体对象及范围。
-- 完整复制源任务、工具账本与产物：查询与 TUI 容易复用原投影；会混淆活动任务、批准、用量与原资料身份，且增大迁移面。只复制消息和必要派生状态，其他资料按固定来源只读引用。
+## Consequences
 
-## 验证
+Independent history costs disk but separates future conversation/derived state. Parsing still uses whole-file memory; revisit streaming if peak memory impedes backend progress. Source corruption or revoked grants can invalidate references. Shared cwd is neither file isolation nor rollback. Preparation receipts recover only in the original instance; import retains published names/bounded sources and rejects incomplete source objects, with revert covered by session/file ledgers. The checklist comes from history and adds a fallback reference block to branch context, not new ordinary-session selection rules.
 
-`test/102-branch-session.test.ts` 使用真实 JSONL、SQLite、Runtime、控制连接与模拟模型 payload 覆盖安全尾、重复调用 ID、旧孤儿、同键并发、发布失败与真实 SIGKILL 窗口、连续分支图片/partial 产物/完成结果、原工作管理拒绝、双客户端及无错误 CAS。既有历史、清单、压缩、TUI、导入与生命周期用例沿各自范围回归；真实平台与模型调用不在离线验证范围。
-
-## 后果
-
-独立历史增加磁盘占用，换来父子后续历史及派生状态的独立延续。读取按现有完整文件解析规模处理；内存峰值影响后台推进时再改流式解析。源资料损坏或资料授权撤销会使分支引用不可用；父子共享工作目录，不提供文件隔离或回滚。准备回执在原实例核实发布，导入只保留已发布会话的名称与限定来源，来源对象不完整时拒绝，回退仍由会话和文件账本覆盖。工作清单只从历史派生，分支模型视图增加一个保底参考块；普通会话的上下文选择规则保持原范围。
+`test/102-branch-session.test.ts` covers real JSONL/SQLite/Runtime/control with simulated model payloads: safe tails, repeated call IDs, old orphans, same-key concurrency, publication failure/real SIGKILL windows, repeated-branch images/partial artifacts/completed results, denied original-work management, two clients, and no erroneous CAS. Related history/checklist/compaction/TUI/import/lifecycle tests covered their affected scopes. Real platforms/models were not part of offline verification. Former `.scratch/agent-direction/issues/28-branch-session.md` is historical offline provenance for the confirmed behavior, not a live task entry.

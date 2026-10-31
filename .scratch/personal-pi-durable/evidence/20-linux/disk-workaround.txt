@@ -1,6 +1,0 @@
-task_root=/tmp/rk20-linux.qLIxtpYE
-memory_root=/dev/shm/rk20-deps.pW7jZIhE
-rw,nosuid,nodev,inode64
-               total        used        free      shared  buff/cache   available
-Mem:           3.6Gi       826Mi       2.4Gi        22Mi       786Mi       2.8Gi
-Swap:          1.9Gi       735Mi       1.2Gi

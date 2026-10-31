@@ -1,65 +1,53 @@
-# Agent Note: 执行单元的停止未核实结果保留到任务收尾
+# Agent Note: Preserve unverified execution stop through task settlement
 
 Status: implemented
 
-## 问题
+## Problem
 
-[工单 27](../../../../.scratch/agent-direction/issues/27-preserve-unverified-worker-stop.md)核实：ready 失败丢弃 stop 结果，重复 stop 因句柄清空返回成功，Driver 清空登记且部分终态先于回收，worktree 临时 worker 没有登记。这些路径把“退出未核实”转换为可释放目录占用，与[工具工作进程](../architecture/2026-09-20-tool-worker-per-task-container.md)既有约定冲突，也使[原生沙箱](../../implemented/architecture/2026-10-10-native-execution-sandbox.md)的 macOS 残留报告失去依据。
+The original investigation found ready failures discarding stop outcomes, repeated stop reporting success after handles were cleared, Driver removing registrations or ending tasks before cleanup, and unregistered temporary worktree workers. These paths turned unverified exit into releasable directory occupancy, contradicting [tool workers](../architecture/2026-09-20-tool-worker-per-task-container.md) and undermining [native sandbox](../architecture/2026-10-10-native-execution-sandbox.md) residue reports. Offline provenance: retired `.scratch/agent-direction/issues/27-preserve-unverified-worker-stop.md`.
 
-## 决定
+## Decision
 
-一个执行单元从 launch 到 ready/init、调用及停止保留同一份宿主记录。记录区分尚未创建单元、已创建且退出已核实、已创建但退出未核实；通信句柄为空不代表退出。并发和重复停止共享一次停止 Promise 及最终结论；停止异常归为未核实，同时保留用于诊断的 code 与原因，不自动重试成成功。
+Keep one host execution record from launch through ready/init, calls, and stop. Distinguish no unit created, created-and-verified-stopped, and created-but-stop-unverified; an empty communication handle is not exit proof. Concurrent/repeated stop calls share one Promise and cached final conclusion. Stop exceptions become unverified with code/reason retained, not automatically retried into success.
 
-任务登记先于异步启动，每次启动有独立身份；临时 worker 的启动名与普通 worker 区分，实际父任务 ID 通过登记和工具操作账本传递，不能用启动名代替归属。starting 与实际单元引用同一结论，ready 失败和迟到成功均不能逃离取消路径。launcher 如果产生单元后再失败，必须保留可回收身份；只有能证明没有创建单元的拒绝才是无需回收。
+Register task ownership before asynchronous launch, with independent identity per launch. Temporary-worker names differ from ordinary ones, but the real parent task ID travels through registration and tool ledger; a launch name is not ownership. Starting and actual-unit references share the same conclusion, so ready failure or late success cannot evade cancellation. A launcher failing after unit creation must retain a reclaimable identity; only proven no-unit rejection needs no cleanup.
 
-Driver 聚合全部受管单元的结果，单个失败不阻断其余清理。所有自然、异常、取消与切换收尾先等待聚合，再经现有 `Store.endTask` 决定占用；未核实记录不能因清空 registry 丢失。终态、`task.tool_process_unreaped` 与占用在同一事务内处理。任务结果与退出核实是两个事实：已收到的结果保留，效果未知的操作不重放。
+Driver aggregates every managed unit, continuing other cleanup after one failure. Natural/error/cancel/mode-switch settlement waits for the aggregate before existing `Store.endTask` decides occupancy. Clearing a registry must not discard unverified records. Terminal state, `task.tool_process_unreaped`, and occupancy update together in one transaction. Received results and exit verification are separate facts: retain results and never replay effect-unknown operations.
 
-worktree 创建和汇总要求实际发起的父任务仍在执行并持有占用，由它持有临时执行记录；Runtime 将临时记录交给 Driver 现有登记表，`WorkCopyManager` 只传递归属和结果，不承担第二套任务调度。Git 返回成功也必须核实停止后才允许继续依赖该执行的工作；启动前父任务还取得副本占用；核实成功只释放这一副本，失败保留父目录与副本占用及现场，使子任务与其他会话都不能并发改写。occupancy 表原本允许同任务多行，无需迁移；整任务释放以删除至少一行为成功，临时执行只按任务及目录删除自己的占用。临时执行在现有工具操作账本以 `worktree_start` 记录 workId、副本路径与分支，创建尚未登记工作行也能定位；ready 后另记 Git 执行意图与返回结果，启动窗口取消是 Git 未执行，调用已发但缺结果才按效果未知处理。拥有者沿现有核实恢复入口释放遗留占用；同进程恢复时丢弃已结束的旧 Driver，重建宿主记录，只有这次显式核实允许越过缓存的未核实结论。
+### Temporary execution and explicit recovery
 
-内置容器与 systemd 停止只接受成功查询得到的明确退出状态，不能把查询错误当作单元已不存在。`killProcessGroup` 核实原进程组，不能只看主 PID。它不证明脱离组的后代退出；平台级后代回收归[原生执行沙箱](../architecture/2026-10-10-native-execution-sandbox.md)，本修复不把 local 提升为隔离后端。
+The original worktree fix required the active initiating parent to hold source and copy occupancy and register temporary execution in Driver. `WorkCopyManager` passed ownership/results rather than adding another scheduler. Git success alone did not permit dependent work: verified stop released only that copy; failure retained parent/copy occupancy and files against child/other-session writes. Occupancy already allowed several rows per task, so no migration was needed; whole-task release succeeded if at least one row was deleted, while temporary cleanup removed only its task/directory row.
 
-完全访问的 local worker 另需完整 `stopped.reaped=true` 证明已登记命令组停止。进程 `exit` 可先于 stdout 尾帧到达；worker 组已经核实停止但回执仍未收到时，宿主最多再等 3 秒，完整回执、stdout 结束/关闭或读错误提前结束等待。只有完整成功回执能与 worker 组停止共同构成成功；缺帧、半帧、失败回执或超时仍保留占用，进程退出和通道排空本身都不算命令组停止证明。此等待不改变 launcher 的进程退出语义，也不重试工具或已缓存的停止结论。
+`worktree_start` ledger evidence retained work ID, copy path, and branch even before work registration; after ready it separately recorded Git intent/result. Cancellation in the launch window meant Git not executed; only a dispatched call lacking result was effect unknown. [Current-workspace snapshots](../architecture/2026-10-15-current-workspace-snapshots.md) later gave capture/registration independent no-model host tasks. That supersedes parent-only temporary ownership, not stop-before-dependent-work or preservation of both occupancies.
 
-进程组停止在既有 TERM/KILL 阶段预算内继续轮询。短暂 `ps` 查询失败或不完整输出是当前核实未知，不能立即放弃尚未用尽的预算；只有随后成功查询证明没有可执行成员，或原组明确不存在，才返回 true。查询超时与轮询休眠按阶段剩余预算收紧，耗尽后不再启动新的查询；每阶段仍至少核实一次，零预算查询使用最小 1ms 超时，避免 Node 将 0 解释为不限时。预算耗尽且仍没有明确退出证据时返回 false，最终结论照常缓存并保留占用。查询重试不重放工具操作，也不把前一次错误本身当成退出证据。
+The owner uses the existing verification/recovery entry to release residue. Same-process recovery discards the ended old Driver and rebuilds host records; only explicit new verification may cross the cached unverified conclusion.
 
-TERM/KILL 返回失败也进入同一预算的退出核实。macOS 原组只有僵尸时信号可返回 EPERM，父进程回收后才成为 ESRCH；发送失败不能跳过这个核实窗口，EPERM 本身也不能证明退出。持续权限或查询失败仍为 false。[联合验收](../../../../.scratch/agent-workflow/issues/07-acceptance.md)保存同一失败 PID 的信号与 ps 僵尸证据，以及撤修会失败的最窄断言。
+### What counts as stopped
 
-## 既有笔记审计
+Container/systemd adapters accept only a successful query with an explicit exited state; query error is not absence. `killProcessGroup` checks the original group, not just the leader. It does not prove detached descendants ended: native platform reclamation remains owned by [the sandbox decision](../architecture/2026-10-10-native-execution-sandbox.md), and this fix does not make local execution isolated.
 
-- 工具工作进程笔记：部分重叠，保留其后端与占用规则，本篇补停止事实的传递和时序，互链。
-- 原生执行沙箱：部分重叠，本篇提供其所依赖的未核实传播；平台策略、macOS 裁定与真实边界验收仍归原篇，互链。
-- 检索命中的 worktree、改动汇总、SubAgent 重启恢复、取消工作、显式访问模式及长期授权笔记：与本篇的停止记录选择无关；既有归属、成果保留、恢复和批准语义作为约束沿用，不取代原决定。
+Full-access local workers additionally need a complete `stopped.reaped=true` receipt for registered command groups. Process exit may precede the final stdout frame. Once the worker group is verified stopped, wait at most three more seconds for a receipt, ending early on a complete frame, stdout end/close, or read error. Only a complete successful receipt plus group-stop proof succeeds. Missing/partial/failed frames or timeout retain occupancy; process exit and pipe drain alone are not command-group proof. This bounded host wait changes neither launcher exit semantics nor cached stop results and never retries a tool.
 
-## 关联提案
+Group-stop verification polls within existing TERM/KILL budgets. Transient `ps` failure/incomplete output means unknown now, not immediate abandonment of remaining time. Only a later successful query proving no executable members or explicit original-group absence returns true. Query timeout/sleep shrink to remaining stage budget; no new query starts after exhaustion. Each stage still gets at least one check, using a minimum 1 ms timeout at zero budget because Node interprets zero as unlimited. Without explicit proof at budget end, return false and cache it. Repeated queries are not repeated tool effects and earlier errors never count as exit evidence.
 
-[Coding会话后台](../feature/2026-10-21-coding-background-processes.md)将本篇的停止核实、记录和占用保留要求用于独立会话执行；普通 bash 仍在调用收尾时回收。[后台生命周期提案](../../proposed/feature/2026-10-14-bash-background-lifecycle.md)的个人接入尚未落地。
+Failed TERM/KILL also enters the same verification window. A macOS group containing only zombies can yield EPERM until parent reaping makes it ESRCH; signal failure must not skip verification, and EPERM itself proves nothing. Persistent permission/query failure remains false. Historical joint-acceptance evidence retained signals and zombie `ps` output for the same PID, plus a narrow assertion that fails without this handling.
 
-三个执行归属各自实现的收尾协议拟集中到一个函数，见[收尾协议提案](../../implemented/architecture/2026-10-16-task-ending-protocol.md)；本篇的停止与占用规则不变。
+## Alternatives considered
 
-## 备选方案
+- Cache only a boolean in `ToolWorkerHost.stop`: fixes repeated calls, not rejected starts, Driver ignoring results, or missing temporary registration.
+- Retry every stop and treat missing handles as success: may clean up transient failures, but without persistent identity/full-unit proof can turn unknown into success and race concurrent cleanup.
+- Retain only the parent directory: fewer changes, but a work copy outside it remains writable by another task. Retain copy occupancy too.
+- Add a second temporary-worker manager: covers backend stop but duplicates parent cancellation/mode/terminal handling. Reuse execution registration with real parent provenance.
+- Redefine launcher exit as all stdio closed: avoids tail-frame ordering globally, but escaped descendants may hold pipes and change every caller's semantics. Bound only the host stop path needing the receipt.
 
-- 只在 `ToolWorkerHost.stop` 缓存 boolean：改动最小，能修重复调用；不能保住 start rejected、Driver 忽略结果与临时 worker 未登记，因此不足以阻止误释放。
-- 每个 stop 调用重新尝试、句柄消失即成功：容易沿用现有清理代码，也可能回收瞬时故障后的进程；但没有持久身份和整单元证据时会把未知改成成功，重复清理还可能竞争，故不选。
-- 只保留父目录占用：可以复用单目录清理，改动少；但副本在父工作区外，无法挡住子任务或其他会话改写副本，因此父任务还要持有独立副本占用。
-- 给临时 worker 另建独立管理器：Runtime 可以自行覆盖后台停止；但它仍需参与父任务取消、模式变化和占用终态，形成两套生命周期。传递父任务身份并复用登记即可覆盖，故不选。
-- 将 launcher 的 `exit` 改为全部 stdio 关闭可统一避免尾帧时序问题；逃离后代可能继续持有管道，会改变全部调用方的进程退出语义，因此只在需要命令组回执的宿主停止路径有界等待。
+## Consequences
 
-## 后果
+Conservative retention can block directories until owner verification. Cached results do not improve actual backend stop capability, and memory registration alone proves nothing about pre-restart processes; persistent occupancy recovery remains necessary. Existing worktree/result-retention/cancellation/authorization decisions continue unless explicitly superseded above.
 
-保守保留会让暂时无法核实的执行阻塞目录，拥有者需要确认后恢复；这是避免残留进程与新任务并发写入的代价。缓存核实结果不替代后端的真实停止能力，跨后台重启仍依赖已有持久占用恢复，不能仅靠内存登记证明旧进程退出。
+`test/100-worker-stop.test.ts` and targeted lifecycle tests cover controlled launchers, task termination, mode changes, temporary ownership, occupancy, and visible state. Real same-group heartbeat processes prove descendant reclamation when the leader exits first. Modelled stop failure is not a reproduced OS-unit failure; macOS/Linux native acceptance remains separate.
 
-## 验证
+Tail receipts arriving in the next macrotask cover success/failure/missing/partial frames, unverified worker groups, and bounded waiting on open pipes; removing the host wait makes the success case fail. Historical same-source counterexamples and Coding comparison were in retired `.scratch/personal-pi-durable/issues/36-coding-regression.md`; they do not establish the exact original Linux trigger.
 
-定向用例覆盖可控 launcher、任务终态、模式切换、临时 worktree 归属、占用与可见状态；`test/100-worker-stop.test.ts` 另用真实同组进程与心跳验证主 PID 先退出仍回收后代。具体命令、结果与环境证据记在[工单 27](../../../../.scratch/agent-direction/issues/27-preserve-unverified-worker-stop.md)，模拟停止失败不作为真实 OS 单元失败复现；两平台原生停止验收仍归工单 26。
+Transient query failure uses a real TERM-ignoring group with faults in its first two queries, then actual host `/bin/ps` proof. Controlled callbacks cover persistent failure/incomplete output; controlled clock/query logs prove no query after exhaustion and tightened timeouts/sleeps. A temporary executable's startup can itself consume a short budget, so whether it launches does not prove query retry. Old CI raw `ps` output was not saved; deterministic reproduction is not a captured remote root cause. Offline provenance: `.scratch/ci/2026-10-11-previous-ci-failures.md` and `.scratch/agent-workflow/issues/07-acceptance.md`.
 
-`test/100-worker-stop.test.ts` 在 exit 后的下一宏任务交付停止回执，守住成功/失败/缺帧/半帧、worker 组仍未核实及未关闭管道的有限等待；撤去宿主等待后成功回执用例失败。两版同源反例与 Coding 对照归[回归工单](../../../../.scratch/personal-pi-durable/issues/36-coding-regression.md)，不据该反例反推历史 Linux 失败的精确触发原因。
-
-短暂核实故障以真实忽略 TERM 的进程组和前两次查询的故障注入复现；随后调用宿主 `/bin/ps`，必须取得真实退出证据。持续查询失败与不完整输出使用可控回调，预算结束仍为 false；可控时钟与查询记录核实耗尽后不再发 `ps`，查询超时与休眠按剩余预算收紧。临时可执行脚本自身的启动可能先耗尽短预算，不能据它是否启动判定查询重试。旧 CI 的原始 `ps` 输出未保存，本次不将这项确定性复现写成已捕获远端的精确错误；结果见[CI 修复记录](../../../../.scratch/ci/2026-10-11-previous-ci-failures.md)。
-
-## 适用范围
-
-[固定脚本入口](../architecture/2026-10-13-workflow-script-isolation.md)复用本篇的 starting、单元身份和未核实结果保留；脚本能力与 WASM 回收由该决定持有，不改变工具工作进程的任务收尾。
-
-完全访问的账户、环境、免审批及宿主任务授权传播采用[本决定](../feature/2026-10-12-full-access-current-account.md)；本篇其他独立规则继续适用。
-
-相关决定：[Coding会话后台](../feature/2026-10-21-coding-background-processes.md)将本篇停止未核实保留规则延伸至独立会话执行，不把Task终态当作停止证明；[个人接入](../../proposed/feature/2026-10-14-bash-background-lifecycle.md)仍为提案。
+[Task-ending protocol](../architecture/2026-10-16-task-ending-protocol.md) now centralizes the three execution owners' settlement, retaining these stop/occupancy rules. [Script isolation](../architecture/2026-10-13-workflow-script-isolation.md) reuses starting identity/unverified retention while owning script/WASM disposal. [Current-account full access](../feature/2026-10-12-full-access-current-account.md) owns account/environment/approval policy. Both [Coding](../feature/2026-10-21-coding-background-processes.md) and [Personal](../feature/2026-10-21-personal-background-processes.md) backgrounds now reuse these facts for independent session execution; ordinary bash remains reclaimed at call completion.

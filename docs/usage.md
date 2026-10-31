@@ -1,244 +1,192 @@
-# 操作手册
+# Usage Guide
 
-本手册介绍 `ruukoto`（个人 Agent）与 `ruukoto-code`（Coding Agent）的日常运行、环境配置、服务管理与故障排查。底层架构机制见[架构总览](architecture.md)与[模块文档](modules/)，开发贡献见[开发说明](development.md)。
+Daily operation, configuration, service management and troubleshooting for Personal (`ruukoto`) and Coding (`ruukoto-code`). See [architecture](architecture.md), [module designs](modules/) and [development](development.md) for other audiences.
 
-<a id="1-前提与安装"></a>
+## 1. Prerequisites and Installation
 
-## 1. 环境准备与安装
+Both products use native execution; Docker is unnecessary. Install Node ≥ 24.15.0, Bash, Git and ripgrep (`rg`) in PATH. Development checks also require Python 3 with PTY support.
 
-### 1.1 系统与依赖要求
-
-两个产品均使用原生沙箱与宿主工具链运行，无需 Docker。
-
-- **运行时环境**：Node.js ≥ 24.15.0，Bash，Git。
-- **检索工具**：宿主必须预先安装 `ripgrep`（`rg`）并加入 `PATH`（文件检索核心依赖）。
-- **平台依赖**：
-  - **macOS**：需安装 Command Line Tools（Clang），利用系统 Seatbelt 沙箱。
-  - **Linux**：需支持 `bubblewrap`、cgroup v2 与 systemd user manager（个人服务常驻需开启 linger）。
-
-### 1.2 仓库构建与初始化
-
-```bash
-npm run setup       # 安装依赖、校验环境前提并配置 Git Hook
-npm run build       # 构建工具 Worker、平台监督器与应用包
-npm link            # 可选：将 ruukoto 和 ruukoto-code 注册至全局 PATH
-```
-
-<a id="21-启动后台"></a>
-
-## 2. 快速启动与运行
-
-两个产品分别针对个人助理与工程编码场景，拥有独立的数据目录与运行入口：
-
-| 产品 | 核心交互方式 | 默认档案目录 | 典型启动命令 |
-|---|---|---|---|
-| **`ruukoto`** (个人 Agent) | 终端交互菜单、QQ / Telegram 私聊、PA 桌面 | `~/.ruukoto-durable/` | `ruukoto` 或 `ruukoto serve` |
-| **`ruukoto-code`** (Coding) | 终端 TUI、Web 界面、Coding 桌面 | `~/.ruukoto-code/` | `ruukoto-code` 或 `ruukoto-code <路径>` |
-
-### 2.1 个人 Agent 运行
-
-<a id="25-个人-durable-隔离向导"></a> <a id="25-个人-agent-引导与管理"></a>
-
-- **交互管理菜单**：直接执行 `ruukoto` 或 `npm start`，进入交互引导菜单，支持模型配置、实例启停、通道管理与工作查询。
-- **前台常驻服务**：
-  ```bash
-  ruukoto serve                          # 托管默认档案的前台服务
-  ruukoto serve --directory /path/to/dir # 显式指定独立档案目录
-  ```
-<a id="72-命令"></a>
-
-- **配置与维护命令行**：
-  - `ruukoto settings`：提供结构化 JSON 接口，供客户端程序在线/离线管理模型、Skills 与 MCP 配置。
-  - `ruukoto maintenance`：系统级服务的健康检查与受控启停。
-  - `ruukoto remote`：本机远程配对管理向导，配合 Tailscale 提供安全远程连接。
-
-### 2.2 Coding Agent 运行
-
-- **交互终端（TUI）**：
-  ```bash
-  ruukoto-code                     # 打开最近会话
-  ruukoto-code ~/code/my-project   # 在指定工作区打开或新建会话
-  ruukoto-code config              # 打开模型与参数离线配置界面
-  ```
-- **后台服务托管**：
-  ```bash
-  ruukoto-code server              # 前台启动 Coding 后台服务
-  ruukoto-code stop                # 优雅停止正在运行的后台服务
-  ```
-
-### 2.3 按需拉起后台机制
-
-在终端执行 `ruukoto-code [路径]` 时，TUI 会自动探测后台服务状态：
-- **服务已运行**：直接复用，秒级进入会话。
-- **服务未运行**：自动在后台拉起常驻服务（日志输出至 `<controlDir>/spawn.log`），就绪后自动连接。
-- **并发互斥**：若两个终端同时触发拉起，实例锁（`<dataDir>/runtime.lock`）会自动收敛为单实例，败方自动转为复用胜方。
-- **解耦生命周期**：关闭 TUI 窗口或终端断开不会中断后台正在执行的任务；显式执行 `ruukoto-code stop` 才会停止服务。
-
-<a id="8-开发实例"></a>
-
-### 2.4 开发实例启动
-
-在本地调试源码时，可使用独立的开发沙箱实例，避免影响日常使用的正式数据：
-
-```bash
-npm run dev                      # 启动个人 Agent 开发环境（Node watch 监听）
-npm run code                     # 启动 Coding Agent 开发环境
-```
-
-## 3. 模型与基础配置
-
-### 3.1 个人 Agent 模型配置
-
-在 `ruukoto` 引导菜单中选择「配置能力」→「模型配置」：
-1. **选择 Provider**：支持主流大模型提供商（Anthropic、OpenAI、DeepSeek 等）。
-2. **凭据管理**：推荐配置环境变量名称（如 `ANTHROPIC_API_KEY`），程序在运行时动态读取环境凭据，避免明文落盘。
-3. **连接测试**：配置完成后，系统会向模型发送一次轻量 Ping 请求验证连通性。
-
-### 3.2 Coding Agent 模型配置
-
-执行 `ruukoto-code config`，在全屏配置界面中管理模型配置：
-- **模型分工**：可为主任务、思考推理、SubAgent 分别指定不同的模型与上下文窗口限制。
-- **即时生效**：后台运行时保存配置将平滑更新运行时模型栈，无需重启服务。
-
-## 4. 外部通道与客户端接入
-
-### 4.1 QQ / Telegram 接入
-
-个人 Agent 支持将个人 QQ 或 Telegram 私聊作为日常交互入口：
-
-1. **Telegram 接入**：
-   - 在 BotFather 创建机器人并获取 Bot Token；
-   - 在 `ruukoto` 菜单中选择「平台接入」→「Telegram 配对」，输入 Token；
-   - 拥有者向 Bot 发送消息完成单人专属配对。
-2. **QQ 接入**：
-   - 依赖 OneBot 实现（支持 NapCat 等实现接入）；
-   - 在菜单中配置 WebSocket 服务端点并完成握手。
-3. **安全模式**：外部 IM 默认启用自动审查（Auto-Review）模式，敏感工具调用需拥有者在对话中明确批准。
-
-<a id="桌面客户端"></a>
-
-### 4.2 桌面客户端连接
-
-PA 桌面客户端支持跨平台窗口交互：
-- 服务端执行 `ruukoto remote` 打开配对向导，生成一次性配对码。
-- 桌面客户端输入服务端地址与配对码完成认证握手。
-- 连接基于安全 Unix Socket / Tailscale Serve，保障传输加密与设备绑定。
-
-## 5. 扩展与高级能力
-
-<a id="57-mcp-服务"></a>
-
-### 5.1 MCP（Model Context Protocol）服务
-
-两个产品都使用 Pi 1.3.0 接入 MCP，支持 Streamable HTTP 远端服务与固定受管 Cua 电脑程序。普通服务支持匿名或已有 Bearer 凭据；工具由拥有者选择允许范围及只读、写入、副作用不明类别。
-
-| 操作 | 入口与行为 |
-|---|---|
-| 配置普通服务 | Coding 配置中心的“MCP 服务”；Personal 桌面设置或原生管理菜单 |
-| 更新 Personal 旧配置 | 选择“更新 MCP 配置”迁入 v4，保留原引用与历史后接纳新业务 |
-| 更换凭据 | 选择“重新绑定凭据”并保存；同 token 的换行变化不影响新绑定，换 token 使原未开始批准失效 |
-| 查询与结束未知调用 | Personal“调用”区查询原记录，确认“结束此工作，保留结果未知”；收尾丢答先刷新原调用 |
-| 恢复电脑 | 停止并核实原执行 → 检查并恢复取得新图 → 查看并接受此观察 |
-
-已授权读免逐次审批，写入与副作用不明按当前确认方式审批。写工具丢答后原工作停止自动业务调用；人工结束保留未知结果，新独立工作可使用同一服务。电脑恢复仍须真实停止证明与新图接受，详见[桌面流程](modules/desktop.md#mcp-原调用收尾与电脑恢复)。
-
-### 5.2 技能库（Skills）
-
-两个产品均从**运行后台账户**的 `$HOME/.agents/skills/` 发现技能；同一账户的正式与开发实例共用该目录，远端 PA 使用服务器账户的 HOME。每个技能包以 `SKILL.md` 声明名称、描述和正文，直接在该目录维护文件，桌面 Skills 页与个人菜单的“查看技能”提供只读列表和诊断。
-
-宿主先把名称与描述提供给模型，由模型按任务调用 `skill` 加载全文及包内引用；拥有者也可输入 `/skill:名称 参数` 显式调用。Coding 在任务开始时固定正文版本，个人 Agent 在每次模型请求前刷新并保存快照。技能只提供参考，不增加工具或权限；技能目录中的脚本经现有命令工具（Coding `bash`、个人子 Agent `run_command`）按其目录路径执行，沿用当前执行资格、审批与沙箱，受限原生执行把钉版技能目录只读并入执行环境。脚本源码默认不读取，审计或排障时仍可用 `skill` 的 `path` 参数加载。
-
-已有技能文件与托管包原位保留，当前发现仅使用固定目录；将仍需使用的技能放入该目录。旧历史沿原快照核实；绑定其他技能来源的定时计划须核实原运行后取消重建。
-
-<a id="12-浏览器"></a>
-
-### 5.3 浏览器自动化
-
-在配置中启用浏览器能力后，Agent 可操作无头或可视化 Chromium 浏览器：
-- 支持网页导航、交互点击、文本输入、页面截图与全文提取。
-- 截图产物以二进制文件妥善存放在产物目录中，并通过控制面按需提供预览。
-
-<a id="511-工作流问题与回报"></a>
-
-<a id="54-通用定时任务"></a>
-
-### 5.4 工作流与交互式提问
-
-- **结构化提问（`ask_user`）**：当模型需要人类决策时，会在界面上渲染单选、多选或自由文本输入弹窗，等待用户确认后继续推进任务。
-- **后台长期分析**：支持将耗时任务放入后台分析委托，主会话可随时查询进度并在任务完成后接收汇报。
-
-## 6. 数据迁移与归档
-
-<a id="6-导入旧实例"></a>
-
-### 6.1 导入旧实例数据
-
-对于既有 Coding 实例的迁移，系统提供安全的前置校验与导入工具：
-
-```bash
-ruukoto-code legacy-import --preview <源目录>  # 预览待迁移内容（会话、任务、配置）
-ruukoto-code legacy-import --apply <源目录>    # 执行迁移并生成备份与迁移回执
-ruukoto-code legacy-import --revert <源目录>   # 撤销导入并还原旧库状态
-```
-
-> **安全保证**：导入源严格只读，目标库在应用前自动备份。导入过程中若检测到目标环境已产生冲突数据，将主动中止并拒绝覆盖。
-
-<a id="62-个人资料归档"></a>
-
-### 6.2 个人资料归档
-
-个人 Agent 采用 durable 存储体系，历史旧格式数据原地保留为只读归档，新服务统一在新目录中初始化。
-
-## 7. 常见问题排查与运维
-
-### 7.1 日志查看
-
-- **个人服务后台日志**：`<dataDir>/personal.log`
-- **Coding 服务后台日志**：`<controlDir>/spawn.log`
-- **任务产物与详细错误**：各任务输出可在 TUI 会话详情中查看，超长输出保存在 `<agentDir>/artifacts/`。
-
-### 7.2 实例锁与并发冲突
-
-- **现象**：启动提示 `runtime.lock` 或 `config.lock` 冲突。
-- **排查**：
-  1. 检查是否有存活的后台进程：`pgrep -fl ruukoto`；
-  2. 若为非正常关机导致的死锁，确认无后台进程后可安全清除对应 lock 目录。
-
-### 7.3 沙箱与权限问题
-
-- **macOS**：如遇到工具执行失败，检查是否未授权终端的 Accessibility 或 Command Line Tools。
-- **Linux**：若原生受限沙箱报错 `execution_unavailable`，确保系统安装了 `bubblewrap`，且当前用户开启了 cgroup v2 访问权限。
-
-### 7.4 命令
-
-| 命令 | 说明 |
+| Platform | Native prerequisites |
 | --- | --- |
-| `/help` | 命令与快捷键说明 |
-| `/todo` | 打开或关闭工作清单悬浮层 |
-| `/resume` | 切换当前项目的会话 |
-| `/project` | 切换项目（ruukoto-code 为工作区／旧项目列表） |
-| `/new-project <名称>`、`/new-session <目录>`、`/new` | 创建项目／在当前项目创建会话／在当前工作区创建会话 |
-| `/branch [名称]` | Coding Agent 从当前普通开发会话的已落盘历史建立独立会话并切换 |
-| `/side` | Coding Agent 打开或收起当前会话的无工具侧聊悬浮层，Esc 收起保留草稿与生成 |
-| `/compact [prompt]` | Coding Agent 主动摘要当前空闲普通开发会话，可补充本次摘要重点 |
-| `/history` | 重新加载当前会话历史；滚动到顶部自动加载更早历史 |
-| `/artifact <id 前缀>` | 查看工具产物正文（按字节分页） |
-| `/approvals` | 待处理审批；详情内 `a` 批准、`r` 拒绝，`Esc`／`q` 关闭不等于拒绝 |
-| `/interrupt [taskId]`、`/cancel <taskId>`、`/continue [taskId]` | 停止与继续任务；侧聊层内 `/interrupt` 只作用于侧聊 |
-| `/resume-queue` | 恢复已暂停的会话队列 |
-| `/queue` | 查看排队输入，逐项上移/下移或转为引导 |
-| `/steer <正文>` | 把正文作为引导接入当前任务的下一边界，错过目标回队首 |
-| `/model` | 选择提供方／模型／思考强度，作用于之后提交的任务 |
-| `/mode` | 选择会话默认模式，作用于后续新任务 |
-| `/status` | 查看当前任务详情 |
-| `/search <关键词>` | 字面搜索会话历史原文 |
-| `/memory <子命令>` | 长期记忆：list / show / revoke / restore |
-| `/context` | 上下文窗口分解（各部分占比与压缩点） |
-| `/prompt` | 本会话的模型请求列表与每次调用的 prompt |
-| `/skill <名称> [参数]` | 显式调用技能（不带名称时同 `/skills`） |
-| `/skills` | 技能库与诊断 |
-| `/workflow` | 工作流侧栏：选择运行、历史、定义启动与逐层操作 |
-| `/processes` | 查看本会话后台，分页读取输出，停止单项或结束本会话后台 |
-| `/questions` | 查看待答问题，逐题单选、多选、自由输入或跳过，核对后发送 |
-| `/qq <子命令>` | QQ 入口：status / enable / disable / groups / inbox / outbox（后三者为旧群归档） |
-| `/quit` | 退出客户端（后台任务继续运行） |
+| macOS | Command Line Tools/Clang and system Seatbelt |
+| Linux | bubblewrap, cgroup v2 and systemd user manager; persistent Personal service needs linger |
+
+See [native setup](../deploy/native/README.md) for the complete platform checks.
+
+```bash
+npm run setup       # Install dependencies, verify prerequisites, install Git hook
+npm run build       # Build workers, native supervisors and product packages
+npm link            # Optional: add both commands to PATH
+```
+
+## 2. Start and Run
+
+| Product | Main interfaces | Default profile |
+| --- | --- | --- |
+| Personal | Menu, QQ/Telegram private chat, PA desktop | `~/.ruukoto-durable/` |
+| Coding | TUI and Coding desktop | `~/.ruukoto-code/` |
+
+### 2.1 Start the Backend
+
+```bash
+ruukoto serve                          # Personal foreground backend
+ruukoto serve --directory /path/to/dir # Explicit independent profile
+ruukoto-code server                    # Coding foreground backend
+ruukoto-code stop                      # Stop Coding backend
+```
+
+Production restricted execution defaults to native and rejects legacy `local`/`container` overrides. Full access uses the starting account without a task sandbox.
+
+### 2.2 Coding Agent
+
+```bash
+ruukoto-code                     # Open an existing conversation
+ruukoto-code ~/code/my-project   # New conversation in this workspace
+ruukoto-code config              # Model and parameter configuration
+```
+
+The TUI discovers an existing backend or starts one on demand, logging to `<controlDir>/spawn.log`, then connects when ready. Instance locking coordinates competing startup attempts. Closing the TUI or terminal does not cancel backend work; stop the service explicitly when intended.
+
+### 2.3 Development Instances
+
+```bash
+npm run dev                      # Watched Personal development backend
+npm run code                     # Coding development backend and TUI
+```
+
+These use profiles separate from daily data. Their launchers own and stop the development backend/UI when they exit; [development](development.md#development-instances) explains environment cleanup and reload behavior.
+
+### 2.5 Personal Agent Management
+
+`ruukoto` or `npm start` opens guided model configuration, backend controls, pairing, work and questions. `--directory` or `RUUKOTO_PERSONAL_DIR` selects a separate profile. Choose a new directory for production durable operation; old profiles stay archived.
+
+| Command | Purpose |
+| --- | --- |
+| `ruukoto settings` | Bounded JSON online/offline model/MCP management and read-only skills |
+| `ruukoto maintenance` | Verify and explicitly start/stop the original system service |
+| `ruukoto remote` | Local pairing and credential management |
+| `ruukoto remote serve` | Private remote service behind Tailscale Serve |
+
+Settings writes use original-key receipts to distinguish saved, applied and uncertain outcomes. Closing the daily menu does not stop an already running production backend; choose its stop action. IM `/帮助` lists available commands; `/后台` shows logs and controls Personal session background work.
+
+## 3. Models and Configuration
+
+Personal's capability/model menu guides provider selection, credential environment-variable references and explicit connection tests. Environment references avoid copying credentials into a new profile, but the selected backend process must actually receive those variables.
+
+Coding's `ruukoto-code config` manages providers, models, defaults and summary-model choices. Saved provider/catalog/key changes apply only when no affected running or queued tasks prevent them; distinguish a saved revision from an applied one. A conversation model choice applies to later submissions, not an already running task.
+
+## 4. Channels and Clients
+
+### 4.1 QQ and Telegram
+
+For Telegram, create a BotFather bot, configure its token in Personal's pairing menu, then send the generated pairing phrase from the intended owner account. QQ uses a configured OneBot WebSocket endpoint such as NapCat and its guided owner pairing. Use dedicated owner-private entries; group membership is not owner authentication.
+
+IM defaults to auto-review. Sensitive operations require explicit approval through the original bound entry. A platform/account/credential change creates a new generation; old approvals and sends cannot move to the new destination.
+
+### Desktop Client
+
+On the server, use `ruukoto remote` to manage pairing, then connect the PA desktop to the verified Tailscale HTTPS origin using the generated one-time code. HTTPS/WSS terminates at Tailscale Serve and reaches the private remote service; the local Unix socket is not a public network endpoint. See [deployment](../deploy/systemd/README.md) for backend/remote-service ownership and [desktop](modules/desktop.md) for credential isolation.
+
+## 5. Extended Capabilities
+
+### 5.1 MCP Services
+
+Both products use Pi 1.3.0 for Streamable HTTP services and fixed managed Cua programs. Ordinary services support anonymous access or existing Bearer references. The owner chooses allowed tools and local read/write/unknown-effect classifications.
+
+| Operation | Entry and behavior |
+| --- | --- |
+| Configure service | Coding's instance MCP settings; Personal's desktop or native management |
+| Migrate old Personal configuration | Explicitly migrate to v4, preserving original references/history before new business calls |
+| Change credentials | Explicitly rebind and save; newline-only changes do not change new token identity, while a changed token invalidates old unstarted approval |
+| Inspect/end unknown call | Personal Calls section; explicitly end work while retaining uncertainty; after a lost response, refresh the original call first |
+| Recover computer | Verify original stop → obtain fresh image → view and accept that observation |
+
+Authorized reads need no individual approval; writes/unknown effects follow the current approval policy. A lost reply to a sent write stops that source's automatic business execution. Manual finalization retains uncertainty; new independent work can use the same service. Computer recovery still requires real stop evidence and fresh-image acceptance; see [the desktop flow](modules/desktop.md#mcp-call-finalization-and-computer-recovery).
+
+### 5.2 Skills
+
+Both products discover skills under the **backend account's** `$HOME/.agents/skills/`. Production and development under one account share that directory; remote PA uses the server account's HOME. Each package has a `SKILL.md` name, description and body. Maintain files there directly; desktop and Personal menus provide read-only catalogs/diagnostics.
+
+The model initially sees names/descriptions and loads bodies/references with `skill`. The owner can explicitly invoke `/skill:name arguments`. Coding pins the body version at task start; Personal refreshes and snapshots before each model request. Skills supply references, not permissions or additional tools.
+
+Coding `bash` or a Personal child's `run_command` executes skill scripts by their directory paths under existing eligibility, approvals and sandbox rules. Restricted native execution mounts selected skill directories read-only. Source is not read by default; `skill` with `path` remains available for audit/debugging.
+
+Existing files/managed packages remain in place, but current discovery uses only the fixed directory. Move skills still needed into it. Old history uses its original snapshots; schedules bound to other sources require original-run verification followed by cancellation/recreation.
+
+### 5.3 Browser
+
+With browser capability enabled, the Agent can navigate, click, type, extract page text and capture screenshots using a visible or headless browser. Screenshots remain binary artifacts and are previewed on demand. Browser login/session access is the user's existing browser context, not an expansion of unrelated command permissions.
+
+<a id="12-browser"></a>
+
+### 5.4 Scheduled Tasks
+
+Schedules are one-shot, daily or weekly rules in a fixed IANA timezone. Coding's Scheduled interface fixes title, workspace, model, effort and access policy for a run and retains its independent conversation/results. Personal schedules fix tools, sources and optional original reporting targets; changes require cancellation/recreation. Missed occurrences coalesce rather than blindly replaying every missed run. [Scheduling](modules/scheduler.md) explains outcome and sending semantics.
+
+### 5.11 Workflows, Questions and Reports
+
+Coding workflows combine isolated Agent steps, dependencies, owner questions and checked integration. Use `/workflow` to inspect runs, start definitions and operate on the selected item. [Workflow design](modules/workflows.md) describes versioning and controls.
+
+`ask_user` presents one to three structured questions. Answers resume their original work; they do not approve unrelated tools. `/questions` supports choices, free text and cancellation. Personal background analysis lets main keep chatting, query progress and receive a report when the original work completes.
+
+## 6. Import and Archive
+
+### 6.1 Import a Legacy Instance
+
+Coding imports development data through a read-only preview and an explicitly reviewed plan. Keep the target offline when applying or reverting.
+
+```bash
+ruukoto-code legacy-import preview --from /path/to/source-data --plan /path/to/plan.json
+# Review and confirm the generated plan before applying it.
+ruukoto-code legacy-import apply --plan /path/to/plan.json
+ruukoto-code legacy-import list
+ruukoto-code legacy-import revert <import-id>
+```
+
+The source remains read-only. The target is backed up before application, and conflicts reject overwriting. Receipts and item ledgers track the import; a source's later additions are not automatic synchronization. Revert uses the recorded import ID, not the source path.
+
+### 6.2 Personal Archive
+
+Personal uses a new durable profile. Preserve old-format data read-only in place; it is not imported into the new Personal runtime.
+
+## 7. Troubleshooting and Commands
+
+### 7.1 Logs and Safe Recovery
+
+Coding startup logs are in `<controlDir>/spawn.log`; Personal foreground output and systemd journal record service startup. Task details and artifacts expose operation errors and oversized output.
+
+For a `runtime.lock` or `config.lock` conflict, first inspect the actual profile and holder process. `pgrep -fl ruukoto` is a useful hint, not proof of ownership or absence: process identity must be verified. Do not delete a lock merely because its PID/name looks unfamiliar. An unverified live holder requires investigation, not takeover.
+
+For `execution_unavailable`, check the [native prerequisites](../deploy/native/README.md), built supervisor/worker paths and delegated Linux user scope. macOS requires Clang/Seatbelt; computer-control permissions are a separate feature from command sandbox setup.
+
+### 7.2 Commands
+
+| Command | Purpose |
+| --- | --- |
+| `/help` | Commands and keys |
+| `/todo` | Toggle work checklist |
+| `/resume` | Switch conversations |
+| `/project` | Workspace/legacy-project selection |
+| `/new-project <name>`, `/new-session <directory>`, `/new` | Legacy project, current-project conversation, or current-workspace conversation |
+| `/branch [name]` | Branch persisted ordinary Coding history and switch; no model call; names can contain spaces |
+| `/side` | Toggle tool-free side chat; Esc retains its draft and generation |
+| `/compact [prompt]` | Summarize an idle ordinary Coding conversation, optionally giving a focus |
+| `/history` | Reload history; scrolling to the top fetches older pages |
+| `/artifact <id-prefix>` | Read artifact body in byte pages |
+| `/approvals` | Inspect decisions; `a` approves, `r` rejects; Esc/`q` closes without rejecting |
+| `/interrupt [taskId]`, `/cancel <taskId>`, `/continue [taskId]` | Task interruption/cancellation/continuation; side overlay interrupt affects side only |
+| `/resume-queue`, `/queue` | Resume, inspect or reorder pending input |
+| `/steer <text>` | Route input at the running task's next boundary; queue at the head if missed |
+| `/model`, `/mode` | Choose model/effort or default mode for later new tasks |
+| `/status` | Current task details |
+| `/search <text>` | Literal search of original conversation history |
+| `/memory <command>` | `list`, `show`, `revoke`, `restore` |
+| `/context`, `/prompt` | Context composition and recorded model requests |
+| `/skill <name> [arguments]`, `/skills` | Explicit invocation or catalog/diagnostics |
+| `/workflow` | Runs, history, definitions and guided controls |
+| `/processes` | Conversation backgrounds, paged output, stop and end controls |
+| `/questions` | Answer, skip/cancel and review pending questions |
+| `/qq <command>` | `status`, `enable`, `disable`, `groups`, `inbox`, `outbox`; last three are old group archives |
+| `/quit` | Exit client while backend work continues |
+
+A conversation branch shares its working directory, not ongoing model execution. Source read access does not grant management rights over the original work. For lost write responses, verify the original request/result before retrying; closing an approval UI is not rejection.

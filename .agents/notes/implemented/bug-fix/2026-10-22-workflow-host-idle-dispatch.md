@@ -1,25 +1,23 @@
-# Agent Note: 工作流在 idle 停计后派发宿主调用
+# Agent Note: Dispatch workflow host calls after idle stops script timing
 
 Status: implemented
 
-## 问题
+## Problem
 
-CI 故障复跑中，六输入工作流在普通修改完成后以 script_cpu_limit 暂停。父进程收到 call 后立即排入 invoke 微任务，call 与 idle 分帧时，宿主同步工作会先执行；快速回复又递增 seq，使原 idle 失效。可信宿主耗时因此进入脚本累计墙钟，违反[固定编排入口](../architecture/2026-10-13-workflow-script-isolation.md)的“宿主等待不计”要求。
+A CI rerun paused a six-input workflow with `script_cpu_limit` after ordinary edits completed. The parent scheduled an invoke microtask immediately upon `call`; when `call` and `idle` arrived in separate frames, synchronous host work ran first. A fast reply then incremented `seq`, invalidating the old idle frame. Trusted host time entered the script's accumulated wall-clock budget, violating [script isolation](../architecture/2026-10-13-workflow-script-isolation.md).
 
-## 决定
+## Decision
 
-call 只登记编号、未决数量并排队；收到最新 idle 后先累计脚本时间、停止计时和发布非活动状态，再并发派发本批 invoke。回复恢复原计时与递增 seq；取消、宿主拒绝、越限和停止核实继续沿原路径。未恢复活动时继续发 call 属损坏协议，直接拒绝。
+`call` registers its ID, pending count and queue entry only. On the latest `idle`, first accumulate script time, stop timing and publish inactivity, then dispatch that batch's invokes concurrently. Replies resume timing and increment `seq` as before. Cancellation, host rejection, limits and stop verification retain their paths. Calls emitted before activity resumes are protocol corruption and fail.
 
-脚本发出 call 后继续计算仍计入预算；未到 idle 的请求不能触发宿主效果。取消在派发前发生时，已排队回调也不执行。没有提高预算或改成只靠解释器 interrupt。
+Computation after emitting `call` still consumes the script budget. Queued calls cannot cause host effects before idle; cancellation before dispatch prevents callbacks from running. Neither budget increases nor interpreter-interrupt-only enforcement replace this ordering. [Joint acceptance](../testing/2026-10-13-workflow-joint-acceptance.md) retains real-step, budget and cleanup requirements.
 
-按工作流、宿主等待、script_cpu_limit 与脚本隔离检索，固定编排入口是本修复的契约归属；[联合验收](../testing/2026-10-13-workflow-joint-acceptance.md)保留真实步骤、预算及回收要求，无决定翻转或过时提案。
+## Alternatives considered
 
-## 备选方案
+- A larger budget or serial tests lowers reproduction frequency but leaves production host work charged to script time.
+- Stopping timing at `call` is shortest, but lets the script compute indefinitely afterward and removes the parent's budget basis for reclaiming long built-ins.
+- Delaying invoke by one event-loop turn often lets idle arrive first, but framing and scheduling give no guarantee. Use the explicit idle frame.
 
-- 提高脚本预算或串行全部测试：能降低出现频率，但生产中的同步宿主回调仍会消耗脚本预算，不能修复分帧竞态。
-- 收到 call 就暂停计时：改动最短，但脚本随后可以继续无限计算，长内建的父进程回收失去预算依据。
-- 仅把 invoke 延迟一轮事件循环：通常能先收到 idle，但管道分帧和调度顺序没有保证；以明确 idle 帧为依据。
+## Consequences
 
-## 后果
-
-宿主工作最早在本轮脚本让出后启动，未让出的恶意脚本不会派发排队效果；增加的队列仍受原未决调用上限约束。真实 worker 的分帧回归用 500ms 脚本预算配三次各 600ms 的同步宿主阻塞，旧实现报限额，修复后返回完整结果；另验 call 后无限计算与 idle 时取消均零派发。验证与平台范围见[CI 工单](../../../../.scratch/ci/issues/01-restore-ci-prerequisites.md)。
+Host work starts no earlier than the script yielding in that round. A malicious non-yielding script cannot dispatch queued effects; the existing pending-call limit bounds queue size. A real-worker split-frame regression uses a 500 ms script budget with three 600 ms synchronous host blocks: the old version exceeds the limit, the fix returns the complete result. Infinite computation after call and cancellation at idle both dispatch zero effects. Historical execution/platform records are in the offline CI prerequisites work item.

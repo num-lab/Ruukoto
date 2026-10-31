@@ -1,25 +1,25 @@
-# Agent Note: Demo 的 PA 远程连接设置
+# Agent Note: Demo PA remote-connection settings
 
 Status: implemented
 
-## 问题
+## Problem
 
-Ruukoto 主会话入口已替代全局运行目标设置，拥有者要求继续给设置界面添加 PA 远程连接配置。正式后台只接受 SSH 主机别名与远端控制目录，当前可变 demo 不具备真实连接能力。
+The Ruukoto main-session entry replaced global target switching. The owner then requested PA remote settings. The real backend accepts an SSH host alias and remote control directory; the mutable demo cannot establish a connection.
 
-## 决定
+## Decision
 
-新增独立「PA 远程连接」类别，在现有 Dialog／Tabs 中组合 shadcn 表单控件。只提供 host 与 controlDir，目录沿用正式后台默认值 /var/lib/ruukoto/control；主机为空，避免虚构已配置的服务器。原生必填与 pattern 覆盖后台字符范围，配置在用户保存后才进入 App 内存，关闭重开显示已保存值；未保存编辑丢弃。保存反馈位于对话框内的 role=status，输入变化时清除旧反馈，避免窗外提示被模态可访问树隐藏。
+Add a PA remote-connection category in the existing Dialog/Tabs with shadcn fields for `host` and `controlDir` only. Keep the backend default `/var/lib/ruukoto/control` and an empty host instead of inventing a configured server. Native required/pattern validation matches backend character ranges. Save applies the pair to App memory; reopening shows saved values and closing discards edits. Save feedback uses an in-dialog `role=status`, cleared on input changes so modal accessibility does not hide feedback outside it.
 
-不引入密码、令牌、端口、额外认证或真实 SSH；页面与保存反馈明确为模拟，不宣称连接成功。刷新重置配置，正式迁移时接已有主进程配置接口与完整校验。此前[主会话入口](../../implemented/feature/2026-10-17-demo-personal-main-tab.md)的会话隔离和右栏限制继续适用，设置不恢复运行目标切换。[桌面架构提案](../../proposed/architecture/2026-10-15-desktop-client.md)持有真实 SSH 配置与权限约定，本轮不改变它。
+Add no password, token, port, authentication mechanism or real SSH. The page/feedback explicitly describe simulation, not a successful connection. Refresh resets it. Production migration must use the existing main-process configuration API and complete validation. [Main-session isolation](2026-10-17-demo-personal-main-tab.md) and inspector restrictions remain; settings do not restore global target switching. The [desktop proposal](../../proposed/architecture/2026-10-15-desktop-client.md) retains real SSH/permission behavior.
 
-## 备选方案
+## Alternatives considered
 
-- 直接连真实 PA 能验证端到端效果，但当前是浏览器 demo，无主进程桥接；先完成授权的界面设计，后续再迁移。
-- 复原运行目标和旧 SSH 弹窗可复用占位，但会回到全局切换且无法在设置中编辑目录，不符合连续两轮的入口要求。
-- 每次输入立即应用省去保存状态，但主机和目录应一起确认；使用显式保存与已保存值，关闭时不应用半成品。
+- A real PA connection proves end-to-end behavior, but the browser demo lacks the main-process bridge. Complete the approved UI design first.
+- Restoring target selection/old SSH dialog reuses placeholders but reintroduces global switching and omits directory editing in settings.
+- Applying each keystroke removes save state but can apply an incomplete host/directory pair. Use explicit save.
 
-## 后果
+## Consequences
 
-两个目标都能从设置进入 PA 配置，合法值保存后保留，非法与空输入不能保存；不改变主会话、右栏和 Code 行为。控件可由键盘操作，明暗和窄窗保持现有布局；回归和截图归[工单](../../../../.scratch/desktop-shadcn/issues/13-personal-connection-settings.md)。
+Both targets can open PA configuration. Valid saved values persist in memory; empty/invalid inputs cannot save. Main session, inspector and Code behavior remain unchanged. Controls retain keyboard/theme/layout conventions. Historical regressions/screenshots remain in the offline PA-settings work item.
 
-工程检查与当前949px视口的浏览器交互已通过；更窄布局保留人工验收，不记为通过。浏览器校验只用于设计反馈，不等同于正式后台的路径规范化、socket 长度和权限检查。当前保存仅在内存中，刷新丢失，无法证明真实 PA 可连接。
+Engineering checks and browser interaction at 949 px passed historically; narrower layout still required manual acceptance. Browser validation is design feedback, not production path normalization, socket-length or permission verification. Refresh loses settings and no real PA connectivity is established.

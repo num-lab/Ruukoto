@@ -1,38 +1,38 @@
-# Agent Note: 个人分析委托持有跨轮成员与取消事实
+# Agent Note: Personal analysis delegations own cross-turn membership and cancellation
 
 Status: implemented
 
-## 问题
+## Problem
 
-[模型后台分析](2026-10-17-personal-model-work.md)与[追加说明](2026-10-17-personal-work-notes.md)只管理单项执行，不能表达同一工作委托的多个分析及跨轮继续。按原输入回答完成就关闭整项工作，会把主 Agent 后续处理强行变成新委托；只取消某个成员也不等于整项取消。
+[Model background analysis](2026-10-17-personal-model-work.md) and [additional instructions](2026-10-17-personal-work-notes.md) manage individual executions, not multiple analyses and continuation within one delegation. Closing the whole delegation when the original input is answered forces later main-Agent work into a new delegation. Canceling one member is not whole-delegation cancellation.
 
-## 决定
+## Decision
 
-在 durable document 保存原拥有者输入、原权限与固定入口、成员工作引用及不可撤回的整项取消事实；执行、进度和停止证明继续来自已有 WorkTask/Submission 与子身份占用。首次模型 delegate 按当前唯一原输入创建或加入委托，跨轮由模型引用已知委托，宿主核实当前说明仍来自原入口并固定原授权。当前说明独立记录，供恢复核实及未知效果暂停。历史与可信宿主单项工作不自动归组。
+A durable document stores original owner input, original permissions/fixed entry, member work references and irrevocable whole-delegation cancellation. Existing WorkTask/Submission and child occupancy remain authoritative for execution, progress and stopping proof. The first model delegate creates/joins a delegation from the unique current original input. Across turns, the model references a known delegation; the host verifies that current instructions still come from the original entry and pins original authorization. Current instructions are independently recorded for recovery and unknown-effect pauses. Historical and trusted-host individual work is not grouped automatically.
 
-成员与原生执行同事务登记；整项取消同事务标记所有成员，现有工作监听收齐子会话及后台压缩，停止未核实时保留占用。续派、追加和 provider 检查整项取消及所有成员说明来源的未知服务效果；当前说明不能为旧委托扩大权限。主会话和其他委托继续。控制面与 Telegram 采用独立委托菜单，不改变单项分析菜单的含义。
+Members and native execution register transactionally. Whole cancellation marks all members in one transaction; existing work observers join child conversations/background compaction and preserve occupancy if stopping is unverified. Continuation, append and provider checks enforce whole cancellation and unresolved service effects from every member instruction source. New instructions cannot expand old delegation permissions. Main and other delegations continue. Control-plane/Telegram delegation menus remain distinct from individual-analysis menus.
 
-模型接口区分长期身份 agent 与委托 delegation：本轮拥有者明确交办独立新工作时，主 Agent 可复用空闲、未关闭且停止已核实的 agent，省略 delegation 建立本轮委托；取消或封组的原委托仍不能续派或追加。描述、字段及取消错误给出这条有条件的路径，避免把原未知效果不得换委托重试扩大为禁止独立新工作。宿主来源、占用、权限与未知效果检查保持，不能用新委托重发原工作。
+The model interface distinguishes persistent agent identity from delegation. When the owner explicitly assigns independent new work this turn, main may reuse an idle, open agent with verified stopping and omit delegation to create a current-turn delegation. Canceled/sealed original delegations still reject continuation/append. Descriptions, fields and cancellation errors explain this conditional path so the prohibition on retrying unknown old effects does not become a ban on independent work. Source, occupancy, permission and unknown-effect checks remain: new delegation cannot resend original work.
 
-委派同事务追加不可改写的 `ruukoto.analysis-admission`，固定工具、工作、委托、原输入、本轮说明、权限和入口；组内追加以 `ruukoto.work-note-admission` 固定原说明。只核对说明是有效旧 pi.user 或早于工具，不能证明它是本次说明；恢复与接纳 entry 逐字段对照。
+Delegation transactionally appends immutable ruukoto.analysis-admission, pinning tool, work, delegation, original input, current instructions, permissions and entry. Grouped additions pin original instructions with ruukoto.work-note-admission. Merely proving an instruction is a valid old pi.user or predates the tool does not establish that it is this call's instruction; recovery compares admission fields individually.
 
-新增扩展名阻止旧程序恢复新关系。恢复双向核对原输入、权限、固定入口、成员、说明来源与工具调用；不补猜归属。[最终报告](2026-10-17-personal-delegation-reports.md)在主 Agent 显式封组后汇总并固定原入口，外部工具所属关系仍由后续实施，不以单项完成或分析取消证明完整业务交付。
+A new extension name prevents old code recovering new relationships. Recovery checks original input, permissions, fixed entry, members, instruction sources and tool calls bidirectionally, without guessed ownership. [Final reports](2026-10-17-personal-delegation-reports.md) summarize after main explicitly seals the delegation and pin the original entry. Individual completion/analysis cancellation alone does not establish complete business delivery; external-tool ownership requires its own capability implementation.
 
-## 既有笔记审计
+## Related decisions
 
-按 durable、工作委托、取消、来源与最终报告检索 active notes。[迁移方案](../../proposed/architecture/2026-10-17-personal-pi-durable.md)、[长期后台工作](2026-10-17-personal-background-work.md)、模型工作、追加说明、[宿主控制](2026-10-17-personal-work-controls.md)及[服务效果](2026-10-17-personal-service-operations.md)部分重叠，保留各自单项/授权/停止规则并互链。旧共享工作委托及报告规则继续服务 Coding，没有完全吸收或失效提案。
+The original active-note audit searched durable, delegation, cancellation, source and final reports. [Migration](../../proposed/architecture/2026-10-17-personal-pi-durable.md), [background work](2026-10-17-personal-background-work.md), model work, additional instructions, [host controls](2026-10-17-personal-work-controls.md) and [service effects](2026-10-17-personal-service-operations.md) retain their individual-work, authorization and stopping rules. Shared delegation/reporting remains for Coding. No note was wholly absorbed or invalidated.
 
-## 备选方案
+## Alternatives considered
 
-- 原输入回答完成就封组并立即只读汇报：容易自动收尾，但不能容纳同委托跨轮继续，故先保存归属与取消，最终汇总另行接入。
-- 新增父 Task 并重挂所有成员 owner：可用原生 owned abort，但会改变已有 WorkTask 的恢复与生命周期；本片复用取消监听，待真正需要汇总协调器时再创建。
-- 以最新 pi.user 或先后顺序恢复说明关联：不用额外 entry，但另一条有效旧输入仍可能通过校验，故在活动输入核实事务保存不可改写证据。
-- 从相同来源或最新输入推断历史成员：少存一份关系，但会把独立工作误归组，历史与宿主单项保持不变。
+- Seal and send a read-only report when the original input is answered: easy automatic cleanup, but prevents cross-turn arrangement. Persist ownership/cancellation first and add final reporting separately.
+- Add a parent Task and reparent every member: native owned abort is available, but changes WorkTask recovery/lifecycle. Reuse cancellation observers and create a coordinator only when reporting needs one.
+- Recover instruction links from latest pi.user/order: no extra entry, but another valid old input could pass. Record immutable evidence in the active-input verification transaction.
+- Infer historical membership from common source/latest input: fewer relationships, but conflates independent work. Preserve historical and host-created individual work unchanged.
 
-## 验证
+## Verification
 
-多成员与跨轮续派保持原授权；整项取消对登记/收尾竞争有效，不影响其他委托或关闭身份；未知服务效果不能通过另一成员或新说明绕过。恢复缺少关系时在请求前拒绝。CLI/Telegram 原入口菜单与模型工具共用事实，输入快照包含实际新工具文本；验证证据由[实施工单](../../../../.scratch/personal-pi-durable/issues/13-analysis-delegations.md)持有。
+Multiple members/cross-turn continuation preserve original authorization. Whole cancellation handles registration/finalization races without affecting other delegations or closing identities. Another member/new instructions cannot bypass unknown service effects. Missing relationships reject recovery before a request. CLI/Telegram original-entry menus and model tools share facts; input snapshots contain actual new tool text. Original evidence is offline at `.scratch/personal-pi-durable/issues/13-analysis-delegations.md`.
 
-## 后果
+## Consequences
 
-分析成员可以跨轮继续并一起取消，进度与停止证明沿用原生事实。代价是成员/说明的双向关系和不可改写接纳证据，但不增加运行状态机。当前服务宿主 API 尚无委托关系，不能声称它与分析一同取消；汇总与固定回报沿上述报告决定，完整外部权限与产品验收仍待后续。
+Analysis members continue across turns and cancel together using native progress/stopping facts. The cost is bidirectional member/instruction relationships and immutable admissions, not another execution state machine. Independent host service APIs are not automatically grouped/canceled with analysis; [child service operations](2026-10-17-personal-subagent-service-operations.md) separately gives child-owned services their WorkTask relationship. Final reporting follows the linked decision; complete external permissions and product acceptance are not established by this slice.

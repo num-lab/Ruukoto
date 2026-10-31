@@ -1,28 +1,28 @@
-# Agent Note: 删除停止维护的可视化文档
+# Agent Note: Remove unmaintained visual documentation
 
 Status: implemented
 
-## 问题
+## Problem
 
-[文档分层决定](../process/2026-10-09-split-agent-and-human-docs.md)停止维护旧图解，但把页面留在工作树。冻结横幅与页面内旧维护指令同时存在，搜索仍会把它们呈现为待同步资料。拥有者在 2026-10-12 明确要求提交开发流程后清理该目录，取代继续原地保留快照的选择。
+[Reader separation](../process/2026-10-09-split-agent-and-human-docs.md) stopped maintaining old diagrams but retained pages. Snapshot banners coexisted with old maintenance instructions, so search still presented them as work to synchronize. On 2026-10-12 the owner explicitly requested removing the directory after the development-workflow change, superseding in-place snapshots.
 
-## 决定
+## Decision
 
-删除 `docs/visual/` 的 11 个 HTML 页面及 `style.css`、`visual.js`，移除 README 导航与专属 ESLint 浏览器全局变量配置。有效说明继续归 `docs/modules/`、使用说明和验收文档；原有入站链接改指有效资料，冗余的图解引用删除。
+Remove eleven docs/visual HTML pages plus style.css/visual.js, README navigation and dedicated ESLint browser globals. Current explanations remain in modules, usage and acceptance docs. Redirect meaningful inbound links and delete redundant diagram references.
 
-原文档分层笔记只标明部分取代，原决定和备选理由不改写。历史工单和验证日志保留当时事实；基于旧文档整理的工单 07 转为待重新核实，不再作为可直接执行的同步清单，也不把潜在文档问题宣称已修复。无需交接的新清理按轻量流程验证，决定翻转仍单独记笔记。
+Mark the original separation decision partly superseded without rewriting its decision/alternatives. Historical work/verification records retain their facts. The old diagram-derived synchronization task required revalidation rather than remaining executable; potential documentation defects were not thereby fixed. The cleanup used light verification, but its decision reversal still received this note.
 
-图解的最后保留版本为 `bcab62c08eb9bc4ef7ba85842d790f2b0b11ff8a`，可用 `git show bcab62c:docs/visual/index.html` 查阅。此前开发流程的内容指纹仍指向其被审版本，不改成清理后的文件哈希。
+In the cleaned history, the last pre-deletion tree is `fa008043a6d5526ce15763609a5b11b4c4f1eece`; `git show fa008043:docs/visual/index.html` retrieves it. The original pre-rewrite reference was `bcab62c08eb9bc4ef7ba85842d790f2b0b11ff8a`, retained only as historical provenance. Prior workflow review fingerprints still refer to reviewed content, not replacement cleanup hashes.
 
-## 备选方案
+## Alternatives considered
 
-- **继续冻结并保留页面**：离线浏览历史方便。未采用：拥有者已要求删除，重复材料继续出现在搜索与文档入口中。
-- **搬到另一个归档目录**：还能直接打开旧图解。未采用：Git 已保存完整版本，再保留一份目录仍会增加检索噪声和导航维护。
+- Retain frozen pages: convenient offline history, but contradicts the requested removal and retains duplicate search/navigation material.
+- Move them into another archive directory: directly browsable, but Git already preserves history and another tree retains noise/maintenance.
 
-## 后果
+## Consequences
 
-工作树与文档入口中没有旧图解，当前说明的归属更明确。代价是历史图解需从 Git 提取，旧外部书签不再指向工作树中的页面。产品代码与接口不受影响；历史资料中的路径和测试名仍按原验证时间理解。
+Current navigation/search no longer includes old diagrams. Historical browsing now needs Git extraction and old external bookmarks no longer address working-tree pages. Product code/interfaces do not change. Historical paths/test names refer to their original verification date.
 
-## 验证
+## Verification
 
-`npm run check:docs` 与 `npm run verify-notes` 通过。另用仓库的 Markdown 解析器遍历 273 份 Markdown（包含历史工单），确认没有相对链接指向已删除目录，目录本身也不存在；`git diff --check` 通过。历史正文中的路径不是现行入口，未按字符串全局替换。
+Original check:docs, verify-notes and diff checks passed. A Markdown-parser scan of 273 documents, including historical work items, found no relative links into the removed directory and confirmed its absence. Historical prose paths were not blindly replaced as current entry points.

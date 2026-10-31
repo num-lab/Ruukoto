@@ -1,60 +1,46 @@
-# Agent Note: 手动上下文压缩由会话操作提交滚动摘要
+# Agent Note: Publish manual rolling summaries as session operations
 
 Status: implemented
 
-## 问题
+## Problem
 
-拥有者需要在继续编码工作前主动缩小模型上下文，并指引摘要关注特定内容。自动压缩只有越过水位、达到收益门槛才执行，也可能只清理工具结果；重新调用自动规划不能兑现主动摘要与本次指引。[工单 01](../../../../.scratch/manual-compaction/issues/01-compact-command.md)已完成 grilling 确认，产品行为归[规格](../../../../.scratch/manual-compaction/spec.md)。
+The owner needs to reduce coding context proactively and direct summary focus. Automatic compaction runs only after watermarks/benefit thresholds and may merely prune tool results; forcing its planner cannot promise a new summary or apply that guidance. Normal summarization was task-bound (`taskId`/`callIndex`), while control requests timed out at 60 seconds and summary calls could wait 180 seconds. A fake owner message or long blocking request would introduce unrelated tasks, false provenance, or unverified outcomes.
 
-现有摘要编排属于普通任务，压缩点来源要求 taskId/callIndex，默认控制请求超时 60 秒而摘要最多等待 180 秒。把命令伪装成拥有者消息或长期等待的普通请求，会引入无关任务、错误来源或无法确认的结果。
+## Decision
 
-## 决定
+Reuse rolling summaries/checkpoints with a separate durable session operation for admission/execution/cancel/result. Product capabilities declare availability; Runtime verifies ordinary dev identity and owns session occupancy; agent summarizes; core only reads history and stores operation/checkpoint transactions; authenticated control/TUI exposes it. Never invoke pi compaction that rewrites JSONL.
 
-复用项目的滚动摘要与压缩点，以独立会话操作承载手动接收、执行、取消和结果。产品装配声明能力，Runtime 核实普通开发身份并持有会话占用；摘要在 agent 层生成，core 只持有历史读取、操作记录与压缩点事务，control/TUI 负责认证入口和结果呈现。不得调用会改写 JSONL 的 pi compaction。
+Manual planning summarizes everything before the last complete assistant batch, retaining the original tail in whole groups. Ignore automatic watermark, benefit, and cooldown thresholds. Do not add a permanent original-request/checklist index: summary carries requirements/decisions/unfinished work and full history stays readable. Automatic planning keeps its existing required-item rules.
 
-手动规划直接摘要最后一个完整 assistant 批次之前的内容，原文尾部成组保留；不使用自动水位、收益与冷却门槛，也不另加永久保留旧请求/清单的索引。要求、决定和未完成工作交给摘要传递，完整历史仍可查。自动路径保持已有规则，不为手动压缩扩大正常任务的必留项。
+Input is the previous summary plus newly covered original history, fixed summary rules, and this request's prompt, all included in budget. When coverage cannot advance, a prompt may rewrite the prior summary; without one, do not call again. This is not resummarization from all history: new focus cannot recover facts already omitted.
 
-摘要输入继续采用旧摘要加新增覆盖原文，本次 prompt 补充固定规则且计入预算。范围不推进时，有 prompt 可改写旧摘要；没有 prompt 就不再次调用。不从全部历史重建，因此重新聚焦不能恢复旧摘要遗漏的信息。
+### Durable operation and one terminal result
 
-### 操作归属与唯一终态
+Persist a dedicated request and acknowledge quickly. Same key/parameters reuses it; different parameters conflict. Once source history, expected old checkpoint, and model are fixed, Runtime executes exclusively in the session. New task/queue starts use the same occupancy check; the running summary provider participates in configuration-change checks. No workspace execution lock is needed for this read-only operation.
 
-使用专用持久请求记录，快速确认接收；同键同参复用、同键异参拒绝。源历史、预期旧点和本次模型固定后，Runtime 在会话内独占执行；新任务及队列启动参与同一占用判断，运行中的摘要 provider 参与配置修改检查。工作目录执行锁不参与此只读摘要。
+Successful publication checks not canceled plus matching history/old checkpoint, then commits new checkpoint, successful request, and event in one SQLite transaction. Cancellation winning first prevents publication; success winning first cannot be reported undone. Failure/cancel/interruption preserves the old active checkpoint. Unlike automatic compaction, manual failure never falls back to publishing tool-result pruning alone.
 
-成功提交时核实操作尚未取消、历史与旧点仍匹配，将压缩点、请求成功状态和事件写入同一 SQLite 事务。取消先成立就不能发布新点；成功先提交就不能报告已撤销。失败、取消和中断保留原有效点，手动路径不采用自动压缩的只清理降级。
+TUI disconnection does not stop work. Queries/events and durable command association allow verification. Backend shutdown aborts and waits before DB close; abnormal restart marks leftovers interrupted without automatically calling the summary model again. Provenance distinguishes manual request from task, with no fictional main-model call index. Branch/import retain generation provenance, not operation receipts or cross-session cancel authority.
 
-断开 TUI 不停止操作；查询、事件及持久命令关联支持核实。后台停止先中止和等待后关库，异常重启将遗留操作记为中断，不自动重新调用摘要模型。压缩点来源区分任务与手动请求，不虚构主模型调用序号；分支与导入保留生成来源，操作回执不迁移、不成为跨会话操作权限。
+Result shows coverage, estimates, and model. The owner kept `/context` as the most recent actual call view, without a current-checkpoint panel. Old selection records retain their original checkpoint association; the next actual model call creates a new selection record.
 
-命令结果报告覆盖范围、估算和模型。拥有者选择保持 `/context` 的最近一次调用语义，不新增当前压缩点区域；历史选择记录仍关联原压缩点，下一次实际调用才产生新记录。
+[Automatic compaction](../architecture/2026-09-26-lossy-context-compaction.md) owns its planner and shared checkpoint rules. [History preservation](../architecture/2026-09-19-preserve-session-history.md), [backend lifecycle](../architecture/2026-09-19-detach-terminal-from-task-runtime.md), and [branching](2026-10-11-branch-session-snapshot.md) remain unchanged prerequisites. Related identity/data/message decisions only need adaptation to the new provenance/receipt fields, not reinterpretation. The original audit found no same-topic proposed/rejected note to remove or archive.
 
-## 既有笔记审计
+## Alternatives considered
 
-- [模型上下文有损压缩](../../implemented/architecture/2026-09-26-lossy-context-compaction.md)：部分重叠，原篇持有自动压缩与共享压缩点规则，本篇补手动触发、失败语义和操作归属；互链，不覆盖原决定。
-- [完整保留会话历史](../../implemented/architecture/2026-09-19-preserve-session-history.md)、[终端与后台分离](../../implemented/architecture/2026-09-19-detach-terminal-from-task-runtime.md)、[会话分支](../../implemented/feature/2026-10-11-branch-session-snapshot.md)：沿用历史只读、后台生命周期与独立点复制作为前提；这些篇目的核心选择不在本次重议范围，不取代。
-- 检索命中的两个产品、工作委托/SubAgent、SubAgent 消息、旧工作区组织归属、旧实例导入与入站图片笔记：其身份、资料与消息归属决定不变；本单只同步受新增压缩来源和回执影响的实现。
-- 检索命中的文档门禁、文档分层、AGENTS 约定、Plan、长期授权、MCP、调度 outbox、GitHub/群聊退役笔记：命中共享词汇或外围约束，与本次手动摘要及会话操作取舍无关。
-- 未发现已有同主题 proposed/rejected 提案；没有需要删除、归档或否决的旧提案。
+- Force automatic planning: greatest reuse of thresholds/fallbacks, but short histories or prune-only plans may never summarize, ignoring the prompt. Manual planning needs distinct rules.
+- Retain a whole recent turn verbatim: protects latest requirements/execution from loss, but makes one long tool-heavy task uncompressible. The owner chose the last complete batch, moving earlier requirements/state into the summary.
+- Resummarize all history whenever prompted: can recover lost focus, but grows cost/input indefinitely; the current summarizer rejects over-budget input and would require chunking. Revisit when actual long-history refocusing is required.
+- Publish pruning when summary fails: at least reduces some context, but violates the promised focused summary and makes failure ambiguous. Keep the old checkpoint unchanged.
+- Use an ordinary task or one long control request: reuses status/cancel or avoids lookup code, but pollutes history/task provenance or fails under disconnect/default timeout. Use a small dedicated operation rather than generalizing tasks.
+- Add a current checkpoint to `/context`: visible before the next call, but the owner chose command-result feedback and existing query semantics instead.
 
-## 备选方案
+## Consequences
 
-- 只强制运行现有自动规划：复用最多，保留成熟阈值与失败降级；但短会话和只清理路径不调用摘要模型，prompt 可能完全不起作用，故为手动规划明确独立规则。
-- 保留最近一整轮原文：拥有者最近要求和完整执行过程都无需依赖有损摘要；但单个长任务的工具过程无法压缩。拥有者选择保留最后完整批次，更早要求与状态进入摘要。
-- 每次有 prompt 都从全部历史重新摘要：可以找回旧摘要遗漏的关注点；但输入和费用随全部历史增长，现有摘要器超窗口直接失败，必须另做分块才能普遍可用。本期采用滚动摘要，出现无法重新聚焦的实际需求时重访。
-- 摘要失败仍提交工具结果清理：与自动压缩一致，至少降低部分上下文；但本命令承诺主动摘要与指引，部分变更会让失败含义不明确。手动失败保留旧点。
-- 用普通任务承载压缩或等待一个长控制请求：可复用任务状态/取消或少写结果查询；前者污染任务与历史归属，后者无法覆盖断线和默认超时。采用专用小型操作记录，不扩展通用任务框架。
-- 在 `/context` 增加当前生效压缩点：下一模型调用前也能查看新状态；拥有者明确选择只在命令结果展示，保留现有查询语义。结果提示差异，避免误认。
+Manual summary costs a model call and a prefix-cache invalidation; bypassing benefit thresholds does not guarantee smaller estimates. Statistics cover completed-history view plus summary under one configuration, excluding the next task's references/tools/new input and actual main-model usage. Rolling summaries are lossy; completed requests/old checklists are not retained verbatim forever, and a new prompt cannot recover omitted facts without history lookup.
 
-## 验证
+The operation adds persistence/reconnect/shutdown responsibility in exchange for one verifiable outcome without fake tasks or duplicate model calls. Historically schema 34 added nullable task provenance, `manual_request_id`, and `compaction_requests`; protocol 18 added admission/query/cancel. Current storage follows [direct format replacement](2026-10-12-full-access-current-account.md): no old-schema upgrade/backfill. Historical migration tests are not a current migration promise. Branch/import retain committed points/provenance, not receipts or cancellation permission. `compaction-v2` explicitly preserves unfinished work.
 
-`test/61-manual-context-compaction.test.ts` 验证完成历史规划、滚动范围、完整摘要输入预算与 typed 失败；`test/103-manual-compaction-store.test.ts` 验证真实旧库迁移、幂等、唯一终态与事务回滚；`test/104-manual-compaction.test.ts` 验证低水位摘要、JSONL 字节不变、后续模型视图、会话及配置竞争、失败、取消、断线核实、模型钉版/fallback 与真实 Coding Agent CLI 后台 SIGKILL 后零重调。控制与 TUI 定向用例验证命令、草稿、原键恢复、切走反馈与轮询；`test/15-tui-pty.test.ts` 使用真实终端及 ruukoto-code 入口核对中文指引、进度、成功反馈与退出后的持久结果。模型服务离线模拟，真实摘要质量和费用未验证。
+Over-budget input fails without chunking. Corrupt complete lines, partial tail records, invalid headers, or changed source fail clearly; an invalid old point is invalidated rather than revived. Register session/provider occupancy before admission commit/broadcast so synchronous cancellation/configuration listeners participate. If post-commit broadcast throws, inspect the durable receipt rather than leaving an in-flight operation with no executor.
 
-## 后果
-
-手动摘要付出模型费用与一次前缀缓存失效；跳过收益门槛不保证估算下降。统计仅含完成历史视图与摘要，按同一配置估算，不把下一任务的参考块、工具定义和新输入算入，也不把实际主模型用量当作收益。滚动摘要有损，已完成请求和较早清单不永久保留原文，新 prompt 不能补回旧摘要遗漏的事实，需要查询历史。
-
-专用操作记录增加 schema、重连与停止的维护面，换来可核实的唯一结果并避免伪任务与重复调用。schema 34 放宽压缩点任务来源、增加 manual_request_id 与 compaction_requests，协议 18 接通接收、查询和取消；后台与客户端需同步升级。分支和双方向导入保留已提交点及来源，操作回执不迁移；来源标识不构成取消权限。摘要固定规则为 compaction-v2，明确保留未完成工作。
-
-输入超过摘要模型预算仍失败，本期不分块；真实摘要质量和费用无法由离线 mock 验证。需要长历史重聚焦或持续摘要偏好时，应另行确认输入处理与保存范围。完整行损坏、部分尾记录、错误 header 或来源变化均明确失败；无效旧点作废而非恢复。接收先注册会话与 provider 占用再提交及广播，同步监听者取消或配置应用也参与同一判断；提交后广播抛错先核实持久回执，不能留下没有执行者的在途请求。
-
-## 适用范围
-
-存储格式采用[完全访问直接替换规则](2026-10-12-full-access-current-account.md)：不升级或回填旧 schema；本篇的当前格式功能、来源核实与回退规则继续成立。
+Historical tests: `test/61-manual-context-compaction.test.ts` covers complete-history planning/rolling range/full input budget/typed errors; `test/103-manual-compaction-store.test.ts` covered then-supported migration, idempotency, unique terminal result, and rollback; `test/104-manual-compaction.test.ts` covers low-watermark summary, unchanged JSONL, later context, occupancy/config races, failures/cancel/disconnect, pinned model/fallback, and real Code-backend SIGKILL without re-call. Control/TUI tests cover draft/original-key recovery/navigation/polling; `test/15-tui-pty.test.ts` used a real terminal and Code entry for guidance/progress/success/persistent result after exit. Models were offline substitutes: summary quality/cost remain unverified. Original confirmations in `.scratch/manual-compaction/spec.md` and its issue 01 are now offline provenance, not maintained workflow entries.

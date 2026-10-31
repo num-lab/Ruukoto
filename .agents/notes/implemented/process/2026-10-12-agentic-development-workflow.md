@@ -1,42 +1,41 @@
-# Agent Note: 以任务入口和独立审查衔接跨模型开发
+# Agent Note: Use task entry points and independent review for cross-context development
 
 Status: implemented
 
-## 问题
+[Development standards](2026-10-31-development-standards.md) replaces local Markdown task/status configuration with GitHub Issues/native state and clarifies concise communication. It preserves independent plan/implementation review and separate engineering/product acceptance.
 
-仓库已有规则、决策笔记、工单和机械检查，但尚未定义换一个会话如何找到有效任务、哪些计划内容可以调整、审查失败后谁接手，以及哪些证据足以宣布完成。旧工单的可执行状态与过期说明可能继续影响新任务；多份文档存在并不自动构成可靠交接。
+## Problem
 
-## 决定
+Rules, notes, tasks and mechanical checks did not explain how a new chat finds effective requirements, which plans may change, who handles review failures, or what evidence proves completion. Stale executable-looking tasks could mislead successors. Multiple documents alone do not make a reliable handoff.
 
-以一份工单为当前工作的入口，引用共享规格与长期规范，集中记录当前阶段、下一责任角色、相关决定和验收证据。重流程由方案、独立方案审查、实施与文档同步、独立实现审查衔接；轻量改动直接实施并验证，恢复已有明确约定且不涉及高影响边界的局部修复也属于轻量。模型由拥有者选择，角色约束职责，不绑定供应商。
+## Decision
 
-拥有者确认目标、非目标、关键契约与验收要求；角色在该范围内自主调整步骤和解决技术返工。独立审查有权指出计划与需求冲突，工程验收与产品验收分别记录。审查结论针对具体交付内容，后续实质改动需复核受影响部分。
+Use one work item as the current entry, referencing shared specs and durable rules and recording stage, next responsible role, decisions and acceptance evidence. High-impact work proceeds through planning, independent plan review, implementation/documentation and independent implementation review. Lightweight changes implement/verify directly; local restoration of a clear existing rule is lightweight when it avoids high-impact boundaries. Owners select models; roles define responsibility, not vendors.
 
-开发流程集中在仓库 skill，任务记录格式与状态集中在现有 `docs/agents/` 配置。根指示只负责触发，模块导航引用架构文档以保持入口简短；开发说明给人类入口。正文保存有效内容，Comments 保存历史；旧工单在接手时核实，notes 的 implemented 不等同于任务验收通过。`ready-for-human` 包含人工实现、主观体验与环境验收，Wayfinder 保留独立的探索状态。
+Owners confirm goals, non-goals, key contracts and acceptance. Roles may change steps and solve technical rework within that scope. Independent reviewers may challenge the plan against requirements. Record engineering and product acceptance separately; conclusions apply to specific reviewed content and substantial later changes invalidate affected parts only.
 
-用户确认依据、实施记录与证据在[工单](../../../../.scratch/development-workflow/issues/01-establish-workflow.md)。本次沿用此前文档篇幅上限，不增加依赖、运行时调度或专用冻结门禁。
+The original process centralized workflow in a repository skill and task formats/states in docs/agents. Root instructions trigger it, architecture supplies navigation and development docs orient humans. Current content belongs in task bodies, history in comments. Revalidate old tasks at takeover; an implemented note is not task acceptance. The original ready-for-human status covered human implementation, experience and environment acceptance, with separate Wayfinder exploration states. Current tracking replaces those original file/status mechanics under the linked standards decision.
 
-## 历史决定检索
+Historical owner confirmation, implementation and evidence remain in the offline development-workflow task. This decision used existing documentation budgets and added no dependency, product scheduler or special frozen gate.
 
-- [文档分层](2026-10-09-split-agent-and-human-docs.md)：部分重叠，保留 docs、notes 与工单的职责，本次补上跨角色衔接。
-- [文档结构门禁](2026-10-10-docs-and-instructions-gates.md)：部分重叠，继续使用机械检查；需求符合性和内容正确性由独立审查判断。
-- [按改动面选择检查](2026-10-10-pre-push-evidence-ladder.md)：部分重叠，保留定向检查，补充作者自检与独立验收的区别。
-- 已检索 proposed、implemented、rejected 下的流程与交接关键词；未找到应由本次取代的完整开发流水线决定。产品运行时的任务与审批笔记不属于仓库开发流程。
+## Related decisions
 
-## 参考依据
+[Reader separation](2026-10-09-split-agent-and-human-docs.md) retains knowledge ownership; [structural gates](2026-10-10-docs-and-instructions-gates.md) retain mechanical feedback while review judges meaning/requirements; [scoped checks](2026-10-10-pre-push-evidence-ladder.md) retains targeted verification and gains the author-check/independent-acceptance distinction. Product task/approval state is not repository development workflow.
 
-DSH 的[仓库文档规范](https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/docs/AGENTS.md)按事实、决定和操作分配归属。Magpie 的[代码规范](https://github.com/yetone/magpie/blob/main/docs/code-standards.md)要求独立复核与针对被审提交的验证，其[复盘](https://github.com/yetone/magpie/blob/main/LESSONS.md)也记录了自动开发中的返修和验证缺口。这里采纳可复核的方法，不把项目自述当作无人值守或低缺陷的证明。
+## References
 
-## 备选方案
+DSH's [document conventions](https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/docs/AGENTS.md) separates facts, decisions and procedures. Magpie's [code standards](https://github.com/yetone/magpie/blob/main/docs/code-standards.md) and [lessons](https://github.com/yetone/magpie/blob/main/LESSONS.md) inform independent verification and rework. Adopt testable methods, not project self-description as proof of unattended quality.
 
-- **所有改动统一走完整角色链**：最容易解释，也能保证每次都有同样的材料。未采用：简单改动会承担不必要的规划与交接成本，拥有者已选择轻重两档。
-- **每次交接完整聊天历史**：能保存讨论细节，省去整理。未采用：不同客户端不共享历史，旧探索意见会与现行决定混杂；共同依据必须存在于仓库。
-- **增加规则和结构检查，沿用实施者自验**：机械反馈快，维护成本低。未采用：不能识别计划本身错误、测试复制错误实现或文档语义漂移；保留现有检查并增加独立审查。
+## Alternatives considered
 
-## 验证
+- Full role chains for every change are uniform but impose needless planning/handoff on simple edits; the owner chose two levels.
+- Handing off entire chat history retains detail but is not shared across clients and mixes exploration with current decisions. Effective requirements need a durable shared work entry.
+- More rules/structural checks with author-only acceptance are cheap but miss wrong plans, tests duplicating wrong implementations and semantic documentation drift. Retain checks and independent review.
 
-验证覆盖格式与链接、独立新上下文接手和逆向审查。接手演练识别过期路径及旧验收失效，按轻量流程恢复零值显示；审查演练在已有测试全绿时发现计划与次数上限要求矛盾并退回方案。具体输入、结果、检查和审查范围见[验证记录](../../../../.scratch/development-workflow/evidence.md)。
+## Verification
 
-## 后果
+Original exercises checked links/format, takeover in a new context and adversarial review. Takeover found stale paths/invalid old acceptance and restored zero-value display through the light path. Review found a plan contradicting count limits despite green tests and returned it to planning. Exact scenarios/results remain in the offline workflow verification record, not proof of all future behavior.
 
-增加的任务记录与独立审查需要维护时间；轻量路径与按需读取控制成本。文字流程不能在执行权限上阻止越界，也不能保证任何模型都遵守；独立演练只说明被演练场景的结果。真实使用中发现遗漏时应修正职责或证据要求，避免为每个历史失误堆叠永久禁令。
+## Consequences
+
+Work records/review cost time; light paths and on-demand reading contain it. Prose cannot enforce execution authority or guarantee model compliance. New omissions should improve ownership/evidence requirements, not accumulate permanent bans for every historical mistake.

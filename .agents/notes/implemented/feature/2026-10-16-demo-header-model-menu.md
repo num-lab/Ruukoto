@@ -1,29 +1,27 @@
-# Agent Note: Demo 顶部标签与模型菜单
+# Agent Note: Demo top tabs and model menu
 
 Status: implemented
 
-## 问题
+## Problem
 
-拥有者的四条批注要求右侧 tab 上移、缩小 Thought／子 Agent／工具摘要间隔、把 Effort 收进模型菜单，并在空间不足时以 Brain 图标提供模型入口。原右栏 tab 占据正文上方一整行，独立 Effort 进一步挤压输入区。
+The owner requested moving inspector tabs upward, reducing gaps between Thought/SubAgent/tool summaries, moving Effort into the model menu, and a Brain icon when width is limited. Inspector tabs occupied a whole row above content, while a separate Effort control squeezed the composer.
 
-## 决定
+## Decision
 
-仅调整 demo。总 header 分为会话区与检查器区，右侧 tab、关闭及加号与下方检查器共用宽度变量和过渡；右栏开关始终保留。收起的 tab 区同时 aria-hidden／inert，快捷键收起时从该区归还焦点至开关。保留每会话的右侧 tab、文件与子 Agent 跳转、关闭最后 tab 后的空白新标签，以及原调宽方式。
+This decision initially changes Demo only. The global header has conversation and inspector regions. Inspector tabs, close, and add share width variables/transitions with the inspector below; its toggle stays available. Collapsed tabs are aria-hidden/inert. Shortcut collapse returns focus from that region to the toggle. Per-session tabs, file/SubAgent navigation, a blank new-tab page after closing the last tab, and resizing remain.
 
-两组 tab 的等宽与组内排序由[后续决定](2026-10-17-demo-tab-reorder.md)持有。两组 tab 不为关闭按钮预留宽度；悬停时绝对定位叠加关闭图标，并仅对相邻标题文字做渐隐，键盘聚焦关闭按钮时同样呈现，不可关闭的最后会话不渐隐。选中标签左右两条短分隔线隐藏；右栏展开时，两组顶部标签区之间显示垂直居中的 28px 短竖线，收起时隐藏，不改变分区宽度或关闭／切换行为。
+[Later tab reordering](2026-10-17-demo-tab-reorder.md) owns equal widths and within-group order. Neither tab group reserves width for close buttons. Hover overlays an absolutely positioned close icon and fades only adjacent title text; keyboard focus on close does the same. The unclosable last session never fades. Selected tabs hide short dividers on both sides. When the inspector is expanded, a centered 28px vertical divider separates top regions; collapse hides it without changing widths or close/switch behavior.
 
-模型与 Effort 复用已有官方 DropdownMenu 的两个命名 radio group，不新增原语或依赖。选择保持按会话保存、认证不可用模型禁选，核实期间禁用整个入口，菜单仍向上弹出并取消位移动画。composer 内容宽度不超过 480px 时只显示 Brain，当前模型与 Effort 通过入口的可访问描述保留，菜单结构不变；Context、模式与发送继续沿用现有行为。按后续批注，输入框底部功能键始终同排；模式入口及菜单按 Ask for approval／Auto review／Full access／Plan 显示提问、盾牌、闪电与清单图标；composer 内容不超过 320px 时只显示当前模式图标，文字视觉隐藏但保留可访问值与描述，隐藏下拉箭头。更窄时继续收紧间距，不拆成两行。附件入口使用浅色圆底，加号略加粗；只改此按钮样式，保留选文件及禁用行为。标注的三个 Trace 行之间使用 16px 间隔，正文和审批仍使用原间距。
+Model and Effort use two named radio groups in the existing official DropdownMenu, without primitives/dependencies. Choices remain per-session; models lacking authentication are disabled. Verification disables the whole entry. The menu opens upward without translation animation. At composer content width <=480px, show only Brain while an accessible description retains model/Effort; the menu remains identical. Context, mode, and send keep their behavior.
 
-本决定部分取代[消息流组件选择](2026-10-16-demo-ai-elements.md)中的独立 Effort Select 与极窄换行方式；模拟数据、会话继承及提交语义继续沿用。Context 的[原生组件与环形入口](2026-10-16-demo-context-component.md)不变。历史检索命中的两篇均为部分重叠，保留并互链；其他历史范围不变。
+Composer bottom controls always share one row. Ask for approval, Auto review, Full access, and Plan use question, shield, lightning, and list icons. At <=320px, mode shows only its icon and no chevron, while preserving accessible value/description. Still narrower layouts reduce spacing instead of wrapping. Only the attachment button gets a light round background and slightly bolder plus; file selection/disabled behavior remains. The three annotated Trace rows use 16px gaps; body and approval spacing stay unchanged.
 
-[右栏工具扩充](2026-10-16-demo-inspector-tools.md)沿用本篇顶部标签、共用宽度与收起方式；增加活动标签显露，不改变消息流和输入区。
+This supersedes separate Effort Select and extreme-width wrapping in [message components](2026-10-16-demo-ai-elements.md), retaining mock data, session inheritance, and submission. [Context component](2026-10-16-demo-context-component.md) stays unchanged. [Inspector expansion](2026-10-16-demo-inspector-tools.md) reuses shared width/collapse and adds active-tab visibility.
 
-## 备选方案
+## Alternatives considered
 
-- 保留两个 Select 并把 Effort 移到模型弹层中：复用现成选择框，但会形成菜单内另一个弹层，焦点和键盘路径更复杂；两个 radio group 已满足同一菜单内选择。
-- 依据窗口宽度隐藏模型名：实现直接，但同一窗口会因左右栏宽度而拥有不同的输入空间；采用现有 composer 容器查询。
-- 统一缩小整个消息流的 gap：样式最短，但会同时改变正文与审批；仅缩小相邻 Trace 条目及 activity 内部间隔。
+A Select inside the model menu reuses controls but adds nested popup focus/keyboard paths; two radio groups suffice. Window-width breakpoints ignore how sidebars change actual composer space, so use the existing container query. Shrinking every transcript gap also changes body/approvals; target Trace neighbors/activity internals only.
 
-## 后果
+## Consequences
 
-顶部右区与检查器必须一起接受夹紧、调宽和收起，避免两套独立宽度。模型入口在宽栏显示名称，窄栏依赖图标；菜单与可访问描述保留选择信息。验收见[工单](../../../../.scratch/desktop-shadcn/issues/03-ai-elements-demo.md)；仅内存模拟，未修改正式 Desktop、后台、依赖、原稿或冻结稿。
+Header and inspector must clamp, resize, and collapse together rather than own independent widths. Narrow model entries depend on an icon, with choice details retained in menu/accessibility text. Historical acceptance is in the offline copy of `.scratch/desktop-shadcn/issues/03-ai-elements-demo.md`. This original in-memory iteration changed neither production Desktop/backend nor dependencies, original designs, or frozen drafts.

@@ -1,7 +1,0 @@
-{
-  "remaining_owned_processes": [],
-  "df": "Filesystem      Size  Used Avail Use% Mounted on\n/dev/vda2        40G   38G  137M 100% /\ntmpfs           1.9G   52M  1.8G   3% /dev/shm\n",
-  "user": "uid=1003(eitrous) gid=1003(eitrous) groups=1003(eitrous),27(sudo),100(users),987(ruukoto-backend),988(docker)\n",
-  "apparmor_restrict_unprivileged_userns": "1",
-  "unprivileged_userns_clone": "1"
-}

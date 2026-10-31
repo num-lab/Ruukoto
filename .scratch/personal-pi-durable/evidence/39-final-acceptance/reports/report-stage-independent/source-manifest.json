@@ -1,6 +1,0 @@
-{
-  "apps/ruukoto/src/personal-report.ts": "0c0e9567ad4d576a1f7d8f6b2456cc57dbd2dffe2e94f1ba34d97cf253a5a70c",
-  "test/personal-reports.test.ts": "2cb835aac7736abf31c9fabff6c9cad810cfd9936723c0afce27d1c60f64d757",
-  ".agents/notes/implemented/architecture/2026-10-17-personal-delegation-reports.md": "afe5a11988be4a34c9f05a6b4ec887f96d6a817b95dafc5223221d89ac60f3bc",
-  "docs/modules/personal-durable.md": "c6d9742c59ef62c7a244d4673d47ba3541f21e5e7e299bbc36623813f6df2089"
-}

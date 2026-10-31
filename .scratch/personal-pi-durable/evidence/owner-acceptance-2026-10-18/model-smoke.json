@@ -1,8 +1,0 @@
-{
-  "command": "RUN_MODEL_CHECK=1 RUN_PERSONAL_MODELS_FILE=/Users/eitrous/.ruukoto/agent/models.json RUN_PERSONAL_MODEL=deepseek/deepseek-flash npx tsx verification/smoke/smoke-personal-durable.mts",
-  "script_sha256": "cca8edd0aac8b1c200ac9554730a3eb4b7da6a7184b4efc4a6022eb700d3e5bb",
-  "scope": "现行真实模型叶测，不接IM；脚本结束会清理临时档案，不替代真人或最终组合验收",
-  "started_at": 1792325198.579772,
-  "exit_code": 0,
-  "finished_at": 1792325223.264446
-}

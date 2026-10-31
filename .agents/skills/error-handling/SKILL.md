@@ -1,38 +1,36 @@
 ---
 name: error-handling
-description: 设计或评审失败路径时使用：定义失败的类型与判别方式、处理与上报的归属、失败后仍然安全的保证，以及用户可见的报告。改动 packages/ 或 apps/ 的抛错、捕获、重试、后台任务或诊断输出时适用。
+description: "Use when designing or reviewing failure paths, including throws, catches, retries, background work and diagnostics in packages or apps. Define failure identity, recovery/reporting ownership and what remains safe."
 ---
 
-# 错误处理
+# Error Handling
 
-先定义失败是什么、谁负责处理、失败后什么仍然是安全的。
+Define what failed, who owns recovery, and what remains safe before choosing a catch or retry.
 
-## 类型化的失败
+## Typed Failures
 
-- **跨层传递的错误用带 `code` 的类型。** 本仓库有 40 多个 `Error` 子类，多数带只读 `code`；`code` 是机器判别的身份，`message` 是给人看的文本。
-- **用 `instanceof` 与 `.code ===` 判别，不解析 `message`。** 全仓只有 3 处例外，都是 `node:sqlite` 唯一索引冲突的兜底（`packages/core/src/store.ts`），且各有注释说明这是兜底路径。新增解析 `message` 的代码等于把文本当接口。
-- **`code` 的取值分两类，按用途选**：调用方要枚举处理的用字面量联合（如 `packages/core/src/history.ts` 的 `"history_corrupt" | "entry_not_found"`），只做透传或上报的用宽 `string`（如 `RuntimeApiError`）。
-- **控制面与拥有者看到的是 `code`，不是堆栈。** 把内部细节留在 `message` 之外；凭据、路径与请求正文不进入用户可见文本。
+Cross-layer errors use a type with a `code`. Discriminate with `instanceof` and `.code`, not message parsing: code is machine identity; message is human text. Existing SQLite unique-constraint fallbacks are exceptional SDK-boundary handling, not a pattern for new application interfaces.
 
-## 捕获、恢复或停止
+Use literal code unions when callers enumerate cases and a string code for transparent forwarding/reporting. Keep stacks, credentials, private paths and request bodies out of owner-visible error text; retain internal diagnostics at the appropriate layer.
 
-- **不写空 `catch`。** 本仓库当前没有真正的空捕获块；确需吞掉时，写明吞的是哪个错误与原因（`// 忽略：<原因>`），不要留一个无说明的 `catch {}`。
-- **捕获限制的是异常的传播，不是已经发生的变更。** 只有受影响状态的持有者才能决定安全继续；否则停止依赖该状态的工作，丢弃无效状态，或向上报错。记一条日志不算恢复。
-- **重试需要可安全重复、可取消，并且有明确的归属。** 有限操作要有预算，持续监督要有生命周期归属与可观察的降级表现。
+## Recovery Ownership
 
-## 失败要可见且可行动
+Explain intentionally swallowed errors; leave no empty catch. Keep `try` limited to the failing operation. Catching an exception stops propagation, not changes already made. Only the state owner can decide that continuing is safe; otherwise stop dependent work, invalidate unusable state or propagate the failure. Logging alone is not recovery.
 
-- **每份最终报告含可读摘要、受影响的操作、安全的下一步。** 不声称成功、回滚或可安全重试，除非确实有保证。
-- **状态未知或不可信时必须可见。** 报告影响范围、不确定之处、系统已做的处置与安全下一步；持久化的无效状态需要持久的可见性，不能只写日志。
-- **验证结果状态与可见结果，而不是「异常被捕获了」。**
-- **诊断写 `process.stderr.write` 并带 `[ruukoto:*]` 前缀**；`console.log` 只出现在三个入口（`packages/tui/src/cli.ts`、`packages/tui/src/tui/index.ts`、`packages/tui/src/config-tui/index.ts`）。
+Retries must be safely repeatable, cancellable and owned. Finite operations need a retry budget; continuous supervision needs a lifecycle owner and observable degradation.
 
-## 失败分类的硬边界
+## Visible, Actionable Results
 
-工具调用的效果分类是可核实的判断，不是措辞选择：
+A final failure report gives the affected operation, a readable explanation and a safe next step. Claim success, rollback or safe retry only when guaranteed. If state is unknown or untrusted, expose that fact, its effect and the containment action; persisted invalid state needs durable visibility, not just a log.
 
-- 审批未消费 → 已知未执行；
-- 只读工具中止 → 无写入效果；
-- 其余效果无法核实 → `effect_unknown`，不重放。
+Test the resulting state and user-visible outcome rather than merely checking that an exception was caught. Runtime diagnostics use `process.stderr.write` with `[ruukoto:*]`; `console.log` is limited to `packages/tui/src/cli.ts`, `tui/index.ts` and `config-tui/index.ts`.
 
-具体归属与流程见[工具调用与审批](../../../docs/modules/agent-tools.md)与[运行时](../../../docs/modules/runtime.md)。
+## Tool Effects
+
+Effect classification is a verifiable result:
+
+- Approval not consumed: known not executed.
+- Read-only operation interrupted: no write effect.
+- Other effects cannot be verified: `effect_unknown`; do not replay.
+
+Ownership and lifecycle details are in [tools and approvals](../../../docs/modules/agent-tools.md) and [runtime](../../../docs/modules/runtime.md).

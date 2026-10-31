@@ -1,31 +1,29 @@
-# Agent Note: 内置 read 从同一受限读取恢复图片结果
+# Agent Note: Built-in read restores images from the same restricted read
 
 Status: implemented
 
-## 问题
+## Problem
 
-内置 `read` 复用 pi，但普通与只读 SubAgent 的 `ReadOperations` 都只实现读取和访问检查，漏接可选的 `detectImageMimeType`。上游因此把图片按 UTF-8 文本返回，虽然已有模型图像输入与会话记录能力，读取本地图片仍无法得到视觉块。
+The built-in `read` uses pi, but the ordinary and read-only SubAgent `ReadOperations` omitted the optional `detectImageMimeType`. Upstream therefore returned image bytes as UTF-8 text despite existing model-image and session-record support.
 
-## 决定
+## Decision
 
-每次 `read` 新建图片适配器，类型探测调用原 reader 读取和捕获一次原始 Buffer，再由上游读取返回同一 Buffer。复用已有 `imageMime`，支持 JPEG、PNG、WebP；图片处理与自动缩放由 pi 持有。适配器不跨调用保留内容，后续读取能观察新的文件版本。受限 reader 继续逐段核实只读范围并拒绝符号链接，最终打开保留 `O_NOFOLLOW`；类型探测不增加另一条文件打开路径。
+Each `read` creates an image adapter. MIME detection invokes the original reader once and captures its raw Buffer; the upstream read returns that same Buffer. The existing `imageMime` supports JPEG, PNG and WebP; pi owns image processing and automatic resizing. No content survives between calls, so later reads observe file changes. The restricted reader still checks each path component, rejects symlinks and opens with `O_NOFOLLOW`; detection adds no second file-opening path.
 
-工具结果的 image 块沿 ToolRouter 原样返回，SDK 在 JSONL 保存完整 `toolResult`，prompt 快照保留实际模型图像输入；不为本地读图新增入站媒体引用格式。仅文本模型继续由已有发送前能力检查拒绝，不发送丢图后的请求。[入站图片暂存](../architecture/2026-10-07-inbound-image-staging.md)仍独立持有 IM 媒体的暂存与引用恢复。
+ToolRouter returns image blocks unchanged. The SDK stores the complete `toolResult` in JSONL, and prompt snapshots retain the actual model image input. Local images need no new inbound-media reference format. Existing pre-send capability checks reject text-only models rather than silently dropping images. [Inbound image staging](../architecture/2026-10-07-inbound-image-staging.md) separately owns IM media staging and restoration.
 
-worker 保持 4 MiB JSON 整帧上限。上游图片默认 4.5 MiB 是 base64 字节预算，不能保证结果帧可发送；含 `opId` 的超限消息转为该操作的小型错误 result，没有 `opId` 时才 fatal。已完整捕获的原始字节可沿普通结果回收定稿，后续工具可继续。上游解码或缩放失败的省略说明保留，不将失败图片改称成功的视觉输入。
+The worker keeps its 4 MiB limit for a complete JSON frame. Upstream's default 4.5 MiB image budget measures base64 bytes and cannot guarantee transportability. An oversized message with `opId` becomes a small error result for that operation; only messages without `opId` are fatal. Fully captured raw bytes can still be finalized through normal artifact recovery, and later tools remain usable. Upstream decode/resize omission notices remain failures, not successful visual input.
 
-## 备选方案
+## Alternatives considered
 
-直接给两套适配器接上游公开的 `detectSupportedImageMimeTypeFromFile`，代码最少且支持 GIF、BMP；但其 `open(path, "r")` 会跟随最终符号链接，受限路径在核实与异步打开之间新增替换竞态。采用已有受限 reader 的同一 Buffer，避免权限与产物捕获语义分叉；当前范围只覆盖已维护的三种 MIME。
+- Wiring upstream `detectSupportedImageMimeTypeFromFile` directly into both adapters is shorter and supports GIF/BMP, but its `open(path, "r")` follows the final symlink and introduces a replacement race after authorization. Reusing the restricted reader's Buffer preserves authorization and capture semantics; this change covers only the three maintained MIME types.
+- Supplying a safely opened descriptor through `/dev/fd` retains upstream formats, but native path authorization need not allow that alias. Platform-specific policy expansion is unnecessary here.
+- Raising the frame limit changes the process protocol; resizing again requires reconciling dimensions and coordinate mappings. Keep the limit and report an oversized result without killing the worker.
 
-经 `/dev/fd` 向上游提供安全打开的文件描述符，可以保留完整的上游格式支持；但正式 native 的路径授权不保证允许该别名，依赖平台细节或扩大沙箱策略都不是本次必要改动。
+## Consequences
 
-提高协议帧上限或在上游后再次缩放可接纳更多图片结果；但前者改变进程间契约，后者要合并尺寸提示与坐标映射。本次保持现有传输上限，超限明确失败且不终止整个 worker。
+Ordinary and read-only SubAgents can read supported local images. Visual input, raw artifacts and history come from one authorized read; text and permission behavior remain unchanged. Detection reads the complete Buffer earlier, but there is still one read and one raw capture. Cancellation does not leave reusable content. Local images are limited to JPEG/PNG/WebP; oversized processed results can fail transport while raw content remains available. Real recognition quality requires external model acceptance, not mocked HTTP.
 
-## 后果
+## Verification
 
-普通与只读 SubAgent 都能读取支持的本地图片，实际视觉输入、原始产物与会话记录来自同一次已授权读取，文本与权限范围沿用已有行为。代价是本地读图只覆盖 JPEG、PNG、WebP；探测提前读取完整 Buffer，但总读取次数与原始捕获次数仍各一次，取消后的 Buffer 不跨调用复用。超大处理结果可能无法发送，原文可查；真实视觉识别效果由外部模型验收，不由模拟 HTTP 请求证明。
-
-## 验证
-
-`test/07-read-images.test.ts` 覆盖普通、工作区只读和额外资料根读图，实际签名、一次原文捕获、文本不回归、范围外路径与符号链接拒绝、超限后的后续读取、实际模拟模型 HTTP 图像、JSONL 与 prompt 快照、仅文本模型请求前失败。撤去本次实现的基点 worker 上新增 6 项全部失败，证明回归会捕获缺口；最终运行结果与独立审查见[工单](../../../../.scratch/read-images/issues/01-read-images.md)。
+`test/07-read-images.test.ts` covers ordinary, workspace-read-only and extra-root reads, signatures, one raw capture, unchanged text behavior, out-of-scope/symlink rejection, reads after an oversized result, mocked model HTTP images, JSONL and prompt snapshots, and text-only rejection before sending. The six added cases failed against the pre-fix worker. Historical execution and independent-review records belong to the offline `read-images` work item.

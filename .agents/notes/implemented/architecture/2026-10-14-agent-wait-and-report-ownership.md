@@ -1,81 +1,75 @@
-# Agent Note: 等待让出执行资源并固定结果回报归属
+# Agent Note: Yield execution resources while waiting and assign one report owner
 
 Status: implemented
 
-相关决定：[Coding 消息重排与引导](../feature/2026-10-28-coding-message-control.md)。
+[Generic wait](../feature/2026-10-25-code-wait.md) supersedes the model-facing `agent_wait` name with `wait` and adds process waiting; this note retains internal persistence, task/workflow consumption, and report ownership. [Coding message control](../feature/2026-10-28-coding-message-control.md) owns later queue/steering changes. The historical [managed-skills](../feature/2026-10-21-managed-skills.md) manager is retired by [HOME discovery](../simplification/2026-10-28-home-skills-discovery.md); saved wait references remain evidence, not permission to rewrite old snapshots.
 
-模型工具接口的后续决定见[通用等待](../feature/2026-10-25-code-wait.md)；本篇持久化与权限机制仍有效。
+## Problem
 
-相关决定：[托管技能](../feature/2026-10-21-managed-skills.md)用固定包路径保留旧等待参考，新任务按当前托管状态过滤并记录，不改写原快照；其他设置范围由[桌面设置管理](../../proposed/feature/2026-10-21-desktop-settings-management.md)持有。
+After delegating or starting a workflow, a model could only poll or end the turn, leaving owners unsure whether work continued. The parent held its directory until termination, while workflow preparation/freeze/integration needed it; blocking without yielding would deadlock. Final summaries queued in the source session FIFO made waiting for `reported` deadlock too, while letting the parent summarize at terminal state would duplicate the independent summary.
 
-## 问题
+Internal summary prompts entered ordinary Task.input/SDK history. Display needed to hide trusted host prompts while retaining full model input and final assistant output, without guessing identity from titles or request-key prefixes.
 
-模型发起 SubAgent 或工作流后只有查询与结束当前对话，拥有者难以判断是否仍在工作。父任务持有目录至终态，工作流准备、冻结和汇总也需要该目录；直接阻塞等待会互等。最终汇总排在来源会话 FIFO，等 reported 会卡住，而等运行终态后让父轮总结又会与独立汇总重复。
+## Decision
 
-内部汇总经普通 Task.input/sdk.prompt 进入历史，可信输入展示必须同时隐藏宿主提示、保留完整模型输入和最终 assistant 总结，不能按标题或请求键猜测身份。
+The shared runtime's original `agent_wait` pins one or more task/run targets, subscribes to post-commit events before querying durable facts, and returns on consumable result, owner attention, timeout, or trusted new input. Wait for a SubAgent's specific task, not identity closure; distinguish workflow terminal state, verified stop, and delivery. After receiving results, the main agent may inspect and continue work before final reporting, not merely notify. Current Coding exposes this task/workflow mechanism through `wait`; durable Personal has its own assembly.
 
-## 决定
+At most 20 targets, default 60 seconds, maximum 300. Bound result bodies/artifact references, returning at most 100 artifact references per target plus the total count; original APIs retrieve complete artifacts. Timeout never cancels background work, and subsequent calls still target original identities. IDs come from actual delegation/start results, not definition names. Same-directory queued children are handled by yielding wait rather than requiring the parent to end.
 
-两个产品共享宿主 `agent_wait`，固定一个或多个任务/运行目标，先订阅提交后事件再查询持久事实；任一可消费结果、需人工介入、超时或可信新输入中断时返回事实。SubAgent 等本次任务，不等身份关闭；工作流区分运行终态、停止核实与送达。收到结果后主 Agent 继续检查和后续处理，再作最终汇报，不以单纯通知代替继续执行。
+Driver verifies managed execution stopped at a sequential tool boundary before Runtime releases parent occupancy. Before business-directory access, reacquire occupancy and recheck directory identity, permissions, and every consumed source. Unverified stop retains occupancy and returns an explicit fact even if task/run is terminal. Once trusted owner input is successfully queued, end the old wait then abort the old SDK; background work keeps original authority and no second Driver starts in the same session.
 
-单次最多 20 个目标，默认 60 秒、上限 300 秒；结果正文与产物引用有界，每个目标最多返回 100 条产物引用并保留总数，完整产物仍按原接口读取。超时不取消后台工作，后续调用仍固定原目标。工具说明明确 ID 来自实际委派或启动结果，定义名称不能直接等待；同目录子任务排队的查询引导使用等待工具，不再要求结束父轮。
+While a child holds the directory, new messages/attention can enter an internal conversation phase using only saved, still-authorized reference snapshots. No directory access, worker, or MCP; wait and host read-only queries use an explicit allowlist, everything else is disabled. Reacquire the directory before restoring business tools. Resource phase, tool definitions, project instructions, skills, and grouped report bodies have durable snapshots or JSONL host markers. A closed ResourceLoader prevents hidden SDK skill/extension discovery. This is not a new owner access mode.
 
-Driver 在串行工具边界核实受管执行停止，Runtime 才释放父目录占用；业务目录访问前重新取得占用，并核实目录身份、权限和所有已消费资料来源。停止未核实时保留占用并明确返回，不因任务或运行终态声称停止成功。可信拥有者新输入成功入队后结束旧等待，再中止旧 SDK；后台工作按原授权继续，不启动两个同会话 Driver。
+Ordinary dev results normally wait for next-turn injection. Targets actually covered by waiting additionally receive durable fallback eligibility, so late results after the new-input turn ends can report under the original key. Unwaited delegation is not broadened. Main wakes, dev injection, workflow summaries, and waiting parents share consumption/report records instead of independently sending the same result.
 
-子任务仍持目录时，新消息和需人工介入可进入内部对话阶段：只装配已记录且仍获授权的参考快照，不访问工作目录、不启动 worker 或 MCP；等待和宿主只读查询采用显式工具允许清单，其余默认禁用。恢复业务工具先重新取得目录。资源阶段、工具定义、项目指令、技能与分组报告正文都有持久快照或 JSONL 宿主标记；SDK 使用封闭 ResourceLoader，不能在此阶段暗中枚举项目技能或扩展。此阶段不新增拥有者访问模式。
+## Consumption and report handoff
 
-普通 dev 结果默认留待下轮注入；曾被等待覆盖的目标另有持久补报资格，结果晚于新输入轮结束也按原键自动补报，未等待的普通委派不扩大范围。main 唤醒、dev 注入、工作流汇总和等待父轮共用消费及报告记录，不各自把同一结果再送一遍。
+`agent_waits` saves fixed targets, original source, SDK call, reference snapshot, phase, deadline, and finish reason. `agent_reports` separately records consumption, report claims, complete source dependency closure, fallback, and final assistant/outbox proof. State/events commit together before notification. Workflow arbitration keys run/terminal version; SubAgent arbitration keys the specific task. A result has one consumption record.
 
-## 消费与报告交接
+Write the tool result or host-injection marker into JSONL first; register consumption only after a valid model response. Send preparation, candidate selection, or starting an API request is not model acceptance. Ordinary messages keep their existing delivery registration. Consumption considers only SDK-call results between this task's START and next START/END. A reused call ID in another task cannot claim old results; within a task, match actual delivered targets record by record and accept only result records, not earlier timeouts or simply the last record. Consumed sources stay bound to the parent turn and are reverified before every model request, final registration, and actual send, including ordinary parent tasks.
 
-`agent_waits` 保存固定目标、原来源、SDK 调用、参考快照、阶段、截止时间与结束原因；`agent_reports` 分开保存结果消费、报告认领、资料依赖闭包、后备及最终回复/outbox 证明。状态与事件同 SQLite 事务提交，提交后才通知。工作流报告按 runId/terminalVersion 仲裁，SubAgent 按本次任务仲裁；同一结果只登记一次消费。
+An active parent can claim a complete ready result group and continue work. Reporting completes only when the fixed group is all ready, the model has accepted complete input, and a successful reply exists. A parent ending for attention may send its question normally; consumed results still await final reporting, so release the claim but preserve consumption. Without a valid claim, use a tool-free fallback. Queued fallback tasks can park/transfer while retaining task/input/request key and aliases; started/completed fallbacks cannot grant report authority again. An ordinary parent never replaces `workflow.delivery.taskId`, which proves the dedicated tool-free summary identity.
 
-先将工具结果或宿主注入标记写入 JSONL，再在有效模型响应后登记消费。发送准备、取得候选和 API 发请求本身不代表模型接受；普通消息保留既有投递登记。消费只取本任务 START 至下一 START/END 之间的 SDK 调用结果，跨任务复用相同 call ID 不得认领旧结果；同任务复用时逐条匹配实际交付目标，仅接受 result，不能误取早期超时或只取最后一条。已消费资料随父轮持续绑定，每次模型请求、最终登记及实际发送都重新核实，不因父轮是普通任务而漏检。
+A later owner turn waiting only for the last original member can take over only the entire ready group. `reportTargets` resupplies all group facts and report authority, while `targets` still describes this call. Resupplying input does not overwrite old consumption. Final registration verifies complete input against current JSONL entry/member keys; core accepts same-process evidence, with no extra persistent field. Transferred membership remains bounded at 20, rejected in the wait-tool transaction rather than rolling back result production. Mere terminal observation cannot split/claim groups, and another active claim must not leak unowned results that invite duplicate summaries.
 
-活动父轮可整批认领已终态结果并继续处理；固定组全部就绪、完整输入被模型接受后的成功回复才完成报告。需介入时结束的父轮可正常发送问句，组内已消费结果仍待最终汇报，释放认领并保留原消费。没有有效认领时使用无工具后备。排队后备可停车和转交，保留原任务、输入、请求键及旧别名；已开始或完成的后备不能再授予报告权。普通父任务不能写入 workflow.delivery.taskId，该字段继续证明专属无工具汇总身份。
+### Canonical grouped fallback
 
-后续拥有者轮即使只等原组最后一项，也只能接手完整已就绪组；实际工具结果以 `reportTargets` 重新给出全组事实及报告权，原 `targets` 仍对应本次等待。重新提供报告输入不覆盖旧消费；最终登记以当前 JSONL 条目和成员键核实完整输入，core 接收同进程凭据，不新增持久字段。所有转交成员合计仍最多 20 项，超限在等待工具事务拒绝，不让结果生产事务回滚。仅观察到终态不能先拆组认领，已有报告正在认领时也不能放出无报告权的结果诱发重复总结。
+Targets with the same original initiating task/event, reply-target generation, and schedule run share one summary. Choose an existing queued fallback as canonical; retain old task/key/input and park other original fallbacks permanently as aliases. Claim, handoff, invalidation, and completion operate on the whole group. Canonical Driver uses a durable group marker to include every member, not only its original workflow. Each old `workflow.delivery.taskId` remains the dedicated identity; group completion updates all run delivery states.
 
-同原始发起任务/事件、回复目标代次及同调度运行的多个目标共用一份总结。共享后备选择已存在的排队任务作为 canonical；旧任务、键与输入不改，其他原后备成为永久停车别名，全部成员认领、转交、失效和完成必须整组进行。canonical Driver 以持久分组标记补齐全组正文，不能只汇报其原专属工作流。旧 workflow.delivery.taskId 保持原专属身份，报告完成同时回写各运行送达状态。
+Before starting any report, recheck the parent turn's fixed wait closure. Even if an old single-target fallback becomes queued after parent exit, park it as `group_waiting` until the remaining targets end, letting new owner input run. The final member merges into the original canonical task; never run the first summary and later add a second. Parking covers only that parent's target set, not every wait group with the same source. All trusted fallbacks use one final-registration path retaining real assistant-entry/outbox evidence.
 
-报告任务启动前也重核本父轮固定等待闭包；父轮退出时原单目标后备即使恢复 queued，其余目标未终态仍须按 group_waiting 停车，让新拥有者输入继续处理。最后一个目标收尾后按原 canonical 归并，不能先运行原单目标汇总再补第二份。停车只覆盖该父轮目标集合，同原来源的其他等待组保持独立；所有可信后备经同一最终登记入口保存真实 assistant entry/outbox 证明。
+Ordinary `owner_reply` and a fully claimed summary merge into one outbox in the same result transaction, preserving original inbound event, target, and stable key. Interim questions do not consume final-report eligibility. Report/alias terminal events do not trigger ordinary child wakes and recursively summarize reports. Host terminal/stop/unknown-effect facts precede model prose, never presenting unknown stop as verified. IM sends recheck original entry and all report dependencies. Scheduled provenance reports only through whole-run scheduling, checking all run report sources and child dependencies before send. Failed/unknown sends retain existing outbox behavior: no new key, no automatic resend.
 
-普通 `owner_reply` 与完整认领总结在同一结果事务合并为一份 outbox，保留原入站事件、回复目标及稳定键；阶段问句不消耗最终汇报资格。报告及停车别名的终态不再触发普通子任务唤醒，避免汇总自己的报告。宿主在模型正文前写终态、停止核实和未知效果事实，未知停止不当作已核实。实际 IM 发送核实原入口及全部报告依赖；定时来源只由调度整项回报，发送前核实该运行全部报告来源及子任务依赖。失败或未知发送沿既有 outbox 规则，不换键、不自动重发。
+After report claims clear, current-task tool records and durable claim events still reconstruct the source closure. An old parent's first consumption must not unbind sources from the new turn. A current wait consumption also requires its actual tool entry to include the member. Missing report references, corrupt JSON, or terminal state without complete handoff input rejects use/send rather than becoming an empty source set. These checks cover later model requests, result registration, cold recovery, and actual owner replies.
 
-报告权清除后，来源闭包仍由当前任务范围的工具记录和持久认领事件重建；不能因第一项消费仍属于旧父轮而从新轮解绑。本轮等待消费还须其 entryId 对应的实际工具记录包含该成员。缺失报告引用、损坏 JSON 或终态缺少完整转交输入均拒绝使用和发送，不能解释为空来源。此校验贯穿下一模型请求、结果登记、冷恢复及实际 owner_reply 发送。
+## Recovery, import, and display
 
-## 恢复、导入与展示
+JSONL and SQLite are not atomic. Cold start ends old waits and verifies claims/fallbacks against their task-scoped history. If complete report input, valid assistant body, and completed end marker exist but SQLite is not terminal, only finish the original result/report association. If the group is ready with complete input/body but no completion marker, retain entry proof and mark undelivered without generating again. An interim question after partial results or incomplete report releases claims, retains consumption, and restores original-key fallback; business tools never replay automatically.
 
-JSONL 与 SQLite 不宣称原子。冷启动结束旧等待，核实认领和后备任务的本轮历史：完整报告输入、有效 assistant 正文及 completed 结束标记已落盘但数据库尚未终态时，只补原结果与报告关联；整组就绪且有完整输入和正文、没有完成标记时保留 entry 证明，报告记 undelivered，不再生成。部分结果后的问句或不完整报告释放认领、保留消费并恢复原键后备；业务工具不自动重放。
+The original change used schema 40/protocol 24 and required paired upgrades; these are historical constants. Both original offline import directions retained waits/reports/sources/original keys/JSONL, archived old waits as ended/instance_imported, pending reports as undelivered, and kept fallbacks/aliases parked without models or sending. They verified references and rollback ledgers instead of dropping facts. The personal importer is now retired by [the product entry](../simplification/2026-10-18-personal-product-entry.md); current Coding import still applies its supported archival rules and explicitly refuses unsupported scheduled/background provenance.
 
-schema 为 40、control 协议为 24，更新端必须一同升级。两方向离线实例导入保留等待/报告、来源、原任务键及 JSONL；旧等待归档为 ended/instance_imported，pending 报告归档为 undelivered，后备及别名保持停车，不调用模型、不触发外发。引用身份及回退账本随导入范围核实，不能丢掉事实后继续启动。
+Imported report memory dependencies must exist in the actual import/target set. Application-data references required the effective imported Personal application database identity; Coding imports no such database and refuses those wait archives, preserving the source for matching-code inspection rather than deleting references or widening import.
 
-报告依赖读取的记忆必须在实际导入或目标集合中；应用数据来源必须匹配随个人实例导入的有效应用库身份。Coding 不导入应用库，因此明确拒绝带此类引用的等待归档，保留源档案查阅，不默默删引用或扩张导入范围。
+Whole-work cancellation still blocks automatic fallback admission, model summary, final registration, and send. Shared fallbacks become undelivered as a group without new keys. A terminal but never-started fallback may finish as undelivered, never reported or stealing parent authority. An ordinary parent explicitly waiting can still read cancellation facts and explain them.
 
-普通工作取消仍阻止自动后备的准入、模型总结、最终登记和实际发送；共享后备按整组记未送达，不另建新键。已终态的未开始后备可以登记未送达收尾，不能登记已汇报或抢走父轮认领；正常父轮主动等待仍可读取消事实并继续向拥有者说明。
+TaskView derives `inputPurpose` from trusted report bindings, including dedicated workflow summaries, ordinary wait fallbacks, and parked aliases. [Internal visibility](../feature/2026-10-14-internal-report-visibility.md) retains original text, branch provenance, and linkage-error rules. AgentWaitView exposes target labels/states, phase, deadline, and interruption; TaskView adds `resourcePhase`/`reportParked`. Queries/events reconstruct them; TUI shows waiting/new-input interruption, and parked reports are not executable queue entries. Assistant summaries, search, and diagnostics retain original text.
 
-TaskView 以宿主可信报告绑定派生 inputPurpose，覆盖专属工作流汇总、普通等待补报和停车别名；[内部回报展示](../feature/2026-10-14-internal-report-visibility.md)的原文、分支来源与关联错误规则继续成立。AgentWaitView 提供目标标签/状态、阶段、截止时间及中断原因，TaskView 另带 resourcePhase/reportParked；事件与查询可重建，TUI 显示等待和新输入中断，停车报告不进入可执行队列。assistant 总结、搜索和诊断仍保留原文。
+## Alternatives considered
 
-## 既有笔记审计
+- Promise waiting/polling alone: little tool code, but parent occupancy blocks children and SDK abort may remain stuck; cannot support modifying workflows or input interruption.
+- Yield and await only the independent notification: closest to old delivery, but the owner requires the main agent to continue inspection/actions after receiving results.
+- Replace summary task ID with the parent, or run a concurrent summary Driver: fewer record types, but conflates authorization/report identity or violates FIFO/single-writer behavior. Use independent report claims.
+- Cancel queued summaries and create a fresh grouped task: convenient input assembly, but breaks original keys/cold-recovery identity. Retain a canonical task and durable group body with parked aliases.
+- Use SDK `display:false` custom messages: native hiding, but history/search/context grouping only fully supports ordinary messages. Trusted display projection is the smaller change.
+- Instruct the model not to summarize twice: short, but cannot guarantee uniqueness across crashes, claim races, and multiple send sources.
+- Give a continuation only the last result and infer earlier knowledge from consumption: shorter output, but neither cold recovery nor later context proves this turn accepted complete report input, and it splits the original group. Resupply the bounded full group without rewriting consumption.
 
-部分取代[工作流业务回答与最终送达](../feature/2026-10-13-workflow-owner-input-and-delivery.md)的无条件独立汇总路径，保留唯一回报、可信专属身份、原来源复核与 outbox 不重发。[工作流总决定](../feature/2026-10-12-agent-workflows.md)的后台运行和主聊天可继续仍有效；[内部回报展示](../feature/2026-10-14-internal-report-visibility.md)继续持有可信展示投影，本篇补充普通等待后备资格及协议更新。[委派模型](2026-10-03-work-delegation-subagent-task.md)与[SubAgent 复用](../feature/2026-10-04-subagent-reuse-close.md)部分重叠，继续区分任务、Agent 和工作。[完整历史](2026-09-19-preserve-session-history.md)及原生执行、重启、占用决定仍有效，无完全吸收或删除。
+## Consequences
 
-## 备选方案
+Waiting releases directories while background editing, human questions, and main chat share existing single-writer rules. Results can return to an active parent for further work, same-source groups receive one summary, and waited dev results arriving late no longer require another owner message. Costs are persisted references/dependencies/handoffs and repeated model/send verification, with whole-group canonical operations and JSONL/SQLite crash windows maintained together.
 
-- 普通 Promise 等待、定时轮询状态：工具代码少；父目录会阻止子执行，SDK abort 也可能卡在等待内，不能处理修改工作流和新输入打断。
-- 让出父轮后只等原独立汇总通知：最贴近原送达机制；拥有者要求收到等待结果后主 Agent 继续检查和后续步骤，单纯通知不能满足。
-- 把原汇总 taskId 改成父任务，或并发启动同会话汇总 Driver：可以少建一类记录；前者混淆权限身份与外发归属，后者破坏单写入者和 FIFO，因此使用独立报告认领。
-- 取消原排队汇总后另建分组任务：便于组装新输入；会破坏原请求键与冷恢复身份，因此采用原 canonical 任务及持久分组正文，旧任务成为停车别名。
-- 直接切 SDK display:false 的 custom_message：SDK 原生支持隐藏；历史读取、检索与上下文分组只完整支持普通消息，需要更大改造，保留原文并按可信绑定投影更小。
-- 仅用提示词禁止重复总结：改动少；无法解决崩溃、认领竞争和多来源外发，不作为唯一性保证。
-- 续接轮只拿最后一项、按旧消费记录推断已知道前项：结果更短；冷恢复及后续上下文不能证明本轮接受完整总结输入，且会拆开原组，因此有界重供全组事实并保留原消费证明。
+`test/125-agent-wait*.test.ts` covers real directory yield/reacquisition, shared-product workflow modify/freeze/verify/integrate, timeout/pre-subscription completion/attention, new-input races, group-source checks, parking/canonical selection, and real SQLite/SDK JSONL cold recovery. Recovery also uses real main admission/Driver/tool consumption and a local TelegramAdapter sender to check two results produce one owner reply and revoked child data blocks send. ParentDelivery and 88/115/116 retain unwaited-path coverage; historical import tests covered both directions' archives/rollback.
 
-## 后果
+These offline/local-adapter tests are not real-model, real-IM, or owner-experience acceptance. Native stop needs macOS/Linux evidence separately. External prerequisites, failure diagnostics, negative-test logs, and final-source evidence were in retired `.scratch/agent-workflow/issues/10-agent-wait.md` (offline provenance). Insufficient resource/source proof stays unverified; adding a tool schema is not completion.
 
-主 Agent 等待时让出目录，后台修改、人工问题与主聊天继续共用原单写入者约束；结果可交主轮继续处理，同源目标只作一次总结，普通 dev 晚到结果无需拥有者再发一轮。代价是持久保存等待快照、资料依赖和报告交接，并在模型及外发两处持续复核；共享 canonical 的整组操作和 JSONL/SQLite 崩溃窗口必须共同维护。
-
-`test/125-agent-wait*.test.ts` 覆盖真实目录让出/重取、双产品工作流修改/冻结/验证/汇入、超时/订阅前完成/人工介入、新输入竞争、来源整批核实、停车与共享 canonical，以及真实 SQLite/SDK JSONL 冷恢复。恢复测试还通过真实 main 入站、Driver、工具消费和本地 TelegramAdapter 发送器覆盖两结果只登记一份 owner_reply、发送前撤销子资料；缺失对应机制时的失败日志归工单证据。ParentDelivery 与既有 88/115/116 回归继续覆盖未等待路径，导入测试覆盖两方向事实归档及回退。
-
-这些离线与本地适配器结果不等于真实模型、真实 IM 或拥有者体验验收。原生停止需在 macOS/Linux 分别验证；外部前提、失败诊断及最终源码快照归[有效工单](../../../../.scratch/agent-workflow/issues/10-agent-wait.md)，本篇不宣称全路径验收通过。资源释放或来源恢复证明不足时必须保留未核实事实，不能用新增工具 schema 作为完成标准。
-
-相关决定与方案：[持久提问](../../proposed/feature/2026-10-21-persistent-owner-questions.md)使用独立回答续接；[Coding会话后台](../feature/2026-10-21-coding-background-processes.md)保留独立目录占用，不能由当前Task等待让出，并复用持久参考快照接纳观测轮；[个人后台接入](../../proposed/feature/2026-10-14-bash-background-lifecycle.md)仍为提案。其他等待与报告行为继续由本篇持有。
+[Persistent questions](../../proposed/feature/2026-10-21-persistent-owner-questions.md) uses separate answer continuation. [Coding backgrounds](../feature/2026-10-21-coding-background-processes.md) keeps independent occupancy that task waiting cannot release and reuses saved observation references. [Personal backgrounds](../feature/2026-10-21-personal-background-processes.md) is now separately implemented. [Delegation](2026-10-03-work-delegation-subagent-task.md), [reuse](../feature/2026-10-04-subagent-reuse-close.md), [complete history](2026-09-19-preserve-session-history.md), and workflow/native/restart decisions retain their independent rules; the original audit found no wholly absorbed note.

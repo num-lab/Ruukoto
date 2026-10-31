@@ -1,33 +1,29 @@
-# Agent Note: 收起后的左栏保留图标轨道
+# Agent Note: Keep an icon rail when the left sidebar collapses
 
 Status: implemented
 
-## 问题
+## Problem
 
-左栏收起时宽度归零、整体 `opacity: 0`、`inert` 并 `pointer-events: none`，顶栏按钮是唯一入口。拥有者希望收起后仍留出约两个图标的宽度，只显示 PA 与设置两个图标，避免为了打开设置或切回 PA 先展开侧栏。
+The collapsed left sidebar had zero width, opacity zero, inert content, and no pointer events. Only its title-bar toggle remained accessible. The owner wanted roughly two icons' width with Personal and Settings icons, avoiding expansion just to open either.
 
-轨道不能沿用原来的整栏隐藏：`inert` 和 `aria-hidden` 会把留在轨道上的两个按钮一并移出可达树；侧栏宽度归零后，`sidebar-content` 的固定宽度也会让子元素溢出到窗口裁切区。折叠按钮的原终点（原生窗口 84px）是按零宽侧栏与交通灯留白算的，轨道出现后会落在轨道外。
+Hiding the entire sidebar would remove rail controls from the accessibility tree. A zero-width sidebar with fixed-width content would also overflow into clipping. The former native toggle endpoint, 84px, assumed zero sidebar width and traffic-light spacing rather than a rail.
 
-## 决定
+## Decision
 
-左栏收起态改为一条 48px 轨道，由 `.app-window` 的 `--sidebar-rail` 统一给出：
+`.app-window` supplies one `--sidebar-rail` value of 48px:
 
-- 侧栏宽度改为 `var(--sidebar-rail)`，保留不透明与指针事件；仍保留 `is-collapsed` 类作为选择器开关。
-- `sidebar-content` 同宽；除窗口控制留白、`.personal-row` 与 `.sidebar-bottom` 外的直接子元素 `display: none`：工作区标题、筛选、工作区树都不再渲染，也不进入可达树。
-- PA 行与紧随其后的 Scheduled 占位行在展开与收起态都整体下移 10px，两行间距在基础 10px 上收窄 4px；收起时两行把宽度收窄到与行高一致的 30px 并 `justify-content: center`，文字隐藏，切换时图标不移动；设置仍由 `.sidebar-bottom` 居中。三者沿用原有按钮与 `aria-label`，不新增容器节点。Scheduled 只弹提示，尚未接入调度数据。
-- 收起时隐藏左栏拖拽条——轨道宽度固定，拖动没有意义。
-- 原生窗口的顶栏左内边距改为 `--sidebar-toggle-closed + 30px - --sidebar-rail`，首个标签相对展开按钮的间距与原来一致；`--visible-left-width` 在收起时取轨道宽度，右栏宽度上限据此计算。
+- Collapsed sidebar width becomes the rail width, retaining opacity/pointer events and `is-collapsed` as the selector switch.
+- `sidebar-content` uses the same width. Direct children other than window-control space, `.personal-row`, and `.sidebar-bottom` use display:none; workspace heading, filter, and tree leave both rendering and accessibility trees.
+- Personal and the following Scheduled placeholder move down 10px in both states; their original 10px gap decreases by 4px. Collapsed rows become centered 30px squares with hidden text, keeping icons stationary during the transition. Settings stays centered in `.sidebar-bottom`. Existing buttons and aria-labels remain without new wrappers. Scheduled still only shows a message, not real scheduling data.
+- Hide the left resize handle while collapsed because the rail is fixed-width.
+- Native title-bar left padding becomes `--sidebar-toggle-closed + 30px - --sidebar-rail`, preserving the first tab's relation to the toggle. Collapsed `--visible-left-width` is the rail width for inspector-width limits.
 
-设置弹窗不再要求 `sidebar` 为真才打开：轨道上的设置按钮保持可用，弹出时侧栏仍处于 `is-collapsed`，关闭后焦点回到折叠按钮的既有逻辑不变。点击 PA 只切换目标，不再往顶部标签追加 Ruukoto 标签；`openSession` 与通知触发的 `navigate` 都只对 Code 会话开标签。展开态 PA 选中沿用整行圆角底色，收起态因行宽与行高相等，同一条圆角规则给出方形选中块与方形悬停块。
+Settings can open without sidebar=true, keeping the rail collapsed. Closing keeps existing focus return to the collapse button. Personal only switches target; it no longer appends a Ruukoto top tab. Both openSession and notification navigate open top tabs only for Code. Expanded Personal uses the full rounded selected row; collapsed equal width/height produces square selected/hover blocks through the same rounding rule.
 
-## 备选方案
+## Alternatives considered
 
-- **另建一条轨道 DOM，收起时渲染图标**：图标需要第二份状态与焦点入口，折叠按钮的交接问题会重现；直接在原侧栏上收窄，节点、焦点与 `aria-expanded` 都沿用。
-- **保留 `inert`，只在视觉上显示图标**：轨道图标不可点击，等于装饰，不能满足「只显示 PA 与设置按钮的图标」的操作意图。
-- **保留 `aria-hidden` 但不 `inert`**：读屏会看到一个没有名字的侧栏区域，违背原来「关闭内容不可聚焦」的意图；改为让隐藏项 `display: none`，可达树与视觉一致。
-- **轨道宽度用 44px（单个图标 + 内边距）**：收起态方块两侧各留 11px 才能与展开态按钮的左侧留白对齐，两个图标宽更接近拥有者描述。
-- **让折叠按钮停在轨道右缘**：按钮会压住 PA 或设置图标；保持原终点并让出轨道，按钮继续位于顶栏。
+Separate rail DOM duplicates state/focus and revives toggle handoff problems. Keeping inert makes icons decorative; keeping aria-hidden but not inert makes visual and accessible interaction disagree. Hide only unavailable items instead. A 44px rail fits one icon/padding, but 11px margins around the collapsed square align with expanded spacing and better match the requested width. Moving the toggle to the rail edge would overlap Personal/Settings; retain its title-bar placement and account for the rail.
 
-## 后果
+## Consequences
 
-收起后 PA 与设置始终一键可达，侧栏仍是同一个 DOM 与同一个折叠按钮，焦点交接逻辑不变。代价是轨道宽度是写死的 48px，与收起态 30px 方块绑定；若以后给 PA 行或设置增加第二个入口，需要重新分配轨道宽度。工作区列表收起时不渲染，展开后重建，筛选与滚动位置随组件状态保留。方向键调宽、拖拽调宽与减少动态效果过渡沿用既有规则；本改动只影响呈现与可达树，不改变任何后台请求或快照字段。
+Personal and Settings remain one click away with the same sidebar DOM/toggle and focus lifecycle. The fixed 48px rail is coupled to 30px control squares; additional row/settings entries need a new width allocation. The collapsed workspace tree does not render and rebuilds on expansion, while filter/scroll state follows existing components. Keyboard/pointer resizing and reduced motion retain existing rules. Backend requests and snapshot fields do not change.

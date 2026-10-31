@@ -1,8 +1,0 @@
-{
-  "test/101-native-macos-helper.test.ts": "faf17b4f3d568639671bce3e9fe775d452d962388c37829bbe91139ac0f83aaf",
-  "packages/agent/src/execution/native-macos-supervisor.c": "1d183131d2905e9c1dfbb19dfb3ec8b5a55a3da4cb89ed8053c3e790bfde8bcf",
-  "packages/agent/src/execution/native-macos.ts": "f8643d4dd875f736b8af417117b963b2501489f87309ac26b9bb115796da8bdf",
-  "packages/agent/src/execution/native.ts": "b55cc3566101824c9406f54a173cd3a8d0f3b0e5eefd94cfe595abac589f0fe7",
-  "scripts/build-native.mjs": "7948656ca35666e9029456c14d2433ff744fc6ada59b388b9ffa420c8fa599fe",
-  "worker/native-macos-supervisor": "43441a966e3b6fb3111e57f68077dbee76b008f198e1addb3bcac690d7f85729"
-}

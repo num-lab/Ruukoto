@@ -1,5 +1,0 @@
-  PID  PPID STARTED                       ELAPSED COMM
-71778 33926 Sun Oct 18 16:06:58 2026     04:08:16 npm exec tsx --test --test-reporter=tap --test-name-pattern=命令控制恢复|命令菜单：telegram|本机长期授权向导 test/personal-command-work.test.ts test/personal-cli.test.ts
-71806 71778 Sun Oct 18 16:06:59 2026     04:08:15 node
-71807 71806 Sun Oct 18 16:06:59 2026     04:08:15 /Users/eitrous/.local/share/mise/installs/node/24.15.0/bin/node
-71809 71807 Sun Oct 18 16:06:59 2026     04:08:15 /Users/eitrous/.local/share/mise/installs/node/24.15.0/bin/node

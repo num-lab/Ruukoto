@@ -20,4 +20,4 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-组件来源：拥有者冻结的 `.scratch/desktop-shadcn/approved-demo-v2/src/components/ui/`，保留 shadcn/ui MIT 许可；消息滚动原语使用 `@shadcn/react` 0.3.1。源码仅规范化本仓库相对 import 路径。
+Component provenance: owner-approved `test/fixtures/desktop-baselines/approved-demo-v2/src/components/ui/`, preserving the shadcn/ui MIT license. Message scrolling uses `@shadcn/react` 0.3.1. Repository-relative import normalization is the only adaptation to the copied source.

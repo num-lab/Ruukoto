@@ -1,36 +1,32 @@
-# 案例：一次本地网页测试中的连续误调
+# Historical Calibration: Repeated Calls During A Web Test
 
-案例记录的是 `c1f5041` 时的行为。来源会话 `2026-10-14T06-22-58-602Z`，调用序列与可复现证据见[诊断](../../../../.scratch/agent-browser/evidence/owner-session-diagnosis.md)，此处不复制会话正文。规则编号对应 [SKILL.md](../SKILL.md)。
+This case describes behavior at `c1f5041`, not current acceptance. Source session: `2026-10-14T06-22-58-602Z`; diagnosis originally lived at `.scratch/agent-browser/evidence/owner-session-diagnosis.md` and remains in the offline archive. Session contents are not reproduced here. Rule IDs refer to [the skill](../SKILL.md).
 
-本文件不交给盲审者；盲审只用 `SKILL.md` 衡量 skill 能否独立挑出这些缺陷。新增遗漏时回 `SKILL.md` 补一般规则，不在这里加案例。
+Keep this file out of blind reviews: reviewers use only the skill to see whether its rules independently reveal the defects. Generalize a newly demonstrated omission in the skill rather than growing this case list.
 
-| # | 现象 | 文本缺陷 | 规则 |
-| --- | --- | --- | --- |
-| 1 | `open file://…` 返回 `invalid_params` | 只支持 http/https 只在校验代码里（`browser-tools.ts` 的 `parseBrowserParams`）；`url` 参数没有描述 | J1 |
-| 2 | `nohup … &` 起的 http.server 随调用返回被杀；改双 fork 后 bash 等管道 600 秒超时 | bash 描述没写后台子进程的回收时机与返回条件 | J7 |
-| 3 | `outcome_unknown` 提示「请核实当前页面」，接着 `tabs list` 得到 `browser_not_ready` | 提示要求做当前状态下做不到的事 | J2、J3 |
-| 4 | `browser_not_ready` 提示「请先核实原执行并显式关闭」 | 「核实原执行」没有对应工具，属内部术语 | J2 |
-| 5 | `resume` 返回 `browser_paused` | 描述已写「新消息的新任务才能 resume」，但把 pause 写成人工登录专用，没说 `outcome_unknown` 且状态为 unavailable 时宿主会自动 pause | J3 |
-| 6 | `close` → `start` 后又发了一次 `open` | 「结果未知时不重发」只有禁令，没给正面做法，也没说重建会话后是否仍适用 | J4 |
-| 7 | 模型读 `browser-manager.ts` 推断恢复流程，约 12 次调用 | 第 3–6 条的后果，不单独计 | — |
-| 8 | `status`/`start`/`close` 每次返回约 1.4 KB binding JSON | 结果含 pid、pgid、socketDir、cdpUrl 等实现细节 | J5 |
-| 9 | 模型花一段推理判断自己是 main 还是 dev 会话 | 描述写了模型无法影响、且满足才装配的资格限制 | J8 |
-| 10 | 每次 bash 结果都附「[完整正文已捕获：artifact …]」，4 字节输出也不例外 | 无条件追加的提示（`tool-router.ts` 的结果追加段） | J6 |
+| Observed behavior | Interface defect | Rule |
+| --- | --- | --- |
+| `open file://...` returned `invalid_params` | HTTP(S)-only validation existed in code but not the `url` description | J1 |
+| `nohup ... &` server died when the call returned; double-fork then kept bash pipes open until timeout | Bash description omitted cleanup and return conditions | J7 |
+| `outcome_unknown` said to inspect the page, then `tabs list` returned `browser_not_ready` | Suggested next step was blocked in the current state | J2, J3 |
+| `browser_not_ready` asked to verify the original execution and explicitly close | "Verify the original execution" had no corresponding model action | J2 |
+| `resume` returned `browser_paused` | Text explained owner-message resume but omitted automatic pause after unknown outcome/unavailability | J3 |
+| After `close` then `start`, the model issued another `open` | No-replay rule lacked a positive next step and scope after rebuilding a session | J4 |
+| Model read manager source to infer recovery, spending about 12 calls | Consequence of the preceding recovery defects, not a separate finding | J2-J4 |
+| Status/start/close returned about 1.4 KB of binding JSON | Results exposed pid, pgid, socket directory and CDP transport detail | J5 |
+| Model reasoned about whether it was main or a development session | Description repeated eligibility already satisfied by tool assembly | J8 |
+| Every bash result appended capture guidance, even for four bytes | Guidance was unconditional | J6 |
 
-第 2 条：[bash 后台生命周期提案](../../../notes/proposed/feature/2026-10-14-bash-background-lifecycle.md)拟改变「返回即回收」，落地后本条的现象会变，归类仍是 J7。
+The [background lifecycle proposal](../../../notes/proposed/feature/2026-10-14-bash-background-lifecycle.md) addresses the historical return/cleanup behavior; the J7 classification remains useful after implementation. Unknown navigation outcome itself was not a defect: without structured upstream outcomes, the manager conservatively paused rather than replaying.
 
-第 2 条之外，`outcome_unknown` 本身不是缺陷：上游导航失败不给结构化错误码，管理器按不重发契约保守冻结，见诊断「结论」。
+## Illustrative Corrections
 
-## 改前／改后示意
+These examples demonstrate the rules, not a current repair prescription. Verify actual behavior before using their wording.
 
-只示意规则怎么落到文本上，不是修复方案；实际修复另开工单，按 `SKILL.md` 审过再定。
-
-1. 改前：`url` 参数无描述。改后：`url`：网页地址，只接受 http 或 https；本地文件先用本地 HTTP 服务提供。
-2. 改前：「在工作区执行 bash 命令」。改后：补一句「命令返回时回收它启动的全部后台子进程；需要常驻的服务另行启动」（以提案落地后的实际行为为准）。
-3. 改前：「已暂停自动化，请核实当前页面」。改后：「已暂停自动化；本状态下只能 close 或报告拥有者」。
-4. 改前：「请先核实原执行并显式关闭」。改后：「先 close 关闭当前浏览器；无法关闭时停下来报告拥有者」。
-5. 改前：「人工登录先 pause」。改后：「pause 用于人工登录；动作结果未知时宿主也会自动 pause。暂停期间只有拥有者的新消息能恢复，本任务内 resume 会被拒」。
-6. 改前：「结果未知时不重发」。改后：「结果未知时不重发同一动作；先取快照确认页面状态。close 后重新 start 的新会话不受此限」。
-8. 改前：`status` 返回整份绑定记录。改后：只返回状态与当前标签标识。
-9. 改前：「仅完全访问的拥有者 main/普通开发会话」。改后：删去，工具出现即已满足。
-10. 改前：每次结果都追加捕获提示。改后：只在输出被截断时追加「已截断，完整输出可用 read_artifact 继续读取」。
+- Describe `url` as an HTTP(S) page; serve local files through an appropriate local HTTP service when direct file navigation is unavailable.
+- State when command children are reclaimed and how to run a service that must outlive the call, according to the actual lifecycle.
+- In a blocked state, name the available action, such as close or report to the owner, rather than suggesting an unavailable inspection.
+- Describe automatic pause triggers and who may resume, not only the manual-login use case.
+- State the scope of no replay and how to verify or recover without resending an operation with unknown effects.
+- Return status and needed entity identifiers instead of internal bindings; omit satisfied whole-tool eligibility conditions.
+- Append complete-output retrieval instructions only after actual truncation.

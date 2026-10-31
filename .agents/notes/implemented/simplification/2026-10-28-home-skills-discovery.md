@@ -1,38 +1,33 @@
-# Agent Note: 两产品统一从宿主 HOME 发现技能
+# Agent Note: Discover both products' skills from the host HOME
 
 Status: implemented
 
-技能脚本执行与目录只读开放的[决定](../feature/2026-10-29-skill-script-execution.md)保留本篇固定来源和历史字节规则，只增加执行寻址与技能资源可见性。
+[Skill-script execution](../feature/2026-10-29-skill-script-execution.md) adds execution addressing/read-only resource visibility without changing fixed sources or historical bytes.
 
-## 问题
+## Problem
 
-技能文件由拥有者在宿主维护，但实例目录、PA 外部库配置与私有托管包形成多套来源和管理入口。更换档案或连接产品后，同一份技能的可见性与更新方式不同；托管状态、导入回执和桌面选择器又要求各层维护额外协议。拥有者要求两个产品统一从宿主用户目录发现，并删除两端导入功能，全部通过目录维护。
+Owners maintain skill files, yet instance directories, Personal external-library configuration, and private managed packages created several sources/management paths. Switching profiles/products changed visibility/update semantics, while managed state, import receipts, and Desktop selectors duplicated protocol work. The owner requested both products use host HOME discovery and retire imports in favor of filesystem maintenance.
 
-## 决定
+## Decision
 
-生产发现唯一读取后台账户 `$HOME/.agents/skills/`，由 `os.homedir()` 解析。Code 与个人 Agent 共用扫描、校验、只读列表和详情函数；同一宿主账户的开发与正式实例共用技能目录，跨机器各自读取运行账户 HOME，不从桌面传入路径。显式来源扫描只用于离线解析和旧资料核实，不是生产可配置入口。
+Production discovery reads only the backend account's `$HOME/.agents/skills/`, resolved by os.homedir(). Code/Personal share scanning, validation, read-only lists, and details. Development/production instances of one account share the directory; different hosts use their own runtime account HOME, never a Desktop-supplied path. Explicit source scanning remains only for offline parsing and legacy-evidence verification, not production configuration.
 
-两端的导入、技能库选择、启停和删除操作退役，CLI 与桌面提供只读查看、分页、名称检索和诊断。技能名称与描述先进入模型目录，正文经 `skill` 按需加载，拥有者保留 `/skill:名称 参数`；仅显式调用属性、引用文件的 realpath 和 64 KiB 文本限制继续适用，技能不增加工具或权限。
+Retire import, library selection, enable/disable, and delete operations in both products. CLI/Desktop expose read-only listing, paging, name search, and diagnostics. Names/descriptions enter the model catalog; skill loads bodies on demand and owners retain `/skill:name arguments`. Explicit-call-only attributes, reference-file realpath, and 64KiB text limits remain. Skills add no tools or authority.
 
-Coding 在任务开始时固定目录和正文，同一任务重取资源沿原版本；从 ended wait 派生的新任务刷新固定目录。个人 Agent 每次模型请求准备时保存技能快照，沿现有 config/identity 字段记录固定来源与目录身份；旧快照、加载结果及显式展开保持原哈希和原正文，不补字段或重写历史。引用文件仍在实际读取时取得并记录结果。
+Coding pins catalog/bodies at task start and reuses original versions within the task; a new task derived from ended wait refreshes them. Personal prepare saves a skill snapshot per model request, using existing config/identity fields for fixed source/directory identity. Old snapshots, loaded results, and explicit expansions retain original hash/body without backfilled fields or history rewrites. Referenced files are still read/recorded at actual use.
 
-旧 skills.json、实例 skills/ 与托管包原位保留，仅当前发现退出这些来源。PA 保留旧配置目标、版本链和维护回执的核实能力，但退役配置不参加当前文件问题、暂停条件或启动托管区扫描。新的写请求在协议入口拒绝，历史回执允许的操作名称独立保留。定时范围继续绑定技能来源；原来源与固定 HOME 不同则明确停止，拥有者核实原运行后取消重建。
+Old skills.json, instance skills directories, and managed packages stay in place but leave current discovery. Personal retains validation for old targets, version chains, and maintenance receipts. Retired configuration does not contribute to current file diagnostics, suspension, or startup managed-tree scans. New write requests fail at protocol entry; accepted historical receipt action names remain separately recognized. Scheduled scope still binds skill source; a different old source stops explicitly and requires owner verification/cancel/recreate rather than silent rebinding.
 
-旧 v1 技能维护恢复在后台在线后以 `skills_source_retired` 完成，解除维护关联，保留原保存结果与修订，不宣称旧技能重新生效。旧 v2 技能配置查询只核实原保存事实，不发布退役来源或更新生效选择。
+After backend startup, legacy v1 skill-maintenance recovery finishes with skills_source_retired, clears maintenance linkage, and preserves original save result/revision without claiming old skills became active. Legacy v2 query verifies original save facts only, never republishes retired sources or changes effective selection.
 
-## 既有笔记审计
+This partially supersedes [managed skills](../feature/2026-10-21-managed-skills.md), [Personal skills/history](../architecture/2026-10-18-personal-memory-skills-history.md), [Code Skills UI](../feature/2026-10-21-desktop-code-skills.md), [Personal settings](../feature/2026-10-21-personal-settings.md), [Personal pages](../feature/2026-10-21-desktop-personal-pages.md), and [settings proposal](../../proposed/feature/2026-10-21-desktop-settings-management.md). They retain old references/receipts, other configuration, and combined acceptance. [Request configuration](../architecture/2026-10-25-personal-request-configuration.md), [settings versions](../architecture/2026-10-25-personal-settings-versions.md), [read-check reuse](../bug-fix/2026-10-24-read-check-overhead.md), and [waiting/reporting](../architecture/2026-10-14-agent-wait-and-report-ownership.md) retain request evidence, config history, and wait lifecycle.
 
-按 skills、技能库、托管与配置来源检索 implemented/proposed/rejected。[托管技能](../feature/2026-10-21-managed-skills.md)、[个人技能与历史](../architecture/2026-10-18-personal-memory-skills-history.md)、[Code Skills 页面](../feature/2026-10-21-desktop-code-skills.md)、[Personal 设置入口](../feature/2026-10-21-personal-settings.md)、[PA 页面](../feature/2026-10-21-desktop-personal-pages.md)及[总设置提案](../../proposed/feature/2026-10-21-desktop-settings-management.md)部分取代并互链，保留它们的历史引用、原回执、其他配置与组合验收职责。
+## Alternatives considered
 
-[请求配置](../architecture/2026-10-25-personal-request-configuration.md)、[设置版本](../architecture/2026-10-25-personal-settings-versions.md)、[读取检查复用](../bug-fix/2026-10-24-read-check-overhead.md)和[等待与回报](../architecture/2026-10-14-agent-wait-and-report-ownership.md)部分重叠；本篇只收窄技能来源，保留实际请求证据、配置历史和等待生命周期。其余命中属于通用文档流程、工作流能力或基础装配，与本次技能来源选择无关；无完全吸收或删除的笔记。
+Changing only the default to HOME while keeping imports/external libraries preserves installation features but also multiple sources/product differences, contrary to directory-only maintenance. Automatically moving old packages gives continuity but needs additional name-conflict, host-ownership, and historical-reference decisions. Leave old files and let owners maintain the desired HOME skills.
 
-## 备选方案
+## Consequences
 
-- 只把默认来源改为 HOME，保留导入和可选外部库：可以继续使用现有安装能力，但仍存在第二来源和双端差异，无法满足全部通过目录维护的要求。
-- 自动搬迁旧包到固定目录：拥有者能立即继续使用旧技能，但同名冲突、不同宿主归属和旧引用需要额外迁移决定。保留旧文件，由拥有者在固定目录维护需要的技能。
+Products own only skill reads/request evidence; owners own files. Same-account instances share updates, so profile isolation no longer isolates skills. Hosts do not synchronize automatically and old packages do not appear in the new catalog unless owners install them there. Retained bytes consume disk; physical collection requires proving historical references no longer need them.
 
-## 后果
-
-产品只持有技能读取与请求证据，拥有者通过文件系统维护技能；同一后台账户的实例共用更新，档案隔离不再隔离技能。跨主机没有自动同步，旧托管包也不再出现在新目录，需要由拥有者放入固定目录；旧字节仍占磁盘，物理回收须另行证明历史引用已结束。
-
-回归测试用临时 HOME 隔离真实技能，覆盖固定来源、旧来源不生效、目录刷新与任务钉版、只读分页、退役操作拒绝和旧快照/回执兼容。共享运行时测试同时隔离 HOME，避免开发机已有技能改变无关用例的目录与上下文预算。具体执行结果与真实模型、客户端体验缺口由[工单](../../../../.scratch/global-skills/issues/01-home-discovery.md)持有。
+Tests isolate actual skills with temporary HOME and cover fixed/retired sources, refresh/task pinning, read-only paging, rejected retired actions, and old snapshots/receipts. Shared runtime tests also isolate HOME to avoid developer skills changing unrelated catalogs/context budgets. Historical results and real-model/client gaps are in `.scratch/global-skills/issues/01-home-discovery.md` offline.

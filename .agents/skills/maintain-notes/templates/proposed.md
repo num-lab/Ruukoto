@@ -1,31 +1,23 @@
-# Agent Note: <标题>
+# Agent Note: <Title>
 
 Status: proposed
 
-<!--
-  【维护提醒】
-  1. 落地转 implemented 时：## 方案 改为现在时的 ## 决定；## 验收标准 / ## 风险 折进 ## 后果（或现在时的 ## 测试 / ## 验证）。
-  2. 前提消失或不再推进 → 转 Status: rejected — <原因>，proposed 不归档。
-  3. 备选方案必填：只记录真实考虑过的对手方案；「不做/复用」仅当当时真的权衡过才写。
--->
+## Problem
 
-## 问题
+<Motivation independent of the solution.>
 
-<动机，脱离方案也能独立成立；写清背景、约束与失败条件>
+## Proposal
 
-## 方案
+<Proposed approach and rationale.>
 
-<拟议改动，可用将来时；含关键设计、迁移步骤与开放问题>
+## Alternatives considered
 
-## 备选方案
+<Real alternatives, their strongest case and why they were rejected.>
 
-- **<备选 A>** — <先写它最强的论据，再写为何否>
-- **<备选 B>** — <同上>
+## Acceptance criteria
 
-## 验收标准
+<Observable completion conditions.>
 
-<什么可观察状态算完成；含验证表面与门禁>
+## Risks
 
-## 风险
-
-<可能出什么问题、已知取舍与回滚条件>
+<Failure risks, tradeoffs and unresolved choices.>

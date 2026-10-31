@@ -1,39 +1,42 @@
-# Agent Note: 旧工作区迁移只改变组织归属，保留资料与配置身份
+# Agent Note: Legacy workspace migration changes organization, not data or configuration identity
 
 Status: implemented
 
-原编号：ADR 0018
+Original identifier: ADR 0018.
 
-## 问题
+## Problem
 
-工作区是拥有者选定开发根目录的 Project，见[两个产品](2026-10-02-two-agent-products.md)。旧项目可包含不同目录的会话，`sessions.project_id` 同时是历史、产物、记忆的资料身份和项目指令、Web Search、MCP、Jev 和记忆候选的配置来源。JSONL 以原 `sessionFile` 与 `piSessionId` 定位，资料授权按来源/目标项目界定方向。如果为了工作区展示改写 projectId，会静默收窄同一旧项目跨目录的读取范围，或在多个旧项目归入同目录时增加默认跨来源读取；`AccessScope.sourceRefAccessible` 按来源会话当前项目核实，改写还可能让原撤销不再控制原资料。
+A workspace is an owner-selected development root represented by a Project; see [the two products](2026-10-02-two-agent-products.md). Legacy projects can contain sessions in different directories. `sessions.project_id` identifies history/artifacts/memory and selects project instructions, Web Search, MCP, Jev, and memory-candidate configuration. JSONL uses original `sessionFile` and `piSessionId`; grants have source/target project direction. Replacing projectId for display could narrow one old project's cross-directory access or broaden access when multiple old projects share a directory. `AccessScope.sourceRefAccessible` checks the source session's current project, so rewriting it could also disconnect revocation from the original records.
 
-## 决定
+## Decision
 
-采用加法迁移：`sessions.workspace_project_id` 是可空的组织归属，仅用于查询和展示，显示归属为 `workspace_project_id ?? project_id`。原 `project_id`、会话/任务/产物 ID、pi 会话 ID、历史文件路径、记忆与授权 ID 全部保留。组织映射不得进入 AccessScope、模型工具身份或凭据范围，不复制、不合并旧配置；已映射旧会话的后续任务继续使用源项目配置。目标工作区使用其他 Project 身份的新会话不因映射获得源资料和凭据；开放其他来源仍经过已有可信配置与资料授权入口，不维护第二份配置状态。
+Add nullable `sessions.workspace_project_id` for organization only; display membership is `workspace_project_id ?? project_id`. Keep original project/session/task/artifact/pi-session/memory/grant IDs and history paths. Organization must never select AccessScope, model-tool identity, or credential scope. Do not copy or merge old configuration: future tasks in a mapped legacy session still use its source project. New sessions under another Project identity gain no source data or credentials from the display mapping. Other-source access still uses existing trusted configuration and grant controls, not a second configuration store.
 
-迁移不改写 JSONL、不移动产物、不重建会话、不恢复审批、不重放未完成任务，原标识与字节可逐项核对。遵守[完整历史](2026-09-19-preserve-session-history.md)与[上下文压缩](2026-09-26-lossy-context-compaction.md)的历史完整性原则。
+Migration never rewrites JSONL, moves artifacts, recreates sessions, restores approvals, or replays unfinished tasks. Original identifiers and bytes remain comparable, following [history preservation](2026-09-19-preserve-session-history.md) and [context compaction](2026-09-26-lossy-context-compaction.md).
 
-只有严格满足单目录完整集合条件的旧项目可保留原 ID 认领根目录：无根、会话集合非空且全为普通 dev、同一真实有效目录、认领目标正是该目录、无其他项目占根、无会话已映射其他工作区。同一身份本来拥有的配置与范围继续有效。部分会话、共同祖先、多目录或混合项目只能组织映射；`open_workspace` 同步拒绝直接认领多目录与混合旧项目，避免绕过迁移入口。
+Only a complete single-directory legacy project may claim its root under its original ID: no existing root; a nonempty set containing only ordinary dev sessions; one valid real directory exactly matching the target; no other project owning that root; and no session mapped elsewhere. Existing identity/configuration/access remain valid. Partial sets, common ancestors, multiple directories, or mixed projects use organization mapping only. `open_workspace` also rejects direct claims of mixed/multi-directory projects so it cannot bypass migration checks.
 
-拥有者先只读预览并明确选择。预览列出可映射项及失效/被替换/无权核实目录、同目录多旧项目、混合项目、嵌套根、worktree、已认领根外会话等歧义；目录失效或被替换保留记录，不静默认领同路径的新目录。历史缺失、未落盘或损坏分别报告。角色绑定、群聊和动态 SubAgent 会话排除。当前组织映射要求会话实际目录位于目标根内；如后续明确需要跨根映射，再重访该保守条件。
+The owner first previews read-only and chooses explicitly. Preview reports eligible mappings and invalid/replaced/unverifiable directories, multiple old projects in one directory, mixed projects, nested roots, worktrees, and sessions outside an already claimed root. Invalid/replaced directories keep records; a new directory at the same path is not silently claimed. Missing, unflushed, and corrupt history are distinct. Role-bound, group, and dynamic SubAgent sessions are excluded. A mapped session's real directory must currently lie inside the target root; cross-root organization requires a later explicit decision.
 
-预览修订是相关元数据的规范内容哈希，含项目 `settingsVersion`，无关任务输出不使预览过期。应用先查成功幂等回执，同键同请求返回原成果、同键异参拒绝，然后重核修订和目录身份；必要 Project 创建、合规认领、组织字段更新、事件与回执单事务提交，任一步失败整体回滚。成功后的回退校验当前字段，只恢复显式组织映射，已确认根目录身份、Project、新任务、配置修改和授权撤销事实保留；它与事务失败回滚不同。SQLite 与文件系统无跨系统事务，后续执行仍验证目录身份。
+Preview revision is a canonical hash of relevant metadata, including project `settingsVersion`; unrelated task output does not expire it. Apply first checks successful idempotency receipts: same key/request returns the original result; same key/different request conflicts. Then recheck revision and directory identity. Required Project creation, valid root claim, organization update, events, and receipt commit in one transaction or all roll back.
 
-工作区详情从已映射会话派生关联旧来源，分别显示来源 ID、配置与版本，不推断配置优先级或隐式授权。跨实例真正导入、备份与切换沿用[旧实例导入](2026-10-04-legacy-instance-import.md)，组织迁移不绕过产品档案隔离。
+Revert after successful apply checks current fields and restores only explicit organization mappings. It preserves confirmed root identities, Projects, new tasks, configuration edits, and grant revocations, unlike rollback of a failed transaction. SQLite and filesystems have no shared transaction; execution continues to revalidate directory identity.
 
-## 验证
+Workspace details derive linked legacy sources from mapped sessions and display each source ID, configuration, and version, without inventing precedence or authorization. Real cross-instance import/backup/cutover follows [legacy instance import](2026-10-04-legacy-instance-import.md); organization does not bypass product-profile isolation.
 
-[工单 07](../../../../.scratch/agent-direction/issues/07-legacy-workspace-data.md)记录 schema v21、只读 preview、单事务 apply/revert 与 TUI/配置界面打通。`npm run typecheck` 通过；相关批次 62/62、143/143、test/67 3/3。test/76 验证原资料范围与撤销、原配置、原标识与真实 JSONL/产物字节、回滚/回退、目录替换零副作用及跨进程回执。
+## Alternatives considered
 
-`.scratch/agent-direction/smoke-07-legacy-workspace-data.mts` 使用真实 bin/控制 socket/SQLite/CLI/文件与目录身份，模型由 MockModelServer 打桩：macOS 两轮各 9/9，Linux `ssh tx` 隔离目录、Node v24 一轮 9/9，远端副本清理。原始验证的最后两轮全量 `npm test` 均为 796 项中 794 通过、1 跳过、1 DNS 60s 超时失败，干净 HEAD 已复现；另有 test/33 负载型等待和 test/74 等待形状的既有记录，不将本单证据改写为全绿或真实日常档案跨实例迁移验收。
+- **Rewrite `project_id` to the workspace ID.** Existing project queries could also provide display grouping with one less field, but that field owns data/configuration/revocation direction. Rewriting would change old access, so keep source identity separately.
+- **Reuse the old ID for every root claim.** This preserves configuration/access in the strict single-directory case and remains a shortcut there. Extending it to partial sets, common ancestors, or mixed projects changes the basis for project-root instructions. Other cases can only change presentation.
 
-## 备选方案
+The original analysis is historical offline `.scratch/agent-direction/issues/07-legacy-workspace-data.md`.
 
-直接把旧 `project_id` 改写为工作区 ID 可以让现有 project 查询同时承担组织展示，少维护一个字段；[工单 07](../../../../.scratch/agent-direction/issues/07-legacy-workspace-data.md)核实该字段还承载资料、配置和撤销方向，改写会收窄或扩大旧访问范围，故保留源身份、另加组织字段。
+## Consequences
 
-单目录项目复用原 ID 认领根目录可以保留配置和访问身份，也已提供为严格条件下的快捷路径；将它推广到部分会话、共同祖先或混合项目会改变按项目根读取指令的基准，不能覆盖全部旧项目，其他情形只映射展示。
+The owner can organize workspaces without changing source identity, history bytes, grant IDs, or revocation. UI and configuration views must distinguish display membership from source identity and show legacy sources. Conservative root claims require repairing abnormal directories and previewing again. Revert deliberately preserves post-migration execution/root facts; it is not a reset of all subsequent state. [Core documentation](../../../../docs/modules/core.md) describes the maintained storage/identity model.
 
-## 后果
+## Verification
 
-拥有者可以整理工作区而不改变原资料与配置身份，历史字节、授权 ID 和撤销仍可核查。代价是展示归属与真实来源需要分别表达，TUI 和配置中心必须提示旧来源；认领条件保守，异常目录需恢复后重预览。成功回退保留根目录和执行事实，因此不是删除迁移之后所有状态的恢复。现状说明见[存储与身份](../../../../docs/modules/core.md)。
+Historical issue 07 recorded schema v21, preview, transactional apply/revert, TUI/configuration wiring, passing typecheck, batches 62/62 and 143/143, and test/67 3/3. `test/76-legacy-workspace-data.test.ts` is the regression reference for original scope/revocation/configuration/IDs, real JSONL/artifact bytes, rollback/revert, directory replacement without effects, and cross-process receipts.
+
+The offline `.scratch/agent-direction/smoke-07-legacy-workspace-data.mts` used real bin/socket/SQLite/CLI/files/directory identities with MockModelServer: two macOS rounds 9/9 and one isolated tx Node 24 round 9/9, followed by remote-copy cleanup. The last two full historical runs were 796 total, 794 passed, one skipped, and one 60-second DNS timeout reproduced on clean HEAD. Existing test/33 load waits and test/74 wait-shape issues were separately recorded. This is neither all-green evidence nor acceptance of a real daily-profile cross-instance migration. No runtime tests are rerun here.

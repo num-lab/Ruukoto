@@ -1,55 +1,47 @@
-# Agent Note: 个人 MCP 以原生工具身份恢复并分别核实效果与远端结束
+# Agent Note: Personal MCP recovers native tool identity and separates effects from remote completion
 
 Status: implemented
 
-普通HTTP的效果分类、配置v4、操作级记录、来源级人工收尾与原流重核退役由[MCP宿主职责收缩](../simplification/2026-10-26-mcp-host-responsibilities.md)取代；本篇原决定保留，durable原工具身份、权限与历史只读约束继续成立。
+[MCP host simplification](../simplification/2026-10-26-mcp-host-responsibilities.md) supersedes ordinary-HTTP effect classification, configuration v4, operation-level evidence, source-level human completion and retirement of original-stream rechecks. Native durable tool identity, authorization and read-only historical evidence remain. The original decisions below distinguish retained contracts from replaced mechanisms.
 
-配置在线保存与逐服务发布采用[设置保存与生效](2026-10-25-personal-settings-versions.md)及[请求配置](2026-10-25-personal-request-configuration.md)，不再统一停机或等待无关占用；本文其余原工具身份、权限与未知效果约束继续适用。
+[Settings save/publication](2026-10-25-personal-settings-versions.md) and [request configuration](2026-10-25-personal-request-configuration.md) replace global stopped/idle requirements with online per-service publication. [Non-execution configuration checks](../simplification/2026-10-25-configuration-checks.md) avoids evaluating old credentials for disable/delete/unchanged authentication. [Cua](2026-10-23-cua-official-mcp.md) added v3 named computers, persistent bindings and recovery settlement: accepting a new observation can end old waiting without fabricating remoteEnded. [MCP images](2026-10-23-mcp-image-results.md) owns ordered image projection/paged references. [Personal settings](../feature/2026-10-21-personal-settings.md) and [desktop settings](../../proposed/feature/2026-10-21-desktop-settings-management.md) retain page/SSH management responsibilities.
 
-[非执行配置检查](../simplification/2026-10-25-configuration-checks.md)收窄保存时的凭据求值范围：停用、删除与未改认证项不依赖旧凭据可用，真实调用与未知效果规则保留。
+## Problem
 
-[Cua 接入](2026-10-23-cua-official-mcp.md)增加version3具名电脑配置、跨调用绑定与恢复结算。Cua接受新观察后可结束旧等待，原remoteEnded仍只由完整原应答决定；普通HTTP保留本篇原请求、结束证据与阻塞规则。
+[Shared transport](2026-10-17-mcp-transport-reuse.md) had no Personal configuration, approval or recovery consumer. HTTP timeout/cancel/close cannot prove remote tool completion; replaying as an ordinary safe tool may duplicate writes. Main must continue independent new work instead of occupying all chat with a tool waiting for human verification.
 
-[MCP图片结果](2026-10-23-mcp-image-results.md)实现有序图片投影和分页引用，补充下文非文本证据的模型读取规则，原完整应答与未知占用不变。
+## Decision
 
-相关决定：[Personal 设置入口](../feature/2026-10-21-personal-settings.md)的停机配置继续遵守本篇配置代次、原请求与未知占用约束，页面和 SSH 维护仍由[桌面设置管理](../../proposed/feature/2026-10-21-desktop-settings-management.md)持有。
+Personal app-owned personal-mcp-config.ts stores owner-selected endpoints, allowed original tool definitions and credential-file references. The initial wizard generated configuration generations and required no pending work/external occupancy for first enable/change. Durable documents and immutable configuration entries preserve history; admission pins original configuration. Originally credential references bound private regular-file absolute realpaths and full-byte SHA-256, with per-request permission/content/reference checks. Invalid credentials stop rather than fall back to anonymous; explicit anonymous access is separate. Current per-service publication and normalized-token fingerprint rules follow the superseding notes, not permanent global-idle/full-byte constraints.
 
-## 问题
+The first enabled-state format was MCP v2, storing enabled per service. v1 remains read exactly; only explicit owner migration marked original services enabled and generated a new generation. Disable preserves endpoint, credential reference and allowlist, removing only new catalog/admission eligibility. Original requests/entries/completed calls verify original versions without added fields. The initial stop-and-lock enable/disable requirement is replaced by online publication. v2 save rejected downgrade to v1 and recovery rejected current configuration downgrade. Discovery reads definitions for owner selection without calling business tools.
 
-[共享 MCP 传输](2026-10-17-mcp-transport-reuse.md)没有个人配置、审批或恢复消费者。HTTP 超时、取消和关闭不证明远端工具结束；若照普通安全工具重放，可能重复写入。个人主会话还须继续处理独立新工作，不能用一个等待人工核实的主工具占住全部聊天。
+mcp.json.version protects saved-but-not-started configuration; the durable current configuration version protects started profiles. Old code rejected either v2 representation without changes to profile.json, PERSONAL_FORMAT or old document versions. Native tool Tasks, operation documents and historical entries keep identities; configuration versions are not a second execution state machine. Later v3/v4 changes retain explicit format handling.
 
-## 决定
+Main/children share mcp_tools, mcp_call and read_mcp_result. Catalogs provide pinned definitions; request evidence records actual arguments. Shared schema preflight is separate from legacy Pi tool assembly, project, CredentialStore and ToolRouter. Remote read-only hints never grant authority. The initial Personal allowlist did not classify trusted read effects, so confirm/auto-review required approval for every call; full access skipped per-operation approval while rechecking source/configuration/credentials. v4 now uses owner-confirmed read/write/unknown classification under host simplification. Standing authorization is never inherited implicitly.
 
-个人 app 的 `personal-mcp-config.ts` 保存拥有者显式选择的端点、工具原定义允许列表及凭据文件引用；配置代次由向导生成，首次启用和换代均须没有未决工作或外部占用。durable 配置 document 与不可改配置 entries 保存历史，调用接纳再次固定原配置。凭据引用绑定私有普通文件的绝对真实路径和内容 SHA-256，逐请求核对权限、内容及引用；失效停止，不降级匿名。显式匿名是独立配置选择，不是凭据失败的回退。
+Call identity is the native durable pi.tool Task. Admission, source, permissions and original configuration commit first. The original transport hook immediately before real tools/call fetch transactionally saved full JSON-RPC request and approval consumption. Recovery of started calls used original records; attempted second sends failed second-consumption checks. Complete original responses retained error.data, isError, structured and nontext content rather than legacy truncation/artifact routing, with model/owner pagination. Current ordinary HTTP stores operation-level start/result facts instead of mandatory full protocol envelopes; model-visible definitions/content remain reconstructable, and all old envelopes remain unchanged.
 
-新配置使用 MCP version 2，逐服务持久保存 `enabled`；既有 version 1 原样读取，只有拥有者显式迁入才将原服务记为启用并生成新代次。停用保留端点、凭据引用和原工具允许列表，只撤下新调用的清单与接纳资格；原请求、配置 entries 和已完成调用仍按原版本核实，不补写字段。启停同其他配置变更一样要求停机持锁并核实未决工作与远端占用。version 2 保存后拒绝退回 version 1，后台也拒绝当前 durable 配置的降版；发现只取原工具定义，由拥有者选择允许项，不调用业务工具。
+Business effects and remote completion are separate facts. A complete terminal response can prove original request completion, not business success. input_required, unknown response types or task-handle-only responses do not prove completion. Human effective/not-effective explanations never alter remoteEnded. The original design paused work/delegation/reports and retained child/endpoint occupancy until effect and remote completion were verified, preventing same-source tool/delegation or endpoint bypass while unrelated sources/endpoints continued. Current ordinary-HTTP logical completion may be explicitly ended by the owner, preserving unknown remote facts and prohibiting automatic continuation/retry. URL-wide indefinite occupancy is retired; real Cua resource occupancy remains independently protected.
 
-`mcp.json.version` 和 durable 当前配置内的 `version` 分别保护保存后尚未启动与已经启动的档案：旧程序读取 version 2 文件或恢复 version 2 当前配置时均拒绝，不需要更改 `profile.json`、`PERSONAL_FORMAT` 或旧 document 版本。原生工具 Task、调用 documents 与历史 entries 保留原身份，配置版本不是第二套执行状态。
+The original transport synchronously captured matching JSON-RPC IDs and committed SSE cursor with its event response before returning. Failed evidence writes retained started rather than known-failed state. With original session/protocol/cursor, the owner could register a background GET-only original-stream recheck, without initialize or tools/call. Missing cursors, unsupported resume, invalid credentials or failed checks retained unknown occupancy. That cross-restart recovery is now retired: old recheck Tasks have non-network retirement definitions and original evidence is preserved, not a current generic remote-stop protocol.
 
-主/子会话共用 `mcp_tools`、`mcp_call` 和 `read_mcp_result`。清单结果给出已钉版原定义，原请求证据保存实际参数。共享 schema 预检从旧工具装配抽出，个人运行图不经旧 Pi 工具定义、项目、CredentialStore 或 ToolRouter。远端只读标注不提供权限；本片允许列表只选择可用工具，不声明可信只读类别，因此请求确认和自动审查均逐次批准，完全访问免操作审批并复核原来源、配置和凭据。长期授权没有隐含继承。
+Locally authenticated CLI selects original calls/pages. Telegram accepts only explicit replies to delivered host menus under original bot/owner/generation. Approval binds original call and consumes once; effect verification cannot be overwritten. When local tool waiting ends it returns original records; host source gates govern later operations/requests while main can handle independent input. Current ordinary-HTTP human completion and Cua-specific recovery remain distinct.
 
-调用身份直接使用 durable 原生 `pi.tool` Task。接纳、来源、权限和原配置先写入 durable；共享传输在真实 `tools/call` fetch 前调用宿主持久钩子，同事务保存完整 JSON-RPC 原请求与批准消费事实。恢复发现已开始，只接原记录；传输内部若尝试再次发送，宿主拒绝第二次消费。完整原 JSON-RPC 应答连同 error.data、isError、结构化和非文本内容保存为证据，不套旧结果截断与产物路由；模型与拥有者分页读取。
+## Related decisions
 
-业务效果与远端请求结束分别记事实。完整终结应答可证明原请求结束，返回不代表业务成功；`input_required`、未知响应类型或只有任务句柄的应答不能证明结束。人工已生效/未生效说明仅解释业务效果，绝不改远端结束字段。未知时原工作、整个委托及报告暂停，原子 Agent 和端点占用保留；同来源换工具、换委托和向同一端点另派工作都不解除占用，其他独立来源及不同端点仍可继续。
+The original active-note audit searched MCP, durable, credentials, approvals, unknown effects, remote completion and reporting. [Migration](../../proposed/architecture/2026-10-17-personal-pi-durable.md), shared transport, [legacy write approval](../feature/2026-09-23-mcp-write-tools-approval.md), [Personal controls](2026-10-17-personal-work-controls.md) and [whole reports](2026-10-17-personal-delegation-reports.md) retain separate rationale. This owns Personal admission/external recovery, not Coding assembly or local scope stop proof. No note was wholly absorbed or obsolete.
 
-传输同步复制匹配原 JSON-RPC id 的应答，SSE 游标与同一事件应答一起交宿主提交，调用返回前等待证据写入；写失败保留已开始事实，不能变成普通已知失败。保存了原会话、协议及恢复游标时，拥有者可登记独立后台核实任务，仅 GET 原 SSE 流取得迟到终结应答，不 initialize、不再次 tools/call。缺游标、不支持原流恢复、原凭据失效或核实失败时，继续未知和占用，不伪造通用远端停止协议。
+## Alternatives considered
 
-CLI 使用本机认证接口选择原调用和翻页；Telegram 只接受原 bot、owner 和配置代次下回复已送达宿主菜单的明确选择。批准绑定原调用并单次消费，业务核实不可覆盖。主工具本地等待结束后返回原记录，宿主在后续操作及模型请求处执行原来源暂停，主聊天可处理独立新输入。
+- Reuse old MCP ToolRouter: complete planning/artifact format, but reintroduces legacy projects, credentials and runtime task state against durable's sole authority.
+- Add another execution Task per call: follows command templates, but native tool Tasks already supply identity/cancellation/replay. Documents need only external evidence.
+- Treat HTTP close or human effect statements as remote completion: quick unblocking, but remote calls may still execute and reused identities/endpoints can produce parallel effects. Later logical completion explicitly does not claim remote stopping.
+- Require server receipt/status tools: could query non-SSE services, but MCP has no universal completion query; inventing one expands third-party requirements. Original standard-stream recovery required actual evidence; its later retirement is explicit.
+- Backfill enabled into v1: no explicit migration, but changes deep comparisons for admissions/configuration/requests and lets old code misread disable semantics. New formats alter new configuration only, preserving exact historical evidence.
 
-## 既有记录审计
+## Consequences
 
-按 MCP、durable、凭据、审批、效果未知、原请求结束及报告检索 active notes。[迁移总提案](../../proposed/architecture/2026-10-17-personal-pi-durable.md)、共享传输、[旧 MCP 写工具审批](../feature/2026-09-23-mcp-write-tools-approval.md)、[个人工作控制](2026-10-17-personal-work-controls.md)与[整项报告](2026-10-17-personal-delegation-reports.md)部分重叠，保留各自理由并互链。本篇只持有个人 MCP 接纳与外部恢复，不取代旧 Coding 装配或本机 scope 停止证明；没有完全吸收或过时提案。
+Personal MCP has no second runtime state, file journal or legacy project assembly. Originally unresolved endpoints could occupy indefinitely without original-stream recovery, and reconfiguration/reapproval/effect statements could not clear them. Host simplification now narrows that cost to original-work automation and permits explicit logical completion without falsifying unknown outcomes. Full requests/responses can contain sensitive business arguments/results and remain under profile protection, not diagnostic logs.
 
-## 备选方案
-
-- 复用旧 MCP ToolRouter，能沿用整套工具计划和产物格式；不选，因为会引入旧项目、凭据及任务运行状态，违背个人 durable 的唯一权威约束。
-- 为每次 MCP 调用建立另一层执行 Task，易照命令模板实现；不选，因为原生工具 Task 已有身份、取消和重放语义，业务 documents 只须补充外部证据。
-- 把 HTTP close 或人工业务效果说明当远端结束，能快速解除暂停；不选，因为原远端调用可能仍执行，复用身份或端点会产生并行副作用。
-- 统一增加服务端 receipt/status 工具协议，能查询没有 SSE 的服务；不选，因为 MCP 没有通用工具结束查询协议，新增假定会扩大本单与第三方服务范围。标准原流恢复只在真实证据齐备时使用。
-- 给 version 1 自动补 `enabled`，可免除显式迁入；不选，因为会改变旧接纳、配置 entry 与原请求的深比较结果，也让旧程序误读停用语义。独立 MCP version 2 只改变新的配置，保留旧历史的精确证据。
-
-## 后果
-
-个人 MCP 没有第二份执行状态、文件 journal 或旧项目装配。代价是每个端点上未核实调用会保守占用；不能恢复原流的远端可能长期待核实，不能用换配置、重新批准或人工效果说明解除。完整请求和响应可能含工具参数或服务返回的敏感业务数据，沿个人档案保护，不写诊断日志。
-
-工程、独立审查、崩溃与入口证据归[实施工单](../../../../.scratch/personal-pi-durable/issues/28-durable-mcp.md)。拥有者暂无专用真实服务，回环 HTTP/SSE、模拟平台及本机强杀不能替代真实 MCP、模型、IM 或人类产品体验验收。
+Original engineering, independent review, crash and entry evidence is offline at `.scratch/personal-pi-durable/issues/28-durable-mcp.md`. At that stage no dedicated real service was available; loopback HTTP/SSE, simulated platforms and local SIGKILL did not establish real MCP, models, IM or human product experience. Later acceptance must supply its own evidence.

@@ -1,7 +1,0 @@
-{
-  "launched": false,
-  "reason": "探针在prepare后、launch调用前的依赖断言失败；claims为空且native目录只有home/tmp，无network.bpf",
-  "unlaunchedNativeDirectory": "/tmp/ruukoto-native-5KnSem",
-  "initialFixtureDirectory": "/tmp/ruukoto-worker-23.QhtYYA/fixtures/immediate-IHX3AF",
-  "cleaned": true
-}

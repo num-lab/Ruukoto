@@ -1,7 +1,0 @@
-PASS: Python 标准库真实 PTY 驱动完整 runPersonalCli；stdin/stdout 均 isTTY。
-PASS: 选择主菜单、原服务列表分页、详情刷新、保存已生效证据、说明分页、独立停止登记、刷新、逐层返回及退出。
-PASS: 每条 Unix socket HTTP 请求均验证本机 Bearer token；仅各一次效果核实 POST 与停止 POST。
-PASS: 停止替身只返回 requested，详情继续显示停止未核实与重核进行中；向导未把登记说成停止通过。
-PASS: 终端没有 taskId/requestId/UUID 或内部值；所有标识由原菜单固定。
-PASS: 详情公共提示包含「未知效果须效果和停止均核实后才释放占用」，已按文案修正后的源码重播。
-范围: Unix HTTP 与服务状态使用本机替身；未接真实 systemd/helper、模型或 Telegram。

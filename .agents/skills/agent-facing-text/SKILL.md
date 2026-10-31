@@ -1,40 +1,36 @@
 ---
 name: agent-facing-text
-description: 写或改模型可见的文本时使用——工具名、工具描述、参数 schema 与参数描述、工具结果与错误文本、系统提示与参考块里宿主写定的措辞、宿主向工具结果追加的提示。
+description: "Use when writing or reviewing product model-visible tool names, descriptions, schemas, results, errors, system/reference prompts and host-appended guidance."
 ---
 
-# 模型可见文本
+# Model-Visible Text
 
-宿主写给模型看的文本是模型的接口说明：它只按这份文本决定调什么、怎么解读结果、失败后怎么办。写它的判断标准是「模型据此能否行动」，不是「读者能否读懂实现」。
+Host-authored text is the model's operating interface: it determines what to call, how to interpret a result and what to do after failure. Evaluate whether the model can act correctly, not whether the text narrates the implementation.
 
-前提是这一条：**被审对象是模型实际看到的那份文本。** 源码里的描述、schema 与结果拼装会经过装配、筛选与截断，快照才是模型拿到的输入。模型看到了什么以快照为准；源码只用来确认实际行为、拒绝条件，以及会话里还没触发过的结果与错误文本。
+Review the actual model input. Source definitions pass through assembly, filtering and truncation; request snapshots establish what was visible. Source establishes behavior, rejection conditions and results/errors not yet observed in a session.
 
-## 审计步骤
+## Audit
 
-1. **取真实调用的快照**，拿到模型看到的工具定义与结果原文。工具定义与系统提示在一次调用的 prompt 快照里，取完整的工具列表与系统提示（提示里常写着工具描述省略掉的用法），不只截被审工具；结果与错误文本从同一会话的事件流取，没触发过的从源码取。被审文本不局限定义一个工具的包：宿主在别处生成、最终进入模型输入的错误与提示同样是审计对象，取到哪一层就写到哪一层，取不到的标未覆盖。会话身份、访问模式与任务类别决定装配哪些工具与哪份描述；同一定义装配给多种身份时，每种身份各取一份快照。
-2. **逐条走一遍模型的路径**：这一步要做什么动作、有哪些参数、哪些值会被拒、动作之间什么顺序、失败后还剩哪些可用动作。再按典型任务把会配合使用的几个工具串起来走一遍：一个工具的副作用可能让另一个工具的下一步落空。走不通的地方就是缺口。
-3. **对照硬规则逐条检查**，命中的条目记录：文本位置（快照里的工具与字段，或产生它的源码行）、对应规则、模型据此会做错什么（具体的错误调用或多余调用）。写不出具体误调的条目不成立；模型在调用前必然读到的其他文本（系统提示、兄弟工具描述、引出该状态的上一条结果）已写明正确做法的，也不成立。
-4. **改动后重取快照**，确认新文本确实进了模型的输入，而不是只改了源码里的常量。
+1. Capture a real request's full tool definitions and system prompt, not only the named tool. Read results/errors from the same session event stream; inspect source for untriggered cases. Host-generated text in other layers also counts. Identity, access mode and task kind select the interface, so capture each materially different assembly. Mark unavailable evidence as uncovered.
+2. Walk the model's actions: parameters, rejected combinations, ordering and viable actions after failure. Follow typical multi-tool sequences; one tool's effects can invalidate another tool's suggested next step.
+3. For each finding, identify snapshot field or producing source, rule and concrete wrong or unnecessary call. A finding is not established if it cannot produce such a call or if other text the model necessarily reads already supplies the missing instruction.
+4. Capture the updated request after editing; a changed source constant is not proof that the model receives it.
 
-## 硬规则
+## Rules
 
-每条一行，可逐条对照。
+- **J1: Preconditions at the action.** Required inputs, ranges, mutual exclusions and sequencing belong in the parameter/action description, not only validation code.
+- **J2: Executable next steps.** Results and errors suggest actions actually available in that state. If none exist, tell the model to stop and report to the owner. Avoid undefined internal terminology or work no tool can perform. Ending the turn and awaiting a host notification is a valid next step when stated explicitly.
+- **J3: Explain blocking states.** Describe entry conditions, including automatic host transitions, available actions, exit conditions and who may trigger them. Include each use of a shared mechanism.
+- **J4: Pair prohibitions with the correct action.** State scope, viable next step and the changed condition under which the restriction ends.
+- **J5: Return decision-relevant facts.** Keep only the identifier needed to reference each entity. Omit internal process/transport plumbing unless the model must use it next or pass it to the owner. Facts promised by the description must actually appear in the result.
+- **J6: Truncation guidance is conditional.** Append it only when content was really truncated; unconditional notices become noise.
+- **J7: Explain invisible lifecycle effects.** State resource cleanup, return conditions and whether resources survive across calls when the model cannot infer them from results.
+- **J8: Describe actionable constraints, not satisfied assembly conditions.** A visible tool already met its whole-tool eligibility rule. Keep action-specific preconditions under J1. If parameter rules differ by identity, expose the model's identity or assemble distinct descriptions so it can choose correctly.
 
-- **J1 动作前提写在使用点。** 每个动作的输入约束（必填项、取值范围、互斥组合、动作之间的先后）写在该参数描述或该动作的说明里；只在校验代码里拒绝，等于模型看不见。
-- **J2 错误文本与结果里的指引给出当前状态下真实可执行的下一步。** 已被当前状态阻塞的动作不写进提示；没有可执行动作时明写停下来报告拥有者；不要求模型做它无法用任何工具完成的事，也不用描述与系统提示里都没定义过的内部术语指代动作或状态。结束本轮、等宿主通知也是可执行的下一步；文本只写「等待」而不说怎么等，才违反本条。
-- **J3 阻塞状态要在描述里有对照。** 工具存在会冻结自动化的状态时，说明进入条件（包括宿主自动进入的情形）、该状态下哪些动作仍可用、退出方式与谁能触发退出。同一机制服务多个用途时，把用途写全。
-- **J4 禁令要配正面的下一步。** 写清此时的正确做法，以及该禁令在什么范围内有效、换了什么条件后不再适用。
-- **J5 结果给出且只给出决策下一步所需的事实。** 进程标识、内部路径、连接端点、内部版本号这类实现管道不进结果；每个实体只留模型后续要引用的那一个标识。两种地址不算管道：模型自己的下一步要用到的（例如它被要求核对的副本或页面），以及要转交给拥有者的。描述承诺结果里会有的事实（例如下一步要用的标识、可供挑选的状态），结果里要真的有。
-- **J6 宿主追加的提示只在真的截断时出现。** 无条件追加的说明是噪音，模型很快把它当背景忽略，真截断时也读不到。
-- **J7 写模型看不见的生命周期副作用。** 调用结束时被清理的资源、调用什么时候返回、跨调用保不保留，这些模型无法从结果里推断，要在描述里写明。
-- **J8 描述只写模型能据此行动的内容。** 整个工具的装配条件（工具可见即已满足）不写进描述；调用某个动作的前提（例如对象须处于某状态）不是装配条件，按 J1 写在使用点。装配条件写进描述时，模型会据此拒绝调用，或先花一轮向拥有者确认一个已成立的条件。同一定义装配给多种身份、参数约束按身份分叉时，分叉是模型选参数的依据：保留并让模型能确认自己的身份，或按身份分别装配描述。
+## Measurements And Scope
 
-## 量化
+When changing descriptions, schemas or system prompts, record before/after `toolSchemas` and `systemPrompt` token estimates in the Issue evidence. There is no token ceiling; saving text does not justify an extra wrong call.
 
-改工具描述、参数 schema 或系统提示时，在工单证据里记录改动前后的 `toolSchemas`／`systemPrompt` 估算：只记数字，不设上限。省 token 不能以多一次错误调用为代价——一次误调的往返远比一段描述贵。
+TUI `/prompt` exposes complete request snapshots. `ruukoto-code selection-records --session <id>` exposes estimates under `systemPrompt` and `toolSchemas` for the applicable shared runtime.
 
-取法：TUI 的 `/prompt` 列出本会话每次模型调用并展开其 prompt 快照（含系统提示与工具定义原文）；`ruukoto selection-records --session <id>` 列出每次调用的选择记录，其中 `estimates` 含 `systemPrompt` 与 `toolSchemas` 的 token 估算。
-
-## 分工
-
-本 skill 管模型可见文本写什么；措辞、删冗余、一处一个家的写法按 [prose-standard](../prose-standard/SKILL.md)。面向开发者 agent 的指示与 skill 由 prose-standard 与全局 `writing-for-agents` 覆盖，不属于本 skill 的范围。
+This skill decides the content of product model-visible text; [prose-standard](../prose-standard/SKILL.md) governs expression. Developer instructions and skills use prose-standard and global `writing-for-agents`, not this product-interface audit. Historical calibration cases are in [references/cases.md](references/cases.md); keep them out of blind-review input.

@@ -1,61 +1,59 @@
-# 开发耗时记录
+# Development Timing Records
 
-2026-10-09 历史批次基于 `36c55dbe06d8e55e3ec52687c39dfab0d5762181`，macOS 使用 Node 24.15.0，Linux 为 `ssh tx` 不含本地 scratch 的独立检出。当前 workspace 实测见[分包记录](../.agents/notes/implemented/architecture/2026-10-11-in-repo-workspace-packages.md)。耗时只用于选择反馈方式，不证明当前检查通过。
+Historical timings help choose feedback paths; they do not prove the current checkout passes. Original revision identifiers below describe the measured snapshots and may belong to pre-cleanup history. The [workspace-package note](../.agents/notes/implemented/architecture/2026-10-11-in-repo-workspace-packages.md) records the later package layout.
 
-| 环境与 Node | 基线命令 | 结果 | 耗时 |
+## 2026-10-09 Baseline
+
+The initial batch used `36c55dbe06d8e55e3ec52687c39dfab0d5762181`. Linux was an independent tx checkout without local scratch material.
+
+| Environment | Command at that time | Result | Wall time |
 | --- | --- | --- | --- |
-| macOS，24.15.0 | 旧 `npm test`（应用） | 1009 通过、1 跳过、0 失败 | 167.32 s |
-| macOS，24.15.0 | `npm --prefix verification/foundation test` | 9 通过、1 跳过、0 失败 | 2.08 s |
-| Linux，24.21.0 | 旧 `npm test`（应用） | 1007 通过、1 跳过、2 失败 | 495.22 s |
-| Linux，24.21.0 | `npm --prefix verification/foundation test` | 9 通过、1 跳过、0 失败 | 7.06 s |
+| macOS / Node24.15.0 | Old `npm test` (application) | 1009 pass, 1 skip, 0 fail | 167.32 s |
+| macOS / Node24.15.0 | Foundation test | 9 pass, 1 skip, 0 fail | 2.08 s |
+| Linux / Node24.21.0 | Old `npm test` (application) | 1007 pass, 1 skip, 2 fail | 495.22 s |
+| Linux / Node24.21.0 | Foundation test | 9 pass, 1 skip, 0 fail | 7.06 s |
 
-Linux 基线的两个失败都来自 `test/67-visual-docs.test.ts`：源码锚点和链接引用了未纳入 Git 的本地 scratch 文件，独立检出缺少它们。该批次将关键脚本与归档纳入 Git，并把图解来源改为可获取的文件，以修复这一环境依赖。
+Both Linux failures were `67-visual-docs`: source anchors/links referenced untracked local files unavailable in the independent checkout. That batch tracked necessary scripts/archives and pointed diagrams at available sources.
 
-该批次最后通过的实测如下，均使用完整隔离检出和锁定依赖。两次 macOS 完整检查分别使用 Node 22.19 与 24.15，后者复用同一检出已安装的依赖。该批次结束时四组矩阵刚配置完成、尚未触发远端运行；本地结果不能替代 GitHub Actions 的实际结果。
+Final isolated-checkout measurements with locked dependencies were:
 
-| 环境与 Node | `setup` | `check:static` | 完整 `check` |
+| Environment | Setup | Static | Full check |
 | --- | --- | --- | --- |
-| macOS，22.19.0 | 7.50 s | 9.10 s | 192.71 s |
-| macOS，24.15.0 | 复用同一检出安装 | 7.81 s | 198.46 s |
-| Linux，24.15.0 | 22.31 s | 34.01 s | 529.63 s |
+| macOS / Node22.19.0 | 7.50 s | 9.10 s | 192.71 s |
+| macOS / Node24.15.0 | Reused same install | 7.81 s | 198.46 s |
+| Linux / Node24.15.0 | 22.31 s | 34.01 s | 529.63 s |
 
-三组完整检查均为应用 1024 通过、1 跳过，基础验证 9 通过、1 跳过、0 失败；跳过的是显式关闭的真实模型检查。macOS 使用最后验收快照 `95ace397`（临时仓库提交）。Linux 全量使用 `f8c61b9`；之后唯一变化是协作测试等待模型记录的条件，已在 Linux 通过最新静态检查及相关用例复核。应用源码、检查配置与依赖未再变化。
+All three full checks had application 1024 pass/1 skip and foundation 9 pass/1 skip, no failures; real-model checks were explicitly disabled. macOS used temporary snapshot `95ace397`; Linux used `f8c61b9`, followed only by a collaboration-test readiness condition rechecked with Linux static/targeted tests. Application source, checks and dependencies did not change afterward. The then-new four-cell CI matrix had not run remotely; local evidence did not replace it.
 
-最终应用源码的 Docker 04/13/15/18 共 27/27 通过，模型与消息平台为桩；唯一镜像标签和本次容器均已清理。Linux Node 24.15 的默认 `60fa19e` 升级检查 4/4 通过，用时 65.40 s；两份安装、后台、档案与本次编译缓存均已清理。真实模型、真实 IM 以及 sudo/systemd 验收未在该批次执行。
+Docker smoke 04/13/15/18 passed 27/27 with mock models/platforms, and its image/container resources were removed. Linux Node24.15 upgrade from `60fa19e` passed 4/4 in 65.40 s; temporary installs, backends, profiles and compilation cache were removed. Real models, real IM and sudo/systemd acceptance were not run in this batch.
 
-该批次确认并修复两项兼容性问题：实例锁的持有者身份改用系统采集的 `processIdentity`，机制、逃逸路径与护栏见[复盘 0001](postmortem/0001-instance-lock-identity-by-command-line.md)；Node 22 把 SQLite 编号占位符 `?1` 视为命名参数，两处账本查询经原生 SQL 与真实 Store 方法复现后改为按名称绑定，支持边界由 CI 的 Node 22.19 矩阵覆盖。
+Two compatibility fixes emerged: process-start identity replaced lock command-line matching ([postmortem 0001](../.agents/postmortem/0001-instance-lock-identity-by-command-line.md)), and Node22 SQLite interpreted numbered `?1` parameters as named bindings, requiring named binding in two ledger queries. The then-current Node22 matrix covered that support range; current supported versions are defined in [development](development.md).
 
-其余失败来自测试夹具：人工审批快照需等 `reviewStatus=asked_owner`，模型请求和释放回调需等实际就绪，不能只凭任务运行或投递登记；授权列表按时间及 ID 排序，测试改为按目标授权 ID 选择。长检出名叠加临时 HOME 超过 Unix socket 路径限制，已缩短测试前缀，并补齐异常启动时的监听清理和提前退出诊断。这些等待问题均通过受控顺序复现后修复，永久夹具没有新增固定延时或自动重试。
+Other failures were fixtures: wait for `reviewStatus=asked_owner`, actual model-request readiness and release callbacks; select grants by ID rather than tie-sensitive ordering; shorten temporary HOME/socket prefixes; clean up failed-start listeners and report early exit. Controlled-order reproductions justified these changes without permanent fixed sleeps or retries. One Linux install hit ENOSPC from this batch's duplicate dependencies; removing only reinstallable batch dependencies allowed setup. Diagnostic/aborted runs are excluded from the table.
 
-Linux 首次新安装因该批次旧检出的重复依赖占满空间而出现 `ENOSPC`；只清理本次可重装的旧依赖后，默认 `setup` 完成。调试中的失败与手动中止保留为诊断记录，不计入上表。版本和覆盖内容存在差别，墙钟耗时用于选择日常反馈方式；性能优化按慢用例和实际修改困难另定。
+Formatting, isolated privileged verification and evidence-led structural changes were separate future batches, preserving commands, formats and permissions. A historical audit reported four existing dependency advisories (one moderate, three high); it did not justify an unreviewed Pi major upgrade. Current backlog is tracked through the repository's [workflow](../.agents/skills/development-workflow/SKILL.md), not this timing page.
 
-全库格式统一、旧特权脚本的隔离改造、有证据支持的结构重构分别另做批次。每批以当前反馈入口验证，保持产品命令、配置、持久化资料和权限行为兼容。架构原因以[CONTEXT.md](../CONTEXT.md) 与 [决策笔记](../.agents/notes/) 为准，本地任务继续按[issue tracker](agents/issue-tracker.md) 管理。
+## 2026-10-22 CI Repair
 
-改造前的 `npm audit` 记录有 4 项既有依赖问题（1 项 moderate、3 项 high），该批次保留已有包版本。依赖修复另做批次，涉及 pi SDK 主版本升级时单独评估 API 与产品兼容性。
+Based on `94bc0932` plus the prerequisite repair, macOS/Node24.15.0 full check exited 0 in 1911.804 s: application 3320 pass/24 skip, foundation 9 pass/1 skip, no failure/cancellation. Exclusive fixtures were serial, other files at most two concurrent. This replaced the old roughly 200-second daily estimate, but did not measure clean install or GitHub runner speed.
 
-## 2026-10-22 CI 修复
+Linux/Node24.21.0 targeted script/workflow verification passed 69/69 across five files in 276.4 s using isolated source and matching cached dependencies, not a clean setup. The then-current macOS/Linux × Node22.19/24.15 matrix had not rerun; its job limit changed from 30 to 45 minutes. Those were historical settings, not today's CI contract.
 
-基于 develop 的 `94bc0932` 加[本轮修复](../.scratch/ci/issues/01-restore-ci-prerequisites.md)，macOS / Node 24.15.0 的 `npm run check` 退出 0，耗时 1911.804 秒。应用测试非独占批次最多两文件并行，独占批次串行；共 3320 通过、24 跳过，基础验证 9 通过、1 跳过，无失败或取消。该数字替代约 200 秒的旧日常耗时估计，不代表干净安装或 GitHub runner 的速度。
+## 2026-10-24 Test Reduction
 
-Linux / Node 24.21.0 的脚本与工作流五文件定向验证为 69/69、276.4 秒；使用隔离源码与匹配锁文件的既有依赖缓存，未完成干净 setup。GitHub macOS / Linux × Node 22.19 / 24.15 四格尚未重跑；job 时限由三十改为四十五分钟，实际余量仍待远端验证。
+Starting from `28c033f7`, necessity review covered 294 application and seven foundation files; the candidate retained 290 and six. Measurements retained file concurrency two and macOS exclusivity. Setup reused an install or was not independently timed. The [decision](../.agents/notes/implemented/testing/2026-10-24-test-suite-reduction.md) records rationale; original logs and source fingerprints remain historical evidence.
 
-## 2026-10-24 测试精简
-
-实施起点为 `28c033f7`，完整必要性审查覆盖原 294 个应用文件与 7 个 foundation 文件；候选分别为 290 与 6。以下是同日机器实测，setup 沿用既有安装或未单独精确计时，文件并发仍为 2，macOS 独占批次和原四格保持。源码指纹、诊断轮次与原始日志由[测试精简决定](../.agents/notes/implemented/testing/2026-10-24-test-suite-reduction.md)关联的实施工单持有。
-
-| 环境 / 内容 | 完整命令 | 墙钟 | 结果 |
+| Environment / snapshot | Full command | Wall time | Result |
 | --- | --- | --- | --- |
-| macOS arm64 / Node24.15，原版 | `npm run check` | 1510.395s | 退出 1；应用 3460 通过、4 失败、24 跳过，未进入 foundation |
-| macOS arm64 / Node24.15，最终候选 `8025120` | `npm run check` | 1125.163s | 退出 0；应用 3387 通过、22 跳过，foundation 7 通过、1 跳过，零失败/取消 |
-| oracle-4c24g Linux arm64 / Node24.15，冻结候选 `97d1794` | `npm run check` | 2459.331s | 退出 0；应用 3375 通过、31 跳过，foundation 7 通过、1 跳过，零失败/取消/遗留 |
+| macOS arm64 / Node24.15, original | `npm run check` | 1510.395 s | Exit1; application 3460 pass, 4 fail, 24 skip; foundation not reached |
+| macOS arm64 / Node24.15, `8025120` | `npm run check` | 1125.163 s | Exit0; application 3387 pass/22 skip, foundation 7 pass/1 skip; no failures/cancellations |
+| oracle-4c24g Linux arm64 / Node24.15, frozen `97d1794` | `npm run check` | 2459.331 s | Exit0; application 3375 pass/31 skip, foundation 7 pass/1 skip; no failure/cancellation/residue |
 
-最终 macOS 完整检查为 18 分 45 秒。源码差异指纹 `8025120` 在检查前后相同，整轮仓库冻结；应用入口墙钟 1075.592s（独占 39.506s、普通 1035.846s），foundation Node 汇总 2.480s。setup 沿用既有安装；原版检查失败且未进入 foundation，不据此计算严格绿色基线的加速比例。
+macOS was 18m45s with the same source fingerprint before/after. Application wall time was 1075.592 s (exclusive39.506, ordinary1035.846); foundation Node summary2.480 s. Since the original failed before foundation, this is not a strict green-to-green speedup ratio.
 
-Linux 完整候选的应用墙钟 2248.675s、foundation 6.613s，总计 40 分 59 秒，低于 45 分钟但未达到 30 分钟目标。此轮早于后续个人令牌发布、PTY 阶段同步、模型替身关闭响应连接、清理诊断及 macOS 启动标记修复；其中个人令牌发布增量在 Node22.19/24.15 的入口与 CLI 各 38/38 通过，完整进程分别 100.924s/71.153s。原 Linux 诊断有一次失败夹具人工回收，且观测开销不同，不作严格加速分母。
+Linux application took2248.675 s, foundation6.613 s, full40m59s: below45 minutes but above the30-minute goal. This predates Personal token publication, PTY synchronization, mock response-connection closure, cleanup diagnostics and macOS startup-marker fixes. Token-publication increments later passed38/38 entry/CLI cases on Node22.19/24.15 in100.924/71.153 s. One diagnostic run needed manual failed-fixture cleanup and had different observation overhead; it is not a comparable acceleration denominator.
 
-Linux 候选最慢保留文件的完整进程观测如下，包含准备、测试和释放，外部约 200ms 采样给出区间。个人工具的六种审查结果链、命令的真实停止与损坏恢复、工作副本的权限与提交冲突、工作流实际执行及快照的冷恢复均有独有覆盖，不能按耗时整删。
-
-| 文件 | 完整进程秒 |
+| Slow retained Linux file | Complete-process seconds, including setup/cleanup |
 | --- | --- |
 | personal-tools | 223.340–223.575 |
 | 84-subagent-integrate | 209.514–209.958 |
@@ -65,4 +63,4 @@ Linux 候选最慢保留文件的完整进程观测如下，包含准备、测�
 | workflow-role-integration | 171.578–171.799 |
 | workspace-snapshot-runtime-boundaries | 115.472–115.697 |
 
-观测捕获 289 个应用文件的独立进程耗时；history-recovery 在完整 argv 与五条独有通过输出中，但未被采样命中，不声称已有全部 290 文件的精确耗时。GitHub 原 macOS/Linux × Node22.19/24.15 四格仍待同一候选提交的实际验收，本机与隔离 Linux 不替代它。
+Intervals come from approximately200ms external sampling. These files retain unique review-result, real-stop/corrupt-recovery, permission/commit-conflict, execution and cold-snapshot coverage and cannot simply be removed for being slow. Sampling captured289 application processes; history-recovery appeared in argv and five unique pass lines but escaped sampling, so this is not exact timing for all290 files. The then-current four-cell GitHub matrix still required a run of the same candidate; local/isolated Linux results did not replace it.

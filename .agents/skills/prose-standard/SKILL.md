@@ -1,62 +1,49 @@
 ---
 name: prose-standard
-description: 写或审本仓库的 prose 时使用：注释、JSDoc、docs/、.agents/notes/、skill、提示词与诊断文本。判断该写什么、删什么，以及把细节放到哪一层。
+description: "Use when writing or reviewing repository prose: comments, JSDoc, docs, notes, skills, prompts and diagnostics. Choose what readers need and put each explanation in its proper home."
 ---
 
-# 写作标准
+# Prose Standard
 
-写够保住契约的内容，然后删掉推理过程、重复与修饰。
+Explain what something is and why it matters, then supply the detail needed for the reader's next action. Preserve the contract, not the author's reasoning transcript.
 
-## 先保住命题，再删冗余
+## Relevance, Evidence And Clarity
 
-改一段话之前，先列出它承载的每个命题。删形容词、去重复、消叙述，只在**每个事实性分句都还在**且结果更清楚时才做。字数变少本身不是改进。
+Apply Grice's maxims to both documents and conversation:
 
-需要保住的：
+- **Quantity:** provide enough information for the current purpose. Put auditable verification in the Issue/PR; chat gives the outcome, reason and necessary next decision, not every template field.
+- **Quality:** distinguish observed facts, assumptions and unverified claims. Keep evidence for claims of success, recovery, safety or improvement.
+- **Relation:** report meaningful progress, blockers and requested decisions. Repeated status, irrelevant caveats and explanations of work nobody asked for add noise.
+- **Manner:** use concrete subjects and actions, clear order and familiar terms. Explain concepts and mechanisms rather than translating code line by line.
 
-- **主体与动作**：谁做什么；
-- **条件、时序与顺序**：在什么条件下、什么时候、先后关系；
-- **情态**：必须、可以、绝不；
-- **否定性保证与例外**：不会发生什么、哪个情况除外；
-- **归属、副作用、失败与后果**。
+State the normal path first. Put relevant safety limits and failure guarantees where they affect a decision, rather than surrounding every sentence with defensive exceptions. A real uncertainty remains explicit; reducing noise never means concealing it.
 
-## 一处一个家
+## Preserve Meaning, Remove Redundancy
 
-一个解释只有一个归属，别处链接过去。同时：
+Before compressing, identify the factual claims: actor/action, conditions and order, must/may/never, exceptions, ownership, effects and failure consequences. Keep the claims the reader relies on. Move implementation detail to its owning code or note rather than deleting a necessary guarantee or repeating it everywhere. Fewer characters alone is not an improvement.
 
-- 契约性事实可以在使用点重述（调用者就靠它）；
-- 架构、理由、算法、历史与长例子一律外链；
-- 同一段理由不要在每个兄弟方法旁边各写一遍——提到承载该能力的那个helper或那篇笔记里。
+Each explanation has one maintained home. Call sites may restate the contract callers need; deeper rationale, algorithms, history and long examples are linked. A shared helper's reason belongs with the helper, not every sibling method.
 
-## 按位置决定覆盖什么
+## Choose Content By Location
 
-下面按位置给出**必须**覆盖的内容。代码、类型与结构已经说清楚的，不要补注释。
+| Location | Content that earns its place |
+| --- | --- |
+| Public JSDoc | Non-obvious return distinctions, rejection, effects, ownership, ordering, cancellation and durability |
+| Internal comments | Invariants, race ordering, security/ownership and surprising failure behavior that code does not explain |
+| Module headers | Non-obvious role or dependency constraints, with links to design rationale |
+| Tests | The regression or constraint motivating an unusual fixture/assertion, not a narration of the test |
+| `docs/` | Current concepts and operation, using [writing-docs-for-human](../writing-docs-for-human/SKILL.md) |
+| `.agents/notes/` | Decisions, reasons, real rejected alternatives and consequences, using [maintain-notes](../maintain-notes/SKILL.md) |
+| Skills/instructions | Actionable target behavior and necessary hard guardrails; disclose conditional detail through references |
+| Product model-visible text | Apply [agent-facing-text](../agent-facing-text/SKILL.md) to the model's actual input |
+| Diagnostics | The affected operation, actionable failure and safe next step |
 
-- **公开 JSDoc**：调用者可见的返回值区别、抛错与拒绝条件、副作用、归属、时序、取消与持久性。
-- **内部注释**：非局部的结构定位（模块角色、依赖、职责）与明显复杂的局部结构（不变量、竞态顺序、归属、安全边界、意外的失败行为）。控制流叙述与代码复述删掉。
-- **模块头注释**：本模块的角色、依赖、职责，以及非显然的结构选择；结构选择链接到它的归属解释。
-- **测试**：说明这个用例守住什么行为、为什么需要它。不复述断言。
-- **`docs/`**：现在怎么运作。演进史、修订流水与「以前是」留在提交与决策笔记里。写法按 [writing-docs-for-human](../writing-docs-for-human/SKILL.md)。
-- **`.agents/notes/`**：决定、理由、被否方案、后果。写法按 [maintain-notes](../maintain-notes/SKILL.md)。
-- **skill 与提示词**：写正面的目标行为；确需禁止时把禁令作为硬护栏，并同时给出该做什么。模型可见的文本（工具定义、参数 schema、结果与错误文本、系统提示措辞）另按 [agent-facing-text](../agent-facing-text/SKILL.md) 判断该覆盖什么。
-- **诊断文本**：读者能据此采取行动的最小事实——受影响的操作与安全的下一步。
+Prefer precise names such as response fields, JSON validation or ESM exports to vague uses of contract, boundary, shape, surface or seam. Keep those terms when they name an actual technical contract or process, wire, transaction or security boundary.
 
-## 词要经得起检查
+Remove code narration, review history, progress transcripts, decorative emphasis and stale implementation-status claims. Necessary sequencing and provenance are facts, not narration to delete. Use short paragraphs, lists and tables when they clarify distinct ideas.
 
-`contract`、`boundary`、`shape`、`surface`、`seam`、`gate` 这类词，用之前先问：有没有更准确的说法？能说「响应字段」「JSON 校验」「ESM 导出」时就不要说「响应形状」「校验边界」「模块形状」。
+## Language And Layout
 
-保留该词的情形：它确实命名了那个技术事实，包括调用方与被调方之间的契约、以及进程、wire、事务或安全边界。
+English is authoritative for technical documents, instructions, comments/JSDoc and agent-authored Issue/PR bodies. Chat follows the human's language. Optional Chinese translations use sibling `name.zh.md`; update or remove the affected translation with any semantic source change. Frozen/sealed archives, third-party text, quotations and test samples keep their originals. Existing comments migrate when their code is touched; product UI and runtime prompts have their own language requirements.
 
-## 删什么
-
-- **代码复述**：`// 设为 0` 在 `count = 0` 上方。
-- **推理过程**：怎么一步步改到现在的、试过哪些方案、测试怎么走。留下最终契约或持久理由。
-- **评审历史**：`按评审意见改为…`。
-- **实现状态标注**：`已实现！`、`将来会…`。状态会腐烂。
-- **强调通胀**：到处加粗、全大写、句句「关键」。
-- **段落墙**：一段里塞好几条规则与括号补充。拆开，或把细节下放到它的家。
-
-## 语言
-
-注释与文档用中文，标识符用英文。术语以 [CONTEXT.md](../../../CONTEXT.md) 为准；词表里没有的概念，先确认该用哪个已有术语，确有缺口再补。
-
-一段一物理行，靠编辑器软换行；`npm run verify-md-wrap` 会检查。
+Use [CONTEXT.md](../../../CONTEXT.md) terminology. Prefer an existing term before adding a concept. One paragraph occupies one physical line, with soft wrapping; `npm run verify-md-wrap` checks authored Markdown. End files with exactly one newline.

@@ -1,8 +1,0 @@
-{
-  "message": "The expression evaluated to a falsy value:\n\n  assert.ok(!prepared.runtimeReadRoots.some((root) => root.includes(\"node_modules\")))\n",
-  "stack": "AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:\n\n  assert.ok(!prepared.runtimeReadRoots.some((root) => root.includes(\"node_modules\")))\n\n    at run (file:///tmp/ruukoto-worker-23.QhtYYA/source/packages/agent/src/execution/linux-probe.mjs:953:12)\n    at async file:///tmp/ruukoto-worker-23.QhtYYA/source/packages/agent/src/execution/linux-probe.mjs:979:5",
-  "results": [],
-  "remainingCaseDirectories": [
-    "immediate-IHX3AF"
-  ]
-}

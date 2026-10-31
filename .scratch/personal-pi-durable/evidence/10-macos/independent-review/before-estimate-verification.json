@@ -1,6 +1,0 @@
-{
-  "base": "c1fee03",
-  "method": "ceil(UTF-8 bytes / 4); no tools = 0",
-  "systemPrompt": 36,
-  "toolSchemas": 0
-}

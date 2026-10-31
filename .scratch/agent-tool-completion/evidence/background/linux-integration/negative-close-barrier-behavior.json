@@ -1,9 +1,0 @@
-{
-  "changes": 1,
-  "status": 1,
-  "expectedFailure": true,
-  "actualBehavior": "Old admitted Task registered a background after barrier when check removed",
-  "sourceBefore": "e692848c47368026a86b9aed6c384858f9cf4dd0825a0e342cab4e030f9a4dd4",
-  "sourceAfter": "e692848c47368026a86b9aed6c384858f9cf4dd0825a0e342cab4e030f9a4dd4",
-  "workspaceUnchanged": true
-}

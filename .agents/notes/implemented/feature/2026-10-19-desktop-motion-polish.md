@@ -1,30 +1,27 @@
-# Agent Note: 手写控件补齐过渡动画
+# Agent Note: Add transitions to handwritten controls
 
 Status: implemented
 
-## 问题
+## Problem
 
-Desktop 界面里由 shadcn 原语呈现的控件自带 `transition-all`／`transition-colors`，开合与弹层沿用原语动画；但手写 CSS 的部分只剩瞬态：工作区展开箭头旋转、工作区行与会话项、Git 提交行、右栏新标签入口、附件移除键的 hover 背景，以及添加工作区、标签关闭、附件移除键的悬停显示，都是立刻切换。提示条（toast）也直接出现。原因是冻结前缀只给侧栏宽度、筛选与标签排序等既定位置写了过渡，手写按钮没有统一来源。
+Desktop's shadcn primitives already provide color/general transitions and popup motion. Handwritten CSS instead switched workspace arrows, clickable-row hover, hidden buttons, and toast appearance instantly. The frozen prefix defined transitions only for established features such as sidebar width, filtering, and tab ordering, leaving custom buttons without a shared source.
 
-## 决定
+## Decision
 
-在正式追加段新增一段带本篇锚点的规则，集中补三类动作，不逐个散落到原有规则里：
+One anchored block in production's appended CSS supplies three actions rather than scattering rules:
 
-- 手写可点击行统一 `background-color`、`color`、`opacity` 120ms：工作区行、会话项、Personal 行、Git 提交摘要、右栏新标签页入口、附件移除键。
-- 默认隐藏、悬停或聚焦才显示的控件补 `opacity` 过渡：工作区添加键、标签关闭键；两者原先的显隐仍是瞬变，过渡不改变命中区域或几何。
-- toast 用 180ms 的 `toast-in` 从下方 6px 淡入，与既有 `connection-fade-out` 的收尾时长一致。
+- Workspace rows, session items, Personal rows, Git commit summaries, inspector new-tab entries, and attachment removal use 120ms transitions for background-color, color, and opacity.
+- Workspace-add and tab-close controls, revealed by hover or focus, gain opacity transitions without changing their hit area or geometry.
+- Toast uses a 180ms `toast-in`, fading in from 6px below, matching the existing `connection-fade-out` ending duration.
 
-工作区展开箭头原先声明 `transition: transform`，但 Tailwind v4 的 `rotate-90` 输出到独立的 `rotate` 属性，`transform` 过渡匹配不到，箭头一直瞬跳。改为在同一选择器上把 `transition-property` 覆盖为 `rotate`，保留冻结前缀的 150ms 时长与缓动；文件树目录行的箭头没有现成过渡，直接补 `rotate` 150ms。
+Workspace arrows declared a transform transition, but Tailwind v4's `rotate-90` writes the independent rotate property. Override transition-property with rotate on the same selector, preserving the frozen 150ms duration/easing. File-tree arrows had no transition, so add rotate 150ms there too.
 
-既有全局 `prefers-reduced-motion` 规则把 `animation` 与 `transition` 置为 `none`，新增规则自动遵守，不另写媒体查询。所有改动只在 `apps/desktop/src/renderer/style.css` 的正式追加段，冻结前缀与可变 demo 不动。
+Existing global `prefers-reduced-motion` disables animations and transitions, including these rules, with no extra media query. Changes are confined to the production append section in `apps/desktop/src/renderer/style.css`; the frozen prefix and mutable Demo remain untouched.
 
-## 备选方案
+## Alternatives considered
 
-- **改冻结前缀或 demo**：Git 归档断言要求正式 CSS 以冻结稿原文开头、demo 以冻结稿加全部差量逐字一致，原地改会破坏比对来源；新增尾部差量即可，不必重定稿。
-- **给手写按钮加 Tailwind 工具类**：可行但需要改 `app.tsx` 等 JSX，且同一批规则分散在多个文件；CSS 选择器集中一段更短，也不碰交互与可访问属性。
-- **`transition: all`**：会把布局与颜色之外的变化也纳入动画，hover 时误动宽高；显式三属性更稳。
-- **toast 用组件库或 Presence**：只有一条固定提示，直接 `@keyframes` 最短，且不引入新的依赖或焦点管理。
+Editing the frozen prefix or Demo would break the assertions that production starts with frozen source and Demo equals frozen source plus deltas. A tail delta needs no refreezing. Tailwind classes on custom controls would spread the same rules through JSX files; one CSS selector group is smaller and leaves interaction/accessibility attributes alone. Transitioning all properties risks accidental layout animation. A toast component or Presence adds dependency/focus machinery for one fixed message; a keyframe suffices.
 
-## 后果
+## Consequences
 
-上述控件悬停、显隐与 toast 出现都有短促过渡，操作反馈不再跳变；箭头旋转终于按既有设计过渡。代价是手写选择器与组件类名继续耦合，新增同类按钮需要记得加入选择器组；折叠、筛选、标签拖动与弹层动画仍由各自既有规则负责，本篇不重复。减弱动画、明暗主题与窄窗口布局行为不变，无需新的测试用例：这些改动只涉及呈现过渡，不影响输出了什么或何时输出。
+Hover, visibility, toast appearance, and arrow rotation gain short transitions. Handwritten selectors remain coupled to class names, so new equivalent controls need inclusion. Existing collapse, filter, tab-drag, and popup owners remain responsible for their motion. Reduced motion, themes, and narrow layouts are unchanged. This presentation-only change does not alter what is output or when, and originally required no new behavioral test.

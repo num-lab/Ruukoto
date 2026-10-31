@@ -1,37 +1,31 @@
-# Agent Note: 新对话在首条消息时创建会话
+# Agent Note: Create a new-chat session only on its first message
 
 Status: implemented
 
-## 问题
+## Problem
 
-左栏只有「在某个工作区下新建会话」这一条创建路径：先由 `create_session` 建出空会话并打开标签，再在输入区写消息。拥有者要的是相反的顺序——点 New chat 先得到一块没有归属的输入区，选好工作区、写好第一条消息之后才真正建会话。
+The old flow created an empty workspace session/tab before composing. The owner wanted an unassigned composer first, then workspace selection and the first message before session creation. Project/cwd fix data identity, AccessScope and tool grants at creation; an unassigned UI must be a local draft, not a session later reassigned.
 
-难点在归属本身：会话的项目与 `cwd` 在创建时由后台固定，资料身份、AccessScope 与工具授权都读创建时的目录。界面上「尚未归属」的新对话只能是本地草稿，不能先建一个无项目会话再改归属。
+## Decision
 
-## 决定
+Add New chat with SquarePen below Ruukoto/Scheduled on the same 30 px row grid. It opens a draft canvas without a tab/request. Online with no selected session, including after all tabs close, this is the default canvas instead of a workspace placeholder. Remaining empty states are offline connection and unavailable PA main session.
 
-左栏 Ruukoto、Scheduled 之下增加 New chat 行，图标 `SquarePen`，与另两行同一条 30px 行网格；点击后在主画布显示新对话草稿页，不新建标签、不发任何请求。在线且没有已选会话时（启动后尚未打开、关掉全部标签）主画布默认就停在这页草稿，原先「你的工作区／从左侧选择工作区」占位页删除；空态页只剩离线连接与 PA 主会话未就绪两种。
+Reuse composer shell and exported ModeSelector/ModelSelector controls, attachment behavior and styling. A DropdownMenu workspace picker sits above/outside the input, initially unselected. Its search filters names live and Enter picks the first result; entries show roots, with distinct no-results/no-workspaces states. A new-workspace action reuses the folder picker/open_workspace. Search stops key propagation so letters do not trigger menu typeahead.
 
-草稿页复用既有输入区：同一个 `surface-composer composer` 外壳，附件、模式与模型三组控件由 Composer 导出的 `ModeSelector`／`ModelSelector` 复用，样式与既有会话页一致。工作区选择器 `DropdownMenu` 放在输入框之外、输入区上方，未选中时显示「选择工作区」。菜单顶部是搜索框（按名称即时筛选，Enter 选中首项），中间是带根目录的工作区列表，底部「新建工作区」复用左栏的文件夹选择与 `open_workspace`；筛选无结果与尚未登记工作区分别给出文案。搜索框拦住按键冒泡，避免字母触发菜单自带的首字母跳转。
+Keep text/mode/model/attachments/workspace in a renderer draft object, not per-session CodeWrites state. Without explicit model selection, inherit the current Code session or backend default; disable sending if still unknown. Sending requires workspace, nonempty text or attachments, and an available model. Enter and button share the predicate.
 
-草稿状态（正文、模式、模型、附件、工作区）留在渲染进程的草稿对象里，不写 `CodeWrites` 的按会话草稿：会话还不存在，按会话键状态会在创建后串到新会话。模型未显式选择时沿用当前 Code 会话的选择，没有会话则取后台默认模型；仍无法确定时禁止发送。选好工作区、正文或附件非空、有可用模型才允许发送；Enter 与发送按钮走同一条判定。
+Only `CodeState.startChat(draft, upload)` creates: use selected `rootDir.cwdReal` with existing `create_session`, explicit mode/model, original request-key idempotency and lost-response checks. Draft attachments cannot upload because `put_attachment` needs session ownership. `pickDraftAttachments` retains local files under app-lifetime temporary tokens; after creation, `uploadDraftAttachments` uploads by token before submission. Upload failure sends nothing and retains the draft. On successful creation, put the draft into the new session composer, submit and switch to its tab.
 
-发送时 `CodeState.startChat(草稿, upload)` 才发起创建：
+Pending/refused/failed creation sends no message and retains text with existing feedback; an already pending create is rejected visibly. Switching to any session closes the draft. New chat toggles back to its prior session when one exists; the default page has no prior session and does nothing on a second click.
 
-- 用所选工作区的 `rootDir.cwdReal` 调既有的 `create_session`，并显式传入草稿选择模式与模型；请求键、应答丢失核实沿用 `create`，新对话因此不会绕过创建幂等与在途保护。
-- 附件在草稿阶段不能上传：`put_attachment` 按会话登记归属，而会话还没建。选择附件时只登记本机文件（`pickDraftAttachments`，返回仅本次应用有效的暂存 token），会话建好后经 `uploadDraftAttachments` 按 token 补做上传再提交；上传失败不发送，草稿保留。
-- 创建成功后把草稿写进新会话的输入并立即提交，界面切到该会话标签；草稿页随之消失。
-- 创建在途、失败或被拒时不发消息：在途直接拒绝并提示，失败沿用 `create` 的提示，草稿页保留原文，可重新发送。
-- 切换任何会话（PA、工作区会话、新标签）都会关掉草稿页；再次点击 New chat 回到打开前的会话。默认页没有来路会话，再次点击 New chat 不动作。
+## Alternatives considered
 
-## 备选方案
+- Creating then changing workspace requires changing source identity; `session.workspace_mapped` changes display organization only, not cwd/history/authorization.
+- A draft tab needs a fake session ID and special cases in ordering/close/sync.
+- Making Session-bound Composer handle no session adds optional branches to model/mode/attachment/stop/queue paths; share only controls and own draft state separately.
+- Uploading before a session lacks a writable session scope; creating first recreates abandoned empty sessions.
+- Precreating on workspace selection still leaves abandoned sessions and violates first-message ownership order.
 
-- **先建会话再让它可换工作区**：需要给会话改 `projectId` 或补一条重映射，而 `session.workspace_mapped` 只改展示归属，不动资料身份与 `cwd`；改身份会让 AccessScope、历史与工具授权指向别的目录，等于重建会话。
-- **草稿页单独开一个标签**：标签由会话 id 驱动，草稿没有 id；为它虚构 id 会让标签排序、关闭与会话同步都要特判。
-- **在既有 Composer 上加重建逻辑**：Composer 绑定 `Session`，模型、模式、附件、停止与队列全部按会话 id 取状态；拖进「无会话」状态会把每条读写路径都变成可选分支。只把三组控件抽成共享组件，草稿页自己持有状态。
-- **草稿阶段先上传附件**：`put_attachment` 以会话为归属单位，没有会话就没有可写的作用域；先建会话再上传又回到「放弃也留空会话」。改为暂存本机文件，建好会话后补传。
-- **选中工作区即预建空会话**：仍会出现「点了 New chat 又放弃」留下的空会话，与拥有者「发出首条消息才归属」的顺序不符。
+## Consequences
 
-## 后果
-
-新对话在发出首条消息前不占用会话、任务或历史文件，放弃也不留空会话；但草稿页的原文只存在于渲染进程内存，关掉草稿页或应用即丢失，与普通草稿的持久性一致。工作区选择器只列出已登记工作区，首次使用仍要先在左栏添加工作区。新对话首条消息继承当前 Code 会话的模式与模型，未打开任何会话时用后台默认值，由既有 `create` 规则决定。默认页让未选会话时也总有可输入的入口，代价是默认页上的草稿没有「收起」动作，离开只能靠切到某个会话，原文随切走丢弃。
+Before first send, no session/task/history file exists and abandoning leaves no empty session. Text is renderer-memory-only and disappears when leaving the draft/application, like ordinary drafts. Pick from registered workspaces or register one through the existing folder flow. Mode/model follow current Code/default creation rules. The default draft has no collapse destination: switching to a session discards its text.

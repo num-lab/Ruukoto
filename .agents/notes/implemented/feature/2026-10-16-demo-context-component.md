@@ -1,26 +1,24 @@
-# Agent Note: Demo Context 采用原生组合与环形入口
+# Agent Note: Compose Demo Context from official primitives with a ring trigger
 
 Status: implemented
 
-## 问题
+## Problem
 
-拥有者明确要求 Context 改用 shadcn/ui 组件，入口参照附件的灰色进度环，不显示百分比数字。此前[AI Elements 试验](2026-10-16-demo-ai-elements.md)因通用的删除悬浮说明要求，把 Context 裁剪为只读 meter；最新请求取代其中 Context 的选择，其他区域仍不增加悬浮说明。
+The owner requested shadcn/ui Context with the supplied gray progress ring and no percentage label. The earlier [AI Elements experiment](2026-10-16-demo-ai-elements.md) reduced Context to a read-only meter while removing hover descriptions. This request supersedes that Context choice, not the restriction on unrelated hover descriptions.
 
-## 决定
+## Decision
 
-按官方 [Radix Context 模式](https://ui.shadcn.com/docs/ai-elements/radix/context)组合 Hover Card 与 Progress，直接复制 radix-rhea 源码、规范 cn 导入并复用既有 radix-ui，无新依赖或独立 Context 包装层。官方 Progress 当前源码未将 value 传给 Root，补这一行使 aria 数值、状态与填充一致；其他源码不改，MIT 许可保留。
+Compose Hover Card and Progress using the official [Radix Context pattern](https://ui.shadcn.com/docs/ai-elements/radix/context). Copy radix-rhea sources, normalize the `cn` import and reuse `radix-ui`; add neither a dependency nor a Context wrapper. Upstream Progress omitted forwarding `value` to Root; add that line so accessible value/state matches the fill, leaving other source and the MIT license intact.
 
-入口仍在模型左侧，使用 type=button 的图标按钮、灰色轨道及已用弧线，不显示数字或旋转。弧线由现有模拟 usedTokens／maxTokens 驱动，0 值透明以避免圆头残点；SVG 隐藏于读屏，按钮保留可访问名称和始终存在的 token 描述。详情仅有 Context、已用／总 token 和原生 Progress，无可见百分比、费用或其他动作。Hover Card 使用官方焦点与指针行为，窄栏始终保留环形入口，不改变 Effort、模型、提交或模拟数据。
+The trigger remains left of the model: a `type=button` icon button with a gray track and used arc, no number or rotation. Existing mock `usedTokens`/`maxTokens` drive the arc; zero opacity at zero avoids a round-cap dot. Hide SVG from screen readers while retaining the button's accessible name and always-present token description. The initial detail showed Context, used/total tokens and Progress, with no percentage, cost or actions. Use official pointer/focus behavior and retain the ring in narrow layouts without changing Effort, model, submission or mock data.
 
-## 备选方案
+[Context details](2026-10-16-demo-context-details.md) subsequently replaces the no-percentage detail with percentages, segments and category totals. The numberless ring and Hover Card/Progress composition remain. [Header/model-menu changes](2026-10-16-demo-header-model-menu.md) do not change Context behavior.
 
-- 保留原只读 meter、仅换图标：最少代码，但没有满足明确采用 Context 组件的最新请求。
-- 引入旧 AI SDK Elements Context：有现成环形入口，但增加模型／用量依赖和不需要的费用统计；当前官方模式已由 Hover Card 与 Progress 组合承载。
+## Alternatives considered
 
-## 后果
+- Keeping the read-only meter and replacing its icon is smallest, but does not meet the explicit component request.
+- The old AI SDK Elements Context has a ring, but adds model/usage dependencies and unwanted cost statistics. The current official composition suffices.
 
-仅独立 demo 增加两个官方原语及入口 SVG；正式 GUI、后台、冻结稿和模拟会话数据不变。SSR 检查 0／16／50／100% 的弧线与 Progress 可访问数值，浏览器检查详情、焦点、明暗及窄栏。来源和使用见 [demo 说明](../../../../.scratch/desktop-shadcn/demo/README.md)，外观仍交拥有者审阅。
+## Consequences
 
-顶部标签与模型／Effort 菜单的后续调整见[对应决定](2026-10-16-demo-header-model-menu.md)，不改变本篇 Context 行为。
-
-详情内容随后按附件改为[百分比、分段条与分类明细](2026-10-16-demo-context-details.md)，取代本篇详情不显示百分比的约定；无数字环形入口及 Hover Card／Progress 选择继续成立。
+Only the mutable demo gains the two official primitives and SVG; production GUI, backend, frozen copies and conversation fixtures are unchanged by this decision. SSR checks cover 0/16/50/100% arc and accessible Progress values; browser checks cover detail, focus, themes and narrow layout. Component provenance remains in the maintained demo README; appearance requires owner acceptance.

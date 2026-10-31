@@ -1,39 +1,40 @@
-# Agent Note: Desktop 同步 PA 与仓库标签
+# Agent Note: Desktop adopts Personal and repository tabs from demo v4
 
 Status: implemented
 
-[目录续页与按需 Git](../feature/2026-10-24-directory-pages-lazy-git.md)将正式 Git 查询改为点击后触发，新标签页固定显示入口，非仓库在进入后提示。
+[Lazy Git/directory pages](../feature/2026-10-24-directory-pages-lazy-git.md) makes production Git queries click-triggered with a persistent new-tab entry and non-repository feedback after entry. [Operation-specific checks](../bug-fix/2026-10-24-operation-specific-checks.md) replaces whole Git-metadata scans/external-reference restrictions, while [owner browsing](../feature/2026-10-24-owner-workspace-browsing.md) replaces protected-root browsing restrictions. Fixed read-only commands, budgets, identity and page consistency remain. Old shared-runtime Personal wiring described below is superseded by the [durable product entry](../simplification/2026-10-18-personal-product-entry.md), not a claim that today's Personal uses the old protocol.
 
-Git 元数据全树预检与外部引用限制由[按操作核实范围](../bug-fix/2026-10-24-operation-specific-checks.md)取代；固定只读命令、输出预算及身份校验继续适用。
+## Problem
 
-Git 查询的保护根约束由[拥有者浏览权限](../feature/2026-10-24-owner-workspace-browsing.md)取代；元数据核实、只读命令及分页一致性规则继续适用。
+The demo's Personal main tab, connection settings, draggable equal-width tabs, Git graph and glass layer had not reached Desktop. Production had a Personal placeholder and no Git-history read API. Copying sample state would replace real data, send verification and path protection with simulations.
 
-## 问题
+## Decision
 
-当前 Demo 的 PA 主标签、连接设置、拖动等宽标签、Git graph 和玻璃层尚未迁入 Desktop。正式端只有 PA 连接占位，Git 历史无读取接口；复制样例会把真实数据、发送核实和路径保护替换成模拟结果。
+Freeze approved-demo-v4 with style/primitive provenance assertions and unchanged older baselines, now under `test/fixtures/desktop-baselines/`. Original work scope is offline at `.scratch/desktop-shadcn/issues/19-desktop-demo-v4.md`. Both tab groups share ordering/slot avoidance. Main tabs use target plus session identity; Personal main is Ruukoto. Right-tab order belongs to its parent session. Drag neither recreates objects nor changes active selection; cancel restores order. Keyboard ordering/screen-reader announcements match demo.
 
-## 决定
+One app-window layer uses 72% background and 28-px blur. Left sidebar, both top bars and rounded message-area gaps reveal that transparent shared layer rather than separately sampling backgrounds and producing seams. Main/right bodies remain solid with reduced-transparency fallback. The frozen approved-demo-v4-glass.css delta is authoritative; two earlier corner fixes remain unused references, not production sources.
 
-按[工单](../../../../.scratch/desktop-shadcn/issues/19-desktop-demo-v4.md)冻结 approved-demo-v4，样式及原语保持来源断言，旧冻结不改。两组标签共享排序逻辑和槽位避让，主标签用 target 加会话身份区分，PA 主标签固定为 Ruukoto；右栏顺序仍归父会话。拖动不重建对象或修改激活项，取消还原；键盘排序及读屏播报与 Demo 一致。整个 app-window 共用单一72%背景与28px模糊底层，左栏、两个顶栏和消息区圆角缺口均透明露出该层；各区域不再单独采样，避免接缝。主内容与右栏正文实色，减少透明效果有回退。新增独立冻结差量 approved-demo-v4-glass.css，前两版圆角修正保留为未采用参考，不用于正式来源。
+The original shared-runtime Personal snapshot explicitly supplied mainSessionId. Missing identity displayed not-ready rather than guessing role order or creating a dev replacement. History, tools, approvals, model, Context, queue/input reused actual projections; Plan remained Code-only. Personal right sidebar exposed browser/SubAgent only, with file/Git blocked at action and IPC layers and sidebar diff actions rejected, while inline tool diffs remained readable. Settings used host/controlDir. DesktopSubmissions partitioned unresolved sends by their digest, never replaying old-instance input on another connection. Attachments carried target through the chain and checked original controller, connection object and instance at picker/upload stages, preserving Code defaults. Later Personal-specific assembly retains explicit ownership rather than inheriting retired protocol wiring.
 
-PA 主会话由快照 mainSessionId 明确给出，缺失时显示未就绪，不猜角色顺序也不创建 dev 替代。历史、工具、审批、模型、Context、队列及输入复用既有真实投影；Plan 只留 Code。PA 右栏只提供浏览器与 SubAgent，文件和 Git 在动作与 IPC 两层限制，右栏差异动作拒绝，行内工具差异仍可读取。设置读写既有 host/controlDir 配置；发送复用 DesktopSubmissions，未决记录按 host/controlDir 摘要分区，原实例未决输入不在其他连接重发。附件全链显式携带 target，系统选择器和每次上传均核实原控制器、连接对象与实例，Code 默认参数保持兼容。
+Code Git reads registered roots through Runtime/control read_workspace_git; clients cannot supply commands, absolute paths or root directories. Non-repositories return null, empty repositories empty commits, with actual parents/explicit refs. The original cap was 200 commits, five seconds total, 512 KiB per command and 768 KiB result. Fixed argv and sanitized Git environment disable lazy fetch, pager and replace. Root/Git metadata identities are checked before/after reads. The original full-protection policy rejected metadata symlinks/hard links, alternates and include/includeIf with a 100000-item scan limit while supporting ordinary worktrees. Later operation-specific/browsing decisions replace the overbroad checks; [Git paging](../feature/2026-10-17-desktop-git-history-pages.md) replaces the 200-total cap.
 
-Git 经 Runtime 与控制面 read_workspace_git 读取登记根，客户端不能传命令、绝对路径或根目录。返回非仓库 null、空仓库空 commits、真实父节点与显式 ref；固定最多200提交、总5秒预算、每命令512 KiB及结果768 KiB。固定 argv、清理 Git 环境、禁 lazy fetch、pager、replace 与外部配置引用，读取前后核实根及 Git 元数据身份和保护目录。为保持保护约束，拒绝元数据符号链接、硬链接、alternates、include/includeIf，并将扫描限制为100000项；普通 worktree 支持。失败可见并可重试，不把未知缓存成非仓库。缓存按工作区、实例代次与状态对象淘汰迟到响应。图沿用 Demo 的28px行、14px节点和每行 SVG，不把可变行高缩放为节点位置。HEAD 单独标记提交，不把它指向未被协议确认的分支。
+Failures remain visible/retryable, not cached as non-repositories. Caches discard late replies by workspace, instance generation and state-object identity. Graph geometry uses demo's 28-px rows, 14-px nodes and per-row SVG, not variable row-height scaling. HEAD marks its commit separately without claiming an unconfirmed branch.
 
-协议统一升为 v29，包含 mainSessionId 与 Git 查询；不改数据库 schema 或会话 JSONL。main 附件复用已有拥有者快照存储，仍拒绝子会话上传。
+This migration introduced protocol 29 for mainSessionId/Git reads without SQLite/JSONL changes; it is historical, not the current protocol. Main attachments reused owner snapshot storage and rejected child-session upload.
 
-## 既有决定
+## Related decisions
 
-检索 Desktop、PA、Git、标签、附件、快照及毛玻璃的 proposed／implemented／rejected。与[当前迁移](2026-10-16-desktop-current-demo.md)、[Trace](2026-10-16-desktop-trace-migration.md)部分重叠：本篇更新视觉来源和 PA 入口，其发送、工具及滚动语义继续适用。与[PA Demo](../feature/2026-10-17-demo-personal-main-tab.md)、[连接设置 Demo](../feature/2026-10-17-demo-personal-connection-settings.md)、[标签排序](../feature/2026-10-17-demo-tab-reorder.md)、[动态宽度](../feature/2026-10-17-demo-responsive-tab-width.md)、[Git 图](../feature/2026-10-17-demo-git-graph.md)及[提交详情](../feature/2026-10-17-demo-git-commit-details.md)部分重叠，保留其样例验收，正式端用本篇真实接线。MyGo 宿主选择及其权限隔离继续由[外壳决定](2026-10-17-desktop-mygo-experiment.md)持有；其他命中不变。
+The original active-note audit searched Desktop, Personal, Git, tabs, attachments, snapshots and glass. [Current migration](2026-10-16-desktop-current-demo.md)/[Trace](2026-10-16-desktop-trace-migration.md) retain send/tool/scroll semantics while this updates visual source/Personal entry. [Personal demo](../feature/2026-10-17-demo-personal-main-tab.md), [connection settings](../feature/2026-10-17-demo-personal-connection-settings.md), [tab ordering](../feature/2026-10-17-demo-tab-reorder.md), [dynamic widths](../feature/2026-10-17-demo-responsive-tab-width.md), [Git graph](../feature/2026-10-17-demo-git-graph.md) and [commit details](../feature/2026-10-17-demo-git-commit-details.md) retain sample acceptance, not production data. [MyGo shell](2026-10-17-desktop-mygo-experiment.md) owns host choice/isolation.
 
-## 备选方案
+## Alternatives considered
 
-直接复制 Demo App 最快且能保留样式，但会覆盖真实状态和未决发送；仅复制展示层并复用正式控制器。Desktop 主进程直接执行 Git 能少一个协议入口，但绕过后台登记根和保护校验；由 Runtime 统一只读。按名称或 roleSessionIds 首项识别 PA 无需加字段，但角色顺序和用户命名不提供身份保证；快照明确 main。支持共享对象库能覆盖更多仓库，但保护验证须额外持有所有外部对象根，本轮明确拒绝。
+- Copy demo App directly: fastest visual match, but overwrites real state/unresolved sends. Copy presentation and retain production controllers.
+- Execute Git in Desktop main: one less protocol operation, but bypasses backend registered roots/checks. Runtime owns read-only access.
+- Identify Personal by label/first roleSessionIds entry: no new field, but names/order do not prove identity. Snapshot explicitly names main.
+- Support shared object stores initially: broader repository support, but protection would need every external object-root identity. Initially reject; later operation-scoped checks own changed support.
 
-## 后果
+## Consequences
 
-Desktop 与 Demo 的布局和交互保持一致，PA 同时获得真实单会话能力，Git 图可查看实际提交。升级需要同步后台协议；大仓库和外部元数据形式可能被有界读取拒绝，界面保留安全重试。外部 SSH、外部模型和原生体验的实际验证范围随工单证据记录，不以模拟通过代替。
+Desktop matches demo layout/interaction, gains actual Personal single-session behavior and displays real commits. Upgrade requires matching backend protocol. Bounded reads can reject large/unusual repositories with safe retry UI. Actual SSH, model and native-experience coverage belongs to original evidence, not simulated passes.
 
-后续局部调整见[后续决定1](../bug-fix/2026-10-17-desktop-tab-drag-source.md)、[后续决定2](../feature/2026-10-17-desktop-read-snapshot.md)、[后续决定3](../feature/2026-10-17-session-creation-settings.md)；对应生命周期与默认设置以新决定为准，其余迁移契约保留。
-
-后续[Git分页](../feature/2026-10-17-desktop-git-history-pages.md)取代200条总上限，[字号与选中样式](../feature/2026-10-17-desktop-chrome-typography.md)及[hover资格](../bug-fix/2026-10-17-desktop-tab-hover.md)持有本轮局部行为；其他迁移约定继续适用。
+[Drag source](../bug-fix/2026-10-17-desktop-tab-drag-source.md), [snapshot reads](../feature/2026-10-17-desktop-read-snapshot.md) and [creation settings](../feature/2026-10-17-session-creation-settings.md) own later lifecycle/default changes. [Typography/selection](../feature/2026-10-17-desktop-chrome-typography.md) and [hover eligibility](../bug-fix/2026-10-17-desktop-tab-hover.md) own later local presentation; other migration contracts remain.

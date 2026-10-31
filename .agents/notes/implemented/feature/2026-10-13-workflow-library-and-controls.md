@@ -1,40 +1,40 @@
-# Agent Note: 工作流定义版本与可信交互入口
+# Agent Note: Version workflow definitions behind trusted launch and control entries
 
 Status: implemented
 
-命名文件与运行的接口版本由[共享角色与接口版本](../architecture/2026-10-15-workflow-role-interface.md)部分补充；本篇原键、路径保护和文件/SQLite 非原子决定保留。
+[Role/interface versions](../architecture/2026-10-15-workflow-role-interface.md) supplements named-file/run versioning. Original-key recovery, protected paths, and non-atomic file/SQLite commits remain here. [Progressive controls](2026-10-14-workflow-progressive-controls.md) supersedes the initial TUI text-window and user-entered-key UX, not authorization or unknown-effect rules.
 
-## 问题
+## Problem
 
-[运行协调器](../../implemented/architecture/2026-10-13-workflow-runtime-and-store.md)和[可信业务回答](../../implemented/feature/2026-10-13-workflow-owner-input-and-delivery.md)已有持久归属，但命名脚本、空闲会话显式启动和完整控制入口尚未接线。[06](../../../../.scratch/agent-workflow/issues/06-library-and-ui.md)需要把文件管理、模型自主启动和拥有者控制接到同一执行规则，不能借 UI 或模型参数制造授权。
+The [coordinator](../architecture/2026-10-13-workflow-runtime-and-store.md) and [trusted answers](2026-10-13-workflow-owner-input-and-delivery.md) already owned durable execution, but named scripts, explicit starts from idle sessions, and complete controls needed a common entry. Neither UI nor model parameters may manufacture authority.
 
-## 决定
+## Decision
 
-实例 `<agentDir>/workflows/<name>.js` 是当前命名定义。读取和保存拒绝路径穿越、符号链接、非普通文件、非法 UTF-8、超限与语法错误；同一 QuickJS 包装以 compileOnly 校验。core 保存不可变脚本文本与摘要，定义引用记录名称对应的历史版本及保存原键回执。保存先核实期望摘要，原键重放只返回归档版本，不覆盖后来更新的当前文件；文件与 SQLite 不宣称原子，失败时通过当前摘要和原键事实核实。
+`<agentDir>/workflows/<name>.js` is the current named definition. Read/save rejects traversal, symlinks, nonregular files, invalid UTF-8, oversize content, and syntax errors; compileOnly uses the same QuickJS wrapper as execution. Core retains immutable script text/digest and named historical references/save-key receipts. Save compares the expected digest. Original-key replay returns the archived version without overwriting a later current file. Files and SQLite commit separately; current digest and original-key facts resolve ambiguous outcomes.
 
-模型工具使用独立调用的 HostToolContext，开放说明、保存、发起、查询与取消。来源会话与运行归属由宿主核实，模型只可收窄默认预算；计划模式、普通子身份和工作流步骤不能发起嵌套运行。说明作为工具结果进入历史，工具输入和固定脚本文本可重建，不另加未经记录的模型输入。
+Model tools use a per-call HostToolContext for documentation/save/start/query/cancel. Host verifies source-session/run ownership; models may only narrow default budgets. Plan, ordinary child identities, and workflow steps cannot nest runs. Documentation is a recorded tool result; tool input/fixed script text is reconstructible without unrecorded model input.
 
-显式 CLI/TUI/IM 启动不需要占住一个模型任务。Runtime 在创建运行的同一事务登记短期宿主发起任务，固定当前会话模型和模式、来源事件与授权；登记完成即结束发起任务，后续执行由运行持有。新请求先检查当前来源与执行入口，原键重放先返回原运行，定义编辑和会话默认值变化不重新选择已接受请求的版本。
+Explicit CLI/TUI/IM starts need no model task already running. In the run-creation transaction, Runtime records a short-lived host initiation task fixing current session model/mode, source event, and authority. It ends after registration; the run owns subsequent execution. New requests preflight source and execution, whereas same-key replay returns the original run before choosing anything anew. Definition edits/default changes cannot alter an accepted version.
 
-CLI `workflow` 和 TUI `/workflow` 通过控制面列出定义、版本和运行，名称历史每页 100 项独立续读，列表/详情只含送达摘要，完整最终事实与回报正文通过阶段日志分页读取；带参启动并答复、暂停、恢复、取消和调整预算。TUI 复用现有可滚动文本窗口，实时事件提供进度注记，重连后查询持久事实。IM 只解析整条原始命令，核实发送者、原入口和运行目标；意图、入站事件及固定回执同事务提交，再停止在途执行。恢复仍受未知效果、来源失效、计时和停止核实的既有闸门约束。
+CLI `workflow` and TUI `/workflow` expose definitions/versions/runs, parameterized start/answer/pause/resume/cancel/budget. Named history pages independently at 100 entries. List/detail contain delivery summaries; full final facts/report bodies come from paged stage logs. Initial TUI used existing scrollable text windows and bounded progress-event notes; progressive controls now owns sidebar interaction and program-managed keys. Reconnect reads durable facts rather than maintaining another run state.
 
-## 既有笔记审计
+IM parses the entire original command and verifies sender, original entry, and run target. Intent, inbound event, and fixed receipt commit together before stopping in-flight execution. Resume still obeys unknown effects, invalid source, timing, and verified-stop requirements.
 
-2026-10-14 拥有者确认[渐进交互方案](../../implemented/feature/2026-10-14-workflow-progressive-controls.md)：取代本篇 TUI 文本窗口与用户填写请求键的选择，命名版本、权限、幂等和未知效果规则保留；当前侧栏事实及验收归后继笔记和工单，本篇保留原决定。
+### Failure and recovery constraints
 
-按工作流、定义、IM 控制与版本检索 proposed、implemented；rejected 目录不存在。[总提案](../../implemented/feature/2026-10-12-agent-workflows.md)部分落实，本篇持有定义与入口选择，其余联合验收仍由总提案持有；运行、脚本隔离、步骤能力和回答送达四篇部分重叠，沿用其归属与安全保证并互链。其他命中属于普通委派、导入、部署或文档流程，不取代既有决定。
+A file written without a receipt is not known unwritten: verify digest/key and never replace the key automatically. An incomplete model operation receipt stays unverifiable. After asynchronous compile, recheck active task/cancel/permission version. After IM asynchronous preflight, the registration transaction rechecks original text/identity/target. Every receipt family compares all parameters; an old same-key row is not proof that different parameters were accepted. Compile stack exhaustion maps to a fixed code and releases the VM while refusing save/start. IM error handling advances its offset only from the actually committed fixed event, not an ID temporarily allocated in a rolled-back transaction.
 
-## 备选方案
+The [overall workflow decision](2026-10-12-agent-workflows.md) retains joint acceptance; coordinator/isolation/step-capability/answer-delivery notes retain their own safety rules. The original audit found overlap but no fully absorbed or archived note.
 
-- 直接暴露协调器的 sourceTaskId：改动少；空闲会话没有可信活动任务，UI 回填来源会扩大授权，因此由宿主登记短期发起任务。
-- 用 V8 校验或试运行：可复用 Node；前者与实际 QuickJS 语法可能不同，后者可能登记步骤，因此用同一解释器只编译。
-- 只保留当前文件：无需历史元数据；定义更新与原键重放会改变既有工作，因此保留不可变内容版本和名称引用。
-- 新建可视化工作流编辑器：集中展示方便；超出已确认首版，已有命令和文本窗口可以覆盖必要查询与控制，因此复用现有交互。
+## Alternatives considered
 
-## 后果
+- Expose sourceTaskId directly: smaller change, but idle sessions have no trusted active task and UI-provided provenance could expand authority. Create a host initiation task instead.
+- Validate with V8 or trial execution: reuses Node, but syntax can differ from QuickJS and trial execution can register steps. Compile only in the actual interpreter.
+- Keep only the current file: less metadata, but edits would change original-key replay/accepted work. Preserve immutable versions and name references.
+- Build a visual workflow editor: convenient overview, but beyond the first approved scope; existing commands/presentation supported the required controls.
 
-两产品的模型自主发起和拥有者显式发起使用同一运行、权限和资源规则，空闲会话不需要先调用模型，文件更新不会改变旧运行。代价是增加名称历史/保存回执，以及短期发起任务和事务内的来源、原键核实。core schema 39/控制协议 22 按既有严格版本策略拒绝旧库与客户端，不回填授权；旧资料保留并用匹配代码查阅。
+## Consequences
 
-文件与 SQLite 分别落盘。文件已写但回执缺失时必须核实当前摘要与原键，不能报告未写入或自动换键；模型操作账本无完整回执时保留无法核实。异步编译后再次核实任务活动、取消和权限版本，IM 异步预检后在登记事务核对原文/身份/目标；所有族回执核对完整参数，存在同键旧记录不能证明本次异参已提交。编译栈耗尽仍转固定 code 并释放 VM，拒绝保存/启动；IM 异常只凭实际落盘的固定入站事件确认提交，事务内暂存 ID 不能驱动偏移前进。
+Model and explicit owner launches share runtime/authority/resource rules, and idle launches avoid an unnecessary model call. Definition edits cannot mutate old runs. Costs are named-version history, save receipts, short initiation tasks, and transactional source/key checks. Schema 39/protocol 22 were the introduction versions; strict compatibility rejects unsupported old data/clients without authorization backfill, preserving data for matching code.
 
-TUI 复用文本窗口和持久命令历史，写操作使用用户显式原键；最近事件注记有界并在同实例重连保留，旧补发不回退。退出重开后通过 list/show/logs/question 查询持久事实，不持有另一套运行状态。真实 Runtime、双产品 Driver、双平台适配器替身、实际 CLI 进程、假终端和 Python PTY 的证据由[06](../../../../.scratch/agent-workflow/issues/06-library-and-ui.md)持有；真实模型、真实 IM 和主观产品体验交 07，不把替身记为真实验收。
+Initial TUI durable command history used owner-supplied keys and same-instance bounded event notes that did not regress on replay; current interaction delegates those details to progressive controls. Reopening queries list/show/logs/question, not local run state. Historical issue 06, formerly `.scratch/agent-workflow/issues/06-library-and-ui.md`, held real Runtime/two-product Driver, platform substitutes, real CLI, fake terminal, and Python PTY evidence. It is offline provenance. Real model, real IM, and subjective product acceptance belonged to joint acceptance issue 07; substitutes did not establish them.

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { layoutGitGraph as demoLayout, type GitCommit } from "../.scratch/desktop-shadcn/demo/src/git-graph-data.ts";
+import { layoutGitGraph as demoLayout, type GitCommit } from "../verification/desktop-demo/src/git-graph-data.ts";
 import { buildGitGraph, extendGitGraph, gitGraphCanExtend, gitGraphWindow, GIT_GRAPH_CHECKPOINT_ROWS } from "../apps/desktop/src/renderer/git-graph-model.ts";
 
 function commit(id: string, parents: string[]): GitCommit {

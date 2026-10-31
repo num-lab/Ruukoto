@@ -1,45 +1,46 @@
-# Agent Note: 工单保留结论，原始运行证据退出 Git 历史
+# Agent Note: Keep conclusions in work records and remove raw evidence from Git history
 
 Status: proposed
 
-本地清理结果已验证并交付。拥有者于 2026-10-30 最终要求只提供本地仓库，GitHub 重建与平台资料归档由其自行处理；本篇的线上迁移方案不由本任务继续执行，不能把本地 Git 备份当成完整 GitHub 平台归档。
+Local cleanup was verified and delivered. On 2026-10-30 the owner finally requested only the local repository, taking GitHub recreation/platform archiving themselves. This task does not continue the online migration proposal; a local Git backup is not a complete GitHub-platform archive. [Development standards](../../implemented/process/2026-10-31-development-standards.md) later supersedes this proposal's tracked local-work-item policy with GitHub issues and removes .scratch from the current tree; the historical cleanup decision/evidence requirements below remain distinct.
 
-## 问题
+## Problem
 
-将完整原始证据放进 `.scratch` 后，压缩归档、截图、会话记录和数据库快照成为对象库主要体积。只删除当前文件不会移除历史对象；普通 clone 仍需下载它们。现有证据目录同时含正式测试依赖的复现脚本与冻结稿，整目录删除又会破坏验收能力。
+Full raw evidence in .scratch made compressed archives, screenshots, conversations and database snapshots dominate Git objects. Deleting current files leaves historical objects in ordinary clones. Evidence directories also contain reproduction scripts/frozen inputs needed by formal tests, so blanket deletion breaks acceptance.
 
-## 方案
+## Proposal
 
-拥有者于 2026-10-30 确认[规格](../../../../.scratch/git-history-cleanup/spec.md)：Git 保留工单、规格、结论及真正需要的源码、测试输入和冻结稿；只供留档的原始产物在仓库外本地受限目录长期保存。按实际用途列精确清单，定向重写公开远端两个分支，保留提交拓扑与新旧映射；不把本地独有工作发布或删除。
+The owner approved the original specification on 2026-10-30, retained offline at `.scratch/git-history-cleanup/spec.md`: keep work records, specs, conclusions and genuinely needed source/test/frozen inputs in Git, while raw archival artifacts live long-term in a restricted local external directory. Classify exact paths by actual use, rewrite only the public remote's two branches while preserving topology and old/new mapping, and neither publish nor delete local-only work. The later governance migration changes current work-record location, not permission to publish/rewrite remote history.
 
-旧记录中的私有仓库前提已经不成立。证据外存不自动上传，不建立在线证据库，也不承诺重跑可以还原过去那次原件。当前文档与工单用统一归档说明承接被移出的证据引用，并保留原路径帮助找回；旧提交内的引用不逐个修补，完整旧状态通过备份恢复。
+The old private-repository assumption no longer holds. External evidence is not automatically uploaded, no online evidence service is created, and reruns cannot recreate originals from a past run. Current documents/work records use a consistent archive explanation plus original paths. Old-commit links are not individually repaired; backups recover complete old states.
 
-备份不等同于 `git bundle --all`：它必须覆盖旧对象、refs、reflog、stash、worktree 索引和未完成工作。被忽略的本机文件留原地并明确不在差量备份中；旧工作区不删，迁移后也不能 merge 旧历史回流。先验证恢复与隔离清理结果，再由拥有者另行确认远端切换。
+Backup is more than git bundle --all: include old objects, refs, reflogs, stash, worktree indexes and unfinished work. Ignored local files remain in place and are explicitly outside differential backup. Old workspaces remain; after migration, do not merge old history back. Verify restoration/isolated cleanup before separate owner confirmation of remote switching.
 
-默认入库由 `.gitignore` 拦截，并用真实 Git 暂存回归检查规则；允许继续跟踪保留的旧材料。它不阻止显式 `git add -f`，特殊必要输入须先审用途，不借强制添加交原始证据。本轮不新增依赖某个历史子树 OID 的准入服务或上千条存量白名单。
+.gitignore blocks default admission, tested through actual Git staging, while retained already-tracked material may remain tracked. It cannot prevent git add -f. Exceptional required inputs need purpose review, not forced raw-evidence inclusion. This proposal adds neither a historical-subtree-OID admission service nor thousands of legacy allowlist entries.
 
-## 既有笔记审计
+## Related decisions
 
-- [文档分层](../../implemented/process/2026-10-09-split-agent-and-human-docs.md)：部分取代工单和完整原始证据共同入库的决定；工单入库、文档读者分层与决策可追溯继续成立。
-- [原始证据空白](../../implemented/testing/2026-10-15-raw-evidence-whitespace.md)：本轮外存后不再默认向 Git 放入这些输出；原件字节仍须在外部备份保留，不能借清理修剪原始内容。
-- [桌面冻结迁移](../../implemented/architecture/2026-10-16-desktop-current-demo.md)：部分重叠，冻结源码和必要基准继续原样保留，不改变产品验收决定。
-- 其余以 evidence 为历史记录来源的功能笔记不改变产品行为，仅在原始证据移出时修正现行引用位置。封印归档只读。
+- [Documentation layers](../../implemented/process/2026-10-09-split-agent-and-human-docs.md): originally partly superseded co-tracking raw evidence/work items while retaining audience separation/traceability. Current tracker authority now follows the later development standards.
+- [Raw evidence whitespace](../../implemented/testing/2026-10-15-raw-evidence-whitespace.md): raw output no longer defaults into Git, but original bytes must remain externally without trimming.
+- [Frozen desktop migration](../../implemented/architecture/2026-10-16-desktop-current-demo.md): preserves required frozen source/baselines and product acceptance decisions.
 
-## 备选方案
+Other evidence-linked feature decisions retain behavior and only adjust current evidence locations. Sealed archives stay read-only.
 
-- 只取消跟踪：风险和改动最小，但历史对象仍随 clone 下载，不满足瘦身目标。
-- 清空全部历史重新初始化：对象最少，但丢代码演进，违背拥有者确认的边界。
-- 整个 evidence 目录忽略或删除：规则简单，却会误删正式测试输入和有效结论；采用用途分类与必要例外。
-- 引入 LFS 或在线证据服务：有利于共享大文件，但增加服务、权限与迁移负担，且仍需治理历史；当前需求只需本地归档与轻量结论。
-- 逐提交修补所有历史引用：旧检出更完整，但会把定向清理扩大为整段历史维护；只保证新 tip 的现行入口，旧原件由备份承接。
-- 用固定 Git 子树 OID 为存量文件放行：能阻止强制添加新路径，但引入完整历史对象依赖和两分支基线管理，且不能限制旧文件增长。当前先用默认忽略与回归测试，不把日常静态检查绑在历史对象上；若仍发生强制误入库，再增加独立准入检查。
+## Alternatives considered
 
-## 验收标准
+- Untrack only: smallest risk/diff, but ordinary clones still download old objects.
+- Reinitialize all history: fewest objects, but loses evolution contrary to approved boundaries.
+- Ignore/delete whole evidence directories: simple, but removes actual test inputs/useful conclusions. Classify by purpose with necessary exceptions.
+- LFS/online evidence service: easier large-file sharing, but adds service, access and migration costs while historical cleanup remains. Local archive/lightweight conclusions suffice.
+- Repair every historical link: more complete old checkouts, but expands targeted cleanup into full-history maintenance. Current tips have clear archive destinations; backups retain originals.
+- Allow legacy files by fixed subtree OID: can stop forced new paths, but depends on full historical objects/two branch baselines and cannot limit growth in old files. Use default ignores/regressions first; add independent admission checks only if forced mistakes persist.
 
-备份通过恢复抽验；清理范围之外的历史树内容不变；两个清理后分支头在干净检出无新增检查回归且现行引用有明确归档去向；普通暂存原始产物的负例失败；同条件完整新 clone 体积实测下降。普通 clone 收益与 GitHub 服务端实际释放分别验收，不能互相替代。
+## Acceptance criteria
 
-## 风险
+Sample restoration verifies backups. History-tree contents outside cleanup scope remain unchanged. Both cleaned branch tips in clean checkouts have no new check regressions and clear current archive references. Ordinary raw-artifact staging negatives fail. Complete fresh-clone size decreases under comparable conditions. Clone gains and actual GitHub server-space release require separate acceptance and cannot substitute for one another.
 
-重写会改变受影响提交及后继哈希，旧克隆可能重新带回旧对象。切换必须显式确认、校验最新远端 OID 并原子更新两个分支；保护规则不允许就停止，不能擅自关闭。公开历史的已下载副本无法撤回，本轮不是凭据泄露审计。原始证据仅由拥有者本地持有，普通 clone 不再自带完整原件；备份与旧工作区会使本机总占用短期增加。
+## Risks
 
-实际发现30个只读PR引用，其中至少13个仍保留候选路径。按[GitHub说明](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/removing-sensitive-data-from-a-repository)，非敏感数据不在支持清理PR引用的范围；不能把它说成只需等待GC或统计更新。当前双分支方案不足以保证服务端空间释放，完整目标退回拥有者决定。原历史21个签名保留在备份，重写版本不继承签名。
+Rewriting changes affected/descendant hashes; old clones can reintroduce old objects. Remote switching needs explicit approval, latest remote-OID checks and atomic updates to both branches. If protection rejects it, stop rather than disable protection. Downloaded public copies cannot be recalled; this is not a credential-leak audit. Only the owner holds full local originals, not ordinary clones. Backups/old workspaces temporarily increase local disk usage.
+
+The original investigation found 30 read-only PR refs, at least 13 retaining candidate paths. [GitHub guidance](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/removing-sensitive-data-from-a-repository) excludes nonsensitive data from support-assisted PR-ref cleanup; this is not merely waiting for GC/statistics. Two-branch rewriting therefore could not guarantee server-space release, returning the complete goal to the owner. Backups retain 21 original signatures; rewritten commits do not inherit them.

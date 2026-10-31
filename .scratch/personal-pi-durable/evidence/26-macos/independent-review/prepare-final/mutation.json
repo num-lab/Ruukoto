@@ -1,6 +1,0 @@
-{
-  "mutation": "仅撤去完全访问宿主模式准入",
-  "file": "apps/ruukoto/src/personal-command-execution.ts",
-  "before": "c1356517fc5ea86a84b72ccb26355f5453e6f607eadd51836dbe1ff45b2620d6",
-  "withdrawn": "ba973668b785ecfe2e38deaa46af23633ee3a208ed4a6810f3b13139e623ab62"
-}

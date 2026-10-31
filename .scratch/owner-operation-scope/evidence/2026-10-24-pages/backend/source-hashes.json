@@ -1,9 +1,0 @@
-{
-  "packages/runtime/src/workspace-files.ts": "421f60cf129d3be9ebe97523f5de584c53f1166f174e47f18cb6b10590682c86",
-  "packages/runtime/src/runtime.ts": "cbbcfea61fb4ce33ebe3f1dbd79f91d570f3ebf4862e454ea6b54a8930d2c714",
-  "packages/control/src/server.ts": "5dfa62a58ad31c1c6c9431bd81d7ba2c4c15563861deaee8da264d855eb29812",
-  "packages/control/src/ops.ts": "ebaf6fdb6359c4da4ca635a371535b55f8a361428512b4800a881fec11c70ca4",
-  "packages/core/src/types.ts": "7cb18965e1220917e3ff0354400dcf0edf6f42aa07788a09cf8665025516ce71",
-  "test/desktop-workspace-files.test.ts": "91996997b93f1baea5c4274212b2bf0fd993c9712a330ecddc0c2633ef108a5f",
-  "test/dir-identity.test.ts": "92383e9065e9c58ad2b8a0c9d99dbe63dc27b9a44d5bd24ccf2e192a6ab5b7a2"
-}

@@ -1,41 +1,44 @@
-# Agent Note: 入站图片先暂存，按任务提升并在发送前恢复
+# Agent Note: Stage inbound images, promote them to task artifacts, and restore before sending
 
 Status: implemented
 
-原编号：ADR 0024
+Original identifier: ADR 0024.
 
-## 问题
+## Problem
 
-Telegram 与 QQ 拥有者私聊的图片在任务产生前就需要完成下载、校验和持久化，而任务产物必须有已有任务归属。接收、建任务和产物文件之间存在崩溃窗口，重复接收与继续任务又都需要找回同一张图片，且不能把下载 URL、凭据和完整 base64 扩散进历史。
+Owner-private Telegram/QQ images must be downloaded, validated, and durable before task creation, but task artifacts require an existing task owner. Reception, task creation, and files have crash windows; duplicates and resumed tasks must find the same image without spreading download URLs, credentials, or full base64 through history.
 
-## 决定
+## Decision
 
-Telegram 与 QQ 拥有者私聊的图片必须在登记普通入站事件前下载、校验并持久化，但任务产物需要已有任务归属。因此新增独立入站媒体暂存与拒绝账本，按来源、外部消息 ID 与图片顺序去重；不提前创建任务产物，也不把下载 URL 或凭据持久化。首版只接收 JPEG、PNG、WebP，每条最多 4 张、单图最多 8 MiB，按声明 MIME 与 magic bytes 一致性校验，网络错误最多尝试 3 次。
+Before registering an ordinary inbound event, download/validate/persist images in a separate staging and rejection ledger keyed by source, external message ID, and image order. Do not create task artifacts early or persist download URLs/credentials. Accept JPEG/PNG/WebP only, at most four images/message and 8 MiB/image, matching declared MIME to magic bytes; network errors get at most three attempts.
 
-任务创建后先准备不可变产物文件，再在同一 SQLite 事务内提交事件的 task_id、artifact_refs、图片产物元数据和暂存归属。文件与数据库没有跨文件事务：确定的产物 ID、内容哈希及重启复核让文件已经存在而元数据尚未提交的窗口可以重试。下载完成未登记、登记未建任务和任务已建未提升均沿原消息键恢复；没有可恢复下载来源的未完成下载明确拒绝。未绑定任务的暂存超过 24 小时清理并保留状态，已绑定任务的图片保留。
+After task creation, prepare immutable artifact files, then atomically commit event task_id/artifact_refs, image artifact metadata, and staging ownership in SQLite. Files and SQLite are not atomic together: deterministic artifact IDs, content hashes, and restart checks make file-present/metadata-absent retryable. Recover downloaded-but-unregistered, registered-but-taskless, and created-but-unpromoted states through the original message key. An incomplete download without a recoverable source rejects explicitly. Clean unbound staging after 24 hours while retaining its status; task-bound images remain.
 
-会话历史只保存稳定图片引用与元数据；模型上下文选择时使用图片占位块估算预算，真正发送前从任务产物恢复图片并复核归属、MIME、字节数和哈希。沿 resumesTaskId 继续的任务保留源图片，prompt 快照也只保存引用。采用此路径以避免把 base64 重复写入 JSONL，并保留完整历史与模型上下文的既有边界（[完整会话历史](2026-09-19-preserve-session-history.md)与[上下文压缩](2026-09-26-lossy-context-compaction.md)）。
+History and prompt snapshots store stable image references/metadata, not repeated base64. Context budgeting uses image placeholders; immediately before provider send, restore from task artifacts and verify ownership, MIME, length, and hash. `resumesTaskId` chains retain source images. This preserves the distinction between [complete history](2026-09-19-preserve-session-history.md) and [request compaction](2026-09-26-lossy-context-compaction.md).
 
-含图片消息的文字不进入 IM 审批命令路径。模型不支持 image 时明确拒绝并保留原因，不发送缺图请求，不切换模型。下载耗尽、格式或上限拒绝、模型不支持使用三种宿主固定纯文本回执，按拒绝账本消息 ID 使用公共 outbox 去重；模型生成内容不参与错误说明。[开发实例导入](2026-10-04-legacy-instance-import.md)与[个人实例导入](2026-10-05-personal-instance-import.md)均排除暂存与拒绝账本，已提升的图片随任务产物导入并保留媒体元数据；个人实例导入的既有外发失效规则继续适用。
+Text accompanying an image never enters the IM approval-command parser. If the selected model lacks image support, reject with a retained reason; do not send a text-only substitute or switch models. Download exhaustion, format/limit rejection, and unsupported model each use one of three host-fixed plaintext receipts, deduplicated through the public outbox using rejection-ledger message ID. Model text does not determine error explanations.
 
-## 入口与恢复边界
+Historical [Coding import](2026-10-04-legacy-instance-import.md) and [personal import](2026-10-05-personal-instance-import.md) exclude staging/rejection ledgers. Promoted images travel with task artifacts and retain media metadata; existing personal-import sending invalidation still applies. These are not new durable import support.
 
-Telegram 从 message.photo 选最大 PhotoSize，经 getFile 下载；QQ 只用 OneBot 图片段 url/file，不根据消息正文读取任意 URL。caption 和 QQ 文本按同一用户消息保留，图片保持平台原顺序。Telegram 在最终决定前不推进 offset，永久失败后推进；QQ 在适配器内重试耗尽后保留拒绝。旧代次图片重投仍受原钉版目标核实，不能用新入口重新包装。图片损坏时已建任务明确收尾，后续文本仍能运行，固定拒绝回执与普通失败回执不重复发送。
+## Entry and recovery details
 
-个人 Pi 1.3.0 的独立装配见[浏览器与图片归属](2026-10-18-personal-browser-media.md)；本篇继续持有既有共享装配与权限/媒体规则，个人 durable 的绑定、接纳和恢复由该篇持有。
+Telegram selects the largest `message.photo` PhotoSize and downloads via getFile. QQ uses only OneBot image-segment url/file, never arbitrary URLs from message text. Caption/QQ text remain in the same user message, with platform image order preserved. Telegram advances offset only after a final decision, including permanent rejection. QQ retains rejection after adapter retries exhaust. Old-generation redelivery remains subject to its original pinned-target checks and cannot be wrapped as a new-entry message.
 
-## 备选方案
+A corrupted image explicitly finishes its already-created task while allowing later text work. Fixed image-rejection and ordinary failure receipts must not duplicate one another. [Personal browser/media ownership](2026-10-18-personal-browser-media.md) owns Pi 1.3.0 durable binding, acceptance, and recovery; this note retains shared-assembly media/security rules.
 
-将完整 base64 写入 JSONL，可让历史本身携带模型重放所需内容；但同图在首次与继续中重复落盘，模糊完整历史与本次模型上下文边界。按[工单 25](../../../../.scratch/agent-direction/issues/25-multimedia-messages.md)「历史语义」及 grilling 记录，历史保存稳定媒体引用和元数据，发送前恢复 image block。
+## Alternatives considered
 
-直接在接收阶段建立任务产物能省去一次提升；但尚无任务归属，任务创建失败会留下半绑定引用。该工单确认先按外部消息幂等暂存、建任务后提升，独立拒绝账本不冒充普通 InboundEvent。
+- **Store full base64 in JSONL.** History would carry replay bytes directly, but initial and resumed turns repeatedly persist the same image and blur history versus request input. Keep stable references and restore image blocks before send.
+- **Create artifacts during reception.** Avoids promotion, but lacks a task owner and leaves half-bound references if task creation fails. Stage idempotently by external message first; a rejection record is not an ordinary InboundEvent.
 
-## 后果
+Original rationale is historical offline `.scratch/agent-direction/issues/25-multimedia-messages.md`, especially history semantics and the requirements discussion.
 
-图片原文可按任务引用重放，接收、拒绝与任务归属都可核实，含图文本不能扩大审批能力。代价是文件和 SQLite 没有跨系统事务，需要确定产物 ID、哈希与启动恢复；未绑定暂存仅保留 24 小时，无法恢复下载来源时必须明确拒绝。首版不转码、不缩放、不接受 SVG/GIF，回复保持文本，不提供 OCR、外部视觉服务或自动模型切换。
+## Consequences
 
-## 验证
+Original images remain replayable by task reference; reception, rejection, and ownership are verifiable, and image captions cannot authorize operations. Deterministic IDs/hashes/recovery pay for the filesystem/SQLite window. Unbound data lasts only 24 hours; unrecoverable downloads reject. No transcoding, resizing, SVG/GIF, image replies, OCR, external vision service, or automatic model switching is introduced.
 
-[工单 25](../../../../.scratch/agent-direction/issues/25-multimedia-messages.md)记录 npm run typecheck 与 git diff --check 通过；全量 npm test 995 通过、0 失败、1 个 RUN_MODEL_CHECK 门控跳过，相关检查 41/41，补充模型钉定和图解 5/5。test/90、95、96、97、98 使用真实 Runtime、SQLite、文件与模拟平台、模型，核对 HTTP 图片 payload、两级继续、压缩点、重投、崩溃窗口、能力拒绝及回执幂等。完整日志与 Linux 审批回归日志由原工单链接保存。
+## Verification
 
-真实 Telegram Bot API/NapCat 图片下载、真实视觉模型识图及回复均未实测；Linux tx 的 test/08 16/16 审批回归不等于真实 IM 图片验收。
+Historical issue 25 recorded passing typecheck/diff checks, a full suite with 995 passed/zero failed/one gated model skip, related checks 41/41, and model-pinning/diagram checks 5/5. Tests 90/95/96/97/98 used real Runtime/SQLite/files with mock platforms/models to inspect HTTP image payloads, two-level resume, compaction, redelivery, crash windows, capability rejection, and receipt idempotence. The offline issue held complete logs and Linux approval logs.
+
+Real Telegram Bot API/NapCat downloads, real vision recognition, and real replies were not exercised. tx test/08 16/16 proves approval regression only, not real IM image acceptance. This migration reruns none of these runtime tests.

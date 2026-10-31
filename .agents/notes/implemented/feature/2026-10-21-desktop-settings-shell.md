@@ -1,46 +1,42 @@
-# Agent Note: 设置容器独立选择归属并保护原表单
+# Agent Note: Keep settings target selection independent and preserve submitted forms
 
 Status: implemented
 
-PA 配置页的保存及待核实导航采用[直接保存](../simplification/2026-10-28-desktop-personal-direct-save.md)，本文的全窗导航限制继续用于 Code 与 PA 连接设置。
+[Direct PA save](../simplification/2026-10-28-desktop-personal-direct-save.md) supersedes PA page save/unresolved navigation; whole-dialog protection remains for Code and PA connection settings. [Settings demo design](2026-10-28-desktop-settings-demo-design.md) replaces old Code/PA tabs and shadcn field layout. [Instance MCP](../simplification/2026-10-24-code-instance-mcp.md) removes workspace/source/candidate selection. Form protection, tickets, and original-instance/request ownership remain here; retired UI decisions are identified below.
 
-本篇的页内 Code/PA 页签与 shadcn 字段布局已被 [demo 设计](2026-10-28-desktop-settings-demo-design.md) 取代；容器表单保护、票据与请求归属继续沿用，下面保留被取代的原决定。
+## Problem
 
-MCP 专属工作区、来源与候选接口按[实例 MCP 方案](../../implemented/simplification/2026-10-24-code-instance-mcp.md)删除；容器的产品选择、表单保护与原实例核实继续沿用，本篇保留被取代的原决定。
+Settings were inline in App with appearance, old PA connection, and archives only. Management needs a target even without an open session. Original project-scoped MCP additionally distinguished displayed workspace from configuration source. Letting pages close themselves or save to the current chat target risks crossing drafts and late responses between targets.
 
-## 问题
+## Decision
 
-设置内联在 App 中，仅有外观、旧 PA 连接和存档。新增管理页需要在没有会话时选择配置目标，MCP 还需区分工作区展示归属与原配置来源；若让页面各自关闭或按聊天目标保存，未保存内容和迟到响应就可能跨目标混用。
+Extract SettingsDialog with existing Dialog/Tabs/Field/form components rather than a router/window system/general form framework. Its initial six categories were appearance, models, Skills, MCP, PA remote connection, and archived sessions. It enlarged the dialog, kept internal scrolling in two regions, and added CSS overrides after the frozen design instead of rewriting that baseline. Current visual/category composition follows the demo-design note.
 
-本篇落地[设置管理提案](../../proposed/feature/2026-10-21-desktop-settings-management.md)中的容器部分；模型、Skills、MCP 后台与新 Personal 维护流程仍由该提案持有。与[shadcn 定稿](../architecture/2026-10-15-desktop-shadcn-demo.md)、[会话存档](2026-10-20-desktop-session-archive.md)、[侧栏开关](../bug-fix/2026-10-17-desktop-sidebar-toggle.md)部分重叠，保留它们的视觉、存档和焦点决定；其余检索命中的启动、消息恢复、Git、文件读取与搜索笔记不改变。本次无完全吸收或失效提案。
+SettingsState owns open/category/independent selections for the three management groups. Initialize from the chat target on opening, then keep settings selection independent. The original target control showed only Code/PA with a nonvisual accessible name, not redundant titles/descriptions/scope labels. Original MCP defaults came from a normal Code session's workspace/source or the first workspace when no session existed; switching workspace reset source, and changing actual Code instance cleared source selection in every category. These project-scoped choices are retired under instance MCP, not requirements to reintroduce them.
 
-## 决定
+Original pages received category/scope/settings/two CodeState values via component parameters. MCP candidates were backend-provided with instance/workspace ownership, with candidate names preferred; missing/wrong-instance/wrong-workspace/absent-selected-source candidates yielded sourceId null and prevented save. Chat lists were not an authoritative candidate source. Those candidate APIs are now removed. Unwired pages originally showed explicit read-only status; old chat connection was never the new personal management connection. Later backend/page decisions own delivered operations.
 
-`SettingsDialog` 复用现有 Dialog、纵向 Tabs、Field 与表单控件，提供外观、模型、Skills、MCP、PA 远程连接、已存档会话六类。正式样式在现有 CSS 后追加覆盖，保留定稿原文；扩大浮窗并维持左右两区内部滚动，不引入路由、窗口系统或通用表单框架。
+### Form and request ownership
 
-`SettingsState` 持有打开状态、类别和三类各自的配置选择。每次打开以聊天目标初始化，此后选择独立；目标控件采用 shadcn/ui 横向 Tabs，仅显示 Code、PA，保留非可见的可访问名称，不另加标题、说明或重复范围提示；普通 Code 会话只能提供工作区与原项目初值，没有会话时用首个工作区及自身来源。切工作区将来源复位为该工作区自身。Code 换实例在任何类别下都清除旧 MCP 选择，实际实例 ID 变化也按换实例处理。
+The container holds only SettingsForm dirty/phase/save/discard/invalidate. Each page owns loaded values/revision/draft/field errors and original target/instance/workspace/source/parameters as applicable. Each API receives its actual revision semantics; do not normalize model revision, MCP version, and personal configuration into a fictional common protocol. Preserve current values and draft on conflicts for comparison, not draft replacement before retry.
 
-页面通过 `pages` 组件参数接入，获得 `category`、`scope`、`settings` 和两端 `CodeState`。MCP 候选由 `mcpSources` 提供，必须带实例和工作区归属；名称优先使用候选中的名字。未接候选、候选不属当前实例/工作区、或选定来源不在候选中，交付给页面的 `sourceId` 为 null，具体页面不得保存。候选不从聊天列表推断。未接管理页显示明确只读说明，旧 PA 连接不能冒充新 Personal 管理连接。
+Category/target/workspace/source/close/sidebar-collapse navigation follows the shared guard where still applicable. Dirty forms offer save-and-continue/discard/keep-editing; perform the stored navigation only after explicit save success. Saving/unknown prevents leaving, discarding, or duplicate submit. The confirmation stores a UI continuation, not another backend operation scheduler.
 
-### 表单与请求归属
+Ticket/accepts identifies asynchronous reads from the current generation. Navigation/close/disconnect/every snapshot invalidates old tickets and calls page invalidate. Discard stale reads; if a submitted operation is invalidated, retain its original association as unknown. Only explicit navigation changes page key; snapshot/instance changes must not unmount the component holding an unresolved submission. Recovery reads original configuration and never resends to the newly selected target.
 
-容器只持有当前 `SettingsForm` 接口：`dirty`、`phase`、`save`、`discard`、`invalidate`。页面自己保管读取值、读取修订、草稿、字段错误，以及原提交的目标、实例、工作区、来源与参数；保存仍由具体页面沿自己的 API 传递读取修订，不统一模型 revision、MCP version 与 Personal 的配置表达。冲突保留当前值和草稿供比较，不先替换草稿再重试。
+PersonalConnectionState is a concrete local-host example. Connection configuration is local, readable/writable while remote offline, and not invalidated by remote PA status. Drafts obey the guard. not_sent/rejected remain editable; unknown/disconnected/IPC error retains the original submission and prohibits repeat save. Verification only reads host configuration: matching values confirm current saved state; mismatch displays current configuration alongside retained submitted draft; read failure stays unresolved. Report local saving separately from remote connection success. The original connection API lacked conditional revision; do not invent such protection. New management pages use their real versions.
 
-分类、目标、工作区、来源、关闭及收起侧栏统一经过导航保护。dirty 时提供保存并继续、放弃、继续编辑；只有保存明确成功才执行原导航。saving 与 unknown 阶段禁止离开、放弃或重复提交。导航确认只保存 UI 续步，不调度后台操作。
+This implements the container portion of [settings planning](../../proposed/feature/2026-10-21-desktop-settings-management.md); model/Skills/MCP/PA maintenance owners provide actual operations. [Shadcn design](../architecture/2026-10-15-desktop-shadcn-demo.md), [archives](2026-10-20-desktop-session-archive.md), and [sidebar toggle](../bug-fix/2026-10-17-desktop-sidebar-toggle.md) retain visual/archive/focus decisions. The original audit fully absorbed no proposal.
 
-`ticket/accepts` 供页面判断异步读取是否仍属本轮；导航、关闭、断线与每次快照都淘汰旧票据并调用页面 `invalidate`。页面失效时必须丢弃旧读取；提交中失效则保留原操作并进入 unknown。仅明确导航更换页面 key，快照或实例变化不卸载持有原提交的组件。恢复读取仍绑定原配置，不能向新目标重发。
+## Alternatives considered
 
-`PersonalConnectionState` 是具体接线实例：PA 连接配置存于宿主本机，允许远端离线时读写，不随 Personal 的远程状态失效。草稿受容器保护；not_sent 与 rejected 保留可编辑草稿，unknown/disconnected 或 IPC 异常保留原配置提交、禁止重复保存。核实只读宿主配置：匹配则确认当前保存值，不匹配则同时展示当前配置并保留提交草稿；读失败继续待核实。保存配置与远端连接成功分别报告。旧连接 API 没有条件修订，本次不增加虚假的修订保护；新管理页各自接真实版本。
+- Add state to inline App pages: small initially, but close/sidebar shortcuts still bypass pages and duplicate target/request logic. Extract the minimum container/form interface.
+- Build a generic form request scheduler: uniform calls, but products have different versions/credentials/maintenance/recovery, and prebuilt abstraction hides those differences. Pages own requests.
+- Recreate every form on target/instance change: clears old inputs easily, but loses in-flight/lost-response identity. Invalidate read tickets and retain the submitting component until verification or explicit safe navigation.
+- Infer every MCP source from current chat: avoids querying, but aggregated workspaces/current snapshots did not contain all original projects. The historical solution used bounded backend candidates; current instance MCP removes that problem rather than reviving inference.
 
-## 备选方案
+## Consequences
 
-- 保留 App 内联并逐页加状态：初始改动少，但关闭和侧栏快捷键会继续绕开页面，目标和请求归属也重复实现，因此抽出容器与最小导航接口。
-- 建通用表单请求调度器：可以统一 API 调用，但各产品的版本、凭据、停存启和核实方式不同，后台尚未接入时预建抽象会掩盖差异，因此请求仍由具体页面持有。
-- 目标或实例变化就重建全部表单：最容易清空旧输入，却会丢掉在途或丢答提交的原关联，因此只淘汰异步票据，原组件保留到核实或明确导航。
-- 从当前会话推断全部 MCP 来源：无需增加查询接口，但同工作区可以聚合多个原项目，当前快照也不保证有全部候选，因此候选交由后台有界列举。
+Settings opens independently of sessions and protects original form/request identity. The original shell supplied component/scope/form interfaces while only appearance/old PA connection/archive performed real actions; that is a historical delivery boundary, not a claim current management pages remain placeholders. Containers do not replace backend revision/authority checks, and pages must honor invalidation/ownership.
 
-## 后果
-
-设置可独立于会话打开，后三类页面有实际的组件、来源与表单保护接线入口；只有外观、旧 PA 连接和存档继续执行真实操作。管理页必须遵守表单接口的归属与失效约定，容器不代替产品后台的版本和权限校验。
-
-窄测覆盖无会话、工作区/来源、未保存导航、旧响应淘汰、PA 四类失败、只读核实与 SSR 可访问名称。SSR 与浏览器合成 bridge 只能证明 renderer 结构和交互；真实 Electron/MyGo 的焦点、明暗及服务接入仍需产品验收，不能把本篇当整体设置管理交付。
+Narrow tests covered no-session defaults, then-supported workspace/source behavior, unsaved navigation, stale-response rejection, PA failure categories, read-only verification, and SSR accessible names. SSR/synthetic browser bridges establish renderer structure/interaction only. Real Electron/MyGo focus/light-dark/service integration needs product acceptance; this shell note cannot certify the entire settings feature.

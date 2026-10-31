@@ -1,74 +1,58 @@
-# Agent Note: Coding 侧聊以独立宿主身份执行无工具问答
+# Agent Note: Run tool-free side chat under a distinct host-owned Coding identity
 
 Status: implemented
 
-## 问题
+## Problem
 
-拥有者需要在 Code 主任务继续执行时讨论旁支问题，并让侧聊保留自己的多轮上下文。产品要求见[规格](../../../../.scratch/coding-side-chat/spec.md)，实施入口见[工单](../../../../.scratch/coding-side-chat/issues/01-side-chat.md)。普通 `/branch` 已能固定历史，但会切换用户会话、与父任务争用工作目录，并默认开放项目历史检索、记忆写入和 coding 工具，不能直接满足隔离与并行要求。
+The owner needs a persistent multiround side discussion while the main Code task continues. A normal branch freezes history but switches user sessions, competes for cwd occupancy, and permits project history/memory/coding tools. It cannot provide the requested isolation/concurrency merely by appearing in an overlay.
 
-## 决定
+## Decision
 
-### 宿主身份与快照发布
+### Identity and snapshot publication
 
-宿主持久绑定父普通 Code 会话与侧聊（`side_chats` 表，父会话唯一、侧聊 ID 唯一），分类为具名的 `side` 会话身份，不伪装 `dev` 或 SubAgent。身份与父子关系随查询、事件和重连快照提供给客户端，不能由消息正文、任务参数或模式选择创建或改写。仅普通 Code 会话可创建侧聊，侧聊不能嵌套，也不能成为普通分支来源。
+Persist parent ordinary Code session and child in `side_chats`, unique by both parent and side ID. Named `side` identity is neither ordinary dev nor SubAgent. Queries/events/reconnect snapshots expose the binding; messages/task parameters/mode choices cannot create or alter it. Only ordinary Code sessions create side chat; no nesting or ordinary branching from side chat.
 
-首次 `/side` 在后台固定来源安全历史，复用[分支快照](2026-10-11-branch-session-snapshot.md)的读取、来源核实、文件准备与发布机制；共用步骤收敛为 `snapshotSources` 与 `prepareSessionHistoryFile`，不另建通用会话派生框架。父子唯一约束覆盖发布前的准备记录（`prepared` 回执）：两个客户端不能分别固定两个来源快照再竞相发布；原请求重试固定原前缀，新请求打开已存在侧聊时只返回原绑定。
+First `/side` captures a safe source prefix through [branch snapshot](2026-10-11-branch-session-snapshot.md) parsing/provenance/file-preparation/publication, sharing `snapshotSources` and `prepareSessionHistoryFile` without a general session-derivation framework. Uniqueness also covers prepared receipts: two clients cannot pin different snapshots and race publication. Retry uses the original prefix; a new open request for an existing side chat returns its original binding.
 
-准备文件在发布前刷盘，侧聊会话、身份绑定、完成回执和创建事件在同一 SQLite 事务发布，提交后应答与广播。文件与 SQLite 不承诺原子；恢复依据准备回执核实原文件，不重新取父会话最新历史。空来源使用独立空 JSONL，完整坏行或已发布侧聊文件缺失明确拒绝。
+Fsync preparation before atomically publishing session/binding/completed receipt/event in SQLite, then respond/broadcast. Files and SQLite are not atomic; recovery verifies the receipt's original file rather than resnapshotting current parent history. Empty source gets independent empty JSONL. Complete malformed lines or missing published history fail explicitly, not partially publish or silently recreate.
 
-### 执行与模型输入
+### Tool-free execution and context
 
-复用现有 Driver、SDK 会话、任务账本、流式事件、压缩和用量记录。`side` 映射固定空工具画像（`SESSION_TOOL_CATEGORIES.side = []`），SDK 显式 `tools: []`，不装 MCP 或默认工具；路由执行也按身份拒绝。系统提示为侧聊问答专用，说明来源只到首次安全历史、资料不足由用户补充；不让旧快照中的 coding 指令驱动新的工具或工作管理行为。
+Reuse Driver, SDK session, task ledger, streaming, compaction, and usage. `SESSION_TOOL_CATEGORIES.side=[]` and explicit SDK `tools: []` install neither default tools nor MCP; routing rejects by identity too. The side-Q&A system prompt explains the first safe snapshot and asks the owner for missing data. Old coding instructions in copied history cannot enable new tool/work-management behavior.
 
-侧聊任务有自己的生命周期，不申请工作目录、不启动执行环境，也不复用带等待和资源重取语义的 `conversation` 阶段。普通 submit 按宿主身份分流（`identity.kind === "side"` 拒绝，专用 `submit_side_chat`），保留任务幂等、模型配置门闩、取消、终态和重启规则，跳过 coding launcher、目录占用与执行权限前提；客户端不能传一个通用的「跳过占用」开关。后台事务最多接纳一个未终结的侧聊任务（`side_busy`），UI 只负责保留下一条草稿。
+Side tasks own their lifecycle but acquire no cwd or execution unit and do not reuse the conversation phase's waiting/resource-reacquisition semantics. Ordinary submit rejects `identity.kind === "side"`; dedicated `submit_side_chat` retains idempotency/model-configuration checks/cancel/terminal/restart handling while skipping coding launcher/occupancy/permission prerequisites. No generic client "skip occupancy" flag exists. One backend transaction admits at most one nonterminal side task (`side_busy`); UI keeps the next draft.
 
-重启恢复显式处理侧聊的接纳窗口：除 running／awaiting_confirmation 外，queued 也终结为 interrupted，不重放；不进入普通会话保留 queued、等待拥有者恢复队列的路径。侧聊保持可接纳新输入，父会话的暂停与占用核实继续独立。
+Restart interrupts queued as well as running/awaiting-confirmation side tasks without replay, unlike ordinary queues retained for owner recovery. New side input remains possible; parent pause/occupancy verification is independent. ContextSendBlocked/ContextOverflow for toolClass side does not call pauseQueue. After failure, a new explicit submit is allowed with all pre-send checks. Corrupt data/configuration/budget still fails; no automatic resend or release of abnormal execution occupancy. No side queue recovery/manual compaction command.
 
-Driver 的 ContextSendBlocked／ContextOverflow 对 `toolClass === "side"` 不执行 `pauseQueue`；失败任务终结后允许新的显式提交，仍执行全部发送前校验。资料损坏、配置不符或预算不足继续明确拒绝；不自动重发，也不自动释放异常执行占用。侧聊不提供恢复队列或手动压缩命令。
+Each submission pins the parent's currently selected model/reasoning level; same-key replay never reselects. Side chat exposes no access-mode switch and inherits no execution capability. Provider throttling/configuration errors keep existing handling.
 
-模型与推理档位在每次侧聊提交时从父会话当前选择取得并固定到新任务；同一请求键重放不重新选择。侧聊不提供权限模式切换，不继承父会话的执行能力。配置更新与 provider 限流仍走已有失败语义。
+Context includes the fixed source history and its own later history, not a main-task continuation/checklist/result/wake relationship. `loadPinnedContext` reads no project instructions, memories, or continuation sources for side identity. Load no skills/roles, expand no `/skill`, and inject no derived checklist, Plan, or resource-phase prompt; Driver claims no parent reports/results and Jev filtering is off. Ordinary JSONL lacks original reference blocks, so inheriting safe history is not inheriting the parent's complete model input.
 
-侧聊装配固定来源历史与自身后续历史，不建立主任务继续、工作清单、结果送达或唤醒关系。`loadPinnedContext` 对侧聊不读项目指令、记忆与继续来源；不加载技能／角色目录、不展开 `/skill`、不加入历史派生清单、Plan 或资源阶段提示，Driver 不领取父结果与报告。Jev 筛选关闭。普通 JSONL 不包含原参考块，侧聊只继承安全历史，不承诺继承父会话完整模型输入。
+Side is not `restricted: true`: that disables compaction without excluding every checklist/report input. The full handleContext/assemble/prepareSend/capturePromptSnapshot/afterSend chain preserves budget/pairing/images/recording/usage under the side session's own ID. Verify actual model payload and empty tools.
 
-侧聊身份不等同于 `restricted: true`：后者会禁用压缩但没有排除所有清单／报告输入。`handleContext → assemble → prepareSend → capturePromptSnapshot → afterSend` 的预算、配对、图片、记录与用量链全部以侧聊自己的会话 ID 运行；真实 payload 验证输入与工具清单。
+### Data and client isolation
 
-### 默认资料隔离
+One target-session-identity policy governs Agent readability in Driver dataSessionReadable, artifact access, and AccessScope sourceRefAccessible. Apply it to broad history search, explicit session/task/entry reads, direct artifact IDs, memory provenance, and automatic injection. No separate side-memory store: empty tools prevent writes, and other Agents cannot cite side data as readable memory sources.
 
-集中以目标会话身份判断 Agent 是否可读侧聊资料，覆盖 Driver 的 `dataSessionReadable`、产物访问和 AccessScope 的 `sourceRefAccessible`；历史搜索全集、指定会话／任务／条目读取、直接产物 ID、记忆来源核实及自动注入使用同一决定。不另建侧聊记忆库：空工具画像本身禁止记忆写入，其他 Agent 也不能把侧聊资料作为可读记忆来源。
+Create no parent-result delivery. Exclude side from ordinary session/workspace-chat/search/branch lists. Authenticated owner control still reads side history/prompt/usage. Snapshots retain sideChats bindings and side tasks for reconnect; the owner's complete event stream is not model input and must not be deleted on that assumption.
 
-不创建父结果送达登记。普通会话列表、工作区聊天、普通搜索及普通分支入口排除 `side`；拥有者侧聊读取、prompt 与用量查看继续使用已认证控制面。快照仍携带侧聊身份（`sideChats` 绑定）与侧聊任务供重连恢复，不把 owner 的全部事件流误当成模型输入而删除。
+TUI reuses overlay placement and SessionView history/draft/scroll, with independent focus instead of switchSession(sideId). Ctrl+C/Esc/paging route by focus first. Side interruption targets its own task, never ordinary `/interrupt` inferred from the main view. Drafts remain editable during generation; side_busy rejects submission without losing them. Narrow terminals keep overlay/main status visible, without a new horizontal split.
 
-### TUI
+`/side` parses before ordinary submit/steer and cannot send parent input, release its wait, or alter its approval. Schema 55/protocol 46 introduced persistent identity under [strict format replacement](../simplification/2026-10-24-code-instance-mcp.md): no old-schema migration or cross-instance side import. Old SQLite/JSONL/artifacts/credentials stay in place; a new profile does not silently continue old sessions.
 
-复用现有悬浮层定位与 SessionView 的历史、草稿和滚动状态，单独持有侧聊焦点，不调用 `switchSession(sideId)`。全局 Ctrl+C、Esc 与翻页键先分流到当前焦点。侧聊只提供自己的中断动作，不调用按当前主视图推断目标的普通 `/interrupt`；回答期间仍允许编辑草稿，提交按 `side_busy` 回退。窄终端保持悬浮层与主任务状态可见，不新增左右分屏。
+Related history, work/SubAgent, native-execution, waiting, steering, and version decisions retain their owners. This deliberately does not borrow conversation-phase/delivery eligibility. The original side-chat keyword audit found no prior same-feature proposal to absorb/archive.
 
-### 版本与相邻工作
+## Alternatives considered
 
-持久身份与协议改变已递增 schema／控制协议版本（schema 55、协议 v46），沿[Code 严格版本切换](../simplification/2026-10-24-code-instance-mcp.md)处理；不加旧库迁移或跨实例侧聊导入。新档案不自动延续旧会话，原 SQLite、JSONL、产物和凭据保持原地。
+- Overlay an ordinary branch: greatest reuse, but its tools/occupancy/project readability break isolation/concurrency. Reuse its snapshot mechanism, not identity.
+- Send a temporary parent question then delete it: avoids a new session, but cannot ensure exclusion from later requests and conflicts with guidance/approval/authoritative JSONL.
+- Use a SubAgent: already independent/concurrent, but delegation/result return is not direct owner conversation.
+- Keep context/client model calls in memory: short path, but loses restart recovery and bypasses request keys/configuration locks/audit/backend lifecycle.
+- Add read-only files/search: answers more questions, but expands tools/execution/concurrency beyond the confirmed context-only first version.
+- Refresh parent context on every follow-up: stays current, but creates implicit changing input. The owner chose a fixed first snapshot.
 
-`/side` 在普通提交／steer 解析之前独立分流；不能借侧聊送出主会话消息、使主任务等待解除或改写父审批。
+## Consequences
 
-## 既有笔记审计
+The fixed snapshot can become stale and may itself be compacted under context budgets. Side history requires retention like parent history; concurrent calls add cost/provider throttling. Strict schema transition needs matching profiles/clients. Application data-read isolation is not OS secrecy against full-access tasks.
 
-- 会话分支快照：部分重叠，复用安全前缀与跨文件发布，互链；侧聊另有身份、固定空工具与资料隔离，不取代普通分支行为。
-- 完整保留会话历史、工作委托与 SubAgent、原生受限执行：沿用既有历史权威、任务归属及保护根约束，本篇不重定义这些决定。
-- 主 Agent 等待与报告认领：本篇不采用其对话阶段与送达语义，机制无重叠，不扩大旁路资格。
-- Coding 消息重排与引导、Code 严格版本切换：沿用其输入分流与版本约束，不修改正在实施的提案。
-- 以侧聊、侧边对话、side chat、`/side` 检索 proposed／implemented／rejected，未发现同功能旧提案需要吸收或归档；宽泛命中的桌面演示、个人助手与定时能力不在本功能范围。
-
-## 备选方案
-
-- 直接把普通 `/branch` 显示成悬浮层：能复用最多代码；普通身份仍有工具、目录占用和项目可读资料，会破坏并行与隔离。保留它的快照机制，增加宿主可判别的侧聊身份。
-- 在主任务里临时发送旁问，随后删除消息：不用新增会话；无法保证不进入下一请求，也会混入任务引导、审批和 JSONL 权威，故不采用。
-- 以 SubAgent 执行侧聊：已有独立上下文和并发；SubAgent 不直接与拥有者对话，并有委派与结果回传语义，不符合产品归属。
-- 客户端内存保存并直接调模型：代码路径短；退出后不可恢复，也绕开请求幂等、模型配置锁、审计与后台生命周期，故复用正式任务链。
-- 允许只读文件与搜索：更容易回答新资料问题；会扩大工具、执行和并发边界，已确认首版只基于已有上下文问答，不加入。
-- 每次追问同步父对话：侧聊可追上最新进展；引入变化中的上下文与隐式新输入，已确认选择首次固定快照。
-
-## 测试
-
-`test/127-side-chat.test.ts` 覆盖：每父会话唯一绑定与重开同一回执、首次快照冻结、空来源与登记历史缺失／身份不符的损坏拒绝（不留半成品绑定）、无工具 payload 与侧聊系统提示、同键幂等与 `request_conflict`、`side_busy` 生成中拒绝、普通 submit 拒绝、父会话并行提交与队列不暂停、queued 跨重启 `backend_restart` 中断、产品能力关闭时 `unavailable`。TUI 悬浮层与真实模型行为缺前提时保持待验收。
-
-## 后果
-
-固定快照会过时，模型上下文预算仍可能压缩来源内容；侧聊磁盘记录与主会话同样需要保留。并行增加模型费用并可能遇到 provider 限流。schema 切换沿现有不兼容策略，旧档案不自动续用；应用资料隔离不提供完全访问下的 OS 保密保证。TUI 焦点和高度处理需要真实终端验收。
+`test/127-side-chat.test.ts` covers unique/reopened binding, frozen snapshot, empty source, malformed/missing/identity-mismatched history without partial binding, tool-free payload/prompt, idempotency/conflicts, side_busy, ordinary-submit rejection, parallel parent/no queue pause, queued restart interruption, and unavailable product capability. Real TUI focus/height and real-model behavior remain pending when prerequisites are missing. Former `.scratch/coding-side-chat/spec.md` and issue 01 are offline provenance for confirmed requirements/evidence, not maintained task entries.

@@ -1,5 +1,0 @@
-2026-10-12：本地独立 IM 图片恢复诊断（虚拟账户与凭据、mock 模型）
-场景：旧拥有者图片已接受为排队任务，事件与任务未关联；换拥有者后重启并登记新消息。
-修复前：{"oldEvent":"failed","oldTask":"queued","oldLinkedTask":null,"followup":"queued","modelCalls":0,"ownerReplies":0}
-修复后：{"oldEvent":"failed","oldTask":"canceled","oldLinkedTask":null,"followup":"done","modelCalls":1,"ownerReplies":1}
-结论：旧代次排队任务被取消，新目标消息执行并回复一次；未读取或写入生产账户与凭据。

@@ -1,32 +1,30 @@
-# Agent Note: Demo 提交标签与内联详情
+# Agent Note: Demo commit badges and inline details
 
 Status: implemented
 
-## 问题
+## Problem
 
-拥有者要求Git graph的分支／tag放在提交主题之前，随后以截图确定只有左侧图标区跟随图线变色，名称保持普通颜色且不显示最外框；点击提交展开详情，提交时间和短哈希从摘要移入详情。[原Git图](2026-10-17-demo-git-graph.md)是固定行高的只读列表，详情展开后不能继续按固定总高缩放整张SVG。
+The owner placed branch/tag labels before subjects, with graph-colored icon areas, neutral names and no outside border, then requested inline details instead of summary time/short hash. The [original graph](2026-10-17-demo-git-graph.md)'s fixed-height list could not scale one SVG after rows expanded.
 
-## 决定
+## Decision
 
-refs使用shadcn Badge并先于主题，左侧图标区底色与节点／对应lane线条共用语义色，图标用对比色；名称与可选remote后缀使用中性文字、保留内部短分隔、去掉外框。branch／tag及remote由显式样例字段决定，不从名称猜类型；本地和远程同名时key含type、remote、name。图标类型用读屏文字补足，摘要自然生成完整名称。分叉色混入前景色提高暗色可读性。摘要只展示refs和主题，时间、短哈希、作者及父提交放入内联详情，只显示现有样例字段。复用Radix Collapsible，每行独立展开、支持键盘与展开状态，沿用demo动效与减少动态效果设置；父关系的读屏说明在折叠时仍可获取。
+Use shadcn Badge before the subject. Its icon-area background shares node/lane color with a contrasting icon; names and optional remote suffix stay neutral with a short internal separator and no outer border. Explicit fixture fields determine branch/tag/remote rather than name heuristics. Keys include type/remote/name to distinguish matching local/remote names. Screen-reader text supplies icon type and full names. The original branch color mixed foreground for dark contrast, later superseded by the typography decision below.
 
-每个提交行拥有独立SVG，不设置viewBox；按拥有者的紧凑密度要求，摘要从56px减至28px，节点在14px中点，弯线控制点由行高派生。摘要移除右侧箭头，button、键盘与展开状态继续表达可操作性。refs保持单行，空间不足时名称省略但自然读屏名完整，避免两个18px标签换行撑出摘要。源边在摘要内弯入父lane，竖线按该行实际高度延至底部；中间行从顶部接续到底部，父提交行接到摘要节点。详情及折叠动效只延长竖线，不改变节点与摘要的对齐。原DAG排序与lane计算保持不变，无DOM测量、观察器或新依赖。
+Summaries contain only refs/subject. Inline detail contains available time, short hash, author and parents. Independent Radix Collapsibles retain keyboard/expanded state and reduced-motion behavior; parent relationships remain accessible when closed.
 
-本决定部分取代原轮不提供提交详情的范围；仓库资格、只读样例、标签身份与真实Git未接线的边界仍由原笔记持有。工程与浏览器证据归[工单18](../../../../.scratch/desktop-shadcn/issues/18-git-commit-details.md)。
+Each row owns an SVG without viewBox. The approved compact summary is 28 px rather than 56 px, with a node at its 14 px midpoint and curve controls derived from row height. No right chevron is needed; button semantics, keyboard access and expanded state remain. Refs stay on one line with visual ellipsis but full accessible names, preventing two 18 px labels from increasing height. Source edges curve into parent lanes within the summary, then extend vertically to the actual row bottom; intermediate rows connect top-to-bottom and the parent row ends at its node. Expansion changes only vertical lengths, preserving node/summary alignment. DAG ordering/lane assignment stay unchanged without DOM measurement, observers or dependencies.
 
-## 备选方案
+This supersedes the earlier no-details scope, not repository eligibility, fixture-only history, tab identity or lack of real Git wiring. Historical engineering/browser evidence remains in the offline commit-details work item.
 
-- 测量每行DOM高度后重画整张SVG能集中绘图，但增加观察器、动效逐帧同步和测量时序；分段SVG让浏览器自然跟随行高。
-- 单独在列表底部显示选中提交详情能沿用固定图，但详情与被点行分离，改用行内展开。
-- 使用同色淡背景和原深色分叉文字改动最小，但暗色时对比不足，节点、图线与标签同步调整为混合后的语义色。
-- 把ref继续存为裸名称能少改fixture，但无法可靠区分含斜杠的分支名、远程前缀与版本tag；使用显式类型与remote，仅改变demo样例，不建立真实Git协议。
+## Alternatives considered
 
-## 后果
+- Measuring every row and redrawing a single SVG centralizes drawing, but adds observers, frame-by-frame animation synchronization and measurement ordering. Row SVGs follow browser layout naturally.
+- Detail below the list preserves fixed graph geometry but separates content from the clicked row.
+- Keeping pale backgrounds/dark branch text is smaller but loses dark-theme contrast; update nodes, lines and badges together.
+- Bare ref names reduce fixture changes but cannot reliably separate slash-containing branch names, remote prefixes and tags. Explicit fields change fixtures, not a real Git protocol.
 
-图、标签与主题对应明确，展开可读完整文本与提交元数据，多个详情同时展开也保留父边连续与节点对齐。每行SVG需要重复跨越该行的边，本轮有界样例可接受，真实大历史性能未验收；依旧不读取真实仓库或修改正式Desktop。
+## Consequences
 
-后续[彩色lane与字号](2026-10-17-desktop-chrome-typography.md)取代混合语义色和非消息字号；ref图标着色、主题前置及可展开详情继续适用。
+Graph, badges and subjects align; multiple open details retain continuous parent edges and node positions. Each row repeats crossing edges, acceptable for bounded fixtures but not proof of large-history performance. This demo change neither reads repositories nor changes production Desktop.
 
-## 后续决定
-
-正式历史的行窗口化由[Git graph 行窗口化](2026-10-18-desktop-git-graph-windowing.md)持有；详情内容、行高与展开动画继续适用。
+[Colored lanes and typography](2026-10-17-desktop-chrome-typography.md) supersedes mixed semantic colors/non-message font sizes while retaining badge icon colors and inline details. [Graph row windowing](2026-10-18-desktop-git-graph-windowing.md) owns production history virtualization; details, row heights and animation remain applicable.

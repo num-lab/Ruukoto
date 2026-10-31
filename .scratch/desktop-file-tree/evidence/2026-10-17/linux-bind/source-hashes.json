@@ -1,6 +1,0 @@
-{
-  "packages/runtime/src/workspace-files.ts": "dda473d0ce273871f8d963458198a2f007189ca3431d22a996d44234a2290a78",
-  "packages/agent/src/execution/approved-ops.ts": "659e69b60e857ebd3d820b2bd439080a59d5a8985792f80624081c532d521b07",
-  "packages/core/src/dir-identity.ts": "5591288bdddf5b6b4b12666e58426c52609add28f19563be741bdb905564f229",
-  "packages/core/src/api-error.ts": "dbda3ec7c1bf1d87fd48eda257f849c35f3aea40c7a0d77c86cc48c97c56b737"
-}

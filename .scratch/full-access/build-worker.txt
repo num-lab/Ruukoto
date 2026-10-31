@@ -1,8 +1,0 @@
-
-> ruukoto-workspace@0.1.0 build:worker
-> esbuild packages/agent/src/tool-worker/worker.ts --bundle --format=esm --platform=node --target=node24 --external:@earendil-works/* --outfile=worker/worker.mjs
-
-
-  worker/worker.mjs  14.9kb
-
-⚡ Done in 8ms

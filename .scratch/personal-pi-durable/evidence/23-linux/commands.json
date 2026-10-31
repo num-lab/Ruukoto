@@ -1,7 +1,0 @@
-{
-  "buildProbe": "node_modules/.bin/esbuild /tmp/ruukoto-worker-23.rJsV2n/probe-entry.mjs --bundle --format=esm --platform=node --target=node24 --outfile=/tmp/ruukoto-worker-23.rJsV2n/source/packages/agent/src/execution/linux-probe.mjs --metafile=/tmp/ruukoto-worker-23.rJsV2n/metafile.json",
-  "copyFinalWorker": "cp worker/personal-command-worker.mjs /tmp/ruukoto-worker-23.rJsV2n/source/worker/personal-command-worker.mjs",
-  "uploadFinal": "scp -r /tmp/ruukoto-worker-23.rJsV2n/source /tmp/ruukoto-worker-23.rJsV2n/probe-entry.mjs /tmp/ruukoto-worker-23.rJsV2n/source-manifest.json /tmp/ruukoto-worker-23.rJsV2n/metafile.json tx:/tmp/ruukoto-worker-23.VR3OvX/",
-  "runFinal": "ssh tx 'node /tmp/ruukoto-worker-23.VR3OvX/source/packages/agent/src/execution/linux-probe.mjs main /tmp/ruukoto-worker-23.VR3OvX > /tmp/ruukoto-worker-23.VR3OvX/run.log 2>&1; rc=$?; cat /tmp/ruukoto-worker-23.VR3OvX/run.log; exit \"$rc\"'",
-  "notes": "每次调用在launchLinuxExecution返回后安装输出/退出消费者，再stdin.end(JSON)。prepareNativeLaunch显式dependencyRoots: []。无npm安装、无生产服务操作、无凭据上传。"
-}

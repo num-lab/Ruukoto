@@ -1,7 +1,0 @@
-{
-  "timestamp": "2026-10-17T09:01:27.784964+00:00",
-  "path": "test/personal-services.test.ts",
-  "initial_sha256": "b2e1bb38321ad09aec41a8dbbc954561f2a05e057775ca670f73b671ec44b832",
-  "final_sha256": "da6878d70670f96d9d07e1dc3c129acee38e63505ab9ece02af15d34ad7710cc",
-  "reason": "父 agent 已在 9a27 基点重现既有列表竞态；Linux 测试开始前固定原检查引用，生产源码未变。"
-}

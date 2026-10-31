@@ -1,4 +1,0 @@
-macOS arm64
-Node 24.15.0
-npm 11.12.1
-RUN_MODEL_CHECK 未设置（全部模型为本地替身，未执行真实模型入口）

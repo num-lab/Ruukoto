@@ -1,9 +1,0 @@
-{
-  "terminal_raw_sha256": "2419df3765c422a7bfbacdc5b05b8baff5c496504f89164a657aefe4108add8b",
-  "terminal_raw": "terminal.raw.log.gz",
-  "terminal_readable": "terminal.log",
-  "terminal_transformation": "阅览副本移除ANSI终端控制与CR，去行尾空白并规范末尾换行；原字节无损保存在gzip。",
-  "input_raw": "evidence-input.txt.gz",
-  "input_raw_sha256": "0d3921c84c287c406ace8528379e6a812d8db87e83e8e618795a6ccb223f599d",
-  "input_note": "原输入由scenario.mjs运行时生成，requests.json保存实际提交正文。"
-}

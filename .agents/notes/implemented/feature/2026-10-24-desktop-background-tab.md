@@ -1,25 +1,23 @@
-# Agent Note: 后台进程管理移入右栏标签
+# Agent Note: Put background-process management in a right-hand tab
 
 Status: implemented
 
-## 问题
+## Problem
 
-后台进程的唯一入口在会话菜单：「后台进程与日志」与「结束本会话后台」两项打开一个模态弹窗。拥有者要求删掉这两个菜单项与弹窗，把后台管理放进右栏。
+Background-process management was available only through two session-menu actions opening a modal: process/log management and ending all background processes in the session. The owner requested removal of both actions and the modal in favor of the right sidebar.
 
-## 决定
+## Decision
 
-右栏新增 `background` 标签类型（每父会话一个，id 固定 `background`），从新标签页的「后台进程」进入，Code 目标专属。`DesktopBackgroundProcesses` 状态类原样保留（清单分页、stdout/stderr 字节页、base64、单进程停止、按原请求键的整会话结束与待核实恢复都不变），`background-process-panel.tsx` 从 Dialog 改写为右栏面板，渲染同一状态。
+Add a Code-only `background` inspector-tab type, one per parent session with the fixed id `background`, opened from the new-tab page. Retain `DesktopBackgroundProcesses` unchanged: list paging, byte-based stdout/stderr pages, base64, stopping one process, ending the whole session with the original request key, and recovery of unknown outcomes. `background-process-panel.tsx` becomes an inspector panel rendering the same state instead of a Dialog.
 
-标签开关经 `DesktopInspector` 的新可选钩子（`sessionId`／`open`／`close`，由 `CodeState` 传入自身 `background` 实例）驱动状态归属：选中后台标签即 `open(父会话)`（全新加载，等同旧弹窗的每次打开）；关闭标签清状态；换父会话仅在仍持有旧会话状态时先清，回到原会话时由活动标签自动重开；`closeParent`（关会话标签）清掉属于该会话的状态。快照的 `instanceChanged` 清理由状态类自身已有的 `close()` 覆盖。
+Optional `DesktopInspector` hooks (`sessionId`, `open`, `close`) receive CodeState's existing background instance. Selecting the tab calls `open(parentSession)` with a fresh load, matching the old modal's behavior. Closing the tab clears state. Changing parent clears it only if it still belongs to the old session; returning reopens through the active tab. `closeParent` clears state belonging to that session. Existing `close()` handling covers snapshot `instanceChanged` cleanup.
 
-会话菜单删掉两项后只剩存档；应用根不再挂载弹窗。日志、操作行按钮与流切换在 `.background-*` 样式区钉 14px/12px，遵循 chrome 字阶。
+Removing the two menu actions leaves archive alone. App no longer mounts the modal. `.background-*` styles fix log text, action buttons, and stream selectors to the 14px/12px chrome scale.
 
-## 备选方案
+## Alternatives considered
 
-- **每个父会话各存一份后台状态**：需要把状态类改成按会话键的 Map 并迁移全部单实例假设（pending 过滤、代次、输出游标），只为解决「离开标签再回来要不要保留浏览位置」；旧弹窗本就每次打开重置，保持单实例与该行为一致。
-- **只删菜单、保留弹窗并从右栏触发**：同一功能两个壳，弹窗的居中遮罩在右栏已有 utility 视口的布局里重复；拥有者明确要删弹窗。
-- **把后台并入文件树或终端标签的次级页签**：后台属于会话而非工作区，塞进按工作区组织的标签会破坏两者的键空间。
+Per-parent state would require converting the class to a session-keyed Map and migrating pending filters, generations, and output cursors merely to preserve reading position. The old modal reset on every open, so keep one instance. Triggering the old modal from the sidebar preserves duplicate containers and contradicts its requested removal. Putting management inside Files or Terminal confuses session-owned processes with workspace-owned tabs.
 
-## 后果
+## Consequences
 
-会话菜单更短，后台管理获得与文件树、Git 一致的停靠位置，且打开即展开右栏（`addTab` 的既有行为）；代价是右栏宽度有限，长命令与日志比弹窗更早滚动换行，浏览位置在换会话后不保留。快照期间后台标签即使不激活也会随快照刷新（状态类既有行为），与旧弹窗打开期间相同。
+The session menu is shorter and process management shares Files/Git's docked location. Existing `addTab` behavior expands the sidebar on open. Its narrower width makes long commands and logs wrap or scroll sooner, and changing sessions does not preserve reading position. Existing state behavior refreshes a retained background tab during snapshots even while inactive, as it did while the old modal was open.

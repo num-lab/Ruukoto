@@ -1,9 +1,0 @@
-✔ 编码六输入：共享三名额、失败依赖跳过、独立验证与实际五份冻结成果汇总，唯一部分失败回报 (142698.468865ms)
-ℹ tests 1
-ℹ suites 0
-ℹ pass 1
-ℹ fail 0
-ℹ cancelled 0
-ℹ skipped 0
-ℹ todo 0
-ℹ duration_ms 145508.460291

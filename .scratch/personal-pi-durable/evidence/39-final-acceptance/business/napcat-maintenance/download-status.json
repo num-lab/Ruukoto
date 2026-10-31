@@ -1,8 +1,0 @@
-{
-  "tool": "curl",
-  "returncode": 0,
-  "stderr": "",
-  "officialAsset": "NapCat.Shell.zip",
-  "retries": 0,
-  "appChanged": false
-}

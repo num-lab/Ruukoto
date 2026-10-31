@@ -1,35 +1,33 @@
-# Agent Note: 文件树续页与点击后查询 Git
+# Agent Note: Page directory entries and query Git only after opening it
 
 Status: implemented
 
-## 问题
+## Problem
 
-文件树每层只显示最先枚举的 200 项，没有继续入口。Git graph 的入口取决于预先查到仓库，使打开右栏、新标签和重连快照都可能触发 Git 查询。拥有者要求目录可以续页，Git 入口始终可见，点击后才读取，非仓库显示简短提示。
+Each tree level stopped after its first 200 enumerated items without continuation. Git visibility depended on pre-discovery, causing queries when opening the inspector/new tabs or reconnecting. The owner requested directory continuation and a permanent Git entry that queries on click and briefly explains non-repositories.
 
-## 决定
+## Decision
 
-`list_workspace_files` 接受可选的不透明 `cursor`，返回 `nextCursor`，null 表示结束；替代旧 `truncated`，协议升为 39。每页最多 200 项并保留 768 KiB 条目预算，没有目录总项数或页数上限。目录优先、名称按 JavaScript 字符串严格顺序排列，避免 locale 比较的等价名字破坏续页边界。
+`list_workspace_files` accepts opaque optional `cursor` and returns `nextCursor` (`null` ends), replacing `truncated`; this introduced protocol 39. Pages retain 200-entry and 768 KiB budgets without total-entry/page limits. Sort directories first, then names by strict JavaScript string order, avoiding locale-equivalent names breaking cursors.
 
-每页异步枚举目标单层，以二分插入保留游标之后最小的 201 个候选；不递归，不缓存目录句柄或结果，不阻塞等待每项磁盘读取。游标绑定登记工作区、规范相对路径、根及父链身份、目标目录修订和最后实际返回项。枚举前后核实身份与修订，页间变化返回 `workspace_file_changed`，参数损坏或来源不符拒绝。路径限制、链接处理、拥有者认证和读取失败分类保持。
+Each page asynchronously enumerates one level, using binary insertion to retain the smallest 201 candidates after the cursor. No recursion, open-handle/result cache or synchronous per-entry disk wait. Cursors bind registered workspace, canonical relative path, root/parent identities, target revision and last returned item. Pre/post identity/revision checks detect changes; cross-page changes return `workspace_file_changed`, malformed/mismatched-source cursors fail. Path/link/authentication/read-error rules remain.
 
-Desktop 每层末尾显示「加载更多」，已有条目保留，追加失败可用原游标重试；游标过期或响应不一致要求刷新目录。刷新从首页重建已展示前缀，至少覆盖原数量及原末项排序位置，完成后一次替换，避免前部新增把旧末项误判为删除；失败保留完整旧树。实例代次与状态对象淘汰失效应答，追加去重；活动树每 3 秒及聚焦刷新根和展开层。折叠不废弃已发出的单次只读缓存，切换、卸载或折叠停止后续刷新页与层。
+Desktop appends a load-more action per level and preserves existing entries. Append failures retry the same cursor; expired/inconsistent pages require refresh. Refresh rebuilds from page one through at least the old count and old last-item sort position, then replaces atomically, preventing inserted prefixes from misclassifying old tail entries as deleted. Failure preserves the full old tree. Instance generation/state identity rejects stale replies and appends deduplicate. Active trees refresh root/expanded levels every three seconds and on focus. Collapse retains a single already-issued read cache; switching/unmount/collapse stops later refresh pages/levels.
 
-Code 右栏新标签页始终显示 Git graph，有工作区即可点击。新页以及没有活动 Git 页的右栏／快照不读取仓库；点击开 Git 标签后才读取，已打开 Git 页的选择、恢复、刷新及历史续页沿既有规则。非仓库显示「此工作区没有 Git 仓库。」并提供刷新，查询失败保留错误及重试，空仓库仍显示无提交。Personal 的文件与 Git 能力保持关闭。
+Code's new inspector tab always shows Git graph and allows opening with a workspace. New pages and snapshots/inspectors without an active Git page do not query. Opening Git starts reading; existing page selection/restoration/refresh/history continuation retain their rules. Non-repositories show a brief explanation plus refresh, errors retain retry, empty repositories show no commits. Personal file/Git capabilities remain off.
 
-## 既有决定
+## Related decisions
 
-按文件树、分页、刷新、Git 入口和 Desktop 检索 implemented／proposed／rejected。[文件接线](../architecture/2026-10-16-desktop-current-demo.md)的每层总数上限由本篇取代；[文件树刷新](../bug-fix/2026-10-17-desktop-file-tree-refresh.md)保留触发与取消语义，刷新范围扩至已加载前缀。[加载反馈](2026-10-17-desktop-file-tree-loading.md)保留先读后展开和空目录留白，取消新页 Git 检测及其错误区域。[Git 接线](../architecture/2026-10-17-desktop-demo-v4.md)的正式查询改为点击触发；[Git 历史分页](2026-10-17-desktop-git-history-pages.md)及行窗口化不变。旧 Demo 冻结稿保留当时交互，不作为本次真实读取行为的依据。其他权限、模型和资料查询命中不属于本轮，没有整体吸收的旧决定。
+This replaces per-level total limits in [file wiring](../architecture/2026-10-16-desktop-current-demo.md), expands [refresh](../bug-fix/2026-10-17-desktop-file-tree-refresh.md) to loaded prefixes while retaining cancellation, and removes new-page Git discovery/errors from [loading feedback](2026-10-17-desktop-file-tree-loading.md). [Production Git wiring](../architecture/2026-10-17-desktop-demo-v4.md) becomes click-triggered; [history pagination](2026-10-17-desktop-git-history-pages.md)/windowing remain. Frozen demo behavior is historical, not evidence of current reads.
 
-## 备选方案
+## Alternatives considered
 
-- 仅提高目录上限：修改最少，但仍有不可继续的目录；改为有界分页。
-- 保存打开的目录句柄或缓存完整排序结果：能减少后页扫描，但新增生命周期、过期与跨客户端状态；本轮用无状态游标及异步单层扫描。
-- 一次读取全部目录项排序：实现简短，但内存随目录总项数增长；仅保留下一页候选，响应和候选内存有界。
-- 按系统枚举顺序加 offset：首屏无需扫全层，但跨页顺序不确定且排序只能局部成立；使用确定总顺序与目录修订。
-- 预查是否为 Git 仓库再显示入口：能隐藏非适用入口，却在未请求功能时产生等待；固定入口，进入后说明非仓库。
+- Raising the cap still leaves unreachable entries.
+- Open handles/full-result caches save repeat scans but add lifecycle, expiration and cross-client state.
+- Sorting all entries is simpler but unbounded in memory; retain only next-page candidates.
+- Enumeration offsets avoid an initial full scan but cannot provide stable global order; use deterministic order/revisions.
+- Pre-discovery hides irrelevant entries but causes waiting for unrequested functionality. Explain non-repositories after opening.
 
-## 后果
+## Consequences
 
-目录全部条目可逐页浏览，已加载前缀随自动刷新更新；Git 查询只为已打开 Git 页发生。每页仍需扫描整个目标单层，成本随该层总条目数增长，刷新多页会重复扫描；不承诺常数延迟。文件系统前后核实不是原子快照，持续变化的目录可能需要稳定后重试。
-
-本次不改数据库或会话格式，协议 39 需要客户端与后台一起更新，旧版本按原不兼容提示拒绝。工程与真实浏览器验收见[工单](../../../../.scratch/owner-operation-scope/issues/03-directory-pages-lazy-git.md)。
+All directory entries are reachable and loaded prefixes refresh. Git queries serve open Git pages only. Each page still scans the entire target level; multipage refresh repeats scans and is not constant-latency. Pre/post filesystem checks are not atomic snapshots; continuously changing directories may require stabilization/retry. No database/session-format change occurs, but matching protocol client/backend is required. Historical engineering/browser acceptance remains in the offline directory-pagination work item.

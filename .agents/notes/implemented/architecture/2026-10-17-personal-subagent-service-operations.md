@@ -1,46 +1,46 @@
-# Agent Note: 子服务操作归原工作持有并沿原授权恢复
+# Agent Note: Child service operations belong to original work and recover under original authorization
 
 Status: implemented
 
-## 问题
+## Problem
 
-[子工作检查](2026-10-17-personal-subagent-inspection.md)只提供只读工具，[服务操作](2026-10-17-personal-service-operations.md)仍由可信宿主独立发起。直接包装宿主 request 会丢失子工具归属，且现有工作取消只等待检查，无法证明 restart 已停止。
+[Child inspections](2026-10-17-personal-subagent-inspection.md) are read-only, while [service operations](2026-10-17-personal-service-operations.md) originate independently from trusted host APIs. Wrapping host request directly loses child-tool ownership. Existing cancellation waits for inspections, not proof that restart stopped.
 
-## 决定
+## Decision
 
-仅下放已有 restart 及原证据读取，主会话继续经委派使用。服务 Task 属于原 WorkTask，在相同 root conversation 中运行，不属于短命工具；复用 durable 的 owned task 等待与取消。原生 Task 终态与外部停止不同，工作释放仍核实未知效果、原启动器/命令单元停止和审批前检查。未知操作恢复只核实原身份，不重发 restart。
+Delegate only the existing restart operation and original-evidence reads; main accesses them through delegation. The service Task belongs to original WorkTask in the same root conversation, not the short-lived tool. Native durable owned-task waiting/cancellation handles it. A terminal Task is not external stopping: work release still verifies unknown effects, original launcher/command-unit stopping and pre-approval inspections. Unknown-operation recovery verifies original identity without resending restart.
 
-工具接纳与服务 Task 同事务，固定工具/执行代次、当前子输入、映射后的拥有者来源、工作与原权限/入口；请求键由工具 Task 派生。跨轮说明不能改变原委托权限，长期上下文不提供授权。执行前核实原工作仍活动、未取消、整项未暂停及入口有效；批准和长期授权消费继续原服务契约。恢复以不可改接纳和原 assistant toolCall 双向核实，不能删除子关系后冒充旧宿主操作。
+Tool admission and service Task commit together, pinning tool/execution generation, current child input, mapped owner source, work and original permissions/entry. The tool Task determines request key. Cross-turn instructions cannot change delegation permissions; persistent context is not authority. Before execution, verify original work active/not canceled, group not paused and entry active. Approval/standing-authorization consumption retains the service contract. Recovery checks immutable admission and original assistant toolCall bidirectionally; deleting child relationships cannot turn the operation into a legacy host request.
 
-工作正常结束收齐子会话和服务 Task；取消先持久标记工作及所持服务，再停止子会话与服务。服务 Task faulted 仍保留未知占用，双事实满足后才能收尾。整项取消与报告沿成员 WorkTask 等待，独立宿主服务操作不自动归组。原来源门禁覆盖其他成员、追加与续派，主聊天和独立工作继续。
+Normal work completion joins child conversation and service Tasks. Cancellation first persists work/owned-service cancellation, then stops both. Faulted service Tasks retain unknown occupancy until effect/stopping facts permit cleanup. Whole cancellation/reporting waits through member WorkTasks; independent host service operations are not automatically grouped. Original-source gates cover other members, append and continuation while main/independent work continues.
 
-工具在内部等待审批后返回最终结果，返回与分页读取共用原操作的模式、批准依据及是否消费；人工批准并创建长期授权仍标为本次人工批准，后续自动命中才标长期授权。终态不包含等待过程，不能从 executed 推断免审批；不增加审批记录副本或等待时长，原持久字段与已记录工具结果足以重建。
+Tools wait internally for approval and return final results. Return/evidence pages share original mode, approval basis and consumption fact. A manual approval that creates standing authorization remains manual for this operation; only a later automatic match reports standing authorization. Terminal results omit the wait itself, so executed does not imply approval-free execution. No duplicate approval records or wait timing is added; existing persisted fields and tool results reconstruct the facts.
 
-取消尚未消费批准的服务工具时，历史可能只留下通用中断结果，而原服务记录已明确未执行。复用身份会保留这段历史；模型不能仅靠它推断效果未知。工具返回、证据读取、工作结果和摘要共用当前服务事实投影，保留原 effect/code、批准消费及效果与原启动器停止核实，另给当前是否仍待核实；launcherStopped=false 不单独表示整个工作停止未核实，原工作与审批前检查继续各自核实。
+Canceling before approval consumption can leave a generic interrupted tool result even when the service record proves non-execution. Identity reuse preserves this history; the model must not infer unknown effects from that text alone. Tool returns, evidence reads, work results and summaries share a current service-fact projection: original effect/code, approval consumption, effect/original-launcher stopping verification and whether verification is still needed. launcherStopped=false alone does not mean whole-work stopping is unverified; original work and pre-approval inspections are independently verified.
 
-子模型请求只补充当前输入中已出现的本身份服务结果：沿原工具终态的结果 entry 核实归属，并与实际 toolResult 逐对象比较；不凭可跨代重复的 callId 猜测，不加入压缩后已移走或其他身份的操作。尚未匹配服务操作的结果还须沿本身份原工具终态、结果 entry 与 assistant 核实，允许接纳前拒绝的原错误，但不注入操作事实；未知调用引用或歧义在 provider 前拒绝。投影连同实际 input/payload 留证，不覆盖旧工具结果或回答。只提供事实，不继承旧批准，不解除未知占用，也不许可重新执行。主汇总按原 work 查询这些事实，不能将通用中断文本置于宿主已核实结果之上。
+Child requests supplement only this identity's service results already present in current input. Ownership follows the original terminal tool result entry and exact actual toolResult comparison, not callId that can recur across generations. Compacted-away operations and other identities are not injected. Results not matched to service operations still verify this identity's original terminal tool, result entry and assistant; original pre-admission errors are allowed without injected operation facts. Unknown/ambiguous call references reject before provider. Input/payload evidence retains the projection without overwriting old tool results/answers. Facts inherit no old approval, clear no unknown occupancy and authorize no rerun. Main summaries query these facts by original work rather than prioritizing generic interruption text over host-verified outcomes.
 
-本机服务详情可批准本次或拒绝，决定只作用原待审批操作；Telegram 仍须原菜单，不能由本机代决。子服务审批前检查接纳与批准消费分别在事务内核实工作和整项暂停，前置检查不承担取消门禁。
+Local service details may approve once or reject only the original pending operation. Telegram still requires its original menu; local controls cannot decide on its behalf. Child pre-approval inspection admission and approval consumption separately check work/group pauses transactionally; preflight is not the cancellation gate.
 
-新扩展同时存在于主子配置，空闲档案原子升级；有未决旧工作拒绝升级，旧程序缺扩展拒绝恢复。不增加运行状态副本、helper 协议、共享包、命令或依赖。
+The new extension exists in main and child configuration. Idle profiles upgrade atomically; pending old work rejects upgrade, and missing extensions make old code reject recovery. No duplicated execution state, helper protocol, shared package, command or dependency is introduced.
 
-## 既有笔记审计
+## Related decisions
 
-按个人 durable、子服务、固定只读、服务取消与未知效果检索 active notes。[迁移总方案](../../proposed/architecture/2026-10-17-personal-pi-durable.md)、后台工作、模型工作、检查归属、服务配置、服务操作和拥有者恢复入口部分重叠，保留各自原决定并互链；本篇取代其中子会话不下放服务写工具的部分。原生执行与 Coding 的服务调用有独立消费者，本片不改变。没有完全吸收或失效提案。
+The original active-note audit searched Personal durable, child service, fixed read-only checks, service cancellation and unknown effects. Migration, background/model work, inspection ownership, service configuration/operations and owner recovery retain separate decisions. This supersedes only their no-child-service-writes restriction. Native execution and Coding service callers remain separate consumers. No note was wholly absorbed or invalidated.
 
-[定时工作](2026-10-18-personal-durable-scheduled-work.md)允许来源映射到独立定时输入；原模式与 IM 目标固定，定时及其子工作均不匹配、创建或恢复长期服务授权。单次批准仍核实原接纳，完全访问沿原模式免逐次审批。
+[Scheduled work](2026-10-18-personal-durable-scheduled-work.md) permits sources mapped to independent scheduled input with pinned original mode/IM target. Schedules/children neither match, create nor restore standing service grants. One-use approval still verifies original admission; full access skips per-operation approval according to its original mode.
 
-## 备选方案
+## Alternatives considered
 
-- 直接调用宿主 request：复用代码最多，但它只知道 root source，不能证明真实子工具/原工作权限，也不会随成员取消。
-- 服务 Task 属于子工具：自动收尾最直接，但 tool 与 service 分属子/root conversation，且工具取消不能承担长期工作及未知事实的持有。
-- 保持独立 background 服务并增加工作索引：沿用旧记录布局，但需要自行驱动取消与等待；原生 task ownership 已提供同会话的工作归属。
-- 改写旧工具结果或把全部身份历史塞入新请求：前者混淆历史与当前事实，后者增加无关上下文；只刷新本次输入中已定位的结果，并沿原操作查询。
+- Call host request directly: maximum reuse, but it knows only root source and cannot prove actual child tool/original-work permissions or join member cancellation.
+- Make the child tool own the service Task: direct cleanup, but tool/service belong to child/root conversations and tool cancellation cannot retain long-lived work/unknown facts.
+- Keep independent background service plus a work index: preserves old records, but needs custom cancellation/waiting; native same-conversation task ownership already supplies it.
+- Rewrite old results or inject every identity's history: rewriting confuses historical/current facts; full history adds irrelevant context. Refresh only located current-input results and query original operations.
 
-## 验证
+## Verification
 
-按[工单](../../../../.scratch/personal-pi-durable/issues/21-subagent-service-operations.md)覆盖原权限、原键恢复、取消窗口、未知不重放、不可改接纳及完整输入证据。
+Original permissions, original-key recovery, cancellation windows, no replay of unknown effects, immutable admission and complete input evidence are covered by the offline `.scratch/personal-pi-durable/issues/21-subagent-service-operations.md`.
 
-## 后果
+## Consequences
 
-外部效果与 SQLite 仍非原子，消费后未派发也保守暂停；真实 systemd、IM 与拥有者体验须另验，不能由离线替身代替。
+External effects and SQLite remain non-atomic; even consumption before dispatch conservatively pauses after interruption. Real systemd, IM and owner experience require separate verification, not offline substitutes.

@@ -1,4 +1,4 @@
-/* Note: 见 .scratch/desktop-settings-ui/src/styles.css */
+/* Shared design reference: verification/desktop-settings/src/styles.css */
 /* 设置外观按 demo 原值移植：调色板、尺寸与控件值保持 demo 定义，不映射到 Desktop 主题变量。 */
 .settings-dialog {
   --st-stage: #0d0d0d;

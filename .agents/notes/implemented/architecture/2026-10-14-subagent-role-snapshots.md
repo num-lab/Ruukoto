@@ -1,37 +1,38 @@
-# Agent Note: 子代理角色定义随身份与运行固定完整快照
+# Agent Note: Pin complete SubAgent role definitions to identities and runs
 
 Status: implemented
 
-工作流 role/target/verify 接线与显式接口升级见[共享角色与接口版本](2026-10-15-workflow-role-interface.md)；本篇角色加载和固定内容决定保留。
+[Shared roles and interface versions](2026-10-15-workflow-role-interface.md) owns role/target/verify wiring and explicit interface upgrades. [Persistent source capabilities](2026-10-15-subagent-source-capabilities.md) owns shared source, permission and project-context rules. This note retains definition loading and pinning. These are shared-runtime mechanisms; [Personal product entry](../simplification/2026-10-18-personal-product-entry.md) retires their old Personal assembly.
 
-来源能力、权限和项目上下文的共用规则由[持久来源能力](2026-10-15-subagent-source-capabilities.md)持有；本篇其他独立决定继续适用。
+## Problem
 
-## 问题
+Configurable roles must keep their original definitions after file edits/deletion, message-triggered execution and backend restart. A name or path alone lets an identity drift; falling back to a built-in after an invalid override hides the owner's configuration. [Roles versus targets](2026-10-14-configurable-subagent-roles.md) owns the overall choice; this note covers definition, selection and snapshots, not source capabilities, target protection or the new workflow interface.
 
-可配置角色需要在文件编辑、删除、消息触发及后台重启后继续使用原定义。仅保存名称或路径会让身份内容漂移；坏同名覆盖若回落内置，又会掩盖用户的实际配置。完整角色方案由[角色与目标分离](../../implemented/architecture/2026-10-14-configurable-subagent-roles.md)持有，本篇只记录定义、选择和快照层；来源能力、目标保护及工作流新接口分别由关联笔记持有。
+## Decision
 
-## 决定
+Agent uses the maintained frontmatter parser for built-in general/reviewer and instance Markdown. Only description, tools, permissions and body take effect. Runtime reads the fixed instance agents directory, rejecting links, multiple hard links, non-regular files and identity/byte changes during reading. An invalid override removes the same-named built-in and retains a structured diagnostic. An unverifiable directory provides no built-in fallback; the main session can still inspect errors.
 
-agent 使用已维护的 frontmatter 解析器统一解析内置 general/reviewer 与实例 Markdown，只有 description、tools、permissions 和正文生效。runtime 读取固定实例 agents 目录，拒绝链接、多硬链接、非普通文件与读取中身份或字节变化；无效覆盖移除同名内置角色，保留结构化诊断。目录不可核实时不提供内置兜底，主会话仍可查错误。
+Core inlines complete source text, normalized fields, body, purpose and content digest in SubAgent.definition, avoiding a version table/reference system. The trusted entry fixes purpose to role or host_review. GitHub fixed review bypasses the user catalog and retains its completed-source exception, read-only MCP, no messaging and original idempotency/recovery eligibility. New ordinary identities default to general; continuation/reuse with no role keeps the original definition, and an explicit different role is rejected. Parameter digests include role selection, not configuration content that may change later. Workflow start stores the complete catalog and diagnostics; steps read only that snapshot. Missing/corrupt catalogs reject recovery rather than filling in general.
 
-core 将完整原文、规范字段、正文、用途和内容摘要内联保存到 SubAgent.definition，避免增加版本表与引用系统。定义用途由可信入口固定为 role 或 host_review；GitHub 固定评审不进入用户目录，保留 completed 来源特许、只读 MCP、禁消息及原幂等/恢复资格。新建普通身份默认 general，继续或复用省略 role 沿原定义，显式异角色拒绝；参数摘要覆盖角色选择，但不含后来可能变化的配置内容。工作流启动保存完整目录及诊断，步骤只读该快照；目录缺失或损坏拒绝恢复，不补 general。
+The parent model's catalog is first written as a JSONL custom entry. Child model text comes from the committed identity and enters the system prompt and prompt artifact. Selection records account for the catalog; SDK signatures cover the body digest. Waiting/internal dialogue uses persisted reference snapshots, never current role files. Reparsing source text must match normalized fields. Send/tool checks still bind the original definition. Model and thinking level come from the actual source task, not the role file.
 
-父模型目录先写 JSONL 自定义条目，子模型正文来自已提交身份并进入系统提示与 prompt 产物；选择记录统计目录，SDK 签名覆盖正文摘要。等待内部对话沿持久参考快照，不读取当前角色文件。原文重新解析必须与规范字段一致，发送和工具边界复核仍绑定原定义。模型及思考强度沿实际来源任务保存，不由角色文件提供。
+The schema change rejects old formats without migrating history or backfilling definitions. Store keeps an identity with a bad definition queryable and returns definitionError; execution rejects missing/corrupt definitions. Both instance-import directions retain complete definitions and waiting catalogs and strictly verify digests: invalid sources cannot become runnable role-less identities. SQLite and JSONL are not one transaction; identity registration precedes model-input recording, which precedes sending, preserving reconstructable evidence.
 
-新 schema 拒绝旧格式，不迁移历史或回填定义。Store 对坏定义保留可查询身份，返回 definitionError；执行必须拒绝缺失或损坏。两方向实例导入保留完整定义与等待目录，严格核实摘要，坏源记录不能作为无角色身份导入。SQLite 与 JSONL 没有跨文件事务，沿先登记身份、再记录模型输入、后发送的顺序保留可重建证据。
+## Related decisions
 
-## 既有笔记审计
+The [overall role decision](2026-10-14-configurable-subagent-roles.md) is implemented in layers 01-04; this note owns definition and pinned identity only. [Work/identity/task](2026-10-03-work-delegation-subagent-task.md) and [restart recovery](2026-10-05-subagent-restart-recovery.md) retain identities, two-level idempotency, stop verification and no replay. Roles do not alter old main/coding/chat rows or session identity. Sealed archives remain unchanged.
 
-[完整角色决定](../../implemented/architecture/2026-10-14-configurable-subagent-roles.md)已由 01–04 分层落地，本篇只持有定义和固定身份；[工作/身份/任务](2026-10-03-work-delegation-subagent-task.md)与[重启恢复](2026-10-05-subagent-restart-recovery.md)部分重叠，身份、两级幂等、停止核实和不重放决定继续适用。角色不改变旧 main/coding/chat 角色行或会话身份。归档记录不修改。
+## Alternatives considered
 
-## 备选方案
+- Store only a path/name: least storage, but deletion/override prevents reconstruction of original model input. Store source text and normalized fields.
+- Add a definition-version table: deduplicates across identities, but instance files already provide configuration. Inline snapshots travel directly with imports/archives without a second identity index.
+- Reread on each task: immediate editing, but changes existing identities. Files affect only new objects.
+- Fall back to built-ins on invalid overrides: keeps default delegation available, but hides invalid configuration and changes the owner's selection. Preserve the error and reject creation with that role.
 
-仅保存路径或名称最省存储，但删除或覆盖文件后无法重建原模型输入，故保存原文与规范字段。独立定义版本表可以跨身份去重，但当前实例文件已经承担配置入口，内联快照能直接沿两方向导入和归档，不增加第二套身份索引。每任务重读文件便于即时编辑，但会改变已创建身份；文件仅影响新对象，原身份继续使用已保存内容。坏覆盖回落内置能保持默认委派运行，却会隐藏非法配置和改变用户选择，因此保留错误并拒绝新建该角色。
+## Documentation budget
 
-## 文档预算
+The original update kept only the role definition/disambiguation in the glossary, moved configuration/version behavior to module docs and reused development test navigation. README grew to 3310 characters and CONTEXT from 9948 to 10040, with no content belonging elsewhere. Their budgets rose from 3300 to 3350 and 10000 to 10100 respectively to retain existing propositions and the new concept. These are historical budget decisions, not current page measurements.
 
-新增角色术语只保留定义与避混称，配置与版本流程移到模块文档；开发测试导航复用原表。README 的原预算已用满，新增角色文件导航后为 3310 字；CONTEXT 原有 9948 字，新增最小术语后为 10040 字，均无应迁走的非本层内容。因此 README 上限由 3300 调为 3350，CONTEXT 由 10000 调为 10100，保留既有命题并容纳本次概念。
+## Consequences
 
-## 后果
-
-定义可脱离文件恢复，损坏仍可诊断，代价是每个身份或运行保存完整正文及目录。此层保存工具要求与权限策略，尚不替代现有分析/修改能力与目标执行规则；默认 shell、显式能力预检、受限审查及新工作流接口的完成证据仍由完整方案持有。产品体验与真实模型、跨平台隔离按联合验收完成，不能由快照测试推断。
+Definitions recover without their files and remain diagnosable when damaged, at the cost of full bodies/catalogs stored per identity or run. This layer records tool requirements and permission policy; it alone did not replace old analyze/modify capabilities or target-execution rules. Related layers and the overall decision own evidence for default shell, explicit capability preflight, restricted review and the workflow interface. Snapshot tests cannot establish product experience, real-model behavior or cross-platform isolation; those remain joint acceptance requirements.

@@ -1,44 +1,44 @@
-# Agent Note: 工作流运行持有授权、重放与真实执行
+# Agent Note: Workflow runs own authorization, replay and actual execution
 
 Status: implemented
 
-## 问题
+## Problem
 
-[工作流规格](../../../../.scratch/agent-workflow/spec.md)要求发起任务结束后仍可执行、恢复已登记工作且不重复未知副作用。[固定脚本入口](2026-10-13-workflow-script-isolation.md)只持有隔离进程，原任务的 Driver 和目录占用不能充当长期运行授权；单凭脚本返回或步骤声明也无法证明实际操作安全。
+The workflow specification requires execution after the initiating task ends, recovery of registered work and no repetition of unknown effects. The [fixed script entry](2026-10-13-workflow-script-isolation.md) owns only an isolated process: the original task's Driver and directory occupancy cannot authorize a long-lived run. A script return or step declaration alone cannot prove that actual operations were safe. The original specification is retained as offline provenance at `.scratch/agent-workflow/spec.md`.
 
-## 决定
+## Decision
 
-core 的 `workflow.ts` 保存不可变定义版本、完整有界参数、运行、步骤、执行绑定、问题与控制回执。schema 为 39，协议为 22，沿现有约定拒绝其他 schema，不回填授权。脚本和单值分别限 128 KiB、512 KiB；超限输出存既有产物，步骤固定其 ID、字节数与 SHA-256，恢复核实全部字节。文件与 SQLite 没有跨文件事务；正文无法核实即暂停，不能改用摘要猜测原值。
+Core `workflow.ts` stores immutable definition versions, complete bounded parameters, runs, steps, execution bindings, questions and control receipts. This foundation introduced schema 39 and protocol 22; those are historical milestones, not the current versions. The strict version policy rejects incompatible stores and does not backfill authorization. Scripts are limited to 128 KiB and individual values to 512 KiB. Larger outputs use existing artifacts; steps pin their IDs, byte counts and SHA-256, and recovery verifies every byte. Files and SQLite are not one transaction: unverifiable bodies pause the run rather than substituting a summary.
 
-运行固定产品、来源项目/会话/任务、访问模式与来源权限版本、授予路径、能力类别、资料引用、回复目标与调度运行 ID，以及模型选择。运行本身决定后续资格，不依赖原任务仍活动。Runtime 默认接入[真实步骤与冻结汇总](2026-10-13-workflow-step-capabilities.md)，测试可注入执行器；可信回答、调度收尾与最终回报见[整项送达](../feature/2026-10-13-workflow-owner-input-and-delivery.md)；模型发起、定义库与完整交互控制见[定义入口](../feature/2026-10-13-workflow-library-and-controls.md)；[后续实施](../../../../.scratch/agent-workflow/implementation-plan.md)继续持有联合验收要求。
+A run pins product, source project/session/task, access mode and source permission version, granted paths, capability classes, material references, reply target, scheduled-run ID and model selection. Its own record determines later eligibility; the source task need not remain active. Runtime installs [real steps and frozen integration](2026-10-13-workflow-step-capabilities.md) by default, with injectable executors for tests. [Whole-work delivery](../feature/2026-10-13-workflow-owner-input-and-delivery.md) owns trusted answers, scheduled completion and final reporting; [definition entry points](../feature/2026-10-13-workflow-library-and-controls.md) own model initiation, the library and interactive controls. The original combined acceptance requirements remain in the offline `.scratch/agent-workflow/implementation-plan.md`.
 
-步骤唯一键为运行与稳定键，完整调用类别、参数、依赖及登记序号进入摘要核对。恢复先让固定脚本重放登记，再派发尚未执行的步骤；已完成值按持久交付序号逐个兑现 Promise，每轮交付后让宿主 reply 入队，避免 Promise 采用顺序改变 `race` 的选择。异参、异序、缺失定义/结果或产物损坏暂停保留事实。四类原语共用依赖门，失败依赖记跳过；正常脚本返回仍核实全部步骤、执行及停止状态，输出覆盖清单。
+A step's unique key is the run plus its stable key. Its full call kind, arguments, dependencies and registration sequence participate in digest checking. Recovery replays registration through the pinned script before dispatching unexecuted steps. Completed values resolve Promises individually in persisted delivery order, enqueueing the host reply after each delivery so Promise adoption order cannot change a `race` winner. Different arguments/order, missing definitions/results or damaged artifacts pause the run while preserving facts. All four primitives share dependency gating; failed dependencies produce skipped steps. Normal script return still checks every step, execution and stop state and produces a coverage list.
 
-普通 SubAgent 与工作流步骤在实际启动事务内共用来源会话的三个名额，未核实占用仍占名额。普通委派保留登记容量拒绝，事务内复核；工作流超额排队。每次实际 Agent 启动计一次尝试，最多 100 次，安全重试最多两次；缓存、脚本和宿主操作不计 Agent 尝试。默认一小时按整项运行墙钟累计，不相加并发分支；只有整项无可执行/活动工作且等待人工才停计。脚本宿主只接受最新序号的 idle，发送 start/reply 时同步通知活动恢复；协调器还须确认没有待交付结果，不能把人工问题旁的脚本计算算成等待。暂停提交计费与意图后停止在途工作；崩溃计时独立标为未核实，保守保留已计及最后区间，停止确认不能替代计时确认。
+Ordinary SubAgents and workflow steps share three slots per source session in the actual-start transaction; unverified occupancy still consumes a slot. Ordinary delegation rejects registration at capacity and rechecks transactionally; excess workflow work queues. Each actual Agent start counts as one attempt, with at most 100 attempts and two safe retries. Cache hits, scripts and host operations do not count as Agent attempts. The default one-hour budget measures whole-run wall time, not the sum of concurrent branches. It stops only when the entire run has no executable/active work and is waiting for a human. The script host accepts only the latest idle sequence and synchronously signals activity on start/reply; the coordinator also checks for undelivered results. Script computation alongside a human question is not waiting time. Pausing commits charges and intent before stopping in-flight work. Crash timing is separately unverified and conservatively retains recorded time and the last interval; stop confirmation does not confirm timing.
 
-控制请求先查幂等回执，再按运行版本仲裁；重发旧暂停键不能再次停止已恢复的工作。增加预算和停止/计时核实只由可信宿主控制接受，脚本无此接口。硬暂停原因不会被另一暂停覆盖。恢复还复核任务、占用、真实账本和停止事实：无写入效果或所有审批均未消费才可有限重试；未知效果、已生效写入缺最终结果、格式失败后的写入或停止未核实均不能自动重跑。Coordinator 注入 Runtime 的同一 ToolOpLedger，复用宿主族核实及效果分类。
+Controls first check idempotency receipts, then arbitrate by run version. Repeating an old pause key cannot stop a resumed run again. Only trusted host controls may add budget or verify stopping/timing; scripts have no such interface. Another pause cannot overwrite a hard pause reason. Resume also checks tasks, occupancy, actual ledgers and stop facts. Limited retry requires no write effect or all approvals unconsumed. Unknown effects, effective writes without final results, writes followed by format failure, or unverified stopping cannot rerun automatically. The coordinator uses Runtime's same ToolOpLedger and host-family verification/effect classification.
 
-Agent 尝试继续建立既有工作、SubAgent、独立 Session 与 Task；宿主操作任务使用来源会话，不建立 SDK 会话，任务的模型选择为空。`workflow_executions` 保存具名归属、起始与实际单元身份、停止结论；普通队列与父级结果送达排除这些绑定，工作流步骤不接受普通任务/工作控制或复用。WorkflowCoordinator 写绑定步骤的身份指针，普通身份仍由 SubAgentManager 管理。终态缺输出补记中断事实以支持拥有者核实占用，不将其伪装为可复用宿主结果。
+Agent attempts retain existing work, SubAgent, independent Session and Task records. Host-operation tasks use the source session, create no SDK session and have no model selection. `workflow_executions` records named ownership, initial/actual execution identities and stop conclusions. Ordinary queueing and parent-result delivery exclude those bindings; ordinary task/work controls and reuse cannot take over workflow steps. WorkflowCoordinator writes bound-step identity pointers; SubAgentManager still owns ordinary identities. Missing output at terminal state records an interruption for owner occupancy verification, not a fabricated reusable host result.
 
-`workflowHostOperation` 按稳定键持有短期任务，`HostExecutionManager` 负责登记与停止，账本快照和终态协议由[任务收尾](2026-10-16-task-ending-protocol.md)持有。`executeWorkCopy` 接受具名执行归属：普通路径仍要求活动 Driver，运行路径要求活动宿主任务及来源授权，二者共用 launcher、worker 与占用收尾。已登记未执行的宿主任务按原键恢复；已有完整宿主缓存可穿过步骤结果尚未提交的崩溃窗口复用。停止 false/异常缓存原结论，源与副本占用、实际身份及已收到结果保留。
+`workflowHostOperation` owns short-lived tasks by stable key; HostExecutionManager registers and stops them. [Task ending](2026-10-16-task-ending-protocol.md) owns ledger snapshots and the terminal protocol. `executeWorkCopy` accepts named execution ownership: the ordinary path requires an active Driver; the workflow path requires an active host task and source authorization. Both share launcher, worker and occupancy cleanup. Registered but unexecuted host tasks recover under their original keys; a complete host cache survives a crash before step-result commit. A false/throwing stop result remains cached, preserving source/copy occupancy, actual identities and received results.
 
-结果校验使用现有 TypeBox 的基础 JSON Schema，限 16 KiB、256 个 schema 节点和 16 层，支持对象、数组和标量；正则、外部引用与复杂组合关键词在执行前拒绝。校验发生在后台，允许灾难性正则会阻塞取消与资源计时，因此不能直接复用 MCP 的对象 schema 预检。
+Output validation uses the existing TypeBox basic JSON Schema support, limited to 16 KiB, 256 schema nodes and depth 16, with objects, arrays and scalars. Regexes, external references and complex composition keywords fail before execution. Validation runs in the backend, where catastrophic regexes would block cancellation and resource accounting; MCP's object-schema precheck is therefore insufficient.
 
-跨实例导入不迁移运行授权，也不丢掉步骤绑定后把它当普通 Agent。两方向显式登记新表，任一运行、步骤、执行、问题或控制表非空的源明确拒绝，源资料保留；定义版本单独存在时排除。普通资料及已有目标工作流不因此改写。
+Cross-instance import neither migrates run authorization nor discards step bindings to treat steps as ordinary Agents. Both import directions explicitly account for the new tables: any source with runs, steps, executions, questions or control records is rejected and preserved. Definition-only records are excluded. Ordinary data and existing target workflows are not rewritten.
 
-## 既有笔记审计
+## Related decisions
 
-[工作流提案](../../implemented/feature/2026-10-12-agent-workflows.md)部分落实，本篇持有执行基础，其余能力与产品入口继续由提案持有。[脚本隔离](2026-10-13-workflow-script-isolation.md)部分重叠，增加实际身份的宿主回调，不改变进程权限或停止保证。[工作/Agent/任务](2026-10-03-work-delegation-subagent-task.md)与[普通恢复](2026-10-05-subagent-restart-recovery.md)部分重叠，仅新增绑定路径，普通行为保留。[副本](2026-10-04-subagent-worktrees.md)、[停止事实](../bug-fix/2026-10-11-preserve-unverified-worker-stop.md)及[完全访问](../feature/2026-10-12-full-access-current-account.md)部分重叠，复用实际执行与授权规则。[两方向导入](2026-10-04-legacy-instance-import.md)及[个人导入](2026-10-05-personal-instance-import.md)部分重叠，新增不能静默丢绑定的拒绝。其余产品、平台、调度与资料命中保持原归属，无整篇吸收或删除。
+The [workflow decision](../feature/2026-10-12-agent-workflows.md) retains the overall capability/product requirements; this note owns execution foundations. [Script isolation](2026-10-13-workflow-script-isolation.md) gains actual-identity host callbacks without changing process permissions or stop guarantees. [Work/Agent/task](2026-10-03-work-delegation-subagent-task.md) and [ordinary recovery](2026-10-05-subagent-restart-recovery.md) retain ordinary behavior alongside new bindings. [Work copies](2026-10-04-subagent-worktrees.md), [stop facts](../bug-fix/2026-10-11-preserve-unverified-worker-stop.md) and [full access](../feature/2026-10-12-full-access-current-account.md) retain execution and authorization rules. [Legacy import](2026-10-04-legacy-instance-import.md) and [Personal import](2026-10-05-personal-instance-import.md) gain rejection rather than silently losing bindings. Other product, platform, scheduling and material decisions remain separate; none was wholly absorbed or deleted.
 
-## 备选方案
+## Alternatives considered
 
-- 借用活动父 Driver：复用最省代码；父任务结束便失去真实执行归属，伪造活动状态会破坏停止与占用核实，因此新增短期宿主任务。
-- 只保存脚本步骤状态并重跑：恢复逻辑少；写效果、缺结果和 Promise 返回顺序会改变实际工作，因此保留完整调用、交付顺序及账本。
-- 每个运行独立三个名额：调度简单；多个运行及普通委派会穿透同来源上限，因此在同一 SQLite 启动事务仲裁。
-- 直接导入普通 Task 并排除工作流表：兼容既有导入；丢掉授权与执行绑定会扩大可继续的范围，因此明确拒绝含执行记录的源，不设计跨实例授权迁移。
+- Borrow the active parent Driver: minimal reuse, but ownership disappears when the parent task ends. Faking activity breaks stop/occupancy verification; use short-lived host tasks.
+- Persist only script-step states and rerun: simpler recovery, but effects, missing results and Promise ordering can change the work. Preserve complete calls, delivery order and ledgers.
+- Give each run three independent slots: simpler scheduling, but multiple runs plus ordinary delegation exceed the source limit. Arbitrate in the same SQLite start transaction.
+- Import ordinary Tasks and exclude workflow tables: compatible with existing import, but losing authorization/execution bindings expands resumability. Reject sources with execution records rather than designing authorization migration.
 
-## 后果
+## Consequences
 
-后台编排可以独立于发起任务，保留已完成成果且只在有证据时重试。代价是多张执行事实和重放记录、短期任务以及两类核实；不能仅靠修改状态字段宣称已停止、已成功或可重跑。定向状态机、实际 SQLite 双连接竞争、真实 Git/worker、后台 SIGKILL 与撤修负例见[验收入口](../../../../.scratch/agent-workflow/issues/03-runtime-and-store.md)。假 Agent、local 工具与模拟模型不证明真实步骤权限、原生跨平台或产品体验。
+Background orchestration outlives the initiating task, retains completed work and retries only with evidence. The cost is additional execution/replay records, short-lived tasks and separate stop/timing verification. Editing a status field alone cannot establish stopped, successful or retryable work.
 
-架构文档预算增加 200 字符用于新增工作流模块行，开发说明增加 300 字符用于新定向测试映射；现有机制与历史基线没有复制到常驻文档。本单没有执行外部产品验收。
+Historical state-machine, real two-connection SQLite contention, real Git/worker, backend SIGKILL and fix-removal negative checks are recorded in the offline `.scratch/agent-workflow/issues/03-runtime-and-store.md`. Fake Agents, local tools and simulated models do not prove real step permissions, native cross-platform isolation or product experience. No external product acceptance was performed in that work item. The original documentation budget increases were 200 characters for the architecture module row and 300 for development test navigation; existing mechanisms and historical baselines were not duplicated into resident docs.

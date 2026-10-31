@@ -1,62 +1,48 @@
-# Agent Note: 补上事故复盘层、写作与错误处理标准
+# Agent Note: Give postmortems, prose, and error handling distinct maintained homes
 
 Status: implemented
 
-## 问题
+[Development standards](2026-10-31-development-standards.md) moves postmortems from docs/postmortem to `.agents/postmortem/`, makes maintained prose English-first, and replaces local task records with GitHub. This note retains the separation rationale, evidence-based standards, and newline-check decision; original audit counts are historical, not current inventory.
 
-前几批补齐了指示层与门禁，但外围还缺三样，都是从 DSH 借鉴后按本仓库实证裁剪的：
+## Problem
 
-- **事故复盘没有落点。** 本仓库有两类内容需要「失败的回溯」，但它们没有归属：`docs/development.md` 的耗时基线一节记录了实例锁误判与 Node 22 SQLite 占位符两起真实事故，读起来像发布说明的附带段落；`.scratch/` 的工单记录当时的计划与验证，不复盘机制。结果是同一类缺陷的教训散落在提交信息与工单评论里，下次很难找到，也很难据此加护栏。
-- **写作标准只覆盖 `docs/`。** `writing-docs-for-human` 只管人读文档。注释、JSDoc、notes、skill、提示词与诊断文本没有共同标准，「保留契约再删冗余」与「词要准确」这些判断每次靠临场发挥。
-- **错误处理标准没有成文。** 本仓库的错误处理实际上相当一致：40 多个带 `code` 的 `Error` 子类、`instanceof` + `.code ===` 判别、全仓只有 3 处解析 `message`（都是 SQLite 唯一索引兜底）、没有真正的空 `catch`。这些规则此前只在代码里，不在任何文档里。
+Instruction/gate work left three gaps. Lock-owner misidentification and Node22 SQLite-placeholder incidents appeared as incidental development-baseline prose rather than searchable failure analysis; task plans/evidence did not explain escape mechanisms. Writing-docs-for-human covered human documents but not comments/JSDoc/notes/skills/prompts/diagnostics. Error conventions existed in code (over forty coded Error subclasses, instanceof/code discrimination, three message-parsing SQLite uniqueness fallbacks, no truly empty catches) but had no shared written standard.
 
-## 决定
+## Decision
 
-### 事故复盘层
+### Postmortems
 
-新增 `docs/postmortem/`：`README.md` 定义何时写（机制非显然、系统性、重新发现代价高，三条同时满足）、与决策记录的分工（notes 写「我们选择这么做」，复盘写「我们以为这么做是安全的，结果不是」）、固定节（执行摘要在最前，随后影响、时间线、根因、为什么没被发现、护栏），以及 `NNNN-slug.md` 的编号。
+Use [postmortems](../../../../.agents/postmortem/README.md) when all three hold: nonobvious mechanism, systemic gap, and costly rediscovery. Notes explain a choice; postmortems explain why something believed safe was not. A numbered NNNN-slug.md starts with an executive summary, then impact/timeline/root cause/why it escaped/safeguards. Cross-link design choices instead of forcing incident narratives into decision/alternatives structure.
 
-写入 `0001`：实例锁按命令行判断持有者。执行摘要、根因与「为什么没被发现」都按仓库证据写——`looksLikeBackend` 把「命令行含 `ruukoto`」当作进程身份，检出名不含产品名时会接管仍存活的锁；测试全在名为 `ruukoto` 的检出里跑，恰好满足那个隐含假设，错误分支从未执行。
+The first incident reconstructed `looksLikeBackend` treating "ruukoto" in argv as process identity. A checkout without that name could steal a live lock. Tests always used a ruukoto-named checkout and never exercised the unsafe branch. Record only repository-supported facts and why the supposed safeguard missed them.
 
-### 两个 skill
+### Prose and failures
 
-- `.agents/skills/prose-standard/SKILL.md`：先保住命题再删冗余（主体、条件、时序、情态、否定性保证、归属、失败、后果）；一处一个家；按位置（JSDoc、内部注释、模块注释、测试、`docs/`、notes、skill 与提示词、诊断）列出必须覆盖的内容；`contract`／`boundary`／`shape` 是要检查的词而不是禁词；列出要删的东西（代码复述、推理过程、评审历史、实现状态标注、强调通胀、段落墙）。
-- `.agents/skills/error-handling/SKILL.md`：**按本仓库实证写，不照抄 DSH 的包级约定**。DSH 要求「保留 cause」，而本仓库全仓 0 处使用 `{ cause }`；写进去就是一条没人遵守的规则。收录的是实证成立的：带 `code` 的类型、`instanceof` + `.code ===`、字面量联合与宽 `string` 的取舍、不写空 `catch`、重试的归属与预算、可见且可行动的报告、`process.stderr.write` 带前缀。
+Prose-standard preserves every factual proposition before shortening: actor/action, condition/order/modality, negative guarantee/exception, ownership/failure/consequence. Give each explanation a home and tailor necessary content to JSDoc/internal/module/test/human-doc/note/skill/prompt/diagnostic use. Words such as contract/boundary/shape need precision, not a blanket ban. Remove code narration, author reasoning/review history, stale implementation labels, inflated emphasis, and mixed-rule walls.
 
-### TODO 标记语义
+Error-handling is based on this repository, not copied package rules: coded types, instanceof plus .code, deliberate literal unions versus broad strings, nonempty catches, retry ownership/budgets, actionable reports, and prefixed stderr. The original audit had zero `{ cause }` use, so a blanket inherited DSH rule would have described no actual practice. Later code legitimately preserves causes at specific boundaries; that historical observation is not a prohibition on Error.cause or an excuse to drop underlying failures.
 
-`docs/development.md` 记录三种标记的紧急度：`FIXME` 发布阻断、`TODO` 尽快处理、`XXX` 将来再说。全仓当前 0 处使用，因此这是**为新代码立的约定**而非既有实践的记录——因此它写在开发说明里，而不是写进根 `AGENTS.md` 的「约定」章节（那一节只收取证成立的规则）。
+FIXME means release-blocking, TODO near-term, XXX deferred. These were newly introduced semantics with zero uses at the time, initially placed in development documentation rather than presented as established root conventions. Current authoritative placement is root instructions/skills. Markers need a concrete action, not ceremonial labels; an unused convention should be reconsidered rather than preserved for its own sake.
 
-### 行尾换行检查
+### Staged newline guard
 
-实测 `git diff --cached --check` 拦行尾空白与文件末尾空行，但**不检测末尾缺换行**（用最小仓库验证过）。新增 `scripts/check-staged-eol.mjs` 补上这一项，pre-commit 依次跑两者。同时修掉实测发现的 2 处行尾空白与 4 个缺末尾换行的文件。
+A minimal-repository experiment showed git diff --cached --check catches trailing whitespace/extra EOF blank lines but not a missing final newline. Add scripts/check-staged-eol.mjs alongside it in pre-commit to enforce exactly one final newline. The introduction also fixed two trailing-whitespace instances and four missing-newline files. Current pre-commit runs both then static checks; this note does not replace that command source.
 
-## 备选方案
+## Alternatives considered
 
-- **不建复盘层，教训留在 `docs/development.md`** — 零新增。否：开发说明是操作手册，塞进失败叙事会同时破坏两份文档的定位；且复盘要求的结构（执行摘要、为什么没被发现）在手册里没有位置。
-- **复盘写进 `.agents/notes/`** — 复用现成机制。否：notes 记的是决定与备选方案，复盘记的是失败与逃逸路径；混在一起会让 `implemented/` 的「决定/后果」骨架承载它不擅长的内容。两者互相链接即可。
-- **照抄 DSH 的 prose 与 error-handling skill** — 省事且质量有保证。否：DSH 的规则绑定它的包结构（`vendor/` 排除、双语配对）与它的实践（保留 cause）。照抄会产生无法遵守的规则。
-- **prose 标准写进根 `AGENTS.md`** — 更显眼。否：它是判断标准而非常驻硬规则，篇幅也放不下；根文件只留指针。
-- **错误处理只写进根 `AGENTS.md` 的「约定」** — 不新增 skill。否：「约定」章节是 1–2 行的硬规则；错误处理的归属、包含与保证需要展开，属于 skill 的容量。
-- **行尾换行只用 `git diff --check`** — 少一个脚本。否：实测它不检测缺末尾换行，而仓库约定恰是「恰好一个换行结尾」；两者都跑才覆盖。
-- **换行检查用 eslint 规则** — 复用现成工具链。否：需要新增插件并让 eslint 覆盖 Markdown 与 JSON，成本高于 60 行脚本。
-- **先补齐全仓 JSDoc 再考虑门禁** — 一次到位。否：实测导出函数 JSDoc 覆盖 179/298，一次性补齐近 120 处注释是独立批次，且会把 60% 的既有事实突变。
+- Leave failures in development.md: no new directory, but operational instructions and escape narratives have different readers/structures. Keep failure analysis separate.
+- Put postmortems in notes: reuses infrastructure, but decisions/alternatives do not naturally represent failure and missed safeguards. Cross-link instead.
+- Copy upstream prose/error skills wholesale: convenient quality baseline, but vendor exclusions, bilingual pairing, package structure, and cause policy reflected another repo. Adapt to local facts.
+- Put prose rules in root AGENTS: visible, but detailed judgment exceeds resident scope. Keep a pointer.
+- Put all error policy in short root conventions: avoids a skill, but ownership/containment/guarantees need more than one or two lines.
+- Use only git diff --check: one fewer script, but misses the measured no-newline case.
+- Use an ESLint newline rule: reuses tooling, but would need another plugin and Markdown/JSON coverage for a problem served by a small script.
+- Complete all JSDoc first: comprehensive, but 179/298 coverage meant a separate near-120-comment change rather than a prerequisite for these standards.
 
-## 后果
+## Consequences
 
-三类材料各有归属：失败叙事进 `docs/postmortem/`、写作判断进 `prose-standard`、错误处理规则进 `error-handling`，且后两者的内容都来自本仓库实证而非上游照搬。第一份复盘把一起已复现、已有护栏的事故从开发说明的附带段落提升为可检索、可链接的记录，其「为什么没被发现」一节给出了四条具体原因。提交前的行尾检查补齐了 `git diff --check` 的盲区，全仓行尾状态实测已清零。
+Failure analysis, prose judgment, and error handling have distinct homes and evidence-based rules. The first postmortem made a reproduced/fixed failure searchable, with four explicit reasons it escaped. Staged newline checking fills git diff's measured gap.
 
-代价与遗留：
+The first postmortem was reconstructed from commit `4d5379c`, test/101, and development notes, not written during the incident; unsupported timeline details were omitted. Skill judgments rely on triggers/semantic review, not a keyword gate. Potential mechanical failure-pattern checks were not added here. The staged script does not retroactively scan untouched historical files. Four report JSON newline fixes included two Linux probe outputs whose generators were not updated then; rerunning those generators could recreate the failure and pre-commit would catch it. This historical limitation is not a claim about every current generator.
 
-- 复盘层当前只有 1 篇。它是从既有材料（提交 `4d5379c`、`test/101`、开发说明）重建的，不是事发当时写的；时间线里的细节以仓库证据为准，没有证据的部分未写。
-- 两个 skill 无门禁，靠触发条件生效。`prose-standard` 的判断是语义的，机械检查会退化成关键词扫描；错误处理的几条可以机械化（例如禁止 `.message.includes(`），本批未加。
-- TODO 标记语义是新增约定，全仓 0 处使用，尚无实践检验；如果后续仍不使用，应考虑删除而不是保留一条空规则。
-- `check-staged-eol.mjs` 只检查暂存文件。既有历史文件里的不合规行尾不会被追溯；本次顺手修掉了实测发现的 6 处。
-- 4 个报告类 JSON 被补上末尾换行，其中两份是 Linux 探针的产出记录。生成脚本未同步修改，下次重跑会再次产出缺换行的文件，届时 pre-commit 会拦下。
-
-## 测试
-
-- `scripts/check-staged-eol.mjs` 正常路径与缺换行负例均实测：负例报错并退出 1。
-- `git diff --cached --check` 的检测范围用最小仓库单独验证，确认它不覆盖缺末尾换行。
-- 全仓行尾复查：0 处行尾空白、0 个缺末尾换行。
-- `npm run check:static` 通过。
+Historical validation exercised positive/missing-newline cases (negative exits 1), independently confirmed git diff's blind spot, found zero remaining trailing-whitespace/missing-newline files in that scan, and passed check:static. Those counts/results describe the original change, not fresh repository-wide validation after migration.

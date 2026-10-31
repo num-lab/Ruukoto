@@ -1,47 +1,41 @@
-# Agent Note: 个人通用工具由 durable 核实授权与原字节
+# Agent Note: Personal general tools use durable authorization and original-byte evidence
 
 Status: implemented
 
-Web Search 的独立配置与运行选择采用[请求配置](2026-10-25-personal-request-configuration.md)，不切换无关文件/HTTP 操作；本文其余权限、原请求证据与未知效果约束继续适用。
+[Request configuration](2026-10-25-personal-request-configuration.md) owns independent Web Search configuration/selection without switching unrelated file/HTTP operations. [Operation-specific checks](../bug-fix/2026-10-24-operation-specific-checks.md) removes unconditional material-directory checks: network/full-access operations check only actual dependencies. Original source, approval, permission revision and unknown-effect rules remain.
 
-运行时无条件资料目录核实由[按操作核实范围](../bug-fix/2026-10-24-operation-specific-checks.md)取代；网络与完全访问操作只检查实际依赖，原来源、审批、权限修订与未知效果规则继续适用。
+## Problem
 
-## 问题
+Personal commands/MCP already recovered original work, while file, HTTP, search and artifacts still used old ToolRouter, approval ledger and ArtifactStore. Reusing those entries reintroduces old Db. Shell alone cannot preserve exact file grants/automatic review. Old HTTP converted/truncated responses upstream as text, unsuitable for original-byte evidence.
 
-个人命令与 MCP 已有原工作恢复，文件、HTTP、搜索和产物仍由旧 ToolRouter、审批账本和 ArtifactStore 装配。直接复用这些入口会引入旧 Db；只开放 shell 又无法保留精确文件授权和自动审查。旧 HTTP 在响应上游转文本并截断，不能作为完整字节证据。
+## Decision
 
-## 决定
+Native pi.tool owns immutable admission, exact arguments, source, permissions and configuration snapshots. Business documents add only approval, start, observation and external-verification facts, not another Task state. Main/children share tool names and call gates. Main mutations require unique owner input; children use current original-work source/permissions, never old authorization from persistent context. Scheduled sources use the independent adaptation below.
 
-个人 app 在原生 `pi.tool` 保存不可改接纳、精确参数、来源、权限和配置快照，业务 document 只持有审批、开始、观察和外部核实事实，不建立另一份任务状态。主/子使用同一工具名称清单和调用门；主变更操作要求唯一拥有者输入，子沿当前原工作的来源和权限，不能从长期上下文继承旧授权。定时来源的独立适配见下文。
+tools.json originally included separate material-directory/object identities, named HTTP credential references and Tavily environment-variable names. Web Search now has its independent configuration under the linked decision. Trusted local controls individually create, retain and revoke read grants, incrementing grant version without implicit write grants. Before approval consumption, recheck configuration, materials, original entry and exact arguments. Revocation invalidates unstarted calls; default mode changes affect new sources only, not old child work.
 
-`tools.json` 保存独立资料目录及对象身份、具名 HTTP 凭据引用和 Tavily 环境变量名。资料读取授权由可信本机入口逐条建立、保留和撤销，变更递增版本；不产生隐含写授权。配置、资料、原入口和精确参数在批准消费前复核；撤销使未开始的调用失效。默认模式只影响新来源，不能扩张旧子工作。
+Confirm/auto-review share file/HTTP execution limits and the existing command sandbox. Only out-of-scope file reads and GET/HEAD without credentials, custom headers or body are reviewable. Existing review policy/strict parsing runs once in an independent tool-less provider call. Normalized input and actual payload persist first. Invalid, failed, timed-out or interrupted review falls back to a human; late results cannot override human decisions/cancellation. Credentials are read only when sending; rotation invalidates original requests without anonymous fallback.
 
-请求确认和自动审查使用相同文件/HTTP执行约束及既有命令沙箱；仅越界文件读取与无凭据、无自定义头/正文的 GET/HEAD 可审查。审查复用既有策略和严格解析，以独立无工具 provider 调用执行一次；规范输入和实际请求 payload 均先保存，非法、失败、超时或中断中的审查转人工，迟到结果不能覆盖人工决定或取消。凭据值只在发送时读取，换代使原请求失效，不降级匿名。
+Files pin regular-object identity, original-content fingerprint and new-file parent. Restricted paths reject links, protected data, system execution and device trees. Path/device checks exclude system trees without recursively walking /proc, /sys or /dev. Linux creation uses a verified parent-directory handle against ancestor replacement after checking; platforms lacking that primitive reject creation, not fall back to a string path. Existing files use trusted executors; write loops handle short writes and retain unknown effects on failure after start.
 
-文件钉定普通对象、原文指纹和新文件父目录；受限路径拒绝链接、保护资料、系统执行与设备树。系统树按路径和设备身份排除，不递归遍历 `/proc`、`/sys` 或 `/dev`。Linux 新建通过已核实父目录句柄创建，防止检查后祖先替换；缺该原语的平台拒绝新建，不能回退字符串路径。现存文件复用受信执行器，写入循环核实短写，开始后失败保留未知。
+HTTP pins URL, method, headers, body, DNS and credential reference, with no retries/redirects. Complete responses prove request return. Disconnected/canceled writes retain separately unverified effect and remote completion; local socket close proves neither remote exit nor business effect. Recovery can establish that synchronous local file execution ended, but cannot infer effect from a missing receipt. Started operations never resend. Unknown facts join original source, whole delegation, child cleanup and report waiting. The initial MCP/HTTP cross-endpoint occupancy check is narrowed for ordinary MCP by [host simplification](../simplification/2026-10-26-mcp-host-responsibilities.md); this note's general HTTP recovery requirements remain. Full-access commands retain arbitrary current-account access: these gates control original-work automation, not an account-wide firewall against independent sources.
 
-HTTP 固定 URL、方法、头、正文、DNS 和凭据引用，不重试、不跟随重定向。完整响应证明本次请求返回；写请求断线或取消保留效果与远端结束两项待核实事实，本地 socket 关闭不能代替远端结束。文件同步调用恢复可确定原本地执行已结束，业务效果仍不能从缺失回执猜测。所有开始事实恢复均不重发；未知并入原来源、整个委托、子身份收尾和报告等待，MCP/HTTP 还交叉检查端点占用。完全访问命令仍有账户任意访问资格，本机制约束原工作自动化，不是针对其他独立来源的全账户网络防火墙。
+Responses first publish to private immutable artifact files, then durable source references. File/HTTP capture is at most 8 MiB per operation; Tavily retains 256 KiB. Overflow/interruption marks partial. Pages contain 3072 original bytes in base64 with identity/length/hash checks. Main may read instance artifacts; children only their own conversation. Complete export publishes exclusively, rejecting overwrite/partial artifacts. Command streams/MCP responses retain their own readers without copied bodies. File publication/durable reference is not atomic: missing references after publication preserve file/start facts without repeating calls. Plaintext credentials, JSON/URL-encoded echoes and cutoff suffix fragments do not enter evidence; affected HTTP responses are rejected and search responses redacted. Export does not promise original bytes for secret echoes.
 
-响应先保存到私有不可变产物文件，再保存 durable 来源引用；文件、HTTP 每次最多捕获8MiB，Tavily 沿已有256KiB界限，超限或中断标 `partial`。正文按3072原字节/base64分页，核实身份、长度与哈希；主可读本实例，子只读本子会话。完整导出独占发布、拒绝覆盖和 partial。命令双流与 MCP 原响应沿原读取工具，不复制正文。已发布文件与 durable 不宣称跨存储原子；发布后缺引用的窗口保留文件和原开始事实，不重做外调。凭据明文、JSON/URL编码回显及截界尾部片段不会进入证据；受影响 HTTP 响应拒收，搜索响应脱敏，因此不承诺这些秘密回显的原字节可导出。
+## Related decisions
 
-## 相关决定核对
+[Conversation background processes](../feature/2026-10-21-personal-background-processes.md) shares directory claims with file-write approval consumption. Unknown write effects/stopping retain claims; human verification/release commits together. This note retains file grants/original-byte evidence.
 
-[个人会话后台](../feature/2026-10-21-personal-background-processes.md)与文件写批准消费共用目录认领；写入效果未知或停止未核实时保留认领，人工核实与释放同commit完成。本篇仍持有文件授权及原字节证据。
+[Automatic review](../feature/2026-09-22-auto-review-mode.md), [native restricted execution](2026-10-10-native-execution-sandbox.md) and [legacy artifact export](../feature/2026-10-14-artifact-file-export.md) retain Coding ownership. [Personal commands](2026-10-17-personal-durable-commands.md)/[MCP](2026-10-17-personal-durable-mcp.md) retain original-execution evidence; this extends shared pause consumers. [Migration](../../proposed/architecture/2026-10-17-personal-pi-durable.md) retains complete goals, not established product cutover from this slice. No note was wholly absorbed or obsolete.
 
-[自动审查](../../implemented/feature/2026-09-22-auto-review-mode.md)、[原生受限执行](2026-10-10-native-execution-sandbox.md)和[旧产物导出](../../implemented/feature/2026-10-14-artifact-file-export.md)部分重叠，保留其 Coding 归属，本篇只说明个人原生接线；[个人命令](2026-10-17-personal-durable-commands.md)与[MCP](2026-10-17-personal-durable-mcp.md)继续持有原执行证据，本篇扩展共享暂停调用方；[迁移提案](../../proposed/architecture/2026-10-17-personal-pi-durable.md)仍持有整体目标，不由本片宣称正式切换完成。没有完全吸收或过时记录。
+[Browser/media](2026-10-18-personal-browser-media.md) owns Personal Pi assembly, binding, admission and recovery without changing general-tool grants/approvals/artifacts. [Scheduled work](2026-10-18-personal-durable-scheduled-work.md) uses real independent inputs through the same tools/recovery gates; artifacts belong to actual conversations. Creation pins tool/material ceilings and later grants cannot expand old plans. [Durable application data](2026-10-18-personal-durable-app-data.md) owns its native sources and dual-database receipts. [Controlled file search](../feature/2026-10-21-controlled-file-search.md) reuses grants/byte evidence; [Personal file search](../feature/2026-10-21-personal-file-search.md) reads in a separate read-only execution unit, not through the command directory.
 
-个人 Pi 1.3.0 的独立装配见[浏览器与图片归属](2026-10-18-personal-browser-media.md)；本篇继续持有个人通用工具的资料授权、审批与原字节产物决定；浏览器和媒体的绑定、接纳和恢复由该篇持有。
+## Alternatives considered
 
-[定时工作](2026-10-18-personal-durable-scheduled-work.md)以真实独立输入接入同一工具和恢复门禁；产物仍归实际会话。工具/资料配置在创建时冻结，当前配置变化使旧计划停止新执行，不能利用新授权扩大旧计划。
+- Reuse ArtifactStore/ToolRouter: less wiring, but restores old projects, Db and tool-ledger dependencies against durable's sole authority.
+- Store complete responses in durable documents: simpler transaction, but copies large binaries into the database instead of protected files owning original bytes.
+- Use unrestricted bash for file/network calls: least code, but bypasses exact grants and tool-less automatic review.
 
-## 备选方案
+## Consequences
 
-复用旧 ArtifactStore/ToolRouter 可以减少表面接线，但会恢复旧项目、Db 和工具账本的运行依赖，违背 durable 唯一权威。直接保存全部响应到 durable document 更容易事务提交，但把大型二进制复制进数据库，且偏离受保护文件持有原字节的既定分工。通过 unrestricted bash 完成文件和网络调用最省代码，却绕过精确资料授权及无工具自动审查，不能采用。
-
-## 后果
-
-新工具可以沿现有主/子来源恢复，批准不能跨参数、配置或撤销消费。代价是外调已开始但缺观察时宁可暂停；HTTP 无远端查询协议时需要拥有者独立核实，不能据本地关闭自动释放。产物没有全档案磁盘配额，孤立私有文件保留供核实。真实 Linux、模型、IM 和操作者验收分别在工单记录，离线替身不代替真实产品验收。
-
-个人durable的应用数据接线、原生来源与双库回执恢复由[独立决定](2026-10-18-personal-durable-app-data.md)持有，本篇其他消费者约束保持。
-
-相关决定：[受控文件检索](../../implemented/feature/2026-10-21-controlled-file-search.md)复用本篇资料授权与原字节证据，[个人接入](../../implemented/feature/2026-10-21-personal-file-search.md)在独立只读执行单元中读取，不经独立命令目录绕行。
+Tools recover under existing main/child sources. Approval cannot cross arguments, configurations or revocation. Started calls without observations conservatively pause. Without a remote HTTP query protocol, the owner independently verifies rather than local close releasing automatically. No profile-wide artifact quota exists; orphan private files remain for verification. Real Linux, model, IM and operator acceptance require their own work-record evidence; offline substitutes do not establish product acceptance.

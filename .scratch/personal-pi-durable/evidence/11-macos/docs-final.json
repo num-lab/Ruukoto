@@ -1,9 +1,0 @@
-{
-  "command": [
-    "npm",
-    "run",
-    "check:docs"
-  ],
-  "exitCode": 0,
-  "seconds": 1.571
-}

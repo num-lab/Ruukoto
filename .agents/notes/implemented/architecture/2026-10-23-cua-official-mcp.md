@@ -1,65 +1,63 @@
-# Agent Note: Cua 直接复用官方 MCP 并收窄独占与恢复范围
+# Agent Note: Use official Cua MCP and narrow exclusivity and recovery scope
 
 Status: implemented
 
-MCP客户端归属、Personal配置v4与合并恢复交互由[MCP宿主职责收缩](../simplification/2026-10-26-mcp-host-responsibilities.md)更新；本篇保留原决定，固定程序、持续连接、真实停止证明、原动作不重放与具体新观察接受继续成立。
+[MCP host simplification](../simplification/2026-10-26-mcp-host-responsibilities.md) updates client ownership, Personal v4 and combined recovery interaction. Fixed programs, persistent connections, real stopping proof, no original-action replay and acceptance of a specific new observation remain. [Instance MCP](../simplification/2026-10-24-code-instance-mcp.md) retires Code project configuration and schema 49-to-50 migration, not persistent connections, unresolved recovery or Personal formats. Historical choices below remain explicitly distinguished from current behavior.
 
-Code 的项目配置及 49→50 迁移按[实例 MCP 方案](../../implemented/simplification/2026-10-24-code-instance-mcp.md)退出；持续连接、未决恢复及 Personal 格式不在该调整内。本篇保留被取代的原决定与仍成立的持续连接约束。
+## Problem
 
-## 问题
+The earlier plan expanded computer operation into cross-product target claims, HTTP bridging and a persistent original-receipt execution service, repeatedly extending prototype/hardware acceptance work. On 2026-10-23 the owner withdrew cross-product same-desktop exclusivity, requested external preservation of experiments and rollback to before e8479aa1. First-release environments remained local Mac for Code and an independent Linux sandbox for Personal, with unchanged permissions and accepted human-verified recovery.
 
-已有方案把双产品电脑操作扩成跨产品目标认领、HTTP桥接与持久原回执执行服务，导致01不断追加原型和实机验收。拥有者在2026-10-23明确撤销跨产品同桌面独占保证，要求外部保存实验并回滚到e8479aa1之前。首版环境仍是Code本机Mac、Personal独立Linux沙箱，权限不变，已接受的人工核实恢复继续有效。
+## Decision
 
-## 决定
+Use official MCP directly: fixed cua-driver mcp --direct on Mac and cua --embedded mcp with the existing Linux sandbox, using maintained MCP stdio transport, now Pi-owned. Normal CLI entry prefers an existing daemon, so the host explicitly selects embedded. Trusted host code fixes program/arguments and retains tool approval/model loops; it does not expose arbitrary-command stdio configuration. Ordinary HTTP authentication remains separate, with later recovery simplification governed by its own note. Original upstream/fixed-source research is offline at `.scratch/cua-integration/research.md`.
 
-直接使用官方MCP：Mac固定cua-driver mcp --direct，Linux固定cua --embedded mcp与既有sandbox，复用现有MCP SDK的stdio传输。固定CLI的普通入口会优先连接已有daemon，因此宿主显式选择embedded。程序与参数由可信宿主生成，保持原工具审批和模型循环；不开放任意命令的通用stdio配置。普通HTTP传输、认证与原远端结束语义保持。上游依据与固定源码见[调查](../../../../.scratch/cua-integration/research.md)。
+Each product instance keeps one main-session computer connection with serialized calls. Remove cross-product, cross-instance and cross-alias target claims; no root registry, global lock or custom HTTP executor. Humans/other controllers can still change the desktop, so observations must refresh and users avoid parallel control. Independent Mac/Linux environments do not share a desktop.
 
-每产品实例仅保持一个主会话的电脑连接与串行调用。删除跨产品、跨实例、跨别名的目标认领，不建root注册表、全局锁或自建HTTP执行端。外部控制器和人类仍能改变桌面，因此观察必须更新，用户避免并行控制；独立Mac/Linux环境本来不共享桌面。
+Existing product operation ledgers retain launch identity, requests, results and recovery facts. Cua need not recover lost original receipts across processes. Unknown actions freeze this profile's computer entry. After verifying original stopping, the owner inspects and begins read-only recovery; accepting a specific new observation permits new work. Neither original unknown nor remoteEnded is fabricated. Personal records Cua-specific settlement and shares unresolved predicates across work, sources, reports, settings and saves. Linux CLI close is not guest stopping; whole-sandbox stopping, when needed, requires the owner's choice and preserves disk.
 
-沿两端已有操作账本保存启动身份、请求、结果与恢复事实，不要求Cua跨进程找回丢失原回执。未知冻结本档案的电脑入口；核实原执行停止后，拥有者检查并开始只读恢复，接受具体的新观察后开放新工作。原unknown和remoteEnded不伪造；Personal另记Cua专属恢复结算，工作、来源、报告、设置与配置保存使用同一未决判定。Linux CLI关闭不等于guest停止，必要整沙箱停止须本人选择并保留磁盘。
+[Personal recovery responses](../bug-fix/2026-10-23-personal-cua-recovery-response.md) saves received original responses separately from acceptable screenshot observations, retaining failures and not overwriting history on re-observation.
 
-[Personal 恢复应答](../bug-fix/2026-10-23-personal-cua-recovery-response.md)分别保存取得的原应答与可接受的截图观察；失败应答也保留，重新观察不覆盖历史。
+Images reuse ArtifactStore/Personal media. A 48-MiB SDK message cap applies before aggregation/JSON parsing. Actions preflight vision-capable models; observations reach later actions only after image saving succeeds. Original schema and model-restricted schema are separately recorded. Host rejects target overrides, file output, scripts and lifecycle tools. MCP management selects fixed programs/existing sandboxes and actually displays recovery images. Real desktop/model acceptance is distinct from offline engineering checks; original interfaces/boundaries are offline at `.scratch/cua-integration/spec.md`.
 
-图片复用既有ArtifactStore与Personal媒体链。SDK在聚合和JSON解析前执行48MiB消息限额；动作前核实视觉模型，图片保存成功后才将观察交给后续操作。原schema与模型受限schema分别保存，宿主拒绝目标覆盖、文件输出、脚本与生命周期工具。MCP管理入口选择固定程序与既有沙箱，并实际呈现恢复图片；真实桌面和模型验收独立于离线工程验证，接口与边界见[规格](../../../../.scratch/cua-integration/spec.md)。
+## Management and permission preflight
 
-## 管理与权限预检
+Owners choose computer type through existing MCP settings/wizards. Host discovers installed programs, verifies versions and hashes automatically. Linux reads only the current account's official sandbox state, using fixed local Docker to verify container identity/isolation/stop policy; it creates no sandbox and changes no policy. Saves retain revision/unresolved-action checks. Missing environment reports only computer prerequisites; ordinary chat/HTTP settings remain available.
 
-拥有者在原MCP设置或配置向导中选择电脑类型。宿主发现已安装程序，自动核版本、计算哈希；Linux只读当前账户的官方沙箱状态文件，并经固定本机Docker核容器身份与隔离／停止策略，不创建沙箱或改策略。配置保存继续使用原修订及未决动作检查，无环境时只报告电脑入口缺前提，普通聊天与HTTP设置可用。
+Code reads the fixed Driver dump-docs static catalog and filters by existing allowed tools/schema limits. Native supervisor supplies read-only AXIsProcessTrusted/CGPreflightScreenCaptureAccess checks under the same launching-host responsibility chain as direct Driver. No fake session, model task or extra computer runtime is created for settings checks. Permission bits establish only current-host preflight, not actual ScreenCaptureKit capture; another daemon's permission does not transfer. Existing persistent connections perform Linux connection/user-scope checks.
 
-Code检查固定Driver的dump-docs静态清单，按既有允许范围和schema限制筛选；原生监督器新增只读AXIsProcessTrusted与CGPreflightScreenCaptureAccess预检，继承与direct Driver相同的启动宿主责任链。这样无需为配置检查创建伪会话、模型任务或额外电脑runtime。授权位只证明当前宿主预检结果，不能代替真实ScreenCaptureKit捕获，另一daemon的授权结果也不能沿用。Linux的连接与user scope检查仍由既有持续连接路径完成。
+Recovery UI binds original operation/current observation and pages protected original images. Desktop accepts only after all images load; CLI opens verified images in the system viewer for human confirmation. Starting re-observation clears old selection, failure leaves no old-image acceptance, and backend rejects stale observations. Code pause disables new calls before verifying original stopping. Personal normal pause persists a separate host fact, restores it on cold start and checks before sends, closing CLI after in-flight work ends; continuation re-observes. Pause does not fabricate unknown recovery, and closing settings does not stop background actions.
 
-恢复界面绑定原操作与当前观察，分页读取受保护原图，桌面图片全部成功加载后才允许接受；CLI将核实图片交系统查看器，再由本人确认。重观察发起前先清旧选择，失败不保留旧图接受入口，后台仍拒绝迟到的旧观察。Code暂停先停用以拒绝新调用，再核实原执行停止；Personal正常暂停保存独立宿主事实，冷启动恢复且发送前复核，在途结束后关闭CLI，继续重新观察。暂停不伪造未知恢复，关闭设置窗也不停止后台动作。
+Settings use current stage, screenshot and button order rather than resident implementation warnings or raw evidence prose. Backend guarantees belong in the operation manual; actual failures display at occurrence. Linux whole-sandbox stopping warns that unsaved state is lost and requires confirmation.
 
-设置界面用当前阶段、截图与按钮顺序表达操作；后台保证与实现细节归操作手册，不作为常驻提醒或原始证据正文。实际错误在发生处显示，Linux整沙箱停止前确认未保存状态会丢失。
+## Sending and historical compatibility
 
-### 发送与兼容
+Each stdio call rebinds original request/response hooks and transactionally records request/approval consumption before actual write. When SDK local waiting ends, send eligibility immediately expires while evidence writes drain. Slow persistence cannot cause first send after timeout/cancel or contaminate the next call. Connection exit invalidates observations; close is not stopping proof.
 
-stdio每次调用重新绑定原请求/应答钩子，真正写入前同事务保存原请求与批准消费。SDK结束本地等待时立即使发送资格失效，证据写入仍须排空；慢持久钩子不能在取消或超时后首次发送，也不能污染下一调用。连接退出使观察失效，关闭不作为停止证明。
+The original Code implementation saved MCP facts in tool_ops and migrated schema 49 to 50 while retaining HTTP configuration/history; protocol 38 rejected old clients. Instance MCP later removed that migration and project configuration. Personal originally introduced MCP v3 for Cua while reading old v1/v2 and HTTP history unchanged, with old code rejecting the new format and no unrelated profile-version bump. Current v4 follows host simplification. Both products preserve launch identity after startup failure and freeze computer access if stopping is unverified, while ordinary chat continues.
 
-Code在原tool_ops保存MCP事实，并通过49→50的定向迁移保留旧HTTP配置与历史；控制协议38明确拒绝旧客户端。Personal使用MCP配置version3承载Cua，旧version1/2和原HTTP历史原样读取，旧程序不能读取新配置；不升级无关的档案格式。两端启动失败仍保留原执行身份，停止未核实时保留电脑冻结，普通聊天可继续。
+## Related decisions
 
-### 既有决定审计
-
-| 记录 | 处理 |
+| Record | Relationship |
 | --- | --- |
-| [旧Cua提案](../../rejected/architecture/2026-10-22-cua-integration.md) | 过时提案转rejected，保留为何曾选桥接的历史；新规格取代全局独占与自建执行路线 |
-| [MCP客户端](../../implemented/architecture/2026-09-23-mcp-client.md)、[共享传输](../../implemented/architecture/2026-10-17-mcp-transport-reuse.md) | 部分重叠，互链；新增Cua专用stdio，不改变HTTP认证与取消限度 |
-| [个人MCP](../../implemented/architecture/2026-10-17-personal-durable-mcp.md) | 部分重叠，互链；只对Cua增加人工恢复结算，原remoteEnded含义不改 |
-| [个人图片](../../implemented/architecture/2026-10-18-personal-browser-media.md)、[MCP写工具](../../implemented/feature/2026-09-23-mcp-write-tools-approval.md) | 部分重叠，互链；复用图片及原批准，不以结果处理失败触发重试 |
+| [Rejected Cua proposal](../../rejected/architecture/2026-10-22-cua-integration.md) | Retains why bridging was once chosen; new requirements replace global exclusivity/custom executor. |
+| [MCP client](2026-09-23-mcp-client.md), [transport reuse](2026-10-17-mcp-transport-reuse.md) | Adds Cua-specific stdio without weakening HTTP authentication/cancellation limits. |
+| [Personal MCP](2026-10-17-personal-durable-mcp.md) | Adds Cua-specific human settlement without changing remoteEnded meaning. |
+| [Personal media](2026-10-18-personal-browser-media.md), [MCP write tools](../feature/2026-09-23-mcp-write-tools-approval.md) | Reuses images/approval and never retries because result processing fails. |
 
-桌面设置等其他命中无关。e8479aa1之后的专用执行恢复与HTTP修复笔记已随用户指定回滚移出当前树，完整内容在[外部归档](../../../../.scratch/cua-integration/archive.md)，不复制成当前implemented决定。
+Other desktop-settings hits were unrelated. Dedicated execution-recovery/HTTP-fix notes after e8479aa1 left the current tree in the owner-requested rollback. Their full external-archive provenance is `.scratch/cua-integration/archive.md`, not current implemented decisions.
 
-## 备选方案
+## Alternatives considered
 
-- 现成HTTP网关能沿用现有传输，但仍增加服务、TLS、认证与进程寿命转换；本机两种官方stdio入口已有固定执行程序，故不选网关。
-- 自建执行服务可统一全局锁和原回执查询，但主要服务于已撤销的保证，且Cua原回执丢失仍无法重建，因此撤回。
-- Cua原生SDK有直接调用与结构化错误，适合自带电脑控制的应用；当前两端已有MCP审批和结果链，另接SDK会维护两套工具适配，首版选择官方MCP。
-- 任意stdio服务配置更通用，但扩大了宿主命令执行范围；只增加Cua两种受控启动配置。
-- 设置时启动临时MCP连接可以直接发现和查询权限，但需要另建持久身份与失败恢复；Code用固定静态清单和同宿主OS预检，真实连接由主会话持有。
-- 完全不保留未知状态最省代码，但会在提交后丢答时重复动作；沿现有账本和人工恢复即可，不删这条已确认保证。
+- Existing HTTP gateway: reuses transport, but adds service, TLS, authentication and process-lifetime translation. Fixed official local stdio programs already serve both environments.
+- Custom executor: global locks/original receipt queries, but chiefly supports withdrawn guarantees and still cannot reconstruct lost Cua receipts.
+- Native Cua SDK: direct calls/structured errors suit embedded computer-control apps, but products already have MCP approvals/results; another SDK adds duplicate tool adapters.
+- Arbitrary stdio configuration: more general, but enlarges host command execution. Add only the two controlled Cua launch configurations.
+- Temporary settings MCP connection: direct discovery/permission checks, but another persistent identity/failure recovery. Use fixed static catalog/same-host OS preflight for Code; main owns real connections.
+- Remove unknown state: least code, but repeats actions after lost post-submission responses. Keep existing ledgers/human recovery and the approved no-replay guarantee.
 
-## 后果
+## Consequences
 
-本实例保留连续观察和逐次授权，未知动作不重发，也不需要网关、全局锁或执行端数据库。代价是丢答后要人工核实停止和现场，不能靠重新批准、换配置或普通HTTP的人工效果说明解除。Mac direct权限归属取决于实际启动宿主；Linux整沙箱停止会丢失未保存状态，磁盘保留。另一产品、独立实例和人类仍可能干扰同一桌面，本实例绑定不能阻止它。
+An instance keeps continuous observations/per-call authorization without unknown-action replay, gateways, global locks or an executor database. Lost responses require human stopping/site verification; reapproval/reconfiguration/general HTTP effect explanations do not clear Cua freezes. Mac direct permissions depend on actual launching host. Linux whole-sandbox stopping loses unsaved state but preserves disk. Other products, instances and humans can still interfere; instance bindings cannot prevent it.
 
-持续连接与恢复证据归[接线工单](../../../../.scratch/cua-integration/issues/03-target-lifecycle.md)，安装选择、暂停与图片查看归[管理工单](../../../../.scratch/cua-integration/issues/04-configuration-and-deployment.md)。Node22/24的stdio夹具、两端原操作与恢复消费者不替代正式产品、真实模型和桌面验收；正式入口体验仍待独立外部验收。既有HTTP缺陷独立维护，不将已回滚的整套HTTP修复或旧桌面探针带回。
+Original connection/recovery evidence is offline at `.scratch/cua-integration/issues/03-target-lifecycle.md`, with selection/pause/image viewing at `.scratch/cua-integration/issues/04-configuration-and-deployment.md`. Node 22/24 stdio fixtures and product recovery consumers did not themselves establish production, real-model or desktop acceptance. Later real-machine evidence is assessed in host simplification, including unresolved Mac idle-stop failures, not promoted to universal success here. HTTP defects remain separately maintained; rolled-back full HTTP fixes/old desktop probes are not restored by this decision.

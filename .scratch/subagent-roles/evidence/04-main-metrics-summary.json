@@ -1,1 +1,0 @@
-{"label":"after-04-final","identity":"main","calls":[{"callIndex":1,"systemPrompt":1866,"toolSchemas":13232,"tools":36},{"callIndex":2,"systemPrompt":1866,"toolSchemas":13232,"tools":36}],"instructionsBytes":4008,"modeMention":false,"roleTargetVerify":true,"output":".scratch/subagent-roles/evidence/04-main-metrics-after.log"}

@@ -1,8 +1,0 @@
-{
-  "native": true,
-  "result": "module:true",
-  "bridge": "undefined",
-  "color": "rgb(12, 34, 56)",
-  "image": 8,
-  "observation": "由原生窗口截图中的可见 output 读取；此窗口未暴露 HTML accessibility tree。"
-}

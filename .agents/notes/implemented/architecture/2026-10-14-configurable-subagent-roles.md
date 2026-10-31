@@ -1,56 +1,57 @@
-# Agent Note: 子代理角色与工作流归属、执行目标分开
+# Agent Note: Separate SubAgent roles from workflow ownership and execution targets
 
 Status: implemented
 
-本篇持有整体确认、首版边界与备选理由；[角色快照](2026-10-14-subagent-role-snapshots.md)、[持久来源能力](2026-10-15-subagent-source-capabilities.md)、[当前工作区快照](2026-10-15-current-workspace-snapshots.md)及[工作流接口](2026-10-15-workflow-role-interface.md)分别持有已落地机制。联合产品与真实模型验收由[05](../../../../.scratch/subagent-roles/issues/05-acceptance.md)持有，笔记 implemented 不代表联合验收通过。
+This note owns the approved overall choice, first-release boundaries and alternatives. [Role snapshots](2026-10-14-subagent-role-snapshots.md), [persistent source capabilities](2026-10-15-subagent-source-capabilities.md), [current-workspace snapshots](2026-10-15-current-workspace-snapshots.md) and [workflow interfaces](2026-10-15-workflow-role-interface.md) own individual mechanisms. The original joint product/real-model acceptance remains in the offline `.scratch/subagent-roles/issues/05-acceptance.md`; implemented status does not establish that acceptance. The original shared-runtime Personal assembly is now retired by [the durable product entry](../simplification/2026-10-18-personal-product-entry.md); shared-runtime contracts here remain applicable to Coding and retained historical data, not a claim that the current Personal runtime uses this assembly.
 
-## 问题
+## Problem
 
-工作流等待与侧栏验收中，拥有者要求子代理用 shell 调查目录，任务虽然是完全访问，模型收到的工具仍没有 bash。普通委派和工作流都默认 analyze，却各自具有不同的工具集合；同一模式还绑定目录准备与成果处理，角色职责、工具能力、访问模式和工作流身份混在一起。事实见[调查证据](../../../../.scratch/subagent-roles/evidence/source.md)。
+During workflow wait/sidebar acceptance, the owner requested shell-based directory investigation. Although the task had full access, the model received no bash tool. Ordinary delegation and workflows both defaulted to analyze but supplied different tool sets. The same mode also controlled directory preparation and result handling, conflating role responsibilities, tools, access mode and workflow identity. Original investigation evidence is retained offline at `.scratch/subagent-roles/evidence/source.md`.
 
-## 决定
+## Decision
 
-两个产品共用实例级 Markdown 子代理角色，内置 general 与 reviewer。角色持有描述、工具要求、权限策略与 prompt；目标目录由派发参数决定，工作流保留编排、冻结验证与汇入职责。普通委派和工作流共同使用经过宿主保存、复核的来源能力，不通过工作流身份额外授予工具，也不复制 main 身份或单次批准。
+The original two-product shared assembly uses instance-level Markdown SubAgent roles, with built-in general and reviewer. A role specifies description, tool requirements, permission policy and prompt. Dispatch parameters select the target directory; workflows retain orchestration, frozen verification and integration. Ordinary delegation and workflows use host-persisted, revalidated source capabilities. Workflow identity grants no extra tools and copies neither main identity nor one-use approval.
 
-已有 GitHub 宿主固定评审继续由可信入口提供固定执行定义与只读限制，不选择用户可覆盖的 general/reviewer；它的已完成来源资格、固定提示、只读 MCP、禁消息和恢复在共同委派管理器中保留，不新增公开角色或扩大该入口能力。
+The existing GitHub host-fixed reviewer retains a trusted execution definition and read-only restrictions rather than selecting overridable general/reviewer roles. Its completed-source eligibility, fixed prompt, read-only MCP, no-messaging rule and recovery remain in the shared delegation manager; no public role or additional capability is introduced.
 
-默认 general 允许来源范围内的 shell；reviewer 以受限执行保护源工作区，在独立副本或临时目录运行检查。权限策略以 mode 与 protect_source 分别声明访问模式及来源保护；这是兑现已确认保护的必要输入，否则只能把 reviewer 名字写成隐藏权限分支。显式工具缺失就在启动前报错，避免任务带着无法完成要求的工具集合反复尝试。工具未写才继承实际可用集合；模式只能沿来源继承或收紧。角色名称与 prompt 本身不构成隔离，保护要求与有效完全访问冲突时拒绝；拥有者显式取消保护并改为完全访问的自定义角色沿现有账户信任范围，不宣称仍能保护原源码。
+General permits shell within source capabilities. Reviewer protects the source workspace through restricted execution and checks in a separate copy or temporary directory. Permission policy declares mode and protect_source separately: explicit protection input is necessary to avoid hiding permissions behind the reviewer name. Missing explicitly required tools fail before start, rather than repeatedly attempting work with an insufficient tool set. Only omitted tools inherit the available set. Access mode may inherit or tighten the source. Neither role name nor prompt provides isolation. Protection incompatible with effective full access is rejected; a custom role whose owner explicitly disables protection and selects full access retains current-account trust and cannot claim source protection.
 
-实例 `<agentDir>/agents/*.md` 可覆盖内置或新增，首版不自动加载仓库文件。SubAgent 创建时固定角色正文与版本，工作流启动时固定角色目录；文件修改只作用于新对象，任务来源授权仍逐次核实。适用项目指令、技能与实际有效工具进入可重建记录，不复制完整父聊天。配置只用最小字段，不引入模型覆盖、继承和模板机制。
+Instance `<agentDir>/agents/*.md` files override built-ins or add roles; the first release does not auto-load repository files. SubAgent creation pins role body/version; workflow start pins the role catalog. Edits affect only new objects, while each execution still revalidates source authorization. Applicable project instructions, skills and effective tools enter reconstructable records without copying the entire parent chat. Configuration has only the required fields, not model overrides, inheritance or templates.
 
-无 target 时保持独立目录及获准资料，调研与个人事务不需要 Git。代码工作明确给 target，Git 副本基于委派时当前内容，包含未提交及非忽略新文件；捕获不得修改源 index，成果以捕获基线上的增量表示，不能再次汇入原有未提交改动。普通非 Git general 保留原地串行，受保护代码副本与工作流修改/验证首版要求 Git。
+Without target, execution retains a separate directory and approved materials; research and personal work need no Git repository. Code work explicitly supplies target. Git copies capture current contents at delegation, including uncommitted changes and non-ignored new files, without modifying the source index. Results are deltas against that captured baseline, never a second integration of the owner's existing changes. Ordinary non-Git general execution remains serialized in place; protected code copies and workflow modification/verification require Git in the first release.
 
-旧派发 mode 接口直接替换，旧定义与历史保留，不自动解释、迁移或复跑。用户操作和验收契约归[规格](../../../../.scratch/subagent-roles/spec.md)，调用面、失败处理和顺序归[执行计划](../../../../.scratch/subagent-roles/implementation-plan.md)。拥有者已逐轮确认 Q1–Q14 并确认整体方案；01–04 工程实现与独立审查已交付，05 继续承担必要真实环境与主观体验验收。
+The old dispatch mode interface is replaced directly. Old definitions/history remain, without automatic reinterpretation, migration or rerun. The original specification and implementation plan are offline at `.scratch/subagent-roles/spec.md` and `.scratch/subagent-roles/implementation-plan.md`; they own interactions/acceptance and call sites/failure handling/order respectively. The owner confirmed Q1-Q14 and the overall plan. Engineering implementation and independent review for 01-04 were delivered; 05 retains required real-environment and subjective acceptance.
 
-## 既有笔记审计
+## Related decisions
 
-本轮按 SubAgent、analyze/modify、工作流、full_access、来源授权与快照检索 active notes，并顺着源码锚点与模块文档核查。proposed/rejected 没有同题记录需要合并；不修改归档。
+The original audit searched active notes by SubAgent, analyze/modify, workflow, full_access, source authorization and snapshots, following code anchors and module docs. No proposed/rejected note required consolidation; sealed archives were unchanged.
 
-| 笔记 | 关系与处理 |
+| Decision | Relationship |
 | --- | --- |
-| [工作委托与 SubAgent](../../implemented/architecture/2026-10-03-work-delegation-subagent-task.md) | 部分取代固定分析/修改能力；保留工作、身份、任务分离、一层委派与来源核实，新增互链。 |
-| [SubAgent worktree](../../implemented/architecture/2026-10-04-subagent-worktrees.md) | 部分取代 HEAD-only 基线和按旧 mode 判工具；保留宿主不执行仓库 Git、隔离副本、目录占用及成果保留，新增互链。 |
-| [工作流步骤能力](../../implemented/architecture/2026-10-13-workflow-step-capabilities.md) | 部分取代普通与步骤能力分开装配及专属验证模式；保留冻结成果、独立验证、原生限制与受控汇入，新增互链。 |
-| [工作流原方案](../../implemented/feature/2026-10-12-agent-workflows.md) | 部分取代新增能力只由工作流归属启用；编排、来源权限、资源限制和唯一回报保持，新增互链。 |
-| [完全访问](../../implemented/feature/2026-10-12-full-access-current-account.md) | 沿用当前账户信任与可信来源传播；角色可显式收紧，既有完全访问含义不改，互链说明限制。 |
-| [等待与报告归属](../../implemented/architecture/2026-10-14-agent-wait-and-report-ownership.md)、[个人原生执行](../../implemented/architecture/2026-10-12-personal-native-sandbox.md) | 作为占用、停止和内部对话约束引用，不改变其决定。 |
-| 应用数据、个人实例导入、GitHub 评审、显式访问模式、停止未核实保留 | 命中内容涉及旧角色或执行边界；各自决定不变，调用方核查归执行计划，不吸收或归档。 |
+| [Work delegation and SubAgents](2026-10-03-work-delegation-subagent-task.md) | Partly replaces fixed analyze/modify capabilities; retains separate work/identity/task, one-level delegation and source checks. |
+| [SubAgent worktrees](2026-10-04-subagent-worktrees.md) | Partly replaces HEAD-only baselines and mode-based tool selection; retains no host execution of repository Git, isolated copies, occupancy and preserved results. |
+| [Workflow step capabilities](2026-10-13-workflow-step-capabilities.md) | Partly replaces separate ordinary/step capability assembly and a special verification mode; retains frozen results, independent verification, native limits and controlled integration. |
+| [Workflow decision](../feature/2026-10-12-agent-workflows.md) | Partly replaces capabilities enabled only through workflow ownership; retains orchestration, source permissions, limits and one final report. |
+| [Full access](../feature/2026-10-12-full-access-current-account.md) | Retains current-account trust and trusted source propagation; roles may explicitly tighten permissions. |
+| [Wait/report ownership](2026-10-14-agent-wait-and-report-ownership.md), [Personal native execution](2026-10-12-personal-native-sandbox.md) | Retains occupancy, stopping and internal-dialogue constraints. |
 
-## 备选方案
+Application data, Personal import, GitHub review, explicit access modes and unverified-stop preservation retain their separate decisions. Their caller checks belong to the original implementation plan; none is absorbed or archived.
 
-- 只给 analyze 加 bash，能最快恢复目录搜索；但 readScope 只约束 read，且没有相应目录占用和写入保护，不能满足已确认的可配置角色与受限审查。
-- 普通和工作流继续各自维护角色，改动局部且保留旧来源接线；同名角色仍会因入口获得不同工具，违背本次共用角色、来源能力一致的目标。
-- 保持 HEAD-only 副本，能直接复用当前 workcopy；审查会漏掉拥有者正在验收的未提交内容，因此选择当前快照并承担增量基线与零写入捕获的成本。
-- 每任务重读角色文件，修改立即生效且实现接近技能加载；长运行恢复和同一 SubAgent 的能力、prompt 会漂移，因此固定定义，授权则继续每次核实。
-- 项目自动发现与配置 TUI 一起交付，便于共享与编辑；当前需求可由实例文件完成，首版省去发现信任、覆盖顺序和界面维护，出现明确项目复用需求再讨论。
-- 保留旧模式兼容映射，旧脚本不必修改；旧 analyze 与新 general 的能力差异会引入隐式扩权或永久双路径，拥有者选择显式升级并保留历史。
+## Alternatives considered
 
-## 验证
+- Add bash only to analyze: fastest directory search fix, but readScope constrains read alone and supplies neither occupancy nor write protection. It cannot meet configurable-role and restricted-review requirements.
+- Keep separate ordinary/workflow role implementations: local changes preserve old wiring, but identically named roles still receive different tools by entry point, violating shared-role/source consistency.
+- Keep HEAD-only copies: reuses workcopy directly, but misses uncommitted content under acceptance. Capture current contents and pay for delta baselines and zero-write capture.
+- Reread role files for every task: immediate edits and skill-like loading, but prompt/capabilities drift during long runs and identity reuse. Pin definitions while rechecking authorization each time.
+- Deliver repository discovery and a configuration TUI together: easier sharing/editing, but instance files satisfy the present requirement. Defer discovery trust, precedence and UI maintenance until project reuse is required.
+- Preserve compatibility mapping for old modes: old scripts keep working, but analyze/general capability differences create implicit escalation or permanent dual paths. The owner chose explicit upgrades with preserved history.
 
-[规格 R1–R14](../../../../.scratch/subagent-roles/spec.md)逐项提供证据：普通与工作流默认真实 bash；角色覆盖与新增；显式缺工具失败；受限来源不能提高权限；完全访问父级下 reviewer 不能写源文件或 index；脏工作区及二进制新文件可审、只汇入子增量；编辑定义和冷恢复不换版本；个人业务/MCP 来源复核；旧接口明确拒绝；agent_wait、取消、唯一回报及占用保持。模拟模型、真实 worker、真实模型和拥有者体验分开记录，跨平台隔离须 macOS/Linux 分别证明。
+## Verification
 
-## 后果
+The original specification R1-R14 requires evidence for real default bash in ordinary/workflow execution; role override/addition; explicit missing-tool failure; no source escalation; reviewer inability to write source files/index under a full-access parent; dirty-workspace and new binary-file review with only child deltas integrated; pinned versions after edits/cold recovery; Personal business/MCP source checks; explicit old-interface rejection; and preserved agent_wait, cancellation, one report and occupancy. Simulated models, real workers, real models and owner experience remain separate evidence levels. macOS and Linux must each prove isolation.
 
-普通委派与工作流能使用同一角色和来源规则，冻结验证仍由宿主持有。当前内容捕获与宿主副本登记分开核实，冻结只计算子增量；机制及实际入口证据归 03/04 工程记录，不沿用旧 HEAD-only 副本或对来源直接 freeze。代价是快照增加空间和准备时间，依赖目录不自动复制可能使测试需要额外准备。完全访问仍可修改同账户配置，角色钉版只保证已创建对象不漂移，不是对完全访问进程的隔离。
+## Consequences
 
-直接升级使旧接口定义无法新运行，旧库按版本策略拒绝；保留文件不代表新版本能恢复旧运行。非 Git 普通写入是串行原地执行，没有隔离与回滚承诺。受限验证缺环境时保留成果并报不可执行，不降级完成。真实模型、外部平台、最终双平台组合和拥有者体验仍待 05 验收，局部离线通过不覆盖这些缺口。
+Ordinary delegation and workflows share role/source rules while the host still owns frozen verification. Current-content capture and host copy registration are checked separately; freezing computes only child deltas. Mechanisms and actual entry-point evidence belong to original engineering records 03/04, not old HEAD-only copies or direct freezing of the source. Snapshots cost space and preparation time; dependencies are not copied automatically, so checks may need setup. Full-access processes can still edit same-account configuration: pinning prevents drift in created objects, not isolation from those processes.
+
+Direct upgrade prevents new runs of old-interface definitions; incompatible stores are rejected. Preserved files do not imply new code can recover old runs. Non-Git ordinary writes are serialized in place, without isolation or rollback guarantees. Restricted checks with missing prerequisites retain results and report inability to execute, not downgraded success. Real models, external platforms, final combined dual-platform behavior and owner experience remain pending in acceptance 05; local offline passes do not cover these gaps.

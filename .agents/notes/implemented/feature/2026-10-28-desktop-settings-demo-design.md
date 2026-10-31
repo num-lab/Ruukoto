@@ -1,32 +1,30 @@
-# Agent Note: 设置页改用 demo 验证过的导航与卡片体系
+# Agent Note: Use Demo-tested navigation and cards for settings
 
 Status: implemented
 
-本篇取代[设置容器](2026-10-21-desktop-settings-shell.md)中页内 Code/PA 页签与 shadcn Field 字段布局的部分；表单保护、票据与请求归属继续沿用。
+This supersedes in-page Code/Personal tabs and shadcn Field layout in [the settings shell](2026-10-21-desktop-settings-shell.md). Form protection, tickets, and request ownership remain.
 
-## 问题
+## Problem
 
-旧设置浮窗用纵向 Tabs 承载 8 个类别，模型、Skills、MCP、电脑四类再各自用横向页签切 Code 与 PA。两处决定分散、页签语义重复，且每种类别各写一套 `model-settings-*` 类名与 shadcn Field 布局，字段密度、控件宽度与分组标题在各页不一致。`.scratch/desktop-settings-ui/` 已用独立原型验证另一套结构：左栏按 Code/PA 分组的单层导航、组标题 + 卡片 + 行的设置页，以及同源控件。
+The old dialog had eight vertical categories, with separate horizontal Code/Personal tabs in Models, Skills, MCP, and Computer. Target/category decisions were split and tab semantics repeated. Each category owned model-settings-* classes and Field layout, creating inconsistent density, widths, and group headings. The independent settings prototype, now under `verification/desktop-settings`, verified a single navigation level grouped by Code/Personal plus shared headings, cards, rows, and controls.
 
-## 决定
+## Decision
 
-设置浮窗采用 demo 的结构与样式，作为唯一设置外观实现：
+The Demo structure/style is the sole settings implementation:
 
-- 类别扩为 12 项：外观，Code 组的模型/Skills/MCP/电脑，PA 组的同名四项，Web 搜索、PA 远程连接、已存档会话。左栏用分组标签分隔 Code 与 PA，单层导航，不再有页内目标页签。
-- `SettingsCategory` 直接编码目标（`code-*` / `pa-*`），`SettingsState` 删除 `selections` 与 `chooseTarget`，`scope()` 从类别推导 target 与实例。打开设置时按聊天目标落到对应组的第一页。
-- 共享组件位于 `components/settings.tsx`（Shell、NavItem、NavSection、Page、Subpage、Group、Card、List、ListItem、Row）与 `components/controls.tsx`（Button、Select、Switch、Segmented、Input、Search、Tag、Notice），样式集中在 `settings.css`：按 demo 原值定义深色与浅色两套调色板、尺寸和控件值，不映射到 Desktop 主题变量。对话框尺寸受窗口约束（`min(1240px, 100vw - 200px)` × `min(860px, 100dvh - 120px)`），避免遮挡 macOS 红绿灯；其余外观按 demo 原值。旧 `model-settings-*` 样式与 `settings-ui.tsx` 删除。
-- 各设置页改为“页标题 + 组 + 卡片 + 行”：Code/PA 页面各导出独立组件，不再接受 target/onTargetChange。详情编辑沿用列表行内展开，展开状态由页面 state 的 `editing/selected` 驱动，保证 SSR 与运行时一致；新增 MCP 服务进入二级页填写完整表单，保存或取消即结束，不再先在列表生成草稿再补齐字段。
-- 字段校验错误随所属控件所在行显示（`SettingsRow.error`），不另起无标题行。
-- Skills 页删除技能展开、正文、停用/移除入口；检索框放在「全部技能」组标题右侧（`settings-group-search`，限宽 260px），窄窗换到标题下方。MCP 页删除「重新读取 MCP 配置」按钮，列表项操作改为箭头图标。Select 宽度随内容且有上限，Segmented 图标固定 13px。
-- `SettingsList` 每行等高：标题与说明单行截断显示省略号，控件保持在行右侧不换行；返回与关闭按钮 hover 只改文字颜色，不铺底色；页顶渐隐同时作用于一级页与二级页，二级页内容在返回栏下方渐隐。
-- `SettingsContentsProps.pages` 的键从 4 个 managed 类别改为完整 `SettingsCategory`，测试可替换任一页面。
+- Twelve categories: Appearance; Code Models/Skills/MCP/Computer; the same four Personal pages; Web Search; Personal remote connection; archived sessions. Group labels separate Code/Personal in one-level navigation, with no in-page target tabs.
+- SettingsCategory encodes target as code-* or pa-*. SettingsState removes selections/chooseTarget; scope() derives target/instance from category. Opening settings selects the first page for the active chat target.
+- Shared components live in components/settings.tsx (Shell, NavItem, NavSection, Page, Subpage, Group, Card, List, ListItem, Row) and components/controls.tsx (Button, Select, Switch, Segmented, Input, Search, Tag, Notice). settings.css keeps Demo's light/dark palettes, dimensions, and control values rather than mapping to Desktop tokens. The dialog is bounded by `min(1240px, 100vw - 200px)` by `min(860px, 100dvh - 120px)` to avoid macOS traffic lights. Other values follow Demo. Delete old model-settings-* styles and settings-ui.tsx.
+- Each page uses heading/group/card/row. Code/Personal export distinct components without target/onTargetChange. Detail editing expands within list rows from page editing/selected state, consistent in SSR/runtime. Adding MCP opens a secondary page with a complete form and ends on save/cancel, rather than creating an incomplete list draft.
+- Validation errors appear on the owning control's SettingsRow.error, not an untitled separate row.
+- Skills removes expansion, body, disable, and remove actions. Search sits beside the All skills group heading in settings-group-search, <=260px and wraps below in narrow windows. MCP removes reread-configuration and uses arrow list actions. Select is content-width with a cap; Segmented icons are 13px.
+- SettingsList rows have equal height, one-line ellipsized title/description, and nonwrapping right controls. Back/close hover changes text color only. Both primary and secondary pages fade at the top; secondary content fades below its back bar.
+- SettingsContentsProps.pages is keyed by every SettingsCategory rather than four managed categories, so tests can replace any page.
 
-## 备选方案
+## Alternatives considered
 
-- 保留旧 Tabs 容器、只换视觉：类别与目标仍分两层，Code/PA 分组无法从导航直接进入，页面内仍需重复目标页签。
-- 只迁移部分页面：同一次交互里出现两套行、卡片与控件，字段密度不一致，后续每页都要决定用哪套。
-- 继续使用 shadcn Field/Select/Item：能复用组件库，但 demo 验证过的密度、宽度上限与分组语义要逐项重写覆盖，等于维护两套规则。
+Retaining Tabs with new styling leaves two-level target/category selection and duplicated target tabs. Partial migration puts two control/card/row systems in one interaction and defers the same choice to every later page. Keeping shadcn Field/Select/Item reuses a library but requires overriding every tested density/width/group detail, effectively maintaining two rule sets.
 
-## 后果
+## Consequences
 
-设置交互的入口与分组方式变化：Code 与 PA 的模型、Skills、MCP、电脑各占一个左栏条目，页面内不再有目标切换。`settings-state` 的行为测试随之改写；`desktop-models-layout` 等 SSR 断言改按新结构与文案校验。真实 Electron/MyGo 的明暗、焦点与后端接入仍需产品验收，SSR 与静态预览只证明结构与样式。`test/desktop-settings-models.test.ts` 的「受影响提供方忙时拒绝写入」在本机与改动前 HEAD 同样失败，属既有环境问题，不计入本次回归。
+Code and Personal each have their own Models/Skills/MCP/Computer navigation items without in-page target switching. Settings-state behavior tests and desktop-models-layout SSR assertions follow the new structure/copy. Real Electron/MyGo themes, focus, and backend integration still need product acceptance; SSR/static preview prove only structure/style. The existing desktop-settings-models busy-provider rejection case failed locally at both the original HEAD and this change and was recorded as an environment baseline, not a new regression.

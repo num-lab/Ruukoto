@@ -1,45 +1,47 @@
-# Agent Note: 工作流联合验收分开证明组合与真实环境
+# Agent Note: Prove workflow composition separately from real-service acceptance
 
 Status: implemented
 
-当前 Node 支持范围与 CI job 时限由[Node24 与 CI 预算决定](2026-10-24-node24-ci-budget.md)部分取代；既有平台保护、真实覆盖与历史结果保持。
+[Node24/CI budgets](2026-10-24-node24-ci-budget.md) supersedes the historical Node matrix/job limit. [Suite reduction](2026-10-24-test-suite-reduction.md) supersedes six-input scale, the old personal combined sample, and two-product real-model execution: current coverage retains Code's four-input composition and real-model acceptance. Platform safeguards, evidence distinctions, and historical findings below remain relevant.
 
-## 问题
+## Problem
 
-工作流各实施单的最窄检查不能证明汇总后的双产品组合，也不能将模型、联网或 IM 替身记成真实服务通过。联合检查还会暴露旧模块的夹具或边界回归，必须保留首次失败与最终被检内容的对应关系。
+Passing narrow implementation checks does not prove the assembled two-product workflow, and model/network/IM substitutes are not real-service acceptance. Joint checks can reveal old fixtures or product regressions; preserve the first failure and exactly what later evidence covers.
 
-## 决定
+## Decision
 
-两个六输入离线样例使用真实 Runtime、Driver、SQLite、工具账本与独立上下文，其中一项故意失败。个人样例使用联网和 IM 替身，核实十一项搜索、六次应用数据查询、五项独立验证和实际五条记录；编码样例使用真实 Git 副本、冻结补丁、五项独立验证及汇总后检查，核实目标字节。最终覆盖清单保留第六项失败和依赖跳过，脚本返回不冒充全量成功。
+### Composition and external evidence
 
-真实模型用例只在 `RUN_MODEL_CHECK=1` 时运行，显式提供 `RUN_WORKFLOW_MODELS_FILE`，从其中选择 DeepSeek 配置并复制到隔离档案。双产品分别核实模型调用命名工作流工具、等待期间聊天、业务回答、实际工具和唯一汇总；不发送真实 IM。失败档案保留，成功且停止完成后才清理；普通应用检查固定关闭真实模型。
+The original two six-input offline examples used real Runtime/Driver/SQLite/tool ledgers/independent contexts with one intentional failure. Personal used network/IM substitutes and checked eleven searches, six app-data queries, five independent verifications, and five actual rows. Code used real Git copies, frozen patches, five independent verifications, and post-integration byte checks. Final coverage retained the sixth failure and dependent skips: a returned script was not complete success. Current reduced scenarios are owned by the suite-reduction note.
 
-macOS/Linux 与 Node 22.19/24.15 的构建资产、脚本进程、步骤权限和停止事实各自留证。安装或原生前提失败只记缺口，信号失败和身份未知只记未核实，不能由另一格成功覆盖。真实 IM 与拥有者交互体验独立待验，交接入口为[联合验收工单](../../../../.scratch/agent-workflow/issues/07-acceptance.md)。
+Real-model checks require RUN_MODEL_CHECK=1 plus an explicit RUN_WORKFLOW_MODELS_FILE, selecting DeepSeek configuration into an isolated profile. Historical two-product checks verified model calls to named workflow tools, chat while waiting, business answers, real tools, and one final summary without real IM sending. Preserve failed profiles; remove successful profiles only after verified stopping. Ordinary application checks force real models off.
 
-平台矩阵的测试文件顺序运行，样例内部仍硬断言三个 Agent 实际并发；不把整仓检查与原生矩阵同时施加的额外系统负载当作验收环境。真实多 worker 的夹具等待显式 60 秒，产品查询两秒预算、运行时限和验收断言不变。Linux 默认 15 秒等待首轮超时，孤立原样运行用 13.64 秒；查询结果丢失则在孤立文件仍复现，另按产品竞态修复，不用延长等待替代。
+Record each platform/version cell's build assets, script processes, step permissions, and stop facts independently. Historical cells included macOS/Linux and Node 22.19/24.15, not current support policy. Missing install/native prerequisites remain gaps; failed signals/unknown identity remain unverified, never covered by another cell's success. Real IM and owner experience need independent acceptance.
 
-编码六输入样例的整项回报等待上限为 180 秒，与启动三个实际修改者的 60 秒等待分开。Linux 原 90 秒上限在完整检查与单跑均到期，分别仍在独立验证和实际汇入；隔离诊断只延长观察，实际等待 110.375 秒后完整通过原字节、三个共享名额、冻结验证、账本、唯一汇报和停止断言。因此按已测完整行为保留有限余量，再以默认应用并发核实；不更改产品查询、脚本与工作流运行时限，也不重试失败用例。[联合证据](../../../../.scratch/subagent-roles/evidence/05-acceptance.md)分别保留原失败、诊断差异和正式检查，不把单跑诊断当成全量通过。
+### Calibrate fixtures, not product guarantees
 
-默认应用入口发现全部 `test/*.test.ts`；macOS 先独占顺序执行 100-worker-stop、101-native-macos-helper、native-macos-identity 与会话后台执行/恢复夹具，等待进程退出后才并行其余文件，其他平台全部并行。100 的故意失父 Node 后代与 101 的同 UID 新孤儿核实会相互影响，受控反例核对过相同 PID；原全量失败 PID 的来源未证明。清单只隔离已证实的夹具，保留原生新孤儿拒绝规则。入口固定关闭真实模型；缺固定文件、启动异常、未知退出、信号或非零码均失败，不重试或跳批报成功。
+Run native matrix files sequentially while hard-asserting three Agents actually execute concurrently inside samples. Do not create an artificial acceptance environment by running full-repo checks and native matrices together. Real multiworker fixtures wait 60 seconds for startup; the two-second product query budget, runtime limits, and assertions stay unchanged. The original Linux 15-second wait expired and an unchanged isolated run took 13.64 seconds. Query-result loss still reproduced in isolation and required a product race fix rather than another timeout increase.
 
-发布模型入口在尚未启动后台的前提拒绝时清除临时档案；实际执行失败、未知停止或异常占用仍保留现场。连通性夹具把工作目录放在与控制资料分开的子目录，不以数据目录的父级启动工作。
+The original six-input Code report wait became 180 seconds, distinct from its 60-second three-writer startup wait. Both full and isolated runs exceeded 90 seconds while still verifying/integrating. Diagnostic observation alone was extended: the sample completed at 110.375 seconds with unchanged byte checks, three shared slots, frozen verification, ledger, unique report, and stop assertions. Give that measured full path bounded margin, then verify default application concurrency. Do not change product query/script/workflow limits or retry failed tests. Keep initial failure, diagnostic differences, and formal results separately; an isolated diagnosis is not full-suite success.
 
-[CI 前提与回归修复](2026-10-22-ci-prerequisites.md)将非独占批次限制为最多两个文件并行，取代上文默认并行安排；独占成员、单用例内部并发与失败透传保持。
+### Platform process ownership
 
-## 既有笔记审计
+The application entry discovers all test/*.test.ts. On macOS, worker-stop, native-macos-helper, native-macos-identity, and session-background/recovery fixtures run exclusively before other files, waiting for process exit. The worker-stop orphaned Node descendants and helper's same-UID new-orphan detection can interfere; a controlled counterexample identified the same PID, while the original full-suite failed PID's source remained unproven. Isolate demonstrated fixture conflicts without weakening new-orphan refusal. [CI prerequisites](2026-10-22-ci-prerequisites.md) later capped the nonexclusive batch at two files, replacing original unrestricted file parallelism; within-test concurrency and failure propagation remain.
 
-[测试精简](../testing/2026-10-24-test-suite-reduction.md)部分取代本篇的六输入规模、旧个人组合样例与双产品真实模型运行；保留 Coding 的四输入组合及真实模型验收，平台边界与历史验证结果保持。
+Missing fixed files, launch errors, unknown exits, signals, and nonzero status fail the entry. No retry/skip-batch success. Real models remain off. Release-model precondition failure before backend startup cleans temporary profiles because no execution began; actual execution failure/unknown stop/abnormal occupancy preserves them. Connectivity fixtures use a work subdirectory separate from control data, never the data root's ancestor as workspace.
 
-[工作流总提案](../../implemented/feature/2026-10-12-agent-workflows.md)、[脚本隔离](../architecture/2026-10-13-workflow-script-isolation.md)、[真实步骤](../architecture/2026-10-13-workflow-step-capabilities.md)与[最终送达](../feature/2026-10-13-workflow-owner-input-and-delivery.md)部分重叠，继续持有产品契约、权限和效果分类，本篇仅持有组合样例和证据分层。不取代既有执行或验收要求。
+The [workflow decision](../feature/2026-10-12-agent-workflows.md), [script isolation](../architecture/2026-10-13-workflow-script-isolation.md), [real steps](../architecture/2026-10-13-workflow-step-capabilities.md), and [final delivery](../feature/2026-10-13-workflow-owner-input-and-delivery.md) retain product/authority/effect semantics. This note owns combination fixtures/evidence levels only, not relaxed execution or acceptance requirements.
 
-## 备选方案
+## Alternatives considered
 
-- 只复用分单通过记录省运行成本；不能证明六输入组合、实际汇入字节和跨产品接线，因此增加两条联合样例。
-- 全量检查连同真实模型和 IM 一起默认运行最接近完整产品；会依赖凭据、真实平台和模型输出，因此保持离线检查可复现，真实模型显式开启、真实 IM 单独验收。
-- 限制整个应用集合的并发最简单；仍不能保证同 UID 孤儿夹具互斥。全文件串行可避免冲突，但扩大反馈耗时，因此只独占已有反例的两文件，第二批仍须实际通过。
-- 保留编码六输入的 90 秒回报等待能更快发现挂起；该次诊断实际等待 110.375 秒后通过，原上限会将这次正常推进误判为失败，因此只校准该等待，不统一放宽其他用例。
-- 所有失败都保留档案方便诊断；未启动的前提失败只留下临时模型资料，因此这一路在确认没有后台后清理，执行失败仍保留。
+- Rely on per-issue passes: cheaper, but cannot prove composed inputs, actual integrated bytes, or cross-product wiring. Add focused joint examples.
+- Always run real model/IM with everything: closer to a whole product, but depends on credentials/platform/model output. Keep reproducible offline checks and explicit external acceptance.
+- Limit all-file concurrency uniformly: simple but does not guarantee same-UID orphan fixtures are exclusive. Serializing every file avoids interference at excess latency; isolate proven conflicts and require the remaining batch to pass. Later two-file limits address separate prerequisite pressure.
+- Keep the six-input 90-second report limit: faster hang detection, but measured valid completion took 110.375 seconds. Calibrate only that wait, not unrelated limits.
+- Preserve profiles for every failure: useful generally, but prelaunch rejection only leaves temporary model material. Clean only when no backend started; retain executed failures.
 
-## 后果
+## Consequences
 
-离线样例可稳定阻断漏项、失败成果误汇入和重复回报；编码六输入无法收尾时，夹具失败最多比原先晚 90 秒。真实模型用例会产生调用费用，且模型输出失败可以使运行安全暂停。环境矩阵和主观体验仍各需证据，本篇 implemented 只表示验收设施落地，不表示工单已通过全部验收。
+Offline samples catch omissions, integration of failed output, and duplicate reporting. The historical 180-second report wait can detect a hang up to 90 seconds later. Real-model checks cost calls and model-output failures may safely pause a run. Platform cells and subjective experience still need their own evidence; implemented means the acceptance infrastructure exists, not every requirement passed.
+
+Historical records formerly at `.scratch/agent-workflow/issues/07-acceptance.md` and `.scratch/subagent-roles/evidence/05-acceptance.md` are offline provenance. Their six-input/old-personal/Node22 evidence must not be presented as the current retained matrix or proof of real IM/owner experience.

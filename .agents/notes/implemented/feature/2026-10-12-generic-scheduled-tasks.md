@@ -1,118 +1,67 @@
-# Agent Note: 调度计划只触发独立的通用任务
+# Agent Note: Schedules trigger independent generic tasks, not built-in business actions
 
 Status: implemented
 
-[Coding Scheduled](../../implemented/feature/2026-10-25-code-scheduled.md)部分取代 Coding 不开放调度的范围；Code 使用独立计划、固定工作区和模型，个人调度、工具及回报决定保持。
+[Coding Scheduled](2026-10-25-code-scheduled.md) supersedes the original exclusion of Coding scheduling with its own plans/workspace/model coordinator. [Personal durable scheduled work](../architecture/2026-10-18-personal-durable-scheduled-work.md) preserves independent context/fixed authority/whole-run reporting while replacing legacy SchedulerStore/Runtime/outbox with native durable Tasks, reusing only time calculations and transport. Historical implementation evidence is offline `.scratch/generic-scheduler/issues/01-generic-scheduled-tasks.md`.
 
-落地与验证记录见[通用定时任务工单](../../../../.scratch/generic-scheduler/issues/01-generic-scheduled-tasks.md)；本篇持有行为、理由和取舍。
+## Problem
 
-## 问题
+The old scheduler dispatches wake_main, notify, and news. News hardcodes search sources/keywords/summary/sending; notify executes fixed business content directly. Each new business type would add host branches. Merely deleting news leaves wake_main occupying shared main during approval, incomplete scheduled-source approval/reporting, and runs closing at the first task rather than waiting for SubAgents. The owner wants generic time plus task instructions and existing tools.
 
-当前调度器按 wake_main、notify、news 三种动作分派。news 在宿主内固定关键词、来源、搜索、摘要和发送流程，把一种个人业务写进本体；增加另一种业务又需要新的动作分支。notify 是无需模型的固定正文发送，但同样让调度器直接执行任务内容。拥有者希望本体只提供通用定时能力，由任务说明与已有工具表达新闻、提醒、巡检等工作。
+## Decision
 
-现有 wake_main 也不足以直接替代：它在共享主会话执行，等待审批会占住日常对话；调度来源没有完整的 IM 审批和最终汇报路径；一次调度运行只等首次任务终态，不等它委派的 SubAgent。仅删除 news 会保留这些缺口。
+### One task entry
 
-## 决定
+Schedules hold time rules and task instructions. Remove built-in news, scheduled fixed notify, and shared-main wake dispatch; do not predefine news/reminder/inspection types or add a business-handler registry. Reuse once/daily/weekly rules, IANA zones, and DST; edits still cancel/recreate. Original scope was personal-only, later explicitly extended separately to Coding. Ordinary search, direct messaging, outbox, platform replies, and approval controls remain; deleting news must not delete provider search parameters merely sharing that word.
 
-### 一个通用入口
+Each trigger gets a new context containing instructions and explicit references, not automatic main/previous-run history. Runs/results are queryable; other history needs existing authorized reads. Use personal task/model/tool/delegation/process capabilities without the main serial queue, within runtime resource limits. Even simple reminders call a model. Persist plan/run/session/task ownership; ordinary dev/SubAgent identities lack complete personal tools and cannot stand in for this identity, nor may the host duplicate main bindings.
 
-调度计划统一表达时间规则与任务说明，到期交给 Agent 执行。删除 news、定时 notify 的业务动作分支，以及共享主会话 wake_main 的固定唤醒方式；不预设新闻、提醒、巡检或其他任务类型，不增加业务处理器注册框架。
+One run includes root execution, derived work/tasks/messages, and final summary. Close only after all work finishes with a final result or explicit failure, not after the initial answer.
 
-复用一次性、每日、每周规则、IANA 时区和现有 DST 处理；修改计划仍取消后重建。仅个人助手 ruukoto 提供调度，ruukoto-code 不增加入口。搜索工具、普通消息发送、通知 outbox、平台回复与审批控制消息仍各自存在；尤其不要按 news 字符串删除普通搜索工具的供应商参数。
+### Authority and final delivery
 
-### 每次运行独立执行
+Save the effective creation access mode under [full-access policy](2026-10-12-full-access-current-account.md), and use it for triggers/derived work. Changing main defaults does not rewrite plans/runs. Text/model parameters cannot choose host identity or elevate; one-use approvals and bounded standing permissions are not inherited. Full access asks no operation approval. Confirm/auto-review waits pause only this run and route specific approval to the plan's original owner entry, or existing TUI/control if unbound. Task/operation/permission/original target generation still bind approval; scheduling grants no automatic approval.
 
-每次触发建立新的执行上下文，只把计划说明和明确提供的资料作为任务输入，不自动复制主聊天历史或上一轮执行上下文。运行记录及成果可查询，需要历史资料时通过已有授权接口明确读取。任务使用个人助手已有能力，仍可委派 SubAgent；简单提醒也经过一次模型调用。
+At creation the host saves a trusted owner IM target/generation. Creation without IM is allowed, but results remain queryable and later configuration never invents a recipient. Do not fake IM inbound events or infer the target from main's latest message.
 
-独立执行复用现有任务、模型、工具、工作委托和进程生命周期，不占用日常主会话的串行队列，沿用运行时并发与资源约束。宿主持久绑定计划、调度运行、执行会话和任务归属。现有普通开发会话或 SubAgent 身份没有完整的个人业务工具，不能直接充作通用计划执行；也不能复制或伪造唯一 main 绑定来绕过工具调用核实。
+Register one final result/failure report to that target, no intermediate reports. Creating a plan authorizes this fixed-target final report only, not arbitrary proactive sends/tools. Cover all work, not initial answer plus each child plus final summary. Persist terminal/send intent before delivery; run ID is the unique logical report key across reconnect/recovery/late events. Preserve offline waiting, same-operation explicit-rate retry, and unknown-send no replay. Invalid targets keep results with undelivered status, never redirect or claim success.
 
-一次调度运行包含首次执行、由它派生的工作与子任务、工作内消息以及最终汇总。全部工作收尾并产生最终结果或明确失败后，才能结束该次运行；不能因首次 Agent 回答结束就允许下一轮重叠执行。
+### Overlap, recovery, and cancellation
 
-### 权限与审批
+While any work/approval/summary remains unfinished, create no second run; merge missed periods into that run without a catch-up queue. After downtime with no unfinished run, catch up at most the latest occurrence and record the merged range. Registered-but-unstarted task/send work resumes under original keys. Started execution without verifiable results follows interruption/unknown-effect rules, never automatic redo. Future periods are new runs, not retries of failed operations; preserve plan/run/tool/send distinctions.
 
-沿用[完全访问方案](2026-10-12-full-access-current-account.md)：计划保存创建时的有效访问模式，触发执行和其后续委派沿用该授权。更改主会话默认值不改写计划或已有运行，正文与模型参数不能决定宿主身份或提升权限；单次批准、限定的长期操作授权不随计划继承。
+Canceling a plan stops future triggers and requests cancellation of queued/running/approval-wait tasks, children, and summaries. Persist intent/state first, stop outside transactions, then record verification. Late tasks/results/approvals cannot restart or produce success reports. Keep records/copies/results; unverified stop retains occupancy. Sent messages, file changes, and external effects are not rolled back, and canceled plan does not prove all processes exited.
 
-full-access 不请求操作审批。confirm 或 auto-review 遇到需要拥有者决定的操作时暂停该次独立运行，通过计划创建时绑定的拥有者入口发送审批并接收决定，日常主聊天继续可用；无 IM 绑定时沿现有 TUI／控制面处理。审批仍绑定具体任务、操作、权限版本与原目标代次，不能因为任务是定时触发而自动批准。
+Self-cancellation saves whole-run intent, asynchronously stops the initiating task so its tool can return without deadlocking on its own SDK abort, and waits for other stops. Unverified occupancy blocks run closure and the next trigger; queries show task/occupancy facts. Trusted uncanceled unstarted work resumes with the old key; started work does not replay.
 
-### 默认结果回报
+### Direct replacement and storage ownership
 
-创建计划时由宿主保存可信拥有者 IM 目标及配置代次；没有可用 IM 时仍可创建，结果留在运行记录中查询，不在后来出现新配置时自动选择收件人。入口身份必须可追溯，不能伪造 IM 入站消息，也不能从主会话最近一条消息推断目标。
+In rapid iteration, do not convert old news/notify plans, backfill retired parameters, or keep dual execution paths. Remove specialized collector/parameters/snapshots/events/approvals/search injection/tests/current guidance, including fixed-notify dispatch. Keep monotonically increasing schema/reject-newer behavior; import cannot reactivate retired actions. This does not authorize clearing real databases or promise old plans remain executable.
 
-每次运行结束，默认向原绑定目标登记一次最终结果或失败说明，不推送中间过程。创建计划包含这一次固定目标的最终回报授权，不意味着任意主动外发或其他工具操作获批；任务主动发送仍遵循其权限模式。汇报覆盖本轮全部工作，不能重复发送首次回答、每个子任务结果和最终汇总。
+Legacy `Schedule` stores data project, creation task/version, instructions/references, creation mode, and fixed target. `ScheduleRun` binds one independent session/root task; descendants follow parent-task chains. Host identity `scheduled` reuses personal business tools without copying main rows. Result registration, run closure, and unique outbox report arbitrate in one transaction.
 
-终态与发送意图先可靠落盘，再沿现有 outbox 投递；运行 ID 对应唯一逻辑汇报键，重连、恢复和迟到事件不能另造发送键。保留平台离线等待、明确限流后的原操作重试和效果未知不重发。绑定目标失效时保留结果并显示未送达，不自动改发或假报成功。
+If root never started and source access is revoked, send only a generic failure without that source, so revocation does not block the diagnostic. Reports containing started/generated content retain source references for pre-send recheck. [Workflow delivery](2026-10-13-workflow-owner-input-and-delivery.md) owns whole-work waits/questions/no-tool summaries/self-cancellation; safely retried historical step attempts do not poison the final schedule state.
 
-### 重叠、漏过与重启
+## Related decisions
 
-| 情况 | 行为 |
-| --- | --- |
-| 同一计划仍有未完成工作，包括等待审批或子任务汇总 | 不建立第二项运行；漏过周期记录并合并到现有运行，不另设补跑队列 |
-| 停机漏过多次，恢复时没有未完成运行 | 最多补最近一次，记录合并范围，不按漏过次数堆积任务 |
-| 已登记但尚未开始的任务或发送 | 按原幂等键恢复调度或投递 |
-| 已开始执行但重启后结果无法核实 | 按现有中断与效果未知规则保留事实，不自动重做 |
+The original audit fully superseded built-in [scheduled news](../../archived/feature/2026-09-25-scheduled-news.md), preserving its frozen rationale, not its no-model/no-private-context guarantee. [Outbox](../architecture/2026-09-24-scheduler-outbox.md) retains time/persistence/idempotency/send facts, with dispatch/closure/cancel revised here. [IM approval/reports](2026-10-02-im-approval-and-final-report.md) retains original-entry isolation and single consumption for host-bound schedule sources.
 
-未来新的周期不是对失败操作的自动重试；任务与操作账本仍须区分计划运行、具体外部操作和发送事实。
+[Delegation](../architecture/2026-10-03-work-delegation-subagent-task.md), [messaging](2026-10-05-subagent-messaging.md), [cancel work](2026-10-04-cancel-work.md), and [restart](../architecture/2026-10-05-subagent-restart-recovery.md) keep result/unknown rules while gaining run ownership/independent summary/cancel. [Products](../architecture/2026-10-02-two-agent-products.md) and historical [personal import](../architecture/2026-10-05-personal-instance-import.md) reflect the new scope without retired-action conversion. Full-access work removes news approvalId adaptation rather than duplicating scheduling/approval logic. Other data/service/platform/execution/history/UI/testing decisions remain separately owned; no duplicate proposal was found in the original audit.
 
-### 取消整项运行
+## Alternatives considered
 
-取消计划同时阻止未来触发，并向该计划的排队、运行和等待审批的任务及派生子任务、汇总轮次发出取消。取消意图与状态先持久化，停止在事务外执行，再记录核实结果；取消窗口中的迟到任务、结果和审批不能重新启动执行或生成成功汇报。
+- **Delete only news, keep wake/fixed notify:** smaller and zero-model reminders, but retains two execution paths and shared-main blocking/report gaps. Accept a model call for uniform tasks.
+- **Run in shared main:** existing identity/context, but blocks conversation and imports private history automatically. Use fresh contexts with existing runtime mechanisms.
+- **Store results and let tasks choose notification:** less sending logic, but unattended failure/approval can go unnoticed. Default a fixed-target final report; other sends remain mode-bound.
+- **Catch up every missed period:** one record per time, but backlog and duplicate external work accumulate. Coalesce/no overlap.
+- **Cancel future triggers only:** lets current work finish, but a supposedly canceled plan continues effects. Cancel current whole work while preserving already-real effects and verification status.
 
-保留执行记录、工作副本和已有成果。进程停止无法核实时如实显示并保留目录占用；已发消息、文件修改和其他外部效果不因取消撤销。不能把“计划已取消”当作“所有进程已退出”的证明。
+## Verification
 
-### 直接替换与分工
+Shared regressions retain `test/37-scheduler-outbox.test.ts`, `test/93-im-approval-lifecycle.test.ts`, and related imports. Historical generic-run cases are available in `git show 28c033f7:test/51-generic-scheduler.test.ts`; [test reduction](../testing/2026-10-24-test-suite-reduction.md) removed that file from the current set. Offline issue evidence used mock IM/models, not real-platform push or real-model acceptance. No runtime tests are rerun here.
 
-快速迭代期不做旧 news／notify 计划转换、旧参数兼容、字段回填或双路径。删除新闻专用采集器、参数、快照、事件、审批分支、搜索注入、测试和当前使用说明；定时固定通知的专用执行路径一并删除。新 schema 保持版本单调和较新库拒绝规则，现有实例导入入口也不能把退役动作重新引入可执行状态。
+## Consequences
 
-本方案持有调度计划存储、独立执行、审批来源、整项运行、最终回报与取消；完全访问方案持有共享执行账户、工具免审批和任务权限传播。完全访问工单不再适配新闻 approvalId，不建设将被删除的通知计划兼容分支。两单以共享权限行为联验，不各写一套调度或审批实现。
+One generic task path replaces business-specific collection and approval; separate queues keep daily main responsive, and mode/source/target survive restart. Personal durable later retains these behavioral contracts without old storage/runtime plumbing.
 
-## 既有笔记审计
-
-按 news、wake_main、调度、定时、主会话与送达检索 implemented 和 proposed，并沿调用入口核对。没有同主题重复提案，rejected 分类不存在。以下记录持有替代与衔接关系；部分重叠记录保留独立决定，并互链明确适用范围。
-
-| 归类 | 笔记与处理 |
-| --- | --- |
-| 完全替代 | [定时新闻](../../archived/feature/2026-09-25-scheduled-news.md)：内置采集业务删除。其无模型、无私人上下文采集的保证随专用路径退役；共同的外发可靠性由 outbox 继续承担。保留历史论证并归档，当前运行使用本决定 |
-| 部分重叠 | [调度与 outbox](../../implemented/architecture/2026-09-24-scheduler-outbox.md)：替换动作分派、运行结束及取消范围；时间规则、落盘、幂等与发送事实继续成立 |
-| 部分重叠 | [IM 审批与最终汇报](../../implemented/feature/2026-10-02-im-approval-and-final-report.md)：扩展到宿主绑定的调度运行来源，原入口隔离及单次批准核实继续成立 |
-| 部分重叠 | [工作委托](../../implemented/architecture/2026-10-03-work-delegation-subagent-task.md)、[工作内消息](../../implemented/feature/2026-10-05-subagent-messaging.md)、[取消工作](../../implemented/feature/2026-10-04-cancel-work.md)、[SubAgent 重启恢复](../../implemented/architecture/2026-10-05-subagent-restart-recovery.md)：接入调度运行归属、独立父级汇总与整项取消，复用已有成果和未知效果处理 |
-| 部分重叠 | [两个产品](../../implemented/architecture/2026-10-02-two-agent-products.md)：个人产品增加宿主绑定的独立计划执行，日常主会话及 Coding Agent 不开放调度的分工保留 |
-| 部分重叠 | [个人实例导入](../../implemented/architecture/2026-10-05-personal-instance-import.md)：同步当前调度字段与支持范围，拒绝重新启用退役动作，不增加转换兼容 |
-| 部分重叠 | [完全访问决定](2026-10-12-full-access-current-account.md)：已同步删除新闻适配要求，计划保存创建模式的决定保留，两篇决定互链 |
-
-其余命中不改变原决定：应用数据空间及长期服务授权的接口范围、显式访问与自动审查的受限规则、Telegram／QQ 平台连接、终端与后台分离、旧实例开发资料导入、SubAgent 复用关闭、停止未核实保留、核心群聊退役、分支快照、手动上下文压缩、workspace 包组织、文档分层与写作规范、异步测试观察点。本篇引用这些机制不另立它们的实现副本。
-
-[个人 durable 定时工作](../../implemented/architecture/2026-10-18-personal-durable-scheduled-work.md)保留本篇独立上下文、固定授权与整项回报契约；新 app 仅复用时间计算和传输，计划、运行与发送使用原生 durable Tasks，不使用本篇旧 SchedulerStore/Runtime/outbox。
-
-## 备选方案
-
-- 只删除 news，保留通用唤醒与定时固定通知：改动小，简单提醒没有模型费用；仍有两种执行方式，且共享主会话唤醒保留阻塞与结果回报缺口。选择统一任务入口，接受简单提醒的模型成本。
-- 保留共享主会话执行：现成上下文和 main 身份可直接复用；长任务及等待审批会占住日常对话，也自动带入私人历史。选择每次独立上下文并复用任务运行机制。
-- 结果只保存，由任务自己决定是否通知：外发逻辑少；拥有者不易察觉无人值守任务失败或等待审批。选择固定目标的默认最终回报，其他主动外发仍按任务权限处理。
-- 每个漏过周期都补跑：每个时间点都有一次执行记录；长任务或停机后会积压并重复产生外部效果。选择同计划不重叠与合并漏过周期。
-- 取消只阻止未来触发：在途工作可自然完成；用户以为取消的计划仍可能继续产生效果。选择停止当前整项运行并保留已发生效果与核实状态。
-
-## 落地与验证
-
-`Schedule` 保存资料项目、创建任务与版本、任务说明、明确资料引用、创建模式与固定目标。`ScheduleRun` 单次绑定独立会话和根任务；派生任务沿父任务链归属于运行。`scheduled` 是独立宿主身份，复用个人业务工具清单，不复制 main 角色行。结果登记、运行关闭与唯一 outbox 汇报在同一事务内仲裁。
-
-根任务未开始且资料已失效时，只发送不包含原资料的通用失败诊断，不让撤销资料阻挡该诊断；已开始或产生内容的回报仍携带原资料引用，在发送前复核。
-
-共享时间/DST 与旧资料回归保留 `test/37-scheduler-outbox.test.ts`、`test/93-im-approval-lifecycle.test.ts` 及相关导入用例；旧运行验收见 `git show 28c033f7:test/51-generic-scheduler.test.ts`，按[测试精简](../testing/2026-10-24-test-suite-reduction.md)退出当前集合；具体运行命令与结果由[工单](../../../../.scratch/generic-scheduler/issues/01-generic-scheduled-tasks.md)记录。IM 和模型为替身，真实平台推送与真实模型未验收。
-
-取消自身计划时先保存整项取消意图，当前发起任务的停止请求由宿主异步收尾，其余任务等待停止；当前工具可以返回，不会与自身 SDK 中止互等。停止未核实的目录占用阻止关闭运行及下一次触发，查询显示相关任务与占用事实。尚未开始的排队执行在可信未取消运行中按原任务键恢复；已开始的执行按中断和未知效果规则保留，不自动重做。
-
-## 后果
-
-名下工作流的整项等待、可信问题、无工具最终汇总及自身取消收尾见[整项送达](2026-10-13-workflow-owner-input-and-delivery.md)；安全重试已恢复的历史步骤尝试不污染调度最终状态。
-
-一个任务入口覆盖原新闻、提醒和其他业务，日常主聊天与定时任务使用不同队列；模式、来源与目标可跨重启核实。时间和 outbox 共用，删除业务采集循环和专用审批，不维护旧参数或存储转换。
-
-所有定时任务都调用模型，简单提醒的成本与延迟高于固定正文发送；模型、工具和凭据不可用时该次运行会失败。独立上下文需要计划说明自足，不能默认理解私人聊天中的省略指代。
-
-个人任务可以使用获准资料和工具，因此不再承诺旧新闻采集路径的无模型、无私人上下文处理。完全访问的文件和凭据范围仍是启动账户已有权限，独立会话本身不是系统沙箱。
-
-等待审批会阻止同一计划的后续运行；合并漏过周期接受部分时间点不单独执行。取消不保证撤回已发生的效果，停止未核实可能继续占用工作目录；绑定失效或发送结果未知时拥有者需查运行记录。
-
-若确有零模型成本提醒、间隔／每月规则或 Coding Agent 定时执行需求，再分别评估，不在本次预建选项或业务分支。本次直接替换不保证旧计划可继续运行，也不授权清空真实数据库。
-
-[历史快照：固定范围的新闻计划由宿主采集，动态正文复用通知 outbox](../../archived/feature/2026-09-25-scheduled-news.md)
+Every reminder costs model latency/usage and can fail for unavailable models/tools/credentials. Instructions must stand alone rather than rely on private shorthand. Authorized personal data/tools remove the former news collector's no-model/no-private-context guarantee; an independent session is not an OS sandbox. Approval waits block the same plan, coalescing intentionally skips individual periods, and canceled/unverified/unknown work may need owner inspection. Zero-model reminders, interval/monthly rules, and other extensions need demonstrated requirements, not prebuilt branches.

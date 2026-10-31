@@ -1,8 +1,0 @@
-{
-  "count": 840,
-  "changed": [],
-  "frozen_patch": {
-    "packages/agent/src/tool-worker/host.ts": "100f5842d48d55416f8398647ed6a790db924643b895fd7dfcf24d49c8f288c7",
-    "test/100-worker-stop.test.ts": "f03f13862be3cf50ba60ccdbb5d0a1e75214475c4f7f9b92a3ff1c10fa99fa34"
-  }
-}

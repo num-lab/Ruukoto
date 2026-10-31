@@ -1,6 +1,0 @@
-{
-  "worker/worker.mjs": "69be655f43af81953b448a36497b227cab890ed9b4596b51e736212c59b63ca1",
-  "worker/native-macos-supervisor": "5a75956c76faaec1855b215c5c48e0de519fc9d6cc897fb7b30319af0a3aef9b",
-  "apps/desktop/out/main/index.js": "98362e3a0ad0aa5eee7edda4cc5cb5baaf0fc5d7b8efcf21def3bf1f9b1d446d",
-  "apps/desktop/out/renderer/assets/index-xNHG2tJp.js": "b4e5167f3fb6897b46be05764c7f2854ac4adbd538c610ef00688a00d468ea17"
-}

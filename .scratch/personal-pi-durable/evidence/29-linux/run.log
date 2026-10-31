@@ -1,1 +1,0 @@
-{"scenarios":["files","http-crash","restricted-confirm","restricted-auto-review"],"externalWrites":1,"forbiddenCommandNetworkReads":0}

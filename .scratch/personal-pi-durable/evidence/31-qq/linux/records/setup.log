@@ -1,4 +1,0 @@
-npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
-npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
-npm warn tar TAR_ENTRY_ERROR ENOSPC: no space left on device, write
-npm error A complete log of this run can be found in: /home/eitrous/.npm/_logs/2026-10-18T03_34_14_807Z-debug-0.log

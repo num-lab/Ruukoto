@@ -1,71 +1,69 @@
-# Agent Note: 两个产品在同一仓库内改为 workspaces 分包
+# Agent Note: Package both products as workspaces in one repository
 
 Status: implemented
 
-部分取代：[个人正式入口](../simplification/2026-10-18-personal-product-entry.md)让个人独立使用 durable，仅复用实际共用的业务库、传输、校验与执行原语；Coding 共享包和同仓交付约束保持。整体迁移验收仍由[总方案](../../proposed/architecture/2026-10-17-personal-pi-durable.md)持有。
+[The personal product entry](../simplification/2026-10-18-personal-product-entry.md) partially supersedes shared Personal assembly: Personal now owns its durable runtime and reuses only genuinely shared business libraries, transports, validation, and execution primitives. Coding packages and same-repository delivery remain. Combined Personal migration acceptance belongs to [the migration proposal](../../proposed/architecture/2026-10-17-personal-pi-durable.md).
 
-## 问题
+## Problem
 
-两个产品共用单代码包，产品差异缺少显式归属，模块依赖只能靠文档约束。[产品入口决定](2026-10-02-two-agent-products.md)原先只在独立发货需要出现时重访分包；这次驱动是产品装配与可检查的依赖方向。原提案测得约 76% 源码是共享底座，拆仓会放大 worker、schema、协议与共享测试的版本协调成本。
+A single code package left product differences without explicit owners and dependency direction enforced only by documentation. [The product decision](2026-10-02-two-agent-products.md) had deferred packaging until independent shipping was needed; the actual driver became explicit assembly and checkable dependencies. The proposal estimated 76% shared code, making separate repositories costly to coordinate across workers, schema, protocols, and shared tests.
 
-`agent/subagent-tools.ts` 直接从 runtime 引入格式化与账本核实，control 从 runtime 引入模型选择解析，通用来源核实又寄存在个人调度工具里。仅搬目录会把这些反向依赖带进新包，不能解决边界漂移。
+Moving directories alone would preserve reverse dependencies: agent tools imported formatting and ledger checks from runtime, control imported model-selection parsing from runtime, and general source verification lived in personal scheduler tools.
 
-## 决定
+## Decision
 
-根包作为安装、开发、构建与检查的聚合入口。npm workspaces 收入 `packages/*` 与 `apps/*`，十个包使用同一根锁文件与版本。每包有自己的 package.json、exports、依赖与 typecheck；包内相对引用带 `.ts`，跨包通过包名解析 `.ts` 源码。tsx、tsc 的 bundler resolution 与 esbuild 均直接使用 exports，不另建 paths 别名或编译后的源码副本。
+The root aggregates installation, development, build, and checks. npm workspaces covers `packages/*` and `apps/*`, with one root lockfile and coordinated versions. Each package owns a manifest, exports, dependency declarations, and typecheck. Relative imports use `.ts` within a package; cross-package imports use package names and source exports. tsx, TypeScript bundler resolution, and esbuild use those exports directly, with no parallel paths aliases or compiled source copy.
 
-| 包 | 归属 |
+| Package | Ownership |
 | --- | --- |
-| `@ruukoto/core` | 存储、身份、schema、历史读取；导入方向共用的快照、文件校验、行与回执辅助；模型选择字段解析 |
-| `@ruukoto/agent` | 模型、上下文、通用工具、审批与执行边界；SubAgent 格式化与账本核实 |
-| `@ruukoto/channels` | 保留的旧 QQ、Telegram、GitHub、调度；IM 审批、入口表、入站媒体、GitHub 退役；资料来源核实、旧群结果查询与个人工具的旧账本规则 |
-| `@ruukoto/runtime` | 任务生命周期、编排器、SubAgent、父级送达、工作副本与工作区组织迁移 |
-| `@ruukoto/control` | 控制面协议、认证、客户端与服务器 |
-| `@ruukoto/view` | 浏览器可用的快照、事件、历史与任务详情投影，历史恢复编排、选择器与状态文字 |
-| `@ruukoto/tui` | 共享 CLI、任务界面、配置中心、开发启动器与程序化聚合入口 |
-| `@ruukoto/desktop` | macOS 桌面主进程、sandbox preload、React 渲染进程与应用打包 |
-| `ruukoto` app | 个人产品 bin、主入口、开发入口、durable 会话与业务工具、本机管理 |
-| `ruukoto-code` app | Coding 产品 bin、主入口、开发入口、能力声明与旧开发资料导入策略 |
+| `@ruukoto/core` | Storage, identity, schema, history reading, common import snapshot/file/row/receipt helpers, model-selection fields |
+| `@ruukoto/agent` | Models, context, tools, approval/execution rules, SubAgent formatting and ledger checks |
+| `@ruukoto/channels` | Retained QQ/Telegram/GitHub/scheduler infrastructure, IM approval/inbound media, retirement and source checks, old group-result queries and operation-ledger rules |
+| `@ruukoto/runtime` | Task lifecycle, orchestration, SubAgents, parent delivery, work copies, workspace organization |
+| `@ruukoto/control` | Protocol, authentication, client, server |
+| `@ruukoto/view` | Browser-compatible snapshots, events, history/task projection, selectors, state labels, history recovery orchestration |
+| `@ruukoto/tui` | Shared CLI, task/configuration interfaces, development launcher, programmatic entry |
+| `@ruukoto/desktop` | Desktop host shells, bridges, React renderer, application packaging |
+| `ruukoto` | Personal bin/main/dev entries, durable sessions, business tools, local management |
+| `ruukoto-code` | Coding bin/main/dev entries, capabilities, legacy development import policy |
 
-Coding 与保留旧底座的产品能力在 `product.ts` 持有：RuntimeProduct 提供身份、IM、调度、服务可用性与工具族工厂；CliProduct 提供默认执行后端、旧项目写资格与导入方向。Runtime.start 必须接收显式产品声明，共享运行时不按 ProductType 分支装配。身份继续用于 `product.type` 登记和跨产品目录拒绝，不由模型或任务参数决定。
+Coding and retained shared assemblies use declarations in `product.ts`: `RuntimeProduct` supplies identity, IM/scheduler/service capabilities, and tool-family factories; `CliProduct` supplies the default execution backend, old-project write eligibility, and import direction. `Runtime.start` requires an explicit product declaration rather than branching on `ProductType` inside shared assembly. Host identity still registers `product.type` and rejects cross-product directories; model/task parameters cannot choose it.
 
-两个 bin 各自固定身份。根 `npm start` 通过 `scripts/start.ts` 保留已有环境身份选择，默认 ruukoto；各 app 的 start 固定自己的 bin。root 的 dev/code 直接运行对应 app 的开发入口，Coding 公共启动器监听各 workspace 包源码，view 变化只重载任务界面；个人开发默认通过薄启动器托管 Node watch 前台后台；`--config` 直接运行受管菜单且不监听源码。各自固定开发目录；个人拒绝已启用 IM 的档案。
+Each bin fixes its own identity. Root `npm start` uses `scripts/start.ts`, preserving environment identity selection with ruukoto as default; each app start fixes its bin. Root dev/code use the corresponding app launcher and separate fixed development directories. Coding watches workspace source and reloads only the task UI for view changes. Personal's thin launcher manages a Node-watch foreground backend; `--config` runs the same managed menu without source watching, and development refuses profiles with enabled IM.
 
-## 依赖与兼容
+## Dependencies and compatibility
 
-运行时值依赖固定为 `agent → core`、`channels → agent/core`、`runtime → channels/agent/core`、`control → core`、`view → control/core`、`tui → view/control/runtime/agent/core`。各 app 可以依赖共享包，产品包之间没有依赖。个人 app 不直接依赖共享 tui、runtime 或旧 Pi SDK；其 Pi 1.3.0 与 Coding 调用方的 0.85.1 分别解析，不跨版本传 SDK 对象。desktop 的依赖全部放在 devDependencies，主进程与 preload 只外置 Electron 和 Node 内置模块，其余源码打进产物；生产安装不需要桌面依赖。ESLint 仅对此包允许 devDependencies 的值引用，未声明、跨包相对路径与动态 import 的检查仍成立。其他包的反向类型放进 devDependencies，core 不接受任何反向引用；跨层运行时协作使用回调或已注入的实例。ESLint 检查静态 import、re-export、类型引用与动态 import，拒绝未声明依赖、越层值引用与跨包相对路径；包内动态 import 使用静态模块字符串。
+Runtime value dependencies follow `agent -> core`, `channels -> agent/core`, `runtime -> channels/agent/core`, `control -> core`, `view -> control/core`, and `tui -> view/control/runtime/agent/core`. Apps may depend on shared packages, never on each other. Personal does not directly depend on shared TUI or Runtime. The initial durable transition used Personal Pi 1.3.0 beside Coding 0.85.1; both products now declare Pi 1.3.0. Historical dual-version acceptance does not describe current dependencies.
 
-view 沿用[桌面客户端提案](../../proposed/architecture/2026-10-15-desktop-client.md)的共用投影决定，承载纯投影 `ViewState`、`EventFlow` 及独立的 [HistoryRecovery](2026-10-23-shared-history-recovery.md)；后者只编排注入请求，连接和客户端显示顺序不迁入。纯状态常量与展示归属从依赖 Node 的模块拆出，原入口再导出以保持调用方兼容；UTF-8 字节用 `TextEncoder` 计数。view 源码禁止 Node 引用，全部导出以浏览器目标打包后仅按浏览器全局检查，覆盖传递依赖中的未执行分支，再用无 Node 全局的 VM 核实实际投影与多页正文恢复。
+Desktop keeps its dependencies in devDependencies: Electron and Node builtins are external to the Electron bundles; other source is bundled, so production workspace installation need not install desktop tooling. ESLint allows value imports from desktop devDependencies only for that package, while still checking undeclared, cross-package relative, and dynamic imports. Other packages may declare reverse type-only dependencies in devDependencies; core accepts no reverse dependency. Runtime collaboration uses injected callbacks/instances. Static imports, re-exports, type references, and dynamic imports are checked; package-local dynamic imports use static module strings.
 
-命令执行与 SQLite 持久化留在 TUI 的 `ViewState` 子类，加载/保存失败继续显示提示，保存失败的本地结果不会被旧存储覆盖。EventFlow 保留纯内存命令条目及其统一排序，使重同步保留本地提示与命令；不为这次抽取新增命令存储接口。每次安装快照都由调用方更换异步请求代次，过时代次结果不得安装；全局 seq 缺口检测仍归 `ControlConnection`。
+View implements the shared projection from [the desktop proposal](../../proposed/architecture/2026-10-15-desktop-client.md): pure `ViewState`/`EventFlow`, plus [HistoryRecovery](2026-10-23-shared-history-recovery.md), which orchestrates injected requests but owns neither connections nor client display ordering. Pure state constants and display ownership moved out of Node-dependent modules, with old entries re-exporting for compatibility. UTF-8 counting uses `TextEncoder`. View source forbids Node references; all exports are browser-bundled and checked against browser globals, including transitive unexecuted branches, then exercised in a VM without Node globals for projections and multi-page recovery.
 
-原提案把开发启动器、工作区组织迁移与群结果工具归为产品专属。当前 Coding 继续使用开发启动器、工作区迁移与群归档查询；个人 durable 不接入这些运行路径。导入快照、文件和回执辅助留在 core，Coding app 持有开发方向的表策略和权限收尾；旧个人导入器退出。
+Command execution and SQLite persistence stay in the TUI `ViewState` subclass. Load/save failures remain visible; a failed save must not let old storage replace the local result. EventFlow retains in-memory command entries and unified ordering across resync; extraction adds no command-storage interface. Snapshot installation requires callers to advance an asynchronous request generation and discard obsolete results. `ControlConnection` still owns global sequence-gap detection.
 
-个人调度与服务由 durable app 持有，旧个人调度/服务工具装配退出；旧工具操作的规则、只读分类与提交核实留在共享包，始终提供给 ToolOpLedger。Coding Agent 停用能力不改变遗留操作的恢复结论，也不丢失旧群资料的只读查询。
+The original proposal called the development launcher, workspace migration, and group-result tools product-specific. Coding still uses them; durable Personal does not. Common import primitives remain in core, while the Coding app owns its table policy and permission settlement; the personal importer is retired. Durable Personal owns current scheduler/service assembly. Shared old-operation classification and commit checks remain available to `ToolOpLedger`, so disabled product capabilities do not change recovery conclusions or erase read-only group archives.
 
-测试和 test/helpers 保留在根目录，不新增测试包、不改变编号或裸 SQL 布局断言。foundation 保持 workspaces 之外的独立 SDK 验证包、锁文件与 typecheck；setup 继续对根和 foundation 各执行 npm ci。schema 与控制面协议不因分包升版，JSONL、数据目录、授权与凭据格式不迁移。
+Root tests/helpers stay together: no test package, numbering changes, or replacement of deliberate raw-SQL layout assertions. Foundation remains outside workspaces with an independent SDK validation package, lockfile, and typecheck; setup runs `npm ci` for both root and foundation. Packaging itself did not bump schema or protocol versions or migrate JSONL, directories, authorization, or credentials.
 
-## 构建与检查
+## Build and checks
 
-根 build:worker 构建 `worker/worker.mjs` 与自包含的 `worker/personal-command-worker.mjs`；两个 app 的 build 各自产出包含 bin、源码和共享依赖声明的 npm tarball。根 build 先构建 worker，再聚合 app 构建。tarball 不是独立单文件发行版，部署仍使用完整 workspace 安装与根 worker 产物；没有引入外部包发布流程。
+Current root build runs native helpers, tool/background/Personal workers, the script worker, and app builds. App tarballs contain bins, source, and shared dependency declarations; they are not standalone single-file releases. Deployment still needs the installed workspace and root worker artifacts resolved against the root lockfile. The original packaging build covered fewer workers; later additions do not change this delivery requirement.
 
-worker 与部署依赖从完整 workspace 的根锁文件和构建产物解析，systemd 使用个人 app 的 bin 及 `serve`。desktop 不定义 build 脚本，根 build 不触发 Electron；显式 desktop:build 依次构建、检查产物与 electron-builder --mac --arm64 --dir 打包，根 dist 接收 ad-hoc 签名应用。桌面 lint/typecheck 与纯逻辑测试进入现有检查，CI 禁止下载 Electron 二进制。
+Desktop uses explicit desktop build scripts rather than joining the generic workspace build. The Electron path builds/checks/packages the macOS arm64 application into root dist with ad-hoc signing; MyGo has its own explicit build. Desktop lint/typecheck and pure-logic tests join existing checks, and CI avoids downloading Electron binaries. Root typecheck covers tests/scripts, each workspace, then foundation; check aggregates builds, static/documentation checks, and offline tests. The historical statement that desktop defined no build script referred to the generic `build` hook, not absence of dedicated desktop commands.
 
-根 typecheck 检查测试和脚本，再逐包与 foundation 执行独立检查；check 继续聚合构建、静态门禁与离线测试。
+## Alternatives considered
 
-## 备选方案
+- Separate repositories isolate access and releases, but most code and shared contracts need coordinated evolution. Keep one repository for the actual ownership/dependency problem.
+- Add import rules only: cheapest and sufficient to block reverse edges, but leaves product entries and assembly without explicit package ownership. Package and enforce together.
+- Keep relative cross-package imports: less migration text, but bypasses exports and declarations, making the dependency graph misleading.
+- Add a shared test package: a separate graph is possible, but root tests already express cross-module contracts and do not ship with products.
+- Put foundation into workspaces: one install is convenient, but independent SDK/Linux-probe verification is intentional and the two-lockfile setup already works.
+- Inject command storage into view: this would move the entire state class, but desktop needs no SQLite terminal history. Keep local recovery/persistence in the TUI subclass.
 
-- 拆成两个仓库可以隔离发布节奏和访问权限，但多数代码与共享硬契约需要长期对齐；当前驱动是源码归属与依赖检查，所以保留同仓。
-- 只加 import 规则成本最低，也能挡住现有反向边，但产品差异仍无自己的入口和装配归属；采用分包并同时落实规则。
-- 保留相对路径跨包可减少迁移文本，但绕过 exports 与依赖声明，包图无法说明代码引用；跨包统一使用包名。
-- 为测试另建共享包能形成测试依赖图，但集中测试已经表达跨模块契约，也不参与产品发货；保留根测试和助手。
-- 将 foundation 并入 workspaces 能统一安装，但它承担独立 SDK 与 Linux 探针验证，现有双锁 setup 已有稳定入口；保留独立安装，避免同时改变依赖验证归属。
-- 让 view 注入命令存储可直接搬迁整个状态类，但桌面不需要 SQLite 命令历史；TUI 子类只负责本地恢复和保存，避免浏览器投影背上终端持久化接口。
+## Consequences
 
-## 后果
+Entries and capabilities have explicit owners, and lint rejects new dependency violations. Most original changes were mechanical paths/imports, with one shared runtime and execution implementation. Costs include ten manifests, per-package checking, and reverse types requiring shared source in the same repository. Independent package versions and registry releases need a separate coordination decision if required.
 
-产品入口与能力有明确归属，新增越界引用能在 lint 阶段失败；多数源码是路径与 import 的机械迁移，共享运行时与执行边界仍只有一份。代价是维护十份依赖清单与逐包类型检查，反向类型仍需共享源码在同仓可用。独立发布版本与外部注册表发货不属于本次分包，若出现该需求需另定共享包发布与版本协调流程。
+Historical 2026-10-11 macOS arm64/Node 24.15.0 evidence: clean setup passed; full check built and checked the then-eight packages, static/docs passed, application tests had 1025 passes/one skip, and foundation had nine passes/one skip. Skips were gated real-model cases. Test/99 covered bins, app entries, and positive/negative imports; test/64 covered old-operation recovery after personal capabilities were disabled.
 
-2026-10-11 在 macOS arm64、Node 24.15.0 实测：`npm run setup -- --skip-hooks` 干净安装通过；`npm run check` 的构建、八包独立类型检查、静态与文档门禁通过，应用测试 1025 通过、1 跳过，foundation 9 通过、1 跳过。跳过项均为默认关闭的真实模型检查；test/99 验证 bin 链接、各 app 启动脚本以及 import 正负例，test/64 逐产品验证停用个人能力后的旧账本恢复。
-
-新 Dockerfile 构建独立验证标签，使用 Docker 可访问的宿主代理地址适配本机配置；该镜像上的 `npm run test:docker` 四项冒烟共 27/27 通过，模型、QQ 与 Telegram 均为桩。`npm run test:upgrade` 从 `60fa19e` 升级到当前 workspace 布局 4/4 通过，覆盖另一端不停机、历史保留与独立停止；验证镜像与测试容器清理。已有依赖版本、schema 与控制面协议版本均不变。未执行真实模型、真实 IM、systemd/sudo 部署与 Node 22/Linux 后台矩阵，不把 Docker worker 的 Linux 证据当作完整后台平台验收。
+A separately tagged Docker image, using the host's reachable proxy, passed four smoke suites at 27/27 with model/QQ/Telegram stubs. Upgrade from `60fa19e` to the workspace layout passed 4/4 for uninterrupted other-product operation, retained history, and independent stopping; temporary image/containers were removed. Dependency/schema/protocol versions did not change in that packaging step. Real models, real IM, systemd/sudo deployment, and the Node 22/Linux backend matrix were not run. Linux worker evidence is not full backend-platform acceptance, nor acceptance of later Pi or desktop changes.

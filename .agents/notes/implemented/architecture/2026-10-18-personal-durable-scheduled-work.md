@@ -1,53 +1,47 @@
-# Agent Note: 个人定时运行以独立来源持有整项工作
+# Agent Note: Personal scheduled runs own whole work through independent sources
 
 Status: implemented
 
-定时接纳和回报发送按[IM 平台在线切换](2026-10-25-personal-im-updates.md)固定句柄与配置版本；旧计划仍受创建时来源和范围约束。
+[Online IM updates](2026-10-25-personal-im-updates.md) pins handles/configuration versions for admission/report sending. Original plans retain creation-source/scope limits. [Request configuration](2026-10-25-personal-request-configuration.md) narrows request selection and continuous MCP-label compatibility; [execution configuration versions](2026-10-25-personal-execution-configuration-versions.md) owns command/service migration. Other creation-scope, permission and whole-work cleanup rules remain.
 
-请求选择与连续 MCP 改名兼容由[请求配置](2026-10-25-personal-request-configuration.md)收窄，命令/服务范围迁移由[执行配置版本](2026-10-25-personal-execution-configuration-versions.md)持有；本文其余创建范围、权限及整项收尾约束继续适用。
+## Problem
 
-## 问题
+The [Personal migration](../../proposed/architecture/2026-10-17-personal-pi-durable.md) preserves [generic scheduled tasks](../feature/2026-10-12-generic-scheduled-tasks.md): independent context, pinned authorization and whole-work reporting. Earlier durable source checks treated every non-main tool as long-lived child work and accepted only ROOT owner input in delegation/recovery. Copying main tools or reusing old scheduler storage cannot prove source and misses unknown pauses/creation permission limits.
 
-[个人迁移](../../proposed/architecture/2026-10-17-personal-pi-durable.md)保留[通用定时任务](../../implemented/feature/2026-10-12-generic-scheduled-tasks.md)的独立上下文、固定授权与整项回报。原个人 durable 将非主会话工具统一核实为长期子工作，委派和多个恢复消费者只接受 ROOT 的拥有者输入；复制主工具配置或复用旧调度存储都无法证明来源，也会漏掉未知暂停及创建时权限上限。
+## Decision
 
-## 决定
+Personal adds scheduler documents, entries and native Tasks, reusing only time rules from @ruukoto/channels/scheduler/time.ts. Plan, immutable version and original due time uniquely identify a run. Run admission, independent Conversation and native-Task backlinks commit together. Task/Submission remains execution authority, without old SchedulerStore or a second ledger. Plan changes cancel/recreate.
 
-个人产品新增调度 documents、entries 和原生 Tasks，时间规则仅复用 `@ruukoto/channels/scheduler/time.ts`。计划、不可变版本、原定时刻确定唯一运行；运行接纳、独立 Conversation 和原生 Task 反链在同一 durable commit 保存。执行状态仍由原生 Task/Submission 持有，不复制旧 SchedulerStore 或建立第二个任务账本。修改计划采用取消后重建。
+Source resolution distinguishes main owner input, scheduled runs and their derived work. A scheduled input belongs to its own Conversation/persisted entry and references plan creation source, but neither reexecutes the creation message nor fabricates ROOT pi.user. Execution, approval consumption, request evidence and recovery use the same source facts. Global evidence/management Tasks may live in ROOT; storage location is not execution source.
 
-来源解析区分主会话拥有者输入、定时运行及其派生工作。定时输入属于自己的 Conversation 和持久 entry，关联计划创建来源，但不冒充创建消息再次执行，不建立伪造 ROOT `pi.user`。所有执行、审批消费、请求记录和恢复核实使用同一来源事实；全局证据和管理 Task 可以留在 ROOT，其存放位置不能被误当执行来源。
+Plans pin creation mode, tool/material ceilings and an optional fixed report target. Later defaults, new tools/grants and child history cannot expand them. Execution still verifies current effective scope, objects and configuration/credentials. The original implementation compared complete configuration: tools/extensions, material grants, MCP, command/service policy-content fingerprints and browser configuration, excluding default mode. This conservatively stopped old plans on any change, even narrowing or unrelated material additions, avoiding a separate dynamic-intersection recovery contract. Current request-configuration rules permit only their explicitly verified MCP-label compatibility, and command/service configuration versions prevent changing back from reviving old scopes. Unprovable creation ceilings stop affected execution with queryable reasons. Approval target is separate from authorization source: schedules/children may request one-use approval at the original entry but cannot match/create/expand standing service grants.
 
-计划保存创建模式、工具与资料上限和可为空的固定回报目标。以后默认模式、新工具、新授权和长期子会话历史不能扩大它；运行时继续核实当前有效范围、对象与配置/凭据。当前采用完整配置相等核实：保存工具/扩展、资料授权、MCP、命令、服务策略文件内容指纹与浏览器配置；任一内容变化使旧计划停止新执行，而非动态计算交集。默认模式不参与配置相等核实。这样可以复用原工具恢复契约，代价是收窄配置或增加无关资料也需要取消后重建计划。无法证明创建上限仍成立时停止相关执行并留下可查询原因。审批目标与授权来源分开：定时及其子工作可逐次请求原入口批准，不匹配、创建或扩大长期服务授权。
+Scheduled context has its own business tools and restricted delegation entry. schedule_create.instruction documents target actions delegate/list/result/cancel and automatic host finalization, so main does not write its own report/progress protocol into instructions. Children belong to the same run. After the first answer, the host seals membership and joins all derived work, external effects and stopping verification. Final summarization stays in that independent Conversation, with query-only input granting neither operations nor new derived work, never queued in main. Unknown facts hard-block further execution/summary; owner verification permits only evidence-supported next steps.
 
-定时上下文有自己的业务工具和受限委派入口。创建工具的任务说明参数列出独立定时上下文的 `delegate/list/result/cancel` 动作及宿主自动收尾，避免主会话将自身的 `report/progress` 动作写成目标流程。子工作归属同一运行；首次回答结束后由宿主封组并收齐所有派生工作、外部效果及停止核实。最终汇总在该独立 Conversation，输入只提供查询资格，不重新授予操作或派生权限，不排入主聊天。未知事实由宿主硬性阻止后续执行与汇总，拥有者核实后只继续有可靠证据支持的下一步。
+Each plan has at most one unfinished run. Due times during activity record a coalesced interval; after closure, scheduling resumes from future cycles. Downtime recovery with no active run admits at most the latest occurrence. Cancellation first persists rejection of new admission/derivation, then stops all admitted execution and waits for verification. Late results remain facts without reviving runs or sending successful reports. Unexpected terminal state is not external stop proof.
 
-每计划最多一个未完成运行。活动期间到期只记录合并范围；运行关闭后从未来周期继续，无活动运行的停机恢复最多接纳最近一期。取消先持久阻止新接纳与派生，再停止全部已接纳执行并等待核实；迟到结果留作事实，不能复活运行或发送成功回报。意外终态不证明外部执行停止。
+Summary input requests business results, failures and omissions, not evaluation of later delivery status. The host records/query-exposes sending. Run result, closure and one final-send intent commit together, with a separate durable send Task. Offline/rate-limit waiting does not occupy the next cycle. Lost responses/restart after send starts retain effect_unknown without new-key retry. Targets pin creation-time platform, account, owner and generation. No creation target means local records only; later configuration cannot add one. Before sending, recheck generation, revocation and cancellation.
 
-最终汇总输入只要求交付业务结果、失败和未完成之处，正文不评价生成后的发送状态；发送状态由宿主记录并供查询。运行结果、运行关闭和唯一最终发送意图同 commit 提交，发送单独由 durable Task 持有。发送器离线/限流等待不占下周期；开始后丢答或重启保留效果未知，不换键重发。目标固定创建时的原平台、账号、owner 与配置代次；创建时无目标只留本机记录，后续配置不补目标。入口换代、撤销及取消在发送前重新核实。
+[Memory/skills/history](2026-10-18-personal-memory-skills-history.md) uses the same sources. [Durable application data](2026-10-18-personal-durable-app-data.md) separately owns its native-source and dual-database receipt recovery. A source interface does not establish capability-combination acceptance. Original implementation, independent review and external evidence are offline at `.scratch/personal-pi-durable/issues/32-scheduled-work.md`.
 
-[记忆/技能/历史](2026-10-18-personal-memory-skills-history.md)沿相同来源接入，应用数据仍由后续消费者实现；来源接口存在不代替各能力的组合验收。完整实施、独立审查和外部证据由[工单](../../../../.scratch/personal-pi-durable/issues/32-scheduled-work.md)持有。
+## Related decisions
 
-## 既有笔记审计
+[Personal conversation background processes](../feature/2026-10-21-personal-background-processes.md) starts only from actual main owner sources. Schedules explicitly exclude process tools; source scope includes shared directory-claim version without expanding permission.
 
-[个人会话后台](../feature/2026-10-21-personal-background-processes.md)只沿真实主拥有者来源启动；定时配置显式排除process工具族，来源scope包含共享目录认领版本，不扩大原计划权限。
+The original implemented/proposed audit searched scheduling, Personal durable, sources, permissions and whole-work reports; rejected notes had no same-topic match. Migration/generic scheduling retain product/time/delivery decisions; this note owns durable wiring. [Background work](2026-10-17-personal-background-work.md), [child services](2026-10-17-personal-subagent-service-operations.md), [general tools](2026-10-17-personal-tools-access-artifacts.md) and [browser/media](2026-10-18-personal-browser-media.md) extend to scheduled sources while retaining their own mechanisms. No note was wholly absorbed, deleted or archived.
 
-按定时、调度、personal durable、来源、权限与整项回报检索 implemented、proposed；rejected 无同主题命中。迁移总方案与通用定时任务部分重叠：本篇持有新 durable 接线，旧产品既有实现及其时间/外发决定保留。[后台工作](../../implemented/architecture/2026-10-17-personal-background-work.md)、[子服务操作](../../implemented/architecture/2026-10-17-personal-subagent-service-operations.md)、[通用工具](../../implemented/architecture/2026-10-17-personal-tools-access-artifacts.md)、[浏览器与媒体](../../implemented/architecture/2026-10-18-personal-browser-media.md)部分重叠，现均补充定时来源适用范围和本篇链接；没有完全吸收、删除或归档的记录。
+## Alternatives considered
 
-## 备选方案
+- Execute/delegate under the plan creator's main input: tools work directly, but each occurrence impersonates new owner input and can leak defaults, main context or old one-use approvals. Use independent verifiable sources.
+- End runs on first answer or explicit report: less host code, but omits unfinished children/unknown effects and allows a missing model call to skip cleanup. Host seals and finalizes whole work automatically.
+- Explain actions only in scheduled context: correct target tools, but main can still write its own completion protocol into creation instructions. Explain target actions/sealing at schedule_create.instruction without new tools or rewritten plans.
+- Wait for delivery before another cycle: simpler run/delivery story, but offline platforms stop completed business from recurring. Commit closure/send intent together and recover delivery separately.
+- Reuse old SchedulerStore/Runtime/outbox: complete features, but two Personal execution authorities and old protocol dependencies contradict the migration. Reuse stateless time calculation/transport only.
 
-- 复用创建计划的主会话输入执行与委派：现有工具可直接调用，但每期会冒充拥有者新输入，默认模式/主聊天与旧单次批准也可能泄入执行；选择独立可核实来源。
-- 让首次回答或显式 `report` 结束运行：宿主代码较少，但遗漏未结束的子工作和未知外部效果，并允许模型漏调收尾；选择宿主自动封组和整项收尾。
-- 仅在定时会话说明动作：目标会话能看到正确工具，但创建计划的主会话仍可能把自己的收尾协议写入说明；在 `schedule_create.instruction` 使用点说明目标动作与自动封组，不增加工具或重写旧计划。
-- 发送结束才允许下周期：运行与投递状态容易理解，但平台离线会使已经完成的业务停止后续周期，违背现有调度约定；执行关闭与发送意图原子登记，投递单独恢复。
-- 直接使用旧 SchedulerStore/Runtime/outbox：现有功能完整，但引入两份个人执行权威和旧协议依赖，违背迁移减负目标；只复用不持有执行状态的时间计算与传输。
+## Verification
 
-## 验证
+Actual assembled-request regressions inspect main creation parameters, independent-summary body boundaries, four-action tool definitions and persisted input/payload. One-child/local completion follows the production scheduler chain. Original evidence/pending checks cover time/DST, missed cycles/restart deduplication, independent main chat, all derived work, unknown/canceled/late outcomes, frozen creation scope/revocation, no standing grants, fixed approvals/reports and real models/original IM. Before recovery, bidirectionally audit plan/run/task/conversation/submission/source and immutable admissions; missing or unsupported versions reject execution. Missing source, cancellation, exceeded permissions and failed request evidence need counterexamples with zero provider/external calls.
 
-实际装配请求回归核对主会话创建参数中的目标动作与收尾说明、独立会话汇总正文边界、四动作工具定义及持久 input/payload；单子工作和本机收尾沿正式调度链执行。工单持有逐项证据与待验项，覆盖时间/DST、漏期与重启去重、独立主聊天、全部派生工作、未知/取消/迟到、创建范围冻结及撤销、禁止长期授权、固定审批/回报和真实模型/原 IM。恢复前双向审计 plan/run/task/conversation/submission/来源与不可改接纳，缺失或版本不支持时拒绝执行。来源缺失、取消、权限超限和请求证据失败的反例须证明 provider/外调计数为零。
+## Consequences
 
-## 后果
-
-独立个人端的新历史、记忆、技能及请求参考由[个人资料归属](2026-10-18-personal-memory-skills-history.md)持有；本篇其余适用范围保留。
-
-独立来源复用已交付工具和停止证明，不引入新依赖或旧执行账本。来源适配横跨多个已有恢复消费者，修改共享 helper 不能替代逐个核对。浏览器的进程身份、绑定状态、截图归属和人工暂停也必须按真实会话隔离。完全访问沿后台账户权限，来源快照不能收回主动脱离的进程或外部服务；停止/效果未知继续保留占用。33/34 组合与真实平台证据缺失时保持待验收，不降低完整迁移要求。
-
-个人durable的应用数据接线、原生来源与双库回执恢复由[独立决定](2026-10-18-personal-durable-app-data.md)持有，本篇其他消费者约束保持。
+Independent sources reuse delivered tools/stopping proof without new dependencies or legacy execution ledgers. Adapting a shared helper does not replace checking each recovery consumer. Browser process identity, bindings, screenshot ownership and human pauses must isolate actual conversations. Full access retains backend-account authority; snapshots cannot reclaim escaped processes/external services, and unknown stopping/effects retain occupancy. Missing combined 33/34 or real-platform evidence leaves acceptance pending without lowering complete migration requirements.

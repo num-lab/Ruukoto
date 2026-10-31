@@ -1,117 +1,83 @@
-# Agent Note: Coding 定时任务固定配置并使用独立开发会话
+# Agent Note: Coding schedules pin configuration and run in independent development sessions
 
 Status: implemented
 
-## 问题
+## Problem
 
-拥有者要求完成 ruukoto-code 的 Scheduled，配置包含 title、schedule（repeat、time）、Instructions、workspace、permission、model 和 effort。桌面入口目前只显示未开放提示；共享旧调度创建个人助手上下文、依赖 main 模型和工具身份，不能满足选定工作区与 Coding 能力的要求。
+The owner requests Code Scheduled with title, repeat/time, Instructions, workspace, permission, model, and effort. The old desktop placeholder and personal scheduler's main identity/model/tools cannot supply selected-workspace Coding execution. The confirmed first release uses once/daily/selected weekdays, directly executes in the chosen workspace, and uses new profiles after the schema change. Original progress/acceptance is historical offline `.scratch/code-scheduled/issues/01-code-scheduled.md`.
 
-拥有者确认按本篇方案实施：首版周期为一次性、每天、每周指定日期，直接在选定工作区执行，schema 升级后使用新档案；实现进展与验收证据归[工单](../../../../.scratch/code-scheduled/issues/01-code-scheduled.md)。
+## Decision
 
-## 决定
+### Configuration and UI
 
-### 配置与界面
+Scheduled is a separate Code page with existing list/form/run-record components; switching pages preserves chat tabs. List title/rule/next time/workspace/latest run status. Support create/edit/pause/resume/cancel; cancellation preserves plans/history, not physical deletion.
 
-Scheduled 成为桌面 Code 的独立页面，列表、表单和运行记录使用现有界面组件；切换页面保留聊天标签。列表显示标题、周期与下次时间、工作区和最近运行状态。提供新建、编辑、暂停、恢复与取消；取消后保留计划和运行历史，不物理删除。
+- Title is required, nonempty, may duplicate, and names the run session.
+- Repeat is once/daily/weekly; weekly allows multiple days and weekdays maps Monday-Friday. Time is local HH:mm; once also has a date and must be future at save.
+- Instructions are required and self-contained; no automatic other-session/previous-run context.
+- Workspace is an existing registered root, verified at save/trigger and used directly.
+- Permission is AccessMode confirm/auto-review/full_access, default confirm with explicit full-access choice. Plan is a work style, not a permission option; scheduled tasks set planMode=false.
+- Model/effort uses ModelSelection (provider/modelId/thinkingLevel), existing model menu/effort control. Defaults may prefill but save resolves an explicit available model/level. Later defaults do not change it. Switching model uses existing level-retain/fallback logic and displays actual choice; unavailable trigger-time selection fails without substitution.
 
-| 配置 | 语义 |
-| --- | --- |
-| title | 必填非空标题，允许重名，用于列表和本轮会话名称 |
-| schedule.repeat | 一次性、每天、每周；每周可多选星期，工作日映射为周一至周五 |
-| schedule.time | 当地 HH:mm；一次性另显示日期，每周另显示星期；保存时一次性时刻必须在未来 |
-| Instructions | 必填、自足的任务正文；每次执行不自动带入别的会话或上次运行历史 |
-| workspace | 选择已登记且有根目录的工作区；保存与触发时核实目录身份，直接使用该根目录 |
-| permission | 请求确认、自动审查、完全访问，复用 AccessMode；默认请求确认，完全访问须显式选择 |
-| model / effort | 复用 ModelSelection 与模型目录，保存 provider、modelId、thinkingLevel；界面复用模型菜单与 effort 分段控件 |
+Pin creation machine IANA timezone and display it; later machine-zone changes do not change plans and no zone picker is added. Reuse Temporal `channels/scheduler/time.ts` with compatible DST (gap forward, earlier fold).
 
-时区取创建时本机 IANA 时区并随规则持久化，在 Schedule 中显示；机器后来换时区不改已有计划。本版不增加独立时区选择器。复用 `channels/scheduler/time.ts` 的 Temporal 计算与 compatible DST 规则：不存在的钟点向后移，重复钟点只取较早一次。
+### Durable execution ownership
 
-表单可以从后台默认模型预填，但保存时必须解析为明确可用的模型和档位；后续全局默认值不改已有计划。切换模型时复用现有档位保留或回落逻辑，并在表单中展示实际选择；触发时模型或档位不可用则报告失败，不静默换模型。Permission 不加入 Plan，因为它是工作方式；定时执行固定 `planMode=false`。
+Add Code-specific plan/run/write receipts in core, using Store transactions/events and a runtime coordinator. Existing queue/Driver executes tasks; reuse time calculations, not personal scheduler/state/durable wiring. Plan stores configuration/normalized rule/workspace identity/version/enabled/next due. Each admitted run pins immutable configuration, scheduled instant, delay/coalesced range, and session/root-task backlinks. Runs own scheduling/whole-result facts; Task remains execution authority. Edits never rewrite accepted snapshots.
 
-### 持久化与执行归属
+Dedupe by plan/config version/scheduled instant and uniquely constrain one unclosed run per plan. Run/session/root task/task ownership/next due/events commit together before queue start/broadcast. Model/directory preparation may happen outside, but transaction rechecks version/enabled/preparation. JSONL stays on existing execution paths and is not atomic with SQLite.
 
-在 core SQLite 增加 Code 专属计划、运行与写入回执，使用当前 Store 事务及事件机制；runtime 负责 Code 调度协调，具体任务仍由现有队列和 Driver 执行。只复用时间计算，不启用个人 scheduler，不改个人 durable 或旧个人计划归属。
+Each run uses a new ordinary dev session/Coding tools with host-verified coding-schedule provenance, propagated through descendants, workflows/reports, question continuations, and background processes. Renderer/model/ordinary submit cannot set it. A named source resolver verifies plan authorization/run snapshot/current task backlink, never source-string-only approval. Do not impersonate coding-owner or personal scheduled identity. Browser and other tool gates recognize verified schedule sources rather than misclassify them as IM.
 
-计划保存配置、规范化时间规则、工作区身份、版本、启停状态与下次到期时间。每次接纳保存所用配置的不可变快照、原定时刻、延迟及合并范围、独立会话与首次任务的反链；运行只持有调度归属与整项结果，Task 仍是执行状态权威。计划修改不改写已接纳运行的快照。
+Busy workspace stays queued under existing occupancy wakeups and displays waiting-for-workspace, not a new execution state. SubAgent/workflow/questions/background keep ordinary Coding capabilities with source checks/persistence/recovery/report consumers wired together. Answer continuation registers original run ownership in its admission transaction; canceled-source late answers create no task. Missing/unverifiable source stops with a queryable reason.
 
-到期接纳以计划、配置版本和原定时刻去重，并对同计划施加至多一个未关闭运行的唯一约束。运行、会话、首次任务、任务归属、下一到期时间与对应事件在同一 SQLite 事务提交；提交后才启动队列或广播。准备模型和目录可在事务外进行，事务内再次核实版本、启停状态和准备结果。JSONL 继续由原任务执行路径写入，不宣称与 SQLite 跨文件原子。
+Unclosed-run sessions are host-managed: control rejects ordinary submit, session mode/model edits, and task mode switches, with UI disabled accordingly. Approval, question answers, and existing safe continuation remain, pinned to run model/permission with client overrides rejected; new input is recorded under the run. After closure, new manual chat is ordinary Coding, never reopens or rewrites old run results. Historical task ownership still identifies run content.
 
-每次使用新的普通开发会话与 Coding 工具集合，同时记录宿主核实的 `coding-schedule` 来源。内部运行归属贯穿首次任务、后代任务、工作流步骤与报告、提问回答后的续接任务和后台进程；来源字段不得由 renderer、模型或普通 submit 参数指定。采用一个具名来源查询与核实入口，调用方必须证明计划授权、运行快照和当前任务反链仍有效，不能只凭来源字符串放行。
+Creation pins model/permission, not one-use approvals or other tasks' path grants. Recheck workspace/current tool configuration each time; permission edits affect future runs only. Tool approval/account limits/occupancy/stop verification remain, with no unattended auto-approval. Do not copy workspace/tool settings into a second plan configuration; actual model input remains recorded.
 
-目录被同实例任务占用时保留 queued，由现有占用释放机制再次唤醒，界面显示等待工作区，不新增执行状态。浏览器来源门与其他 Coding 工具一起接入核实，不能因为任务具有调度事件就误判为不可信 IM 输入。
+### Lifecycle, recovery, and reporting
 
-不把定时来源伪装为 `coding-owner`，也不复用旧个人 `scheduled` 会话身份。SubAgent、工作流、提问、后台工具保留普通 Coding 能力，现有来源资格、持久解析、恢复与报告消费者一起接入。回答后的续接任务必须在接纳事务内登记原运行归属，取消后的迟到回答不能产生新任务。来源缺失或无法核实则停止并留下可查询原因。
+Backend scheduling continues when desktop closes/disconnects; reconnect queries stored results. Sleep/backend downtime has no wake/on-time guarantee: without unfinished work, catch up at most the latest occurrence and record missed range. Existing runs waiting on approval/answer/directory/children coalesce misses without another run/backlog.
 
-未关闭运行的会话由宿主管理：保留 dev 工具能力，但普通 submit、会话模式／模型修改与任务模式切换必须由控制面按运行绑定拒绝，界面同步禁用普通输入与这些设置。审批、问题回答及已有安全继续入口仍可使用；回答与继续沿本轮模型和权限快照，拒绝客户端覆盖，新增输入按原会话记录并归属本轮。已关闭运行之后的新手工对话按普通 Coding 来源处理，不重新打开旧运行、不回写旧结果；会话中的历史运行范围按已保存任务归属核实。
+After restart, accepted-but-unstarted work keeps run/task keys but follows Code's paused-queue owner-resume protection. Started work retains interrupted/unknown facts, never redo; unresolved activity/effects block new runs. Unavailable model or missing/replaced workspace records the unstarted reason and pauses future triggers until owner repair/resume, with no model/directory substitution.
 
-创建时固定 permission 与模型选择，单次批准和其他任务的路径授权不随计划继承；每次仍核实工作区及当前有效工具配置。修改计划权限只影响后续运行。普通工具审批、完全访问的账户范围、目录占用和停止核实沿用现有规则，不因无人值守自动批准。工作区或工具配置不是新增的计划专属配置副本，模型上下文中实际使用的输入仍须沿既有记录机制保存。
+Pause stops future triggers while current work continues; resume skips manually paused periods. Edit versions future configuration and recalculates next time without overlap or changing current snapshot. Cancel persists intent before blocking new/continuation work and stopping all run activity; keep history/results. A completed or explicitly failed once-plan ends. If paused once time is past, resume asks for a new date rather than secretly running immediately. Ordinary periodic failure permits a later new period, not automatic retry; unknown effects/unverified stop must first be resolved.
 
-### 运行与恢复
+Unknown recovery is two-stage. First verify active/unreaped local execution stopped through existing stop/special recovery; plan resume cannot bypass occupancy. Then, if execution stopped but external effects remain unknown, show paused/unknown. The owner may explicitly retain this run's unknown result and allow future periods. Bind confirmation to current run/expected version, persist receipt, mark run interrupted while preserving original effect_unknown, and compute the next period strictly after confirmation. In the same closing transaction invalidate unanswered questions, mark noncontinuable result reports/terminal-workflow reports undelivered, and close the run. Do not claim effect verification, catch up the paused range, continue, or resend old operations. Once-plans only close and require date editing to run again.
 
-| 情况 | 方案 |
-| --- | --- |
-| 桌面关闭或断开，Code 后台仍在运行 | 继续调度；运行和结果保存于后台，桌面重连可查询 |
-| 机器休眠或后台停机 | 不承诺唤醒或准点执行；恢复时没有在途运行则最多补最近一次，保存漏过区间 |
-| 同计划已有运行，包括等待审批、回答、目录或子工作 | 不新建第二次运行，合并漏过周期，不积累补跑队列 |
-| 已接纳但未开始就重启 | 按原运行与任务键核实；沿 Code 队列恢复规则暂停，由拥有者显式恢复，不绕过后台重启保护 |
-| 已开始执行后重启 | 保留中断和未知效果，不自动重做；未核实活动或效果继续阻挡该计划新运行 |
-| 模型不可用、工作区缺失或身份被替换 | 保存本次未启动原因，暂停未来触发；修复后由拥有者恢复，不换模型或目录 |
-| 暂停 | 阻止未来触发，当前整项运行继续；恢复时跳过人为暂停期间的周期 |
-| 编辑 | 新版本只用于未来运行，重新计算下一时间；当前运行保持原快照，不能借编辑建立重叠运行 |
-| 取消计划 | 先持久化取消意图，阻止新执行与续接，再停止本轮全部活动；保留历史与已有成果 |
+Root-task completion is not whole-run completion. Before closure check descendants/workflows/questions/pending injections/required reports, active background processes, and unverified occupancy; idle SubAgent identities do not block. Long-lived background work keeps the run active until existing stop controls finish it. Do not add another summary protocol; link existing session/derived results.
 
-一次性计划成功或明确失败后结束；被暂停的一次性计划若到期已过，恢复时不暗中立即执行，提示调整日期后保存。运行中正常失败不自动重试；周期计划可在下个周期执行新运行，但未知效果与停止未核实必须先解决。
+List approval/answer waits and open the original session. Reuse desktop notification transport, but scheduled completion/failure comes from whole-run closure, not first Task completion. Approval retains existing notification flow. Desktop exit does not promise notification delivery; results remain queryable. No IM push is added.
 
-未知效果的恢复分两步。仍有活动进程或停止未核实占用时，必须先经已有停止／专用恢复入口核实退出，恢复计划不能绕过该占用。执行已经停止但外部效果仍未知时，页面显示“结果未知，已暂停”；拥有者检查本轮记录后，可在恢复计划时明确确认“保留本轮未知结果，允许未来新周期”。确认绑定当前运行及预期版本并持久化，事务将本轮记为 interrupted、保留原操作的 effect_unknown，再计算严格晚于确认时刻的下一周期；未处理问题记失效，不能再续接的结果报告及已终态工作流回报记未送达；这些逻辑终态与确认回执、运行关闭同事务。不声称效果已核实，不补跑暂停时段、不继续或重发旧操作。一次性计划没有未来周期，只结束该轮，需调整日期才能再次执行。
+### Writes, failure, and fresh-profile policy
 
-首次任务结束不等于整项结束。运行关闭前须核实派生任务、工作流、待回答问题、待注入结果及必要报告均已处理，没有活动后台进程或未核实占用；闲置 SubAgent 身份不阻止关闭。Agent 留下长期后台时，页面保持活动状态，拥有者使用既有停止入口收尾。不增加另一套自动汇总协议，运行记录链接现有会话与派生工作结果。
+Typed owner-authenticated control operations cover create/edit/pause/resume/cancel/list/detail/request lookup through the existing Code bridge, without another preload privilege. Stable request key + parameter digest and expected versions give same-request receipts, differing-parameter/version conflicts. Lost responses use original-key lookup, preserve drafts, and never replay on another instance. Upgrade protocol for new source/operations/events and reject old clients rather than ignore facts at the same version.
 
-等待审批或回答在列表可见，点击运行打开原会话处理；复用现有桌面通知传输，定时完成／失败通知以整项运行收尾事件为准，不能把首次 Task 结束通知当作整项成功；待审批仍沿原入口。桌面宿主退出后不承诺通知送达，结果始终可查询；首版不接 IM 推送。
+Trusted entry checks bounded fields, time rule, actual workspace, mode, model/level. Translate helper failures to coded types; callers never parse messages. Persistence failure rolls back and starts no task/false success. Corrupt source or uncertain effect remains visible, not merely logged.
 
-### 写入与失败
+The owner chose independent fresh profiles for development, acceptance, and activation. Monotonically advance schema and retain strict rejection of both older/newer Code databases. Leave original SQLite/JSONL/artifacts/credentials unmoved, unchanged, undeleted and readable with matching code. No additive migration, old settings/history/grant copying, or conversion is authorized. Initialize the new profile normally.
 
-Code 专属 typed control 操作覆盖新建、编辑、暂停、恢复、取消、列表、详情与请求核实，经拥有者认证和现有桌面 Code bridge 转发。写操作使用稳定请求键与参数摘要，修改带预期版本；同键同参返回原回执，同键异参及过期版本明确冲突。应答丢失时按原键核实，换实例不重放，表单保留草稿；不另加 preload 特权入口。协议版本随新增来源、操作和事件升级，旧客户端明确拒绝连接，不在同版本下静默忽略新事实。
+Offline import rejects sources containing Code plans/runs/receipts/scheduled provenance rather than dropping identity and importing as owner tasks or activating plans. Sources without them retain existing rules.
 
-校验发生在可信控制入口：字段长度沿仓库有界输入约定，规则合法、工作区真实、模式枚举和模型档位均须核实。外层将时间 helper 等错误映射为带 code 的类型，调用方不解析 message。持久化失败回滚相关事实，不启动任务或宣称保存成功；损坏来源或无法确定执行结果保留可见状态，不以日志代替处置。
+## Related decisions
 
-### schema 与现有资料
+This partly supersedes Coding's no-scheduling scope in [generic schedules](2026-10-12-generic-scheduled-tasks.md) and [two products](../architecture/2026-10-02-two-agent-products.md). [Personal durable scheduling](../architecture/2026-10-18-personal-durable-scheduled-work.md) supplies independent-source/whole-run precedent, not shared state. Reuse [new chat](2026-10-20-desktop-new-chat.md), [effort](2026-10-24-desktop-effort-slider.md), [questions](2026-10-21-coding-owner-questions.md), and [background processes](2026-10-21-coding-background-processes.md), extending source applicability without changing their controls/stop proof. Other personal entry/native/import/background, workspace packaging, and sidebar ownership are unchanged. No note is wholly absorbed.
 
-新增持久布局需要单调提高 `SCHEMA_VERSION`。拥有者已选择使用新档案：开发、验收与正式启用均使用独立新档案，沿用 [core](../../../../docs/modules/core.md) 对高于或低于当前版本数据库拒绝启动的规则。现有档案原样保留，不移动、不清空、不覆盖、不修改原会话记录，仍可由匹配版本读取。
+## Alternatives considered
 
-本次不实现旧档案增量迁移，也不自动复制旧档案的会话、设置或授权。新档案按现有初始化入口配置；后续如需读取旧历史，使用保留档案及其匹配代码，不将旧库直接交给新版本打开。
+- **Enable/extend old scheduler tables:** reuses scanning/dedupe/cancel, but personal main/temp-directory/creation-authority/IM assumptions permeate it and risk executing old plans. A Code coordinator changes fewer contracts; share time and proven lifecycle rules only.
+- **Desktop timer submits at due time:** little UI/code, but cannot own reliable admission/recovery across window exit/sleep/reconnect/lost response.
+- **Reuse one chat every period:** convenient history, but old context and shared questions/queue blur run boundaries. Fresh sessions with a linking history page are clearer.
+- **Create worktree every time:** isolates changes, but restricts non-Git work and adds integration/copy management. Owner chose direct workspace execution with occupancy.
 
-首版离线导入发现 Code 计划、运行、回执或定时来源记录时明确拒绝，不丢弃来源后导入为普通 owner 任务，不自动激活导入计划；现有无此类记录的导入继续沿原规则。
+## Verification
 
-## 既有笔记审计
+Required evidence maps saved/read-back fields to actual directory/instructions/permission/model/effort; time/zone/DST and default changes; admission/edit/cancel/restart races and original-key lookup; real scheduled provenance through SubAgents/workflows/questions/background; rejection of forged/canceled sources before model/tools; whole-run waits/stop proof; desktop result navigation and unaffected personal/ordinary chat.
 
-已按 Coding、定时、调度、Scheduled 和来源检索 proposed、implemented、rejected，并核对运行时与桌面入口。没有被本方案完全吸收的既有记录。
+Offline regressions cover durable admission, key lookup, pinning, answer/descendant ownership, cancel/restart/unknown recovery. Dual-shell builds, independent review, and real-environment acceptance are separate records in the offline task evidence; mocks/browser fixtures are not real-product acceptance. This migration reruns none and invents no acceptance result.
 
-| 归类 | 处理 |
-| --- | --- |
-| 部分取代，已确认 | [通用调度](2026-10-12-generic-scheduled-tasks.md)、[两个产品](../architecture/2026-10-02-two-agent-products.md)中 Coding 不开放调度的范围；个人调度、实例隔离与授权规则保留，已互链 |
-| 部分重叠，保留 | [个人 durable 定时](../../implemented/architecture/2026-10-18-personal-durable-scheduled-work.md)：仅参考独立来源与整项收尾，不共享其状态或接线 |
-| 部分重叠，复用现行决定 | [新对话](../../implemented/feature/2026-10-20-desktop-new-chat.md)、[effort](../../implemented/feature/2026-10-24-desktop-effort-slider.md)、[提问](../../implemented/feature/2026-10-21-coding-owner-questions.md)、[后台进程](../../implemented/feature/2026-10-21-coding-background-processes.md)：复用控件、持久输入和停止核实；落地时同步新增来源适用范围 |
-| 无需改变 | 个人正式入口、个人原生执行、个人实例导入、个人后台进程、workspace 分包和桌面侧栏记录：本次不改变其产品归属、执行边界或导入方向 |
+## Consequences
 
-## 备选方案
+Direct execution can modify user files. Occupancy coordinates this instance only, not external editors/Git/processes; full access uses existing backend-account rights and cancel cannot undo effects. Source ownership spans many consumers, so missing wiring can reject valid tools, continue after cancel, or start the next period early; this is not just a form plus timer. Background work/questions/unknown effects may block indefinitely and need visible cause/action.
 
-- 开启旧 scheduler 并扩展旧表：能复用扫描、去重与取消代码，但其个人 main 身份、临时目录、创建任务授权与 IM 目标贯穿执行链；强行通用化比独立 Code 协调器扩大更多既有契约，且易让旧个人计划被执行，因此仅复用时间 helper 和已验证的生命周期规则。
-- 桌面 timer 到点发送：实现和交互最少，但窗口退出、休眠、重连和丢答无法提供可靠接纳与恢复，不能作为持久定时任务的权威。
-- 所有周期沿同一聊天会话继续：历史查询方便，但上次模型上下文会影响新一轮，且共享问答与队列使运行边界不清；采用每次独立会话，记录页负责串联历史。
-- 每次创建 Git worktree：能隔离代码修改，但增加非 Git 目录限制、结果集成和副本管理；拥有者已选择直接工作区执行，沿用目录占用保护。
-
-## 验证
-
-字段保存与回读准确，实际任务使用相同目录、Instructions、permission、model 和 effort；时间映射、时区与 DST 正确，默认配置变化不会悄悄改变已保存选择。接纳、编辑、取消和重启竞争不能重复执行，丢答可原键核实。
-
-真实 Coding 定时来源可以使用 SubAgent、工作流、提问与后台能力；回答和报告仍属于原运行，伪造或取消来源不能启动模型或工具。整项生命周期涵盖等待与停止核实，任务完成后的结果可从桌面打开，个人调度和普通聊天保持原有行为。
-
-离线回归覆盖持久接纳、原键核实、固定配置、问答与后代归属、取消、重启及未知恢复。双壳构建、独立实现审查与真实环境证据分别记录，不以模拟模型或浏览器夹具替代真实产品验收；具体文件、命令与缺口归工单。
-
-## 后果
-
-直接工作区执行会修改用户文件；目录占用只协调本实例受管任务，不能防止外部编辑器、Git 或其他进程同时写入。完全访问仍使用后台账户已有权限，取消不能撤销已发生修改。
-
-来源与整项归属跨多个消费者，漏接可能导致权限误拒、取消后续跑或提前开始下周期；不能把本功能估为一个表单加 timer。长期后台、未回答问题与未知效果可能持续阻挡同一计划，页面必须解释当前原因和处理入口。
-
-机器休眠时不能保证准点执行；恢复补最近一次可能已过业务最佳时机。新档案不会自动带入旧会话、设置或授权，需要按现有入口初始化；schema 变化后旧档案仍需匹配版本读取。本版不做小时／每月／cron、系统唤醒、云端调度、立即运行、模型管理计划工具或新的执行沙箱。
+Sleep can miss the useful business window; fresh profiles require setup and old profiles need matching code. No hourly/monthly/cron, system wake, cloud scheduler, run-now, model-managed scheduling tools, or new sandbox is included.

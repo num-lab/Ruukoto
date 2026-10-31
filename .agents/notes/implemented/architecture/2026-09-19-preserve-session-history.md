@@ -1,46 +1,39 @@
-# Agent Note: 完整保留会话历史，单独组装模型上下文
+# Agent Note: Preserve complete session history and assemble model context separately
 
 Status: implemented
 
-部分取代：[个人正式入口与旧装配退出](../simplification/2026-10-18-personal-product-entry.md)使新个人历史只由 durable SQLite 原生记录持有，不双写旧 JSONL；本篇不可覆盖历史的原则保持，JSONL 和旧索引约束仅适用于 Coding 与旧归档。
+Original identifier: ADR 0001.
 
-后续提案：[个人端 pi durable 迁移](../../proposed/architecture/2026-10-17-personal-pi-durable.md)拟以 durable 存储承载新个人端历史，继续要求完整记录与模型输入可重建；Coding 与旧归档的 JSONL 规则保留。
+Partly superseded by [the personal product entry](../simplification/2026-10-18-personal-product-entry.md): new personal history belongs to native durable SQLite records and is not dual-written to legacy JSONL. The non-destructive history principle remains; the JSONL and derived-index rules below apply to Coding and legacy archives. [Personal information ownership](2026-10-18-personal-memory-skills-history.md) owns personal history, memory, skills, and request references; [the original durable proposal](../../proposed/architecture/2026-10-17-personal-pi-durable.md) records the migration rationale, not an outstanding requirement to keep new personal history in JSONL.
 
-原编号：ADR 0001
+## Problem
 
-## 问题
+The owner builds a personal Agent to customize context assembly, compaction, and memory. Comparing new policies requires the original messages, and the Agent must be able to retrieve material omitted from a particular request. Replacing originals with lossy summaries or deleting them through a selector would make those experiments impossible. Conversely, a model window cannot contain all history indefinitely.
 
-拥有者自建个人 Agent，是因为现有产品不方便深度定制；主要定制点是上下文组装、压缩与记忆。要反复实验这些机制，换一套规则后必须还能拿到当初的原文重新组装，Agent 也要能翻出已经不在本次输入里的旧内容。历史一旦被有损摘要替代、或被某个筛选器删掉，这些实验就失去了基础。同时，每次模型调用的输入受模型窗口限制，不能简单等于全部历史。
+## Decision
 
-## 决定
+- Persist complete history append-only and make it available to the Agent. For the shared Coding assembly, pi JSONL is the sole authoritative message history; SQLite history indexes are rebuildable derivatives. Host tools `history_search` and `history_read` retrieve originals.
+- Manage model context separately. Assembly, selection, and compaction produce a request-specific view, never a rewrite of persistent history.
+- The deterministic baseline in `packages/agent/src/context-selector.ts` retains system and project instructions, the current task requirements, and recent complete interactions within budget, reserving space for the answer and tool results. Older material remains available through indexed history lookup.
+- Lossy processing applies only to model context. [Lossy context compaction](2026-09-26-lossy-context-compaction.md) supersedes the original refusal to use summaries: host-managed compaction points, tool-result placeholders, and rolling summaries do not alter history. The shared assembly disables automatic pi compaction and cancels every `session_before_compact` in `packages/agent/src/session-factory.ts`; this is not the personal durable compaction policy.
+- Jev affects context selection only. `packages/agent/src/jev.ts`, called by `context-assembly.ts`, is an experiment against the baseline; invalid results, timeout, or unavailable service fall back to that baseline without changing originals.
+- Long-term memory cleanup is a separate experiment with undo records, not part of context filtering.
+- Deleting original history requires a separate retention decision. Neither the baseline, Jev, nor compaction owns deletion; no automatic original-history deletion mechanism is established here.
 
-- **全部历史消息持久化，并允许 Agent 查阅。** 会话历史完整保存、只追加。pi 的 JSONL 会话文件是消息历史的唯一权威副本；SQLite 中的历史索引只是可重建的派生数据。Agent 通过宿主工具 `history_search` 与 `history_read` 查阅历史。
-- **模型上下文与会话历史分别管理。** 某次模型调用所使用的上下文由宿主为该次调用组装，组装、筛选与压缩只产生本次调用的视图，不改写持久化的会话历史。
-- **基础选取规则**（`packages/agent/src/context-selector.ts` 的确定性策略）：保留系统与项目指令、当前任务要求，以及预算内最近的完整交互；为模型回答及工具结果预留空间。更早的消息不进入本次视图，通过索引和历史查询工具按需读取。
-- **有损处理只作用于模型上下文，会话历史从不做有损压缩。** 最初「不采用有损摘要来压缩历史」的约束已由[模型上下文有损压缩](2026-09-26-lossy-context-compaction.md)取代：压缩点、工具结果占位与滚动摘要只作用于模型上下文，会话历史仍完整保存、只追加、可查阅。本篇其余各条不受该取代影响。pi 自带的 compaction 不启用（`packages/agent/src/session-factory.ts` 关闭自动压缩，并对每次 `session_before_compact` 返回 cancel）。
-- **Jev 只影响模型上下文选择。** Jev 实验接在上下文选择这一步（`packages/agent/src/jev.ts`，由 `packages/agent/src/context-assembly.ts` 调用），以基础规则为对照；结果无效、超时或服务不可用时回退基础规则，原始历史保持不变。
-- **长期记忆清理另外实验，且保留撤销能力。** 它不并入上下文筛选。
-- **原始历史的删除由独立的数据保留规则决定，不交给上下文筛选器**（包括基础规则、Jev 与上下文压缩）。目前没有自动删除原始历史的机制。
+## Alternatives considered
 
-## 备选方案
+- **Use pi automatic compaction.** It is the upstream default and avoids a custom selector and history tools. It does not satisfy the owner's need to retrieve and reassemble originals. Disabling automatic triggering alone does not stop manual compaction or branch summaries, hence the event veto as well. When mandatory context exceeds the budget, the task pauses with `context_budget_exceeded` rather than silently dropping material or falling back to pi compaction. Later lossy processing is restricted to host-managed request views.
+- **Start with model-driven selection or vector retrieval.** Community Jev implementations filter old tool calls/results without changing disk history, and semantic retrieval could recover relevant messages. The initial requirement is recent complete interactions, not an embedding model or vector database. Preserving originals also does not prove the selected view retains all relevant information. Jev therefore remains a separately measured experiment with a deterministic control and fallback. Initial history search scans literal keywords in index-located originals, without an additional full-text engine.
+- **Use Jev for both context and long-term memory cleanup.** This was an owner-suggested way to reduce concepts. A request view is temporary and can fall back; persistent derived memory requires provenance, undo, and retention rules; deleting originals is a third concern. Community evidence covered only view filtering. The confirmed boundary separates all three.
 
-- **沿用 pi 自带的自动压缩，用有损摘要压缩历史** — 这是上游默认行为，上下文快满时 SDK 自动摘要，不需要自建选择器和历史查询工具。不选，是因为拥有者要实验的正是上下文组装、压缩与记忆，有损摘要一旦替代原文，就无法再查阅原文或用新规则重新组装。SDK 的开关只关掉自动触发，不禁止手动压缩或分支摘要，所以宿主同时关闭自动压缩并拦截每次 `session_before_compact`。必留内容超出预算时，任务以 `context_budget_exceeded` 明确暂停，不回退到 pi 的有损压缩，也不静默丢弃历史。之后引入的有损处理限定在模型上下文、由宿主自管压缩点，理由见[模型上下文有损压缩](2026-09-26-lossy-context-compaction.md)。（见 [personal-agent spec](../../../../.scratch/personal-agent/spec.md) 第 2 轮回答与阶段 1、[阶段 0 基础验证结论](../../../../.scratch/personal-agent/foundation-findings.md)、[上游事实核实](../../../../.scratch/personal-agent/research.md)「第 3 轮补充：pi 上下文扩展点」）
-- **初始选取规则直接用模型驱动筛选或向量检索** — 社区的 `fast-jev-compaction` 及其 pi 移植用 Jev 判断旧工具调用和结果是否仍然需要，只过滤发给模型的视图、磁盘会话文件保持完整；向量检索能按语义把相关的旧消息带回上下文。不选，是因为初版只需按已确认的规则选择近期完整交互，不要求向量数据库或模型驱动筛选；保留原文也不等于当轮推理没有信息遗漏，Jev 的效果需要用固定历史对比后才能判断。所以 Jev 放到后续单独实验，基础规则作为可随时切回的对照和失败回退；历史搜索首版按字面关键词在索引定位的原文上扫描，不引入向量库、嵌入模型或额外全文引擎。（见 personal-agent spec 阶段 2 与「后续实验：Jev」、research.md「第 3 轮补充：Jev 与历史筛选」、[personal-agent issue 05](../../../../.scratch/personal-agent/issues/05-context-and-memory.md) 实施范围与 §2、[personal-agent issue 08](../../../../.scratch/personal-agent/issues/08-jev.md)）
-- **让 Jev 同时清理上下文与长期记忆** — 这是拥有者第 2 轮提出的方向：一个机制同时处理上下文和记忆的清理，概念更少。不选，是因为两类清理的后果不同，删除原文又是另一回事：上下文筛选只影响一次调用的视图，失败可回退；记忆清理改动持久的派生数据，需要单独定义来源、撤销与保留行为；删除原文属于数据保留问题。社区实现也只证明了视图筛选，不能证明跨会话长期记忆的清理已经解决。第 3 轮据此定下边界：Jev 先用于本轮上下文选择，长期记忆清理独立实验并保留撤销记录，历史原文删除由独立数据保留规则决定。（见 personal-agent spec 第 2、3 轮回答，research.md「第 3 轮补充：Jev 与历史筛选」，personal-agent issue 08 实施范围）
+These alternatives were recorded in the historical offline `.scratch/personal-agent/spec.md` rounds 2-3, `research.md`, `foundation-findings.md`, and issues `05-context-and-memory.md` and `08-jev.md`. They are provenance, not maintained task entry points.
 
-## 后果
+## Consequences
 
-独立个人端的新历史、记忆、技能及请求参考由[个人资料归属](2026-10-18-personal-memory-skills-history.md)持有；本篇其余适用范围保留。
+The same original history can support repeated policy comparisons, Jev enable/disable, and compaction experiments. Material omitted from context remains retrievable. This costs growing storage, maintained indexes and query tools, and per-request budget selection. Retrievability neither means every request sees everything nor guarantees the model will think to search the right place. Storage, privacy, or retention-driven deletion must be decided separately.
 
-独立会话的历史快照与限定来源读取另见[会话分支](../feature/2026-10-11-branch-session-snapshot.md)；它复用完整历史原则，按批次清理模型视图中的孤儿记录，来源快照不改写原会话。
+[Session branching](../feature/2026-10-11-branch-session-snapshot.md) reuses complete-history snapshots and bounded source reading. It removes orphan records from the model view by batch, without rewriting the source session.
 
-- **收益**：保留了重新查阅原文、重新组装上下文的可能性。更换选择策略、启停 Jev 或建立压缩点都不改写会话历史，同一份历史可以反复用于比较不同规则；已移出模型上下文的内容，Agent 仍能用 `history_search`、`history_read` 找回原文。
-- **代价**：存储、检索和上下文选择都有成本。历史只增不减，需要维护索引与查询工具；每次模型调用都要由宿主按预算重新选取，并为模型回答和工具结果预留空间。
-- **已知上限**：完整历史可查阅，不等于模型每次调用都能看到全部历史；也不保证模型能够主动找回所有相关信息，模型得自己想到去查、并查对地方。
-- **何时重访**：需要删除原始历史（存储压力、隐私或保留期限）时，必须另定数据保留规则，不能借上下文筛选器或压缩实现。
+## Verification
 
-## 验证
-
-- `test/16-context-memory.test.ts`：选择器以完整交互为单位进出、工具调用与结果配对保持完整；必须项超过预算时 provider 请求数为零、任务中断且会话队列暂停，证明容量不足不会退化为静默删减；历史索引重建不改写源文件。
-- `test/61-context-compaction.test.ts`：压缩点生效后会话 JSONL 既有字节前缀不变，占位说明里的条目可用 `history_read` 读回原文。直接比对磁盘字节，是因为「有损只作用于模型上下文」只能从会话文件本身证明。
-- `test/52-jev.test.ts`、`test/55-jev-runtime.test.ts`：Jev 筛选只改变发送视图、原消息不变；HTTP 错误和超时回退到相同的基础选择，缺凭据时不发请求。
+The regression map is `test/16-context-memory.test.ts` for whole-interaction selection, tool pairing, zero provider calls plus task interruption and queue pause when mandatory content exceeds budget, and index rebuilds that leave source files unchanged; `test/61-context-compaction.test.ts` for unchanged JSONL byte prefixes and retrieval of placeholder originals; and `test/52-jev.test.ts` / `test/55-jev-runtime.test.ts` for view-only selection, HTTP/timeout fallback to the same baseline, and no request when credentials are missing. Byte comparisons are necessary to prove non-destructive history, not merely successful task status. This documentation migration does not rerun those runtime tests.

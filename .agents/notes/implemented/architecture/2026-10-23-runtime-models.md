@@ -1,65 +1,46 @@
-# Agent Note: 模型配置与模型栈由独立模块持有
+# Agent Note: Give model configuration and model stacks one owner
 
 Status: implemented
 
-显示名、唯一 ID 排序与真正新增模型的差异判断由[非执行配置检查](../simplification/2026-10-25-configuration-checks.md)收窄；本文其余配置栈、引用、发布与恢复约束继续适用。
+[Non-execution configuration checks](../simplification/2026-10-25-configuration-checks.md) narrows affected-provider comparisons: display names, unique-ID ordering, and genuinely new models do not wait for old tasks. Stack publication, references, rollback, and complete-operation shutdown remain governed here.
 
-[非执行配置检查](../simplification/2026-10-25-configuration-checks.md)收窄目录保存的受影响提供方判断；显示名、唯一 ID 排序和真实新增模型不等待旧任务，其余模型栈与停止契约保留。
+## Problem
 
-## 问题
+Runtime mixed task orchestration with model configuration, scattering gates and stack state across the class and duplicating SDK/catalog/reviewer assembly between startup and rebuild. Gate tests accessed private implementation. Configuration changes required understanding unrelated tasks, IM, and workflows.
 
-原 Runtime 同时持有任务编排与模型配置，管理方法与门闩、模型栈状态分散在类内；启动与热重建重复装配 SDK、目录和审查器。门闩用例直接访问 Runtime 私有实现，修改模型配置需要理解无关的任务、IM 和工作流职责。
+Shutdown did not wait for in-flight configuration operations, so it could close SQLite or release the configuration lock while SDK rebuilding later resumed and wrote an event. Gate release preceded message flushing and configuration events and could not prove the whole operation had ended. On 2026-10-23 the owner approved extraction and the shutdown-race fix together.
 
-原停止路径不等待正在执行的模型配置操作，可能在 SDK 重建完成前关闭 SQLite、释放配置锁，更新恢复后仍登记配置事件。门闩结束早于消息冲刷和配置事件结束，不能充当完整操作收尾证明。拥有者在 2026-10-23 确认职责提取与停止竞态一并修复。
+## Decision
 
-## 决定
+`packages/runtime/src/models.ts` defines `RuntimeModels`, owned as `Runtime.models`. It owns current stack, configuration revision/reference validation, apply gates, file snapshots/rollback, safe diagnostics, and configuration events, reusing agent/model-config file operations. Scope is Coding and the retained shared Runtime, not durable Personal's independent model configuration.
 
-在 `packages/runtime/src/models.ts` 定义 `RuntimeModels`，由 `Runtime.models` 持有。它拥有当前模型栈、配置修订与引用核实、应用门闩、文件快照和回滚、安全诊断及模型配置事件。现有 agent/model-config 的文件操作继续复用。适用范围是 Coding 与保留的旧共享 Runtime，不调整正式个人 durable 的模型配置。
+Dependencies are Store, model-related startup configuration, and three injected host capabilities: count active compactions for selected providers, publish a new stack to live Drivers, and flush pending messages. It receives no entire Runtime and owns no queues, Driver collection, compaction operations, or SubAgentManager. Runtime retains the configuration lock and overall startup/shutdown order.
 
-模块只依赖 Store、模型相关启动配置和三项宿主能力：统计指定提供方的活动压缩、把新模型栈发布给存活 Driver、冲刷待投递消息。它不接收整个 Runtime，不持有任务队列、Driver 集合、压缩操作或 SubAgentManager。Runtime 继续持有配置锁及整体启动、停止顺序。
+Control calls this module directly for listing/configuration views, catalog/credential saves and removal, provider removal, defaults, summary model, and connection tests. Runtime's nine forwarding management methods were removed. Protocol operation names, parameters, results, and codes remain unchanged, with ops deriving response types from the new module. Read-only `Runtime.defaultSelection` and snapshot `modelInfo()` read the same state, avoiding hundreds of unrelated test changes.
 
-模型列表、配置视图、目录保存、凭据保存和移除、提供方移除、默认模型、摘要模型及连接测试直接由控制面调用新模块；删除 Runtime 对应的九个管理方法。控制协议的操作名、参数、结果和错误码保持不变，ops 从新模块推导响应类型。`Runtime.defaultSelection` 保留只读 getter，后台快照的 `modelInfo()` 保留，均读取同一份模型状态；不为整理便利读取而改写数百处无关测试。
+Startup and hot rebuild share stack construction but retain validation differences: hot rebuild additionally verifies every configured model was accepted by the SDK. Runtime still fills missing session defaults after successful startup. Publish the fully validated stack once; existing Drivers only mark their SDK stale and rebuild on the next task, without interrupting the current SDK.
 
-启动与热重建复用模型栈构造 implementation，保留校验差异：热重建额外核实配置声明的模型均被 SDK 接受；启动成功后的会话默认补选仍由 Runtime 执行。模型栈完整校验后一次发布；已有 Driver 只标记 SDK 过期，在下一任务重建，不中断既有 SDK。
+The module owns asynchronous selection resolution and synchronous reverification. Callers reverify in the actual registration transaction, checking both provider gate and catalog identity, not only whether configuration is busy. Idempotency lookup precedes gates. Runtime owns internal retries: wait only for `model_config_busy`, then retry the original key.
 
-模型选择的异步解析和同步复核由新模块持有，调用方仍在实际登记事务的同步段调用复核。复核同时检查提供方门闩和所用 catalog 的身份，不能只检查当前是否忙碌。幂等查重仍先于门闩；内部提交只对 model_config_busy 等待后按原请求键重试，重试归 Runtime。
+### Shutdown tracks complete operations separately
 
-### 停止与完整操作
+Runtime's stop intent synchronously closes new management writes. It stops backend execution and aborts active tasks through the existing path, then waits for all accepted management operations before destroying Drivers, closing SQLite, or releasing the configuration lock. A configuration apply that already changed files completes rebuild or rollback, message flush, and event recording. No new flush starts during shutdown. A default/summary save still resolving the catalog rechecks closure immediately before writing and rejects a late write. Connection tests retain existing authentication resolution/cancellation without automatic resend.
 
-新模块另行跟踪已受理管理操作的完整生命周期。Runtime 设置停止意图时同步封闭新管理写入，按原路径停止后台执行并中断活动任务，再在销毁 Driver、关库和释放配置锁前等待这些操作结束。已经开始改文件的配置应用完成重建或回滚，连同后续消息冲刷和配置事件一起收尾；停止期间不启动新的消息冲刷。尚停在目录解析的默认或摘要设置，在实际写入前重核关闭状态并拒绝迟到写入。连接测试沿用现有认证解析与请求取消策略，不增加自动重发。
+Gate completion means selections may be reverified; complete-operation completion means no further host resource access. Track them separately: internal submissions waiting for an entire flush would deadlock with the flush waiting for those submissions.
 
-门闩结束只表示可以重新核实模型选择，完整操作结束才表示不会再访问宿主资源；两种事实分别维护，不让内部提交等待整项消息冲刷造成相互等待。
+[Code model settings](../feature/2026-10-21-code-model-settings.md) retains metadata reads without dynamic-auth evaluation, secret placeholders, advanced JSON fields, diagnostics, and default semantics. [SubAgent messaging](../feature/2026-10-05-subagent-messaging.md) retains gate-release-before-flush on success and rollback. [Auto-review](../feature/2026-09-22-auto-review-mode.md) rebuilds its reviewer with the stack without changing approval ownership. The original search found no existing extraction proposal to replace; Personal remains separate.
 
-## 既有笔记审计
+## Alternatives considered
 
-- [Code 模型设置](../../implemented/feature/2026-10-21-code-model-settings.md)：部分重叠，继续保持元数据读取不求值动态认证、秘密占位与高级 JSON 字段、安全诊断和默认模型语义；实施时同步职责落点。
-- [SubAgent 消息](../../implemented/feature/2026-10-05-subagent-messaging.md)：部分重叠，成功与回滚后先解除门闩，再冲刷待投递消息；此次仅迁移配置侧的归属，不改消息登记和投递规则。
-- [自动审查](../../implemented/feature/2026-09-22-auto-review-mode.md)：审查器随模型栈重建，审查策略和审批归属不变。
-- proposed/rejected 未找到覆盖本次模型配置职责提取的既有方案；个人设置及个人本机管理采用独立装配，不并入本次。
+- Extract only a stack builder: removes duplication, but leaves gates, rollback, management, and tests piercing Runtime internals.
+- Move methods and pass the entire Runtime: few caller changes, but state/timing stay scattered and the new file hides little complexity.
+- Merge online management into agent/model-config: more shared entry points, but moves task occupancy, message flushing, and event orchestration into agent. Reuse file operations only.
+- Preserve old shutdown: keeps a mechanical extraction, but cannot give the module complete lifecycle ownership. Fix the race and verify the new behavior separately.
 
-## 备选方案
+## Consequences
 
-- 只抽取模型栈构造函数：改动少且能消除启动/重建重复，但门闩、回滚、配置管理和测试穿透仍留在 Runtime，不能完成职责提取。
-- 只搬管理方法，向新文件传整个 Runtime：调用改动小，但状态与时序仍分散，新增的是 shallow module，降低 locality。
-- 把在线管理并入 agent/model-config：在线、离线可共用更多入口，但会把任务占用、消息冲刷与模型事件编排下沉到 agent；继续复用文件操作即可。
-- 仅保留原停止行为：能把本次严格限定为提取，但新模块不能兑现完整生命周期归属；推荐同时修复上述停止竞态，并将新增行为单独验收。
+One module owns configuration state and stacks; control callers need not understand snapshot/rollback/publication ordering. Complete-operation tracking adds an in-memory Promise set and makes shutdown wait for apply cleanup; gate waiting remains narrower for original-key internal retry. Asynchronous default/summary resolution, complete hot-rebuild operations, and internal gate waits must not collapse into one state, or shutdown can write after close or deadlock. Files and SQLite configuration events remain non-atomic.
 
-## 验证
+Tests preserve synchronous occupancy/catalog-identity checks, idempotency first, internal original-key waiting, success/rollback message flushing, control, compaction, media model pinning, and SubAgent messaging. Gate tests pause SDK rebuild through public save entry points, not private gates/apply. Interleaving cases cover rebuild/rollback/flush during stop, late default/summary refusal, and authentication waits; waiting for auth must not delay active-task stopping. Even after the gate opens, unfinished flushing retains Drivers/database/lock; its configuration event precedes `backend.stopped`. Removing complete-operation waiting made rebuild, rollback, and flush cases fail on premature database close; restoring it passed. Detailed commands/environment/results were in retired `.scratch/runtime-models/issues/01-extract-models.md` (offline provenance). Simulated providers are not real-model acceptance.
 
-配置状态只有一个持有者；Runtime 不保留九个管理转发方法、配置门闩或模型栈重建实现。调用方不需要理解快照、回滚和门闩发布顺序。保留同步占用核查、目录身份复核、幂等先行、内部原键等待及成功/回滚后的消息补投。
-
-控制面、压缩、媒体模型钉定与 SubAgent 消息回归保留。门闩测试从公开保存入口暂停 SDK 重建，不读取私有门闩或调用私有 apply 方法。新增用例验证重建暂停时停止不能提前关库或释放配置锁、失败回滚收尾、默认/摘要解析后迟到写入被拒绝及连接测试认证解析等待；认证未结束不能推迟活动任务收到停止并进入终态。门闩已释放、既有消息冲刷尚未结束时，停止仍保留 Driver、数据库与锁，冲刷结束后配置事件先于 backend.stopped；内部原键提交仍只等门闩，不能等待整项冲刷造成循环等待。
-
-临时撤去 Runtime 的完整操作等待后，rebuild、rollback、flush 三个交错用例均因提前关库失败；恢复等待后通过。命令、环境与最终回归结果见工单，不把模拟 provider 当作真实模型验收。
-
-不以文件行数作为通过条件，不新增配置或存储格式，不迁移用户资料，不升级 schema、协议或依赖。实施与验证入口见[工单](../../../../.scratch/runtime-models/issues/01-extract-models.md)。
-
-## 后果
-
-模型配置状态与模型栈只在一个模块维护，控制面直接调用，Runtime 不再承载九个管理入口；保留只读默认选择，减少无关调用迁移。完整操作跟踪增加一组内存 Promise，停止等待配置应用收尾，门闩等待仍只服务内部原键重试。
-
-默认/摘要保存的异步解析、热重建的完整操作收尾和内部门闩等待不能混为一种状态；否则可能关库后写事件或出现相互等待。配置文件与 SQLite 配置事件仍不是原子事务，不能因模块集中而声称两者原子。
-
-现有 snapshotConfigFiles 把非 ENOENT 读取失败也记为 null，回滚可能将无法读取的文件按不存在处理。本次提取不修改该共享 helper；该既有风险单列跟进，不能把正常快照回滚测试当作读取失败下的数据保全证明。
-
-连接测试的 30 秒计时从认证解析后开始，且取消信号不等于 SDK 已结束；完整操作没有已证明的总时限。关闭等待可能继续等待认证或请求收尾，不承诺 30 秒内退出；本次不增加超时配置或通用取消框架。
+The extraction changed no configuration/storage format, user data, schema, protocol, or dependency, and file length was not an acceptance criterion. Two limitations remain explicit: `snapshotConfigFiles` currently maps even non-ENOENT read errors to null, so rollback can mistake an unreadable file for an absent one; normal rollback tests do not prove data preservation under read failure. Connection-test timing starts its 30 seconds after authentication resolution, and cancellation does not prove SDK completion. Complete-operation shutdown has no proven total bound and may wait for auth/request cleanup; this change added no timeout option or general cancellation framework.

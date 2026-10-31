@@ -1,8 +1,0 @@
-{
-  "at": "2026-10-17T08:27:07.152136+00:00",
-  "path": "/dev/shm/rk19-linux-20261017T082256Z/.npm-cache/_cacache",
-  "reason": "setup complete; free own download cache before bounded offline tests/build",
-  "before": "Filesystem      1B-blocks       Used Available Use% Mounted on\ntmpfs          1952030720 1934143488  17887232 100% /dev/shm\n",
-  "cache_du": "221433804\t/dev/shm/rk19-linux-20261017T082256Z/.npm-cache/_cacache\n",
-  "after": "Filesystem      1B-blocks       Used Available Use% Mounted on\ntmpfs          1952030720 1708650496 243380224  88% /dev/shm\n"
-}

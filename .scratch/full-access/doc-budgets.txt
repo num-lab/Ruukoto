@@ -1,5 +1,0 @@
-
-> ruukoto-workspace@0.1.0 verify-doc-budgets
-> tsx scripts/verify-doc-budgets.ts
-
-verify-doc-budgets：8 份常驻文档均在上限内。

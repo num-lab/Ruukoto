@@ -1,3 +1,0 @@
-Browser tab: 4, Title: "Ruukoto · Desktop UI Demo", URL: "http://127.0.0.1:5173/".
-There has been no change in the accessibility tree.
-The focused UI element is 101 tab (selected, settable, boolean) Offline IndexedDB sync for Shinkansen pass, Value: 1, ID: radix-_r_7_-trigger-sess-ft-1

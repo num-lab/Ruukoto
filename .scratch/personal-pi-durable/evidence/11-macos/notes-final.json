@@ -1,9 +1,0 @@
-{
-  "command": [
-    "npm",
-    "run",
-    "verify-notes"
-  ],
-  "exitCode": 0,
-  "seconds": 0.4
-}

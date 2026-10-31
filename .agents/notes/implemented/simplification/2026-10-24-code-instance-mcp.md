@@ -1,63 +1,61 @@
-# Agent Note: Code MCP 统一按实例配置并退出项目兼容
+# Agent Note: Code MCP uses instance configuration without project compatibility
 
 Status: implemented
 
-实例配置与凭据权威保持；SDK接线、发现和工具签名由[MCP宿主职责收缩](2026-10-26-mcp-host-responsibilities.md)更新。当前控制协议为43、SQLite schema为53；下文保留当时不兼容切换的原决定。
+Instance configuration/credential authority remains. [MCP host simplification](2026-10-26-mcp-host-responsibilities.md) updates SDK wiring, discovery and tool signatures. Version numbers below identify historical incompatible changes, not current constants. [Coding message control](../feature/2026-10-28-coding-message-control.md) retains strict version transitions without restoring old-store migration.
 
-相关决定：[Coding 消息重排与引导](../feature/2026-10-28-coding-message-control.md)沿用本篇严格版本切换，不恢复旧库迁移。
+## Problem
 
-## 问题
+Code MCP tied service definitions, credentials and authorization to projects. Settings required workspace/legacy-source selection and duplicated services across workspaces. On 2026-10-24 the owner requested removal of workspace MCP configuration and backward compatibility, followed by plan revision, independent review and implementation. The original work item is offline at `.scratch/desktop-settings/issues/03-code-mcp.md`.
 
-Code MCP 把服务定义、凭据和项目授权绑在一起，设置需要选择工作区与旧项目来源，多个工作区共用同一服务也要重复配置。2026-10-24 拥有者要求「去掉按工作区配置 mcp，同时删除向后兼容」，先完成方案修订与独立审查，随后要求接手实施。实施入口为[桌面设置 03](../../../../.scratch/desktop-settings/issues/03-code-mcp.md)。
+## Decision
 
-## 决定
+Each Code backend instance owns one set of MCP services with instance-unique names, including ordinary HTTP and existing Cua. Remove workspace configuration, sources, project overrides and default-source inference, without a workspace enablement layer. Management works without workspaces/sessions. Every workspace assembles from the same enabled services/tool allowlists, narrowed by existing role, Plan, workflow, review and Cua eligibility. Personal keeps independent profiles, services/secrets and format compatibility.
 
-Code 的每个后台实例只维护一套 MCP 服务，服务名在实例内唯一；普通 HTTP 与现有 Cua 配置都归此实例。删除工作区配置、配置来源、项目覆盖与默认来源推断，也不保留工作区级启用层。无工作区、无会话时即可管理；所有工作区的任务从同一份启用服务及工具允许列表装配，现有角色、计划模式、工作流、评审与 Cua 资格继续收窄工具。Personal 仍使用独立档案配置，不共享 Code 的服务或秘密，不改其格式兼容。
+At first write, MCP credentials bind purpose=mcp, actual endpoint host, authorization header and operations=['mcp'], with no project/repository scope. Each CredentialStore's ownership supplies instance isolation, not a new global credential center. Service save/every send verifies those conditions. Existing project/repository-limited, general-HTTP or wrong-purpose bindings fail; their scope is not stripped and anonymous fallback is forbidden. Other purposes retain their own project limits. Lists expose metadata only; referenced credentials cannot be deleted.
 
-MCP 凭据首次写入即限定本实例内的 `purpose=mcp`、端点实际 host、`authorization` 请求头及 `operations=['mcp']`，不再含项目或仓库 scope。实例范围由各自 CredentialStore 的存储归属保证，不新增全局凭据中心。服务保存与每次发送都核对这些条件；现有项目或仓库受限绑定、通用 HTTP 绑定和用途不符绑定明确拒绝，不删除 scope 后复用，也不降为匿名。通用 HTTP、Web Search 等其他用途自己的项目限制不改。列表只返回元数据，仍有服务引用时拒绝删除凭据。
+Desktop's dedicated entry and CLI/TUI add_credential share first-write restrictions. Selecting purpose=mcp immediately validates authorization and writes strict MCP operation scope; service binding then checks actual host/endpoint. Invalid same-name bindings reject rather than changing old scope through token rotation. Valid rotations retain purpose restrictions. Dedicated/general remove_credential checks instance-service references. Terminals can configure authenticated services from empty profiles without bypassing UI restrictions.
 
-Desktop 的专用入口与 CLI/TUI 的 `add_credential` 共用首次写入约束：通用入口选择 `purpose=mcp` 时立即校验 authorization 并写入严格的 mcp 操作范围，服务绑定时再核对 host 与实际端点。同名已有绑定不符合新规则即拒绝，不能借令牌轮换转换旧 scope；有效 MCP 绑定的轮换保持用途限制。专用删除与 `remove_credential` 都核对实例服务引用，仍被引用时拒绝。这样终端可从空档案配置认证服务，且通用入口不能绕过页面的限制。
+Task pinning, version conflicts, service identity, allowlists, local effect declarations, one-use approval consumption, disable-before-new-call checks, lost-response verification and no unknown-effect replay remain. Main tasks, workflow capability digests, SubAgent role checks and pre-send checks read the same instance selection. Removing projects grants no out-of-scope role tools or non-main Cua access. Changes affect subsequent calls in every workspace; new tools become available only to the next task. Already-started calls are not promised revocation.
 
-任务开始钉版、版本冲突、服务身份校验、允许列表、本地副作用声明、逐次批准消费、停用后阻止新调用、丢答核实与未知效果不重发继续成立。主任务、工作流能力摘要、SubAgent 角色校验和发送前核实必须读同一实例配置；不因取消项目归属而使受限角色或 Cua 的非主会话取得工具。服务变更影响本实例所有工作区的后续调用，新增工具仍只对下一任务生效；已有调用不承诺撤销。
+## Removal and incompatible transition
 
-### 删除范围与不兼容切换
+Remove mcp_services.project_id, its project foreign key/project-name index, replacing them with instance-unique names. Remove project ownership from MCP configuration types, management requests/events/lists and credential-reference views. Remove mcp_sources, listWorkspaceConfigSources, Desktop workspaceId/sourceId and candidate pages, CLI MCP --project and TUI project selection. Tasks, sessions and other business records keep their project identities. New protocol rejects old MCP ownership arguments and unsupported operations explicitly: never silently interpret old arguments as global writes. No aliases, dual reads, fallback or old-source mapping.
 
-删除 `mcp_services.project_id`、项目外键及项目内唯一索引，改为实例内名称唯一；删除 MCP 配置类型、管理请求、事件、列表及凭据引用视图中的项目归属。删除 `mcp_sources`、`listWorkspaceConfigSources`、桌面 `workspaceId/sourceId` 与候选分页、CLI 的 MCP `--project` 和 TUI 项目选择。任务、会话与其他业务自身的项目身份保留。新协议显式拒绝旧 MCP 归属参数，旧操作返回不支持；不能把旧参数静默忽略后执行为全局写入，不提供别名、双读、回退或旧来源映射。
+The original transition introduced Code schema 51/protocol 40 and strict current-version-only opening, removing schema 49-to-50 MCP/Cua migration and old configuration conversion. Later versions supersede those numbers without restoring compatibility. Preserve old profiles in place and reject new-code opening; never clear tables, merge service names, upgrade credentials or rewrite version numbers automatically. A new directory starts with empty MCP configuration for owner re-entry/dedicated credentials. No one-shot importer preserves in-place upgrade. Legacy-instance import removes MCP copying/project remapping and does not bring services/secrets into new instances.
 
-Code 数据库使用 schema 51，只接受当前版本，删除 49→50 的 MCP/Cua 迁移和旧 MCP 配置转换；控制协议为 40，旧客户端必须升级。旧档案原地保留，拒绝以新代码打开，不自动清空表、合并同名服务、提升旧凭据或重写版本号。新数据目录从空 MCP 配置开始，由拥有者重新添加服务与专用凭据。不为保留原地升级另建一次性导入器；旧实例导入中的 MCP 复制和项目重映射分支删除，不将旧配置带入新实例。
+This transition affects the entire Code database: old sessions/persistent state cannot continue in place under new code. Original SQLite, JSONL, artifacts and credential files remain unmoved/unchanged/undeleted. A new data directory must not share the old credential directory; old history is not promised to appear automatically. Independent old-version inspection is not a new-code compatibility layer. Any future requirement to continue old history in place must revisit this decision explicitly, not add hidden migration during implementation.
 
-此切换涉及整个 Code 数据库：新版本不能原地延续旧会话及其他持久状态，原 SQLite、JSONL、产物与凭据文件不修改、不移动、不删除。新数据目录不得指向同一旧凭据目录；不声称历史自动出现在新实例。旧版独立读取与核实原档案不算新版本的兼容层。若后续必须原地延续历史，须重审本决定，不能在实施中暗加迁移。
+Before switching, stop original tasks/managed processes and verify unresolved Cua/effects using the original version. Configuration, serviceId, approvals and recovery observations do not transfer between instances. New profiles/deleted services are not stopping proof and cannot clear old computer occupancy. Cua keeps one main connection/serialized calls per instance with vision, human recovery and pre-send checks unchanged.
 
-切换前必须停止原实例的任务和受管进程，并在原版本核实未决 Cua 操作与未知效果。配置、serviceId、批准及恢复观察不跨实例继承；新档案或删除服务都不能充当停止证明或解除旧电脑占用。Cua 继续保持本实例一个主会话的连接与串行调用，工作区配置移除不改变其模型视觉、人工恢复与发送前检查。
+## Related decisions
 
-### 既有笔记审计
+The original active-note audit searched MCP, credentials, sources, workspaces and Cua. Partial supersessions retain old decisions with scope annotations; no delivered note is wholly absorbed/archived.
 
-按 MCP、凭据、配置来源、工作区、Cua 检索 proposed / implemented / rejected。本篇落地后部分取代下列决定；旧篇保留被取代的原决定并标注范围，没有已交付决定被完全吸收或需要移动归档。
-
-| 笔记 | 关系与处理 |
+| Decision | Relationship |
 | --- | --- |
-| [MCP 客户端](../../implemented/architecture/2026-09-23-mcp-client.md) | 部分取代项目配置与凭据范围；继续使用传输、允许列表、钉版和未知效果规则 |
-| [Code MCP 设置](../../implemented/feature/2026-10-21-code-mcp-settings.md)、[设置容器](../../implemented/feature/2026-10-21-desktop-settings-shell.md) | 删除工作区和旧来源管理；保留凭据首次限用途、服务身份、条件版本与表单核实 |
-| [桌面设置总提案](../../proposed/feature/2026-10-21-desktop-settings-management.md) | 就地更新 Code MCP 规划与共享规格；03 重开，旧工程证据不覆盖新范围 |
-| [Cua 官方 MCP](../../implemented/architecture/2026-10-23-cua-official-mcp.md) | 取消 Code 的 49→50 兼容与项目配置；持续连接、人工恢复及 Personal 配置保持 |
-| [传输复用](../../implemented/architecture/2026-10-17-mcp-transport-reuse.md)、[MCP 写工具](../../implemented/feature/2026-09-23-mcp-write-tools-approval.md) | 保留其传输、批准与错误语义，实例装配沿用这些规则 |
-| [个人 MCP](../../implemented/architecture/2026-10-17-personal-durable-mcp.md)、[被否 Cua 提案](../../rejected/architecture/2026-10-22-cua-integration.md) | 不受本次 Code 范围调整影响，保留各自事实与历史 |
+| [MCP client](../architecture/2026-09-23-mcp-client.md) | Replaces project configuration/credential scope; retains transport, allowlists, pinning and unknown-effect rules. |
+| [Code settings](../feature/2026-10-21-code-mcp-settings.md), [settings shell](../feature/2026-10-21-desktop-settings-shell.md) | Removes workspace/legacy-source management; retains first-write credential purpose, service identity, conditional versions and form verification. |
+| [Desktop settings proposal](../../proposed/feature/2026-10-21-desktop-settings-management.md) | Updates Code MCP plan/spec; original issue 03 reopened because prior engineering evidence did not cover new scope. |
+| [Official Cua](../architecture/2026-10-23-cua-official-mcp.md) | Removes Code 49-to-50 compatibility/project configuration, retaining persistent connections, human recovery and Personal formats. |
+| [Transport](../architecture/2026-10-17-mcp-transport-reuse.md), [write tools](../feature/2026-09-23-mcp-write-tools-approval.md) | Instance assembly retains applicable transport, approval and error semantics. |
+| [Personal MCP](../architecture/2026-10-17-personal-durable-mcp.md), [rejected Cua](../../rejected/architecture/2026-10-22-cua-integration.md) | Unaffected by this Code scope change; retain their facts/history. |
 
-## 备选方案
+## Alternatives considered
 
-- 全局登记服务、工作区分别启用：能复用连接信息并继续限制每个工作区，但仍维护工作区授权、选择器和默认继承，未满足本次去掉工作区 MCP 配置的方向，因此不选。
-- 一次性把旧项目服务并入全局：可保留原档案和现有连接，但同名服务、不同凭据及启用范围需要合并规则，还会把原来只开放给一个项目的服务扩大到其他项目；本次明确删除兼容，选择拒绝旧格式并重新配置。
-- 仅隐藏界面中的工作区：页面改动最少，但后台、CLI、工作流与凭据仍按项目处理，空工作区无法配置且设置与实际能力不一致，因此从存储到调用方一起删除。
+- Register globally but enable per workspace: shared connections with narrower workspace access, but still maintains authorization/selectors/default inheritance against the requested removal.
+- Merge old project services globally once: preserves profiles/connections, but needs rules for names, credentials and enablement and expands originally project-limited access. The owner explicitly removed compatibility; reject/reconfigure instead.
+- Hide workspace only in UI: smallest page diff, but backend, CLI, workflows and credentials still use projects, preventing empty-workspace configuration and misrepresenting capabilities. Remove ownership through storage and callers.
 
-## 验证
+## Verification
 
-- 没有工作区和会话也能完成服务与凭据配置；两个工作区使用同一 serviceId、配置版本和工具清单；停用在两个工作区的下一次调用前均生效。不同 Code 实例与 Personal 档案相互独立。
-- 主任务和工作流能力摘要不再按项目筛 MCP；角色、Plan、评审及 Cua 主会话约束仍拒绝超范围工具。凭据首次保存后即可供本实例不同工作区的 MCP 使用，通用 HTTP、错误用途/host/header 和带项目/仓库 scope 的绑定均拒绝且零发送。
-- 新表无 MCP 项目列且名称唯一；旧 schema、旧控制协议、旧操作、旧 MCP 归属参数和 CLI `--project` 明确失败，不发生迁移、全局写入或网络调用；拒绝后原数据、会话及配置保持。旧实例导入不复制 MCP 服务或其秘密。
-- CRUD、同名重建冲突、引用保护、禁用服务发现、批准后撤销、效果未知、断线/换实例/丢答核实继续覆盖。真实 Electron/MyGo 的无工作区与跨工作区管理、HTTPS 与 Cua 仍待独立外部验收，不用桩替代。
+- Configure services/credentials without workspaces/sessions. Two workspaces use one serviceId/version/catalog; disable applies before their next calls. Other Code instances/Personal remain independent.
+- Main/workflow catalogs no longer filter by project; role/Plan/review/main-only Cua limits still reject excessive tools. New credentials work across this instance's workspaces. General HTTP, wrong purpose/host/header and project/repository-scoped bindings reject with zero sends.
+- New tables have no MCP project column and unique names. Old schema/protocol/operations/ownership arguments/CLI --project fail without migration, global writes or network calls and preserve original data/sessions/configuration. Legacy import copies no MCP services/secrets.
+- Preserve CRUD, same-name recreation conflicts, reference protection, disabled discovery, post-approval revocation, unknown effects, disconnect/instance-switch/lost-response checks. Real Electron/MyGo workspace-free/cross-workspace management, HTTPS and Cua require separate external acceptance, not stubs.
 
-## 后果
+## Consequences
 
-本实例启用的普通 MCP 服务默认对所有具备资格的工作区任务可用，凭据的远端访问范围仍由服务与令牌决定，不能再宣称工作区隔离。错误停用或修改会影响多个工作区。若以后需要不同账号或权限集合，先使用独立 Code 实例；确需同实例隔离再单独讨论。
+Enabled ordinary MCP services are available to every eligible workspace task in this instance. Remote scope still depends on service/token, not workspace isolation. Mistaken disable/edits affect multiple workspaces. Different accounts/permission sets should first use separate Code instances; same-instance isolation needs a new decision.
 
-不兼容切换要求新数据目录和重新配置，代价包含旧会话无法在新版原地继续。原档案和未决外部操作必须保留并在原版本核实；删除兼容代码不等于删除用户资料。实现仅修改仓库代码与隔离测试档案，没有执行真实档案切换。真实 Electron/MyGo、HTTPS MCP 和 Cua 仍需外部验收；工程证据由工单持有。
+The incompatible change requires a new data directory/reconfiguration and prevents old sessions continuing in place. Preserve original profiles/unresolved operations and verify with original code. Removing compatibility is not deleting user data. Implementation changed only repository/isolated-test profiles, not real-profile cutover. Real Electron/MyGo, HTTPS MCP and Cua remain separately accepted; original engineering evidence belongs to the work item.

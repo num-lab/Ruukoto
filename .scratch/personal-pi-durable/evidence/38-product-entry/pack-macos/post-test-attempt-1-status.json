@@ -1,5 +1,0 @@
-{
-  "returncode": 1,
-  "stage": "post-test-verifier",
-  "failure": "Source and artifact checks passed, then global ps output contained invalid UTF-8. Corrected read-only process parser to decode with replacement; no product change."
-}

@@ -1,9 +1,0 @@
-{
-  "build": "node /tmp/ruukoto-command-24.93Sjb4/build-probe.mjs",
-  "upload": "scp -r /tmp/ruukoto-command-24.93Sjb4/source /tmp/ruukoto-command-24.93Sjb4/probe-entry.mjs /tmp/ruukoto-command-24.93Sjb4/build-probe.mjs /tmp/ruukoto-command-24.93Sjb4/source-manifest.json /tmp/ruukoto-command-24.93Sjb4/metafile.json tx:/tmp/ruukoto-command-24.uPkbfF/",
-  "run": "ssh tx 'node /tmp/ruukoto-command-24.uPkbfF/source/apps/ruukoto/src/linux-command-probe.mjs main /tmp/ruukoto-command-24.uPkbfF > /tmp/ruukoto-command-24.uPkbfF/run.log 2>&1; result=$?; cat /tmp/ruukoto-command-24.uPkbfF/run.log; exit \"$result\"'",
-  "cleanupVerification": "ssh tx 'node /tmp/ruukoto-command-24.uPkbfF/cleanup.mjs'",
-  "download": "scp -r tx:/tmp/ruukoto-command-24.uPkbfF/evidence tx:/tmp/ruukoto-command-24.uPkbfF/run.log /tmp/ruukoto-command-24.93Sjb4/",
-  "localDirectory": "/tmp/ruukoto-command-24.93Sjb4",
-  "remoteDirectory": "/tmp/ruukoto-command-24.uPkbfF"
-}

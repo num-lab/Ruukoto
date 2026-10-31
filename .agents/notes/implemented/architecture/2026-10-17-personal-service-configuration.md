@@ -1,35 +1,29 @@
-# Agent Note: 个人隔离向导固定服务配置
+# Agent Note: Pin service configuration through the Personal setup wizard
 
 Status: implemented
 
-永久绑定与全部历史按当前配置核实的要求由[命令与服务配置版本](2026-10-25-personal-execution-configuration-versions.md)取代；本文其余权限、身份和部署边界继续适用。
+[Command/service configuration versions](2026-10-25-personal-execution-configuration-versions.md) supersedes permanent binding and validating all history against current configuration. Other permission, identity, and deployment rules remain.
 
-## 问题
+## Problem
 
-[服务检查](2026-10-17-personal-service-inspect.md)、[服务操作](2026-10-17-personal-service-operations.md)及[Telegram 权限](2026-10-17-personal-telegram-permissions.md)已有宿主 API，但隔离向导后台只注入模型和 Telegram，拥有者无法配置服务入口。已有 durable 档案钉定配置指纹，直接提供任意更换或停用会破坏恢复前提。
+[Service inspection](2026-10-17-personal-service-inspect.md), [operations](2026-10-17-personal-service-operations.md), and [Telegram authority](2026-10-17-personal-telegram-permissions.md) had host APIs, but the isolated wizard injected only model/Telegram configuration. Owners could not configure services. Existing durable profiles pin fingerprints, so unrestricted replacement/disable would break recovery.
 
-## 决定
+## Decision
 
-持实例锁的停机向导首次保存带版本的 `service.json`，严格解析 helper/策略/sudo 绝对路径，固定生产 `useSudo: true`，不接旧环境配置或测试参数。标准路径依据既有部署说明；只有 Linux 可由向导启用，配置保存不安装或验证部署健康。已有配置只查看或原样保留，不提供变更/停用；新文件进入普通文件白名单，旧程序安全拒绝。
+The stopped, instance-lock-holding wizard initially saves versioned `service.json`, strictly parsing absolute helper/policy/sudo paths and fixing production `useSudo:true`. It accepts neither legacy environment configuration nor test parameters. Standard paths follow deployment documentation. Only Linux can enable through the wizard; saving neither installs nor proves healthy deployment. The original slice permits viewing/preserving existing configuration, not changing/disabling it; later versioning owns those changes. The new ordinary file enters the allowlist so old code refuses safely.
 
-后台读取配置后注入既有检查与服务操作扩展；模型只有只读工具，宿主写请求及原 Telegram 审批继续原授权路径。本机状态只展示是否装配，不把开关称作服务健康。配置缺失或指纹变化由现有恢复检查在 resume 前拒绝；首次保存前持同一锁通过 Storage 核对业务格式、已有指纹及未完成任务/输入；首次启用存在未决工作时不写配置文件，原空工具仍可启动。已有服务指纹匹配且操作配置已启用则允许带未决工作恢复缺失配置；只读服务档案新增操作能力仍按首次启用核实。Harness 的首次启用检查也先于任何新授权记录提交，直接宿主 API 被拒绝后不留下半启用状态；不启动第二个 Harness。配置文件与 durable 不宣称原子，其他失败保留现场并报告。
+Backend configuration injects existing inspection/service-operation extensions. Model tools are read-only; trusted host writes and original Telegram approvals retain their authorization paths. Local status says whether wiring exists, not whether a service is healthy. Missing/changed fingerprints fail existing recovery before resume. Before first save, the same lock protects Storage checks for business format, existing fingerprint, and unfinished tasks/inputs. Pending work blocks first enablement without writing a file, allowing the old empty-tool configuration to start.
 
-## 既有笔记审计
+A matching existing service fingerprint with operations already enabled permits restoring a missing file despite pending work. Adding operations to a read-only profile still counts as first enablement. Harness checks first enablement before committing any new authority, so rejected direct host API calls leave no half-enabled state and start no second Harness. Configuration files and durable state are not atomic; other failures preserve evidence and report.
 
-按 personal/service、服务配置、helper 与本机管理检索 active notes。上述服务检查、操作与权限笔记及[本机管理](2026-10-17-personal-local-management.md)部分重叠，本篇补齐配置装配并同步其入口事实；[固定 helper](2026-10-03-service-management-helper.md)的部署保护保持。[总方案](../../proposed/architecture/2026-10-17-personal-pi-durable.md)继续 proposed，正式切换与完整能力尚未完成。其余旧运行时、MCP、应用数据、工作流和桌面命中不受影响；无完全吸收、过时提案或应归档记录。
+[Local management](2026-10-17-personal-local-management.md) retains its entry lifecycle; [fixed helper](2026-10-03-service-management-helper.md) retains deployment protection. The [migration proposal](../../proposed/architecture/2026-10-17-personal-pi-durable.md) owns complete capability/cutover acceptance. [Child service operations](2026-10-17-personal-subagent-service-operations.md) later adds controlled restart through original WorkTask authority, cancellation, and unknown-effect completion; independent host operations and other tools keep their rules.
 
-## 后续服务写入
+## Alternatives considered
 
-子会话不下放服务写工具的部分由[子服务工作](2026-10-17-personal-subagent-service-operations.md)取代：受控 restart 沿原 WorkTask 权限、取消和未知效果收尾；独立宿主操作与其他工具的原边界继续适用。
+Legacy RUUKOTO_SERVICE_* settings already exist but would implicitly import old assembly into an explicitly configured new instance. Simultaneous disable/path update is convenient but needs a separate protocol for operations pinned to the old fingerprint. Model restart/delegation offers end-to-end business use but additionally requires work ownership, child authority, and fixed reporting. This slice closes independently verifiable configuration first.
 
-## 备选方案
+## Consequences
 
-- 复用旧 `RUUKOTO_SERVICE_*`：部署已有配置，但会让隔离后台继承旧装配，违背新实例显式配置；独立文件更能保住宿主入口。
-- 同时提供停用和路径更新：操作方便，但未决调用依赖原指纹，安全更新还需独立迁移协议；本切片只首次启用和查看，保持已有恢复约束。
-- 同时接模型 restart/委派：用户可立即完成业务，但需工作归属、子工作实际权限与固定回报；先接通可独立验收的配置，不扩大本轮切片。
+Configuration/backend wiring reuses service execution/authority without the legacy runtime state machine. The original policy requires fixed paths and storage verification before new configuration; subsequent versioning owns supported migration. Rejected first enablement leaves neither a half-enabled file nor new authority and preserves use of the original configuration. Separate file/durable commits mean file existence alone is not proof of enablement.
 
-## 后果
-
-配置与后台接线复用既有服务执行和权限，不增加旧运行状态机依赖。代价是固定路径与新增配置前的存储核实；停机向导不提供配置迁移，其他部署使用新隔离档案。首次启用被未决输入拒绝时没有半启用文件或新授权记录，原配置可继续处理。配置文件与 durable 分开提交，不能据文件存在声称启用成功。
-
-验证与环境缺口见[窄工单](../../../../.scratch/personal-pi-durable/issues/09-service-configuration.md)。命令桩不证明真实 sudoers、systemd 或业务健康；真实平台与拥有者体验由总工单继续验收。
+Historical evidence and environment gaps are in the offline copy of `.scratch/personal-pi-durable/issues/09-service-configuration.md`. Command stubs prove neither sudoers, systemd, nor business health. The overall work retains real-platform and owner-experience acceptance.

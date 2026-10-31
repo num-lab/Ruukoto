@@ -1,92 +1,76 @@
-# Agent Note: 两个产品共用受限脚本工作流
+# Agent Note: Restricted script workflows with independently owned execution
 
 Status: implemented
 
-部分取代：[个人正式入口](../simplification/2026-10-18-personal-product-entry.md)使新个人退出本工作流语言、定义库与 IM 命令；Coding 继续使用，旧个人分支和历史证据仅属保留实现。本篇原决定不要求新个人装配工作流。
+[The personal product entry](../simplification/2026-10-18-personal-product-entry.md) supersedes the original two-product scope: new personal does not use this workflow language/library/IM commands; Coding continues, while old personal branches/evidence are retained history. [Configurable SubAgent roles](../architecture/2026-10-14-configurable-subagent-roles.md) separates role, source capability, and execution target. [Wait/report ownership](../architecture/2026-10-14-agent-wait-and-report-ownership.md) adds interruptible waits and continued parent turns without changing background-run/source/final-target ownership.
 
-已确认的后续变更见[可配置子代理角色](../../implemented/architecture/2026-10-14-configurable-subagent-roles.md)：角色、来源能力和执行目标分开，实施与验收另由该方案持有；本篇原有独立决定及当前运行行为仍按其适用范围保留。
+## Problem
 
-后续改进：[交互与等待规格](../../../../.scratch/agent-workflow/experience-spec.md)已于 2026-10-14 经拥有者确认，实施另由 08–11 工单持有；[等待与报告归属方案](../../implemented/architecture/2026-10-14-agent-wait-and-report-ownership.md)补充可打断等待与父轮继续处理，本篇后台运行、来源授权和唯一回报目标不变。
+Batch work needs independent validation of each result and a summary with explicit coverage. Skills provide instructions, work lists track steps, and SubAgents execute, but none alone gives a program durable step relationships and intermediate results.
 
-## 问题
+## Decision
 
-批量任务需要把多个处理结果逐项交给独立验证，再形成明确覆盖范围的汇总。现有技能提供说明，工作清单提供步骤状态，SubAgent 提供执行能力；这些能力还没有由程序持有步骤关系和中间结果的统一工作流入口。
+Use model-generated restricted JavaScript for sequence, concurrency, branches, and terminating loops. Host runs the script; Agent steps perform concrete tools. Programs consume intermediate results while the main conversation remains available, then report once. Runs have independent execution records and traceable authorization; they cannot pretend an ended initiating task remains active.
 
-## 决定
+Short-lived host-operation tasks derived from the run own workers, tool ledgers, and directory occupancy for copy preparation/extraction/integration without model sessions. This gives executeWorkCopy real active ownership while preserving ordinary Driver tasks. Cancellation/unverified stop belongs to actual execution, never relaxed parent-active checks.
 
-工作流作为 ruukoto 与 ruukoto-code 的共享能力，分别沿用各自的工具、权限与交互入口。以批量处理、独立验证和汇总作为第一条验收场景，不据此限定后续用途。已确认的要求归[规格](../../../../.scratch/agent-workflow/spec.md)，讨论与实施入口归[工单](../../../../.scratch/agent-workflow/issues/01-workflow-design.md)。
+Steps use only source-authorized product capabilities and may narrow them. Code, web research, and personal-business tools followed the original product abilities, not new privileges or inherited one-use approvals. The owner can explicitly start a workflow; a model can choose one within an authorized task and host limits. External material cannot grant startup authority.
 
-工作流使用模型生成的受限 JavaScript 表达串行、并发、分支与有停止条件的循环，宿主执行脚本，Agent 步骤执行具体工具操作。中间结果交给程序处理，主会话可以继续响应，结束后统一回报。工作流拥有独立执行记录和可追溯授权来源，不能在发起任务结束后继续假借该任务处于活动状态。
+Originally this was shared by both products to avoid divergent orchestration; batch process/independent-validate/summarize was the first scenario, not the only use. The later personal split intentionally supersedes that scope. Original requirements/plan are historical offline `.scratch/agent-workflow/spec.md`, `implementation-plan.md`, and issues `01-workflow-design.md`; confirmed interaction changes are in offline `experience-spec.md`, not live task entry points.
 
-工作副本准备、提取和汇总由运行派生的短期宿主操作任务持有 worker、工具账本和目录占用，不建立模型会话。这为现有 executeWorkCopy 提供真实的活动执行归属，普通任务的 Driver 路径保留；取消或停止未核实继续依附实际执行任务，不靠放宽旧父任务检查绕过。
+### Recovery follows verifiable execution
 
-步骤可使用来源授权范围内的工具，单步可以收窄；代码、联网调研与个人事务都沿用产品已具备的能力。不扩大来源权限，不继承单次批准。拥有者可以明确要求工作流，模型也可在已授权任务中选用它；外部资料不能构成新的启动授权。
+Independent branches may continue; steps depending on failed results do not actually run. Reuse completed results and resume unstarted eligible steps. Retry only provably safe repeatable execution, finitely; unknown writes pause for verification. Recover from pinned script/parameters, stable step identities, input digests, and call/result-delivery order, never the currently edited definition. Missing/inconsistent records reject reconstruction rather than guess.
 
-这使同一编排能力服务于开发机与个人服务器，避免两套执行规则逐渐分化。脚本持有控制流可减少主模型逐轮调度和搬运中间数据；后台执行使一项长工作不占住日常会话。代价是新增执行归属、脚本隔离和结果消费路径。具体数据、协议、接线、工作切分与验证见[实施计划](../../../../.scratch/agent-workflow/implementation-plan.md)，以下记录已确认取舍及其理由。
+This preserves completed batch work without replaying unknown effects. Invalid result format can follow a real write; it does not mean nothing happened. Step completion, operation effect, and run delivery are distinct facts.
 
-### 恢复以可核实的执行事实为准
+### Host-owned limits and waiting
 
-独立分支可以继续，依赖失败结果的步骤不实际运行；已有完成结果复用，尚未执行步骤在运行资格有效时恢复。只对可证明安全重复的执行有限重试，写入效果未知暂停核实。恢复以运行固定的脚本、参数、稳定步骤身份和输入摘要为依据，不因改了当前定义而替换旧运行。调用记录与结果交付顺序用于重建控制过程，缺失或不一致时拒绝猜测。
+All runs from one source session share three SubAgent slots and queue when full. Default run budget is 100 Agent attempts and one hour excluding human wait. Only the owner adjusts attempts/time, not script/model; three slots are fixed (clarified in 2026-10-13 joint acceptance). Safe retries consume attempts. Separate queues cannot bypass source concurrency; exceeding limits pauses with results retained. These limits are not exact monetary caps; show per-call usage/in-flight work, and never treat interruption as safe write retry.
 
-这种选择保留批量任务中已经完成的工作，同时沿用效果未知不重发的安全保证。结果格式错误可能发生在真实写操作之后，不能解释成“步骤什么都没做”；步骤完成、某次操作生效和整个运行交付是不同事实。
+Named versioned definitions and parameterized runs are first-release capabilities. Pin definition/parameters per run; edits create versions and referenced versions/history remain. Use files/existing controls, not a visual editor/distribution platform.
 
-### 资源限制由宿主持有
+Human decisions are durable business steps bound to run/step/trusted entry, while main/other work continues. Answers are not tool approval. Cancellation/invalid entry prevents answers restarting execution. Split independent runs could avoid wait state but lose unified ownership/recovery; retain the wait instead.
 
-同一来源会话固定共用三个 SubAgent 并发名额，满额排队；每次运行默认一百次 Agent 执行尝试和一小时运行时限，人工等待不计。拥有者可以调整尝试数和时限，脚本与模型不能通过编排接口提高限额；超限暂停，保留成果。步骤安全重试也消耗尝试预算，多个运行不能通过各建队列绕过来源并发限制。拥有者于 2026-10-13 联合验收时澄清并发固定三个，原「可以调整」仅指尝试数和时限。
+[QuickJS/WASM isolation](../architecture/2026-10-13-workflow-script-isolation.md) passed the four-quadrant fake-Agent experiment; [runtime/store](../architecture/2026-10-13-workflow-runtime-and-store.md) passed fake-Agent coordinator checks. Real step wiring, answer delivery, and definition entry exist, but separate offline checks do not establish joint real-product acceptance.
 
-这使模型自主选择工作流有可核对的资源范围。尝试次数与时限不是精确金额保证；模型每次调用用量和在途操作仍需展示。有限重试不意味着被打断的写操作可以重复。
+### Verification and integration
 
-### 定义复用与人工等待
+Modify independent copies, then freeze full patch/digest/baseline for independent-context review. Checks needing writes use another validation copy/temp area, not reviewed bytes. Bind verification to result version. Under copy/target occupancy, recheck unchanged versions and integrate only the frozen verified patch, then verify combined results. Any further modification/continuation requires new validation; same work ID does not prove same bytes.
 
-命名保存与参数化运行属于首版，每次固定定义内容与参数，修改形成新版本；已引用版本与运行历史保留。先使用文件和既有入口管理，避免为了复用引入流程编辑器或分发平台。
+Reuse conflict preflight/result retention, without atomic rollback across copies. Earlier integrated changes do not disappear because later work fails. Commit/push/publish still need explicit task authorization.
 
-人工决定是可持久的业务步骤，回答与具体运行、步骤和可信入口绑定，等待期间主会话及其他工作继续。业务回答不等于操作审批，工具仍沿原权限执行；取消或入口失效后的回答不能重新启动执行。把一次工作拆成多段独立运行可以减少等待状态，但会丢掉统一步骤归属与恢复体验，因此选择保存等待。
+Child results go to the coordinator; one verifiable final delivery enters source session/original owner entry. Scheduled sources report through the entire schedule run. This avoids per-step parent wakes/duplicate external reports but requires separate terminal/summary/notification idempotency and failure facts.
 
-受限脚本入口已按[QuickJS/WASM 隔离决定](../../implemented/architecture/2026-10-13-workflow-script-isolation.md)落地并通过四格假 Agent 实验；持久协调器已按[运行执行基础](../../implemented/architecture/2026-10-13-workflow-runtime-and-store.md)落地并以假 Agent 验证；真实步骤、回答送达与定义入口均已接线，不能将分单离线验证视为工作流联合验收或真实产品通过。
+## Related decisions
 
-### 验证与成果汇总
+The original audit found partial overlap, not a wholesale replacement: [two products](../architecture/2026-10-02-two-agent-products.md), [shared packages](../architecture/2026-10-11-in-repo-workspace-packages.md), and [delegation](../architecture/2026-10-03-work-delegation-subagent-task.md) retain deployment/dependency/ordinary-delegation rules. Independent workflows need their own identity instead of assuming an active ordinary parent.
 
-修改在独立工作副本中完成，宿主冻结完整补丁、摘要和基线，由独立上下文验证该成果。需要落盘的检查使用独立验证副本/临时区，避免改变被审字节；验证记录与成果版本绑定。汇总在副本和目标占用下核实版本未变，只套用被冻结且已验证的补丁，随后检查组合结果。验证后改动或续派须重新验证，工作 ID 相同不能替代内容相同。
+[Full access](2026-10-12-full-access-current-account.md) and [generic scheduling](2026-10-12-generic-scheduled-tasks.md) own trusted-source authorization/independent execution/fixed delivery; scripts cannot choose owner identity. [Recovery](../architecture/2026-10-05-subagent-restart-recovery.md), [unverified stop](../bug-fix/2026-10-11-preserve-unverified-worker-stop.md), and [integration](2026-10-05-integrate-worktree-results.md) constrain no-replay and retention. MCP/IM/service/sandbox/message/copy/context notes retain capability-specific rules; "available within source authorization" never means copying credentials or host identity.
 
-复用冲突预检和成果保留，不承诺跨副本原子回滚；先前已汇入的成果不会因为后来失败而消失。提交、推送和发布仍依任务明确授权。
+[Step capabilities](../architecture/2026-10-13-workflow-step-capabilities.md), [answer/final delivery](2026-10-13-workflow-owner-input-and-delivery.md), and [definition controls](2026-10-13-workflow-library-and-controls.md) own their details. The original audit found no competing proposal at that time; unrelated UI/docs/branch/import/group/GitHub-retirement decisions were not absorbed.
 
-子结果先交协调器，最终结果经一次可核实的送达进入来源会话或原拥有者入口；调度来源由整个调度运行统一回报。这防止每个步骤都唤醒父模型并重复外发，代价是必须明确终态、汇总、通知各自的幂等与失败事实。
+## Alternatives considered
 
-## 既有笔记审计
+- **Coding only:** fewer entries and focused worktree/TUI acceptance, but the original owner choice included personal multi-step work. The later personal split supersedes, rather than rewrites, that decision.
+- **Personal only:** focused IM/background work, but batch coding/validation was also required and the original runtime was shared.
+- **Fixed configuration workflows:** simpler static checking, but branches/loops/per-item processing would keep expanding a custom language. Restrict general JavaScript capabilities instead.
+- **Occupy the current task/session:** reuses parent lifetime/result logic, but blocks later interaction during long batches. Pay for independent authorization ownership.
+- **Only existing file/command SubAgent tools:** smaller implementation, but web/business steps must keep returning to main. Allow source-authorized capabilities.
+- **Owner-only starts:** predictable resources, but makes owners decide orchestration suitability every time. Let the model choose within existing authority/limits.
+- **Stop all on any step failure:** simpler, but wastes independent branches. Stop dependent/unsafe work only.
+- **Temporary scripts only:** no versioned library, but recurring work regenerates scripts. Retain named parameterized definitions.
+- **Separate runs for human confirmation:** no durable question state, but the user must manually preserve inputs/identity/progress. Bind waiting inside one run.
+- **Deliver copies/reports only:** less target-writing scope, but leaves manual batch integration/validation. Reuse authorized controlled integration with conflict evidence.
+- **Copy Claude Code startup-order cache invalidation/stall reruns:** an established reference, but could repeat completed later work or writes. Stable steps plus effect checks reject inconsistent replay.
+- **Validate by work ID alone:** convenient existing reference, but the same work can change. Freeze patch/baseline and recheck bytes.
 
-已按工作流、工作委托、SubAgent、模型可见与效果未知检索 proposed、implemented；rejected 目录不存在，没有同主题提案需要取代。
+## Verification
 
-[两个产品](../../implemented/architecture/2026-10-02-two-agent-products.md)与[同仓共享包](../../implemented/architecture/2026-10-11-in-repo-workspace-packages.md)部分重叠：沿用产品独立、共享实现的方向，不改变部署或依赖规则。[委派](../../implemented/architecture/2026-10-03-work-delegation-subagent-task.md)部分重叠且需要扩展：独立后台工作流的后续步骤不能仅绑定仍活动的普通父任务，业务步骤也超出现有普通 SubAgent 工具范围；具体身份与工具契约需在实施方案中列明，普通委派的已有资格不由此放宽。
+Original acceptance required A1-A12/fault scenarios and separate offline orchestration, real worker, real model, and applicable IM evidence for each product. Isolation candidates required four-quadrant experiments and independent design/implementation review; normal script return alone never proves coverage/effects. Historical joint evidence is offline `.scratch/agent-workflow/acceptance-evidence/README.md`. Implemented means capability delivered, not joint acceptance passed; this migration neither reruns checks nor promotes missing real-platform/model evidence to success.
 
-[完全访问](../../implemented/feature/2026-10-12-full-access-current-account.md)与[通用调度](../../implemented/feature/2026-10-12-generic-scheduled-tasks.md)部分重叠：沿用按可信来源保存授权、独立执行与固定结果归属，不能由工作流脚本选择拥有者身份。[恢复](../../implemented/architecture/2026-10-05-subagent-restart-recovery.md)、[停止未核实保留](../../implemented/bug-fix/2026-10-11-preserve-unverified-worker-stop.md)与[改动汇总](../../implemented/feature/2026-10-05-integrate-worktree-results.md)是失败和交付方案的约束；当前不改变其效果未知及成果保留规则。
+## Consequences
 
-其余命中中，MCP、IM、服务、沙箱、消息、工作副本与上下文记录是步骤能力及执行记录的约束来源，保留各自决定；实现方案须按实际接线复核，不由“来源授权内可用”推定任何宿主身份或凭据可被复制。界面与文档流程、会话分支、实例导入、群聊和 GitHub 退役与当前已确认取舍无关，保留原决定。
+Host wiring owns background execution, step permission, and result consumption; generated scripts are not trusted host code. Changing QuickJS/WASM requires new isolation/abort validation and may reopen selection. Hidden JavaScript data dependencies cannot be completely inferred: scripts need explicit dependencies and replay needs full control records/deterministic inputs. Limit pauses may interrupt effects requiring verification; human waits may last indefinitely and need visible state/next action.
 
-真实步骤权限与冻结成果的实施理由由[步骤接线](../../implemented/architecture/2026-10-13-workflow-step-capabilities.md)持有；回答与最终回报由[送达](../../implemented/feature/2026-10-13-workflow-owner-input-and-delivery.md)持有，定义与交互入口由[定义入口](../../implemented/feature/2026-10-13-workflow-library-and-controls.md)持有；联合验收由 07 持有。
-
-## 备选方案
-
-- 只在 ruukoto-code 提供：先集中验证编码工作副本与 TUI，入口较少；拥有者已选择两产品共同支持，个人 Agent 也需要多步任务编排，因此不采用此范围。
-- 只在 ruukoto 提供：可集中处理后台个人事务与 IM 回报；批量编码与验证同样是目标场景，且两产品已有共享运行时，因此不采用此范围。
-- 固定配置式流程：无需运行模型生成的脚本，定义与静态检查较直接；动态分支、循环和逐项数据处理需要继续扩展配置语言，选择通用 JavaScript 控制流并由受限运行时约束可用能力。
-- 工作流占住当前会话：可以直接沿用活动父任务的生命周期与结果处理；较长批量任务会阻塞后续交互，选择独立后台运行并承担独立授权归属的成本。
-- 只开放现有 SubAgent 文件与命令工具：实现范围较小；联网调研与个人事务步骤仍需绕回父模型，因此选择扩展到来源授权内的工具。
-- 只允许拥有者明确发起：资源使用容易预期；要求拥有者预先判断每项任务是否适合程序编排，选择模型可以在已有任务授权与宿主限额内自主选用。
-- 任一步骤失败就停止整项：实现与解释简单；会丢失独立分支继续完成的机会，因此保留独立工作，只阻止失败依赖及不安全的重试。
-- 首版只处理临时脚本：省去定义库和版本管理；重复批量工作仍需重新生成编排，因此选择命名保存与参数化运行。
-- 阶段确认拆成多次运行：无需持久人工问题；用户必须自己维持各段输入、身份与状态，因此选择同一运行内等待并绑定回答。
-- 只交付副本与报告：缩小对目标工作区的写入范围；批量修改仍需额外手动汇总和验证，选择在原授权内复用受控汇总，保留冲突事实。
-- 直接采用 Claude Code 的启动顺序缓存失效与停滞重跑：机制参考充分；可能重复已完成的后续工作或已有写入，选择稳定步骤记录与操作效果核实，并拒绝不一致的恢复。
-- 仅按工作 ID 记录验证通过：能直接复用工作引用；同一工作可以继续修改，旧结论无法证明新字节，因此绑定不可变补丁与基线，并在汇总时重核当前成果。
-
-## 验证
-
-按规格 A1–A12 和实施计划中的故障场景验收，两产品分别提供离线编排、真实 worker、真实模型及适用 IM 证据。脚本隔离候选必须先通过四格实验，独立方案和实现审查分别进行；脚本正常返回不能替代步骤覆盖与操作效果核实。
-
-## 后果
-
-两个产品的工具身份与结果入口分别核实，不能只在编码终端通过就声称个人 Agent 可用。独立后台归属、步骤权限及中间结果消费由宿主接线；不能将模型生成的脚本视为可信宿主代码，也不能让脚本或步骤获得来源之外的权限。执行入口采用已通过四格实验的 QuickJS/WASM；更换候选须重验隔离和中止，失败退回选型。
-
-任意 JavaScript 的隐藏数据依赖不能被宿主完整推断，生成脚本必须使用显式依赖；重放依赖完整控制记录与确定输入。限额暂停可能打断在途操作并产生待核实效果，人工等待可能长期存在，状态与下一步必须持续可见。首版批量代码修改要求 Git 工作区，以复用已维护的独立副本与受控汇总；拥有者已在 Q12 确认，非 Git 分析及其他业务工具仍可用。未来需要非 Git 批量修改时再设计独立副本与受控回写，不能降级为并行原地写。
-
-本篇 implemented 表示能力已落地，不代表联合验收通过；实际组合、平台、真实模型与未验收项由[联合验收证据](../../../../.scratch/agent-workflow/acceptance-evidence/README.md)持有。
+Initial batch code modification requires Git (owner-confirmed Q12) for maintained independent copies/controlled integration. Non-Git analysis and other tools remain possible; future non-Git batch writes need a separate copy/writeback design, never parallel in-place fallback. Original two-product acceptance must not be claimed from Coding-only evidence, and the current personal product is explicitly outside this workflow language.

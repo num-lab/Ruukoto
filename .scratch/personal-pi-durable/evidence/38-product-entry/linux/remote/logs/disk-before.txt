@@ -1,2 +1,0 @@
-Filesystem     1K-blocks     Used Available Use% Mounted on
-/dev/vda2       41168220 38404520    965008  98% /

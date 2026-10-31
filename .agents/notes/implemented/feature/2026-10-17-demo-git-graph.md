@@ -1,31 +1,25 @@
-# Agent Note: Demo 的 Git graph 与仓库可见性
+# Agent Note: Demo Git graph and repository eligibility
 
 Status: implemented
 
-## 问题
+## Problem
 
-拥有者要求右栏显示Git graph，且仅限Git仓库。Demo已有会话隔离的右栏标签，工作区、文件和历史均为样例，没有真实仓库探测。
+The owner requested an inspector Git graph visible only for Git repositories. Demo tabs were already session-isolated, but workspaces/files/history were fixtures with no real repository discovery.
 
-## 决定
+## Decision
 
-仓库元数据是否存在决定入口可见性与打开资格；空仓库仍是仓库，普通目录、新工作区及PA不提供入口。提交历史按工作区提供独立静态DAG，面板明确只读样例；右栏标签按会话去重和保存。
+Repository metadata determines entry visibility and eligibility. An empty repository still qualifies; ordinary directories, new workspaces and PA do not. Each workspace supplies an independent static DAG explicitly labeled read-only fixture. Inspector tabs deduplicate and persist per session.
 
-使用SVG绘制父子连线，纯函数按新到旧的拓扑顺序保留父提交所在lane并为分叉分配空lane，合并回已有lane；窗口外父边延续至底部。提交行展示主题、refs、HEAD、作者、日期与短哈希，并用读屏文本表达父提交、根提交与窗口外父关系，不提供Git写操作。颜色沿用现有shadcn语义token，无新增依赖。
+SVG draws parent edges. A pure function processes newest-to-oldest topological order, retains lanes for parents, allocates free lanes on forks, and merges back into existing lanes. Parents outside the loaded window extend to the bottom. Original rows showed subject, refs, HEAD, author, date and short hash, with screen-reader descriptions of parents, roots and outside-window relationships. No Git writes or new dependency are added.
 
-历史检索：[右栏扩充](../../implemented/feature/2026-10-16-demo-inspector-tools.md)的独立tab／会话身份沿用；[动态等宽](../../implemented/feature/2026-10-17-demo-responsive-tab-width.md)与[排序避让](../../implemented/feature/2026-10-17-demo-tab-reorder.md)继续适用于新增标签。既有笔记无仓库图形约定，不取代原决定。
+Reuse [inspector tab identity](2026-10-16-demo-inspector-tools.md), [responsive widths](2026-10-17-demo-responsive-tab-width.md) and [reorder preview](2026-10-17-demo-tab-reorder.md). Later [badges/inline details](2026-10-17-demo-git-commit-details.md) supersedes fixed-height/no-detail presentation. [Colored lanes/typography](2026-10-17-desktop-chrome-typography.md) replaces original neutral semantic colors. Production cumulative history belongs to [Git pagination](2026-10-17-desktop-git-history-pages.md); the demo remains fixture-only.
 
-## 备选方案
+## Alternatives considered
 
-- 独立Git图形库支持复杂布局与大历史，但本轮是有界只读样例，现有SVG和少量lane分配即可表达关系，不为此增加依赖。
-- 为所有工作区提供入口再显示非仓库提示，容易发现功能，但不符合仅在仓库显示的要求。
-- 把分支线写死在fixture里能减少算法代码，但提交关系与图容易不一致，改用父提交关系计算。
+- A Git-graph library supports complex/large history but is unnecessary for bounded fixtures; SVG and small lane assignment suffice.
+- Showing the entry everywhere then reporting non-repositories improves discovery but contradicts repository-only visibility.
+- Hardcoded fixture lines are shorter but can diverge from parent relationships. Derive lines from the DAG.
 
-## 后果
+## Consequences
 
-可见性区分非仓库与空仓库，打开去重且状态隔离；分支／合并和截断父边准确，文本安全转义，窄栏及明暗可读。证据归[工单17](../../../../.scratch/desktop-shadcn/issues/17-git-graph.md)。
-
-不读取真实仓库，正式迁移须另行接通认证后台的仓库探测与历史读取；不把当前样例当作Desktop验收。
-
-拥有者随后要求[标签同色与提交内联详情](2026-10-17-demo-git-commit-details.md)，该决定取代本轮固定行高列表与暂无提交详情的范围；仓库资格、静态历史与只读边界继续适用。
-
-后续[彩色lane与字号](2026-10-17-desktop-chrome-typography.md)取代本篇的中性语义配色；正式历史的累计读取由[Git分页](2026-10-17-desktop-git-history-pages.md)持有，Demo仍只展示静态样例。
+Non-repositories and empty repositories are distinct. Tabs deduplicate without sharing session state; fork/merge/outside-window edges remain accurate, text is escaped, and themes/narrow widths stay readable. Historical evidence remains in the offline Git-graph demo work item. Real repository discovery/history require authenticated backend wiring and separate Desktop acceptance; fixtures are not that evidence.

@@ -1,5 +1,0 @@
-{"action":"resources-ready","directory":"/tmp/r38-nhQPt1","child":51841,"model":"http://127.0.0.1:60407/v1","at":1792822720558}
-{"action":"child-closed","code":null,"signal":"SIGTERM","at":1792822720559}
-{"action":"model-close-start","at":1792822720559}
-{"action":"model-closed","at":1792822720559}
-{"action":"directory-remove-start","at":1792822720560}

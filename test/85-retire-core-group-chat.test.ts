@@ -11,9 +11,9 @@ import { product as personalProduct } from "./helpers/legacy-product.ts";
  * 4. 通知与调度中的群结果引用仍复核（撤回/篡改阻断外发并记 source_revoked）；
  * 5. 排队/在途/待发一次性收尾，只定终态不重放，重复重启幂等。
  *
- * 验收 6（发布说明）由人工核对 docs/usage.md 与 README 后登记；旧数据形态由
- * 播种助手按退役前（核心库 v24）持久形态直接写入，真实旧代码产生的数据
- * 升级路径见 .scratch/agent-direction/smoke-20-retire-group-chat.mts（tx）。
+ * Release-note acceptance requires manual review of docs/usage.md and README.md.
+ * The seed helper writes the pre-retirement core-v24 layout directly; the historical tx upgrade
+ * experiment using data from old code remains in the offline agent-direction archive, not a current smoke entry point.
  */
 
 import assert from "node:assert/strict";

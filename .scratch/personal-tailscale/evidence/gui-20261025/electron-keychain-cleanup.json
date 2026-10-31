@@ -1,9 +1,0 @@
-{
-  "service": "Ruukoto Tailscale Acceptance Electron Safe Storage",
-  "account": "Ruukoto Tailscale Acceptance Electron Key",
-  "deleted": true,
-  "absenceVerified": true,
-  "initialAccountWithoutKeySuffixFound": false,
-  "metadataOnlyLookupUsed": true,
-  "secretExported": false
-}

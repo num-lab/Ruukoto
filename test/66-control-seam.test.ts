@@ -52,6 +52,7 @@ const TUI_OPS: Record<TuiOp, true> = {
   set_session_model: true, set_session_mode: true, set_session_archived: true, create_project: true, create_session: true, open_workspace: true, submit: true, continue: true,
   interrupt: true, cancel: true, resume_queue: true, respond_confirmation: true, list_selection_records: true,
   task_queue: true, queue_reorder: true, steer_task: true,
+  message_recall: true, message_recall_verify: true, message_recall_state: true,
   get_context_breakdown: true, list_prompt_requests: true, read_prompt_snapshot: true, search_history: true, list_skills: true, list_subagent_roles: true,
   skills_list: true, skill_get: true,
   list_memories: true, get_memory: true, revoke_memory: true, restore_memory: true, qq_status: true, qq_set_enabled: true,

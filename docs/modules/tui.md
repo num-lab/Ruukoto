@@ -27,6 +27,8 @@ Online MCP settings are instance-wide across workspaces. The owner chooses allow
 | `/resume-queue` | Resume a paused queue |
 | `/queue` | Inspect/reorder queued input or turn it into guidance |
 | `/steer <text>` | Inject guidance at the target's next boundary; return to queue head if missed |
+| `/recall [verify]` | Recall the latest input into the draft; the queue stays paused if stopping is unverified, and `verify` rechecks the original request |
+| `/detach` | Remove attachments restored into the draft by recall |
 | `/side` | Toggle tool-free side chat from its first-open frozen snapshot; Esc hides it without losing draft/generation; its `/interrupt` affects only side chat |
 
 ## Data and State

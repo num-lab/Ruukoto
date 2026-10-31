@@ -66,6 +66,7 @@ const TABLE_POLICY: TablePolicy = {
   workflow_controls: { policy: "exclude", reason: "控制请求只属于原实例" },
   branch_requests: { policy: "exclude", reason: "分支准备回执只属于原实例；已发布来源随会话保留" },
   side_chats: { policy: "exclude", reason: "侧聊绑定与准备回执只属于原实例，非空源库明确拒绝" },
+  message_recalls: { policy: "exclude", reason: "撤回请求、停止集合与编辑窗只属于原实例，非空源库明确拒绝" },
   compaction_requests: { policy: "exclude", reason: "手动压缩回执只属于原实例；压缩点的来源标识随资料保留" },
   projects: { policy: "import" },
   sessions: { policy: "import" },

@@ -16,7 +16,8 @@ Core owns profile-directory conventions, `SCHEMA_VERSION` and compatibility chec
 | Runtime/Driver | `Store.getSubAgentBySession(sessionId)` | Find the SubAgent bound to its independent conversation |
 | Runtime | `acquireInstanceLock(dataDir)` | Acquire `<dataDir>/runtime.lock/`, checking owner process identity |
 | Runtime/configuration | `acquireConfigLock(agentDir)` | Acquire `<agentDir>/config.lock/` for one configuration writer |
-| Control/view | `readHistoryPage` / `readToolResult` | Read JSONL history, long text slices and patch details without modifying history |
+| Control/view | `readHistoryPage` / `readToolResult` | Read JSONL history, long text slices and patch details without modifying history; default pages exclude recalled contributions |
+| Runtime/Agent | `effectiveProjection` / `materializeEffectiveHistory` | Apply appended `context_edit` omissions; invalid references produce `history_corrupt`; branch/side-chat copies contain only effective entries |
 | Execution/runtime | `resolveDirIdentity` / `verifyDirIdentity` | Resolve and verify physical directories and aliases |
 | State consumers | `ACTIVE_TASK_STATUSES` / `TERMINAL_TASK_STATUSES` | Shared status sets |
 
@@ -47,7 +48,9 @@ stateDiagram-v2
 
 The main entities are `tasks`, `work_delegations`, `sub_agents`, `background_processes`, `owner_questions` and `tool_ops`. Task rows carry request identity, access/plan mode, parent and interruption reason. Work and SubAgent rows bind the delegated goal, role, conversation and work copy. Background rows retain command, directory identity, byte counts and verified-exit state. Questions retain options, answers and receipt state; tool operations retain immutable parameters and approval facts.
 
-`task_guidance` maps each source Task to its target, acceptance order, phase and injected entry. `tasks.queue_order` and `sessions.queue_revision` persist order and optimistic concurrency. `side_chats` gives each Coding parent one persistent binding: preparation already claims it, and recovery publishes from the original receipt (`prepared/published/failed`). Ordinary HTTP MCP operations record operation/result facts; Cua additionally records supervised execution and recovery observations. The current schema version is `56`; only actual Cua execution participates in computer-stop verification.
+`task_guidance` maps each source Task to its target, acceptance order, phase and injected entry. `tasks.queue_order` and `sessions.queue_revision` persist order and optimistic concurrency. `side_chats` gives each Coding parent one persistent binding: preparation already claims it, and recovery publishes from the original receipt (`prepared/published/failed`). Ordinary HTTP MCP operations record operation/result facts; Cua additionally records supervised execution and recovery observations. Only actual Cua execution participates in computer-stop verification.
+
+`message_recalls` fixes recall input/execution identity, history fingerprints, original text and attachments, stop/sealed-source sets, phase, edit window and failure reason. `(session_id, request_id)` is unique, with at most one unresolved recall per conversation. The current schema version is `57`.
 
 ```text
 ~/.ruukoto-code/

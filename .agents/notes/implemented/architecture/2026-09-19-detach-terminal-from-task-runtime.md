@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[User queue controls](../../proposed/feature/2026-10-30-coding-user-queue.md) propose changes to manual pause, resumption and continuation entries; [report delivery](../../proposed/feature/2026-10-30-coding-report-delivery-boundary.md) proposes replacing internal-report FIFO. Neither proposal is implemented. Client disconnection still leaves backend execution running, and persistent acceptance remains unchanged.
+
 Original identifier: ADR 0002. [Late-response cleanup](../bug-fix/2026-10-24-tui-exit-late-response.md) adds animation cleanup after client exit without changing detached backend ownership. [Coding message control](../feature/2026-10-28-coding-message-control.md) extends queue ordering and guidance.
 
 This note's shared Runtime, socket, TUI and restart details apply to Coding and the former Personal composition. Current Personal uses [durable and its own entry](../simplification/2026-10-18-personal-product-entry.md), not the old TUI/control protocol. Both products keep execution independent of client connections; their recovery policies are not interchangeable.

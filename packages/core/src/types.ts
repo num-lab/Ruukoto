@@ -7,7 +7,7 @@
  */
 
 import { randomBytes } from "node:crypto";
-import type { AttachmentReference } from "./attachments.ts";
+import type { AttachmentMetadata, AttachmentReference } from "./attachments.ts";
 import type { HistorySnapshot } from "./history.ts";
 
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
@@ -19,7 +19,7 @@ import type { SubAgentExecutionSnapshot } from "./subagent-execution.ts";
 import type { WorkCopyHostSnapshot } from "./work-copy-host.ts";
 import { requireWorkspaceSnapshot, WorkspaceSnapshotError, type WorkspaceSnapshot } from "./workspace-snapshot.ts";
 
-export const PROTOCOL_VERSION = 47;
+export const PROTOCOL_VERSION = 48;
 
 export interface ModelSelection {
   provider: string;
@@ -619,6 +619,75 @@ export interface TaskGuidance {
   entryId: string | null;
 }
 
+/** Persistent phases of a message recall request. */
+export type MessageRecallPhase =
+  /** Intent accepted, awaiting adjudication. */
+  | "accepted"
+  /** Stopping the entire execution closure. */
+  | "stopping"
+  /** Stop or closure ownership remains unverified; verify-only may advance the request. */
+  | "blocked"
+  /** Stop verified; applying JSONL omissions. */
+  | "applying"
+  /** Completed: the sole basis for draft restoration eligibility. */
+  | "completed"
+  /** Rejected during preflight or progression; terminal receipt. */
+  | "rejected";
+
+/**
+ * A recall request fixes one owner-input target. State and events commit transactionally;
+ * the target, original text and attachments are fixed at acceptance rather than reread later.
+ */
+export interface MessageRecall {
+  id: string;
+  sessionId: string;
+  /** Client idempotency key, unique within the conversation. */
+  requestId: string;
+  /** Parameter digest; reject changed parameters under the same key. */
+  paramsDigest: string;
+  /** Source Task of the recalled input. */
+  targetTaskId: string;
+  /** Input acceptance sequence fixed when this request is accepted (getTaskInputSeq). */
+  inputSeq: number;
+  /** Target sequence observed by the caller, used to reject stale targets. */
+  expectedRevision: number;
+  /** Execution task to stop and verify: the guidance target or source Task itself. */
+  execTaskId: string | null;
+  phase: MessageRecallPhase;
+  /** Fixed stopping closure: the execution task and its trusted derived tasks. */
+  stopTaskIds: string[];
+  /** Source barrier permanently preventing new derived work, delivery and consumption from these tasks. */
+  sealedTaskIds: string[];
+  /** JSONL omission IDs fixed after stop verification, or null before being fixed. */
+  omittedEntryIds: string[] | null;
+  /** History prefix identity and fingerprint when fixing the omission list. */
+  historyFingerprint: { dev: number; ino: number; byteLimit: number; fingerprint: string } | null;
+  /** Original target input, the sole source of restored draft text. */
+  originalInput: string;
+  /** Original attachment metadata; rebinding uses only immutable original bytes. */
+  originalAttachments: AttachmentMetadata[];
+  /** Fresh attachments rebuilt from original bytes, lazily persisted for idempotent request replay. */
+  draftAttachments: AttachmentMetadata[] | null;
+  /** Monotonically increasing completion revision within the conversation. */
+  completionRevision: number | null;
+  /** Next recall candidate computed at completion. */
+  nextCandidateTaskId: string | null;
+  /** Whether this request still owns the current edit window. */
+  editOpen: boolean;
+  /** Queue state saved at request acceptance and restored when the edit window closes. */
+  savedQueueState: "active" | "paused" | null;
+  savedQueueReason: string | null;
+  error: { code: string; message: string } | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Redacted event, snapshot and query view. Draft text and staged attachments are returned only by
+ * message_recall_state with the original request key; broadcasts omit them because the key identifies the initiating client.
+ */
+export type PublicMessageRecall = Omit<MessageRecall, "originalInput" | "originalAttachments" | "draftAttachments">;
+
 export interface TaskQueue {
   revision: number;
   tasks: Array<{ taskId: string; queueOrder: number }>;
@@ -994,6 +1063,7 @@ export type PersistentEventBody =
   | { type: "task.started"; taskId: string; sessionId: string }
   | { type: "session.queue_changed"; sessionId: string; queue: TaskQueue }
   | { type: "task.guidance"; taskId: string; sessionId: string; guidance: TaskGuidance }
+  | { type: "message_recall.changed"; sessionId: string; recall: PublicMessageRecall }
   /** Jev 选择尝试；即使主模型未发送，取消与回退仍有任务归属记录。 */
   | { type: "task.context_experiment"; taskId: string; sessionId: string; experiment: ContextExperimentRecord }
   /**

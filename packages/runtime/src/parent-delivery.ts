@@ -33,6 +33,7 @@ import { getWorkflowDeliveryRun, listWorkflowExecutions, listWorkflowRuns, listW
   workflowDeliveryKey, workflowTerminal, type WorkflowRun } from "@ruukoto/core/workflow.ts";
 import { agentReportKey, agentWaitCovers, bindAgentReportFallback, completeAgentReports, consumeAgentReport, finishAgentReportFallback, getAgentReport,
   AgentWaitError, invalidateAgentReports, isAgentReportFallback, listAgentReports, listAgentWaits, registerAgentReport, releaseAgentReports, type AgentReport, type AgentReportCompletion } from "@ruukoto/core/agent-wait.ts";
+import { isRecallSealedTask } from "@ruukoto/core/message-recall.ts";
 import { childOutcome,OUTCOME_TEXT,REVIEW_DEADLINE_MS,type ChildOutcome,type OrchestratorBridge } from "./orchestrator.ts";
 import { agentWaitGroupTargets, agentWaitTargetsReady } from "./agent-wait.ts";
 import { WorkCopyError } from "./work-copy.ts";
@@ -293,6 +294,11 @@ export class ParentDelivery {
     const reason = this.verifyInjection(work.parentSessionId, [], [msg.id], true);
     if (reason) {
       if (this.store.markSubAgentMessageUndelivered(msg.id, reason)) this.store.appendEvent({ type: "subagent_message.dropped", messageId: msg.id, workId: msg.workId, parentSessionId: msg.parentSessionId, toSubAgentId: msg.toSubAgentId, reason }, { sessionId: msg.parentSessionId });
+      return "inject";
+    }
+    // Retain late results from recall-sealed sources in the ledger without injecting them into recalled parent turns.
+    if (isRecallSealedTask(this.store, msg.fromTaskId)) {
+      if (this.store.markSubAgentMessageUndelivered(msg.id, "message_recall")) this.store.appendEvent({ type: "subagent_message.dropped", messageId: msg.id, workId: msg.workId, parentSessionId: msg.parentSessionId, toSubAgentId: msg.toSubAgentId, reason: "message_recall" }, { sessionId: msg.parentSessionId });
       return "inject";
     }
     const identity = this.store.getSessionIdentity(work.parentSessionId);

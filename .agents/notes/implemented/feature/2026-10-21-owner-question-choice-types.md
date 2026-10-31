@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[In-task questions](../../proposed/feature/2026-10-30-coding-owner-question-wait.md) proposes changing answer waiting and answered-card placement within a task, while retaining question types, Skip and atomic submission. The proposal is not implemented.
+
 ## Problem
 
 The owner requested a smaller free-input icon, removal of top progress/collapse/close controls, and Skip, option descriptions/recommendations and multiple selection. This supersedes [initial durable questions](2026-10-21-coding-owner-questions.md)'s nonempty/single-choice/top-control restrictions, retaining source checks, whole-batch consumption, unique continuation and in-place answered cards.

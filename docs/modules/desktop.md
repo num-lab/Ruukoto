@@ -19,9 +19,9 @@ MyGo has one native browser WebView per main conversation. Go's `browser.Manager
 | --- | --- |
 | Spotlight, `⌘K` / search icon | Search this instance's workspace conversation titles and message bodies; highlight and navigate |
 | Workspace sidebar | Add directories, select conversations, access mode and model |
-| Timeline | Stream input, thinking, tools and question cards; completed Agent messages offer copy/branch; branches restore source-task traces |
+| Timeline | Stream input, thinking, tools and question cards; completed Agent messages offer copy/branch; branches restore source-task traces; the server-selected latest recallable owner message offers recall and restores text/attachments to this client's draft |
 | Composer | Grows to at most one third of window height; steering targets the running task's next boundary |
-| Queue above composer | Move input up/down with mouse or keyboard, turn it into guidance and announce position |
+| Queue above composer | Shares the composer surface; drag or use arrow keys to reorder, turn input into guidance, recall unadmitted input and announce position |
 | Inspector sidebar | Diffs, SubAgent progress, Git graph, read-only files and background logs |
 | Terminal drawer | xterm.js terminal in the selected workspace |
 | Code/PA Skills settings | Read-only paged catalog and diagnostics from that backend account's `$HOME/.agents/skills/` |

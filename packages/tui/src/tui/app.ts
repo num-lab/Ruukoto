@@ -57,6 +57,8 @@ import {
   workspacePickerProjects,
 } from "@ruukoto/control/workspace.ts";
 import { productFromEnv } from "@ruukoto/core/product.ts";
+import type { AttachmentMetadata } from "@ruukoto/core/attachments.ts";
+import type { PublicMessageRecall } from "@ruukoto/core/types.ts";
 import type { DirIdentity } from "@ruukoto/core/dir-identity.ts";
 import type { ConfirmationRequestView } from "@ruukoto/core/views.ts";
 import type { SessionDefaultMode, SessionCompactionRequest, ContextCheckpoint, ModelSelection, Project, SelectionRecord, PersistentEvent, Session } from "@ruukoto/core/types.ts";
@@ -861,6 +863,8 @@ export class TuiApp {
 
   private readonly autocompleteOverlayComponent = new LinesComponent();
   private autocompleteOverlay: OverlayHandle | null = null;
+  /** Recalled staged attachments by sessionId; clear after successful submission. */
+  private readonly draftAttachments = new Map<string, AttachmentMetadata[]>();
   private readonly windows: OverlayHandle[] = [];
   private overlaySyncPending = false;
   /** 已补种过输入历史的会话（每个会话只补一次）。 */
@@ -1800,9 +1804,11 @@ export class TuiApp {
       const continueTaskId = this.continueForTaskId;
       const modelSelection = this.state.sessions.find((s) => s.id === view.sessionId)?.modelSelection;
       if (!modelSelection) throw new Error("请先通过 /model 选择模型");
+      // Bind restored staged references on submission without uploading their bytes again.
+      const attachments = this.draftAttachments.get(view.sessionId);
       const outcome = continueTaskId
-        ? await this.guard.submit("continue", { task_id: continueTaskId, session_id: view.sessionId, input: text, model_selection: modelSelection })
-        : await this.guard.submit("submit", { session_id: view.sessionId, input: text, model_selection: modelSelection, ...(opts.guidance ? { guidance: true } : {}) });
+        ? await this.guard.submit("continue", { task_id: continueTaskId, session_id: view.sessionId, input: text, model_selection: modelSelection, ...(attachments?.length ? { attachments } : {}) })
+        : await this.guard.submit("submit", { session_id: view.sessionId, input: text, model_selection: modelSelection, ...(attachments?.length ? { attachments } : {}), ...(opts.guidance ? { guidance: true } : {}) });
       switch (outcome.kind) {
         case "accepted": {
           this.state.upsertTask(outcome.task);
@@ -1810,6 +1816,7 @@ export class TuiApp {
           this.state.addPendingInput(outcome.task);
           const wasContinue = this.continueForTaskId !== null;
           this.continueForTaskId = null;
+          this.draftAttachments.delete(view.sessionId);
           this.scheduleReloadPersist();
           const current = this.currentView();
           if (current?.queueState === "paused") {
@@ -1933,6 +1940,12 @@ export class TuiApp {
     submit: (text) => this.submitText(text),
     steer: (text) => this.submitText(text, { guidance: true }),
     toggleSide: () => this.cmdSide(),
+    recall: () => this.cmdRecall(),
+    recallVerify: () => this.cmdRecallVerify(),
+    detach: () => {
+      const view = this.currentView();
+      if (view?.sessionId && this.draftAttachments.delete(view.sessionId)) this.notify("已移除草稿中的附件");
+    },
   };
 
   private async cmdNewSession(cwd: string): Promise<void> {
@@ -2518,6 +2531,128 @@ export class TuiApp {
     } catch (err) {
       this.notify(red(writeFailure("恢复队列", err, "/status")));
     }
+  }
+
+  /** /recall restores the latest recalled input to the draft. */
+  private async cmdRecall(): Promise<void> {
+    const view = this.currentView();
+    if (!view) {
+      this.notify("尚未选择会话");
+      return;
+    }
+    const sessionId = view.sessionId;
+    try {
+      const state = await this.connection.request("message_recall_state", { session_id: sessionId });
+      if (state.open?.phase === "blocked") {
+        await this.recallVerifyRequest(sessionId, state.open.requestId);
+        return;
+      }
+      if (state.open) {
+        this.notify("已有撤回请求处理中，请稍候");
+        return;
+      }
+      if (!state.candidate) {
+        this.notify("没有可撤回的输入");
+        return;
+      }
+      const requestId = randomUUID();
+      const receipt = await this.connection.request("message_recall", {
+        session_id: sessionId,
+        task_id: state.candidate.taskId,
+        request_id: requestId,
+        expected_revision: state.candidate.inputSeq,
+      });
+      await this.applyRecallReceipt(sessionId, receipt, requestId);
+      // The receipt acknowledges acceptance; poll until settled, then retrieve the completed draft using the original key.
+      if (receipt.phase !== "completed" && receipt.phase !== "rejected") this.pollRecall(sessionId, requestId);
+    } catch (err) {
+      this.notify(red(writeFailure("撤回输入", err, "/recall")));
+    }
+  }
+
+  /** /recall verify advances stop verification under the original key without changing parameters or target. */
+  private async cmdRecallVerify(): Promise<void> {
+    const view = this.currentView();
+    if (!view) {
+      this.notify("尚未选择会话");
+      return;
+    }
+    try {
+      const state = await this.connection.request("message_recall_state", { session_id: view.sessionId });
+      if (!state.open) {
+        this.notify("没有未收束的撤回请求");
+        return;
+      }
+      await this.recallVerifyRequest(view.sessionId, state.open.requestId);
+    } catch (err) {
+      this.notify(red(writeFailure("核实撤回停止", err, "/recall verify")));
+    }
+  }
+
+  /** Handle terminal verify-only results; continue background polling while pending. */
+  private async recallVerifyRequest(sessionId: string, requestId: string): Promise<void> {
+    this.notify("撤回停止结果未核实，正在重新核实…");
+    const receipt = await this.connection.request("message_recall_verify", { session_id: sessionId, request_id: requestId });
+    await this.applyRecallReceipt(sessionId, receipt, requestId);
+    if (receipt.phase !== "completed" && receipt.phase !== "rejected") this.pollRecall(sessionId, requestId);
+  }
+
+  /** Poll pending recalls; use the original key to restore a draft, report rejection or request verification. */
+  private readonly recallPolls = new Set<string>();
+  private pollRecall(sessionId: string, requestId: string): void {
+    const key = `${sessionId}:${requestId}`;
+    if (this.recallPolls.has(key)) return;
+    this.recallPolls.add(key);
+    void (async () => {
+      try {
+        for (let i = 0; i < 240; i++) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+          const state = await this.connection.request("message_recall_state", { session_id: sessionId, request_id: requestId });
+          const receipt = state.receipt;
+          if (!receipt) return;
+          if (receipt.phase === "accepted" || receipt.phase === "stopping" || receipt.phase === "applying") continue;
+          await this.applyRecallReceipt(sessionId, receipt, requestId);
+          return;
+        }
+        this.notify(yellow("撤回仍在处理中；稍后可用 /recall verify 查询"));
+      } catch {
+        // Stop polling silently on disconnect; /recall or /recall verify can be retried after reconnection.
+      } finally {
+        this.recallPolls.delete(key);
+      }
+    })();
+  }
+
+  /** Restore completed drafts, request verification when blocked, and report rejection reasons. */
+  private async applyRecallReceipt(sessionId: string, receipt: PublicMessageRecall, requestId: string): Promise<void> {
+    if (receipt.phase === "completed") {
+      const state = await this.connection.request("message_recall_state", { session_id: sessionId, request_id: requestId });
+      const edit = state.edit;
+      // Only the original key holder receives draft content; never write placeholder text when it is unavailable.
+      if (edit && state.receipt?.id === edit.recallId) {
+        const view = this.state.openSession(sessionId);
+        view.draft = edit.input;
+        this.continueForTaskId = null;
+        if (edit.attachments.length) this.draftAttachments.set(sessionId, edit.attachments);
+        else this.draftAttachments.delete(sessionId);
+        if (this.state.currentSessionId === sessionId) this.editor.setText(edit.input);
+        this.notify(
+          `已撤回输入并恢复到草稿${edit.attachments.length ? `（含附件：${edit.attachments.map(a => a.name).join("、")}；/detach 移除）` : ""}；编辑后发送`,
+        );
+      } else {
+        this.notify("撤回完成；草稿内容仅下发给发起端");
+      }
+      return;
+    }
+    if (receipt.phase === "blocked") {
+      this.notify(yellow("撤回停止结果未核实，队列保持暂停；再次 /recall 重新核实"));
+      return;
+    }
+    if (receipt.phase === "rejected") {
+      this.notify(`撤回被拒绝：${receipt.error?.message ?? "目标已变化"}`);
+      return;
+    }
+    this.notify("撤回请求已受理，正在停止相关执行…");
   }
 
   private toggleTodo(): void {

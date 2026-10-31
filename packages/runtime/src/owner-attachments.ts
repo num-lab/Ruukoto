@@ -111,4 +111,42 @@ export class OwnerAttachments {
     });
     this.store.appendEvent({ type: "task.attachments", taskId, sessionId, attachments }, { taskId, sessionId });
   }
+
+  /**
+   * Rebuild recalled attachments from immutable target-task artifacts using fresh att_ IDs.
+   * Never reuse old task-bound references or modify original artifacts.
+   * The caller ensures request idempotency through persisted draftAttachments.
+   */
+  restoreForRecall(recall: { targetTaskId: string; sessionId: string; originalAttachments: AttachmentMetadata[] }): AttachmentMetadata[] {
+    return recall.originalAttachments.map(original => {
+      const artifact = this.store.getArtifact(original.id);
+      if (!artifact || artifact.status !== "complete" || artifact.taskId !== recall.targetTaskId || artifact.sessionId !== recall.sessionId ||
+          !artifact.contentHash || artifact.byteCount !== original.size || artifact.name !== original.name) {
+        throw new RuntimeApiError("attachment_unavailable", "撤回输入的原附件记录不完整，无法重建草稿。");
+      }
+      let bytes: Buffer;
+      try {
+        bytes = this.artifacts.read(original.id, 0, artifact.byteCount);
+      } catch {
+        throw new RuntimeApiError("attachment_unavailable", "撤回输入的原附件内容不可读，无法重建草稿。");
+      }
+      if (bytes.length !== artifact.byteCount || createHash("sha256").update(bytes).digest("hex") !== artifact.contentHash) {
+        throw new RuntimeApiError("attachment_hash", "撤回输入的原附件内容校验失败，无法重建草稿。");
+      }
+      const metadata: StagedAttachment = {
+        id: `att_${randomUUID()}`, instanceId: this.store.db.getInstanceId(), sessionId: recall.sessionId,
+        name: original.name, size: original.size, contentHash: artifact.contentHash, complete: true, mimeType: artifact.mimeType ?? null,
+      };
+      try {
+        const fd = fs.openSync(this.file(metadata.id, "bin"), fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW, 0o600);
+        try { fs.writeFileSync(fd, bytes); }
+        finally { fs.closeSync(fd); }
+        this.save(metadata);
+      } catch {
+        fs.rmSync(this.file(metadata.id, "bin"), { force: true });
+        throw new RuntimeApiError("attachment_unavailable", "撤回草稿附件保存失败，请重试撤回。");
+      }
+      return { id: metadata.id, name: metadata.name, size: metadata.size };
+    });
+  }
 }

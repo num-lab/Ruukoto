@@ -56,6 +56,12 @@ export interface CommandHost {
   steer(text: string): Promise<void>;
   /** 打开或收起当前会话的侧聊悬浮层（coding-side-chat）。 */
   toggleSide(): Promise<void>;
+  /** Recall the latest input and restore it to the draft. */
+  recall(): Promise<void>;
+  /** Recheck an unverified recall stop using the original request key. */
+  recallVerify(): Promise<void>;
+  /** Remove recalled attachments from the draft. */
+  detach(): void;
 }
 
 export interface CommandContext {
@@ -359,6 +365,8 @@ export const COMMANDS: readonly SlashCommand[] = [
   { name: "questions", description: "查看拥有者问题，逐题回答或取消", run: ctx => ctx.host.openQuestions() },
   { name: "workflow", description: "打开工作流侧栏，选择运行、启动与控制", run: (ctx) => ctx.host.openWorkflow() },
   { name: "prompt", description: "查看本会话模型请求列表与每次调用的 prompt 详情", run: (ctx) => ctx.host.openPrompts() },
+  { name: "recall", description: "撤回最近一条输入并恢复到草稿；/recall verify 重新核实停止", run: (ctx, { rest }) => rest[0] === "verify" ? ctx.host.recallVerify() : ctx.host.recall() },
+  { name: "detach", description: "移除草稿中随撤回恢复的附件", hidden: true, run: (ctx) => ctx.host.detach() },
   { name: "qq", description: "QQ 群聊入口：status | enable | disable | groups | inbox | outbox", argumentHint: "<子命令>", run: (ctx, { rest }) => qq(ctx, rest) },
 ];
 

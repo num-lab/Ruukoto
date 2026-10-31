@@ -106,6 +106,11 @@
  * 服务端按提交连接写定，客户端参数不能自称。旧客户端须升级（旧客户端
  * 收到 push:"request" 会按坏帧断开，故能力只对已登记连接发送）。
  * Note: 见 .agents/notes/implemented/feature/2026-10-29-mygo-agent-browser.md
+ *
+ * v48: ordinary Coding conversations can recall the latest input through message_recall,
+ * message_recall_verify and message_recall_state. The message_recall.changed event and
+ * snapshots expose pending recalls and open edit windows. Older clients must upgrade.
+ * Effective history omits recalled input; original JSONL and audit facts remain unchanged.
  */
 
 import {
@@ -161,6 +166,8 @@ export interface ConnectSnapshot {
   taskGuidance?: import("@ruukoto/core/types.ts").TaskGuidance[];
   /** 侧聊持久绑定（coding-side-chat）：重连后据此恢复侧聊身份；侧聊会话不在 sessions 内。 */
   sideChats?: Array<{ parentSessionId: string; sideSessionId: string }>;
+  /** Pending recall requests and open edit windows; absent on older backends. */
+  messageRecalls?: import("@ruukoto/core/types.ts").PublicMessageRecall[];
 }
 
 /** 单任务持久事件分页；nextAfter 非空时继续读，最终消息正文以历史接口为准。 */

@@ -1,8 +1,8 @@
 // Note: 见 .agents/notes/implemented/bug-fix/2026-10-17-desktop-transcript-rendering.md
 // Note: 见 .agents/notes/implemented/feature/2026-10-21-coding-owner-questions.md
 // Note: 见 .agents/notes/implemented/feature/2026-10-28-desktop-message-actions.md
-import { Fragment, useMemo, useRef, useState } from "react";
-import { Check, Copy, GitBranch, Loader2 } from "lucide-react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Check, Copy, GitBranch, Loader2, Undo2 } from "lucide-react";
 import type { Components } from "streamdown";
 import type { FlowEntry } from "@ruukoto/view/event-flow.ts";
 import type { OwnerQuestionView } from "@ruukoto/core/owner-questions.ts";
@@ -58,6 +58,8 @@ function MessageEntry({ model, sessionId, entry, child, branchable, tools, toolC
   const completed = entry.role === "assistant" && !entry.streaming && task?.status === "completed" && (!!entry.text.trim() || !!entry.attachments?.length);
   const showCopy = !!text.trim() && (entry.role === "user" || completed);
   const showBranch = completed && branchable;
+  // Only the server-selected candidate message exposes the recall action.
+  const recallCandidate = entry.role === "user" && !!entry.taskId && model.writes.recallState(sessionId)?.candidate?.taskId === entry.taskId;
   const pendingHere = model.pendingBranch?.sessionId === sessionId && model.pendingBranch?.taskId === entry.taskId;
   const copy = async () => {
     try {
@@ -69,15 +71,18 @@ function MessageEntry({ model, sessionId, entry, child, branchable, tools, toolC
       model.refresh();
     }
   };
-  const actions = (showCopy || showBranch) && <div className={`flex items-center gap-0.5 -mt-0.5 -ml-1.5 text-muted-foreground ${entry.role === "user" ? "self-end" : ""}`} role="group" aria-label="消息操作">
+  const actions = (showCopy || showBranch || recallCandidate) && <div className={`flex items-center gap-0.5 -mt-0.5 -ml-1.5 text-muted-foreground ${entry.role === "user" ? "self-end" : ""}`} role="group" aria-label="消息操作">
     {showCopy && <Button type="button" variant="ghost" size="icon-xs" aria-label="复制消息" title={entry.truncated ? "正文尚未读取完整" : "复制消息"} disabled={entry.truncated} onClick={() => void copy()}>{copied ? <Check /> : <Copy />}</Button>}
     {showBranch && <Button type="button" variant="ghost" size="icon-xs" aria-label="从当前任务建立分支" title="从当前任务建立分支" disabled={model.status.state !== "online" || !!model.pendingCreation || (!!model.pendingBranch && !pendingHere)} onClick={() => void model.branch(sessionId, entry.taskId!)}>{pendingHere ? <Loader2 className="animate-spin" /> : <GitBranch />}</Button>}
+    {recallCandidate && <Button type="button" variant="ghost" size="icon-xs" aria-label="撤回此输入并编辑" title="撤回此输入并编辑" disabled={model.writes.blocked(sessionId)} onClick={() => void model.writes.recall(sessionId, entry.taskId!)}><Undo2 /></Button>}
   </div>;
   return <Message align={entry.role === "user" ? "end" : "start"}><MessageContent>{question ? <OwnerQuestionCard model={model} question={question} /> : entry.role === "user" ? <><Bubble variant="muted" align="end"><BubbleContent>{content}</BubbleContent></Bubble>{actions}</> : <>{content}{actions}</>}</MessageContent></Message>;
 }
 // Note: 见 .agents/notes/implemented/architecture/2026-10-16-desktop-trace-migration.md
 export function Conversation({ model, sessionId, child = false }: { model: CodeState; sessionId: string; child?: boolean }) {
   const scroll = useRef<HTMLDivElement>(null);
+  // Load the recall candidate on entry; message_recall.changed and task.queued drive subsequent updates.
+  useEffect(() => { void model.writes.loadRecallState(sessionId); }, [model, sessionId]);
   const loadingOlder = useRef(false);
   const session = model.view.openSession(sessionId);
   const items = session.flow.items;

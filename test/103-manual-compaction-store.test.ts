@@ -58,7 +58,7 @@ test("同键复用、异参和忙时拒绝；取消与成功只产生一个终�
     assert.equal(store.withTx(() => finishCompactionRequest(store, accepted.requestId, { status: "succeeded" }, checkpoint("cancelled-result", accepted.requestId))).status, "cancelled");
     assert.equal(store.getActiveCheckpoint("session")!.id, "original");
     const next = store.withTx(() => reserveCompactionRequest(store, request("success-first")));
-    const source = { file: "/read-only/history", dev: 1, ino: 2, byteLimit: 100, fingerprint: "history", entryId: "tail", messageCount: 4, excluded: [] };
+    const source = { file: "/read-only/history", dev: 1, ino: 2, byteLimit: 100, fingerprint: "history", entryId: "tail", cutEntryId: "tail", messageCount: 4, excluded: [], omittedCount: 0 };
     store.withTx(() => updateCompactionSource(store, next.requestId, source, "original"));
     let broadcast = 0;
     store.onCommitted = events => {

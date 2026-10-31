@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Next-request report delivery](../../proposed/feature/2026-10-30-coding-report-delivery-boundary.md) proposes classifying individual reports inside active tasks and excluding internal fallbacks from the user queue. It is not implemented and must not hide the receiving task's ordinary owner input.
+
 ## Problem
 
 Host final reports entered Task.input/sdk.prompt as user messages and appeared as owner input in chat, up-arrow history and pinned requirements. Hiding only task details leaked earlier history pages/single-entry reads. Body/request-key heuristics could hide genuine matching user input.

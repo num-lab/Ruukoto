@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import type { Db } from "./db.ts";
-import { HistoryIndex } from "./history-index.ts";
+import { HistoryIndex, omittedEntryIdsForSession } from "./history-index.ts";
 import { extractMessageView, HistoryReadError, sliceTextByBytes, type HistoryEntryView, type HistoryPage, type ParsedSessionEntry, type ReadHistoryPageOptions } from "./history.ts";
 import { TASK_END_MARKER, TASK_START_MARKER } from "./types.ts";
 
@@ -28,6 +28,8 @@ class IndexedReader {
   private readonly stat: fs.Stats;
   private readonly minimumBytes: number;
   private readonly markers = new Map<string, Marker | null>();
+  /** Omitted entries are absent from default windows and cannot be located by old cursors. */
+  private readonly omitted: Set<string>;
 
   constructor(private readonly db: Db, private readonly sessionId: string, private readonly file: string, private readonly fd: number, source?: string) {
     this.stat = fileRead(() => fs.fstatSync(fd));
@@ -42,6 +44,7 @@ class IndexedReader {
     const tail = Buffer.alloc(1);
     if (this.stat.size) fileRead(() => fs.readSync(fd, tail, 0, 1, this.stat.size - 1));
     this.hasPartialTail = this.stat.size > 0 && tail[0] !== 10;
+    this.omitted = omittedEntryIdsForSession(db, sessionId, file);
   }
 
   verify(): void {
@@ -51,11 +54,26 @@ class IndexedReader {
 
   position(entryId: string): Position {
     const entry = new HistoryIndex(this.db).getEntry(this.sessionId, entryId);
-    if (!entry || entry.entryType !== "message") throw new HistoryReadError("entry_not_found", "目标历史消息不存在，请重新搜索。");
+    if (!entry || entry.entryType !== "message" || this.omitted.has(entryId)) throw new HistoryReadError("entry_not_found", "目标历史消息不存在，请重新搜索。");
     return entry;
   }
 
-  neighbors(offset: number, newer: boolean, limit: number): Position[] { return positionRows(this.db, this.sessionId, "message", offset, newer, limit); }
+  neighbors(offset: number, newer: boolean, limit: number): Position[] {
+    const picked: Position[] = [];
+    let cursor = offset;
+    while (picked.length < limit) {
+      const want = limit - picked.length;
+      const batch = positionRows(this.db, this.sessionId, "message", cursor, newer, want + 32);
+      if (!batch.length) break;
+      for (const row of batch) {
+        cursor = row.byteOffset;
+        if (!this.omitted.has(row.entryId)) picked.push(row);
+        if (picked.length >= limit) break;
+      }
+      if (batch.length < want + 32) break;
+    }
+    return picked;
+  }
 
   raw(position: Position): ParsedSessionEntry {
     const bytes = Buffer.alloc(position.byteLength);

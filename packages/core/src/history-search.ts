@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { setImmediate } from "node:timers/promises";
 import type { Db } from "./db.ts";
 import { extractMessageView, HistoryReadError } from "./history.ts";
-import { HISTORY_INDEX_BATCH_BYTES, HistoryIndex, readRawEntryAt, type HistorySearchHit } from "./history-index.ts";
+import { HISTORY_INDEX_BATCH_BYTES, HistoryIndex, omittedEntryIdsForSession, readRawEntryAt, type HistorySearchHit } from "./history-index.ts";
 import { TASK_END_MARKER, TASK_START_MARKER } from "./types.ts";
 
 export interface WorkspaceHistoryCandidate {
@@ -190,6 +190,7 @@ export async function searchWorkspaceHistory(db: Db, candidates: readonly Worksp
           }
         }
       }
+      const omitted = omittedEntryIdsForSession(db, candidate.sessionId, candidate.filePath);
       for (;;) {
         const rows = db.prepare("SELECT entry_id, byte_offset, byte_length, entry_type, role, timestamp FROM history_index WHERE session_id = ? AND byte_offset > ? ORDER BY byte_offset LIMIT ?").all(candidate.sessionId, byteOffset, ROW_BATCH);
         if (!rows.length) break;
@@ -207,6 +208,7 @@ export async function searchWorkspaceHistory(db: Db, candidates: readonly Worksp
           }
           if (raw.type !== "message") continue;
           result.scanned++;
+          if (omitted.has(raw.id)) continue;
           if (row.role !== "user" && row.role !== "assistant" || opts.role && row.role !== opts.role || opts.since && (!row.timestamp || String(row.timestamp) < opts.since) || opts.until && (!row.timestamp || String(row.timestamp) > opts.until) || row.role === "user" && (candidate.excludedEntryIds?.has(String(row.entry_id)) || taskId && candidate.excludedTaskIds?.has(taskId))) continue;
           const extracted = extractMessageView(raw, taskId);
           const text = extracted?.text ?? "";

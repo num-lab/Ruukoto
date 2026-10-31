@@ -9,13 +9,14 @@ import { DropdownMenu } from "radix-ui";
 import react from "@vitejs/plugin-react";
 import type { OpParams, OpResult } from "@ruukoto/control/ops.ts";
 import type { ModelSelection, Project, SelectionRecord, Session, SessionDefaultMode, ThinkingLevel } from "@ruukoto/core/types.ts";
+import type { TaskView } from "@ruukoto/core/views.ts";
 import type { OwnerQuestionView } from "@ruukoto/core/owner-questions.ts";
 import type { HistoryEntryView } from "@ruukoto/core/history.ts";
 import type { DesktopAttachment } from "../apps/desktop/src/shared/bridge.ts";
 import { selectionBreakdown } from "@ruukoto/agent/context-selector.ts";
 import { ViewState } from "@ruukoto/view/state.ts";
 import { CodeState } from "../apps/desktop/src/renderer/code-state.ts";
-import { CodeWrites } from "../apps/desktop/src/renderer/code-writes.ts";
+import { CodeWrites, queueOrderAfterMove } from "../apps/desktop/src/renderer/code-writes.ts";
 import type { DesktopContextState } from "../apps/desktop/src/renderer/context-state.ts";
 import { draftForSchedule } from "../apps/desktop/src/renderer/scheduled-state.ts";
 import type { DesktopBridge, DesktopUpdate } from "../apps/desktop/src/shared/bridge.ts";
@@ -38,11 +39,13 @@ let selectionForModel: (option: ModelOption, current: ModelSelection | null) => 
 let EffortSlider: ComponentType<{ levels: ThinkingLevel[]; current: ThinkingLevel | null; disabled: boolean; onChange: (level: ThinkingLevel) => void }>;
 let OwnerQuestionCard: ComponentType<{ model: CodeState; question: OwnerQuestionView }>;
 let Conversation: ComponentType<{ model: CodeState; sessionId: string; child?: boolean }>;
+let QueuePanel: ComponentType<{ model: CodeState; session: Session; defaultOpen?: boolean }>;
 let MessageScrollerProvider: ComponentType<{ children?: ReactNode }>;
 before(async () => {
   server = await createServer({ configFile: false, root: fileURLToPath(new URL("../apps/desktop/src/renderer/", import.meta.url)), plugins: [react()], server: { middlewareMode: true, hmr: false }, appType: "custom" });
   ({ Composer, composerInputHeight, selectionForModel, EffortSlider } = await server.ssrLoadModule("/composer.tsx"));
   ({ Scheduled } = await server.ssrLoadModule("/scheduled.tsx"));
+  ({ QueuePanel } = await server.ssrLoadModule("/queue-panel.tsx"));
   ({ NewChatDraft, filterWorkspaces, showsNewChat } = await server.ssrLoadModule("/new-chat.tsx"));
   ({ ContextDetails, ContextIndicator } = await server.ssrLoadModule("/context-indicator.tsx"));
   ({ OwnerQuestionCard } = await server.ssrLoadModule("/owner-question-cards.tsx"));
@@ -56,6 +59,9 @@ const option = (overrides: Partial<ModelOption> = {}): ModelOption => ({ provide
 const at = "2026-10-16T00:00:00.000Z";
 function session(): Session {
   return { id: "a", projectId: "workspace", kind: "dev", workspaceProjectId: null, name: null, branchSource: null, cwd: "/work", cwdReal: "/work", cwdDev: 1, cwdIno: 1, piSessionId: "pi", sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: selection, modelSelectionVersion: 1, defaultAccessMode: "auto-review", defaultAccessModeVersion: 1, queueState: "active", queuePauseReason: null, queueRevision: 0, archivedAt: null, createdAt: at };
+}
+function queuedTask(id: string, input: string, queueOrder: number): TaskView {
+  return { id, sessionId: "a", requestId: `request-${id}`, input, inputPurpose: "user", modelSelection: selection, submissionDigest: null, status: "queued", queueOrder, accessMode: "confirm", planMode: false, permissionVersion: 1, sourcePermissionVersion: null, grantedPaths: [], pendingAccessMode: null, interruptReason: null, cancelRequested: false, effectUnknown: false, errorMessage: null, historyEntryIds: [], resumesTaskId: null, agentId: null, parentTaskId: null, sourceEventId: null, deadline: null, resultSummary: null, resultRef: null, workId: null, subAgentId: null, readScope: null, resultDeliveredAt: null, createdAt: at, startedAt: null, endedAt: null };
 }
 function harness(handlers: FakeHandlers = {}, request?: DesktopBridge["request"]) {
   const transport = new FakeTransport({ handlers });
@@ -275,6 +281,53 @@ test("Desktop 输入区匹配 demo 控件结构，四模式有图标且只保留
     assert.match(html, /model-selector-name">Current model<\/span><span class="model-selector-effort">High<\/span>/, "思考强度跟在模型名后显示");
     assert.ok(hasAttr(button(html, "发送消息"), "disabled"), "无输入仍禁止发送");
   }
+});
+
+test("Desktop 拖拽落点生成完整队列顺序，原地落点不发请求", async () => {
+  assert.deepEqual(queueOrderAfterMove(["task-1", "task-2", "task-3"], "task-3", "task-1", "before"), ["task-3", "task-1", "task-2"]);
+  assert.deepEqual(queueOrderAfterMove(["task-1", "task-2", "task-3"], "task-1", "task-3", "after"), ["task-2", "task-3", "task-1"]);
+  assert.equal(queueOrderAfterMove(["task-1", "task-2", "task-3"], "task-3", "task-2", "after"), null);
+  assert.equal(queueOrderAfterMove(["task-1", "task-2"], "task-1", "task-1", "before"), null);
+
+  const detail = { queue: { revision: 7, tasks: ["task-1", "task-2", "task-3"].map((taskId, index) => ({ taskId, queueOrder: index + 1 })) }, reorderableTaskIds: ["task-1", "task-2", "task-3"], steerableTaskIds: ["task-1", "task-2", "task-3"], guidance: [] };
+  const h = harness({
+    task_queue: async () => detail,
+    queue_reorder: async params => ({ revision: 8, tasks: params.task_ids.map((taskId, index) => ({ taskId, queueOrder: index + 1 })) })
+  });
+  await h.model.writes.loadQueue(h.current.id);
+  await h.model.writes.reorderQueued(h.current.id, "task-3", "task-1", "before");
+  await h.model.writes.reorderQueued(h.current.id, "task-3", "task-2", "after");
+  const requests = h.transport.requests.filter(request => request.op === "queue_reorder");
+  assert.equal(requests.length, 1);
+  assert.deepEqual(requests[0].params, { session_id: h.current.id, task_ids: ["task-3", "task-1", "task-2"], expected_revision: 7 });
+});
+
+test("Desktop 排队面板使用拖拽手柄和行内动作，输入区与空队列保持一体圆角", async () => {
+  const tasks = [queuedTask("task-1", "第一条排队输入", 1), queuedTask("task-2", "第二条排队输入", 2)];
+  const detail = { queue: { revision: 7, tasks: tasks.map((task, index) => ({ taskId: task.id, queueOrder: index + 1 })) }, reorderableTaskIds: tasks.map(task => task.id), steerableTaskIds: ["task-1"], guidance: [] };
+  const h = harness({ task_queue: async () => detail });
+  h.model.view.applySnapshot({ snapshot: fakeSnapshot({ sessions: [h.current], tasks }), replay: [], seq: 0 }, false);
+  await h.model.writes.loadQueue(h.current.id);
+
+  const panel = renderToStaticMarkup(createElement(QueuePanel, { model: h.model, session: h.current, defaultOpen: true }));
+  assert.match(panel, /queue-summary/);
+  assert.match(panel, /lucide-grip-vertical/);
+  assert.match(panel, /可拖拽或用方向键调整顺序/);
+  assert.match(panel, /queue-panel-actions/);
+  assert.match(panel, /lucide-waypoints/);
+  assert.doesNotMatch(panel, /上移第|下移第/);
+  assert.equal(elements(panel).filter(element => attr(element, "draggable") === "true").length, 2);
+  h.model.status = { type: "state", state: "reconnecting" };
+  const offlinePanel = renderToStaticMarkup(createElement(QueuePanel, { model: h.model, session: h.current, defaultOpen: true }));
+  assert.equal(elements(offlinePanel).filter(element => attr(element, "draggable") === "true").length, 0);
+  assert.ok(hasAttr(button(offlinePanel, "把第 1 项转为引导"), "disabled"));
+
+  const composer = renderToStaticMarkup(createElement(Composer, { model: h.model, session: h.current }));
+  assert.match(composer, /<div class="composer-stack surface-composer has-queue">/);
+  assert.ok(composer.indexOf("queue-panel") < composer.indexOf("<form class=\"composer\""));
+  const empty = harness();
+  const emptyComposer = renderToStaticMarkup(createElement(Composer, { model: empty.model, session: empty.current }));
+  assert.match(emptyComposer, /<div class="composer-stack surface-composer"><form class="composer"/);
 });
 
 test("Effort 档位渲染为分段粗滑杆：选中档填充、目录外只读、无选择不渲染", () => {

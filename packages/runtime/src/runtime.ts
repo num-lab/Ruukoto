@@ -64,6 +64,8 @@ import { BackgroundProcessError, latestBackgroundReferenceSnapshot, listActiveBa
 import { ToolOpLedger } from "@ruukoto/agent/tool-op-ledger.ts";
 import { sessionToolCategories } from "@ruukoto/agent/tool-availability.ts";
 import { HostExecutionManager } from "./host-execution.ts";
+import { MessageRecallRuntime, RECALL_PAUSE_REASON } from "./message-recall.ts";
+import { closeEditWindows, getEditWindowRecall, getOpenMessageRecall, publicMessageRecall } from "@ruukoto/core/message-recall.ts";
 import { createCodingTools } from "@ruukoto/agent/tool-router.ts";
 import { createWebSearchFamily,searchTavily,TAVILY_CREDENTIAL_PURPOSE,WebSearchError,WEB_SEARCH_CREDENTIAL_NAME } from "@ruukoto/agent/web-search.ts";
 import { resolveTavilyTarget } from "@ruukoto/agent/web-search-transport.ts";
@@ -160,6 +162,8 @@ import {
   type Project,
   type Session,
   type SessionCompactionRequest,
+  type MessageRecall,
+  type PublicMessageRecall,
   type SessionDefaultMode,
   type StandingPermission,
   type SubAgent,
@@ -384,6 +388,8 @@ export class Runtime {
   /** 父级送达（架构工单 09）：结果与工作内消息怎样、何时进入主 Agent 的模型调用。 */
   private readonly parentDelivery: ParentDelivery;
   private readonly agentWait: RuntimeAgentWait;
+  /** Recall orchestration: acceptance, stopping, effective history and receipts. */
+  readonly messageRecall: MessageRecallRuntime;
   private readonly reportGroups = new Set<string>();
   /** 调度计划/运行/发送账本（issue 03，核心库三表）。 */
   readonly sched: SchedulerStore;
@@ -562,6 +568,27 @@ export class Runtime {
       },
       yieldWorkspace: task => this.drivers.get(task.sessionId)?.yieldWorkspace(task.id) ?? Promise.resolve(false),
       subscribe: listener => this.addEventListener(listener), unsubscribe: listener => this.removeEventListener(listener), kick: () => this.kickAll() });
+    // Resolve recall dependencies lazily because host execution, workflow and SubAgent managers
+    // are initialized later; closures avoid construction-order coupling.
+    this.messageRecall = new MessageRecallRuntime({
+      store,
+      sessionsDir: sessionsDirFor(config.dataDir),
+      driverFor: sessionId => this.drivers.get(sessionId),
+      ensureDriver: session => this.getDriver(session),
+      disposeDriver: async sessionId => {
+        const driver = this.drivers.get(sessionId);
+        this.drivers.delete(sessionId);
+        await driver?.dispose();
+      },
+      hostExecutions: () => this.hostExecutions ?? null,
+      workflows: () => this.workflows,
+      subagents: () => this.subagents,
+      backgroundProcesses: { requestStop: (id, reason) => { this.backgroundProcesses?.requestStop(id, reason); } },
+      agentWait: this.agentWait,
+      attachments: this.attachments,
+      artifacts: this.artifacts,
+      kick: sessionId => this.kick(sessionId),
+    });
     this.imWorkflows = new ImWorkflows({ store, sched: this.sched, entry: source => this.imEntries.entry(source),
       answer: input => this.answerWorkflowQuestion(input),
       start: (input, origin) => this.startWorkflowOwner({ ...input, sessionId: this.store.getAgentRole("main")!.sessionId }, origin),
@@ -920,6 +947,7 @@ export class Runtime {
       resumeQueue: (sessionId) => runtime.resumeQueue(sessionId),
       parentDelivery: runtime.parentDelivery,
       cancelTask: (taskId, reason) => runtime.cancelTask(taskId, reason ? { reason } : undefined),
+      assertSourceOpen: (taskId) => runtime.messageRecall.assertSourceNotSealed(taskId),
       protectedRoots: () => runtime.protectedRoots(),
       dataDir: fullConfig.dataDir,
     });
@@ -977,6 +1005,9 @@ export class Runtime {
         }
       });
     }
+    // Recover pending recalls from persisted phases and verify completion markers for completed receipts
+    // after workflow and SubAgent managers are assembled.
+    await runtime.messageRecall.recoverAll();
     await recoverBranchSessions(runtime.branchDeps());
     await recoverSideChats(runtime.sideDeps());
     // GitHub 专用模块退役迁移（issue 17）：仅升级后首次启动执行；无旧表直接跳过
@@ -1077,6 +1108,8 @@ export class Runtime {
 
   private workflowSource(taskId: string, ownerControl = false, delegation = false): WorkflowSource {
     const task = this.store.getTask(taskId);
+    // Reject workflow/delegation registration from recall-sealed sources.
+    this.messageRecall.assertSourceNotSealed(taskId);
     const codeSource = task ? getCodeScheduledTaskSource(this.store, task.id) : null;
     const session = task ? this.store.getSession(task.sessionId) : null;
     const identity = session ? this.store.getSessionIdentity(session.id) : null;
@@ -2701,6 +2734,8 @@ export class Runtime {
   async branchSession(input: { sessionId: string; name?: string; taskId?: string; requestId: string }): Promise<Session> {
     this.assertCodeScheduleSessionMutable(input.sessionId);
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝会话分支");
+    // Do not snapshot pending recalls: incomplete omissions must not leak into branch copies.
+    this.messageRecall.assertNoOpenRecall(input.sessionId);
     return branchSession(this.branchDeps(), input);
   }
 
@@ -2717,6 +2752,8 @@ export class Runtime {
   /** 打开侧聊（创建或重开）：父会话唯一绑定，首次打开冻结安全快照。 */
   async openSideChat(input: { sessionId: string; requestId: string }): Promise<Session> {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝打开侧聊");
+    // Do not snapshot pending recalls: incomplete omissions must not leak into side-chat copies.
+    this.messageRecall.assertNoOpenRecall(input.sessionId);
     return openSideChat(this.sideDeps(), input);
   }
 
@@ -2815,6 +2852,8 @@ export class Runtime {
       return existing;
     }
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝上下文压缩");
+    // Compaction must wait for recall so its point can be verified against the effective prefix.
+    this.messageRecall.assertNoOpenRecall(input.sessionId);
     if (!this.config.product.manualCompaction) throw new RuntimeApiError("unavailable", "当前产品不提供手动上下文压缩");
     const session = this.getSession(input.sessionId);
     this.assertCodeScheduleSessionMutable(session.id);
@@ -3382,6 +3421,13 @@ export class Runtime {
         else this.assertCodeScheduleSessionMutable(session.id);
         this.assertNoSessionCompaction(input.sessionId);
         check();
+        // Reject owner input while recall is pending. Successful acceptance closes the edit window
+        // and restores the original queue state; sealed sources cannot register derived work.
+        if (!internal || input.ownerAnswer) {
+          this.messageRecall.assertNoOpenRecall(session.id);
+          this.messageRecall.closeEditWindowForNewInput(session.id);
+        }
+        if (input.parentTaskId) this.messageRecall.assertSourceNotSealed(input.parentTaskId);
         const reportKeys = input.reportKeys ?? (input.reportKey ? [input.reportKey] : []);
         for (const key of reportKeys) {
           const report = getAgentReport(this.store, key);
@@ -4552,6 +4598,7 @@ export class Runtime {
     const session = this.store.getSession(task.sessionId);
     if (!session) throw new RuntimeApiError("not_found", `会话不存在：${task.sessionId}`);
     if (this.store.getSessionIdentity(session.id)?.kind !== "dev") throw new RuntimeApiError("guidance_not_allowed", "仅普通开发会话支持引导");
+    this.messageRecall.assertNoOpenRecall(session.id);
     let guidance: TaskGuidance | null;
     try {
       guidance = this.store.withTx(() => this.acceptGuidanceForTask(taskId, opts?.expectedQueueRevision));
@@ -4588,6 +4635,7 @@ export class Runtime {
   /** 队列重排：仅交换普通拥有者输入的位置；冲突以实际持久状态拒绝并回执。 */
   reorderQueue(sessionId: string, taskIds: string[], expectedRevision: number): TaskQueue {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，请稍后重试");
+    this.messageRecall.assertNoOpenRecall(sessionId);
     try {
       return this.store.withTx(() => this.store.reorderTaskQueue(sessionId, taskIds, expectedRevision));
     } catch (err) {
@@ -4599,6 +4647,8 @@ export class Runtime {
   async cancelTask(taskId: string, opts?: { reason?: string }): Promise<Task> {
     const task = this.store.getTask(taskId);
     if (!task) throw new RuntimeApiError("not_found", `任务不存在：${taskId}`);
+    // Leave terminal-state changes to recall orchestration while it verifies the stop closure.
+    this.messageRecall.assertNoOpenRecall(task.sessionId);
     if (getWorkflowExecution(this.store, task.id)?.kind === "agent") throw new RuntimeApiError("invalid_state", "工作流步骤由所属运行控制，请取消运行");
     if (task.status === "queued") {
       // 待接入引导源：已预留进目标边界的源取消等待该批实际落盘结果，再核实现状
@@ -4653,6 +4703,8 @@ export class Runtime {
       );
     }
     const task = this.store.getTask(confirmation.taskId)!;
+    // Do not consume approvals during recall; stopping invalidates them so late card responses create no effects.
+    this.messageRecall.assertNoOpenRecall(confirmation.sessionId);
     if (task.status !== "awaiting_confirmation") {
       throw new RuntimeApiError("stale_confirmation", `确认请求已失效（任务状态 ${task.status}）`);
     }
@@ -4709,8 +4761,21 @@ export class Runtime {
       }
       const recovery = codeRun && ["effect_unknown", "stop_unverified"].includes(codeRun.reason ?? "");
       if (recovery) for (const task of listCodeScheduleRunTasks(this.store, codeRun.id).filter(task => task.status === "queued")) this.store.endTask(task.id, ["queued"], "canceled", { errorMessage: "schedule_recovery_required" });
-      this.store.setSessionQueueState(sessionId, recovery ? "paused" : "active", recovery ? "schedule_recovery_required" : null);
-      this.store.appendEvent(recovery ? { type: "session.queue_paused", sessionId, reason: "schedule_recovery_required" } : { type: "session.queue_resumed", sessionId }, { sessionId });
+      // Do not resume while recall is processing or awaiting verification. Resuming an edit window
+      // closes it and restores the saved queue state rather than unconditionally activating the queue.
+      if (session.queuePauseReason === RECALL_PAUSE_REASON) {
+        throw new RuntimeApiError("recall_pending", "撤回请求尚未收束，请等待或先完成停止核实");
+      }
+      const edit = getEditWindowRecall(this.store, sessionId);
+      if (edit && !recovery) {
+        closeEditWindows(this.store, sessionId, new Date().toISOString());
+        const saved = edit.savedQueueState === "paused" ? "paused" : "active";
+        this.store.setSessionQueueState(sessionId, saved, saved === "paused" ? edit.savedQueueReason : null);
+        this.store.appendEvent(saved === "paused" ? { type: "session.queue_paused", sessionId, reason: edit.savedQueueReason ?? "message_recall_edit" } : { type: "session.queue_resumed", sessionId }, { sessionId });
+      } else {
+        this.store.setSessionQueueState(sessionId, recovery ? "paused" : "active", recovery ? "schedule_recovery_required" : null);
+        this.store.appendEvent(recovery ? { type: "session.queue_paused", sessionId, reason: "schedule_recovery_required" } : { type: "session.queue_resumed", sessionId }, { sessionId });
+      }
     });
     if (releasedOccupancy) {
       const driver = this.drivers.get(sessionId);
@@ -4809,6 +4874,8 @@ export class Runtime {
     backgroundProcesses: BackgroundProcessView[];
     codeScheduleRuns: CodeScheduleRun[];
     taskGuidance: TaskGuidance[];
+    /** Pending recalls and open edit windows for reconnect recovery, excluding other terminal receipts. */
+    messageRecalls: PublicMessageRecall[];
     /** 侧聊持久绑定（重连后客户端恢复侧聊身份；普通会话列表按此排除）。 */
     sideChats: Array<{ parentSessionId: string; sideSessionId: string }>;
     seq: number;
@@ -4853,6 +4920,12 @@ export class Runtime {
       backgroundProcesses: sessions.flatMap(session => this.listBackgroundProcesses(session.id).processes),
       codeScheduleRuns: this.codeScheduleRunSnapshot(),
       taskGuidance: sessions.flatMap(session => this.store.listSessionGuidance(session.id)),
+      // Reconnect restores pending recall and edit-window state without replaying history.
+      messageRecalls: sessions.flatMap(session => {
+        const open = getOpenMessageRecall(this.store, session.id);
+        const edit = getEditWindowRecall(this.store, session.id);
+        return [open, edit].filter((recall): recall is MessageRecall => recall !== null).map(publicMessageRecall);
+      }),
       sideChats: this.sideChatBindings(),
       seq: this.store.getMaxSeq(),
     };

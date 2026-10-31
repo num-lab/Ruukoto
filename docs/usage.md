@@ -177,9 +177,11 @@ For `execution_unavailable`, check the [native prerequisites](../deploy/native/R
 | `/interrupt [taskId]`, `/cancel <taskId>`, `/continue [taskId]` | Task interruption/cancellation/continuation; side overlay interrupt affects side only |
 | `/resume-queue`, `/queue` | Resume, inspect or reorder pending input |
 | `/steer <text>` | Route input at the running task's next boundary; queue at the head if missed |
+| `/recall [verify]` | Recall the latest input into the draft; `verify` rechecks unresolved stopping under the original request |
+| `/detach` | Remove attachments restored into the draft by recall |
 | `/model`, `/mode` | Choose model/effort or default mode for later new tasks |
 | `/status` | Current task details |
-| `/search <text>` | Literal search of original conversation history |
+| `/search <text>` | Literal search of effective conversation history, excluding recalled contributions |
 | `/memory <command>` | `list`, `show`, `revoke`, `restore` |
 | `/context`, `/prompt` | Context composition and recorded model requests |
 | `/skill <name> [arguments]`, `/skills` | Explicit invocation or catalog/diagnostics |

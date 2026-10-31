@@ -147,6 +147,15 @@ export interface TuiOps {
   task_queue: { params: { session_id: string }; result: R<"getTaskQueueDetail"> };
   queue_reorder: { params: { session_id: string; task_ids: string[]; expected_revision: number }; result: R<"reorderQueue"> };
   steer_task: { params: { task_id: string; expected_queue_revision?: number }; result: R<"steerTask"> };
+  /** Recall the latest input; replaying request_id returns the original receipt idempotently. */
+  message_recall: { params: { session_id: string; task_id: string; request_id: string; expected_revision: number };
+    result: Awaited<ReturnType<Runtime["messageRecall"]["recallMessage"]>> };
+  /** Recheck a recorded stop intent and advance it without changing the parameters or target. */
+  message_recall_verify: { params: { session_id: string; request_id: string };
+    result: Awaited<ReturnType<Runtime["messageRecall"]["verifyMessageRecallStop"]>> };
+  /** Query recall state; only the initiating client holding the original request key receives draft content. */
+  message_recall_state: { params: { session_id: string; request_id?: string };
+    result: Awaited<ReturnType<Runtime["messageRecall"]["messageRecallState"]>> };
   respond_confirmation: {
     params: { confirmation_id: string; decision: "approve" | "reject"; permission_version?: number };
     result: R<"respondConfirmation">;

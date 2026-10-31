@@ -6,7 +6,7 @@ import { createHash, randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { checkpointFingerprint } from "@ruukoto/agent/compaction.ts";
-import { branchHistoryBytes, prepareBranchHistory } from "@ruukoto/agent/session-factory.ts";
+import { effectiveBranchHistoryBytes, prepareBranchHistory } from "@ruukoto/agent/session-factory.ts";
 import { parseTodos } from "@ruukoto/agent/todo.ts";
 import type { AccessScope } from "@ruukoto/core/access.ts";
 import { RuntimeApiError } from "@ruukoto/core/api-error.ts";
@@ -134,7 +134,8 @@ export function snapshotSources(deps: BranchSessionDeps, source: Session, snapsh
     results.set(work.id, completed.map(task => task.id));
     for (const task of completed) for (const artifact of store.listArtifactsByTask(task.id)) addArtifact(artifact.id, task.id);
   }
-  return { sessionId: source.id, number, entryId: snapshot.entryId, messageCount: snapshot.messageCount, excluded: snapshot.excluded,
+  return { sessionId: source.id, number, entryId: snapshot.entryId, messageCount: snapshot.messageCount,
+    excluded: snapshot.omittedCount ? [...snapshot.excluded, `撤回省略 ${snapshot.omittedCount} 条`] : snapshot.excluded,
     taskIds: [...tasks], artifacts: [...artifacts.values()], results: [...results].map(([workId, taskIds]) => ({ workId, taskIds })) };
 }
 
@@ -204,11 +205,11 @@ export async function branchSession(deps: BranchSessionDeps, input: { sessionId:
         const now = new Date().toISOString();
         const session: Session = { ...snapshotSource, id: randomId("sess"), piSessionId: randomUUID(), name: input.name ?? `${title} · 分支 ${branchNumber}`,
           branchSource: snapshotSources(deps, snapshotSource, snapshot, branchNumber), modelSelectionVersion: snapshotSource.modelSelection ? 1 : 0, defaultAccessModeVersion: 0,
-          createRequestId: input.requestId, queueState: "active", queuePauseReason: null, createdAt: now };
+          createRequestId: input.requestId, queueState: "active", queuePauseReason: null, queueRevision: 0, createdAt: now };
         session.sessionFile = path.join(deps.sessionsDir, `${now.replace(/[:.]/g, "-")}_${session.piSessionId}.jsonl`);
         const { entries: _entries, entryId: _id, messageCount: _count, excluded: _excluded, ...prefix } = snapshot;
         const sourceBytes = readHistoryPrefix(snapshotSource.sessionFile!, prefix);
-        const bytes = branchHistoryBytes(session, sourceBytes);
+        const bytes = effectiveBranchHistoryBytes(session, sourceBytes, prefix.cutEntryId);
         const messages = snapshot.entries.filter(e => e.type === "message").map(e => e.message);
         const cp = deps.store.getActiveCheckpoint(snapshotSource.id);
         const ids = new Set(snapshot.entries.map(entry => entry.id));

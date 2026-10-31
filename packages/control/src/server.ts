@@ -397,6 +397,7 @@ export class ControlServer {
             codeScheduleRuns: snapshot.codeScheduleRuns,
             taskGuidance: snapshot.taskGuidance,
             sideChats: snapshot.sideChats,
+            messageRecalls: snapshot.messageRecalls,
           },
         };
         if (since > 0 && Buffer.byteLength(encodeFrame({ v: CONTROL_PROTOCOL_VERSION, id: request.id, ok: true, result }), "utf8") > MAX_FRAME_BYTES) {
@@ -697,6 +698,17 @@ export class ControlServer {
       }
       case "steer_task":
         return runtime.steerTask(requireString("task_id"), params["expected_queue_revision"] === undefined ? undefined : { expectedQueueRevision: workflowInt("expected_queue_revision", 0, 0) });
+      case "message_recall":
+        return runtime.messageRecall.recallMessage({
+          sessionId: requireString("session_id"),
+          taskId: requireString("task_id"),
+          requestId: requireString("request_id"),
+          expectedRevision: workflowInt("expected_revision", 0, 0),
+        });
+      case "message_recall_verify":
+        return runtime.messageRecall.verifyMessageRecallStop({ sessionId: requireString("session_id"), requestId: requireString("request_id") });
+      case "message_recall_state":
+        return runtime.messageRecall.messageRecallState({ sessionId: requireString("session_id"), requestId: params["request_id"] === undefined ? undefined : requireString("request_id") });
       case "respond_confirmation": {
         const decision = params["decision"];
         if (decision !== "approve" && decision !== "reject") {

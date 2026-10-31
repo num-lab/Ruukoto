@@ -55,6 +55,7 @@ Initial projection establishes indexes before rendering. Streamed text and think
 
 - Lint and tests reject `node:*` imports and Node globals in this package.
 - Stale event versions do not replace newer state.
+- Default `read_history` excludes recalled contributions. `message_recall.changed` refreshes client recall state; only the initiator holding the original request key receives draft text and restored attachments through `message_recall_state`.
 - History-body slices must start at the expected byte offset. Gaps fail explicitly and require recovery rather than displaying incomplete text as complete.
 
 ## Design Rationale

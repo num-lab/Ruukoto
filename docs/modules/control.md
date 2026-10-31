@@ -22,6 +22,7 @@ Each frame ends in `\n`.
 | `auth`, `ping`, `connect`, `stop` | Authenticate, inspect liveness, install snapshot and stop |
 | `submit`, `continue`, `interrupt`, `cancel`, `switch_mode`, `resume_queue` | Task and queue lifecycle |
 | `task_queue`, `queue_reorder`, `steer_task` | Persisted queue order and steering |
+| `message_recall`, `message_recall_verify`, `message_recall_state` | Recall the latest effective owner input: stop affected execution, append history omissions and restore text/attachments to the initiating client; verify retries stop verification, state only queries |
 | `get_task`, `list_tasks`, `read_task_events` | Task/event reads |
 | `respond_confirmation`, `get_confirmation_params` | Owner decisions and bounded parameter reads |
 | `open_workspace`, `create_session`, `branch_session`, `compact_session` | Workspace identity, new/branched conversations and explicit compaction |
@@ -79,7 +80,7 @@ Computer recovery forwards the original recovery identity and fresh observation 
 
 - Unauthenticated connections cannot read data, manage conversations or submit work. Tokens use `crypto.timingSafeEqual`.
 - Large output and parameters use bounded `offset`/`limit` slices rather than unbounded frames.
-- Current protocol is `47`; mismatch returns `protocol_version`. Upgrade an old client, or explicitly stop an old backend before reopening a new client.
+- Current protocol is `48`; mismatch returns `protocol_version`. Upgrade an old client, or explicitly stop an old backend before reopening a new client.
 - The server binds MyGo browser provenance from the actual socket on `submit`, `continue` and `owner_question_answer`; client parameters cannot assert it.
 - Browser events, chunks and narrow responses belong to the exact registered connection. Disconnect revokes it; another connection cannot inherit it.
 - Browser snapshots/screenshots use at most 256 KiB per chunk and 8 MiB total, verified by SHA256, and are not replayed as persistent events.

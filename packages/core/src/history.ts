@@ -16,6 +16,7 @@ import * as fs from "node:fs";
 import { createHash } from "node:crypto";
 import type { BoundedText, InputPurpose } from "./views.ts";
 import { TASK_END_MARKER, TASK_START_MARKER, type EditStats, type TaskStatus } from "./types.ts";
+import { effectiveProjection } from "./history-effective.ts";
 
 /** Buffer 内 index 处的 UTF-8 起始对齐：续字节向后落到字符边界。 */
 export function snapUtf8Start(buf: Buffer, index: number): number {
@@ -89,10 +90,17 @@ export interface HistorySnapshot {
   file: string;
   dev: number;
   ino: number;
+  /** Cover the entire source prefix, including trailing omissions; derive branch bytes from its effective projection. */
   byteLimit: number;
   fingerprint: string;
+  /** Effective entries within the original cut, excluding omitted contributions and context_edit records. */
   entries: ParsedSessionEntry[];
+  /** Last effective selected entry included in the copy. */
   entryId: string;
+  /** Original cut entry locating the selection boundary in the source prefix. */
+  cutEntryId: string;
+  /** Entries filtered by omissions or control records within the cut; provenance count, not snapshot ineligibility. */
+  omittedCount: number;
   messageCount: number;
   excluded: string[];
 }
@@ -211,23 +219,19 @@ export function snapshotSessionHistory(file: string, taskStatus: (taskId: string
   const excluded: string[] = [];
   if (activeBatchIndex !== null && activeBatchIndex <= cut) excluded.push("活动任务未完成的工具批次");
   if (completeBytes < bytes.length) excluded.push("未换行的尾记录");
+  const omitted = effectiveProjection(entries).omitted;
   const selected = entries.slice(0, cut);
-  const messages = selected.filter(entry => entry.type === "message");
+  // Omission edits may follow the cut; copy effective entries and locate the boundary using the original cut.
+  const effective = selected.filter(entry => entry.type !== "context_edit" && !omitted.has(entry.id));
+  const messages = effective.filter(entry => entry.type === "message");
   if (!messages.length && !options.allowEmpty) throw new HistoryReadError("entry_not_found", "尚无可复制的已落盘消息，请等待落盘或使用 /new");
-  // 保留原始行，指纹覆盖实际分支前缀；部分尾行与回退批次不进入边界。
-  const lines = bytes.toString("utf8").split("\n");
-  let count = 0;
-  let byteLimit = 0;
-  for (const line of lines) {
-    if (count === cut) break;
-    byteLimit += Buffer.byteLength(line) + 1;
-    if (line.trim()) count++;
-  }
-  const prefix = bytes.subarray(0, byteLimit);
-  const fingerprint = createHash("sha256").update(prefix).digest("hex");
+  // Fingerprint the entire source prefix, including trailing omissions; exclude incomplete trailing lines.
+  const byteLimit = completeBytes;
+  const fingerprint = createHash("sha256").update(bytes.subarray(0, byteLimit)).digest("hex");
   readHistoryPrefix(file, { dev: stat.dev, ino: stat.ino, byteLimit, fingerprint });
-  return { file, dev: stat.dev, ino: stat.ino, byteLimit, fingerprint, entries: selected,
-    entryId: selected.at(-1)!.id, messageCount: messages.length, excluded };
+  return { file, dev: stat.dev, ino: stat.ino, byteLimit, fingerprint, entries: effective,
+    entryId: effective.at(-1)!.id, cutEntryId: selected.at(-1)!.id, omittedCount: selected.length - effective.length,
+    messageCount: messages.length, excluded };
 }
 
 /** 最近成功的清单来自配对参数，按批次匹配，不依赖工具账本或加载页。 */
@@ -452,7 +456,9 @@ export function readHistoryPage(sessionFile: string | null, opts: ReadHistoryPag
   }
   const { entries, hasPartialTail } = parseSessionFileStrict(fs.readFileSync(sessionFile, "utf8"));
   const taskIds = historyTaskIds(entries);
-  const messages = entries.filter((e) => e.type === "message");
+  // Omissions affect only the effective view; default pages no longer include omitted entries.
+  const omitted = effectiveProjection(entries).omitted;
+  const messages = entries.filter((e) => e.type === "message" && !omitted.has(e.id));
   const limit = Math.min(Math.max(1, opts.limit ?? 50), 200);
   const entryTextCap = Math.min(Math.max(256, opts.entryTextCap ?? 16 * 1024), 256 * 1024);
   const pageTextBudget = Math.min(Math.max(entryTextCap, opts.pageTextBudget ?? 192 * 1024), 1024 * 1024);
@@ -503,7 +509,8 @@ export function readHistoryEntryText(
   }
   const { entries } = parseSessionFileStrict(fs.readFileSync(sessionFile, "utf8"));
   const taskIds = historyTaskIds(entries);
-  const entry = entries.find((e) => e.id === entryId && e.type === "message");
+  const omitted = effectiveProjection(entries).omitted;
+  const entry = entries.find((e) => e.id === entryId && e.type === "message" && !omitted.has(e.id));
   if (!entry) throw new HistoryReadError("entry_not_found", `历史条目不存在：${entryId}`);
   const extracted = extractMessageView(entry, taskIds.get(entry.id) ?? null)!;
   const cap = Math.min(Math.max(256, length), 256 * 1024);

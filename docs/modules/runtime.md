@@ -80,6 +80,12 @@ Required role/workflow/delegation MCP tools are verified after official registra
 
 Due schedules activate independent development conversations from fixed engineering configuration. Their history and results remain available after task finalization; the personal notification outbox is not the Coding conversation's persistence authority.
 
+### Coding Message Recall and Edit/Resend
+
+`MessageRecallRuntime` selects the latest effective owner input, explicitly rejecting question answers or a target with later effective input. Unadmitted queued input is canceled directly. Admitted input first saves the prior queue state, pauses dispatch and seals affected sources against new derived work; it then stops the complete execution closure and verifies each subsystem's actual stopping facts.
+
+Once execution is quiescent, recall fixes the omission list, appends `context_edit` entries and a completion marker to JSONL, records `completed`, and restores original text and attachments reconstructed from immutable bytes to the initiating client's draft. The queue remains paused for editing (`message_recall_edit`). Unverified stopping enters `blocked`; verify-only retries advance the original request. Pending/applying recovery uses the original fingerprints and list. Existing JSONL bytes and task, approval and effect audit records are retained; only the effective projection excludes recalled content.
+
 ## Invariants and Failure Handling
 
 - Identical `(sessionId, requestId)` replay returns the original task; changed parameters produce `request_conflict`.

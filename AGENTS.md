@@ -4,7 +4,7 @@ Ruukoto ships two products: the `ruukoto` Personal Agent and the `ruukoto-code` 
 
 ## Development And Verification
 
-Run `npm run setup` on a fresh checkout. [Development](docs/development.md) covers prerequisites, test navigation, development instances, timings and external acceptance. Run `npm run check:static` and relevant tests while changing code. Before committing, choose the [smallest credible check set](.agents/skills/pre-push-checks/SKILL.md); use full `npm run check` only when explicitly requested, diagnosing CI, or the change genuinely spans the repository. Name files in targeted runs, for example `npx tsx --test test/71-product-entry.test.ts`. Use `ssh tx` for tests requiring Linux.
+Run `npm run setup` on a fresh checkout. [Development](docs/development.md) covers prerequisites, test navigation, development instances, timings and external acceptance. Run `npm run check:static` and relevant tests while changing code. Before committing, choose the [smallest credible check set](.agents/skills/pre-push-checks/SKILL.md); use full `npm run check` only when explicitly requested, diagnosing CI, or the change genuinely spans the repository. Name files in targeted runs, for example `npx tsx --test test/71-product-entry.test.ts`. For tests requiring Linux, ask user for SSH alias of development server.
 
 Pre-commit runs `git diff --cached --check`, `scripts/check-staged-eol.mjs`, then `npm run check:static`. CI pins Node 24.15.0 on macOS and Linux, with a 90-minute job limit, and runs `npm run setup -- --skip-hooks` followed by `npm run check`. Missing Python or PTY support is a failure, not a skip. Real model and IM checks are external acceptance: report missing prerequisites as unverified. End each authored text file with exactly one newline.
 
@@ -66,4 +66,4 @@ Search existing notes by module and mechanism before adding a decision. A new de
 
 Resident-document character budgets live in `scripts/doc-budgets.manifest.json`. They are guardrails, not shortening targets: move misplaced detail to its proper home before compressing; justify any ceiling increase in the same change. Gates cannot prove semantic accuracy; review affected documents against actual behavior.
 
-`CLAUDE.md` links to this file; edit the real file. Keep each rule's conclusion here and link to detail rather than copying it.
+Keep each rule's conclusion here and link to detail rather than copying it.

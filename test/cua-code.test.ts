@@ -7,7 +7,8 @@ import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { Db, SchemaVersionError } from "@ruukoto/core/db.ts";
 import { Store } from "@ruukoto/core/store.ts";
-import type { McpCuaOperation } from "@ruukoto/core/types.ts";
+import { parseSessionFile } from "@ruukoto/core/history.ts";
+import type { McpCuaOperation, Task } from "@ruukoto/core/types.ts";
 import { ArtifactStore } from "@ruukoto/agent/artifacts.ts";
 import { McpStore } from "@ruukoto/agent/mcp/store.ts";
 import { CodeCuaManager } from "@ruukoto/agent/mcp/code.ts";
@@ -429,5 +430,94 @@ test("Code Cua：观察授权只在结果进入后续模型请求后激活，同
     assert.match(JSON.stringify(outgoing), /\[20\]/);
     assert.equal(sent("click").filter(call => call.params.arguments.window_id === 9).length, 1, "only the actually delivered row authorizes a click");
     assert.equal(sent("click").find(call => call.params.arguments.window_id === 9).params.arguments.element_token, "s00000009:20");
+  } finally { await runtime.shutdown(); }
+});
+
+test("Code CUA binds observations to persisted host operations, not reusable SDK ids", { skip: !available }, async () => {
+  let next: { id: string; name: string; arguments: Record<string, unknown> } | null = null;
+  const runtime = await startTestRuntime("cua-result-identity", withMcpDiscovery(async () => {
+    const call = next; next = null;
+    return call ? { kind: "tool_calls", calls: [call] } : { kind: "text", text: "done" };
+  }), { config: { product: product.runtime, mcp: { callTimeoutMs: 300 } } });
+  const { client, dirs } = runtime;
+  const executable = path.join(dirs.root, "cua-fixture"), record = path.join(dirs.root, "calls.jsonl");
+  const tools = [
+    { name: "get_window_state", inputSchema: { type: "object", properties: { pid: { type: "integer" }, window_id: { type: "integer" }, include_screenshot: { type: "boolean" } }, required: ["pid", "window_id"] } },
+    { name: "type_text", inputSchema: { type: "object", properties: { pid: { type: "integer" }, window_id: { type: "integer" }, text: { type: "string" } } } },
+    { name: "press_key", inputSchema: { type: "object", properties: { pid: { type: "integer" }, window_id: { type: "integer" }, key: { type: "string" }, modifiers: { type: "array", items: { type: "string" } }, delivery_mode: { type: "string" } } } },
+    { name: "run_steps", inputSchema: { type: "object", properties: { steps: { type: "array" } } } },
+  ];
+  fs.writeFileSync(executable, `#!${process.execPath}
+import fs from 'node:fs'; import readline from 'node:readline';
+const tools=${JSON.stringify(tools)},record=${JSON.stringify(record)};
+if(process.argv[2]==='dump-docs'){process.stdout.write(JSON.stringify({version:'0.38.0',tools:tools.map(t=>({name:t.name,description:'',input_schema:t.inputSchema}))}));process.exit(0);}
+for await(const line of readline.createInterface({input:process.stdin})){
+  const m=JSON.parse(line);if(m.id===undefined)continue;let result={};
+  if(m.method==='initialize')result={protocolVersion:m.params.protocolVersion,capabilities:{tools:{}},serverInfo:{name:'offline-cua',version:'0.38.0'}};
+  else if(m.method==='tools/list')result={tools};
+  else if(m.method==='tools/call'){
+    fs.appendFileSync(record,JSON.stringify(m)+'\\n');const a=m.params.arguments,w=a.window_id===10?11:a.window_id,sid='s'+w.toString(16).padStart(8,'0');
+    result=m.params.name==='get_window_state'?{content:[{type:'text',text:'snapshot '+sid+'\\n- [20] AXTextField "Window '+w+'"'}],structuredContent:{pid:a.pid,window_id:w,snapshot_id:sid}}:{content:[{type:'text',text:'done'}]};
+  }
+  process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');
+}
+`, { mode: 0o700 });
+  const cua = { kind: "cua-mac", executable, version: "0.38.0", sha256: createHash("sha256").update(fs.readFileSync(executable)).digest("hex") } as const;
+  const sent = (name: string) => fs.existsSync(record) ? fs.readFileSync(record, "utf8").trim().split("\n").map(line => JSON.parse(line)).filter(call => call.params.name === name) : [];
+  try {
+    const { sessionId } = await createProjectSession(client, runtime.work[0]);
+    const submit = async (key: string, tool?: string, args: Record<string, unknown> = {}, callId = key) => {
+      next = tool ? { id: callId, name: `mcp__mac__${tool}`, arguments: args } : null;
+      const task = await client.request<{ id: string }>("submit", { session_id: sessionId, request_id: key, input: key, model_selection: MODEL, access_mode: "full_access" });
+      await waitFor("identity task ended", () => ["completed", "failed", "interrupted", "canceled"].includes(runtime.runtime.store.getTask(task.id)!.status));
+      return runtime.runtime.store.getTask(task.id)!;
+    };
+    await submit("baseline");
+    const service = await client.request<{ id: string }>("mcp_configure", { name: "mac", cua, tool_allowlist: ["get_window_state", "type_text", "press_key", "click", "run_steps"] });
+    await client.request("mcp_check", { service_id: service.id });
+    const original = await submit("original-7", "get_window_state", { pid: 42, window_id: 7, include_screenshot: false }, "reused-obs");
+    const originalOp = runtime.runtime.store.listToolOpsByTask(original.id).find(op => op.toolName === "mcp__mac__get_window_state")!;
+    const driver = await runtime.runtime["getDriver"](runtime.runtime.store.getSession(sessionId)!);
+    const results = () => parseSessionFile(runtime.runtime.store.getSession(sessionId)!.sessionFile!).filter(entry => entry.type === "message" && (entry.message as { role?: string }).role === "toolResult");
+    assert.ok(results().some(entry => (entry.message as { ruukotoToolOpId?: string }).ruukotoToolOpId === originalOp.id));
+    for (const [key, requestedWindow, returnedWindow, callId, failAfterMemory] of [
+      ["missing-8", 8, 8, "reused-obs", false],
+      ["missing-9", 9, 9, "unique-obs", false],
+      ["missing-11", 10, 11, "reused-obs", true],
+    ] as const) {
+      const manager = driver["sdk"]!.sessionManager;
+      const append = manager.appendMessage.bind(manager), persist = manager._persist.bind(manager);
+      let injected = false;
+      const matches = (message: unknown) => JSON.stringify(message).includes(`Window ${returnedWindow}`);
+      if (failAfterMemory) manager._persist = entry => {
+        if (!injected && entry.type === "message" && matches(entry.message)) { injected = true; throw new Error("fixture JSONL persist failed after memory append"); }
+        persist(entry);
+      };
+      else manager.appendMessage = message => {
+        if (!injected && message.role === "toolResult" && matches(message.content)) { injected = true; throw new Error("fixture observation append failed"); }
+        return append(message);
+      };
+      let failed: Task;
+      try { failed = await submit(key, "get_window_state", { pid: 42, window_id: requestedWindow, include_screenshot: false }, callId); }
+      finally { manager.appendMessage = append; manager._persist = persist; }
+      assert.ok(injected);
+      assert.equal(failed.status, "failed");
+      const missingOp = runtime.runtime.store.listToolOpsByTask(failed.id).find(op => op.toolName === "mcp__mac__get_window_state")!;
+      assert.notEqual(missingOp.id, originalOp.id);
+      assert.ok(!results().some(entry => (entry.message as { ruukotoToolOpId?: string }).ruukotoToolOpId === missingOp.id));
+      await waitFor("unpersisted grants canceled", () => runtime.runtime["cuaManager"].pendingObservationOpIds(sessionId).length === 0);
+      await submit(`write-${key}`, "type_text", { pid: 42, window_id: returnedWindow, text: "must not send" });
+      assert.equal(sent("type_text").length, 0);
+      assert.ok(!JSON.stringify(runtime.server.calls).includes(`Window ${returnedWindow}`), "no outgoing request contains the unpersisted observation, including contaminated manager memory");
+    }
+    await submit("fresh-8", "get_window_state", { pid: 42, window_id: 8, include_screenshot: false }, "reused-obs");
+    await submit("write-fresh-8", "type_text", { pid: 42, window_id: 8, text: "allowed" });
+    assert.equal(sent("type_text").length, 1, "reuse remains valid when this result is persisted and delivered");
+    for (const key of ["shift+Right", "cmd+s", "PageDn"]) {
+      await submit(`key-${key}`, "press_key", { pid: 42, window_id: 8, key });
+    }
+    assert.deepEqual(sent("press_key").map(call => call.params.arguments.key), ["shift+Right", "cmd+s", "PageDn"], "public key forms remain unchanged on transmission");
+    await submit("bad-foreground-key", "run_steps", { pid: 42, window_id: 8, steps: [{ tool: "click", args: { element_token: "s00000008:20" } }, { tool: "press_key", args: { key: "PLUS", modifiers: ["cmd"], delivery_mode: "foreground" } }], observe: {} });
+    assert.equal(sent("run_steps").length, 0, "the invalid normalized suffix cannot execute the valid prefix");
   } finally { await runtime.shutdown(); }
 });

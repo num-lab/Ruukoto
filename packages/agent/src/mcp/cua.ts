@@ -119,9 +119,9 @@ const SHIFTED_SYMBOLS = "*+@#$%^&!?_~:|<>(){}\"";
 /** Pinned upstream keyboard.rs: modifier names used to split hotkey chords into
  *  modifiers + base key. */
 const HOTKEY_MODIFIERS = new Set(["cmd", "command", "super", "meta", "win", "shift", "option", "alt", "ctrl", "control", "fn"]);
-/** Pinned upstream keyboard.rs canonical_key_name folds: longer key names lose
+/** Public tool.rs aliases followed by keyboard.rs folds: longer key names lose
  *  spaces/underscores/hyphens, then common spellings collapse onto one name. */
-const KEY_NAME_FOLDS: Record<string, string> = { pgdn: "pagedown", pgdown: "pagedown", pgup: "pageup", arrowleft: "left", leftarrow: "left", arrowright: "right", rightarrow: "right", arrowup: "up", uparrow: "up", arrowdown: "down", downarrow: "down", forwarddelete: "forward_delete", fwddelete: "forward_delete", deleteforward: "forward_delete", bksp: "backspace", escape: "escape", kpenter: "enter", numpadenter: "enter" };
+const KEY_NAME_FOLDS: Record<string, string> = { pgdn: "pagedown", pgdown: "pagedown", pagedn: "pagedown", pgup: "pageup", arrowleft: "left", leftarrow: "left", arrowright: "right", rightarrow: "right", arrowup: "up", uparrow: "up", arrowdown: "down", downarrow: "down", forwarddelete: "forward_delete", fwddelete: "forward_delete", deleteforward: "forward_delete", bksp: "backspace", escape: "escape", kpenter: "enter", numpadenter: "enter" };
 /** Pinned upstream keyboard.rs key_name_to_code: every canonical name that
  *  resolves to a key code. */
 const KEY_CODE_NAMES = new Set(["return", "enter", "tab", "space", "delete", "backspace", "escape", "esc", "command", "cmd", "super", "meta", "win", "shift", "capslock", "option", "alt", "control", "ctrl", "fn", "home", "pageup", "del", "forward_delete", "end", "pagedown", "left", "left_arrow", "right", "right_arrow", "down", "down_arrow", "up", "up_arrow", "f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9", "f10", "f11", "f12", "a", "s", "d", "f", "h", "g", "z", "x", "c", "v", "b", "q", "w", "e", "r", "y", "t", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "=", "-", "]", "o", "u", "[", "i", "p", "l", "j", "'", "k", ";", "\\", ",", "/", "n", "m", ".", "`"]);
@@ -287,14 +287,23 @@ function checkKeyChord(keys: string[], background: boolean, at: string, fail: Ch
   if (!nonModifiers.length) throw fail(`${at} 的 keys 需要至少一个非修饰键（如 ["cmd","c"] 中的 "c"）`);
   const key = nonModifiers[nonModifiers.length - 1]!;
   // Only PID-routed background delivery uses press_key's Shift+= remap.
-  if (background) checkKeyName(key, at, fail);
-  else if (!keyNameValid(key)) throw fail(`${at} 的键名 "${key}" 不是钉版驱动可识别的按键`);
+  if (!(background && (key === "+" || key.toLowerCase() === "plus")) && !keyNameValid(key)) throw fail(`${at} 的键名 "${key}" 不是钉版驱动可识别的按键`);
 }
 
-/** press_key check (pinned press_key.rs/keyboard.rs): "+" and "plus" remap to
- *  Shift+= and are always valid; every other key name must resolve. */
-function checkKeyName(key: string, at: string, fail: CheckFail): void {
-  if (key !== "+" && key.toLowerCase() !== "plus" && !keyNameValid(key)) throw fail(`${at} 的键名 "${key}" 不是钉版驱动可识别的按键`);
+/** Derive only the public tool.rs normalized key, after batch rewriting.
+ *  Keep the submitted chord/modifiers unchanged for consent and transmission. */
+function checkKeyName(rawKey: string, args: Record<string, unknown>, foreground: boolean, at: string, fail: CheckFail): void {
+  let key = rawKey.trim();
+  if ([...key].length > 1 && key.includes("+") && !key.endsWith("+")) {
+    const parts = key.split("+").map(part => part.trim());
+    if (parts.every(part => part.length > 0)) key = parts.at(-1)!;
+  }
+  const desktop = args.scope === "desktop" && args.pid === undefined && args.window_id === undefined;
+  const pixelFocus = typeof args.x === "number" && typeof args.y === "number";
+  // Window press_key remaps exact +/plus before dispatch; uppercase PLUS
+  // needs PID delivery (also used after a foreground pixel-focus click).
+  const plus = !desktop && (key === "+" || key === "plus" || ((!foreground || pixelFocus) && key.toLowerCase() === "plus"));
+  if (!plus && !keyNameValid(key)) throw fail(`${at} 的键名 "${rawKey}" 在该投递路径下不可识别；请使用标准键名，窗口放大可用 "+" 或 "plus"`);
 }
 
 /** click action check (pinned click.rs validate_click_action): element targets
@@ -315,7 +324,7 @@ function checkStepSemantics(tool: string, args: Record<string, unknown>, deliver
   if (effective === "hotkey") checkKeyChord(args.keys as string[], (args.delivery_mode ?? deliveryMode) !== "foreground", at, batchError);
   else if (effective === "press_key") {
     const key = tool === "hotkey" ? (args.keys as string[])[0] : args.key;
-    if (typeof key === "string") checkKeyName(key, at, batchError);
+    if (typeof key === "string") checkKeyName(key, args, (args.delivery_mode ?? deliveryMode) === "foreground", at, batchError);
   }
   if (tool === "click") checkClickAction(args, at, batchError);
 }
@@ -381,12 +390,14 @@ export function cuaBatchArguments(config: CuaConfig, allowlist: readonly McpAllo
  *  parse error reports them better than a guess. */
 function checkStandaloneSemantics(name: string, args: Record<string, unknown>): void {
   const fail: CheckFail = message => new McpError("cua_parameter_denied", `参数无效：${message}；该请求未发送。`);
+  const delivery = Object.hasOwn(args, "delivery_mode") ? args.delivery_mode : args.dispatch;
+  const foreground = typeof delivery === "string" && delivery.toLowerCase() === "foreground";
   if (name === "hotkey") {
     const keys = args.keys;
     const desktop = args.scope === "desktop" && args.pid === undefined && args.window_id === undefined;
-    if (Array.isArray(keys) && keys.every(key => typeof key === "string")) checkKeyChord(keys as string[], args.delivery_mode !== "foreground" && !desktop, name, fail);
+    if (Array.isArray(keys) && keys.every(key => typeof key === "string")) checkKeyChord(keys as string[], !foreground && !desktop, name, fail);
   } else if (name === "press_key") {
-    if (typeof args.key === "string") checkKeyName(args.key, name, fail);
+    if (typeof args.key === "string") checkKeyName(args.key, args, foreground, name, fail);
   } else if (name === "click") {
     checkClickAction(args, name, fail);
   } else if (name === "get_window_state" && args.include_screenshot === false && args.include_accessibility_tree === false) {

@@ -358,3 +358,44 @@ test("Cua hotkey plus follows background versus foreground/global delivery", () 
     assert.throws(() => cuaArguments(MAC(), "run_steps", { ...batch, delivery_mode: "background", steps: [{ tool: "hotkey", args: { keys, delivery_mode: "foreground" } }] }, ALLOW), (error: unknown) => error instanceof McpError && error.code === "cua_batch_invalid");
   }
 });
+
+test("Cua public key normalization preserves valid chords and raw parameters", () => {
+  for (const key of ["shift+Right", "cmd+s", "PageDn", " Page_Down ", "ctrl + shift + Right"]) {
+    const args = { pid: 42, window_id: 7, key, modifiers: ["option"] };
+    assert.deepEqual(cuaArguments(MAC(), "press_key", args), args);
+  }
+  assert.doesNotThrow(() => cuaArguments(MAC(), "hotkey", { keys: ["cmd", "PageDn"] }));
+  for (const key of ["cmd++", "cmd+ +s", "cmd+"]) {
+    assert.throws(() => cuaArguments(MAC(), "press_key", { key }), (error: unknown) => error instanceof McpError && error.code === "cua_parameter_denied");
+  }
+});
+
+test("Cua press_key plus validation follows exact normalization and delivery route", () => {
+  const denied = (args: Record<string, unknown>) => assert.throws(() => cuaArguments(MAC(), "press_key", args), (error: unknown) => error instanceof McpError && error.code === "cua_parameter_denied");
+  const window = { pid: 42, window_id: 7, modifiers: ["cmd"] };
+  for (const key of ["+", "plus", " PLUS ", "cmd+PLUS"]) {
+    assert.doesNotThrow(() => cuaArguments(MAC(), "press_key", { ...window, key, delivery_mode: "background" }));
+    assert.doesNotThrow(() => cuaArguments(MAC(), "press_key", { ...window, key, delivery_mode: "foreground", x: 1, y: 2 }));
+    denied({ scope: "desktop", key, modifiers: ["cmd"] });
+  }
+  for (const key of ["+", "plus", "cmd+plus"]) assert.doesNotThrow(() => cuaArguments(MAC(), "press_key", { ...window, key, delivery_mode: "foreground" }));
+  for (const delivery_mode of ["foreground", "FOREGROUND"]) denied({ ...window, key: "PLUS", delivery_mode });
+  denied({ ...window, key: "PLUS", dispatch: "FOREGROUND" });
+  assert.doesNotThrow(() => cuaArguments(MAC(), "press_key", { ...window, key: "PLUS", dispatch: "foreground", delivery_mode: "background" }));
+  assert.doesNotThrow(() => cuaArguments(MAC(), "press_key", { ...window, key: "PLUS", delivery_mode: " foreground " }));
+  assert.throws(() => cuaArguments(MAC(), "hotkey", { ...window, keys: ["cmd", "+"], delivery_mode: "FOREGROUND" }), (error: unknown) => error instanceof McpError && error.code === "cua_parameter_denied");
+});
+
+test("Cua batch validates the normalized key after rewriting without changing its allowlist", () => {
+  const batch = (args: Record<string, unknown>, delivery_mode = "foreground") => ({ ...VALID_BATCH(), delivery_mode, steps: [{ tool: "click", args: { element_token: "s00000001:14" } }, { tool: "press_key", args }] });
+  const denied = (args: Record<string, unknown>) => assert.throws(() => cuaArguments(MAC(), "run_steps", args, ALLOW), (error: unknown) => error instanceof McpError && error.code === "cua_batch_invalid");
+  denied(batch({ key: "PLUS", modifiers: ["cmd"] }));
+  denied(batch({ key: "PLUS", modifiers: ["cmd"], delivery_mode: "foreground" }, "background"));
+  for (const args of [{ key: "+", modifiers: ["cmd"] }, { key: "plus", modifiers: ["cmd"] }, { key: "PLUS", modifiers: ["cmd"], x: 1, y: 2 }, { key: "PLUS", modifiers: ["cmd"], delivery_mode: "background" }, { key: "shift+Right" }, { key: "PageDn" }]) {
+    const sent = cuaArguments(MAC(), "run_steps", batch(args), ALLOW);
+    assert.deepEqual(sent.steps, batch(args).steps);
+  }
+  assert.doesNotThrow(() => cuaArguments(MAC(), "run_steps", batch({ key: "PLUS" }), ALLOW));
+  assert.throws(() => cuaArguments(MAC(), "run_steps", batch({ key: "PLUS" }), ALLOW.filter(name => name !== "type_text")), (error: unknown) => error instanceof McpError && error.code === "cua_batch_invalid");
+  assert.doesNotThrow(() => cuaArguments(MAC(), "run_steps", batch({ key: "cmd+PLUS" }, "background"), ALLOW.filter(name => name !== "type_text")));
+});

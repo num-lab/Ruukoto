@@ -11,7 +11,7 @@ import { ownerQuestionTaskEligible } from "@ruukoto/core/owner-questions.ts";
 import type { ArtifactStore } from "../artifacts.ts";
 import { prepareMacosStdioExecution, stopMacosExecution } from "../execution/native-macos-identity.ts";
 import { cuaActionNeed, cuaArguments, cuaBatchPlan, cuaProgram, cuaToolEffect } from "./cua.ts";
-import { clearObservationGrant, cuaObservationBlocked, deliverCuaObservations, dropObservationGrant, freshCuaGrants, invalidateCuaSnapshots, requireCuaEligibility, revokeActionable, type CuaGrants, type CuaObservationProjection } from "./cua-observation.ts";
+import { clearObservationGrant, cuaObservationBlocked, deliverCuaObservations, dropObservationBase, dropObservationGrant, freshCuaGrants, invalidateCuaSnapshots, requireCuaEligibility, revokeActionable, type CuaGrants, type CuaObservationProjection } from "./cua-observation.ts";
 import { connectMcpStdio, createMcpStdioTransport, McpError, mcpResponseEnded, type ManagedMcpTransport, type McpCallBinding, type McpCallHooks, type McpConnection, type McpTimeouts, type CallToolResult } from "./transport.ts";
 import type { McpServiceConfig, McpStore } from "./store.ts";
 import { formatMcpResult, type McpToolInfo } from "./tools.ts";
@@ -290,7 +290,8 @@ export class CodeCuaManager {
   }
 
   /**
-   * After persistence and formatting, queue positive observation metadata.
+   * After host-result persistence and formatting, queue observation metadata;
+   * session-history persistence is checked separately before activation.
    * Eligibility uses the final outgoing projection, not this formatted view,
    * and activates only once the result truly enters a model request
    * (deliverObservations): a same-group tool call cannot authorize its own
@@ -299,7 +300,7 @@ export class CodeCuaManager {
    * get_desktop_state establish grants; images in write results and
    * verify_state predicate results are not executable observations.
    */
-  recordObservation(opId: string, callId: string, remoteName: string, result: CallToolResult, delivered: { content: { type: string; text?: string; ruukotoMediaRef?: unknown }[]; truncated?: boolean }, modelSeesImages: boolean): void {
+  recordObservation(opId: string, remoteName: string, result: CallToolResult, delivered: { content: { type: string; text?: string; ruukotoMediaRef?: unknown }[]; truncated?: boolean }, modelSeesImages: boolean): void {
     const operation = this.store.getToolOp(opId)?.mcp;
     if (!operation || operation.state !== "finished" || operation.execution?.executionId !== this.binding?.execution.executionId) throw new McpError("cua_observation_invalid", "新观察与电脑执行不匹配；停止操作并报告拥有者核实。");
     const binding = this.binding!, grants = binding.grants;
@@ -322,10 +323,10 @@ export class CodeCuaManager {
     if (remoteName === "get_window_state") {
       const key = state ? stateKey(state) : undefined;
       if (state) invalidateCuaSnapshots(grants, state);
-      if (state && key && !cuaObservationBlocked(state)) grants.pending.push({ callId, kind: "window", key, state, text, image, truncated });
+      if (state && key && !cuaObservationBlocked(state)) grants.pending.push({ opId, kind: "window", key, state, text, image, truncated });
       else dropObservationGrant(grants, state ? { pid: state.pid, window_id: state.window_id } : args);
     } else if (remoteName === "get_desktop_state") {
-      grants.pending.push({ callId, kind: "desktop", ok: image && !cuaObservationBlocked(state) });
+      grants.pending.push({ opId, kind: "desktop", ok: image && !cuaObservationBlocked(state) });
     } else if (remoteName === "run_steps") {
       const observation = state?.observation;
       const inner = observation && typeof observation === "object" && (observation as { ok?: unknown }).ok === true ? (observation as { state?: unknown }).state : undefined;
@@ -333,17 +334,28 @@ export class CodeCuaManager {
       // Trailing observation unusable (failed, missing or unattributable):
       // dispatch already revoked actionable grants; drop the diff baseline too.
       if (key) invalidateCuaSnapshots(grants, inner as Record<string, unknown>);
-      if (key && !cuaObservationBlocked(inner as Record<string, unknown>)) grants.pending.push({ callId, kind: "window", key, state: inner as Record<string, unknown>, text, image, truncated });
+      if (key && !cuaObservationBlocked(inner as Record<string, unknown>)) grants.pending.push({ opId, kind: "window", key, state: inner as Record<string, unknown>, text, image, truncated });
       else dropObservationGrant(grants, key ? { pid: (inner as Record<string, unknown>).pid, window_id: (inner as Record<string, unknown>).window_id } : args);
     } else if (cuaToolEffect(binding.service.cua!, remoteName) === "write") {
-      grants.pending.push({ callId, kind: "windowHint", need: cuaActionNeed(args) });
+      grants.pending.push({ opId, kind: "windowHint", need: cuaActionNeed(args) });
     }
   }
 
-  /** Activate grants only once the observation actually enters a later model
-   *  request (applied in call order). */
-  deliverObservations(sessionId: string, delivered: ReadonlyMap<string, CuaObservationProjection>): void {
-    if (this.binding?.sessionId === sessionId) deliverCuaObservations(this.binding.grants, delivered);
+  pendingObservationOpIds(sessionId: string): string[] {
+    return this.binding?.sessionId === sessionId ? this.binding.grants.pending.map(pending => pending.opId) : [];
+  }
+
+  /** Join only this host operation's persisted result and outgoing projection;
+   *  SDK call ids may repeat across tasks. Missing history cancels pending effects. */
+  deliverObservations(sessionId: string, delivered: ReadonlyMap<string, CuaObservationProjection>, recordedOpIds: ReadonlySet<string>): void {
+    if (this.binding?.sessionId !== sessionId) return;
+    for (const pending of [...this.binding.grants.pending]) {
+      if (recordedOpIds.has(pending.opId)) continue;
+      const operation = this.store.getToolOp(pending.opId)?.mcp;
+      if (!operation || "transport" in operation) throw new McpError("cua_observation_invalid", "电脑观察的宿主操作记录缺失或类型不匹配；停止操作并报告拥有者核实存储。");
+      this.observationDeliveryFailed(pending.opId, operation.rawTool.name);
+    }
+    deliverCuaObservations(this.binding.grants, delivered);
   }
 
   /** An observation call returned upstream but its result could not be
@@ -353,9 +365,16 @@ export class CodeCuaManager {
   observationDeliveryFailed(opId: string, remoteName: string): void {
     const operation = this.store.getToolOp(opId)?.mcp;
     if (!operation || operation.execution?.executionId !== this.binding?.execution.executionId) return;
+    const grants = this.binding!.grants;
+    const pending = grants.pending.filter(entry => entry.opId === opId);
+    grants.pending = grants.pending.filter(entry => entry.opId !== opId);
+    for (const entry of pending) {
+      if (entry.kind === "window") dropObservationBase(grants, entry.key);
+      else if (entry.kind === "desktop") clearObservationGrant(grants, "get_desktop_state", {});
+    }
     const args = ((operation as McpOperation).arguments ?? {}) as Record<string, unknown>;
-    if (remoteName === "get_window_state" || remoteName === "run_steps") dropObservationGrant(this.binding!.grants, args);
-    else if (remoteName === "get_desktop_state") clearObservationGrant(this.binding!.grants, remoteName, args);
+    if (remoteName === "get_window_state" || remoteName === "run_steps") dropObservationGrant(grants, args);
+    else if (remoteName === "get_desktop_state") clearObservationGrant(grants, remoteName, args);
   }
 
   async stop(expectedServiceId?: string): Promise<CodeCuaStatus> {

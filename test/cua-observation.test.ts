@@ -257,7 +257,7 @@ test("观察资格：行标记与上游 `- [N] ` 同形，变体形态不算交�
 test("观察资格：授权只在观察真实进入后续模型请求后激活，同组工具不自我授权", () => {
   const grants = freshCuaGrants();
   // Formatter-time observations stay pending until a later request delivers them.
-  grants.pending.push({ callId: "obs-call", kind: "window", key: "42:7", state: state(), text: TREE_TEXT, image: false, truncated: false });
+  grants.pending.push({ opId: "obs-call", kind: "window", key: "42:7", state: state(), text: TREE_TEXT, image: false, truncated: false });
   denied(grants, "click", { pid: 42, window_id: 7, element_token: "s00000001:14" }, "同组返回的观察不能授权同组写");
 
   deliverCuaObservations(grants, new Map([["unrelated-call", { text: "done", image: false }]]));
@@ -278,14 +278,14 @@ test("CUA revocations cancel pending-only observations without touching other wi
     (grants: ReturnType<typeof freshCuaGrants>) => revokeActionable(grants, "42:7"),
   ]) {
     const grants = freshCuaGrants();
-    for (const key of ["42:7", "42:8"]) grants.pending.push({ callId: key, kind: "window", key, state: state(), text: TREE_TEXT, image: false, truncated: false });
+    for (const key of ["42:7", "42:8"]) grants.pending.push({ opId: key, kind: "window", key, state: state(), text: TREE_TEXT, image: false, truncated: false });
     revoke(grants);
-    assert.deepEqual(grants.pending.map(pending => pending.callId), ["42:8"]);
+    assert.deepEqual(grants.pending.map(pending => pending.opId), ["42:8"]);
     deliverCuaObservations(grants, new Map([["42:7", { text: TREE_TEXT, image: false }]]));
     denied(grants, "type_text", { pid: 42, window_id: 7, text: "x" }, "revoked pending result cannot resurrect");
     clearObservationGrant(grants, "get_window_state", {});
     assert.equal(grants.pending.length, 0, "unattributable reread cancels every pending window");
-    grants.pending.push({ callId: "42:8", kind: "window", key: "42:8", state: state(), text: TREE_TEXT, image: false, truncated: false });
+    grants.pending.push({ opId: "42:8", kind: "window", key: "42:8", state: state(), text: TREE_TEXT, image: false, truncated: false });
     dropObservationGrant(grants, {});
     assert.equal(grants.pending.length, 0, "unattributable failure cancels pending-only windows");
   }
@@ -294,7 +294,7 @@ test("CUA revocations cancel pending-only observations without touching other wi
 test("CUA grants use the outgoing text and image projection, not the formatter view", () => {
   const grants = freshCuaGrants();
   const projected = '- [20] AXTextField "Name"\n[omitted]\n- [700] AXMenuBarItem "Sheet"';
-  grants.pending.push({ callId: "obs", kind: "window", key: "42:7", state: state(), text: TREE_TEXT, image: true, truncated: false });
+  grants.pending.push({ opId: "obs", kind: "window", key: "42:7", state: state(), text: TREE_TEXT, image: true, truncated: false });
   deliverCuaObservations(grants, new Map([["obs", { text: projected, image: false }]]));
   requireCuaEligibility(grants, "click", { pid: 42, window_id: 7, element_token: "s00000001:20" });
   denied(grants, "click", { pid: 42, window_id: 7, element_token: "s00000001:14" }, "formatter-only row is not delivered");
@@ -330,7 +330,7 @@ test("CUA empty and selector-cleared projections do not authorize focus writes",
   for (const text of ["", "[已清理 · 工具观察 · 大正文已省略，可用 history_read 读取。]"]) {
     for (const since_status of [undefined, "diff", "no_change"]) {
       const grants = freshCuaGrants();
-      grants.pending.push({ callId: "obs", kind: "window", key: "42:7", state: state({ since_status }), text: TREE_TEXT, image: true, truncated: false });
+      grants.pending.push({ opId: "obs", kind: "window", key: "42:7", state: state({ since_status }), text: TREE_TEXT, image: true, truncated: false });
       deliverCuaObservations(grants, new Map([["obs", { text, image: false }]]));
       denied(grants, "type_text", { pid: 42, window_id: 7, text: "must not send" }, "rowless projected result is not a window observation");
       assert.equal(grants.windows.get("42:7")?.base, undefined);

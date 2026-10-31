@@ -888,7 +888,7 @@ export class ToolRouter {
         result,
         originalArtifact,
       );
-      if (meta.service.cua && !formatted.isError) mcp.cua!.recordObservation(input.hostOpId, input.sdkCallId, meta.remoteName, result, formatted, (await mcp.supportsImages?.(task)) === true);
+      if (meta.service.cua && !formatted.isError) mcp.cua!.recordObservation(input.hostOpId, meta.remoteName, result, formatted, (await mcp.supportsImages?.(task)) === true);
       else if (meta.service.cua) mcp.cua!.observationDeliveryFailed(input.hostOpId, meta.remoteName);
       this.artifactRefs.set(input.hostOpId, formatted.artifactIds ?? []);
       return formatted;

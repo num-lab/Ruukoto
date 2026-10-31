@@ -29,9 +29,9 @@ export interface CuaObservationProjection { text: string; image: boolean }
 /** A recorded observation effect that only takes hold once its tool result is
  *  delivered inside a subsequent model request. */
 export type PendingObservation =
-  | { callId: string; kind: "window"; key: string; state: Record<string, unknown>; text: string; image: boolean; truncated: boolean }
-  | { callId: string; kind: "desktop"; ok: boolean }
-  | { callId: string; kind: "windowHint"; need: CuaActionNeed };
+  | { opId: string; kind: "window"; key: string; state: Record<string, unknown>; text: string; image: boolean; truncated: boolean }
+  | { opId: string; kind: "desktop"; ok: boolean }
+  | { opId: string; kind: "windowHint"; need: CuaActionNeed };
 /** Observation effects still valid for writes within this execution; rebinding,
  *  freezing, disconnecting, rereading or dispatching a batch invalidates them. */
 export interface CuaGrants { windows: Map<string, WindowGrant>; invalidated: Set<string>; desktopScreenshot: boolean; activeWindow?: string; pending: PendingObservation[] }
@@ -361,7 +361,7 @@ export function deliverCuaObservations(grants: CuaGrants, delivered: ReadonlyMap
   if (!grants.pending.length) return;
   const remaining: PendingObservation[] = [];
   for (const pending of grants.pending) {
-    const projection = delivered.get(pending.callId);
+    const projection = delivered.get(pending.opId);
     if (!projection) { remaining.push(pending); continue; }
     if (pending.kind === "window") grantWindowObservation(grants, pending.key, pending.state, projection.text, pending.image && projection.image, pending.truncated || projection.text !== pending.text);
     else if (pending.kind === "desktop") { if (pending.ok && projection.image) grants.desktopScreenshot = true; }

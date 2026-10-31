@@ -43,7 +43,7 @@ Side chat uses only its first-open frozen parent-history snapshot and subsequent
 
 Dynamic reports use `ruukoto_agent_report_context` provenance plus actual effective message references and a request binding. A custom marker alone is not consumption proof: the report body must appear in the sent request and an eligible response must follow. Different sources keep separate verification and reporting rights. Compaction, recall and branch reads use effective contributions without reviving omitted report text.
 
-Pi 1.3.0 stores system prompts and tool declarations in system entries of `TranscriptContext.messages`. Budgeting, send eligibility and request snapshots read the same final messages, including dynamically registered MCP tools. Original system entries remain in JSONL; compaction ordinals count conversation entries only. Snapshots still separate system prompt, tool definitions and conversation content; old JSONL is reconstructed read-only.
+Pi 1.3.0 stores system prompts and tool declarations in system entries of `TranscriptContext.messages`. Budgeting, send eligibility and request snapshots read the same final messages, including dynamically registered MCP tools. Original system entries remain in JSONL; compaction ordinals count conversation entries only. CUA result eligibility additionally verifies the exact persisted host-operation identity against the outgoing projection; SDK call ids are reusable, and unpersisted results require SDK rebuilding rather than using contaminated manager memory. See [tools and approvals](agent-tools.md). Snapshots still separate system prompt, tool definitions and conversation content; old JSONL is reconstructed read-only.
 
 ## Main Flows
 

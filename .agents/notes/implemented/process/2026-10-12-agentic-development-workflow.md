@@ -4,6 +4,8 @@ Status: implemented
 
 [Development standards](2026-10-31-development-standards.md) replaces local Markdown task/status configuration with GitHub Issues/native state and clarifies concise communication. It preserves independent plan/implementation review and separate engineering/product acceptance.
 
+[Issue plans and progress](2026-10-31-issue-plan-progress-separation.md) supersedes the current-body/history-comment split: the body holds the plan, while new comments record progress, evidence and handoffs.
+
 ## Problem
 
 Rules, notes, tasks and mechanical checks did not explain how a new chat finds effective requirements, which plans may change, who handles review failures, or what evidence proves completion. Stale executable-looking tasks could mislead successors. Multiple documents alone do not make a reliable handoff.

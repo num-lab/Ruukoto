@@ -52,7 +52,7 @@ Use one physical line per paragraph and editor soft wrapping (`npm run verify-md
 
 ## Knowledge And Work Tracking
 
-[development-workflow](.agents/skills/development-workflow/SKILL.md) owns Issue creation, effective requirements, handoffs and independent review. Features, behavior fixes, architecture changes and work requiring ongoing tracking or handoff need an Issue; mechanical edits need no extra ticket. Use native GitHub Issue/PR states, without local mirrors or custom status machinery.
+[development-workflow](.agents/skills/development-workflow/SKILL.md) owns Issue creation, effective requirements, handoffs and independent review. Features, behavior fixes, architecture changes and work requiring ongoing tracking or handoff need an Issue; mechanical edits need no extra ticket. Append progress updates as new Issue comments; edit the body only when the plan changes. Use native GitHub Issue/PR states, without local mirrors or custom status machinery.
 
 | Changed material | Required companion |
 | --- | --- |

@@ -19,9 +19,9 @@ MyGo has one native browser WebView per main conversation. Go's `browser.Manager
 | --- | --- |
 | Spotlight, `⌘K` / search icon | Search this instance's workspace conversation titles and message bodies; highlight and navigate |
 | Workspace sidebar | Add directories, select conversations, access mode and model |
-| Timeline | Stream input, thinking, tools and question cards; completed Agent messages offer copy/branch; branches restore source-task traces |
-| Composer | Grows to at most one third of window height; steering targets the running task's next boundary |
-| Queue above composer | Move input up/down with mouse or keyboard, turn it into guidance and announce position |
+| Timeline | Stream input, thinking, tools and question cards; completed Agent messages offer copy/branch; branches restore source-task traces; the server-selected latest recallable owner message offers recall and restores text/attachments to this client's draft |
+| Composer | Grows to at most one third of window height; steering targets the running task's next boundary; post-interrupt input is an ordinary new task |
+| Queue above composer | Shares the composer surface; drag or use arrow keys to reorder, turn input into guidance, retrieve any eligible unstarted message and announce position |
 | Inspector sidebar | Diffs, SubAgent progress, Git graph, read-only files and background logs |
 | Terminal drawer | xterm.js terminal in the selected workspace |
 | Code/PA Skills settings | Read-only paged catalog and diagnostics from that backend account's `$HOME/.agents/skills/` |
@@ -41,7 +41,9 @@ stateDiagram-v2
   failed --> [*]
 ```
 
-Coding state binds to local `controlDir` and `ViewState`; drafts stay client-side. Personal state binds to the remote HTTPS origin and WSS protocol, with pairing credentials protected by OS storage.
+Coding state binds to local `controlDir` and `ViewState`; drafts stay client-side. Queued retrieval saves its original request key before sending and restores text/attachments from that receipt independently of historical edit pause. It preserves the remaining queue and current execution. Original pending continue/old-answer requests remain inspectable under their original instance without conversion or replay.
+
+Question cards stay at their original `ask_user` operation, including repeated batches in one task. Answers return receipts for that task; closing a card window does not cancel it. The activity indicator shows pending-answer waiting. Interruption persists an owner pause; resume confirms retained stopping separately when required. Personal state binds to the remote HTTPS origin and WSS protocol, with pairing credentials protected by OS storage.
 
 Settings drafts and original MCP calls are separate reads. Personal ordinary tools have owner-selected disallowed/read/write/unknown-effect states; new allowed tools and migrated ordinary tools default to unknown. The explicit v4 migration preserves service and credential references plus history; original computer recovery remains available.
 
@@ -100,7 +102,7 @@ There is no separate public begin-recovery action. Old recovery-started records 
 
 - Rendering has no arbitrary filesystem/process access; the host/preload mediates operations.
 - Pairing secrets use OS-protected storage rather than plaintext client configuration.
-- Closing/crashing the desktop does not cancel backend Coding work; reopening recovers progress.
+- Closing/crashing the desktop does not cancel backend Coding work or question waits; reopening recovers progress. Backend restart instead interrupts the task and makes unanswered questions stale.
 - Manual MCP finalization preserves original uncertainty and is distinct from computer-stop verification/image acceptance.
 - Lost write responses are resolved from original records, not automatic resubmission. Incomplete or failed fresh-image display cannot authorize recovery.
 
@@ -114,3 +116,5 @@ There is no separate public begin-recovery action. Old recovery-started records 
 - [Home skills discovery](../../.agents/notes/implemented/simplification/2026-10-28-home-skills-discovery.md)
 - [Mcp host responsibilities](../../.agents/notes/implemented/simplification/2026-10-26-mcp-host-responsibilities.md)
 - [Desktop personal direct save](../../.agents/notes/implemented/simplification/2026-10-28-desktop-personal-direct-save.md)
+- [Coding user queue](../../.agents/notes/implemented/feature/2026-10-30-coding-user-queue.md)
+- [Same-task owner questions](../../.agents/notes/implemented/feature/2026-10-30-coding-owner-question-wait.md)

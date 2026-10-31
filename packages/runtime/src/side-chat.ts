@@ -12,7 +12,7 @@ import { createHash, randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { checkpointFingerprint } from "@ruukoto/agent/compaction.ts";
-import { branchHistoryBytes, emptyHistoryBytes, prepareSessionHistoryFile } from "@ruukoto/agent/session-factory.ts";
+import { effectiveBranchHistoryBytes, emptyHistoryBytes, prepareSessionHistoryFile } from "@ruukoto/agent/session-factory.ts";
 import { parseTodos } from "@ruukoto/agent/todo.ts";
 import type { AccessScope } from "@ruukoto/core/access.ts";
 import { RuntimeApiError } from "@ruukoto/core/api-error.ts";
@@ -81,14 +81,15 @@ function buildReceipt(deps: SideChatDeps, source: Session, snapshot: ReturnType<
     createRequestId: requestId,
     queueState: "active",
     queuePauseReason: null,
+    queueRevision: 0,
     archivedAt: null,
     createdAt: now,
   };
   session.sessionFile = path.join(deps.sessionsDir, `${now.replace(/[:.]/g, "-")}_${session.piSessionId}.jsonl`);
   const prefix = snapshot
-    ? { file: snapshot.file, dev: snapshot.dev, ino: snapshot.ino, byteLimit: snapshot.byteLimit, fingerprint: snapshot.fingerprint }
-    : { file: null, dev: 0, ino: 0, byteLimit: 0, fingerprint: "" };
-  const bytes = snapshot ? branchHistoryBytes(session, readHistoryPrefix(source.sessionFile!, prefix)) : emptyHistoryBytes(session);
+    ? { file: snapshot.file, dev: snapshot.dev, ino: snapshot.ino, byteLimit: snapshot.byteLimit, fingerprint: snapshot.fingerprint, cutEntryId: snapshot.cutEntryId }
+    : { file: null, dev: 0, ino: 0, byteLimit: 0, fingerprint: "", cutEntryId: null };
+  const bytes = snapshot ? effectiveBranchHistoryBytes(session, readHistoryPrefix(source.sessionFile!, prefix), snapshot.cutEntryId) : emptyHistoryBytes(session);
   const messages = snapshot ? snapshot.entries.filter(e => e.type === "message").map(e => e.message) : [];
   const cp = deps.store.getActiveCheckpoint(source.id);
   const ids = new Set(snapshot?.entries.map(entry => entry.id) ?? []);

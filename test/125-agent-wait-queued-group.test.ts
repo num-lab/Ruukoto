@@ -12,7 +12,7 @@ test("已排队单目标补报仍受父轮等待闭包约束：拥有者先处�
   let phase = 0, firstId = "", secondId = "", canonicalId = "", summaryCalls = 0;
   const t = await startTestRuntime("wait-queued-group", async request => {
     const input = lastUserText(request);
-    if (input === "父轮") {
+    if (input === "父轮" || input.startsWith("[后台报告")) {
       if (phase++ === 0) return { kind: "tool_calls", calls: [{ id: "first", name: "workflow_start", arguments: { title: "后台处理", key: "first", input: null,
         script: 'return await agent("result",{request:"FIRST_CHILD",tools:[]});' } }] };
       if (phase === 2) {
@@ -45,8 +45,9 @@ test("已排队单目标补报仍受父轮等待闭包约束：拥有者先处�
     const original = t.runtime.store.getTask(canonicalId)!;
     const firstConsumption = listAgentReports(t.runtime.store).find(report => report.target.kind === "workflow" && report.target.runId === firstId)!.consumption;
     assert.equal(firstConsumption?.taskId, parent.id);
-    const owner = await t.runtime.submit({ sessionId: session.id, requestId: "owner", input: "新输入", modelSelection: t.runtime.defaultSelection });
-    await waitFor("拥有者在未完成组前先结束", () => t.runtime.store.getTask(owner.id)?.status === "completed");
+    const owner = await t.runtime.submit({ sessionId: session.id, requestId: "owner", input: "新输入", guidance: true, modelSelection: t.runtime.defaultSelection });
+    await waitFor("guidance ends the waiting parent before the remaining group finishes", () => t.runtime.store.getTask(parent.id)?.status === "completed");
+    assert.equal(t.runtime.store.getTaskGuidance(owner.id)?.state, "joined");
     assert.equal(summaryCalls, 0); assert.equal(t.runtime.store.getTask(canonicalId)?.status, "queued");
     assert.equal(isAgentReportParked(t.runtime.store, canonicalId), true); assert.equal(t.runtime.getTaskDetail(canonicalId)!.task.reportParked, true);
     releaseChild();
@@ -60,9 +61,9 @@ test("已排队单目标补报仍受父轮等待闭包约束：拥有者先处�
     assert.deepEqual(reports.find(report => report.target.kind === "workflow" && report.target.runId === firstId)!.consumption, firstConsumption);
     assert.equal(t.runtime.readTaskReply(canonicalId)!.text, "唯一组汇总");
     assert.equal(t.runtime.store.listTasksBySession(session.id).filter(task => t.runtime.getTaskDetail(task.id)!.task.inputPurpose === "internal_report").length, 1);
-    const record = fs.readFileSync(t.runtime.store.getSession(session.id)!.sessionFile!, "utf8").split("\n").filter(Boolean).map(line => JSON.parse(line) as { customType?: string; data?: { reportKeys: string[]; text: string } });
-    const marker = record.find(entry => entry.customType === "ruukoto_agent_report_context")!;
+    const record = fs.readFileSync(t.runtime.store.getSession(session.id)!.sessionFile!, "utf8").split("\n").filter(Boolean).map(line => JSON.parse(line) as { customType?: string; data?: { reportKeys?: string[]; text?: string; requestBinding?: boolean } });
+    const marker = record.find(entry => entry.customType === "ruukoto_agent_report_context" && !entry.data?.requestBinding && entry.data?.reportKeys?.length === reports.length)!;
     assert.deepEqual(new Set(marker.data!.reportKeys), new Set(reports.map(report => report.key)));
-    for (const run of listWorkflowRuns(t.runtime.store)) assert.ok(marker.data!.text.includes(run.id));
+    for (const run of listWorkflowRuns(t.runtime.store)) assert.ok(marker.data!.text!.includes(run.id));
   } finally { releaseChild(); await t.shutdown(); }
 });

@@ -25,11 +25,11 @@ function task(): TaskView { return { id: "task", sessionId: "session", requestId
 async function settle(): Promise<void> { for (let index = 0; index < 3; index++) await new Promise<void>(resolve => setImmediate(resolve)); }
 function harness(options: { lose?: boolean; lostOutcome?: "unknown" | "disconnected"; holdCancel?: Promise<void>; pending?: PendingRequestStore } = {}) {
   const pending = options.pending ?? new PendingRequestStore(fs.mkdtempSync(path.join(os.tmpdir(), "owner-question-client-")));
-  let question: OwnerQuestionView = { id: "question", sessionId: session.id, taskId: "source", version: 1, status: "pending", questions: [{ question: "选择做法", options: ["甲", "乙"] }, { question: "补充说明" }], createdAt: at };
+  let question: OwnerQuestionView = { id: "question", sessionId: session.id, taskId: "source", hostOpId: "question-op", version: 1, status: "pending", questions: [{ question: "选择做法", options: ["甲", "乙"] }, { question: "补充说明" }], createdAt: at };
   let receipt: ReturnType<typeof receiptFor> | null = null;
   let committedParams: unknown;
   let consumed = 0;
-  function receiptFor(operation: "owner_question_answer" | "owner_question_cancel", requestKey: string) { return { operation, questionId: question.id, sessionId: session.id, requestKey, digest: "digest", question, ...(operation === "owner_question_answer" ? { taskId: "task" } : {}) }; }
+  function receiptFor(operation: "owner_question_answer" | "owner_question_cancel", requestKey: string) { return { operation, questionId: question.id, sessionId: session.id, requestKey, digest: "digest", question, ...(operation === "owner_question_answer" ? { taskId: "source" } : {}) }; }
   const transport = new FakeTransport({ handlers: {
     owner_questions: () => ({ questions: [question], nextOffset: null }),
     owner_question_answer: params => {
@@ -37,14 +37,14 @@ function harness(options: { lose?: boolean; lostOutcome?: "unknown" | "disconnec
       assert.ok(saved, "发送前完整原请求已落盘"); assert.deepEqual(saved.params, params);
       if (receipt?.requestKey === params.request_id && receipt.operation === "owner_question_answer") {
         if (!isDeepStrictEqual(params, committedParams)) throw new ControlClientError("request_conflict", "同键异参", "rejected");
-        return { ...task(), requestId: params.request_id };
+        return receipt!;
       }
       if (question.status !== "pending") throw new ControlClientError("stale_answer", "已被另一客户端消费", "rejected");
       committedParams = structuredClone(params); consumed++;
-      question = { ...question, status: "answered", version: question.version + 1, answers: params.answers, continuationTaskId: "task" };
+      question = { ...question, status: "answered", version: question.version + 1, answers: params.answers };
       receipt = receiptFor("owner_question_answer", params.request_id);
       if (options.lose) throw new ControlClientError("timeout", "应答丢失", options.lostOutcome ?? "unknown");
-      return { ...task(), requestId: params.request_id };
+      return receipt!;
     },
     owner_question_cancel: async params => {
       const saved = pending.list().records.find(record => record.requestId === params.request_id); assert.ok(saved); assert.deepEqual(saved.params, params);
@@ -58,7 +58,11 @@ function harness(options: { lose?: boolean; lostOutcome?: "unknown" | "disconnec
       if (options.lose) throw new ControlClientError("timeout", "应答丢失", options.lostOutcome ?? "unknown");
       return question;
     },
-    owner_question_receipt: params => ({ receipt: receipt?.requestKey === params.request_id && receipt.operation === params.operation ? receipt : null }),
+    owner_question_receipt: params => {
+      const found = receipt?.requestKey === params.request_id && receipt.operation === params.operation ? receipt : null;
+      if (found && params.operation === "owner_question_answer" && params.question_id !== undefined && !isDeepStrictEqual({ session_id: params.session_id, question_id: params.question_id, question_version: params.question_version, request_id: params.request_id, answers: params.answers }, committedParams)) throw new ControlClientError("request_conflict", "同键异参", "rejected");
+      return { receipt: found };
+    },
     find_task: () => ({ task: task() }),
   } });
   const view = new ViewState();
@@ -141,7 +145,7 @@ test("TUI Skip 清除已有回答，末题跳过进入核对，空答案丢答�
     await h.panel.reconnect();
     assert.equal(h.pending.list().records.length, 0); assert.equal(h.consumed, 1);
     const requests = h.transport.requests.filter(request => request.op === "owner_question_answer");
-    assert.equal(requests.length, 2);
+    assert.equal(requests.length, 1);
     assert.ok(requests.every(request => (request.params as { request_id: string }).request_id === original.requestId));
     assert.equal((h.draw().match(/已跳过/g) ?? []).length, 2);
   } finally { fs.rmSync(h.pending.dir, { recursive: true, force: true }); }
@@ -213,7 +217,7 @@ test("Desktop 回答应答丢失后恢复原回执，双窗口只有一份续接
     await h.questions.send(h.question); await h.submissions.reconcile();
     for (const update of h.updates) h.questions.update(update);
     assert.equal(h.pending.list().records.length, 0);
-    assert.equal(h.transport.requests.filter(request => request.op === "owner_question_answer").length, 2);
+    assert.equal(h.transport.requests.filter(request => request.op === "owner_question_answer").length, 1);
     const second = new DesktopQuestions(h.bridge, h.view, () => true, () => {});
     second.edit(h.view.ownerQuestions[0], "另一窗口一"); second.next(h.view.ownerQuestions[0]); second.edit(h.view.ownerQuestions[0], "另一窗口二"); second.next(h.view.ownerQuestions[0]);
     await second.send(h.view.ownerQuestions[0]);
@@ -229,7 +233,7 @@ test("Desktop 取消丢答按原取消回执核实，重复点击不入队", asy
     await Promise.all([h.questions.send(h.question, true), h.questions.send(h.question, true)]);
     await h.submissions.reconcile();
     for (const update of h.updates) h.questions.update(update);
-    assert.equal(h.question.status, "canceled"); assert.equal(h.question.continuationTaskId, undefined);
+    assert.equal(h.question.status, "canceled"); assert.equal(h.question.taskId, "source");
     assert.equal(h.pending.list().records.length, 0);
     assert.equal(h.transport.requests.filter(request => request.op === "owner_question_cancel").length, 2);
     assert.equal(h.transport.requests.some(request => request.op === "owner_question_answer"), false);
@@ -238,8 +242,8 @@ test("Desktop 取消丢答按原取消回执核实，重复点击不入队", asy
   } finally { fs.rmSync(h.pending.dir, { recursive: true, force: true }); }
 });
 
-test("Desktop 多选与 Skip 的完整原回答在丢答后恢复，只有一次续接", async () => {
-  const h = harness({ lose: true });
+test("Desktop 多选与 Skip 的完整原回答在丢答后恢复，只有一次回答接纳", async () => {
+  const h = harness({ lose: true, lostOutcome: "disconnected" });
   h.question.questions = [{ question: "交付内容", multiple: true, options: [{ label: "页面", description: "可见页面", recommended: true }, "接口", "文档"] }, { question: "补充说明" }, { question: "发布位置", options: ["本地", "共享"] }];
   try {
     h.questions.choose(h.question, [2, 0]); h.questions.next(h.question);
@@ -259,14 +263,14 @@ test("Desktop 多选与 Skip 的完整原回答在丢答后恢复，只有一次
     for (const update of h.updates) restored.update(update);
     assert.equal(h.pending.list().records.length, 0); assert.equal(h.consumed, 1);
     const requests = h.transport.requests.filter(request => request.op === "owner_question_answer");
-    assert.equal(requests.length, 2);
+    assert.equal(requests.length, 1);
     assert.ok(requests.every(request => (request.params as { request_id: string }).request_id === saved.records[0].requestId));
     assert.deepEqual(h.question.answers, expected);
   } finally { fs.rmSync(h.pending.dir, { recursive: true, force: true }); }
 });
 
 function maximalQuestion(sessionId: string, id: string, status: "pending" | "answered"): OwnerQuestionView {
-  return { id, sessionId, taskId: "source", version: status === "pending" ? 1 : 2, status,
+  return { id, sessionId, taskId: "source", hostOpId: "question-op", version: status === "pending" ? 1 : 2, status,
     questions: Array.from({ length: 3 }, (_, index) => ({ question: `完整题目${index}：` + "题".repeat(1990), options: Array.from({ length: 5 }, (_, option) => `${option}` + "选".repeat(199)) })),
     ...(status === "answered" ? { answers: Array.from({ length: 3 }, () => ({ text: "答".repeat(4096) })) } : {}), createdAt: at };
 }
@@ -315,7 +319,7 @@ for (const phase of ["sending", "disconnected"] as const) test(`Desktop main 在
   try {
     const cancel = h.submissions.cancelQuestion({ session_id: session.id, question_id: h.question.id, question_version: 1, request_id: "original-cancel" });
     await settle();
-    const second = await h.submissions.submit("owner_question_answer", { session_id: session.id, question_id: h.question.id, question_version: 1, request_id: "other-answer", answers: [{ text: "甲", option: 0 }, { text: "说明" }], model_selection: session.modelSelection });
+    const second = await h.submissions.submit("owner_question_answer", { session_id: session.id, question_id: h.question.id, question_version: 1, request_id: "other-answer", answers: [{ text: "甲", option: 0 }, { text: "说明" }] });
     assert.equal(second.kind, "pending_existing"); if (second.kind === "pending_existing") assert.equal(second.record.op, "owner_question_cancel");
     assert.equal(h.transport.requests.some(request => request.op === "owner_question_answer"), false);
     assert.deepEqual(h.pending.list().records.map(record => record.requestId), ["original-cancel"]);

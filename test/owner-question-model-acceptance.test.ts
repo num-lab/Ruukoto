@@ -6,6 +6,8 @@ import * as path from "node:path";
 import { test } from "node:test";
 import type { ModelOption } from "@ruukoto/agent/model-selection.ts";
 import { Runtime } from "@ruukoto/runtime/runtime.ts";
+import { listAgentReports } from "@ruukoto/core/agent-wait.ts";
+import { requireWorkflowRun } from "@ruukoto/core/workflow.ts";
 import { product } from "../apps/ruukoto-code/src/product.ts";
 import { waitFor } from "./helpers/testkit.ts";
 
@@ -13,7 +15,7 @@ interface AcceptanceModels {
   providers: Record<string, { models: Array<{ id: string }>; [key: string]: unknown }>;
 }
 
-test("Coding 真实模型：持久提问结束本轮，普通聊天保留问题，可信回答唯一续接并进入请求快照", {
+test("Coding real model: one Task waits, answers two batches and receives guidance cancellation", {
   skip: process.env.RUN_MODEL_CHECK !== "1" ? "真实模型仅在 RUN_MODEL_CHECK=1 时运行" : false,
   timeout: 360_000,
 }, async () => {
@@ -39,6 +41,7 @@ test("Coding 真实模型：持久提问结束本轮，普通聊天保留问题�
     { question: "请给出验收口令。" },
   ];
   const answerMarker = `OWNER_ANSWER_${randomBytes(8).toString("hex")}`;
+  const reportMarker = `REPORT_${randomBytes(8).toString("hex")}`;
   let rt: Runtime | null = null, passed = false;
   try {
     rt = await Runtime.start({ product: product.runtime, agentDir, dataDir: path.join(root, "data"), socketPath: path.join(root, "c.sock"),
@@ -54,60 +57,91 @@ test("Coding 真实模型：持久提问结束本轮，普通聊天保留问题�
     const selection = { ...rt.defaultSelection, thinkingLevel: option.thinkingLevels.includes("off") ? "off" as const : option.thinkingLevels[0] };
     const session = await rt.createSession({ projectName: "real-owner-questions", cwd: workspace });
     await rt.setSessionDefaultMode({ sessionId: session.id, expectedVersion: session.defaultAccessModeVersion, mode: "full_access" });
+    const secondQuestions = [{ question: "请再次确认验收口令。" }];
     const source = await rt.submit({ sessionId: session.id, requestId: "ask", modelSelection: selection,
-      input: `请仅调用一次 ask_user，questions 参数原样使用 ${JSON.stringify(questions)}。提交问题后立即结束本轮，不调用其他工具。收到专用问题入口的三题回答后，只回复有内容的实际答案原文，空回答保持跳过，不调用其他工具。` });
+      input: `先调用 ask_user，questions 参数原样使用 ${JSON.stringify(questions)}，等待实际回答。收到回答后再调用一次 ask_user，questions 原样使用 ${JSON.stringify(secondQuestions)}。收到第二批回答后，最终回复两批中有内容的实际答案原文，空回答保持跳过。若等待期间收到后台报告，最终回复还须原样包含报告中的验收口令。不调用其他工具。` });
     const runtime = rt;
-    await waitFor("真实提问任务终态", () => ["completed", "failed", "canceled", "interrupted"].includes(runtime.store.getTask(source.id)!.status), 100_000);
-    assert.equal(rt.store.getTask(source.id)!.status, "completed", "真实提问任务未完成，请检查保留的隔离档案");
-    const sourceOps = rt.store.listToolOpsByTask(source.id);
-    assert.equal(sourceOps.length, 1, "登记问题后须结束本轮，不继续调用业务工具");
-    assert.equal(sourceOps[0].toolName, "ask_user");
-    assert.equal(sourceOps[0].isError, false);
-    const pending = rt.listOwnerQuestions(session.id).questions;
-    assert.equal(pending.length, 1);
-    const question = pending[0];
-    assert.equal(question.status, "pending");
-    assert.deepEqual(question.questions, questions, "持久题目和选项须与真实工具输入一致");
-    assert.equal(rt.store.listAllOccupancy().length, 0, "待答问题不占工作目录");
+    const pendingQuestion = (taskId: string) => {
+      const current = runtime.store.getTask(taskId)!;
+      assert.ok(["queued", "running", "awaiting_confirmation"].includes(current.status), `Question task ended: ${current.status} ${current.errorMessage ?? current.interruptReason ?? ""}`);
+      return runtime.listOwnerQuestions(session.id).questions.filter(question => question.taskId === taskId && question.status === "pending");
+    };
+    await waitFor("first real question", () => pendingQuestion(source.id).length > 0, 100_000);
+    const question = rt.listOwnerQuestions(session.id).questions.find(question => question.taskId === source.id && question.status === "pending")!;
+    assert.equal(rt.store.getTask(source.id)!.status, "running");
+    assert.deepEqual(question.questions, questions);
+    assert.ok(rt.store.listAllOccupancy().some(occupancy => occupancy.taskId === source.id), "The waiting Task retains its execution resources");
+    const beforeAnswerRequests = rt.store.listSelectionRecordsByTask(source.id).length;
+    const reportRun = rt.workflows!.start({ sourceTaskId: source.id, requestKey: "report-during-question", input: null,
+      script: `await progress("done", {text:${JSON.stringify(reportMarker)}}); return {acceptance:${JSON.stringify(reportMarker)}};` });
+    await waitFor("report persists while original question waits", () => requireWorkflowRun(runtime.store, reportRun.id).delivery?.taskId != null);
+    assert.equal(rt.listOwnerQuestions(session.id).questions.find(item => item.id === question.id)!.status, "pending");
+    assert.equal(rt.store.listSelectionRecordsByTask(source.id).length, beforeAnswerRequests);
+    assert.equal(listAgentReports(rt.store).find(report => report.target.kind === "workflow" && report.target.runId === reportRun.id)!.consumption, null);
     const chat = await rt.submit({ sessionId: session.id, requestId: "ordinary-chat", modelSelection: selection,
-      input: "这是一条普通聊天，请只回复 OWNER_CHAT_OK，不调用工具；此前的问题继续等待专用问题入口回答。" });
-    await waitFor("待答期间真实普通聊天终态", () => ["completed", "failed", "canceled", "interrupted"].includes(runtime.store.getTask(chat.id)!.status), 100_000);
+      input: "只回复 OWNER_CHAT_OK，不调用工具。" });
+    await new Promise(resolve => setTimeout(resolve, 200));
+    assert.equal(rt.store.getTask(chat.id)!.status, "queued");
+    assert.equal(rt.store.listSelectionRecordsByTask(source.id).length, beforeAnswerRequests, "Ordinary submission does not wake an answer wait");
+    const answers = [{ text: options.join("\n"), options: [0, 1] }, { text: "" }, { text: answerMarker }];
+    const answerInput = { sessionId: session.id, questionId: question.id, version: question.version, requestId: "answer", answers };
+    const receipt = await rt.answerOwnerQuestion(answerInput), replay = await rt.answerOwnerQuestion(answerInput);
+    assert.deepEqual(replay, receipt);
+    assert.equal(receipt.taskId, source.id);
+    assert.equal(rt.store.listTasksBySession(session.id).filter(task => rt!.getTaskDetail(task.id)!.task.inputPurpose === "user").length, 2, "Answer acceptance creates no user Task");
+    await waitFor("second real question in the original Task", () => pendingQuestion(source.id).some(item => item.id !== question.id), 100_000);
+    const second = rt.listOwnerQuestions(session.id).questions.find(item => item.id !== question.id && item.taskId === source.id && item.status === "pending")!;
+    assert.deepEqual(second.questions, secondQuestions);
+    const secondMarker = `SECOND_${answerMarker}`;
+    const secondReceipt = await rt.answerOwnerQuestion({ sessionId: session.id, questionId: second.id, version: second.version,
+      requestId: "answer-two", answers: [{ text: secondMarker }] });
+    assert.equal(secondReceipt.taskId, source.id);
+    await waitFor("real answered Task completion", () => ["completed", "failed", "canceled", "interrupted"].includes(runtime.store.getTask(source.id)!.status), 100_000);
+    assert.equal(rt.store.getTask(source.id)!.status, "completed");
+    const reply = rt.readTaskReply(source.id)!.text;
+    assert.ok(reply.includes(answerMarker) && reply.includes(secondMarker) && reply.includes(reportMarker), "The real model must read both actual tool answers and the pending report");
+    await waitFor("same Task completes background report", () => requireWorkflowRun(runtime.store, reportRun.id).delivery?.status === "reported");
+    assert.equal(listAgentReports(rt.store).find(report => report.target.kind === "workflow" && report.target.runId === reportRun.id)!.consumption?.taskId, source.id);
+    assert.equal(rt.store.listToolOpsByTask(source.id).filter(op => op.toolName === "ask_user").length, 2);
+    assert.equal(rt.store.listTasksBySession(session.id).filter(task => ["answer", "answer-two"].includes(task.requestId)).length, 0);
+    assert.equal(rt.findOwnerQuestionReceipt(session.id, "answer", "owner_question_answer").receipt?.taskId, source.id);
+    await waitFor("queued ordinary chat completion", () => ["completed", "failed", "canceled", "interrupted"].includes(runtime.store.getTask(chat.id)!.status), 100_000);
     assert.equal(rt.store.getTask(chat.id)!.status, "completed");
     assert.match(rt.readTaskReply(chat.id)!.text, /OWNER_CHAT_OK/);
-    assert.equal(rt.listOwnerQuestions(session.id).questions[0].status, "pending", "普通消息不得消费问题");
-    const answers = [{ text: options.join("\n"), options: [0, 1] }, { text: "" }, { text: answerMarker }];
-    const answerInput = { sessionId: session.id, questionId: question.id, version: question.version, requestId: "answer", answers, modelSelection: selection };
-    const continued = await rt.answerOwnerQuestion(answerInput);
-    const replay = await rt.answerOwnerQuestion(answerInput);
-    assert.equal(replay.id, continued.id, "原键重试只能接回原续接任务");
-    await waitFor("真实回答续接终态", () => ["completed", "failed", "canceled", "interrupted"].includes(runtime.store.getTask(continued.id)!.status), 100_000);
-    assert.equal(rt.store.getTask(continued.id)!.status, "completed");
-    const reply = rt.readTaskReply(continued.id)!.text;
-    assert.ok(reply.includes(answers[0].text) && reply.includes(answerMarker), "真实模型须看到完整多选与实际自由文本回答");
-    const answered = rt.listOwnerQuestions(session.id).questions[0];
-    assert.equal(answered.status, "answered");
-    assert.deepEqual(answered.answers, answers);
-    assert.equal(answered.continuationTaskId, continued.id);
-    assert.equal(rt.store.listTasksBySession(session.id).filter(task => task.requestId === "answer").length, 1);
-    const receipt = rt.findOwnerQuestionReceipt(session.id, "answer", "owner_question_answer").receipt;
-    assert.ok(receipt && receipt.taskId === continued.id && receipt.question.id === question.id, "持久回执须绑定原问题与唯一续接");
+
+    const guided = await rt.submit({ sessionId: session.id, requestId: "ask-guidance", modelSelection: selection,
+      input: `调用 ask_user，questions 原样使用 ${JSON.stringify(secondQuestions)}，等待回答或取消；随后遵循最新引导，不调用其他工具。` });
+    await waitFor("real question before guidance", () => pendingQuestion(guided.id).length > 0, 100_000);
+    const canceledId = rt.listOwnerQuestions(session.id).questions.find(item => item.taskId === guided.id && item.status === "pending")!.id;
+    const guidanceMarker = `GUIDANCE_${answerMarker}`;
+    await rt.submit({ sessionId: session.id, requestId: "cancel-by-guidance", modelSelection: selection, guidance: true,
+      input: `取消刚才的问题。现在只回复 ${guidanceMarker}，不调用其他工具。` });
+    await waitFor("real guidance cancellation completion", () => ["completed", "failed", "canceled", "interrupted"].includes(runtime.store.getTask(guided.id)!.status), 100_000);
+    assert.equal(rt.store.getTask(guided.id)!.status, "completed");
+    assert.equal(rt.listOwnerQuestions(session.id).questions.find(item => item.id === canceledId)?.status, "canceled");
+    assert.match(rt.readTaskReply(guided.id)!.text, new RegExp(guidanceMarker));
+
     const current = rt.store.getSession(session.id)!;
     assert.ok(current.sessionFile);
     const history = fs.readFileSync(current.sessionFile, "utf8");
-    const snapshots = rt.store.listSelectionRecordsByTask(continued.id).filter(record => record.promptArtifactId).map(record => {
+    const snapshots = [source.id, guided.id].flatMap(taskId => rt!.store.listSelectionRecordsByTask(taskId).filter(record => record.promptArtifactId).map(record => {
       const artifact = rt!.store.getArtifact(record.promptArtifactId!)!;
       return rt!.artifacts.read(artifact.id, 0, artifact.byteCount).toString("utf8");
-    });
-    const expectedText = [...questions.map(item => item.question), ...options, "文件放在共同目录", "文件跟随各自模块", answerMarker];
-    assert.ok(expectedText.every(text => history.includes(text)), "原题与真实答案须能从 SDK JSONL 历史重建");
-    assert.ok(snapshots.some(snapshot => expectedText.every(text => snapshot.includes(text))), "实际模型请求快照须包含完整题目、选项和答案");
-    assert.ok(rt.store.getTask(continued.id)!.input.includes("可选备注。\n回答：\n\n3."), "跳题在规范化输入中保留空回答");
+    }));
+    assert.ok([answerMarker, secondMarker, guidanceMarker].every(text => history.includes(text)));
+    assert.ok(snapshots.some(snapshot => snapshot.includes(answerMarker) && snapshot.includes(secondMarker) && snapshot.includes(reportMarker)));
+    assert.ok(snapshots.some(snapshot => snapshot.includes(guidanceMarker) && snapshot.includes('canceled')));
     assert.equal(rt.store.listAllOccupancy().length, 0);
-    process.stderr.write(`[ruukoto:owner-question-model] ${selected.provider}/${selected.model.id} source=${source.id} continuation=${continued.id} receipt=true snapshots=${snapshots.length}\n`);
-    process.stderr.write(`[ruukoto:owner-question-model-evidence] ${JSON.stringify({ questions: answered.questions, answers: answered.answers, reply,
+    process.stderr.write(`[ruukoto:owner-question-model-evidence] ${JSON.stringify({ provider: selected.provider, model: selected.model.id,
+      originalTask: source.id, guidanceTask: guided.id, answerReceipts: [receipt, secondReceipt],
       snapshots: snapshots.map(snapshot => createHash("sha256").update(snapshot).digest("hex")),
-      sourceRequests: rt.store.listSelectionRecordsByTask(source.id).map(record => ({ callIndex: record.callIndex, estimates: record.estimates })),
-      answerRequests: rt.store.listSelectionRecordsByTask(continued.id).map(record => ({ callIndex: record.callIndex, estimates: record.estimates })) })}\n`);
+      requests: [source.id, guided.id].flatMap(taskId => rt!.store.listSelectionRecordsByTask(taskId).map(record => ({ taskId, callIndex: record.callIndex, estimates: record.estimates }))) })}\n`);
+    const evidenceDir = fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-issue30-after-model-evidence-"));
+    fs.writeFileSync(path.join(evidenceDir, "session.jsonl"), history);
+    for (const [index, snapshot] of snapshots.entries()) fs.writeFileSync(path.join(evidenceDir, `request-${index + 1}.json`), snapshot);
+    fs.writeFileSync(path.join(evidenceDir, "requests.json"), JSON.stringify(rt.store.listTasksBySession(session.id).flatMap(task =>
+      rt!.store.listSelectionRecordsByTask(task.id).map(record => ({ taskId: task.id, callIndex: record.callIndex, estimates: record.estimates }))), null, 2) + "\n");
+    process.stderr.write(`[ruukoto:owner-question-model-artifacts] ${evidenceDir}\n`);
     passed = true;
   } finally {
     let stopped = false;

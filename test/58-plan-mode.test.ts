@@ -216,9 +216,9 @@ test("集成：Plan 只允许普通开发会话，main 与 IM 的 /plan 是普�
   } finally { await t.shutdown(); }
 });
 
-test("集成：continue 使用当前默认或显式模式，输入和多级继续链不决定 Plan", async () => {
+test("new Tasks after pause use current or explicit Plan mode without continuation authority", async () => {
   const held: Array<() => void> = [];
-  const t = await startTestRuntime("plan-continue", async () => {
+  const t = await startTestRuntime("plan-new-task", async () => {
     await new Promise<void>((resolve) => held.push(resolve));
     return { kind: "text", text: "计划" };
   });
@@ -234,35 +234,39 @@ test("集成：continue 使用当前默认或显式模式，输入和多级继�
       held.splice(0).forEach((release) => release());
       assert.equal((await waitDone(t, task.id)).task.status, "interrupted");
     };
-    const cont = (task: any, input: string, mode?: string) => t.client.request<any>("continue", {
-      task_id: task.id, session_id: sessionId, request_id: input, input, model_selection: MODEL,
-      ...(mode ? { access_mode: mode } : {}),
-    });
+    const next = async (input: string, mode?: string) => {
+      const task = await submit(t, sessionId, input, input, mode ? { access_mode: mode } : {});
+      assert.equal(task.resumesTaskId, null);
+      assert.equal(task.status, "queued");
+      await t.client.request("resume_queue", { session_id: sessionId });
+      return task;
+    };
     await t.client.request("set_session_mode", { session_id: sessionId, mode: "plan", expected_version: 0 });
     const a = await submit(t, sessionId, "a", "长调研");
     await interrupt(a, true);
-    const b = await cont(a, "保持 Plan 继续");
+    await assert.rejects(t.client.request("continue", { task_id: a.id, session_id: sessionId, request_id: "retired", input: "old path", model_selection: MODEL }), { code: "unknown_op" });
+    const b = await next("保持 Plan 继续");
     await interrupt(b, true);
     await t.client.request("set_session_mode", { session_id: sessionId, mode: "full_access", expected_version: 1 });
-    assert.equal((await cont(a, "保持 Plan 继续")).id, b.id, "continue 重试不随默认值漂移");
-    const c = await cont(b, "切换后执行");
+    assert.equal((await submit(t, sessionId, "保持 Plan 继续", "保持 Plan 继续")).id, b.id, "original keyed submission does not change with later defaults");
+    const c = await next("切换后执行");
     assert.equal(c.accessMode, "full_access");
     await interrupt(c, false);
-    const d = await cont(c, "显式 Plan 覆盖", "plan");
+    const d = await next("显式 Plan 覆盖", "plan");
     await interrupt(d, true);
     await t.client.request("set_session_mode", { session_id: sessionId, mode: "plan", expected_version: 2 });
-    const e = await cont(c, "执行任务继续到 Plan");
+    const e = await next("执行任务继续到 Plan");
     await interrupt(e, true);
-    const f = await cont(e, "显式完全访问覆盖", "full_access");
+    const f = await next("显式完全访问覆盖", "full_access");
     await interrupt(f, false);
-    // 历史标记文本原样保留，但新任务与继续链均不从文本推导模式。
-    const old = await submit(t, sessionId, "old", "/plan 旧输入", { access_mode: "confirm" });
+    // Historical marker text stays ordinary text; it cannot select execution authority.
+    const old = await next("/plan 旧输入", "confirm");
     await interrupt(old, false);
-    const resumed = await cont(old, "旧文本继续", "confirm");
+    const resumed = await next("旧文本继续", "confirm");
     await interrupt(resumed, false);
     for (const task of [a, b, c, d, e, f, old, resumed]) {
       assert.equal(task.permissionVersion, 1);
-      assert.deepEqual((await taskStatus(t.client, task.id)).confirmations, [], "继续不继承审批");
+      assert.deepEqual((await taskStatus(t.client, task.id)).confirmations, [], "new tasks do not inherit operation approvals");
     }
   } finally {
     held.splice(0).forEach((release) => release());

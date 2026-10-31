@@ -1,28 +1,18 @@
 import type { TaskView as Task } from "@ruukoto/core/views.ts";
-/**
- * 输入提交守护：保证同一输入只对应一个后台任务（issue 04 §3）。
- *
- * 流程：生成 request_id → 原子保存待确认记录 → 原封不动发送 → 收到任务
- * ID 后清除记录。未发送或后台明确拒绝时清除记录；应答丢失（断线/超时等）
- * 时不生成新键、不盲目重发，保留"接收结果待核实"；按 session_id + request_id 精确查询核实：
- * 查到则关联原任务，明确未接收才以原键原参数重试，查询失败保留待核实。
- * 待确认记录绑定数据实例标识；实例不匹配时保留并要求拥有者处理。
- */
-
+import type { OwnerQuestionReceipt } from "@ruukoto/core/owner-questions.ts";
 import { randomId } from "@ruukoto/core/types.ts";
 import { ControlClientError, requestOutcome } from "./client.ts";
 import type { ControlConnection } from "./connection.ts";
 import type { OpParams } from "./ops.ts";
 import type { PendingRequest, PendingRequestStore } from "./pending-requests.ts";
 
-export type SubmitOutcome =
-  | { kind: "accepted"; requestId: string; task: Task }
-  /** 应答丢失：unknown = 连接仍在（可当场核实），disconnected = 等重连后核实。 */
+type SubmissionFailure =
   | { kind: "pending_verification"; requestId: string; reason: string; outcome: "unknown" | "disconnected" }
   | { kind: "rejected"; requestId: string; message: string }
   | { kind: "not_sent"; requestId: string; message: string }
   | { kind: "conflict"; requestId: string; message: string };
-
+export type SubmitOutcome = SubmissionFailure | { kind: "accepted"; requestId: string; task: Task };
+export type OwnerQuestionAnswerOutcome = SubmissionFailure | { kind: "accepted"; requestId: string; receipt: OwnerQuestionReceipt };
 export type ReconcileOutcome =
   | { kind: "linked"; requestId: string; taskId: string }
   | { kind: "resent"; requestId: string; taskId: string }
@@ -31,131 +21,85 @@ export type ReconcileOutcome =
   | { kind: "needs_resubmit"; requestId: string; params: Record<string, unknown> }
   | { kind: "foreign_instance"; requestId: string };
 
+/** Persist the original instance, key and complete parameters before any write. */
 export class SubmissionGuard {
-  constructor(
-    private readonly store: PendingRequestStore,
-    private readonly connection: Pick<ControlConnection, "request" | "instanceId">,
-  ) {}
+  constructor(private readonly store: PendingRequestStore, private readonly connection: Pick<ControlConnection, "request" | "instanceId">) {}
 
-  /**
-   * 提交输入（submit/continue）。完整参数含会话、原文、权限模式、授予范围
-   * 以及 continue 的原 task_id；保存失败时不发送请求。
-   */
-  async submit(
-    op: "submit" | "continue" | "owner_question_answer",
-    params: Record<string, unknown>,
-    opts: { requestId?: string } = {},
-  ): Promise<SubmitOutcome> {
+  async submit(op: "submit", params: Record<string, unknown>, opts?: { requestId?: string }): Promise<SubmitOutcome>;
+  async submit(op: "owner_question_answer", params: Record<string, unknown>, opts?: { requestId?: string }): Promise<OwnerQuestionAnswerOutcome>;
+  async submit(op: "submit" | "owner_question_answer", params: Record<string, unknown>, opts?: { requestId?: string }): Promise<SubmitOutcome | OwnerQuestionAnswerOutcome>;
+  async submit(op: "submit" | "owner_question_answer", params: Record<string, unknown>, opts: { requestId?: string } = {}): Promise<SubmitOutcome | OwnerQuestionAnswerOutcome> {
     const instanceId = this.connection.instanceId;
-    if (!instanceId) {
-      throw new ControlClientError("connection_unavailable", "尚未完成握手，无法保存待确认记录（缺少数据实例标识）", "not_sent");
-    }
-    const requestId = opts.requestId ?? randomId("req");
-    const fullParams = { ...params, request_id: requestId };
-    // 先落盘后发送：保存失败不得发出请求
+    if (!instanceId) throw new ControlClientError("connection_unavailable", "尚未完成握手，无法保存待确认记录（缺少数据实例标识）", "not_sent");
+    const requestId = opts.requestId ?? randomId("req"), fullParams = { ...params, request_id: requestId };
     this.store.save({ requestId, op, params: fullParams, instanceId, createdAt: new Date().toISOString() });
     try {
-      const task = await this.connection.request(op, fullParams as OpParams<typeof op>);
+      const result = op === "submit"
+        ? { kind: "accepted" as const, requestId, task: await this.connection.request(op, fullParams as OpParams<"submit">) }
+        : { kind: "accepted" as const, requestId, receipt: await this.connection.request(op, fullParams as OpParams<"owner_question_answer">) };
       this.store.clear(requestId);
-      return { kind: "accepted", requestId, task };
-    } catch (err) {
-      const outcome = requestOutcome(err);
-      const message = (err as Error).message;
-      if (outcome === "rejected" && (err as ControlClientError).code === "request_conflict") {
-        // 同键异参：不换新键，核实后展示冲突
-        return { kind: "conflict", requestId, message };
-      }
-      if (outcome === "rejected" || outcome === "not_sent") {
-        this.store.clear(requestId);
-        return { kind: outcome, requestId, message };
-      }
+      return result;
+    } catch (error) {
+      const outcome = requestOutcome(error), message = (error as Error).message;
+      if (outcome === "rejected" && error instanceof ControlClientError && error.code === "request_conflict") return { kind: "conflict", requestId, message };
+      if (outcome === "rejected" || outcome === "not_sent") { this.store.clear(requestId); return { kind: outcome, requestId, message }; }
       return { kind: "pending_verification", requestId, reason: message, outcome };
     }
   }
 
-  /**
-   * 重连后核实单条待确认记录。
-   * 注意：任务的模式可能已被切换——以 request_id 关联为准，不凭当前模式
-   * 与原请求不同就当成另一任务。
-   */
   async reconcile(record: PendingRequest): Promise<ReconcileOutcome> {
     if (record.op !== "submit" && record.op !== "continue" && record.op !== "owner_question_answer") return { kind: "kept", requestId: record.requestId, reason: "该请求由所属操作入口核实" };
-    if (record.instanceId !== this.connection.instanceId) {
-      return { kind: "foreign_instance", requestId: record.requestId };
-    }
-    let sessionId = String(record.params["session_id"] ?? "");
+    if (record.instanceId !== this.connection.instanceId) return { kind: "foreign_instance", requestId: record.requestId };
+    let sessionId = String(record.params.session_id ?? "");
     if (!sessionId && record.op === "continue") {
-      try {
-        const detail = await this.connection.request("get_task", { task_id: record.params["task_id"] as string });
-        sessionId = detail.task.sessionId;
-      } catch (err) {
-        return { kind: "kept", requestId: record.requestId, reason: `无法读取继续来源：${(err as Error).message}` };
-      }
+      try { sessionId = (await this.connection.request("get_task", { task_id: String(record.params.task_id) })).task.sessionId; }
+      catch (error) { return { kind: "kept", requestId: record.requestId, reason: `无法核实原继续来源：${(error as Error).message}` }; }
+      if (record.instanceId !== this.connection.instanceId) return { kind: "foreign_instance", requestId: record.requestId };
     }
-    let found: Task | null;
+    const legacyAnswer = record.op === "owner_question_answer" && ["model_selection", "access_mode", "granted_paths"].some(key => key in record.params);
     try {
       if (record.op === "owner_question_answer") {
-        const { receipt } = await this.connection.request("owner_question_receipt", { session_id: sessionId, request_id: record.requestId, operation: "owner_question_answer" });
-        if (receipt?.taskId) {
-          // 已提交回执只证明键存在；以原参数核实摘要，同键异参不能被误关联。
-          const task = await this.connection.request("owner_question_answer", record.params as OpParams<"owner_question_answer">);
-          if (task.id !== receipt.taskId) return { kind: "kept", requestId: record.requestId, reason: "回答回执与原任务不一致，请保留记录并检查后台。" };
+        const { receipt } = await this.connection.request("owner_question_receipt", { session_id: sessionId, request_id: record.requestId, operation: record.op, ...(!legacyAnswer ? { question_id: String(record.params.question_id), question_version: Number(record.params.question_version), answers: record.params.answers as OpParams<"owner_question_answer">["answers"] } : {}) });
+        if (record.instanceId !== this.connection.instanceId) return { kind: "foreign_instance", requestId: record.requestId };
+        if (receipt) {
+          if (receipt.questionId !== record.params.question_id) return { kind: "kept", requestId: record.requestId, reason: "回答回执与原问题不一致，请保留记录并检查后台。" };
           this.store.clear(record.requestId);
-          return { kind: "linked", requestId: record.requestId, taskId: receipt.taskId };
+          return { kind: "linked", requestId: record.requestId, taskId: receipt.taskId ?? receipt.question.taskId };
         }
+      } else {
+        const { task } = await this.connection.request("find_task", { session_id: sessionId, request_id: record.requestId });
+        if (record.instanceId !== this.connection.instanceId) return { kind: "foreign_instance", requestId: record.requestId };
+        if (task) { this.store.clear(record.requestId); return { kind: "linked", requestId: record.requestId, taskId: task.id }; }
       }
-      const result = record.op === "owner_question_answer" ? { task: null } : await this.connection.request("find_task", {
-        session_id: sessionId,
-        request_id: record.requestId,
-      });
-      found = result.task;
-    } catch (err) {
-      return { kind: "kept", requestId: record.requestId, reason: `核实查询失败：${(err as Error).message}` };
-    }
-    if (found) {
-      this.store.clear(record.requestId);
-      return { kind: "linked", requestId: record.requestId, taskId: found.id };
-    }
-    if (!record.params["model_selection"]) {
-      return { kind: "needs_resubmit", requestId: record.requestId, params: { ...record.params, session_id: sessionId } };
-    }
-    // 明确未接收：以原键和原参数重试
+    } catch (error) { return { kind: "kept", requestId: record.requestId, reason: `核实查询失败：${(error as Error).message}` }; }
+    if (record.op === "owner_question_answer" && !legacyAnswer) return { kind: "kept", requestId: record.requestId, reason: "尚未找到原回答回执；保留原请求，仅查询接纳结果，不自动重发答案。" };
+    if (record.op === "continue" || legacyAnswer) return { kind: "kept", requestId: record.requestId, reason: "旧版请求仅供原数据实例核实；未找到接收记录，原请求仍保留，不会重发或转为新消息。" };
+    if (record.op === "submit" && !record.params.model_selection) return { kind: "needs_resubmit", requestId: record.requestId, params: { ...record.params, session_id: sessionId } };
     try {
-      // 落盘记录的参数按原样重发（服务端逐项校验）
-      const task = await this.connection.request(record.op, { ...record.params, session_id: sessionId } as OpParams<typeof record.op>);
+      const taskId = (await this.connection.request("submit", { ...record.params, session_id: sessionId } as OpParams<"submit">)).id;
+      if (record.instanceId !== this.connection.instanceId) return { kind: "foreign_instance", requestId: record.requestId };
       this.store.clear(record.requestId);
-      return { kind: "resent", requestId: record.requestId, taskId: task.id };
-    } catch (err) {
-      if (record.op !== "owner_question_answer" && err instanceof ControlClientError && err.code === "request_conflict") {
-        // 重试遇上同键记录：重新核实（竞态：原请求刚刚落盘）
+      return { kind: "resent", requestId: record.requestId, taskId };
+    } catch (error) {
+      if (record.instanceId !== this.connection.instanceId) return { kind: "foreign_instance", requestId: record.requestId };
+      if (record.op === "submit" && error instanceof ControlClientError && error.code === "request_conflict") {
         try {
-          const again = await this.connection.request("find_task", {
-            session_id: sessionId,
-            request_id: record.requestId,
-          });
-          if (again.task) {
-            this.store.clear(record.requestId);
-            return { kind: "linked", requestId: record.requestId, taskId: again.task.id };
-          }
-        } catch {
-          // 保留待核实
-        }
+          const { task } = await this.connection.request("find_task", { session_id: sessionId, request_id: record.requestId });
+          if (record.instanceId !== this.connection.instanceId) return { kind: "foreign_instance", requestId: record.requestId };
+          if (task) { this.store.clear(record.requestId); return { kind: "linked", requestId: record.requestId, taskId: task.id }; }
+        } catch { /* Retain the original request until its acceptance can be established. */ }
       }
-      if (requestOutcome(err) === "rejected" && (err as ControlClientError).code !== "request_conflict") {
+      if (requestOutcome(error) === "rejected" && !(error instanceof ControlClientError && error.code === "request_conflict")) {
         this.store.clear(record.requestId);
-        return { kind: "rejected", requestId: record.requestId, params: record.params, reason: (err as Error).message };
+        return { kind: "rejected", requestId: record.requestId, params: record.params, reason: (error as Error).message };
       }
-      return { kind: "kept", requestId: record.requestId, reason: (err as Error).message };
+      return { kind: "kept", requestId: record.requestId, reason: (error as Error).message };
     }
   }
 
-  /** 重连后核实全部待确认记录（按创建顺序）。 */
   async reconcileAll(): Promise<ReconcileOutcome[]> {
-    const { records } = this.store.list();
     const outcomes: ReconcileOutcome[] = [];
-    for (const record of records) {
-      outcomes.push(await this.reconcile(record));
-    }
+    for (const record of this.store.list().records) outcomes.push(await this.reconcile(record));
     return outcomes;
   }
 }

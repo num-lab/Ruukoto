@@ -103,8 +103,7 @@ function checkTargets(store: Store, targets: AgentWaitTarget[], sessionId: strin
 }
 function checkTaskSource(store: Store, taskId: string, source: WorkflowSource): void {
   const waits = listAgentWaits(store, { taskId });
-  const reports = listAgentReports(store).filter(report => report.claimTaskId === taskId || report.consumption?.taskId === taskId);
-  if (waits.some(wait => !sameAgentReportSource(wait.source, source)) || reports.some(report => !sameAgentReportSource(report.source, source))) throw new AgentWaitError("source_mismatch");
+  if (waits.some(wait => !sameAgentReportSource(wait.source, source))) throw new AgentWaitError("source_mismatch");
 }
 function waitEvent(store: Store, wait: AgentWait): void {
   store.appendEvent({ type: "agent_wait.changed", waitId: wait.id, taskId: wait.taskId, phase: wait.phase, reason: wait.reason, wait: agentWaitView(store, wait) }, { taskId: wait.taskId, sessionId: wait.sessionId });
@@ -223,10 +222,11 @@ export function claimAgentReports(store: Store, input: { taskId: string; keys: s
       if (!consumer || !isTerminalTaskStatus(consumer.status)) throw new AgentWaitError("result_consumed");
     }
     if (report.fallbackTaskId && store.getTask(report.fallbackTaskId)?.status !== "queued") throw new AgentWaitError("report_owned");
-    checkTaskSource(store, task.id, report.source);
+    checkTargets(store, [report.target.kind === "task" ? report.target : { kind: "workflow", runId: report.target.runId }], task.sessionId, report.source);
+    if (store.getSessionIdentity(task.sessionId)?.kind !== "dev") checkTaskSource(store, task.id, report.source);
     return report;
   });
-  if (!reports.length || new Set(input.keys).size !== input.keys.length || reports.some(report => !sameAgentReportSource(report.source, reports[0].source))) throw new AgentWaitError("source_mismatch");
+  if (!reports.length || new Set(input.keys).size !== input.keys.length) throw new AgentWaitError("source_mismatch");
   const requested = new Set(input.keys), pending = listAgentReports(store).filter(report => report.status === "pending");
   if (reports.some(report => report.fallbackTaskId && pending.some(candidate => candidate.fallbackTaskId === report.fallbackTaskId && !requested.has(candidate.key)))) throw new AgentWaitError("report_group_partial");
   return reports.map(report => report.claimTaskId === task.id ? report : saveReport(store, { ...report, claimTaskId: task.id, fallbackState: report.fallbackTaskId ? "parked" : null, reason: null }));
@@ -267,9 +267,9 @@ export interface AgentReportCompletion {
   reportInput?: { entryId: string; keys: string[] };
 }
 /** 共享后备须整组接受事实，否则释放；接管旧消费须由宿主核实本轮 JSONL 输入证明。 */
-export function completeAgentReports(store: Store, taskId: string, input: AgentReportCompletion): AgentReport[] {
+export function completeAgentReports(store: Store, taskId: string, input: AgentReportCompletion, keys?: string[]): AgentReport[] {
   const pending = listAgentReports(store).filter(report => report.status === "pending");
-  const claimed = pending.filter(report => report.claimTaskId === taskId), deferred: AgentReport[] = [];
+  const claimed = pending.filter(report => report.claimTaskId === taskId && (!keys || keys.includes(report.key))), deferred: AgentReport[] = [];
   const accepted = (report: AgentReport) => Boolean(report.consumption && (report.consumption.taskId === taskId ||
     input.reportInput?.entryId && input.reportInput.keys.includes(report.key)));
   for (const fallbackTaskId of new Set(claimed.map(report => report.fallbackTaskId).filter(id => id !== null))) {

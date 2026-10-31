@@ -90,7 +90,7 @@ Ruukoto contains the development tool `ruukoto-code` and personal assistant `ruu
 
 **Auto-review mode**: The same restricted execution environment as confirmation mode. An independent tool-free review evaluates out-of-scope external file reads and credential-free HTTP reads as approve/reject/ask_owner. Uncertainty or review failure asks the owner. It neither broadens authorization nor becomes full access; instructions in review input are not authority.
 
-**Conversation default mode**: The owner's choice for later new tasks: confirmation, full access, auto-review or plan. It persists until changed but does not rewrite existing tasks. Continuing an interrupted task uses the current submission's choice. Four UI choices do not mean four distinct access policies.
+**Conversation default mode**: The owner's choice for later new tasks: confirmation, full access, auto-review or plan. It persists until changed but does not rewrite existing tasks. A later message creates a new task using its submission's choice; queue resumption does not rerun an interrupted task. Four UI choices do not mean four distinct access policies.
 
 **Plan mode**: Owner-selected ongoing research/planning in an ordinary development conversation, using auto-review's restricted environment and approval policy with narrower tools and plan guidance. It is not a comprehensive read-only guarantee, a separate security boundary, approval of specific operations or a scheduled task.
 
@@ -120,7 +120,7 @@ Ruukoto contains the development tool `ruukoto-code` and personal assistant `ruu
 
 **Inbound media staging**: Files and receive records bound to the original message before task-artifact promotion. State can indicate received, rejected, expired or assigned. An unassigned staged image is not a task artifact; rejection is not an ordinary inbound task.
 
-**Delivery**: A SubAgent result/work message enters one main-Agent model call: at wakeup-task start for main, or injection at the next task start for ordinary development. Registration alone is pending, not delivered. Canceled work blocks delivery while preserving inspectable facts. Distinct from an external owner reply.
+**Delivery**: A SubAgent result/work message enters one main-Agent model call: at wakeup-task start for main, or injection at the next task start for ordinary development. Trusted Coding internal reports can enter the active task's next request after the current tool batch settles; ordinary unwaited SubAgent results retain next-task injection. Registration alone is pending, not delivered. Canceled work blocks delivery while preserving inspectable facts. Distinct from an external owner reply.
 
 **Child task**: A concrete task assigned to a SubAgent for work whose result returns to the main Agent. Neither the executing SubAgent nor the whole assignment.
 

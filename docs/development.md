@@ -58,7 +58,7 @@ Find tests by feature with `rg --files test`. Skill tests isolate HOME.
 | Test runner batching and exit | `124-test-app-runner`; the script owns the exclusive shared-UID fixture list |
 | Workflow persistence, coordinator, steps and host operations | `105-workflow-runtime` through `113-workflow-source-capabilities`, plus `workflow-*.test.ts` for role/version changes |
 | Answers, delivery and waiting | `114-workflow-owner-input`, `115-workflow-final-delivery`, `125-agent-wait*.test.ts` |
-| Persistent questions and recovery | `owner-questions`, `owner-question-*`; add 12/13/14/15, 41 and 66 by impact |
+| Coding input lifecycle | `coding-input-store`, `coding-input-runtime`, `coding-input-client-lifecycle`, `sdk-steering-contract`; add `message-recall`, `queue-guidance-*`, `owner-question-*`, 12/13/14/15, 41 and 66 by impact |
 | Workflow library and entry | `117-workflow-library` through `120-workflow-cli`, 126 sidebar/recovery; mock models |
 | Four-input Coding acceptance | `122-workflow-code-acceptance`: three actual concurrent slots, fourth queued, independent verification and real integration |
 | Agent context and models | `18-model-selection`, `60-context-prefix`, `61-context-compaction`, `98-media-model-pinning` |
@@ -84,7 +84,9 @@ CI runs macOS and Linux with Node 24.15.0 and a 90-minute job limit. It installs
 
 ## External Acceptance
 
-Persistent-question model acceptance uses explicit DeepSeek configuration and isolated profiles; TUI/Desktop experience is separate:
+Coding input-lifecycle acceptance uses schema 58/protocol 49 in fresh profiles. Preserve old profiles and pending request files; do not run an instance migration or switch a daily backend as part of these checks. Narrow regressions cover queue retrieval, persistent pause, same-task answers and request-bound report consumption. Real Desktop/TUI interaction, Linux stopping/restart and real models are separate evidence.
+
+Persistent-question model acceptance uses explicit DeepSeek configuration and isolated profiles. It proves waiting, answering and asking again in the original task, plus guidance canceling a question:
 
 ```bash
 RUN_MODEL_CHECK=1 RUN_OWNER_QUESTION_MODELS_FILE=/path/models.json npx tsx --test test/owner-question-model-acceptance.test.ts
@@ -134,7 +136,7 @@ Coding uses `~/.ruukoto-code-dev/<repository>-<hash>/`, including `data/agent/co
 | Environment | Clears inherited product paths, production owner token, service settings and execution overrides; fixes Coding identity/profile; disables QQ/Telegram; native prerequisites fail explicitly |
 | Process ownership | Owns this backend and frontend process group; TUI/config exit, Ctrl+C and terminal closure clean up; an existing external backend is rejected, never attached or stopped |
 | Reload | Watches `packages/*/src/` and `apps/*/src/`; backend changes restart gracefully; UI-only changes do not restart the backend; view belongs to the task UI; launcher changes require manual restart |
-| UI recovery | Saves conversation, draft and continuation intent per instance; secrets must be reentered; invalid state is reported, never silently converted into a new task |
+| UI recovery | Saves conversation and ordinary draft per instance; secrets must be reentered; old pending continue/answer records retain their original instance and key for verification without conversion or replay |
 | Configuration | Missing models enter offline setup first; backend starts only after successful save and lock release; cancel/failure leaves it stopped |
 
 The configuration UI follows backend reload and restores its section. `backend.log` and `dev.log` stay separate from interactive input.

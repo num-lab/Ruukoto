@@ -299,7 +299,7 @@ for (const product of [codeProduct.runtime, personalProduct.runtime]) test(`汇�
       const task = t.runtime.store.getTask(reportTaskId)!;
       assert.equal(task.input, "CANONICAL_REPORT_INPUT");
       const session = t.runtime.store.getSession(task.sessionId)!;
-      const marker = parseSessionFile(session.sessionFile!).findLast(entry => entry.type === "custom" && entry.customType === "ruukoto_agent_report_context");
+      const marker = parseSessionFile(session.sessionFile!).findLast(entry => entry.type === "custom" && entry.customType === "ruukoto_agent_report_context" && !(entry.data as { requestBinding?: boolean } | undefined)?.requestBinding);
       assert.deepEqual(marker?.data, { taskId: reportTaskId, ...reportContext });
       assert.deepEqual(toolNamesOf(request), []);
     }
@@ -313,6 +313,8 @@ for (const product of [codeProduct.runtime, personalProduct.runtime]) test(`汇�
     await waitFor("原会话已落盘", () => rt.store.getTask(seed.id)?.status === "completed");
     const driver = await rt["getDriver"](session);
     driver["deps"].reportContext = task => task.requestId === "report" ? reportContext : null;
+    driver["deps"].reportBoundary = undefined;
+    driver["deps"].beforeModelRequest = undefined;
     driver["deps"].allowTaskTool = () => false;
     const report = await rt.submit({ sessionId: session.id, requestId: "report", input: "CANONICAL_REPORT_INPUT", modelSelection: rt.defaultSelection });
     reportTaskId = report.id;

@@ -58,6 +58,7 @@ import type { AttachmentReference } from "@ruukoto/core/attachments.ts";
 import { hasImageInput, IMAGE_INPUT_UNSUPPORTED, imageReferenceSnapshot, imageReferenceView, restoreImageInput, type ImageReference } from "./inbound-images.ts";
 import { sourceArtifact } from "@ruukoto/core/branch.ts";
 import { historyTodoParams, parseSessionFile } from "@ruukoto/core/history.ts";
+import { effectiveProjection } from "@ruukoto/core/history-effective.ts";
 import { parseTodos } from "./todo.ts";
 import { unpairedToolRecords } from "./context-selector.ts";
 
@@ -315,7 +316,9 @@ export class ContextAssembly {
         preExcludedMemories.push({ memoryId: memory.id, version: memory.currentVersion, reason: "source_scope_revoked" });
       }
     }
-    const todos = !this.side && this.deps.store.getSession(this.session.id)?.branchSource && sdk.sessionFile ? historyTodoParams(parseSessionFile(sdk.sessionFile)) : null;
+    // Restore the work checklist only from effective contributions so omitted todo_write calls
+    // cannot reintroduce recalled content into model requests.
+    const todos = !this.side && this.deps.store.getSession(this.session.id)?.branchSource && sdk.sessionFile ? historyTodoParams(effectiveProjection(parseSessionFile(sdk.sessionFile)).contributions) : null;
     const browserObservation = this.browserObservationBlock(sdk.sessionFile);
     return {
       messages,

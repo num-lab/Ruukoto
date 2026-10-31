@@ -1,7 +1,7 @@
 import type { AttachmentMetadata } from "@ruukoto/core/attachments.ts";
 import { utf8ByteLength } from "./utf8.ts";
 import type { TaskView as Task } from "@ruukoto/core/views.ts";
-import type { PersistentEvent } from "@ruukoto/core/types.ts";
+import type { PublicMessageRecall, PersistentEvent } from "@ruukoto/core/types.ts";
 import type { HistoryEntryView } from "@ruukoto/core/history.ts";
 import type { OutputPreview, ToolOpView } from "@ruukoto/core/views.ts";
 import { workflowStatus } from "./workflow-status.ts";
@@ -65,11 +65,19 @@ export class EventFlow {
   private readonly tasks = new Map<string, Task>();
   private readonly streams = new Map<string, { text: string; bytes: number; pending: Map<number, string> }>();
   private readonly hidden = new Set<string>();
+  /** Hide every entry associated with the recalled target input/task card. */
+  private readonly recalledTasks = new Set<string>();
+  /** Hide entries bound to omitted JSONL contributions; raw files remain available for audit. */
+  private readonly omittedEntries = new Set<string>();
   /** 排队输入的附件先暂存：气泡在实际开始时才创建，附件随气泡落位。 */
   private readonly pendingAttachments = new Map<string, { id: string; name: string; size: number }[]>();
 
   get items(): FlowEntry[] {
-    return [...this.entries.values()].filter((entry) => !this.hidden.has(entry.key)).sort((a, b) => {
+    return [...this.entries.values()].filter((entry) =>
+      !this.hidden.has(entry.key) &&
+      !(entry.taskId !== undefined && this.recalledTasks.has(entry.taskId)) &&
+      !((entry.kind === "message" || entry.kind === "tool") && entry.entryId !== null && this.omittedEntries.has(entry.entryId))
+    ).sort((a, b) => {
       const aRunning = a.kind === "task" && !a.task.endedAt;
       const bRunning = b.kind === "task" && !b.task.endedAt;
       if (aRunning !== bRunning) return aRunning ? 1 : -1;
@@ -80,6 +88,17 @@ export class EventFlow {
   get historyEntries(): HistoryEntryView[] { return [...this.history.values()]; }
   get tools(): Extract<FlowEntry, { kind: "tool" }>[] {
     return this.items.filter((entry): entry is Extract<FlowEntry, { kind: "tool" }> => entry.kind === "tool");
+  }
+
+  /**
+   * Completed recall projection hides the target input, including late stream fragments, and entries bound to omitted contributions, including the execution tail following guidance.
+   * Pending and rejected recalls leave existing displayed entries unchanged.
+   */
+  applyRecall(recall: PublicMessageRecall): void {
+    if (recall.phase !== "completed") return;
+    this.recalledTasks.add(recall.targetTaskId);
+    if (recall.purpose === "queued") return;
+    for (const id of recall.omittedEntryIds ?? []) this.omittedEntries.add(id);
   }
 
   /** 重连重新获取权威远端状态，保留当前客户端的命令和提示。 */
@@ -94,6 +113,8 @@ export class EventFlow {
     this.tasks.clear();
     this.streams.clear();
     this.hidden.clear();
+    this.recalledTasks.clear();
+    this.omittedEntries.clear();
   }
 
   task(task: Task): void {
@@ -158,6 +179,10 @@ export class EventFlow {
   apply(event: PersistentEvent): void {
     const body = event.body;
     switch (body.type) {
+      case "message_recall.changed": {
+        this.applyRecall(body.recall);
+        return;
+      }
       case "task.attachments": {
         const key = `input:${body.taskId}`;
         const old = this.entries.get(key);
@@ -329,7 +354,7 @@ export class EventFlow {
     }
     if (history.role === "user" && history.inputPurpose === "internal_report") {
       this.entries.delete(fallback);
-      if (taskId) this.entries.delete(`input:${taskId}`);
+      for (const [key, entry] of this.entries) if (entry.kind === "message" && entry.entryId === history.entryId) this.entries.delete(key);
       return;
     }
     if (history.role === "toolResult") {
@@ -345,7 +370,7 @@ export class EventFlow {
         return;
       }
       this.entries.set(fallback, { key: fallback, kind: "tool", at: history.timestamp, seq: ref?.seq ?? 0, taskId: ref?.taskId,
-        name: history.toolName ?? "unknown", toolOpId: null, toolCallId: history.toolCallId, params: {}, target: "",
+        name: history.toolName ?? "unknown", toolOpId: history.hostToolOpId ?? null, toolCallId: history.toolCallId, params: {}, target: "",
         status: history.isError ? "error" : "done", summary: history.isError ? history.text : null,
         editStats: history.editStats, entryId: history.entryId, paramsTruncated: false, artifactIds: [] });
       return;

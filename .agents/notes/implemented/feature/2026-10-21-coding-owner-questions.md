@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[In-task questions](2026-10-30-coding-owner-question-wait.md) replaces immediate pending results, answer-created continuation tasks and continuation from old question cards after restart. That decision owns the replacement execution contract; this note preserves the original decision and its retained trusted provenance, unique-answer and answers-not-approvals constraints.
+
 [Coding schedules](2026-10-25-code-scheduled.md) supersedes the original scheduled-source exclusion: trusted schedule roots/continuations preserve coding-schedule provenance and that turn's pinned model/authority; canceled/closed/missing reverse bindings refuse continuation. Ordinary owner input retains coding-owner provenance. [Question types](2026-10-21-owner-question-choice-types.md) supersedes initial single-choice/nonempty-answer/UI-top-action/query-budget/version choices. Other provenance, transaction, recovery, and message-position rules remain here.
 
 ## Problem

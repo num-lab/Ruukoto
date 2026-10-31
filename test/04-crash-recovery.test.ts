@@ -116,7 +116,8 @@ test("工具已产生标记但未记录结果时崩溃：中断保留事实，�
     assert.equal((await taskStatus(backend!.client, taskB.id)).task.status, "queued", "恢复后不得自动调度");
 
     // 拥有者恢复队列后执行
-    await backend.client.request("resume_queue", { session_id: sessionId });
+    await assert.rejects(backend.client.request("resume_queue", { session_id: sessionId }), { code: "stop_unverified" });
+    await backend.client.request("resume_queue", { session_id: sessionId, stop_confirmed: true });
     await waitFor("任务B完成", async () => (await taskStatus(backend!.client, taskB.id)).task.status === "completed");
 
     // 历史原文完整：可解析，包含 A 的输入与 assistant 工具调用，无伪造工具结果
@@ -184,7 +185,8 @@ test("首次 assistant 消息前崩溃：不宣布消息已持久化，请求保
       }
     }
     // 拥有者恢复队列后可继续使用该会话（新任务正常执行）
-    await backend.client.request("resume_queue", { session_id: sessionId });
+    await assert.rejects(backend.client.request("resume_queue", { session_id: sessionId }), { code: "stop_unverified" });
+    await backend.client.request("resume_queue", { session_id: sessionId, stop_confirmed: true });
     const next = await backend.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: sessionId,
       request_id: "first-2",

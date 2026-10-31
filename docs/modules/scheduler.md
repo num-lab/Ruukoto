@@ -53,6 +53,8 @@ sequenceDiagram
   end
 ```
 
+Coding Scheduled questions wait in the original run task and return answer/cancel facts through its `ask_user` call with fixed model and permissions. Pending questions determine the waiting label; backend restart interrupts that task and makes unanswered questions stale. Ordinary owner submissions and old-task continuation remain unavailable in an active Scheduled conversation.
+
 Due activation uses an independent conversation rather than contaminating main context. Work runs under its fixed policy and finalizes its resources. Configured reports are sent only after destination eligibility is checked.
 
 ## Invariants and Failure Handling
@@ -66,3 +68,4 @@ Due activation uses an independent conversation rather than contaminating main c
 
 - [Code scheduled](../../.agents/notes/implemented/feature/2026-10-25-code-scheduled.md)
 - [Detach terminal from task runtime](../../.agents/notes/implemented/architecture/2026-09-19-detach-terminal-from-task-runtime.md)
+- [Same-task owner questions](../../.agents/notes/implemented/feature/2026-10-30-coding-owner-question-wait.md)

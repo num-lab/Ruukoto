@@ -397,6 +397,7 @@ export class ControlServer {
             codeScheduleRuns: snapshot.codeScheduleRuns,
             taskGuidance: snapshot.taskGuidance,
             sideChats: snapshot.sideChats,
+            messageRecalls: snapshot.messageRecalls,
           },
         };
         if (since > 0 && Buffer.byteLength(encodeFrame({ v: CONTROL_PROTOCOL_VERSION, id: request.id, ok: true, result }), "utf8") > MAX_FRAME_BYTES) {
@@ -633,18 +634,26 @@ export class ControlServer {
       case "owner_question_answer":
       case "owner_question_cancel": {
         const answering = request.op === "owner_question_answer";
-        workflowParams("session_id", "question_id", "question_version", "request_id", ...(answering ? ["answers", "model_selection", "access_mode", "granted_paths"] : []));
+        workflowParams("session_id", "question_id", "question_version", "request_id", ...(answering ? ["answers"] : []));
         const version = params["question_version"];
         if (!Number.isSafeInteger(version) || (version as number) < 1) throw new RuntimeApiError("invalid_params", "问题已不可用，请刷新卡片后作答。");
         const reference = { sessionId: requireString("session_id"), questionId: requireString("question_id"), version: version as number, requestId: requireString("request_id") };
-        return answering ? runtime.answerOwnerQuestion({ ...reference, answers: params["answers"], modelSelection: parseModelSelection(params["model_selection"]),
-          accessMode: this.parseAccessMode(params), grantedPaths: this.parseGrantedPaths(params), ...this.browserSource(socket) }) : runtime.cancelOwnerQuestion(reference);
+        return answering ? runtime.answerOwnerQuestion({ ...reference, answers: params["answers"] }) : runtime.cancelOwnerQuestion(reference);
       }
       case "owner_question_receipt": {
-        workflowParams("session_id", "request_id", "operation");
+        workflowParams("session_id", "request_id", "operation", "question_id", "question_version", "answers");
         const operation = params["operation"];
         if (operation !== "owner_question_answer" && operation !== "owner_question_cancel") throw new RuntimeApiError("invalid_params", "请选择需要核实的回答或取消请求。");
-        return runtime.findOwnerQuestionReceipt(requireString("session_id"), requireString("request_id"), operation);
+        const sessionId = requireString("session_id"), requestId = requireString("request_id");
+        const expected = ["question_id", "question_version", "answers"].some(key => key in params);
+        if (expected && (operation !== "owner_question_answer" || !Number.isSafeInteger(params["question_version"]) || Number(params["question_version"]) < 1 || !Array.isArray(params["answers"]))) throw new RuntimeApiError("invalid_params", "核实回答须携带原问题、版本及完整答案。");
+        const questionId = expected ? requireString("question_id") : null;
+        const result = runtime.findOwnerQuestionReceipt(sessionId, requestId, operation);
+        if (result.receipt && expected) {
+          const digest = createHash("sha256").update(JSON.stringify({ sessionId, questionId, version: params["question_version"], requestId, answers: params["answers"] })).digest("hex");
+          if (result.receipt.digest !== digest || result.receipt.questionId !== questionId) throw new RuntimeApiError("request_conflict", "回答回执与原请求参数不同；请保留记录并核实原回答。");
+        }
+        return result;
       }
       case "submit":
         return runtime.submit({
@@ -656,18 +665,6 @@ export class ControlServer {
           accessMode: this.parseAccessMode(params),
           grantedPaths: this.parseGrantedPaths(params),
           ...(params["guidance"] === true ? { guidance: true } : {}),
-          ...this.browserSource(socket),
-        });
-      case "continue":
-        return runtime.continueTask({
-          sessionId: requireString("session_id"),
-          taskId: requireString("task_id"),
-          requestId: requireString("request_id"),
-          modelSelection: parseModelSelection(params["model_selection"]),
-          input: typeof params["input"] === "string" ? params["input"] : requireString("input"),
-          attachments: params["attachments"] as import("@ruukoto/core/attachments.ts").AttachmentMetadata[] | undefined,
-          accessMode: this.parseAccessMode(params),
-          grantedPaths: this.parseGrantedPaths(params),
           ...this.browserSource(socket),
         });
       case "switch_mode": {
@@ -687,7 +684,7 @@ export class ControlServer {
         await runtime.cancelTask(requireString("task_id"));
         return { accepted: true };
       case "resume_queue":
-        return runtime.resumeQueue(requireString("session_id"), params["model_selection"] === undefined ? undefined : parseModelSelection(params["model_selection"]));
+        return runtime.resumeQueue(requireString("session_id"), params["model_selection"] === undefined ? undefined : parseModelSelection(params["model_selection"]), params["stop_confirmed"] === true);
       case "task_queue":
         return runtime.getTaskQueueDetail(requireString("session_id"));
       case "queue_reorder": {
@@ -697,6 +694,21 @@ export class ControlServer {
       }
       case "steer_task":
         return runtime.steerTask(requireString("task_id"), params["expected_queue_revision"] === undefined ? undefined : { expectedQueueRevision: workflowInt("expected_queue_revision", 0, 0) });
+      case "message_recall": {
+        const purpose = params["purpose"];
+        if (purpose !== "queued" && purpose !== "historical") throw new RuntimeApiError("invalid_params", "请选择队列取回或历史撤回。");
+        return runtime.messageRecall.recallMessage({
+          purpose,
+          sessionId: requireString("session_id"),
+          taskId: requireString("task_id"),
+          requestId: requireString("request_id"),
+          expectedRevision: workflowInt("expected_revision", 0, 0),
+        });
+      }
+      case "message_recall_verify":
+        return runtime.messageRecall.verifyMessageRecallStop({ sessionId: requireString("session_id"), requestId: requireString("request_id") });
+      case "message_recall_state":
+        return runtime.messageRecall.messageRecallState({ sessionId: requireString("session_id"), requestId: params["request_id"] === undefined ? undefined : requireString("request_id") });
       case "respond_confirmation": {
         const decision = params["decision"];
         if (decision !== "approve" && decision !== "reject") {

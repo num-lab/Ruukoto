@@ -20,7 +20,7 @@ Pi 1.3.0's official extensions own MCP connection, discovery and protocol handli
 | --- | --- |
 | `read`, `edit`, `write` | Coding files; restricted mode limits them to the workspace and granted roots |
 | `bash` | Restricted shell has no external network; pinned skill directories are read-only roots |
-| `ask_user` | Register one to three choice/free-text questions and wait for the owner |
+| `ask_user` | Persist one to three choice/free-text questions, wait within the original task, and return actual answers or explicit cancellation |
 | `process_start`, `process_stop`, `process_status`, `process_output` | Persistent conversation backgrounds, logs and verified stopping |
 | `web_fetch` | Credential-free page retrieval, bounded to 1 MiB |
 | `present` | Register desktop file/image previews without writing the source |
@@ -51,6 +51,8 @@ stateDiagram-v2
 | MCP | Authorized reads need no per-call approval; writes/unknown effects follow approval policy | Read-only tools only | No per-call approval; eligibility and ledger checks remain |
 
 Background status/output/stop remain recovery operations under their current eligibility checks; disabling startup is not a blanket ban on inspecting or stopping an existing process.
+
+A pending `ask_user` retains the task's execution phase and occupancy. Answers, including Skip, and explicit cancellation settle the original tool call. Guidance cancels the pending question in its acceptance transaction. Ordinary messages, reports and client closure leave it waiting; task interruption or backend restart makes unanswered questions stale. In a mixed `[ask_user, write]` batch, the old write stays unexecuted until the model receives the question result and applicable guidance in the next request. Subsequent requests regain normal tools and may ask another batch.
 
 The owner classifies ordinary MCP tools as `read/write/unknown` locally. Remote read-only hints do not grant permission. New services or broader permissions affect later tasks; revocation/tightening takes effect before the next call. Required named role/workflow/SubAgent tools must exist in the actual official registry before a model call. Side chat has no tools, MCP or host-data access; tool calls in its frozen historical snapshot are text only.
 
@@ -94,3 +96,4 @@ sequenceDiagram
 - [Native execution sandbox](../../.agents/notes/implemented/architecture/2026-10-10-native-execution-sandbox.md)
 - [Mcp client](../../.agents/notes/implemented/architecture/2026-09-23-mcp-client.md)
 - [Mcp host responsibilities](../../.agents/notes/implemented/simplification/2026-10-26-mcp-host-responsibilities.md)
+- [Same-task owner questions](../../.agents/notes/implemented/feature/2026-10-30-coding-owner-question-wait.md)

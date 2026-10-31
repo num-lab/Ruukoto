@@ -4,7 +4,7 @@ import { product as personalProduct } from "./helpers/legacy-product.ts";
  *
  * 覆盖：
  * - 提交幂等比较包含模式与授权范围：同键同参返回原任务，改模式/改范围必须冲突；
- * - continue 新建任务默认请求确认，拥有者可在提交时显式选择完全访问；
+ * - New Tasks use the current default mode or an explicit owner selection after pause;
  * - switch-mode 在无执行中工具的边界生效（权限版本递增并发出事件），
  *   任务结束后拒绝切换；
  * - 完全访问任务不逐次确认（本地开发后端）且不改动其他任务的模式；
@@ -127,7 +127,7 @@ test("提交幂等比较包含访问模式与授权范围", async () => {
   }
 });
 
-test("continue 新任务默认请求确认，拥有者可显式选择完全访问", async () => {
+test("new Tasks after interruption use the current default or explicit owner access mode", async () => {
   const t = await startTestRuntime("mode-continue", modeRoutes(), { workDirs: 1 });
   try {
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
@@ -140,23 +140,25 @@ test("continue 新任务默认请求确认，拥有者可显式选择完全访�
     await t.client.request("interrupt", { task_id: task.id });
     await waitFor("任务中断", async () => (await taskStatus(t.client, task.id)).task.status === "interrupted", 30_000);
 
-    const continued = await t.client.request<any>("continue", { session_id: sessionId, model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
-      task_id: task.id,
+    await assert.rejects(t.client.request("continue", { task_id: task.id, request_id: "retired", input: "old continuation" }), { code: "unknown_op" });
+    const continued = await t.client.request<any>("submit", { session_id: sessionId, model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       request_id: "cont-2",
       input: "继续处理",
     });
     assert.equal(continued.accessMode, "confirm", "继续默认请求确认，旧批准不继承");
     assert.equal(continued.permissionVersion, 1);
-    assert.equal(continued.resumesTaskId, task.id);
+    assert.equal(continued.resumesTaskId, null);
+    assert.equal(continued.status, "queued");
+    assert.equal(t.runtime.getSession(sessionId)!.queuePauseReason, "owner_pause");
 
-    const escalated = await t.client.request<any>("continue", { session_id: sessionId, model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
-      task_id: task.id,
+    const escalated = await t.client.request<any>("submit", { session_id: sessionId, model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       request_id: "cont-3",
       input: "继续并以完全访问处理",
       access_mode: "full_access",
     });
     assert.equal(escalated.accessMode, "full_access", "拥有者可在继续时显式选择完全访问");
 
+    await t.client.request("resume_queue", { session_id: sessionId });
     await waitFor("继续的任务完成", async () => (await taskStatus(t.client, escalated.id)).task.status === "completed", 30_000);
   } finally {
     await t.shutdown();
@@ -231,7 +233,7 @@ test("Plan 默认值与任务固定模式跨后台重启保留，控制面握手
   } finally { await t.shutdown(); }
 });
 
-test("CLI：set-session-mode、submit --mode plan 与 continue --mode plan 使用同一可信选择", async () => {
+test("CLI mode selection applies to ordinary submissions after explicit queue resume", async () => {
   const t = await startTestRuntime("mode-plan-cli", modeRoutes(), { workDirs: 1 });
   try {
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
@@ -253,8 +255,10 @@ test("CLI：set-session-mode、submit --mode plan 与 continue --mode plan 使�
     await waitFor("CLI 源任务运行", () => t.runtime.store.getTask(source.id)!.status === "running");
     await t.client.request("interrupt", { task_id: source.id });
     assert.equal((await cli("set-session-mode", sessionId, "full_access")).defaultAccessMode, "full_access");
-    const continued = await cli("continue", source.id, "cli-continue", "--mode", "plan", "QUICK:重新调研");
-    assert.equal(continued.resumesTaskId, source.id);
+    await assert.rejects(cli("continue", source.id, "cli-retired", "old path"));
+    const continued = await cli("submit", sessionId, "cli-continue", "--mode", "plan", "QUICK:重新调研");
+    assert.equal(continued.resumesTaskId, null);
+    await cli("resume-queue", sessionId);
     assert.equal(continued.planMode, true);
     assert.equal(continued.accessMode, "auto-review");
     assert.equal(continued.permissionVersion, 1);

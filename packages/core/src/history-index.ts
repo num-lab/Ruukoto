@@ -207,6 +207,29 @@ function rowToIndexed(row: any): IndexedEntry {
 
 // ---------- 原文读取与搜索 ----------
 
+/**
+ * Union completed recalls' persisted omission lists with context_edit targets already synchronized to the index.
+ * Default reads and search must not revive these entries; raw audit access reads JSONL separately.
+ */
+export function omittedEntryIdsForSession(db: Db, sessionId: string, filePath: string | null): Set<string> {
+  const omitted = new Set<string>();
+  for (const row of db.prepare("SELECT omitted_entry_ids FROM message_recalls WHERE session_id = ? AND phase = 'completed' AND omitted_entry_ids IS NOT NULL").iterate(sessionId)) {
+    for (const id of JSON.parse(String((row as { omitted_entry_ids: string }).omitted_entry_ids)) as string[]) omitted.add(id);
+  }
+  if (filePath) {
+    const rows = db.prepare("SELECT byte_offset, byte_length FROM history_index WHERE session_id = ? AND entry_type = 'context_edit' ORDER BY byte_offset").all(sessionId) as Array<{ byte_offset: number; byte_length: number }>;
+    for (const row of rows) {
+      const entry = readRawEntryAt(filePath, Number(row.byte_offset), Number(row.byte_length));
+      const edit = entry as { targetId?: unknown; replacement?: unknown };
+      if (typeof edit.targetId !== "string" || edit.replacement !== null) {
+        throw new HistoryReadError("history_corrupt", `context_edit ${entry.id} 使用不支持的目标或替换格式`);
+      }
+      omitted.add(edit.targetId);
+    }
+  }
+  return omitted;
+}
+
 /** 按索引位置从 JSONL 读取单条原始记录（解析为结构化条目）。 */
 export function readRawEntryAt(filePath: string, offset: number, length: number): ParsedSessionEntry {
   const fd = fs.openSync(filePath, "r");
@@ -369,6 +392,7 @@ export function searchHistory(
       afterOffset = Math.max(afterOffset, range.start);
       if (range.end !== null) beforeOffset = range.end;
     }
+    const omitted = omittedEntryIdsForSession(db, session.sessionId, session.filePath);
     const rows = db
       .prepare(
         `SELECT * FROM history_index
@@ -378,6 +402,7 @@ export function searchHistory(
       .all(session.sessionId, afterOffset, beforeOffset) as any[];
     for (const row of rows) {
       const entry = rowToIndexed(row);
+      if (omitted.has(entry.entryId)) continue;
       if (opts.role && entry.role !== opts.role) continue;
       if (opts.since && (!entry.timestamp || entry.timestamp < opts.since)) continue;
       if (opts.until && (!entry.timestamp || entry.timestamp > opts.until)) continue;

@@ -29,7 +29,7 @@ function latch() {
   return { promise, release };
 }
 
-test("dev 最终汇总排在当前聊天之后，冻结终态代次、零工具且只唤醒一次；普通请求键不能伪造绑定", async () => {
+test("idle dev final delivery retains its fixed version, tool-free fallback and trusted classification", async () => {
   const child = latch(), chat = latch();
   const t = await startTestRuntime("workflow-final-dev", async req => {
     if (lastUserText(req) === "日常聊天") { await chat.promise; return { kind: "text", text: "聊天完成" }; }
@@ -46,8 +46,11 @@ test("dev 最终汇总排在当前聊天之后，冻结终态代次、零工具�
     const run = rt.workflows!.start({ sourceTaskId: parent.id, requestKey: "final", input: null, script: 'return await agent("one",{request:"处理"});' });
     rt.store.withTx(() => rt.store.endTask(parent.id, ["running"], "completed"));
     await rt.resumeQueue(session.id);
-    await rt.submit({ sessionId: session.id, requestId: "chat", input: "日常聊天", modelSelection: rt.defaultSelection });
+    const chatTask = await rt.submit({ sessionId: session.id, requestId: "chat", input: "日常聊天", modelSelection: rt.defaultSelection });
     await waitFor("聊天已进入模型", () => t.server.calls.length === 1);
+    chat.release();
+    await waitFor("chat completes before report readiness", () => rt.store.getTask(chatTask.id)!.status === "completed");
+    rt.store.withTx(() => rt.store.setSessionQueueState(session.id, "paused", "test_fallback"));
     child.release();
     await waitFor("最终汇总已排队", () => requireWorkflowRun(rt.store, run.id).delivery?.taskId != null);
     const finished = requireWorkflowRun(rt.store, run.id), wake = rt.store.getTask(finished.delivery!.taskId!)!;
@@ -63,7 +66,7 @@ test("dev 最终汇总排在当前聊天之后，冻结终态代次、零工具�
     assert.equal(workflowDeliveryKey(requireWorkflowRun(rt.store, run.id)), key);
     await assert.rejects(rt.submit({ sessionId: session.id, requestId: key, input: wake.input, modelSelection: rt.defaultSelection }), { code: "request_conflict" });
     assert.equal(t.server.calls.length, 1);
-    chat.release();
+    await rt.resumeQueue(session.id);
     await waitFor("最终汇总完成", () => requireWorkflowRun(rt.store, run.id).delivery?.status === "reported");
     assert.equal(rt.store.findTaskByRequest(session.id, key)!.id, wake.id);
     assert.equal(t.server.calls.length, 2);

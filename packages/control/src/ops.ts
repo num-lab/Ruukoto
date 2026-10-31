@@ -46,9 +46,9 @@ export interface TuiOps {
   session_background_end: { params: { session_id: string; request_id: string }; result: R<"endSessionBackground"> };
   owner_questions: { params: { session_id: string; offset?: number; limit?: number }; result: R<"listOwnerQuestions"> };
   owner_question_answer: { params: { session_id: string; question_id: string; question_version: number; request_id: string;
-    answers: import("@ruukoto/core/owner-questions.ts").OwnerAnswer[]; model_selection: ModelSelection; access_mode?: SessionDefaultMode; granted_paths?: GrantedPath[] }; result: R<"answerOwnerQuestion"> };
+    answers: import("@ruukoto/core/owner-questions.ts").OwnerAnswer[] }; result: R<"answerOwnerQuestion"> };
   owner_question_cancel: { params: { session_id: string; question_id: string; question_version: number; request_id: string }; result: R<"cancelOwnerQuestion"> };
-  owner_question_receipt: { params: { session_id: string; request_id: string; operation: "owner_question_answer" | "owner_question_cancel" }; result: R<"findOwnerQuestionReceipt"> };
+  owner_question_receipt: { params: { session_id: string; request_id: string; operation: "owner_question_answer" | "owner_question_cancel"; question_id?: string; question_version?: number; answers?: import("@ruukoto/core/owner-questions.ts").OwnerAnswer[] }; result: R<"findOwnerQuestionReceipt"> };
   work_list: { params: { session_id?: string }; result: R<"workList"> };
   work_get: { params: { work_id: string }; result: R<"workGet"> };
   workflow_definitions: { params: { offset?: number; limit?: number }; result: Awaited<ReturnType<Runtime["workflowLibrary"]["list"]>> };
@@ -140,13 +140,21 @@ export interface TuiOps {
   read_workspace_git: { params: { workspace_id: string; cursor?: string }; result: R<"readWorkspaceGit"> };
   put_attachment: { params: AttachmentUpload; result: R<"putAttachment"> };
   submit: { params: Submit; result: R<"submit"> };
-  continue: { params: Submit & { task_id: string }; result: R<"continueTask"> };
   interrupt: { params: { task_id: string }; result: { accepted: true } };
   cancel: { params: { task_id: string }; result: { accepted: true } };
-  resume_queue: { params: { session_id: string; model_selection?: ModelSelection }; result: R<"resumeQueue"> };
+  resume_queue: { params: { session_id: string; model_selection?: ModelSelection; stop_confirmed?: boolean }; result: R<"resumeQueue"> };
   task_queue: { params: { session_id: string }; result: R<"getTaskQueueDetail"> };
   queue_reorder: { params: { session_id: string; task_ids: string[]; expected_revision: number }; result: R<"reorderQueue"> };
   steer_task: { params: { task_id: string; expected_queue_revision?: number }; result: R<"steerTask"> };
+  /** Recall the latest input; replaying request_id returns the original receipt idempotently. */
+  message_recall: { params: { session_id: string; task_id: string; request_id: string; expected_revision: number; purpose: "queued" | "historical" };
+    result: Awaited<ReturnType<Runtime["messageRecall"]["recallMessage"]>> };
+  /** Recheck a recorded stop intent and advance it without changing the parameters or target. */
+  message_recall_verify: { params: { session_id: string; request_id: string };
+    result: Awaited<ReturnType<Runtime["messageRecall"]["verifyMessageRecallStop"]>> };
+  /** Query recall state; only the initiating client holding the original request key receives draft content. */
+  message_recall_state: { params: { session_id: string; request_id?: string };
+    result: Awaited<ReturnType<Runtime["messageRecall"]["messageRecallState"]>> };
   respond_confirmation: {
     params: { confirmation_id: string; decision: "approve" | "reject"; permission_version?: number };
     result: R<"respondConfirmation">;

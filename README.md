@@ -33,6 +33,8 @@ ruukoto-code                      # Return to an existing conversation
 ruukoto-code stop                 # Stop the backend
 ```
 
+Coding keeps ordinary messages in the user queue. Retrieve any unstarted message from the desktop queue or TUI `/queue` to edit its text and attachments. Interrupting the current task pauses dispatch until explicit resume; later messages create new tasks in the same conversation. See [queue controls and recovery](docs/usage.md#72-commands).
+
 ### Personal Agent
 
 Follow the [deployment guide](deploy/systemd/README.md) for the account, native execution, persistent user manager, systemd unit and optional service helper. Configure models and credential environment variables in a new profile, then pair dedicated IM entries.

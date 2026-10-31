@@ -29,7 +29,8 @@ export function conversationActivity(view: ViewState, sessionId: string, online:
   items = items.filter(item => !(item.kind === "message" && !item.text.trim() && !item.attachments?.length));
   const groups = activityGroups(items);
   const task = view.activeTaskFor(sessionId);
-  const running = online && task?.status === "running" && !task.cancelRequested && session.queueState !== "paused" && !view.pendingApprovals().some(approval => approval.sessionId === sessionId);
+  const waiting = view.ownerQuestions.some(question => question.sessionId === sessionId && question.taskId === task?.id && question.status === "pending");
+  const running = online && !waiting && task?.status === "running" && !task.cancelRequested && session.queueState !== "paused" && !view.pendingApprovals().some(approval => approval.sessionId === sessionId);
   const batch = running ? groups.findLast(group => group.some(item => item.kind === "tool" && item.taskId === task.id && item.status === "running")) : undefined;
   const latest = running ? items.findLast(item => item.taskId === task.id && ["message", "thinking", "tool"].includes(item.kind)) : undefined;
   const thinking = running && !batch && !(latest?.kind === "message" && latest.role === "assistant" && latest.streaming && latest.text.trim());

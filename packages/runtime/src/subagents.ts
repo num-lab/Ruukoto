@@ -60,6 +60,7 @@ import type { SourceRef } from "@ruukoto/channels/scheduler/store.ts";
 import type { SourceResolver } from "@ruukoto/channels/source-resolver.ts";
 import type { Store } from "@ruukoto/core/store.ts";
 import { CodeScheduleError, bindCodeScheduleTask, getCodeScheduleRunForTask, getCodeScheduledTaskSource } from "@ruukoto/core/code-scheduler.ts";
+import { isRecallSealedTask } from "@ruukoto/core/message-recall.ts";
 import type {
   AccessMode,
   ModelSelection,
@@ -203,6 +204,8 @@ export interface SubAgentManagerDeps {
   parentDelivery: Pick<ParentDelivery, "messageRecorded">;
   /** 停止单个执行任务（Runtime 接线；整项取消的登记事务提交后逐一调用）。 */
   cancelTask(taskId: string, reason?: string): Promise<Task>;
+  /** Reject registration of derived work from recall-sealed sources. */
+  assertSourceOpen?(taskId: string): void;
   protectedRoots(): string[];
   /** 后台数据目录（拒绝把工作目录放进保护根）。 */
   dataDir: string;
@@ -315,6 +318,7 @@ export class SubAgentManager {
 
   /** 授权登记前后核实发起任务；宿主评审允许已完成的接收轮次，来源仍固定 GitHub。 */
   private assertSource(task: Task, snapshot: Task = task, hostReview?: SubAgentDelegateInput["hostReview"]): void {
+    this.deps.assertSourceOpen?.(task.id);
     getCodeScheduledTaskSource(this.store, task.id);
     const scheduled = this.store.getScheduledRunForTask(task.id);
     if (scheduled && (scheduled.closedAt || scheduled.scheduleStatus === "canceled")) {
@@ -1031,6 +1035,8 @@ export class SubAgentManager {
    */
   private deliverAsTask(msg: SubAgentMessage, work: WorkDelegation, agent: SubAgent, selection: ModelSelection, kicks: string[]): void {
     this.assertRole(agent);
+    // Retain late messages from sealed sources without delivery or new work derived from the recalled closure.
+    if (isRecallSealedTask(this.store, msg.fromTaskId)) { this.dropMessage(msg, "message_recall"); return; }
     const scope = this.store.listTasksBySession(agent.sessionId).filter(t => t.workId === work.id).at(-1)?.readScope ?? null;
     const accessMode = this.messageAccessMode(work, agent, msg.accessMode);
     let readScope = scope;

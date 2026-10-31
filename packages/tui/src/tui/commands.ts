@@ -36,7 +36,6 @@ export interface CommandHost {
   openApprovals(): void;
   interrupt(taskId: string): Promise<void>;
   cancel(taskId: string): Promise<void>;
-  continueTask(taskId: string): Promise<void>;
   resumeQueue(): Promise<void>;
   openModelPicker(result: CommandResult): Promise<void>;
   openModeList(rest: string[], result: CommandResult): Promise<void>;
@@ -56,6 +55,12 @@ export interface CommandHost {
   steer(text: string): Promise<void>;
   /** 打开或收起当前会话的侧聊悬浮层（coding-side-chat）。 */
   toggleSide(): Promise<void>;
+  /** Recall the latest input and restore it to the draft. */
+  recall(): Promise<void>;
+  /** Recheck an unverified recall stop using the original request key. */
+  recallVerify(): Promise<void>;
+  /** Remove recalled attachments from the draft. */
+  detach(): void;
 }
 
 export interface CommandContext {
@@ -325,7 +330,6 @@ export const COMMANDS: readonly SlashCommand[] = [
   { name: "interrupt", description: "中断当前任务或手动压缩", argumentHint: "[taskId]", run: (ctx, { arg }) => ctx.host.interrupt(arg) },
   { name: "cancel", description: "取消排队/活动任务", argumentHint: "<taskId>", run: (ctx, { arg }) => ctx.host.cancel(arg) },
   { name: "model", description: "切换模型", keepsResult: true, run: (ctx) => ctx.host.openModelPicker(ctx.result) },
-  { name: "continue", description: "继续已中断任务", argumentHint: "[taskId]", run: (ctx, { arg }) => ctx.host.continueTask(arg) },
   { name: "resume-queue", description: "恢复已暂停的会话队列", run: (ctx) => ctx.host.resumeQueue() },
   { name: "queue", description: "查看排队输入，逐项上移/下移或转为引导", run: (ctx) => ctx.host.openQueue() },
   { name: "steer", description: "把正文作为引导接入当前任务的下一边界", argumentHint: "<正文>",
@@ -359,6 +363,8 @@ export const COMMANDS: readonly SlashCommand[] = [
   { name: "questions", description: "查看拥有者问题，逐题回答或取消", run: ctx => ctx.host.openQuestions() },
   { name: "workflow", description: "打开工作流侧栏，选择运行、启动与控制", run: (ctx) => ctx.host.openWorkflow() },
   { name: "prompt", description: "查看本会话模型请求列表与每次调用的 prompt 详情", run: (ctx) => ctx.host.openPrompts() },
+  { name: "recall", description: "撤回最近一条输入并恢复到草稿；/recall verify 重新核实停止", run: (ctx, { rest }) => rest[0] === "verify" ? ctx.host.recallVerify() : ctx.host.recall() },
+  { name: "detach", description: "移除草稿中随撤回恢复的附件", hidden: true, run: (ctx) => ctx.host.detach() },
   { name: "qq", description: "QQ 群聊入口：status | enable | disable | groups | inbox | outbox", argumentHint: "<子命令>", run: (ctx, { rest }) => qq(ctx, rest) },
 ];
 

@@ -271,7 +271,8 @@ test("拒绝正常终止的子进程：中断时升级强制回收，占用随�
     }
     assert.ok(gone, "忽略 SIGTERM 的子进程必须被 SIGKILL 回收");
 
-    // 占用已释放：同目录新任务可以启动
+    await t.client.request("resume_queue", { session_id: sessionId });
+    // Verified process exit releases occupancy; explicit resume releases the owner pause.
     const next = await t.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: sessionId,
       request_id: "spawn2",

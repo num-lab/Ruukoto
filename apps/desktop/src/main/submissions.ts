@@ -36,11 +36,11 @@ export class DesktopSubmissions {
     const { records, corrupt } = this.store.list();
     this.publish({ type: "pending", entries: records.map(record => ({ record, result: this.results.get(record.requestId) })), corrupt, dir: this.store.dir });
   }
-  async submit(op: "submit" | "continue" | "owner_question_answer", params: Record<string, unknown>): Promise<DesktopSubmitResult> {
-    if (typeof params.session_id !== "string" || (op !== "owner_question_answer" && typeof params.input !== "string") || (op === "owner_question_answer" && typeof params.question_id !== "string") || (op === "continue" && typeof params.task_id !== "string")) throw new DesktopError("invalid_params", "请选择会话与继续来源后再发送。");
+  async submit(op: "submit" | "owner_question_answer", params: Record<string, unknown>): Promise<DesktopSubmitResult> {
+    if (typeof params.session_id !== "string" || (op !== "owner_question_answer" && typeof params.input !== "string") || (op === "owner_question_answer" && typeof params.question_id !== "string")) throw new DesktopError("invalid_params", "请选择会话后再发送。");
     const existing = this.store.list().records.find(record => op === "owner_question_answer"
       ? (record.op === "owner_question_answer" || record.op === "owner_question_cancel") && record.params.question_id === params.question_id
-      : record.op === op && (op === "continue" ? record.params.task_id === params.task_id : record.params.session_id === params.session_id));
+      : record.op === op && record.params.session_id === params.session_id);
     if (existing) return { kind: "pending_existing", record: existing };
     const requestId = params.request_id;
     if (requestId !== undefined && (typeof requestId !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(requestId))) throw new DesktopError("invalid_params", "输入请求标识无效，请重新发送。");
@@ -52,7 +52,7 @@ export class DesktopSubmissions {
     }
     const guard = this.guard();
     const pending = guard.submit(op, params, typeof requestId === "string" ? { requestId } : {});
-    const record = this.store.list().records.find(record => record.op === op && (op === "continue" ? record.params.task_id === params.task_id : op === "owner_question_answer" ? record.params.question_id === params.question_id : record.params.session_id === params.session_id));
+    const record = this.store.list().records.find(record => record.op === op && (op === "owner_question_answer" ? record.params.question_id === params.question_id : record.params.session_id === params.session_id));
     if (record) this.sending.add(record.requestId);
     this.refresh();
     let result: DesktopSubmitResult;
@@ -133,7 +133,7 @@ export class DesktopSubmissions {
     try { entry = this.store.read(requestId); }
     catch { throw new DesktopError(op === "desktop_pending_read" ? "pending_read_failed" : "pending_clear_failed", "原记录无法读取，发送仍禁用；请检查应用数据目录后重试。"); }
     if (entry.kind === "absent" && op === "desktop_pending_clear") { this.refresh(); return; }
-    if (entry.kind !== "record" || (entry.record.op !== "submit" && entry.record.op !== "continue") || entry.record.instanceId !== this.connection()?.instanceId || this.results.get(requestId)?.kind !== "needs_resubmit") throw new DesktopError("not_restorable", "此输入不可恢复；请等待核实或连回原数据实例。");
+    if (entry.kind !== "record" || entry.record.op !== "submit" || entry.record.instanceId !== this.connection()?.instanceId || this.results.get(requestId)?.kind !== "needs_resubmit") throw new DesktopError("not_restorable", "此输入不可恢复；请等待核实或连回原数据实例。");
     if (op === "desktop_pending_read") return entry.record;
     try { this.store.remove(requestId); }
     catch { throw new DesktopError("pending_clear_failed", "原记录未能清除，发送仍禁用；请检查应用数据目录后重试。"); }

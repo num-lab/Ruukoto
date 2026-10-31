@@ -5,6 +5,7 @@ import type { TaskView as Task } from "@ruukoto/core/views.ts";
 import type {
   AccessMode,
   SessionDefaultMode,
+  PublicMessageRecall,
   ModelSelection,
   Artifact,
   PersistentEvent,
@@ -92,6 +93,8 @@ export class ViewState {
   globalNotes: ActivityNote[] = [];
   /** 侧聊绑定（sideSessionId → parentSessionId；快照下发 + side_chat.bound 事件）。 */
   sideChats = new Map<string, string>();
+  /** Pending recalls and open edit windows, initialized by snapshots and updated by events. */
+  messageRecalls: PublicMessageRecall[] = [];
   /** 快照中的任务预览（按任务）；会话视图打开时应用。 */
   private snapshotPreviews = new Map<string, OutputPreview>();
   private taskSeq = new Map<string, number>();
@@ -124,6 +127,7 @@ export class ViewState {
     this.guidance = new Map((result.snapshot.taskGuidance ?? []).map(route => [route.sourceTaskId, route]));
     this.subAgents = result.snapshot.subAgents ?? [];
     this.sideChats = new Map((result.snapshot.sideChats ?? []).map(binding => [binding.sideSessionId, binding.parentSessionId]));
+    this.messageRecalls = result.snapshot.messageRecalls ?? [];
     if (instanceChanged) {
       this.sessionViews.clear();
       this.currentSessionId = null;
@@ -138,6 +142,7 @@ export class ViewState {
       view.queuePauseReason = session.queuePauseReason;
       view.flow.resetRemote();
       view.historyLoaded = false;
+      for (const recall of this.messageRecalls) if (recall.sessionId === sessionId) view.flow.applyRecall(recall);
       for (const task of this.tasksFor(sessionId)) if (isActiveStatus(task.status)) view.flow.task(task);
       for (const [taskId, preview] of this.snapshotPreviews) {
         if (this.tasks.get(taskId)?.sessionId === sessionId) view.flow.preview(taskId, preview);
@@ -174,6 +179,14 @@ export class ViewState {
   private applyStateEvent(event: PersistentEvent): void {
     const body = event.body;
     switch (body.type) {
+      case "message_recall.changed": {
+        const index = this.messageRecalls.findIndex(recall => recall.id === body.recall.id);
+        const open = (body.recall.phase !== "completed" && body.recall.phase !== "rejected") || body.recall.editOpen;
+        if (index < 0) { if (open) this.messageRecalls.push(body.recall); }
+        else if (open) this.messageRecalls[index] = body.recall;
+        else this.messageRecalls.splice(index, 1);
+        return;
+      }
       case "code_schedule.task_bound":
         this.patchTask(body.taskId, { codeScheduleRunId: body.runId });
         return;
@@ -263,12 +276,13 @@ export class ViewState {
         }
         return;
       case "task.queued":
+        if (!body.inputPurpose && !this.tasks.get(body.taskId)) return;
         this.upsertTask({
           id: body.taskId,
           sessionId: body.sessionId,
           requestId: body.requestId,
           input: "",
-          inputPurpose: this.tasks.get(body.taskId)?.inputPurpose ?? "user",
+          inputPurpose: body.inputPurpose ?? this.tasks.get(body.taskId)!.inputPurpose,
           modelSelection: body.modelSelection,
           submissionDigest: null,
           status: "queued",
@@ -715,7 +729,7 @@ export class ViewState {
   queuedTasksFor(sessionId: string): Task[] {
     return this.tasksFor(sessionId)
       // 待接入引导源不独立执行，不属于队列成员；顺序只取持久 queue_order 事实
-      .filter((t) => t.status === "queued" && !t.reportParked && this.guidance.get(t.id)?.state !== "pending")
+      .filter((t) => t.status === "queued" && t.inputPurpose === "user" && !t.reportParked && this.guidance.get(t.id)?.state !== "pending")
       .sort((a, b) => a.queueOrder - b.queueOrder || a.id.localeCompare(b.id));
   }
 

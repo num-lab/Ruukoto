@@ -79,9 +79,8 @@ test("带说明的对象选项与旧字符串选项原样保存，跳题及多�
   assert.deepEqual(getOwnerQuestion(f.store, question.id)!.questions, items);
   assert.deepEqual(f.store.withTx(() => createOwnerQuestion(f.store, input)).questions, items);
   const answers = [{ text: "静态\n测试", options: [0, 1] }, { text: "" }];
-  const task = f.store.withTx(() => f.queued("answer"));
   const receipt = f.store.withTx(() => consumeOwnerQuestion(f.store, { questionId: question.id, sessionId: f.session.id, version: 1,
-    requestKey: "answer", requestDigest: "answer-digest", answers, source: { kind: "coding-owner", sessionId: f.session.id }, taskId: task.id }));
+    requestKey: "answer", requestDigest: "answer-digest", answers }));
   assert.deepEqual(getOwnerQuestion(f.store, question.id)!.answers, answers);
   assert.deepEqual(getOwnerQuestionReceipt(f.store, f.session.id, "answer"), receipt);
   assert.deepEqual(receipt.question.questions, items);
@@ -101,16 +100,16 @@ test("提问与事件同事务，同操作去重，其他操作不能覆盖待�
   assert.equal(listOwnerQuestions(f.store, f.session.id).length, 1);
   assert.throws(() => f.store.withTx(() => createOwnerQuestion(f.store, { ...input, questions: [{ question: "不同" }] })), { code: "request_conflict" });
   assert.equal("source" in ownerQuestionToView(question), false);
-  assert.equal("hostOpId" in ownerQuestionToView(question), false);
+  assert.equal(ownerQuestionToView(question).hostOpId, input.hostOpId);
 });
 
-test("原 Task 自然终态与存档保留问题，显式取消才使待答问题失效", t => {
+test("Terminal Tasks invalidate pending questions without deleting their history", t => {
   const f = fixture(t), question = f.create();
   f.store.withTx(() => {
     f.store.endTask(f.task.id, ["running"], "completed");
     f.db.prepare("UPDATE sessions SET archived_at = ? WHERE id = ?").run(new Date().toISOString(), f.session.id);
   });
-  assert.equal(getOwnerQuestion(f.store, question.id)?.status, "pending");
+  assert.equal(getOwnerQuestion(f.store, question.id)?.status, "stale");
   f.store.withTx(() => invalidateOwnerQuestionsForTask(f.store, f.task.id));
   assert.equal(getOwnerQuestion(f.store, question.id)?.status, "stale");
   assert.equal(getOwnerQuestion(f.store, question.id)?.version, 2);
@@ -121,8 +120,7 @@ test("事务失败回滚问题消费、答案、唯一续接 Task 与事件", t 
   const f = fixture(t), question = f.create(), before = f.store.getEventsAfter(0).length, committed: unknown[] = [];
   f.store.onCommitted = events => committed.push(events);
   assert.throws(() => f.store.withTx(() => {
-    const task = f.queued("answer");
-    consumeOwnerQuestion(f.store, { questionId: question.id, sessionId: f.session.id, version: 1, requestKey: "answer", requestDigest: "answer-digest", answers: [{ text: "生产", option: 1 }, { text: "真实回答" }], source: { kind: "coding-owner", sessionId: f.session.id }, taskId: task.id });
+    consumeOwnerQuestion(f.store, { questionId: question.id, sessionId: f.session.id, version: 1, requestKey: "answer", requestDigest: "answer-digest", answers: [{ text: "生产", option: 1 }, { text: "真实回答" }] });
     throw new Error("事务故障");
   }), /事务故障/);
   assert.equal(getOwnerQuestion(f.store, question.id)?.status, "pending");
@@ -134,19 +132,19 @@ test("事务失败回滚问题消费、答案、唯一续接 Task 与事件", t 
 
 test("回答同键重连取原回执，同键异参及第二客户端不能二次消费", t => {
   const f = fixture(t), question = f.create();
-  const task = f.store.withTx(() => f.queued("answer"));
-  const input = { questionId: question.id, sessionId: f.session.id, version: 1, requestKey: "answer", requestDigest: "answer-digest", answers: [{ text: "生产", option: 1 }, { text: "真实回答" }], source: { kind: "coding-owner" as const, sessionId: f.session.id }, taskId: task.id };
+  const input = { questionId: question.id, sessionId: f.session.id, version: 1, requestKey: "answer", requestDigest: "answer-digest", answers: [{ text: "生产", option: 1 }, { text: "真实回答" }] };
   const receipt = f.store.withTx(() => consumeOwnerQuestion(f.store, input)), count = f.store.getEventsAfter(0).length;
   assert.equal(receipt.question.status, "answered");
   assert.equal(receipt.question.version, 2);
-  assert.equal(receipt.taskId, task.id);
+  assert.equal(receipt.taskId, f.task.id);
   assert.deepEqual(getOwnerQuestionReceipt(f.store, f.session.id, "answer", "owner_question_answer"), receipt);
   assert.deepEqual(f.store.withTx(() => consumeOwnerQuestion(f.store, input)), receipt);
   assert.equal(f.store.getEventsAfter(0).length, count);
   assert.throws(() => f.store.withTx(() => consumeOwnerQuestion(f.store, { ...input, requestDigest: "other" })), { code: "request_conflict" });
   assert.throws(() => f.store.withTx(() => consumeOwnerQuestion(f.store, { ...input, requestKey: "client-two", requestDigest: "second" })), { code: "question_version" });
   assert.throws(() => f.store.withTx(() => cancelOwnerQuestion(f.store, { questionId: question.id, sessionId: f.session.id, version: 1, requestKey: "cancel", requestDigest: "cancel" })), { code: "question_version" });
-  assert.equal(getOwnerQuestion(f.store, question.id)?.answerSource?.accessMode, task.accessMode);
+  assert.equal(getOwnerQuestion(f.store, question.id)?.answerSource, undefined);
+  assert.ok(getOwnerQuestion(f.store, question.id)?.answerSeq);
 });
 
 test("取消回执可重取，不能生成答案与续接；答案与取消同键冲突", t => {
@@ -158,7 +156,7 @@ test("取消回执可重取，不能生成答案与续接；答案与取消同�
   assert.equal(f.store.listTasksBySession(f.session.id).length, 1);
   assert.deepEqual(f.store.withTx(() => cancelOwnerQuestion(f.store, input)), canceled);
   assert.equal(getOwnerQuestionReceipt(f.store, f.session.id, "cancel", "owner_question_cancel")?.question.status, "canceled");
-  assert.throws(() => f.store.withTx(() => consumeOwnerQuestion(f.store, { ...input, answers: [{ text: "生产", option: 1 }, { text: "回答" }], source: { kind: "coding-owner", sessionId: f.session.id }, taskId: "unused" })), { code: "request_conflict" });
+  assert.throws(() => f.store.withTx(() => consumeOwnerQuestion(f.store, { ...input, answers: [{ text: "生产", option: 1 }, { text: "回答" }] })), { code: "request_conflict" });
 });
 
 test("真实拥有者来源才能提问，Plan保留资格，当前轮只开放宿主状态查询", t => {
@@ -181,30 +179,41 @@ test("真实拥有者来源才能提问，Plan保留资格，当前轮只开放�
   assert.equal(taskToolSet(input).allowed.has("read"), true);
 });
 
-test("宿主工具真实执行立即pending并释放句柄，重启按原op核实登记结果", async t => {
+test("ask_user waits for its original question result and releases the host handle after cancellation", async t => {
   const f = fixture(t), input = f.op(), family = createOwnerQuestionFamily(f.store);
-  let released = 0;
+  let released = 0, resolve!: (question: ReturnType<typeof createOwnerQuestion>) => void;
+  const waiting = new Promise<ReturnType<typeof createOwnerQuestion>>(done => { resolve = done; });
   const runtime: HostToolRuntime = {
     registry: createManagedProcessRegistry(), toolClass: "dev",
     call: { taskContext: () => input, bindCall: () => ({ context: input, release: () => { released++; } }) },
     identity: { verifyMain: () => null, verifyHost: () => null },
-    approval: { request: () => assert.fail("业务提问不能进入审批"), requestStanding: () => assert.fail("业务提问不能进入长期审批") },
+    approval: { request: () => assert.fail("Business questions do not approve operations"), requestStanding: () => assert.fail() },
     effects: { recordArtifact: () => assert.fail(), markEffectUnknown: () => assert.fail() }, skills: () => null,
-    ownerQuestions: { create: (ctx, items) => f.store.withTx(() => createOwnerQuestion(f.store, { ...ctx, questions: items })) },
+    ownerQuestions: {
+      create: (ctx, items) => f.store.withTx(() => createOwnerQuestion(f.store, { ...ctx, questions: items })),
+      wait: async () => waiting,
+    },
   };
   const tool = family.build(runtime)[0], sdkContext = {} as Parameters<typeof tool.execute>[4];
-  const result = await tool.execute("ask", { questions }, undefined, undefined, sdkContext);
-  assert.match(JSON.stringify(result.content), /pending/);
-  assert.match(JSON.stringify(result.content), /结束本轮/);
+  let finished = false;
+  const running = tool.execute("ask", { questions }, undefined, undefined, sdkContext).then(result => { finished = true; return result; });
+  await Promise.resolve();
+  assert.equal(finished, false);
+  assert.equal(released, 0);
+  const question = findOwnerQuestionByOp(f.store, input.hostOpId)!;
+  assert.deepEqual(question.questions, questions);
+  resolve(f.store.withTx(() => cancelOwnerQuestion(f.store, { questionId: question.id, sessionId: f.session.id,
+    version: question.version, requestKey: "cancel-wait", requestDigest: "cancel-wait" })));
+  const result = await running;
+  assert.match(JSON.stringify(result.content), /canceled/);
+  assert.doesNotMatch(JSON.stringify(result.content), /"answers"/);
   assert.equal(released, 1);
-  assert.equal(findOwnerQuestionByOp(f.store, input.hostOpId)?.questions[0].question, questions[0].question);
-  const uncommitted = f.op();
-  const ledger = new ToolOpLedger(f.store, {}, [family.ledger!]);
+  const uncommitted = f.op(), ledger = new ToolOpLedger(f.store, {}, [family.ledger!]);
   f.store.withTx(() => ledger.settleAll());
   assert.equal(f.store.getToolOp(input.hostOpId)?.isError, false);
+  assert.match(f.store.getToolOp(input.hostOpId)?.resultSummary ?? "", /不证明回答已交给模型/);
   assert.equal(f.store.getToolOp(uncommitted.hostOpId)?.isError, true);
   assert.equal(f.store.getTask(f.task.id)?.effectUnknown, false);
-  assert.equal(getOwnerQuestion(f.store, findOwnerQuestionByOp(f.store, input.hostOpId)!.id)?.status, "pending");
 });
 
 test("持久答案缺失不能被恢复成已回答，问题查询有界且待答优先", t => {

@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Next-request report delivery](2026-10-30-coding-report-delivery-boundary.md) classifies individual reports inside active tasks and excludes internal fallbacks from the user queue. That decision owns the extended classification contract and preserves the receiving task's ordinary owner input.
+
 ## Problem
 
 Host final reports entered Task.input/sdk.prompt as user messages and appeared as owner input in chat, up-arrow history and pinned requirements. Hiding only task details leaked earlier history pages/single-entry reads. Body/request-key heuristics could hide genuine matching user input.

@@ -6,6 +6,7 @@ import { test } from "node:test";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { Db } from "@ruukoto/core/db.ts";
+import { ArtifactStore } from "@ruukoto/agent/artifacts.ts";
 import { Store } from "@ruukoto/core/store.ts";
 import { agentReportKey, bindAgentReportFallback, claimAgentReports, completeAgentReports, consumeAgentReport, endAgentWait, getAgentReport,
   listAgentReports, registerAgentReport, registerAgentWait, releaseAgentReports, startAgentReportFallback } from "@ruukoto/core/agent-wait.ts";
@@ -28,6 +29,22 @@ function running(store: Store, sessionId: string, selection: ModelSelection, req
     modelSelection: selection, submissionDigest: requestId }).task;
   store.transitionTask(task.id, ["queued"], "running");
   return store.getTask(task.id)!;
+}
+
+function requestProof(store: Store, dataDir: string, history: SessionManager, task: Task, inputs: { entryId: string; keys: string[] }[]): void {
+  const recordId = `selection-${task.id}`, artifacts = new ArtifactStore(dataDir, store);
+  const entryIds = inputs.map(input => input.entryId), keys = [...new Set(inputs.flatMap(input => input.keys))];
+  const messages = history.getEntries().filter(entry => entry.type === "message" && entryIds.includes(entry.id)).map(entry => entry.type === "message" ? entry.message : null);
+  store.withTx(() => {
+    const artifact = artifacts.begin({ taskId: task.id, sessionId: task.sessionId, name: "request-proof" });
+    artifacts.append(artifact.id, Buffer.from(JSON.stringify({ messages })));
+    artifacts.complete(artifact.id);
+    store.insertSelectionRecord({ id: recordId, taskId: task.id, sessionId: task.sessionId, callIndex: 1, strategy: "fixture", configVersion: 1,
+      model: "mock/mock-model", totalMessages: messages.length, includedIndices: messages.map((_, index) => index), excluded: [], includedMemories: [], excludedMemories: [],
+      instructionVersion: "", cappedToolResults: [], estimates: {}, budget: 1000, estimatedTotal: 100, promptArtifactId: null, windowSnapshot: null, createdAt: new Date().toISOString() });
+    store.setSelectionRecordPromptArtifact(recordId, artifact.id);
+  });
+  history.appendCustomEntry("ruukoto_agent_report_context", { taskId: task.id, requestBinding: true, reportKeys: keys, entryIds, selectionRecordId: recordId });
 }
 
 for (const window of ["parent", "parent-repeated", "parent-process", "fallback", "fallback-no-end"] as const) test(`冷恢复 ${window}：最终 JSONL 已落盘而 SQLite 未终态，保留原报告且不再生成`, async () => {
@@ -107,6 +124,7 @@ for (const window of ["parent", "parent-repeated", "parent-process", "fallback",
       }
       if (window === "parent-process") history.appendMessage({ role: "toolResult", toolName: "wait", toolCallId: "reused-wait-call", isError: false,
         content: [{ type: "text", text: JSON.stringify({ reason: "result", targets: [{ kind: "process", process_id: "background", state: "stopped", exit: { code: 0, signal: null }, stopVerified: true }] }) }], timestamp: Date.now() });
+      requestProof(store, t.dirs.dataDir, history, reportTask, [{ entryId: resultEntryId, keys: [reportKey] }]);
       history.appendMessage(assistant("原记录中的唯一最终总结"));
       if (completed) history.appendCustomEntry(TASK_END_MARKER, { taskId: reportTask.id, status: "completed" });
       const file = history.getSessionFile();
@@ -337,6 +355,7 @@ for (const inputCase of ["completed", "no-end", "missing-reference", "invalid-js
       const states = targets.map((target, i) => ({ ...target, status: "completed", resultSummary: `结果${i}`, stopVerified: true, effectUnknown: false, artifactIds: [], artifactCount: 0, reportOwnerTaskId: q.id }));
       inputId = history.appendMessage({ role: "toolResult", toolName: "agent_wait", toolCallId: "reused-call", isError: false, timestamp: Date.now(),
         content: [{ type: "text", text: JSON.stringify({ reason: "result", targets: [states[1]], reportTargets: states }) }] });
+      requestProof(store, t.dirs.dataDir, history, q, [{ entryId: inputId, keys }]);
       finalId = history.appendMessage(assistant("唯一完整总结first和second"));
       if (completed) history.appendCustomEntry(TASK_END_MARKER, { taskId: q.id, status: "completed" });
       store.withTx(() => {

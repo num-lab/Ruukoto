@@ -382,7 +382,8 @@ function skillRootKit(stop: () => Promise<boolean>, candidates: Array<{ name: st
 }
 
 test("router 技能根：受限原生根并入 readRoots 与 worker key；目录身份变化先核实停止再重建，坏根逐技能隔离", async () => {
-  const skillDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-skill-root-")));
+  const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-skill-root-"))), skillDir = path.join(parent, "active");
+  fs.mkdirSync(skillDir);
   try {
     const { kit, specs } = skillRootKit(async () => true, [
       { name: "good", dir: skillDir },
@@ -394,31 +395,32 @@ test("router 技能根：受限原生根并入 readRoots 与 worker key；目录
       assert.equal(specs.length, 1);
       assert.deepEqual(specs[0].readRoots?.map(root => root.path), [skillDir]);
       assert.ok(JSON.stringify(first.content).includes("gone"), "不可用技能根的诊断进入工具结果");
-      // 目录身份（dev/ino）变化 → spec 变化 → worker key 变化 → 先停止核实再重建
+      // Retain the old directory so filesystems cannot reuse its inode for the replacement.
       const oldStat = fs.statSync(skillDir);
-      fs.rmdirSync(skillDir); fs.mkdirSync(skillDir);
+      fs.renameSync(skillDir, path.join(parent, "retained")); fs.mkdirSync(skillDir);
       const second = await kit.run();
       assert.equal(second.isError, false);
       assert.equal(specs.length, 2);
       assert.notEqual(specs[1].readRoots?.[0]?.ino, oldStat.ino);
     } finally { kit.close(); }
-  } finally { fs.rmSync(skillDir, { recursive: true, force: true }); }
+  } finally { fs.rmSync(parent, { recursive: true, force: true }); }
 });
 
 test("router 技能根身份变化而停止未核实：保留占用并拒绝替代执行环境", async () => {
-  const skillDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-skill-root-")));
+  const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-skill-root-"))), skillDir = path.join(parent, "active");
+  fs.mkdirSync(skillDir);
   try {
     const { kit, specs } = skillRootKit(async () => false, [{ name: "good", dir: skillDir }]);
     try {
       assert.equal((await kit.run()).isError, false);
-      fs.rmdirSync(skillDir); fs.mkdirSync(skillDir);
+      fs.renameSync(skillDir, path.join(parent, "retained")); fs.mkdirSync(skillDir);
       const refused = await kit.run();
       assert.equal(refused.isError, true);
       assert.ok(JSON.stringify(refused.content).includes("无法核实") || JSON.stringify(refused.content).includes("mode_switch_unverified"), "拒绝替代旧执行单元");
       assert.equal(specs.length, 1, "未发起第二次启动");
       assert.equal(kit.router.workerIdentity()?.id, "123456");
     } finally { kit.close(); }
-  } finally { fs.rmSync(skillDir, { recursive: true, force: true }); }
+  } finally { fs.rmSync(parent, { recursive: true, force: true }); }
 });
 
 // 验证步骤把 spec 降为 confirm 时仍补技能根；真正完全访问不追加（权限不增不减）。
@@ -639,7 +641,8 @@ test("拥有者同进程核实恢复后使用新 worker，旧停止失败与命�
     assert.equal(t.runtime.store.getOccupancyByDir(session.cwdReal)?.taskId, old.id);
     assert.equal(await originalDriver.stopManagedProcesses(old.id), false);
     t.runtime.launcherFor = originalLauncher;
-    await t.runtime.resumeQueue(session.id);
+    await assert.rejects(t.runtime.resumeQueue(session.id), { code: "stop_unverified" });
+    await t.runtime.resumeQueue(session.id, undefined, true);
     const next = await t.runtime.submit({ sessionId: session.id, requestId: "new", input: "核实后执行新命令", accessMode: "full_access", modelSelection: t.runtime.defaultSelection });
     await waitFor("新任务完成", () => t.runtime.store.getTask(next.id)!.status === "completed");
     assert.equal(fs.existsSync(path.join(t.work[0], "new-marker")), true, "恢复后的新任务必须能建立新 worker 执行");

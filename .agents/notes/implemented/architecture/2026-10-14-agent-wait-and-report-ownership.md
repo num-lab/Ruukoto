@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Next-request report delivery](../feature/2026-10-30-coding-report-delivery-boundary.md) adds multi-source delivery to active non-wait tasks and changes fallback priority. [In-task questions](../feature/2026-10-30-coding-owner-question-wait.md) separately defines owner-answer waiting without expanding this note's wait targets. Those decisions own the replacement delivery and question-waiting contracts; this note retains claims, consumption, provenance and stopping guarantees outside that scope.
+
 [Generic wait](../feature/2026-10-25-code-wait.md) supersedes the model-facing `agent_wait` name with `wait` and adds process waiting; this note retains internal persistence, task/workflow consumption, and report ownership. [Coding message control](../feature/2026-10-28-coding-message-control.md) owns later queue/steering changes. The historical [managed-skills](../feature/2026-10-21-managed-skills.md) manager is retired by [HOME discovery](../simplification/2026-10-28-home-skills-discovery.md); saved wait references remain evidence, not permission to rewrite old snapshots.
 
 ## Problem

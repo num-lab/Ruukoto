@@ -7,7 +7,7 @@
  */
 
 import { randomBytes } from "node:crypto";
-import type { AttachmentReference } from "./attachments.ts";
+import type { AttachmentMetadata, AttachmentReference } from "./attachments.ts";
 import type { HistorySnapshot } from "./history.ts";
 
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
@@ -19,7 +19,7 @@ import type { SubAgentExecutionSnapshot } from "./subagent-execution.ts";
 import type { WorkCopyHostSnapshot } from "./work-copy-host.ts";
 import { requireWorkspaceSnapshot, WorkspaceSnapshotError, type WorkspaceSnapshot } from "./workspace-snapshot.ts";
 
-export const PROTOCOL_VERSION = 47;
+export const PROTOCOL_VERSION = 49;
 
 export interface ModelSelection {
   provider: string;
@@ -619,9 +619,82 @@ export interface TaskGuidance {
   entryId: string | null;
 }
 
+/** Persistent phases of a message recall request. */
+export type MessageRecallPhase =
+  /** Intent accepted, awaiting adjudication. */
+  | "accepted"
+  /** Stopping the entire execution closure. */
+  | "stopping"
+  /** Stop or closure ownership remains unverified; verify-only may advance the request. */
+  | "blocked"
+  /** Stop verified; applying JSONL omissions. */
+  | "applying"
+  /** Completed: the sole basis for draft restoration eligibility. */
+  | "completed"
+  /** Rejected during preflight or progression; terminal receipt. */
+  | "rejected";
+
+/**
+ * A recall request fixes one owner-input target. State and events commit transactionally;
+ * the target, original text and attachments are fixed at acceptance rather than reread later.
+ */
+export type MessageRecallPurpose = "queued" | "historical";
+
+export interface MessageRecall {
+  id: string;
+  purpose: MessageRecallPurpose;
+  sessionId: string;
+  /** Client idempotency key, unique within the conversation. */
+  requestId: string;
+  /** Parameter digest; reject changed parameters under the same key. */
+  paramsDigest: string;
+  /** Source Task of the recalled input. */
+  targetTaskId: string;
+  /** Source input admission sequence fixed when the request is accepted. */
+  inputSeq: number;
+  /** Queue revision for retrieval, or input admission sequence for historical recall. */
+  expectedRevision: number;
+  /** Execution task to stop and verify: the guidance target or source Task itself. */
+  execTaskId: string | null;
+  phase: MessageRecallPhase;
+  /** Fixed stopping closure: the execution task and its trusted derived tasks. */
+  stopTaskIds: string[];
+  /** Source barrier permanently preventing new derived work, delivery and consumption from these tasks. */
+  sealedTaskIds: string[];
+  /** JSONL omission IDs fixed after stop verification, or null before being fixed. */
+  omittedEntryIds: string[] | null;
+  /** History prefix identity and fingerprint when fixing the omission list. */
+  historyFingerprint: { dev: number; ino: number; byteLimit: number; fingerprint: string } | null;
+  /** Original target input, the sole source of restored draft text. */
+  originalInput: string;
+  /** Original attachment metadata; rebinding uses only immutable original bytes. */
+  originalAttachments: AttachmentMetadata[];
+  /** Fresh attachments rebuilt from original bytes, lazily persisted for idempotent request replay. */
+  draftAttachments: AttachmentMetadata[] | null;
+  /** Monotonically increasing completion revision within the conversation. */
+  completionRevision: number | null;
+  /** Next recall candidate computed at completion. */
+  nextCandidateTaskId: string | null;
+  /** Whether this completed request still owns draft installation. */
+  editOpen: boolean;
+  /** Historical recall saves dispatch state until its edit window closes; retrieval leaves this null. */
+  savedQueueState: "active" | "paused" | null;
+  savedQueueReason: string | null;
+  error: { code: string; message: string } | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Redacted event, snapshot and query view. Draft text and staged attachments are returned only by
+ * message_recall_state with the original request key; broadcasts omit them because the key identifies the initiating client.
+ */
+export type PublicMessageRecall = Omit<MessageRecall, "originalInput" | "originalAttachments" | "draftAttachments">;
+
 export interface TaskQueue {
   revision: number;
   tasks: Array<{ taskId: string; queueOrder: number }>;
+  retrievableTaskIds: string[];
 }
 
 /** 审批展示的权限范围（结构化、可验证；凭据只出现名称与用途，不含原值）。 */
@@ -990,10 +1063,11 @@ export type PersistentEventBody =
   | { type: "session.context_compaction"; sessionId: string; requestId: string; status: SessionCompactionRequest["status"] }
   | { type: "tasks.model_selection_recorded"; sessionId: string; taskIds: string[]; modelSelection: ModelSelection }
   | { type: "task.attachments"; taskId: string; sessionId: string; attachments: AttachmentReference[] }
-  | { type: "task.queued"; taskId: string; sessionId: string; requestId: string; accessMode: AccessMode; parentTaskId?: string | null; sourcePermissionVersion?: number | null; planMode: boolean; modelSelection: ModelSelection | null; queueOrder: number }
+  | { type: "task.queued"; inputPurpose?: import("./views.ts").InputPurpose; taskId: string; sessionId: string; requestId: string; accessMode: AccessMode; parentTaskId?: string | null; sourcePermissionVersion?: number | null; planMode: boolean; modelSelection: ModelSelection | null; queueOrder: number }
   | { type: "task.started"; taskId: string; sessionId: string }
   | { type: "session.queue_changed"; sessionId: string; queue: TaskQueue }
   | { type: "task.guidance"; taskId: string; sessionId: string; guidance: TaskGuidance }
+  | { type: "message_recall.changed"; sessionId: string; recall: PublicMessageRecall }
   /** Jev 选择尝试；即使主模型未发送，取消与回退仍有任务归属记录。 */
   | { type: "task.context_experiment"; taskId: string; sessionId: string; experiment: ContextExperimentRecord }
   /**
@@ -1031,7 +1105,7 @@ export type PersistentEventBody =
    */
   | { type: "task.output_fragment"; taskId: string; sessionId: string; messageId: string; text: string; totalBytes: number; truncated: boolean; partial: true; offset?: number; startedAt?: string; contentIndex?: number }
   | { type: "task.thinking"; taskId: string; sessionId: string; thinkingId: string; messageId: string; startedAt: string; endedAt: string | null; text: string; offset?: number }
-  | { type: "task.output_entry"; taskId: string; sessionId: string; entryId: string; sessionFile: string; role: string; messageId: string | null }
+  | { type: "task.output_entry"; inputPurpose?: import("./views.ts").InputPurpose; taskId: string; sessionId: string; entryId: string; sessionFile: string; role: string; messageId: string | null }
   /**
    * 工具/审批事件（线上载荷）：params 可能被替换为有界预览
    * （paramsTruncated=true，paramsBytes 为完整序列化字节数）；完整参数经

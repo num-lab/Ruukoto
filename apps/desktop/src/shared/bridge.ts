@@ -6,13 +6,13 @@ import type { ConnectResult, DesktopBrowserEvent } from "@ruukoto/control/protoc
 import type { PersistentEvent } from "@ruukoto/core/types.ts";
 import type { PendingRequest } from "@ruukoto/control/pending-requests.ts";
 import type { OwnerQuestionCancelOutcome, OwnerQuestionCancelReconcileOutcome } from "@ruukoto/control/owner-question-cancel.ts";
-import type { ReconcileOutcome, SubmitOutcome } from "@ruukoto/control/submission.ts";
+import type { ReconcileOutcome, SubmitOutcome, OwnerQuestionAnswerOutcome } from "@ruukoto/control/submission.ts";
 import type { PersonalDesktopFrame, PersonalRemoteIdentity, PersonalPendingInput, PersonalInputReceipt } from "./personal-desktop.ts";
 
 export type DesktopAttachment = AttachmentMetadata;
 
 export type DesktopCancelQuestionResult = OwnerQuestionCancelOutcome | { kind: "pending_existing"; record: PendingRequest };
-export type DesktopSubmitResult = SubmitOutcome | { kind: "pending_existing"; record: PendingRequest };
+export type DesktopSubmitResult = SubmitOutcome | OwnerQuestionAnswerOutcome | { kind: "pending_existing"; record: PendingRequest };
 export type PendingInput = { record: PendingRequest; result?: ReconcileOutcome | OwnerQuestionCancelReconcileOutcome | CodeScheduleReconcileOutcome };
 export type PendingOp = "desktop_pending_read" | "desktop_pending_clear";
 

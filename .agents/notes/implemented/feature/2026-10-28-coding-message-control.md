@@ -2,6 +2,8 @@
 
 Status: implemented
 
+The superseding decisions are [user queue controls](2026-10-30-coding-user-queue.md), [next-request report delivery](2026-10-30-coding-report-delivery-boundary.md) and [in-task questions](2026-10-30-coding-owner-question-wait.md). They own the replacement contracts for queued sources, pause/resume and continuation entries; this note preserves the original decision and retained guidance guarantees.
+
 ## Problem
 
 Code originally registers every user input as a Task and runs creation-order FIFO. The owner cannot reorder pending input or correct a running task in place. SDK steer alone is volatile; treating the last user message as the entire current task can omit its original requirement. Original product contract/SDK evidence are historical offline `.scratch/coding-message-control/spec.md`, issues `01-queue-and-guidance.md`, and `evidence/sdk-contract.md`.
@@ -80,7 +82,7 @@ This extends [backend/FIFO ownership](../architecture/2026-09-19-detach-terminal
 
 ## Consequences
 
-Store owns tasks.queue_order, sessions.queue_revision, and task_guidance. Runtime adds submit.guidance, steerTask, reorderQueue, getTaskQueueDetail; control adds task_queue/queue_reorder/steer_task, session.queue_changed/task.guidance, and taskGuidance snapshots. Shared views use guidanceFor/queuedTasksFor, exclude pending routed sources, and use ruukotoSourceTaskId plus actual admission for history. Desktop supplies compact accessible move-up/down/convert controls and send-as-guidance; TUI has /queue and /steer.
+Store owns tasks.queue_order, sessions.queue_revision, and task_guidance. Runtime adds submit.guidance, steerTask, reorderQueue, getTaskQueueDetail; control adds task_queue/queue_reorder/steer_task, session.queue_changed/task.guidance, and taskGuidance snapshots. Shared views use guidanceFor/queuedTasksFor, exclude pending routed sources, and use ruukotoSourceTaskId plus actual admission for history. Desktop integrates a compact queue panel with the composer, with drag reordering, keyboard and accessibility feedback, conversion and send-as-guidance; TUI has /queue and /steer.
 
 Persistent acceptance, disk admission, and actual model reading must stay distinct to prevent simultaneous SDK/ordinary execution. Cross-store recovery, multi-user projections, and approval barriers depend on complete provenance. Continuation/answer conversion remains excluded. Fresh schema means old chats do not automatically appear; retain old profiles/unknown effects with matching code for verification.
 

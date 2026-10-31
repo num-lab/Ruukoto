@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[User queue controls](2026-10-30-coding-user-queue.md) removes the continuation exception; [in-task questions](2026-10-30-coding-owner-question-wait.md) answers through the original waiting task. Those decisions own the changed interaction contracts; fixed provenance/configuration and Scheduled ordinary-submission restrictions remain.
+
 ## Problem
 
 The owner requests Code Scheduled with title, repeat/time, Instructions, workspace, permission, model, and effort. The old desktop placeholder and personal scheduler's main identity/model/tools cannot supply selected-workspace Coding execution. The confirmed first release uses once/daily/selected weekdays, directly executes in the chosen workspace, and uses new profiles after the schema change. Original progress/acceptance is historical offline `.scratch/code-scheduled/issues/01-code-scheduled.md`.

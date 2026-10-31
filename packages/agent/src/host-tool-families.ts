@@ -82,7 +82,10 @@ export interface HostToolRuntime {
   };
   skills(): SkillLibrary | null;
   agentWait?: AgentWaitCall;
-  ownerQuestions?: { create(ctx: HostToolContext, questions: OwnerQuestionItem[]): OwnerQuestion };
+  ownerQuestions?: {
+    create(ctx: HostToolContext, questions: OwnerQuestionItem[]): OwnerQuestion;
+    wait(questionId: string, signal?: AbortSignal): Promise<OwnerQuestion>;
+  };
   backgroundProcesses?: BackgroundProcessCalls;
 }
 

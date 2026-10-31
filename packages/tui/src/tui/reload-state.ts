@@ -1,6 +1,6 @@
 /**
  * dev 重载状态（issue 21 §5）：界面状态与待提交任务分开保存——这里只存界面
- * 状态（当前会话、草稿、继续任务意图 / 配置中心所在分区），不复用也不伪装成
+ * 状态（当前会话、草稿 / 配置中心所在分区），不复用也不伪装成
  * PendingRequestStore 记录。落盘方式沿用其原子写（tmp + rename、0600）。
  *
  * 只在 dev 启动注入 RUUKOTO_RELOAD_STATE_FILE 时启用；秘密（API key 等表单值）
@@ -19,7 +19,6 @@ export interface TaskTuiReloadState {
   instanceId: string;
   sessionId: string | null;
   draft: string;
-  continueForTaskId: string | null;
   updatedAt: string;
 }
 
@@ -49,7 +48,6 @@ export function loadReloadState(file: string): ReloadState | null {
         instanceId: raw.instanceId,
         sessionId: typeof raw.sessionId === "string" ? raw.sessionId : null,
         draft: typeof raw.draft === "string" ? raw.draft : "",
-        continueForTaskId: typeof raw.continueForTaskId === "string" ? raw.continueForTaskId : null,
         updatedAt: typeof raw.updatedAt === "string" ? raw.updatedAt : "",
       };
     }

@@ -11,7 +11,7 @@
 import type { AttachmentReference } from "./attachments.ts";
 import type { Db } from "./db.ts";
 import { classifySession, type SessionIdentity } from "./session-identity.ts";
-import { ownerQuestionTaskEligible } from "./owner-questions.ts";
+import { invalidateOwnerQuestionsForTask, ownerQuestionTaskEligible } from "./owner-questions.ts";
 import { SubAgentDefinitionError, requireSubAgentDefinition, subAgentDefinitionFromJson } from "./subagent-definition.ts";
 import {
   ACTIVE_TASK_STATUSES,
@@ -125,7 +125,7 @@ export class Store {
   appendEvent(
     body: PersistentEventBody,
     refs: { taskId?: string | null; sessionId?: string | null } = {},
-  ): void {
+  ): number {
     const info = this.db
       .prepare("INSERT INTO events (task_id, session_id, body, created_at) VALUES (?, ?, ?, ?)")
       .run(
@@ -141,6 +141,7 @@ export class Store {
       body,
       createdAt: new Date().toISOString(),
     });
+    return Number(info.lastInsertRowid);
   }
 
   // ---------- 项目 ----------
@@ -696,6 +697,7 @@ export class Store {
     workId?: string | null;
     subAgentId?: string | null;
     readScope?: SubAgentReadScope | null;
+    inputPurpose?: import("./views.ts").InputPurpose;
   }): { task: Task; duplicate: boolean } {
     const planMode = input.planMode ?? false;
     const accessMode = input.accessMode ?? (planMode ? "auto-review" : "confirm");
@@ -776,6 +778,7 @@ export class Store {
     this.appendEvent(
       {
         type: "task.queued",
+        inputPurpose: input.inputPurpose ?? (this.ordinaryCodeTask(task) ? "user" : undefined),
         taskId: task.id,
         sessionId: task.sessionId,
         requestId: task.requestId,
@@ -879,8 +882,13 @@ export class Store {
   getTaskQueue(sessionId: string): TaskQueue {
     const session = this.getSession(sessionId);
     if (!session) throw new StoreConflictError("会话不存在，请刷新后选择会话", "not_found");
-    const rows = this.db.prepare("SELECT id, queue_order FROM tasks WHERE session_id = ? AND status = 'queued' AND NOT EXISTS (SELECT 1 FROM task_guidance g WHERE g.source_task_id = tasks.id AND g.state = 'pending') ORDER BY queue_order, rowid").all(sessionId);
-    return { revision: session.queueRevision, tasks: rows.map(row => ({ taskId: String(row.id), queueOrder: Number(row.queue_order) })) };
+    const tasks = this.listReorderableTasks(sessionId).filter(task => this.taskInputPurpose(task.id) === "user");
+    return { revision: session.queueRevision, tasks: tasks.map(task => ({ taskId: task.id, queueOrder: task.queueOrder })), retrievableTaskIds: tasks.filter(task => task.startedAt === null && task.historyEntryIds.length === 0).map(task => task.id) };
+  }
+
+  taskInputPurpose(taskId: string): import("./views.ts").InputPurpose | undefined {
+    const row = this.db.prepare("SELECT json_extract(body, '$.inputPurpose') AS purpose FROM events WHERE task_id = ? AND json_extract(body, '$.type') = 'task.queued' ORDER BY seq LIMIT 1").get(taskId);
+    return row?.purpose === "user" || row?.purpose === "internal_report" ? row.purpose : undefined;
   }
 
   private publishQueue(sessionId: string): void {
@@ -888,21 +896,21 @@ export class Store {
     this.appendEvent({ type: "session.queue_changed", sessionId, queue: this.getTaskQueue(sessionId) }, { sessionId });
   }
 
-  /** 输入是否为拥有者问题回答的续接任务（不得转引导；判定与 acceptTaskGuidance 一致）。 */
+  /** Historical answer Tasks remain identifiable for read-only provenance and recall rejection. */
   hasOwnerQuestionContinuation(taskId: string): boolean {
     return !!this.db.prepare("SELECT 1 FROM owner_questions WHERE json_extract(payload, '$.continuationTaskId') = ?").get(taskId);
   }
 
   ordinaryCodeTask(task: Task): boolean {
-    return ownerQuestionTaskEligible(this, task) && !task.readScope?.workCopyHost && !task.requestId.startsWith("work-copy-host:")
+    return ownerQuestionTaskEligible(this, task) && this.taskInputPurpose(task.id) !== "internal_report" && !task.readScope?.workCopyHost && !task.requestId.startsWith("work-copy-host:")
       && !this.db.prepare("SELECT 1 FROM code_schedule_tasks WHERE task_id = ?").get(task.id);
   }
 
   listReorderableTasks(sessionId: string): Task[] {
-    return this.listQueuedTasksFifo(sessionId).filter(task => this.ordinaryCodeTask(task));
+    return this.listQueuedTasksFifo(sessionId).filter(task => this.ordinaryCodeTask(task) && this.taskInputPurpose(task.id) === "user");
   }
 
-  /** 调用方在事务内赋绝对顺序；内部汇总已有槽位不参与置换。 */
+  /** The caller holds a transaction; reorder only ordinary user-input slots. */
   reorderTaskQueue(sessionId: string, taskIds: string[], expectedRevision: number): TaskQueue {
     const queue = this.getTaskQueue(sessionId);
     if (queue.revision !== expectedRevision) throw new StoreConflictError("队列已改变，请刷新实际顺序后重新选择", "queue_conflict");
@@ -1056,6 +1064,7 @@ export class Store {
     const changed = Number(info.changes) === 1;
     if (changed && previous?.status === "queued" && to !== "queued") this.publishQueue(previous.sessionId);
     if (changed && isTerminalTaskStatus(to)) {
+      invalidateOwnerQuestionsForTask(this, taskId);
       // 后台重启等没有存活 Driver 的终态路径也收束已持久化的思考阶段。
       const open = this.db.prepare(`SELECT body FROM events WHERE seq IN (
         SELECT MAX(seq) FROM events WHERE task_id = ? AND json_extract(body, '$.type') = 'task.thinking'

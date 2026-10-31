@@ -81,7 +81,7 @@ test("server 与兼容别名 start 同一路径", () => {
 test("旧拼法 tui 与全部管理命令保持 legacy 分发", () => {
   const legacy = [
     "create-project", "project", "create-session", "models", "set-model",
-    "submit", "continue", "switch-mode", "set-session-mode", "status", "events",
+    "submit", "switch-mode", "set-session-mode", "status", "events",
     "interrupt", "cancel", "resume-queue", "confirm", "read-artifact",
     "credentials", "github", "mcp", "stop", "qq", "grant", "history-search",
     "memory", "selection-records", "legacy-import", "tui", "workflow",

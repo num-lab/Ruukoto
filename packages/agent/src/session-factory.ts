@@ -34,6 +34,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type { Session } from "@ruukoto/core/types.ts";
 import { HistoryReadError, readHistoryPrefix } from "@ruukoto/core/history.ts";
+import { materializeEffectiveHistory } from "@ruukoto/core/history-effective.ts";
 import { createHash } from "node:crypto";
 import type { BranchRequest } from "@ruukoto/core/branch.ts";
 
@@ -191,6 +192,11 @@ export function branchHistoryBytes(session: Session, prefix: Buffer): Buffer {
   return Buffer.concat([Buffer.from(`${JSON.stringify(header)}\n`), prefix.subarray(newline + 1)]);
 }
 
+/** Copies contain only effective entries; omission records after the cut must not revive older content. */
+export function effectiveBranchHistoryBytes(session: Session, prefix: Buffer, cutEntryId: string): Buffer {
+  return branchHistoryBytes(session, materializeEffectiveHistory(prefix, { throughEntryId: cutEntryId }));
+}
+
 /** 空来源的独立文件：只有新 header（侧聊允许空父会话起步）。 */
 export function emptyHistoryBytes(session: Session): Buffer {
   const header = { type: "session", version: 3, id: session.piSessionId, timestamp: session.createdAt, cwd: session.cwdReal };
@@ -200,7 +206,8 @@ export function emptyHistoryBytes(session: Session): Buffer {
 /** 回执描述的可验证准备文件（分支与侧聊共用；prefix.file = null 表示无来源文件）。 */
 export interface PreparedSessionFile {
   session: Session;
-  prefix: { file: string | null; dev: number; ino: number; byteLimit: number; fingerprint: string };
+  /** Cover the full source prefix; cutEntryId fixes the original selection boundary for the effective copy. */
+  prefix: { file: string | null; dev: number; ino: number; byteLimit: number; fingerprint: string; cutEntryId: string | null };
   fileHash: string;
   fileBytes: number;
 }
@@ -222,7 +229,9 @@ export function prepareSessionHistoryFile(request: PreparedSessionFile): void {
   if (!fs.existsSync(target)) {
     const bytes = request.prefix.file === null
       ? emptyHistoryBytes(request.session)
-      : branchHistoryBytes(request.session, readHistoryPrefix(request.prefix.file, request.prefix));
+      : request.prefix.cutEntryId === null
+        ? branchHistoryBytes(request.session, readHistoryPrefix(request.prefix.file, request.prefix))
+        : effectiveBranchHistoryBytes(request.session, readHistoryPrefix(request.prefix.file, request.prefix), request.prefix.cutEntryId);
     if (bytes.length !== request.fileBytes || createHash("sha256").update(bytes).digest("hex") !== request.fileHash) {
       throw new HistoryReadError("history_corrupt", "原快照校验失败");
     }

@@ -57,7 +57,6 @@ test("Runtime 的运行授权独立于原任务，主会话可继续，步骤结
     assert.equal(rt.store.listTasksBySession(session.id).some(item => item.requestId === `wake:${task.id}`), false);
     assert.equal(t.server.calls.length, 2);
     assert.equal(rt.store.listTasksBySession(session.id).filter(item => item.requestId.startsWith("workflow-final:")).length, 1);
-    await assert.rejects(rt.continueTask({ taskId: task.id, requestId: "ordinary", input: "继续", modelSelection: rt.defaultSelection }), { code: "invalid_state" });
     await assert.rejects(rt.switchTaskMode({ taskId: task.id, mode: "full_access" }), { code: "invalid_state" });
   } finally { release(); await t.shutdown(); }
 });

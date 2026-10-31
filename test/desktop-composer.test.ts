@@ -9,13 +9,14 @@ import { DropdownMenu } from "radix-ui";
 import react from "@vitejs/plugin-react";
 import type { OpParams, OpResult } from "@ruukoto/control/ops.ts";
 import type { ModelSelection, Project, SelectionRecord, Session, SessionDefaultMode, ThinkingLevel } from "@ruukoto/core/types.ts";
+import type { TaskView } from "@ruukoto/core/views.ts";
 import type { OwnerQuestionView } from "@ruukoto/core/owner-questions.ts";
 import type { HistoryEntryView } from "@ruukoto/core/history.ts";
 import type { DesktopAttachment } from "../apps/desktop/src/shared/bridge.ts";
 import { selectionBreakdown } from "@ruukoto/agent/context-selector.ts";
 import { ViewState } from "@ruukoto/view/state.ts";
 import { CodeState } from "../apps/desktop/src/renderer/code-state.ts";
-import { CodeWrites } from "../apps/desktop/src/renderer/code-writes.ts";
+import { CodeWrites, queueOrderAfterMove } from "../apps/desktop/src/renderer/code-writes.ts";
 import type { DesktopContextState } from "../apps/desktop/src/renderer/context-state.ts";
 import { draftForSchedule } from "../apps/desktop/src/renderer/scheduled-state.ts";
 import type { DesktopBridge, DesktopUpdate } from "../apps/desktop/src/shared/bridge.ts";
@@ -38,11 +39,13 @@ let selectionForModel: (option: ModelOption, current: ModelSelection | null) => 
 let EffortSlider: ComponentType<{ levels: ThinkingLevel[]; current: ThinkingLevel | null; disabled: boolean; onChange: (level: ThinkingLevel) => void }>;
 let OwnerQuestionCard: ComponentType<{ model: CodeState; question: OwnerQuestionView }>;
 let Conversation: ComponentType<{ model: CodeState; sessionId: string; child?: boolean }>;
+let QueuePanel: ComponentType<{ model: CodeState; session: Session; defaultOpen?: boolean }>;
 let MessageScrollerProvider: ComponentType<{ children?: ReactNode }>;
 before(async () => {
   server = await createServer({ configFile: false, root: fileURLToPath(new URL("../apps/desktop/src/renderer/", import.meta.url)), plugins: [react()], server: { middlewareMode: true, hmr: false }, appType: "custom" });
   ({ Composer, composerInputHeight, selectionForModel, EffortSlider } = await server.ssrLoadModule("/composer.tsx"));
   ({ Scheduled } = await server.ssrLoadModule("/scheduled.tsx"));
+  ({ QueuePanel } = await server.ssrLoadModule("/queue-panel.tsx"));
   ({ NewChatDraft, filterWorkspaces, showsNewChat } = await server.ssrLoadModule("/new-chat.tsx"));
   ({ ContextDetails, ContextIndicator } = await server.ssrLoadModule("/context-indicator.tsx"));
   ({ OwnerQuestionCard } = await server.ssrLoadModule("/owner-question-cards.tsx"));
@@ -56,6 +59,9 @@ const option = (overrides: Partial<ModelOption> = {}): ModelOption => ({ provide
 const at = "2026-10-16T00:00:00.000Z";
 function session(): Session {
   return { id: "a", projectId: "workspace", kind: "dev", workspaceProjectId: null, name: null, branchSource: null, cwd: "/work", cwdReal: "/work", cwdDev: 1, cwdIno: 1, piSessionId: "pi", sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: selection, modelSelectionVersion: 1, defaultAccessMode: "auto-review", defaultAccessModeVersion: 1, queueState: "active", queuePauseReason: null, queueRevision: 0, archivedAt: null, createdAt: at };
+}
+function queuedTask(id: string, input: string, queueOrder: number): TaskView {
+  return { id, sessionId: "a", requestId: `request-${id}`, input, inputPurpose: "user", modelSelection: selection, submissionDigest: null, status: "queued", queueOrder, accessMode: "confirm", planMode: false, permissionVersion: 1, sourcePermissionVersion: null, grantedPaths: [], pendingAccessMode: null, interruptReason: null, cancelRequested: false, effectUnknown: false, errorMessage: null, historyEntryIds: [], resumesTaskId: null, agentId: null, parentTaskId: null, sourceEventId: null, deadline: null, resultSummary: null, resultRef: null, workId: null, subAgentId: null, readScope: null, resultDeliveredAt: null, createdAt: at, startedAt: null, endedAt: null };
 }
 function harness(handlers: FakeHandlers = {}, request?: DesktopBridge["request"]) {
   const transport = new FakeTransport({ handlers });
@@ -83,7 +89,7 @@ const hasAttr = (element: DefaultTreeAdapterTypes.Element, name: string) => elem
 test("Desktop 问题选项直接单选，输入文字清除选项且卡片不重复说明内部任务", () => {
   const { model, current } = harness();
   const options = ["共同前缀".repeat(40) + "甲范围", "共同前缀".repeat(40) + "乙范围"];
-  const question: OwnerQuestionView = { id: "question", sessionId: current.id, taskId: "source", version: 1, status: "pending", questions: [{ question: "选择做法", options }], createdAt: at };
+  const question: OwnerQuestionView = { id: "question", sessionId: current.id, taskId: "source", hostOpId: "question-op", version: 1, status: "pending", questions: [{ question: "选择做法", options }], createdAt: at };
   model.view.ownerQuestions = [question];
   const render = () => renderToStaticMarkup(createElement(MessageScrollerProvider, null, createElement(OwnerQuestionCard, { model, question: model.view.ownerQuestions[0] })));
   let html = render();
@@ -106,7 +112,7 @@ test("Desktop 问题选项直接单选，输入文字清除选项且卡片不重
 });
 test("Desktop 提问卡片分为题头、编号选项、自由输入和底部导航，翻页后保留回答", () => {
   const { model, current } = harness();
-  const question: OwnerQuestionView = { id: "question", sessionId: current.id, taskId: "source", version: 1, status: "pending", questions: [{ question: "你更喜欢哪种协作方式？", options: ["直接给结论", "先给方案"] }, { question: "还有什么要求？" }, { question: "最后确认范围", options: ["本地", "共享"] }], createdAt: at };
+  const question: OwnerQuestionView = { id: "question", sessionId: current.id, taskId: "source", hostOpId: "question-op", version: 1, status: "pending", questions: [{ question: "你更喜欢哪种协作方式？", options: ["直接给结论", "先给方案"] }, { question: "还有什么要求？" }, { question: "最后确认范围", options: ["本地", "共享"] }], createdAt: at };
   const render = () => renderToStaticMarkup(createElement(OwnerQuestionCard, { model, question }));
   let html = render();
   assert.ok(html.indexOf("你更喜欢哪种协作方式？") < html.indexOf("直接给结论"));
@@ -148,7 +154,7 @@ test("Desktop 提问卡片分为题头、编号选项、自由输入和底部导
 });
 test("Desktop 选项显示说明与推荐标签，多选保留顺序，Skip 保存空答案", () => {
   const { model, current } = harness();
-  const question: OwnerQuestionView = { id: "question", sessionId: current.id, taskId: "source", version: 1, status: "pending", questions: [{ question: "选择交付内容", multiple: true, options: [{ label: "页面", description: "实现完整页面", recommended: true }, { label: "接口", description: "服务端接口", recommended: false }, "文档"] }, { question: "发布位置", options: ["本地", "共享"] }, { question: "补充说明" }], createdAt: at };
+  const question: OwnerQuestionView = { id: "question", sessionId: current.id, taskId: "source", hostOpId: "question-op", version: 1, status: "pending", questions: [{ question: "选择交付内容", multiple: true, options: [{ label: "页面", description: "实现完整页面", recommended: true }, { label: "接口", description: "服务端接口", recommended: false }, "文档"] }, { question: "发布位置", options: ["本地", "共享"] }, { question: "补充说明" }], createdAt: at };
   const render = () => renderToStaticMarkup(createElement(OwnerQuestionCard, { model, question }));
   let html = render();
   const choices = () => elements(html).filter(element => attr(element, "role") === "checkbox");
@@ -183,54 +189,24 @@ test("Desktop 选项显示说明与推荐标签，多选保留顺序，Skip 保�
   assert.equal((html.match(/已跳过/g) ?? []).length, 3);
   assert.doesNotMatch(html, /Recommended|owner-question-progress/);
 });
-test("Desktop 已答卡片替换对应用户消息并留在回答时序，不重复在底部出现", () => {
+test("Desktop question batches stay at their original tool results without replacing the requirement", () => {
   const { model, current } = harness();
-  const original = "[拥有者问题回答]\n1. 发布范围？\n回答：共享";
-  const question: OwnerQuestionView = { id: "question", sessionId: current.id, taskId: "source", continuationTaskId: "answer", version: 2, status: "answered", questions: [{ question: "发布范围？", options: ["本地", "共享"] }], answers: [{ text: "共享", option: 1 }], createdAt: at };
-  const entry = (id: string, taskId: string, role: string, text: string, second: number): HistoryEntryView => ({ entryId: id, taskId, role, text, timestamp: new Date(Date.parse(at) + second * 1000).toISOString(), inputPurpose: "user", parentId: null, offset: 0, totalBytes: Buffer.byteLength(text), truncated: false, toolCalls: [], toolCallId: null, toolName: null, isError: null, hasNonTextContent: false });
-  const history = [entry("before", "source", "user", "请确认发布范围", 0), entry("answer-entry", "answer", "user", original, 1), entry("after", "answer", "assistant", "已按回答继续", 2), entry("later", "chat", "user", "之后的普通消息", 3)];
-  const flow = model.view.openSession(current.id).flow;
-  for (const item of history) flow.addHistory(item);
-  const render = (child = false) => renderToStaticMarkup(createElement(Conversation, { model, sessionId: current.id, child }));
-  assert.match(render(), /拥有者问题回答/, "缺少问题资料时保留原用户正文");
-  model.view.ownerQuestions = [question];
-  const html = render();
-  assert.equal((html.match(/aria-label="拥有者问题"/g) ?? []).length, 1);
-  assert.ok(html.indexOf("请确认发布范围") < html.indexOf("已回答"));
-  assert.ok(html.indexOf("已回答") < html.indexOf("已按回答继续"));
-  assert.ok(html.indexOf("已回答") < html.indexOf("之后的普通消息"));
-  assert.doesNotMatch(html, /拥有者问题回答/);
-  const card = elements(html).find(element => attr(element, "aria-label") === "拥有者问题")!;
-  let parent = card.parentNode, scrollers = 0;
-  while (parent) {
-    if ("tagName" in parent && attr(parent, "data-slot") === "message-scroller-item") scrollers++;
-    parent = "parentNode" in parent ? parent.parentNode : null;
-  }
-  assert.equal(scrollers, 1, "卡片复用原用户消息的滚动容器");
-  assert.equal(flow.historyEntries.find(item => item.entryId === "answer-entry")!.text, original);
-  assert.equal(flow.items.find(item => item.key === "input:answer")!.kind, "message");
-  assert.match(render(true), /拥有者问题回答/, "子会话保持原消息");
-  assert.doesNotMatch(render(true), /aria-label="拥有者问题"/);
-  const normal = entry("normal", "normal-task", "user", original, 4);
-  flow.addHistory(normal);
-  assert.equal((render().match(/拥有者问题回答/g) ?? []).length, 1, "同正文的普通输入不能被猜成业务回答");
-  model.view.ownerQuestions = [{ ...question, sessionId: "other-session" }];
-  assert.doesNotMatch(render(), /aria-label="拥有者问题"/, "跨会话不能借任务引用替换消息");
-  const personal = new CodeState({ request: async () => ({ ok: false, error: { code: "unused", outcome: "not_sent", message: "不发送请求" } }) }, () => {}, "personal");
-  personal.view.ownerQuestions = [question];
-  for (const item of history) personal.view.openSession(current.id).flow.addHistory(item);
-  const personalHtml = renderToStaticMarkup(createElement(Conversation, { model: personal, sessionId: current.id }));
-  assert.match(personalHtml, /拥有者问题回答/);
-  assert.doesNotMatch(personalHtml, /aria-label="拥有者问题"/);
-  model.view.applySnapshot({ snapshot: fakeSnapshot({ sessions: [current], ownerQuestions: [question] }), replay: [], seq: 0 }, false);
-  for (const item of history) model.view.openSession(current.id).flow.addHistory(item);
-  assert.equal((render().match(/aria-label="拥有者问题"/g) ?? []).length, 1, "快照先到、历史后到仍按原位置恢复");
-  assert.doesNotMatch(render(), /拥有者问题回答/);
-  for (const [status, label] of [["pending", "Skip"], ["canceled", "已取消"], ["stale", "已失效"]] as const) {
-    model.view.ownerQuestions = [question, { ...question, id: "unanswered", status, answers: undefined, continuationTaskId: undefined }];
-    const withUnanswered = render();
-    assert.equal((withUnanswered.match(/aria-label="拥有者问题"/g) ?? []).length, 2);
-    assert.ok(withUnanswered.indexOf(label) > withUnanswered.indexOf("之后的普通消息"), "没有续接消息的状态保留原展示位置");
+  const entry = (id: string, role: string, text: string, second: number, op?: string): HistoryEntryView => ({ entryId: id, taskId: "source", role, text, timestamp: new Date(Date.parse(at) + second * 1000).toISOString(), inputPurpose: "user", parentId: null, offset: 0, totalBytes: Buffer.byteLength(text), truncated: false, toolCalls: [], toolCallId: op ? `call-${op}` : null, hostToolOpId: op, toolName: op ? "ask_user" : null, isError: null, hasNonTextContent: false });
+  const question: OwnerQuestionView = { id: "first", sessionId: current.id, taskId: "source", hostOpId: "op-first", version: 2, status: "answered", questions: [{ question: "发布范围？" }], answers: [{ text: "共享" }], createdAt: at };
+  const second: OwnerQuestionView = { ...question, id: "second", hostOpId: "op-second", questions: [{ question: "发布位置？" }], answers: [{ text: "本地" }] };
+  const history = [entry("requirement", "user", "请确认发布范围", 0), entry("first-result", "toolResult", "first answer", 1, "op-first"), entry("between", "assistant", "继续确认", 2), entry("second-result", "toolResult", "second answer", 3, "op-second"), entry("after", "assistant", "已按回答继续", 4)];
+  const render = () => renderToStaticMarkup(createElement(Conversation, { model, sessionId: current.id }));
+  for (const order of ["event-first", "history-first", "cold"] as const) {
+    model.view.applySnapshot({ snapshot: fakeSnapshot({ sessions: [current], ownerQuestions: order === "cold" ? [question, second] : [] }), replay: [], seq: 0 }, false);
+    if (order === "event-first") model.view.ownerQuestions = [question, second];
+    for (const item of history) model.view.openSession(current.id).flow.addHistory(item);
+    if (order === "history-first") model.view.ownerQuestions = [question, second];
+    const html = render();
+    assert.equal((html.match(/aria-label="拥有者问题"/g) ?? []).length, 2);
+    assert.match(html, /请确认发布范围/);
+    assert.ok(html.indexOf("发布范围？") < html.indexOf("继续确认"));
+    assert.ok(html.indexOf("继续确认") < html.indexOf("发布位置？"));
+    assert.ok(html.indexOf("发布位置？") < html.indexOf("已按回答继续"));
   }
 });
 
@@ -275,6 +251,53 @@ test("Desktop 输入区匹配 demo 控件结构，四模式有图标且只保留
     assert.match(html, /model-selector-name">Current model<\/span><span class="model-selector-effort">High<\/span>/, "思考强度跟在模型名后显示");
     assert.ok(hasAttr(button(html, "发送消息"), "disabled"), "无输入仍禁止发送");
   }
+});
+
+test("Desktop 拖拽落点生成完整队列顺序，原地落点不发请求", async () => {
+  assert.deepEqual(queueOrderAfterMove(["task-1", "task-2", "task-3"], "task-3", "task-1", "before"), ["task-3", "task-1", "task-2"]);
+  assert.deepEqual(queueOrderAfterMove(["task-1", "task-2", "task-3"], "task-1", "task-3", "after"), ["task-2", "task-3", "task-1"]);
+  assert.equal(queueOrderAfterMove(["task-1", "task-2", "task-3"], "task-3", "task-2", "after"), null);
+  assert.equal(queueOrderAfterMove(["task-1", "task-2"], "task-1", "task-1", "before"), null);
+
+  const detail = { queue: { revision: 7, retrievableTaskIds: [], tasks: ["task-1", "task-2", "task-3"].map((taskId, index) => ({ taskId, queueOrder: index + 1 })) }, reorderableTaskIds: ["task-1", "task-2", "task-3"], steerableTaskIds: ["task-1", "task-2", "task-3"], guidance: [] };
+  const h = harness({
+    task_queue: async () => detail,
+    queue_reorder: async params => ({ revision: 8, retrievableTaskIds: [], tasks: params.task_ids.map((taskId, index) => ({ taskId, queueOrder: index + 1 })) })
+  });
+  await h.model.writes.loadQueue(h.current.id);
+  await h.model.writes.reorderQueued(h.current.id, "task-3", "task-1", "before");
+  await h.model.writes.reorderQueued(h.current.id, "task-3", "task-2", "after");
+  const requests = h.transport.requests.filter(request => request.op === "queue_reorder");
+  assert.equal(requests.length, 1);
+  assert.deepEqual(requests[0].params, { session_id: h.current.id, task_ids: ["task-3", "task-1", "task-2"], expected_revision: 7 });
+});
+
+test("Desktop 排队面板使用拖拽手柄和行内动作，输入区与空队列保持一体圆角", async () => {
+  const tasks = [queuedTask("task-1", "第一条排队输入", 1), queuedTask("task-2", "第二条排队输入", 2)];
+  const detail = { queue: { revision: 7, retrievableTaskIds: [], tasks: tasks.map((task, index) => ({ taskId: task.id, queueOrder: index + 1 })) }, reorderableTaskIds: tasks.map(task => task.id), steerableTaskIds: ["task-1"], guidance: [] };
+  const h = harness({ task_queue: async () => detail });
+  h.model.view.applySnapshot({ snapshot: fakeSnapshot({ sessions: [h.current], tasks }), replay: [], seq: 0 }, false);
+  await h.model.writes.loadQueue(h.current.id);
+
+  const panel = renderToStaticMarkup(createElement(QueuePanel, { model: h.model, session: h.current, defaultOpen: true }));
+  assert.match(panel, /queue-summary/);
+  assert.match(panel, /lucide-grip-vertical/);
+  assert.match(panel, /可拖拽或用方向键调整顺序/);
+  assert.match(panel, /queue-panel-actions/);
+  assert.match(panel, /lucide-waypoints/);
+  assert.doesNotMatch(panel, /上移第|下移第/);
+  assert.equal(elements(panel).filter(element => attr(element, "draggable") === "true").length, 2);
+  h.model.status = { type: "state", state: "reconnecting" };
+  const offlinePanel = renderToStaticMarkup(createElement(QueuePanel, { model: h.model, session: h.current, defaultOpen: true }));
+  assert.equal(elements(offlinePanel).filter(element => attr(element, "draggable") === "true").length, 0);
+  assert.ok(hasAttr(button(offlinePanel, "把第 1 项转为引导"), "disabled"));
+
+  const composer = renderToStaticMarkup(createElement(Composer, { model: h.model, session: h.current }));
+  assert.match(composer, /<div class="composer-stack surface-composer has-queue">/);
+  assert.ok(composer.indexOf("queue-panel") < composer.indexOf("<form class=\"composer\""));
+  const empty = harness();
+  const emptyComposer = renderToStaticMarkup(createElement(Composer, { model: empty.model, session: empty.current }));
+  assert.match(emptyComposer, /<div class="composer-stack surface-composer"><form class="composer"/);
 });
 
 test("Effort 档位渲染为分段粗滑杆：选中档填充、目录外只读、无选择不渲染", () => {
@@ -450,7 +473,7 @@ test("Scheduled 表单顺序、周期与现有模型权限控件一致，选择�
   assert.equal(elements(render()).filter(element => element.tagName === "input" && attr(element, "type") === "date").length, 1);
 });
 
-test("活动定时会话禁止普通输入、模型与权限修改，安全继续仍可填写指示", async () => {
+test("活动定时会话禁止普通输入、模型与权限修改", async () => {
   const { model, current, transport } = harness();
   current.codeScheduleActive = true; current.codeScheduleRunId = "run";
   model.writes.edit(current.id, "普通输入");
@@ -460,7 +483,5 @@ test("活动定时会话禁止普通输入、模型与权限修改，安全继�
   let html = render();
   assert.ok(hasAttr(elements(html).find(element => element.tagName === "textarea")!, "readonly"));
   assert.ok(hasAttr(button(html, "会话默认模式"), "disabled")); assert.ok(hasAttr(button(html, "会话模型"), "disabled"));
-  model.writes.draft(current.id).taskId = "interrupted-source"; html = render();
-  assert.ok(!hasAttr(elements(html).find(element => element.tagName === "textarea")!, "readonly"));
-  assert.ok(hasAttr(button(html, "会话模型"), "disabled"));
+  assert.doesNotMatch(html, /正在继续中断的任务|发送并继续/);
 });

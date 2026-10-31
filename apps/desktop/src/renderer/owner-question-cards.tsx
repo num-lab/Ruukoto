@@ -13,7 +13,7 @@ import { Textarea } from "./components/ui/textarea.tsx";
 
 export function OwnerQuestionCard({ model, question }: { model: CodeState; question: OwnerQuestionView }) {
   const controller = model.questions, draft = controller.draft(question), current = question.questions[draft.index], answer = draft.answers[draft.index];
-  const blocked = controller.blocked(question) || model.writes.settingsPending(question.sessionId), terminal = question.status !== "pending", textId = `owner-question-${question.id}`;
+  const blocked = controller.blocked(question), terminal = question.status !== "pending", textId = `owner-question-${question.id}`;
   const last = draft.index + 1 === question.questions.length, incomplete = !answer.text.trim() || answer.text.length > 4096;
   const choices = current.options?.map((option, index) => {
     const button = <Button type="button" variant="ghost" className="owner-question-option">
@@ -44,7 +44,7 @@ export function OwnerQuestionCard({ model, question }: { model: CodeState; quest
     {!terminal && blocked && <p role="status">{model.status.state !== "online" ? "连接已断开，等待重连。" : "正在提交或核实…"}</p>}
     </div></section></Item>;
 }
-export function OwnerQuestionCards({ model, sessionId }: { model: CodeState; sessionId: string }) {
+export function OwnerQuestionCards({ model, sessionId, positioned = [] }: { model: CodeState; sessionId: string; positioned?: string[] }) {
   if (model.target !== "code") return null;
-  return model.view.ownerQuestions.filter(question => question.sessionId === sessionId && question.status !== "answered").map(question => <MessageScrollerItem key={`${model.view.instanceId}:${question.id}:${question.version}`}><OwnerQuestionCard model={model} question={question} /></MessageScrollerItem>);
+  return model.view.ownerQuestions.filter(question => question.sessionId === sessionId && !positioned.includes(question.id)).map(question => <MessageScrollerItem key={`${model.view.instanceId}:${question.id}:${question.version}`}><OwnerQuestionCard model={model} question={question} /></MessageScrollerItem>);
 }

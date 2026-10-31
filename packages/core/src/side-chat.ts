@@ -13,7 +13,7 @@ import type { ContextCheckpoint, Session } from "./types.ts";
 export interface SideChatReceipt {
   session: Session;
   /** 来源前缀；file = null 表示父会话尚无落盘历史，目标文件只有独立 header。 */
-  prefix: { file: string | null; dev: number; ino: number; byteLimit: number; fingerprint: string };
+  prefix: { file: string | null; dev: number; ino: number; byteLimit: number; fingerprint: string; cutEntryId: string | null };
   fileHash: string;
   fileBytes: number;
   checkpoint: ContextCheckpoint | null;

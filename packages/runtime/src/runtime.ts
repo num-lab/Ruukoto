@@ -64,6 +64,8 @@ import { BackgroundProcessError, latestBackgroundReferenceSnapshot, listActiveBa
 import { ToolOpLedger } from "@ruukoto/agent/tool-op-ledger.ts";
 import { sessionToolCategories } from "@ruukoto/agent/tool-availability.ts";
 import { HostExecutionManager } from "./host-execution.ts";
+import { MessageRecallRuntime, RECALL_PAUSE_REASON } from "./message-recall.ts";
+import { closeEditWindows, getEditWindowRecall, getOpenMessageRecall, publicMessageRecall } from "@ruukoto/core/message-recall.ts";
 import { createCodingTools } from "@ruukoto/agent/tool-router.ts";
 import { createWebSearchFamily,searchTavily,TAVILY_CREDENTIAL_PURPOSE,WebSearchError,WEB_SEARCH_CREDENTIAL_NAME } from "@ruukoto/agent/web-search.ts";
 import { resolveTavilyTarget } from "@ruukoto/agent/web-search-transport.ts";
@@ -90,6 +92,7 @@ import { getBranchRequest, sourceArtifact } from "@ruukoto/core/branch.ts";
 import { getSideChatByRequest, listSideChats } from "@ruukoto/core/side-chat.ts";
 import { finishCompactionRequest, getCompactionRequest, getLatestSessionCompaction, recoverCompactionRequests, reserveCompactionRequest, updateCompactionSource } from "@ruukoto/core/compaction.ts";
 import { DirIdentityError,legacyProjectClaimableFromDir,resolveDirIdentity,sameDirIdentity,verifyDirIdentity,type DirIdentity } from "@ruukoto/core/dir-identity.ts";
+import { effectiveProjection } from "@ruukoto/core/history-effective.ts";
 import { HistoryIndex,searchHistory } from "@ruukoto/core/history-index.ts";
 import { searchWorkspaceHistory, type WorkspaceHistorySearchResult, type WorkspaceHistoryCursor } from "@ruukoto/core/history-search.ts";
 import { readIndexedHistoryPage, readIndexedHistoryEntryText } from "@ruukoto/core/history-window.ts";
@@ -118,7 +121,7 @@ import {
   type MemoryWithContent,
 } from "@ruukoto/core/memory.ts";
 import { parseModelSelection } from "@ruukoto/core/model-selection.ts";
-import { cancelOwnerQuestion, consumeOwnerQuestion, createOwnerQuestion, getOwnerQuestion, getOwnerQuestionReceipt, invalidateOwnerQuestionsForTask, listOwnerQuestions, ownerQuestionTaskEligible, ownerQuestionToView, parseOwnerAnswers, type OwnerAnswer, type OwnerQuestionView } from "@ruukoto/core/owner-questions.ts";
+import { cancelOwnerQuestion, consumeOwnerQuestion, createOwnerQuestion, getOwnerQuestion, getOwnerQuestionReceipt, invalidateOwnerQuestionsForTask, listOwnerQuestions, ownerQuestionTaskEligible, ownerQuestionToView, parseOwnerAnswers, OwnerQuestionError, type OwnerQuestion, type OwnerQuestionReceipt, type OwnerQuestionView } from "@ruukoto/core/owner-questions.ts";
 import { sameTarget } from "@ruukoto/core/notify-target.ts";
 import { PRODUCT_META_KEY,type ProductType } from "@ruukoto/core/product.ts";
 import { CODING_ROLE_RETIRED,CORE_GROUP_CHAT_RETIRED } from "@ruukoto/core/session-identity.ts";
@@ -160,6 +163,8 @@ import {
   type Project,
   type Session,
   type SessionCompactionRequest,
+  type MessageRecall,
+  type PublicMessageRecall,
   type SessionDefaultMode,
   type StandingPermission,
   type SubAgent,
@@ -187,7 +192,7 @@ import {
 import { GIT_SAFE_DIRECTORY_ENV,grantCoversPath,resolveWorktreeCommonGitDir,taskWorkspaceFor } from "@ruukoto/core/worktree.ts";
 import { ParentDelivery, workflowWakeInput, workflowReport } from "@ruukoto/runtime/parent-delivery.ts";
 import { RuntimeAgentWait, agentWaitGroupTargets, agentWaitTargetsReady } from "./agent-wait.ts";
-import { AgentWaitError, agentWaitView, agentReportKey, bindAgentReportFallback, consumeAgentReport, getAgentReport, registerAgentReport, isAgentReportFallback, isAgentReportParked,
+import { AgentWaitError, agentWaitView, agentReportKey, bindAgentReportFallback, claimAgentReports, consumeAgentReport, getAgentReport, registerAgentReport, isAgentReportFallback, isAgentReportParked,
   completeAgentReports, finishAgentReportFallback, invalidateAgentReports, parkAgentReportFallback, transferAgentReportFallbacks, latestAgentReferenceSnapshot, listAgentReports, listAgentWaits, recoverAgentWaits, releaseAgentReports, sameAgentReportSource, startAgentReportFallback,
   type AgentReport, type AgentReportCompletion, type AgentReportTarget, type AgentWaitTarget } from "@ruukoto/core/agent-wait.ts";
 import { createAgentWaitFamily } from "@ruukoto/agent/agent-wait-tools.ts";
@@ -384,6 +389,8 @@ export class Runtime {
   /** 父级送达（架构工单 09）：结果与工作内消息怎样、何时进入主 Agent 的模型调用。 */
   private readonly parentDelivery: ParentDelivery;
   private readonly agentWait: RuntimeAgentWait;
+  /** Recall orchestration: acceptance, stopping, effective history and receipts. */
+  readonly messageRecall: MessageRecallRuntime;
   private readonly reportGroups = new Set<string>();
   /** 调度计划/运行/发送账本（issue 03，核心库三表）。 */
   readonly sched: SchedulerStore;
@@ -406,6 +413,8 @@ export class Runtime {
   readonly models: RuntimeModels;
   get defaultSelection(): ModelSelection { return this.models.current.defaultSelection; }
   private drivers = new Map<string, Driver>();
+  private readonly reportRequestInputs = new Map<string, { entryId: string; keys: string[] }[]>();
+  private readonly preparedReportInputs = new Map<string, { reportKeys: string[]; entryIds: string[] }>();
   private loopActive = new Set<string>();
   private loopPromises = new Map<string, Promise<void>>();
   private hostOperationPromises = new Set<Promise<unknown>>();
@@ -547,7 +556,7 @@ export class Runtime {
       reserveAgentReport: report => this.agentWait.reserve(report),
       verifyWork: work => this.subagents!.verifyWorkspace(work),
       verifyTask: task => this.verifySubAgentSource(task),
-      verifyAgentReport: report => this.verifyAgentWaitTarget(report.source, report.target) && (Boolean(report.claimTaskId) || !this.agentReportWorkCanceled(report)),
+      verifyAgentReport: report => this.verifyAgentWaitTarget(report.source, report.target) && !this.agentReportWorkCanceled(report),
       routeAgentReport: report => this.routeAgentReportGroup(report),
       recordClaimedReport: (task, outcome, reports) => this.recordClaimedAgentReport(task, outcome, reports),
       reportInput: (task, reports) => this.agentReportInput(task, reports),
@@ -562,6 +571,27 @@ export class Runtime {
       },
       yieldWorkspace: task => this.drivers.get(task.sessionId)?.yieldWorkspace(task.id) ?? Promise.resolve(false),
       subscribe: listener => this.addEventListener(listener), unsubscribe: listener => this.removeEventListener(listener), kick: () => this.kickAll() });
+    // Resolve recall dependencies lazily because host execution, workflow and SubAgent managers
+    // are initialized later; closures avoid construction-order coupling.
+    this.messageRecall = new MessageRecallRuntime({
+      store,
+      sessionsDir: sessionsDirFor(config.dataDir),
+      driverFor: sessionId => this.drivers.get(sessionId),
+      ensureDriver: session => this.getDriver(session),
+      disposeDriver: async sessionId => {
+        const driver = this.drivers.get(sessionId);
+        this.drivers.delete(sessionId);
+        await driver?.dispose();
+      },
+      hostExecutions: () => this.hostExecutions ?? null,
+      workflows: () => this.workflows,
+      subagents: () => this.subagents,
+      backgroundProcesses: { requestStop: (id, reason) => { this.backgroundProcesses?.requestStop(id, reason); } },
+      agentWait: this.agentWait,
+      attachments: this.attachments,
+      artifacts: this.artifacts,
+      kick: sessionId => this.kick(sessionId),
+    });
     this.imWorkflows = new ImWorkflows({ store, sched: this.sched, entry: source => this.imEntries.entry(source),
       answer: input => this.answerWorkflowQuestion(input),
       start: (input, origin) => this.startWorkflowOwner({ ...input, sessionId: this.store.getAgentRole("main")!.sessionId }, origin),
@@ -920,6 +950,7 @@ export class Runtime {
       resumeQueue: (sessionId) => runtime.resumeQueue(sessionId),
       parentDelivery: runtime.parentDelivery,
       cancelTask: (taskId, reason) => runtime.cancelTask(taskId, reason ? { reason } : undefined),
+      assertSourceOpen: (taskId) => runtime.messageRecall.assertSourceNotSealed(taskId),
       protectedRoots: () => runtime.protectedRoots(),
       dataDir: fullConfig.dataDir,
     });
@@ -977,6 +1008,9 @@ export class Runtime {
         }
       });
     }
+    // Recover pending recalls from persisted phases and verify completion markers for completed receipts
+    // after workflow and SubAgent managers are assembled.
+    await runtime.messageRecall.recoverAll();
     await recoverBranchSessions(runtime.branchDeps());
     await recoverSideChats(runtime.sideDeps());
     // GitHub 专用模块退役迁移（issue 17）：仅升级后首次启动执行；无旧表直接跳过
@@ -1077,6 +1111,8 @@ export class Runtime {
 
   private workflowSource(taskId: string, ownerControl = false, delegation = false): WorkflowSource {
     const task = this.store.getTask(taskId);
+    // Reject workflow/delegation registration from recall-sealed sources.
+    this.messageRecall.assertSourceNotSealed(taskId);
     const codeSource = task ? getCodeScheduledTaskSource(this.store, task.id) : null;
     const session = task ? this.store.getSession(task.sessionId) : null;
     const identity = session ? this.store.getSessionIdentity(session.id) : null;
@@ -1345,7 +1381,7 @@ export class Runtime {
     }
     for (const report of reports) {
       if (!this.verifyAgentWaitTarget(report.source, report.target, finalReport)) return "agent_report_source_invalid";
-      if (report.fallbackTaskId === taskId && this.agentReportWorkCanceled(report)) return "agent_report_work_canceled";
+      if (this.agentReportWorkCanceled(report)) return "agent_report_work_canceled";
     }
     return null;
   }
@@ -1383,7 +1419,8 @@ export class Runtime {
   private agentTaskEntries(task: Task): ReturnType<typeof parseSessionFile> {
     const file = this.store.getSession(task.sessionId)?.sessionFile;
     if (!file) return [];
-    const entries = parseSessionFile(file);
+    const raw = parseSessionFile(file), omitted = effectiveProjection(raw).omitted;
+    const entries = raw.filter(entry => entry.type !== "context_edit" && !omitted.has(entry.id));
     const start = entries.findIndex(entry => entry.type === "custom" && entry.customType === TASK_START_MARKER && (entry.data as { taskId?: string } | undefined)?.taskId === task.id);
     const nextBoundary = entries.findIndex((entry, index) => index > start && entry.type === "custom" && (entry.customType === TASK_START_MARKER || entry.customType === TASK_END_MARKER));
     return start < 0 ? [] : entries.slice(start + 1, nextBoundary < 0 ? undefined : nextBoundary);
@@ -1400,8 +1437,14 @@ export class Runtime {
       reports.set(report.key, report);
     }
     const task = this.store.getTask(taskId), waits = listAgentWaits(this.store, { taskId });
-    if (!task || !waits.length) return [...reports.values()];
-    const inputKeys = new Set<string>(), consumedInputs = new Map<string, Set<string>>();
+    if (!task) return [...reports.values()];
+    const actualInputs = this.reportInputEntries(task);
+    for (const input of actualInputs) for (const key of input.keys) {
+      const report = getAgentReport(this.store, key);
+      if (!report) throw new AgentWaitError("report_input_reference_missing");
+      reports.set(key, report);
+    }
+    const inputKeys = new Set(actualInputs.flatMap(input => input.keys)), consumedInputs = new Map(actualInputs.map(input => [input.entryId, new Set(input.keys)]));
     for (const entry of this.agentTaskEntries(task)) {
       const message = entry.message as { role?: string; toolName?: string; toolCallId?: string; isError?: boolean; content?: { type: string; text?: string }[] } | undefined;
       if (entry.type !== "message" || message?.role !== "toolResult" || !["wait", "agent_wait"].includes(message.toolName ?? "") || !waits.some(wait => wait.sdkCallId === message.toolCallId) || message.isError) continue;
@@ -1435,6 +1478,8 @@ export class Runtime {
 
   private agentReportInput(task: Task, reports: AgentReport[]): AgentReportCompletion["reportInput"] | null {
     if (!reports.some(report => report.consumption && report.consumption.taskId !== task.id)) return null;
+    const dynamic = this.reportInputEntries(task).find(input => reports.every(report => input.keys.includes(report.key)));
+    if (dynamic) return { entryId: dynamic.entryId, keys: reports.map(report => report.key) };
     const calls = listAgentWaits(this.store, { taskId: task.id }).filter(wait => wait.reason === "result").map(wait => wait.sdkCallId);
     for (const entry of this.agentTaskEntries(task)) {
       const message = entry.message as { role?: string; toolName?: string; toolCallId?: string; isError?: boolean; content?: { type: string; text?: string }[] } | undefined;
@@ -1448,36 +1493,133 @@ export class Runtime {
     return null;
   }
 
+  private reportInputEntries(task: Task): { entryId: string; keys: string[] }[] {
+    const inputs: { entryId: string; keys: string[] }[] = [];
+    const fallback = listAgentReports(this.store, { taskId: task.id }).filter(report => report.fallbackTaskId === task.id);
+    const entries = this.agentTaskEntries(task);
+    for (const entry of entries) {
+      const message = entry.message as { role?: string; toolName?: string; toolCallId?: string; isError?: boolean; ruukotoReportKeys?: unknown; content?: { type: string; text?: string }[] } | undefined;
+      let keys: string[] = [];
+      if (entry.type === "message" && message?.role === "user" && Array.isArray(message.ruukotoReportKeys)) {
+        if (message.ruukotoReportKeys.some(key => typeof key !== "string")) throw new AgentWaitError("report_input_invalid");
+        keys = message.ruukotoReportKeys;
+        const marker = entries.find(item => item.type === "custom" && item.customType === "ruukoto_agent_report_context" &&
+          (item.data as { taskId?: string } | undefined)?.taskId === task.id && isDeepStrictEqual((item.data as { reportKeys?: string[] }).reportKeys, keys) &&
+          (item.data as { text?: string }).text === message.content?.filter(part => part.type === "text").map(part => part.text ?? "").join("\n"));
+        if (!marker) throw new AgentWaitError("report_input_invalid");
+      } else if (entry.type === "message" && message?.role === "toolResult" && ["wait", "agent_wait"].includes(message.toolName ?? "") && !message.isError &&
+          listAgentWaits(this.store, { taskId: task.id }).some(wait => wait.sdkCallId === message.toolCallId)) {
+        let result: import("@ruukoto/agent/agent-wait-tools.ts").AgentWaitResult;
+        try { result = JSON.parse(message.content!.filter(part => part.type === "text").map(part => part.text ?? "").join("\n")) as import("@ruukoto/agent/agent-wait-tools.ts").AgentWaitResult; }
+        catch { throw new AgentWaitError("report_input_invalid"); }
+        if (!result || typeof result !== "object" || !Array.isArray(result.targets) || result.targets.some(target => !target || typeof target !== "object")) throw new AgentWaitError("report_input_invalid");
+        if (result.reportTargets !== undefined && (result.reason !== "result" || !Array.isArray(result.reportTargets) || result.reportTargets.length > 20)) throw new AgentWaitError("report_input_invalid");
+        if (result.reason === "result") for (const target of [...result.targets, ...(result.reportTargets ?? [])]) {
+          if (!target || typeof target !== "object") throw new AgentWaitError("report_input_invalid");
+          if (!result.reportTargets?.includes(target) && (target.reportOwnerTaskId !== task.id || typeof target.resultSummary !== "string")) continue;
+          if (target.reportOwnerTaskId !== task.id || typeof target.resultSummary !== "string" ||
+              (target.kind === "task" ? typeof target.taskId !== "string" : target.kind !== "workflow" || typeof target.runId !== "string" || !Number.isSafeInteger(target.terminalVersion))) throw new AgentWaitError("report_input_invalid");
+          keys.push(agentReportKey(target.kind === "task" ? target : { ...target, terminalVersion: target.terminalVersion! }));
+        }
+      } else if (fallback.length && entry.type === "custom" && entry.customType === "ruukoto_agent_report_context") {
+        const data = entry.data as { taskId?: string; text?: string; reportKeys?: string[] } | undefined;
+        if (data?.taskId === task.id && typeof data.text === "string" && Array.isArray(data.reportKeys)) keys = data.reportKeys;
+      } else if (fallback.length && entry.type === "message" && message?.role === "user" && !inputs.length) keys = fallback.map(report => report.key);
+      if (!keys.length) continue;
+      for (const key of keys) {
+        const report = getAgentReport(this.store, key);
+        if (!report || report.parentSessionId !== task.sessionId) throw new AgentWaitError("report_input_reference_missing");
+      }
+      inputs.push({ entryId: entry.id, keys: [...new Set(keys)] });
+    }
+    return inputs;
+  }
+
+  private bindAgentReportRequest(task: Task, messages: readonly unknown[]): { reportKeys: string[]; entryIds: string[]; selectionRecordId: string | null } {
+    const entries = this.agentTaskEntries(task), prepared = this.preparedReportInputs.get(task.id);
+    const inputs = this.reportInputEntries(task).filter(input => {
+      const entry = entries.find(item => item.id === input.entryId)!;
+      if (entry.type === "message") return messages.some(message => isDeepStrictEqual(JSON.parse(JSON.stringify(message)), entry.message));
+      const data = entry.data as { text?: string } | undefined;
+      return typeof data?.text === "string" && messages.some(message => {
+        const value = message as { content?: unknown };
+        return typeof value.content === "string" ? value.content.includes(data.text!) : Array.isArray(value.content) && value.content.some(part => part?.type === "text" && typeof part.text === "string" && part.text.includes(data.text!));
+      });
+    });
+    if (prepared && prepared.reportKeys.some(key => !inputs.some(input => input.keys.includes(key)))) throw new AgentWaitError("report_input_missing");
+    this.reportRequestInputs.set(task.id, inputs);
+    return { reportKeys: [...new Set(inputs.flatMap(input => input.keys))], entryIds: inputs.map(input => input.entryId),
+      selectionRecordId: this.store.listSelectionRecordsByTask(task.id).at(-1)?.id ?? null };
+  }
+
   private acceptAgentWaitResults(task: Task): void {
     if (this.verifyAgentReportSources(task.id)) throw new AgentWaitError("source_invalid");
-    const reports = listAgentReports(this.store, { taskId: task.id });
-    if (!reports.some(report => report.status === "pending" && !report.consumption)) return;
-    const taskEntries = this.agentTaskEntries(task);
-    const fallbackReports = reports.filter(report => report.fallbackTaskId === task.id && report.status === "pending" && !report.consumption);
-    if (fallbackReports.length) {
-      const input = taskEntries.find(entry => entry.type === "message" && (entry.message as { role?: string } | undefined)?.role === "user");
-      const group = taskEntries.find(entry => entry.type === "custom" && entry.customType === "ruukoto_agent_report_context" && (entry.data as { taskId?: string } | undefined)?.taskId === task.id);
-      const proof = group ?? input;
-      if (!proof) throw new AgentWaitError("report_input_missing");
-      for (const report of fallbackReports) consumeAgentReport(this.store, report.key, { taskId: task.id, entryId: proof.id });
+    const inputs = this.reportRequestInputs.get(task.id) ?? this.recoverReportRequestInputs(task);
+    this.reportRequestInputs.delete(task.id);
+    for (const input of inputs) for (const key of input.keys) {
+      const report = getAgentReport(this.store, key);
+      if (report?.status === "pending" && !report.consumption && (report.claimTaskId === task.id || report.fallbackTaskId === task.id)) consumeAgentReport(this.store, key, { taskId: task.id, entryId: input.entryId });
     }
-    for (const wait of listAgentWaits(this.store, { taskId: task.id })) {
-      if (wait.reason !== "result") continue;
-      const results = taskEntries.filter(item => {
-        const message = item.message as { role?: string; toolName?: string; toolCallId?: string; isError?: boolean } | undefined;
-        return item.type === "message" && message?.role === "toolResult" && ["wait", "agent_wait"].includes(message.toolName ?? "") && message.toolCallId === wait.sdkCallId && !message.isError;
-      });
-      for (const entry of results) {
-        const message = entry.message as { content: { type: string; text?: string }[] };
-        const result = JSON.parse(message.content.filter(part => part.type === "text").map(part => part.text ?? "").join("\n")) as import("@ruukoto/agent/agent-wait-tools.ts").AgentWaitResult;
-        if (result.reason !== "result") continue;
-        const delivered = [...result.targets, ...(result.reportTargets ?? [])].filter(target => target.resultSummary !== null && target.resultSummary !== undefined && target.reportOwnerTaskId === task.id);
-        for (const report of listAgentReports(this.store, { taskId: task.id }).filter(report => report.claimTaskId === task.id && !report.consumption)) {
-          const target = report.target;
-          if (delivered.some(item => item.kind === target.kind && (item.kind === "task" && target.kind === "task" ? item.taskId === target.taskId : item.kind === "workflow" && target.kind === "workflow" && item.runId === target.runId && item.terminalVersion === target.terminalVersion))) consumeAgentReport(this.store, report.key, { taskId: task.id, entryId: entry.id });
-        }
+  }
+
+  private recoverReportRequestInputs(task: Task): { entryId: string; keys: string[] }[] {
+    const entries = this.agentTaskEntries(task), candidates = this.reportInputEntries(task);
+    const accepted: { entryId: string; keys: string[] }[] = [];
+    for (let index = 0; index < entries.length; index++) {
+      const entry = entries[index];
+      if (entry.type !== "custom" || entry.customType !== "ruukoto_agent_report_context") continue;
+      const data = entry.data as { taskId?: string; requestBinding?: boolean; reportKeys?: string[]; entryIds?: string[]; selectionRecordId?: string } | undefined;
+      if (!data?.requestBinding || data.taskId !== task.id || !Array.isArray(data.reportKeys) || !Array.isArray(data.entryIds)) continue;
+      const next = entries.findIndex((item, position) => position > index && item.type === "custom" && item.customType === "ruukoto_agent_report_context" && (item.data as { requestBinding?: boolean } | undefined)?.requestBinding);
+      const response = entries.slice(index + 1, next < 0 ? undefined : next).find(item => item.type === "message" &&
+        (item.message as { role?: string; stopReason?: string } | undefined)?.role === "assistant" && !["error", "aborted"].includes((item.message as { stopReason: string }).stopReason));
+      if (!response) continue;
+      const record = this.store.listSelectionRecordsByTask(task.id).find(record => record.id === data.selectionRecordId);
+      if (!record?.promptArtifactId) throw new AgentWaitError("report_input_missing");
+      const artifact = this.store.getArtifact(record.promptArtifactId);
+      if (!artifact) throw new AgentWaitError("report_input_missing");
+      let snapshot: { context?: { messages?: unknown[] }; messages?: unknown[] };
+      try { snapshot = JSON.parse(this.artifacts.read(artifact.id, 0, artifact.byteCount).toString("utf8")) as typeof snapshot; }
+      catch { throw new AgentWaitError("report_input_invalid"); }
+      if (!snapshot || typeof snapshot !== "object") throw new AgentWaitError("report_input_invalid");
+      const messages = snapshot.messages ?? snapshot.context?.messages;
+      if (!Array.isArray(messages)) throw new AgentWaitError("report_input_invalid");
+      for (const input of candidates.filter(input => data.entryIds!.includes(input.entryId))) {
+        const original = entries.find(item => item.id === input.entryId)!;
+        const text = (original.data as { text?: string } | undefined)?.text;
+        const included = original.type === "message" ? messages.some(message => isDeepStrictEqual(JSON.parse(JSON.stringify(message)), original.message)) : typeof text === "string" && JSON.stringify(messages).includes(JSON.stringify(text).slice(1, -1));
+        if (!included || input.keys.some(key => !data.reportKeys!.includes(key))) throw new AgentWaitError("report_input_missing");
+        accepted.push(input);
       }
     }
+    return accepted;
+  }
+
+  private pendingBoundaryReports(task: Task): AgentReport[] {
+    if (!ownerQuestionTaskEligible(this.store, task) || task.cancelRequested || this.store.getSession(task.sessionId)?.queueState !== "active" || task.interruptReason === "owner_interrupt") return [];
+    const admitted = new Set(this.reportInputEntries(task).flatMap(input => input.keys));
+    return listAgentReports(this.store, { parentSessionId: task.sessionId }).filter(report => {
+      if (report.status !== "pending" || admitted.has(report.key) || report.claimTaskId && report.claimTaskId !== task.id ||
+          report.fallbackState === "running" || report.fallbackState === "completed" || report.consumption?.taskId === task.id) return false;
+      if (report.fallbackTaskId && this.store.getTask(report.fallbackTaskId)?.status !== "queued") return false;
+      const wait = listAgentWaits(this.store, { sessionId: task.sessionId }).find(wait => wait.targets.some(target => agentReportKey(target.kind === "task" ? target : { ...target, terminalVersion: report.target.kind === "workflow" ? report.target.terminalVersion : 0 }) === report.key));
+      return !wait || agentWaitTargetsReady(this.store, agentWaitGroupTargets(this.store, wait.taskId));
+    });
+  }
+
+  private prepareBoundaryReports(task: Task): { reportKeys: string[]; text: string } | null {
+    return this.store.withTx(() => {
+      const reports = this.pendingBoundaryReports(this.store.getTask(task.id)!);
+      if (!reports.length) return null;
+      if (reports.some(report => !this.verifyAgentWaitTarget(report.source, report.target) || this.agentReportWorkCanceled(report))) {
+        invalidateAgentReports(this.store, reports.map(report => report.key), "source_invalid");
+        throw new AgentWaitError("source_invalid");
+      }
+      claimAgentReports(this.store, { taskId: task.id, keys: reports.map(report => report.key) });
+      return { reportKeys: reports.map(report => report.key), text: "[后台报告 · 资料]\n" + reports.map(report => report.target.kind === "workflow"
+        ? workflowReport(this.store, requireWorkflowRun(this.store, report.target.runId)).text
+        : `子任务 ${report.target.taskId}：${this.store.getTask(report.target.taskId)!.status}\n${this.store.getTask(report.target.taskId)!.resultSummary}`).join("\n\n") };
+    });
   }
 
   private recordClaimedAgentReport(task: Task, outcome: ChildOutcome, reports: AgentReport[]): AgentReportCompletion {
@@ -2434,8 +2576,15 @@ export class Runtime {
           const final = messages.at(-1)?.message as { role?: string; stopReason?: string; content?: { type: string; text?: string }[] } | undefined;
           if (final?.role === "assistant" && final.stopReason !== "error" && final.stopReason !== "aborted" && final.content?.some(part => part.type === "text" && part.text)) {
             store.addHistoryEntryIds(task.id, messages.map(entry => entry.id));
-            if (this.verifyAgentReportSources(task.id)) invalidateAgentReports(store, claims.map(report => report.key), "source_invalid");
-            else this.acceptAgentWaitResults(task);
+            const sourceProblem = this.verifyAgentReportSources(task.id);
+            if (sourceProblem) invalidateAgentReports(store, claims.map(report => report.key), "source_invalid");
+            else {
+              try { this.acceptAgentWaitResults(task); }
+              catch (error) {
+                if (!(error instanceof AgentWaitError) && !(error instanceof HistoryReadError)) throw error;
+                invalidateAgentReports(store, claims.map(report => report.key), "agent_report_input_invalid");
+              }
+            }
             if (end >= 0) {
               store.endTask(task.id, ["running", "awaiting_confirmation"], "completed", { keepOccupancy: true });
               continue;
@@ -2701,6 +2850,8 @@ export class Runtime {
   async branchSession(input: { sessionId: string; name?: string; taskId?: string; requestId: string }): Promise<Session> {
     this.assertCodeScheduleSessionMutable(input.sessionId);
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝会话分支");
+    // Do not snapshot pending recalls: incomplete omissions must not leak into branch copies.
+    this.messageRecall.assertNoOpenRecall(input.sessionId);
     return branchSession(this.branchDeps(), input);
   }
 
@@ -2717,6 +2868,8 @@ export class Runtime {
   /** 打开侧聊（创建或重开）：父会话唯一绑定，首次打开冻结安全快照。 */
   async openSideChat(input: { sessionId: string; requestId: string }): Promise<Session> {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝打开侧聊");
+    // Do not snapshot pending recalls: incomplete omissions must not leak into side-chat copies.
+    this.messageRecall.assertNoOpenRecall(input.sessionId);
     return openSideChat(this.sideDeps(), input);
   }
 
@@ -2776,7 +2929,6 @@ export class Runtime {
           accessMode: "confirm",
           planMode: false,
           grantedPaths: [],
-          resumesTaskId: undefined,
           modelSelection: selection,
           submissionDigest,
           agentId: null,
@@ -2815,6 +2967,8 @@ export class Runtime {
       return existing;
     }
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝上下文压缩");
+    // Compaction must wait for recall so its point can be verified against the effective prefix.
+    this.messageRecall.assertNoOpenRecall(input.sessionId);
     if (!this.config.product.manualCompaction) throw new RuntimeApiError("unavailable", "当前产品不提供手动上下文压缩");
     const session = this.getSession(input.sessionId);
     this.assertCodeScheduleSessionMutable(session.id);
@@ -3239,7 +3393,6 @@ export class Runtime {
     attachments?: AttachmentMetadata[];
     accessMode?: SessionDefaultMode;
     grantedPaths?: GrantedPath[];
-    resumesTaskId?: string;
     modelSelection: ModelSelection;
     /**
      * 编排字段（issue 01）：仅后台编排器经窄接口传递（子任务/事件任务/唤醒）。
@@ -3254,8 +3407,6 @@ export class Runtime {
     workflowRunId?: string;
     reportKey?: string;
     reportKeys?: string[];
-    /** 仅可信问题入口提交；客户端与模型不能指定回答来源。 */
-    ownerAnswer?: { questionId: string; version: number; answers: OwnerAnswer[] };
     /**
      * 显式引导（coding-message-control）：把本输入接入会话当前任务的下一边界；
      * 错过目标按普通队列输入回到队首。仅普通开发会话的拥有者新输入可用。
@@ -3275,8 +3426,7 @@ export class Runtime {
     if (input.workflowRunId && !internal) throw new RuntimeApiError("invalid_params", "工作流汇总只能由宿主登记");
     if (input.reportKey && !internal) throw new RuntimeApiError("invalid_params", "结果补报只能由宿主登记");
     if (input.reportKeys && !internal) throw new RuntimeApiError("invalid_params", "结果补报只能由宿主登记");
-    if (input.ownerAnswer && (!internal || this.store.getSessionIdentity(session.id)?.kind !== "dev")) throw new RuntimeApiError("invalid_params", "请从问题卡片提交回答。");
-    if (input.guidance && (internal || input.resumesTaskId || input.ownerAnswer || this.store.getSessionIdentity(session.id)?.kind !== "dev")) {
+    if (input.guidance && (internal || this.store.getSessionIdentity(session.id)?.kind !== "dev")) {
       throw new RuntimeApiError("invalid_params", "仅普通开发会话的拥有者新输入可转为引导");
     }
     const identity = this.store.getSessionIdentity(session.id)!;
@@ -3290,7 +3440,7 @@ export class Runtime {
       );
     }
     // 固定角色已退役（agent-direction issue 20/23）：qq_group 会话与 chat/coding
-    // 角色会话是只读归档，拒绝作为对话入口重新提交；continueTask 经本入口提交，一并覆盖
+    // 角色会话是只读归档，拒绝作为对话入口重新提交
     if (identity.kind === "retired") {
       throw new RuntimeApiError("invalid_state", identity.reason === CORE_GROUP_CHAT_RETIRED
         ? "核心群聊已退役：该会话是只读归档，不能提交任务（历史可经 qq inbox / read_history 查阅）"
@@ -3325,7 +3475,7 @@ export class Runtime {
     const digestBase = {
       input: input.input, accessMode: input.accessMode ?? null,
       grantedPaths: (input.grantedPaths ?? []).map(p => ({ path: p.path, access: p.access, purpose: p.purpose || "未说明" })),
-      resumesTaskId: input.resumesTaskId ?? null, modelSelection: selection,
+      resumesTaskId: null, modelSelection: selection,
       ...(input.attachments?.length ? { attachments: input.attachments } : {}),
     };
     const submission = {
@@ -3335,7 +3485,6 @@ export class Runtime {
       ...(input.workflowRunId ? { workflowRunId: input.workflowRunId } : {}),
       ...(input.reportKey ? { reportKey: input.reportKey } : {}),
       ...(input.reportKeys ? { reportKeys: input.reportKeys } : {}),
-      ...(input.ownerAnswer ? { ownerAnswer: input.ownerAnswer } : {}),
       ...(input.guidance ? { guidance: true } : {}),
     };
     const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -3345,15 +3494,14 @@ export class Runtime {
     const codeRun = getOpenCodeScheduleRunForSession(this.store, session.id);
     const codeSource = input.parentTaskId ? getCodeScheduledTaskSource(this.store, input.parentTaskId) : null;
     if (codeRun) {
-      if (!internal || !codeSource || codeSource.runId !== codeRun.id) throw new RuntimeApiError("schedule_session_managed", "本轮由 Scheduled 管理；请从问题卡片回答，或使用已有任务的安全继续入口。");
+      if (!internal || !codeSource || codeSource.runId !== codeRun.id) throw new RuntimeApiError("schedule_session_managed", "本轮由 Scheduled 管理；请从问题卡片回答，或在 Scheduled 中处理本轮。");
       this.assertCodeScheduleSelection(codeRun, input);
       if (["effect_unknown", "stop_unverified"].includes(codeRun.reason ?? "") || listCodeScheduleRunTasks(this.store, codeRun.id).some(task => task.effectUnknown)) throw new RuntimeApiError("schedule_recovery_required", "本轮结果或停止尚未核实；请在 Scheduled 查看记录并完成恢复。");
     } else if (codeSource) throw new RuntimeApiError("schedule_source_invalid", "定时任务的运行会话不匹配，未提交任务。");
     const attachments = this.attachments.prepare(session.id, input.attachments ?? []);
     this.assertNoSessionCompaction(input.sessionId);
     // 模型配置应用门闩（issue 21 §4）：幂等重试放行（不新建任务），
-    // 受影响 provider 的新提交在应用期间拒绝进入队列；continueTask 经
-    // this.submit 走同一检查
+    // 受影响 provider 的新提交在应用期间拒绝进入队列
     const sourceEvent = input.sourceEventId ? this.store.getInboundEvent(input.sourceEventId) : null;
     const check = await this.models.resolveSelection(selection, (sourceEvent !== null && this.inboundMedia.hasMedia(sourceEvent)) || attachments.some(item => item.metadata.mimeType !== null));
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝新任务");
@@ -3382,6 +3530,13 @@ export class Runtime {
         else this.assertCodeScheduleSessionMutable(session.id);
         this.assertNoSessionCompaction(input.sessionId);
         check();
+        // Reject owner input while recall is pending. Successful acceptance closes the edit window
+        // and restores the original queue state; sealed sources cannot register derived work.
+        if (!internal) {
+          this.messageRecall.assertNoOpenRecall(session.id);
+          this.messageRecall.closeEditWindowForNewInput(session.id);
+        }
+        if (input.parentTaskId) this.messageRecall.assertSourceNotSealed(input.parentTaskId);
         const reportKeys = input.reportKeys ?? (input.reportKey ? [input.reportKey] : []);
         for (const key of reportKeys) {
           const report = getAgentReport(this.store, key);
@@ -3419,7 +3574,7 @@ export class Runtime {
           accessMode,
           planMode,
           grantedPaths,
-          resumesTaskId: input.resumesTaskId,
+          inputPurpose: input.reportKey || input.reportKeys?.length || input.workflowRunId ? "internal_report" : undefined,
           modelSelection: selection,
           submissionDigest,
           agentId: input.agentId ?? null,
@@ -3431,9 +3586,6 @@ export class Runtime {
         if (!queued.duplicate) this.attachments.bind(queued.task.id, session.id, attachments);
         if (codeSource) bindCodeScheduleTask(this.store, { runId: codeSource.runId, taskId: queued.task.id, sourceTaskId: codeSource.taskId });
         if (input.browser && !queued.duplicate) this.store.bindTaskBrowser(queued.task.id, input.browser.connectionId);
-        if (input.ownerAnswer) consumeOwnerQuestion(this.store, { questionId: input.ownerAnswer.questionId, sessionId: session.id,
-          version: input.ownerAnswer.version, requestKey: input.requestId, requestDigest: submissionDigest,
-          answers: input.ownerAnswer.answers, source: { ...getCodingTaskOrigin(this.store, queued.task.id)!, sessionId: session.id }, taskId: queued.task.id });
         if (ordinaryInbound) this.store.markInboundQueued(ordinaryInbound.id, queued.task.id);
         if (workflow) updateWorkflowRun(this.store, { ...workflow, delivery: { ...workflow.delivery!, taskId: queued.task.id, status: "queued" } });
         for (const key of reportKeys) bindAgentReportFallback(this.store, key, queued.task.id);
@@ -3455,7 +3607,7 @@ export class Runtime {
         this.backgroundProcesses.interruptWait(guidance.targetTaskId);
         this.drivers.get(input.sessionId)?.releaseGuidanceWaits();
       } else {
-        const trustedOwnerInput = !internal || Boolean(input.ownerAnswer) || Boolean(task.sourceEventId && task.requestId === `evt:${task.sourceEventId}` &&
+        const trustedOwnerInput = !internal || Boolean(task.sourceEventId && task.requestId === `evt:${task.sourceEventId}` &&
           sourceEvent && [QQ_PRIVATE_SOURCE, TELEGRAM_SOURCE].includes(sourceEvent.source) && this.inboundGate(sourceEvent) === "run");
         const driver = this.drivers.get(input.sessionId), activeTaskId = driver?.currentTaskId;
         // 普通开发会话（dev）：普通 Enter 一律排队，不再因等待中的任务自动解除等待并
@@ -3517,20 +3669,44 @@ export class Runtime {
     return { questions, nextOffset: questions.length < rows.length ? offset + questions.length : null };
   }
 
-  // Note: 见 .agents/notes/implemented/feature/2026-10-21-owner-question-choice-types.md
-  async answerOwnerQuestion(input: { sessionId: string; questionId: string; version: number; requestId: string; answers: unknown;
-    modelSelection: ModelSelection; accessMode?: SessionDefaultMode; grantedPaths?: GrantedPath[]; browser?: { connectionId: string } }): Promise<TaskView> {
-    const question = getOwnerQuestion(this.store, input.questionId);
-    if (!question || question.sessionId !== input.sessionId) throw new RuntimeApiError("question_missing", "问题已不可用，请刷新问题卡片。");
-    const answers = parseOwnerAnswers(input.answers, question.questions);
-    const run = getCodeScheduleRunForTask(this.store, question.taskId);
-    if (run) this.assertCodeScheduleSelection(run, input);
-    const text = "[拥有者问题回答]\n" + question.questions.map((item, index) => `${index + 1}. ${item.question}${item.multiple ? "（多选）" : ""}${item.options ? `\n选项：${JSON.stringify(item.options)}` : ""}\n回答：${answers[index].text}`).join("\n\n");
-    return this.submit({ sessionId: input.sessionId, requestId: input.requestId, input: text, modelSelection: input.modelSelection,
-      accessMode: run ? run.snapshot.permission : input.accessMode, grantedPaths: input.grantedPaths,
-      ...(run ? { parentTaskId: question.taskId, sourcePermissionVersion: this.store.getTask(question.taskId)!.permissionVersion } : {}),
-      ...(input.browser ? { browser: input.browser } : {}),
-      ownerAnswer: { questionId: input.questionId, version: input.version, answers } }, true);
+  // Note: See .agents/notes/implemented/feature/2026-10-30-coding-owner-question-wait.md
+  async answerOwnerQuestion(input: { sessionId: string; questionId: string; version: number; requestId: string; answers: unknown }): Promise<OwnerQuestionReceipt> {
+    const requestDigest = createHash("sha256").update(JSON.stringify(input)).digest("hex");
+    return this.store.withTx(() => {
+      const original = getOwnerQuestionReceipt(this.store, input.sessionId, input.requestId);
+      if (original) {
+        if (original.operation !== "owner_question_answer" || original.questionId !== input.questionId || original.digest !== requestDigest) throw new OwnerQuestionError("request_conflict");
+        return original;
+      }
+      this.messageRecall.assertNoOpenRecall(input.sessionId);
+      const question = getOwnerQuestion(this.store, input.questionId);
+      if (!question || question.sessionId !== input.sessionId) throw new OwnerQuestionError("question_not_found");
+      return consumeOwnerQuestion(this.store, { questionId: input.questionId, sessionId: input.sessionId, version: input.version,
+        requestKey: input.requestId, requestDigest, answers: parseOwnerAnswers(input.answers, question.questions) });
+    });
+  }
+
+  private waitForOwnerQuestion(questionId: string, signal?: AbortSignal): Promise<OwnerQuestion> {
+    return new Promise((resolve, reject) => {
+      const finish = (error?: Error, question?: OwnerQuestion) => {
+        this.removeEventListener(check);
+        signal?.removeEventListener("abort", abort);
+        if (error) reject(error);
+        else resolve(question!);
+      };
+      const abort = () => finish(new OwnerQuestionError("question_source_invalid", "提问任务已停止；保留已接纳回答，请查看原问题状态。"));
+      const check = () => {
+        try {
+          const question = getOwnerQuestion(this.store, questionId);
+          if (!question) return finish(new OwnerQuestionError("question_not_found"));
+          if (question.status !== "pending") finish(undefined, question);
+        } catch (error) { finish(error instanceof Error ? error : new OwnerQuestionError("question_corrupt")); }
+      };
+      this.addEventListener(check);
+      signal?.addEventListener("abort", abort, { once: true });
+      if (signal?.aborted) abort();
+      else check();
+    });
   }
 
   cancelOwnerQuestion(input: { sessionId: string; questionId: string; version: number; requestId: string }): OwnerQuestionView {
@@ -3557,39 +3733,6 @@ export class Runtime {
         await this.models.whenConfigIdle();
       }
     }
-  }
-
-  /**
-   * 中断任务的人工继续：新任务带 resumes_task_id；不自动重放任何执行。
-   * 新任务沿用会话默认模式（提交时可显式覆盖）；旧批准不继承。
-   */
-  async continueTask(input: { taskId: string; sessionId?: string; requestId: string; input: string; attachments?: AttachmentMetadata[]; accessMode?: SessionDefaultMode; grantedPaths?: GrantedPath[]; modelSelection: ModelSelection; browser?: { connectionId: string } }): Promise<TaskView> {
-    const old = this.store.getTask(input.taskId);
-    if (!old) throw new RuntimeApiError("not_found", `任务不存在：${input.taskId}`);
-    const run = getOpenCodeScheduleRunForSession(this.store, old.sessionId);
-    if (run) {
-      this.assertCodeScheduleSelection(run, input);
-      if (old.effectUnknown || this.store.listToolOpsByTask(old.id).some(op => op.effectUnknown)) throw new RuntimeApiError("schedule_recovery_required", "本轮有未知操作效果；请在 Scheduled 核对记录后仅恢复未来周期。");
-    }
-    if (this.mcpSourceBlocked(old)) throw new RuntimeApiError("mcp_task_not_replayable", "原来源存在未知 MCP 效果，不能继续原业务；请查询原结果并以独立新输入建立工作。");
-    if (getWorkflowExecution(this.store, old.id)) throw new RuntimeApiError("invalid_state", "工作流执行由运行恢复，不接受普通任务继续");
-    if (workCopyHostFor(old)) throw new RuntimeApiError("invalid_state", "宿主工作副本操作不能作为模型任务继续；请核实保留现场后重新发起工作");
-    if (input.sessionId !== undefined && input.sessionId !== old.sessionId) throw new RuntimeApiError("invalid_params", "源任务不属于指定会话");
-    if (old.status !== "interrupted") {
-      throw new RuntimeApiError("invalid_state", `只能继续已中断的任务，当前状态 ${old.status}`);
-    }
-    return this.submit({
-      sessionId: old.sessionId,
-      requestId: input.requestId,
-      input: input.input,
-      attachments: input.attachments,
-      accessMode: run ? run.snapshot.permission : input.accessMode,
-      grantedPaths: input.grantedPaths,
-      resumesTaskId: old.id,
-      modelSelection: input.modelSelection,
-      ...(run ? { parentTaskId: old.id, sourcePermissionVersion: old.permissionVersion } : {}),
-      ...(input.browser ? { browser: input.browser } : {}),
-    }, Boolean(run));
   }
 
   /**
@@ -4077,9 +4220,14 @@ export class Runtime {
     }
   }
 
+  private executableQueueHead(sessionId: string): Task | undefined {
+    const candidates = this.store.listQueuedTasksFifo(sessionId).filter(task => !isAgentReportParked(this.store, task.id));
+    return candidates.find(task => isAgentReportFallback(this.store, task.id) || getWorkflowDeliveryRun(this.store, task.id)) ?? candidates[0];
+  }
+
   private isExecutableQueueHead(task: Task): boolean {
     return !this.stopping && !this.compactions.has(task.sessionId) && this.store.getSession(task.sessionId)?.queueState === "active" &&
-      this.store.listQueuedTasksFifo(task.sessionId).find(candidate => !isAgentReportParked(this.store, candidate.id))?.id === task.id;
+      this.executableQueueHead(task.sessionId)?.id === task.id;
   }
 
   private async runQueueLoop(sessionId: string): Promise<void> {
@@ -4087,7 +4235,7 @@ export class Runtime {
       if (this.stopping || this.compactions.has(sessionId)) return;
       const session = this.store.getSession(sessionId);
       if (!session || session.queueState !== "active") return;
-      const task = this.store.listQueuedTasksFifo(sessionId).find(candidate => !isAgentReportParked(this.store, candidate.id));
+      const task = this.executableQueueHead(sessionId);
       if (!task) return;
       const codeRun = getCodeScheduleRunForTask(this.store, task.id);
       if (codeRun) {
@@ -4240,6 +4388,8 @@ export class Runtime {
           halt: async () => { if (!driver) return true; await driver.stopManagedProcesses(task.id); return false; },
         });
       } finally {
+        this.reportRequestInputs.delete(task.id);
+        this.preparedReportInputs.delete(task.id);
         // SubAgent 子会话（agent-direction issue 11）：driver.run 收尾后释放运行
         // 对象（SDK 缓存与 MCP 连接）；身份、会话、JSONL 与产物保留——释放
         // SDK 不等于删除 SubAgent。终态事件监听已在提交边界同步完成。
@@ -4420,7 +4570,8 @@ export class Runtime {
         memories: this.memories,
         budgetOverrides: this.config.budgetOverrides,
         hostToolFamilies: this.hostToolFamilies,
-        ownerQuestions: { create: (ctx, questions) => this.store.withTx(() => createOwnerQuestion(this.store, { ...ctx, questions })) },
+        ownerQuestions: { create: (ctx, questions) => this.store.withTx(() => createOwnerQuestion(this.store, { ...ctx, questions })),
+          wait: (questionId, signal) => this.waitForOwnerQuestion(questionId, signal) },
         backgroundProcesses: {
           active: sessionId => listActiveBackgroundProcesses(this.store, sessionId).some(record => record.handedOff),
           start: (ctx, command, signal) => {
@@ -4458,14 +4609,21 @@ export class Runtime {
           acquireResources: task => this.acquireAgentResources(task),
           wait: (ctx, sdkCallId, targets, timeoutMs, signal) => this.agentWait.wait(ctx, sdkCallId, targets, timeoutMs, signal),
         },
-        beforeModelRequest: task => {
+        beforeModelRequest: (task, messages) => {
+          if (this.store.getTask(task.id)?.interruptReason === "owner_interrupt" || this.store.getSession(task.sessionId)?.queuePauseReason === "owner_pause") throw new RuntimeApiError("task_ending", "拥有者已暂停会话；本任务不再发送模型请求。");
           const background = listActiveBackgroundProcesses(this.store, task.sessionId).find(record => record.handedOff);
           if (background && this.backgroundSourceProblem(background)) throw new BackgroundProcessError("background_source_invalid", "后台参考来源已失效；停止依赖该资料的模型请求并核实原后台。");
           if (this.verifyAgentReportSources(task.id)) throw new AgentWaitError("source_invalid");
           const claims = listAgentReports(this.store, { taskId: task.id }).filter(report => report.status === "pending" && report.claimTaskId === task.id);
           if (claims.some(report => report.consumption && report.consumption.taskId !== task.id) && !this.agentReportInput(task, claims)) throw new AgentWaitError("report_input_missing");
+          return this.bindAgentReportRequest(task, messages);
         },
         afterModelRequest: task => this.store.withTx(() => this.acceptAgentWaitResults(task)),
+        reportBoundary: {
+          pending: task => this.pendingBoundaryReports(this.store.getTask(task.id)!).length > 0,
+          prepare: task => this.prepareBoundaryReports(task),
+          bind: (task, batch) => { this.preparedReportInputs.set(task.id, batch); },
+        },
         reportContext: task => {
           const reports = listAgentReports(this.store, { taskId: task.id }).filter(report => report.fallbackTaskId === task.id);
           if (reports.length < 2) return null;
@@ -4507,6 +4665,14 @@ export class Runtime {
     if (task.status !== "running" && task.status !== "awaiting_confirmation") {
       throw new RuntimeApiError("invalid_state", `只能中断运行中或等待确认的任务，当前 ${task.status}`);
     }
+    this.store.withTx(() => {
+      if (this.store.getSessionIdentity(task.sessionId)?.kind === "dev" && !task.subAgentId && !getWorkflowExecution(this.store, task.id)) {
+        this.store.setSessionQueueState(task.sessionId, "paused", "owner_pause");
+        this.store.appendEvent({ type: "session.queue_paused", sessionId: task.sessionId, reason: "owner_pause" }, { sessionId: task.sessionId });
+      }
+      this.store.transitionTask(task.id, [task.status], task.status, { interruptReason: "owner_interrupt" });
+      invalidateOwnerQuestionsForTask(this.store, task.id);
+    });
     if (this.hostExecutions.has(task.id)) {
       await this.hostExecutions.stop(task.id, "interrupted", "owner_interrupt");
       return this.store.getTask(taskId)!;
@@ -4537,7 +4703,11 @@ export class Runtime {
     const targetId = this.guidanceTarget(source.sessionId, sourceTaskId);
     if (!targetId) return null;
     const guidance = this.store.acceptTaskGuidance(sourceTaskId, targetId, true, expectedQueueRevision);
-    if (guidance.state === "pending") this.store.stalePendingConfirmations(targetId);
+    if (guidance.state === "pending") {
+      this.store.stalePendingConfirmations(targetId);
+      const question = listOwnerQuestions(this.store, source.sessionId).find(item => item.taskId === targetId && item.status === "pending");
+      if (question) cancelOwnerQuestion(this.store, { questionId: question.id, sessionId: source.sessionId, version: question.version });
+    }
     return guidance;
   }
 
@@ -4552,6 +4722,7 @@ export class Runtime {
     const session = this.store.getSession(task.sessionId);
     if (!session) throw new RuntimeApiError("not_found", `会话不存在：${task.sessionId}`);
     if (this.store.getSessionIdentity(session.id)?.kind !== "dev") throw new RuntimeApiError("guidance_not_allowed", "仅普通开发会话支持引导");
+    this.messageRecall.assertNoOpenRecall(session.id);
     let guidance: TaskGuidance | null;
     try {
       guidance = this.store.withTx(() => this.acceptGuidanceForTask(taskId, opts?.expectedQueueRevision));
@@ -4588,6 +4759,7 @@ export class Runtime {
   /** 队列重排：仅交换普通拥有者输入的位置；冲突以实际持久状态拒绝并回执。 */
   reorderQueue(sessionId: string, taskIds: string[], expectedRevision: number): TaskQueue {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，请稍后重试");
+    this.messageRecall.assertNoOpenRecall(sessionId);
     try {
       return this.store.withTx(() => this.store.reorderTaskQueue(sessionId, taskIds, expectedRevision));
     } catch (err) {
@@ -4599,6 +4771,8 @@ export class Runtime {
   async cancelTask(taskId: string, opts?: { reason?: string }): Promise<Task> {
     const task = this.store.getTask(taskId);
     if (!task) throw new RuntimeApiError("not_found", `任务不存在：${taskId}`);
+    // Leave terminal-state changes to recall orchestration while it verifies the stop closure.
+    this.messageRecall.assertNoOpenRecall(task.sessionId);
     if (getWorkflowExecution(this.store, task.id)?.kind === "agent") throw new RuntimeApiError("invalid_state", "工作流步骤由所属运行控制，请取消运行");
     if (task.status === "queued") {
       // 待接入引导源：已预留进目标边界的源取消等待该批实际落盘结果，再核实现状
@@ -4653,6 +4827,8 @@ export class Runtime {
       );
     }
     const task = this.store.getTask(confirmation.taskId)!;
+    // Do not consume approvals during recall; stopping invalidates them so late card responses create no effects.
+    this.messageRecall.assertNoOpenRecall(confirmation.sessionId);
     if (task.status !== "awaiting_confirmation") {
       throw new RuntimeApiError("stale_confirmation", `确认请求已失效（任务状态 ${task.status}）`);
     }
@@ -4664,7 +4840,7 @@ export class Runtime {
   }
 
   /** 拥有者确认旧执行已停止：释放该会话遗留占用并恢复队列。 */
-  async resumeQueue(sessionId: string, selection?: ModelSelection): Promise<Session> {
+  async resumeQueue(sessionId: string, selection?: ModelSelection, stopConfirmed = false): Promise<Session> {
     const session = this.store.getSession(sessionId);
     if (!session) throw new RuntimeApiError("not_found", `会话不存在：${sessionId}`);
     const codeRun = getOpenCodeScheduleRunForSession(this.store, sessionId);
@@ -4697,6 +4873,7 @@ export class Runtime {
             `任务 ${occ.taskId} 仍在 ${occTask.status}，占用不能释放`,
           );
         }
+        if (!stopConfirmed) throw new RuntimeApiError("stop_unverified", "旧执行尚未核实停止；请核实后显式确认停止，再恢复队列。");
         releasedOccupancy = this.store.releaseOccupancy(occ.taskId) || releasedOccupancy;
         const copy = occTask ? workCopyHostFor(occTask) : null;
         if (copy) this.store.db.prepare("UPDATE tasks SET read_scope = ? WHERE id = ?")
@@ -4709,8 +4886,21 @@ export class Runtime {
       }
       const recovery = codeRun && ["effect_unknown", "stop_unverified"].includes(codeRun.reason ?? "");
       if (recovery) for (const task of listCodeScheduleRunTasks(this.store, codeRun.id).filter(task => task.status === "queued")) this.store.endTask(task.id, ["queued"], "canceled", { errorMessage: "schedule_recovery_required" });
-      this.store.setSessionQueueState(sessionId, recovery ? "paused" : "active", recovery ? "schedule_recovery_required" : null);
-      this.store.appendEvent(recovery ? { type: "session.queue_paused", sessionId, reason: "schedule_recovery_required" } : { type: "session.queue_resumed", sessionId }, { sessionId });
+      // Do not resume while recall is processing or awaiting verification. Resuming an edit window
+      // closes it and restores the saved queue state rather than unconditionally activating the queue.
+      if (session.queuePauseReason === RECALL_PAUSE_REASON) {
+        throw new RuntimeApiError("recall_pending", "撤回请求尚未收束，请等待或先完成停止核实");
+      }
+      const edit = getEditWindowRecall(this.store, sessionId);
+      if (edit && !recovery && session.queuePauseReason === "message_recall_edit") {
+        closeEditWindows(this.store, sessionId, new Date().toISOString());
+        const saved = edit.savedQueueState === "paused" ? "paused" : "active";
+        this.store.setSessionQueueState(sessionId, saved, saved === "paused" ? edit.savedQueueReason : null);
+        this.store.appendEvent(saved === "paused" ? { type: "session.queue_paused", sessionId, reason: edit.savedQueueReason ?? "message_recall_edit" } : { type: "session.queue_resumed", sessionId }, { sessionId });
+      } else {
+        this.store.setSessionQueueState(sessionId, recovery ? "paused" : "active", recovery ? "schedule_recovery_required" : null);
+        this.store.appendEvent(recovery ? { type: "session.queue_paused", sessionId, reason: "schedule_recovery_required" } : { type: "session.queue_resumed", sessionId }, { sessionId });
+      }
     });
     if (releasedOccupancy) {
       const driver = this.drivers.get(sessionId);
@@ -4809,6 +4999,8 @@ export class Runtime {
     backgroundProcesses: BackgroundProcessView[];
     codeScheduleRuns: CodeScheduleRun[];
     taskGuidance: TaskGuidance[];
+    /** Pending recalls and open edit windows for reconnect recovery, excluding other terminal receipts. */
+    messageRecalls: PublicMessageRecall[];
     /** 侧聊持久绑定（重连后客户端恢复侧聊身份；普通会话列表按此排除）。 */
     sideChats: Array<{ parentSessionId: string; sideSessionId: string }>;
     seq: number;
@@ -4853,6 +5045,12 @@ export class Runtime {
       backgroundProcesses: sessions.flatMap(session => this.listBackgroundProcesses(session.id).processes),
       codeScheduleRuns: this.codeScheduleRunSnapshot(),
       taskGuidance: sessions.flatMap(session => this.store.listSessionGuidance(session.id)),
+      // Reconnect restores pending recall and edit-window state without replaying history.
+      messageRecalls: sessions.flatMap(session => {
+        const open = getOpenMessageRecall(this.store, session.id);
+        const edit = getEditWindowRecall(this.store, session.id);
+        return [open, edit].filter((recall): recall is MessageRecall => recall !== null).map(publicMessageRecall);
+      }),
       sideChats: this.sideChatBindings(),
       seq: this.store.getMaxSeq(),
     };
@@ -5064,7 +5262,12 @@ export class Runtime {
       if (task.sessionId !== session.id && !session.branchSource?.taskIds.includes(task.id)) {
         return { ...entry, taskAssociationError: "task_outside_session" };
       }
-      return { ...entry, inputPurpose: this.taskView(task).inputPurpose };
+      const hostToolOpId = entry.toolCallId ? this.store.listToolOpsByTask(task.id).find(op => op.sdkCallId === entry.toolCallId)?.id : undefined;
+      const reportInput = entry.reportKeys?.length ? entry.reportKeys.every(key => {
+        const report = getAgentReport(this.store, key);
+        return report && report.parentSessionId === task.sessionId && this.reportInputEntries(task).some(input => input.entryId === entry.entryId && input.keys.includes(key));
+      }) : false;
+      return { ...entry, inputPurpose: reportInput ? "internal_report" : this.taskView(task).inputPurpose, ...(hostToolOpId ? { hostToolOpId } : {}) };
     });
   }
 

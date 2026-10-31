@@ -57,6 +57,8 @@ import {
   workspacePickerProjects,
 } from "@ruukoto/control/workspace.ts";
 import { productFromEnv } from "@ruukoto/core/product.ts";
+import type { AttachmentMetadata } from "@ruukoto/core/attachments.ts";
+import type { PublicMessageRecall } from "@ruukoto/core/types.ts";
 import type { DirIdentity } from "@ruukoto/core/dir-identity.ts";
 import type { ConfirmationRequestView } from "@ruukoto/core/views.ts";
 import type { SessionDefaultMode, SessionCompactionRequest, ContextCheckpoint, ModelSelection, Project, SelectionRecord, PersistentEvent, Session } from "@ruukoto/core/types.ts";
@@ -848,6 +850,7 @@ export class TuiApp {
   private readonly guard: SubmissionGuard;
   private readonly pendingStore: PendingRequestStore;
   private readonly branchPendingStore: PendingRequestStore;
+  private readonly recallPendingStore: PendingRequestStore;
   private readonly compactionPendingStore: PendingRequestStore;
   private readonly pendingCompactions = new Map<string, PendingCompaction>();
   private readonly compactionResults = new Map<string, SessionCompactionRequest>();
@@ -861,6 +864,8 @@ export class TuiApp {
 
   private readonly autocompleteOverlayComponent = new LinesComponent();
   private autocompleteOverlay: OverlayHandle | null = null;
+  /** Recalled staged attachments by sessionId; clear after successful submission. */
+  private readonly draftAttachments = new Map<string, AttachmentMetadata[]>();
   private readonly windows: OverlayHandle[] = [];
   private overlaySyncPending = false;
   /** 已补种过输入历史的会话（每个会话只补一次）。 */
@@ -896,13 +901,14 @@ export class TuiApp {
   private started = false;
   private exiting = false;
   private submitting = false;
+  private readonly recallWrites = new Set<string>();
+  private readonly installedRecalls = new Map<string, string>();
   private modeCycle: Promise<void> = Promise.resolve();
   private sessionSettingsSync: Promise<void> = Promise.resolve();
   private carriedSettings: { mode: SessionDefaultMode; model: ModelSelection | null } | null = null;
   private selectedProjectId: string | null = null;
   private readonly sessionUsage = new Map<string, { input: number; output: number }>();
   private readonly usageRequests = new Map<string, number>();
-  private continueForTaskId: string | null = null;
   /** dev 重载状态文件（issue 21 §5）：null = 非 dev 启动，不持久化也不恢复。 */
   private readonly reloadStateFile: string | null;
   /** 重载状态防抖定时器（~300ms 合并连续变更）。 */
@@ -927,6 +933,7 @@ export class TuiApp {
     this.guard = opts.guard;
     this.pendingStore = opts.pendingStore;
     this.branchPendingStore = new PendingRequestStore(join(opts.pendingStore.dir, "branches"));
+    this.recallPendingStore = new PendingRequestStore(join(opts.pendingStore.dir, "recalls"));
     this.compactionPendingStore = new PendingRequestStore(join(opts.pendingStore.dir, "compactions"));
     this.state = opts.state;
     this.history = new HistoryRecovery({
@@ -973,7 +980,11 @@ export class TuiApp {
     this.editor.onChange = () => {
       const view = this.currentView();
       // 草稿保留展开后的原文（大段粘贴的折叠标记只用于展示）
-      if (view) view.draft = this.editor.getExpandedText();
+      if (view) {
+        const key = `${this.state.instanceId}:${view.sessionId}`, requestId = this.installedRecalls.get(key);
+        if (requestId) { this.recallPendingStore.clear(requestId); this.installedRecalls.delete(key); }
+        view.draft = this.editor.getExpandedText();
+      }
       this.scheduleReloadPersist();
     };
     // 候选列表经覆盖层绘制：覆盖层在布局之后合成，叠在转录区之上而不挤占它。
@@ -1014,6 +1025,13 @@ export class TuiApp {
     });
 
     this.taskQueue = new TaskQueuePanel({
+      retrieve: async (taskId, revision) => {
+        const sessionId = this.state.currentSessionId;
+        if (!sessionId) return;
+        await this.submitRecall(sessionId, taskId, revision, "queued");
+        this.windows.at(-1)?.hide();
+        this.tui.setFocus(this.editor);
+      },
       request: (op, params) => this.connection.request(op, params),
       sessionId: () => this.state.currentSessionId,
       online: () => this.connection.state === "online",
@@ -1177,6 +1195,7 @@ export class TuiApp {
       void this.ownerQuestions.reconnect();
       void this.backgroundProcesses.refresh();
       void this.reconcilePendingInputs();
+      void this.recoverRecalls();
       for (const pending of this.pendingCompactions.values()) void this.reconcileCompaction(pending.sessionId, true);
       if (this.state.currentSessionId) void this.reconcileCompaction(this.state.currentSessionId);
       if (this.state.currentSessionId) void this.refreshSessionUsage(this.state.currentSessionId);
@@ -1263,7 +1282,6 @@ export class TuiApp {
       instanceId,
       sessionId: this.state.currentSessionId,
       draft: this.currentView()?.draft ?? "",
-      continueForTaskId: this.continueForTaskId,
       updatedAt: "", // 落盘时由 saveReloadState 写入当前时间
     });
   }
@@ -1297,26 +1315,6 @@ export class TuiApp {
     // 草稿先放回会话视图，switchSession 会顺带装入编辑器
     this.state.openSession(sessionId).draft = saved.draft;
     this.switchSession(sessionId);
-    if (saved.continueForTaskId) {
-      let task = this.state.getTask(saved.continueForTaskId);
-      if (!task) {
-        // 快照未覆盖的旧任务：向后台核实一次
-        try {
-          const detail = await this.connection.request("get_task", { task_id: saved.continueForTaskId });
-          task = detail.task ?? null;
-        } catch {
-          task = null;
-        }
-      }
-      if (task && task.sessionId === sessionId && task.status === "interrupted") {
-        this.continueForTaskId = task.id;
-        this.notify(
-          `已恢复继续模式：下一条输入将继续任务 ${task.id}（中断原因 ${task.interruptReason ?? "未知"}；输入 /continue 取消）`,
-        );
-      } else {
-        this.notify(yellow("继续目标任务已不存在或已结束；草稿保留为普通输入，提交将作为新任务"));
-      }
-    }
     // 结果回写：丢弃的意图/恢复的草稿立即同步，避免下次重载读到过期记录
     this.persistReloadState();
     this.refreshAll();
@@ -1529,7 +1527,6 @@ export class TuiApp {
               this.pendingStore.clear(outcome.requestId);
               this.state.pendingInputs = this.pendingStore.list().records;
               this.switchSession(sessionId);
-              if (typeof outcome.params["task_id"] === "string") this.continueForTaskId = outcome.params["task_id"];
               this.editor.setText(view.draft);
               this.notify("原文已恢复，请通过 /model 选择后提交");
             });
@@ -1639,7 +1636,6 @@ export class TuiApp {
     void this.refreshSessionUsage(sessionId);
     void this.refreshSessionTodos(sessionId);
     void this.reconcileCompaction(sessionId);
-    this.continueForTaskId = null;
     this.editor.setText(view.draft);
     if (!view.historyLoaded) {
       void this.loadHistory(sessionId, "replace");
@@ -1779,15 +1775,16 @@ export class TuiApp {
       this.notify("当前离线：草稿已保留，恢复在线后请重新提交");
       return;
     }
+    const recallKey = `${this.state.instanceId}:${view.sessionId}`, installedRecall = this.installedRecalls.get(recallKey);
+    if (installedRecall) { this.recallPendingStore.clear(installedRecall); this.installedRecalls.delete(recallKey); }
+    if (this.recallPendingStore.list().records.some(record => record.instanceId === this.state.instanceId && record.params.session_id === view.sessionId)) {
+      this.editor.setText(text);
+      this.notify("取回结果仍待核实；先用 /recall 恢复原请求，再发送消息。");
+      return;
+    }
     if (this.submitting) {
       this.editor.setText(text);
       this.notify("上一条输入提交中，请稍候（重复提交不会产生第二个任务）");
-      return;
-    }
-    if (opts.guidance && this.continueForTaskId) {
-      // 续接/问题回答绑定输入不具引导资格；不静默丢弃意图
-      this.editor.setText(text);
-      this.notify("当前输入已绑定为续接或问题回答，不能作为引导；先发送该输入再另行引导");
       return;
     }
     this.submitting = true;
@@ -1797,28 +1794,25 @@ export class TuiApp {
         view.draft = text;
         return;
       }
-      const continueTaskId = this.continueForTaskId;
       const modelSelection = this.state.sessions.find((s) => s.id === view.sessionId)?.modelSelection;
       if (!modelSelection) throw new Error("请先通过 /model 选择模型");
-      const outcome = continueTaskId
-        ? await this.guard.submit("continue", { task_id: continueTaskId, session_id: view.sessionId, input: text, model_selection: modelSelection })
-        : await this.guard.submit("submit", { session_id: view.sessionId, input: text, model_selection: modelSelection, ...(opts.guidance ? { guidance: true } : {}) });
+      // Bind restored staged references on submission without uploading their bytes again.
+      const attachments = this.draftAttachments.get(view.sessionId);
+      const outcome = await this.guard.submit("submit", { session_id: view.sessionId, input: text, model_selection: modelSelection, ...(attachments?.length ? { attachments } : {}), ...(opts.guidance ? { guidance: true } : {}) });
       switch (outcome.kind) {
         case "accepted": {
           this.state.upsertTask(outcome.task);
           // 立即显示刚发出的输入：不等后台落盘、经历史回传才出现
           this.state.addPendingInput(outcome.task);
-          const wasContinue = this.continueForTaskId !== null;
-          this.continueForTaskId = null;
+                this.draftAttachments.delete(view.sessionId);
           this.scheduleReloadPersist();
           const current = this.currentView();
           if (current?.queueState === "paused") {
             // 队列暂停时明确显示：新任务在排队，不宣称已开始执行
             this.notify(
-              `${wasContinue ? "继续任务" : "新任务"}已创建并排队（队列暂停：${current.queuePauseReason ?? ""}）；恢复：/resume-queue`,
+              `新任务已创建并排队（队列暂停：${current.queuePauseReason ?? ""}）；恢复：/resume-queue`,
             );
-          } else if (wasContinue) {
-            this.notify("继续任务已创建");
+
           }
           break;
         }
@@ -1890,7 +1884,6 @@ export class TuiApp {
     openApprovals: () => this.openApprovals(),
     interrupt: (taskId) => this.cmdInterrupt(taskId),
     cancel: (taskId) => this.cmdCancel(taskId),
-    continueTask: (taskId) => this.cmdContinue(taskId),
     resumeQueue: () => this.cmdResumeQueue(),
     openModelPicker: (result) => this.openModelPicker(result),
     openModeList: (rest, result) => this.cmdMode(rest, result),
@@ -1933,6 +1926,12 @@ export class TuiApp {
     submit: (text) => this.submitText(text),
     steer: (text) => this.submitText(text, { guidance: true }),
     toggleSide: () => this.cmdSide(),
+    recall: () => this.cmdRecall(),
+    recallVerify: () => this.cmdRecallVerify(),
+    detach: () => {
+      const view = this.currentView();
+      if (view?.sessionId && this.draftAttachments.delete(view.sessionId)) this.notify("已移除草稿中的附件");
+    },
   };
 
   private async cmdNewSession(cwd: string): Promise<void> {
@@ -2460,45 +2459,13 @@ export class TuiApp {
     }
   }
 
-  private async cmdContinue(arg: string): Promise<void> {
-    const view = this.currentView();
-    if (!view) {
-      this.notify("尚未选择会话");
-      return;
-    }
-    if (this.continueForTaskId && !arg) {
-      // 再次输入 /continue：取消继续模式
-      this.continueForTaskId = null;
-      this.refreshAll();
-      this.scheduleReloadPersist();
-      return;
-    }
-    let task: Task | null = null;
-    if (arg) {
-      task = this.state.getTask(this.resolveTaskId(arg) ?? "");
-    } else {
-      const interrupted = this.state.tasksFor(view.sessionId).filter((t) => t.status === "interrupted");
-      task = interrupted.at(-1) ?? null;
-    }
-    if (!task || task.sessionId !== view.sessionId || task.status !== "interrupted") {
-      this.notify("没有可继续的中断任务（/continue [taskId]）");
-      return;
-    }
-    this.continueForTaskId = task.id;
-    this.scheduleReloadPersist();
-    if (task.effectUnknown) {
-      this.notify(yellow(`继续任务 ${task.id}：存在效果未知的工具操作，不能当作可安全重试；请先核实原任务的实际结果。`));
-    }
-    this.refreshAll();
-    if (this.editor.getText().trim() === "/continue" || this.editor.getText().trim() === "") this.editor.setText("");
-  }
-
   private async cmdResumeQueue(): Promise<void> {
     const view = this.currentView();
     if (!view) {
       this.notify("尚未选择会话");
       return;
     }
+    const instanceId = this.state.instanceId;
     try {
       const legacy = this.state.queuedTasksFor(view.sessionId).filter((t) => !t.modelSelection);
       const selection = this.state.sessions.find((s) => s.id === view.sessionId)?.modelSelection;
@@ -2508,16 +2475,193 @@ export class TuiApp {
           return;
         }
         this.showSelection(`为 ${legacy.length} 个旧排队任务补配置：${this.selectionText(selection)}`, [{ value: "yes", label: "确认补齐并恢复队列" }], () => {
+          if (this.state.instanceId !== instanceId) return;
           void this.connection.request("resume_queue", { session_id: view.sessionId, model_selection: selection })
             .then(() => this.refreshAll())
-            .catch((err) => { this.state.note(view.sessionId, writeFailure("恢复队列", err, "/status")); this.refreshAll(); });
+            .catch(error => this.resumeQueueFailure(view.sessionId, error, instanceId, selection));
         });
         return;
       }
       await this.connection.request("resume_queue", { session_id: view.sessionId });
     } catch (err) {
-      this.notify(red(writeFailure("恢复队列", err, "/status")));
+      this.resumeQueueFailure(view.sessionId, err, instanceId);
     }
+  }
+
+  private resumeQueueFailure(sessionId: string, error: unknown, instanceId: string | null, selection?: ModelSelection): void {
+    if (this.state.instanceId !== instanceId) return;
+    if (error instanceof ControlClientError && error.code === "stop_unverified") {
+      this.showSelection("请先在运行环境核实旧任务及受管理进程均已退出", [{ value: "confirmed", label: "已核实停止，释放保留占用并恢复队列" }], () => {
+        if (this.state.instanceId !== instanceId) return;
+        void this.connection.request("resume_queue", { session_id: sessionId, stop_confirmed: true, ...(selection ? { model_selection: selection } : {}) })
+          .then(() => this.refreshAll()).catch(failure => this.notify(red(writeFailure("确认停止并恢复", failure, "/status"))));
+      });
+    } else this.notify(red(writeFailure("恢复队列", error, "/status")));
+  }
+
+  /** /recall restores the latest recalled input to the draft. */
+  private async cmdRecall(): Promise<void> {
+    const view = this.currentView();
+    if (!view) {
+      this.notify("尚未选择会话");
+      return;
+    }
+    const sessionId = view.sessionId, instanceId = this.state.instanceId;
+    try {
+      const pending = this.recallPendingStore.list().records.find(record => record.instanceId === this.state.instanceId && record.params.session_id === sessionId);
+      if (pending) { await this.submitRecall(sessionId, String(pending.params.task_id), Number(pending.params.expected_revision), pending.params.purpose as "queued" | "historical"); return; }
+      const state = await this.connection.request("message_recall_state", { session_id: sessionId });
+      if (this.state.instanceId !== instanceId) return;
+      if (state.open?.phase === "blocked") {
+        await this.recallVerifyRequest(sessionId, state.open.requestId);
+        return;
+      }
+      if (state.open) {
+        this.notify("已有撤回请求处理中，请稍候");
+        return;
+      }
+      if (!state.candidate || state.candidate.kind !== "task") {
+        this.notify("没有可撤回的输入");
+        return;
+      }
+      await this.submitRecall(sessionId, state.candidate.taskId, state.candidate.inputSeq, "historical");
+    } catch (err) {
+      this.notify(red(writeFailure("撤回输入", err, "/recall")));
+    }
+  }
+
+  /** Preserve the original key before sending; retry the original operation after a lost response. */
+  private async submitRecall(sessionId: string, taskId: string, revision: number, purpose: "queued" | "historical"): Promise<void> {
+    const instanceId = this.state.instanceId;
+    if (!instanceId) return;
+    const key = `${instanceId}:${sessionId}`;
+    if (this.recallWrites.has(key)) return;
+    this.recallWrites.add(key);
+    const existing = this.recallPendingStore.list().records.find(record => record.instanceId === instanceId && record.params.session_id === sessionId);
+    const requestId = existing?.requestId ?? randomUUID();
+    const params = existing?.params ?? { session_id: sessionId, task_id: taskId, request_id: requestId, expected_revision: revision, purpose };
+    try {
+      this.recallPendingStore.save({ requestId, op: "message_recall", params, instanceId, createdAt: existing?.createdAt ?? new Date().toISOString() });
+      const receipt = await this.connection.request("message_recall", params as import("@ruukoto/control/ops.ts").OpParams<"message_recall">);
+      if (this.state.instanceId !== instanceId) return;
+      await this.applyRecallReceipt(sessionId, receipt, requestId);
+      if (receipt.phase !== "completed" && receipt.phase !== "rejected") this.pollRecall(sessionId, requestId);
+    } catch (error) { this.notify(red(writeFailure("取回输入", error, "/recall"))); }
+    finally { this.recallWrites.delete(key); }
+  }
+
+  private async recoverRecalls(): Promise<void> {
+    const instanceId = this.state.instanceId;
+    const saved = this.recallPendingStore.list();
+    if (saved.corrupt.length) this.notify("有损坏的取回记录，原文件已保留；请核实客户端数据目录。");
+    for (const record of saved.records) {
+      if (record.instanceId !== instanceId) continue;
+      try {
+        const sessionId = String(record.params.session_id);
+        if (this.installedRecalls.get(`${instanceId}:${sessionId}`) === record.requestId) continue;
+        const state = await this.connection.request("message_recall_state", { session_id: sessionId, request_id: record.requestId });
+        if (this.state.instanceId !== instanceId) return;
+        if (!state.receipt) { this.notify("原取回请求尚未查到；/recall 将使用原请求键核实或重试。"); continue; }
+        await this.applyRecallReceipt(sessionId, state.receipt, record.requestId);
+        if (["accepted", "stopping", "applying"].includes(state.receipt.phase)) this.pollRecall(sessionId, record.requestId);
+      } catch (error) { this.notify(`原取回结果待核实：${(error as Error).message}`); }
+    }
+  }
+
+  /** /recall verify advances stop verification under the original key without changing parameters or target. */
+  private async cmdRecallVerify(): Promise<void> {
+    const view = this.currentView();
+    if (!view) {
+      this.notify("尚未选择会话");
+      return;
+    }
+    const instanceId = this.state.instanceId;
+    try {
+      const state = await this.connection.request("message_recall_state", { session_id: view.sessionId });
+      if (this.state.instanceId !== instanceId) return;
+      if (!state.open) {
+        this.notify("没有未收束的撤回请求");
+        return;
+      }
+      await this.recallVerifyRequest(view.sessionId, state.open.requestId);
+    } catch (err) {
+      this.notify(red(writeFailure("核实撤回停止", err, "/recall verify")));
+    }
+  }
+
+  /** Handle terminal verify-only results; continue background polling while pending. */
+  private async recallVerifyRequest(sessionId: string, requestId: string): Promise<void> {
+    this.notify("撤回停止结果未核实，正在重新核实…");
+    const instanceId = this.state.instanceId;
+    const receipt = await this.connection.request("message_recall_verify", { session_id: sessionId, request_id: requestId });
+    if (this.state.instanceId !== instanceId) return;
+    await this.applyRecallReceipt(sessionId, receipt, requestId);
+    if (receipt.phase !== "completed" && receipt.phase !== "rejected") this.pollRecall(sessionId, requestId);
+  }
+
+  /** Poll pending recalls; use the original key to restore a draft, report rejection or request verification. */
+  private readonly recallPolls = new Set<string>();
+  private pollRecall(sessionId: string, requestId: string): void {
+    const key = `${sessionId}:${requestId}`;
+    if (this.recallPolls.has(key)) return;
+    this.recallPolls.add(key);
+    const instanceId = this.state.instanceId;
+    void (async () => {
+      try {
+        for (let i = 0; i < 240; i++) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+          if (this.state.instanceId !== instanceId) return;
+          const state = await this.connection.request("message_recall_state", { session_id: sessionId, request_id: requestId });
+          if (this.state.instanceId !== instanceId) return;
+          const receipt = state.receipt;
+          if (!receipt) return;
+          if (receipt.phase === "accepted" || receipt.phase === "stopping" || receipt.phase === "applying") continue;
+          await this.applyRecallReceipt(sessionId, receipt, requestId);
+          return;
+        }
+        this.notify(yellow("撤回仍在处理中；稍后可用 /recall verify 查询"));
+      } catch {
+        // Stop polling silently on disconnect; /recall or /recall verify can be retried after reconnection.
+      } finally {
+        this.recallPolls.delete(key);
+      }
+    })();
+  }
+
+  /** Restore completed drafts, request verification when blocked, and report rejection reasons. */
+  private async applyRecallReceipt(sessionId: string, receipt: PublicMessageRecall, requestId: string): Promise<void> {
+    const instanceId = this.state.instanceId, key = `${instanceId}:${sessionId}`;
+    if (this.installedRecalls.get(key) === requestId) return;
+    if (receipt.phase === "completed") {
+      const state = await this.connection.request("message_recall_state", { session_id: sessionId, request_id: requestId });
+      if (this.state.instanceId !== instanceId || this.installedRecalls.get(key) === requestId) return;
+      const edit = state.edit;
+      // Only the original key holder receives draft content; never write placeholder text when it is unavailable.
+      if (edit && state.receipt?.id === edit.recallId) {
+        const view = this.state.openSession(sessionId);
+        view.draft = edit.input;
+            if (edit.attachments.length) this.draftAttachments.set(sessionId, edit.attachments);
+        else this.draftAttachments.delete(sessionId);
+        if (this.state.currentSessionId === sessionId) this.editor.setText(edit.input);
+        this.installedRecalls.set(`${instanceId}:${sessionId}`, requestId);
+        this.notify(
+          `已撤回输入并恢复到草稿${edit.attachments.length ? `（含附件：${edit.attachments.map(a => a.name).join("、")}；/detach 移除）` : ""}；编辑后发送`,
+        );
+      } else {
+        this.notify("撤回完成；草稿内容仅下发给发起端");
+      }
+      return;
+    }
+    if (receipt.phase === "blocked") {
+      this.notify(yellow("撤回停止结果未核实，队列保持暂停；再次 /recall 重新核实"));
+      return;
+    }
+    if (receipt.phase === "rejected") {
+      this.recallPendingStore.clear(requestId);
+      this.notify(`撤回被拒绝：${receipt.error?.message ?? "目标已变化"}`);
+      return;
+    }
+    this.notify("撤回请求已受理，正在停止相关执行…");
   }
 
   private toggleTodo(): void {
@@ -3564,8 +3708,7 @@ export class TuiApp {
       if (session && !this.carriedSettings) this.carriedSettings = { mode: session.defaultAccessMode, model: session.modelSelection ? { ...session.modelSelection } : null };
       this.selectedProjectId = item.value;
       this.state.currentSessionId = null;
-      this.continueForTaskId = null;
-      this.clearToolExpansions();
+        this.clearToolExpansions();
       this.editor.setText("");
       this.notify(`已切换到项目 ${this.state.projectName(item.value)}；暂无会话，用 /new-session <工作目录> 创建`);
     };

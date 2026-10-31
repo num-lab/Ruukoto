@@ -276,7 +276,7 @@ test("Code Cua：窗口观察授权元素动作与批次，坐标需截图，get
     { name: "click", description: "点击", inputSchema: { type: "object", properties: { x: { type: "number" }, y: { type: "number" }, pid: { type: "integer" }, window_id: { type: "integer" }, element_token: { type: "string" }, session: { type: "string" } } } },
     { name: "run_steps", description: "批次", inputSchema: { type: "object", properties: { steps: { type: "array" }, session: { type: "string" }, foreground_fallback: { type: "boolean" } } } },
   ];
-  fs.writeFileSync(executable, `#!${process.execPath}\nimport fs from 'node:fs';import readline from 'node:readline';const record=${JSON.stringify(record)},tools=${JSON.stringify(tools)};if(process.argv[2]==='dump-docs'){process.stdout.write(JSON.stringify({version:'0.38.0',tools:tools.map(t=>({name:t.name,description:t.description??'',input_schema:t.inputSchema}))}));process.exit(0);}fs.appendFileSync(record,JSON.stringify({start:process.pid})+'\\n');for await(const line of readline.createInterface({input:process.stdin})){const m=JSON.parse(line);if(m.id===undefined)continue;let result;if(m.method==='initialize')result={protocolVersion:m.params.protocolVersion,capabilities:{tools:{}},serverInfo:{name:'offline-cua',version:'0.38.0'}};else if(m.method==='tools/list')result={tools};else if(m.method==='tools/call'){fs.appendFileSync(record,JSON.stringify(m)+'\\n');const a=m.params.arguments;if(m.params.name==='get_window_state')result={content:[{type:'text',text:${JSON.stringify(TREE)}}],structuredContent:{pid:a.pid,window_id:a.window_id,snapshot_id:'s00000001',elements:[],truncated:false}};else if(m.params.name==='get_guide')result={content:[{type:'text',text:'topics: overview, batching'}]};else if(m.params.name==='run_steps')result={content:[{type:'text',text:'2 steps executed'}],structuredContent:{ok:true,executed:2,results:[{ok:true},{ok:true}],observation:{ok:true,state:{pid:a.pid,window_id:a.window_id,snapshot_id:'s00000002',invalidated_snapshot_ids:['s00000001']}}}};else result={content:[{type:'text',text:'done'}]};}else result={};process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');}\n`, { mode: 0o700 });
+  fs.writeFileSync(executable, `#!${process.execPath}\nimport fs from 'node:fs';import readline from 'node:readline';const record=${JSON.stringify(record)},tools=${JSON.stringify(tools)};if(process.argv[2]==='dump-docs'){process.stdout.write(JSON.stringify({version:'0.38.0',tools:tools.map(t=>({name:t.name,description:t.description??'',input_schema:t.inputSchema}))}));process.exit(0);}fs.appendFileSync(record,JSON.stringify({start:process.pid})+'\\n');let obs=1;for await(const line of readline.createInterface({input:process.stdin})){const m=JSON.parse(line);if(m.id===undefined)continue;let result;if(m.method==='initialize')result={protocolVersion:m.params.protocolVersion,capabilities:{tools:{}},serverInfo:{name:'offline-cua',version:'0.38.0'}};else if(m.method==='tools/list')result={tools};else if(m.method==='tools/call'){fs.appendFileSync(record,JSON.stringify(m)+'\\n');const a=m.params.arguments;if(m.params.name==='get_window_state')result={content:[{type:'text',text:${JSON.stringify(TREE)}}],structuredContent:{pid:a.pid,window_id:a.window_id,snapshot_id:a.window_id===8?'s00000008':'s0000000'+(obs++),elements:[],truncated:false}};else if(m.params.name==='get_guide')result={content:[{type:'text',text:'topics: overview, batching'}]};else if(m.params.name==='run_steps')result={content:[{type:'text',text:'2 steps executed'}],structuredContent:{ok:true,executed:2,results:[{ok:true},{ok:true}],observation:a.window_id===8?{ok:false,error:'window_id_not_found'}:{ok:true,state:{pid:a.pid,window_id:a.window_id,snapshot_id:'s00000002',invalidated_snapshot_ids:['s00000001']}}}};else result={content:[{type:'text',text:'done'}]};}else result={};process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');}\n`, { mode: 0o700 });
   const cua = { kind: "cua-mac", executable, version: "0.38.0", sha256: createHash("sha256").update(fs.readFileSync(executable)).digest("hex") } as const;
   const calls = () => fs.existsSync(record) ? fs.readFileSync(record, "utf8").trim().split("\n").map(line => JSON.parse(line)) : [];
   const sent = (name: string) => calls().filter(call => call.method === "tools/call" && call.params.name === name);
@@ -294,7 +294,7 @@ test("Code Cua：窗口观察授权元素动作与批次，坐标需截图，get
   try {
     const { sessionId } = await createProjectSession(client, runtime.work[0]);
     await done(await submit(sessionId, "baseline"));
-    const service = await client.request<{ id: string }>("mcp_configure", { name: "mac", cua, tool_allowlist: ["get_window_state", "get_guide", "click", "run_steps"] });
+    const service = await client.request<{ id: string }>("mcp_configure", { name: "mac", cua, tool_allowlist: ["get_window_state", "get_guide", "click", "type_text", "press_key", "run_steps"] });
     const checked = await client.request<{ ok: boolean; tools: { name: string }[] }>("mcp_check", { service_id: service.id });
     assert.ok(checked.tools.some(tool => tool.name === "get_guide"), "get_guide 按允许清单出现");
     // 未观察窗口的批次整体拒绝（零发送），get_guide 只读可发
@@ -315,7 +315,7 @@ test("Code Cua：窗口观察授权元素动作与批次，坐标需截图，get
     assert.equal(sent("click").length, 1, "已交付元素令牌放行");
     await done(await submit(sessionId, "coord-click", "click", { pid: 42, window_id: 7, x: 10, y: 20 }));
     assert.equal(sent("click").length, 1, "无截图不放行坐标动作");
-    const batch = await submit(sessionId, "batch", "run_steps", { steps: [{ tool: "click", args: { element_token: "s00000001:14" } }, { tool: "type_text", args: { element_token: "s00000001:20", text: "你好" } }], pid: 42, window_id: 7, observe: { include_screenshot: false } }, "confirm");
+    const batch = await submit(sessionId, "batch", "run_steps", { steps: [{ tool: "click", args: { element_token: "s00000001:14" } }, { tool: "type_text", args: { text: "你好" } }], pid: 42, window_id: 7, observe: { include_screenshot: false } }, "confirm");
     const approval = await pendingConfirmation(client, batch);
     await client.request("respond_confirmation", { confirmation_id: approval.id, decision: "approve" });
     await done(batch);
@@ -327,5 +327,15 @@ test("Code Cua：窗口观察授权元素动作与批次，坐标需截图，get
     await done(await submit(sessionId, "new-element", "click", { pid: 42, window_id: 7, element_token: "s00000002:1" }));
     assert.equal(sent("click").length, 1, "未交付的行号不授权");
     // 批次自身结果的文本已投影；新快照行未在批次返回中出现，故 s00000002 行不可见
+    // 末尾观察失败的批次：派发即撤销旧授权，观察失败后旧令牌不能继续操作（零发送）
+    await done(await submit(sessionId, "observe-8", "get_window_state", { pid: 42, window_id: 8, include_screenshot: false }));
+    await done(await submit(sessionId, "batch-8", "run_steps", { steps: [{ tool: "click", args: { element_token: "s00000008:14" } }], pid: 42, window_id: 8, observe: { include_screenshot: false } }));
+    assert.equal(sent("run_steps").length, 2, "观察失败的批次本身仍已派发");
+    await done(await submit(sessionId, "post-fail-click", "click", { pid: 42, window_id: 8, element_token: "s00000008:14" }));
+    assert.equal(sent("click").length, 1, "末尾观察失败后旧令牌不放行");
+    // 批次子动作不在允许列表：整批在发送前拒绝（零发送）
+    await done(await submit(sessionId, "observe-7", "get_window_state", { pid: 42, window_id: 7, include_screenshot: false }));
+    await done(await submit(sessionId, "denied-child", "run_steps", { steps: [{ tool: "scroll", args: { direction: "down" } }], pid: 42, window_id: 7, observe: { include_screenshot: false } }));
+    assert.equal(sent("run_steps").length, 2, "未允许子动作的批次零发送");
   } finally { await runtime.shutdown(); }
 });

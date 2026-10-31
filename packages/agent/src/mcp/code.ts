@@ -10,8 +10,8 @@ import { randomId, type McpCuaOperation as McpOperation, type Task, type ToolOp 
 import { ownerQuestionTaskEligible } from "@ruukoto/core/owner-questions.ts";
 import type { ArtifactStore } from "../artifacts.ts";
 import { prepareMacosStdioExecution, stopMacosExecution } from "../execution/native-macos-identity.ts";
-import { cuaActionNeed, cuaArguments, cuaProgram, cuaToolEffect } from "./cua.ts";
-import { clearObservationGrant, cuaObservationBlocked, freshCuaGrants, grantWindowObservation, requireCuaEligibility, tokenGrantWindow, type CuaGrants } from "./cua-observation.ts";
+import { cuaActionNeed, cuaArguments, cuaBatchPlan, cuaProgram, cuaToolEffect } from "./cua.ts";
+import { clearObservationGrant, cuaObservationBlocked, dropObservationBase, freshCuaGrants, grantWindowObservation, requireCuaEligibility, revokeActionable, tokenGrantWindow, type CuaGrants } from "./cua-observation.ts";
 import { connectMcpStdio, createMcpStdioTransport, McpError, mcpResponseEnded, type ManagedMcpTransport, type McpCallBinding, type McpCallHooks, type McpConnection, type McpTimeouts, type CallToolResult } from "./transport.ts";
 import type { McpServiceConfig, McpStore } from "./store.ts";
 import { formatMcpResult, type McpToolInfo } from "./tools.ts";
@@ -243,7 +243,7 @@ export class CodeCuaManager {
     const binding = this.binding;
     if (!binding || binding.sessionId !== task.sessionId || binding.service.id !== meta.service.id || this.busy) throw new McpError("cua_binding_busy", "电脑连接正由另一操作使用；结束本轮并报告拥有者核实连接。");
     if (task.planMode && meta.effect !== "read") throw new McpError("cua_plan_read_only", "计划模式只允许观察电脑；请向拥有者说明所需操作后结束本轮。");
-    const args = cuaArguments(meta.service.cua!, meta.remoteName, params);
+    const args = cuaArguments(meta.service.cua!, meta.remoteName, params, meta.service.toolAllowlist);
     if (meta.effect !== "read") requireCuaEligibility(binding.grants, meta.remoteName, args);
     else if (["get_window_state", "get_desktop_state"].includes(meta.remoteName)) clearObservationGrant(binding.grants, meta.remoteName, args);
     const operation: McpOperation = { serviceId: meta.service.id, configVersion: meta.service.configVersion, configuration: meta.service.cua!.kind === "cua-mac" ? meta.service.cua : undefined, effect: meta.effect,
@@ -264,6 +264,7 @@ export class CodeCuaManager {
         beforeDispatch: () => {
           this.verify(meta.service, task);
           if (!originalRequest || signal?.aborted) throw new McpError("canceled", "电脑原调用已停止；该请求未发送。", false);
+          if (meta.remoteName === "run_steps") revokeActionable(binding.grants, cuaBatchPlan(args).key);
           const sent: McpOperation = { ...operation, request: originalRequest, state: "sent" };
           if (consume) consume(sent); else this.store.withTx(() => { this.verify(meta.service, task); this.store.saveMcpOperation(opId, sent); });
         },
@@ -316,6 +317,16 @@ export class CodeCuaManager {
       grants.activeWindow = need.kind === "token" && need.sid ? tokenGrantWindow(grants, need.sid)?.[0] ?? grants.activeWindow
         : need.kind === "window" ? need.windowKey ?? grants.activeWindow : grants.activeWindow;
     }
+  }
+
+  /** 观察类调用远端已返回但结果未能交付（持久化/投影失败或 isError）：上游读取基线已前移，
+   *  其 diff 基线不再可信，连基线一并清除，后续观察只能重建。 */
+  observationDeliveryFailed(opId: string, remoteName: string): void {
+    const operation = this.store.getToolOp(opId)?.mcp;
+    if (!operation || operation.execution?.executionId !== this.binding?.execution.executionId) return;
+    const args = ((operation as McpOperation).arguments ?? {}) as Record<string, unknown>;
+    if (remoteName === "get_window_state" || remoteName === "run_steps") dropObservationBase(this.binding!.grants, `${args.pid}:${args.window_id}`);
+    else if (remoteName === "get_desktop_state") this.binding!.grants.desktopScreenshot = false;
   }
 
   async stop(expectedServiceId?: string): Promise<CodeCuaStatus> {

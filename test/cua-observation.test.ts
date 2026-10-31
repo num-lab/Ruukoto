@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { clearObservationGrant, freshCuaGrants, grantWindowObservation, requireCuaEligibility } from "@ruukoto/agent/mcp/cua-observation.ts";
+import { clearObservationGrant, dropObservationBase, freshCuaGrants, grantWindowObservation, requireCuaEligibility, revokeActionable } from "@ruukoto/agent/mcp/cua-observation.ts";
 import { McpError } from "@ruukoto/agent/mcp/transport.ts";
 import { cuaBatchSummary } from "@ruukoto/view/cua-batch.ts";
 
@@ -64,6 +64,45 @@ test("观察资格：重读尝试即失效，批次要求窗口已观察且逐�
   requireCuaEligibility(grants, "click", { scope: "desktop", x: 1, y: 2 });
   clearObservationGrant(grants, "get_desktop_state", {});
   denied(grants, "click", { scope: "desktop", x: 1, y: 2 }, "桌面重读即失效");
+});
+
+test("观察资格：令牌按完整形态与行首索引计数，子串与标签文本不授权", () => {
+  const grants = freshCuaGrants();
+  // 只交付 s00000001:140 一行：前缀相同的 :14 不得授权；标签内 [99] 不算行
+  grantWindowObservation(grants, "42:7", state(), `snapshot s00000001\n- [140] AXButton "确定" s00000001:140\n- [141] AXTextField "[99] 折扣"`, false);
+  requireCuaEligibility(grants, "click", { pid: 42, window_id: 7, element_token: "s00000001:140" });
+  denied(grants, "click", { pid: 42, window_id: 7, element_token: "s00000001:14" }, "令牌前缀不等于交付");
+  denied(grants, "click", { pid: 42, window_id: 7, element_token: "s00000001:99" }, "标签内的 [99] 不是索引行");
+  denied(grants, "click", { pid: 42, window_id: 7, element_token: "s00000001:1" }, "截取前缀不授权");
+});
+
+test("观察资格：增量读保留交付基线，批次派发撤销授权，未交付观察清基线", () => {
+  const grants = freshCuaGrants();
+  grantWindowObservation(grants, "42:7", state(), TREE_TEXT, false);
+  // no_change 增量读换新 sid：旧令牌作废，未变化行在新 sid 下仍可操作
+  grantWindowObservation(grants, "42:7", state({ snapshot_id: "s00000002", invalidated_snapshot_ids: ["s00000001"], since_status: "no_change" }), "snapshot s00000002\n无变化", false);
+  denied(grants, "click", { pid: 42, window_id: 7, element_token: "s00000001:14" }, "旧快照令牌失效");
+  requireCuaEligibility(grants, "click", { pid: 42, window_id: 7, element_token: "s00000002:14" });
+  // diff 合并新行
+  grantWindowObservation(grants, "42:7", state({ snapshot_id: "s00000003", invalidated_snapshot_ids: ["s00000002"], since_status: "diff" }), "snapshot s00000003\n- [30] AXButton \"新增\"", false);
+  requireCuaEligibility(grants, "click", { pid: 42, window_id: 7, element_token: "s00000003:14" });
+  requireCuaEligibility(grants, "click", { pid: 42, window_id: 7, element_token: "s00000003:30" });
+  // 重排行的增量读丢弃基线，只认新文本
+  grantWindowObservation(grants, "42:7", state({ snapshot_id: "s00000004", invalidated_snapshot_ids: ["s00000003"], since_status: "diff" }), "snapshot s00000004\nreindexed: 9\n- [5] AXButton \"新\"", false);
+  denied(grants, "click", { pid: 42, window_id: 7, element_token: "s00000004:14" }, "重排后基线不续用");
+  // 批次派发撤销可操作授权但保留基线：旧令牌与新 sid 行都不可用，直到新观察交付
+  grantWindowObservation(grants, "42:7", state({ snapshot_id: "s00000005" }), "snapshot s00000005\n- [7] AXButton \"批前\"", false);
+  revokeActionable(grants, "42:7");
+  denied(grants, "click", { pid: 42, window_id: 7, element_token: "s00000005:7" }, "派发后旧授权作废");
+  grantWindowObservation(grants, "42:7", state({ snapshot_id: "s00000006", invalidated_snapshot_ids: ["s00000005"], since_status: "diff" }), "snapshot s00000006\n- [8] AXButton \"批后\"", false);
+  requireCuaEligibility(grants, "click", { pid: 42, window_id: 7, element_token: "s00000006:7" });
+  requireCuaEligibility(grants, "click", { pid: 42, window_id: 7, element_token: "s00000006:8" });
+  // 结果未交付的观察连基线一起清除：后续增量读不续用旧行
+  revokeActionable(grants, "42:7");
+  dropObservationBase(grants, "42:7");
+  grantWindowObservation(grants, "42:7", state({ snapshot_id: "s00000007", since_status: "diff" }), "snapshot s00000007\n- [9] AXButton \"仅新行\"", false);
+  requireCuaEligibility(grants, "click", { pid: 42, window_id: 7, element_token: "s00000007:9" });
+  denied(grants, "click", { pid: 42, window_id: 7, element_token: "s00000007:7" }, "基线已清不复活旧行");
 });
 
 test("批次审批摘要：有序步骤、目标与末尾观察覆盖整批", () => {

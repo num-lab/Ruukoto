@@ -3306,11 +3306,11 @@ export class TuiApp {
       header.setText(lines.join("\n"));
     };
     renderHeader(c.permissionVersion, c.status);
-    // 批次审批绑定整批动作：批准前必须连续读完全部参数
+    // 批次审批绑定整批动作：批准前必须连续读完全部参数并把内容滚动到末尾
     const isCuaBatch = c.scope.kind === "mcp_tool" && c.scope.remoteName === "run_steps" && !!c.scope.cua;
     const paramsText = new Text("参数加载中…", 1, 0);
     const batchText = new Text("", 1, 0);
-    const batchFooter = () => `a 批准${isCuaBatch ? "（须读完全部参数）" : ""} · r 拒绝 · n/p 参数翻页 · Esc/q 关闭（关闭不等于拒绝）`;
+    const batchFooter = () => `a 批准${isCuaBatch ? "（须读完参数并滚动到末尾）" : ""} · r 拒绝 · n/p 参数翻页 · ↑↓/PgUp·PgDn 滚动 · Esc/q 关闭（关闭不等于拒绝）`;
     const footerText = new Text(dim(batchFooter()), 1, 0);
     const box = new OverlayBox([
       { component: header, grow: 0 },
@@ -3318,7 +3318,8 @@ export class TuiApp {
       { component: paramsText, grow: 1 },
       { component: footerText, grow: 0 },
     ]);
-    const handle = this.showWindow(box, { width: "90%", anchor: "center", maxHeight: "85%" });
+    const frame = new WindowFrame(box);
+    const handle = this.showWindow(frame, { width: "90%", anchor: "center", maxHeight: "85%" });
 
     let offset = 0;
     let total = c.paramsTruncated ? c.paramsBytes : 0;
@@ -3355,7 +3356,8 @@ export class TuiApp {
           batchRendered = true;
           let steps: string[] | null = null;
           try { steps = cuaBatchSummary(JSON.parse([...pages.entries()].sort((a, b) => a[0] - b[0]).map(([, text]) => text).join(""))); } catch { steps = null; }
-          if (steps) batchText.setText([bold("批次动作（一次批准绑定全部步骤）"), ...steps, ""].join("\n"));
+          // 摘要含模型提供的选择器/键名/令牌，先按不可信文本清洗再叠加可信样式
+          if (steps) batchText.setText([bold("批次动作（一次批准绑定全部步骤）"), ...steps.map(sanitizeForDisplay), ""].join("\n"));
         }
         this.tui.requestRender();
       } catch (err) {
@@ -3365,11 +3367,22 @@ export class TuiApp {
     };
     void loadParams(0);
 
+    const refreshFooter = () => {
+      const { above, below } = frame.overflow();
+      footerText.setText(dim(batchFooter() + (above + below > 0 ? ` · 另有 ${above + below} 行在视口外` : "")));
+    };
     const respond = async (decision: "approve" | "reject") => {
-      if (decision === "approve" && isCuaBatch && !paramsComplete()) {
-        footerText.setText(yellow("批次批准绑定全部步骤；请先用 n 翻页读完全部参数，再决定批准。"));
-        this.tui.requestRender();
-        return;
+      if (decision === "approve" && isCuaBatch) {
+        if (!paramsComplete()) {
+          footerText.setText(yellow("批次批准绑定全部步骤；请先用 n 翻页读完全部参数，再决定批准。"));
+          this.tui.requestRender();
+          return;
+        }
+        if (frame.overflow().below > 0) {
+          footerText.setText(yellow("批次批准绑定全部步骤；请滚动到内容末尾核对全部步骤与参数，再决定批准。"));
+          this.tui.requestRender();
+          return;
+        }
       }
       footerText.setText(dim("已发送应答，等待后台状态…"));
       this.tui.requestRender();
@@ -3420,6 +3433,11 @@ export class TuiApp {
         if (nextOffset > offset && nextOffset < total) void loadParams(nextOffset);
       } else if (data === "p") {
         void loadParams(Math.max(0, offset - ENTRY_PAGE_BYTES));
+      } else if ((["up", "down", "pageUp", "pageDown"] as const).some((key) => matchesKey(data, key))) {
+        const step = matchesKey(data, "pageUp") || matchesKey(data, "pageDown") ? 5 : 1;
+        frame.scrollBy(matchesKey(data, "up") || matchesKey(data, "pageUp") ? -step : step);
+        refreshFooter();
+        this.tui.requestRender();
       }
     };
   }

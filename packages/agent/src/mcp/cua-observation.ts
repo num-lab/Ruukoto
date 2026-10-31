@@ -5,9 +5,14 @@
 import { cuaActionNeed, cuaBatchPlan, type CuaActionNeed } from "./cua.ts";
 import { McpError } from "./transport.ts";
 
-/** 某窗口已交付给模型的有效观察：快照文本（含元素令牌出处）与截图帧。 */
-export interface WindowGrant { snapshot?: { sid: string; text: string }; screenshot?: { captureId?: string } }
-/** 本执行内仍可作为写操作依据的观察；换绑、冻结、断连或重读尝试即失效。 */
+/** 某窗口已交付给模型的有效观察：可操作快照（含元素令牌出处）、截图帧与 diff 合并基线。 */
+export interface WindowGrant {
+  snapshot?: { sid: string; text: string };
+  screenshot?: { captureId?: string };
+  /** 最近一次交付的完整观察文本；只作 diff 合并基线，不单独授权。 */
+  base?: string;
+}
+/** 本执行内仍可作为写操作依据的观察；换绑、冻结、断连、重读或批次派发即失效。 */
 export interface CuaGrants { windows: Map<string, WindowGrant>; invalidated: Set<string>; desktopScreenshot: boolean; activeWindow?: string }
 export const freshCuaGrants = (): CuaGrants => ({ windows: new Map(), invalidated: new Set(), desktopScreenshot: false });
 
@@ -19,8 +24,12 @@ export const cuaObservationBlocked = (state: Record<string, unknown> | undefined
   return typeof reason === "string" && /^(screen_locked|ax_window_unresolved|ax_app_launching)/.test(reason);
 };
 
-const tokenVisible = (text: string, sid: string, row: number): boolean =>
-  text.includes(`${sid}:${row}`) || new RegExp(`\\[${row}\\]`).test(text);
+/** 元素行只按完整令牌或行首 `[n]` 索引计数；子串与标签内文本都不算交付。 */
+const tokenVisible = (text: string, sid: string, row: number): boolean => {
+  const escapedSid = sid.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|[^0-9A-Za-z_])${escapedSid}:${row}(?![0-9A-Za-z_])`).test(text)
+    || new RegExp(`(^|\\n)[ \\t]*-[ \\t]*\\[${row}\\]|(^|\\n)[ \\t]*\\[${row}\\]`).test(text);
+};
 
 /** 令牌所属窗口的当前有效授权（sid 被公告失效后不再可寻）。 */
 export const tokenGrantWindow = (grants: CuaGrants, sid: string): [string, WindowGrant] | undefined =>
@@ -60,13 +69,30 @@ export function requireCuaEligibility(grants: CuaGrants, remoteName: string, arg
   checkNeed(grants, cuaActionNeed(args), `操作 ${remoteName}`, args);
 }
 
-/** 观察类调用在发送前即失效原窗口/桌面的授权；新授权要等投影结果真正交付。 */
+/** 观察类调用在发送前即失效原窗口/桌面的可操作授权；diff 基线保留供新观察合并。 */
 export function clearObservationGrant(grants: CuaGrants, remoteName: string, args: Record<string, unknown>): void {
-  if (remoteName === "get_window_state") grants.windows.delete(`${args.pid}:${args.window_id}`);
+  if (remoteName === "get_window_state") revokeActionable(grants, `${args.pid}:${args.window_id}`);
   else if (remoteName === "get_desktop_state") grants.desktopScreenshot = false;
 }
 
-/** 成功观察后登记授权：sid/失效公告/截图帧出自结构化结果，文本只用已交付内容。 */
+/** 批次开始派发即撤销目标窗口的可操作授权：动作已可能改变界面，旧证据不再有效。
+ *  授权仅由批次末尾或其他成功交付的观察恢复；diff 基线保留，供新观察按上游增量语义合并。 */
+export function revokeActionable(grants: CuaGrants, key: string): void {
+  const grant = grants.windows.get(key);
+  if (!grant) return;
+  delete grant.snapshot;
+  delete grant.screenshot;
+  if (grants.activeWindow === key) grants.activeWindow = undefined;
+}
+
+/** 远端观察结果未能交付给模型（持久化或投影失败）：上游读取基线已前移但内容不可见，整窗授权与基线一并清除。 */
+export function dropObservationBase(grants: CuaGrants, key: string): void {
+  grants.windows.delete(key);
+  if (grants.activeWindow === key) grants.activeWindow = undefined;
+}
+
+/** 成功观察后登记授权：sid/失效公告/截图帧出自结构化结果，文本只用已交付内容。
+ *  diff/no_change 且未重排行时把新 sid 的授权合并到既有交付文本上（行号在上游增量读中保持稳定）。 */
 export function grantWindowObservation(grants: CuaGrants, key: string, state: Record<string, unknown>, text: string, image: boolean): void {
   if (cuaObservationBlocked(state)) { grants.windows.delete(key); return; }
   for (const sid of Array.isArray(state.invalidated_snapshot_ids) ? state.invalidated_snapshot_ids : []) {
@@ -77,8 +103,10 @@ export function grantWindowObservation(grants: CuaGrants, key: string, state: Re
   const grant = grants.windows.get(key) ?? {};
   const sid = state.snapshot_id;
   if (typeof sid === "string" && sid && !grants.invalidated.has(sid)) {
-    const keep = (state.since_status === "diff" || state.since_status === "no_change") && !text.includes("reindexed:") ? grant.snapshot : undefined;
-    grant.snapshot = { sid, text: keep ? `${keep.text}\n${text}` : text };
+    const diff = (state.since_status === "diff" || state.since_status === "no_change") && !text.includes("reindexed:");
+    const merged = diff && grant.base ? `${grant.base}\n${text}` : text;
+    grant.snapshot = { sid, text: merged };
+    grant.base = merged;
   }
   if (image && state.display_only !== true && state.on_current_space !== false) grant.screenshot = { ...(typeof state.capture_id === "string" ? { captureId: state.capture_id } : {}) };
   else if (state.screenshot_frame_valid === false || state.screenshot_error !== undefined) delete grant.screenshot;

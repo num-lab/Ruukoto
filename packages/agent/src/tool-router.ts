@@ -887,6 +887,7 @@ export class ToolRouter {
         originalArtifact,
       );
       if (meta.service.cua && !formatted.isError) mcp.cua!.recordObservation(input.hostOpId, meta.remoteName, result, formatted);
+      else if (meta.service.cua) mcp.cua!.observationDeliveryFailed(input.hostOpId, meta.remoteName);
       this.artifactRefs.set(input.hostOpId, formatted.artifactIds ?? []);
       return formatted;
     } catch (err) {

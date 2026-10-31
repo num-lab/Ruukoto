@@ -172,6 +172,8 @@ class WindowFrame implements Component {
   private scrollTop = 0;
   /** 内容区总行数（最近一次渲染记录），用于判断是否需要滚动提示。 */
   private contentRows = 0;
+  /** 最近一次渲染的内容区内宽；overflow() 按需重算视口外内容时用同一宽度。 */
+  private lastInner = 0;
 
   constructor(private readonly content: Component, private readonly textKeys = false) {}
 
@@ -206,18 +208,25 @@ class WindowFrame implements Component {
 
   /** 滚动内容区：delta 为行数（正数向下）。 */
   scrollBy(delta: number): void {
-    const max = Math.max(0, this.contentRows - this.maxRows);
-    this.scrollTop = Math.max(0, Math.min(max, this.scrollTop + delta));
+    this.overflow();
+    this.scrollTop = Math.max(0, Math.min(Math.max(0, this.contentRows - this.maxRows), this.scrollTop + delta));
   }
 
-  /** 是否还有未显示的内容（用于滚动提示）。 */
+  /** 是否还有未显示的内容（用于滚动提示与批准门禁）。按需以最近渲染宽度重算，
+   *  否则内容刚 setText 而未及重绘时会读到过期行数，放行未读全的批准。 */
   overflow(): { above: number; below: number } {
+    if (this.lastInner > 0) {
+      this.contentRows = this.content.render(this.lastInner).length;
+      const visible = this.maxRows > 0 ? Math.min(this.contentRows, this.maxRows) : this.contentRows;
+      this.scrollTop = Math.max(0, Math.min(this.scrollTop, Math.max(0, this.contentRows - visible)));
+    }
     const max = Math.max(0, this.contentRows - this.maxRows);
     return { above: this.scrollTop, below: max - this.scrollTop };
   }
 
   render(width: number): string[] {
     const inner = Math.max(1, width - WindowFrame.CHROME_X);
+    this.lastInner = inner;
     const pad = " ".repeat(WindowFrame.PAD_X);
     const all = this.content.render(inner);
     this.contentRows = all.length;
@@ -3359,6 +3368,7 @@ export class TuiApp {
           // 摘要含模型提供的选择器/键名/令牌，先按不可信文本清洗再叠加可信样式
           if (steps) batchText.setText([bold("批次动作（一次批准绑定全部步骤）"), ...steps.map(sanitizeForDisplay), ""].join("\n"));
         }
+        refreshFooter();
         this.tui.requestRender();
       } catch (err) {
         paramsText.setText(red(`参数读取失败：${(err as Error).message}`));

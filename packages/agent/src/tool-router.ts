@@ -886,7 +886,7 @@ export class ToolRouter {
         result,
         originalArtifact,
       );
-      if (meta.service.cua && !formatted.isError) mcp.cua!.recordObservation(input.hostOpId, meta.remoteName, result, formatted);
+      if (meta.service.cua && !formatted.isError) mcp.cua!.recordObservation(input.hostOpId, meta.remoteName, result, formatted, (await mcp.supportsImages?.(task)) === true);
       else if (meta.service.cua) mcp.cua!.observationDeliveryFailed(input.hostOpId, meta.remoteName);
       this.artifactRefs.set(input.hostOpId, formatted.artifactIds ?? []);
       return formatted;
@@ -903,6 +903,8 @@ export class ToolRouter {
       const began = operation && ("transport" in operation ? operation.started && !operation.remoteRejected : !!operation.request && operation.state !== "not_sent");
       const ended = operation && ("transport" in operation ? operation.remoteEnded : !!operation.response && mcpResponseEnded(operation.response));
       if (meta.effect !== "read" && began && !ended) this.deps.store.withTx(() => this.deps.ledger.markEffectUnknown(task, input.hostOpId));
+      // 已上行的观察调用若结果未能交付（持久化/投影异常），上游读基线已前移：连同基线一起清除；未上行的校验拒绝不影响既有授权
+      if (meta.service.cua && began) mcp.cua!.observationDeliveryFailed(input.hostOpId, meta.remoteName);
       return textResult((err as Error).message, true);
     }
   }

@@ -80,29 +80,69 @@ test("观察资格：增量读保留交付基线，批次派发撤销授权，�
   const grants = freshCuaGrants();
   grantWindowObservation(grants, "42:7", state(), TREE_TEXT, false);
   // no_change 增量读换新 sid：旧令牌作废，未变化行在新 sid 下仍可操作
-  grantWindowObservation(grants, "42:7", state({ snapshot_id: "s00000002", invalidated_snapshot_ids: ["s00000001"], since_status: "no_change" }), "snapshot s00000002\n无变化", false);
+  grantWindowObservation(grants, "42:7", state({ snapshot_id: "s00000002", invalidated_snapshot_ids: ["s00000001"], since_status: "no_change" }), "no change since s00000001. Rows and indices are as before; use snapshot_id s00000002 in element_tokens.", false);
   denied(grants, "click", { pid: 42, window_id: 7, element_token: "s00000001:14" }, "旧快照令牌失效");
   requireCuaEligibility(grants, "click", { pid: 42, window_id: 7, element_token: "s00000002:14" });
-  // diff 合并新行
-  grantWindowObservation(grants, "42:7", state({ snapshot_id: "s00000003", invalidated_snapshot_ids: ["s00000002"], since_status: "diff" }), "snapshot s00000003\n- [30] AXButton \"新增\"", false);
-  requireCuaEligibility(grants, "click", { pid: 42, window_id: 7, element_token: "s00000003:14" });
+  // diff 合并新增行（上游格式：+ 新增 / ~ 变更 / - 移除）
+  grantWindowObservation(grants, "42:7", state({ snapshot_id: "s00000003", invalidated_snapshot_ids: ["s00000002"], since_status: "diff" }), "since s00000002: 1 added, 1 changed, 1 removed. Use element_tokens s00000003:N\n+ [30] AXButton \"新增\"\n~ [20] AXTextField \"名称改\"\n- [14] AXButton \"保存\"", false);
   requireCuaEligibility(grants, "click", { pid: 42, window_id: 7, element_token: "s00000003:30" });
-  // 重排行的增量读丢弃基线，只认新文本
-  grantWindowObservation(grants, "42:7", state({ snapshot_id: "s00000004", invalidated_snapshot_ids: ["s00000003"], since_status: "diff" }), "snapshot s00000004\nreindexed: 9\n- [5] AXButton \"新\"", false);
-  denied(grants, "click", { pid: 42, window_id: 7, element_token: "s00000004:14" }, "重排后基线不续用");
+  requireCuaEligibility(grants, "click", { pid: 42, window_id: 7, element_token: "s00000003:20" });
+  denied(grants, "click", { pid: 42, window_id: 7, element_token: "s00000003:14" }, "已移除行不算交付");
+  // 重排行的增量读丢弃基线，只认规范化后的变更行
+  grantWindowObservation(grants, "42:7", state({ snapshot_id: "s00000004", invalidated_snapshot_ids: ["s00000003"], since_status: "diff" }), "since s00000003: 0 added, 1 changed, 0 removed.\n~ [5] AXButton \"新\"\nreindexed: [6-9] -> [7-10]", false);
+  denied(grants, "click", { pid: 42, window_id: 7, element_token: "s00000004:20" }, "重排后基线不续用");
+  requireCuaEligibility(grants, "click", { pid: 42, window_id: 7, element_token: "s00000004:5" });
   // 批次派发撤销可操作授权但保留基线：旧令牌与新 sid 行都不可用，直到新观察交付
   grantWindowObservation(grants, "42:7", state({ snapshot_id: "s00000005" }), "snapshot s00000005\n- [7] AXButton \"批前\"", false);
   revokeActionable(grants, "42:7");
   denied(grants, "click", { pid: 42, window_id: 7, element_token: "s00000005:7" }, "派发后旧授权作废");
-  grantWindowObservation(grants, "42:7", state({ snapshot_id: "s00000006", invalidated_snapshot_ids: ["s00000005"], since_status: "diff" }), "snapshot s00000006\n- [8] AXButton \"批后\"", false);
+  grantWindowObservation(grants, "42:7", state({ snapshot_id: "s00000006", invalidated_snapshot_ids: ["s00000005"], since_status: "diff" }), "since s00000005: 1 added, 0 changed, 0 removed.\n+ [8] AXButton \"批后\"", false);
   requireCuaEligibility(grants, "click", { pid: 42, window_id: 7, element_token: "s00000006:7" });
   requireCuaEligibility(grants, "click", { pid: 42, window_id: 7, element_token: "s00000006:8" });
   // 结果未交付的观察连基线一起清除：后续增量读不续用旧行
   revokeActionable(grants, "42:7");
   dropObservationBase(grants, "42:7");
-  grantWindowObservation(grants, "42:7", state({ snapshot_id: "s00000007", since_status: "diff" }), "snapshot s00000007\n- [9] AXButton \"仅新行\"", false);
+  grantWindowObservation(grants, "42:7", state({ snapshot_id: "s00000007", since_status: "diff" }), "since s00000006: 1 added, 0 changed, 0 removed.\n+ [9] AXButton \"仅新行\"", false);
   requireCuaEligibility(grants, "click", { pid: 42, window_id: 7, element_token: "s00000007:9" });
   denied(grants, "click", { pid: 42, window_id: 7, element_token: "s00000007:7" }, "基线已清不复活旧行");
+});
+
+test("观察资格：菜单栏元素令牌不授权批次 click（钉版驱动隐式改执行为 invoke_menu）", () => {
+  const grants = freshCuaGrants();
+  // 树形与上游 menu_path_in 测试夹具一致：菜单项经 AXMenu/AXMenuBarItem 链抵 AXMenuBar
+  const menuTree = `snapshot s00000001\n- [0] AXWindow "Doc"\n  - [3] AXButton "OK"\n- [27] AXMenuBar\n  - [700] AXMenuBarItem "Sheet" [actions=[press]]\n    - [701] AXMenu\n      - [760] AXMenuItem "Navigate" [actions=[press]]\n        - [761] AXMenu\n          - [771] AXMenuItem "To Next Sheet" [actions=[press]]\n      - [780] AXMenuItem "Delete Sheet..."`;
+  grantWindowObservation(grants, "42:7", state(), menuTree, false);
+  denied(grants, "run_steps", { steps: [{ tool: "click", args: { element_token: "s00000001:771" } }], pid: 42, window_id: 7, observe: {} }, "菜单项令牌的 click 会触发 invoke_menu 路由");
+  denied(grants, "run_steps", { steps: [{ tool: "click", args: { element_token: "s00000001:700" } }], pid: 42, window_id: 7, observe: {} }, "菜单栏项同样拒绝");
+  // 窗口内的普通行不受影响；非 click 步骤与直接调用不经该路由，仍按元素令牌授权
+  requireCuaEligibility(grants, "run_steps", { steps: [{ tool: "click", args: { element_token: "s00000001:3" } }, { tool: "double_click", args: { element_token: "s00000001:771" } }], pid: 42, window_id: 7, observe: {} });
+  requireCuaEligibility(grants, "click", { pid: 42, window_id: 7, element_token: "s00000001:771" });
+  // 菜单角色的行但祖先链不完整（非菜单栏成员）→ 上游不改路由，交付文本可证则放行
+  const popupTree = `snapshot s00000002\n- [0] AXWindow "Doc"\n  - [9] AXGroup "菜单"\n    - [10] AXMenuItem "项"`;
+  grantWindowObservation(grants, "42:7", state({ snapshot_id: "s00000002", invalidated_snapshot_ids: ["s00000001"] }), popupTree, false);
+  requireCuaEligibility(grants, "run_steps", { steps: [{ tool: "click", args: { element_token: "s00000002:10" } }], pid: 42, window_id: 7, observe: {} });
+});
+
+test("观察资格：diff 追加行的菜单祖先不可证明即拒，截断观察不作合并基线", () => {
+  const grants = freshCuaGrants();
+  grantWindowObservation(grants, "42:7", state(), "- [0] AXWindow \"Doc\"\n  - [3] AXButton \"OK\"", false);
+  // diff 新增菜单行：变更行不携带祖先（上游按存储全文判定路由），宿主只能按菜单角色拒绝
+  grantWindowObservation(grants, "42:7", state({ snapshot_id: "s00000002", invalidated_snapshot_ids: ["s00000001"], since_status: "diff" }),
+    "since s00000001: 1 added, 0 changed, 0 removed.\n+ [5] AXMenuItem \"To Next Sheet\"", false);
+  denied(grants, "run_steps", { steps: [{ tool: "click", args: { element_token: "s00000002:5" } }], pid: 42, window_id: 7, observe: {} }, "diff 追加的菜单行祖先不可证明");
+  requireCuaEligibility(grants, "run_steps", { steps: [{ tool: "click", args: { element_token: "s00000002:3" } }], pid: 42, window_id: 7, observe: {} });
+  // 未变化的菜单栏基线行经合并视图仍按真实祖先拒绝
+  const grants2 = freshCuaGrants();
+  grantWindowObservation(grants2, "42:7", state(), "- [0] AXWindow \"Doc\"\n  - [3] AXButton \"OK\"\n- [27] AXMenuBar\n  - [700] AXMenuBarItem \"Sheet\"", false);
+  grantWindowObservation(grants2, "42:7", state({ snapshot_id: "s00000002", since_status: "no_change" }), "no change since s00000001.", false);
+  denied(grants2, "run_steps", { steps: [{ tool: "click", args: { element_token: "s00000002:700" } }], pid: 42, window_id: 7, observe: {} }, "未变化菜单行仍按基线祖先拒绝");
+  // 交付文本被截断的全量读授权可见行，但不作 diff 基线
+  const grants3 = freshCuaGrants();
+  grantWindowObservation(grants3, "42:7", state(), "- [0] AXWindow \"Doc\"\n  - [3] AXButton \"OK\"", false, true);
+  grantWindowObservation(grants3, "42:7", state({ snapshot_id: "s00000002", since_status: "diff" }),
+    "since s00000001: 1 added, 0 changed, 0 removed.\n+ [9] AXButton \"新\"", false);
+  denied(grants3, "click", { pid: 42, window_id: 7, element_token: "s00000002:3" }, "截断基线不续用旧行");
+  requireCuaEligibility(grants3, "click", { pid: 42, window_id: 7, element_token: "s00000002:9" });
 });
 
 test("批次审批摘要：有序步骤、目标与末尾观察覆盖整批", () => {

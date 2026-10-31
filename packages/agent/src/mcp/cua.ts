@@ -90,7 +90,7 @@ const STEP_ARG_FIELDS: Record<string, Record<string, FieldSpec>> = {
   move_cursor: { cursor_id: { type: "string" }, delivery_mode: DELIVERY, x: { type: "number", required: true }, y: { type: "number", required: true } },
 };
 /** 步骤 args 内允许的元素选择器（批次窗口内按角色/名称查找；app/window 重定向不在此列）。 */
-const STEP_SELECTOR_FIELDS: Record<string, FieldSpec> = { role: { type: "string" }, name: { type: "string" }, label: { type: "string" }, nth: { type: "integer" } };
+const STEP_SELECTOR_FIELDS: Record<string, FieldSpec> = { role: { type: "string" }, name: { type: "string" }, label: { type: "string" }, nth: { type: "integer", min: 0 } };
 const STEP_SELECTOR_KEYS = Object.keys(STEP_SELECTOR_FIELDS);
 /** 步骤 args 内禁止的窗口/会话/文件输出字段：整批只有一个已观察窗口，宿主固定会话。 */
 const STEP_FORBIDDEN_FIELDS = [...HOST_FIELDS, "pid", "window_id", "app", "window", "scope", "target", "from_zoom", "wait_for", "expect"];
@@ -108,8 +108,8 @@ const SHIFTED_SYMBOLS = "*+@#$%^&!?_~:|<>(){}\"";
 const RUN_STEPS_SCHEMA = {
   type: "object", additionalProperties: false, required: ["steps", "pid", "window_id", "observe"],
   properties: {
-    steps: { type: "array", minItems: 1, maxItems: CUA_BATCH_MAX_STEPS, items: { type: "object", additionalProperties: false, required: ["tool", "args"], properties: { tool: { type: "string", enum: [...CUA_BATCH_STEP_TOOLS], description: "动作工具名（仅允许本名，别名与简写不被接受）" }, args: { type: "object", description: "该工具的参数；不得含 pid/window_id/app/window/scope/target/session 等窗口或会话字段" }, timeout_ms: { type: "integer", minimum: 0, maximum: CUA_BATCH_FIND_TIMEOUT_MS } } } },
-    pid: { type: "integer", description: "批次窗口进程 ID（来自已交付的窗口观察）" },
+    steps: { type: "array", minItems: 1, maxItems: CUA_BATCH_MAX_STEPS, items: { type: "object", additionalProperties: false, required: ["tool", "args"], properties: { tool: { type: "string", enum: [...CUA_BATCH_STEP_TOOLS], description: "动作工具名（仅允许本名，别名与简写不被接受）" }, args: { type: "object", description: "该工具的参数；不得含 pid/window_id/app/window/scope/target/session 等窗口或会话字段。目标方式 element_token、x/y 坐标、role/name/label(/nth) 选择器三者互斥：click/double_click/right_click 必须选其一（click 不可用选择器）；type_text 必填 text 且只接受坐标或焦点目标；press_key 必填 key；hotkey 必填 keys；scroll 必填 direction；drag 必填 from_x/from_y/to_x/to_y；move_cursor 必填 x,y" }, timeout_ms: { type: "integer", minimum: 0, maximum: CUA_BATCH_FIND_TIMEOUT_MS } } } },
+    pid: { type: "integer", minimum: 1, description: "批次窗口进程 ID（来自已交付的窗口观察）" },
     window_id: { type: "integer", description: "批次窗口 ID（与 pid 一起来自已交付的窗口观察）" },
     delay_ms: { type: "integer", minimum: 0, maximum: CUA_BATCH_DELAY_MS },
     delivery_mode: { type: "string", enum: ["background", "foreground"], description: "各步默认投递方式；步骤自身的 delivery_mode 优先" },
@@ -123,13 +123,14 @@ export function restrictCuaTool(config: CuaConfig, remote: McpRemoteTool): McpRe
   const mac = config.kind === "cua-mac";
   const base = `电脑目标和连接由宿主管理，使用最新观察中的窗口、元素与坐标；未列出的电脑能力不可用。连接中断或结果未知时停止电脑操作，报告拥有者从管理入口核实并恢复。\n${remote.description ?? ""}`;
   if (remote.name === "run_steps") {
-    const description = `在一个已观察窗口内按序执行至多 ${CUA_BATCH_MAX_STEPS} 个确定性动作，并以 observe 取得末尾观察；先 get_window_state 观察该窗口。写操作先观察：元素动作使用观察中交付的 element_token，坐标动作需要该窗口已交付的截图。整批一次审批绑定，宿主发送后不再逐步重核；steps 只接受 {tool,args} 形式，不支持别名、条件、等待或脚本；子动作与观察都须在服务允许列表。type_text 只接受坐标或焦点目标（不接受 element_token/选择器），set_value 不在批次内。执行到首个失败步停止：executed 计已报告步数而非已确认效果，失败步可能有部分效果，顶层成功不代表末尾观察有效或任务已完成；批次派发后旧观察授权作废，仅由有效交付的末尾观察恢复；失败或结果不明时重新观察并计划新批次，不要原样重放。\n${base}`;
+    const description = `在一个已观察窗口内按序执行至多 ${CUA_BATCH_MAX_STEPS} 个确定性动作，并以 observe 取得末尾观察；先 get_window_state 观察该窗口。写操作先观察：元素动作使用观察中交付的 element_token，坐标动作需要该窗口已交付的截图。整批一次审批绑定，宿主发送后不再逐步重核；steps 只接受 {tool,args} 形式，不支持别名、条件、等待或脚本；子动作与观察都须在服务允许列表。type_text 只接受坐标或焦点目标（不接受 element_token/选择器），set_value 不在批次内；菜单栏元素的 click 会被钉版驱动改执行为 invoke_menu，故不接受菜单栏元素令牌，菜单请用 hotkey 或等价键。执行到首个失败步停止：executed 计已报告步数而非已确认效果，失败步可能有部分效果，顶层成功不代表末尾观察有效或任务已完成；批次派发后旧观察授权作废，仅由有效交付的末尾观察恢复；失败或结果不明时重新观察并计划新批次，不要原样重放。\n${base}`;
     return { ...remote, description, inputSchema: RUN_STEPS_SCHEMA };
   }
   const schema = remote.inputSchema;
   const properties = { ...(schema.properties as Record<string, unknown> | undefined) };
   for (const key of [...HOST_FIELDS, ...(mac ? UNEXPOSED_FIELDS : [])]) delete properties[key];
-  const required = (schema.required as string[] | undefined)?.filter(key => !HOST_FIELDS.includes(key));
+  const dropped = [...HOST_FIELDS, ...(mac ? UNEXPOSED_FIELDS : [])];
+  const required = (schema.required as string[] | undefined)?.filter(key => !dropped.includes(key));
   const effect = cuaToolEffect(config, remote.name);
   const precondition = effect === "write" ? "写操作先观察：元素动作用已交付的 element_token，坐标动作需要目标窗口已交付的截图。" : remote.name === "verify_state" ? "谓词结果不构成可执行观察，不能放行写操作。" : "";
   return { ...remote, description: `${precondition}${base}`, inputSchema: { ...schema, properties, ...(required ? { required } : {}), additionalProperties: false } };
@@ -199,16 +200,24 @@ const STEP_TARGET_RULE: Record<string, StepTargetMode> = {
   drag: "none", move_cursor: "none",
 };
 
+/** 钉版驱动对元素令牌的形态约束（tool_schema.rs pattern）。 */
+const ELEMENT_TOKEN_PATTERN = /^s[0-9a-f]{8}:[0-9]+$/;
+
 function checkStepTarget(tool: string, args: Record<string, unknown>, at: string): void {
   const rule = STEP_TARGET_RULE[tool]!;
   const token = args.element_token !== undefined;
   const selector = STEP_SELECTOR_KEYS.some(key => args[key] !== undefined);
   const coords = args.x !== undefined || args.y !== undefined;
+  if (token && (typeof args.element_token !== "string" || !ELEMENT_TOKEN_PATTERN.test(args.element_token))) throw batchError(`${at} 的 element_token 形态无效（应为 s + 8 位十六进制 : 行号）`);
   if ((args.x !== undefined) !== (args.y !== undefined)) throw batchError(`${at} 的 x/y 必须成对给出`);
   if (selector && !["role", "name", "label"].some(key => args[key] !== undefined)) throw batchError(`${at} 的 nth 须与 role/name/label 同用`);
+  if (args.name !== undefined && args.label !== undefined) throw batchError(`${at} 的 name 与 label 只能给一个`);
   const modes = [token, coords, selector].filter(Boolean).length;
   if (modes > 1) throw batchError(`${at} 的元素令牌、坐标与选择器只能选一种目标方式`);
   if (rule === "required" && modes === 0) throw batchError(`${at} 需要 element_token、x/y 坐标或 role/name/label 选择器之一`);
+  // 选择器在远端解析后同样回填 element_token：菜单栏元素的 click 会被钉版驱动改执行为
+  // invoke_menu，而选择器无法在发送前证明目标非菜单行，故 click 不接受选择器目标。
+  if (tool === "click" && selector) throw batchError(`${at} 的 click 不接受选择器目标（菜单栏元素会被钉版驱动改执行为不在批次清单的 invoke_menu）；请用 element_token 或 x/y 坐标`);
   if (rule === "none" && (token || selector)) throw batchError(`${at} 不接受元素目标；${tool} 只按坐标执行`);
   if (args.capture_id !== undefined && !coords) throw batchError(`${at} 的 capture_id 只与 x/y 坐标同用`);
   // 固定驱动对元素目标步骤的过期重试会重放整段文本输入（部分生效被误判为元素过期），
@@ -232,7 +241,7 @@ export function cuaBatchArguments(config: CuaConfig, allowlist: readonly McpAllo
     steps: { type: "array", required: true }, pid: { type: "integer", required: true }, window_id: { type: "integer", required: true },
     delay_ms: { type: "integer" }, delivery_mode: DELIVERY, observe: { type: "object", required: true },
   }, ["steps", "pid", "window_id", "observe"], "批次");
-  if (!Number.isInteger(top.pid) || (top.pid as number) < 1 || !Number.isInteger(top.window_id)) throw batchError("pid/window_id 须为正整数");
+  if (!Number.isInteger(top.pid) || (top.pid as number) < 1 || !Number.isInteger(top.window_id) || (top.window_id as number) < 1) throw batchError("pid/window_id 须为正整数");
   const steps = top.steps;
   if (!Array.isArray(steps) || steps.length < 1 || steps.length > CUA_BATCH_MAX_STEPS) throw batchError(`steps 须为 1–${CUA_BATCH_MAX_STEPS} 个步骤`);
   if (typeof top.delay_ms === "number" && (top.delay_ms < 0 || top.delay_ms > CUA_BATCH_DELAY_MS)) throw batchError(`delay_ms 须在 0–${CUA_BATCH_DELAY_MS} 内`);

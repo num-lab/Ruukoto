@@ -294,23 +294,27 @@ export class CodeCuaManager {
    * 只有 get_window_state（含批次末尾观察）与 get_desktop_state 会建立授权；
    * 写操作结果中的图片与 verify_state 谓词结果都不构成可执行观察。
    */
-  recordObservation(opId: string, remoteName: string, result: CallToolResult, delivered: { content: { type: string; text?: string; ruukotoMediaRef?: unknown }[] }): void {
+  recordObservation(opId: string, remoteName: string, result: CallToolResult, delivered: { content: { type: string; text?: string; ruukotoMediaRef?: unknown }[]; truncated?: boolean }, modelSeesImages: boolean): void {
     const operation = this.store.getToolOp(opId)?.mcp;
     if (!operation || operation.state !== "finished" || operation.execution?.executionId !== this.binding?.execution.executionId) throw new McpError("cua_observation_invalid", "新观察与电脑执行不匹配；停止操作并报告拥有者核实。");
     const binding = this.binding!, grants = binding.grants;
     const text = delivered.content.filter(part => part.type === "text" && typeof part.text === "string").map(part => part.text!).join("\n");
-    const image = delivered.content.some(part => part.type === "image" && !!part.ruukotoMediaRef);
+    // 截图授权要求图片真实到达模型输入；恢复等离线保存的截图不算已交付。
+    const image = modelSeesImages && delivered.content.some(part => part.type === "image" && !!part.ruukotoMediaRef);
+    const truncated = delivered.truncated === true;
     const state = result.structuredContent && typeof result.structuredContent === "object" && !Array.isArray(result.structuredContent) ? result.structuredContent as Record<string, unknown> : undefined;
     const args = ((operation as McpOperation).arguments ?? {}) as Record<string, unknown>;
+    // 授权归属按返回状态报出的窗口（上游可经 session/app/window 覆盖解析到不同目标），缺字段时退回请求参数。
+    const stateKey = (inner: Record<string, unknown>) => `${inner.pid ?? args.pid}:${inner.window_id ?? args.window_id}`;
     if (remoteName === "get_window_state") {
-      if (state) grantWindowObservation(grants, `${args.pid}:${args.window_id}`, state, text, image);
+      if (state) grantWindowObservation(grants, stateKey(state), state, text, image, truncated);
     } else if (remoteName === "get_desktop_state") {
       if (image && !cuaObservationBlocked(state)) grants.desktopScreenshot = true;
     } else if (remoteName === "run_steps") {
       const observation = state?.observation;
       if (observation && typeof observation === "object" && (observation as { ok?: unknown }).ok === true) {
         const inner = (observation as { state?: unknown }).state;
-        if (inner && typeof inner === "object" && !Array.isArray(inner)) grantWindowObservation(grants, `${(inner as Record<string, unknown>).pid}:${(inner as Record<string, unknown>).window_id}`, inner as Record<string, unknown>, text, image);
+        if (inner && typeof inner === "object" && !Array.isArray(inner)) grantWindowObservation(grants, stateKey(inner as Record<string, unknown>), inner as Record<string, unknown>, text, image, truncated);
       }
     } else if (cuaToolEffect(binding.service.cua!, remoteName) === "write") {
       const need = cuaActionNeed(args);

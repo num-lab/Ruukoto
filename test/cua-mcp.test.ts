@@ -243,6 +243,12 @@ test("Cua批次：规范形式通过，别名、简写、条件、越界与嵌�
   denied(b => { b.steps[0].args = { element_token: "s00000001:14", role: "AXButton", name: "Save" }; }, "令牌与选择器互斥");
   denied(b => { b.steps[0].args = { role: "AXButton", x: 1, y: 2 }; }, "选择器与坐标互斥");
   denied(b => { b.steps[0].args = { nth: 2 }; }, "裸 nth 不成选择器");
+  denied(b => { b.steps[0].args = { role: "AXButton", name: "Save", nth: -1 }; }, "nth 须非负");
+  denied(b => { b.steps[0].args = { role: "AXButton", name: "Save", label: "保存" }; }, "name 与 label 互斥");
+  denied(b => { b.steps[0].args = { element_token: "s1:1" }; }, "元素令牌须为钉版格式");
+  denied(b => { b.steps[0].args = { element_token: "s0000000g:14" }; }, "元素令牌十六进制前缀");
+  denied(b => { b.steps[0].args = { element_token: "s00000001:" }; }, "元素令牌缺行号");
+  denied(b => { b.steps[0].args = { role: "AXButton", name: "Save" }; }, "click 不接受选择器目标（菜单路由）");
   denied(b => { b.steps[0].args = { capture_id: "cap-1" }; }, "capture_id 需配对坐标");
   denied(b => { b.steps[0].args = { x: 1, y: 2, count: 0 }; }, "count 越界");
   // 受影响子集：生效为文本输入的步骤不接受元素目标（上游过期重试会重放整段输入）
@@ -265,7 +271,7 @@ test("Cua批次：规范形式通过，别名、简写、条件、越界与嵌�
   // 合法形态：选择器、元素令牌、整数 delay、显式批次 delivery_mode、observe 限定字段、归一化可解释步骤
   for (const mutate of [
     (b: Record<string, any>) => { b.steps[0].args = { element_token: "s00000001:14" }; },
-    (b: Record<string, any>) => { b.steps[0].args = { role: "AXButton", name: "Save", nth: 0 }; },
+    (b: Record<string, any>) => { b.steps[0] = { tool: "double_click", args: { role: "AXButton", name: "Save", nth: 0 } }; },
     (b: Record<string, any>) => { b.steps[0].timeout_ms = 3000; b.delay_ms = 500; b.delivery_mode = "foreground"; },
     (b: Record<string, any>) => { b.observe = { include_screenshot: false, max_elements: 100, pid: 42, window_id: 7 }; },
     (b: Record<string, any>) => { b.steps.push({ tool: "hotkey", args: { keys: ["cmd", "s"] } }); },

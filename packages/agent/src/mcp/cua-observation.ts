@@ -7,7 +7,9 @@ import { McpError } from "./transport.ts";
 
 /** 某窗口已交付给模型的有效观察：可操作快照（含元素令牌出处）、截图帧与 diff 合并基线。 */
 export interface WindowGrant {
-  snapshot?: { sid: string; text: string };
+  /** text = 当前可操作视图（diff 读为规范化合并结果：变更行统一为 `- [n]` 行，移除行不保留）；
+   *  detached = 位置由 diff 追加伪造的行号集合——这些行的真实祖先未交付，菜单路由判据不可凭其缩进链。 */
+  snapshot?: { sid: string; text: string; detached?: Set<number> };
   screenshot?: { captureId?: string };
   /** 最近一次交付的完整观察文本；只作 diff 合并基线，不单独授权。 */
   base?: string;
@@ -24,16 +26,70 @@ export const cuaObservationBlocked = (state: Record<string, unknown> | undefined
   return typeof reason === "string" && /^(screen_locked|ax_window_unresolved|ax_app_launching)/.test(reason);
 };
 
-/** 元素行只按完整令牌或行首 `[n]` 索引计数；子串与标签内文本都不算交付。 */
+/** 元素行只按完整令牌或行首 `- [n]` 索引行计数（与上游 snapshot_row 同形态）；子串与标签内文本都不算交付。 */
 const tokenVisible = (text: string, sid: string, row: number): boolean => {
   const escapedSid = sid.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return new RegExp(`(^|[^0-9A-Za-z_])${escapedSid}:${row}(?![0-9A-Za-z_])`).test(text)
-    || new RegExp(`(^|\\n)[ \\t]*-[ \\t]*\\[${row}\\]|(^|\\n)[ \\t]*\\[${row}\\]`).test(text);
+    || new RegExp(`(^|\\n)[ \\t]*-[ \\t]*\\[${row}\\]`).test(text);
 };
 
 /** 令牌所属窗口的当前有效授权（sid 被公告失效后不再可寻）。 */
 export const tokenGrantWindow = (grants: CuaGrants, sid: string): [string, WindowGrant] | undefined =>
   grants.invalidated.has(sid) ? undefined : [...grants.windows.entries()].find(([, grant]) => grant.snapshot?.sid === sid);
+
+/** 上游 menu_path_in（window_state_view.rs）的等价判定：行角色为 AXMenuItem/AXMenuBarItem 且缩进
+ *  祖先链抵达 AXMenuBar 时，钉版驱动会把该行的 click 改执行为 invoke_menu —— 不在批次动作清单的
+ *  隐式调用。上游按 sid 存储完整 markdown 并在其上判定；宿主只有交付视图：真实位置可证的行
+ *  按祖先链判定，diff 追加行（detached）位置伪造，菜单角色一律按可路由拒绝。 */
+const MENU_ROW_ROLES = new Set(["AXMenuItem", "AXMenuBarItem"]);
+
+const treeRowItem = (line: string): { role: string; label: string } | undefined => {
+  const trimmed = line.trimStart();
+  if (!trimmed.startsWith("- ")) return undefined;
+  const rest = trimmed.slice(2);
+  let body = rest;
+  if (rest.startsWith("[")) {
+    const close = rest.indexOf("] ");
+    if (close >= 0) body = rest.slice(close + 2);
+  }
+  const space = body.indexOf(" ");
+  const after = space < 0 ? "" : body.slice(space + 1).trimStart();
+  return { role: space < 0 ? body : body.slice(0, space), label: after.match(/^"([^"]*)"/)?.[1] ?? "" };
+};
+
+/** click 令牌的菜单路由判据：行角色必须是菜单行（非菜单行上游不可能路由）；
+ *  detached 行位置由合并追加伪造、祖先不可证明，菜单角色按可路由拒绝；
+ *  位置真实的行按上游同构的缩进祖先链判定。 */
+const menuTokenBlocked = (snapshot: { text: string; detached?: Set<number> }, row: number): boolean => {
+  const marker = `[${row}] `;
+  const line = snapshot.text.split("\n").find(l => { const trimmed = l.trimStart(); return trimmed.startsWith("- ") && trimmed.slice(2).startsWith(marker); });
+  const role = line && treeRowItem(line)?.role;
+  if (!role || !MENU_ROW_ROLES.has(role)) return false;
+  if (snapshot.detached?.has(row)) return true;
+  return menuRow(snapshot.text, row);
+};
+
+const menuRow = (text: string, row: number): boolean => {
+  const lines = text.split("\n"), marker = `[${row}] `;
+  const at = lines.findIndex(line => { const trimmed = line.trimStart(); return trimmed.startsWith("- ") && trimmed.slice(2).startsWith(marker); });
+  if (at < 0) return false;
+  const indent = (line: string) => line.length - line.trimStart().length;
+  const self = treeRowItem(lines[at]!);
+  if (!self || !MENU_ROW_ROLES.has(self.role) || !self.label) return false;
+  let level = indent(lines[at]!);
+  for (let index = at - 1; index >= 0; index--) {
+    const line = lines[index]!;
+    if (indent(line) >= level) continue;
+    const parent = treeRowItem(line);
+    if (!parent) return false;
+    level = indent(line);
+    if (parent.role === "AXMenuBar") return true;
+    if (MENU_ROW_ROLES.has(parent.role) && parent.label) continue;
+    if (parent.role === "AXMenu") continue;
+    return false;
+  }
+  return false;
+};
 
 function checkNeed(grants: CuaGrants, need: CuaActionNeed, label: string, args: Record<string, unknown>, batch?: { key: string; grant: WindowGrant }): void {
   if (need.kind === "unavailable") throw eligibleFailure(`${label} 依赖未开放的 zoom 能力`);
@@ -63,7 +119,14 @@ export function requireCuaEligibility(grants: CuaGrants, remoteName: string, arg
     const plan = cuaBatchPlan(args);
     const grant = grants.windows.get(plan.key);
     if (!grant?.snapshot && !grant?.screenshot) throw eligibleFailure(`批次窗口 ${plan.key} 尚无已交付的有效观察`);
-    for (const [index, step] of plan.steps.entries()) checkNeed(grants, cuaActionNeed(step.args), `批次步骤 ${index + 1}（${step.tool}）`, step.args, { key: plan.key, grant: grant! });
+    for (const [index, step] of plan.steps.entries()) {
+      const need = cuaActionNeed(step.args);
+      checkNeed(grants, need, `批次步骤 ${index + 1}（${step.tool}）`, step.args, { key: plan.key, grant: grant! });
+      // 钉版驱动把菜单栏元素的 click 改执行为 invoke_menu（不在批次动作清单的隐式调用）：
+      // 判据落在该 sid 的完整存储文本上；double_click/right_click 无该路由，普通调用亦不经此路径。
+      if (step.tool === "click" && need.kind === "token" && menuTokenBlocked(grant!.snapshot!, need.row))
+        throw eligibleFailure(`批次步骤 ${index + 1}（click）的元素是菜单栏成员或祖先不可证明；钉版驱动会把该点击改执行为不在批次动作清单的 invoke_menu。改用 hotkey/菜单等价键，或交付截图后用坐标点击`);
+    }
     return;
   }
   checkNeed(grants, cuaActionNeed(args), `操作 ${remoteName}`, args);
@@ -91,9 +154,35 @@ export function dropObservationBase(grants: CuaGrants, key: string): void {
   if (grants.activeWindow === key) grants.activeWindow = undefined;
 }
 
+/** diff 文本的行条目：上游按 `+ [n]`（新增）、`~ [n]`（变更）、`- [n]`（已移除，旧 sid 的 id）
+ *  输出且不带缩进与 `- ` 前缀；`reindexed:`/标题等非行条目跳过。返回规范化行与行号分类。 */
+const parseDiffRows = (diff: string): { changed: Set<number>; removed: Set<number>; rows: string[] } => {
+  const changed = new Set<number>(), removed = new Set<number>(), rows: string[] = [];
+  for (const line of diff.split("\n")) {
+    const match = /^([+~-]) \[(\d+)\] (.+)$/.exec(line);
+    if (!match) continue;
+    const index = Number.parseInt(match[2]!, 10);
+    if (match[1] === "-") removed.add(index);
+    else { changed.add(index); rows.push(`  - [${match[2]}] ${match[3]}`); }
+  }
+  return { changed, removed, rows };
+};
+
+/** 基线行 + diff 变更行的规范化合并：被变更/移除的基线行剔除，变更行统一为 `- [n]` 行附后。
+ *  结果视图与上游存储的完整 markdown 同形可供行判定；追加行位置不反映真实祖先（调用方记入 detached）。 */
+const mergeDeliveredText = (base: string, diff: string): { merged: string; changed: Set<number> } => {
+  const { changed, removed, rows } = parseDiffRows(diff);
+  const kept = base.split("\n").filter(line => {
+    const match = /^[ \t]*-[ \t]*\[(\d+)\] /.exec(line);
+    return !match || (!changed.has(Number.parseInt(match[1]!, 10)) && !removed.has(Number.parseInt(match[1]!, 10)));
+  });
+  return { merged: [...kept, ...rows].join("\n"), changed };
+};
+
 /** 成功观察后登记授权：sid/失效公告/截图帧出自结构化结果，文本只用已交付内容。
- *  diff/no_change 且未重排行时把新 sid 的授权合并到既有交付文本上（行号在上游增量读中保持稳定）。 */
-export function grantWindowObservation(grants: CuaGrants, key: string, state: Record<string, unknown>, text: string, image: boolean): void {
+ *  diff/no_change 且未重排行时把新 sid 的授权合并到既有交付文本上（行号在上游增量读中保持稳定，
+ *  变更行记入 detached）；交付文本被截断或行号被重排时该读不能作合并基线（丢失的变更记录会让旧行复活）。 */
+export function grantWindowObservation(grants: CuaGrants, key: string, state: Record<string, unknown>, text: string, image: boolean, truncated = false): void {
   if (cuaObservationBlocked(state)) { grants.windows.delete(key); return; }
   for (const sid of Array.isArray(state.invalidated_snapshot_ids) ? state.invalidated_snapshot_ids : []) {
     if (typeof sid !== "string") continue;
@@ -103,10 +192,29 @@ export function grantWindowObservation(grants: CuaGrants, key: string, state: Re
   const grant = grants.windows.get(key) ?? {};
   const sid = state.snapshot_id;
   if (typeof sid === "string" && sid && !grants.invalidated.has(sid)) {
-    const diff = (state.since_status === "diff" || state.since_status === "no_change") && !text.includes("reindexed:");
-    const merged = diff && grant.base ? `${grant.base}\n${text}` : text;
-    grant.snapshot = { sid, text: merged };
-    grant.base = merged;
+    const diff = state.since_status === "diff" || state.since_status === "no_change";
+    if (!diff || text.includes("reindexed:")) {
+      // 全量读或重排行视图：文本本身即完整依据（重排行只留规范化的变更行）
+      if (diff) {
+        const { merged, changed } = mergeDeliveredText("", text);
+        grant.snapshot = { sid, text: merged, detached: changed };
+      } else {
+        grant.snapshot = { sid, text };
+      }
+      if (truncated || diff) delete grant.base;
+      else grant.base = text;
+    } else if (grant.base && !truncated) {
+      const { merged, changed } = mergeDeliveredText(grant.base, text);
+      const detached = new Set(grant.snapshot?.detached ?? []);
+      for (const row of changed) detached.add(row);
+      grant.snapshot = { sid, text: merged, detached };
+      grant.base = merged;
+    } else {
+      // 无基线的 diff（或交付被截断）：只按变更行授权，且不作后续合并基线
+      const { merged, changed } = mergeDeliveredText("", text);
+      grant.snapshot = { sid, text: merged, detached: changed };
+      delete grant.base;
+    }
   }
   if (image && state.display_only !== true && state.on_current_space !== false) grant.screenshot = { ...(typeof state.capture_id === "string" ? { captureId: state.capture_id } : {}) };
   else if (state.screenshot_frame_valid === false || state.screenshot_error !== undefined) delete grant.screenshot;

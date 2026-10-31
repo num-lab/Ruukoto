@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { clearObservationGrant, deliverCuaObservations, dropObservationBase, dropObservationGrant, freshCuaGrants, grantWindowObservation, requireCuaEligibility, revokeActionable } from "@ruukoto/agent/mcp/cua-observation.ts";
+import { clearObservationGrant, deliverCuaObservations, dropObservationBase, dropObservationGrant, freshCuaGrants, grantWindowObservation, invalidateCuaSnapshots, requireCuaEligibility, revokeActionable } from "@ruukoto/agent/mcp/cua-observation.ts";
 import { McpError } from "@ruukoto/agent/mcp/transport.ts";
 import { cuaBatchSummary } from "@ruukoto/view/cua-batch.ts";
 
@@ -256,38 +256,102 @@ test("观察资格：行标记与上游 `- [N] ` 同形，变体形态不算交�
 
 test("观察资格：授权只在观察真实进入后续模型请求后激活，同组工具不自我授权", () => {
   const grants = freshCuaGrants();
-  // recordObservation 只把观察记入待交付队列：结果尚未进入任何模型请求，写不授权
+  // Formatter-time observations stay pending until a later request delivers them.
   grants.pending.push({ callId: "obs-call", kind: "window", key: "42:7", state: state(), text: TREE_TEXT, image: false, truncated: false });
   denied(grants, "click", { pid: 42, window_id: 7, element_token: "s00000001:14" }, "同组返回的观察不能授权同组写");
-  // 不含该 toolResult 的请求仍不激活（结果可能被装配丢弃）
-  deliverCuaObservations(grants, new Set(["unrelated-call"]));
+
+  deliverCuaObservations(grants, new Map([["unrelated-call", { text: "done", image: false }]]));
   denied(grants, "click", { pid: 42, window_id: 7, element_token: "s00000001:14" }, "结果未随请求送达仍不授权");
-  // 结果真实进入后续请求才激活授权
-  deliverCuaObservations(grants, new Set(["obs-call"]));
+
+  deliverCuaObservations(grants, new Map([["obs-call", { text: TREE_TEXT, image: false }]]));
   requireCuaEligibility(grants, "click", { pid: 42, window_id: 7, element_token: "s00000001:14" });
-  // 末尾观察失败的批次在交付时才连基线清除：交付前旧授权仍保持撤销语义
-  grants.pending.push({ callId: "batch-call", kind: "drop", args: { pid: 42, window_id: 7 } });
-  deliverCuaObservations(grants, new Set());
-  assert.doesNotThrow(() => requireCuaEligibility(grants, "click", { pid: 42, window_id: 7, element_token: "s00000001:14" }), "未交付的 drop 暂不清除");
-  deliverCuaObservations(grants, new Set(["batch-call"]));
-  denied(grants, "click", { pid: 42, window_id: 7, element_token: "s00000001:14" }, "交付后连授权与基线一起清除");
+  // Negative results invalidate immediately, regardless of their delivery.
+  dropObservationGrant(grants, { pid: 42, window_id: 7 });
+  denied(grants, "click", { pid: 42, window_id: 7, element_token: "s00000001:14" }, "失败立即撤销授权与基线");
   assert.equal(grants.windows.size, 0);
+});
+
+test("CUA revocations cancel pending-only observations without touching other windows", () => {
+  for (const revoke of [
+    (grants: ReturnType<typeof freshCuaGrants>) => clearObservationGrant(grants, "get_window_state", { pid: 42, window_id: 7 }),
+    (grants: ReturnType<typeof freshCuaGrants>) => dropObservationGrant(grants, { pid: 42, window_id: 7 }),
+    (grants: ReturnType<typeof freshCuaGrants>) => revokeActionable(grants, "42:7"),
+  ]) {
+    const grants = freshCuaGrants();
+    for (const key of ["42:7", "42:8"]) grants.pending.push({ callId: key, kind: "window", key, state: state(), text: TREE_TEXT, image: false, truncated: false });
+    revoke(grants);
+    assert.deepEqual(grants.pending.map(pending => pending.callId), ["42:8"]);
+    deliverCuaObservations(grants, new Map([["42:7", { text: TREE_TEXT, image: false }]]));
+    denied(grants, "type_text", { pid: 42, window_id: 7, text: "x" }, "revoked pending result cannot resurrect");
+    clearObservationGrant(grants, "get_window_state", {});
+    assert.equal(grants.pending.length, 0, "unattributable reread cancels every pending window");
+    grants.pending.push({ callId: "42:8", kind: "window", key: "42:8", state: state(), text: TREE_TEXT, image: false, truncated: false });
+    dropObservationGrant(grants, {});
+    assert.equal(grants.pending.length, 0, "unattributable failure cancels pending-only windows");
+  }
+});
+
+test("CUA grants use the outgoing text and image projection, not the formatter view", () => {
+  const grants = freshCuaGrants();
+  const projected = '- [20] AXTextField "Name"\n[omitted]\n- [700] AXMenuBarItem "Sheet"';
+  grants.pending.push({ callId: "obs", kind: "window", key: "42:7", state: state(), text: TREE_TEXT, image: true, truncated: false });
+  deliverCuaObservations(grants, new Map([["obs", { text: projected, image: false }]]));
+  requireCuaEligibility(grants, "click", { pid: 42, window_id: 7, element_token: "s00000001:20" });
+  denied(grants, "click", { pid: 42, window_id: 7, element_token: "s00000001:14" }, "formatter-only row is not delivered");
+  denied(grants, "click", { pid: 42, window_id: 7, x: 1, y: 2 }, "formatter-only screenshot is not delivered");
+  denied(grants, "run_steps", { steps: [{ tool: "click", args: { element_token: "s00000001:700" } }], pid: 42, window_id: 7, observe: {} }, "omitted ancestors cannot prove non-menu");
+  assert.equal(grants.windows.get("42:7")?.base, undefined);
+  clearObservationGrant(grants, "get_window_state", { pid: 42, window_id: 7 });
+  grantWindowObservation(grants, "42:7", state({ capture_id: "cap2" }), "screenshot only", true);
+  requireCuaEligibility(grants, "click", { pid: 42, window_id: 7, element_token: "s00000001:20" });
+  denied(grants, "click", { pid: 42, window_id: 7, element_token: "s00000001:14" }, "screenshot reread preserves only delivered rows");
+  assert.equal(grants.windows.get("42:7")?.base, undefined, "partial restore is not a complete merge base");
+  clearObservationGrant(grants, "get_window_state", { pid: 42, window_id: 7 });
+  grantWindowObservation(grants, "42:7", state({ snapshot_id: "s00000002", since: "s00000001", since_status: "diff" }), '+ [9] AXButton "New"', false);
+  denied(grants, "click", { pid: 42, window_id: 7, element_token: "s00000002:20" }, "partial view cannot merge old rows into a diff");
+  invalidateCuaSnapshots(grants, { invalidated_snapshot_ids: ["s00000002"] });
+  assert.equal(grants.windows.get("42:7")?.retained, undefined);
+});
+
+test("CUA truncated formatter views survive same-sid screenshot rereads without becoming bases", () => {
+  const grants = freshCuaGrants();
+  grantWindowObservation(grants, "42:7", state(), TREE_TEXT, false, true);
+  clearObservationGrant(grants, "get_window_state", { pid: 42, window_id: 7 });
+  grantWindowObservation(grants, "42:7", state(), "screenshot only", true);
+  requireCuaEligibility(grants, "click", { pid: 42, window_id: 7, element_token: "s00000001:14" });
+  assert.equal(grants.windows.get("42:7")?.base, undefined);
+  invalidateCuaSnapshots(grants, { invalidated_snapshot_ids: ["s00000001"] });
+  clearObservationGrant(grants, "get_window_state", { pid: 42, window_id: 7 });
+  grantWindowObservation(grants, "42:7", state(), "screenshot only", true);
+  denied(grants, "click", { pid: 42, window_id: 7, element_token: "s00000001:14" }, "invalidated partial view never restores");
+});
+
+test("CUA empty and selector-cleared projections do not authorize focus writes", () => {
+  for (const text of ["", "[已清理 · 工具观察 · 大正文已省略，可用 history_read 读取。]"]) {
+    for (const since_status of [undefined, "diff", "no_change"]) {
+      const grants = freshCuaGrants();
+      grants.pending.push({ callId: "obs", kind: "window", key: "42:7", state: state({ since_status }), text: TREE_TEXT, image: true, truncated: false });
+      deliverCuaObservations(grants, new Map([["obs", { text, image: false }]]));
+      denied(grants, "type_text", { pid: 42, window_id: 7, text: "must not send" }, "rowless projected result is not a window observation");
+      assert.equal(grants.windows.get("42:7")?.base, undefined);
+    }
+  }
 });
 
 test("观察资格：生产序先撤销再重读——no_change 保留菜单路线 provenance，同 sid 截图读恢复树与基线", () => {
   const grants = freshCuaGrants();
   const menuBase = "- [0] AXWindow \"Doc\"\n- [27] AXMenuBar\n  - [700] AXMenuBarItem \"Sheet\"\n    - [701] AXMenu\n      - [771] AXMenuItem \"Next\"";
   grantWindowObservation(grants, "42:7", state(), menuBase, false);
-  // diff 变更 AXMenuBar 行 → 合并视图全部行位置不可凭（detached）
+  // Changing a menu ancestor makes every merged position untrustworthy.
   grantWindowObservation(grants, "42:7", state({ snapshot_id: "s00000002", since: "s00000001", since_status: "diff" }), "since s00000001: 0 added, 1 changed, 0 removed.\n~ [27] AXMenuBar", false);
-  // 生产序：新观察发送前 clearObservationGrant 删除可操作 snapshot（含 detached），base 保留 provenance
+  // Production revokes actionable snapshots before rereads, retaining provenance.
   clearObservationGrant(grants, "get_window_state", { pid: 42, window_id: 7 });
   denied(grants, "run_steps", { steps: [{ tool: "click", args: { element_token: "s00000002:771" } }], pid: 42, window_id: 7, observe: {} }, "重读发送即撤销授权");
-  // no_change 重读从 base 恢复合并视图与 detached：菜单行不得复活
+
   grantWindowObservation(grants, "42:7", state({ snapshot_id: "s00000003", since: "s00000002", since_status: "no_change" }), "no change since s00000002.", false);
   denied(grants, "run_steps", { steps: [{ tool: "click", args: { element_token: "s00000003:771" } }], pid: 42, window_id: 7, observe: {} }, "no_change 重读不得复活菜单栏点击");
   requireCuaEligibility(grants, "run_steps", { steps: [{ tool: "click", args: { element_token: "s00000003:0" } }], pid: 42, window_id: 7, observe: {} });
-  // 同 sid 截图式重读（include_accessibility_tree:false）：先撤销，再从 base 恢复树视图并刷新截图
+  // A same-sid screenshot reread restores delivered rows after revocation.
   const grants2 = freshCuaGrants();
   grantWindowObservation(grants2, "42:7", state(), TREE_TEXT, false);
   clearObservationGrant(grants2, "get_window_state", { pid: 42, window_id: 7 });
@@ -295,7 +359,7 @@ test("观察资格：生产序先撤销再重读——no_change 保留菜单路�
   grantWindowObservation(grants2, "42:7", state({ capture_id: "cap-2" }), "screenshot only", true);
   requireCuaEligibility(grants2, "click", { pid: 42, window_id: 7, element_token: "s00000001:14" });
   requireCuaEligibility(grants2, "click", { pid: 42, window_id: 7, x: 10, y: 20 });
-  // diff 基线同样保留：后续匹配的 diff 正常合并
+
   grantWindowObservation(grants2, "42:7", state({ snapshot_id: "s00000002", since: "s00000001", since_status: "diff" }), "since s00000001: 1 added, 0 changed, 0 removed.\n+ [9] AXButton \"新\"", false);
   requireCuaEligibility(grants2, "click", { pid: 42, window_id: 7, element_token: "s00000002:9" });
   requireCuaEligibility(grants2, "click", { pid: 42, window_id: 7, element_token: "s00000002:14" });

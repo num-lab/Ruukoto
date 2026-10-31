@@ -159,7 +159,7 @@ const editorTheme = { borderColor: dim, selectList: selectTheme };
  * and each line is padded out, so content of any width aligns; CJK counts by
  * display width, not double cells. Does not force full width.
  * Height is set by the overlay (maxHeight): overflow scrolls the window; the
- * top and bottom borders always stay.
+ * borders stay visible when the viewport can fit the frame's chrome.
  */
 class WindowFrame implements Component {
   onKey: ((data: string) => void) | null = null;
@@ -178,7 +178,7 @@ class WindowFrame implements Component {
    *  content with the same width. */
   private lastInner = 0;
 
-  constructor(private readonly content: Component, private readonly textKeys = false, private readonly viewportRows?: () => number) {}
+  constructor(private readonly content: Component, private readonly textKeys = false, private viewportRows?: () => number) {}
 
   handleInput(data: string): void {
     if (!this.textKeys && (matchesKey(data, "q") || matchesKey(data, "escape"))) data = "\x1b";
@@ -196,7 +196,7 @@ class WindowFrame implements Component {
   }
 
   /** Actually visible body rows: the smaller of the open-set cap and the
-   *  current terminal viewport. When the terminal shrinks after the frame
+   *  current overlay viewport. When the terminal shrinks after the frame
    *  opened, the overlay clips to the new viewport, so scroll geometry must
    *  follow the real viewport — otherwise the approve gate passes on the old
    *  height. */
@@ -208,12 +208,12 @@ class WindowFrame implements Component {
   }
 
   /**
-   * Called by the overlay after sizing: pins the panel height and scrolls when
-   * content overflows. Returns the actually visible body rows so the caller
-   * can decide whether a scroll hint is needed.
+   * Pin the initial panel height; the live overlay cap keeps scrolling within
+   * the current viewport when it shrinks.
    */
-  setHeight(height: number): void {
+  setHeight(height: number, viewportRows?: () => number): void {
     this.maxRows = this.bodyRows(height);
+    this.viewportRows = viewportRows;
   }
 
   /** Body rows including padding and border — used by the overlay for sizing. */
@@ -241,6 +241,9 @@ class WindowFrame implements Component {
     // A cap <= 0 means uncapped (everything visible); otherwise report the
     // rows outside the viewport.
     const max = maxRows > 0 ? Math.max(0, this.contentRows - maxRows) : 0;
+    // An overlay smaller than its chrome cannot expose a complete body row.
+    // Scrolling must not make approval possible until the viewport grows.
+    if (this.viewportRows && this.viewportRows() <= 2 * (WindowFrame.PAD_Y + 1)) return { above: this.scrollTop, below: Math.max(1, max - this.scrollTop) };
     return { above: this.scrollTop, below: max - this.scrollTop };
   }
 
@@ -3490,11 +3493,14 @@ export class TuiApp {
       this.editor.overlayLines = [];
     }
     const frame = component instanceof WindowFrame ? component : new WindowFrame(component, false, () => this.terminal.rows || 24);
-    const rows = this.terminal.rows || 24;
-    const height = typeof options.maxHeight === "string"
-      ? Math.floor(rows * parseFloat(options.maxHeight) / 100)
-      : options.maxHeight ?? rows;
-    frame.setHeight(height);
+    const height = () => {
+      const rows = this.terminal.rows || 24;
+      const margin = typeof options.margin === "number" ? { top: options.margin, bottom: options.margin } : options.margin;
+      const available = Math.max(1, rows - Math.max(0, margin?.top ?? 0) - Math.max(0, margin?.bottom ?? 0));
+      const maxHeight = typeof options.maxHeight === "string" ? Math.floor(rows * parseFloat(options.maxHeight) / 100) : options.maxHeight ?? rows;
+      return Math.max(1, Math.min(maxHeight, available));
+    };
+    frame.setHeight(height(), height);
     const base = this.tui.showOverlay(frame, options);
     let closed = false;
     const handle: OverlayHandle = { ...base, hide: () => {

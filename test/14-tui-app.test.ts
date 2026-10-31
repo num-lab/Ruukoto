@@ -2118,24 +2118,47 @@ test("TUI CUA批次审批：开窗后终端变矮，批准门禁跟随实际视�
       await waitFor("任务结束", () => ["completed", "failed", "canceled", "interrupted"].includes(t.runtime.store.getTask(id)!.status));
     };
     await submit("observe", "get_window_state", { pid: 42, window_id: 7, include_screenshot: false }).then(ended);
-    // 80×60 开窗：整批可见，参数一页读完
-    h.terminal.resize(80, 60);
-    const steps = Array.from({ length: 8 }, (_, index) => index === 7 ? { tool: "type_text", args: { text: `第 ${index + 1} 步文本` } } : { tool: "click", args: { element_token: "s00000001:14" } });
+    // Resize while parameters are in flight; the overlay still caps height at 85%.
+    h.terminal.resize(80, 100);
+    const tail = "TAIL_END";
+    const steps = Array.from({ length: 8 }, (_, index) => index === 7 ? { tool: "type_text", args: { text: "x".repeat(1011 - tail.length) + tail } } : { tool: "click", args: { element_token: "s00000001:14" } });
+    const request = h.connection.request.bind(h.connection);
+    let paramsRequested = false;
+    let releaseParams!: () => void;
+    const paramsGate = new Promise<void>(resolve => { releaseParams = resolve; });
+    h.connection.request = async <K extends TuiOp>(op: K, params: OpParams<K>, timeoutMs?: number) => {
+      if (op === "get_confirmation_params") { paramsRequested = true; await paramsGate; }
+      return request(op, params, timeoutMs);
+    };
     const batchTask = await submit("batch", "run_steps", { steps, pid: 42, window_id: 7, observe: { include_screenshot: false } }, "confirm");
     await waitFor("批次审批到达 TUI", () => h.state.pendingApprovals().length === 1);
     h.terminal.send("/approvals\r");
     await renderFlush();
     h.terminal.send("\r");
+    await waitFor("parameter request started", () => paramsRequested);
+    h.terminal.resize(80, 60);
+    releaseParams();
     await waitFor("批次摘要与参数已渲染", () => stripTerminalSequences(h.terminal.output()).includes("批次动作"));
-    // 终端变矮到 80×24：开窗时的几何已过期，按 a 不得放行未读全的批准
-    h.terminal.resize(80, 24);
     await renderFlush();
     h.terminal.send("a");
     await renderFlush();
     assert.equal(requests.filter(request => request.op === "respond_confirmation").length, 0, "视口缩小后未读全不得批准");
-    // 滚动到末尾后批准生效
-    for (let index = 0; index < 12; index++) { h.terminal.send("\x1b[6~"); }
+    h.terminal.resize(80, 3);
     await renderFlush();
+    for (let index = 0; index < 12; index++) { h.terminal.send("\x1b[6~"); await renderFlush(); }
+    h.terminal.send("a");
+    await renderFlush();
+    assert.equal(requests.filter(request => request.op === "respond_confirmation").length, 0, "a clipped body cannot approve even after scrolling");
+    h.terminal.resize(80, 60);
+    await renderFlush();
+    let tailVisible = false;
+    for (let index = 0; index < 12; index++) {
+      h.terminal.send("\x1b[6~");
+      await renderFlush();
+      // Wrapping may split the marker across adjacent framed body rows.
+      tailVisible ||= stripTerminalSequences((h.app as any).tui.previousScreen.join("\n")).replace(/[│\s]/g, "").includes(tail);
+    }
+    assert.equal(tailVisible, true, "the full input tail must reach an actual terminal frame before approval");
     h.terminal.send("a");
     await waitFor("批准应答已发送", () => requests.some(request => request.op === "respond_confirmation"));
     await ended(batchTask);

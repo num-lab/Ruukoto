@@ -1902,10 +1902,14 @@ export class Driver {
   private deliverCuaObservations(task: Task, messages: unknown[]): void {
     const cua = this.deps.mcp?.cua;
     if (!cua) return;
-    const delivered = new Set<string>();
+    const delivered = new Map<string, { text: string; image: boolean }>();
     for (const message of messages) {
-      const entry = message as { role?: unknown; toolCallId?: unknown } | undefined;
-      if (entry && entry.role === "toolResult" && typeof entry.toolCallId === "string") delivered.add(entry.toolCallId);
+      const entry = message as { role?: unknown; toolCallId?: unknown; content?: { type?: unknown; text?: unknown; data?: unknown; ruukotoMediaRef?: unknown }[] } | undefined;
+      if (!entry || entry.role !== "toolResult" || typeof entry.toolCallId !== "string" || !Array.isArray(entry.content)) continue;
+      delivered.set(entry.toolCallId, {
+        text: entry.content.filter(part => part.type === "text" && typeof part.text === "string").map(part => part.text).join("\n"),
+        image: entry.content.some(part => part.type === "image" && typeof part.data === "string" && part.data.length > 0 && !!part.ruukotoMediaRef),
+      });
     }
     cua.deliverObservations(task.sessionId, delivered);
   }

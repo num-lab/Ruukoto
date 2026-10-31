@@ -13,22 +13,23 @@ import { McpError } from "./transport.ts";
  *  `detached` marks rows whose positions were fabricated when appending a diff —
  *  their real ancestors were not delivered, so menu-route checks cannot trust
  *  their indentation chain. */
+interface WindowView { sid: string; text: string; detached?: Set<number> }
 export interface WindowGrant {
   /** text = current actionable view (a diff read is normalized: changed rows
    *  become `- [n]` rows and removed rows drop out). */
-  snapshot?: { sid: string; text: string; detached?: Set<number> };
+  snapshot?: WindowView;
   screenshot?: { captureId?: string };
-  /** The last delivered complete observation text (sid is the snapshot that
-   *  produced it); serves only as the diff merge base and as the restore source
-   *  for same-sid treeless rereads — never actionable by itself. Retained with
-   *  the same detached provenance as the view it describes. */
-  base?: { sid: string; text: string; detached?: Set<number> };
+  /** Complete delivered text for diff merging, never actionable by itself;
+   *  retains the producing sid and fabricated-position provenance. */
+  base?: WindowView;
+  /** Last delivered view, including partial rows; restore-only, never a diff base. */
+  retained?: WindowView;
 }
+export interface CuaObservationProjection { text: string; image: boolean }
 /** A recorded observation effect that only takes hold once its tool result is
  *  delivered inside a subsequent model request. */
 export type PendingObservation =
   | { callId: string; kind: "window"; key: string; state: Record<string, unknown>; text: string; image: boolean; truncated: boolean }
-  | { callId: string; kind: "drop"; args: Record<string, unknown> }
   | { callId: string; kind: "desktop"; ok: boolean }
   | { callId: string; kind: "windowHint"; need: CuaActionNeed };
 /** Observation effects still valid for writes within this execution; rebinding,
@@ -192,8 +193,14 @@ export function clearObservationGrant(grants: CuaGrants, remoteName: string, arg
   if (remoteName === "get_window_state") {
     const key = argsWindowKey(args);
     if (key) revokeActionable(grants, key);
-    else for (const k of [...grants.windows.keys()]) revokeActionable(grants, k);
-  } else if (remoteName === "get_desktop_state") grants.desktopScreenshot = false;
+    else {
+      grants.pending = grants.pending.filter(pending => pending.kind === "desktop");
+      for (const k of [...grants.windows.keys()]) revokeActionable(grants, k);
+    }
+  } else if (remoteName === "get_desktop_state") {
+    grants.desktopScreenshot = false;
+    grants.pending = grants.pending.filter(pending => pending.kind !== "desktop");
+  }
 }
 
 /** Dispatching a batch revokes the target window's actionable grants: the
@@ -201,6 +208,7 @@ export function clearObservationGrant(grants: CuaGrants, remoteName: string, arg
  *  recover only from the batch's trailing or another delivered observation;
  *  the diff merge base is retained for upstream incremental merging. */
 export function revokeActionable(grants: CuaGrants, key: string): void {
+  grants.pending = grants.pending.filter(pending => pending.kind !== "windowHint" && (pending.kind !== "window" || pending.key !== key));
   const grant = grants.windows.get(key);
   if (!grant) return;
   delete grant.snapshot;
@@ -213,6 +221,7 @@ export function revokeActionable(grants: CuaGrants, key: string): void {
  *  but the content is invisible, so both grants and the base are dropped and
  *  later observations must rebuild. */
 export function dropObservationBase(grants: CuaGrants, key: string): void {
+  revokeActionable(grants, key);
   grants.windows.delete(key);
   if (grants.activeWindow === key) grants.activeWindow = undefined;
 }
@@ -223,7 +232,24 @@ export function dropObservationBase(grants: CuaGrants, key: string): void {
 export function dropObservationGrant(grants: CuaGrants, args: Record<string, unknown>): void {
   const key = argsWindowKey(args);
   if (key) dropObservationBase(grants, key);
-  else for (const k of [...grants.windows.keys()]) dropObservationBase(grants, k);
+  else {
+    grants.pending = grants.pending.filter(pending => pending.kind === "desktop");
+    for (const k of [...grants.windows.keys()]) dropObservationBase(grants, k);
+  }
+}
+
+/** Negative remote facts take effect immediately, even if their result is omitted. */
+export function invalidateCuaSnapshots(grants: CuaGrants, state: Record<string, unknown>): void {
+  for (const sid of Array.isArray(state.invalidated_snapshot_ids) ? state.invalidated_snapshot_ids : []) {
+    if (typeof sid !== "string") continue;
+    grants.invalidated.add(sid);
+    grants.pending = grants.pending.filter(pending => pending.kind !== "window" || pending.state.snapshot_id !== sid);
+    for (const grant of grants.windows.values()) {
+      if (grant.snapshot?.sid === sid) delete grant.snapshot;
+      if (grant.retained?.sid === sid) delete grant.retained;
+      // A complete base is still needed to merge the replacement diff.
+    }
+  }
 }
 
 /** Row entries in a diff text: upstream emits `+ [n]` (added), `~ [n]` (changed)
@@ -270,12 +296,8 @@ const mergeDeliveredText = (base: string, diff: string): { merged: string; chang
  *  were reindexed, cannot serve as a merge base either (lost change records
  *  would resurrect stale rows). */
 export function grantWindowObservation(grants: CuaGrants, key: string, state: Record<string, unknown>, text: string, image: boolean, truncated = false): void {
-  if (cuaObservationBlocked(state)) { grants.windows.delete(key); return; }
-  for (const sid of Array.isArray(state.invalidated_snapshot_ids) ? state.invalidated_snapshot_ids : []) {
-    if (typeof sid !== "string") continue;
-    grants.invalidated.add(sid);
-    for (const grant of grants.windows.values()) if (grant.snapshot?.sid === sid) delete grant.snapshot;
-  }
+  invalidateCuaSnapshots(grants, state);
+  if (cuaObservationBlocked(state)) { dropObservationBase(grants, key); return; }
   const grant = grants.windows.get(key) ?? {};
   const sid = state.snapshot_id;
   if (typeof sid === "string" && sid && !grants.invalidated.has(sid)) {
@@ -284,19 +306,29 @@ export function grantWindowObservation(grants: CuaGrants, key: string, state: Re
       // Changed-rows-only view: no base, a mismatched baseline, a truncated
       // delivery or reindexed rows all forbid reusing old row ids.
       const { merged, changed } = mergeDeliveredText("", text);
-      grant.snapshot = { sid, text: merged, detached: changed };
+      if (changed.size) grant.snapshot = { sid, text: merged, detached: changed };
+      else delete grant.snapshot;
       delete grant.base;
     };
     if (!diff) {
       // Screenshot-style reread (include_accessibility_tree:false): upstream
       // keeps rows and tokens under the same sid, so when no rows arrive the
-      // retained non-actionable base restores the actionable view — including
+      // retained non-actionable view restores the actionable view — including
       // its detached provenance — and only the screenshot rule below refreshes.
       const treeless = !/^[ \t]*- \[\d+\] /m.test(text);
-      if (sid === grant.base?.sid && treeless) grant.snapshot = { sid, text: grant.base!.text, ...(grant.base!.detached ? { detached: new Set(grant.base!.detached) } : {}) };
+      if (sid === grant.retained?.sid && treeless) grant.snapshot = grant.retained;
+      else if (!/^[ \t]*- (?:\[\d+\] )?AX\w+(?: |$)/m.test(text) && ![...text.matchAll(/["']s[0-9a-f]{8}:(\d+)["']/g)].some(match => tokenVisible(text, sid, Number.parseInt(match[1]!, 10)))) {
+        // A cleared/empty projection is not an observation of the window.
+        delete grant.snapshot;
+        delete grant.base;
+      }
       else {
         grant.snapshot = { sid, text };
-        if (truncated) delete grant.base;
+        if (truncated) {
+          // Missing ancestors cannot establish a menu row's real position.
+          grant.snapshot.detached = new Set([...text.matchAll(/^[ \t]*- \[(\d+)\] /gm)].map(match => Number.parseInt(match[1]!, 10)));
+          delete grant.base;
+        }
         else grant.base = { sid, text };
       }
     } else if (grant.base && grant.base.sid === state.since && !truncated && !text.includes("reindexed:")) {
@@ -312,6 +344,7 @@ export function grantWindowObservation(grants: CuaGrants, key: string, state: Re
       changedOnly();
     }
   }
+  grant.retained = grant.snapshot;
   if (image && state.display_only !== true && state.on_current_space !== false) grant.screenshot = { ...(typeof state.capture_id === "string" ? { captureId: state.capture_id } : {}) };
   else if (state.screenshot_frame_valid === false || state.screenshot_error !== undefined) delete grant.screenshot;
   grants.windows.set(key, grant);
@@ -324,14 +357,14 @@ export function grantWindowObservation(grants: CuaGrants, key: string, state: Re
  *  model request, in recorded order. Entries whose results were not delivered
  *  (e.g. dropped by context assembly) stay pending: only a later request that
  *  actually carries them can activate them. */
-export function deliverCuaObservations(grants: CuaGrants, deliveredCallIds: ReadonlySet<string>): void {
+export function deliverCuaObservations(grants: CuaGrants, delivered: ReadonlyMap<string, CuaObservationProjection>): void {
   if (!grants.pending.length) return;
   const remaining: PendingObservation[] = [];
   for (const pending of grants.pending) {
-    if (!deliveredCallIds.has(pending.callId)) { remaining.push(pending); continue; }
-    if (pending.kind === "window") grantWindowObservation(grants, pending.key, pending.state, pending.text, pending.image, pending.truncated);
-    else if (pending.kind === "drop") dropObservationGrant(grants, pending.args);
-    else if (pending.kind === "desktop") { if (pending.ok) grants.desktopScreenshot = true; }
+    const projection = delivered.get(pending.callId);
+    if (!projection) { remaining.push(pending); continue; }
+    if (pending.kind === "window") grantWindowObservation(grants, pending.key, pending.state, projection.text, pending.image && projection.image, pending.truncated || projection.text !== pending.text);
+    else if (pending.kind === "desktop") { if (pending.ok && projection.image) grants.desktopScreenshot = true; }
     else if (pending.kind === "windowHint") {
       const need = pending.need;
       grants.activeWindow = need.kind === "token" && need.sid ? tokenGrantWindow(grants, need.sid)?.[0] ?? grants.activeWindow

@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { createReadStream } from "node:fs";
 import { createHash } from "node:crypto";
 import { connectMcpStdio, McpError, type McpCallEvidence, type McpTimeouts } from "@ruukoto/agent/mcp/transport.ts";
-import { cuaArguments, cuaProgram, cuaToolEffect, parseCuaConfig, restrictCuaTool } from "@ruukoto/agent/mcp/cua.ts";
+import { cuaArguments, cuaNeedsVision, cuaProgram, cuaToolEffect, parseCuaConfig, restrictCuaTool } from "@ruukoto/agent/mcp/cua.ts";
 import { mcpImages, McpImageError } from "@ruukoto/agent/mcp/images.ts";
 
 const tool = { name: "click", inputSchema: { type: "object", properties: {} } };
@@ -251,7 +251,7 @@ test("Cua批次：规范形式通过，别名、简写、条件、越界与嵌�
   denied(b => { b.steps[0].args = { role: "AXButton", name: "Save" }; }, "click 不接受选择器目标（菜单路由）");
   denied(b => { b.steps[0].args = { capture_id: "cap-1" }; }, "capture_id 需配对坐标");
   denied(b => { b.steps[0].args = { x: 1, y: 2, count: 0 }; }, "count 越界");
-  // 确定性无效后缀：宿主在整批发送前复刻上游 invoke 失败，前面的有效步不得先行执行
+  // Mirror deterministic invoke failures before any valid prefix can execute.
   denied(b => { b.steps.push({ tool: "hotkey", args: { keys: ["cmd", "shift"] } }); }, "hotkey 全修饰键无基础键");
   denied(b => { b.steps.push({ tool: "hotkey", args: { keys: ["cmd", "shift", "nosuchkey"] } }); }, "hotkey 末位非修饰键不可识别");
   denied(b => { b.steps.push({ tool: "press_key", args: { key: "nosuchkey" } }); }, "press_key 键名不可识别");
@@ -305,32 +305,56 @@ test("Cua参数：确定性调用失败在发送前拒绝，文本上限对模�
   const mac = MAC();
   const denied = (name: string, args: Record<string, unknown>, label: string) =>
     assert.throws(() => cuaArguments(mac, name, args), (error: unknown) => error instanceof McpError && error.code === "cua_parameter_denied", label);
-  // 与批次同源的钉版 invoke 失败在独立调用上同样本地拒绝，不消耗审批也不发送
+  // Standalone key/action checks preserve their pinned invocation semantics.
   denied("hotkey", { keys: ["cmd", "shift"] }, "hotkey 全修饰键");
   denied("hotkey", { keys: ["cmd", "nosuchkey"] }, "hotkey 基础键不可识别");
   denied("press_key", { key: "nosuchkey" }, "press_key 键名不可识别");
   denied("click", { x: 1, y: 2, action: "hover" }, "click action hover");
   denied("click", { element_token: "s00000001:3", action: "focus" }, "元素目标 focus 字面量");
   denied("get_window_state", { include_screenshot: false, include_accessibility_tree: false }, "观察不能两项皆无");
-  denied("type_text", { text: "x".repeat(1025) }, "type_text 超 1024 字符");
-  // 合法形态不受影响
+
   cuaArguments(mac, "hotkey", { keys: ["cmd", "shift", "tab"] });
   cuaArguments(mac, "press_key", { key: "+" });
   cuaArguments(mac, "click", { x: 1, y: 2, action: "focus" });
-  cuaArguments(mac, "type_text", { text: "x".repeat(1024) });
+  cuaArguments(mac, "type_text", { text: "x".repeat(1025) });
   cuaArguments(mac, "get_window_state", { include_screenshot: false });
-  // 超限报错含实际上限与当前长度；模型可见描述同样明示 1024
+  // Only batch text has the bound; expose it and diagnose its actual length.
   const messageOf = (fn: () => unknown) => { try { fn(); } catch (error) { return (error as Error).message; } return ""; };
-  const tooLong = messageOf(() => cuaArguments(mac, "type_text", { text: "x".repeat(1025) }));
-  assert.match(tooLong, /1024/);
-  assert.match(tooLong, /1025/);
   const longStep = VALID_BATCH();
   (longStep.steps[1]!.args as Record<string, unknown>).text = "y".repeat(1025);
   const stepError = messageOf(() => cuaArguments(mac, "run_steps", longStep, ALLOW));
   assert.match(stepError, /1024/);
   assert.match(stepError, /1025/);
   const typeText = restrictCuaTool(mac, { name: "type_text", description: "输入文本", inputSchema: { type: "object", properties: { text: { type: "string" } } } })!;
-  assert.match(typeText.description ?? "", /1024/, "模型可见描述明示 1024 上限");
+  assert.doesNotMatch(typeText.description ?? "", /1024/, "单次输入不继承批次上限");
   const runSteps = restrictCuaTool(mac, { name: "run_steps", description: "d", inputSchema: { type: "object" } })!;
   assert.match(JSON.stringify(runSteps.inputSchema), /1024/, "批次 schema 描述明示 1024 上限");
+});
+
+test("Cua batch observation validates effective defaults and display-only combinations", () => {
+  for (const observe of [{ include_accessibility_tree: false }, { display_only: true }, { display_only: true, include_screenshot: true }]) {
+    assert.throws(() => cuaArguments(MAC(), "run_steps", { ...VALID_BATCH(), observe }, ALLOW), (error: unknown) => error instanceof McpError && error.code === "cua_batch_invalid");
+  }
+  for (const observe of [{}, { include_screenshot: false }, { display_only: true, include_accessibility_tree: false, include_screenshot: true }]) {
+    assert.doesNotThrow(() => cuaArguments(MAC(), "run_steps", { ...VALID_BATCH(), observe }, ALLOW));
+  }
+  assert.equal(cuaNeedsVision("run_steps", { observe: {} }), false);
+  assert.equal(cuaNeedsVision("run_steps", { observe: { include_screenshot: true } }), true);
+});
+
+test("Cua hotkey plus follows background versus foreground/global delivery", () => {
+  for (const key of ["+", "plus"]) {
+    const keys = ["cmd", key];
+    for (const delivery_mode of [undefined, "background"]) {
+      assert.doesNotThrow(() => cuaArguments(MAC(), "hotkey", { pid: 42, window_id: 7, keys, ...(delivery_mode ? { delivery_mode } : {}) }));
+    }
+    for (const args of [{ delivery_mode: "foreground", pid: 42, window_id: 7 }, { scope: "desktop", delivery_mode: "background" }, { scope: "desktop", element_token: "s00000001:14" }]) {
+      assert.throws(() => cuaArguments(MAC(), "hotkey", { ...args, keys }), (error: unknown) => error instanceof McpError && error.code === "cua_parameter_denied");
+    }
+    const batch = { ...VALID_BATCH(), steps: [{ tool: "hotkey", args: { keys } }] };
+    assert.doesNotThrow(() => cuaArguments(MAC(), "run_steps", batch, ALLOW));
+    assert.throws(() => cuaArguments(MAC(), "run_steps", { ...batch, delivery_mode: "foreground" }, ALLOW), (error: unknown) => error instanceof McpError && error.code === "cua_batch_invalid");
+    assert.doesNotThrow(() => cuaArguments(MAC(), "run_steps", { ...batch, delivery_mode: "foreground", steps: [{ tool: "hotkey", args: { keys, delivery_mode: "background" } }] }, ALLOW));
+    assert.throws(() => cuaArguments(MAC(), "run_steps", { ...batch, delivery_mode: "background", steps: [{ tool: "hotkey", args: { keys, delivery_mode: "foreground" } }] }, ALLOW), (error: unknown) => error instanceof McpError && error.code === "cua_batch_invalid");
+  }
 });

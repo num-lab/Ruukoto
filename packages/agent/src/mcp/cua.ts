@@ -151,7 +151,7 @@ const RUN_STEPS_SCHEMA = {
     window_id: { type: "integer", description: "批次窗口 ID（与 pid 一起来自已交付的窗口观察）" },
     delay_ms: { type: "integer", minimum: 0, maximum: CUA_BATCH_DELAY_MS },
     delivery_mode: { type: "string", enum: ["background", "foreground"], description: "各步默认投递方式；步骤自身的 delivery_mode 优先" },
-    observe: { type: "object", description: "必填：末尾一次 get_window_state 的参数；pid/window_id 缺省取批次窗口，若给必须一致" },
+    observe: { type: "object", description: "必填：末尾一次 get_window_state 的参数；pid/window_id 缺省取批次窗口，若给必须一致。include_screenshot 缺省 false，include_accessibility_tree 缺省 true，至少开启一项；display_only:true 必须关闭树并开启截图" },
   },
 } satisfies Record<string, unknown>;
 
@@ -172,8 +172,7 @@ export function restrictCuaTool(config: CuaConfig, remote: McpRemoteTool): McpRe
   const required = (schema.required as string[] | undefined)?.filter(key => !dropped.includes(key));
   const effect = cuaToolEffect(config, remote.name);
   const precondition = effect === "write" ? "写操作先观察：元素动作用已交付的 element_token，坐标动作需要目标窗口已交付的截图。" : remote.name === "verify_state" ? "谓词结果不构成可执行观察，不能放行写操作。" : "";
-  const limit = remote.name === "type_text" ? `text 上限 ${CUA_BATCH_TEXT_CHARS} 字符。` : "";
-  return { ...remote, description: `${precondition}${limit}${base}`, inputSchema: { ...schema, properties, ...(required ? { required } : {}), additionalProperties: false } };
+  return { ...remote, description: `${precondition}${base}`, inputSchema: { ...schema, properties, ...(required ? { required } : {}), additionalProperties: false } };
 }
 
 function batchError(message: string): McpError {
@@ -283,11 +282,13 @@ type CheckFail = (message: string) => McpError;
 
 /** hotkey chord check (pinned hotkey.rs): at least one non-modifier key, and
  *  the last non-modifier — the only one upstream posts — must resolve. */
-function checkKeyChord(keys: string[], at: string, fail: CheckFail): void {
+function checkKeyChord(keys: string[], background: boolean, at: string, fail: CheckFail): void {
   const nonModifiers = keys.filter(key => !HOTKEY_MODIFIERS.has(key.toLowerCase()));
   if (!nonModifiers.length) throw fail(`${at} 的 keys 需要至少一个非修饰键（如 ["cmd","c"] 中的 "c"）`);
   const key = nonModifiers[nonModifiers.length - 1]!;
-  if (!keyNameValid(key)) throw fail(`${at} 的键名 "${key}" 不是钉版驱动可识别的按键`);
+  // Only PID-routed background delivery uses press_key's Shift+= remap.
+  if (background) checkKeyName(key, at, fail);
+  else if (!keyNameValid(key)) throw fail(`${at} 的键名 "${key}" 不是钉版驱动可识别的按键`);
 }
 
 /** press_key check (pinned press_key.rs/keyboard.rs): "+" and "plus" remap to
@@ -309,9 +310,9 @@ function checkClickAction(args: Record<string, unknown>, at: string, fail: Check
  *  mirrored host-side so an invalid suffix cannot let earlier batch steps
  *  execute. Only the final effective tool is judged — normalization rewrites
  *  the call before invoke, so e.g. a symbol press_key is validated as text. */
-function checkStepSemantics(tool: string, args: Record<string, unknown>, at: string): void {
+function checkStepSemantics(tool: string, args: Record<string, unknown>, deliveryMode: unknown, at: string): void {
   const effective = effectiveStepTools(tool, args).at(-1)!;
-  if (effective === "hotkey") checkKeyChord(args.keys as string[], at, batchError);
+  if (effective === "hotkey") checkKeyChord(args.keys as string[], (args.delivery_mode ?? deliveryMode) !== "foreground", at, batchError);
   else if (effective === "press_key") {
     const key = tool === "hotkey" ? (args.keys as string[])[0] : args.key;
     if (typeof key === "string") checkKeyName(key, at, batchError);
@@ -357,7 +358,7 @@ export function cuaBatchArguments(config: CuaConfig, allowlist: readonly McpAllo
     }
     checkObject(args, { ...STEP_ARG_FIELDS[tool], ...STEP_SELECTOR_FIELDS }, Object.entries(STEP_ARG_FIELDS[tool]!).filter(([, spec]) => spec.required).map(([key]) => key), `${at} args`);
     checkStepTarget(tool, args as Record<string, unknown>, at);
-    checkStepSemantics(tool, args as Record<string, unknown>, at);
+    checkStepSemantics(tool, args as Record<string, unknown>, top.delivery_mode, at);
     needAllowed(tool, at);
     for (const effective of effectiveStepTools(tool, args as Record<string, unknown>).slice(1)) {
       if (!allowed(effective)) throw batchError(`${at} 的 ${tool} 经固定驱动归一化等同 ${effective}；${effective} 不在允许列表，批次不静默启用该隐式调用`);
@@ -368,7 +369,8 @@ export function cuaBatchArguments(config: CuaConfig, allowlist: readonly McpAllo
   const observe = checkObject(top.observe, OBSERVE_FIELDS, [], "observe");
   // Pinned get_window_state.rs: with both the tree and the screenshot opted out
   // there is nothing to return — refuse before earlier steps can run.
-  if (observe.include_screenshot === false && observe.include_accessibility_tree === false) throw batchError("observe 的 include_screenshot 与 include_accessibility_tree 不能同时为 false（无可返回内容）");
+  if (observe.include_screenshot !== true && observe.include_accessibility_tree === false) throw batchError("observe 至少开启截图或树；include_screenshot 缺省 false，关闭树时须显式设为 true");
+  if (observe.display_only === true && observe.include_accessibility_tree !== false) throw batchError("observe 的 display_only:true 需要 include_accessibility_tree:false 与 include_screenshot:true");
   if ((observe.pid !== undefined && observe.pid !== top.pid) || (observe.window_id !== undefined && observe.window_id !== top.window_id)) throw batchError("observe 的 pid/window_id 须与批次窗口一致或省略");
   return { ...top, observe: { ...observe, pid: top.pid, window_id: top.window_id } };
 }
@@ -381,13 +383,12 @@ function checkStandaloneSemantics(name: string, args: Record<string, unknown>): 
   const fail: CheckFail = message => new McpError("cua_parameter_denied", `参数无效：${message}；该请求未发送。`);
   if (name === "hotkey") {
     const keys = args.keys;
-    if (Array.isArray(keys) && keys.every(key => typeof key === "string")) checkKeyChord(keys as string[], name, fail);
+    const desktop = args.scope === "desktop" && args.pid === undefined && args.window_id === undefined;
+    if (Array.isArray(keys) && keys.every(key => typeof key === "string")) checkKeyChord(keys as string[], args.delivery_mode !== "foreground" && !desktop, name, fail);
   } else if (name === "press_key") {
     if (typeof args.key === "string") checkKeyName(args.key, name, fail);
   } else if (name === "click") {
     checkClickAction(args, name, fail);
-  } else if (name === "type_text") {
-    if (typeof args.text === "string" && args.text.length > CUA_BATCH_TEXT_CHARS) throw fail(`text 长度不能超过 ${CUA_BATCH_TEXT_CHARS} 字符（当前 ${args.text.length} 字符）`);
   } else if (name === "get_window_state" && args.include_screenshot === false && args.include_accessibility_tree === false) {
     throw fail("include_screenshot 与 include_accessibility_tree 不能同时为 false（无可返回内容）");
   }
@@ -445,7 +446,7 @@ export function cuaNeedsVision(remoteName: string, args: Record<string, unknown>
   if (remoteName === "get_window_state") return args.include_screenshot !== false;
   if (remoteName === "run_steps") {
     const observe = args.observe && typeof args.observe === "object" && !Array.isArray(args.observe) ? args.observe as Record<string, unknown> : undefined;
-    return observe?.include_screenshot !== false;
+    return observe?.include_screenshot === true;
   }
   return false;
 }

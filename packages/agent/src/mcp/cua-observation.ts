@@ -27,13 +27,14 @@ export const cuaObservationBlocked = (state: Record<string, unknown> | undefined
 };
 
 /** 元素行只按完整令牌或行首 `- [n]` 索引行计数（与上游 snapshot_row 同形态）；子串与标签内文本都不算交付。
- *  完整令牌只在含 `element_token` 的行计数（上游 markdown 页脚与 elements JSON 的字段形态），
- *  元素标签等应用可控文本内出现的 sid:row 字样不构成交付。 */
+ *  完整令牌按上游形态计数：elements JSON 的 `"element_token":"sid:row"` 字段值或 markdown 页脚
+ *  `row [N] is "sid:row"` 提示，均要求同行含 element_token 且令牌带引号；元素标签等应用可控
+ *  文本内出现的 sid:row 字样不构成交付。行标记与上游 `- [N] ` 一致（单空格、尾随空格）。 */
 const tokenVisible = (text: string, sid: string, row: number): boolean => {
   const escapedSid = sid.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const token = new RegExp(`(^|[^0-9A-Za-z_])${escapedSid}:${row}(?![0-9A-Za-z_])`);
+  const token = new RegExp(`["']${escapedSid}:${row}["']`);
   return text.split("\n").some(line => line.includes("element_token") && token.test(line))
-    || new RegExp(`(^|\\n)[ \\t]*-[ \\t]*\\[${row}\\]`).test(text);
+    || new RegExp(`(^|\\n)[ \\t]*- \\[${row}\\] `).test(text);
 };
 
 /** 令牌所属窗口的当前有效授权（sid 被公告失效后不再可寻）。 */
@@ -197,13 +198,13 @@ const parseDiffRows = (diff: string): { changed: Set<number>; removed: Set<numbe
 
 /** 基线行 + diff 变更行的规范化合并：被变更/移除的基线行剔除，变更行统一为 `- [n]` 行附后。
  *  结果视图与上游存储的完整 markdown 同形可供行判定；追加行位置不反映真实祖先（调用方记入 detached）。 */
-const mergeDeliveredText = (base: string, diff: string): { merged: string; changed: Set<number> } => {
+const mergeDeliveredText = (base: string, diff: string): { merged: string; changed: Set<number>; removed: Set<number> } => {
   const { changed, removed, rows } = parseDiffRows(diff);
   const kept = base.split("\n").filter(line => {
-    const match = /^[ \t]*-[ \t]*\[(\d+)\] /.exec(line);
+    const match = /^[ \t]*- \[(\d+)\] /.exec(line);
     return !match || (!changed.has(Number.parseInt(match[1]!, 10)) && !removed.has(Number.parseInt(match[1]!, 10)));
   });
-  return { merged: [...kept, ...rows].join("\n"), changed };
+  return { merged: [...kept, ...rows].join("\n"), changed, removed };
 };
 
 /** 成功观察后登记授权：sid/失效公告/截图帧出自结构化结果，文本只用已交付内容。
@@ -229,13 +230,20 @@ export function grantWindowObservation(grants: CuaGrants, key: string, state: Re
       delete grant.base;
     };
     if (!diff) {
-      grant.snapshot = { sid, text };
-      if (truncated) delete grant.base;
-      else grant.base = { sid, text };
+      // 截图式重读（include_accessibility_tree:false）：上游沿用同 sid 保留行与令牌，
+      // 交付文本无行时保留既有可操作视图与合并基线，只按下方规则刷新截图资格
+      const treeless = !/^[ \t]*- \[\d+\] /m.test(text);
+      if (!(sid === grant.snapshot?.sid && treeless)) {
+        grant.snapshot = { sid, text };
+        if (truncated) delete grant.base;
+        else grant.base = { sid, text };
+      }
     } else if (grant.base && grant.base.sid === state.since && !truncated && !text.includes("reindexed:")) {
-      const { merged, changed } = mergeDeliveredText(grant.base.text, text);
+      const { merged, changed, removed } = mergeDeliveredText(grant.base.text, text);
       const detached = new Set(grant.snapshot?.detached ?? []);
-      for (const row of changed) detached.add(row);
+      // 非空 diff 不携带祖先：任一变更/移除行都可能改变保留行的缩进链，
+      // 合并视图里所有行的菜单祖先都不可凭位置判定（仅 no_change 保留位置信任）
+      if (changed.size || removed.size) for (const match of merged.matchAll(/^[ \t]*- \[(\d+)\] /gm)) detached.add(Number.parseInt(match[1]!, 10));
       grant.snapshot = { sid, text: merged, detached };
       grant.base = { sid, text: merged };
     } else {

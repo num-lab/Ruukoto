@@ -223,3 +223,33 @@ test("观察资格：桌面 scope 带窗口目标按窗口内坐标判定，标�
   denied(grants2, "click", { pid: 42, window_id: 7, element_token: "s00000001:9" }, "标签内令牌字样不算交付");
   requireCuaEligibility(grants2, "click", { pid: 42, window_id: 7, element_token: "s00000001:3" });
 });
+
+test("观察资格：diff 变更祖先行后合并视图不再凭位置判定菜单，截图式重读保留快照", () => {
+  const grants = freshCuaGrants();
+  const menuBase = "- [0] AXWindow \"Doc\"\n- [27] AXMenuBar\n  - [700] AXMenuBarItem \"Sheet\"\n    - [701] AXMenu\n      - [771] AXMenuItem \"Next\"";
+  grantWindowObservation(grants, "42:7", state(), menuBase, false);
+  // diff 变更 AXMenuBar 行：上游按存储全文判 [771] 仍属菜单链，但合并视图中 [27] 移到尾部、
+  // [771] 的缩进祖先链断裂——非空 diff 后全部行位置不可凭，菜单角色行一律按可路由拒绝
+  grantWindowObservation(grants, "42:7", state({ snapshot_id: "s00000002", since: "s00000001", since_status: "diff" }),
+    "since s00000001: 0 added, 1 changed, 0 removed.\n~ [27] AXMenuBar", false);
+  denied(grants, "run_steps", { steps: [{ tool: "click", args: { element_token: "s00000002:771" } }], pid: 42, window_id: 7, observe: {} }, "合并视图祖先链断裂的菜单行即拒");
+  requireCuaEligibility(grants, "run_steps", { steps: [{ tool: "click", args: { element_token: "s00000002:0" } }], pid: 42, window_id: 7, observe: {} });
+  // 截图式重读（同 sid、无行文本）：上游保留行与令牌，只刷新截图
+  grantWindowObservation(grants, "42:7", state({ snapshot_id: "s00000002", capture_id: "cap9" }), "", true);
+  denied(grants, "run_steps", { steps: [{ tool: "click", args: { element_token: "s00000002:771" } }], pid: 42, window_id: 7, observe: {} }, "截图重读不清空可操作视图");
+  requireCuaEligibility(grants, "click", { pid: 42, window_id: 7, element_token: "s00000002:0" });
+  requireCuaEligibility(grants, "click", { pid: 42, window_id: 7, x: 10, y: 20 });
+  // diff 基线同样保留：后续匹配的 diff 仍正常合并
+  grantWindowObservation(grants, "42:7", state({ snapshot_id: "s00000003", since: "s00000002", since_status: "diff" }),
+    "since s00000002: 1 added, 0 changed, 0 removed.\n+ [9] AXButton \"新\"", false);
+  requireCuaEligibility(grants, "click", { pid: 42, window_id: 7, element_token: "s00000003:9" });
+});
+
+test("观察资格：行标记与上游 `- [N] ` 同形，变体形态不算交付", () => {
+  const grants = freshCuaGrants();
+  grantWindowObservation(grants, "42:7", state(), "- [0] AXWindow\n-[4] AXButton \"A\"\n-  [5] AXButton \"B\"\n- [6]", false);
+  denied(grants, "click", { pid: 42, window_id: 7, element_token: "s00000001:4" }, "无空格不算行标记");
+  denied(grants, "click", { pid: 42, window_id: 7, element_token: "s00000001:5" }, "双空格不算行标记");
+  denied(grants, "click", { pid: 42, window_id: 7, element_token: "s00000001:6" }, "无尾随内容不算行标记");
+  requireCuaEligibility(grants, "click", { pid: 42, window_id: 7, element_token: "s00000001:0" });
+});
